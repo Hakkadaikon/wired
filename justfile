@@ -4,10 +4,11 @@ cc := "clang"
 cflags := "-target x86_64-linux-gnu -ffreestanding -fno-stack-protector -fno-builtin -nostdlib -static -Wall -Wextra -Werror -O2 -Isrc"
 testflags := "-Wall -Wextra -Werror -O2 -Isrc -Itests"
 
-# build the freestanding static library object
+# compile every domain freestanding (proves libc independence) into one .o
 build:
     mkdir -p build
-    {{cc}} {{cflags}} -c src/sys/sys.c -o build/quic_sys.o
+    {{cc}} {{cflags}} -c src/sys/sys.c src/varint/varint.c src/packet/header.c src/packet/pnum.c src/tparam/tparam.c src/frame/frame.c
+    mv *.o build/
 
 # run all tests (hosted, with assertions)
 test:
