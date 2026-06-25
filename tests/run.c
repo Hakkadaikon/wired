@@ -18,6 +18,7 @@
 #include "initial_test.c"
 #include "hp_test.c"
 #include "rtt_test.c"
+#include "sent_test.c"
 
 int main(void)
 {
@@ -39,5 +40,6 @@ int main(void)
     test_initial();
     test_hp();
     test_rtt();
+    test_sent();
     return TEST_REPORT();
 }
