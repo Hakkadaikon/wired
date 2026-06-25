@@ -22,6 +22,7 @@
 #include "cc_test.c"
 #include "flow_test.c"
 #include "udp_test.c"
+#include "retransmit_test.c"
 
 int main(void)
 {
@@ -47,5 +48,6 @@ int main(void)
     test_cc();
     test_flow();
     test_udp();
+    test_rtx();
     return TEST_REPORT();
 }
