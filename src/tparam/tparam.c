@@ -14,29 +14,20 @@ usz quic_tparam_put_int(u8 *buf, usz cap, u64 id, u64 value)
     return off;
 }
 
-/* Decode a varint at buf+*off (n total), advance *off. Returns 1 ok, 0 bad. */
-static int take_varint(const u8 *buf, usz n, usz *off, u64 *out)
-{
-    usz used = quic_varint_decode(buf + *off, n - *off, out);
-    if (used == 0) return 0;
-    *off += used;
-    return 1;
-}
-
 /* Read the value varint and require it to span exactly vlen bytes within n. */
 static int take_value(const u8 *buf, usz n, usz *off, u64 vlen, u64 *value)
 {
     usz before = *off;
     if (vlen > n - *off) return 0;
-    if (!take_varint(buf, before + (usz)vlen, off, value)) return 0;
+    if (!quic_varint_take(buf, before + (usz)vlen, off, value)) return 0;
     return *off - before == (usz)vlen;
 }
 
 /* Read the id and length varints, advancing *off. Returns 1 ok, 0 bad. */
 static int take_id_len(const u8 *buf, usz n, usz *off, u64 *id, u64 *vlen)
 {
-    if (!take_varint(buf, n, off, id)) return 0;
-    return take_varint(buf, n, off, vlen);
+    if (!quic_varint_take(buf, n, off, id)) return 0;
+    return quic_varint_take(buf, n, off, vlen);
 }
 
 usz quic_tparam_get_int(const u8 *buf, usz n, u64 *id, u64 *value)
