@@ -21,6 +21,7 @@
 #include "sent_test.c"
 #include "cc_test.c"
 #include "flow_test.c"
+#include "udp_test.c"
 
 int main(void)
 {
@@ -45,5 +46,6 @@ int main(void)
     test_sent();
     test_cc();
     test_flow();
+    test_udp();
     return TEST_REPORT();
 }
