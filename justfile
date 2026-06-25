@@ -7,7 +7,7 @@ testflags := "-Wall -Wextra -Werror -O2 -Isrc -Itests"
 # compile every domain freestanding (proves libc independence) into one .o
 build:
     mkdir -p build
-    {{cc}} {{cflags}} -c src/sys/sys.c src/varint/varint.c src/packet/header.c src/packet/pnum.c src/tparam/tparam.c src/frame/frame.c src/frame/ack.c src/frame/ncid.c src/protect/protect.c src/fsm/fsm.c src/stream/stream.c src/conn/conn.c src/hash/sha256.c src/hash/hmac.c src/hkdf/hkdf.c src/aes/aes.c src/gcm/gcm.c src/chacha/chacha20.c src/chacha/poly1305.c src/chacha/aead.c src/tls/initial.c src/hp/hp.c src/recovery/rtt.c src/recovery/sent.c src/cc/cc.c src/flow/flow.c src/flow/reassemble.c src/io/udp.c src/io/retransmit.c
+    {{cc}} {{cflags}} -c src/sys/sys.c src/varint/varint.c src/packet/header.c src/packet/pnum.c src/tparam/tparam.c src/frame/frame.c src/frame/ack.c src/frame/ncid.c src/protect/protect.c src/net/checksum.c src/net/ipv4.c src/net/udp4.c src/net/memlink.c src/fsm/fsm.c src/stream/stream.c src/conn/conn.c src/hash/sha256.c src/hash/hmac.c src/hkdf/hkdf.c src/aes/aes.c src/gcm/gcm.c src/chacha/chacha20.c src/chacha/poly1305.c src/chacha/aead.c src/tls/initial.c src/hp/hp.c src/recovery/rtt.c src/recovery/sent.c src/cc/cc.c src/flow/flow.c src/flow/reassemble.c src/io/udp.c src/io/retransmit.c
     mv *.o build/
 
 # run all tests (hosted, with assertions)
