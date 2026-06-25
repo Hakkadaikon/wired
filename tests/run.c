@@ -20,6 +20,7 @@
 #include "rtt_test.c"
 #include "sent_test.c"
 #include "cc_test.c"
+#include "flow_test.c"
 
 int main(void)
 {
@@ -43,5 +44,6 @@ int main(void)
     test_rtt();
     test_sent();
     test_cc();
+    test_flow();
     return TEST_REPORT();
 }
