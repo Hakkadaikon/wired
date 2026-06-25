@@ -15,6 +15,7 @@
 #include "chacha20_test.c"
 #include "poly1305_test.c"
 #include "aead_test.c"
+#include "initial_test.c"
 
 int main(void)
 {
@@ -33,5 +34,6 @@ int main(void)
     test_chacha20();
     test_poly1305();
     test_aead();
+    test_initial();
     return TEST_REPORT();
 }
