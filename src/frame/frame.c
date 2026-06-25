@@ -9,13 +9,13 @@ static usz write_bytes(u8 *buf, usz cap, usz off, const u8 *src, u64 len)
     return off + (usz)len;
 }
 
-/* Point f->data at the f->length bytes at buf+off (n total).
- * Returns off+length or 0 if the data runs past n. */
-static usz read_bytes(const u8 *buf, usz n, usz off, quic_crypto_frame *f)
+/* Point *data at the len bytes at buf+off (n total).
+ * Returns off+len or 0 if the data runs past n. */
+static usz read_bytes(const u8 *buf, usz n, usz off, u64 len, const u8 **data)
 {
-    if (off + (usz)f->length > n) return 0;
-    f->data = buf + off;
-    return off + (usz)f->length;
+    if (off + (usz)len > n) return 0;
+    *data = buf + off;
+    return off + (usz)len;
 }
 
 usz quic_frame_put_simple(u8 *buf, usz cap, u8 type)
@@ -51,5 +51,70 @@ usz quic_frame_get_crypto(const u8 *buf, usz n, quic_crypto_frame *f)
 {
     usz off = 1; /* type byte */
     if (!take_crypto_hdr(buf, n, &off, f)) return 0;
-    return read_bytes(buf, n, off, f);
+    return read_bytes(buf, n, off, f->length, &f->data);
+}
+
+/* STREAM type byte: base 0x08 plus OFF (when offset!=0), always LEN, FIN. */
+static u8 stream_type(const quic_stream_frame *f)
+{
+    u8 t = QUIC_FRAME_STREAM_BASE | QUIC_STREAM_LEN;
+    if (f->offset != 0) t |= QUIC_STREAM_OFF;
+    if (f->fin) t |= QUIC_STREAM_FIN;
+    return t;
+}
+
+/* Write the offset varint only when nonzero (OFF bit). Returns 1 ok, 0. */
+static int put_opt_offset(u8 *buf, usz cap, usz *off, u64 offset)
+{
+    if (offset == 0) return 1;
+    return quic_varint_put(buf, cap, off, offset);
+}
+
+/* Write the type and stream id varints at *off. Returns 1 ok, 0. */
+static int put_stream_prefix(u8 *buf, usz cap, usz *off,
+                             const quic_stream_frame *f)
+{
+    if (!quic_varint_put(buf, cap, off, stream_type(f))) return 0;
+    return quic_varint_put(buf, cap, off, f->stream_id);
+}
+
+/* Write type, stream id, optional offset, and length varints at *off. */
+static int put_stream_hdr(u8 *buf, usz cap, usz *off, const quic_stream_frame *f)
+{
+    if (!put_stream_prefix(buf, cap, off, f)) return 0;
+    if (!put_opt_offset(buf, cap, off, f->offset)) return 0;
+    return quic_varint_put(buf, cap, off, f->length);
+}
+
+usz quic_frame_put_stream(u8 *buf, usz cap, const quic_stream_frame *f)
+{
+    usz off = 0;
+    if (!put_stream_hdr(buf, cap, &off, f)) return 0;
+    return write_bytes(buf, cap, off, f->data, f->length);
+}
+
+/* Read the offset varint only when the OFF bit is set. Returns 1 ok, 0. */
+static int take_opt_offset(const u8 *buf, usz n, usz *off, u8 type, u64 *offset)
+{
+    *offset = 0;
+    if ((type & QUIC_STREAM_OFF) == 0) return 1;
+    return quic_varint_take(buf, n, off, offset);
+}
+
+/* Read stream id, optional offset (when OFF set), and length at *off. */
+static int take_stream_hdr(const u8 *buf, usz n, usz *off, u8 type,
+                           quic_stream_frame *f)
+{
+    if (!quic_varint_take(buf, n, off, &f->stream_id)) return 0;
+    if (!take_opt_offset(buf, n, off, type, &f->offset)) return 0;
+    return quic_varint_take(buf, n, off, &f->length);
+}
+
+usz quic_frame_get_stream(const u8 *buf, usz n, quic_stream_frame *f)
+{
+    u8 type = buf[0];
+    usz off = 1;
+    f->fin = (type & QUIC_STREAM_FIN) ? 1 : 0;
+    if (!take_stream_hdr(buf, n, &off, type, f)) return 0;
+    return read_bytes(buf, n, off, f->length, &f->data);
 }
