@@ -11,6 +11,7 @@
 #include "hmac_test.c"
 #include "hkdf_test.c"
 #include "aes_test.c"
+#include "gcm_test.c"
 
 int main(void)
 {
@@ -25,5 +26,6 @@ int main(void)
     test_hmac();
     test_hkdf();
     test_aes();
+    test_gcm();
     return TEST_REPORT();
 }
