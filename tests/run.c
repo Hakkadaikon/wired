@@ -28,6 +28,8 @@
 #include "protect_test.c"
 #include "net_test.c"
 #include "x25519_test.c"
+#include "handshake_test.c"
+#include "schedule_test.c"
 
 int main(void)
 {
@@ -59,5 +61,7 @@ int main(void)
     test_protect();
     test_net();
     test_x25519();
+    test_handshake();
+    test_schedule();
     return TEST_REPORT();
 }
