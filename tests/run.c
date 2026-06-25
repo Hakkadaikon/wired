@@ -27,6 +27,7 @@
 #include "ncid_test.c"
 #include "protect_test.c"
 #include "net_test.c"
+#include "x25519_test.c"
 
 int main(void)
 {
@@ -57,5 +58,6 @@ int main(void)
     test_ncid();
     test_protect();
     test_net();
+    test_x25519();
     return TEST_REPORT();
 }
