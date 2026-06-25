@@ -47,6 +47,16 @@ usz quic_frame_put_crypto(u8 *buf, usz cap, const quic_crypto_frame *f);
  * Fills *f (data points into buf) and returns bytes consumed, or 0. */
 usz quic_frame_get_crypto(const u8 *buf, usz n, quic_crypto_frame *f);
 
+/* A CONNECTION_CLOSE frame (RFC 9000 19.19). frame_type is meaningful only
+ * for the transport variant (0x1c); the application variant (0x1d) omits it. */
+typedef struct {
+    u8 is_app;          /* 0 -> transport (0x1c), 1 -> application (0x1d) */
+    u64 error_code;
+    u64 frame_type;     /* transport variant only */
+    u64 reason_len;
+    const u8 *reason;
+} quic_conn_close_frame;
+
 /* Encode a STREAM frame into buf of cap bytes, always emitting OFF (if
  * offset!=0) and LEN. Returns total bytes written, or 0 on overflow. */
 usz quic_frame_put_stream(u8 *buf, usz cap, const quic_stream_frame *f);
@@ -54,5 +64,13 @@ usz quic_frame_put_stream(u8 *buf, usz cap, const quic_stream_frame *f);
 /* Decode a STREAM frame at buf (n readable, type byte at buf[0]).
  * Fills *f (data points into buf) and returns bytes consumed, or 0. */
 usz quic_frame_get_stream(const u8 *buf, usz n, quic_stream_frame *f);
+
+/* Encode a CONNECTION_CLOSE frame into buf of cap bytes.
+ * Returns total bytes written, or 0 on overflow. */
+usz quic_frame_put_conn_close(u8 *buf, usz cap, const quic_conn_close_frame *f);
+
+/* Decode a CONNECTION_CLOSE frame at buf (n readable, type byte at buf[0]).
+ * Fills *f (reason points into buf) and returns bytes consumed, or 0. */
+usz quic_frame_get_conn_close(const u8 *buf, usz n, quic_conn_close_frame *f);
 
 #endif

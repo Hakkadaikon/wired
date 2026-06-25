@@ -118,3 +118,60 @@ usz quic_frame_get_stream(const u8 *buf, usz n, quic_stream_frame *f)
     if (!take_stream_hdr(buf, n, &off, type, f)) return 0;
     return read_bytes(buf, n, off, f->length, &f->data);
 }
+
+/* Write the frame_type varint only for the transport variant. Returns 1/0. */
+static int put_opt_frame_type(u8 *buf, usz cap, usz *off,
+                              const quic_conn_close_frame *f)
+{
+    if (f->is_app) return 1;
+    return quic_varint_put(buf, cap, off, f->frame_type);
+}
+
+/* Write the type byte and error code varints at *off. Returns 1 ok, 0. */
+static int put_cc_prefix(u8 *buf, usz cap, usz *off,
+                         const quic_conn_close_frame *f)
+{
+    u8 type = f->is_app ? QUIC_FRAME_CONN_CLOSE_APP : QUIC_FRAME_CONN_CLOSE_TPT;
+    if (!quic_varint_put(buf, cap, off, type)) return 0;
+    return quic_varint_put(buf, cap, off, f->error_code);
+}
+
+/* Write type byte, error code, optional frame_type, and reason length. */
+static int put_cc_hdr(u8 *buf, usz cap, usz *off, const quic_conn_close_frame *f)
+{
+    if (!put_cc_prefix(buf, cap, off, f)) return 0;
+    if (!put_opt_frame_type(buf, cap, off, f)) return 0;
+    return quic_varint_put(buf, cap, off, f->reason_len);
+}
+
+usz quic_frame_put_conn_close(u8 *buf, usz cap, const quic_conn_close_frame *f)
+{
+    usz off = 0;
+    if (!put_cc_hdr(buf, cap, &off, f)) return 0;
+    return write_bytes(buf, cap, off, f->reason, f->reason_len);
+}
+
+/* Read the frame_type varint only for the transport variant. Returns 1/0. */
+static int take_opt_frame_type(const u8 *buf, usz n, usz *off,
+                               quic_conn_close_frame *f)
+{
+    f->frame_type = 0;
+    if (f->is_app) return 1;
+    return quic_varint_take(buf, n, off, &f->frame_type);
+}
+
+/* Read error code, optional frame_type, and reason length at *off. */
+static int take_cc_hdr(const u8 *buf, usz n, usz *off, quic_conn_close_frame *f)
+{
+    if (!quic_varint_take(buf, n, off, &f->error_code)) return 0;
+    if (!take_opt_frame_type(buf, n, off, f)) return 0;
+    return quic_varint_take(buf, n, off, &f->reason_len);
+}
+
+usz quic_frame_get_conn_close(const u8 *buf, usz n, quic_conn_close_frame *f)
+{
+    usz off = 1; /* type byte */
+    f->is_app = (buf[0] == QUIC_FRAME_CONN_CLOSE_APP) ? 1 : 0;
+    if (!take_cc_hdr(buf, n, &off, f)) return 0;
+    return read_bytes(buf, n, off, f->reason_len, &f->reason);
+}
