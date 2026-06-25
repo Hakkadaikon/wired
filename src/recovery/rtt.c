@@ -1,4 +1,5 @@
 #include "recovery/rtt.h"
+#include "util/num.h"
 
 void quic_rtt_init(quic_rtt *r)
 {
@@ -7,10 +8,6 @@ void quic_rtt_init(quic_rtt *r)
     r->rttvar = QUIC_RTT_INITIAL_US / 2;
     r->have_sample = 0;
 }
-
-static u64 u64_min(u64 a, u64 b) { return a < b ? a : b; }
-static u64 u64_max(u64 a, u64 b) { return a > b ? a : b; }
-static u64 abs_diff(u64 a, u64 b) { return a > b ? a - b : b - a; }
 
 /* First sample seeds the estimator directly (RFC 9002 5.2). */
 static void first_sample(quic_rtt *r, u64 latest)
@@ -31,8 +28,8 @@ static u64 adjust(const quic_rtt *r, u64 latest, u64 ack_delay)
 static void next_sample(quic_rtt *r, u64 latest, u64 ack_delay)
 {
     u64 adjusted = adjust(r, latest, ack_delay);
-    u64 var_sample = abs_diff(r->smoothed_rtt, adjusted);
-    r->min_rtt = u64_min(r->min_rtt, latest);
+    u64 var_sample = quic_u64_absdiff(r->smoothed_rtt, adjusted);
+    r->min_rtt = quic_u64_min(r->min_rtt, latest);
     r->rttvar = (3 * r->rttvar + var_sample) / 4;
     r->smoothed_rtt = (7 * r->smoothed_rtt + adjusted) / 8;
 }
@@ -45,6 +42,6 @@ void quic_rtt_sample(quic_rtt *r, u64 latest_rtt, u64 ack_delay)
 
 u64 quic_rtt_pto(const quic_rtt *r, u64 max_ack_delay)
 {
-    u64 var = u64_max(4 * r->rttvar, QUIC_RTT_GRANULARITY);
+    u64 var = quic_u64_max(4 * r->rttvar, QUIC_RTT_GRANULARITY);
     return r->smoothed_rtt + var + max_ack_delay;
 }
