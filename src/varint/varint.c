@@ -51,3 +51,19 @@ usz quic_varint_decode(const u8 *buf, usz n, u64 *out)
     *out = get_be(buf, need);
     return need;
 }
+
+int quic_varint_take(const u8 *buf, usz n, usz *off, u64 *out)
+{
+    usz used = quic_varint_decode(buf + *off, n - *off, out);
+    if (used == 0) return 0;
+    *off += used;
+    return 1;
+}
+
+int quic_varint_put(u8 *buf, usz cap, usz *off, u64 v)
+{
+    usz need = quic_varint_len(v);
+    if (need == 0 || *off + need > cap) return 0;
+    *off += quic_varint_encode(buf + *off, v);
+    return 1;
+}

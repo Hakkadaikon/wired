@@ -19,4 +19,13 @@ usz quic_varint_encode(u8 *buf, u64 v);
  * Returns bytes consumed, or 0 if n too small for the encoded length. */
 usz quic_varint_decode(const u8 *buf, usz n, u64 *out);
 
+/* Cursor helpers shared by TLV codecs (frames, transport params). Each
+ * decodes/encodes one varint at buf+*off and advances *off on success. */
+
+/* Returns 1 ok, 0 if truncated. */
+int quic_varint_take(const u8 *buf, usz n, usz *off, u64 *out);
+
+/* Returns 1 ok, 0 if out of range or no room within cap. */
+int quic_varint_put(u8 *buf, usz cap, usz *off, u64 v);
+
 #endif
