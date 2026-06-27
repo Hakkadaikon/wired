@@ -39,8 +39,33 @@ static void test_retry_tag_deterministic(void)
     for (usz i = 0; i < QUIC_RETRY_TAG; i++) CHECK(a[i] == b[i]);
 }
 
+/* Boundary ODCID lengths (empty and the 20-byte maximum) still verify, and
+ * tampering the tag itself is rejected. */
+static void test_retry_tag_boundaries(void)
+{
+    const u8 retry[12] = {1,2,3,4,5,6,7,8,9,10,11,12};
+    u8 full[12 + QUIC_RETRY_TAG], tag[QUIC_RETRY_TAG];
+
+    /* empty ODCID */
+    quic_retry_tag(0, 0, retry, 12, tag);
+    for (usz i = 0; i < 12; i++) full[i] = retry[i];
+    for (usz i = 0; i < QUIC_RETRY_TAG; i++) full[12 + i] = tag[i];
+    CHECK(quic_retry_verify(0, 0, full, sizeof(full)) == 1);
+    /* flip the last tag byte: rejected */
+    full[sizeof(full) - 1] ^= 0x01;
+    CHECK(quic_retry_verify(0, 0, full, sizeof(full)) == 0);
+
+    /* maximum 20-byte ODCID */
+    u8 odcid[20];
+    for (usz i = 0; i < 20; i++) odcid[i] = (u8)(i + 1);
+    quic_retry_tag(odcid, 20, retry, 12, tag);
+    for (usz i = 0; i < QUIC_RETRY_TAG; i++) full[12 + i] = tag[i];
+    CHECK(quic_retry_verify(odcid, 20, full, sizeof(full)) == 1);
+}
+
 void test_retry_tag(void)
 {
     test_retry_tag_roundtrip();
     test_retry_tag_deterministic();
+    test_retry_tag_boundaries();
 }
