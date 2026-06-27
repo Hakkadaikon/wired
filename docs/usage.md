@@ -60,8 +60,21 @@ src/
   flow/     flow-control accounting + stream reassembly      (RFC 9000 §2.2/4)
   io/       UDP sockets (direct syscalls) + retransmission queue
   util/     shared inline helpers (constant-time compare, scalars)
+  error/    transport error codes and CRYPTO_ERROR mapping       (RFC 9000 §20)
+  keyupdate/ 1-RTT key update state machine                     (RFC 9001 §6)
+  path/     path validation and migration state              (RFC 9000 §8.2/9)
+  closelife/ connection close lifecycle (idle/closing/draining) (RFC 9000 §10)
+  version/  version numbers, version_information TP, negotiation
+            (RFC 8999/9368/9369)
+  datagram/ unreliable DATAGRAM frames and TP                    (RFC 9221)
+  grease/   grease_quic_bit transport parameter                  (RFC 9287)
+  h3/       HTTP/3 frame codec + control/SETTINGS/GOAWAY          (RFC 9114)
 tests/      hosted assert-based test harness, one file per domain
 ```
+
+Many frame, packet, and transport-parameter codecs live in additional files
+under the existing `frame/`, `packet/`, and `tparam/` directories (e.g.
+`frame/ack.c`, `frame/flowctl.c`, `packet/retry.c`, `tparam/tpblob.c`).
 
 Each domain is a directory with a `.h` (types, constants, prototypes) and a
 `.c` (implementation). Include the header you need, e.g. `#include
@@ -120,13 +133,25 @@ truncated-input tests:
 
 ## Scope
 
-Implemented end to end: the transport wire format and frames, stream/
-connection state machines, the full cryptography stack, RFC 9001 Initial and
-handshake key derivation, the packet protection pipeline, loss recovery and
-congestion control, flow control and reassembly, a userspace IPv4/UDP stack
-over an in-memory link, and a kernel-free endpoint that establishes a
-handshake and exchanges 1-RTT data.
+Implemented end to end: the transport wire format and the complete frame set
+(including ACK with ECN, RESET_STREAM/STOP_SENDING, the flow-control and
+*_BLOCKED frames, NEW_TOKEN, RETIRE_CONNECTION_ID, PATH_CHALLENGE/RESPONSE,
+HANDSHAKE_DONE, and a frame-type classifier); short-header build, Retry, and
+Version Negotiation packets; the full transport-parameter set; transport
+error codes; stream/connection state machines; the full cryptography stack
+with RFC 9001 Initial/handshake key derivation and the Retry Integrity Tag;
+the packet protection pipeline; loss recovery and congestion control; flow
+control and reassembly; a userspace IPv4/UDP stack over an in-memory link;
+and a kernel-free endpoint that establishes a handshake and exchanges 1-RTT
+data.
 
-Simplified deliberately (marked in code): certificate and signature
-verification in the TLS handshake — the endpoint proves transport key
-agreement and encrypted data exchange rather than full PKI authentication.
+Also implemented, each verified against its RFC: the 1-RTT key update, path
+validation and migration, the connection close lifecycle, version
+negotiation with downgrade protection and QUIC v2, the unreliable DATAGRAM
+extension (RFC 9221), grease_quic_bit (RFC 9287), and the HTTP/3 frame codec
+with the control-stream / SETTINGS / GOAWAY state machine (RFC 9114).
+
+Not implemented: QPACK header compression (RFC 9204), full TLS 1.3
+certificate/signature verification, and 0-RTT. The HTTP/3 HEADERS payload is
+passed through opaque, and the endpoint proves transport key agreement and
+encrypted data exchange rather than full PKI authentication.
