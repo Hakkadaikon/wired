@@ -3,7 +3,7 @@
 int quic_spin_outgoing(int is_server, int peer_spin)
 {
     /* server reflects the received bit; client sends its inverse */
-    return is_server ? (peer_spin & 1) : (!peer_spin & 1);
+    return is_server ? (peer_spin & 1) : ((peer_spin & 1) ^ 1);
 }
 
 int quic_spin_get(u8 byte0)
