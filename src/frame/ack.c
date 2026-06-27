@@ -11,12 +11,33 @@ static int put_pair(u8 *buf, usz cap, usz *off, const quic_ack_range *prev,
     return quic_varint_put(buf, cap, off, cur->hi - cur->lo);
 }
 
+/* The frame type is 0x03 when ECN counts are present, else 0x02. */
+static u64 ack_type(const quic_ack_frame *f)
+{
+    return f->has_ecn ? QUIC_FRAME_ACK_ECN : QUIC_FRAME_ACK;
+}
+
 /* Write type, largest, ack_delay (three varints). Returns 1 ok, 0. */
 static int put_ack_meta(u8 *buf, usz cap, usz *off, const quic_ack_frame *f)
 {
-    if (!quic_varint_put(buf, cap, off, QUIC_FRAME_ACK)) return 0;
+    if (!quic_varint_put(buf, cap, off, ack_type(f))) return 0;
     if (!quic_varint_put(buf, cap, off, f->ranges[0].hi)) return 0;
     return quic_varint_put(buf, cap, off, f->ack_delay);
+}
+
+/* Write three consecutive varints. Returns 1 ok, 0 on overflow. */
+static int put_three(u8 *buf, usz cap, usz *off, u64 a, u64 b, u64 c)
+{
+    if (!quic_varint_put(buf, cap, off, a)) return 0;
+    if (!quic_varint_put(buf, cap, off, b)) return 0;
+    return quic_varint_put(buf, cap, off, c);
+}
+
+/* Append the ECN counts (ECT0, ECT1, CE) when present. Returns 1 ok, 0. */
+static int put_ack_ecn(u8 *buf, usz cap, usz *off, const quic_ack_frame *f)
+{
+    if (!f->has_ecn) return 1;
+    return put_three(buf, cap, off, f->ect0, f->ect1, f->ce);
 }
 
 /* Encode the fixed prologue: type, largest, ack_delay, range count, first. */
@@ -40,11 +61,18 @@ static int put_ack_pairs(u8 *buf, usz cap, usz *off, const quic_ack_frame *f)
 /* A frame must carry between 1 and QUIC_ACK_MAX_RANGES ranges. */
 static int ranges_ok(usz n) { return n != 0 && n <= QUIC_ACK_MAX_RANGES; }
 
-/* Write the head then all pairs. Returns 1 ok, 0 on overflow. */
+/* Write all (Gap, Range Length) pairs then any ECN counts. */
+static int put_ack_pairs_ecn(u8 *buf, usz cap, usz *off, const quic_ack_frame *f)
+{
+    if (!put_ack_pairs(buf, cap, off, f)) return 0;
+    return put_ack_ecn(buf, cap, off, f);
+}
+
+/* Write the head then all pairs and ECN. Returns 1 ok, 0 on overflow. */
 static int put_ack_body(u8 *buf, usz cap, usz *off, const quic_ack_frame *f)
 {
     if (!put_ack_head(buf, cap, off, f)) return 0;
-    return put_ack_pairs(buf, cap, off, f);
+    return put_ack_pairs_ecn(buf, cap, off, f);
 }
 
 usz quic_ack_encode(u8 *buf, usz cap, const quic_ack_frame *f)
@@ -131,12 +159,30 @@ static int take_ack_prologue(const u8 *buf, usz n, usz *off, quic_ack_frame *f,
     return count_fits(*count);
 }
 
+/* Read the ECN counts when the type byte was 0x03. Returns 1 ok, 0 bad. */
+static int take_ack_ecn(const u8 *buf, usz n, usz *off, quic_ack_frame *f)
+{
+    f->ect0 = f->ect1 = f->ce = 0;
+    if (!f->has_ecn) return 1;
+    if (!take_two(buf, n, off, &f->ect0, &f->ect1)) return 0;
+    return quic_varint_take(buf, n, off, &f->ce);
+}
+
+/* Read the ranges then any ECN counts after the prologue. */
+static int take_ack_rest(const u8 *buf, usz n, usz *off, quic_ack_frame *f,
+                         u64 count)
+{
+    if (!take_ack_pairs(buf, n, off, f, count)) return 0;
+    return take_ack_ecn(buf, n, off, f);
+}
+
 usz quic_ack_decode(const u8 *buf, usz n, quic_ack_frame *f)
 {
     usz off = 1; /* type byte */
     u64 count;
+    f->has_ecn = (buf[0] == QUIC_FRAME_ACK_ECN);
     if (!take_ack_prologue(buf, n, &off, f, &count)) return 0;
-    if (!take_ack_pairs(buf, n, &off, f, count)) return 0;
+    if (!take_ack_rest(buf, n, &off, f, count)) return 0;
     f->n_ranges = (usz)count + 1;
     return off;
 }

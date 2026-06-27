@@ -21,6 +21,10 @@ typedef struct {
     u64 ack_delay;
     usz n_ranges;
     quic_ack_range ranges[QUIC_ACK_MAX_RANGES]; /* descending, ranges[0].hi = largest */
+    u8  has_ecn;   /* 1 -> type 0x03 with the ECN counts below (RFC 9000 19.3.2) */
+    u64 ect0;
+    u64 ect1;
+    u64 ce;
 } quic_ack_frame;
 
 /* Encode an ACK frame (type 0x02, no ECN) into buf of cap bytes.

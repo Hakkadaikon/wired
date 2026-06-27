@@ -49,9 +49,34 @@ static void test_ack_truncated(void)
     CHECK(quic_ack_encode(buf, sizeof(buf), &empty) == 0);
 }
 
+/* Type 0x03 carries ECN counts (ECT0, ECT1, CE) after the ranges. */
+static void test_ack_ecn(void)
+{
+    quic_ack_frame in = {.ack_delay = 10, .n_ranges = 1, .has_ecn = 1,
+                         .ect0 = 100, .ect1 = 5, .ce = 2};
+    in.ranges[0].hi = 50; in.ranges[0].lo = 48;
+    u8 buf[48];
+    usz w = quic_ack_encode(buf, sizeof(buf), &in);
+    CHECK(w != 0 && buf[0] == QUIC_FRAME_ACK_ECN);
+
+    quic_ack_frame out;
+    usz r = quic_ack_decode(buf, w, &out);
+    CHECK(r == w && out.has_ecn == 1);
+    CHECK(out.ect0 == 100 && out.ect1 == 5 && out.ce == 2);
+    CHECK(out.ranges[0].hi == 50 && out.ranges[0].lo == 48);
+
+    /* a plain 0x02 frame decodes with has_ecn == 0 and no ECN counts */
+    quic_ack_frame plain = {.ack_delay = 0, .n_ranges = 1, .has_ecn = 0};
+    plain.ranges[0].hi = 9; plain.ranges[0].lo = 9;
+    usz pw = quic_ack_encode(buf, sizeof(buf), &plain);
+    quic_ack_frame pout;
+    CHECK(quic_ack_decode(buf, pw, &pout) == pw && pout.has_ecn == 0);
+}
+
 void test_ack(void)
 {
     test_ack_single_range();
     test_ack_multi_range();
     test_ack_truncated();
+    test_ack_ecn();
 }
