@@ -1,5 +1,4 @@
 #include "test.h"
-#include "flow/finalsize.c"
 
 /* A consistent final size is accepted; data at or beyond it is rejected. */
 static void test_finalsize_data(void)

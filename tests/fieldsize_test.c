@@ -1,5 +1,4 @@
 #include "test.h"
-#include "h3/fieldsize.c"
 
 static void test_field_section_ok(void)
 {

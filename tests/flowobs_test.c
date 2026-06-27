@@ -1,5 +1,4 @@
 #include "test.h"
-#include "manage/flowobs.c"
 
 /* A client Initial (long, non-zero version, Initial type) is a flow start. */
 static void test_flowobs_start(void)

@@ -1,7 +1,6 @@
 #include "test.h"
-#include "h3/frame.c"
 
-static int bytes_eq(const u8 *a, const u8 *b, usz n)
+static int h3f_bytes_eq(const u8 *a, const u8 *b, usz n)
 {
     for (usz i = 0; i < n; i++) if (a[i] != b[i]) return 0;
     return 1;
@@ -19,13 +18,13 @@ static void test_h3frame_generic(void)
     const u8 *pl;
     usz r = quic_h3_frame_get(buf, w, &type, &pl, &len);
     CHECK(r == w && type == QUIC_H3_FRAME_DATA && len == sizeof(body));
-    CHECK(bytes_eq(pl, body, sizeof(body)));
+    CHECK(h3f_bytes_eq(pl, body, sizeof(body)));
 
     /* HEADERS carries an opaque (QPACK) block the same way. */
     u8 hb[] = {0x01, 0x02, 0x03};
     usz hw = quic_h3_frame_put(buf, sizeof(buf), QUIC_H3_FRAME_HEADERS, hb, sizeof(hb));
     usz hr = quic_h3_frame_get(buf, hw, &type, &pl, &len);
-    CHECK(hr == hw && type == QUIC_H3_FRAME_HEADERS && bytes_eq(pl, hb, sizeof(hb)));
+    CHECK(hr == hw && type == QUIC_H3_FRAME_HEADERS && h3f_bytes_eq(pl, hb, sizeof(hb)));
 
     /* truncated: Length claims 4 bytes but only 3 are present */
     CHECK(quic_h3_frame_get(buf, hw - 1, &type, &pl, &len) == 0);

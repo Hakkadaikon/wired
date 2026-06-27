@@ -1,5 +1,4 @@
 #include "test.h"
-#include "tparam/tparam.c"
 
 static void test_tparam_roundtrip(void)
 {

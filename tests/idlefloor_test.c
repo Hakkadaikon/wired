@@ -1,5 +1,4 @@
 #include "test.h"
-#include "closelife/idlefloor.c"
 
 /* Effective idle never drops below 3*PTO (RFC 9000 10.1). */
 static void test_idlefloor_floor(void)

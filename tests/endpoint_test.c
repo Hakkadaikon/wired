@@ -1,5 +1,4 @@
 #include "test.h"
-#include "endpoint/endpoint.c"
 #include "frame/frame.h"
 #include "protect/protect.h"
 #include "net/udp4.h"

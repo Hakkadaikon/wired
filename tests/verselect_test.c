@@ -1,8 +1,4 @@
 #include "test.h"
-#include "version/verselect.c"
-#include "version/compat.c"
-#include "version/availfilter.c"
-#include "version/version.c"
 
 /* RFC 9368 2.2: Chosen Version must match the version used on the packet. */
 static void test_verselect_chosen_ok(void)

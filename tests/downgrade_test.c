@@ -1,5 +1,4 @@
 #include "test.h"
-#include "version/downgrade.c"
 
 /* A mismatch between the version the client chose and the one the server
  * reports signals a possible downgrade attack. */

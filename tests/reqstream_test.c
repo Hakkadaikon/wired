@@ -1,5 +1,4 @@
 #include "test.h"
-#include "h3/reqstream.c"
 
 /* The canonical order HEADERS, DATA*, trailing HEADERS is accepted. */
 static void test_reqstream_ok_order(void)

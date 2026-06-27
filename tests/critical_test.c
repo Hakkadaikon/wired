@@ -1,5 +1,4 @@
 #include "test.h"
-#include "h3/critical.c"
 
 /* Control, QPACK encoder and QPACK decoder streams are critical; push is not. */
 static void test_critical_classify(void)

@@ -1,5 +1,4 @@
 #include "test.h"
-#include "h3/pseudoheader.c"
 
 #define NAME(s) ((const u8 *)(s)), (sizeof(s) - 1)
 

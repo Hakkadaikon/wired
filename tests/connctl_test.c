@@ -1,5 +1,4 @@
 #include "test.h"
-#include "frame/connctl.c"
 
 static void test_new_token_with_token(void)
 {
@@ -39,7 +38,7 @@ static void test_retire_cid(void)
     CHECK(quic_retire_cid_decode(buf, 1, &seq) == 0); /* seq varint cut */
 }
 
-static void test_path(void)
+static void test_connctl_path(void)
 {
     u8 data[QUIC_PATH_DATA] = {1, 2, 3, 4, 5, 6, 7, 8};
     u8 buf[16];
@@ -77,6 +76,6 @@ void test_connctl(void)
     test_new_token_with_token();
     test_new_token_empty();
     test_retire_cid();
-    test_path();
+    test_connctl_path();
     test_handshake_done();
 }

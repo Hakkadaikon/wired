@@ -1,5 +1,4 @@
 #include "test.h"
-#include "version/abandon.c"
 
 /* The connection is abandoned only when no offered version (ignoring reserved
  * GREASE values) is one we support. */

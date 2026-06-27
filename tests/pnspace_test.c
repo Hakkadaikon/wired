@@ -1,5 +1,4 @@
 #include "test.h"
-#include "conn/pnspace.c"
 
 /* All spaces start at 0. */
 static void test_pnspace_starts_at_zero(void)

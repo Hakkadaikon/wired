@@ -1,5 +1,4 @@
 #include "test.h"
-#include "recvpn/recvpn.c"
 
 /* Recording a packet number makes it seen; recording is idempotent. */
 static void test_recvpn_dedup(void)

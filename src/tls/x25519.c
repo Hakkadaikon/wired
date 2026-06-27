@@ -6,17 +6,17 @@
 typedef u64 fe[5];
 #define MASK51 0x7ffffffffffffULL
 
-static void fe_0(fe h) { for (usz i = 0; i < 5; i++) h[i] = 0; }
-static void fe_1(fe h) { fe_0(h); h[0] = 1; }
-static void fe_copy(fe h, const fe f) { for (usz i = 0; i < 5; i++) h[i] = f[i]; }
+static void x25519_fe_0(fe h) { for (usz i = 0; i < 5; i++) h[i] = 0; }
+static void x25519_fe_1(fe h) { x25519_fe_0(h); h[0] = 1; }
+static void x25519_fe_copy(fe h, const fe f) { for (usz i = 0; i < 5; i++) h[i] = f[i]; }
 
-static void fe_add(fe h, const fe f, const fe g)
+static void x25519_fe_add(fe h, const fe f, const fe g)
 {
     for (usz i = 0; i < 5; i++) h[i] = f[i] + g[i];
 }
 
 /* h = f - g (mod p), adding 2p first to stay non-negative. */
-static void fe_sub(fe h, const fe f, const fe g)
+static void x25519_fe_sub(fe h, const fe f, const fe g)
 {
     static const u64 twop[5] = {
         0xfffffffffffdaULL, 0xffffffffffffeULL, 0xffffffffffffeULL,
@@ -27,7 +27,7 @@ static void fe_sub(fe h, const fe f, const fe g)
 
 /* One column of the schoolbook product: sum f[j]*g'[i-j] with the 19-fold
  * wrap applied to the terms that cross 2^255. */
-static unsigned __int128 mul_col(const fe f, const fe g, usz i)
+static unsigned __int128 x25519_mul_col(const fe f, const fe g, usz i)
 {
     unsigned __int128 t = 0;
     for (usz j = 0; j < 5; j++) {
@@ -38,7 +38,7 @@ static unsigned __int128 mul_col(const fe f, const fe g, usz i)
 }
 
 /* Reduce five 128-bit column sums to 51-bit limbs via a carry chain. */
-static void fe_reduce(fe h, unsigned __int128 t[5])
+static void x25519_fe_reduce(fe h, unsigned __int128 t[5])
 {
     u64 c = 0;
     for (usz i = 0; i < 5; i++) {
@@ -52,21 +52,21 @@ static void fe_reduce(fe h, unsigned __int128 t[5])
 }
 
 /* h = f * g (mod p). */
-static void fe_mul(fe h, const fe f, const fe g)
+static void x25519_fe_mul(fe h, const fe f, const fe g)
 {
     unsigned __int128 t[5];
-    for (usz i = 0; i < 5; i++) t[i] = mul_col(f, g, i);
-    fe_reduce(h, t);
+    for (usz i = 0; i < 5; i++) t[i] = x25519_mul_col(f, g, i);
+    x25519_fe_reduce(h, t);
 }
 
-static void fe_sq(fe h, const fe f) { fe_mul(h, f, f); }
+static void x25519_fe_sq(fe h, const fe f) { x25519_fe_mul(h, f, f); }
 
 /* h = f * 121666 (the Montgomery curve constant a24). */
 static void fe_mul121666(fe h, const fe f)
 {
     unsigned __int128 t[5];
     for (usz i = 0; i < 5; i++) t[i] = (unsigned __int128)f[i] * 121666;
-    fe_reduce(h, t);
+    x25519_fe_reduce(h, t);
 }
 
 /* Constant-time conditional swap of f and g when swap == 1. */
@@ -81,27 +81,27 @@ static void fe_cswap(fe f, fe g, u64 swap)
 }
 
 /* Repeated squaring: out = in^(2^n). */
-static void fe_sqn(fe out, const fe in, usz n)
+static void x25519_fe_sqn(fe out, const fe in, usz n)
 {
-    fe_copy(out, in);
-    for (usz i = 0; i < n; i++) fe_sq(out, out);
+    x25519_fe_copy(out, in);
+    for (usz i = 0; i < n; i++) x25519_fe_sq(out, out);
 }
 
 /* z = f^(2^252-3)... full inverse via the standard 254-square addition
  * chain for p-2 = 2^255 - 21 (RFC 7748 / ref10). */
-static void fe_invert(fe out, const fe z)
+static void x25519_fe_invert(fe out, const fe z)
 {
     fe t0, t1, t2, t3;
-    fe_sq(t0, z); fe_sqn(t1, t0, 2); fe_mul(t1, z, t1); fe_mul(t0, t0, t1);
-    fe_sq(t2, t0); fe_mul(t1, t1, t2); fe_sqn(t2, t1, 5); fe_mul(t1, t2, t1);
-    fe_sqn(t2, t1, 10); fe_mul(t2, t2, t1); fe_sqn(t3, t2, 20); fe_mul(t2, t3, t2);
-    fe_sqn(t2, t2, 10); fe_mul(t1, t2, t1); fe_sqn(t2, t1, 50); fe_mul(t2, t2, t1);
-    fe_sqn(t3, t2, 100); fe_mul(t2, t3, t2); fe_sqn(t2, t2, 50); fe_mul(t1, t2, t1);
-    fe_sqn(t1, t1, 5); fe_mul(out, t1, t0);
+    x25519_fe_sq(t0, z); x25519_fe_sqn(t1, t0, 2); x25519_fe_mul(t1, z, t1); x25519_fe_mul(t0, t0, t1);
+    x25519_fe_sq(t2, t0); x25519_fe_mul(t1, t1, t2); x25519_fe_sqn(t2, t1, 5); x25519_fe_mul(t1, t2, t1);
+    x25519_fe_sqn(t2, t1, 10); x25519_fe_mul(t2, t2, t1); x25519_fe_sqn(t3, t2, 20); x25519_fe_mul(t2, t3, t2);
+    x25519_fe_sqn(t2, t2, 10); x25519_fe_mul(t1, t2, t1); x25519_fe_sqn(t2, t1, 50); x25519_fe_mul(t2, t2, t1);
+    x25519_fe_sqn(t3, t2, 100); x25519_fe_mul(t2, t3, t2); x25519_fe_sqn(t2, t2, 50); x25519_fe_mul(t1, t2, t1);
+    x25519_fe_sqn(t1, t1, 5); x25519_fe_mul(out, t1, t0);
 }
 
 /* Load 32 little-endian bytes into limbs (top bit of byte 31 is cleared). */
-static void fe_frombytes(fe h, const u8 *s)
+static void x25519_fe_frombytes(fe h, const u8 *s)
 {
     u64 t[4];
     for (usz i = 0; i < 4; i++) {
@@ -116,7 +116,7 @@ static void fe_frombytes(fe h, const u8 *s)
 }
 
 /* Pack five reduced 51-bit limbs into 32 little-endian bytes. */
-static void store_reduced(u8 *s, const fe r)
+static void x25519_store_reduced(u8 *s, const fe r)
 {
     u64 w[4];
     w[0] = r[0] | (r[1] << 51);
@@ -128,7 +128,7 @@ static void store_reduced(u8 *s, const fe r)
 }
 
 /* One weak-carry pass: every limb < 2^51, top carry folded by 19. */
-static void carry_pass(fe r)
+static void x25519_carry_pass(fe r)
 {
     u64 c = 0;
     for (usz i = 0; i < 5; i++) { r[i] += c; c = r[i] >> 51; r[i] &= MASK51; }
@@ -136,31 +136,31 @@ static void carry_pass(fe r)
 }
 
 /* Fully reduce h mod p and store 32 little-endian bytes. */
-static void fe_tobytes(u8 *s, const fe h)
+static void x25519_fe_tobytes(u8 *s, const fe h)
 {
     fe r;
     u64 q;
-    fe_copy(r, h);
-    carry_pass(r); carry_pass(r);
+    x25519_fe_copy(r, h);
+    x25519_carry_pass(r); x25519_carry_pass(r);
     q = (r[0] + 19) >> 51;          /* would carrying +19 overflow? */
     for (usz i = 1; i < 5; i++) q = (r[i] + q) >> 51;
     r[0] += 19 * q;                 /* conditionally subtract p */
-    carry_pass(r);
-    store_reduced(s, r);
+    x25519_carry_pass(r);
+    x25519_store_reduced(s, r);
 }
 
 /* One Montgomery ladder step on (x2,z2,x3,z3) with difference x1. */
 static void ladder_step(fe x2, fe z2, fe x3, fe z3, const fe x1)
 {
     fe a, b, c, d, e, da, cb;
-    fe_add(a, x2, z2); fe_sub(b, x2, z2);
-    fe_add(c, x3, z3); fe_sub(d, x3, z3);
-    fe_mul(da, d, a); fe_mul(cb, c, b);
-    fe_add(x3, da, cb); fe_sq(x3, x3);
-    fe_sub(z3, da, cb); fe_sq(z3, z3); fe_mul(z3, z3, x1);
-    fe_sq(a, a); fe_sq(b, b); fe_mul(x2, a, b);
-    fe_sub(e, a, b); fe_mul121666(da, e); fe_add(da, da, b);
-    fe_mul(z2, e, da);
+    x25519_fe_add(a, x2, z2); x25519_fe_sub(b, x2, z2);
+    x25519_fe_add(c, x3, z3); x25519_fe_sub(d, x3, z3);
+    x25519_fe_mul(da, d, a); x25519_fe_mul(cb, c, b);
+    x25519_fe_add(x3, da, cb); x25519_fe_sq(x3, x3);
+    x25519_fe_sub(z3, da, cb); x25519_fe_sq(z3, z3); x25519_fe_mul(z3, z3, x1);
+    x25519_fe_sq(a, a); x25519_fe_sq(b, b); x25519_fe_mul(x2, a, b);
+    x25519_fe_sub(e, a, b); fe_mul121666(da, e); x25519_fe_add(da, da, b);
+    x25519_fe_mul(z2, e, da);
 }
 
 /* Clamp the scalar per RFC 7748 (clear low 3 bits, set bit 254, clear 255). */
@@ -176,7 +176,7 @@ static void ladder(fe x2, fe z2, const u8 e[32], const fe x1)
 {
     fe x3, z3;
     u64 swap = 0;
-    fe_1(x2); fe_0(z2); fe_copy(x3, x1); fe_1(z3);
+    x25519_fe_1(x2); x25519_fe_0(z2); x25519_fe_copy(x3, x1); x25519_fe_1(z3);
     for (usz pos = 255; pos-- > 0;) {
         u64 bit = (e[pos / 8] >> (pos & 7)) & 1;
         swap ^= bit;
@@ -193,11 +193,11 @@ void quic_x25519(u8 out[QUIC_X25519_LEN], const u8 scalar[QUIC_X25519_LEN],
     fe x1, x2, z2, zinv;
     u8 e[32];
     clamp(e, scalar);
-    fe_frombytes(x1, point);
+    x25519_fe_frombytes(x1, point);
     ladder(x2, z2, e, x1);
-    fe_invert(zinv, z2);
-    fe_mul(x2, x2, zinv);
-    fe_tobytes(out, x2);
+    x25519_fe_invert(zinv, z2);
+    x25519_fe_mul(x2, x2, zinv);
+    x25519_fe_tobytes(out, x2);
 }
 
 void quic_x25519_base(u8 out[QUIC_X25519_LEN], const u8 scalar[QUIC_X25519_LEN])

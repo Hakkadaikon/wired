@@ -1,5 +1,4 @@
 #include "test.h"
-#include "io/retransmit.c"
 
 static void test_rtx_fifo(void)
 {

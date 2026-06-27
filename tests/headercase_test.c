@@ -1,5 +1,4 @@
 #include "test.h"
-#include "h3/headercase.c"
 
 /* All-lowercase field names are accepted. */
 static void test_headercase_lower(void)

@@ -1,5 +1,4 @@
 #include "test.h"
-#include "manage/zerortt_policy.c"
 
 void test_zerortt_policy(void)
 {

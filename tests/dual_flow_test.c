@@ -1,5 +1,4 @@
 #include "test.h"
-#include "flow/dual_flow.c"
 
 void test_dual_flow(void)
 {

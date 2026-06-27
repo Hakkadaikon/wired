@@ -1,5 +1,4 @@
 #include "test.h"
-#include "frame/frame.c"
 
 static void test_frame_simple(void)
 {

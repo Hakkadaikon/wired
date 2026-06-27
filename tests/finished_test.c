@@ -1,5 +1,4 @@
 #include "test.h"
-#include "tls/finished.c"
 
 /* verify_data is deterministic and check accepts it; a tampered Finished or a
  * different transcript is rejected. */

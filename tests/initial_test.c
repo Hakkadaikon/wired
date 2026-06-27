@@ -1,5 +1,4 @@
 #include "test.h"
-#include "tls/initial.c"
 
 /* keq compares len bytes against a hex string. */
 static int keq(const u8 *got, const char *hex, usz len)

@@ -1,5 +1,4 @@
 #include "test.h"
-#include "keyupdate/aeadlimit.c"
 
 /* RFC 9001 6.6: limits are 2^23 (AES-GCM) and 2^62 (ChaCha20). */
 void test_aeadlimit(void)

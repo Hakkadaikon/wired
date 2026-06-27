@@ -1,5 +1,4 @@
 #include "test.h"
-#include "h3/shutdown.c"
 
 static void test_shutdown_processes(void)
 {

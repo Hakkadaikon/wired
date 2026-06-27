@@ -1,5 +1,4 @@
 #include "test.h"
-#include "closelife/closelife.c"
 
 /* Idle timeout fires at the limit and closes silently (no CONNECTION_CLOSE). */
 static void test_life_idle_silent_close(void)

@@ -1,5 +1,4 @@
 #include "test.h"
-#include "hash/sha256.c"
 
 /* Compare a computed digest against a hex literal. */
 static int digest_eq(const u8 *got, const char *hex)

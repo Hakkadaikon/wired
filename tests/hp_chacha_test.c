@@ -1,5 +1,4 @@
 #include "test.h"
-#include "hp/hp_chacha.c"
 
 static void hpc_uhx(const char *hex, u8 *out, usz n)
 {

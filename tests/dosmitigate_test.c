@@ -1,5 +1,4 @@
 #include "test.h"
-#include "manage/dosmitigate.c"
 
 void test_dosmitigate(void)
 {

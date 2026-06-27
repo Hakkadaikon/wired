@@ -1,5 +1,4 @@
 #include "test.h"
-#include "hp/hpsample.c"
 
 /* RFC 9001 5.4.2: sample starts at pn_offset + 4. */
 static void test_hpsample_offset(void)

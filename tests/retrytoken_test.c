@@ -1,5 +1,4 @@
 #include "test.h"
-#include "retrytoken/retrytoken.c"
 
 /* A token verifies for the address and original DCID it was made for, and
  * not for a different address. */

@@ -1,5 +1,4 @@
 #include "test.h"
-#include "retrytoken/tokentype.c"
 
 static void test_tokentype_retry(void)
 {

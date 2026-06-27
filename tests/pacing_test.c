@@ -1,5 +1,4 @@
 #include "test.h"
-#include "cc/pacing.c"
 
 /* RFC 9002 7.7: interval = 5/4 * packet_size * srtt / cwnd. */
 static void test_pacing_interval(void)

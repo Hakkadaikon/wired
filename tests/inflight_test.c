@@ -1,5 +1,4 @@
 #include "test.h"
-#include "recovery/inflight.c"
 
 /* RFC 9002 2: ack-eliciting iff a non-ACK/PADDING/CC frame is present. */
 static void test_inflight_ack_eliciting(void)

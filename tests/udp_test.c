@@ -1,5 +1,4 @@
 #include "test.h"
-#include "io/udp.c"
 
 /* sockaddr_in is laid out big-endian for the kernel. */
 static void test_udp_addr_layout(void)

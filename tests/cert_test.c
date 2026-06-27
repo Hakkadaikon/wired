@@ -1,5 +1,4 @@
 #include "test.h"
-#include "tls/cert.c"
 
 /* A Certificate message with an empty context and one entry round-trips:
  * the end-entity cert_data is extracted. */

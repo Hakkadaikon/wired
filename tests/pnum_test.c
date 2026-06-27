@@ -1,5 +1,4 @@
 #include "test.h"
-#include "packet/pnum.c"
 
 /* RFC 9000 A.3 worked example: largest_pn 0xa82f30ea, received 2-byte
  * truncated 0x9b32 -> full packet number 0xa82f9b32. */

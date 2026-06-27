@@ -1,5 +1,4 @@
 #include "test.h"
-#include "frame/stream_bounds.c"
 
 void test_stream_bounds(void)
 {

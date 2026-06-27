@@ -1,5 +1,4 @@
 #include "test.h"
-#include "tls/retry_tag.c"
 
 /* A generated Retry tag verifies; tampering the pseudo-packet breaks it. */
 static void test_retry_tag_roundtrip(void)

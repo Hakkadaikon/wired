@@ -1,5 +1,4 @@
 #include "test.h"
-#include "frame/ncid.c"
 
 static void test_ncid_roundtrip(void)
 {

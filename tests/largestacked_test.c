@@ -1,5 +1,4 @@
 #include "test.h"
-#include "recovery/largestacked.c"
 
 /* RFC 9002 A.7: largest_acked is monotonic and never regresses. */
 static void test_largestacked_update(void)

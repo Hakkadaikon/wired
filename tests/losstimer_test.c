@@ -1,5 +1,4 @@
 #include "test.h"
-#include "recovery/losstimer.c"
 
 /* RFC 9002 6.2 */
 void test_losstimer(void)

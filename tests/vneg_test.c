@@ -1,5 +1,4 @@
 #include "test.h"
-#include "version/vneg.c"
 
 static void init2(quic_vneg *v)
 {

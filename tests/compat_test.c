@@ -1,5 +1,4 @@
 #include "test.h"
-#include "version/compat.c"
 
 /* RFC 9369 3.1: v1 and v2 are compatible in both directions. */
 static void test_v1_v2_compatible(void)

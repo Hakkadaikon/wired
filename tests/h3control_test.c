@@ -1,5 +1,4 @@
 #include "test.h"
-#include "h3/control.c"
 
 /* A peer's control stream is single; a second one is a creation error. */
 static void test_h3control_single(void)

@@ -1,5 +1,4 @@
 #include "test.h"
-#include "tls/x25519.c"
 
 static void hb32(const char *hex, u8 out[32])
 {

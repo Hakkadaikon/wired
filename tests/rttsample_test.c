@@ -1,5 +1,4 @@
 #include "test.h"
-#include "recovery/rttsample.c"
 
 /* min_rtt keeps the smaller of itself and the new sample (RFC 9002 5.1). */
 static void test_rttsample_min(void)

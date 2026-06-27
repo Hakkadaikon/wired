@@ -1,5 +1,4 @@
 #include "test.h"
-#include "keyupdate/keyphase.c"
 
 /* RFC 9001 6: Key Phase bit (0x04) tracks the generation's low bit. */
 void test_keyphase(void)

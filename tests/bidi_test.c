@@ -1,5 +1,4 @@
 #include "test.h"
-#include "stream/bidi.c"
 
 /* A bidirectional stream is closed only when both halves are terminal. */
 static void test_bidi_closed(void)

@@ -1,5 +1,4 @@
 #include "test.h"
-#include "packet/header.c"
 
 /* RFC 9000 17.2: long header byte0 has high bit + fixed bit set (0xC0),
  * type in bits 5-4, then 4-byte version and two length-prefixed CIDs. */

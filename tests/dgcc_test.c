@@ -1,5 +1,4 @@
 #include "test.h"
-#include "datagram/dgcc.c"
 
 /* RFC 9221 5.2/5.3/5.4: not flow controlled, congestion controlled, counted
  * in flight, ack-eliciting but never retransmitted. */

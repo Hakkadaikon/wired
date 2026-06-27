@@ -1,5 +1,4 @@
 #include "test.h"
-#include "tls/retry_tag_v2.c"
 
 /* RFC 9369 3.3.3 v2 key/nonce golden values, and they differ from the
  * RFC 9001 5.8 v1 key/nonce. */

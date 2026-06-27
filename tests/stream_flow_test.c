@@ -1,5 +1,4 @@
 #include "test.h"
-#include "flow/stream_flow.c"
 
 static void test_stream_flow_consume(void)
 {

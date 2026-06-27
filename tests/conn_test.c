@@ -1,5 +1,4 @@
 #include "test.h"
-#include "conn/conn.c"
 
 static void test_conn_handshake(void)
 {

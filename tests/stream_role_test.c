@@ -1,5 +1,4 @@
 #include "test.h"
-#include "stream/stream_role.c"
 
 /* RFC 9000 2.1 stream ids: 0 client-bidi, 1 server-bidi, 2 client-uni,
  * 3 server-uni. */

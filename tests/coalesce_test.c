@@ -1,5 +1,4 @@
 #include "test.h"
-#include "packet/coalesce.c"
 
 /* A datagram with an Initial packet then a short-header packet splits into
  * two, the Initial bounded by its Length field and the short running to the

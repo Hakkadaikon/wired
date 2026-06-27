@@ -1,5 +1,4 @@
 #include "test.h"
-#include "tls/schedule.c"
 
 /* Both peers feed the same ECDHE secret into the schedule and arrive at the
  * same handshake secret (this is what lets them agree on traffic keys). */

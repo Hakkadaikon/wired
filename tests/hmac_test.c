@@ -1,5 +1,4 @@
 #include "test.h"
-#include "hash/hmac.c"
 
 /* digest_eq is defined in sha256_test.c, included before this file. */
 

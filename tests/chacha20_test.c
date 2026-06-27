@@ -1,5 +1,4 @@
 #include "test.h"
-#include "chacha/chacha20.c"
 
 /* uh parses hex into out; returns byte count. */
 static usz uh(const char *hex, u8 *out)

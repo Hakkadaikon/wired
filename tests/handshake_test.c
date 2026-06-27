@@ -1,5 +1,4 @@
 #include "test.h"
-#include "tls/handshake.c"
 
 /* A built ClientHello parses back with the right type and yields the share. */
 static void test_hs_clienthello_roundtrip(void)

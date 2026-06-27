@@ -1,5 +1,4 @@
 #include "test.h"
-#include "h3/qpack_settings.c"
 
 /* The setting values are returned verbatim. */
 static void test_qpack_settings_value(void)

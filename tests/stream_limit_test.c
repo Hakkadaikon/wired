@@ -1,5 +1,4 @@
 #include "test.h"
-#include "stream/stream_limit.c"
 
 /* RFC 9000 4.6: a max_streams of N permits indices 0..N-1; the highest stream
  * ID is the ID of index N-1 for the selected type. */

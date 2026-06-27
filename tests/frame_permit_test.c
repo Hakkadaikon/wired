@@ -1,5 +1,4 @@
 #include "test.h"
-#include "h3/frame_permit.c"
 #include "h3/frame.h"
 
 #define ON(t, k)  CHECK(quic_h3_frame_on_stream((t), (k)) == 1)

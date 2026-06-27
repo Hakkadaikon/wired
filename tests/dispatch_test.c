@@ -1,5 +1,4 @@
 #include "test.h"
-#include "frame/dispatch.c"
 
 static void test_dispatch_classify(void)
 {

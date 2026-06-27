@@ -1,5 +1,4 @@
 #include "test.h"
-#include "keyupdate/initiate.c"
 
 /* RFC 9001 6.1: update only after handshake confirmed and 3*PTO elapsed. */
 void test_initiate(void)

@@ -1,5 +1,4 @@
 #include "test.h"
-#include "varint/varint.c"
 
 /* RFC 9000 Appendix A.1 sample encodings. */
 static void test_varint_rfc_vectors(void)

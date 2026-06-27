@@ -1,5 +1,4 @@
 #include "test.h"
-#include "cc/cc.c"
 
 static void test_cc_slow_start(void)
 {

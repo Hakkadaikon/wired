@@ -1,5 +1,4 @@
 #include "test.h"
-#include "keyupdate/oldkey.c"
 
 /* RFC 9001 6.1/6.5: retain the old key for 3*PTO, then discard. */
 void test_oldkey(void)

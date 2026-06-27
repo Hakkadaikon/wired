@@ -29,7 +29,7 @@ int quic_recvpn_seen(const quic_recvpn *r, u64 pn)
 }
 
 /* Advance largest to pn, shifting the window and marking the old largest. */
-static void advance(quic_recvpn *r, u64 pn)
+static void recvpn_advance(quic_recvpn *r, u64 pn)
 {
     u64 step = pn - r->largest;
     u64 shifted = (step >= 64) ? 0 : (r->bitmap << step);
@@ -49,7 +49,7 @@ static void mark_below(quic_recvpn *r, u64 pn)
 void quic_recvpn_record(quic_recvpn *r, u64 pn)
 {
     if (!r->any) { r->any = 1; r->largest = pn; return; }
-    if (pn > r->largest) { advance(r, pn); return; }
+    if (pn > r->largest) { recvpn_advance(r, pn); return; }
     mark_below(r, pn);
 }
 

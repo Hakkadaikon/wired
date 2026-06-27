@@ -1,5 +1,4 @@
 #include "test.h"
-#include "version/v2keys.c"
 
 /* RFC 9369 3.3.1 v2 Initial salt, exact golden value. */
 static const u8 V2_GOLDEN[20] = {

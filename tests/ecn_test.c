@@ -1,5 +1,4 @@
 #include "test.h"
-#include "cc/ecn.c"
 
 /* RFC 9002 7.1.2: counts valid only when neither decreases. */
 static void test_ecn_counts_valid(void)

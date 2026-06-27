@@ -1,5 +1,4 @@
 #include "test.h"
-#include "path/path.c"
 
 /* A path validates only on a matching response to an outstanding challenge. */
 static void test_path_validation_match(void)

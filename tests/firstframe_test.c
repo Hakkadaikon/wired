@@ -1,5 +1,4 @@
 #include "test.h"
-#include "h3/firstframe.c"
 
 /* The control stream's first frame must be SETTINGS. */
 static void test_firstframe_control(void)

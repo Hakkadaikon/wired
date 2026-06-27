@@ -1,5 +1,4 @@
 #include "test.h"
-#include "tls/hsdone.c"
 
 /* Completion needs both Finished verified and sent; confirmation is
  * server-side on HANDSHAKE_DONE sent, client-side on received. */

@@ -1,5 +1,4 @@
 #include "test.h"
-#include "keyupdate/kuderive.c"
 
 /* RFC 9001 6.1: the next secret is a deterministic function of the current
  * one, and successive updates advance it. */

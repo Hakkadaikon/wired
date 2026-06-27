@@ -1,5 +1,4 @@
 #include "test.h"
-#include "recovery/ptoreset.c"
 
 /* RFC 9002 6.2.1 */
 void test_ptoreset(void)

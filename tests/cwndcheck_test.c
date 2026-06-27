@@ -1,5 +1,4 @@
 #include "test.h"
-#include "cc/cwndcheck.c"
 
 /* Admission: ok up to exactly cwnd, blocked one byte past. */
 static void test_cwnd_can_send_boundary(void)

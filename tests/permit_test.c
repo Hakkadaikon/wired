@@ -1,5 +1,4 @@
 #include "test.h"
-#include "frame/permit.c"
 
 /* RFC 9000 12.4 Table 3 spot checks. */
 static void test_permit_matrix(void)

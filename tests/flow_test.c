@@ -1,6 +1,4 @@
 #include "test.h"
-#include "flow/flow.c"
-#include "flow/reassemble.c"
 
 static void test_flow_send(void)
 {

@@ -1,5 +1,4 @@
 #include "test.h"
-#include "packet/pnlen.c"
 
 /* RFC 9000 Appendix A.2: smallest length so 2*num_unacked < 2^(8b). */
 static void test_pnlen_boundaries(void)

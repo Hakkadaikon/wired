@@ -1,7 +1,4 @@
 #include "test.h"
-#include "qpack/integer.c"
-#include "qpack/string.c"
-#include "qpack/static_table.c"
 
 /* RFC 7541 5.1: 1337 with a 5-bit prefix encodes to 0x1F 0x9A 0x0A. */
 static void test_qpack_integer_vector(void)

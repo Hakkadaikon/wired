@@ -1,5 +1,4 @@
 #include "test.h"
-#include "datagram/dgsize.c"
 
 /* RFC 9221 5: payload upper bound is max_frame_size minus the type byte and,
  * for type 0x31, the length varint that encodes the payload size. */

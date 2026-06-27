@@ -1,5 +1,4 @@
 #include "test.h"
-#include "tls/tpext.c"
 
 static void test_tpext_roundtrip(void)
 {

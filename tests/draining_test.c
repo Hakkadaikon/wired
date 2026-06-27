@@ -1,5 +1,4 @@
 #include "test.h"
-#include "closelife/draining.c"
 
 /* RFC 9000 10.2.2: the draining period is exactly 3*PTO. */
 static void test_draining_period_is_3pto(void)

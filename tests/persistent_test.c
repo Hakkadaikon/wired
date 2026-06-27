@@ -1,5 +1,4 @@
 #include "test.h"
-#include "cc/persistent.c"
 
 /* RFC 9002 7.6: loss period >= kPersistentCongestionThreshold (3) PTOs. */
 static void test_persistent_threshold(void)

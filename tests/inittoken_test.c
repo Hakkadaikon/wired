@@ -1,5 +1,4 @@
 #include "test.h"
-#include "packet/inittoken.c"
 
 static void test_inittoken_roundtrip(void)
 {

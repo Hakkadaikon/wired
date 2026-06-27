@@ -1,5 +1,4 @@
 #include "test.h"
-#include "h3/goaway_check.c"
 
 /* Server GOAWAY: only client-initiated bidi Stream IDs (id % 4 == 0). */
 static void test_server_bidi(void)

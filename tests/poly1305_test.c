@@ -1,5 +1,4 @@
 #include "test.h"
-#include "chacha/poly1305.c"
 
 /* RFC 8439 2.5.2 worked example. */
 static void test_poly1305_rfc(void)

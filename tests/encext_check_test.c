@@ -1,5 +1,4 @@
 #include "test.h"
-#include "tls/encext_check.c"
 
 /* RFC 9001 8.2 */
 void test_encext_check(void)

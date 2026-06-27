@@ -1,5 +1,4 @@
 #include "test.h"
-#include "packet/pad.c"
 
 /* Padding brings a short datagram up to 1200 bytes; larger ones need none. */
 static void test_pad(void)

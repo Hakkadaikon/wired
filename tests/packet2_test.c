@@ -1,7 +1,4 @@
 #include "test.h"
-#include "packet/short.c"
-#include "packet/retry.c"
-#include "packet/vneg.c"
 
 /* RFC 9000 17.3: short header byte0 = 0x40 | spin<<5 | key_phase<<2 | (pn_len-1),
  * then the DCID (no length prefix) and pn_len big-endian packet-number bytes. */

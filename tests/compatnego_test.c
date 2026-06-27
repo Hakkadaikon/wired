@@ -1,5 +1,4 @@
 #include "test.h"
-#include "version/compatnego.c"
 
 /* Compatible versions switch without a new handshake; incompatible ones
  * require one. The two predicates are complements. */

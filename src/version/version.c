@@ -14,7 +14,7 @@ static usz vi_value_len(const quic_version_info *vi)
 }
 
 /* Write the Chosen Version and all Available Versions as big-endian u32. */
-static void put_versions(u8 *buf, usz off, const quic_version_info *vi)
+static void version_put_versions(u8 *buf, usz off, const quic_version_info *vi)
 {
     quic_put_be32(buf + off, vi->chosen);
     for (usz i = 0; i < vi->n_available; i++)
@@ -37,11 +37,11 @@ usz quic_version_info_encode(u8 *buf, usz cap, const quic_version_info *vi)
     usz vlen = vi_value_len(vi);
     if (!put_vi_head(buf, cap, &off, vi, vlen)) return 0;
     if (off + vlen > cap) return 0;
-    put_versions(buf, off, vi);
+    version_put_versions(buf, off, vi);
     return off + vlen;
 }
 
-static u32 rd_be32(const u8 *p)
+static u32 version_rd_be32(const u8 *p)
 {
     return ((u32)p[0] << 24) | ((u32)p[1] << 16) | ((u32)p[2] << 8) | p[3];
 }
@@ -72,9 +72,9 @@ static int take_vi_head(const u8 *buf, usz n, usz *off, u64 *vlen)
 static void read_versions(const u8 *buf, usz off, quic_version_info *vi,
                           usz count)
 {
-    vi->chosen = rd_be32(buf + off);
+    vi->chosen = version_rd_be32(buf + off);
     vi->n_available = count;
-    for (usz i = 0; i < count; i++) vi->available[i] = rd_be32(buf + off + 4 + 4 * i);
+    for (usz i = 0; i < count; i++) vi->available[i] = version_rd_be32(buf + off + 4 + 4 * i);
 }
 
 /* The value fits in n bytes and its available count fits our array. */

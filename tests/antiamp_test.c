@@ -1,5 +1,4 @@
 #include "test.h"
-#include "path/antiamp.c"
 
 /* Budget is 3x received minus sent, clamped at zero. */
 static void test_antiamp_budget(void)

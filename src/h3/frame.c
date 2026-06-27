@@ -105,7 +105,7 @@ usz quic_h3_max_push_id_get(const u8 *buf, usz n, u64 *push_id)
 }
 
 /* Write one (Identifier Value) pair. Returns 1 ok, 0 on overflow. */
-static int put_pair(u8 *buf, usz cap, usz *off, const u64 *id, const u64 *value)
+static int frame_put_pair(u8 *buf, usz cap, usz *off, const u64 *id, const u64 *value)
 {
     if (!quic_varint_put(buf, cap, off, *id)) return 0;
     return quic_varint_put(buf, cap, off, *value);
@@ -120,7 +120,7 @@ static int take_pair_id(const u8 *buf, usz end, usz *off, quic_h3_settings *s)
 
 /* Read one (Identifier Value) pair into the next free slot of s. Returns 1
  * ok, 0 if truncated or the fixed pair array is already full. */
-static int take_pair(const u8 *buf, usz end, usz *off, quic_h3_settings *s)
+static int frame_take_pair(const u8 *buf, usz end, usz *off, quic_h3_settings *s)
 {
     if (!take_pair_id(buf, end, off, s)) return 0;
     if (!quic_varint_take(buf, end, off, &s->pairs[s->n].value)) return 0;
@@ -154,7 +154,7 @@ static int put_settings_pairs(u8 *buf, usz cap, usz *off, const quic_h3_settings
 {
     int ok = 1;
     for (usz i = 0; i < s->n; i++)
-        if (!put_pair(buf, cap, off, &s->pairs[i].id, &s->pairs[i].value)) ok = 0;
+        if (!frame_put_pair(buf, cap, off, &s->pairs[i].id, &s->pairs[i].value)) ok = 0;
     return ok;
 }
 
@@ -178,7 +178,7 @@ static int get_settings_pairs(const u8 *buf, usz end, usz *off, quic_h3_settings
 {
     s->n = 0;
     while (*off < end)
-        if (!take_pair(buf, end, off, s)) return 0;
+        if (!frame_take_pair(buf, end, off, s)) return 0;
     return 1;
 }
 

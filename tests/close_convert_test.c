@@ -1,5 +1,4 @@
 #include "test.h"
-#include "frame/close_convert.c"
 
 /* RFC 9000 10.2.3: only an application close during the handshake converts. */
 static void test_close_needs_convert_matrix(void)

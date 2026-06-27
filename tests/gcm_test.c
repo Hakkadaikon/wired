@@ -1,5 +1,4 @@
 #include "test.h"
-#include "gcm/gcm.c"
 
 /* Parse hex of arbitrary even length into out; returns byte count. */
 static usz unhex(const char *hex, u8 *out)

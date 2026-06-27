@@ -1,5 +1,4 @@
 #include "test.h"
-#include "datagram/datagram.c"
 
 /* Type 0x31 round-trips with an explicit length. */
 static void test_datagram_with_len(void)

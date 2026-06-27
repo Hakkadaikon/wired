@@ -1,5 +1,4 @@
 #include "test.h"
-#include "manage/linkability.c"
 
 void test_linkability(void)
 {

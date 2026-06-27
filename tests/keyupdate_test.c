@@ -1,5 +1,4 @@
 #include "test.h"
-#include "keyupdate/keyupdate.c"
 
 /* The Key Phase bit tracks the generation's low bit and toggles on update. */
 static void test_keyupdate_phase_tracks(void)

@@ -1,5 +1,4 @@
 #include "test.h"
-#include "ed25519/ed25519.c"
 
 static u8 hexnib(char c)
 {

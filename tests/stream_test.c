@@ -1,5 +1,4 @@
 #include "test.h"
-#include "stream/stream.c"
 
 /* Happy path: Ready -> Send -> Data Sent -> Data Recvd. */
 static void test_send_happy(void)

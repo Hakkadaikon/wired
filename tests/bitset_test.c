@@ -1,5 +1,4 @@
 #include "test.h"
-#include "grease/bitset.c"
 
 /* RFC 9287 3: clearing the QUIC Bit is permitted only when the peer
  * advertised grease_quic_bit. */

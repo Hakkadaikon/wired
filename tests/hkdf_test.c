@@ -1,5 +1,4 @@
 #include "test.h"
-#include "hkdf/hkdf.c"
 
 /* hex_eq compares len bytes of got against a hex string. */
 static int hex_eq(const u8 *got, const char *hex, usz len)

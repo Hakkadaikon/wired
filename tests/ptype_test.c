@@ -1,5 +1,4 @@
 #include "test.h"
-#include "packet/ptype.c"
 
 /* Each long-header type byte maps to its logical type (RFC 9000 17.2). */
 static void test_ptype_each(void)

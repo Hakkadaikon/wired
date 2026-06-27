@@ -1,5 +1,4 @@
 #include "test.h"
-#include "h3/settings_check.c"
 #include "h3/frame.h"
 
 /* The HTTP/2-reserved identifiers 0x02..0x05 are forbidden in HTTP/3. */

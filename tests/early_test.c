@@ -1,5 +1,4 @@
 #include "test.h"
-#include "grease/early.c"
 
 /* RFC 9287 3.1: a client greases early only when it remembers the server
  * advertised grease_quic_bit. */

@@ -1,5 +1,4 @@
 #include "test.h"
-#include "cid/cidpool.c"
 
 /* Issuance stops exactly at the active limit and resumes after retiring. */
 static void test_cidpool_limit(void)

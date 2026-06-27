@@ -1,5 +1,4 @@
 #include "test.h"
-#include "version/v2types.c"
 
 /* RFC 9369 3.2 wire values: Initial=1, 0-RTT=2, Handshake=3, Retry=0. */
 static void test_v2_wire_values(void)

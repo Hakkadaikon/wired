@@ -1,5 +1,4 @@
 #include "test.h"
-#include "cc/ccphase.c"
 
 /* RFC 9002 7.3.1: below ssthresh is slow start; cwnd == ssthresh is not. */
 static void test_ccphase_in_slow_start(void)

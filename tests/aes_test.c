@@ -1,5 +1,4 @@
 #include "test.h"
-#include "aes/aes.c"
 
 /* hb parses a 32-char hex string into 16 bytes. */
 static void hb(const char *hex, u8 out[16])

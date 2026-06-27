@@ -1,5 +1,4 @@
 #include "test.h"
-#include "tls/appkeys.c"
 
 /* 1-RTT app keys: deterministic, the two directions differ, and they differ
  * from the handshake-level keys built from the same bytes (distinct label). */

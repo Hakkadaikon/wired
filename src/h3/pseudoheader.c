@@ -30,7 +30,7 @@ static int is_pseudo(const u8 *name, usz len)
 }
 
 /* Match a ':'-prefixed name against the table; UNKNOWN if none. */
-static quic_h3_ph_kind lookup(const u8 *name, usz len)
+static quic_h3_ph_kind pseudoheader_lookup(const u8 *name, usz len)
 {
     for (usz i = 0; i < sizeof known / sizeof known[0]; i++)
         if (name_eq(name, len, known[i].name)) return known[i].kind;
@@ -40,7 +40,7 @@ static quic_h3_ph_kind lookup(const u8 *name, usz len)
 quic_h3_ph_kind quic_h3_ph_classify(const u8 *name, usz len)
 {
     if (!is_pseudo(name, len)) return QUIC_H3_PH_NONE;
-    return lookup(name, len);
+    return pseudoheader_lookup(name, len);
 }
 
 void quic_h3_ph_init(quic_h3_ph_set *p)

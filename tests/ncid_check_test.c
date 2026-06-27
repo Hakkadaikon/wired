@@ -1,5 +1,4 @@
 #include "test.h"
-#include "frame/ncid_check.c"
 
 void test_ncid_check(void)
 {

@@ -1,5 +1,4 @@
 #include "test.h"
-#include "qpack/prefix.c"
 
 /* The minimal prefix for an empty dynamic table: Required Insert Count 0 and
  * Delta Base 0 encode to two zero bytes and round-trip (RFC 9204 4.5.1). */

@@ -1,5 +1,4 @@
 #include "test.h"
-#include "conn/cidnego.c"
 
 /* Peer SCID is adopted verbatim as our DCID. */
 static void test_cidnego_adopt(void)

@@ -1,5 +1,4 @@
 #include "test.h"
-#include "recovery/lossdetect.c"
 
 /* Packet threshold: lost exactly when largest_acked - pn >= 3. */
 static void test_loss_by_packet_boundary(void)

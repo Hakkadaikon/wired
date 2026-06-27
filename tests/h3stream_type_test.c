@@ -1,5 +1,4 @@
 #include "test.h"
-#include "h3/stream_type.c"
 
 /* Each of the four unidirectional stream types parses from its leading varint
  * and classifies correctly (RFC 9114 6.2). */

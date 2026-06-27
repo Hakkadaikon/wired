@@ -1,5 +1,4 @@
 #include "test.h"
-#include "hp/hp.c"
 
 static void uhx(const char *hex, u8 *out, usz n)
 {

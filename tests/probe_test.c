@@ -1,5 +1,4 @@
 #include "test.h"
-#include "recovery/probe.c"
 
 /* RFC 9002 6.2.4: a fired PTO sends 2 probe packets. */
 static void test_probe_count(void)

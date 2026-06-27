@@ -1,5 +1,4 @@
 #include "test.h"
-#include "migrate/migrate.c"
 
 /* Migration is not handled before the handshake is confirmed. */
 static void test_migrate_before_handshake(void)

@@ -1,5 +1,4 @@
 #include "test.h"
-#include "chacha/aead.c"
 
 /* uh2 parses hex into out; returns byte count. */
 static usz uh2(const char *hex, u8 *out)

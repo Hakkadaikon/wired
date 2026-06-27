@@ -1,5 +1,4 @@
 #include "test.h"
-#include "packet/resbits.c"
 
 /* Reserved bits zero is valid; any set reserved bit is a violation. */
 static void test_resbits(void)

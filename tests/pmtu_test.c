@@ -1,5 +1,4 @@
 #include "test.h"
-#include "pmtu/pmtu.c"
 
 /* Probing starts above the base and the validated PMTU rises as probes are
  * acknowledged. */

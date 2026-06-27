@@ -1,5 +1,4 @@
 #include "test.h"
-#include "h3/connect.c"
 
 /* method=CONNECT with :authority and no :scheme/:path is valid. */
 static void test_connect_ok(void)

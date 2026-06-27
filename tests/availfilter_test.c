@@ -1,5 +1,4 @@
 #include "test.h"
-#include "version/availfilter.c"
 
 /* RFC 9368 3: reserved (0x?a?a?a?a) versions are not usable. */
 static void test_availfilter_grease_excluded(void)

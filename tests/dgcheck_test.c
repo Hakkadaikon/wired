@@ -1,5 +1,4 @@
 #include "test.h"
-#include "datagram/dgcheck.c"
 
 /* RFC 9221 3: receiving a DATAGRAM without having advertised support is a
  * violation, as is exceeding the advertised size; at-or-under is fine. */

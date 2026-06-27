@@ -1,5 +1,4 @@
 #include "test.h"
-#include "tls/keydiscard.c"
 
 /* Initial keys go once Handshake keys exist; Handshake keys go once the
  * handshake is confirmed. */

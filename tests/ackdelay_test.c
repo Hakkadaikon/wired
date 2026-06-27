@@ -1,5 +1,4 @@
 #include "test.h"
-#include "recovery/ackdelay.c"
 
 /* With the default exponent 3, the field value scales by 8. */
 static void test_ackdelay(void)

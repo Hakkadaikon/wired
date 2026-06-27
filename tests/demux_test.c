@@ -1,5 +1,4 @@
 #include "test.h"
-#include "conn/demux.c"
 
 /* RFC 9000 5.1/5.2 CID demux: exact match, mismatch, length mismatch, and
  * zero-length CID handling. */

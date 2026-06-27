@@ -1,5 +1,4 @@
 #include "test.h"
-#include "error/error.c"
 
 static void test_error_crypto(void)
 {

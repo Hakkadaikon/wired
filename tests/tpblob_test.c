@@ -1,5 +1,4 @@
 #include "test.h"
-#include "tparam/tpblob.c"
 
 static int mem_eq(const u8 *a, const u8 *b, usz n)
 {

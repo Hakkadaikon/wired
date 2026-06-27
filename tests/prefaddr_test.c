@@ -1,5 +1,4 @@
 #include "test.h"
-#include "path/prefaddr.c"
 
 /* Migration to preferred_address needs both path validation and confirmation. */
 static void test_prefaddr_may_migrate(void)

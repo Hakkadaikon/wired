@@ -1,5 +1,4 @@
 #include "test.h"
-#include "tparam/tpcheck.c"
 
 /* RFC 9000 7.3 / 18.2: connection-ID transport parameters are authenticated
  * against the connection IDs observed on the wire. */

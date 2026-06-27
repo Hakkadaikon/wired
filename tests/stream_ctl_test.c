@@ -1,5 +1,4 @@
 #include "test.h"
-#include "frame/stream_ctl.c"
 
 /* RESET_STREAM round-trips and decode rejects truncated input. */
 static void test_reset_stream(void)

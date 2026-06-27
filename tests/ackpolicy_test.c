@@ -1,5 +1,4 @@
 #include "test.h"
-#include "recovery/ackpolicy.c"
 
 /* RFC 9000 13.2.1 / 13.2.2: ack immediately after two ack-eliciting packets,
  * else within max_ack_delay of the oldest unacked one. */

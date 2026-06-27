@@ -66,7 +66,7 @@ static usz long_packet_len(const u8 *buf, usz n, usz off)
 }
 
 /* Emit a packet [off, off+len) and advance the cursor by len. */
-static int emit(quic_coalesce_iter *it, quic_coalesced *out, usz len)
+static int coalesce_emit(quic_coalesce_iter *it, quic_coalesced *out, usz len)
 {
     if (len == 0) return 0;
     out->data = it->dgram + it->off;
@@ -79,6 +79,6 @@ int quic_coalesce_next(quic_coalesce_iter *it, quic_coalesced *out)
 {
     usz rest = it->total - it->off;
     if (it->off >= it->total) return 0;
-    if ((it->dgram[it->off] & 0x80) == 0) return emit(it, out, rest); /* short */
-    return emit(it, out, long_packet_len(it->dgram, it->total, it->off));
+    if ((it->dgram[it->off] & 0x80) == 0) return coalesce_emit(it, out, rest); /* short */
+    return coalesce_emit(it, out, long_packet_len(it->dgram, it->total, it->off));
 }

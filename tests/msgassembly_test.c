@@ -1,5 +1,4 @@
 #include "test.h"
-#include "tls/msgassembly.c"
 
 /* The 3-byte length is read big-endian, and a message is complete only once
  * buffered covers the 4-byte header plus the declared body. */

@@ -1,5 +1,4 @@
 #include "test.h"
-#include "h3/contentlen.c"
 
 /* Received bytes must equal the declared Content-Length. */
 static void test_contentlen_match(void)

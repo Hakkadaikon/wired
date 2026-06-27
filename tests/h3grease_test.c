@@ -1,5 +1,4 @@
 #include "test.h"
-#include "h3/grease.c"
 
 /* RFC 9114 reserved (grease) values 0x1f*N + 0x21 are recognized so a
  * receiver can ignore them across frame/stream/setting/error spaces. */

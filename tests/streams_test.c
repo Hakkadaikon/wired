@@ -1,5 +1,4 @@
 #include "test.h"
-#include "flow/streams.c"
 
 /* The peer may open streams with indices below the limit; the limit value
  * itself and above are refused (STREAM_LIMIT_ERROR). */

@@ -1,5 +1,4 @@
 #include "test.h"
-#include "sreset/sreset.c"
 
 /* The token is deterministic for a key+CID, and distinct CIDs differ. */
 static void test_sreset_token(void)

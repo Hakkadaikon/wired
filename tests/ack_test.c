@@ -1,5 +1,4 @@
 #include "test.h"
-#include "frame/ack.c"
 
 /* Single contiguous range round-trips: acks 10..7 (largest 10, first 3). */
 static void test_ack_single_range(void)

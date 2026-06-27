@@ -1,5 +1,4 @@
 #include "test.h"
-#include "version/version.c"
 
 static void test_version_reserved(void)
 {

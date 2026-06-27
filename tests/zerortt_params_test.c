@@ -1,5 +1,4 @@
 #include "test.h"
-#include "tls/zerortt_params.c"
 
 /* RFC 9001 4.6.2 */
 void test_zerortt_params(void)

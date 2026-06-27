@@ -1,5 +1,4 @@
 #include "test.h"
-#include "tls/master.c"
 
 /* Master Secret is deterministic for a given handshake secret and differs
  * from the handshake secret it was derived from. */

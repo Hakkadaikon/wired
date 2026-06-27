@@ -1,5 +1,4 @@
 #include "test.h"
-#include "protect/protect.c"
 
 /* RFC 9001 A.2 nonce construction: client_iv fa044b2f42a3fd3b46fb255c with
  * packet number 2 XORed into the low bytes gives ...255c ^ 02 = ...255e. */

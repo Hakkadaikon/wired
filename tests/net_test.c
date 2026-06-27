@@ -1,8 +1,4 @@
 #include "test.h"
-#include "net/checksum.c"
-#include "net/ipv4.c"
-#include "net/udp4.c"
-#include "net/memlink.c"
 
 /* RFC 1071 worked example: the bytes 00 01 f2 03 f4 f5 f6 f7 fold to the
  * sum 0xddf2, whose one's complement (the checksum field) is 0x220d. */

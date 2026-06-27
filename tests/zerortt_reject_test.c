@@ -1,5 +1,4 @@
 #include "test.h"
-#include "tls/zerortt_reject.c"
 
 /* RFC 9001 4.6.1 */
 void test_zerortt_reject(void)

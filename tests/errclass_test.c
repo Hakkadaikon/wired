@@ -1,5 +1,4 @@
 #include "test.h"
-#include "h3/errclass.c"
 #include "h3/frame.h"
 
 /* The defined block 0x0100..0x0110 is known; just outside it is not. */

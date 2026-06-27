@@ -1,5 +1,4 @@
 #include "test.h"
-#include "manage/rttobs.c"
 
 /* RFC 9312 3.5: an edge is a change in the spin value. */
 static void test_rttobs_edge(void)

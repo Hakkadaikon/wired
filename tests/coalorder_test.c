@@ -1,5 +1,4 @@
 #include "test.h"
-#include "packet/coalorder.c"
 
 /* RFC 9000 12.2: a long header (high bit set) is fine in any position. */
 static void test_coalorder_long_any(void)

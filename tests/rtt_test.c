@@ -1,5 +1,4 @@
 #include "test.h"
-#include "recovery/rtt.c"
 
 /* First sample seeds smoothed_rtt and min_rtt to the sample (RFC 9002 5.2). */
 static void test_rtt_first_sample(void)

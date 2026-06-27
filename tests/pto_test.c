@@ -1,5 +1,4 @@
 #include "test.h"
-#include "recovery/pto.c"
 
 /* Backoff is 2^count and clamps at the max shift. */
 static void test_pto_backoff(void)

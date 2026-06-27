@@ -1,5 +1,4 @@
 #include "test.h"
-#include "manage/observable.c"
 
 /* In a long header, version and both CIDs are plaintext (RFC 9312 3). */
 static void test_observable_long(void)

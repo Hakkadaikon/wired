@@ -1,5 +1,4 @@
 #include "test.h"
-#include "frame/flowctl.c"
 
 static void test_max_data(void)
 {

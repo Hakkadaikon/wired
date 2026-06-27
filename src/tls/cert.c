@@ -73,7 +73,7 @@ int quic_tls_certverify_parse(const u8 *buf, usz n, u16 *scheme,
 static const char ctx_str[] = "TLS 1.3, server CertificateVerify";
 
 /* Copy len bytes from src to dst. */
-static void copy_bytes(u8 *dst, const u8 *src, usz len)
+static void cert_copy_bytes(u8 *dst, const u8 *src, usz len)
 {
     for (usz i = 0; i < len; i++) dst[i] = src[i];
 }
@@ -90,10 +90,10 @@ static const u8 pad64[64] = {
  * 32 hash). */
 static void build_signed(const u8 transcript_hash[32], u8 out[130])
 {
-    copy_bytes(out, pad64, 64);
-    copy_bytes(out + 64, (const u8 *)ctx_str, 33);
+    cert_copy_bytes(out, pad64, 64);
+    cert_copy_bytes(out + 64, (const u8 *)ctx_str, 33);
     out[97] = 0x00;
-    copy_bytes(out + 98, transcript_hash, 32);
+    cert_copy_bytes(out + 98, transcript_hash, 32);
 }
 
 int quic_tls_certverify_ed25519(const u8 *sig, u16 sig_len,

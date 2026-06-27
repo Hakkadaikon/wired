@@ -1,5 +1,4 @@
 #include "test.h"
-#include "h3/pushid.c"
 
 /* A fresh state permits no pushes. */
 static void test_push_init(void)

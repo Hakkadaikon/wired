@@ -1,5 +1,4 @@
 #include "test.h"
-#include "manage/middlebox.c"
 
 static void test_initial_ok(void)
 {

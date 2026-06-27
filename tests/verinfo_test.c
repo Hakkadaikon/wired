@@ -1,5 +1,4 @@
 #include "test.h"
-#include "version/verinfo.c"
 #include "version/version.h"
 
 /* RFC 9368 3: encode then decode reproduces Chosen + Available. */

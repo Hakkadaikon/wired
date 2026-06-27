@@ -1,5 +1,4 @@
 #include "test.h"
-#include "qpack/instruction.c"
 
 /* Every encoder-stream instruction round-trips its integer field and its kind
  * is recovered from the leading bit pattern (RFC 9204 4.3). */

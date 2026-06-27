@@ -1,5 +1,4 @@
 #include "test.h"
-#include "frame/crypto_offset.c"
 
 static void test_crypto_offset_ok(void)
 {

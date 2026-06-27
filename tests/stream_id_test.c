@@ -1,5 +1,4 @@
 #include "test.h"
-#include "stream/stream_id.c"
 
 /* RFC 9000 2.1: the four type bit patterns. */
 static void test_stream_id_types(void)

@@ -1,5 +1,4 @@
 #include "test.h"
-#include "spin/spin.c"
 
 /* The server reflects the peer's spin; the client inverts it. */
 static void test_spin_roles(void)

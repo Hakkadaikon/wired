@@ -1,5 +1,4 @@
 #include "test.h"
-#include "recovery/rttvalid.c"
 
 /* RFC 9002 5.1: RTT sample requires newly-acked largest AND ack-eliciting. */
 static void test_rttvalid_sample_valid(void)

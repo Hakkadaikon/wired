@@ -1,5 +1,4 @@
 #include "test.h"
-#include "cc/ccloss.c"
 
 /* RFC 9002 7.3.2: ssthresh = cwnd * kLossReductionFactor (0.5). */
 static void test_ccloss_ssthresh(void)

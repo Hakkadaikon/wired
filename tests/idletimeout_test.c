@@ -1,5 +1,4 @@
 #include "test.h"
-#include "closelife/idletimeout.c"
 
 /* Effective timeout is the min of two non-zero values. */
 static void test_idle_effective_min(void)

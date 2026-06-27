@@ -1,5 +1,4 @@
 #include "test.h"
-#include "error/codes.c"
 
 /* Every enumerated transport code and the CRYPTO range classify as standard. */
 static void test_codes_standard(void)

@@ -1,5 +1,4 @@
 #include "test.h"
-#include "hp/hpapply.c"
 
 /* RFC 9001 5.4.2 worked example (Client Initial): byte0 0xc3, mask[0] 0x43.
  * Long header masks the low 4 bits: 0xc3 ^ (0x43 & 0x0f) = 0xc3 ^ 0x03 = 0xc0. */

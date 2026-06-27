@@ -1,5 +1,4 @@
 #include "test.h"
-#include "h3/h3dgram.c"
 
 /* Quarter Stream ID is the request stream ID divided by four. */
 static void test_quarter_from_stream(void)

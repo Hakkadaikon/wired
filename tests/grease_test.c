@@ -1,5 +1,4 @@
 #include "test.h"
-#include "grease/grease.c"
 
 /* The grease_quic_bit parameter round-trips with an empty value. */
 static void test_grease_param(void)

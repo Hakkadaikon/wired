@@ -1,5 +1,4 @@
 #include "test.h"
-#include "h3/settings_dup.c"
 
 /* Distinct identifiers are all accepted. */
 static void test_settings_dup_distinct(void)

@@ -1,5 +1,4 @@
 #include "test.h"
-#include "recovery/sent.c"
 
 static void test_sent_ack_accounting(void)
 {

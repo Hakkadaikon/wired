@@ -1,5 +1,4 @@
 #include "test.h"
-#include "grease/sreset_bit.c"
 
 /* RFC 9287 3.1: any QUIC Bit value is acceptable on a stateless reset. */
 static void test_sreset_bit_any(void)

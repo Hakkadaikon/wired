@@ -1,5 +1,4 @@
 #include "test.h"
-#include "recovery/rttinit.c"
 
 /* is_first is true exactly when no sample has been taken yet (RFC 9002 5.2). */
 static void test_rttinit_is_first(void)
