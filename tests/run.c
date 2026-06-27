@@ -31,6 +31,9 @@
 #include "handshake_test.c"
 #include "schedule_test.c"
 #include "endpoint_test.c"
+#include "stream_ctl_test.c"
+#include "connctl_test.c"
+#include "flowctl_test.c"
 
 int main(void)
 {
@@ -65,5 +68,8 @@ int main(void)
     test_handshake();
     test_schedule();
     test_endpoint();
+    test_stream_ctl();
+    test_connctl();
+    test_flowctl();
     return TEST_REPORT();
 }
