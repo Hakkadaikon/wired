@@ -26,4 +26,9 @@ int quic_streams_may_open(const quic_streams *s, u64 index);
 /* Record that one more stream was opened. */
 void quic_streams_opened(quic_streams *s);
 
+/* Observe a stream at 0-based type index: opening stream N implicitly opens
+ * every lower-numbered stream of the same type (RFC 9000 3.2). Advances the
+ * opened count to cover index when it is higher. */
+void quic_streams_observe(quic_streams *s, u64 index);
+
 #endif

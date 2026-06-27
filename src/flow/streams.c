@@ -22,3 +22,9 @@ void quic_streams_opened(quic_streams *s)
 {
     s->opened++;
 }
+
+void quic_streams_observe(quic_streams *s, u64 index)
+{
+    u64 needed = index + 1; /* streams 0..index are now open */
+    if (needed > s->opened) s->opened = needed;
+}

@@ -35,9 +35,23 @@ static void test_streams_opened(void)
     CHECK(s.opened == 2);
 }
 
+/* Observing a high stream index implicitly opens the lower ones. */
+static void test_streams_observe(void)
+{
+    quic_streams s;
+    quic_streams_init(&s, 100);
+    quic_streams_observe(&s, 4);  /* opening stream 4 opens 0..4 */
+    CHECK(s.opened == 5);
+    quic_streams_observe(&s, 2);  /* lower index does not shrink */
+    CHECK(s.opened == 5);
+    quic_streams_observe(&s, 9);  /* extends to cover 9 */
+    CHECK(s.opened == 10);
+}
+
 void test_streams(void)
 {
     test_streams_limit();
     test_streams_set_max();
     test_streams_opened();
+    test_streams_observe();
 }
