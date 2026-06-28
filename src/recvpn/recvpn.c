@@ -12,7 +12,7 @@ static int below_seen(const quic_recvpn *r, u64 pn)
 {
     u64 delta = r->largest - pn;
     if (delta > QUIC_RECVPN_WINDOW) return 0; /* fell out of the window */
-    return (r->bitmap >> (delta - 1)) & 1u;
+    return (int)((r->bitmap >> (delta - 1)) & 1u);
 }
 
 /* Classify pn against largest: 1 seen (==), 0 not (>), else check the window. */
