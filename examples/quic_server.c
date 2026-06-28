@@ -16,23 +16,23 @@
  * binary demonstrates building and sending real server-flight bytes. See
  * examples/README.md. */
 
-#include "sys/syscall.h"
-#include "io/udp.h"
+#include "aes/aes.h"
+#include "crypto_stream/crypto_tx.h"
 #include "frame/frame.h"
-#include "tls/x25519.h"
-#include "tls/schedule.h"
-#include "tls/initial.h"
+#include "hspkt/hspkt_build.h"
 #include "initpkt/initkeys.h"
 #include "initpkt/initopen.h"
+#include "io/udp.h"
 #include "pipeline/txpacket.h"
-#include "hspkt/hspkt_build.h"
-#include "crypto_stream/crypto_tx.h"
-#include "selfcert/selfcert.h"
 #include "salpn/ch_ext.h"
 #include "salpn/negotiate.h"
-#include "stp/server_tp.h"
 #include "sdrv/sdrv.h"
-#include "aes/aes.h"
+#include "selfcert/selfcert.h"
+#include "stp/server_tp.h"
+#include "sys/syscall.h"
+#include "tls/initial.h"
+#include "tls/schedule.h"
+#include "tls/x25519.h"
 
 #define PORT 4433
 
@@ -42,21 +42,24 @@ void *memcpy(void *dst, const void *src, usz n)
 {
     u8 *d = dst;
     const u8 *s = src;
-    for (usz i = 0; i < n; i++) d[i] = s[i];
+    for (usz i = 0; i < n; i++)
+        d[i] = s[i];
     return dst;
 }
 
 void *memset(void *dst, int c, usz n)
 {
     u8 *d = dst;
-    for (usz i = 0; i < n; i++) d[i] = (u8)c;
+    for (usz i = 0; i < n; i++)
+        d[i] = (u8)c;
     return dst;
 }
 
 static void logs(const char *s)
 {
     usz n = 0;
-    while (s[n]) n++;
+    while (s[n])
+        n++;
     syscall3(SYS_write, 2, (i64)s, (i64)n);
 }
 
@@ -69,7 +72,8 @@ static void die(const char *msg)
 /* The fixed 32-byte ServerHello.random. Deterministic for reproducibility. */
 static void fill_random(u8 r[32])
 {
-    for (usz i = 0; i < 32; i++) r[i] = (u8)(0xa0 + i);
+    for (usz i = 0; i < 32; i++)
+        r[i] = (u8)(0xa0 + i);
 }
 
 /* Fixed server identity: x25519 handshake key and Ed25519 certificate seed.
@@ -127,8 +131,7 @@ static void log_alpn(const u8 *ch, usz ch_len)
 {
     const u8 *ext;
     usz extl;
-    if (quic_salpn_find_extension(ch, ch_len, QUIC_SALPN_EXT_TYPE, &ext, &extl)
-        && quic_salpn_select_h3(ext, extl))
+    if (quic_salpn_find_extension(ch, ch_len, QUIC_SALPN_EXT_TYPE, &ext, &extl) && quic_salpn_select_h3(ext, extl))
         logs("ALPN: h3 selected\n");
     else
         logs("ALPN: h3 not offered\n");
@@ -189,7 +192,10 @@ static int build_flight(const u8 *ch, usz ch_len, server_flight *out)
 static void send_pkt(i64 fd, const quic_sockaddr_in *peer, const u8 *pkt,
                      usz n, const char *what)
 {
-    if (n) { quic_udp_send(fd, peer, pkt, n); logs(what); }
+    if (n) {
+        quic_udp_send(fd, peer, pkt, n);
+        logs(what);
+    }
 }
 
 /* Build the full server flight from the ClientHello and send the Initial
@@ -199,7 +205,8 @@ static void respond(i64 fd, const quic_sockaddr_in *peer, const u8 *dcid,
 {
     server_flight f;
     u8 pkt[1500], chsh[1024];
-    if (!build_flight(ch, ch_len, &f)) return;
+    if (!build_flight(ch, ch_len, &f))
+        return;
     send_pkt(fd, peer, pkt,
              seal_initial(dcid, dcid_len, f.sh, f.sh_len, pkt, sizeof pkt),
              "ServerHello (Initial) sent\n");
@@ -214,7 +221,8 @@ static void respond(i64 fd, const quic_sockaddr_in *peer, const u8 *dcid,
 /* A long-header datagram big enough to hold the simplified header and its DCID. */
 static int valid_initial(const u8 *dg, usz len)
 {
-    if (len < 6 || (dg[0] & 0x80) == 0) return 0;
+    if (len < 6 || (dg[0] & 0x80) == 0)
+        return 0;
     return len >= (usz)10 + dg[5];
 }
 
@@ -228,7 +236,8 @@ static int open_initial(u8 *dg, usz len, quic_crypto_frame *cf)
 {
     const u8 *crypto;
     usz clen;
-    if (!valid_initial(dg, len)) return 0;
+    if (!valid_initial(dg, len))
+        return 0;
     if (!quic_initpkt_open(dg + 6, dg[5], dg, len, 0, &crypto, &clen))
         return logs("Initial open failed\n"), 0;
     logs("Initial received and opened\n");
@@ -238,7 +247,8 @@ static int open_initial(u8 *dg, usz len, quic_crypto_frame *cf)
 static void handle(i64 fd, const quic_sockaddr_in *peer, u8 *dg, usz len)
 {
     quic_crypto_frame cf;
-    if (!open_initial(dg, len, &cf)) return;
+    if (!open_initial(dg, len, &cf))
+        return;
     log_alpn(cf.data, (usz)cf.length);
     respond(fd, peer, dg + 6, dg[5], cf.data, (usz)cf.length);
 }
@@ -247,9 +257,11 @@ static i64 listen_udp(void)
 {
     quic_sockaddr_in sa;
     i64 fd = quic_udp_socket();
-    if (fd < 0) die("socket failed\n");
+    if (fd < 0)
+        die("socket failed\n");
     quic_udp_addr(&sa, PORT, 0, 0, 0, 0);
-    if (quic_udp_bind(fd, &sa) < 0) die("bind failed\n");
+    if (quic_udp_bind(fd, &sa) < 0)
+        die("bind failed\n");
     logs("listening on 0.0.0.0:4433\n");
     return fd;
 }
@@ -257,14 +269,14 @@ static i64 listen_udp(void)
 /* The kernel enters _start with RSP 16-byte aligned, but the SysV ABI's
  * in-function alignment assumes a return address was pushed (RSP%16==8). Force
  * the entry to re-align so SSE moves in x25519/AEAD do not fault. */
-__attribute__((force_align_arg_pointer))
-void _start(void)
+__attribute__((force_align_arg_pointer)) void _start(void)
 {
     i64 fd = listen_udp();
     quic_sockaddr_in peer;
     u8 buf[2048];
     for (;;) {
         i64 r = quic_udp_recvfrom(fd, buf, sizeof buf, &peer);
-        if (r > 0) handle(fd, &peer, buf, (usz)r);
+        if (r > 0)
+            handle(fd, &peer, buf, (usz)r);
     }
 }
