@@ -11,10 +11,9 @@
  * Handshake packet (RFC 9000 17.2.4) under the derived handshake keys. Both
  * are sent back to the peer. Each step logs to stderr.
  *
- * This repository's packet codec uses a simplified long header (no SCID/token/
- * length), so it does not interoperate with curl --http3 on the wire; this
- * binary demonstrates building and sending real server-flight bytes. See
- * examples/README.md. */
+ * The packet codec now emits the complete RFC 9000 17.2 long header (DCID, SCID,
+ * Initial Token, Length, packet number), the same wire form curl --http3 sends,
+ * so the bytes on the wire match RFC 9001 A.2. See examples/README.md. */
 
 #include "aes/aes.h"
 #include "crypto_stream/crypto_tx.h"
@@ -35,6 +34,10 @@
 #include "tls/x25519.h"
 
 #define PORT 4433
+
+/* The server's chosen Source Connection ID, echoed in every long header it
+ * sends (RFC 9000 17.2). Fixed for a demo; swap for quic_rng_bytes per-run. */
+static const u8 SERVER_SCID[8] = {0x53, 0x52, 0x56, 0x43, 0x49, 0x44, 0x30, 0x31};
 
 /* The compiler emits memcpy for struct/array copies even under -ffreestanding;
  * with -nostdlib we must supply it. */
@@ -104,7 +107,8 @@ static usz seal_handshake(const u8 *hs_secret, const u8 *ch_sh, usz ch_sh_len,
     if (!quic_crypto_stream_emit(flight, flight_len, 0, flight_len,
                                  frames, sizeof frames, &fl))
         return 0;
-    if (!quic_hspkt_build(&hk, &hp, dcid, dcid_len, 0, 0, 0,
+    if (!quic_hspkt_build(&hk, &hp, dcid, dcid_len,
+                          SERVER_SCID, sizeof SERVER_SCID, 0,
                           frames, fl, out, cap, &total))
         return 0;
     return total;
@@ -123,7 +127,10 @@ static usz seal_initial(const u8 *dcid, u8 dcid_len, const u8 *sh, usz sh_len,
     quic_aes128_init(&hp, sk.hp);
     if (!quic_crypto_stream_emit(sh, sh_len, 0, sh_len, frames, sizeof frames, &fl))
         return 0;
-    return quic_tx_packet(&sk, &hp, 0xc3, dcid, dcid_len, 0, frames, fl, out, cap);
+    /* is_initial=1, empty token, pn=0 (RFC 9000 17.2.2). */
+    return quic_tx_packet(&sk, &hp, 0xc3, dcid, dcid_len,
+                          SERVER_SCID, sizeof SERVER_SCID, 1,
+                          (const u8 *)0, 0, 0, frames, fl, out, cap);
 }
 
 /* Note ALPN "h3" if the ClientHello offers it (informational only). */
@@ -218,19 +225,19 @@ static void respond(i64 fd, const quic_sockaddr_in *peer, const u8 *dcid,
              "server flight (Handshake) sent\n");
 }
 
-/* A long-header datagram big enough to hold the simplified header and its DCID. */
+/* A long-header datagram big enough to hold the header prefix and its DCID
+ * (byte0 + 4-byte version + dcid_len + dcid). */
 static int valid_initial(const u8 *dg, usz len)
 {
     if (len < 6 || (dg[0] & 0x80) == 0)
         return 0;
-    return len >= (usz)10 + dg[5];
+    return len >= (usz)6 + dg[5];
 }
 
 /* Open the client Initial and recover the ClientHello CRYPTO. The DCID sits
- * unprotected in the simplified long header (byte0, 4-byte version, dcid_len,
- * dcid, 4-byte pn) emitted by quic_tx_packet; read it directly rather than via
- * the RFC-invariant parser, which expects an SCID the wire format omits and
- * would misread a header-protected packet-number byte. Returns 1 and fills
+ * unprotected at the front of the RFC 9000 17.2 long header (byte0, 4-byte
+ * version, dcid_len at offset 5, then the DCID); quic_initpkt_open re-derives
+ * the Initial keys from it and runs the full-header parser. Returns 1 and fills
  * *cf on success. */
 static int open_initial(u8 *dg, usz len, quic_crypto_frame *cf)
 {
