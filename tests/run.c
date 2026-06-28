@@ -1,4 +1,5 @@
 #include "test.h"
+#include "tlsdriver/tlsdriver.c"
 #include "crypto_stream/crypto_tx.c"
 #include "crypto_stream/crypto_rx.c"
 #include "crypto_stream/ecdhe.c"
@@ -546,6 +547,7 @@
 #include "pathvalidate_test.c"
 #include "driver_test.c"
 #include "crypto_stream_test.c"
+#include "tlsdriver_test.c"
 
 int main(void)
 {
@@ -815,5 +817,6 @@ int main(void)
     test_pathvalidate();
     test_driver();
     test_crypto_stream();
+    test_tlsdriver();
     return TEST_REPORT();
 }
