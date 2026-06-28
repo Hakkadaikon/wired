@@ -47,7 +47,7 @@ static void rsa_e_f4(quic_bn *e)
 /* Modulus length outside the supportable PKCS#1 v1.5 SHA-256 range. */
 static int n_len_bad(usz n_len)
 {
-    if (n_len > QUIC_BN_LIMBS * 8) return 1;
+    if (n_len > (usz)QUIC_BN_LIMBS * 8) return 1;
     return n_len < 11 + 19 + 32;
 }
 

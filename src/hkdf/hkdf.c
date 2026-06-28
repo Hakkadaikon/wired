@@ -32,7 +32,7 @@ static usz emit(u8 *okm, usz off, usz len, const u8 t[QUIC_SHA256_DIGEST])
 /* HKDF-Expand inputs are in range: L <= 255*HashLen and info fits buf. */
 static int expand_ok(usz info_len, usz len)
 {
-    return len <= 255 * QUIC_SHA256_DIGEST && info_len <= 256;
+    return len <= (usz)255 * QUIC_SHA256_DIGEST && info_len <= 256;
 }
 
 int quic_hkdf_expand(const u8 prk[QUIC_HKDF_PRK],
