@@ -262,6 +262,16 @@
 #include "udploop/txloop.c"
 #include "udploop/antiamp_gate.c"
 #include "connloop/connloop.c"
+#include "connio/connio.c"
+#include "lossdrive/lossdrive.c"
+#include "lossdrive/lossdelay.c"
+#include "lossdrive/ptobackoff.c"
+#include "pktbuild/initpad.c"
+#include "pktbuild/framepack.c"
+#include "pktbuild/eliciting.c"
+#include "ackgen/ackgen.c"
+#include "ackgen/ackrange.c"
+#include "ackgen/ackfreq.c"
 #include "varint_test.c"
 #include "header_test.c"
 #include "pnum_test.c"
@@ -514,6 +524,16 @@
 #include "txloop_test.c"
 #include "antiamp_gate_test.c"
 #include "connloop_test.c"
+#include "connio_test.c"
+#include "lossdrive_test.c"
+#include "lossdelay_test.c"
+#include "ptobackoff_test.c"
+#include "initpad_test.c"
+#include "framepack_test.c"
+#include "eliciting_test.c"
+#include "ackgen_test.c"
+#include "ackrange_test.c"
+#include "ackfreq_test.c"
 
 int main(void)
 {
@@ -768,5 +788,15 @@ int main(void)
     test_txloop();
     test_antiamp_gate();
     test_connloop();
+    test_connio();
+    test_lossdrive();
+    test_lossdelay();
+    test_ptobackoff();
+    test_initpad();
+    test_framepack();
+    test_eliciting();
+    test_ackgen();
+    test_ackrange();
+    test_ackfreq();
     return TEST_REPORT();
 }
