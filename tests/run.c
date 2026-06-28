@@ -1,4 +1,20 @@
 #include "test.h"
+#include "certreq/certreq.c"
+#include "cwndctl/cwndctl.c"
+#include "hrr/hrr_build.c"
+#include "hrr/hrr_detect.c"
+#include "hrr/hrr_group.c"
+#include "legacy/legacy_fields.c"
+#include "maxstreams/maxstreams.c"
+#include "poll/deadline.c"
+#include "poll/nonblock.c"
+#include "poll/wait.c"
+#include "qpackdyn/insert_encode.c"
+#include "qpackdyn/field_encode.c"
+#include "qpackdyn/field_decode.c"
+#include "tlsext/pskmodes.c"
+#include "tlsext/preshared.c"
+#include "tlsext/earlydata.c"
 #include "shbuild/shbuild.c"
 #include "sflight/encext.c"
 #include "sflight/certmsg.c"
@@ -649,6 +665,20 @@
 #include "field_encode_test.c"
 #include "resp_build_test.c"
 #include "hello_test.c"
+#include "certreq_test.c"
+#include "cwndctl_test.c"
+#include "hrr_build_test.c"
+#include "hrr_detect_test.c"
+#include "hrr_group_test.c"
+#include "legacy_fields_test.c"
+#include "maxstreams_test.c"
+#include "poll_test.c"
+#include "qpackdyn/insert_encode_test.c"
+#include "qpackdyn/field_encode_test.c"
+#include "qpackdyn/field_decode_test.c"
+#include "pskmodes_test.c"
+#include "preshared_test.c"
+#include "earlydata_test.c"
 
 int main(void)
 {
@@ -975,5 +1005,19 @@ int main(void)
     test_field_encode();
     test_resp_build();
     test_hello();
+    test_certreq();
+    test_cwndctl();
+    test_hrr_build();
+    test_hrr_detect();
+    test_hrr_group();
+    test_legacy_fields();
+    test_maxstreams();
+    test_poll();
+    test_qpackdyn_insert_encode();
+    test_qpackdyn_field_encode();
+    test_qpackdyn_field_decode();
+    test_pskmodes();
+    test_preshared();
+    test_earlydata();
     return TEST_REPORT();
 }
