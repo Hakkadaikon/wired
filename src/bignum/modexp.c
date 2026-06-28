@@ -68,7 +68,7 @@ static void modmul(quic_bn *r, const quic_bn *a, const quic_bn *b,
                    const quic_bn *m)
 {
     quic_bn acc = {{0}};
-    for (usz i = QUIC_BN_LIMBS * 64; i > 0; i--)
+    for (usz i = (usz)QUIC_BN_LIMBS * 64; i > 0; i--)
         mul_step(&acc, bn_bit(b, i - 1), a, m);
     *r = acc;
 }
@@ -78,7 +78,7 @@ void quic_bn_modexp(quic_bn *out, const quic_bn *base,
 {
     quic_bn result = {{0}};
     result.v[0] = 1;                  /* 1 mod m, m>1 */
-    for (usz i = QUIC_BN_LIMBS * 64; i > 0; i--) {
+    for (usz i = (usz)QUIC_BN_LIMBS * 64; i > 0; i--) {
         modmul(&result, &result, &result, mod);
         if (bn_bit(exp, i - 1)) modmul(&result, &result, base, mod);
     }

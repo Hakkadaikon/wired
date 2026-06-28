@@ -125,6 +125,6 @@ void quic_aes128_encrypt(const quic_aes128 *a,
     copy16(s, in);
     add_round_key(s, a->rk);
     for (usz r = 1; r < QUIC_AES_ROUNDS; r++) round_full(s, a->rk + 4 * r);
-    round_last(s, a->rk + 4 * QUIC_AES_ROUNDS);
+    round_last(s, a->rk + (usz)4 * QUIC_AES_ROUNDS);
     copy16(out, s);
 }
