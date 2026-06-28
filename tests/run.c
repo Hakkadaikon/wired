@@ -363,6 +363,13 @@
 #include "h3resp/resp_build.c"
 #include "h3resp/hello.c"
 #include "evloop/evloop.c"
+#include "connrunner/level.c"
+#include "connrunner/recv.c"
+#include "connrunner/send.c"
+#include "connrunner/connrunner.c"
+#include "h3conn/establish.c"
+#include "h3conn/request.c"
+#include "h3conn/response.c"
 #include "varint_test.c"
 #include "header_test.c"
 #include "pnum_test.c"
@@ -707,6 +714,9 @@
 #include "v2switch_test.c"
 #include "versdowngrade_test.c"
 #include "evloop_test.c"
+#include "connrunner_test.c"
+#include "h3conn_establish_test.c"
+#include "h3conn_roundtrip_test.c"
 
 int main(void)
 {
@@ -1069,5 +1079,8 @@ int main(void)
     test_v2switch();
     test_versdowngrade();
     test_evloop();
+    test_connrunner();
+    test_h3conn_establish();
+    test_h3conn_roundtrip();
     return TEST_REPORT();
 }
