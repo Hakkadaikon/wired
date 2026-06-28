@@ -370,6 +370,12 @@
 #include "h3conn/establish.c"
 #include "h3conn/request.c"
 #include "h3conn/response.c"
+#include "rtxbytes/rtxstore.c"
+#include "rtxbytes/rebuild.c"
+#include "rtxbytes/collect.c"
+#include "kuswitch/derive.c"
+#include "kuswitch/phasebit.c"
+#include "kuswitch/twogen.c"
 #include "varint_test.c"
 #include "header_test.c"
 #include "pnum_test.c"
@@ -717,6 +723,11 @@
 #include "connrunner_test.c"
 #include "h3conn_establish_test.c"
 #include "h3conn_roundtrip_test.c"
+#include "rtxstore_test.c"
+#include "rebuild_test.c"
+#include "collect_test.c"
+#include "kuswitch_derive_test.c"
+#include "kuswitch_phasebit_test.c"
 
 int main(void)
 {
@@ -1082,5 +1093,10 @@ int main(void)
     test_connrunner();
     test_h3conn_establish();
     test_h3conn_roundtrip();
+    test_rtxstore();
+    test_rebuild();
+    test_collect();
+    test_kuswitch_derive();
+    test_kuswitch_phasebit();
     return TEST_REPORT();
 }
