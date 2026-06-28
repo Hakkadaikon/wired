@@ -281,6 +281,7 @@
 #include "castore/chainverify.c"
 #include "castore/pathvalidate.c"
 #include "driver/driver.c"
+#include "client/client.c"
 #include "varint_test.c"
 #include "header_test.c"
 #include "pnum_test.c"
@@ -550,6 +551,7 @@
 #include "crypto_stream_test.c"
 #include "tlsdriver_test.c"
 #include "fullhs_test.c"
+#include "client_test.c"
 
 int main(void)
 {
@@ -821,5 +823,6 @@ int main(void)
     test_crypto_stream();
     test_tlsdriver();
     test_fullhs();
+    test_client();
     return TEST_REPORT();
 }
