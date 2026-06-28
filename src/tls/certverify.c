@@ -133,12 +133,23 @@ static int verify_rsa(const u8 *cert, usz cert_len, const u8 *sig,
     return quic_rsa_pkcs1_verify(n, n_len, sig, sig_len, hash, 32);
 }
 
-/* The 32-byte Ed25519 public key from the certificate. */
+/* RFC 5280 4.1.2.7: a 32-byte raw key wrapped in the BIT STRING's leading
+ * unused-bits octet (0x00). */
+static int is_ed25519_bits(const u8 *bits, usz len)
+{
+    return len == QUIC_ED25519_PUBKEY + 1 && bits[0] == 0x00;
+}
+
+/* The 32-byte Ed25519 public key from the certificate, past the unused-bits
+ * octet. */
 static int ed25519_key(const u8 *cert, usz cert_len, const u8 **key)
 {
+    const u8 *bits;
     usz key_len;
-    if (!cert_spki_key(cert, cert_len, key, &key_len)) return 0;
-    return key_len == QUIC_ED25519_PUBKEY;
+    if (!cert_spki_key(cert, cert_len, &bits, &key_len)) return 0;
+    if (!is_ed25519_bits(bits, key_len)) return 0;
+    *key = bits + 1;
+    return 1;
 }
 
 static int verify_ed25519(const u8 *cert, usz cert_len, const u8 *sig,
