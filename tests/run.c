@@ -1,4 +1,7 @@
 #include "test.h"
+#include "crypto_stream/crypto_tx.c"
+#include "crypto_stream/crypto_rx.c"
+#include "crypto_stream/ecdhe.c"
 #include "h3run/control.c"
 #include "h3run/settings_seq.c"
 #include "h3run/goaway.c"
@@ -542,6 +545,7 @@
 #include "chainverify_test.c"
 #include "pathvalidate_test.c"
 #include "driver_test.c"
+#include "crypto_stream_test.c"
 
 int main(void)
 {
@@ -810,5 +814,6 @@ int main(void)
     test_chainverify();
     test_pathvalidate();
     test_driver();
+    test_crypto_stream();
     return TEST_REPORT();
 }
