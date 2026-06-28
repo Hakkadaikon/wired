@@ -362,6 +362,7 @@
 #include "h3resp/field_encode.c"
 #include "h3resp/resp_build.c"
 #include "h3resp/hello.c"
+#include "evloop/evloop.c"
 #include "varint_test.c"
 #include "header_test.c"
 #include "pnum_test.c"
@@ -705,6 +706,7 @@
 #include "avail_test.c"
 #include "v2switch_test.c"
 #include "versdowngrade_test.c"
+#include "evloop_test.c"
 
 int main(void)
 {
@@ -1066,5 +1068,6 @@ int main(void)
     test_avail();
     test_v2switch();
     test_versdowngrade();
+    test_evloop();
     return TEST_REPORT();
 }
