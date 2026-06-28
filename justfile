@@ -21,5 +21,17 @@ test:
 ccn:
     lizard src --CCN 3 -w
 
+# format all sources in place (clang-format, .clang-format config)
+fmt:
+    clang-format -i $(find src tests \( -name '*.c' -o -name '*.h' \))
+
+# verify formatting without writing (fails on diff)
+fmt-check:
+    clang-format --dry-run --Werror $(find src tests \( -name '*.c' -o -name '*.h' \))
+
+# static analysis (clang-tidy, freestanding flags after --)
+lint:
+    clang-tidy -checks='-*,bugprone-*,clang-analyzer-*,readability-*' $(find src -name '*.c') -- -target x86_64-linux-gnu -ffreestanding -nostdlib -Isrc
+
 # everything
 check: ccn test
