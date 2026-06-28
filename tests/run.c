@@ -1,4 +1,17 @@
 #include "test.h"
+#include "keys/discard_driver.c"
+#include "keys/promote.c"
+#include "keys/keyset.c"
+#include "pipeline/framewalk.c"
+#include "pipeline/rxpacket.c"
+#include "pipeline/txpacket.c"
+#include "tls/hsdriver.c"
+#include "tls/certverify.c"
+#include "x509/ec_pubkey.c"
+#include "x509/rsa_pubkey.c"
+#include "rsa/rsa_pss_verify.c"
+#include "rsa/pss.c"
+#include "rsa/mgf1.c"
 #include "tls/serverhello.c"
 #include "tls/clienthello.c"
 #include "tls/ext_keyshare.c"
@@ -437,6 +450,18 @@
 #include "ext_keyshare_test.c"
 #include "clienthello_test.c"
 #include "serverhello_test.c"
+#include "mgf1_test.c"
+#include "rsa_pss_test.c"
+#include "rsa_pubkey_test.c"
+#include "ec_pubkey_test.c"
+#include "certverify_test.c"
+#include "hsdriver_test.c"
+#include "txpacket_test.c"
+#include "rxpacket_test.c"
+#include "framewalk_test.c"
+#include "keyset_test.c"
+#include "promote_test.c"
+#include "discard_driver_test.c"
 
 int main(void)
 {
@@ -653,5 +678,17 @@ int main(void)
     test_ext_key_share_wire();
     test_client_hello_has_all_exts();
     test_server_hello_roundtrip();
+    test_mgf1_kat();
+    test_rsa_pss();
+    test_rsa_pubkey_extract();
+    test_ec_pubkey_extract();
+    test_certverify_bad_scheme();
+    test_server_does_not_send_before_clienthello();
+    test_txpacket_roundtrip();
+    test_rxpacket_payload_view();
+    test_framewalk_sequence();
+    test_keyset();
+    test_promote();
+    test_discard_driver();
     return TEST_REPORT();
 }
