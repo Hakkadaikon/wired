@@ -145,13 +145,27 @@ control and reassembly; a userspace IPv4/UDP stack over an in-memory link;
 and a kernel-free endpoint that establishes a handshake and exchanges 1-RTT
 data.
 
-Also implemented, each verified against its RFC: the 1-RTT key update, path
-validation and migration, the connection close lifecycle, version
-negotiation with downgrade protection and QUIC v2, the unreliable DATAGRAM
-extension (RFC 9221), grease_quic_bit (RFC 9287), and the HTTP/3 frame codec
-with the control-stream / SETTINGS / GOAWAY state machine (RFC 9114).
+Also implemented, each verified against its RFC: the 1-RTT key update (key
+phase, old-key retention, AEAD limits), path validation and connection
+migration, the connection close / draining / idle-timeout lifecycle, version
+negotiation with downgrade protection and QUIC v2, compatible version
+negotiation (RFC 9368), the unreliable DATAGRAM extension (RFC 9221),
+grease_quic_bit (RFC 9287), Ed25519 signature verification (RFC 8032) with
+Certificate/CertificateVerify parsing, 0-RTT key derivation and constraints,
+stateless reset, coalesced packet splitting, received-packet-number tracking,
+loss recovery (PTO, ECN, pacing, persistent congestion) and the full
+congestion-control phases, and the HTTP/3 stack (frame codec, control /
+SETTINGS / GOAWAY state machine, request-stream framing, pseudo-headers,
+priorities) with the static QPACK table, integer/string/field-line codecs,
+SNI and ALPN extension codecs.
 
-Not implemented: QPACK header compression (RFC 9204), full TLS 1.3
-certificate/signature verification, and 0-RTT. The HTTP/3 HEADERS payload is
-passed through opaque, and the endpoint proves transport key agreement and
-encrypted data exchange rather than full PKI authentication.
+Verified across the whole tree: every function holds cyclomatic complexity
+<= 3, all sources compile freestanding (no libc), and the full test suite
+runs in one hosted translation unit.
+
+Not implemented (deliberate, noted in code): the QPACK dynamic table (RFC
+9204 — only the static parts are present), full TLS 1.3 certificate-chain /
+X.509 path validation beyond Ed25519 signature checking, and 0-RTT replay
+protection. The HTTP/3 HEADERS payload is passed through opaque, and the
+endpoint proves transport key agreement and encrypted data exchange rather
+than full PKI authentication.
