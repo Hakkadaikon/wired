@@ -31,4 +31,11 @@ i64 quic_udp_send(i64 fd, const quic_sockaddr_in *sa, const u8 *buf, usz len);
 /* Receive up to len bytes into buf. Returns bytes read or a negative errno. */
 i64 quic_udp_recv(i64 fd, u8 *buf, usz len);
 
+/* Receive up to len bytes into buf and write the source address into src.
+ * Returns bytes read or a negative errno. */
+i64 quic_udp_recvfrom(i64 fd, u8 *buf, usz len, quic_sockaddr_in *src);
+
+/* Close fd. Returns 0 on success or a negative errno. */
+i64 quic_udp_close(i64 fd);
+
 #endif

@@ -321,6 +321,7 @@
 #include "cc_test.c"
 #include "flow_test.c"
 #include "udp_test.c"
+#include "udp_recvfrom_test.c"
 #include "retransmit_test.c"
 #include "ack_test.c"
 #include "ncid_test.c"
@@ -609,6 +610,7 @@ int main(void)
     test_cc();
     test_flow();
     test_udp();
+    test_udp_recvfrom();
     test_rtx();
     test_ack();
     test_ncid();

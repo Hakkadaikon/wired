@@ -38,3 +38,16 @@ i64 quic_udp_recv(i64 fd, u8 *buf, usz len)
 {
     return syscall6(SYS_recvfrom, fd, (i64)buf, (i64)len, 0, 0, 0);
 }
+
+i64 quic_udp_recvfrom(i64 fd, u8 *buf, usz len, quic_sockaddr_in *src)
+{
+    /* addrlen is in/out: pass the buffer size, kernel writes the actual length. */
+    u32 addrlen = sizeof(*src);
+    return syscall6(SYS_recvfrom, fd, (i64)buf, (i64)len, 0,
+                    (i64)src, (i64)&addrlen);
+}
+
+i64 quic_udp_close(i64 fd)
+{
+    return syscall1(SYS_close, fd);
+}
