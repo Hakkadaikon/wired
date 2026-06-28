@@ -1,0 +1,110 @@
+#include "test.h"
+
+static void fill(u8 *p, usz n, u8 base)
+{
+    for (usz i = 0; i < n; i++) p[i] = (u8)(base + i);
+}
+
+static int keys_differ(const quic_initial_keys *a, const quic_initial_keys *b)
+{
+    int d = 0;
+    for (usz i = 0; i < QUIC_INITIAL_KEY; i++) d |= (a->key[i] != b->key[i]);
+    return d;
+}
+
+/* Ordered drive: init -> handshake -> master makes each stage's keys
+ * retrievable, and only after its stage is reached. */
+static void test_keyschedule_order(void)
+{
+    u8 ecdhe[32], tr[] = "ClientHello||ServerHello";
+    fill(ecdhe, 32, 1);
+    quic_keysched st;
+    const quic_initial_keys *k;
+
+    quic_keysched_init(&st);
+    /* nothing derived yet */
+    CHECK(quic_keysched_get(&st, QUIC_KS_CLIENT_HS, &k) == 0);
+    CHECK(quic_keysched_get(&st, QUIC_KS_CLIENT_AP, &k) == 0);
+
+    CHECK(quic_keysched_advance_handshake(&st, ecdhe, 32, tr, sizeof(tr)) == 1);
+    CHECK(quic_keysched_get(&st, QUIC_KS_CLIENT_HS, &k) == 1);
+    CHECK(quic_keysched_get(&st, QUIC_KS_SERVER_HS, &k) == 1);
+    /* app keys still unavailable before master stage */
+    CHECK(quic_keysched_get(&st, QUIC_KS_CLIENT_AP, &k) == 0);
+
+    CHECK(quic_keysched_advance_master(&st, tr, sizeof(tr)) == 1);
+    CHECK(quic_keysched_get(&st, QUIC_KS_CLIENT_AP, &k) == 1);
+    CHECK(quic_keysched_get(&st, QUIC_KS_SERVER_AP, &k) == 1);
+}
+
+/* Skipping the handshake stage (init -> master directly) is rejected. */
+static void test_keyschedule_skip_rejected(void)
+{
+    u8 tr[] = "transcript";
+    quic_keysched st;
+    const quic_initial_keys *k;
+    quic_keysched_init(&st);
+    CHECK(quic_keysched_advance_master(&st, tr, sizeof(tr)) == 0);
+    CHECK(quic_keysched_get(&st, QUIC_KS_CLIENT_AP, &k) == 0);
+}
+
+/* Advancing handshake twice is rejected (stage no longer init). */
+static void test_keyschedule_double_handshake(void)
+{
+    u8 ecdhe[32], tr[] = "tr";
+    fill(ecdhe, 32, 5);
+    quic_keysched st;
+    quic_keysched_init(&st);
+    CHECK(quic_keysched_advance_handshake(&st, ecdhe, 32, tr, sizeof(tr)) == 1);
+    CHECK(quic_keysched_advance_handshake(&st, ecdhe, 32, tr, sizeof(tr)) == 0);
+}
+
+/* A wrong-length ECDHE secret is rejected at the trust boundary. */
+static void test_keyschedule_bad_ecdhe(void)
+{
+    u8 ecdhe[32], tr[] = "tr";
+    fill(ecdhe, 32, 9);
+    quic_keysched st;
+    quic_keysched_init(&st);
+    CHECK(quic_keysched_advance_handshake(&st, ecdhe, 31, tr, sizeof(tr)) == 0);
+    CHECK(st.stage == 0); /* stage unchanged on rejection */
+}
+
+/* Driven keys match the existing one-shot derivations and split by direction. */
+static void test_keyschedule_matches_oneshot(void)
+{
+    u8 ecdhe[32], tr[] = "ClientHello||ServerHello||Finished";
+    fill(ecdhe, 32, 3);
+    quic_keysched st;
+    const quic_initial_keys *c_hs, *s_hs, *c_ap, *s_ap;
+    quic_keysched_init(&st);
+    quic_keysched_advance_handshake(&st, ecdhe, 32, tr, sizeof(tr));
+    quic_keysched_advance_master(&st, tr, sizeof(tr));
+    quic_keysched_get(&st, QUIC_KS_CLIENT_HS, &c_hs);
+    quic_keysched_get(&st, QUIC_KS_SERVER_HS, &s_hs);
+    quic_keysched_get(&st, QUIC_KS_CLIENT_AP, &c_ap);
+    quic_keysched_get(&st, QUIC_KS_SERVER_AP, &s_ap);
+
+    u8 hs[32], master[32];
+    quic_initial_keys ref;
+    quic_tls_handshake_secret(ecdhe, hs);
+    quic_tls_handshake_keys(hs, tr, sizeof(tr), 0, &ref);
+    for (usz i = 0; i < QUIC_INITIAL_KEY; i++) CHECK(c_hs->key[i] == ref.key[i]);
+    quic_tls_master_secret(hs, master);
+    quic_tls_app_keys(master, tr, sizeof(tr), 1, &ref);
+    for (usz i = 0; i < QUIC_INITIAL_KEY; i++) CHECK(s_ap->key[i] == ref.key[i]);
+
+    /* directions and stages produce distinct keys */
+    CHECK(keys_differ(c_hs, s_hs));
+    CHECK(keys_differ(c_ap, s_ap));
+    CHECK(keys_differ(c_hs, c_ap));
+}
+
+void test_keyschedule(void)
+{
+    test_keyschedule_order();
+    test_keyschedule_skip_rejected();
+    test_keyschedule_double_handshake();
+    test_keyschedule_bad_ecdhe();
+    test_keyschedule_matches_oneshot();
+}
