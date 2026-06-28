@@ -272,6 +272,10 @@
 #include "ackgen/ackgen.c"
 #include "ackgen/ackrange.c"
 #include "ackgen/ackfreq.c"
+#include "castore/castore.c"
+#include "castore/chainverify.c"
+#include "castore/pathvalidate.c"
+#include "driver/driver.c"
 #include "varint_test.c"
 #include "header_test.c"
 #include "pnum_test.c"
@@ -534,6 +538,10 @@
 #include "ackgen_test.c"
 #include "ackrange_test.c"
 #include "ackfreq_test.c"
+#include "castore_test.c"
+#include "chainverify_test.c"
+#include "pathvalidate_test.c"
+#include "driver_test.c"
 
 int main(void)
 {
@@ -798,5 +806,9 @@ int main(void)
     test_ackgen();
     test_ackrange();
     test_ackfreq();
+    test_castore();
+    test_chainverify();
+    test_pathvalidate();
+    test_driver();
     return TEST_REPORT();
 }
