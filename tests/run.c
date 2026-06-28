@@ -261,6 +261,7 @@
 #include "udploop/rxloop.c"
 #include "udploop/txloop.c"
 #include "udploop/antiamp_gate.c"
+#include "connloop/connloop.c"
 #include "varint_test.c"
 #include "header_test.c"
 #include "pnum_test.c"
@@ -512,6 +513,7 @@
 #include "rxloop_test.c"
 #include "txloop_test.c"
 #include "antiamp_gate_test.c"
+#include "connloop_test.c"
 
 int main(void)
 {
@@ -765,5 +767,6 @@ int main(void)
     test_rxloop();
     test_txloop();
     test_antiamp_gate();
+    test_connloop();
     return TEST_REPORT();
 }
