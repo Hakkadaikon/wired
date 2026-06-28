@@ -1,4 +1,17 @@
 #include "test.h"
+#include "ackrange/ackrange_process.c"
+#include "dgdeliver/dg_send.c"
+#include "dgdeliver/dg_loss.c"
+#include "dgdeliver/dg_recv.c"
+#include "losstime/losstime.c"
+#include "pnspaces/spaces.c"
+#include "pnspaces/sent_spaces.c"
+#include "pnspaces/recv_spaces.c"
+#include "protectcs/protectcs.c"
+#include "shorthdr/shorthdr.c"
+#include "versmgr/avail.c"
+#include "versmgr/v2switch.c"
+#include "versmgr/downgrade.c"
 #include "certreq/certreq.c"
 #include "cwndctl/cwndctl.c"
 #include "hrr/hrr_build.c"
@@ -679,6 +692,19 @@
 #include "pskmodes_test.c"
 #include "preshared_test.c"
 #include "earlydata_test.c"
+#include "ackrange_process_test.c"
+#include "dg_send_test.c"
+#include "dg_loss_test.c"
+#include "dg_recv_test.c"
+#include "losstime_test.c"
+#include "pnspaces_spaces_test.c"
+#include "pnspaces_sent_test.c"
+#include "pnspaces_recv_test.c"
+#include "protectcs_test.c"
+#include "shorthdr_test.c"
+#include "avail_test.c"
+#include "v2switch_test.c"
+#include "versdowngrade_test.c"
 
 int main(void)
 {
@@ -1019,5 +1045,26 @@ int main(void)
     test_pskmodes();
     test_preshared();
     test_earlydata();
+    test_ackrange_process();
+    test_dg_send_with_length();
+    test_dg_send_no_length();
+    test_dg_send_over_max();
+    test_dg_send_unsupported();
+    test_dg_send_no_room();
+    test_dg_loss_notifies();
+    test_dg_loss_ignores_other();
+    test_dg_loss_never_retransmit();
+    test_dg_recv_with_length();
+    test_dg_recv_no_length();
+    test_dg_recv_truncated();
+    test_losstime();
+    test_pnspaces_spaces();
+    test_pnspaces_sent();
+    test_pnspaces_recv();
+    test_protectcs();
+    test_shorthdr();
+    test_avail();
+    test_v2switch();
+    test_versdowngrade();
     return TEST_REPORT();
 }
