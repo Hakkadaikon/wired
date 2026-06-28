@@ -1,15 +1,23 @@
 #include "hspkt/hspkt_open.h"
-#include "hspkt/unprotect.h"
-#include "hp/hp.h"
+#include "lhdr/lhdr_parse.h"
+#include "vpn/vpn_open.h"
 
-/* RFC 9001 5 / RFC 9000 17.2.4: simplified long header is byte0, 4-byte
- * version, dcid_len, dcid, then a 4-byte packet number. */
+/* RFC 9000 17.2.4 / RFC 9001 5.4: parse the complete Handshake long header
+ * (no Token) for the packet-number offset and Length, then remove header
+ * protection and AEAD-open the payload in place. dcid_len is recovered from the
+ * header itself and so is not needed from the caller. */
 int quic_hspkt_open(const quic_initial_keys *hs_keys, const quic_aes128 *hp,
                     u8 *pkt, usz len, u8 dcid_len,
                     const u8 **payload, usz *payload_len)
 {
-    usz hdr_len = 10u + dcid_len;
-    usz pn_off = 6u + dcid_len;
-    return quic_hspkt_unprotect(hs_keys, hp, pkt, len, hdr_len, pn_off,
-                                QUIC_HP_LONG_MASK, payload, payload_len);
+    const u8 *dcid, *scid, *token;
+    u8 dcl, scl;
+    usz tkl, pn_off;
+    u64 length;
+    (void)dcid_len;
+    if (!quic_lhdr_parse(pkt, len, 0, &dcid, &dcl, &scid, &scl, &token, &tkl,
+                         &length, &pn_off))
+        return 0;
+    return quic_vpn_open(hs_keys, hp, pkt, len, pn_off, length, payload,
+                         payload_len);
 }
