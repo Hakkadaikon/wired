@@ -257,6 +257,10 @@
 #include "flow/stream_read.c"
 #include "flow/credit.c"
 #include "flow/stream_credit.c"
+#include "framedispatch/dispatch_state.c"
+#include "udploop/rxloop.c"
+#include "udploop/txloop.c"
+#include "udploop/antiamp_gate.c"
 #include "varint_test.c"
 #include "header_test.c"
 #include "pnum_test.c"
@@ -504,6 +508,10 @@
 #include "sentpkt_test.c"
 #include "ack_process_test.c"
 #include "loss_detect_test.c"
+#include "dispatch_state_test.c"
+#include "rxloop_test.c"
+#include "txloop_test.c"
+#include "antiamp_gate_test.c"
 
 int main(void)
 {
@@ -753,5 +761,9 @@ int main(void)
     test_sentpkt();
     test_ack_process();
     test_loss_detect();
+    test_dispatch_state();
+    test_rxloop();
+    test_txloop();
+    test_antiamp_gate();
     return TEST_REPORT();
 }
