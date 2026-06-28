@@ -304,6 +304,25 @@
 #include "castore/pathvalidate.c"
 #include "driver/driver.c"
 #include "client/client.c"
+#include "sdrv/sdrv.c"
+#include "selfcert/derenc.c"
+#include "selfcert/tbs.c"
+#include "selfcert/selfcert.c"
+#include "hspkt/hspkt_build.c"
+#include "hspkt/hspkt_open.c"
+#include "hspkt/onertt.c"
+#include "hspkt/unprotect.c"
+#include "srvfin/verify.c"
+#include "srvfin/complete.c"
+#include "srvfin/hsdone.c"
+#include "salpn/ch_ext.c"
+#include "salpn/negotiate.c"
+#include "salpn/sni_extract.c"
+#include "stp/server_tp.c"
+#include "stp/parse_tp.c"
+#include "h3settings/control_open.c"
+#include "h3settings/settings_build.c"
+#include "h3settings/control_settings.c"
 #include "varint_test.c"
 #include "header_test.c"
 #include "pnum_test.c"
@@ -596,6 +615,20 @@
 #include "sflight_certmsg_test.c"
 #include "sflight_certverify_build_test.c"
 #include "sflight_finished_build_test.c"
+#include "sdrv_test.c"
+#include "selfcert_test.c"
+#include "hspkt_build_test.c"
+#include "onertt_test.c"
+#include "srvfin_verify_test.c"
+#include "srvfin_complete_test.c"
+#include "srvfin_hsdone_test.c"
+#include "ch_ext_test.c"
+#include "negotiate_test.c"
+#include "sni_extract_test.c"
+#include "server_tp_test.c"
+#include "h3settings_control_open_test.c"
+#include "h3settings_build_test.c"
+#include "h3settings_control_settings_test.c"
 
 int main(void)
 {
@@ -890,5 +923,27 @@ int main(void)
     test_sflight_certmsg();
     test_sflight_certverify_build();
     test_sflight_finished_build();
+    test_sdrv();
+    test_selfcert();
+    test_hspkt_build();
+    test_onertt();
+    test_srvfin_verify();
+    test_srvfin_complete();
+    test_srvfin_hsdone();
+    test_ch_ext_finds_alpn_and_sni();
+    test_ch_ext_absent_returns_zero();
+    test_ch_ext_truncated_returns_zero();
+    test_negotiate_selects_h3_from_clienthello();
+    test_negotiate_rejects_non_h3();
+    test_negotiate_h3_among_others();
+    test_negotiate_truncated();
+    test_negotiate_build_response();
+    test_sni_extract_from_clienthello();
+    test_sni_extract_truncated();
+    test_sni_extract_wrong_name_type();
+    test_server_tp();
+    test_h3settings_control_open();
+    test_h3settings_build();
+    test_h3settings_control_settings();
     return TEST_REPORT();
 }
