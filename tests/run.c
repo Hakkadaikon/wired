@@ -1,4 +1,9 @@
 #include "test.h"
+#include "shbuild/shbuild.c"
+#include "sflight/encext.c"
+#include "sflight/certmsg.c"
+#include "sflight/certverify_build.c"
+#include "sflight/finished_build.c"
 #include "initpkt/initkeys.c"
 #include "initpkt/initpkt.c"
 #include "initpkt/initopen.c"
@@ -585,6 +590,12 @@
 #include "iscid_test.c"
 #include "rscid_test.c"
 #include "initpkt_test.c"
+#include "ed25519_sign_test.c"
+#include "shbuild_test.c"
+#include "sflight_encext_test.c"
+#include "sflight_certmsg_test.c"
+#include "sflight_certverify_build_test.c"
+#include "sflight_finished_build_test.c"
 
 int main(void)
 {
@@ -873,5 +884,11 @@ int main(void)
     test_iscid();
     test_rscid();
     test_initpkt();
+    test_ed25519_sign();
+    test_shbuild();
+    test_sflight_encext();
+    test_sflight_certmsg();
+    test_sflight_certverify_build();
+    test_sflight_finished_build();
     return TEST_REPORT();
 }
