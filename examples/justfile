@@ -1,0 +1,16 @@
+# quic_vibe real-UDP server sample. libc-free, x86_64-linux only.
+
+cc := "clang"
+cflags := "-target x86_64-linux-gnu -ffreestanding -fno-stack-protector -fno-builtin -nostdlib -static -O2 -Isrc"
+
+# Build the server: link quic_server.c against every src/**/*.c except sys.c
+# (we supply our own _start). The static, freestanding binary needs no libc.
+build:
+    cd .. && {{cc}} {{cflags}} \
+        examples/quic_server.c \
+        $(find src -name '*.c' ! -path 'src/sys/sys.c') \
+        -o examples/quic_server
+
+# Build and run (binds 0.0.0.0:4433; Ctrl-C to stop).
+run: build
+    ./quic_server
