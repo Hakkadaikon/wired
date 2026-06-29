@@ -17,6 +17,8 @@ typedef struct {
     const u8 *cert_der;                 /* RFC 8446 4.4.2 end-entity cert (view) */
     usz cert_len;
     u8 client_pub[32];                  /* RFC 8446 4.2.8 client key_share */
+    u8 client_sid[32];                  /* RFC 8446 4.1.2 legacy_session_id */
+    u8 client_sid_len;                  /* 0..32 */
     u8 hs_secret[QUIC_HKDF_PRK];        /* RFC 8446 7.1 Handshake Secret */
     u8 s_hs_traffic[QUIC_HKDF_PRK];     /* RFC 8446 7.1 server hs traffic secret */
     int hs_ready;                       /* hs_secret derived */

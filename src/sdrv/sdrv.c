@@ -140,9 +140,31 @@ static int take_client_keyshare(const u8 *ch, usz ch_len, u8 pub[32])
     return sdrv_ch_walk(ch + 4, exts + 2, exts + 2 + blen, pub);
 }
 
+/* The legacy_session_id at body offset 34 is fully framed in ch_msg: the length
+ * byte is present, is <=32, and its bytes all lie within ch_msg. */
+static int sdrv_sid_fits(const u8 *ch_msg, usz ch_len)
+{
+    return ch_len >= 4 + 35 && ch_msg[4 + 34] <= 32
+        && ch_len >= 4 + 35 + (usz)ch_msg[4 + 34];
+}
+
+/* RFC 8446 4.1.2: copy the ClientHello legacy_session_id (opaque<0..32> at
+ * body offset 34) into the driver so ServerHello can echo it (4.1.3). Returns 1
+ * on success, 0 if the field overruns ch_msg or exceeds 32 bytes. */
+static int take_client_sid(quic_sdrv *s, const u8 *ch_msg, usz ch_len)
+{
+    u8 len;
+    if (!sdrv_sid_fits(ch_msg, ch_len)) return 0;
+    len = ch_msg[4 + 34];
+    for (u8 i = 0; i < len; i++) s->client_sid[i] = ch_msg[4 + 35 + i];
+    s->client_sid_len = len;
+    return 1;
+}
+
 int quic_sdrv_recv_client_hello(quic_sdrv *s, const u8 *ch_msg, usz ch_len)
 {
     if (!take_client_keyshare(ch_msg, ch_len, s->client_pub)) return 0;
+    if (!take_client_sid(s, ch_msg, ch_len)) return 0;
     quic_transcript_add(&s->tr, ch_msg, ch_len);
     return 1;
 }
@@ -246,8 +268,8 @@ static int emit_hs_flight(quic_sdrv *s, u8 *flight, usz cap, usz *off)
 static int build_server_hello(quic_sdrv *s, const u8 *random,
                               u8 *out, usz cap, usz *len)
 {
-    if (!quic_shbuild_server_hello(random, 0, 0, 0x1301,
-                                   s->server_pub, out, cap, len))
+    if (!quic_shbuild_server_hello(random, s->client_sid, s->client_sid_len,
+                                   0x1301, s->server_pub, out, cap, len))
         return 0;
     quic_transcript_add(&s->tr, out, *len);
     derive_secret(s);
