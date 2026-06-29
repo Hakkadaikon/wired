@@ -36,12 +36,12 @@ The handshake is gated on a **verified** client Finished: a forged Finished
 promotes nothing (the server stays unconfirmed and installs no 1-RTT keys); the
 `server_test` phase machine covers that safety check directly.
 
-The end-entity certificate is a runtime **Ed25519** leaf (the `0x0807`
-`ed25519` CertificateVerify scheme, RFC 8446 4.4.3), the same identity the
-in-tree client and loopback test verify. The ECDHE `key_share` is X25519.
-Ed25519 keeps the sample self-consistent with the in-tree verifier; it is **not**
-tuned for any particular external backend — see the curl section for why an
-external HTTP/3 client may still reject it.
+The end-entity certificate is a runtime self-signed **ECDSA P-256** leaf (the
+`0x0403` `ecdsa_secp256r1_sha256` CertificateVerify scheme, RFC 8446 4.4.3),
+built by the server driver from its signing scalar; the in-tree client and
+loopback test verify it. The ECDHE `key_share` is X25519. P-256 is chosen so the
+wire certificate is acceptable to backends that reject Ed25519 server certs (see
+the curl section).
 
 ## Connection flow
 
@@ -53,7 +53,7 @@ sequenceDiagram
     Note over S: listen_udp() — udp socket / bind, await ClientHello
     C->>S: Initial (long header, ClientHello in CRYPTO; ALPN h3, X25519 key_share)
     Note over S: quic_server_recv_initial() — derive Initial keys from DCID,<br/>decrypt, fold ClientHello into the transcript
-    Note over S: quic_server_build_flight()<br/>SH / EE(ALPN h3 + transport params) /<br/>Cert(Ed25519) / CertVerify(0x0807) / Finished<br/>+ install Handshake key
+    Note over S: quic_server_build_flight()<br/>SH / EE(ALPN h3 + transport params) /<br/>Cert(ECDSA P-256) / CertVerify(0x0403) / Finished<br/>+ install Handshake key
     S-->>C: ServerHello (Initial packet)
     S-->>C: server flight (Handshake packet)
     C->>S: client Finished (Handshake, AEAD-protected)
@@ -98,11 +98,14 @@ verified in this environment**, and completion against curl is **not guaranteed*
   HTTP/3 (`curl --version` lists no `http3` under Protocols/Features), so it
   cannot be exercised here. You need a curl linked against an HTTP/3 backend
   (quiche or ngtcp2).
-- **Ed25519 leaf may be rejected.** The sample signs with Ed25519 (`0x0807`) to
-  stay consistent with the in-tree verifier. curl's quiche backend (BoringSSL)
-  does **not** verify Ed25519 server certificates by default, and ngtcp2
-  (GnuTLS / OpenSSL) applies a different MTI / extension set; either may reject
-  this server's flight. Completion against quiche/ngtcp2 is **not guaranteed**.
+- **External backend not guaranteed.** The sample signs with ECDSA P-256
+  (`0x0403`), which curl's quiche backend (BoringSSL) accepts where it rejects
+  Ed25519 server certs by default — P-256 is chosen to clear that hurdle. It is
+  still **not guaranteed** to complete end to end: ngtcp2 (GnuTLS / OpenSSL)
+  applies a different MTI / extension set, and the full external handshake was
+  **not** exercised here (no HTTP/3-capable curl, and the sandbox network /
+  capture limits below). The quiche path is the intended target, not a verified
+  result.
 - **Sandbox network limits.** `tcpdump -i lo -n udp port 4433` would show the
   exchange, but packet capture needs `CAP_NET_RAW`, which is **not available**
   here, so it was not run.
@@ -183,7 +186,8 @@ in `server_test`, and the full `src/client/` mutual handshake is exercised in
 ## Scope
 
 One connection, one request: a single `GET` answered with `:status 200`. The
-ECDHE `key_share` is X25519 and the certificate/CertificateVerify use Ed25519
-(`0x0807`). No Retry, Version Negotiation, 0-RTT, or connection migration. The
+ECDHE `key_share` is X25519 and the certificate/CertificateVerify use ECDSA
+P-256 (`0x0403`). No Retry, Version Negotiation, 0-RTT, or connection migration.
+The
 handshake keys and certificate use fixed seeds for reproducibility; a production
 server would derive per-run keys.
