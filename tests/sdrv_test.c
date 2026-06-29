@@ -1,5 +1,9 @@
 #include "test.h"
 #include "sdrv/sdrv.h"
+#include "tls/tpext.h"
+#include "stp/parse_tp.h"
+#include "tparam/tparam.h"
+#include "tparam/tpcheck.h"
 #include "tls/clienthello.h"
 #include "tls/serverhello.h"
 #include "tls/cert.h"
@@ -100,6 +104,46 @@ void test_sdrv(void)
     CHECK(cv_scheme == 0x0403);
     CHECK(quic_tls_verify_cert_signature(0x0403, s.cert_der, s.cert_len, cv_sig,
                                          cv_siglen, th));
+
+    /* RFC 9000 7.3: the EncryptedExtensions transport parameters carry the real
+     * ODCID (client first Initial DCID) and ISCID (server SCID), not empty cids.
+     * EE = header(4) + ext_list_len(2) + ALPN(9), then the 0x39 ext. */
+    {
+        static const u8 client_dcid[] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51,
+                                          0x57, 0x08};
+        static const u8 server_scid[] = {0x11, 0x22, 0x33, 0x44, 0x55};
+        u8 ch2[512], sh2[256], flight2[2048];
+        usz sh2_len, hs2_len, q = 0;
+        const u8 *ee2, *tp;
+        usz ee2l, tpl;
+        const u8 *cid;
+        usz cidl;
+        quic_sdrv s2;
+
+        quic_sdrv_init(&s2, srv_priv, srv_pub, cert_priv, 0, 0);
+        CHECK(quic_sdrv_set_cids(&s2, client_dcid, sizeof(client_dcid),
+                                 server_scid, sizeof(server_scid)));
+        ch_len = quic_tls_client_hello(ch2, sizeof(ch2), srv_random, cli_pub,
+                                       0, 0, (const u8 *)"\0", 1);
+        CHECK(quic_sdrv_recv_client_hello(&s2, ch2, ch_len));
+        CHECK(quic_sdrv_build_server_flight(&s2, srv_random, sh2, sizeof(sh2),
+                                            &sh2_len, flight2, sizeof(flight2),
+                                            &hs2_len));
+        CHECK(next_hs(flight2, hs2_len, &q, &ee2, &ee2l));
+        CHECK(quic_tpext_decode(ee2 + 15, ee2l - 15, &tp, &tpl) != 0);
+
+        CHECK(quic_stp_parse(tp, tpl,
+                             QUIC_TP_ORIGINAL_DESTINATION_CONNECTION_ID,
+                             0, &cid, &cidl) == 1);
+        CHECK(cidl == sizeof(client_dcid)
+              && quic_tparam_cid_match(cid, cidl, client_dcid,
+                                       sizeof(client_dcid)));
+        CHECK(quic_stp_parse(tp, tpl, QUIC_TP_INITIAL_SOURCE_CONNECTION_ID,
+                             0, &cid, &cidl) == 1);
+        CHECK(cidl == sizeof(server_scid)
+              && quic_tparam_cid_match(cid, cidl, server_scid,
+                                       sizeof(server_scid)));
+    }
 
     /* Finished verifies under the server handshake traffic secret (derived
      * over the transcript through ServerHello) at the transcript hash through
