@@ -21,6 +21,10 @@ typedef struct {
     u8 s_hs_traffic[QUIC_HKDF_PRK];     /* RFC 8446 7.1 server hs traffic secret */
     int hs_ready;                       /* hs_secret derived */
     quic_transcript tr;                 /* RFC 8446 4.4.1 Transcript-Hash */
+    u8 odcid[20];                       /* RFC 9000 7.3 client first Initial DCID */
+    u8 odcid_len;
+    u8 iscid[20];                       /* RFC 9000 7.3 server SCID */
+    u8 iscid_len;
 } quic_sdrv;
 
 /* Hold the server key material and build the self-signed P-256 certificate from
@@ -30,6 +34,13 @@ typedef struct {
 void quic_sdrv_init(quic_sdrv *s, const u8 server_priv_x25519[32],
                     const u8 server_pub_x25519[32], const u8 cert_priv[32],
                     const u8 *cert_der, usz cert_len);
+
+/* RFC 9000 7.3: record the ODCID (the DCID of the client's first Initial) and
+ * the ISCID (the server's source connection id) to advertise in the
+ * EncryptedExtensions transport parameters. Must be called before
+ * build_server_flight. Returns 1 on success, 0 if either length exceeds 20. */
+int quic_sdrv_set_cids(quic_sdrv *s, const u8 *odcid, u8 odcid_len,
+                       const u8 *iscid, u8 iscid_len);
 
 /* RFC 8446 4.4.1: fold the ClientHello into the transcript and take the
  * client's x25519 key_share. Returns 1 on success, 0 if the key_share is

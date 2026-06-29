@@ -44,7 +44,26 @@ void quic_sdrv_init(quic_sdrv *s, const u8 server_priv_x25519[32],
     sdrv_copy32(s->p256_priv, cert_priv);
     sdrv_build_cert(s);
     s->hs_ready = 0;
+    s->odcid_len = 0;
+    s->iscid_len = 0;
     quic_transcript_init(&s->tr);
+}
+
+/* Copy a connection id (<=20 bytes) into dst, recording its length. Returns 1
+ * on success, 0 if len exceeds 20. */
+static int sdrv_set_cid(u8 *dst, u8 *dst_len, const u8 *cid, u8 len)
+{
+    if (len > 20) return 0;
+    for (u8 i = 0; i < len; i++) dst[i] = cid[i];
+    *dst_len = len;
+    return 1;
+}
+
+int quic_sdrv_set_cids(quic_sdrv *s, const u8 *odcid, u8 odcid_len,
+                       const u8 *iscid, u8 iscid_len)
+{
+    return sdrv_set_cid(s->odcid, &s->odcid_len, odcid, odcid_len)
+        && sdrv_set_cid(s->iscid, &s->iscid_len, iscid, iscid_len);
 }
 
 /* RFC 8446 4.2.8: skip the client_shares(2) length, then read one KeyShareEntry
@@ -155,13 +174,15 @@ static void derive_secret(quic_sdrv *s)
 }
 
 /* RFC 8446 4.3.1 / RFC 9001 8.1-8.2: EncryptedExtensions carrying ALPN "h3"
- * and the server transport parameters. ODCID/ISCID are not plumbed into the
- * driver yet, so empty connection ids are advertised (well-formed TP). */
+ * and the server transport parameters, advertising the ODCID (client first
+ * Initial DCID) and ISCID (server SCID) recorded via quic_sdrv_set_cids
+ * (RFC 9000 7.3). */
 static int emit_ee(quic_sdrv *s, u8 *flight, usz cap, usz *off)
 {
     u8 tp[256], msg[1024];
     usz tn, n;
-    if (!quic_stp_build_server(0, 0, 0, 0, tp, sizeof(tp), &tn)) return 0;
+    if (!quic_stp_build_server(s->odcid, s->odcid_len, s->iscid, s->iscid_len,
+                               tp, sizeof(tp), &tn)) return 0;
     if (!quic_eebuild_encrypted_extensions(tp, tn, msg, sizeof(msg), &n))
         return 0;
     return emit_msg(s, msg, n, flight, cap, off);
