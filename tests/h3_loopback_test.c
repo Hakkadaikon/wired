@@ -177,7 +177,7 @@ static int lb_open_onertt(struct lb_fix *f, u8 *pkt, usz len,
     quic_aes128 hp;
     CHECK(quic_keysched_get(&f->s.sched, QUIC_KS_SERVER_AP, &k) == 1);
     quic_aes128_init(&hp, k->hp);
-    return quic_hspkt_onertt_open(k, &hp, pkt, len, 6, pl, pll);
+    return quic_hspkt_onertt_open(k, &hp, pkt, len, 6, 0, pl, pll);
 }
 
 /* A bound server socket and a client socket, both on 127.0.0.1. Returns 1 with
