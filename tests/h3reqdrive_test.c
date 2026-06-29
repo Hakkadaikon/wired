@@ -10,6 +10,10 @@
 #include "qpack/dynfind.h"
 #include "qpackdyn/field_encode.h"
 #include "qpackdyn/field_decode.h"
+#include "qpack/prefix.h"
+#include "qpack/fieldline.h"
+#include "qpack/literal.h"
+#include "h3conn/request.h"
 #include "test.h"
 
 static int rd_eq(const u8 *a, usz alen, const char *b, usz blen)
@@ -37,6 +41,53 @@ static void test_reqdrive_stream(void)
     CHECK(rd_eq(r.scheme, r.scheme_len, "https", 5));
     CHECK(rd_eq(r.authority, r.authority_len, "ex.com", 6));
     CHECK(rd_eq(r.path, r.path_len, "/index", 6));
+}
+
+/* Length of a NUL-terminated literal (test-local). */
+static usz cstr(const char *s) { usz i = 0; while (s[i]) i++; return i; }
+
+/* RFC 9204 4.5.6: a Literal Field Line With Literal Name carrying (name,value),
+ * appended at *off in fs. */
+static void put_litname(u8 *fs, usz *off, const char *name, const char *value)
+{
+    *off += quic_qpack_literal_name_encode(fs + *off, 64, 0, (const u8 *)name,
+                                           cstr(name), (const u8 *)value,
+                                           cstr(value));
+}
+
+/* RFC 9114 4.3.1 / RFC 9204 4.5: build a curl/quiche-style request field
+ * section: pseudo-headers in :method,:authority,:scheme,:path order using a
+ * mix of indexed, name-reference and literal-name forms, plus a regular
+ * user-agent header as a literal-name line. */
+static usz curl_field_section(u8 *fs)
+{
+    quic_qpack_prefix pfx = {0, 0, 0};
+    usz off = quic_qpack_prefix_encode(fs, 64, &pfx);
+    off += quic_qpack_indexed_encode(fs + off, 64, 17, 1);   /* :method GET */
+    put_litname(fs, &off, ":authority", "curl.test");
+    off += quic_qpack_indexed_encode(fs + off, 64, 23, 1);   /* :scheme https */
+    off += quic_qpack_literal_namref_encode(fs + off, 64, 1, 1, 0,
+                                            (const u8 *)"/get", 4); /* :path */
+    put_litname(fs, &off, "user-agent", "curl/8");
+    return off;
+}
+
+/* RFC 9114 4.1 / RFC 9204 4.5: a curl-style GET (reordered pseudo-headers,
+ * mixed encodings, an extra regular header) decodes; all four pseudo-headers
+ * are recovered by name regardless of order or count. */
+static void test_reqdrive_curl_get(void)
+{
+    u8 fs[64], req[256], scratch[128];
+    usz fs_len = curl_field_section(fs), req_len = 0;
+    quic_h3reqdrive_req r;
+
+    CHECK(quic_h3conn_send_request(0, fs, fs_len, 0, 0, req, sizeof(req),
+                                   &req_len));
+    CHECK(quic_h3reqdrive_recv_get(req, req_len, scratch, sizeof(scratch), &r));
+    CHECK(rd_eq(r.method, r.method_len, "GET", 3));
+    CHECK(rd_eq(r.scheme, r.scheme_len, "https", 5));
+    CHECK(rd_eq(r.authority, r.authority_len, "curl.test", 9));
+    CHECK(rd_eq(r.path, r.path_len, "/get", 4));
 }
 
 /* RFC 9001 5: derive a shared 1-RTT key pair for the end-to-end path. */
@@ -130,6 +181,7 @@ static void test_reqdrive_dynamic_table(void)
 void test_h3reqdrive(void)
 {
     test_reqdrive_stream();
+    test_reqdrive_curl_get();
     test_reqdrive_onertt();
     test_reqdrive_response_status();
     test_reqdrive_dynamic_table();
