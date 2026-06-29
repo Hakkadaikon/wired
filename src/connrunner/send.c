@@ -1,6 +1,7 @@
 #include "connrunner/send.h"
 #include "frame/ack.h"
 #include "frame/frame.h"
+#include "rtxdrive/build.h"
 
 /* Any ack-eliciting packet sitting in the receive queue (RFC 9000 13.2.1). */
 static int queue_has_eliciting(const quic_connrunner *r)
@@ -47,20 +48,46 @@ static usz cr_build_ack(const quic_connrunner *r, u8 *buf, usz cap)
     return quic_ack_encode(buf, cap, &f);
 }
 
-/* RFC 9000 19.7: a minimal ack-eliciting payload stands in for retransmitted or
- * new application data at this layer. */
+/* RFC 9000 19.7: a minimal ack-eliciting payload stands in for new application
+ * data, and for a retransmission whose original bytes the store no longer
+ * holds. */
 static usz cr_build_ping(u8 *buf, usz cap)
 {
     return quic_frame_put_simple(buf, cap, QUIC_FRAME_PING);
 }
 
-/* Build the frame bytes for the chosen kind into buf (1=ACK, 2/3=data stand-in,
- * 0=nothing). Returns the length. */
+void quic_connrunner_capture_rtx(quic_connrunner *r)
+{
+    r->rtx_held = r->loop.rtx_n > 0;
+    if (r->rtx_held) r->rtx_pn = r->loop.rtx[0].pn;
+}
+
+/* RFC 9002 13.3: re-send the lost packet's actual frame bytes under the new
+ * packet number. Falls back to a PING stand-in when no lost pn was captured or
+ * its bytes are not held. */
+static usz cr_build_rtx(const quic_connrunner *r, u8 *buf, usz cap)
+{
+    usz len = 0;
+    if (r->rtx_held)
+        quic_rtxdrive_build(&r->rtx, r->rtx_pn, buf, cap, &len);
+    return len ? len : cr_build_ping(buf, cap);
+}
+
+/* Build the frame bytes for kinds 2/3 (retransmission / new-data stand-in);
+ * kind 0 is handled before this is reached. */
+static usz cr_build_data(const quic_connrunner *r, int kind, u8 *buf, usz cap)
+{
+    if (kind == 2) return cr_build_rtx(r, buf, cap);
+    return cr_build_ping(buf, cap); /* new data */
+}
+
+/* Build the frame bytes for the chosen kind into buf (1=ACK, 2=retransmission,
+ * 3=new-data stand-in, 0=nothing). Returns the length. */
 static usz cr_build_frames(const quic_connrunner *r, int kind, u8 *buf, usz cap)
 {
     if (kind == 1) return cr_build_ack(r, buf, cap);
     if (kind == 0) return 0;
-    return cr_build_ping(buf, cap); /* retransmission or new data */
+    return cr_build_data(r, kind, buf, cap);
 }
 
 usz quic_connrunner_flush_sends(quic_connrunner *r, u64 sent_before, int kind)

@@ -14,6 +14,8 @@ void quic_connrunner_init(quic_connrunner *r, i64 fd,
     r->fd = fd;
     r->peer = *peer;
     quic_evloop_init(&r->loop, level, cwnd, send_len);
+    quic_rtxbytes_init(&r->rtx);
+    r->rtx_held = 0;
     quic_connio_init(&r->io, is_server, byte0, dcid, dcid_len,
                      initial_max_data);
 }
@@ -28,6 +30,7 @@ usz quic_connrunner_advance(quic_connrunner *r, u64 now, u8 *dgram, usz len)
     int kind;
     if (len) quic_connrunner_process_datagram(r, dgram, len);
     kind = quic_connrunner_pending_kind(r); /* before step clears it */
+    quic_connrunner_capture_rtx(r);         /* lost pn before step drains it */
     sent_before = r->loop.next_pn;
     quic_evloop_step(&r->loop, now);
     return quic_connrunner_flush_sends(r, sent_before, kind);

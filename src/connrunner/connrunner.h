@@ -4,6 +4,7 @@
 #include "io/udp.h"
 #include "evloop/evloop.h"
 #include "connio/connio.h"
+#include "rtxbytes/rtxstore.h"
 
 /* RFC 9000 12 / RFC 9001 4: the top-level connection runner. It binds the
  * abstract steady-state loop (evloop, which only decides) to the real socket
@@ -18,6 +19,9 @@ typedef struct {
     quic_sockaddr_in peer;
     quic_evloop loop;  /* the deciding state machine */
     quic_connio io;    /* the real crypto / frame dispatch */
+    quic_rtxbytes rtx; /* RFC 9002 13.3: real frame bytes kept for resend */
+    u64 rtx_pn;        /* lost pn captured pre-step, for the resend's bytes */
+    int rtx_held;      /* 1 if a lost pn is captured for this send */
     u8 rxbuf[QUIC_CONNRUNNER_BUF];
     u8 txbuf[QUIC_CONNRUNNER_BUF];
 } quic_connrunner;

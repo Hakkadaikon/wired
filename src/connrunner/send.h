@@ -14,6 +14,10 @@
  * this BEFORE quic_evloop_step, which clears ack_owed / drains the queues. */
 int quic_connrunner_pending_kind(const quic_connrunner *r);
 
+/* RFC 9002 13.3: capture the oldest queued lost pn BEFORE quic_evloop_step
+ * consumes it, so the flush can resend that packet's real bytes. */
+void quic_connrunner_capture_rtx(quic_connrunner *r);
+
 /* Flush the send the loop just decided. `sent_before` is next_pn captured right
  * before quic_evloop_step and `kind` the pending kind captured then too; if
  * next_pn advanced, that kind's packet is built and sealed into r->txbuf.
