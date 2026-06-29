@@ -14,7 +14,10 @@ certificate, generates the **real TLS 1.3 bytes** of the server flight
 (ServerHello + EncryptedExtensions / Certificate / CertificateVerify /
 Finished, RFC 8446 4.4), seals them into QUIC packets, and returns them. It
 does **not** serve HTTP/3, install 1-RTT keys, or receive the client Finished.
-Those are out of scope for this sample.
+Those are out of scope for this sample — the full steady-state drive (loss
+retransmission, key update, Retry / Version-Negotiation reconnection,
+per-PN-space send/receive over a real UDP socket) lives in the `connrunner`
+domain; this sample is deliberately a single handshake round.
 
 ## Server flow
 
