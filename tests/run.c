@@ -140,6 +140,7 @@
 #include "closelife/draining.c"
 #include "closelife/idlefloor.c"
 #include "closelife/idletimeout.c"
+#include "closelife/termgate.c"
 #include "conn/cidnego.c"
 #include "conn/conn.c"
 #include "conn/demux.c"
@@ -776,6 +777,7 @@
 #include "retrydrive_test.c"
 #include "vndrive_test.c"
 #include "sentmeta_test.c"
+#include "termgate_test.c"
 
 int main(void)
 {
@@ -833,7 +835,7 @@ int main(void)
     test_cidnego_adopt();
     test_cidpool_limit();
     test_close_needs_convert_matrix();
-    test_life_idle_silent_close();
+    test_closelife();
     test_coalesce_split();
     test_coalorder_long_any();
     test_codes_standard();
@@ -1166,5 +1168,6 @@ int main(void)
     test_retrydrive();
     test_vndrive();
     test_sentmeta();
+    test_termgate();
     return TEST_REPORT();
 }
