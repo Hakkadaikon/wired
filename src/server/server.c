@@ -44,6 +44,12 @@ void quic_server_init(quic_server *s, const u8 server_priv_x25519[32],
     s->tr_through_flight = 0;
 }
 
+int quic_server_set_cids(quic_server *s, const u8 *odcid, u8 odcid_len,
+                         const u8 *iscid, u8 iscid_len)
+{
+    return quic_sdrv_set_cids(&s->sdrv, odcid, odcid_len, iscid, iscid_len);
+}
+
 int quic_server_recv_initial(quic_server *s, const u8 *ch_msg, usz ch_len)
 {
     if (s->phase != QUIC_SERVER_HS_INITIAL) return 0;

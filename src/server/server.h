@@ -54,6 +54,13 @@ void quic_server_init(quic_server *s, const u8 server_priv_x25519[32],
                       const u8 server_pub_x25519[32], const u8 cert_seed[32],
                       const u8 *cert_der, usz cert_len);
 
+/* RFC 9000 7.3: record the DCID of the client's first Initial (the ODCID the
+ * server echoes) and the server's source connection id (ISCID) so the
+ * EncryptedExtensions transport parameters carry the real connection ids. Must
+ * be called before build_flight. Returns 1 ok, 0 if either length exceeds 20. */
+int quic_server_set_cids(quic_server *s, const u8 *odcid, u8 odcid_len,
+                         const u8 *iscid, u8 iscid_len);
+
 /* RFC 8446 4.4.1: fold a received ClientHello (TLS handshake message bytes)
  * into the transcript. Advances INITIAL -> CH_RECVD. Returns 1 on success,
  * 0 if the message is not a usable ClientHello or out of phase. */
