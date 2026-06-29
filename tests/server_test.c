@@ -6,7 +6,10 @@
 #include "tls/transcript.h"
 #include "tls/schedule.h"
 #include "tls/finished.h"
+#include "tls/master.h"
+#include "tls/appkeys.h"
 #include "tls/x25519.h"
+#include "schedule_drive/keyschedule.h"
 #include "ed25519/ed25519.h"
 #include "crypto_stream/crypto_tx.h"
 
@@ -231,10 +234,74 @@ static void test_server_fin_before_flight(void)
     CHECK(f.s.phase == QUIC_SERVER_HS_CH_RECVD);
 }
 
+/* Concatenate the raw transcript through the server Finished into buf. */
+static usz client_transcript(struct srv_fix *f, u8 *buf)
+{
+    usz n = 0, i;
+    for (i = 0; i < f->ch_len; i++) buf[n++] = f->ch[i];
+    for (i = 0; i < f->sh_len; i++) buf[n++] = f->sh[i];
+    for (i = 0; i < f->flight_len; i++) buf[n++] = f->flight[i];
+    return n;
+}
+
+/* Derive the application keys the way the client does: master secret from the
+ * shared ECDHE, then app_keys over the raw transcript through the server
+ * Finished (CH..SH..server flight) — never the client Finished. */
+static void client_ap_keys(struct srv_fix *f, int is_server,
+                           quic_initial_keys *out)
+{
+    u8 shared[32], hs[32], master[32], tr[3072];
+    usz tlen;
+    quic_x25519(shared, f->cli_priv, f->sh_pub);
+    quic_tls_handshake_secret(shared, hs);
+    quic_tls_master_secret(hs, master);
+    tlen = client_transcript(f, tr);
+    quic_tls_app_keys(master, tr, tlen, is_server, out);
+}
+
+/* Whole key material (key+iv+hp) is identical. */
+static int ap_keys_eq(const quic_initial_keys *a, const quic_initial_keys *b)
+{
+    const u8 *pa = (const u8 *)a, *pb = (const u8 *)b;
+    int diff = 0;
+    for (usz i = 0; i < sizeof(quic_initial_keys); i++)
+        diff |= pa[i] ^ pb[i];
+    return diff == 0;
+}
+
+/* The server's installed AP keys for one direction equal the client's. */
+static void check_dir_matches(struct srv_fix *f, int which, int is_server)
+{
+    const quic_initial_keys *got;
+    quic_initial_keys want;
+    CHECK(quic_keysched_get(&f->s.sched, which, &got) == 1);
+    client_ap_keys(f, is_server, &want);
+    CHECK(ap_keys_eq(got, &want));
+}
+
+/* RFC 8446 7.1: server and client reach the SAME 1-RTT keys. The server must
+ * derive over the server Finished, not the client Finished, or these diverge
+ * and curl's 1-RTT cannot be decrypted. */
+static void test_server_ap_keys_match_client(void)
+{
+    struct srv_fix f;
+    u8 payload[256];
+    usz plen;
+    make_client_hello(&f);
+    drive_to_flight(&f);
+    make_client_finished(&f);
+    plen = srv_wrap_crypto(f.cli_fin, f.cli_fin_len, payload, sizeof(payload));
+    CHECK(quic_server_feed(&f.s, payload, plen) == 1);
+    CHECK(quic_server_is_confirmed(&f.s) == 1);
+    check_dir_matches(&f, QUIC_KS_SERVER_AP, 1);
+    check_dir_matches(&f, QUIC_KS_CLIENT_AP, 0);
+}
+
 void test_server(void)
 {
     test_server_happy();
     test_server_forged_finished();
     test_server_flight_before_ch();
     test_server_fin_before_flight();
+    test_server_ap_keys_match_client();
 }
