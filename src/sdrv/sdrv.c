@@ -66,22 +66,17 @@ int quic_sdrv_set_cids(quic_sdrv *s, const u8 *odcid, u8 odcid_len,
         && sdrv_set_cid(s->iscid, &s->iscid_len, iscid, iscid_len);
 }
 
-/* RFC 8446 4.2.8: skip the client_shares(2) length, then read one KeyShareEntry
- * (group + key length + key). Returns 1 on success. */
-static int client_keyshare(const u8 *d, usz dlen, u8 pub[32])
-{
-    if (dlen < 2) return 0;
-    return quic_tls_ext_key_share_parse(d + 2, dlen - 2, pub);
-}
-
-/* One extension at q: -1 overrun, 1 key_share taken, 0 skip; *next advances. */
+/* One extension at q: -1 overrun, 1 key_share taken, 0 skip; *next advances.
+ * RFC 8446 4.2.8: the ClientHello key_share lists several KeyShareEntry, so
+ * scan the list for x25519 rather than assuming it is the first entry. */
 static int sdrv_ch_one(const u8 *b, usz q, usz end, u8 pub[32], usz *next)
 {
     unsigned t = (unsigned)b[q] << 8 | b[q + 1];
     usz dlen = (usz)b[q + 2] << 8 | b[q + 3];
     if (q + 4 + dlen > end) return -1;
     *next = q + 4 + dlen;
-    return (t == QUIC_EXT_KEY_SHARE) ? client_keyshare(b + q + 4, dlen, pub) : 0;
+    return (t == QUIC_EXT_KEY_SHARE)
+        ? quic_tls_ext_key_share_scan(b + q + 4, dlen, pub) : 0;
 }
 
 static int sdrv_ch_walk(const u8 *b, usz q, usz end, u8 pub[32])

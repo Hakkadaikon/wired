@@ -19,4 +19,13 @@ usz quic_tls_ext_key_share(u8 *buf, usz cap, const u8 pub[32]);
  * is not 32. */
 int quic_tls_ext_key_share_parse(const u8 *buf, usz n, u8 pub[32]);
 
+/* Read the client x25519 key from a ClientHello key_share extension_data at buf
+ * (n readable): a 2-byte client_shares length then a list of KeyShareEntry
+ * (group(2) + key length(2) + key). curl/quiche offer several groups and
+ * x25519 need not be first, so scan the list. On the first x25519 (group
+ * 0x001d, key length 32) entry, copy 32 bytes into pub and return 1. Returns 0
+ * if no x25519 entry is present or any length field overruns n (untrusted
+ * input). secp256r1 ECDHE is not supported; curl sends x25519 by default. */
+int quic_tls_ext_key_share_scan(const u8 *buf, usz n, u8 pub[32]);
+
 #endif
