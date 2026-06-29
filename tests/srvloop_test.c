@@ -424,6 +424,93 @@ static void test_srvloop_onertt_get_is_acked(void)
     check_acks_pn(pl, pll, 7);
 }
 
+/* Walk a 1-RTT payload and assert it carries all three: the control-stream
+ * SETTINGS (id 3), a HANDSHAKE_DONE (0x1e), and a decodable 200 on the request
+ * stream (id 0) — regardless of frame order (RFC 9114 6.2.1 / 4.1, RFC 9000
+ * 19.20). The 200's STREAM frame (type byte onward) is fed to recv_response. */
+static void check_confirm_and_200_payload(const u8 *pl, usz pll)
+{
+    quic_framewalk it;
+    u64 type;
+    const u8 *frame;
+    usz rem;
+    int settings = 0, done = 0, ok200 = 0;
+    quic_framewalk_init(&it, pl, pll);
+    while (quic_framewalk_next(&it, &type, &frame, &rem)) {
+        quic_stream_frame sf;
+        const u8 *body;
+        usz body_len;
+        u16 status = 0;
+        if (type == 0x1e) done = 1;
+        if (type < 0x08 || type > 0x0f || !quic_frame_get_stream(frame, rem, &sf))
+            continue;
+        if (sf.stream_id == 3) settings = 1;
+        if (sf.stream_id == 0 &&
+            quic_h3conn_recv_response(frame, rem, &status, &body, &body_len) &&
+            status == 200)
+            ok200 = 1;
+    }
+    CHECK(settings && done && ok200);
+}
+
+/* Confirm the server by dispatching its Finished directly (deriving the 1-RTT
+ * keys) WITHOUT running produce, so the confirmation has not yet been sealed:
+ * s->hs_done_sent and the loop latches stay 0. This sets up the same internal
+ * state curl reaches when it coalesces its Finished and GET in one datagram. */
+static void lp_confirm_via_dispatch(struct lp_fix *f)
+{
+    u8 scratch[512];
+    quic_h3reqdrive_req req;
+    int got = 0;
+    quic_crypto_frame cf;
+    u8 payload[256];
+    usz plen;
+    lp_make_client_hello(f);
+    lp_drive_to_flight(f);
+    lp_make_client_finished(f);
+    cf.offset = 0;
+    cf.length = f->cli_fin_len;
+    cf.data = f->cli_fin;
+    plen = quic_frame_put_crypto(payload, sizeof payload, &cf);
+    CHECK(quic_srvloop_dispatch(&f->s, &f->l.h3, payload, plen,
+                                scratch, sizeof scratch, &got, &req) == 1);
+    CHECK(quic_server_is_confirmed(&f->s) == 1);
+}
+
+/* COALESCED CONFIRM + 200 (RFC 9000 12.2, RFC 9114 6.2.1): when one datagram
+ * both confirms the handshake AND carries a GET, the reply coalesces the
+ * confirmation (1-RTT SETTINGS + HANDSHAKE_DONE) with the 1-RTT 200 — so curl
+ * receives SETTINGS to establish HTTP/3 and never gets the 200 alone with
+ * SETTINGS still missing. */
+static void test_srvloop_confirm_and_200_coalesce(void)
+{
+    struct lp_fix f;
+    u8 out[1500], get[512], spkt[1024];
+    usz glen, slen, out_len = 0;
+    const u8 *pkts[4];
+    usz offs[4], lens[4], np;
+    lp_confirm_via_dispatch(&f);
+    CHECK(f.l.hs_done_sent == 0);       /* confirmation not yet sealed */
+    CHECK(quic_h3reqdrive_send_get(0, (const u8 *)"/", 1,
+                                   (const u8 *)"h", 1, get, sizeof get, &glen));
+    slen = client_seal_onertt(&f, get, glen, spkt, sizeof spkt);
+    out_len = 0;
+    CHECK(quic_srvloop_step(&f.l, &f.s, spkt, slen, out, sizeof out,
+                            &out_len) == 1);
+    /* Reply: [Handshake ACK (long)][one 1-RTT packet: SETTINGS + HANDSHAKE_DONE
+     * + 200]. Short-header packets carry no length, so confirm and 200 share a
+     * single 1-RTT payload rather than two coalesced 1-RTT packets. */
+    np = quic_udploop_split(out, out_len, pkts, offs, lens, 4);
+    CHECK(np == 2);
+    CHECK((out[offs[0]] & 0x80) != 0); /* slice 0: long-header Handshake ACK */
+    {
+        const u8 *pl;
+        usz pll;
+        CHECK(client_open_onertt(&f, out + offs[1], lens[1], &pl, &pll) == 1);
+        check_confirm_and_200_payload(pl, pll); /* SETTINGS + DONE + 200 in one */
+    }
+}
+
 /* (A) CONFIRM ONCE: after confirmation, a further 1-RTT datagram that does not
  * decode to a request must NOT re-emit the confirmation (SETTINGS +
  * HANDSHAKE_DONE). It either acks the received 1-RTT packet or sends nothing,
@@ -622,5 +709,6 @@ void test_srvloop(void)
     test_srvloop_padding_before_stream();
     test_srvloop_coalesced_finished_behind_leading();
     test_srvloop_onertt_get_is_acked();
+    test_srvloop_confirm_and_200_coalesce();
     test_srvloop_confirm_emitted_once();
 }
