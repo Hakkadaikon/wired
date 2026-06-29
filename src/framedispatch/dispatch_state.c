@@ -19,6 +19,8 @@ static int on_ack(quic_framedispatch_state *st, const u8 *frame, usz len)
 {
     quic_ack_frame f;
     if (quic_ack_decode(frame, len, &f) == 0) return 0;
+    st->has_ack = 1; /* RFC 9000 19.3: expose Largest Acknowledged to the runner */
+    st->largest_acked = f.ranges[0].hi;
     u64 wire[2 * QUIC_ACK_MAX_RANGES];
     usz w = 0;
     wire[w++] = f.ranges[0].hi - f.ranges[0].lo;

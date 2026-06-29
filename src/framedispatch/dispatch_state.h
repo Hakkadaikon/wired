@@ -15,6 +15,8 @@ typedef struct {
     quic_flow_credit *credit;   /* connection flow credit (RFC 9000 19.9) */
     u8 ack_eliciting;           /* set when an ack-eliciting frame arrived */
     u8 close;                   /* set on CONNECTION_CLOSE (RFC 9000 19.19) */
+    u8 has_ack;                 /* set when an ACK frame arrived (RFC 9000 19.3) */
+    u64 largest_acked;          /* its Largest Acknowledged, when has_ack */
 } quic_framedispatch_state;
 
 /* Dispatch one frame by type. frame points at the type varint, len covers the

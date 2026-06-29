@@ -28,6 +28,7 @@ void quic_connio_init(quic_connio *io, int is_server, u8 byte0,
     io->disp.credit = &io->credit;
     io->disp.ack_eliciting = 0;
     io->disp.close = 0;
+    io->disp.has_ack = 0;
     io->byte0 = byte0;
     io->dcid_len = dcid_len;
     io->tx_pn = 0;
