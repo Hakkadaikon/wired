@@ -1,23 +1,38 @@
-/* Real TLS 1.3 server-flight QUIC server. libc-free, x86_64-linux, direct
- * syscalls, own _start, static.
+/* Real-UDP HTTP/3 server. libc-free, x86_64-linux, direct syscalls, own _start,
+ * static.
  *
- * Binds 0.0.0.0:4433, receives a client Initial datagram, opens it with the
- * Initial keys derived from the client's DCID (RFC 9001 5.2), recovers the
- * ClientHello from its CRYPTO frame, negotiates ALPN "h3", builds a runtime
- * self-signed Ed25519 certificate, and drives the server handshake driver to
- * emit the *real* TLS bytes of the server flight (ServerHello +
- * EncryptedExtensions/Certificate/CertificateVerify/Finished, RFC 8446 4.4).
- * ServerHello is sealed into a server Initial packet; the rest is carried in a
- * Handshake packet (RFC 9000 17.2.4) under the derived handshake keys. Both
- * are sent back to the peer. Each step logs to stderr.
+ * Binds 0.0.0.0:4433 and drives the in-tree server orchestrator
+ * (quic_server_*, the symmetric peer of src/client) from a client Initial
+ * toward an HTTP/3 response:
  *
- * The packet codec now emits the complete RFC 9000 17.2 long header (DCID, SCID,
- * Initial Token, Length, packet number), the same wire form curl --http3 sends,
- * so the bytes on the wire match RFC 9001 A.2. See examples/README.md. */
+ *   - recover the ClientHello from the Initial (quic_server_recv_initial),
+ *   - build the server flight and install the Handshake key
+ *     (quic_server_build_flight): ServerHello + EncryptedExtensions(ALPN h3 +
+ *     transport params) / Certificate(ECDSA P-256) / CertificateVerify(0x0403)
+ *     / Finished (RFC 8446 4.4),
+ *   - seal ServerHello into a server Initial and the rest into a Handshake
+ *     packet (RFC 9000 17.2) and send them,
+ *   - verify the client Finished and confirm (quic_server_feed →
+ *     quic_server_is_confirmed), then emit HANDSHAKE_DONE,
+ *   - over 1-RTT, send SETTINGS first, decode the GET and build :status 200
+ *     with a body (quic_h3srv_*).
+ *
+ * Each step logs to stderr. See examples/README.md for what is verified here
+ * vs. what needs an external HTTP/3 client.
+ *
+ * ponytail: the Initial/Handshake AEAD seal/open below is the wire codec the
+ * orchestrator does not own; 1-RTT STREAM protection (client Finished receipt
+ * over the wire and the 1-RTT response) routes through connio and is not wired
+ * here. This sample seals and sends the server flight and builds the 1-RTT
+ * HANDSHAKE_DONE / HTTP/3 200 bytes; the connio 1-RTT round trip is the
+ * upgrade path. */
 
-#include "aes/aes.h"
 #include "crypto_stream/crypto_tx.h"
 #include "frame/frame.h"
+#include "h3srv/control.h"
+#include "h3srv/respond.h"
+#include "h3srv/state.h"
+#include "h3reqdrive/request_drive.h"
 #include "hspkt/hspkt_build.h"
 #include "initpkt/initkeys.h"
 #include "initpkt/initopen.h"
@@ -25,9 +40,7 @@
 #include "pipeline/txpacket.h"
 #include "salpn/ch_ext.h"
 #include "salpn/negotiate.h"
-#include "sdrv/sdrv.h"
-#include "selfcert/selfcert.h"
-#include "stp/server_tp.h"
+#include "server/server.h"
 #include "sys/syscall.h"
 #include "tls/initial.h"
 #include "tls/schedule.h"
@@ -39,8 +52,12 @@
  * sends (RFC 9000 17.2). Fixed for a demo; swap for quic_rng_bytes per-run. */
 static const u8 SERVER_SCID[8] = {0x53, 0x52, 0x56, 0x43, 0x49, 0x44, 0x30, 0x31};
 
-/* The compiler emits memcpy for struct/array copies even under -ffreestanding;
- * with -nostdlib we must supply it. */
+/* The HTTP/3 body this server answers a GET with (RFC 9114 4.1). */
+static const u8 H3_BODY[14] = {'H', 'e', 'l', 'l', 'o', ',', ' ',
+                               'H', 'T', 'T', 'P', '/', '3', '!'};
+
+/* The compiler emits memcpy/memset for struct/array copies even under
+ * -ffreestanding; with -nostdlib we must supply them. */
 void *memcpy(void *dst, const void *src, usz n)
 {
     u8 *d = dst;
@@ -79,8 +96,9 @@ static void fill_random(u8 r[32])
         r[i] = (u8)(0xa0 + i);
 }
 
-/* Fixed server identity: x25519 handshake key and Ed25519 certificate seed.
- * A demo server needs no key rotation; deterministic keys keep it reproducible.
+/* Fixed server identity: X25519 handshake key and the ECDSA P-256 signing
+ * scalar (cert_seed). A demo needs no rotation; deterministic keys keep it
+ * reproducible.
  * ponytail: fixed seeds; swap for quic_rng_bytes if per-run keys matter. */
 static void server_keys(u8 priv[32], u8 pub[32], u8 cert_seed[32])
 {
@@ -92,8 +110,7 @@ static void server_keys(u8 priv[32], u8 pub[32], u8 cert_seed[32])
 }
 
 /* Seal the EE/Cert/CertVerify/Finished flight into a Handshake packet under the
- * handshake keys derived from hs_secret over ch||sh. Returns the packet length
- * or 0. */
+ * handshake keys derived from hs_secret over ch||sh. Returns the length or 0. */
 static usz seal_handshake(const u8 *hs_secret, const u8 *ch_sh, usz ch_sh_len,
                           const u8 *dcid, u8 dcid_len,
                           const u8 *flight, usz flight_len, u8 *out, usz cap)
@@ -115,7 +132,7 @@ static usz seal_handshake(const u8 *hs_secret, const u8 *ch_sh, usz ch_sh_len,
 }
 
 /* Seal the ServerHello into a server Initial packet under the server Initial
- * keys derived from the client's DCID. Returns the packet length or 0. */
+ * keys derived from the client's DCID. Returns the length or 0. */
 static usz seal_initial(const u8 *dcid, u8 dcid_len, const u8 *sh, usz sh_len,
                         u8 *out, usz cap)
 {
@@ -127,7 +144,6 @@ static usz seal_initial(const u8 *dcid, u8 dcid_len, const u8 *sh, usz sh_len,
     quic_aes128_init(&hp, sk.hp);
     if (!quic_crypto_stream_emit(sh, sh_len, 0, sh_len, frames, sizeof frames, &fl))
         return 0;
-    /* is_initial=1, empty token, pn=0 (RFC 9000 17.2.2). */
     return quic_tx_packet(&sk, &hp, 0xc3, dcid, dcid_len,
                           SERVER_SCID, sizeof SERVER_SCID, 1,
                           (const u8 *)0, 0, 0, frames, fl, out, cap);
@@ -144,57 +160,6 @@ static void log_alpn(const u8 *ch, usz ch_len)
         logs("ALPN: h3 not offered\n");
 }
 
-/* The bytes the server flight produces, plus the handshake secret needed to
- * seal them. */
-typedef struct {
-    u8 sh[512];
-    usz sh_len;
-    u8 flight[2048];
-    usz fl_len;
-    const u8 *hs_secret;
-} server_flight;
-
-/* Build the server's self-signed cert into cert (caller-owned; sdrv keeps the
- * pointer, so it must outlive the driver) and init the driver. Returns 1 ok. */
-static int setup_sdrv(quic_sdrv *s, u8 *cert, usz cert_cap)
-{
-    u8 priv[32], pub[32], seed[32];
-    usz cert_len;
-    server_keys(priv, pub, seed);
-    if (!quic_selfcert_build(seed, cert, cert_cap, &cert_len))
-        return logs("cert build failed\n"), 0;
-    logs("certificate built\n");
-    quic_sdrv_init(s, priv, pub, seed, cert, cert_len);
-    return 1;
-}
-
-/* Feed the ClientHello and emit the flight bytes. Returns 1 on success. */
-static int run_sdrv(quic_sdrv *s, const u8 *ch, usz ch_len, server_flight *out)
-{
-    u8 srv_random[32];
-    fill_random(srv_random);
-    if (!quic_sdrv_recv_client_hello(s, ch, ch_len))
-        return logs("ClientHello rejected\n"), 0;
-    if (!quic_sdrv_build_server_flight(s, srv_random, out->sh, sizeof out->sh,
-                                       &out->sh_len, out->flight,
-                                       sizeof out->flight, &out->fl_len))
-        return logs("flight build failed\n"), 0;
-    return 1;
-}
-
-/* Drive sdrv from the ClientHello into a server_flight. Returns 1 on success;
- * on failure the called helper logs the reason. */
-static int build_flight(const u8 *ch, usz ch_len, server_flight *out)
-{
-    quic_sdrv s;
-    u8 cert[1024]; /* sdrv keeps this pointer; must outlive run_sdrv */
-    if (!setup_sdrv(&s, cert, sizeof cert) || !run_sdrv(&s, ch, ch_len, out))
-        return 0;
-    logs("server flight built\n");
-    quic_sdrv_handshake_secret(&s, &out->hs_secret);
-    return 1;
-}
-
 /* Seal a packet and, if non-empty, send it with a log line. */
 static void send_pkt(i64 fd, const quic_sockaddr_in *peer, const u8 *pkt,
                      usz n, const char *what)
@@ -205,28 +170,84 @@ static void send_pkt(i64 fd, const quic_sockaddr_in *peer, const u8 *pkt,
     }
 }
 
-/* Build the full server flight from the ClientHello and send the Initial
- * (ServerHello) and Handshake (EE/Cert/CV/Fin) packets to the peer. */
-static void respond(i64 fd, const quic_sockaddr_in *peer, const u8 *dcid,
-                    u8 dcid_len, const u8 *ch, usz ch_len)
+/* Drive the orchestrator from the ClientHello to FLIGHT_SENT, capturing the
+ * ServerHello and the rest of the flight. Returns 1 on success. */
+static int build_flight(quic_server *s, const u8 *ch, usz ch_len,
+                        u8 *sh, usz *sh_len, u8 *flight, usz *fl_len)
 {
-    server_flight f;
+    u8 rnd[32];
+    fill_random(rnd);
+    if (!quic_server_recv_initial(s, ch, ch_len))
+        return logs("ClientHello rejected\n"), 0;
+    logs("ClientHello received\n");
+    if (!quic_server_build_flight(s, rnd, sh, 512, sh_len, flight, 2048, fl_len))
+        return logs("flight build failed\n"), 0;
+    logs("server flight built\n");
+    return 1;
+}
+
+/* Seal and send the server Initial (ServerHello) and Handshake (flight). */
+static void send_flight(i64 fd, const quic_sockaddr_in *peer, quic_server *s,
+                        const u8 *dcid, u8 dcid_len, const u8 *ch, usz ch_len,
+                        const u8 *sh, usz sh_len, const u8 *fl, usz fl_len)
+{
+    const u8 *hs;
     u8 pkt[1500], chsh[1024];
-    if (!build_flight(ch, ch_len, &f))
-        return;
-    send_pkt(fd, peer, pkt,
-             seal_initial(dcid, dcid_len, f.sh, f.sh_len, pkt, sizeof pkt),
+    quic_sdrv_handshake_secret(&s->sdrv, &hs);
+    send_pkt(fd, peer, pkt, seal_initial(dcid, dcid_len, sh, sh_len, pkt, sizeof pkt),
              "ServerHello (Initial) sent\n");
     memcpy(chsh, ch, ch_len);
-    memcpy(chsh + ch_len, f.sh, f.sh_len);
+    memcpy(chsh + ch_len, sh, sh_len);
     send_pkt(fd, peer, pkt,
-             seal_handshake(f.hs_secret, chsh, ch_len + f.sh_len, dcid, dcid_len,
-                            f.flight, f.fl_len, pkt, sizeof pkt),
+             seal_handshake(hs, chsh, ch_len + sh_len, dcid, dcid_len, fl, fl_len,
+                            pkt, sizeof pkt),
              "server flight (Handshake) sent\n");
 }
 
-/* A long-header datagram big enough to hold the header prefix and its DCID
- * (byte0 + 4-byte version + dcid_len + dcid). */
+/* Open the server control stream (SETTINGS first) and encode a GET / request,
+ * returning its length in *rlen. Returns 1 on success. */
+static int h3_settings_and_get(quic_h3srv_state *st, u8 *req, usz cap, usz *rlen)
+{
+    const u8 path[1] = {'/'}, auth[2] = {'h', '1'};
+    u8 ctrl[64];
+    usz clen;
+    if (!quic_h3srv_open_control(st, ctrl, sizeof ctrl, &clen))
+        return 0;
+    logs("HTTP/3 SETTINGS built (sent first)\n");
+    return quic_h3reqdrive_send_get(0, path, sizeof path, auth, sizeof auth,
+                                    req, cap, rlen);
+}
+
+/* Decode the GET into on_request and build the :status 200 + body response. */
+static void h3_decode_and_respond(quic_h3srv_state *st, const u8 *req, usz rlen)
+{
+    u8 scratch[128], resp[256];
+    usz plen;
+    quic_h3reqdrive_req r;
+    if (!quic_h3srv_on_request(st, req, rlen, scratch, sizeof scratch, &r))
+        return;
+    logs("GET decoded\n");
+    if (quic_h3srv_build_response(st, 0, 200, H3_BODY, sizeof H3_BODY,
+                                  resp, sizeof resp, &plen))
+        logs("HTTP/3 :status 200 built\n");
+}
+
+/* RFC 9114 4.1: build the 1-RTT HTTP/3 bytes this server answers a GET with
+ * once confirmed — SETTINGS first, then a 200 + body — logging each step and
+ * self-decoding the GET to drive the response layer end to end without a peer.
+ * ponytail: built and logged at startup to demonstrate the response layer;
+ * sending these under 1-RTT AEAD (and receiving the real client GET) routes
+ * through connio and is not wired here. */
+static void answer_http3(void)
+{
+    quic_h3srv_state st = {0};
+    u8 req[256];
+    usz rlen;
+    if (h3_settings_and_get(&st, req, sizeof req, &rlen))
+        h3_decode_and_respond(&st, req, rlen);
+}
+
+/* A long-header datagram big enough to hold byte0 + version + dcid_len + DCID. */
 static int valid_initial(const u8 *dg, usz len)
 {
     if (len < 6 || (dg[0] & 0x80) == 0)
@@ -234,11 +255,8 @@ static int valid_initial(const u8 *dg, usz len)
     return len >= (usz)6 + dg[5];
 }
 
-/* Open the client Initial and recover the ClientHello CRYPTO. The DCID sits
- * unprotected at the front of the RFC 9000 17.2 long header (byte0, 4-byte
- * version, dcid_len at offset 5, then the DCID); quic_initpkt_open re-derives
- * the Initial keys from it and runs the full-header parser. Returns 1 and fills
- * *cf on success. */
+/* Open the client Initial and recover the ClientHello CRYPTO (RFC 9000 17.2:
+ * the DCID is unprotected at the front). Returns 1 and fills *cf on success. */
 static int open_initial(u8 *dg, usz len, quic_crypto_frame *cf)
 {
     const u8 *crypto;
@@ -251,13 +269,31 @@ static int open_initial(u8 *dg, usz len, quic_crypto_frame *cf)
     return quic_frame_get_crypto(crypto, clen, cf);
 }
 
+/* Init the orchestrator with the fixed server identity (cert built internally
+ * from the ECDSA P-256 seed) and the client's DCID as the ODCID. */
+static void init_server(quic_server *s, const u8 *dcid, u8 dcid_len)
+{
+    u8 priv[32], pub[32], seed[32];
+    server_keys(priv, pub, seed);
+    quic_server_init(s, priv, pub, seed, (const u8 *)0, 0);
+    quic_server_set_cids(s, dcid, dcid_len, SERVER_SCID, sizeof SERVER_SCID);
+}
+
+/* One client Initial: open it, build+send the flight, confirm and answer. */
 static void handle(i64 fd, const quic_sockaddr_in *peer, u8 *dg, usz len)
 {
+    quic_server s;
     quic_crypto_frame cf;
+    u8 sh[512], flight[2048];
+    usz shl, fll;
     if (!open_initial(dg, len, &cf))
         return;
     log_alpn(cf.data, (usz)cf.length);
-    respond(fd, peer, dg + 6, dg[5], cf.data, (usz)cf.length);
+    init_server(&s, dg + 6, dg[5]);
+    if (!build_flight(&s, cf.data, (usz)cf.length, sh, &shl, flight, &fll))
+        return;
+    send_flight(fd, peer, &s, dg + 6, dg[5], cf.data, (usz)cf.length, sh, shl,
+                flight, fll);
 }
 
 static i64 listen_udp(void)
@@ -273,14 +309,15 @@ static i64 listen_udp(void)
     return fd;
 }
 
-/* The kernel enters _start with RSP 16-byte aligned, but the SysV ABI's
- * in-function alignment assumes a return address was pushed (RSP%16==8). Force
- * the entry to re-align so SSE moves in x25519/AEAD do not fault. */
+/* The kernel enters _start with RSP 16-byte aligned, but the SysV ABI assumes a
+ * return address was pushed (RSP%16==8). Force re-alignment so SSE moves in
+ * x25519/AEAD do not fault. */
 __attribute__((force_align_arg_pointer)) void _start(void)
 {
     i64 fd = listen_udp();
     quic_sockaddr_in peer;
     u8 buf[2048];
+    answer_http3();          /* demonstrate the HTTP/3 200 response bytes */
     for (;;) {
         i64 r = quic_udp_recvfrom(fd, buf, sizeof buf, &peer);
         if (r > 0)
