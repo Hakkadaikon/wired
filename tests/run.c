@@ -410,6 +410,10 @@
 #include "alpnver/alpnver.c"
 #include "resume/resume.c"
 #include "earlydrive/earlydata.c"
+#include "p256sign/rfc6979.c"
+#include "p256sign/sign.c"
+#include "ecdsasig/der_int.c"
+#include "ecdsasig/sig_value.c"
 #include "varint_test.c"
 #include "header_test.c"
 #include "pnum_test.c"
@@ -788,6 +792,10 @@
 #include "alpnver_test.c"
 #include "resume_test.c"
 #include "earlydrive_test.c"
+#include "rfc6979_test.c"
+#include "p256sign_test.c"
+#include "ecdsasig_der_int_test.c"
+#include "ecdsasig_sig_value_test.c"
 
 int main(void)
 {
@@ -1184,5 +1192,9 @@ int main(void)
     test_alpnver();
     test_resume();
     test_earlydrive();
+    test_rfc6979();
+    test_p256sign();
+    test_ecdsasig_der_int();
+    test_ecdsasig_sig_value();
     return TEST_REPORT();
 }
