@@ -11,6 +11,12 @@ static const u8 pc_oid_cn[] = {0x55, 0x04, 0x03};
 static const u8 pc_not_before[] = "200101000000Z";
 static const u8 pc_not_after[]  = "300101000000Z";
 static const u8 pc_cn_value[] = "localhost";
+/* RFC 5280 4.2.1.6. id-ce-subjectAltName OID 2.5.29.17. */
+static const u8 pc_oid_san[] = {0x55, 0x1d, 0x11};
+/* RFC 5280 4.2.1.6. dNSName is [2] IMPLICIT IA5String (context tag 0x82). */
+#define PC_SAN_DNSNAME_TAG 0x82
+/* RFC 5280 4.1.2.9. extensions is [3] EXPLICIT (context tag 0xa3). */
+#define PC_EXTENSIONS_TAG 0xa3
 
 usz quic_p256cert_sigalg(u8 *out, usz cap)
 {
@@ -64,10 +70,44 @@ static void tbs_head(quic_p256cert_enc *e, const u8 *name, usz nn)
     quic_p256cert_put_pre(e, name, nn);
 }
 
+/* RFC 5280 4.2.1.6. GeneralNames SEQUENCE{ dNSName [2] "localhost" }. */
+static usz pc_build_gennames(u8 *out, usz cap)
+{
+    u8 inner[32];
+    quic_p256cert_enc e = {inner, sizeof(inner), 0, 1};
+    quic_p256cert_put(&e, PC_SAN_DNSNAME_TAG, pc_cn_value,
+                      sizeof(pc_cn_value) - 1);
+    return quic_p256cert_wrap(&e, QUIC_DER_SEQUENCE, out, cap);
+}
+
+/* RFC 5280 4.1.2.9. Extension SEQUENCE{ extnID, extnValue OCTET STRING }.
+ * extnValue wraps the GeneralNames; SAN is non-critical (DEFAULT FALSE). */
+static usz pc_build_san_ext(u8 *out, usz cap)
+{
+    u8 gn[48], ext[64];
+    quic_p256cert_enc eg = quic_p256cert_loaded(gn, pc_build_gennames(gn,
+                                                                sizeof(gn)));
+    quic_p256cert_enc e = {ext, sizeof(ext), 0, 1};
+    quic_p256cert_put(&e, QUIC_DER_OID, pc_oid_san, sizeof(pc_oid_san));
+    quic_p256cert_put(&e, QUIC_DER_OCTET_STRING, eg.buf, eg.off);
+    return quic_p256cert_wrap(&e, QUIC_DER_SEQUENCE, out, cap);
+}
+
+/* RFC 5280 4.1.2.9. extensions [3] EXPLICIT { SEQUENCE OF Extension }. */
+static usz pc_build_extensions(u8 *out, usz cap)
+{
+    u8 ext[64], seq[80];
+    quic_p256cert_enc ee = quic_p256cert_loaded(ext, pc_build_san_ext(ext,
+                                                              sizeof(ext)));
+    quic_p256cert_enc es = quic_p256cert_loaded(seq, quic_p256cert_wrap(&ee,
+                              QUIC_DER_SEQUENCE, seq, sizeof(seq)));
+    return quic_p256cert_wrap(&es, PC_EXTENSIONS_TAG, out, cap);
+}
+
 int quic_p256cert_tbs(const u8 x[32], const u8 y[32], u8 *out, usz cap,
                       usz *out_len)
 {
-    u8 name[80], val[48], spki[128], body[512];
+    u8 name[80], val[48], spki[128], exts[96], body[512];
     usz nn = pc_build_name(name, sizeof(name)), sn = 0;
     quic_p256cert_enc e = {body, sizeof(body), 0, 1};
     quic_p256cert_spki(x, y, spki, sizeof(spki), &sn);
@@ -75,6 +115,7 @@ int quic_p256cert_tbs(const u8 x[32], const u8 y[32], u8 *out, usz cap,
     quic_p256cert_put_pre(&e, val, pc_build_validity(val, sizeof(val)));
     quic_p256cert_put_pre(&e, name, nn);                       /* subject */
     quic_p256cert_put_pre(&e, spki, sn);
+    quic_p256cert_put_pre(&e, exts, pc_build_extensions(exts, sizeof(exts)));
     *out_len = quic_p256cert_wrap(&e, QUIC_DER_SEQUENCE, out, cap);
     return *out_len != 0;
 }
