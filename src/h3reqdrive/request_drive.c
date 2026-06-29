@@ -1,7 +1,7 @@
 #include "h3reqdrive/request_drive.h"
 #include "h3conn/request.h"
 #include "h3reqenc/request_headers.h"
-#include "h3req/respparse.h"
+#include "h3/frame.h"
 #include "h3/pseudoheader.h"
 #include "frame/frame.h"
 #include "qpack/fieldline.h"
@@ -168,17 +168,33 @@ static int decode_lines(const u8 *fs, usz n, u8 *scr, usz scap,
     return scan_lines(fs, n, scr, scap, off, r);
 }
 
-/* RFC 9114 4.1: split a request STREAM frame into its HEADERS field section. */
+/* RFC 9114 9 / 7.2.8: walk the request stream's HTTP/3 frames, skipping any
+ * unknown/reserved frame (e.g. the GREASE frame curl/quiche send), until the
+ * HEADERS frame is found; view its field-section payload in place. Returns 1
+ * if a HEADERS frame is reached, 0 if the stream ends or is truncated. */
+static int find_headers(const u8 *h3, usz n, const u8 **fs, usz *fs_len)
+{
+    u64 type = 0, plen = 0;
+    usz off = 0;
+    while (type != QUIC_H3_FRAME_HEADERS) {
+        usz used = quic_h3_frame_get(h3 + off, n - off, &type, fs, &plen);
+        if (!used)
+            return 0;
+        off += used;
+    }
+    *fs_len = (usz)plen;
+    return 1;
+}
+
+/* RFC 9114 4.1: take the request STREAM frame and locate its HEADERS field
+ * section, tolerating leading unknown frames (RFC 9114 9). */
 static int request_field_section(const u8 *stream_data, usz len,
                                  const u8 **fs, usz *fs_len)
 {
     quic_stream_frame f;
-    const u8 *body = 0;
-    usz body_len = 0;
     if (!quic_frame_get_stream(stream_data, len, &f))
         return 0;
-    return quic_h3req_resp_parse(f.data, (usz)f.length, fs, fs_len, &body,
-                                 &body_len);
+    return find_headers(f.data, (usz)f.length, fs, fs_len);
 }
 
 /* RFC 9114 4.1, RFC 9204 4.5 */
