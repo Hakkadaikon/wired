@@ -1,7 +1,9 @@
 #include "ed25519/ed25519.h"
 #include "frame/frame.h"
+#include "h3conn/response.h"
 #include "h3reqdrive/request_drive.h"
 #include "srvloop/dispatch.h"
+#include "udploop/rxloop.h"
 #include "hspkt/onertt.h"
 #include "keys/keyset.h"
 #include "schedule_drive/keyschedule.h"
@@ -279,13 +281,42 @@ static void test_srvloop_forged_finished_no_promote(void)
     }
 }
 
-/* LIVENESS: a genuine client Finished drives the server to confirmed and the
- * step seals a 1-RTT HANDSHAKE_DONE; a following GET yields a 200. */
+/* Client role: open a server-sealed 1-RTT packet with the peer SERVER_AP key
+ * (the client's view) and view its raw frame payload. */
+static int client_open_onertt(struct lp_fix *f, u8 *pkt, usz len,
+                              const u8 **pl, usz *pll)
+{
+    const quic_initial_keys *k;
+    quic_aes128 hp;
+    CHECK(quic_keysched_get(&f->s.sched, QUIC_KS_SERVER_AP, &k) == 1);
+    quic_aes128_init(&hp, k->hp);
+    return quic_hspkt_onertt_open(k, &hp, pkt, len, 6, pl, pll);
+}
+
+/* The confirmation 1-RTT payload carries a STREAM frame on the server control
+ * stream (id 3) whose data leads with the control type 0x00 + SETTINGS, and
+ * then a HANDSHAKE_DONE (0x1e) frame (RFC 9114 6.2.1 / RFC 9000 19.20). */
+static void check_settings_and_done(const u8 *pl, usz pll)
+{
+    quic_stream_frame sf;
+    usz n = quic_frame_get_stream(pl, pll, &sf);
+    CHECK(n > 0);
+    CHECK(sf.stream_id == 3);     /* first server unidirectional stream */
+    CHECK(sf.length > 0 && sf.data[0] == 0x00); /* control stream type */
+    CHECK(pll > n && pl[pll - 1] == 0x1e);       /* trailing HANDSHAKE_DONE */
+}
+
+/* LIVENESS: a genuine client Finished drives the server to confirmed. The step
+ * now seals a coalesced datagram: a Handshake ACK of the client Finished
+ * (RFC 9000 13.2.1) ahead of a 1-RTT packet carrying SETTINGS + HANDSHAKE_DONE
+ * (RFC 9114 6.2.1). A following GET yields a decodable 200 (RFC 9114 4.1). */
 static void test_srvloop_full_roundtrip(void)
 {
     struct lp_fix f;
     u8 cpkt[1024], out[1024], get[512];
     usz clen, out_len = 0, glen;
+    const u8 *pkts[4];
+    usz offs[4], lens[4], np;
     lp_make_client_hello(&f);
     lp_drive_to_flight(&f);
     lp_make_client_finished(&f);
@@ -293,28 +324,32 @@ static void test_srvloop_full_roundtrip(void)
     CHECK(quic_srvloop_step(&f.l, &f.s, cpkt, clen, out, sizeof out,
                             &out_len) == 1);
     CHECK(quic_server_is_confirmed(&f.s) == 1);
-    /* The HANDSHAKE_DONE opens with the peer SERVER_AP key (client view). */
+    /* The reply coalesces a Handshake ACK (long header) and a 1-RTT packet. */
+    np = quic_udploop_split(out, out_len, pkts, offs, lens, 4);
+    CHECK(np == 2);
+    CHECK((out[offs[0]] & 0x80) != 0); /* slice 0: long-header Handshake ACK */
     {
-        const quic_initial_keys *k;
-        quic_aes128 hp;
         const u8 *pl;
         usz pll;
-        CHECK(quic_keysched_get(&f.s.sched, QUIC_KS_SERVER_AP, &k) == 1);
-        quic_aes128_init(&hp, k->hp);
-        CHECK(quic_hspkt_onertt_open(k, &hp, out, out_len, 6, &pl, &pll) == 1);
-        CHECK(pll == 1 && pl[0] == 0x1e);
+        CHECK(client_open_onertt(&f, out + offs[1], lens[1], &pl, &pll) == 1);
+        check_settings_and_done(pl, pll);
     }
 
-    /* GET over 1-RTT -> 200 response sealed back. */
+    /* GET over 1-RTT -> a 200 response that the client can decode. */
     CHECK(quic_h3reqdrive_send_get(0, (const u8 *)"/", 1,
                                    (const u8 *)"h", 1, get, sizeof get, &glen));
     {
         u8 spkt[1024];
         usz slen = client_seal_onertt(&f, get, glen, spkt, sizeof spkt);
+        const u8 *pl, *body;
+        usz pll, body_len;
+        u16 status = 0;
         out_len = 0;
         CHECK(quic_srvloop_step(&f.l, &f.s, spkt, slen, out, sizeof out,
                                 &out_len) == 1);
-        CHECK(out_len > 0);
+        CHECK(client_open_onertt(&f, out, out_len, &pl, &pll) == 1);
+        CHECK(quic_h3conn_recv_response(pl, pll, &status, &body, &body_len) == 1);
+        CHECK(status == 200);
     }
 }
 

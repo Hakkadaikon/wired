@@ -14,6 +14,8 @@
 #include "ed25519/ed25519.h"
 #include "h3reqdrive/request_drive.h"
 #include "h3conn/response.h"
+#include "udploop/rxloop.h"
+#include "frame/frame.h"
 
 /* RFC 9001 4 / 5 / 5.1, RFC 9000 17.2, RFC 9114 4.1: real-AEAD-wire loopback.
  * A genuine server orchestrator (quic_server) is driven to FLIGHT_SENT, then a
@@ -259,13 +261,24 @@ static void test_loopback_wire_confirm_and_get(void)
     lb_drive_to_flight(&f);
     lb_make_client_finished(&f);
 
-    /* Finished over the wire -> confirmed + HANDSHAKE_DONE sealed. */
+    /* Finished over the wire -> confirmed + a coalesced reply: a Handshake ACK
+     * (RFC 9000 13.2.1) ahead of a 1-RTT packet carrying SETTINGS + HANDSHAKE_DONE
+     * (RFC 9114 6.2.1 / RFC 9000 19.20). */
     clen = lb_seal_handshake(&f, f.cli_fin, f.cli_fin_len, cpkt, sizeof cpkt);
     CHECK(lb_wire_step(&f, cfd, sfd, &srv, cpkt, clen, out, sizeof out,
                        &out_len) == 1);
     CHECK(quic_server_is_confirmed(&f.s) == 1);
-    CHECK(lb_open_onertt(&f, out, out_len, &pl, &pll) == 1);
-    CHECK(pll == 1 && pl[0] == 0x1e);            /* HANDSHAKE_DONE (RFC 9000 19.20) */
+    {
+        const u8 *pkts[4];
+        usz offs[4], lens[4];
+        quic_stream_frame sf;
+        usz np = quic_udploop_split(out, out_len, pkts, offs, lens, 4);
+        CHECK(np == 2);
+        CHECK((out[offs[0]] & 0x80) != 0);       /* long-header Handshake ACK */
+        CHECK(lb_open_onertt(&f, out + offs[1], lens[1], &pl, &pll) == 1);
+        CHECK(quic_frame_get_stream(pl, pll, &sf) > 0 && sf.stream_id == 3);
+        CHECK(pl[pll - 1] == 0x1e);              /* trailing HANDSHAKE_DONE */
+    }
 
     /* GET over the wire -> 200 sealed back, opened by the peer. */
     CHECK(quic_h3reqdrive_send_get(0, (const u8 *)"/", 1, (const u8 *)"h", 1,
