@@ -2,6 +2,7 @@
 #include "h3conn/request.h"
 #include "h3reqenc/request_headers.h"
 #include "h3req/respparse.h"
+#include "h3/pseudoheader.h"
 #include "frame/frame.h"
 #include "qpack/fieldline.h"
 #include "qpack/literal.h"
@@ -22,13 +23,17 @@ int quic_h3reqdrive_send_get(u64 stream_id, const u8 *path, usz p_len,
                                     out_len);
 }
 
-/* One recovered field line: borrowed (or scratch-copied) name and value. */
+/* One recovered field line: name and value, each borrowed from the static
+ * table or copied into the caller's scratch. */
 typedef struct {
+    const u8 *name;
+    usz name_len;
     const u8 *value;
     usz value_len;
+    usz scratch_used;  /* scratch octets this line occupies (0 if borrowed) */
 } rline;
 
-/* Length of a NUL-terminated static-table value. */
+/* Length of a NUL-terminated static-table string. */
 static usz cstr_len(const char *s)
 {
     usz i = 0;
@@ -36,87 +41,131 @@ static usz cstr_len(const char *s)
     return i;
 }
 
-/* Resolve an indexed field line at fs to the static entry's value. */
-static const char *indexed_value(const u8 *fs, usz n, usz *consumed)
+/* Borrow the static entry's name/value into L (both NUL-terminated strings). */
+static void borrow_static(const char *name, const char *value, rline *L)
+{
+    L->name = (const u8 *)name;
+    L->name_len = cstr_len(name);
+    L->value = (const u8 *)value;
+    L->value_len = cstr_len(value);
+    L->scratch_used = 0;
+}
+
+/* RFC 9204 4.5.2: an Indexed Field Line -> the static entry's name and value. */
+static usz line_indexed(const u8 *fs, usz n, u8 *scr, usz scap, rline *L)
 {
     u64 index = 0;
     int is_static = 0;
     const char *name = 0, *value = 0;
-    *consumed = quic_qpack_indexed_decode(fs, n, &index, &is_static);
-    if (!*consumed || !quic_qpack_static_get((usz)index, &name, &value))
-        return 0;
-    return value;
-}
-
-/* RFC 9204 4.5.2: an Indexed Field Line -> the static entry's value. */
-static usz line_indexed(const u8 *fs, usz n, u8 *scr, usz scap, rline *L)
-{
-    usz c = 0;
-    const char *value = indexed_value(fs, n, &c);
+    usz c = quic_qpack_indexed_decode(fs, n, &index, &is_static);
     (void)scr; (void)scap;
-    if (!value)
+    if (!c || !quic_qpack_static_get((usz)index, &name, &value))
         return 0;
-    L->value = (const u8 *)value;
-    L->value_len = cstr_len(value);
+    borrow_static(name, value, L);
     return c;
 }
 
-/* RFC 9204 4.5.4: a Literal With Name Reference -> its copied value. */
-static usz line_literal(const u8 *fs, usz n, u8 *scr, usz scap, rline *L)
+/* RFC 9204 4.5.4: a Literal With Name Reference -> static name, copied value. */
+static usz line_namref(const u8 *fs, usz n, u8 *scr, usz scap, rline *L)
 {
     u64 index = 0;
     int is_static = 0, never = 0;
     usz vlen = 0;
+    const char *name = 0, *value = 0;
     usz c = quic_qpack_literal_namref_decode(fs, n, &index, &is_static, &never,
                                              scr, scap, &vlen);
-    if (!c)
+    if (!c || !quic_qpack_static_get((usz)index, &name, &value))
         return 0;
-    L->value = scr;
-    L->value_len = vlen;
+    L->name = (const u8 *)name; L->name_len = cstr_len(name);
+    L->value = scr;             L->value_len = vlen;
+    L->scratch_used = vlen;
     return c;
 }
 
-/* RFC 9204 4.5: decode one field line, indexed or literal-namref. */
+/* RFC 9204 4.5.6: a Literal With Literal Name -> name in the first scratch
+ * half, value in the second (disjoint, since both are written in one call). */
+static usz line_litname(const u8 *fs, usz n, u8 *scr, usz scap, rline *L)
+{
+    int never = 0;
+    usz half = scap / 2, nlen = 0, vlen = 0;
+    usz c = quic_qpack_literal_name_decode(fs, n, &never, scr, half, &nlen,
+                                           scr + half, scap - half, &vlen);
+    if (!c)
+        return 0;
+    L->name = scr;         L->name_len = nlen;
+    L->value = scr + half; L->value_len = vlen;
+    L->scratch_used = half + vlen;
+    return c;
+}
+
+/* RFC 9204 4.5: decode one field line of any of the three forms. */
 static usz decode_line(const u8 *fs, usz n, u8 *scr, usz scap, rline *L)
 {
     usz c = line_indexed(fs, n, scr, scap, L);
     if (c)
         return c;
-    return line_literal(fs, n, scr, scap, L);
+    c = line_namref(fs, n, scr, scap, L);
+    if (c)
+        return c;
+    return line_litname(fs, n, scr, scap, L);
 }
 
-/* Decode one line into out[i], advancing *off and *used. Returns 1 ok, 0 on
- * a malformed line. */
-static int step_line(const u8 *fs, usz n, u8 *scr, usz scap, usz *off,
-                     usz *used, rline *out)
+/* A request pseudo-header kind has a (value, len) slot in quic_h3reqdrive_req. */
+static int is_request_pseudo(quic_h3_ph_kind k)
 {
-    usz c = decode_line(fs + *off, n - *off, scr + *used, scap - *used, out);
+    return k >= QUIC_H3_PH_METHOD && k <= QUIC_H3_PH_PATH;
+}
+
+/* Store one recovered line into r if it is a request pseudo-header; regular
+ * fields and unknown pseudo-headers are ignored (RFC 9114 4.3.1). The slot
+ * tables are indexed by kind, whose enum order matches the struct fields. */
+static void classify_line(const rline *L, quic_h3reqdrive_req *r)
+{
+    const u8 **val[] = {0, &r->method, &r->scheme, &r->authority, &r->path};
+    usz *len[] = {0, &r->method_len, &r->scheme_len, &r->authority_len,
+                  &r->path_len};
+    quic_h3_ph_kind k = quic_h3_ph_classify(L->name, L->name_len);
+    if (!is_request_pseudo(k))
+        return;
+    *val[k] = L->value;
+    *len[k] = L->value_len;
+}
+
+/* Decode one line at *off into r, advancing *off and the scratch cursor *used.
+ * Returns 1 ok, 0 on a malformed line. */
+static int step_line(const u8 *fs, usz n, u8 *scr, usz scap, usz *off,
+                     usz *used, quic_h3reqdrive_req *r)
+{
+    rline L;
+    usz c = decode_line(fs + *off, n - *off, scr + *used, scap - *used, &L);
     if (!c)
         return 0;
+    classify_line(&L, r);
     *off += c;
-    *used += out->value_len;
+    *used += L.scratch_used;
     return 1;
 }
 
-/* Decode four field lines starting at *off into out[0..3]. */
-static int step_four(const u8 *fs, usz n, u8 *scr, usz scap, usz off,
-                     rline out[4])
+/* Walk field lines from off to n into r. Returns 1 ok, 0 on a malformed line. */
+static int scan_lines(const u8 *fs, usz n, u8 *scr, usz scap, usz off,
+                     quic_h3reqdrive_req *r)
 {
     usz used = 0;
-    for (usz i = 0; i < 4; i++)
-        if (!step_line(fs, n, scr, scap, &off, &used, &out[i]))
+    while (off < n)
+        if (!step_line(fs, n, scr, scap, &off, &used, r))
             return 0;
     return 1;
 }
 
-/* RFC 9114 4.3.1: decode the four request field lines in their fixed order
- * :method, :scheme, :authority, :path after the section prefix. */
-static int decode_lines(const u8 *fs, usz n, u8 *scr, usz scap, rline out[4])
+/* RFC 9114 4.3.1: walk every field line after the section prefix in any order
+ * or count, recovering the request pseudo-headers into r by name. */
+static int decode_lines(const u8 *fs, usz n, u8 *scr, usz scap,
+                        quic_h3reqdrive_req *r)
 {
     usz off = quic_qpack_prefix_decode(fs, n, &(quic_qpack_prefix){0});
     if (!off)
         return 0;
-    return step_four(fs, n, scr, scap, off, out);
+    return scan_lines(fs, n, scr, scap, off, r);
 }
 
 /* RFC 9114 4.1: split a request STREAM frame into its HEADERS field section. */
@@ -138,14 +187,8 @@ int quic_h3reqdrive_recv_get(const u8 *stream_data, usz len,
 {
     const u8 *fs = 0;
     usz fs_len = 0;
-    rline L[4];
+    *r = (quic_h3reqdrive_req){0};
     if (!request_field_section(stream_data, len, &fs, &fs_len))
         return 0;
-    if (!decode_lines(fs, fs_len, scratch, scap, L))
-        return 0;
-    r->method = L[0].value;       r->method_len = L[0].value_len;
-    r->scheme = L[1].value;       r->scheme_len = L[1].value_len;
-    r->authority = L[2].value;    r->authority_len = L[2].value_len;
-    r->path = L[3].value;         r->path_len = L[3].value_len;
-    return 1;
+    return decode_lines(fs, fs_len, scratch, scap, r);
 }
