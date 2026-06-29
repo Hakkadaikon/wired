@@ -54,7 +54,7 @@ static void test_cw_open_server_initial(void)
     u8 pkt[1300];
     usz total = 0, tls_len = 0;
     const u8 *tls = 0;
-    CHECK(quic_srvwire_seal_initial(cw_dcid, 8, cw_scid, 4, 0, sh, sizeof(sh),
+    CHECK(quic_srvwire_seal_initial(cw_dcid, 8, cw_scid, 4, 0, -1, sh, sizeof(sh),
                                     pkt, sizeof(pkt), &total) == 1);
     CHECK(quic_client_open_initial_wire(cw_dcid, 8, pkt, total, 0,
                                         &tls, &tls_len) == 1);
@@ -89,7 +89,7 @@ static void test_cw_handshake_roundtrip(void)
     /* client opens a flight sealed with SERVER_HS (peer direction). */
     CHECK(quic_keysched_get(&c.tls.ks, QUIC_KS_SERVER_HS, &shs) == 1);
     quic_aes128_init(&hp, shs->hp);
-    CHECK(quic_srvwire_seal_handshake(shs, &hp, cw_dcid, 8, cw_scid, 4, 0,
+    CHECK(quic_srvwire_seal_handshake(shs, &hp, cw_dcid, 8, cw_scid, 4, 0, -1,
                                       fin, sizeof(fin), pkt, sizeof(pkt),
                                       &total) == 1);
     CHECK(quic_client_open_handshake_wire(&c, pkt, total, 8,

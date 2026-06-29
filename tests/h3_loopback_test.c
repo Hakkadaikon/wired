@@ -145,8 +145,10 @@ static usz lb_seal_handshake(struct lb_fix *f, const u8 *msg, usz mlen,
     usz total = 0;
     CHECK(quic_keysched_get(&f->s.sched, QUIC_KS_CLIENT_HS, &k) == 1);
     quic_aes128_init(&hp, k->hp);
+    /* ack_pn 0: also acknowledge the server's Handshake PN 0, exercising the
+     * server open path against a flight that carries a trailing ACK frame. */
     CHECK(quic_srvwire_seal_handshake(k, &hp, f->s.sdrv.iscid,
-                                      f->s.sdrv.iscid_len, g_scid, 6, 0,
+                                      f->s.sdrv.iscid_len, g_scid, 6, 0, 0,
                                       msg, mlen, pkt, cap, &total));
     return total;
 }
