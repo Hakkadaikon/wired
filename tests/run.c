@@ -405,6 +405,10 @@
 #include "sentmeta/record.c"
 #include "sentmeta/on_ack.c"
 #include "sentmeta/detect_loss.c"
+#include "udpsess/udpsess.c"
+#include "alpnver/alpnver.c"
+#include "resume/resume.c"
+#include "earlydrive/earlydata.c"
 #include "varint_test.c"
 #include "header_test.c"
 #include "pnum_test.c"
@@ -778,6 +782,10 @@
 #include "vndrive_test.c"
 #include "sentmeta_test.c"
 #include "termgate_test.c"
+#include "udpsess_test.c"
+#include "alpnver_test.c"
+#include "resume_test.c"
+#include "earlydrive_test.c"
 
 int main(void)
 {
@@ -1169,5 +1177,9 @@ int main(void)
     test_vndrive();
     test_sentmeta();
     test_termgate();
+    test_udpsess();
+    test_alpnver();
+    test_resume();
+    test_earlydrive();
     return TEST_REPORT();
 }
