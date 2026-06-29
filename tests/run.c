@@ -372,6 +372,8 @@
 #include "h3conn/establish.c"
 #include "h3conn/request.c"
 #include "h3conn/response.c"
+#include "h3reqdrive/request_drive.c"
+#include "h3cancel/cancel.c"
 #include "rtxbytes/rtxstore.c"
 #include "rtxbytes/rebuild.c"
 #include "rtxbytes/collect.c"
@@ -749,6 +751,8 @@
 #include "connrunner_test.c"
 #include "h3conn_establish_test.c"
 #include "h3conn_roundtrip_test.c"
+#include "h3reqdrive_test.c"
+#include "h3cancel_test.c"
 #include "rtxstore_test.c"
 #include "rebuild_test.c"
 #include "collect_test.c"
@@ -1137,6 +1141,8 @@ int main(void)
     test_connrunner();
     test_h3conn_establish();
     test_h3conn_roundtrip();
+    test_h3reqdrive();
+    test_h3cancel();
     test_rtxstore();
     test_rebuild();
     test_collect();
