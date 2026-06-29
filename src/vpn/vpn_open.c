@@ -24,7 +24,9 @@ static int region_ok(usz len, usz pn_off, u64 length)
 {
     usz sample = quic_hp_sample_offset(pn_off);
     if (!quic_hp_sample_ok(len, sample)) return 0;
-    return length >= 4 + QUIC_GCM_TAG && pn_off + length <= len;
+    /* pn_off <= len (parse invariant), so len - pn_off cannot underflow; this
+     * form rejects a huge attacker Length that would overflow pn_off + length. */
+    return length >= 4 + QUIC_GCM_TAG && length <= len - pn_off;
 }
 
 /* RFC 9001 5.4.1: unmask byte0, then the pn bytes; returns recovered pn. */
