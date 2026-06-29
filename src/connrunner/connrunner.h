@@ -6,6 +6,8 @@
 #include "connio/connio.h"
 #include "rtxbytes/rtxstore.h"
 #include "sentmeta/record.h"
+#include "kuswitch/twogen.h"
+#include "retrydrive/reconnect.h"
 
 /* RFC 9000 12 / RFC 9001 4: the top-level connection runner. It binds the
  * abstract steady-state loop (evloop, which only decides) to the real socket
@@ -24,6 +26,17 @@ typedef struct {
     quic_sentmeta sent;/* RFC 9002 A.1: real sent-packet metadata + in-flight */
     u64 rtx_pn;        /* lost pn captured pre-step, for the resend's bytes */
     int rtx_held;      /* 1 if a lost pn is captured for this send */
+    /* RFC 9001 6: 1-RTT key-update generation state and its driving inputs. */
+    quic_kuswitch_state ku;
+    u8 ku_secret[QUIC_HKDF_PRK]; /* current generation's app traffic secret */
+    u8 ku_phase;                 /* RFC 9001 6.2: advertised 1-RTT Key Phase byte0 */
+    u64 ku_completed_at;         /* RFC 9001 6.2: pins both 3*PTO clocks; -1 = unset */
+    u64 ku_sent_in_phase;        /* RFC 9001 6.6: packets sent under current keys */
+    int ku_unacked;              /* RFC 9001 6.5: a self update is unacknowledged */
+    /* RFC 9000 17.2.5 / 6.2: Retry and Version Negotiation reconnect state. */
+    quic_retrydrive_state retry;
+    u32 sent_version;            /* RFC 9000 6.2: version of the client's Initial */
+    int vn_retry_count;          /* RFC 9000 6.2: VN reconnects so far (<=1) */
     u8 rxbuf[QUIC_CONNRUNNER_BUF];
     u8 txbuf[QUIC_CONNRUNNER_BUF];
 } quic_connrunner;

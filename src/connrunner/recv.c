@@ -1,9 +1,28 @@
 #include "connrunner/recv.h"
 #include "connrunner/level.h"
+#include "connrunner/keyupdate.h"
 #include "udploop/rxloop.h"
 #include "sentmeta/on_ack.h"
+#include "keys/keyset.h"
 
 #define QUIC_CONNRUNNER_MAXPKTS 8 /* coalesced packets per datagram */
+
+/* RFC 9001 6.3: for a 1-RTT short-header packet, drive the read-key generation
+ * off its Key Phase bit; -1 means the generation it names has no key, so the
+ * packet is dropped. Long-header levels are not key-phase gated. */
+static int phase_admits(quic_connrunner *r, u8 byte0, int level)
+{
+    if (level != QUIC_LEVEL_ONERTT) return 1;
+    return quic_connrunner_recv_keygen(r, byte0) != -1;
+}
+
+/* Classify pkt at *level and confirm a key-phase-admitted 1-RTT packet (RFC
+ * 9001 6.3); the compound lives here so recv_one carries one guard. */
+static int recv_level(quic_connrunner *r, u8 byte0, int *level)
+{
+    return quic_connrunner_packet_level(byte0, level)
+        && phase_admits(r, byte0, *level);
+}
 
 /* RFC 9001 5: open and dispatch one packet slice at its protection level,
  * reading back whether it elicited an ACK. Returns 1 if accepted. The dispatch
@@ -11,7 +30,7 @@
 static int recv_one(quic_connrunner *r, u8 *pkt, usz len, int *elicited)
 {
     int level;
-    if (!quic_connrunner_packet_level(pkt[0], &level)) return 0;
+    if (!recv_level(r, pkt[0], &level)) return 0;
     r->io.disp.ack_eliciting = 0;
     r->io.disp.has_ack = 0;
     if (!quic_connio_recv(&r->io, level, pkt, len)) return 0;

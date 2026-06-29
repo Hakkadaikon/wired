@@ -3,6 +3,8 @@
 #include "connrunner/recv.h"
 #include "connrunner/send.h"
 #include "connrunner/level.h"
+#include "connrunner/keyupdate.h"
+#include "keyupdate/keyphase.h"
 #include "frame/frame.h"
 #include "frame/ack.h"
 
@@ -260,6 +262,141 @@ static void test_sentmeta_loss_feeds_rtx(void)
     CHECK(quic_sentmeta_find(&r.sent, 0) == QUIC_SENTMETA_CAP); /* reclaimed */
 }
 
+/* A runner with a 1-RTT key installed and the key-update state seeded from it;
+ * `confirmed` lifts the handshake-confirmed gate, `secret` makes derivation
+ * produce distinct next-generation keys. */
+static void mk_ku(quic_connrunner *r, int confirmed)
+{
+    mk_runner(r, 0);
+    quic_keyset_install(&r->io.loop.keys, QUIC_LEVEL_ONERTT,
+                        &(quic_initial_keys){0});
+    r->io.loop.handshake_confirmed = confirmed;
+    quic_connrunner_keyupdate_init(r);
+    for (usz i = 0; i < QUIC_HKDF_PRK; i++) r->ku_secret[i] = (u8)(i + 1);
+}
+
+/* RFC 9001 6.2: a peer phase change before the handshake is confirmed must not
+ * select the next generation's read key (counterexample the model forbids). */
+static void test_ku_no_derive_before_confirm(void)
+{
+    quic_connrunner r;
+    mk_ku(&r, 0);
+    u8 byte0 = quic_keyphase_set(0x40, 1); /* opposite phase bit */
+    CHECK(quic_connrunner_recv_keygen(&r, byte0) != 1); /* next NOT selected */
+    CHECK(r.ku.generation == 0); /* send gen unchanged */
+    CHECK(r.ku_phase == 0);      /* advertised phase unchanged */
+}
+
+/* RFC 9001 6.2: confirmed, a phase change selects the next generation's read
+ * key; the current generation is still retained and send keys do not advance. */
+static void test_ku_recv_selects_next_gen(void)
+{
+    quic_connrunner r;
+    mk_ku(&r, 1);
+    u8 byte0 = quic_keyphase_set(0x40, 1);
+    CHECK(quic_connrunner_recv_keygen(&r, byte0) == 1); /* next generation */
+    CHECK(r.ku.generation == 0);                        /* send gen unchanged */
+}
+
+/* RFC 9001 6.1: initiating derives and rotates keys, retains the old read key,
+ * and toggles the phase bit -- send generation becomes 1, phase becomes 1. */
+static void test_ku_initiate_derives_then_toggles(void)
+{
+    quic_connrunner r;
+    mk_ku(&r, 1);
+    r.ku_sent_in_phase = 100;
+    CHECK(quic_connrunner_maybe_initiate_ku(&r, 100, 10, 1) == 1);
+    CHECK(r.ku.generation == 1);
+    CHECK(r.ku.have_old == 1);                  /* prior read key retained */
+    CHECK(quic_keyphase_get(r.ku_phase) == 1);  /* phase == gen%2 */
+    CHECK(r.ku_unacked == 1);
+}
+
+/* RFC 9001 6.1: an update is blocked before the handshake is confirmed. */
+static void test_ku_initiate_blocked_before_confirm(void)
+{
+    quic_connrunner r;
+    mk_ku(&r, 0);
+    r.ku_sent_in_phase = 100;
+    CHECK(quic_connrunner_maybe_initiate_ku(&r, 100, 10, 1) == 0);
+    CHECK(r.ku.generation == 0);
+}
+
+/* RFC 9001 6.5: a second update is blocked while the first is unacknowledged. */
+static void test_ku_initiate_blocked_until_acked(void)
+{
+    quic_connrunner r;
+    mk_ku(&r, 1);
+    r.ku_unacked = 1;            /* a self update still outstanding */
+    r.ku_sent_in_phase = 100;
+    CHECK(quic_connrunner_maybe_initiate_ku(&r, 100, 10, 1) == 0);
+    CHECK(r.ku.generation == 0);
+}
+
+/* RFC 9001 6.5: a second update is blocked within 3*PTO of completion. */
+static void test_ku_initiate_blocked_within_3pto(void)
+{
+    quic_connrunner r;
+    mk_ku(&r, 1);
+    r.ku_completed_at = 10;     /* completed at t=10, pto=2 -> floor at 16 */
+    r.ku_sent_in_phase = 100;
+    CHECK(quic_connrunner_maybe_initiate_ku(&r, 15, 10, 2) == 0); /* 15 < 16 */
+    CHECK(quic_connrunner_maybe_initiate_ku(&r, 16, 10, 2) == 1); /* 16 >= 16 */
+}
+
+/* RFC 9001 6.5: the old read key is retained for the full 3*PTO window after
+ * completion and discarded once it elapses. */
+static void test_ku_discard_after_3pto(void)
+{
+    quic_connrunner r;
+    mk_ku(&r, 1);
+    r.ku_sent_in_phase = 100;
+    quic_connrunner_maybe_initiate_ku(&r, 0, 10, 2);
+    quic_connrunner_ku_completed(&r, 10);   /* completed at t=10 */
+    CHECK(quic_connrunner_maybe_discard_ku(&r, 15, 2) == 0); /* 15 < 16 */
+    CHECK(r.ku.have_old == 1);
+    CHECK(quic_connrunner_maybe_discard_ku(&r, 16, 2) == 1); /* 16 >= 16 */
+    CHECK(r.ku.have_old == 0);
+}
+
+/* RFC 9001 6.5: a packet requiring a discarded generation has no key (drop). */
+static void test_ku_drop_discarded_gen(void)
+{
+    quic_connrunner r;
+    mk_ku(&r, 1);
+    r.ku_sent_in_phase = 100;
+    quic_connrunner_maybe_initiate_ku(&r, 0, 10, 2); /* now at gen 1, phase 1 */
+    quic_connrunner_ku_completed(&r, 0);
+    quic_connrunner_maybe_discard_ku(&r, 100, 2);    /* drop the old gen-0 key */
+    u8 old_phase = quic_keyphase_set(0x40, 0);       /* asks for gen 0 */
+    CHECK(quic_connrunner_recv_keygen(&r, old_phase) == -1); /* no key */
+}
+
+/* RFC 9001 6.2: acknowledging a new-phase packet records the completion time
+ * and pins both 3*PTO floors; only a self-initiated update is completed. */
+static void test_ku_completion_records_time(void)
+{
+    quic_connrunner r;
+    mk_ku(&r, 1);
+    r.ku_unacked = 1;
+    quic_connrunner_ku_completed(&r, 42);
+    CHECK(r.ku_completed_at == 42);
+    CHECK(r.ku_unacked == 0);
+}
+
+static void test_connrunner_keyupdate(void)
+{
+    test_ku_no_derive_before_confirm();
+    test_ku_recv_selects_next_gen();
+    test_ku_initiate_derives_then_toggles();
+    test_ku_initiate_blocked_before_confirm();
+    test_ku_initiate_blocked_until_acked();
+    test_ku_initiate_blocked_within_3pto();
+    test_ku_discard_after_3pto();
+    test_ku_drop_discarded_gen();
+    test_ku_completion_records_time();
+}
+
 void test_connrunner(void)
 {
     test_packet_level();
@@ -272,4 +409,5 @@ void test_connrunner(void)
     test_advance_closed_idle();
     test_sentmeta_inflight_tracking();
     test_sentmeta_loss_feeds_rtx();
+    test_connrunner_keyupdate();
 }
