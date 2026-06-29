@@ -3,15 +3,7 @@
 #include "gcm/gcm.h"
 #include "hp/hp.h"
 #include "hp/hpapply.h"
-
-/* RFC 9000 17.1: read the pn_len-byte (1..4) truncated packet number, MSB
- * first, from the cleartext header. */
-static u64 read_pn_be(const u8 *pn, usz pn_len)
-{
-    u64 v = 0;
-    for (usz i = 0; i < pn_len; i++) v = (v << 8) | pn[i];
-    return v;
-}
+#include "packet/pnum.h"
 
 /* RFC 9001 5.3: AEAD-open ciphertext at pkt+hdr_len using header as AAD. */
 static int aead_open(const quic_initial_keys *keys, u8 *pkt, usz hdr_len,
@@ -25,12 +17,14 @@ static int aead_open(const quic_initial_keys *keys, u8 *pkt, usz hdr_len,
                          pkt + hdr_len + ct_len, pkt + hdr_len);
 }
 
-/* RFC 9001 5.4.1 / RFC 9000 17.3: byte0 (already unmasked) carries the true
- * packet-number length in its low two bits. Unmask only that many pn bytes,
- * recover the pn, fix hdr_len to the real length and AEAD-open. */
+/* RFC 9001 5.4.1 / RFC 9000 17.3 / A.3: byte0 (already unmasked) carries the
+ * true packet-number length in its low two bits. Unmask only that many pn
+ * bytes, recover the FULL packet number from the truncated value using
+ * largest_pn (the nonce/AEAD must use the full pn, not the truncated one; the
+ * header bytes stay truncated as AAD), fix hdr_len and AEAD-open. */
 static int open_pkt(const quic_initial_keys *keys, u8 *pkt, usz len,
-                    usz pn_off, const u8 mask[5], const u8 **payload,
-                    usz *payload_len)
+                    usz pn_off, const u8 mask[5], u64 largest_pn,
+                    const u8 **payload, usz *payload_len)
 {
     usz pn_len = (pkt[0] & 0x03u) + 1u;
     usz hdr_len = pn_off + pn_len;
@@ -38,7 +32,8 @@ static int open_pkt(const quic_initial_keys *keys, u8 *pkt, usz len,
     quic_hp_protect_pn(pkt + pn_off, pn_len, mask);
     if (len <= hdr_len + QUIC_GCM_TAG) return 0;
     ct_len = len - hdr_len - QUIC_GCM_TAG;
-    if (!aead_open(keys, pkt, hdr_len, ct_len, read_pn_be(pkt + pn_off, pn_len)))
+    if (!aead_open(keys, pkt, hdr_len, ct_len,
+                   quic_pnum_decode(pkt + pn_off, pn_len, largest_pn)))
         return 0;
     *payload = pkt + hdr_len;
     *payload_len = ct_len;
@@ -52,11 +47,13 @@ static int open_pkt(const quic_initial_keys *keys, u8 *pkt, usz len,
  * true count is known, so a short PN does not corrupt the ciphertext. */
 int quic_hspkt_unprotect(const quic_initial_keys *keys, const quic_aes128 *hp,
                          u8 *pkt, usz len, usz hdr_len, usz pn_off,
-                         u8 bits_mask, const u8 **payload, usz *payload_len)
+                         u8 bits_mask, u64 largest_pn,
+                         const u8 **payload, usz *payload_len)
 {
     u8 mask[5];
     if (len <= hdr_len + QUIC_GCM_TAG) return 0;
     quic_hp_mask(hp, pkt + pn_off + 4, mask);
     pkt[0] ^= mask[0] & bits_mask;
-    return open_pkt(keys, pkt, len, pn_off, mask, payload, payload_len);
+    return open_pkt(keys, pkt, len, pn_off, mask, largest_pn,
+                    payload, payload_len);
 }

@@ -41,13 +41,14 @@ int quic_hspkt_onertt_build(const quic_initial_keys *keys, const quic_aes128 *hp
     return 1;
 }
 
-/* RFC 9001 5 */
+/* RFC 9001 5 / RFC 9000 A.3 */
 int quic_hspkt_onertt_open(const quic_initial_keys *keys, const quic_aes128 *hp,
-                           u8 *pkt, usz len, u8 dcid_len,
+                           u8 *pkt, usz len, u8 dcid_len, u64 largest_pn,
                            const u8 **payload, usz *payload_len)
 {
     usz hdr_len = 5u + dcid_len;
     usz pn_off = 1u + dcid_len;
     return quic_hspkt_unprotect(keys, hp, pkt, len, hdr_len, pn_off,
-                                QUIC_HP_SHORT_MASK, payload, payload_len);
+                                QUIC_HP_SHORT_MASK, largest_pn,
+                                payload, payload_len);
 }

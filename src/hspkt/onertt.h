@@ -16,11 +16,14 @@ int quic_hspkt_onertt_build(const quic_initial_keys *keys, const quic_aes128 *hp
                             const u8 *payload, usz payload_len,
                             u8 *out, usz cap, usz *out_len);
 
-/* Open a 1-RTT packet built by quic_hspkt_onertt_build. On success *payload
- * points at the plaintext within pkt and *payload_len holds its length.
- * Returns 1 on success, 0 on authentication failure or short input. */
+/* Open a 1-RTT packet built by quic_hspkt_onertt_build. largest_pn is the
+ * largest packet number already received in the 1-RTT space (0 before any),
+ * used to recover the full packet number from its truncated form (RFC 9000
+ * A.3) so the AEAD nonce matches the sender's. On success *payload points at
+ * the plaintext within pkt and *payload_len holds its length. Returns 1 on
+ * success, 0 on authentication failure or short input. */
 int quic_hspkt_onertt_open(const quic_initial_keys *keys, const quic_aes128 *hp,
-                           u8 *pkt, usz len, u8 dcid_len,
+                           u8 *pkt, usz len, u8 dcid_len, u64 largest_pn,
                            const u8 **payload, usz *payload_len);
 
 #endif
