@@ -243,13 +243,18 @@ static void log_confirmed(quic_server *s)
         logs("handshake confirmed\n");
 }
 
-/* A later datagram: run one real-wire step and send any sealed reply. */
+/* A later datagram: run one real-wire step and send any sealed reply. The step
+ * result is logged so a failed QPACK decode or a dropped 1-RTT GET is visible
+ * instead of a silent "confirmed" stall. */
 static void on_step(i64 fd, const quic_sockaddr_in *peer, quic_server *s,
                     quic_srvloop *l, u8 *dg, usz len)
 {
     u8 out[1500];
     usz n = 0;
-    if (!quic_srvloop_step(l, s, dg, len, out, sizeof out, &n))
+    int got = quic_srvloop_step(l, s, dg, len, out, sizeof out, &n);
+    logs("post-confirm datagram received\n");
+    logs(l->h3.request_seen ? "  -> GET decoded\n" : "  -> GET not decoded\n");
+    if (!got)
         return;
     send_pkt(fd, peer, out, n, "1-RTT reply sealed and sent\n");
     log_confirmed(s);
