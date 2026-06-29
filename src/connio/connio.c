@@ -86,6 +86,23 @@ static int recv_ready(quic_connio *io, int level, usz len,
         && quic_keyset_for_level(&io->loop.keys, level, keys);
 }
 
+/* RFC 9000 8.1: a server validates the client's address upon successfully
+ * receiving a Handshake packet, lifting the anti-amplification limit. */
+static int validates_address(const quic_connio *io, int level)
+{
+    return io->loop.is_server && level == QUIC_LEVEL_HANDSHAKE;
+}
+
+/* Post-decrypt receive bookkeeping: advance the read PN, lift the amp limit on
+ * a server's first Handshake packet (RFC 9000 8.1), then dispatch frames. */
+static int recv_accept(quic_connio *io, int level, const u8 *frames,
+                       usz frames_len)
+{
+    io->rx_pn++;
+    if (validates_address(io, level)) quic_connloop_validate(&io->loop);
+    return dispatch_all(io, frames, frames_len);
+}
+
 int quic_connio_recv(quic_connio *io, int level, u8 *datagram, usz len)
 {
     const quic_initial_keys *keys;
@@ -97,6 +114,5 @@ int quic_connio_recv(quic_connio *io, int level, u8 *datagram, usz len)
     if (!quic_rx_packet(keys, &hp, datagram, len, level_is_initial(level),
                         &frames, &frames_len))
         return 0;
-    io->rx_pn++;
-    return dispatch_all(io, frames, frames_len);
+    return recv_accept(io, level, frames, frames_len);
 }

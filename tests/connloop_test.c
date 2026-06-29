@@ -65,6 +65,24 @@ static void test_server_send_capped_3x_recv(void)
     CHECK(c.sent_bytes == before);
 }
 
+/* RFC 9000 8.1: validating the address lifts the 3x cap; sends that the
+ * unvalidated budget refused now go through. */
+static void test_validate_lifts_3x_cap(void)
+{
+    quic_connloop c;
+    quic_connloop_init(&c, 1);
+    quic_initial_keys k = {0};
+    quic_keyset_install(&c.keys, QUIC_LEVEL_INITIAL, &k);
+
+    quic_connloop_on_recv(&c, QUIC_LEVEL_INITIAL, 100); /* budget = 300 */
+    CHECK(quic_connloop_on_send(&c, QUIC_LEVEL_INITIAL, 1, 0, 300) == 1);
+    CHECK(quic_connloop_on_send(&c, QUIC_LEVEL_INITIAL, 1, 1, 1) == 0); /* capped */
+
+    quic_connloop_validate(&c); /* address validated: cap lifted */
+    CHECK(c.validated == 1);
+    CHECK(quic_connloop_on_send(&c, QUIC_LEVEL_INITIAL, 1, 1, 9999) == 1);
+}
+
 /* RFC 9001 4: a recv at an un-installed level does not advance state. */
 static void test_recv_drops_packet_without_key(void)
 {
@@ -232,6 +250,7 @@ void test_connloop(void)
     test_send_level_never_regresses();
     test_no_app_data_before_handshake_complete();
     test_server_send_capped_3x_recv();
+    test_validate_lifts_3x_cap();
     test_recv_drops_packet_without_key();
     test_closed_processes_no_packet();
     test_ack_removes_tracked_packet();

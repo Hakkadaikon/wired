@@ -84,6 +84,11 @@ int quic_connloop_on_send(quic_connloop *c, int level, int ack_eliciting,
     return 1;
 }
 
+void quic_connloop_validate(quic_connloop *c)
+{
+    c->validated = 1; /* RFC 9000 8.1: anti-amplification limit lifted */
+}
+
 usz quic_connloop_on_ack(quic_connloop *c, u64 ack_largest,
                          const u64 *ack_ranges, usz n_ranges)
 {

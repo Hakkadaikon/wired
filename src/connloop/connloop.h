@@ -58,6 +58,11 @@ int quic_connloop_on_recv(quic_connloop *c, int level, usz len);
 int quic_connloop_on_send(quic_connloop *c, int level, int ack_eliciting,
                           u64 pn, usz len);
 
+/* RFC 9000 8.1: mark the peer's address validated (a Handshake packet was
+ * received, or path validation completed). Lifts the anti-amplification limit
+ * so subsequent sends are no longer capped at 3x the bytes received. */
+void quic_connloop_validate(quic_connloop *c);
+
 /* RFC 9002 5.1: process a received ACK. Removes exactly the acknowledged,
  * genuinely-tracked packets from in-flight; an ACK naming an untracked packet
  * removes nothing. Disarms the PTO timer when in-flight becomes empty.
