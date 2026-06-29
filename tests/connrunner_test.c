@@ -120,6 +120,47 @@ static void test_flush_sends_retransmit(void)
     CHECK(out != 0);         /* a packet was sealed */
 }
 
+/* Drive one kind==2 retransmission and return the sealed datagram length. */
+static usz drive_retransmit(quic_connrunner *r)
+{
+    int kind = quic_connrunner_pending_kind(r);
+    u64 before = r->loop.next_pn;
+    quic_connrunner_capture_rtx(r);
+    quic_evloop_step(&r->loop, 0);
+    return quic_connrunner_flush_sends(r, before, kind);
+}
+
+static void set_lost(quic_connrunner *r, u64 pn)
+{
+    r->loop.gate.handshake_complete = 1;
+    r->loop.rtx_n = 1;
+    r->loop.rtx[0].pn = pn;
+}
+
+/* RFC 9002 13.3: when the store holds the lost packet's frame bytes, the
+ * retransmission carries those real frames -- not a one-byte PING stand-in.
+ * A stored multi-byte frame seals a strictly larger datagram than the PING
+ * fallback an empty store produces, proving the real bytes went on the wire. */
+static void test_retransmit_real_bytes(void)
+{
+    quic_connrunner real, ping;
+    mk_runner(&real, 1);
+    mk_runner(&ping, 1);
+
+    u8 frames[64];
+    quic_stream_frame sf = {.stream_id = 4, .offset = 0, .length = 5,
+                            .data = (const u8 *)"hello", .fin = 1};
+    usz fl = quic_frame_put_stream(frames, sizeof(frames), &sf);
+    CHECK(quic_rtxbytes_store(&real.rtx, 7, frames, fl) == 1);
+    set_lost(&real, 7); /* held in the store -> real bytes */
+    set_lost(&ping, 7); /* empty store -> PING fallback */
+
+    usz real_out = drive_retransmit(&real);
+    usz ping_out = drive_retransmit(&ping);
+    CHECK(real_out != 0 && ping_out != 0);
+    CHECK(real_out > ping_out); /* real frame bytes, not a 1-byte PING */
+}
+
 /* RFC 9000 12: one advance runs recv before step before send. A sealed
  * ack-eliciting packet in, an ACK packet out, in a single call. */
 static void test_advance_roundtrip(void)
@@ -164,6 +205,7 @@ void test_connrunner(void)
     test_unparseable_owes_nothing();
     test_flush_sends_ack();
     test_flush_sends_retransmit();
+    test_retransmit_real_bytes();
     test_advance_roundtrip();
     test_advance_closed_idle();
 }
