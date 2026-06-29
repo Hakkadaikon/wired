@@ -381,6 +381,30 @@ static void test_srvloop_padding_before_stream(void)
     CHECK(out_len > 0);
 }
 
+/* COALESCED RECEIVE (RFC 9000 12.2): curl/quiche coalesce the client Finished
+ * Handshake packet behind a leading packet (an Initial ACK or a PADDING-only
+ * Handshake) in one datagram. A leading Handshake carrying only PADDING does not
+ * confirm; the step must walk past it to the second slice's genuine Finished and
+ * reach confirmed — proving the loop no longer drops non-first slices. */
+static void test_srvloop_coalesced_finished_behind_leading(void)
+{
+    struct lp_fix f;
+    u8 lead[256], rest[512], dg[1024], out[1024];
+    u8 padding[1] = {0x00}; /* RFC 9000 19.1 */
+    usz lead_len, rest_len, i, off = 0, out_len = 0;
+    lp_make_client_hello(&f);
+    lp_drive_to_flight(&f);
+    lp_make_client_finished(&f);
+    lead_len = client_seal_handshake(&f, padding, 1, lead, sizeof lead);
+    rest_len = client_seal_handshake(&f, f.cli_fin, f.cli_fin_len,
+                                     rest, sizeof rest);
+    for (i = 0; i < lead_len; i++) dg[off++] = lead[i];
+    for (i = 0; i < rest_len; i++) dg[off++] = rest[i];
+    CHECK(quic_srvloop_step(&f.l, &f.s, dg, off, out, sizeof out,
+                            &out_len) == 1);
+    CHECK(quic_server_is_confirmed(&f.s) == 1);
+}
+
 void test_srvloop(void)
 {
     test_srvloop_send_initial_roundtrip();
@@ -390,4 +414,5 @@ void test_srvloop(void)
     test_srvloop_full_roundtrip();
     test_srvloop_dispatch_padding_before_crypto();
     test_srvloop_padding_before_stream();
+    test_srvloop_coalesced_finished_behind_leading();
 }
