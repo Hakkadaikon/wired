@@ -23,6 +23,7 @@ typedef struct {
     u64 close_ticks;    /* counts up in CLOSING/DRAINING; fires at close_max */
     u64 close_max;      /* 3*PTO in ticks */
     u8  sent_close;     /* we sent a CONNECTION_CLOSE */
+    u8  notified;       /* app told of the close, exactly once on close path */
 } quic_life;
 
 void quic_life_init(quic_life *l, u64 idle_max, u64 close_max);
@@ -33,6 +34,10 @@ void quic_life_tick(quic_life *l);
 
 /* A (non-reset) packet was received: reset the idle timer while open. */
 void quic_life_on_recv(quic_life *l);
+
+/* RFC 9000 10.1: an ack-eliciting packet was sent: reset the idle timer while
+ * open. */
+void quic_life_on_send(quic_life *l);
 
 /* The application starts an immediate close: send CONNECTION_CLOSE, enter
  * CLOSING. No effect once past open. */
