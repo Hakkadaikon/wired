@@ -367,6 +367,7 @@
 #include "connrunner/recv.c"
 #include "connrunner/send.c"
 #include "connrunner/keyupdate.c"
+#include "connrunner/reconnect.c"
 #include "connrunner/connrunner.c"
 #include "h3conn/establish.c"
 #include "h3conn/request.c"

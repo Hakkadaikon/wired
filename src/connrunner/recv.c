@@ -1,6 +1,7 @@
 #include "connrunner/recv.h"
 #include "connrunner/level.h"
 #include "connrunner/keyupdate.h"
+#include "connrunner/reconnect.h"
 #include "udploop/rxloop.h"
 #include "sentmeta/on_ack.h"
 #include "keys/keyset.h"
@@ -24,18 +25,28 @@ static int recv_level(quic_connrunner *r, u8 byte0, int *level)
         && phase_admits(r, byte0, *level);
 }
 
-/* RFC 9001 5: open and dispatch one packet slice at its protection level,
- * reading back whether it elicited an ACK. Returns 1 if accepted. The dispatch
- * state's ack_eliciting flag is cleared first so it reflects only this packet. */
-static int recv_one(quic_connrunner *r, u8 *pkt, usz len, int *elicited)
+/* RFC 9001 5: open one packet slice at `level` and read back whether it
+ * elicited an ACK. The dispatch state's ack_eliciting flag is cleared first so
+ * it reflects only this packet. Returns 1 if accepted. */
+static int open_one(quic_connrunner *r, int level, u8 *pkt, usz len,
+                    int *elicited)
 {
-    int level;
-    if (!recv_level(r, pkt[0], &level)) return 0;
     r->io.disp.ack_eliciting = 0;
     r->io.disp.has_ack = 0;
     if (!quic_connio_recv(&r->io, level, pkt, len)) return 0;
     *elicited = r->io.disp.ack_eliciting; /* RFC 9000 13.2.1 */
     return 1;
+}
+
+/* RFC 9000 17.2.5/6.2 then RFC 9001 5: drive a Retry/VN reconnect off the
+ * receive path; otherwise classify and open the protected packet. A Retry/VN
+ * is handled but never queued as an ack-eliciting receive (returns 0). */
+static int recv_one(quic_connrunner *r, u8 *pkt, usz len, int *elicited)
+{
+    int level;
+    if (quic_connrunner_recv_reconnect(r, pkt, len)) return 0;
+    if (!recv_level(r, pkt[0], &level)) return 0;
+    return open_one(r, level, pkt, len, elicited);
 }
 
 /* Feed an accepted packet's ACK obligation into the loop (RFC 9000 13.2.1). */

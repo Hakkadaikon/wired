@@ -4,6 +4,7 @@
 #include "connrunner/send.h"
 #include "connrunner/level.h"
 #include "connrunner/keyupdate.h"
+#include "connrunner/reconnect.h"
 #include "keyupdate/keyphase.h"
 #include "frame/frame.h"
 #include "frame/ack.h"
@@ -397,6 +398,81 @@ static void test_connrunner_keyupdate(void)
     test_ku_completion_records_time();
 }
 
+static const u8 g_retry_scid[4] = {0xaa, 0xbb, 0xcc, 0xdd};
+static const u8 g_retry_token[3] = {0x01, 0x02, 0x03};
+
+/* RFC 9000 17.2.5.2: the first valid Retry is accepted, adopts the Retry SCID
+ * as the new DCID, and marks the Initial keys stale (re-derivation pending). */
+static void test_retry_first_accepted(void)
+{
+    quic_connrunner r;
+    mk_runner(&r, 0);
+    CHECK(quic_connrunner_recv_retry(&r, 1, g_retry_scid, 4,
+                                     g_retry_token, 3) == 1);
+    CHECK(r.retry.received == 1);
+    CHECK(r.retry.dcid_len == 4 && r.retry.dcid[0] == 0xaa);
+    CHECK(r.retry.key_rederive == 1);
+}
+
+/* RFC 9000 17.2.5.2: a Retry with an invalid Integrity Tag is discarded. */
+static void test_retry_bad_tag_discarded(void)
+{
+    quic_connrunner r;
+    mk_runner(&r, 0);
+    CHECK(quic_connrunner_recv_retry(&r, 0, g_retry_scid, 4,
+                                     g_retry_token, 3) == 0);
+    CHECK(r.retry.received == 0);
+}
+
+/* RFC 9000 17.2.5.2: a second Retry is discarded (at most one per attempt). */
+static void test_retry_second_discarded(void)
+{
+    quic_connrunner r;
+    mk_runner(&r, 0);
+    CHECK(quic_connrunner_recv_retry(&r, 1, g_retry_scid, 4,
+                                     g_retry_token, 3) == 1);
+    u8 other[4] = {0x11, 0x22, 0x33, 0x44};
+    CHECK(quic_connrunner_recv_retry(&r, 1, other, 4, g_retry_token, 3) == 0);
+    CHECK(r.retry.dcid[0] == 0xaa); /* DCID unchanged by the second Retry */
+}
+
+/* RFC 9001 5.2 / RFC 9000 17.2.5.1: the Initial after a Retry re-derives keys
+ * for the new DCID before sending and carries the Retry token. */
+static void test_retry_rederive_then_token(void)
+{
+    quic_connrunner r;
+    mk_runner(&r, 0);
+    quic_connrunner_recv_retry(&r, 1, g_retry_scid, 4, g_retry_token, 3);
+    CHECK(quic_connrunner_retry_rederive(&r) == 1); /* keys re-derived first */
+    CHECK(r.io.dcid_len == 4 && r.io.dcid[0] == 0xaa); /* DCID now the SCID */
+    CHECK(r.retry.key_rederive == 0);                  /* no stale-key send */
+    const u8 *tok;
+    usz tlen;
+    quic_connrunner_initial_token(&r, &tok, &tlen);
+    CHECK(tlen == 3 && tok[0] == 0x01); /* the Retry token rides the Initial */
+}
+
+/* RFC 9000 17.2.5.2: a Retry arriving after the handshake progressed is
+ * ignored and leaves the DCID unchanged. */
+static void test_retry_ignored_after_progress(void)
+{
+    quic_connrunner r;
+    mk_runner(&r, 0);
+    r.io.loop.handshake_complete = 1; /* the handshake has progressed */
+    CHECK(quic_connrunner_recv_retry(&r, 1, g_retry_scid, 4,
+                                     g_retry_token, 3) == 0);
+    CHECK(r.retry.received == 0);
+}
+
+static void test_connrunner_retry(void)
+{
+    test_retry_first_accepted();
+    test_retry_bad_tag_discarded();
+    test_retry_second_discarded();
+    test_retry_rederive_then_token();
+    test_retry_ignored_after_progress();
+}
+
 void test_connrunner(void)
 {
     test_packet_level();
@@ -410,4 +486,5 @@ void test_connrunner(void)
     test_sentmeta_inflight_tracking();
     test_sentmeta_loss_feeds_rtx();
     test_connrunner_keyupdate();
+    test_connrunner_retry();
 }

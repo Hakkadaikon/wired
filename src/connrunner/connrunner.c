@@ -2,6 +2,7 @@
 #include "connrunner/recv.h"
 #include "connrunner/send.h"
 #include "connrunner/keyupdate.h"
+#include "connrunner/reconnect.h"
 #include "poll/deadline.h"
 #include "poll/wait.h"
 #include "udploop/rxloop.h"
@@ -21,6 +22,7 @@ void quic_connrunner_init(quic_connrunner *r, i64 fd,
     quic_connio_init(&r->io, is_server, byte0, dcid, dcid_len,
                      initial_max_data);
     quic_connrunner_keyupdate_init(r);
+    quic_connrunner_reconnect_init(r);
 }
 
 /* RFC 9000 12: the fixed-order core of one iteration, with the datagram already
