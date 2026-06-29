@@ -1,9 +1,11 @@
 #include "srvloop/srvloop.h"
+#include "connrunner/level.h"
 #include "frame/ack.h"
 #include "h3srv/control.h"
 #include "h3srv/respond.h"
 #include "hspkt/hspkt_build.h"
 #include "keys/keyset.h"
+#include "packet/pnum.h"
 #include "appdata/stream_send.h"
 #include "srvloop/dispatch.h"
 #include "srvloop/keys.h"
@@ -33,6 +35,7 @@ int quic_srvloop_init(quic_srvloop *l, const u8 *cli_scid, u8 cli_scid_len)
     l->app_rx_pn = 0;
     l->app_rx_seen = 0;
     l->hs_done_sent = 0;
+    l->last_1rtt_open_ok = 0;
     return 1;
 }
 
@@ -202,18 +205,44 @@ static int produce(quic_srvloop *l, quic_server *s, int got_request,
     return produce_confirmed(l, s, got_request, out, cap, out_len);
 }
 
-/* RFC 9000 13.2.1: once a 1-RTT packet is opened, its 4-byte packet number is
- * cleartext in the header (header protection was removed in place). Record it as
- * the number to ACK. pkt[1+iscid_len .. +4] is the short-header packet number. */
+/* The largest 1-RTT packet number received so far (0 before any), the baseline
+ * for recovering a truncated PN (RFC 9000 A.3). */
+static u64 app_largest_pn(const quic_srvloop *l)
+{
+    return l->app_rx_seen ? l->app_rx_pn : 0;
+}
+
+/* RFC 9000 13.2.1 / A.3: once a 1-RTT packet is opened, the truncated (1..4
+ * byte) packet number is cleartext in the header (header protection removed in
+ * place) and byte0's low bits give its length. Recover the full PN against the
+ * largest seen so far and record it as the number to ACK / the new baseline. */
 static void note_app_rx(quic_srvloop *l, quic_server *s, int level, const u8 *pkt)
 {
     const u8 *pn;
+    usz pn_len;
     if (level != QUIC_LEVEL_ONERTT)
         return;
     pn = pkt + 1u + s->sdrv.iscid_len;
-    l->app_rx_pn = ((u64)pn[0] << 24) | ((u64)pn[1] << 16) |
-                   ((u64)pn[2] << 8) | (u64)pn[3];
+    pn_len = (pkt[0] & 0x03u) + 1u;
+    l->app_rx_pn = quic_pnum_decode(pn, pn_len, app_largest_pn(l));
     l->app_rx_seen = 1;
+}
+
+/* Diagnostics: a 1-RTT (ONERTT) slice's open outcome latches last_1rtt_open_ok
+ * to 1 (any slice in the datagram decrypted) so a curl run can tell an AEAD-open
+ * failure apart from a later QPACK/HTTP3 decode failure. Non-1-RTT slices and a
+ * first byte that never reached ONERTT leave it untouched. */
+static int is_onertt_byte(u8 byte0)
+{
+    int level;
+    return quic_connrunner_packet_level(byte0, &level) &&
+           level == QUIC_LEVEL_ONERTT;
+}
+
+static void note_1rtt_open(quic_srvloop *l, int opened, u8 byte0)
+{
+    if (opened && is_onertt_byte(byte0))
+        l->last_1rtt_open_ok = 1;
 }
 
 /* RFC 9001 5 / 5.1: open one coalesced packet slice and walk its frames. A
@@ -228,7 +257,10 @@ static void step_one(quic_srvloop *l, quic_server *s, u8 *pkt, usz len,
     const u8 *payload;
     usz plen;
     int level;
-    if (!quic_srvloop_recv(s, pkt, len, &level, &payload, &plen))
+    int opened = quic_srvloop_recv(s, pkt, len, app_largest_pn(l),
+                                   &level, &payload, &plen);
+    note_1rtt_open(l, opened, pkt[0]);
+    if (!opened)
         return;
     note_app_rx(l, s, level, pkt);
     quic_srvloop_dispatch(s, &l->h3, payload, plen, scratch, sizeof scratch,
@@ -244,6 +276,7 @@ int quic_srvloop_step(quic_srvloop *l, quic_server *s, u8 *dgram, usz len,
     const u8 *pkts[QUIC_SRVLOOP_MAXPKTS];
     usz offs[QUIC_SRVLOOP_MAXPKTS], lens[QUIC_SRVLOOP_MAXPKTS], n, i;
     int got_request = 0;
+    l->last_1rtt_open_ok = 0;
     n = quic_udploop_split(dgram, len, pkts, offs, lens, QUIC_SRVLOOP_MAXPKTS);
     for (i = 0; i < n; i++)
         step_one(l, s, dgram + offs[i], lens[i], &got_request);

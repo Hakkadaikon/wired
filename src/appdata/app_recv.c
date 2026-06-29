@@ -10,7 +10,10 @@ static int open_and_decode(const quic_initial_keys *app_keys,
 {
     const u8 *payload = 0;
     usz plen = 0;
-    if (!quic_hspkt_onertt_open(app_keys, hp, pkt, len, dcid_len,
+    /* ponytail: this one-shot helper opens a single packet with no receive
+     * history, so largest_pn is 0; full-pn recovery across truncated PNs is the
+     * srvloop path's job (RFC 9000 A.3). */
+    if (!quic_hspkt_onertt_open(app_keys, hp, pkt, len, dcid_len, 0,
                                 &payload, &plen))
         return 0;
     if (plen == 0) return 0;
