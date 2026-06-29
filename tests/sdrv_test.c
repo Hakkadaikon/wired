@@ -8,6 +8,9 @@
 #include "tls/serverhello.h"
 #include "tls/cert.h"
 #include "tls/certverify.h"
+#include "x509/x509.h"
+#include "x509/spki.h"
+#include "x509/ec_pubkey.h"
 #include "tls/finished.h"
 #include "tls/handshake.h"
 #include "tls/schedule.h"
@@ -87,6 +90,25 @@ void test_sdrv(void)
     CHECK(next_hs(flight, hs_len, &p, &cv, &cvl));
     CHECK(next_hs(flight, hs_len, &p, &fin, &finl));
     CHECK(ee[0] == 0x08 && cm[0] == 0x0b && cv[0] == 0x0f && fin[0] == 0x14);
+
+    /* RFC 5480 / RFC 5280 4.1.2.7: the end-entity certificate the server put on
+     * the wire is structurally an ECDSA P-256 cert (id-ecPublicKey SPKI carrying
+     * an uncompressed secp256r1 point), not Ed25519. This is what BoringSSL
+     * (curl/quiche) requires; prove it from the Certificate message bytes. */
+    {
+        quic_x509 crt;
+        quic_tls_cert_entry ee_cert;
+        const u8 *ctx, *alg_oid, *spki_key;
+        u32 ctxl;
+        usz alg_len, key_len;
+        u8 px[32], py[32];
+        CHECK(quic_tls_cert_parse(cm + 4, cml - 4, &ctx, &ctxl, &ee_cert));
+        CHECK(quic_x509_parse(ee_cert.cert_data, ee_cert.cert_len, &crt));
+        CHECK(quic_x509_public_key(crt.tbs, crt.tbs_len, &alg_oid, &alg_len,
+                                   &spki_key, &key_len));
+        CHECK(quic_x509_is_ec(alg_oid, alg_len) == 1);
+        CHECK(quic_x509_ec_pubkey(spki_key, key_len, px, py) == 1);
+    }
 
     /* CertificateVerify verifies against the server's self-built P-256
      * certificate over the transcript through Certificate. */
