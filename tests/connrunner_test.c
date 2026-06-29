@@ -93,7 +93,7 @@ static void test_flush_sends_ack(void)
 {
     quic_connrunner r;
     mk_runner(&r, 1);
-    r.io.rx_pn = 3;          /* highest received = 2 */
+    r.io.rx_pn[QUIC_LEVEL_INITIAL] = 3; /* highest received = 2 */
     r.loop.ack_owed = 1;     /* an ACK is owed */
 
     int kind = quic_connrunner_pending_kind(&r);
