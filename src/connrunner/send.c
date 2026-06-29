@@ -37,15 +37,17 @@ int quic_connrunner_pending_kind(const quic_connrunner *r)
     return 0;
 }
 
-/* RFC 9000 19.3: an ACK acknowledging up to the highest received packet number.
- * connio.rx_pn is the next expected number, so the largest seen is rx_pn-1. */
+/* RFC 9000 19.3: an ACK acknowledging up to the highest received packet number
+ * in the send level's space. The space's next expected number is rx, so the
+ * largest seen is rx-1 (RFC 9000 12.3: spaces are acknowledged independently). */
 static usz cr_build_ack(const quic_connrunner *r, u8 *buf, usz cap)
 {
     quic_ack_frame f = {0};
-    if (r->io.rx_pn == 0) return 0; /* nothing received to acknowledge */
+    u64 rx = quic_connio_rx_next(&r->io, r->loop.level);
+    if (rx == 0) return 0; /* nothing received to acknowledge */
     f.n_ranges = 1;
-    f.ranges[0].hi = r->io.rx_pn - 1;
-    f.ranges[0].lo = r->io.rx_pn - 1;
+    f.ranges[0].hi = rx - 1;
+    f.ranges[0].lo = rx - 1;
     return quic_ack_encode(buf, cap, &f);
 }
 
@@ -112,7 +114,8 @@ void quic_connrunner_track_sent(quic_connrunner *r, u64 now, int kind,
     int infl;
     if (sent_len == 0) return;
     infl = kind_in_flight(kind);
-    quic_sentmeta_on_sent(&r->sent, r->io.tx_pn - 1, now, infl, infl, sent_len);
+    quic_sentmeta_on_sent(&r->sent, quic_connio_tx_next(&r->io, r->loop.level) - 1,
+                          now, infl, infl, sent_len);
 }
 
 /* ponytail: no RTT estimator is wired into this loop yet, so time-threshold

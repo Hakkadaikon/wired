@@ -28,7 +28,7 @@ usz quic_connrunner_flush_sends(quic_connrunner *r, u64 sent_before, int kind);
  * sentmeta ring. `sent_len` is the sealed datagram length (0 = nothing sent);
  * `kind` (1 ACK / 2 rtx / 3 new data) decides ack-eliciting and in-flight: an
  * ACK-only packet is neither, a retransmission or new data is both. The packet
- * number is r->io.tx_pn-1 (connio advanced it on the send). */
+ * number is the send level space's next-1 (connio advanced it on the send). */
 void quic_connrunner_track_sent(quic_connrunner *r, u64 now, int kind,
                                 usz sent_len);
 
