@@ -8,16 +8,19 @@
  * for the Handshake flight, SERVER_AP for 1-RTT payloads. The DCID written
  * toward the client is the client's source id; the SCID is the server's iscid. */
 
-/* Seal a ServerHello TLS flight into a server Initial packet. Returns 1, 0 on
- * overflow. */
+/* Seal a ServerHello TLS flight into a server Initial packet. When ack_pn >= 0
+ * the flight acknowledges that received client Initial packet number (RFC 9000
+ * 13.2.1); ack_pn < 0 sends CRYPTO only. Returns 1, 0 on overflow. */
 int quic_srvloop_send_initial(const quic_server *s, const u8 *cli_scid,
-                              u8 cli_scid_len, u64 pn, const u8 *tls, usz tls_len,
+                              u8 cli_scid_len, u64 pn, i64 ack_pn,
+                              const u8 *tls, usz tls_len,
                               u8 *out, usz cap, usz *out_len);
 
-/* Seal a Handshake TLS flight under SERVER_HS. Returns 1, or 0 if the key is
- * not derived or on overflow. */
+/* Seal a Handshake TLS flight under SERVER_HS. When ack_pn >= 0 the flight
+ * acknowledges that received Handshake-space packet number (RFC 9000 13.2.1).
+ * Returns 1, or 0 if the key is not derived or on overflow. */
 int quic_srvloop_send_handshake(const quic_server *s, const u8 *cli_scid,
-                                u8 cli_scid_len, u64 pn,
+                                u8 cli_scid_len, u64 pn, i64 ack_pn,
                                 const u8 *tls, usz tls_len,
                                 u8 *out, usz cap, usz *out_len);
 

@@ -103,13 +103,16 @@ static void log_alpn(const u8 *ch, usz ch_len)
         logs("ALPN: h3 not offered\n");
 }
 
-/* Seal a packet and, if non-empty, send it with a log line. */
+/* Seal a packet and, if non-empty, send it with a log line. The send result is
+ * logged so a failed sendto (e.g. EPERM from a firewall, EINVAL) is visible
+ * instead of silently swallowed. */
 static void send_pkt(i64 fd, const quic_sockaddr_in *peer, const u8 *pkt,
                      usz n, const char *what)
 {
     if (n) {
-        quic_udp_send(fd, peer, pkt, n);
+        i64 r = quic_udp_send(fd, peer, pkt, n);
         logs(what);
+        logs(r < 0 ? "  -> sendto FAILED\n" : "  -> sendto ok\n");
     }
 }
 
@@ -168,17 +171,25 @@ static int init_server(quic_server *s, quic_srvloop *l, const u8 *dcid,
     return quic_srvloop_init(l, dcid, dcid_len);
 }
 
+/* The client opens with its first Initial at packet number 0 (the start of the
+ * Initial space), which open_initial assumes; the server acknowledges it in the
+ * ServerHello Initial so curl/quiche stop retransmitting (RFC 9000 13.2.1). The
+ * Handshake space has no received packets when this flight is built, so it
+ * carries no ACK (-1). */
+#define CLIENT_INITIAL_PN 0
+
 /* Seal the ServerHello (Initial) and the rest of the flight (Handshake) under
- * the server's own-direction keys and send each that sealed. */
+ * the server's own-direction keys and send each that sealed. The Initial
+ * acknowledges the client Initial (RFC 9000 13.2.1). */
 static void seal_and_send(i64 fd, const quic_sockaddr_in *peer, quic_server *s,
                           const u8 *sh, usz shl, const u8 *flight, usz fll)
 {
     u8 pkt[1500];
     usz n = 0;
     if (quic_srvloop_send_initial(s, SERVER_SCID, sizeof SERVER_SCID, 1,
-                                  sh, shl, pkt, sizeof pkt, &n))
+                                  CLIENT_INITIAL_PN, sh, shl, pkt, sizeof pkt, &n))
         send_pkt(fd, peer, pkt, n, "ServerHello (Initial) sent\n");
-    if (quic_srvloop_send_handshake(s, SERVER_SCID, sizeof SERVER_SCID, 0,
+    if (quic_srvloop_send_handshake(s, SERVER_SCID, sizeof SERVER_SCID, 0, -1,
                                     flight, fll, pkt, sizeof pkt, &n))
         send_pkt(fd, peer, pkt, n, "server flight (Handshake) sent\n");
 }

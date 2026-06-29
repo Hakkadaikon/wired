@@ -7,19 +7,20 @@
 /* RFC 9001 5.2: the server Initial is protected with the keys derived from the
  * client's original DCID (odcid), the same value the client opens with. */
 int quic_srvloop_send_initial(const quic_server *s, const u8 *cli_scid,
-                              u8 cli_scid_len, u64 pn, const u8 *tls, usz tls_len,
+                              u8 cli_scid_len, u64 pn, i64 ack_pn,
+                              const u8 *tls, usz tls_len,
                               u8 *out, usz cap, usz *out_len)
 {
     (void)cli_scid;
     (void)cli_scid_len;
     return quic_srvwire_seal_initial(s->sdrv.odcid, s->sdrv.odcid_len,
-                                     s->sdrv.iscid, s->sdrv.iscid_len, pn,
+                                     s->sdrv.iscid, s->sdrv.iscid_len, pn, ack_pn,
                                      tls, tls_len, out, cap, out_len);
 }
 
 /* RFC 9001 5 / 5.1: Handshake flight sealed with the own-direction SERVER_HS. */
 int quic_srvloop_send_handshake(const quic_server *s, const u8 *cli_scid,
-                                u8 cli_scid_len, u64 pn,
+                                u8 cli_scid_len, u64 pn, i64 ack_pn,
                                 const u8 *tls, usz tls_len,
                                 u8 *out, usz cap, usz *out_len)
 {
@@ -28,7 +29,7 @@ int quic_srvloop_send_handshake(const quic_server *s, const u8 *cli_scid,
     if (!quic_srvloop_seal_keys(s, QUIC_LEVEL_HANDSHAKE, &k, &hp))
         return 0;
     return quic_srvwire_seal_handshake(k, &hp, cli_scid, cli_scid_len,
-                                       s->sdrv.iscid, s->sdrv.iscid_len, pn,
+                                       s->sdrv.iscid, s->sdrv.iscid_len, pn, ack_pn,
                                        tls, tls_len, out, cap, out_len);
 }
 

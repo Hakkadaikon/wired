@@ -69,7 +69,7 @@ int quic_client_seal_handshake_wire(quic_client *c,
     if (!cw_dir_key(c, QUIC_KS_CLIENT_HS, &k, &hp))
         return 0;
     return quic_srvwire_seal_handshake(k, &hp, dcid, dcid_len, scid, scid_len,
-                                       pn, tls, tls_len, out, cap, out_len);
+                                       pn, -1, tls, tls_len, out, cap, out_len);
 }
 
 /* RFC 9001 5: open a server Handshake flight with SERVER_HS (peer direction). */
