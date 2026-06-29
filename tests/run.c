@@ -414,6 +414,19 @@
 #include "p256sign/sign.c"
 #include "ecdsasig/der_int.c"
 #include "ecdsasig/sig_value.c"
+#include "p256cert/spki.c"
+#include "p256cert/tbs.c"
+#include "p256cert/p256cert.c"
+#include "cvecdsa/signed.c"
+#include "cvecdsa/cvecdsa.c"
+#include "eebuild/eebuild.c"
+#include "crecv/collect.c"
+#include "crecv/message.c"
+#include "server/server.c"
+#include "server/serverio.c"
+#include "h3srv/control.c"
+#include "h3srv/peer.c"
+#include "h3srv/respond.c"
 #include "varint_test.c"
 #include "header_test.c"
 #include "pnum_test.c"
@@ -796,6 +809,13 @@
 #include "p256sign_test.c"
 #include "ecdsasig_der_int_test.c"
 #include "ecdsasig_sig_value_test.c"
+#include "p256cert_test.c"
+#include "cvecdsa_test.c"
+#include "eebuild_test.c"
+#include "crecv_collect_test.c"
+#include "crecv_message_test.c"
+#include "server_test.c"
+#include "h3srv_test.c"
 
 int main(void)
 {
@@ -1196,5 +1216,12 @@ int main(void)
     test_p256sign();
     test_ecdsasig_der_int();
     test_ecdsasig_sig_value();
+    test_p256cert();
+    test_cvecdsa();
+    test_eebuild();
+    test_crecv_collect();
+    test_crecv_message();
+    test_server();
+    test_h3srv();
     return TEST_REPORT();
 }
