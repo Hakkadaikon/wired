@@ -427,6 +427,13 @@
 #include "h3srv/control.c"
 #include "h3srv/peer.c"
 #include "h3srv/respond.c"
+#include "srvwire/wire.c"
+#include "srvloop/keys.c"
+#include "srvloop/recv.c"
+#include "srvloop/dispatch.c"
+#include "srvloop/send.c"
+#include "srvloop/srvloop.c"
+#include "client/clientwire.c"
 #include "varint_test.c"
 #include "header_test.c"
 #include "pnum_test.c"
@@ -816,6 +823,9 @@
 #include "crecv_message_test.c"
 #include "server_test.c"
 #include "h3srv_test.c"
+#include "srvwire_test.c"
+#include "srvloop_test.c"
+#include "client_wire_test.c"
 #include "h3_loopback_test.c"
 
 int main(void)
@@ -1224,6 +1234,9 @@ int main(void)
     test_crecv_message();
     test_server();
     test_h3srv();
+    test_srvwire();
+    test_srvloop();
+    test_client_wire();
     test_h3_loopback();
     return TEST_REPORT();
 }
