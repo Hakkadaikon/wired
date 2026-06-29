@@ -14,6 +14,7 @@
 #include "qpack/fieldline.h"
 #include "qpack/literal.h"
 #include "h3conn/request.h"
+#include "h3/frame.h"
 #include "test.h"
 
 static int rd_eq(const u8 *a, usz alen, const char *b, usz blen)
@@ -88,6 +89,67 @@ static void test_reqdrive_curl_get(void)
     CHECK(rd_eq(r.scheme, r.scheme_len, "https", 5));
     CHECK(rd_eq(r.authority, r.authority_len, "curl.test", 9));
     CHECK(rd_eq(r.path, r.path_len, "/get", 4));
+}
+
+/* RFC 9114 7.2.8: a real GREASE frame as sent by curl/quiche: a reserved type
+ * 0x1f*N+0x21 (here matching the on-wire 8-byte varint type) carrying the
+ * "GREASE is the word" payload. Returns bytes written. */
+static usz put_grease_frame(u8 *buf, usz cap)
+{
+    const u8 g[] = {'G','R','E','A','S','E',' ','i','s',' ',
+                    't','h','e',' ','w','o','r','d'};
+    return quic_h3_frame_put(buf, cap, 0x1f * 0x4000 + 0x21, g, sizeof(g));
+}
+
+/* RFC 9114 9 / 7.2.8: a request stream that begins with a GREASE frame before
+ * the HEADERS frame (exactly what curl/quiche send) must skip the unknown
+ * frame and still recover all four request pseudo-headers from the HEADERS. */
+static void test_reqdrive_leading_grease(void)
+{
+    u8 fs[64], h3[256], req[256], scratch[128];
+    usz fs_len = curl_field_section(fs), h3_len = 0, req_len = 0;
+    quic_h3reqdrive_req r;
+
+    h3_len = put_grease_frame(h3, sizeof(h3));
+    h3_len += quic_h3_frame_put(h3 + h3_len, sizeof(h3) - h3_len,
+                                QUIC_H3_FRAME_HEADERS, fs, fs_len);
+    CHECK(quic_appdata_stream_frame(0, 0, h3, h3_len, 1, req, sizeof(req),
+                                    &req_len));
+    CHECK(quic_h3reqdrive_recv_get(req, req_len, scratch, sizeof(scratch), &r));
+    CHECK(rd_eq(r.method, r.method_len, "GET", 3));
+    CHECK(rd_eq(r.scheme, r.scheme_len, "https", 5));
+    CHECK(rd_eq(r.authority, r.authority_len, "curl.test", 9));
+    CHECK(rd_eq(r.path, r.path_len, "/get", 4));
+}
+
+/* RFC 9114 9: two consecutive unknown frames before HEADERS are both skipped. */
+static void test_reqdrive_two_greases(void)
+{
+    u8 fs[64], h3[256], req[256], scratch[128];
+    usz fs_len = curl_field_section(fs), h3_len = 0, req_len = 0;
+    quic_h3reqdrive_req r;
+
+    h3_len = put_grease_frame(h3, sizeof(h3));
+    h3_len += put_grease_frame(h3 + h3_len, sizeof(h3) - h3_len);
+    h3_len += quic_h3_frame_put(h3 + h3_len, sizeof(h3) - h3_len,
+                                QUIC_H3_FRAME_HEADERS, fs, fs_len);
+    CHECK(quic_appdata_stream_frame(0, 0, h3, h3_len, 1, req, sizeof(req),
+                                    &req_len));
+    CHECK(quic_h3reqdrive_recv_get(req, req_len, scratch, sizeof(scratch), &r));
+    CHECK(rd_eq(r.path, r.path_len, "/get", 4));
+}
+
+/* RFC 9114 9: a stream carrying only GREASE and no HEADERS must be rejected. */
+static void test_reqdrive_grease_only(void)
+{
+    u8 h3[256], req[256], scratch[128];
+    usz h3_len = put_grease_frame(h3, sizeof(h3)), req_len = 0;
+    quic_h3reqdrive_req r;
+
+    CHECK(quic_appdata_stream_frame(0, 0, h3, h3_len, 1, req, sizeof(req),
+                                    &req_len));
+    CHECK(quic_h3reqdrive_recv_get(req, req_len, scratch, sizeof(scratch), &r)
+          == 0);
 }
 
 /* RFC 9001 5: derive a shared 1-RTT key pair for the end-to-end path. */
@@ -182,6 +244,9 @@ void test_h3reqdrive(void)
 {
     test_reqdrive_stream();
     test_reqdrive_curl_get();
+    test_reqdrive_leading_grease();
+    test_reqdrive_two_greases();
+    test_reqdrive_grease_only();
     test_reqdrive_onertt();
     test_reqdrive_response_status();
     test_reqdrive_dynamic_table();
