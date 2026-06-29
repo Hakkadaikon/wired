@@ -31,9 +31,21 @@ void quic_connio_init(quic_connio *io, int is_server, u8 byte0,
     io->disp.has_ack = 0;
     io->byte0 = byte0;
     io->dcid_len = dcid_len;
-    io->tx_pn = 0;
-    io->rx_pn = 0;
+    quic_pnspaces_init(&io->tx);
+    for (i = 0; i < QUIC_PNS_COUNT; i++) io->rx_pn[i] = 0;
     for (i = 0; i < dcid_len; i++) io->dcid[i] = dcid[i];
+}
+
+/* RFC 9000 12.3: a protection level and its packet number space share the same
+ * index (Initial=0, Handshake=1, 1-RTT/Application=2). */
+u64 quic_connio_tx_next(const quic_connio *io, int level)
+{
+    return io->tx.pn.next[level];
+}
+
+u64 quic_connio_rx_next(const quic_connio *io, int level)
+{
+    return io->rx_pn[level];
 }
 
 /* RFC 9001 4: a level may send only once its keys are installed and the
@@ -42,8 +54,10 @@ static int send_ready(quic_connio *io, int level, usz len,
                       const quic_initial_keys **keys)
 {
     /* ponytail: ack-eliciting hard-set to 1; frames here always elicit (STREAM/
-     * PING). Classify frames[0] if a non-eliciting-only send is ever needed. */
-    return quic_connloop_on_send(&io->loop, level, 1, io->tx_pn, len)
+     * PING). Classify frames[0] if a non-eliciting-only send is ever needed.
+     * RFC 9000 12.3: gate with the SELECTED space's own next packet number. */
+    return quic_connloop_on_send(&io->loop, level, 1,
+                                 quic_connio_tx_next(io, level), len)
         && quic_keyset_for_level(&io->loop.keys, level, keys);
 }
 
@@ -57,8 +71,9 @@ usz quic_connio_send(quic_connio *io, int level, const u8 *frames,
     quic_aes128_init(&hp, keys->hp);
     n = quic_tx_packet(keys, &hp, level_byte0(level), io->dcid, io->dcid_len,
                        (const u8 *)0, 0, level_is_initial(level), (const u8 *)0,
-                       0, io->tx_pn, frames, frames_len, out, cap);
-    io->tx_pn++;
+                       0, quic_connio_tx_next(io, level), frames, frames_len,
+                       out, cap);
+    if (n) quic_pnspaces_next_pn(&io->tx, level); /* advance only on success */
     return n;
 }
 
@@ -98,7 +113,7 @@ static int validates_address(const quic_connio *io, int level)
 static int recv_accept(quic_connio *io, int level, const u8 *frames,
                        usz frames_len)
 {
-    io->rx_pn++;
+    io->rx_pn[level]++; /* RFC 9000 12.3: advance only the inbound space */
     if (validates_address(io, level)) quic_connloop_validate(&io->loop);
     return dispatch_all(io, frames, frames_len);
 }

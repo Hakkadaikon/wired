@@ -6,6 +6,8 @@
 #include "flow/stream_read.h"
 #include "flow/credit.h"
 #include "packet/header.h"
+#include "pnspaces/spaces.h"
+#include "conn/pnspace.h"
 
 /* RFC 9001 5: connection I/O. connloop gates each send/recv (key availability,
  * monotonic send level, anti-amplification, lifecycle phase); connio carries
@@ -22,8 +24,8 @@ typedef struct {
     u8 dcid[QUIC_MAX_CID_LEN];     /* Destination Connection ID for headers */
     u8 dcid_len;
     u8 byte0;                      /* long-header first byte for built packets */
-    u64 tx_pn;                     /* next outbound packet number */
-    u64 rx_pn;                     /* expected inbound packet number */
+    quic_pnspaces tx;              /* RFC 9000 12.3: per-space next send PN */
+    u64 rx_pn[QUIC_PNS_COUNT];     /* per-space next expected inbound PN */
 } quic_connio;
 
 /* Set up an active connection: empty keyset, fresh receive state, the dispatch
@@ -44,5 +46,12 @@ int quic_connio_recv(quic_connio *io, int level, u8 *datagram, usz len);
  * gated out or out is too small. */
 usz quic_connio_send(quic_connio *io, int level, const u8 *frames,
                      usz frames_len, u8 *out, usz cap);
+
+/* RFC 9000 12.3: the next send packet number for `level`'s own space (peek,
+ * does not advance). Each level/space numbers independently from 0. */
+u64 quic_connio_tx_next(const quic_connio *io, int level);
+
+/* The next expected inbound packet number for `level`'s own space. */
+u64 quic_connio_rx_next(const quic_connio *io, int level);
 
 #endif
