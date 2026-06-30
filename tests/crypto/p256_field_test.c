@@ -53,8 +53,51 @@ static void test_p256_field_bytes(void) {
   for (usz i = 0; i < 32; i++) CHECK(out[i] == in[i]);
 }
 
+/* Deterministic xorshift so the differential test is reproducible. */
+static u64 p256_rng(u64 *s) {
+  *s ^= *s << 13;
+  *s ^= *s >> 7;
+  *s ^= *s << 17;
+  return *s;
+}
+
+/* The fast P-256 Solinas mul/sqr/inv must agree with the generic long-division
+ * reducer mod p on random and boundary inputs (the reducer is the oracle: it is
+ * slow but obviously correct). This pins the hand-derived FIPS 186-4 D.2.5 word
+ * rearrangement that powers the ~600x speedup. */
+static void test_p256_field_fast_matches_generic(void) {
+  u64 s = 0x9e3779b97f4a7c15ULL;
+  fe  a, b, r1, r2;
+  for (int it = 0; it < 4096; it++) {
+    for (int i = 0; i < 4; i++) {
+      a[i] = p256_rng(&s);
+      b[i] = p256_rng(&s);
+    }
+    quic_fp_mul(r1, a, b, quic_p256_p); /* oracle */
+    quic_fp_mul_p(r2, a, b);            /* fast */
+    CHECK(quic_fp_eq(r1, r2));
+    quic_fp_sqr(r1, a, quic_p256_p);
+    quic_fp_sqr_p(r2, a);
+    CHECK(quic_fp_eq(r1, r2));
+  }
+  /* boundary: a = p - 1. */
+  for (int i = 0; i < 4; i++) a[i] = quic_p256_p[i];
+  a[0] -= 1;
+  quic_fp_mul(r1, a, a, quic_p256_p);
+  quic_fp_sqr_p(r2, a);
+  CHECK(quic_fp_eq(r1, r2));
+  /* fast inverse: a * a^-1 == 1 (mod p). */
+  {
+    fe ai, prod, one = {1, 0, 0, 0};
+    quic_fp_inv_p(ai, a);
+    quic_fp_mul_p(prod, a, ai);
+    CHECK(quic_fp_eq(prod, one));
+  }
+}
+
 void test_p256_field(void) {
   test_p256_field_inv();
   test_p256_field_addsub();
   test_p256_field_bytes();
+  test_p256_field_fast_matches_generic();
 }
