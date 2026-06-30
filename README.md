@@ -117,9 +117,13 @@ lizard.
 What is proven here is the wire format and the state machines, not a deployed
 endpoint. Stated honestly:
 
-- **No verified interop with external implementations.** The wire format
-  matches the RFC vectors, but a round trip against another QUIC stack (e.g.
-  `curl --http3`) has not been demonstrated in this environment.
+- **External interop confirmed with real `curl --http3` (quiche backend).** On a
+  real external host, a real `curl --http3` linked against the quiche / BoringSSL
+  backend completed the QUIC + TLS 1.3 handshake against the UDP example
+  (`examples/quic_server`) and received `HTTP/3 200`. This was run on a VPS, not
+  in this sandbox (the sandbox curl lacks HTTP/3), and covers the **quiche**
+  backend only — curl's ngtcp2 backend and other clients need separate
+  verification. See `examples/README.md`.
 - **The steady-state event loop is wired to a real socket.** `connrunner` binds
   the deciding loop to a real UDP socket and the `connio` crypto layer, and
   drives real-byte loss retransmission, key update, Retry / Version-Negotiation

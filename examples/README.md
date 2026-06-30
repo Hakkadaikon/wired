@@ -84,34 +84,37 @@ just run             # builds and starts on 0.0.0.0:4433
 `_start`). On startup the server prints `listening on 0.0.0.0:4433` and waits for
 the ClientHello. Stop it with Ctrl-C.
 
-## Connecting with `curl --http3` (honest)
+## Connecting with `curl --http3`
+
+Run the server on a host where the client can reach UDP `4433`, then:
 
 ```sh
-curl --http3 --insecure https://127.0.0.1:4433/
+curl --http3 --insecure https://<host>:4433/
 ```
 
-The server completes a full handshake and returns `:status 200` to the **in-tree**
-client over loopback (see below), but a real `curl --http3` round trip is **not
-verified in this environment**, and completion against curl is **not guaranteed**:
+Expected output includes:
 
-- **HTTP/3-capable curl required.** The curl in this sandbox is built **without**
-  HTTP/3 (`curl --version` lists no `http3` under Protocols/Features), so it
-  cannot be exercised here. You need a curl linked against an HTTP/3 backend
-  (quiche or ngtcp2).
-- **External backend not guaranteed.** The sample signs with ECDSA P-256
-  (`0x0403`), which curl's quiche backend (BoringSSL) accepts where it rejects
-  Ed25519 server certs by default — P-256 is chosen to clear that hurdle. It is
-  still **not guaranteed** to complete end to end: ngtcp2 (GnuTLS / OpenSSL)
-  applies a different MTI / extension set, and the full external handshake was
-  **not** exercised here (no HTTP/3-capable curl, and the sandbox network /
-  capture limits below). The quiche path is the intended target, not a verified
-  result.
-- **Sandbox network limits.** `tcpdump -i lo -n udp port 4433` would show the
-  exchange, but packet capture needs `CAP_NET_RAW`, which is **not available**
-  here, so it was not run.
+```
+< HTTP/3 200
+```
 
-So "external HTTP/3 clients (curl/quiche/ngtcp2/Chrome) complete a handshake and
-get a 200" is **not** verified in this environment.
+This was **confirmed on a real external host** (a VPS, not this sandbox): a real
+`curl --http3` linked against the **quiche** backend (BoringSSL) completed the
+QUIC + TLS 1.3 handshake against this sample and received `HTTP/3 200` for the
+`GET`, with the connection closing normally. Scope and caveats, stated honestly:
+
+- **quiche backend confirmed; other backends not.** The completed run used
+  curl's quiche/BoringSSL backend. The sample signs with ECDSA P-256 (`0x0403`),
+  which BoringSSL accepts where it rejects Ed25519 server certs by default — P-256
+  is chosen to clear that hurdle. curl's **ngtcp2** backend (GnuTLS / OpenSSL)
+  applies a different MTI / extension set and was **not** exercised, so completion
+  there is **not** claimed; it needs separate verification.
+- **External host, not this sandbox.** The curl in this sandbox is built
+  **without** HTTP/3 (`curl --version` lists no `http3`), so the run was done on a
+  separate VPS, not here. Likewise `tcpdump -i lo -n udp port 4433` needs
+  `CAP_NET_RAW`, unavailable in the sandbox.
+- **One connection, one `GET`.** A single `GET /` answered with `:status 200`;
+  no multi-request, no `POST` body, no migration.
 
 ## First-choice verification: the in-tree client over loopback
 
@@ -162,6 +165,11 @@ in `server_test`, and the full `src/client/` mutual handshake is exercised in
 - **Real-wire HTTP/3 GET → 200**: a real 1-RTT `GET` crosses the socket and the
   step seals a `:status 200` the peer opens with `SERVER_AP` (`h3_loopback`,
   check 3).
+- **Real `curl --http3` completion**: on a real external host (VPS), a real
+  `curl --http3` (quiche / BoringSSL backend) completed the handshake against this
+  sample and received `HTTP/3 200` for the `GET`, the connection closing normally.
+  This was **not** run in this sandbox (no HTTP/3 curl here) and covers the quiche
+  backend only.
 - **Forged-Finished safety**: a forged client Finished promotes nothing; the
   server stays unconfirmed and installs no 1-RTT keys (`server_test`,
   `srvloop_test`).
@@ -176,9 +184,9 @@ in `server_test`, and the full `src/client/` mutual handshake is exercised in
   client orchestrator's own certificate verification end to end. The sample's
   real-wire loop (open / confirm / seal) is exercised; pairing it with the full
   `src/client/` handshake over a socket is not.
-- A completed handshake against an **external** HTTP/3 client
-  (curl / quiche / ngtcp2 / Chrome) — the local curl lacks HTTP/3, and ngtcp2
-  completion is not guaranteed.
+- Completion against curl's **ngtcp2** backend (GnuTLS / OpenSSL) or other HTTP/3
+  clients (Chrome, etc.) — only the **quiche** backend was confirmed; ngtcp2's
+  differing MTI / extension set needs separate verification.
 - A `tcpdump` packet capture — no `CAP_NET_RAW` in this environment.
 - More than one connection or request stream; methods other than `GET`
   (e.g. `POST` with a request body).
