@@ -95,9 +95,31 @@ static void test_p256_field_fast_matches_generic(void) {
   }
 }
 
+/* a * (a^-1) == 1 (mod n) via the fast Montgomery inverse, cross-checked
+ * against the generic Fermat inverse on a few values (the generic one is the
+ * oracle but ~100ms each, so only a handful). Pins the Montgomery constants
+ * (n0inv / rr / one) and the CIOS multiply for the group order n. */
+static void test_p256_field_mont_inv_n(void) {
+  u64 s = 0x243f6a8885a308d3ULL;
+  fe  a, ai, prod, ref, one = {1, 0, 0, 0};
+  for (int it = 0; it < 64; it++) {
+    for (int i = 0; i < 4; i++) a[i] = p256_rng(&s);
+    quic_fp_reduce(a, a, quic_p256_n);
+    if (quic_fp_is_zero(a)) continue;
+    quic_mont_inv(ai, a, &quic_p256_mont_n);
+    quic_fp_mul(prod, a, ai, quic_p256_n);
+    CHECK(quic_fp_eq(prod, one));
+    if (it < 4) { /* spot-check against the slow oracle */
+      quic_fp_inv(ref, a, quic_p256_n);
+      CHECK(quic_fp_eq(ai, ref));
+    }
+  }
+}
+
 void test_p256_field(void) {
   test_p256_field_inv();
   test_p256_field_addsub();
   test_p256_field_bytes();
   test_p256_field_fast_matches_generic();
+  test_p256_field_mont_inv_n();
 }
