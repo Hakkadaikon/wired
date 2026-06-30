@@ -1,6 +1,6 @@
 #include "connloop/connloop.h"
 #include "crypto/kdf/keys/promote.h"
-#include "udploop/antiamp_gate.h"
+#include "transport/io/udp/udploop/antiamp_gate.h"
 #include "sentpkt/ack_process.h"
 
 /* Send level starts one below Initial so the first send must promote in. */

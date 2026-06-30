@@ -1,7 +1,7 @@
 #include "evloop/evloop.h"
 #include "ackgen/ackgen.h"
 #include "cwndctl/cwndctl.h"
-#include "udploop/antiamp_gate.h"
+#include "transport/io/udp/udploop/antiamp_gate.h"
 #include "tls/keys/keyupdate/initiate.h"
 #include "tls/keys/keyupdate/oldkey.h"
 

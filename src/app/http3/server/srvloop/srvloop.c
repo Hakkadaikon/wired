@@ -4,7 +4,7 @@
 #include "app/http3/server/srvloop/dispatch.h"
 #include "app/http3/server/srvloop/recv.h"
 #include "app/http3/server/srvloop/respond.h"
-#include "udploop/rxloop.h"
+#include "transport/io/udp/udploop/rxloop.h"
 
 #define QUIC_SRVLOOP_MAXPKTS 8     /* coalesced packets per datagram (RFC 9000 12.2) */
 

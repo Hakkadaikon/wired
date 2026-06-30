@@ -14,7 +14,7 @@
 #include "crypto/asymmetric/ecc/ed25519/ed25519.h"
 #include "app/http3/request/h3reqdrive/request_drive.h"
 #include "app/http3/core/h3conn/response.h"
-#include "udploop/rxloop.h"
+#include "transport/io/udp/udploop/rxloop.h"
 #include "frame/frame.h"
 
 /* RFC 9001 4 / 5 / 5.1, RFC 9000 17.2, RFC 9114 4.1: real-AEAD-wire loopback.

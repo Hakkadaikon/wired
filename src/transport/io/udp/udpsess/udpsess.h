@@ -2,7 +2,7 @@
 #define QUIC_UDPSESS_UDPSESS_H
 
 #include "common/platform/sys/syscall.h"
-#include "io/udptransport.h"
+#include "transport/io/socket/io/udptransport.h"
 
 /* RFC 9000 9: connection migration over a single UDP socket. The connection is
  * identified by its CID, so the same socket can switch its send target when the

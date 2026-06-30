@@ -1,9 +1,9 @@
 #include "test.h"
 #include "frame/frame.h"
 #include "protect/protect.h"
-#include "net/udp4.h"
-#include "net/ipv4.h"
-#include "net/memlink.h"
+#include "transport/io/socket/net/udp4.h"
+#include "transport/io/socket/net/ipv4.h"
+#include "transport/io/socket/net/memlink.h"
 
 /* Wrap a QUIC packet in UDP+IPv4 and push it onto the link (no syscall). */
 static usz tx(quic_memlink *l, const u8 *qpkt, usz qlen, u32 src, u32 dst)

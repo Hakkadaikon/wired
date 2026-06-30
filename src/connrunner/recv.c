@@ -2,7 +2,7 @@
 #include "connrunner/level.h"
 #include "connrunner/keyupdate.h"
 #include "connrunner/reconnect.h"
-#include "udploop/rxloop.h"
+#include "transport/io/udp/udploop/rxloop.h"
 #include "sentmeta/on_ack.h"
 #include "crypto/kdf/keys/keyset.h"
 

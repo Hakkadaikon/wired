@@ -4,8 +4,8 @@
 #include "tls/handshake/core/tls/x25519.h"
 #include "frame/frame.h"
 #include "protect/protect.h"
-#include "net/udp4.h"
-#include "net/ipv4.h"
+#include "transport/io/socket/net/udp4.h"
+#include "transport/io/socket/net/ipv4.h"
 
 #define QUIC_SESSION_CA 0x0a000001u
 #define QUIC_SESSION_SA 0x0a000002u

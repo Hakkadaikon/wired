@@ -3,10 +3,10 @@
 #include "connrunner/send.h"
 #include "connrunner/keyupdate.h"
 #include "connrunner/reconnect.h"
-#include "poll/deadline.h"
-#include "poll/wait.h"
-#include "udploop/rxloop.h"
-#include "udploop/txloop.h"
+#include "transport/io/socket/poll/deadline.h"
+#include "transport/io/socket/poll/wait.h"
+#include "transport/io/udp/udploop/rxloop.h"
+#include "transport/io/udp/udploop/txloop.h"
 
 void quic_connrunner_init(quic_connrunner *r, i64 fd,
                           const quic_sockaddr_in *peer, int level, u64 cwnd,

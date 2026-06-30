@@ -1,5 +1,5 @@
-#include "net/ipv4.h"
-#include "net/checksum.h"
+#include "transport/io/socket/net/ipv4.h"
+#include "transport/io/socket/net/checksum.h"
 #include "common/bytes/util/be.h"
 
 #define put_be16 quic_put_be16

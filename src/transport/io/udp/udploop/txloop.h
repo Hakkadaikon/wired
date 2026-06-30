@@ -2,7 +2,7 @@
 #define QUIC_UDPLOOP_TXLOOP_H
 
 #include "common/platform/sys/syscall.h"
-#include "io/udp.h"
+#include "transport/io/socket/io/udp.h"
 
 /* RFC 9000 12.2: several QUIC packets may be coalesced into one UDP datagram.
  * Packing concatenates n_pkts packets (taken back-to-back from pkts, with

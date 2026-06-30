@@ -1,6 +1,6 @@
-#include "io/udptransport.h"
-#include "io/udp.h"
-#include "io/addr.h"
+#include "transport/io/socket/io/udptransport.h"
+#include "transport/io/socket/io/udp.h"
+#include "transport/io/socket/io/addr.h"
 
 int quic_udp_transport_open(quic_udp_transport *t, u16 local_port)
 {

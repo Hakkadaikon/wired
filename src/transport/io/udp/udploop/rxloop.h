@@ -2,7 +2,7 @@
 #define QUIC_UDPLOOP_RXLOOP_H
 
 #include "common/platform/sys/syscall.h"
-#include "io/udp.h"
+#include "transport/io/socket/io/udp.h"
 
 /* RFC 9000 12.2: a received UDP datagram may carry several coalesced QUIC
  * packets. Splitting walks the datagram and records each packet's offset and

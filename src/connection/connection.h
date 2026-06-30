@@ -3,7 +3,7 @@
 
 #include "crypto/kdf/keys/keyset.h"
 #include "conn/conn.h"
-#include "net/memlink.h"
+#include "transport/io/socket/net/memlink.h"
 #include "pipeline/framewalk.h"
 
 /* RFC 9000 12 / RFC 9001 4: a connection object that drives send/receive.

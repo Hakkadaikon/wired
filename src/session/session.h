@@ -5,7 +5,7 @@
 #include "conn/conn.h"
 #include "tls/handshake/core/tls/initial.h"
 #include "crypto/symmetric/aead/aes/aes.h"
-#include "net/memlink.h"
+#include "transport/io/socket/net/memlink.h"
 #include "frame/frame.h"
 
 /* A usable QUIC session: the orchestration layer a caller actually drives.
