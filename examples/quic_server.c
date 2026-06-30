@@ -25,6 +25,7 @@
 #include "h3srv/state.h"
 #include "initpkt/initopen.h"
 #include "io/udp.h"
+#include "packet/header.h"
 #include "salpn/ch_ext.h"
 #include "salpn/negotiate.h"
 #include "server/server.h"
@@ -156,19 +157,21 @@ static int open_initial(u8 *dg, usz len, quic_crecv *cr,
     return collect_ch(cr, payload, plen, msg, mlen);
 }
 
-/* Init the orchestrator and loop with the fixed server identity and the
- * client's DCID as the ODCID. The server driver builds its own ECDSA P-256
- * end-entity certificate from cert_seed, so no cert DER is passed in (the
- * cert_der argument is ignored). Returns 1 on success. */
+/* Init the orchestrator and loop with the fixed server identity. The client's
+ * DCID is the ODCID (Initial keys, RFC 9001 5.2); the client's SCID is the DCID
+ * the server writes back in every packet toward the client (RFC 9000 17.2 /
+ * 5.1), so the loop is seeded with the SCID, not the DCID. The server driver
+ * builds its own end-entity certificate from cert_seed, so no cert DER is passed
+ * in. Returns 1 on success. */
 static int init_server(quic_server *s, quic_srvloop *l, const u8 *dcid,
-                       u8 dcid_len)
+                       u8 dcid_len, const u8 *scid, u8 scid_len)
 {
     u8 priv[32], pub[32], seed[32];
     server_keys(priv, pub, seed);
     quic_server_init(s, priv, pub, seed, 0, 0);
     if (!quic_server_set_cids(s, dcid, dcid_len, SERVER_SCID, sizeof SERVER_SCID))
         return 0;
-    return quic_srvloop_init(l, dcid, dcid_len);
+    return quic_srvloop_init(l, scid, scid_len);
 }
 
 /* The client opens with its first Initial at packet number 0 (the start of the
@@ -208,12 +211,12 @@ static int send_flight(i64 fd, const quic_sockaddr_in *peer, quic_server *s)
     return 1;
 }
 
-/* Set up the orchestrator from the client's DCID and fold the ClientHello.
- * Returns 1 on success. */
-static int accept_client(quic_server *s, quic_srvloop *l, const u8 *dcid,
-                         u8 dcid_len, const u8 *ch, usz ch_len)
+/* Set up the orchestrator from the client's DCID (ODCID) and SCID (the response
+ * DCID) and fold the ClientHello. Returns 1 on success. */
+static int accept_client(quic_server *s, quic_srvloop *l, const quic_header *h,
+                         const u8 *ch, usz ch_len)
 {
-    if (!init_server(s, l, dcid, dcid_len))
+    if (!init_server(s, l, h->dcid, h->dcid_len, h->scid, h->scid_len))
         return logs("server init failed\n"), 0;
     if (!quic_server_recv_initial(s, ch, ch_len))
         return logs("ClientHello rejected\n"), 0;
@@ -221,17 +224,22 @@ static int accept_client(quic_server *s, quic_srvloop *l, const u8 *dcid,
     return 1;
 }
 
-/* First datagram: open the Initial, fold the ClientHello, send the flight. */
+/* First datagram: open the Initial, recover the client's CIDs from the long
+ * header (RFC 9000 17.2: DCID then SCID), fold the ClientHello, send the flight.
+ * The client's SCID becomes the DCID of every server reply (RFC 9000 5.1), so a
+ * peer that checks the reply DCID against its own SCID (curl does) accepts it. */
 static int on_initial(i64 fd, const quic_sockaddr_in *peer, quic_server *s,
                       quic_srvloop *l, u8 *dg, usz len)
 {
     quic_crecv cr;
+    quic_header h;
     const u8 *ch;
     usz ch_len;
-    if (!open_initial(dg, len, &cr, &ch, &ch_len))
+    if (!open_initial(dg, len, &cr, &ch, &ch_len) ||
+        !quic_header_parse(dg, len, &h))
         return 0;
     log_alpn(ch, ch_len);
-    if (!accept_client(s, l, dg + 6, dg[5], ch, ch_len))
+    if (!accept_client(s, l, &h, ch, ch_len))
         return 0;
     return send_flight(fd, peer, s);
 }
