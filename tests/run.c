@@ -338,6 +338,7 @@
 #include "driver/driver.c"
 #include "tls/handshake/roles/client/client.c"
 #include "tls/handshake/core/sdrv/sdrv.c"
+#include "tls/handshake/core/sdrv/sdrv_flight.c"
 #include "crypto/pki/cert/selfcert/derenc.c"
 #include "crypto/pki/cert/selfcert/tbs.c"
 #include "crypto/pki/cert/selfcert/selfcert.c"
