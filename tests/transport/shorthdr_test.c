@@ -1,6 +1,6 @@
 #include "test.h"
 #include "transport/packet/header/shorthdr/shorthdr.h"
-#include "spin/spin.h"
+#include "transport/conn/cid/spin/spin.h"
 
 /* RFC 9000 17.3.1: byte0 = 0 1 S R R K P P. */
 static void test_shorthdr_byte0_bits(void)

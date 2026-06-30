@@ -1,5 +1,5 @@
 #include "stream/stream.h"
-#include "fsm/fsm.h"
+#include "transport/conn/lifecycle/fsm/fsm.h"
 
 /* Transition tables: a step is allowed iff (from, event) names a row, and
  * it moves the state to that row's `to`. Table-driven keeps CCN minimal and

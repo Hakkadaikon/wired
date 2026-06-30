@@ -11,7 +11,7 @@
 #include "tls/handshake/core/tls/x25519.h"
 #include "tls/keys/schedule_drive/keyschedule.h"
 #include "crypto/asymmetric/ecc/ed25519/ed25519.h"
-#include "crypto_stream/crypto_tx.h"
+#include "transport/conn/pnspace/crypto_stream/crypto_tx.h"
 
 /* RFC 8446 4 / RFC 9001 4.1.2: drive the server orchestrator through a full
  * handshake by buffer injection (no socket): a real ClientHello, the server

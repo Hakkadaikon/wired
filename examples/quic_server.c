@@ -20,8 +20,8 @@
  * Each step logs to stderr. See examples/README.md for what completes here vs.
  * what an external HTTP/3 client (curl/quiche) additionally needs. */
 
-#include "crecv/collect.h"
-#include "crecv/message.h"
+#include "transport/conn/loop/crecv/collect.h"
+#include "transport/conn/loop/crecv/message.h"
 #include "app/http3/server/h3srv/state.h"
 #include "transport/packet/build/initpkt/initopen.h"
 #include "transport/io/socket/io/udp.h"

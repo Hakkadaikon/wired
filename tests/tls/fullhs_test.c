@@ -4,7 +4,7 @@
 #include "tls/handshake/core/tls/handshake.h"
 #include "tls/handshake/core/tls/cert.h"
 #include "tls/handshake/core/tls/hs_message.h"
-#include "crypto_stream/crypto_tx.h"
+#include "transport/conn/pnspace/crypto_stream/crypto_tx.h"
 #include "fullhs_golden.h"
 
 /* Minimal ServerHello (RFC 8446 4.1.3) carrying x25519 key_share pub. */

@@ -1,5 +1,5 @@
 #include "transport/io/udp/udploop/antiamp_gate.h"
-#include "path/antiamp.h"
+#include "transport/conn/cid/path/antiamp.h"
 
 int quic_udploop_send_allowed(u64 received_bytes, u64 sent_bytes,
                               int address_validated, usz next_len)

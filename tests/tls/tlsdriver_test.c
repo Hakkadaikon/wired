@@ -2,7 +2,7 @@
 #include "tls/handshake/core/tlsdriver/tlsdriver.h"
 #include "tls/handshake/core/tls/x25519.h"
 #include "tls/handshake/core/tls/handshake.h"
-#include "crypto_stream/crypto_tx.h"
+#include "transport/conn/pnspace/crypto_stream/crypto_tx.h"
 
 /* Build a minimal ServerHello (RFC 8446 4.1.3) carrying supported_versions
  * and a single x25519 key_share for pub. Returns total message length. */

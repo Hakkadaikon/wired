@@ -1,6 +1,6 @@
 #include "transport/packet/build/initpkt/initpkt.h"
 #include "transport/packet/build/initpkt/initkeys.h"
-#include "crypto_stream/crypto_tx.h"
+#include "transport/conn/pnspace/crypto_stream/crypto_tx.h"
 #include "transport/packet/frame/pipeline/txpacket.h"
 #include "crypto/symmetric/aead/aes/aes.h"
 

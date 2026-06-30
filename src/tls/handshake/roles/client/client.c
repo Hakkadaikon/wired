@@ -1,6 +1,6 @@
 #include "tls/handshake/roles/client/client.h"
 #include "transport/io/socket/io/addr.h"
-#include "crypto_stream/crypto_tx.h"
+#include "transport/conn/pnspace/crypto_stream/crypto_tx.h"
 #include "transport/packet/build/pktbuild/initpad.h"
 #include "tls/handshake/core/tls/hs_message.h"
 #include "tls/handshake/core/tls/hsdriver.h"

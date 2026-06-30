@@ -5,7 +5,7 @@
 #include "transport/io/socket/io/udp.h"
 #include "tls/handshake/core/sdrv/sdrv.h"
 #include "tls/handshake/roles/srvfin/complete.h"
-#include "crecv/collect.h"
+#include "transport/conn/loop/crecv/collect.h"
 
 /* RFC 9001 4 / 4.1.2, RFC 8446 4 / 4.4.4, RFC 9000 7: server-side handshake
  * orchestrator, the symmetric peer of quic_client. Drives the verified parts

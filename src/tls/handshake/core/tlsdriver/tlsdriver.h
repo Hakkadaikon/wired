@@ -2,8 +2,8 @@
 #define QUIC_TLSDRIVER_TLSDRIVER_H
 
 #include "common/platform/sys/syscall.h"
-#include "crypto_stream/crypto_rx.h"
-#include "crypto_stream/ecdhe.h"
+#include "transport/conn/pnspace/crypto_stream/crypto_rx.h"
+#include "transport/conn/pnspace/crypto_stream/ecdhe.h"
 #include "tls/handshake/core/tls/hsdriver.h"
 #include "tls/keys/schedule_drive/keyschedule.h"
 #include "crypto/kdf/keys/keyset.h"
