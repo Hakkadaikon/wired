@@ -5,14 +5,27 @@
 #include "h3srv/state.h"
 #include "server/server.h"
 
+/* RFC 9000 2.2: the request stream (id 0) reassembled across datagrams. Each
+ * received request STREAM frame's data is written at its offset into buf (cap);
+ * len tracks the high-water mark, fin latches the stream FIN, done latches that
+ * the completed request was already decoded so it is answered only once. */
+typedef struct {
+    u8 *buf;
+    usz cap;
+    usz *len;
+    u8 *fin;
+    int *done;
+} quic_srvloop_reqacc;
+
 /* RFC 9000 12.4: route an opened payload's frames. CRYPTO frames (handshake)
- * drive the server orchestrator (quic_server_feed); a STREAM frame (1-RTT app
- * data) is decoded as an HTTP/3 request. The two paths are kept separate: a
+ * drive the server orchestrator (quic_server_feed); a request STREAM frame
+ * (1-RTT app data) is accumulated into acc at its offset and, once FIN closes
+ * the stream, decoded as an HTTP/3 request. The two paths are kept separate: a
  * Handshake payload never reaches HTTP/3, a 1-RTT request never re-enters the
- * handshake. Returns 1 if a frame was handled, 0 otherwise. On an HTTP/3
+ * handshake. Returns 1 if a frame was handled, 0 otherwise. On a completed
  * request *got_request is set and *req filled. */
 int quic_srvloop_dispatch(quic_server *s, quic_h3srv_state *h3,
-                          const u8 *payload, usz len,
+                          const u8 *payload, usz len, quic_srvloop_reqacc *acc,
                           u8 *scratch, usz scap,
                           int *got_request, quic_h3reqdrive_req *req);
 

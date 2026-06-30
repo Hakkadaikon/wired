@@ -4,20 +4,6 @@
 #include "h3srv/respond.h"
 #include "pipeline/framewalk.h"
 #include "util/bytes.h"
-#include "util/dbgdump.h"
-
-/* ponytail: temporary. REQ-STREAMS[id=<n> off=<o> len=<l>] for one gathered
- * STREAM frame. Remove with the rest of the POST-body diagnostics. */
-static void dbg_req_stream(const quic_stream_frame *sf)
-{
-    quic_dbg_str("REQ-STREAMS[id=");
-    quic_dbg_u64(sf->stream_id);
-    quic_dbg_str(" off=");
-    quic_dbg_u64(sf->offset);
-    quic_dbg_str(" len=");
-    quic_dbg_u64(sf->length);
-    quic_dbg_str("]\n");
-}
 
 /* RFC 9000 19.8: STREAM frame types occupy 0x08..0x0f. */
 static int is_stream(u64 type)
@@ -60,60 +46,91 @@ static int dispatch_stream(quic_h3srv_state *h3, const u8 *frame, usz len,
     return 1;
 }
 
-/* RFC 9000 2.2: append one request STREAM frame's data to buf at *off, OR-ing
- * its FIN into *fin. Frames arrive in offset order on a single stream (curl),
- * so arrival order is the reassembly order. */
-static void gather_one(const u8 *frame, usz rem, u8 *buf, usz cap, usz *off,
-                       u8 *fin)
+/* Raise the accumulator high-water mark to end, clamped to acc->cap. */
+static void bump_len(quic_srvloop_reqacc *acc, usz end)
 {
-    quic_stream_frame sf;
-    if (!quic_frame_get_stream(frame, rem, &sf))
-        return;
-    dbg_req_stream(&sf);
-    quic_put_bytes(buf, cap, off, sf.data, (usz)sf.length);
-    *fin |= sf.fin;
+    usz hi = end < acc->cap ? end : acc->cap;
+    if (hi > *acc->len)
+        *acc->len = hi;
 }
 
-/* RFC 9000 2.2 / 12.4, RFC 9114 6.2: concatenate the data of every client bidi
- * (request) STREAM frame in the payload into buf, skipping PADDING/ACK and the
- * unidirectional STREAM frames (control / QPACK) curl sends first. curl may
- * split one request's HEADERS and DATA across two STREAM frames; both are
- * joined here. Returns the joined length (0 if no request stream is present).
- * ponytail: joins only what is in this one datagram; a body fragmented across
- * datagrams is not reassembled — add a per-stream buffer if a client does that. */
-static usz gather_request(const u8 *payload, usz len, u8 *buf, usz cap, u8 *fin)
+/* RFC 9000 2.2: write one request STREAM frame's data into acc->buf at the
+ * frame's own offset (offset-indexed reassembly, robust to reordering within
+ * acc->cap), advance the high-water mark, and OR its FIN into acc->fin.
+ * ponytail: data past acc->cap is truncated. */
+static void gather_one(const quic_stream_frame *sf, quic_srvloop_reqacc *acc)
+{
+    usz off = (usz)sf->offset;
+    if (off >= acc->cap)
+        return;
+    quic_put_bytes(acc->buf, acc->cap, &off, sf->data, (usz)sf->length);
+    bump_len(acc, (usz)sf->offset + (usz)sf->length);
+    *acc->fin |= sf->fin;
+}
+
+/* 1 if the walked frame is a request STREAM frame and decodes into sf. */
+static int request_stream_of(u64 type, const u8 *frame, usz rem,
+                             quic_stream_frame *sf)
+{
+    return is_request_frame(type, frame, rem) &&
+           quic_frame_get_stream(frame, rem, sf);
+}
+
+/* RFC 9000 2.2 / 12.4, RFC 9114 6.2: write every client bidi (request) STREAM
+ * frame in this payload into the cross-datagram accumulator at its offset,
+ * skipping PADDING/ACK and the unidirectional STREAMs (control / QPACK) curl
+ * sends first. Returns 1 if any request-stream frame was seen this datagram. */
+static int gather_request(const u8 *payload, usz len, quic_srvloop_reqacc *acc)
 {
     quic_framewalk it;
     u64 type;
     const u8 *frame;
-    usz rem, off = 0;
+    usz rem;
+    int seen = 0;
+    quic_stream_frame sf;
     quic_framewalk_init(&it, payload, len);
     while (quic_framewalk_next(&it, &type, &frame, &rem))
-        if (is_request_frame(type, frame, rem))
-            gather_one(frame, rem, buf, cap, &off, fin);
-    return off;
+        if (request_stream_of(type, frame, rem, &sf)) {
+            gather_one(&sf, acc);
+            seen = 1;
+        }
+    return seen;
 }
 
-/* RFC 9000 2.2 / RFC 9114 4.1: reassemble the request stream's data, re-wrap it
- * as a single STREAM frame (offset 0) and drive the HTTP/3 request decoder.
- * Returns 1 if a request was found and decoded, 0 otherwise. */
-static int reassemble_and_drive(quic_h3srv_state *h3, const u8 *payload,
-                                usz len, u8 *scratch, usz scap,
-                                int *got_request, quic_h3reqdrive_req *req)
+/* RFC 9000 2.2: the request is complete once FIN closed the stream and it has
+ * not already been decoded/answered (curl FINs the request's last STREAM). */
+static int request_complete(const quic_srvloop_reqacc *acc)
 {
-    u8 data[1500], wrap[1536];
-    usz dlen, wlen = 0;
-    u8 fin = 0;
-    dlen = gather_request(payload, len, data, sizeof data, &fin);
-    if (!dlen)
+    return *acc->fin && !*acc->done;
+}
+
+/* RFC 9114 4.1: re-wrap the reassembled stream bytes as a single STREAM frame
+ * (offset 0) and drive the HTTP/3 request decoder once. */
+static void drive_complete(quic_h3srv_state *h3, quic_srvloop_reqacc *acc,
+                           u8 *scratch, usz scap, int *got_request,
+                           quic_h3reqdrive_req *req)
+{
+    u8 wrap[2080];
+    usz wlen = 0;
+    *acc->done = 1;
+    if (quic_appdata_stream_frame(0, 0, acc->buf, *acc->len, 1, wrap,
+                                  sizeof wrap, &wlen))
+        dispatch_stream(h3, wrap, wlen, scratch, scap, got_request, req);
+}
+
+/* RFC 9000 2.2 / RFC 9114 4.1: accumulate this payload's request-stream frames;
+ * once FIN closes the stream, decode the reassembled request exactly once.
+ * Returns 1 if a request-stream frame was present (handled), 0 otherwise. */
+static int reassemble_and_drive(quic_h3srv_state *h3, const u8 *payload,
+                                usz len, quic_srvloop_reqacc *acc, u8 *scratch,
+                                usz scap, int *got_request,
+                                quic_h3reqdrive_req *req)
+{
+    if (!gather_request(payload, len, acc))
         return 0;
-    quic_dbg_str("REQ-PYLD[");      /* ponytail: temporary POST-body diag */
-    quic_dbg_hex(data, dlen);
-    quic_dbg_str("]\n");
-    if (!quic_appdata_stream_frame(0, 0, data, dlen, fin, wrap, sizeof wrap,
-                                   &wlen))
-        return 0;
-    return dispatch_stream(h3, wrap, wlen, scratch, scap, got_request, req);
+    if (request_complete(acc))
+        drive_complete(h3, acc, scratch, scap, got_request, req);
+    return 1;
 }
 
 /* 1 if the payload carries a STREAM frame of any kind (request or uni). Such a
@@ -164,11 +181,12 @@ static int dispatch_non_request(quic_server *s, const u8 *payload, usz len)
  * handed whole to quic_server_feed, whose crecv reassembles a split
  * ClientHello/Finished. A STREAM payload never re-enters the handshake. */
 int quic_srvloop_dispatch(quic_server *s, quic_h3srv_state *h3,
-                          const u8 *payload, usz len,
+                          const u8 *payload, usz len, quic_srvloop_reqacc *acc,
                           u8 *scratch, usz scap,
                           int *got_request, quic_h3reqdrive_req *req)
 {
-    if (reassemble_and_drive(h3, payload, len, scratch, scap, got_request, req))
+    if (reassemble_and_drive(h3, payload, len, acc, scratch, scap, got_request,
+                             req))
         return 1;
     return dispatch_non_request(s, payload, len);
 }
