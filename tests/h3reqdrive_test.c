@@ -42,6 +42,47 @@ static void test_reqdrive_stream(void)
     CHECK(rd_eq(r.scheme, r.scheme_len, "https", 5));
     CHECK(rd_eq(r.authority, r.authority_len, "ex.com", 6));
     CHECK(rd_eq(r.path, r.path_len, "/index", 6));
+    CHECK(r.body_len == 0);   /* GET carries no DATA frame */
+}
+
+/* RFC 9114 4.1: a request = HEADERS [DATA...]. A POST with a body decodes its
+ * :method and views the DATA-frame body. */
+static void test_reqdrive_post_body(void)
+{
+    static const u8 method[] = {'P', 'O', 'S', 'T'};
+    const u8 path[] = {'/', 'u'};
+    const u8 auth[] = {'h', '1'};
+    const u8 body[] = {'h', 'e', 'l', 'l', 'o'};
+    u8 req[256], scratch[128];
+    usz req_len = 0;
+    quic_h3reqdrive_req r;
+
+    CHECK(quic_h3reqdrive_send_method(0, method, sizeof(method), path,
+                                      sizeof(path), auth, sizeof(auth), body,
+                                      sizeof(body), req, sizeof(req), &req_len));
+    CHECK(quic_h3reqdrive_recv_get(req, req_len, scratch, sizeof(scratch), &r));
+    CHECK(rd_eq(r.method, r.method_len, "POST", 4));
+    CHECK(rd_eq(r.body, r.body_len, "hello", 5));
+}
+
+/* RFC 9114 4.1: an empty body (DATA frame of length 0) decodes to body_len 0
+ * but is distinguished from a malformed remainder by succeeding. */
+static void test_reqdrive_empty_body(void)
+{
+    static const u8 method[] = {'P', 'U', 'T'};
+    const u8 path[] = {'/', 'e'};
+    const u8 auth[] = {'h', '1'};
+    const u8 dummy = 0;
+    u8 req[256], scratch[128];
+    usz req_len = 0;
+    quic_h3reqdrive_req r;
+
+    CHECK(quic_h3reqdrive_send_method(0, method, sizeof(method), path,
+                                      sizeof(path), auth, sizeof(auth), &dummy,
+                                      0, req, sizeof(req), &req_len));
+    CHECK(quic_h3reqdrive_recv_get(req, req_len, scratch, sizeof(scratch), &r));
+    CHECK(rd_eq(r.method, r.method_len, "PUT", 3));
+    CHECK(r.body_len == 0);
 }
 
 /* Length of a NUL-terminated literal (test-local). */
@@ -152,6 +193,47 @@ static void test_reqdrive_grease_only(void)
           == 0);
 }
 
+/* RFC 9114 9 / 4.1: a leading GREASE frame is skipped and the DATA frame after
+ * HEADERS is still read as the body. */
+static void test_reqdrive_grease_then_body(void)
+{
+    u8 fs[64], h3[256], req[256], scratch[128];
+    usz fs_len = curl_field_section(fs), h3_len = 0, req_len = 0;
+    const u8 body[] = {'b', 'o', 'd', 'y'};
+    quic_h3reqdrive_req r;
+
+    h3_len = put_grease_frame(h3, sizeof(h3));
+    h3_len += quic_h3_frame_put(h3 + h3_len, sizeof(h3) - h3_len,
+                                QUIC_H3_FRAME_HEADERS, fs, fs_len);
+    h3_len += quic_h3_frame_put(h3 + h3_len, sizeof(h3) - h3_len,
+                                QUIC_H3_FRAME_DATA, body, sizeof(body));
+    CHECK(quic_appdata_stream_frame(0, 0, h3, h3_len, 1, req, sizeof(req),
+                                    &req_len));
+    CHECK(quic_h3reqdrive_recv_get(req, req_len, scratch, sizeof(scratch), &r));
+    CHECK(rd_eq(r.path, r.path_len, "/get", 4));
+    CHECK(rd_eq(r.body, r.body_len, "body", 4));
+}
+
+/* RFC 9114 4.1: with two DATA frames present, the first one is viewed (the
+ * later frame is not joined; documented limitation). */
+static void test_reqdrive_multi_data(void)
+{
+    u8 fs[64], h3[256], req[256], scratch[128];
+    usz fs_len = curl_field_section(fs), h3_len = 0, req_len = 0;
+    const u8 a[] = {'a', 'a'}, b[] = {'b', 'b'};
+    quic_h3reqdrive_req r;
+
+    h3_len = quic_h3_frame_put(h3, sizeof(h3), QUIC_H3_FRAME_HEADERS, fs, fs_len);
+    h3_len += quic_h3_frame_put(h3 + h3_len, sizeof(h3) - h3_len,
+                                QUIC_H3_FRAME_DATA, a, sizeof(a));
+    h3_len += quic_h3_frame_put(h3 + h3_len, sizeof(h3) - h3_len,
+                                QUIC_H3_FRAME_DATA, b, sizeof(b));
+    CHECK(quic_appdata_stream_frame(0, 0, h3, h3_len, 1, req, sizeof(req),
+                                    &req_len));
+    CHECK(quic_h3reqdrive_recv_get(req, req_len, scratch, sizeof(scratch), &r));
+    CHECK(rd_eq(r.body, r.body_len, "aa", 2));
+}
+
 /* RFC 9001 5: derive a shared 1-RTT key pair for the end-to-end path. */
 static void rd_keys(quic_initial_keys *k, quic_aes128 *hp)
 {
@@ -243,6 +325,10 @@ static void test_reqdrive_dynamic_table(void)
 void test_h3reqdrive(void)
 {
     test_reqdrive_stream();
+    test_reqdrive_post_body();
+    test_reqdrive_empty_body();
+    test_reqdrive_grease_then_body();
+    test_reqdrive_multi_data();
     test_reqdrive_curl_get();
     test_reqdrive_leading_grease();
     test_reqdrive_two_greases();
