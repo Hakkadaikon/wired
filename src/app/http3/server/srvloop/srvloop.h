@@ -30,6 +30,9 @@ typedef struct {
   u64 app_rx_pn;    /* last received 1-RTT (application) packet number to ACK */
   int app_rx_seen;  /* 1 once a 1-RTT packet has been received (app_rx_pn valid)
                      */
+  u64 hs_rx_pn;     /* last received Handshake packet number to ACK (the client
+                     * Finished's actual PN, which is not always 0) */
+  int hs_rx_seen;   /* 1 once a Handshake packet has been received */
   int hs_done_sent; /* 1 once the confirmation (HANDSHAKE_DONE) has been emitted
                      */
   quic_srvloop_handler on_request;  /* app response-body builder, 0 if unset */

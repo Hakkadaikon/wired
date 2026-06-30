@@ -5,6 +5,7 @@
 #include "app/http3/server/srvloop/respond.h"
 #include "transport/conn/loop/connrunner/level.h"
 #include "transport/io/udp/udploop/rxloop.h"
+#include "transport/packet/header/lhdr/lhdr_parse.h"
 #include "transport/packet/header/packet/pnum.h"
 
 #define QUIC_SRVLOOP_MAXPKTS \
@@ -22,6 +23,8 @@ int quic_srvloop_init(quic_srvloop *l, const u8 *cli_scid, u8 cli_scid_len) {
   l->hs_tx_pn     = 0;
   l->app_rx_pn    = 0;
   l->app_rx_seen  = 0;
+  l->hs_rx_pn     = 0;
+  l->hs_rx_seen   = 0;
   l->hs_done_sent = 0;
   l->on_request   = 0;
   l->req_ctx      = 0;
@@ -59,6 +62,31 @@ static void note_app_rx(
   l->app_rx_seen = 1;
 }
 
+/* The largest Handshake packet number received so far (0 before any), the
+ * baseline for recovering a truncated PN (RFC 9000 A.3). */
+static u64 hs_largest_pn(const quic_srvloop *l) {
+  return l->hs_rx_seen ? l->hs_rx_pn : 0;
+}
+
+/* RFC 9000 13.2.1: after a Handshake packet is opened (header protection removed
+ * in place), re-parse its long header for the packet-number offset and record
+ * the recovered PN. The client Finished does not always arrive at PN 0 (curl
+ * leads with an ACK-only Handshake packet), so a fixed ACK of 0 leaves the
+ * Finished unacknowledged and the client PTO-retransmits it for seconds. */
+static void note_hs_rx(quic_srvloop *l, int level, const u8 *pkt, usz len) {
+  const u8 *dcid, *scid, *token;
+  u8        dcl, scl;
+  usz       tkl, pn_off;
+  u64       length;
+  if (level != QUIC_LEVEL_HANDSHAKE) return;
+  if (!quic_lhdr_parse(pkt, len, 0, &dcid, &dcl, &scid, &scl, &token, &tkl,
+                       &length, &pn_off))
+    return;
+  l->hs_rx_pn = quic_pnum_decode(
+      pkt + pn_off, quic_lhdr_pn_len(pkt[0]), hs_largest_pn(l));
+  l->hs_rx_seen = 1;
+}
+
 /* RFC 9000 2.2: view the loop's cross-datagram request-stream accumulator. */
 static quic_srvloop_reqacc step_reqacc(quic_srvloop *l) {
   quic_srvloop_reqacc acc;
@@ -84,6 +112,7 @@ static void step_one(
       s, pkt, len, app_largest_pn(l), &level, &payload, &plen);
   if (!opened) return;
   note_app_rx(l, s, level, pkt);
+  note_hs_rx(l, level, pkt, len);
   quic_srvloop_dispatch(
       s, &l->h3, payload, plen, &acc, l->req_scratch, sizeof l->req_scratch,
       got_request, &l->req);
