@@ -180,10 +180,18 @@ static void send_pkt(i64 fd, const quic_sockaddr_in *peer, const u8 *pkt,
     }
 }
 
-/* A long-header datagram big enough to hold byte0 + version + dcid_len + DCID. */
+/* A long-header Initial datagram big enough to hold byte0 + version + dcid_len
+ * + DCID. The type bits (byte0 0x30) must be 00 = Initial (RFC 9000 17.2): a
+ * Handshake packet is also long-header but is the same connection continuing,
+ * so it must NOT be mistaken for a new connection's Initial. */
+static int is_long_initial(u8 byte0)
+{
+    return (byte0 & 0x80) != 0 && (byte0 & 0x30) == 0;
+}
+
 static int valid_initial(const u8 *dg, usz len)
 {
-    if (len < 6 || (dg[0] & 0x80) == 0)
+    if (len < 6 || !is_long_initial(dg[0]))
         return 0;
     return len >= (usz)6 + dg[5];
 }
@@ -365,6 +373,10 @@ static void cid_selfcheck(void)
         die("selfcheck: cid_eq same failed\n");
     if (cid_eq(a, 2, b, 2) || cid_eq(a, 2, c, 3))
         die("selfcheck: cid_eq diff failed\n");
+    /* Initial (0xc0) is a new connection candidate; Handshake (0xe0) and a
+     * short header (0x40) are the connection continuing, never a new Initial. */
+    if (!is_long_initial(0xc0) || is_long_initial(0xe0) || is_long_initial(0x40))
+        die("selfcheck: is_long_initial type bits failed\n");
 }
 
 /* RFC 9000 7: each connection is independent, keyed by its original DCID. A
