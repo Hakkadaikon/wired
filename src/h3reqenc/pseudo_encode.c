@@ -59,16 +59,31 @@ static usz put_section_prefix(u8 *out, usz cap)
     return quic_qpack_prefix_encode(out, cap, &pfx);
 }
 
-/* Append all four field lines from fields[0..3] after the prefix. Returns the
+/* Append n field lines from fields[0..n-1] after the prefix. Returns the
  * total length or 0 on overflow. */
-static usz put_fields(const pseudo_field *fields, u8 *out, usz cap, usz off)
+static usz put_fields(const pseudo_field *fields, usz n, u8 *out, usz cap,
+                      usz off)
 {
-    for (usz i = 0; i < 4; i++) {
-        usz n = put_pseudo(&fields[i], out + off, cap - off);
-        if (!n) return 0;
-        off += n;
+    for (usz i = 0; i < n; i++) {
+        usz w = put_pseudo(&fields[i], out + off, cap - off);
+        if (!w) return 0;
+        off += w;
     }
     return off;
+}
+
+/* Encode the section prefix then nf field lines from fields. Returns 1 with
+ * *out_len set, 0 on overflow. */
+static int put_section(const pseudo_field *fields, usz nf, u8 *out, usz cap,
+                       usz *out_len)
+{
+    usz off = put_section_prefix(out, cap);
+    usz total;
+    if (!off) return 0;
+    total = put_fields(fields, nf, out, cap, off);
+    if (!total) return 0;
+    *out_len = total;
+    return 1;
 }
 
 /* RFC 9204 4.5 / RFC 9114 4.3.1 */
@@ -83,11 +98,18 @@ int quic_h3req_enc_pseudo(const u8 *method, usz m_len, const u8 *path,
         {authority, a_len, ":authority", QPACK_AUTHORITY_NAME_INDEX},
         {path, p_len, ":path", QPACK_PATH_NAME_INDEX},
     };
-    usz off = put_section_prefix(out, cap);
-    usz total;
-    if (!off) return 0;
-    total = put_fields(fields, out, cap, off);
-    if (!total) return 0;
-    *out_len = total;
-    return 1;
+    return put_section(fields, 4, out, cap, out_len);
+}
+
+/* RFC 9114 4.4 / RFC 9110 9.3.6: a CONNECT request carries only :method=CONNECT
+ * and :authority; :scheme and :path are omitted. */
+int quic_h3req_enc_connect(const u8 *authority, usz a_len, u8 *out, usz cap,
+                           usz *out_len)
+{
+    static const u8 connect[] = {'C', 'O', 'N', 'N', 'E', 'C', 'T'};
+    pseudo_field fields[2] = {
+        {connect, sizeof connect, ":method", QPACK_METHOD_NAME_INDEX},
+        {authority, a_len, ":authority", QPACK_AUTHORITY_NAME_INDEX},
+    };
+    return put_section(fields, 2, out, cap, out_len);
 }
