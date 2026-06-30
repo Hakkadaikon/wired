@@ -1,8 +1,8 @@
 #include "test.h"
 
-#include "frame/frame.h"
-#include "frame/ack.h"
-#include "frame/flowctl.h"
+#include "transport/packet/frame/frame/frame.h"
+#include "transport/packet/frame/frame/ack.h"
+#include "transport/packet/frame/frame/flowctl.h"
 
 /* Wire one frame into buf via its encoder, returning the byte count. */
 

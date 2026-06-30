@@ -1,6 +1,6 @@
 #include "appdata/app_send.h"
 #include "appdata/stream_send.h"
-#include "hspkt/onertt.h"
+#include "transport/packet/build/hspkt/onertt.h"
 
 /* RFC 9001 5: STREAM frame (RFC 9000 19.8) sealed in a 1-RTT packet. */
 int quic_appdata_send(const quic_initial_keys *app_keys, const quic_aes128 *hp,

@@ -2,7 +2,7 @@
 #define QUIC_RETRYDRIVE_RECONNECT_H
 
 #include "common/platform/sys/syscall.h"
-#include "packet/header.h"
+#include "transport/packet/header/packet/header.h"
 
 /* RFC 9000 17.2.5: reconnection state after a client accepts a Retry. Holds
  * the token to put in every subsequent Initial, the new DCID (the Retry's

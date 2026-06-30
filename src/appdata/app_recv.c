@@ -1,6 +1,6 @@
 #include "appdata/app_recv.h"
-#include "hspkt/onertt.h"
-#include "frame/frame.h"
+#include "transport/packet/build/hspkt/onertt.h"
+#include "transport/packet/frame/frame/frame.h"
 
 /* RFC 9001 5: open the 1-RTT packet, then decode its STREAM frame into f.
  * Returns 1 on success, 0 on auth failure, empty payload, or malformed frame. */

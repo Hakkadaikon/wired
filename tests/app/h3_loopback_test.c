@@ -3,7 +3,7 @@
 #include "tls/handshake/roles/server/server.h"
 #include "app/http3/server/srvloop/srvloop.h"
 #include "app/http3/server/srvwire/wire.h"
-#include "hspkt/onertt.h"
+#include "transport/packet/build/hspkt/onertt.h"
 #include "tls/keys/schedule_drive/keyschedule.h"
 #include "tls/handshake/core/tls/clienthello.h"
 #include "tls/handshake/core/tls/serverhello.h"
@@ -15,7 +15,7 @@
 #include "app/http3/request/h3reqdrive/request_drive.h"
 #include "app/http3/core/h3conn/response.h"
 #include "transport/io/udp/udploop/rxloop.h"
-#include "frame/frame.h"
+#include "transport/packet/frame/frame/frame.h"
 
 /* RFC 9001 4 / 5 / 5.1, RFC 9000 17.2, RFC 9114 4.1: real-AEAD-wire loopback.
  * A genuine server orchestrator (quic_server) is driven to FLIGHT_SENT, then a

@@ -6,8 +6,8 @@
 #include "connrunner/keyupdate.h"
 #include "connrunner/reconnect.h"
 #include "tls/keys/keyupdate/keyphase.h"
-#include "frame/frame.h"
-#include "frame/ack.h"
+#include "transport/packet/frame/frame/frame.h"
+#include "transport/packet/frame/frame/ack.h"
 
 /* RFC 9000 17.2 / 17.3: byte0 -> protection level. Long-header Initial and
  * Handshake map to their keyset levels; a short header is 1-RTT; 0-RTT and

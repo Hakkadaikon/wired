@@ -1,6 +1,6 @@
 #include "test.h"
 #include "session/session.h"
-#include "frame/frame.h"
+#include "transport/packet/frame/frame/frame.h"
 
 /* A full kernel-free QUIC session: client and server complete a handshake
  * over the in-memory link and exchange 1-RTT STREAM data in both directions,

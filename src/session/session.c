@@ -2,8 +2,8 @@
 #include "tls/handshake/core/tls/handshake.h"
 #include "tls/handshake/core/tls/schedule.h"
 #include "tls/handshake/core/tls/x25519.h"
-#include "frame/frame.h"
-#include "protect/protect.h"
+#include "transport/packet/frame/frame/frame.h"
+#include "transport/packet/protect/protect/protect.h"
 #include "transport/io/socket/net/udp4.h"
 #include "transport/io/socket/net/ipv4.h"
 

@@ -1,5 +1,5 @@
 #include "maxstreams/maxstreams.h"
-#include "frame/flowctl.h"
+#include "transport/packet/frame/frame/flowctl.h"
 
 /* RFC 9000 19.11 */
 int quic_maxstreams_frame(int uni, u64 max, u8 *out, usz cap, usz *out_len)

@@ -1,8 +1,8 @@
 #include "app/http3/server/srvloop/recv.h"
 #include "connrunner/level.h"
-#include "hspkt/hspkt_open.h"
-#include "hspkt/onertt.h"
-#include "initpkt/initopen.h"
+#include "transport/packet/build/hspkt/hspkt_open.h"
+#include "transport/packet/build/hspkt/onertt.h"
+#include "transport/packet/build/initpkt/initopen.h"
 #include "crypto/kdf/keys/keyset.h"
 #include "app/http3/server/srvloop/keys.h"
 

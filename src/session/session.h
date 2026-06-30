@@ -6,7 +6,7 @@
 #include "tls/handshake/core/tls/initial.h"
 #include "crypto/symmetric/aead/aes/aes.h"
 #include "transport/io/socket/net/memlink.h"
-#include "frame/frame.h"
+#include "transport/packet/frame/frame/frame.h"
 
 /* A usable QUIC session: the orchestration layer a caller actually drives.
  * It ties together the connection phase machine, the endpoint key agreement,

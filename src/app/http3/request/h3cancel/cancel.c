@@ -1,6 +1,6 @@
 #include "app/http3/request/h3cancel/cancel.h"
 #include "app/http3/core/h3/frame.h"
-#include "frame/stream_ctl.h"
+#include "transport/packet/frame/frame/stream_ctl.h"
 
 /* RFC 9114 4.1.1 / 8.1: reset the request stream's sending part. */
 static usz put_reset(u8 *out, usz cap, u64 stream_id, u64 final_size)

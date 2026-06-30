@@ -2,10 +2,10 @@
 #define QUIC_CONNIO_CONNIO_H
 
 #include "connloop/connloop.h"
-#include "framedispatch/dispatch_state.h"
+#include "transport/packet/frame/framedispatch/dispatch_state.h"
 #include "flow/stream_read.h"
 #include "flow/credit.h"
-#include "packet/header.h"
+#include "transport/packet/header/packet/header.h"
 #include "pnspaces/spaces.h"
 #include "conn/pnspace.h"
 

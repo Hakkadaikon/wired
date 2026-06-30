@@ -2,7 +2,7 @@
 #include "connection/connection.h"
 #include "crypto/kdf/keys/keyset.h"
 #include "tls/handshake/core/tls/initial.h"
-#include "frame/frame.h"
+#include "transport/packet/frame/frame/frame.h"
 
 /* Install the same 1-RTT keys on both ends so a sealed packet opens. */
 static void install_1rtt(quic_connection *c, const u8 dcid[8])

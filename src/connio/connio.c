@@ -1,7 +1,7 @@
 #include "connio/connio.h"
-#include "pipeline/txpacket.h"
-#include "pipeline/rxpacket.h"
-#include "pipeline/framewalk.h"
+#include "transport/packet/frame/pipeline/txpacket.h"
+#include "transport/packet/frame/pipeline/rxpacket.h"
+#include "transport/packet/frame/pipeline/framewalk.h"
 #include "crypto/kdf/keys/keyset.h"
 #include "crypto/symmetric/aead/aes/aes.h"
 

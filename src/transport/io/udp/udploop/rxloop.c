@@ -1,5 +1,5 @@
 #include "transport/io/udp/udploop/rxloop.h"
-#include "packet/coalesce.h"
+#include "transport/packet/header/packet/coalesce.h"
 
 usz quic_udploop_split(const u8 *buf, usz dlen, const u8 **pkts,
                        usz *pkt_offsets, usz *pkt_lens, usz max_pkts)

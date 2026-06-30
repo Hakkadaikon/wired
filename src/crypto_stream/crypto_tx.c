@@ -1,5 +1,5 @@
 #include "crypto_stream/crypto_tx.h"
-#include "frame/frame.h"
+#include "transport/packet/frame/frame/frame.h"
 
 static usz crypto_tx_min_usz(usz a, usz b) { return a < b ? a : b; }
 

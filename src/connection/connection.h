@@ -4,7 +4,7 @@
 #include "crypto/kdf/keys/keyset.h"
 #include "conn/conn.h"
 #include "transport/io/socket/net/memlink.h"
-#include "pipeline/framewalk.h"
+#include "transport/packet/frame/pipeline/framewalk.h"
 
 /* RFC 9000 12 / RFC 9001 4: a connection object that drives send/receive.
  * It bundles a per-level keyset, the phase + packet-number-space machine, the

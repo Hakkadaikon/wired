@@ -1,6 +1,6 @@
 #include "connection/connection.h"
-#include "pipeline/txpacket.h"
-#include "pipeline/rxpacket.h"
+#include "transport/packet/frame/pipeline/txpacket.h"
+#include "transport/packet/frame/pipeline/rxpacket.h"
 
 /* RFC 9000 17.2: the simplified long-header form the pipeline emits uses a
  * fixed first byte and 8-byte DCID; sender and receiver share one packet

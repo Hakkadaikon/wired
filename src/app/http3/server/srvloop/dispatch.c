@@ -1,8 +1,8 @@
 #include "app/http3/server/srvloop/dispatch.h"
 #include "appdata/stream_send.h"
-#include "frame/frame.h"
+#include "transport/packet/frame/frame/frame.h"
 #include "app/http3/server/h3srv/respond.h"
-#include "pipeline/framewalk.h"
+#include "transport/packet/frame/pipeline/framewalk.h"
 #include "common/bytes/util/bytes.h"
 
 /* RFC 9000 19.8: STREAM frame types occupy 0x08..0x0f. */

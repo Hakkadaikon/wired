@@ -1,6 +1,6 @@
 #include "test.h"
 #include "connio/connio.h"
-#include "frame/frame.h"
+#include "transport/packet/frame/frame/frame.h"
 
 /* RFC 9001 5: a STREAM frame sealed by one peer's connio_send opens under the
  * other peer's connio_recv (same installed keys) and lands in stream_read. */
