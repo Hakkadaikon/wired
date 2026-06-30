@@ -1,7 +1,7 @@
 #include "test.h"
 #include "connection/connection.h"
 #include "crypto/kdf/keys/keyset.h"
-#include "tls/initial.h"
+#include "tls/handshake/core/tls/initial.h"
 #include "frame/frame.h"
 
 /* Install the same 1-RTT keys on both ends so a sealed packet opens. */

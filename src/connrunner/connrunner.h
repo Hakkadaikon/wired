@@ -6,7 +6,7 @@
 #include "connio/connio.h"
 #include "rtxbytes/rtxstore.h"
 #include "sentmeta/record.h"
-#include "kuswitch/twogen.h"
+#include "tls/keys/kuswitch/twogen.h"
 #include "retrydrive/reconnect.h"
 
 /* RFC 9000 12 / RFC 9001 4: the top-level connection runner. It binds the

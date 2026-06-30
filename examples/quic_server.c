@@ -26,13 +26,13 @@
 #include "initpkt/initopen.h"
 #include "io/udp.h"
 #include "packet/header.h"
-#include "salpn/ch_ext.h"
-#include "salpn/negotiate.h"
-#include "server/server.h"
+#include "tls/ext/salpn/ch_ext.h"
+#include "tls/ext/salpn/negotiate.h"
+#include "tls/handshake/roles/server/server.h"
 #include "app/http3/server/srvloop/send.h"
 #include "app/http3/server/srvloop/srvloop.h"
 #include "common/platform/sys/syscall.h"
-#include "tls/x25519.h"
+#include "tls/handshake/core/tls/x25519.h"
 
 #define PORT 4433
 

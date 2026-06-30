@@ -2,8 +2,8 @@
 #define QUIC_DRIVER_DRIVER_H
 
 #include "connio/connio.h"
-#include "tls/hsdriver.h"
-#include "schedule_drive/keyschedule.h"
+#include "tls/handshake/core/tls/hsdriver.h"
+#include "tls/keys/schedule_drive/keyschedule.h"
 
 /* RFC 9000 4 / RFC 9001 4: the connection driver. The final integration layer
  * that ties the verified parts together and runs them to completion: each

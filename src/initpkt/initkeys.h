@@ -1,7 +1,7 @@
 #ifndef QUIC_INITPKT_INITKEYS_H
 #define QUIC_INITPKT_INITKEYS_H
 
-#include "tls/initial.h"
+#include "tls/handshake/core/tls/initial.h"
 
 /* RFC 9001 5.2: derive both the client and server Initial protection keys from
  * the Destination Connection ID of the client's first Initial packet. */

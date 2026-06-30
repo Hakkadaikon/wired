@@ -2,8 +2,8 @@
 #include "ackgen/ackgen.h"
 #include "cwndctl/cwndctl.h"
 #include "udploop/antiamp_gate.h"
-#include "keyupdate/initiate.h"
-#include "keyupdate/oldkey.h"
+#include "tls/keys/keyupdate/initiate.h"
+#include "tls/keys/keyupdate/oldkey.h"
 
 void quic_evloop_init(quic_evloop *c, int level, u64 cwnd, usz send_len)
 {

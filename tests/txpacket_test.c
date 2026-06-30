@@ -1,7 +1,7 @@
 #include "test.h"
 #include "pipeline/txpacket.h"
 #include "pipeline/rxpacket.h"
-#include "tls/initial.h"
+#include "tls/handshake/core/tls/initial.h"
 #include "frame/frame.h"
 
 /* RFC 9001 5: a packet sealed by quic_tx_packet unprotects under the same keys

@@ -1,9 +1,9 @@
 #ifndef QUIC_ENDPOINT_ENDPOINT_H
 #define QUIC_ENDPOINT_ENDPOINT_H
 
-#include "tls/x25519.h"
-#include "tls/schedule.h"
-#include "tls/initial.h"
+#include "tls/handshake/core/tls/x25519.h"
+#include "tls/handshake/core/tls/schedule.h"
+#include "tls/handshake/core/tls/initial.h"
 
 /* A QUIC endpoint that drives the handshake entirely in user space over a
  * memlink — no sockets, no kernel network stack. This is the integration

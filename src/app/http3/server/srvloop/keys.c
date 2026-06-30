@@ -1,6 +1,6 @@
 #include "app/http3/server/srvloop/keys.h"
 #include "crypto/kdf/keys/keyset.h"
-#include "schedule_drive/keyschedule.h"
+#include "tls/keys/schedule_drive/keyschedule.h"
 
 /* RFC 9001 5.1: own-direction `which` for sealing, indexed by level-1 (only the
  * protected levels Handshake=1, 1-RTT=2 have a direction; Initial is shared). */

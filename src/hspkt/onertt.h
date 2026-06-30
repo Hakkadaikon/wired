@@ -1,7 +1,7 @@
 #ifndef QUIC_HSPKT_ONERTT_H
 #define QUIC_HSPKT_ONERTT_H
 
-#include "tls/initial.h"
+#include "tls/handshake/core/tls/initial.h"
 #include "crypto/symmetric/aead/aes/aes.h"
 
 /* RFC 9000 17.3 / RFC 9001 5: 1-RTT (short header) packet protection. The

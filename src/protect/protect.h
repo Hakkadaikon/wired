@@ -2,7 +2,7 @@
 #define QUIC_PROTECT_PROTECT_H
 
 #include "crypto/symmetric/aead/aes/aes.h"
-#include "tls/initial.h"
+#include "tls/handshake/core/tls/initial.h"
 
 /* RFC 9001 5.3/5.4 packet protection pipeline for AES-128-GCM Initial
  * packets: build the AEAD nonce from iv XOR packet number, seal the payload

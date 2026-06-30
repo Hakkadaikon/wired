@@ -2,7 +2,7 @@
 #define QUIC_VPN_VPN_OPEN_H
 
 #include "crypto/symmetric/aead/aes/aes.h"
-#include "tls/initial.h"
+#include "tls/handshake/core/tls/initial.h"
 
 /* RFC 9001 5.4.1: remove header protection on a long-header Initial whose
  * packet-number length is unknown until byte0 is unmasked, then AEAD-open.

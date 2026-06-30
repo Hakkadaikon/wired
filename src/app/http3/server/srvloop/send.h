@@ -1,7 +1,7 @@
 #ifndef QUIC_SRVLOOP_SEND_H
 #define QUIC_SRVLOOP_SEND_H
 
-#include "server/server.h"
+#include "tls/handshake/roles/server/server.h"
 
 /* RFC 9001 5 / 5.1: seal server-direction outbound packets. The server always
  * seals with its own-direction keys: Initial keys for the ServerHello, SERVER_HS

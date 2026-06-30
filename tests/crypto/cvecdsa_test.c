@@ -1,7 +1,7 @@
 #include "test.h"
 #include "crypto/asymmetric/ecc/cvecdsa/cvecdsa.h"
 #include "crypto/asymmetric/ecc/cvecdsa/signed.h"
-#include "tls/handshake.h"
+#include "tls/handshake/core/tls/handshake.h"
 #include "crypto/symmetric/hash/hash/sha256.h"
 #include "crypto/asymmetric/ecc/p256/ecdsa_verify.h"
 

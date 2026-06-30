@@ -1,10 +1,10 @@
 #include "connrunner/keyupdate.h"
-#include "kudrive/recv_phase.h"
-#include "kudrive/trigger.h"
-#include "kudrive/discard_timing.h"
-#include "kuswitch/derive.h"
-#include "kuswitch/phasebit.h"
-#include "keyupdate/keyphase.h"
+#include "tls/keys/kudrive/recv_phase.h"
+#include "tls/keys/kudrive/trigger.h"
+#include "tls/keys/kudrive/discard_timing.h"
+#include "tls/keys/kuswitch/derive.h"
+#include "tls/keys/kuswitch/phasebit.h"
+#include "tls/keys/keyupdate/keyphase.h"
 #include "crypto/kdf/keys/keyset.h"
 
 /* The current generation's installed 1-RTT keys, or a zeroed set if none. */

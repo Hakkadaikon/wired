@@ -1,5 +1,5 @@
 #include "crypto_stream/ecdhe.h"
-#include "tls/x25519.h"
+#include "tls/handshake/core/tls/x25519.h"
 
 /* RFC 9001 4.1 */
 void quic_crypto_stream_ecdhe(const u8 my_priv[QUIC_ECDHE_LEN],

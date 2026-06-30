@@ -1,7 +1,7 @@
 #ifndef QUIC_APPDATA_APP_RECV_H
 #define QUIC_APPDATA_APP_RECV_H
 
-#include "tls/initial.h"
+#include "tls/handshake/core/tls/initial.h"
 #include "crypto/symmetric/aead/aes/aes.h"
 
 /* RFC 9001 5: open a 1-RTT packet with the 1-RTT keys and decode the STREAM

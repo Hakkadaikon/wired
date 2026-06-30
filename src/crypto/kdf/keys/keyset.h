@@ -2,7 +2,7 @@
 #define QUIC_KEYS_KEYSET_H
 
 #include "common/platform/sys/syscall.h"
-#include "tls/initial.h"
+#include "tls/handshake/core/tls/initial.h"
 
 /* RFC 9001 4: per-protection-level key sets. Levels: 0=Initial, 1=Handshake,
  * 2=1-RTT. Each level holds one quic_initial_keys (AES-128-GCM material) plus

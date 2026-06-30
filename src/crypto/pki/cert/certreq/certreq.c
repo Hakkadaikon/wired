@@ -1,5 +1,5 @@
 #include "crypto/pki/cert/certreq/certreq.h"
-#include "tls/handshake.h"
+#include "tls/handshake/core/tls/handshake.h"
 #include "common/bytes/util/be.h"
 
 #define QUIC_HS_CERTIFICATE_REQUEST 0x0d

@@ -1,7 +1,7 @@
 #ifndef QUIC_HSPKT_UNPROTECT_H
 #define QUIC_HSPKT_UNPROTECT_H
 
-#include "tls/initial.h"
+#include "tls/handshake/core/tls/initial.h"
 #include "crypto/symmetric/aead/aes/aes.h"
 
 /* RFC 9001 5.4/5.3 / RFC 9000 A.3: remove header protection over the sample at

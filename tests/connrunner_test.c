@@ -5,7 +5,7 @@
 #include "connrunner/level.h"
 #include "connrunner/keyupdate.h"
 #include "connrunner/reconnect.h"
-#include "keyupdate/keyphase.h"
+#include "tls/keys/keyupdate/keyphase.h"
 #include "frame/frame.h"
 #include "frame/ack.h"
 

@@ -3,7 +3,7 @@
 
 #include "app/http3/request/h3reqdrive/request_drive.h"
 #include "app/http3/server/h3srv/state.h"
-#include "server/server.h"
+#include "tls/handshake/roles/server/server.h"
 
 /* Build the response body for a decoded request. Copy from `req` (its body is a
  * view into per-step scratch, not valid past the call) into body_out (cap),

@@ -1,7 +1,7 @@
 #ifndef QUIC_SRVLOOP_RECV_H
 #define QUIC_SRVLOOP_RECV_H
 
-#include "server/server.h"
+#include "tls/handshake/roles/server/server.h"
 
 /* RFC 9001 4 / 5.1 / RFC 9000 17.2 / A.3: open one received server-side
  * datagram. The first byte selects the protection level (Initial / Handshake /

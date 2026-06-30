@@ -1,7 +1,7 @@
 #ifndef QUIC_HSPKT_HSPKT_OPEN_H
 #define QUIC_HSPKT_HSPKT_OPEN_H
 
-#include "tls/initial.h"
+#include "tls/handshake/core/tls/initial.h"
 #include "crypto/symmetric/aead/aes/aes.h"
 
 /* RFC 9001 5: open a Handshake packet built by quic_hspkt_build. Removes

@@ -1,7 +1,7 @@
 #ifndef QUIC_APPDATA_APP_SEND_H
 #define QUIC_APPDATA_APP_SEND_H
 
-#include "tls/initial.h"
+#include "tls/handshake/core/tls/initial.h"
 #include "crypto/symmetric/aead/aes/aes.h"
 
 /* RFC 9001 5: carry application data in a 1-RTT (short header) packet. The
