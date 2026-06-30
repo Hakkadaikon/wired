@@ -2,7 +2,7 @@
 #define QUIC_CRYPTO_STREAM_RX_H
 
 #include "common/platform/sys/syscall.h"
-#include "flow/reassemble.h"
+#include "transport/stream/flow/flow/reassemble.h"
 
 /* RFC 9000 19.6 / 7.5: reassemble CRYPTO frame data arriving out of order or
  * overlapping into the contiguous TLS byte stream, delivering only the prefix

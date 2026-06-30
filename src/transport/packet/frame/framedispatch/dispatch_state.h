@@ -2,9 +2,9 @@
 #define QUIC_FRAMEDISPATCH_DISPATCH_STATE_H
 
 #include "common/platform/sys/syscall.h"
-#include "flow/stream_read.h"
+#include "transport/stream/flow/flow/stream_read.h"
 #include "transport/recovery/rtx/sentpkt/sentpkt.h"
-#include "flow/credit.h"
+#include "transport/stream/flow/flow/credit.h"
 
 /* RFC 9000 12.4: after a payload is walked into frames, each frame is
  * dispatched by type to the subsystem that owns its effect. This bundles the

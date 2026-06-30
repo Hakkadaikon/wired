@@ -1,5 +1,5 @@
-#include "stream/stream_role.h"
-#include "stream/stream_id.h"
+#include "transport/stream/data/stream/stream_role.h"
+#include "transport/stream/data/stream/stream_id.h"
 
 /* RFC 9000 2.1: the local endpoint initiated the stream when its role
  * matches the stream's initiator bit. */

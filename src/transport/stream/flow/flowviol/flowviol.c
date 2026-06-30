@@ -1,6 +1,6 @@
-#include "flowviol/flowviol.h"
-#include "flow/credit.h"
-#include "flow/stream_credit.h"
+#include "transport/stream/flow/flowviol/flowviol.h"
+#include "transport/stream/flow/flow/credit.h"
+#include "transport/stream/flow/flow/stream_credit.h"
 #include "common/diag/error/codes.h"
 
 /* RFC 9000 4.1: cumulative received bytes past max_data is a violation. */

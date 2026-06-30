@@ -1,4 +1,4 @@
-#include "stream/stream_id.h"
+#include "transport/stream/data/stream/stream_id.h"
 
 int quic_stream_is_client_initiated(u64 id)
 {

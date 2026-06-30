@@ -3,8 +3,8 @@
 
 #include "transport/conn/loop/connloop/connloop.h"
 #include "transport/packet/frame/framedispatch/dispatch_state.h"
-#include "flow/stream_read.h"
-#include "flow/credit.h"
+#include "transport/stream/flow/flow/stream_read.h"
+#include "transport/stream/flow/flow/credit.h"
 #include "transport/packet/header/packet/header.h"
 #include "transport/conn/pnspace/pnspaces/spaces.h"
 #include "transport/conn/lifecycle/conn/pnspace.h"

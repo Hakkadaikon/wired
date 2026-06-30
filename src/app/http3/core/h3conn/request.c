@@ -1,5 +1,5 @@
 #include "app/http3/core/h3conn/request.h"
-#include "appdata/stream_send.h"
+#include "transport/stream/data/appdata/stream_send.h"
 #include "app/http3/request/h3req/reqbuild.h"
 
 /* RFC 9114 4.1 / RFC 9000 19.8 */

@@ -1,4 +1,4 @@
-#include "flow/credit.h"
+#include "transport/stream/flow/flow/credit.h"
 
 /* RFC 9000 4.1 */
 void quic_flow_credit_init(quic_flow_credit *c, u64 initial_max)

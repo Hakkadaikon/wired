@@ -2,7 +2,7 @@
 #define QUIC_FLOW_STREAM_READ_H
 
 #include "common/platform/sys/syscall.h"
-#include "flow/reassemble.h"
+#include "transport/stream/flow/flow/reassemble.h"
 
 /* RFC 9000 2.2: deliver received STREAM data to the application as an ordered
  * byte stream. Out-of-order bytes are buffered; only the contiguous prefix

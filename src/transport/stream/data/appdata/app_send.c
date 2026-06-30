@@ -1,5 +1,5 @@
-#include "appdata/app_send.h"
-#include "appdata/stream_send.h"
+#include "transport/stream/data/appdata/app_send.h"
+#include "transport/stream/data/appdata/stream_send.h"
 #include "transport/packet/build/hspkt/onertt.h"
 
 /* RFC 9001 5: STREAM frame (RFC 9000 19.8) sealed in a 1-RTT packet. */

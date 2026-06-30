@@ -1,5 +1,5 @@
 #include "test.h"
-#include "flowviol/flowviol.h"
+#include "transport/stream/flow/flowviol/flowviol.h"
 #include "common/diag/error/codes.h"
 
 static void test_flowviol_data_overrun(void)

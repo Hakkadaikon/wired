@@ -1,4 +1,4 @@
-#include "flow/stream_flow.h"
+#include "transport/stream/flow/flow/stream_flow.h"
 
 /* RFC 9000 4.1 */
 void quic_stream_flow_init(quic_stream_flow *s, u64 window)

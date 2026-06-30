@@ -1,4 +1,4 @@
-#include "flow/finalsize.h"
+#include "transport/stream/flow/flow/finalsize.h"
 
 void quic_finalsize_init(quic_finalsize *f)
 {

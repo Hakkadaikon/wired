@@ -1,4 +1,4 @@
-#include "stream/stream.h"
+#include "transport/stream/data/stream/stream.h"
 #include "transport/conn/lifecycle/fsm/fsm.h"
 
 /* Transition tables: a step is allowed iff (from, event) names a row, and

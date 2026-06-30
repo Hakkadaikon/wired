@@ -1,6 +1,6 @@
 #include "tls/handshake/roles/client/clientwire.h"
-#include "appdata/app_recv.h"
-#include "appdata/app_send.h"
+#include "transport/stream/data/appdata/app_recv.h"
+#include "transport/stream/data/appdata/app_send.h"
 #include "transport/packet/build/initpkt/initpkt.h"
 #include "app/http3/server/srvwire/wire.h"
 #include "tls/handshake/core/tls/clienthello.h"

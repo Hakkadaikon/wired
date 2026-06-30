@@ -1,5 +1,5 @@
-#include "stream/stream_limit.h"
-#include "stream/stream_id.h"
+#include "transport/stream/data/stream/stream_limit.h"
+#include "transport/stream/data/stream/stream_id.h"
 
 int quic_stream_max_streams_ok(u64 max_streams)
 {

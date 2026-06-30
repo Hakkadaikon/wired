@@ -1,4 +1,4 @@
-#include "stream/bidi.h"
+#include "transport/stream/data/stream/bidi.h"
 
 void quic_bidi_init(quic_bidi *b)
 {

@@ -1,4 +1,4 @@
-#include "maxstreams/maxstreams.h"
+#include "transport/stream/data/maxstreams/maxstreams.h"
 #include "transport/packet/frame/frame/flowctl.h"
 
 /* RFC 9000 19.11 */
