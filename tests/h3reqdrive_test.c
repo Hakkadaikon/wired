@@ -214,6 +214,27 @@ static void test_reqdrive_grease_then_body(void)
     CHECK(rd_eq(r.body, r.body_len, "body", 4));
 }
 
+/* RFC 9114 9 / 4.1: the DATA frame does not have to sit immediately after
+ * HEADERS. An unknown/GREASE frame between HEADERS and DATA (curl interleaves
+ * these) must be skipped and the DATA body still recovered. */
+static void test_reqdrive_data_after_grease(void)
+{
+    u8 fs[64], h3[256], req[256], scratch[128];
+    usz fs_len = curl_field_section(fs), h3_len = 0, req_len = 0;
+    const u8 body[] = {'p', 'a', 'y'};
+    quic_h3reqdrive_req r;
+
+    h3_len = quic_h3_frame_put(h3, sizeof(h3), QUIC_H3_FRAME_HEADERS, fs, fs_len);
+    h3_len += put_grease_frame(h3 + h3_len, sizeof(h3) - h3_len);
+    h3_len += quic_h3_frame_put(h3 + h3_len, sizeof(h3) - h3_len,
+                                QUIC_H3_FRAME_DATA, body, sizeof(body));
+    CHECK(quic_appdata_stream_frame(0, 0, h3, h3_len, 1, req, sizeof(req),
+                                    &req_len));
+    CHECK(quic_h3reqdrive_recv_get(req, req_len, scratch, sizeof(scratch), &r));
+    CHECK(rd_eq(r.path, r.path_len, "/get", 4));
+    CHECK(rd_eq(r.body, r.body_len, "pay", 3));
+}
+
 /* RFC 9114 4.1: with two DATA frames present, the first one is viewed (the
  * later frame is not joined; documented limitation). */
 static void test_reqdrive_multi_data(void)
@@ -328,6 +349,7 @@ void test_h3reqdrive(void)
     test_reqdrive_post_body();
     test_reqdrive_empty_body();
     test_reqdrive_grease_then_body();
+    test_reqdrive_data_after_grease();
     test_reqdrive_multi_data();
     test_reqdrive_curl_get();
     test_reqdrive_leading_grease();

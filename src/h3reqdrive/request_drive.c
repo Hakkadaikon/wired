@@ -200,28 +200,38 @@ static int find_headers(const u8 *h3, usz n, const u8 **fs, usz *fs_len,
     return 1;
 }
 
-/* Read one DATA frame at the head of buf into r's body view. Returns 1 ok,
- * 0 if truncated or the frame is not a DATA frame. */
-static int take_data(const u8 *buf, usz n, quic_h3reqdrive_req *r)
+/* Decode the frame at *off; on a DATA frame view its body into r and stop.
+ * Returns 1 when DATA is found (*off advanced past it is irrelevant then), 0
+ * on a truncated/undecodable frame, -1 to keep walking (a skipped frame). */
+static int body_step(const u8 *h3, usz n, usz *off, quic_h3reqdrive_req *r)
 {
     u64 type = 0, plen = 0;
-    if (!quic_h3_frame_get(buf, n, &type, &r->body, &plen) ||
-        type != QUIC_H3_FRAME_DATA)
+    const u8 *pl = 0;
+    usz used = quic_h3_frame_get(h3 + *off, n - *off, &type, &pl, &plen);
+    if (!used)
         return 0;
+    *off += used;
+    if (type != QUIC_H3_FRAME_DATA)
+        return -1;
+    r->body = pl;
     r->body_len = (usz)plen;
     return 1;
 }
 
-/* RFC 9114 4.1: view the request body carried by the DATA frame following
- * HEADERS. No remaining bytes means a bodyless request (GET): leave the view
- * empty and succeed. A present-but-malformed remainder fails. The first DATA
- * frame is taken; a request split across multiple DATA frames is not joined
+/* RFC 9114 4.1 / 9: view the request body from the first DATA frame after
+ * HEADERS, walking past any interleaved unknown/GREASE frame (curl does not
+ * place DATA immediately after HEADERS). Reaching the stream end with no DATA
+ * is a bodyless request (GET): leave the view empty and succeed. A truncated
+ * remainder fails. A request split across multiple DATA frames is not joined
  * (curl/typical clients send one). */
 static int find_body(const u8 *h3, usz n, usz off, quic_h3reqdrive_req *r)
 {
-    if (off >= n)
-        return 1;
-    return take_data(h3 + off, n - off, r);
+    while (off < n) {
+        int s = body_step(h3, n, &off, r);
+        if (s >= 0)
+            return s;
+    }
+    return 1;
 }
 
 /* RFC 9114 4.1: take the request STREAM frame, locate its HEADERS field
