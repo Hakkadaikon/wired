@@ -54,6 +54,23 @@ static int srvwire_emit_frames(
   return append_ack(ack_pn, frames, cap, fl);
 }
 
+/* RFC 9000 14.1: the server's Initial-carrying datagram must also reach 1200
+ * bytes. The complete 17.2.2 header (byte0+version+DCID+SCID+empty Token+2-byte
+ * Length+4-byte PN) plus the 16-byte AEAD tag is the overhead; PADDING (0x00)
+ * frames after the CRYPTO/ACK pad the plaintext so header+payload+tag >= 1200.
+ * curl drops a sub-1200 ServerHello Initial, then PTO-retransmits its own
+ * Initial for ~4s (the appconnect stall). */
+static usz init_payload_floor(u8 dcid_len, u8 scid_len) {
+  usz overhead = 30u + dcid_len + scid_len;
+  return overhead < 1200u ? 1200u - overhead : 0u;
+}
+
+/* Zero-fill frames up to the 1200-byte Initial floor (bounded by cap). */
+static void pad_initial_frames(u8 *frames, usz cap, usz *fl, usz floor) {
+  usz fill = floor < cap ? floor : cap;
+  for (; *fl < fill; (*fl)++) frames[*fl] = 0x00;
+}
+
 /* RFC 9001 5.2 */
 int quic_srvwire_seal_initial(
     const u8 *dcid,
@@ -69,12 +86,14 @@ int quic_srvwire_seal_initial(
     usz      *out_len) {
   quic_initial_keys ck, sk;
   quic_aes128       hp;
-  u8                frames[1024];
+  u8                frames[1200]; /* RFC 9000 14.1: room to PADDING to 1200 */
   usz               fl, total;
   quic_initpkt_derive(dcid, dcid_len, &ck, &sk);
   quic_aes128_init(&hp, sk.hp);
   if (!srvwire_emit_frames(ack_pn, tls, tls_len, frames, sizeof frames, &fl))
     return 0;
+  pad_initial_frames(
+      frames, sizeof frames, &fl, init_payload_floor(dcid_len, scid_len));
   total = quic_tx_packet(
       &sk, &hp, 0xc3, dcid, dcid_len, scid, scid_len, 1, (const u8 *)0, 0, pn,
       frames, fl, out, cap);
