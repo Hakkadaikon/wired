@@ -13,8 +13,6 @@
 #define QUIC_SRVLOOP_CTRL_STREAM               \
   3 /* RFC 9114 6.2.1: first server uni stream \
      */
-#define QUIC_SRVLOOP_CLIENT_FIN_PN \
-  0 /* RFC 9000 13.1: client Finished arrives at Handshake PN 0 */
 
 /* RFC 9000 13.2.1 / 19.3: encode an ACK frame for the single packet number pn.
  */
@@ -27,9 +25,11 @@ static usz encode_ack_one(u8 *frames, usz cap, u64 pn) {
 }
 
 /* RFC 9000 13.2.1: seal a Handshake packet that carries only an ACK of the
- * client Finished's packet number (no CRYPTO), so curl stops retransmitting it.
- * ponytail: acks the fixed Handshake PN 0 (curl's first Handshake packet);
- * track the received PN if a peer ever delays its Finished to a later one. */
+ * client Finished's actual packet number (no CRYPTO), so curl stops
+ * retransmitting it. The PN is recorded by note_hs_rx as packets arrive; curl
+ * leads with an ACK-only Handshake packet, so the Finished is not at PN 0 and a
+ * fixed ACK of 0 left it unacknowledged — the client then PTO-retransmitted it
+ * for ~4s before the handshake completed (the appconnect stall). */
 static int emit_handshake_ack(
     quic_srvloop *l, quic_server *s, u8 *out, usz cap, usz *out_len) {
   const quic_initial_keys *k;
@@ -37,7 +37,7 @@ static int emit_handshake_ack(
   u8                       frames[16];
   usz                      fl;
   if (!quic_srvloop_seal_keys(s, QUIC_LEVEL_HANDSHAKE, &k, &hp)) return 0;
-  fl = encode_ack_one(frames, sizeof frames, QUIC_SRVLOOP_CLIENT_FIN_PN);
+  fl = encode_ack_one(frames, sizeof frames, l->hs_rx_pn);
   if (fl == 0) return 0;
   return quic_hspkt_build(
       k, &hp, l->cli_scid, l->cli_scid_len, s->sdrv.iscid, s->sdrv.iscid_len,
