@@ -135,10 +135,13 @@ typedef struct {
 } jac;
 
 #define FP_P quic_p256_p
+/* The scalar loop runs thousands of these, so use the fast P-256 Solinas
+ * reduction (quic_fp_mul_p) rather than the generic long-division reducer —
+ * the difference is ~885ms vs a few ms per scalar multiply. */
 static void fp_mul(p256_fe r, const p256_fe a, const p256_fe b) {
-  quic_fp_mul(r, a, b, FP_P);
+  quic_fp_mul_p(r, a, b);
 }
-static void fp_sqr(p256_fe r, const p256_fe a) { quic_fp_sqr(r, a, FP_P); }
+static void fp_sqr(p256_fe r, const p256_fe a) { quic_fp_sqr_p(r, a); }
 static void fp_sub(p256_fe r, const p256_fe a, const p256_fe b) {
   quic_fp_sub(r, a, b, FP_P);
 }
@@ -303,7 +306,7 @@ static void jac_to_affine(ec_point *r, const jac *j) {
     r->inf = 1;
     return;
   }
-  quic_fp_inv(zi, j->Z, FP_P);
+  quic_fp_inv_p(zi, j->Z);
   fp_sqr(zi2, zi);
   fp_mul(zi3, zi2, zi);
   fp_mul(r->x, j->X, zi2);
