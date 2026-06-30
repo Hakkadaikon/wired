@@ -32,6 +32,7 @@
 #include "app/http3/server/srvloop/send.h"
 #include "app/http3/server/srvloop/srvloop.h"
 #include "common/platform/sys/syscall.h"
+#include "common/bytes/util/bytes.h"
 #include "tls/handshake/core/tls/x25519.h"
 
 #define PORT 4433
@@ -107,22 +108,19 @@ static void app_selfcheck(void)
 static const u8 SERVER_SCID[6] = {'C', 'L', 'I', 'S', 'C', 'I'};
 
 /* The compiler emits memcpy/memset for struct/array copies even under
- * -ffreestanding; with -nostdlib we must supply them. */
+ * -ffreestanding -fno-builtin; with -nostdlib no libc supplies them, so a
+ * binary that provides its own _start must define these libc-named symbols (the
+ * names the compiler hard-codes). The implementation lives in the SDK
+ * (quic_memcpy/quic_memset, util/bytes.h); this shim just forwards to it so the
+ * sample carries no byte-loop of its own. */
 void *memcpy(void *dst, const void *src, usz n)
 {
-    u8 *d = dst;
-    const u8 *s = src;
-    for (usz i = 0; i < n; i++)
-        d[i] = s[i];
-    return dst;
+    return quic_memcpy(dst, src, n);
 }
 
 void *memset(void *dst, int c, usz n)
 {
-    u8 *d = dst;
-    for (usz i = 0; i < n; i++)
-        d[i] = (u8)c;
-    return dst;
+    return quic_memset(dst, c, n);
 }
 
 static void logs(const char *s)
