@@ -10,17 +10,29 @@
 #include "qpack/static_table.h"
 
 /* RFC 9114 4.1 / 4.3.1, RFC 9204 4.5 */
+int quic_h3reqdrive_send_method(u64 stream_id, const u8 *method, usz m_len,
+                                const u8 *path, usz p_len, const u8 *authority,
+                                usz a_len, const u8 *body, usz body_len,
+                                u8 *out, usz cap, usz *out_len)
+{
+    u8 fs[256];
+    usz fs_len = 0;
+    if (!quic_h3req_enc_method(method, m_len, path, p_len, authority, a_len, fs,
+                               sizeof(fs), &fs_len))
+        return 0;
+    return quic_h3conn_send_request(stream_id, fs, fs_len, body, body_len, out,
+                                    cap, out_len);
+}
+
+/* RFC 9114 4.1 / 4.3.1, RFC 9204 4.5 */
 int quic_h3reqdrive_send_get(u64 stream_id, const u8 *path, usz p_len,
                              const u8 *authority, usz a_len,
                              u8 *out, usz cap, usz *out_len)
 {
-    u8 fs[256];
-    usz fs_len = 0;
-    if (!quic_h3req_enc_get(path, p_len, authority, a_len, fs, sizeof(fs),
-                            &fs_len))
-        return 0;
-    return quic_h3conn_send_request(stream_id, fs, fs_len, 0, 0, out, cap,
-                                    out_len);
+    static const u8 method[] = {'G', 'E', 'T'};
+    return quic_h3reqdrive_send_method(stream_id, method, 3, path, p_len,
+                                       authority, a_len, 0, 0, out, cap,
+                                       out_len);
 }
 
 /* One recovered field line: name and value, each borrowed from the static
@@ -172,7 +184,8 @@ static int decode_lines(const u8 *fs, usz n, u8 *scr, usz scap,
  * unknown/reserved frame (e.g. the GREASE frame curl/quiche send), until the
  * HEADERS frame is found; view its field-section payload in place. Returns 1
  * if a HEADERS frame is reached, 0 if the stream ends or is truncated. */
-static int find_headers(const u8 *h3, usz n, const u8 **fs, usz *fs_len)
+static int find_headers(const u8 *h3, usz n, const u8 **fs, usz *fs_len,
+                        usz *end)
 {
     u64 type = 0, plen = 0;
     usz off = 0;
@@ -183,18 +196,47 @@ static int find_headers(const u8 *h3, usz n, const u8 **fs, usz *fs_len)
         off += used;
     }
     *fs_len = (usz)plen;
+    *end = off;
     return 1;
 }
 
-/* RFC 9114 4.1: take the request STREAM frame and locate its HEADERS field
- * section, tolerating leading unknown frames (RFC 9114 9). */
-static int request_field_section(const u8 *stream_data, usz len,
-                                 const u8 **fs, usz *fs_len)
+/* Read one DATA frame at the head of buf into r's body view. Returns 1 ok,
+ * 0 if truncated or the frame is not a DATA frame. */
+static int take_data(const u8 *buf, usz n, quic_h3reqdrive_req *r)
+{
+    u64 type = 0, plen = 0;
+    if (!quic_h3_frame_get(buf, n, &type, &r->body, &plen) ||
+        type != QUIC_H3_FRAME_DATA)
+        return 0;
+    r->body_len = (usz)plen;
+    return 1;
+}
+
+/* RFC 9114 4.1: view the request body carried by the DATA frame following
+ * HEADERS. No remaining bytes means a bodyless request (GET): leave the view
+ * empty and succeed. A present-but-malformed remainder fails. The first DATA
+ * frame is taken; a request split across multiple DATA frames is not joined
+ * (curl/typical clients send one). */
+static int find_body(const u8 *h3, usz n, usz off, quic_h3reqdrive_req *r)
+{
+    if (off >= n)
+        return 1;
+    return take_data(h3 + off, n - off, r);
+}
+
+/* RFC 9114 4.1: take the request STREAM frame, locate its HEADERS field
+ * section tolerating leading unknown frames (RFC 9114 9), then view the
+ * trailing DATA frame body. */
+static int request_sections(const u8 *stream_data, usz len, const u8 **fs,
+                            usz *fs_len, quic_h3reqdrive_req *r)
 {
     quic_stream_frame f;
+    usz end = 0;
     if (!quic_frame_get_stream(stream_data, len, &f))
         return 0;
-    return find_headers(f.data, (usz)f.length, fs, fs_len);
+    if (!find_headers(f.data, (usz)f.length, fs, fs_len, &end))
+        return 0;
+    return find_body(f.data, (usz)f.length, end, r);
 }
 
 /* RFC 9114 4.1, RFC 9204 4.5 */
@@ -204,7 +246,7 @@ int quic_h3reqdrive_recv_get(const u8 *stream_data, usz len,
     const u8 *fs = 0;
     usz fs_len = 0;
     *r = (quic_h3reqdrive_req){0};
-    if (!request_field_section(stream_data, len, &fs, &fs_len))
+    if (!request_sections(stream_data, len, &fs, &fs_len, r))
         return 0;
     return decode_lines(fs, fs_len, scratch, scap, r);
 }
