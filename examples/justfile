@@ -5,12 +5,20 @@ cflags := "-target x86_64-linux-gnu -ffreestanding -fno-stack-protector -fno-bui
 
 # Build the server: link quic_server.c against every src/**/*.c except sys.c
 # (we supply our own _start). The static, freestanding binary needs no libc.
-build:
-    cd .. && {{cc}} {{cflags}} \
+# `extra` lets a debug build add -DQUIC_DEBUG; release passes nothing.
+build extra='':
+    cd .. && {{cc}} {{cflags}} {{extra}} \
         examples/quic_server.c \
         $(find src -name '*.c' ! -path 'src/sys/sys.c') \
         -o examples/quic_server
 
+# Debug build: timestamped trace logging compiled in via -DQUIC_DEBUG.
+build-debug: (build '-DQUIC_DEBUG')
+
 # Build and run (binds 0.0.0.0:4433; Ctrl-C to stop).
 run: build
+    ./quic_server
+
+# Debug build and run (with trace logging).
+run-debug: build-debug
     ./quic_server

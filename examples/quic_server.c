@@ -139,6 +139,46 @@ static void die(const char *msg)
     syscall1(SYS_exit, 1);
 }
 
+/* Cross-cutting trace logging, isolated here so the body stays clean: callers
+ * write QUIC_LOG("...") and need not know about timestamps or the build flag.
+ * Compiled in only with -DQUIC_DEBUG (just build-debug); a release build expands
+ * QUIC_LOG to nothing, so there is no cost and no output. die() is separate and
+ * always prints — a fatal error must surface even in a release build. */
+#ifdef QUIC_DEBUG
+/* CLOCK_REALTIME seconds.nanoseconds, no libc: kernel fills two i64 in a buffer
+ * we own (struct timespec is {tv_sec, tv_nsec}; both are i64 on x86_64). */
+static void put_u64(char *out, usz *at, u64 v, usz width)
+{
+    char tmp[20];
+    usz k = 0;
+    do {
+        tmp[k++] = (char)('0' + (v % 10));
+        v /= 10;
+    } while (v);
+    while (k < width)
+        tmp[k++] = '0';
+    while (k)
+        out[(*at)++] = tmp[--k];
+}
+
+static void logt(const char *s)
+{
+    i64 ts[2] = {0, 0};
+    char p[24];
+    usz at = 0;
+    syscall3(SYS_clock_gettime, 0, (i64)ts, 0);
+    put_u64(p, &at, (u64)ts[0], 1);
+    p[at++] = '.';
+    put_u64(p, &at, (u64)ts[1], 9);
+    p[at++] = ' ';
+    syscall3(SYS_write, 2, (i64)p, (i64)at);
+    logs(s);
+}
+#define QUIC_LOG(s) logt(s)
+#else
+#define QUIC_LOG(s) ((void)0)
+#endif
+
 /* The fixed 32-byte ServerHello.random. Deterministic for reproducibility. */
 static void fill_random(u8 r[32])
 {
@@ -165,9 +205,9 @@ static void log_alpn(const u8 *ch, usz ch_len)
     usz extl;
     if (quic_salpn_find_extension(ch, ch_len, QUIC_SALPN_EXT_TYPE, &ext, &extl) &&
         quic_salpn_select_h3(ext, extl))
-        logs("ALPN: h3 selected\n");
+        QUIC_LOG("ALPN: h3 selected\n");
     else
-        logs("ALPN: h3 not offered\n");
+        QUIC_LOG("ALPN: h3 not offered\n");
 }
 
 /* Seal a packet and, if non-empty, send it with a log line. */
@@ -176,7 +216,7 @@ static void send_pkt(i64 fd, const quic_sockaddr_in *peer, const u8 *pkt,
 {
     if (n) {
         quic_udp_send(fd, peer, pkt, n);
-        logs(what);
+        QUIC_LOG(what);
     }
 }
 
@@ -206,9 +246,9 @@ static int collect_ch(quic_crecv *cr, const u8 *payload, usz plen,
 {
     quic_crecv_init(cr);
     if (!quic_crecv_collect(cr, payload, plen))
-        return logs("CRYPTO collect failed\n"), 0;
+        return QUIC_LOG("CRYPTO collect failed\n"), 0;
     if (!quic_crecv_complete_message(cr))
-        return logs("ClientHello incomplete\n"), 0;
+        return QUIC_LOG("ClientHello incomplete\n"), 0;
     quic_crecv_message(cr, msg, mlen);
     return 1;
 }
@@ -223,8 +263,8 @@ static int open_initial(u8 *dg, usz len, quic_crecv *cr,
     if (!valid_initial(dg, len))
         return 0;
     if (!quic_initpkt_open(dg + 6, dg[5], dg, len, 0, &payload, &plen))
-        return logs("Initial open failed\n"), 0;
-    logs("Initial received and opened\n");
+        return QUIC_LOG("Initial open failed\n"), 0;
+    QUIC_LOG("Initial received and opened\n");
     return collect_ch(cr, payload, plen, msg, mlen);
 }
 
@@ -279,8 +319,8 @@ static int send_flight(i64 fd, const quic_sockaddr_in *peer, quic_server *s)
     fill_random(rnd);
     if (!quic_server_build_flight(s, rnd, sh, sizeof sh, &shl,
                                   flight, sizeof flight, &fll))
-        return logs("flight build failed\n"), 0;
-    logs("server flight built\n");
+        return QUIC_LOG("flight build failed\n"), 0;
+    QUIC_LOG("server flight built\n");
     seal_and_send(fd, peer, s, sh, shl, flight, fll);
     return 1;
 }
@@ -291,10 +331,10 @@ static int accept_client(quic_server *s, quic_srvloop *l, const quic_header *h,
                          const u8 *ch, usz ch_len)
 {
     if (!init_server(s, l, h->dcid, h->dcid_len, h->scid, h->scid_len))
-        return logs("server init failed\n"), 0;
+        return QUIC_LOG("server init failed\n"), 0;
     if (!quic_server_recv_initial(s, ch, ch_len))
-        return logs("ClientHello rejected\n"), 0;
-    logs("ClientHello received\n");
+        return QUIC_LOG("ClientHello rejected\n"), 0;
+    QUIC_LOG("ClientHello received\n");
     return 1;
 }
 
@@ -322,7 +362,7 @@ static int on_initial(i64 fd, const quic_sockaddr_in *peer, quic_server *s,
 static void log_confirmed(quic_server *s)
 {
     if (quic_server_is_confirmed(s))
-        logs("handshake confirmed\n");
+        QUIC_LOG("handshake confirmed\n");
 }
 
 /* A later datagram: run one real-wire step and send any sealed reply (the
@@ -347,7 +387,7 @@ static i64 listen_udp(void)
     quic_udp_addr(&sa, PORT, 0, 0, 0, 0);
     if (quic_udp_bind(fd, &sa) < 0)
         die("bind failed\n");
-    logs("listening on 0.0.0.0:4433\n");
+    QUIC_LOG("listening on 0.0.0.0:4433\n");
     return fd;
 }
 
