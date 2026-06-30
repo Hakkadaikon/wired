@@ -15,10 +15,16 @@
  *   QUIC_LEVEL_ONERTT     SERVER_AP     CLIENT_AP
  */
 
-int quic_srvloop_seal_keys(const quic_server *s, int level,
-                           const quic_initial_keys **keys, quic_aes128 *hp);
+int quic_srvloop_seal_keys(
+    const quic_server        *s,
+    int                       level,
+    const quic_initial_keys **keys,
+    quic_aes128              *hp);
 
-int quic_srvloop_open_keys(const quic_server *s, int level,
-                           const quic_initial_keys **keys, quic_aes128 *hp);
+int quic_srvloop_open_keys(
+    const quic_server        *s,
+    int                       level,
+    const quic_initial_keys **keys,
+    quic_aes128              *hp);
 
 #endif

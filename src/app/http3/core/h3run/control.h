@@ -7,7 +7,7 @@
  * the stream type 0x00. A second control stream is H3_STREAM_CREATION_ERROR. */
 
 typedef struct {
-    u8 count; /* control streams seen on this connection */
+  u8 count; /* control streams seen on this connection */
 } quic_h3_control_state;
 
 /* Write the control stream prefix (type 0x00) into buf. Returns bytes written

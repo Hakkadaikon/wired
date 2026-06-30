@@ -5,15 +5,15 @@
 
 /* UDP over IPv4 via direct x86_64 syscalls. No libc. */
 
-#define QUIC_AF_INET    2
+#define QUIC_AF_INET 2
 #define QUIC_SOCK_DGRAM 2
 
 /* A sockaddr_in laid out for the kernel (big-endian port and address). */
 typedef struct {
-    u16 family;
-    u16 port_be;   /* network byte order */
-    u32 addr_be;   /* network byte order */
-    u8  zero[8];
+  u16 family;
+  u16 port_be; /* network byte order */
+  u32 addr_be; /* network byte order */
+  u8  zero[8];
 } quic_sockaddr_in;
 
 /* Build a sockaddr_in from host-order port and IPv4 octets a.b.c.d. */

@@ -7,7 +7,13 @@
  * single Literal Field Line With Literal Name (raw name, raw value, not marked
  * never-indexed). No field section prefix is emitted (the caller assembles
  * prefix + lines). Returns 1 with *out_len set, 0 if out lacks capacity. */
-int quic_h3req_enc_header(const u8 *name, usz n_len, const u8 *value, usz v_len,
-                          u8 *out, usz cap, usz *out_len);
+int quic_h3req_enc_header(
+    const u8 *name,
+    usz       n_len,
+    const u8 *value,
+    usz       v_len,
+    u8       *out,
+    usz       cap,
+    usz      *out_len);
 
 #endif

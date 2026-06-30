@@ -10,11 +10,11 @@
 #define QUIC_REASM_CAP 4096
 
 typedef struct {
-    u8 buf[QUIC_REASM_CAP];
-    u8 have[QUIC_REASM_CAP]; /* 1 if that byte offset has been received */
-    u64 delivered;           /* length of the contiguous prefix consumed */
-    u64 final_size;          /* set once FIN is known */
-    int have_final;
+  u8  buf[QUIC_REASM_CAP];
+  u8  have[QUIC_REASM_CAP]; /* 1 if that byte offset has been received */
+  u64 delivered;            /* length of the contiguous prefix consumed */
+  u64 final_size;           /* set once FIN is known */
+  int have_final;
 } quic_reasm;
 
 void quic_reasm_init(quic_reasm *r);

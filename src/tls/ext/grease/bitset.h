@@ -10,7 +10,8 @@
  * peer advertised grease_quic_bit. */
 int quic_greasebit_may_clear(int peer_advertised);
 
-/* Apply the QUIC Bit to a first byte: clear 0x40 when clear != 0, else set it. */
+/* Apply the QUIC Bit to a first byte: clear 0x40 when clear != 0, else set it.
+ */
 u8 quic_greasebit_apply(u8 byte0, int clear);
 
 #endif

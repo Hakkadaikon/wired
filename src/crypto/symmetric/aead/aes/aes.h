@@ -12,15 +12,14 @@
 #define QUIC_AES_RK_WORDS 44 /* 4*(rounds+1) round-key words */
 
 typedef struct {
-    u32 rk[QUIC_AES_RK_WORDS];
+  u32 rk[QUIC_AES_RK_WORDS];
 } quic_aes128;
 
 /* Expand a 16-byte key into the round-key schedule. */
 void quic_aes128_init(quic_aes128 *a, const u8 key[QUIC_AES_BLOCK]);
 
 /* Encrypt one 16-byte block in place semantics: out = AES(key, in). */
-void quic_aes128_encrypt(const quic_aes128 *a,
-                         const u8 in[QUIC_AES_BLOCK],
-                         u8 out[QUIC_AES_BLOCK]);
+void quic_aes128_encrypt(
+    const quic_aes128 *a, const u8 in[QUIC_AES_BLOCK], u8 out[QUIC_AES_BLOCK]);
 
 #endif

@@ -9,8 +9,16 @@
  * an absolute index and resolves it from the dynamic table. Returns 1 with the
  * borrowed pointers and *consumed set, or 0 on a non-indexed pattern,
  * truncation, or an index that resolves to no live entry. */
-int quic_qdyn_decode_field(const quic_qpack_dyn *table, u64 base, const u8 *fs,
-                           usz fs_len, usz pos, const u8 **name, usz *name_len,
-                           const u8 **value, usz *value_len, usz *consumed);
+int quic_qdyn_decode_field(
+    const quic_qpack_dyn *table,
+    u64                   base,
+    const u8             *fs,
+    usz                   fs_len,
+    usz                   pos,
+    const u8            **name,
+    usz                  *name_len,
+    const u8            **value,
+    usz                  *value_len,
+    usz                  *consumed);
 
 #endif

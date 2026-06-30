@@ -6,7 +6,7 @@
  * keys; a successful decryption confirms the update. Returns the key generation
  * to attempt: 0 = current, 1 = next. The update_in_progress flag is informative
  * for the caller and does not change the bit-driven selection. */
-int quic_kudrive_key_generation(int recv_phase_bit, int current_phase_bit,
-                                int update_in_progress);
+int quic_kudrive_key_generation(
+    int recv_phase_bit, int current_phase_bit, int update_in_progress);
 
 #endif

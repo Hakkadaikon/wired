@@ -12,8 +12,8 @@
 
 /* Known application protocols carried over QUIC. */
 typedef enum {
-    QUIC_ALPNVER_PROTO_NONE = 0, /* unknown / not a QUIC application protocol */
-    QUIC_ALPNVER_PROTO_H3   = 1  /* HTTP/3, ALPN "h3" (RFC 9114) */
+  QUIC_ALPNVER_PROTO_NONE = 0, /* unknown / not a QUIC application protocol */
+  QUIC_ALPNVER_PROTO_H3   = 1  /* HTTP/3, ALPN "h3" (RFC 9114) */
 } quic_alpnver_proto;
 
 /* RFC 9001 8.1: returns 1 if an ALPN protocol was selected (non-empty),

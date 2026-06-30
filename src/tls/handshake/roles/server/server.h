@@ -2,10 +2,10 @@
 #define QUIC_SERVER_SERVER_H
 
 #include "common/platform/sys/syscall.h"
-#include "transport/io/socket/io/udp.h"
 #include "tls/handshake/core/sdrv/sdrv.h"
 #include "tls/handshake/roles/srvfin/complete.h"
 #include "transport/conn/loop/crecv/collect.h"
+#include "transport/io/socket/io/udp.h"
 
 /* RFC 9001 4 / 4.1.2, RFC 8446 4 / 4.4.4, RFC 9000 7: server-side handshake
  * orchestrator, the symmetric peer of quic_client. Drives the verified parts
@@ -23,27 +23,27 @@
 #define QUIC_SERVER_DATAGRAM_MAX 1500
 
 enum {
-    QUIC_SERVER_HS_INITIAL = 0,  /* awaiting the ClientHello */
-    QUIC_SERVER_HS_CH_RECVD,     /* ClientHello folded, flight not sent */
-    QUIC_SERVER_HS_FLIGHT_SENT,  /* server flight sent, Handshake key ready */
-    QUIC_SERVER_HS_CONFIRMED     /* client Finished verified, 1-RTT armed */
+  QUIC_SERVER_HS_INITIAL = 0, /* awaiting the ClientHello */
+  QUIC_SERVER_HS_CH_RECVD,    /* ClientHello folded, flight not sent */
+  QUIC_SERVER_HS_FLIGHT_SENT, /* server flight sent, Handshake key ready */
+  QUIC_SERVER_HS_CONFIRMED    /* client Finished verified, 1-RTT armed */
 };
 
 typedef struct {
-    i64 fd;                      /* UDP socket; <0 until a socket is opened */
-    quic_sockaddr_in peer;
-    quic_sdrv sdrv;
-    quic_keysched sched;
-    quic_keyset keys;
-    quic_srvfin_state fin;
-    quic_crecv crecv;
-    int phase;                   /* QUIC_SERVER_HS_* */
-    int hs_done_sent;            /* HANDSHAKE_DONE emitted (at most once) */
-    u8 server_priv[32];          /* RFC 7748 x25519 private (owns the ECDHE) */
-    u8 tr[QUIC_SERVER_TRANSCRIPT_MAX];   /* raw handshake transcript bytes */
-    usz tr_len;                  /* bytes through the latest folded message */
-    usz tr_through_sh;           /* transcript length through ServerHello */
-    usz tr_through_flight;       /* transcript length through server Finished */
+  i64               fd; /* UDP socket; <0 until a socket is opened */
+  quic_sockaddr_in  peer;
+  quic_sdrv         sdrv;
+  quic_keysched     sched;
+  quic_keyset       keys;
+  quic_srvfin_state fin;
+  quic_crecv        crecv;
+  int               phase;        /* QUIC_SERVER_HS_* */
+  int               hs_done_sent; /* HANDSHAKE_DONE emitted (at most once) */
+  u8  server_priv[32];            /* RFC 7748 x25519 private (owns the ECDHE) */
+  u8  tr[QUIC_SERVER_TRANSCRIPT_MAX]; /* raw handshake transcript bytes */
+  usz tr_len;            /* bytes through the latest folded message */
+  usz tr_through_sh;     /* transcript length through ServerHello */
+  usz tr_through_flight; /* transcript length through server Finished */
 } quic_server;
 
 /* Initialize the orchestrator with the server key material.
@@ -51,16 +51,25 @@ typedef struct {
  * the ECDSA P-256 signing scalar (big-endian). cert_der/cert_len are ignored:
  * the driver builds its own self-signed P-256 end-entity certificate from
  * cert_seed (sdrv). No socket is opened. */
-void quic_server_init(quic_server *s, const u8 server_priv_x25519[32],
-                      const u8 server_pub_x25519[32], const u8 cert_seed[32],
-                      const u8 *cert_der, usz cert_len);
+void quic_server_init(
+    quic_server *s,
+    const u8     server_priv_x25519[32],
+    const u8     server_pub_x25519[32],
+    const u8     cert_seed[32],
+    const u8    *cert_der,
+    usz          cert_len);
 
 /* RFC 9000 7.3: record the DCID of the client's first Initial (the ODCID the
  * server echoes) and the server's source connection id (ISCID) so the
  * EncryptedExtensions transport parameters carry the real connection ids. Must
- * be called before build_flight. Returns 1 ok, 0 if either length exceeds 20. */
-int quic_server_set_cids(quic_server *s, const u8 *odcid, u8 odcid_len,
-                         const u8 *iscid, u8 iscid_len);
+ * be called before build_flight. Returns 1 ok, 0 if either length exceeds 20.
+ */
+int quic_server_set_cids(
+    quic_server *s,
+    const u8    *odcid,
+    u8           odcid_len,
+    const u8    *iscid,
+    u8           iscid_len);
 
 /* RFC 8446 4.4.1: fold a received ClientHello (TLS handshake message bytes)
  * into the transcript. Advances INITIAL -> CH_RECVD. Returns 1 on success,
@@ -68,13 +77,19 @@ int quic_server_set_cids(quic_server *s, const u8 *odcid, u8 odcid_len,
 int quic_server_recv_initial(quic_server *s, const u8 *ch_msg, usz ch_len);
 
 /* RFC 8446 4.4 / RFC 9001 4: build the server flight (ServerHello into sh_out,
- * EncryptedExtensions||Certificate||CertificateVerify||Finished into flight_out)
- * and derive the Handshake key. Only valid after the ClientHello was received.
- * Advances CH_RECVD -> FLIGHT_SENT. Returns 1 on success, 0 otherwise. */
-int quic_server_build_flight(quic_server *s,
-                             const u8 *server_random,
-                             u8 *sh_out, usz sh_cap, usz *sh_len,
-                             u8 *flight_out, usz flight_cap, usz *flight_len);
+ * EncryptedExtensions||Certificate||CertificateVerify||Finished into
+ * flight_out) and derive the Handshake key. Only valid after the ClientHello
+ * was received. Advances CH_RECVD -> FLIGHT_SENT. Returns 1 on success, 0
+ * otherwise. */
+int quic_server_build_flight(
+    quic_server *s,
+    const u8    *server_random,
+    u8          *sh_out,
+    usz          sh_cap,
+    usz         *sh_len,
+    u8          *flight_out,
+    usz          flight_cap,
+    usz         *flight_len);
 
 /* RFC 8446 4.4.4 / RFC 9001 4.1.2: drive the handshake with one received
  * Handshake-packet CRYPTO payload (socket-free injection). Reassembles the

@@ -11,9 +11,21 @@
 
 /* Build header + protect_seal into out (cap bytes). Returns the protected
  * length, or 0 on overflow. */
-usz quic_tx_packet(const quic_initial_keys *keys, const quic_aes128 *hp,
-                   u8 byte0, const u8 *dcid, u8 dcid_len, const u8 *scid,
-                   u8 scid_len, int is_initial, const u8 *token, usz token_len,
-                   u64 pn, const u8 *frames, usz frames_len, u8 *out, usz cap);
+usz quic_tx_packet(
+    const quic_initial_keys *keys,
+    const quic_aes128       *hp,
+    u8                       byte0,
+    const u8                *dcid,
+    u8                       dcid_len,
+    const u8                *scid,
+    u8                       scid_len,
+    int                      is_initial,
+    const u8                *token,
+    usz                      token_len,
+    u64                      pn,
+    const u8                *frames,
+    usz                      frames_len,
+    u8                      *out,
+    usz                      cap);
 
 #endif

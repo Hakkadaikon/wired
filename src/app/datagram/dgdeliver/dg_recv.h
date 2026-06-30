@@ -7,6 +7,7 @@
  * 0x31 at frame[0]) for delivery to the application. *payload points into the
  * frame buffer (a view, no copy) and *payload_len is its length. Returns 1 on
  * success, 0 on a malformed frame. */
-int quic_dgdeliver_extract(const u8 *frame, usz len, const u8 **payload, usz *payload_len);
+int quic_dgdeliver_extract(
+    const u8 *frame, usz len, const u8 **payload, usz *payload_len);
 
 #endif

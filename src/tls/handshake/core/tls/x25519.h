@@ -9,12 +9,13 @@
 
 /* out = scalar * point on Curve25519. scalar and point are 32-byte
  * little-endian; out is the 32-byte little-endian u-coordinate. */
-void quic_x25519(u8 out[QUIC_X25519_LEN],
-                 const u8 scalar[QUIC_X25519_LEN],
-                 const u8 point[QUIC_X25519_LEN]);
+void quic_x25519(
+    u8       out[QUIC_X25519_LEN],
+    const u8 scalar[QUIC_X25519_LEN],
+    const u8 point[QUIC_X25519_LEN]);
 
 /* out = scalar * base point (9). Produces an X25519 public key. */
-void quic_x25519_base(u8 out[QUIC_X25519_LEN],
-                      const u8 scalar[QUIC_X25519_LEN]);
+void quic_x25519_base(
+    u8 out[QUIC_X25519_LEN], const u8 scalar[QUIC_X25519_LEN]);
 
 #endif

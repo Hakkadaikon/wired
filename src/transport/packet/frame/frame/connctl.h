@@ -5,19 +5,19 @@
 
 /* RFC 9000 19: connection and path management frames. */
 
-#define QUIC_FRAME_NEW_TOKEN       0x07 /* 19.7  */
-#define QUIC_FRAME_RETIRE_CID      0x19 /* 19.16 */
-#define QUIC_FRAME_PATH_CHALLENGE  0x1a /* 19.17 */
-#define QUIC_FRAME_PATH_RESPONSE   0x1b /* 19.18 */
-#define QUIC_FRAME_HANDSHAKE_DONE  0x1e /* 19.20 */
+#define QUIC_FRAME_NEW_TOKEN 0x07      /* 19.7  */
+#define QUIC_FRAME_RETIRE_CID 0x19     /* 19.16 */
+#define QUIC_FRAME_PATH_CHALLENGE 0x1a /* 19.17 */
+#define QUIC_FRAME_PATH_RESPONSE 0x1b  /* 19.18 */
+#define QUIC_FRAME_HANDSHAKE_DONE 0x1e /* 19.20 */
 
 #define QUIC_PATH_DATA 8 /* PATH_CHALLENGE/RESPONSE payload length */
 
 /* NEW_TOKEN (19.7): a token length and a view into the token (not copied).
  * length 0 is permitted. */
 typedef struct {
-    u64 length;
-    const u8 *token;
+  u64       length;
+  const u8 *token;
 } quic_new_token_frame;
 
 /* Encode/decode NEW_TOKEN. Returns bytes written/consumed, 0 on

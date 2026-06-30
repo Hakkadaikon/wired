@@ -16,6 +16,7 @@ usz quic_tls_alpn_encode(u8 *buf, usz cap, const u8 *proto, usz proto_len);
 /* Read the first protocol of the ProtocolNameList at buf (n readable). On
  * success sets *proto (into buf) and *proto_len, and returns total bytes
  * consumed by the whole list; 0 if truncated or a length field overruns. */
-usz quic_tls_alpn_decode_first(const u8 *buf, usz n, const u8 **proto, usz *proto_len);
+usz quic_tls_alpn_decode_first(
+    const u8 *buf, usz n, const u8 **proto, usz *proto_len);
 
 #endif

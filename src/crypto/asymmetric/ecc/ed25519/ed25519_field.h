@@ -11,7 +11,9 @@
 typedef u64 quic_ed_fe[5];
 
 /* Extended homogeneous coordinates (X, Y, Z, T) (RFC 8032 5.1.4). */
-typedef struct { quic_ed_fe X, Y, Z, T; } quic_ed_ge;
+typedef struct {
+  quic_ed_fe X, Y, Z, T;
+} quic_ed_ge;
 
 /* Base point B (RFC 8032 5.1) as an extended-coordinate point. */
 void quic_ed_ge_base(quic_ed_ge *p);
@@ -21,8 +23,8 @@ void quic_ed_ge_add(quic_ed_ge *p3, const quic_ed_ge *p1, const quic_ed_ge *p2);
 
 /* q = [scalar]p for a 256-bit little-endian scalar. Verification only;
  * constant time is not required. */
-void quic_ed_ge_scalarmult(quic_ed_ge *q, const u8 scalar[32],
-                           const quic_ed_ge *p);
+void quic_ed_ge_scalarmult(
+    quic_ed_ge *q, const u8 scalar[32], const quic_ed_ge *p);
 
 /* Encode an extended point to 32 bytes (RFC 8032 5.1.2). */
 void quic_ed_ge_encode(u8 out[32], const quic_ed_ge *p);

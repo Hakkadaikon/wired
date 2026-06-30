@@ -4,13 +4,14 @@
 #include "common/platform/sys/syscall.h"
 
 /* RFC 9114 7.2.4. The same SETTINGS identifier MUST NOT occur more than once
- * in a SETTINGS frame; a repeated identifier is treated as H3_SETTINGS_ERROR. */
+ * in a SETTINGS frame; a repeated identifier is treated as H3_SETTINGS_ERROR.
+ */
 
 #define QUIC_H3_SETTINGS_SEEN_MAX 16
 
 typedef struct {
-    usz n;
-    u64 ids[QUIC_H3_SETTINGS_SEEN_MAX];
+  usz n;
+  u64 ids[QUIC_H3_SETTINGS_SEEN_MAX];
 } quic_h3_settings_seen;
 
 /* Reset the set of seen identifiers to empty. */

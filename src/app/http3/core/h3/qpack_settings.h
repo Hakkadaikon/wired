@@ -3,9 +3,10 @@
 
 #include "common/platform/sys/syscall.h"
 
-/* RFC 9204 5. QPACK SETTINGS parameters carried in the HTTP/3 SETTINGS frame. */
+/* RFC 9204 5. QPACK SETTINGS parameters carried in the HTTP/3 SETTINGS frame.
+ */
 #define QUIC_H3_SETTINGS_QPACK_MAX_TABLE_CAPACITY 0x01
-#define QUIC_H3_SETTINGS_QPACK_BLOCKED_STREAMS    0x07
+#define QUIC_H3_SETTINGS_QPACK_BLOCKED_STREAMS 0x07
 
 /* Effective value of a received QPACK setting. When the SETTINGS frame omits
  * the parameter the default of 0 applies (no dynamic table / no blocked

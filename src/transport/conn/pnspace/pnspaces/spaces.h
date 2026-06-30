@@ -9,7 +9,7 @@
  * giving the pnspaces-facing send-side API. */
 
 typedef struct {
-    quic_pnspace pn;
+  quic_pnspace pn;
 } quic_pnspaces;
 
 void quic_pnspaces_init(quic_pnspaces *s);

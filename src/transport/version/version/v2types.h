@@ -8,11 +8,11 @@
  * and the per-version 2-bit field (bits 5-4 of byte 0). */
 
 typedef enum {
-    QUIC_LT_INITIAL = 0,
-    QUIC_LT_0RTT,
-    QUIC_LT_HANDSHAKE,
-    QUIC_LT_RETRY,
-    QUIC_LT_INVALID = -1
+  QUIC_LT_INITIAL = 0,
+  QUIC_LT_0RTT,
+  QUIC_LT_HANDSHAKE,
+  QUIC_LT_RETRY,
+  QUIC_LT_INVALID = -1
 } quic_logical_type;
 
 /* Wire value of a logical type under v1 (RFC 9000 17.2) or v2 (RFC 9369 3.2).

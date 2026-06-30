@@ -9,14 +9,14 @@
  * search from above; the validated PMTU never drops below the base. */
 
 #define QUIC_PMTU_BASE 1200
-#define QUIC_PMTU_MAX  1452 /* a common Ethernet-minus-overhead ceiling */
+#define QUIC_PMTU_MAX 1452 /* a common Ethernet-minus-overhead ceiling */
 #define QUIC_PMTU_STEP 64
 
 typedef struct {
-    usz validated;   /* largest packet size confirmed to traverse the path */
-    usz probe;       /* size of the probe currently outstanding (0 if none) */
-    usz ceiling;     /* upper bound learned from a lost probe */
-    int searching;   /* whether a larger size is still worth probing */
+  usz validated; /* largest packet size confirmed to traverse the path */
+  usz probe;     /* size of the probe currently outstanding (0 if none) */
+  usz ceiling;   /* upper bound learned from a lost probe */
+  int searching; /* whether a larger size is still worth probing */
 } quic_pmtu;
 
 void quic_pmtu_init(quic_pmtu *p);

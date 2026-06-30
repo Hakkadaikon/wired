@@ -7,7 +7,12 @@
  * length 32 (TLS rsa_pss_rsae_sha256). n and sig are big-endian; mhash is the
  * 32-byte SHA-256 message digest. Public exponent fixed at e=65537. Returns 1
  * if the signature is valid, else 0. */
-int quic_rsa_pss_verify(const u8 *n, usz n_len, const u8 *sig, usz sig_len,
-                        const u8 *mhash, usz hash_len);
+int quic_rsa_pss_verify(
+    const u8 *n,
+    usz       n_len,
+    const u8 *sig,
+    usz       sig_len,
+    const u8 *mhash,
+    usz       hash_len);
 
 #endif

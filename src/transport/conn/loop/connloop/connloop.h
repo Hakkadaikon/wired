@@ -15,24 +15,24 @@
 
 /* RFC 9000 10: connection lifecycle phases. */
 enum {
-    QUIC_CONNLOOP_ACTIVE = 0,
-    QUIC_CONNLOOP_CLOSING,
-    QUIC_CONNLOOP_DRAINING,
-    QUIC_CONNLOOP_CLOSED
+  QUIC_CONNLOOP_ACTIVE = 0,
+  QUIC_CONNLOOP_CLOSING,
+  QUIC_CONNLOOP_DRAINING,
+  QUIC_CONNLOOP_CLOSED
 };
 
 typedef struct {
-    quic_keyset keys;
-    quic_sentpkt sent;
-    int send_level;          /* highest protection level used to send so far */
-    int handshake_complete;  /* RFC 9001 4.1.2: TLS handshake done */
-    int handshake_confirmed; /* RFC 9001 4.1.2: HANDSHAKE_DONE seen */
-    int validated;           /* RFC 9000 8.1: address validated */
-    int is_server;
-    int phase;               /* QUIC_CONNLOOP_* */
-    int pto_armed;           /* RFC 9002 6.2: PTO timer armed */
-    u64 recv_bytes;          /* RFC 9000 8.1: bytes received on this path */
-    u64 sent_bytes;          /* RFC 9000 8.1: bytes sent on this path */
+  quic_keyset  keys;
+  quic_sentpkt sent;
+  int          send_level; /* highest protection level used to send so far */
+  int          handshake_complete;  /* RFC 9001 4.1.2: TLS handshake done */
+  int          handshake_confirmed; /* RFC 9001 4.1.2: HANDSHAKE_DONE seen */
+  int          validated;           /* RFC 9000 8.1: address validated */
+  int          is_server;
+  int          phase;      /* QUIC_CONNLOOP_* */
+  int          pto_armed;  /* RFC 9002 6.2: PTO timer armed */
+  u64          recv_bytes; /* RFC 9000 8.1: bytes received on this path */
+  u64          sent_bytes; /* RFC 9000 8.1: bytes sent on this path */
 } quic_connloop;
 
 /* Initialize an active connection with an empty keyset and no bytes counted.
@@ -55,8 +55,8 @@ int quic_connloop_on_recv(quic_connloop *c, int level, usz len);
  * (ack-eliciting packets are tracked, with `pn` as the packet number) and
  * arms the PTO timer when ack-eliciting data is in flight. Returns 1 if sent,
  * 0 if refused. */
-int quic_connloop_on_send(quic_connloop *c, int level, int ack_eliciting,
-                          u64 pn, usz len);
+int quic_connloop_on_send(
+    quic_connloop *c, int level, int ack_eliciting, u64 pn, usz len);
 
 /* RFC 9000 8.1: mark the peer's address validated (a Handshake packet was
  * received, or path validation completed). Lifts the anti-amplification limit
@@ -67,8 +67,8 @@ void quic_connloop_validate(quic_connloop *c);
  * genuinely-tracked packets from in-flight; an ACK naming an untracked packet
  * removes nothing. Disarms the PTO timer when in-flight becomes empty.
  * Returns the number of packets newly acknowledged. */
-usz quic_connloop_on_ack(quic_connloop *c, u64 ack_largest,
-                         const u64 *ack_ranges, usz n_ranges);
+usz quic_connloop_on_ack(
+    quic_connloop *c, u64 ack_largest, const u64 *ack_ranges, usz n_ranges);
 
 /* RFC 9002 6.2: PTO fired. Sends a fresh probe at `level` (recorded as a new
  * in-flight packet `pn`) WITHOUT abandoning existing in-flight packets. Only

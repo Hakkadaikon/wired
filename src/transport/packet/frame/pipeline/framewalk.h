@@ -10,8 +10,8 @@
  * CONNECTION_CLOSE) can be walked. */
 
 typedef struct {
-    const u8 *cur;
-    usz remaining;
+  const u8 *cur;
+  usz       remaining;
 } quic_framewalk;
 
 void quic_framewalk_init(quic_framewalk *it, const u8 *frames, usz len);
@@ -20,7 +20,7 @@ void quic_framewalk_init(quic_framewalk *it, const u8 *frames, usz len);
  * points *frame_start at the frame, and *remaining to the bytes left from this
  * frame onward (including it). Returns 0 at end of input or on a frame the
  * walker cannot measure. */
-int quic_framewalk_next(quic_framewalk *it, u64 *type,
-                        const u8 **frame_start, usz *remaining);
+int quic_framewalk_next(
+    quic_framewalk *it, u64 *type, const u8 **frame_start, usz *remaining);
 
 #endif

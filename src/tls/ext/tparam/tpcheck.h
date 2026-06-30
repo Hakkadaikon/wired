@@ -17,21 +17,26 @@
  * Each check returns 1 on success, 0 on a TRANSPORT_PARAMETER_ERROR. */
 
 /* Whether two connection IDs are byte-for-byte equal. */
-int quic_tparam_cid_match(const u8 *got, usz got_len, const u8 *expected, usz exp_len);
+int quic_tparam_cid_match(
+    const u8 *got, usz got_len, const u8 *expected, usz exp_len);
 
 /* initial_source_connection_id must equal the peer's observed Source CID. */
-int quic_tparam_check_initial_scid(const u8 *got, usz got_len,
-                                   const u8 *observed, usz observed_len);
+int quic_tparam_check_initial_scid(
+    const u8 *got, usz got_len, const u8 *observed, usz observed_len);
 
 /* original_destination_connection_id must equal the DCID the client sent. */
-int quic_tparam_check_original_dcid(const u8 *got, usz got_len,
-                                    const u8 *sent_dcid, usz sent_len);
+int quic_tparam_check_original_dcid(
+    const u8 *got, usz got_len, const u8 *sent_dcid, usz sent_len);
 
 /* retry_source_connection_id must be present and match the Retry Source CID
  * exactly when a Retry was processed, and absent otherwise. did_retry and
  * has_param are 0/1 flags. */
-int quic_tparam_check_retry_scid(int did_retry, int has_param,
-                                 const u8 *got, usz got_len,
-                                 const u8 *retry_scid, usz retry_len);
+int quic_tparam_check_retry_scid(
+    int       did_retry,
+    int       has_param,
+    const u8 *got,
+    usz       got_len,
+    const u8 *retry_scid,
+    usz       retry_len);
 
 #endif

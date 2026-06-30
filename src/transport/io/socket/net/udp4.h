@@ -12,8 +12,15 @@
  * by the payload, with the pseudo-header checksum filled in. src/dst are the
  * IPv4 addresses (host order) needed for the pseudo-header. Returns the
  * datagram length (8 + payload_len), or 0 if it does not fit. */
-usz quic_udp4_build(u8 *out, usz cap, u16 sport, u16 dport,
-                    u32 src, u32 dst, const u8 *payload, usz payload_len);
+usz quic_udp4_build(
+    u8       *out,
+    usz       cap,
+    u16       sport,
+    u16       dport,
+    u32       src,
+    u32       dst,
+    const u8 *payload,
+    usz       payload_len);
 
 /* Verify a received datagram's checksum given the addresses. */
 int quic_udp4_check(const u8 *dgram, usz len, u32 src, u32 dst);

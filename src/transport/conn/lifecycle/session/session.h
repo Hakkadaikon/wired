@@ -1,10 +1,10 @@
 #ifndef QUIC_SESSION_SESSION_H
 #define QUIC_SESSION_SESSION_H
 
-#include "transport/conn/lifecycle/endpoint/endpoint.h"
-#include "transport/conn/lifecycle/conn/conn.h"
-#include "tls/handshake/core/tls/initial.h"
 #include "crypto/symmetric/aead/aes/aes.h"
+#include "tls/handshake/core/tls/initial.h"
+#include "transport/conn/lifecycle/conn/conn.h"
+#include "transport/conn/lifecycle/endpoint/endpoint.h"
 #include "transport/io/socket/net/memlink.h"
 #include "transport/packet/frame/frame/frame.h"
 
@@ -28,22 +28,26 @@
  */
 
 typedef struct {
-    quic_endpoint ep;          /* key material and ECDHE */
-    quic_conn conn;            /* phase + per-space packet numbers */
-    quic_initial_keys ikeys;   /* Initial-level protection (both sides share) */
-    quic_aes128 ihp;           /* Initial header-protection cipher */
-    quic_aes128 hshp;          /* handshake/1-RTT header-protection cipher */
-    quic_memlink *link;        /* the in-memory transport */
-    u8 dcid[8];
-    u8 peer_pub[32];           /* the peer's X25519 share, once seen */
-    int is_server;
-    int have_peer;             /* peer share recovered */
+  quic_endpoint     ep;    /* key material and ECDHE */
+  quic_conn         conn;  /* phase + per-space packet numbers */
+  quic_initial_keys ikeys; /* Initial-level protection (both sides share) */
+  quic_aes128       ihp;   /* Initial header-protection cipher */
+  quic_aes128       hshp;  /* handshake/1-RTT header-protection cipher */
+  quic_memlink     *link;  /* the in-memory transport */
+  u8                dcid[8];
+  u8                peer_pub[32]; /* the peer's X25519 share, once seen */
+  int               is_server;
+  int               have_peer; /* peer share recovered */
 } quic_session;
 
 /* Initialize a session over `link` with our private scalar and the shared
  * DCID (both ends use the same DCID to derive matching Initial keys). */
-void quic_session_init(quic_session *s, const u8 priv[32], const u8 dcid[8],
-                       quic_memlink *link, int is_server);
+void quic_session_init(
+    quic_session *s,
+    const u8      priv[32],
+    const u8      dcid[8],
+    quic_memlink *link,
+    int           is_server);
 
 /* Client: build and send an Initial carrying a ClientHello (our X25519 share)
  * onto the link. Returns 1 on success. */
@@ -57,13 +61,16 @@ int quic_session_accept(quic_session *s);
  * keys from the ECDHE shared secret over `transcript`. The client learns the
  * server's share from `peer` (in this in-memory setup the server's public key
  * is known directly). Returns 1 on success. */
-int quic_session_finish(quic_session *client, quic_session *server,
-                        const u8 *transcript, usz transcript_len);
+int quic_session_finish(
+    quic_session *client,
+    quic_session *server,
+    const u8     *transcript,
+    usz           transcript_len);
 
 /* Send a 1-RTT STREAM frame (protected with the agreed keys) onto the link.
  * Returns 1 on success, 0 before the handshake keys are ready. */
-int quic_session_send_stream(quic_session *s, u64 stream_id,
-                             const u8 *data, usz len, int fin);
+int quic_session_send_stream(
+    quic_session *s, u64 stream_id, const u8 *data, usz len, int fin);
 
 /* Receive and decrypt a 1-RTT STREAM frame from the link into *out (its data
  * pointer references an internal buffer valid until the next recv). Returns 1

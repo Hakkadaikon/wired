@@ -1,4 +1,5 @@
 #include "transport/packet/build/hspkt/hspkt_build.h"
+
 #include "transport/packet/frame/pipeline/txpacket.h"
 #include "transport/packet/header/packet/header.h"
 
@@ -8,17 +9,24 @@
 
 /* RFC 9000 17.2.4: emit a complete Handshake long header carrying the SCID and
  * no Token field. */
-int quic_hspkt_build(const quic_initial_keys *hs_keys, const quic_aes128 *hp,
-                     const u8 *dcid, u8 dcid_len,
-                     const u8 *scid, u8 scid_len, u64 pn,
-                     const u8 *payload, usz payload_len,
-                     u8 *out, usz cap, usz *out_len)
-{
-    usz total;
-    total = quic_tx_packet(hs_keys, hp, QUIC_HSPKT_BYTE0, dcid, dcid_len, scid,
-                           scid_len, 0, (const u8 *)0, 0, pn, payload,
-                           payload_len, out, cap);
-    if (total == 0) return 0;
-    *out_len = total;
-    return 1;
+int quic_hspkt_build(
+    const quic_initial_keys *hs_keys,
+    const quic_aes128       *hp,
+    const u8                *dcid,
+    u8                       dcid_len,
+    const u8                *scid,
+    u8                       scid_len,
+    u64                      pn,
+    const u8                *payload,
+    usz                      payload_len,
+    u8                      *out,
+    usz                      cap,
+    usz                     *out_len) {
+  usz total;
+  total = quic_tx_packet(
+      hs_keys, hp, QUIC_HSPKT_BYTE0, dcid, dcid_len, scid, scid_len, 0,
+      (const u8 *)0, 0, pn, payload, payload_len, out, cap);
+  if (total == 0) return 0;
+  *out_len = total;
+  return 1;
 }

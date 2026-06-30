@@ -6,13 +6,13 @@
 /* FIPS 180-4 SHA-512. Produces a 64-byte digest. */
 
 #define QUIC_SHA512_DIGEST 64
-#define QUIC_SHA512_BLOCK  128
+#define QUIC_SHA512_BLOCK 128
 
 typedef struct {
-    u64 h[8];          /* running hash state */
-    u64 total;         /* total bytes absorbed (low 64 bits suffice here) */
-    u8 buf[QUIC_SHA512_BLOCK];
-    usz buf_len;       /* bytes pending in buf */
+  u64 h[8];  /* running hash state */
+  u64 total; /* total bytes absorbed (low 64 bits suffice here) */
+  u8  buf[QUIC_SHA512_BLOCK];
+  usz buf_len; /* bytes pending in buf */
 } quic_sha512_ctx;
 
 void quic_sha512_init(quic_sha512_ctx *s);

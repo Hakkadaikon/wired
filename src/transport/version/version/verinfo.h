@@ -10,9 +10,9 @@
 #define QUIC_VI_MAX_AVAILABLE 16
 
 typedef struct {
-    u32 chosen;
-    usz count;
-    u32 available[QUIC_VI_MAX_AVAILABLE]; /* preference order */
+  u32 chosen;
+  usz count;
+  u32 available[QUIC_VI_MAX_AVAILABLE]; /* preference order */
 } quic_version_information;
 
 /* Encode chosen + available into buf of cap bytes. Returns bytes written, or

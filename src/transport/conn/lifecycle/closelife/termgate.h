@@ -7,9 +7,9 @@
  * Open phases may send application data; closing may send ONLY a
  * CONNECTION_CLOSE; draining and closed send nothing at all. */
 typedef enum {
-    QUIC_SEND_NONE = 0,   /* nothing may be sent */
-    QUIC_SEND_CC,         /* only a CONNECTION_CLOSE may be sent */
-    QUIC_SEND_APPDATA     /* application data (and anything else) may be sent */
+  QUIC_SEND_NONE = 0, /* nothing may be sent */
+  QUIC_SEND_CC,       /* only a CONNECTION_CLOSE may be sent */
+  QUIC_SEND_APPDATA   /* application data (and anything else) may be sent */
 } quic_send_kind;
 
 /* The most that may be sent in the connection's current phase. */

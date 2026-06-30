@@ -14,8 +14,10 @@ int quic_verinfo_chosen_ok(u32 chosen, u32 actual_packet_version);
 /* Pick the most-preferred version both sides support and that is compatible
  * with the peer's Chosen Version, ignoring reserved (GREASE) entries. Returns
  * 1 with *out set, or 0 if none. we_support is in our preference order. */
-int quic_verinfo_pick_compatible(const quic_version_information *vi,
-                                 const u32 *we_support, usz n_support,
-                                 u32 *out);
+int quic_verinfo_pick_compatible(
+    const quic_version_information *vi,
+    const u32                      *we_support,
+    usz                             n_support,
+    u32                            *out);
 
 #endif

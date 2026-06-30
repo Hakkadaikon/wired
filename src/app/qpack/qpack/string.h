@@ -15,7 +15,7 @@ usz quic_qpack_string_encode(u8 *buf, usz cap, const u8 *src, usz len);
 /* Decode a string literal at buf (n bytes) into dst (dcap octets), setting
  * *out_len. H=1 values are Huffman-decoded. Returns bytes consumed, or 0 on
  * truncation, a Huffman decode error, or dst overflow. */
-usz quic_qpack_string_decode(const u8 *buf, usz n, u8 *dst, usz dcap,
-                             usz *out_len);
+usz quic_qpack_string_decode(
+    const u8 *buf, usz n, u8 *dst, usz dcap, usz *out_len);
 
 #endif

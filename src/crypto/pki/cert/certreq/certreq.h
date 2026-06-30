@@ -12,15 +12,21 @@
 /* Build a CertificateRequest with an empty context and a single
  * signature_algorithms extension whose scheme list is sig_algs (sa_len bytes,
  * a sequence of 2-byte SignatureSchemes). Writes into out (cap total) and sets
- * *out_len to the message length. Returns 1 on success, 0 if it does not fit. */
-int quic_certreq_build(const u8 *sig_algs, usz sa_len, u8 *out, usz cap,
-                       usz *out_len);
+ * *out_len to the message length. Returns 1 on success, 0 if it does not fit.
+ */
+int quic_certreq_build(
+    const u8 *sig_algs, usz sa_len, u8 *out, usz cap, usz *out_len);
 
 /* Parse a CertificateRequest message msg (len bytes, including the handshake
  * header). On success sets ctx/ctx_len to the certificate_request_context and
  * sa/sa_len to the signature_algorithms scheme list, returning 1. Returns 0
  * if truncated, not a CertificateRequest, or signature_algorithms is absent. */
-int quic_certreq_parse(const u8 *msg, usz len, const u8 **ctx, u8 *ctx_len,
-                       const u8 **sa, usz *sa_len);
+int quic_certreq_parse(
+    const u8  *msg,
+    usz        len,
+    const u8 **ctx,
+    u8        *ctx_len,
+    const u8 **sa,
+    usz       *sa_len);
 
 #endif

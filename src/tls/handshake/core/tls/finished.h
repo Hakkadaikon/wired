@@ -12,14 +12,16 @@
 
 /* Compute the Finished verify_data from a base traffic secret and the
  * transcript hash. */
-void quic_tls_finished_verify_data(const u8 base_key[QUIC_HKDF_PRK],
-                                   const u8 transcript_hash[QUIC_SHA256_DIGEST],
-                                   u8 out[QUIC_TLS_VERIFY_DATA]);
+void quic_tls_finished_verify_data(
+    const u8 base_key[QUIC_HKDF_PRK],
+    const u8 transcript_hash[QUIC_SHA256_DIGEST],
+    u8       out[QUIC_TLS_VERIFY_DATA]);
 
 /* Verify a received Finished against the recomputed verify_data in constant
  * time. Returns 1 on a match. */
-int quic_tls_finished_check(const u8 base_key[QUIC_HKDF_PRK],
-                            const u8 transcript_hash[QUIC_SHA256_DIGEST],
-                            const u8 received[QUIC_TLS_VERIFY_DATA]);
+int quic_tls_finished_check(
+    const u8 base_key[QUIC_HKDF_PRK],
+    const u8 transcript_hash[QUIC_SHA256_DIGEST],
+    const u8 received[QUIC_TLS_VERIFY_DATA]);
 
 #endif

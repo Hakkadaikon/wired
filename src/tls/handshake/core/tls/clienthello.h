@@ -11,8 +11,14 @@
  * 32-byte x25519 public key pub, an optional SNI host (sni_len 0 to omit), and
  * the QUIC transport parameters tp (tp_len bytes). Returns the handshake
  * message length, or 0 if it does not fit. ALPN offers "h3". */
-usz quic_tls_client_hello(u8 *buf, usz cap, const u8 random[32],
-                          const u8 pub[32], const u8 *sni, usz sni_len,
-                          const u8 *tp, usz tp_len);
+usz quic_tls_client_hello(
+    u8       *buf,
+    usz       cap,
+    const u8  random[32],
+    const u8  pub[32],
+    const u8 *sni,
+    usz       sni_len,
+    const u8 *tp,
+    usz       tp_len);
 
 #endif

@@ -10,7 +10,12 @@
 
 /* PTO = srtt + max(4*rttvar, granularity) [+ max_ack_delay if confirmed],
  * scaled by 2^pto_count (clamped). */
-u64 quic_hspto_duration(u64 srtt, u64 rttvar, u32 pto_count, u64 granularity,
-                        int handshake_confirmed, u64 max_ack_delay);
+u64 quic_hspto_duration(
+    u64 srtt,
+    u64 rttvar,
+    u32 pto_count,
+    u64 granularity,
+    int handshake_confirmed,
+    u64 max_ack_delay);
 
 #endif

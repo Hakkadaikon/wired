@@ -10,9 +10,9 @@
  * FINAL_SIZE_ERROR. */
 
 typedef struct {
-    u64 highest;     /* highest offset+len seen so far */
-    u64 final_size;  /* valid once known */
-    int known;
+  u64 highest;    /* highest offset+len seen so far */
+  u64 final_size; /* valid once known */
+  int known;
 } quic_finalsize;
 
 void quic_finalsize_init(quic_finalsize *f);

@@ -2,9 +2,9 @@
 #define QUIC_CLIENT_CLIENT_H
 
 #include "common/platform/sys/syscall.h"
-#include "transport/io/socket/io/udp.h"
-#include "tls/handshake/core/tlsdriver/tlsdriver.h"
 #include "tls/handshake/core/fullhs/fullhs.h"
+#include "tls/handshake/core/tlsdriver/tlsdriver.h"
+#include "transport/io/socket/io/udp.h"
 
 /* RFC 9000 5/7: top-level QUIC client. Opens a real UDP socket, connects to a
  * server, and drives the TLS 1.3 handshake to confirmation by orchestrating the
@@ -22,29 +22,33 @@
 #define QUIC_CLIENT_DATAGRAM_MAX 1500
 
 enum {
-    QUIC_CLIENT_HS_INITIAL = 0,  /* exchanging ClientHello/ServerHello */
-    QUIC_CLIENT_HS_AUTH,         /* handshake secret ready, fullhs driving */
-    QUIC_CLIENT_HS_CONFIRMED
+  QUIC_CLIENT_HS_INITIAL = 0, /* exchanging ClientHello/ServerHello */
+  QUIC_CLIENT_HS_AUTH,        /* handshake secret ready, fullhs driving */
+  QUIC_CLIENT_HS_CONFIRMED
 };
 
 typedef struct {
-    i64 fd;                      /* UDP socket; <0 until init succeeds */
-    quic_sockaddr_in peer;
-    quic_tlsdriver tls;
-    quic_fullhs hs;
-    int phase;                   /* QUIC_CLIENT_HS_* */
-    u8 sh_transcript[512];       /* ClientHello..ServerHello bytes for fullhs */
-    usz sh_len;
-    u8 my_priv[QUIC_ECDHE_LEN];
-    u8 my_pub[QUIC_ECDHE_LEN];
+  i64              fd; /* UDP socket; <0 until init succeeds */
+  quic_sockaddr_in peer;
+  quic_tlsdriver   tls;
+  quic_fullhs      hs;
+  int              phase; /* QUIC_CLIENT_HS_* */
+  u8  sh_transcript[512]; /* ClientHello..ServerHello bytes for fullhs */
+  usz sh_len;
+  u8  my_priv[QUIC_ECDHE_LEN];
+  u8  my_pub[QUIC_ECDHE_LEN];
 } quic_client;
 
 /* Open a UDP socket, connect to server_ip:port, generate our X25519 key pair
  * and initialize the handshake drivers. server_name/sni_len name the host (SNI,
  * carried by tlsdriver's ClientHello). Returns 1 on success, 0 on RNG/socket
  * failure. */
-int quic_client_init(quic_client *c, const u8 *server_ip, u16 port,
-                     const u8 *server_name, usz sni_len);
+int quic_client_init(
+    quic_client *c,
+    const u8    *server_ip,
+    u16          port,
+    const u8    *server_name,
+    usz          sni_len);
 
 /* RFC 9000 7: emit our real ClientHello, frame it, build the Initial datagram
  * (padded to 1200 per RFC 9000 14.1) and send it. Returns 1 on success. */

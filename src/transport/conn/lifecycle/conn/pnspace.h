@@ -7,14 +7,14 @@
  * next packet number and is incremented separately; numbers never cross
  * spaces. */
 typedef enum {
-    QUIC_PNS_INITIAL = 0,
-    QUIC_PNS_HANDSHAKE,
-    QUIC_PNS_APP,
-    QUIC_PNS_COUNT
+  QUIC_PNS_INITIAL = 0,
+  QUIC_PNS_HANDSHAKE,
+  QUIC_PNS_APP,
+  QUIC_PNS_COUNT
 } quic_pns_space;
 
 typedef struct {
-    u64 next[QUIC_PNS_COUNT];
+  u64 next[QUIC_PNS_COUNT];
 } quic_pnspace;
 
 /* Initialize all spaces to packet number 0. */

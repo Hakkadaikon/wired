@@ -9,8 +9,12 @@
  * follows, *body is 0 and *body_len is 0.
  * Returns 1 on success, 0 if the stream does not begin with a well-formed
  * HEADERS frame or a following frame is malformed. */
-int quic_h3req_resp_parse(const u8 *stream, usz len,
-                          const u8 **headers, usz *h_len,
-                          const u8 **body, usz *body_len);
+int quic_h3req_resp_parse(
+    const u8  *stream,
+    usz        len,
+    const u8 **headers,
+    usz       *h_len,
+    const u8 **body,
+    usz       *body_len);
 
 #endif

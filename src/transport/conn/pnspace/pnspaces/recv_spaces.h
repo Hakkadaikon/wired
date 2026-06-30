@@ -13,7 +13,7 @@
 #define QUIC_PNSPACES_ACK_CAP (QUIC_RECVPN_WINDOW + 1)
 
 typedef struct {
-    quic_recvpn r[QUIC_PNS_COUNT];
+  quic_recvpn r[QUIC_PNS_COUNT];
 } quic_pnspaces_recv;
 
 void quic_pnspaces_recv_init(quic_pnspaces_recv *s);
@@ -24,7 +24,12 @@ void quic_pnspaces_on_recv(quic_pnspaces_recv *s, int space, u64 pn);
 /* Build the ACK ranges for `space` from its received PNs (layout per
  * quic_ackgen_build_ranges / RFC 9000 19.3). Returns 1 on success, 0 if the
  * space has received nothing or cap is too small. */
-int quic_pnspaces_ack_ranges(const quic_pnspaces_recv *s, int space,
-                             u64 *largest, u64 *ranges, usz *n_ranges, usz cap);
+int quic_pnspaces_ack_ranges(
+    const quic_pnspaces_recv *s,
+    int                       space,
+    u64                      *largest,
+    u64                      *ranges,
+    usz                      *n_ranges,
+    usz                       cap);
 
 #endif

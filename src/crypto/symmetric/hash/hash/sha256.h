@@ -6,13 +6,13 @@
 /* FIPS 180-4 SHA-256. Produces a 32-byte digest. */
 
 #define QUIC_SHA256_DIGEST 32
-#define QUIC_SHA256_BLOCK  64
+#define QUIC_SHA256_BLOCK 64
 
 typedef struct {
-    u32 h[8];          /* running hash state */
-    u64 total;         /* total bytes absorbed */
-    u8 buf[QUIC_SHA256_BLOCK];
-    usz buf_len;       /* bytes pending in buf */
+  u32 h[8];  /* running hash state */
+  u64 total; /* total bytes absorbed */
+  u8  buf[QUIC_SHA256_BLOCK];
+  usz buf_len; /* bytes pending in buf */
 } quic_sha256_ctx;
 
 void quic_sha256_init(quic_sha256_ctx *s);

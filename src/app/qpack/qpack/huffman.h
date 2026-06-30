@@ -10,7 +10,7 @@
  * Returns 1 on success, 0 on: dst overflow, an EOS symbol in the stream,
  * a padding of 8 or more bits, or a final padding that is not all-ones
  * (RFC 7541 5.2). */
-int quic_qpack_huffman_decode(const u8 *src, usz src_len, u8 *dst, usz dcap,
-                              usz *out_len);
+int quic_qpack_huffman_decode(
+    const u8 *src, usz src_len, u8 *dst, usz dcap, usz *out_len);
 
 #endif

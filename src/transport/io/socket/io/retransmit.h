@@ -11,15 +11,15 @@
 #define QUIC_RTX_FRAME 1200
 
 typedef struct {
-    u8 data[QUIC_RTX_FRAME];
-    usz len;
+  u8  data[QUIC_RTX_FRAME];
+  usz len;
 } quic_rtx_frame;
 
 typedef struct {
-    quic_rtx_frame slots[QUIC_RTX_SLOTS];
-    usz head; /* next slot to pop */
-    usz tail; /* next slot to push */
-    usz count;
+  quic_rtx_frame slots[QUIC_RTX_SLOTS];
+  usz            head; /* next slot to pop */
+  usz            tail; /* next slot to push */
+  usz            count;
 } quic_rtx_queue;
 
 void quic_rtx_init(quic_rtx_queue *q);

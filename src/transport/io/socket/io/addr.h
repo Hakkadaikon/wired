@@ -5,7 +5,8 @@
 
 /* IPv4 address and port helpers. Addresses are big-endian (network order). */
 
-/* Pack octets a.b.c.d into a big-endian u32 (a is the most significant byte). */
+/* Pack octets a.b.c.d into a big-endian u32 (a is the most significant byte).
+ */
 u32 quic_addr_from_octets(u8 a, u8 b, u8 c, u8 d);
 
 /* Unpack a big-endian u32 into out[0..3] = a,b,c,d. */

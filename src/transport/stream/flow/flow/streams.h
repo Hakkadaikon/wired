@@ -9,8 +9,8 @@
  * STREAM_LIMIT_ERROR. The limit counts streams, not a byte offset. */
 
 typedef struct {
-    u64 limit;   /* maximum number of streams the peer may open */
-    u64 opened;  /* how many have been opened so far */
+  u64 limit;  /* maximum number of streams the peer may open */
+  u64 opened; /* how many have been opened so far */
 } quic_streams;
 
 void quic_streams_init(quic_streams *s, u64 limit);

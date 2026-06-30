@@ -24,11 +24,12 @@ int quic_connrunner_recv_keygen(quic_connrunner *r, u8 byte0);
  * self update unacknowledged), derive the next generation, rotate keys, install
  * them as the 1-RTT keyset, then toggle the advertised phase bit -- derive and
  * rotate strictly before the toggle. Returns 1 if an update was initiated. */
-int quic_connrunner_maybe_initiate_ku(quic_connrunner *r, u64 now,
-                                      u64 threshold, u64 pto);
+int quic_connrunner_maybe_initiate_ku(
+    quic_connrunner *r, u64 now, u64 threshold, u64 pto);
 
 /* RFC 9001 6.5 timer path: discard the retained old read key once 3*PTO have
- * elapsed since the update completed. Returns 1 if the old key was discarded. */
+ * elapsed since the update completed. Returns 1 if the old key was discarded.
+ */
 int quic_connrunner_maybe_discard_ku(quic_connrunner *r, u64 now, u64 pto);
 
 /* RFC 9001 6.2: record the update completion time on acknowledgement of a

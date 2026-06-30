@@ -12,8 +12,14 @@
  *             so the protected region runs [pn_off, pn_off+length).
  * On success returns 1 with payload pointing at the decrypted frames inside
  * pkt and payload_len their length; on authentication failure returns 0. */
-int quic_vpn_open(const quic_initial_keys *keys, const quic_aes128 *hp, u8 *pkt,
-                  usz len, usz pn_off, u64 length, const u8 **payload,
-                  usz *payload_len);
+int quic_vpn_open(
+    const quic_initial_keys *keys,
+    const quic_aes128       *hp,
+    u8                      *pkt,
+    usz                      len,
+    usz                      pn_off,
+    u64                      length,
+    const u8               **payload,
+    usz                     *payload_len);
 
 #endif

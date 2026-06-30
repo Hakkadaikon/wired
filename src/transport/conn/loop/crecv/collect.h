@@ -11,9 +11,9 @@
 #define QUIC_CRECV_BUF 2048
 
 typedef struct {
-    u8 buf[QUIC_CRECV_BUF];
-    u8 filled[QUIC_CRECV_BUF]; /* 1 where a byte has been written */
-    usz received_to;           /* contiguous bytes available from offset 0 */
+  u8  buf[QUIC_CRECV_BUF];
+  u8  filled[QUIC_CRECV_BUF]; /* 1 where a byte has been written */
+  usz received_to;            /* contiguous bytes available from offset 0 */
 } quic_crecv;
 
 void quic_crecv_init(quic_crecv *s);

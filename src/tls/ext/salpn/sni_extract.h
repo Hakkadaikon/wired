@@ -10,7 +10,7 @@
 /* On success sets *hostname (a view into sni_ext_data) and *host_len, and
  * returns 1; 0 if truncated, the name_type is not host_name, or a length
  * field overruns len. */
-int quic_salpn_extract_sni(const u8 *sni_ext_data, usz len,
-                           const u8 **hostname, usz *host_len);
+int quic_salpn_extract_sni(
+    const u8 *sni_ext_data, usz len, const u8 **hostname, usz *host_len);
 
 #endif

@@ -6,9 +6,9 @@
 /* X.690 8.9. Cursor over the elements inside a SEQUENCE value. */
 
 typedef struct {
-    const u8 *p;
-    usz off;
-    usz len;
+  const u8 *p;
+  usz       off;
+  usz       len;
 } quic_derseq;
 
 /* Init over a SEQUENCE value (the bytes after its tag+length). */

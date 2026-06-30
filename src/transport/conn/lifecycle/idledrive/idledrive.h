@@ -8,8 +8,8 @@
  * elapsed since that activity. */
 
 typedef struct {
-    u64 idle_timeout;   /* effective idle timeout; 0 disables */
-    u64 last_activity;  /* time of last send/recv */
+  u64 idle_timeout;  /* effective idle timeout; 0 disables */
+  u64 last_activity; /* time of last send/recv */
 } quic_idledrive;
 
 void quic_idledrive_init(quic_idledrive *s, u64 idle_timeout);

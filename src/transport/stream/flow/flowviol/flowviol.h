@@ -11,7 +11,11 @@
 /* Returns 1 and writes the error code to *error_code on a violation, 0 if
  * within limits (*error_code left unchanged). Connection-level data is checked
  * before the stream count, so a data overrun reports FLOW_CONTROL_ERROR. */
-int quic_flowviol_check(u64 received_total, u64 max_data,
-                        u64 stream_count, u64 max_streams, u64 *error_code);
+int quic_flowviol_check(
+    u64  received_total,
+    u64  max_data,
+    u64  stream_count,
+    u64  max_streams,
+    u64 *error_code);
 
 #endif

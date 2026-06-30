@@ -11,13 +11,13 @@
  * unknown pseudo-header, or omits a required one is malformed. */
 
 typedef enum {
-    QUIC_H3_PH_NONE = 0,    /* a regular (non-pseudo) field */
-    QUIC_H3_PH_METHOD,
-    QUIC_H3_PH_SCHEME,
-    QUIC_H3_PH_AUTHORITY,
-    QUIC_H3_PH_PATH,
-    QUIC_H3_PH_STATUS,
-    QUIC_H3_PH_UNKNOWN      /* a name beginning with ':' that is not known */
+  QUIC_H3_PH_NONE = 0, /* a regular (non-pseudo) field */
+  QUIC_H3_PH_METHOD,
+  QUIC_H3_PH_SCHEME,
+  QUIC_H3_PH_AUTHORITY,
+  QUIC_H3_PH_PATH,
+  QUIC_H3_PH_STATUS,
+  QUIC_H3_PH_UNKNOWN /* a name beginning with ':' that is not known */
 } quic_h3_ph_kind;
 
 /* Classify a field name of len bytes. Returns the pseudo-header kind, or
@@ -27,9 +27,9 @@ quic_h3_ph_kind quic_h3_ph_classify(const u8 *name, usz len);
 
 /* Accumulates the pseudo-headers of one field section, in receipt order. */
 typedef struct {
-    u8 seen;            /* bitmask of QUIC_H3_PH_* kinds that appeared */
-    u8 saw_regular;     /* a regular field has been seen */
-    u8 ok;             /* 0 once any ordering/duplicate/unknown rule is broken */
+  u8 seen;        /* bitmask of QUIC_H3_PH_* kinds that appeared */
+  u8 saw_regular; /* a regular field has been seen */
+  u8 ok;          /* 0 once any ordering/duplicate/unknown rule is broken */
 } quic_h3_ph_set;
 
 void quic_h3_ph_init(quic_h3_ph_set *p);

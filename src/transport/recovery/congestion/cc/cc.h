@@ -6,14 +6,14 @@
 /* RFC 9002 7: NewReno-style congestion control. Sizes in bytes. */
 
 #define QUIC_MAX_DATAGRAM ((u64)1200)
-#define QUIC_CC_MIN_WINDOW (2 * QUIC_MAX_DATAGRAM)            /* kMinimumWindow */
-#define QUIC_CC_INIT_WINDOW (10 * QUIC_MAX_DATAGRAM)          /* kInitialWindow */
+#define QUIC_CC_MIN_WINDOW (2 * QUIC_MAX_DATAGRAM)   /* kMinimumWindow */
+#define QUIC_CC_INIT_WINDOW (10 * QUIC_MAX_DATAGRAM) /* kInitialWindow */
 
 typedef struct {
-    u64 cwnd;
-    u64 ssthresh;
-    int in_recovery;
-    u64 recovery_start; /* time the current recovery period began */
+  u64 cwnd;
+  u64 ssthresh;
+  int in_recovery;
+  u64 recovery_start; /* time the current recovery period began */
 } quic_cc;
 
 void quic_cc_init(quic_cc *c);

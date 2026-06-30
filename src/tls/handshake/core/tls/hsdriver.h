@@ -25,12 +25,12 @@
 #define QUIC_HSD_PROT_1RTT 2
 
 typedef struct {
-    int is_server;
-    u8 recv_count;   /* messages accepted so far, indexes the flight order */
-    int cert_verified;
-    u8 level;        /* highest protection level promoted to */
-    int complete;
-    int confirmed;
+  int is_server;
+  u8  recv_count; /* messages accepted so far, indexes the flight order */
+  int cert_verified;
+  u8  level; /* highest protection level promoted to */
+  int complete;
+  int confirmed;
 } quic_hsdriver;
 
 /* Initialize the driver as client (is_server 0) or server (is_server 1). */

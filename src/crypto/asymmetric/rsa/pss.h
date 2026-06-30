@@ -7,7 +7,7 @@
  * encoded message of em_len octets; em_bits is the modulus bit length minus 1;
  * mhash is the 32-byte SHA-256 digest of the message. Returns 1 on consistent,
  * else 0. */
-int quic_emsa_pss_verify(const u8 *em, usz em_len, usz em_bits,
-                         const u8 *mhash, usz hash_len);
+int quic_emsa_pss_verify(
+    const u8 *em, usz em_len, usz em_bits, const u8 *mhash, usz hash_len);
 
 #endif

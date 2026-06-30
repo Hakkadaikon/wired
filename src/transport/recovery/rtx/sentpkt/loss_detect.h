@@ -9,7 +9,12 @@
 /* Mark in-flight packets as lost when they are kPacketThreshold or more
  * below largest_acked, or older than now - loss_delay. Lost pns are
  * appended to lost_pns and *n_lost is set to the count. */
-void quic_loss_detect(quic_sentpkt *t, u64 largest_acked, u64 now,
-                      u64 loss_delay, u64 *lost_pns, usz *n_lost);
+void quic_loss_detect(
+    quic_sentpkt *t,
+    u64           largest_acked,
+    u64           now,
+    u64           loss_delay,
+    u64          *lost_pns,
+    usz          *n_lost);
 
 #endif

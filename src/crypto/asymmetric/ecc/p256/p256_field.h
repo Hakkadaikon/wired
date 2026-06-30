@@ -18,7 +18,8 @@ extern const p256_fe quic_p256_n;
 void quic_fp_set(p256_fe r, const p256_fe a);
 int  quic_fp_eq(const p256_fe a, const p256_fe b);
 int  quic_fp_is_zero(const p256_fe a);
-int  quic_fp_lt(const p256_fe a, const p256_fe b);   /* 1 if a < b as 256-bit integers */
+int  quic_fp_lt(
+     const p256_fe a, const p256_fe b); /* 1 if a < b as 256-bit integers */
 
 /* r = a mod m, for any a < 2^256. */
 void quic_fp_reduce(p256_fe r, const p256_fe a, const p256_fe m);

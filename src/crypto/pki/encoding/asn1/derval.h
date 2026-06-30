@@ -7,8 +7,8 @@
 
 /* Compare an OID value blob (post tag+length) against expected bytes.
  * Returns 1 if equal, 0 otherwise. */
-int quic_der_oid_equal(const u8 *oid, usz oid_len,
-                       const u8 *expected, usz exp_len);
+int quic_der_oid_equal(
+    const u8 *oid, usz oid_len, const u8 *expected, usz exp_len);
 
 /* Decode a DER INTEGER value blob into *out. Strips a single leading 0x00
  * pad. Returns 1 ok; 0 if negative, empty, or wider than 8 octets. */

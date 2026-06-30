@@ -1,14 +1,14 @@
 #ifndef QUIC_H3_CONNECT_H
 #define QUIC_H3_CONNECT_H
 
-#include "common/platform/sys/syscall.h"
 #include "app/http3/request/h3reqdrive/request_drive.h"
+#include "common/platform/sys/syscall.h"
 
 /* RFC 9114 4.4. A CONNECT request omits the :scheme and :path pseudo-header
  * fields and MUST include the :authority pseudo-header; :method is "CONNECT".
  * Returns 1 if the four presence flags satisfy this, 0 otherwise. */
-int quic_h3_connect_ok(int has_method_connect, int has_authority,
-                       int has_scheme, int has_path);
+int quic_h3_connect_ok(
+    int has_method_connect, int has_authority, int has_scheme, int has_path);
 
 /* RFC 9114 4.4. Validate a decoded request as a well-formed CONNECT: :method is
  * exactly "CONNECT", :authority present, :scheme and :path absent. Derives the
@@ -25,12 +25,12 @@ int quic_h3_connect_established(u16 status);
  * ESTABLISHED, a >=3xx response to FAILED; relay is permitted only from
  * ESTABLISHED; a close is terminal and never returns to RELAY. */
 typedef enum {
-    QUIC_H3_TUNNEL_REQ = 0,
-    QUIC_H3_TUNNEL_VALIDATED,
-    QUIC_H3_TUNNEL_ESTABLISHED,
-    QUIC_H3_TUNNEL_FAILED,
-    QUIC_H3_TUNNEL_RELAY,
-    QUIC_H3_TUNNEL_CLOSED
+  QUIC_H3_TUNNEL_REQ = 0,
+  QUIC_H3_TUNNEL_VALIDATED,
+  QUIC_H3_TUNNEL_ESTABLISHED,
+  QUIC_H3_TUNNEL_FAILED,
+  QUIC_H3_TUNNEL_RELAY,
+  QUIC_H3_TUNNEL_CLOSED
 } quic_h3_tunnel;
 
 void quic_h3_tunnel_init(quic_h3_tunnel *st);
@@ -38,8 +38,9 @@ void quic_h3_tunnel_validated(quic_h3_tunnel *st);
 /* Apply a response status. Returns 1 if it established the tunnel (2xx, once),
  * 0 otherwise (already established, failed, or wrong state). */
 int quic_h3_tunnel_response(quic_h3_tunnel *st, u16 status);
-/* Enter relay. Returns 1 if relay began (only from ESTABLISHED), 0 otherwise. */
-int quic_h3_tunnel_relay(quic_h3_tunnel *st);
+/* Enter relay. Returns 1 if relay began (only from ESTABLISHED), 0 otherwise.
+ */
+int  quic_h3_tunnel_relay(quic_h3_tunnel *st);
 void quic_h3_tunnel_close(quic_h3_tunnel *st);
 
 #endif

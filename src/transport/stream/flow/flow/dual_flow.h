@@ -8,7 +8,7 @@
 
 /* Whether stream_used and conn_used are each within their limits. Returns 1
  * only when stream_used <= stream_max and conn_used <= conn_max. */
-int quic_dual_flow_ok(u64 stream_used, u64 stream_max,
-                      u64 conn_used, u64 conn_max);
+int quic_dual_flow_ok(
+    u64 stream_used, u64 stream_max, u64 conn_used, u64 conn_max);
 
 #endif

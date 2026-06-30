@@ -7,15 +7,15 @@
  * stateless reset token. */
 
 #define QUIC_FRAME_NEW_CID 0x18
-#define QUIC_NCID_TOKEN    16
-#define QUIC_NCID_MAX_LEN  20
+#define QUIC_NCID_TOKEN 16
+#define QUIC_NCID_MAX_LEN 20
 
 typedef struct {
-    u64 seq;            /* sequence number */
-    u64 retire_prior_to;
-    u8  cid_len;
-    u8  cid[QUIC_NCID_MAX_LEN];
-    u8  token[QUIC_NCID_TOKEN]; /* stateless reset token */
+  u64 seq; /* sequence number */
+  u64 retire_prior_to;
+  u8  cid_len;
+  u8  cid[QUIC_NCID_MAX_LEN];
+  u8  token[QUIC_NCID_TOKEN]; /* stateless reset token */
 } quic_ncid_frame;
 
 /* Encode into buf of cap bytes. Returns bytes written, or 0 on overflow /

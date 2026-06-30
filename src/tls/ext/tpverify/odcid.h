@@ -7,7 +7,7 @@
  * server's transport parameters equals the Destination CID it placed in its
  * first Initial. Constant-time compare. 1 if matched, 0 on
  * TRANSPORT_PARAMETER_ERROR. */
-int quic_tpverify_odcid(const u8 *sent_dcid, u8 sent_len,
-                        const u8 *tp_odcid, u8 tp_len);
+int quic_tpverify_odcid(
+    const u8 *sent_dcid, u8 sent_len, const u8 *tp_odcid, u8 tp_len);
 
 #endif

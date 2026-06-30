@@ -15,17 +15,32 @@
  * Encrypts the payload (AEAD over the header as AAD), appends the 16-byte tag,
  * then applies header protection. Writes the total protected length to *out_len
  * and returns 1, or 0 on an unknown suite. */
-int quic_protectcs_seal(u16 suite, const u8 *key, const u8 *iv,
-                        const u8 *hp_key, u64 pn, u8 *pkt, usz pn_off,
-                        u8 pn_len, usz payload_len, usz *out_len);
+int quic_protectcs_seal(
+    u16       suite,
+    const u8 *key,
+    const u8 *iv,
+    const u8 *hp_key,
+    u64       pn,
+    u8       *pkt,
+    usz       pn_off,
+    u8        pn_len,
+    usz       payload_len,
+    usz      *out_len);
 
 /* Open in place: pkt holds a protected packet of len bytes with the packet
  * number at pn_off. Removes header protection (recovering pn_len from byte0),
  * verifies and decrypts the payload, points *payload at the plaintext and
  * writes its length to *payload_len. Returns 1 on success, 0 on an unknown
  * suite or authentication failure. */
-int quic_protectcs_open(u16 suite, const u8 *key, const u8 *iv,
-                        const u8 *hp_key, u8 *pkt, usz len, usz pn_off,
-                        const u8 **payload, usz *payload_len);
+int quic_protectcs_open(
+    u16        suite,
+    const u8  *key,
+    const u8  *iv,
+    const u8  *hp_key,
+    u8        *pkt,
+    usz        len,
+    usz        pn_off,
+    const u8 **payload,
+    usz       *payload_len);
 
 #endif

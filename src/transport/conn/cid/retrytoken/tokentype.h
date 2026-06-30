@@ -8,7 +8,7 @@
  * future-use token). A server processes the two differently, so it must tell
  * them apart. We prefix the token body with one type-tag byte. */
 
-#define QUIC_TOKEN_TAG_RETRY    0x01
+#define QUIC_TOKEN_TAG_RETRY 0x01
 #define QUIC_TOKEN_TAG_NEWTOKEN 0x02
 
 /* Write a tagged token: tag byte + body (body_len bytes) into out (cap total).

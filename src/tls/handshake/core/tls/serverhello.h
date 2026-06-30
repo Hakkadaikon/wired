@@ -10,7 +10,7 @@
  * the negotiated cipher_suite into *cipher, and the selected TLS version (from
  * supported_versions) into *version. Returns 1 on success, 0 if truncated, the
  * message is not a ServerHello, or the key_share is absent/not x25519. */
-int quic_tls_parse_server_hello(const u8 *buf, usz n, u8 server_pub[32],
-                                u16 *cipher, u16 *version);
+int quic_tls_parse_server_hello(
+    const u8 *buf, usz n, u8 server_pub[32], u16 *cipher, u16 *version);
 
 #endif

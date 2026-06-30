@@ -7,18 +7,18 @@
  * Destination Connection ID. AES-128-GCM, so key=16, iv=12, hp=16. */
 
 #define QUIC_INITIAL_KEY 16
-#define QUIC_INITIAL_IV  12
-#define QUIC_INITIAL_HP  16
+#define QUIC_INITIAL_IV 12
+#define QUIC_INITIAL_HP 16
 
 typedef struct {
-    u8 key[QUIC_INITIAL_KEY];
-    u8 iv[QUIC_INITIAL_IV];
-    u8 hp[QUIC_INITIAL_HP];
+  u8 key[QUIC_INITIAL_KEY];
+  u8 iv[QUIC_INITIAL_IV];
+  u8 hp[QUIC_INITIAL_HP];
 } quic_initial_keys;
 
 /* Derive the client (is_server=0) or server (is_server=1) Initial keys from
  * the Destination Connection ID of the client's first Initial packet. */
-void quic_initial_derive(const u8 *dcid, usz dcid_len, int is_server,
-                         quic_initial_keys *out);
+void quic_initial_derive(
+    const u8 *dcid, usz dcid_len, int is_server, quic_initial_keys *out);
 
 #endif

@@ -10,7 +10,7 @@
  * ones are ignored (RFC 9114 7.2.4). */
 
 /* HTTP/2-reserved setting identifiers, forbidden in HTTP/3 SETTINGS. */
-#define QUIC_H3_SETTING_RESERVED_LOW  0x02
+#define QUIC_H3_SETTING_RESERVED_LOW 0x02
 #define QUIC_H3_SETTING_RESERVED_HIGH 0x05
 
 /* Whether a SETTINGS identifier may appear on an HTTP/3 connection. Returns 0

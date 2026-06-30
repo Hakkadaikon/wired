@@ -6,11 +6,11 @@
 /* RFC 9000 17.2: a long header's logical packet type, from bits 5-4 of
  * byte 0. QUIC_PT_NONE marks a byte that is not a (valid-form) long header. */
 
-#define QUIC_PT_NONE      (-1)
-#define QUIC_PT_INITIAL   0
-#define QUIC_PT_0RTT      1
+#define QUIC_PT_NONE (-1)
+#define QUIC_PT_INITIAL 0
+#define QUIC_PT_0RTT 1
 #define QUIC_PT_HANDSHAKE 2
-#define QUIC_PT_RETRY     3
+#define QUIC_PT_RETRY 3
 
 /* True if byte0 has the long-header form bit (RFC 9000 17.2). */
 int quic_packet_is_long(u8 byte0);

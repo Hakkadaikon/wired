@@ -1,217 +1,193 @@
 #include "tls/handshake/core/fullhs/fullhs.h"
-#include "tls/handshake/core/tls/schedule.h"
-#include "tls/handshake/core/tls/finished.h"
+
+#include "crypto/kdf/keys/discard_driver.h"
+#include "crypto/kdf/keys/keyset.h"
 #include "tls/handshake/core/tls/cert.h"
 #include "tls/handshake/core/tls/certverify.h"
-#include "tls/handshake/core/tls/hsdriver.h"
+#include "tls/handshake/core/tls/finished.h"
 #include "tls/handshake/core/tls/hs_message.h"
+#include "tls/handshake/core/tls/hsdriver.h"
+#include "tls/handshake/core/tls/schedule.h"
 #include "tls/keys/schedule_drive/keyschedule.h"
-#include "crypto/kdf/keys/keyset.h"
-#include "crypto/kdf/keys/discard_driver.h"
 
 /* RFC 8446 4.4 / RFC 9001 4.1: full handshake orchestration. */
 
 /* Append a handshake message to the raw transcript, clamping at the cap so a
  * malformed flight can never overrun. Returns 1 if it fit. */
-static int tr_add(quic_fullhs *h, const u8 *msg, usz len)
-{
-    if (len > QUIC_FULLHS_TRANSCRIPT_MAX - h->tr_len)
-        return 0;
-    for (usz i = 0; i < len; i++)
-        h->tr[h->tr_len + i] = msg[i];
-    h->tr_len += len;
-    return 1;
+static int tr_add(quic_fullhs *h, const u8 *msg, usz len) {
+  if (len > QUIC_FULLHS_TRANSCRIPT_MAX - h->tr_len) return 0;
+  for (usz i = 0; i < len; i++) h->tr[h->tr_len + i] = msg[i];
+  h->tr_len += len;
+  return 1;
 }
 
 /* RFC 8446 4.4.1: Transcript-Hash over every message buffered so far. */
-static void tr_hash(const quic_fullhs *h, u8 out[QUIC_SHA256_DIGEST])
-{
-    quic_sha256(h->tr, h->tr_len, out);
+static void tr_hash(const quic_fullhs *h, u8 out[QUIC_SHA256_DIGEST]) {
+  quic_sha256(h->tr, h->tr_len, out);
 }
 
 /* RFC 8446 7.1: one direction's handshake traffic secret over the transcript
  * through ServerHello. is_server selects "s hs traffic"/"c hs traffic". */
-static void hs_traffic(const u8 hs[QUIC_HKDF_PRK], const u8 *sh, usz sh_len,
-                       int is_server, u8 out[QUIC_HKDF_PRK])
-{
-    const char *label = is_server ? "s hs traffic" : "c hs traffic";
-    quic_tls_derive_secret(hs, label, 12, sh, sh_len, out);
+static void hs_traffic(
+    const u8  hs[QUIC_HKDF_PRK],
+    const u8 *sh,
+    usz       sh_len,
+    int       is_server,
+    u8        out[QUIC_HKDF_PRK]) {
+  const char *label = is_server ? "s hs traffic" : "c hs traffic";
+  quic_tls_derive_secret(hs, label, 12, sh, sh_len, out);
 }
 
 /* Derive both directions' handshake traffic secrets over the transcript
  * through ServerHello and seed the cumulative transcript with it. */
-static void seed_secrets(quic_fullhs *h, const u8 *sh, usz sh_len)
-{
-    u8 hs[QUIC_HKDF_PRK];
-    const u8 *ecdhe;
-    quic_tlsdriver_shared_secret(h->tls, &ecdhe);
-    quic_tls_handshake_secret(ecdhe, hs);
-    /* peer direction is the opposite of our own role. */
-    hs_traffic(hs, sh, sh_len, !h->is_server, h->hs_traffic_peer);
-    hs_traffic(hs, sh, sh_len, h->is_server, h->hs_traffic_self);
-    h->tr_len = 0;
-    tr_add(h, sh, sh_len);
+static void seed_secrets(quic_fullhs *h, const u8 *sh, usz sh_len) {
+  u8        hs[QUIC_HKDF_PRK];
+  const u8 *ecdhe;
+  quic_tlsdriver_shared_secret(h->tls, &ecdhe);
+  quic_tls_handshake_secret(ecdhe, hs);
+  /* peer direction is the opposite of our own role. */
+  hs_traffic(hs, sh, sh_len, !h->is_server, h->hs_traffic_peer);
+  hs_traffic(hs, sh, sh_len, h->is_server, h->hs_traffic_self);
+  h->tr_len = 0;
+  tr_add(h, sh, sh_len);
 }
 
 /* Walk the order machine through the flight already exchanged before this
  * layer takes over: ClientHello, ServerHello (Initial), EncryptedExtensions
  * (Handshake). The tlsdriver derived keys for these but left the order machine
  * at the start, so replay them here. */
-static void prime_order(quic_fullhs *h)
-{
-    quic_hsdriver_recv(&h->tls->hs, QUIC_HSD_CLIENT_HELLO, QUIC_HSD_PROT_INITIAL);
-    quic_hsdriver_recv(&h->tls->hs, QUIC_HSD_SERVER_HELLO, QUIC_HSD_PROT_INITIAL);
-    quic_hsdriver_recv(&h->tls->hs, QUIC_HSD_ENCRYPTED_EXT,
-                       QUIC_HSD_PROT_HANDSHAKE);
+static void prime_order(quic_fullhs *h) {
+  quic_hsdriver_recv(&h->tls->hs, QUIC_HSD_CLIENT_HELLO, QUIC_HSD_PROT_INITIAL);
+  quic_hsdriver_recv(&h->tls->hs, QUIC_HSD_SERVER_HELLO, QUIC_HSD_PROT_INITIAL);
+  quic_hsdriver_recv(
+      &h->tls->hs, QUIC_HSD_ENCRYPTED_EXT, QUIC_HSD_PROT_HANDSHAKE);
 }
 
-int quic_fullhs_init(quic_fullhs *h, quic_tlsdriver *tls,
-                     const u8 *transcript_sh, usz sh_len)
-{
-    if (!quic_tlsdriver_handshake_secret_ready(tls))
-        return 0;
-    h->tls = tls;
-    h->is_server = tls->is_server;
-    h->peer_cert = 0;
-    h->peer_cert_len = 0;
-    h->master_tr_len = 0;
-    seed_secrets(h, transcript_sh, sh_len);
-    prime_order(h);
-    return 1;
+int quic_fullhs_init(
+    quic_fullhs *h, quic_tlsdriver *tls, const u8 *transcript_sh, usz sh_len) {
+  if (!quic_tlsdriver_handshake_secret_ready(tls)) return 0;
+  h->tls           = tls;
+  h->is_server     = tls->is_server;
+  h->peer_cert     = 0;
+  h->peer_cert_len = 0;
+  h->master_tr_len = 0;
+  seed_secrets(h, transcript_sh, sh_len);
+  prime_order(h);
+  return 1;
 }
 
 /* RFC 8446 7.1: fold a Finished into the transcript and, if it is the first
  * one seen (the server's), record the length at which the application traffic
  * secrets are derived. */
-static int fold_finished(quic_fullhs *h, const u8 *fin, usz len)
-{
-    if (!tr_add(h, fin, len))
-        return 0;
-    if (h->master_tr_len == 0)
-        h->master_tr_len = h->tr_len;
-    return 1;
+static int fold_finished(quic_fullhs *h, const u8 *fin, usz len) {
+  if (!tr_add(h, fin, len)) return 0;
+  if (h->master_tr_len == 0) h->master_tr_len = h->tr_len;
+  return 1;
 }
 
 /* The peer's protection level for handshake-flight messages is Handshake. */
-static int order_ok(quic_fullhs *h, u8 msg_type)
-{
-    return quic_hsdriver_recv(&h->tls->hs, msg_type, QUIC_HSD_PROT_HANDSHAKE);
+static int order_ok(quic_fullhs *h, u8 msg_type) {
+  return quic_hsdriver_recv(&h->tls->hs, msg_type, QUIC_HSD_PROT_HANDSHAKE);
 }
 
-int quic_fullhs_recv_cert(quic_fullhs *h, const u8 *cert_msg, usz len)
-{
-    const u8 *ctx;
-    u32 ctx_len;
-    quic_tls_cert_entry first;
-    if (!order_ok(h, QUIC_HSD_CERTIFICATE))
-        return 0;
-    if (!quic_tls_cert_parse(cert_msg + QUIC_HS_HEADER, len - QUIC_HS_HEADER,
-                             &ctx, &ctx_len, &first))
-        return 0;
-    h->peer_cert = first.cert_data;
-    h->peer_cert_len = first.cert_len;
-    return tr_add(h, cert_msg, len);
+int quic_fullhs_recv_cert(quic_fullhs *h, const u8 *cert_msg, usz len) {
+  const u8           *ctx;
+  u32                 ctx_len;
+  quic_tls_cert_entry first;
+  if (!order_ok(h, QUIC_HSD_CERTIFICATE)) return 0;
+  if (!quic_tls_cert_parse(
+          cert_msg + QUIC_HS_HEADER, len - QUIC_HS_HEADER, &ctx, &ctx_len,
+          &first))
+    return 0;
+  h->peer_cert     = first.cert_data;
+  h->peer_cert_len = first.cert_len;
+  return tr_add(h, cert_msg, len);
 }
 
 /* Verify the CertificateVerify signature over the transcript hash through the
  * Certificate message (the message body precedes the running hash). */
-static int cv_verify(quic_fullhs *h, const u8 *cv_msg, usz len, u16 scheme)
-{
-    u16 sig_scheme, sig_len;
-    const u8 *sig;
-    u8 th[QUIC_SHA256_DIGEST];
-    if (!quic_tls_certverify_parse(cv_msg + QUIC_HS_HEADER, len - QUIC_HS_HEADER,
-                                   &sig_scheme, &sig, &sig_len))
-        return 0;
-    tr_hash(h, th);
-    return quic_tls_verify_cert_signature(scheme, h->peer_cert, h->peer_cert_len,
-                                          sig, sig_len, th);
+static int cv_verify(quic_fullhs *h, const u8 *cv_msg, usz len, u16 scheme) {
+  u16       sig_scheme, sig_len;
+  const u8 *sig;
+  u8        th[QUIC_SHA256_DIGEST];
+  if (!quic_tls_certverify_parse(
+          cv_msg + QUIC_HS_HEADER, len - QUIC_HS_HEADER, &sig_scheme, &sig,
+          &sig_len))
+    return 0;
+  tr_hash(h, th);
+  return quic_tls_verify_cert_signature(
+      scheme, h->peer_cert, h->peer_cert_len, sig, sig_len, th);
 }
 
-int quic_fullhs_recv_certverify(quic_fullhs *h, const u8 *cv_msg, usz len,
-                                u16 scheme)
-{
-    if (!cv_verify(h, cv_msg, len, scheme))
-        return 0;
-    if (!order_ok(h, QUIC_HSD_CERT_VERIFY))
-        return 0;
-    quic_hsdriver_cert_verified(&h->tls->hs);
-    return tr_add(h, cv_msg, len);
+int quic_fullhs_recv_certverify(
+    quic_fullhs *h, const u8 *cv_msg, usz len, u16 scheme) {
+  if (!cv_verify(h, cv_msg, len, scheme)) return 0;
+  if (!order_ok(h, QUIC_HSD_CERT_VERIFY)) return 0;
+  quic_hsdriver_cert_verified(&h->tls->hs);
+  return tr_add(h, cv_msg, len);
 }
 
 /* A well-sized Finished whose verify_data matches the peer's handshake traffic
  * secret over the current transcript. Checked before the order machine is
  * advanced so a bad Finished never marks the handshake complete. */
-static int fin_verifies(quic_fullhs *h, const u8 *fin_msg, usz len)
-{
-    u8 th[QUIC_SHA256_DIGEST];
-    if (len != QUIC_HS_HEADER + QUIC_TLS_VERIFY_DATA)
-        return 0;
-    tr_hash(h, th);
-    return quic_tls_finished_check(h->hs_traffic_peer, th,
-                                   fin_msg + QUIC_HS_HEADER);
+static int fin_verifies(quic_fullhs *h, const u8 *fin_msg, usz len) {
+  u8 th[QUIC_SHA256_DIGEST];
+  if (len != QUIC_HS_HEADER + QUIC_TLS_VERIFY_DATA) return 0;
+  tr_hash(h, th);
+  return quic_tls_finished_check(
+      h->hs_traffic_peer, th, fin_msg + QUIC_HS_HEADER);
 }
 
-int quic_fullhs_recv_finished(quic_fullhs *h, const u8 *fin_msg, usz len)
-{
-    if (!fin_verifies(h, fin_msg, len))
-        return 0;
-    if (!order_ok(h, QUIC_HSD_FINISHED))
-        return 0;
-    return fold_finished(h, fin_msg, len);
+int quic_fullhs_recv_finished(quic_fullhs *h, const u8 *fin_msg, usz len) {
+  if (!fin_verifies(h, fin_msg, len)) return 0;
+  if (!order_ok(h, QUIC_HSD_FINISHED)) return 0;
+  return fold_finished(h, fin_msg, len);
 }
 
-int quic_fullhs_send_finished(quic_fullhs *h, u8 *out, usz cap, usz *out_len)
-{
-    u8 th[QUIC_SHA256_DIGEST];
-    if (cap < QUIC_HS_HEADER + QUIC_TLS_VERIFY_DATA)
-        return 0;
-    out[0] = QUIC_HSD_FINISHED;
-    out[1] = 0; out[2] = 0; out[3] = QUIC_TLS_VERIFY_DATA;
-    tr_hash(h, th);
-    quic_tls_finished_verify_data(h->hs_traffic_self, th,
-                                  out + QUIC_HS_HEADER);
-    *out_len = QUIC_HS_HEADER + QUIC_TLS_VERIFY_DATA;
-    return fold_finished(h, out, *out_len);
+int quic_fullhs_send_finished(quic_fullhs *h, u8 *out, usz cap, usz *out_len) {
+  u8 th[QUIC_SHA256_DIGEST];
+  if (cap < QUIC_HS_HEADER + QUIC_TLS_VERIFY_DATA) return 0;
+  out[0] = QUIC_HSD_FINISHED;
+  out[1] = 0;
+  out[2] = 0;
+  out[3] = QUIC_TLS_VERIFY_DATA;
+  tr_hash(h, th);
+  quic_tls_finished_verify_data(h->hs_traffic_self, th, out + QUIC_HS_HEADER);
+  *out_len = QUIC_HS_HEADER + QUIC_TLS_VERIFY_DATA;
+  return fold_finished(h, out, *out_len);
 }
 
 /* Install the 1-RTT keys for our send direction, unlocking 1-RTT sending. */
-static void install_app(quic_fullhs *h)
-{
-    const quic_initial_keys *k;
-    int which = h->is_server ? QUIC_KS_SERVER_AP : QUIC_KS_CLIENT_AP;
-    if (quic_keysched_get(&h->tls->ks, which, &k))
-        quic_keyset_install(&h->tls->keys, QUIC_LEVEL_ONERTT, k);
+static void install_app(quic_fullhs *h) {
+  const quic_initial_keys *k;
+  int which = h->is_server ? QUIC_KS_SERVER_AP : QUIC_KS_CLIENT_AP;
+  if (quic_keysched_get(&h->tls->ks, which, &k))
+    quic_keyset_install(&h->tls->keys, QUIC_LEVEL_ONERTT, k);
 }
 
 /* RFC 8446 7.1: application_traffic_secret_0 is derived over the transcript
  * through the server's Finished, which is the last message buffered once the
  * peer's Finished was accepted. */
-int quic_fullhs_advance_application(quic_fullhs *h)
-{
-    if (!quic_hsdriver_complete(&h->tls->hs))
-        return 0;
-    quic_keysched_advance_master(&h->tls->ks, h->tr, h->master_tr_len);
-    install_app(h);
-    return 1;
+int quic_fullhs_advance_application(quic_fullhs *h) {
+  if (!quic_hsdriver_complete(&h->tls->hs)) return 0;
+  quic_keysched_advance_master(&h->tls->ks, h->tr, h->master_tr_len);
+  install_app(h);
+  return 1;
 }
 
-int quic_fullhs_confirmed(quic_fullhs *h)
-{
-    if (!quic_hsdriver_recv(&h->tls->hs, QUIC_HSD_HANDSHAKE_DONE,
-                            QUIC_HSD_PROT_1RTT))
-        return 0;
-    if (quic_key_should_discard_handshake(quic_hsdriver_confirmed(&h->tls->hs)))
-        quic_keyset_discard(&h->tls->keys, QUIC_LEVEL_HANDSHAKE);
-    return 1;
+int quic_fullhs_confirmed(quic_fullhs *h) {
+  if (!quic_hsdriver_recv(
+          &h->tls->hs, QUIC_HSD_HANDSHAKE_DONE, QUIC_HSD_PROT_1RTT))
+    return 0;
+  if (quic_key_should_discard_handshake(quic_hsdriver_confirmed(&h->tls->hs)))
+    quic_keyset_discard(&h->tls->keys, QUIC_LEVEL_HANDSHAKE);
+  return 1;
 }
 
-int quic_fullhs_is_complete(const quic_fullhs *h)
-{
-    return quic_hsdriver_complete(&h->tls->hs);
+int quic_fullhs_is_complete(const quic_fullhs *h) {
+  return quic_hsdriver_complete(&h->tls->hs);
 }
 
-int quic_fullhs_is_confirmed(const quic_fullhs *h)
-{
-    return quic_hsdriver_confirmed(&h->tls->hs);
+int quic_fullhs_is_confirmed(const quic_fullhs *h) {
+  return quic_hsdriver_confirmed(&h->tls->hs);
 }

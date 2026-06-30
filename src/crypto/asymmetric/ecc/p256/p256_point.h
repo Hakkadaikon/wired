@@ -7,12 +7,12 @@
  * Affine points; the point at infinity is flagged separately. */
 
 typedef struct {
-    p256_fe x;
-    p256_fe y;
-    int inf;   /* 1 = point at infinity (identity) */
+  p256_fe x;
+  p256_fe y;
+  int     inf; /* 1 = point at infinity (identity) */
 } ec_point;
 
-extern const ec_point quic_p256_g;   /* base point G */
+extern const ec_point quic_p256_g; /* base point G */
 
 void quic_ec_set(ec_point *r, const ec_point *p);
 

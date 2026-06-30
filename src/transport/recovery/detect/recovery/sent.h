@@ -12,18 +12,18 @@
 enum { QUIC_PKT_INFLIGHT = 0, QUIC_PKT_ACKED, QUIC_PKT_LOST };
 
 typedef struct {
-    u64 pn;
-    u64 size;
-    u64 time_sent;
-    u8 state;
-    u8 used;
+  u64 pn;
+  u64 size;
+  u64 time_sent;
+  u8  state;
+  u8  used;
 } quic_sent_pkt;
 
 typedef struct {
-    quic_sent_pkt pkts[QUIC_SENT_CAP];
-    u64 bytes_in_flight;
-    u64 largest_acked;
-    int have_acked;
+  quic_sent_pkt pkts[QUIC_SENT_CAP];
+  u64           bytes_in_flight;
+  u64           largest_acked;
+  int           have_acked;
 } quic_sent;
 
 void quic_sent_init(quic_sent *s);

@@ -7,7 +7,7 @@
  * (RFC 9368) used for compatible version negotiation. */
 
 #define QUIC_VERSION_1 0x00000001u
-#define QUIC_VERSION_2 0x6b3343cfu          /* RFC 9369 */
+#define QUIC_VERSION_2 0x6b3343cfu /* RFC 9369 */
 
 /* A reserved version matches the 0x?a?a?a?a GREASE pattern (RFC 8999 6) and
  * is never selected. */
@@ -18,9 +18,9 @@ int quic_version_is_reserved(u32 version);
 #define QUIC_VI_MAX_AVAILABLE 16
 
 typedef struct {
-    u32 chosen;
-    usz n_available;
-    u32 available[QUIC_VI_MAX_AVAILABLE]; /* in preference order (client) */
+  u32 chosen;
+  usz n_available;
+  u32 available[QUIC_VI_MAX_AVAILABLE]; /* in preference order (client) */
 } quic_version_info;
 
 /* Encode the version_information TP (id, length, Chosen Version, Available

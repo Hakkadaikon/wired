@@ -7,7 +7,8 @@
  * datagram. The loop has already applied every gate (cwnd, anti-amp, phase) and
  * advanced next_pn iff it chose to send; this layer only builds the frame the
  * loop would have sent -- an owed ACK first, else a retransmission, else new
- * data, matching the loop's own priority -- seals it via connio, and sends it. */
+ * data, matching the loop's own priority -- seals it via connio, and sends it.
+ */
 
 /* The frame kind the loop would send next, given its pre-step state: 0 none,
  * 1 ACK, 2 retransmission, 3 new data. Priority matches phase_send. Capture
@@ -29,8 +30,8 @@ usz quic_connrunner_flush_sends(quic_connrunner *r, u64 sent_before, int kind);
  * `kind` (1 ACK / 2 rtx / 3 new data) decides ack-eliciting and in-flight: an
  * ACK-only packet is neither, a retransmission or new data is both. The packet
  * number is the send level space's next-1 (connio advanced it on the send). */
-void quic_connrunner_track_sent(quic_connrunner *r, u64 now, int kind,
-                                usz sent_len);
+void quic_connrunner_track_sent(
+    quic_connrunner *r, u64 now, int kind, usz sent_len);
 
 /* RFC 9002 6.1: run real loss detection over the sentmeta ring at `now` and,
  * if the loop captured no lost pn for this send, feed the oldest sentmeta-lost

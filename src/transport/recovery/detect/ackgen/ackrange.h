@@ -16,7 +16,12 @@
  *   n_ranges         = number of u64 values written into ranges
  *
  * cap bounds ranges. Returns 1 on success, 0 if n is 0 or cap is too small. */
-int quic_ackgen_build_ranges(const u64 *received_pns, usz n, u64 *largest,
-                             u64 *ranges, usz *n_ranges, usz cap);
+int quic_ackgen_build_ranges(
+    const u64 *received_pns,
+    usz        n,
+    u64       *largest,
+    u64       *ranges,
+    usz       *n_ranges,
+    usz        cap);
 
 #endif

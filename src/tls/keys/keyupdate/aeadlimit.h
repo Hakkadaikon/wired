@@ -8,8 +8,8 @@
  * 2^62 packet-number space. Once the encrypted-packet count reaches the
  * limit, a key update is mandatory before encrypting further. */
 
-#define QUIC_AEAD_LIMIT_AESGCM  (1ULL << 23)
-#define QUIC_AEAD_LIMIT_CHACHA  (1ULL << 62)
+#define QUIC_AEAD_LIMIT_AESGCM (1ULL << 23)
+#define QUIC_AEAD_LIMIT_CHACHA (1ULL << 62)
 
 /* Returns 1 if packets_encrypted has reached the AEAD's limit (forcing a
  * key update), 0 otherwise. is_chacha selects the ChaCha20 limit. */

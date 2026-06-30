@@ -8,7 +8,7 @@
  * cert_der (cert_len octets) and empty extensions. Writes the full handshake
  * message into out (cap total) and sets *out_len. Returns 1, or 0 if it does
  * not fit or cert_len exceeds the 3-byte length field. */
-int quic_sflight_certificate(const u8 *cert_der, usz cert_len,
-                             u8 *out, usz cap, usz *out_len);
+int quic_sflight_certificate(
+    const u8 *cert_der, usz cert_len, u8 *out, usz cap, usz *out_len);
 
 #endif

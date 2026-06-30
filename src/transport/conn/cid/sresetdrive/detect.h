@@ -9,11 +9,11 @@
  * a reset is 21 bytes (5-byte minimum header room plus the 16-byte token). */
 
 #define QUIC_SRESETDRIVE_TOKEN 16
-#define QUIC_SRESETDRIVE_MIN   21
+#define QUIC_SRESETDRIVE_MIN 21
 
 /* 1 if the packet's trailing token matches `expected_token` in constant time
  * and the packet is at least the 21-byte minimum; 0 otherwise. */
-int quic_sresetdrive_is_reset(const u8 *packet, usz len,
-                              const u8 *expected_token);
+int quic_sresetdrive_is_reset(
+    const u8 *packet, usz len, const u8 *expected_token);
 
 #endif

@@ -11,8 +11,8 @@
 /* Returns 1 if the lost frame is retransmittable and was copied (out_len set),
  * or skipped (out_len 0). Returns 0 on a malformed type or insufficient out
  * capacity. */
-int quic_rtxbytes_rebuild(const u8 *lost_frame, usz len, u8 *out, usz cap,
-                          usz *out_len);
+int quic_rtxbytes_rebuild(
+    const u8 *lost_frame, usz len, u8 *out, usz cap, usz *out_len);
 
 /* RFC 9002 13.3: every frame type except ACK (0x02/0x03) and PADDING (0x00)
  * is retransmittable. Returns 1 if the frame at buf (len bytes) is

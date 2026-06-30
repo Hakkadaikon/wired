@@ -8,7 +8,14 @@
  * then DCID (dcid_len bytes, no length prefix) and the packet number
  * in pn_len big-endian bytes. spin and key_phase are treated as 0/1.
  * pn_len must be 1..4. Returns bytes written, or 0 on bad args / no room. */
-usz quic_short_build(u8 *buf, usz cap, const u8 *dcid, u8 dcid_len,
-                     u8 spin, u8 key_phase, u64 pn, usz pn_len);
+usz quic_short_build(
+    u8       *buf,
+    usz       cap,
+    const u8 *dcid,
+    u8        dcid_len,
+    u8        spin,
+    u8        key_phase,
+    u64       pn,
+    usz       pn_len);
 
 #endif

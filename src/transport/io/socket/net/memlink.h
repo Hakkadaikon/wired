@@ -8,16 +8,16 @@
  * no syscall — this is how the kernel-free end-to-end path moves bytes. */
 
 #define QUIC_MEMLINK_SLOTS 16
-#define QUIC_MEMLINK_MTU   1500
+#define QUIC_MEMLINK_MTU 1500
 
 typedef struct {
-    u8 data[QUIC_MEMLINK_MTU];
-    usz len;
+  u8  data[QUIC_MEMLINK_MTU];
+  usz len;
 } quic_memlink_dgram;
 
 typedef struct {
-    quic_memlink_dgram slots[QUIC_MEMLINK_SLOTS];
-    usz head, tail, count;
+  quic_memlink_dgram slots[QUIC_MEMLINK_SLOTS];
+  usz                head, tail, count;
 } quic_memlink;
 
 void quic_memlink_init(quic_memlink *l);

@@ -8,8 +8,12 @@
  * rsaEncryption subjectPublicKey, leading 0x00 unused-bits octet included.
  * Views n and e (big-endian INTEGER values) into spki_key. Returns 1 ok,
  * 0 on malformed input. */
-int quic_x509_rsa_pubkey(const u8 *spki_key, usz key_len,
-                         const u8 **n, usz *n_len,
-                         const u8 **e, usz *e_len);
+int quic_x509_rsa_pubkey(
+    const u8  *spki_key,
+    usz        key_len,
+    const u8 **n,
+    usz       *n_len,
+    const u8 **e,
+    usz       *e_len);
 
 #endif

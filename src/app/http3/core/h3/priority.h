@@ -7,11 +7,11 @@
  * incremental (i, 0/1, default 0). Lower urgency value is higher priority. */
 
 #define QUIC_H3_URGENCY_DEFAULT 3
-#define QUIC_H3_URGENCY_MAX     7
+#define QUIC_H3_URGENCY_MAX 7
 
 typedef struct {
-    u8 urgency;     /* 0..7 */
-    u8 incremental; /* 0 or 1 */
+  u8 urgency;     /* 0..7 */
+  u8 incremental; /* 0 or 1 */
 } quic_h3_priority;
 
 void quic_h3_priority_init(quic_h3_priority *p);

@@ -7,7 +7,9 @@
  * connection state machines. A transition is legal iff some row names the
  * current (from, event) pair; applying it moves the state to that row's to. */
 
-typedef struct { u8 from, ev, to; } quic_fsm_row;
+typedef struct {
+  u8 from, ev, to;
+} quic_fsm_row;
 
 #define QUIC_FSM_NONE 0xFF /* sentinel: no such transition */
 

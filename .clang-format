@@ -1,5 +1,13 @@
-BasedOnStyle: LLVM
-IndentWidth: 4
-BreakBeforeBraces: Linux
-PointerAlignment: Right
-ColumnLimit: 0
+BasedOnStyle: Google
+IndentWidth: 2
+ColumnLimit: 80
+PointerAlignment: Left
+AlignAfterOpenBracket: AlwaysBreak
+BinPackParameters: false
+AlignConsecutiveAssignments:
+  Enabled: true
+AlignConsecutiveDeclarations:
+  Enabled: true
+AlignEscapedNewlines: Left
+AlignTrailingComments:
+  Kind: Always

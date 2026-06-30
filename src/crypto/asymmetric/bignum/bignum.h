@@ -9,7 +9,7 @@
 #define QUIC_BN_LIMBS 32
 
 typedef struct {
-    u64 v[QUIC_BN_LIMBS];
+  u64 v[QUIC_BN_LIMBS];
 } quic_bn;
 
 /* Big-endian bytes -> limbs. len must be <= QUIC_BN_LIMBS*8. */

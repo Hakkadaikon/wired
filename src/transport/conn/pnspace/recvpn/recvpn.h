@@ -8,12 +8,13 @@
  * and a sliding bitmap of the window below it, which is enough to detect
  * duplicates and to find the contiguous run for the ACK's first range. */
 
-#define QUIC_RECVPN_WINDOW 64 /* packets below `largest` tracked in the bitmap */
+#define QUIC_RECVPN_WINDOW \
+  64 /* packets below `largest` tracked in the bitmap */
 
 typedef struct {
-    u64 largest;  /* highest packet number recorded (valid once any seen) */
-    u64 bitmap;   /* bit i set => (largest - 1 - i) was received */
-    int any;      /* whether anything has been recorded yet */
+  u64 largest; /* highest packet number recorded (valid once any seen) */
+  u64 bitmap;  /* bit i set => (largest - 1 - i) was received */
+  int any;     /* whether anything has been recorded yet */
 } quic_recvpn;
 
 void quic_recvpn_init(quic_recvpn *r);

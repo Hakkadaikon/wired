@@ -10,20 +10,20 @@
  * reopens. CLOSED is a stable terminal. */
 
 typedef enum {
-    QUIC_LIFE_OPEN = 0,
-    QUIC_LIFE_CLOSING,
-    QUIC_LIFE_DRAINING,
-    QUIC_LIFE_CLOSED
+  QUIC_LIFE_OPEN = 0,
+  QUIC_LIFE_CLOSING,
+  QUIC_LIFE_DRAINING,
+  QUIC_LIFE_CLOSED
 } quic_life_phase;
 
 typedef struct {
-    quic_life_phase phase;
-    u64 idle_ticks;     /* counts up while open; fires at idle_max */
-    u64 idle_max;       /* max_idle_timeout in ticks */
-    u64 close_ticks;    /* counts up in CLOSING/DRAINING; fires at close_max */
-    u64 close_max;      /* 3*PTO in ticks */
-    u8  sent_close;     /* we sent a CONNECTION_CLOSE */
-    u8  notified;       /* app told of the close, exactly once on close path */
+  quic_life_phase phase;
+  u64             idle_ticks; /* counts up while open; fires at idle_max */
+  u64             idle_max;   /* max_idle_timeout in ticks */
+  u64 close_ticks; /* counts up in CLOSING/DRAINING; fires at close_max */
+  u64 close_max;   /* 3*PTO in ticks */
+  u8  sent_close;  /* we sent a CONNECTION_CLOSE */
+  u8  notified;    /* app told of the close, exactly once on close path */
 } quic_life;
 
 void quic_life_init(quic_life *l, u64 idle_max, u64 close_max);

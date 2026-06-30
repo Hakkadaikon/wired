@@ -15,44 +15,44 @@
 #define QUIC_EVLOOP_QCAP 64
 
 typedef struct {
-    int ack_eliciting; /* RFC 9000 13.2.1: receiving this owes an ACK */
+  int ack_eliciting; /* RFC 9000 13.2.1: receiving this owes an ACK */
 } quic_evloop_rx;
 
 typedef struct {
-    u64 pn;   /* original packet number of the lost packet */
-    usz len;  /* its size, to re-send under a fresh number */
+  u64 pn;  /* original packet number of the lost packet */
+  usz len; /* its size, to re-send under a fresh number */
 } quic_evloop_rtx;
 
 typedef struct {
-    int armed;
-    u64 deadline; /* fires once now >= deadline */
+  int armed;
+  u64 deadline; /* fires once now >= deadline */
 } quic_evloop_timer;
 
 typedef struct {
-    quic_connloop gate; /* RFC 9000 12.2: send/recv/ack/pto/close gating */
+  quic_connloop gate; /* RFC 9000 12.2: send/recv/ack/pto/close gating */
 
-    int level;          /* protection level the loop sends/receives at */
-    u64 next_pn;        /* RFC 9002 A.1: monotonic, never reused */
+  int level;   /* protection level the loop sends/receives at */
+  u64 next_pn; /* RFC 9002 A.1: monotonic, never reused */
 
-    quic_evloop_rx rx[QUIC_EVLOOP_QCAP];
-    usz rx_n;
-    int ack_owed;       /* RFC 9000 13.2.1: an ACK is pending */
+  quic_evloop_rx rx[QUIC_EVLOOP_QCAP];
+  usz            rx_n;
+  int            ack_owed; /* RFC 9000 13.2.1: an ACK is pending */
 
-    quic_evloop_rtx rtx[QUIC_EVLOOP_QCAP];
-    usz rtx_n;          /* RFC 9002 6: data awaiting retransmission */
-    int have_new_data;  /* application has fresh data to originate */
-    usz send_len;       /* bytes per outgoing packet */
+  quic_evloop_rtx rtx[QUIC_EVLOOP_QCAP];
+  usz             rtx_n;         /* RFC 9002 6: data awaiting retransmission */
+  int             have_new_data; /* application has fresh data to originate */
+  usz             send_len;      /* bytes per outgoing packet */
 
-    quic_evloop_timer pto;  /* RFC 9002 6.2 */
-    quic_evloop_timer loss; /* RFC 9002 6.1 */
-    quic_evloop_timer idle; /* RFC 9000 10.1 */
+  quic_evloop_timer pto;  /* RFC 9002 6.2 */
+  quic_evloop_timer loss; /* RFC 9002 6.1 */
+  quic_evloop_timer idle; /* RFC 9000 10.1 */
 
-    u64 cwnd;            /* RFC 9002 7: congestion window in bytes */
-    u64 bytes_in_flight; /* RFC 9002 B.2 */
+  u64 cwnd;            /* RFC 9002 7: congestion window in bytes */
+  u64 bytes_in_flight; /* RFC 9002 B.2 */
 
-    u64 key_generation;  /* RFC 9001 6: current send-key generation */
-    u64 key_update_time; /* time the latest update started; for old-key retain */
-    u64 pto_period;      /* RFC 9001 6.1: 3*PTO retention is measured against */
+  u64 key_generation;  /* RFC 9001 6: current send-key generation */
+  u64 key_update_time; /* time the latest update started; for old-key retain */
+  u64 pto_period;      /* RFC 9001 6.1: 3*PTO retention is measured against */
 } quic_evloop;
 
 /* Initialise an active loop at `level`, with `cwnd` open, `send_len`-byte

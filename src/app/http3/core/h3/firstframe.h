@@ -1,14 +1,13 @@
 #ifndef QUIC_H3_FIRSTFRAME_H
 #define QUIC_H3_FIRSTFRAME_H
 
-#include "common/platform/sys/syscall.h"
 #include "app/http3/core/h3/frame_permit.h"
+#include "common/platform/sys/syscall.h"
 
 /* RFC 9114 6.2.1. The first frame on the control stream must be SETTINGS; the
  * first frame on a request stream must be HEADERS. Any other leading frame
  * type is a violation (H3_MISSING_SETTINGS on control, H3_FRAME_UNEXPECTED on
  * a request stream). */
-
 
 /* 1 if frame_type is allowed as the first frame on a stream of stream_kind,
  * else 0. */

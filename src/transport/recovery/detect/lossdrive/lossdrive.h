@@ -7,7 +7,12 @@
  * packet/time threshold scan, removes packets judged lost from the
  * sent-packet table, and returns their pns as retransmission candidates.
  * lost_pns is filled and *n_lost set to the count. Times are in us. */
-void quic_lossdrive_on_ack(quic_sentpkt *state, u64 largest_acked, u64 now,
-                           u64 loss_delay, u64 *lost_pns, usz *n_lost);
+void quic_lossdrive_on_ack(
+    quic_sentpkt *state,
+    u64           largest_acked,
+    u64           now,
+    u64           loss_delay,
+    u64          *lost_pns,
+    usz          *n_lost);
 
 #endif

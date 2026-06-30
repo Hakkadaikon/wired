@@ -8,8 +8,8 @@
  * state. */
 
 typedef struct {
-    quic_send_state send;
-    quic_recv_state recv;
+  quic_send_state send;
+  quic_recv_state recv;
 } quic_bidi;
 
 void quic_bidi_init(quic_bidi *b);

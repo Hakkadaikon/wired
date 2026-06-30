@@ -8,8 +8,8 @@
  * to max_streams, and a grant raises the limit (it never lowers it). */
 
 typedef struct {
-    u64 max_streams; /* maximum streams the peer may open */
-    u64 count;       /* how many have been opened so far */
+  u64 max_streams; /* maximum streams the peer may open */
+  u64 count;       /* how many have been opened so far */
 } quic_stream_credit;
 
 void quic_stream_credit_init(quic_stream_credit *s, u64 max_streams);

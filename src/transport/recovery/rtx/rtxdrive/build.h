@@ -2,7 +2,6 @@
 #define QUIC_RTXDRIVE_BUILD_H
 
 #include "common/platform/sys/syscall.h"
-
 #include "transport/recovery/rtx/rtxbytes/rtxstore.h"
 
 /* RFC 9002 13.3: retransmit a lost packet's frames in a new packet by copying
@@ -13,7 +12,7 @@
  * retransmittable frame yields its bytes; a non-retransmittable frame
  * (ACK/PADDING) or a pn not held yields *out_len = 0. Returns 1 on success, 0
  * if out (cap) is too small. */
-int quic_rtxdrive_build(const quic_rtxbytes *store, u64 lost_pn, u8 *out,
-                        usz cap, usz *out_len);
+int quic_rtxdrive_build(
+    const quic_rtxbytes *store, u64 lost_pn, u8 *out, usz cap, usz *out_len);
 
 #endif

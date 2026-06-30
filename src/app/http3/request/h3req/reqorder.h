@@ -9,10 +9,10 @@
  * is an H3_FRAME_UNEXPECTED ordering violation. */
 
 typedef enum {
-    QUIC_H3REQ_ORDER_START = 0,  /* expecting the leading HEADERS */
-    QUIC_H3REQ_ORDER_HEADERS,    /* leading HEADERS seen */
-    QUIC_H3REQ_ORDER_DATA,       /* at least one DATA seen */
-    QUIC_H3REQ_ORDER_TRAILERS    /* trailing HEADERS seen; nothing more */
+  QUIC_H3REQ_ORDER_START = 0, /* expecting the leading HEADERS */
+  QUIC_H3REQ_ORDER_HEADERS,   /* leading HEADERS seen */
+  QUIC_H3REQ_ORDER_DATA,      /* at least one DATA seen */
+  QUIC_H3REQ_ORDER_TRAILERS   /* trailing HEADERS seen; nothing more */
 } quic_h3req_order_state;
 
 void quic_h3req_order_init(quic_h3req_order_state *s);

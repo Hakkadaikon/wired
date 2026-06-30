@@ -10,25 +10,26 @@
  * limit. Any violation latches a connection error (terminal). */
 
 typedef enum {
-    QUIC_H3_ERR_NONE = 0,
-    QUIC_H3_ERR_STREAM_CREATION,   /* 2nd control stream */
-    QUIC_H3_ERR_CLOSED_CRITICAL,   /* control stream closed */
-    QUIC_H3_ERR_MISSING_SETTINGS,  /* first control frame not SETTINGS */
-    QUIC_H3_ERR_FRAME_UNEXPECTED,  /* a second SETTINGS */
-    QUIC_H3_ERR_ID                 /* GOAWAY id increased */
+  QUIC_H3_ERR_NONE = 0,
+  QUIC_H3_ERR_STREAM_CREATION,  /* 2nd control stream */
+  QUIC_H3_ERR_CLOSED_CRITICAL,  /* control stream closed */
+  QUIC_H3_ERR_MISSING_SETTINGS, /* first control frame not SETTINGS */
+  QUIC_H3_ERR_FRAME_UNEXPECTED, /* a second SETTINGS */
+  QUIC_H3_ERR_ID                /* GOAWAY id increased */
 } quic_h3_error;
 
 typedef struct {
-    u8  control_open;     /* a control stream is open */
-    u8  settings_seen;    /* SETTINGS was the first control frame */
-    u8  goaway_seen;
-    u64 goaway_limit;     /* highest request id still accepted is below this */
-    quic_h3_error error;  /* latched; nonzero means the connection failed */
+  u8  control_open;  /* a control stream is open */
+  u8  settings_seen; /* SETTINGS was the first control frame */
+  u8  goaway_seen;
+  u64 goaway_limit;    /* highest request id still accepted is below this */
+  quic_h3_error error; /* latched; nonzero means the connection failed */
 } quic_h3_control;
 
 void quic_h3_control_init(quic_h3_control *c);
 
-/* A peer opened its control stream. The second one is a STREAM_CREATION error. */
+/* A peer opened its control stream. The second one is a STREAM_CREATION error.
+ */
 void quic_h3_control_open(quic_h3_control *c);
 
 /* The control stream closed: a CLOSED_CRITICAL_STREAM error. */

@@ -13,7 +13,10 @@
  * received elicits an ack. ack_already_pending: an earlier ack-eliciting
  * packet is still unacked (a second one forces immediate ack). since_last_ack:
  * ticks elapsed since the oldest unacked ack-eliciting packet. */
-int quic_ackgen_should_ack(int ack_eliciting_received, int ack_already_pending,
-                           u64 since_last_ack, u64 max_ack_delay);
+int quic_ackgen_should_ack(
+    int ack_eliciting_received,
+    int ack_already_pending,
+    u64 since_last_ack,
+    u64 max_ack_delay);
 
 #endif

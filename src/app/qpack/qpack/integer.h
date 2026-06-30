@@ -12,8 +12,8 @@
 /* Encode value with an N-bit prefix into buf of cap bytes. prefix_value holds
  * the high bits (e.g. a representation pattern) ORed into the first byte's top.
  * Returns bytes written, or 0 if it does not fit. */
-usz quic_qpack_int_encode(u8 *buf, usz cap, u8 prefix_bits, u8 prefix_value,
-                          u64 value);
+usz quic_qpack_int_encode(
+    u8 *buf, usz cap, u8 prefix_bits, u8 prefix_value, u64 value);
 
 /* Decode an N-bit prefixed integer from buf of n bytes into *value.
  * Returns bytes consumed, or 0 on truncation / overflow. */

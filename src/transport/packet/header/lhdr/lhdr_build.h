@@ -16,11 +16,23 @@
  *
  * is_initial selects whether the Token fields are present. Returns the
  * header length (== *hdr_len_out), or 0 if it does not fit in cap. */
-usz quic_lhdr_build(u8 byte0, u32 version, const u8 *dcid, u8 dcid_len,
-                    const u8 *scid, u8 scid_len, int is_initial,
-                    const u8 *token, usz token_len, usz payload_len, u64 pn,
-                    u8 pn_len, u8 *out, usz cap, usz *hdr_len_out,
-                    usz *length_off_out);
+usz quic_lhdr_build(
+    u8        byte0,
+    u32       version,
+    const u8 *dcid,
+    u8        dcid_len,
+    const u8 *scid,
+    u8        scid_len,
+    int       is_initial,
+    const u8 *token,
+    usz       token_len,
+    usz       payload_len,
+    u64       pn,
+    u8        pn_len,
+    u8       *out,
+    usz       cap,
+    usz      *hdr_len_out,
+    usz      *length_off_out);
 
 /* RFC 9000 17.2: set byte0's low two bits to pn_len-1, leaving the form,
  * fixed bit, type, and reserved bits untouched. pn_len must be 1, 2, or 4. */

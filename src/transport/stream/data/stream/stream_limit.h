@@ -7,7 +7,8 @@
  * peer to open streams with sequence indices 0..N-1 of that type. The highest
  * permitted stream ID is therefore the ID of index N-1 for the type selected
  * by is_server / is_uni. A value of 0 permits no streams. The value must not
- * exceed 2^60 (a larger value is a FRAME_ENCODING_ERROR / illegal stream ID). */
+ * exceed 2^60 (a larger value is a FRAME_ENCODING_ERROR / illegal stream ID).
+ */
 
 #define QUIC_MAX_STREAMS_LIMIT (((u64)1) << 60)
 

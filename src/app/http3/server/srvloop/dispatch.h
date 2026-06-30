@@ -10,11 +10,11 @@
  * len tracks the high-water mark, fin latches the stream FIN, done latches that
  * the completed request was already decoded so it is answered only once. */
 typedef struct {
-    u8 *buf;
-    usz cap;
-    usz *len;
-    u8 *fin;
-    int *done;
+  u8  *buf;
+  usz  cap;
+  usz *len;
+  u8  *fin;
+  int *done;
 } quic_srvloop_reqacc;
 
 /* RFC 9000 12.4: route an opened payload's frames. CRYPTO frames (handshake)
@@ -24,9 +24,15 @@ typedef struct {
  * Handshake payload never reaches HTTP/3, a 1-RTT request never re-enters the
  * handshake. Returns 1 if a frame was handled, 0 otherwise. On a completed
  * request *got_request is set and *req filled. */
-int quic_srvloop_dispatch(quic_server *s, quic_h3srv_state *h3,
-                          const u8 *payload, usz len, quic_srvloop_reqacc *acc,
-                          u8 *scratch, usz scap,
-                          int *got_request, quic_h3reqdrive_req *req);
+int quic_srvloop_dispatch(
+    quic_server         *s,
+    quic_h3srv_state    *h3,
+    const u8            *payload,
+    usz                  len,
+    quic_srvloop_reqacc *acc,
+    u8                  *scratch,
+    usz                  scap,
+    int                 *got_request,
+    quic_h3reqdrive_req *req);
 
 #endif

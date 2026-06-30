@@ -10,9 +10,9 @@
  * has been retired by a retire_prior_to. The active count is the size of that
  * range and must never exceed the peer's active_connection_id_limit. */
 typedef struct {
-    u64 limit;     /* peer's active_connection_id_limit (RFC 9000 18.2) */
-    u64 next_seq;  /* next sequence number to issue */
-    u64 retire_lo; /* lowest still-active sequence number */
+  u64 limit;     /* peer's active_connection_id_limit (RFC 9000 18.2) */
+  u64 next_seq;  /* next sequence number to issue */
+  u64 retire_lo; /* lowest still-active sequence number */
 } quic_cidpool;
 
 /* Initialise a pool with the peer's active_connection_id_limit. The limit is

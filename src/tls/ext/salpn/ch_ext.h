@@ -11,7 +11,11 @@
 /* Find extension ext_type. On success sets *ext_data (a view into ch_msg) and
  * *ext_len to the extension_data, and returns 1; returns 0 if absent or any
  * length field overruns ch_len. */
-int quic_salpn_find_extension(const u8 *ch_msg, usz ch_len, u16 ext_type,
-                              const u8 **ext_data, usz *ext_len);
+int quic_salpn_find_extension(
+    const u8  *ch_msg,
+    usz        ch_len,
+    u16        ext_type,
+    const u8 **ext_data,
+    usz       *ext_len);
 
 #endif

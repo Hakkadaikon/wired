@@ -13,7 +13,15 @@ u8 quic_shorthdr_byte0(int spin, int key_phase, u8 pn_len);
 /* Build byte0, then DCID (no length prefix) and pn as pn_len big-endian
  * bytes into out (cap bytes); total length to *out_len. Returns 1 on
  * success, 0 on bad args (pn_len not 1..4) or insufficient room. */
-int quic_shorthdr_build(int spin, int key_phase, const u8 *dcid, u8 dcid_len,
-                        u64 pn, u8 pn_len, u8 *out, usz cap, usz *out_len);
+int quic_shorthdr_build(
+    int       spin,
+    int       key_phase,
+    const u8 *dcid,
+    u8        dcid_len,
+    u64       pn,
+    u8        pn_len,
+    u8       *out,
+    usz       cap,
+    usz      *out_len);
 
 #endif

@@ -1,9 +1,9 @@
 #ifndef QUIC_DRIVER_DRIVER_H
 #define QUIC_DRIVER_DRIVER_H
 
-#include "transport/conn/loop/connio/connio.h"
 #include "tls/handshake/core/tls/hsdriver.h"
 #include "tls/keys/schedule_drive/keyschedule.h"
+#include "transport/conn/loop/connio/connio.h"
 
 /* RFC 9000 4 / RFC 9001 4: the connection driver. The final integration layer
  * that ties the verified parts together and runs them to completion: each
@@ -18,24 +18,24 @@
 #define QUIC_DRIVER_FLIGHT_MAX 7
 
 typedef struct {
-    quic_connio io;        /* real seal/open transport + connloop gate */
-    quic_hsdriver hs;      /* handshake message order machine */
-    quic_keysched ks;      /* order-driven key schedule */
-    int is_server;
-    u8 tx_sent;            /* outbound flight messages emitted so far */
-    u8 rx_done;            /* inbound flight messages processed so far */
-    u64 tx_off;            /* STREAM offset carrying the next outbound message */
-    usz in_len;            /* queued inbound datagram length (0 = none) */
-    usz out_len;           /* produced outbound datagram length (0 = none) */
-    u8 in_buf[QUIC_DRIVER_DGRAM_CAP];
-    u8 out_buf[QUIC_DRIVER_DGRAM_CAP];
+  quic_connio   io; /* real seal/open transport + connloop gate */
+  quic_hsdriver hs; /* handshake message order machine */
+  quic_keysched ks; /* order-driven key schedule */
+  int           is_server;
+  u8            tx_sent; /* outbound flight messages emitted so far */
+  u8            rx_done; /* inbound flight messages processed so far */
+  u64           tx_off;  /* STREAM offset carrying the next outbound message */
+  usz           in_len;  /* queued inbound datagram length (0 = none) */
+  usz           out_len; /* produced outbound datagram length (0 = none) */
+  u8            in_buf[QUIC_DRIVER_DGRAM_CAP];
+  u8            out_buf[QUIC_DRIVER_DGRAM_CAP];
 } quic_driver;
 
 /* Initialize an active connection driver as client (is_server 0) or server
  * (is_server 1). Installs Initial keys so the first flight can flow. dcid is
  * the shared connection id used for packet headers. */
-void quic_driver_init(quic_driver *d, int is_server,
-                      const u8 *dcid, u8 dcid_len);
+void quic_driver_init(
+    quic_driver *d, int is_server, const u8 *dcid, u8 dcid_len);
 
 /* Queue one received datagram for the next step to process. */
 void quic_driver_feed(quic_driver *d, const u8 *dgram, usz len);

@@ -12,7 +12,7 @@
  * stream_id. final_size is the number of request-body bytes already sent.
  * Writes both frames into out (cap bytes); *len receives the total written.
  * Returns 1 on success, 0 if out is too small. */
-int quic_h3cancel_request(u64 stream_id, u64 final_size,
-                          u8 *out, usz cap, usz *len);
+int quic_h3cancel_request(
+    u64 stream_id, u64 final_size, u8 *out, usz cap, usz *len);
 
 #endif

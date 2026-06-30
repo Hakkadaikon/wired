@@ -7,14 +7,14 @@
  * cumulative bytes; a receiver advertises a limit and advances it. */
 
 typedef struct {
-    u64 sent;     /* cumulative bytes sent */
-    u64 max_data; /* peer-advertised send limit */
+  u64 sent;     /* cumulative bytes sent */
+  u64 max_data; /* peer-advertised send limit */
 } quic_flow_send;
 
 typedef struct {
-    u64 consumed; /* cumulative bytes delivered to the application */
-    u64 max_data; /* limit advertised to the peer */
-    u64 window;   /* how far ahead of consumed to keep the limit */
+  u64 consumed; /* cumulative bytes delivered to the application */
+  u64 max_data; /* limit advertised to the peer */
+  u64 window;   /* how far ahead of consumed to keep the limit */
 } quic_flow_recv;
 
 void quic_flow_send_init(quic_flow_send *f, u64 max_data);

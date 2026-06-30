@@ -10,7 +10,7 @@
 
 /* 1 if a key update may begin now: handshake confirmed and 3*PTO elapsed
  * since last_update. */
-int quic_keyupdate_may_initiate(int handshake_confirmed, u64 last_update,
-                                u64 now, u64 pto);
+int quic_keyupdate_may_initiate(
+    int handshake_confirmed, u64 last_update, u64 now, u64 pto);
 
 #endif

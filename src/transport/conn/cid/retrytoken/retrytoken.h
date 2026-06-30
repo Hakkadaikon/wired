@@ -13,17 +13,23 @@
 
 /* Generate a Retry token for a client address and original DCID under the
  * server key. */
-void quic_retrytoken_make(const u8 key[QUIC_RETRYTOKEN_KEY],
-                          const u8 *addr, usz addr_len,
-                          const u8 *odcid, usz odcid_len,
-                          u8 token[QUIC_RETRYTOKEN_LEN]);
+void quic_retrytoken_make(
+    const u8  key[QUIC_RETRYTOKEN_KEY],
+    const u8 *addr,
+    usz       addr_len,
+    const u8 *odcid,
+    usz       odcid_len,
+    u8        token[QUIC_RETRYTOKEN_LEN]);
 
 /* Validate a presented token: it must equal the token the server would have
  * generated for this address and original DCID. Constant-time. Returns 1 if
  * valid. */
-int quic_retrytoken_verify(const u8 key[QUIC_RETRYTOKEN_KEY],
-                           const u8 *addr, usz addr_len,
-                           const u8 *odcid, usz odcid_len,
-                           const u8 token[QUIC_RETRYTOKEN_LEN]);
+int quic_retrytoken_verify(
+    const u8  key[QUIC_RETRYTOKEN_KEY],
+    const u8 *addr,
+    usz       addr_len,
+    const u8 *odcid,
+    usz       odcid_len,
+    const u8  token[QUIC_RETRYTOKEN_LEN]);
 
 #endif

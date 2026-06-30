@@ -9,10 +9,10 @@
 #define QUIC_RTT_GRANULARITY 1000  /* kGranularity = 1ms */
 
 typedef struct {
-    u64 min_rtt;
-    u64 smoothed_rtt;
-    u64 rttvar;
-    int have_sample;
+  u64 min_rtt;
+  u64 smoothed_rtt;
+  u64 rttvar;
+  int have_sample;
 } quic_rtt;
 
 void quic_rtt_init(quic_rtt *r);

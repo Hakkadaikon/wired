@@ -10,8 +10,13 @@
 
 /* Writes the frame to out (cap bytes) and the length to *out_len. Returns 1 on
  * success, 0 on overflow. reason may be 0 when reason_len is 0. */
-int quic_flowviol_close_frame(u64 error_code, u64 frame_type,
-                              const u8 *reason, usz reason_len,
-                              u8 *out, usz cap, usz *out_len);
+int quic_flowviol_close_frame(
+    u64       error_code,
+    u64       frame_type,
+    const u8 *reason,
+    usz       reason_len,
+    u8       *out,
+    usz       cap,
+    usz      *out_len);
 
 #endif

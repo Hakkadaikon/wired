@@ -1,8 +1,8 @@
 #ifndef QUIC_FULLHS_FULLHS_H
 #define QUIC_FULLHS_FULLHS_H
 
-#include "tls/handshake/core/tlsdriver/tlsdriver.h"
 #include "crypto/symmetric/hash/hash/sha256.h"
+#include "tls/handshake/core/tlsdriver/tlsdriver.h"
 
 /* Upper bound on the buffered handshake transcript (CH..our Finished). */
 #define QUIC_FULLHS_TRANSCRIPT_MAX 4096
@@ -20,15 +20,15 @@
  * layer just sequences them and owns the cumulative Transcript-Hash. */
 
 typedef struct {
-    quic_tlsdriver *tls;       /* handshake-secret-ready driver, borrowed */
-    u8 tr[QUIC_FULLHS_TRANSCRIPT_MAX];  /* raw transcript bytes, CH onward */
-    usz tr_len;
-    usz master_tr_len;         /* transcript length through the server Finished */
-    int is_server;
-    u8 hs_traffic_peer[QUIC_HKDF_PRK];  /* peer-direction hs traffic secret */
-    u8 hs_traffic_self[QUIC_HKDF_PRK];  /* own-direction hs traffic secret */
-    const u8 *peer_cert;       /* end-entity cert from the Certificate msg */
-    usz peer_cert_len;
+  quic_tlsdriver *tls; /* handshake-secret-ready driver, borrowed */
+  u8  tr[QUIC_FULLHS_TRANSCRIPT_MAX]; /* raw transcript bytes, CH onward */
+  usz tr_len;
+  usz master_tr_len; /* transcript length through the server Finished */
+  int is_server;
+  u8  hs_traffic_peer[QUIC_HKDF_PRK]; /* peer-direction hs traffic secret */
+  u8  hs_traffic_self[QUIC_HKDF_PRK]; /* own-direction hs traffic secret */
+  const u8 *peer_cert; /* end-entity cert from the Certificate msg */
+  usz       peer_cert_len;
 } quic_fullhs;
 
 /* Seed the full handshake driver from a tlsdriver that has reached the
@@ -36,8 +36,8 @@ typedef struct {
  * EncryptedExtensions, if any) message bytes already folded into the schedule;
  * it fixes the handshake traffic secrets and the Finished/Certificate base
  * hash. Returns 1 on success, 0 if the tlsdriver is not handshake-ready. */
-int quic_fullhs_init(quic_fullhs *h, quic_tlsdriver *tls,
-                     const u8 *transcript_sh, usz sh_len);
+int quic_fullhs_init(
+    quic_fullhs *h, quic_tlsdriver *tls, const u8 *transcript_sh, usz sh_len);
 
 /* RFC 8446 4.4.2: fold the peer's Certificate message into the transcript and
  * record its end-entity certificate, checking flight order. Returns 1 if
@@ -48,8 +48,8 @@ int quic_fullhs_recv_cert(quic_fullhs *h, const u8 *cert_msg, usz len);
  * transcript hash (through Certificate) using the recorded certificate, then
  * fold the message in and open the authentication gate. Returns 1 if the
  * signature verifies and the gate opened, 0 otherwise. */
-int quic_fullhs_recv_certverify(quic_fullhs *h, const u8 *cv_msg, usz len,
-                                u16 scheme);
+int quic_fullhs_recv_certverify(
+    quic_fullhs *h, const u8 *cv_msg, usz len, u16 scheme);
 
 /* RFC 8446 4.4.4: check the peer's Finished verify_data against the transcript
  * (through CertificateVerify), fold it in, and complete the handshake. Returns

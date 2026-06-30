@@ -4,7 +4,7 @@
 #include "common/platform/sys/syscall.h"
 
 #define QUIC_O_NONBLOCK 0x800 /* O_NONBLOCK */
-#define QUIC_F_SETFL    4     /* fcntl cmd F_SETFL */
+#define QUIC_F_SETFL 4        /* fcntl cmd F_SETFL */
 
 /* Add O_NONBLOCK to flags (fd-independent, for testing). */
 u32 quic_poll_nonblock_flags(u32 flags);

@@ -10,9 +10,9 @@
  * empty dynamic table it is 0 and the wire value is 0. Delta Base together with
  * the Sign bit yields the Base relative to Required Insert Count. */
 typedef struct {
-    u64 required_insert_count; /* wire-encoded value (0 when table is empty) */
-    u8 sign;                   /* S bit: 0 Base >= ReqInsertCount, 1 below */
-    u64 delta_base;
+  u64 required_insert_count; /* wire-encoded value (0 when table is empty) */
+  u8  sign;                  /* S bit: 0 Base >= ReqInsertCount, 1 below */
+  u64 delta_base;
 } quic_qpack_prefix;
 
 /* Encode the prefix into buf of cap bytes. Returns bytes written or 0. */

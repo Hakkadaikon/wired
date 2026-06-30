@@ -9,9 +9,9 @@
  * the previous one is acknowledged. */
 
 typedef struct {
-    u64 gen;           /* current send key generation */
-    u64 lowest;        /* lowest retained generation (gen-1 or gen) */
-    int updating;      /* 1 while an initiated update is unacknowledged */
+  u64 gen;      /* current send key generation */
+  u64 lowest;   /* lowest retained generation (gen-1 or gen) */
+  int updating; /* 1 while an initiated update is unacknowledged */
 } quic_keyupdate;
 
 void quic_keyupdate_init(quic_keyupdate *k);

@@ -6,7 +6,7 @@
 /* RFC 8446 4.4.1: cumulative Transcript-Hash over handshake messages. */
 
 typedef struct {
-    quic_sha256_ctx h;
+  quic_sha256_ctx h;
 } quic_transcript;
 
 void quic_transcript_init(quic_transcript *t);

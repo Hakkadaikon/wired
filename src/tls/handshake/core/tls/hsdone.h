@@ -8,7 +8,7 @@
 
 int quic_hs_complete(int finished_verified, int finished_sent);
 
-int quic_hs_confirmed(int is_server, int handshake_done_sent,
-                      int handshake_done_received);
+int quic_hs_confirmed(
+    int is_server, int handshake_done_sent, int handshake_done_received);
 
 #endif

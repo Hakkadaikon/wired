@@ -12,16 +12,16 @@
 #define QUIC_PATH_COUNT 2
 
 typedef struct {
-    u64 challenge;   /* outstanding PATH_CHALLENGE payload; 0 = none sent */
-    u64 bytes_sent;
-    u64 bytes_received;
-    u8  validated;
-    u8  confirmed;
+  u64 challenge; /* outstanding PATH_CHALLENGE payload; 0 = none sent */
+  u64 bytes_sent;
+  u64 bytes_received;
+  u8  validated;
+  u8  confirmed;
 } quic_path_state;
 
 typedef struct {
-    quic_path_state paths[QUIC_PATH_COUNT];
-    usz active;      /* index of the active path */
+  quic_path_state paths[QUIC_PATH_COUNT];
+  usz             active; /* index of the active path */
 } quic_path;
 
 void quic_path_init(quic_path *p);

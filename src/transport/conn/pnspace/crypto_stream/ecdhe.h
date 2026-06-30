@@ -10,8 +10,9 @@
 #define QUIC_ECDHE_LEN 32
 
 /* shared = X25519(my_priv, peer_pub), all 32-byte little-endian. */
-void quic_crypto_stream_ecdhe(const u8 my_priv[QUIC_ECDHE_LEN],
-                              const u8 peer_pub[QUIC_ECDHE_LEN],
-                              u8 shared[QUIC_ECDHE_LEN]);
+void quic_crypto_stream_ecdhe(
+    const u8 my_priv[QUIC_ECDHE_LEN],
+    const u8 peer_pub[QUIC_ECDHE_LEN],
+    u8       shared[QUIC_ECDHE_LEN]);
 
 #endif

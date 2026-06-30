@@ -1,11 +1,11 @@
 #include "app/qpack/qpackdyn/field_encode.h"
+
 #include "app/qpack/qpack/fieldline.h"
 
-usz quic_qdyn_indexed_dynamic(u64 rel_index, u8 *out, usz cap, usz *out_len)
-{
-    /* RFC 9204 4.5.2: is_static=0 selects the dynamic table (T=0). */
-    usz w = quic_qpack_indexed_encode(out, cap, rel_index, 0);
-    if (w == 0) return 0;
-    *out_len = w;
-    return w;
+usz quic_qdyn_indexed_dynamic(u64 rel_index, u8 *out, usz cap, usz *out_len) {
+  /* RFC 9204 4.5.2: is_static=0 selects the dynamic table (T=0). */
+  usz w = quic_qpack_indexed_encode(out, cap, rel_index, 0);
+  if (w == 0) return 0;
+  *out_len = w;
+  return w;
 }

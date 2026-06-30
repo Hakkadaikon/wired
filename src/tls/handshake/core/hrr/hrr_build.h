@@ -15,7 +15,12 @@ extern const u8 quic_hrr_random[32];
  * the client must retry with; cookie (cookie_len bytes, may be 0/NULL) is
  * echoed in a cookie extension. On success writes the total message length to
  * *out_len and returns 1; returns 0 if it does not fit. */
-int quic_hrr_build(u16 selected_group, const u8 *cookie, usz cookie_len,
-                   u8 *out, usz cap, usz *out_len);
+int quic_hrr_build(
+    u16       selected_group,
+    const u8 *cookie,
+    usz       cookie_len,
+    u8       *out,
+    usz       cap,
+    usz      *out_len);
 
 #endif

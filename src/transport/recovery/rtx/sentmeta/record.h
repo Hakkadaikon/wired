@@ -10,26 +10,31 @@
 #define QUIC_SENTMETA_CAP 256
 
 typedef struct {
-    u64 pn;
-    u64 time_sent;
-    usz sent_bytes;
-    int ack_eliciting;
-    int in_flight;
-    int used;
+  u64 pn;
+  u64 time_sent;
+  usz sent_bytes;
+  int ack_eliciting;
+  int in_flight;
+  int used;
 } quic_sentmeta_pkt;
 
 typedef struct {
-    quic_sentmeta_pkt pkts[QUIC_SENTMETA_CAP];
-    usz count;
-    usz total_in_flight;
+  quic_sentmeta_pkt pkts[QUIC_SENTMETA_CAP];
+  usz               count;
+  usz               total_in_flight;
 } quic_sentmeta;
 
 void quic_sentmeta_init(quic_sentmeta *m);
 
 /* RFC 9002 A.1 OnPacketSent: record one sent packet. Adds sent_bytes to
  * total_in_flight when the packet is in_flight. Returns 1, or 0 if full. */
-int quic_sentmeta_on_sent(quic_sentmeta *m, u64 pn, u64 time_sent,
-                          int ack_eliciting, int in_flight, usz sent_bytes);
+int quic_sentmeta_on_sent(
+    quic_sentmeta *m,
+    u64            pn,
+    u64            time_sent,
+    int            ack_eliciting,
+    int            in_flight,
+    usz            sent_bytes);
 
 /* Reclaim slot i: drop its bytes from total_in_flight and free the slot.
  * Shared by ACK (acked) and loss detection (lost) so the in-flight

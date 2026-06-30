@@ -7,7 +7,7 @@
  * a QPACK-encoded field section. View the first HEADERS frame's payload in
  * place (no copy). Returns 1 if the stream starts with a HEADERS frame, else 0
  * (a different first frame, or truncation). */
-int quic_h3req_recv_first_headers(const u8 *stream, usz len,
-                                  const u8 **field_section, usz *fs_len);
+int quic_h3req_recv_first_headers(
+    const u8 *stream, usz len, const u8 **field_section, usz *fs_len);
 
 #endif

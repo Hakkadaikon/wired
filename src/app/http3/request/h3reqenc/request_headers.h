@@ -8,14 +8,27 @@
  * pseudo-headers in the order :method, :scheme, :authority, :path with
  * :method = GET and :scheme = https. The given authority and path become the
  * :authority and :path values. Returns 1 with *out_len set, 0 on overflow. */
-int quic_h3req_enc_get(const u8 *path, usz p_len, const u8 *authority,
-                       usz a_len, u8 *out, usz cap, usz *out_len);
+int quic_h3req_enc_get(
+    const u8 *path,
+    usz       p_len,
+    const u8 *authority,
+    usz       a_len,
+    u8       *out,
+    usz       cap,
+    usz      *out_len);
 
 /* RFC 9114 4.3.1 / RFC 9204 4.5. Like quic_h3req_enc_get but for an arbitrary
  * :method (GET, HEAD, POST, ...); :scheme stays https. Returns 1 with *out_len
  * set, 0 on overflow. */
-int quic_h3req_enc_method(const u8 *method, usz m_len, const u8 *path,
-                          usz p_len, const u8 *authority, usz a_len, u8 *out,
-                          usz cap, usz *out_len);
+int quic_h3req_enc_method(
+    const u8 *method,
+    usz       m_len,
+    const u8 *path,
+    usz       p_len,
+    const u8 *authority,
+    usz       a_len,
+    u8       *out,
+    usz       cap,
+    usz      *out_len);
 
 #endif

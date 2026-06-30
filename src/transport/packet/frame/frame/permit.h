@@ -9,10 +9,10 @@
  * violation. */
 
 typedef enum {
-    QUIC_PKT_INITIAL = 0,
-    QUIC_PKT_HANDSHAKE,
-    QUIC_PKT_0RTT,
-    QUIC_PKT_1RTT
+  QUIC_PKT_INITIAL = 0,
+  QUIC_PKT_HANDSHAKE,
+  QUIC_PKT_0RTT,
+  QUIC_PKT_1RTT
 } quic_packet_type;
 
 /* Whether a frame of this kind is permitted in the given packet type. */

@@ -2,7 +2,6 @@
 #define QUIC_RTXBYTES_COLLECT_H
 
 #include "common/platform/sys/syscall.h"
-
 #include "transport/recovery/rtx/rtxbytes/rtxstore.h"
 
 /* RFC 9002 6, 13.3: given the packet numbers declared lost, look up each
@@ -12,7 +11,12 @@
 
 /* Returns 1 on success with *out_len set to the concatenated length, or 0 if
  * out is too small. */
-int quic_rtxbytes_collect(const quic_rtxbytes *st, const u64 *lost_pns,
-                          usz n, u8 *out, usz cap, usz *out_len);
+int quic_rtxbytes_collect(
+    const quic_rtxbytes *st,
+    const u64           *lost_pns,
+    usz                  n,
+    u8                  *out,
+    usz                  cap,
+    usz                 *out_len);
 
 #endif

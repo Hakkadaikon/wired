@@ -7,9 +7,9 @@
 
 /* struct pollfd as the kernel expects it (events/revents are short). */
 typedef struct {
-    i32 fd;
-    u16 events;
-    u16 revents;
+  i32 fd;
+  u16 events;
+  u16 revents;
 } quic_pollfd;
 
 /* Fill a pollfd for read-readiness on fd (fd-independent, for testing). */
