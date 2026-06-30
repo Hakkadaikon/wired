@@ -4,6 +4,20 @@
 #include "h3srv/respond.h"
 #include "pipeline/framewalk.h"
 #include "util/bytes.h"
+#include "util/dbgdump.h"
+
+/* ponytail: temporary. REQ-STREAMS[id=<n> off=<o> len=<l>] for one gathered
+ * STREAM frame. Remove with the rest of the POST-body diagnostics. */
+static void dbg_req_stream(const quic_stream_frame *sf)
+{
+    quic_dbg_str("REQ-STREAMS[id=");
+    quic_dbg_u64(sf->stream_id);
+    quic_dbg_str(" off=");
+    quic_dbg_u64(sf->offset);
+    quic_dbg_str(" len=");
+    quic_dbg_u64(sf->length);
+    quic_dbg_str("]\n");
+}
 
 /* RFC 9000 19.8: STREAM frame types occupy 0x08..0x0f. */
 static int is_stream(u64 type)
@@ -55,6 +69,7 @@ static void gather_one(const u8 *frame, usz rem, u8 *buf, usz cap, usz *off,
     quic_stream_frame sf;
     if (!quic_frame_get_stream(frame, rem, &sf))
         return;
+    dbg_req_stream(&sf);
     quic_put_bytes(buf, cap, off, sf.data, (usz)sf.length);
     *fin |= sf.fin;
 }
@@ -92,6 +107,9 @@ static int reassemble_and_drive(quic_h3srv_state *h3, const u8 *payload,
     dlen = gather_request(payload, len, data, sizeof data, &fin);
     if (!dlen)
         return 0;
+    quic_dbg_str("REQ-PYLD[");      /* ponytail: temporary POST-body diag */
+    quic_dbg_hex(data, dlen);
+    quic_dbg_str("]\n");
     if (!quic_appdata_stream_frame(0, 0, data, dlen, fin, wrap, sizeof wrap,
                                    &wlen))
         return 0;

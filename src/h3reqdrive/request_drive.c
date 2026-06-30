@@ -8,6 +8,7 @@
 #include "qpack/literal.h"
 #include "qpack/prefix.h"
 #include "qpack/static_table.h"
+#include "util/dbgdump.h"
 
 /* RFC 9114 4.1 / 4.3.1, RFC 9204 4.5 */
 int quic_h3reqdrive_send_method(u64 stream_id, const u8 *method, usz m_len,
@@ -197,7 +198,23 @@ static int find_headers(const u8 *h3, usz n, const u8 **fs, usz *fs_len,
     }
     *fs_len = (usz)plen;
     *end = off;
+    quic_dbg_str("FIND-HEADERS[end=");   /* ponytail: temporary POST-body diag */
+    quic_dbg_u64((u64)off);
+    quic_dbg_str("]\n");
     return 1;
+}
+
+/* ponytail: temporary. FIND-BODY[off=<n> n=<n> type=<t>] for one frame the
+ * body walk sees. Remove with the rest of the POST-body diagnostics. */
+static void dbg_find_body(usz off, usz n, u64 type)
+{
+    quic_dbg_str("FIND-BODY[off=");
+    quic_dbg_u64((u64)off);
+    quic_dbg_str(" n=");
+    quic_dbg_u64((u64)n);
+    quic_dbg_str(" type=");
+    quic_dbg_u64(type);
+    quic_dbg_str("]\n");
 }
 
 /* Decode the frame at *off; on a DATA frame view its body into r and stop.
@@ -210,6 +227,7 @@ static int body_step(const u8 *h3, usz n, usz *off, quic_h3reqdrive_req *r)
     usz used = quic_h3_frame_get(h3 + *off, n - *off, &type, &pl, &plen);
     if (!used)
         return 0;
+    dbg_find_body(*off, n, type);
     *off += used;
     if (type != QUIC_H3_FRAME_DATA)
         return -1;
@@ -249,6 +267,19 @@ static int request_sections(const u8 *stream_data, usz len, const u8 **fs,
     return find_body(f.data, (usz)f.length, end, r);
 }
 
+/* ponytail: temporary. REQ-METHOD[<hex>] REQ-BODY[len=<n> <hex>] for the
+ * extracted method/body. Remove with the rest of the POST-body diagnostics. */
+static void dbg_method_body(const quic_h3reqdrive_req *r)
+{
+    quic_dbg_str("REQ-METHOD[");
+    quic_dbg_hex(r->method, r->method_len);
+    quic_dbg_str("] REQ-BODY[len=");
+    quic_dbg_u64((u64)r->body_len);
+    quic_dbg_str(" ");
+    quic_dbg_hex(r->body, r->body_len);
+    quic_dbg_str("]\n");
+}
+
 /* RFC 9114 4.1, RFC 9204 4.5 */
 int quic_h3reqdrive_recv_get(const u8 *stream_data, usz len,
                              u8 *scratch, usz scap, quic_h3reqdrive_req *r)
@@ -258,5 +289,8 @@ int quic_h3reqdrive_recv_get(const u8 *stream_data, usz len,
     *r = (quic_h3reqdrive_req){0};
     if (!request_sections(stream_data, len, &fs, &fs_len, r))
         return 0;
-    return decode_lines(fs, fs_len, scratch, scap, r);
+    if (!decode_lines(fs, fs_len, scratch, scap, r))
+        return 0;
+    dbg_method_body(r);
+    return 1;
 }
