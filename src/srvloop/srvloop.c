@@ -13,7 +13,6 @@
 #include "srvloop/send.h"
 #include "udploop/rxloop.h"
 
-#define QUIC_SRVLOOP_SCRATCH 512
 #define QUIC_SRVLOOP_RESP_STREAM 0
 #define QUIC_SRVLOOP_CTRL_STREAM 3 /* RFC 9114 6.2.1: first server uni stream */
 #define QUIC_SRVLOOP_MAXPKTS 8     /* coalesced packets per datagram (RFC 9000 12.2) */
