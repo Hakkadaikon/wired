@@ -104,16 +104,13 @@ static void log_alpn(const u8 *ch, usz ch_len)
         logs("ALPN: h3 not offered\n");
 }
 
-/* Seal a packet and, if non-empty, send it with a log line. The send result is
- * logged so a failed sendto (e.g. EPERM from a firewall, EINVAL) is visible
- * instead of silently swallowed. */
+/* Seal a packet and, if non-empty, send it with a log line. */
 static void send_pkt(i64 fd, const quic_sockaddr_in *peer, const u8 *pkt,
                      usz n, const char *what)
 {
     if (n) {
-        i64 r = quic_udp_send(fd, peer, pkt, n);
+        quic_udp_send(fd, peer, pkt, n);
         logs(what);
-        logs(r < 0 ? "  -> sendto FAILED\n" : "  -> sendto ok\n");
     }
 }
 
@@ -251,20 +248,14 @@ static void log_confirmed(quic_server *s)
         logs("handshake confirmed\n");
 }
 
-/* A later datagram: run one real-wire step and send any sealed reply. The step
- * result is logged so a failed QPACK decode or a dropped 1-RTT GET is visible
- * instead of a silent "confirmed" stall. */
+/* A later datagram: run one real-wire step and send any sealed reply (the
+ * HANDSHAKE_DONE confirmation, or a :status 200 to a decoded GET). */
 static void on_step(i64 fd, const quic_sockaddr_in *peer, quic_server *s,
                     quic_srvloop *l, u8 *dg, usz len)
 {
     u8 out[1500];
     usz n = 0;
-    int got = quic_srvloop_step(l, s, dg, len, out, sizeof out, &n);
-    logs("post-confirm datagram received\n");
-    logs(l->last_1rtt_open_ok ? "  -> 1-RTT open ok\n"
-                              : "  -> 1-RTT open FAILED\n");
-    logs(l->h3.request_seen ? "  -> GET decoded\n" : "  -> GET not decoded\n");
-    if (!got)
+    if (!quic_srvloop_step(l, s, dg, len, out, sizeof out, &n))
         return;
     send_pkt(fd, peer, out, n, "1-RTT reply sealed and sent\n");
     log_confirmed(s);
