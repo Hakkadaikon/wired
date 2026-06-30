@@ -142,16 +142,43 @@ static void test_cw_onertt_roundtrip(void)
                             &data, &dlen, &fin) == 1);
     CHECK(sid == 4 && dlen == sizeof(get));
 
-    /* server 200 sealed with SERVER_AP; client opens with SERVER_AP. */
+    /* server 200 sealed with SERVER_AP; its DCID is the client's SCID (RFC 9000
+     * 5.1), so the client opens it with SERVER_AP and accepts the DCID. */
     CHECK(quic_keysched_get(&c.tls.ks, QUIC_KS_SERVER_AP, &sap) == 1);
     quic_aes128_init(&hp, sap->hp);
-    CHECK(quic_appdata_send(sap, &hp, cw_dcid, 8, 0, 0, ok, sizeof(ok), 1,
+    CHECK(quic_appdata_send(sap, &hp, cw_scid, 4, 0, 0, ok, sizeof(ok), 1,
                             pkt, sizeof(pkt), &total) == 1);
-    CHECK(quic_client_recv_appdata_wire(&c, pkt, total, 8, &sid, &off,
+    CHECK(quic_client_recv_appdata_wire(&c, pkt, total, cw_scid, 4, &sid, &off,
                                         &data, &dlen, &fin) == 1);
     CHECK(dlen == sizeof(ok) && fin == 1);
     for (usz i = 0; i < sizeof(ok); i++)
         CHECK(data[i] == ok[i]);
+}
+
+/* RFC 9000 5.1 (#28): a server reply whose DCID is NOT the client's SCID (the
+ * mix-up bug — the server echoed some other id) is dropped before the AEAD even
+ * runs, so a misrouted reply cannot be mistaken for ours. This is the check curl
+ * applies; wiring it into the in-tree client surfaces the mix-up in tests. */
+static void test_cw_onertt_wrong_dcid_dropped(void)
+{
+    quic_client c;
+    const u8 ok[] = {'2', '0', '0'};
+    const u8 not_ours[4] = {0xaa, 0xbb, 0xcc, 0xdd};
+    u8 pkt[256];
+    usz total = 0, dlen = 0;
+    u64 sid = 0, off = 0;
+    const u8 *data = 0;
+    int fin = 0;
+    const quic_initial_keys *sap;
+    quic_aes128 hp;
+    cw_derive_keys(&c);
+    CHECK(quic_keysched_get(&c.tls.ks, QUIC_KS_SERVER_AP, &sap) == 1);
+    quic_aes128_init(&hp, sap->hp);
+    /* a validly sealed 200, but addressed to a DCID that is not our SCID. */
+    CHECK(quic_appdata_send(sap, &hp, not_ours, 4, 0, 0, ok, sizeof(ok), 1,
+                            pkt, sizeof(pkt), &total) == 1);
+    CHECK(quic_client_recv_appdata_wire(&c, pkt, total, cw_scid, 4, &sid, &off,
+                                        &data, &dlen, &fin) == 0);
 }
 
 void test_client_wire(void)
@@ -161,4 +188,5 @@ void test_client_wire(void)
     test_cw_handshake_roundtrip();
     test_cw_wrong_direction_fails();
     test_cw_onertt_roundtrip();
+    test_cw_onertt_wrong_dcid_dropped();
 }

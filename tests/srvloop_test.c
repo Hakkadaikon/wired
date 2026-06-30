@@ -355,6 +355,43 @@ static void test_srvloop_full_roundtrip(void)
     }
 }
 
+/* RFC 9000 17.3: the DCID of a short-header packet is out[1 .. 1+len], in the
+ * clear (header protection masks only byte0 and the packet number). */
+static int onertt_dcid_is(const u8 *pkt, const u8 *cid, u8 len)
+{
+    for (u8 i = 0; i < len; i++)
+        if (pkt[1 + i] != cid[i])
+            return 0;
+    return 1;
+}
+
+/* RESPONSE DCID = CLIENT SCID (#28, RFC 9000 5.1 / 17.2): the server writes the
+ * client's SCID — NOT the client's DCID — as the DCID of every reply, so a peer
+ * that checks the reply DCID against its own SCID (curl does) accepts it. The
+ * loop is seeded with a SCID distinct from g_cli_scid (the client DCID stand-in)
+ * to prove the reply carries the SCID, not the DCID. */
+static void test_srvloop_response_dcid_is_client_scid(void)
+{
+    static const u8 cli_scid[6] = {'S', 'C', 'I', 'D', '0', '1'};
+    struct lp_fix f;
+    u8 cpkt[1024], out[1024];
+    usz clen, out_len = 0;
+    const u8 *pkts[4];
+    usz offs[4], lens[4], np;
+    lp_make_client_hello(&f);
+    lp_drive_to_flight(&f);
+    /* re-seed the loop with the client's SCID (distinct from g_cli_scid). */
+    CHECK(quic_srvloop_init(&f.l, cli_scid, 6) == 1);
+    lp_make_client_finished(&f);
+    clen = client_seal_handshake(&f, f.cli_fin, f.cli_fin_len, cpkt, sizeof cpkt);
+    CHECK(quic_srvloop_step(&f.l, &f.s, cpkt, clen, out, sizeof out,
+                            &out_len) == 1);
+    np = quic_udploop_split(out, out_len, pkts, offs, lens, 4);
+    CHECK(np == 2);                                  /* Handshake ACK + 1-RTT */
+    CHECK(onertt_dcid_is(out + offs[1], cli_scid, 6));   /* DCID == client SCID */
+    CHECK(!onertt_dcid_is(out + offs[1], g_cli_scid, 6));/* NOT the client DCID */
+}
+
 /* Client role: seal a 1-RTT STREAM payload at an explicit packet number. */
 static usz client_seal_onertt_pn(struct lp_fix *f, u64 pn, const u8 *pl, usz pln,
                                  u8 *pkt, usz cap)
@@ -705,6 +742,7 @@ void test_srvloop(void)
     test_srvloop_no_onertt_seal_before_confirm();
     test_srvloop_forged_finished_no_promote();
     test_srvloop_full_roundtrip();
+    test_srvloop_response_dcid_is_client_scid();
     test_srvloop_dispatch_padding_before_crypto();
     test_srvloop_padding_before_stream();
     test_srvloop_coalesced_finished_behind_leading();
