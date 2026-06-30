@@ -711,8 +711,70 @@ static void test_srvloop_dispatch_get_after_uni_streams(void)
     CHECK(got == 1);
 }
 
+/* A test handler: echo the request body into body_out (RFC 9110 9.3.3 POST
+ * semantics — the resource is the message). Also accumulates every body it
+ * sees into a history buffer the GET case can return, exercising the contract
+ * the example server relies on. */
+static u8 g_test_history[256];
+static usz g_test_history_len;
+
+static int lp_echo_handler(void *ctx, const quic_h3reqdrive_req *req,
+                           u8 *body_out, usz cap, usz *body_len)
+{
+    usz i;
+    (void)ctx;
+    for (i = 0; i < req->body_len && i < cap; i++)
+        body_out[i] = req->body[i];
+    *body_len = i;
+    for (i = 0; i < req->body_len && g_test_history_len < sizeof g_test_history; i++)
+        g_test_history[g_test_history_len++] = req->body[i];
+    return 1;
+}
+
+/* Send a POST with `body` over 1-RTT and return the decoded response body via
+ * the client decoder. Asserts a 200 with the echoed body reaches the client. */
+static void lp_post_echo(struct lp_fix *f, const u8 *body, usz blen)
+{
+    u8 out[1024], reqb[512], spkt[1024];
+    usz out_len = 0, rlen, slen, rb_len;
+    const u8 *pl, *rb;
+    u16 status = 0;
+    CHECK(quic_h3reqdrive_send_method(0, (const u8 *)"POST", 4, (const u8 *)"/", 1,
+                                      (const u8 *)"h", 1, body, blen,
+                                      reqb, sizeof reqb, &rlen));
+    slen = client_seal_onertt(f, reqb, rlen, spkt, sizeof spkt);
+    CHECK(quic_srvloop_step(&f->l, &f->s, spkt, slen, out, sizeof out,
+                            &out_len) == 1);
+    CHECK(client_open_onertt(f, out, out_len, &pl, &rlen) == 1);
+    CHECK(quic_h3conn_recv_response(pl, rlen, &status, &rb, &rb_len) == 1);
+    CHECK(status == 200);
+    CHECK(rb_len == blen);
+    for (slen = 0; slen < blen; slen++)
+        CHECK(rb[slen] == body[slen]);
+    (void)out_len;
+}
+
+/* HANDLER BODY ON THE WIRE (RFC 9110 9.3.3): with a handler registered, a POST
+ * gets a 200 whose body is the echoed request body — proving the handler's
+ * output reaches the sealed response, not the old body-less 200. */
+static void test_srvloop_handler_body_echoed(void)
+{
+    struct lp_fix f;
+    u8 out[1024];
+    usz out_len = 0;
+    g_test_history_len = 0;
+    lp_confirm(&f, out, sizeof out, &out_len);
+    quic_srvloop_set_handler(&f.l, lp_echo_handler, 0);
+    lp_post_echo(&f, (const u8 *)"hello", 5);
+    /* history accumulates across POSTs (the GET case returns this). */
+    lp_post_echo(&f, (const u8 *)"world", 5);
+    CHECK(g_test_history_len == 10);
+    CHECK(g_test_history[0] == 'h' && g_test_history[9] == 'd');
+}
+
 void test_srvloop(void)
 {
+    test_srvloop_handler_body_echoed();
     test_srvloop_dispatch_uni_streams_not_request();
     test_srvloop_dispatch_get_after_uni_streams();
     test_srvloop_send_initial_roundtrip();
