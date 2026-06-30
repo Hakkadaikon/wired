@@ -32,8 +32,18 @@ void quic_fp_sub(p256_fe r, const p256_fe a, const p256_fe b, const p256_fe m);
 void quic_fp_mul(p256_fe r, const p256_fe a, const p256_fe b, const p256_fe m);
 void quic_fp_sqr(p256_fe r, const p256_fe a, const p256_fe m);
 
+/* r = (a * b) mod p, r = (a * a) mod p, using the fast FIPS 186-4 D.2.5 Solinas
+ * reduction specialised to the P-256 prime. Equivalent to quic_fp_mul(.,.,p)
+ * but ~100x faster; the modulus is fixed to p (NOT usable for the order n). */
+void quic_fp_mul_p(p256_fe r, const p256_fe a, const p256_fe b);
+void quic_fp_sqr_p(p256_fe r, const p256_fe a);
+
 /* r = a^-1 mod m via a^(m-2); m must be prime. */
 void quic_fp_inv(p256_fe r, const p256_fe a, const p256_fe m);
+
+/* r = a^-1 mod p via the fast Solinas mul (Fermat). Equivalent to
+ * quic_fp_inv(., ., p) but far faster; modulus fixed to p. */
+void quic_fp_inv_p(p256_fe r, const p256_fe a);
 
 /* Big-endian 32-byte load/store (wire format for r, s, coordinates). */
 void quic_fp_from_be(p256_fe r, const u8 b[32]);
