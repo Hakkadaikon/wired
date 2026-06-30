@@ -24,4 +24,23 @@ static inline int quic_take_bytes(
   return 1;
 }
 
+/* Freestanding byte fill / copy. Even under -ffreestanding -fno-builtin the
+ * compiler still emits `memcpy`/`memset` calls for struct and array
+ * copies/zeroing (e.g. modexp.c, ed25519_sign.c, respond.c), and with
+ * -nostdlib no libc supplies them. The SDK owns these primitives; each
+ * freestanding binary's mandatory libc-named `memcpy`/`memset` shim (the symbol
+ * names the compiler hard-codes) just forwards to these. */
+static inline void *quic_memcpy(void *dst, const void *src, usz n) {
+  u8       *d = dst;
+  const u8 *s = src;
+  for (usz i = 0; i < n; i++) d[i] = s[i];
+  return dst;
+}
+
+static inline void *quic_memset(void *dst, int c, usz n) {
+  u8 *d = dst;
+  for (usz i = 0; i < n; i++) d[i] = (u8)c;
+  return dst;
+}
+
 #endif
