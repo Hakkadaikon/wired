@@ -20,6 +20,7 @@ typedef u64            usz;
 #define SYS_recvfrom  45
 #define SYS_bind      49
 #define SYS_exit      60
+#define SYS_clock_gettime 228
 #define SYS_getrandom 318
 
 static inline i64 syscall6(i64 n, i64 a, i64 b, i64 c, i64 d, i64 e, i64 f)
