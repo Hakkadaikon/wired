@@ -19,9 +19,6 @@ typedef struct {
     u64 app_rx_pn;  /* last received 1-RTT (application) packet number to ACK */
     int app_rx_seen;/* 1 once a 1-RTT packet has been received (app_rx_pn valid) */
     int hs_done_sent;/* 1 once the confirmation (HANDSHAKE_DONE) has been emitted */
-    int last_1rtt_open_ok;/* diagnostics: did any 1-RTT slice of the last stepped
-                           * datagram decrypt? distinguishes AEAD-open failure
-                           * from a later QPACK/HTTP3 decode failure (RFC 9001 5.1) */
 } quic_srvloop;
 
 /* Record the client's source connection id (the DCID for server-sent packets)

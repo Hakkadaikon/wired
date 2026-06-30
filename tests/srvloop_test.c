@@ -711,30 +711,8 @@ static void test_srvloop_dispatch_get_after_uni_streams(void)
     CHECK(got == 1);
 }
 
-/* DIAGNOSTICS: a genuine 1-RTT GET decrypts, so last_1rtt_open_ok latches to 1;
- * corrupting the same packet's ciphertext makes the AEAD open fail while it stays
- * a short-header (ONERTT) packet, so the diagnostic reports 0 (RFC 9001 5.1). */
-static void test_srvloop_records_1rtt_open(void)
-{
-    struct lp_fix f;
-    u8 out[1024], get[512], spkt[1024];
-    usz out_len = 0, glen, slen;
-    lp_confirm(&f, out, sizeof out, &out_len);
-    CHECK(quic_h3reqdrive_send_get(0, (const u8 *)"/", 1,
-                                   (const u8 *)"h", 1, get, sizeof get, &glen));
-    slen = client_seal_onertt(&f, get, glen, spkt, sizeof spkt);
-    out_len = 0;
-    quic_srvloop_step(&f.l, &f.s, spkt, slen, out, sizeof out, &out_len);
-    CHECK(f.l.last_1rtt_open_ok == 1);
-    spkt[slen - 1] ^= 0x80; /* flip a ciphertext byte: AEAD tag no longer matches */
-    out_len = 0;
-    quic_srvloop_step(&f.l, &f.s, spkt, slen, out, sizeof out, &out_len);
-    CHECK(f.l.last_1rtt_open_ok == 0);
-}
-
 void test_srvloop(void)
 {
-    test_srvloop_records_1rtt_open();
     test_srvloop_dispatch_uni_streams_not_request();
     test_srvloop_dispatch_get_after_uni_streams();
     test_srvloop_send_initial_roundtrip();
