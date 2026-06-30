@@ -829,6 +829,7 @@
 #include "srvloop_test.c"
 #include "client_wire_test.c"
 #include "h3_loopback_test.c"
+#include "h3reqenc_test.c"
 
 int main(void)
 {
@@ -1241,5 +1242,6 @@ int main(void)
     test_srvloop();
     test_client_wire();
     test_h3_loopback();
+    test_h3reqenc();
     return TEST_REPORT();
 }
