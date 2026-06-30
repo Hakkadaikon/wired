@@ -57,9 +57,11 @@ int quic_client_send_appdata_wire(quic_client *c,
                                   int fin, u8 *out, usz cap, usz *out_len);
 
 /* RFC 9001 5: open a 1-RTT packet (e.g. an HTTP/3 200) under the peer-direction
- * key (SERVER_AP). Returns 1, or 0 if the key is not derived or on
- * authentication failure. */
-int quic_client_recv_appdata_wire(quic_client *c, u8 *pkt, usz len, u8 dcid_len,
+ * key (SERVER_AP). The packet is dropped (returns 0) unless its DCID equals our
+ * own `scid` (RFC 9000 5.1) — a reply addressed to a different connection id is
+ * not ours. Returns 1, or 0 on a DCID mismatch, undrived key, or auth failure. */
+int quic_client_recv_appdata_wire(quic_client *c, u8 *pkt, usz len,
+                                  const u8 *scid, u8 scid_len,
                                   u64 *stream_id, u64 *offset,
                                   const u8 **data, usz *data_len, int *fin);
 

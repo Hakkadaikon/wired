@@ -98,15 +98,32 @@ int quic_client_send_appdata_wire(quic_client *c,
                              data, len, fin, out, cap, out_len);
 }
 
-/* RFC 9001 5: open a 1-RTT packet with SERVER_AP (peer direction). */
-int quic_client_recv_appdata_wire(quic_client *c, u8 *pkt, usz len, u8 dcid_len,
+/* RFC 9000 5.1: a short-header 1-RTT packet's DCID (pkt[1 .. 1+scid_len]) must
+ * equal the connection id we offered as our SCID — a packet whose DCID does not
+ * route to us is for another connection and is dropped (this is the check curl
+ * applies, so the in-tree client catches a server that writes the wrong DCID). */
+static int cw_dcid_is_ours(const u8 *pkt, usz len, const u8 *scid, u8 scid_len)
+{
+    u8 d = 0;
+    if (len < 1u + (usz)scid_len)
+        return 0;
+    for (u8 i = 0; i < scid_len; i++)
+        d |= pkt[1 + i] ^ scid[i];
+    return d == 0;
+}
+
+/* RFC 9001 5: open a 1-RTT packet with SERVER_AP (peer direction), but first
+ * drop it unless its DCID matches our SCID (RFC 9000 5.1). */
+int quic_client_recv_appdata_wire(quic_client *c, u8 *pkt, usz len,
+                                  const u8 *scid, u8 scid_len,
                                   u64 *stream_id, u64 *offset,
                                   const u8 **data, usz *data_len, int *fin)
 {
     const quic_initial_keys *k;
     quic_aes128 hp;
-    if (!cw_dir_key(c, QUIC_KS_SERVER_AP, &k, &hp))
+    if (!cw_dcid_is_ours(pkt, len, scid, scid_len) ||
+        !cw_dir_key(c, QUIC_KS_SERVER_AP, &k, &hp))
         return 0;
-    return quic_appdata_recv(k, &hp, pkt, len, dcid_len, stream_id, offset,
+    return quic_appdata_recv(k, &hp, pkt, len, scid_len, stream_id, offset,
                              data, data_len, fin);
 }
