@@ -1,5 +1,5 @@
 #include "tls/handshake/core/tls/ticketversion.h"
-#include "version/compat.h"
+#include "transport/version/version/compat.h"
 
 /* RFC 9369 5 */
 int quic_ticket_version_ok(u32 ticket_version, u32 current_version)

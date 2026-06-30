@@ -1,6 +1,6 @@
 #include "tls/ext/alpnver/alpnver.h"
 #include "tls/handshake/core/tls/alpn_match.h"
-#include "version/compat.h"
+#include "transport/version/version/compat.h"
 
 /* RFC 9001 8.1: an ALPN protocol must be selected for a QUIC handshake. */
 int quic_alpnver_require(const u8 *selected_alpn, usz len)

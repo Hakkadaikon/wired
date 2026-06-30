@@ -1,7 +1,7 @@
 #include "test.h"
 #include "transport/packet/header/packet/retry.h"
 #include "tls/handshake/core/tls/retry_tag.h"
-#include "version/version.h"
+#include "transport/version/version/version.h"
 #include "tls/handshake/core/handshake_drive/retry_drive.h"
 
 /* Build a Retry packet with a valid integrity tag over orig_dcid. */
