@@ -47,22 +47,22 @@ the curl section).
 
 ```mermaid
 sequenceDiagram
-    participant C as Client (curl --http3 / in-tree client)
-    participant S as quic_server (0.0.0.0:4433)
+    participant C as Client [curl --http3 / in-tree client]
+    participant S as quic_server [0.0.0.0:4433]
 
-    Note over S: listen_udp() — udp socket / bind, await ClientHello
-    C->>S: Initial (long header, ClientHello in CRYPTO; ALPN h3, X25519 key_share)
-    Note over S: quic_server_recv_initial() — derive Initial keys from DCID,<br/>decrypt, fold ClientHello into the transcript
-    Note over S: quic_server_build_flight()<br/>SH / EE(ALPN h3 + transport params) /<br/>Cert(ECDSA P-256) / CertVerify(0x0403) / Finished<br/>+ install Handshake key
-    S-->>C: ServerHello (Initial packet)
-    S-->>C: server flight (Handshake packet)
-    C->>S: client Finished (Handshake, AEAD-protected)
-    Note over S: quic_srvloop_step() — open with CLIENT_HS,<br/>verify client Finished;<br/>only on a match: Master secret + 1-RTT keys + confirm
-    S-->>C: HANDSHAKE_DONE (1-RTT, SERVER_AP)
+    Note over S: listen_udp — udp socket / bind, await ClientHello
+    C->>S: Initial — long header, ClientHello in CRYPTO; ALPN h3, X25519 key_share
+    Note over S: quic_server_recv_initial — derive Initial keys from DCID,<br/>decrypt, fold ClientHello into the transcript
+    Note over S: quic_server_build_flight<br/>SH / EE [ALPN h3 + transport params] /<br/>Cert [ECDSA P-256] / CertVerify [0x0403] / Finished<br/>+ install Handshake key
+    S-->>C: ServerHello — Initial packet
+    S-->>C: server flight — Handshake packet
+    C->>S: client Finished — Handshake, AEAD-protected
+    Note over S: quic_srvloop_step — open with CLIENT_HS,<br/>verify client Finished;<br/>only on a match: Master secret + 1-RTT keys + confirm
+    S-->>C: HANDSHAKE_DONE — 1-RTT, SERVER_AP
     Note over S,C: 1-RTT confirmed
-    C->>S: HEADERS (GET /, 1-RTT, CLIENT_AP)
-    Note over S: quic_srvloop_step() — SETTINGS first,<br/>quic_h3srv_on_request() decode, build :status 200
-    S-->>C: HEADERS (:status 200, 1-RTT, SERVER_AP)
+    C->>S: HEADERS — GET /, 1-RTT, CLIENT_AP
+    Note over S: quic_srvloop_step — SETTINGS first,<br/>quic_h3srv_on_request decode, build :status 200
+    S-->>C: HEADERS — :status 200, 1-RTT, SERVER_AP
 ```
 
 The handshake is gated on a verified client Finished: a forged Finished promotes
