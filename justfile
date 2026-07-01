@@ -4,9 +4,15 @@ cc := "clang"
 cflags := "-target x86_64-linux-gnu -ffreestanding -fno-stack-protector -fno-builtin -nostdlib -static -Wall -Wextra -Werror -O2 -Isrc"
 testflags := "-Wall -Wextra -Werror -O2 -Isrc -Itests"
 
+# full build: format, compile freestanding, then static analysis.
+# fmt normalizes sources, compile-all proves libc independence, lint runs the
+# CERT C / bug-finding checks. Run as one pipeline so a normal `just build`
+# keeps sources tidy and surfaces lint findings.
+build: fmt compile lint
+
 # compile every domain freestanding (proves libc independence) into one .o
 # sources are auto-discovered; adding a src/**.c file needs no edit here
-build:
+compile:
     mkdir -p build
     find src -name '*.c' | while read -r f; do \
         o="build/${f%.c}.o"; mkdir -p "$(dirname "$o")"; \
@@ -35,9 +41,21 @@ fmt:
 fmt-check:
     clang-format --dry-run --Werror $(find src tests \( -name '*.c' -o -name '*.h' \))
 
-# static analysis (clang-tidy, freestanding flags after --)
+# clang-tidy check set: CERT C secure-coding rules + bug finders, minus the
+# unavoidable-in-this-repo noise. `_start` is a required freestanding entry point
+# (reserved-identifier / dcl37 excluded); every p256_fe is `const u64*` so
+# easily-swappable-parameters fires everywhere (excluded). readability style
+# checks (6k+ hits) are intentionally left out — signal over noise.
+tidychecks := "-*,cert-*,bugprone-*,clang-analyzer-*,-bugprone-easily-swappable-parameters,-bugprone-reserved-identifier,-cert-dcl37-c,-cert-dcl51-cpp"
+tidyflags := "-target x86_64-linux-gnu -ffreestanding -nostdlib -fno-builtin -Isrc"
+
+# CERT C secure-coding checks only (JPCERT/SEI CERT C via clang-tidy cert-*).
+cert:
+    clang-tidy -checks='-*,cert-*,-cert-dcl37-c,-cert-dcl51-cpp' $(find src -name '*.c') -- {{tidyflags}}
+
+# static analysis: CERT C rules (see `cert`) plus bug finders. Includes cert.
 lint:
-    clang-tidy -checks='-*,bugprone-*,clang-analyzer-*,readability-*' $(find src -name '*.c') -- -target x86_64-linux-gnu -ffreestanding -nostdlib -Isrc
+    clang-tidy -checks='{{tidychecks}}' $(find src -name '*.c') -- {{tidyflags}}
 
 # everything
 check: ccn test
