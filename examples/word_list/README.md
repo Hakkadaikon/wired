@@ -75,12 +75,12 @@ same loop over `127.0.0.1`.
 ## Build and run
 
 ```sh
-cd examples
+cd examples/word_list
 nix develop          # provides clang / just / tcpdump
 just run             # builds and starts on 0.0.0.0:4433
 ```
 
-`just build` alone produces the `examples/quic_server` binary (libc-free, own
+`just build` alone produces the `examples/word_list/quic_server` binary (libc-free, own
 `_start`). On startup the server prints `listening on 0.0.0.0:4433` and waits for
 the ClientHello. Stop it with Ctrl-C.
 
@@ -148,7 +148,7 @@ in `server_test`, and the full `src/client/` mutual handshake is exercised in
 
 **Verified (demonstrated):**
 
-- **Build**: `cd examples && just build` produces the `quic_server` binary
+- **Build**: `cd examples/word_list && just build` produces the `quic_server` binary
   (libc-free, own `_start`).
 - **Bind + listen**: `./quic_server` prints `listening on 0.0.0.0:4433` and waits
   for the ClientHello (bind succeeds, no crash).

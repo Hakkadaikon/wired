@@ -7,10 +7,10 @@ cflags := "-target x86_64-linux-gnu -ffreestanding -fno-stack-protector -fno-bui
 # (we supply our own _start). The static, freestanding binary needs no libc.
 # `extra` lets a debug build add -DQUIC_DEBUG; release passes nothing.
 build extra='':
-    cd .. && {{cc}} {{cflags}} {{extra}} \
-        examples/quic_server.c \
+    cd ../.. && {{cc}} {{cflags}} {{extra}} \
+        examples/word_list/quic_server.c \
         $(find src -name '*.c' ! -path 'src/common/platform/sys/sys.c') \
-        -o examples/quic_server
+        -o examples/word_list/quic_server
 
 # Debug build: timestamped trace logging compiled in via -DQUIC_DEBUG.
 build-debug: (build '-DQUIC_DEBUG')
