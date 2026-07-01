@@ -1,7 +1,7 @@
 ---
-name: quic-vibe-dev
+name: wired-dev
 description: >
-  Use when modifying, adding to, or reviewing code in the quic_vibe libc-free
+  Use when modifying, adding to, or reviewing code in the wired libc-free
   QUIC SDK in C — covers its libc-free / CCN<=3 / unity-build constraints, the
   three-point verification gate, the unity-build name-collision pitfalls, the
   view-API and freestanding-_start traps, and the parallel-implement /
@@ -13,7 +13,7 @@ description: >
   up", or before committing C changes in this repo.
 ---
 
-# quic_vibe developer guide
+# wired developer guide
 
 A libc-free QUIC SDK in C. The constraints here are unusual; touching the code
 without knowing them fails in ways a normal C project never would. This is the
