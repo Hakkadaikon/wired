@@ -11,6 +11,7 @@ The only thing it leaves to the kernel is raw UDP I/O; packet framing, encryptio
 - [docs/arch/rfcs.md](docs/arch/rfcs.md): the list of implemented RFCs and FIPS publications, and why each specification is needed.
 - [docs/usage.md](docs/usage.md): the build and the `just` targets, the source layout, and how to use the library.
 - [docs/development.md](docs/development.md): the development constraints and workflow, and how to add a domain.
+- [docs/security.md](docs/security.md): the security properties the SDK enforces, by subsystem, and the checks left to the caller.
 
 ## Quick start
 
