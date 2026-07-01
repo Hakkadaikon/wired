@@ -1,5 +1,5 @@
 {
-  description = "quic_vibe: a libc-free QUIC SDK in C for x86_64-linux";
+  description = "wired: a libc-free QUIC SDK in C for x86_64-linux";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 

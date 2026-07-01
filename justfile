@@ -1,4 +1,4 @@
-# quic_vibe build. libc-free, x86_64-linux only.
+# wired build. libc-free, x86_64-linux only.
 
 cc := "clang"
 cflags := "-target x86_64-linux-gnu -ffreestanding -fno-stack-protector -fno-builtin -nostdlib -static -Wall -Wextra -Werror -O2 -Isrc"

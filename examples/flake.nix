@@ -1,5 +1,5 @@
 {
-  description = "quic_vibe examples: real-UDP QUIC server sample";
+  description = "wired examples: real-UDP QUIC server sample";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 

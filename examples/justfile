@@ -1,4 +1,4 @@
-# quic_vibe real-UDP server sample. libc-free, x86_64-linux only.
+# wired real-UDP server sample. libc-free, x86_64-linux only.
 
 cc := "clang"
 cflags := "-target x86_64-linux-gnu -ffreestanding -fno-stack-protector -fno-builtin -nostdlib -static -O2 -Isrc"
