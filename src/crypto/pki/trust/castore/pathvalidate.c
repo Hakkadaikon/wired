@@ -1,5 +1,6 @@
 #include "crypto/pki/trust/castore/pathvalidate.h"
 
+#include "crypto/pki/encoding/x509/basicconstraints.h"
 #include "crypto/pki/encoding/x509/chain.h"
 #include "crypto/pki/encoding/x509/x509.h"
 #include "crypto/pki/trust/castore/chainverify.h"
@@ -28,21 +29,41 @@ static int names_chain(
   return quic_x509_dn_equal(iss, iss_len, subj, subj_len);
 }
 
-/* RFC 5280 6.1.3. One link: name binding plus signature by the parent. */
+/* RFC 5280 6.1.4. An issuer cert must assert basicConstraints cA TRUE. */
+static int cert_is_ca(const u8 *cert, usz len) {
+  quic_x509 c;
+  if (!quic_x509_parse(cert, len, &c)) return 0;
+  return quic_x509_is_ca(c.tbs, c.tbs_len);
+}
+
+/* RFC 5280 6.1.3/6.1.4. One link: name binding, the parent is a CA, and the
+ * parent signs the child. */
 static int link_ok(
     const u8 *child, usz child_len, const u8 *parent, usz parent_len) {
   if (!names_chain(child, child_len, parent, parent_len)) return 0;
+  if (!cert_is_ca(parent, parent_len)) return 0;
   return quic_castore_verify_signed_by(child, child_len, parent, parent_len);
 }
 
-/* RFC 5280 6.1. The tail must chain to a registered trust anchor: a root whose
- * subject equals the tail's issuer, and which signs the tail. */
+/* RFC 5280 6.1.4. Find the registered anchor for issuer name and require it to
+ * be a CA. */
+static int find_ca_anchor(
+    const quic_castore *s,
+    const u8           *iss,
+    usz                 iss_len,
+    const u8          **root,
+    usz                *root_len) {
+  if (!quic_castore_find_by_subject(s, iss, iss_len, root, root_len)) return 0;
+  return cert_is_ca(*root, *root_len);
+}
+
+/* RFC 5280 6.1. The tail must chain to a registered CA trust anchor: a root
+ * whose subject equals the tail's issuer, and which signs the tail. */
 static int tail_anchored(const quic_castore *s, const u8 *tail, usz tail_len) {
   const u8 *iss, *root;
   usz       iss_len, root_len;
   if (!cert_issuer(tail, tail_len, &iss, &iss_len)) return 0;
-  if (!quic_castore_find_by_subject(s, iss, iss_len, &root, &root_len))
-    return 0;
+  if (!find_ca_anchor(s, iss, iss_len, &root, &root_len)) return 0;
   return quic_castore_verify_signed_by(tail, tail_len, root, root_len);
 }
 

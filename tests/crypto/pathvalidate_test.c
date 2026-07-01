@@ -66,10 +66,28 @@ static void test_tampered_signature_fails(void) {
   CHECK(quic_castore_validate_chain(&s, certs, lens, 2) == 0);
 }
 
+/* RFC 5280 6.1.4: a non-CA cert used as an issuer must break the chain, even
+ * when names chain and every signature verifies. mid is basicConstraints
+ * CA:FALSE, so [leaf2, mid, root2] is rejected only because mid is not a CA. */
+static void test_non_ca_intermediate_fails(void) {
+  quic_castore s;
+  const u8    *certs[3] = {
+      quic_castore_leaf2_der, quic_castore_mid_der, quic_castore_root2_der};
+  usz lens[3] = {
+      sizeof(quic_castore_leaf2_der), sizeof(quic_castore_mid_der),
+      sizeof(quic_castore_root2_der)};
+  quic_castore_init(&s);
+  CHECK(
+      quic_castore_add(
+          &s, quic_castore_root2_der, sizeof(quic_castore_root2_der)) == 1);
+  CHECK(quic_castore_validate_chain(&s, certs, lens, 3) == 0);
+}
+
 void test_pathvalidate(void) {
   test_valid_chain();
   test_lone_root_chain();
   test_unregistered_root_fails();
   test_name_mismatch_fails();
   test_tampered_signature_fails();
+  test_non_ca_intermediate_fails();
 }
