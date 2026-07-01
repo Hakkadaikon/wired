@@ -127,15 +127,21 @@ static void install_handshake_keys(quic_tlsdriver *d) {
   d->hs_ready = 1;
 }
 
+/* ECDHE shared secret, then advance the schedule to the handshake secret.
+ * RFC 7748 6.1: a low-order peer key gives an all-zero secret; reject it. */
+static int derive_handshake_secret(
+    quic_tlsdriver *d, const u8 *msg, usz n, const u8 peer_pub[QUIC_ECDHE_LEN]) {
+  if (!quic_crypto_stream_ecdhe(d->my_priv, peer_pub, d->shared)) return 0;
+  return quic_keysched_advance_handshake(
+      &d->ks, d->shared, QUIC_ECDHE_LEN, msg, n);
+}
+
 /* Derive the ECDHE shared secret and advance the key schedule to the
  * handshake secret, installing Handshake keys. Returns 1 on success. */
 static int derive_handshake(quic_tlsdriver *d, const u8 *msg, usz n) {
   u8 peer_pub[QUIC_ECDHE_LEN];
   if (!peer_keyshare(d, msg, n, peer_pub)) return 0;
-  quic_crypto_stream_ecdhe(d->my_priv, peer_pub, d->shared);
-  if (!quic_keysched_advance_handshake(
-          &d->ks, d->shared, QUIC_ECDHE_LEN, msg, n))
-    return 0;
+  if (!derive_handshake_secret(d, msg, n, peer_pub)) return 0;
   install_handshake_keys(d);
   return 1;
 }

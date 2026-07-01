@@ -14,7 +14,7 @@ int quic_endpoint_agree(
     usz            transcript_len,
     int            is_server) {
   u8 shared[32], hs_secret[QUIC_HKDF_PRK];
-  quic_x25519(shared, e->priv, peer_pub);
+  if (!quic_x25519(shared, e->priv, peer_pub)) return 0;
   quic_tls_handshake_secret(shared, hs_secret);
   quic_tls_handshake_keys(
       hs_secret, transcript, transcript_len, is_server, &e->hs_keys);

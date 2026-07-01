@@ -26,15 +26,16 @@ static int emit_msg(
 /* RFC 8446 7.1: ECDHE shared secret, Handshake Secret, and the server
  * handshake traffic secret over the transcript through ServerHello (the
  * Finished's finished_key). Called right after ServerHello is folded in. */
-static void derive_secret(quic_sdrv *s) {
+static int derive_secret(quic_sdrv *s) {
   u8 ecdhe[QUIC_X25519_LEN], th[QUIC_SHA256_DIGEST];
-  quic_x25519(ecdhe, s->server_priv, s->client_pub);
+  if (!quic_x25519(ecdhe, s->server_priv, s->client_pub)) return 0;
   quic_tls_handshake_secret(ecdhe, s->hs_secret);
   quic_transcript_hash(&s->tr, th);
   quic_hkdf_expand_label(
       s->hs_secret, "s hs traffic", 12, th, QUIC_SHA256_DIGEST, s->s_hs_traffic,
       QUIC_HKDF_PRK);
   s->hs_ready = 1;
+  return 1;
 }
 
 /* RFC 8446 4.3.1 / RFC 9001 8.1-8.2: EncryptedExtensions carrying ALPN "h3"
@@ -106,7 +107,7 @@ static int build_server_hello(
           cap, len))
     return 0;
   quic_transcript_add(&s->tr, out, *len);
-  derive_secret(s);
+  if (!derive_secret(s)) return 0;
   return 1;
 }
 

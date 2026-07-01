@@ -66,13 +66,18 @@ int quic_server_recv_initial(quic_server *s, const u8 *ch_msg, usz ch_len) {
 
 /* RFC 8446 7.1: derive the Handshake key set over the transcript through
  * ServerHello and install the Handshake-level keys. */
+/* ECDHE shared secret then advance to the handshake secret. RFC 7748 6.1: a
+ * low-order client key gives an all-zero secret; reject it. */
+static int srv_derive_hs(quic_server *s, u8 ecdhe[QUIC_X25519_LEN]) {
+  if (!quic_x25519(ecdhe, s->server_priv, s->sdrv.client_pub)) return 0;
+  return quic_keysched_advance_handshake(
+      &s->sched, ecdhe, QUIC_X25519_LEN, s->tr, s->tr_through_sh);
+}
+
 static int srv_install_hs_keys(quic_server *s) {
   u8                       ecdhe[QUIC_X25519_LEN];
   const quic_initial_keys *shs;
-  quic_x25519(ecdhe, s->server_priv, s->sdrv.client_pub);
-  if (!quic_keysched_advance_handshake(
-          &s->sched, ecdhe, sizeof(ecdhe), s->tr, s->tr_through_sh))
-    return 0;
+  if (!srv_derive_hs(s, ecdhe)) return 0;
   if (!quic_keysched_get(&s->sched, QUIC_KS_SERVER_HS, &shs)) return 0;
   return quic_keyset_install(&s->keys, QUIC_LEVEL_HANDSHAKE, shs);
 }

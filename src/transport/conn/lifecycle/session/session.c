@@ -113,11 +113,20 @@ int quic_session_accept(quic_session *s) {
 }
 
 /* Derive the server-direction 1-RTT keys both ends use, and the matching
- * header-protection cipher, into the session. */
-static void agree_dir(
+ * header-protection cipher, into the session. RFC 7748 6.1: a low-order peer
+ * key aborts the agreement (quic_endpoint_agree returns 0). */
+static int agree_dir(
     quic_session *s, const u8 peer_pub[32], const u8 *tr, usz trlen) {
-  quic_endpoint_agree(&s->ep, peer_pub, tr, trlen, 1); /* server direction */
+  if (!quic_endpoint_agree(&s->ep, peer_pub, tr, trlen, 1)) return 0;
   quic_aes128_init(&s->hshp, s->ep.hs_keys.hp);
+  return 1;
+}
+
+/* Both ends derive the server-direction keys from the same ECDHE inputs. */
+static int agree_both(
+    quic_session *client, quic_session *server, const u8 *tr, usz trlen) {
+  if (!agree_dir(server, server->peer_pub, tr, trlen)) return 0;
+  return agree_dir(client, server->ep.pub, tr, trlen);
 }
 
 int quic_session_finish(
@@ -126,9 +135,7 @@ int quic_session_finish(
     const u8     *transcript,
     usz           transcript_len) {
   if (!server->have_peer) return 0;
-  /* Both derive the server-direction keys from the same ECDHE inputs. */
-  agree_dir(server, server->peer_pub, transcript, transcript_len);
-  agree_dir(client, server->ep.pub, transcript, transcript_len);
+  if (!agree_both(client, server, transcript, transcript_len)) return 0;
   quic_conn_step(&client->conn, QUIC_CONN_EV_HS_CONFIRMED);
   quic_conn_step(&server->conn, QUIC_CONN_EV_HS_CONFIRMED);
   return 1;
