@@ -16,10 +16,20 @@ The only thing it leaves to the kernel is raw UDP I/O; packet framing, encryptio
 ## Quick start
 
 ```sh
-just build    # compile each domain freestanding
-just ninja    # incremental, parallel build
-just test     # run the test suite
-just check    # the CCN gate and the test suite
+# compile each domain freestanding
+just build
+
+# Run the sample
+cd examples/word_list
+just build
+./quic_server
+
+# POST
+docker run --rm ymuski/curl-http3 curl --http3-only --insecure -v --trace-ascii - https://[ipv4 addr]:4433/ -d 'hello' 2>&1
+docker run --rm ymuski/curl-http3 curl --http3-only --insecure -v --trace-ascii - https://[ipv4 addr]:4433/ -d 'world' 2>&1
+
+# GET
+docker run --rm ymuski/curl-http3 curl --http3-only --insecure -v --trace-ascii - https://[ipv4 addr]:4433/  2>&1
 ```
 
 ## License
