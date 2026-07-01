@@ -13,8 +13,11 @@ jobs:
       - name: Install tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang just
+          sudo apt-get install -y clang clang-format just
           pip install lizard
+
+      - name: fmt-check
+        run: just fmt-check
 
       - name: compile (freestanding, proves libc independence)
         run: just compile
