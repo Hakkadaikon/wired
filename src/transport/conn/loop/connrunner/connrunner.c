@@ -80,7 +80,8 @@ static u64 wait_timeout(const quic_connrunner *r, u64 now) {
 static usz wait_and_recv(quic_connrunner *r, u64 now) {
   i64 got;
   if (quic_poll_wait_readable(r->fd, wait_timeout(r, now)) != 1) return 0;
-  got = quic_udp_recvfrom(r->fd, r->rxbuf, sizeof(r->rxbuf), &r->peer);
+  got = quic_udp_recvfrom(
+      r->fd, quic_mspan_of(r->rxbuf, sizeof(r->rxbuf)), &r->peer);
   if (got <= 0) return 0;
   return (usz)got;
 }
@@ -89,9 +90,11 @@ void quic_connrunner_iterate(quic_connrunner *r, u64 now) {
   usz len = wait_and_recv(r, now);
   usz out = quic_connrunner_advance(r, now, r->rxbuf, len);
   if (out) {
-    usz one = out;
-    quic_udploop_tx(
-        r->fd, &r->peer, r->txbuf, &one, 1, r->rxbuf, sizeof(r->rxbuf));
+    usz         one = out;
+    quic_udpdst dst = {r->fd, &r->peer};
+    quic_pktsrc src = {r->txbuf, &one, 1};
+    quic_obuf   ob  = quic_obuf_of(r->rxbuf, sizeof(r->rxbuf));
+    quic_udploop_tx(&dst, &src, &ob);
   }
 }
 

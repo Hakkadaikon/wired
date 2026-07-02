@@ -1,7 +1,7 @@
 #include "transport/io/udp/udpsess/udpsess.h"
 
 void quic_udpsess_init(
-    quic_udpsess *s, quic_udp_transport *t, const u8 *dcid, u8 dcid_len) {
+    quic_udpsess *s, quic_udp_transport *t, quic_span dcid) {
   usz i;
   s->t      = t;
   s->active = 0;
@@ -13,21 +13,21 @@ void quic_udpsess_init(
   }
   s->paths[0].peer_addr = t->peer_addr;
   s->paths[0].peer_port = t->peer_port;
-  s->paths[0].dcid      = dcid;
-  s->paths[0].dcid_len  = dcid_len;
+  s->paths[0].dcid      = dcid.p;
+  s->paths[0].dcid_len  = (u8)dcid.n;
 }
 
-void quic_udpsess_set_peer(quic_udpsess *s, usz path, u32 addr, u16 port) {
+void quic_udpsess_set_peer(
+    quic_udpsess *s, usz path, const quic_udpsess_peer *peer) {
   if (path >= QUIC_UDPSESS_PATHS) return;
-  s->paths[path].peer_addr = addr;
-  s->paths[path].peer_port = port;
+  s->paths[path].peer_addr = peer->addr;
+  s->paths[path].peer_port = peer->port;
 }
 
-void quic_udpsess_set_dcid(
-    quic_udpsess *s, usz path, const u8 *dcid, u8 dcid_len) {
+void quic_udpsess_set_dcid(quic_udpsess *s, usz path, quic_span dcid) {
   if (path >= QUIC_UDPSESS_PATHS) return;
-  s->paths[path].dcid     = dcid;
-  s->paths[path].dcid_len = dcid_len;
+  s->paths[path].dcid     = dcid.p;
+  s->paths[path].dcid_len = (u8)dcid.n;
 }
 
 int quic_udpsess_can_migrate(const quic_udpsess *s, int new_path_validated) {
@@ -51,9 +51,8 @@ int quic_udpsess_migrate(quic_udpsess *s, usz path, int new_path_validated) {
 }
 
 int quic_udpsess_dcid_for_path(
-    const quic_udpsess *s, usz path, const u8 **dcid, u8 *len) {
+    const quic_udpsess *s, usz path, quic_span *dcid) {
   if (path >= QUIC_UDPSESS_PATHS || !s->paths[path].dcid) return 0;
-  *dcid = s->paths[path].dcid;
-  *len  = s->paths[path].dcid_len;
+  *dcid = quic_span_of(s->paths[path].dcid, s->paths[path].dcid_len);
   return 1;
 }

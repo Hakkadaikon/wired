@@ -2,16 +2,18 @@
 
 /* Octets pack into a big-endian u32: a is the most significant byte. */
 static void test_addr_from_octets(void) {
-  CHECK(quic_addr_from_octets(127, 0, 0, 1) == 0x7F000001u);
-  CHECK(quic_addr_from_octets(192, 168, 1, 254) == 0xC0A801FEu);
-  CHECK(quic_addr_from_octets(0, 0, 0, 0) == 0u);
-  CHECK(quic_addr_from_octets(255, 255, 255, 255) == 0xFFFFFFFFu);
+  CHECK(quic_addr_from_octets((const u8[4]){127, 0, 0, 1}) == 0x7F000001u);
+  CHECK(quic_addr_from_octets((const u8[4]){192, 168, 1, 254}) == 0xC0A801FEu);
+  CHECK(quic_addr_from_octets((const u8[4]){0, 0, 0, 0}) == 0u);
+  CHECK(
+      quic_addr_from_octets((const u8[4]){255, 255, 255, 255}) ==
+      0xFFFFFFFFu);
 }
 
 /* to_octets is the inverse of from_octets. */
 static void test_addr_roundtrip(void) {
   u8 o[4];
-  quic_addr_to_octets(quic_addr_from_octets(10, 20, 30, 40), o);
+  quic_addr_to_octets(quic_addr_from_octets((const u8[4]){10, 20, 30, 40}), o);
   CHECK(o[0] == 10 && o[1] == 20 && o[2] == 30 && o[3] == 40);
 
   quic_addr_to_octets(0x7F000001u, o);

@@ -11,14 +11,13 @@ static usz sentpkt_free_slot(const quic_sentpkt *t) {
   return i;
 }
 
-int quic_sentpkt_on_send(
-    quic_sentpkt *t, u64 pn, u64 time, int ack_eliciting, usz size) {
+int quic_sentpkt_on_send(quic_sentpkt *t, const quic_sentpkt_out *pkt) {
   usz i = sentpkt_free_slot(t);
   if (i == QUIC_SENTPKT_CAP) return 0;
-  t->e[i].pn            = pn;
-  t->e[i].time_sent     = time;
-  t->e[i].size          = size;
-  t->e[i].ack_eliciting = (u8)(ack_eliciting != 0);
+  t->e[i].pn            = pkt->pn;
+  t->e[i].time_sent     = pkt->time;
+  t->e[i].size          = pkt->size;
+  t->e[i].ack_eliciting = (u8)(pkt->ack_eliciting != 0);
   t->e[i].state         = QUIC_SP_INFLIGHT;
   t->e[i].used          = 1;
   return 1;

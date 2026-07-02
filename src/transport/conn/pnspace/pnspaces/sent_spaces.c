@@ -13,7 +13,8 @@ int quic_pnspaces_on_send(
     u64                 time,
     int                 ack_eliciting,
     usz                 size) {
-  return quic_sentpkt_on_send(&s->t[space], pn, time, ack_eliciting, size);
+  quic_sentpkt_out pkt = {pn, time, ack_eliciting, size};
+  return quic_sentpkt_on_send(&s->t[space], &pkt);
 }
 
 void quic_pnspaces_on_ack(
@@ -24,9 +25,9 @@ void quic_pnspaces_on_ack(
     usz                 n_ranges,
     u64                *newly_acked_pns,
     usz                *n_acked) {
+  quic_ackset ackset = {ack_largest, ack_ranges, n_ranges};
   quic_ack_process(
-      &s->t[space], ack_largest, ack_ranges, n_ranges, newly_acked_pns,
-      n_acked);
+      &s->t[space], &ackset, (quic_u64out){newly_acked_pns, n_acked});
 }
 
 usz quic_pnspaces_sent_count(const quic_pnspaces_sent *s, int space) {

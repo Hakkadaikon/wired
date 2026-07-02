@@ -23,6 +23,17 @@ typedef struct {
   u32 available[QUIC_VI_MAX_AVAILABLE]; /* in preference order (client) */
 } quic_version_info;
 
+/* A read-only view of a version-number list (offered, supported, etc). */
+typedef struct {
+  const u32 *list;
+  usz        n;
+} quic_verlist;
+
+static inline quic_verlist quic_verlist_of(const u32 *list, usz n) {
+  quic_verlist v = {list, n};
+  return v;
+}
+
 /* Encode the version_information TP (id, length, Chosen Version, Available
  * Versions) into buf of cap bytes. Returns bytes written, or 0. */
 usz quic_version_info_encode(u8 *buf, usz cap, const quic_version_info *vi);

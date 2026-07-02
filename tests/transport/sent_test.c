@@ -3,8 +3,8 @@
 static void test_sent_ack_accounting(void) {
   quic_sent s;
   quic_sent_init(&s);
-  quic_sent_on_send(&s, 1, 100, 0);
-  quic_sent_on_send(&s, 2, 200, 0);
+  quic_sent_on_send(&s, &(quic_sent_out){1, 100, 0});
+  quic_sent_on_send(&s, &(quic_sent_out){2, 200, 0});
   CHECK(s.bytes_in_flight == 300);
   CHECK(quic_sent_on_ack(&s, 1) == 1);
   CHECK(s.bytes_in_flight == 200);
@@ -16,7 +16,7 @@ static void test_sent_ack_accounting(void) {
 static void test_sent_largest_acked_monotonic(void) {
   quic_sent s;
   quic_sent_init(&s);
-  for (u64 pn = 1; pn <= 5; pn++) quic_sent_on_send(&s, pn, 10, 0);
+  for (u64 pn = 1; pn <= 5; pn++) quic_sent_on_send(&s, &(quic_sent_out){pn, 10, 0});
   quic_sent_on_ack(&s, 5);
   CHECK(s.largest_acked == 5);
   quic_sent_on_ack(&s, 2); /* older ack must not lower it */
@@ -28,10 +28,10 @@ static void test_sent_largest_acked_monotonic(void) {
 static void test_sent_packet_threshold_3(void) {
   quic_sent s;
   quic_sent_init(&s);
-  quic_sent_on_send(&s, 1, 10, 0); /* 4 below 5 -> lost */
-  quic_sent_on_send(&s, 2, 10, 0); /* 3 below 5 -> lost (boundary) */
-  quic_sent_on_send(&s, 3, 10, 0); /* 2 below 5 -> NOT lost */
-  quic_sent_on_send(&s, 5, 10, 0);
+  quic_sent_on_send(&s, &(quic_sent_out){1, 10, 0}); /* 4 below 5 -> lost */
+  quic_sent_on_send(&s, &(quic_sent_out){2, 10, 0}); /* 3 below 5 -> lost (boundary) */
+  quic_sent_on_send(&s, &(quic_sent_out){3, 10, 0}); /* 2 below 5 -> NOT lost */
+  quic_sent_on_send(&s, &(quic_sent_out){5, 10, 0});
   quic_sent_on_ack(&s, 5);
   CHECK(quic_sent_detect_loss(&s) == 2);
   CHECK(s.pkts[0].state == QUIC_PKT_LOST);
@@ -43,8 +43,8 @@ static void test_sent_packet_threshold_3(void) {
 static void test_sent_acked_never_lost(void) {
   quic_sent s;
   quic_sent_init(&s);
-  quic_sent_on_send(&s, 1, 10, 0);
-  quic_sent_on_send(&s, 5, 10, 0);
+  quic_sent_on_send(&s, &(quic_sent_out){1, 10, 0});
+  quic_sent_on_send(&s, &(quic_sent_out){5, 10, 0});
   quic_sent_on_ack(&s, 1); /* pn 1 acked */
   quic_sent_on_ack(&s, 5);
   quic_sent_detect_loss(&s);

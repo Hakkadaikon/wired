@@ -28,9 +28,10 @@ static int on_ack(quic_framedispatch_state *st, const u8 *frame, usz len) {
     wire[w++] = f.ranges[i - 1].lo - f.ranges[i].hi - 2;
     wire[w++] = f.ranges[i].hi - f.ranges[i].lo;
   }
-  u64 acked[QUIC_SENTPKT_CAP];
-  usz n = 0;
-  quic_ack_process(st->sent, f.ranges[0].hi, wire, w, acked, &n);
+  u64         acked[QUIC_SENTPKT_CAP];
+  usz         n      = 0;
+  quic_ackset ackset = {f.ranges[0].hi, wire, w};
+  quic_ack_process(st->sent, &ackset, (quic_u64out){acked, &n});
   return 1;
 }
 

@@ -28,8 +28,15 @@ typedef struct {
 
 void quic_sent_init(quic_sent *s);
 
+/* A packet to record as sent. */
+typedef struct {
+  u64 pn;
+  u64 size;
+  u64 time_sent;
+} quic_sent_out;
+
 /* Record an in-flight packet. Returns 1 on success, 0 if the table is full. */
-int quic_sent_on_send(quic_sent *s, u64 pn, u64 size, u64 time_sent);
+int quic_sent_on_send(quic_sent *s, const quic_sent_out *pkt);
 
 /* Acknowledge packet pn. Idempotent: re-acking does not double-count.
  * Updates largest_acked (monotonic). Returns 1 if newly acked. */

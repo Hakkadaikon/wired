@@ -12,7 +12,7 @@ static void test_verselect_pick(void) {
       QUIC_VERSION_1, 2, {QUIC_VERSION_1, QUIC_VERSION_2}};
   u32 we[] = {QUIC_VERSION_2, QUIC_VERSION_1}; /* prefer v2 */
   u32 out  = 0;
-  CHECK(quic_verinfo_pick_compatible(&vi, we, 2, &out) == 1);
+  CHECK(quic_verinfo_pick_compatible(&vi, quic_verlist_of(we, 2), &out) == 1);
   CHECK(out == QUIC_VERSION_2);
 }
 
@@ -22,7 +22,7 @@ static void test_verselect_skips_grease(void) {
       QUIC_VERSION_1, 2, {0x1a2a3a4au, QUIC_VERSION_2}};
   u32 we[] = {0x1a2a3a4au, QUIC_VERSION_2};
   u32 out  = 0;
-  CHECK(quic_verinfo_pick_compatible(&vi, we, 2, &out) == 1);
+  CHECK(quic_verinfo_pick_compatible(&vi, quic_verlist_of(we, 2), &out) == 1);
   CHECK(out == QUIC_VERSION_2);
 }
 
@@ -31,7 +31,7 @@ static void test_verselect_none(void) {
   quic_version_information vi   = {QUIC_VERSION_1, 1, {QUIC_VERSION_1}};
   u32                      we[] = {0xdeadbeefu};
   u32                      out  = 0xffffffffu;
-  CHECK(quic_verinfo_pick_compatible(&vi, we, 1, &out) == 0);
+  CHECK(quic_verinfo_pick_compatible(&vi, quic_verlist_of(we, 1), &out) == 0);
   CHECK(out == 0xffffffffu); /* untouched */
 }
 

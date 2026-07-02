@@ -3,7 +3,7 @@
 /* sockaddr_in is laid out big-endian for the kernel. */
 static void test_udp_addr_layout(void) {
   quic_sockaddr_in sa;
-  quic_udp_addr(&sa, 443, 127, 0, 0, 1);
+  quic_udp_addr(&sa, 443, (const u8[4]){127, 0, 0, 1});
   CHECK(sa.family == QUIC_AF_INET);
   /* port 443 = 0x01BB -> network order 0xBB01 on a little-endian host */
   CHECK(sa.port_be == 0xBB01);

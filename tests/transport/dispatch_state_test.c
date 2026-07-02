@@ -45,7 +45,7 @@ static void test_dispatch_ack(void) {
   quic_sentpkt             t;
   quic_flow_credit         c;
   ds_init(&st, &s, &t, &c);
-  for (u64 pn = 1; pn <= 5; pn++) quic_sentpkt_on_send(&t, pn, 0, 1, 1);
+  for (u64 pn = 1; pn <= 5; pn++) quic_sentpkt_on_send(&t, &(quic_sentpkt_out){pn, 0, 1, 1});
   quic_ack_frame f;
   for (usz i = 0; i < sizeof f; i++) ((u8 *)&f)[i] = 0;
   f.n_ranges     = 1;

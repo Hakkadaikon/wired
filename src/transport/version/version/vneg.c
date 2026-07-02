@@ -40,10 +40,10 @@ static int qualifies(const quic_vneg *v, u32 original, u32 ver) {
 
 /* Choose the first qualifying offered version. Returns 1 with *chosen set. */
 static int pick_mutual(
-    const quic_vneg *v, u32 original, const u32 *offered, usz n, u32 *chosen) {
-  for (usz i = 0; i < n; i++)
-    if (qualifies(v, original, offered[i])) {
-      *chosen = offered[i];
+    const quic_vneg *v, const quic_vn_packet *pkt, u32 *chosen) {
+  for (usz i = 0; i < pkt->offered.n; i++)
+    if (qualifies(v, pkt->original, pkt->offered.list[i])) {
+      *chosen = pkt->offered.list[i];
       return 1;
     }
   return 0;
@@ -51,15 +51,14 @@ static int pick_mutual(
 
 /* We may react to a VN only if we have not reacted before and it does not
  * list our original version (RFC 9368 4). */
-static int may_react(
-    const quic_vneg *v, u32 original, const u32 *offered, usz n) {
-  return !v->reacted && !list_has(offered, n, original);
+static int may_react(const quic_vneg *v, const quic_vn_packet *pkt) {
+  return !v->reacted &&
+         !list_has(pkt->offered.list, pkt->offered.n, pkt->original);
 }
 
-int quic_vneg_react(
-    quic_vneg *v, u32 original, const u32 *offered, usz n, u32 *chosen) {
-  if (!may_react(v, original, offered, n)) return 0;
-  if (!pick_mutual(v, original, offered, n, chosen)) return 0;
+int quic_vneg_react(quic_vneg *v, const quic_vn_packet *pkt, u32 *chosen) {
+  if (!may_react(v, pkt)) return 0;
+  if (!pick_mutual(v, pkt, chosen)) return 0;
   v->reacted = 1;
   v->phase   = QUIC_VNEG_REACTED;
   return 1;

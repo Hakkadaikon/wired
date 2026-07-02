@@ -30,7 +30,11 @@ int quic_pnspaces_ack_ranges(
     usz                       cap) {
   u64                pns[QUIC_PNSPACES_ACK_CAP];
   const quic_recvpn *r = &s->r[space];
+  quic_u64obuf       out = {ranges, cap, 0};
   if (!r->any) return 0;
-  return quic_ackgen_build_ranges(
-      pns, collect_pns(r, pns), largest, ranges, n_ranges, cap);
+  if (!quic_ackgen_build_ranges(
+          (quic_u64view){pns, collect_pns(r, pns)}, largest, &out))
+    return 0;
+  *n_ranges = out.len;
+  return 1;
 }

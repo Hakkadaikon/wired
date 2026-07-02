@@ -10,9 +10,8 @@
  *
  * Restores the frame bytes the store kept for lost_pn into out. A
  * retransmittable frame yields its bytes; a non-retransmittable frame
- * (ACK/PADDING) or a pn not held yields *out_len = 0. Returns 1 on success, 0
- * if out (cap) is too small. */
-int quic_rtxdrive_build(
-    const quic_rtxbytes *store, u64 lost_pn, u8 *out, usz cap, usz *out_len);
+ * (ACK/PADDING) or a pn not held yields out->len = 0. Returns 1 on success, 0
+ * if out->cap is too small. */
+int quic_rtxdrive_build(const quic_rtxbytes *store, u64 lost_pn, quic_obuf *out);
 
 #endif

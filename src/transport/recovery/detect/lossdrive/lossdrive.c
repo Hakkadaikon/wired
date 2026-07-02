@@ -15,12 +15,8 @@ static void drop_lost(quic_sentpkt *t) {
 }
 
 void quic_lossdrive_on_ack(
-    quic_sentpkt *state,
-    u64           largest_acked,
-    u64           now,
-    u64           loss_delay,
-    u64          *lost_pns,
-    usz          *n_lost) {
-  quic_loss_detect(state, largest_acked, now, loss_delay, lost_pns, n_lost);
+    quic_sentpkt *state, const quic_lossdrive_in *in, quic_u64out lost) {
+  quic_loss_params p = {in->largest_acked, in->now, in->loss_delay};
+  quic_loss_detect(state, &p, lost);
   drop_lost(state);
 }

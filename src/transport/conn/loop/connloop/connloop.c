@@ -51,8 +51,8 @@ static int send_level_ok(const quic_connloop *c, int level) {
 static int send_gated(const quic_connloop *c, int level, usz len) {
   if (c->phase != QUIC_CONNLOOP_ACTIVE) return 0;
   if (!level_usable(c, level)) return 0;
-  return quic_udploop_send_allowed(
-      c->recv_bytes, c->sent_bytes, c->validated, len);
+  quic_pathbudget b = {c->recv_bytes, c->sent_bytes, c->validated};
+  return quic_udploop_send_allowed(&b, len);
 }
 
 /* RFC 9002 6.2: arm the PTO only while ack-eliciting data is in flight. */
@@ -71,7 +71,10 @@ int quic_connloop_on_send(
   c->send_level = level;
   c->sent_bytes += len;
   if (!ack_eliciting) return 1;
-  quic_sentpkt_on_send(&c->sent, pn, 0, 1, len);
+  {
+    quic_sentpkt_out pkt = {pn, 0, 1, len};
+    quic_sentpkt_on_send(&c->sent, &pkt);
+  }
   pto_sync(c);
   return 1;
 }
@@ -82,9 +85,10 @@ void quic_connloop_validate(quic_connloop *c) {
 
 usz quic_connloop_on_ack(
     quic_connloop *c, u64 ack_largest, const u64 *ack_ranges, usz n_ranges) {
-  u64 acked[QUIC_SENTPKT_CAP];
-  usz n = 0;
-  quic_ack_process(&c->sent, ack_largest, ack_ranges, n_ranges, acked, &n);
+  u64         acked[QUIC_SENTPKT_CAP];
+  usz         n      = 0;
+  quic_ackset ackset = {ack_largest, ack_ranges, n_ranges};
+  quic_ack_process(&c->sent, &ackset, (quic_u64out){acked, &n});
   pto_sync(c); /* an ACK that empties in-flight disarms the PTO */
   return n;
 }
@@ -92,7 +96,10 @@ usz quic_connloop_on_ack(
 int quic_connloop_on_pto(quic_connloop *c, int level, u64 pn, usz len) {
   if (!level_usable(c, level)) return 0; /* never probe at a discarded level */
   if (quic_sentpkt_count(&c->sent) == 0) return 0; /* no probe, stay disarmed */
-  quic_sentpkt_on_send(&c->sent, pn, 0, 1, len);   /* probe is a new packet */
+  {
+    quic_sentpkt_out pkt = {pn, 0, 1, len}; /* probe is a new packet */
+    quic_sentpkt_on_send(&c->sent, &pkt);
+  }
   c->sent_bytes += len;
   c->pto_armed = 1;
   return 1;

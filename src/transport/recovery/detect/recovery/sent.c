@@ -14,15 +14,15 @@ static usz free_slot(const quic_sent *s) {
   return i;
 }
 
-int quic_sent_on_send(quic_sent *s, u64 pn, u64 size, u64 time_sent) {
+int quic_sent_on_send(quic_sent *s, const quic_sent_out *pkt) {
   usz i = free_slot(s);
   if (i == QUIC_SENT_CAP) return 0;
-  s->pkts[i].pn        = pn;
-  s->pkts[i].size      = size;
-  s->pkts[i].time_sent = time_sent;
+  s->pkts[i].pn        = pkt->pn;
+  s->pkts[i].size      = pkt->size;
+  s->pkts[i].time_sent = pkt->time_sent;
   s->pkts[i].state     = QUIC_PKT_INFLIGHT;
   s->pkts[i].used      = 1;
-  s->bytes_in_flight += size;
+  s->bytes_in_flight += pkt->size;
   return 1;
 }
 

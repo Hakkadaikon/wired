@@ -65,9 +65,9 @@ void quic_connrunner_capture_rtx(quic_connrunner *r) {
  * packet number. Falls back to a PING stand-in when no lost pn was captured or
  * its bytes are not held. */
 static usz cr_build_rtx(const quic_connrunner *r, u8 *buf, usz cap) {
-  usz len = 0;
-  if (r->rtx_held) quic_rtxdrive_build(&r->rtx, r->rtx_pn, buf, cap, &len);
-  return len ? len : cr_build_ping(buf, cap);
+  quic_obuf ob = quic_obuf_of(buf, cap);
+  if (r->rtx_held) quic_rtxdrive_build(&r->rtx, r->rtx_pn, &ob);
+  return ob.len ? ob.len : cr_build_ping(buf, cap);
 }
 
 /* Build the frame bytes for kinds 2/3 (retransmission / new-data stand-in);
@@ -105,9 +105,12 @@ void quic_connrunner_track_sent(
   int infl;
   if (sent_len == 0) return;
   infl = kind_in_flight(kind);
-  quic_sentmeta_on_sent(
-      &r->sent, quic_connio_tx_next(&r->io, r->loop.level) - 1, now, infl, infl,
-      sent_len);
+  {
+    quic_sentmeta_out pkt = {
+        quic_connio_tx_next(&r->io, r->loop.level) - 1, now, infl, infl,
+        sent_len};
+    quic_sentmeta_on_sent(&r->sent, &pkt);
+  }
 }
 
 /* ponytail: no RTT estimator is wired into this loop yet, so time-threshold
@@ -127,8 +130,8 @@ void quic_connrunner_track_loss(quic_connrunner *r, u64 now) {
   usz n = 0;
   if (!r->io.disp.has_ack)
     return; /* largest_acked is only valid after an ACK */
-  quic_sentmeta_detect_loss(
-      &r->sent, r->io.disp.largest_acked, now, QUIC_CONNRUNNER_NO_RTT_DELAY,
-      lost, &n);
+  quic_sentmeta_loss_in in = {
+      r->io.disp.largest_acked, now, QUIC_CONNRUNNER_NO_RTT_DELAY};
+  quic_sentmeta_detect_loss(&r->sent, &in, (quic_sentmeta_u64out){lost, &n});
   if (take_lost(r, n)) r->rtx_pn = lost[0], r->rtx_held = 1;
 }

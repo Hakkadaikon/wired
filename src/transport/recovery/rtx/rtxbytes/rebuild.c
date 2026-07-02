@@ -16,19 +16,18 @@ int quic_rtxbytes_retransmittable(const u8 *buf, usz len) {
 }
 
 /* Copy the retransmittable frame bytes out. Returns 1 on success. */
-static int rebuild_copy(
-    const u8 *lost_frame, usz len, u8 *out, usz cap, usz *out_len) {
+static int rebuild_copy(quic_span lost_frame, quic_obuf *out) {
   usz off = 0;
-  if (!quic_put_bytes(out, cap, &off, lost_frame, len)) return 0;
-  *out_len = len;
+  if (!quic_put_bytes(out->p, out->cap, &off, lost_frame.p, lost_frame.n))
+    return 0;
+  out->len = lost_frame.n;
   return 1;
 }
 
-int quic_rtxbytes_rebuild(
-    const u8 *lost_frame, usz len, u8 *out, usz cap, usz *out_len) {
-  int rtx = quic_rtxbytes_retransmittable(lost_frame, len);
+int quic_rtxbytes_rebuild(quic_span lost_frame, quic_obuf *out) {
+  int rtx = quic_rtxbytes_retransmittable(lost_frame.p, lost_frame.n);
 
   if (rtx < 0) return 0;
-  if (rtx == 0) return (*out_len = 0, 1);
-  return rebuild_copy(lost_frame, len, out, cap, out_len);
+  if (rtx == 0) return (out->len = 0, 1);
+  return rebuild_copy(lost_frame, out);
 }

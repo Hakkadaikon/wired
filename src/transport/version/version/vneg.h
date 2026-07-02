@@ -36,12 +36,18 @@ int quic_vneg_supports(const quic_vneg *v, u32 version);
 int quic_vneg_check_downgrade(
     quic_vneg *v, const quic_version_info *vi, u32 in_use);
 
-/* React to a Version Negotiation packet listing `offered` versions. Ignored
- * (returns 0) if we already reacted, or if it lists our `original` version,
- * or if no mutually supported version is offered. On success picks a mutual
- * version into *chosen, latches the reaction, and returns 1. */
-int quic_vneg_react(
-    quic_vneg *v, u32 original, const u32 *offered, usz n, u32 *chosen);
+/* A received Version Negotiation packet: the version we originally sent and
+ * the server's offered list. */
+typedef struct {
+  u32          original;
+  quic_verlist offered;
+} quic_vn_packet;
+
+/* React to a Version Negotiation packet. Ignored (returns 0) if we already
+ * reacted, or if it lists our original version, or if no mutually supported
+ * version is offered. On success picks a mutual version into *chosen, latches
+ * the reaction, and returns 1. */
+int quic_vneg_react(quic_vneg *v, const quic_vn_packet *pkt, u32 *chosen);
 
 /* Confirm `version` as negotiated; it must not change afterwards. */
 void quic_vneg_confirm(quic_vneg *v, u32 version);

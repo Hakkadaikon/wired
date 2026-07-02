@@ -9,8 +9,8 @@ static void test_sentpkt_init_empty(void) {
 static void test_sentpkt_count_after_send(void) {
   quic_sentpkt t;
   quic_sentpkt_init(&t);
-  CHECK(quic_sentpkt_on_send(&t, 1, 100, 1, 1200) == 1);
-  CHECK(quic_sentpkt_on_send(&t, 2, 200, 0, 40) == 1);
+  CHECK(quic_sentpkt_on_send(&t, &(quic_sentpkt_out){1, 100, 1, 1200}) == 1);
+  CHECK(quic_sentpkt_on_send(&t, &(quic_sentpkt_out){2, 200, 0, 40}) == 1);
   CHECK(quic_sentpkt_count(&t) == 2);
 }
 
@@ -19,8 +19,8 @@ static void test_sentpkt_full(void) {
   quic_sentpkt t;
   quic_sentpkt_init(&t);
   for (u64 pn = 0; pn < QUIC_SENTPKT_CAP; pn++)
-    CHECK(quic_sentpkt_on_send(&t, pn, 0, 1, 1) == 1);
-  CHECK(quic_sentpkt_on_send(&t, QUIC_SENTPKT_CAP, 0, 1, 1) == 0);
+    CHECK(quic_sentpkt_on_send(&t, &(quic_sentpkt_out){pn, 0, 1, 1}) == 1);
+  CHECK(quic_sentpkt_on_send(&t, &(quic_sentpkt_out){QUIC_SENTPKT_CAP, 0, 1, 1}) == 0);
   CHECK(quic_sentpkt_count(&t) == QUIC_SENTPKT_CAP);
 }
 

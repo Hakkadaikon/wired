@@ -17,29 +17,23 @@ static int inflight(const quic_sentpkt *t, usz i) {
 
 /* True when an in-flight packet has crossed either threshold. */
 static int past_threshold(
-    const quic_sentpkt_entry *p, u64 largest_acked, u64 now, u64 loss_delay) {
-  return by_packet(largest_acked, p->pn) ||
-         by_time(now, p->time_sent, loss_delay);
+    const quic_sentpkt_entry *p, const quic_loss_params *lp) {
+  return by_packet(lp->largest_acked, p->pn) ||
+         by_time(lp->now, p->time_sent, lp->loss_delay);
 }
 
 /* An in-flight packet past either threshold is lost. */
 static int loss_is_lost(
-    const quic_sentpkt *t, usz i, u64 largest_acked, u64 now, u64 loss_delay) {
-  return inflight(t, i) &&
-         past_threshold(&t->e[i], largest_acked, now, loss_delay);
+    const quic_sentpkt *t, usz i, const quic_loss_params *lp) {
+  return inflight(t, i) && past_threshold(&t->e[i], lp);
 }
 
 void quic_loss_detect(
-    quic_sentpkt *t,
-    u64           largest_acked,
-    u64           now,
-    u64           loss_delay,
-    u64          *lost_pns,
-    usz          *n_lost) {
-  *n_lost = 0;
+    quic_sentpkt *t, const quic_loss_params *p, quic_u64out lost) {
+  *lost.n = 0;
   for (usz i = 0; i < QUIC_SENTPKT_CAP; i++) {
-    if (!loss_is_lost(t, i, largest_acked, now, loss_delay)) continue;
-    t->e[i].state         = QUIC_SP_LOST;
-    lost_pns[(*n_lost)++] = t->e[i].pn;
+    if (!loss_is_lost(t, i, p)) continue;
+    t->e[i].state           = QUIC_SP_LOST;
+    lost.out[(*lost.n)++] = t->e[i].pn;
   }
 }

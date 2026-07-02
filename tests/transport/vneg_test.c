@@ -40,16 +40,18 @@ static void test_vneg_reaction(void) {
   /* VN that lists our original (v1) is ignored */
   init2(&v);
   u32 offered_with_orig[2] = {QUIC_VERSION_1, QUIC_VERSION_2};
-  CHECK(
-      quic_vneg_react(&v, QUIC_VERSION_1, offered_with_orig, 2, &chosen) == 0);
+  quic_vn_packet pkt_with_orig = {
+      QUIC_VERSION_1, quic_verlist_of(offered_with_orig, 2)};
+  CHECK(quic_vneg_react(&v, &pkt_with_orig, &chosen) == 0);
 
   /* VN offering v2 (not our original v1) -> we pick v2, once */
   init2(&v);
-  u32 offered[1] = {QUIC_VERSION_2};
-  CHECK(quic_vneg_react(&v, QUIC_VERSION_1, offered, 1, &chosen) == 1);
+  u32            offered[1] = {QUIC_VERSION_2};
+  quic_vn_packet pkt = {QUIC_VERSION_1, quic_verlist_of(offered, 1)};
+  CHECK(quic_vneg_react(&v, &pkt, &chosen) == 1);
   CHECK(chosen == QUIC_VERSION_2 && v.reacted == 1);
   /* a second VN is ignored (one-shot) */
-  CHECK(quic_vneg_react(&v, QUIC_VERSION_1, offered, 1, &chosen) == 0);
+  CHECK(quic_vneg_react(&v, &pkt, &chosen) == 0);
 }
 
 /* Confirm fixes the negotiated version; an errored negotiation never confirms.

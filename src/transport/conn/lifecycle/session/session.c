@@ -14,9 +14,12 @@
 /* Wrap a QUIC packet in UDP+IPv4 and push it onto the link (no syscall). */
 static int link_tx(
     quic_memlink *l, const u8 *qpkt, usz qlen, u32 src, u32 dst) {
-  u8  udp[1500], ip[20], frame[1520];
-  usz un = quic_udp4_build(udp, sizeof(udp), 4433, 4433, src, dst, qpkt, qlen);
-  quic_ipv4_build(ip, (u16)(20 + un), src, dst, QUIC_IP_PROTO_UDP);
+  u8            udp[1500], ip[20], frame[1520];
+  quic_udp4meta meta = {{4433, 4433}, {src, dst}};
+  quic_obuf     ub   = quic_obuf_of(udp, sizeof(udp));
+  usz           un   = quic_udp4_build(&ub, &meta, quic_span_of(qpkt, qlen));
+  quic_ipv4_build(ip, &(quic_ipv4_head){(u16)(20 + un), src, dst,
+                                         QUIC_IP_PROTO_UDP});
   for (usz i = 0; i < 20; i++) frame[i] = ip[i];
   for (usz i = 0; i < un; i++) frame[20 + i] = udp[i];
   return quic_memlink_send(l, frame, 20 + un);
@@ -25,7 +28,8 @@ static int link_tx(
 /* Validate a received frame's IP+UDP envelope. Returns 1 if it checks out. */
 static int env_ok(const u8 *frame, usz fn, u32 src, u32 dst) {
   if (fn == 0 || !quic_ipv4_check(frame)) return 0;
-  return quic_udp4_check(frame + 20, fn - 20, src, dst);
+  return quic_udp4_check(quic_span_of(frame + 20, fn - 20), (quic_ipv4addrs){
+                                                                 src, dst});
 }
 
 /* Copy n bytes from src to dst. */

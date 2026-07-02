@@ -318,6 +318,7 @@ static void test_srvloop_full_roundtrip(void) {
   usz           clen, out_len = 0, glen;
   const u8     *pkts[4];
   usz           offs[4], lens[4], np;
+  quic_pktlist  plist = {pkts, offs, lens, 4};
   lp_make_client_hello(&f);
   lp_drive_to_flight(&f);
   lp_make_client_finished(&f);
@@ -327,7 +328,7 @@ static void test_srvloop_full_roundtrip(void) {
       1);
   CHECK(quic_server_is_confirmed(&f.s) == 1);
   /* The reply coalesces a Handshake ACK (long header) and a 1-RTT packet. */
-  np = quic_udploop_split(out, out_len, pkts, offs, lens, 4);
+  np = quic_udploop_split(quic_span_of(out, out_len), &plist);
   CHECK(np == 2);
   CHECK((out[offs[0]] & 0x80) != 0); /* slice 0: long-header Handshake ACK */
   {
@@ -376,6 +377,7 @@ static void test_srvloop_response_dcid_is_client_scid(void) {
   usz             clen, out_len = 0;
   const u8       *pkts[4];
   usz             offs[4], lens[4], np;
+  quic_pktlist  plist = {pkts, offs, lens, 4};
   lp_make_client_hello(&f);
   lp_drive_to_flight(&f);
   /* re-seed the loop with the client's SCID (distinct from g_cli_scid). */
@@ -385,7 +387,7 @@ static void test_srvloop_response_dcid_is_client_scid(void) {
   CHECK(
       quic_srvloop_step(&f.l, &f.s, cpkt, clen, out, sizeof out, &out_len) ==
       1);
-  np = quic_udploop_split(out, out_len, pkts, offs, lens, 4);
+  np = quic_udploop_split(quic_span_of(out, out_len), &plist);
   CHECK(np == 2);                                    /* Handshake ACK + 1-RTT */
   CHECK(onertt_dcid_is(out + offs[1], cli_scid, 6)); /* DCID == client SCID */
   CHECK(
@@ -490,6 +492,7 @@ static void test_srvloop_handshake_ack_tracks_pn(void) {
   usz           clen, out_len = 0;
   const u8     *pkts[4], *pl;
   usz           offs[4], lens[4], np, pll;
+  quic_pktlist  plist = {pkts, offs, lens, 4};
   lp_make_client_hello(&f);
   lp_drive_to_flight(&f);
   lp_make_client_finished(&f);
@@ -498,7 +501,7 @@ static void test_srvloop_handshake_ack_tracks_pn(void) {
   CHECK(
       quic_srvloop_step(&f.l, &f.s, cpkt, clen, out, sizeof out, &out_len) ==
       1);
-  np = quic_udploop_split(out, out_len, pkts, offs, lens, 4);
+  np = quic_udploop_split(quic_span_of(out, out_len), &plist);
   CHECK(np == 2);
   CHECK((out[offs[0]] & 0x80) != 0); /* slice 0: long-header Handshake ACK */
   CHECK(client_open_handshake(&f, out + offs[0], lens[0], &pl, &pll) == 1);
@@ -573,6 +576,7 @@ static void test_srvloop_confirm_and_200_coalesce(void) {
   usz           glen, slen, out_len = 0;
   const u8     *pkts[4];
   usz           offs[4], lens[4], np;
+  quic_pktlist  plist = {pkts, offs, lens, 4};
   lp_confirm_via_dispatch(&f);
   CHECK(f.l.hs_done_sent == 0); /* confirmation not yet sealed */
   CHECK(quic_h3reqdrive_send_get(
@@ -585,7 +589,7 @@ static void test_srvloop_confirm_and_200_coalesce(void) {
   /* Reply: [Handshake ACK (long)][one 1-RTT packet: SETTINGS + HANDSHAKE_DONE
    * + 200]. Short-header packets carry no length, so confirm and 200 share a
    * single 1-RTT payload rather than two coalesced 1-RTT packets. */
-  np = quic_udploop_split(out, out_len, pkts, offs, lens, 4);
+  np = quic_udploop_split(quic_span_of(out, out_len), &plist);
   CHECK(np == 2);
   CHECK((out[offs[0]] & 0x80) != 0); /* slice 0: long-header Handshake ACK */
   {

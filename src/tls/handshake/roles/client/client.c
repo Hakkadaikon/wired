@@ -34,8 +34,7 @@ int quic_client_init(
   quic_x25519_base(c->my_pub, c->my_priv);
   c->fd = quic_udp_socket();
   if (c->fd < 0) return 0;
-  quic_udp_addr(
-      &c->peer, port, server_ip[0], server_ip[1], server_ip[2], server_ip[3]);
+  quic_udp_addr(&c->peer, port, server_ip);
   quic_tlsdriver_init(&c->tls, c->my_priv, c->my_pub, 0);
   quic_tlsdriver_set_sni(&c->tls, server_name, sni_len);
   c->phase  = QUIC_CLIENT_HS_INITIAL;
@@ -68,7 +67,7 @@ int quic_client_start(quic_client *c) {
   u8  dg[QUIC_CLIENT_DATAGRAM_MAX];
   usz len = quic_client_build_initial(c, dg, sizeof(dg));
   if (len == 0) return 0;
-  return quic_udp_send(c->fd, &c->peer, dg, len) == (i64)len;
+  return quic_udp_send(c->fd, &c->peer, quic_span_of(dg, len)) == (i64)len;
 }
 
 /* RFC 8446 4.4.3: CertificateVerify body opens with the 2-byte scheme. */
@@ -151,7 +150,7 @@ int quic_client_feed(quic_client *c, const u8 *crypto_payload, usz len) {
 
 int quic_client_pump(quic_client *c) {
   u8  dg[QUIC_CLIENT_DATAGRAM_MAX];
-  i64 n = quic_udp_recv(c->fd, dg, sizeof(dg));
+  i64 n = quic_udp_recv(c->fd, quic_mspan_of(dg, sizeof(dg)));
   if (n <= 0) return 0;
   return quic_client_feed(c, dg, (usz)n);
 }

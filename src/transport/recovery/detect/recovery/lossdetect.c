@@ -12,7 +12,7 @@ static u64 time_threshold(u64 srtt, u64 latest_rtt) {
   return rtt * QUIC_LOSS_TIME_NUM / QUIC_LOSS_TIME_DEN;
 }
 
-int quic_loss_by_time(u64 now, u64 sent_time, u64 srtt, u64 latest_rtt) {
-  u64 elapsed = (now > sent_time) ? now - sent_time : 0;
+int quic_loss_by_time(quic_loss_when when, u64 srtt, u64 latest_rtt) {
+  u64 elapsed = (when.now > when.sent_time) ? when.now - when.sent_time : 0;
   return elapsed >= time_threshold(srtt, latest_rtt);
 }
