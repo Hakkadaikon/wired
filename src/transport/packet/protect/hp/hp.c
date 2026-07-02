@@ -7,8 +7,7 @@ void quic_hp_mask(
   for (usz i = 0; i < 5; i++) mask[i] = block[i];
 }
 
-void quic_hp_apply(
-    const u8 mask[5], u8 *byte0, u8 *pn, usz pn_len, u8 bits_mask) {
-  *byte0 ^= mask[0] & bits_mask;
-  for (usz i = 0; i < pn_len; i++) pn[i] ^= mask[1 + i];
+void quic_hp_apply(const u8 mask[5], const quic_hp_fields *f) {
+  *f->byte0 ^= mask[0] & f->bits_mask;
+  for (usz i = 0; i < f->pn_len; i++) f->pn[i] ^= mask[1 + i];
 }

@@ -79,8 +79,11 @@ int quic_session_client_hello(quic_session *s) {
   quic_crypto_frame cf = {.offset = 0, .length = hl, .data = hello};
   usz               cl = quic_frame_put_crypto(crypto, sizeof(crypto), &cf);
   fill_header(hdr, 0xc3, s->dcid, 1);
-  usz pn = quic_protect_seal(
-      &s->ikeys, &s->ihp, hdr, 18, 14, 4, 1, crypto, cl, out, sizeof(out));
+  quic_protect_keys    k  = {&s->ikeys, &s->ihp};
+  quic_protect_seal_io io = {
+      quic_span_of(hdr, 18),          14, 4, 1, quic_span_of(crypto, cl),
+      quic_mspan_of(out, sizeof(out))};
+  usz pn = quic_protect_seal(&k, &io);
   if (pn == 0) return 0;
   return link_tx(s->link, out, pn, QUIC_SESSION_CA, QUIC_SESSION_SA);
 }
@@ -98,7 +101,9 @@ static int read_share(u8 *pkt, usz pl, u8 peer_pub[32]) {
 /* Unprotect a received Initial of rn bytes in place; returns plaintext len. */
 static usz open_initial(quic_session *s, u8 *pkt, usz rn) {
   if (rn == 0) return 0;
-  return quic_protect_open(&s->ikeys, &s->ihp, pkt, rn, 18, 14, 4, 1);
+  quic_protect_keys    k  = {&s->ikeys, &s->ihp};
+  quic_protect_open_io io = {quic_mspan_of(pkt, rn), 18, 14, 4, 1};
+  return quic_protect_open(&k, &io);
 }
 
 int quic_session_accept(quic_session *s) {
@@ -162,8 +167,11 @@ int quic_session_send_stream(
       .fin       = fin};
   usz fl = quic_frame_put_stream(fr, sizeof(fr), &sf);
   fill_header(hdr, 0x43, s->dcid, 7); /* short-header form, pn 7 */
-  usz pn = quic_protect_seal(
-      &s->ep.hs_keys, &s->hshp, hdr, 18, 14, 4, 7, fr, fl, out, sizeof(out));
+  quic_protect_keys    k  = {&s->ep.hs_keys, &s->hshp};
+  quic_protect_seal_io io = {
+      quic_span_of(hdr, 18),          14, 4, 7, quic_span_of(fr, fl),
+      quic_mspan_of(out, sizeof(out))};
+  usz pn = quic_protect_seal(&k, &io);
   if (pn == 0) return 0;
   return link_tx(
       s->link, out, pn, my_addr(s->is_server), peer_addr(s->is_server));
@@ -172,7 +180,9 @@ int quic_session_send_stream(
 /* Unprotect a received 1-RTT packet of rn bytes in place; plaintext len. */
 static usz open_1rtt(quic_session *s, u8 *pkt, usz rn) {
   if (rn == 0) return 0;
-  return quic_protect_open(&s->ep.hs_keys, &s->hshp, pkt, rn, 18, 14, 4, 7);
+  quic_protect_keys    k  = {&s->ep.hs_keys, &s->hshp};
+  quic_protect_open_io io = {quic_mspan_of(pkt, rn), 18, 14, 4, 7};
+  return quic_protect_open(&k, &io);
 }
 
 int quic_session_recv_stream(quic_session *s, quic_stream_frame *out) {

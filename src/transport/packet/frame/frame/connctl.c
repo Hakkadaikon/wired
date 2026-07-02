@@ -1,29 +1,29 @@
 #include "transport/packet/frame/frame/connctl.h"
 
+#include "common/bytes/span/span.h"
 #include "common/bytes/util/bytes.h"
 #include "common/bytes/varint/varint.h"
 
 /* --- NEW_TOKEN (19.7) --- */
 
-/* Write type and length varints at *off. Returns 1 ok, 0 on overflow. */
-static int put_new_token_head(u8 *buf, usz cap, usz *off, u64 length) {
-  if (!quic_varint_put(buf, cap, off, QUIC_FRAME_NEW_TOKEN)) return 0;
-  return quic_varint_put(buf, cap, off, length);
+/* Write type and length varints. Returns 1 ok, 0 on overflow. */
+static int put_new_token_head(quic_obuf *o, u64 length) {
+  if (!quic_varint_put(o->p, o->cap, &o->len, QUIC_FRAME_NEW_TOKEN)) return 0;
+  return quic_varint_put(o->p, o->cap, &o->len, length);
 }
 
 usz quic_new_token_encode(u8 *buf, usz cap, const quic_new_token_frame *f) {
-  usz off = 0;
-  if (!put_new_token_head(buf, cap, &off, f->length)) return 0;
-  if (!quic_put_bytes(buf, cap, &off, f->token, (usz)f->length)) return 0;
-  return off;
+  quic_obuf o = quic_obuf_of(buf, cap);
+  if (!put_new_token_head(&o, f->length)) return 0;
+  if (!quic_put_bytes(o.p, o.cap, &o.len, f->token, (usz)f->length)) return 0;
+  return o.len;
 }
 
-/* Point f->token at f->length bytes at *off (n total). Returns 1 ok, 0 if
- * the token runs past n. */
-static int take_token_view(
-    const u8 *buf, usz n, usz *off, quic_new_token_frame *f) {
-  if (*off + (usz)f->length > n) return 0;
-  f->token = buf + *off;
+/* Point f->token at f->length bytes at *off (in.n total). Returns 1 ok, 0 if
+ * the token runs past in.n. */
+static int take_token_view(quic_span in, usz *off, quic_new_token_frame *f) {
+  if (*off + (usz)f->length > in.n) return 0;
+  f->token = in.p + *off;
   *off += (usz)f->length;
   return 1;
 }
@@ -31,7 +31,7 @@ static int take_token_view(
 usz quic_new_token_decode(const u8 *buf, usz n, quic_new_token_frame *f) {
   usz off = 1; /* type byte */
   if (!quic_varint_take(buf, n, &off, &f->length)) return 0;
-  if (!take_token_view(buf, n, &off, f)) return 0;
+  if (!take_token_view(quic_span_of(buf, n), &off, f)) return 0;
   return off;
 }
 

@@ -161,9 +161,13 @@ static usz lb_seal_onertt(
   usz                      total = 0;
   CHECK(quic_keysched_get(&f->s.sched, QUIC_KS_CLIENT_AP, &k) == 1);
   quic_aes128_init(&hp, k->hp);
-  CHECK(quic_hspkt_onertt_build(
-      k, &hp, f->s.sdrv.iscid, f->s.sdrv.iscid_len, 0, pl, pln, pkt, cap,
-      &total));
+  quic_protect_keys      pk = {k, &hp};
+  quic_hspkt_onertt_desc d  = {
+      quic_span_of(f->s.sdrv.iscid, f->s.sdrv.iscid_len), 0,
+      quic_span_of(pl, pln)};
+  quic_obuf o = quic_obuf_of(pkt, cap);
+  CHECK(quic_hspkt_onertt_build(&pk, &d, &o));
+  total = o.len;
   return total;
 }
 
@@ -174,7 +178,13 @@ static int lb_open_onertt(
   quic_aes128              hp;
   CHECK(quic_keysched_get(&f->s.sched, QUIC_KS_SERVER_AP, &k) == 1);
   quic_aes128_init(&hp, k->hp);
-  return quic_hspkt_onertt_open(k, &hp, pkt, len, 6, 0, pl, pll);
+  quic_protect_keys           pk = {k, &hp};
+  quic_hspkt_onertt_open_desc d  = {quic_mspan_of(pkt, len), 6, 0};
+  quic_span                   v;
+  if (!quic_hspkt_onertt_open(&pk, &d, &v)) return 0;
+  *pl  = v.p;
+  *pll = v.n;
+  return 1;
 }
 
 /* A bound server socket and a client socket, both on 127.0.0.1. Returns 1 with

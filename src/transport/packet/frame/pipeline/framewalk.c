@@ -62,14 +62,13 @@ static usz measure(const quic_framewalk *it, u64 *type) {
   return len > it->remaining ? 0 : len;
 }
 
-int quic_framewalk_next(
-    quic_framewalk *it, u64 *type, const u8 **frame_start, usz *remaining) {
+int quic_framewalk_next(quic_framewalk *it, quic_framewalk_item *out) {
   usz len;
   if (it->remaining == 0) return 0;
-  len = measure(it, type);
+  len = measure(it, &out->type);
   if (len == 0) return 0;
-  *frame_start = it->cur;
-  *remaining   = it->remaining;
+  out->start     = it->cur;
+  out->remaining = it->remaining;
   it->cur += len;
   it->remaining -= len;
   return 1;

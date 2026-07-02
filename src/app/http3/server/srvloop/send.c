@@ -60,7 +60,12 @@ int quic_srvloop_send_onertt(
   const quic_initial_keys *k;
   quic_aes128              hp;
   if (!quic_srvloop_seal_keys(s, QUIC_LEVEL_ONERTT, &k, &hp)) return 0;
-  return quic_hspkt_onertt_build(
-      k, &hp, cli_scid, cli_scid_len, pn, payload, payload_len, out, cap,
-      out_len);
+  quic_protect_keys      pk = {k, &hp};
+  quic_hspkt_onertt_desc d  = {
+      quic_span_of(cli_scid, cli_scid_len), pn,
+      quic_span_of(payload, payload_len)};
+  quic_obuf o = quic_obuf_of(out, cap);
+  if (!quic_hspkt_onertt_build(&pk, &d, &o)) return 0;
+  *out_len = o.len;
+  return 1;
 }

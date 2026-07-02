@@ -8,8 +8,9 @@ void test_aead_suite(void) {
   for (usz i = 0; i < 20; i++) pt[i] = (u8)i;
 
   /* RFC 9001 5.3 AES suite: matches the fixed GCM pipeline directly. */
-  usz n = quic_aead_suite_seal(
-      QUIC_TLS_AES_128_GCM_SHA256, key, iv, 2, aad, 7, pt, 20, ct);
+  quic_aead_suite_op aes = {
+      QUIC_TLS_AES_128_GCM_SHA256, key, iv, 2, quic_span_of(aad, 7)};
+  usz n = quic_aead_suite_seal(&aes, quic_span_of(pt, 20), ct);
   CHECK(n == 20 + 16);
   quic_aes128 a;
   quic_aes128_init(&a, key);
@@ -21,29 +22,23 @@ void test_aead_suite(void) {
   for (usz i = 0; i < 36; i++) CHECK(ct[i] == want[i]);
 
   /* AES seal -> open round-trips. */
-  CHECK(
-      quic_aead_suite_open(
-          QUIC_TLS_AES_128_GCM_SHA256, key, iv, 2, aad, 7, ct, 20, out) == 20);
+  CHECK(quic_aead_suite_open(&aes, quic_span_of(ct, 20), out) == 20);
   for (usz i = 0; i < 20; i++) CHECK(out[i] == pt[i]);
 
   /* RFC 9001 5.3 ChaCha suite: seal -> open round-trips. */
-  n = quic_aead_suite_seal(
-      QUIC_TLS_CHACHA20_POLY1305_SHA256, key, iv, 5, aad, 7, pt, 20, ct);
+  quic_aead_suite_op cha = {
+      QUIC_TLS_CHACHA20_POLY1305_SHA256, key, iv, 5, quic_span_of(aad, 7)};
+  n = quic_aead_suite_seal(&cha, quic_span_of(pt, 20), ct);
   CHECK(n == 20 + 16);
-  CHECK(
-      quic_aead_suite_open(
-          QUIC_TLS_CHACHA20_POLY1305_SHA256, key, iv, 5, aad, 7, ct, 20, out) ==
-      20);
+  CHECK(quic_aead_suite_open(&cha, quic_span_of(ct, 20), out) == 20);
   for (usz i = 0; i < 20; i++) CHECK(out[i] == pt[i]);
 
   /* Tampered tag fails authentication. */
   ct[20] ^= 0xff;
-  CHECK(
-      quic_aead_suite_open(
-          QUIC_TLS_CHACHA20_POLY1305_SHA256, key, iv, 5, aad, 7, ct, 20, out) ==
-      0);
+  CHECK(quic_aead_suite_open(&cha, quic_span_of(ct, 20), out) == 0);
 
   /* Unknown suite seals/opens nothing. */
-  CHECK(quic_aead_suite_seal(0x0000, key, iv, 2, aad, 7, pt, 20, ct) == 0);
-  CHECK(quic_aead_suite_open(0x0000, key, iv, 2, aad, 7, ct, 20, out) == 0);
+  quic_aead_suite_op bad = {0x0000, key, iv, 2, quic_span_of(aad, 7)};
+  CHECK(quic_aead_suite_seal(&bad, quic_span_of(pt, 20), ct) == 0);
+  CHECK(quic_aead_suite_open(&bad, quic_span_of(ct, 20), out) == 0);
 }

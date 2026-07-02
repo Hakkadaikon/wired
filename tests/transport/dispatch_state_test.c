@@ -30,7 +30,7 @@ static void test_dispatch_stream(void) {
   u8                buf[32];
   quic_stream_frame f = {3, 0, 4, (const u8 *)"data", 0};
   usz               n = quic_frame_put_stream(buf, sizeof buf, &f);
-  CHECK(quic_framedispatch_handle(&st, buf[0], buf, n) == 1);
+  CHECK(quic_framedispatch_handle(&st, buf[0], quic_span_of(buf, n)) == 1);
   u8  out[8];
   usz got = 0;
   quic_stream_read_pull(&s, out, sizeof out, &got);
@@ -53,7 +53,7 @@ static void test_dispatch_ack(void) {
   f.ranges[0].lo = 3;
   u8  buf[32];
   usz n = quic_ack_encode(buf, sizeof buf, &f);
-  CHECK(quic_framedispatch_handle(&st, buf[0], buf, n) == 1);
+  CHECK(quic_framedispatch_handle(&st, buf[0], quic_span_of(buf, n)) == 1);
   CHECK(quic_sentpkt_count(&t) == 2); /* 5,4,3 acked; 1,2 remain */
   CHECK(st.ack_eliciting == 0);       /* ACK is not ack-eliciting */
 }
@@ -68,7 +68,7 @@ static void test_dispatch_max_data(void) {
   quic_data_frame f = {9000};
   u8              buf[16];
   usz             n = quic_max_data_encode(buf, sizeof buf, &f);
-  CHECK(quic_framedispatch_handle(&st, buf[0], buf, n) == 1);
+  CHECK(quic_framedispatch_handle(&st, buf[0], quic_span_of(buf, n)) == 1);
   CHECK(quic_flow_credit_violation(&c, 9000) == 0);
   CHECK(quic_flow_credit_violation(&c, 9001) == 1);
 }
@@ -81,7 +81,7 @@ static void test_dispatch_ping(void) {
   quic_flow_credit         c;
   ds_init(&st, &s, &t, &c);
   u8 buf[1] = {QUIC_FRAME_PING};
-  CHECK(quic_framedispatch_handle(&st, buf[0], buf, 1) == 1);
+  CHECK(quic_framedispatch_handle(&st, buf[0], quic_span_of(buf, 1)) == 1);
   CHECK(st.ack_eliciting == 1);
   CHECK(st.close == 0);
 }
@@ -96,7 +96,7 @@ static void test_dispatch_close(void) {
   quic_conn_close_frame f = {0, 7, 0, 0, (const u8 *)0};
   u8                    buf[16];
   usz                   n = quic_frame_put_conn_close(buf, sizeof buf, &f);
-  CHECK(quic_framedispatch_handle(&st, buf[0], buf, n) == 1);
+  CHECK(quic_framedispatch_handle(&st, buf[0], quic_span_of(buf, n)) == 1);
   CHECK(st.close == 1);
   CHECK(st.ack_eliciting == 0); /* CONNECTION_CLOSE is exempt */
 }
@@ -109,7 +109,7 @@ static void test_dispatch_padding(void) {
   quic_flow_credit         c;
   ds_init(&st, &s, &t, &c);
   u8 buf[1] = {QUIC_FRAME_PADDING};
-  CHECK(quic_framedispatch_handle(&st, buf[0], buf, 1) == 1);
+  CHECK(quic_framedispatch_handle(&st, buf[0], quic_span_of(buf, 1)) == 1);
   CHECK(st.ack_eliciting == 0);
   CHECK(st.close == 0);
 }
@@ -122,7 +122,7 @@ static void test_dispatch_unknown(void) {
   quic_flow_credit         c;
   ds_init(&st, &s, &t, &c);
   u8 buf[1] = {0x7f};
-  CHECK(quic_framedispatch_handle(&st, 0x7f, buf, 1) == 0);
+  CHECK(quic_framedispatch_handle(&st, 0x7f, quic_span_of(buf, 1)) == 0);
 }
 
 /* Standalone ack-eliciting predicate (RFC 9000 13.2.1). */

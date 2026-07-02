@@ -8,24 +8,19 @@
  * Initial-only Token, Length, and a 4-byte packet number. is_initial selects
  * whether the Token fields are present (Initial 17.2.2 vs Handshake 17.2.4).
  * The frame bytes are sealed as the payload. */
+typedef struct {
+  u8        byte0;
+  quic_span dcid;
+  quic_span scid;
+  int       is_initial;
+  quic_span token;
+  u64       pn;
+  quic_span frames;
+} quic_tx_desc;
 
-/* Build header + protect_seal into out (cap bytes). Returns the protected
- * length, or 0 on overflow. */
+/* Build header + protect_seal into out. Returns the protected length, or 0
+ * on overflow. */
 usz quic_tx_packet(
-    const quic_initial_keys *keys,
-    const quic_aes128       *hp,
-    u8                       byte0,
-    const u8                *dcid,
-    u8                       dcid_len,
-    const u8                *scid,
-    u8                       scid_len,
-    int                      is_initial,
-    const u8                *token,
-    usz                      token_len,
-    u64                      pn,
-    const u8                *frames,
-    usz                      frames_len,
-    u8                      *out,
-    usz                      cap);
+    const quic_protect_keys *k, const quic_tx_desc *d, quic_mspan out);
 
 #endif

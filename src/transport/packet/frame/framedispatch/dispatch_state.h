@@ -1,7 +1,7 @@
 #ifndef QUIC_FRAMEDISPATCH_DISPATCH_STATE_H
 #define QUIC_FRAMEDISPATCH_DISPATCH_STATE_H
 
-#include "common/platform/sys/syscall.h"
+#include "common/bytes/span/span.h"
 #include "transport/recovery/rtx/sentpkt/sentpkt.h"
 #include "transport/stream/flow/flow/credit.h"
 #include "transport/stream/flow/flow/stream_read.h"
@@ -19,11 +19,11 @@ typedef struct {
   u64               largest_acked; /* its Largest Acknowledged, when has_ack */
 } quic_framedispatch_state;
 
-/* Dispatch one frame by type. frame points at the type varint, len covers the
+/* Dispatch one frame by type. frame starts at the type varint and covers the
  * whole frame. Returns 1 if handled, 0 on an unknown type or malformed frame.
  */
 int quic_framedispatch_handle(
-    quic_framedispatch_state *st, u64 frame_type, const u8 *frame, usz len);
+    quic_framedispatch_state *st, u64 frame_type, quic_span frame);
 
 /* RFC 9000 13.2.1: every frame except PADDING, ACK and CONNECTION_CLOSE is
  * ack-eliciting. Returns 1 or 0. */

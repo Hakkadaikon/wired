@@ -74,10 +74,10 @@ int quic_framedispatch_ack_eliciting(u64 frame_type) {
 }
 
 int quic_framedispatch_handle(
-    quic_framedispatch_state *st, u64 frame_type, const u8 *frame, usz len) {
+    quic_framedispatch_state *st, u64 frame_type, quic_span frame) {
   quic_frame_kind k = quic_frame_classify(frame_type);
   handler h = (k < sizeof handlers / sizeof handlers[0]) ? handlers[k] : 0;
   if (h == 0) return 0;
   st->ack_eliciting |= (u8)quic_frame_ack_eliciting(k);
-  return h(st, frame, len);
+  return h(st, frame.p, frame.n);
 }

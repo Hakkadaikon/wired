@@ -22,6 +22,11 @@ int quic_appdata_send(
   if (!quic_appdata_stream_frame(
           stream_id, 0, data, len, fin, frame, sizeof(frame), &flen))
     return 0;
-  return quic_hspkt_onertt_build(
-      app_keys, hp, dcid, dcid_len, pn, frame, flen, out, cap, out_len);
+  quic_protect_keys      k = {app_keys, hp};
+  quic_hspkt_onertt_desc d = {
+      quic_span_of(dcid, dcid_len), pn, quic_span_of(frame, flen)};
+  quic_obuf o = quic_obuf_of(out, cap);
+  if (!quic_hspkt_onertt_build(&k, &d, &o)) return 0;
+  *out_len = o.len;
+  return 1;
 }

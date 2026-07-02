@@ -185,9 +185,13 @@ static usz client_seal_onertt(
   usz                      total = 0;
   CHECK(quic_keysched_get(&f->s.sched, QUIC_KS_CLIENT_AP, &k) == 1);
   quic_aes128_init(&hp, k->hp);
-  CHECK(quic_hspkt_onertt_build(
-      k, &hp, f->s.sdrv.iscid, f->s.sdrv.iscid_len, 0, pl, pln, pkt, cap,
-      &total));
+  quic_protect_keys      pk = {k, &hp};
+  quic_hspkt_onertt_desc d  = {
+      quic_span_of(f->s.sdrv.iscid, f->s.sdrv.iscid_len), 0,
+      quic_span_of(pl, pln)};
+  quic_obuf o = quic_obuf_of(pkt, cap);
+  CHECK(quic_hspkt_onertt_build(&pk, &d, &o));
+  total = o.len;
   return total;
 }
 
@@ -283,7 +287,13 @@ static int client_open_onertt(
   quic_aes128              hp;
   CHECK(quic_keysched_get(&f->s.sched, QUIC_KS_SERVER_AP, &k) == 1);
   quic_aes128_init(&hp, k->hp);
-  return quic_hspkt_onertt_open(k, &hp, pkt, len, 6, 0, pl, pll);
+  quic_protect_keys           pk = {k, &hp};
+  quic_hspkt_onertt_open_desc d  = {quic_mspan_of(pkt, len), 6, 0};
+  quic_span                   v;
+  if (!quic_hspkt_onertt_open(&pk, &d, &v)) return 0;
+  *pl  = v.p;
+  *pll = v.n;
+  return 1;
 }
 
 /* The confirmation 1-RTT payload carries a STREAM frame on the server control
@@ -390,9 +400,13 @@ static usz client_seal_onertt_pn(
   usz                      total = 0;
   CHECK(quic_keysched_get(&f->s.sched, QUIC_KS_CLIENT_AP, &k) == 1);
   quic_aes128_init(&hp, k->hp);
-  CHECK(quic_hspkt_onertt_build(
-      k, &hp, f->s.sdrv.iscid, f->s.sdrv.iscid_len, pn, pl, pln, pkt, cap,
-      &total));
+  quic_protect_keys      pk = {k, &hp};
+  quic_hspkt_onertt_desc d  = {
+      quic_span_of(f->s.sdrv.iscid, f->s.sdrv.iscid_len), pn,
+      quic_span_of(pl, pln)};
+  quic_obuf o = quic_obuf_of(pkt, cap);
+  CHECK(quic_hspkt_onertt_build(&pk, &d, &o));
+  total = o.len;
   return total;
 }
 
@@ -400,16 +414,14 @@ static usz client_seal_onertt_pn(
  * acknowledges pn (RFC 9000 19.3) — this is what stops the client
  * retransmitting. */
 static void check_acks_pn(const u8 *pl, usz pll, u64 pn) {
-  quic_framewalk it;
-  u64            type;
-  const u8      *frame;
-  usz            rem;
-  int            found = 0;
+  quic_framewalk      it;
+  quic_framewalk_item fr;
+  int                 found = 0;
   quic_framewalk_init(&it, pl, pll);
-  while (quic_framewalk_next(&it, &type, &frame, &rem))
-    if (type == QUIC_FRAME_ACK) {
+  while (quic_framewalk_next(&it, &fr))
+    if (fr.type == QUIC_FRAME_ACK) {
       quic_ack_frame a;
-      CHECK(quic_ack_decode(frame, rem, &a) > 0);
+      CHECK(quic_ack_decode(fr.start, fr.remaining, &a) > 0);
       CHECK(a.ranges[0].hi == pn);
       found = 1;
     }
@@ -460,7 +472,12 @@ static int client_open_handshake(
   quic_aes128              hp;
   CHECK(quic_keysched_get(&f->s.sched, QUIC_KS_SERVER_HS, &k) == 1);
   quic_aes128_init(&hp, k->hp);
-  return quic_hspkt_open(k, &hp, (u8 *)pkt, len, 6, pl, pll);
+  quic_protect_keys pk = {k, &hp};
+  quic_span         v;
+  if (!quic_hspkt_open(&pk, quic_mspan_of((u8 *)pkt, len), &v)) return 0;
+  *pl  = v.p;
+  *pll = v.n;
+  return 1;
 }
 
 /* REGRESSION (appconnect stall): a client Finished at a non-zero Handshake PN
@@ -493,13 +510,14 @@ static void test_srvloop_handshake_ack_tracks_pn(void) {
  * stream (id 0) — regardless of frame order (RFC 9114 6.2.1 / 4.1, RFC 9000
  * 19.20). The 200's STREAM frame (type byte onward) is fed to recv_response. */
 static void check_confirm_and_200_payload(const u8 *pl, usz pll) {
-  quic_framewalk it;
-  u64            type;
-  const u8      *frame;
-  usz            rem;
-  int            settings = 0, done = 0, ok200 = 0;
+  quic_framewalk      it;
+  quic_framewalk_item fr;
+  int                 settings = 0, done = 0, ok200 = 0;
   quic_framewalk_init(&it, pl, pll);
-  while (quic_framewalk_next(&it, &type, &frame, &rem)) {
+  while (quic_framewalk_next(&it, &fr)) {
+    u64               type  = fr.type;
+    const u8         *frame = fr.start;
+    usz               rem   = fr.remaining;
     quic_stream_frame sf;
     const u8         *body;
     usz               body_len;

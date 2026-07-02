@@ -76,15 +76,13 @@ static int request_stream_of(
  * sends first. Returns 1 if any request-stream frame was seen this datagram. */
 static int gather_request(
     const u8 *payload, usz len, quic_srvloop_reqacc *acc) {
-  quic_framewalk    it;
-  u64               type;
-  const u8         *frame;
-  usz               rem;
-  int               seen = 0;
-  quic_stream_frame sf;
+  quic_framewalk      it;
+  quic_framewalk_item fr;
+  int                 seen = 0;
+  quic_stream_frame   sf;
   quic_framewalk_init(&it, payload, len);
-  while (quic_framewalk_next(&it, &type, &frame, &rem))
-    if (request_stream_of(type, frame, rem, &sf)) {
+  while (quic_framewalk_next(&it, &fr))
+    if (request_stream_of(fr.type, fr.start, fr.remaining, &sf)) {
       gather_one(&sf, acc);
       seen = 1;
     }
@@ -136,25 +134,21 @@ static int reassemble_and_drive(
  * 1-RTT payload belongs to the HTTP/3 path and must never re-enter the
  * handshake via quic_server_feed (RFC 9000 12.4). */
 static int has_stream(const u8 *payload, usz len) {
-  quic_framewalk it;
-  u64            type;
-  const u8      *frame;
-  usz            rem;
+  quic_framewalk      it;
+  quic_framewalk_item fr;
   quic_framewalk_init(&it, payload, len);
-  while (quic_framewalk_next(&it, &type, &frame, &rem))
-    if (is_stream(type)) return 1;
+  while (quic_framewalk_next(&it, &fr))
+    if (is_stream(fr.type)) return 1;
   return 0;
 }
 
 /* 1 if the payload carries at least one walkable frame (non-empty, decodes).
  * An empty/undecodable payload drives nothing. */
 static int has_frame(const u8 *payload, usz len) {
-  quic_framewalk it;
-  u64            type;
-  const u8      *frame;
-  usz            rem;
+  quic_framewalk      it;
+  quic_framewalk_item fr;
   quic_framewalk_init(&it, payload, len);
-  return quic_framewalk_next(&it, &type, &frame, &rem);
+  return quic_framewalk_next(&it, &fr);
 }
 
 /* No request stream found. A payload carrying only unidirectional STREAM frames

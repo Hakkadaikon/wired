@@ -9,28 +9,20 @@
 #define QUIC_TX_PN_LEN 4u
 
 usz quic_tx_packet(
-    const quic_initial_keys *keys,
-    const quic_aes128       *hp,
-    u8                       byte0,
-    const u8                *dcid,
-    u8                       dcid_len,
-    const u8                *scid,
-    u8                       scid_len,
-    int                      is_initial,
-    const u8                *token,
-    usz                      token_len,
-    u64                      pn,
-    const u8                *frames,
-    usz                      frames_len,
-    u8                      *out,
-    usz                      cap) {
-  u8  hdr[64 + 2 * QUIC_MAX_CID_LEN];
-  usz hdr_len = 0, len_off = 0;
-  usz w = quic_lhdr_build(
-      byte0, 1, dcid, dcid_len, scid, scid_len, is_initial, token, token_len,
-      frames_len, pn, QUIC_TX_PN_LEN, hdr, sizeof(hdr), &hdr_len, &len_off);
-  if (w == 0) return 0;
-  return quic_protect_seal(
-      keys, hp, hdr, hdr_len, hdr_len - QUIC_TX_PN_LEN, QUIC_TX_PN_LEN, pn,
-      frames, frames_len, out, cap);
+    const quic_protect_keys *k, const quic_tx_desc *d, quic_mspan out) {
+  u8             hdr[64 + 2 * QUIC_MAX_CID_LEN];
+  usz            len_off = 0;
+  quic_obuf      ho      = quic_obuf_of(hdr, sizeof(hdr));
+  quic_lhdr_desc h       = {d->byte0,      1,        d->dcid,     d->scid,
+                            d->is_initial, d->token, d->frames.n, d->pn,
+                            QUIC_TX_PN_LEN};
+  if (quic_lhdr_build(&h, &ho, &len_off) == 0) return 0;
+  quic_protect_seal_io io = {
+      quic_span_of(hdr, ho.len),
+      ho.len - QUIC_TX_PN_LEN,
+      QUIC_TX_PN_LEN,
+      d->pn,
+      d->frames,
+      out};
+  return quic_protect_seal(k, &io);
 }

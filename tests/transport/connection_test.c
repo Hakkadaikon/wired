@@ -38,12 +38,10 @@ static void test_connection_roundtrip(void) {
   quic_framewalk it;
   CHECK(quic_connection_recv(&cli, QUIC_LEVEL_ONERTT, &it) == 1);
 
-  u64       type;
-  const u8 *start;
-  usz       rem;
-  CHECK(quic_framewalk_next(&it, &type, &start, &rem) == 1);
+  quic_framewalk_item fr;
+  CHECK(quic_framewalk_next(&it, &fr) == 1);
   quic_stream_frame got;
-  CHECK(quic_frame_get_stream(start, rem, &got) != 0);
+  CHECK(quic_frame_get_stream(fr.start, fr.remaining, &got) != 0);
   CHECK(got.stream_id == 4 && got.fin == 1 && got.length == 5);
   CHECK(got.data[0] == 'h' && got.data[4] == 'o');
 }

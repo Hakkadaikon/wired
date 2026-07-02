@@ -11,15 +11,32 @@ static void test_lhdr_byte0_pnlen(void) {
   CHECK(quic_lhdr_byte0_pnlen(0xC3, 1) == 0xC0); /* overwrites prior bits */
 }
 
+/* Build via the descriptor API; returns the header length, out->len mirror. */
+static usz lb(
+    const quic_lhdr_desc *d, u8 *out, usz cap, usz *hdr_len, usz *len_off) {
+  quic_obuf o = quic_obuf_of(out, cap);
+  usz       w = quic_lhdr_build(d, &o, len_off);
+  *hdr_len    = o.len;
+  return w;
+}
+
 static void test_lhdr_initial_layout(void) {
   const u8 dcid[4] = {0xDE, 0xAD, 0xBE, 0xEF};
   const u8 scid[2] = {0xAB, 0xCD};
   u8       out[64];
   usz      hdr_len = 0, len_off = 0;
   /* token absent, payload_len 100, pn=5, pn_len=2. */
-  usz w = quic_lhdr_build(
-      0xC0, 1, dcid, 4, scid, 2, 1, (const u8 *)0, 0, 100, 5, 2, out,
-      sizeof(out), &hdr_len, &len_off);
+  quic_lhdr_desc d = {
+      0xC0,
+      1,
+      quic_span_of(dcid, 4),
+      quic_span_of(scid, 2),
+      1,
+      quic_span_of((const u8 *)0, 0),
+      100,
+      5,
+      2};
+  usz w = lb(&d, out, sizeof(out), &hdr_len, &len_off);
   CHECK(w == hdr_len && w != 0);
   /* byte0 with pn_len-1=1, then 4-byte version. */
   CHECK(out[0] == 0xC1);
@@ -45,9 +62,17 @@ static void test_lhdr_initial_with_token(void) {
   u8       out[64];
   usz      hdr_len = 0, len_off = 0;
   /* payload_len 10, pn=1, pn_len=1. */
-  usz w = quic_lhdr_build(
-      0xC0, 1, dcid, 1, (const u8 *)0, 0, 1, token, 3, 10, 1, 1, out,
-      sizeof(out), &hdr_len, &len_off);
+  quic_lhdr_desc d = {
+      0xC0,
+      1,
+      quic_span_of(dcid, 1),
+      quic_span_of((const u8 *)0, 0),
+      1,
+      quic_span_of(token, 3),
+      10,
+      1,
+      1};
+  usz w = lb(&d, out, sizeof(out), &hdr_len, &len_off);
   CHECK(w != 0);
   /* byte0..version(5) + dcid(1+1) + scid(1) = offset 8 for token len. */
   CHECK(out[8] == 3); /* Token Length = 3 */
@@ -65,9 +90,17 @@ static void test_lhdr_handshake_no_token(void) {
   u8       out[64];
   usz      hdr_len = 0, len_off = 0;
   /* byte0 0xE0 = Handshake type (bits 5-4 = 0x2). pn_len=4, pn=0x01020304. */
-  usz w = quic_lhdr_build(
-      0xE0, 1, dcid, 2, scid, 2, 0, (const u8 *)0, 0, 50, 0x01020304, 4, out,
-      sizeof(out), &hdr_len, &len_off);
+  quic_lhdr_desc d = {
+      0xE0,
+      1,
+      quic_span_of(dcid, 2),
+      quic_span_of(scid, 2),
+      0,
+      quic_span_of((const u8 *)0, 0),
+      50,
+      0x01020304,
+      4};
+  usz w = lb(&d, out, sizeof(out), &hdr_len, &len_off);
   CHECK(w != 0);
   CHECK(out[0] == 0xE3); /* Handshake + pn_len-1 = 3 */
   /* prefix: byte0..version(5) + dcid(1+2) + scid(1+2) = offset 11. No token:
@@ -86,9 +119,9 @@ static void test_lhdr_cap_overflow(void) {
   u8       out[8];
   usz      hdr_len = 0, len_off = 0;
   /* 8 bytes cannot hold byte0+version+DCID(1+4)+... */
-  usz w = quic_lhdr_build(
-      0xC0, 1, dcid, 4, (const u8 *)0, 0, 1, (const u8 *)0, 0, 0, 0, 1, out,
-      sizeof(out), &hdr_len, &len_off);
+  quic_span      none = quic_span_of((const u8 *)0, 0);
+  quic_lhdr_desc d = {0xC0, 1, quic_span_of(dcid, 4), none, 1, none, 0, 0, 1};
+  usz            w = lb(&d, out, sizeof(out), &hdr_len, &len_off);
   CHECK(w == 0);
 }
 
@@ -103,9 +136,10 @@ static void test_lhdr_rfc9001_a2(void) {
   u8       out[64];
   usz      hdr_len = 0, len_off = 0;
   /* Length 0x449e = pn_len(4) + payload_len + 16 -> payload_len = 1162. */
-  usz w = quic_lhdr_build(
-      0xc0, 1, dcid, 8, (const u8 *)0, 0, 1, (const u8 *)0, 0, 1162, 2, 4, out,
-      sizeof(out), &hdr_len, &len_off);
+  quic_span      none = quic_span_of((const u8 *)0, 0);
+  quic_lhdr_desc d    = {0xc0, 1, quic_span_of(dcid, 8), none, 1, none, 1162,
+                         2,    4};
+  usz            w    = lb(&d, out, sizeof(out), &hdr_len, &len_off);
   CHECK(w == sizeof(expect));
   int match = 1;
   for (usz i = 0; i < sizeof(expect); i++)

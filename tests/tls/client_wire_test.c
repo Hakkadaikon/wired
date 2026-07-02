@@ -30,8 +30,7 @@ static void cw_derive_keys(quic_client *c) {
 static void test_cw_initial_roundtrip(void) {
   quic_client c;
   u8          priv[32], pub[32], pkt[1300];
-  usz         total = 0, clen = 0;
-  const u8   *frames = 0;
+  usz         total = 0;
   for (usz i = 0; i < 32; i++) priv[i] = (u8)(7 + i);
   quic_x25519_base(pub, priv);
   quic_tlsdriver_init(&c.tls, priv, pub, 0);
@@ -39,12 +38,14 @@ static void test_cw_initial_roundtrip(void) {
       quic_client_build_initial_wire(
           &c, cw_dcid, 8, cw_scid, 4, 0, pkt, sizeof(pkt), &total) == 1);
   CHECK(total == 1200);
-  CHECK(quic_initpkt_open(cw_dcid, 8, pkt, total, 0, &frames, &clen) == 1);
-  CHECK(frames[0] == 0x06);          /* CRYPTO frame */
-  CHECK(frames[1] == 0x00);          /* offset 0 */
-  CHECK((frames[2] & 0xc0) == 0x40); /* 2-byte length varint */
-  CHECK(frames[4] == 0x01);          /* ClientHello after the header */
-  (void)clen;
+  quic_span fv;
+  CHECK(
+      quic_initpkt_open(
+          quic_span_of(cw_dcid, 8), quic_mspan_of(pkt, total), &fv) == 1);
+  CHECK(fv.p[0] == 0x06);          /* CRYPTO frame */
+  CHECK(fv.p[1] == 0x00);          /* offset 0 */
+  CHECK((fv.p[2] & 0xc0) == 0x40); /* 2-byte length varint */
+  CHECK(fv.p[4] == 0x01);          /* ClientHello after the header */
 }
 
 /* RFC 9001 5.2: client opens a server Initial sealed by the server codec. */

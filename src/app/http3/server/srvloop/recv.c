@@ -18,9 +18,15 @@ static int recv_initial(
     u64          largest_pn,
     const u8   **pl,
     usz         *pl_len) {
+  quic_span crypto;
   (void)largest_pn;
-  return quic_initpkt_open(
-      s->sdrv.odcid, s->sdrv.odcid_len, pkt, len, 0, pl, pl_len);
+  if (!quic_initpkt_open(
+          quic_span_of(s->sdrv.odcid, s->sdrv.odcid_len),
+          quic_mspan_of(pkt, len), &crypto))
+    return 0;
+  *pl     = crypto.p;
+  *pl_len = crypto.n;
+  return 1;
 }
 
 /* RFC 9001 5.1: open a Handshake packet with the peer-direction CLIENT_HS key.
@@ -34,9 +40,14 @@ static int recv_handshake(
     usz         *pl_len) {
   const quic_initial_keys *k;
   quic_aes128              hp;
+  quic_span                payload;
   (void)largest_pn;
   if (!quic_srvloop_open_keys(s, QUIC_LEVEL_HANDSHAKE, &k, &hp)) return 0;
-  return quic_hspkt_open(k, &hp, pkt, len, s->sdrv.iscid_len, pl, pl_len);
+  quic_protect_keys pk = {k, &hp};
+  if (!quic_hspkt_open(&pk, quic_mspan_of(pkt, len), &payload)) return 0;
+  *pl     = payload.p;
+  *pl_len = payload.n;
+  return 1;
 }
 
 /* RFC 9001 5.1 / RFC 9000 A.3: open a 1-RTT packet with the peer-direction
@@ -51,9 +62,15 @@ static int recv_onertt(
     usz         *pl_len) {
   const quic_initial_keys *k;
   quic_aes128              hp;
+  quic_span                payload;
   if (!quic_srvloop_open_keys(s, QUIC_LEVEL_ONERTT, &k, &hp)) return 0;
-  return quic_hspkt_onertt_open(
-      k, &hp, pkt, len, s->sdrv.iscid_len, largest_pn, pl, pl_len);
+  quic_protect_keys           pk = {k, &hp};
+  quic_hspkt_onertt_open_desc d  = {
+      quic_mspan_of(pkt, len), s->sdrv.iscid_len, largest_pn};
+  if (!quic_hspkt_onertt_open(&pk, &d, &payload)) return 0;
+  *pl     = payload.p;
+  *pl_len = payload.n;
+  return 1;
 }
 
 /* RFC 9000 17.2: dispatch the open by level (table keeps CCN low). */

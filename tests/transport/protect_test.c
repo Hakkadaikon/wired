@@ -36,15 +36,22 @@ static void test_protect_roundtrip(void) {
   hdr[17]            = 2;
   const u8 payload[] = {0x06, 0x00, 0x05, 'h', 'e', 'l', 'l', 'o'};
 
-  u8  pkt[64];
-  usz total = quic_protect_seal(
-      &keys, &hp, hdr, 18, 14, 4, 2, payload, sizeof(payload), pkt,
-      sizeof(pkt));
+  u8                   pkt[64];
+  quic_protect_keys    k   = {&keys, &hp};
+  quic_protect_seal_io sio = {
+      quic_span_of(hdr, 18),
+      14,
+      4,
+      2,
+      quic_span_of(payload, sizeof(payload)),
+      quic_mspan_of(pkt, sizeof(pkt))};
+  usz total = quic_protect_seal(&k, &sio);
   CHECK(total == 18 + sizeof(payload) + 16);
   /* header protection altered byte0's low bits and the packet number */
   CHECK(pkt[0] != 0xc3 || pkt[17] != 2);
 
-  usz pl = quic_protect_open(&keys, &hp, pkt, total, 18, 14, 4, 2);
+  quic_protect_open_io oio = {quic_mspan_of(pkt, total), 18, 14, 4, 2};
+  usz                  pl  = quic_protect_open(&k, &oio);
   CHECK(pl == sizeof(payload));
   CHECK(pkt[0] == 0xc3 && pkt[17] == 2); /* header restored */
   for (usz i = 0; i < sizeof(payload); i++)
@@ -61,11 +68,18 @@ static void test_protect_tamper(void) {
   u8       hdr[18] = {0xc3, 0, 0, 0, 1, 8, 1, 2, 3, 4, 5, 6, 7, 8, 0, 0, 0, 2};
   const u8 payload[] = {1, 2, 3, 4};
   u8       pkt[64];
-  usz      total = quic_protect_seal(
-      &keys, &hp, hdr, 18, 14, 4, 2, payload, sizeof(payload), pkt,
-      sizeof(pkt));
+  quic_protect_keys    k   = {&keys, &hp};
+  quic_protect_seal_io sio = {
+      quic_span_of(hdr, 18),
+      14,
+      4,
+      2,
+      quic_span_of(payload, sizeof(payload)),
+      quic_mspan_of(pkt, sizeof(pkt))};
+  usz total = quic_protect_seal(&k, &sio);
   pkt[20] ^= 0x40; /* flip a ciphertext bit */
-  CHECK(quic_protect_open(&keys, &hp, pkt, total, 18, 14, 4, 2) == 0);
+  quic_protect_open_io oio = {quic_mspan_of(pkt, total), 18, 14, 4, 2};
+  CHECK(quic_protect_open(&k, &oio) == 0);
 }
 
 void test_protect(void) {

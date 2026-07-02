@@ -19,21 +19,22 @@ static void test_hspkt_build_roundtrip(void) {
   const u8 frames[] = {0x06, 0x00, 0x02, 'E', 'E'};
   hspkt_keys(&k, &hp);
 
-  u8  pkt[128];
-  usz total = 0;
-  CHECK(quic_hspkt_build(
-      &k, &hp, dcid, 5, scid, 3, 9, frames, sizeof(frames), pkt, sizeof(pkt),
-      &total));
+  u8                pkt[128];
+  quic_protect_keys pk = {&k, &hp};
+  quic_hspkt_desc   d  = {
+      quic_span_of(dcid, 5), quic_span_of(scid, 3), 9,
+      quic_span_of(frames, sizeof(frames))};
+  quic_obuf o = quic_obuf_of(pkt, sizeof(pkt));
+  CHECK(quic_hspkt_build(&pk, &d, &o));
   /* RFC 9000 17.2.4 complete header: byte0(1)+version(4)+dcid_len(1)+dcid(5)
    * +scid_len(1)+scid(3)+Length(1-byte varint)+pn(4) = 20, then payload+tag.
    * No Token field for Handshake. */
-  CHECK(total == 20u + sizeof(frames) + 16u);
+  CHECK(o.len == 20u + sizeof(frames) + 16u);
 
-  const u8 *out  = 0;
-  usz       olen = 0;
-  CHECK(quic_hspkt_open(&k, &hp, pkt, total, 5, &out, &olen));
-  CHECK(olen == sizeof(frames));
-  for (usz i = 0; i < sizeof(frames); i++) CHECK(out[i] == frames[i]);
+  quic_span out;
+  CHECK(quic_hspkt_open(&pk, quic_mspan_of(pkt, o.len), &out));
+  CHECK(out.n == sizeof(frames));
+  for (usz i = 0; i < sizeof(frames); i++) CHECK(out.p[i] == frames[i]);
 }
 
 /* RFC 9000 17.2: long-header form (high bit set) with Handshake type bits
@@ -46,11 +47,13 @@ static void test_hspkt_build_byte0(void) {
   const u8          frames[] = {0x06, 0x00, 0x01, 'X'};
   hspkt_keys(&k, &hp);
 
-  u8  pkt[128];
-  usz total = 0;
-  CHECK(quic_hspkt_build(
-      &k, &hp, dcid, 4, 0, 0, 1, frames, sizeof(frames), pkt, sizeof(pkt),
-      &total));
+  u8                pkt[128];
+  quic_protect_keys pk = {&k, &hp};
+  quic_hspkt_desc   d  = {
+      quic_span_of(dcid, 4), quic_span_of((const u8 *)0, 0), 1,
+      quic_span_of(frames, sizeof(frames))};
+  quic_obuf o = quic_obuf_of(pkt, sizeof(pkt));
+  CHECK(quic_hspkt_build(&pk, &d, &o));
   CHECK((pkt[0] & 0x80) == 0x80); /* long header form */
   CHECK((pkt[0] & 0x30) == 0x20); /* type bits = Handshake (0x2) */
 }
@@ -63,15 +66,16 @@ static void test_hspkt_build_tamper(void) {
   const u8          frames[] = {0x06, 0x00, 0x02, 'h', 'i'};
   hspkt_keys(&k, &hp);
 
-  u8  pkt[128];
-  usz total = 0;
-  CHECK(quic_hspkt_build(
-      &k, &hp, dcid, 4, 0, 0, 3, frames, sizeof(frames), pkt, sizeof(pkt),
-      &total));
-  pkt[total - 1] ^= 0x01;
-  const u8 *out  = 0;
-  usz       olen = 0;
-  CHECK(!quic_hspkt_open(&k, &hp, pkt, total, 4, &out, &olen));
+  u8                pkt[128];
+  quic_protect_keys pk = {&k, &hp};
+  quic_hspkt_desc   d  = {
+      quic_span_of(dcid, 4), quic_span_of((const u8 *)0, 0), 3,
+      quic_span_of(frames, sizeof(frames))};
+  quic_obuf o = quic_obuf_of(pkt, sizeof(pkt));
+  CHECK(quic_hspkt_build(&pk, &d, &o));
+  pkt[o.len - 1] ^= 0x01;
+  quic_span out;
+  CHECK(!quic_hspkt_open(&pk, quic_mspan_of(pkt, o.len), &out));
 }
 
 void test_hspkt_build(void) {
