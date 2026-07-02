@@ -22,8 +22,13 @@ int quic_h3conn_send_response(
   usz h3_len = 0;
   if (!quic_h3resp_build(status, body, body_len, h3, sizeof(h3), &h3_len))
     return 0;
-  return quic_appdata_stream_frame(
-      stream_id, 0, h3, h3_len, 1, out, cap, out_len);
+  {
+    quic_stream_frame f  = {stream_id, 0, h3_len, h3, 1};
+    quic_obuf         ob = quic_obuf_of(out, cap);
+    if (!quic_appdata_stream_frame(&f, &ob)) return 0;
+    *out_len = ob.len;
+    return 1;
+  }
 }
 
 /* RFC 9110 15: three decimal ASCII digits to a status code. */

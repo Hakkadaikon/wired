@@ -104,12 +104,12 @@ static void drive_complete(
     usz                  scap,
     int                 *got_request,
     quic_h3reqdrive_req *req) {
-  u8  wrap[2080];
-  usz wlen   = 0;
-  *acc->done = 1;
-  if (quic_appdata_stream_frame(
-          0, 0, acc->buf, *acc->len, 1, wrap, sizeof wrap, &wlen))
-    dispatch_stream(h3, wrap, wlen, scratch, scap, got_request, req);
+  u8                wrap[2080];
+  quic_stream_frame f  = {0, 0, *acc->len, acc->buf, 1};
+  quic_obuf         ob = quic_obuf_of(wrap, sizeof wrap);
+  *acc->done           = 1;
+  if (quic_appdata_stream_frame(&f, &ob))
+    dispatch_stream(h3, wrap, ob.len, scratch, scap, got_request, req);
 }
 
 /* RFC 9000 2.2 / RFC 9114 4.1: accumulate this payload's request-stream frames;

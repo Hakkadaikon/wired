@@ -54,11 +54,15 @@ static int emit_handshake_ack(
  * the first server unidirectional stream (id 3, no FIN: the stream stays open).
  */
 static int build_settings_frame(quic_srvloop *l, u8 *out, usz cap, usz *len) {
-  u8  ctl[64];
-  usz cl;
+  u8                ctl[64];
+  usz               cl;
+  quic_stream_frame f;
+  quic_obuf         ob = quic_obuf_of(out, cap);
   if (!quic_h3srv_open_control(&l->h3, ctl, sizeof ctl, &cl)) return 0;
-  return quic_appdata_stream_frame(
-      QUIC_SRVLOOP_CTRL_STREAM, 0, ctl, cl, 0, out, cap, len);
+  f = (quic_stream_frame){QUIC_SRVLOOP_CTRL_STREAM, 0, cl, ctl, 0};
+  if (!quic_appdata_stream_frame(&f, &ob)) return 0;
+  *len = ob.len;
+  return 1;
 }
 
 /* The 1-RTT payload sent at confirmation: the SETTINGS STREAM frame (RFC 9114

@@ -168,7 +168,8 @@ static int feed_one(quic_tlsdriver *d, const u8 *frame, usz len, usz *p) {
   usz               used = quic_frame_get_crypto(frame + *p, len - *p, &f);
   if (used == 0) return 0;
   *p += used;
-  return quic_crypto_stream_recv(&d->rx, f.offset, f.data, (usz)f.length);
+  return quic_crypto_stream_recv(
+      &d->rx, f.offset, quic_span_of(f.data, (usz)f.length));
 }
 
 /* Feed every CRYPTO frame packed in [frame,len). Returns 1 if all parsed. */
@@ -182,17 +183,17 @@ static int feed_all(quic_tlsdriver *d, const u8 *frame, usz len) {
 /* Reassemble all CRYPTO frames and copy the contiguous TLS bytes into msg
  * (cap), writing the length to *n. Returns 1 if any bytes are ready. */
 static int reassemble(
-    quic_tlsdriver *d, const u8 *frame, usz len, u8 *msg, usz cap, usz *n) {
+    quic_tlsdriver *d, const u8 *frame, usz len, quic_obuf *out) {
   if (!feed_all(d, frame, len)) return 0;
-  return quic_crypto_stream_read(&d->rx, msg, cap, n) && *n != 0;
+  return quic_crypto_stream_read(&d->rx, out) && out->len != 0;
 }
 
 int quic_tlsdriver_recv_crypto(
     quic_tlsdriver *d, const u8 *crypto_frame, usz len) {
-  u8  msg[512];
-  usz n = 0;
-  if (!reassemble(d, crypto_frame, len, msg, sizeof(msg), &n)) return 0;
-  return derive_handshake(d, msg, n);
+  u8        msg[512];
+  quic_obuf out = quic_obuf_of(msg, sizeof(msg));
+  if (!reassemble(d, crypto_frame, len, &out)) return 0;
+  return derive_handshake(d, msg, out.len);
 }
 
 int quic_tlsdriver_shared_secret(const quic_tlsdriver *d, const u8 **shared) {
