@@ -115,9 +115,17 @@ int quic_client_send_appdata_wire(
     usz         *out_len) {
   const quic_initial_keys *k;
   quic_aes128              hp;
+  quic_protect_keys        pk;
+  quic_appdata_tx          tx;
+  quic_obuf                o = quic_obuf_of(out, cap);
   if (!cw_dir_key(c, QUIC_KS_CLIENT_AP, &k, &hp)) return 0;
-  return quic_appdata_send(
-      k, &hp, dcid, dcid_len, pn, stream_id, data, len, fin, out, cap, out_len);
+  pk = (quic_protect_keys){k, &hp};
+  tx = (quic_appdata_tx){
+      quic_span_of(dcid, dcid_len), pn, stream_id, quic_span_of(data, len),
+      fin};
+  if (!quic_appdata_send(&pk, &tx, &o)) return 0;
+  *out_len = o.len;
+  return 1;
 }
 
 /* RFC 9000 5.1: a short-header 1-RTT packet's DCID (pkt[1 .. 1+scid_len]) must
@@ -131,6 +139,20 @@ static int cw_dcid_is_ours(
   if (len < 1u + (usz)scid_len) return 0;
   for (u8 i = 0; i < scid_len; i++) d |= pkt[1 + i] ^ scid[i];
   return d == 0;
+}
+
+/* RFC 9000 5.1 / RFC 9001 5: the DCID routes to us and the SERVER_AP key is
+ * derived; both gate opening the packet. */
+static int cw_recv_ok(
+    quic_client              *c,
+    const u8                 *pkt,
+    usz                       len,
+    const u8                 *scid,
+    u8                        scid_len,
+    const quic_initial_keys **k,
+    quic_aes128              *hp) {
+  if (!cw_dcid_is_ours(pkt, len, scid, scid_len)) return 0;
+  return cw_dir_key(c, QUIC_KS_SERVER_AP, k, hp);
 }
 
 /* RFC 9001 5: open a 1-RTT packet with SERVER_AP (peer direction), but first
@@ -148,9 +170,17 @@ int quic_client_recv_appdata_wire(
     int         *fin) {
   const quic_initial_keys *k;
   quic_aes128              hp;
-  if (!cw_dcid_is_ours(pkt, len, scid, scid_len) ||
-      !cw_dir_key(c, QUIC_KS_SERVER_AP, &k, &hp))
-    return 0;
-  return quic_appdata_recv(
-      k, &hp, pkt, len, scid_len, stream_id, offset, data, data_len, fin);
+  quic_protect_keys        pk;
+  quic_appdata_pkt         ap;
+  quic_stream_frame        f;
+  if (!cw_recv_ok(c, pkt, len, scid, scid_len, &k, &hp)) return 0;
+  pk = (quic_protect_keys){k, &hp};
+  ap = (quic_appdata_pkt){quic_mspan_of(pkt, len), scid_len};
+  if (!quic_appdata_recv(&pk, &ap, &f)) return 0;
+  *stream_id = f.stream_id;
+  *offset    = f.offset;
+  *data      = f.data;
+  *data_len  = (usz)f.length;
+  *fin       = f.fin;
+  return 1;
 }
