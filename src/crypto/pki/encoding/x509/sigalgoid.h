@@ -1,6 +1,7 @@
 #ifndef QUIC_X509_SIGALGOID_H
 #define QUIC_X509_SIGALGOID_H
 
+#include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
 
 /* RFC 5280 4.1.1.2. The signature-algorithm allowlist: OID -> issuer key
@@ -21,6 +22,6 @@ typedef struct {
 
 /* Look up a signatureAlgorithm OID (DER value bytes). Returns 1 and fills
  * *out for a listed algorithm, 0 for anything else (fail closed). */
-int quic_x509_sigalg_lookup(const u8 *oid, usz oid_len, quic_x509_sigalg *out);
+int quic_x509_sigalg_lookup(quic_span oid, quic_x509_sigalg *out);
 
 #endif

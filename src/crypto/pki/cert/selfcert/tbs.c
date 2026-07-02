@@ -23,18 +23,17 @@ typedef struct {
 } selfcert_enc;
 
 /* Append one TLV at the cursor, advancing off. Latches ok=0 on overflow. */
-static void put(selfcert_enc *e, u8 tag, const u8 *val, usz len) {
-  usz n;
-  if (e->ok && quic_selfcert_der_tlv(
-                   tag, val, len, e->buf + e->off, e->cap - e->off, &n))
-    e->off += n;
+static void put(selfcert_enc *e, u8 tag, quic_span val) {
+  quic_obuf o = quic_obuf_of(e->buf + e->off, e->cap - e->off);
+  if (e->ok && quic_selfcert_der_tlv(tag, val, &o))
+    e->off += o.len;
   else
     e->ok = 0;
 }
 
 /* Append pre-encoded TLV bytes verbatim onto the cursor. */
-static void put_pre(selfcert_enc *e, const u8 *tlv, usz n) {
-  if (e->ok && quic_put_bytes(e->buf, e->cap, &e->off, tlv, n)) return;
+static void put_pre(selfcert_enc *e, quic_span tlv) {
+  if (e->ok && quic_put_bytes(e->buf, e->cap, &e->off, tlv.p, tlv.n)) return;
   e->ok = 0;
 }
 
@@ -45,82 +44,94 @@ static selfcert_enc loaded(u8 *buf, usz n) {
 }
 
 /* Wrap the cursor's bytes in one TLV of tag into out. 0 length on failure. */
-static usz wrap(selfcert_enc *e, u8 tag, u8 *out, usz cap) {
-  usz n;
-  if (e->ok && quic_selfcert_der_tlv(tag, e->buf, e->off, out, cap, &n))
-    return n;
+static usz wrap(selfcert_enc *e, u8 tag, quic_obuf *out) {
+  if (e->ok && quic_selfcert_der_tlv(tag, quic_span_of(e->buf, e->off), out))
+    return out->len;
   return 0;
 }
 
 /* RFC 5280 4.1.1.2. AlgorithmIdentifier SEQUENCE { id-Ed25519 } (no params). */
-static usz build_alg(u8 *out, usz cap) {
+static usz build_alg(quic_obuf *out) {
   u8           oid[16];
   selfcert_enc e = {oid, sizeof(oid), 0, 1};
-  put(&e, QUIC_DER_OID, oid_ed25519, sizeof(oid_ed25519));
-  return wrap(&e, QUIC_DER_SEQUENCE, out, cap);
+  put(&e, QUIC_DER_OID, quic_span_of(oid_ed25519, sizeof(oid_ed25519)));
+  return wrap(&e, QUIC_DER_SEQUENCE, out);
 }
 
 /* RFC 5280 4.1.2.4. AttributeTypeAndValue SEQUENCE{ id-at-commonName, value }.
  */
-static usz build_atv(u8 *out, usz cap) {
+static usz build_atv(quic_obuf *out) {
   u8           atv[64];
   selfcert_enc e = {atv, sizeof(atv), 0, 1};
-  put(&e, QUIC_DER_OID, oid_cn, sizeof(oid_cn));
-  put(&e, 0x0c, cn_value, sizeof(cn_value) - 1); /* UTF8String */
-  return wrap(&e, QUIC_DER_SEQUENCE, out, cap);
+  put(&e, QUIC_DER_OID, quic_span_of(oid_cn, sizeof(oid_cn)));
+  put(&e, 0x0c, quic_span_of(cn_value, sizeof(cn_value) - 1)); /* UTF8String */
+  return wrap(&e, QUIC_DER_SEQUENCE, out);
 }
 
 /* RFC 5280 4.1.2.4. RelativeDistinguishedName SET{ AttributeTypeAndValue }. */
-static usz build_rdn(u8 *out, usz cap) {
+static usz build_rdn(quic_obuf *out) {
   u8           atv[64];
-  selfcert_enc e = loaded(atv, build_atv(atv, sizeof(atv)));
-  return wrap(&e, QUIC_DER_SET, out, cap);
+  quic_obuf    ao = quic_obuf_of(atv, sizeof(atv));
+  selfcert_enc e  = loaded(atv, build_atv(&ao));
+  return wrap(&e, QUIC_DER_SET, out);
 }
 
 /* RFC 5280 4.1.2.4. Name SEQUENCE{ SET{ SEQUENCE{ id-at-commonName, value }}}.
  */
-static usz build_name(u8 *out, usz cap) {
+static usz build_name(quic_obuf *out) {
   u8           rdn[80];
-  selfcert_enc e = loaded(rdn, build_rdn(rdn, sizeof(rdn)));
-  return wrap(&e, QUIC_DER_SEQUENCE, out, cap);
+  quic_obuf    ro = quic_obuf_of(rdn, sizeof(rdn));
+  selfcert_enc e  = loaded(rdn, build_rdn(&ro));
+  return wrap(&e, QUIC_DER_SEQUENCE, out);
 }
 
 /* RFC 5280 4.1.2.5. Validity SEQUENCE { notBefore UTCTime, notAfter UTCTime }.
  */
-static usz build_validity(u8 *out, usz cap) {
+static usz build_validity(quic_obuf *out) {
   u8           v[48];
   selfcert_enc e = {v, sizeof(v), 0, 1};
-  put(&e, 0x17, not_before, sizeof(not_before) - 1); /* UTCTime */
-  put(&e, 0x17, not_after, sizeof(not_after) - 1);
-  return wrap(&e, QUIC_DER_SEQUENCE, out, cap);
+  put(&e, 0x17, quic_span_of(not_before, sizeof(not_before) - 1)); /* UTCTime */
+  put(&e, 0x17, quic_span_of(not_after, sizeof(not_after) - 1));
+  return wrap(&e, QUIC_DER_SEQUENCE, out);
 }
 
 /* RFC 8410 4 / RFC 5280 4.1.2.7. SPKI SEQUENCE{ alg, BIT STRING(0x00||pub) }.
  */
-static usz build_spki(const u8 pub[32], u8 *out, usz cap) {
+static usz build_spki(const u8 pub[32], quic_obuf *out) {
   u8           bits[33], alg[16], inner[80];
+  quic_obuf    ao = quic_obuf_of(alg, sizeof(alg));
   selfcert_enc e  = {inner, sizeof(inner), 0, 1};
   usz          bo = 1;
   bits[0]         = 0x00; /* BIT STRING unused-bits */
   quic_put_bytes(bits, sizeof(bits), &bo, pub, 32);
-  put_pre(&e, alg, build_alg(alg, sizeof(alg)));
-  put(&e, QUIC_DER_BIT_STRING, bits, bo);
-  return wrap(&e, QUIC_DER_SEQUENCE, out, cap);
+  put_pre(&e, quic_span_of(alg, build_alg(&ao)));
+  put(&e, QUIC_DER_BIT_STRING, quic_span_of(bits, bo));
+  return wrap(&e, QUIC_DER_SEQUENCE, out);
 }
 
-int quic_selfcert_tbs(const u8 pub[32], u8 *out, usz cap, usz *out_len) {
+/* Emit version, serial, signature AlgID and issuer onto e. */
+static void selfcert_tbs_head(selfcert_enc *e, quic_span name) {
   static const u8 version[] = {0xa0, 0x03, 0x02, 0x01, 0x02}; /* [0] v3 */
   static const u8 serial[]  = {0x02, 0x01, 0x01};             /* INTEGER 1 */
-  u8              alg[16], name[80], val[48], spki[96], body[512];
-  selfcert_enc    e  = {body, sizeof(body), 0, 1};
-  usz             nn = build_name(name, sizeof(name));
-  put_pre(&e, version, sizeof(version));
-  put_pre(&e, serial, sizeof(serial));
-  put_pre(&e, alg, build_alg(alg, sizeof(alg)));
-  put_pre(&e, name, nn);
-  put_pre(&e, val, build_validity(val, sizeof(val)));
-  put_pre(&e, name, nn);
-  put_pre(&e, spki, build_spki(pub, spki, sizeof(spki)));
-  *out_len = wrap(&e, QUIC_DER_SEQUENCE, out, cap);
-  return *out_len != 0;
+  u8              alg[16];
+  quic_obuf       ao = quic_obuf_of(alg, sizeof(alg));
+  put_pre(e, quic_span_of(version, sizeof(version)));
+  put_pre(e, quic_span_of(serial, sizeof(serial)));
+  put_pre(e, quic_span_of(alg, build_alg(&ao)));
+  put_pre(e, name);
+}
+
+int quic_selfcert_tbs(const u8 pub[32], quic_obuf *out) {
+  u8           name[80], val[48], spki[96], body[512];
+  quic_obuf    no = quic_obuf_of(name, sizeof(name));
+  quic_obuf    vo = quic_obuf_of(val, sizeof(val));
+  quic_obuf    so = quic_obuf_of(spki, sizeof(spki));
+  selfcert_enc e  = {body, sizeof(body), 0, 1};
+  usz          nn = build_name(&no);
+  selfcert_tbs_head(&e, quic_span_of(name, nn));
+  put_pre(&e, quic_span_of(val, build_validity(&vo)));
+  put_pre(&e, quic_span_of(name, nn));
+  put_pre(&e, quic_span_of(spki, build_spki(pub, &so)));
+  out->len = wrap(&e, QUIC_DER_SEQUENCE, out);
+  return out->len != 0;
 }

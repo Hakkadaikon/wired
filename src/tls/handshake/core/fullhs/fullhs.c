@@ -112,20 +112,19 @@ static int order_ok(quic_fullhs *h, u8 msg_type) {
 
 /* RFC 5280 6.1: the certificate window covers policy_now (0 skips). */
 static int fullhs_time_ok(const quic_fullhs *h, const quic_x509 *x) {
-  return h->policy_now == 0 ||
-         quic_x509_validity_ok(x->tbs, x->tbs_len, h->policy_now);
+  return h->policy_now == 0 || quic_x509_validity_ok(x->tbs, h->policy_now);
 }
 
 /* RFC 6125: a SAN dNSName matches policy_host (length 0 skips). */
 static int fullhs_host_ok(const quic_fullhs *h, const quic_x509 *x) {
   return h->policy_host_len == 0 ||
          quic_x509_san_matches(
-             x->tbs, x->tbs_len, h->policy_host, h->policy_host_len);
+             x->tbs, quic_span_of(h->policy_host, h->policy_host_len));
 }
 
 static int fullhs_policy_checks(const quic_fullhs *h, const u8 *cert, usz n) {
   quic_x509 x;
-  if (!quic_x509_parse(cert, n, &x)) return 0;
+  if (!quic_x509_parse(quic_span_of(cert, n), &x)) return 0;
   return fullhs_time_ok(h, &x) && fullhs_host_ok(h, &x);
 }
 
@@ -149,14 +148,11 @@ static int fullhs_chain_parse(
  * link-by-link to one of its anchors. NULL store skips. */
 static int fullhs_chain_ok(
     const quic_fullhs *h, const quic_tls_cert_entry *e, usz n) {
-  const u8 *certs[QUIC_TLS_CERT_CHAIN_MAX];
-  usz       lens[QUIC_TLS_CERT_CHAIN_MAX];
+  quic_span certs[QUIC_TLS_CERT_CHAIN_MAX];
   if (h->castore == 0) return 1;
-  for (usz i = 0; i < n; i++) {
-    certs[i] = e[i].cert_data;
-    lens[i]  = e[i].cert_len;
-  }
-  return quic_castore_validate_chain(h->castore, certs, lens, n);
+  for (usz i = 0; i < n; i++)
+    certs[i] = quic_span_of(e[i].cert_data, e[i].cert_len);
+  return quic_castore_validate_chain(h->castore, certs, n);
 }
 
 /* The leaf passes the acceptance policy and the chain anchors to the store. */

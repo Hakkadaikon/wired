@@ -10,12 +10,14 @@ static const u8 oid_secp256r1[] = {0x2a, 0x86, 0x48, 0xce,
                                    0x3d, 0x03, 0x01, 0x07};
 
 /* RFC 5480 2.1.1. AlgorithmIdentifier SEQUENCE{ id-ecPublicKey, secp256r1 }. */
-static usz pc_build_alg(u8 *out, usz cap) {
+static usz pc_build_alg(quic_obuf *out) {
   u8                inner[32];
   quic_p256cert_enc e = {inner, sizeof(inner), 0, 1};
-  quic_p256cert_put(&e, QUIC_DER_OID, oid_ec_pub, sizeof(oid_ec_pub));
-  quic_p256cert_put(&e, QUIC_DER_OID, oid_secp256r1, sizeof(oid_secp256r1));
-  return quic_p256cert_wrap(&e, QUIC_DER_SEQUENCE, out, cap);
+  quic_p256cert_put(
+      &e, QUIC_DER_OID, quic_span_of(oid_ec_pub, sizeof(oid_ec_pub)));
+  quic_p256cert_put(
+      &e, QUIC_DER_OID, quic_span_of(oid_secp256r1, sizeof(oid_secp256r1)));
+  return quic_p256cert_wrap(&e, QUIC_DER_SEQUENCE, out);
 }
 
 /* SEC1 2.3.3. Pack the uncompressed point 0x04 || X || Y after the BIT STRING
@@ -28,13 +30,13 @@ static void pack_point(u8 bits[66], const u8 x[32], const u8 y[32]) {
   quic_put_bytes(bits, 66, &off, y, 32);
 }
 
-int quic_p256cert_spki(
-    const u8 x[32], const u8 y[32], u8 *out, usz cap, usz *len) {
+int quic_p256cert_spki(const u8 x[32], const u8 y[32], quic_obuf *out) {
   u8                alg[32], bits[66], inner[128];
-  quic_p256cert_enc e = {inner, sizeof(inner), 0, 1};
+  quic_obuf         ao = quic_obuf_of(alg, sizeof(alg));
+  quic_p256cert_enc e  = {inner, sizeof(inner), 0, 1};
   pack_point(bits, x, y);
-  quic_p256cert_put_pre(&e, alg, pc_build_alg(alg, sizeof(alg)));
-  quic_p256cert_put(&e, QUIC_DER_BIT_STRING, bits, sizeof(bits));
-  *len = quic_p256cert_wrap(&e, QUIC_DER_SEQUENCE, out, cap);
-  return *len != 0;
+  quic_p256cert_put_pre(&e, quic_span_of(alg, pc_build_alg(&ao)));
+  quic_p256cert_put(&e, QUIC_DER_BIT_STRING, quic_span_of(bits, sizeof(bits)));
+  out->len = quic_p256cert_wrap(&e, QUIC_DER_SEQUENCE, out);
+  return out->len != 0;
 }

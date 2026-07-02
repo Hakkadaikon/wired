@@ -8,73 +8,47 @@
 /* RFC 5280 4.1.2.9. extensions is [3] EXPLICIT. */
 #define TBS_EXTENSIONS_TAG 0xa3
 
-/* A (ptr, len) member pair inside quic_tbscert, addressed for the loop below.
- */
-typedef struct {
-  const u8 **p;
-  usz       *len;
-} tbs_slot;
-
-/* The tbs SEQUENCE value (after its own header). 0 if not a SEQUENCE. */
-static int tbs_seq_value(const u8 *tbs, usz tbs_len, const u8 **v, usz *vlen) {
-  u8  tag;
-  usz used;
-  if (!quic_der_read(tbs, tbs_len, &tag, v, vlen, &used)) return 0;
-  return tag == QUIC_DER_SEQUENCE;
-}
-
 /* True if the next element at the cursor carries the explicit tag want. */
 static int peek_is(quic_derseq *c, u8 want) {
   return c->off < c->len && c->p[c->off] == want;
 }
 
-/* Read [0] EXPLICIT version, descending to its inner INTEGER value. */
-static int tbs_take_version(quic_derseq *c, quic_tbscert *o) {
-  u8        tag;
-  const u8 *outer;
-  usz       olen, used;
-  if (!quic_derseq_next(c, &tag, &outer, &olen)) return 0;
-  return quic_der_read(outer, olen, &tag, &o->version, &o->version_len, &used);
+/* Read an EXPLICIT wrapper, descending to its inner element value. */
+static int take_wrapped(quic_derseq *c, quic_span *inner) {
+  u8           tag;
+  quic_span    outer;
+  quic_der_tlv t;
+  if (!quic_derseq_next(c, &tag, &outer)) return 0;
+  if (!quic_der_read(outer, &t)) return 0;
+  *inner = t.val;
+  return 1;
 }
 
 /* RFC 5280 4.1.2.1. Optional version: present only with the [0] tag. */
 static int opt_version(quic_derseq *c, quic_tbscert *o) {
-  if (peek_is(c, TBS_VERSION_TAG)) return tbs_take_version(c, o);
+  if (peek_is(c, TBS_VERSION_TAG)) return take_wrapped(c, &o->version);
   return 1;
 }
 
-/* Fill one slot from the next cursor element value. */
-static int take_slot(quic_derseq *c, tbs_slot s) {
+/* Fill one field from the next cursor element value. */
+static int take_slot(quic_derseq *c, quic_span *s) {
   u8 tag;
-  return quic_derseq_next(c, &tag, s.p, s.len);
+  return quic_derseq_next(c, &tag, s);
 }
 
 /* RFC 5280 4.1.2.2-4.1.2.7. serial, signature, issuer, validity, subject, spki
  * in order; each is one mandatory element. */
 static int take_body(quic_derseq *c, quic_tbscert *o) {
-  tbs_slot slots[6] = {
-      {&o->serial, &o->serial_len},   {&o->sig_alg, &o->sig_alg_len},
-      {&o->issuer, &o->issuer_len},   {&o->validity, &o->validity_len},
-      {&o->subject, &o->subject_len}, {&o->spki, &o->spki_len},
-  };
+  quic_span *slots[6] = {&o->serial,   &o->sig_alg, &o->issuer,
+                         &o->validity, &o->subject, &o->spki};
   for (usz i = 0; i < 6; i++)
     if (!take_slot(c, slots[i])) return 0;
   return 1;
 }
 
-/* Read [3] EXPLICIT extensions, descending to its inner SEQUENCE value. */
-static int take_extensions(quic_derseq *c, quic_tbscert *o) {
-  u8        tag;
-  const u8 *outer;
-  usz       olen, used;
-  if (!quic_derseq_next(c, &tag, &outer, &olen)) return 0;
-  return quic_der_read(
-      outer, olen, &tag, &o->extensions, &o->extensions_len, &used);
-}
-
 /* RFC 5280 4.1.2.9. Optional extensions: present only with the [3] tag. */
 static int opt_extensions(quic_derseq *c, quic_tbscert *o) {
-  if (peek_is(c, TBS_EXTENSIONS_TAG)) return take_extensions(c, o);
+  if (peek_is(c, TBS_EXTENSIONS_TAG)) return take_wrapped(c, &o->extensions);
   return 1;
 }
 
@@ -83,15 +57,12 @@ static int tbs_walk(quic_derseq *c, quic_tbscert *o) {
   return opt_version(c, o) && take_body(c, o) && opt_extensions(c, o);
 }
 
-int quic_tbscert_parse(const u8 *tbs, usz tbs_len, quic_tbscert *out) {
-  const u8   *v;
-  usz         vlen;
+int quic_tbscert_parse(quic_span tbs, quic_tbscert *out) {
+  quic_span   v;
   quic_derseq c;
-  out->version        = 0;
-  out->version_len    = 0;
-  out->extensions     = 0;
-  out->extensions_len = 0;
-  if (!tbs_seq_value(tbs, tbs_len, &v, &vlen)) return 0;
-  quic_derseq_init(&c, v, vlen);
+  out->version    = quic_span_of(0, 0);
+  out->extensions = quic_span_of(0, 0);
+  if (!quic_der_seq(tbs, &v)) return 0;
+  quic_derseq_init(&c, v);
   return tbs_walk(&c, out);
 }

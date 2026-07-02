@@ -4,14 +4,15 @@
 
 /* rsaEncryption 1.2.840.113549.1.1.1 = OID value 2a 86 48 86 f7 0d 01 01 01. */
 static void test_derval_oid_equal(void) {
-  const u8 rsa[] = {0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01};
-  const u8 exp[] = {0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01};
-  CHECK(quic_der_oid_equal(rsa, sizeof(rsa), exp, sizeof(exp)) == 1);
+  const u8  rsa[] = {0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01};
+  const u8  exp[] = {0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01};
+  quic_span e     = quic_span_of(exp, sizeof(exp));
+  CHECK(quic_der_oid_equal(quic_span_of(rsa, sizeof(rsa)), e) == 1);
   /* differing last byte */
   const u8 other[] = {0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x0b};
-  CHECK(quic_der_oid_equal(other, sizeof(other), exp, sizeof(exp)) == 0);
+  CHECK(quic_der_oid_equal(quic_span_of(other, sizeof(other)), e) == 0);
   /* length mismatch */
-  CHECK(quic_der_oid_equal(rsa, sizeof(rsa) - 1, exp, sizeof(exp)) == 0);
+  CHECK(quic_der_oid_equal(quic_span_of(rsa, sizeof(rsa) - 1), e) == 0);
 }
 
 static void test_derval_uint(void) {

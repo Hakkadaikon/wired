@@ -6,95 +6,83 @@
 #include "crypto/pki/trust/castore/chainverify.h"
 
 /* RFC 5280 4.1.2.4. View cert's issuer Name (header included). */
-static int cert_issuer(const u8 *cert, usz len, const u8 **dn, usz *dn_len) {
+static int cert_issuer(quic_span cert, quic_span *dn) {
   quic_x509 c;
-  if (!quic_x509_parse(cert, len, &c)) return 0;
-  return quic_x509_issuer(c.tbs, c.tbs_len, dn, dn_len);
+  if (!quic_x509_parse(cert, &c)) return 0;
+  return quic_x509_issuer(c.tbs, dn);
 }
 
 /* RFC 5280 4.1.2.6. View cert's subject Name (header included). */
-static int cert_subject(const u8 *cert, usz len, const u8 **dn, usz *dn_len) {
+static int cert_subject(quic_span cert, quic_span *dn) {
   quic_x509 c;
-  if (!quic_x509_parse(cert, len, &c)) return 0;
-  return quic_x509_subject(c.tbs, c.tbs_len, dn, dn_len);
+  if (!quic_x509_parse(cert, &c)) return 0;
+  return quic_x509_subject(c.tbs, dn);
 }
 
 /* RFC 5280 6.1.3. certs[i]'s issuer equals certs[i+1]'s subject. */
-static int names_chain(
-    const u8 *child, usz child_len, const u8 *parent, usz parent_len) {
-  const u8 *iss, *subj;
-  usz       iss_len, subj_len;
-  if (!cert_issuer(child, child_len, &iss, &iss_len)) return 0;
-  if (!cert_subject(parent, parent_len, &subj, &subj_len)) return 0;
-  return quic_x509_dn_equal(iss, iss_len, subj, subj_len);
+static int names_chain(quic_span child, quic_span parent) {
+  quic_span iss, subj;
+  if (!cert_issuer(child, &iss)) return 0;
+  if (!cert_subject(parent, &subj)) return 0;
+  return quic_x509_dn_equal(iss, subj);
 }
 
 /* RFC 5280 6.1.4. An issuer cert must assert basicConstraints cA TRUE. */
-static int cert_is_ca(const u8 *cert, usz len) {
+static int cert_is_ca(quic_span cert) {
   quic_x509 c;
-  if (!quic_x509_parse(cert, len, &c)) return 0;
-  return quic_x509_is_ca(c.tbs, c.tbs_len);
+  if (!quic_x509_parse(cert, &c)) return 0;
+  return quic_x509_is_ca(c.tbs);
 }
 
 /* RFC 5280 6.1.3/6.1.4. One link: name binding, the parent is a CA, and the
  * parent signs the child. */
-static int link_ok(
-    const u8 *child, usz child_len, const u8 *parent, usz parent_len) {
-  if (!names_chain(child, child_len, parent, parent_len)) return 0;
-  if (!cert_is_ca(parent, parent_len)) return 0;
-  return quic_castore_verify_signed_by(child, child_len, parent, parent_len);
+static int link_ok(quic_span child, quic_span parent) {
+  if (!names_chain(child, parent)) return 0;
+  if (!cert_is_ca(parent)) return 0;
+  return quic_castore_verify_signed_by(child, parent);
 }
 
 /* RFC 5280 6.1.4. Find the registered anchor for issuer name and require it to
  * be a CA. */
 static int find_ca_anchor(
-    const quic_castore *s,
-    const u8           *iss,
-    usz                 iss_len,
-    const u8          **root,
-    usz                *root_len) {
-  if (!quic_castore_find_by_subject(s, iss, iss_len, root, root_len)) return 0;
-  return cert_is_ca(*root, *root_len);
+    const quic_castore *s, quic_span iss, quic_span *root) {
+  if (!quic_castore_find_by_subject(s, iss, root)) return 0;
+  return cert_is_ca(*root);
 }
 
 /* RFC 5280 6.1. The tail must chain to a registered CA trust anchor: a root
  * whose subject equals the tail's issuer, and which signs the tail. */
-static int tail_anchored(const quic_castore *s, const u8 *tail, usz tail_len) {
-  const u8 *iss, *root;
-  usz       iss_len, root_len;
-  if (!cert_issuer(tail, tail_len, &iss, &iss_len)) return 0;
-  if (!find_ca_anchor(s, iss, iss_len, &root, &root_len)) return 0;
-  return quic_castore_verify_signed_by(tail, tail_len, root, root_len);
+static int tail_anchored(const quic_castore *s, quic_span tail) {
+  quic_span iss, root;
+  if (!cert_issuer(tail, &iss)) return 0;
+  if (!find_ca_anchor(s, iss, &root)) return 0;
+  return quic_castore_verify_signed_by(tail, root);
 }
 
 /* RFC 5280 6.1.4 (m). The issuer's pathLenConstraint must admit the number of
  * intermediate certs below it (the leaf is not counted). */
-static int cert_pathlen_ok(const u8 *cert, usz len, usz below) {
+static int cert_pathlen_ok(quic_span cert, usz below) {
   quic_x509 c;
-  if (!quic_x509_parse(cert, len, &c)) return 0;
-  return quic_x509_pathlen_allows(c.tbs, c.tbs_len, below);
+  if (!quic_x509_parse(cert, &c)) return 0;
+  return quic_x509_pathlen_allows(c.tbs, below);
 }
 
 /* One step: the link verifies and the issuer certs[i+1] admits the i
  * intermediates (certs[1..i]) between it and the leaf. */
-static int step_ok(const u8 *const *certs, const usz *lens, usz i) {
-  return link_ok(certs[i], lens[i], certs[i + 1], lens[i + 1]) &&
-         cert_pathlen_ok(certs[i + 1], lens[i + 1], i);
+static int step_ok(const quic_span *certs, usz i) {
+  return link_ok(certs[i], certs[i + 1]) && cert_pathlen_ok(certs[i + 1], i);
 }
 
 /* Every adjacent leaf-to-tail link binds and verifies. */
-static int links_ok(const u8 *const *certs, const usz *lens, usz n) {
+static int links_ok(const quic_span *certs, usz n) {
   for (usz i = 0; i + 1 < n; i++)
-    if (!step_ok(certs, lens, i)) return 0;
+    if (!step_ok(certs, i)) return 0;
   return 1;
 }
 
 int quic_castore_validate_chain(
-    const quic_castore *s,
-    const u8 *const    *certs,
-    const usz          *cert_lens,
-    usz                 n_certs) {
+    const quic_castore *s, const quic_span *certs, usz n_certs) {
   if (n_certs < 1) return 0;
-  if (!links_ok(certs, cert_lens, n_certs)) return 0;
-  return tail_anchored(s, certs[n_certs - 1], cert_lens[n_certs - 1]);
+  if (!links_ok(certs, n_certs)) return 0;
+  return tail_anchored(s, certs[n_certs - 1]);
 }

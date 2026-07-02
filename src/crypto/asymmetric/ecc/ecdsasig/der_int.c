@@ -31,8 +31,12 @@ static usz der_int_content(const u8 val[32], usz start, u8 *buf) {
 
 int quic_ecdsasig_encode_integer(
     const u8 val[32], u8 *out, usz cap, usz *out_len) {
-  u8  buf[33];
-  usz start = der_int_strip(val);
-  usz n     = der_int_content(val, start, buf);
-  return quic_selfcert_der_tlv(QUIC_DER_INTEGER, buf, n, out, cap, out_len);
+  u8        buf[33];
+  usz       start = der_int_strip(val);
+  usz       n     = der_int_content(val, start, buf);
+  quic_obuf o     = quic_obuf_of(out, cap);
+  if (!quic_selfcert_der_tlv(QUIC_DER_INTEGER, quic_span_of(buf, n), &o))
+    return 0;
+  *out_len = o.len;
+  return 1;
 }

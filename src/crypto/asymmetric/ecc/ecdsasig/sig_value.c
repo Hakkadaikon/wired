@@ -17,8 +17,12 @@ static int sig_body(const u8 r[32], const u8 s[32], u8 *body, usz *len) {
 
 int quic_ecdsasig_encode(
     const u8 r[32], const u8 s[32], u8 *out, usz cap, usz *out_len) {
-  u8  body[70];
-  usz len = 0;
+  u8        body[70];
+  usz       len = 0;
+  quic_obuf o   = quic_obuf_of(out, cap);
   if (!sig_body(r, s, body, &len)) return 0;
-  return quic_selfcert_der_tlv(QUIC_DER_SEQUENCE, body, len, out, cap, out_len);
+  if (!quic_selfcert_der_tlv(QUIC_DER_SEQUENCE, quic_span_of(body, len), &o))
+    return 0;
+  *out_len = o.len;
+  return 1;
 }

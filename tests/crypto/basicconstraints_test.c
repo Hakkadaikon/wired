@@ -9,22 +9,26 @@
 static void test_ca_true(void) {
   quic_x509 c;
   CHECK(
-      quic_x509_parse(quic_chain_golden1, sizeof(quic_chain_golden1), &c) == 1);
-  CHECK(quic_x509_is_ca(c.tbs, c.tbs_len) == 1);
+      quic_x509_parse(
+          quic_span_of(quic_chain_golden1, sizeof(quic_chain_golden1)), &c) ==
+      1);
+  CHECK(quic_x509_is_ca(c.tbs) == 1);
 }
 
 /* cert2 has basicConstraints present but cA absent (DER-default FALSE). */
 static void test_ca_false(void) {
   quic_x509 c;
   CHECK(
-      quic_x509_parse(quic_chain_golden2, sizeof(quic_chain_golden2), &c) == 1);
-  CHECK(quic_x509_is_ca(c.tbs, c.tbs_len) == 0);
+      quic_x509_parse(
+          quic_span_of(quic_chain_golden2, sizeof(quic_chain_golden2)), &c) ==
+      1);
+  CHECK(quic_x509_is_ca(c.tbs) == 0);
 }
 
 /* No extensions at all: not a CA. */
 static void test_no_extensions(void) {
   const u8 tbs[] = {0x30, 0x03, 0x02, 0x01, 0x02};
-  CHECK(quic_x509_is_ca(tbs, sizeof(tbs)) == 0);
+  CHECK(quic_x509_is_ca(quic_span_of(tbs, sizeof(tbs))) == 0);
 }
 
 /* Offset of the BasicConstraints value {cA TRUE, pathLen 0} inside mid3's
@@ -48,7 +52,9 @@ static void mid3_patched(usz rel, u8 v, u8 *der, quic_x509 *c) {
   off = bc_pathlen_off(der, sizeof(quic_castore_mid3_der));
   CHECK(off != 0);
   der[off + rel] = v;
-  CHECK(quic_x509_parse(der, sizeof(quic_castore_mid3_der), c) == 1);
+  CHECK(
+      quic_x509_parse(quic_span_of(der, sizeof(quic_castore_mid3_der)), c) ==
+      1);
 }
 
 /* RFC 5280 6.1.4 (m): mid3 asserts pathlen:0, so depth 0 is admitted and
@@ -57,9 +63,10 @@ static void test_pathlen_allows_boundary(void) {
   quic_x509 c;
   CHECK(
       quic_x509_parse(
-          quic_castore_mid3_der, sizeof(quic_castore_mid3_der), &c) == 1);
-  CHECK(quic_x509_pathlen_allows(c.tbs, c.tbs_len, 0) == 1);
-  CHECK(quic_x509_pathlen_allows(c.tbs, c.tbs_len, 1) == 0);
+          quic_span_of(quic_castore_mid3_der, sizeof(quic_castore_mid3_der)),
+          &c) == 1);
+  CHECK(quic_x509_pathlen_allows(c.tbs, 0) == 1);
+  CHECK(quic_x509_pathlen_allows(c.tbs, 1) == 0);
 }
 
 /* A pathLenConstraint of 1 admits depth 1 and rejects depth 2. */
@@ -67,8 +74,8 @@ static void test_pathlen_allows_one(void) {
   u8        der[sizeof(quic_castore_mid3_der)];
   quic_x509 c;
   mid3_patched(7, 0x01, der, &c);
-  CHECK(quic_x509_pathlen_allows(c.tbs, c.tbs_len, 1) == 1);
-  CHECK(quic_x509_pathlen_allows(c.tbs, c.tbs_len, 2) == 0);
+  CHECK(quic_x509_pathlen_allows(c.tbs, 1) == 1);
+  CHECK(quic_x509_pathlen_allows(c.tbs, 2) == 0);
 }
 
 /* X.690 8.3 / RFC 5280: INTEGER (0..MAX) — a negative value rejects. */
@@ -76,7 +83,7 @@ static void test_pathlen_negative_rejected(void) {
   u8        der[sizeof(quic_castore_mid3_der)];
   quic_x509 c;
   mid3_patched(7, 0x80, der, &c);
-  CHECK(quic_x509_pathlen_allows(c.tbs, c.tbs_len, 0) == 0);
+  CHECK(quic_x509_pathlen_allows(c.tbs, 0) == 0);
 }
 
 /* A trailing element that is not an INTEGER rejects (fail closed). */
@@ -84,7 +91,7 @@ static void test_pathlen_not_integer_rejected(void) {
   u8        der[sizeof(quic_castore_mid3_der)];
   quic_x509 c;
   mid3_patched(5, 0x04, der, &c);
-  CHECK(quic_x509_pathlen_allows(c.tbs, c.tbs_len, 0) == 0);
+  CHECK(quic_x509_pathlen_allows(c.tbs, 0) == 0);
 }
 
 void test_basicconstraints(void) {

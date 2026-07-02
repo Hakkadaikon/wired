@@ -1,6 +1,7 @@
 #ifndef QUIC_ASN1_DER_H
 #define QUIC_ASN1_DER_H
 
+#include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
 
 /* X.690 8.1. DER TLV: tag (1 octet) + length + value.
@@ -15,9 +16,20 @@
 #define QUIC_DER_SEQUENCE 0x30
 #define QUIC_DER_SET 0x31
 
-/* Read one TLV from buf of n octets. On success sets *tag, *val (into buf),
- * *val_len, *consumed (tag+len header + value). Returns 1 ok, 0 on error. */
-int quic_der_read(
-    const u8 *buf, usz n, u8 *tag, const u8 **val, usz *val_len, usz *consumed);
+/* One decoded TLV: its tag, a view of its value, and the octets it consumed
+ * (header + value) from the input. */
+typedef struct {
+  u8        tag;
+  quic_span val;
+  usz       used;
+} quic_der_tlv;
+
+/* Read one TLV from buf. The value views into buf; nothing is copied.
+ * Returns 1 ok, 0 on error. */
+int quic_der_read(quic_span buf, quic_der_tlv *out);
+
+/* Read one TLV from buf, requiring a SEQUENCE tag; views its value.
+ * Returns 1 ok, 0 on error or a different tag. */
+int quic_der_seq(quic_span buf, quic_span *val);
 
 #endif

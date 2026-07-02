@@ -11,11 +11,10 @@ static quic_castore_entry rct_roots[2];
 static int rct_validate(
     const u8 *root, usz root_len, const u8 *leaf, usz leaf_len) {
   quic_castore s;
-  const u8    *certs[1] = {leaf};
-  usz          lens[1]  = {leaf_len};
+  quic_span    certs[1] = {quic_span_of(leaf, leaf_len)};
   quic_castore_init(&s, rct_roots, 2);
-  CHECK(quic_castore_add(&s, root, root_len) == 1);
-  return quic_castore_validate_chain(&s, certs, lens, 1);
+  CHECK(quic_castore_add(&s, quic_span_of(root, root_len)) == 1);
+  return quic_castore_validate_chain(&s, certs, 1);
 }
 
 /* sha256WithRSAEncryption under an RSA-2048 root verifies; a tampered
@@ -74,10 +73,11 @@ static void test_gentime_validity(void) {
   quic_x509 c;
   CHECK(
       quic_x509_parse(
-          quic_rsachain_gentime_der, sizeof(quic_rsachain_gentime_der), &c) ==
-      1);
-  CHECK(quic_x509_validity_ok(c.tbs, c.tbs_len, 20550101000000ULL) == 1);
-  CHECK(quic_x509_validity_ok(c.tbs, c.tbs_len, 20610101000000ULL) == 0);
+          quic_span_of(
+              quic_rsachain_gentime_der, sizeof(quic_rsachain_gentime_der)),
+          &c) == 1);
+  CHECK(quic_x509_validity_ok(c.tbs, 20550101000000ULL) == 1);
+  CHECK(quic_x509_validity_ok(c.tbs, 20610101000000ULL) == 0);
 }
 
 void test_rsachain(void) {
