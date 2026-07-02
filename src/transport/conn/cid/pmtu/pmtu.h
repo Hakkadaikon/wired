@@ -16,6 +16,7 @@ typedef struct {
   usz validated; /* largest packet size confirmed to traverse the path */
   usz probe;     /* size of the probe currently outstanding (0 if none) */
   usz ceiling;   /* upper bound learned from a lost probe */
+  usz lost;      /* a size that failed; never probed again (0 if none) */
   int searching; /* whether a larger size is still worth probing */
 } quic_pmtu;
 
