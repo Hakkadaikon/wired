@@ -28,15 +28,9 @@ static int retry_ok(const quic_connrunner *r, int tag_valid) {
          quic_retrydrive_accept(r->retry.received, tag_valid);
 }
 
-int quic_connrunner_recv_retry(
-    quic_connrunner *r,
-    int              tag_valid,
-    const u8        *scid,
-    usz              scid_len,
-    const u8        *token,
-    usz              token_len) {
-  if (!retry_ok(r, tag_valid)) return 0;
-  return quic_retrydrive_apply(token, token_len, scid, scid_len, &r->retry);
+int quic_connrunner_recv_retry(quic_connrunner *r, const quic_retry_event *e) {
+  if (!retry_ok(r, e->tag_valid)) return 0;
+  return quic_retrydrive_apply(e->token, e->scid, &r->retry);
 }
 
 /* RFC 9001 5.2: install the new Initial keys derived from the Retry DCID and
@@ -82,16 +76,9 @@ static int vn_reconnect(quic_connrunner *r, u32 chosen) {
 }
 
 int quic_connrunner_recv_vn(
-    quic_connrunner *r,
-    const u32       *offered,
-    usz              n_off,
-    const u32       *supported,
-    usz              n_sup,
-    u32             *chosen) {
-  if (!vn_ok(r, offered, n_off)) return 0; /* downgrade or after progress */
-  if (!quic_vndrive_select(
-          quic_verlist_of(offered, n_off), quic_verlist_of(supported, n_sup),
-          chosen))
+    quic_connrunner *r, const quic_vn_lists *l, u32 *chosen) {
+  if (!vn_ok(r, l->offered.list, l->offered.n)) return 0; /* downgrade/late */
+  if (!quic_vndrive_select(l->offered, l->supported, chosen))
     return QUIC_CONNRUNNER_VN_ABORT; /* RFC 9000 6.2: no common version */
   return vn_reconnect(r, *chosen);
 }
@@ -118,21 +105,26 @@ static usz vn_offered(const quic_vneg_packet *v, u32 *out) {
 static int drive_vn(quic_connrunner *r, const u8 *pkt, usz len) {
   quic_vneg_packet v;
   u32              offered[QUIC_VERS_OFFERED], chosen;
+  quic_vn_lists    l;
   if (quic_vneg_parse(pkt, len, &v) == 0) return 1;
-  quic_connrunner_recv_vn(
-      r, offered, vn_offered(&v, offered), g_supported, 2, &chosen);
+  l.offered   = quic_verlist_of(offered, vn_offered(&v, offered));
+  l.supported = quic_verlist_of(g_supported, 2);
+  quic_connrunner_recv_vn(r, &l, &chosen);
   return 1;
 }
 
 /* RFC 9000 17.2.5: parse and verify a Retry against the current DCID, then
  * drive recv_retry; a malformed Retry is consumed (1) without action. */
 static int drive_retry(quic_connrunner *r, const u8 *pkt, usz len) {
-  u8  token[256], dcid[QUIC_MAX_CID_LEN];
-  usz tlen;
-  u8  dlen;
-  int valid = quic_retry_process(
+  u8               token[256], dcid[QUIC_MAX_CID_LEN];
+  usz              tlen;
+  u8               dlen;
+  quic_retry_event e;
+  e.tag_valid = quic_retry_process(
       pkt, len, r->io.dcid, r->io.dcid_len, token, &tlen, dcid, &dlen);
-  quic_connrunner_recv_retry(r, valid, dcid, dlen, token, tlen);
+  e.scid  = quic_span_of(dcid, dlen);
+  e.token = quic_span_of(token, tlen);
+  quic_connrunner_recv_retry(r, &e);
   return 1;
 }
 

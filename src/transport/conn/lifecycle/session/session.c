@@ -18,8 +18,8 @@ static int link_tx(
   quic_udp4meta meta = {{4433, 4433}, {src, dst}};
   quic_obuf     ub   = quic_obuf_of(udp, sizeof(udp));
   usz           un   = quic_udp4_build(&ub, &meta, quic_span_of(qpkt, qlen));
-  quic_ipv4_build(ip, &(quic_ipv4_head){(u16)(20 + un), src, dst,
-                                         QUIC_IP_PROTO_UDP});
+  quic_ipv4_build(
+      ip, &(quic_ipv4_head){(u16)(20 + un), src, dst, QUIC_IP_PROTO_UDP});
   for (usz i = 0; i < 20; i++) frame[i] = ip[i];
   for (usz i = 0; i < un; i++) frame[20 + i] = udp[i];
   return quic_memlink_send(l, frame, 20 + un);
@@ -28,8 +28,8 @@ static int link_tx(
 /* Validate a received frame's IP+UDP envelope. Returns 1 if it checks out. */
 static int env_ok(const u8 *frame, usz fn, u32 src, u32 dst) {
   if (fn == 0 || !quic_ipv4_check(frame)) return 0;
-  return quic_udp4_check(quic_span_of(frame + 20, fn - 20), (quic_ipv4addrs){
-                                                                 src, dst});
+  return quic_udp4_check(
+      quic_span_of(frame + 20, fn - 20), (quic_ipv4addrs){src, dst});
 }
 
 /* Copy n bytes from src to dst. */
@@ -124,27 +124,24 @@ int quic_session_accept(quic_session *s) {
 /* Derive the server-direction 1-RTT keys both ends use, and the matching
  * header-protection cipher, into the session. RFC 7748 6.1: a low-order peer
  * key aborts the agreement (quic_endpoint_agree returns 0). */
-static int agree_dir(
-    quic_session *s, const u8 peer_pub[32], const u8 *tr, usz trlen) {
-  if (!quic_endpoint_agree(&s->ep, peer_pub, tr, trlen, 1)) return 0;
+static int agree_dir(quic_session *s, const u8 peer_pub[32], quic_span tr) {
+  quic_endpoint_peer p = {peer_pub, tr, 1};
+  if (!quic_endpoint_agree(&s->ep, &p)) return 0;
   quic_aes128_init(&s->hshp, s->ep.hs_keys.hp);
   return 1;
 }
 
 /* Both ends derive the server-direction keys from the same ECDHE inputs. */
 static int agree_both(
-    quic_session *client, quic_session *server, const u8 *tr, usz trlen) {
-  if (!agree_dir(server, server->peer_pub, tr, trlen)) return 0;
-  return agree_dir(client, server->ep.pub, tr, trlen);
+    quic_session *client, quic_session *server, quic_span tr) {
+  if (!agree_dir(server, server->peer_pub, tr)) return 0;
+  return agree_dir(client, server->ep.pub, tr);
 }
 
 int quic_session_finish(
-    quic_session *client,
-    quic_session *server,
-    const u8     *transcript,
-    usz           transcript_len) {
+    quic_session *client, quic_session *server, quic_span transcript) {
   if (!server->have_peer) return 0;
-  if (!agree_both(client, server, transcript, transcript_len)) return 0;
+  if (!agree_both(client, server, transcript)) return 0;
   quic_conn_step(&client->conn, QUIC_CONN_EV_HS_CONFIRMED);
   quic_conn_step(&server->conn, QUIC_CONN_EV_HS_CONFIRMED);
   return 1;
@@ -160,15 +157,14 @@ static u32 peer_addr(int is_server) {
   return is_server ? QUIC_SESSION_CA : QUIC_SESSION_SA;
 }
 
-int quic_session_send_stream(
-    quic_session *s, u64 stream_id, const u8 *data, usz len, int fin) {
+int quic_session_send_stream(quic_session *s, const quic_session_msg *m) {
   u8                fr[1024], hdr[18], out[1200];
   quic_stream_frame sf = {
-      .stream_id = stream_id,
+      .stream_id = m->stream_id,
       .offset    = 0,
-      .length    = len,
-      .data      = data,
-      .fin       = fin};
+      .length    = m->data.n,
+      .data      = m->data.p,
+      .fin       = m->fin};
   usz fl = quic_frame_put_stream(fr, sizeof(fr), &sf);
   fill_header(hdr, 0x43, s->dcid, 7); /* short-header form, pn 7 */
   quic_protect_keys    k  = {&s->ep.hs_keys, &s->hshp};

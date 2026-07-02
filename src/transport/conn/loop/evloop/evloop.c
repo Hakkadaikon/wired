@@ -60,8 +60,8 @@ static void loss_act(quic_evloop *c) {
 /* RFC 9000 8.1: even a PTO probe is subject to the anti-amplification budget on
  * an unvalidated path. */
 static int antiamp_ok(const quic_evloop *c) {
-  quic_pathbudget b = {c->gate.recv_bytes, c->gate.sent_bytes,
-                        c->gate.validated};
+  quic_pathbudget b = {
+      c->gate.recv_bytes, c->gate.sent_bytes, c->gate.validated};
   return quic_udploop_send_allowed(&b, c->send_len);
 }
 

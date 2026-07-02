@@ -1,6 +1,7 @@
 #ifndef QUIC_SESSION_SESSION_H
 #define QUIC_SESSION_SESSION_H
 
+#include "common/bytes/span/span.h"
 #include "crypto/symmetric/aead/aes/aes.h"
 #include "tls/handshake/core/tls/initial.h"
 #include "transport/conn/lifecycle/conn/conn.h"
@@ -62,15 +63,18 @@ int quic_session_accept(quic_session *s);
  * server's share from `peer` (in this in-memory setup the server's public key
  * is known directly). Returns 1 on success. */
 int quic_session_finish(
-    quic_session *client,
-    quic_session *server,
-    const u8     *transcript,
-    usz           transcript_len);
+    quic_session *client, quic_session *server, quic_span transcript);
+
+/* One outgoing STREAM message: the stream, its payload, and the FIN bit. */
+typedef struct {
+  u64       stream_id;
+  quic_span data;
+  int       fin;
+} quic_session_msg;
 
 /* Send a 1-RTT STREAM frame (protected with the agreed keys) onto the link.
  * Returns 1 on success, 0 before the handshake keys are ready. */
-int quic_session_send_stream(
-    quic_session *s, u64 stream_id, const u8 *data, usz len, int fin);
+int quic_session_send_stream(quic_session *s, const quic_session_msg *m);
 
 /* Receive and decrypt a 1-RTT STREAM frame from the link into *out (its data
  * pointer references an internal buffer valid until the next recv). Returns 1

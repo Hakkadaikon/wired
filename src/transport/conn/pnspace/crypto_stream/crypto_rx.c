@@ -6,17 +6,16 @@ void quic_crypto_stream_rx_init(quic_crypto_rx *r) {
 }
 
 /* RFC 9000 19.6 */
-int quic_crypto_stream_recv(
-    quic_crypto_rx *r, u64 offset, const u8 *data, usz len) {
-  return quic_reasm_insert(&r->reasm, offset, data, len);
+int quic_crypto_stream_recv(quic_crypto_rx *r, u64 offset, quic_span data) {
+  return quic_reasm_insert(&r->reasm, offset, data);
 }
 
 /* RFC 9000 7.5 */
-int quic_crypto_stream_read(quic_crypto_rx *r, u8 *out, usz cap, usz *out_len) {
+int quic_crypto_stream_read(quic_crypto_rx *r, quic_obuf *out) {
   u64 avail = quic_reasm_deliver(&r->reasm) - r->read_upto;
-  if (avail > cap) return 0;
-  for (u64 i = 0; i < avail; i++) out[i] = r->reasm.buf[r->read_upto + i];
+  if (avail > out->cap) return 0;
+  for (u64 i = 0; i < avail; i++) out->p[i] = r->reasm.buf[r->read_upto + i];
   r->read_upto += avail;
-  *out_len = (usz)avail;
+  out->len = (usz)avail;
   return 1;
 }
