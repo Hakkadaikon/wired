@@ -447,6 +447,7 @@
 #include "app/http3/server/srvloop/send.c"
 #include "app/http3/server/srvloop/respond.c"
 #include "app/http3/server/srvloop/srvloop.c"
+#include "app/http3/server/srvboot/srvboot.c"
 #include "tls/handshake/roles/client/clientwire.c"
 #include "common/varint_test.c"
 #include "transport/header_test.c"
