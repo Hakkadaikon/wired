@@ -15,6 +15,10 @@ static const u8 oid_ec[] = {0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01};
 /* rsaEncryption = 1.2.840.113549.1.1.1 */
 static const u8 oid_rsa[] = {0x2a, 0x86, 0x48, 0x86, 0xf7,
                              0x0d, 0x01, 0x01, 0x01};
+/* prime256v1 = 1.2.840.10045.3.1.7 */
+static const u8 oid_p256[] = {0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07};
+/* secp384r1 = 1.3.132.0.34 */
+static const u8 oid_p384[] = {0x2b, 0x81, 0x04, 0x00, 0x22};
 
 int quic_x509_is_ec(const u8 *alg_oid, usz alg_len) {
   return quic_der_oid_equal(alg_oid, alg_len, oid_ec, sizeof(oid_ec));
@@ -22,6 +26,14 @@ int quic_x509_is_ec(const u8 *alg_oid, usz alg_len) {
 
 int quic_x509_is_rsa(const u8 *alg_oid, usz alg_len) {
   return quic_der_oid_equal(alg_oid, alg_len, oid_rsa, sizeof(oid_rsa));
+}
+
+int quic_x509_is_p256(const u8 *oid, usz oid_len) {
+  return quic_der_oid_equal(oid, oid_len, oid_p256, sizeof(oid_p256));
+}
+
+int quic_x509_is_p384(const u8 *oid, usz oid_len) {
+  return quic_der_oid_equal(oid, oid_len, oid_p384, sizeof(oid_p384));
 }
 
 /* The tbs SEQUENCE value (after its own header). 0 if not a SEQUENCE. */
@@ -111,4 +123,34 @@ int quic_x509_public_key(
   usz       slen;
   return reach_spki(tbs, tbs_len, &spki, &slen) &&
          split_spki(spki, slen, alg_oid, alg_len, key, key_len);
+}
+
+/* RFC 5480 2.1.1. The namedCurve OID: the AlgorithmIdentifier's second
+ * element (its parameters), after the id-ecPublicKey OID. */
+static int alg_named_curve(
+    const u8 *alg, usz alg_len, const u8 **oid, usz *oid_len) {
+  quic_derseq c;
+  const u8   *first;
+  usz         first_len;
+  quic_derseq_init(&c, alg, alg_len);
+  if (!next_tagged(&c, QUIC_DER_OID, &first, &first_len)) return 0;
+  return next_tagged(&c, QUIC_DER_OID, oid, oid_len);
+}
+
+/* The SPKI's algorithm SEQUENCE value. */
+static int reach_alg(const u8 *tbs, usz tbs_len, const u8 **alg, usz *alg_len) {
+  const u8   *spki;
+  usz         slen;
+  quic_derseq c;
+  if (!reach_spki(tbs, tbs_len, &spki, &slen)) return 0;
+  quic_derseq_init(&c, spki, slen);
+  return next_tagged(&c, QUIC_DER_SEQUENCE, alg, alg_len);
+}
+
+int quic_x509_ec_curve(
+    const u8 *tbs, usz tbs_len, const u8 **curve_oid, usz *curve_len) {
+  const u8 *alg;
+  usz       alg_len;
+  if (!reach_alg(tbs, tbs_len, &alg, &alg_len)) return 0;
+  return alg_named_curve(alg, alg_len, curve_oid, curve_len);
 }
