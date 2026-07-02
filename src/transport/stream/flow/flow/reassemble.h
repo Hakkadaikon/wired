@@ -1,7 +1,7 @@
 #ifndef QUIC_FLOW_REASSEMBLE_H
 #define QUIC_FLOW_REASSEMBLE_H
 
-#include "common/platform/sys/syscall.h"
+#include "common/bytes/span/span.h"
 
 /* RFC 9000 2.2: STREAM/CRYPTO data arrives out of order at byte offsets.
  * The reassembler delivers only the contiguous prefix from offset 0;
@@ -19,9 +19,9 @@ typedef struct {
 
 void quic_reasm_init(quic_reasm *r);
 
-/* Insert len bytes at offset. Returns 1 on success, 0 if it exceeds the
- * buffer capacity or a known final size. Idempotent on overlapping data. */
-int quic_reasm_insert(quic_reasm *r, u64 offset, const u8 *data, usz len);
+/* Insert data at offset. Returns 1 on success, 0 if it exceeds the buffer
+ * capacity or a known final size. Idempotent on overlapping data. */
+int quic_reasm_insert(quic_reasm *r, u64 offset, quic_span data);
 
 /* Record the stream's final size (from a FIN). Returns 1 on success, 0 if it
  * conflicts with data already received past it. */

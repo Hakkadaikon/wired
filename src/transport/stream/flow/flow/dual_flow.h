@@ -6,9 +6,14 @@
 /* RFC 9000 4.1: each byte counts against both the stream limit and the
  * connection limit. Accepting data requires staying within both. */
 
-/* Whether stream_used and conn_used are each within their limits. Returns 1
- * only when stream_used <= stream_max and conn_used <= conn_max. */
+/* Bytes consumed against one advertised limit. */
+typedef struct {
+  u64 used;
+  u64 max;
+} quic_flow_usage;
+
+/* Whether the stream and connection usages are each within their limits. */
 int quic_dual_flow_ok(
-    u64 stream_used, u64 stream_max, u64 conn_used, u64 conn_max);
+    const quic_flow_usage *stream, const quic_flow_usage *conn);
 
 #endif

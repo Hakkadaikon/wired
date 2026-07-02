@@ -15,9 +15,15 @@
 /* Whether a MAX_STREAMS value is within the legal range (<= 2^60). */
 int quic_stream_max_streams_ok(u64 max_streams);
 
+/* One of the four stream types (RFC 9000 2.1). */
+typedef struct {
+  int is_server;
+  int is_uni;
+} quic_stream_kind;
+
 /* Highest stream ID the peer may open given max_streams of the selected type.
  * Returns 1 and writes *out on success; returns 0 when max_streams is 0 (no
  * stream permitted) or exceeds 2^60. */
-int quic_stream_max_id(int is_server, int is_uni, u64 max_streams, u64 *out);
+int quic_stream_max_id(const quic_stream_kind *k, u64 max_streams, u64 *out);
 
 #endif

@@ -22,16 +22,14 @@ static int stream_violation(u64 stream_count, u64 max_streams) {
 
 /* RFC 9000 4.1/4.6 */
 int quic_flowviol_check(
-    u64  received_total,
-    u64  max_data,
-    u64  stream_count,
-    u64  max_streams,
-    u64 *error_code) {
-  if (data_violation(received_total, max_data)) {
+    const quic_flow_usage *data,
+    const quic_flow_usage *streams,
+    u64                   *error_code) {
+  if (data_violation(data->used, data->max)) {
     *error_code = QUIC_EC_FLOW_CONTROL_ERROR;
     return 1;
   }
-  if (stream_violation(stream_count, max_streams)) {
+  if (stream_violation(streams->used, streams->max)) {
     *error_code = QUIC_EC_STREAM_LIMIT_ERROR;
     return 1;
   }
