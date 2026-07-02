@@ -83,6 +83,41 @@ static void test_non_ca_intermediate_fails(void) {
   CHECK(quic_castore_validate_chain(&s, certs, lens, 3) == 0);
 }
 
+static void store_with_root3(quic_castore *s) {
+  quic_castore_init(s);
+  CHECK(
+      quic_castore_add(
+          s, quic_castore_root3_der, sizeof(quic_castore_root3_der)) == 1);
+}
+
+/* RFC 5280 4.2.1.9: the leaf is not an intermediate certificate, so a
+ * pathlen:0 CA may issue it directly. [leafm, mid3, root3] validates. */
+static void test_pathlen_zero_direct_leaf_ok(void) {
+  quic_castore s;
+  const u8    *certs[3] = {
+      quic_castore_leafm_der, quic_castore_mid3_der, quic_castore_root3_der};
+  usz lens[3] = {
+      sizeof(quic_castore_leafm_der), sizeof(quic_castore_mid3_der),
+      sizeof(quic_castore_root3_der)};
+  store_with_root3(&s);
+  CHECK(quic_castore_validate_chain(&s, certs, lens, 3) == 1);
+}
+
+/* RFC 5280 6.1.4 (m): mid3 asserts pathlen:0, so a further CA below it (sub3)
+ * must break the path. Every name, CA flag, and signature in
+ * [leaf3, sub3, mid3, root3] is valid; only the length constraint rejects. */
+static void test_pathlen_zero_sub_ca_fails(void) {
+  quic_castore s;
+  const u8    *certs[4] = {
+      quic_castore_leaf3_der, quic_castore_sub3_der, quic_castore_mid3_der,
+      quic_castore_root3_der};
+  usz lens[4] = {
+      sizeof(quic_castore_leaf3_der), sizeof(quic_castore_sub3_der),
+      sizeof(quic_castore_mid3_der), sizeof(quic_castore_root3_der)};
+  store_with_root3(&s);
+  CHECK(quic_castore_validate_chain(&s, certs, lens, 4) == 0);
+}
+
 void test_pathvalidate(void) {
   test_valid_chain();
   test_lone_root_chain();
@@ -90,4 +125,6 @@ void test_pathvalidate(void) {
   test_name_mismatch_fails();
   test_tampered_signature_fails();
   test_non_ca_intermediate_fails();
+  test_pathlen_zero_direct_leaf_ok();
+  test_pathlen_zero_sub_ca_fails();
 }

@@ -67,10 +67,25 @@ static int tail_anchored(const quic_castore *s, const u8 *tail, usz tail_len) {
   return quic_castore_verify_signed_by(tail, tail_len, root, root_len);
 }
 
+/* RFC 5280 6.1.4 (m). The issuer's pathLenConstraint must admit the number of
+ * intermediate certs below it (the leaf is not counted). */
+static int cert_pathlen_ok(const u8 *cert, usz len, usz below) {
+  quic_x509 c;
+  if (!quic_x509_parse(cert, len, &c)) return 0;
+  return quic_x509_pathlen_allows(c.tbs, c.tbs_len, below);
+}
+
+/* One step: the link verifies and the issuer certs[i+1] admits the i
+ * intermediates (certs[1..i]) between it and the leaf. */
+static int step_ok(const u8 *const *certs, const usz *lens, usz i) {
+  return link_ok(certs[i], lens[i], certs[i + 1], lens[i + 1]) &&
+         cert_pathlen_ok(certs[i + 1], lens[i + 1], i);
+}
+
 /* Every adjacent leaf-to-tail link binds and verifies. */
 static int links_ok(const u8 *const *certs, const usz *lens, usz n) {
   for (usz i = 0; i + 1 < n; i++)
-    if (!link_ok(certs[i], lens[i], certs[i + 1], lens[i + 1])) return 0;
+    if (!step_ok(certs, lens, i)) return 0;
   return 1;
 }
 
