@@ -34,22 +34,22 @@ static void test_emit_splits(void) {
 static void test_recv_reorder_dup(void) {
   quic_crypto_rx rx;
   quic_crypto_stream_rx_init(&rx);
-  u8  a[] = {1, 2, 3}, b[] = {4, 5, 6};
-  u8  out[16];
-  usz out_len = 0;
+  u8        a[] = {1, 2, 3}, b[] = {4, 5, 6};
+  u8        out[16];
+  quic_obuf ob = quic_obuf_of(out, sizeof out);
 
-  CHECK(quic_crypto_stream_recv(&rx, 3, b, 3) == 1); /* later first */
-  CHECK(quic_crypto_stream_read(&rx, out, sizeof out, &out_len) == 1);
-  CHECK(out_len == 0); /* gap: nothing yet */
+  CHECK(quic_crypto_stream_recv(&rx, 3, quic_span_of(b, 3)) == 1);
+  CHECK(quic_crypto_stream_read(&rx, &ob) == 1);
+  CHECK(ob.len == 0); /* gap: nothing yet */
 
-  CHECK(quic_crypto_stream_recv(&rx, 0, a, 3) == 1); /* fills the gap */
-  CHECK(quic_crypto_stream_recv(&rx, 3, b, 3) == 1); /* duplicate ignored */
-  CHECK(quic_crypto_stream_read(&rx, out, sizeof out, &out_len) == 1);
-  CHECK(out_len == 6);
+  CHECK(quic_crypto_stream_recv(&rx, 0, quic_span_of(a, 3)) == 1);
+  CHECK(quic_crypto_stream_recv(&rx, 3, quic_span_of(b, 3)) == 1); /* dup */
+  CHECK(quic_crypto_stream_read(&rx, &ob) == 1);
+  CHECK(ob.len == 6);
   for (usz i = 0; i < 6; i++) CHECK(out[i] == (u8)(i + 1));
 
-  CHECK(quic_crypto_stream_read(&rx, out, sizeof out, &out_len) == 1);
-  CHECK(out_len == 0); /* nothing new */
+  CHECK(quic_crypto_stream_read(&rx, &ob) == 1);
+  CHECK(ob.len == 0); /* nothing new */
 }
 
 /* RFC 8446 7.4.2: both peers derive the same X25519 shared secret. */
@@ -104,11 +104,14 @@ static void test_clienthello_roundtrip(void) {
     nf++;
   }
   for (usz i = nf; i-- > 0;)
-    CHECK(quic_crypto_stream_recv(&rx, offs[i], datp[i], lens[i]) == 1);
+    CHECK(
+        quic_crypto_stream_recv(&rx, offs[i], quic_span_of(datp[i], lens[i])) ==
+        1);
 
-  u8  got[1024];
-  usz got_len = 0;
-  CHECK(quic_crypto_stream_read(&rx, got, sizeof got, &got_len) == 1);
+  u8        got[1024];
+  quic_obuf gb = quic_obuf_of(got, sizeof got);
+  CHECK(quic_crypto_stream_read(&rx, &gb) == 1);
+  usz got_len = gb.len;
   CHECK(got_len == ch_len);
   for (usz i = 0; i < ch_len; i++) CHECK(got[i] == ch[i]);
 }

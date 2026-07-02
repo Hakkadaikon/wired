@@ -64,7 +64,7 @@ static void test_roundtrip_onertt(void) {
   {
     quic_stream_frame f;
     CHECK(quic_frame_get_stream(h3, h3_len, &f));
-    CHECK(quic_appdata_send(
+    CHECK(appdata_send_flat(
         &k, &hp, dcid, 4, 1, f.stream_id, f.data, (usz)f.length, f.fin, pkt,
         sizeof(pkt), &total));
   }
@@ -79,9 +79,9 @@ static void test_roundtrip_onertt(void) {
     u16       status    = 0;
     const u8 *rbody     = 0;
     usz       rbody_len = 0;
-    CHECK(quic_appdata_recv(
+    CHECK(appdata_recv_flat(
         &k, &hp, pkt, total, 4, &sid, &off, &sdata, &slen, &fin));
-    CHECK(quic_appdata_stream_frame(
+    CHECK(appdata_frame_flat(
         sid, off, sdata, slen, fin, reframed, sizeof(reframed), &rf_len));
     CHECK(quic_h3conn_recv_response(
         reframed, rf_len, &status, &rbody, &rbody_len));

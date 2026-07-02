@@ -17,14 +17,14 @@ static void test_recv_wrong_dcidlen(void) {
 
   u8  pkt[128];
   usz total = 0;
-  CHECK(quic_appdata_send(
+  CHECK(appdata_send_flat(
       &k, &hp, dcid, 5, 1, 8, body, sizeof(body), 0, pkt, sizeof(pkt), &total));
 
   u64       sid = 0, off = 0;
   const u8 *data = 0;
   usz       dlen = 0;
   int       fin  = 0;
-  CHECK(!quic_appdata_recv(
+  CHECK(!appdata_recv_flat(
       &k, &hp, pkt, total, 4, &sid, &off, &data, &dlen, &fin));
 }
 
@@ -39,7 +39,7 @@ static void test_recv_offset(void) {
   /* build a STREAM frame with offset directly, seal it, then recv. */
   u8  frame[32];
   usz flen = 0;
-  CHECK(quic_appdata_stream_frame(
+  CHECK(appdata_frame_flat(
       12, 256, body, sizeof(body), 0, frame, sizeof(frame), &flen));
   u8                     pkt[128];
   quic_protect_keys      pk = {&k, &hp};
@@ -53,7 +53,7 @@ static void test_recv_offset(void) {
   const u8 *data = 0;
   usz       dlen = 0;
   int       fin  = 1;
-  CHECK(quic_appdata_recv(
+  CHECK(appdata_recv_flat(
       &k, &hp, pkt, total, 4, &sid, &off, &data, &dlen, &fin));
   CHECK(sid == 12);
   CHECK(off == 256);
@@ -82,7 +82,7 @@ static void test_recv_empty_payload(void) {
   const u8 *data = 0;
   usz       dlen = 0;
   int       fin  = 0;
-  CHECK(!quic_appdata_recv(
+  CHECK(!appdata_recv_flat(
       &k, &hp, pkt, total, 4, &sid, &off, &data, &dlen, &fin));
 }
 
@@ -108,7 +108,7 @@ static void test_recv_malformed(void) {
   const u8 *data = 0;
   usz       dlen = 0;
   int       fin  = 0;
-  CHECK(!quic_appdata_recv(
+  CHECK(!appdata_recv_flat(
       &k, &hp, pkt, total, 4, &sid, &off, &data, &dlen, &fin));
 }
 
@@ -123,7 +123,7 @@ static void test_recv_large_stream_id(void) {
 
   u8  pkt[128];
   usz total = 0;
-  CHECK(quic_appdata_send(
+  CHECK(appdata_send_flat(
       &k, &hp, dcid, 4, 9, 0x3fff, body, sizeof(body), 0, pkt, sizeof(pkt),
       &total));
 
@@ -131,7 +131,7 @@ static void test_recv_large_stream_id(void) {
   const u8 *data = 0;
   usz       dlen = 0;
   int       fin  = 0;
-  CHECK(quic_appdata_recv(
+  CHECK(appdata_recv_flat(
       &k, &hp, pkt, total, 4, &sid, &off, &data, &dlen, &fin));
   CHECK(sid == 0x3fff);
   CHECK(data[0] == 'k');
