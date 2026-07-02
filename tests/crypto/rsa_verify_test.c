@@ -2,7 +2,9 @@
 
 /* 2048-bit RSA-PKCS1-v1.5 / SHA-256 vector, self-generated with a textbook
  * RSA (e=65537) over SHA-256("quic_vibe rsa test"); verified s^e mod n == EM
- * by an independent bigint (Python) before extraction. */
+ * by an independent bigint (Python) before extraction. The message keeps the
+ * repository's pre-rename name: it is the actual signed input, so renaming it
+ * would invalidate the vector. */
 static const u8 rsa_n[256] = {
     0x89, 0x4f, 0x31, 0xf5, 0xea, 0x66, 0xd4, 0x8d, 0xf3, 0xdc, 0x8a, 0x54,
     0xe2, 0x6c, 0xec, 0xfe, 0x0e, 0x71, 0xd5, 0x7d, 0xca, 0x10, 0x71, 0xb8,

@@ -3,7 +3,9 @@
 /* 2048-bit RSA-PSS / SHA-256 / MGF1-SHA-256 / saltLen=32 vector. Key generated
  * with the Python cryptography library (e=65537); sig = sign(msg, PSS) over
  * SHA-256("quic_vibe rsa-pss test vector"); the library verified it before
- * extraction. n, sig are big-endian; hash is SHA-256(msg). */
+ * extraction. n, sig are big-endian; hash is SHA-256(msg). The message keeps
+ * the repository's pre-rename name: it is the actual signed input, so
+ * renaming it would invalidate the vector. */
 static const u8 pss_n[256] = {
     0xcb, 0x5b, 0x08, 0x46, 0x33, 0x5c, 0x6f, 0x29, 0xe9, 0x70, 0x56, 0x69,
     0xc7, 0x82, 0x86, 0x54, 0x0e, 0x40, 0x97, 0x07, 0x61, 0x27, 0x63, 0x84,

@@ -9,7 +9,9 @@
  *   openssl req -new -x509 -key ec.key -days 365 \
  *           -subj "/CN=quic_vibe-test" -out ec.crt
  *   openssl x509 -in ec.crt -outform DER -out ec.der
- * Validity: notBefore 260628030430Z, notAfter 270628030430Z (UTCTime). */
+ * Validity: notBefore 260628030430Z, notAfter 270628030430Z (UTCTime).
+ * The CN keeps the repository's pre-rename name (quic_vibe): it is baked into
+ * the signed DER, so renaming it would invalidate the vector. */
 static const u8 quic_x509_golden[] = {
     0x30, 0x82, 0x01, 0x86, 0x30, 0x82, 0x01, 0x2d, 0xa0, 0x03, 0x02, 0x01,
     0x02, 0x02, 0x14, 0x60, 0x82, 0xb8, 0x55, 0x8a, 0x85, 0xc0, 0xd4, 0xf5,
