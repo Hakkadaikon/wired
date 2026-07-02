@@ -10,7 +10,8 @@
 static int on_stream(quic_framedispatch_state *st, const u8 *frame, usz len) {
   quic_stream_frame f;
   if (quic_frame_get_stream(frame, len, &f) == 0) return 0;
-  return quic_stream_read_push(st->stream, f.offset, f.data, f.length);
+  return quic_stream_read_push(
+      st->stream, f.offset, quic_span_of(f.data, f.length));
 }
 
 /* RFC 9000 19.3: an ACK frame is decoded to its ranges, then replayed as the
