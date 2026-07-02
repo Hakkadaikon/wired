@@ -2,6 +2,9 @@
 
 #include "crypto/kdf/keys/discard_driver.h"
 #include "crypto/kdf/keys/keyset.h"
+#include "crypto/pki/encoding/x509/san.h"
+#include "crypto/pki/encoding/x509/validity.h"
+#include "crypto/pki/encoding/x509/x509.h"
 #include "tls/handshake/core/tls/cert.h"
 #include "tls/handshake/core/tls/certverify.h"
 #include "tls/handshake/core/tls/finished.h"
@@ -66,14 +69,24 @@ static void prime_order(quic_fullhs *h) {
 int quic_fullhs_init(
     quic_fullhs *h, quic_tlsdriver *tls, const u8 *transcript_sh, usz sh_len) {
   if (!quic_tlsdriver_handshake_secret_ready(tls)) return 0;
-  h->tls           = tls;
-  h->is_server     = tls->is_server;
-  h->peer_cert     = 0;
-  h->peer_cert_len = 0;
-  h->master_tr_len = 0;
+  h->tls             = tls;
+  h->is_server       = tls->is_server;
+  h->peer_cert       = 0;
+  h->peer_cert_len   = 0;
+  h->master_tr_len   = 0;
+  h->policy_now      = 0;
+  h->policy_host     = 0;
+  h->policy_host_len = 0;
   seed_secrets(h, transcript_sh, sh_len);
   prime_order(h);
   return 1;
+}
+
+void quic_fullhs_set_policy(
+    quic_fullhs *h, u64 now, const u8 *host, usz host_len) {
+  h->policy_now      = now;
+  h->policy_host     = host;
+  h->policy_host_len = host_len;
 }
 
 /* RFC 8446 7.1: fold a Finished into the transcript and, if it is the first
@@ -90,17 +103,51 @@ static int order_ok(quic_fullhs *h, u8 msg_type) {
   return quic_hsdriver_recv(&h->tls->hs, msg_type, QUIC_HSD_PROT_HANDSHAKE);
 }
 
-int quic_fullhs_recv_cert(quic_fullhs *h, const u8 *cert_msg, usz len) {
+/* RFC 5280 6.1: the certificate window covers policy_now (0 skips). */
+static int fullhs_time_ok(const quic_fullhs *h, const quic_x509 *x) {
+  return h->policy_now == 0 ||
+         quic_x509_validity_ok(x->tbs, x->tbs_len, h->policy_now);
+}
+
+/* RFC 6125: a SAN dNSName matches policy_host (length 0 skips). */
+static int fullhs_host_ok(const quic_fullhs *h, const quic_x509 *x) {
+  return h->policy_host_len == 0 ||
+         quic_x509_san_matches(
+             x->tbs, x->tbs_len, h->policy_host, h->policy_host_len);
+}
+
+static int fullhs_policy_checks(const quic_fullhs *h, const u8 *cert, usz n) {
+  quic_x509 x;
+  if (!quic_x509_parse(cert, n, &x)) return 0;
+  return fullhs_time_ok(h, &x) && fullhs_host_ok(h, &x);
+}
+
+/* No policy set = legacy signature-only behavior; else parse and enforce. */
+static int fullhs_policy_ok(const quic_fullhs *h, const u8 *cert, usz n) {
+  if (h->policy_now == 0 && h->policy_host_len == 0) return 1;
+  return fullhs_policy_checks(h, cert, n);
+}
+
+/* Parse the Certificate message, run the peer-cert policy gate, and record
+ * the end-entity views. On a policy reject nothing is recorded, so the
+ * CertificateVerify signature can never verify and cert_verified stays shut. */
+static int fullhs_cert_take(quic_fullhs *h, const u8 *cert_msg, usz len) {
   const u8           *ctx;
   u32                 ctx_len;
   quic_tls_cert_entry first;
-  if (!order_ok(h, QUIC_HSD_CERTIFICATE)) return 0;
   if (!quic_tls_cert_parse(
           cert_msg + QUIC_HS_HEADER, len - QUIC_HS_HEADER, &ctx, &ctx_len,
           &first))
     return 0;
+  if (!fullhs_policy_ok(h, first.cert_data, first.cert_len)) return 0;
   h->peer_cert     = first.cert_data;
   h->peer_cert_len = first.cert_len;
+  return 1;
+}
+
+int quic_fullhs_recv_cert(quic_fullhs *h, const u8 *cert_msg, usz len) {
+  if (!order_ok(h, QUIC_HSD_CERTIFICATE)) return 0;
+  if (!fullhs_cert_take(h, cert_msg, len)) return 0;
   return tr_add(h, cert_msg, len);
 }
 

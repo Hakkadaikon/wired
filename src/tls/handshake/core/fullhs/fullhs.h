@@ -29,6 +29,9 @@ typedef struct {
   u8  hs_traffic_self[QUIC_HKDF_PRK]; /* own-direction hs traffic secret */
   const u8 *peer_cert; /* end-entity cert from the Certificate msg */
   usz       peer_cert_len;
+  u64       policy_now;      /* YYYYMMDDHHMMSS; 0 skips the validity check */
+  const u8 *policy_host;     /* expected SAN dNSName, view (caller-owned) */
+  usz       policy_host_len; /* 0 skips the hostname check */
 } quic_fullhs;
 
 /* Seed the full handshake driver from a tlsdriver that has reached the
@@ -39,9 +42,20 @@ typedef struct {
 int quic_fullhs_init(
     quic_fullhs *h, quic_tlsdriver *tls, const u8 *transcript_sh, usz sh_len);
 
+/* RFC 5280 6.1 / RFC 6125: set the peer-certificate acceptance policy checked
+ * when the Certificate message arrives. now is packed decimal YYYYMMDDHHMMSS
+ * (0 skips the validity-window check); host/host_len is the expected SAN
+ * dNSName (host_len 0 skips the hostname check). host is a view: the caller
+ * keeps it alive for the whole handshake. Zero policy (the init default)
+ * keeps the legacy signature-only behavior. */
+void quic_fullhs_set_policy(
+    quic_fullhs *h, u64 now, const u8 *host, usz host_len);
+
 /* RFC 8446 4.4.2: fold the peer's Certificate message into the transcript and
- * record its end-entity certificate, checking flight order. Returns 1 if
- * accepted, 0 on order violation or a malformed message. */
+ * record its end-entity certificate, checking flight order and the acceptance
+ * policy set via quic_fullhs_set_policy. Returns 1 if accepted, 0 on order
+ * violation, a malformed message, or a policy reject (in which case no cert
+ * is recorded and CertificateVerify can never open the auth gate). */
 int quic_fullhs_recv_cert(quic_fullhs *h, const u8 *cert_msg, usz len);
 
 /* RFC 8446 4.4.3: verify the peer's CertificateVerify signature over the
