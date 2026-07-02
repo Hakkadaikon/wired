@@ -73,10 +73,9 @@ static u64 fe6_add_raw(p384_fe t, const p384_fe a, const p384_fe b) {
   return (u64)c;
 }
 
-void quic_fp384_add(
-    p384_fe r, const p384_fe a, const p384_fe b, const p384_fe m) {
+void quic_fp384_add(p384_fe r, quic_fp384ab ab, const p384_fe m) {
   p384_fe t;
-  u64     carry = fe6_add_raw(t, a, b);
+  u64     carry = fe6_add_raw(t, ab.a, ab.b);
   int     over  = carry || fe6_ge(t, m);
   if (over)
     fe6_sub_raw(r, t, m);
@@ -84,13 +83,12 @@ void quic_fp384_add(
     quic_fp384_set(r, t);
 }
 
-void quic_fp384_sub(
-    p384_fe r, const p384_fe a, const p384_fe b, const p384_fe m) {
-  if (fe6_ge(a, b))
-    fe6_sub_raw(r, a, b);
+void quic_fp384_sub(p384_fe r, quic_fp384ab ab, const p384_fe m) {
+  if (fe6_ge(ab.a, ab.b))
+    fe6_sub_raw(r, ab.a, ab.b);
   else {
     p384_fe t;
-    fe6_sub_raw(t, b, a);
+    fe6_sub_raw(t, ab.b, ab.a);
     fe6_sub_raw(r, m, t);
   }
 }
@@ -154,15 +152,14 @@ static void fe6_reduce_wide(p384_fe r, u64 w[12], const p384_fe m) {
   for (usz i = 0; i < 6; i++) r[i] = w[i];
 }
 
-void quic_fp384_mul(
-    p384_fe r, const p384_fe a, const p384_fe b, const p384_fe m) {
+void quic_fp384_mul(p384_fe r, quic_fp384ab ab, const p384_fe m) {
   u64 w[12];
-  fe6_mul_wide(w, a, b);
+  fe6_mul_wide(w, ab.a, ab.b);
   fe6_reduce_wide(r, w, m);
 }
 
 void quic_fp384_sqr(p384_fe r, const p384_fe a, const p384_fe m) {
-  quic_fp384_mul(r, a, a, m);
+  quic_fp384_mul(r, (quic_fp384ab){a, a}, m);
 }
 
 void quic_fp384_reduce(p384_fe r, const p384_fe a, const p384_fe m) {
@@ -222,11 +219,11 @@ static void build_term384(p384_fe out, const u64 w[12], usz t) {
 }
 
 static void fp384_add_p(p384_fe r, const p384_fe t) {
-  quic_fp384_add(r, r, t, quic_p384_p);
+  quic_fp384_add(r, (quic_fp384ab){r, t}, quic_p384_p);
 }
 
 static void fp384_sub_p(p384_fe r, const p384_fe t) {
-  quic_fp384_sub(r, r, t, quic_p384_p);
+  quic_fp384_sub(r, (quic_fp384ab){r, t}, quic_p384_p);
 }
 
 /* r = s1 + 2*s2 + s3 + s4 + s5 + s6 + s7 (the additive terms). */
@@ -276,21 +273,15 @@ static int fp384_ebit(const p384_fe e, usz i) {
 }
 
 /* r = a^(m-2) mod m via square-and-multiply (Fermat), generic reducer. */
-static void fp384_pow(
-    p384_fe r, const p384_fe a, const p384_fe e, const p384_fe m) {
-  p384_fe base;
+void quic_fp384_inv(p384_fe r, const p384_fe a, const p384_fe m) {
+  p384_fe base, e, two = {2, 0, 0, 0, 0, 0};
+  fe6_sub_raw(e, m, two);
   quic_fp384_set(base, a);
   fp384_set_one(r);
   for (usz bit = 0; bit < 384; bit++) {
-    if (fp384_ebit(e, bit)) quic_fp384_mul(r, r, base, m);
+    if (fp384_ebit(e, bit)) quic_fp384_mul(r, (quic_fp384ab){r, base}, m);
     quic_fp384_sqr(base, base, m);
   }
-}
-
-void quic_fp384_inv(p384_fe r, const p384_fe a, const p384_fe m) {
-  p384_fe e, two = {2, 0, 0, 0, 0, 0};
-  fe6_sub_raw(e, m, two);
-  fp384_pow(r, a, e, m);
 }
 
 /* a^(p-2) mod p via the fast Solinas mul/sqr. */
@@ -344,11 +335,10 @@ static void mont6_finalize(p384_fe r, const u64 t[8], const p384_fe m) {
   if (sub) fe6_sub_raw(r, r, m);
 }
 
-void quic_mont384_mul(
-    p384_fe r, const p384_fe a, const p384_fe b, const quic_mont384 *mont) {
+void quic_mont384_mul(p384_fe r, quic_fp384ab ab, const quic_mont384 *mont) {
   u64 t[8] = {0, 0, 0, 0, 0, 0, 0, 0};
   for (usz i = 0; i < 6; i++) {
-    cios6_mul_row(t, a[i], b);
+    cios6_mul_row(t, ab.a[i], ab.b);
     cios6_reduce_row(t, mont);
   }
   mont6_finalize(r, t, mont->m);
@@ -356,17 +346,18 @@ void quic_mont384_mul(
 
 static void mont6_from(p384_fe r, const p384_fe a, const quic_mont384 *mont) {
   p384_fe one = {1, 0, 0, 0, 0, 0};
-  quic_mont384_mul(r, a, one, mont);
+  quic_mont384_mul(r, (quic_fp384ab){a, one}, mont);
 }
 
 void quic_mont384_inv(p384_fe r, const p384_fe a, const quic_mont384 *mont) {
   p384_fe e, base, acc, two = {2, 0, 0, 0, 0, 0};
   fe6_sub_raw(e, mont->m, two);
-  quic_mont384_mul(base, a, mont->rr, mont);
+  quic_mont384_mul(base, (quic_fp384ab){a, mont->rr}, mont);
   quic_fp384_set(acc, mont->one);
   for (usz bit = 0; bit < 384; bit++) {
-    if (fp384_ebit(e, bit)) quic_mont384_mul(acc, acc, base, mont);
-    quic_mont384_mul(base, base, base, mont);
+    if (fp384_ebit(e, bit))
+      quic_mont384_mul(acc, (quic_fp384ab){acc, base}, mont);
+    quic_mont384_mul(base, (quic_fp384ab){base, base}, mont);
   }
   mont6_from(r, acc, mont);
 }

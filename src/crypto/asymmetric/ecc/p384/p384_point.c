@@ -23,10 +23,10 @@ static void p384pt_rhs_lhs(p384_fe lhs, p384_fe rhs, const ec_point384 *p) {
   p384_fe x2, three_x, three = {3, 0, 0, 0, 0, 0};
   quic_fp384_sqr(lhs, p->y, quic_p384_p);
   quic_fp384_sqr(x2, p->x, quic_p384_p);
-  quic_fp384_mul(rhs, x2, p->x, quic_p384_p);
-  quic_fp384_mul(three_x, three, p->x, quic_p384_p);
-  quic_fp384_sub(rhs, rhs, three_x, quic_p384_p);
-  quic_fp384_add(rhs, rhs, p384_b, quic_p384_p);
+  quic_fp384_mul(rhs, (quic_fp384ab){x2, p->x}, quic_p384_p);
+  quic_fp384_mul(three_x, (quic_fp384ab){three, p->x}, quic_p384_p);
+  quic_fp384_sub(rhs, (quic_fp384ab){rhs, three_x}, quic_p384_p);
+  quic_fp384_add(rhs, (quic_fp384ab){rhs, p384_b}, quic_p384_p);
 }
 
 int quic_p384_point_on_curve(const ec_point384 *p) {
@@ -51,10 +51,10 @@ static void p384pt_fp_sqr(p384_fe r, const p384_fe a) {
   quic_fp384_sqr_p(r, a);
 }
 static void p384pt_fp_sub(p384_fe r, const p384_fe a, const p384_fe b) {
-  quic_fp384_sub(r, a, b, FP_P384);
+  quic_fp384_sub(r, (quic_fp384ab){a, b}, FP_P384);
 }
 static void p384pt_fp_add(p384_fe r, const p384_fe a, const p384_fe b) {
-  quic_fp384_add(r, a, b, FP_P384);
+  quic_fp384_add(r, (quic_fp384ab){a, b}, FP_P384);
 }
 static void p384pt_fp_dbl(p384_fe r, const p384_fe a) {
   p384pt_fp_add(r, a, a);
@@ -85,19 +85,19 @@ static void p384pt_dbl_x(p384_fe x3, const p384_fe alpha, const p384_fe beta) {
   p384pt_fp_sub(x3, x3, t);
 }
 
+/* Doubling intermediates alpha, beta, gamma (borrowed limb pointers). */
+typedef struct {
+  const u64 *alpha, *beta, *gamma;
+} p384_dblv;
+
 /* Y3 = alpha*(4*beta - X3) - 8*gamma^2. */
-static void p384pt_dbl_y(
-    p384_fe       y3,
-    const p384_fe alpha,
-    const p384_fe beta,
-    const p384_fe x3,
-    const p384_fe gamma) {
+static void p384pt_dbl_y(p384_fe y3, const p384_fe x3, const p384_dblv *d) {
   p384_fe t, g2;
-  p384pt_fp_dbl(t, beta);
+  p384pt_fp_dbl(t, d->beta);
   p384pt_fp_dbl(t, t); /* 4*beta */
   p384pt_fp_sub(t, t, x3);
-  p384pt_fp_mul(t, alpha, t);
-  p384pt_fp_sqr(g2, gamma);
+  p384pt_fp_mul(t, d->alpha, t);
+  p384pt_fp_sqr(g2, d->gamma);
   p384pt_fp_dbl(g2, g2);
   p384pt_fp_dbl(g2, g2);
   p384pt_fp_dbl(g2, g2); /* 8*gamma^2 */
@@ -120,68 +120,57 @@ static void p384pt_jac_double(jac384 *r, const jac384 *p) {
   p384pt_fp_sqr(t, t);
   p384pt_fp_sub(t, t, gamma);
   p384pt_fp_sub(r->Z, t, delta);
-  p384pt_dbl_y(r->Y, alpha, beta, r->X, gamma);
+  p384pt_dbl_y(r->Y, r->X, &(p384_dblv){alpha, beta, gamma});
 }
 
-/* Cross terms U1,U2,S1,S2 for Jacobian addition. */
-static void p384pt_add_uv(
-    p384_fe       u1,
-    p384_fe       u2,
-    p384_fe       s1,
-    p384_fe       s2,
-    const jac384 *p,
-    const jac384 *q) {
-  p384_fe z1z1, z2z2;
-  p384pt_fp_sqr(z1z1, p->Z);
-  p384pt_fp_sqr(z2z2, q->Z);
-  p384pt_fp_mul(u1, p->X, z2z2);
-  p384pt_fp_mul(u2, q->X, z1z1);
-  p384pt_fp_mul(s1, p->Y, q->Z);
-  p384pt_fp_mul(s1, s1, z2z2);
-  p384pt_fp_mul(s2, q->Y, p->Z);
-  p384pt_fp_mul(s2, s2, z1z1);
+/* Intermediates shared between the two halves of Jacobian addition. */
+typedef struct {
+  p384_fe u1, u2, s1, s2; /* cross terms */
+  p384_fe z1z1, z2z2, zs; /* Z1^2, Z2^2, Z1+Z2 */
+  p384_fe h, rr;          /* U2-U1, 2(S2-S1) */
+} p384_addt;
+
+/* Cross terms U1,U2,S1,S2 (plus the Z terms) for Jacobian addition. */
+static void p384pt_add_uv(p384_addt *t, const jac384 *p, const jac384 *q) {
+  p384pt_fp_sqr(t->z1z1, p->Z);
+  p384pt_fp_sqr(t->z2z2, q->Z);
+  p384pt_fp_mul(t->u1, p->X, t->z2z2);
+  p384pt_fp_mul(t->u2, q->X, t->z1z1);
+  p384pt_fp_mul(t->s1, p->Y, q->Z);
+  p384pt_fp_mul(t->s1, t->s1, t->z2z2);
+  p384pt_fp_mul(t->s2, q->Y, p->Z);
+  p384pt_fp_mul(t->s2, t->s2, t->z1z1);
+  p384pt_fp_add(t->zs, p->Z, q->Z);
 }
 
-/* Finish addition given H = U2-U1, rr = 2(S2-S1). */
-static void p384pt_add_finish(
-    jac384       *r,
-    const jac384 *p,
-    const jac384 *q,
-    const p384_fe u1,
-    const p384_fe s1,
-    const p384_fe h,
-    const p384_fe rr) {
+/* Finish addition given the cross terms and H = U2-U1, rr = 2(S2-S1). */
+static void p384pt_add_finish(jac384 *r, const p384_addt *a) {
   p384_fe i, j, v, t;
-  p384pt_fp_dbl(t, h);
+  p384pt_fp_dbl(t, a->h);
   p384pt_fp_sqr(i, t); /* I = (2H)^2 */
-  p384pt_fp_mul(j, h, i);
-  p384pt_fp_mul(v, u1, i);
-  p384pt_fp_sqr(r->X, rr);
+  p384pt_fp_mul(j, a->h, i);
+  p384pt_fp_mul(v, a->u1, i);
+  p384pt_fp_sqr(r->X, a->rr);
   p384pt_fp_sub(r->X, r->X, j);
   p384pt_fp_dbl(t, v);
   p384pt_fp_sub(r->X, r->X, t);
   p384pt_fp_sub(t, v, r->X);
-  p384pt_fp_mul(t, rr, t);
-  p384pt_fp_mul(v, s1, j);
+  p384pt_fp_mul(t, a->rr, t);
+  p384pt_fp_mul(v, a->s1, j);
   p384pt_fp_dbl(v, v);
   p384pt_fp_sub(r->Y, t, v);
-  p384pt_fp_add(t, p->Z, q->Z);
-  p384pt_fp_sqr(t, t);
-  p384pt_fp_sqr(v, p->Z);
-  p384pt_fp_sub(t, t, v);
-  p384pt_fp_sqr(v, q->Z);
-  p384pt_fp_sub(t, t, v);
-  p384pt_fp_mul(r->Z, t, h);
+  p384pt_fp_sqr(t, a->zs);
+  p384pt_fp_sub(t, t, a->z1z1);
+  p384pt_fp_sub(t, t, a->z2z2);
+  p384pt_fp_mul(r->Z, t, a->h);
 }
 
-/* r = p + q in Jacobian; assumes neither is infinity and p != -q, p != q. */
-static void p384pt_jac_add(jac384 *r, const jac384 *p, const jac384 *q) {
-  p384_fe u1, u2, s1, s2, h, rr;
-  p384pt_add_uv(u1, u2, s1, s2, p, q);
-  p384pt_fp_sub(h, u2, u1);
-  p384pt_fp_sub(rr, s2, s1);
-  p384pt_fp_dbl(rr, rr);
-  p384pt_add_finish(r, p, q, u1, s1, h, rr);
+/* r = p + q given the cross terms; assumes p != -q, p != q. */
+static void p384pt_jac_add(jac384 *r, p384_addt *t) {
+  p384pt_fp_sub(t->h, t->u2, t->u1);
+  p384pt_fp_sub(t->rr, t->s2, t->s1);
+  p384pt_fp_dbl(t->rr, t->rr);
+  p384pt_add_finish(r, t);
 }
 
 /* Same-x case: double if s1==s2 (acc==base), else infinity. */
@@ -195,16 +184,16 @@ static void p384pt_add_same_x_jac(
 
 /* acc += base, handling infinity and the doubling/inverse case. */
 static void p384pt_jac_add_step(jac384 *acc, const jac384 *base) {
-  p384_fe u1, u2, s1, s2;
+  p384_addt t;
   if (p384pt_jac_is_inf(acc)) {
     *acc = *base;
     return;
   }
-  p384pt_add_uv(u1, u2, s1, s2, acc, base);
-  if (quic_fp384_eq(u1, u2))
-    p384pt_add_same_x_jac(acc, s1, s2);
+  p384pt_add_uv(&t, acc, base);
+  if (quic_fp384_eq(t.u1, t.u2))
+    p384pt_add_same_x_jac(acc, t.s1, t.s2);
   else
-    p384pt_jac_add(acc, acc, base);
+    p384pt_jac_add(acc, &t);
 }
 
 /* Bit `bit` (MSB first) of a 48-byte big-endian scalar. */

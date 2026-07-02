@@ -18,25 +18,16 @@ static int p384ev_load_pubkey(
   return quic_p384_point_on_curve(q);
 }
 
-/* R = u1*G + u2*Q. */
+/* R = u1*G + u2*Q, u = (u1, u2). */
 static void p384ev_compute_r(
-    ec_point384 *r, const p384_fe u1, const p384_fe u2, const ec_point384 *q) {
+    ec_point384 *r, quic_fp384ab u, const ec_point384 *q) {
   ec_point384 a, b;
   u8          u1b[48], u2b[48];
-  quic_fp384_to_be(u1b, u1);
-  quic_fp384_to_be(u2b, u2);
+  quic_fp384_to_be(u1b, u.a);
+  quic_fp384_to_be(u2b, u.b);
   quic_p384_point_mul(&a, u1b, &quic_p384_g);
   quic_p384_point_mul(&b, u2b, q);
   quic_p384_point_add(r, &a, &b);
-}
-
-/* u1 = e*w mod n, u2 = r*w mod n with w = s^-1 mod n. */
-static void p384ev_compute_u(
-    p384_fe u1, p384_fe u2, const p384_fe e, const p384_fe r, const p384_fe s) {
-  p384_fe w;
-  quic_mont384_inv(w, s, &quic_p384_mont_n);
-  quic_fp384_mul(u1, e, w, quic_p384_n);
-  quic_fp384_mul(u2, r, w, quic_p384_n);
 }
 
 /* valid iff R is finite and (R.x mod n) == r. */
@@ -65,14 +56,17 @@ int quic_ecdsa_p384_verify(
     const u8 sig_s[48],
     const u8 msg_hash[48]) {
   ec_point384 q, rpt;
-  p384_fe     r, s, e, eh, u1, u2;
+  p384_fe     r, s, e, eh, w, u1, u2;
   quic_fp384_from_be(r, sig_r);
   quic_fp384_from_be(s, sig_s);
   if (!p384ev_inputs_ok(&q, r, s, pub_x, pub_y)) return 0;
   /* e = hash mod n (a 48-byte digest is 384 bits = field size). */
   quic_fp384_from_be(eh, msg_hash);
   quic_fp384_reduce(e, eh, quic_p384_n);
-  p384ev_compute_u(u1, u2, e, r, s);
-  p384ev_compute_r(&rpt, u1, u2, &q);
+  /* u1 = e*w, u2 = r*w mod n with w = s^-1 mod n. */
+  quic_mont384_inv(w, s, &quic_p384_mont_n);
+  quic_fp384_mul(u1, (quic_fp384ab){e, w}, quic_p384_n);
+  quic_fp384_mul(u2, (quic_fp384ab){r, w}, quic_p384_n);
+  p384ev_compute_r(&rpt, (quic_fp384ab){u1, u2}, &q);
   return p384ev_check_r(&rpt, r);
 }

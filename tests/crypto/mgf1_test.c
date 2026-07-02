@@ -17,7 +17,7 @@ static const u8 mgf1_mask[50] = {
 
 static void test_mgf1_kat(void) {
   u8 got[50];
-  quic_mgf1_sha256(mgf1_seed, 20, got, 50);
+  quic_mgf1_sha256((quic_span){mgf1_seed, 20}, (quic_mspan){got, 50});
   int eq = 1;
   for (usz i = 0; i < 50; i++)
     if (got[i] != mgf1_mask[i]) eq = 0;
@@ -27,7 +27,7 @@ static void test_mgf1_kat(void) {
 /* A one-byte mask is the first byte of the first block. */
 static void test_mgf1_short(void) {
   u8 got[1];
-  quic_mgf1_sha256(mgf1_seed, 20, got, 1);
+  quic_mgf1_sha256((quic_span){mgf1_seed, 20}, (quic_mspan){got, 1});
   CHECK(got[0] == mgf1_mask[0]);
 }
 

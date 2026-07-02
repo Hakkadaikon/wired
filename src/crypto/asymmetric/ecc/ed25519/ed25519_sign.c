@@ -1,3 +1,4 @@
+#include "common/bytes/span/span.h"
 #include "crypto/asymmetric/ecc/ed25519/ed25519.h"
 #include "crypto/asymmetric/ecc/ed25519/ed25519_field.h"
 #include "crypto/symmetric/hash/hash/sha512.h"
@@ -58,14 +59,13 @@ static void sc_reduce64(u8 out[32], const u8 in[64]) {
 }
 
 /* k = SHA-512(R || A || M) mod L (RFC 8032 5.1.7 step 2). */
-static void hash_k(
-    u8 k[32], const u8 *R, const u8 *A, const u8 *msg, usz msg_len) {
+static void hash_k(u8 k[32], const u8 *R, const u8 *A, quic_span msg) {
   quic_sha512_ctx h;
   u8              digest[64];
   quic_sha512_init(&h);
   quic_sha512_update(&h, R, 32);
   quic_sha512_update(&h, A, 32);
-  quic_sha512_update(&h, msg, msg_len);
+  quic_sha512_update(&h, msg.p, msg.n);
   quic_sha512_final(&h, digest);
   sc_reduce64(k, digest);
 }
@@ -185,7 +185,7 @@ int quic_ed25519_sign(
   hash_r(r, h + 32, msg, msg_len);
   quic_ed_ge_scalarmult(&R, r, &B);
   quic_ed_ge_encode(sig, &R);
-  hash_k(k, sig, A_enc, msg, msg_len);
+  hash_k(k, sig, A_enc, (quic_span){msg, msg_len});
   sc_muladd(sig + 32, k, a, r);
   return 1;
 }
@@ -201,6 +201,6 @@ int quic_ed25519_verify(
   const u8 *S = sig + 32;
   if (sc_ge(S, ORDER_L)) return 0; /* S must be < L */
   if (!quic_ed_ge_decode(&A, pubkey)) return 0;
-  hash_k(k, R, pubkey, msg, msg_len);
+  hash_k(k, R, pubkey, (quic_span){msg, msg_len});
   return check_equation(S, k, &A, R);
 }

@@ -1,5 +1,6 @@
 #include "crypto/asymmetric/ecc/cvecdsa/cvecdsa.h"
 
+#include "common/bytes/span/span.h"
 #include "common/bytes/util/be.h"
 #include "crypto/asymmetric/ecc/cvecdsa/signed.h"
 #include "crypto/asymmetric/ecc/ecdsasig/sig_value.h"
@@ -21,12 +22,12 @@ static int cvec_sign(
 }
 
 /* Emit header(4) + scheme(2) + sig_len(2) + DER signature. */
-static void cvec_emit(u8 *out, const u8 *der, usz der_len, usz *out_len) {
-  usz off = quic_hs_begin(out, der_len + 8, QUIC_HS_CERTIFICATE_VERIFY);
+static void cvec_emit(u8 *out, quic_span der, usz *out_len) {
+  usz off = quic_hs_begin(out, der.n + 8, QUIC_HS_CERTIFICATE_VERIFY);
   quic_put_be16(out + off, QUIC_SIG_ECDSA_SECP256R1_SHA256);
-  quic_put_be16(out + off + 2, (u16)der_len);
-  for (usz i = 0; i < der_len; i++) out[off + 4 + i] = der[i];
-  *out_len = off + 4 + der_len;
+  quic_put_be16(out + off + 2, (u16)der.n);
+  for (usz i = 0; i < der.n; i++) out[off + 4 + i] = der.p[i];
+  *out_len = off + 4 + der.n;
   quic_hs_finish(out, *out_len);
 }
 
@@ -40,6 +41,6 @@ int quic_cvecdsa_build(
   usz der_len = 0;
   if (!cvec_sign(priv, transcript_hash, der, &der_len)) return 0;
   if (cap < der_len + 8) return 0;
-  cvec_emit(out, der, der_len, out_len);
+  cvec_emit(out, (quic_span){der, der_len}, out_len);
   return 1;
 }

@@ -25,7 +25,7 @@ static void pf_rand(p384_fe r) {
 static void pf_diff_one(const p384_fe a, const p384_fe b) {
   p384_fe fast, slow;
   quic_fp384_mul_p(fast, a, b);
-  quic_fp384_mul(slow, a, b, quic_p384_p);
+  quic_fp384_mul(slow, (quic_fp384ab){a, b}, quic_p384_p);
   CHECK(quic_fp384_eq(fast, slow) == 1);
 }
 
@@ -36,7 +36,7 @@ static void test_p384_field_fast_matches_generic(void) {
   static const p384_fe zero = {0, 0, 0, 0, 0, 0};
   static const p384_fe one  = {1, 0, 0, 0, 0, 0};
   p384_fe              pm1, a, b;
-  quic_fp384_sub(pm1, zero, one, quic_p384_p); /* p - 1 */
+  quic_fp384_sub(pm1, (quic_fp384ab){zero, one}, quic_p384_p); /* p - 1 */
   pf_diff_one(zero, pm1);
   pf_diff_one(one, pm1);
   pf_diff_one(pm1, pm1);
@@ -52,8 +52,8 @@ static void test_p384_field_addsub(void) {
   p384_fe a, b, s, d, sq, mm;
   pf_rand(a);
   pf_rand(b);
-  quic_fp384_add(s, a, b, quic_p384_p);
-  quic_fp384_sub(d, s, b, quic_p384_p);
+  quic_fp384_add(s, (quic_fp384ab){a, b}, quic_p384_p);
+  quic_fp384_sub(d, (quic_fp384ab){s, b}, quic_p384_p);
   CHECK(quic_fp384_eq(d, a) == 1);
   quic_fp384_sqr_p(sq, a);
   quic_fp384_mul_p(mm, a, a);
@@ -77,7 +77,7 @@ static void test_p384_field_mont_inv_n(void) {
   for (usz i = 0; i < 6; i++) t[i] = pf_rng();
   quic_fp384_reduce(a, t, quic_p384_n);
   quic_mont384_inv(inv, a, &quic_p384_mont_n);
-  quic_fp384_mul(prod, a, inv, quic_p384_n);
+  quic_fp384_mul(prod, (quic_fp384ab){a, inv}, quic_p384_n);
   CHECK(quic_fp384_eq(prod, one) == 1);
 }
 
