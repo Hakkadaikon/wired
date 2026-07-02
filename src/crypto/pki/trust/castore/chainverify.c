@@ -1,6 +1,7 @@
 #include "crypto/pki/trust/castore/chainverify.h"
 
 #include "crypto/asymmetric/ecc/p256/ecdsa_verify.h"
+#include "crypto/asymmetric/ecc/p384/ecdsa_verify.h"
 #include "crypto/asymmetric/rsa/rsa_verify.h"
 #include "crypto/pki/cert/tbscert/fields.h"
 #include "crypto/pki/cert/tbscert/sigalg.h"
@@ -145,13 +146,78 @@ static void chv_hash_to_scalar32(const u8 *hash, u8 h32[32]) {
   for (usz i = 0; i < 32; i++) h32[i] = hash[i];
 }
 
-static int chv_verify_ecdsa(
+static int chv_verify_p256(
     const u8 *key, usz key_len, const u8 *sig, usz sig_len, const u8 *hash) {
   u8 x[32], y[32], r[32], s[32], h32[32];
   if (!quic_x509_ec_pubkey(key, key_len, x, y)) return 0;
   if (!chv_ecdsa_split(sig, sig_len, r, s)) return 0;
   chv_hash_to_scalar32(hash, h32);
   return quic_ecdsa_p256_verify(x, y, r, s, h32);
+}
+
+/* A stripped INTEGER value that fits a P-384 scalar. */
+static int fits_scalar48(usz len) { return len >= 1 && len <= 48; }
+
+static void chv_left_pad48(u8 out[48], const u8 *v, usz len) {
+  for (usz i = 0; i < 48; i++) out[i] = 0;
+  for (usz i = 0; i < len; i++) out[48 - len + i] = v[i];
+}
+
+/* Copy one INTEGER element of c into a 48-byte big-endian field. */
+static int chv_copy_int48(quic_derseq *c, u8 out[48]) {
+  const u8 *v;
+  usz       len;
+  if (!chv_next_int(c, &v, &len)) return 0;
+  chv_strip_pad(&v, &len);
+  if (!fits_scalar48(len)) return 0;
+  chv_left_pad48(out, v, len);
+  return 1;
+}
+
+/* SEC1 C.5. ECDSA-Sig-Value with 48-byte scalars (P-384). */
+static int chv_ecdsa_split48(const u8 *sig, usz sig_len, u8 r[48], u8 s[48]) {
+  const u8   *seq;
+  usz         seq_len;
+  quic_derseq c;
+  if (!chv_read_seq(sig, sig_len, &seq, &seq_len)) return 0;
+  quic_derseq_init(&c, seq, seq_len);
+  if (!chv_copy_int48(&c, r)) return 0;
+  return chv_copy_int48(&c, s);
+}
+
+/* FIPS 186-4 6.4: left-zero-extend the digest into 48 bytes (a 48-byte digest
+ * is copied whole), matching the P-384 order size. */
+static void chv_hash_to_scalar48(const u8 *hash, usz hash_len, u8 h48[48]) {
+  usz off = 48 - hash_len;
+  for (usz i = 0; i < 48; i++) h48[i] = 0;
+  for (usz i = 0; i < hash_len; i++) h48[off + i] = hash[i];
+}
+
+static int chv_verify_p384(
+    const u8 *key,
+    usz       key_len,
+    const u8 *sig,
+    usz       sig_len,
+    const u8 *hash,
+    usz       hash_len) {
+  u8 x[48], y[48], r[48], s[48], h48[48];
+  if (!quic_x509_ec_pubkey384(key, key_len, x, y)) return 0;
+  if (!chv_ecdsa_split48(sig, sig_len, r, s)) return 0;
+  chv_hash_to_scalar48(hash, hash_len, h48);
+  return quic_ecdsa_p384_verify(x, y, r, s, h48);
+}
+
+/* The SPKI BIT STRING length selects the curve: 66 bytes P-256, 98 P-384. */
+static int chv_verify_ecdsa(
+    const u8 *key,
+    usz       key_len,
+    const u8 *sig,
+    usz       sig_len,
+    const u8 *hash,
+    usz       hash_len) {
+  if (key_len == 98)
+    return chv_verify_p384(key, key_len, sig, sig_len, hash, hash_len);
+  return chv_verify_p256(key, key_len, sig, sig_len, hash);
 }
 
 static int chv_verify_rsa(
@@ -176,9 +242,10 @@ static int verify_ecdsa_key(
     usz       key_len,
     const u8 *sig,
     usz       sig_len,
-    const u8 *hash) {
+    const u8 *hash,
+    usz       hash_len) {
   return quic_x509_is_ec(alg, alg_len) &&
-         chv_verify_ecdsa(key, key_len, sig, sig_len, hash);
+         chv_verify_ecdsa(key, key_len, sig, sig_len, hash, hash_len);
 }
 
 /* The issuer SPKI must be an RSA key when the sigAlg says PKCS#1. */
@@ -208,7 +275,8 @@ static int verify_by_key(
     const u8               *hash,
     usz                     hash_len) {
   if (sa->key_kind == QUIC_X509_SIG_ECDSA)
-    return verify_ecdsa_key(alg, alg_len, key, key_len, sig, sig_len, hash);
+    return verify_ecdsa_key(
+        alg, alg_len, key, key_len, sig, sig_len, hash, hash_len);
   return verify_rsa_key(
       alg, alg_len, key, key_len, sig, sig_len, hash, hash_len);
 }

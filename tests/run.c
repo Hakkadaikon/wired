@@ -667,6 +667,7 @@
 #include "crypto/p384_field_test.c"
 #include "crypto/p384_point_test.c"
 #include "crypto/ecdsa_p384_verify_test.c"
+#include "crypto/p384chain_test.c"
 #include "crypto/p256_point_test.c"
 #include "crypto/ecdsa_verify_test.c"
 #include "crypto/x509_test.c"
@@ -1076,6 +1077,7 @@ int main(void) {
   test_p384_field();
   test_p384_point();
   test_ecdsa_p384_verify();
+  test_p384chain();
   test_p256_point();
   test_ecdsa_verify();
   test_x509();
