@@ -7,17 +7,12 @@ void quic_endpoint_init(quic_endpoint *e, const u8 priv[32], const u8 dcid[8]) {
   e->have_hs_keys = 0;
 }
 
-int quic_endpoint_agree(
-    quic_endpoint *e,
-    const u8       peer_pub[32],
-    const u8      *transcript,
-    usz            transcript_len,
-    int            is_server) {
+int quic_endpoint_agree(quic_endpoint *e, const quic_endpoint_peer *p) {
   u8 shared[32], hs_secret[QUIC_HKDF_PRK];
-  if (!quic_x25519(shared, e->priv, peer_pub)) return 0;
+  if (!quic_x25519(shared, e->priv, p->peer_pub)) return 0;
   quic_tls_handshake_secret(shared, hs_secret);
   quic_tls_handshake_keys(
-      hs_secret, transcript, transcript_len, is_server, &e->hs_keys);
+      hs_secret, p->transcript.p, p->transcript.n, p->is_server, &e->hs_keys);
   e->have_hs_keys = 1;
   return 1;
 }

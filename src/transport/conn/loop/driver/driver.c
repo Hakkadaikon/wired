@@ -109,14 +109,14 @@ static int can_recv(const quic_driver *d) {
  * a single byte was recovered, 0 if the open was gated/failed. Clears the
  * inbox either way. */
 static int open_message(quic_driver *d, u8 level, u8 *msg) {
-  u8  got[QUIC_DRIVER_DGRAM_CAP];
-  usz got_len = 0;
-  int ok      = quic_connio_recv(&d->io, level, d->in_buf, d->in_len);
-  d->in_len   = 0;
+  u8        got[QUIC_DRIVER_DGRAM_CAP];
+  quic_obuf gb = quic_obuf_of(got, sizeof(got));
+  int       ok = quic_connio_recv(&d->io, level, d->in_buf, d->in_len);
+  d->in_len    = 0;
   if (!ok) return 0;
-  quic_stream_read_pull(&d->io.stream, got, sizeof(got), &got_len);
+  quic_stream_read_pull(&d->io.stream, &gb);
   *msg = got[0];
-  return got_len == 1;
+  return gb.len == 1;
 }
 
 /* Process the queued datagram: open it, advance the order machine and key

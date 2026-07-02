@@ -1,7 +1,7 @@
 #ifndef QUIC_RETRYDRIVE_RECONNECT_H
 #define QUIC_RETRYDRIVE_RECONNECT_H
 
-#include "common/platform/sys/syscall.h"
+#include "common/bytes/span/span.h"
 #include "transport/packet/header/packet/header.h"
 
 /* RFC 9000 17.2.5: reconnection state after a client accepts a Retry. Holds
@@ -22,10 +22,6 @@ typedef struct {
  * re-derivation. Returns 0 (and leaves out untouched) if the token or SCID
  * exceeds the buffers; 1 on success. */
 int quic_retrydrive_apply(
-    const u8              *retry_token,
-    usz                    token_len,
-    const u8              *retry_scid,
-    usz                    scid_len,
-    quic_retrydrive_state *out);
+    quic_span retry_token, quic_span retry_scid, quic_retrydrive_state *out);
 
 #endif
