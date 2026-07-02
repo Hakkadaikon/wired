@@ -3,10 +3,11 @@
 
 #include "common/platform/sys/syscall.h"
 
-/* Fixed 2048-bit unsigned big integer as 32 little-endian u64 limbs.
- * Minimal operations for RSA signature verification (RFC 8017). */
+/* Fixed 4096-bit unsigned big integer as 64 little-endian u64 limbs (sized
+ * for RSA-4096 moduli). Minimal operations for RSA signature verification
+ * (RFC 8017). */
 
-#define QUIC_BN_LIMBS 32
+#define QUIC_BN_LIMBS 64
 
 typedef struct {
   u64 v[QUIC_BN_LIMBS];

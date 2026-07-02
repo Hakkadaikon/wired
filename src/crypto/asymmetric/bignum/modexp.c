@@ -57,12 +57,37 @@ static int bn_bit(const quic_bn *x, usz i) {
   return (int)((x->v[i >> 6] >> (i & 63)) & 1);
 }
 
+/* Index of the top nonzero limb + 1, or 0 for zero. */
+static usz bn_top_limb(const quic_bn *x) {
+  usz i = QUIC_BN_LIMBS;
+  while (i > 0 && x->v[i - 1] == 0) i--;
+  return i;
+}
+
+/* Significant bits in a nonzero limb (1..64). */
+static usz bn_limb_bits(u64 v) {
+  usz n = 64;
+  while ((v & 0x8000000000000000ULL) == 0) {
+    v <<= 1;
+    n--;
+  }
+  return n;
+}
+
+/* Significant bits in x (0 for zero). Exponent and operands here are public
+ * (signature verification), so sizing the loops by the actual bit length
+ * leaks nothing and avoids walking thousands of leading zero bits. */
+static usz bn_bits(const quic_bn *x) {
+  usz i = bn_top_limb(x);
+  if (i == 0) return 0;
+  return (i - 1) * 64 + bn_limb_bits(x->v[i - 1]);
+}
+
 /* r = (a * b) mod m, with a,b < m. Division-free (double-and-add). */
 static void modmul(
     quic_bn *r, const quic_bn *a, const quic_bn *b, const quic_bn *m) {
   quic_bn acc = {{0}};
-  for (usz i = (usz)QUIC_BN_LIMBS * 64; i > 0; i--)
-    mul_step(&acc, bn_bit(b, i - 1), a, m);
+  for (usz i = bn_bits(b); i > 0; i--) mul_step(&acc, bn_bit(b, i - 1), a, m);
   *r = acc;
 }
 
@@ -70,7 +95,7 @@ void quic_bn_modexp(
     quic_bn *out, const quic_bn *base, const quic_bn *exp, const quic_bn *mod) {
   quic_bn result = {{0}};
   result.v[0]    = 1; /* 1 mod m, m>1 */
-  for (usz i = (usz)QUIC_BN_LIMBS * 64; i > 0; i--) {
+  for (usz i = bn_bits(exp); i > 0; i--) {
     modmul(&result, &result, &result, mod);
     if (bn_bit(exp, i - 1)) modmul(&result, &result, base, mod);
   }
