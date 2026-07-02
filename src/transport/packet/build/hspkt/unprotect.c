@@ -13,9 +13,9 @@ static int aead_open(
   quic_aes128 aead;
   quic_protect_nonce(keys->iv, pn, nonce);
   quic_aes128_init(&aead, keys->key);
+  quic_gcm_ctx g = {&aead, nonce, {pkt, hdr_len}};
   return quic_gcm_open(
-      &aead, nonce, pkt, hdr_len, pkt + hdr_len, ct_len, pkt + hdr_len + ct_len,
-      pkt + hdr_len);
+      &g, quic_span_of(pkt + hdr_len, ct_len + QUIC_GCM_TAG), pkt + hdr_len);
 }
 
 /* RFC 9001 5.4.1 / RFC 9000 17.3 / A.3: byte0 (already unmasked) carries the

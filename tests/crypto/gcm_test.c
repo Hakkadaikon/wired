@@ -15,7 +15,7 @@ static usz unhex(const char *hex, u8 *out) {
 /* NIST SP 800-38D test case 4 (AES-128-GCM with AAD). */
 static void test_gcm_nist(void) {
   u8          key[16], iv[12], pt[64], aad[32], want_ct[64], want_tag[16];
-  u8          ct[64], tag[16];
+  u8          ct[64 + 16]; /* ciphertext || tag */
   quic_aes128 a;
   u8          ivbuf[16];
   unhex("feffe9928665731c6d6a8f9467308308", key);
@@ -34,36 +34,39 @@ static void test_gcm_nist(void) {
   unhex("5bc94fbc3221a5db94fae95ae7121a47", want_tag);
 
   quic_aes128_init(&a, key);
-  quic_gcm_seal(&a, iv, aad, al, pt, pl, ct, tag);
+  quic_gcm_ctx g = {&a, iv, {aad, al}};
+  quic_gcm_seal(&g, quic_span_of(pt, pl), ct);
   for (usz i = 0; i < pl; i++) CHECK(ct[i] == want_ct[i]);
-  for (usz i = 0; i < 16; i++) CHECK(tag[i] == want_tag[i]);
+  for (usz i = 0; i < 16; i++) CHECK(ct[pl + i] == want_tag[i]);
 }
 
 /* Round-trip plus tamper detection (prover: AUTH_FAIL leaves pt untouched). */
 static void test_gcm_open(void) {
   u8          key[16] = {0}, iv[12] = {0};
-  u8          pt[20], ct[20], dec[20], tag[16];
+  u8          pt[20], ct[36], dec[20]; /* ct = ciphertext || tag */
   quic_aes128 a;
   for (usz i = 0; i < 20; i++) {
     pt[i]  = (u8)i;
     dec[i] = 0xCC;
   }
   quic_aes128_init(&a, key);
-  quic_gcm_seal(&a, iv, (const u8 *)"hdr", 3, pt, 20, ct, tag);
+  quic_gcm_ctx g = {&a, iv, {(const u8 *)"hdr", 3}};
+  quic_gcm_seal(&g, quic_span_of(pt, 20), ct);
 
-  CHECK(quic_gcm_open(&a, iv, (const u8 *)"hdr", 3, ct, 20, tag, dec) == 1);
+  CHECK(quic_gcm_open(&g, quic_span_of(ct, 36), dec) == 1);
   for (usz i = 0; i < 20; i++) CHECK(dec[i] == pt[i]);
 
   /* flip one tag bit: must reject and not overwrite dec */
   for (usz i = 0; i < 20; i++) dec[i] = 0xCC;
-  u8 bad[16];
-  for (usz i = 0; i < 16; i++) bad[i] = tag[i];
-  bad[0] ^= 1;
-  CHECK(quic_gcm_open(&a, iv, (const u8 *)"hdr", 3, ct, 20, bad, dec) == 0);
+  u8 bad[36];
+  for (usz i = 0; i < 36; i++) bad[i] = ct[i];
+  bad[20] ^= 1;
+  CHECK(quic_gcm_open(&g, quic_span_of(bad, 36), dec) == 0);
   for (usz i = 0; i < 20; i++) CHECK(dec[i] == 0xCC);
 
   /* flip one AAD byte: must reject */
-  CHECK(quic_gcm_open(&a, iv, (const u8 *)"HDR", 3, ct, 20, tag, dec) == 0);
+  quic_gcm_ctx g2 = {&a, iv, {(const u8 *)"HDR", 3}};
+  CHECK(quic_gcm_open(&g2, quic_span_of(ct, 36), dec) == 0);
 }
 
 void test_gcm(void) {

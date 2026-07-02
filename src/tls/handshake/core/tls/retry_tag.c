@@ -31,9 +31,10 @@ void quic_retry_tag(
   quic_aes128 a;
   usz         aad_len = build_pseudo(odcid, odcid_len, retry, retry_len, aad);
   quic_aes128_init(&a, RETRY_KEY);
+  quic_gcm_ctx g = {&a, RETRY_NONCE, {aad, aad_len}};
   /* empty plaintext: the AEAD tag over the pseudo-packet is the integrity tag
    */
-  quic_gcm_seal(&a, RETRY_NONCE, aad, aad_len, aad, 0, aad + aad_len, tag);
+  quic_gcm_seal(&g, quic_span_of(0, 0), tag);
 }
 
 int quic_retry_verify(

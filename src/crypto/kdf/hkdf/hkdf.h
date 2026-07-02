@@ -8,32 +8,25 @@
 
 #define QUIC_HKDF_PRK QUIC_SHA256_DIGEST /* pseudorandom key length */
 
+/* HkdfLabel inputs (RFC 8446 7.1): the label (without the "tls13 " prefix)
+ * and the context (may be empty: {0, 0}). */
+typedef struct {
+  const char *label;
+  usz         label_len;
+  quic_span   ctx;
+} quic_hkdf_label;
+
 /* prk = HKDF-Extract(salt, ikm). */
-void quic_hkdf_extract(
-    const u8 *salt,
-    usz       salt_len,
-    const u8 *ikm,
-    usz       ikm_len,
-    u8        prk[QUIC_HKDF_PRK]);
+void quic_hkdf_extract(quic_span salt, quic_span ikm, u8 prk[QUIC_HKDF_PRK]);
 
-/* okm = HKDF-Expand(prk, info, L). L must be <= 255*32. Returns 1 on
- * success, 0 if L is out of range. */
+/* okm = HKDF-Expand(prk, info, okm.n). okm.n must be <= 255*32. Returns 1 on
+ * success, 0 if the length is out of range. */
 int quic_hkdf_expand(
-    const u8  prk[QUIC_HKDF_PRK],
-    const u8 *info,
-    usz       info_len,
-    u8       *okm,
-    usz       len);
+    const u8 prk[QUIC_HKDF_PRK], quic_span info, quic_mspan okm);
 
-/* okm = HKDF-Expand-Label(prk, label, context, L) with the "tls13 " prefix.
- * Returns 1 on success, 0 if the label/context/length do not fit. */
+/* okm = HKDF-Expand-Label(prk, label, context, okm.n) with the "tls13 "
+ * prefix. Returns 1 on success, 0 if the label/context/length do not fit. */
 int quic_hkdf_expand_label(
-    const u8    prk[QUIC_HKDF_PRK],
-    const char *label,
-    usz         label_len,
-    const u8   *ctx,
-    usz         ctx_len,
-    u8         *okm,
-    usz         len);
+    const u8 prk[QUIC_HKDF_PRK], const quic_hkdf_label *l, quic_mspan okm);
 
 #endif

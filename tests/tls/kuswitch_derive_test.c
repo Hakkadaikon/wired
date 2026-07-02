@@ -17,11 +17,13 @@ void test_kuswitch_derive(void) {
   for (usz i = 0; i < 32; i++) CHECK(next_secret[i] == expect_secret[i]);
 
   /* key/iv match Expand-Label from that secret */
-  u8 ek[QUIC_INITIAL_KEY], ev[QUIC_INITIAL_IV];
+  u8              ek[QUIC_INITIAL_KEY], ev[QUIC_INITIAL_IV];
+  quic_hkdf_label lk = {"quic key", 8, {0, 0}};
+  quic_hkdf_label li = {"quic iv", 7, {0, 0}};
   quic_hkdf_expand_label(
-      expect_secret, "quic key", 8, 0, 0, ek, QUIC_INITIAL_KEY);
+      expect_secret, &lk, quic_mspan_of(ek, QUIC_INITIAL_KEY));
   quic_hkdf_expand_label(
-      expect_secret, "quic iv", 7, 0, 0, ev, QUIC_INITIAL_IV);
+      expect_secret, &li, quic_mspan_of(ev, QUIC_INITIAL_IV));
   for (usz i = 0; i < QUIC_INITIAL_KEY; i++) CHECK(next.key[i] == ek[i]);
   for (usz i = 0; i < QUIC_INITIAL_IV; i++) CHECK(next.iv[i] == ev[i]);
 

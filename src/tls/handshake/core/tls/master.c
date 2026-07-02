@@ -9,5 +9,7 @@ void quic_tls_master_secret(
   /* RFC 8446 7.1: derived = Derive-Secret(Handshake, "derived", ""). */
   quic_tls_derive_secret(hs_secret, "derived", 7, zero, 0, derived);
   /* Master Secret = HKDF-Extract(derived, 0). */
-  quic_hkdf_extract(derived, QUIC_HKDF_PRK, zero, QUIC_HKDF_PRK, out);
+  quic_hkdf_extract(
+      quic_span_of(derived, QUIC_HKDF_PRK), quic_span_of(zero, QUIC_HKDF_PRK),
+      out);
 }

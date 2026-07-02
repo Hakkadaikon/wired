@@ -39,7 +39,8 @@ static void test_chacha_encrypt(void) {
      "07ca0dbf500d6a6156a38e088a22b65e52bc514d16ccf806818ce91ab7793736"
      "5af90bbf74a35be6b40b8eedf2785e42874d",
      want);
-  quic_chacha20_xor(key, 1, nonce, pt, n, ct);
+  quic_chacha_ctx c = {key, nonce, 1};
+  quic_chacha20_xor(&c, quic_span_of(pt, n), ct);
   for (usz i = 0; i < n; i++) CHECK(ct[i] == want[i]);
 }
 

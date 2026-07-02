@@ -9,7 +9,8 @@ void quic_sreset_token(
     usz       cid_len,
     u8        token[QUIC_SRESET_TOKEN]) {
   u8 mac[QUIC_SHA256_DIGEST];
-  quic_hmac_sha256(key, QUIC_SRESET_KEY, cid, cid_len, mac);
+  quic_hmac_sha256(
+      quic_span_of(key, QUIC_SRESET_KEY), quic_span_of(cid, cid_len), mac);
   for (usz i = 0; i < QUIC_SRESET_TOKEN; i++) token[i] = mac[i]; /* truncate */
 }
 

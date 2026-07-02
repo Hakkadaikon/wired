@@ -9,8 +9,8 @@ void quic_tls_derive_secret(
     u8          out[QUIC_HKDF_PRK]) {
   u8 thash[QUIC_SHA256_DIGEST];
   quic_sha256(messages, messages_len, thash);
-  quic_hkdf_expand_label(
-      secret, label, label_len, thash, sizeof(thash), out, QUIC_HKDF_PRK);
+  quic_hkdf_label l = {label, label_len, {thash, sizeof(thash)}};
+  quic_hkdf_expand_label(secret, &l, quic_mspan_of(out, QUIC_HKDF_PRK));
 }
 
 void quic_tls_handshake_secret(const u8 ecdhe[32], u8 out[QUIC_HKDF_PRK]) {
@@ -18,11 +18,14 @@ void quic_tls_handshake_secret(const u8 ecdhe[32], u8 out[QUIC_HKDF_PRK]) {
   u8 early[QUIC_HKDF_PRK];
   u8 derived[QUIC_HKDF_PRK];
   /* Early Secret = HKDF-Extract(0, 0). */
-  quic_hkdf_extract(zero, QUIC_HKDF_PRK, zero, QUIC_HKDF_PRK, early);
+  quic_hkdf_extract(
+      quic_span_of(zero, QUIC_HKDF_PRK), quic_span_of(zero, QUIC_HKDF_PRK),
+      early);
   /* derived = Derive-Secret(Early, "derived", "") -- empty transcript. */
   quic_tls_derive_secret(early, "derived", 7, zero, 0, derived);
   /* Handshake Secret = HKDF-Extract(derived, ECDHE). */
-  quic_hkdf_extract(derived, QUIC_HKDF_PRK, ecdhe, 32, out);
+  quic_hkdf_extract(
+      quic_span_of(derived, QUIC_HKDF_PRK), quic_span_of(ecdhe, 32), out);
 }
 
 /* Expand one packet-protection field (RFC 9001 5.1 labels) from a secret. */
@@ -32,7 +35,8 @@ static void hs_field(
     usz         label_len,
     u8         *out,
     usz         len) {
-  quic_hkdf_expand_label(secret, label, label_len, 0, 0, out, len);
+  quic_hkdf_label l = {label, label_len, {0, 0}};
+  quic_hkdf_expand_label(secret, &l, quic_mspan_of(out, len));
 }
 
 /* Expand the QUIC key/iv/hp triple from a traffic secret. */
@@ -64,7 +68,9 @@ void quic_tls_early_keys(
   u8 early[QUIC_HKDF_PRK];
   u8 ts[QUIC_HKDF_PRK];
   /* Early Secret = HKDF-Extract(0, PSK). */
-  quic_hkdf_extract(zero, QUIC_HKDF_PRK, psk, QUIC_HKDF_PRK, early);
+  quic_hkdf_extract(
+      quic_span_of(zero, QUIC_HKDF_PRK), quic_span_of(psk, QUIC_HKDF_PRK),
+      early);
   /* client_early_traffic_secret over the ClientHello. */
   quic_tls_derive_secret(
       early, "c e traffic", 11, client_hello, client_hello_len, ts);

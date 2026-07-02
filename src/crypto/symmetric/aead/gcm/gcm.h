@@ -1,6 +1,7 @@
 #ifndef QUIC_GCM_GCM_H
 #define QUIC_GCM_GCM_H
 
+#include "common/bytes/span/span.h"
 #include "crypto/symmetric/aead/aes/aes.h"
 
 /* AES-128-GCM AEAD (NIST SP 800-38D). 96-bit nonce, 128-bit tag. This is
@@ -9,29 +10,20 @@
 #define QUIC_GCM_NONCE 12
 #define QUIC_GCM_TAG 16
 
-/* Seal: encrypt plaintext and append a 16-byte tag.
- * ct must have room for pt_len bytes; tag is written separately.
- * Returns the ciphertext length (== pt_len). */
-usz quic_gcm_seal(
-    const quic_aes128 *a,
-    const u8           nonce[QUIC_GCM_NONCE],
-    const u8          *aad,
-    usz                aad_len,
-    const u8          *pt,
-    usz                pt_len,
-    u8                *ct,
-    u8                 tag[QUIC_GCM_TAG]);
+/* One AEAD invocation's fixed inputs: key schedule, nonce, and AAD. */
+typedef struct {
+  const quic_aes128 *aes;
+  const u8          *nonce; /* QUIC_GCM_NONCE bytes */
+  quic_span          aad;
+} quic_gcm_ctx;
 
-/* Open: verify the tag and decrypt. On tag mismatch, returns 0 and does NOT
- * write plaintext. On success, writes pt_len bytes to pt and returns 1. */
-int quic_gcm_open(
-    const quic_aes128 *a,
-    const u8           nonce[QUIC_GCM_NONCE],
-    const u8          *aad,
-    usz                aad_len,
-    const u8          *ct,
-    usz                ct_len,
-    const u8           tag[QUIC_GCM_TAG],
-    u8                *pt);
+/* Seal: encrypt pt and append the 16-byte tag; out receives pt.n + 16 bytes
+ * (ciphertext || tag). Returns the sealed length (pt.n + QUIC_GCM_TAG). */
+usz quic_gcm_seal(const quic_gcm_ctx *g, quic_span pt, u8 *out);
+
+/* Open: ct spans ciphertext || 16-byte tag. On tag mismatch, returns 0 and
+ * does NOT write plaintext. On success, writes ct.n - 16 bytes to pt and
+ * returns 1. */
+int quic_gcm_open(const quic_gcm_ctx *g, quic_span ct, u8 *pt);
 
 #endif

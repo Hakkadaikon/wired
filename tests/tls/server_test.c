@@ -107,7 +107,8 @@ static void make_client_finished(struct srv_fix *f) {
   quic_transcript_add(&tr, f->ch, f->ch_len);
   quic_transcript_add(&tr, f->sh, f->sh_len);
   quic_transcript_hash(&tr, th); /* through ServerHello */
-  quic_hkdf_expand_label(hs, "c hs traffic", 12, th, 32, c_traffic, 32);
+  quic_hkdf_label chl = {"c hs traffic", 12, {th, 32}};
+  quic_hkdf_expand_label(hs, &chl, quic_mspan_of(c_traffic, 32));
   quic_transcript_add(&tr, f->flight, f->flight_len);
   quic_transcript_hash(&tr, th); /* through server Finished */
 
