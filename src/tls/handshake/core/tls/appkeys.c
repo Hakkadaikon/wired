@@ -13,7 +13,10 @@ void quic_tls_app_keys(
   /* RFC 8446 7.1: application_traffic_secret_0. */
   quic_tls_derive_secret(master, label, 12, transcript, tlen, ts);
   /* RFC 9001 5.1: expand the QUIC packet-protection triple. */
-  quic_hkdf_expand_label(ts, "quic key", 8, 0, 0, out->key, QUIC_INITIAL_KEY);
-  quic_hkdf_expand_label(ts, "quic iv", 7, 0, 0, out->iv, QUIC_INITIAL_IV);
-  quic_hkdf_expand_label(ts, "quic hp", 7, 0, 0, out->hp, QUIC_INITIAL_HP);
+  quic_hkdf_label lk = {"quic key", 8, {0, 0}};
+  quic_hkdf_label li = {"quic iv", 7, {0, 0}};
+  quic_hkdf_label lh = {"quic hp", 7, {0, 0}};
+  quic_hkdf_expand_label(ts, &lk, quic_mspan_of(out->key, QUIC_INITIAL_KEY));
+  quic_hkdf_expand_label(ts, &li, quic_mspan_of(out->iv, QUIC_INITIAL_IV));
+  quic_hkdf_expand_label(ts, &lh, quic_mspan_of(out->hp, QUIC_INITIAL_HP));
 }

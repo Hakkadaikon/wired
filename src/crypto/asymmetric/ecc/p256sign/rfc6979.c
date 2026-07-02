@@ -37,8 +37,8 @@ static void ps_mix(
     u8 k[32], u8 v[32], u8 sep, const u8 priv[32], const u8 hred[32]) {
   u8  msg[97];
   usz n = ps_build_seed(msg, v, sep, priv, hred);
-  quic_hmac_sha256(k, 32, msg, n, k);
-  quic_hmac_sha256(k, 32, v, 32, v);
+  quic_hmac_sha256(quic_span_of(k, 32), quic_span_of(msg, n), k);
+  quic_hmac_sha256(quic_span_of(k, 32), quic_span_of(v, 32), v);
 }
 
 /* 1 if 1 <= cand < n (in range as a nonce). */
@@ -52,14 +52,14 @@ static int ps_k_in_range(const u8 cand[32]) {
  */
 static void ps_gen_candidate(u8 k[32], u8 v[32], u8 out[32]) {
   for (;;) {
-    quic_hmac_sha256(k, 32, v, 32, v);
+    quic_hmac_sha256(quic_span_of(k, 32), quic_span_of(v, 32), v);
     if (ps_k_in_range(v)) break;
     u8 z = 0x00;
     u8 msg[33];
     p256sign_copy(msg, v, 32);
     msg[32] = z;
-    quic_hmac_sha256(k, 32, msg, 33, k);
-    quic_hmac_sha256(k, 32, v, 32, v);
+    quic_hmac_sha256(quic_span_of(k, 32), quic_span_of(msg, 33), k);
+    quic_hmac_sha256(quic_span_of(k, 32), quic_span_of(v, 32), v);
   }
   p256sign_copy(out, v, 32);
 }

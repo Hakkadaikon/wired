@@ -14,7 +14,7 @@ static usz uh2(const char *hex, u8 *out) {
 
 /* RFC 8439 2.8.2 worked example. */
 static void test_chapoly_rfc(void) {
-  u8 key[32], nonce[12], aad[12], pt[114], ct[114], tag[16];
+  u8 key[32], nonce[12], aad[12], pt[114], ct[114 + 16];
   u8 want_ct[114], want_tag[16];
   uh2("808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9f", key);
   uh2("070000004041424344454647", nonce);
@@ -32,28 +32,28 @@ static void test_chapoly_rfc(void) {
       want_ct);
   uh2("1ae10b594f09e26a7e902ecbd0600691", want_tag);
 
-  quic_chapoly_seal(key, nonce, aad, al, pt, n, ct, tag);
+  quic_chapoly_ctx c = {key, nonce, {aad, al}};
+  quic_chapoly_seal(&c, quic_span_of(pt, n), ct);
   for (usz i = 0; i < n; i++) CHECK(ct[i] == want_ct[i]);
-  for (usz i = 0; i < 16; i++) CHECK(tag[i] == want_tag[i]);
+  for (usz i = 0; i < 16; i++) CHECK(ct[n + i] == want_tag[i]);
 }
 
 static void test_chapoly_open(void) {
   u8 key[32] = {0}, nonce[12] = {0};
-  u8 pt[20], ct[20], dec[20], tag[16], bad[16];
+  u8 pt[20], ct[36], dec[20], bad[36]; /* ct = ciphertext || tag */
   for (usz i = 0; i < 20; i++) {
     pt[i]  = (u8)(i * 7);
     dec[i] = 0xCC;
   }
-  quic_chapoly_seal(key, nonce, (const u8 *)"aad", 3, pt, 20, ct, tag);
-  CHECK(quic_chapoly_open(key, nonce, (const u8 *)"aad", 3, ct, 20, tag, dec));
+  quic_chapoly_ctx c = {key, nonce, {(const u8 *)"aad", 3}};
+  quic_chapoly_seal(&c, quic_span_of(pt, 20), ct);
+  CHECK(quic_chapoly_open(&c, quic_span_of(ct, 36), dec));
   for (usz i = 0; i < 20; i++) CHECK(dec[i] == pt[i]);
   /* tamper the tag: reject, leave dec untouched */
   for (usz i = 0; i < 20; i++) dec[i] = 0xCC;
-  for (usz i = 0; i < 16; i++) bad[i] = tag[i];
-  bad[7] ^= 0x80;
-  CHECK(
-      quic_chapoly_open(key, nonce, (const u8 *)"aad", 3, ct, 20, bad, dec) ==
-      0);
+  for (usz i = 0; i < 36; i++) bad[i] = ct[i];
+  bad[20 + 7] ^= 0x80;
+  CHECK(quic_chapoly_open(&c, quic_span_of(bad, 36), dec) == 0);
   for (usz i = 0; i < 20; i++) CHECK(dec[i] == 0xCC);
 }
 

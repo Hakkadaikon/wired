@@ -20,8 +20,8 @@ static usz gcm_seal(
     u8       *out) {
   quic_aes128 a;
   quic_aes128_init(&a, key);
-  quic_gcm_seal(&a, nonce, aad, aad_len, pt, pt_len, out, out + pt_len);
-  return pt_len + QUIC_GCM_TAG;
+  quic_gcm_ctx g = {&a, nonce, {aad, aad_len}};
+  return quic_gcm_seal(&g, quic_span_of(pt, pt_len), out);
 }
 
 static usz cha_seal(
@@ -32,8 +32,8 @@ static usz cha_seal(
     const u8 *pt,
     usz       pt_len,
     u8       *out) {
-  quic_chapoly_seal(key, nonce, aad, aad_len, pt, pt_len, out, out + pt_len);
-  return pt_len + QUIC_CHAPOLY_TAG;
+  quic_chapoly_ctx c = {key, nonce, {aad, aad_len}};
+  return quic_chapoly_seal(&c, quic_span_of(pt, pt_len), out);
 }
 
 usz quic_aead_suite_seal(
@@ -65,8 +65,8 @@ static usz gcm_open(
     u8       *pt) {
   quic_aes128 a;
   quic_aes128_init(&a, key);
-  if (!quic_gcm_open(&a, nonce, aad, aad_len, ct, ct_len, ct + ct_len, pt))
-    return 0;
+  quic_gcm_ctx g = {&a, nonce, {aad, aad_len}};
+  if (!quic_gcm_open(&g, quic_span_of(ct, ct_len + QUIC_GCM_TAG), pt)) return 0;
   return ct_len;
 }
 
@@ -78,7 +78,8 @@ static usz cha_open(
     const u8 *ct,
     usz       ct_len,
     u8       *pt) {
-  if (!quic_chapoly_open(key, nonce, aad, aad_len, ct, ct_len, ct + ct_len, pt))
+  quic_chapoly_ctx c = {key, nonce, {aad, aad_len}};
+  if (!quic_chapoly_open(&c, quic_span_of(ct, ct_len + QUIC_CHAPOLY_TAG), pt))
     return 0;
   return ct_len;
 }

@@ -31,9 +31,9 @@ static int derive_secret(quic_sdrv *s) {
   if (!quic_x25519(ecdhe, s->server_priv, s->client_pub)) return 0;
   quic_tls_handshake_secret(ecdhe, s->hs_secret);
   quic_transcript_hash(&s->tr, th);
+  quic_hkdf_label l = {"s hs traffic", 12, {th, QUIC_SHA256_DIGEST}};
   quic_hkdf_expand_label(
-      s->hs_secret, "s hs traffic", 12, th, QUIC_SHA256_DIGEST, s->s_hs_traffic,
-      QUIC_HKDF_PRK);
+      s->hs_secret, &l, quic_mspan_of(s->s_hs_traffic, QUIC_HKDF_PRK));
   s->hs_ready = 1;
   return 1;
 }

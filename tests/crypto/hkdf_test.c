@@ -18,12 +18,12 @@ static void test_hkdf_rfc5869(void) {
   for (usz i = 0; i < 13; i++) salt[i] = (u8)i;
   for (usz i = 0; i < 10; i++) info[i] = (u8)(0xf0 + i);
 
-  quic_hkdf_extract(salt, 13, ikm, 22, prk);
+  quic_hkdf_extract(quic_span_of(salt, 13), quic_span_of(ikm, 22), prk);
   CHECK(hex_eq(
       prk, "077709362c2e32df0ddc3f0dc47bba6390b6c73bb50f9c3122ec844ad7c2b3e5",
       32));
 
-  CHECK(quic_hkdf_expand(prk, info, 10, okm, 42));
+  CHECK(quic_hkdf_expand(prk, quic_span_of(info, 10), quic_mspan_of(okm, 42)));
   CHECK(hex_eq(
       okm,
       "3cb25f25faacd57a90434f64d0362f2a2d2d0a90cf1a5a4c5db02d56ecc4c5bf"
@@ -35,13 +35,15 @@ static void test_hkdf_rfc5869(void) {
  * a stable, correctly-sized output (exercised end-to-end by the QUIC
  * Initial vectors later). */
 static void test_hkdf_expand_label(void) {
-  u8 prk[32], a[16], b[16];
+  u8              prk[32], a[16], b[16];
+  quic_hkdf_label lk = {"quic key", 8, {0, 0}};
+  quic_hkdf_label li = {"quic iv", 7, {0, 0}};
   for (usz i = 0; i < 32; i++) prk[i] = (u8)i;
-  CHECK(quic_hkdf_expand_label(prk, "quic key", 8, 0, 0, a, 16));
-  CHECK(quic_hkdf_expand_label(prk, "quic key", 8, 0, 0, b, 16));
+  CHECK(quic_hkdf_expand_label(prk, &lk, quic_mspan_of(a, 16)));
+  CHECK(quic_hkdf_expand_label(prk, &lk, quic_mspan_of(b, 16)));
   for (usz i = 0; i < 16; i++) CHECK(a[i] == b[i]); /* deterministic */
   /* a different label gives different output */
-  CHECK(quic_hkdf_expand_label(prk, "quic iv", 7, 0, 0, b, 16));
+  CHECK(quic_hkdf_expand_label(prk, &li, quic_mspan_of(b, 16)));
   int differ = 0;
   for (usz i = 0; i < 16; i++) differ |= (a[i] != b[i]);
   CHECK(differ);

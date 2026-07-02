@@ -244,7 +244,8 @@ void test_sdrv(void) {
     quic_transcript_add(&tr, ch, ch_len);
     quic_transcript_add(&tr, sh, sh_len);
     quic_transcript_hash(&tr, fin_th); /* through ServerHello */
-    quic_hkdf_expand_label(hs, "s hs traffic", 12, fin_th, 32, s_traffic, 32);
+    quic_hkdf_label shl = {"s hs traffic", 12, {fin_th, 32}};
+    quic_hkdf_expand_label(hs, &shl, quic_mspan_of(s_traffic, 32));
     quic_transcript_add(&tr, ee, eel);
     quic_transcript_add(&tr, cm, cml);
     quic_transcript_add(&tr, cv, cvl);

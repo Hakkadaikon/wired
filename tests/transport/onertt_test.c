@@ -86,9 +86,8 @@ static usz seal_truncated(
   quic_pnum_encode(out + pn_off, full_pn, pn_len);
   quic_protect_nonce(k->iv, full_pn, nonce);
   quic_aes128_init(&aead, k->key);
-  quic_gcm_seal(
-      &aead, nonce, out, hdr_len, pl, pl_len, out + hdr_len,
-      out + hdr_len + pl_len);
+  quic_gcm_ctx g = {&aead, nonce, {out, hdr_len}};
+  quic_gcm_seal(&g, quic_span_of(pl, pl_len), out + hdr_len);
   quic_hp_mask(hp, out + pn_off + 4, mask);
   quic_hp_apply(mask, &out[0], out + pn_off, pn_len, QUIC_HP_SHORT_MASK);
   return hdr_len + pl_len + QUIC_GCM_TAG;

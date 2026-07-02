@@ -9,27 +9,19 @@
 
 #define QUIC_CHAPOLY_TAG 16
 
-/* Seal: ct = ChaCha20(pt), tag over aad+ct. Returns ct length (== pt_len). */
-usz quic_chapoly_seal(
-    const u8  key[QUIC_CHACHA_KEY],
-    const u8  nonce[QUIC_CHACHA_NONCE],
-    const u8 *aad,
-    usz       aad_len,
-    const u8 *pt,
-    usz       pt_len,
-    u8       *ct,
-    u8        tag[QUIC_CHAPOLY_TAG]);
+/* One AEAD invocation's fixed inputs: key, nonce, and AAD. */
+typedef struct {
+  const u8 *key;   /* QUIC_CHACHA_KEY bytes */
+  const u8 *nonce; /* QUIC_CHACHA_NONCE bytes */
+  quic_span aad;
+} quic_chapoly_ctx;
 
-/* Open: verify tag then decrypt. Returns 1 on success, 0 on tag mismatch
- * (leaving pt untouched). */
-int quic_chapoly_open(
-    const u8  key[QUIC_CHACHA_KEY],
-    const u8  nonce[QUIC_CHACHA_NONCE],
-    const u8 *aad,
-    usz       aad_len,
-    const u8 *ct,
-    usz       ct_len,
-    const u8  tag[QUIC_CHAPOLY_TAG],
-    u8       *pt);
+/* Seal: encrypt pt and append the 16-byte tag; out receives pt.n + 16 bytes
+ * (ciphertext || tag). Returns the sealed length (pt.n + QUIC_CHAPOLY_TAG). */
+usz quic_chapoly_seal(const quic_chapoly_ctx *c, quic_span pt, u8 *out);
+
+/* Open: ct spans ciphertext || 16-byte tag. Returns 1 on success, 0 on tag
+ * mismatch (leaving pt untouched). */
+int quic_chapoly_open(const quic_chapoly_ctx *c, quic_span ct, u8 *pt);
 
 #endif

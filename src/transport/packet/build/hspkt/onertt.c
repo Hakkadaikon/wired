@@ -39,9 +39,8 @@ int quic_hspkt_onertt_build(
   if (need > cap) return 0;
   quic_protect_nonce(keys->iv, pn, nonce);
   quic_aes128_init(&aead, keys->key);
-  quic_gcm_seal(
-      &aead, nonce, out, hdr_len, payload, payload_len, out + hdr_len,
-      out + hdr_len + payload_len);
+  quic_gcm_ctx g = {&aead, nonce, {out, hdr_len}};
+  quic_gcm_seal(&g, quic_span_of(payload, payload_len), out + hdr_len);
   quic_hp_mask(hp, out + pn_off + 4, mask);
   quic_hp_apply(mask, &out[0], &out[pn_off], 4, QUIC_HP_SHORT_MASK);
   *out_len = need;

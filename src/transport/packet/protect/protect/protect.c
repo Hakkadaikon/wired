@@ -29,9 +29,8 @@ static usz seal_into(
   for (usz i = 0; i < hdr_len; i++) out[i] = hdr[i];
   quic_protect_nonce(keys->iv, pn, nonce);
   quic_aes128_init(&aead, keys->key);
-  quic_gcm_seal(
-      &aead, nonce, hdr, hdr_len, payload, pl, out + hdr_len,
-      out + hdr_len + pl);
+  quic_gcm_ctx g = {&aead, nonce, {hdr, hdr_len}};
+  quic_gcm_seal(&g, quic_span_of(payload, pl), out + hdr_len);
   return need;
 }
 
@@ -77,9 +76,10 @@ usz quic_protect_open(
       hp_aes, pkt, pn_off, pn_len); /* XOR self-inverse: removes HP */
   quic_protect_nonce(keys->iv, pn, nonce);
   quic_aes128_init(&aead, keys->key);
+  quic_gcm_ctx g = {&aead, nonce, {pkt, hdr_len}};
   if (!quic_gcm_open(
-          &aead, nonce, pkt, hdr_len, pkt + hdr_len, ct_len,
-          pkt + hdr_len + ct_len, pkt + hdr_len))
+          &g, quic_span_of(pkt + hdr_len, ct_len + QUIC_GCM_TAG),
+          pkt + hdr_len))
     return 0;
   return ct_len;
 }
