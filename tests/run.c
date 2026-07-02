@@ -1061,7 +1061,7 @@ int main(void) {
   test_server_hello_roundtrip();
   test_mgf1_kat();
   test_rsa_pss();
-  test_rsa_pubkey_extract();
+  test_rsa_pubkey();
   test_ec_pubkey_extract();
   test_certverify_bad_scheme();
   test_server_does_not_send_before_clienthello();
