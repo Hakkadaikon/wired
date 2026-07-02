@@ -43,8 +43,13 @@ int quic_client_build_initial_wire(
   u8  ch[QUIC_CLIENTWIRE_CH_MAX];
   usz ch_len = cw_client_hello(c, ch, sizeof(ch));
   if (ch_len == 0) return 0;
-  return quic_initpkt_build(
-      dcid, dcid_len, scid, scid_len, ch, ch_len, pn, out, cap, out_len);
+  quic_initpkt_desc d = {
+      quic_span_of(dcid, dcid_len), quic_span_of(scid, scid_len),
+      quic_span_of(ch, ch_len), pn};
+  quic_obuf o = quic_obuf_of(out, cap);
+  if (!quic_initpkt_build(&d, &o)) return 0;
+  *out_len = o.len;
+  return 1;
 }
 
 /* RFC 9001 5.2: open the server Initial with the server-direction keys. */

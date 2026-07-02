@@ -111,13 +111,12 @@ static void test_srvwire_handshake_wrong_key(void) {
  * 9000 12.4), confirming the flight carries one. Returns 1 if found and
  * decoded. */
 static int find_trailing_ack(const u8 *frames, usz n, quic_ack_frame *ack) {
-  quic_framewalk it;
-  u64            type;
-  const u8      *fs;
-  usz            rem;
+  quic_framewalk      it;
+  quic_framewalk_item fr;
   quic_framewalk_init(&it, frames, n);
-  while (quic_framewalk_next(&it, &type, &fs, &rem))
-    if (type == QUIC_FRAME_ACK) return quic_ack_decode(fs, rem, ack) != 0;
+  while (quic_framewalk_next(&it, &fr))
+    if (fr.type == QUIC_FRAME_ACK)
+      return quic_ack_decode(fr.start, fr.remaining, ack) != 0;
   return 0;
 }
 
@@ -138,9 +137,14 @@ static void test_srvwire_initial_acks_client(void) {
   quic_ack_frame    ack;
   CHECK(quic_srvwire_seal_initial(
       dcid, 8, scid, 6, 1, 0, sh, sizeof(sh), pkt, sizeof(pkt), &total));
-  quic_initpkt_derive(dcid, 8, &ck, &sk);
+  quic_initpkt_derive(quic_span_of(dcid, 8), &ck, &sk);
   quic_aes128_init(&hp, sk.hp);
-  CHECK(quic_rx_packet(&sk, &hp, pkt, total, 1, &frames, &fl));
+  quic_protect_keys pk = {&sk, &hp};
+  quic_rx_desc      rd = {quic_mspan_of(pkt, total), 1};
+  quic_span         fv;
+  CHECK(quic_rx_packet(&pk, &rd, &fv));
+  frames = fv.p;
+  fl     = fv.n;
   CHECK(find_trailing_ack(frames, fl, &ack));
   CHECK(ack.n_ranges == 1);
   CHECK(ack.ranges[0].hi == 0); /* Largest Acknowledged == client Initial PN */
@@ -164,7 +168,12 @@ static void test_srvwire_handshake_acks_client(void) {
   CHECK(quic_srvwire_seal_handshake(
       &k, &hp, dcid, 6, scid, 6, 0, 3, fl_in, sizeof(fl_in), pkt, sizeof(pkt),
       &total));
-  CHECK(quic_rx_packet(&k, &hp, pkt, total, 0, &frames, &fl));
+  quic_protect_keys pk2 = {&k, &hp};
+  quic_rx_desc      rd2 = {quic_mspan_of(pkt, total), 0};
+  quic_span         fv2;
+  CHECK(quic_rx_packet(&pk2, &rd2, &fv2));
+  frames = fv2.p;
+  fl     = fv2.n;
   CHECK(find_trailing_ack(frames, fl, &ack));
   CHECK(ack.ranges[0].hi == 3);
 }

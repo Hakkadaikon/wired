@@ -3,56 +3,49 @@
 #include "common/bytes/util/be.h"
 #include "common/bytes/util/bytes.h"
 
-/* Append a length-prefixed CID at *off; returns 1 ok, 0 if no room. */
-static int vneg_put_cid(u8 *buf, usz cap, usz *off, const u8 *cid, u8 len) {
-  if (*off + 1 + (usz)len > cap) return 0;
-  buf[*off] = len;
-  *off += 1;
-  return quic_put_bytes(buf, cap, off, cid, len);
+/* Append a length-prefixed CID; returns 1 ok, 0 if no room. */
+static int vneg_put_cid(quic_obuf *out, quic_span cid) {
+  if (out->len + 1 + cid.n > out->cap) return 0;
+  out->p[out->len] = (u8)cid.n;
+  out->len += 1;
+  return quic_put_bytes(out->p, out->cap, &out->len, cid.p, cid.n);
 }
 
 /* True if the whole VN packet fits in cap and has at least one version. */
-static int vneg_fits(usz cap, u8 dcid_len, u8 scid_len, usz count) {
-  usz need = 5 + 1 + (usz)dcid_len + 1 + (usz)scid_len + count * 4;
-  return count != 0 && need <= cap;
+static int vneg_fits(usz cap, const quic_vneg_desc *d) {
+  usz need = 5 + 1 + d->dcid.n + 1 + d->scid.n + d->count * 4;
+  return d->count != 0 && need <= cap;
 }
 
-/* Append count supported versions as 4 big-endian bytes each (room checked). */
-static void put_versions(u8 *buf, usz *off, const u32 *versions, usz count) {
-  for (usz i = 0; i < count; i++) {
-    quic_put_be32(buf + *off, versions[i]);
-    *off += 4;
+/* Append the supported versions as 4 big-endian bytes each (room checked). */
+static void put_versions(quic_obuf *out, const quic_vneg_desc *d) {
+  for (usz i = 0; i < d->count; i++) {
+    quic_put_be32(out->p + out->len, d->versions[i]);
+    out->len += 4;
   }
 }
 
-usz quic_vneg_build(
-    u8        *buf,
-    usz        cap,
-    const u8  *dcid,
-    u8         dcid_len,
-    const u8  *scid,
-    u8         scid_len,
-    const u32 *versions,
-    usz        count) {
-  usz off = 5;
-  if (!vneg_fits(cap, dcid_len, scid_len, count)) return 0;
+usz quic_vneg_build(u8 *buf, usz cap, const quic_vneg_desc *d) {
+  quic_obuf out = quic_obuf_of(buf, cap);
+  out.len       = 5;
+  if (!vneg_fits(cap, d)) return 0;
   buf[0] = 0x80; /* RFC 8999 6: high bit set; remaining bits unused here */
-  quic_put_be32(buf + 1, 0); /* Version field 0 marks Version Negotiation */
-  vneg_put_cid(buf, cap, &off, dcid, dcid_len); /* room checked above */
-  vneg_put_cid(buf, cap, &off, scid, scid_len);
-  put_versions(buf, &off, versions, count);
-  return off;
+  quic_put_be32(buf + 1, 0);   /* Version field 0 marks Version Negotiation */
+  vneg_put_cid(&out, d->dcid); /* room checked above */
+  vneg_put_cid(&out, d->scid);
+  put_versions(&out, d);
+  return out.len;
 }
 
-/* Read a length-prefixed CID at *off into dst/dst_len; 1 ok, 0 truncated. */
-static int vneg_take_cid(const u8 *buf, usz n, usz *off, u8 *dst, u8 *dst_len) {
+/* Read a length-prefixed CID into dst->p/dst->n; 1 ok, 0 truncated. */
+static int vneg_take_cid(quic_span buf, usz *off, quic_mspan *dst) {
   u8 len;
-  if (*off >= n) return 0;
-  len = buf[*off];
+  if (*off >= buf.n) return 0;
+  len = buf.p[*off];
   if (len > QUIC_MAX_CID_LEN) return 0;
   *off += 1;
-  *dst_len = len;
-  return quic_take_bytes(buf, n, off, dst, len);
+  dst->n = len;
+  return quic_take_bytes(buf.p, buf.n, off, dst->p, len);
 }
 
 /* True if the 4-byte Version field at buf+1 is all zero. */
@@ -70,9 +63,14 @@ static int vneg_head_ok(const u8 *buf, usz n) {
 }
 
 /* Read both CIDs at *off; returns 1 ok, 0 truncated. */
-static int vneg_take_cids(const u8 *buf, usz n, usz *off, quic_vneg_packet *v) {
-  if (!vneg_take_cid(buf, n, off, v->dcid, &v->dcid_len)) return 0;
-  return vneg_take_cid(buf, n, off, v->scid, &v->scid_len);
+static int vneg_take_cids(quic_span buf, usz *off, quic_vneg_packet *v) {
+  quic_mspan d = quic_mspan_of(v->dcid, 0);
+  quic_mspan s = quic_mspan_of(v->scid, 0);
+  if (!vneg_take_cid(buf, off, &d)) return 0;
+  if (!vneg_take_cid(buf, off, &s)) return 0;
+  v->dcid_len = (u8)d.n;
+  v->scid_len = (u8)s.n;
+  return 1;
 }
 
 /* True if rest bytes form one or more whole 4-byte versions. */
@@ -86,7 +84,7 @@ static int versions_whole(usz rest) {
 static int vneg_parse_after_head(const u8 *buf, usz n, quic_vneg_packet *v) {
   usz off = 5;
   usz rest;
-  if (!vneg_take_cids(buf, n, &off, v)) return 0;
+  if (!vneg_take_cids(quic_span_of(buf, n), &off, v)) return 0;
   rest = n - off;
   if (!versions_whole(rest)) return 0;
   v->versions = buf + off;
@@ -99,17 +97,8 @@ usz quic_vneg_parse(const u8 *buf, usz n, quic_vneg_packet *v) {
   return vneg_parse_after_head(buf, n, v) ? n : 0;
 }
 
-usz quic_vneg_respond(
-    u8        *buf,
-    usz        cap,
-    const u8  *recv_dcid,
-    u8         recv_dcid_len,
-    const u8  *recv_scid,
-    u8         recv_scid_len,
-    const u32 *versions,
-    usz        count) {
+usz quic_vneg_respond(u8 *buf, usz cap, const quic_vneg_desc *recv) {
   /* Swap: response DCID = received SCID, response SCID = received DCID. */
-  return quic_vneg_build(
-      buf, cap, recv_scid, recv_scid_len, recv_dcid, recv_dcid_len, versions,
-      count);
+  quic_vneg_desc d = {recv->scid, recv->dcid, recv->versions, recv->count};
+  return quic_vneg_build(buf, cap, &d);
 }

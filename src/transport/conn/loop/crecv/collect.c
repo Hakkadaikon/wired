@@ -42,13 +42,11 @@ static int on_frame(quic_crecv *s, u64 type, const u8 *fs, usz rem) {
 }
 
 int quic_crecv_collect(quic_crecv *s, const u8 *frames, usz len) {
-  quic_framewalk it;
-  u64            type;
-  const u8      *fs;
-  usz            rem;
+  quic_framewalk      it;
+  quic_framewalk_item fr;
   quic_framewalk_init(&it, frames, len);
-  while (quic_framewalk_next(&it, &type, &fs, &rem))
-    if (!on_frame(s, type, fs, rem)) return 0;
+  while (quic_framewalk_next(&it, &fr))
+    if (!on_frame(s, fr.type, fr.start, fr.remaining)) return 0;
   advance_prefix(s);
   return 1;
 }

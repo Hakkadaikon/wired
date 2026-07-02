@@ -74,17 +74,11 @@ static u64 hs_largest_pn(const quic_srvloop *l) {
  * (curl leads with an ACK-only Handshake packet), so a fixed ACK of 0 leaves
  * the Finished unacknowledged and the client PTO-retransmits it for seconds. */
 static void note_hs_rx(quic_srvloop *l, int level, const u8 *pkt, usz len) {
-  const u8 *dcid, *scid, *token;
-  u8        dcl, scl;
-  usz       tkl, pn_off;
-  u64       length;
+  quic_lhdr h;
   if (level != QUIC_LEVEL_HANDSHAKE) return;
-  if (!quic_lhdr_parse(
-          pkt, len, 0, &dcid, &dcl, &scid, &scl, &token, &tkl, &length,
-          &pn_off))
-    return;
+  if (!quic_lhdr_parse(quic_span_of(pkt, len), 0, &h)) return;
   l->hs_rx_pn = quic_pnum_decode(
-      pkt + pn_off, quic_lhdr_pn_len(pkt[0]), hs_largest_pn(l));
+      pkt + h.pn_off, quic_lhdr_pn_len(pkt[0]), hs_largest_pn(l));
   l->hs_rx_seen = 1;
 }
 

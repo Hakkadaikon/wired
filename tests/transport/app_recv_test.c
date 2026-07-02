@@ -41,10 +41,13 @@ static void test_recv_offset(void) {
   usz flen = 0;
   CHECK(quic_appdata_stream_frame(
       12, 256, body, sizeof(body), 0, frame, sizeof(frame), &flen));
-  u8  pkt[128];
-  usz total = 0;
-  CHECK(quic_hspkt_onertt_build(
-      &k, &hp, dcid, 4, 3, frame, flen, pkt, sizeof(pkt), &total));
+  u8                     pkt[128];
+  quic_protect_keys      pk = {&k, &hp};
+  quic_hspkt_onertt_desc bd = {
+      quic_span_of(dcid, 4), 3, quic_span_of(frame, flen)};
+  quic_obuf o = quic_obuf_of(pkt, sizeof(pkt));
+  CHECK(quic_hspkt_onertt_build(&pk, &bd, &o));
+  usz total = o.len;
 
   u64       sid = 0, off = 0;
   const u8 *data = 0;
@@ -67,10 +70,13 @@ static void test_recv_empty_payload(void) {
   const u8          dcid[4] = {4, 4, 4, 4};
   recv_keys(&k, &hp);
 
-  u8  pkt[128];
-  usz total = 0;
-  CHECK(quic_hspkt_onertt_build(
-      &k, &hp, dcid, 4, 1, (const u8 *)"", 0, pkt, sizeof(pkt), &total));
+  u8                     pkt[128];
+  quic_protect_keys      pk = {&k, &hp};
+  quic_hspkt_onertt_desc bd = {
+      quic_span_of(dcid, 4), 1, quic_span_of((const u8 *)"", 0)};
+  quic_obuf o = quic_obuf_of(pkt, sizeof(pkt));
+  CHECK(quic_hspkt_onertt_build(&pk, &bd, &o));
+  usz total = o.len;
 
   u64       sid = 0, off = 0;
   const u8 *data = 0;
@@ -89,11 +95,14 @@ static void test_recv_malformed(void) {
   recv_keys(&k, &hp);
 
   /* type 0x0a (STREAM|LEN), stream_id 0, Length=10 but no data bytes. */
-  const u8 bad[] = {0x0a, 0x00, 0x0a};
-  u8       pkt[128];
-  usz      total = 0;
-  CHECK(quic_hspkt_onertt_build(
-      &k, &hp, dcid, 4, 2, bad, sizeof(bad), pkt, sizeof(pkt), &total));
+  const u8               bad[] = {0x0a, 0x00, 0x0a};
+  u8                     pkt[128];
+  quic_protect_keys      pk = {&k, &hp};
+  quic_hspkt_onertt_desc bd = {
+      quic_span_of(dcid, 4), 2, quic_span_of(bad, sizeof(bad))};
+  quic_obuf o = quic_obuf_of(pkt, sizeof(pkt));
+  CHECK(quic_hspkt_onertt_build(&pk, &bd, &o));
+  usz total = o.len;
 
   u64       sid = 0, off = 0;
   const u8 *data = 0;

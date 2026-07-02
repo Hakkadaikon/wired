@@ -1,26 +1,23 @@
 #ifndef QUIC_HSPKT_HSPKT_BUILD_H
 #define QUIC_HSPKT_HSPKT_BUILD_H
 
-#include "crypto/symmetric/aead/aes/aes.h"
-#include "tls/handshake/core/tls/initial.h"
+#include "transport/packet/protect/protect/protect.h"
 
 /* RFC 9000 17.2.4 / RFC 9001 5: build one AEAD-protected Handshake packet.
- * The Handshake long header carries no token (unlike Initial). The payload
- * (typically a CRYPTO frame) is sealed with the Handshake keys hs_keys and
- * header-protected with hp. Writes the protected packet into out (cap bytes)
- * and its length to *out_len. Returns 1 on success, 0 on overflow. */
+ * The Handshake long header carries no token (unlike Initial). */
+
+/* One Handshake packet to build: CIDs, packet number, and the payload
+ * (typically a CRYPTO frame). */
+typedef struct {
+  quic_span dcid;
+  quic_span scid;
+  u64       pn;
+  quic_span payload;
+} quic_hspkt_desc;
+
+/* Seal with the Handshake keys k and write the protected packet into out;
+ * length to out->len. Returns 1 on success, 0 on overflow. */
 int quic_hspkt_build(
-    const quic_initial_keys *hs_keys,
-    const quic_aes128       *hp,
-    const u8                *dcid,
-    u8                       dcid_len,
-    const u8                *scid,
-    u8                       scid_len,
-    u64                      pn,
-    const u8                *payload,
-    usz                      payload_len,
-    u8                      *out,
-    usz                      cap,
-    usz                     *out_len);
+    const quic_protect_keys *k, const quic_hspkt_desc *d, quic_obuf *out);
 
 #endif

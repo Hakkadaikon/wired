@@ -1,7 +1,7 @@
 #ifndef QUIC_SHORTHDR_SHORTHDR_H
 #define QUIC_SHORTHDR_SHORTHDR_H
 
-#include "common/platform/sys/syscall.h"
+#include "common/bytes/span/span.h"
 
 /* RFC 9000 17.3.1: build a 1-RTT short header. */
 
@@ -10,18 +10,18 @@
  * spin and key_phase are treated as 0/1; pn_len must be 1..4. */
 u8 quic_shorthdr_byte0(int spin, int key_phase, u8 pn_len);
 
-/* Build byte0, then DCID (no length prefix) and pn as pn_len big-endian
- * bytes into out (cap bytes); total length to *out_len. Returns 1 on
+/* One short header: DCID (written without a length prefix), the spin and
+ * key-phase bits, and the packet number as pn_len big-endian bytes. */
+typedef struct {
+  int       spin;
+  int       key_phase;
+  quic_span dcid;
+  u64       pn;
+  u8        pn_len;
+} quic_shorthdr_desc;
+
+/* Build byte0, DCID and pn into out; total length to out->len. Returns 1 on
  * success, 0 on bad args (pn_len not 1..4) or insufficient room. */
-int quic_shorthdr_build(
-    int       spin,
-    int       key_phase,
-    const u8 *dcid,
-    u8        dcid_len,
-    u64       pn,
-    u8        pn_len,
-    u8       *out,
-    usz       cap,
-    usz      *out_len);
+int quic_shorthdr_build(const quic_shorthdr_desc *d, quic_obuf *out);
 
 #endif

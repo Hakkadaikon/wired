@@ -4,9 +4,10 @@
  * (pn_len-1), then the DCID (no length prefix) and pn_len big-endian
  * packet-number bytes. */
 static void test_short_build(void) {
-  const u8 dcid[4] = {0x11, 0x22, 0x33, 0x44};
-  u8       buf[16];
-  usz      w = quic_short_build(buf, sizeof(buf), dcid, 4, 1, 1, 0xABCD, 2);
+  const u8        dcid[4] = {0x11, 0x22, 0x33, 0x44};
+  u8              buf[16];
+  quic_short_desc d = {quic_span_of(dcid, 4), 1, 1, 0xABCD, 2};
+  usz             w = quic_short_build(buf, sizeof(buf), &d);
   CHECK(w == 1 + 4 + 2);
   /* fixed bit set, spin (bit5) set, key_phase (bit2) set, pn_len-1 == 1 */
   CHECK(buf[0] == (0x40 | 0x20 | 0x04 | 0x01));
@@ -15,24 +16,24 @@ static void test_short_build(void) {
 }
 
 static void test_short_build_min(void) {
-  const u8 dcid[1] = {0x99};
-  u8       buf[8];
-  usz      w = quic_short_build(buf, sizeof(buf), dcid, 1, 0, 0, 0x7F, 1);
+  const u8        dcid[1] = {0x99};
+  u8              buf[8];
+  quic_short_desc d = {quic_span_of(dcid, 1), 0, 0, 0x7F, 1};
+  usz             w = quic_short_build(buf, sizeof(buf), &d);
   CHECK(w == 3);
   CHECK(buf[0] == 0x40); /* no spin, no key phase, pn_len 1 */
   CHECK(buf[1] == 0x99 && buf[2] == 0x7F);
 }
 
 static void test_short_bad_args(void) {
-  const u8 dcid[4] = {0};
-  u8       buf[16];
-  CHECK(
-      quic_short_build(buf, sizeof(buf), dcid, 4, 0, 0, 0, 0) ==
-      0); /* pn_len 0 */
-  CHECK(
-      quic_short_build(buf, sizeof(buf), dcid, 4, 0, 0, 0, 5) ==
-      0);                                                    /* pn_len 5 */
-  CHECK(quic_short_build(buf, 3, dcid, 4, 0, 0, 0, 1) == 0); /* no room */
+  const u8        dcid[4] = {0};
+  u8              buf[16];
+  quic_short_desc d0 = {quic_span_of(dcid, 4), 0, 0, 0, 0};
+  quic_short_desc d5 = {quic_span_of(dcid, 4), 0, 0, 0, 5};
+  quic_short_desc d1 = {quic_span_of(dcid, 4), 0, 0, 0, 1};
+  CHECK(quic_short_build(buf, sizeof(buf), &d0) == 0); /* pn_len 0 */
+  CHECK(quic_short_build(buf, sizeof(buf), &d5) == 0); /* pn_len 5 */
+  CHECK(quic_short_build(buf, 3, &d1) == 0);           /* no room */
 }
 
 static void test_retry_roundtrip(void) {
@@ -42,9 +43,11 @@ static void test_retry_roundtrip(void) {
   u8       tag[QUIC_RETRY_TAG_LEN];
   for (usz i = 0; i < QUIC_RETRY_TAG_LEN; i++) tag[i] = (u8)(0xA0 + i);
 
-  u8  buf[64];
-  usz w =
-      quic_retry_build(buf, sizeof(buf), 1, dcid, 3, scid, 2, token, 5, tag);
+  u8              buf[64];
+  quic_retry_desc rd = {
+      1, quic_span_of(dcid, 3), quic_span_of(scid, 2), quic_span_of(token, 5),
+      tag};
+  usz w = quic_retry_build(buf, sizeof(buf), &rd);
   CHECK(w == 5 + 1 + 3 + 1 + 2 + 5 + QUIC_RETRY_TAG_LEN);
   CHECK(buf[0] == 0xF0 && buf[4] == 1); /* type Retry, version 1 */
 
@@ -58,13 +61,15 @@ static void test_retry_roundtrip(void) {
 }
 
 static void test_retry_truncated(void) {
-  const u8 dcid[1]                 = {0x01};
-  const u8 scid[1]                 = {0x02};
-  const u8 token[1]                = {0x03};
-  u8       tag[QUIC_RETRY_TAG_LEN] = {0};
-  u8       buf[64];
-  usz      w =
-      quic_retry_build(buf, sizeof(buf), 1, dcid, 1, scid, 1, token, 1, tag);
+  const u8        dcid[1]                 = {0x01};
+  const u8        scid[1]                 = {0x02};
+  const u8        token[1]                = {0x03};
+  u8              tag[QUIC_RETRY_TAG_LEN] = {0};
+  u8              buf[64];
+  quic_retry_desc rd = {
+      1, quic_span_of(dcid, 1), quic_span_of(scid, 1), quic_span_of(token, 1),
+      tag};
+  usz w = quic_retry_build(buf, sizeof(buf), &rd);
   CHECK(w != 0);
 
   /* w - 1 still parses: the token is variable-length, so dropping a trailing
@@ -75,7 +80,7 @@ static void test_retry_truncated(void) {
   CHECK(
       quic_retry_parse(buf, QUIC_RETRY_TAG_LEN + 6, &r) ==
       0); /* CID len overruns */
-  CHECK(quic_retry_build(buf, 4, 1, dcid, 1, scid, 1, token, 1, tag) == 0);
+  CHECK(quic_retry_build(buf, 4, &rd) == 0);
 }
 
 static void test_vneg_roundtrip(void) {
@@ -83,8 +88,9 @@ static void test_vneg_roundtrip(void) {
   const u8  scid[3] = {0x70, 0x71, 0x72};
   const u32 vers[2] = {0x00000001, 0x6B3343CF}; /* v1 and a GREASE-ish value */
 
-  u8  buf[64];
-  usz w = quic_vneg_build(buf, sizeof(buf), dcid, 2, scid, 3, vers, 2);
+  u8             buf[64];
+  quic_vneg_desc vd = {quic_span_of(dcid, 2), quic_span_of(scid, 3), vers, 2};
+  usz            w  = quic_vneg_build(buf, sizeof(buf), &vd);
   CHECK(w == 5 + 1 + 2 + 1 + 3 + 2 * 4);
   CHECK(buf[0] == 0x80);
   CHECK(
@@ -103,12 +109,13 @@ static void test_vneg_roundtrip(void) {
 /* The VN response swaps the received DCID/SCID (RFC 8999 6) so the peer sees
  * its own connection ID as the destination. */
 static void test_vneg_respond_swap(void) {
-  const u8  recv_dcid[2] = {0xAA, 0xBB};
-  const u8  recv_scid[3] = {0x11, 0x22, 0x33};
-  const u32 vers[1]      = {0x00000001};
-  u8        buf[64];
-  usz       w =
-      quic_vneg_respond(buf, sizeof(buf), recv_dcid, 2, recv_scid, 3, vers, 1);
+  const u8       recv_dcid[2] = {0xAA, 0xBB};
+  const u8       recv_scid[3] = {0x11, 0x22, 0x33};
+  const u32      vers[1]      = {0x00000001};
+  u8             buf[64];
+  quic_vneg_desc rv = {
+      quic_span_of(recv_dcid, 2), quic_span_of(recv_scid, 3), vers, 1};
+  usz w = quic_vneg_respond(buf, sizeof(buf), &rv);
   CHECK(w != 0);
 
   quic_vneg_packet v;
@@ -119,14 +126,16 @@ static void test_vneg_respond_swap(void) {
 }
 
 static void test_vneg_bad(void) {
-  const u8  dcid[1] = {0x01};
-  const u8  scid[1] = {0x02};
-  const u32 vers[1] = {0x00000001};
-  u8        buf[64];
+  const u8       dcid[1] = {0x01};
+  const u8       scid[1] = {0x02};
+  const u32      vers[1] = {0x00000001};
+  u8             buf[64];
+  quic_vneg_desc v0 = {quic_span_of(dcid, 1), quic_span_of(scid, 1), vers, 0};
+  quic_vneg_desc v1 = {quic_span_of(dcid, 1), quic_span_of(scid, 1), vers, 1};
   /* count 0 must fail to build */
-  CHECK(quic_vneg_build(buf, sizeof(buf), dcid, 1, scid, 1, vers, 0) == 0);
+  CHECK(quic_vneg_build(buf, sizeof(buf), &v0) == 0);
 
-  usz w = quic_vneg_build(buf, sizeof(buf), dcid, 1, scid, 1, vers, 1);
+  usz w = quic_vneg_build(buf, sizeof(buf), &v1);
   CHECK(w != 0);
   buf[4] = 1; /* corrupt Version field to non-zero */
   quic_vneg_packet v;

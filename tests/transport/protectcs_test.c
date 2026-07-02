@@ -21,21 +21,19 @@ static void pcs_roundtrip(u16 suite, const u8 *key, usz keylen, u8 byte0) {
                         0x0f, 0x10, 0x11, 0x12, 0x13, 0x14};
   for (usz i = 0; i < sizeof(payload); i++) pkt[5 + i] = payload[i];
 
-  usz out_len = 0;
-  CHECK(
-      quic_protectcs_seal(
-          suite, key, iv, hp, 7, pkt, 1, 4, sizeof(payload), &out_len) == 1);
+  usz                    out_len = 0;
+  quic_protectcs_keys    k       = {suite, key, iv, hp};
+  quic_protectcs_seal_io si      = {pkt, 1, 4, 7, sizeof(payload)};
+  CHECK(quic_protectcs_seal(&k, &si, &out_len) == 1);
   CHECK(out_len == 5 + sizeof(payload) + 16);
   /* HP must have altered byte0 and/or the packet number. */
   CHECK(pkt[0] != byte0 || pkt[4] != 7);
 
-  const u8 *got     = 0;
-  usz       got_len = 0;
-  CHECK(
-      quic_protectcs_open(
-          suite, key, iv, hp, pkt, out_len, 1, &got, &got_len) == 1);
-  CHECK(got_len == sizeof(payload));
-  for (usz i = 0; i < sizeof(payload); i++) CHECK(got[i] == payload[i]);
+  quic_span              got;
+  quic_protectcs_open_io oi = {quic_mspan_of(pkt, out_len), 1};
+  CHECK(quic_protectcs_open(&k, &oi, &got) == 1);
+  CHECK(got.n == sizeof(payload));
+  for (usz i = 0; i < sizeof(payload); i++) CHECK(got.p[i] == payload[i]);
 }
 
 /* Seal the same plaintext under both suites and confirm the protected header
@@ -56,14 +54,13 @@ static void cross_suite(void) {
   a[4] = 9;
   c[4] = 9; /* pn = 9 in the low pn byte */
 
-  usz la = 0, lc = 0;
-  CHECK(
-      quic_protectcs_seal(
-          QUIC_TLS_AES_128_GCM_SHA256, key, iv, hp, 9, a, 1, 4, 20, &la) == 1);
-  CHECK(
-      quic_protectcs_seal(
-          QUIC_TLS_CHACHA20_POLY1305_SHA256, key, iv, hp, 9, c, 1, 4, 20,
-          &lc) == 1);
+  usz                    la = 0, lc = 0;
+  quic_protectcs_keys    ka = {QUIC_TLS_AES_128_GCM_SHA256, key, iv, hp};
+  quic_protectcs_keys    kc = {QUIC_TLS_CHACHA20_POLY1305_SHA256, key, iv, hp};
+  quic_protectcs_seal_io sa = {a, 1, 4, 9, 20};
+  quic_protectcs_seal_io sc = {c, 1, 4, 9, 20};
+  CHECK(quic_protectcs_seal(&ka, &sa, &la) == 1);
+  CHECK(quic_protectcs_seal(&kc, &sc, &lc) == 1);
   /* Different HP construction -> protected byte0/pn region differs. */
   int diff = (a[0] != c[0]);
   for (usz i = 1; i <= 4; i++) diff |= (a[i] != c[i]);
@@ -71,12 +68,9 @@ static void cross_suite(void) {
 
   /* Tampering the ChaCha ciphertext tag fails authentication. */
   c[lc - 1] ^= 0xff;
-  const u8 *p  = 0;
-  usz       pl = 0;
-  CHECK(
-      quic_protectcs_open(
-          QUIC_TLS_CHACHA20_POLY1305_SHA256, key, iv, hp, c, lc, 1, &p, &pl) ==
-      0);
+  quic_span              got;
+  quic_protectcs_open_io oc = {quic_mspan_of(c, lc), 1};
+  CHECK(quic_protectcs_open(&kc, &oc, &got) == 0);
 }
 
 void test_protectcs(void) {
@@ -96,13 +90,11 @@ void test_protectcs(void) {
   /* Unknown suite seals/opens nothing. */
   u8 pkt[64];
   for (usz i = 0; i < 64; i++) pkt[i] = (u8)i;
-  usz n = 1;
-  CHECK(
-      quic_protectcs_seal(
-          0x0000, cha_key, cha_key, cha_key, 1, pkt, 1, 4, 20, &n) == 0);
-  const u8 *p  = 0;
-  usz       pl = 0;
-  CHECK(
-      quic_protectcs_open(
-          0x0000, cha_key, cha_key, cha_key, pkt, 41, 1, &p, &pl) == 0);
+  usz                    n   = 1;
+  quic_protectcs_keys    bad = {0x0000, cha_key, cha_key, cha_key};
+  quic_protectcs_seal_io sb  = {pkt, 1, 4, 1, 20};
+  CHECK(quic_protectcs_seal(&bad, &sb, &n) == 0);
+  quic_span              got;
+  quic_protectcs_open_io ob = {quic_mspan_of(pkt, 41), 1};
+  CHECK(quic_protectcs_open(&bad, &ob, &got) == 0);
 }

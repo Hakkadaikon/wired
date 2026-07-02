@@ -48,8 +48,12 @@ static usz make_client_initial(
   hdr[4] = 1;
   hdr[5] = 8;
   for (usz i = 0; i < 8; i++) hdr[6 + i] = c->dcid[i];
-  hdr[17] = 1; /* packet number 1 */
-  return quic_protect_seal(ik, hp, hdr, 18, 14, 4, 1, crypto, cl, out, cap);
+  hdr[17]                 = 1; /* packet number 1 */
+  quic_protect_keys    k  = {ik, hp};
+  quic_protect_seal_io io = {
+      quic_span_of(hdr, 18),  14, 4, 1, quic_span_of(crypto, cl),
+      quic_mspan_of(out, cap)};
+  return quic_protect_seal(&k, &io);
 }
 
 /* Server receives the client Initial, unprotects, and extracts the share. */
@@ -59,10 +63,12 @@ static int server_read_initial(
     const quic_initial_keys *ik,
     const quic_aes128       *hp,
     u8                       peer_pub[32]) {
-  usz               pl = quic_protect_open(ik, hp, pkt, plen, 18, 14, 4, 1);
-  quic_crypto_frame cf;
-  u8                type;
-  usz               body_len;
+  quic_protect_keys    k  = {ik, hp};
+  quic_protect_open_io io = {quic_mspan_of(pkt, plen), 18, 14, 4, 1};
+  usz                  pl = quic_protect_open(&k, &io);
+  quic_crypto_frame    cf;
+  u8                   type;
+  usz                  body_len;
   if (pl == 0 || quic_frame_get_crypto(pkt + 18, pl, &cf) == 0) return 0;
   if (quic_hs_parse(cf.data, cf.length, &type, &body_len) == 0) return 0;
   return quic_hs_peer_share(cf.data + 4, body_len, peer_pub);
@@ -132,13 +138,18 @@ static void test_endpoint_handshake(void) {
   usz sfl      = quic_frame_put_stream(sframe, sizeof(sframe), &sf);
   u8  shdr[18] = {0x43, 0, 0, 0, 1, 8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 7};
   for (usz i = 0; i < 8; i++) shdr[6 + i] = dcid[i];
-  usz sp = quic_protect_seal(
-      &sv.hs_keys, &shp, shdr, 18, 14, 4, 7, sframe, sfl, spkt, sizeof(spkt));
+  quic_protect_keys    sk  = {&sv.hs_keys, &shp};
+  quic_protect_seal_io sio = {
+      quic_span_of(shdr, 18),           14, 4, 7, quic_span_of(sframe, sfl),
+      quic_mspan_of(spkt, sizeof(spkt))};
+  usz sp = quic_protect_seal(&sk, &sio);
   tx(&link, spkt, sp, sa, ca);
 
-  u8  crx[128];
-  usz crn = rx(&link, crx, sizeof(crx), sa, ca);
-  usz cpl = quic_protect_open(&cl_sees_server, &shp, crx, crn, 18, 14, 4, 7);
+  u8                   crx[128];
+  usz                  crn = rx(&link, crx, sizeof(crx), sa, ca);
+  quic_protect_keys    ck2 = {&cl_sees_server, &shp};
+  quic_protect_open_io oio = {quic_mspan_of(crx, crn), 18, 14, 4, 7};
+  usz                  cpl = quic_protect_open(&ck2, &oio);
   CHECK(cpl != 0);
   quic_stream_frame got;
   CHECK(quic_frame_get_stream(crx + 18, cpl, &got) != 0);

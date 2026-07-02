@@ -5,6 +5,18 @@
 #include "transport/packet/frame/frame/frame.h"
 #include "transport/packet/frame/pipeline/txpacket.h"
 
+/* Open one Initial packet; returns 1 and the frames view on success. */
+static int r_rx(
+    const quic_initial_keys *ik,
+    const quic_aes128       *hp,
+    u8                      *pkt,
+    usz                      n,
+    quic_span               *frames) {
+  quic_protect_keys k = {ik, hp};
+  quic_rx_desc      d = {quic_mspan_of(pkt, n), 1};
+  return quic_rx_packet(&k, &d, frames);
+}
+
 /* RFC 9001 5: rx recovers the exact multi-frame payload that tx sealed. */
 static void test_rxpacket_payload_view(void) {
   const u8          dcid[8] = {9, 8, 7, 6, 5, 4, 3, 2};
@@ -23,18 +35,19 @@ static void test_rxpacket_payload_view(void) {
       quic_frame_put_simple(frames + fl, sizeof(frames) - fl, QUIC_FRAME_PING);
   CHECK(fl == 3);
 
-  u8  pkt[256];
-  usz n = quic_tx_packet(
-      &ik, &hp, 0xc3, dcid, 8, (const u8 *)0, 0, 1, (const u8 *)0, 0, 5, frames,
-      fl, pkt, sizeof(pkt));
+  u8                pkt[256];
+  quic_protect_keys k    = {&ik, &hp};
+  quic_span         none = quic_span_of((const u8 *)0, 0);
+  quic_tx_desc      td   = {0xc3, quic_span_of(dcid, 8),   none, 1, none,
+                            5,    quic_span_of(frames, fl)};
+  usz n = quic_tx_packet(&k, &td, quic_mspan_of(pkt, sizeof(pkt)));
   CHECK(n != 0);
 
-  const u8 *got;
-  usz       got_len;
-  CHECK(quic_rx_packet(&ik, &hp, pkt, n, 1, &got, &got_len) == 1);
-  CHECK(got_len == 3);
-  CHECK(got[0] == QUIC_FRAME_PING && got[1] == QUIC_FRAME_PADDING);
-  CHECK(got[2] == QUIC_FRAME_PING);
+  quic_span got;
+  CHECK(r_rx(&ik, &hp, pkt, n, &got) == 1);
+  CHECK(got.n == 3);
+  CHECK(got.p[0] == QUIC_FRAME_PING && got.p[1] == QUIC_FRAME_PADDING);
+  CHECK(got.p[2] == QUIC_FRAME_PING);
 }
 
 /* A packet shorter than its header is rejected. */
@@ -42,9 +55,8 @@ static void test_rxpacket_too_short(void) {
   quic_initial_keys ik;
   quic_aes128       hp;
   u8                buf[4] = {0};
-  const u8         *got;
-  usz               got_len;
-  CHECK(quic_rx_packet(&ik, &hp, buf, sizeof(buf), 1, &got, &got_len) == 0);
+  quic_span         got;
+  CHECK(r_rx(&ik, &hp, buf, sizeof(buf), &got) == 0);
 }
 
 /* Build one valid Initial packet for the rejection tests. dcid is fixed. */
@@ -55,9 +67,11 @@ static usz build_pkt(quic_initial_keys *ik, quic_aes128 *hp, u8 *pkt, usz cap) {
   quic_initial_derive(dcid, 8, 1, ik);
   quic_aes128_init(hp, ik->hp);
   fl += quic_frame_put_simple(frames + fl, sizeof(frames), QUIC_FRAME_PING);
-  return quic_tx_packet(
-      ik, hp, 0xc3, dcid, 8, (const u8 *)0, 0, 1, (const u8 *)0, 0, 5, frames,
-      fl, pkt, cap);
+  quic_protect_keys k    = {ik, hp};
+  quic_span         none = quic_span_of((const u8 *)0, 0);
+  quic_tx_desc      td   = {0xc3, quic_span_of(dcid, 8),   none, 1, none,
+                            5,    quic_span_of(frames, fl)};
+  return quic_tx_packet(&k, &td, quic_mspan_of(pkt, cap));
 }
 
 /* RFC 9001 5.2: a packet whose AEAD tag is flipped must be dropped, not crash.
@@ -66,12 +80,11 @@ static void test_rxpacket_tampered_tag(void) {
   quic_initial_keys ik;
   quic_aes128       hp;
   u8                pkt[256];
-  const u8         *got;
-  usz               got_len;
+  quic_span         got;
   usz               n = build_pkt(&ik, &hp, pkt, sizeof(pkt));
   CHECK(n != 0);
   pkt[n - 1] ^= 0x01; /* flip one tag byte */
-  CHECK(quic_rx_packet(&ik, &hp, pkt, n, 1, &got, &got_len) == 0);
+  CHECK(r_rx(&ik, &hp, pkt, n, &got) == 0);
 }
 
 /* RFC 9001 5.2: a packet truncated below its tag must be dropped, not crash. */
@@ -79,11 +92,10 @@ static void test_rxpacket_truncated_payload(void) {
   quic_initial_keys ik;
   quic_aes128       hp;
   u8                pkt[256];
-  const u8         *got;
-  usz               got_len;
+  quic_span         got;
   usz               n = build_pkt(&ik, &hp, pkt, sizeof(pkt));
   CHECK(n != 0);
-  CHECK(quic_rx_packet(&ik, &hp, pkt, n - 1, 1, &got, &got_len) == 0);
+  CHECK(r_rx(&ik, &hp, pkt, n - 1, &got) == 0);
 }
 
 /* RFC 9001 5.2: an attacker Length that exceeds the remaining buffer must be
@@ -94,14 +106,13 @@ static void test_rxpacket_oversized_length(void) {
   quic_initial_keys ik;
   quic_aes128       hp;
   u8                pkt[256];
-  const u8         *got;
-  usz               got_len;
+  quic_span         got;
   usz               n = build_pkt(&ik, &hp, pkt, sizeof(pkt));
   CHECK(n != 0);
   CHECK(pkt[15] == 0x00);     /* empty token length */
   CHECK((pkt[16] >> 6) == 0); /* one-byte Length varint */
   pkt[16] = 0x3f;             /* claim 63 bytes of payload; far more than n */
-  CHECK(quic_rx_packet(&ik, &hp, pkt, n, 1, &got, &got_len) == 0);
+  CHECK(r_rx(&ik, &hp, pkt, n, &got) == 0);
 }
 
 /* RFC 9001 5.2: a packet opened with the wrong key fails authentication. */
@@ -110,12 +121,11 @@ static void test_rxpacket_wrong_key(void) {
   quic_initial_keys ik, wrong;
   quic_aes128       hp;
   u8                pkt[256];
-  const u8         *got;
-  usz               got_len;
+  quic_span         got;
   usz               n = build_pkt(&ik, &hp, pkt, sizeof(pkt));
   CHECK(n != 0);
   quic_initial_derive(other, 8, 1, &wrong);
-  CHECK(quic_rx_packet(&wrong, &hp, pkt, n, 1, &got, &got_len) == 0);
+  CHECK(r_rx(&wrong, &hp, pkt, n, &got) == 0);
 }
 
 void test_rxpacket(void) {

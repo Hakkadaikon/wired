@@ -39,9 +39,15 @@ static int emit_handshake_ack(
   if (!quic_srvloop_seal_keys(s, QUIC_LEVEL_HANDSHAKE, &k, &hp)) return 0;
   fl = encode_ack_one(frames, sizeof frames, l->hs_rx_pn);
   if (fl == 0) return 0;
-  return quic_hspkt_build(
-      k, &hp, l->cli_scid, l->cli_scid_len, s->sdrv.iscid, s->sdrv.iscid_len,
-      l->hs_tx_pn++, frames, fl, out, cap, out_len);
+  quic_protect_keys pk = {k, &hp};
+  quic_hspkt_desc   d  = {
+      quic_span_of(l->cli_scid, l->cli_scid_len),
+      quic_span_of(s->sdrv.iscid, s->sdrv.iscid_len), l->hs_tx_pn++,
+      quic_span_of(frames, fl)};
+  quic_obuf o  = quic_obuf_of(out, cap);
+  int       ok = quic_hspkt_build(&pk, &d, &o);
+  *out_len     = o.len; /* 0 unless built */
+  return ok;
 }
 
 /* RFC 9114 6.2.1: wrap the control-stream type + SETTINGS in a STREAM frame on

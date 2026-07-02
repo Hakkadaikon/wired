@@ -15,17 +15,19 @@ static void test_onertt_roundtrip(void) {
   const u8 frames[] = {0x08, 'd', 'a', 't', 'a'}; /* STREAM-ish payload */
   onertt_keys(&k, &hp);
 
-  u8  pkt[64];
-  usz total = 0;
-  CHECK(quic_hspkt_onertt_build(
-      &k, &hp, dcid, 5, 12, frames, sizeof(frames), pkt, sizeof(pkt), &total));
-  CHECK(total == 5u + 5u + sizeof(frames) + 16u); /* byte0+dcid+pn + ct + tag */
+  u8                     pkt[64];
+  quic_protect_keys      pk = {&k, &hp};
+  quic_hspkt_onertt_desc d  = {
+      quic_span_of(dcid, 5), 12, quic_span_of(frames, sizeof(frames))};
+  quic_obuf o = quic_obuf_of(pkt, sizeof(pkt));
+  CHECK(quic_hspkt_onertt_build(&pk, &d, &o));
+  CHECK(o.len == 5u + 5u + sizeof(frames) + 16u); /* byte0+dcid+pn+ct+tag */
 
-  const u8 *out  = 0;
-  usz       olen = 0;
-  CHECK(quic_hspkt_onertt_open(&k, &hp, pkt, total, 5, 0, &out, &olen));
-  CHECK(olen == sizeof(frames));
-  for (usz i = 0; i < sizeof(frames); i++) CHECK(out[i] == frames[i]);
+  quic_span                   out;
+  quic_hspkt_onertt_open_desc od = {quic_mspan_of(pkt, o.len), 5, 0};
+  CHECK(quic_hspkt_onertt_open(&pk, &od, &out));
+  CHECK(out.n == sizeof(frames));
+  for (usz i = 0; i < sizeof(frames); i++) CHECK(out.p[i] == frames[i]);
 }
 
 /* RFC 9000 17.3: short-header form has the high bit of byte0 clear. After
@@ -37,10 +39,12 @@ static void test_onertt_byte0(void) {
   const u8          frames[] = {0x08, 'X'};
   onertt_keys(&k, &hp);
 
-  u8  pkt[64];
-  usz total = 0;
-  CHECK(quic_hspkt_onertt_build(
-      &k, &hp, dcid, 4, 1, frames, sizeof(frames), pkt, sizeof(pkt), &total));
+  u8                     pkt[64];
+  quic_protect_keys      pk = {&k, &hp};
+  quic_hspkt_onertt_desc d  = {
+      quic_span_of(dcid, 4), 1, quic_span_of(frames, sizeof(frames))};
+  quic_obuf o = quic_obuf_of(pkt, sizeof(pkt));
+  CHECK(quic_hspkt_onertt_build(&pk, &d, &o));
   CHECK((pkt[0] & 0x80) == 0x00); /* short header form */
 }
 
@@ -52,14 +56,16 @@ static void test_onertt_tamper(void) {
   const u8          frames[] = {0x08, 'h', 'i'};
   onertt_keys(&k, &hp);
 
-  u8  pkt[64];
-  usz total = 0;
-  CHECK(quic_hspkt_onertt_build(
-      &k, &hp, dcid, 4, 5, frames, sizeof(frames), pkt, sizeof(pkt), &total));
-  pkt[total - 1] ^= 0x01;
-  const u8 *out  = 0;
-  usz       olen = 0;
-  CHECK(!quic_hspkt_onertt_open(&k, &hp, pkt, total, 4, 0, &out, &olen));
+  u8                     pkt[64];
+  quic_protect_keys      pk = {&k, &hp};
+  quic_hspkt_onertt_desc d  = {
+      quic_span_of(dcid, 4), 5, quic_span_of(frames, sizeof(frames))};
+  quic_obuf o = quic_obuf_of(pkt, sizeof(pkt));
+  CHECK(quic_hspkt_onertt_build(&pk, &d, &o));
+  pkt[o.len - 1] ^= 0x01;
+  quic_span                   out;
+  quic_hspkt_onertt_open_desc od = {quic_mspan_of(pkt, o.len), 4, 0};
+  CHECK(!quic_hspkt_onertt_open(&pk, &od, &out));
 }
 
 /* Seal a 1-RTT packet whose packet number is TRUNCATED to pn_len bytes (curl
@@ -89,7 +95,8 @@ static usz seal_truncated(
   quic_gcm_ctx g = {&aead, nonce, {out, hdr_len}};
   quic_gcm_seal(&g, quic_span_of(pl, pl_len), out + hdr_len);
   quic_hp_mask(hp, out + pn_off + 4, mask);
-  quic_hp_apply(mask, &out[0], out + pn_off, pn_len, QUIC_HP_SHORT_MASK);
+  quic_hp_fields hf = {&out[0], out + pn_off, pn_len, QUIC_HP_SHORT_MASK};
+  quic_hp_apply(mask, &hf);
   return hdr_len + pl_len + QUIC_GCM_TAG;
 }
 
@@ -106,20 +113,23 @@ static void test_onertt_truncated_pn(void) {
   const u8          dcid[5]  = {0xaa, 0xbb, 0xcc, 0xdd, 0xee};
   const u8          frames[] = {0x08, 'c', 'u', 'r', 'l'};
   u8                pkt[64];
-  const u8         *out  = 0;
-  usz               olen = 0, total;
+  quic_span         out;
+  usz               total;
+  quic_protect_keys pk = {&k, &hp};
   onertt_keys(&k, &hp);
 
   total = seal_truncated(&k, &hp, dcid, 5, 300, 1, frames, sizeof frames, pkt);
   /* truncated byte (300 & 0xff == 44) != real PN 300, so largest_pn matters */
-  CHECK(quic_hspkt_onertt_open(&k, &hp, pkt, total, 5, 299, &out, &olen));
-  CHECK(olen == sizeof frames);
-  for (usz i = 0; i < sizeof frames; i++) CHECK(out[i] == frames[i]);
+  quic_hspkt_onertt_open_desc od = {quic_mspan_of(pkt, total), 5, 299};
+  CHECK(quic_hspkt_onertt_open(&pk, &od, &out));
+  CHECK(out.n == sizeof frames);
+  for (usz i = 0; i < sizeof frames; i++) CHECK(out.p[i] == frames[i]);
 
   /* Without the right baseline the recovered PN is 44, the nonce is wrong,
    * and authentication fails — confirms the test exercises PN recovery. */
   total = seal_truncated(&k, &hp, dcid, 5, 300, 1, frames, sizeof frames, pkt);
-  CHECK(!quic_hspkt_onertt_open(&k, &hp, pkt, total, 5, 0, &out, &olen));
+  quic_hspkt_onertt_open_desc o0 = {quic_mspan_of(pkt, total), 5, 0};
+  CHECK(!quic_hspkt_onertt_open(&pk, &o0, &out));
 }
 
 void test_onertt(void) {

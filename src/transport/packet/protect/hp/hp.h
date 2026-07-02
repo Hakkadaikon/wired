@@ -15,9 +15,16 @@
 void quic_hp_mask(
     const quic_aes128 *hp, const u8 sample[QUIC_HP_SAMPLE], u8 mask[5]);
 
-/* Apply (or remove — XOR is its own inverse) header protection in place:
- * byte0's low bits (per bits_mask) and pn_len packet-number bytes at pn. */
-void quic_hp_apply(
-    const u8 mask[5], u8 *byte0, u8 *pn, usz pn_len, u8 bits_mask);
+/* Header fields covered by protection: byte0, the packet-number bytes, and
+ * which low bits of byte0 are masked (long 0x0f / short 0x1f). */
+typedef struct {
+  u8 *byte0;
+  u8 *pn;
+  usz pn_len;
+  u8  bits_mask;
+} quic_hp_fields;
+
+/* Apply (or remove — XOR is its own inverse) header protection in place. */
+void quic_hp_apply(const u8 mask[5], const quic_hp_fields *f);
 
 #endif

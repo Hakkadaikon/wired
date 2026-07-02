@@ -11,116 +11,65 @@ u8 quic_lhdr_byte0_pnlen(u8 byte0, u8 pn_len) {
 }
 
 /* Copy a CID into h (len already validated <= QUIC_MAX_CID_LEN). */
-static void set_cid(u8 *dst, const u8 *src, u8 len) {
-  for (u8 i = 0; i < len; i++) dst[i] = src[i];
+static void set_cid(u8 *dst, const u8 *src, usz len) {
+  for (usz i = 0; i < len; i++) dst[i] = src[i];
 }
 
 /* True if both CIDs are within the QUIC max length. */
-static int cids_ok(u8 dcid_len, u8 scid_len) {
-  return dcid_len <= QUIC_MAX_CID_LEN && scid_len <= QUIC_MAX_CID_LEN;
+static int cids_ok(const quic_lhdr_desc *d) {
+  return d->dcid.n <= QUIC_MAX_CID_LEN && d->scid.n <= QUIC_MAX_CID_LEN;
 }
 
 /* Build byte0+version+DCID+SCID via the invariant builder, then overwrite
  * byte0 with the caller's value (pn_len-adjusted). Returns bytes or 0. */
-static usz lhdr_put_prefix(
-    u8       *out,
-    usz       cap,
-    u8        byte0,
-    u32       version,
-    const u8 *dcid,
-    u8        dcid_len,
-    const u8 *scid,
-    u8        scid_len,
-    u8        pn_len) {
+static usz lhdr_put_prefix(const quic_lhdr_desc *d, quic_obuf *out) {
   quic_header h = {0};
   usz         w;
-  if (!cids_ok(dcid_len, scid_len)) return 0;
-  h.version  = version;
-  h.dcid_len = dcid_len;
-  h.scid_len = scid_len;
-  set_cid(h.dcid, dcid, dcid_len);
-  set_cid(h.scid, scid, scid_len);
-  w = quic_header_build_long(out, cap, &h);
-  if (w != (usz)(5 + 1 + dcid_len + 1 + scid_len)) return 0;
-  out[0] = quic_lhdr_byte0_pnlen(byte0, pn_len);
+  if (!cids_ok(d)) return 0;
+  h.version  = d->version;
+  h.dcid_len = (u8)d->dcid.n;
+  h.scid_len = (u8)d->scid.n;
+  set_cid(h.dcid, d->dcid.p, d->dcid.n);
+  set_cid(h.scid, d->scid.p, d->scid.n);
+  w = quic_header_build_long(out->p, out->cap, &h);
+  if (w != 5 + 1 + d->dcid.n + 1 + d->scid.n) return 0;
+  out->p[0] = quic_lhdr_byte0_pnlen(d->byte0, d->pn_len);
   return w;
 }
 
-/* Initial-only Token Length(varint)+Token at *off. Returns 1 ok, 0 overflow. */
-static int put_token(
-    u8       *out,
-    usz       cap,
-    usz      *off,
-    int       is_initial,
-    const u8 *token,
-    usz       token_len) {
+/* Initial-only Token Length(varint)+Token at out->len. Returns 1 ok, 0
+ * overflow. */
+static int put_token(const quic_lhdr_desc *d, quic_obuf *out) {
   usz w;
-  if (!is_initial) return 1;
-  w = quic_inittoken_put(out + *off, cap - *off, token, token_len);
+  if (!d->is_initial) return 1;
+  w = quic_inittoken_put(out->p + out->len, out->cap - out->len, d->token);
   if (w == 0) return 0;
-  *off += w;
+  out->len += w;
   return 1;
 }
 
 /* Length(varint) = pn_len + payload_len + 16 (AEAD tag, RFC 9001), recording
  * its offset, then the truncated packet number. Returns 1 ok, 0 overflow. */
 static int put_len_pn(
-    u8  *out,
-    usz  cap,
-    usz *off,
-    usz  payload_len,
-    u64  pn,
-    u8   pn_len,
-    usz *length_off_out) {
-  u64 remaining   = (u64)pn_len + payload_len + 16;
-  *length_off_out = *off;
-  if (!quic_varint_put(out, cap, off, remaining)) return 0;
-  if (*off + pn_len > cap) return 0;
-  *off += quic_pnum_encode(out + *off, pn, pn_len);
+    const quic_lhdr_desc *d, quic_obuf *out, usz *length_off_out) {
+  u64 remaining   = (u64)d->pn_len + d->payload_len + 16;
+  *length_off_out = out->len;
+  if (!quic_varint_put(out->p, out->cap, &out->len, remaining)) return 0;
+  if (out->len + d->pn_len > out->cap) return 0;
+  out->len += quic_pnum_encode(out->p + out->len, d->pn, d->pn_len);
   return 1;
 }
 
-/* Append Token (Initial only), Length, and packet number after the prefix
- * at *off. Returns 1 ok, 0 on any overflow. */
+/* Append Token (Initial only), Length, and packet number after the prefix. */
 static int put_body(
-    u8       *out,
-    usz       cap,
-    usz      *off,
-    int       is_initial,
-    const u8 *token,
-    usz       token_len,
-    usz       payload_len,
-    u64       pn,
-    u8        pn_len,
-    usz      *length_off_out) {
-  return put_token(out, cap, off, is_initial, token, token_len) &&
-         put_len_pn(out, cap, off, payload_len, pn, pn_len, length_off_out);
+    const quic_lhdr_desc *d, quic_obuf *out, usz *length_off_out) {
+  return put_token(d, out) && put_len_pn(d, out, length_off_out);
 }
 
 usz quic_lhdr_build(
-    u8        byte0,
-    u32       version,
-    const u8 *dcid,
-    u8        dcid_len,
-    const u8 *scid,
-    u8        scid_len,
-    int       is_initial,
-    const u8 *token,
-    usz       token_len,
-    usz       payload_len,
-    u64       pn,
-    u8        pn_len,
-    u8       *out,
-    usz       cap,
-    usz      *hdr_len_out,
-    usz      *length_off_out) {
-  usz off = lhdr_put_prefix(
-      out, cap, byte0, version, dcid, dcid_len, scid, scid_len, pn_len);
-  if (off == 0) return 0;
-  if (!put_body(
-          out, cap, &off, is_initial, token, token_len, payload_len, pn, pn_len,
-          length_off_out))
-    return 0;
-  *hdr_len_out = off;
-  return off;
+    const quic_lhdr_desc *d, quic_obuf *out, usz *length_off_out) {
+  out->len = lhdr_put_prefix(d, out);
+  if (out->len == 0) return 0;
+  if (!put_body(d, out, length_off_out)) return 0;
+  return out->len;
 }

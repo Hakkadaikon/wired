@@ -1,5 +1,6 @@
 #include "transport/packet/header/packet/coalesce.h"
 
+#include "common/bytes/span/span.h"
 #include "common/bytes/varint/varint.h"
 
 void quic_coalesce_begin(quic_coalesce_iter *it, const u8 *dgram, usz total) {
@@ -35,27 +36,29 @@ static int skip_long_prefix(const u8 *buf, usz n, usz *p) {
   return skip_cid(buf, n, p);
 }
 
-/* Advance *p past the prefix and, for an Initial packet, the token. */
-static int skip_to_length(const u8 *buf, usz n, usz off, usz *p) {
-  if (!skip_long_prefix(buf, n, p)) return 0;
-  if (!has_token(buf[off])) return 1;
-  return skip_token(buf, n, p);
+/* Advance *p past the prefix and, for an Initial packet, the token. The
+ * packet starts at buf.p[*p] == the header's byte0 on entry. */
+static int skip_to_length(quic_span buf, usz *p) {
+  u8 byte0 = buf.p[*p];
+  if (!skip_long_prefix(buf.p, buf.n, p)) return 0;
+  if (!has_token(byte0)) return 1;
+  return skip_token(buf.p, buf.n, p);
 }
 
-/* The packet length from header end p, payload length, and origin off; 0 if
- * the payload runs past the datagram. */
-static usz packet_bound(usz p, usz off, u64 length, usz n) {
-  if (p + (usz)length > n) return 0;
-  return p - off + (usz)length;
+/* Read the Length varint at *p and bound the packet [off, *p+Length);
+ * returns its total length from off, or 0 if it runs past the datagram. */
+static usz take_length_bound(quic_span buf, usz off, usz *p) {
+  u64 length;
+  if (!quic_varint_take(buf.p, buf.n, p, &length)) return 0;
+  if (*p + (usz)length > buf.n) return 0;
+  return *p - off + (usz)length;
 }
 
 /* Total bytes of the long-header packet at off, or 0 if malformed. */
 static usz long_packet_len(const u8 *buf, usz n, usz off) {
   usz p = off;
-  u64 length;
-  if (!skip_to_length(buf, n, off, &p)) return 0;
-  if (!quic_varint_take(buf, n, &p, &length)) return 0;
-  return packet_bound(p, off, length, n);
+  if (!skip_to_length(quic_span_of(buf, n), &p)) return 0;
+  return take_length_bound(quic_span_of(buf, n), off, &p);
 }
 
 /* Emit a packet [off, off+len) and advance the cursor by len. */

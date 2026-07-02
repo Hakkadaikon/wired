@@ -23,23 +23,21 @@ static void test_framewalk_sequence(void) {
   quic_framewalk it;
   quic_framewalk_init(&it, buf, n);
 
-  u64       type;
-  const u8 *start;
-  usz       rem;
+  quic_framewalk_item fr;
 
-  CHECK(quic_framewalk_next(&it, &type, &start, &rem) == 1);
-  CHECK(type == QUIC_FRAME_PING && start == buf && rem == n);
+  CHECK(quic_framewalk_next(&it, &fr) == 1);
+  CHECK(fr.type == QUIC_FRAME_PING && fr.start == buf && fr.remaining == n);
 
-  CHECK(quic_framewalk_next(&it, &type, &start, &rem) == 1);
-  CHECK(type == QUIC_FRAME_CRYPTO);
+  CHECK(quic_framewalk_next(&it, &fr) == 1);
+  CHECK(fr.type == QUIC_FRAME_CRYPTO);
 
-  CHECK(quic_framewalk_next(&it, &type, &start, &rem) == 1);
-  CHECK((type & 0xf8) == QUIC_FRAME_STREAM_BASE);
+  CHECK(quic_framewalk_next(&it, &fr) == 1);
+  CHECK((fr.type & 0xf8) == QUIC_FRAME_STREAM_BASE);
 
-  CHECK(quic_framewalk_next(&it, &type, &start, &rem) == 1);
-  CHECK(type == QUIC_FRAME_PADDING);
+  CHECK(quic_framewalk_next(&it, &fr) == 1);
+  CHECK(fr.type == QUIC_FRAME_PADDING);
 
-  CHECK(quic_framewalk_next(&it, &type, &start, &rem) == 0);
+  CHECK(quic_framewalk_next(&it, &fr) == 0);
 }
 
 /* An unmeasurable frame type stops the walk rather than misreading bytes. */
@@ -47,10 +45,8 @@ static void test_framewalk_unmeasurable(void) {
   u8             buf[1] = {0x10}; /* MAX_DATA: not in the measurable set */
   quic_framewalk it;
   quic_framewalk_init(&it, buf, sizeof(buf));
-  u64       type;
-  const u8 *start;
-  usz       rem;
-  CHECK(quic_framewalk_next(&it, &type, &start, &rem) == 0);
+  quic_framewalk_item fr;
+  CHECK(quic_framewalk_next(&it, &fr) == 0);
 }
 
 void test_framewalk(void) {

@@ -74,10 +74,17 @@ usz quic_connio_send(
   usz                      n;
   if (!send_ready(io, level, frames_len, &keys)) return 0;
   quic_aes128_init(&hp, keys->hp);
-  n = quic_tx_packet(
-      keys, &hp, level_byte0(level), io->dcid, io->dcid_len, (const u8 *)0, 0,
-      level_is_initial(level), (const u8 *)0, 0, quic_connio_tx_next(io, level),
-      frames, frames_len, out, cap);
+  quic_protect_keys k    = {keys, &hp};
+  quic_span         none = quic_span_of((const u8 *)0, 0);
+  quic_tx_desc      t    = {
+      level_byte0(level),
+      quic_span_of(io->dcid, io->dcid_len),
+      none,
+      level_is_initial(level),
+      none,
+      quic_connio_tx_next(io, level),
+      quic_span_of(frames, frames_len)};
+  n = quic_tx_packet(&k, &t, quic_mspan_of(out, cap));
   if (n) quic_pnspaces_next_pn(&io->tx, level); /* advance only on success */
   return n;
 }
@@ -85,14 +92,13 @@ usz quic_connio_send(
 /* RFC 9000 12.4: walk the recovered payload and dispatch each frame into the
  * receive state. Returns 1 if every frame was handled. */
 static int dispatch_all(quic_connio *io, const u8 *frames, usz frames_len) {
-  quic_framewalk it;
-  const u8      *frame;
-  u64            type;
-  usz            rem;
-  int            ok = 1;
+  quic_framewalk      it;
+  quic_framewalk_item fr;
+  int                 ok = 1;
   quic_framewalk_init(&it, frames, frames_len);
-  while (quic_framewalk_next(&it, &type, &frame, &rem))
-    ok &= quic_framedispatch_handle(&io->disp, type, frame, rem);
+  while (quic_framewalk_next(&it, &fr))
+    ok &= quic_framedispatch_handle(
+        &io->disp, fr.type, quic_span_of(fr.start, fr.remaining));
   return ok;
 }
 
@@ -122,13 +128,11 @@ static int recv_accept(
 int quic_connio_recv(quic_connio *io, int level, u8 *datagram, usz len) {
   const quic_initial_keys *keys;
   quic_aes128              hp;
-  const u8                *frames;
-  usz                      frames_len;
+  quic_span                frames;
   if (!recv_ready(io, level, len, &keys)) return 0;
   quic_aes128_init(&hp, keys->hp);
-  if (!quic_rx_packet(
-          keys, &hp, datagram, len, level_is_initial(level), &frames,
-          &frames_len))
-    return 0;
-  return recv_accept(io, level, frames, frames_len);
+  quic_protect_keys k = {keys, &hp};
+  quic_rx_desc      d = {quic_mspan_of(datagram, len), level_is_initial(level)};
+  if (!quic_rx_packet(&k, &d, &frames)) return 0;
+  return recv_accept(io, level, frames.p, frames.n);
 }

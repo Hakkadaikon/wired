@@ -36,20 +36,26 @@ static void roundtrip(usz pn_len, u64 pn) {
   usz      hdr_len   = pn_off + pn_len;
   const u8 payload[] = {0x06, 0x00, 0x05, 'h', 'e', 'l', 'l', 'o'};
 
-  u8  pkt[80];
-  usz total = quic_protect_seal(
-      &keys, &hp, hdr, hdr_len, pn_off, pn_len, pn, payload, sizeof(payload),
-      pkt, sizeof(pkt));
+  u8                   pkt[80];
+  quic_protect_keys    k   = {&keys, &hp};
+  quic_protect_seal_io sio = {
+      quic_span_of(hdr, hdr_len),
+      pn_off,
+      pn_len,
+      pn,
+      quic_span_of(payload, sizeof(payload)),
+      quic_mspan_of(pkt, sizeof(pkt))};
+  usz total = quic_protect_seal(&k, &sio);
   CHECK(total == hdr_len + sizeof(payload) + 16);
 
-  u64       length = pn_len + sizeof(payload) + 16;
-  const u8 *out;
-  usz       out_len;
-  CHECK(quic_vpn_open(&keys, &hp, pkt, total, pn_off, length, &out, &out_len));
+  u64           length = pn_len + sizeof(payload) + 16;
+  quic_span     out;
+  quic_vpn_desc vd = {quic_mspan_of(pkt, total), pn_off, length};
+  CHECK(quic_vpn_open(&k, &vd, &out));
   CHECK(pkt[0] == (u8)(0xc0 | (pn_len - 1))); /* byte0 unmasked -> pn_len */
   CHECK((pkt[0] & 0x03) + 1 == pn_len);
-  CHECK(out_len == sizeof(payload));
-  for (usz i = 0; i < sizeof(payload); i++) CHECK(out[i] == payload[i]);
+  CHECK(out.n == sizeof(payload));
+  for (usz i = 0; i < sizeof(payload); i++) CHECK(out.p[i] == payload[i]);
 }
 
 static void test_vpn_roundtrip_lengths(void) {
@@ -66,16 +72,22 @@ static void test_vpn_tamper(void) {
   quic_initial_derive(dcid, 8, 0, &keys);
   quic_aes128_init(&hp, keys.hp);
   u8 hdr[18] = {0xc1, 0, 0, 0, 1, 8, 1, 2, 3, 4, 5, 6, 7, 8, 0, 0, 0x12, 0x34};
-  const u8 payload[] = {1, 2, 3, 4};
-  u8       pkt[64];
-  usz      total = quic_protect_seal(
-      &keys, &hp, hdr, 18, 16, 2, 0x1234, payload, sizeof(payload), pkt,
-      sizeof(pkt));
+  const u8             payload[] = {1, 2, 3, 4};
+  u8                   pkt[64];
+  quic_protect_keys    k   = {&keys, &hp};
+  quic_protect_seal_io sio = {
+      quic_span_of(hdr, 18),
+      16,
+      2,
+      0x1234,
+      quic_span_of(payload, sizeof(payload)),
+      quic_mspan_of(pkt, sizeof(pkt))};
+  usz total = quic_protect_seal(&k, &sio);
   pkt[total - 1] ^= 0x80; /* flip a tag bit */
-  const u8 *out;
-  usz       out_len;
-  u64       length = 2 + sizeof(payload) + 16;
-  CHECK(quic_vpn_open(&keys, &hp, pkt, total, 16, length, &out, &out_len) == 0);
+  quic_span     out;
+  u64           length = 2 + sizeof(payload) + 16;
+  quic_vpn_desc vd     = {quic_mspan_of(pkt, total), 16, length};
+  CHECK(quic_vpn_open(&k, &vd, &out) == 0);
 }
 
 /* A pn_len=4 packet sealed by the existing protect path opens via vpn_open. */
@@ -89,15 +101,21 @@ static void test_vpn_protect_compat(void) {
                         0xf0, 0x3e, 0x51, 0x57, 0x08, 0, 0,    0,    2};
   const u8 payload[] = {0x06, 0x00, 0x05, 'h', 'e', 'l', 'l', 'o'};
   u8       pkt[64];
-  usz      total = quic_protect_seal(
-      &keys, &hp, hdr, 18, 14, 4, 2, payload, sizeof(payload), pkt,
-      sizeof(pkt));
-  const u8 *out;
-  usz       out_len;
-  u64       length = 4 + sizeof(payload) + 16;
-  CHECK(quic_vpn_open(&keys, &hp, pkt, total, 14, length, &out, &out_len));
-  CHECK(out_len == sizeof(payload));
-  for (usz i = 0; i < sizeof(payload); i++) CHECK(out[i] == payload[i]);
+  quic_protect_keys    k   = {&keys, &hp};
+  quic_protect_seal_io sio = {
+      quic_span_of(hdr, 18),
+      14,
+      4,
+      2,
+      quic_span_of(payload, sizeof(payload)),
+      quic_mspan_of(pkt, sizeof(pkt))};
+  usz           total = quic_protect_seal(&k, &sio);
+  quic_span     out;
+  u64           length = 4 + sizeof(payload) + 16;
+  quic_vpn_desc vd     = {quic_mspan_of(pkt, total), 14, length};
+  CHECK(quic_vpn_open(&k, &vd, &out));
+  CHECK(out.n == sizeof(payload));
+  for (usz i = 0; i < sizeof(payload); i++) CHECK(out.p[i] == payload[i]);
 }
 
 void test_vpn_open(void) {

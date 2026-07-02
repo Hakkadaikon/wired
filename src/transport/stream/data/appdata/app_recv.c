@@ -13,16 +13,15 @@ static int open_and_decode(
     usz                      len,
     u8                       dcid_len,
     quic_stream_frame       *f) {
-  const u8 *payload = 0;
-  usz       plen    = 0;
+  quic_span payload;
   /* ponytail: this one-shot helper opens a single packet with no receive
    * history, so largest_pn is 0; full-pn recovery across truncated PNs is the
    * srvloop path's job (RFC 9000 A.3). */
-  if (!quic_hspkt_onertt_open(
-          app_keys, hp, pkt, len, dcid_len, 0, &payload, &plen))
-    return 0;
-  if (plen == 0) return 0;
-  return quic_frame_get_stream(payload, plen, f) != 0;
+  quic_protect_keys           k = {app_keys, hp};
+  quic_hspkt_onertt_open_desc d = {quic_mspan_of(pkt, len), dcid_len, 0};
+  if (!quic_hspkt_onertt_open(&k, &d, &payload)) return 0;
+  if (payload.n == 0) return 0;
+  return quic_frame_get_stream(payload.p, payload.n, f) != 0;
 }
 
 /* RFC 9001 5 / RFC 9000 19.8 */

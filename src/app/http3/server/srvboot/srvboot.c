@@ -31,11 +31,12 @@ static int srvboot_collect_ch(
  * recover the ClientHello. */
 static int srvboot_open_initial(
     u8 *dg, usz len, quic_crecv *cr, const u8 **msg, usz *mlen) {
-  const u8 *payload;
-  usz       plen;
+  quic_span payload;
   if (!wired_srvboot_is_initial(dg, len)) return 0;
-  if (!quic_initpkt_open(dg + 6, dg[5], dg, len, 0, &payload, &plen)) return 0;
-  return srvboot_collect_ch(cr, payload, plen, msg, mlen);
+  if (!quic_initpkt_open(
+          quic_span_of(dg + 6, dg[5]), quic_mspan_of(dg, len), &payload))
+    return 0;
+  return srvboot_collect_ch(cr, payload.p, payload.n, msg, mlen);
 }
 
 /* Init the server and its loop. The client's DCID (this Initial's DCID) is the
