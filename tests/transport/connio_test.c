@@ -34,10 +34,10 @@ static void test_connio_seal_open_roundtrip(void) {
   CHECK(quic_connio_recv(&sv, QUIC_LEVEL_INITIAL, pkt, pn) == 1);
 
   /* the STREAM bytes reached the server's read buffer in order */
-  u8  got[16];
-  usz got_len = 0;
-  quic_stream_read_pull(&sv.stream, got, sizeof(got), &got_len);
-  CHECK(got_len == 5);
+  u8        got[16];
+  quic_obuf ob = quic_obuf_of(got, sizeof(got));
+  quic_stream_read_pull(&sv.stream, &ob);
+  CHECK(ob.len == 5);
   CHECK(got[0] == 'h' && got[4] == 'o');
 }
 

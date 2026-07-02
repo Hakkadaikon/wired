@@ -25,17 +25,19 @@ static void test_session_e2e(void) {
   CHECK(quic_session_client_hello(&cli) == 1);
   CHECK(quic_session_accept(&srv) == 1);
   const u8 tr[] = "transcript";
-  CHECK(quic_session_finish(&cli, &srv, tr, sizeof(tr)) == 1);
+  CHECK(quic_session_finish(&cli, &srv, quic_span_of(tr, sizeof(tr))) == 1);
 
   /* server -> client 1-RTT STREAM */
-  CHECK(quic_session_send_stream(&srv, 4, (const u8 *)"hello", 5, 1) == 1);
+  quic_session_msg m1 = {4, {(const u8 *)"hello", 5}, 1};
+  CHECK(quic_session_send_stream(&srv, &m1) == 1);
   quic_stream_frame got;
   CHECK(quic_session_recv_stream(&cli, &got) == 1);
   CHECK(got.stream_id == 4 && got.fin == 1 && got.length == 5);
   CHECK(got.data[0] == 'h' && got.data[4] == 'o');
 
   /* client -> server 1-RTT STREAM (reverse direction) */
-  CHECK(quic_session_send_stream(&cli, 0, (const u8 *)"hi!", 3, 0) == 1);
+  quic_session_msg m2 = {0, {(const u8 *)"hi!", 3}, 0};
+  CHECK(quic_session_send_stream(&cli, &m2) == 1);
   quic_stream_frame got2;
   CHECK(quic_session_recv_stream(&srv, &got2) == 1);
   CHECK(got2.stream_id == 0 && got2.length == 3);

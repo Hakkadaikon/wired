@@ -1,3 +1,5 @@
+#include "transport/conn/lifecycle/endpoint/endpoint.h"
+
 #include "test.h"
 #include "transport/io/socket/net/ipv4.h"
 #include "transport/io/socket/net/memlink.h"
@@ -11,8 +13,8 @@ static usz tx(quic_memlink *l, const u8 *qpkt, usz qlen, u32 src, u32 dst) {
   quic_udp4meta meta = {{4433, 4433}, {src, dst}};
   quic_obuf     ub   = quic_obuf_of(udp, sizeof(udp));
   usz           un   = quic_udp4_build(&ub, &meta, quic_span_of(qpkt, qlen));
-  quic_ipv4_build(ip, &(quic_ipv4_head){(u16)(20 + un), src, dst,
-                                         QUIC_IP_PROTO_UDP});
+  quic_ipv4_build(
+      ip, &(quic_ipv4_head){(u16)(20 + un), src, dst, QUIC_IP_PROTO_UDP});
   for (usz i = 0; i < 20; i++) frame[i] = ip[i];
   for (usz i = 0; i < un; i++) frame[20 + i] = udp[i];
   quic_memlink_send(l, frame, 20 + un);
@@ -25,8 +27,8 @@ static usz rx(quic_memlink *l, u8 *qpkt, usz cap, u32 src, u32 dst) {
   usz fn = quic_memlink_recv(l, frame, sizeof(frame));
   usz un = fn - 20;
   if (fn == 0 || !quic_ipv4_check(frame)) return 0;
-  if (!quic_udp4_check(quic_span_of(frame + 20, un), (quic_ipv4addrs){src,
-                                                                       dst}))
+  if (!quic_udp4_check(
+          quic_span_of(frame + 20, un), (quic_ipv4addrs){src, dst}))
     return 0;
   usz qlen = un - QUIC_UDP_HDR;
   for (usz i = 0; i < qlen && i < cap; i++)
@@ -116,9 +118,11 @@ static void test_endpoint_handshake(void) {
   for (usz i = 0; i < 32; i++) CHECK(peer_pub[i] == cl.pub[i]);
 
   /* both agree on the handshake secret from the same ECDHE inputs */
-  const u8 tr[] = "transcript";
-  quic_endpoint_agree(&cl, sv.pub, tr, sizeof(tr), 0);
-  quic_endpoint_agree(&sv, peer_pub, tr, sizeof(tr), 1);
+  const u8           tr[] = "transcript";
+  quic_endpoint_peer pc   = {sv.pub, quic_span_of(tr, sizeof(tr)), 0};
+  quic_endpoint_peer ps   = {peer_pub, quic_span_of(tr, sizeof(tr)), 1};
+  quic_endpoint_agree(&cl, &pc);
+  quic_endpoint_agree(&sv, &ps);
   /* client's view of the server direction == server's own keys */
   quic_initial_keys cl_sees_server;
   {

@@ -16,7 +16,10 @@ static void test_retrydrive_apply(void) {
   const u8              scid[] = {1, 2, 3, 4, 5, 6, 7, 8};
   quic_retrydrive_state s      = {0};
 
-  CHECK(quic_retrydrive_apply(tok, sizeof tok, scid, sizeof scid, &s) == 1);
+  CHECK(
+      quic_retrydrive_apply(
+          quic_span_of(tok, sizeof tok), quic_span_of(scid, sizeof scid), &s) ==
+      1);
   CHECK(s.received == 1);
   CHECK(s.key_rederive == 1);
   CHECK(s.token_len == sizeof tok);
@@ -31,7 +34,10 @@ static void test_retrydrive_apply_overflow(void) {
   const u8              scid[]   = {9};
   quic_retrydrive_state s        = {0};
 
-  CHECK(quic_retrydrive_apply(big, sizeof big, scid, sizeof scid, &s) == 0);
+  CHECK(
+      quic_retrydrive_apply(
+          quic_span_of(big, sizeof big), quic_span_of(scid, sizeof scid), &s) ==
+      0);
   CHECK(s.received == 0); /* untouched */
 }
 
@@ -46,7 +52,8 @@ static void test_retrydrive_initial_token(void) {
   quic_retrydrive_initial_token(&s, &t, &len);
   CHECK(len == 0); /* no Retry yet -> empty token */
 
-  quic_retrydrive_apply(tok, sizeof tok, scid, sizeof scid, &s);
+  quic_retrydrive_apply(
+      quic_span_of(tok, sizeof tok), quic_span_of(scid, sizeof scid), &s);
   quic_retrydrive_initial_token(&s, &t, &len);
   CHECK(len == sizeof tok);
   for (usz i = 0; i < sizeof tok; i++) CHECK(t[i] == tok[i]);
