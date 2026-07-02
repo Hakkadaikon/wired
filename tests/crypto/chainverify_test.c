@@ -3,28 +3,27 @@
 #include "castore_golden.h"
 #include "test.h"
 
+static quic_span chv_leaf_span(void) {
+  return quic_span_of(quic_castore_leaf_der, sizeof(quic_castore_leaf_der));
+}
+
+static quic_span chv_root_span(void) {
+  return quic_span_of(quic_castore_root_der, sizeof(quic_castore_root_der));
+}
+
 /* RFC 5280 6.1.3. The leaf is signed by the root's key. */
 static void test_leaf_signed_by_root(void) {
-  CHECK(
-      quic_castore_verify_signed_by(
-          quic_castore_leaf_der, sizeof(quic_castore_leaf_der),
-          quic_castore_root_der, sizeof(quic_castore_root_der)) == 1);
+  CHECK(quic_castore_verify_signed_by(chv_leaf_span(), chv_root_span()) == 1);
 }
 
 /* The self-signed root verifies under its own key. */
 static void test_root_self_signature(void) {
-  CHECK(
-      quic_castore_verify_signed_by(
-          quic_castore_root_der, sizeof(quic_castore_root_der),
-          quic_castore_root_der, sizeof(quic_castore_root_der)) == 1);
+  CHECK(quic_castore_verify_signed_by(chv_root_span(), chv_root_span()) == 1);
 }
 
 /* Wrong issuer key (the leaf is not signed by the leaf's own key). */
 static void test_leaf_not_signed_by_leaf(void) {
-  CHECK(
-      quic_castore_verify_signed_by(
-          quic_castore_leaf_der, sizeof(quic_castore_leaf_der),
-          quic_castore_leaf_der, sizeof(quic_castore_leaf_der)) == 0);
+  CHECK(quic_castore_verify_signed_by(chv_leaf_span(), chv_leaf_span()) == 0);
 }
 
 /* Tampering a tbs byte breaks the signature. */
@@ -34,8 +33,7 @@ static void test_tampered_tbs_fails(void) {
   leaf[40] ^= 0xff; /* inside the tbsCertificate */
   CHECK(
       quic_castore_verify_signed_by(
-          leaf, sizeof(leaf), quic_castore_root_der,
-          sizeof(quic_castore_root_der)) == 0);
+          quic_span_of(leaf, sizeof(leaf)), chv_root_span()) == 0);
 }
 
 /* RFC 5280 4.1.1.2: the inner tbsCertificate.signatureAlgorithm must equal the
@@ -49,8 +47,7 @@ static void test_sigalg_mismatch_fails(void) {
   leaf[331] ^= 0x01; /* outer sigAlg OID value byte */
   CHECK(
       quic_castore_verify_signed_by(
-          leaf, sizeof(leaf), quic_castore_root_der,
-          sizeof(quic_castore_root_der)) == 0);
+          quic_span_of(leaf, sizeof(leaf)), chv_root_span()) == 0);
 }
 
 void test_chainverify(void) {

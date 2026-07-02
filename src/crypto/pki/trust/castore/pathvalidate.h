@@ -1,6 +1,7 @@
 #ifndef QUIC_CASTORE_PATHVALIDATE_H
 #define QUIC_CASTORE_PATHVALIDATE_H
 
+#include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
 #include "crypto/pki/trust/castore/castore.h"
 
@@ -11,9 +12,6 @@
  * trust anchor in s: a registered root whose subject equals the tail's issuer
  * (and which signs the tail). Returns 1 if the whole path validates, else 0. */
 int quic_castore_validate_chain(
-    const quic_castore *s,
-    const u8 *const    *certs,
-    const usz          *cert_lens,
-    usz                 n_certs);
+    const quic_castore *s, const quic_span *certs, usz n_certs);
 
 #endif

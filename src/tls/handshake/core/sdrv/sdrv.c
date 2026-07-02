@@ -19,9 +19,10 @@ static void sdrv_build_cert(quic_sdrv *s) {
   quic_ec_mul(&q, s->p256_priv, &quic_p256_g);
   quic_fp_to_be(pub_x, q.x);
   quic_fp_to_be(pub_y, q.y);
-  quic_p256cert_build(
-      s->p256_priv, pub_x, pub_y, s->cert_buf, sizeof(s->cert_buf),
-      &s->cert_len);
+  quic_p256cert_key k = {s->p256_priv, pub_x, pub_y};
+  quic_obuf         o = quic_obuf_of(s->cert_buf, sizeof(s->cert_buf));
+  quic_p256cert_build(&k, &o);
+  s->cert_len = o.len;
   s->cert_der = s->cert_buf;
 }
 

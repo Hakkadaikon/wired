@@ -164,8 +164,9 @@ static void test_fullhs_castore_ok(void) {
   quic_castore_init(&store, roots, 2);
   CHECK(
       quic_castore_add(
-          &store, quic_realchain_root_der, sizeof(quic_realchain_root_der)) ==
-      1);
+          &store,
+          quic_span_of(
+              quic_realchain_root_der, sizeof(quic_realchain_root_der))) == 1);
   quic_fullhs_set_castore(&cl, &store);
   n = fc_cert_msg(msg, fc_realchain, fc_realchain_len, 2);
   CHECK(quic_fullhs_recv_cert(&cl, msg, n) == 1);
@@ -185,8 +186,9 @@ static void test_fullhs_castore_wrong_root(void) {
   quic_castore_init(&store, roots, 2);
   CHECK(
       quic_castore_add(
-          &store, quic_realchain_root_der, sizeof(quic_realchain_root_der)) ==
-      1);
+          &store,
+          quic_span_of(
+              quic_realchain_root_der, sizeof(quic_realchain_root_der))) == 1);
   quic_fullhs_set_castore(&cl, &store); /* golden cert can't anchor here */
 
   cv_len = fc_build_cv(
@@ -224,8 +226,9 @@ static void test_fullhs_castore_swapped(void) {
   quic_castore_init(&store, roots, 2);
   CHECK(
       quic_castore_add(
-          &store, quic_realchain_root_der, sizeof(quic_realchain_root_der)) ==
-      1);
+          &store,
+          quic_span_of(
+              quic_realchain_root_der, sizeof(quic_realchain_root_der))) == 1);
   quic_fullhs_set_castore(&cl, &store);
   n = fc_cert_msg(msg, certs, lens, 2);
   CHECK(quic_fullhs_recv_cert(&cl, msg, n) == 0);

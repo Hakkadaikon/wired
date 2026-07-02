@@ -39,10 +39,12 @@ static void cv_build_signed(const u8 transcript_hash[32], u8 out[130]) {
 static int cert_spki_key(
     const u8 *cert, usz cert_len, const u8 **key, usz *key_len) {
   quic_x509 c;
-  const u8 *oid;
-  usz       oid_len;
-  if (!quic_x509_parse(cert, cert_len, &c)) return 0;
-  return quic_x509_public_key(c.tbs, c.tbs_len, &oid, &oid_len, key, key_len);
+  quic_span oid, k;
+  if (!quic_x509_parse(quic_span_of(cert, cert_len), &c)) return 0;
+  if (!quic_x509_public_key(c.tbs, &oid, &k)) return 0;
+  *key     = k.p;
+  *key_len = k.n;
+  return 1;
 }
 
 /* SEC1 C.5. Strip a single INTEGER sign pad. */
@@ -60,9 +62,11 @@ static void left_pad32(u8 out[32], const u8 *v, usz len) {
 
 /* Read the next element of c, requiring tag want. */
 static int cv_next_tag(quic_derseq *c, u8 want, const u8 **v, usz *len) {
-  u8 tag;
-  if (!quic_derseq_next(c, &tag, v, len)) return 0;
-  return tag == want;
+  quic_span s;
+  if (!quic_derseq_next_tagged(c, want, &s)) return 0;
+  *v   = s.p;
+  *len = s.n;
+  return 1;
 }
 
 /* A field of 1..32 octets fits a P-256 scalar. */
@@ -79,21 +83,12 @@ static int copy_int32(quic_derseq *c, u8 out[32]) {
   return 1;
 }
 
-/* View an outer DER SEQUENCE value. */
-static int read_seq(const u8 *buf, usz n, const u8 **val, usz *vlen) {
-  usz used;
-  u8  tag;
-  if (!quic_der_read(buf, n, &tag, val, vlen, &used)) return 0;
-  return tag == QUIC_DER_SEQUENCE;
-}
-
 /* SEC1 C.5. ECDSA-Sig-Value ::= SEQUENCE { r INTEGER, s INTEGER }. */
 static int ecdsa_split(const u8 *sig, usz sig_len, u8 r[32], u8 s[32]) {
   quic_derseq c;
-  const u8   *seq;
-  usz         seq_len;
-  if (!read_seq(sig, sig_len, &seq, &seq_len)) return 0;
-  quic_derseq_init(&c, seq, seq_len);
+  quic_span   seq;
+  if (!quic_der_seq(quic_span_of(sig, sig_len), &seq)) return 0;
+  quic_derseq_init(&c, seq);
   if (!copy_int32(&c, r)) return 0;
   return copy_int32(&c, s);
 }
@@ -111,7 +106,7 @@ static int ecdsa_inputs(
   const u8 *key;
   usz       key_len;
   if (!cert_spki_key(cert, cert_len, &key, &key_len)) return 0;
-  if (!quic_x509_ec_pubkey(key, key_len, x, y)) return 0;
+  if (!quic_x509_ec_pubkey(quic_span_of(key, key_len), x, y)) return 0;
   return ecdsa_split(sig, sig_len, r, s);
 }
 
@@ -132,12 +127,13 @@ static int verify_rsa(
     const u8 *sig,
     usz       sig_len,
     const u8  hash[32]) {
-  const u8 *key, *n, *e;
-  usz       key_len, n_len, e_len;
+  const u8 *key;
+  usz       key_len;
+  quic_span n, e;
   if (!cert_spki_key(cert, cert_len, &key, &key_len)) return 0;
-  if (!quic_x509_rsa_pubkey(key, key_len, &n, &n_len, &e, &e_len)) return 0;
+  if (!quic_x509_rsa_pubkey(quic_span_of(key, key_len), &n, &e)) return 0;
   /* RFC 8446 9.1: rsa_pss_rsae_sha256 is RSASSA-PSS (never PKCS#1 v1.5). */
-  quic_rsa_pub pub = {{n, n_len}, {e, e_len}};
+  quic_rsa_pub pub = {n, e};
   return quic_rsa_pss_verify(
       &pub, (quic_span){sig, sig_len}, (quic_span){hash, 32});
 }

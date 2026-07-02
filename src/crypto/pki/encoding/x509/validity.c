@@ -2,10 +2,9 @@
 
 #include "crypto/pki/encoding/asn1/der.h"
 #include "crypto/pki/encoding/asn1/derseq.h"
+#include "crypto/pki/encoding/x509/x509.h"
 
-/* RFC 5280 4.1.2.1 / 4.1. version is [0] EXPLICIT; before validity sit
- * serialNumber, signature and issuer. */
-#define VAL_VERSION_TAG 0xa0
+/* RFC 5280 4.1. Before validity sit serialNumber, signature and issuer. */
 #define VALIDITY_SKIP 3
 
 #define DER_UTCTIME 0x17
@@ -25,8 +24,8 @@ static int digits(const u8 *p, usz n, u64 *out) {
 }
 
 /* Z-terminated string of the expected length. */
-static int zterm(const u8 *v, usz len, usz want) {
-  return len == want && v[want - 1] == 'Z';
+static int zterm(quic_span v, usz want) {
+  return v.n == want && v.p[want - 1] == 'Z';
 }
 
 /* RFC 5280 4.1.2.5.1. Century for a 2-digit year: <50 => 2000s, else 1900s. */
@@ -42,93 +41,57 @@ static int utc_digits(const u8 *v, u64 *out) {
 }
 
 /* RFC 5280 4.1.2.5.1. UTCTime is YYMMDDHHMMSSZ. */
-static int utctime(const u8 *v, usz len, u64 *out) {
-  if (!zterm(v, len, 13)) return 0;
-  return utc_digits(v, out);
+static int utctime(quic_span v, u64 *out) {
+  if (!zterm(v, 13)) return 0;
+  return utc_digits(v.p, out);
 }
 
 /* RFC 5280 4.1.2.5.2. GeneralizedTime is YYYYMMDDHHMMSSZ. */
-static int gentime(const u8 *v, usz len, u64 *out) {
-  if (!zterm(v, len, 15)) return 0;
-  return digits(v, 14, out);
+static int gentime(quic_span v, u64 *out) {
+  if (!zterm(v, 15)) return 0;
+  return digits(v.p, 14, out);
 }
 
 /* Decode a Time (UTCTime or GeneralizedTime) into YYYYMMDDHHMMSS. */
-static int time_value(u8 tag, const u8 *v, usz len, u64 *out) {
-  if (tag == DER_UTCTIME) return utctime(v, len, out);
-  if (tag == DER_GENTIME) return gentime(v, len, out);
+static int time_value(u8 tag, quic_span v, u64 *out) {
+  if (tag == DER_UTCTIME) return utctime(v, out);
+  if (tag == DER_GENTIME) return gentime(v, out);
   return 0;
 }
 
-/* Drop the optional version element. */
-static int val_skip_version(quic_derseq *c) {
-  u8        tag;
-  const u8 *val;
-  usz       vlen;
-  if (c->off < c->len && c->p[c->off] == VAL_VERSION_TAG)
-    return quic_derseq_next(c, &tag, &val, &vlen);
-  return 1;
-}
-
-/* Advance past n elements. 1 if all present. */
-static int val_skip_n(quic_derseq *c, usz n) {
-  u8        tag;
-  const u8 *val;
-  usz       vlen;
-  for (usz i = 0; i < n; i++)
-    if (!quic_derseq_next(c, &tag, &val, &vlen)) return 0;
-  return 1;
-}
-
-/* The tbs SEQUENCE value (after its own header). 0 if not a SEQUENCE. */
-static int val_tbs_value(const u8 *tbs, usz tbs_len, const u8 **v, usz *vlen) {
-  u8  tag;
-  usz used;
-  if (!quic_der_read(tbs, tbs_len, &tag, v, vlen, &used)) return 0;
-  return tag == QUIC_DER_SEQUENCE;
-}
-
 /* Position c before the validity element, inside the tbs SEQUENCE value. */
-static int tbs_to_validity(const u8 *tbs, usz tbs_len, quic_derseq *c) {
-  const u8 *v;
-  usz       vlen;
-  if (!val_tbs_value(tbs, tbs_len, &v, &vlen)) return 0;
-  quic_derseq_init(c, v, vlen);
-  return val_skip_version(c) && val_skip_n(c, VALIDITY_SKIP);
+static int tbs_to_validity(quic_span tbs, quic_derseq *c) {
+  return quic_x509_tbs_cursor(tbs, c) && quic_derseq_skip(c, VALIDITY_SKIP);
 }
 
 /* Read one Time element of c into *out. */
 static int next_time(quic_derseq *c, u64 *out) {
   u8        tag;
-  const u8 *v;
-  usz       vlen;
-  if (!quic_derseq_next(c, &tag, &v, &vlen)) return 0;
-  return time_value(tag, v, vlen, out);
+  quic_span v;
+  if (!quic_derseq_next(c, &tag, &v)) return 0;
+  return time_value(tag, v, out);
 }
 
 /* RFC 5280 4.1.2.5. Extract notBefore and notAfter from the Validity value. */
-static int validity_bounds(const u8 *val, usz vlen, u64 *nb, u64 *na) {
+static int validity_bounds(quic_span val, u64 *nb, u64 *na) {
   quic_derseq c;
-  quic_derseq_init(&c, val, vlen);
+  quic_derseq_init(&c, val);
   return next_time(&c, nb) && next_time(&c, na);
 }
 
 /* The Validity SEQUENCE value out of tbs. */
-static int reach_validity(const u8 *tbs, usz tbs_len, const u8 **v, usz *vlen) {
+static int reach_validity(quic_span tbs, quic_span *v) {
   quic_derseq c;
-  u8          tag;
-  if (!tbs_to_validity(tbs, tbs_len, &c)) return 0;
-  if (!quic_derseq_next(&c, &tag, v, vlen)) return 0;
-  return tag == QUIC_DER_SEQUENCE;
+  if (!tbs_to_validity(tbs, &c)) return 0;
+  return quic_derseq_next_tagged(&c, QUIC_DER_SEQUENCE, v);
 }
 
 /* notBefore <= now <= notAfter. */
 static int in_window(u64 nb, u64 na, u64 now) { return nb <= now && now <= na; }
 
-int quic_x509_validity_ok(const u8 *tbs, usz tbs_len, u64 now) {
-  const u8 *v;
-  usz       vlen;
+int quic_x509_validity_ok(quic_span tbs, u64 now) {
+  quic_span v;
   u64       nb, na;
-  if (!reach_validity(tbs, tbs_len, &v, &vlen)) return 0;
-  return validity_bounds(v, vlen, &nb, &na) && in_window(nb, na, now);
+  if (!reach_validity(tbs, &v)) return 0;
+  return validity_bounds(v, &nb, &na) && in_window(nb, na, now);
 }

@@ -161,16 +161,16 @@ void test_sdrv(void) {
   {
     quic_x509           crt;
     quic_tls_cert_entry ee_cert;
-    const u8           *ctx, *alg_oid, *spki_key;
+    const u8           *ctx;
     u32                 ctxl;
-    usz                 alg_len, key_len;
+    quic_span           alg_oid, spki_key;
     u8                  px[32], py[32];
     CHECK(quic_tls_cert_parse(cm + 4, cml - 4, &ctx, &ctxl, &ee_cert));
-    CHECK(quic_x509_parse(ee_cert.cert_data, ee_cert.cert_len, &crt));
-    CHECK(quic_x509_public_key(
-        crt.tbs, crt.tbs_len, &alg_oid, &alg_len, &spki_key, &key_len));
-    CHECK(quic_x509_is_ec(alg_oid, alg_len) == 1);
-    CHECK(quic_x509_ec_pubkey(spki_key, key_len, px, py) == 1);
+    CHECK(quic_x509_parse(
+        quic_span_of(ee_cert.cert_data, ee_cert.cert_len), &crt));
+    CHECK(quic_x509_public_key(crt.tbs, &alg_oid, &spki_key));
+    CHECK(quic_x509_is_ec(alg_oid) == 1);
+    CHECK(quic_x509_ec_pubkey(spki_key, px, py) == 1);
   }
 
   /* CertificateVerify verifies against the server's self-built P-256

@@ -1,6 +1,7 @@
 #ifndef QUIC_P256CERT_ENC_H
 #define QUIC_P256CERT_ENC_H
 
+#include "common/bytes/span/span.h"
 #include "common/bytes/util/bytes.h"
 #include "crypto/pki/cert/selfcert/derenc.h"
 
@@ -15,19 +16,17 @@ typedef struct {
 
 /* Append one TLV at the cursor, advancing off. Latches ok=0 on overflow. */
 static inline void quic_p256cert_put(
-    quic_p256cert_enc *e, u8 tag, const u8 *val, usz len) {
-  usz n;
-  if (e->ok && quic_selfcert_der_tlv(
-                   tag, val, len, e->buf + e->off, e->cap - e->off, &n))
-    e->off += n;
+    quic_p256cert_enc *e, u8 tag, quic_span val) {
+  quic_obuf o = quic_obuf_of(e->buf + e->off, e->cap - e->off);
+  if (e->ok && quic_selfcert_der_tlv(tag, val, &o))
+    e->off += o.len;
   else
     e->ok = 0;
 }
 
 /* Append pre-encoded TLV bytes verbatim onto the cursor. */
-static inline void quic_p256cert_put_pre(
-    quic_p256cert_enc *e, const u8 *tlv, usz n) {
-  if (e->ok && quic_put_bytes(e->buf, e->cap, &e->off, tlv, n)) return;
+static inline void quic_p256cert_put_pre(quic_p256cert_enc *e, quic_span tlv) {
+  if (e->ok && quic_put_bytes(e->buf, e->cap, &e->off, tlv.p, tlv.n)) return;
   e->ok = 0;
 }
 
@@ -39,10 +38,9 @@ static inline quic_p256cert_enc quic_p256cert_loaded(u8 *buf, usz n) {
 
 /* Wrap the cursor's bytes in one TLV of tag into out. 0 length on failure. */
 static inline usz quic_p256cert_wrap(
-    quic_p256cert_enc *e, u8 tag, u8 *out, usz cap) {
-  usz n;
-  if (e->ok && quic_selfcert_der_tlv(tag, e->buf, e->off, out, cap, &n))
-    return n;
+    quic_p256cert_enc *e, u8 tag, quic_obuf *out) {
+  if (e->ok && quic_selfcert_der_tlv(tag, quic_span_of(e->buf, e->off), out))
+    return out->len;
   return 0;
 }
 

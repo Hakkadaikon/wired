@@ -370,8 +370,9 @@ static void test_client_castore_confirmed(void) {
   quic_castore_init(&store, roots, 2);
   CHECK(
       quic_castore_add(
-          &store, quic_realchain_root_der, sizeof(quic_realchain_root_der)) ==
-      1);
+          &store,
+          quic_span_of(
+              quic_realchain_root_der, sizeof(quic_realchain_root_der))) == 1);
   quic_fullhs_set_castore(&c.hs, &store);
 
   n = rc_cert_msg(certmsg);
@@ -400,8 +401,9 @@ static void test_client_castore_wrong_root(void) {
   quic_castore_init(&store, roots, 2);
   CHECK(
       quic_castore_add(
-          &store, quic_realchain_root_der, sizeof(quic_realchain_root_der)) ==
-      1);
+          &store,
+          quic_span_of(
+              quic_realchain_root_der, sizeof(quic_realchain_root_der))) == 1);
   policy_client(&c, &svtls, 0, 0, 0);
   quic_client_set_castore(&c, &store);
   quic_fullhs_set_castore(&c.hs, c.castore); /* as feed_initial would */

@@ -10,19 +10,15 @@ static const u8 *golden_sig(void) { return quic_x509_golden + 324; }
 
 /* SEC1 C.5. Pull the two 32-octet INTEGER values out of the golden SEQUENCE. */
 static int golden_rs(u8 r[32], u8 s[32]) {
-  u8        tag = 0;
-  const u8 *seq = 0, *cur = 0;
-  usz       seqlen = 0, c = 0, rl = 0, sl = 0;
-  const u8 *rv = 0, *sv = 0;
-  if (!quic_der_read(golden_sig(), 70, &tag, &seq, &seqlen, &c)) return 0;
-  quic_der_read(seq, seqlen, &tag, &rv, &rl, &c);
-  cur = seq + c;
-  quic_der_read(cur, seqlen - c, &tag, &sv, &sl, &c);
+  quic_der_tlv seq, ri, si;
+  if (!quic_der_read(quic_span_of(golden_sig(), 70), &seq)) return 0;
+  quic_der_read(seq.val, &ri);
+  quic_der_read(quic_span_of(seq.val.p + ri.used, seq.val.n - ri.used), &si);
   for (usz i = 0; i < 32; i++) {
-    r[i] = rv[i];
-    s[i] = sv[i];
+    r[i] = ri.val.p[i];
+    s[i] = si.val.p[i];
   }
-  return rl == 32 && sl == 32;
+  return ri.val.n == 32 && si.val.n == 32;
 }
 
 /* Round-trip: re-encode the golden r,s and expect the exact golden 70 octets.
@@ -39,20 +35,17 @@ static void test_sig_golden_roundtrip(void) {
 /* The encoded SEQUENCE reads back through the DER parser as INTEGER, INTEGER.
  */
 static void test_sig_reparse(void) {
-  u8        r[32] = {0}, s[32] = {0}, out[80];
-  u8        tag = 0;
-  const u8 *seq = 0, *v = 0;
-  usz       n = 0, sl = 0, c = 0, vl = 0;
-  r[0] = 0x80;
-  s[0] = 0x01;
+  u8           r[32] = {0}, s[32] = {0}, out[80];
+  quic_der_tlv seq, v;
+  usz          n = 0;
+  r[0]           = 0x80;
+  s[0]           = 0x01;
   CHECK(quic_ecdsasig_encode(r, s, out, sizeof(out), &n) == 1);
   CHECK(
-      quic_der_read(out, n, &tag, &seq, &sl, &c) == 1 &&
-      tag == QUIC_DER_SEQUENCE);
-  CHECK(
-      quic_der_read(seq, sl, &tag, &v, &vl, &c) == 1 &&
-      tag == QUIC_DER_INTEGER);
-  CHECK(vl == 33 && v[0] == 0x00 && v[1] == 0x80);
+      quic_der_read(quic_span_of(out, n), &seq) == 1 &&
+      seq.tag == QUIC_DER_SEQUENCE);
+  CHECK(quic_der_read(seq.val, &v) == 1 && v.tag == QUIC_DER_INTEGER);
+  CHECK(v.val.n == 33 && v.val.p[0] == 0x00 && v.val.p[1] == 0x80);
 }
 
 /* No room is rejected. */

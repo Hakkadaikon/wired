@@ -18,49 +18,49 @@ static usz der_long_val(const u8 *p, usz nbytes) {
 /* True if a long-form length of nb octets is unusable here. */
 static int der_long_bad(usz nb, usz lp) { return nb == 0 || lp < 1 + nb; }
 
-/* X.690 8.1.3.5. Long-form length at p (lp octets). */
-static int der_len_long(const u8 *p, usz lp, usz *len, usz *hdr) {
-  usz nb = der_long_n(p[0]);
-  if (der_long_bad(nb, lp)) return 0;
-  *len = der_long_val(p, nb);
+/* X.690 8.1.3.5. Long-form length field lf. */
+static int der_len_long(quic_span lf, usz *len, usz *hdr) {
+  usz nb = der_long_n(lf.p[0]);
+  if (der_long_bad(nb, lf.n)) return 0;
+  *len = der_long_val(lf.p, nb);
   *hdr = 1 + nb;
   return 1;
 }
 
-/* X.690 8.1.3. Parse length at p (lp octets). Sets *len and *hdr (length
- * field octet count). Returns 1 ok, 0 on error. Short + 0x81/0x82 only. */
-static int der_len(const u8 *p, usz lp, usz *len, usz *hdr) {
-  if (lp < 1) return 0;
-  if (p[0] < 0x80) {
-    *len = p[0];
+/* X.690 8.1.3. Parse the length field lf. Sets *len and *hdr (length field
+ * octet count). Returns 1 ok, 0 on error. Short + 0x81/0x82 only. */
+static int der_len(quic_span lf, usz *len, usz *hdr) {
+  if (lf.n < 1) return 0;
+  if (lf.p[0] < 0x80) {
+    *len = lf.p[0];
     *hdr = 1;
     return 1;
   }
-  return der_len_long(p, lp, len, hdr);
+  return der_len_long(lf, len, hdr);
 }
 
 /* Read the tag+length header. Returns 1 ok, 0 if too short or malformed. */
-static int der_header(const u8 *buf, usz n, usz *len, usz *head) {
+static int der_header(quic_span buf, usz *len, usz *head) {
   usz hdr;
-  if (n < 2) return 0;
-  if (!der_len(buf + 1, n - 1, len, &hdr)) return 0;
+  if (buf.n < 2) return 0;
+  if (!der_len(quic_span_of(buf.p + 1, buf.n - 1), len, &hdr)) return 0;
   *head = 1 + hdr;
   return 1;
 }
 
-int quic_der_read(
-    const u8  *buf,
-    usz        n,
-    u8        *tag,
-    const u8 **val,
-    usz       *val_len,
-    usz       *consumed) {
+int quic_der_read(quic_span buf, quic_der_tlv *out) {
   usz len, head;
-  if (!der_header(buf, n, &len, &head)) return 0;
-  if (len > n - head) return 0;
-  *tag      = buf[0];
-  *val      = buf + head;
-  *val_len  = len;
-  *consumed = head + len;
+  if (!der_header(buf, &len, &head)) return 0;
+  if (len > buf.n - head) return 0;
+  out->tag  = buf.p[0];
+  out->val  = quic_span_of(buf.p + head, len);
+  out->used = head + len;
   return 1;
+}
+
+int quic_der_seq(quic_span buf, quic_span *val) {
+  quic_der_tlv t;
+  if (!quic_der_read(buf, &t)) return 0;
+  *val = t.val;
+  return t.tag == QUIC_DER_SEQUENCE;
 }

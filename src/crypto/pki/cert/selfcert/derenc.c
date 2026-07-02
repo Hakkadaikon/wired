@@ -27,15 +27,14 @@ static void der_put_len(u8 *out, usz lo, usz len) {
   der_put_be(out + 1, lo - 1, len);
 }
 
-int quic_selfcert_der_tlv(
-    u8 tag, const u8 *val, usz len, u8 *out, usz cap, usz *out_len) {
-  usz lo = len_octets(len), off = 0;
+int quic_selfcert_der_tlv(u8 tag, quic_span val, quic_obuf *out) {
+  usz lo = len_octets(val.n), off = 0;
   if (lo == 0) return 0;
-  if (1 + lo + len > cap) return 0;
-  out[off++] = tag;
-  der_put_len(out + off, lo, len);
+  if (1 + lo + val.n > out->cap) return 0;
+  out->p[off++] = tag;
+  der_put_len(out->p + off, lo, val.n);
   off += lo;
-  quic_put_bytes(out, cap, &off, val, len);
-  *out_len = off;
+  quic_put_bytes(out->p, out->cap, &off, val.p, val.n);
+  out->len = off;
   return 1;
 }

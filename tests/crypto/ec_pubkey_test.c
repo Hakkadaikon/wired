@@ -12,7 +12,7 @@ static void test_ec_pubkey_extract(void) {
     key[2 + i]  = (u8)i;
     key[34 + i] = (u8)(0x40 + i);
   }
-  CHECK(quic_x509_ec_pubkey(key, sizeof(key), x, y) == 1);
+  CHECK(quic_x509_ec_pubkey(quic_span_of(key, sizeof(key)), x, y) == 1);
   CHECK(x[0] == 0 && x[31] == 31);
   CHECK(y[0] == 0x40 && y[31] == 0x5f);
 }
@@ -23,9 +23,10 @@ static void test_ec_pubkey_bad(void) {
   key[0] = 0x00;
   key[1] = 0x02;
   CHECK(
-      quic_x509_ec_pubkey(key, sizeof(key), x, y) == 0); /* not uncompressed */
+      quic_x509_ec_pubkey(quic_span_of(key, sizeof(key)), x, y) ==
+      0); /* not uncompressed */
   key[1] = 0x04;
-  CHECK(quic_x509_ec_pubkey(key, 65, x, y) == 0); /* wrong length */
+  CHECK(quic_x509_ec_pubkey(quic_span_of(key, 65), x, y) == 0); /* short */
 }
 
 void test_ec_pubkey(void) {
