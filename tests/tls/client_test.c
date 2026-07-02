@@ -100,8 +100,11 @@ static void test_client_feed_serverhello(void) {
   quic_x25519_base(cl_pub, cl_priv);
   quic_x25519_base(sv_pub, sv_priv);
   quic_tlsdriver_init(&c.tls, cl_priv, cl_pub, 0);
-  c.phase  = QUIC_CLIENT_HS_INITIAL;
-  c.sh_len = 0;
+  c.phase    = QUIC_CLIENT_HS_INITIAL;
+  c.sh_len   = 0;
+  c.now      = 0; /* no cert policy: legacy behavior */
+  c.host     = 0;
+  c.host_len = 0;
   quic_tlsdriver_init(&svtls, sv_priv, sv_pub, 1);
   CHECK(quic_tlsdriver_client_hello(&c.tls, frame, sizeof(frame), &fl) == 1);
   CHECK(quic_tlsdriver_recv_crypto(&svtls, frame, fl) == 1);
@@ -160,8 +163,107 @@ static void test_client_e2e_confirmed(void) {
   CHECK(quic_client_is_connected(&c) == 1);
 }
 
+/* Shared fixture for the policy tests: a client at INITIAL with the given
+ * cert policy, plus a server tlsdriver that consumed our ClientHello, ready
+ * for the SH -> Certificate feed sequence. */
+static void policy_client(
+    quic_client    *c,
+    quic_tlsdriver *svtls,
+    u64             now,
+    const u8       *host,
+    usz             host_len) {
+  u8  cl_priv[32], cl_pub[32], sv_priv[32], sv_pub[32], sh[256], frame[1024];
+  usz shn, fl;
+  for (usz i = 0; i < 32; i++) {
+    cl_priv[i] = (u8)(1 + i);
+    sv_priv[i] = (u8)(200 - i);
+  }
+  quic_x25519_base(cl_pub, cl_priv);
+  quic_x25519_base(sv_pub, sv_priv);
+  quic_tlsdriver_init(&c->tls, cl_priv, cl_pub, 0);
+  c->phase    = QUIC_CLIENT_HS_INITIAL;
+  c->sh_len   = 0;
+  c->fd       = -1;
+  c->now      = now;
+  c->host     = host;
+  c->host_len = host_len;
+  quic_tlsdriver_init(svtls, sv_priv, sv_pub, 1);
+  CHECK(quic_tlsdriver_client_hello(&c->tls, frame, sizeof(frame), &fl) == 1);
+  CHECK(quic_tlsdriver_recv_crypto(svtls, frame, fl) == 1);
+  shn = client_build_sh(sh, sizeof(sh), sv_pub);
+  CHECK(
+      quic_crypto_stream_emit(sh, shn, 0, 256, frame, sizeof(frame), &fl) == 1);
+  CHECK(quic_client_feed(c, frame, fl) == 1); /* injects the policy */
+  CHECK(c->phase == QUIC_CLIENT_HS_AUTH);
+}
+
+/* RFC 5280 6.1: with an expired clock the Certificate is refused via the
+ * feed path and the client can never reach connected. */
+static void test_client_expired_now(void) {
+  quic_client    c;
+  quic_tlsdriver svtls;
+  policy_client(&c, &svtls, 20370101000000ULL, 0, 0);
+  CHECK(quic_client_feed(&c, fullhs_cert_msg, sizeof(fullhs_cert_msg)) == 0);
+  CHECK(quic_client_is_connected(&c) == 0);
+}
+
+/* RFC 6125: a hostname that the cert does not name (the golden cert has no
+ * SAN) is refused and the client can never reach connected. */
+static void test_client_wrong_host(void) {
+  quic_client    c;
+  quic_tlsdriver svtls;
+  policy_client(&c, &svtls, 0, (const u8 *)"other.example", 13);
+  CHECK(quic_client_feed(&c, fullhs_cert_msg, sizeof(fullhs_cert_msg)) == 0);
+  CHECK(quic_client_is_connected(&c) == 0);
+}
+
+/* An in-window clock does not false-positive: the same golden flight as the
+ * e2e test still reaches connected with the validity check enforced. */
+static void test_client_policy_valid(void) {
+  quic_client    c;
+  quic_fullhs    sv;
+  quic_tlsdriver svtls;
+  u8             cv[256], svfin[64];
+  u8             cl_priv[32], cl_pub[32], sv_priv[32], sv_pub[32];
+  usz            cv_len, n;
+
+  for (usz i = 0; i < 32; i++) {
+    cl_priv[i] = (u8)(1 + i);
+    sv_priv[i] = (u8)(200 - i);
+  }
+  quic_x25519_base(cl_pub, cl_priv);
+  quic_x25519_base(sv_pub, sv_priv);
+  quic_tlsdriver_init(&c.tls, cl_priv, cl_pub, 0);
+  quic_tlsdriver_init(&svtls, sv_priv, sv_pub, 1);
+  client_reach_hs_secret(&c.tls, &svtls, sv_pub);
+  CHECK(quic_fullhs_init(&c.hs, &c.tls, fullhs_sh, sizeof(fullhs_sh)) == 1);
+  CHECK(quic_fullhs_init(&sv, &svtls, fullhs_sh, sizeof(fullhs_sh)) == 1);
+  /* what feed_initial injects for a client with an in-window clock */
+  quic_fullhs_set_policy(&c.hs, 20270101000000ULL, 0, 0);
+  c.phase = QUIC_CLIENT_HS_AUTH;
+  c.fd    = -1;
+
+  cv_len = client_build_cv(
+      cv, QUIC_TLS_SCHEME_ED25519, fullhs_cv_sig, sizeof(fullhs_cv_sig));
+  CHECK(
+      quic_fullhs_recv_cert(&sv, fullhs_cert_msg, sizeof(fullhs_cert_msg)) ==
+      1);
+  CHECK(
+      quic_fullhs_recv_certverify(&sv, cv, cv_len, QUIC_TLS_SCHEME_ED25519) ==
+      1);
+  CHECK(quic_fullhs_send_finished(&sv, svfin, sizeof(svfin), &n) == 1);
+
+  CHECK(quic_client_feed(&c, fullhs_cert_msg, sizeof(fullhs_cert_msg)) == 1);
+  CHECK(quic_client_feed(&c, cv, cv_len) == 1);
+  CHECK(quic_client_feed(&c, svfin, n) == 1);
+  CHECK(quic_client_is_connected(&c) == 1);
+}
+
 void test_client(void) {
   test_client_initial_padded();
   test_client_feed_serverhello();
   test_client_e2e_confirmed();
+  test_client_expired_now();
+  test_client_wrong_host();
+  test_client_policy_valid();
 }

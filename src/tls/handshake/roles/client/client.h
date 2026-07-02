@@ -32,23 +32,34 @@ typedef struct {
   quic_sockaddr_in peer;
   quic_tlsdriver   tls;
   quic_fullhs      hs;
-  int              phase; /* QUIC_CLIENT_HS_* */
-  u8  sh_transcript[512]; /* ClientHello..ServerHello bytes for fullhs */
-  usz sh_len;
-  u8  my_priv[QUIC_ECDHE_LEN];
-  u8  my_pub[QUIC_ECDHE_LEN];
+  int              phase;       /* QUIC_CLIENT_HS_* */
+  u8        sh_transcript[512]; /* ClientHello..ServerHello bytes for fullhs */
+  usz       sh_len;
+  u8        my_priv[QUIC_ECDHE_LEN];
+  u8        my_pub[QUIC_ECDHE_LEN];
+  const u8 *host;     /* expected server name, view (caller-owned) */
+  usz       host_len; /* 0 skips the SAN hostname check */
+  u64       now;      /* YYYYMMDDHHMMSS; 0 skips the validity check */
 } quic_client;
 
 /* Open a UDP socket, connect to server_ip:port, generate our X25519 key pair
- * and initialize the handshake drivers. server_name/sni_len name the host (SNI,
- * carried by tlsdriver's ClientHello). Returns 1 on success, 0 on RNG/socket
- * failure. */
+ * and initialize the handshake drivers. server_name/sni_len name the host: the
+ * name is carried as SNI in the ClientHello AND enforced against the server
+ * certificate's SAN (RFC 6125). server_name is a view; keep it alive for the
+ * connection. init also reads the wall clock so the certificate validity
+ * window (RFC 5280 6.1) is enforced by default; a clock failure fails init.
+ * Returns 1 on success, 0 on RNG/clock/socket failure. */
 int quic_client_init(
     quic_client *c,
     const u8    *server_ip,
     u16          port,
     const u8    *server_name,
     usz          sni_len);
+
+/* Override the wall clock used for the certificate validity check (packed
+ * decimal YYYYMMDDHHMMSS), e.g. for deterministic tests. Passing 0 DISABLES
+ * the validity check — never do that with a real peer. */
+void quic_client_set_now(quic_client *c, u64 now);
 
 /* RFC 9000 7: emit our real ClientHello, frame it, build the Initial datagram
  * (padded to 1200 per RFC 9000 14.1) and send it. Returns 1 on success. */
