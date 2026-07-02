@@ -126,6 +126,8 @@
 #include "transport/conn/lifecycle/closelife/keepalive.c"
 #include "app/http3/core/h3/priority.c"
 #include "crypto/symmetric/hash/hash/sha512.c"
+#include "crypto/symmetric/hash/hash/sha384.c"
+#include "crypto/pki/encoding/x509/sigalgoid.c"
 #include "app/qpack/qpack/base.c"
 #include "app/qpack/qpack/fieldline.c"
 #include "app/qpack/qpack/insertcount.c"
@@ -655,6 +657,9 @@
 #include "crypto/bignum_test.c"
 #include "crypto/modexp_test.c"
 #include "crypto/rsa_verify_test.c"
+#include "crypto/sha384_test.c"
+#include "crypto/sigalgoid_test.c"
+#include "crypto/rsachain_test.c"
 #include "crypto/p256_field_test.c"
 #include "crypto/p256_point_test.c"
 #include "crypto/ecdsa_verify_test.c"
@@ -1058,6 +1063,9 @@ int main(void) {
   test_bignum();
   test_modexp();
   test_rsa_verify();
+  test_sha384();
+  test_sigalgoid();
+  test_rsachain();
   test_p256_field();
   test_p256_point();
   test_ecdsa_verify();
