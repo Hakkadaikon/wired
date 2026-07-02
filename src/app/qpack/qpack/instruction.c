@@ -29,8 +29,9 @@ static const instr_spec dec_specs[] = {
 
 /* Encode value under the given spec: its pattern in the high bits, value in an
  * N-bit prefix integer. Returns bytes written or 0. */
-static usz instr_encode(u8 *buf, usz cap, const instr_spec *s, u64 value) {
-  return quic_qpack_int_encode(buf, cap, s->prefix_bits, s->pattern, value);
+static usz instr_encode(quic_mspan buf, const instr_spec *s, u64 value) {
+  quic_qpack_pfx pfx = {s->prefix_bits, s->pattern};
+  return quic_qpack_int_encode(buf, pfx, value);
 }
 
 /* The byte's high bits select this spec. */
@@ -46,43 +47,57 @@ static usz spec_classify(const instr_spec *specs, usz count, u8 b) {
   return i;
 }
 
-/* Decode one instruction from specs[0..count): classify the leading byte, read
- * its prefix integer. Sets *kind and *value, returns bytes consumed or 0. */
-static usz instr_decode(
-    const u8         *buf,
-    usz               n,
-    const instr_spec *specs,
-    usz               count,
-    usz              *kind,
-    u64              *value) {
-  if (n == 0) return 0;
-  *kind = spec_classify(specs, count, buf[0]);
-  if (*kind >= count) return 0;
-  return quic_qpack_int_decode(buf, n, specs[*kind].prefix_bits, value);
+/* A spec table: the instruction set of one unidirectional stream. */
+typedef struct {
+  const instr_spec *specs;
+  usz               count;
+} instr_set;
+
+/* One decoded instruction: which spec matched and its integer field. */
+typedef struct {
+  usz kind;
+  u64 value;
+} instr_field;
+
+/* Decode one instruction from the set: classify the leading byte, read its
+ * prefix integer. Fills *f, returns bytes consumed or 0. */
+static usz instr_decode(quic_span buf, const instr_set *s, instr_field *f) {
+  if (buf.n == 0) return 0;
+  f->kind = spec_classify(s->specs, s->count, buf.p[0]);
+  if (f->kind >= s->count) return 0;
+  return quic_qpack_int_decode(buf, s->specs[f->kind].prefix_bits, &f->value);
 }
 
 usz quic_qpack_enc_instr_encode(
-    u8 *buf, usz cap, quic_qpack_enc_kind kind, u64 value) {
-  return instr_encode(buf, cap, &enc_specs[kind], value);
+    quic_mspan buf, quic_qpack_enc_kind kind, u64 value) {
+  return instr_encode(buf, &enc_specs[kind], value);
 }
 
 usz quic_qpack_enc_instr_decode(
-    const u8 *buf, usz n, quic_qpack_enc_kind *kind, u64 *value) {
-  usz k;
-  usz r = instr_decode(buf, n, enc_specs, 4, &k, value);
-  if (r) *kind = (quic_qpack_enc_kind)k;
+    quic_span buf, quic_qpack_enc_kind *kind, u64 *value) {
+  instr_set   s = {enc_specs, 4};
+  instr_field f;
+  usz         r = instr_decode(buf, &s, &f);
+  if (r) {
+    *kind  = (quic_qpack_enc_kind)f.kind;
+    *value = f.value;
+  }
   return r;
 }
 
 usz quic_qpack_dec_instr_encode(
-    u8 *buf, usz cap, quic_qpack_dec_kind kind, u64 value) {
-  return instr_encode(buf, cap, &dec_specs[kind], value);
+    quic_mspan buf, quic_qpack_dec_kind kind, u64 value) {
+  return instr_encode(buf, &dec_specs[kind], value);
 }
 
 usz quic_qpack_dec_instr_decode(
-    const u8 *buf, usz n, quic_qpack_dec_kind *kind, u64 *value) {
-  usz k;
-  usz r = instr_decode(buf, n, dec_specs, 3, &k, value);
-  if (r) *kind = (quic_qpack_dec_kind)k;
+    quic_span buf, quic_qpack_dec_kind *kind, u64 *value) {
+  instr_set   s = {dec_specs, 3};
+  instr_field f;
+  usz         r = instr_decode(buf, &s, &f);
+  if (r) {
+    *kind  = (quic_qpack_dec_kind)f.kind;
+    *value = f.value;
+  }
   return r;
 }

@@ -14,7 +14,9 @@ static void test_resp_build_roundtrip(void) {
   CHECK(quic_h3req_resp_parse(out, n, &h, &hl, &body, &bl) == 1);
   /* field section: 2-byte prefix then Indexed Field Line for :status 200. */
   CHECK(hl == 3 && h[0] == 0x00 && h[1] == 0x00);
-  CHECK(quic_qpack_indexed_decode(h + 2, hl - 2, &idx, &is_static) != 0);
+  CHECK(
+      quic_qpack_indexed_decode(
+          quic_span_of(h + 2, hl - 2), &idx, &is_static) != 0);
   CHECK(is_static == 1 && idx == 25);
   CHECK(bl == 2 && body[0] == 'h' && body[1] == 'i');
 }

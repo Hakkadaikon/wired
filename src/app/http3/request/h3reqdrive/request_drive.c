@@ -81,7 +81,7 @@ static usz line_indexed(const u8 *fs, usz n, u8 *scr, usz scap, rline *L) {
   u64         index     = 0;
   int         is_static = 0;
   const char *name = 0, *value = 0;
-  usz         c = quic_qpack_indexed_decode(fs, n, &index, &is_static);
+  usz c = quic_qpack_indexed_decode(quic_span_of(fs, n), &index, &is_static);
   (void)scr;
   (void)scap;
   if (!c || !quic_qpack_static_get((usz)index, &name, &value)) return 0;
@@ -92,34 +92,33 @@ static usz line_indexed(const u8 *fs, usz n, u8 *scr, usz scap, rline *L) {
 /* RFC 9204 4.5.4: a Literal With Name Reference -> static name, copied value.
  */
 static usz line_namref(const u8 *fs, usz n, u8 *scr, usz scap, rline *L) {
-  u64         index     = 0;
-  int         is_static = 0, never = 0;
-  usz         vlen = 0;
-  const char *name = 0, *value = 0;
-  usz         c = quic_qpack_literal_namref_decode(
-      fs, n, &index, &is_static, &never, scr, scap, &vlen);
-  if (!c || !quic_qpack_static_get((usz)index, &name, &value)) return 0;
+  quic_qpack_nameref r    = {0, 0, 0};
+  quic_obuf          vb   = quic_obuf_of(scr, scap);
+  const char        *name = 0, *value = 0;
+  usz c = quic_qpack_literal_namref_decode(quic_span_of(fs, n), &r, &vb);
+  if (!c || !quic_qpack_static_get((usz)r.index, &name, &value)) return 0;
   L->name         = (const u8 *)name;
   L->name_len     = cstr_len(name);
   L->value        = scr;
-  L->value_len    = vlen;
-  L->scratch_used = vlen;
+  L->value_len    = vb.len;
+  L->scratch_used = vb.len;
   return c;
 }
 
 /* RFC 9204 4.5.6: a Literal With Literal Name -> name in the first scratch
  * half, value in the second (disjoint, since both are written in one call). */
 static usz line_litname(const u8 *fs, usz n, u8 *scr, usz scap, rline *L) {
-  int never = 0;
-  usz half = scap / 2, nlen = 0, vlen = 0;
-  usz c = quic_qpack_literal_name_decode(
-      fs, n, &never, scr, half, &nlen, scr + half, scap - half, &vlen);
+  int                 never = 0;
+  usz                 half  = scap / 2;
+  quic_qpack_fieldbuf fb    = {
+      quic_obuf_of(scr, half), quic_obuf_of(scr + half, scap - half)};
+  usz c = quic_qpack_literal_name_decode(quic_span_of(fs, n), &never, &fb);
   if (!c) return 0;
   L->name         = scr;
-  L->name_len     = nlen;
+  L->name_len     = fb.name.len;
   L->value        = scr + half;
-  L->value_len    = vlen;
-  L->scratch_used = half + vlen;
+  L->value_len    = fb.value.len;
+  L->scratch_used = half + fb.value.len;
   return c;
 }
 

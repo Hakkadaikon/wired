@@ -91,9 +91,10 @@ static usz cstr(const char *s) {
 /* RFC 9204 4.5.6: a Literal Field Line With Literal Name carrying (name,value),
  * appended at *off in fs. */
 static void put_litname(u8 *fs, usz *off, const char *name, const char *value) {
-  *off += quic_qpack_literal_name_encode(
-      fs + *off, 64, 0, (const u8 *)name, cstr(name), (const u8 *)value,
-      cstr(value));
+  quic_qpack_field f = {
+      quic_span_of((const u8 *)name, cstr(name)),
+      quic_span_of((const u8 *)value, cstr(value))};
+  *off += quic_qpack_literal_name_encode(quic_mspan_of(fs + *off, 64), 0, &f);
 }
 
 /* RFC 9114 4.3.1 / RFC 9204 4.5: build a curl/quiche-style request field
@@ -101,13 +102,17 @@ static void put_litname(u8 *fs, usz *off, const char *name, const char *value) {
  * mix of indexed, name-reference and literal-name forms, plus a regular
  * user-agent header as a literal-name line. */
 static usz curl_field_section(u8 *fs) {
-  quic_qpack_prefix pfx = {0, 0, 0};
-  usz               off = quic_qpack_prefix_encode(fs, 64, &pfx);
-  off += quic_qpack_indexed_encode(fs + off, 64, 17, 1); /* :method GET */
+  quic_qpack_prefix  pfx  = {0, 0, 0};
+  usz                off  = quic_qpack_prefix_encode(fs, 64, &pfx);
+  quic_qpack_nameref path = {1, 1, 0};
+  off += quic_qpack_indexed_encode(
+      quic_mspan_of(fs + off, 64), 17, 1); /* :method GET */
   put_litname(fs, &off, ":authority", "curl.test");
-  off += quic_qpack_indexed_encode(fs + off, 64, 23, 1); /* :scheme https */
+  off += quic_qpack_indexed_encode(
+      quic_mspan_of(fs + off, 64), 23, 1); /* :scheme https */
   off += quic_qpack_literal_namref_encode(
-      fs + off, 64, 1, 1, 0, (const u8 *)"/get", 4); /* :path */
+      quic_mspan_of(fs + off, 64), &path,
+      quic_span_of((const u8 *)"/get", 4)); /* :path */
   put_litname(fs, &off, "user-agent", "curl/8");
   return off;
 }
@@ -309,27 +314,27 @@ static void test_reqdrive_response_status(void) {
  * round-trips: insert :authority into the dynamic table, encode the indexed
  * dynamic line, then decode it back to the same (name, value). */
 static void test_reqdrive_dynamic_table(void) {
-  quic_qpack_dyn t;
-  u8             fs[8];
-  usz            fs_len = 0, consumed = 0;
-  u64            abs, base, rel;
-  int            matched;
-  const u8      *dn, *dv;
-  usz            dnl, dvl;
+  quic_qpack_dyn   t;
+  u8               fs[8];
+  quic_obuf        ob       = quic_obuf_of(fs, sizeof(fs));
+  usz              consumed = 0;
+  u64              base, rel;
+  quic_qpack_field f = {
+      quic_span_of((const u8 *)":authority", 10),
+      quic_span_of((const u8 *)"ex.com", 6)};
+  quic_qpack_match m;
+  quic_qpack_field d;
   quic_qpack_dyn_init(&t, 4096);
 
-  CHECK(quic_qpack_dyn_insert(
-      &t, (const u8 *)":authority", 10, (const u8 *)"ex.com", 6));
+  CHECK(quic_qpack_dyn_insert(&t, &f));
   base = t.dropped + t.count;
-  CHECK(quic_qpack_dyn_find(
-      &t, (const u8 *)":authority", 10, (const u8 *)"ex.com", 6, &abs,
-      &matched));
-  rel = base - abs - 1;
-  CHECK(quic_qdyn_indexed_dynamic(rel, fs, sizeof(fs), &fs_len));
-  CHECK(quic_qdyn_decode_field(
-      &t, base, fs, fs_len, 0, &dn, &dnl, &dv, &dvl, &consumed));
-  CHECK(rd_eq(dn, dnl, ":authority", 10));
-  CHECK(rd_eq(dv, dvl, "ex.com", 6));
+  CHECK(quic_qpack_dyn_find(&t, &f, &m));
+  rel = base - m.abs_index - 1;
+  CHECK(quic_qdyn_indexed_dynamic(rel, &ob));
+  quic_qdyn_src src = {&t, base, quic_span_of(fs, ob.len)};
+  CHECK(quic_qdyn_decode_field(&src, &d, &consumed));
+  CHECK(rd_eq(d.name.p, d.name.n, ":authority", 10));
+  CHECK(rd_eq(d.value.p, d.value.n, "ex.com", 6));
 }
 
 void test_h3reqdrive(void) {

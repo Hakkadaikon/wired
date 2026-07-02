@@ -3,18 +3,16 @@
 
 #include "app/qpack/qpack/dyntable.h"
 
-/* RFC 9204 2.1. Search live entries for one matching name (and value when
- * possible). A name+value match is preferred over a name-only match. On a
- * hit, *abs_index gets the entry's absolute index, *value_matched is 1 for a
- * full match or 0 for name-only, and the call returns 1. Returns 0 if no
- * entry's name matches. */
+/* A search hit: the entry's absolute index and whether the value matched. */
+typedef struct {
+  u64 abs_index;
+  int value_matched; /* 1 = name+value, 0 = name only */
+} quic_qpack_match;
+
+/* RFC 9204 2.1. Search live entries for one matching f->name (and f->value
+ * when possible). A name+value match is preferred over a name-only match. On
+ * a hit, fills *m and returns 1. Returns 0 if no entry's name matches. */
 int quic_qpack_dyn_find(
-    const quic_qpack_dyn *t,
-    const u8             *name,
-    usz                   name_len,
-    const u8             *value,
-    usz                   value_len,
-    u64                  *abs_index,
-    int                  *value_matched);
+    const quic_qpack_dyn *t, const quic_qpack_field *f, quic_qpack_match *m);
 
 #endif

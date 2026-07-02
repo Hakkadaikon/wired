@@ -36,18 +36,18 @@ static void test_connect_encode_two_fields(void) {
 
   u64 idx       = 0;
   int is_static = 0;
-  usz c = quic_qpack_indexed_decode(out + off, n - off, &idx, &is_static);
+  usz c         = quic_qpack_indexed_decode(
+      quic_span_of(out + off, n - off), &idx, &is_static);
   CHECK(c > 0 && is_static == 1 && idx == 15); /* :method CONNECT */
   off += c;
 
-  u64 nidx = 0;
-  int ns = 0, never = 0;
-  u8  val[32];
-  usz vlen = 0;
-  c        = quic_qpack_literal_namref_decode(
-      out + off, n - off, &nidx, &ns, &never, val, sizeof val, &vlen);
-  CHECK(c > 0 && ns == 1 && nidx == 0); /* :authority name reference */
-  CHECK(vlen == sizeof authority && val[0] == 'h' && val[7] == '3');
+  quic_qpack_nameref nr = {0, 0, 0};
+  u8                 val[32];
+  quic_obuf          vb = quic_obuf_of(val, sizeof val);
+  c                     = quic_qpack_literal_namref_decode(
+      quic_span_of(out + off, n - off), &nr, &vb);
+  CHECK(c > 0 && nr.is_static == 1 && nr.index == 0); /* :authority name ref */
+  CHECK(vb.len == sizeof authority && val[0] == 'h' && val[7] == '3');
   off += c;
   CHECK(off == n); /* no :scheme/:path follow */
 }

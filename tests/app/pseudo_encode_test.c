@@ -23,29 +23,32 @@ static void test_pseudo_indexed_and_namref(void) {
 /* Round-trip: decode the Indexed and Literal field lines back and confirm the
  * pseudo-headers resolve to their static names/values. */
 static void test_pseudo_roundtrip(void) {
-  u8          out[64];
-  usz         n = 0;
-  const u8   *m = (const u8 *)"GET", *s = (const u8 *)"https";
-  const u8   *p = (const u8 *)"/", *a = (const u8 *)"example.com";
-  u64         idx       = 0;
-  int         is_static = 0, never = 0;
-  usz         used, vlen           = 0;
-  u8          val[32];
-  const char *nm, *vv;
+  u8                 out[64];
+  usz                n = 0;
+  const u8          *m = (const u8 *)"GET", *s = (const u8 *)"https";
+  const u8          *p = (const u8 *)"/", *a = (const u8 *)"example.com";
+  u64                idx       = 0;
+  int                is_static = 0;
+  usz                used;
+  u8                 val[32];
+  quic_obuf          vb = quic_obuf_of(val, sizeof val);
+  quic_qpack_nameref nr = {0, 0, 0};
+  const char        *nm, *vv;
   CHECK(
       quic_h3req_enc_pseudo(m, 3, p, 1, s, 5, a, 11, out, sizeof out, &n) == 1);
   /* first field line after the 2-byte prefix: Indexed :method GET (idx 17). */
-  used = quic_qpack_indexed_decode(out + 2, n - 2, &idx, &is_static);
+  used =
+      quic_qpack_indexed_decode(quic_span_of(out + 2, n - 2), &idx, &is_static);
   CHECK(used == 1 && is_static == 1 && idx == 17);
   CHECK(quic_qpack_static_get((usz)idx, &nm, &vv) == 1);
   CHECK(nm[0] == ':' && vv[0] == 'G');
   /* :authority literal: name index 0 resolves to ":authority", value echoed.
    * It follows prefix(2) + :method(1) + :scheme(1) at offset 4. */
-  used = quic_qpack_literal_namref_decode(
-      out + 4, n - 4, &idx, &is_static, &never, val, sizeof val, &vlen);
-  CHECK(used != 0 && is_static == 1 && idx == 0);
-  CHECK(vlen == 11 && val[0] == 'e' && val[10] == 'm');
-  CHECK(quic_qpack_static_get((usz)idx, &nm, &vv) == 1);
+  used =
+      quic_qpack_literal_namref_decode(quic_span_of(out + 4, n - 4), &nr, &vb);
+  CHECK(used != 0 && nr.is_static == 1 && nr.index == 0);
+  CHECK(vb.len == 11 && val[0] == 'e' && val[10] == 'm');
+  CHECK(quic_qpack_static_get((usz)nr.index, &nm, &vv) == 1);
   CHECK(nm[1] == 'a'); /* ":authority" */
 }
 

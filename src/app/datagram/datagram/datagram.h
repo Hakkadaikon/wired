@@ -1,7 +1,7 @@
 #ifndef QUIC_DATAGRAM_DATAGRAM_H
 #define QUIC_DATAGRAM_DATAGRAM_H
 
-#include "common/platform/sys/syscall.h"
+#include "common/bytes/span/span.h"
 
 /* RFC 9221 unreliable datagram extension. The DATAGRAM frame type 0x30 has
  * no length (data runs to the packet end); 0x31 carries an explicit length.
@@ -19,11 +19,11 @@ typedef struct {
   const u8 *data;   /* view into the packet buffer */
 } quic_datagram_frame;
 
-/* Encode a DATAGRAM frame into buf of cap bytes. When with_len is set the
- * frame is type 0x31 (explicit length); otherwise 0x30 and the data must be
- * the last frame in the packet. Returns bytes written, or 0. */
+/* Encode a DATAGRAM frame into buf. When with_len is set the frame is type
+ * 0x31 (explicit length); otherwise 0x30 and the data must be the last frame
+ * in the packet. Returns bytes written, or 0. */
 usz quic_datagram_encode(
-    u8 *buf, usz cap, const quic_datagram_frame *f, int with_len);
+    quic_mspan buf, const quic_datagram_frame *f, int with_len);
 
 /* Decode a DATAGRAM frame at buf (n readable, type byte at buf[0]). For 0x30
  * the data is the rest of the buffer; for 0x31 the length is explicit.

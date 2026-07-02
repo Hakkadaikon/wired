@@ -44,11 +44,13 @@ static i64 static_index(const pseudo_field *f, char *buf) {
  * static table, else a Literal With Name Reference. Returns bytes written or 0.
  */
 static usz put_pseudo(const pseudo_field *f, u8 *out, usz cap) {
-  char buf[VALBUF_CAP];
-  i64  idx = static_index(f, buf);
-  if (idx >= 0) return quic_qpack_indexed_encode(out, cap, (u64)idx, 1);
+  char               buf[VALBUF_CAP];
+  i64                idx = static_index(f, buf);
+  quic_qpack_nameref r   = {f->name_idx, 1, 0};
+  if (idx >= 0)
+    return quic_qpack_indexed_encode(quic_mspan_of(out, cap), (u64)idx, 1);
   return quic_qpack_literal_namref_encode(
-      out, cap, f->name_idx, 1, 0, f->val, f->vlen);
+      quic_mspan_of(out, cap), &r, quic_span_of(f->val, f->vlen));
 }
 
 /* Encode the empty Encoded Field Section Prefix at out. */
