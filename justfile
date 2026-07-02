@@ -2,7 +2,10 @@
 
 cc := "clang"
 cflags := "-target x86_64-linux-gnu -ffreestanding -fno-stack-protector -fno-builtin -nostdlib -static -Wall -Wextra -Werror -O2 -Isrc"
-testflags := "-Wall -Wextra -Werror -O2 -Isrc -Itests"
+# -mbranches-within-32B-boundaries: this host's Xeon (Cascade Lake) has the
+# JCC erratum; without it, test runtime swings ~40% on code-placement luck,
+# making perf comparisons between commits meaningless.
+testflags := "-Wall -Wextra -Werror -O2 -mbranches-within-32B-boundaries -Isrc -Itests"
 
 # full build: format, compile freestanding, then static analysis.
 # fmt normalizes sources, compile-all proves libc independence, lint runs the
