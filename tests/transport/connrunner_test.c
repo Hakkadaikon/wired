@@ -388,14 +388,37 @@ static void test_connrunner_keyupdate(void) {
 static const u8 g_retry_scid[4]  = {0xaa, 0xbb, 0xcc, 0xdd};
 static const u8 g_retry_token[3] = {0x01, 0x02, 0x03};
 
+/* Old-shape convenience over the retry_event/vn_lists param objects. */
+static int recv_retry_flat(
+    quic_connrunner *r,
+    int              tag_valid,
+    const u8        *scid,
+    usz              scid_len,
+    const u8        *token,
+    usz              token_len) {
+  quic_retry_event e = {
+      tag_valid, quic_span_of(scid, scid_len), quic_span_of(token, token_len)};
+  return quic_connrunner_recv_retry(r, &e);
+}
+
+static int recv_vn_flat(
+    quic_connrunner *r,
+    const u32       *offered,
+    usz              n_off,
+    const u32       *supported,
+    usz              n_sup,
+    u32             *chosen) {
+  quic_vn_lists l = {
+      quic_verlist_of(offered, n_off), quic_verlist_of(supported, n_sup)};
+  return quic_connrunner_recv_vn(r, &l, chosen);
+}
+
 /* RFC 9000 17.2.5.2: the first valid Retry is accepted, adopts the Retry SCID
  * as the new DCID, and marks the Initial keys stale (re-derivation pending). */
 static void test_retry_first_accepted(void) {
   quic_connrunner r;
   mk_runner(&r, 0);
-  CHECK(
-      quic_connrunner_recv_retry(&r, 1, g_retry_scid, 4, g_retry_token, 3) ==
-      1);
+  CHECK(recv_retry_flat(&r, 1, g_retry_scid, 4, g_retry_token, 3) == 1);
   CHECK(r.retry.received == 1);
   CHECK(r.retry.dcid_len == 4 && r.retry.dcid[0] == 0xaa);
   CHECK(r.retry.key_rederive == 1);
@@ -405,9 +428,7 @@ static void test_retry_first_accepted(void) {
 static void test_retry_bad_tag_discarded(void) {
   quic_connrunner r;
   mk_runner(&r, 0);
-  CHECK(
-      quic_connrunner_recv_retry(&r, 0, g_retry_scid, 4, g_retry_token, 3) ==
-      0);
+  CHECK(recv_retry_flat(&r, 0, g_retry_scid, 4, g_retry_token, 3) == 0);
   CHECK(r.retry.received == 0);
 }
 
@@ -415,11 +436,9 @@ static void test_retry_bad_tag_discarded(void) {
 static void test_retry_second_discarded(void) {
   quic_connrunner r;
   mk_runner(&r, 0);
-  CHECK(
-      quic_connrunner_recv_retry(&r, 1, g_retry_scid, 4, g_retry_token, 3) ==
-      1);
+  CHECK(recv_retry_flat(&r, 1, g_retry_scid, 4, g_retry_token, 3) == 1);
   u8 other[4] = {0x11, 0x22, 0x33, 0x44};
-  CHECK(quic_connrunner_recv_retry(&r, 1, other, 4, g_retry_token, 3) == 0);
+  CHECK(recv_retry_flat(&r, 1, other, 4, g_retry_token, 3) == 0);
   CHECK(r.retry.dcid[0] == 0xaa); /* DCID unchanged by the second Retry */
 }
 
@@ -428,7 +447,7 @@ static void test_retry_second_discarded(void) {
 static void test_retry_rederive_then_token(void) {
   quic_connrunner r;
   mk_runner(&r, 0);
-  quic_connrunner_recv_retry(&r, 1, g_retry_scid, 4, g_retry_token, 3);
+  recv_retry_flat(&r, 1, g_retry_scid, 4, g_retry_token, 3);
   CHECK(quic_connrunner_retry_rederive(&r) == 1);    /* keys re-derived first */
   CHECK(r.io.dcid_len == 4 && r.io.dcid[0] == 0xaa); /* DCID now the SCID */
   CHECK(r.retry.key_rederive == 0);                  /* no stale-key send */
@@ -444,9 +463,7 @@ static void test_retry_ignored_after_progress(void) {
   quic_connrunner r;
   mk_runner(&r, 0);
   r.io.loop.handshake_complete = 1; /* the handshake has progressed */
-  CHECK(
-      quic_connrunner_recv_retry(&r, 1, g_retry_scid, 4, g_retry_token, 3) ==
-      0);
+  CHECK(recv_retry_flat(&r, 1, g_retry_scid, 4, g_retry_token, 3) == 0);
   CHECK(r.retry.received == 0);
 }
 
@@ -468,7 +485,7 @@ static void test_vn_select_common(void) {
   mk_runner(&r, 0);
   r.sent_version = VER_A;
   u32 offered[1] = {VER_B}, supported[2] = {VER_B, VER_A}, chosen = 0;
-  CHECK(quic_connrunner_recv_vn(&r, offered, 1, supported, 2, &chosen) == 1);
+  CHECK(recv_vn_flat(&r, offered, 1, supported, 2, &chosen) == 1);
   CHECK(chosen == VER_B);
   CHECK(r.vn_retry_count == 1);
 }
@@ -480,7 +497,7 @@ static void test_vn_downgrade_discarded(void) {
   mk_runner(&r, 0);
   r.sent_version = VER_A;
   u32 offered[2] = {VER_A, VER_B}, supported[2] = {VER_B, VER_A}, chosen = 0;
-  CHECK(quic_connrunner_recv_vn(&r, offered, 2, supported, 2, &chosen) == 0);
+  CHECK(recv_vn_flat(&r, offered, 2, supported, 2, &chosen) == 0);
   CHECK(r.vn_retry_count == 0);
 }
 
@@ -491,7 +508,7 @@ static void test_vn_second_no_reconnect(void) {
   r.sent_version   = VER_A;
   r.vn_retry_count = 1; /* already reconnected once */
   u32 offered[1] = {VER_B}, supported[2] = {VER_B, VER_A}, chosen = 0;
-  CHECK(quic_connrunner_recv_vn(&r, offered, 1, supported, 2, &chosen) == 0);
+  CHECK(recv_vn_flat(&r, offered, 1, supported, 2, &chosen) == 0);
   CHECK(r.vn_retry_count == 1);
 }
 
@@ -503,7 +520,7 @@ static void test_vn_no_common_abort(void) {
   r.sent_version = VER_A;
   u32 offered[1] = {0xdead0000u}, supported[2] = {VER_B, VER_A}, chosen = 0;
   CHECK(
-      quic_connrunner_recv_vn(&r, offered, 1, supported, 2, &chosen) ==
+      recv_vn_flat(&r, offered, 1, supported, 2, &chosen) ==
       QUIC_CONNRUNNER_VN_ABORT);
 }
 
@@ -514,7 +531,7 @@ static void test_vn_ignored_after_progress(void) {
   r.sent_version               = VER_A;
   r.io.loop.handshake_complete = 1;
   u32 offered[1] = {VER_B}, supported[2] = {VER_B, VER_A}, chosen = 0;
-  CHECK(quic_connrunner_recv_vn(&r, offered, 1, supported, 2, &chosen) == 0);
+  CHECK(recv_vn_flat(&r, offered, 1, supported, 2, &chosen) == 0);
   CHECK(r.vn_retry_count == 0);
 }
 
