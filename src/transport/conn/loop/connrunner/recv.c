@@ -55,7 +55,8 @@ usz quic_connrunner_process_datagram(quic_connrunner *r, u8 *dgram, usz len) {
   const u8 *pkts[QUIC_CONNRUNNER_MAXPKTS];
   usz       offs[QUIC_CONNRUNNER_MAXPKTS], lens[QUIC_CONNRUNNER_MAXPKTS], n, i;
   usz       accepted = 0;
-  n = quic_udploop_split(dgram, len, pkts, offs, lens, QUIC_CONNRUNNER_MAXPKTS);
+  quic_pktlist out = {pkts, offs, lens, QUIC_CONNRUNNER_MAXPKTS};
+  n = quic_udploop_split(quic_span_of(dgram, len), &out);
   for (i = 0; i < n; i++) {
     int elicited = 0;
     if (!recv_one(r, dgram + offs[i], lens[i], &elicited)) continue;
@@ -72,10 +73,9 @@ static int slot_acked(const quic_sentmeta_pkt *p, u64 largest) {
 
 /* Acknowledge slot i if it is at or below `largest`. */
 static void ack_one(quic_sentmeta *m, usz i, u64 largest) {
-  u64 t;
-  int e;
+  quic_sentmeta_acked out;
   if (slot_acked(&m->pkts[i], largest))
-    quic_sentmeta_on_ack(m, m->pkts[i].pn, &t, &e);
+    quic_sentmeta_on_ack(m, m->pkts[i].pn, &out);
 }
 
 void quic_connrunner_track_acks(quic_connrunner *r) {

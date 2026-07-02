@@ -19,9 +19,9 @@ int quic_vers_supports(const quic_vers_set *s, u32 version) {
 }
 
 int quic_vers_choose_compatible(
-    const quic_vers_set *s, const u32 *peer_versions, usz n, u32 *chosen) {
+    const quic_vers_set *s, quic_verlist peer_versions, u32 *chosen) {
   for (usz i = 0; i < s->n; i++) {
-    if (in_list(peer_versions, n, s->versions[i])) {
+    if (in_list(peer_versions.list, peer_versions.n, s->versions[i])) {
       *chosen = s->versions[i];
       return 1;
     }

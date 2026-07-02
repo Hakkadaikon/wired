@@ -13,9 +13,8 @@ static int usable(u32 v, const u32 *we_support, usz n_support) {
 }
 
 /* RFC 9368 3 */
-int quic_version_must_abandon(
-    const u32 *offered, usz n, const u32 *we_support, usz n_support) {
-  for (usz i = 0; i < n; i++)
-    if (usable(offered[i], we_support, n_support)) return 0;
+int quic_version_must_abandon(quic_verlist offered, quic_verlist we_support) {
+  for (usz i = 0; i < offered.n; i++)
+    if (usable(offered.list[i], we_support.list, we_support.n)) return 0;
   return 1;
 }

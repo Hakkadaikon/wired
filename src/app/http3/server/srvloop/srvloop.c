@@ -139,7 +139,8 @@ int quic_srvloop_step(
   usz       offs[QUIC_SRVLOOP_MAXPKTS], lens[QUIC_SRVLOOP_MAXPKTS], n, i;
   int       got_request = 0;
   int       r;
-  n = quic_udploop_split(dgram, len, pkts, offs, lens, QUIC_SRVLOOP_MAXPKTS);
+  quic_pktlist plist = {pkts, offs, lens, QUIC_SRVLOOP_MAXPKTS};
+  n = quic_udploop_split(quic_span_of(dgram, len), &plist);
   for (i = 0; i < n; i++)
     step_one(l, s, dgram + offs[i], lens[i], &got_request);
   r = quic_srvloop_produce(l, s, got_request, out, cap, out_len);

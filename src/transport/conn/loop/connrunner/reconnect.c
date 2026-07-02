@@ -69,7 +69,8 @@ void quic_connrunner_initial_token(
 static int vn_ok(const quic_connrunner *r, const u32 *offered, usz n_off) {
   return !r->io.loop.handshake_complete &&
          quic_vndrive_accept(
-             r->io.loop.handshake_complete, r->sent_version, offered, n_off);
+             r->io.loop.handshake_complete, r->sent_version,
+             quic_verlist_of(offered, n_off));
 }
 
 /* RFC 9000 6.2: with a common version chosen, reconnect once within budget;
@@ -88,7 +89,9 @@ int quic_connrunner_recv_vn(
     usz              n_sup,
     u32             *chosen) {
   if (!vn_ok(r, offered, n_off)) return 0; /* downgrade or after progress */
-  if (!quic_vndrive_select(offered, n_off, supported, n_sup, chosen))
+  if (!quic_vndrive_select(
+          quic_verlist_of(offered, n_off), quic_verlist_of(supported, n_sup),
+          chosen))
     return QUIC_CONNRUNNER_VN_ABORT; /* RFC 9000 6.2: no common version */
   return vn_reconnect(r, *chosen);
 }

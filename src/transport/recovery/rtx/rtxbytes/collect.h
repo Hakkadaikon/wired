@@ -1,6 +1,7 @@
 #ifndef QUIC_RTXBYTES_COLLECT_H
 #define QUIC_RTXBYTES_COLLECT_H
 
+#include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
 #include "transport/recovery/rtx/rtxbytes/rtxstore.h"
 
@@ -9,14 +10,15 @@
  * concatenating them into out for transmission in a new packet. pns not held
  * by the store are skipped. */
 
-/* Returns 1 on success with *out_len set to the concatenated length, or 0 if
- * out is too small. */
+/* A read-only view of lost packet numbers. */
+typedef struct {
+  const u64 *pns;
+  usz        n;
+} quic_lost_pns;
+
+/* Returns 1 on success with out->len set to the concatenated length, or 0 if
+ * out->cap is too small. */
 int quic_rtxbytes_collect(
-    const quic_rtxbytes *st,
-    const u64           *lost_pns,
-    usz                  n,
-    u8                  *out,
-    usz                  cap,
-    usz                 *out_len);
+    const quic_rtxbytes *st, quic_lost_pns lost, quic_obuf *out);
 
 #endif

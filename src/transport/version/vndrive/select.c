@@ -3,14 +3,10 @@
 #include "common/bytes/util/num.h"
 
 int quic_vndrive_select(
-    const u32 *offered,
-    usz        n_off,
-    const u32 *supported,
-    usz        n_sup,
-    u32       *chosen) {
-  for (usz i = 0; i < n_sup; i++) {
-    if (!quic_u32_in(supported[i], offered, n_off)) continue;
-    *chosen = supported[i];
+    quic_verlist offered, quic_verlist supported, u32 *chosen) {
+  for (usz i = 0; i < supported.n; i++) {
+    if (!quic_u32_in(supported.list[i], offered.list, offered.n)) continue;
+    *chosen = supported.list[i];
     return 1;
   }
   return 0;

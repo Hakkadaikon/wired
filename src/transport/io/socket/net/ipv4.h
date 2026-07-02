@@ -8,11 +8,18 @@
 #define QUIC_IPV4_HDR 20
 #define QUIC_IP_PROTO_UDP 17
 
-/* Build a 20-byte IPv4 header into out with the given total length (header
- * + payload), addresses (host order), and protocol. Fills in the header
- * checksum. Returns QUIC_IPV4_HDR. */
-usz quic_ipv4_build(
-    u8 out[QUIC_IPV4_HDR], u16 total_len, u32 src, u32 dst, u8 proto);
+/* Total length (header + payload), addresses (host order), and protocol for
+ * a 20-byte IPv4 header. */
+typedef struct {
+  u16 total_len;
+  u32 src;
+  u32 dst;
+  u8  proto;
+} quic_ipv4_head;
+
+/* Build a 20-byte IPv4 header into out per h. Fills in the header checksum.
+ * Returns QUIC_IPV4_HDR. */
+usz quic_ipv4_build(u8 out[QUIC_IPV4_HDR], const quic_ipv4_head *h);
 
 /* Verify a received header's checksum (recompute over 20 bytes == 0). */
 int quic_ipv4_check(const u8 *hdr);

@@ -5,11 +5,15 @@
  * The timer is armed on in-flight ack-eliciting data even while the peer
  * address is unvalidated and sending is anti-amplification limited. */
 
+/* Inputs to the PTO arming decision. */
+typedef struct {
+  int initial_inflight;
+  int handshake_inflight;
+  int handshake_confirmed;
+  int has_handshake_keys;
+} quic_hspto_inputs;
+
 /* Arm the PTO timer? Returns 1 if it should be armed, 0 otherwise. */
-int quic_hspto_should_arm(
-    int initial_inflight,
-    int handshake_inflight,
-    int handshake_confirmed,
-    int has_handshake_keys);
+int quic_hspto_should_arm(const quic_hspto_inputs *in);
 
 #endif

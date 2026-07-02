@@ -22,13 +22,10 @@ static int selectable(const quic_version_information *vi, u32 v) {
 }
 
 int quic_verinfo_pick_compatible(
-    const quic_version_information *vi,
-    const u32                      *we_support,
-    usz                             n_support,
-    u32                            *out) {
-  for (usz i = 0; i < n_support; i++)
-    if (selectable(vi, we_support[i])) {
-      *out = we_support[i];
+    const quic_version_information *vi, quic_verlist we_support, u32 *out) {
+  for (usz i = 0; i < we_support.n; i++)
+    if (selectable(vi, we_support.list[i])) {
+      *out = we_support.list[i];
       return 1;
     }
   return 0;

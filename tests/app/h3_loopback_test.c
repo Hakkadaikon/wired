@@ -192,7 +192,7 @@ static int lb_open_onertt(
 static int lb_open_sockets(i64 *sfd, i64 *cfd, quic_sockaddr_in *srv) {
   *sfd = quic_udp_socket();
   if (*sfd < 0) return 0;
-  quic_udp_addr(srv, 4435, 127, 0, 0, 1);
+  quic_udp_addr(srv, 4435, (const u8[4]){127, 0, 0, 1});
   if (quic_udp_bind(*sfd, srv) < 0) {
     quic_udp_close(*sfd);
     return 0;
@@ -220,8 +220,8 @@ static int lb_wire_step(
   quic_sockaddr_in from;
   u8               rx[1500];
   i64              r;
-  CHECK(quic_udp_send(cfd, srv, pkt, n) == (i64)n);
-  r = quic_udp_recvfrom(sfd, rx, sizeof rx, &from);
+  CHECK(quic_udp_send(cfd, srv, quic_span_of(pkt, n)) == (i64)n);
+  r = quic_udp_recvfrom(sfd, quic_mspan_of(rx, sizeof rx), &from);
   CHECK(r == (i64)n);
   return quic_srvloop_step(&f->l, &f->s, rx, (usz)r, out, cap, out_len);
 }
@@ -237,7 +237,7 @@ static void test_loopback_initial_datagram(void) {
 
   sfd = quic_udp_socket();
   if (sfd < 0) return; /* sandbox: no sockets */
-  quic_udp_addr(&srv, 4434, 127, 0, 0, 1);
+  quic_udp_addr(&srv, 4434, (const u8[4]){127, 0, 0, 1});
   if (quic_udp_bind(sfd, &srv) < 0) {
     quic_udp_close(sfd);
     return;
@@ -257,8 +257,8 @@ static void test_loopback_initial_datagram(void) {
       quic_udp_close(sfd);
       return;
     }
-    CHECK(quic_udp_send(cfd, &srv, pkt, total) == (i64)total);
-    n = quic_udp_recvfrom(sfd, dg, sizeof dg, &from);
+    CHECK(quic_udp_send(cfd, &srv, quic_span_of(pkt, total)) == (i64)total);
+    n = quic_udp_recvfrom(sfd, quic_mspan_of(dg, sizeof dg), &from);
     CHECK(n == 1200);
     CHECK((dg[0] & 0x80) != 0); /* long header (RFC 9000 17.2) */
     quic_udp_close(cfd);
@@ -295,8 +295,9 @@ static void test_loopback_wire_confirm_and_get(void) {
   {
     const u8         *pkts[4];
     usz               offs[4], lens[4];
+    quic_pktlist      plist = {pkts, offs, lens, 4};
     quic_stream_frame sf;
-    usz np = quic_udploop_split(out, out_len, pkts, offs, lens, 4);
+    usz np = quic_udploop_split(quic_span_of(out, out_len), &plist);
     CHECK(np == 2);
     CHECK((out[offs[0]] & 0x80) != 0); /* long-header Handshake ACK */
     CHECK(lb_open_onertt(&f, out + offs[1], lens[1], &pl, &pll) == 1);

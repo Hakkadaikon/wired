@@ -32,7 +32,7 @@ static void srvrun_send(
     const char             *what) {
   (void)what; /* WIRED_LOG compiles out without -DQUIC_DEBUG */
   if (n) {
-    quic_udp_send(cfg->fd, peer, pkt, n);
+    quic_udp_send(cfg->fd, peer, quic_span_of(pkt, n));
     WIRED_LOG(what);
   }
 }
@@ -96,7 +96,7 @@ static i64 srvrun_listen(u16 port) {
   quic_sockaddr_in sa;
   i64              fd = quic_udp_socket();
   if (fd < 0) return fd;
-  quic_udp_addr(&sa, port, 0, 0, 0, 0);
+  quic_udp_addr(&sa, port, (const u8[4]){0, 0, 0, 0});
   if (quic_udp_bind(fd, &sa) < 0) return -1;
   return fd;
 }
@@ -107,7 +107,7 @@ static void srvrun_loop(const srvrun_cfg *cfg) {
   quic_sockaddr_in peer;
   u8               buf[2048];
   for (;;) {
-    i64 r = quic_udp_recvfrom(cfg->fd, buf, sizeof buf, &peer);
+    i64 r = quic_udp_recvfrom(cfg->fd, quic_mspan_of(buf, sizeof buf), &peer);
     if (r > 0) srvrun_serve(cfg, &peer, &st, buf, (usz)r);
   }
 }

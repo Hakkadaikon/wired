@@ -12,9 +12,15 @@
 /* 2^count, clamped at 2^QUIC_PTO_BACKOFF_MAX. */
 u64 quic_pto_backoff(u32 count);
 
+/* RTT inputs to the PTO computation. */
+typedef struct {
+  u64 srtt;
+  u64 rttvar;
+} quic_pto_rtt;
+
 /* PTO = srtt + max(4*rttvar, granularity) + max_ack_delay, scaled by 2^count.
  */
 u64 quic_pto_duration(
-    u64 srtt, u64 rttvar, u64 max_ack_delay, u32 backoff_count);
+    quic_pto_rtt rtt, u64 max_ack_delay, u32 backoff_count);
 
 #endif

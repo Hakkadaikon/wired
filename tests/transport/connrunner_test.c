@@ -155,7 +155,7 @@ static void test_retransmit_real_bytes(void) {
       .data      = (const u8 *)"hello",
       .fin       = 1};
   usz fl = quic_frame_put_stream(frames, sizeof(frames), &sf);
-  CHECK(quic_rtxbytes_store(&real.rtx, 7, frames, fl) == 1);
+  CHECK(quic_rtxbytes_store(&real.rtx, 7, quic_span_of(frames, fl)) == 1);
   set_lost(&real, 7); /* held in the store -> real bytes */
   set_lost(&ping, 7); /* empty store -> PING fallback */
 
@@ -246,8 +246,8 @@ static void test_sentmeta_loss_feeds_rtx(void) {
   quic_connrunner r;
   mk_runner(&r, 1);
   /* seed the ring as if pns 0 and 3 are in flight, then ack only 3 */
-  quic_sentmeta_on_sent(&r.sent, 0, 1, 1, 1, 64);
-  quic_sentmeta_on_sent(&r.sent, 3, 1, 1, 1, 64);
+  quic_sentmeta_on_sent(&r.sent, &(quic_sentmeta_out){0, 1, 1, 1, 64});
+  quic_sentmeta_on_sent(&r.sent, &(quic_sentmeta_out){3, 1, 1, 1, 64});
   quic_sentmeta_find(&r.sent, 3); /* present */
   r.io.disp.has_ack       = 1;
   r.io.disp.largest_acked = 3;

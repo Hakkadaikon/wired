@@ -12,28 +12,23 @@ static int sentmeta_by_time(u64 now, u64 sent, u64 loss_delay) {
 
 /* A tracked packet past either threshold is lost. */
 static int sentmeta_is_lost(
-    const quic_sentmeta_pkt *p, u64 largest_acked, u64 now, u64 loss_delay) {
-  return sentmeta_by_packet(largest_acked, p->pn) ||
-         sentmeta_by_time(now, p->time_sent, loss_delay);
+    const quic_sentmeta_pkt *p, const quic_sentmeta_loss_in *in) {
+  return sentmeta_by_packet(in->largest_acked, p->pn) ||
+         sentmeta_by_time(in->now, p->time_sent, in->loss_delay);
 }
 
 static int sentmeta_lost_slot(
-    const quic_sentmeta *m, usz i, u64 largest_acked, u64 now, u64 loss_delay) {
-  return m->pkts[i].used &&
-         sentmeta_is_lost(&m->pkts[i], largest_acked, now, loss_delay);
+    const quic_sentmeta *m, usz i, const quic_sentmeta_loss_in *in) {
+  return m->pkts[i].used && sentmeta_is_lost(&m->pkts[i], in);
 }
 
 void quic_sentmeta_detect_loss(
-    quic_sentmeta *m,
-    u64            largest_acked,
-    u64            now,
-    u64            loss_delay,
-    u64           *lost_pns,
-    usz           *n_lost) {
-  *n_lost = 0;
+    quic_sentmeta *m, const quic_sentmeta_loss_in *in,
+    quic_sentmeta_u64out lost) {
+  *lost.n = 0;
   for (usz i = 0; i < QUIC_SENTMETA_CAP; i++) {
-    if (!sentmeta_lost_slot(m, i, largest_acked, now, loss_delay)) continue;
-    lost_pns[(*n_lost)++] = m->pkts[i].pn;
+    if (!sentmeta_lost_slot(m, i, in)) continue;
+    lost.out[(*lost.n)++] = m->pkts[i].pn;
     quic_sentmeta_reclaim(m, i);
   }
 }

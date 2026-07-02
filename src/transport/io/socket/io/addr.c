@@ -1,7 +1,8 @@
 #include "transport/io/socket/io/addr.h"
 
-u32 quic_addr_from_octets(u8 a, u8 b, u8 c, u8 d) {
-  return ((u32)a << 24) | ((u32)b << 16) | ((u32)c << 8) | d;
+u32 quic_addr_from_octets(const u8 octets[4]) {
+  return ((u32)octets[0] << 24) | ((u32)octets[1] << 16) |
+         ((u32)octets[2] << 8) | octets[3];
 }
 
 void quic_addr_to_octets(u32 addr, u8 out[4]) {

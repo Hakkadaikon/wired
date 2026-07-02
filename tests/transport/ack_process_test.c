@@ -4,11 +4,11 @@
 static void test_ack_process_first_range(void) {
   quic_sentpkt t;
   quic_sentpkt_init(&t);
-  for (u64 pn = 1; pn <= 5; pn++) quic_sentpkt_on_send(&t, pn, 0, 1, 1);
+  for (u64 pn = 1; pn <= 5; pn++) quic_sentpkt_on_send(&t, &(quic_sentpkt_out){pn, 0, 1, 1});
   u64 acked[8];
   usz n         = 99;
   u64 ranges[1] = {2}; /* first ack range length */
-  quic_ack_process(&t, 5, ranges, 1, acked, &n);
+  quic_ack_process(&t, &(quic_ackset){5, ranges, 1}, (quic_u64out){acked, &n});
   CHECK(n == 3);                      /* 5,4,3 removed */
   CHECK(quic_sentpkt_count(&t) == 2); /* 1,2 remain */
 }
@@ -17,11 +17,11 @@ static void test_ack_process_first_range(void) {
 static void test_ack_process_gap(void) {
   quic_sentpkt t;
   quic_sentpkt_init(&t);
-  for (u64 pn = 6; pn <= 10; pn++) quic_sentpkt_on_send(&t, pn, 0, 1, 1);
+  for (u64 pn = 6; pn <= 10; pn++) quic_sentpkt_on_send(&t, &(quic_sentpkt_out){pn, 0, 1, 1});
   u64 acked[8];
   usz n         = 0;
   u64 ranges[3] = {0, 1, 1}; /* first_len=0, gap=1, range_len=1 */
-  quic_ack_process(&t, 10, ranges, 3, acked, &n);
+  quic_ack_process(&t, &(quic_ackset){10, ranges, 3}, (quic_u64out){acked, &n});
   /* acks 10, then skip 9, ack 8 and 7 */
   CHECK(n == 3);
   CHECK(quic_sentpkt_count(&t) == 2); /* 6 and 9 remain */
@@ -31,14 +31,14 @@ static void test_ack_process_gap(void) {
 static void test_ack_process_idempotent(void) {
   quic_sentpkt t;
   quic_sentpkt_init(&t);
-  quic_sentpkt_on_send(&t, 1, 0, 1, 1);
+  quic_sentpkt_on_send(&t, &(quic_sentpkt_out){1, 0, 1, 1});
   u64 acked[4];
   usz n         = 0;
   u64 ranges[1] = {0};
-  quic_ack_process(&t, 1, ranges, 1, acked, &n);
+  quic_ack_process(&t, &(quic_ackset){1, ranges, 1}, (quic_u64out){acked, &n});
   CHECK(n == 1);
   n = 99;
-  quic_ack_process(&t, 1, ranges, 1, acked, &n);
+  quic_ack_process(&t, &(quic_ackset){1, ranges, 1}, (quic_u64out){acked, &n});
   CHECK(n == 0);
 }
 
