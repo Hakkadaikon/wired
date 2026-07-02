@@ -22,11 +22,11 @@ static int pss_top_bits_clear(u8 top, usz zero_bits) {
 }
 
 /* DB = maskedDB XOR dbMask, then clear the leftmost zero_bits (step 8-9). */
-static void pss_unmask_db(u8 *db, usz db_len, const u8 *h, usz zero_bits) {
+static void pss_unmask_db(quic_mspan db, const u8 *h, usz zero_bits) {
   u8 mask[PSS_MAX_EM];
-  quic_mgf1_sha256(h, 32, mask, db_len);
-  for (usz i = 0; i < db_len; i++) db[i] ^= mask[i];
-  db[0] &= (u8)(0xff >> zero_bits);
+  quic_mgf1_sha256((quic_span){h, 32}, (quic_mspan){mask, db.n});
+  for (usz i = 0; i < db.n; i++) db.p[i] ^= mask[i];
+  db.p[0] &= (u8)(0xff >> zero_bits);
 }
 
 /* RFC 8017 9.1.2 step 10: PS (zeros) then 0x01 before the salt. */
@@ -38,15 +38,14 @@ static int pss_padding_ok(const u8 *db, usz db_len, usz salt_len) {
 }
 
 /* H' = SHA-256(0x00*8 || mHash || salt); compare to H (step 12-14). */
-static int pss_hprime_eq(
-    const u8 *mhash, const u8 *salt, usz salt_len, const u8 *h) {
+static int pss_hprime_eq(const u8 *mhash, quic_span salt, const u8 *h) {
   u8              zeros[8] = {0};
   u8              hp[32];
   quic_sha256_ctx s;
   quic_sha256_init(&s);
   quic_sha256_update(&s, zeros, 8);
   quic_sha256_update(&s, mhash, 32);
-  quic_sha256_update(&s, salt, salt_len);
+  quic_sha256_update(&s, salt.p, salt.n);
   quic_sha256_final(&s, hp);
   u8 d = 0;
   for (usz i = 0; i < 32; i++) d |= hp[i] ^ h[i];
@@ -59,36 +58,34 @@ static int pss_sizes_bad(usz em_len, usz hash_len) {
   return em_len < hash_len + PSS_SALT_LEN + 2; /* RFC 8017 9.1.2 step 3 */
 }
 
-/* RFC 8017 9.1.2 step 5: split maskedDB and H, unmask DB. */
-static void pss_recover_db(
-    const u8 *em, usz db_len, u8 *db, const u8 **h, usz zero_bits) {
-  for (usz i = 0; i < db_len; i++) db[i] = em[i];
-  *h = em + db_len;
-  pss_unmask_db(db, db_len, *h, zero_bits);
+/* RFC 8017 9.1.2 step 5: split maskedDB and H, unmask DB into db. em_db is
+ * EM trimmed to the maskedDB length; returns H (= em_db.p + em_db.n). */
+static const u8 *pss_recover_db(quic_span em_db, u8 *db, usz zero_bits) {
+  for (usz i = 0; i < em_db.n; i++) db[i] = em_db.p[i];
+  pss_unmask_db((quic_mspan){db, em_db.n}, em_db.p + em_db.n, zero_bits);
+  return em_db.p + em_db.n;
 }
 
 /* RFC 8017 9.1.2 steps 3-6: trailer 0xbc and the cleared top bits of EM. */
-static int pss_prefix_bad(const u8 *em, usz em_len, usz hash_len, usz em_bits) {
-  if (pss_sizes_bad(em_len, hash_len)) return 1;
-  if (em[em_len - 1] != 0xbc) return 1;
-  return !pss_top_bits_clear(em[0], pss_top_zero_bits(em_len, em_bits));
+static int pss_prefix_bad(quic_span em, usz hash_len, usz em_bits) {
+  if (pss_sizes_bad(em.n, hash_len)) return 1;
+  if (em.p[em.n - 1] != 0xbc) return 1;
+  return !pss_top_bits_clear(em.p[0], pss_top_zero_bits(em.n, em_bits));
 }
 
 /* DB recovered and padding/hash-checked (steps 8-14). 1 if salt is consistent.
- */
-static int pss_db_consistent(
-    const u8 *em, usz db_len, usz zero_bits, const u8 *mhash) {
+ * em_db is EM trimmed to the maskedDB length. */
+static int pss_db_consistent(quic_span em_db, usz zero_bits, const u8 *mhash) {
   u8        db[PSS_MAX_EM];
-  const u8 *h;
-  pss_recover_db(em, db_len, db, &h, zero_bits);
-  if (!pss_padding_ok(db, db_len, PSS_SALT_LEN)) return 0;
-  return pss_hprime_eq(mhash, db + db_len - PSS_SALT_LEN, PSS_SALT_LEN, h);
+  const u8 *h    = pss_recover_db(em_db, db, zero_bits);
+  quic_span salt = {db + em_db.n - PSS_SALT_LEN, PSS_SALT_LEN};
+  if (!pss_padding_ok(db, em_db.n, PSS_SALT_LEN)) return 0;
+  return pss_hprime_eq(mhash, salt, h);
 }
 
-int quic_emsa_pss_verify(
-    const u8 *em, usz em_len, usz em_bits, const u8 *mhash, usz hash_len) {
-  if (pss_prefix_bad(em, em_len, hash_len, em_bits)) return 0;
-  usz db_len    = pss_db_len(em_len, hash_len);
-  usz zero_bits = pss_top_zero_bits(em_len, em_bits);
-  return pss_db_consistent(em, db_len, zero_bits, mhash);
+int quic_emsa_pss_verify(quic_span em, usz em_bits, quic_span mhash) {
+  if (pss_prefix_bad(em, mhash.n, em_bits)) return 0;
+  usz db_len    = pss_db_len(em.n, mhash.n);
+  usz zero_bits = pss_top_zero_bits(em.n, em_bits);
+  return pss_db_consistent((quic_span){em.p, db_len}, zero_bits, mhash.p);
 }

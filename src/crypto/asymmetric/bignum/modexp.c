@@ -45,11 +45,16 @@ static void reduce_once(quic_bn *r, u64 over, const quic_bn *m) {
   if (need_reduce(over, r, m)) bn_sub(r, m);
 }
 
+/* Multiplicand and modulus of one modular multiply. */
+typedef struct {
+  const quic_bn *a;
+  const quic_bn *m;
+} bn_mulctx;
+
 /* r = (2*r + add_a*a) mod m, the per-bit step of double-and-add. */
-static void mul_step(
-    quic_bn *r, int add_a, const quic_bn *a, const quic_bn *m) {
-  reduce_once(r, bn_shl1(r), m);
-  if (add_a) reduce_once(r, bn_add(r, a), m);
+static void mul_step(quic_bn *r, int add_a, bn_mulctx c) {
+  reduce_once(r, bn_shl1(r), c.m);
+  if (add_a) reduce_once(r, bn_add(r, c.a), c.m);
 }
 
 /* bit i (0 = LSB) of x. */
@@ -84,20 +89,19 @@ static usz bn_bits(const quic_bn *x) {
 }
 
 /* r = (a * b) mod m, with a,b < m. Division-free (double-and-add). */
-static void modmul(
-    quic_bn *r, const quic_bn *a, const quic_bn *b, const quic_bn *m) {
+static void modmul(quic_bn *r, const quic_bn *b, bn_mulctx c) {
   quic_bn acc = {{0}};
-  for (usz i = bn_bits(b); i > 0; i--) mul_step(&acc, bn_bit(b, i - 1), a, m);
+  for (usz i = bn_bits(b); i > 0; i--) mul_step(&acc, bn_bit(b, i - 1), c);
   *r = acc;
 }
 
-void quic_bn_modexp(
-    quic_bn *out, const quic_bn *base, const quic_bn *exp, const quic_bn *mod) {
-  quic_bn result = {{0}};
-  result.v[0]    = 1; /* 1 mod m, m>1 */
-  for (usz i = bn_bits(exp); i > 0; i--) {
-    modmul(&result, &result, &result, mod);
-    if (bn_bit(exp, i - 1)) modmul(&result, &result, base, mod);
+void quic_bn_modexp(quic_bn *out, const quic_bn *base, quic_bn_expmod em) {
+  quic_bn   result = {{0}};
+  bn_mulctx c      = {&result, em.mod};
+  result.v[0]      = 1; /* 1 mod m, m>1 */
+  for (usz i = bn_bits(em.exp); i > 0; i--) {
+    modmul(&result, &result, c); /* square */
+    if (bn_bit(em.exp, i - 1)) modmul(&result, base, c);
   }
   *out = result;
 }

@@ -137,7 +137,9 @@ static int verify_rsa(
   if (!cert_spki_key(cert, cert_len, &key, &key_len)) return 0;
   if (!quic_x509_rsa_pubkey(key, key_len, &n, &n_len, &e, &e_len)) return 0;
   /* RFC 8446 9.1: rsa_pss_rsae_sha256 is RSASSA-PSS (never PKCS#1 v1.5). */
-  return quic_rsa_pss_verify(n, n_len, e, e_len, sig, sig_len, hash, 32);
+  quic_rsa_pub pub = {{n, n_len}, {e, e_len}};
+  return quic_rsa_pss_verify(
+      &pub, (quic_span){sig, sig_len}, (quic_span){hash, 32});
 }
 
 /* RFC 5280 4.1.2.7: a 32-byte raw key wrapped in the BIT STRING's leading

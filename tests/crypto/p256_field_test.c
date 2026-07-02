@@ -19,11 +19,11 @@ static void test_p256_field_inv(void) {
   quic_fp_from_be(a, ab);
 
   quic_fp_inv(ai, a, quic_p256_p);
-  quic_fp_mul(prod, a, ai, quic_p256_p);
+  quic_fp_mul(prod, (quic_fpab){a, ai}, quic_p256_p);
   CHECK(quic_fp_eq(prod, one));
 
   quic_fp_inv(ai, a, quic_p256_n);
-  quic_fp_mul(prod, a, ai, quic_p256_n);
+  quic_fp_mul(prod, (quic_fpab){a, ai}, quic_p256_n);
   CHECK(quic_fp_eq(prod, one));
 }
 
@@ -37,8 +37,8 @@ static void test_p256_field_addsub(void) {
       "00000000000000000000000000000000000000000000000000000000000000ff", bb);
   quic_fp_from_be(a, ab);
   quic_fp_from_be(b, bb);
-  quic_fp_add(s, a, b, quic_p256_p);
-  quic_fp_sub(d, s, b, quic_p256_p);
+  quic_fp_add(s, (quic_fpab){a, b}, quic_p256_p);
+  quic_fp_sub(d, (quic_fpab){s, b}, quic_p256_p);
   CHECK(quic_fp_eq(d, a));
 }
 
@@ -73,8 +73,8 @@ static void test_p256_field_fast_matches_generic(void) {
       a[i] = p256_rng(&s);
       b[i] = p256_rng(&s);
     }
-    quic_fp_mul(r1, a, b, quic_p256_p); /* oracle */
-    quic_fp_mul_p(r2, a, b);            /* fast */
+    quic_fp_mul(r1, (quic_fpab){a, b}, quic_p256_p); /* oracle */
+    quic_fp_mul_p(r2, a, b);                         /* fast */
     CHECK(quic_fp_eq(r1, r2));
     quic_fp_sqr(r1, a, quic_p256_p);
     quic_fp_sqr_p(r2, a);
@@ -83,7 +83,7 @@ static void test_p256_field_fast_matches_generic(void) {
   /* boundary: a = p - 1. */
   for (int i = 0; i < 4; i++) a[i] = quic_p256_p[i];
   a[0] -= 1;
-  quic_fp_mul(r1, a, a, quic_p256_p);
+  quic_fp_mul(r1, (quic_fpab){a, a}, quic_p256_p);
   quic_fp_sqr_p(r2, a);
   CHECK(quic_fp_eq(r1, r2));
   /* fast inverse: a * a^-1 == 1 (mod p). */
@@ -107,7 +107,7 @@ static void test_p256_field_mont_inv_n(void) {
     quic_fp_reduce(a, a, quic_p256_n);
     if (quic_fp_is_zero(a)) continue;
     quic_mont_inv(ai, a, &quic_p256_mont_n);
-    quic_fp_mul(prod, a, ai, quic_p256_n);
+    quic_fp_mul(prod, (quic_fpab){a, ai}, quic_p256_n);
     CHECK(quic_fp_eq(prod, one));
     if (it < 4) { /* spot-check against the slow oracle */
       quic_fp_inv(ref, a, quic_p256_n);

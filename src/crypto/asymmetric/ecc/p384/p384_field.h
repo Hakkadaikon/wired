@@ -25,8 +25,14 @@ typedef struct {
 extern const quic_mont384 quic_p384_mont_p;
 extern const quic_mont384 quic_p384_mont_n;
 
-void quic_mont384_mul(
-    p384_fe r, const p384_fe a, const p384_fe b, const quic_mont384 *mont);
+/* Operand pair (a, b) for the two-input modular ops. Two borrowed limb
+ * pointers passed by value, so a call stays register-only. */
+typedef struct {
+  const u64 *a;
+  const u64 *b;
+} quic_fp384ab;
+
+void quic_mont384_mul(p384_fe r, quic_fp384ab ab, const quic_mont384 *mont);
 void quic_mont384_inv(p384_fe r, const p384_fe a, const quic_mont384 *mont);
 
 void quic_fp384_set(p384_fe r, const p384_fe a);
@@ -35,12 +41,9 @@ int  quic_fp384_is_zero(const p384_fe a);
 int  quic_fp384_lt(const p384_fe a, const p384_fe b);
 
 void quic_fp384_reduce(p384_fe r, const p384_fe a, const p384_fe m);
-void quic_fp384_add(
-    p384_fe r, const p384_fe a, const p384_fe b, const p384_fe m);
-void quic_fp384_sub(
-    p384_fe r, const p384_fe a, const p384_fe b, const p384_fe m);
-void quic_fp384_mul(
-    p384_fe r, const p384_fe a, const p384_fe b, const p384_fe m);
+void quic_fp384_add(p384_fe r, quic_fp384ab ab, const p384_fe m);
+void quic_fp384_sub(p384_fe r, quic_fp384ab ab, const p384_fe m);
+void quic_fp384_mul(p384_fe r, quic_fp384ab ab, const p384_fe m);
 void quic_fp384_sqr(p384_fe r, const p384_fe a, const p384_fe m);
 
 /* Fast Solinas reduction, modulus fixed to p (NOT usable for the order n). */

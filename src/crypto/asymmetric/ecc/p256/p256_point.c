@@ -21,12 +21,12 @@ void quic_ec_set(ec_point *r, const ec_point *p) {
 /* y^2 mod p. */
 static void rhs_lhs(p256_fe lhs, p256_fe rhs, const ec_point *p) {
   p256_fe x2, three_x, three = {3, 0, 0, 0};
-  quic_fp_sqr(lhs, p->y, quic_p256_p);            /* y^2 */
-  quic_fp_sqr(x2, p->x, quic_p256_p);             /* x^2 */
-  quic_fp_mul(rhs, x2, p->x, quic_p256_p);        /* x^3 */
-  quic_fp_mul(three_x, three, p->x, quic_p256_p); /* 3x  */
-  quic_fp_sub(rhs, rhs, three_x, quic_p256_p);    /* x^3 - 3x */
-  quic_fp_add(rhs, rhs, p256_b, quic_p256_p);     /* + b */
+  quic_fp_sqr(lhs, p->y, quic_p256_p);                         /* y^2 */
+  quic_fp_sqr(x2, p->x, quic_p256_p);                          /* x^2 */
+  quic_fp_mul(rhs, (quic_fpab){x2, p->x}, quic_p256_p);        /* x^3 */
+  quic_fp_mul(three_x, (quic_fpab){three, p->x}, quic_p256_p); /* 3x  */
+  quic_fp_sub(rhs, (quic_fpab){rhs, three_x}, quic_p256_p);    /* x^3 - 3x */
+  quic_fp_add(rhs, (quic_fpab){rhs, p256_b}, quic_p256_p);     /* + b */
 }
 
 int quic_ec_on_curve(const ec_point *p) {
@@ -39,61 +39,63 @@ int quic_ec_on_curve(const ec_point *p) {
 /* lambda = (y2 - y1) / (x2 - x1); caller guarantees x1 != x2. */
 static void slope_add(p256_fe lam, const ec_point *p, const ec_point *q) {
   p256_fe num, den, inv;
-  quic_fp_sub(num, q->y, p->y, quic_p256_p);
-  quic_fp_sub(den, q->x, p->x, quic_p256_p);
+  quic_fp_sub(num, (quic_fpab){q->y, p->y}, quic_p256_p);
+  quic_fp_sub(den, (quic_fpab){q->x, p->x}, quic_p256_p);
   quic_fp_inv(inv, den, quic_p256_p);
-  quic_fp_mul(lam, num, inv, quic_p256_p);
+  quic_fp_mul(lam, (quic_fpab){num, inv}, quic_p256_p);
 }
 
 /* lambda = (3x^2 - 3) / (2y). */
 static void slope_double(p256_fe lam, const ec_point *p) {
   p256_fe x2, num, den, inv, three = {3, 0, 0, 0};
   quic_fp_sqr(x2, p->x, quic_p256_p);
-  quic_fp_mul(num, three, x2, quic_p256_p);
-  quic_fp_sub(num, num, three, quic_p256_p); /* 3x^2 - 3 (a=-3) */
-  quic_fp_add(den, p->y, p->y, quic_p256_p);
+  quic_fp_mul(num, (quic_fpab){three, x2}, quic_p256_p);
+  quic_fp_sub(num, (quic_fpab){num, three}, quic_p256_p); /* 3x^2 - 3 (a=-3) */
+  quic_fp_add(den, (quic_fpab){p->y, p->y}, quic_p256_p);
   quic_fp_inv(inv, den, quic_p256_p);
-  quic_fp_mul(lam, num, inv, quic_p256_p);
+  quic_fp_mul(lam, (quic_fpab){num, inv}, quic_p256_p);
 }
 
-/* From slope lambda and the two source x-coords, produce r = (x3,y3). */
-static void from_slope(
-    ec_point     *r,
-    const p256_fe lam,
-    const p256_fe x1,
-    const p256_fe y1,
-    const p256_fe x2) {
+/* Slope lambda and the source coordinates of an affine addition; copies so
+ * the result point may alias an operand. */
+typedef struct {
+  p256_fe lam, x1, y1, x2;
+} p256_slope;
+
+/* From the slope and source x-coords, produce r = (x3,y3). */
+static void from_slope(ec_point *r, const p256_slope *sl) {
   p256_fe x3, t;
-  quic_fp_sqr(x3, lam, quic_p256_p);
-  quic_fp_sub(x3, x3, x1, quic_p256_p);
-  quic_fp_sub(x3, x3, x2, quic_p256_p); /* x3 = lam^2 - x1 - x2 */
-  quic_fp_sub(t, x1, x3, quic_p256_p);
-  quic_fp_mul(t, lam, t, quic_p256_p);
-  quic_fp_sub(r->y, t, y1, quic_p256_p); /* y3 = lam(x1-x3) - y1 */
+  quic_fp_sqr(x3, sl->lam, quic_p256_p);
+  quic_fp_sub(x3, (quic_fpab){x3, sl->x1}, quic_p256_p);
+  quic_fp_sub(x3, (quic_fpab){x3, sl->x2}, quic_p256_p); /* lam^2 - x1 - x2 */
+  quic_fp_sub(t, (quic_fpab){sl->x1, x3}, quic_p256_p);
+  quic_fp_mul(t, (quic_fpab){sl->lam, t}, quic_p256_p);
+  quic_fp_sub(r->y, (quic_fpab){t, sl->y1}, quic_p256_p); /* lam(x1-x3) - y1 */
   quic_fp_set(r->x, x3);
   r->inf = 0;
 }
 
 void quic_ec_double(ec_point *r, const ec_point *p) {
-  p256_fe lam, x1, y1;
+  p256_slope sl;
   if (p->inf || quic_fp_is_zero(p->y)) {
     r->inf = 1;
     return;
   }
-  quic_fp_set(x1, p->x);
-  quic_fp_set(y1, p->y);
-  slope_double(lam, p);
-  from_slope(r, lam, x1, y1, x1);
+  quic_fp_set(sl.x1, p->x);
+  quic_fp_set(sl.y1, p->y);
+  quic_fp_set(sl.x2, p->x);
+  slope_double(sl.lam, p);
+  from_slope(r, &sl);
 }
 
 /* p and q are not infinity and not mutually inverse: distinct addition. */
 static void add_distinct(ec_point *r, const ec_point *p, const ec_point *q) {
-  p256_fe lam, x1, y1, x2;
-  quic_fp_set(x1, p->x);
-  quic_fp_set(y1, p->y);
-  quic_fp_set(x2, q->x);
-  slope_add(lam, p, q);
-  from_slope(r, lam, x1, y1, x2);
+  p256_slope sl;
+  quic_fp_set(sl.x1, p->x);
+  quic_fp_set(sl.y1, p->y);
+  quic_fp_set(sl.x2, q->x);
+  slope_add(sl.lam, p, q);
+  from_slope(r, &sl);
 }
 
 /* 1 if p and q have equal x but are not equal points (sum is infinity). */
@@ -143,10 +145,10 @@ static void fp_mul(p256_fe r, const p256_fe a, const p256_fe b) {
 }
 static void fp_sqr(p256_fe r, const p256_fe a) { quic_fp_sqr_p(r, a); }
 static void fp_sub(p256_fe r, const p256_fe a, const p256_fe b) {
-  quic_fp_sub(r, a, b, FP_P);
+  quic_fp_sub(r, (quic_fpab){a, b}, FP_P);
 }
 static void fp_add(p256_fe r, const p256_fe a, const p256_fe b) {
-  quic_fp_add(r, a, b, FP_P);
+  quic_fp_add(r, (quic_fpab){a, b}, FP_P);
 }
 static void fp_dbl(p256_fe r, const p256_fe a) { fp_add(r, a, a); }
 
@@ -172,19 +174,19 @@ static void dbl_x(p256_fe x3, const p256_fe alpha, const p256_fe beta) {
   fp_sub(x3, x3, t);
 }
 
+/* Doubling intermediates alpha, beta, gamma (borrowed limb pointers). */
+typedef struct {
+  const u64 *alpha, *beta, *gamma;
+} p256_dblv;
+
 /* Y3 = alpha*(4*beta - X3) - 8*gamma^2. */
-static void dbl_y(
-    p256_fe       y3,
-    const p256_fe alpha,
-    const p256_fe beta,
-    const p256_fe x3,
-    const p256_fe gamma) {
+static void dbl_y(p256_fe y3, const p256_fe x3, const p256_dblv *d) {
   p256_fe t, g2;
-  fp_dbl(t, beta);
+  fp_dbl(t, d->beta);
   fp_dbl(t, t); /* 4*beta */
   fp_sub(t, t, x3);
-  fp_mul(t, alpha, t);
-  fp_sqr(g2, gamma);
+  fp_mul(t, d->alpha, t);
+  fp_sqr(g2, d->gamma);
   fp_dbl(g2, g2);
   fp_dbl(g2, g2);
   fp_dbl(g2, g2); /* 8*gamma^2 */
@@ -207,68 +209,57 @@ static void jac_double(jac *r, const jac *p) {
   fp_sqr(t, t);
   fp_sub(t, t, gamma);
   fp_sub(r->Z, t, delta);
-  dbl_y(r->Y, alpha, beta, r->X, gamma);
+  dbl_y(r->Y, r->X, &(p256_dblv){alpha, beta, gamma});
 }
 
-/* Cross terms U1,U2,S1,S2 for Jacobian addition. */
-static void add_uv(
-    p256_fe    u1,
-    p256_fe    u2,
-    p256_fe    s1,
-    p256_fe    s2,
-    const jac *p,
-    const jac *q) {
-  p256_fe z1z1, z2z2;
-  fp_sqr(z1z1, p->Z);
-  fp_sqr(z2z2, q->Z);
-  fp_mul(u1, p->X, z2z2);
-  fp_mul(u2, q->X, z1z1);
-  fp_mul(s1, p->Y, q->Z);
-  fp_mul(s1, s1, z2z2);
-  fp_mul(s2, q->Y, p->Z);
-  fp_mul(s2, s2, z1z1);
+/* Intermediates shared between the two halves of Jacobian addition. */
+typedef struct {
+  p256_fe u1, u2, s1, s2; /* cross terms */
+  p256_fe z1z1, z2z2, zs; /* Z1^2, Z2^2, Z1+Z2 */
+  p256_fe h, rr;          /* U2-U1, 2(S2-S1) */
+} p256_addt;
+
+/* Cross terms U1,U2,S1,S2 (plus the Z terms) for Jacobian addition. */
+static void add_uv(p256_addt *t, const jac *p, const jac *q) {
+  fp_sqr(t->z1z1, p->Z);
+  fp_sqr(t->z2z2, q->Z);
+  fp_mul(t->u1, p->X, t->z2z2);
+  fp_mul(t->u2, q->X, t->z1z1);
+  fp_mul(t->s1, p->Y, q->Z);
+  fp_mul(t->s1, t->s1, t->z2z2);
+  fp_mul(t->s2, q->Y, p->Z);
+  fp_mul(t->s2, t->s2, t->z1z1);
+  fp_add(t->zs, p->Z, q->Z);
 }
 
-/* Finish addition given H = U2-U1, rr = 2(S2-S1). */
-static void add_finish(
-    jac          *r,
-    const jac    *p,
-    const jac    *q,
-    const p256_fe u1,
-    const p256_fe s1,
-    const p256_fe h,
-    const p256_fe rr) {
+/* Finish addition given the cross terms and H = U2-U1, rr = 2(S2-S1). */
+static void add_finish(jac *r, const p256_addt *a) {
   p256_fe i, j, v, t;
-  fp_dbl(t, h);
+  fp_dbl(t, a->h);
   fp_sqr(i, t); /* I = (2H)^2 */
-  fp_mul(j, h, i);
-  fp_mul(v, u1, i);
-  fp_sqr(r->X, rr);
+  fp_mul(j, a->h, i);
+  fp_mul(v, a->u1, i);
+  fp_sqr(r->X, a->rr);
   fp_sub(r->X, r->X, j);
   fp_dbl(t, v);
   fp_sub(r->X, r->X, t);
   fp_sub(t, v, r->X);
-  fp_mul(t, rr, t);
-  fp_mul(v, s1, j);
+  fp_mul(t, a->rr, t);
+  fp_mul(v, a->s1, j);
   fp_dbl(v, v);
   fp_sub(r->Y, t, v);
-  fp_add(t, p->Z, q->Z);
-  fp_sqr(t, t);
-  fp_sqr(v, p->Z);
-  fp_sub(t, t, v);
-  fp_sqr(v, q->Z);
-  fp_sub(t, t, v);
-  fp_mul(r->Z, t, h);
+  fp_sqr(t, a->zs);
+  fp_sub(t, t, a->z1z1);
+  fp_sub(t, t, a->z2z2);
+  fp_mul(r->Z, t, a->h);
 }
 
-/* r = p + q in Jacobian; assumes neither is infinity and p != -q, p != q. */
-static void jac_add(jac *r, const jac *p, const jac *q) {
-  p256_fe u1, u2, s1, s2, h, rr;
-  add_uv(u1, u2, s1, s2, p, q);
-  fp_sub(h, u2, u1);
-  fp_sub(rr, s2, s1);
-  fp_dbl(rr, rr);
-  add_finish(r, p, q, u1, s1, h, rr);
+/* r = p + q given the cross terms; assumes p != -q, p != q. */
+static void jac_add(jac *r, p256_addt *t) {
+  fp_sub(t->h, t->u2, t->u1);
+  fp_sub(t->rr, t->s2, t->s1);
+  fp_dbl(t->rr, t->rr);
+  add_finish(r, t);
 }
 
 /* Same-x case: double if s1==s2 (acc==base), else result is infinity. */
@@ -281,16 +272,16 @@ static void add_same_x_jac(jac *acc, const p256_fe s1, const p256_fe s2) {
 
 /* acc += base, handling infinity and the doubling/inverse case. */
 static void jac_add_step(jac *acc, const jac *base) {
-  p256_fe u1, u2, s1, s2;
+  p256_addt t;
   if (jac_is_inf(acc)) {
     *acc = *base;
     return;
   }
-  add_uv(u1, u2, s1, s2, acc, base);
-  if (quic_fp_eq(u1, u2))
-    add_same_x_jac(acc, s1, s2);
+  add_uv(&t, acc, base);
+  if (quic_fp_eq(t.u1, t.u2))
+    add_same_x_jac(acc, t.s1, t.s2);
   else
-    jac_add(acc, acc, base);
+    jac_add(acc, &t);
 }
 
 /* One scalar-bit step: acc = 2*acc, then += base if bit set. */

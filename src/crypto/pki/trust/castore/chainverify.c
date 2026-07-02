@@ -230,8 +230,9 @@ static int chv_verify_rsa(
   const u8 *n, *e;
   usz       n_len, e_len;
   if (!quic_x509_rsa_pubkey(key, key_len, &n, &n_len, &e, &e_len)) return 0;
+  quic_rsa_pub pub = {{n, n_len}, {e, e_len}};
   return quic_rsa_pkcs1_verify(
-      n, n_len, e, e_len, sig, sig_len, hash, hash_len);
+      &pub, (quic_span){sig, sig_len}, (quic_span){hash, hash_len});
 }
 
 /* The issuer SPKI must be an EC key when the sigAlg says ECDSA. */

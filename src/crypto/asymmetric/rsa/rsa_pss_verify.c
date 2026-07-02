@@ -43,24 +43,22 @@ static int rsa_sizes_bad(usz n_len, usz sig_len, usz hash_len) {
 }
 
 /* Sizes acceptable and the exponent is the supported F4. */
-static int pss_inputs_ok(
-    usz n_len, const u8 *e, usz e_len, usz sig_len, usz hash_len) {
-  if (rsa_sizes_bad(n_len, sig_len, hash_len)) return 0;
-  return quic_rsa_e_is_f4(e, e_len);
+static int pss_inputs_ok(const quic_rsa_pub *pub, usz sig_len, usz hash_len) {
+  if (rsa_sizes_bad(pub->n.n, sig_len, hash_len)) return 0;
+  return quic_rsa_e_is_f4(pub->e.p, pub->e.n);
 }
 
 /* RFC 8017 8.1.2 step 1 and steps 2-3: reject s >= n, else m = s^e mod n and
  * EM = I2OSP(m, emLen). Returns 1 on success, 0 if the signature is out of
  * range. */
-static int rsa_recover_em(
-    const u8 *n, usz n_len, const u8 *sig, usz sig_len, usz em_len, u8 *em) {
+static int rsa_recover_em(quic_span n, quic_span sig, quic_mspan em) {
   quic_bn bn_n, bn_s, bn_e, m;
-  quic_bn_from_be(&bn_n, n, n_len);
-  quic_bn_from_be(&bn_s, sig, sig_len);
+  quic_bn_from_be(&bn_n, n.p, n.n);
+  quic_bn_from_be(&bn_s, sig.p, sig.n);
   if (quic_bn_cmp(&bn_s, &bn_n) >= 0) return 0;
   pss_e_f4(&bn_e);
-  quic_bn_modexp(&m, &bn_s, &bn_e, &bn_n);
-  quic_bn_to_be(&m, em, em_len);
+  quic_bn_modexp(&m, &bn_s, (quic_bn_expmod){&bn_e, &bn_n});
+  quic_bn_to_be(&m, em.p, em.n);
   return 1;
 }
 
@@ -71,18 +69,11 @@ static usz rsa_em_bits(const u8 *n, usz n_len) {
 }
 
 int quic_rsa_pss_verify(
-    const u8 *n,
-    usz       n_len,
-    const u8 *e,
-    usz       e_len,
-    const u8 *sig,
-    usz       sig_len,
-    const u8 *mhash,
-    usz       hash_len) {
-  if (!pss_inputs_ok(n_len, e, e_len, sig_len, hash_len)) return 0;
-  usz em_bits = rsa_em_bits(n, n_len);
+    const quic_rsa_pub *pub, quic_span sig, quic_span mhash) {
+  if (!pss_inputs_ok(pub, sig.n, mhash.n)) return 0;
+  usz em_bits = rsa_em_bits(pub->n.p, pub->n.n);
   usz em_len  = (em_bits + 7) / 8;
   u8  em[RSA_PSS_MAX];
-  return rsa_recover_em(n, n_len, sig, sig_len, em_len, em) &&
-         quic_emsa_pss_verify(em, em_len, em_bits, mhash, hash_len);
+  return rsa_recover_em(pub->n, sig, (quic_mspan){em, em_len}) &&
+         quic_emsa_pss_verify((quic_span){em, em_len}, em_bits, mhash);
 }
