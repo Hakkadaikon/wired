@@ -106,6 +106,7 @@
 #include "tls/handshake/core/tls/hp_select.c"
 #include "tls/handshake/core/tls/aead_params.c"
 #include "tls/handshake/core/tls/cipher.c"
+#include "common/platform/clock/clock.c"
 #include "common/platform/rng/challenge.c"
 #include "common/platform/rng/cidgen.c"
 #include "common/platform/rng/rng.c"
@@ -638,6 +639,7 @@
 #include "crypto/derval_test.c"
 #include "transport/addr_test.c"
 #include "transport/udptransport_test.c"
+#include "common/clock_test.c"
 #include "common/rng_test.c"
 #include "common/cidgen_test.c"
 #include "common/challenge_test.c"
@@ -717,6 +719,8 @@
 #include "transport/crypto_stream_test.c"
 #include "tls/tlsdriver_test.c"
 #include "tls/fullhs_test.c"
+#include "tls/fullhs_policy_test.c"
+#include "tls/tlsdriver_sni_test.c"
 #include "tls/client_test.c"
 #include "transport/idledrive_test.c"
 #include "transport/idlenego_test.c"
@@ -1036,6 +1040,7 @@ int main(void) {
   test_addr_from_octets();
   test_transport_connect();
   test_rng_distinct_and_full();
+  test_clock();
   test_cidgen_len_bounds();
   test_challenge_distinct();
   test_cipher_supported();
@@ -1114,6 +1119,8 @@ int main(void) {
   test_crypto_stream();
   test_tlsdriver();
   test_fullhs();
+  test_fullhs_policy();
+  test_tlsdriver_sni();
   test_client();
   test_idledrive();
   test_idlenego();
