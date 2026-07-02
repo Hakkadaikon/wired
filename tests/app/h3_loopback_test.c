@@ -1,5 +1,6 @@
 #include "app/http3/core/h3conn/response.h"
 #include "app/http3/request/h3reqdrive/request_drive.h"
+#include "app/http3/server/srvboot/srvboot.h"
 #include "app/http3/server/srvloop/srvloop.h"
 #include "app/http3/server/srvwire/wire.h"
 #include "crypto/asymmetric/ecc/ed25519/ed25519.h"
@@ -313,7 +314,76 @@ static void test_loopback_wire_confirm_and_get(void) {
   quic_udp_close(sfd);
 }
 
+/* Fill a wired_srvboot_id with the same fixed identity lb_drive_to_flight uses,
+ * into caller-owned key buffers. */
+static void sb_make_id(
+    wired_srvboot_id *id, u8 priv[32], u8 pub[32], u8 seed[32], u8 rnd[32]) {
+  for (usz i = 0; i < 32; i++) {
+    priv[i] = (u8)(0x40 + i);
+    seed[i] = (u8)(0x80 + i);
+    rnd[i]  = (u8)(0xa0 + i);
+  }
+  quic_x25519_base(pub, priv);
+  id->priv      = priv;
+  id->pub       = pub;
+  id->cert_seed = seed;
+  id->scid      = g_scid;
+  id->scid_len  = 6;
+  id->random    = rnd;
+}
+
+/* wired_srvboot_accept cold-starts a server from a real client Initial
+ * datagram (built in-buffer, no socket) and seals the flight. */
+static void test_srvboot_accept(void) {
+  quic_client      c;
+  quic_server      s;
+  quic_srvloop     l;
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32], cpriv[32], cpub[32];
+  u8               dg[1500], out[4096];
+  usz              total = 0, out_len = 0;
+
+  for (usz i = 0; i < 32; i++) cpriv[i] = (u8)(7 + i);
+  quic_x25519_base(cpub, cpriv);
+  quic_tlsdriver_init(&c.tls, cpriv, cpub, 0);
+  CHECK(
+      quic_client_build_initial_wire(
+          &c, g_scid, 6, g_scid, 6, 0, dg, sizeof dg, &total) == 1);
+
+  sb_make_id(&id, priv, pub, seed, rnd);
+  CHECK(
+      wired_srvboot_accept(&s, &l, &id, dg, total, out, sizeof out, &out_len) ==
+      1);
+  CHECK(s.phase == QUIC_SERVER_HS_FLIGHT_SENT);
+  CHECK(out_len > 0);
+  CHECK((out[0] & 0x80) != 0); /* long-header ServerHello Initial */
+  CHECK((out[0] & 0x30) == 0); /* Initial type bits */
+
+  /* wired_srvboot_is_initial classifies the datagram; a short one is rejected.
+   */
+  CHECK(wired_srvboot_is_initial(dg, total) == 1);
+}
+
+/* A datagram that is not a valid Initial is refused (no flight produced). */
+static void test_srvboot_rejects_non_initial(void) {
+  quic_server      s;
+  quic_srvloop     l;
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32];
+  u8  garbage[8] = {0x40, 1, 2, 3, 4, 5, 6, 7}; /* short header, not Initial */
+  u8  out[512];
+  usz out_len = 0;
+  sb_make_id(&id, priv, pub, seed, rnd);
+  CHECK(wired_srvboot_is_initial(garbage, sizeof garbage) == 0);
+  CHECK(
+      wired_srvboot_accept(
+          &s, &l, &id, garbage, sizeof garbage, out, sizeof out, &out_len) ==
+      0);
+}
+
 void test_h3_loopback(void) {
   test_loopback_initial_datagram();
   test_loopback_wire_confirm_and_get();
+  test_srvboot_accept();
+  test_srvboot_rejects_non_initial();
 }

@@ -110,6 +110,7 @@
 #include "tls/handshake/core/tls/aead_params.c"
 #include "tls/handshake/core/tls/cipher.c"
 #include "common/platform/clock/clock.c"
+#include "common/platform/debug/debug.c"
 #include "common/platform/rng/challenge.c"
 #include "common/platform/rng/cidgen.c"
 #include "common/platform/rng/rng.c"
@@ -450,6 +451,8 @@
 #include "app/http3/server/srvloop/send.c"
 #include "app/http3/server/srvloop/respond.c"
 #include "app/http3/server/srvloop/srvloop.c"
+#include "app/http3/server/srvboot/srvboot.c"
+#include "app/http3/server/srvrun/srvrun.c"
 #include "tls/handshake/roles/client/clientwire.c"
 #include "common/varint_test.c"
 #include "transport/header_test.c"
@@ -645,6 +648,7 @@
 #include "transport/addr_test.c"
 #include "transport/udptransport_test.c"
 #include "common/clock_test.c"
+#include "common/debug_test.c"
 #include "common/rng_test.c"
 #include "common/cidgen_test.c"
 #include "common/challenge_test.c"
@@ -1056,6 +1060,7 @@ int main(void) {
   test_udptransport();
   test_rng();
   test_clock();
+  test_debug();
   test_cidgen();
   test_challenge();
   test_cipher();
