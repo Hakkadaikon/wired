@@ -27,13 +27,15 @@ static usz resp_put_prefix(u8 *out, usz cap) {
 /* Append the :status field line: Indexed when the value is in the static
  * table, else a Literal referencing the static :status name. */
 static usz put_status_line(u16 status, u8 *out, usz cap) {
-  u8  digits[4];
-  i64 idx;
+  u8                 digits[4];
+  i64                idx;
+  quic_qpack_nameref r = {QPACK_STATUS_NAME_INDEX, 1, 0};
   status_digits(status, digits);
   idx = quic_qpack_static_find(":status", (const char *)digits);
-  if (idx >= 0) return quic_qpack_indexed_encode(out, cap, (u64)idx, 1);
+  if (idx >= 0)
+    return quic_qpack_indexed_encode(quic_mspan_of(out, cap), (u64)idx, 1);
   return quic_qpack_literal_namref_encode(
-      out, cap, QPACK_STATUS_NAME_INDEX, 1, 0, digits, 3);
+      quic_mspan_of(out, cap), &r, quic_span_of(digits, 3));
 }
 
 /* RFC 9204 4.5 */

@@ -92,8 +92,8 @@ static void step_octet(hctx *c, u8 byte) {
 
 /* Feed every input octet into c; a broken octet leaves c->ok clear so the
  * remaining octets are stepped over as no-ops. */
-static void feed(hctx *c, const u8 *src, usz src_len) {
-  for (usz i = 0; i < src_len; i++) step_octet(c, src[i]);
+static void feed(hctx *c, quic_span src) {
+  for (usz i = 0; i < src.n; i++) step_octet(c, src.p[i]);
 }
 
 /* RFC 7541 5.2: the leftover bits must form valid padding -- fewer than 8 and
@@ -106,11 +106,10 @@ static int pad_valid(const hctx *c) {
  */
 static int decode_ok(const hctx *c) { return c->ok && pad_valid(c); }
 
-int quic_qpack_huffman_decode(
-    const u8 *src, usz src_len, u8 *dst, usz dcap, usz *out_len) {
-  hctx c = {0, 0, dst, dcap, 0, 1};
-  feed(&c, src, src_len);
+int quic_qpack_huffman_decode(quic_span src, quic_obuf *dst) {
+  hctx c = {0, 0, dst->p, dst->cap, 0, 1};
+  feed(&c, src);
   if (!decode_ok(&c)) return 0;
-  *out_len = c.olen;
+  dst->len = c.olen;
   return 1;
 }

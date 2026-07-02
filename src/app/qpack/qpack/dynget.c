@@ -7,19 +7,12 @@ static int is_live(const quic_qpack_dyn *t, u64 abs_index) {
 }
 
 int quic_qpack_dyn_get(
-    const quic_qpack_dyn *t,
-    u64                   abs_index,
-    const u8            **name,
-    usz                  *name_len,
-    const u8            **value,
-    usz                  *value_len) {
+    const quic_qpack_dyn *t, u64 abs_index, quic_qpack_field *out) {
   if (!is_live(t, abs_index)) return 0;
   usz off                       = (usz)(abs_index - t->dropped);
   usz slot                      = (t->head + off) % QUIC_QPACK_DYN_MAX_ENTRIES;
   const quic_qpack_dyn_entry *e = &t->ring[slot];
-  *name                         = e->name;
-  *name_len                     = e->name_len;
-  *value                        = e->value;
-  *value_len                    = e->value_len;
+  out->name                     = quic_span_of(e->name, e->name_len);
+  out->value                    = quic_span_of(e->value, e->value_len);
   return 1;
 }

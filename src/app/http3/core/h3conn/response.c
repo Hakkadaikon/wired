@@ -37,7 +37,8 @@ static int status_from_indexed(const u8 *buf, usz n, u16 *status) {
   int         is_static = 0;
   const char *name      = 0;
   const char *value     = 0;
-  if (!quic_qpack_indexed_decode(buf, n, &index, &is_static)) return 0;
+  if (!quic_qpack_indexed_decode(quic_span_of(buf, n), &index, &is_static))
+    return 0;
   if (!quic_qpack_static_get((usz)index, &name, &value)) return 0;
   *status = digits_to_status((const u8 *)value);
   return 1;
@@ -45,14 +46,12 @@ static int status_from_indexed(const u8 *buf, usz n, u16 *status) {
 
 /* RFC 9204 4.5.4: Literal :status with name reference -> its 3-octet value. */
 static int status_from_literal(const u8 *buf, usz n, u16 *status) {
-  u64 index     = 0;
-  int is_static = 0, never = 0;
-  u8  val[8];
-  usz vlen = 0;
-  if (!quic_qpack_literal_namref_decode(
-          buf, n, &index, &is_static, &never, val, sizeof(val), &vlen))
+  quic_qpack_nameref r = {0, 0, 0};
+  u8                 val[8];
+  quic_obuf          vb = quic_obuf_of(val, sizeof(val));
+  if (!quic_qpack_literal_namref_decode(quic_span_of(buf, n), &r, &vb))
     return 0;
-  if (vlen != 3) return 0;
+  if (vb.len != 3) return 0;
   *status = digits_to_status(val);
   return 1;
 }

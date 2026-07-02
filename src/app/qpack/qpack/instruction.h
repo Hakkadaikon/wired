@@ -1,7 +1,7 @@
 #ifndef QUIC_QPACK_INSTRUCTION_H
 #define QUIC_QPACK_INSTRUCTION_H
 
-#include "common/platform/sys/syscall.h"
+#include "common/bytes/span/span.h"
 
 /* RFC 9204 4.3 / 4.4. QPACK encoder- and decoder-stream instructions. The
  * dynamic table itself is out of scope here: only the type-pattern prefix and
@@ -27,14 +27,14 @@ typedef enum {
  * bytes written or 0; decode returns bytes consumed or 0, with *value set and
  * *kind identifying which instruction the leading byte selected. */
 usz quic_qpack_enc_instr_encode(
-    u8 *buf, usz cap, quic_qpack_enc_kind kind, u64 value);
+    quic_mspan buf, quic_qpack_enc_kind kind, u64 value);
 usz quic_qpack_enc_instr_decode(
-    const u8 *buf, usz n, quic_qpack_enc_kind *kind, u64 *value);
+    quic_span buf, quic_qpack_enc_kind *kind, u64 *value);
 
 /* Same for decoder-stream instructions. */
 usz quic_qpack_dec_instr_encode(
-    u8 *buf, usz cap, quic_qpack_dec_kind kind, u64 value);
+    quic_mspan buf, quic_qpack_dec_kind kind, u64 value);
 usz quic_qpack_dec_instr_decode(
-    const u8 *buf, usz n, quic_qpack_dec_kind *kind, u64 *value);
+    quic_span buf, quic_qpack_dec_kind *kind, u64 *value);
 
 #endif

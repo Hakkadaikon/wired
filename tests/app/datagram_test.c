@@ -5,7 +5,7 @@ static void test_datagram_with_len(void) {
   const u8            payload[] = {0xDE, 0xAD, 0xBE, 0xEF};
   quic_datagram_frame in        = {.length = 4, .data = payload};
   u8                  buf[16];
-  usz                 w = quic_datagram_encode(buf, sizeof(buf), &in, 1);
+  usz w = quic_datagram_encode(quic_mspan_of(buf, sizeof(buf)), &in, 1);
   CHECK(w != 0 && buf[0] == QUIC_FRAME_DATAGRAM_LEN);
 
   quic_datagram_frame out;
@@ -19,7 +19,7 @@ static void test_datagram_no_len(void) {
   const u8            payload[] = {1, 2, 3};
   quic_datagram_frame in        = {.length = 3, .data = payload};
   u8                  buf[16];
-  usz                 w = quic_datagram_encode(buf, sizeof(buf), &in, 0);
+  usz w = quic_datagram_encode(quic_mspan_of(buf, sizeof(buf)), &in, 0);
   CHECK(w != 0 && buf[0] == QUIC_FRAME_DATAGRAM && w == 4); /* type + 3 data */
 
   quic_datagram_frame out;
@@ -31,12 +31,12 @@ static void test_datagram_truncated(void) {
   const u8            payload[] = {1, 2, 3, 4, 5};
   quic_datagram_frame in        = {.length = 5, .data = payload};
   u8                  buf[16];
-  usz                 w = quic_datagram_encode(buf, sizeof(buf), &in, 1);
+  usz w = quic_datagram_encode(quic_mspan_of(buf, sizeof(buf)), &in, 1);
   quic_datagram_frame out;
   CHECK(quic_datagram_decode(buf, w - 1, &out) == 0); /* data cut short */
   /* empty datagram (length 0) is allowed */
-  quic_datagram_frame e  = {.length = 0, .data = payload};
-  usz                 ew = quic_datagram_encode(buf, sizeof(buf), &e, 1);
+  quic_datagram_frame e = {.length = 0, .data = payload};
+  usz ew = quic_datagram_encode(quic_mspan_of(buf, sizeof(buf)), &e, 1);
   CHECK(quic_datagram_decode(buf, ew, &out) == ew && out.length == 0);
 }
 

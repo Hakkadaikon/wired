@@ -2,12 +2,13 @@
 
 /* RFC 7541 5.1: 1337 with a 5-bit prefix encodes to 0x1F 0x9A 0x0A. */
 static void test_qpack_integer_vector(void) {
-  u8  buf[8];
-  usz w = quic_qpack_int_encode(buf, sizeof(buf), 5, 0, 1337);
+  u8             buf[8];
+  quic_qpack_pfx pfx = {5, 0};
+  usz w = quic_qpack_int_encode(quic_mspan_of(buf, sizeof(buf)), pfx, 1337);
   CHECK(w == 3 && buf[0] == 0x1F && buf[1] == 0x9A && buf[2] == 0x0A);
 
   u64 v;
-  usz r = quic_qpack_int_decode(buf, w, 5, &v);
+  usz r = quic_qpack_int_decode(quic_span_of(buf, w), 5, &v);
   CHECK(r == w && v == 1337);
 }
 
@@ -15,24 +16,27 @@ static void test_qpack_integer_vector(void) {
 static void test_qpack_integer_roundtrip(void) {
   u64 cases[] = {0, 10, 30, 31, 42, 1337, 100000};
   for (usz i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
-    u8  buf[12];
-    u64 v;
-    usz w = quic_qpack_int_encode(buf, sizeof(buf), 5, 0, cases[i]);
-    usz r = quic_qpack_int_decode(buf, w, 5, &v);
+    u8             buf[12];
+    u64            v;
+    quic_qpack_pfx pfx = {5, 0};
+    usz            w =
+        quic_qpack_int_encode(quic_mspan_of(buf, sizeof(buf)), pfx, cases[i]);
+    usz r = quic_qpack_int_decode(quic_span_of(buf, w), 5, &v);
     CHECK(w != 0 && r == w && v == cases[i]);
   }
 }
 
 /* A raw string literal round-trips; truncation is rejected. */
 static void test_qpack_string(void) {
-  const u8 s[] = {'h', 'e', 'l', 'l', 'o'};
-  u8       buf[16], out[16];
-  usz      olen;
-  usz      w = quic_qpack_string_encode(buf, sizeof(buf), s, 5);
+  const u8  s[] = {'h', 'e', 'l', 'l', 'o'};
+  u8        buf[16], out[16];
+  quic_obuf ob = quic_obuf_of(out, sizeof(out));
+  usz       w  = quic_qpack_string_encode(
+      quic_mspan_of(buf, sizeof(buf)), quic_span_of(s, 5));
   CHECK(w != 0);
-  usz r = quic_qpack_string_decode(buf, w, out, sizeof(out), &olen);
-  CHECK(r == w && olen == 5 && out[0] == 'h' && out[4] == 'o');
-  CHECK(quic_qpack_string_decode(buf, w - 1, out, sizeof(out), &olen) == 0);
+  usz r = quic_qpack_string_decode(quic_span_of(buf, w), &ob);
+  CHECK(r == w && ob.len == 5 && out[0] == 'h' && out[4] == 'o');
+  CHECK(quic_qpack_string_decode(quic_span_of(buf, w - 1), &ob) == 0);
 }
 
 /* The static table resolves known indices and finds known pairs. */

@@ -16,21 +16,18 @@ static void test_field_encode_status_200(void) {
 /* A status absent from the static table is a Literal Field Line referencing
  * the :status name (static index 24) with the decimal value. */
 static void test_field_encode_status_201(void) {
-  u8        out[16];
-  usz       n = 0;
-  const u8 *p;
-  usz       pl        = 0;
-  u64       idx       = 0;
-  int       is_static = 0, never = 0;
-  u8        val[8];
+  u8                 out[16];
+  usz                n = 0;
+  usz                pl;
+  quic_qpack_nameref r = {0, 0, 0};
+  u8                 val[8];
+  quic_obuf          vb = quic_obuf_of(val, sizeof val);
   CHECK(quic_h3resp_encode_status(201, out, sizeof out, &n) == 1);
   CHECK(out[0] == 0x00 && out[1] == 0x00);
-  p  = out + 2;
-  pl = quic_qpack_literal_namref_decode(
-      p, n - 2, &idx, &is_static, &never, val, sizeof val, &n);
+  pl = quic_qpack_literal_namref_decode(quic_span_of(out + 2, n - 2), &r, &vb);
   CHECK(pl != 0);
-  CHECK(is_static == 1 && idx == 24);
-  CHECK(n == 3 && val[0] == '2' && val[1] == '0' && val[2] == '1');
+  CHECK(r.is_static == 1 && r.index == 24);
+  CHECK(vb.len == 3 && val[0] == '2' && val[1] == '0' && val[2] == '1');
 }
 
 /* A second in-table status confirms the Indexed index comes from the static
