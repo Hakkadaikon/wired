@@ -6,6 +6,11 @@ UDP socket through a full handshake to an HTTP/3 `:status 200`, all under real
 AEAD protection on the wire. It is libc-free, x86_64-linux only, and runs on
 direct syscalls with its own `_start` (a static, freestanding binary).
 
+The whole sample is driven by the single SDK header `#include "wired.h"`. A
+client `Initial` is cold-started with one call, `wired_srvboot_accept` (recover
+the ClientHello, build and seal the server flight); defining `WIRED_MAIN` before
+the include also supplies the libc `memcpy`/`memset` a `-nostdlib` binary needs.
+
 The wire path it owns is the whole exchange: client `Initial` → ServerHello
 (Initial packet) + server flight (Handshake packet) → open the client Finished
 off the wire, confirm, and seal `HANDSHAKE_DONE` → open a 1-RTT `GET` and seal a
