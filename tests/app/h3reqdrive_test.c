@@ -154,8 +154,7 @@ static void test_reqdrive_leading_grease(void) {
   h3_len = put_grease_frame(h3, sizeof(h3));
   h3_len += quic_h3_frame_put(
       h3 + h3_len, sizeof(h3) - h3_len, QUIC_H3_FRAME_HEADERS, fs, fs_len);
-  CHECK(quic_appdata_stream_frame(
-      0, 0, h3, h3_len, 1, req, sizeof(req), &req_len));
+  CHECK(appdata_frame_flat(0, 0, h3, h3_len, 1, req, sizeof(req), &req_len));
   CHECK(quic_h3reqdrive_recv_get(req, req_len, scratch, sizeof(scratch), &r));
   CHECK(rd_eq(r.method, r.method_len, "GET", 3));
   CHECK(rd_eq(r.scheme, r.scheme_len, "https", 5));
@@ -174,8 +173,7 @@ static void test_reqdrive_two_greases(void) {
   h3_len += put_grease_frame(h3 + h3_len, sizeof(h3) - h3_len);
   h3_len += quic_h3_frame_put(
       h3 + h3_len, sizeof(h3) - h3_len, QUIC_H3_FRAME_HEADERS, fs, fs_len);
-  CHECK(quic_appdata_stream_frame(
-      0, 0, h3, h3_len, 1, req, sizeof(req), &req_len));
+  CHECK(appdata_frame_flat(0, 0, h3, h3_len, 1, req, sizeof(req), &req_len));
   CHECK(quic_h3reqdrive_recv_get(req, req_len, scratch, sizeof(scratch), &r));
   CHECK(rd_eq(r.path, r.path_len, "/get", 4));
 }
@@ -186,8 +184,7 @@ static void test_reqdrive_grease_only(void) {
   usz                 h3_len = put_grease_frame(h3, sizeof(h3)), req_len = 0;
   quic_h3reqdrive_req r;
 
-  CHECK(quic_appdata_stream_frame(
-      0, 0, h3, h3_len, 1, req, sizeof(req), &req_len));
+  CHECK(appdata_frame_flat(0, 0, h3, h3_len, 1, req, sizeof(req), &req_len));
   CHECK(
       quic_h3reqdrive_recv_get(req, req_len, scratch, sizeof(scratch), &r) ==
       0);
@@ -206,8 +203,7 @@ static void test_reqdrive_grease_then_body(void) {
       h3 + h3_len, sizeof(h3) - h3_len, QUIC_H3_FRAME_HEADERS, fs, fs_len);
   h3_len += quic_h3_frame_put(
       h3 + h3_len, sizeof(h3) - h3_len, QUIC_H3_FRAME_DATA, body, sizeof(body));
-  CHECK(quic_appdata_stream_frame(
-      0, 0, h3, h3_len, 1, req, sizeof(req), &req_len));
+  CHECK(appdata_frame_flat(0, 0, h3, h3_len, 1, req, sizeof(req), &req_len));
   CHECK(quic_h3reqdrive_recv_get(req, req_len, scratch, sizeof(scratch), &r));
   CHECK(rd_eq(r.path, r.path_len, "/get", 4));
   CHECK(rd_eq(r.body, r.body_len, "body", 4));
@@ -226,8 +222,7 @@ static void test_reqdrive_data_after_grease(void) {
   h3_len += put_grease_frame(h3 + h3_len, sizeof(h3) - h3_len);
   h3_len += quic_h3_frame_put(
       h3 + h3_len, sizeof(h3) - h3_len, QUIC_H3_FRAME_DATA, body, sizeof(body));
-  CHECK(quic_appdata_stream_frame(
-      0, 0, h3, h3_len, 1, req, sizeof(req), &req_len));
+  CHECK(appdata_frame_flat(0, 0, h3, h3_len, 1, req, sizeof(req), &req_len));
   CHECK(quic_h3reqdrive_recv_get(req, req_len, scratch, sizeof(scratch), &r));
   CHECK(rd_eq(r.path, r.path_len, "/get", 4));
   CHECK(rd_eq(r.body, r.body_len, "pay", 3));
@@ -246,8 +241,7 @@ static void test_reqdrive_multi_data(void) {
       h3 + h3_len, sizeof(h3) - h3_len, QUIC_H3_FRAME_DATA, a, sizeof(a));
   h3_len += quic_h3_frame_put(
       h3 + h3_len, sizeof(h3) - h3_len, QUIC_H3_FRAME_DATA, b, sizeof(b));
-  CHECK(quic_appdata_stream_frame(
-      0, 0, h3, h3_len, 1, req, sizeof(req), &req_len));
+  CHECK(appdata_frame_flat(0, 0, h3, h3_len, 1, req, sizeof(req), &req_len));
   CHECK(quic_h3reqdrive_recv_get(req, req_len, scratch, sizeof(scratch), &r));
   CHECK(rd_eq(r.body, r.body_len, "aa", 2));
 }
@@ -280,12 +274,12 @@ static void test_reqdrive_onertt(void) {
   CHECK(quic_h3reqdrive_send_get(
       4, path, sizeof(path), auth, sizeof(auth), req, sizeof(req), &req_len));
   CHECK(quic_frame_get_stream(req, req_len, &f));
-  CHECK(quic_appdata_send(
+  CHECK(appdata_send_flat(
       &k, &hp, dcid, 4, 1, f.stream_id, f.data, (usz)f.length, f.fin, pkt,
       sizeof(pkt), &total));
-  CHECK(quic_appdata_recv(
+  CHECK(appdata_recv_flat(
       &k, &hp, pkt, total, 4, &sid, &off, &sdata, &slen, &fin));
-  CHECK(quic_appdata_stream_frame(
+  CHECK(appdata_frame_flat(
       sid, off, sdata, slen, fin, reframed, sizeof(reframed), &rf_len));
   CHECK(
       quic_h3reqdrive_recv_get(reframed, rf_len, scratch, sizeof(scratch), &r));

@@ -144,7 +144,7 @@ static void test_cw_onertt_roundtrip(void) {
   CHECK(quic_keysched_get(&c.tls.ks, QUIC_KS_CLIENT_AP, &cap) == 1);
   quic_aes128_init(&hp, cap->hp);
   CHECK(
-      quic_appdata_recv(
+      appdata_recv_flat(
           cap, &hp, pkt, total, 8, &sid, &off, &data, &dlen, &fin) == 1);
   CHECK(sid == 4 && dlen == sizeof(get));
 
@@ -153,7 +153,7 @@ static void test_cw_onertt_roundtrip(void) {
   CHECK(quic_keysched_get(&c.tls.ks, QUIC_KS_SERVER_AP, &sap) == 1);
   quic_aes128_init(&hp, sap->hp);
   CHECK(
-      quic_appdata_send(
+      appdata_send_flat(
           sap, &hp, cw_scid, 4, 0, 0, ok, sizeof(ok), 1, pkt, sizeof(pkt),
           &total) == 1);
   CHECK(
@@ -184,7 +184,7 @@ static void test_cw_onertt_wrong_dcid_dropped(void) {
   quic_aes128_init(&hp, sap->hp);
   /* a validly sealed 200, but addressed to a DCID that is not our SCID. */
   CHECK(
-      quic_appdata_send(
+      appdata_send_flat(
           sap, &hp, not_ours, 4, 0, 0, ok, sizeof(ok), 1, pkt, sizeof(pkt),
           &total) == 1);
   CHECK(

@@ -17,7 +17,7 @@ static void test_app_roundtrip(void) {
 
   u8  pkt[128];
   usz total = 0;
-  CHECK(quic_appdata_send(
+  CHECK(appdata_send_flat(
       &k, &hp, dcid, 5, 42, 4, body, sizeof(body), 1, pkt, sizeof(pkt),
       &total));
 
@@ -25,7 +25,7 @@ static void test_app_roundtrip(void) {
   const u8 *data = 0;
   usz       dlen = 0;
   int       fin  = 0;
-  CHECK(quic_appdata_recv(
+  CHECK(appdata_recv_flat(
       &k, &hp, pkt, total, 5, &sid, &off, &data, &dlen, &fin));
   CHECK(sid == 4);
   CHECK(off == 0);
@@ -44,7 +44,7 @@ static void test_app_tamper(void) {
 
   u8  pkt[128];
   usz total = 0;
-  CHECK(quic_appdata_send(
+  CHECK(appdata_send_flat(
       &k, &hp, dcid, 4, 5, 0, body, sizeof(body), 0, pkt, sizeof(pkt), &total));
   pkt[total - 1] ^= 0x01;
 
@@ -52,7 +52,7 @@ static void test_app_tamper(void) {
   const u8 *data = 0;
   usz       dlen = 0;
   int       fin  = 0;
-  CHECK(!quic_appdata_recv(
+  CHECK(!appdata_recv_flat(
       &k, &hp, pkt, total, 4, &sid, &off, &data, &dlen, &fin));
 }
 

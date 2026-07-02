@@ -7,13 +7,15 @@
 static void test_closeframe_wire(void) {
   static const u8       reason[] = {'f', 'l', 'o', 'w'};
   u8                    buf[64];
-  usz                   len = 0;
   quic_conn_close_frame got;
+  quic_flowviol_err     e = {
+      QUIC_EC_FLOW_CONTROL_ERROR,
+      QUIC_FRAME_CONN_CLOSE_TPT,
+      {reason, sizeof reason}};
+  quic_obuf ob = quic_obuf_of(buf, sizeof buf);
 
-  CHECK(
-      quic_flowviol_close_frame(
-          QUIC_EC_FLOW_CONTROL_ERROR, QUIC_FRAME_CONN_CLOSE_TPT, reason,
-          sizeof reason, buf, sizeof buf, &len) == 1);
+  CHECK(quic_flowviol_close_frame(&e, &ob) == 1);
+  usz len = ob.len;
   CHECK(len > 0);
   CHECK(buf[0] == QUIC_FRAME_CONN_CLOSE_TPT); /* transport variant 0x1c */
 
@@ -27,11 +29,10 @@ static void test_closeframe_wire(void) {
 }
 
 static void test_closeframe_overflow(void) {
-  u8  buf[2];
-  usz len = 0;
-  CHECK(
-      quic_flowviol_close_frame(
-          QUIC_EC_STREAM_LIMIT_ERROR, 0x12, 0, 0, buf, sizeof buf, &len) == 0);
+  u8                buf[2];
+  quic_flowviol_err e  = {QUIC_EC_STREAM_LIMIT_ERROR, 0x12, {0, 0}};
+  quic_obuf         ob = quic_obuf_of(buf, sizeof buf);
+  CHECK(quic_flowviol_close_frame(&e, &ob) == 0);
 }
 
 void test_closeframe(void) {

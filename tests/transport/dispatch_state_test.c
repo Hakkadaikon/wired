@@ -31,10 +31,10 @@ static void test_dispatch_stream(void) {
   quic_stream_frame f = {3, 0, 4, (const u8 *)"data", 0};
   usz               n = quic_frame_put_stream(buf, sizeof buf, &f);
   CHECK(quic_framedispatch_handle(&st, buf[0], quic_span_of(buf, n)) == 1);
-  u8  out[8];
-  usz got = 0;
-  quic_stream_read_pull(&s, out, sizeof out, &got);
-  CHECK(got == 4);
+  u8        out[8];
+  quic_obuf ob = quic_obuf_of(out, sizeof out);
+  quic_stream_read_pull(&s, &ob);
+  CHECK(ob.len == 4);
   CHECK(st.ack_eliciting == 1);
 }
 
@@ -45,7 +45,8 @@ static void test_dispatch_ack(void) {
   quic_sentpkt             t;
   quic_flow_credit         c;
   ds_init(&st, &s, &t, &c);
-  for (u64 pn = 1; pn <= 5; pn++) quic_sentpkt_on_send(&t, &(quic_sentpkt_out){pn, 0, 1, 1});
+  for (u64 pn = 1; pn <= 5; pn++)
+    quic_sentpkt_on_send(&t, &(quic_sentpkt_out){pn, 0, 1, 1});
   quic_ack_frame f;
   for (usz i = 0; i < sizeof f; i++) ((u8 *)&f)[i] = 0;
   f.n_ranges     = 1;
