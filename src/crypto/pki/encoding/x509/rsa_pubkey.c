@@ -43,6 +43,45 @@ static int into_rsa_seq(const u8 *key, usz key_len, quic_derseq *c) {
   return 1;
 }
 
+/* RFC 8017 3.1 floor: a modulus under 2048 bits is factorable at practical
+ * cost and is rejected. */
+#define RSA_PUBKEY_MIN_N 256
+
+/* X.690 8.3.2 canonical leading octet (no redundant zero after the one sign
+ * pad) and an odd low octet. Caller guarantees len >= 1. */
+static int rpk_canon_odd(const u8 *v, usz len) {
+  return v[0] != 0x00 && (v[len - 1] & 1);
+}
+
+/* n is canonical, odd (a product of odd primes), and >= 2048 bits. */
+static int rpk_n_valid(const u8 *n, usz len) {
+  return len >= RSA_PUBKEY_MIN_N && rpk_canon_odd(n, len);
+}
+
+/* RFC 8017 3.1. e >= 3 (a single octet of 0, 1, or 2 is rejected). */
+static int rpk_e_min(const u8 *e, usz len) { return len > 1 || e[0] >= 3; }
+
+/* 3 <= e < 2^64. */
+static int rpk_e_range(const u8 *e, usz len) {
+  return len >= 1 && len <= 8 && rpk_e_min(e, len);
+}
+
+/* e is bounded, canonical, and odd. */
+static int rpk_e_valid(const u8 *e, usz len) {
+  return rpk_e_range(e, len) && rpk_canon_odd(e, len);
+}
+
+static int rpk_valid(const u8 *n, usz n_len, const u8 *e, usz e_len) {
+  return rpk_n_valid(n, n_len) && rpk_e_valid(e, e_len);
+}
+
+/* RFC 8017 A.1.1. Both INTEGERs of RSAPublicKey { n, e } from the cursor. */
+static int rpk_read(
+    quic_derseq *c, const u8 **n, usz *n_len, const u8 **e, usz *e_len) {
+  if (!next_int(c, n, n_len)) return 0;
+  return next_int(c, e, e_len);
+}
+
 int quic_x509_rsa_pubkey(
     const u8  *spki_key,
     usz        key_len,
@@ -52,6 +91,6 @@ int quic_x509_rsa_pubkey(
     usz       *e_len) {
   quic_derseq c;
   if (!into_rsa_seq(spki_key, key_len, &c)) return 0;
-  if (!next_int(&c, n, n_len)) return 0;
-  return next_int(&c, e, e_len);
+  if (!rpk_read(&c, n, n_len, e, e_len)) return 0;
+  return rpk_valid(*n, *n_len, *e, *e_len);
 }
