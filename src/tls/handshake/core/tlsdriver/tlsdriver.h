@@ -33,6 +33,8 @@ typedef struct {
   u8             my_pub[QUIC_ECDHE_LEN];
   u8             shared[QUIC_ECDHE_LEN];
   int            hs_ready; /* 1 once the handshake secret is derived */
+  const u8      *sni;      /* ClientHello server_name, view (caller-owned) */
+  usz            sni_len;  /* 0 omits the SNI extension */
 } quic_tlsdriver;
 
 /* Hold the x25519 key pair and initialize the order machine, key schedule,
@@ -42,6 +44,15 @@ void quic_tlsdriver_init(
     const u8        my_priv[QUIC_ECDHE_LEN],
     const u8        my_pub[QUIC_ECDHE_LEN],
     int             is_server);
+
+/* RFC 6066 3: set the server_name carried in our ClientHello. sni is a view;
+ * the caller keeps it alive until the ClientHello is built. Never calling
+ * this (or sni_len 0) omits the extension. */
+void quic_tlsdriver_set_sni(quic_tlsdriver *d, const u8 *sni, usz sni_len);
+
+/* Build the raw ClientHello bytes (zero random, our key_share, the configured
+ * SNI) into out (cap bytes). Returns the length, 0 if it does not fit. */
+usz quic_tlsdriver_raw_client_hello(quic_tlsdriver *d, u8 *out, usz cap);
 
 /* Build a real ClientHello carrying our key_share and emit it as CRYPTO
  * frame(s) into out (cap bytes), writing the encoded length to *out_len.

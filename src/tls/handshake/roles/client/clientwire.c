@@ -23,14 +23,10 @@ static int cw_dir_key(
 /* RFC 8446 4.1.2: build the raw ClientHello (the exact bytes the tlsdriver
  * emits: zero random, ALPN h3, empty transport parameters), so the Initial
  * carries it in a single CRYPTO frame rather than a CRYPTO-in-CRYPTO wrap.
- * ponytail: mirrors quic_tlsdriver_client_hello's parameters; if those ever
- * gain state (real random/SNI/transport params), expose a raw-CH accessor on
- * tlsdriver instead of duplicating them here. */
+ * Delegates to the tlsdriver's raw-CH accessor so driver state (SNI) is
+ * honored here too. */
 static usz cw_client_hello(quic_client *c, u8 *ch, usz cap) {
-  static const u8 random[32] = {0};
-  static const u8 tp[1]      = {0};
-  return quic_tls_client_hello(
-      ch, cap, random, c->tls.my_pub, 0, 0, tp, sizeof(tp));
+  return quic_tlsdriver_raw_client_hello(&c->tls, ch, cap);
 }
 
 /* RFC 9001 5.2 */

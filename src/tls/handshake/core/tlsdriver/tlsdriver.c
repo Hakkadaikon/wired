@@ -26,15 +26,26 @@ void quic_tlsdriver_init(
   quic_keyset_init(&d->keys);
   d->is_server = is_server;
   d->hs_ready  = 0;
+  d->sni       = 0;
+  d->sni_len   = 0;
+}
+
+void quic_tlsdriver_set_sni(quic_tlsdriver *d, const u8 *sni, usz sni_len) {
+  d->sni     = sni;
+  d->sni_len = sni_len;
+}
+
+usz quic_tlsdriver_raw_client_hello(quic_tlsdriver *d, u8 *out, usz cap) {
+  static const u8 random[32] = {0};
+  static const u8 tp[1]      = {0};
+  return quic_tls_client_hello(
+      out, cap, random, d->my_pub, d->sni, d->sni_len, tp, sizeof(tp));
 }
 
 int quic_tlsdriver_client_hello(
     quic_tlsdriver *d, u8 *out, usz cap, usz *out_len) {
-  u8              ch[512];
-  static const u8 random[32] = {0};
-  static const u8 tp[1]      = {0};
-  usz             n          = quic_tls_client_hello(
-      ch, sizeof(ch), random, d->my_pub, 0, 0, tp, sizeof(tp));
+  u8  ch[512];
+  usz n = quic_tlsdriver_raw_client_hello(d, ch, sizeof(ch));
   if (n == 0) return 0;
   return quic_crypto_stream_emit(
       ch, n, 0, QUIC_TLSDRIVER_CRYPTO_MAX, out, cap, out_len);
