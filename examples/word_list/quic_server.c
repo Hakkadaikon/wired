@@ -39,27 +39,28 @@ static void history_append(const u8 *body, usz n)
         g_history[g_history_len++] = body[i];
 }
 
-/* Copy up to cap bytes of src into dst, returning the count copied. */
-static usz copy_capped(u8 *dst, usz cap, const u8 *src, usz n)
+/* Copy up to out->cap bytes of src into out, setting out->len to the count
+ * copied. */
+static void copy_capped(quic_obuf *out, quic_span src)
 {
     usz i;
-    for (i = 0; i < n && i < cap; i++)
-        dst[i] = src[i];
-    return i;
+    for (i = 0; i < src.n && i < out->cap; i++)
+        out->p[i] = src.p[i];
+    out->len = i;
 }
 
 /* RFC 9110 9.3.1 (GET) returns the log; 9.3.3 (POST) appends and echoes. The
  * request body is a scratch view, so both paths copy out. Always sends a body. */
-static int app_on_request(void *ctx, const quic_h3reqdrive_req *req,
-                          u8 *body_out, usz cap, usz *body_len)
+static int app_on_request(
+    void *ctx, const quic_h3reqdrive_req *req, quic_obuf *body_out)
 {
     (void)ctx;
     if (req->method_len == 4 && req->method[0] == 'P') {
         history_append(req->body, req->body_len);
-        *body_len = copy_capped(body_out, cap, req->body, req->body_len);
+        copy_capped(body_out, quic_span_of(req->body, req->body_len));
         return 1;
     }
-    *body_len = copy_capped(body_out, cap, g_history, g_history_len);
+    copy_capped(body_out, quic_span_of(g_history, g_history_len));
     return 1;
 }
 
@@ -67,16 +68,16 @@ static int app_on_request(void *ctx, const quic_h3reqdrive_req *req,
 static void app_selfcheck(void)
 {
     u8  out[64];
-    usz n = 0;
+    quic_obuf ob = {out, sizeof out, 0};
     quic_h3reqdrive_req post = {(const u8 *)"POST", 4, 0, 0, 0, 0, 0, 0,
                                (const u8 *)"hi", 2};
     quic_h3reqdrive_req get = {(const u8 *)"GET", 3, 0, 0, 0, 0, 0, 0, 0, 0};
     g_history_len = 0;
-    app_on_request(0, &post, out, sizeof out, &n);
-    if (n != 2 || out[0] != 'h')
+    app_on_request(0, &post, &ob);
+    if (ob.len != 2 || out[0] != 'h')
         die("selfcheck: echo failed\n");
-    app_on_request(0, &get, out, sizeof out, &n);
-    if (n != 3 || out[1] != 'h' || out[2] != 'i')
+    app_on_request(0, &get, &ob);
+    if (ob.len != 3 || out[1] != 'h' || out[2] != 'i')
         die("selfcheck: history failed\n");
     g_history_len = 0;
 }
@@ -86,21 +87,29 @@ static void app_selfcheck(void)
  * fixed ServerHello random. A demo needs no rotation. */
 static const u8 SERVER_SCID[6] = {'C', 'L', 'I', 'S', 'C', 'I'};
 
-static void server_identity(wired_srvboot_id *id, u8 priv[32], u8 pub[32],
-                            u8 seed[32], u8 rnd[32])
+/* The demo server's fixed key material buffers, owned by the caller (_start)
+ * so they outlive wired_server_run. */
+typedef struct {
+    u8 priv[32];
+    u8 pub[32];
+    u8 seed[32];
+    u8 rnd[32];
+} server_keys;
+
+static void server_identity(wired_srvboot_id *id, server_keys *k)
 {
     for (usz i = 0; i < 32; i++) {
-        priv[i] = (u8)(0x40 + i);
-        seed[i] = (u8)(0x80 + i);
-        rnd[i]  = (u8)(0xa0 + i);
+        k->priv[i] = (u8)(0x40 + i);
+        k->seed[i] = (u8)(0x80 + i);
+        k->rnd[i]  = (u8)(0xa0 + i);
     }
-    quic_x25519_base(pub, priv);
-    id->priv      = priv;
-    id->pub       = pub;
-    id->cert_seed = seed;
+    quic_x25519_base(k->pub, k->priv);
+    id->priv      = k->priv;
+    id->pub       = k->pub;
+    id->cert_seed = k->seed;
     id->scid      = SERVER_SCID;
     id->scid_len  = sizeof SERVER_SCID;
-    id->random    = rnd;
+    id->random    = k->rnd;
 }
 
 /* The kernel enters _start 16-byte aligned, but the SysV ABI assumes a return
@@ -109,10 +118,11 @@ static void server_identity(wired_srvboot_id *id, u8 priv[32], u8 pub[32],
 __attribute__((force_align_arg_pointer)) void _start(void)
 {
     wired_srvboot_id id;
-    u8               priv[32], pub[32], seed[32], rnd[32];
+    server_keys      keys;
+    wired_srvrun_handler h = {app_on_request, 0};
     app_selfcheck();
-    server_identity(&id, priv, pub, seed, rnd);
-    if (!wired_server_run(PORT, &id, app_on_request, 0))
+    server_identity(&id, &keys);
+    if (!wired_server_run(PORT, &id, h))
         die("listen failed\n");
     syscall1(SYS_exit, 0);
 }
