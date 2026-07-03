@@ -8,20 +8,22 @@
 void test_sflight_certmsg(void) {
   const u8            der[7] = {0x30, 0x05, 0x01, 0x02, 0x03, 0x04, 0x05};
   u8                  out[64];
-  usz                 out_len, body_len;
+  usz                 body_len;
   u8                  type;
   quic_span            ctx;
   quic_tls_cert_entry first;
+  quic_obuf           ob = quic_obuf_of(out, sizeof(out));
 
-  CHECK(quic_sflight_certificate(der, sizeof(der), out, sizeof(out), &out_len));
-  CHECK(quic_hs_parse(quic_span_of(out, out_len), &type, &body_len) == 4);
+  CHECK(quic_sflight_certificate(quic_span_of(der, sizeof(der)), &ob));
+  CHECK(quic_hs_parse(quic_span_of(out, ob.len), &type, &body_len) == 4);
   CHECK(type == 11);
-  CHECK(4 + body_len == out_len);
+  CHECK(4 + body_len == ob.len);
 
   CHECK(quic_tls_cert_parse(quic_span_of(out + 4, body_len), &ctx, &first));
   CHECK(ctx.n == 0); /* empty request context */
   CHECK(first.cert_len == sizeof(der));
   CHECK(first.cert_data[0] == 0x30 && first.cert_data[6] == 0x05);
 
-  CHECK(!quic_sflight_certificate(der, sizeof(der), out, 4, &out_len));
+  ob = quic_obuf_of(out, 4);
+  CHECK(!quic_sflight_certificate(quic_span_of(der, sizeof(der)), &ob));
 }
