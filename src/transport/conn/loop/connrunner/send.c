@@ -39,21 +39,21 @@ int quic_connrunner_pending_kind(const quic_connrunner *r) {
  * in the send level's space. The space's next expected number is rx, so the
  * largest seen is rx-1 (RFC 9000 12.3: spaces are acknowledged independently).
  */
-static usz cr_build_ack(const quic_connrunner *r, u8 *buf, usz cap) {
+static usz cr_build_ack(const quic_connrunner *r, quic_obuf *out) {
   quic_ack_frame f  = {0};
   u64            rx = quic_connio_rx_next(&r->io, r->loop.level);
   if (rx == 0) return 0; /* nothing received to acknowledge */
   f.n_ranges     = 1;
   f.ranges[0].hi = rx - 1;
   f.ranges[0].lo = rx - 1;
-  return quic_ack_encode(buf, cap, &f);
+  return quic_ack_encode(out->p, out->cap, &f);
 }
 
 /* RFC 9000 19.7: a minimal ack-eliciting payload stands in for new application
  * data, and for a retransmission whose original bytes the store no longer
  * holds. */
-static usz cr_build_ping(u8 *buf, usz cap) {
-  return quic_frame_put_simple(buf, cap, QUIC_FRAME_PING);
+static usz cr_build_ping(quic_obuf *out) {
+  return quic_frame_put_simple(out->p, out->cap, QUIC_FRAME_PING);
 }
 
 void quic_connrunner_capture_rtx(quic_connrunner *r) {
@@ -64,51 +64,52 @@ void quic_connrunner_capture_rtx(quic_connrunner *r) {
 /* RFC 9002 13.3: re-send the lost packet's actual frame bytes under the new
  * packet number. Falls back to a PING stand-in when no lost pn was captured or
  * its bytes are not held. */
-static usz cr_build_rtx(const quic_connrunner *r, u8 *buf, usz cap) {
-  quic_obuf ob = quic_obuf_of(buf, cap);
-  if (r->rtx_held) quic_rtxdrive_build(&r->rtx, r->rtx_pn, &ob);
-  return ob.len ? ob.len : cr_build_ping(buf, cap);
+static usz cr_build_rtx(const quic_connrunner *r, quic_obuf *out) {
+  if (r->rtx_held) quic_rtxdrive_build(&r->rtx, r->rtx_pn, out);
+  return out->len ? out->len : cr_build_ping(out);
 }
 
 /* Build the frame bytes for kinds 2/3 (retransmission / new-data stand-in);
  * kind 0 is handled before this is reached. */
-static usz cr_build_data(const quic_connrunner *r, int kind, u8 *buf, usz cap) {
-  if (kind == 2) return cr_build_rtx(r, buf, cap);
-  return cr_build_ping(buf, cap); /* new data */
+static usz cr_build_data(const quic_connrunner *r, int kind, quic_obuf *out) {
+  if (kind == 2) return cr_build_rtx(r, out);
+  return cr_build_ping(out); /* new data */
 }
 
-/* Build the frame bytes for the chosen kind into buf (1=ACK, 2=retransmission,
+/* Build the frame bytes for the chosen kind into out (1=ACK, 2=retransmission,
  * 3=new-data stand-in, 0=nothing). Returns the length. */
-static usz cr_build_frames(
-    const quic_connrunner *r, int kind, u8 *buf, usz cap) {
-  if (kind == 1) return cr_build_ack(r, buf, cap);
+static usz cr_build_frames(const quic_connrunner *r, int kind, quic_obuf *out) {
+  if (kind == 1) return cr_build_ack(r, out);
   if (kind == 0) return 0;
-  return cr_build_data(r, kind, buf, cap);
+  return cr_build_data(r, kind, out);
 }
 
 usz quic_connrunner_flush_sends(quic_connrunner *r, u64 sent_before, int kind) {
-  u8  frames[64];
-  usz fl;
+  u8        frames[64];
+  usz       fl;
+  quic_obuf fb = quic_obuf_of(frames, sizeof(frames));
   if (r->loop.next_pn == sent_before) return 0; /* loop sent nothing */
-  fl = cr_build_frames(r, kind, frames, sizeof(frames));
+  fl = cr_build_frames(r, kind, &fb);
   if (fl == 0) return 0;
-  return quic_connio_send(
-      &r->io, r->loop.level, frames, fl, r->txbuf, sizeof(r->txbuf));
+  {
+    quic_connio_send_in sin = {r->loop.level, quic_span_of(frames, fl)};
+    quic_obuf            ob = quic_obuf_of(r->txbuf, sizeof(r->txbuf));
+    return quic_connio_send(&r->io, &sin, &ob);
+  }
 }
 
 /* RFC 9002 2 / 13.2.1: an ACK-only packet (kind 1) is neither ack-eliciting nor
  * counted in flight; a retransmission or new data (kind 2/3) is both. */
 static int kind_in_flight(int kind) { return kind >= 2; }
 
-void quic_connrunner_track_sent(
-    quic_connrunner *r, u64 now, int kind, usz sent_len) {
+void quic_connrunner_track_sent(quic_connrunner *r, const quic_connrunner_sent_in *in) {
   int infl;
-  if (sent_len == 0) return;
-  infl = kind_in_flight(kind);
+  if (in->sent_len == 0) return;
+  infl = kind_in_flight(in->kind);
   {
     quic_sentmeta_out pkt = {
-        quic_connio_tx_next(&r->io, r->loop.level) - 1, now, infl, infl,
-        sent_len};
+        quic_connio_tx_next(&r->io, r->loop.level) - 1, in->now, infl, infl,
+        in->sent_len};
     quic_sentmeta_on_sent(&r->sent, &pkt);
   }
 }

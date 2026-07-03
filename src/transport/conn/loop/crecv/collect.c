@@ -1,5 +1,6 @@
 #include "transport/conn/loop/crecv/collect.h"
 
+#include "common/bytes/span/span.h"
 #include "common/bytes/util/bytes.h"
 #include "transport/packet/frame/frame/frame.h"
 #include "transport/packet/frame/pipeline/framewalk.h"
@@ -29,16 +30,16 @@ static void advance_prefix(quic_crecv *s) {
 
 /* Decode the CRYPTO frame at frame_start and place it. Returns 0 on a bad
  * decode or overflow. */
-static int take_crypto(quic_crecv *s, const u8 *frame_start, usz remaining) {
+static int take_crypto(quic_crecv *s, quic_span body) {
   quic_crypto_frame f;
-  if (quic_frame_get_crypto(frame_start, remaining, &f) == 0) return 0;
+  if (quic_frame_get_crypto(body.p, body.n, &f) == 0) return 0;
   return place(s, &f);
 }
 
 /* Handle one walked frame: place CRYPTO, skip everything else. */
-static int on_frame(quic_crecv *s, u64 type, const u8 *fs, usz rem) {
+static int on_frame(quic_crecv *s, u64 type, quic_span body) {
   if (type != QUIC_FRAME_CRYPTO) return 1;
-  return take_crypto(s, fs, rem);
+  return take_crypto(s, body);
 }
 
 int quic_crecv_collect(quic_crecv *s, const u8 *frames, usz len) {
@@ -46,7 +47,7 @@ int quic_crecv_collect(quic_crecv *s, const u8 *frames, usz len) {
   quic_framewalk_item fr;
   quic_framewalk_init(&it, frames, len);
   while (quic_framewalk_next(&it, &fr))
-    if (!on_frame(s, fr.type, fr.start, fr.remaining)) return 0;
+    if (!on_frame(s, fr.type, quic_span_of(fr.start, fr.remaining))) return 0;
   advance_prefix(s);
   return 1;
 }

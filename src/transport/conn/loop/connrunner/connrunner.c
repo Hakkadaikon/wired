@@ -10,37 +10,29 @@
 #include "transport/io/udp/udploop/txloop.h"
 
 void quic_connrunner_init(
-    quic_connrunner        *r,
-    i64                     fd,
-    const quic_sockaddr_in *peer,
-    int                     level,
-    u64                     cwnd,
-    usz                     send_len,
-    int                     is_server,
-    u8                      byte0,
-    const u8               *dcid,
-    u8                      dcid_len,
-    u64                     initial_max_data) {
-  r->fd   = fd;
-  r->peer = *peer;
-  quic_evloop_init(&r->loop, level, cwnd, send_len);
+    quic_connrunner *r, quic_span dcid, const quic_connrunner_init_in *in) {
+  quic_connio_init_in  cin = {in->is_server, in->byte0, in->initial_max_data};
+  quic_evloop_init_in  ein = {in->level, in->cwnd, in->send_len};
+  r->fd                    = in->fd;
+  r->peer                  = *in->peer;
+  quic_evloop_init(&r->loop, &ein);
   quic_rtxbytes_init(&r->rtx);
   quic_sentmeta_init(&r->sent);
   r->rtx_held = 0;
-  quic_connio_init(&r->io, is_server, byte0, dcid, dcid_len, initial_max_data);
+  quic_connio_init(&r->io, dcid, &cin);
   quic_connrunner_keyupdate_init(r);
   quic_connrunner_reconnect_init(r);
 }
 
 /* RFC 9000 12: the fixed-order core of one iteration, with the datagram already
- * in hand (or len 0). Drain receives, step the loop (timers + one send
+ * in hand (or empty). Drain receives, step the loop (timers + one send
  * decision), then seal whatever the loop chose -- recv before step before send.
  * Returns the sealed datagram length to transmit, or 0. Socket-free. */
-usz quic_connrunner_advance(quic_connrunner *r, u64 now, u8 *dgram, usz len) {
+usz quic_connrunner_advance(quic_connrunner *r, u64 now, quic_mspan dgram) {
   u64 sent_before;
   int kind;
   usz out;
-  if (len) quic_connrunner_process_datagram(r, dgram, len);
+  if (dgram.n) quic_connrunner_process_datagram(r, dgram);
   quic_connrunner_track_acks(r);          /* RFC 9002 A.2.2: drop acked bytes */
   kind = quic_connrunner_pending_kind(r); /* before step clears it */
   quic_connrunner_capture_rtx(r);         /* lost pn before step drains it */
@@ -48,7 +40,10 @@ usz quic_connrunner_advance(quic_connrunner *r, u64 now, u8 *dgram, usz len) {
   sent_before = r->loop.next_pn;
   quic_evloop_step(&r->loop, now);
   out = quic_connrunner_flush_sends(r, sent_before, kind);
-  quic_connrunner_track_sent(r, now, kind, out); /* RFC 9002 A.1: in-flight */
+  {
+    quic_connrunner_sent_in sin = {now, kind, out};
+    quic_connrunner_track_sent(r, &sin); /* RFC 9002 A.1: in-flight */
+  }
   return out;
 }
 
@@ -88,7 +83,7 @@ static usz wait_and_recv(quic_connrunner *r, u64 now) {
 
 void quic_connrunner_iterate(quic_connrunner *r, u64 now) {
   usz len = wait_and_recv(r, now);
-  usz out = quic_connrunner_advance(r, now, r->rxbuf, len);
+  usz out = quic_connrunner_advance(r, now, quic_mspan_of(r->rxbuf, len));
   if (out) {
     usz         one = out;
     quic_udpdst dst = {r->fd, &r->peer};

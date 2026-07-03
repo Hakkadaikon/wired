@@ -40,8 +40,7 @@ static void rederive_initial(quic_connrunner *r) {
   usz               off = 0;
   quic_initial_derive(quic_span_of(r->retry.dcid, r->retry.dcid_len), r->io.loop.is_server, &k);
   quic_keyset_install(&r->io.loop.keys, QUIC_LEVEL_INITIAL, &k);
-  quic_put_bytes(
-      r->io.dcid, sizeof r->io.dcid, &off, r->retry.dcid, r->retry.dcid_len);
+  quic_put_bytes(quic_mspan_of(r->io.dcid, sizeof r->io.dcid), &off, quic_span_of(r->retry.dcid, r->retry.dcid_len));
   r->io.dcid_len = r->retry.dcid_len;
 }
 
