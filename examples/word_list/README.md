@@ -1,7 +1,7 @@
 # Real-UDP HTTP/3 server sample
 
 `wired_server.c` is a minimal HTTP/3 server that drives the in-tree server
-real-wire loop (`quic_srvloop_step`) from a real client `Initial` over a real
+real-wire loop (`wired_srvloop_step`) from a real client `Initial` over a real
 UDP socket through a full handshake to an HTTP/3 `:status 200`, all under real
 AEAD protection on the wire. It is libc-free, x86_64-linux only, and runs on
 direct syscalls with its own `_start` (a static, freestanding binary).
@@ -29,9 +29,9 @@ The server drives one client `Initial` through the whole exchange to an HTTP/3
    (ALPN `h3` + QUIC transport parameters) / Certificate / CertificateVerify /
    Finished — and install the Handshake key (`wired_server_build_flight`), then
    seal and send the ServerHello (Initial packet) and flight (Handshake packet)
-   under the server's own-direction keys (`quic_srvloop_send_initial` /
+   under the server's own-direction keys (`wired_srvloop_send_initial` /
    `_send_handshake`).
-3. Hand every later datagram to `quic_srvloop_step`: it opens the packet with the
+3. Hand every later datagram to `wired_srvloop_step`: it opens the packet with the
    peer-direction key, verifies the client Finished and — only on a match —
    advances to the Master secret, installs 1-RTT keys and confirms, then seals
    `HANDSHAKE_DONE`. A 1-RTT `GET` is decoded (server SETTINGS first) and answered
@@ -62,11 +62,11 @@ sequenceDiagram
     S-->>C: ServerHello (Initial packet)
     S-->>C: server flight (Handshake packet)
     C->>S: client Finished (Handshake, AEAD-protected)
-    Note over S: quic_srvloop_step() — open with CLIENT_HS,<br/>verify client Finished,<br/>only on a match: Master secret + 1-RTT keys + confirm
+    Note over S: wired_srvloop_step() — open with CLIENT_HS,<br/>verify client Finished,<br/>only on a match: Master secret + 1-RTT keys + confirm
     S-->>C: HANDSHAKE_DONE (1-RTT, SERVER_AP)
     Note over S,C: 1-RTT confirmed
     C->>S: HEADERS (GET /, 1-RTT, CLIENT_AP)
-    Note over S: quic_srvloop_step() — SETTINGS first,<br/>quic_h3srv_on_request() decode, build :status 200
+    Note over S: wired_srvloop_step() — SETTINGS first,<br/>quic_h3srv_on_request() decode, build :status 200
     S-->>C: HEADERS (:status 200, 1-RTT, SERVER_AP)
 ```
 
@@ -74,7 +74,7 @@ The handshake is gated on a verified client Finished: a forged Finished promotes
 nothing (the server stays unconfirmed and never installs 1-RTT keys). SETTINGS is
 sent before any response, and a response is built only after a request HEADERS
 has been decoded (RFC 9114 6.2.1 / 4.1). The sample drives this whole exchange
-over its own socket via `quic_srvloop_step`; the in-tree loopback test runs the
+over its own socket via `wired_srvloop_step`; the in-tree loopback test runs the
 same loop over `127.0.0.1`.
 
 ## Build and run
@@ -139,7 +139,7 @@ sockets):
 1. the client's real protected Initial crosses a loopback UDP socket and arrives
    padded to 1200 bytes (RFC 9000 14.1);
 2. a real AEAD-protected client Finished crosses the socket and
-   `quic_srvloop_step` opens it with the peer-direction key, confirms the server,
+   `wired_srvloop_step` opens it with the peer-direction key, confirms the server,
    and seals a `HANDSHAKE_DONE` the peer opens with `SERVER_AP`;
 3. a real 1-RTT `GET` crosses the socket and the step seals a `:status 200` the
    peer opens with `SERVER_AP` (RFC 9114 4.1).
@@ -159,12 +159,12 @@ in `server_test`, and the full `src/client/` mutual handshake is exercised in
   for the ClientHello (bind succeeds, no crash).
 - **Sample real-wire path**: the sample recovers the ClientHello, seals + sends
   the ServerHello (Initial) and flight (Handshake), then drives
-  `quic_srvloop_step` on every later datagram — opening it with the peer key,
+  `wired_srvloop_step` on every later datagram — opening it with the peer key,
   confirming on a verified Finished, and sealing `HANDSHAKE_DONE` and a 200.
 - **Loopback datagram delivery**: a real protected Initial crosses a loopback UDP
   socket and arrives padded to 1200 (`h3_loopback`, check 1).
 - **Real-wire handshake confirmation**: a real AEAD-protected client Finished
-  crosses a loopback socket and `quic_srvloop_step` opens it, confirms, and seals
+  crosses a loopback socket and `wired_srvloop_step` opens it, confirms, and seals
   `HANDSHAKE_DONE` (`h3_loopback`, check 2; `srvloop_test` for the buffer-path
   equivalent; `server_test` for the full phase machine).
 - **Real-wire HTTP/3 GET → 200**: a real 1-RTT `GET` crosses the socket and the

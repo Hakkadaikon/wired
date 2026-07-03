@@ -8,7 +8,7 @@
 /** @file
  * RFC 9000 17.2 / RFC 9001 5 / RFC 8446 4.4: cold-start a server connection
  * from a client Initial datagram. The symmetric partner of
- * quic_srvloop_step: srvloop_step drives the live connection, this bootstraps
+ * wired_srvloop_step: srvloop_step drives the live connection, this bootstraps
  * it. Both are socket-free (buffer in, sealed replies out) so the SDK core
  * stays kernel-free; the caller does the UDP send. */
 
@@ -37,11 +37,11 @@ typedef struct {
 int wired_srvboot_is_initial(const u8 *dg, usz len);
 
 /** The server orchestrator and its HTTP/3 loop, freshly cold-started by
- * wired_srvboot_accept and driven together thereafter (quic_srvloop_step
+ * wired_srvboot_accept and driven together thereafter (wired_srvloop_step
  * takes the same pair). */
 typedef struct {
-  wired_server *s; /**< server-side handshake orchestrator */
-  quic_srvloop *l; /**< HTTP/3 wire loop driven after the bootstrap */
+  wired_server  *s; /**< server-side handshake orchestrator */
+  wired_srvloop *l; /**< HTTP/3 wire loop driven after the bootstrap */
 } wired_srvboot_conn;
 
 /** The fixed server identity to boot with and the client's Initial datagram to
@@ -57,7 +57,7 @@ typedef struct {
  * followed by a Handshake packet (Certificate/CertificateVerify/Finished),
  * concatenated. Sets out->len.
  * The caller registers its request handler on conn->l via
- * quic_srvloop_set_handler.
+ * wired_srvloop_set_handler.
  * @param conn the orchestrator/loop pair to cold-start
  * @param in the fixed server identity and the client's Initial datagram
  * @param out receives the sealed server Initial + Handshake reply

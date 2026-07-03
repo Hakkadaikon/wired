@@ -1,5 +1,5 @@
-#ifndef QUIC_SRVLOOP_RESPOND_H
-#define QUIC_SRVLOOP_RESPOND_H
+#ifndef WIRED_SRVLOOP_RESPOND_H
+#define WIRED_SRVLOOP_RESPOND_H
 
 #include "app/http3/server/srvloop/srvloop.h"
 #include "common/bytes/span/span.h"
@@ -11,7 +11,7 @@
  * never repeated. Returns 1 and sets out->len when a packet was written, else
  * 0.
  */
-int quic_srvloop_produce(
-    const quic_srvloop_conn *conn, int got_request, quic_obuf *out);
+int wired_srvloop_produce(
+    const wired_srvloop_conn *conn, int got_request, quic_obuf *out);
 
 #endif

@@ -1,5 +1,5 @@
-#ifndef QUIC_SRVLOOP_KEYS_H
-#define QUIC_SRVLOOP_KEYS_H
+#ifndef WIRED_SRVLOOP_KEYS_H
+#define WIRED_SRVLOOP_KEYS_H
 
 #include "crypto/symmetric/aead/aes/aes.h"
 #include "tls/handshake/roles/server/server.h"
@@ -20,12 +20,12 @@
 typedef struct {
   const quic_initial_keys *keys;
   quic_aes128              hp;
-} quic_srvloop_dirkeys;
+} wired_srvloop_dirkeys;
 
-int quic_srvloop_seal_keys(
-    const wired_server *s, int level, quic_srvloop_dirkeys *out);
+int wired_srvloop_seal_keys(
+    const wired_server *s, int level, wired_srvloop_dirkeys *out);
 
-int quic_srvloop_open_keys(
-    const wired_server *s, int level, quic_srvloop_dirkeys *out);
+int wired_srvloop_open_keys(
+    const wired_server *s, int level, wired_srvloop_dirkeys *out);
 
 #endif
