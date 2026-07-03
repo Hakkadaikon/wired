@@ -3,17 +3,14 @@
 
 #include "app/http3/request/h3reqdrive/request_drive.h"
 #include "app/http3/server/h3srv/state.h"
+#include "common/bytes/span/span.h"
 #include "tls/handshake/roles/server/server.h"
 
 /* Build the response body for a decoded request. Copy from `req` (its body is a
- * view into per-step scratch, not valid past the call) into body_out (cap),
- * setting *body_len. Returns 1 to send the body, 0 for a body-less 200. */
+ * view into per-step scratch, not valid past the call) into body_out,
+ * setting body_out->len. Returns 1 to send the body, 0 for a body-less 200. */
 typedef int (*quic_srvloop_handler)(
-    void                      *ctx,
-    const quic_h3reqdrive_req *req,
-    u8                        *body_out,
-    usz                        cap,
-    usz                       *body_len);
+    void *ctx, const quic_h3reqdrive_req *req, quic_obuf *body_out);
 
 /* RFC 9001 4 / 5 / RFC 9000 17.2: the socket-free core of the server wire loop.
  * One step opens an inbound datagram with the peer-direction key, dispatches
@@ -60,18 +57,19 @@ void quic_srvloop_set_handler(
  * and reset the HTTP/3 state. Returns 1, or 0 if cli_scid_len exceeds 20. */
 int quic_srvloop_init(quic_srvloop *l, const u8 *cli_scid, u8 cli_scid_len);
 
+/* The loop and its orchestrator, driven together through every wire step
+ * (mirrors wired_srvboot_conn, srvboot's cold-start counterpart). */
+typedef struct {
+  quic_srvloop *l;
+  quic_server  *s;
+} quic_srvloop_conn;
+
 /* Drive one wire iteration: open `dgram`, dispatch it, and if the step produced
  * a server-direction packet (HANDSHAKE_DONE once confirmed, or a 200 response
  * to a decoded GET) seal it into out (cap) and set *out_len. Returns 1 if an
  * outbound packet was written, 0 if the step produced none (or the input was
  * dropped). */
 int quic_srvloop_step(
-    quic_srvloop *l,
-    quic_server  *s,
-    u8           *dgram,
-    usz           len,
-    u8           *out,
-    usz           cap,
-    usz          *out_len);
+    const quic_srvloop_conn *conn, quic_mspan dgram, quic_obuf *out);
 
 #endif
