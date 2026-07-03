@@ -22,19 +22,10 @@ static usz collect_pns(const quic_recvpn *r, u64 *out) {
 }
 
 int quic_pnspaces_ack_ranges(
-    const quic_pnspaces_recv *s,
-    int                       space,
-    u64                      *largest,
-    u64                      *ranges,
-    usz                      *n_ranges,
-    usz                       cap) {
+    const quic_pnspaces_recv *s, int space, const quic_pnspaces_ack_out *out) {
   u64                pns[QUIC_PNSPACES_ACK_CAP];
   const quic_recvpn *r = &s->r[space];
-  quic_u64obuf       out = {ranges, cap, 0};
   if (!r->any) return 0;
-  if (!quic_ackgen_build_ranges(
-          (quic_u64view){pns, collect_pns(r, pns)}, largest, &out))
-    return 0;
-  *n_ranges = out.len;
-  return 1;
+  return quic_ackgen_build_ranges(
+      (quic_u64view){pns, collect_pns(r, pns)}, out->largest, out->ranges);
 }

@@ -19,10 +19,10 @@ static usz initpkt_min_usz(usz a, usz b) { return a < b ? a : b; }
 
 /* Build the CRYPTO frame for the ClientHello, then PADDING-fill to target. */
 static int build_payload(quic_span crypto, usz target, quic_obuf *out) {
-  usz n, fill = initpkt_min_usz(target, out->cap);
-  if (!quic_crypto_stream_emit(
-          crypto.p, crypto.n, 0, crypto.n, out->p, out->cap, &n))
-    return 0;
+  usz                         n, fill = initpkt_min_usz(target, out->cap);
+  quic_crypto_stream_emit_in in = {0, crypto.n};
+  if (!quic_crypto_stream_emit(crypto, &in, out)) return 0;
+  n = out->len;
   for (; n < fill; n++) out->p[n] = 0x00;
   out->len = n;
   return 1;

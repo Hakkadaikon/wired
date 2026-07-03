@@ -47,8 +47,8 @@ int quic_tlsdriver_client_hello(quic_tlsdriver *d, quic_obuf *out) {
   u8  ch[512];
   usz n = quic_tlsdriver_raw_client_hello(d, ch, sizeof(ch));
   if (n == 0) return 0;
-  return quic_crypto_stream_emit(
-      ch, n, 0, QUIC_TLSDRIVER_CRYPTO_MAX, out->p, out->cap, &out->len);
+  quic_crypto_stream_emit_in in = {0, QUIC_TLSDRIVER_CRYPTO_MAX};
+  return quic_crypto_stream_emit(quic_span_of(ch, n), &in, out);
 }
 
 /* Skip a 1-byte-length-prefixed vector at p (session_id, compression).
