@@ -24,30 +24,30 @@ typedef struct {
  * @param sa receives the kernel-ready address
  * @param port UDP port in host byte order
  * @param octets IPv4 address octets a.b.c.d */
-void quic_udp_addr(quic_sockaddr_in *sa, u16 port, const u8 octets[4]);
+void wired_udp_addr(quic_sockaddr_in *sa, u16 port, const u8 octets[4]);
 
 /** Create a UDP socket.
  * @return the fd, or a negative errno on failure. */
-i64 quic_udp_socket(void);
+i64 wired_udp_socket(void);
 
 /** Bind fd to sa.
  * @param fd the socket fd
  * @param sa the local address to bind
  * @return 0 on success or a negative errno. */
-i64 quic_udp_bind(i64 fd, const quic_sockaddr_in *sa);
+i64 wired_udp_bind(i64 fd, const quic_sockaddr_in *sa);
 
 /** Send buf to sa.
  * @param fd the socket fd
  * @param sa the destination address
  * @param buf the datagram to send
  * @return bytes sent or a negative errno. */
-i64 quic_udp_send(i64 fd, const quic_sockaddr_in *sa, quic_span buf);
+i64 wired_udp_send(i64 fd, const quic_sockaddr_in *sa, quic_span buf);
 
 /** Receive up to buf.n bytes into buf.p.
  * @param fd the socket fd
  * @param buf destination buffer
  * @return bytes read or a negative errno. */
-i64 quic_udp_recv(i64 fd, quic_mspan buf);
+i64 wired_udp_recv(i64 fd, quic_mspan buf);
 
 /** Receive up to buf.n bytes into buf.p and write the source address into
  * src.
@@ -55,11 +55,11 @@ i64 quic_udp_recv(i64 fd, quic_mspan buf);
  * @param buf destination buffer
  * @param src receives the datagram's source address
  * @return bytes read or a negative errno. */
-i64 quic_udp_recvfrom(i64 fd, quic_mspan buf, quic_sockaddr_in *src);
+i64 wired_udp_recvfrom(i64 fd, quic_mspan buf, quic_sockaddr_in *src);
 
 /** Close fd.
  * @param fd the socket fd
  * @return 0 on success or a negative errno. */
-i64 quic_udp_close(i64 fd);
+i64 wired_udp_close(i64 fd);
 
 #endif

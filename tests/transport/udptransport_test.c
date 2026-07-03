@@ -20,8 +20,8 @@ static void test_transport_loopback(void) {
   if (quic_udp_transport_open(&t, 0) != 0) return;
 
   quic_sockaddr_in bound;
-  quic_udp_addr(&bound, 0, (const u8[4]){127, 0, 0, 1});
-  if (quic_udp_bind(t.fd, &bound) < 0) {
+  wired_udp_addr(&bound, 0, (const u8[4]){127, 0, 0, 1});
+  if (wired_udp_bind(t.fd, &bound) < 0) {
   }
 
   /* Send to ourselves: discover the bound port via a second socket is

@@ -38,7 +38,7 @@ static void srvrun_send(
     const srvrun_step_ctx *ctx, quic_span pkt, const char *what) {
   (void)what; /* WIRED_LOG compiles out without -DQUIC_DEBUG */
   if (pkt.n) {
-    quic_udp_send(ctx->cfg->fd, ctx->peer, pkt);
+    wired_udp_send(ctx->cfg->fd, ctx->peer, pkt);
     WIRED_LOG(what);
   }
 }
@@ -88,10 +88,10 @@ static void srvrun_serve(const srvrun_step_ctx *ctx, quic_mspan dg) {
 /* Bind a UDP socket on port. Returns the fd, or <0 on failure. */
 static i64 srvrun_listen(u16 port) {
   quic_sockaddr_in sa;
-  i64              fd = quic_udp_socket();
+  i64              fd = wired_udp_socket();
   if (fd < 0) return fd;
-  quic_udp_addr(&sa, port, (const u8[4]){0, 0, 0, 0});
-  if (quic_udp_bind(fd, &sa) < 0) return -1;
+  wired_udp_addr(&sa, port, (const u8[4]){0, 0, 0, 0});
+  if (wired_udp_bind(fd, &sa) < 0) return -1;
   return fd;
 }
 
@@ -101,7 +101,7 @@ static void srvrun_loop(const srvrun_cfg *cfg) {
   quic_sockaddr_in peer;
   u8               buf[2048];
   for (;;) {
-    i64 r = quic_udp_recvfrom(cfg->fd, quic_mspan_of(buf, sizeof buf), &peer);
+    i64 r = wired_udp_recvfrom(cfg->fd, quic_mspan_of(buf, sizeof buf), &peer);
     if (r > 0) {
       srvrun_step_ctx ctx = {cfg, &peer, &st};
       srvrun_serve(&ctx, quic_mspan_of(buf, (usz)r));

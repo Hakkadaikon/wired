@@ -24,6 +24,6 @@ usz quic_udploop_tx(
   usz len = quic_udploop_pack(src, out);
   i64 r;
   if (len == 0) return 0; /* RFC 9000 12.2: overflow or nothing to send */
-  r = quic_udp_send(dst->fd, dst->peer, quic_span_of(out->p, len));
+  r = wired_udp_send(dst->fd, dst->peer, quic_span_of(out->p, len));
   return sent_whole(r, len) ? len : 0;
 }

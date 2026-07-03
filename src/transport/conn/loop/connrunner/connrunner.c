@@ -75,7 +75,7 @@ static u64 wait_timeout(const quic_connrunner *r, u64 now) {
 static usz wait_and_recv(quic_connrunner *r, u64 now) {
   i64 got;
   if (quic_poll_wait_readable(r->fd, wait_timeout(r, now)) != 1) return 0;
-  got = quic_udp_recvfrom(
+  got = wired_udp_recvfrom(
       r->fd, quic_mspan_of(r->rxbuf, sizeof(r->rxbuf)), &r->peer);
   if (got <= 0) return 0;
   return (usz)got;
