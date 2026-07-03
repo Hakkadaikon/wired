@@ -3,17 +3,23 @@
 cc := "clang"
 cflags := "-target x86_64-linux-gnu -ffreestanding -fno-stack-protector -fno-builtin -nostdlib -static -O2 -Isrc"
 
-# Build the server: link wired_server.c against every src/**/*.c except sys.c
-# (we supply our own _start). The static, freestanding binary needs no libc.
-# `extra` lets a debug build add -DQUIC_DEBUG; release passes nothing.
-build extra='':
-    cd ../.. && {{cc}} {{cflags}} {{extra}} \
+# Build the server against the SDK static library (just lib produces
+# build/libwired.a; sys.o is excluded there, we supply our own _start).
+# The static, freestanding binary needs no libc.
+build:
+    cd ../.. && just lib && {{cc}} {{cflags}} \
+        examples/word_list/wired_server.c \
+        build/libwired.a \
+        -o examples/word_list/wired_server
+
+# Debug build: timestamped trace logging via -DQUIC_DEBUG. Compiles the SDK
+# from source so the flag reaches the in-SDK trace points (the release
+# library is built without it).
+build-debug:
+    cd ../.. && {{cc}} {{cflags}} -DQUIC_DEBUG \
         examples/word_list/wired_server.c \
         $(find src -name '*.c' ! -path 'src/common/platform/sys/sys.c') \
         -o examples/word_list/wired_server
-
-# Debug build: timestamped trace logging compiled in via -DQUIC_DEBUG.
-build-debug: (build '-DQUIC_DEBUG')
 
 # Build and run (binds 0.0.0.0:4433; Ctrl-C to stop).
 run: build

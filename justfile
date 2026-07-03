@@ -31,6 +31,12 @@ compile:
         {{cc}} {{cflags}} -c "$f" -o "$o" || exit 1; \
     done
 
+# archive the compiled SDK objects into build/libwired.a. Excludes sys.o,
+# whose only symbol is the SDK's own _start stub — applications supply their
+# own entry point and link the rest of the SDK from this library.
+lib: compile
+    ar rcs build/libwired.a $(find build -name '*.o' ! -path 'build/src/common/platform/sys/sys.o')
+
 # fast incremental/parallel build via ninja (generates build.ninja first)
 ninja:
     CFLAGS="{{cflags}}" CC="{{cc}}" sh scripts/gen_ninja.sh
