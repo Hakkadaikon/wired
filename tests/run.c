@@ -119,6 +119,7 @@
 #include "crypto/pki/encoding/asn1/derval.c"
 #include "crypto/pki/encoding/asn1/derseq.c"
 #include "crypto/pki/encoding/asn1/der.c"
+#include "crypto/pki/encoding/pem/pem.c"
 #include "transport/conn/lifecycle/session/session.c"
 #include "app/datagram/datagram/zerortt_dgram.c"
 #include "tls/handshake/core/tls/ticketversion.c"
@@ -645,6 +646,7 @@
 #include "crypto/der_test.c"
 #include "crypto/derseq_test.c"
 #include "crypto/derval_test.c"
+#include "crypto/pem_test.c"
 #include "transport/addr_test.c"
 #include "transport/udptransport_test.c"
 #include "common/clock_test.c"
@@ -1056,6 +1058,7 @@ int main(void) {
   test_der();
   test_derseq();
   test_derval();
+  test_pem();
   test_addr();
   test_udptransport();
   test_rng();
