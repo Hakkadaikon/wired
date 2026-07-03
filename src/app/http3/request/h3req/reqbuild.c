@@ -2,31 +2,24 @@
 
 #include "app/http3/core/h3/frame.h"
 
-/* Append a DATA frame at *off when there is a body; *off is left unchanged
- * for an empty body. Returns 1 ok, 0 if out lacks capacity. */
-static int append_body(
-    const u8 *body, usz body_len, u8 *out, usz cap, usz *off) {
-  usz n;
-  if (!body_len) return 1;
-  n = quic_h3_frame_put(
-      out + *off, cap - *off, QUIC_H3_FRAME_DATA, body, body_len);
-  *off += n;
-  return n != 0;
+/* Append a DATA frame after out->len when there is a body; out->len is left
+ * unchanged for an empty body. Returns 1 ok, 0 if out lacks capacity. */
+static int append_body(quic_span body, quic_obuf *out) {
+  quic_obuf ob;
+  usz       n;
+  if (!body.n) return 1;
+  ob = quic_obuf_of(out->p + out->len, out->cap - out->len);
+  n  = quic_h3_frame_put(&ob, QUIC_H3_FRAME_DATA, body);
+  if (!n) return 0;
+  out->len += n;
+  return 1;
 }
 
 /* RFC 9114 4.1 */
-int quic_h3req_build(
-    const u8 *qpack_headers,
-    usz       h_len,
-    const u8 *body,
-    usz       body_len,
-    u8       *out,
-    usz       cap,
-    usz      *out_len) {
-  usz off =
-      quic_h3_frame_put(out, cap, QUIC_H3_FRAME_HEADERS, qpack_headers, h_len);
+int quic_h3req_build(quic_span qpack_headers, quic_span body, quic_obuf *out) {
+  quic_obuf head = quic_obuf_of(out->p, out->cap);
+  usz       off  = quic_h3_frame_put(&head, QUIC_H3_FRAME_HEADERS, qpack_headers);
   if (!off) return 0;
-  if (!append_body(body, body_len, out, cap, &off)) return 0;
-  *out_len = off;
-  return 1;
+  out->len = off;
+  return append_body(body, out);
 }
