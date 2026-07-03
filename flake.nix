@@ -9,7 +9,7 @@
       pkgs = nixpkgs.legacyPackages.${system};
     in {
       devShells.${system}.default = pkgs.mkShell {
-        packages = [ pkgs.clang pkgs.just pkgs.lizard pkgs.doxygen ];
+        packages = [ pkgs.clang pkgs.just pkgs.lizard pkgs.doxygen pkgs.ninja ];
       };
     };
 }
