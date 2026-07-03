@@ -10,17 +10,15 @@
 #define CONN_DCID_LEN 8
 #define CONN_PN 0
 
-void quic_connection_init(
-    quic_connection *c, const u8 dcid[8], quic_memlink *link, int is_server) {
+void quic_connection_init(quic_connection *c, const quic_connection_init_in *in) {
   quic_keyset_init(&c->keys);
   quic_conn_init(&c->conn);
-  c->link      = link;
-  c->is_server = is_server;
-  for (usz i = 0; i < 8; i++) c->dcid[i] = dcid[i];
+  c->link      = in->link;
+  c->is_server = in->is_server;
+  for (usz i = 0; i < 8; i++) c->dcid[i] = in->dcid[i];
 }
 
-int quic_connection_send(
-    quic_connection *c, int level, const u8 *frames, usz len) {
+int quic_connection_send(quic_connection *c, int level, quic_span frames) {
   const quic_initial_keys *k;
   quic_aes128              hp;
   u8                       out[QUIC_MEMLINK_MTU];
@@ -36,7 +34,7 @@ int quic_connection_send(
       1,
       none,
       CONN_PN,
-      quic_span_of(frames, len)};
+      frames};
   n = quic_tx_packet(&pk, &t, quic_mspan_of(out, sizeof(out)));
   if (n == 0) return 0;
   return quic_memlink_send(c->link, out, n);

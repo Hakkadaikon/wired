@@ -12,24 +12,24 @@
 #define QUIC_SESSION_SA 0x0a000002u
 
 /* Wrap a QUIC packet in UDP+IPv4 and push it onto the link (no syscall). */
-static int link_tx(
-    quic_memlink *l, const u8 *qpkt, usz qlen, u32 src, u32 dst) {
+static int link_tx(quic_memlink *l, quic_span qpkt, quic_ipv4addrs addrs) {
   u8            udp[1500], ip[20], frame[1520];
-  quic_udp4meta meta = {{4433, 4433}, {src, dst}};
+  quic_udp4meta meta = {{4433, 4433}, addrs};
   quic_obuf     ub   = quic_obuf_of(udp, sizeof(udp));
-  usz           un   = quic_udp4_build(&ub, &meta, quic_span_of(qpkt, qlen));
+  usz           un   = quic_udp4_build(&ub, &meta, qpkt);
   quic_ipv4_build(
-      ip, &(quic_ipv4_head){(u16)(20 + un), src, dst, QUIC_IP_PROTO_UDP});
+      ip,
+      &(quic_ipv4_head){
+          (u16)(20 + un), addrs.src, addrs.dst, QUIC_IP_PROTO_UDP});
   for (usz i = 0; i < 20; i++) frame[i] = ip[i];
   for (usz i = 0; i < un; i++) frame[20 + i] = udp[i];
   return quic_memlink_send(l, frame, 20 + un);
 }
 
 /* Validate a received frame's IP+UDP envelope. Returns 1 if it checks out. */
-static int env_ok(const u8 *frame, usz fn, u32 src, u32 dst) {
-  if (fn == 0 || !quic_ipv4_check(frame)) return 0;
-  return quic_udp4_check(
-      quic_span_of(frame + 20, fn - 20), (quic_ipv4addrs){src, dst});
+static int env_ok(quic_span frame, quic_ipv4addrs addrs) {
+  if (frame.n == 0 || !quic_ipv4_check(frame.p)) return 0;
+  return quic_udp4_check(quic_span_of(frame.p + 20, frame.n - 20), addrs);
 }
 
 /* Copy n bytes from src to dst. */
@@ -38,13 +38,13 @@ static void copy_n(u8 *dst, const u8 *src, usz n) {
 }
 
 /* Pull a frame, verify IP/UDP, copy out the QUIC payload. Returns its len. */
-static usz link_rx(quic_memlink *l, u8 *qpkt, usz cap, u32 src, u32 dst) {
+static usz link_rx(quic_memlink *l, quic_obuf *out, quic_ipv4addrs addrs) {
   u8  frame[1520];
   usz fn = quic_memlink_recv(l, frame, sizeof(frame));
-  if (!env_ok(frame, fn, src, dst)) return 0;
+  if (!env_ok(quic_span_of(frame, fn), addrs)) return 0;
   usz qlen = fn - 20 - QUIC_UDP_HDR;
-  usz n    = (qlen < cap) ? qlen : cap;
-  copy_n(qpkt, frame + 20 + QUIC_UDP_HDR, n);
+  usz n    = (qlen < out->cap) ? qlen : out->cap;
+  copy_n(out->p, frame + 20 + QUIC_UDP_HDR, n);
   return qlen;
 }
 
@@ -59,20 +59,15 @@ static void fill_header(u8 hdr[18], u8 byte0, const u8 dcid[8], u8 pn_low) {
   hdr[17] = pn_low; /* low byte of the 4-byte packet number */
 }
 
-void quic_session_init(
-    quic_session *s,
-    const u8      priv[32],
-    const u8      dcid[8],
-    quic_memlink *link,
-    int           is_server) {
-  quic_endpoint_init(&s->ep, priv, dcid);
+void quic_session_init(quic_session *s, const quic_session_init_in *in) {
+  quic_endpoint_init(&s->ep, in->priv, in->dcid);
   quic_conn_init(&s->conn);
-  quic_initial_derive(quic_span_of(dcid, 8), 0, &s->ikeys);
+  quic_initial_derive(quic_span_of(in->dcid, 8), 0, &s->ikeys);
   quic_aes128_init(&s->ihp, s->ikeys.hp);
-  s->link      = link;
-  s->is_server = is_server;
+  s->link      = in->link;
+  s->is_server = in->is_server;
   s->have_peer = 0;
-  for (usz i = 0; i < 8; i++) s->dcid[i] = dcid[i];
+  for (usz i = 0; i < 8; i++) s->dcid[i] = in->dcid[i];
 }
 
 int quic_session_client_hello(quic_session *s) {
@@ -89,7 +84,9 @@ int quic_session_client_hello(quic_session *s) {
       quic_mspan_of(out, sizeof(out))};
   usz pn = quic_protect_seal(&k, &io);
   if (pn == 0) return 0;
-  return link_tx(s->link, out, pn, QUIC_SESSION_CA, QUIC_SESSION_SA);
+  return link_tx(
+      s->link, quic_span_of(out, pn),
+      (quic_ipv4addrs){QUIC_SESSION_CA, QUIC_SESSION_SA});
 }
 
 /* Decode a received Initial's CRYPTO frame and extract the peer's share. */
@@ -111,8 +108,10 @@ static usz open_initial(quic_session *s, u8 *pkt, usz rn) {
 }
 
 int quic_session_accept(quic_session *s) {
-  u8  pkt[1200];
-  usz rn = link_rx(s->link, pkt, sizeof(pkt), QUIC_SESSION_CA, QUIC_SESSION_SA);
+  u8        pkt[1200];
+  quic_obuf ob = quic_obuf_of(pkt, sizeof(pkt));
+  usz       rn = link_rx(
+      s->link, &ob, (quic_ipv4addrs){QUIC_SESSION_CA, QUIC_SESSION_SA});
   usz pl = open_initial(s, pkt, rn);
   if (pl == 0) return 0;
   if (!read_share(pkt, pl, s->peer_pub)) return 0;
@@ -174,7 +173,8 @@ int quic_session_send_stream(quic_session *s, const quic_session_msg *m) {
   usz pn = quic_protect_seal(&k, &io);
   if (pn == 0) return 0;
   return link_tx(
-      s->link, out, pn, my_addr(s->is_server), peer_addr(s->is_server));
+      s->link, quic_span_of(out, pn),
+      (quic_ipv4addrs){my_addr(s->is_server), peer_addr(s->is_server)});
 }
 
 /* Unprotect a received 1-RTT packet of rn bytes in place; plaintext len. */
@@ -187,9 +187,9 @@ static usz open_1rtt(quic_session *s, u8 *pkt, usz rn) {
 
 int quic_session_recv_stream(quic_session *s, quic_stream_frame *out) {
   static u8 pkt[1200];
+  quic_obuf ob = quic_obuf_of(pkt, sizeof(pkt));
   usz       rn = link_rx(
-      s->link, pkt, sizeof(pkt), peer_addr(s->is_server),
-      my_addr(s->is_server));
+      s->link, &ob, (quic_ipv4addrs){peer_addr(s->is_server), my_addr(s->is_server)});
   usz pl = open_1rtt(s, pkt, rn);
   if (pl == 0) return 0;
   return quic_frame_get_stream(pkt + 18, pl, out) != 0;

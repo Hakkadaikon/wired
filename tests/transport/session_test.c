@@ -18,8 +18,10 @@ static void test_session_e2e(void) {
   quic_memlink_init(&link);
 
   quic_session cli, srv;
-  quic_session_init(&cli, cpriv, dcid, &link, 0);
-  quic_session_init(&srv, spriv, dcid, &link, 1);
+  quic_session_init_in cin = {cpriv, dcid, &link, 0};
+  quic_session_init_in sin = {spriv, dcid, &link, 1};
+  quic_session_init(&cli, &cin);
+  quic_session_init(&srv, &sin);
 
   /* handshake: ClientHello over the link, server accepts, both agree keys */
   CHECK(quic_session_client_hello(&cli) == 1);
@@ -51,8 +53,9 @@ static void test_session_guards(void) {
   u8           priv[32] = {9};
   quic_memlink link;
   quic_memlink_init(&link);
-  quic_session s;
-  quic_session_init(&s, priv, dcid, &link, 0);
+  quic_session          s;
+  quic_session_init_in in = {priv, dcid, &link, 0};
+  quic_session_init(&s, &in);
   quic_stream_frame got;
   CHECK(quic_session_recv_stream(&s, &got) == 0); /* empty link */
 }

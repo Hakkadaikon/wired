@@ -19,8 +19,10 @@ static void test_connection_roundtrip(void) {
   quic_memlink_init(&link);
 
   quic_connection cli, srv;
-  quic_connection_init(&cli, dcid, &link, 0);
-  quic_connection_init(&srv, dcid, &link, 1);
+  quic_connection_init_in cin = {dcid, &link, 0};
+  quic_connection_init_in sin = {dcid, &link, 1};
+  quic_connection_init(&cli, &cin);
+  quic_connection_init(&srv, &sin);
   install_1rtt(&cli, dcid);
   install_1rtt(&srv, dcid);
 
@@ -33,7 +35,7 @@ static void test_connection_roundtrip(void) {
       .fin       = 1};
   usz fl = quic_frame_put_stream(frames, sizeof(frames), &sf);
 
-  CHECK(quic_connection_send(&srv, QUIC_LEVEL_ONERTT, frames, fl) == 1);
+  CHECK(quic_connection_send(&srv, QUIC_LEVEL_ONERTT, quic_span_of(frames, fl)) == 1);
 
   quic_framewalk it;
   CHECK(quic_connection_recv(&cli, QUIC_LEVEL_ONERTT, &it) == 1);
@@ -52,11 +54,12 @@ static void test_connection_guards(void) {
   const u8     dcid[8] = {1, 2, 3, 4, 5, 6, 7, 8};
   quic_memlink link;
   quic_memlink_init(&link);
-  quic_connection c;
-  quic_connection_init(&c, dcid, &link, 0);
+  quic_connection         c;
+  quic_connection_init_in in = {dcid, &link, 0};
+  quic_connection_init(&c, &in);
 
   u8 frames[1] = {0x01}; /* PING */
-  CHECK(quic_connection_send(&c, QUIC_LEVEL_ONERTT, frames, 1) == 0);
+  CHECK(quic_connection_send(&c, QUIC_LEVEL_ONERTT, quic_span_of(frames, 1)) == 0);
 
   quic_framewalk it;
   CHECK(quic_connection_recv(&c, QUIC_LEVEL_ONERTT, &it) == 0);

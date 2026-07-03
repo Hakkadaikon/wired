@@ -11,10 +11,16 @@ typedef struct {
   u8 from, ev, to;
 } quic_fsm_row;
 
+/* A transition table: rows[0..count). */
+typedef struct {
+  const quic_fsm_row *rows;
+  usz                 count;
+} quic_fsm_table;
+
 #define QUIC_FSM_NONE 0xFF /* sentinel: no such transition */
 
-/* Apply ev to *state using rows[0..count). On a matching row, set *state to
- * its `to` and return 1. Otherwise leave *state unchanged and return 0. */
-int quic_fsm_step(u8 *state, const quic_fsm_row *rows, usz count, u8 ev);
+/* Apply ev to *state using `table`. On a matching row, set *state to its `to`
+ * and return 1. Otherwise leave *state unchanged and return 0. */
+int quic_fsm_step(u8 *state, const quic_fsm_table *table, u8 ev);
 
 #endif

@@ -41,14 +41,17 @@ typedef struct {
   int               have_peer; /* peer share recovered */
 } quic_session;
 
-/* Initialize a session over `link` with our private scalar and the shared
+/* Everything quic_session_init needs besides the session. */
+typedef struct {
+  const u8     *priv; /* [32] */
+  const u8     *dcid; /* [8] */
+  quic_memlink *link;
+  int           is_server;
+} quic_session_init_in;
+
+/* Initialize a session over `in->link` with our private scalar and the shared
  * DCID (both ends use the same DCID to derive matching Initial keys). */
-void quic_session_init(
-    quic_session *s,
-    const u8      priv[32],
-    const u8      dcid[8],
-    quic_memlink *link,
-    int           is_server);
+void quic_session_init(quic_session *s, const quic_session_init_in *in);
 
 /* Client: build and send an Initial carrying a ClientHello (our X25519 share)
  * onto the link. Returns 1 on success. */
