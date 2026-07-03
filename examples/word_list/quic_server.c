@@ -104,12 +104,14 @@ static void server_identity(wired_srvboot_id *id, server_keys *k)
         k->rnd[i]  = (u8)(0xa0 + i);
     }
     quic_x25519_base(k->pub, k->priv);
-    id->priv      = k->priv;
-    id->pub       = k->pub;
-    id->cert_seed = k->seed;
-    id->scid      = SERVER_SCID;
-    id->scid_len  = sizeof SERVER_SCID;
-    id->random    = k->rnd;
+    id->priv        = k->priv;
+    id->pub         = k->pub;
+    id->cert_seed   = k->seed;
+    id->scid        = SERVER_SCID;
+    id->scid_len    = sizeof SERVER_SCID;
+    id->random      = k->rnd;
+    id->chain       = 0; /* self-signed; see README.md for an external chain */
+    id->chain_count = 0;
 }
 
 /* The kernel enters _start 16-byte aligned, but the SysV ABI assumes a return

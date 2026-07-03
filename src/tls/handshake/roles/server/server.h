@@ -48,14 +48,18 @@ typedef struct {
 } quic_server;
 
 /* server_priv_x25519/server_pub_x25519 are the static ECDHE pair; cert_seed is
- * the ECDSA P-256 signing scalar (big-endian). cert_der is ignored: the driver
- * builds its own self-signed P-256 end-entity certificate from cert_seed
- * (sdrv). */
+ * the ECDSA P-256 signing scalar (big-endian). chain/chain_count, when
+ * non-empty, are an externally issued certificate chain (leaf first, views
+ * the caller keeps alive through the handshake) to send verbatim instead of a
+ * self-signed certificate; chain NULL or chain_count 0 keeps the driver's
+ * default of building its own self-signed P-256 end-entity certificate from
+ * cert_seed (sdrv). */
 typedef struct {
-  const u8 *server_priv_x25519;
-  const u8 *server_pub_x25519;
-  const u8 *cert_seed;
-  quic_span cert_der;
+  const u8        *server_priv_x25519;
+  const u8        *server_pub_x25519;
+  const u8        *cert_seed;
+  const quic_span *chain;
+  usz              chain_count;
 } quic_server_init_in;
 
 /* Initialize the orchestrator with the server key material. No socket is

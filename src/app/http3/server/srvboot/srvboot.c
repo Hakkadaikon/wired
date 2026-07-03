@@ -45,7 +45,7 @@ static int srvboot_init(
     const wired_srvboot_id   *id,
     const quic_header        *h) {
   quic_server_init_in in = {
-      id->priv, id->pub, id->cert_seed, quic_span_of(0, 0)};
+      id->priv, id->pub, id->cert_seed, id->chain, id->chain_count};
   quic_server_init(conn->s, &in);
   if (!quic_server_set_cids(
           conn->s, quic_span_of(h->dcid, h->dcid_len),

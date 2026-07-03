@@ -1,6 +1,5 @@
 #include "tls/handshake/roles/server/server.h"
 
-#include "crypto/asymmetric/ecc/ed25519/ed25519.h"
 #include "test.h"
 #include "tls/handshake/core/tls/appkeys.h"
 #include "tls/handshake/core/tls/clienthello.h"
@@ -18,23 +17,6 @@
  * handshake by buffer injection (no socket): a real ClientHello, the server
  * flight, then a genuine vs. forged client Finished. The central safety
  * property is that a forged Finished promotes nothing. */
-
-/* RFC 5280 4.1: minimal Ed25519 end-entity cert carrying pub in its SPKI. */
-static usz srv_ed_cert(u8 *out, const u8 pub[32]) {
-  static const u8 head[] = {
-      0x30, 0x48, 0x30, 0x3c, 0xa0, 0x03, 0x02, 0x01, 0x02, 0x02, 0x01,
-      0x01, 0x30, 0x00, 0x30, 0x00, 0x30, 0x00, 0x30, 0x00, 0x30, 0x2a,
-      0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x03, 0x21, 0x00,
-  };
-  static const u8 tail[] = {
-      0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x03, 0x01, 0x00,
-  };
-  usz off = 0, i;
-  for (i = 0; i < sizeof(head); i++) out[off++] = head[i];
-  for (i = 0; i < 32; i++) out[off++] = pub[i];
-  for (i = 0; i < sizeof(tail); i++) out[off++] = tail[i];
-  return off;
-}
 
 /* Test fixture: the bytes a client needs to forge a genuine Finished. */
 struct srv_fix {
@@ -70,19 +52,14 @@ static void make_client_hello(struct srv_fix *f) {
 
 /* Bring the server to FLIGHT_SENT and capture the flight bytes. */
 static void drive_to_flight(struct srv_fix *f) {
-  u8        srv_priv[32], srv_pub[32], cert_seed[32], cert_pub[32];
-  static u8 cert[128];
-  usz       cert_len;
+  u8 srv_priv[32], srv_pub[32], cert_seed[32];
   for (usz i = 0; i < 32; i++) {
     srv_priv[i]  = (u8)(0x40 + i);
     cert_seed[i] = (u8)(0x80 + i);
   }
   quic_x25519_base(srv_pub, srv_priv);
-  CHECK(quic_ed25519_keypair(cert_seed, cert_pub));
-  cert_len = srv_ed_cert(cert, cert_pub);
 
-  quic_server_init_in sin = {
-      srv_priv, srv_pub, cert_seed, quic_span_of(cert, cert_len)};
+  quic_server_init_in  sin   = {srv_priv, srv_pub, cert_seed, 0, 0};
   quic_obuf            sh_ob = quic_obuf_of(f->sh, sizeof(f->sh));
   quic_obuf            fl_ob = quic_obuf_of(f->flight, sizeof(f->flight));
   quic_sdrv_flight_out fo    = {&sh_ob, &fl_ob};
@@ -198,7 +175,6 @@ static void test_server_forged_finished(void) {
 static void test_server_flight_before_ch(void) {
   struct srv_fix       f;
   u8                   srv_priv[32], srv_pub[32], cert_seed[32];
-  static u8            cert[1] = {0};
   u8                   sh[256], flight[2048], rnd[32];
   quic_obuf            sh_ob = quic_obuf_of(sh, sizeof(sh));
   quic_obuf            fl_ob = quic_obuf_of(flight, sizeof(flight));
@@ -209,8 +185,7 @@ static void test_server_flight_before_ch(void) {
     rnd[i]      = (u8)i;
   }
   quic_x25519_base(srv_pub, srv_priv);
-  sin = (quic_server_init_in){
-      srv_priv, srv_pub, cert_seed, quic_span_of(cert, sizeof(cert))};
+  sin = (quic_server_init_in){srv_priv, srv_pub, cert_seed, 0, 0};
   quic_server_init(&f.s, &sin);
   CHECK(quic_server_build_flight(&f.s, rnd, &fo) == 0);
   {
@@ -227,12 +202,10 @@ static void test_server_fin_before_flight(void) {
   make_client_hello(&f);
   {
     u8                  srv_priv[32], srv_pub[32], cert_seed[32];
-    static u8           cert[1] = {0};
     quic_server_init_in sin;
     for (usz i = 0; i < 32; i++) srv_priv[i] = (u8)(0x40 + i);
     quic_x25519_base(srv_pub, srv_priv);
-    sin = (quic_server_init_in){
-        srv_priv, srv_pub, cert_seed, quic_span_of(cert, sizeof(cert))};
+    sin = (quic_server_init_in){srv_priv, srv_pub, cert_seed, 0, 0};
     quic_server_init(&f.s, &sin);
     CHECK(quic_server_recv_initial(&f.s, f.ch, f.ch_len) == 1);
   }

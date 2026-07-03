@@ -14,14 +14,18 @@
 /* The fixed server identity a bootstrap needs: the X25519 handshake key pair,
  * the ECDSA P-256 signing scalar the server builds its end-entity certificate
  * from, the server's source connection id (written in every reply), and the
- * ServerHello random. All views; the caller keeps them alive for the call. */
+ * ServerHello random. chain/chain_count, when non-empty, are an externally
+ * issued certificate chain (leaf first) to send instead of a self-signed
+ * certificate. All views; the caller keeps them alive for the call. */
 typedef struct {
-  const u8 *priv;      /* X25519 private, 32 bytes */
-  const u8 *pub;       /* X25519 public, 32 bytes */
-  const u8 *cert_seed; /* ECDSA P-256 signing scalar, 32 bytes */
-  const u8 *scid;      /* server source connection id */
-  u8        scid_len;
-  const u8 *random; /* ServerHello.random, 32 bytes */
+  const u8        *priv;      /* X25519 private, 32 bytes */
+  const u8        *pub;       /* X25519 public, 32 bytes */
+  const u8        *cert_seed; /* ECDSA P-256 signing scalar, 32 bytes */
+  const u8        *scid;      /* server source connection id */
+  u8               scid_len;
+  const u8        *random; /* ServerHello.random, 32 bytes */
+  const quic_span *chain;  /* optional: external chain, leaf first */
+  usz              chain_count;
 } wired_srvboot_id;
 
 /* RFC 9000 17.2: 1 if dg is a long-header Initial datagram (a Handshake or
