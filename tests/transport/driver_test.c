@@ -20,8 +20,8 @@ static void test_driver_handshake_completes(void) {
   const u8    dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
   quic_driver cl, sv;
   int         round;
-  quic_driver_init(&cl, 0, dcid, 8);
-  quic_driver_init(&sv, 1, dcid, 8);
+  quic_driver_init(&cl, 0, quic_span_of(dcid, 8));
+  quic_driver_init(&sv, 1, quic_span_of(dcid, 8));
 
   for (round = 0; round < 32; round++) {
     quic_driver_step(&cl);
@@ -46,8 +46,8 @@ static void test_driver_rejects_uninstalled_level(void) {
   quic_driver cl, sv;
   u8          dg[QUIC_DRIVER_DGRAM_CAP];
   usz         n;
-  quic_driver_init(&cl, 0, dcid, 8);
-  quic_driver_init(&sv, 1, dcid, 8);
+  quic_driver_init(&cl, 0, quic_span_of(dcid, 8));
+  quic_driver_init(&sv, 1, quic_span_of(dcid, 8));
 
   /* server sends its first flight (ServerHello, Initial) but the client has
    * not yet sent ClientHello, so its order position expects ClientHello,
@@ -70,7 +70,7 @@ static void test_driver_rejects_uninstalled_level(void) {
   quic_driver_feed(&cl, dg, n);
   /* ServerHello is Initial-level so it still opens; instead verify the gate
    * directly: a recv at an uninstalled level returns 0 (no state change). */
-  CHECK(quic_connio_recv(&cl.io, QUIC_LEVEL_HANDSHAKE, dg, n) == 0);
+  CHECK(quic_connio_recv(&cl.io, QUIC_LEVEL_HANDSHAKE, quic_mspan_of(dg, n)) == 0);
   CHECK(cl.io.loop.keys.installed[QUIC_LEVEL_HANDSHAKE] == 0);
 }
 
@@ -80,7 +80,7 @@ static void test_driver_run_halts_at_max(void) {
   const u8    dcid[4] = {1, 2, 3, 4};
   quic_driver cl;
   usz         steps;
-  quic_driver_init(&cl, 0, dcid, 4);
+  quic_driver_init(&cl, 0, quic_span_of(dcid, 4));
   /* client alone: sends ClientHello, then stalls waiting for ServerHello.
    * run must stop, not spin, capped by max_steps. */
   steps = quic_driver_run(&cl, 5);

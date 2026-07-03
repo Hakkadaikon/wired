@@ -9,15 +9,15 @@ static void test_send_level_never_regresses(void) {
   quic_keyset_install(&c.keys, QUIC_LEVEL_INITIAL, &k);
   quic_keyset_install(&c.keys, QUIC_LEVEL_HANDSHAKE, &k);
 
-  CHECK(quic_connloop_on_send(&c, QUIC_LEVEL_INITIAL, 1, 0, 10) == 1);
+  CHECK(quic_connloop_on_send(&c, &(quic_connloop_send_in){QUIC_LEVEL_INITIAL, 1, 0, 10}) == 1);
   int before = c.send_level;
   CHECK(before == QUIC_LEVEL_INITIAL);
   /* promote up to Handshake: allowed */
-  CHECK(quic_connloop_on_send(&c, QUIC_LEVEL_HANDSHAKE, 1, 1, 10) == 1);
+  CHECK(quic_connloop_on_send(&c, &(quic_connloop_send_in){QUIC_LEVEL_HANDSHAKE, 1, 1, 10}) == 1);
   CHECK(c.send_level == QUIC_LEVEL_HANDSHAKE);
   /* regress back to Initial: refused, level unchanged (before/after) */
   int hi = c.send_level;
-  CHECK(quic_connloop_on_send(&c, QUIC_LEVEL_INITIAL, 1, 2, 10) == 0);
+  CHECK(quic_connloop_on_send(&c, &(quic_connloop_send_in){QUIC_LEVEL_INITIAL, 1, 2, 10}) == 0);
   CHECK(c.send_level == hi);
 }
 
@@ -31,16 +31,16 @@ static void test_no_app_data_before_handshake_complete(void) {
   quic_keyset_install(&c.keys, QUIC_LEVEL_INITIAL, &k);
   quic_keyset_install(&c.keys, QUIC_LEVEL_HANDSHAKE, &k);
   quic_keyset_install(&c.keys, QUIC_LEVEL_ONERTT, &k);
-  quic_connloop_on_send(&c, QUIC_LEVEL_INITIAL, 1, 0, 10);
-  quic_connloop_on_send(&c, QUIC_LEVEL_HANDSHAKE, 1, 1, 10);
+  quic_connloop_on_send(&c, &(quic_connloop_send_in){QUIC_LEVEL_INITIAL, 1, 0, 10});
+  quic_connloop_on_send(&c, &(quic_connloop_send_in){QUIC_LEVEL_HANDSHAKE, 1, 1, 10});
 
   /* handshake not complete: 1-RTT send refused */
-  CHECK(quic_connloop_on_send(&c, QUIC_LEVEL_ONERTT, 1, 2, 10) == 0);
+  CHECK(quic_connloop_on_send(&c, &(quic_connloop_send_in){QUIC_LEVEL_ONERTT, 1, 2, 10}) == 0);
   CHECK(c.send_level == QUIC_LEVEL_HANDSHAKE);
 
   /* after completion: 1-RTT send allowed */
   c.handshake_complete = 1;
-  CHECK(quic_connloop_on_send(&c, QUIC_LEVEL_ONERTT, 1, 2, 10) == 1);
+  CHECK(quic_connloop_on_send(&c, &(quic_connloop_send_in){QUIC_LEVEL_ONERTT, 1, 2, 10}) == 1);
   CHECK(c.send_level == QUIC_LEVEL_ONERTT);
 }
 
@@ -55,11 +55,11 @@ static void test_server_send_capped_3x_recv(void) {
   quic_connloop_on_recv(&c, QUIC_LEVEL_INITIAL, 100); /* budget = 300 */
   CHECK(c.recv_bytes == 100);
   /* exactly 3x allowed */
-  CHECK(quic_connloop_on_send(&c, QUIC_LEVEL_INITIAL, 1, 0, 300) == 1);
+  CHECK(quic_connloop_on_send(&c, &(quic_connloop_send_in){QUIC_LEVEL_INITIAL, 1, 0, 300}) == 1);
   CHECK(c.sent_bytes == 300);
   /* one more byte exceeds 3x: refused, sent_bytes unchanged (before/after) */
   u64 before = c.sent_bytes;
-  CHECK(quic_connloop_on_send(&c, QUIC_LEVEL_INITIAL, 1, 1, 1) == 0);
+  CHECK(quic_connloop_on_send(&c, &(quic_connloop_send_in){QUIC_LEVEL_INITIAL, 1, 1, 1}) == 0);
   CHECK(c.sent_bytes == before);
 }
 
@@ -72,13 +72,13 @@ static void test_validate_lifts_3x_cap(void) {
   quic_keyset_install(&c.keys, QUIC_LEVEL_INITIAL, &k);
 
   quic_connloop_on_recv(&c, QUIC_LEVEL_INITIAL, 100); /* budget = 300 */
-  CHECK(quic_connloop_on_send(&c, QUIC_LEVEL_INITIAL, 1, 0, 300) == 1);
+  CHECK(quic_connloop_on_send(&c, &(quic_connloop_send_in){QUIC_LEVEL_INITIAL, 1, 0, 300}) == 1);
   CHECK(
-      quic_connloop_on_send(&c, QUIC_LEVEL_INITIAL, 1, 1, 1) == 0); /* capped */
+      quic_connloop_on_send(&c, &(quic_connloop_send_in){QUIC_LEVEL_INITIAL, 1, 1, 1}) == 0); /* capped */
 
   quic_connloop_validate(&c); /* address validated: cap lifted */
   CHECK(c.validated == 1);
-  CHECK(quic_connloop_on_send(&c, QUIC_LEVEL_INITIAL, 1, 1, 9999) == 1);
+  CHECK(quic_connloop_on_send(&c, &(quic_connloop_send_in){QUIC_LEVEL_INITIAL, 1, 1, 9999}) == 1);
 }
 
 /* RFC 9001 4: a recv at an un-installed level does not advance state. */
@@ -111,19 +111,19 @@ static void test_ack_removes_tracked_packet(void) {
   c.validated         = 1;
   quic_initial_keys k = {0};
   quic_keyset_install(&c.keys, QUIC_LEVEL_INITIAL, &k);
-  quic_connloop_on_send(&c, QUIC_LEVEL_INITIAL, 1, 0, 10);
-  quic_connloop_on_send(&c, QUIC_LEVEL_INITIAL, 1, 1, 10);
+  quic_connloop_on_send(&c, &(quic_connloop_send_in){QUIC_LEVEL_INITIAL, 1, 0, 10});
+  quic_connloop_on_send(&c, &(quic_connloop_send_in){QUIC_LEVEL_INITIAL, 1, 1, 10});
   CHECK(quic_sentpkt_count(&c.sent) == 2);
 
   /* spurious ACK for pn 9 (never sent): removes nothing */
   u64 spur = 0;
-  CHECK(quic_connloop_on_ack(&c, 9, &spur, 1) == 0);
+  CHECK(quic_connloop_on_ack(&c, &(quic_connloop_ack_in){9, &spur, 1}) == 0);
   CHECK(quic_sentpkt_count(&c.sent) == 2);
 
   /* ACK pn 0..1 (largest 1, first range covers down to 0): removes both */
   u64 r      = 1;
   usz before = quic_sentpkt_count(&c.sent);
-  CHECK(quic_connloop_on_ack(&c, 1, &r, 1) == 2);
+  CHECK(quic_connloop_on_ack(&c, &(quic_connloop_ack_in){1, &r, 1}) == 2);
   CHECK(quic_sentpkt_count(&c.sent) < before);
   CHECK(quic_sentpkt_count(&c.sent) == 0);
   CHECK(c.pto_armed == 0); /* emptying in-flight disarms PTO */
@@ -139,14 +139,14 @@ static void test_pto_sends_probe_keeps_inflight(void) {
   quic_keyset_install(&c.keys, QUIC_LEVEL_INITIAL, &k);
 
   /* empty in-flight: PTO refuses, stays disarmed */
-  CHECK(quic_connloop_on_pto(&c, QUIC_LEVEL_INITIAL, 0, 10) == 0);
+  CHECK(quic_connloop_on_pto(&c, &(quic_connloop_pto_in){QUIC_LEVEL_INITIAL, 0, 10}) == 0);
   CHECK(c.pto_armed == 0);
 
-  quic_connloop_on_send(&c, QUIC_LEVEL_INITIAL, 1, 0, 10);
+  quic_connloop_on_send(&c, &(quic_connloop_send_in){QUIC_LEVEL_INITIAL, 1, 0, 10});
   CHECK(c.pto_armed == 1);
   usz before = quic_sentpkt_count(&c.sent);
   /* probe adds a packet, never shrinks in-flight (before/after) */
-  CHECK(quic_connloop_on_pto(&c, QUIC_LEVEL_INITIAL, 1, 10) == 1);
+  CHECK(quic_connloop_on_pto(&c, &(quic_connloop_pto_in){QUIC_LEVEL_INITIAL, 1, 10}) == 1);
   CHECK(quic_sentpkt_count(&c.sent) >= before);
   CHECK(quic_sentpkt_count(&c.sent) == before + 1);
 }
@@ -183,7 +183,7 @@ static void test_closing_sends_no_app_data(void) {
   quic_keyset_install(&c.keys, QUIC_LEVEL_ONERTT, &k);
   c.send_level = QUIC_LEVEL_HANDSHAKE;
   quic_connloop_close(&c, 0); /* -> closing */
-  CHECK(quic_connloop_on_send(&c, QUIC_LEVEL_ONERTT, 1, 0, 10) == 0);
+  CHECK(quic_connloop_on_send(&c, &(quic_connloop_send_in){QUIC_LEVEL_ONERTT, 1, 0, 10}) == 0);
 }
 
 /* RFC 9001 4.9.1: a discarded level is never used to process again. */
@@ -214,23 +214,23 @@ static void test_handshake_progress_reaches_confirmed(void) {
     quic_keyset_install(&sv.keys, lv, &k);
   }
   /* Initial then Handshake exchange */
-  CHECK(quic_connloop_on_send(&cl, QUIC_LEVEL_INITIAL, 1, 0, 20) == 1);
+  CHECK(quic_connloop_on_send(&cl, &(quic_connloop_send_in){QUIC_LEVEL_INITIAL, 1, 0, 20}) == 1);
   CHECK(quic_connloop_on_recv(&sv, QUIC_LEVEL_INITIAL, 20) == 1);
-  CHECK(quic_connloop_on_send(&sv, QUIC_LEVEL_INITIAL, 1, 0, 20) == 1);
-  CHECK(quic_connloop_on_send(&cl, QUIC_LEVEL_HANDSHAKE, 1, 1, 20) == 1);
+  CHECK(quic_connloop_on_send(&sv, &(quic_connloop_send_in){QUIC_LEVEL_INITIAL, 1, 0, 20}) == 1);
+  CHECK(quic_connloop_on_send(&cl, &(quic_connloop_send_in){QUIC_LEVEL_HANDSHAKE, 1, 1, 20}) == 1);
   CHECK(quic_connloop_on_recv(&sv, QUIC_LEVEL_HANDSHAKE, 20) == 1);
 
   /* handshake completes on both ends, then app data over 1-RTT */
   cl.handshake_complete = 1;
   sv.handshake_complete = 1;
-  CHECK(quic_connloop_on_send(&cl, QUIC_LEVEL_ONERTT, 1, 2, 20) == 1);
+  CHECK(quic_connloop_on_send(&cl, &(quic_connloop_send_in){QUIC_LEVEL_ONERTT, 1, 2, 20}) == 1);
   CHECK(cl.send_level == QUIC_LEVEL_ONERTT);
   CHECK(quic_connloop_on_recv(&sv, QUIC_LEVEL_ONERTT, 20) == 1);
 
   /* client's in-flight drains to empty via ACKs (pn 0..2) */
   CHECK(quic_sentpkt_count(&cl.sent) == 3);
   u64 r = 2;
-  quic_connloop_on_ack(&cl, 2, &r, 1);
+  quic_connloop_on_ack(&cl, &(quic_connloop_ack_in){2, &r, 1});
   CHECK(quic_sentpkt_count(&cl.sent) == 0);
   CHECK(cl.pto_armed == 0);
 }

@@ -1,6 +1,7 @@
 #ifndef QUIC_CONNIO_CONNIO_H
 #define QUIC_CONNIO_CONNIO_H
 
+#include "common/bytes/span/span.h"
 #include "transport/conn/lifecycle/conn/pnspace.h"
 #include "transport/conn/loop/connloop/connloop.h"
 #include "transport/conn/pnspace/pnspaces/spaces.h"
@@ -29,34 +30,35 @@ typedef struct {
   u64           rx_pn[QUIC_PNS_COUNT]; /* per-space next expected inbound PN */
 } quic_connio;
 
+/* The header parameters for a fresh connio, besides its DCID. */
+typedef struct {
+  int is_server;
+  u8  byte0;
+  u64 initial_max_data;
+} quic_connio_init_in;
+
 /* Set up an active connection: empty keyset, fresh receive state, the dispatch
  * view wired to drain ACKs into loop.sent, and the given header parameters. */
-void quic_connio_init(
-    quic_connio *io,
-    int          is_server,
-    u8           byte0,
-    const u8    *dcid,
-    u8           dcid_len,
-    u64          initial_max_data);
+void quic_connio_init(quic_connio *io, quic_span dcid, const quic_connio_init_in *in);
 
 /* RFC 9001 5: receive one protected datagram at protection `level`. Gates via
  * connloop_on_recv; on permission, fetches the level's keys, opens the packet
  * in place, and dispatches every recovered frame into the receive state.
  * Returns 1 if the packet was processed, 0 if gated out or authentication
  * failed. `datagram` is modified in place (header protection / AEAD). */
-int quic_connio_recv(quic_connio *io, int level, u8 *datagram, usz len);
+int quic_connio_recv(quic_connio *io, int level, quic_mspan datagram);
 
-/* RFC 9001 5: send `frames_len` frame bytes at protection `level`. Gates via
+/* The protection level and frame bytes to seal into a packet. */
+typedef struct {
+  int       level;
+  quic_span frames;
+} quic_connio_send_in;
+
+/* RFC 9001 5: send frame bytes at protection `level`. Gates via
  * connloop_on_send; on permission, fetches the level's keys and seals a
- * protected packet into out (cap bytes). Returns the protected length, or 0 if
+ * protected packet into out. Returns the protected length, or 0 if
  * gated out or out is too small. */
-usz quic_connio_send(
-    quic_connio *io,
-    int          level,
-    const u8    *frames,
-    usz          frames_len,
-    u8          *out,
-    usz          cap);
+usz quic_connio_send(quic_connio *io, const quic_connio_send_in *in, quic_obuf *out);
 
 /* RFC 9000 12.3: the next send packet number for `level`'s own space (peek,
  * does not advance). Each level/space numbers independently from 0. */

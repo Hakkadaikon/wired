@@ -55,9 +55,16 @@ typedef struct {
   u64 pto_period;      /* RFC 9001 6.1: 3*PTO retention is measured against */
 } quic_evloop;
 
-/* Initialise an active loop at `level`, with `cwnd` open, `send_len`-byte
- * packets, and all timers disarmed. */
-void quic_evloop_init(quic_evloop *c, int level, u64 cwnd, usz send_len);
+/* Everything quic_evloop_init needs besides the loop itself. */
+typedef struct {
+  int level;
+  u64 cwnd;
+  usz send_len;
+} quic_evloop_init_in;
+
+/* Initialise an active loop at `in->level`, with `in->cwnd` open,
+ * `in->send_len`-byte packets, and all timers disarmed. */
+void quic_evloop_init(quic_evloop *c, const quic_evloop_init_in *in);
 
 /* Queue a received packet for processing inside the next step. */
 void quic_evloop_on_receive(quic_evloop *c, int ack_eliciting);

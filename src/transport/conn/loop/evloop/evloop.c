@@ -6,18 +6,18 @@
 #include "transport/recovery/congestion/cwndctl/cwndctl.h"
 #include "transport/recovery/detect/ackgen/ackgen.h"
 
-void quic_evloop_init(quic_evloop *c, int level, u64 cwnd, usz send_len) {
+void quic_evloop_init(quic_evloop *c, const quic_evloop_init_in *in) {
   quic_connloop_init(&c->gate, 1);
-  c->level         = level;
+  c->level         = in->level;
   c->next_pn       = 0;
   c->rx_n          = 0;
   c->ack_owed      = 0;
   c->rtx_n         = 0;
   c->have_new_data = 0;
-  c->send_len      = send_len;
+  c->send_len      = in->send_len;
   c->pto.armed = c->loss.armed = c->idle.armed = 0;
   c->pto.deadline = c->loss.deadline = c->idle.deadline = 0;
-  c->cwnd                                               = cwnd;
+  c->cwnd                                               = in->cwnd;
   c->bytes_in_flight                                    = 0;
   c->key_generation                                     = 0;
   c->key_update_time                                    = 0;
@@ -69,9 +69,9 @@ static int antiamp_ok(const quic_evloop *c) {
  * the gate, which refuses on an empty in-flight set) and within the amp budget.
  */
 static void pto_act(quic_evloop *c) {
+  quic_connloop_pto_in in = {c->level, c->next_pn, c->send_len};
   if (!antiamp_ok(c)) return;
-  if (quic_connloop_on_pto(&c->gate, c->level, c->next_pn, c->send_len))
-    c->next_pn++;
+  if (quic_connloop_on_pto(&c->gate, &in)) c->next_pn++;
 }
 
 /* RFC 9000 10.1: idle expiry moves the connection toward draining. */
@@ -104,7 +104,8 @@ static int send_permitted(const quic_evloop *c) {
 
 /* Emit one ack-eliciting packet under a fresh number, tracking it in flight. */
 static void evloop_emit(quic_evloop *c) {
-  quic_connloop_on_send(&c->gate, c->level, 1, c->next_pn, c->send_len);
+  quic_connloop_send_in in = {c->level, 1, c->next_pn, c->send_len};
+  quic_connloop_on_send(&c->gate, &in);
   c->next_pn++;
   c->bytes_in_flight += c->send_len;
 }

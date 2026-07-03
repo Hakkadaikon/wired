@@ -34,8 +34,7 @@ typedef struct {
 /* Initialize an active connection driver as client (is_server 0) or server
  * (is_server 1). Installs Initial keys so the first flight can flow. dcid is
  * the shared connection id used for packet headers. */
-void quic_driver_init(
-    quic_driver *d, int is_server, const u8 *dcid, u8 dcid_len);
+void quic_driver_init(quic_driver *d, int is_server, quic_span dcid);
 
 /* Queue one received datagram for the next step to process. */
 void quic_driver_feed(quic_driver *d, const u8 *dgram, usz len);

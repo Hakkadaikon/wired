@@ -48,33 +48,53 @@ void quic_connloop_init(quic_connloop *c, int is_server);
  * phase). */
 int quic_connloop_on_recv(quic_connloop *c, int level, usz len);
 
-/* RFC 9001 4.9 / RFC 9000 8.1: try to send `len` bytes at protection `level`.
- * Refuses if the level would regress, if it is 1-RTT before the handshake is
- * complete, if no app data may flow while closing/draining/closed, or if the
- * anti-amplification limit would be exceeded. On success records the send
- * (ack-eliciting packets are tracked, with `pn` as the packet number) and
- * arms the PTO timer when ack-eliciting data is in flight. Returns 1 if sent,
- * 0 if refused. */
-int quic_connloop_on_send(
-    quic_connloop *c, int level, int ack_eliciting, u64 pn, usz len);
+/* Everything quic_connloop_on_send needs besides the loop. */
+typedef struct {
+  int level;
+  int ack_eliciting;
+  u64 pn;
+  usz len;
+} quic_connloop_send_in;
+
+/* RFC 9001 4.9 / RFC 9000 8.1: try to send `in->len` bytes at protection
+ * `in->level`. Refuses if the level would regress, if it is 1-RTT before the
+ * handshake is complete, if no app data may flow while closing/draining/
+ * closed, or if the anti-amplification limit would be exceeded. On success
+ * records the send (ack-eliciting packets are tracked, with `in->pn` as the
+ * packet number) and arms the PTO timer when ack-eliciting data is in flight.
+ * Returns 1 if sent, 0 if refused. */
+int quic_connloop_on_send(quic_connloop *c, const quic_connloop_send_in *in);
 
 /* RFC 9000 8.1: mark the peer's address validated (a Handshake packet was
  * received, or path validation completed). Lifts the anti-amplification limit
  * so subsequent sends are no longer capped at 3x the bytes received. */
 void quic_connloop_validate(quic_connloop *c);
 
+/* Everything quic_connloop_on_ack needs besides the loop. */
+typedef struct {
+  u64        ack_largest;
+  const u64 *ack_ranges;
+  usz        n_ranges;
+} quic_connloop_ack_in;
+
 /* RFC 9002 5.1: process a received ACK. Removes exactly the acknowledged,
  * genuinely-tracked packets from in-flight; an ACK naming an untracked packet
  * removes nothing. Disarms the PTO timer when in-flight becomes empty.
  * Returns the number of packets newly acknowledged. */
-usz quic_connloop_on_ack(
-    quic_connloop *c, u64 ack_largest, const u64 *ack_ranges, usz n_ranges);
+usz quic_connloop_on_ack(quic_connloop *c, const quic_connloop_ack_in *in);
 
-/* RFC 9002 6.2: PTO fired. Sends a fresh probe at `level` (recorded as a new
- * in-flight packet `pn`) WITHOUT abandoning existing in-flight packets. Only
- * acts while there is ack-eliciting data in flight; never arms on an empty
- * in-flight set. Returns 1 if a probe was sent, 0 otherwise. */
-int quic_connloop_on_pto(quic_connloop *c, int level, u64 pn, usz len);
+/* Everything quic_connloop_on_pto needs besides the loop. */
+typedef struct {
+  int level;
+  u64 pn;
+  usz len;
+} quic_connloop_pto_in;
+
+/* RFC 9002 6.2: PTO fired. Sends a fresh probe at `in->level` (recorded as a
+ * new in-flight packet `in->pn`) WITHOUT abandoning existing in-flight
+ * packets. Only acts while there is ack-eliciting data in flight; never arms
+ * on an empty in-flight set. Returns 1 if a probe was sent, 0 otherwise. */
+int quic_connloop_on_pto(quic_connloop *c, const quic_connloop_pto_in *in);
 
 /* RFC 9000 10.2: drive the close sequence one step:
  * active -> closing (local CONNECTION_CLOSE), closing/active -> draining
