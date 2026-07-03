@@ -6,35 +6,40 @@
 #include "tls/handshake/core/tls/cert.h"
 #include "tls/handshake/core/tls/transcript.h"
 
-/* RFC 8446 4 / RFC 9001 4: server-side handshake driver. Receives the client
+/** @file
+ * RFC 8446 4 / RFC 9001 4: server-side handshake driver. Receives the client
  * ClientHello and emits the real TLS bytes of the server flight (ServerHello +
  * EncryptedExtensions + Certificate + CertificateVerify + Finished). Pure
  * orchestration over the existing build/sign/key-schedule parts. */
 
+/** Server-side handshake driver state. */
 typedef struct {
-  u8 server_priv[32];      /* RFC 7748 x25519 private */
-  u8 server_pub[32];       /* RFC 7748 x25519 public */
-  u8 p256_priv[32];        /* RFC 5480 ECDSA P-256 signing scalar; also the
+  u8 server_priv[32];      /**< RFC 7748 x25519 private */
+  u8 server_pub[32];       /**< RFC 7748 x25519 public */
+  u8 p256_priv[32];        /**< RFC 5480 ECDSA P-256 signing scalar; also the
                             * TBS signer for a self-built certificate */
-  u8        cert_buf[512]; /* self-signed P-256 cert DER (owned) */
-  quic_span certs[QUIC_TLS_CERT_CHAIN_MAX]; /* RFC 8446 4.4.2 certificate_list,
-                                             * leaf first (caller-owned views
-                                             * in external-chain mode) */
-  usz cert_count;               /* 0 = nothing to send (flight build fails) */
-  u8  client_pub[32];           /* RFC 8446 4.2.8 client key_share */
-  u8  client_sid[32];           /* RFC 8446 4.1.2 legacy_session_id */
-  u8  client_sid_len;           /* 0..32 */
-  u8  hs_secret[QUIC_HKDF_PRK]; /* RFC 8446 7.1 Handshake Secret */
-  u8  s_hs_traffic[QUIC_HKDF_PRK]; /* RFC 8446 7.1 server hs traffic secret */
-  int hs_ready;                    /* hs_secret derived */
-  quic_transcript tr;              /* RFC 8446 4.4.1 Transcript-Hash */
-  u8              odcid[20];       /* RFC 9000 7.3 client first Initial DCID */
-  u8              odcid_len;
-  u8              iscid[20]; /* RFC 9000 7.3 server SCID */
-  u8              iscid_len;
+  u8        cert_buf[512]; /**< self-signed P-256 cert DER (owned) */
+  quic_span certs[QUIC_TLS_CERT_CHAIN_MAX]; /**< RFC 8446 4.4.2
+                                             * certificate_list, leaf first
+                                             * (caller-owned views in
+                                             * external-chain mode) */
+  usz cert_count;               /**< 0 = nothing to send (flight build fails) */
+  u8  client_pub[32];           /**< RFC 8446 4.2.8 client key_share */
+  u8  client_sid[32];           /**< RFC 8446 4.1.2 legacy_session_id */
+  u8  client_sid_len;           /**< 0..32 */
+  u8  hs_secret[QUIC_HKDF_PRK]; /**< RFC 8446 7.1 Handshake Secret */
+  u8  s_hs_traffic[QUIC_HKDF_PRK]; /**< RFC 8446 7.1 server hs traffic secret */
+  int hs_ready;                    /**< hs_secret derived */
+  quic_transcript tr;              /**< RFC 8446 4.4.1 Transcript-Hash */
+  u8              odcid[20]; /**< RFC 9000 7.3 client first Initial DCID */
+  u8              odcid_len; /**< bytes used in odcid (0..20) */
+  u8              iscid[20]; /**< RFC 9000 7.3 server SCID */
+  u8              iscid_len; /**< bytes used in iscid (0..20) */
 } quic_sdrv;
 
-/* server_priv_x25519/server_pub_x25519 are the ECDHE key pair. sign_priv is
+/** Inputs to quic_sdrv_init.
+ *
+ * server_priv_x25519/server_pub_x25519 are the ECDHE key pair. sign_priv is
  * the ECDSA P-256 signing scalar; in self-signed mode (chain is NULL or
  * chain_count is 0) it also signs the driver's own generated certificate's
  * TBS. chain/chain_count, when non-empty, are an externally issued
@@ -43,46 +48,63 @@ typedef struct {
  * QUIC_TLS_CERT_CHAIN_MAX makes the flight unbuildable (cert_count stays 0),
  * not a truncated/overflowing copy. */
 typedef struct {
-  const u8        *server_priv_x25519;
-  const u8        *server_pub_x25519;
-  const u8        *sign_priv;
-  const quic_span *chain;
-  usz              chain_count;
+  const u8        *server_priv_x25519; /**< ECDHE x25519 private (32 bytes) */
+  const u8        *server_pub_x25519;  /**< ECDHE x25519 public (32 bytes) */
+  const u8        *sign_priv; /**< ECDSA P-256 signing scalar (32 bytes) */
+  const quic_span *chain;     /**< external chain, leaf first; NULL for
+                               * self-signed mode (caller keeps the views
+                               * alive through the handshake) */
+  usz chain_count;            /**< entries in chain; 0 = self-signed mode */
 } quic_sdrv_init_in;
 
-/* Hold the server key material. If in->chain is NULL/empty, build the
+/** Hold the server key material. If in->chain is NULL/empty, build the
  * self-signed P-256 certificate from in->sign_priv; otherwise copy the chain
  * views (leaf first) as the certificate_list to send. Init transcript/key
- * schedule. */
+ * schedule.
+ * @param s driver state to initialize
+ * @param in key material and optional external certificate chain */
 void quic_sdrv_init(quic_sdrv *s, const quic_sdrv_init_in *in);
 
-/* RFC 9000 7.3: record the ODCID (the DCID of the client's first Initial) and
- * the ISCID (the server's source connection id) to advertise in the
+/** RFC 9000 7.3: record the ODCID (the DCID of the client's first Initial)
+ * and the ISCID (the server's source connection id) to advertise in the
  * EncryptedExtensions transport parameters. Must be called before
- * build_server_flight. Returns 1 on success, 0 if either length exceeds 20. */
+ * build_server_flight.
+ * @param s driver state
+ * @param odcid DCID of the client's first Initial packet
+ * @param iscid the server's source connection id
+ * @return 1 on success, 0 if either length exceeds 20. */
 int quic_sdrv_set_cids(quic_sdrv *s, quic_span odcid, quic_span iscid);
 
-/* RFC 8446 4.4.1: fold the ClientHello into the transcript and take the
- * client's x25519 key_share. Returns 1 on success, 0 if the key_share is
- * absent or malformed. */
+/** RFC 8446 4.4.1: fold the ClientHello into the transcript and take the
+ * client's x25519 key_share.
+ * @param s driver state
+ * @param ch_msg the ClientHello handshake message bytes
+ * @param ch_len length of ch_msg in bytes
+ * @return 1 on success, 0 if the key_share is absent or malformed. */
 int quic_sdrv_recv_client_hello(quic_sdrv *s, const u8 *ch_msg, usz ch_len);
 
-/* Destination for quic_sdrv_build_server_flight: sh receives the
+/** Destination for quic_sdrv_build_server_flight: sh receives the
  * ServerHello, hs the EncryptedExtensions || Certificate ||
  * CertificateVerify || Finished flight. */
 typedef struct {
-  quic_obuf *sh;
-  quic_obuf *hs;
+  quic_obuf *sh; /**< receives the ServerHello */
+  quic_obuf *hs; /**< receives EncryptedExtensions || Certificate ||
+                  * CertificateVerify || Finished */
 } quic_sdrv_flight_out;
 
-/* RFC 8446 4.4: build the full server flight into out->sh / out->hs. Derives
- * the handshake secret over the real ECDHE. Returns 1 on success, 0 if a
- * buffer is too small. server_random is the 32-byte ServerHello.random. */
+/** RFC 8446 4.4: build the full server flight into out->sh / out->hs.
+ * Derives the handshake secret over the real ECDHE.
+ * @param s driver state
+ * @param server_random the 32-byte ServerHello.random
+ * @param out destination buffers for the ServerHello and handshake flight
+ * @return 1 on success, 0 if a buffer is too small. */
 int quic_sdrv_build_server_flight(
     quic_sdrv *s, const u8 *server_random, const quic_sdrv_flight_out *out);
 
-/* Point *secret at the derived Handshake Secret (verification aid). Returns 1
- * if build_server_flight has run, 0 otherwise. */
+/** Point *secret at the derived Handshake Secret (verification aid).
+ * @param s driver state
+ * @param secret receives a pointer to the internal Handshake Secret
+ * @return 1 if build_server_flight has run, 0 otherwise. */
 int quic_sdrv_handshake_secret(const quic_sdrv *s, const u8 **secret);
 
 #endif
