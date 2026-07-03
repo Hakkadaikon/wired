@@ -7,24 +7,18 @@
 #define QPACK_BLOCKED_STREAMS 0x07
 
 /* RFC 9114 7.2.4 */
-int quic_h3settings_build(
-    u64  max_field_section_size,
-    u64  qpack_max_table_capacity,
-    u64  qpack_blocked_streams,
-    u8  *out,
-    usz  cap,
-    usz *out_len) {
+int quic_h3settings_build(const quic_h3settings_in *in, quic_obuf *out) {
   quic_h3_settings s;
   s.n              = 3;
   s.pairs[0].id    = QUIC_H3_SETTINGS_MAX_FIELD_SECTION_SIZE;
-  s.pairs[0].value = max_field_section_size;
+  s.pairs[0].value = in->max_field_section_size;
   s.pairs[1].id    = QPACK_MAX_TABLE_CAPACITY;
-  s.pairs[1].value = qpack_max_table_capacity;
+  s.pairs[1].value = in->qpack_max_table_capacity;
   s.pairs[2].id    = QPACK_BLOCKED_STREAMS;
-  s.pairs[2].value = qpack_blocked_streams;
+  s.pairs[2].value = in->qpack_blocked_streams;
 
-  usz w = quic_h3_settings_put(out, cap, &s);
+  usz w = quic_h3_settings_put(out->p, out->cap, &s);
   if (w == 0) return 0;
-  *out_len = w;
+  out->len = w;
   return 1;
 }

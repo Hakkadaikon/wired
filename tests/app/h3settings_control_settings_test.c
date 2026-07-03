@@ -10,18 +10,17 @@ void test_h3settings_control_settings(void) {
   /* leading stream type is control */
   u64 stype;
   usz consumed = 0;
-  CHECK(quic_h3_stream_type_parse(buf, n, &stype, &consumed) == 1);
+  CHECK(quic_h3_stream_type_parse(quic_span_of(buf, n), &stype, &consumed) == 1);
   CHECK(consumed == 1 && quic_h3_stream_type_is_control(stype));
 
   /* the bytes after the type are a SETTINGS frame */
-  u64       ftype, plen;
-  const u8 *pl;
-  usz r = quic_h3_frame_get(buf + consumed, n - consumed, &ftype, &pl, &plen);
-  CHECK(r == n - consumed && ftype == QUIC_H3_FRAME_SETTINGS);
+  quic_h3_frame f;
+  usz r = quic_h3_frame_get(quic_span_of(buf + consumed, n - consumed), &f);
+  CHECK(r == n - consumed && f.type == QUIC_H3_FRAME_SETTINGS);
 
   /* the first control frame passes the settings-sequence gate */
   quic_h3_settings_state st = {0};
-  CHECK(quic_h3_settings_first(&st, ftype) == 1);
+  CHECK(quic_h3_settings_first(&st, f.type) == 1);
 
   /* no room */
   CHECK(quic_h3settings_control_stream(buf, 1, &n) == 0);

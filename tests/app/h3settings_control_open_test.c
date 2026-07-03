@@ -10,7 +10,7 @@ void test_h3settings_control_open(void) {
   /* parses back as a control stream type */
   u64 type;
   usz consumed = 0;
-  CHECK(quic_h3_stream_type_parse(buf, n, &type, &consumed) == 1);
+  CHECK(quic_h3_stream_type_parse(quic_span_of(buf, n), &type, &consumed) == 1);
   CHECK(consumed == 1 && quic_h3_stream_type_is_control(type));
 
   /* no room */
