@@ -79,13 +79,17 @@ static void drive_to_flight(struct srv_fix *f) {
   CHECK(quic_ed25519_keypair(cert_seed, cert_pub));
   cert_len = srv_ed_cert(cert, cert_pub);
 
-  quic_server_init(&f->s, srv_priv, srv_pub, cert_seed, cert, cert_len);
+  quic_server_init_in sin = {
+      srv_priv, srv_pub, cert_seed, quic_span_of(cert, cert_len)};
+  quic_obuf            sh_ob = quic_obuf_of(f->sh, sizeof(f->sh));
+  quic_obuf            fl_ob = quic_obuf_of(f->flight, sizeof(f->flight));
+  quic_sdrv_flight_out fo    = {&sh_ob, &fl_ob};
+  quic_server_init(&f->s, &sin);
   CHECK(quic_server_recv_initial(&f->s, f->ch, f->ch_len) == 1);
   CHECK(f->s.phase == QUIC_SERVER_HS_CH_RECVD);
-  CHECK(
-      quic_server_build_flight(
-          &f->s, f->srv_random, f->sh, sizeof(f->sh), &f->sh_len, f->flight,
-          sizeof(f->flight), &f->flight_len) == 1);
+  CHECK(quic_server_build_flight(&f->s, f->srv_random, &fo) == 1);
+  f->sh_len     = sh_ob.len;
+  f->flight_len = fl_ob.len;
   CHECK(f->s.phase == QUIC_SERVER_HS_FLIGHT_SENT);
 }
 
@@ -129,7 +133,8 @@ static usz srv_wrap_crypto(const u8 *msg, usz len, u8 *out, usz cap) {
 static void test_server_happy(void) {
   struct srv_fix f;
   u8             payload[256], hsdone[4];
-  usz            plen, dlen;
+  usz            plen;
+  quic_obuf      hd_ob;
   make_client_hello(&f);
   drive_to_flight(&f);
 
@@ -153,16 +158,18 @@ static void test_server_happy(void) {
   }
 
   /* HANDSHAKE_DONE exactly once. */
-  CHECK(quic_server_handshake_done(&f.s, hsdone, sizeof(hsdone), &dlen) == 1);
-  CHECK(dlen == 1 && hsdone[0] == 0x1e);
-  CHECK(quic_server_handshake_done(&f.s, hsdone, sizeof(hsdone), &dlen) == 0);
+  hd_ob = quic_obuf_of(hsdone, sizeof(hsdone));
+  CHECK(quic_server_handshake_done(&f.s, &hd_ob) == 1);
+  CHECK(hd_ob.len == 1 && hsdone[0] == 0x1e);
+  CHECK(quic_server_handshake_done(&f.s, &hd_ob) == 0);
 }
 
 /* CENTRAL SAFETY: a forged client Finished promotes nothing. */
 static void test_server_forged_finished(void) {
   struct srv_fix f;
   u8             payload[256], hsdone[4];
-  usz            plen, dlen;
+  usz            plen;
+  quic_obuf      hd_ob;
   make_client_hello(&f);
   drive_to_flight(&f);
   make_client_finished(&f);
@@ -176,7 +183,8 @@ static void test_server_forged_finished(void) {
     const quic_initial_keys *k;
     CHECK(quic_keyset_for_level(&f.s.keys, QUIC_LEVEL_ONERTT, &k) == 0);
   }
-  CHECK(quic_server_handshake_done(&f.s, hsdone, sizeof(hsdone), &dlen) == 0);
+  hd_ob = quic_obuf_of(hsdone, sizeof(hsdone));
+  CHECK(quic_server_handshake_done(&f.s, &hd_ob) == 0);
 }
 
 /* Forbidden order: flight before the ClientHello is refused, no Handshake key.
@@ -186,16 +194,19 @@ static void test_server_flight_before_ch(void) {
   u8             srv_priv[32], srv_pub[32], cert_seed[32];
   static u8      cert[1] = {0};
   u8             sh[256], flight[2048], rnd[32];
-  usz            sl, fl;
+  quic_obuf      sh_ob = quic_obuf_of(sh, sizeof(sh));
+  quic_obuf      fl_ob = quic_obuf_of(flight, sizeof(flight));
+  quic_sdrv_flight_out fo = {&sh_ob, &fl_ob};
+  quic_server_init_in  sin;
   for (usz i = 0; i < 32; i++) {
     srv_priv[i] = (u8)(0x40 + i);
     rnd[i]      = (u8)i;
   }
   quic_x25519_base(srv_pub, srv_priv);
-  quic_server_init(&f.s, srv_priv, srv_pub, cert_seed, cert, sizeof(cert));
-  CHECK(
-      quic_server_build_flight(
-          &f.s, rnd, sh, sizeof(sh), &sl, flight, sizeof(flight), &fl) == 0);
+  sin = (quic_server_init_in){
+      srv_priv, srv_pub, cert_seed, quic_span_of(cert, sizeof(cert))};
+  quic_server_init(&f.s, &sin);
+  CHECK(quic_server_build_flight(&f.s, rnd, &fo) == 0);
   {
     const quic_initial_keys *k;
     CHECK(quic_keyset_for_level(&f.s.keys, QUIC_LEVEL_HANDSHAKE, &k) == 0);
@@ -209,11 +220,14 @@ static void test_server_fin_before_flight(void) {
   usz            plen;
   make_client_hello(&f);
   {
-    u8        srv_priv[32], srv_pub[32], cert_seed[32];
-    static u8 cert[1] = {0};
+    u8                   srv_priv[32], srv_pub[32], cert_seed[32];
+    static u8            cert[1] = {0};
+    quic_server_init_in  sin;
     for (usz i = 0; i < 32; i++) srv_priv[i] = (u8)(0x40 + i);
     quic_x25519_base(srv_pub, srv_priv);
-    quic_server_init(&f.s, srv_priv, srv_pub, cert_seed, cert, sizeof(cert));
+    sin = (quic_server_init_in){
+        srv_priv, srv_pub, cert_seed, quic_span_of(cert, sizeof(cert))};
+    quic_server_init(&f.s, &sin);
     CHECK(quic_server_recv_initial(&f.s, f.ch, f.ch_len) == 1);
   }
   /* still CH_RECVD: any Finished-like payload must not promote */

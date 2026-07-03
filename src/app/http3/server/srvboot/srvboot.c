@@ -47,8 +47,11 @@ static int srvboot_init(
     quic_srvloop           *l,
     const wired_srvboot_id *id,
     const quic_header      *h) {
-  quic_server_init(s, id->priv, id->pub, id->cert_seed, 0, 0);
-  if (!quic_server_set_cids(s, h->dcid, h->dcid_len, id->scid, id->scid_len))
+  quic_server_init_in in = {id->priv, id->pub, id->cert_seed, quic_span_of(0, 0)};
+  quic_server_init(s, &in);
+  if (!quic_server_set_cids(
+          s, quic_span_of(h->dcid, h->dcid_len),
+          quic_span_of(id->scid, id->scid_len)))
     return 0;
   return quic_srvloop_init(l, h->scid, h->scid_len);
 }
@@ -91,19 +94,22 @@ static int srvboot_flight(
     u8                     *out,
     usz                     cap,
     usz                    *out_len) {
-  u8  sh[512], flight[2048];
-  usz shl, fll;
-  if (!quic_server_build_flight(
-          s, id->random, sh, sizeof sh, &shl, flight, sizeof flight, &fll))
-    return 0;
-  return srvboot_seal_flight(s, id, sh, shl, flight, fll, out, cap, out_len);
+  u8                   sh[512], flight[2048];
+  quic_obuf            sh_ob = quic_obuf_of(sh, sizeof sh);
+  quic_obuf            fl_ob = quic_obuf_of(flight, sizeof flight);
+  quic_sdrv_flight_out fo    = {&sh_ob, &fl_ob};
+  if (!quic_server_build_flight(s, id->random, &fo)) return 0;
+  return srvboot_seal_flight(
+      s, id, sh, sh_ob.len, flight, fl_ob.len, out, cap, out_len);
 }
 
-/* Recover the ClientHello and parse the header from the Initial datagram. */
+/* Recover the ClientHello and parse the header from the Initial datagram.
+ * cr must outlive ch/ch_len: quic_crecv_message() returns a view into cr's
+ * own reassembly buffer, so the caller owns cr's storage. */
 static int srvboot_read_initial(
-    u8 *dgram, usz len, quic_header *h, const u8 **ch, usz *ch_len) {
-  quic_crecv cr;
-  if (!srvboot_open_initial(dgram, len, &cr, ch, ch_len)) return 0;
+    u8 *dgram, usz len, quic_crecv *cr, quic_header *h, const u8 **ch,
+    usz *ch_len) {
+  if (!srvboot_open_initial(dgram, len, cr, ch, ch_len)) return 0;
   return quic_header_parse(dgram, len, h);
 }
 
@@ -116,9 +122,10 @@ static int srvboot_accept_ch(
     u8                     *dgram,
     usz                     len) {
   quic_header h;
+  quic_crecv  cr;
   const u8   *ch;
   usz         ch_len;
-  if (!srvboot_read_initial(dgram, len, &h, &ch, &ch_len)) return 0;
+  if (!srvboot_read_initial(dgram, len, &cr, &h, &ch, &ch_len)) return 0;
   if (!srvboot_init(s, l, id, &h)) return 0;
   return quic_server_recv_initial(s, ch, ch_len);
 }

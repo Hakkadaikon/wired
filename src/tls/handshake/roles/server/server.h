@@ -1,6 +1,7 @@
 #ifndef QUIC_SERVER_SERVER_H
 #define QUIC_SERVER_SERVER_H
 
+#include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
 #include "tls/handshake/core/sdrv/sdrv.h"
 #include "tls/handshake/roles/srvfin/complete.h"
@@ -46,50 +47,40 @@ typedef struct {
   usz tr_through_flight; /* transcript length through server Finished */
 } quic_server;
 
-/* Initialize the orchestrator with the server key material.
- * server_priv_x25519/server_pub_x25519 are the static ECDHE pair; cert_seed is
- * the ECDSA P-256 signing scalar (big-endian). cert_der/cert_len are ignored:
- * the driver builds its own self-signed P-256 end-entity certificate from
- * cert_seed (sdrv). No socket is opened. */
-void quic_server_init(
-    quic_server *s,
-    const u8     server_priv_x25519[32],
-    const u8     server_pub_x25519[32],
-    const u8     cert_seed[32],
-    const u8    *cert_der,
-    usz          cert_len);
+/* server_priv_x25519/server_pub_x25519 are the static ECDHE pair; cert_seed is
+ * the ECDSA P-256 signing scalar (big-endian). cert_der is ignored: the driver
+ * builds its own self-signed P-256 end-entity certificate from cert_seed
+ * (sdrv). */
+typedef struct {
+  const u8 *server_priv_x25519;
+  const u8 *server_pub_x25519;
+  const u8 *cert_seed;
+  quic_span cert_der;
+} quic_server_init_in;
+
+/* Initialize the orchestrator with the server key material. No socket is
+ * opened. */
+void quic_server_init(quic_server *s, const quic_server_init_in *in);
 
 /* RFC 9000 7.3: record the DCID of the client's first Initial (the ODCID the
  * server echoes) and the server's source connection id (ISCID) so the
  * EncryptedExtensions transport parameters carry the real connection ids. Must
  * be called before build_flight. Returns 1 ok, 0 if either length exceeds 20.
  */
-int quic_server_set_cids(
-    quic_server *s,
-    const u8    *odcid,
-    u8           odcid_len,
-    const u8    *iscid,
-    u8           iscid_len);
+int quic_server_set_cids(quic_server *s, quic_span odcid, quic_span iscid);
 
 /* RFC 8446 4.4.1: fold a received ClientHello (TLS handshake message bytes)
  * into the transcript. Advances INITIAL -> CH_RECVD. Returns 1 on success,
  * 0 if the message is not a usable ClientHello or out of phase. */
 int quic_server_recv_initial(quic_server *s, const u8 *ch_msg, usz ch_len);
 
-/* RFC 8446 4.4 / RFC 9001 4: build the server flight (ServerHello into sh_out,
- * EncryptedExtensions||Certificate||CertificateVerify||Finished into
- * flight_out) and derive the Handshake key. Only valid after the ClientHello
- * was received. Advances CH_RECVD -> FLIGHT_SENT. Returns 1 on success, 0
+/* RFC 8446 4.4 / RFC 9001 4: build the server flight (ServerHello into
+ * out->sh, EncryptedExtensions||Certificate||CertificateVerify||Finished into
+ * out->hs) and derive the Handshake key. Only valid after the ClientHello was
+ * received. Advances CH_RECVD -> FLIGHT_SENT. Returns 1 on success, 0
  * otherwise. */
 int quic_server_build_flight(
-    quic_server *s,
-    const u8    *server_random,
-    u8          *sh_out,
-    usz          sh_cap,
-    usz         *sh_len,
-    u8          *flight_out,
-    usz          flight_cap,
-    usz         *flight_len);
+    quic_server *s, const u8 *server_random, const quic_sdrv_flight_out *out);
 
 /* RFC 8446 4.4.4 / RFC 9001 4.1.2: drive the handshake with one received
  * Handshake-packet CRYPTO payload (socket-free injection). Reassembles the
@@ -100,9 +91,9 @@ int quic_server_build_flight(
 int quic_server_feed(quic_server *s, const u8 *crypto_payload, usz len);
 
 /* RFC 9001 4.1.2 / RFC 9000 19.20: write the HANDSHAKE_DONE frame, at most
- * once and only after confirmation. Returns 1 and sets *out_len, or 0 if not
- * confirmed, already sent, or cap is 0. */
-int quic_server_handshake_done(quic_server *s, u8 *out, usz cap, usz *out_len);
+ * once and only after confirmation. Returns 1 and sets out->len, or 0 if not
+ * confirmed, already sent, or out->cap is 0. */
+int quic_server_handshake_done(quic_server *s, quic_obuf *out);
 
 /* 1 once the client Finished verified and the handshake is confirmed. */
 int quic_server_is_confirmed(const quic_server *s);
