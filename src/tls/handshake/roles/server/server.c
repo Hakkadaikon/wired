@@ -53,7 +53,8 @@ int quic_server_set_cids(
     u8           odcid_len,
     const u8    *iscid,
     u8           iscid_len) {
-  return quic_sdrv_set_cids(&s->sdrv, odcid, odcid_len, iscid, iscid_len);
+  return quic_sdrv_set_cids(
+      &s->sdrv, quic_span_of(odcid, odcid_len), quic_span_of(iscid, iscid_len));
 }
 
 int quic_server_recv_initial(quic_server *s, const u8 *ch_msg, usz ch_len) {
@@ -102,10 +103,12 @@ static int srv_emit_flight(
     u8          *fl_out,
     usz          fl_cap,
     usz         *fl_len) {
-  if (!quic_sdrv_build_server_flight(
-          &s->sdrv, server_random, sh_out, sh_cap, sh_len, fl_out, fl_cap,
-          fl_len))
-    return 0;
+  quic_obuf            sh_ob = quic_obuf_of(sh_out, sh_cap);
+  quic_obuf            fl_ob = quic_obuf_of(fl_out, fl_cap);
+  quic_sdrv_flight_out out   = {&sh_ob, &fl_ob};
+  if (!quic_sdrv_build_server_flight(&s->sdrv, server_random, &out)) return 0;
+  *sh_len = sh_ob.len;
+  *fl_len = fl_ob.len;
   return srv_after_flight(s, sh_out, *sh_len, fl_out, *fl_len);
 }
 
@@ -132,9 +135,12 @@ int quic_server_build_flight(
 static int srv_verify_finished(quic_server *s, const u8 *msg, usz len) {
   const u8 *hs;
   u8        c_traffic[QUIC_HKDF_PRK], th[QUIC_SHA256_DIGEST];
+  quic_derive_secret_in dsi;
   if (!quic_sdrv_handshake_secret(&s->sdrv, &hs)) return 0;
-  quic_tls_derive_secret(
-      hs, "c hs traffic", 12, s->tr, s->tr_through_sh, c_traffic);
+  dsi.secret   = hs;
+  dsi.label    = quic_span_of((const u8 *)"c hs traffic", 12);
+  dsi.messages = quic_span_of(s->tr, s->tr_through_sh);
+  quic_tls_derive_secret(&dsi, c_traffic);
   quic_sha256(s->tr, s->tr_through_flight, th);
   return quic_srvfin_verify_client_finished(msg, len, c_traffic, th);
 }

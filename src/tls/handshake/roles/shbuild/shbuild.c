@@ -27,23 +27,29 @@ static usz shb_prefix(
 /* RFC 8446 4.2.1 ServerHello supported_versions: ext_data is the selected
  * version (2 bytes), no list length. type(2) ext_len(2)=2 version(2). */
 static int shb_versions(u8 *buf, usz cap, usz *off) {
-  u8 ext[6];
+  u8        ext[6];
+  quic_obuf out = {buf, cap, *off};
   quic_put_be16(ext, QUIC_EXT_SUPPORTED_VERSIONS);
   quic_put_be16(ext + 2, 2);
   quic_put_be16(ext + 4, QUIC_TLS13_VERSION);
-  return quic_tls_ext_append(buf, cap, off, ext, 6);
+  if (!quic_tls_ext_append(&out, quic_span_of(ext, 6))) return 0;
+  *off = out.len;
+  return 1;
 }
 
 /* RFC 8446 4.2.8 ServerHello key_share: a single KeyShareEntry, no shares
  * length. type(2) ext_len(2)=36 group(2) ke_len(2)=32 key(32). */
 static int shb_key_share(u8 *buf, usz cap, usz *off, const u8 pub[32]) {
-  u8 ext[40];
+  u8        ext[40];
+  quic_obuf out = {buf, cap, *off};
   quic_put_be16(ext, QUIC_EXT_KEY_SHARE);
   quic_put_be16(ext + 2, 36);
   quic_put_be16(ext + 4, QUIC_GROUP_X25519);
   quic_put_be16(ext + 6, 32);
   for (usz i = 0; i < 32; i++) ext[8 + i] = pub[i];
-  return quic_tls_ext_append(buf, cap, off, ext, 40);
+  if (!quic_tls_ext_append(&out, quic_span_of(ext, 40))) return 0;
+  *off = out.len;
+  return 1;
 }
 
 /* Append both extensions; returns the body end offset, or 0 on overflow. */
