@@ -90,8 +90,8 @@ static inline quic_mspan quic_mspan_of(u8 *p, usz n) {
 /**
  * Make an output buffer over p[0..cap) with len starting at 0.
  *
- * The buffer borrows p and must outlive it. Pass its address to the
- * producing call and read `.len` afterwards:
+ * The buffer borrows p; the storage must outlive every use of the returned
+ * value. Pass its address to the producing call and read `.len` afterwards:
  * `quic_obuf ob = quic_obuf_of(buf, sizeof buf);` ... use `ob.len`.
  *
  * @param p   caller-provided storage

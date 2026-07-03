@@ -16,7 +16,8 @@
  */
 typedef struct {
   u64 v;     /**< value to format as decimal */
-  usz width; /**< minimum digit count; shorter values are zero-padded */
+  usz width; /**< minimum digit count, at most 20 (a u64's maximum);
+                shorter values are zero-padded */
 } wired_fmt_u64_in;
 
 /**

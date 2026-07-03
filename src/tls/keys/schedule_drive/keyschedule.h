@@ -27,8 +27,9 @@ enum {
  * the four traffic key sets indexed by the QUIC_KS_* constants.
  */
 typedef struct {
-  int               stage; /**< 0=init/early, 1=handshake, 2=master */
-  u8                master[QUIC_HKDF_PRK]; /**< Master Secret (stage 2) */
+  int stage;                 /**< 0=init/early, 1=handshake, 2=master */
+  u8  master[QUIC_HKDF_PRK]; /**< Master Secret (derived on
+                                reaching stage 1) */
   quic_initial_keys keys[4]; /**< traffic keys indexed by QUIC_KS_* */
 } quic_keysched;
 
@@ -45,7 +46,8 @@ void quic_keysched_init(quic_keysched *st);
  *
  * @param st         schedule state (must be in the init stage)
  * @param ecdhe      ECDHE shared secret
- * @param transcript transcript hash input (ClientHello..ServerHello)
+ * @param transcript raw transcript bytes (ClientHello..ServerHello), hashed
+ *                   internally
  * @return 1 on success, 0 if the stage is not init (order violation).
  */
 int quic_keysched_advance_handshake(
@@ -55,7 +57,8 @@ int quic_keysched_advance_handshake(
  * Finished processed: derive Master Secret and the application traffic keys.
  *
  * @param st             schedule state (must be in the handshake stage)
- * @param transcript     transcript hash input (ClientHello..server Finished)
+ * @param transcript     raw transcript bytes (ClientHello..server Finished),
+ *                       hashed internally
  * @param transcript_len number of bytes at transcript
  * @return 1 on success, 0 if the stage is not handshake (order violation).
  */

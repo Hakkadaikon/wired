@@ -34,7 +34,8 @@ typedef u64            usz; /**< unsigned size (size_t equivalent) */
  *
  * Arguments follow the x86_64 syscall ABI register order: number in rax,
  * then rdi, rsi, rdx, r10, r8, r9. rcx/r11 are clobbered by the `syscall`
- * instruction. Unused arguments are passed as 0.
+ * instruction. The syscall1/syscall3 wrappers pass 0 for their unused
+ * trailing arguments.
  *
  * @param n syscall number (one of the SYS_* constants)
  * @param a 1st argument (rdi)
