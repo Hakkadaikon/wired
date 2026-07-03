@@ -11,18 +11,18 @@
 void test_eebuild(void) {
   const u8  tp[5] = {0xaa, 0xbb, 0xcc, 0xdd, 0xee};
   u8        out[128];
-  usz       out_len, body_len, used;
+  usz       body_len, used;
   u8        type;
   const u8 *body;
   quic_span tpd;
+  quic_obuf ob = quic_obuf_of(out, sizeof(out));
 
-  CHECK(quic_eebuild_encrypted_extensions(
-      tp, sizeof(tp), out, sizeof(out), &out_len));
+  CHECK(quic_eebuild_encrypted_extensions(quic_span_of(tp, sizeof(tp)), &ob));
 
-  /* handshake header: type 0x08, length consistent with out_len. */
-  CHECK(quic_hs_parse(quic_span_of(out, out_len), &type, &body_len) == 4);
+  /* handshake header: type 0x08, length consistent with ob.len. */
+  CHECK(quic_hs_parse(quic_span_of(out, ob.len), &type, &body_len) == 4);
   CHECK(type == QUIC_HS_ENCRYPTED_EXT);
-  CHECK(4 + body_len == out_len);
+  CHECK(4 + body_len == ob.len);
 
   /* body: 2-byte extensions length, then ALPN(9) then the 0x39 extension. */
   body = out + 4;
@@ -39,6 +39,6 @@ void test_eebuild(void) {
   CHECK(tpd.p[0] == 0xaa && tpd.p[4] == 0xee);
 
   /* a tight cap (one byte short) must be refused. */
-  CHECK(!quic_eebuild_encrypted_extensions(
-      tp, sizeof(tp), out, out_len - 1, &out_len));
+  ob = quic_obuf_of(out, ob.len - 1);
+  CHECK(!quic_eebuild_encrypted_extensions(quic_span_of(tp, sizeof(tp)), &ob));
 }
