@@ -74,27 +74,27 @@ typedef struct {
   const wired_srvboot_id *id;
 } srvboot_server;
 
-/* Seal the ServerHello into a server Initial and the flight into a Handshake
- * packet, concatenated into out. Returns 1, 0 on overflow. */
+/* Seal the ServerHello into a server Initial datagram and the flight into a
+ * Handshake packet datagram, one obuf each. Separate datagrams: the Initial
+ * alone is padded to 1200 bytes (RFC 9000 14.1), so coalescing the flight
+ * behind it would exceed a 1500-byte MTU datagram. Returns 1, 0 on
+ * overflow. */
 static int srvboot_seal_flight(
-    const srvboot_server *sv, const srvboot_flight_bytes *fb, quic_obuf *out) {
+    const srvboot_server       *sv,
+    const srvboot_flight_bytes *fb,
+    const wired_srvboot_out    *out) {
   wired_srvloop_send_in in0 = {
       quic_span_of(sv->id->scid, sv->id->scid_len), 1,
       SRVBOOT_CLIENT_INITIAL_PN, fb->sh};
   wired_srvloop_send_in in1 = {
       quic_span_of(sv->id->scid, sv->id->scid_len), 0, -1, fb->flight};
-  quic_obuf ob0 = quic_obuf_of(out->p, out->cap);
-  quic_obuf ob1;
-  if (!wired_srvloop_send_initial(sv->s, &in0, &ob0)) return 0;
-  ob1 = quic_obuf_of(out->p + ob0.len, out->cap - ob0.len);
-  if (!wired_srvloop_send_handshake(sv->s, &in1, &ob1)) return 0;
-  out->len = ob0.len + ob1.len;
-  return 1;
+  if (!wired_srvloop_send_initial(sv->s, &in0, out->initial)) return 0;
+  return wired_srvloop_send_handshake(sv->s, &in1, out->flight);
 }
 
 /* Build the server flight from the folded ClientHello and seal it. */
 static int srvboot_flight(
-    wired_server *s, const wired_srvboot_id *id, quic_obuf *out) {
+    wired_server *s, const wired_srvboot_id *id, const wired_srvboot_out *out) {
   u8                   sh[512], flight[2048];
   quic_obuf            sh_ob = quic_obuf_of(sh, sizeof sh);
   quic_obuf            fl_ob = quic_obuf_of(flight, sizeof flight);
@@ -140,7 +140,7 @@ static int srvboot_accept_ch(
 int wired_srvboot_accept(
     const wired_srvboot_conn *conn,
     const wired_srvboot_in   *in,
-    quic_obuf                *out) {
+    const wired_srvboot_out  *out) {
   if (!srvboot_accept_ch(conn, in->id, in->dgram)) return 0;
   return srvboot_flight(conn->s, in->id, out);
 }
