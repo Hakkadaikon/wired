@@ -16,8 +16,12 @@ static void test_srvwire_initial_roundtrip(void) {
   u8        pkt[1300];
   quic_obuf ob            = {pkt, sizeof pkt, 0};
   quic_srvwire_seal_in in = {
-      quic_span_of(dcid, 8), quic_span_of(scid, 6), 1, -1,
-      quic_span_of(sh, sizeof sh)};
+      quic_span_of(dcid, 8),
+      quic_span_of(scid, 6),
+      1,
+      -1,
+      quic_span_of(sh, sizeof sh),
+      0};
   CHECK(quic_srvwire_seal_initial(&in, &ob));
   CHECK(ob.len > sizeof(sh)); /* header + AEAD tag overhead present */
 
@@ -36,8 +40,12 @@ static void test_srvwire_initial_tamper(void) {
   u8        pkt[1300];
   quic_obuf ob            = {pkt, sizeof pkt, 0};
   quic_srvwire_seal_in in = {
-      quic_span_of(dcid, 8), quic_span_of(scid, 6), 1, -1,
-      quic_span_of(sh, sizeof sh)};
+      quic_span_of(dcid, 8),
+      quic_span_of(scid, 6),
+      1,
+      -1,
+      quic_span_of(sh, sizeof sh),
+      0};
   CHECK(quic_srvwire_seal_initial(&in, &ob));
   pkt[ob.len - 1] ^= 0x01;
   quic_span                    tls = {0, 0};
@@ -54,8 +62,12 @@ static void test_srvwire_initial_wrong_key(void) {
   u8        pkt[1300];
   quic_obuf ob            = {pkt, sizeof pkt, 0};
   quic_srvwire_seal_in in = {
-      quic_span_of(dcid, 8), quic_span_of(scid, 6), 1, -1,
-      quic_span_of(sh, sizeof sh)};
+      quic_span_of(dcid, 8),
+      quic_span_of(scid, 6),
+      1,
+      -1,
+      quic_span_of(sh, sizeof sh),
+      0};
   CHECK(quic_srvwire_seal_initial(&in, &ob));
   quic_span                    tls = {0, 0};
   quic_srvwire_open_initial_in oin = {quic_span_of(bad, 8), 1};
@@ -84,8 +96,12 @@ static void test_srvwire_handshake_roundtrip(void) {
   u8                   pkt[256];
   quic_obuf            ob = {pkt, sizeof pkt, 0};
   quic_srvwire_seal_in in = {
-      quic_span_of(dcid, 6), quic_span_of(scid, 6), 0, -1,
-      quic_span_of(fl, sizeof fl)};
+      quic_span_of(dcid, 6),
+      quic_span_of(scid, 6),
+      0,
+      -1,
+      quic_span_of(fl, sizeof fl),
+      0};
   quic_protect_keys pk = {&k, &hp};
   CHECK(quic_srvwire_seal_handshake(&pk, &in, &ob));
   quic_span tls = {0, 0};
@@ -107,8 +123,12 @@ static void test_srvwire_handshake_wrong_key(void) {
   u8                   pkt[256];
   quic_obuf            ob = {pkt, sizeof pkt, 0};
   quic_srvwire_seal_in in = {
-      quic_span_of(dcid, 6), quic_span_of(scid, 6), 0, -1,
-      quic_span_of(fl, sizeof fl)};
+      quic_span_of(dcid, 6),
+      quic_span_of(scid, 6),
+      0,
+      -1,
+      quic_span_of(fl, sizeof fl),
+      0};
   quic_protect_keys pk = {&k, &hp};
   CHECK(quic_srvwire_seal_handshake(&pk, &in, &ob));
   quic_span         tls   = {0, 0};
@@ -145,8 +165,12 @@ static void test_srvwire_initial_acks_client(void) {
   usz                  fl;
   quic_ack_frame       ack;
   quic_srvwire_seal_in in = {
-      quic_span_of(dcid, 8), quic_span_of(scid, 6), 1, 0,
-      quic_span_of(sh, sizeof sh)};
+      quic_span_of(dcid, 8),
+      quic_span_of(scid, 6),
+      1,
+      0,
+      quic_span_of(sh, sizeof sh),
+      0};
   CHECK(quic_srvwire_seal_initial(&in, &ob));
   quic_initpkt_derive(quic_span_of(dcid, 8), &ck, &sk);
   quic_aes128_init(&hp, sk.hp);
@@ -177,8 +201,12 @@ static void test_srvwire_handshake_acks_client(void) {
   quic_ack_frame    ack;
   hs_keys(&k, &hp);
   quic_srvwire_seal_in in = {
-      quic_span_of(dcid, 6), quic_span_of(scid, 6), 0, 3,
-      quic_span_of(fl_in, sizeof fl_in)};
+      quic_span_of(dcid, 6),
+      quic_span_of(scid, 6),
+      0,
+      3,
+      quic_span_of(fl_in, sizeof fl_in),
+      0};
   quic_protect_keys pk = {&k, &hp};
   CHECK(quic_srvwire_seal_handshake(&pk, &in, &ob));
   quic_protect_keys pk2 = {&k, &hp};

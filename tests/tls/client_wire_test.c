@@ -56,8 +56,12 @@ static void test_cw_open_server_initial(void) {
   quic_span            tls;
   quic_obuf            ob = quic_obuf_of(pkt, sizeof(pkt));
   quic_srvwire_seal_in in = {
-      quic_span_of(cw_dcid, 8), quic_span_of(cw_scid, 4), 0, -1,
-      quic_span_of(sh, sizeof(sh))};
+      quic_span_of(cw_dcid, 8),
+      quic_span_of(cw_scid, 4),
+      0,
+      -1,
+      quic_span_of(sh, sizeof(sh)),
+      0};
   CHECK(quic_srvwire_seal_initial(&in, &ob) == 1);
   {
     quic_clientwire_open_in oin = {
@@ -104,8 +108,12 @@ static void test_cw_handshake_roundtrip(void) {
   {
     quic_obuf            ob2 = quic_obuf_of(pkt, sizeof(pkt));
     quic_srvwire_seal_in in  = {
-        quic_span_of(cw_dcid, 8), quic_span_of(cw_scid, 4), 0, -1,
-        quic_span_of(fin, sizeof(fin))};
+        quic_span_of(cw_dcid, 8),
+        quic_span_of(cw_scid, 4),
+        0,
+        -1,
+        quic_span_of(fin, sizeof(fin)),
+        0};
     quic_protect_keys pk = {shs, &hp};
     CHECK(quic_srvwire_seal_handshake(&pk, &in, &ob2) == 1);
     total = ob2.len;

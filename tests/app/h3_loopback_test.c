@@ -3,6 +3,7 @@
 #include "app/http3/server/srvboot/srvboot.h"
 #include "app/http3/server/srvloop/srvloop.h"
 #include "app/http3/server/srvwire/wire.h"
+#include "realchain_golden.h"
 #include "test.h"
 #include "tls/handshake/core/tls/clienthello.h"
 #include "tls/handshake/core/tls/finished.h"
@@ -14,7 +15,10 @@
 #include "tls/handshake/roles/client/clientwire.h"
 #include "tls/handshake/roles/server/server.h"
 #include "tls/keys/schedule_drive/keyschedule.h"
+#include "transport/conn/loop/crecv/collect.h"
+#include "transport/conn/loop/crecv/message.h"
 #include "transport/io/udp/udploop/rxloop.h"
+#include "transport/packet/build/hspkt/hspkt_open.h"
 #include "transport/packet/build/hspkt/onertt.h"
 #include "transport/packet/frame/frame/frame.h"
 
@@ -136,7 +140,11 @@ static usz lb_seal_handshake(
    * server open path against a flight that carries a trailing ACK frame. */
   quic_srvwire_seal_in in = {
       quic_span_of(f->s.sdrv.iscid, f->s.sdrv.iscid_len),
-      quic_span_of(g_scid, 6), 0, 0, quic_span_of(msg, mlen)};
+      quic_span_of(g_scid, 6),
+      0,
+      0,
+      quic_span_of(msg, mlen),
+      0};
   quic_protect_keys pk = {k, &hp};
   CHECK(quic_srvwire_seal_handshake(&pk, &in, &ob));
   return ob.len;
@@ -367,20 +375,24 @@ static void test_srvboot_accept(void) {
 
   wired_srvboot_conn conn = {&s, &l};
   wired_srvboot_in   in;
-  wired_srvboot_out  out = {&iob, &hob};
+  wired_srvboot_out  out = {&iob, &hob, {0}, 0};
   sb_make_id(&id, priv, pub, seed, rnd);
   in = (wired_srvboot_in){&id, quic_mspan_of(dg, total)};
   CHECK(wired_srvboot_accept(&conn, &in, &out) == 1);
   CHECK(s.phase == WIRED_SERVER_HS_FLIGHT_SENT);
   /* RFC 9000 14.1: the ack-eliciting server Initial datagram is padded to at
-   * least 1200 bytes; both datagrams fit a 1500-byte MTU. */
+   * least 1200 bytes; both datagrams fit a 1500-byte MTU. A small self-signed
+   * flight still fits one Handshake datagram (no split). */
   CHECK(iob.len >= 1200);
   CHECK(iob.len <= 1500);
   CHECK(hob.len > 0);
   CHECK(hob.len <= 1500);
-  CHECK((ini[0] & 0x80) != 0);  /* long-header ServerHello Initial */
-  CHECK((ini[0] & 0x30) == 0);  /* Initial type bits (RFC 9000 17.2) */
-  CHECK((hs[0] & 0x80) != 0);   /* long-header Handshake packet */
+  CHECK(out.dgram_count == 1);
+  CHECK(out.dgram_len[0] == hob.len);
+  CHECK(l.hs_tx_pn == 1); /* next Handshake send continues after the flight */
+  CHECK((ini[0] & 0x80) != 0);   /* long-header ServerHello Initial */
+  CHECK((ini[0] & 0x30) == 0);   /* Initial type bits (RFC 9000 17.2) */
+  CHECK((hs[0] & 0x80) != 0);    /* long-header Handshake packet */
   CHECK((hs[0] & 0x30) == 0x20); /* Handshake type bits (RFC 9000 17.2) */
 
   /* wired_srvboot_is_initial classifies the datagram; a short one is rejected.
@@ -398,7 +410,7 @@ static void test_srvboot_rejects_non_initial(void) {
   u8 ini[1500], hs[1500];
   quic_obuf          iob  = {ini, sizeof ini, 0};
   quic_obuf          hob  = {hs, sizeof hs, 0};
-  wired_srvboot_out  out  = {&iob, &hob};
+  wired_srvboot_out  out  = {&iob, &hob, {0}, 0};
   wired_srvboot_conn conn = {&s, &l};
   wired_srvboot_in   in;
   sb_make_id(&id, priv, pub, seed, rnd);
@@ -407,9 +419,200 @@ static void test_srvboot_rejects_non_initial(void) {
   CHECK(wired_srvboot_accept(&conn, &in, &out) == 0);
 }
 
+/* Identity whose Certificate carries the external realchain, leaf first, root
+ * included (RFC 8446 4.4.2 allows it) so the flight outgrows one MTU datagram,
+ * signing the CertificateVerify with the leaf's P-256 key. File-scope: sdrv
+ * holds the chain as views for the connection's lifetime. */
+static quic_span sb_chain[3];
+
+static void sb_make_chain_id(
+    wired_srvboot_id *id, u8 priv[32], u8 pub[32], u8 rnd[32]) {
+  for (usz i = 0; i < 32; i++) {
+    priv[i] = (u8)(0x40 + i);
+    rnd[i]  = (u8)(0xa0 + i);
+  }
+  quic_x25519_base(pub, priv);
+  sb_chain[0] =
+      quic_span_of(quic_realchain_leaf_der, sizeof quic_realchain_leaf_der);
+  sb_chain[1] =
+      quic_span_of(quic_realchain_int_der, sizeof quic_realchain_int_der);
+  sb_chain[2] =
+      quic_span_of(quic_realchain_root_der, sizeof quic_realchain_root_der);
+  id->priv        = priv;
+  id->pub         = pub;
+  id->cert_seed   = quic_realchain_leaf_priv;
+  id->scid        = g_scid;
+  id->scid_len    = 6;
+  id->random      = rnd;
+  id->chain       = sb_chain;
+  id->chain_count = 3;
+}
+
+/* A bootstrapped server with the realchain identity plus everything the
+ * client side needs to finish the handshake from the sealed reply datagrams:
+ * the client's ECDHE private, its raw ClientHello, and the reply buffers. */
+struct sb_split_fix {
+  quic_client       c;
+  wired_server      s;
+  wired_srvloop     l;
+  u8                priv[32], pub[32], rnd[32];
+  u8                cpriv[32];
+  u8                ch[512];
+  usz               ch_len;
+  u8                ini[1500];
+  u8                hs[4096];
+  quic_obuf         iob, hob;
+  wired_srvboot_out out;
+};
+
+/* Cold-start a server from a fresh protected client Initial, with the
+ * realchain identity. The raw ClientHello is captured first: the wire builder
+ * emits the identical bytes (zero random, same key_share), so the client can
+ * reconstruct the transcript the server folded. */
+static void sb_split_boot(struct sb_split_fix *f) {
+  wired_srvboot_id   id;
+  u8                 cpub[32], dg[1500];
+  usz                total = 0;
+  wired_srvboot_conn conn  = {&f->s, &f->l};
+  wired_srvboot_in   in;
+  f->iob = quic_obuf_of(f->ini, sizeof f->ini);
+  f->hob = quic_obuf_of(f->hs, sizeof f->hs);
+  f->out = (wired_srvboot_out){&f->iob, &f->hob, {0}, 0};
+  for (usz i = 0; i < 32; i++) f->cpriv[i] = (u8)(7 + i);
+  quic_x25519_base(cpub, f->cpriv);
+  quic_tlsdriver_init(&f->c.tls, f->cpriv, cpub, 0);
+  f->ch_len = quic_tlsdriver_raw_client_hello(&f->c.tls, f->ch, sizeof f->ch);
+  CHECK(f->ch_len > 0);
+  {
+    quic_clientwire_hdr_in hdr = {
+        quic_span_of(g_scid, 6), quic_span_of(g_scid, 6), 0};
+    quic_obuf ob = quic_obuf_of(dg, sizeof dg);
+    CHECK(quic_client_build_initial_wire(&f->c, &hdr, &ob) == 1);
+    total = ob.len;
+  }
+  sb_make_chain_id(&id, f->priv, f->pub, f->rnd);
+  in = (wired_srvboot_in){&id, quic_mspan_of(dg, total)};
+  CHECK(wired_srvboot_accept(&conn, &in, &f->out) == 1);
+}
+
+/* RFC 9000 19.6 / 14.1: a TLS flight too large for one MTU datagram is split
+ * into multiple Handshake packet datagrams, each within 1500 bytes, whose
+ * lengths partition the flight buffer; later Handshake sends continue after
+ * the flight's packet numbers 0..dgram_count-1. */
+static void test_srvboot_split_flight_datagrams(void) {
+  static struct sb_split_fix f;
+  usz                        sum = 0;
+  sb_split_boot(&f);
+  CHECK(f.out.dgram_count >= 2);
+  CHECK(f.out.dgram_count <= WIRED_SRVBOOT_FLIGHT_MAX);
+  for (usz i = 0; i < f.out.dgram_count; i++) {
+    CHECK(f.out.dgram_len[i] > 0);
+    CHECK(f.out.dgram_len[i] <= 1500);
+    sum += f.out.dgram_len[i];
+  }
+  CHECK(sum == f.hob.len);
+  CHECK(f.l.hs_tx_pn == f.out.dgram_count);
+}
+
+/* Open each flight datagram with SERVER_HS and collect its CRYPTO frames into
+ * the reassembler, in forward or reverse datagram order. */
+static void sb_split_collect(
+    struct sb_split_fix *f, int reverse, quic_crecv *cr) {
+  const quic_initial_keys *shs;
+  quic_aes128              hp;
+  usz                      offs[WIRED_SRVBOOT_FLIGHT_MAX], off = 0;
+  CHECK(quic_keysched_get(&f->s.sched, QUIC_KS_SERVER_HS, &shs) == 1);
+  quic_aes128_init(&hp, shs->hp);
+  quic_protect_keys pk = {shs, &hp};
+  for (usz i = 0; i < f->out.dgram_count; i++) {
+    offs[i] = off;
+    off += f->out.dgram_len[i];
+  }
+  quic_crecv_init(cr);
+  for (usz k = 0; k < f->out.dgram_count; k++) {
+    usz       i = reverse ? f->out.dgram_count - 1 - k : k;
+    quic_span frames;
+    CHECK(
+        quic_hspkt_open(
+            &pk, quic_mspan_of(f->hs + offs[i], f->out.dgram_len[i]),
+            &frames) == 1);
+    CHECK(quic_crecv_collect(cr, frames.p, frames.n) == 1);
+  }
+}
+
+/* Walk the reassembled EncryptedExtensions..CertificateVerify into the
+ * transcript, then check the trailing server Finished against it
+ * (RFC 8446 4.4.4). */
+static void sb_split_check_finished(
+    const quic_crecv *cr, quic_transcript *tr, const u8 s_traffic[32]) {
+  const u8 *fl;
+  usz       fln, p = 0;
+  u8        th[32];
+  quic_crecv_message(cr, &fl, &fln);
+  CHECK(fln > 0);
+  while (p + 4 <= fln && fl[p] != QUIC_HS_FINISHED) {
+    usz mlen = 4 + (((usz)fl[p + 1] << 16) | ((usz)fl[p + 2] << 8) | fl[p + 3]);
+    CHECK(p + mlen <= fln);
+    if (p + mlen > fln) return; /* garbled reassembly: already FAILed above */
+    quic_transcript_add(tr, fl + p, mlen);
+    p += mlen;
+  }
+  CHECK(p + 4 <= fln);
+  if (p + 4 > fln) return; /* no Finished found: already FAILed above */
+  quic_transcript_hash(tr, th);
+  CHECK(quic_tls_finished_check(s_traffic, th, fl + p + 4) == 1);
+}
+
+/* Client side of a split flight: open the server Initial (ServerHello), open
+ * each Handshake datagram in the given order, reassemble the CRYPTO stream by
+ * offset (RFC 9000 19.6), and verify the server Finished over the reassembled
+ * transcript with independently derived client-side secrets — the handshake
+ * completes only if every chunk landed at its correct stream offset. */
+static void sb_split_client_handshake(int reverse) {
+  static struct sb_split_fix f;
+  quic_serverhello_out       sho;
+  quic_span                  shv;
+  u8              sh_pub[32], shared[32], hsec[32], th[32], s_traffic[32];
+  quic_transcript tr;
+  quic_crecv      cr;
+  sb_split_boot(&f);
+  CHECK(f.out.dgram_count >= 2);
+  {
+    quic_clientwire_open_in oin = {
+        quic_span_of(g_scid, 6), quic_mspan_of(f.ini, f.iob.len), 0};
+    CHECK(quic_client_open_initial_wire(&oin, &shv) == 1);
+  }
+  CHECK(quic_tls_parse_server_hello(shv, sh_pub, &sho) == 1);
+  quic_x25519(shared, f.cpriv, sh_pub);
+  quic_tls_handshake_secret(shared, hsec);
+  quic_transcript_init(&tr);
+  quic_transcript_add(&tr, f.ch, f.ch_len);
+  quic_transcript_add(&tr, shv.p, shv.n);
+  quic_transcript_hash(&tr, th);
+  {
+    quic_hkdf_label shl = {"s hs traffic", 12, {th, 32}};
+    quic_hkdf_expand_label(hsec, &shl, quic_mspan_of(s_traffic, 32));
+  }
+  sb_split_collect(&f, reverse, &cr);
+  sb_split_check_finished(&cr, &tr, s_traffic);
+}
+
+/* In-order delivery reassembles and completes. */
+static void test_srvboot_split_flight_reassembled(void) {
+  sb_split_client_handshake(0);
+}
+
+/* Reversed delivery still reassembles by CRYPTO offset and completes. */
+static void test_srvboot_split_flight_out_of_order(void) {
+  sb_split_client_handshake(1);
+}
+
 void test_h3_loopback(void) {
   test_loopback_initial_datagram();
   test_loopback_wire_confirm_and_get();
   test_srvboot_accept();
   test_srvboot_rejects_non_initial();
+  test_srvboot_split_flight_datagrams();
+  test_srvboot_split_flight_reassembled();
+  test_srvboot_split_flight_out_of_order();
 }

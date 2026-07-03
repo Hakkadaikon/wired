@@ -144,7 +144,11 @@ static usz client_seal_handshake(
   quic_aes128_init(&hp, k->hp);
   quic_srvwire_seal_in in = {
       quic_span_of(f->s.sdrv.iscid, f->s.sdrv.iscid_len),
-      quic_span_of(g_cli_scid, 6), 0, -1, quic_span_of(msg, mlen)};
+      quic_span_of(g_cli_scid, 6),
+      0,
+      -1,
+      quic_span_of(msg, mlen),
+      0};
   quic_protect_keys pk = {k, &hp};
   CHECK(quic_srvwire_seal_handshake(&pk, &in, &ob));
   return ob.len;
@@ -162,7 +166,11 @@ static usz client_seal_handshake_pn(
   quic_aes128_init(&hp, k->hp);
   quic_srvwire_seal_in in = {
       quic_span_of(f->s.sdrv.iscid, f->s.sdrv.iscid_len),
-      quic_span_of(g_cli_scid, 6), pn, -1, quic_span_of(msg, mlen)};
+      quic_span_of(g_cli_scid, 6),
+      pn,
+      -1,
+      quic_span_of(msg, mlen),
+      0};
   quic_protect_keys pk = {k, &hp};
   CHECK(quic_srvwire_seal_handshake(&pk, &in, &ob));
   return ob.len;
@@ -196,7 +204,7 @@ static void test_srvloop_send_initial_roundtrip(void) {
   lp_make_client_hello(&f);
   lp_drive_to_flight(&f);
   wired_srvloop_send_in in = {
-      quic_span_of(g_cli_scid, 6), 1, -1, quic_span_of(f.sh, f.sh_len)};
+      quic_span_of(g_cli_scid, 6), 1, -1, quic_span_of(f.sh, f.sh_len), 0};
   CHECK(wired_srvloop_send_initial(&f.s, &in, &ob));
   /* RFC 9000 14.1: the Initial datagram is padded to >= 1200, else curl drops
    * it and PTO-retransmits its own Initial for ~4s (the appconnect stall). */
@@ -222,14 +230,18 @@ static void test_srvloop_wrong_direction_open_fails(void) {
   lp_make_client_hello(&f);
   lp_drive_to_flight(&f);
   quic_srvwire_seal_in in = {
-      quic_span_of(g_cli_scid, 6), quic_span_of(g_cli_scid, 0), 0, -1,
-      quic_span_of(f.flight, f.flight_len)};
+      quic_span_of(g_cli_scid, 6),
+      quic_span_of(g_cli_scid, 0),
+      0,
+      -1,
+      quic_span_of(f.flight, f.flight_len),
+      0};
   CHECK(quic_keysched_get(&f.s.sched, QUIC_KS_SERVER_HS, &own) == 1);
   quic_aes128_init(&ownhp, own->hp);
   {
     wired_srvloop_send_in sin = {
         quic_span_of(g_cli_scid, 6), 0, -1,
-        quic_span_of(f.flight, f.flight_len)};
+        quic_span_of(f.flight, f.flight_len), 0};
     CHECK(wired_srvloop_send_handshake(&f.s, &sin, &ob));
   }
   (void)in;
@@ -261,7 +273,7 @@ static void test_srvloop_no_onertt_seal_before_confirm(void) {
   CHECK(wired_server_is_confirmed(&f.s) == 0);
   {
     wired_srvloop_send_in in = {
-        quic_span_of(g_cli_scid, 6), 0, -1, quic_span_of(frame, 1)};
+        quic_span_of(g_cli_scid, 6), 0, -1, quic_span_of(frame, 1), 0};
     CHECK(wired_srvloop_send_onertt(&f.s, &in, &ob) == 0);
   }
 }
