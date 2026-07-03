@@ -1,6 +1,7 @@
 #ifndef QUIC_SRVFIN_VERIFY_H
 #define QUIC_SRVFIN_VERIFY_H
 
+#include "common/bytes/span/span.h"
 #include "crypto/kdf/hkdf/hkdf.h"
 #include "crypto/symmetric/hash/hash/sha256.h"
 
@@ -10,8 +11,7 @@
  * traffic secret and the transcript hash up to (but not including) the client
  * Finished. Returns 1 on a match, 0 on any malformed message or mismatch. */
 int quic_srvfin_verify_client_finished(
-    const u8 *client_finished_msg,
-    usz       len,
+    quic_span client_finished_msg,
     const u8  client_hs_traffic_secret[QUIC_HKDF_PRK],
     const u8  transcript_hash[QUIC_SHA256_DIGEST]);
 
