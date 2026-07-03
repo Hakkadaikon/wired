@@ -111,6 +111,7 @@
 #include "tls/handshake/core/tls/cipher.c"
 #include "common/platform/clock/clock.c"
 #include "common/platform/debug/debug.c"
+#include "common/platform/fio/fio.c"
 #include "common/platform/rng/challenge.c"
 #include "common/platform/rng/cidgen.c"
 #include "common/platform/rng/rng.c"
@@ -120,6 +121,7 @@
 #include "crypto/pki/encoding/asn1/derseq.c"
 #include "crypto/pki/encoding/asn1/der.c"
 #include "crypto/pki/encoding/pem/pem.c"
+#include "crypto/pki/encoding/eckey/eckey.c"
 #include "transport/conn/lifecycle/session/session.c"
 #include "app/datagram/datagram/zerortt_dgram.c"
 #include "tls/handshake/core/tls/ticketversion.c"
@@ -647,6 +649,8 @@
 #include "crypto/derseq_test.c"
 #include "crypto/derval_test.c"
 #include "crypto/pem_test.c"
+#include "crypto/eckey_test.c"
+#include "common/fio_test.c"
 #include "transport/addr_test.c"
 #include "transport/udptransport_test.c"
 #include "common/clock_test.c"
@@ -1059,6 +1063,8 @@ int main(void) {
   test_derseq();
   test_derval();
   test_pem();
+  test_eckey();
+  test_fio();
   test_addr();
   test_udptransport();
   test_rng();
