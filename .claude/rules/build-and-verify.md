@@ -16,10 +16,11 @@ shipped to `main`. Do not repeat them.
 A commit is allowed only when ALL THREE are green in the SAME working tree:
 
 1. `just test` — hosted unity build, all tests pass (assertions on).
-2. `just compile` — every `src/**/*.c` compiles `-ffreestanding -nostdlib
-   -Werror`. (This is the raw compile step. `just build` = `fmt` + `compile` +
-   `lint`; the gate uses `compile` directly so formatting/lint side effects and
-   lint's non-fatal findings can't corrupt the pass/fail signal.)
+2. `just ninja` — every `src/**/*.c` compiles `-ffreestanding -nostdlib
+   -Werror` to a path-qualified `build/<path>.o`. (This is the raw compile
+   step. `just build` = `fmt` + `ninja` + `lint`; the gate uses `ninja`
+   directly so formatting/lint side effects and lint's non-fatal findings
+   can't corrupt the pass/fail signal.)
 3. `lizard src --CCN 3 -w` — exits 0 (every function CCN ≤ 3).
 
 Plus the count check (see below). Run them as a single guarded command so a
@@ -27,7 +28,7 @@ red result physically cannot reach `git commit`:
 
 ```sh
 if just test 2>&1 | grep -q "all tests passed" \
-   && just compile >/dev/null 2>&1 \
+   && just ninja >/dev/null 2>&1 \
    && lizard src --CCN 3 -w; then
     git commit -m "..."
 fi
@@ -78,7 +79,7 @@ After any wiring change, verify nothing was dropped from the build:
 
 ## libc independence is proven by the freestanding build
 
-`just compile` compiling every `.c` under `-ffreestanding -nostdlib` IS the
+`just ninja` compiling every `.c` under `-ffreestanding -nostdlib` IS the
 proof that `src/` depends on no libc (`just build` runs this plus `fmt` and
 `lint`). Do not add standard headers to make a file compile; fix the code. See
 naming-and-unity-build.md for what `src/` may use.

@@ -15,29 +15,22 @@ setup:
         && echo "nix already installed: $(nix --version)" \
         || curl -fsSL https://install.determinate.systems/nix | sh -s -- install
 
-# full build: format, compile freestanding, then static analysis.
-# fmt normalizes sources, compile-all proves libc independence, lint runs the
-# CERT C / bug-finding checks. Run as one pipeline so a normal `just build`
-# keeps sources tidy and surfaces lint findings.
-#build: fmt compile lint
+# full build: format, compile freestanding (ninja), then static analysis.
+# fmt normalizes sources, ninja proves libc independence per file, lint runs
+# the CERT C / bug-finding checks. Run as one pipeline so a normal
+# `just build` keeps sources tidy and surfaces lint findings.
 build: fmt ninja lint
-
-# compile every domain freestanding (proves libc independence) into one .o
-# sources are auto-discovered; adding a src/**.c file needs no edit here
-compile:
-    mkdir -p build
-    find src -name '*.c' | while read -r f; do \
-        o="build/${f%.c}.o"; mkdir -p "$(dirname "$o")"; \
-        {{cc}} {{cflags}} -c "$f" -o "$o" || exit 1; \
-    done
 
 # archive the compiled SDK objects into build/libwired.a. Excludes sys.o,
 # whose only symbol is the SDK's own _start stub — applications supply their
 # own entry point and link the rest of the SDK from this library.
-lib: compile
+lib: ninja
     ar rcs build/libwired.a $(find build -name '*.o' ! -path 'build/src/common/platform/sys/sys.o')
 
-# fast incremental/parallel build via ninja (generates build.ninja first)
+# compile every src/**/*.c freestanding to build/<path>.o (proves libc
+# independence; path-qualified objects keep the count check honest despite
+# shared basenames). build.ninja is regenerated from the current source list,
+# then ninja does parallel, header-dep incremental compilation.
 ninja:
     CFLAGS="{{cflags}}" CC="{{cc}}" sh scripts/gen_ninja.sh
     ninja

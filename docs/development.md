@@ -107,7 +107,7 @@ flowchart LR
 - **`just check`** runs the gate (`ccn` + `test`); the full commit gate adds
   `just build` and the object-count check (see below).
 - **`just lib`** archives the compiled SDK objects into `build/libwired.a`
-  (runs `compile` first). `sys.o` — the SDK's own `_start` stub — is excluded,
+  (runs `ninja` first). `sys.o` — the SDK's own `_start` stub — is excluded,
   so an application links the library and supplies its own entry point;
   `examples/word_list` builds this way.
 - **`just setup`** bootstraps a fresh machine: installs nix via the
