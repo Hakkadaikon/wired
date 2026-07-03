@@ -24,17 +24,11 @@ static usz srv_tr_add(quic_server *s, const u8 *msg, usz len) {
   return s->tr_len;
 }
 
-void quic_server_init(
-    quic_server *s,
-    const u8     server_priv_x25519[32],
-    const u8     server_pub_x25519[32],
-    const u8     cert_seed[32],
-    const u8    *cert_der,
-    usz          cert_len) {
-  srv_copy32(s->server_priv, server_priv_x25519);
+void quic_server_init(quic_server *s, const quic_server_init_in *in) {
+  srv_copy32(s->server_priv, in->server_priv_x25519);
   quic_sdrv_init(
-      &s->sdrv, server_priv_x25519, server_pub_x25519, cert_seed, cert_der,
-      cert_len);
+      &s->sdrv, in->server_priv_x25519, in->server_pub_x25519, in->cert_seed,
+      in->cert_der.p, in->cert_der.n);
   quic_keysched_init(&s->sched);
   quic_keyset_init(&s->keys);
   quic_srvfin_state_init(&s->fin, &s->sched, &s->keys);
@@ -47,14 +41,8 @@ void quic_server_init(
   s->tr_through_flight = 0;
 }
 
-int quic_server_set_cids(
-    quic_server *s,
-    const u8    *odcid,
-    u8           odcid_len,
-    const u8    *iscid,
-    u8           iscid_len) {
-  return quic_sdrv_set_cids(
-      &s->sdrv, quic_span_of(odcid, odcid_len), quic_span_of(iscid, iscid_len));
+int quic_server_set_cids(quic_server *s, quic_span odcid, quic_span iscid) {
+  return quic_sdrv_set_cids(&s->sdrv, odcid, iscid);
 }
 
 int quic_server_recv_initial(quic_server *s, const u8 *ch_msg, usz ch_len) {
@@ -86,46 +74,23 @@ static int srv_install_hs_keys(quic_server *s) {
 }
 
 /* Record the flight in the transcript and install the Handshake key. */
-static int srv_after_flight(
-    quic_server *s, const u8 *sh, usz shl, const u8 *fl, usz fll) {
-  s->tr_through_sh     = srv_tr_add(s, sh, shl);
-  s->tr_through_flight = srv_tr_add(s, fl, fll);
+static int srv_after_flight(quic_server *s, const quic_sdrv_flight_out *out) {
+  s->tr_through_sh     = srv_tr_add(s, out->sh->p, out->sh->len);
+  s->tr_through_flight = srv_tr_add(s, out->hs->p, out->hs->len);
   return srv_install_hs_keys(s);
 }
 
 /* Build the flight via sdrv and finish the transcript/key bookkeeping. */
 static int srv_emit_flight(
-    quic_server *s,
-    const u8    *server_random,
-    u8          *sh_out,
-    usz          sh_cap,
-    usz         *sh_len,
-    u8          *fl_out,
-    usz          fl_cap,
-    usz         *fl_len) {
-  quic_obuf            sh_ob = quic_obuf_of(sh_out, sh_cap);
-  quic_obuf            fl_ob = quic_obuf_of(fl_out, fl_cap);
-  quic_sdrv_flight_out out   = {&sh_ob, &fl_ob};
-  if (!quic_sdrv_build_server_flight(&s->sdrv, server_random, &out)) return 0;
-  *sh_len = sh_ob.len;
-  *fl_len = fl_ob.len;
-  return srv_after_flight(s, sh_out, *sh_len, fl_out, *fl_len);
+    quic_server *s, const u8 *server_random, const quic_sdrv_flight_out *out) {
+  if (!quic_sdrv_build_server_flight(&s->sdrv, server_random, out)) return 0;
+  return srv_after_flight(s, out);
 }
 
 int quic_server_build_flight(
-    quic_server *s,
-    const u8    *server_random,
-    u8          *sh_out,
-    usz          sh_cap,
-    usz         *sh_len,
-    u8          *flight_out,
-    usz          flight_cap,
-    usz         *flight_len) {
+    quic_server *s, const u8 *server_random, const quic_sdrv_flight_out *out) {
   if (s->phase != QUIC_SERVER_HS_CH_RECVD) return 0;
-  if (!srv_emit_flight(
-          s, server_random, sh_out, sh_cap, sh_len, flight_out, flight_cap,
-          flight_len))
-    return 0;
+  if (!srv_emit_flight(s, server_random, out)) return 0;
   s->phase = QUIC_SERVER_HS_FLIGHT_SENT;
   return 1;
 }
@@ -142,7 +107,8 @@ static int srv_verify_finished(quic_server *s, const u8 *msg, usz len) {
   dsi.messages = quic_span_of(s->tr, s->tr_through_sh);
   quic_tls_derive_secret(&dsi, c_traffic);
   quic_sha256(s->tr, s->tr_through_flight, th);
-  return quic_srvfin_verify_client_finished(msg, len, c_traffic, th);
+  return quic_srvfin_verify_client_finished(
+      quic_span_of(msg, len), c_traffic, th);
 }
 
 /* RFC 8446 7.1: on a verified client Finished, complete the handshake. The
@@ -174,11 +140,11 @@ int quic_server_feed(quic_server *s, const u8 *crypto_payload, usz len) {
   return srv_on_finished(s, msg, mlen);
 }
 
-int quic_server_handshake_done(quic_server *s, u8 *out, usz cap, usz *out_len) {
+int quic_server_handshake_done(quic_server *s, quic_obuf *out) {
   if (!quic_srvfin_should_send_handshake_done(
           s->fin.confirmed, s->hs_done_sent))
     return 0;
-  if (!quic_srvfin_handshake_done_frame(out, cap, out_len)) return 0;
+  if (!quic_srvfin_handshake_done_frame(out->p, out->cap, &out->len)) return 0;
   s->hs_done_sent = 1;
   return 1;
 }

@@ -108,14 +108,21 @@ static void lp_drive_to_flight(struct lp_fix *f) {
   CHECK(quic_ed25519_keypair(cert_seed, cert_pub));
   cert_len = lp_ed_cert(cert, cert_pub);
 
-  quic_server_init(&f->s, srv_priv, srv_pub, cert_seed, cert, cert_len);
-  CHECK(quic_server_set_cids(&f->s, g_cli_scid, 6, g_cli_scid, 6) == 1);
+  quic_server_init_in sin = {
+      srv_priv, srv_pub, cert_seed, quic_span_of(cert, cert_len)};
+  quic_obuf            sh_ob = quic_obuf_of(f->sh, sizeof(f->sh));
+  quic_obuf            fl_ob = quic_obuf_of(f->flight, sizeof(f->flight));
+  quic_sdrv_flight_out fo    = {&sh_ob, &fl_ob};
+  quic_server_init(&f->s, &sin);
+  CHECK(
+      quic_server_set_cids(
+          &f->s, quic_span_of(g_cli_scid, 6), quic_span_of(g_cli_scid, 6)) ==
+      1);
   CHECK(quic_srvloop_init(&f->l, g_cli_scid, 6) == 1);
   CHECK(quic_server_recv_initial(&f->s, f->ch, f->ch_len) == 1);
-  CHECK(
-      quic_server_build_flight(
-          &f->s, f->srv_random, f->sh, sizeof(f->sh), &f->sh_len, f->flight,
-          sizeof(f->flight), &f->flight_len) == 1);
+  CHECK(quic_server_build_flight(&f->s, f->srv_random, &fo) == 1);
+  f->sh_len     = sh_ob.len;
+  f->flight_len = fl_ob.len;
   CHECK(f->s.phase == QUIC_SERVER_HS_FLIGHT_SENT);
 }
 

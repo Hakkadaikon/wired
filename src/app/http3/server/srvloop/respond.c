@@ -69,10 +69,12 @@ static int build_settings_frame(quic_srvloop *l, u8 *out, usz cap, usz *len) {
  * 6.2.1) followed by HANDSHAKE_DONE (RFC 9000 19.20), in one packet. */
 static int confirm_payload(
     quic_srvloop *l, quic_server *s, u8 *buf, usz cap, usz *len) {
-  usz a, b;
+  usz       a;
+  quic_obuf ob;
   if (!build_settings_frame(l, buf, cap, &a)) return 0;
-  if (!quic_server_handshake_done(s, buf + a, cap - a, &b)) return 0;
-  *len = a + b;
+  ob = quic_obuf_of(buf + a, cap - a);
+  if (!quic_server_handshake_done(s, &ob)) return 0;
+  *len = a + ob.len;
   return 1;
 }
 

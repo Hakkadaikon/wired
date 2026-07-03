@@ -43,24 +43,24 @@ static int derive_secret(quic_sdrv *s) {
  * (RFC 9000 7.3). */
 static int emit_ee(quic_sdrv *s, quic_obuf *flight) {
   u8        tp[256], msg[1024];
-  usz       n;
   quic_obuf tob = quic_obuf_of(tp, sizeof(tp));
+  quic_obuf mob = quic_obuf_of(msg, sizeof(msg));
   if (!quic_stp_build_server(
           quic_span_of(s->odcid, s->odcid_len),
           quic_span_of(s->iscid, s->iscid_len), &tob))
     return 0;
-  if (!quic_eebuild_encrypted_extensions(tp, tob.len, msg, sizeof(msg), &n))
+  if (!quic_eebuild_encrypted_extensions(quic_span_of(tp, tob.len), &mob))
     return 0;
-  return emit_msg(s, quic_span_of(msg, n), flight);
+  return emit_msg(s, quic_span_of(msg, mob.len), flight);
 }
 
 /* RFC 8446 4.4.2: build Certificate and fold it into the flight. */
 static int emit_cert(quic_sdrv *s, quic_obuf *flight) {
-  u8  msg[1024];
-  usz n;
-  if (!quic_sflight_certificate(s->cert_der, s->cert_len, msg, sizeof(msg), &n))
+  u8        msg[1024];
+  quic_obuf mob = quic_obuf_of(msg, sizeof(msg));
+  if (!quic_sflight_certificate(quic_span_of(s->cert_der, s->cert_len), &mob))
     return 0;
-  return emit_msg(s, quic_span_of(msg, n), flight);
+  return emit_msg(s, quic_span_of(msg, mob.len), flight);
 }
 
 /* RFC 8446 4.4.3: ECDSA P-256 CertificateVerify (scheme 0x0403) over the
@@ -76,12 +76,11 @@ static int emit_certverify(quic_sdrv *s, quic_obuf *flight) {
 /* RFC 8446 4.4.4: Finished under the server handshake traffic secret at the
  * transcript hash through CertificateVerify. */
 static int emit_finished(quic_sdrv *s, quic_obuf *flight) {
-  u8  msg[64], th[QUIC_SHA256_DIGEST];
-  usz n;
+  u8        msg[64], th[QUIC_SHA256_DIGEST];
+  quic_obuf mob = quic_obuf_of(msg, sizeof(msg));
   quic_transcript_hash(&s->tr, th);
-  if (!quic_sflight_finished(s->s_hs_traffic, th, msg, sizeof(msg), &n))
-    return 0;
-  return emit_msg(s, quic_span_of(msg, n), flight);
+  if (!quic_sflight_finished(s->s_hs_traffic, th, &mob)) return 0;
+  return emit_msg(s, quic_span_of(msg, mob.len), flight);
 }
 
 /* RFC 8446 4.3.1 + 4.4.2: EncryptedExtensions then Certificate. */
@@ -101,10 +100,10 @@ static int emit_hs_flight(quic_sdrv *s, quic_obuf *flight) {
 
 /* RFC 8446 4.1.3: build the ServerHello, fold it in, and derive secrets. */
 static int build_server_hello(quic_sdrv *s, const u8 *random, quic_obuf *out) {
-  if (!quic_shbuild_server_hello(
-          random, s->client_sid, s->client_sid_len, 0x1301, s->server_pub,
-          out->p, out->cap, &out->len))
-    return 0;
+  quic_shbuild_in in = {
+      random, quic_span_of(s->client_sid, s->client_sid_len), 0x1301,
+      s->server_pub};
+  if (!quic_shbuild_server_hello(&in, out)) return 0;
   quic_transcript_add(&s->tr, out->p, out->len);
   if (!derive_secret(s)) return 0;
   return 1;
