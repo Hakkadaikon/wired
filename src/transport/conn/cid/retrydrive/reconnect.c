@@ -5,7 +5,7 @@
 /* RFC 9000 17.2.5: token and SCID must fit the reconnection-state buffers. */
 static int fits(usz token_len, usz scid_len) {
   return token_len <= sizeof(((quic_retrydrive_state *)0)->token) &&
-         scid_len <= QUIC_MAX_CID_LEN;
+         scid_len <= WIRED_MAX_CID_LEN;
 }
 
 /* RFC 9000 17.2.5.2 */

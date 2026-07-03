@@ -1,5 +1,5 @@
-#ifndef QUIC_SRVBOOT_SRVBOOT_H
-#define QUIC_SRVBOOT_SRVBOOT_H
+#ifndef WIRED_SRVBOOT_SRVBOOT_H
+#define WIRED_SRVBOOT_SRVBOOT_H
 
 #include "app/http3/server/srvloop/srvloop.h"
 #include "common/bytes/span/span.h"

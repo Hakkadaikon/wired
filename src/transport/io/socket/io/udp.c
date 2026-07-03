@@ -12,13 +12,13 @@ void wired_udp_addr(quic_sockaddr_in *sa, u16 port, const u8 octets[4]) {
   u32 addr = ((u32)octets[0] << 24) | ((u32)octets[1] << 16) |
              ((u32)octets[2] << 8) | octets[3];
   for (usz i = 0; i < 8; i++) sa->zero[i] = 0;
-  sa->family  = QUIC_AF_INET;
+  sa->family  = WIRED_AF_INET;
   sa->port_be = hton16(port);
   sa->addr_be = hton32(addr);
 }
 
 i64 wired_udp_socket(void) {
-  return syscall3(SYS_socket, QUIC_AF_INET, QUIC_SOCK_DGRAM, 0);
+  return syscall3(SYS_socket, WIRED_AF_INET, WIRED_SOCK_DGRAM, 0);
 }
 
 i64 wired_udp_bind(i64 fd, const quic_sockaddr_in *sa) {

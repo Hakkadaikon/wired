@@ -23,7 +23,7 @@ typedef struct {
   quic_stream_read         stream; /* STREAM data sink */
   quic_flow_credit         credit; /* connection flow credit */
   quic_framedispatch_state disp; /* dispatch view over the above + loop.sent */
-  u8 dcid[QUIC_MAX_CID_LEN];     /* Destination Connection ID for headers */
+  u8 dcid[WIRED_MAX_CID_LEN];    /* Destination Connection ID for headers */
   u8 dcid_len;
   u8 byte0;         /* long-header first byte for built packets */
   quic_pnspaces tx; /* RFC 9000 12.3: per-space next send PN */

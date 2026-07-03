@@ -4,7 +4,7 @@
 static void test_udp_addr_layout(void) {
   quic_sockaddr_in sa;
   wired_udp_addr(&sa, 443, (const u8[4]){127, 0, 0, 1});
-  CHECK(sa.family == QUIC_AF_INET);
+  CHECK(sa.family == WIRED_AF_INET);
   /* port 443 = 0x01BB -> network order 0xBB01 on a little-endian host */
   CHECK(sa.port_be == 0xBB01);
   /* 127.0.0.1 = 0x7F000001 -> network order bytes 7F 00 00 01;

@@ -10,7 +10,7 @@ static void copy_cid(u8 *dst, const u8 *src, u8 len) {
 /* True if a CID of length len starting at off fits in n bytes and is
  * within the QUIC max CID length. */
 static int cid_fits(u8 len, usz off, usz n) {
-  return len <= QUIC_MAX_CID_LEN && off + 1 + (usz)len <= n;
+  return len <= WIRED_MAX_CID_LEN && off + 1 + (usz)len <= n;
 }
 
 /* Read one length-prefixed CID at buf. On success advances *off by 1+len,
@@ -39,7 +39,7 @@ static int read_cids(quic_span buf, usz *off, wired_header *h) {
 
 static usz parse_long(const u8 *buf, usz n, wired_header *h) {
   usz off      = 5; /* byte0 + 4-byte version */
-  h->form      = QUIC_FORM_LONG;
+  h->form      = WIRED_FORM_LONG;
   h->long_type = (buf[0] >> 4) & 0x3;
   h->version = ((u32)buf[1] << 24) | ((u32)buf[2] << 16) | ((u32)buf[3] << 8) |
                (u32)buf[4];
@@ -52,7 +52,7 @@ static usz parse_long(const u8 *buf, usz n, wired_header *h) {
 static usz parse_short(const u8 *buf, usz n, wired_header *h) {
   u8 dcid_len = h->dcid_len;
   if (!cid_fits(dcid_len, 0, n)) return 0;
-  h->form = QUIC_FORM_SHORT;
+  h->form = WIRED_FORM_SHORT;
   copy_cid(h->dcid, buf + 1, dcid_len);
   h->scid_len = 0;
   return 1 + (usz)dcid_len;

@@ -1,5 +1,5 @@
-#ifndef QUIC_IO_UDP_H
-#define QUIC_IO_UDP_H
+#ifndef WIRED_IO_UDP_H
+#define WIRED_IO_UDP_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
@@ -8,13 +8,13 @@
  * UDP over IPv4 via direct x86_64 syscalls. No libc. */
 
 /** AF_INET address family constant. */
-#define QUIC_AF_INET 2
+#define WIRED_AF_INET 2
 /** SOCK_DGRAM socket type constant. */
-#define QUIC_SOCK_DGRAM 2
+#define WIRED_SOCK_DGRAM 2
 
 /** A sockaddr_in laid out for the kernel (big-endian port and address). */
 typedef struct {
-  u16 family;  /**< QUIC_AF_INET */
+  u16 family;  /**< WIRED_AF_INET */
   u16 port_be; /**< network byte order */
   u32 addr_be; /**< network byte order */
   u8  zero[8]; /**< padding, zeroed */

@@ -9,7 +9,7 @@
  * and adopt the Retry's SCID as the new DCID for the next Initial. */
 
 /* Destination for quic_retry_process: the extracted token (via the obuf) and
- * the Retry's SCID (the new DCID), new_dcid capped at QUIC_MAX_CID_LEN by
+ * the Retry's SCID (the new DCID), new_dcid capped at WIRED_MAX_CID_LEN by
  * the caller. */
 typedef struct {
   quic_obuf *token;

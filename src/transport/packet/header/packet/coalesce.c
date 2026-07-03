@@ -18,7 +18,7 @@ static int skip_cid(const u8 *buf, usz n, usz *p) {
 
 /* Long-header types that carry a token before the Length field (Initial). */
 static int has_token(u8 byte0) {
-  return ((byte0 >> 4) & 0x3) == 0x0; /* QUIC_LP_INITIAL */
+  return ((byte0 >> 4) & 0x3) == 0x0; /* WIRED_LP_INITIAL */
 }
 
 /* Skip the Initial token (a varint length plus that many bytes). */

@@ -1,5 +1,5 @@
-#ifndef QUIC_SRVRUN_SRVRUN_H
-#define QUIC_SRVRUN_SRVRUN_H
+#ifndef WIRED_SRVRUN_SRVRUN_H
+#define WIRED_SRVRUN_SRVRUN_H
 
 #include "app/http3/server/srvboot/srvboot.h"
 #include "app/http3/server/srvloop/srvloop.h"

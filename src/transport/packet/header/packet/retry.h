@@ -12,9 +12,9 @@
 typedef struct {
   u32       version;
   u8        dcid_len;
-  u8        dcid[QUIC_MAX_CID_LEN];
+  u8        dcid[WIRED_MAX_CID_LEN];
   u8        scid_len;
-  u8        scid[QUIC_MAX_CID_LEN];
+  u8        scid[WIRED_MAX_CID_LEN];
   const u8 *token;
   usz       token_len;
   u8        tag[QUIC_RETRY_TAG_LEN];

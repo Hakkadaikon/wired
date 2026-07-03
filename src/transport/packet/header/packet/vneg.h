@@ -9,9 +9,9 @@
  * (each version is 4 big-endian bytes there); count is the number of them. */
 typedef struct {
   u8        dcid_len;
-  u8        dcid[QUIC_MAX_CID_LEN];
+  u8        dcid[WIRED_MAX_CID_LEN];
   u8        scid_len;
-  u8        scid[QUIC_MAX_CID_LEN];
+  u8        scid[WIRED_MAX_CID_LEN];
   const u8 *versions; /* count * 4 big-endian bytes */
   usz       count;
 } quic_vneg_packet;

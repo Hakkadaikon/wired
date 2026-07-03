@@ -36,7 +36,7 @@ static void test_retry_process_ok(void) {
   u8       pkt[64];
   usz      n = make_retry(pkt, sizeof(pkt), odcid, 8, scid, 5, token, 6);
 
-  u8        out_token[64], new_dcid[QUIC_MAX_CID_LEN], new_dcil = 0;
+  u8        out_token[64], new_dcid[WIRED_MAX_CID_LEN], new_dcil = 0;
   quic_obuf tok_ob = quic_obuf_of(out_token, sizeof(out_token));
   CHECK(
       quic_retry_process(
@@ -60,7 +60,7 @@ static void test_retry_process_bad_tag(void) {
   for (usz i = 0; i < 8; i++) wrong[i] = odcid[i];
   wrong[0] ^= 0x80;
 
-  u8 out_token[64], new_dcid[QUIC_MAX_CID_LEN], new_dcil = 0xff;
+  u8 out_token[64], new_dcid[WIRED_MAX_CID_LEN], new_dcil = 0xff;
   CHECK(
       quic_retry_process(
           quic_span_of(pkt, n), quic_span_of(wrong, 8),
@@ -72,7 +72,7 @@ static void test_retry_process_bad_tag(void) {
 /* A truncated packet is rejected. */
 static void test_retry_process_short(void) {
   u8 pkt[4] = {0xf0, 0, 0, 1};
-  u8 out_token[8], new_dcid[QUIC_MAX_CID_LEN], new_dcil;
+  u8 out_token[8], new_dcid[WIRED_MAX_CID_LEN], new_dcil;
   CHECK(
       quic_retry_process(
           quic_span_of(pkt, sizeof(pkt)), quic_span_of(0, 0),
