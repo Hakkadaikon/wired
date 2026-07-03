@@ -4,11 +4,18 @@
 #include "app/http3/request/h3reqdrive/request_drive.h"
 #include "common/platform/sys/syscall.h"
 
+/* Pseudo-header presence flags a CONNECT request is checked against. */
+typedef struct {
+  int has_method_connect;
+  int has_authority;
+  int has_scheme;
+  int has_path;
+} quic_h3_connect_flags;
+
 /* RFC 9114 4.4. A CONNECT request omits the :scheme and :path pseudo-header
  * fields and MUST include the :authority pseudo-header; :method is "CONNECT".
- * Returns 1 if the four presence flags satisfy this, 0 otherwise. */
-int quic_h3_connect_ok(
-    int has_method_connect, int has_authority, int has_scheme, int has_path);
+ * Returns 1 if the presence flags satisfy this, 0 otherwise. */
+int quic_h3_connect_ok(const quic_h3_connect_flags *f);
 
 /* RFC 9114 4.4. Validate a decoded request as a well-formed CONNECT: :method is
  * exactly "CONNECT", :authority present, :scheme and :path absent. Derives the

@@ -8,25 +8,25 @@ static void test_h3stream_type_parse(void) {
   usz used;
 
   buf[0] = QUIC_H3_STREAM_CONTROL;
-  CHECK(quic_h3_stream_type_parse(buf, 1, &type, &used) == 1);
+  CHECK(quic_h3_stream_type_parse(quic_span_of(buf, 1), &type, &used) == 1);
   CHECK(used == 1 && type == QUIC_H3_STREAM_CONTROL);
   CHECK(
       quic_h3_stream_type_is_control(type) &&
       !quic_h3_stream_type_is_push(type));
 
   buf[0] = QUIC_H3_STREAM_PUSH;
-  quic_h3_stream_type_parse(buf, 1, &type, &used);
+  quic_h3_stream_type_parse(quic_span_of(buf, 1), &type, &used);
   CHECK(
       quic_h3_stream_type_is_push(type) && !quic_h3_stream_type_is_qpack(type));
 
   buf[0] = QUIC_H3_STREAM_QPACK_ENCODER;
-  quic_h3_stream_type_parse(buf, 1, &type, &used);
+  quic_h3_stream_type_parse(quic_span_of(buf, 1), &type, &used);
   CHECK(
       quic_h3_stream_type_is_qpack(type) &&
       !quic_h3_stream_type_is_control(type));
 
   buf[0] = QUIC_H3_STREAM_QPACK_DECODER;
-  quic_h3_stream_type_parse(buf, 1, &type, &used);
+  quic_h3_stream_type_parse(quic_span_of(buf, 1), &type, &used);
   CHECK(quic_h3_stream_type_is_qpack(type));
 }
 
@@ -37,10 +37,10 @@ static void test_h3stream_type_varint(void) {
   u8  buf[2] = {0x40, 0x40};
   u64 type;
   usz used;
-  CHECK(quic_h3_stream_type_parse(buf, 2, &type, &used) == 1);
+  CHECK(quic_h3_stream_type_parse(quic_span_of(buf, 2), &type, &used) == 1);
   CHECK(used == 2 && type == 0x40);
 
-  CHECK(quic_h3_stream_type_parse(buf, 0, &type, &used) == 0);
+  CHECK(quic_h3_stream_type_parse(quic_span_of(buf, 0), &type, &used) == 0);
 }
 
 void test_h3stream_type(void) {
