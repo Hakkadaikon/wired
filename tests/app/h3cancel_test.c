@@ -4,12 +4,13 @@
  * both with H3_REQUEST_CANCELLED (0x010c) on the request stream. */
 static void test_h3cancel_request_builds_both_frames(void) {
   u8                      out[64];
-  usz                     len = 0;
+  quic_obuf               ob = {out, sizeof out, 0};
   quic_reset_stream_frame rs;
   quic_stop_sending_frame ss;
   usz                     rn;
 
-  CHECK(quic_h3cancel_request(8, 100, out, sizeof out, &len) == 1);
+  CHECK(quic_h3cancel_request(8, 100, &ob) == 1);
+  usz len = ob.len;
   CHECK(len > 0);
 
   /* First frame: RESET_STREAM (type 0x04 at out[0]). */
@@ -30,14 +31,12 @@ static void test_h3cancel_request_builds_both_frames(void) {
 /* Boundary: a varint-max stream id still round-trips through the pair. */
 static void test_h3cancel_request_large_ids(void) {
   u8                      out[64];
-  usz                     len = 0;
+  quic_obuf               ob = {out, sizeof out, 0};
   quic_reset_stream_frame rs;
   usz                     rn;
 
-  CHECK(
-      quic_h3cancel_request(0x3fffffffffffffffULL, 0, out, sizeof out, &len) ==
-      1);
-  rn = quic_reset_stream_decode(out, len, &rs);
+  CHECK(quic_h3cancel_request(0x3fffffffffffffffULL, 0, &ob) == 1);
+  rn = quic_reset_stream_decode(out, ob.len, &rs);
   CHECK(rn > 0);
   CHECK(rs.stream_id == 0x3fffffffffffffffULL);
   CHECK(rs.final_size == 0);
@@ -45,10 +44,10 @@ static void test_h3cancel_request_large_ids(void) {
 
 /* A buffer too small for both frames is rejected, not truncated. */
 static void test_h3cancel_request_overflow(void) {
-  u8  out[3];
-  usz len = 99;
+  u8        out[3];
+  quic_obuf ob = {out, sizeof out, 99};
 
-  CHECK(quic_h3cancel_request(8, 100, out, sizeof out, &len) == 0);
+  CHECK(quic_h3cancel_request(8, 100, &ob) == 0);
 }
 
 /* CANCEL_PUSH codec (RFC 9114 7.2.3) is reused from h3/frame.c. */
