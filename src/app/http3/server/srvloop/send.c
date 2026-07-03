@@ -11,8 +11,11 @@ int wired_srvloop_send_initial(
     const wired_server *s, const wired_srvloop_send_in *in, quic_obuf *out) {
   quic_srvwire_seal_in wi = {
       quic_span_of(s->sdrv.odcid, s->sdrv.odcid_len),
-      quic_span_of(s->sdrv.iscid, s->sdrv.iscid_len), in->pn, in->ack_pn,
-      in->payload};
+      quic_span_of(s->sdrv.iscid, s->sdrv.iscid_len),
+      in->pn,
+      in->ack_pn,
+      in->payload,
+      0};
   return quic_srvwire_seal_initial(&wi, out);
 }
 
@@ -22,8 +25,9 @@ int wired_srvloop_send_handshake(
     const wired_server *s, const wired_srvloop_send_in *in, quic_obuf *out) {
   wired_srvloop_dirkeys dk;
   quic_srvwire_seal_in  wi = {
-      in->cli_scid, quic_span_of(s->sdrv.iscid, s->sdrv.iscid_len), in->pn,
-      in->ack_pn, in->payload};
+      in->cli_scid, quic_span_of(s->sdrv.iscid, s->sdrv.iscid_len),
+      in->pn,       in->ack_pn,
+      in->payload,  in->crypto_off};
   quic_protect_keys k;
   if (!wired_srvloop_seal_keys(s, QUIC_LEVEL_HANDSHAKE, &dk)) return 0;
   k = (quic_protect_keys){dk.keys, &dk.hp};

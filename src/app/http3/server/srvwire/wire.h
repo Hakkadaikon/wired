@@ -16,13 +16,17 @@
 
 /* Remaining arguments of quic_srvwire_seal_initial/seal_handshake beyond the
  * key material and out: the connection ids, packet number, the client packet
- * to acknowledge (< 0 for none), and the TLS flight to wrap in CRYPTO. */
+ * to acknowledge (< 0 for none), the TLS flight to wrap in CRYPTO, and the
+ * CRYPTO stream offset of the flight's first byte (RFC 9000 19.6; 0 for an
+ * unsplit flight, the chunk's start offset when a flight is split across
+ * packets). */
 typedef struct {
   quic_span dcid;
   quic_span scid;
   u64       pn;
   i64       ack_pn;
   quic_span tls;
+  u64       crypto_off;
 } quic_srvwire_seal_in;
 
 /* RFC 9001 5.2: seal a TLS flight (e.g. ServerHello) into a server Initial

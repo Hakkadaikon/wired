@@ -145,7 +145,7 @@ static int seal_confirm_onertt(
   pll += app_ack_append(c->l, pl + pll, sizeof pl - pll);
   wired_srvloop_send_in sin = {
       quic_span_of(c->l->cli_scid, c->l->cli_scid_len), c->l->tx_pn++, -1,
-      quic_span_of(pl, pll)};
+      quic_span_of(pl, pll), 0};
   return wired_srvloop_send_onertt(c->s, &sin, out);
 }
 
@@ -178,7 +178,7 @@ static int emit_response(const wired_srvloop_conn *c, quic_obuf *out) {
   rl += app_ack_append(c->l, pl + rl, sizeof pl - rl);
   wired_srvloop_send_in sin = {
       quic_span_of(c->l->cli_scid, c->l->cli_scid_len), c->l->tx_pn++, -1,
-      quic_span_of(pl, rl)};
+      quic_span_of(pl, rl), 0};
   return wired_srvloop_send_onertt(c->s, &sin, out);
 }
 
@@ -191,7 +191,7 @@ static int emit_ack_only(const wired_srvloop_conn *c, quic_obuf *out) {
   if (a == 0) return 0;
   wired_srvloop_send_in sin = {
       quic_span_of(c->l->cli_scid, c->l->cli_scid_len), c->l->tx_pn++, -1,
-      quic_span_of(pl, a)};
+      quic_span_of(pl, a), 0};
   return wired_srvloop_send_onertt(c->s, &sin, out);
 }
 
