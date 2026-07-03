@@ -23,12 +23,12 @@
  * client peer (sharing the server's key schedule, so seal-then-open across the
  * wire is identity per RFC 9001 5) seals its real Finished and GET into
  * AEAD-protected QUIC packets, ships them across a real 127.0.0.1 UDP socket,
- * and the server runs quic_srvloop_step on the bytes that came off the wire:
+ * and the server runs wired_srvloop_step on the bytes that came off the wire:
  *
  *   1. Initial datagram delivery: the client's real protected Initial reaches a
  *      bound server socket (RFC 9000 14.1 padding to 1200).
  *   2. real-wire confirmation: a srvwire-sealed client Finished crosses the
- *      socket and quic_srvloop_step opens it, confirms the server, and seals a
+ *      socket and wired_srvloop_step opens it, confirms the server, and seals a
  *      1-RTT HANDSHAKE_DONE that the peer opens with SERVER_AP.
  *   3. real-wire GET -> 200: a 1-RTT GET crosses the socket and the step seals
  * a 200 the peer opens with SERVER_AP.
@@ -40,19 +40,19 @@
 static const u8 g_scid[6] = {'C', 'L', 'I', 'S', 'C', 'I'};
 
 struct lb_fix {
-  wired_server s;
-  quic_srvloop l;
-  u8           ch[512];
-  usz          ch_len;
-  u8           sh[256];
-  usz          sh_len;
-  u8           flight[2048];
-  usz          flight_len;
-  u8           srv_random[32];
-  u8           cli_priv[32];
-  u8           sh_pub[32];
-  u8           cli_fin[64];
-  usz          cli_fin_len;
+  wired_server  s;
+  wired_srvloop l;
+  u8            ch[512];
+  usz           ch_len;
+  u8            sh[256];
+  usz           sh_len;
+  u8            flight[2048];
+  usz           flight_len;
+  u8            srv_random[32];
+  u8            cli_priv[32];
+  u8            sh_pub[32];
+  u8            cli_fin[64];
+  usz           cli_fin_len;
 };
 
 static void lb_make_client_hello(struct lb_fix *f) {
@@ -88,7 +88,7 @@ static void lb_drive_to_flight(struct lb_fix *f) {
   CHECK(
       wired_server_set_cids(
           &f->s, quic_span_of(g_scid, 6), quic_span_of(g_scid, 6)) == 1);
-  CHECK(quic_srvloop_init(&f->l, g_scid, 6) == 1);
+  CHECK(wired_srvloop_init(&f->l, g_scid, 6) == 1);
   CHECK(wired_server_recv_initial(&f->s, f->ch, f->ch_len) == 1);
   CHECK(wired_server_build_flight(&f->s, f->srv_random, &fo) == 1);
   f->sh_len     = sh_ob.len;
@@ -210,8 +210,8 @@ static int lb_wire_step(
   CHECK(quic_udp_send(cfd, srv, quic_span_of(pkt, n)) == (i64)n);
   r = quic_udp_recvfrom(sfd, quic_mspan_of(rx, sizeof rx), &from);
   CHECK(r == (i64)n);
-  return quic_srvloop_step(
-      &(quic_srvloop_conn){&f->l, &f->s}, quic_mspan_of(rx, (usz)r), out);
+  return wired_srvloop_step(
+      &(wired_srvloop_conn){&f->l, &f->s}, quic_mspan_of(rx, (usz)r), out);
 }
 
 /* (1) Loopback: the client's real protected Initial reaches a bound server
@@ -259,7 +259,7 @@ static void test_loopback_initial_datagram(void) {
 }
 
 /* (2)+(3) Real-AEAD-wire: a srvwire-sealed Finished and a 1-RTT GET cross a
- * real UDP socket; quic_srvloop_step opens them off the wire, confirms, and
+ * real UDP socket; wired_srvloop_step opens them off the wire, confirms, and
  * seals a HANDSHAKE_DONE and a 200 the peer opens with SERVER_AP. */
 static void test_loopback_wire_confirm_and_get(void) {
   struct lb_fix    f;
@@ -345,7 +345,7 @@ static void sb_make_id(
 static void test_srvboot_accept(void) {
   quic_client      c;
   wired_server     s;
-  quic_srvloop     l;
+  wired_srvloop    l;
   wired_srvboot_id id;
   u8               priv[32], pub[32], seed[32], rnd[32], cpriv[32], cpub[32];
   u8               dg[1500], out[4096];
@@ -381,7 +381,7 @@ static void test_srvboot_accept(void) {
 /* A datagram that is not a valid Initial is refused (no flight produced). */
 static void test_srvboot_rejects_non_initial(void) {
   wired_server     s;
-  quic_srvloop     l;
+  wired_srvloop    l;
   wired_srvboot_id id;
   u8               priv[32], pub[32], seed[32], rnd[32];
   u8 garbage[8] = {0x40, 1, 2, 3, 4, 5, 6, 7}; /* short header, not Initial */

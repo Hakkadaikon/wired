@@ -33,7 +33,9 @@ static int is_request_frame(u64 type, const u8 *frame, usz rem) {
 /* RFC 9114 4.1: hand the (reassembled) request STREAM frame to the HTTP/3
  * request decoder. */
 static int dispatch_stream(
-    quic_h3srv_state *h3, quic_span frame, const quic_srvloop_dispatch_in *in) {
+    quic_h3srv_state                *h3,
+    quic_span                        frame,
+    const wired_srvloop_dispatch_in *in) {
   quic_h3srv_req_in rin = {frame, in->scratch};
   if (!quic_h3srv_on_request(h3, &rin, in->req)) return 0;
   *in->got_request = 1;
@@ -41,7 +43,7 @@ static int dispatch_stream(
 }
 
 /* Raise the accumulator high-water mark to end, clamped to acc->cap. */
-static void bump_len(quic_srvloop_reqacc *acc, usz end) {
+static void bump_len(wired_srvloop_reqacc *acc, usz end) {
   usz hi = end < acc->cap ? end : acc->cap;
   if (hi > *acc->len) *acc->len = hi;
 }
@@ -50,7 +52,7 @@ static void bump_len(quic_srvloop_reqacc *acc, usz end) {
  * frame's own offset (offset-indexed reassembly, robust to reordering within
  * acc->cap), advance the high-water mark, and OR its FIN into acc->fin.
  * ponytail: data past acc->cap is truncated. */
-static void gather_one(const quic_stream_frame *sf, quic_srvloop_reqacc *acc) {
+static void gather_one(const quic_stream_frame *sf, wired_srvloop_reqacc *acc) {
   usz off = (usz)sf->offset;
   if (off >= acc->cap) return;
   quic_put_bytes(
@@ -71,7 +73,7 @@ static int request_stream_of(u64 type, quic_span frame, quic_stream_frame *sf) {
  * skipping PADDING/ACK and the unidirectional STREAMs (control / QPACK) curl
  * sends first. Returns 1 if any request-stream frame was seen this datagram. */
 static int gather_request(
-    const u8 *payload, usz len, quic_srvloop_reqacc *acc) {
+    const u8 *payload, usz len, wired_srvloop_reqacc *acc) {
   quic_framewalk      it;
   quic_framewalk_item fr;
   int                 seen = 0;
@@ -87,16 +89,16 @@ static int gather_request(
 
 /* RFC 9000 2.2: the request is complete once FIN closed the stream and it has
  * not already been decoded/answered (curl FINs the request's last STREAM). */
-static int request_complete(const quic_srvloop_reqacc *acc) {
+static int request_complete(const wired_srvloop_reqacc *acc) {
   return *acc->fin && !*acc->done;
 }
 
 /* RFC 9114 4.1: re-wrap the reassembled stream bytes as a single STREAM frame
  * (offset 0) and drive the HTTP/3 request decoder once. */
 static void drive_complete(
-    quic_h3srv_state               *h3,
-    quic_srvloop_reqacc            *acc,
-    const quic_srvloop_dispatch_in *in) {
+    quic_h3srv_state                *h3,
+    wired_srvloop_reqacc            *acc,
+    const wired_srvloop_dispatch_in *in) {
   u8                wrap[2080];
   quic_stream_frame f  = {0, 0, *acc->len, acc->buf, 1};
   quic_obuf         ob = quic_obuf_of(wrap, sizeof wrap);
@@ -109,9 +111,9 @@ static void drive_complete(
  * once FIN closes the stream, decode the reassembled request exactly once.
  * Returns 1 if a request-stream frame was present (handled), 0 otherwise. */
 static int reassemble_and_drive(
-    quic_h3srv_state               *h3,
-    quic_srvloop_reqacc            *acc,
-    const quic_srvloop_dispatch_in *in) {
+    quic_h3srv_state                *h3,
+    wired_srvloop_reqacc            *acc,
+    const wired_srvloop_dispatch_in *in) {
   if (!gather_request(in->payload.p, in->payload.n, acc)) return 0;
   if (request_complete(acc)) drive_complete(h3, acc, in);
   return 1;
@@ -156,8 +158,9 @@ static int dispatch_non_request(wired_server *s, const u8 *payload, usz len) {
  * HTTP/3; unidirectional STREAMs are accepted but ignored; anything else is
  * handed whole to wired_server_feed, whose crecv reassembles a split
  * ClientHello/Finished. A STREAM payload never re-enters the handshake. */
-int quic_srvloop_dispatch(
-    const quic_srvloop_dispatch_ctx *ctx, const quic_srvloop_dispatch_in *in) {
+int wired_srvloop_dispatch(
+    const wired_srvloop_dispatch_ctx *ctx,
+    const wired_srvloop_dispatch_in  *in) {
   if (reassemble_and_drive(ctx->h3, ctx->acc, in)) return 1;
   return dispatch_non_request(ctx->s, in->payload.p, in->payload.n);
 }

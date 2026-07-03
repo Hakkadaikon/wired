@@ -11,16 +11,16 @@
 typedef struct {
   i64                     fd;
   const wired_srvboot_id *id;
-  quic_srvloop_handler    handler;
+  wired_srvloop_handler   handler;
   void                   *ctx;
 } srvrun_cfg;
 
 /* The running server's mutable state: the orchestrator, the HTTP/3 loop, and
  * whether a connection is currently up. */
 typedef struct {
-  wired_server s;
-  quic_srvloop l;
-  int          up;
+  wired_server  s;
+  wired_srvloop l;
+  int           up;
 } srvrun_state;
 
 /* Everything one datagram-serving step needs besides the datagram itself: the
@@ -52,17 +52,17 @@ static int srvrun_on_initial(const srvrun_step_ctx *ctx, quic_mspan dg) {
   wired_srvboot_in   in   = {ctx->cfg->id, dg};
   if (!wired_srvboot_accept(&conn, &in, &ob))
     return WIRED_LOG("srvboot accept failed\n"), 0;
-  quic_srvloop_set_handler(&ctx->st->l, ctx->cfg->handler, ctx->cfg->ctx);
+  wired_srvloop_set_handler(&ctx->st->l, ctx->cfg->handler, ctx->cfg->ctx);
   srvrun_send(ctx, quic_span_of(out, ob.len), "server flight sent\n");
   return 1;
 }
 
 /* A later datagram: one real-wire step, send any sealed reply. */
 static void srvrun_on_step(const srvrun_step_ctx *ctx, quic_mspan dg) {
-  u8                out[1500];
-  quic_obuf         ob   = quic_obuf_of(out, sizeof out);
-  quic_srvloop_conn conn = {&ctx->st->l, &ctx->st->s};
-  if (quic_srvloop_step(&conn, dg, &ob))
+  u8                 out[1500];
+  quic_obuf          ob   = quic_obuf_of(out, sizeof out);
+  wired_srvloop_conn conn = {&ctx->st->l, &ctx->st->s};
+  if (wired_srvloop_step(&conn, dg, &ob))
     srvrun_send(
         ctx, quic_span_of(out, ob.len), "1-RTT reply sealed and sent\n");
 }

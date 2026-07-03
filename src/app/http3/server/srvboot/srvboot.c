@@ -51,7 +51,7 @@ static int srvboot_init(
           conn->s, quic_span_of(h->dcid, h->dcid_len),
           quic_span_of(id->scid, id->scid_len)))
     return 0;
-  return quic_srvloop_init(conn->l, h->scid, h->scid_len);
+  return wired_srvloop_init(conn->l, h->scid, h->scid_len);
 }
 
 /* RFC 9000 13.2.1: the client's first Initial is packet number 0; the server
@@ -78,16 +78,16 @@ typedef struct {
  * packet, concatenated into out. Returns 1, 0 on overflow. */
 static int srvboot_seal_flight(
     const srvboot_server *sv, const srvboot_flight_bytes *fb, quic_obuf *out) {
-  quic_srvloop_send_in in0 = {
+  wired_srvloop_send_in in0 = {
       quic_span_of(sv->id->scid, sv->id->scid_len), 1,
       SRVBOOT_CLIENT_INITIAL_PN, fb->sh};
-  quic_srvloop_send_in in1 = {
+  wired_srvloop_send_in in1 = {
       quic_span_of(sv->id->scid, sv->id->scid_len), 0, -1, fb->flight};
   quic_obuf ob0 = quic_obuf_of(out->p, out->cap);
   quic_obuf ob1;
-  if (!quic_srvloop_send_initial(sv->s, &in0, &ob0)) return 0;
+  if (!wired_srvloop_send_initial(sv->s, &in0, &ob0)) return 0;
   ob1 = quic_obuf_of(out->p + ob0.len, out->cap - ob0.len);
-  if (!quic_srvloop_send_handshake(sv->s, &in1, &ob1)) return 0;
+  if (!wired_srvloop_send_handshake(sv->s, &in1, &ob1)) return 0;
   out->len = ob0.len + ob1.len;
   return 1;
 }

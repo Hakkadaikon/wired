@@ -1,5 +1,5 @@
-#ifndef QUIC_SRVLOOP_SEND_H
-#define QUIC_SRVLOOP_SEND_H
+#ifndef WIRED_SRVLOOP_SEND_H
+#define WIRED_SRVLOOP_SEND_H
 
 #include "common/bytes/span/span.h"
 #include "tls/handshake/roles/server/server.h"
@@ -11,7 +11,7 @@
  * written toward the client is the client's source id; the SCID is the
  * server's iscid. */
 
-/** Remaining arguments of quic_srvloop_send_initial/send_handshake/send_onertt
+/** Remaining arguments of wired_srvloop_send_initial/send_handshake/send_onertt
  * beyond s and out: the connection id to write as the reply's DCID (used by
  * the Handshake and 1-RTT paths; send_initial instead uses the odcid/iscid
  * recorded at boot), the packet number, the client packet to acknowledge
@@ -24,7 +24,7 @@ typedef struct {
   u64       pn;       /**< the packet number to seal with */
   i64       ack_pn;   /**< client packet to acknowledge, < 0 for none */
   quic_span payload;  /**< TLS flight (Initial/Handshake) or raw 1-RTT bytes */
-} quic_srvloop_send_in;
+} wired_srvloop_send_in;
 
 /** Seal a ServerHello TLS flight into a server Initial packet. When
  * in->ack_pn >= 0 the flight acknowledges that received client Initial packet
@@ -35,8 +35,8 @@ typedef struct {
  *   boot)
  * @param out receives the sealed packet
  * @return 1 with out->len set, 0 on overflow. */
-int quic_srvloop_send_initial(
-    const wired_server *s, const quic_srvloop_send_in *in, quic_obuf *out);
+int wired_srvloop_send_initial(
+    const wired_server *s, const wired_srvloop_send_in *in, quic_obuf *out);
 
 /** Seal a Handshake TLS flight under SERVER_HS. When in->ack_pn >= 0 the
  * flight acknowledges that received Handshake-space packet number (RFC 9000
@@ -46,8 +46,8 @@ int quic_srvloop_send_initial(
  * @param out receives the sealed packet
  * @return 1 with out->len set, or 0 if the key is not derived or on
  *   overflow. */
-int quic_srvloop_send_handshake(
-    const wired_server *s, const quic_srvloop_send_in *in, quic_obuf *out);
+int wired_srvloop_send_handshake(
+    const wired_server *s, const wired_srvloop_send_in *in, quic_obuf *out);
 
 /** Seal a raw 1-RTT payload (for example HANDSHAKE_DONE) under SERVER_AP.
  * in->ack_pn is unused (1-RTT sealing never ACKs).
@@ -56,7 +56,7 @@ int quic_srvloop_send_handshake(
  * @param out receives the sealed packet
  * @return 1 with out->len set, or 0 if the key is not derived or on
  *   overflow. */
-int quic_srvloop_send_onertt(
-    const wired_server *s, const quic_srvloop_send_in *in, quic_obuf *out);
+int wired_srvloop_send_onertt(
+    const wired_server *s, const wired_srvloop_send_in *in, quic_obuf *out);
 
 #endif

@@ -9,17 +9,17 @@
  * socket-free srvboot/srvloop core. */
 
 /** The application's request responder: the callback and its opaque context,
- * registered on the loop as a pair (quic_srvloop_set_handler takes the same
+ * registered on the loop as a pair (wired_srvloop_set_handler takes the same
  * pair). */
 typedef struct {
-  quic_srvloop_handler cb;  /**< the response-body builder callback */
-  void                *ctx; /**< opaque context passed back to cb */
+  wired_srvloop_handler cb;  /**< the response-body builder callback */
+  void                 *ctx; /**< opaque context passed back to cb */
 } wired_srvrun_handler;
 
 /** The complete server event loop: bind a UDP socket on `port`, then forever
  * receive datagrams and drive them — a fresh client Initial cold-starts a
  * connection (wired_srvboot_accept), any later datagram steps the live loop
- * (quic_srvloop_step) — sealing every reply straight back. `id` is the fixed
+ * (wired_srvloop_step) — sealing every reply straight back. `id` is the fixed
  * server identity, `h` the application's request responder. This owns the
  * socket and blocks in recvfrom, the sanctioned socket-owning layer over the
  * socket-free srvboot/srvloop core. RFC 9000 7: one connection at a time, in
