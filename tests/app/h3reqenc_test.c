@@ -44,27 +44,28 @@ static void test_enc_method_static_index(void) {
   };
   const u8 path[] = {'/'};
   const u8 auth[] = {'h'};
+  quic_h3req_headers_in hin = {
+      quic_span_of(path, sizeof path), quic_span_of(auth, sizeof auth)};
   for (usz i = 0; i < 6; i++) {
-    u8  fs[256];
-    usz fs_len = 0;
+    u8        fs[256];
+    quic_obuf ob = {fs, sizeof fs, 0};
     CHECK(quic_h3req_enc_method(
-        (const u8 *)cases[i].m, cases[i].mlen, path, sizeof(path), auth,
-        sizeof(auth), fs, sizeof(fs), &fs_len));
-    CHECK(first_static_index(fs, fs_len) == cases[i].idx);
+        quic_span_of((const u8 *)cases[i].m, cases[i].mlen), &hin, &ob));
+    CHECK(first_static_index(fs, ob.len) == cases[i].idx);
   }
 }
 
 /* RFC 9204 4.5.4: a method absent from the static table (PATCH) is not a
  * leading Indexed Field Line; it goes out as a name-reference literal. */
 static void test_enc_method_unknown_literal(void) {
-  const u8 path[] = {'/'};
-  const u8 auth[] = {'h'};
-  u8       fs[256];
-  usz      fs_len = 0;
-  CHECK(quic_h3req_enc_method(
-      (const u8 *)"PATCH", 5, path, sizeof(path), auth, sizeof(auth), fs,
-      sizeof(fs), &fs_len));
-  CHECK(first_static_index(fs, fs_len) == -1);
+  const u8  path[] = {'/'};
+  const u8  auth[] = {'h'};
+  u8        fs[256];
+  quic_obuf ob = {fs, sizeof fs, 0};
+  quic_h3req_headers_in hin = {
+      quic_span_of(path, sizeof path), quic_span_of(auth, sizeof auth)};
+  CHECK(quic_h3req_enc_method(quic_span_of((const u8 *)"PATCH", 5), &hin, &ob));
+  CHECK(first_static_index(fs, ob.len) == -1);
 }
 
 /* Two byte ranges are identical. */
@@ -78,16 +79,16 @@ static int enc_bytes_eq(const u8 *a, usz alen, const u8 *b, usz blen) {
 /* RFC 9114 4.3.1: enc_get stays a thin wrapper -> identical bytes to
  * enc_method with :method = GET. */
 static void test_enc_get_matches_method(void) {
-  const u8 path[] = {'/', 'x'};
-  const u8 auth[] = {'h', '1'};
-  u8       a[256], b[256];
-  usz      alen = 0, blen = 0;
-  CHECK(quic_h3req_enc_get(
-      path, sizeof(path), auth, sizeof(auth), a, sizeof(a), &alen));
-  CHECK(quic_h3req_enc_method(
-      (const u8 *)"GET", 3, path, sizeof(path), auth, sizeof(auth), b,
-      sizeof(b), &blen));
-  CHECK(enc_bytes_eq(a, alen, b, blen));
+  const u8  path[] = {'/', 'x'};
+  const u8  auth[] = {'h', '1'};
+  u8        a[256], b[256];
+  quic_obuf aob = {a, sizeof a, 0}, bob = {b, sizeof b, 0};
+  quic_h3req_headers_in hin = {
+      quic_span_of(path, sizeof path), quic_span_of(auth, sizeof auth)};
+  CHECK(quic_h3req_enc_get(&hin, &aob));
+  CHECK(
+      quic_h3req_enc_method(quic_span_of((const u8 *)"GET", 3), &hin, &bob));
+  CHECK(enc_bytes_eq(a, aob.len, b, bob.len));
 }
 
 /* RFC 9114 4.1 / 4.3.1: a POST driven through send_method round-trips; recv_get
@@ -97,12 +98,15 @@ static void test_send_method_post_roundtrip(void) {
   const u8            auth[] = {'e', 'x'};
   const u8            body[] = {'h', 'i'};
   u8                  req[256], scratch[128];
-  usz                 req_len = 0;
+  quic_obuf           req_ob = {req, sizeof req, 0};
   quic_h3reqdrive_req r;
-  CHECK(quic_h3reqdrive_send_method(
-      0, (const u8 *)"POST", 4, path, sizeof(path), auth, sizeof(auth), body,
-      sizeof(body), req, sizeof(req), &req_len));
-  CHECK(quic_h3reqdrive_recv_get(req, req_len, scratch, sizeof(scratch), &r));
+  quic_h3reqdrive_send_in in = {
+      quic_span_of((const u8 *)"POST", 4), quic_span_of(path, sizeof path),
+      quic_span_of(auth, sizeof auth), quic_span_of(body, sizeof body)};
+  CHECK(quic_h3reqdrive_send_method(0, &in, &req_ob));
+  CHECK(quic_h3reqdrive_recv_get(
+      quic_span_of(req, req_ob.len), quic_mspan_of(scratch, sizeof scratch),
+      &r));
   CHECK(em_eq(r.method, r.method_len, "POST"));
   CHECK(em_eq(r.scheme, r.scheme_len, "https"));
   CHECK(em_eq(r.authority, r.authority_len, "ex"));
@@ -112,14 +116,15 @@ static void test_send_method_post_roundtrip(void) {
 /* Scan the HTTP/3 frames in [h3,h3+n) for the first DATA frame, viewing its
  * payload in (*b,*blen). Returns 1 if found, 0 otherwise. */
 static int scan_for_data(const u8 *h3, usz n, const u8 **b, usz *blen) {
-  u64 type = 0, plen = 0;
-  usz off = 0;
+  quic_h3_frame f   = {0};
+  usz           off = 0;
   while (off < n) {
-    usz used = quic_h3_frame_get(h3 + off, n - off, &type, b, &plen);
+    usz used = quic_h3_frame_get(quic_span_of(h3 + off, n - off), &f);
     if (!used) return 0;
     off += used;
-    if (type == QUIC_H3_FRAME_DATA) {
-      *blen = (usz)plen;
+    if (f.type == QUIC_H3_FRAME_DATA) {
+      *b    = f.payload;
+      *blen = (usz)f.payload_len;
       return 1;
     }
   }
@@ -141,18 +146,22 @@ static void test_send_method_body_frame(void) {
   const u8  auth[] = {'h'};
   const u8  body[] = {'A', 'B', 'C'};
   u8        req[256];
-  usz       req_len = 0, blen = 0;
-  const u8 *b = 0;
-  CHECK(quic_h3reqdrive_send_method(
-      0, (const u8 *)"POST", 4, path, sizeof(path), auth, sizeof(auth), body,
-      sizeof(body), req, sizeof(req), &req_len));
-  CHECK(find_data_body(req, req_len, &b, &blen));
+  quic_obuf req_ob = {req, sizeof req, 0};
+  usz       blen   = 0;
+  const u8 *b      = 0;
+  quic_h3reqdrive_send_in in1 = {
+      quic_span_of((const u8 *)"POST", 4), quic_span_of(path, sizeof path),
+      quic_span_of(auth, sizeof auth), quic_span_of(body, sizeof body)};
+  CHECK(quic_h3reqdrive_send_method(0, &in1, &req_ob));
+  CHECK(find_data_body(req, req_ob.len, &b, &blen));
   CHECK(blen == 3 && b[0] == 'A' && b[1] == 'B' && b[2] == 'C');
   /* boundary: no body -> no DATA frame */
-  CHECK(quic_h3reqdrive_send_method(
-      0, (const u8 *)"GET", 3, path, sizeof(path), auth, sizeof(auth), 0, 0,
-      req, sizeof(req), &req_len));
-  CHECK(find_data_body(req, req_len, &b, &blen) == 0);
+  req_ob = (quic_obuf){req, sizeof req, 0};
+  quic_h3reqdrive_send_in in2 = {
+      quic_span_of((const u8 *)"GET", 3), quic_span_of(path, sizeof path),
+      quic_span_of(auth, sizeof auth), quic_span_of(0, 0)};
+  CHECK(quic_h3reqdrive_send_method(0, &in2, &req_ob));
+  CHECK(find_data_body(req, req_ob.len, &b, &blen) == 0);
 }
 
 /* RFC 9114 4.3.1: an asterisk-form :path (OPTIONS *) round-trips (boundary). */
@@ -160,12 +169,15 @@ static void test_send_method_asterisk_path(void) {
   const u8            path[] = {'*'};
   const u8            auth[] = {'e', 'x'};
   u8                  req[256], scratch[128];
-  usz                 req_len = 0;
+  quic_obuf           req_ob = {req, sizeof req, 0};
   quic_h3reqdrive_req r;
-  CHECK(quic_h3reqdrive_send_method(
-      0, (const u8 *)"OPTIONS", 7, path, sizeof(path), auth, sizeof(auth), 0, 0,
-      req, sizeof(req), &req_len));
-  CHECK(quic_h3reqdrive_recv_get(req, req_len, scratch, sizeof(scratch), &r));
+  quic_h3reqdrive_send_in in = {
+      quic_span_of((const u8 *)"OPTIONS", 7), quic_span_of(path, sizeof path),
+      quic_span_of(auth, sizeof auth), quic_span_of(0, 0)};
+  CHECK(quic_h3reqdrive_send_method(0, &in, &req_ob));
+  CHECK(quic_h3reqdrive_recv_get(
+      quic_span_of(req, req_ob.len), quic_mspan_of(scratch, sizeof scratch),
+      &r));
   CHECK(em_eq(r.method, r.method_len, "OPTIONS"));
   CHECK(em_eq(r.path, r.path_len, "*"));
 }
