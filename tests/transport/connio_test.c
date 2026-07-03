@@ -3,13 +3,30 @@
 #include "test.h"
 #include "transport/packet/frame/frame/frame.h"
 
+/* Test-only convenience over the connio_init_in param object. */
+static void mk_connio(
+    quic_connio *io, int is_server, u8 byte0, const u8 *dcid, u8 dcid_len,
+    u64 initial_max_data) {
+  quic_connio_init_in in = {is_server, byte0, initial_max_data};
+  quic_connio_init(io, quic_span_of(dcid, dcid_len), &in);
+}
+
+/* Test-only convenience over the connio_send_in param object. */
+static usz send_at(
+    quic_connio *io, int level, const u8 *frames, usz frames_len, u8 *out,
+    usz cap) {
+  quic_connio_send_in sin = {level, quic_span_of(frames, frames_len)};
+  quic_obuf            ob = quic_obuf_of(out, cap);
+  return quic_connio_send(io, &sin, &ob);
+}
+
 /* RFC 9001 5: a STREAM frame sealed by one peer's connio_send opens under the
  * other peer's connio_recv (same installed keys) and lands in stream_read. */
 static void test_connio_seal_open_roundtrip(void) {
   const u8    dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
   quic_connio cl, sv;
-  quic_connio_init(&cl, 0, 0xc3, dcid, 8, 1u << 20);
-  quic_connio_init(&sv, 1, 0xc3, dcid, 8, 1u << 20);
+  mk_connio(&cl, 0, 0xc3, dcid, 8, 1u << 20);
+  mk_connio(&sv, 1, 0xc3, dcid, 8, 1u << 20);
   cl.loop.validated   = 1;
   sv.loop.validated   = 1;
   quic_initial_keys k = {0};
@@ -27,11 +44,10 @@ static void test_connio_seal_open_roundtrip(void) {
   CHECK(fl != 0);
 
   u8  pkt[256];
-  usz pn =
-      quic_connio_send(&cl, QUIC_LEVEL_INITIAL, frames, fl, pkt, sizeof(pkt));
+  usz pn = send_at(&cl, QUIC_LEVEL_INITIAL, frames, fl, pkt, sizeof(pkt));
   CHECK(pn != 0);
 
-  CHECK(quic_connio_recv(&sv, QUIC_LEVEL_INITIAL, pkt, pn) == 1);
+  CHECK(quic_connio_recv(&sv, QUIC_LEVEL_INITIAL, quic_mspan_of(pkt, pn)) == 1);
 
   /* the STREAM bytes reached the server's read buffer in order */
   u8        got[16];
@@ -46,16 +62,14 @@ static void test_connio_seal_open_roundtrip(void) {
 static void test_connio_gated_without_key(void) {
   const u8    dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
   quic_connio io;
-  quic_connio_init(&io, 0, 0x43, dcid, 8, 1u << 20);
+  mk_connio(&io, 0, 0x43, dcid, 8, 1u << 20);
   io.loop.validated = 1;
 
   u8 frames[8] = {0x01}; /* a PING frame */
   u8 pkt[64];
   /* Handshake level has no key installed */
-  CHECK(
-      quic_connio_send(
-          &io, QUIC_LEVEL_HANDSHAKE, frames, 1, pkt, sizeof(pkt)) == 0);
-  CHECK(quic_connio_recv(&io, QUIC_LEVEL_HANDSHAKE, pkt, 32) == 0);
+  CHECK(send_at(&io, QUIC_LEVEL_HANDSHAKE, frames, 1, pkt, sizeof(pkt)) == 0);
+  CHECK(quic_connio_recv(&io, QUIC_LEVEL_HANDSHAKE, quic_mspan_of(pkt, 32)) == 0);
 }
 
 /* Install Initial + Handshake keys on io and lift its anti-amp gate so sends at
@@ -74,7 +88,7 @@ static void arm_two_levels(quic_connio *io) {
 static void test_connio_per_space_pn(void) {
   const u8    dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
   quic_connio io;
-  quic_connio_init(&io, 0, 0xc3, dcid, 8, 1u << 20);
+  mk_connio(&io, 0, 0xc3, dcid, 8, 1u << 20);
   arm_two_levels(&io);
 
   u8 frames[8] = {0x01}; /* a PING frame */
@@ -84,16 +98,12 @@ static void test_connio_per_space_pn(void) {
   CHECK(quic_connio_tx_next(&io, QUIC_LEVEL_HANDSHAKE) == 0);
 
   /* first send in Initial: advances Initial only, Handshake untouched */
-  CHECK(
-      quic_connio_send(&io, QUIC_LEVEL_INITIAL, frames, 1, pkt, sizeof(pkt)) !=
-      0);
+  CHECK(send_at(&io, QUIC_LEVEL_INITIAL, frames, 1, pkt, sizeof(pkt)) != 0);
   CHECK(quic_connio_tx_next(&io, QUIC_LEVEL_INITIAL) == 1);
   CHECK(quic_connio_tx_next(&io, QUIC_LEVEL_HANDSHAKE) == 0);
 
   /* first send in Handshake: carries pn 0, advances Handshake only */
-  CHECK(
-      quic_connio_send(
-          &io, QUIC_LEVEL_HANDSHAKE, frames, 1, pkt, sizeof(pkt)) != 0);
+  CHECK(send_at(&io, QUIC_LEVEL_HANDSHAKE, frames, 1, pkt, sizeof(pkt)) != 0);
   CHECK(quic_connio_tx_next(&io, QUIC_LEVEL_HANDSHAKE) == 1);
   CHECK(quic_connio_tx_next(&io, QUIC_LEVEL_INITIAL) == 1);
 }
@@ -103,14 +113,14 @@ static void test_connio_per_space_pn(void) {
 static void test_connio_pn_monotone(void) {
   const u8    dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
   quic_connio io;
-  quic_connio_init(&io, 0, 0xc3, dcid, 8, 1u << 20);
+  mk_connio(&io, 0, 0xc3, dcid, 8, 1u << 20);
   arm_two_levels(&io);
 
   u8 frames[8] = {0x01};
   u8 pkt[256];
-  CHECK(quic_connio_send(&io, QUIC_LEVEL_INITIAL, frames, 1, pkt, 256) != 0);
-  CHECK(quic_connio_send(&io, QUIC_LEVEL_INITIAL, frames, 1, pkt, 256) != 0);
-  CHECK(quic_connio_send(&io, QUIC_LEVEL_INITIAL, frames, 1, pkt, 256) != 0);
+  CHECK(send_at(&io, QUIC_LEVEL_INITIAL, frames, 1, pkt, 256) != 0);
+  CHECK(send_at(&io, QUIC_LEVEL_INITIAL, frames, 1, pkt, 256) != 0);
+  CHECK(send_at(&io, QUIC_LEVEL_INITIAL, frames, 1, pkt, 256) != 0);
   CHECK(quic_connio_tx_next(&io, QUIC_LEVEL_INITIAL) == 3);
 }
 
@@ -120,16 +130,16 @@ static void test_connio_pn_monotone(void) {
 static void test_connio_recv_per_space(void) {
   const u8    dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
   quic_connio cl, sv;
-  quic_connio_init(&cl, 0, 0xc3, dcid, 8, 1u << 20);
-  quic_connio_init(&sv, 1, 0xc3, dcid, 8, 1u << 20);
+  mk_connio(&cl, 0, 0xc3, dcid, 8, 1u << 20);
+  mk_connio(&sv, 1, 0xc3, dcid, 8, 1u << 20);
   arm_two_levels(&cl);
   arm_two_levels(&sv);
 
   u8  frames[8] = {0x01};
   u8  pkt[256];
-  usz n = quic_connio_send(&cl, QUIC_LEVEL_INITIAL, frames, 1, pkt, 256);
+  usz n = send_at(&cl, QUIC_LEVEL_INITIAL, frames, 1, pkt, 256);
   CHECK(n != 0);
-  CHECK(quic_connio_recv(&sv, QUIC_LEVEL_INITIAL, pkt, n) == 1);
+  CHECK(quic_connio_recv(&sv, QUIC_LEVEL_INITIAL, quic_mspan_of(pkt, n)) == 1);
 
   /* only the Initial space's expected number advanced */
   CHECK(quic_connio_rx_next(&sv, QUIC_LEVEL_INITIAL) == 1);

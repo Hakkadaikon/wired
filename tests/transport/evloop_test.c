@@ -3,7 +3,8 @@
 /* A loop set up so the only gate under test is the named one: keys installed,
  * path validated (anti-amp lifted), congestion window wide open. */
 static void mk(quic_evloop *c) {
-  quic_evloop_init(c, QUIC_LEVEL_INITIAL, 1u << 20, 10);
+  quic_evloop_init_in in = {QUIC_LEVEL_INITIAL, 1u << 20, 10};
+  quic_evloop_init(c, &in);
   quic_initial_keys k = {0};
   quic_keyset_install(&c->gate.keys, QUIC_LEVEL_INITIAL, &k);
   c->gate.validated = 1;

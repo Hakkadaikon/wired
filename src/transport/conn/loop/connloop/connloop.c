@@ -65,14 +65,13 @@ static int send_ok(const quic_connloop *c, int level, usz len) {
   return send_level_ok(c, level) && send_gated(c, level, len);
 }
 
-int quic_connloop_on_send(
-    quic_connloop *c, int level, int ack_eliciting, u64 pn, usz len) {
-  if (!send_ok(c, level, len)) return 0;
-  c->send_level = level;
-  c->sent_bytes += len;
-  if (!ack_eliciting) return 1;
+int quic_connloop_on_send(quic_connloop *c, const quic_connloop_send_in *in) {
+  if (!send_ok(c, in->level, in->len)) return 0;
+  c->send_level = in->level;
+  c->sent_bytes += in->len;
+  if (!in->ack_eliciting) return 1;
   {
-    quic_sentpkt_out pkt = {pn, 0, 1, len};
+    quic_sentpkt_out pkt = {in->pn, 0, 1, in->len};
     quic_sentpkt_on_send(&c->sent, &pkt);
   }
   pto_sync(c);
@@ -83,24 +82,23 @@ void quic_connloop_validate(quic_connloop *c) {
   c->validated = 1; /* RFC 9000 8.1: anti-amplification limit lifted */
 }
 
-usz quic_connloop_on_ack(
-    quic_connloop *c, u64 ack_largest, const u64 *ack_ranges, usz n_ranges) {
+usz quic_connloop_on_ack(quic_connloop *c, const quic_connloop_ack_in *in) {
   u64         acked[QUIC_SENTPKT_CAP];
   usz         n      = 0;
-  quic_ackset ackset = {ack_largest, ack_ranges, n_ranges};
+  quic_ackset ackset = {in->ack_largest, in->ack_ranges, in->n_ranges};
   quic_ack_process(&c->sent, &ackset, (quic_u64out){acked, &n});
   pto_sync(c); /* an ACK that empties in-flight disarms the PTO */
   return n;
 }
 
-int quic_connloop_on_pto(quic_connloop *c, int level, u64 pn, usz len) {
-  if (!level_usable(c, level)) return 0; /* never probe at a discarded level */
+int quic_connloop_on_pto(quic_connloop *c, const quic_connloop_pto_in *in) {
+  if (!level_usable(c, in->level)) return 0; /* never probe at a discarded level */
   if (quic_sentpkt_count(&c->sent) == 0) return 0; /* no probe, stay disarmed */
   {
-    quic_sentpkt_out pkt = {pn, 0, 1, len}; /* probe is a new packet */
+    quic_sentpkt_out pkt = {in->pn, 0, 1, in->len}; /* probe is a new packet */
     quic_sentpkt_on_send(&c->sent, &pkt);
   }
-  c->sent_bytes += len;
+  c->sent_bytes += in->len;
   c->pto_armed = 1;
   return 1;
 }

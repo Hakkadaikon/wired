@@ -19,10 +19,10 @@ static const u8 g_order[QUIC_DRIVER_FLIGHT_MAX][2] = {
 };
 #define G_ORDER_LEN QUIC_DRIVER_FLIGHT_MAX
 
-void quic_driver_init(
-    quic_driver *d, int is_server, const u8 *dcid, u8 dcid_len) {
-  quic_initial_keys k0 = {0};
-  quic_connio_init(&d->io, is_server, 0x43, dcid, dcid_len, 1u << 20);
+void quic_driver_init(quic_driver *d, int is_server, quic_span dcid) {
+  quic_initial_keys   k0  = {0};
+  quic_connio_init_in cin = {is_server, 0x43, 1u << 20};
+  quic_connio_init(&d->io, dcid, &cin);
   d->io.loop.validated = 1; /* RFC 9000 8.1: test path is pre-validated */
   quic_keyset_install(&d->io.loop.keys, QUIC_LEVEL_INITIAL, &k0);
   quic_hsdriver_init(&d->hs, is_server);
@@ -112,8 +112,8 @@ static int can_recv(const quic_driver *d) {
 static int open_message(quic_driver *d, u8 level, u8 *msg) {
   u8        got[QUIC_DRIVER_DGRAM_CAP];
   quic_obuf gb = quic_obuf_of(got, sizeof(got));
-  int       ok = quic_connio_recv(&d->io, level, d->in_buf, d->in_len);
-  d->in_len    = 0;
+  int ok = quic_connio_recv(&d->io, level, quic_mspan_of(d->in_buf, d->in_len));
+  d->in_len = 0;
   if (!ok) return 0;
   quic_stream_read_pull(&d->io.stream, &gb);
   *msg = got[0];
@@ -157,9 +157,12 @@ static int do_send(quic_driver *d) {
   stf.length    = 1;
   stf.data      = &msg;
   stf.fin       = 0;
-  fl            = quic_frame_put_stream(frames, sizeof(frames), &stf);
-  n             = quic_connio_send(
-      &d->io, level, frames, fl, d->out_buf, sizeof(d->out_buf));
+  fl = quic_frame_put_stream(frames, sizeof(frames), &stf);
+  {
+    quic_connio_send_in sin = {level, quic_span_of(frames, fl)};
+    quic_obuf            ob = quic_obuf_of(d->out_buf, sizeof(d->out_buf));
+    n = quic_connio_send(&d->io, &sin, &ob);
+  }
   if (n == 0) return 0;
   advance_order(d, msg, level);
   d->out_len = n;
