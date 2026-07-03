@@ -4,57 +4,73 @@
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
 
-/* The :path and :authority values for a GET request. */
+/** @file
+ * RFC 9114 4.1 / 4.3.1, RFC 9204 4.5. Drive HTTP/3 requests end to end:
+ * QPACK-encode and frame outgoing GET or arbitrary-method requests, and
+ * recover the pseudo-headers of received ones. */
+
+/** The :path and :authority values for a GET request. */
 typedef struct {
-  quic_span path;
-  quic_span authority;
+  quic_span path;      /**< the :path pseudo-header value */
+  quic_span authority; /**< the :authority pseudo-header value */
 } quic_h3reqdrive_get_in;
 
-/* RFC 9114 4.1 / 4.3.1, RFC 9204 4.5. Drive an HTTP/3 GET request end to end:
- * QPACK-encode the request pseudo-headers (h3reqenc), wrap them in a HEADERS
- * frame and a QUIC STREAM frame (h3conn). Returns 1 with out->len set, 0 on
- * overflow. */
+/** RFC 9114 4.1 / 4.3.1, RFC 9204 4.5. Drive an HTTP/3 GET request end to
+ * end: QPACK-encode the request pseudo-headers (h3reqenc), wrap them in a
+ * HEADERS frame and a QUIC STREAM frame (h3conn).
+ * @param stream_id the request stream id to write in the STREAM frame
+ * @param in the :path and :authority values
+ * @param out receives the encoded STREAM frame
+ * @return 1 with out->len set, 0 on overflow. */
 int quic_h3reqdrive_send_get(
     u64 stream_id, const quic_h3reqdrive_get_in *in, quic_obuf *out);
 
-/* Remaining arguments of quic_h3reqdrive_send_method beyond stream_id/out:
+/** Remaining arguments of quic_h3reqdrive_send_method beyond stream_id/out:
  * the request line (method/path/authority) and the optional body. */
 typedef struct {
-  quic_span method;
-  quic_span path;
-  quic_span authority;
-  quic_span body;
+  quic_span method;    /**< the :method pseudo-header value */
+  quic_span path;      /**< the :path pseudo-header value */
+  quic_span authority; /**< the :authority pseudo-header value */
+  quic_span body;      /**< optional request body; empty for none */
 } quic_h3reqdrive_send_in;
 
-/* RFC 9114 4.1 / 4.3.1, RFC 9204 4.5. Drive an arbitrary-method HTTP/3 request
- * end to end: QPACK-encode the request pseudo-headers with the given :method,
- * append a DATA frame when in->body is non-empty, and wrap in a STREAM frame.
- * Returns 1 with out->len set, 0 on overflow. */
+/** RFC 9114 4.1 / 4.3.1, RFC 9204 4.5. Drive an arbitrary-method HTTP/3
+ * request end to end: QPACK-encode the request pseudo-headers with the given
+ * :method, append a DATA frame when in->body is non-empty, and wrap in a
+ * STREAM frame.
+ * @param stream_id the request stream id to write in the STREAM frame
+ * @param in the request line (method/path/authority) and the optional body
+ * @param out receives the encoded STREAM frame
+ * @return 1 with out->len set, 0 on overflow. */
 int quic_h3reqdrive_send_method(
     u64 stream_id, const quic_h3reqdrive_send_in *in, quic_obuf *out);
 
-/* RFC 9114 4.1 / 4.3.1, RFC 9204 4.5. Recovered request pseudo-headers. The
+/** RFC 9114 4.1 / 4.3.1, RFC 9204 4.5. Recovered request pseudo-headers. The
  * authority and path point into a caller-supplied scratch buffer; method and
  * scheme are borrowed from the static table. */
 typedef struct {
-  const u8 *method;
-  usz       method_len;
-  const u8 *scheme;
-  usz       scheme_len;
-  const u8 *authority;
-  usz       authority_len;
-  const u8 *path;
-  usz       path_len;
-  const u8 *body;     /* request body view into stream_data, 0 if none */
-  usz       body_len; /* 0 for GET and other bodyless requests */
+  const u8 *method;        /**< :method value, borrowed from the static table */
+  usz       method_len;    /**< method length in octets */
+  const u8 *scheme;        /**< :scheme value, borrowed from the static table */
+  usz       scheme_len;    /**< scheme length in octets */
+  const u8 *authority;     /**< :authority value, points into scratch */
+  usz       authority_len; /**< authority length in octets */
+  const u8 *path;          /**< :path value, points into scratch */
+  usz       path_len;      /**< path length in octets */
+  const u8 *body;          /**< request body view into stream_data, 0 if none */
+  usz       body_len;      /**< 0 for GET and other bodyless requests */
 } quic_h3reqdrive_req;
 
-/* RFC 9114 4.1, RFC 9204 4.5. Decode a STREAM frame carrying a request:
+/** RFC 9114 4.1, RFC 9204 4.5. Decode a STREAM frame carrying a request:
  * recover :method, :scheme, :authority and :path from the leading HEADERS
  * frame's QPACK field section. Literal values are copied into scratch (scap
  * octets). A trailing DATA frame (POST/PUT/PATCH body) is viewed in place via
- * r->body / r->body_len; bodyless requests leave body_len 0. Returns 1 on
- * success, 0 on a malformed frame or field section. */
+ * r->body / r->body_len; bodyless requests leave body_len 0.
+ * @param stream_data the STREAM frame payload carrying the request
+ * @param scratch caller-supplied buffer backing r's literal values; the
+ *   caller keeps it alive while r is in use
+ * @param r receives the recovered pseudo-headers and body view
+ * @return 1 on success, 0 on a malformed frame or field section. */
 int quic_h3reqdrive_recv_get(
     quic_span stream_data, quic_mspan scratch, quic_h3reqdrive_req *r);
 
