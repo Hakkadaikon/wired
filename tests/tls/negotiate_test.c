@@ -16,7 +16,8 @@ void test_negotiate_selects_h3_from_clienthello(void) {
     pub[i]    = (u8)(0x40 + i);
   }
   w = quic_tls_client_hello(
-      buf, sizeof(buf), random, pub, 0, 0, tp, sizeof(tp));
+      &(quic_clienthello_in){random, pub, quic_span_of(0, 0), quic_span_of(tp, sizeof(tp))},
+      &(quic_obuf){buf, sizeof(buf), 0});
   CHECK(quic_salpn_find_extension(
       quic_span_of(buf, w), QUIC_SALPN_EXT_TYPE, &ext));
   CHECK(quic_salpn_select_h3(ext.p, ext.n) == 1);

@@ -91,10 +91,12 @@ static void test_keyschedule_matches_oneshot(void) {
   u8                hs[32], master[32];
   quic_initial_keys ref;
   quic_tls_handshake_secret(ecdhe, hs);
-  quic_tls_handshake_keys(hs, tr, sizeof(tr), 0, &ref);
+  quic_tls_handshake_keys(
+      &(quic_handshake_keys_in){hs, quic_span_of(tr, sizeof(tr)), 0}, &ref);
   for (usz i = 0; i < QUIC_INITIAL_KEY; i++) CHECK(c_hs->key[i] == ref.key[i]);
   quic_tls_master_secret(hs, master);
-  quic_tls_app_keys(master, tr, sizeof(tr), 1, &ref);
+  quic_tls_app_keys(
+      &(quic_app_keys_in){master, quic_span_of(tr, sizeof(tr)), 1}, &ref);
   for (usz i = 0; i < QUIC_INITIAL_KEY; i++) CHECK(s_ap->key[i] == ref.key[i]);
 
   /* directions and stages produce distinct keys */

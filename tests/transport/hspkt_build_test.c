@@ -4,7 +4,7 @@
  * derivation label differs in production but the codec is identical). */
 static void hspkt_keys(quic_initial_keys *k, quic_aes128 *hp) {
   const u8 dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
-  quic_initial_derive(dcid, 8, 1, k); /* server side */
+  quic_initial_derive(quic_span_of(dcid, 8), 1, k); /* server side */
   quic_aes128_init(hp, k->hp);
 }
 

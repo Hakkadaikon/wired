@@ -13,14 +13,14 @@ void test_eebuild(void) {
   u8        out[128];
   usz       out_len, body_len, used;
   u8        type;
-  const u8 *body, *tpd;
-  usz       tpl;
+  const u8 *body;
+  quic_span tpd;
 
   CHECK(quic_eebuild_encrypted_extensions(
       tp, sizeof(tp), out, sizeof(out), &out_len));
 
   /* handshake header: type 0x08, length consistent with out_len. */
-  CHECK(quic_hs_parse(out, out_len, &type, &body_len) == 4);
+  CHECK(quic_hs_parse(quic_span_of(out, out_len), &type, &body_len) == 4);
   CHECK(type == QUIC_HS_ENCRYPTED_EXT);
   CHECK(4 + body_len == out_len);
 
@@ -33,10 +33,10 @@ void test_eebuild(void) {
   CHECK(quic_salpn_select_h3(body + 6, 5)); /* ext_data: list_len + "h3" */
 
   /* quic_transport_parameters follows the 9-byte ALPN extension. */
-  used = quic_tpext_decode(body + 2 + 9, body_len - 2 - 9, &tpd, &tpl);
+  used = quic_tpext_decode(quic_span_of(body + 2 + 9, body_len - 2 - 9), &tpd);
   CHECK(used == body_len - 2 - 9);
-  CHECK(tpl == sizeof(tp));
-  CHECK(tpd[0] == 0xaa && tpd[4] == 0xee);
+  CHECK(tpd.n == sizeof(tp));
+  CHECK(tpd.p[0] == 0xaa && tpd.p[4] == 0xee);
 
   /* a tight cap (one byte short) must be refused. */
   CHECK(!quic_eebuild_encrypted_extensions(

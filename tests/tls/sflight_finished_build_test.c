@@ -16,7 +16,7 @@ void test_sflight_finished_build(void) {
   for (usz i = 0; i < 32; i++) thash[i] = (u8)(0x80 + i);
 
   CHECK(quic_sflight_finished(key, thash, out, sizeof(out), &out_len));
-  CHECK(quic_hs_parse(out, out_len, &type, &body_len) == 4);
+  CHECK(quic_hs_parse(quic_span_of(out, out_len), &type, &body_len) == 4);
   CHECK(type == QUIC_HS_FINISHED);
   CHECK(body_len == QUIC_TLS_VERIFY_DATA);
 

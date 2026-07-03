@@ -22,7 +22,7 @@ static void test_rxpacket_payload_view(void) {
   const u8          dcid[8] = {9, 8, 7, 6, 5, 4, 3, 2};
   quic_initial_keys ik;
   quic_aes128       hp;
-  quic_initial_derive(dcid, 8, 1, &ik);
+  quic_initial_derive(quic_span_of(dcid, 8), 1, &ik);
   quic_aes128_init(&hp, ik.hp);
 
   u8  frames[8];
@@ -64,7 +64,7 @@ static usz build_pkt(quic_initial_keys *ik, quic_aes128 *hp, u8 *pkt, usz cap) {
   static const u8 dcid[8] = {9, 8, 7, 6, 5, 4, 3, 2};
   u8              frames[3];
   usz             fl = 0;
-  quic_initial_derive(dcid, 8, 1, ik);
+  quic_initial_derive(quic_span_of(dcid, 8), 1, ik);
   quic_aes128_init(hp, ik->hp);
   fl += quic_frame_put_simple(frames + fl, sizeof(frames), QUIC_FRAME_PING);
   quic_protect_keys k    = {ik, hp};
@@ -124,7 +124,7 @@ static void test_rxpacket_wrong_key(void) {
   quic_span         got;
   usz               n = build_pkt(&ik, &hp, pkt, sizeof(pkt));
   CHECK(n != 0);
-  quic_initial_derive(other, 8, 1, &wrong);
+  quic_initial_derive(quic_span_of(other, 8), 1, &wrong);
   CHECK(r_rx(&wrong, &hp, pkt, n, &got) == 0);
 }
 

@@ -10,17 +10,16 @@ void test_sflight_certmsg(void) {
   u8                  out[64];
   usz                 out_len, body_len;
   u8                  type;
-  const u8           *ctx;
-  u32                 ctx_len;
+  quic_span            ctx;
   quic_tls_cert_entry first;
 
   CHECK(quic_sflight_certificate(der, sizeof(der), out, sizeof(out), &out_len));
-  CHECK(quic_hs_parse(out, out_len, &type, &body_len) == 4);
+  CHECK(quic_hs_parse(quic_span_of(out, out_len), &type, &body_len) == 4);
   CHECK(type == 11);
   CHECK(4 + body_len == out_len);
 
-  CHECK(quic_tls_cert_parse(out + 4, body_len, &ctx, &ctx_len, &first));
-  CHECK(ctx_len == 0); /* empty request context */
+  CHECK(quic_tls_cert_parse(quic_span_of(out + 4, body_len), &ctx, &first));
+  CHECK(ctx.n == 0); /* empty request context */
   CHECK(first.cert_len == sizeof(der));
   CHECK(first.cert_data[0] == 0x30 && first.cert_data[6] == 0x05);
 

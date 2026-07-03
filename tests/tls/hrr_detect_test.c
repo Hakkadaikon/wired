@@ -7,10 +7,10 @@
 
 /* RFC 8446 4.1.4: a built HRR is recognised by its random sentinel. */
 static void test_hrr_detect_true(void) {
-  u8  out[256];
-  usz len = 0;
-  CHECK(quic_hrr_build(QUIC_GROUP_X25519, 0, 0, out, sizeof out, &len) == 1);
-  CHECK(quic_hrr_is_hello_retry(out, len) == 1);
+  u8        out[256];
+  quic_obuf ob = quic_obuf_of(out, sizeof out);
+  CHECK(quic_hrr_build(QUIC_GROUP_X25519, quic_span_of(0, 0), &ob) == 1);
+  CHECK(quic_hrr_is_hello_retry(out, ob.len) == 1);
 }
 
 /* An ordinary ServerHello (non-sentinel random) is not an HRR. */

@@ -72,7 +72,11 @@ static void test_tlsdriver_real_ecdhe_agree(void) {
   quic_tlsdriver_init(&sv, sv_priv, sv_pub, 1);
 
   /* client -> server: real ClientHello in a CRYPTO frame */
-  CHECK(quic_tlsdriver_client_hello(&cl, frame, sizeof(frame), &fl) == 1);
+  {
+    quic_obuf ob = quic_obuf_of(frame, sizeof(frame));
+    CHECK(quic_tlsdriver_client_hello(&cl, &ob) == 1);
+    fl = ob.len;
+  }
   CHECK(fl != 0);
   CHECK(quic_tlsdriver_recv_crypto(&sv, frame, fl) == 1);
   CHECK(quic_tlsdriver_handshake_secret_ready(&sv) == 1);

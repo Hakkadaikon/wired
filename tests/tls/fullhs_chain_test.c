@@ -74,13 +74,17 @@ static void fc_new_client(
   quic_x25519_base(sv_pub, sv_priv);
   quic_tlsdriver_init(cl, cl_priv, cl_pub, 0);
   quic_tlsdriver_init(sv, sv_priv, sv_pub, 1);
-  CHECK(quic_tlsdriver_client_hello(cl, frame, sizeof(frame), &fl) == 1);
+  {
+    quic_obuf ob = quic_obuf_of(frame, sizeof(frame));
+    CHECK(quic_tlsdriver_client_hello(cl, &ob) == 1);
+    fl = ob.len;
+  }
   CHECK(quic_tlsdriver_recv_crypto(sv, frame, fl) == 1);
   shn = fc_build_sh(sh, sizeof(sh), sv_pub);
   CHECK(
       quic_crypto_stream_emit(sh, shn, 0, 256, frame, sizeof(frame), &fl) == 1);
   CHECK(quic_tlsdriver_recv_crypto(cl, frame, fl) == 1);
-  CHECK(quic_fullhs_init(h, cl, fullhs_sh, sizeof(fullhs_sh)) == 1);
+  CHECK(quic_fullhs_init(h, cl, quic_span_of(fullhs_sh, sizeof(fullhs_sh))) == 1);
 }
 
 /* A Certificate handshake message wrapping k DER certs, leaf first. */
@@ -127,7 +131,7 @@ static void test_fullhs_chain_stale_buffer(void) {
   cv_len = fc_build_cv(
       cv, QUIC_TLS_SCHEME_ED25519, fullhs_cv_sig, sizeof(fullhs_cv_sig));
   CHECK(
-      quic_fullhs_recv_certverify(&cl, cv, cv_len, QUIC_TLS_SCHEME_ED25519) ==
+      quic_fullhs_recv_certverify(&cl, quic_span_of(cv, cv_len), QUIC_TLS_SCHEME_ED25519) ==
       1);
 }
 
@@ -182,7 +186,9 @@ static void test_fullhs_castore_wrong_root(void) {
   u8                 cv[256], svfin[64];
   usz                cv_len, n;
   fc_new_client(&cltls, &svtls, &cl);
-  CHECK(quic_fullhs_init(&sv, &svtls, fullhs_sh, sizeof(fullhs_sh)) == 1);
+  CHECK(
+      quic_fullhs_init(&sv, &svtls, quic_span_of(fullhs_sh, sizeof(fullhs_sh))) ==
+      1);
   quic_castore_init(&store, roots, 2);
   CHECK(
       quic_castore_add(
@@ -197,15 +203,19 @@ static void test_fullhs_castore_wrong_root(void) {
       quic_fullhs_recv_cert(&sv, fullhs_cert_msg, sizeof(fullhs_cert_msg)) ==
       1);
   CHECK(
-      quic_fullhs_recv_certverify(&sv, cv, cv_len, QUIC_TLS_SCHEME_ED25519) ==
+      quic_fullhs_recv_certverify(&sv, quic_span_of(cv, cv_len), QUIC_TLS_SCHEME_ED25519) ==
       1);
-  CHECK(quic_fullhs_send_finished(&sv, svfin, sizeof(svfin), &n) == 1);
+  {
+    quic_obuf ob = quic_obuf_of(svfin, sizeof(svfin));
+    CHECK(quic_fullhs_send_finished(&sv, &ob) == 1);
+    n = ob.len;
+  }
 
   CHECK(
       quic_fullhs_recv_cert(&cl, fullhs_cert_msg, sizeof(fullhs_cert_msg)) ==
       0);
   CHECK(
-      quic_fullhs_recv_certverify(&cl, cv, cv_len, QUIC_TLS_SCHEME_ED25519) ==
+      quic_fullhs_recv_certverify(&cl, quic_span_of(cv, cv_len), QUIC_TLS_SCHEME_ED25519) ==
       0);
   CHECK(quic_fullhs_recv_finished(&cl, svfin, n) == 0);
   CHECK(quic_fullhs_is_complete(&cl) == 0);
