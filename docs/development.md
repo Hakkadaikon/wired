@@ -106,6 +106,10 @@ flowchart LR
   all 393 tests with assertions on.
 - **`just check`** runs the gate (`ccn` + `test`); the full commit gate adds
   `just build` and the object-count check (see below).
+- **`just docs`** regenerates the public-API reference (doxygen, config in
+  `docs/Doxyfile`) into `docs/sdk/` (gitignored). The input set is derived from
+  `wired.h`'s transitive includes at run time, and `WARN_AS_ERROR` is on: a
+  declaration added to a public header without a doxygen comment fails the run.
 
 ## Hard constraints
 
