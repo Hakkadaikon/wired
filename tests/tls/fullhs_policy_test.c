@@ -75,13 +75,17 @@ static void fp_new_client(
   quic_x25519_base(sv_pub, sv_priv);
   quic_tlsdriver_init(cl, cl_priv, cl_pub, 0);
   quic_tlsdriver_init(sv, sv_priv, sv_pub, 1);
-  CHECK(quic_tlsdriver_client_hello(cl, frame, sizeof(frame), &fl) == 1);
+  {
+    quic_obuf ob = quic_obuf_of(frame, sizeof(frame));
+    CHECK(quic_tlsdriver_client_hello(cl, &ob) == 1);
+    fl = ob.len;
+  }
   CHECK(quic_tlsdriver_recv_crypto(sv, frame, fl) == 1);
   shn = fp_build_sh(sh, sizeof(sh), sv_pub);
   CHECK(
       quic_crypto_stream_emit(sh, shn, 0, 256, frame, sizeof(frame), &fl) == 1);
   CHECK(quic_tlsdriver_recv_crypto(cl, frame, fl) == 1);
-  CHECK(quic_fullhs_init(h, cl, fullhs_sh, sizeof(fullhs_sh)) == 1);
+  CHECK(quic_fullhs_init(h, cl, quic_span_of(fullhs_sh, sizeof(fullhs_sh))) == 1);
 }
 
 /* quic_fullhs_recv_cert under the given policy, on a fresh client. */
@@ -90,7 +94,7 @@ static int fp_cert_result(
   quic_tlsdriver cl, sv;
   quic_fullhs    h;
   fp_new_client(&cl, &sv, &h);
-  quic_fullhs_set_policy(&h, now, host, host_len);
+  quic_fullhs_set_policy(&h, now, quic_span_of(host, host_len));
   return quic_fullhs_recv_cert(&h, msg, msg_len);
 }
 
@@ -176,8 +180,10 @@ static void test_fullhs_policy_gate(void) {
   usz            cv_len, n;
 
   fp_new_client(&cltls, &svtls, &cl);
-  CHECK(quic_fullhs_init(&sv, &svtls, fullhs_sh, sizeof(fullhs_sh)) == 1);
-  quic_fullhs_set_policy(&cl, 20370101000000ULL, 0, 0); /* expired */
+  CHECK(
+      quic_fullhs_init(&sv, &svtls, quic_span_of(fullhs_sh, sizeof(fullhs_sh))) ==
+      1);
+  quic_fullhs_set_policy(&cl, 20370101000000ULL, quic_span_of(0, 0)); /* expired */
 
   cv_len = fp_build_cv(
       cv, QUIC_TLS_SCHEME_ED25519, fullhs_cv_sig, sizeof(fullhs_cv_sig));
@@ -186,16 +192,20 @@ static void test_fullhs_policy_gate(void) {
       quic_fullhs_recv_cert(&sv, fullhs_cert_msg, sizeof(fullhs_cert_msg)) ==
       1);
   CHECK(
-      quic_fullhs_recv_certverify(&sv, cv, cv_len, QUIC_TLS_SCHEME_ED25519) ==
+      quic_fullhs_recv_certverify(&sv, quic_span_of(cv, cv_len), QUIC_TLS_SCHEME_ED25519) ==
       1);
-  CHECK(quic_fullhs_send_finished(&sv, svfin, sizeof(svfin), &n) == 1);
+  {
+    quic_obuf ob = quic_obuf_of(svfin, sizeof(svfin));
+    CHECK(quic_fullhs_send_finished(&sv, &ob) == 1);
+    n = ob.len;
+  }
 
   /* the client rejects the cert; CV and Finished must both fail after it */
   CHECK(
       quic_fullhs_recv_cert(&cl, fullhs_cert_msg, sizeof(fullhs_cert_msg)) ==
       0);
   CHECK(
-      quic_fullhs_recv_certverify(&cl, cv, cv_len, QUIC_TLS_SCHEME_ED25519) ==
+      quic_fullhs_recv_certverify(&cl, quic_span_of(cv, cv_len), QUIC_TLS_SCHEME_ED25519) ==
       0);
   CHECK(quic_fullhs_recv_finished(&cl, svfin, n) == 0);
   CHECK(quic_fullhs_is_complete(&cl) == 0);

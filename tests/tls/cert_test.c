@@ -21,28 +21,28 @@ static void test_cert_parse(void) {
   m[k++] = 0;
   m[k++] = 0; /* extensions length 0 */
 
-  const u8           *ctx;
-  u32                 ctx_len;
+  quic_span            ctx;
   quic_tls_cert_entry first;
-  CHECK(quic_tls_cert_parse(m, k, &ctx, &ctx_len, &first) == 1);
-  CHECK(ctx_len == 0 && first.cert_len == 4);
+  CHECK(quic_tls_cert_parse(quic_span_of(m, k), &ctx, &first) == 1);
+  CHECK(ctx.n == 0 && first.cert_len == 4);
   CHECK(first.cert_data[0] == 'A' && first.cert_data[3] == 'D');
 
-  CHECK(quic_tls_cert_parse(m, k - 1, &ctx, &ctx_len, &first) == 0); /* short */
+  CHECK(
+      quic_tls_cert_parse(quic_span_of(m, k - 1), &ctx, &first) == 0); /* short */
 }
 
 /* CertificateVerify yields the scheme and the signature view. */
 static void test_certverify_parse(void) {
   /* scheme 0x0807 (ed25519); signature (2-byte len = 3) {0x11,0x22,0x33}. */
   u8        m[8] = {0x08, 0x07, 0x00, 0x03, 0x11, 0x22, 0x33, 0x00};
-  u16       scheme, sig_len;
-  const u8 *sig;
-  CHECK(quic_tls_certverify_parse(m, 7, &scheme, &sig, &sig_len) == 1);
-  CHECK(scheme == 0x0807 && sig_len == 3);
-  CHECK(sig[0] == 0x11 && sig[2] == 0x33);
+  u16       scheme;
+  quic_span sig;
+  CHECK(quic_tls_certverify_parse(quic_span_of(m, 7), &scheme, &sig) == 1);
+  CHECK(scheme == 0x0807 && sig.n == 3);
+  CHECK(sig.p[0] == 0x11 && sig.p[2] == 0x33);
 
   CHECK(
-      quic_tls_certverify_parse(m, 5, &scheme, &sig, &sig_len) ==
+      quic_tls_certverify_parse(quic_span_of(m, 5), &scheme, &sig) ==
       0); /* short */
 }
 
@@ -57,8 +57,10 @@ static void test_certverify_ed25519(void) {
   }
   for (usz i = 0; i < QUIC_ED25519_SIG; i++) sig[i] = 0;
 
-  CHECK(quic_tls_certverify_ed25519(sig, 32, th, pk) == 0); /* wrong length */
-  CHECK(quic_tls_certverify_ed25519(sig, QUIC_ED25519_SIG, th, pk) == 0);
+  CHECK(quic_tls_certverify_ed25519(quic_span_of(sig, 32), th, pk) == 0); /* wrong length */
+  CHECK(
+      quic_tls_certverify_ed25519(quic_span_of(sig, QUIC_ED25519_SIG), th, pk) ==
+      0);
 
   /* the signed content is deterministic and well-formed */
   u8 c1[130], c2[130];

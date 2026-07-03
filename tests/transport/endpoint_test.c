@@ -77,7 +77,7 @@ static int server_read_initial(
   u8                   type;
   usz                  body_len;
   if (pl == 0 || quic_frame_get_crypto(pkt + 18, pl, &cf) == 0) return 0;
-  if (quic_hs_parse(cf.data, cf.length, &type, &body_len) == 0) return 0;
+  if (quic_hs_parse(quic_span_of(cf.data, cf.length), &type, &body_len) == 0) return 0;
   return quic_hs_peer_share(cf.data + 4, body_len, peer_pub);
 }
 
@@ -97,7 +97,7 @@ static void test_endpoint_handshake(void) {
 
   quic_initial_keys cik; /* client Initial keys (both sides derive) */
   quic_aes128       chp;
-  quic_initial_derive(dcid, 8, 0, &cik);
+  quic_initial_derive(quic_span_of(dcid, 8), 0, &cik);
   quic_aes128_init(&chp, cik.hp);
 
   quic_memlink link;
@@ -129,7 +129,8 @@ static void test_endpoint_handshake(void) {
     u8 shared[32], hs[32];
     quic_x25519(shared, cl.priv, sv.pub);
     quic_tls_handshake_secret(shared, hs);
-    quic_tls_handshake_keys(hs, tr, sizeof(tr), 1, &cl_sees_server);
+    quic_tls_handshake_keys(
+      &(quic_handshake_keys_in){hs, quic_span_of(tr, sizeof(tr)), 1}, &cl_sees_server);
   }
   for (usz i = 0; i < QUIC_INITIAL_KEY; i++)
     CHECK(cl_sees_server.key[i] == sv.hs_keys.key[i]);

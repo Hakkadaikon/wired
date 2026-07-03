@@ -21,7 +21,7 @@ static void test_protect_roundtrip(void) {
   const u8          dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
   quic_initial_keys keys;
   quic_aes128       hp;
-  quic_initial_derive(dcid, 8, 0, &keys);
+  quic_initial_derive(quic_span_of(dcid, 8), 0, &keys);
   quic_aes128_init(&hp, keys.hp);
 
   /* a long-header Initial with a 4-byte packet number at offset 18 */
@@ -63,7 +63,7 @@ static void test_protect_tamper(void) {
   const u8          dcid[8] = {1, 2, 3, 4, 5, 6, 7, 8};
   quic_initial_keys keys;
   quic_aes128       hp;
-  quic_initial_derive(dcid, 8, 0, &keys);
+  quic_initial_derive(quic_span_of(dcid, 8), 0, &keys);
   quic_aes128_init(&hp, keys.hp);
   u8       hdr[18] = {0xc3, 0, 0, 0, 1, 8, 1, 2, 3, 4, 5, 6, 7, 8, 0, 0, 0, 2};
   const u8 payload[] = {1, 2, 3, 4};

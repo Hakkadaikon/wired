@@ -13,7 +13,7 @@ static void test_hs_clienthello_roundtrip(void) {
 
   u8  type;
   usz body_len;
-  usz body = quic_hs_parse(out, total, &type, &body_len);
+  usz body = quic_hs_parse(quic_span_of(out, total), &type, &body_len);
   CHECK(body == 4 && type == QUIC_HS_CLIENT_HELLO && body_len == total - 4);
 
   u8 got[32];
@@ -32,7 +32,7 @@ static void test_hs_serverhello_roundtrip(void) {
       quic_hs_build_hello(out, sizeof(out), QUIC_HS_SERVER_HELLO, random, pub);
   u8  type;
   usz body_len;
-  usz body = quic_hs_parse(out, total, &type, &body_len);
+  usz body = quic_hs_parse(quic_span_of(out, total), &type, &body_len);
   CHECK(type == QUIC_HS_SERVER_HELLO);
   CHECK(quic_hs_peer_share(out + body, body_len, got) == 1 && got[5] == pub[5]);
 }
@@ -41,10 +41,10 @@ static void test_hs_truncated(void) {
   u8       type;
   usz      body_len;
   const u8 bad[3] = {1, 0, 5};
-  CHECK(quic_hs_parse(bad, 3, &type, &body_len) == 0);
+  CHECK(quic_hs_parse(quic_span_of(bad, 3), &type, &body_len) == 0);
   /* claims body 100 but only 4 bytes present */
   const u8 bad2[4] = {1, 0, 0, 100};
-  CHECK(quic_hs_parse(bad2, 4, &type, &body_len) == 0);
+  CHECK(quic_hs_parse(quic_span_of(bad2, 4), &type, &body_len) == 0);
 }
 
 void test_handshake(void) {

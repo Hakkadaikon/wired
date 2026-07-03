@@ -31,12 +31,14 @@ static void test_hrr_random_sentinel(void) {
 /* RFC 8446 4.1.4: HRR wire form without cookie. */
 static void test_hrr_build_no_cookie(void) {
   u8        out[256];
-  usz       len = 0, body_len, ext_total, elen;
+  usz       len, body_len, ext_total, elen;
   u8        type;
   const u8 *body, *ext, *sv, *kse;
+  quic_obuf ob = quic_obuf_of(out, sizeof out);
 
-  CHECK(quic_hrr_build(QUIC_GROUP_X25519, 0, 0, out, sizeof out, &len) == 1);
-  CHECK(quic_hs_parse(out, len, &type, &body_len) == 4);
+  CHECK(quic_hrr_build(QUIC_GROUP_X25519, quic_span_of(0, 0), &ob) == 1);
+  len = ob.len;
+  CHECK(quic_hs_parse(quic_span_of(out, len), &type, &body_len) == 4);
   CHECK(type == QUIC_HS_SERVER_HELLO);
 
   body = out + 4;
@@ -59,10 +61,11 @@ static void test_hrr_build_no_cookie(void) {
 /* RFC 8446 4.2.2: cookie extension carries opaque cookie<1..2^16-1>. */
 static void test_hrr_build_cookie(void) {
   u8        out[256], ck[5] = {1, 2, 3, 4, 5};
-  usz       len = 0, ext_total, elen;
+  usz       ext_total, elen;
   const u8 *ext, *c;
+  quic_obuf ob = quic_obuf_of(out, sizeof out);
 
-  CHECK(quic_hrr_build(QUIC_GROUP_X25519, ck, 5, out, sizeof out, &len) == 1);
+  CHECK(quic_hrr_build(QUIC_GROUP_X25519, quic_span_of(ck, 5), &ob) == 1);
   ext       = out + 4 + 38;
   ext_total = hrrt_rd16(ext);
   ext += 2;
@@ -72,9 +75,9 @@ static void test_hrr_build_cookie(void) {
 }
 
 static void test_hrr_build_overflow(void) {
-  u8  out[16];
-  usz len = 123;
-  CHECK(quic_hrr_build(QUIC_GROUP_X25519, 0, 0, out, 8, &len) == 0);
+  u8        out[16];
+  quic_obuf ob = quic_obuf_of(out, 8);
+  CHECK(quic_hrr_build(QUIC_GROUP_X25519, quic_span_of(0, 0), &ob) == 0);
 }
 
 void test_hrr_build(void) {

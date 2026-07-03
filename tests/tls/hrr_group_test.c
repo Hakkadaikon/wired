@@ -7,21 +7,21 @@
 
 /* RFC 8446 4.1.4: the client recovers the selected_group from the HRR. */
 static void test_hrr_group_extract(void) {
-  u8  out[256];
-  usz len   = 0;
-  u16 group = 0;
-  CHECK(quic_hrr_build(QUIC_GROUP_X25519, 0, 0, out, sizeof out, &len) == 1);
-  CHECK(quic_hrr_selected_group(out, len, &group) == 1);
+  u8        out[256];
+  u16       group = 0;
+  quic_obuf ob    = quic_obuf_of(out, sizeof out);
+  CHECK(quic_hrr_build(QUIC_GROUP_X25519, quic_span_of(0, 0), &ob) == 1);
+  CHECK(quic_hrr_selected_group(out, ob.len, &group) == 1);
   CHECK(group == QUIC_GROUP_X25519);
 }
 
 /* A cookie before/after key_share does not disturb extraction. */
 static void test_hrr_group_with_cookie(void) {
-  u8  out[256], ck[3] = {9, 8, 7};
-  usz len   = 0;
-  u16 group = 0;
-  CHECK(quic_hrr_build(QUIC_GROUP_X25519, ck, 3, out, sizeof out, &len) == 1);
-  CHECK(quic_hrr_selected_group(out, len, &group) == 1);
+  u8        out[256], ck[3] = {9, 8, 7};
+  u16       group = 0;
+  quic_obuf ob    = quic_obuf_of(out, sizeof out);
+  CHECK(quic_hrr_build(QUIC_GROUP_X25519, quic_span_of(ck, 3), &ob) == 1);
+  CHECK(quic_hrr_selected_group(out, ob.len, &group) == 1);
   CHECK(group == QUIC_GROUP_X25519);
 }
 

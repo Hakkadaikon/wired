@@ -46,7 +46,7 @@ static void test_cvecdsa_header(void) {
   cv_hb32(CV_X, priv);
   cv_th(th);
   CHECK(quic_cvecdsa_build(priv, th, msg, sizeof msg, &n) == 1);
-  CHECK(quic_hs_parse(msg, n, &type, &body_len) == 4);
+  CHECK(quic_hs_parse(quic_span_of(msg, n), &type, &body_len) == 4);
   CHECK(type == 0x0f);
   CHECK(4 + body_len == n);
   CHECK((((usz)msg[4] << 8) | msg[5]) == 0x0403);

@@ -90,7 +90,8 @@ static void lp_make_client_hello(struct lp_fix *f) {
   }
   quic_x25519_base(cli_pub, f->cli_priv);
   f->ch_len = quic_tls_client_hello(
-      f->ch, sizeof(f->ch), f->srv_random, cli_pub, 0, 0, tp, sizeof(tp));
+      &(quic_clienthello_in){f->srv_random, cli_pub, quic_span_of(0, 0), quic_span_of(tp, sizeof(tp))},
+      &(quic_obuf){f->ch, sizeof(f->ch), 0});
 }
 
 /* Bring the server to FLIGHT_SENT (Handshake keys derived) and init the loop.
@@ -120,12 +121,11 @@ static void lp_drive_to_flight(struct lp_fix *f) {
 
 /* Compute the genuine client Finished message (RFC 8446 4.4.4). */
 static void lp_make_client_finished(struct lp_fix *f) {
-  u16             cipher, version;
+  quic_serverhello_out sh;
   u8              hs[32], c_traffic[32], th[32];
   quic_transcript tr;
   usz             off;
-  CHECK(quic_tls_parse_server_hello(
-      f->sh, f->sh_len, f->sh_pub, &cipher, &version));
+  CHECK(quic_tls_parse_server_hello(quic_span_of(f->sh, f->sh_len), f->sh_pub, &sh));
   {
     u8 shared[32];
     quic_x25519(shared, f->cli_priv, f->sh_pub);

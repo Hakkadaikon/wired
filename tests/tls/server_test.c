@@ -62,7 +62,8 @@ static void make_client_hello(struct srv_fix *f) {
   }
   quic_x25519_base(cli_pub, f->cli_priv);
   f->ch_len = quic_tls_client_hello(
-      f->ch, sizeof(f->ch), f->srv_random, cli_pub, 0, 0, tp, sizeof(tp));
+      &(quic_clienthello_in){f->srv_random, cli_pub, quic_span_of(0, 0), quic_span_of(tp, sizeof(tp))},
+      &(quic_obuf){f->ch, sizeof(f->ch), 0});
 }
 
 /* Bring the server to FLIGHT_SENT and capture the flight bytes. */
@@ -92,12 +93,11 @@ static void drive_to_flight(struct srv_fix *f) {
  * base key = client hs traffic secret over the transcript through ServerHello;
  * verify_data over the transcript hash through the server Finished. */
 static void make_client_finished(struct srv_fix *f) {
-  u16             cipher, version;
+  quic_serverhello_out sh;
   u8              hs[32], c_traffic[32], th[32];
   quic_transcript tr;
   usz             off;
-  CHECK(quic_tls_parse_server_hello(
-      f->sh, f->sh_len, f->sh_pub, &cipher, &version));
+  CHECK(quic_tls_parse_server_hello(quic_span_of(f->sh, f->sh_len), f->sh_pub, &sh));
   {
     u8 shared[32];
     quic_x25519(shared, f->cli_priv, f->sh_pub);
@@ -249,7 +249,8 @@ static void client_ap_keys(
   quic_tls_handshake_secret(shared, hs);
   quic_tls_master_secret(hs, master);
   tlen = client_transcript(f, tr);
-  quic_tls_app_keys(master, tr, tlen, is_server, out);
+  quic_tls_app_keys(
+      &(quic_app_keys_in){master, quic_span_of(tr, tlen), is_server}, out);
 }
 
 /* Whole key material (key+iv+hp) is identical. */

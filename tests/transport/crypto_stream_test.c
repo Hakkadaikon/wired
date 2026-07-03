@@ -77,7 +77,10 @@ static void test_clienthello_roundtrip(void) {
 
   u8  ch[1024];
   usz ch_len = quic_tls_client_hello(
-      ch, sizeof ch, random, pub, (const u8 *)"example.com", 11, tp, sizeof tp);
+      &(quic_clienthello_in){
+          random, pub, quic_span_of((const u8 *)"example.com", 11),
+          quic_span_of(tp, sizeof tp)},
+      &(quic_obuf){ch, sizeof ch, 0});
   CHECK(ch_len != 0);
 
   u8  frames[2048];

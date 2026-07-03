@@ -21,8 +21,8 @@ static void test_shbuild_wire(void) {
 
 /* The build round-trips through quic_tls_parse_server_hello. */
 static void test_shbuild_roundtrip(void) {
-  u8  random[32], pub[32], got[32], out[256];
-  u16 cipher = 0, version = 0;
+  u8                   random[32], pub[32], got[32], out[256];
+  quic_serverhello_out sh = {0, 0};
   usz len = 0;
   for (usz i = 0; i < 32; i++) {
     random[i] = (u8)i;
@@ -31,9 +31,9 @@ static void test_shbuild_roundtrip(void) {
   CHECK(
       quic_shbuild_server_hello(
           random, (void *)0, 0, 0x1303, pub, out, sizeof(out), &len) == 1);
-  CHECK(quic_tls_parse_server_hello(out, len, got, &cipher, &version) == 1);
-  CHECK(cipher == 0x1303);
-  CHECK(version == 0x0304);
+  CHECK(quic_tls_parse_server_hello(quic_span_of(out, len), got, &sh) == 1);
+  CHECK(sh.cipher == 0x1303);
+  CHECK(sh.version == 0x0304);
   for (usz i = 0; i < 32; i++) CHECK(got[i] == pub[i]);
 }
 

@@ -20,10 +20,12 @@ static void test_schedule_directions(void) {
   const u8 transcript[] = "ClientHello||ServerHello";
 
   quic_initial_keys c_keys, s_keys, s_keys_from_client;
-  quic_tls_handshake_keys(hs, transcript, sizeof(transcript), 0, &c_keys);
-  quic_tls_handshake_keys(hs, transcript, sizeof(transcript), 1, &s_keys);
   quic_tls_handshake_keys(
-      hs, transcript, sizeof(transcript), 1, &s_keys_from_client);
+      &(quic_handshake_keys_in){hs, quic_span_of(transcript, sizeof(transcript)), 0}, &c_keys);
+  quic_tls_handshake_keys(
+      &(quic_handshake_keys_in){hs, quic_span_of(transcript, sizeof(transcript)), 1}, &s_keys);
+  quic_tls_handshake_keys(
+      &(quic_handshake_keys_in){hs, quic_span_of(transcript, sizeof(transcript)), 1}, &s_keys_from_client);
 
   /* server-direction keys are identical whoever derives them */
   for (usz i = 0; i < QUIC_INITIAL_KEY; i++)
@@ -58,7 +60,8 @@ static void test_schedule_early(void) {
   /* early keys differ from handshake keys built from the same bytes as a
    * pseudo-secret (distinct label "c e traffic" vs "c hs traffic") */
   quic_initial_keys hk;
-  quic_tls_handshake_keys(psk_a, ch, sizeof(ch), 0, &hk);
+  quic_tls_handshake_keys(
+      &(quic_handshake_keys_in){psk_a, quic_span_of(ch, sizeof(ch)), 0}, &hk);
   differ = 0;
   for (usz i = 0; i < QUIC_INITIAL_KEY; i++) differ |= (ka.key[i] != hk.key[i]);
   CHECK(differ);

@@ -42,29 +42,29 @@ static usz build_sh(u8 *out, usz cap, const u8 pub[32]) {
 }
 
 static void test_server_hello_roundtrip(void) {
-  u8  pub[32], got[32], buf[256];
-  u16 cipher = 0, version = 0;
+  u8                   pub[32], got[32], buf[256];
+  quic_serverhello_out sh = {0, 0};
   for (usz i = 0; i < 32; i++) pub[i] = (u8)(0x80 + i);
   usz w = build_sh(buf, sizeof(buf), pub);
-  CHECK(quic_tls_parse_server_hello(buf, w, got, &cipher, &version) == 1);
-  CHECK(cipher == 0x1301);
-  CHECK(version == 0x0304);
+  CHECK(quic_tls_parse_server_hello(quic_span_of(buf, w), got, &sh) == 1);
+  CHECK(sh.cipher == 0x1301);
+  CHECK(sh.version == 0x0304);
   for (usz i = 0; i < 32; i++) CHECK(got[i] == pub[i]);
 }
 
 static void test_server_hello_wrong_type(void) {
-  u8  pub[32] = {0}, got[32], buf[256];
-  u16 cipher, version;
+  u8                   pub[32] = {0}, got[32], buf[256];
+  quic_serverhello_out sh;
   usz w  = build_sh(buf, sizeof(buf), pub);
   buf[0] = 1; /* claim ClientHello */
-  CHECK(quic_tls_parse_server_hello(buf, w, got, &cipher, &version) == 0);
+  CHECK(quic_tls_parse_server_hello(quic_span_of(buf, w), got, &sh) == 0);
 }
 
 static void test_server_hello_truncated(void) {
-  u8  pub[32] = {0}, got[32], buf[256];
-  u16 cipher, version;
+  u8                   pub[32] = {0}, got[32], buf[256];
+  quic_serverhello_out sh;
   usz w = build_sh(buf, sizeof(buf), pub);
-  CHECK(quic_tls_parse_server_hello(buf, w - 10, got, &cipher, &version) == 0);
+  CHECK(quic_tls_parse_server_hello(quic_span_of(buf, w - 10), got, &sh) == 0);
 }
 
 void test_serverhello(void) {

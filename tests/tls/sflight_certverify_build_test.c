@@ -21,8 +21,8 @@ void test_sflight_certverify_build(void) {
   u8        out[80];
   usz       out_len, body_len;
   u8        type;
-  u16       scheme, sig_len;
-  const u8 *sig;
+  u16       scheme;
+  quic_span sig;
 
   for (usz i = 0; i < 32; i++) seed[i] = (u8)(i + 7);
   for (usz i = 0; i < 32; i++) thash[i] = (u8)(0x40 + i);
@@ -30,22 +30,22 @@ void test_sflight_certverify_build(void) {
 
   CHECK(
       quic_sflight_certificate_verify(seed, thash, out, sizeof(out), &out_len));
-  CHECK(quic_hs_parse(out, out_len, &type, &body_len) == 4);
+  CHECK(quic_hs_parse(quic_span_of(out, out_len), &type, &body_len) == 4);
   CHECK(type == 15);
   CHECK(4 + body_len == out_len);
 
   /* body parses as scheme 0x0807 + a 64-byte signature. */
-  CHECK(quic_tls_certverify_parse(out + 4, body_len, &scheme, &sig, &sig_len));
+  CHECK(quic_tls_certverify_parse(quic_span_of(out + 4, body_len), &scheme, &sig));
   CHECK(scheme == 0x0807);
-  CHECK(sig_len == 64);
+  CHECK(sig.n == 64);
 
   /* the signature verifies over the RFC 8446 4.4.3 signed content. */
   rebuild_signed(thash, content);
-  CHECK(quic_ed25519_verify(sig, content, 130, pub));
+  CHECK(quic_ed25519_verify(sig.p, content, 130, pub));
 
   /* a tampered transcript hash must not verify. */
   content[129] ^= 0x01;
-  CHECK(!quic_ed25519_verify(sig, content, 130, pub));
+  CHECK(!quic_ed25519_verify(sig.p, content, 130, pub));
 
   CHECK(!quic_sflight_certificate_verify(seed, thash, out, 4, &out_len));
 }

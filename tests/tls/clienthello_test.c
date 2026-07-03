@@ -27,7 +27,10 @@ static usz build(u8 *buf, usz cap) {
     pub[i]    = (u8)(0x40 + i);
   }
   return quic_tls_client_hello(
-      buf, cap, random, pub, (const u8 *)"example.com", 11, tp, sizeof(tp));
+      &(quic_clienthello_in){
+          random, pub, quic_span_of((const u8 *)"example.com", 11),
+          quic_span_of(tp, sizeof(tp))},
+      &(quic_obuf){buf, cap, 0});
 }
 
 static void test_client_hello_has_all_exts(void) {
@@ -37,7 +40,7 @@ static void test_client_hello_has_all_exts(void) {
   usz w = build(buf, sizeof(buf));
   CHECK(w > 0);
   CHECK(buf[0] == 1); /* ClientHello */
-  CHECK(quic_hs_parse(buf, w, &type, &body_len) == 4);
+  CHECK(quic_hs_parse(quic_span_of(buf, w), &type, &body_len) == 4);
   CHECK(type == 1);
   CHECK(ch_has_ext(buf + 4, body_len, 0x002b)); /* supported_versions */
   CHECK(ch_has_ext(buf + 4, body_len, 0x000a)); /* supported_groups */
@@ -56,7 +59,9 @@ static void test_client_hello_no_sni(void) {
     random[i] = 0;
     pub[i]    = 0;
   }
-  w = quic_tls_client_hello(buf, sizeof(buf), random, pub, 0, 0, tp, 2);
+  w = quic_tls_client_hello(
+      &(quic_clienthello_in){random, pub, quic_span_of(0, 0), quic_span_of(tp, 2)},
+      &(quic_obuf){buf, sizeof(buf), 0});
   CHECK(w > 0);
   CHECK(!ch_has_ext(buf + 4, w - 4, 0x0000)); /* SNI omitted */
   CHECK(ch_has_ext(buf + 4, w - 4, 0x0033));  /* key_share still present */
