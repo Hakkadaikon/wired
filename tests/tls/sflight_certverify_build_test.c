@@ -19,20 +19,20 @@ void test_sflight_certverify_build(void) {
   u8        seed[32], pub[32], content[130];
   u8        thash[32];
   u8        out[80];
-  usz       out_len, body_len;
+  usz       body_len;
   u8        type;
   u16       scheme;
   quic_span sig;
+  quic_obuf ob = quic_obuf_of(out, sizeof(out));
 
   for (usz i = 0; i < 32; i++) seed[i] = (u8)(i + 7);
   for (usz i = 0; i < 32; i++) thash[i] = (u8)(0x40 + i);
   CHECK(quic_ed25519_keypair(seed, pub));
 
-  CHECK(
-      quic_sflight_certificate_verify(seed, thash, out, sizeof(out), &out_len));
-  CHECK(quic_hs_parse(quic_span_of(out, out_len), &type, &body_len) == 4);
+  CHECK(quic_sflight_certificate_verify(seed, thash, &ob));
+  CHECK(quic_hs_parse(quic_span_of(out, ob.len), &type, &body_len) == 4);
   CHECK(type == 15);
-  CHECK(4 + body_len == out_len);
+  CHECK(4 + body_len == ob.len);
 
   /* body parses as scheme 0x0807 + a 64-byte signature. */
   CHECK(quic_tls_certverify_parse(quic_span_of(out + 4, body_len), &scheme, &sig));
@@ -47,5 +47,6 @@ void test_sflight_certverify_build(void) {
   content[129] ^= 0x01;
   CHECK(!quic_ed25519_verify(sig.p, content, 130, pub));
 
-  CHECK(!quic_sflight_certificate_verify(seed, thash, out, 4, &out_len));
+  ob = quic_obuf_of(out, 4);
+  CHECK(!quic_sflight_certificate_verify(seed, thash, &ob));
 }

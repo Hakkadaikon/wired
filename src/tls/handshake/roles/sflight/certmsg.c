@@ -19,24 +19,23 @@ static int cert_fits(usz cert_len, usz cap) {
   return cert_len <= 0xFFFFFF && 4 + 1 + 3 + 3 + cert_len + 2 <= cap;
 }
 
-/* One CertificateEntry into out at off; returns the offset past it. */
-static usz put_entry(u8 *out, usz cap, usz off, const u8 *cert, usz cert_len) {
-  put_be24(out + off, (u32)cert_len);
-  off += 3;
-  quic_put_bytes(out, cap, &off, cert, cert_len); /* room checked above */
-  quic_put_be16(out + off, 0);                    /* empty extensions */
-  return off + 2;
+/* One CertificateEntry into out at out->len; advances out->len past it. */
+static void put_entry(quic_obuf *out, quic_span cert) {
+  put_be24(out->p + out->len, (u32)cert.n);
+  out->len += 3;
+  quic_put_bytes(out->p, out->cap, &out->len, cert.p, cert.n); /* room checked */
+  quic_put_be16(out->p + out->len, 0); /* empty extensions */
+  out->len += 2;
 }
 
-int quic_sflight_certificate(
-    const u8 *cert_der, usz cert_len, u8 *out, usz cap, usz *out_len) {
-  usz off, end;
-  if (!cert_fits(cert_len, cap)) return 0;
-  off      = quic_hs_begin(out, cap, QUIC_HS_CERTIFICATE);
-  out[off] = 0;                                 /* request_context length 0 */
-  put_be24(out + off + 1, (u32)(cert_len + 5)); /* certificate_list length */
-  end      = put_entry(out, cap, off + 4, cert_der, cert_len);
-  *out_len = end;
-  quic_hs_finish(out, end);
+int quic_sflight_certificate(quic_span cert_der, quic_obuf *out) {
+  usz off;
+  if (!cert_fits(cert_der.n, out->cap)) return 0;
+  off         = quic_hs_begin(out->p, out->cap, QUIC_HS_CERTIFICATE);
+  out->p[off] = 0;                                  /* request_context length 0 */
+  put_be24(out->p + off + 1, (u32)(cert_der.n + 5)); /* certificate_list length */
+  out->len    = off + 4;
+  put_entry(out, cert_der);
+  quic_hs_finish(out->p, out->len);
   return 1;
 }

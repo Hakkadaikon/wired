@@ -31,20 +31,16 @@ static void sflight_cv_signed(const u8 *transcript_hash, u8 out[130]) {
 }
 
 int quic_sflight_certificate_verify(
-    const u8  seed[32],
-    const u8 *transcript_hash,
-    u8       *out,
-    usz       cap,
-    usz      *out_len) {
+    const u8 seed[32], const u8 *transcript_hash, quic_obuf *out) {
   u8  content[130];
   usz off;
-  if (cap < 4 + 2 + 2 + QUIC_ED25519_SIG) return 0;
-  off = quic_hs_begin(out, cap, QUIC_HS_CERTIFICATE_VERIFY);
+  if (out->cap < 4 + 2 + 2 + QUIC_ED25519_SIG) return 0;
+  off = quic_hs_begin(out->p, out->cap, QUIC_HS_CERTIFICATE_VERIFY);
   sflight_cv_signed(transcript_hash, content);
-  quic_put_be16(out + off, QUIC_SFLIGHT_SCHEME_ED25519);
-  quic_put_be16(out + off + 2, QUIC_ED25519_SIG);
-  quic_ed25519_sign(seed, content, 130, out + off + 4);
-  *out_len = off + 4 + QUIC_ED25519_SIG;
-  quic_hs_finish(out, *out_len);
+  quic_put_be16(out->p + off, QUIC_SFLIGHT_SCHEME_ED25519);
+  quic_put_be16(out->p + off + 2, QUIC_ED25519_SIG);
+  quic_ed25519_sign(seed, content, 130, out->p + off + 4);
+  out->len = off + 4 + QUIC_ED25519_SIG;
+  quic_hs_finish(out->p, out->len);
   return 1;
 }
