@@ -8,7 +8,6 @@
 #include "app/http3/server/srvloop/recv.h"
 #include "app/http3/server/srvloop/send.h"
 #include "app/http3/server/srvwire/wire.h"
-#include "crypto/asymmetric/ecc/ed25519/ed25519.h"
 #include "crypto/kdf/keys/keyset.h"
 #include "test.h"
 #include "tls/handshake/core/tls/clienthello.h"
@@ -48,23 +47,6 @@ static quic_srvloop_reqacc lp_reqacc(quic_srvloop *l) {
   return acc;
 }
 
-/* Minimal Ed25519 end-entity cert carrying pub in its SPKI (RFC 5280 4.1). */
-static usz lp_ed_cert(u8 *out, const u8 pub[32]) {
-  static const u8 head[] = {
-      0x30, 0x48, 0x30, 0x3c, 0xa0, 0x03, 0x02, 0x01, 0x02, 0x02, 0x01,
-      0x01, 0x30, 0x00, 0x30, 0x00, 0x30, 0x00, 0x30, 0x00, 0x30, 0x2a,
-      0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x03, 0x21, 0x00,
-  };
-  static const u8 tail[] = {
-      0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x03, 0x01, 0x00,
-  };
-  usz off = 0, i;
-  for (i = 0; i < sizeof(head); i++) out[off++] = head[i];
-  for (i = 0; i < 32; i++) out[off++] = pub[i];
-  for (i = 0; i < sizeof(tail); i++) out[off++] = tail[i];
-  return off;
-}
-
 struct lp_fix {
   quic_server  s;
   quic_srvloop l;
@@ -99,19 +81,14 @@ static void lp_make_client_hello(struct lp_fix *f) {
 /* Bring the server to FLIGHT_SENT (Handshake keys derived) and init the loop.
  */
 static void lp_drive_to_flight(struct lp_fix *f) {
-  u8        srv_priv[32], srv_pub[32], cert_seed[32], cert_pub[32];
-  static u8 cert[128];
-  usz       cert_len;
+  u8 srv_priv[32], srv_pub[32], cert_seed[32];
   for (usz i = 0; i < 32; i++) {
     srv_priv[i]  = (u8)(0x40 + i);
     cert_seed[i] = (u8)(0x80 + i);
   }
   quic_x25519_base(srv_pub, srv_priv);
-  CHECK(quic_ed25519_keypair(cert_seed, cert_pub));
-  cert_len = lp_ed_cert(cert, cert_pub);
 
-  quic_server_init_in sin = {
-      srv_priv, srv_pub, cert_seed, quic_span_of(cert, cert_len)};
+  quic_server_init_in  sin   = {srv_priv, srv_pub, cert_seed, 0, 0};
   quic_obuf            sh_ob = quic_obuf_of(f->sh, sizeof(f->sh));
   quic_obuf            fl_ob = quic_obuf_of(f->flight, sizeof(f->flight));
   quic_sdrv_flight_out fo    = {&sh_ob, &fl_ob};

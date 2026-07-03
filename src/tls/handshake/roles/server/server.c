@@ -26,7 +26,8 @@ static usz srv_tr_add(quic_server *s, const u8 *msg, usz len) {
 
 void quic_server_init(quic_server *s, const quic_server_init_in *in) {
   quic_sdrv_init_in din = {
-      in->server_priv_x25519, in->server_pub_x25519, in->cert_seed, 0, 0};
+      in->server_priv_x25519, in->server_pub_x25519, in->cert_seed, in->chain,
+      in->chain_count};
   srv_copy32(s->server_priv, in->server_priv_x25519);
   quic_sdrv_init(&s->sdrv, &din);
   quic_keysched_init(&s->sched);
