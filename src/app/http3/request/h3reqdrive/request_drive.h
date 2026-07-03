@@ -1,5 +1,5 @@
-#ifndef QUIC_H3REQDRIVE_REQUEST_DRIVE_H
-#define QUIC_H3REQDRIVE_REQUEST_DRIVE_H
+#ifndef WIRED_H3REQDRIVE_REQUEST_DRIVE_H
+#define WIRED_H3REQDRIVE_REQUEST_DRIVE_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
@@ -13,7 +13,7 @@
 typedef struct {
   quic_span path;      /**< the :path pseudo-header value */
   quic_span authority; /**< the :authority pseudo-header value */
-} quic_h3reqdrive_get_in;
+} wired_h3reqdrive_get_in;
 
 /** RFC 9114 4.1 / 4.3.1, RFC 9204 4.5: drive an HTTP/3 GET request end to
  * end: QPACK-encode the request pseudo-headers (h3reqenc), wrap them in a
@@ -22,17 +22,17 @@ typedef struct {
  * @param in the :path and :authority values
  * @param out receives the encoded STREAM frame
  * @return 1 with out->len set, 0 on overflow. */
-int quic_h3reqdrive_send_get(
-    u64 stream_id, const quic_h3reqdrive_get_in *in, quic_obuf *out);
+int wired_h3reqdrive_send_get(
+    u64 stream_id, const wired_h3reqdrive_get_in *in, quic_obuf *out);
 
-/** Remaining arguments of quic_h3reqdrive_send_method beyond stream_id/out:
+/** Remaining arguments of wired_h3reqdrive_send_method beyond stream_id/out:
  * the request line (method/path/authority) and the optional body. */
 typedef struct {
   quic_span method;    /**< the :method pseudo-header value */
   quic_span path;      /**< the :path pseudo-header value */
   quic_span authority; /**< the :authority pseudo-header value */
   quic_span body;      /**< optional request body; empty for none */
-} quic_h3reqdrive_send_in;
+} wired_h3reqdrive_send_in;
 
 /** RFC 9114 4.1 / 4.3.1, RFC 9204 4.5: drive an arbitrary-method HTTP/3
  * request end to end: QPACK-encode the request pseudo-headers with the given
@@ -42,8 +42,8 @@ typedef struct {
  * @param in the request line (method/path/authority) and the optional body
  * @param out receives the encoded STREAM frame
  * @return 1 with out->len set, 0 on overflow. */
-int quic_h3reqdrive_send_method(
-    u64 stream_id, const quic_h3reqdrive_send_in *in, quic_obuf *out);
+int wired_h3reqdrive_send_method(
+    u64 stream_id, const wired_h3reqdrive_send_in *in, quic_obuf *out);
 
 /** RFC 9114 4.1 / 4.3.1, RFC 9204 4.5: recovered request pseudo-headers.
  * Each value is either a static-table view or a copy in the caller-supplied
@@ -60,7 +60,7 @@ typedef struct {
   usz       path_len;      /**< path length in octets */
   const u8 *body;          /**< request body view into stream_data, 0 if none */
   usz       body_len;      /**< 0 for GET and other bodyless requests */
-} quic_h3reqdrive_req;
+} wired_h3reqdrive_req;
 
 /** RFC 9114 4.1, RFC 9204 4.5: decode a STREAM frame carrying a request:
  * recover :method, :scheme, :authority and :path from the leading HEADERS
@@ -72,7 +72,7 @@ typedef struct {
  *   caller keeps it alive while r is in use
  * @param r receives the recovered pseudo-headers and body view
  * @return 1 on success, 0 on a malformed frame or field section. */
-int quic_h3reqdrive_recv_get(
-    quic_span stream_data, quic_mspan scratch, quic_h3reqdrive_req *r);
+int wired_h3reqdrive_recv_get(
+    quic_span stream_data, quic_mspan scratch, wired_h3reqdrive_req *r);
 
 #endif

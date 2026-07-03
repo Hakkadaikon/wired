@@ -93,17 +93,17 @@ static void test_enc_get_matches_method(void) {
 /* RFC 9114 4.1 / 4.3.1: a POST driven through send_method round-trips; recv_get
  * recovers all four pseudo-headers including the non-GET :method. */
 static void test_send_method_post_roundtrip(void) {
-  const u8                path[] = {'/', 's'};
-  const u8                auth[] = {'e', 'x'};
-  const u8                body[] = {'h', 'i'};
-  u8                      req[256], scratch[128];
-  quic_obuf               req_ob = {req, sizeof req, 0};
-  quic_h3reqdrive_req     r;
-  quic_h3reqdrive_send_in in = {
+  const u8                 path[] = {'/', 's'};
+  const u8                 auth[] = {'e', 'x'};
+  const u8                 body[] = {'h', 'i'};
+  u8                       req[256], scratch[128];
+  quic_obuf                req_ob = {req, sizeof req, 0};
+  wired_h3reqdrive_req     r;
+  wired_h3reqdrive_send_in in = {
       quic_span_of((const u8 *)"POST", 4), quic_span_of(path, sizeof path),
       quic_span_of(auth, sizeof auth), quic_span_of(body, sizeof body)};
-  CHECK(quic_h3reqdrive_send_method(0, &in, &req_ob));
-  CHECK(quic_h3reqdrive_recv_get(
+  CHECK(wired_h3reqdrive_send_method(0, &in, &req_ob));
+  CHECK(wired_h3reqdrive_recv_get(
       quic_span_of(req, req_ob.len), quic_mspan_of(scratch, sizeof scratch),
       &r));
   CHECK(em_eq(r.method, r.method_len, "POST"));
@@ -141,40 +141,40 @@ static int find_data_body(const u8 *req, usz req_len, const u8 **b, usz *blen) {
 /* RFC 9114 4.1: send_method with a body appends a DATA frame; with no body the
  * stream carries only HEADERS (boundary: empty body). */
 static void test_send_method_body_frame(void) {
-  const u8                path[] = {'/'};
-  const u8                auth[] = {'h'};
-  const u8                body[] = {'A', 'B', 'C'};
-  u8                      req[256];
-  quic_obuf               req_ob = {req, sizeof req, 0};
-  usz                     blen   = 0;
-  const u8               *b      = 0;
-  quic_h3reqdrive_send_in in1    = {
+  const u8                 path[] = {'/'};
+  const u8                 auth[] = {'h'};
+  const u8                 body[] = {'A', 'B', 'C'};
+  u8                       req[256];
+  quic_obuf                req_ob = {req, sizeof req, 0};
+  usz                      blen   = 0;
+  const u8                *b      = 0;
+  wired_h3reqdrive_send_in in1    = {
       quic_span_of((const u8 *)"POST", 4), quic_span_of(path, sizeof path),
       quic_span_of(auth, sizeof auth), quic_span_of(body, sizeof body)};
-  CHECK(quic_h3reqdrive_send_method(0, &in1, &req_ob));
+  CHECK(wired_h3reqdrive_send_method(0, &in1, &req_ob));
   CHECK(find_data_body(req, req_ob.len, &b, &blen));
   CHECK(blen == 3 && b[0] == 'A' && b[1] == 'B' && b[2] == 'C');
   /* boundary: no body -> no DATA frame */
-  req_ob                      = (quic_obuf){req, sizeof req, 0};
-  quic_h3reqdrive_send_in in2 = {
+  req_ob                       = (quic_obuf){req, sizeof req, 0};
+  wired_h3reqdrive_send_in in2 = {
       quic_span_of((const u8 *)"GET", 3), quic_span_of(path, sizeof path),
       quic_span_of(auth, sizeof auth), quic_span_of(0, 0)};
-  CHECK(quic_h3reqdrive_send_method(0, &in2, &req_ob));
+  CHECK(wired_h3reqdrive_send_method(0, &in2, &req_ob));
   CHECK(find_data_body(req, req_ob.len, &b, &blen) == 0);
 }
 
 /* RFC 9114 4.3.1: an asterisk-form :path (OPTIONS *) round-trips (boundary). */
 static void test_send_method_asterisk_path(void) {
-  const u8                path[] = {'*'};
-  const u8                auth[] = {'e', 'x'};
-  u8                      req[256], scratch[128];
-  quic_obuf               req_ob = {req, sizeof req, 0};
-  quic_h3reqdrive_req     r;
-  quic_h3reqdrive_send_in in = {
+  const u8                 path[] = {'*'};
+  const u8                 auth[] = {'e', 'x'};
+  u8                       req[256], scratch[128];
+  quic_obuf                req_ob = {req, sizeof req, 0};
+  wired_h3reqdrive_req     r;
+  wired_h3reqdrive_send_in in = {
       quic_span_of((const u8 *)"OPTIONS", 7), quic_span_of(path, sizeof path),
       quic_span_of(auth, sizeof auth), quic_span_of(0, 0)};
-  CHECK(quic_h3reqdrive_send_method(0, &in, &req_ob));
-  CHECK(quic_h3reqdrive_recv_get(
+  CHECK(wired_h3reqdrive_send_method(0, &in, &req_ob));
+  CHECK(wired_h3reqdrive_recv_get(
       quic_span_of(req, req_ob.len), quic_mspan_of(scratch, sizeof scratch),
       &r));
   CHECK(em_eq(r.method, r.method_len, "OPTIONS"));

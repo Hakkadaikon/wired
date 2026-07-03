@@ -22,7 +22,7 @@
  * @param body_out receives the response body bytes
  * @return 1 to send the body, 0 for a body-less 200. */
 typedef int (*wired_srvloop_handler)(
-    void *ctx, const quic_h3reqdrive_req *req, quic_obuf *body_out);
+    void *ctx, const wired_h3reqdrive_req *req, quic_obuf *body_out);
 
 /** Per-connection state of the server wire loop, re-armed by
  * wired_srvloop_init and driven by wired_srvloop_step. */
@@ -41,11 +41,11 @@ typedef struct {
   int hs_done_sent; /**< 1 once the confirmation (HANDSHAKE_DONE) has been
                      * emitted */
   wired_srvloop_handler
-                      on_request;  /**< app response-body builder, 0 if unset */
-  void               *req_ctx;     /**< opaque ctx passed to on_request */
-  int                 got_request; /**< 1 when this step decoded a request */
-  quic_h3reqdrive_req req; /**< the decoded request (valid when got_request) */
-  u8 req_scratch[512];     /**< backing store for req's path/body views */
+                       on_request; /**< app response-body builder, 0 if unset */
+  void                *req_ctx;    /**< opaque ctx passed to on_request */
+  int                  got_request; /**< 1 when this step decoded a request */
+  wired_h3reqdrive_req req; /**< the decoded request (valid when got_request) */
+  u8 req_scratch[512];      /**< backing store for req's path/body views */
   /* RFC 9000 2.2: the request stream (id 0) reassembled across datagrams. curl
    * splits one request's HEADERS and DATA into separate STREAM frames in
    * separate 1-RTT packets; each frame's data is written at its offset here and

@@ -49,7 +49,7 @@ static void copy_capped(quic_obuf *out, quic_span src) {
  * request body is a scratch view, so both paths copy out. Always sends a body.
  */
 static int app_on_request(
-    void *ctx, const quic_h3reqdrive_req *req, quic_obuf *body_out) {
+    void *ctx, const wired_h3reqdrive_req *req, quic_obuf *body_out) {
   (void)ctx;
   if (req->method_len == 4 && req->method[0] == 'P') {
     history_append(req->body, req->body_len);
@@ -62,12 +62,12 @@ static int app_on_request(
 
 /* Self-check (ponytail: the only non-trivial app logic is the store/echo). */
 static void app_selfcheck(void) {
-  u8                  out[64];
-  quic_obuf           ob   = {out, sizeof out, 0};
-  quic_h3reqdrive_req post = {(const u8 *)"POST", 4, 0, 0, 0, 0, 0, 0,
-                              (const u8 *)"hi",   2};
-  quic_h3reqdrive_req get  = {(const u8 *)"GET", 3, 0, 0, 0, 0, 0, 0, 0, 0};
-  g_history_len            = 0;
+  u8                   out[64];
+  quic_obuf            ob   = {out, sizeof out, 0};
+  wired_h3reqdrive_req post = {(const u8 *)"POST", 4, 0, 0, 0, 0, 0, 0,
+                               (const u8 *)"hi",   2};
+  wired_h3reqdrive_req get  = {(const u8 *)"GET", 3, 0, 0, 0, 0, 0, 0, 0, 0};
+  g_history_len             = 0;
   app_on_request(0, &post, &ob);
   if (ob.len != 2 || out[0] != 'h') die("selfcheck: echo failed\n");
   app_on_request(0, &get, &ob);

@@ -353,9 +353,9 @@ static void test_srvloop_full_roundtrip(void) {
   /* GET over 1-RTT -> a 200 response that the client can decode. */
   {
     quic_obuf gob = {get, sizeof get, 0};
-    CHECK(quic_h3reqdrive_send_get(
+    CHECK(wired_h3reqdrive_send_get(
         0,
-        &(quic_h3reqdrive_get_in){
+        &(wired_h3reqdrive_get_in){
             quic_span_of((const u8 *)"/", 1), quic_span_of((const u8 *)"h", 1)},
         &gob));
     glen = gob.len;
@@ -482,9 +482,9 @@ static void test_srvloop_onertt_get_is_acked(void) {
   lp_confirm(&f, &ob);
   {
     quic_obuf gob = {get, sizeof get, 0};
-    CHECK(quic_h3reqdrive_send_get(
+    CHECK(wired_h3reqdrive_send_get(
         0,
-        &(quic_h3reqdrive_get_in){
+        &(wired_h3reqdrive_get_in){
             quic_span_of((const u8 *)"/", 1), quic_span_of((const u8 *)"h", 1)},
         &gob));
     glen = gob.len;
@@ -576,12 +576,12 @@ static void check_confirm_and_200_payload(const u8 *pl, usz pll) {
  * s->hs_done_sent and the loop latches stay 0. This sets up the same internal
  * state curl reaches when it coalesces its Finished and GET in one datagram. */
 static void lp_confirm_via_dispatch(struct lp_fix *f) {
-  u8                  scratch[512];
-  quic_h3reqdrive_req req;
-  int                 got = 0;
-  quic_crypto_frame   cf;
-  u8                  payload[256];
-  usz                 plen;
+  u8                   scratch[512];
+  wired_h3reqdrive_req req;
+  int                  got = 0;
+  quic_crypto_frame    cf;
+  u8                   payload[256];
+  usz                  plen;
   lp_make_client_hello(f);
   lp_drive_to_flight(f);
   lp_make_client_finished(f);
@@ -617,9 +617,9 @@ static void test_srvloop_confirm_and_200_coalesce(void) {
   CHECK(f.l.hs_done_sent == 0); /* confirmation not yet sealed */
   {
     quic_obuf gob = {get, sizeof get, 0};
-    CHECK(quic_h3reqdrive_send_get(
+    CHECK(wired_h3reqdrive_send_get(
         0,
-        &(quic_h3reqdrive_get_in){
+        &(wired_h3reqdrive_get_in){
             quic_span_of((const u8 *)"/", 1), quic_span_of((const u8 *)"h", 1)},
         &gob));
     glen = gob.len;
@@ -689,12 +689,12 @@ static usz lp_padding_then_crypto(u8 *out, usz cap, const u8 *msg, usz mlen) {
  * dispatcher is exercised directly because the wire helper wraps everything in
  * one CRYPTO frame (RFC 9000 12.4). */
 static void test_srvloop_dispatch_padding_before_crypto(void) {
-  struct lp_fix       f;
-  u8                  payload[256];
-  usz                 plen;
-  quic_h3reqdrive_req req;
-  u8                  scratch[512];
-  int                 got = 0;
+  struct lp_fix        f;
+  u8                   payload[256];
+  usz                  plen;
+  wired_h3reqdrive_req req;
+  u8                   scratch[512];
+  int                  got = 0;
   lp_make_client_hello(&f);
   lp_drive_to_flight(&f);
   lp_make_client_finished(&f);
@@ -730,9 +730,9 @@ static void test_srvloop_padding_before_stream(void) {
       1);
   {
     quic_obuf gob = {get, sizeof get, 0};
-    CHECK(quic_h3reqdrive_send_get(
+    CHECK(wired_h3reqdrive_send_get(
         0,
-        &(quic_h3reqdrive_get_in){
+        &(wired_h3reqdrive_get_in){
             quic_span_of((const u8 *)"/", 1), quic_span_of((const u8 *)"h", 1)},
         &gob));
     glen = gob.len;
@@ -785,12 +785,12 @@ static usz lp_uni_stream(u8 *out, usz cap, u64 stream_id, u8 lead) {
  * ids 2 and 6) must be accepted without being mistaken for a request — no
  * got_request, no error. */
 static void test_srvloop_dispatch_uni_streams_not_request(void) {
-  struct lp_fix       f;
-  u8                  payload[256];
-  usz                 off = 0;
-  quic_h3reqdrive_req req;
-  u8                  scratch[512];
-  int                 got = 0;
+  struct lp_fix        f;
+  u8                   payload[256];
+  usz                  off = 0;
+  wired_h3reqdrive_req req;
+  u8                   scratch[512];
+  int                  got = 0;
   lp_make_client_hello(&f);
   lp_drive_to_flight(&f);
   off += lp_uni_stream(payload + off, sizeof payload - off, 2, 0x00);
@@ -811,21 +811,21 @@ static void test_srvloop_dispatch_uni_streams_not_request(void) {
  * unidirectional streams is the one decoded: the dispatcher skips the uni
  * STREAMs and drives the request (RFC 9000 2.1, RFC 9114 6.1/6.2). */
 static void test_srvloop_dispatch_get_after_uni_streams(void) {
-  struct lp_fix       f;
-  u8                  payload[576], get[512];
-  usz                 off = 0, glen;
-  quic_h3reqdrive_req req;
-  u8                  scratch[512];
-  int                 got = 0;
+  struct lp_fix        f;
+  u8                   payload[576], get[512];
+  usz                  off = 0, glen;
+  wired_h3reqdrive_req req;
+  u8                   scratch[512];
+  int                  got = 0;
   lp_make_client_hello(&f);
   lp_drive_to_flight(&f);
   off += lp_uni_stream(payload + off, sizeof payload - off, 2, 0x00);
   off += lp_uni_stream(payload + off, sizeof payload - off, 3, 0x03);
   {
     quic_obuf gob = {get, sizeof get, 0};
-    CHECK(quic_h3reqdrive_send_get(
+    CHECK(wired_h3reqdrive_send_get(
         0,
-        &(quic_h3reqdrive_get_in){
+        &(wired_h3reqdrive_get_in){
             quic_span_of((const u8 *)"/", 1), quic_span_of((const u8 *)"h", 1)},
         &gob));
     glen = gob.len;
@@ -849,16 +849,16 @@ static void test_srvloop_dispatch_get_after_uni_streams(void) {
  * the two frame lengths in hl and dl. This mirrors curl's POST on the wire. */
 static usz lp_split_post_frames(
     u8 *hp, usz hcap, usz *hl, u8 *dp, usz dcap, usz *dl) {
-  u8                      reqb[256];
-  usz                     rlen = 0, hb;
-  quic_stream_frame       sf;
-  quic_h3_frame           hf   = {0};
-  const u8               *body = (const u8 *)"hi";
-  quic_h3reqdrive_send_in in   = {
+  u8                       reqb[256];
+  usz                      rlen = 0, hb;
+  quic_stream_frame        sf;
+  quic_h3_frame            hf   = {0};
+  const u8                *body = (const u8 *)"hi";
+  wired_h3reqdrive_send_in in   = {
       quic_span_of((const u8 *)"POST", 4), quic_span_of((const u8 *)"/", 1),
       quic_span_of((const u8 *)"h", 1), quic_span_of(body, 2)};
   quic_obuf rob = {reqb, sizeof reqb, 0};
-  CHECK(quic_h3reqdrive_send_method(0, &in, &rob));
+  CHECK(wired_h3reqdrive_send_method(0, &in, &rob));
   rlen = rob.len;
   CHECK(quic_frame_get_stream(reqb, rlen, &sf) > 0);
   hb = quic_h3_frame_get(quic_span_of(sf.data, (usz)sf.length), &hf);
@@ -873,11 +873,11 @@ static usz lp_split_post_frames(
  * separate request STREAM frames in ONE datagram is reassembled in offset order
  * and the body recovered — not dropped as body 0. */
 static void test_srvloop_dispatch_split_request_streams(void) {
-  struct lp_fix       f;
-  u8                  payload[512], scratch[512];
-  usz                 hl, dl;
-  quic_h3reqdrive_req req;
-  int                 got = 0;
+  struct lp_fix        f;
+  u8                   payload[512], scratch[512];
+  usz                  hl, dl;
+  wired_h3reqdrive_req req;
+  int                  got = 0;
   lp_make_client_hello(&f);
   lp_drive_to_flight(&f);
   /* HEADERS frame then DATA frame back to back in one payload. */
@@ -904,11 +904,11 @@ static void test_srvloop_dispatch_split_request_streams(void) {
  * the stream and the body is recovered — the real-curl failure that reported
  * body_len 0 because only one datagram was reassembled. */
 static void test_srvloop_dispatch_split_across_datagrams(void) {
-  struct lp_fix       f;
-  u8                  hp[256], dp[256], scratch[512];
-  usz                 hl, dl;
-  quic_h3reqdrive_req req;
-  int                 got = 0;
+  struct lp_fix        f;
+  u8                   hp[256], dp[256], scratch[512];
+  usz                  hl, dl;
+  wired_h3reqdrive_req req;
+  int                  got = 0;
   lp_make_client_hello(&f);
   lp_drive_to_flight(&f);
   lp_split_post_frames(hp, sizeof hp, &hl, dp, sizeof dp, &dl);
@@ -942,7 +942,7 @@ static u8  g_test_history[256];
 static usz g_test_history_len;
 
 static int lp_echo_handler(
-    void *ctx, const quic_h3reqdrive_req *req, quic_obuf *body_out) {
+    void *ctx, const wired_h3reqdrive_req *req, quic_obuf *body_out) {
   usz i;
   (void)ctx;
   for (i = 0; i < req->body_len && i < body_out->cap; i++)
@@ -961,11 +961,11 @@ static void lp_post_echo(struct lp_fix *f, const u8 *body, usz blen) {
   usz              rlen, slen;
   quic_obuf        ob = {out, sizeof out, 0}, rob = {reqb, sizeof reqb, 0};
   const u8        *pl;
-  quic_h3conn_resp resp_out  = {0};
-  quic_h3reqdrive_send_in in = {
+  quic_h3conn_resp resp_out   = {0};
+  wired_h3reqdrive_send_in in = {
       quic_span_of((const u8 *)"POST", 4), quic_span_of((const u8 *)"/", 1),
       quic_span_of((const u8 *)"h", 1), quic_span_of(body, blen)};
-  CHECK(quic_h3reqdrive_send_method(0, &in, &rob));
+  CHECK(wired_h3reqdrive_send_method(0, &in, &rob));
   rlen = rob.len;
   slen = client_seal_onertt(f, reqb, rlen, spkt, sizeof spkt);
   CHECK(
