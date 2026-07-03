@@ -8,8 +8,15 @@
  * an example/binary that wants trace output uses these rather than pulling in
  * a print library. */
 
-/* Write v as decimal into out at *at, left-padded with '0' to `width`. */
-void wired_fmt_u64(char *out, usz *at, u64 v, usz width);
+/* The value to format and its minimum zero-padded width. */
+typedef struct {
+  u64 v;
+  usz width;
+} wired_fmt_u64_in;
+
+/* Write in->v as decimal into out at *at, left-padded with '0' to
+ * `in->width`. */
+void wired_fmt_u64(char *out, usz *at, const wired_fmt_u64_in *in);
 
 /* Write a NUL-terminated string to stderr (fd 2). */
 void wired_log_str(const char *s);

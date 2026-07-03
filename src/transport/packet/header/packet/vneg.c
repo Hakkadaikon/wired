@@ -8,7 +8,7 @@ static int vneg_put_cid(quic_obuf *out, quic_span cid) {
   if (out->len + 1 + cid.n > out->cap) return 0;
   out->p[out->len] = (u8)cid.n;
   out->len += 1;
-  return quic_put_bytes(out->p, out->cap, &out->len, cid.p, cid.n);
+  return quic_put_bytes(quic_mspan_of(out->p, out->cap), &out->len, quic_span_of(cid.p, cid.n));
 }
 
 /* True if the whole VN packet fits in cap and has at least one version. */
@@ -45,7 +45,7 @@ static int vneg_take_cid(quic_span buf, usz *off, quic_mspan *dst) {
   if (len > QUIC_MAX_CID_LEN) return 0;
   *off += 1;
   dst->n = len;
-  return quic_take_bytes(buf.p, buf.n, off, dst->p, len);
+  return quic_take_bytes(quic_span_of(buf.p, buf.n), off, quic_mspan_of(dst->p, len));
 }
 
 /* True if the 4-byte Version field at buf+1 is all zero. */

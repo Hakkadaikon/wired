@@ -6,7 +6,10 @@ void test_resume(void) {
   u8          tk[4] = {1, 2, 3, 4};
 
   /* store succeeds and records the ticket */
-  CHECK(quic_resume_store(&r, tk, sizeof tk, 100, 50, 1000) == 1);
+  CHECK(
+      quic_resume_store(
+          &r, quic_span_of(tk, sizeof tk),
+          &(quic_resume_store_in){100, 50, 1000}) == 1);
   CHECK(r.have_ticket == 1);
   CHECK(r.ticket_len == 4);
   CHECK(r.ticket[0] == 1 && r.ticket[3] == 4);
@@ -40,6 +43,9 @@ void test_resume(void) {
   /* RFC 8446 4.6.1: oversized ticket is rejected */
   u8          big[QUIC_RESUME_TICKET_MAX + 1] = {0};
   quic_resume r2                              = {0};
-  CHECK(quic_resume_store(&r2, big, sizeof big, 0, 10, 0) == 0);
+  CHECK(
+      quic_resume_store(
+          &r2, quic_span_of(big, sizeof big), &(quic_resume_store_in){0, 10, 0}) ==
+      0);
   CHECK(r2.have_ticket == 0);
 }

@@ -1,6 +1,7 @@
 #ifndef QUIC_VARINT_H
 #define QUIC_VARINT_H
 
+#include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
 
 /* RFC 9000 16. Variable-length integer encoding.
@@ -23,9 +24,9 @@ usz quic_varint_decode(const u8 *buf, usz n, u64 *out);
  * decodes/encodes one varint at buf+*off and advances *off on success. */
 
 /* Returns 1 ok, 0 if truncated. */
-int quic_varint_take(const u8 *buf, usz n, usz *off, u64 *out);
+int quic_varint_take(quic_span buf, usz *off, u64 *out);
 
 /* Returns 1 ok, 0 if out of range or no room within cap. */
-int quic_varint_put(u8 *buf, usz cap, usz *off, u64 v);
+int quic_varint_put(quic_mspan buf, usz *off, u64 v);
 
 #endif

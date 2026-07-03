@@ -6,7 +6,7 @@
 int quic_pktbuild_framepack(
     quic_obuf *out, const quic_span *frames, usz n_frames) {
   for (usz i = 0; i < n_frames; i++) {
-    if (!quic_put_bytes(out->p, out->cap, &out->len, frames[i].p, frames[i].n))
+    if (!quic_put_bytes(quic_mspan_of(out->p, out->cap), &out->len, quic_span_of(frames[i].p, frames[i].n)))
       return 0;
   }
   return 1;

@@ -54,7 +54,7 @@ static int put_len_pn(
     const quic_lhdr_desc *d, quic_obuf *out, usz *length_off_out) {
   u64 remaining   = (u64)d->pn_len + d->payload_len + 16;
   *length_off_out = out->len;
-  if (!quic_varint_put(out->p, out->cap, &out->len, remaining)) return 0;
+  if (!quic_varint_put(quic_mspan_of(out->p, out->cap), &out->len, remaining)) return 0;
   if (out->len + d->pn_len > out->cap) return 0;
   out->len += quic_pnum_encode(out->p + out->len, d->pn, d->pn_len);
   return 1;

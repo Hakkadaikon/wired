@@ -12,17 +12,17 @@ static int ncid_valid(const quic_ncid_frame *f) {
 
 /* Write type, seq, retire_prior_to varints. Returns 1 ok, 0 on overflow. */
 static int put_ncid_head(quic_obuf *o, const quic_ncid_frame *f) {
-  if (!quic_varint_put(o->p, o->cap, &o->len, QUIC_FRAME_NEW_CID)) return 0;
-  if (!quic_varint_put(o->p, o->cap, &o->len, f->seq)) return 0;
-  return quic_varint_put(o->p, o->cap, &o->len, f->retire_prior_to);
+  if (!quic_varint_put(quic_mspan_of(o->p, o->cap), &o->len, QUIC_FRAME_NEW_CID)) return 0;
+  if (!quic_varint_put(quic_mspan_of(o->p, o->cap), &o->len, f->seq)) return 0;
+  return quic_varint_put(quic_mspan_of(o->p, o->cap), &o->len, f->retire_prior_to);
 }
 
 /* Write the length byte, the CID, and the reset token. */
 static int put_ncid_body(quic_obuf *o, const quic_ncid_frame *f) {
   if (o->len >= o->cap) return 0;
   o->p[o->len++] = f->cid_len;
-  if (!quic_put_bytes(o->p, o->cap, &o->len, f->cid, f->cid_len)) return 0;
-  return quic_put_bytes(o->p, o->cap, &o->len, f->token, QUIC_NCID_TOKEN);
+  if (!quic_put_bytes(quic_mspan_of(o->p, o->cap), &o->len, quic_span_of(f->cid, f->cid_len))) return 0;
+  return quic_put_bytes(quic_mspan_of(o->p, o->cap), &o->len, quic_span_of(f->token, QUIC_NCID_TOKEN));
 }
 
 /* Write head then body. Returns 1 ok, 0 on overflow. */
@@ -40,8 +40,8 @@ usz quic_ncid_encode(u8 *buf, usz cap, const quic_ncid_frame *f) {
 
 /* Read seq and retire_prior_to varints. Returns 1 ok, 0 bad. */
 static int take_ncid_head(quic_span in, usz *off, quic_ncid_frame *f) {
-  if (!quic_varint_take(in.p, in.n, off, &f->seq)) return 0;
-  return quic_varint_take(in.p, in.n, off, &f->retire_prior_to);
+  if (!quic_varint_take(quic_span_of(in.p, in.n), off, &f->seq)) return 0;
+  return quic_varint_take(quic_span_of(in.p, in.n), off, &f->retire_prior_to);
 }
 
 /* The CID length byte at *off is present and within the QUIC maximum. */
@@ -53,8 +53,8 @@ static int cid_len_ok(const u8 *buf, usz n, usz off) {
 static int take_ncid_body(quic_span in, usz *off, quic_ncid_frame *f) {
   if (!cid_len_ok(in.p, in.n, *off)) return 0;
   f->cid_len = in.p[(*off)++];
-  if (!quic_take_bytes(in.p, in.n, off, f->cid, f->cid_len)) return 0;
-  return quic_take_bytes(in.p, in.n, off, f->token, QUIC_NCID_TOKEN);
+  if (!quic_take_bytes(quic_span_of(in.p, in.n), off, quic_mspan_of(f->cid, f->cid_len))) return 0;
+  return quic_take_bytes(quic_span_of(in.p, in.n), off, quic_mspan_of(f->token, QUIC_NCID_TOKEN));
 }
 
 usz quic_ncid_decode(const u8 *buf, usz n, quic_ncid_frame *f) {

@@ -11,7 +11,7 @@ usz quic_qpack_string_encode(quic_mspan buf, quic_span src) {
   quic_qpack_pfx pfx = {7, 0};
   usz            off = quic_qpack_int_encode(buf, pfx, src.n);
   if (off == 0) return 0;
-  if (!quic_put_bytes(buf.p, buf.n, &off, src.p, src.n)) return 0;
+  if (!quic_put_bytes(quic_mspan_of(buf.p, buf.n), &off, quic_span_of(src.p, src.n))) return 0;
   return off;
 }
 
@@ -39,7 +39,7 @@ static int take_header(quic_span buf, qstr_head *h) {
 static int str_raw(quic_span oct, quic_obuf *dst) {
   usz off = 0;
   if (oct.n > dst->cap) return 0;
-  if (!quic_take_bytes(oct.p, oct.n, &off, dst->p, oct.n)) return 0;
+  if (!quic_take_bytes(quic_span_of(oct.p, oct.n), &off, quic_mspan_of(dst->p, oct.n))) return 0;
   dst->len = oct.n;
   return 1;
 }

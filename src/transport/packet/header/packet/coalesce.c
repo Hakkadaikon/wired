@@ -24,7 +24,7 @@ static int has_token(u8 byte0) {
 /* Skip the Initial token (a varint length plus that many bytes). */
 static int skip_token(const u8 *buf, usz n, usz *p) {
   u64 tlen;
-  if (!quic_varint_take(buf, n, p, &tlen)) return 0;
+  if (!quic_varint_take(quic_span_of(buf, n), p, &tlen)) return 0;
   *p += (usz)tlen;
   return *p <= n;
 }
@@ -49,7 +49,7 @@ static int skip_to_length(quic_span buf, usz *p) {
  * returns its total length from off, or 0 if it runs past the datagram. */
 static usz take_length_bound(quic_span buf, usz off, usz *p) {
   u64 length;
-  if (!quic_varint_take(buf.p, buf.n, p, &length)) return 0;
+  if (!quic_varint_take(quic_span_of(buf.p, buf.n), p, &length)) return 0;
   if (*p + (usz)length > buf.n) return 0;
   return *p - off + (usz)length;
 }

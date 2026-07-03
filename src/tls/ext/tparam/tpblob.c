@@ -8,9 +8,9 @@
 
 usz quic_tparam_put_blob(quic_obuf *out, u64 id, quic_span val) {
   usz off = 0;
-  int ok  = quic_varint_put(out->p, out->cap, &off, id) &
-           quic_varint_put(out->p, out->cap, &off, val.n) &
-           quic_put_bytes(out->p, out->cap, &off, val.p, val.n);
+  int ok  = quic_varint_put(quic_mspan_of(out->p, out->cap), &off, id) &
+           quic_varint_put(quic_mspan_of(out->p, out->cap), &off, val.n) &
+           quic_put_bytes(quic_mspan_of(out->p, out->cap), &off, quic_span_of(val.p, val.n));
   return ok ? off : 0;
 }
 
@@ -22,8 +22,8 @@ typedef struct {
 
 /* Read both header varints; on success hdr->len holds the value length. */
 static int blob_take_hdr(quic_span buf, usz *off, tpblob_hdr *hdr) {
-  int ok = quic_varint_take(buf.p, buf.n, off, &hdr->id) &
-           quic_varint_take(buf.p, buf.n, off, &hdr->len);
+  int ok = quic_varint_take(quic_span_of(buf.p, buf.n), off, &hdr->id) &
+           quic_varint_take(quic_span_of(buf.p, buf.n), off, &hdr->len);
   return ok && hdr->len <= buf.n - *off;
 }
 
@@ -55,13 +55,13 @@ static usz pa_build_value(
   usz        off = 0;
   u8         cl  = pa->cid_len;
   quic_mspan mv  = quic_mspan_of(v, cap);
-  int        ok  = (cl <= 20) & quic_put_bytes(v, cap, &off, pa->ipv4, 4) &
+  int        ok  = (cl <= 20) & quic_put_bytes(quic_mspan_of(v, cap), &off, quic_span_of(pa->ipv4, 4)) &
            pa_put_port(mv, &off, pa->ipv4_port) &
-           quic_put_bytes(v, cap, &off, pa->ipv6, 16) &
+           quic_put_bytes(quic_mspan_of(v, cap), &off, quic_span_of(pa->ipv6, 16)) &
            pa_put_port(mv, &off, pa->ipv6_port) &
-           quic_put_bytes(v, cap, &off, &cl, 1) &
-           quic_put_bytes(v, cap, &off, pa->cid, cl) &
-           quic_put_bytes(v, cap, &off, pa->reset_token, 16);
+           quic_put_bytes(quic_mspan_of(v, cap), &off, quic_span_of(&cl, 1)) &
+           quic_put_bytes(quic_mspan_of(v, cap), &off, quic_span_of(pa->cid, cl)) &
+           quic_put_bytes(quic_mspan_of(v, cap), &off, quic_span_of(pa->reset_token, 16));
   return ok ? off : 0;
 }
 
@@ -86,9 +86,9 @@ static int pa_take_port(quic_span v, usz *off, u16 *port) {
 /* Read fixed prefix from value view at *off. Returns 1 ok, 0 if truncated. */
 static int pa_take_addrs(
     quic_span v, usz *off, struct quic_preferred_address *pa) {
-  return quic_take_bytes(v.p, v.n, off, pa->ipv4, 4) &
+  return quic_take_bytes(quic_span_of(v.p, v.n), off, quic_mspan_of(pa->ipv4, 4)) &
          pa_take_port(v, off, &pa->ipv4_port) &
-         quic_take_bytes(v.p, v.n, off, pa->ipv6, 16) &
+         quic_take_bytes(quic_span_of(v.p, v.n), off, quic_mspan_of(pa->ipv6, 16)) &
          pa_take_port(v, off, &pa->ipv6_port);
 }
 
@@ -96,9 +96,9 @@ static int pa_take_addrs(
 static int pa_take_cid_token(
     quic_span v, usz *off, struct quic_preferred_address *pa) {
   int ok =
-      quic_take_bytes(v.p, v.n, off, &pa->cid_len, 1) & (pa->cid_len <= 20);
-  return ok & quic_take_bytes(v.p, v.n, off, pa->cid, pa->cid_len) &
-         quic_take_bytes(v.p, v.n, off, pa->reset_token, 16);
+      quic_take_bytes(quic_span_of(v.p, v.n), off, quic_mspan_of(&pa->cid_len, 1)) & (pa->cid_len <= 20);
+  return ok & quic_take_bytes(quic_span_of(v.p, v.n), off, quic_mspan_of(pa->cid, pa->cid_len)) &
+         quic_take_bytes(quic_span_of(v.p, v.n), off, quic_mspan_of(pa->reset_token, 16));
 }
 
 /* Parse a value view of exactly len bytes. Returns 1 ok, 0 if malformed. */

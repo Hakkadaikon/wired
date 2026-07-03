@@ -15,7 +15,7 @@ usz quic_tls_alpn_encode(quic_obuf *out, quic_span proto) {
   if (!alpn_fits(proto.n, out->cap)) return 0;
   quic_put_be16(out->p, (u16)(1 + proto.n));
   out->p[2] = (u8)proto.n;
-  quic_put_bytes(out->p, out->cap, &off, proto.p, proto.n); /* room checked above */
+  quic_put_bytes(quic_mspan_of(out->p, out->cap), &off, quic_span_of(proto.p, proto.n)); /* room checked above */
   out->len = off;
   return off;
 }

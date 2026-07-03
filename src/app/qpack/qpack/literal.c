@@ -76,7 +76,7 @@ static usz litname_name_encode(quic_mspan buf, int never, quic_span name) {
   quic_qpack_pfx pfx = {3, QPACK_LITNAME | bit(never, QPACK_LITNAME_N)};
   usz            off = quic_qpack_int_encode(buf, pfx, name.n);
   if (off == 0) return 0;
-  if (!quic_put_bytes(buf.p, buf.n, &off, name.p, name.n)) return 0;
+  if (!quic_put_bytes(quic_mspan_of(buf.p, buf.n), &off, quic_span_of(name.p, name.n))) return 0;
   return off;
 }
 
@@ -96,7 +96,7 @@ static int is_litname(quic_span buf) {
 static int name_raw(quic_span oct, quic_obuf *nm) {
   usz off = 0;
   if (oct.n > nm->cap) return 0;
-  if (!quic_take_bytes(oct.p, oct.n, &off, nm->p, oct.n)) return 0;
+  if (!quic_take_bytes(quic_span_of(oct.p, oct.n), &off, quic_mspan_of(nm->p, oct.n))) return 0;
   nm->len = oct.n;
   return 1;
 }

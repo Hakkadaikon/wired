@@ -1,26 +1,26 @@
 #ifndef QUIC_UTIL_BYTES_H
 #define QUIC_UTIL_BYTES_H
 
+#include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
 
 /* Cursor byte-copy helpers shared by the frame codecs. Inline so multiple
  * codec translation units can use them without redefining a static helper. */
 
-/* Append n bytes of src at *off (cap total). Returns 1 ok, 0 if no room. */
-static inline int quic_put_bytes(
-    u8 *buf, usz cap, usz *off, const u8 *src, usz n) {
-  if (*off + n > cap) return 0;
-  for (usz i = 0; i < n; i++) buf[*off + i] = src[i];
-  *off += n;
+/* Append src into buf at *off. Returns 1 ok, 0 if no room. */
+static inline int quic_put_bytes(quic_mspan buf, usz *off, quic_span src) {
+  if (*off + src.n > buf.n) return 0;
+  for (usz i = 0; i < src.n; i++) buf.p[*off + i] = src.p[i];
+  *off += src.n;
   return 1;
 }
 
-/* Copy n bytes into dst from *off (len total). Returns 1 ok, 0 if truncated. */
-static inline int quic_take_bytes(
-    const u8 *buf, usz len, usz *off, u8 *dst, usz n) {
-  if (*off + n > len) return 0;
-  for (usz i = 0; i < n; i++) dst[i] = buf[*off + i];
-  *off += n;
+/* Copy dst.n bytes into dst from *off (buf total). Returns 1 ok, 0 if
+ * truncated. */
+static inline int quic_take_bytes(quic_span buf, usz *off, quic_mspan dst) {
+  if (*off + dst.n > buf.n) return 0;
+  for (usz i = 0; i < dst.n; i++) dst.p[i] = buf.p[*off + i];
+  *off += dst.n;
   return 1;
 }
 

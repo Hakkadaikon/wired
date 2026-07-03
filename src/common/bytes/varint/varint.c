@@ -11,21 +11,30 @@ usz quic_varint_len(u64 v) {
   return len[i];
 }
 
-/* Write n bytes of v big-endian into buf, OR the 2-bit prefix into buf[0]. */
-static void put_be(u8 *buf, u64 v, usz n, u8 prefix) {
-  usz i = n;
+/* The value/length pair put_be writes big-endian, plus its 2-bit prefix. */
+typedef struct {
+  u64 v;
+  usz n;
+  u8  prefix;
+} varint_be_out;
+
+/* Write o->n bytes of o->v big-endian into buf, OR o->prefix into buf[0]. */
+static void put_be(u8 *buf, const varint_be_out *o) {
+  usz i = o->n;
+  u64 v = o->v;
   while (i-- > 0) {
     buf[i] = (u8)(v & 0xFF);
     v >>= 8;
   }
-  buf[0] |= prefix;
+  buf[0] |= o->prefix;
 }
 
 usz quic_varint_encode(u8 *buf, u64 v) {
   usz             n         = quic_varint_len(v);
   static const u8 prefix[9] = {0, 0x00, 0x40, 0, 0x80, 0, 0, 0, 0xC0};
+  varint_be_out   o         = {v, n, prefix[n]};
   if (n == 0) return 0;
-  put_be(buf, v, n, prefix[n]);
+  put_be(buf, &o);
   return n;
 }
 
@@ -46,16 +55,16 @@ usz quic_varint_decode(const u8 *buf, usz n, u64 *out) {
   return need;
 }
 
-int quic_varint_take(const u8 *buf, usz n, usz *off, u64 *out) {
-  usz used = quic_varint_decode(buf + *off, n - *off, out);
+int quic_varint_take(quic_span buf, usz *off, u64 *out) {
+  usz used = quic_varint_decode(buf.p + *off, buf.n - *off, out);
   if (used == 0) return 0;
   *off += used;
   return 1;
 }
 
-int quic_varint_put(u8 *buf, usz cap, usz *off, u64 v) {
+int quic_varint_put(quic_mspan buf, usz *off, u64 v) {
   usz need = quic_varint_len(v);
-  if (need == 0 || *off + need > cap) return 0;
-  *off += quic_varint_encode(buf + *off, v);
+  if (need == 0 || *off + need > buf.n) return 0;
+  *off += quic_varint_encode(buf.p + *off, v);
   return 1;
 }
