@@ -59,61 +59,45 @@ static usz put_section_prefix(u8 *out, usz cap) {
   return quic_qpack_prefix_encode(out, cap, &pfx);
 }
 
-/* Append n field lines from fields[0..n-1] after the prefix. Returns the
- * total length or 0 on overflow. */
-static usz put_fields(
-    const pseudo_field *fields, usz n, u8 *out, usz cap, usz off) {
+/* Append n field lines from fields[0..n-1] after out->len. Returns 1 ok, 0 on
+ * overflow. */
+static int put_fields(const pseudo_field *fields, usz n, quic_obuf *out) {
   for (usz i = 0; i < n; i++) {
-    usz w = put_pseudo(&fields[i], out + off, cap - off);
+    usz w = put_pseudo(&fields[i], out->p + out->len, out->cap - out->len);
     if (!w) return 0;
-    off += w;
+    out->len += w;
   }
-  return off;
-}
-
-/* Encode the section prefix then nf field lines from fields. Returns 1 with
- * *out_len set, 0 on overflow. */
-static int put_section(
-    const pseudo_field *fields, usz nf, u8 *out, usz cap, usz *out_len) {
-  usz off = put_section_prefix(out, cap);
-  usz total;
-  if (!off) return 0;
-  total = put_fields(fields, nf, out, cap, off);
-  if (!total) return 0;
-  *out_len = total;
   return 1;
 }
 
+/* Encode the section prefix then nf field lines from fields into out.
+ * Returns 1 with out->len set, 0 on overflow. */
+static int put_section(const pseudo_field *fields, usz nf, quic_obuf *out) {
+  usz off = put_section_prefix(out->p, out->cap);
+  if (!off) return 0;
+  out->len = off;
+  return put_fields(fields, nf, out);
+}
+
 /* RFC 9204 4.5 / RFC 9114 4.3.1 */
-int quic_h3req_enc_pseudo(
-    const u8 *method,
-    usz       m_len,
-    const u8 *path,
-    usz       p_len,
-    const u8 *scheme,
-    usz       s_len,
-    const u8 *authority,
-    usz       a_len,
-    u8       *out,
-    usz       cap,
-    usz      *out_len) {
+int quic_h3req_enc_pseudo(const quic_h3req_pseudo_in *in, quic_obuf *out) {
   pseudo_field fields[4] = {
-      {method, m_len, ":method", QPACK_METHOD_NAME_INDEX},
-      {scheme, s_len, ":scheme", QPACK_SCHEME_NAME_INDEX},
-      {authority, a_len, ":authority", QPACK_AUTHORITY_NAME_INDEX},
-      {path, p_len, ":path", QPACK_PATH_NAME_INDEX},
+      {in->method.p, in->method.n, ":method", QPACK_METHOD_NAME_INDEX},
+      {in->scheme.p, in->scheme.n, ":scheme", QPACK_SCHEME_NAME_INDEX},
+      {in->authority.p, in->authority.n, ":authority",
+       QPACK_AUTHORITY_NAME_INDEX},
+      {in->path.p, in->path.n, ":path", QPACK_PATH_NAME_INDEX},
   };
-  return put_section(fields, 4, out, cap, out_len);
+  return put_section(fields, 4, out);
 }
 
 /* RFC 9114 4.4 / RFC 9110 9.3.6: a CONNECT request carries only :method=CONNECT
  * and :authority; :scheme and :path are omitted. */
-int quic_h3req_enc_connect(
-    const u8 *authority, usz a_len, u8 *out, usz cap, usz *out_len) {
+int quic_h3req_enc_connect(quic_span authority, quic_obuf *out) {
   static const u8 connect[] = {'C', 'O', 'N', 'N', 'E', 'C', 'T'};
-  pseudo_field    fields[2] = {
+  pseudo_field     fields[2] = {
       {connect, sizeof connect, ":method", QPACK_METHOD_NAME_INDEX},
-      {authority, a_len, ":authority", QPACK_AUTHORITY_NAME_INDEX},
+      {authority.p, authority.n, ":authority", QPACK_AUTHORITY_NAME_INDEX},
   };
-  return put_section(fields, 2, out, cap, out_len);
+  return put_section(fields, 2, out);
 }

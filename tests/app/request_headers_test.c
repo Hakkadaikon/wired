@@ -5,7 +5,7 @@
  * when "/"). */
 static void test_get_field_section(void) {
   u8        out[64];
-  usz       n    = 0;
+  quic_obuf ob   = {out, sizeof out, 0};
   const u8 *path = (const u8 *)"/", *authority = (const u8 *)"example.com";
   u64       idx       = 0;
   int       is_static = 0;
@@ -13,7 +13,10 @@ static void test_get_field_section(void) {
   u8        val[32];
   quic_obuf vb          = quic_obuf_of(val, sizeof val);
   quic_qpack_nameref nr = {0, 0, 0};
-  CHECK(quic_h3req_enc_get(path, 1, authority, 11, out, sizeof out, &n) == 1);
+  quic_h3req_headers_in hin = {
+      quic_span_of(path, 1), quic_span_of(authority, 11)};
+  CHECK(quic_h3req_enc_get(&hin, &ob) == 1);
+  usz n = ob.len;
   CHECK(out[0] == 0x00 && out[1] == 0x00);
   /* :method GET indexed. */
   used =
@@ -36,9 +39,11 @@ static void test_get_field_section(void) {
 /* Insufficient capacity fails. */
 static void test_get_overflow(void) {
   u8        out[3];
-  usz       n    = 0;
+  quic_obuf ob   = {out, sizeof out, 0};
   const u8 *path = (const u8 *)"/", *authority = (const u8 *)"example.com";
-  CHECK(quic_h3req_enc_get(path, 1, authority, 11, out, sizeof out, &n) == 0);
+  quic_h3req_headers_in hin = {
+      quic_span_of(path, 1), quic_span_of(authority, 11)};
+  CHECK(quic_h3req_enc_get(&hin, &ob) == 0);
 }
 
 void test_request_headers(void) {

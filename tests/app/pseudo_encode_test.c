@@ -5,11 +5,13 @@
  * with a real value is not, so it is a Literal With Name Reference. */
 static void test_pseudo_indexed_and_namref(void) {
   u8        out[64];
-  usz       n = 0;
+  quic_obuf ob = {out, sizeof out, 0};
   const u8 *m = (const u8 *)"GET", *s = (const u8 *)"https";
   const u8 *p = (const u8 *)"/", *a = (const u8 *)"example.com";
-  CHECK(
-      quic_h3req_enc_pseudo(m, 3, p, 1, s, 5, a, 11, out, sizeof out, &n) == 1);
+  quic_h3req_pseudo_in in = {
+      quic_span_of(m, 3), quic_span_of(s, 5), quic_span_of(a, 11),
+      quic_span_of(p, 1)};
+  CHECK(quic_h3req_enc_pseudo(&in, &ob) == 1);
   /* empty prefix (RIC 0, Base 0). */
   CHECK(out[0] == 0x00 && out[1] == 0x00);
   /* :method GET = static 17 -> 0x80|0x40|17, :scheme https = 23, :path / = 1.
@@ -24,7 +26,7 @@ static void test_pseudo_indexed_and_namref(void) {
  * pseudo-headers resolve to their static names/values. */
 static void test_pseudo_roundtrip(void) {
   u8                 out[64];
-  usz                n = 0;
+  quic_obuf          ob = {out, sizeof out, 0};
   const u8          *m = (const u8 *)"GET", *s = (const u8 *)"https";
   const u8          *p = (const u8 *)"/", *a = (const u8 *)"example.com";
   u64                idx       = 0;
@@ -34,8 +36,11 @@ static void test_pseudo_roundtrip(void) {
   quic_obuf          vb = quic_obuf_of(val, sizeof val);
   quic_qpack_nameref nr = {0, 0, 0};
   const char        *nm, *vv;
-  CHECK(
-      quic_h3req_enc_pseudo(m, 3, p, 1, s, 5, a, 11, out, sizeof out, &n) == 1);
+  quic_h3req_pseudo_in in = {
+      quic_span_of(m, 3), quic_span_of(s, 5), quic_span_of(a, 11),
+      quic_span_of(p, 1)};
+  CHECK(quic_h3req_enc_pseudo(&in, &ob) == 1);
+  usz n = ob.len;
   /* first field line after the 2-byte prefix: Indexed :method GET (idx 17). */
   used =
       quic_qpack_indexed_decode(quic_span_of(out + 2, n - 2), &idx, &is_static);
@@ -55,11 +60,13 @@ static void test_pseudo_roundtrip(void) {
 /* Insufficient capacity fails without overrun. */
 static void test_pseudo_overflow(void) {
   u8        out[3];
-  usz       n = 0;
+  quic_obuf ob = {out, sizeof out, 0};
   const u8 *m = (const u8 *)"GET", *s = (const u8 *)"https";
   const u8 *p = (const u8 *)"/", *a = (const u8 *)"example.com";
-  CHECK(
-      quic_h3req_enc_pseudo(m, 3, p, 1, s, 5, a, 11, out, sizeof out, &n) == 0);
+  quic_h3req_pseudo_in in = {
+      quic_span_of(m, 3), quic_span_of(s, 5), quic_span_of(a, 11),
+      quic_span_of(p, 1)};
+  CHECK(quic_h3req_enc_pseudo(&in, &ob) == 0);
 }
 
 void test_pseudo_encode(void) {
