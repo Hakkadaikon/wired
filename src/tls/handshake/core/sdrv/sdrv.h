@@ -3,6 +3,7 @@
 
 #include "common/bytes/span/span.h"
 #include "crypto/kdf/hkdf/hkdf.h"
+#include "tls/handshake/core/tls/cert.h"
 #include "tls/handshake/core/tls/transcript.h"
 
 /* RFC 8446 4 / RFC 9001 4: server-side handshake driver. Receives the client
@@ -11,16 +12,19 @@
  * orchestration over the existing build/sign/key-schedule parts. */
 
 typedef struct {
-  u8        server_priv[32]; /* RFC 7748 x25519 private */
-  u8        server_pub[32];  /* RFC 7748 x25519 public */
-  u8        p256_priv[32];   /* RFC 5480 ECDSA P-256 signing scalar */
-  u8        cert_buf[512];   /* self-signed P-256 cert DER (owned) */
-  const u8 *cert_der;        /* RFC 8446 4.4.2 end-entity cert (view) */
-  usz       cert_len;
-  u8        client_pub[32];           /* RFC 8446 4.2.8 client key_share */
-  u8        client_sid[32];           /* RFC 8446 4.1.2 legacy_session_id */
-  u8        client_sid_len;           /* 0..32 */
-  u8        hs_secret[QUIC_HKDF_PRK]; /* RFC 8446 7.1 Handshake Secret */
+  u8 server_priv[32];      /* RFC 7748 x25519 private */
+  u8 server_pub[32];       /* RFC 7748 x25519 public */
+  u8 p256_priv[32];        /* RFC 5480 ECDSA P-256 signing scalar; also the
+                            * TBS signer for a self-built certificate */
+  u8        cert_buf[512]; /* self-signed P-256 cert DER (owned) */
+  quic_span certs[QUIC_TLS_CERT_CHAIN_MAX]; /* RFC 8446 4.4.2 certificate_list,
+                                             * leaf first (caller-owned views
+                                             * in external-chain mode) */
+  usz cert_count;               /* 0 = nothing to send (flight build fails) */
+  u8  client_pub[32];           /* RFC 8446 4.2.8 client key_share */
+  u8  client_sid[32];           /* RFC 8446 4.1.2 legacy_session_id */
+  u8  client_sid_len;           /* 0..32 */
+  u8  hs_secret[QUIC_HKDF_PRK]; /* RFC 8446 7.1 Handshake Secret */
   u8  s_hs_traffic[QUIC_HKDF_PRK]; /* RFC 8446 7.1 server hs traffic secret */
   int hs_ready;                    /* hs_secret derived */
   quic_transcript tr;              /* RFC 8446 4.4.1 Transcript-Hash */
@@ -30,17 +34,27 @@ typedef struct {
   u8              iscid_len;
 } quic_sdrv;
 
-/* Hold the server key material and build the self-signed P-256 certificate from
- * cert_priv (the ECDSA P-256 signing scalar); init transcript/key schedule. The
- * cert_der/cert_len arguments are ignored (the cert is built internally) and
- * kept only for caller compatibility. */
-void quic_sdrv_init(
-    quic_sdrv *s,
-    const u8   server_priv_x25519[32],
-    const u8   server_pub_x25519[32],
-    const u8   cert_priv[32],
-    const u8  *cert_der,
-    usz        cert_len);
+/* server_priv_x25519/server_pub_x25519 are the ECDHE key pair. sign_priv is
+ * the ECDSA P-256 signing scalar; in self-signed mode (chain is NULL or
+ * chain_count is 0) it also signs the driver's own generated certificate's
+ * TBS. chain/chain_count, when non-empty, are an externally issued
+ * certificate chain (leaf first, views the caller keeps alive through the
+ * handshake) to send instead of a self-signed certificate; chain_count over
+ * QUIC_TLS_CERT_CHAIN_MAX makes the flight unbuildable (cert_count stays 0),
+ * not a truncated/overflowing copy. */
+typedef struct {
+  const u8        *server_priv_x25519;
+  const u8        *server_pub_x25519;
+  const u8        *sign_priv;
+  const quic_span *chain;
+  usz              chain_count;
+} quic_sdrv_init_in;
+
+/* Hold the server key material. If in->chain is NULL/empty, build the
+ * self-signed P-256 certificate from in->sign_priv; otherwise copy the chain
+ * views (leaf first) as the certificate_list to send. Init transcript/key
+ * schedule. */
+void quic_sdrv_init(quic_sdrv *s, const quic_sdrv_init_in *in);
 
 /* RFC 9000 7.3: record the ODCID (the DCID of the client's first Initial) and
  * the ISCID (the server's source connection id) to advertise in the

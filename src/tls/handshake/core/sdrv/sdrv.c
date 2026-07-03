@@ -12,7 +12,8 @@ static void sdrv_copy32(u8 *dst, const u8 *src) {
 }
 
 /* RFC 5480 / RFC 5280 4.1: build the self-signed P-256 end-entity certificate
- * from p256_priv into the owned buffer and point the view at it. */
+ * from p256_priv into the owned buffer and record it as the 1-entry chain to
+ * send. */
 static void sdrv_build_cert(quic_sdrv *s) {
   ec_point q;
   u8       pub_x[32], pub_y[32];
@@ -22,23 +23,36 @@ static void sdrv_build_cert(quic_sdrv *s) {
   quic_p256cert_key k = {s->p256_priv, pub_x, pub_y};
   quic_obuf         o = quic_obuf_of(s->cert_buf, sizeof(s->cert_buf));
   quic_p256cert_build(&k, &o);
-  s->cert_len = o.len;
-  s->cert_der = s->cert_buf;
+  s->certs[0]   = quic_span_of(s->cert_buf, o.len);
+  s->cert_count = 1;
 }
 
-void quic_sdrv_init(
-    quic_sdrv *s,
-    const u8   server_priv_x25519[32],
-    const u8   server_pub_x25519[32],
-    const u8   cert_priv[32],
-    const u8  *cert_der,
-    usz        cert_len) {
-  (void)cert_der;
-  (void)cert_len;
-  sdrv_copy32(s->server_priv, server_priv_x25519);
-  sdrv_copy32(s->server_pub, server_pub_x25519);
-  sdrv_copy32(s->p256_priv, cert_priv);
-  sdrv_build_cert(s);
+/* in carries a non-empty externally issued chain to use instead of a
+ * self-signed certificate. */
+static int sdrv_use_chain(const quic_sdrv_init_in *in) {
+  return in->chain != 0 && in->chain_count != 0;
+}
+
+/* Record in->chain (leaf first) as the certificate_list to send. Over
+ * QUIC_TLS_CERT_CHAIN_MAX entries fails closed: cert_count stays 0 and the
+ * flight becomes unbuildable, rather than overflowing s->certs. */
+static void sdrv_take_chain(quic_sdrv *s, const quic_sdrv_init_in *in) {
+  if (in->chain_count > QUIC_TLS_CERT_CHAIN_MAX) {
+    s->cert_count = 0;
+    return;
+  }
+  for (usz i = 0; i < in->chain_count; i++) s->certs[i] = in->chain[i];
+  s->cert_count = in->chain_count;
+}
+
+void quic_sdrv_init(quic_sdrv *s, const quic_sdrv_init_in *in) {
+  sdrv_copy32(s->server_priv, in->server_priv_x25519);
+  sdrv_copy32(s->server_pub, in->server_pub_x25519);
+  sdrv_copy32(s->p256_priv, in->sign_priv);
+  if (sdrv_use_chain(in))
+    sdrv_take_chain(s, in);
+  else
+    sdrv_build_cert(s);
   s->hs_ready  = 0;
   s->odcid_len = 0;
   s->iscid_len = 0;
