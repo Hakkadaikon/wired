@@ -7,19 +7,14 @@
 
 /* RFC 8446 4.1.3 prefix: legacy_version(2) random(32) session_id(1+sid_len)
  * cipher_suite(2) legacy_compression_method(1). Returns the offset past it. */
-static usz shb_prefix(
-    u8       *out,
-    usz       off,
-    const u8  random[32],
-    const u8 *sid,
-    u8        sid_len,
-    u16       cipher) {
+static usz shb_prefix(u8 *out, usz off, const quic_shbuild_in *in) {
+  usz sid_len = in->session_id.n;
   quic_put_be16(out + off, 0x0303);
-  for (usz i = 0; i < 32; i++) out[off + 2 + i] = random[i];
-  out[off + 34] = sid_len;
-  for (usz i = 0; i < sid_len; i++) out[off + 35 + i] = sid[i];
+  for (usz i = 0; i < 32; i++) out[off + 2 + i] = in->random[i];
+  out[off + 34] = (u8)sid_len;
+  for (usz i = 0; i < sid_len; i++) out[off + 35 + i] = in->session_id.p[i];
   off += 35 + sid_len;
-  quic_put_be16(out + off, cipher);
+  quic_put_be16(out + off, in->cipher_suite);
   out[off + 2] = 0; /* compression */
   return off + 3;
 }
@@ -69,26 +64,19 @@ static usz shb_finish(u8 *buf, usz off, usz block_start) {
 }
 
 /* Header(4) + prefix(38 + sid_len) + extensions length(2) fit in cap. */
-static int shb_fits(usz off, u8 sid_len, usz cap) {
+static int shb_fits(usz off, usz sid_len, usz cap) {
   return off != 0 && off + 38 + sid_len + 2 <= cap;
 }
 
-int quic_shbuild_server_hello(
-    const u8  random[32],
-    const u8 *session_id,
-    u8        sid_len,
-    u16       cipher_suite,
-    const u8  server_pub[32],
-    u8       *out,
-    usz       cap,
-    usz      *out_len) {
-  usz off = quic_hs_begin(out, cap, QUIC_HS_SERVER_HELLO);
+int quic_shbuild_server_hello(const quic_shbuild_in *in, quic_obuf *out) {
+  usz off = quic_hs_begin(out->p, out->cap, QUIC_HS_SERVER_HELLO);
   usz block_start, end;
-  if (!shb_fits(off, sid_len, cap)) return 0;
-  off         = shb_prefix(out, off, random, session_id, sid_len, cipher_suite);
+  if (!shb_fits(off, in->session_id.n, out->cap)) return 0;
+  off         = shb_prefix(out->p, off, in);
   block_start = off;
-  end = shb_finish(out, shb_exts(out, cap, off + 2, server_pub), block_start);
+  end = shb_finish(
+      out->p, shb_exts(out->p, out->cap, off + 2, in->server_pub), block_start);
   if (end == 0) return 0;
-  *out_len = end;
+  out->len = end;
   return 1;
 }
