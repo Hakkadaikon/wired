@@ -7,6 +7,14 @@ cflags := "-target x86_64-linux-gnu -ffreestanding -fno-stack-protector -fno-bui
 # making perf comparisons between commits meaningless.
 testflags := "-Wall -Wextra -Werror -O2 -mbranches-within-32B-boundaries -Isrc -Itests"
 
+# one-time bootstrap: install nix (Determinate Systems installer) when absent.
+# After it, `nix develop` provides clang/just/lizard/doxygen from flake.nix.
+# On a machine without just itself, run the curl line directly.
+setup:
+    @command -v nix >/dev/null 2>&1 \
+        && echo "nix already installed: $(nix --version)" \
+        || curl -fsSL https://install.determinate.systems/nix | sh -s -- install
+
 # full build: format, compile freestanding, then static analysis.
 # fmt normalizes sources, compile-all proves libc independence, lint runs the
 # CERT C / bug-finding checks. Run as one pipeline so a normal `just build`
