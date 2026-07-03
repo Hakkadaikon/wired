@@ -107,6 +107,71 @@ static void server_identity(wired_srvboot_id *id, server_keys *k) {
   id->chain_count = 0;
 }
 
+/* Optional drop-in certificate: cert.pem (fullchain, leaf first, at most 2
+ * certificates) and key.pem (P-256 private key) read from the cwd at startup.
+ * Static storage because the identity holds views into it for the whole run.
+ * ponytail: 8 KiB cert / 4 KiB key caps — grow the arrays if a chain outgrows
+ * them. */
+static u8        cert_pem[8192], key_pem[4096], chain_der[8192];
+static quic_span chain[2];
+static u8        leaf_priv[32];
+
+/* Decode up to 2 CERTIFICATE blocks (RFC 7468 5) from a fullchain PEM. */
+static int next_cert(quic_span text, usz *at, quic_obuf *der, usz n) {
+  quic_span label;
+  return n < 2 && wired_pem_next(text, at, &label, der);
+}
+
+/* Fill chain[] from the PEM text, leaf first; die if no block decodes. */
+static usz load_pem_chain(quic_span text) {
+  quic_obuf der = quic_obuf_of(chain_der, sizeof chain_der);
+  usz       at = 0, n = 0, start = 0;
+  while (next_cert(text, &at, &der, n)) {
+    chain[n++] = quic_span_of(chain_der + start, der.len - start);
+    start      = der.len;
+  }
+  if (n == 0) die("bad cert.pem/key.pem\n");
+  return n;
+}
+
+/* Extract the P-256 private scalar from key.pem's first block (EC PRIVATE
+ * KEY or PKCS#8 PRIVATE KEY; wired_eckey_p256_priv validates the DER). */
+static void load_key_priv(quic_span text) {
+  u8        der_buf[192];
+  quic_obuf der = quic_obuf_of(der_buf, sizeof der_buf);
+  quic_span label;
+  usz       at = 0;
+  if (!wired_pem_next(text, &at, &label, &der)) die("bad cert.pem/key.pem\n");
+  if (!wired_eckey_p256_priv(quic_span_of(der_buf, der.len), leaf_priv))
+    die("bad cert.pem/key.pem\n");
+}
+
+static void log_chain(usz n) {
+  wired_log_str(n == 2 ? "cert.pem: 2 certs\n" : "cert.pem: 1 cert\n");
+}
+
+/* Point the identity at the loaded chain and its signing scalar. */
+static void install_cert(wired_srvboot_id *id, ssz cn, ssz kn) {
+  if (cn < 0 || kn < 0) die("bad cert.pem/key.pem\n");
+  id->chain_count = load_pem_chain(quic_span_of(cert_pem, (usz)cn));
+  load_key_priv(quic_span_of(key_pem, (usz)kn));
+  id->cert_seed = leaf_priv;
+  id->chain     = chain;
+  log_chain(id->chain_count);
+}
+
+/* Drop-in loader: both files absent keeps the self-signed identity; a broken
+ * or half-present pair dies rather than silently serving self-signed. */
+static void load_cert_files(wired_srvboot_id *id) {
+  ssz cn = wired_fio_read("cert.pem", quic_mspan_of(cert_pem, sizeof cert_pem));
+  ssz kn = wired_fio_read("key.pem", quic_mspan_of(key_pem, sizeof key_pem));
+  if (cn < 0 && kn < 0) {
+    wired_log_str("self-signed (no cert.pem)\n");
+    return;
+  }
+  install_cert(id, cn, kn);
+}
+
 /* The kernel enters _start 16-byte aligned, but the SysV ABI assumes a return
  * address was pushed (RSP%16==8). Force re-alignment so SSE moves in
  * x25519/AEAD do not fault. */
@@ -116,6 +181,7 @@ __attribute__((force_align_arg_pointer)) void _start(void) {
   wired_srvrun_handler h = {app_on_request, 0};
   app_selfcheck();
   server_identity(&id, &keys);
+  load_cert_files(&id);
   if (!wired_server_run(PORT, &id, h)) die("listen failed\n");
   syscall1(SYS_exit, 0);
 }
