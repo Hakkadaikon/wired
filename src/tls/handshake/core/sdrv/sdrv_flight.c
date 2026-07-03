@@ -54,12 +54,13 @@ static int emit_ee(quic_sdrv *s, quic_obuf *flight) {
   return emit_msg(s, quic_span_of(msg, mob.len), flight);
 }
 
-/* RFC 8446 4.4.2: build Certificate and fold it into the flight. */
+/* RFC 8446 4.4.2: build Certificate (carrying s->certs[0..cert_count), leaf
+ * first) and fold it into the flight. */
 static int emit_cert(quic_sdrv *s, quic_obuf *flight) {
-  u8        msg[1024];
-  quic_obuf mob = quic_obuf_of(msg, sizeof(msg));
-  if (!quic_sflight_certificate(quic_span_of(s->cert_der, s->cert_len), &mob))
-    return 0;
+  u8                        msg[2048];
+  quic_obuf                 mob = quic_obuf_of(msg, sizeof(msg));
+  quic_sflight_certchain_in cin = {s->certs, s->cert_count};
+  if (!quic_sflight_certificate_chain(&cin, &mob)) return 0;
   return emit_msg(s, quic_span_of(msg, mob.len), flight);
 }
 

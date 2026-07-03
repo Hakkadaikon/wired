@@ -3,6 +3,9 @@
 #include "crypto/pki/encoding/x509/ec_pubkey.h"
 #include "crypto/pki/encoding/x509/spki.h"
 #include "crypto/pki/encoding/x509/x509.h"
+#include "crypto/pki/trust/castore/castore.h"
+#include "crypto/pki/trust/castore/pathvalidate.h"
+#include "realchain_golden.h"
 #include "test.h"
 #include "tls/ext/stp/parse_tp.h"
 #include "tls/ext/tparam/tparam.h"
@@ -79,7 +82,10 @@ static void test_sdrv_session_id_echo(void) {
   CHECK(ch_len != 0);
   ch2_len = ch_with_sid(ch2, ch, ch_len, sid);
 
-  quic_sdrv_init(&s, srv_priv, srv_pub, cert_priv, 0, 0);
+  {
+    quic_sdrv_init_in din = {srv_priv, srv_pub, cert_priv, 0, 0};
+    quic_sdrv_init(&s, &din);
+  }
   CHECK(quic_sdrv_recv_client_hello(&s, ch2, ch2_len));
   {
     quic_obuf            sh_ob = quic_obuf_of(sh, sizeof(sh));
@@ -94,7 +100,10 @@ static void test_sdrv_session_id_echo(void) {
   for (usz i = 0; i < 32; i++) CHECK(sh[39 + i] == sid[i]);
 
   /* TLS 1.3 native ClientHello (empty session_id) still works: echo len 0. */
-  quic_sdrv_init(&s, srv_priv, srv_pub, cert_priv, 0, 0);
+  {
+    quic_sdrv_init_in din = {srv_priv, srv_pub, cert_priv, 0, 0};
+    quic_sdrv_init(&s, &din);
+  }
   CHECK(quic_sdrv_recv_client_hello(&s, ch, ch_len));
   {
     quic_obuf            sh_ob = quic_obuf_of(sh, sizeof(sh));
@@ -105,8 +114,248 @@ static void test_sdrv_session_id_echo(void) {
   CHECK(sh[38] == 0);
 }
 
+/* Build a ClientHello with a real x25519 key_share, sized for the caller. */
+static usz sdrv_test_client_hello(
+    u8 *ch, usz ch_cap, const u8 *cli_pub, const u8 *srv_random) {
+  static const u8 tp[1] = {0};
+  return quic_tls_client_hello(
+      &(quic_clienthello_in){
+          srv_random, cli_pub, quic_span_of(0, 0), quic_span_of(tp, 1)},
+      &(quic_obuf){ch, ch_cap, 0});
+}
+
+/* Drive an sdrv through ClientHello -> flight with in as the init params,
+ * writing the flight bytes into sh/flight and their lengths into *sh_len /
+ * *hs_len. */
+static void sdrv_test_drive(
+    quic_sdrv               *s,
+    const quic_sdrv_init_in *in,
+    const u8                *ch,
+    usz                      ch_len,
+    const u8                *srv_random,
+    u8                      *sh,
+    usz                      sh_cap,
+    usz                     *sh_len,
+    u8                      *flight,
+    usz                      flight_cap,
+    usz                     *hs_len) {
+  quic_obuf            sh_ob = quic_obuf_of(sh, sh_cap);
+  quic_obuf            fl_ob = quic_obuf_of(flight, flight_cap);
+  quic_sdrv_flight_out fo    = {&sh_ob, &fl_ob};
+  quic_sdrv_init(s, in);
+  CHECK(quic_sdrv_recv_client_hello(s, ch, ch_len));
+  CHECK(quic_sdrv_build_server_flight(s, srv_random, &fo));
+  *sh_len = sh_ob.len;
+  *hs_len = fl_ob.len;
+}
+
+/* RFC 8446 4.4.2: driving sdrv with an externally issued [leaf, int] chain
+ * sends that chain verbatim (no internally generated certificate), the
+ * CertificateVerify verifies against the leaf's real key, and the parsed
+ * chain plus the golden root validates as a path (RFC 5280 6.1). */
+static void test_sdrv_external_chain(void) {
+  u8        cli_priv[32], cli_pub[32], srv_priv[32], srv_pub[32];
+  u8        ch[512], sh[256], flight[2048], srv_random[32];
+  usz       ch_len, sh_len, hs_len, p = 0;
+  const u8 *ee, *cm, *cv, *fin;
+  usz       eel, cml, cvl, finl;
+  u16       cv_scheme;
+  quic_span cv_sig;
+  quic_sdrv s;
+  quic_span chain[2] = {
+      quic_span_of(quic_realchain_leaf_der, sizeof(quic_realchain_leaf_der)),
+      quic_span_of(quic_realchain_int_der, sizeof(quic_realchain_int_der))};
+
+  for (usz i = 0; i < 32; i++) {
+    cli_priv[i]   = (u8)(i + 1);
+    srv_priv[i]   = (u8)(0x40 + i);
+    srv_random[i] = (u8)(0xa0 + i);
+  }
+  quic_x25519_base(cli_pub, cli_priv);
+  quic_x25519_base(srv_pub, srv_priv);
+  ch_len = sdrv_test_client_hello(ch, sizeof(ch), cli_pub, srv_random);
+  CHECK(ch_len != 0);
+
+  {
+    quic_sdrv_init_in in = {
+        srv_priv, srv_pub, quic_realchain_leaf_priv, chain, 2};
+    sdrv_test_drive(
+        &s, &in, ch, ch_len, srv_random, sh, sizeof(sh), &sh_len, flight,
+        sizeof(flight), &hs_len);
+  }
+
+  CHECK(next_hs(flight, hs_len, &p, &ee, &eel));
+  CHECK(next_hs(flight, hs_len, &p, &cm, &cml));
+  CHECK(next_hs(flight, hs_len, &p, &cv, &cvl));
+  CHECK(next_hs(flight, hs_len, &p, &fin, &finl));
+
+  /* the Certificate on the wire is the golden [leaf, int] chain verbatim,
+   * not an internally generated one. */
+  {
+    quic_span               ctx;
+    quic_tls_cert_entry     entries[QUIC_TLS_CERT_CHAIN_MAX];
+    usz                     count;
+    quic_tls_cert_chain_out co = {entries, QUIC_TLS_CERT_CHAIN_MAX, &count};
+    CHECK(quic_tls_cert_chain(quic_span_of(cm + 4, cml - 4), &ctx, &co));
+    CHECK(count == 2);
+    CHECK(entries[0].cert_len == sizeof(quic_realchain_leaf_der));
+    for (usz i = 0; i < entries[0].cert_len; i++)
+      CHECK(entries[0].cert_data[i] == quic_realchain_leaf_der[i]);
+    CHECK(entries[1].cert_len == sizeof(quic_realchain_int_der));
+    for (usz i = 0; i < entries[1].cert_len; i++)
+      CHECK(entries[1].cert_data[i] == quic_realchain_int_der[i]);
+
+    /* CertificateVerify (scheme 0x0403) verifies against the golden leaf's
+     * real public key over the transcript through Certificate. */
+    {
+      quic_transcript tr;
+      u8              th[QUIC_SHA256_DIGEST];
+      quic_transcript_init(&tr);
+      quic_transcript_add(&tr, ch, ch_len);
+      quic_transcript_add(&tr, sh, sh_len);
+      quic_transcript_add(&tr, ee, eel);
+      quic_transcript_add(&tr, cm, cml);
+      quic_transcript_hash(&tr, th);
+      CHECK(quic_tls_certverify_parse(
+          quic_span_of(cv + 4, cvl - 4), &cv_scheme, &cv_sig));
+      CHECK(cv_scheme == 0x0403);
+      {
+        quic_certverify_in cvin;
+        cvin.scheme = 0x0403;
+        cvin.cert   = quic_span_of(
+            quic_realchain_leaf_der, sizeof(quic_realchain_leaf_der));
+        cvin.sig             = cv_sig;
+        cvin.transcript_hash = th;
+        CHECK(quic_tls_verify_cert_signature(&cvin));
+      }
+    }
+
+    /* the parsed chain, plus the golden root as the trust anchor, validates
+     * as an RFC 5280 6.1 path. */
+    {
+      quic_castore_entry roots[1];
+      quic_castore       store;
+      quic_span          path[3] = {
+          quic_span_of(entries[0].cert_data, entries[0].cert_len),
+          quic_span_of(entries[1].cert_data, entries[1].cert_len),
+          quic_span_of(
+              quic_realchain_root_der, sizeof(quic_realchain_root_der))};
+      quic_castore_init(&store, roots, 1);
+      CHECK(
+          quic_castore_add(
+              &store, quic_span_of(
+                          quic_realchain_root_der,
+                          sizeof(quic_realchain_root_der))) == 1);
+      CHECK(quic_castore_validate_chain(&store, path, 3) == 1);
+    }
+  }
+}
+
+/* A CertificateVerify signed with an unrelated private key builds a flight
+ * (sdrv does not check key/cert agreement) but fails leaf-key verification —
+ * the mismatch is caught on the client side, not sdrv's. */
+static void test_sdrv_external_chain_wrong_key(void) {
+  u8        cli_priv[32], cli_pub[32], srv_priv[32], srv_pub[32];
+  u8        wrong_priv[32];
+  u8        ch[512], sh[256], flight[2048], srv_random[32];
+  usz       ch_len, sh_len, hs_len, p = 0;
+  const u8 *ee, *cm, *cv, *fin;
+  usz       eel, cml, cvl, finl;
+  u16       cv_scheme;
+  quic_span cv_sig;
+  quic_sdrv s;
+  quic_span chain[2] = {
+      quic_span_of(quic_realchain_leaf_der, sizeof(quic_realchain_leaf_der)),
+      quic_span_of(quic_realchain_int_der, sizeof(quic_realchain_int_der))};
+
+  for (usz i = 0; i < 32; i++) {
+    cli_priv[i]   = (u8)(i + 1);
+    srv_priv[i]   = (u8)(0x40 + i);
+    srv_random[i] = (u8)(0xa0 + i);
+    wrong_priv[i] = (u8)(0x80 + i);
+  }
+  quic_x25519_base(cli_pub, cli_priv);
+  quic_x25519_base(srv_pub, srv_priv);
+  ch_len = sdrv_test_client_hello(ch, sizeof(ch), cli_pub, srv_random);
+  CHECK(ch_len != 0);
+
+  {
+    quic_sdrv_init_in in = {srv_priv, srv_pub, wrong_priv, chain, 2};
+    sdrv_test_drive(
+        &s, &in, ch, ch_len, srv_random, sh, sizeof(sh), &sh_len, flight,
+        sizeof(flight), &hs_len);
+  }
+
+  CHECK(next_hs(flight, hs_len, &p, &ee, &eel));
+  CHECK(next_hs(flight, hs_len, &p, &cm, &cml));
+  CHECK(next_hs(flight, hs_len, &p, &cv, &cvl));
+  CHECK(next_hs(flight, hs_len, &p, &fin, &finl));
+
+  {
+    quic_transcript tr;
+    u8              th[QUIC_SHA256_DIGEST];
+    quic_transcript_init(&tr);
+    quic_transcript_add(&tr, ch, ch_len);
+    quic_transcript_add(&tr, sh, sh_len);
+    quic_transcript_add(&tr, ee, eel);
+    quic_transcript_add(&tr, cm, cml);
+    quic_transcript_hash(&tr, th);
+    CHECK(quic_tls_certverify_parse(
+        quic_span_of(cv + 4, cvl - 4), &cv_scheme, &cv_sig));
+    {
+      quic_certverify_in cvin;
+      cvin.scheme = 0x0403;
+      cvin.cert   = quic_span_of(
+          quic_realchain_leaf_der, sizeof(quic_realchain_leaf_der));
+      cvin.sig             = cv_sig;
+      cvin.transcript_hash = th;
+      CHECK(!quic_tls_verify_cert_signature(&cvin));
+    }
+  }
+}
+
+/* chain_count over QUIC_TLS_CERT_CHAIN_MAX fails the flight closed: nothing
+ * to send, quic_sdrv_build_server_flight returns 0. */
+static void test_sdrv_chain_overflow(void) {
+  u8        cli_priv[32], cli_pub[32], srv_priv[32], srv_pub[32];
+  u8        cert_priv[32];
+  u8        ch[512], sh[256], flight[2048], srv_random[32];
+  usz       ch_len;
+  quic_sdrv s;
+  quic_span chain[5] = {
+      quic_span_of(quic_realchain_leaf_der, sizeof(quic_realchain_leaf_der)),
+      quic_span_of(quic_realchain_int_der, sizeof(quic_realchain_int_der)),
+      quic_span_of(quic_realchain_leaf_der, sizeof(quic_realchain_leaf_der)),
+      quic_span_of(quic_realchain_int_der, sizeof(quic_realchain_int_der)),
+      quic_span_of(quic_realchain_leaf_der, sizeof(quic_realchain_leaf_der))};
+
+  for (usz i = 0; i < 32; i++) {
+    cli_priv[i]   = (u8)(i + 1);
+    srv_priv[i]   = (u8)(0x40 + i);
+    cert_priv[i]  = (u8)(0x80 + i);
+    srv_random[i] = (u8)(0xa0 + i);
+  }
+  quic_x25519_base(cli_pub, cli_priv);
+  quic_x25519_base(srv_pub, srv_priv);
+  ch_len = sdrv_test_client_hello(ch, sizeof(ch), cli_pub, srv_random);
+  CHECK(ch_len != 0);
+
+  {
+    quic_sdrv_init_in    in    = {srv_priv, srv_pub, cert_priv, chain, 5};
+    quic_obuf            sh_ob = quic_obuf_of(sh, sizeof(sh));
+    quic_obuf            fl_ob = quic_obuf_of(flight, sizeof(flight));
+    quic_sdrv_flight_out fo    = {&sh_ob, &fl_ob};
+    quic_sdrv_init(&s, &in);
+    CHECK(quic_sdrv_recv_client_hello(&s, ch, ch_len));
+    CHECK(!quic_sdrv_build_server_flight(&s, srv_random, &fo));
+  }
+}
+
 void test_sdrv(void) {
   test_sdrv_session_id_echo();
+  test_sdrv_external_chain();
+  test_sdrv_external_chain_wrong_key();
+  test_sdrv_chain_overflow();
 
   u8 cli_priv[32], cli_pub[32], srv_priv[32], srv_pub[32];
   u8 cert_priv[32];
@@ -142,7 +391,10 @@ void test_sdrv(void) {
   CHECK(ch_len != 0);
 
   /* server: drive the flight (the driver builds its own P-256 cert). */
-  quic_sdrv_init(&s, srv_priv, srv_pub, cert_priv, 0, 0);
+  {
+    quic_sdrv_init_in din = {srv_priv, srv_pub, cert_priv, 0, 0};
+    quic_sdrv_init(&s, &din);
+  }
   CHECK(quic_sdrv_recv_client_hello(&s, ch, ch_len));
   {
     quic_obuf            sh_ob = quic_obuf_of(sh, sizeof(sh));
@@ -206,7 +458,7 @@ void test_sdrv(void) {
   {
     quic_certverify_in cvin;
     cvin.scheme          = 0x0403;
-    cvin.cert            = quic_span_of(s.cert_der, s.cert_len);
+    cvin.cert            = s.certs[0];
     cvin.sig             = cv_sig;
     cvin.transcript_hash = th;
     CHECK(quic_tls_verify_cert_signature(&cvin));
@@ -227,7 +479,10 @@ void test_sdrv(void) {
     quic_stp_out    cido = {0, &cid};
     quic_sdrv       s2;
 
-    quic_sdrv_init(&s2, srv_priv, srv_pub, cert_priv, 0, 0);
+    {
+      quic_sdrv_init_in din = {srv_priv, srv_pub, cert_priv, 0, 0};
+      quic_sdrv_init(&s2, &din);
+    }
     CHECK(quic_sdrv_set_cids(
         &s2, quic_span_of(client_dcid, sizeof(client_dcid)),
         quic_span_of(server_scid, sizeof(server_scid))));

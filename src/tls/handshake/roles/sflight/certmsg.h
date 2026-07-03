@@ -17,7 +17,7 @@ int quic_sflight_certificate(quic_span cert_der, quic_obuf *out);
  * flight path only ever passes 1 or 2). */
 typedef struct {
   const quic_span *certs;
-  usz               count;
+  usz              count;
 } quic_sflight_certchain_in;
 
 /* RFC 8446 4.4.2: build the server Certificate message with an empty

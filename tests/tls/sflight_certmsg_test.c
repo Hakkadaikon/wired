@@ -1,5 +1,5 @@
-#include "test.h"
 #include "realchain_golden.h"
+#include "test.h"
 #include "tls/handshake/core/tls/cert.h"
 #include "tls/handshake/core/tls/handshake.h"
 #include "tls/handshake/roles/sflight/certmsg.h"
@@ -8,8 +8,7 @@
  * quic_tls_cert_chain byte-for-byte against the golden DERs. */
 static void test_certchain_two_roundtrip(void) {
   const quic_span certs[2] = {
-      quic_span_of(
-          quic_realchain_leaf_der, sizeof(quic_realchain_leaf_der)),
+      quic_span_of(quic_realchain_leaf_der, sizeof(quic_realchain_leaf_der)),
       quic_span_of(quic_realchain_int_der, sizeof(quic_realchain_int_der))};
   quic_sflight_certchain_in in = {certs, 2};
   u8                        out[2048];
@@ -35,11 +34,11 @@ static void test_certchain_two_roundtrip(void) {
 
 /* A 1-entry chain output is byte-identical to the legacy single-cert path. */
 static void test_certchain_single_equals_legacy(void) {
-  const u8   der[7] = {0x30, 0x05, 0x01, 0x02, 0x03, 0x04, 0x05};
-  quic_span  cert   = quic_span_of(der, sizeof(der));
-  u8         out_chain[64], out_legacy[64];
-  quic_obuf  ob_chain  = quic_obuf_of(out_chain, sizeof(out_chain));
-  quic_obuf  ob_legacy = quic_obuf_of(out_legacy, sizeof(out_legacy));
+  const u8  der[7] = {0x30, 0x05, 0x01, 0x02, 0x03, 0x04, 0x05};
+  quic_span cert   = quic_span_of(der, sizeof(der));
+  u8        out_chain[64], out_legacy[64];
+  quic_obuf ob_chain           = quic_obuf_of(out_chain, sizeof(out_chain));
+  quic_obuf ob_legacy          = quic_obuf_of(out_legacy, sizeof(out_legacy));
   quic_sflight_certchain_in in = {&cert, 1};
 
   CHECK(quic_sflight_certificate_chain(&in, &ob_chain));
@@ -56,10 +55,10 @@ static void test_certchain_bounds(void) {
       quic_span_of(quic_realchain_leaf_der, sizeof(quic_realchain_leaf_der)),
       quic_span_of(quic_realchain_int_der, sizeof(quic_realchain_int_der)),
       quic_span_of(quic_realchain_leaf_der, sizeof(quic_realchain_leaf_der))};
-  u8         out[4096];
-  quic_obuf  ob0 = quic_obuf_of(out, sizeof(out));
-  quic_obuf  ob1 = quic_obuf_of(out, sizeof(out));
-  quic_obuf  ob2 = quic_obuf_of(out, sizeof(out));
+  u8                        out[4096];
+  quic_obuf                 ob0 = quic_obuf_of(out, sizeof(out));
+  quic_obuf                 ob1 = quic_obuf_of(out, sizeof(out));
+  quic_obuf                 ob2 = quic_obuf_of(out, sizeof(out));
   quic_sflight_certchain_in in0 = {certs, 0};
   quic_sflight_certchain_in in1 = {certs, QUIC_TLS_CERT_CHAIN_MAX + 1};
   quic_sflight_certchain_in in2 = {certs, 2};
@@ -72,11 +71,10 @@ static void test_certchain_bounds(void) {
 /* A cap too small for the chain is rejected (0), not truncated. */
 static void test_certchain_no_room(void) {
   const quic_span certs[2] = {
-      quic_span_of(
-          quic_realchain_leaf_der, sizeof(quic_realchain_leaf_der)),
+      quic_span_of(quic_realchain_leaf_der, sizeof(quic_realchain_leaf_der)),
       quic_span_of(quic_realchain_int_der, sizeof(quic_realchain_int_der))};
-  u8         out[16];
-  quic_obuf  ob = quic_obuf_of(out, sizeof(out));
+  u8                        out[16];
+  quic_obuf                 ob = quic_obuf_of(out, sizeof(out));
   quic_sflight_certchain_in in = {certs, 2};
 
   CHECK(!quic_sflight_certificate_chain(&in, &ob));
