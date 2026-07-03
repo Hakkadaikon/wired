@@ -25,14 +25,11 @@ static int skip_control_type(const u8 *s, usz len, usz *off) {
 
 /* RFC 9114 7.2.4 */
 int quic_h3conn_peer_settings_ok(const u8 *control_stream, usz len) {
-  quic_h3_settings_state st      = {0};
-  usz                    off     = 0;
-  u64                    ftype   = 0;
-  const u8              *payload = 0;
-  u64                    plen    = 0;
+  quic_h3_settings_state st  = {0};
+  usz                    off = 0;
+  quic_h3_frame           f  = {0};
   if (!skip_control_type(control_stream, len, &off)) return 0;
-  if (!quic_h3_frame_get(
-          control_stream + off, len - off, &ftype, &payload, &plen))
+  if (!quic_h3_frame_get(quic_span_of(control_stream + off, len - off), &f))
     return 0;
-  return quic_h3_settings_first(&st, ftype);
+  return quic_h3_settings_first(&st, f.type);
 }

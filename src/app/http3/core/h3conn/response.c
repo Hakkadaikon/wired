@@ -11,22 +11,13 @@
 
 /* RFC 9114 4.1 / RFC 9000 19.8 */
 int quic_h3conn_send_response(
-    u64       stream_id,
-    u16       status,
-    const u8 *body,
-    usz       body_len,
-    u8       *out,
-    usz       cap,
-    usz      *out_len) {
-  u8  h3[1500];
-  usz h3_len = 0;
-  if (!quic_h3resp_build(status, body, body_len, h3, sizeof(h3), &h3_len))
-    return 0;
+    u64 stream_id, const quic_h3conn_resp *resp, quic_obuf *out) {
+  u8        h3[1500];
+  quic_obuf h3ob = quic_obuf_of(h3, sizeof(h3));
+  if (!quic_h3resp_build(resp->status, resp->body, &h3ob)) return 0;
   {
-    quic_stream_frame f  = {stream_id, 0, h3_len, h3, 1};
-    quic_obuf         ob = quic_obuf_of(out, cap);
-    if (!quic_appdata_stream_frame(&f, &ob)) return 0;
-    *out_len = ob.len;
+    quic_stream_frame f = {stream_id, 0, h3ob.len, h3, 1};
+    if (!quic_appdata_stream_frame(&f, out)) return 0;
     return 1;
   }
 }
@@ -71,18 +62,12 @@ static int decode_status(const u8 *fs, usz n, u16 *status) {
 }
 
 /* RFC 9114 4.1 / RFC 9000 19.8 */
-int quic_h3conn_recv_response(
-    const u8  *stream_data,
-    usz        len,
-    u16       *status,
-    const u8 **body,
-    usz       *body_len) {
+int quic_h3conn_recv_response(quic_span stream_data, quic_h3conn_resp *resp) {
   quic_stream_frame f;
-  const u8         *headers = 0;
-  usz               h_len   = 0;
-  if (!quic_frame_get_stream(stream_data, len, &f)) return 0;
-  if (!quic_h3req_resp_parse(
-          f.data, (usz)f.length, &headers, &h_len, body, body_len))
+  quic_h3req_resp    rp = {0};
+  if (!quic_frame_get_stream(stream_data.p, stream_data.n, &f)) return 0;
+  if (!quic_h3req_resp_parse(quic_span_of(f.data, (usz)f.length), &rp))
     return 0;
-  return decode_status(headers, h_len, status);
+  resp->body = rp.body;
+  return decode_status(rp.headers.p, rp.headers.n, &resp->status);
 }
