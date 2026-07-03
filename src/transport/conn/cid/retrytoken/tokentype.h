@@ -1,6 +1,7 @@
 #ifndef QUIC_RETRYTOKEN_TOKENTYPE_H
 #define QUIC_RETRYTOKEN_TOKENTYPE_H
 
+#include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
 
 /* RFC 9000 8.1.1/8.1.3: a token a client sends in an Initial may come from a
@@ -11,10 +12,10 @@
 #define QUIC_TOKEN_TAG_RETRY 0x01
 #define QUIC_TOKEN_TAG_NEWTOKEN 0x02
 
-/* Write a tagged token: tag byte + body (body_len bytes) into out (cap total).
- * Returns total bytes written, or 0 if it does not fit. */
-usz quic_token_tag_retry(u8 *out, usz cap, const u8 *body, usz body_len);
-usz quic_token_tag_newtoken(u8 *out, usz cap, const u8 *body, usz body_len);
+/* Write a tagged token: tag byte + body into out. Returns total bytes
+ * written, or 0 if it does not fit. */
+usz quic_token_tag_retry(quic_obuf *out, quic_span body);
+usz quic_token_tag_newtoken(quic_obuf *out, quic_span body);
 
 /* True if token (len bytes) is a non-empty Retry-tagged token. */
 int quic_token_is_retry(const u8 *token, usz len);
