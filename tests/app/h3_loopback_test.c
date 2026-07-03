@@ -341,16 +341,18 @@ static void sb_make_id(
 }
 
 /* wired_srvboot_accept cold-starts a server from a real client Initial
- * datagram (built in-buffer, no socket) and seals the flight. */
+ * datagram (built in-buffer, no socket) and seals two reply datagrams, each
+ * fitting the same 1500-byte buffers production (srvrun) sends from. */
 static void test_srvboot_accept(void) {
   quic_client      c;
   wired_server     s;
   wired_srvloop    l;
   wired_srvboot_id id;
   u8               priv[32], pub[32], seed[32], rnd[32], cpriv[32], cpub[32];
-  u8               dg[1500], out[4096];
+  u8               dg[1500], ini[1500], hs[1500];
   usz              total = 0;
-  quic_obuf        ob    = {out, sizeof out, 0};
+  quic_obuf        iob   = {ini, sizeof ini, 0};
+  quic_obuf        hob   = {hs, sizeof hs, 0};
 
   for (usz i = 0; i < 32; i++) cpriv[i] = (u8)(7 + i);
   quic_x25519_base(cpub, cpriv);
@@ -365,13 +367,21 @@ static void test_srvboot_accept(void) {
 
   wired_srvboot_conn conn = {&s, &l};
   wired_srvboot_in   in;
+  wired_srvboot_out  out = {&iob, &hob};
   sb_make_id(&id, priv, pub, seed, rnd);
   in = (wired_srvboot_in){&id, quic_mspan_of(dg, total)};
-  CHECK(wired_srvboot_accept(&conn, &in, &ob) == 1);
+  CHECK(wired_srvboot_accept(&conn, &in, &out) == 1);
   CHECK(s.phase == WIRED_SERVER_HS_FLIGHT_SENT);
-  CHECK(ob.len > 0);
-  CHECK((out[0] & 0x80) != 0); /* long-header ServerHello Initial */
-  CHECK((out[0] & 0x30) == 0); /* Initial type bits */
+  /* RFC 9000 14.1: the ack-eliciting server Initial datagram is padded to at
+   * least 1200 bytes; both datagrams fit a 1500-byte MTU. */
+  CHECK(iob.len >= 1200);
+  CHECK(iob.len <= 1500);
+  CHECK(hob.len > 0);
+  CHECK(hob.len <= 1500);
+  CHECK((ini[0] & 0x80) != 0);  /* long-header ServerHello Initial */
+  CHECK((ini[0] & 0x30) == 0);  /* Initial type bits (RFC 9000 17.2) */
+  CHECK((hs[0] & 0x80) != 0);   /* long-header Handshake packet */
+  CHECK((hs[0] & 0x30) == 0x20); /* Handshake type bits (RFC 9000 17.2) */
 
   /* wired_srvboot_is_initial classifies the datagram; a short one is rejected.
    */
@@ -385,14 +395,16 @@ static void test_srvboot_rejects_non_initial(void) {
   wired_srvboot_id id;
   u8               priv[32], pub[32], seed[32], rnd[32];
   u8 garbage[8] = {0x40, 1, 2, 3, 4, 5, 6, 7}; /* short header, not Initial */
-  u8 out[512];
-  quic_obuf          ob   = {out, sizeof out, 0};
+  u8 ini[1500], hs[1500];
+  quic_obuf          iob  = {ini, sizeof ini, 0};
+  quic_obuf          hob  = {hs, sizeof hs, 0};
+  wired_srvboot_out  out  = {&iob, &hob};
   wired_srvboot_conn conn = {&s, &l};
   wired_srvboot_in   in;
   sb_make_id(&id, priv, pub, seed, rnd);
   in = (wired_srvboot_in){&id, quic_mspan_of(garbage, sizeof garbage)};
   CHECK(wired_srvboot_is_initial(garbage, sizeof garbage) == 0);
-  CHECK(wired_srvboot_accept(&conn, &in, &ob) == 0);
+  CHECK(wired_srvboot_accept(&conn, &in, &out) == 0);
 }
 
 void test_h3_loopback(void) {
