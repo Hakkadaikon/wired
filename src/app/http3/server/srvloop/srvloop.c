@@ -47,17 +47,23 @@ static u64 app_largest_pn(const quic_srvloop *l) {
   return l->app_rx_seen ? l->app_rx_pn : 0;
 }
 
+/* The opened packet's level and its (still-mutable) bytes, as note_app_rx /
+ * note_hs_rx need both together. */
+typedef struct {
+  int        level;
+  quic_mspan pkt;
+} srvloop_opened;
+
 /* RFC 9000 13.2.1 / A.3: once a 1-RTT packet is opened, the truncated (1..4
  * byte) packet number is cleartext in the header (header protection removed in
  * place) and byte0's low bits give its length. Recover the full PN against the
  * largest seen so far and record it as the number to ACK / the new baseline. */
-static void note_app_rx(
-    quic_srvloop *l, quic_server *s, int level, const u8 *pkt) {
+static void note_app_rx(quic_srvloop *l, quic_server *s, const srvloop_opened *o) {
   const u8 *pn;
   usz       pn_len;
-  if (level != QUIC_LEVEL_ONERTT) return;
-  pn             = pkt + 1u + s->sdrv.iscid_len;
-  pn_len         = (pkt[0] & 0x03u) + 1u;
+  if (o->level != QUIC_LEVEL_ONERTT) return;
+  pn             = o->pkt.p + 1u + s->sdrv.iscid_len;
+  pn_len         = (o->pkt.p[0] & 0x03u) + 1u;
   l->app_rx_pn   = quic_pnum_decode(pn, pn_len, app_largest_pn(l));
   l->app_rx_seen = 1;
 }
@@ -73,12 +79,12 @@ static u64 hs_largest_pn(const quic_srvloop *l) {
  * record the recovered PN. The client Finished does not always arrive at PN 0
  * (curl leads with an ACK-only Handshake packet), so a fixed ACK of 0 leaves
  * the Finished unacknowledged and the client PTO-retransmits it for seconds. */
-static void note_hs_rx(quic_srvloop *l, int level, const u8 *pkt, usz len) {
+static void note_hs_rx(quic_srvloop *l, const srvloop_opened *o) {
   quic_lhdr h;
-  if (level != QUIC_LEVEL_HANDSHAKE) return;
-  if (!quic_lhdr_parse(quic_span_of(pkt, len), 0, &h)) return;
+  if (o->level != QUIC_LEVEL_HANDSHAKE) return;
+  if (!quic_lhdr_parse(quic_span_of(o->pkt.p, o->pkt.n), 0, &h)) return;
   l->hs_rx_pn = quic_pnum_decode(
-      pkt + h.pn_off, quic_lhdr_pn_len(pkt[0]), hs_largest_pn(l));
+      o->pkt.p + h.pn_off, quic_lhdr_pn_len(o->pkt.p[0]), hs_largest_pn(l));
   l->hs_rx_seen = 1;
 }
 
@@ -98,19 +104,27 @@ static quic_srvloop_reqacc step_reqacc(quic_srvloop *l) {
  * fails to open (wrong level/key) is silently skipped, as the next slice in the
  * datagram may still be ours (RFC 9000 12.2). */
 static void step_one(
-    quic_srvloop *l, quic_server *s, u8 *pkt, usz len, int *got_request) {
-  const u8           *payload;
-  usz                 plen;
-  int                 level;
-  quic_srvloop_reqacc acc    = step_reqacc(l);
-  int                 opened = quic_srvloop_recv(
-      s, pkt, len, app_largest_pn(l), &level, &payload, &plen);
+    const quic_srvloop_conn *conn, quic_mspan pkt, int *got_request) {
+  quic_srvloop *l  = conn->l;
+  quic_server  *s  = conn->s;
+  quic_srvloop_recv_out    ro;
+  quic_srvloop_reqacc      acc = step_reqacc(l);
+  quic_srvloop_recv_in     ri  = {pkt, app_largest_pn(l)};
+  int                      opened = quic_srvloop_recv(s, &ri, &ro);
+  srvloop_opened            o;
+  quic_srvloop_dispatch_in in;
   if (!opened) return;
-  note_app_rx(l, s, level, pkt);
-  note_hs_rx(l, level, pkt, len);
-  quic_srvloop_dispatch(
-      s, &l->h3, payload, plen, &acc, l->req_scratch, sizeof l->req_scratch,
-      got_request, &l->req);
+  o.level = ro.level;
+  o.pkt   = pkt;
+  note_app_rx(l, s, &o);
+  note_hs_rx(l, &o);
+  in = (quic_srvloop_dispatch_in){
+      ro.payload, quic_mspan_of(l->req_scratch, sizeof l->req_scratch),
+      got_request, &l->req};
+  {
+    quic_srvloop_dispatch_ctx ctx = {s, &l->h3, &acc};
+    quic_srvloop_dispatch(&ctx, &in);
+  }
 }
 
 /* RFC 9000 2.2: re-arm the request-stream accumulator after a completed request
@@ -128,22 +142,16 @@ static void rearm_reqacc(quic_srvloop *l, int got_request) {
  * Initial/ACK ahead of the Handshake carrying the client Finished). Split it
  * and process every slice before building one reply for the whole datagram. */
 int quic_srvloop_step(
-    quic_srvloop *l,
-    quic_server  *s,
-    u8           *dgram,
-    usz           len,
-    u8           *out,
-    usz           cap,
-    usz          *out_len) {
+    const quic_srvloop_conn *conn, quic_mspan dgram, quic_obuf *out) {
   const u8 *pkts[QUIC_SRVLOOP_MAXPKTS];
   usz       offs[QUIC_SRVLOOP_MAXPKTS], lens[QUIC_SRVLOOP_MAXPKTS], n, i;
   int       got_request = 0;
   int       r;
   quic_pktlist plist = {pkts, offs, lens, QUIC_SRVLOOP_MAXPKTS};
-  n = quic_udploop_split(quic_span_of(dgram, len), &plist);
+  n = quic_udploop_split(quic_span_of(dgram.p, dgram.n), &plist);
   for (i = 0; i < n; i++)
-    step_one(l, s, dgram + offs[i], lens[i], &got_request);
-  r = quic_srvloop_produce(l, s, got_request, out, cap, out_len);
-  rearm_reqacc(l, got_request);
+    step_one(conn, quic_mspan_of(dgram.p + offs[i], lens[i]), &got_request);
+  r = quic_srvloop_produce(conn, got_request, out);
+  rearm_reqacc(conn->l, got_request);
   return r;
 }
