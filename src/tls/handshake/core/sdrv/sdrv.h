@@ -1,6 +1,7 @@
 #ifndef QUIC_SDRV_SDRV_H
 #define QUIC_SDRV_SDRV_H
 
+#include "common/bytes/span/span.h"
 #include "crypto/kdf/hkdf/hkdf.h"
 #include "tls/handshake/core/tls/transcript.h"
 
@@ -45,28 +46,26 @@ void quic_sdrv_init(
  * the ISCID (the server's source connection id) to advertise in the
  * EncryptedExtensions transport parameters. Must be called before
  * build_server_flight. Returns 1 on success, 0 if either length exceeds 20. */
-int quic_sdrv_set_cids(
-    quic_sdrv *s, const u8 *odcid, u8 odcid_len, const u8 *iscid, u8 iscid_len);
+int quic_sdrv_set_cids(quic_sdrv *s, quic_span odcid, quic_span iscid);
 
 /* RFC 8446 4.4.1: fold the ClientHello into the transcript and take the
  * client's x25519 key_share. Returns 1 on success, 0 if the key_share is
  * absent or malformed. */
 int quic_sdrv_recv_client_hello(quic_sdrv *s, const u8 *ch_msg, usz ch_len);
 
-/* RFC 8446 4.4: build the full server flight. Writes the ServerHello into
- * sh_out (sh_cap, *sh_len) and EncryptedExtensions || Certificate ||
- * CertificateVerify || Finished into hs_flight_out (hs_cap, *hs_len). Derives
+/* Destination for quic_sdrv_build_server_flight: sh receives the
+ * ServerHello, hs the EncryptedExtensions || Certificate ||
+ * CertificateVerify || Finished flight. */
+typedef struct {
+  quic_obuf *sh;
+  quic_obuf *hs;
+} quic_sdrv_flight_out;
+
+/* RFC 8446 4.4: build the full server flight into out->sh / out->hs. Derives
  * the handshake secret over the real ECDHE. Returns 1 on success, 0 if a
  * buffer is too small. server_random is the 32-byte ServerHello.random. */
 int quic_sdrv_build_server_flight(
-    quic_sdrv *s,
-    const u8  *server_random,
-    u8        *sh_out,
-    usz        sh_cap,
-    usz       *sh_len,
-    u8        *hs_flight_out,
-    usz        hs_cap,
-    usz       *hs_len);
+    quic_sdrv *s, const u8 *server_random, const quic_sdrv_flight_out *out);
 
 /* Point *secret at the derived Handshake Secret (verification aid). Returns 1
  * if build_server_flight has run, 0 otherwise. */

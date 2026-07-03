@@ -177,27 +177,33 @@ static void x25519_fe_tobytes(u8 *s, const fe h) {
   x25519_store_reduced(s, r);
 }
 
-/* One Montgomery ladder step on (x2,z2,x3,z3) with difference x1. */
-static void ladder_step(fe x2, fe z2, fe x3, fe z3, const fe x1) {
+/* The Montgomery ladder's running (x2,z2,x3,z3) state, mutated in place each
+ * step. */
+typedef struct {
+  u64 x2[5], z2[5], x3[5], z3[5];
+} ladder_state;
+
+/* One Montgomery ladder step on st with difference x1. */
+static void ladder_step(ladder_state *st, const fe x1) {
   fe a, b, c, d, e, da, cb;
-  x25519_fe_add(a, x2, z2);
-  x25519_fe_sub(b, x2, z2);
-  x25519_fe_add(c, x3, z3);
-  x25519_fe_sub(d, x3, z3);
+  x25519_fe_add(a, st->x2, st->z2);
+  x25519_fe_sub(b, st->x2, st->z2);
+  x25519_fe_add(c, st->x3, st->z3);
+  x25519_fe_sub(d, st->x3, st->z3);
   x25519_fe_mul(da, d, a);
   x25519_fe_mul(cb, c, b);
-  x25519_fe_add(x3, da, cb);
-  x25519_fe_sq(x3, x3);
-  x25519_fe_sub(z3, da, cb);
-  x25519_fe_sq(z3, z3);
-  x25519_fe_mul(z3, z3, x1);
+  x25519_fe_add(st->x3, da, cb);
+  x25519_fe_sq(st->x3, st->x3);
+  x25519_fe_sub(st->z3, da, cb);
+  x25519_fe_sq(st->z3, st->z3);
+  x25519_fe_mul(st->z3, st->z3, x1);
   x25519_fe_sq(a, a);
   x25519_fe_sq(b, b);
-  x25519_fe_mul(x2, a, b);
+  x25519_fe_mul(st->x2, a, b);
   x25519_fe_sub(e, a, b);
   fe_mul121666(da, e);
   x25519_fe_add(da, da, b);
-  x25519_fe_mul(z2, e, da);
+  x25519_fe_mul(st->z2, e, da);
 }
 
 /* Clamp the scalar per RFC 7748 (clear low 3 bits, set bit 254, clear 255). */
@@ -209,22 +215,24 @@ static void clamp(u8 e[32], const u8 scalar[32]) {
 
 /* Run the ladder for all 255 scalar bits, leaving the result in x2,z2. */
 static void ladder(fe x2, fe z2, const u8 e[32], const fe x1) {
-  fe  x3, z3;
-  u64 swap = 0;
-  x25519_fe_1(x2);
-  x25519_fe_0(z2);
-  x25519_fe_copy(x3, x1);
-  x25519_fe_1(z3);
+  ladder_state st;
+  u64          swap = 0;
+  x25519_fe_1(st.x2);
+  x25519_fe_0(st.z2);
+  x25519_fe_copy(st.x3, x1);
+  x25519_fe_1(st.z3);
   for (usz pos = 255; pos-- > 0;) {
     u64 bit = (e[pos / 8] >> (pos & 7)) & 1;
     swap ^= bit;
-    fe_cswap(x2, x3, swap);
-    fe_cswap(z2, z3, swap);
+    fe_cswap(st.x2, st.x3, swap);
+    fe_cswap(st.z2, st.z3, swap);
     swap = bit;
-    ladder_step(x2, z2, x3, z3, x1);
+    ladder_step(&st, x1);
   }
-  fe_cswap(x2, x3, swap);
-  fe_cswap(z2, z3, swap);
+  fe_cswap(st.x2, st.x3, swap);
+  fe_cswap(st.z2, st.z3, swap);
+  x25519_fe_copy(x2, st.x2);
+  x25519_fe_copy(z2, st.z2);
 }
 
 /* RFC 7748 6.1: a low-order point yields an all-zero shared secret. Detect it

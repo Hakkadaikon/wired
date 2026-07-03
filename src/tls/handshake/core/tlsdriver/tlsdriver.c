@@ -39,16 +39,16 @@ usz quic_tlsdriver_raw_client_hello(quic_tlsdriver *d, u8 *out, usz cap) {
   static const u8 random[32] = {0};
   static const u8 tp[1]      = {0};
   return quic_tls_client_hello(
-      out, cap, random, d->my_pub, d->sni, d->sni_len, tp, sizeof(tp));
+      &(quic_clienthello_in){random, d->my_pub, quic_span_of(d->sni, d->sni_len), quic_span_of(tp, sizeof(tp))},
+      &(quic_obuf){out, cap, 0});
 }
 
-int quic_tlsdriver_client_hello(
-    quic_tlsdriver *d, u8 *out, usz cap, usz *out_len) {
+int quic_tlsdriver_client_hello(quic_tlsdriver *d, quic_obuf *out) {
   u8  ch[512];
   usz n = quic_tlsdriver_raw_client_hello(d, ch, sizeof(ch));
   if (n == 0) return 0;
   return quic_crypto_stream_emit(
-      ch, n, 0, QUIC_TLSDRIVER_CRYPTO_MAX, out, cap, out_len);
+      ch, n, 0, QUIC_TLSDRIVER_CRYPTO_MAX, out->p, out->cap, &out->len);
 }
 
 /* Skip a 1-byte-length-prefixed vector at p (session_id, compression).
@@ -87,26 +87,34 @@ static int ch_keyshare(const u8 *d, usz dlen, u8 pub[32]) {
   return quic_tls_ext_key_share_parse(d + 2, dlen - 2, pub);
 }
 
-/* One extension at q: -1 overrun, 1 key_share found (pub set), 0 skip. */
-static int ch_one(const u8 *b, usz q, usz end, u8 pub[32], usz *next) {
-  unsigned t    = (unsigned)b[q] << 8 | b[q + 1];
-  usz      dlen = (usz)b[q + 2] << 8 | b[q + 3];
-  if (q + 4 + dlen > end) return -1;
-  *next = q + 4 + dlen;
-  return (t == QUIC_EXT_KEY_SHARE) ? ch_keyshare(b + q + 4, dlen, pub) : 0;
+/* The ClientHello extensions block being walked for the key_share. */
+typedef struct {
+  const u8 *b;
+  usz       end;
+} ch_block;
+
+/* One extension at *q: -1 overrun, 1 key_share found (pub set), 0 skip. */
+static int ch_one(const ch_block *blk, usz *q, u8 pub[32]) {
+  unsigned t    = (unsigned)blk->b[*q] << 8 | blk->b[*q + 1];
+  usz      dlen = (usz)blk->b[*q + 2] << 8 | blk->b[*q + 3];
+  if (*q + 4 + dlen > blk->end) return -1;
+  *q += 4 + dlen;
+  return (t == QUIC_EXT_KEY_SHARE) ? ch_keyshare(blk->b + *q - dlen, dlen, pub)
+                                    : 0;
 }
 
 /* Walk the ClientHello extensions block [q,end) for the key_share. */
 static int ch_walk(const u8 *b, usz q, usz end, u8 pub[32]) {
-  int r = 0;
-  while (r == 0 && q + 4 <= end) r = ch_one(b, q, end, pub, &q);
+  ch_block blk = {b, end};
+  int      r   = 0;
+  while (r == 0 && q + 4 <= end) r = ch_one(&blk, &q, pub);
   return r == 1;
 }
 
 /* The message is a well-framed ClientHello; sets *body_len. */
 static int is_client_hello(const u8 *buf, usz n, usz *body_len) {
   u8 type;
-  return quic_hs_parse(buf, n, &type, body_len) == 4 &&
+  return quic_hs_parse(quic_span_of(buf, n), &type, body_len) == 4 &&
          type == QUIC_HS_CLIENT_HELLO;
 }
 
@@ -125,9 +133,9 @@ static int parse_client_hello_keyshare(const u8 *buf, usz n, u8 pub[32]) {
  * server. Returns 1 on success. */
 static int peer_keyshare(
     const quic_tlsdriver *d, const u8 *msg, usz n, u8 pub[32]) {
-  u16 cipher, version;
+  quic_serverhello_out sh;
   if (d->is_server) return parse_client_hello_keyshare(msg, n, pub);
-  return quic_tls_parse_server_hello(msg, n, pub, &cipher, &version);
+  return quic_tls_parse_server_hello(quic_span_of(msg, n), pub, &sh);
 }
 
 /* Install the derived client-handshake keys at the Handshake level. */
@@ -163,28 +171,27 @@ static int derive_handshake(quic_tlsdriver *d, const u8 *msg, usz n) {
 /* Parse one CRYPTO frame at p and feed its payload into the reassembler;
  * advance *p past it. Returns 1 on success, 0 on a bad frame or buffer
  * overflow. */
-static int feed_one(quic_tlsdriver *d, const u8 *frame, usz len, usz *p) {
+static int feed_one(quic_tlsdriver *d, quic_span frame, usz *p) {
   quic_crypto_frame f;
-  usz               used = quic_frame_get_crypto(frame + *p, len - *p, &f);
+  usz used = quic_frame_get_crypto(frame.p + *p, frame.n - *p, &f);
   if (used == 0) return 0;
   *p += used;
   return quic_crypto_stream_recv(
       &d->rx, f.offset, quic_span_of(f.data, (usz)f.length));
 }
 
-/* Feed every CRYPTO frame packed in [frame,len). Returns 1 if all parsed. */
-static int feed_all(quic_tlsdriver *d, const u8 *frame, usz len) {
+/* Feed every CRYPTO frame packed in frame. Returns 1 if all parsed. */
+static int feed_all(quic_tlsdriver *d, quic_span frame) {
   usz p  = 0;
   int ok = 1;
-  while (ok && p < len) ok = feed_one(d, frame, len, &p);
+  while (ok && p < frame.n) ok = feed_one(d, frame, &p);
   return ok;
 }
 
-/* Reassemble all CRYPTO frames and copy the contiguous TLS bytes into msg
- * (cap), writing the length to *n. Returns 1 if any bytes are ready. */
-static int reassemble(
-    quic_tlsdriver *d, const u8 *frame, usz len, quic_obuf *out) {
-  if (!feed_all(d, frame, len)) return 0;
+/* Reassemble all CRYPTO frames and copy the contiguous TLS bytes into out,
+ * writing the length to out->len. Returns 1 if any bytes are ready. */
+static int reassemble(quic_tlsdriver *d, quic_span frame, quic_obuf *out) {
+  if (!feed_all(d, frame)) return 0;
   return quic_crypto_stream_read(&d->rx, out) && out->len != 0;
 }
 
@@ -192,7 +199,7 @@ int quic_tlsdriver_recv_crypto(
     quic_tlsdriver *d, const u8 *crypto_frame, usz len) {
   u8        msg[512];
   quic_obuf out = quic_obuf_of(msg, sizeof(msg));
-  if (!reassemble(d, crypto_frame, len, &out)) return 0;
+  if (!reassemble(d, quic_span_of(crypto_frame, len), &out)) return 0;
   return derive_handshake(d, msg, out.len);
 }
 

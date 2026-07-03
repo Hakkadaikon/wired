@@ -10,29 +10,28 @@ static int alpn_fits(usz proto_len, usz cap) {
 }
 
 /* RFC 7301 3.1: list length(2) + name length(1) + proto. */
-usz quic_tls_alpn_encode(u8 *buf, usz cap, const u8 *proto, usz proto_len) {
+usz quic_tls_alpn_encode(quic_obuf *out, quic_span proto) {
   usz off = 3;
-  if (!alpn_fits(proto_len, cap)) return 0;
-  quic_put_be16(buf, (u16)(1 + proto_len));
-  buf[2] = (u8)proto_len;
-  quic_put_bytes(buf, cap, &off, proto, proto_len); /* room checked above */
+  if (!alpn_fits(proto.n, out->cap)) return 0;
+  quic_put_be16(out->p, (u16)(1 + proto.n));
+  out->p[2] = (u8)proto.n;
+  quic_put_bytes(out->p, out->cap, &off, proto.p, proto.n); /* room checked above */
+  out->len = off;
   return off;
 }
 
 /* Validate the list framing and read the first name length into *name_len. */
-static int alpn_head(const u8 *buf, usz n, usz list_len, usz *name_len) {
-  if (list_len < 1 || 2 + list_len > n) return 0;
-  *name_len = buf[2];
+static int alpn_head(quic_span buf, usz list_len, usz *name_len) {
+  if (list_len < 1 || 2 + list_len > buf.n) return 0;
+  *name_len = buf.p[2];
   return 1 + *name_len <= list_len;
 }
 
-usz quic_tls_alpn_decode_first(
-    const u8 *buf, usz n, const u8 **proto, usz *proto_len) {
+usz quic_tls_alpn_decode_first(quic_span buf, quic_span *proto) {
   usz list_len, name_len;
-  if (n < 3) return 0;
-  list_len = (usz)buf[0] << 8 | buf[1];
-  if (!alpn_head(buf, n, list_len, &name_len)) return 0;
-  *proto     = buf + 3;
-  *proto_len = name_len;
+  if (buf.n < 3) return 0;
+  list_len = (usz)buf.p[0] << 8 | buf.p[1];
+  if (!alpn_head(buf, list_len, &name_len)) return 0;
+  *proto = quic_span_of(buf.p + 3, name_len);
   return 2 + list_len;
 }

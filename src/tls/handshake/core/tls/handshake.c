@@ -16,12 +16,12 @@ void quic_hs_finish(u8 *out, usz total) {
   out[3]   = (u8)body;
 }
 
-usz quic_hs_parse(const u8 *buf, usz n, u8 *type, usz *body_len) {
+usz quic_hs_parse(quic_span buf, u8 *type, usz *body_len) {
   usz len;
-  if (n < 4) return 0;
-  len = ((usz)buf[1] << 16) | ((usz)buf[2] << 8) | buf[3];
-  if (4 + len > n) return 0;
-  *type     = buf[0];
+  if (buf.n < 4) return 0;
+  len = ((usz)buf.p[1] << 16) | ((usz)buf.p[2] << 8) | buf.p[3];
+  if (4 + len > buf.n) return 0;
+  *type     = buf.p[0];
   *body_len = len;
   return 4;
 }

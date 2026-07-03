@@ -1,6 +1,7 @@
 #ifndef QUIC_FULLHS_FULLHS_H
 #define QUIC_FULLHS_FULLHS_H
 
+#include "common/bytes/span/span.h"
 #include "crypto/pki/trust/castore/castore.h"
 #include "crypto/symmetric/hash/hash/sha256.h"
 #include "tls/handshake/core/tls/cert.h"
@@ -47,17 +48,15 @@ typedef struct {
  * EncryptedExtensions, if any) message bytes already folded into the schedule;
  * it fixes the handshake traffic secrets and the Finished/Certificate base
  * hash. Returns 1 on success, 0 if the tlsdriver is not handshake-ready. */
-int quic_fullhs_init(
-    quic_fullhs *h, quic_tlsdriver *tls, const u8 *transcript_sh, usz sh_len);
+int quic_fullhs_init(quic_fullhs *h, quic_tlsdriver *tls, quic_span sh);
 
 /* RFC 5280 6.1 / RFC 6125: set the peer-certificate acceptance policy checked
  * when the Certificate message arrives. now is packed decimal YYYYMMDDHHMMSS
- * (0 skips the validity-window check); host/host_len is the expected SAN
- * dNSName (host_len 0 skips the hostname check). host is a view: the caller
- * keeps it alive for the whole handshake. Zero policy (the init default)
- * keeps the legacy signature-only behavior. */
-void quic_fullhs_set_policy(
-    quic_fullhs *h, u64 now, const u8 *host, usz host_len);
+ * (0 skips the validity-window check); host is the expected SAN dNSName
+ * (host.n 0 skips the hostname check). host is a view: the caller keeps it
+ * alive for the whole handshake. Zero policy (the init default) keeps the
+ * legacy signature-only behavior. */
+void quic_fullhs_set_policy(quic_fullhs *h, u64 now, quic_span host);
 
 /* RFC 5280 6.1: set the trust store the peer's wire chain must validate to
  * when the Certificate message arrives (every link verified, tail anchored
@@ -76,8 +75,7 @@ int quic_fullhs_recv_cert(quic_fullhs *h, const u8 *cert_msg, usz len);
  * transcript hash (through Certificate) using the recorded certificate, then
  * fold the message in and open the authentication gate. Returns 1 if the
  * signature verifies and the gate opened, 0 otherwise. */
-int quic_fullhs_recv_certverify(
-    quic_fullhs *h, const u8 *cv_msg, usz len, u16 scheme);
+int quic_fullhs_recv_certverify(quic_fullhs *h, quic_span cv_msg, u16 scheme);
 
 /* RFC 8446 4.4.4: check the peer's Finished verify_data against the transcript
  * (through CertificateVerify), fold it in, and complete the handshake. Returns
@@ -85,9 +83,8 @@ int quic_fullhs_recv_certverify(
 int quic_fullhs_recv_finished(quic_fullhs *h, const u8 *fin_msg, usz len);
 
 /* RFC 8446 4.4.4: emit our own Finished verify_data over the current transcript
- * into out (cap bytes), writing the length. Returns 1 on success, 0 if it does
- * not fit. */
-int quic_fullhs_send_finished(quic_fullhs *h, u8 *out, usz cap, usz *out_len);
+ * into out, writing out->len. Returns 1 on success, 0 if it does not fit. */
+int quic_fullhs_send_finished(quic_fullhs *h, quic_obuf *out);
 
 /* RFC 9001 4.1 / RFC 8446 7.1: once complete, derive the Master Secret and the
  * application traffic secrets, install the 1-RTT keys and unlock 1-RTT sending.

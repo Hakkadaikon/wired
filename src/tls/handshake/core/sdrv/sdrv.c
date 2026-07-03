@@ -47,39 +47,42 @@ void quic_sdrv_init(
 
 /* Copy a connection id (<=20 bytes) into dst, recording its length. Returns 1
  * on success, 0 if len exceeds 20. */
-static int sdrv_set_cid(u8 *dst, u8 *dst_len, const u8 *cid, u8 len) {
-  if (len > 20) return 0;
-  for (u8 i = 0; i < len; i++) dst[i] = cid[i];
-  *dst_len = len;
+static int sdrv_set_cid(u8 *dst, u8 *dst_len, quic_span cid) {
+  if (cid.n > 20) return 0;
+  for (usz i = 0; i < cid.n; i++) dst[i] = cid.p[i];
+  *dst_len = (u8)cid.n;
   return 1;
 }
 
 int quic_sdrv_set_cids(
-    quic_sdrv *s,
-    const u8  *odcid,
-    u8         odcid_len,
-    const u8  *iscid,
-    u8         iscid_len) {
-  return sdrv_set_cid(s->odcid, &s->odcid_len, odcid, odcid_len) &&
-         sdrv_set_cid(s->iscid, &s->iscid_len, iscid, iscid_len);
+    quic_sdrv *s, quic_span odcid, quic_span iscid) {
+  return sdrv_set_cid(s->odcid, &s->odcid_len, odcid) &&
+         sdrv_set_cid(s->iscid, &s->iscid_len, iscid);
 }
 
-/* One extension at q: -1 overrun, 1 key_share taken, 0 skip; *next advances.
+/* The ClientHello extensions block being walked for the key_share. */
+typedef struct {
+  const u8 *b;
+  usz       end;
+} sdrv_ch_block;
+
+/* One extension at *q: -1 overrun, 1 key_share taken, 0 skip; *q advances.
  * RFC 8446 4.2.8: the ClientHello key_share lists several KeyShareEntry, so
  * scan the list for x25519 rather than assuming it is the first entry. */
-static int sdrv_ch_one(const u8 *b, usz q, usz end, u8 pub[32], usz *next) {
-  unsigned t    = (unsigned)b[q] << 8 | b[q + 1];
-  usz      dlen = (usz)b[q + 2] << 8 | b[q + 3];
-  if (q + 4 + dlen > end) return -1;
-  *next = q + 4 + dlen;
+static int sdrv_ch_one(const sdrv_ch_block *blk, usz *q, u8 pub[32]) {
+  unsigned t    = (unsigned)blk->b[*q] << 8 | blk->b[*q + 1];
+  usz      dlen = (usz)blk->b[*q + 2] << 8 | blk->b[*q + 3];
+  if (*q + 4 + dlen > blk->end) return -1;
+  *q += 4 + dlen;
   return (t == QUIC_EXT_KEY_SHARE)
-             ? quic_tls_ext_key_share_scan(b + q + 4, dlen, pub)
+             ? quic_tls_ext_key_share_scan(blk->b + *q - dlen, dlen, pub)
              : 0;
 }
 
 static int sdrv_ch_walk(const u8 *b, usz q, usz end, u8 pub[32]) {
-  int r = 0;
-  while (r == 0 && q + 4 <= end) r = sdrv_ch_one(b, q, end, pub, &q);
+  sdrv_ch_block blk = {b, end};
+  int           r   = 0;
+  while (r == 0 && q + 4 <= end) r = sdrv_ch_one(&blk, &q, pub);
   return r == 1;
 }
 
@@ -93,24 +96,25 @@ static usz prefix_len(const u8 *b, usz p, usz w) {
 
 /* Skip a w-byte-length-prefixed vector at p; return the offset past it
  * (0 = overrun). */
-static usz skip_vec(const u8 *b, usz n, usz p, usz w) {
-  if (!prefix_fits(p, w, n)) return 0;
-  p += w + prefix_len(b, p, w);
-  return p <= n ? p : 0;
+static usz skip_vec(quic_span b, usz p, usz w) {
+  if (!prefix_fits(p, w, b.n)) return 0;
+  p += w + prefix_len(b.p, p, w);
+  return p <= b.n ? p : 0;
 }
 
 /* RFC 8446 4.1.2: offset of the extensions-length field, or 0 on overrun. */
 static usz sdrv_ch_prefix(const u8 *b, usz n) {
-  usz p = skip_vec(b, n, 34, 1); /* session_id after version+random */
-  p     = skip_vec(b, n, p, 2);  /* cipher_suites */
-  p     = skip_vec(b, n, p, 1);  /* compression_methods */
+  quic_span span = quic_span_of(b, n);
+  usz       p    = skip_vec(span, 34, 1); /* session_id after version+random */
+  p              = skip_vec(span, p, 2);  /* cipher_suites */
+  p              = skip_vec(span, p, 1);  /* compression_methods */
   return prefix_fits(p, 2, n) ? p : 0;
 }
 
 /* The message is a well-framed ClientHello; sets *body_len. */
 static int sdrv_is_client_hello(const u8 *buf, usz n, usz *body_len) {
   u8 type;
-  return quic_hs_parse(buf, n, &type, body_len) == 4 &&
+  return quic_hs_parse(quic_span_of(buf, n), &type, body_len) == 4 &&
          type == QUIC_HS_CLIENT_HELLO;
 }
 
