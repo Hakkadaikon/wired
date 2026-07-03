@@ -119,7 +119,7 @@ static int reassemble_and_drive(
 
 /* 1 if the payload carries a STREAM frame of any kind (request or uni). Such a
  * 1-RTT payload belongs to the HTTP/3 path and must never re-enter the
- * handshake via quic_server_feed (RFC 9000 12.4). */
+ * handshake via wired_server_feed (RFC 9000 12.4). */
 static int has_stream(const u8 *payload, usz len) {
   quic_framewalk      it;
   quic_framewalk_item fr;
@@ -140,13 +140,13 @@ static int has_frame(const u8 *payload, usz len) {
 
 /* No request stream found. A payload carrying only unidirectional STREAM frames
  * (curl's control / QPACK, RFC 9114 6.2) is accepted but drives no request; a
- * CRYPTO/handshake payload is handed to quic_server_feed. */
-static int feed_or_accept(quic_server *s, const u8 *payload, usz len) {
+ * CRYPTO/handshake payload is handed to wired_server_feed. */
+static int feed_or_accept(wired_server *s, const u8 *payload, usz len) {
   if (has_stream(payload, len)) return 1;
-  return quic_server_feed(s, payload, len);
+  return wired_server_feed(s, payload, len);
 }
 
-static int dispatch_non_request(quic_server *s, const u8 *payload, usz len) {
+static int dispatch_non_request(wired_server *s, const u8 *payload, usz len) {
   if (!has_frame(payload, len)) return 0;
   return feed_or_accept(s, payload, len);
 }
@@ -154,7 +154,7 @@ static int dispatch_non_request(quic_server *s, const u8 *payload, usz len) {
 /* RFC 9000 12.4 / 2.1, RFC 9114 6.2: a payload may lead with PADDING/ACK before
  * its CRYPTO or STREAM frame (curl/quiche do this). A client bidi STREAM drives
  * HTTP/3; unidirectional STREAMs are accepted but ignored; anything else is
- * handed whole to quic_server_feed, whose crecv reassembles a split
+ * handed whole to wired_server_feed, whose crecv reassembles a split
  * ClientHello/Finished. A STREAM payload never re-enters the handshake. */
 int quic_srvloop_dispatch(
     const quic_srvloop_dispatch_ctx *ctx, const quic_srvloop_dispatch_in *in) {

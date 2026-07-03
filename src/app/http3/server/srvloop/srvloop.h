@@ -76,7 +76,7 @@ int quic_srvloop_init(quic_srvloop *l, const u8 *cli_scid, u8 cli_scid_len);
  * (mirrors wired_srvboot_conn, srvboot's cold-start counterpart). */
 typedef struct {
   quic_srvloop *l; /**< the server wire loop */
-  quic_server  *s; /**< server-side handshake orchestrator */
+  wired_server *s; /**< server-side handshake orchestrator */
 } quic_srvloop_conn;
 
 /** Drive one wire iteration: open `dgram`, dispatch it, and if the step

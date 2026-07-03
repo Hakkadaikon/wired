@@ -1,6 +1,6 @@
 # Real-UDP HTTP/3 server sample
 
-`quic_server.c` is a minimal HTTP/3 server that drives the in-tree server
+`wired_server.c` is a minimal HTTP/3 server that drives the in-tree server
 real-wire loop (`quic_srvloop_step`) from a real client `Initial` over a real
 UDP socket through a full handshake to an HTTP/3 `:status 200`, all under real
 AEAD protection on the wire. It is libc-free, x86_64-linux only, and runs on
@@ -24,10 +24,10 @@ The server drives one client `Initial` through the whole exchange to an HTTP/3
 `:status 200`, every packet after the Initial under real AEAD:
 
 1. Accept the client `Initial`, derive Initial keys from the DCID, decrypt, and
-   recover the ClientHello (`quic_server_recv_initial`).
+   recover the ClientHello (`wired_server_recv_initial`).
 2. Negotiate ALPN `h3`, build the server flight — ServerHello / EncryptedExtensions
    (ALPN `h3` + QUIC transport parameters) / Certificate / CertificateVerify /
-   Finished — and install the Handshake key (`quic_server_build_flight`), then
+   Finished — and install the Handshake key (`wired_server_build_flight`), then
    seal and send the ServerHello (Initial packet) and flight (Handshake packet)
    under the server's own-direction keys (`quic_srvloop_send_initial` /
    `_send_handshake`).
@@ -53,12 +53,12 @@ the curl section).
 ```mermaid
 sequenceDiagram
     participant C as Client (curl --http3 / in-tree client)
-    participant S as quic_server (0.0.0.0:4433)
+    participant S as wired_server (0.0.0.0:4433)
 
     Note over S: listen_udp() — udp socket / bind, await ClientHello
     C->>S: Initial (long header, ClientHello in CRYPTO, ALPN h3, X25519 key_share)
-    Note over S: quic_server_recv_initial() — derive Initial keys from DCID,<br/>decrypt, fold ClientHello into the transcript
-    Note over S: quic_server_build_flight()<br/>SH / EE(ALPN h3 + transport params) /<br/>Cert(ECDSA P-256) / CertVerify(0x0403) / Finished<br/>+ install Handshake key
+    Note over S: wired_server_recv_initial() — derive Initial keys from DCID,<br/>decrypt, fold ClientHello into the transcript
+    Note over S: wired_server_build_flight()<br/>SH / EE(ALPN h3 + transport params) /<br/>Cert(ECDSA P-256) / CertVerify(0x0403) / Finished<br/>+ install Handshake key
     S-->>C: ServerHello (Initial packet)
     S-->>C: server flight (Handshake packet)
     C->>S: client Finished (Handshake, AEAD-protected)
@@ -85,7 +85,7 @@ nix develop          # provides clang / just / tcpdump
 just run             # builds and starts on 0.0.0.0:4433
 ```
 
-`just build` alone produces the `examples/word_list/quic_server` binary (libc-free, own
+`just build` alone produces the `examples/word_list/wired_server` binary (libc-free, own
 `_start`). On startup the server prints `listening on 0.0.0.0:4433` and waits for
 the ClientHello. Stop it with Ctrl-C.
 
@@ -153,9 +153,9 @@ in `server_test`, and the full `src/client/` mutual handshake is exercised in
 
 **Verified (demonstrated):**
 
-- **Build**: `cd examples/word_list && just build` produces the `quic_server` binary
+- **Build**: `cd examples/word_list && just build` produces the `wired_server` binary
   (libc-free, own `_start`).
-- **Bind + listen**: `./quic_server` prints `listening on 0.0.0.0:4433` and waits
+- **Bind + listen**: `./wired_server` prints `listening on 0.0.0.0:4433` and waits
   for the ClientHello (bind succeeds, no crash).
 - **Sample real-wire path**: the sample recovers the ClientHello, seals + sends
   the ServerHello (Initial) and flight (Handshake), then drives
@@ -245,7 +245,7 @@ xxd -i leaf.der > leaf_der.h
 xxd -i int.der  > int_der.h
 ```
 
-Wiring it into a `wired_srvboot_id` (illustrative; `quic_server.c` itself is
+Wiring it into a `wired_srvboot_id` (illustrative; `wired_server.c` itself is
 not modified — it keeps the fixed self-signed identity above):
 
 ```c

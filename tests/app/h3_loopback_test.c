@@ -19,7 +19,7 @@
 #include "transport/packet/frame/frame/frame.h"
 
 /* RFC 9001 4 / 5 / 5.1, RFC 9000 17.2, RFC 9114 4.1: real-AEAD-wire loopback.
- * A genuine server orchestrator (quic_server) is driven to FLIGHT_SENT, then a
+ * A genuine server orchestrator (wired_server) is driven to FLIGHT_SENT, then a
  * client peer (sharing the server's key schedule, so seal-then-open across the
  * wire is identity per RFC 9001 5) seals its real Finished and GET into
  * AEAD-protected QUIC packets, ships them across a real 127.0.0.1 UDP socket,
@@ -40,7 +40,7 @@
 static const u8 g_scid[6] = {'C', 'L', 'I', 'S', 'C', 'I'};
 
 struct lb_fix {
-  quic_server  s;
+  wired_server s;
   quic_srvloop l;
   u8           ch[512];
   usz          ch_len;
@@ -80,20 +80,20 @@ static void lb_drive_to_flight(struct lb_fix *f) {
   }
   quic_x25519_base(srv_pub, srv_priv);
 
-  quic_server_init_in  sin   = {srv_priv, srv_pub, cert_seed, 0, 0};
+  wired_server_init_in sin   = {srv_priv, srv_pub, cert_seed, 0, 0};
   quic_obuf            sh_ob = quic_obuf_of(f->sh, sizeof(f->sh));
   quic_obuf            fl_ob = quic_obuf_of(f->flight, sizeof(f->flight));
   quic_sdrv_flight_out fo    = {&sh_ob, &fl_ob};
-  quic_server_init(&f->s, &sin);
+  wired_server_init(&f->s, &sin);
   CHECK(
-      quic_server_set_cids(
+      wired_server_set_cids(
           &f->s, quic_span_of(g_scid, 6), quic_span_of(g_scid, 6)) == 1);
   CHECK(quic_srvloop_init(&f->l, g_scid, 6) == 1);
-  CHECK(quic_server_recv_initial(&f->s, f->ch, f->ch_len) == 1);
-  CHECK(quic_server_build_flight(&f->s, f->srv_random, &fo) == 1);
+  CHECK(wired_server_recv_initial(&f->s, f->ch, f->ch_len) == 1);
+  CHECK(wired_server_build_flight(&f->s, f->srv_random, &fo) == 1);
   f->sh_len     = sh_ob.len;
   f->flight_len = fl_ob.len;
-  CHECK(f->s.phase == QUIC_SERVER_HS_FLIGHT_SENT);
+  CHECK(f->s.phase == WIRED_SERVER_HS_FLIGHT_SENT);
 }
 
 /* RFC 8446 4.4.4: compute the genuine client Finished from the transcript. */
@@ -282,7 +282,7 @@ static void test_loopback_wire_confirm_and_get(void) {
    * HANDSHAKE_DONE (RFC 9114 6.2.1 / RFC 9000 19.20). */
   clen = lb_seal_handshake(&f, f.cli_fin, f.cli_fin_len, cpkt, sizeof cpkt);
   CHECK(lb_wire_step(&f, cfd, sfd, &srv, cpkt, clen, &ob) == 1);
-  CHECK(quic_server_is_confirmed(&f.s) == 1);
+  CHECK(wired_server_is_confirmed(&f.s) == 1);
   {
     const u8         *pkts[4];
     usz               offs[4], lens[4];
@@ -344,7 +344,7 @@ static void sb_make_id(
  * datagram (built in-buffer, no socket) and seals the flight. */
 static void test_srvboot_accept(void) {
   quic_client      c;
-  quic_server      s;
+  wired_server     s;
   quic_srvloop     l;
   wired_srvboot_id id;
   u8               priv[32], pub[32], seed[32], rnd[32], cpriv[32], cpub[32];
@@ -368,7 +368,7 @@ static void test_srvboot_accept(void) {
   sb_make_id(&id, priv, pub, seed, rnd);
   in = (wired_srvboot_in){&id, quic_mspan_of(dg, total)};
   CHECK(wired_srvboot_accept(&conn, &in, &ob) == 1);
-  CHECK(s.phase == QUIC_SERVER_HS_FLIGHT_SENT);
+  CHECK(s.phase == WIRED_SERVER_HS_FLIGHT_SENT);
   CHECK(ob.len > 0);
   CHECK((out[0] & 0x80) != 0); /* long-header ServerHello Initial */
   CHECK((out[0] & 0x30) == 0); /* Initial type bits */
@@ -380,7 +380,7 @@ static void test_srvboot_accept(void) {
 
 /* A datagram that is not a valid Initial is refused (no flight produced). */
 static void test_srvboot_rejects_non_initial(void) {
-  quic_server      s;
+  wired_server     s;
   quic_srvloop     l;
   wired_srvboot_id id;
   u8               priv[32], pub[32], seed[32], rnd[32];

@@ -18,7 +18,7 @@ typedef struct {
 /* The running server's mutable state: the orchestrator, the HTTP/3 loop, and
  * whether a connection is currently up. */
 typedef struct {
-  quic_server  s;
+  wired_server s;
   quic_srvloop l;
   int          up;
 } srvrun_state;
@@ -73,7 +73,7 @@ static void srvrun_on_step(const srvrun_step_ctx *ctx, quic_mspan dg) {
 static int srvrun_is_new(srvrun_state *st, quic_mspan dg) {
   if (!wired_srvboot_is_initial(dg.p, dg.n)) return 0;
   if (!st->up) return 1;
-  return quic_server_is_confirmed(&st->s);
+  return wired_server_is_confirmed(&st->s);
 }
 
 /* Drive one received datagram: a new Initial (re)opens the connection, any

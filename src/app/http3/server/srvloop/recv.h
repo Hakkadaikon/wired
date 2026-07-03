@@ -26,6 +26,8 @@ typedef struct {
  * opened at, out->payload the recovered plaintext frames. Returns 1, or 0 on
  * an unhandled type, a missing peer key, or AEAD failure. */
 int quic_srvloop_recv(
-    quic_server *s, const quic_srvloop_recv_in *in, quic_srvloop_recv_out *out);
+    wired_server               *s,
+    const quic_srvloop_recv_in *in,
+    quic_srvloop_recv_out      *out);
 
 #endif

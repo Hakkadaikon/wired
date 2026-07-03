@@ -44,10 +44,10 @@ static int srvboot_init(
     const wired_srvboot_conn *conn,
     const wired_srvboot_id   *id,
     const quic_header        *h) {
-  quic_server_init_in in = {
+  wired_server_init_in in = {
       id->priv, id->pub, id->cert_seed, id->chain, id->chain_count};
-  quic_server_init(conn->s, &in);
-  if (!quic_server_set_cids(
+  wired_server_init(conn->s, &in);
+  if (!wired_server_set_cids(
           conn->s, quic_span_of(h->dcid, h->dcid_len),
           quic_span_of(id->scid, id->scid_len)))
     return 0;
@@ -70,7 +70,7 @@ typedef struct {
 /* The server and its fixed identity, threaded together through flight
  * sealing (they always travel as a pair). */
 typedef struct {
-  quic_server            *s;
+  wired_server           *s;
   const wired_srvboot_id *id;
 } srvboot_server;
 
@@ -94,14 +94,14 @@ static int srvboot_seal_flight(
 
 /* Build the server flight from the folded ClientHello and seal it. */
 static int srvboot_flight(
-    quic_server *s, const wired_srvboot_id *id, quic_obuf *out) {
+    wired_server *s, const wired_srvboot_id *id, quic_obuf *out) {
   u8                   sh[512], flight[2048];
   quic_obuf            sh_ob = quic_obuf_of(sh, sizeof sh);
   quic_obuf            fl_ob = quic_obuf_of(flight, sizeof flight);
   quic_sdrv_flight_out fo    = {&sh_ob, &fl_ob};
   srvboot_flight_bytes fb;
   srvboot_server       sv = {s, id};
-  if (!quic_server_build_flight(s, id->random, &fo)) return 0;
+  if (!wired_server_build_flight(s, id->random, &fo)) return 0;
   fb = (srvboot_flight_bytes){
       quic_span_of(sh, sh_ob.len), quic_span_of(flight, fl_ob.len)};
   return srvboot_seal_flight(&sv, &fb, out);
@@ -134,7 +134,7 @@ static int srvboot_accept_ch(
   srvboot_read_out out = {&cr, &h, &ch};
   if (!srvboot_read_initial(dgram, &out)) return 0;
   if (!srvboot_init(conn, id, &h)) return 0;
-  return quic_server_recv_initial(conn->s, ch.p, ch.n);
+  return wired_server_recv_initial(conn->s, ch.p, ch.n);
 }
 
 int wired_srvboot_accept(

@@ -381,7 +381,7 @@ they are noted in code:
   minimal ClientHello, not a full negotiation. The full TLS 1.3 message flow
   lives in `tlsdriver`/`fullhs`/`client`.
 - **`curl --http3` interop (quiche backend confirmed).** A real `curl --http3`
-  round trip was completed against `examples/quic_server` on an external host
+  round trip was completed against `examples/wired_server` on an external host
   (VPS): the quiche / BoringSSL backend finished the handshake and received
   `HTTP/3 200`. It was not run in this sandbox (no HTTP/3 curl here), and curl's
   ngtcp2 backend / other clients are not yet verified.

@@ -8,7 +8,7 @@
 /* RFC 9001 5.2: the server Initial is protected with the keys derived from the
  * client's original DCID (odcid), the same value the client opens with. */
 int quic_srvloop_send_initial(
-    const quic_server *s, const quic_srvloop_send_in *in, quic_obuf *out) {
+    const wired_server *s, const quic_srvloop_send_in *in, quic_obuf *out) {
   quic_srvwire_seal_in wi = {
       quic_span_of(s->sdrv.odcid, s->sdrv.odcid_len),
       quic_span_of(s->sdrv.iscid, s->sdrv.iscid_len), in->pn, in->ack_pn,
@@ -19,7 +19,7 @@ int quic_srvloop_send_initial(
 /* RFC 9001 5 / 5.1: Handshake flight sealed with the own-direction SERVER_HS.
  */
 int quic_srvloop_send_handshake(
-    const quic_server *s, const quic_srvloop_send_in *in, quic_obuf *out) {
+    const wired_server *s, const quic_srvloop_send_in *in, quic_obuf *out) {
   quic_srvloop_dirkeys dk;
   quic_srvwire_seal_in wi = {
       in->cli_scid, quic_span_of(s->sdrv.iscid, s->sdrv.iscid_len), in->pn,
@@ -32,7 +32,7 @@ int quic_srvloop_send_handshake(
 
 /* RFC 9001 5 / 5.1: 1-RTT payload sealed with the own-direction SERVER_AP. */
 int quic_srvloop_send_onertt(
-    const quic_server *s, const quic_srvloop_send_in *in, quic_obuf *out) {
+    const wired_server *s, const quic_srvloop_send_in *in, quic_obuf *out) {
   quic_srvloop_dirkeys dk;
   if (!quic_srvloop_seal_keys(s, QUIC_LEVEL_ONERTT, &dk)) return 0;
   quic_protect_keys      pk = {dk.keys, &dk.hp};

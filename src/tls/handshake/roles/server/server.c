@@ -16,15 +16,15 @@ static void srv_copy32(u8 *dst, const u8 *src) {
 
 /* Append msg into the raw transcript buffer (truncates silently at capacity;
  * the cap is sized for a full flight). Returns the new length. */
-static usz srv_tr_add(quic_server *s, const u8 *msg, usz len) {
-  usz room = QUIC_SERVER_TRANSCRIPT_MAX - s->tr_len;
+static usz srv_tr_add(wired_server *s, const u8 *msg, usz len) {
+  usz room = WIRED_SERVER_TRANSCRIPT_MAX - s->tr_len;
   usz n    = len < room ? len : room;
   for (usz i = 0; i < n; i++) s->tr[s->tr_len + i] = msg[i];
   s->tr_len += n;
   return s->tr_len;
 }
 
-void quic_server_init(quic_server *s, const quic_server_init_in *in) {
+void wired_server_init(wired_server *s, const wired_server_init_in *in) {
   quic_sdrv_init_in din = {
       in->server_priv_x25519, in->server_pub_x25519, in->cert_seed, in->chain,
       in->chain_count};
@@ -35,22 +35,22 @@ void quic_server_init(quic_server *s, const quic_server_init_in *in) {
   quic_srvfin_state_init(&s->fin, &s->sched, &s->keys);
   quic_crecv_init(&s->crecv);
   s->fd                = -1;
-  s->phase             = QUIC_SERVER_HS_INITIAL;
+  s->phase             = WIRED_SERVER_HS_INITIAL;
   s->hs_done_sent      = 0;
   s->tr_len            = 0;
   s->tr_through_sh     = 0;
   s->tr_through_flight = 0;
 }
 
-int quic_server_set_cids(quic_server *s, quic_span odcid, quic_span iscid) {
+int wired_server_set_cids(wired_server *s, quic_span odcid, quic_span iscid) {
   return quic_sdrv_set_cids(&s->sdrv, odcid, iscid);
 }
 
-int quic_server_recv_initial(quic_server *s, const u8 *ch_msg, usz ch_len) {
-  if (s->phase != QUIC_SERVER_HS_INITIAL) return 0;
+int wired_server_recv_initial(wired_server *s, const u8 *ch_msg, usz ch_len) {
+  if (s->phase != WIRED_SERVER_HS_INITIAL) return 0;
   if (!quic_sdrv_recv_client_hello(&s->sdrv, ch_msg, ch_len)) return 0;
   srv_tr_add(s, ch_msg, ch_len);
-  s->phase = QUIC_SERVER_HS_CH_RECVD;
+  s->phase = WIRED_SERVER_HS_CH_RECVD;
   return 1;
 }
 
@@ -58,14 +58,14 @@ int quic_server_recv_initial(quic_server *s, const u8 *ch_msg, usz ch_len) {
  * ServerHello and install the Handshake-level keys. */
 /* ECDHE shared secret then advance to the handshake secret. RFC 7748 6.1: a
  * low-order client key gives an all-zero secret; reject it. */
-static int srv_derive_hs(quic_server *s, u8 ecdhe[QUIC_X25519_LEN]) {
+static int srv_derive_hs(wired_server *s, u8 ecdhe[QUIC_X25519_LEN]) {
   if (!quic_x25519(ecdhe, s->server_priv, s->sdrv.client_pub)) return 0;
   return quic_keysched_advance_handshake(
       &s->sched, quic_span_of(ecdhe, QUIC_X25519_LEN),
       quic_span_of(s->tr, s->tr_through_sh));
 }
 
-static int srv_install_hs_keys(quic_server *s) {
+static int srv_install_hs_keys(wired_server *s) {
   u8                       ecdhe[QUIC_X25519_LEN];
   const quic_initial_keys *shs;
   if (!srv_derive_hs(s, ecdhe)) return 0;
@@ -74,7 +74,7 @@ static int srv_install_hs_keys(quic_server *s) {
 }
 
 /* Record the flight in the transcript and install the Handshake key. */
-static int srv_after_flight(quic_server *s, const quic_sdrv_flight_out *out) {
+static int srv_after_flight(wired_server *s, const quic_sdrv_flight_out *out) {
   s->tr_through_sh     = srv_tr_add(s, out->sh->p, out->sh->len);
   s->tr_through_flight = srv_tr_add(s, out->hs->p, out->hs->len);
   return srv_install_hs_keys(s);
@@ -82,22 +82,22 @@ static int srv_after_flight(quic_server *s, const quic_sdrv_flight_out *out) {
 
 /* Build the flight via sdrv and finish the transcript/key bookkeeping. */
 static int srv_emit_flight(
-    quic_server *s, const u8 *server_random, const quic_sdrv_flight_out *out) {
+    wired_server *s, const u8 *server_random, const quic_sdrv_flight_out *out) {
   if (!quic_sdrv_build_server_flight(&s->sdrv, server_random, out)) return 0;
   return srv_after_flight(s, out);
 }
 
-int quic_server_build_flight(
-    quic_server *s, const u8 *server_random, const quic_sdrv_flight_out *out) {
-  if (s->phase != QUIC_SERVER_HS_CH_RECVD) return 0;
+int wired_server_build_flight(
+    wired_server *s, const u8 *server_random, const quic_sdrv_flight_out *out) {
+  if (s->phase != WIRED_SERVER_HS_CH_RECVD) return 0;
   if (!srv_emit_flight(s, server_random, out)) return 0;
-  s->phase = QUIC_SERVER_HS_FLIGHT_SENT;
+  s->phase = WIRED_SERVER_HS_FLIGHT_SENT;
   return 1;
 }
 
 /* RFC 8446 4.4.4: verify the client Finished against the client handshake
  * traffic secret and the transcript hash through the server Finished. */
-static int srv_verify_finished(quic_server *s, const u8 *msg, usz len) {
+static int srv_verify_finished(wired_server *s, const u8 *msg, usz len) {
   const u8             *hs;
   u8                    c_traffic[QUIC_HKDF_PRK], th[QUIC_SHA256_DIGEST];
   quic_derive_secret_in dsi;
@@ -115,23 +115,23 @@ static int srv_verify_finished(quic_server *s, const u8 *msg, usz len) {
  * application_traffic_secret_0 is derived over the transcript through the
  * server Finished (tr_through_flight), NOT the client Finished, so both peers
  * reach the same 1-RTT keys. */
-static int srv_complete(quic_server *s, const u8 *msg, usz len) {
+static int srv_complete(wired_server *s, const u8 *msg, usz len) {
   (void)msg;
   (void)len;
   if (!quic_srvfin_complete(&s->fin, s->tr, s->tr_through_flight)) return 0;
-  s->phase = QUIC_SERVER_HS_CONFIRMED;
+  s->phase = WIRED_SERVER_HS_CONFIRMED;
   return 1;
 }
 
 /* Process the reassembled client Finished: verify, then complete only on a
  * match. The forged path returns 0 having promoted nothing. */
-static int srv_on_finished(quic_server *s, const u8 *msg, usz len) {
-  if (s->phase != QUIC_SERVER_HS_FLIGHT_SENT) return 0;
+static int srv_on_finished(wired_server *s, const u8 *msg, usz len) {
+  if (s->phase != WIRED_SERVER_HS_FLIGHT_SENT) return 0;
   if (!srv_verify_finished(s, msg, len)) return 0;
   return srv_complete(s, msg, len);
 }
 
-int quic_server_feed(quic_server *s, const u8 *crypto_payload, usz len) {
+int wired_server_feed(wired_server *s, const u8 *crypto_payload, usz len) {
   const u8 *msg;
   usz       mlen;
   if (!quic_crecv_collect(&s->crecv, crypto_payload, len)) return 0;
@@ -140,7 +140,7 @@ int quic_server_feed(quic_server *s, const u8 *crypto_payload, usz len) {
   return srv_on_finished(s, msg, mlen);
 }
 
-int quic_server_handshake_done(quic_server *s, quic_obuf *out) {
+int wired_server_handshake_done(wired_server *s, quic_obuf *out) {
   if (!quic_srvfin_should_send_handshake_done(
           s->fin.confirmed, s->hs_done_sent))
     return 0;
@@ -149,6 +149,6 @@ int quic_server_handshake_done(quic_server *s, quic_obuf *out) {
   return 1;
 }
 
-int quic_server_is_confirmed(const quic_server *s) {
-  return s->phase == QUIC_SERVER_HS_CONFIRMED;
+int wired_server_is_confirmed(const wired_server *s) {
+  return s->phase == WIRED_SERVER_HS_CONFIRMED;
 }

@@ -1,5 +1,5 @@
-#ifndef QUIC_SERVER_SERVER_H
-#define QUIC_SERVER_SERVER_H
+#ifndef WIRED_SERVER_SERVER_H
+#define WIRED_SERVER_SERVER_H
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
@@ -16,27 +16,27 @@
  * key set and confirms) to handshake confirmation and HANDSHAKE_DONE.
  *
  * All policy lives in those layers; the server wires them and gates 1-RTT
- * promotion on a verified client Finished. The data path (quic_server_feed)
+ * promotion on a verified client Finished. The data path (wired_server_feed)
  * is socket-free so it can be driven by buffer injection without a socket;
- * only quic_server_pump enters the kernel via io/udp. */
+ * only wired_server_pump enters the kernel via io/udp. */
 
 /** Capacity of a server flight buffer in octets. */
-#define QUIC_SERVER_FLIGHT_MAX 2048
+#define WIRED_SERVER_FLIGHT_MAX 2048
 /** Capacity of the raw handshake transcript buffer in octets. */
-#define QUIC_SERVER_TRANSCRIPT_MAX 4096
+#define WIRED_SERVER_TRANSCRIPT_MAX 4096
 /** Capacity of one received UDP datagram in octets. */
-#define QUIC_SERVER_DATAGRAM_MAX 1500
+#define WIRED_SERVER_DATAGRAM_MAX 1500
 
-/** Handshake phases of the orchestrator (quic_server.phase). */
+/** Handshake phases of the orchestrator (wired_server.phase). */
 enum {
-  QUIC_SERVER_HS_INITIAL = 0, /**< awaiting the ClientHello */
-  QUIC_SERVER_HS_CH_RECVD,    /**< ClientHello folded, flight not sent */
-  QUIC_SERVER_HS_FLIGHT_SENT, /**< server flight sent, Handshake key ready */
-  QUIC_SERVER_HS_CONFIRMED    /**< client Finished verified, 1-RTT armed */
+  WIRED_SERVER_HS_INITIAL = 0, /**< awaiting the ClientHello */
+  WIRED_SERVER_HS_CH_RECVD,    /**< ClientHello folded, flight not sent */
+  WIRED_SERVER_HS_FLIGHT_SENT, /**< server flight sent, Handshake key ready */
+  WIRED_SERVER_HS_CONFIRMED    /**< client Finished verified, 1-RTT armed */
 };
 
 /** Server-side handshake orchestrator state, initialized by
- * quic_server_init. */
+ * wired_server_init. */
 typedef struct {
   i64               fd;    /**< UDP socket; <0 until a socket is opened */
   quic_sockaddr_in  peer;  /**< the client's UDP address (set by pump) */
@@ -45,14 +45,14 @@ typedef struct {
   quic_keyset       keys;  /**< per-protection-level QUIC key sets */
   quic_srvfin_state fin;   /**< client-Finished verification state */
   quic_crecv        crecv; /**< CRYPTO stream reassembly buffer */
-  int               phase; /**< QUIC_SERVER_HS_* */
+  int               phase; /**< WIRED_SERVER_HS_* */
   int               hs_done_sent; /**< HANDSHAKE_DONE emitted (at most once) */
   u8  server_priv[32]; /**< RFC 7748 x25519 private (owns the ECDHE) */
-  u8  tr[QUIC_SERVER_TRANSCRIPT_MAX]; /**< raw handshake transcript bytes */
+  u8  tr[WIRED_SERVER_TRANSCRIPT_MAX]; /**< raw handshake transcript bytes */
   usz tr_len;            /**< bytes through the latest folded message */
   usz tr_through_sh;     /**< transcript length through ServerHello */
   usz tr_through_flight; /**< transcript length through server Finished */
-} quic_server;
+} wired_server;
 
 /** server_priv_x25519/server_pub_x25519 are the static ECDHE pair; cert_seed
  * is the ECDSA P-256 signing scalar (big-endian). chain/chain_count, when
@@ -67,13 +67,13 @@ typedef struct {
   const u8        *cert_seed;   /**< ECDSA P-256 signing scalar, big-endian */
   const quic_span *chain;       /**< optional: external chain, leaf first */
   usz              chain_count; /**< entries in chain; 0 = self-signed */
-} quic_server_init_in;
+} wired_server_init_in;
 
 /** Initialize the orchestrator with the server key material. No socket is
  * opened.
  * @param s the orchestrator to initialize
  * @param in the server key material */
-void quic_server_init(quic_server *s, const quic_server_init_in *in);
+void wired_server_init(wired_server *s, const wired_server_init_in *in);
 
 /** RFC 9000 7.3: record the DCID of the client's first Initial (the ODCID the
  * server echoes) and the server's source connection id (ISCID) so the
@@ -83,7 +83,7 @@ void quic_server_init(quic_server *s, const quic_server_init_in *in);
  * @param odcid the DCID of the client's first Initial
  * @param iscid the server's source connection id
  * @return 1 ok, 0 if either length exceeds 20. */
-int quic_server_set_cids(quic_server *s, quic_span odcid, quic_span iscid);
+int wired_server_set_cids(wired_server *s, quic_span odcid, quic_span iscid);
 
 /** RFC 8446 4.4.1: fold a received ClientHello (TLS handshake message bytes)
  * into the transcript. Advances INITIAL -> CH_RECVD.
@@ -92,7 +92,7 @@ int quic_server_set_cids(quic_server *s, quic_span odcid, quic_span iscid);
  * @param ch_len length of ch_msg in octets
  * @return 1 on success, 0 if the message is not a usable ClientHello or out
  *   of phase. */
-int quic_server_recv_initial(quic_server *s, const u8 *ch_msg, usz ch_len);
+int wired_server_recv_initial(wired_server *s, const u8 *ch_msg, usz ch_len);
 
 /** RFC 8446 4.4 / RFC 9001 4: build the server flight (ServerHello into
  * out->sh, EncryptedExtensions||Certificate||CertificateVerify||Finished into
@@ -102,8 +102,8 @@ int quic_server_recv_initial(quic_server *s, const u8 *ch_msg, usz ch_len);
  * @param server_random the ServerHello.random, 32 bytes
  * @param out receives the ServerHello and the Handshake-level flight
  * @return 1 on success, 0 otherwise. */
-int quic_server_build_flight(
-    quic_server *s, const u8 *server_random, const quic_sdrv_flight_out *out);
+int wired_server_build_flight(
+    wired_server *s, const u8 *server_random, const quic_sdrv_flight_out *out);
 
 /** RFC 8446 4.4.4 / RFC 9001 4.1.2: drive the handshake with one received
  * Handshake-packet CRYPTO payload (socket-free injection). Reassembles the
@@ -114,7 +114,7 @@ int quic_server_build_flight(
  * @param crypto_payload one Handshake-packet CRYPTO payload
  * @param len length of crypto_payload in octets
  * @return 1 if it advanced the handshake, 0 otherwise. */
-int quic_server_feed(quic_server *s, const u8 *crypto_payload, usz len);
+int wired_server_feed(wired_server *s, const u8 *crypto_payload, usz len);
 
 /** RFC 9001 4.1.2 / RFC 9000 19.20: write the HANDSHAKE_DONE frame, at most
  * once and only after confirmation.
@@ -122,34 +122,34 @@ int quic_server_feed(quic_server *s, const u8 *crypto_payload, usz len);
  * @param out receives the HANDSHAKE_DONE frame
  * @return 1 and sets out->len, or 0 if not confirmed, already sent, or
  *   out->cap is 0. */
-int quic_server_handshake_done(quic_server *s, quic_obuf *out);
+int wired_server_handshake_done(wired_server *s, quic_obuf *out);
 
 /** 1 once the client Finished verified and the handshake is confirmed.
  * @param s the orchestrator to inspect
  * @return 1 once the client Finished verified and the handshake is
  *   confirmed. */
-int quic_server_is_confirmed(const quic_server *s);
+int wired_server_is_confirmed(const wired_server *s);
 
 /** Open a UDP socket bound to port and wait for the ClientHello.
  * @param s the orchestrator that will own the socket
  * @param port UDP port to bind
  * @return 1 on success, 0 on socket/bind failure. */
-int quic_server_listen(quic_server *s, u16 port);
+int wired_server_listen(wired_server *s, u16 port);
 
 /** One receive iteration: pull a datagram off the socket and feed it.
  * @param s the orchestrator to pump
  * @return 1 if the handshake advanced, 0 otherwise. */
-int quic_server_pump(quic_server *s);
+int wired_server_pump(wired_server *s);
 
 /** Pump until confirmed or max_iterations is reached (bounded so a silent or
  * hostile peer cannot wedge the server).
  * @param s the orchestrator to pump
  * @param max_iterations upper bound on receive iterations
  * @return 1 if confirmed. */
-int quic_server_run_handshake(quic_server *s, int max_iterations);
+int wired_server_run_handshake(wired_server *s, int max_iterations);
 
 /** Close the UDP socket.
  * @param s the orchestrator whose socket to close */
-void quic_server_close(quic_server *s);
+void wired_server_close(wired_server *s);
 
 #endif
