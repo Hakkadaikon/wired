@@ -106,6 +106,10 @@ flowchart LR
   all 393 tests with assertions on.
 - **`just check`** runs the gate (`ccn` + `test`); the full commit gate adds
   `just build` and the object-count check (see below).
+- **`just setup`** bootstraps a fresh machine: installs nix via the
+  Determinate Systems installer when absent (no-op when present). `nix develop`
+  then provides clang/just/lizard/doxygen from `flake.nix`. Without just
+  itself, run the installer line from the `setup` recipe directly.
 - **`just docs`** regenerates the public-API reference (doxygen, config in
   `docs/Doxyfile`) into `docs/sdk/` (gitignored). The input set is derived from
   `wired.h`'s transitive includes at run time, and `WARN_AS_ERROR` is on: a
