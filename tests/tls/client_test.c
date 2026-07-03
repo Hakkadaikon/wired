@@ -75,8 +75,12 @@ static void client_reach_hs_secret(
   }
   CHECK(quic_tlsdriver_recv_crypto(sv, frame, fl) == 1);
   shn = client_build_sh(sh, sizeof(sh), sv_pub);
-  CHECK(
-      quic_crypto_stream_emit(sh, shn, 0, 256, frame, sizeof(frame), &fl) == 1);
+  {
+    quic_obuf ob = quic_obuf_of(frame, sizeof(frame));
+    quic_crypto_stream_emit_in ein = {0, 256};
+    CHECK(quic_crypto_stream_emit(quic_span_of(sh, shn), &ein, &ob) == 1);
+    fl = ob.len;
+  }
   CHECK(quic_tlsdriver_recv_crypto(cl, frame, fl) == 1);
   CHECK(quic_tlsdriver_handshake_secret_ready(cl) == 1);
 }
@@ -122,8 +126,12 @@ static void test_client_feed_serverhello(void) {
   CHECK(quic_tlsdriver_recv_crypto(&svtls, frame, fl) == 1);
 
   shn = client_build_sh(sh, sizeof(sh), sv_pub);
-  CHECK(
-      quic_crypto_stream_emit(sh, shn, 0, 256, frame, sizeof(frame), &fl) == 1);
+  {
+    quic_obuf ob = quic_obuf_of(frame, sizeof(frame));
+    quic_crypto_stream_emit_in ein = {0, 256};
+    CHECK(quic_crypto_stream_emit(quic_span_of(sh, shn), &ein, &ob) == 1);
+    fl = ob.len;
+  }
   CHECK(quic_client_feed(&c, frame, fl) == 1);
   CHECK(c.phase == QUIC_CLIENT_HS_AUTH);
 }
@@ -212,8 +220,12 @@ static void policy_client(
   }
   CHECK(quic_tlsdriver_recv_crypto(svtls, frame, fl) == 1);
   shn = client_build_sh(sh, sizeof(sh), sv_pub);
-  CHECK(
-      quic_crypto_stream_emit(sh, shn, 0, 256, frame, sizeof(frame), &fl) == 1);
+  {
+    quic_obuf ob = quic_obuf_of(frame, sizeof(frame));
+    quic_crypto_stream_emit_in ein = {0, 256};
+    CHECK(quic_crypto_stream_emit(quic_span_of(sh, shn), &ein, &ob) == 1);
+    fl = ob.len;
+  }
   CHECK(quic_client_feed(c, frame, fl) == 1); /* injects the policy */
   CHECK(c->phase == QUIC_CLIENT_HS_AUTH);
 }

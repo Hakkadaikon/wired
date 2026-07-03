@@ -7,9 +7,10 @@ static void test_pnspaces_recv_ranges_per_space(void) {
   quic_pnspaces_recv_init(&s);
 
   /* No reception yet => no ranges. */
-  u64 largest  = 99, ranges[8];
-  usz n_ranges = 0;
-  CHECK(quic_pnspaces_ack_ranges(&s, 0, &largest, ranges, &n_ranges, 8) == 0);
+  u64                   largest = 99, ranges[8];
+  quic_u64obuf          rb  = {ranges, 8, 0};
+  quic_pnspaces_ack_out out = {&largest, &rb};
+  CHECK(quic_pnspaces_ack_ranges(&s, 0, &out) == 0);
 
   /* Receive 8,9,10 in Initial (0); 5 in Application (2). */
   quic_pnspaces_on_recv(&s, 0, 10);
@@ -18,19 +19,19 @@ static void test_pnspaces_recv_ranges_per_space(void) {
   quic_pnspaces_on_recv(&s, 2, 5);
 
   /* Initial's ack ranges: largest 10, one contiguous block of 3 (len 2). */
-  CHECK(quic_pnspaces_ack_ranges(&s, 0, &largest, ranges, &n_ranges, 8) == 1);
+  CHECK(quic_pnspaces_ack_ranges(&s, 0, &out) == 1);
   CHECK(largest == 10);
-  CHECK(n_ranges == 1);
+  CHECK(rb.len == 1);
   CHECK(ranges[0] == 2); /* First ACK Range = count - 1 */
 
   /* Application is independent: only pn 5, unaffected by Initial. */
-  CHECK(quic_pnspaces_ack_ranges(&s, 2, &largest, ranges, &n_ranges, 8) == 1);
+  CHECK(quic_pnspaces_ack_ranges(&s, 2, &out) == 1);
   CHECK(largest == 5);
-  CHECK(n_ranges == 1);
+  CHECK(rb.len == 1);
   CHECK(ranges[0] == 0);
 
   /* Handshake (1) received nothing. */
-  CHECK(quic_pnspaces_ack_ranges(&s, 1, &largest, ranges, &n_ranges, 8) == 0);
+  CHECK(quic_pnspaces_ack_ranges(&s, 1, &out) == 0);
 }
 
 void test_pnspaces_recv(void) { test_pnspaces_recv_ranges_per_space(); }

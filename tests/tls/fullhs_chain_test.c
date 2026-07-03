@@ -81,8 +81,12 @@ static void fc_new_client(
   }
   CHECK(quic_tlsdriver_recv_crypto(sv, frame, fl) == 1);
   shn = fc_build_sh(sh, sizeof(sh), sv_pub);
-  CHECK(
-      quic_crypto_stream_emit(sh, shn, 0, 256, frame, sizeof(frame), &fl) == 1);
+  {
+    quic_obuf ob = quic_obuf_of(frame, sizeof(frame));
+    quic_crypto_stream_emit_in ein = {0, 256};
+    CHECK(quic_crypto_stream_emit(quic_span_of(sh, shn), &ein, &ob) == 1);
+    fl = ob.len;
+  }
   CHECK(quic_tlsdriver_recv_crypto(cl, frame, fl) == 1);
   CHECK(quic_fullhs_init(h, cl, quic_span_of(fullhs_sh, sizeof(fullhs_sh))) == 1);
 }

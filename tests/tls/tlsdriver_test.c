@@ -45,7 +45,10 @@ static usz build_sh_td(u8 *out, usz cap, const u8 pub[32]) {
 /* Wrap a whole TLS message in one CRYPTO frame at offset 0. */
 static usz wrap_crypto(u8 *out, usz cap, const u8 *msg, usz n) {
   usz w = 0;
-  CHECK(quic_crypto_stream_emit(msg, n, 0, 256, out, cap, &w) == 1);
+  quic_obuf ob = quic_obuf_of(out, cap);
+  quic_crypto_stream_emit_in ein = {0, 256};
+  CHECK(quic_crypto_stream_emit(quic_span_of(msg, n), &ein, &ob) == 1);
+  w = ob.len;
   return w;
 }
 

@@ -50,13 +50,15 @@ void quic_client_set_castore(quic_client *c, const quic_castore *store) {
  */
 usz quic_client_build_initial(quic_client *c, u8 *out, usz cap) {
   u8        ch[QUIC_CLIENT_HELLO_MAX];
-  usz       frame_len;
   quic_obuf ob = quic_obuf_of(ch, sizeof(ch));
   if (!quic_tlsdriver_client_hello(&c->tls, &ob)) return 0;
-  if (!quic_crypto_stream_emit(
-          ch, ob.len, 0, QUIC_CLIENT_CRYPTO_FRAME, out, cap, &frame_len))
-    return 0;
-  return quic_pktbuild_init_pad(out, frame_len, cap);
+  {
+    quic_crypto_stream_emit_in ein = {0, QUIC_CLIENT_CRYPTO_FRAME};
+    quic_obuf                  fb  = quic_obuf_of(out, cap);
+    if (!quic_crypto_stream_emit(quic_span_of(ch, ob.len), &ein, &fb))
+      return 0;
+    return quic_pktbuild_init_pad(out, fb.len, cap);
+  }
 }
 
 int quic_client_start(quic_client *c) {

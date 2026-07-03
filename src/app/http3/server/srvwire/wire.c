@@ -49,11 +49,8 @@ static int append_ack(quic_obuf *frames, i64 ack_pn) {
  * then an optional trailing ACK (when in->ack_pn >= 0). Returns 1, or 0 on
  * overflow. */
 static int srvwire_emit_frames(const quic_srvwire_seal_in *in, quic_obuf *out) {
-  usz fl = 0;
-  if (!quic_crypto_stream_emit(
-          in->tls.p, in->tls.n, 0, in->tls.n, out->p, out->cap, &fl))
-    return 0;
-  out->len = fl;
+  quic_crypto_stream_emit_in ein = {0, in->tls.n};
+  if (!quic_crypto_stream_emit(in->tls, &ein, out)) return 0;
   return append_ack(out, in->ack_pn);
 }
 

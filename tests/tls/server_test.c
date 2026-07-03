@@ -125,7 +125,10 @@ static void make_client_finished(struct srv_fix *f) {
 /* Wrap a TLS message as a CRYPTO-frame payload for quic_server_feed. */
 static usz srv_wrap_crypto(const u8 *msg, usz len, u8 *out, usz cap) {
   usz n;
-  if (!quic_crypto_stream_emit(msg, len, 0, 256, out, cap, &n)) return 0;
+  quic_obuf ob = quic_obuf_of(out, cap);
+  quic_crypto_stream_emit_in ein = {0, 256};
+  if (!quic_crypto_stream_emit(quic_span_of(msg, len), &ein, &ob)) return 0;
+  n = ob.len;
   return n;
 }
 
