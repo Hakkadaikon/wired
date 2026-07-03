@@ -4,10 +4,20 @@
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
 
-/* Cursor byte-copy helpers shared by the frame codecs. Inline so multiple
- * codec translation units can use them without redefining a static helper. */
+/**
+ * @file
+ * Cursor byte-copy helpers shared by the frame codecs. Inline so multiple
+ * codec translation units can use them without redefining a static helper.
+ */
 
-/* Append src into buf at *off. Returns 1 ok, 0 if no room. */
+/**
+ * Append src into buf at *off.
+ *
+ * @param buf destination buffer (its .n is the total capacity)
+ * @param off write cursor into buf; advanced by src.n on success
+ * @param src bytes to append
+ * @return 1 ok, 0 if no room.
+ */
 static inline int quic_put_bytes(quic_mspan buf, usz *off, quic_span src) {
   if (*off + src.n > buf.n) return 0;
   for (usz i = 0; i < src.n; i++) buf.p[*off + i] = src.p[i];
@@ -15,8 +25,14 @@ static inline int quic_put_bytes(quic_mspan buf, usz *off, quic_span src) {
   return 1;
 }
 
-/* Copy dst.n bytes into dst from *off (buf total). Returns 1 ok, 0 if
- * truncated. */
+/**
+ * Copy dst.n bytes into dst from *off (buf total).
+ *
+ * @param buf source buffer to read from
+ * @param off read cursor into buf; advanced by dst.n on success
+ * @param dst destination; exactly dst.n bytes are copied
+ * @return 1 ok, 0 if truncated.
+ */
 static inline int quic_take_bytes(quic_span buf, usz *off, quic_mspan dst) {
   if (*off + dst.n > buf.n) return 0;
   for (usz i = 0; i < dst.n; i++) dst.p[i] = buf.p[*off + i];
@@ -24,12 +40,21 @@ static inline int quic_take_bytes(quic_span buf, usz *off, quic_mspan dst) {
   return 1;
 }
 
-/* Freestanding byte fill / copy. Even under -ffreestanding -fno-builtin the
- * compiler still emits `memcpy`/`memset` calls for struct and array
- * copies/zeroing (e.g. modexp.c, ed25519_sign.c, respond.c), and with
- * -nostdlib no libc supplies them. The SDK owns these primitives; each
- * freestanding binary's mandatory libc-named `memcpy`/`memset` shim (the symbol
- * names the compiler hard-codes) just forwards to these. */
+/**
+ * Freestanding byte copy.
+ *
+ * Even under -ffreestanding -fno-builtin the compiler still emits
+ * `memcpy`/`memset` calls for struct and array copies/zeroing (e.g.
+ * modexp.c, ed25519_sign.c, respond.c), and with -nostdlib no libc supplies
+ * them. The SDK owns these primitives; each freestanding binary's mandatory
+ * libc-named `memcpy`/`memset` shim (the symbol names the compiler
+ * hard-codes) just forwards to these.
+ *
+ * @param dst destination buffer (must not overlap src)
+ * @param src source buffer
+ * @param n   number of bytes to copy
+ * @return dst
+ */
 static inline void *quic_memcpy(void *dst, const void *src, usz n) {
   u8       *d = dst;
   const u8 *s = src;
@@ -37,6 +62,14 @@ static inline void *quic_memcpy(void *dst, const void *src, usz n) {
   return dst;
 }
 
+/**
+ * Freestanding byte fill. See quic_memcpy() for why the SDK owns this.
+ *
+ * @param dst buffer to fill
+ * @param c   fill byte (truncated to u8)
+ * @param n   number of bytes to fill
+ * @return dst
+ */
 static inline void *quic_memset(void *dst, int c, usz n) {
   u8 *d = dst;
   for (usz i = 0; i < n; i++) d[i] = (u8)c;
