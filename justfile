@@ -66,11 +66,10 @@ lint:
 # real public API surface. Config lives in docs/Doxyfile.
 docs:
     rm -rf docs/sdk
-    ( cat docs/Doxyfile; \
-      printf 'INPUT = src/wired.h %s\n' \
-        "$(cd src && clang -I. -E -H wired.h 2>&1 >/dev/null \
-           | grep -o '\./.*\.h' | sed 's|^\./|src/|' | sort -u | tr '\n' ' ')" \
-    ) | doxygen -
+    inputs="$(cd src && clang -I. -E -H wired.h 2>&1 >/dev/null \
+        | grep -o '\./.*\.h' | sed 's|^\./|src/|' | sort -u | tr '\n' ' ')"; \
+    [ -n "$inputs" ] || { echo "docs: deriving INPUT from wired.h failed" >&2; exit 1; }; \
+    ( cat docs/Doxyfile; printf 'INPUT = src/wired.h %s\n' "$inputs" ) | doxygen -
 
 # everything
 check: ccn test
