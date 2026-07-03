@@ -39,12 +39,12 @@ static usz put_status_line(u16 status, u8 *out, usz cap) {
 }
 
 /* RFC 9204 4.5 */
-int quic_h3resp_encode_status(u16 status, u8 *out, usz cap, usz *out_len) {
-  usz off = resp_put_prefix(out, cap);
+int quic_h3resp_encode_status(u16 status, quic_obuf *out) {
+  usz off = resp_put_prefix(out->p, out->cap);
   usz n;
   if (!off) return 0;
-  n = put_status_line(status, out + off, cap - off);
+  n = put_status_line(status, out->p + off, out->cap - off);
   if (!n) return 0;
-  *out_len = off + n;
+  out->len = off + n;
   return 1;
 }
