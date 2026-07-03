@@ -117,7 +117,7 @@ static int drive_vn(quic_connrunner *r, const u8 *pkt, usz len) {
 /* RFC 9000 17.2.5: parse and verify a Retry against the current DCID, then
  * drive recv_retry; a malformed Retry is consumed (1) without action. */
 static int drive_retry(quic_connrunner *r, const u8 *pkt, usz len) {
-  u8                     token[256], dcid[QUIC_MAX_CID_LEN];
+  u8                     token[256], dcid[WIRED_MAX_CID_LEN];
   u8                     dlen;
   quic_retry_event       e;
   quic_obuf              tok_ob = quic_obuf_of(token, sizeof(token));

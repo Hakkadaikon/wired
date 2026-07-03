@@ -8,7 +8,7 @@ static void test_header_parse_long(void) {
   wired_header h;
   usz          used = wired_header_parse(pkt, sizeof(pkt), &h);
   CHECK(used == sizeof(pkt));
-  CHECK(h.form == QUIC_FORM_LONG && h.long_type == QUIC_LP_INITIAL);
+  CHECK(h.form == WIRED_FORM_LONG && h.long_type == WIRED_LP_INITIAL);
   CHECK(h.version == 1 && h.dcid_len == 4 && h.scid_len == 0);
   CHECK(h.dcid[0] == 0xDE && h.dcid[3] == 0xEF);
 }
@@ -18,12 +18,12 @@ static void test_header_parse_short(void) {
   wired_header h;
   h.dcid_len = 4; /* caller's known local CID length */
   usz used   = wired_header_parse(pkt, sizeof(pkt), &h);
-  CHECK(used == 5 && h.form == QUIC_FORM_SHORT && h.dcid[0] == 0x11);
+  CHECK(used == 5 && h.form == WIRED_FORM_SHORT && h.dcid[0] == 0x11);
 }
 
 static void test_header_build_roundtrip(void) {
   wired_header in = {0};
-  in.long_type    = QUIC_LP_HANDSHAKE;
+  in.long_type    = WIRED_LP_HANDSHAKE;
   in.version      = 1;
   in.dcid_len     = 4;
   in.dcid[0]      = 0xDE;
@@ -40,7 +40,7 @@ static void test_header_build_roundtrip(void) {
 
   wired_header out;
   usz          r = wired_header_parse(buf, w, &out);
-  CHECK(r == w && out.long_type == QUIC_LP_HANDSHAKE && out.version == 1);
+  CHECK(r == w && out.long_type == WIRED_LP_HANDSHAKE && out.version == 1);
   CHECK(out.dcid_len == 4 && out.dcid[3] == 0xEF);
   CHECK(out.scid_len == 2 && out.scid[1] == 0xCD);
 }

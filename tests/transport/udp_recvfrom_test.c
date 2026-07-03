@@ -11,7 +11,7 @@ static void test_recvfrom_badfd(void) {
   /* EBADF (-9) on Linux; any negative errno is acceptable. */
   CHECK(r < 0);
   /* Failed recvfrom leaves the sentinel intact. */
-  CHECK(src.family == QUIC_AF_INET);
+  CHECK(src.family == WIRED_AF_INET);
   CHECK(src.addr_be == 0x09090909);
 }
 

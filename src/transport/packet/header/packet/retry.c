@@ -41,7 +41,7 @@ static int retry_take_cid(quic_span buf, usz *off, quic_mspan *dst) {
   u8 len;
   if (*off >= buf.n) return 0;
   len = buf.p[*off];
-  if (len > QUIC_MAX_CID_LEN) return 0;
+  if (len > WIRED_MAX_CID_LEN) return 0;
   *off += 1;
   dst->n = len;
   return quic_take_bytes(

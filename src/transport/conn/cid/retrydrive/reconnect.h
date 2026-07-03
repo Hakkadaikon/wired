@@ -13,7 +13,7 @@ typedef struct {
   int key_rederive; /* Initial keys must be re-derived */
   u8  token[256];   /* Retry token (server-opaque, RFC 9000 8.1.2) */
   usz token_len;
-  u8  dcid[QUIC_MAX_CID_LEN]; /* new DCID = Retry SCID */
+  u8  dcid[WIRED_MAX_CID_LEN]; /* new DCID = Retry SCID */
   u8  dcid_len;
 } quic_retrydrive_state;
 

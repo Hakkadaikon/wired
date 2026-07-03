@@ -10,14 +10,14 @@ u8 quic_lhdr_byte0_pnlen(u8 byte0, u8 pn_len) {
   return (u8)((byte0 & 0xFC) | ((pn_len - 1) & 0x3));
 }
 
-/* Copy a CID into h (len already validated <= QUIC_MAX_CID_LEN). */
+/* Copy a CID into h (len already validated <= WIRED_MAX_CID_LEN). */
 static void set_cid(u8 *dst, const u8 *src, usz len) {
   for (usz i = 0; i < len; i++) dst[i] = src[i];
 }
 
 /* True if both CIDs are within the QUIC max length. */
 static int cids_ok(const quic_lhdr_desc *d) {
-  return d->dcid.n <= QUIC_MAX_CID_LEN && d->scid.n <= QUIC_MAX_CID_LEN;
+  return d->dcid.n <= WIRED_MAX_CID_LEN && d->scid.n <= WIRED_MAX_CID_LEN;
 }
 
 /* Build byte0+version+DCID+SCID via the invariant builder, then overwrite
