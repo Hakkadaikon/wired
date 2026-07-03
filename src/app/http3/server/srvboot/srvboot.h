@@ -51,30 +51,40 @@ typedef struct {
   quic_mspan              dgram; /**< the client's Initial datagram */
 } wired_srvboot_in;
 
-/** The two sealed reply datagrams of a bootstrap, kept separate because the
- * Initial alone is padded to 1200 bytes (RFC 9000 14.1) and coalescing the
- * Handshake flight behind it would exceed a 1500-byte MTU datagram. The caller
- * sends each buffer as its own UDP datagram, Initial first. */
+/** Most Handshake flight datagrams a bootstrap seals: 4 chunks cover a
+ * 4096-byte TLS flight split at the per-datagram CRYPTO chunk size. */
+#define WIRED_SRVBOOT_FLIGHT_MAX 4
+
+/** The sealed reply datagrams of a bootstrap. The Initial is kept separate
+ * because it alone is padded to 1200 bytes (RFC 9000 14.1); a TLS flight too
+ * large for one MTU datagram is split into several Handshake packets
+ * (RFC 9000 19.6), concatenated in flight and sliced by dgram_len. The caller
+ * sends the Initial first, then each flight slice as its own UDP datagram. */
 typedef struct {
   quic_obuf *initial; /**< sealed server Initial datagram (>= 1200 bytes) */
-  quic_obuf *flight;  /**< sealed Handshake packet datagram */
+  quic_obuf *flight;  /**< all sealed Handshake datagrams, concatenated */
+  usz dgram_len[WIRED_SRVBOOT_FLIGHT_MAX]; /**< each flight datagram's length */
+  usz dgram_count; /**< flight datagrams sealed (their lengths sum to
+                      flight->len) */
 } wired_srvboot_out;
 
 /** Recover the ClientHello from the protected Initial datagram, initialize the
- * server and its HTTP/3 loop with in->id, build the server flight, and seal it
- * as two datagrams: a server Initial (ServerHello, acknowledging the client
- * Initial) into out->initial and a Handshake packet
- * (Certificate/CertificateVerify/Finished) into out->flight. Sets both
- * obufs' len.
+ * server and its HTTP/3 loop with in->id, build the server flight, and seal
+ * it: a server Initial (ServerHello, acknowledging the client Initial) into
+ * out->initial, and the Handshake flight (Certificate/CertificateVerify/
+ * Finished) into out->flight as one Handshake packet datagram per CRYPTO
+ * chunk (RFC 9000 19.6), recording each datagram's length in out->dgram_len
+ * and the count in out->dgram_count. Sets both obufs' len.
  * The caller registers its request handler on conn->l via
  * wired_srvloop_set_handler.
  * @param conn the orchestrator/loop pair to cold-start
  * @param in the fixed server identity and the client's Initial datagram
  * @param out receives the sealed server Initial and Handshake datagrams
  * @return 1 on success, 0 if the datagram is not a valid Initial, the
- *   open/reassembly fails, or the flight cannot be built. */
+ *   open/reassembly fails, or the flight cannot be built or does not fit. */
 int wired_srvboot_accept(
-    const wired_srvboot_conn *conn, const wired_srvboot_in *in,
-    const wired_srvboot_out *out);
+    const wired_srvboot_conn *conn,
+    const wired_srvboot_in   *in,
+    wired_srvboot_out        *out);
 
 #endif

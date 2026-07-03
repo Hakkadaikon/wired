@@ -74,37 +74,84 @@ typedef struct {
   const wired_srvboot_id *id;
 } srvboot_server;
 
-/* Seal the ServerHello into a server Initial datagram and the flight into a
- * Handshake packet datagram, one obuf each. Separate datagrams: the Initial
- * alone is padded to 1200 bytes (RFC 9000 14.1), so coalescing the flight
- * behind it would exceed a 1500-byte MTU datagram. Returns 1, 0 on
- * overflow. */
+/* RFC 9000 19.6 / 14.1: TLS bytes per Handshake flight datagram. 1100 keeps
+ * each sealed packet (long header + CRYPTO framing + AEAD tag) well under a
+ * 1500-byte MTU datagram. */
+#define SRVBOOT_HS_CHUNK 1100
+
+static usz srvboot_chunk_len(usz remaining) {
+  return remaining < SRVBOOT_HS_CHUNK ? remaining : SRVBOOT_HS_CHUNK;
+}
+
+/* Seal the flight chunk at *off as its own Handshake packet (pn = datagram
+ * index, CRYPTO offset = *off, RFC 9000 19.6) appended to out->flight,
+ * recording its datagram length. Returns 1, 0 on overflow or a flight that
+ * needs more than WIRED_SRVBOOT_FLIGHT_MAX datagrams. */
+static int srvboot_seal_next(
+    const srvboot_server *sv,
+    quic_span             flight,
+    usz                  *off,
+    wired_srvboot_out    *out) {
+  usz       n    = srvboot_chunk_len(flight.n - *off);
+  quic_obuf tail = quic_obuf_of(
+      out->flight->p + out->flight->len, out->flight->cap - out->flight->len);
+  wired_srvloop_send_in in = {
+      quic_span_of(sv->id->scid, sv->id->scid_len), out->dgram_count, -1,
+      quic_span_of(flight.p + *off, n), *off};
+  if (out->dgram_count >= WIRED_SRVBOOT_FLIGHT_MAX) return 0;
+  if (!wired_srvloop_send_handshake(sv->s, &in, &tail)) return 0;
+  out->dgram_len[out->dgram_count++] = tail.len;
+  out->flight->len += tail.len;
+  *off += n;
+  return 1;
+}
+
+/* RFC 9000 19.6: split the flight into <= SRVBOOT_HS_CHUNK-byte CRYPTO chunks,
+ * one Handshake packet datagram each, concatenated into out->flight. */
+static int srvboot_seal_hs_flight(
+    const srvboot_server *sv, quic_span flight, wired_srvboot_out *out) {
+  usz off          = 0;
+  out->dgram_count = 0;
+  out->flight->len = 0;
+  while (off < flight.n)
+    if (!srvboot_seal_next(sv, flight, &off, out)) return 0;
+  return 1;
+}
+
+/* Seal the ServerHello into a server Initial datagram and the flight into
+ * Handshake packet datagram(s). Separate from the Initial: it alone is padded
+ * to 1200 bytes (RFC 9000 14.1), so coalescing the flight behind it would
+ * exceed a 1500-byte MTU datagram. Returns 1, 0 on overflow. */
 static int srvboot_seal_flight(
     const srvboot_server       *sv,
     const srvboot_flight_bytes *fb,
-    const wired_srvboot_out    *out) {
+    wired_srvboot_out          *out) {
   wired_srvloop_send_in in0 = {
       quic_span_of(sv->id->scid, sv->id->scid_len), 1,
-      SRVBOOT_CLIENT_INITIAL_PN, fb->sh};
-  wired_srvloop_send_in in1 = {
-      quic_span_of(sv->id->scid, sv->id->scid_len), 0, -1, fb->flight};
+      SRVBOOT_CLIENT_INITIAL_PN, fb->sh, 0};
   if (!wired_srvloop_send_initial(sv->s, &in0, out->initial)) return 0;
-  return wired_srvloop_send_handshake(sv->s, &in1, out->flight);
+  return srvboot_seal_hs_flight(sv, fb->flight, out);
 }
 
 /* Build the server flight from the folded ClientHello and seal it. */
 static int srvboot_flight(
-    wired_server *s, const wired_srvboot_id *id, const wired_srvboot_out *out) {
-  u8                   sh[512], flight[2048];
+    const wired_srvboot_conn *conn,
+    const wired_srvboot_id   *id,
+    wired_srvboot_out        *out) {
+  u8                   sh[512], flight[4096];
   quic_obuf            sh_ob = quic_obuf_of(sh, sizeof sh);
   quic_obuf            fl_ob = quic_obuf_of(flight, sizeof flight);
   quic_sdrv_flight_out fo    = {&sh_ob, &fl_ob};
   srvboot_flight_bytes fb;
-  srvboot_server       sv = {s, id};
-  if (!wired_server_build_flight(s, id->random, &fo)) return 0;
+  srvboot_server       sv = {conn->s, id};
+  if (!wired_server_build_flight(conn->s, id->random, &fo)) return 0;
   fb = (srvboot_flight_bytes){
       quic_span_of(sh, sh_ob.len), quic_span_of(flight, fl_ob.len)};
-  return srvboot_seal_flight(&sv, &fb, out);
+  if (!srvboot_seal_flight(&sv, &fb, out)) return 0;
+  /* RFC 9000 12.3: later Handshake sends continue after the flight's packet
+   * numbers 0..dgram_count-1. */
+  conn->l->hs_tx_pn = out->dgram_count;
+  return 1;
 }
 
 /* Where srvboot_read_initial recovers the reassembly state, header, and
@@ -140,7 +187,7 @@ static int srvboot_accept_ch(
 int wired_srvboot_accept(
     const wired_srvboot_conn *conn,
     const wired_srvboot_in   *in,
-    const wired_srvboot_out  *out) {
+    wired_srvboot_out        *out) {
   if (!srvboot_accept_ch(conn, in->id, in->dgram)) return 0;
-  return srvboot_flight(conn->s, in->id, out);
+  return srvboot_flight(conn, in->id, out);
 }
