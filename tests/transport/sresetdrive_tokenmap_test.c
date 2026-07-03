@@ -13,23 +13,23 @@ void test_sresetdrive_tokenmap(void) {
     tok_b[i] = (u8)(100 + i);
   }
 
-  CHECK(quic_sresetdrive_map_add(&m, cid_a, 4, tok_a) == 1);
-  CHECK(quic_sresetdrive_map_add(&m, cid_b, 5, tok_b) == 1);
+  CHECK(quic_sresetdrive_map_add(&m, quic_span_of(cid_a, 4), tok_a) == 1);
+  CHECK(quic_sresetdrive_map_add(&m, quic_span_of(cid_b, 5), tok_b) == 1);
 
   const u8 *got = 0;
-  CHECK(quic_sresetdrive_map_find(&m, cid_a, 4, &got) == 1);
+  CHECK(quic_sresetdrive_map_find(&m, quic_span_of(cid_a, 4), &got) == 1);
   for (u8 i = 0; i < QUIC_SRESETDRIVE_TOKEN; i++) CHECK(got[i] == tok_a[i]);
 
   /* same prefix, different length must not collide */
-  CHECK(quic_sresetdrive_map_find(&m, cid_b, 5, &got) == 1);
+  CHECK(quic_sresetdrive_map_find(&m, quic_span_of(cid_b, 5), &got) == 1);
   for (u8 i = 0; i < QUIC_SRESETDRIVE_TOKEN; i++) CHECK(got[i] == tok_b[i]);
 
   const u8 unknown[4] = {9, 9, 9, 9};
-  CHECK(quic_sresetdrive_map_find(&m, unknown, 4, &got) == 0);
+  CHECK(quic_sresetdrive_map_find(&m, quic_span_of(unknown, 4), &got) == 0);
 
   /* over-long CID is rejected, not stored */
   u8 big[QUIC_SRESETDRIVE_MAX_CID + 1] = {0};
   CHECK(
-      quic_sresetdrive_map_add(&m, big, QUIC_SRESETDRIVE_MAX_CID + 1, tok_a) ==
-      0);
+      quic_sresetdrive_map_add(
+          &m, quic_span_of(big, QUIC_SRESETDRIVE_MAX_CID + 1), tok_a) == 0);
 }

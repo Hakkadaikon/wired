@@ -1,6 +1,7 @@
 #ifndef QUIC_RETRYTOKEN_RETRYTOKEN_H
 #define QUIC_RETRYTOKEN_RETRYTOKEN_H
 
+#include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
 
 /* RFC 9000 8.1.1/8.1.2: a server validates a client's address by sending a
@@ -11,25 +12,25 @@
 #define QUIC_RETRYTOKEN_LEN 32 /* HMAC-SHA256 output */
 #define QUIC_RETRYTOKEN_KEY 32
 
+/* The client address and original DCID bound into a Retry token. */
+typedef struct {
+  quic_span addr;
+  quic_span odcid;
+} quic_retrytoken_in;
+
 /* Generate a Retry token for a client address and original DCID under the
  * server key. */
 void quic_retrytoken_make(
-    const u8  key[QUIC_RETRYTOKEN_KEY],
-    const u8 *addr,
-    usz       addr_len,
-    const u8 *odcid,
-    usz       odcid_len,
-    u8        token[QUIC_RETRYTOKEN_LEN]);
+    const u8 key[QUIC_RETRYTOKEN_KEY],
+    const quic_retrytoken_in *in,
+    u8 token[QUIC_RETRYTOKEN_LEN]);
 
 /* Validate a presented token: it must equal the token the server would have
  * generated for this address and original DCID. Constant-time. Returns 1 if
  * valid. */
 int quic_retrytoken_verify(
-    const u8  key[QUIC_RETRYTOKEN_KEY],
-    const u8 *addr,
-    usz       addr_len,
-    const u8 *odcid,
-    usz       odcid_len,
-    const u8  token[QUIC_RETRYTOKEN_LEN]);
+    const u8 key[QUIC_RETRYTOKEN_KEY],
+    const quic_retrytoken_in *in,
+    const u8 token[QUIC_RETRYTOKEN_LEN]);
 
 #endif
