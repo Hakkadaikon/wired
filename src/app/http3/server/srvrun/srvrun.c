@@ -44,16 +44,21 @@ static void srvrun_send(
 }
 
 /* First datagram: cold-start the connection, register the handler, send the
- * sealed flight. Returns 1 once the server is up. */
+ * server Initial and the Handshake flight as two datagrams (the Initial alone
+ * is padded to 1200 bytes, RFC 9000 14.1, so coalescing both would exceed a
+ * 1500-byte MTU datagram). Returns 1 once the server is up. */
 static int srvrun_on_initial(const srvrun_step_ctx *ctx, quic_mspan dg) {
-  u8                 out[1500];
-  quic_obuf          ob   = quic_obuf_of(out, sizeof out);
+  u8                 ini[1500], hs[1500];
+  quic_obuf          iob  = quic_obuf_of(ini, sizeof ini);
+  quic_obuf          hob  = quic_obuf_of(hs, sizeof hs);
   wired_srvboot_conn conn = {&ctx->st->s, &ctx->st->l};
   wired_srvboot_in   in   = {ctx->cfg->id, dg};
-  if (!wired_srvboot_accept(&conn, &in, &ob))
+  wired_srvboot_out  out  = {&iob, &hob};
+  if (!wired_srvboot_accept(&conn, &in, &out))
     return WIRED_LOG("srvboot accept failed\n"), 0;
   wired_srvloop_set_handler(&ctx->st->l, ctx->cfg->handler, ctx->cfg->ctx);
-  srvrun_send(ctx, quic_span_of(out, ob.len), "server flight sent\n");
+  srvrun_send(ctx, quic_span_of(ini, iob.len), "server Initial sent\n");
+  srvrun_send(ctx, quic_span_of(hs, hob.len), "server Handshake flight sent\n");
   return 1;
 }
 
