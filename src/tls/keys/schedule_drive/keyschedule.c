@@ -13,13 +13,16 @@ static int ecdhe_ok(int stage, usz ecdhe_len) {
 
 int quic_keysched_advance_handshake(
     quic_keysched *st, quic_span ecdhe, quic_span transcript) {
-  u8 hs[QUIC_HKDF_PRK];
+  u8                     hs[QUIC_HKDF_PRK];
+  quic_handshake_keys_in in;
   if (!ecdhe_ok(st->stage, ecdhe.n)) return 0;
   quic_tls_handshake_secret(ecdhe.p, hs);
-  quic_tls_handshake_keys(
-      hs, transcript.p, transcript.n, 0, &st->keys[QUIC_KS_CLIENT_HS]);
-  quic_tls_handshake_keys(
-      hs, transcript.p, transcript.n, 1, &st->keys[QUIC_KS_SERVER_HS]);
+  in.hs_secret  = hs;
+  in.transcript = transcript;
+  in.is_server  = 0;
+  quic_tls_handshake_keys(&in, &st->keys[QUIC_KS_CLIENT_HS]);
+  in.is_server = 1;
+  quic_tls_handshake_keys(&in, &st->keys[QUIC_KS_SERVER_HS]);
   quic_tls_master_secret(hs, st->master);
   st->stage = 1;
   return 1;
@@ -27,11 +30,14 @@ int quic_keysched_advance_handshake(
 
 int quic_keysched_advance_master(
     quic_keysched *st, const u8 *transcript, usz transcript_len) {
+  quic_app_keys_in in;
   if (st->stage != 1) return 0;
-  quic_tls_app_keys(
-      st->master, transcript, transcript_len, 0, &st->keys[QUIC_KS_CLIENT_AP]);
-  quic_tls_app_keys(
-      st->master, transcript, transcript_len, 1, &st->keys[QUIC_KS_SERVER_AP]);
+  in.master     = st->master;
+  in.transcript = quic_span_of(transcript, transcript_len);
+  in.is_server  = 0;
+  quic_tls_app_keys(&in, &st->keys[QUIC_KS_CLIENT_AP]);
+  in.is_server = 1;
+  quic_tls_app_keys(&in, &st->keys[QUIC_KS_SERVER_AP]);
   st->stage = 2;
   return 1;
 }

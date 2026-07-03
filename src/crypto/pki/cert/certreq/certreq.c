@@ -77,7 +77,7 @@ static int certreq_parse_body(quic_span b, quic_certreq *out) {
 int quic_certreq_parse(quic_span msg, quic_certreq *out) {
   u8  type;
   usz body_len;
-  usz off = quic_hs_parse(msg.p, msg.n, &type, &body_len);
+  usz off = quic_hs_parse(quic_span_of(msg.p, msg.n), &type, &body_len);
   if (off == 0 || type != QUIC_HS_CERTIFICATE_REQUEST) return 0;
   return certreq_parse_body(quic_span_of(msg.p + off, body_len), out);
 }
