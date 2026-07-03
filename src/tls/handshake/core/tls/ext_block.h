@@ -1,6 +1,7 @@
 #ifndef QUIC_TLS_EXT_BLOCK_H
 #define QUIC_TLS_EXT_BLOCK_H
 
+#include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
 
 /* RFC 8446 4.1.2: the ClientHello extensions field is a 2-byte total length
@@ -11,8 +12,8 @@
  * or 0 if cap is below 2. */
 int quic_tls_ext_block_begin(const u8 *buf, usz cap, usz *off);
 
-/* Append ext_len bytes of ext at *off (cap total). Returns 1, 0 if no room. */
-int quic_tls_ext_append(u8 *buf, usz cap, usz *off, const u8 *ext, usz ext_len);
+/* Append ext to out (advancing out->len). Returns 1, 0 if no room. */
+int quic_tls_ext_append(quic_obuf *out, quic_span ext);
 
 /* Back-fill the 2-byte length at block_start to cover everything appended
  * since begin. Returns the final block length written (off), or 0 if the body

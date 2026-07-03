@@ -26,11 +26,17 @@ static int hrr_is_key_share(const u8 *e, usz el) {
   return hrr_rd16(e) == QUIC_EXT_KEY_SHARE && el >= 2;
 }
 
-static usz hrr_step(const u8 *e, usz room, u16 *group, int *found) {
+/* Scan progress: the selected_group once found, and whether it has been. */
+typedef struct {
+  u16 group;
+  int found;
+} hrr_scan_state;
+
+static usz hrr_step(const u8 *e, usz room, hrr_scan_state *st) {
   usz el = hrr_rd16(e + 2);
   if (4 + el > room) return 0;
-  *found = hrr_is_key_share(e, el);
-  if (*found) *group = hrr_rd16(e + 4);
+  st->found = hrr_is_key_share(e, el);
+  if (st->found) st->group = hrr_rd16(e + 4);
   return 4 + el;
 }
 
@@ -39,14 +45,15 @@ static int hrr_scan_more(usz i, usz total, int found) {
 }
 
 static int hrr_scan_key_share(const u8 *ext, usz total, u16 *group) {
-  usz i     = 0;
-  int found = 0;
-  while (hrr_scan_more(i, total, found)) {
-    usz step = hrr_step(ext + i, total - i, group, &found);
+  usz            i  = 0;
+  hrr_scan_state st = {0, 0};
+  while (hrr_scan_more(i, total, st.found)) {
+    usz step = hrr_step(ext + i, total - i, &st);
     if (step == 0) return 0;
     i += step;
   }
-  return found;
+  *group = st.group;
+  return st.found;
 }
 
 /* Locate the extension block of a parsed ServerHello body; return its byte
@@ -65,7 +72,7 @@ static int hrr_is_server_hello(usz hdr, u8 type) {
 int quic_hrr_selected_group(const u8 *hrr_msg, usz len, u16 *group) {
   u8  type;
   usz body_len, total, eoff;
-  usz hdr = quic_hs_parse(hrr_msg, len, &type, &body_len);
+  usz hdr = quic_hs_parse(quic_span_of(hrr_msg, len), &type, &body_len);
   if (!hrr_is_server_hello(hdr, type)) return 0;
   eoff = hrr_locate_exts(hrr_msg + hdr, body_len, &total);
   if (eoff == 0) return 0;

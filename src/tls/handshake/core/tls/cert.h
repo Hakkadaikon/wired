@@ -1,6 +1,7 @@
 #ifndef QUIC_TLS_CERT_H
 #define QUIC_TLS_CERT_H
 
+#include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
 
 /* RFC 8446 4.4.2/4.4.3: the Certificate and CertificateVerify handshake
@@ -20,33 +21,30 @@ typedef struct {
  * 1 on success, 0 on truncation. Only the first entry (the end-entity
  * certificate) is exposed; the rest of the chain is skipped over. */
 int quic_tls_cert_parse(
-    const u8            *buf,
-    usz                  n,
-    const u8           **context,
-    u32                 *context_len,
-    quic_tls_cert_entry *first);
+    quic_span buf, quic_span *context, quic_tls_cert_entry *first);
 
 /* Longest certificate_list this SDK walks (leaf + up to 3 issuers — public
  * web chains are 2-3 entries). */
 #define QUIC_TLS_CERT_CHAIN_MAX 4
 
+/* Destination for quic_tls_cert_chain: entries[0..cap-1] and the count
+ * actually written. */
+typedef struct {
+  quic_tls_cert_entry *entries;
+  usz                  cap;
+  usz                 *count;
+} quic_tls_cert_chain_out;
+
 /* Parse a Certificate message body (after the handshake header) and view
- * EVERY CertificateEntry's cert_data into entries[0..cap-1], leaf first.
- * Sets *count. Returns 1 on success; 0 on truncation, trailing garbage, or
- * more than cap entries (fail closed). */
+ * EVERY CertificateEntry's cert_data into out->entries[0..out->cap-1], leaf
+ * first. Sets *out->count. Returns 1 on success; 0 on truncation, trailing
+ * garbage, or more than cap entries (fail closed). */
 int quic_tls_cert_chain(
-    const u8            *buf,
-    usz                  n,
-    const u8           **context,
-    u32                 *context_len,
-    quic_tls_cert_entry *entries,
-    usz                  cap,
-    usz                 *count);
+    quic_span buf, quic_span *context, const quic_tls_cert_chain_out *out);
 
 /* Parse a CertificateVerify body: a 2-byte SignatureScheme then a
  * 2-byte-length-prefixed signature. Returns 1 on success, 0 on truncation. */
-int quic_tls_certverify_parse(
-    const u8 *buf, usz n, u16 *scheme, const u8 **sig, u16 *sig_len);
+int quic_tls_certverify_parse(quic_span buf, u16 *scheme, quic_span *sig);
 
 #define QUIC_TLS_SCHEME_ED25519 0x0807
 
@@ -56,9 +54,6 @@ int quic_tls_certverify_parse(
  * pubkey is the server's Ed25519 public key (from its certificate).
  * Returns 1 if the signature verifies. */
 int quic_tls_certverify_ed25519(
-    const u8 *sig,
-    u16       sig_len,
-    const u8  transcript_hash[32],
-    const u8  pubkey[32]);
+    quic_span sig, const u8 transcript_hash[32], const u8 pubkey[32]);
 
 #endif

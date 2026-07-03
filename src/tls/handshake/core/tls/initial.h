@@ -1,6 +1,7 @@
 #ifndef QUIC_TLS_INITIAL_H
 #define QUIC_TLS_INITIAL_H
 
+#include "common/bytes/span/span.h"
 #include "crypto/kdf/hkdf/hkdf.h"
 
 /* RFC 9001 5.2: Initial packet protection keys derived from the client's
@@ -18,7 +19,6 @@ typedef struct {
 
 /* Derive the client (is_server=0) or server (is_server=1) Initial keys from
  * the Destination Connection ID of the client's first Initial packet. */
-void quic_initial_derive(
-    const u8 *dcid, usz dcid_len, int is_server, quic_initial_keys *out);
+void quic_initial_derive(quic_span dcid, int is_server, quic_initial_keys *out);
 
 #endif
