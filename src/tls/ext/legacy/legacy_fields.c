@@ -6,7 +6,7 @@
  * cipher_suites(2+len) compression(1+len) extensions. Returns the body or 0. */
 static const u8 *ch_body(const u8 *msg, usz len, usz *body_len) {
   u8  type;
-  usz off = quic_hs_parse(msg, len, &type, body_len);
+  usz off = quic_hs_parse(quic_span_of(msg, len), &type, body_len);
   if (off == 0 || type != QUIC_HS_CLIENT_HELLO) return 0;
   return msg + off;
 }

@@ -67,7 +67,7 @@ void quic_session_init(
     int           is_server) {
   quic_endpoint_init(&s->ep, priv, dcid);
   quic_conn_init(&s->conn);
-  quic_initial_derive(dcid, 8, 0, &s->ikeys);
+  quic_initial_derive(quic_span_of(dcid, 8), 0, &s->ikeys);
   quic_aes128_init(&s->ihp, s->ikeys.hp);
   s->link      = link;
   s->is_server = is_server;
@@ -98,7 +98,7 @@ static int read_share(u8 *pkt, usz pl, u8 peer_pub[32]) {
   u8                type;
   usz               body_len;
   if (quic_frame_get_crypto(pkt + 18, pl, &cf) == 0) return 0;
-  if (quic_hs_parse(cf.data, cf.length, &type, &body_len) == 0) return 0;
+  if (quic_hs_parse(quic_span_of(cf.data, cf.length), &type, &body_len) == 0) return 0;
   return quic_hs_peer_share(cf.data + 4, body_len, peer_pub);
 }
 
