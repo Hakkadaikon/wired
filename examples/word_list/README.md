@@ -204,3 +204,63 @@ P-256 (`0x0403`). No Retry, Version Negotiation, 0-RTT, or connection migration.
 The
 handshake keys and certificate use fixed seeds for reproducibility; a production
 server would derive per-run keys.
+
+## Using an external CA-issued certificate chain
+
+The sample above always uses the driver's own runtime self-signed P-256
+certificate (`id->chain = 0`). To serve a real chain issued by an external CA
+(e.g. Let's Encrypt) instead, set `id->chain` / `id->chain_count` on the same
+`wired_srvboot_id` before calling `wired_server_run`. The SDK stays libc-free:
+it only accepts raw DER bytes, leaf first, up to 2 entries (leaf + one
+intermediate) — this fits one 1500-byte datagram; a chain with more entries,
+or a leaf too large to fit alongside its intermediate, is out of scope
+(multi-datagram flights are a separate feature). Signing is ECDSA P-256 only,
+matching the fixed `quic_p256sign_sign` primitive the SDK already ships; RSA
+and Ed25519 leaf keys are not supported.
+
+PEM → DER conversion and private-key extraction happen with `openssl`,
+outside the SDK:
+
+```sh
+# Generate a P-256 leaf key and CSR, get it signed by your CA to leaf.pem,
+# with the issuing intermediate as int.pem.
+openssl ecparam -name prime256v1 -genkey -noout -out leaf.key
+openssl req -new -key leaf.key -subj "/CN=example.com" \
+  -addext "subjectAltName=DNS:example.com" -out leaf.csr
+# (CA signs leaf.csr -> leaf.pem; int.pem is the issuing intermediate)
+
+# Convert both certificates to DER (what the SDK consumes).
+openssl x509 -in leaf.pem -outform DER -out leaf.der
+openssl x509 -in int.pem  -outform DER -out int.der
+
+# Extract the 32-byte big-endian P-256 private scalar (the "priv:" field).
+openssl ec -in leaf.key -text -noout
+
+# Sanity check the private key matches the certificate's public key.
+diff <(openssl x509 -in leaf.pem -pubkey -noout) \
+     <(openssl ec -in leaf.key -pubout 2>/dev/null)
+
+# Turn each DER into a C byte array literal.
+xxd -i leaf.der > leaf_der.h
+xxd -i int.der  > int_der.h
+```
+
+Wiring it into a `wired_srvboot_id` (illustrative; `quic_server.c` itself is
+not modified — it keeps the fixed self-signed identity above):
+
+```c
+static const u8 LEAF_DER[] = { /* xxd -i leaf.der */ };
+static const u8 INT_DER[]  = { /* xxd -i int.der */ };
+static const u8 LEAF_PRIV[32] = { /* the "priv:" bytes from openssl ec -text */ };
+static const quic_span CHAIN[2] = {
+    {LEAF_DER, sizeof LEAF_DER}, {INT_DER, sizeof INT_DER}};
+
+id->cert_seed   = LEAF_PRIV; /* signs CertificateVerify with the real leaf key */
+id->chain       = CHAIN;
+id->chain_count = 2;
+```
+
+The SDK does not check that `cert_seed` matches the chain's leaf public key —
+that agreement is the caller's responsibility. A mismatch is not silently
+accepted: the client's CertificateVerify signature check fails and the
+handshake does not complete.
