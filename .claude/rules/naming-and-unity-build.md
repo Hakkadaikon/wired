@@ -18,7 +18,8 @@ not surface until link/wiring time, never in a coder's isolated `$TMPDIR` build.
   collided across `sentpkt` and `recovery`; `quic_h3_control_open` across `h3run`
   and `h3`. Name them `quic_sentpkt_*`, `quic_h3run_*`.
   Exception: the app-facing layers (server / srvloop / h3srv / h3reqdrive /
-  udp / header / srvboot / srvrun) carry the SDK brand prefix `wired_<domain>_`.
+  udp / header / srvboot / srvrun / pem / eckey / fio) carry the SDK brand
+  prefix `wired_<domain>_`.
 - **Before adding any public name, grep:**
   ```sh
   grep -rn 'quic_<domain>_<name>' src/
