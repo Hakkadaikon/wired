@@ -52,7 +52,7 @@ static int build_settings_frame(wired_srvloop *l, quic_obuf *out) {
   u8                ctl[64];
   quic_obuf         ctlb = quic_obuf_of(ctl, sizeof ctl);
   quic_stream_frame f;
-  if (!quic_h3srv_open_control(&l->h3, &ctlb)) return 0;
+  if (!wired_h3srv_open_control(&l->h3, &ctlb)) return 0;
   f = (quic_stream_frame){WIRED_SRVLOOP_CTRL_STREAM, 0, ctlb.len, ctl, 0};
   return quic_appdata_stream_frame(&f, out);
 }
@@ -107,9 +107,9 @@ static int response_frame(wired_srvloop *l, int got_request, quic_obuf *out) {
   }
   b = build_body(l, body, &body_len);
   {
-    quic_h3srv_send_in send = {
+    wired_h3srv_send_in send = {
         WIRED_SRVLOOP_RESP_STREAM, {200, quic_span_of(b, body_len)}};
-    return quic_h3srv_build_response(&l->h3, &send, out);
+    return wired_h3srv_build_response(&l->h3, &send, out);
   }
 }
 

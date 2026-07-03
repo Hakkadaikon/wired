@@ -1,5 +1,5 @@
-#ifndef QUIC_H3SRV_CONTROL_H
-#define QUIC_H3SRV_CONTROL_H
+#ifndef WIRED_H3SRV_CONTROL_H
+#define WIRED_H3SRV_CONTROL_H
 
 #include "app/http3/server/h3srv/state.h"
 #include "common/bytes/span/span.h"
@@ -9,6 +9,6 @@
  * emit SETTINGS as its first frame. On success records that the server has
  * sent its own SETTINGS (a precondition of sending any response). Returns 1
  * with out->len set, 0 if out lacks capacity. */
-int quic_h3srv_open_control(quic_h3srv_state *st, quic_obuf *out);
+int wired_h3srv_open_control(wired_h3srv_state *st, quic_obuf *out);
 
 #endif

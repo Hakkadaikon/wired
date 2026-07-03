@@ -27,10 +27,10 @@ typedef int (*wired_srvloop_handler)(
 /** Per-connection state of the server wire loop, re-armed by
  * wired_srvloop_init and driven by wired_srvloop_step. */
 typedef struct {
-  quic_h3srv_state h3; /**< HTTP/3 server response-layer state */
-  u8  cli_scid[20];    /**< the client's source id; DCID the server writes */
-  u8  cli_scid_len;    /**< cli_scid length in octets */
-  u64 tx_pn;           /**< monotone packet number for sealed 1-RTT output */
+  wired_h3srv_state h3; /**< HTTP/3 server response-layer state */
+  u8  cli_scid[20];     /**< the client's source id; DCID the server writes */
+  u8  cli_scid_len;     /**< cli_scid length in octets */
+  u64 tx_pn;            /**< monotone packet number for sealed 1-RTT output */
   u64 hs_tx_pn;  /**< monotone packet number for sealed Handshake output */
   u64 app_rx_pn; /**< last received 1-RTT (application) packet number to ACK */
   int app_rx_seen;  /**< 1 once a 1-RTT packet has been received (app_rx_pn
