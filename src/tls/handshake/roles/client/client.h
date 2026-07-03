@@ -1,6 +1,7 @@
 #ifndef QUIC_CLIENT_CLIENT_H
 #define QUIC_CLIENT_CLIENT_H
 
+#include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
 #include "tls/handshake/core/fullhs/fullhs.h"
 #include "tls/handshake/core/tlsdriver/tlsdriver.h"
@@ -43,19 +44,20 @@ typedef struct {
   const quic_castore *castore; /* NULL skips chain validation */
 } quic_client;
 
-/* Open a UDP socket, connect to server_ip:port, generate our X25519 key pair
- * and initialize the handshake drivers. server_name/sni_len name the host: the
- * name is carried as SNI in the ClientHello AND enforced against the server
- * certificate's SAN (RFC 6125). server_name is a view; keep it alive for the
- * connection. init also reads the wall clock so the certificate validity
- * window (RFC 5280 6.1) is enforced by default; a clock failure fails init.
- * Returns 1 on success, 0 on RNG/clock/socket failure. */
-int quic_client_init(
-    quic_client *c,
-    const u8    *server_ip,
-    u16          port,
-    const u8    *server_name,
-    usz          sni_len);
+typedef struct {
+  const u8 *server_ip; /* 4-byte IPv4 octets */
+  u16       port;
+  quic_span server_name; /* SNI host name, view (caller-owned) */
+} quic_client_init_in;
+
+/* Open a UDP socket, connect to in->server_ip:in->port, generate our X25519
+ * key pair and initialize the handshake drivers. in->server_name names the
+ * host: it is carried as SNI in the ClientHello AND enforced against the
+ * server certificate's SAN (RFC 6125). server_name is a view; keep it alive
+ * for the connection. init also reads the wall clock so the certificate
+ * validity window (RFC 5280 6.1) is enforced by default; a clock failure
+ * fails init. Returns 1 on success, 0 on RNG/clock/socket failure. */
+int quic_client_init(quic_client *c, const quic_client_init_in *in);
 
 /* Override the wall clock used for the certificate validity check (packed
  * decimal YYYYMMDDHHMMSS), e.g. for deterministic tests. Passing 0 DISABLES
