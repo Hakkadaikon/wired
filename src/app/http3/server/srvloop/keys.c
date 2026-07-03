@@ -18,28 +18,18 @@ static int open_which(int level) {
 }
 
 /* Fetch the directional keys for `which` and build their HP cipher. */
-static int fetch(
-    const quic_server        *s,
-    int                       which,
-    const quic_initial_keys **keys,
-    quic_aes128              *hp) {
-  if (!quic_keysched_get(&s->sched, which, keys)) return 0;
-  quic_aes128_init(hp, (*keys)->hp);
+static int fetch(const quic_server *s, int which, quic_srvloop_dirkeys *out) {
+  if (!quic_keysched_get(&s->sched, which, &out->keys)) return 0;
+  quic_aes128_init(&out->hp, out->keys->hp);
   return 1;
 }
 
 int quic_srvloop_seal_keys(
-    const quic_server        *s,
-    int                       level,
-    const quic_initial_keys **keys,
-    quic_aes128              *hp) {
-  return fetch(s, seal_which(level), keys, hp);
+    const quic_server *s, int level, quic_srvloop_dirkeys *out) {
+  return fetch(s, seal_which(level), out);
 }
 
 int quic_srvloop_open_keys(
-    const quic_server        *s,
-    int                       level,
-    const quic_initial_keys **keys,
-    quic_aes128              *hp) {
-  return fetch(s, open_which(level), keys, hp);
+    const quic_server *s, int level, quic_srvloop_dirkeys *out) {
+  return fetch(s, open_which(level), out);
 }

@@ -15,16 +15,17 @@
  *   QUIC_LEVEL_ONERTT     SERVER_AP     CLIENT_AP
  */
 
+/* The directional key material a seal/open needs: the AEAD keys and the
+ * header-protection cipher derived from them. */
+typedef struct {
+  const quic_initial_keys *keys;
+  quic_aes128               hp;
+} quic_srvloop_dirkeys;
+
 int quic_srvloop_seal_keys(
-    const quic_server        *s,
-    int                       level,
-    const quic_initial_keys **keys,
-    quic_aes128              *hp);
+    const quic_server *s, int level, quic_srvloop_dirkeys *out);
 
 int quic_srvloop_open_keys(
-    const quic_server        *s,
-    int                       level,
-    const quic_initial_keys **keys,
-    quic_aes128              *hp);
+    const quic_server *s, int level, quic_srvloop_dirkeys *out);
 
 #endif
