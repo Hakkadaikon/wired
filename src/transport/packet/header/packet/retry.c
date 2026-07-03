@@ -8,7 +8,7 @@ static int retry_put_cid(quic_obuf *out, quic_span cid) {
   if (out->len + 1 + cid.n > out->cap) return 0;
   out->p[out->len] = (u8)cid.n;
   out->len += 1;
-  return quic_put_bytes(out->p, out->cap, &out->len, cid.p, cid.n);
+  return quic_put_bytes(quic_mspan_of(out->p, out->cap), &out->len, quic_span_of(cid.p, cid.n));
 }
 
 /* True if the whole Retry packet fits in cap. */
@@ -26,8 +26,8 @@ usz quic_retry_build(u8 *buf, usz cap, const quic_retry_desc *d) {
   quic_put_be32(buf + 1, d->version);
   retry_put_cid(&out, d->dcid); /* room checked above */
   retry_put_cid(&out, d->scid);
-  quic_put_bytes(out.p, out.cap, &out.len, d->token.p, d->token.n);
-  quic_put_bytes(out.p, out.cap, &out.len, d->tag, QUIC_RETRY_TAG_LEN);
+  quic_put_bytes(quic_mspan_of(out.p, out.cap), &out.len, quic_span_of(d->token.p, d->token.n));
+  quic_put_bytes(quic_mspan_of(out.p, out.cap), &out.len, quic_span_of(d->tag, QUIC_RETRY_TAG_LEN));
   return out.len;
 }
 
@@ -39,7 +39,7 @@ static int retry_take_cid(quic_span buf, usz *off, quic_mspan *dst) {
   if (len > QUIC_MAX_CID_LEN) return 0;
   *off += 1;
   dst->n = len;
-  return quic_take_bytes(buf.p, buf.n, off, dst->p, len);
+  return quic_take_bytes(quic_span_of(buf.p, buf.n), off, quic_mspan_of(dst->p, len));
 }
 
 /* True if a long-form Retry byte0 with a token of >= 0 bytes can follow. */
@@ -66,7 +66,7 @@ static int take_token_tag(quic_span buf, usz off, quic_retry_packet *r) {
   if (off > tag_off) return 0;
   r->token     = buf.p + off;
   r->token_len = tag_off - off;
-  return quic_take_bytes(buf.p, buf.n, &tag_off, r->tag, QUIC_RETRY_TAG_LEN);
+  return quic_take_bytes(quic_span_of(buf.p, buf.n), &tag_off, quic_mspan_of(r->tag, QUIC_RETRY_TAG_LEN));
 }
 
 /* Parse version, both CIDs and token+tag, the byte0/length gate already

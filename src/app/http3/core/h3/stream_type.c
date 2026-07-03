@@ -5,7 +5,7 @@
 
 int quic_h3_stream_type_parse(quic_span buf, u64 *type, usz *consumed) {
   usz off = 0;
-  if (!quic_varint_take(buf.p, buf.n, &off, type)) return 0;
+  if (!quic_varint_take(quic_span_of(buf.p, buf.n), &off, type)) return 0;
   *consumed = off;
   return 1;
 }

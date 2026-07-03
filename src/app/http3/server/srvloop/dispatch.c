@@ -53,7 +53,7 @@ static void bump_len(quic_srvloop_reqacc *acc, usz end) {
 static void gather_one(const quic_stream_frame *sf, quic_srvloop_reqacc *acc) {
   usz off = (usz)sf->offset;
   if (off >= acc->cap) return;
-  quic_put_bytes(acc->buf, acc->cap, &off, sf->data, (usz)sf->length);
+  quic_put_bytes(quic_mspan_of(acc->buf, acc->cap), &off, quic_span_of(sf->data, (usz)sf->length));
   bump_len(acc, (usz)sf->offset + (usz)sf->length);
   *acc->fin |= sf->fin;
 }

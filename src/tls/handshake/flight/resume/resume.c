@@ -4,19 +4,14 @@
 
 /* RFC 8446 4.6.1 */
 int quic_resume_store(
-    quic_resume *r,
-    const u8    *ticket,
-    usz          len,
-    u64          issued_at,
-    u32          lifetime,
-    u64          max_data) {
+    quic_resume *r, quic_span ticket, const quic_resume_store_in *in) {
   usz off = 0;
-  if (!quic_put_bytes(r->ticket, QUIC_RESUME_TICKET_MAX, &off, ticket, len))
+  if (!quic_put_bytes(quic_mspan_of(r->ticket, QUIC_RESUME_TICKET_MAX), &off, ticket))
     return 0;
-  r->ticket_len  = len;
-  r->issued_at   = issued_at;
-  r->lifetime    = lifetime;
-  r->max_data    = max_data;
+  r->ticket_len  = ticket.n;
+  r->issued_at   = in->issued_at;
+  r->lifetime    = in->lifetime;
+  r->max_data    = in->max_data;
   r->have_ticket = 1;
   return 1;
 }

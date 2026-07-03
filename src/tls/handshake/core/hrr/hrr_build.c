@@ -49,12 +49,12 @@ static int hrr_cookie_hdr(quic_obuf *out, usz cl) {
   quic_put_be16(hdr, QUIC_EXT_COOKIE);
   quic_put_be16(hdr + 2, (u16)(cl + 2));
   quic_put_be16(hdr + 4, (u16)cl);
-  return quic_put_bytes(out->p, out->cap, &out->len, hdr, 6);
+  return quic_put_bytes(quic_mspan_of(out->p, out->cap), &out->len, quic_span_of(hdr, 6));
 }
 
 static int hrr_cookie_body(quic_obuf *out, quic_span ck) {
   return hrr_cookie_hdr(out, ck.n) &&
-         quic_put_bytes(out->p, out->cap, &out->len, ck.p, ck.n);
+         quic_put_bytes(quic_mspan_of(out->p, out->cap), &out->len, quic_span_of(ck.p, ck.n));
 }
 
 /* RFC 8446 4.2.2 cookie: ext_data is opaque cookie<1..2^16-1>. */

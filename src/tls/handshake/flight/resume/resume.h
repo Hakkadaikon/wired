@@ -1,6 +1,7 @@
 #ifndef QUIC_RESUME_RESUME_H
 #define QUIC_RESUME_RESUME_H
 
+#include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
 
 /* Resumption driver: hold a TLS session ticket (RFC 8446 4.6.1) across
@@ -20,15 +21,18 @@ typedef struct {
   int have_ticket;
 } quic_resume;
 
+/* The transport parameters and ticket metadata to remember alongside a
+ * stored ticket, besides the ticket bytes themselves. */
+typedef struct {
+  u64 issued_at; /* RFC 8446 4.6.1 ticket issuance time */
+  u32 lifetime;  /* ticket_lifetime, seconds */
+  u64 max_data;  /* RFC 9000 7.4.1: remembered initial_max_data */
+} quic_resume_store_in;
+
 /* Store a ticket and the transport parameters to remember for 0-RTT.
  * Returns 1 on success, 0 if the ticket does not fit. RFC 8446 4.6.1. */
 int quic_resume_store(
-    quic_resume *r,
-    const u8    *ticket,
-    usz          len,
-    u64          issued_at,
-    u32          lifetime,
-    u64          max_data);
+    quic_resume *r, quic_span ticket, const quic_resume_store_in *in);
 
 /* Returns 1 when a stored ticket is still within its lifetime at `now`
  * (seconds, same clock as issued_at). RFC 8446 4.6.1. */

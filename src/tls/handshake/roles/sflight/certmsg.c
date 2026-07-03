@@ -23,7 +23,7 @@ static int cert_fits(usz cert_len, usz cap) {
 static void put_entry(quic_obuf *out, quic_span cert) {
   put_be24(out->p + out->len, (u32)cert.n);
   out->len += 3;
-  quic_put_bytes(out->p, out->cap, &out->len, cert.p, cert.n); /* room checked */
+  quic_put_bytes(quic_mspan_of(out->p, out->cap), &out->len, quic_span_of(cert.p, cert.n)); /* room checked */
   quic_put_be16(out->p + out->len, 0); /* empty extensions */
   out->len += 2;
 }

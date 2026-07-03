@@ -25,9 +25,9 @@ static usz pc_build_alg(quic_obuf *out) {
 static void pack_point(u8 bits[66], const u8 x[32], const u8 y[32]) {
   static const u8 hdr[] = {0x00, 0x04}; /* unused-bits || uncompressed tag */
   usz             off   = 0;
-  quic_put_bytes(bits, 66, &off, hdr, sizeof(hdr));
-  quic_put_bytes(bits, 66, &off, x, 32);
-  quic_put_bytes(bits, 66, &off, y, 32);
+  quic_put_bytes(quic_mspan_of(bits, 66), &off, quic_span_of(hdr, sizeof(hdr)));
+  quic_put_bytes(quic_mspan_of(bits, 66), &off, quic_span_of(x, 32));
+  quic_put_bytes(quic_mspan_of(bits, 66), &off, quic_span_of(y, 32));
 }
 
 int quic_p256cert_spki(const u8 x[32], const u8 y[32], quic_obuf *out) {

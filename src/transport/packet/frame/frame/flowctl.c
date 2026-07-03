@@ -5,7 +5,7 @@
 
 /* Append a varint, returning 0 to halt a put chain on overflow. */
 static int put_at(quic_obuf *o, u64 v) {
-  return quic_varint_put(o->p, o->cap, &o->len, v);
+  return quic_varint_put(quic_mspan_of(o->p, o->cap), &o->len, v);
 }
 
 /* One-varint frame body (MAX_DATA, DATA_BLOCKED): type then value. */
@@ -18,7 +18,7 @@ static usz put_one_varint_frame(quic_obuf *o, u64 type, u64 value) {
 /* Decode a one-varint frame, skipping the type byte at buf[0]. */
 static usz get_one_varint_frame(const u8 *buf, usz n, u64 *value) {
   usz off = 1; /* type byte */
-  if (!quic_varint_take(buf, n, &off, value)) return 0;
+  if (!quic_varint_take(quic_span_of(buf, n), &off, value)) return 0;
   return off;
 }
 
@@ -36,7 +36,7 @@ static usz get_two_varint_frame(
     const u8 *buf, usz n, quic_stream_data_frame *f) {
   usz off = get_one_varint_frame(buf, n, &f->stream_id);
   if (off == 0) return 0;
-  if (!quic_varint_take(buf, n, &off, &f->value)) return 0;
+  if (!quic_varint_take(quic_span_of(buf, n), &off, &f->value)) return 0;
   return off;
 }
 

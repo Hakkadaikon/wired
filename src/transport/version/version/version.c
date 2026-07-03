@@ -31,9 +31,9 @@ typedef struct {
  * room or too many Available Versions. */
 static int put_vi_head(const version_wcursor *w, const quic_version_info *vi) {
   if (vi->n_available > QUIC_VI_MAX_AVAILABLE) return 0;
-  if (!quic_varint_put(w->buf, w->cap, w->off, QUIC_TP_VERSION_INFORMATION))
+  if (!quic_varint_put(quic_mspan_of(w->buf, w->cap), w->off, QUIC_TP_VERSION_INFORMATION))
     return 0;
-  return quic_varint_put(w->buf, w->cap, w->off, vi_value_len(vi));
+  return quic_varint_put(quic_mspan_of(w->buf, w->cap), w->off, vi_value_len(vi));
 }
 
 usz quic_version_info_encode(u8 *buf, usz cap, const quic_version_info *vi) {
@@ -63,14 +63,14 @@ typedef struct {
 /* Read the id varint and require it to be the version_information id. */
 static int take_vi_id(const version_rcursor *r) {
   u64 id;
-  if (!quic_varint_take(r->buf, r->n, r->off, &id)) return 0;
+  if (!quic_varint_take(quic_span_of(r->buf, r->n), r->off, &id)) return 0;
   return id == QUIC_TP_VERSION_INFORMATION;
 }
 
 /* Read id and length; require the id to match and the length to be valid. */
 static int take_vi_head(const version_rcursor *r, u64 *vlen) {
   if (!take_vi_id(r)) return 0;
-  if (!quic_varint_take(r->buf, r->n, r->off, vlen)) return 0;
+  if (!quic_varint_take(quic_span_of(r->buf, r->n), r->off, vlen)) return 0;
   return vlen_ok(*vlen);
 }
 

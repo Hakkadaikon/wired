@@ -9,7 +9,7 @@ usz quic_tpext_encode(quic_obuf *out, quic_span tp) {
   if (tp.n > 0xFFFF || off + tp.n > out->cap) return 0;
   quic_put_be16(out->p, QUIC_TPEXT_TYPE);
   quic_put_be16(out->p + 2, (u16)tp.n);
-  quic_put_bytes(out->p, out->cap, &off, tp.p, tp.n); /* room checked above */
+  quic_put_bytes(quic_mspan_of(out->p, out->cap), &off, quic_span_of(tp.p, tp.n)); /* room checked above */
   out->len = off;
   return off;
 }

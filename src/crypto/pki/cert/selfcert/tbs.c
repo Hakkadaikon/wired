@@ -33,7 +33,7 @@ static void put(selfcert_enc *e, u8 tag, quic_span val) {
 
 /* Append pre-encoded TLV bytes verbatim onto the cursor. */
 static void put_pre(selfcert_enc *e, quic_span tlv) {
-  if (e->ok && quic_put_bytes(e->buf, e->cap, &e->off, tlv.p, tlv.n)) return;
+  if (e->ok && quic_put_bytes(quic_mspan_of(e->buf, e->cap), &e->off, quic_span_of(tlv.p, tlv.n))) return;
   e->ok = 0;
 }
 
@@ -103,7 +103,7 @@ static usz build_spki(const u8 pub[32], quic_obuf *out) {
   selfcert_enc e  = {inner, sizeof(inner), 0, 1};
   usz          bo = 1;
   bits[0]         = 0x00; /* BIT STRING unused-bits */
-  quic_put_bytes(bits, sizeof(bits), &bo, pub, 32);
+  quic_put_bytes(quic_mspan_of(bits, sizeof(bits)), &bo, quic_span_of(pub, 32));
   put_pre(&e, quic_span_of(alg, build_alg(&ao)));
   put(&e, QUIC_DER_BIT_STRING, quic_span_of(bits, bo));
   return wrap(&e, QUIC_DER_SEQUENCE, out);
