@@ -43,22 +43,35 @@ static void srvrun_send(
   }
 }
 
+/* Send each sealed Handshake flight datagram in order (a flight split per
+ * RFC 9000 19.6 arrives as dgram_count slices of the flight buffer). */
+static void srvrun_send_flight(
+    const srvrun_step_ctx *ctx, const u8 *hs, const wired_srvboot_out *out) {
+  usz off = 0;
+  for (usz i = 0; i < out->dgram_count; i++) {
+    srvrun_send(
+        ctx, quic_span_of(hs + off, out->dgram_len[i]),
+        "server Handshake flight sent\n");
+    off += out->dgram_len[i];
+  }
+}
+
 /* First datagram: cold-start the connection, register the handler, send the
- * server Initial and the Handshake flight as two datagrams (the Initial alone
- * is padded to 1200 bytes, RFC 9000 14.1, so coalescing both would exceed a
+ * server Initial and each Handshake flight datagram (the Initial alone is
+ * padded to 1200 bytes, RFC 9000 14.1, so coalescing them would exceed a
  * 1500-byte MTU datagram). Returns 1 once the server is up. */
 static int srvrun_on_initial(const srvrun_step_ctx *ctx, quic_mspan dg) {
-  u8                 ini[1500], hs[1500];
+  u8                 ini[1500], hs[4096];
   quic_obuf          iob  = quic_obuf_of(ini, sizeof ini);
   quic_obuf          hob  = quic_obuf_of(hs, sizeof hs);
   wired_srvboot_conn conn = {&ctx->st->s, &ctx->st->l};
   wired_srvboot_in   in   = {ctx->cfg->id, dg};
-  wired_srvboot_out  out  = {&iob, &hob};
+  wired_srvboot_out  out  = {&iob, &hob, {0}, 0};
   if (!wired_srvboot_accept(&conn, &in, &out))
     return WIRED_LOG("srvboot accept failed\n"), 0;
   wired_srvloop_set_handler(&ctx->st->l, ctx->cfg->handler, ctx->cfg->ctx);
   srvrun_send(ctx, quic_span_of(ini, iob.len), "server Initial sent\n");
-  srvrun_send(ctx, quic_span_of(hs, hob.len), "server Handshake flight sent\n");
+  srvrun_send_flight(ctx, hs, &out);
   return 1;
 }
 
