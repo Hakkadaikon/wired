@@ -47,40 +47,32 @@ int quic_client_build_initial_wire(
 
 /* RFC 9001 5.2: open the server Initial with the server-direction keys. */
 int quic_client_open_initial_wire(const quic_clientwire_open_in *in, quic_span *tls) {
-  const u8 *tls_p;
-  usz       tls_len;
-  if (!quic_srvwire_open_initial(
-          in->dcid.p, (u8)in->dcid.n, in->pkt.p, in->pkt.n, in->pn, &tls_p,
-          &tls_len))
-    return 0;
-  *tls = quic_span_of(tls_p, tls_len);
-  return 1;
+  quic_srvwire_open_initial_in oin = {in->dcid, in->pn};
+  return quic_srvwire_open_initial(&oin, in->pkt, tls);
 }
 
 /* RFC 9001 5: seal a Handshake flight with CLIENT_HS (own direction). */
 int quic_client_seal_handshake_wire(
     quic_client *c, const quic_clientwire_seal_in *in, quic_obuf *out) {
-  cw_dirkey dk;
+  cw_dirkey             dk;
+  quic_srvwire_seal_in  si = {
+      in->hdr.dcid, in->hdr.scid, in->hdr.pn, -1, in->tls};
+  quic_protect_keys      pk;
   if (!cw_dir_key(c, QUIC_KS_CLIENT_HS, &dk)) return 0;
-  return quic_srvwire_seal_handshake(
-      dk.k, &dk.hp, in->hdr.dcid.p, (u8)in->hdr.dcid.n, in->hdr.scid.p,
-      (u8)in->hdr.scid.n, in->hdr.pn, -1, in->tls.p, in->tls.n, out->p,
-      out->cap, &out->len);
+  pk = (quic_protect_keys){dk.k, &dk.hp};
+  return quic_srvwire_seal_handshake(&pk, &si, out);
 }
 
 /* RFC 9001 5: open a server Handshake flight with SERVER_HS (peer direction).
  */
 int quic_client_open_handshake_wire(
     quic_client *c, const quic_appdata_pkt *in, quic_span *tls) {
-  cw_dirkey dk;
-  const u8 *tls_p;
-  usz       tls_len;
+  cw_dirkey          dk;
+  quic_protect_keys  pk;
+  (void)in->dcid_len;
   if (!cw_dir_key(c, QUIC_KS_SERVER_HS, &dk)) return 0;
-  if (!quic_srvwire_open_handshake(
-          dk.k, &dk.hp, in->pkt.p, in->pkt.n, in->dcid_len, &tls_p, &tls_len))
-    return 0;
-  *tls = quic_span_of(tls_p, tls_len);
-  return 1;
+  pk = (quic_protect_keys){dk.k, &dk.hp};
+  return quic_srvwire_open_handshake(&pk, in->pkt, tls);
 }
 
 /* RFC 9001 5: send 1-RTT application data with CLIENT_AP (own direction). */
