@@ -201,8 +201,8 @@ void test_sdrv(void) {
     usz             sh2_len, hs2_len, q = 0;
     const u8       *ee2, *tp;
     usz             ee2l, tpl;
-    const u8       *cid;
-    usz             cidl;
+    quic_span       cid;
+    quic_stp_out    cido = {0, &cid};
     quic_sdrv       s2;
 
     quic_sdrv_init(&s2, srv_priv, srv_pub, cert_priv, 0, 0);
@@ -220,18 +220,20 @@ void test_sdrv(void) {
 
     CHECK(
         quic_stp_parse(
-            tp, tpl, QUIC_TP_ORIGINAL_DESTINATION_CONNECTION_ID, 0, &cid,
-            &cidl) == 1);
+            quic_span_of(tp, tpl), QUIC_TP_ORIGINAL_DESTINATION_CONNECTION_ID,
+            &cido) == 1);
     CHECK(
-        cidl == sizeof(client_dcid) &&
-        quic_tparam_cid_match(cid, cidl, client_dcid, sizeof(client_dcid)));
+        cid.n == sizeof(client_dcid) &&
+        quic_tparam_cid_match(
+            cid, quic_span_of(client_dcid, sizeof(client_dcid))));
     CHECK(
         quic_stp_parse(
-            tp, tpl, QUIC_TP_INITIAL_SOURCE_CONNECTION_ID, 0, &cid, &cidl) ==
-        1);
+            quic_span_of(tp, tpl), QUIC_TP_INITIAL_SOURCE_CONNECTION_ID,
+            &cido) == 1);
     CHECK(
-        cidl == sizeof(server_scid) &&
-        quic_tparam_cid_match(cid, cidl, server_scid, sizeof(server_scid)));
+        cid.n == sizeof(server_scid) &&
+        quic_tparam_cid_match(
+            cid, quic_span_of(server_scid, sizeof(server_scid))));
   }
 
   /* Finished verifies under the server handshake traffic secret (derived

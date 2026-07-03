@@ -17,27 +17,31 @@ static void sni_driver(quic_tlsdriver *d) {
 static void test_tlsdriver_sni_present(void) {
   quic_tlsdriver d;
   u8             ch[512];
-  const u8      *data, *host;
-  usz            dlen, hlen, w;
+  quic_span      ext, host;
+  usz            w;
   sni_driver(&d);
   quic_tlsdriver_set_sni(&d, (const u8 *)"example.com", 11);
   w = quic_tlsdriver_raw_client_hello(&d, ch, sizeof(ch));
   CHECK(w > 0);
-  CHECK(quic_salpn_find_extension(ch, w, QUIC_SNI_TYPE, &data, &dlen) == 1);
-  CHECK(quic_salpn_extract_sni(data, dlen, &host, &hlen) == 1);
-  CHECK(hlen == 11 && host[0] == 'e' && host[10] == 'm');
+  CHECK(
+      quic_salpn_find_extension(quic_span_of(ch, w), QUIC_SNI_TYPE, &ext) ==
+      1);
+  CHECK(quic_salpn_extract_sni(ext, &host) == 1);
+  CHECK(host.n == 11 && host.p[0] == 'e' && host.p[10] == 'm');
 }
 
 /* Without set_sni the extension is absent (the legacy ClientHello shape). */
 static void test_tlsdriver_sni_absent(void) {
   quic_tlsdriver d;
   u8             ch[512];
-  const u8      *data;
-  usz            dlen, w;
+  quic_span      ext;
+  usz            w;
   sni_driver(&d);
   w = quic_tlsdriver_raw_client_hello(&d, ch, sizeof(ch));
   CHECK(w > 0);
-  CHECK(quic_salpn_find_extension(ch, w, QUIC_SNI_TYPE, &data, &dlen) == 0);
+  CHECK(
+      quic_salpn_find_extension(quic_span_of(ch, w), QUIC_SNI_TYPE, &ext) ==
+      0);
 }
 
 void test_tlsdriver_sni(void) {

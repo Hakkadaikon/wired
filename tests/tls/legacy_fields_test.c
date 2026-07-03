@@ -84,7 +84,7 @@ static void test_legacy_session_id_empty(void) {
   const u8 *sid     = (const u8 *)1;
   u8        sid_len = 99;
   usz       w       = legacy_build_ch(buf, 0x0303, 0, comp, 1);
-  CHECK(quic_legacy_session_id(buf, w, &sid, &sid_len) == 1);
+  CHECK(quic_legacy_session_id(quic_span_of(buf, w), &sid, &sid_len) == 1);
   CHECK(sid_len == 0);
 }
 
@@ -94,7 +94,7 @@ static void test_legacy_session_id_extract(void) {
   const u8 *sid     = 0;
   u8        sid_len = 0;
   usz       w       = legacy_build_ch(buf, 0x0303, 32, comp, 1);
-  CHECK(quic_legacy_session_id(buf, w, &sid, &sid_len) == 1);
+  CHECK(quic_legacy_session_id(quic_span_of(buf, w), &sid, &sid_len) == 1);
   CHECK(sid_len == 32);
   CHECK(sid[0] == 0xA0);
   CHECK(sid[31] == (u8)(0xA0 + 31));
@@ -110,7 +110,9 @@ static void test_legacy_session_id_overlong(void) {
   for (usz i = 0; i < 32; i++) buf[off + 2 + i] = 0;
   buf[off + 34] = 33; /* invalid: > 32 */
   quic_hs_finish(buf, off + 35 + 33);
-  CHECK(quic_legacy_session_id(buf, off + 35 + 33, &sid, &sid_len) == 0);
+  CHECK(
+      quic_legacy_session_id(
+          quic_span_of(buf, off + 35 + 33), &sid, &sid_len) == 0);
 }
 
 void test_legacy_fields(void) {

@@ -1,6 +1,7 @@
 #ifndef QUIC_SCHEDULE_DRIVE_KEYSCHEDULE_H
 #define QUIC_SCHEDULE_DRIVE_KEYSCHEDULE_H
 
+#include "common/bytes/span/span.h"
 #include "tls/handshake/core/tls/initial.h"
 
 /* RFC 8446 7.1: order-driven key schedule. Drives the existing secret/key
@@ -29,11 +30,7 @@ void quic_keysched_init(quic_keysched *st);
  * and the client/server handshake traffic keys over the transcript. Returns 1
  * on success, 0 if the stage is not init (order violation). */
 int quic_keysched_advance_handshake(
-    quic_keysched *st,
-    const u8      *ecdhe,
-    usz            ecdhe_len,
-    const u8      *transcript,
-    usz            transcript_len);
+    quic_keysched *st, quic_span ecdhe, quic_span transcript);
 
 /* Finished processed: derive Master Secret and the application traffic keys.
  * Returns 1 on success, 0 if the stage is not handshake (order violation). */

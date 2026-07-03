@@ -1,6 +1,7 @@
 #ifndef QUIC_TPARAM_TPBLOB_H
 #define QUIC_TPARAM_TPBLOB_H
 
+#include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
 #include "tls/ext/tparam/tparam.h"
 
@@ -8,15 +9,14 @@
  * opaque byte strings and the preferred_address structure. Each is carried
  * as (id: varint)(length: varint)(value). */
 
-/* Opaque-value parameter: id + length + val_len raw bytes. val may be empty
- * (val_len 0, e.g. disable_active_migration). Returns bytes written, 0 if it
- * does not fit / id out of range. */
-usz quic_tparam_put_blob(u8 *buf, usz cap, u64 id, const u8 *val, usz val_len);
+/* Opaque-value parameter: id + length + val bytes into out->p (out->cap
+ * bytes). val may be empty (e.g. disable_active_migration). Returns bytes
+ * written, 0 if it does not fit / id out of range. */
+usz quic_tparam_put_blob(quic_obuf *out, u64 id, quic_span val);
 
-/* Decode one opaque parameter at buf (n readable). On success sets *id and a
- * view (*val, *val_len) into buf, returns bytes consumed; 0 if malformed. */
-usz quic_tparam_get_blob(
-    const u8 *buf, usz n, u64 *id, const u8 **val, usz *val_len);
+/* Decode one opaque parameter at buf.p (buf.n readable). On success sets *id
+ * and *val (a view into buf.p), returns bytes consumed; 0 if malformed. */
+usz quic_tparam_get_blob(quic_span buf, u64 *id, quic_span *val);
 
 /* RFC 9000 18.2 preferred_address value. cid is 0..20 bytes. */
 struct quic_preferred_address {

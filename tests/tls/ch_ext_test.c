@@ -18,35 +18,34 @@ static usz build_ch(u8 *buf, usz cap) {
 
 void test_ch_ext_finds_alpn_and_sni(void) {
   u8        buf[512];
-  const u8 *data;
-  usz       dlen;
+  quic_span ext;
   usz       w = build_ch(buf, sizeof(buf));
   CHECK(w > 0);
 
-  CHECK(quic_salpn_find_extension(buf, w, QUIC_SALPN_EXT_TYPE, &data, &dlen));
-  CHECK(data >= buf && data + dlen <= buf + w); /* view inside message */
+  CHECK(quic_salpn_find_extension(
+      quic_span_of(buf, w), QUIC_SALPN_EXT_TYPE, &ext));
+  CHECK(ext.p >= buf && ext.p + ext.n <= buf + w); /* view inside message */
 
-  CHECK(quic_salpn_find_extension(buf, w, QUIC_SNI_TYPE, &data, &dlen));
-  CHECK(dlen > 0);
+  CHECK(
+      quic_salpn_find_extension(quic_span_of(buf, w), QUIC_SNI_TYPE, &ext));
+  CHECK(ext.n > 0);
 }
 
 void test_ch_ext_absent_returns_zero(void) {
   u8        buf[512];
-  const u8 *data;
-  usz       dlen;
+  quic_span ext;
   usz       w = build_ch(buf, sizeof(buf));
-  CHECK(quic_salpn_find_extension(buf, w, 0xABCD, &data, &dlen) == 0);
+  CHECK(quic_salpn_find_extension(quic_span_of(buf, w), 0xABCD, &ext) == 0);
 }
 
 void test_ch_ext_truncated_returns_zero(void) {
   u8        buf[512];
-  const u8 *data;
-  usz       dlen;
+  quic_span ext;
   usz       w = build_ch(buf, sizeof(buf));
   CHECK(
-      quic_salpn_find_extension(buf, 3, QUIC_SALPN_EXT_TYPE, &data, &dlen) ==
-      0);
+      quic_salpn_find_extension(
+          quic_span_of(buf, 3), QUIC_SALPN_EXT_TYPE, &ext) == 0);
   CHECK(
       quic_salpn_find_extension(
-          buf, w - 1, QUIC_SALPN_EXT_TYPE, &data, &dlen) == 0);
+          quic_span_of(buf, w - 1), QUIC_SALPN_EXT_TYPE, &ext) == 0);
 }

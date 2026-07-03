@@ -61,14 +61,18 @@ static void test_cidxchg_len_bounds(void) {
 /* RFC 9000 7.3: ISCID/RSCID are verified with the tpverify primitives the
  * exchange composes — peer SCID matches, Retry SCID consistency holds. */
 static void test_cidxchg_iscid_rscid(void) {
-  u8 peer_scid[4]  = {7, 7, 7, 7};
-  u8 retry_scid[3] = {5, 6, 7};
-  CHECK(quic_tpverify_iscid(peer_scid, 4, peer_scid, 4) == 1);
-  CHECK(quic_tpverify_iscid(peer_scid, 4, retry_scid, 3) == 0);
+  u8        peer_scid[4]  = {7, 7, 7, 7};
+  u8        retry_scid[3] = {5, 6, 7};
+  quic_span pscid         = quic_span_of(peer_scid, 4);
+  quic_span rscid         = quic_span_of(retry_scid, 3);
+  CHECK(quic_tpverify_iscid(pscid, pscid) == 1);
+  CHECK(quic_tpverify_iscid(pscid, rscid) == 0);
   /* Retry occurred: RSCID present and equal -> consistent. */
-  CHECK(quic_tpverify_rscid(1, retry_scid, 3, retry_scid, 3, 1) == 1);
+  CHECK(
+      quic_tpverify_rscid(&(quic_tpverify_rscid_in){1, rscid, rscid, 1}) == 1);
   /* No Retry but RSCID present -> violation. */
-  CHECK(quic_tpverify_rscid(0, retry_scid, 3, retry_scid, 3, 1) == 0);
+  CHECK(
+      quic_tpverify_rscid(&(quic_tpverify_rscid_in){0, rscid, rscid, 1}) == 0);
 }
 
 void test_cidxchg(void) {

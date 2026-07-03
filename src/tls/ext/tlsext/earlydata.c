@@ -15,12 +15,12 @@ int quic_tlsext_early_data_ch(u8 *out, usz cap, usz *out_len) {
 
 /* RFC 8446 4.2.10: NewSessionTicket form carries a 4-byte max_early_data_size.
  */
-int quic_tlsext_early_data_nst(u32 max_size, u8 *out, usz cap, usz *out_len) {
-  if (cap < 8) return 0;
-  quic_put_be16(out, QUIC_TLSEXT_T_EARLY_DATA);
-  quic_put_be16(out + 2, 4);
-  quic_put_be32(out + 4, max_size);
-  *out_len = 8;
+int quic_tlsext_early_data_nst(u32 max_size, quic_obuf *out) {
+  if (out->cap < 8) return 0;
+  quic_put_be16(out->p, QUIC_TLSEXT_T_EARLY_DATA);
+  quic_put_be16(out->p + 2, 4);
+  quic_put_be32(out->p + 4, max_size);
+  out->len = 8;
   return 1;
 }
 

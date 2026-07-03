@@ -9,16 +9,17 @@
 void test_negotiate_selects_h3_from_clienthello(void) {
   u8        buf[512], random[32], pub[32];
   u8        tp[3] = {0x01, 0x02, 0x03};
-  const u8 *data;
-  usz       dlen, w;
+  quic_span ext;
+  usz       w;
   for (usz i = 0; i < 32; i++) {
     random[i] = (u8)i;
     pub[i]    = (u8)(0x40 + i);
   }
   w = quic_tls_client_hello(
       buf, sizeof(buf), random, pub, 0, 0, tp, sizeof(tp));
-  CHECK(quic_salpn_find_extension(buf, w, QUIC_SALPN_EXT_TYPE, &data, &dlen));
-  CHECK(quic_salpn_select_h3(data, dlen) == 1);
+  CHECK(quic_salpn_find_extension(
+      quic_span_of(buf, w), QUIC_SALPN_EXT_TYPE, &ext));
+  CHECK(quic_salpn_select_h3(ext.p, ext.n) == 1);
 }
 
 void test_negotiate_rejects_non_h3(void) {

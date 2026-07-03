@@ -18,7 +18,8 @@ static void cw_derive_keys(quic_client *c) {
   for (usz i = 0; i < 32; i++) ecdhe[i] = (u8)(1 + i);
   quic_keysched_init(&c->tls.ks);
   CHECK(
-      quic_keysched_advance_handshake(&c->tls.ks, ecdhe, 32, tr, sizeof(tr)) ==
+      quic_keysched_advance_handshake(
+          &c->tls.ks, quic_span_of(ecdhe, 32), quic_span_of(tr, sizeof(tr))) ==
       1);
   CHECK(quic_keysched_advance_master(&c->tls.ks, tr, sizeof(tr)) == 1);
 }

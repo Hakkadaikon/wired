@@ -23,7 +23,9 @@ static void test_keyschedule_order(void) {
   CHECK(quic_keysched_get(&st, QUIC_KS_CLIENT_HS, &k) == 0);
   CHECK(quic_keysched_get(&st, QUIC_KS_CLIENT_AP, &k) == 0);
 
-  CHECK(quic_keysched_advance_handshake(&st, ecdhe, 32, tr, sizeof(tr)) == 1);
+  CHECK(
+      quic_keysched_advance_handshake(
+          &st, quic_span_of(ecdhe, 32), quic_span_of(tr, sizeof(tr))) == 1);
   CHECK(quic_keysched_get(&st, QUIC_KS_CLIENT_HS, &k) == 1);
   CHECK(quic_keysched_get(&st, QUIC_KS_SERVER_HS, &k) == 1);
   /* app keys still unavailable before master stage */
@@ -50,8 +52,12 @@ static void test_keyschedule_double_handshake(void) {
   fill(ecdhe, 32, 5);
   quic_keysched st;
   quic_keysched_init(&st);
-  CHECK(quic_keysched_advance_handshake(&st, ecdhe, 32, tr, sizeof(tr)) == 1);
-  CHECK(quic_keysched_advance_handshake(&st, ecdhe, 32, tr, sizeof(tr)) == 0);
+  CHECK(
+      quic_keysched_advance_handshake(
+          &st, quic_span_of(ecdhe, 32), quic_span_of(tr, sizeof(tr))) == 1);
+  CHECK(
+      quic_keysched_advance_handshake(
+          &st, quic_span_of(ecdhe, 32), quic_span_of(tr, sizeof(tr))) == 0);
 }
 
 /* A wrong-length ECDHE secret is rejected at the trust boundary. */
@@ -60,7 +66,9 @@ static void test_keyschedule_bad_ecdhe(void) {
   fill(ecdhe, 32, 9);
   quic_keysched st;
   quic_keysched_init(&st);
-  CHECK(quic_keysched_advance_handshake(&st, ecdhe, 31, tr, sizeof(tr)) == 0);
+  CHECK(
+      quic_keysched_advance_handshake(
+          &st, quic_span_of(ecdhe, 31), quic_span_of(tr, sizeof(tr))) == 0);
   CHECK(st.stage == 0); /* stage unchanged on rejection */
 }
 
@@ -72,7 +80,8 @@ static void test_keyschedule_matches_oneshot(void) {
   quic_keysched            st;
   const quic_initial_keys *c_hs, *s_hs, *c_ap, *s_ap;
   quic_keysched_init(&st);
-  quic_keysched_advance_handshake(&st, ecdhe, 32, tr, sizeof(tr));
+  quic_keysched_advance_handshake(
+      &st, quic_span_of(ecdhe, 32), quic_span_of(tr, sizeof(tr)));
   quic_keysched_advance_master(&st, tr, sizeof(tr));
   quic_keysched_get(&st, QUIC_KS_CLIENT_HS, &c_hs);
   quic_keysched_get(&st, QUIC_KS_SERVER_HS, &s_hs);

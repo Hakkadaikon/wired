@@ -55,10 +55,9 @@ int quic_legacy_check_client_hello(const u8 *ch_msg, usz len) {
   return b != 0 && legacy_body_ok(b, body_len);
 }
 
-int quic_legacy_session_id(
-    const u8 *ch_msg, usz len, const u8 **sid, u8 *sid_len) {
+int quic_legacy_session_id(quic_span ch_msg, const u8 **sid, u8 *sid_len) {
   usz       body_len;
-  const u8 *b = ch_body(ch_msg, len, &body_len);
+  const u8 *b = ch_body(ch_msg.p, ch_msg.n, &body_len);
   if (b == 0 || !sid_fits(b, body_len)) return 0;
   *sid     = b + 35;
   *sid_len = b[34];

@@ -71,7 +71,9 @@ int quic_server_recv_initial(quic_server *s, const u8 *ch_msg, usz ch_len) {
 static int srv_derive_hs(quic_server *s, u8 ecdhe[QUIC_X25519_LEN]) {
   if (!quic_x25519(ecdhe, s->server_priv, s->sdrv.client_pub)) return 0;
   return quic_keysched_advance_handshake(
-      &s->sched, ecdhe, QUIC_X25519_LEN, s->tr, s->tr_through_sh);
+      &s->sched,
+      quic_span_of(ecdhe, QUIC_X25519_LEN),
+      quic_span_of(s->tr, s->tr_through_sh));
 }
 
 static int srv_install_hs_keys(quic_server *s) {
