@@ -33,15 +33,10 @@ static int is_request_frame(u64 type, const u8 *frame, usz rem) {
 /* RFC 9114 4.1: hand the (reassembled) request STREAM frame to the HTTP/3
  * request decoder. */
 static int dispatch_stream(
-    quic_h3srv_state    *h3,
-    const u8            *frame,
-    usz                  len,
-    u8                  *scratch,
-    usz                  scap,
-    int                 *got_request,
-    quic_h3reqdrive_req *req) {
-  if (!quic_h3srv_on_request(h3, frame, len, scratch, scap, req)) return 0;
-  *got_request = 1;
+    quic_h3srv_state *h3, quic_span frame, const quic_srvloop_dispatch_in *in) {
+  quic_h3srv_req_in rin = {frame, in->scratch};
+  if (!quic_h3srv_on_request(h3, &rin, in->req)) return 0;
+  *in->got_request = 1;
   return 1;
 }
 
@@ -65,9 +60,9 @@ static void gather_one(const quic_stream_frame *sf, quic_srvloop_reqacc *acc) {
 
 /* 1 if the walked frame is a request STREAM frame and decodes into sf. */
 static int request_stream_of(
-    u64 type, const u8 *frame, usz rem, quic_stream_frame *sf) {
-  return is_request_frame(type, frame, rem) &&
-         quic_frame_get_stream(frame, rem, sf);
+    u64 type, quic_span frame, quic_stream_frame *sf) {
+  return is_request_frame(type, frame.p, frame.n) &&
+         quic_frame_get_stream(frame.p, frame.n, sf);
 }
 
 /* RFC 9000 2.2 / 12.4, RFC 9114 6.2: write every client bidi (request) STREAM
@@ -82,7 +77,7 @@ static int gather_request(
   quic_stream_frame   sf;
   quic_framewalk_init(&it, payload, len);
   while (quic_framewalk_next(&it, &fr))
-    if (request_stream_of(fr.type, fr.start, fr.remaining, &sf)) {
+    if (request_stream_of(fr.type, quic_span_of(fr.start, fr.remaining), &sf)) {
       gather_one(&sf, acc);
       seen = 1;
     }
@@ -98,35 +93,24 @@ static int request_complete(const quic_srvloop_reqacc *acc) {
 /* RFC 9114 4.1: re-wrap the reassembled stream bytes as a single STREAM frame
  * (offset 0) and drive the HTTP/3 request decoder once. */
 static void drive_complete(
-    quic_h3srv_state    *h3,
-    quic_srvloop_reqacc *acc,
-    u8                  *scratch,
-    usz                  scap,
-    int                 *got_request,
-    quic_h3reqdrive_req *req) {
+    quic_h3srv_state *h3, quic_srvloop_reqacc *acc,
+    const quic_srvloop_dispatch_in *in) {
   u8                wrap[2080];
   quic_stream_frame f  = {0, 0, *acc->len, acc->buf, 1};
   quic_obuf         ob = quic_obuf_of(wrap, sizeof wrap);
   *acc->done           = 1;
   if (quic_appdata_stream_frame(&f, &ob))
-    dispatch_stream(h3, wrap, ob.len, scratch, scap, got_request, req);
+    dispatch_stream(h3, quic_span_of(wrap, ob.len), in);
 }
 
 /* RFC 9000 2.2 / RFC 9114 4.1: accumulate this payload's request-stream frames;
  * once FIN closes the stream, decode the reassembled request exactly once.
  * Returns 1 if a request-stream frame was present (handled), 0 otherwise. */
 static int reassemble_and_drive(
-    quic_h3srv_state    *h3,
-    const u8            *payload,
-    usz                  len,
-    quic_srvloop_reqacc *acc,
-    u8                  *scratch,
-    usz                  scap,
-    int                 *got_request,
-    quic_h3reqdrive_req *req) {
-  if (!gather_request(payload, len, acc)) return 0;
-  if (request_complete(acc))
-    drive_complete(h3, acc, scratch, scap, got_request, req);
+    quic_h3srv_state *h3, quic_srvloop_reqacc *acc,
+    const quic_srvloop_dispatch_in *in) {
+  if (!gather_request(in->payload.p, in->payload.n, acc)) return 0;
+  if (request_complete(acc)) drive_complete(h3, acc, in);
   return 1;
 }
 
@@ -170,17 +154,7 @@ static int dispatch_non_request(quic_server *s, const u8 *payload, usz len) {
  * handed whole to quic_server_feed, whose crecv reassembles a split
  * ClientHello/Finished. A STREAM payload never re-enters the handshake. */
 int quic_srvloop_dispatch(
-    quic_server         *s,
-    quic_h3srv_state    *h3,
-    const u8            *payload,
-    usz                  len,
-    quic_srvloop_reqacc *acc,
-    u8                  *scratch,
-    usz                  scap,
-    int                 *got_request,
-    quic_h3reqdrive_req *req) {
-  if (reassemble_and_drive(
-          h3, payload, len, acc, scratch, scap, got_request, req))
-    return 1;
-  return dispatch_non_request(s, payload, len);
+    const quic_srvloop_dispatch_ctx *ctx, const quic_srvloop_dispatch_in *in) {
+  if (reassemble_and_drive(ctx->h3, ctx->acc, in)) return 1;
+  return dispatch_non_request(ctx->s, in->payload.p, in->payload.n);
 }

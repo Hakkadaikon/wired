@@ -1,6 +1,7 @@
 #ifndef QUIC_SRVLOOP_SEND_H
 #define QUIC_SRVLOOP_SEND_H
 
+#include "common/bytes/span/span.h"
 #include "tls/handshake/roles/server/server.h"
 
 /* RFC 9001 5 / 5.1: seal server-direction outbound packets. The server always
@@ -9,47 +10,36 @@
  * written toward the client is the client's source id; the SCID is the server's
  * iscid. */
 
-/* Seal a ServerHello TLS flight into a server Initial packet. When ack_pn >= 0
- * the flight acknowledges that received client Initial packet number (RFC 9000
- * 13.2.1); ack_pn < 0 sends CRYPTO only. Returns 1, 0 on overflow. */
+/* Remaining arguments of quic_srvloop_send_initial/send_handshake/send_onertt
+ * beyond s and out: the client's source connection id (this reply's DCID),
+ * the packet number, the client packet to acknowledge (< 0 for none, unused
+ * by send_onertt), and the payload — a TLS flight to wrap in CRYPTO for
+ * Initial/Handshake, or the raw 1-RTT payload for send_onertt. */
+typedef struct {
+  quic_span cli_scid;
+  u64       pn;
+  i64       ack_pn;
+  quic_span payload;
+} quic_srvloop_send_in;
+
+/* Seal a ServerHello TLS flight into a server Initial packet. When
+ * in->ack_pn >= 0 the flight acknowledges that received client Initial packet
+ * number (RFC 9000 13.2.1); ack_pn < 0 sends CRYPTO only. Returns 1 with
+ * out->len set, 0 on overflow. */
 int quic_srvloop_send_initial(
-    const quic_server *s,
-    const u8          *cli_scid,
-    u8                 cli_scid_len,
-    u64                pn,
-    i64                ack_pn,
-    const u8          *tls,
-    usz                tls_len,
-    u8                *out,
-    usz                cap,
-    usz               *out_len);
+    const quic_server *s, const quic_srvloop_send_in *in, quic_obuf *out);
 
-/* Seal a Handshake TLS flight under SERVER_HS. When ack_pn >= 0 the flight
- * acknowledges that received Handshake-space packet number (RFC 9000 13.2.1).
- * Returns 1, or 0 if the key is not derived or on overflow. */
+/* Seal a Handshake TLS flight under SERVER_HS. When in->ack_pn >= 0 the
+ * flight acknowledges that received Handshake-space packet number (RFC 9000
+ * 13.2.1). Returns 1 with out->len set, or 0 if the key is not derived or on
+ * overflow. */
 int quic_srvloop_send_handshake(
-    const quic_server *s,
-    const u8          *cli_scid,
-    u8                 cli_scid_len,
-    u64                pn,
-    i64                ack_pn,
-    const u8          *tls,
-    usz                tls_len,
-    u8                *out,
-    usz                cap,
-    usz               *out_len);
+    const quic_server *s, const quic_srvloop_send_in *in, quic_obuf *out);
 
-/* Seal a raw 1-RTT payload (e.g. HANDSHAKE_DONE) under SERVER_AP. Returns 1, or
- * 0 if the key is not derived or on overflow. */
+/* Seal a raw 1-RTT payload (e.g. HANDSHAKE_DONE) under SERVER_AP. in->ack_pn
+ * is unused (1-RTT sealing never ACKs). Returns 1 with out->len set, or 0 if
+ * the key is not derived or on overflow. */
 int quic_srvloop_send_onertt(
-    const quic_server *s,
-    const u8          *cli_scid,
-    u8                 cli_scid_len,
-    u64                pn,
-    const u8          *payload,
-    usz                payload_len,
-    u8                *out,
-    usz                cap,
-    usz               *out_len);
+    const quic_server *s, const quic_srvloop_send_in *in, quic_obuf *out);
 
 #endif
