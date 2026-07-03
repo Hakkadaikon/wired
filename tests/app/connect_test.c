@@ -62,15 +62,15 @@ static void test_connect_encode_two_fields(void) {
 /* A decoded request is rejected as a CONNECT unless it is exactly
  * method=CONNECT + authority with no scheme/path. */
 static void test_connect_req_ok_rejects(void) {
-  static const u8     m[] = {'C', 'O', 'N', 'N', 'E', 'C', 'T'};
-  static const u8     a[] = {'h'};
-  static const u8     s[] = {'h', 't', 't', 'p', 's'};
-  static const u8     p[] = {'/'};
-  quic_h3reqdrive_req r   = {0};
-  r.method                = m;
-  r.method_len            = 7;
-  r.authority             = a;
-  r.authority_len         = 1;
+  static const u8      m[] = {'C', 'O', 'N', 'N', 'E', 'C', 'T'};
+  static const u8      a[] = {'h'};
+  static const u8      s[] = {'h', 't', 't', 'p', 's'};
+  static const u8      p[] = {'/'};
+  wired_h3reqdrive_req r   = {0};
+  r.method                 = m;
+  r.method_len             = 7;
+  r.authority              = a;
+  r.authority_len          = 1;
   CHECK(quic_h3_connect_req_ok(&r) == 1); /* valid CONNECT */
 
   r.scheme     = s;

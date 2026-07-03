@@ -6,8 +6,8 @@
 int wired_h3srv_on_request(
     wired_h3srv_state        *st,
     const wired_h3srv_req_in *in,
-    quic_h3reqdrive_req      *req) {
-  if (!quic_h3reqdrive_recv_get(in->stream_data, in->scratch, req)) return 0;
+    wired_h3reqdrive_req     *req) {
+  if (!wired_h3reqdrive_recv_get(in->stream_data, in->scratch, req)) return 0;
   st->request_seen = 1;
   return 1;
 }

@@ -96,16 +96,16 @@ static void test_h3srv_accept_uni_streams(void) {
 /* RFC 9114 4.1: a GET request HEADERS is decoded, marking request_seen, and
  * the :path / :authority are recovered. */
 static void test_h3srv_request_decode(void) {
-  wired_h3srv_state   st     = {0};
-  const u8            path[] = {'/', 'a'};
-  const u8            auth[] = {'h', '1'};
-  u8                  req[256], scratch[128];
-  quic_obuf           req_ob = {req, sizeof req, 0};
-  quic_h3reqdrive_req r;
+  wired_h3srv_state    st     = {0};
+  const u8             path[] = {'/', 'a'};
+  const u8             auth[] = {'h', '1'};
+  u8                   req[256], scratch[128];
+  quic_obuf            req_ob = {req, sizeof req, 0};
+  wired_h3reqdrive_req r;
 
-  CHECK(quic_h3reqdrive_send_get(
+  CHECK(wired_h3reqdrive_send_get(
       0,
-      &(quic_h3reqdrive_get_in){
+      &(wired_h3reqdrive_get_in){
           quic_span_of(path, sizeof path), quic_span_of(auth, sizeof auth)},
       &req_ob));
   CHECK(wired_h3srv_on_request(
@@ -128,13 +128,13 @@ static void test_h3srv_request_answered(void) {
   const u8          body[] = {'o', 'k'};
   u8                req[256], scratch[128], resp[256];
   quic_obuf req_ob = {req, sizeof req, 0}, resp_ob = {resp, sizeof resp, 0};
-  quic_h3reqdrive_req r;
-  quic_h3conn_resp    resp_out = {0};
+  wired_h3reqdrive_req r;
+  quic_h3conn_resp     resp_out = {0};
 
   st.settings_sent = 1;
-  CHECK(quic_h3reqdrive_send_get(
+  CHECK(wired_h3reqdrive_send_get(
       0,
-      &(quic_h3reqdrive_get_in){
+      &(wired_h3reqdrive_get_in){
           quic_span_of(path, sizeof path), quic_span_of(auth, sizeof auth)},
       &req_ob));
   CHECK(wired_h3srv_on_request(
@@ -205,18 +205,18 @@ static void test_h3srv_get_keeps_body(void) {
  * 0x2a octet) is not malformed; it round-trips through encode/decode with the
  * method and path recovered intact. */
 static void test_h3srv_options_asterisk(void) {
-  wired_h3srv_state       st       = {0};
-  const u8                method[] = {'O', 'P', 'T', 'I', 'O', 'N', 'S'};
-  const u8                star[]   = {'*'};
-  const u8                auth[]   = {'x'};
-  u8                      req[256], scratch[128];
-  quic_obuf               req_ob = {req, sizeof req, 0};
-  quic_h3reqdrive_req     r;
-  quic_h3reqdrive_send_in in = {
+  wired_h3srv_state        st       = {0};
+  const u8                 method[] = {'O', 'P', 'T', 'I', 'O', 'N', 'S'};
+  const u8                 star[]   = {'*'};
+  const u8                 auth[]   = {'x'};
+  u8                       req[256], scratch[128];
+  quic_obuf                req_ob = {req, sizeof req, 0};
+  wired_h3reqdrive_req     r;
+  wired_h3reqdrive_send_in in = {
       quic_span_of(method, sizeof method), quic_span_of(star, sizeof star),
       quic_span_of(auth, sizeof auth), quic_span_of(0, 0)};
 
-  CHECK(quic_h3reqdrive_send_method(0, &in, &req_ob));
+  CHECK(wired_h3reqdrive_send_method(0, &in, &req_ob));
   CHECK(wired_h3srv_on_request(
       &st,
       &(wired_h3srv_req_in){

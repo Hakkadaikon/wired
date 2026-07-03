@@ -30,7 +30,7 @@ static int method_is_connect(const u8 *m, usz len) {
   return cn_bytes_eq(m, want, sizeof want);
 }
 
-int quic_h3_connect_req_ok(const quic_h3reqdrive_req *r) {
+int quic_h3_connect_req_ok(const wired_h3reqdrive_req *r) {
   quic_h3_connect_flags f = {
       method_is_connect(r->method, r->method_len), r->authority != 0,
       r->scheme != 0, r->path != 0};

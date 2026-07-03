@@ -20,7 +20,7 @@ typedef struct {
 int wired_h3srv_on_request(
     wired_h3srv_state        *st,
     const wired_h3srv_req_in *in,
-    quic_h3reqdrive_req      *req);
+    wired_h3reqdrive_req     *req);
 
 /* The request stream to reply on and the response to build. */
 typedef struct {

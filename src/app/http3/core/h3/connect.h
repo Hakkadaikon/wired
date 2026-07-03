@@ -21,7 +21,7 @@ int quic_h3_connect_ok(const quic_h3_connect_flags *f);
  * exactly "CONNECT", :authority present, :scheme and :path absent. Derives the
  * presence flags from r and applies quic_h3_connect_ok. Returns 1 if valid
  * (tunnel may proceed), 0 if it must be treated as malformed. */
-int quic_h3_connect_req_ok(const quic_h3reqdrive_req *r);
+int quic_h3_connect_req_ok(const wired_h3reqdrive_req *r);
 
 /* RFC 9110 9.3.6. A 2xx response to CONNECT establishes the tunnel; any other
  * status does not. Returns 1 for 200..299, 0 otherwise. */

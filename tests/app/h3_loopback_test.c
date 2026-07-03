@@ -299,9 +299,9 @@ static void test_loopback_wire_confirm_and_get(void) {
   /* GET over the wire -> 200 sealed back, opened by the peer. */
   {
     quic_obuf gob = {get, sizeof get, 0};
-    CHECK(quic_h3reqdrive_send_get(
+    CHECK(wired_h3reqdrive_send_get(
         0,
-        &(quic_h3reqdrive_get_in){
+        &(wired_h3reqdrive_get_in){
             quic_span_of((const u8 *)"/", 1), quic_span_of((const u8 *)"h", 1)},
         &gob));
     glen = gob.len;

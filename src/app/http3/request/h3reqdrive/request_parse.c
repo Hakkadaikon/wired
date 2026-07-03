@@ -24,7 +24,7 @@ static int find_headers(quic_span h3, quic_span *fs, usz *end) {
  * stop. Returns 1 when DATA is found (cur->off advanced past it is
  * irrelevant then), 0 on a truncated/undecodable frame, -1 to keep walking
  * (a skipped frame). */
-static int body_step(quic_span h3, usz *off, quic_h3reqdrive_req *r) {
+static int body_step(quic_span h3, usz *off, wired_h3reqdrive_req *r) {
   quic_h3_frame f = {0};
   usz used = quic_h3_frame_get(quic_span_of(h3.p + *off, h3.n - *off), &f);
   if (!used) return 0;
@@ -41,7 +41,7 @@ static int body_step(quic_span h3, usz *off, quic_h3reqdrive_req *r) {
  * is a bodyless request (GET): leave the view empty and succeed. A truncated
  * remainder fails. A request split across multiple DATA frames is not joined
  * (curl/typical clients send one). */
-static int find_body(quic_span h3, usz off, quic_h3reqdrive_req *r) {
+static int find_body(quic_span h3, usz off, wired_h3reqdrive_req *r) {
   while (off < h3.n) {
     int s = body_step(h3, &off, r);
     if (s >= 0) return s;
@@ -49,8 +49,8 @@ static int find_body(quic_span h3, usz off, quic_h3reqdrive_req *r) {
   return 1;
 }
 
-int quic_h3reqdrive_request_sections(
-    quic_span stream_data, quic_span *fs, quic_h3reqdrive_req *r) {
+int wired_h3reqdrive_request_sections(
+    quic_span stream_data, quic_span *fs, wired_h3reqdrive_req *r) {
   quic_stream_frame f;
   usz               end = 0;
   quic_span         h3;
