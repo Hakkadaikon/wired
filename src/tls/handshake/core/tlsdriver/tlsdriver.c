@@ -147,7 +147,7 @@ static int derive_handshake_secret(
     const u8        peer_pub[QUIC_ECDHE_LEN]) {
   if (!quic_crypto_stream_ecdhe(d->my_priv, peer_pub, d->shared)) return 0;
   return quic_keysched_advance_handshake(
-      &d->ks, d->shared, QUIC_ECDHE_LEN, msg, n);
+      &d->ks, quic_span_of(d->shared, QUIC_ECDHE_LEN), quic_span_of(msg, n));
 }
 
 /* Derive the ECDHE shared secret and advance the key schedule to the

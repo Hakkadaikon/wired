@@ -43,12 +43,14 @@ static int derive_secret(quic_sdrv *s) {
  * Initial DCID) and ISCID (server SCID) recorded via quic_sdrv_set_cids
  * (RFC 9000 7.3). */
 static int emit_ee(quic_sdrv *s, u8 *flight, usz cap, usz *off) {
-  u8  tp[256], msg[1024];
-  usz tn, n;
+  u8        tp[256], msg[1024];
+  usz       n;
+  quic_obuf tob = quic_obuf_of(tp, sizeof(tp));
   if (!quic_stp_build_server(
-          s->odcid, s->odcid_len, s->iscid, s->iscid_len, tp, sizeof(tp), &tn))
+          quic_span_of(s->odcid, s->odcid_len),
+          quic_span_of(s->iscid, s->iscid_len), &tob))
     return 0;
-  if (!quic_eebuild_encrypted_extensions(tp, tn, msg, sizeof(msg), &n))
+  if (!quic_eebuild_encrypted_extensions(tp, tob.len, msg, sizeof(msg), &n))
     return 0;
   return emit_msg(s, msg, n, flight, cap, off);
 }

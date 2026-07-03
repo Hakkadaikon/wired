@@ -7,30 +7,22 @@ static int bytes_eq(const u8 *a, const u8 *b, usz n) {
   return 1;
 }
 
-int quic_tparam_cid_match(
-    const u8 *got, usz got_len, const u8 *expected, usz exp_len) {
-  if (got_len != exp_len) return 0;
-  return bytes_eq(got, expected, got_len);
+int quic_tparam_cid_match(quic_span got, quic_span expected) {
+  if (got.n != expected.n) return 0;
+  return bytes_eq(got.p, expected.p, got.n);
 }
 
-int quic_tparam_check_initial_scid(
-    const u8 *got, usz got_len, const u8 *observed, usz observed_len) {
-  return quic_tparam_cid_match(got, got_len, observed, observed_len);
+int quic_tparam_check_initial_scid(quic_span got, quic_span observed) {
+  return quic_tparam_cid_match(got, observed);
 }
 
-int quic_tparam_check_original_dcid(
-    const u8 *got, usz got_len, const u8 *sent_dcid, usz sent_len) {
-  return quic_tparam_cid_match(got, got_len, sent_dcid, sent_len);
+int quic_tparam_check_original_dcid(quic_span got, quic_span sent_dcid) {
+  return quic_tparam_cid_match(got, sent_dcid);
 }
 
-int quic_tparam_check_retry_scid(
-    int       did_retry,
-    int       has_param,
-    const u8 *got,
-    usz       got_len,
-    const u8 *retry_scid,
-    usz       retry_len) {
-  if (did_retry != has_param) return 0; /* present iff a Retry was processed */
-  if (!did_retry) return 1;             /* both absent: nothing to match */
-  return quic_tparam_cid_match(got, got_len, retry_scid, retry_len);
+int quic_tparam_check_retry_scid(const quic_tparam_retry_scid_in *in) {
+  if (in->did_retry != in->has_param)
+    return 0;                   /* present iff a Retry was processed */
+  if (!in->did_retry) return 1; /* both absent: nothing to match */
+  return quic_tparam_cid_match(in->got, in->retry_scid);
 }

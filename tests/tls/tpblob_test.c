@@ -11,49 +11,48 @@ static void test_blob_token(void) {
   for (usz i = 0; i < 16; i++) tok[i] = (u8)(i + 1);
   u8        buf[64];
   u64       id;
-  const u8 *v;
-  usz       vlen;
-  usz       w = quic_tparam_put_blob(
-      buf, sizeof(buf), QUIC_TP_STATELESS_RESET_TOKEN, tok, 16);
-  usz r = quic_tparam_get_blob(buf, w, &id, &v, &vlen);
+  quic_span v;
+  quic_obuf ob = quic_obuf_of(buf, sizeof(buf));
+  usz       w  = quic_tparam_put_blob(
+      &ob, QUIC_TP_STATELESS_RESET_TOKEN, quic_span_of(tok, 16));
+  usz r = quic_tparam_get_blob(quic_span_of(buf, w), &id, &v);
   CHECK(w != 0 && r == w && id == QUIC_TP_STATELESS_RESET_TOKEN);
-  CHECK(vlen == 16 && mem_eq(v, tok, 16));
+  CHECK(v.n == 16 && mem_eq(v.p, tok, 16));
 }
 
 static void test_blob_variable_cid(void) {
   u8        cid[8] = {0xde, 0xad, 0xbe, 0xef, 0x01, 0x02, 0x03, 0x04};
   u8        buf[64];
   u64       id;
-  const u8 *v;
-  usz       vlen;
-  usz       w = quic_tparam_put_blob(
-      buf, sizeof(buf), QUIC_TP_INITIAL_SOURCE_CONNECTION_ID, cid, 8);
-  usz r = quic_tparam_get_blob(buf, w, &id, &v, &vlen);
+  quic_span v;
+  quic_obuf ob = quic_obuf_of(buf, sizeof(buf));
+  usz       w  = quic_tparam_put_blob(
+      &ob, QUIC_TP_INITIAL_SOURCE_CONNECTION_ID, quic_span_of(cid, 8));
+  usz r = quic_tparam_get_blob(quic_span_of(buf, w), &id, &v);
   CHECK(w != 0 && r == w && id == QUIC_TP_INITIAL_SOURCE_CONNECTION_ID);
-  CHECK(vlen == 8 && mem_eq(v, cid, 8));
+  CHECK(v.n == 8 && mem_eq(v.p, cid, 8));
 }
 
 static void test_blob_empty(void) {
   u8        buf[8];
   u64       id;
-  const u8 *v;
-  usz       vlen;
-  usz       w = quic_tparam_put_blob(
-      buf, sizeof(buf), QUIC_TP_DISABLE_ACTIVE_MIGRATION, buf, 0);
-  usz r = quic_tparam_get_blob(buf, w, &id, &v, &vlen);
-  CHECK(
-      w != 0 && r == w && id == QUIC_TP_DISABLE_ACTIVE_MIGRATION && vlen == 0);
+  quic_span v;
+  quic_obuf ob = quic_obuf_of(buf, sizeof(buf));
+  usz       w  = quic_tparam_put_blob(
+      &ob, QUIC_TP_DISABLE_ACTIVE_MIGRATION, quic_span_of(buf, 0));
+  usz r = quic_tparam_get_blob(quic_span_of(buf, w), &id, &v);
+  CHECK(w != 0 && r == w && id == QUIC_TP_DISABLE_ACTIVE_MIGRATION && v.n == 0);
 }
 
 static void test_blob_truncated(void) {
   u8        tok[16] = {0};
   u8        buf[64];
   u64       id;
-  const u8 *v;
-  usz       vlen;
-  usz       w = quic_tparam_put_blob(
-      buf, sizeof(buf), QUIC_TP_STATELESS_RESET_TOKEN, tok, 16);
-  CHECK(quic_tparam_get_blob(buf, w - 1, &id, &v, &vlen) == 0);
+  quic_span v;
+  quic_obuf ob = quic_obuf_of(buf, sizeof(buf));
+  usz       w  = quic_tparam_put_blob(
+      &ob, QUIC_TP_STATELESS_RESET_TOKEN, quic_span_of(tok, 16));
+  CHECK(quic_tparam_get_blob(quic_span_of(buf, w - 1), &id, &v) == 0);
 }
 
 static struct quic_preferred_address sample_pa(void) {

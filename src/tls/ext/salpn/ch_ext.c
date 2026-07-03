@@ -31,62 +31,60 @@ static int to_exts(const u8 *m, usz end, usz *p) {
   return salpn_skip_v8(m, end, p);          /* legacy_compression_methods */
 }
 
-/* One extension at *q: -1 overrun, 0 mismatch (advance), 1 match (capture). */
-static int one_ext(
-    const u8  *m,
-    usz       *q,
-    usz        end,
-    u16        ext_type,
-    const u8 **ext_data,
-    usz       *ext_len) {
-  usz dlen = rd16(m + *q + 2);
-  if (*q + 4 + dlen > end) return -1;
-  if (rd16(m + *q) == ext_type) {
-    *ext_data = m + *q + 4;
-    *ext_len  = dlen;
+/* Scan bounds: buffer, cursor, block end, and the extension_type sought. */
+typedef struct {
+  const u8 *m;
+  usz       q;
+  usz       end;
+  u16       ext_type;
+} salpn_scan_in;
+
+/* One extension at in->q: -1 overrun, 0 mismatch (advance), 1 match. */
+static int one_ext(salpn_scan_in *in, quic_span *ext) {
+  usz dlen = rd16(in->m + in->q + 2);
+  if (in->q + 4 + dlen > in->end) return -1;
+  if (rd16(in->m + in->q) == in->ext_type) {
+    *ext = quic_span_of(in->m + in->q + 4, dlen);
     return 1;
   }
-  *q += 4 + dlen;
+  in->q += 4 + dlen;
   return 0;
 }
 
 /* Scan the extensions block [q,end) for ext_type. */
-static int scan(
-    const u8  *m,
-    usz        q,
-    usz        end,
-    u16        ext_type,
-    const u8 **ext_data,
-    usz       *ext_len) {
-  while (q + 4 <= end) {
-    int r = one_ext(m, &q, end, ext_type, ext_data, ext_len);
+static int scan(salpn_scan_in *in, quic_span *ext) {
+  while (in->q + 4 <= in->end) {
+    int r = one_ext(in, ext);
     if (r != 0) return r > 0;
   }
   return 0;
 }
 
-/* Read the 2-byte extensions block length at *p and set bounds. */
-static int block_end(const u8 *m, usz n, usz p, usz *q, usz *end) {
-  if (p + 2 > n) return 0;
-  *end = p + 2 + rd16(m + p);
-  *q   = p + 2;
-  return *end <= n;
+/* [q,end) bounds of the extensions block within a message of length n. */
+typedef struct {
+  usz q;
+  usz end;
+} salpn_bounds;
+
+/* Read the 2-byte extensions block length at p and set bounds. */
+static int block_end(quic_span m, usz p, salpn_bounds *b) {
+  if (p + 2 > m.n) return 0;
+  b->end = p + 2 + rd16(m.p + p);
+  b->q   = p + 2;
+  return b->end <= m.n;
 }
 
-/* Locate the extensions block end and capture its start in *q. */
-static int exts_bounds(const u8 *m, usz n, usz *q, usz *end) {
+/* Locate the extensions block end and capture its start. */
+static int exts_bounds(quic_span m, salpn_bounds *b) {
   usz p = 4; /* msg_type(1) + length(3) */
-  if (!to_exts(m, n, &p)) return 0;
-  return block_end(m, n, p, q, end);
+  if (!to_exts(m.p, m.n, &p)) return 0;
+  return block_end(m, p, b);
 }
 
-int quic_salpn_find_extension(
-    const u8  *ch_msg,
-    usz        ch_len,
-    u16        ext_type,
-    const u8 **ext_data,
-    usz       *ext_len) {
-  usz q, end;
-  if (!exts_bounds(ch_msg, ch_len, &q, &end)) return 0;
-  return scan(ch_msg, q, end, ext_type, ext_data, ext_len);
+int quic_salpn_find_extension(quic_span ch_msg, u16 ext_type, quic_span *ext) {
+  salpn_bounds  b;
+  salpn_scan_in in;
+  if (!exts_bounds(ch_msg, &b)) return 0;
+  in = (salpn_scan_in){ch_msg.p, b.q, b.end, ext_type};
+  return scan(&in, ext);
 }

@@ -1,6 +1,7 @@
 #ifndef QUIC_TPARAM_TPARAM_H
 #define QUIC_TPARAM_TPARAM_H
 
+#include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
 
 /* RFC 9000 18: transport parameters are a sequence of
@@ -26,14 +27,14 @@
 #define QUIC_TP_INITIAL_SOURCE_CONNECTION_ID 0x0f
 #define QUIC_TP_RETRY_SOURCE_CONNECTION_ID 0x10
 
-/* Encode one integer-valued parameter (id, varint value) into buf of cap
- * bytes. Returns bytes written, or 0 if it does not fit / value out of range.
+/* Encode one integer-valued parameter (id, varint value) into out->p (out->cap
+ * bytes). Returns bytes written, or 0 if it does not fit / value out of range.
  */
-usz quic_tparam_put_int(u8 *buf, usz cap, u64 id, u64 value);
+usz quic_tparam_put_int(quic_obuf *out, u64 id, u64 value);
 
-/* Decode one parameter at buf (n readable). On success sets *id, *value
+/* Decode one parameter at buf.p (buf.n readable). On success sets *id, *value
  * (decoded as a varint) and returns total bytes consumed; 0 on malformed
  * input or a value whose length is not a single varint. */
-usz quic_tparam_get_int(const u8 *buf, usz n, u64 *id, u64 *value);
+usz quic_tparam_get_int(quic_span buf, u64 *id, u64 *value);
 
 #endif

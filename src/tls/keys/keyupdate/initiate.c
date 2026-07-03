@@ -1,6 +1,5 @@
 #include "tls/keys/keyupdate/initiate.h"
 
-int quic_keyupdate_may_initiate(
-    int handshake_confirmed, u64 last_update, u64 now, u64 pto) {
-  return handshake_confirmed && now >= last_update + 3 * pto;
+int quic_keyupdate_may_initiate(const quic_keyupdate_in *in) {
+  return in->handshake_confirmed && in->now >= in->last_update + 3 * in->pto;
 }

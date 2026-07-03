@@ -154,9 +154,9 @@ void quic_evloop_run(quic_evloop *c, u64 now, usz max_iterations) {
 }
 
 int quic_evloop_initiate_key_update(quic_evloop *c, u64 now) {
-  if (!quic_keyupdate_may_initiate(
-          c->gate.handshake_confirmed, c->key_update_time, now, c->pto_period))
-    return 0;
+  quic_keyupdate_in in = {
+      c->gate.handshake_confirmed, c->key_update_time, now, c->pto_period};
+  if (!quic_keyupdate_may_initiate(&in)) return 0;
   c->key_generation++;      /* RFC 9001 6: advance the send generation */
   c->key_update_time = now; /* retain the prior key for 3*PTO */
   return 1;

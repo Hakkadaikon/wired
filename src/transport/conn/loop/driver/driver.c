@@ -75,7 +75,8 @@ static void derive_for(quic_driver *d, u8 msg_type) {
   static const u8 ecdhe[32] = {0};
   static const u8 tr[1]     = {0};
   if (msg_type == QUIC_HSD_SERVER_HELLO) {
-    quic_keysched_advance_handshake(&d->ks, ecdhe, sizeof(ecdhe), tr, 1);
+    quic_keysched_advance_handshake(
+        &d->ks, quic_span_of(ecdhe, sizeof(ecdhe)), quic_span_of(tr, 1));
     install_level(d, QUIC_LEVEL_HANDSHAKE, QUIC_KS_CLIENT_HS);
   } else if (msg_type == QUIC_HSD_FINISHED) {
     quic_keysched_advance_master(&d->ks, tr, 1);
