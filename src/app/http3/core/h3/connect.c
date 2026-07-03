@@ -10,10 +10,9 @@ static int connect_forbidden(int has_scheme, int has_path) {
   return has_scheme || has_path;
 }
 
-int quic_h3_connect_ok(
-    int has_method_connect, int has_authority, int has_scheme, int has_path) {
-  if (!connect_required(has_method_connect, has_authority)) return 0;
-  if (connect_forbidden(has_scheme, has_path)) return 0;
+int quic_h3_connect_ok(const quic_h3_connect_flags *f) {
+  if (!connect_required(f->has_method_connect, f->has_authority)) return 0;
+  if (connect_forbidden(f->has_scheme, f->has_path)) return 0;
   return 1;
 }
 
@@ -32,9 +31,10 @@ static int method_is_connect(const u8 *m, usz len) {
 }
 
 int quic_h3_connect_req_ok(const quic_h3reqdrive_req *r) {
-  return quic_h3_connect_ok(
+  quic_h3_connect_flags f = {
       method_is_connect(r->method, r->method_len), r->authority != 0,
-      r->scheme != 0, r->path != 0);
+      r->scheme != 0, r->path != 0};
+  return quic_h3_connect_ok(&f);
 }
 
 int quic_h3_connect_established(u16 status) {

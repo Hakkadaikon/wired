@@ -3,9 +3,9 @@
 #include "app/http3/core/h3/frame.h"
 #include "common/bytes/varint/varint.h"
 
-int quic_h3_stream_type_parse(const u8 *buf, usz n, u64 *type, usz *consumed) {
+int quic_h3_stream_type_parse(quic_span buf, u64 *type, usz *consumed) {
   usz off = 0;
-  if (!quic_varint_take(buf, n, &off, type)) return 0;
+  if (!quic_varint_take(buf.p, buf.n, &off, type)) return 0;
   *consumed = off;
   return 1;
 }

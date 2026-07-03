@@ -1,6 +1,7 @@
 #ifndef QUIC_H3_FRAME_H
 #define QUIC_H3_FRAME_H
 
+#include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
 
 /* RFC 9114 7.2. HTTP/3 frame: Type (varint) Length (varint) Payload.
@@ -54,12 +55,18 @@ typedef struct {
   } pairs[QUIC_H3_SETTINGS_MAX];
 } quic_h3_settings;
 
+/* RFC 9114 7.2 decoded frame head + payload view (payload borrowed in
+ * place, no copy). */
+typedef struct {
+  u64       type;
+  const u8 *payload;
+  u64       payload_len;
+} quic_h3_frame;
+
 /* Generic frame (Type Length Payload). Encode returns bytes written or 0;
  * decode returns bytes consumed or 0 and views payload in place (no copy). */
-usz quic_h3_frame_put(
-    u8 *buf, usz cap, u64 type, const u8 *payload, usz payload_len);
-usz quic_h3_frame_get(
-    const u8 *buf, usz n, u64 *type, const u8 **payload, u64 *payload_len);
+usz quic_h3_frame_put(quic_obuf *out, u64 type, quic_span payload);
+usz quic_h3_frame_get(quic_span buf, quic_h3_frame *f);
 
 /* Single-varint-payload frames: CANCEL_PUSH / MAX_PUSH_ID carry a Push ID,
  * GOAWAY carries a Stream ID or Push ID. */

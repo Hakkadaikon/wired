@@ -2,20 +2,26 @@
 
 /* method=CONNECT with :authority and no :scheme/:path is valid. */
 static void test_connect_ok(void) {
-  CHECK(quic_h3_connect_ok(1, 1, 0, 0) == 1);
+  quic_h3_connect_flags f = {1, 1, 0, 0};
+  CHECK(quic_h3_connect_ok(&f) == 1);
 }
 
 /* Missing :method CONNECT or :authority is invalid. */
 static void test_connect_required(void) {
-  CHECK(quic_h3_connect_ok(0, 1, 0, 0) == 0); /* not CONNECT */
-  CHECK(quic_h3_connect_ok(1, 0, 0, 0) == 0); /* no :authority */
+  quic_h3_connect_flags f1 = {0, 1, 0, 0};
+  quic_h3_connect_flags f2 = {1, 0, 0, 0};
+  CHECK(quic_h3_connect_ok(&f1) == 0); /* not CONNECT */
+  CHECK(quic_h3_connect_ok(&f2) == 0); /* no :authority */
 }
 
 /* Presence of :scheme or :path is forbidden. */
 static void test_connect_forbidden(void) {
-  CHECK(quic_h3_connect_ok(1, 1, 1, 0) == 0); /* has :scheme */
-  CHECK(quic_h3_connect_ok(1, 1, 0, 1) == 0); /* has :path */
-  CHECK(quic_h3_connect_ok(1, 1, 1, 1) == 0); /* both */
+  quic_h3_connect_flags f1 = {1, 1, 1, 0};
+  quic_h3_connect_flags f2 = {1, 1, 0, 1};
+  quic_h3_connect_flags f3 = {1, 1, 1, 1};
+  CHECK(quic_h3_connect_ok(&f1) == 0); /* has :scheme */
+  CHECK(quic_h3_connect_ok(&f2) == 0); /* has :path */
+  CHECK(quic_h3_connect_ok(&f3) == 0); /* both */
 }
 
 /* RFC 9114 4.4 / RFC 9204 4.5: enc_connect emits exactly two field lines after
@@ -25,10 +31,11 @@ static void test_connect_forbidden(void) {
 static void test_connect_encode_two_fields(void) {
   static const u8 authority[] = {'h', 'o', 's', 't', ':', '4', '4', '3'};
   u8              out[64];
-  usz             n = 0;
+  quic_obuf        ob = {out, sizeof out, 0};
   CHECK(
-      quic_h3req_enc_connect(
-          authority, sizeof authority, out, sizeof out, &n) == 1);
+      quic_h3req_enc_connect(quic_span_of(authority, sizeof authority), &ob) ==
+      1);
+  usz n = ob.len;
 
   quic_qpack_prefix pfx = {1, 1, 1};
   usz               off = quic_qpack_prefix_decode(out, n, &pfx);
