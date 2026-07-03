@@ -1,5 +1,5 @@
-#ifndef QUIC_H3SRV_STATE_H
-#define QUIC_H3SRV_STATE_H
+#ifndef WIRED_H3SRV_STATE_H
+#define WIRED_H3SRV_STATE_H
 
 #include "common/platform/sys/syscall.h"
 
@@ -14,6 +14,6 @@ typedef struct {
   u8 peer_control;  /**< 1 once a peer control stream has been seen */
   u8 peer_settings; /**< peer SETTINGS-first recorded */
   u8 request_seen;  /**< a request HEADERS has been decoded */
-} quic_h3srv_state;
+} wired_h3srv_state;
 
 #endif

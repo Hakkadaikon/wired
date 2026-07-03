@@ -66,7 +66,7 @@ sequenceDiagram
     S-->>C: HANDSHAKE_DONE (1-RTT, SERVER_AP)
     Note over S,C: 1-RTT confirmed
     C->>S: HEADERS (GET /, 1-RTT, CLIENT_AP)
-    Note over S: wired_srvloop_step() — SETTINGS first,<br/>quic_h3srv_on_request() decode, build :status 200
+    Note over S: wired_srvloop_step() — SETTINGS first,<br/>wired_h3srv_on_request() decode, build :status 200
     S-->>C: HEADERS (:status 200, 1-RTT, SERVER_AP)
 ```
 

@@ -33,7 +33,7 @@ typedef struct {
  * wired_srvloop_dispatch stays <=3 args. */
 typedef struct {
   wired_server         *s;
-  quic_h3srv_state     *h3;
+  wired_h3srv_state    *h3;
   wired_srvloop_reqacc *acc;
 } wired_srvloop_dispatch_ctx;
 

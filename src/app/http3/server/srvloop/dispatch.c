@@ -33,11 +33,11 @@ static int is_request_frame(u64 type, const u8 *frame, usz rem) {
 /* RFC 9114 4.1: hand the (reassembled) request STREAM frame to the HTTP/3
  * request decoder. */
 static int dispatch_stream(
-    quic_h3srv_state                *h3,
+    wired_h3srv_state               *h3,
     quic_span                        frame,
     const wired_srvloop_dispatch_in *in) {
-  quic_h3srv_req_in rin = {frame, in->scratch};
-  if (!quic_h3srv_on_request(h3, &rin, in->req)) return 0;
+  wired_h3srv_req_in rin = {frame, in->scratch};
+  if (!wired_h3srv_on_request(h3, &rin, in->req)) return 0;
   *in->got_request = 1;
   return 1;
 }
@@ -96,7 +96,7 @@ static int request_complete(const wired_srvloop_reqacc *acc) {
 /* RFC 9114 4.1: re-wrap the reassembled stream bytes as a single STREAM frame
  * (offset 0) and drive the HTTP/3 request decoder once. */
 static void drive_complete(
-    quic_h3srv_state                *h3,
+    wired_h3srv_state               *h3,
     wired_srvloop_reqacc            *acc,
     const wired_srvloop_dispatch_in *in) {
   u8                wrap[2080];
@@ -111,7 +111,7 @@ static void drive_complete(
  * once FIN closes the stream, decode the reassembled request exactly once.
  * Returns 1 if a request-stream frame was present (handled), 0 otherwise. */
 static int reassemble_and_drive(
-    quic_h3srv_state                *h3,
+    wired_h3srv_state               *h3,
     wired_srvloop_reqacc            *acc,
     const wired_srvloop_dispatch_in *in) {
   if (!gather_request(in->payload.p, in->payload.n, acc)) return 0;
