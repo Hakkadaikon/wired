@@ -19,13 +19,19 @@ void quic_connrunner_keyupdate_init(quic_connrunner *r);
  * the handshake is confirmed a phase change does not select the next gen. */
 int quic_connrunner_recv_keygen(quic_connrunner *r, u8 byte0);
 
+/* Everything quic_connrunner_maybe_initiate_ku needs besides the runner. */
+typedef struct {
+  u64 now;
+  u64 threshold;
+  u64 pto;
+} quic_connrunner_ku_in;
+
 /* RFC 9001 6.1/6.4 send path: if both initiate gates pass (threshold reached
  * and at least 3*PTO since the last update, the handshake confirmed and no
  * self update unacknowledged), derive the next generation, rotate keys, install
  * them as the 1-RTT keyset, then toggle the advertised phase bit -- derive and
  * rotate strictly before the toggle. Returns 1 if an update was initiated. */
-int quic_connrunner_maybe_initiate_ku(
-    quic_connrunner *r, u64 now, u64 threshold, u64 pto);
+int quic_connrunner_maybe_initiate_ku(quic_connrunner *r, const quic_connrunner_ku_in *in);
 
 /* RFC 9001 6.5 timer path: discard the retained old read key once 3*PTO have
  * elapsed since the update completed. Returns 1 if the old key was discarded.

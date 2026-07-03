@@ -1,6 +1,7 @@
 #ifndef QUIC_CONNRUNNER_CONNRUNNER_H
 #define QUIC_CONNRUNNER_CONNRUNNER_H
 
+#include "common/bytes/span/span.h"
 #include "tls/keys/kuswitch/twogen.h"
 #include "transport/conn/cid/retrydrive/reconnect.h"
 #include "transport/conn/loop/connio/connio.h"
@@ -42,26 +43,28 @@ typedef struct {
   u8  txbuf[QUIC_CONNRUNNER_BUF];
 } quic_connrunner;
 
+/* Everything quic_connrunner_init needs besides the runner and the DCID. */
+typedef struct {
+  i64                     fd;
+  const quic_sockaddr_in *peer;
+  int                     level;
+  u64                     cwnd;
+  usz                     send_len;
+  int                     is_server;
+  u8                      byte0;
+  u64                     initial_max_data;
+} quic_connrunner_init_in;
+
 /* Bind the runner to fd and peer; init the loop at `level` (cwnd open,
  * send_len-byte packets) and the connio with the given header parameters. */
 void quic_connrunner_init(
-    quic_connrunner        *r,
-    i64                     fd,
-    const quic_sockaddr_in *peer,
-    int                     level,
-    u64                     cwnd,
-    usz                     send_len,
-    int                     is_server,
-    u8                      byte0,
-    const u8               *dcid,
-    u8                      dcid_len,
-    u64                     initial_max_data);
+    quic_connrunner *r, quic_span dcid, const quic_connrunner_init_in *in);
 
 /* The socket-free core of one iteration (RFC 9000 12): with a datagram already
- * in `dgram`/`len` (len 0 = none), drain it, step the loop, and seal the send
- * the loop decided -- recv before step before send. Returns the sealed datagram
+ * in `dgram` (empty = none), drain it, step the loop, and seal the send the
+ * loop decided -- recv before step before send. Returns the sealed datagram
  * length in r->txbuf to transmit, or 0. */
-usz quic_connrunner_advance(quic_connrunner *r, u64 now, u8 *dgram, usz len);
+usz quic_connrunner_advance(quic_connrunner *r, u64 now, quic_mspan dgram);
 
 /* Run one iteration: wait readable, drain a datagram, step the loop, flush any
  * sends -- in that order (RFC 9000 12). `now` is the monotonic time. */

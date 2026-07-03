@@ -25,13 +25,19 @@ void quic_connrunner_capture_rtx(quic_connrunner *r);
  * Returns the sealed datagram length, or 0 if nothing was sent. */
 usz quic_connrunner_flush_sends(quic_connrunner *r, u64 sent_before, int kind);
 
+/* Everything quic_connrunner_track_sent needs besides the runner. */
+typedef struct {
+  u64 now;
+  int kind;
+  usz sent_len;
+} quic_connrunner_sent_in;
+
 /* RFC 9002 A.1 OnPacketSent: record the just-sealed packet's metadata into the
  * sentmeta ring. `sent_len` is the sealed datagram length (0 = nothing sent);
  * `kind` (1 ACK / 2 rtx / 3 new data) decides ack-eliciting and in-flight: an
  * ACK-only packet is neither, a retransmission or new data is both. The packet
  * number is the send level space's next-1 (connio advanced it on the send). */
-void quic_connrunner_track_sent(
-    quic_connrunner *r, u64 now, int kind, usz sent_len);
+void quic_connrunner_track_sent(quic_connrunner *r, const quic_connrunner_sent_in *in);
 
 /* RFC 9002 6.1: run real loss detection over the sentmeta ring at `now` and,
  * if the loop captured no lost pn for this send, feed the oldest sentmeta-lost
