@@ -59,7 +59,7 @@ typedef struct {
  * place) and byte0's low bits give its length. Recover the full PN against the
  * largest seen so far and record it as the number to ACK / the new baseline. */
 static void note_app_rx(
-    quic_srvloop *l, quic_server *s, const srvloop_opened *o) {
+    quic_srvloop *l, wired_server *s, const srvloop_opened *o) {
   const u8 *pn;
   usz       pn_len;
   if (o->level != QUIC_LEVEL_ONERTT) return;
@@ -107,7 +107,7 @@ static quic_srvloop_reqacc step_reqacc(quic_srvloop *l) {
 static void step_one(
     const quic_srvloop_conn *conn, quic_mspan pkt, int *got_request) {
   quic_srvloop            *l = conn->l;
-  quic_server             *s = conn->s;
+  wired_server            *s = conn->s;
   quic_srvloop_recv_out    ro;
   quic_srvloop_reqacc      acc    = step_reqacc(l);
   quic_srvloop_recv_in     ri     = {pkt, app_largest_pn(l)};

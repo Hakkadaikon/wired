@@ -48,7 +48,7 @@ static quic_srvloop_reqacc lp_reqacc(quic_srvloop *l) {
 }
 
 struct lp_fix {
-  quic_server  s;
+  wired_server s;
   quic_srvloop l;
   u8           ch[512];
   usz          ch_len;
@@ -88,21 +88,21 @@ static void lp_drive_to_flight(struct lp_fix *f) {
   }
   quic_x25519_base(srv_pub, srv_priv);
 
-  quic_server_init_in  sin   = {srv_priv, srv_pub, cert_seed, 0, 0};
+  wired_server_init_in sin   = {srv_priv, srv_pub, cert_seed, 0, 0};
   quic_obuf            sh_ob = quic_obuf_of(f->sh, sizeof(f->sh));
   quic_obuf            fl_ob = quic_obuf_of(f->flight, sizeof(f->flight));
   quic_sdrv_flight_out fo    = {&sh_ob, &fl_ob};
-  quic_server_init(&f->s, &sin);
+  wired_server_init(&f->s, &sin);
   CHECK(
-      quic_server_set_cids(
+      wired_server_set_cids(
           &f->s, quic_span_of(g_cli_scid, 6), quic_span_of(g_cli_scid, 6)) ==
       1);
   CHECK(quic_srvloop_init(&f->l, g_cli_scid, 6) == 1);
-  CHECK(quic_server_recv_initial(&f->s, f->ch, f->ch_len) == 1);
-  CHECK(quic_server_build_flight(&f->s, f->srv_random, &fo) == 1);
+  CHECK(wired_server_recv_initial(&f->s, f->ch, f->ch_len) == 1);
+  CHECK(wired_server_build_flight(&f->s, f->srv_random, &fo) == 1);
   f->sh_len     = sh_ob.len;
   f->flight_len = fl_ob.len;
-  CHECK(f->s.phase == QUIC_SERVER_HS_FLIGHT_SENT);
+  CHECK(f->s.phase == WIRED_SERVER_HS_FLIGHT_SENT);
 }
 
 /* Compute the genuine client Finished message (RFC 8446 4.4.4). */
@@ -258,7 +258,7 @@ static void test_srvloop_no_onertt_seal_before_confirm(void) {
   quic_obuf     ob = {pkt, sizeof pkt, 0};
   lp_make_client_hello(&f);
   lp_drive_to_flight(&f);
-  CHECK(quic_server_is_confirmed(&f.s) == 0);
+  CHECK(wired_server_is_confirmed(&f.s) == 0);
   {
     quic_srvloop_send_in in = {
         quic_span_of(g_cli_scid, 6), 0, -1, quic_span_of(frame, 1)};
@@ -282,7 +282,7 @@ static void test_srvloop_forged_finished_no_promote(void) {
       quic_srvloop_step(
           &(quic_srvloop_conn){&f.l, &f.s}, quic_mspan_of(cpkt, clen), &ob) ==
       0);
-  CHECK(quic_server_is_confirmed(&f.s) == 0);
+  CHECK(wired_server_is_confirmed(&f.s) == 0);
   {
     const quic_initial_keys *k;
     CHECK(quic_keyset_for_level(&f.s.keys, QUIC_LEVEL_ONERTT, &k) == 0);
@@ -337,7 +337,7 @@ static void test_srvloop_full_roundtrip(void) {
       quic_srvloop_step(
           &(quic_srvloop_conn){&f.l, &f.s}, quic_mspan_of(cpkt, clen), &ob) ==
       1);
-  CHECK(quic_server_is_confirmed(&f.s) == 1);
+  CHECK(wired_server_is_confirmed(&f.s) == 1);
   /* The reply coalesces a Handshake ACK (long header) and a 1-RTT packet. */
   quic_pktlist plist = {pkts, offs, lens, 4};
   np                 = quic_udploop_split(quic_span_of(out, ob.len), &plist);
@@ -466,7 +466,7 @@ static void lp_confirm(struct lp_fix *f, quic_obuf *ob) {
       quic_srvloop_step(
           &(quic_srvloop_conn){&f->l, &f->s}, quic_mspan_of(cpkt, clen), ob) ==
       1);
-  CHECK(quic_server_is_confirmed(&f->s) == 1);
+  CHECK(wired_server_is_confirmed(&f->s) == 1);
 }
 
 /* (C) ACK A 1-RTT GET: a decoded GET yields a 200 whose 1-RTT packet also
@@ -598,7 +598,7 @@ static void lp_confirm_via_dispatch(struct lp_fix *f) {
         quic_srvloop_dispatch(
             &(quic_srvloop_dispatch_ctx){&f->s, &f->l.h3, &acc}, &in) == 1);
   }
-  CHECK(quic_server_is_confirmed(&f->s) == 1);
+  CHECK(wired_server_is_confirmed(&f->s) == 1);
 }
 
 /* COALESCED CONFIRM + 200 (RFC 9000 12.2, RFC 9114 6.2.1): when one datagram
@@ -709,7 +709,7 @@ static void test_srvloop_dispatch_padding_before_crypto(void) {
         quic_srvloop_dispatch(
             &(quic_srvloop_dispatch_ctx){&f.s, &f.l.h3, &acc}, &in) == 1);
   }
-  CHECK(quic_server_is_confirmed(&f.s) == 1);
+  CHECK(wired_server_is_confirmed(&f.s) == 1);
 }
 
 /* NON-STREAM-FIRST 1-RTT: a 1-RTT packet that leads with PADDING before the
@@ -770,7 +770,7 @@ static void test_srvloop_coalesced_finished_behind_leading(void) {
   CHECK(
       quic_srvloop_step(
           &(quic_srvloop_conn){&f.l, &f.s}, quic_mspan_of(dg, off), &ob) == 1);
-  CHECK(quic_server_is_confirmed(&f.s) == 1);
+  CHECK(wired_server_is_confirmed(&f.s) == 1);
 }
 
 /* Build a STREAM frame on `stream_id` whose data is one type byte `lead`

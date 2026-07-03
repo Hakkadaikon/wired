@@ -20,18 +20,18 @@
 
 /* Test fixture: the bytes a client needs to forge a genuine Finished. */
 struct srv_fix {
-  quic_server s;
-  u8          ch[512];
-  usz         ch_len;
-  u8          sh[256];
-  usz         sh_len;
-  u8          flight[2048];
-  usz         flight_len;
-  u8          srv_random[32];
-  u8          cli_priv[32];
-  u8          sh_pub[32];  /* server x25519 public from ServerHello */
-  u8          cli_fin[64]; /* genuine client Finished message */
-  usz         cli_fin_len;
+  wired_server s;
+  u8           ch[512];
+  usz          ch_len;
+  u8           sh[256];
+  usz          sh_len;
+  u8           flight[2048];
+  usz          flight_len;
+  u8           srv_random[32];
+  u8           cli_priv[32];
+  u8           sh_pub[32];  /* server x25519 public from ServerHello */
+  u8           cli_fin[64]; /* genuine client Finished message */
+  usz          cli_fin_len;
 };
 
 /* Build a ClientHello with a real x25519 key_share into f. */
@@ -59,17 +59,17 @@ static void drive_to_flight(struct srv_fix *f) {
   }
   quic_x25519_base(srv_pub, srv_priv);
 
-  quic_server_init_in  sin   = {srv_priv, srv_pub, cert_seed, 0, 0};
+  wired_server_init_in sin   = {srv_priv, srv_pub, cert_seed, 0, 0};
   quic_obuf            sh_ob = quic_obuf_of(f->sh, sizeof(f->sh));
   quic_obuf            fl_ob = quic_obuf_of(f->flight, sizeof(f->flight));
   quic_sdrv_flight_out fo    = {&sh_ob, &fl_ob};
-  quic_server_init(&f->s, &sin);
-  CHECK(quic_server_recv_initial(&f->s, f->ch, f->ch_len) == 1);
-  CHECK(f->s.phase == QUIC_SERVER_HS_CH_RECVD);
-  CHECK(quic_server_build_flight(&f->s, f->srv_random, &fo) == 1);
+  wired_server_init(&f->s, &sin);
+  CHECK(wired_server_recv_initial(&f->s, f->ch, f->ch_len) == 1);
+  CHECK(f->s.phase == WIRED_SERVER_HS_CH_RECVD);
+  CHECK(wired_server_build_flight(&f->s, f->srv_random, &fo) == 1);
   f->sh_len     = sh_ob.len;
   f->flight_len = fl_ob.len;
-  CHECK(f->s.phase == QUIC_SERVER_HS_FLIGHT_SENT);
+  CHECK(f->s.phase == WIRED_SERVER_HS_FLIGHT_SENT);
 }
 
 /* RFC 8446 4.4.4: compute the genuine client Finished the way the client does:
@@ -102,7 +102,7 @@ static void make_client_finished(struct srv_fix *f) {
   quic_hs_finish(f->cli_fin, f->cli_fin_len);
 }
 
-/* Wrap a TLS message as a CRYPTO-frame payload for quic_server_feed. */
+/* Wrap a TLS message as a CRYPTO-frame payload for wired_server_feed. */
 static usz srv_wrap_crypto(const u8 *msg, usz len, u8 *out, usz cap) {
   usz                        n;
   quic_obuf                  ob  = quic_obuf_of(out, cap);
@@ -122,7 +122,7 @@ static void test_server_happy(void) {
   drive_to_flight(&f);
 
   /* 1-RTT not armed, not confirmed at flight time. */
-  CHECK(quic_server_is_confirmed(&f.s) == 0);
+  CHECK(wired_server_is_confirmed(&f.s) == 0);
   {
     const quic_initial_keys *k;
     CHECK(quic_keyset_for_level(&f.s.keys, QUIC_LEVEL_ONERTT, &k) == 0);
@@ -132,9 +132,9 @@ static void test_server_happy(void) {
   make_client_finished(&f);
   plen = srv_wrap_crypto(f.cli_fin, f.cli_fin_len, payload, sizeof(payload));
   CHECK(plen != 0);
-  CHECK(quic_server_feed(&f.s, payload, plen) == 1);
-  CHECK(quic_server_is_confirmed(&f.s) == 1);
-  CHECK(f.s.phase == QUIC_SERVER_HS_CONFIRMED);
+  CHECK(wired_server_feed(&f.s, payload, plen) == 1);
+  CHECK(wired_server_is_confirmed(&f.s) == 1);
+  CHECK(f.s.phase == WIRED_SERVER_HS_CONFIRMED);
   {
     const quic_initial_keys *k;
     CHECK(quic_keyset_for_level(&f.s.keys, QUIC_LEVEL_ONERTT, &k) == 1);
@@ -142,9 +142,9 @@ static void test_server_happy(void) {
 
   /* HANDSHAKE_DONE exactly once. */
   hd_ob = quic_obuf_of(hsdone, sizeof(hsdone));
-  CHECK(quic_server_handshake_done(&f.s, &hd_ob) == 1);
+  CHECK(wired_server_handshake_done(&f.s, &hd_ob) == 1);
   CHECK(hd_ob.len == 1 && hsdone[0] == 0x1e);
-  CHECK(quic_server_handshake_done(&f.s, &hd_ob) == 0);
+  CHECK(wired_server_handshake_done(&f.s, &hd_ob) == 0);
 }
 
 /* CENTRAL SAFETY: a forged client Finished promotes nothing. */
@@ -159,15 +159,15 @@ static void test_server_forged_finished(void) {
   f.cli_fin[4] ^= 0x01; /* tamper verify_data */
 
   plen = srv_wrap_crypto(f.cli_fin, f.cli_fin_len, payload, sizeof(payload));
-  CHECK(quic_server_feed(&f.s, payload, plen) == 0);
-  CHECK(quic_server_is_confirmed(&f.s) == 0);
-  CHECK(f.s.phase == QUIC_SERVER_HS_FLIGHT_SENT);
+  CHECK(wired_server_feed(&f.s, payload, plen) == 0);
+  CHECK(wired_server_is_confirmed(&f.s) == 0);
+  CHECK(f.s.phase == WIRED_SERVER_HS_FLIGHT_SENT);
   {
     const quic_initial_keys *k;
     CHECK(quic_keyset_for_level(&f.s.keys, QUIC_LEVEL_ONERTT, &k) == 0);
   }
   hd_ob = quic_obuf_of(hsdone, sizeof(hsdone));
-  CHECK(quic_server_handshake_done(&f.s, &hd_ob) == 0);
+  CHECK(wired_server_handshake_done(&f.s, &hd_ob) == 0);
 }
 
 /* Forbidden order: flight before the ClientHello is refused, no Handshake key.
@@ -179,15 +179,15 @@ static void test_server_flight_before_ch(void) {
   quic_obuf            sh_ob = quic_obuf_of(sh, sizeof(sh));
   quic_obuf            fl_ob = quic_obuf_of(flight, sizeof(flight));
   quic_sdrv_flight_out fo    = {&sh_ob, &fl_ob};
-  quic_server_init_in  sin;
+  wired_server_init_in sin;
   for (usz i = 0; i < 32; i++) {
     srv_priv[i] = (u8)(0x40 + i);
     rnd[i]      = (u8)i;
   }
   quic_x25519_base(srv_pub, srv_priv);
-  sin = (quic_server_init_in){srv_priv, srv_pub, cert_seed, 0, 0};
-  quic_server_init(&f.s, &sin);
-  CHECK(quic_server_build_flight(&f.s, rnd, &fo) == 0);
+  sin = (wired_server_init_in){srv_priv, srv_pub, cert_seed, 0, 0};
+  wired_server_init(&f.s, &sin);
+  CHECK(wired_server_build_flight(&f.s, rnd, &fo) == 0);
   {
     const quic_initial_keys *k;
     CHECK(quic_keyset_for_level(&f.s.keys, QUIC_LEVEL_HANDSHAKE, &k) == 0);
@@ -201,13 +201,13 @@ static void test_server_fin_before_flight(void) {
   usz            plen;
   make_client_hello(&f);
   {
-    u8                  srv_priv[32], srv_pub[32], cert_seed[32];
-    quic_server_init_in sin;
+    u8                   srv_priv[32], srv_pub[32], cert_seed[32];
+    wired_server_init_in sin;
     for (usz i = 0; i < 32; i++) srv_priv[i] = (u8)(0x40 + i);
     quic_x25519_base(srv_pub, srv_priv);
-    sin = (quic_server_init_in){srv_priv, srv_pub, cert_seed, 0, 0};
-    quic_server_init(&f.s, &sin);
-    CHECK(quic_server_recv_initial(&f.s, f.ch, f.ch_len) == 1);
+    sin = (wired_server_init_in){srv_priv, srv_pub, cert_seed, 0, 0};
+    wired_server_init(&f.s, &sin);
+    CHECK(wired_server_recv_initial(&f.s, f.ch, f.ch_len) == 1);
   }
   /* still CH_RECVD: any Finished-like payload must not promote */
   {
@@ -217,9 +217,9 @@ static void test_server_fin_before_flight(void) {
     quic_hs_finish(fin, off + 32);
     plen = srv_wrap_crypto(fin, off + 32, payload, sizeof(payload));
   }
-  CHECK(quic_server_feed(&f.s, payload, plen) == 0);
-  CHECK(quic_server_is_confirmed(&f.s) == 0);
-  CHECK(f.s.phase == QUIC_SERVER_HS_CH_RECVD);
+  CHECK(wired_server_feed(&f.s, payload, plen) == 0);
+  CHECK(wired_server_is_confirmed(&f.s) == 0);
+  CHECK(f.s.phase == WIRED_SERVER_HS_CH_RECVD);
 }
 
 /* Concatenate the raw transcript through the server Finished into buf. */
@@ -274,8 +274,8 @@ static void test_server_ap_keys_match_client(void) {
   drive_to_flight(&f);
   make_client_finished(&f);
   plen = srv_wrap_crypto(f.cli_fin, f.cli_fin_len, payload, sizeof(payload));
-  CHECK(quic_server_feed(&f.s, payload, plen) == 1);
-  CHECK(quic_server_is_confirmed(&f.s) == 1);
+  CHECK(wired_server_feed(&f.s, payload, plen) == 1);
+  CHECK(wired_server_is_confirmed(&f.s) == 1);
   check_dir_matches(&f, QUIC_KS_SERVER_AP, 1);
   check_dir_matches(&f, QUIC_KS_CLIENT_AP, 0);
 }

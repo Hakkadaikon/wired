@@ -32,13 +32,13 @@ typedef struct {
  * accumulator dispatch reads/writes together. Folded into one parameter so
  * quic_srvloop_dispatch stays <=3 args. */
 typedef struct {
-  quic_server         *s;
+  wired_server        *s;
   quic_h3srv_state    *h3;
   quic_srvloop_reqacc *acc;
 } quic_srvloop_dispatch_ctx;
 
 /* RFC 9000 12.4: route an opened payload's frames. CRYPTO frames (handshake)
- * drive the server orchestrator (quic_server_feed); a request STREAM frame
+ * drive the server orchestrator (wired_server_feed); a request STREAM frame
  * (1-RTT app data) is accumulated into ctx->acc at its offset and, once FIN
  * closes the stream, decoded as an HTTP/3 request. The two paths are kept
  * separate: a Handshake payload never reaches HTTP/3, a 1-RTT request never

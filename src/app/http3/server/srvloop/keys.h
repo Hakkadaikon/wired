@@ -23,9 +23,9 @@ typedef struct {
 } quic_srvloop_dirkeys;
 
 int quic_srvloop_seal_keys(
-    const quic_server *s, int level, quic_srvloop_dirkeys *out);
+    const wired_server *s, int level, quic_srvloop_dirkeys *out);
 
 int quic_srvloop_open_keys(
-    const quic_server *s, int level, quic_srvloop_dirkeys *out);
+    const wired_server *s, int level, quic_srvloop_dirkeys *out);
 
 #endif

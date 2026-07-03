@@ -40,7 +40,7 @@ int wired_srvboot_is_initial(const u8 *dg, usz len);
  * wired_srvboot_accept and driven together thereafter (quic_srvloop_step
  * takes the same pair). */
 typedef struct {
-  quic_server  *s; /**< server-side handshake orchestrator */
+  wired_server *s; /**< server-side handshake orchestrator */
   quic_srvloop *l; /**< HTTP/3 wire loop driven after the bootstrap */
 } wired_srvboot_conn;
 

@@ -21,7 +21,7 @@ just build
 # Run the sample
 cd examples/word_list
 just build
-./quic_server
+./wired_server
 
 # POST
 docker run --rm ymuski/curl-http3 curl --http3-only --insecure -v --trace-ascii - https://[ipv4 addr]:4433/ -d 'hello' 2>&1

@@ -65,7 +65,7 @@ static int confirm_payload(const quic_srvloop_conn *c, quic_obuf *out) {
   if (!build_settings_frame(c->l, &ob)) return 0;
   a  = ob.len;
   ob = quic_obuf_of(out->p + a, out->cap - a);
-  if (!quic_server_handshake_done(c->s, &ob)) return 0;
+  if (!wired_server_handshake_done(c->s, &ob)) return 0;
   out->len = a + ob.len;
   return 1;
 }
