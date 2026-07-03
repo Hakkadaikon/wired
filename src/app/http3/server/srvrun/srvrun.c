@@ -23,72 +23,65 @@ typedef struct {
   int          up;
 } srvrun_state;
 
+/* Everything one datagram-serving step needs besides the datagram itself: the
+ * fixed run config, the peer address to reply to, and the mutable server
+ * state. Folded into one parameter so srvrun_send/on_initial/on_step/serve
+ * stay <=3 args. */
+typedef struct {
+  const srvrun_cfg       *cfg;
+  const quic_sockaddr_in *peer;
+  srvrun_state            *st;
+} srvrun_step_ctx;
+
 /* Send a sealed buffer with a trace line (skip an empty one). */
 static void srvrun_send(
-    const srvrun_cfg       *cfg,
-    const quic_sockaddr_in *peer,
-    const u8               *pkt,
-    usz                     n,
-    const char             *what) {
+    const srvrun_step_ctx *ctx, quic_span pkt, const char *what) {
   (void)what; /* WIRED_LOG compiles out without -DQUIC_DEBUG */
-  if (n) {
-    quic_udp_send(cfg->fd, peer, quic_span_of(pkt, n));
+  if (pkt.n) {
+    quic_udp_send(ctx->cfg->fd, ctx->peer, pkt);
     WIRED_LOG(what);
   }
 }
 
 /* First datagram: cold-start the connection, register the handler, send the
  * sealed flight. Returns 1 once the server is up. */
-static int srvrun_on_initial(
-    const srvrun_cfg       *cfg,
-    const quic_sockaddr_in *peer,
-    srvrun_state           *st,
-    u8                     *dg,
-    usz                     len) {
-  u8  out[1500];
-  usz n = 0;
-  if (!wired_srvboot_accept(
-          &st->s, &st->l, cfg->id, dg, len, out, sizeof out, &n))
+static int srvrun_on_initial(const srvrun_step_ctx *ctx, quic_mspan dg) {
+  u8                 out[1500];
+  quic_obuf          ob   = quic_obuf_of(out, sizeof out);
+  wired_srvboot_conn conn = {&ctx->st->s, &ctx->st->l};
+  wired_srvboot_in   in   = {ctx->cfg->id, dg};
+  if (!wired_srvboot_accept(&conn, &in, &ob))
     return WIRED_LOG("srvboot accept failed\n"), 0;
-  quic_srvloop_set_handler(&st->l, cfg->handler, cfg->ctx);
-  srvrun_send(cfg, peer, out, n, "server flight sent\n");
+  quic_srvloop_set_handler(&ctx->st->l, ctx->cfg->handler, ctx->cfg->ctx);
+  srvrun_send(ctx, quic_span_of(out, ob.len), "server flight sent\n");
   return 1;
 }
 
 /* A later datagram: one real-wire step, send any sealed reply. */
-static void srvrun_on_step(
-    const srvrun_cfg       *cfg,
-    const quic_sockaddr_in *peer,
-    srvrun_state           *st,
-    u8                     *dg,
-    usz                     len) {
-  u8  out[1500];
-  usz n = 0;
-  if (quic_srvloop_step(&st->l, &st->s, dg, len, out, sizeof out, &n))
-    srvrun_send(cfg, peer, out, n, "1-RTT reply sealed and sent\n");
+static void srvrun_on_step(const srvrun_step_ctx *ctx, quic_mspan dg) {
+  u8                 out[1500];
+  quic_obuf          ob   = quic_obuf_of(out, sizeof out);
+  quic_srvloop_conn  conn = {&ctx->st->l, &ctx->st->s};
+  if (quic_srvloop_step(&conn, dg, &ob))
+    srvrun_send(ctx, quic_span_of(out, ob.len), "1-RTT reply sealed and sent\n");
 }
 
 /* RFC 9000 7: a long-header Initial only starts a NEW connection once the live
  * one is confirmed (its DCID legitimately changes after ServerHello, so gate
  * on confirmation, not the DCID). */
-static int srvrun_is_new(srvrun_state *st, u8 *dg, usz len) {
-  if (!wired_srvboot_is_initial(dg, len)) return 0;
+static int srvrun_is_new(srvrun_state *st, quic_mspan dg) {
+  if (!wired_srvboot_is_initial(dg.p, dg.n)) return 0;
   if (!st->up) return 1;
   return quic_server_is_confirmed(&st->s);
 }
 
 /* Drive one received datagram: a new Initial (re)opens the connection, any
  * other datagram steps the live loop. */
-static void srvrun_serve(
-    const srvrun_cfg       *cfg,
-    const quic_sockaddr_in *peer,
-    srvrun_state           *st,
-    u8                     *dg,
-    usz                     len) {
-  if (srvrun_is_new(st, dg, len))
-    st->up = srvrun_on_initial(cfg, peer, st, dg, len);
-  else if (st->up)
-    srvrun_on_step(cfg, peer, st, dg, len);
+static void srvrun_serve(const srvrun_step_ctx *ctx, quic_mspan dg) {
+  if (srvrun_is_new(ctx->st, dg))
+    ctx->st->up = srvrun_on_initial(ctx, dg);
+  else if (ctx->st->up)
+    srvrun_on_step(ctx, dg);
 }
 
 /* Bind a UDP socket on port. Returns the fd, or <0 on failure. */
@@ -108,13 +101,16 @@ static void srvrun_loop(const srvrun_cfg *cfg) {
   u8               buf[2048];
   for (;;) {
     i64 r = quic_udp_recvfrom(cfg->fd, quic_mspan_of(buf, sizeof buf), &peer);
-    if (r > 0) srvrun_serve(cfg, &peer, &st, buf, (usz)r);
+    if (r > 0) {
+      srvrun_step_ctx ctx = {cfg, &peer, &st};
+      srvrun_serve(&ctx, quic_mspan_of(buf, (usz)r));
+    }
   }
 }
 
 int wired_server_run(
-    u16 port, const wired_srvboot_id *id, quic_srvloop_handler h, void *ctx) {
-  srvrun_cfg cfg = {srvrun_listen(port), id, h, ctx};
+    u16 port, const wired_srvboot_id *id, wired_srvrun_handler h) {
+  srvrun_cfg cfg = {srvrun_listen(port), id, h.cb, h.ctx};
   if (cfg.fd < 0) return 0;
   WIRED_LOG("listening\n");
   srvrun_loop(&cfg);
