@@ -53,15 +53,15 @@ static void test_cw_initial_roundtrip(void) {
 static void test_cw_open_server_initial(void) {
   const u8  sh[] = {0x02, 0x00, 0x00, 0x02, 0xab, 0xcd};
   u8        pkt[1300];
-  usz       total = 0;
   quic_span tls;
-  CHECK(
-      quic_srvwire_seal_initial(
-          cw_dcid, 8, cw_scid, 4, 0, -1, sh, sizeof(sh), pkt, sizeof(pkt),
-          &total) == 1);
+  quic_obuf ob = quic_obuf_of(pkt, sizeof(pkt));
+  quic_srvwire_seal_in in = {
+      quic_span_of(cw_dcid, 8), quic_span_of(cw_scid, 4), 0, -1,
+      quic_span_of(sh, sizeof(sh))};
+  CHECK(quic_srvwire_seal_initial(&in, &ob) == 1);
   {
     quic_clientwire_open_in oin = {
-        quic_span_of(cw_dcid, 8), quic_mspan_of(pkt, total), 0};
+        quic_span_of(cw_dcid, 8), quic_mspan_of(pkt, ob.len), 0};
     CHECK(quic_client_open_initial_wire(&oin, &tls) == 1);
   }
   CHECK(tls.n == sizeof(sh));
@@ -91,21 +91,26 @@ static void test_cw_handshake_roundtrip(void) {
   CHECK(quic_keysched_get(&c.tls.ks, QUIC_KS_CLIENT_HS, &chs) == 1);
   quic_aes128_init(&hp, chs->hp);
   {
-    usz tls_len;
-    const u8 *tp;
+    quic_span         sp;
+    quic_protect_keys pk = {chs, &hp};
     CHECK(
-        quic_srvwire_open_handshake(chs, &hp, pkt, total, 8, &tp, &tls_len) ==
+        quic_srvwire_open_handshake(&pk, quic_mspan_of(pkt, total), &sp) ==
         1);
-    CHECK(tls_len == sizeof(fin));
+    CHECK(sp.n == sizeof(fin));
   }
 
   /* client opens a flight sealed with SERVER_HS (peer direction). */
   CHECK(quic_keysched_get(&c.tls.ks, QUIC_KS_SERVER_HS, &shs) == 1);
   quic_aes128_init(&hp, shs->hp);
-  CHECK(
-      quic_srvwire_seal_handshake(
-          shs, &hp, cw_dcid, 8, cw_scid, 4, 0, -1, fin, sizeof(fin), pkt,
-          sizeof(pkt), &total) == 1);
+  {
+    quic_obuf ob2 = quic_obuf_of(pkt, sizeof(pkt));
+    quic_srvwire_seal_in in = {
+        quic_span_of(cw_dcid, 8), quic_span_of(cw_scid, 4), 0, -1,
+        quic_span_of(fin, sizeof(fin))};
+    quic_protect_keys pk = {shs, &hp};
+    CHECK(quic_srvwire_seal_handshake(&pk, &in, &ob2) == 1);
+    total = ob2.len;
+  }
   {
     quic_appdata_pkt oin = {quic_mspan_of(pkt, total), 8};
     CHECK(quic_client_open_handshake_wire(&c, &oin, &tls) == 1);
