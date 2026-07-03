@@ -1,7 +1,8 @@
 #ifndef WIRED_H
 #define WIRED_H
 
-/* Single-header public entry for the wired QUIC/HTTP3 SDK. Include this and
+/** @file
+ * Single-header public entry for the wired QUIC/HTTP3 SDK. Include this and
  * (optionally, in exactly one translation unit) define WIRED_MAIN before it to
  * also get the libc-named memcpy/memset a freestanding binary needs. See
  * examples/word_list for a complete server. */
