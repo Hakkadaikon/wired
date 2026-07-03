@@ -179,16 +179,16 @@ static int lb_open_onertt(
 /* A bound server socket and a client socket, both on 127.0.0.1. Returns 1 with
  * the fds, or 0 (benign skip) if the sandbox forbids sockets. */
 static int lb_open_sockets(i64 *sfd, i64 *cfd, quic_sockaddr_in *srv) {
-  *sfd = quic_udp_socket();
+  *sfd = wired_udp_socket();
   if (*sfd < 0) return 0;
-  quic_udp_addr(srv, 4435, (const u8[4]){127, 0, 0, 1});
-  if (quic_udp_bind(*sfd, srv) < 0) {
-    quic_udp_close(*sfd);
+  wired_udp_addr(srv, 4435, (const u8[4]){127, 0, 0, 1});
+  if (wired_udp_bind(*sfd, srv) < 0) {
+    wired_udp_close(*sfd);
     return 0;
   }
-  *cfd = quic_udp_socket();
+  *cfd = wired_udp_socket();
   if (*cfd < 0) {
-    quic_udp_close(*sfd);
+    wired_udp_close(*sfd);
     return 0;
   }
   return 1;
@@ -207,8 +207,8 @@ static int lb_wire_step(
   quic_sockaddr_in from;
   u8               rx[1500];
   i64              r;
-  CHECK(quic_udp_send(cfd, srv, quic_span_of(pkt, n)) == (i64)n);
-  r = quic_udp_recvfrom(sfd, quic_mspan_of(rx, sizeof rx), &from);
+  CHECK(wired_udp_send(cfd, srv, quic_span_of(pkt, n)) == (i64)n);
+  r = wired_udp_recvfrom(sfd, quic_mspan_of(rx, sizeof rx), &from);
   CHECK(r == (i64)n);
   return wired_srvloop_step(
       &(wired_srvloop_conn){&f->l, &f->s}, quic_mspan_of(rx, (usz)r), out);
@@ -223,11 +223,11 @@ static void test_loopback_initial_datagram(void) {
   usz              total = 0;
   i64              sfd, n;
 
-  sfd = quic_udp_socket();
+  sfd = wired_udp_socket();
   if (sfd < 0) return; /* sandbox: no sockets */
-  quic_udp_addr(&srv, 4434, (const u8[4]){127, 0, 0, 1});
-  if (quic_udp_bind(sfd, &srv) < 0) {
-    quic_udp_close(sfd);
+  wired_udp_addr(&srv, 4434, (const u8[4]){127, 0, 0, 1});
+  if (wired_udp_bind(sfd, &srv) < 0) {
+    wired_udp_close(sfd);
     return;
   }
 
@@ -244,18 +244,18 @@ static void test_loopback_initial_datagram(void) {
   CHECK(total == 1200); /* RFC 9000 14.1 padding */
 
   {
-    i64 cfd = quic_udp_socket();
+    i64 cfd = wired_udp_socket();
     if (cfd < 0) {
-      quic_udp_close(sfd);
+      wired_udp_close(sfd);
       return;
     }
-    CHECK(quic_udp_send(cfd, &srv, quic_span_of(pkt, total)) == (i64)total);
-    n = quic_udp_recvfrom(sfd, quic_mspan_of(dg, sizeof dg), &from);
+    CHECK(wired_udp_send(cfd, &srv, quic_span_of(pkt, total)) == (i64)total);
+    n = wired_udp_recvfrom(sfd, quic_mspan_of(dg, sizeof dg), &from);
     CHECK(n == 1200);
     CHECK((dg[0] & 0x80) != 0); /* long header (RFC 9000 17.2) */
-    quic_udp_close(cfd);
+    wired_udp_close(cfd);
   }
-  quic_udp_close(sfd);
+  wired_udp_close(sfd);
 }
 
 /* (2)+(3) Real-AEAD-wire: a srvwire-sealed Finished and a 1-RTT GET cross a
@@ -316,8 +316,8 @@ static void test_loopback_wire_confirm_and_get(void) {
     CHECK(quic_h3conn_recv_response(quic_span_of(pl, pll), &resp_out));
     CHECK(resp_out.status == 200); /* RFC 9114 4.1 */
   }
-  quic_udp_close(cfd);
-  quic_udp_close(sfd);
+  wired_udp_close(cfd);
+  wired_udp_close(sfd);
 }
 
 /* Fill a wired_srvboot_id with the same fixed identity lb_drive_to_flight uses,

@@ -17,7 +17,7 @@ usz quic_udploop_split(quic_span dgram, const quic_pktlist *out) {
 }
 
 usz quic_udploop_rx(i64 fd, quic_mspan buf, const quic_pktlist *out) {
-  i64 r = quic_udp_recv(fd, buf); /* RFC 9000 12.2: one datagram */
-  if (r <= 0) return 0;           /* EAGAIN/empty/error */
+  i64 r = wired_udp_recv(fd, buf); /* RFC 9000 12.2: one datagram */
+  if (r <= 0) return 0;            /* EAGAIN/empty/error */
   return quic_udploop_split(quic_span_of(buf.p, (usz)r), out);
 }
