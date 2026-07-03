@@ -149,15 +149,17 @@ static usz lb_seal_handshake(
     struct lb_fix *f, const u8 *msg, usz mlen, u8 *pkt, usz cap) {
   const quic_initial_keys *k;
   quic_aes128              hp;
-  usz                      total = 0;
+  quic_obuf                ob = {pkt, cap, 0};
   CHECK(quic_keysched_get(&f->s.sched, QUIC_KS_CLIENT_HS, &k) == 1);
   quic_aes128_init(&hp, k->hp);
   /* ack_pn 0: also acknowledge the server's Handshake PN 0, exercising the
    * server open path against a flight that carries a trailing ACK frame. */
-  CHECK(quic_srvwire_seal_handshake(
-      k, &hp, f->s.sdrv.iscid, f->s.sdrv.iscid_len, g_scid, 6, 0, 0, msg, mlen,
-      pkt, cap, &total));
-  return total;
+  quic_srvwire_seal_in in = {
+      quic_span_of(f->s.sdrv.iscid, f->s.sdrv.iscid_len),
+      quic_span_of(g_scid, 6), 0, 0, quic_span_of(msg, mlen)};
+  quic_protect_keys pk = {k, &hp};
+  CHECK(quic_srvwire_seal_handshake(&pk, &in, &ob));
+  return ob.len;
 }
 
 /* Client peer: seal a 1-RTT STREAM payload toward the server with CLIENT_AP. */
@@ -221,16 +223,14 @@ static int lb_wire_step(
     const quic_sockaddr_in *srv,
     const u8               *pkt,
     usz                     n,
-    u8                     *out,
-    usz                     cap,
-    usz                    *out_len) {
+    quic_obuf              *out) {
   quic_sockaddr_in from;
   u8               rx[1500];
   i64              r;
   CHECK(quic_udp_send(cfd, srv, quic_span_of(pkt, n)) == (i64)n);
   r = quic_udp_recvfrom(sfd, quic_mspan_of(rx, sizeof rx), &from);
   CHECK(r == (i64)n);
-  return quic_srvloop_step(&f->l, &f->s, rx, (usz)r, out, cap, out_len);
+  return quic_srvloop_step(&(quic_srvloop_conn){&f->l, &f->s}, quic_mspan_of(rx, (usz)r), out);
 }
 
 /* (1) Loopback: the client's real protected Initial reaches a bound server
@@ -285,7 +285,8 @@ static void test_loopback_wire_confirm_and_get(void) {
   quic_sockaddr_in srv;
   i64              sfd, cfd;
   u8               cpkt[1300], out[1300], get[512];
-  usz              clen, out_len = 0, glen;
+  usz              clen, glen;
+  quic_obuf        ob = {out, sizeof out, 0};
   const u8        *pl;
   usz              pll;
 
@@ -299,16 +300,14 @@ static void test_loopback_wire_confirm_and_get(void) {
    * (RFC 9000 13.2.1) ahead of a 1-RTT packet carrying SETTINGS +
    * HANDSHAKE_DONE (RFC 9114 6.2.1 / RFC 9000 19.20). */
   clen = lb_seal_handshake(&f, f.cli_fin, f.cli_fin_len, cpkt, sizeof cpkt);
-  CHECK(
-      lb_wire_step(&f, cfd, sfd, &srv, cpkt, clen, out, sizeof out, &out_len) ==
-      1);
+  CHECK(lb_wire_step(&f, cfd, sfd, &srv, cpkt, clen, &ob) == 1);
   CHECK(quic_server_is_confirmed(&f.s) == 1);
   {
     const u8         *pkts[4];
     usz               offs[4], lens[4];
     quic_pktlist      plist = {pkts, offs, lens, 4};
     quic_stream_frame sf;
-    usz np = quic_udploop_split(quic_span_of(out, out_len), &plist);
+    usz np = quic_udploop_split(quic_span_of(out, ob.len), &plist);
     CHECK(np == 2);
     CHECK((out[offs[0]] & 0x80) != 0); /* long-header Handshake ACK */
     CHECK(lb_open_onertt(&f, out + offs[1], lens[1], &pl, &pll) == 1);
@@ -317,21 +316,24 @@ static void test_loopback_wire_confirm_and_get(void) {
   }
 
   /* GET over the wire -> 200 sealed back, opened by the peer. */
-  CHECK(quic_h3reqdrive_send_get(
-      0, (const u8 *)"/", 1, (const u8 *)"h", 1, get, sizeof get, &glen));
-  clen    = lb_seal_onertt(&f, get, glen, cpkt, sizeof cpkt);
-  out_len = 0;
-  CHECK(
-      lb_wire_step(&f, cfd, sfd, &srv, cpkt, clen, out, sizeof out, &out_len) ==
-      1);
-  CHECK(out_len > 0);
-  CHECK(lb_open_onertt(&f, out, out_len, &pl, &pll) == 1);
   {
-    u16       status    = 0;
-    const u8 *rbody     = 0;
-    usz       rbody_len = 0;
-    CHECK(quic_h3conn_recv_response(pl, pll, &status, &rbody, &rbody_len));
-    CHECK(status == 200); /* RFC 9114 4.1 */
+    quic_obuf gob = {get, sizeof get, 0};
+    CHECK(quic_h3reqdrive_send_get(
+        0,
+        &(quic_h3reqdrive_get_in){
+            quic_span_of((const u8 *)"/", 1), quic_span_of((const u8 *)"h", 1)},
+        &gob));
+    glen = gob.len;
+  }
+  clen = lb_seal_onertt(&f, get, glen, cpkt, sizeof cpkt);
+  ob   = (quic_obuf){out, sizeof out, 0};
+  CHECK(lb_wire_step(&f, cfd, sfd, &srv, cpkt, clen, &ob) == 1);
+  CHECK(ob.len > 0);
+  CHECK(lb_open_onertt(&f, out, ob.len, &pl, &pll) == 1);
+  {
+    quic_h3conn_resp resp_out = {0};
+    CHECK(quic_h3conn_recv_response(quic_span_of(pl, pll), &resp_out));
+    CHECK(resp_out.status == 200); /* RFC 9114 4.1 */
   }
   quic_udp_close(cfd);
   quic_udp_close(sfd);
@@ -364,7 +366,8 @@ static void test_srvboot_accept(void) {
   wired_srvboot_id id;
   u8               priv[32], pub[32], seed[32], rnd[32], cpriv[32], cpub[32];
   u8               dg[1500], out[4096];
-  usz              total = 0, out_len = 0;
+  usz              total = 0;
+  quic_obuf        ob = {out, sizeof out, 0};
 
   for (usz i = 0; i < 32; i++) cpriv[i] = (u8)(7 + i);
   quic_x25519_base(cpub, cpriv);
@@ -377,12 +380,13 @@ static void test_srvboot_accept(void) {
     total = ob.len;
   }
 
+  wired_srvboot_conn conn = {&s, &l};
+  wired_srvboot_in   in;
   sb_make_id(&id, priv, pub, seed, rnd);
-  CHECK(
-      wired_srvboot_accept(&s, &l, &id, dg, total, out, sizeof out, &out_len) ==
-      1);
+  in = (wired_srvboot_in){&id, quic_mspan_of(dg, total)};
+  CHECK(wired_srvboot_accept(&conn, &in, &ob) == 1);
   CHECK(s.phase == QUIC_SERVER_HS_FLIGHT_SENT);
-  CHECK(out_len > 0);
+  CHECK(ob.len > 0);
   CHECK((out[0] & 0x80) != 0); /* long-header ServerHello Initial */
   CHECK((out[0] & 0x30) == 0); /* Initial type bits */
 
@@ -399,13 +403,13 @@ static void test_srvboot_rejects_non_initial(void) {
   u8               priv[32], pub[32], seed[32], rnd[32];
   u8  garbage[8] = {0x40, 1, 2, 3, 4, 5, 6, 7}; /* short header, not Initial */
   u8  out[512];
-  usz out_len = 0;
+  quic_obuf ob = {out, sizeof out, 0};
+  wired_srvboot_conn conn = {&s, &l};
+  wired_srvboot_in   in;
   sb_make_id(&id, priv, pub, seed, rnd);
+  in = (wired_srvboot_in){&id, quic_mspan_of(garbage, sizeof garbage)};
   CHECK(wired_srvboot_is_initial(garbage, sizeof garbage) == 0);
-  CHECK(
-      wired_srvboot_accept(
-          &s, &l, &id, garbage, sizeof garbage, out, sizeof out, &out_len) ==
-      0);
+  CHECK(wired_srvboot_accept(&conn, &in, &ob) == 0);
 }
 
 void test_h3_loopback(void) {

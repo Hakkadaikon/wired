@@ -2,6 +2,7 @@
 #define QUIC_SRVBOOT_SRVBOOT_H
 
 #include "app/http3/server/srvloop/srvloop.h"
+#include "common/bytes/span/span.h"
 #include "tls/handshake/roles/server/server.h"
 
 /* RFC 9000 17.2 / RFC 9001 5 / RFC 8446 4.4: cold-start a server connection
@@ -27,22 +28,31 @@ typedef struct {
  * short-header packet is the live connection continuing, not a new Initial). */
 int wired_srvboot_is_initial(const u8 *dg, usz len);
 
+/* The server orchestrator and its HTTP/3 loop, freshly cold-started by
+ * wired_srvboot_accept and driven together thereafter (quic_srvloop_step
+ * takes the same pair). */
+typedef struct {
+  quic_server  *s;
+  quic_srvloop *l;
+} wired_srvboot_conn;
+
+/* The fixed server identity to boot with and the client's Initial datagram to
+ * recover the ClientHello from. */
+typedef struct {
+  const wired_srvboot_id *id;
+  quic_mspan               dgram;
+} wired_srvboot_in;
+
 /* Recover the ClientHello from the protected Initial datagram, initialize the
- * server and its HTTP/3 loop with `id`, build the server flight, and seal it
+ * server and its HTTP/3 loop with in->id, build the server flight, and seal it
  * into out as a server Initial (ServerHello, acknowledging the client Initial)
  * followed by a Handshake packet (Certificate/CertificateVerify/Finished),
  * concatenated. Sets *out_len. Returns 1 on success, 0 if the datagram is not
  * a valid Initial, the open/reassembly fails, or the flight cannot be built.
- * The caller registers its request handler on l via quic_srvloop_set_handler.
- */
+ * The caller registers its request handler on conn->l via
+ * quic_srvloop_set_handler. */
 int wired_srvboot_accept(
-    quic_server            *s,
-    quic_srvloop           *l,
-    const wired_srvboot_id *id,
-    u8                     *dgram,
-    usz                     len,
-    u8                     *out,
-    usz                     cap,
-    usz                    *out_len);
+    const wired_srvboot_conn *conn, const wired_srvboot_in *in,
+    quic_obuf *out);
 
 #endif
