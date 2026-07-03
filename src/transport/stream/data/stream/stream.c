@@ -30,17 +30,17 @@ static const row recv_rows[] = {
 };
 
 int quic_send_step(quic_send_state *s, quic_send_event ev) {
-  u8  st = (u8)*s;
-  int ok =
-      quic_fsm_step(&st, send_rows, sizeof(send_rows) / sizeof(row), (u8)ev);
-  *s = (quic_send_state)st;
+  u8             st    = (u8)*s;
+  quic_fsm_table table = {send_rows, sizeof(send_rows) / sizeof(row)};
+  int            ok    = quic_fsm_step(&st, &table, (u8)ev);
+  *s                   = (quic_send_state)st;
   return ok;
 }
 
 int quic_recv_step(quic_recv_state *s, quic_recv_event ev) {
-  u8  st = (u8)*s;
-  int ok =
-      quic_fsm_step(&st, recv_rows, sizeof(recv_rows) / sizeof(row), (u8)ev);
-  *s = (quic_recv_state)st;
+  u8             st    = (u8)*s;
+  quic_fsm_table table = {recv_rows, sizeof(recv_rows) / sizeof(row)};
+  int            ok    = quic_fsm_step(&st, &table, (u8)ev);
+  *s                   = (quic_recv_state)st;
   return ok;
 }
