@@ -12,6 +12,7 @@
 #include "tls/handshake/core/tls/transcript.h"
 #include "tls/handshake/core/tls/x25519.h"
 #include "tls/handshake/roles/client/client.h"
+#include "tls/handshake/roles/client/clientwire.h"
 #include "tls/handshake/roles/server/server.h"
 #include "tls/keys/schedule_drive/keyschedule.h"
 #include "transport/io/udp/udploop/rxloop.h"
@@ -99,14 +100,20 @@ static void lb_drive_to_flight(struct lb_fix *f) {
   CHECK(quic_ed25519_keypair(cert_seed, cert_pub));
   cert_len = lb_ed_cert(cert, cert_pub);
 
-  quic_server_init(&f->s, srv_priv, srv_pub, cert_seed, cert, cert_len);
-  CHECK(quic_server_set_cids(&f->s, g_scid, 6, g_scid, 6) == 1);
+  quic_server_init_in sin = {
+      srv_priv, srv_pub, cert_seed, quic_span_of(cert, cert_len)};
+  quic_obuf            sh_ob = quic_obuf_of(f->sh, sizeof(f->sh));
+  quic_obuf            fl_ob = quic_obuf_of(f->flight, sizeof(f->flight));
+  quic_sdrv_flight_out fo    = {&sh_ob, &fl_ob};
+  quic_server_init(&f->s, &sin);
+  CHECK(
+      quic_server_set_cids(
+          &f->s, quic_span_of(g_scid, 6), quic_span_of(g_scid, 6)) == 1);
   CHECK(quic_srvloop_init(&f->l, g_scid, 6) == 1);
   CHECK(quic_server_recv_initial(&f->s, f->ch, f->ch_len) == 1);
-  CHECK(
-      quic_server_build_flight(
-          &f->s, f->srv_random, f->sh, sizeof(f->sh), &f->sh_len, f->flight,
-          sizeof(f->flight), &f->flight_len) == 1);
+  CHECK(quic_server_build_flight(&f->s, f->srv_random, &fo) == 1);
+  f->sh_len     = sh_ob.len;
+  f->flight_len = fl_ob.len;
   CHECK(f->s.phase == QUIC_SERVER_HS_FLIGHT_SENT);
 }
 
@@ -246,9 +253,13 @@ static void test_loopback_initial_datagram(void) {
   for (usz i = 0; i < 32; i++) priv[i] = (u8)(7 + i);
   quic_x25519_base(pub, priv);
   quic_tlsdriver_init(&c.tls, priv, pub, 0);
-  CHECK(
-      quic_client_build_initial_wire(
-          &c, g_scid, 6, g_scid, 6, 0, pkt, sizeof pkt, &total) == 1);
+  {
+    quic_clientwire_hdr_in hdr = {
+        quic_span_of(g_scid, 6), quic_span_of(g_scid, 6), 0};
+    quic_obuf ob = quic_obuf_of(pkt, sizeof pkt);
+    CHECK(quic_client_build_initial_wire(&c, &hdr, &ob) == 1);
+    total = ob.len;
+  }
   CHECK(total == 1200); /* RFC 9000 14.1 padding */
 
   {
@@ -358,9 +369,13 @@ static void test_srvboot_accept(void) {
   for (usz i = 0; i < 32; i++) cpriv[i] = (u8)(7 + i);
   quic_x25519_base(cpub, cpriv);
   quic_tlsdriver_init(&c.tls, cpriv, cpub, 0);
-  CHECK(
-      quic_client_build_initial_wire(
-          &c, g_scid, 6, g_scid, 6, 0, dg, sizeof dg, &total) == 1);
+  {
+    quic_clientwire_hdr_in hdr = {
+        quic_span_of(g_scid, 6), quic_span_of(g_scid, 6), 0};
+    quic_obuf ob = quic_obuf_of(dg, sizeof dg);
+    CHECK(quic_client_build_initial_wire(&c, &hdr, &ob) == 1);
+    total = ob.len;
+  }
 
   sb_make_id(&id, priv, pub, seed, rnd);
   CHECK(

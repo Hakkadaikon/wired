@@ -21,22 +21,17 @@ static int client_setup(quic_client *c) {
 }
 
 /* RFC 9000 7: generate our X25519 key pair and seed the handshake drivers. */
-int quic_client_init(
-    quic_client *c,
-    const u8    *server_ip,
-    u16          port,
-    const u8    *server_name,
-    usz          sni_len) {
-  c->host     = server_name;
-  c->host_len = sni_len;
+int quic_client_init(quic_client *c, const quic_client_init_in *in) {
+  c->host     = in->server_name.p;
+  c->host_len = in->server_name.n;
   c->castore  = 0;
   if (!client_setup(c)) return 0;
   quic_x25519_base(c->my_pub, c->my_priv);
   c->fd = quic_udp_socket();
   if (c->fd < 0) return 0;
-  quic_udp_addr(&c->peer, port, server_ip);
+  quic_udp_addr(&c->peer, in->port, in->server_ip);
   quic_tlsdriver_init(&c->tls, c->my_priv, c->my_pub, 0);
-  quic_tlsdriver_set_sni(&c->tls, server_name, sni_len);
+  quic_tlsdriver_set_sni(&c->tls, in->server_name.p, in->server_name.n);
   c->phase  = QUIC_CLIENT_HS_INITIAL;
   c->sh_len = 0;
   return 1;
