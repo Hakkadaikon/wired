@@ -13,17 +13,16 @@ static int eebuild_fits(usz tp_len, usz cap) {
   return tp_len <= 0xFFFF && 4 + 2 + EEBUILD_ALPN_LEN + 4 + tp_len <= cap;
 }
 
-int quic_eebuild_encrypted_extensions(
-    const u8 *transport_params, usz tp_len, u8 *out, usz cap, usz *out_len) {
+int quic_eebuild_encrypted_extensions(quic_span transport_params, quic_obuf *out) {
   usz       off, alpn, ext;
   quic_obuf eob;
-  if (!eebuild_fits(tp_len, cap)) return 0;
-  off = quic_hs_begin(out, cap, QUIC_HS_ENCRYPTED_EXT);
-  quic_salpn_build_response(out + off + 2, cap - off - 2, &alpn);
-  eob = quic_obuf_of(out + off + 2 + alpn, cap - off - 2 - alpn);
-  ext = quic_tpext_encode(&eob, quic_span_of(transport_params, tp_len));
-  quic_put_be16(out + off, (u16)(alpn + ext)); /* extensions block length */
-  *out_len = off + 2 + alpn + ext;
-  quic_hs_finish(out, *out_len);
+  if (!eebuild_fits(transport_params.n, out->cap)) return 0;
+  off = quic_hs_begin(out->p, out->cap, QUIC_HS_ENCRYPTED_EXT);
+  quic_salpn_build_response(out->p + off + 2, out->cap - off - 2, &alpn);
+  eob = quic_obuf_of(out->p + off + 2 + alpn, out->cap - off - 2 - alpn);
+  ext = quic_tpext_encode(&eob, transport_params);
+  quic_put_be16(out->p + off, (u16)(alpn + ext)); /* extensions block length */
+  out->len = off + 2 + alpn + ext;
+  quic_hs_finish(out->p, out->len);
   return 1;
 }
