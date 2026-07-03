@@ -20,12 +20,12 @@ static void test_ipv4_checksum(void) {
 
 /* A built UDP datagram verifies under its pseudo-header; tamper breaks it. */
 static void test_udp_checksum(void) {
-  u8            dg[64];
-  const u8      pl[]  = {0xde, 0xad, 0xbe, 0xef};
+  u8             dg[64];
+  const u8       pl[]  = {0xde, 0xad, 0xbe, 0xef};
   quic_ipv4addrs addrs = {0x7f000001, 0x7f000002};
-  quic_udp4meta meta = {{0x1234, 0x4321}, addrs};
-  quic_obuf     ob   = quic_obuf_of(dg, sizeof(dg));
-  usz           n    = quic_udp4_build(&ob, &meta, quic_span_of(pl, 4));
+  quic_udp4meta  meta  = {{0x1234, 0x4321}, addrs};
+  quic_obuf      ob    = quic_obuf_of(dg, sizeof(dg));
+  usz            n     = quic_udp4_build(&ob, &meta, quic_span_of(pl, 4));
   CHECK(n == QUIC_UDP_HDR + 4);
   CHECK(quic_udp4_check(quic_span_of(dg, n), addrs) == 1);
   dg[QUIC_UDP_HDR + 1] ^= 0x10;
@@ -46,15 +46,16 @@ static void test_memlink_fifo(void) {
 
 /* A full IPv4+UDP datagram travels across the link and verifies intact. */
 static void test_net_datagram_over_link(void) {
-  u8            ip[QUIC_IPV4_HDR], udp[64], frame[QUIC_IPV4_HDR + 64];
-  const u8      pl[]  = {1, 2, 3, 4, 5};
+  u8             ip[QUIC_IPV4_HDR], udp[64], frame[QUIC_IPV4_HDR + 64];
+  const u8       pl[]  = {1, 2, 3, 4, 5};
   quic_ipv4addrs addrs = {0x0a000001, 0x0a000002};
-  quic_udp4meta meta = {{9000, 443}, addrs};
-  quic_obuf     ub   = quic_obuf_of(udp, sizeof(udp));
-  usz           un   = quic_udp4_build(&ub, &meta, quic_span_of(pl, 5));
+  quic_udp4meta  meta  = {{9000, 443}, addrs};
+  quic_obuf      ub    = quic_obuf_of(udp, sizeof(udp));
+  usz            un    = quic_udp4_build(&ub, &meta, quic_span_of(pl, 5));
   quic_ipv4_build(
-      ip, &(quic_ipv4_head){(u16)(QUIC_IPV4_HDR + un), 0x0a000001, 0x0a000002,
-                             QUIC_IP_PROTO_UDP});
+      ip, &(quic_ipv4_head){
+              (u16)(QUIC_IPV4_HDR + un), 0x0a000001, 0x0a000002,
+              QUIC_IP_PROTO_UDP});
   for (usz i = 0; i < QUIC_IPV4_HDR; i++) frame[i] = ip[i];
   for (usz i = 0; i < un; i++) frame[QUIC_IPV4_HDR + i] = udp[i];
 

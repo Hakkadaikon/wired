@@ -23,7 +23,9 @@ usz quic_short_build(u8 *buf, usz cap, const quic_short_desc *d) {
   usz off = 1;
   if (!short_ok(cap, d)) return 0;
   buf[0] = short_byte0(d->spin, d->key_phase, d->pn_len);
-  quic_put_bytes(quic_mspan_of(buf, cap), &off, quic_span_of(d->dcid.p, d->dcid.n)); /* room checked */
+  quic_put_bytes(
+      quic_mspan_of(buf, cap), &off,
+      quic_span_of(d->dcid.p, d->dcid.n)); /* room checked */
   put_pn(buf + off, d->pn, d->pn_len);
   return off + d->pn_len;
 }

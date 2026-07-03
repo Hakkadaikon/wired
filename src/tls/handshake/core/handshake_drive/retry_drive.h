@@ -21,7 +21,9 @@ typedef struct {
  * writes the token and new DCID into out. Returns 0 on a malformed packet or
  * bad tag, leaving outputs untouched. */
 int quic_retry_process(
-    quic_span retry_pkt, quic_span orig_dcid, const quic_retry_process_out *out);
+    quic_span                     retry_pkt,
+    quic_span                     orig_dcid,
+    const quic_retry_process_out *out);
 
 /* RFC 9000 17.2.5: a client accepts at most one Retry. state is non-zero once
  * a Retry has been accepted; returns 1 to mean a further Retry must be

@@ -152,7 +152,8 @@ static int seal_confirm_onertt(
 /* RFC 9000 12.2: at confirmation, coalesce a long-header Handshake ACK and the
  * single 1-RTT packet (SETTINGS + HANDSHAKE_DONE, plus the 200 when a GET came
  * in the same datagram) into one datagram. */
-static int emit_confirm(const quic_srvloop_conn *c, int got_request, quic_obuf *out) {
+static int emit_confirm(
+    const quic_srvloop_conn *c, int got_request, quic_obuf *out) {
   quic_obuf ob = quic_obuf_of(out->p, out->cap);
   usz       hl;
   if (!emit_handshake_ack(c, &ob)) return 0;

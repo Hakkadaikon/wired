@@ -5,9 +5,9 @@
 static void test_emit_splits(void) {
   u8 src[20];
   for (usz i = 0; i < sizeof src; i++) src[i] = (u8)(i + 1);
-  u8                          out[128];
-  quic_obuf                   ob = quic_obuf_of(out, sizeof out);
-  quic_crypto_stream_emit_in  ein = {100, 8};
+  u8                         out[128];
+  quic_obuf                  ob  = quic_obuf_of(out, sizeof out);
+  quic_crypto_stream_emit_in ein = {100, 8};
   CHECK(quic_crypto_stream_emit(quic_span_of(src, sizeof src), &ein, &ob) == 1);
   usz out_len = ob.len;
 

@@ -5,14 +5,16 @@
 
 /* Write type then stream_id (two varints). Returns 1 ok, 0 on overflow. */
 static int put_rs_head(quic_obuf *o, const quic_reset_stream_frame *f) {
-  if (!quic_varint_put(quic_mspan_of(o->p, o->cap), &o->len, QUIC_FRAME_RESET_STREAM))
+  if (!quic_varint_put(
+          quic_mspan_of(o->p, o->cap), &o->len, QUIC_FRAME_RESET_STREAM))
     return 0;
   return quic_varint_put(quic_mspan_of(o->p, o->cap), &o->len, f->stream_id);
 }
 
 /* Write error_code then final_size. Returns 1 ok, 0 on overflow. */
 static int put_rs_tail(quic_obuf *o, const quic_reset_stream_frame *f) {
-  if (!quic_varint_put(quic_mspan_of(o->p, o->cap), &o->len, f->error_code)) return 0;
+  if (!quic_varint_put(quic_mspan_of(o->p, o->cap), &o->len, f->error_code))
+    return 0;
   return quic_varint_put(quic_mspan_of(o->p, o->cap), &o->len, f->final_size);
 }
 
@@ -40,7 +42,8 @@ usz quic_reset_stream_decode(const u8 *buf, usz n, quic_reset_stream_frame *f) {
 
 /* Write type then stream_id. Returns 1 ok, 0 on overflow. */
 static int put_ss_head(quic_obuf *o, const quic_stop_sending_frame *f) {
-  if (!quic_varint_put(quic_mspan_of(o->p, o->cap), &o->len, QUIC_FRAME_STOP_SENDING))
+  if (!quic_varint_put(
+          quic_mspan_of(o->p, o->cap), &o->len, QUIC_FRAME_STOP_SENDING))
     return 0;
   return quic_varint_put(quic_mspan_of(o->p, o->cap), &o->len, f->stream_id);
 }
@@ -49,7 +52,8 @@ usz quic_stop_sending_encode(
     u8 *buf, usz cap, const quic_stop_sending_frame *f) {
   quic_obuf o = quic_obuf_of(buf, cap);
   if (!put_ss_head(&o, f)) return 0;
-  if (!quic_varint_put(quic_mspan_of(o.p, o.cap), &o.len, f->error_code)) return 0;
+  if (!quic_varint_put(quic_mspan_of(o.p, o.cap), &o.len, f->error_code))
+    return 0;
   return o.len;
 }
 

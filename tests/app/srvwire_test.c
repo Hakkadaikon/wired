@@ -10,18 +10,18 @@
  * from the client's DCID; opened with the same DCID recovers the ServerHello.
  */
 static void test_srvwire_initial_roundtrip(void) {
-  const u8 dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
-  const u8 scid[6] = {'S', 'R', 'V', 'C', 'I', 'D'};
-  const u8 sh[]    = {'S', 'e', 'r', 'v', 'e', 'r', 'H', 'e', 'l', 'l', 'o'};
-  u8       pkt[1300];
-  quic_obuf ob = {pkt, sizeof pkt, 0};
+  const u8  dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
+  const u8  scid[6] = {'S', 'R', 'V', 'C', 'I', 'D'};
+  const u8  sh[]    = {'S', 'e', 'r', 'v', 'e', 'r', 'H', 'e', 'l', 'l', 'o'};
+  u8        pkt[1300];
+  quic_obuf ob            = {pkt, sizeof pkt, 0};
   quic_srvwire_seal_in in = {
       quic_span_of(dcid, 8), quic_span_of(scid, 6), 1, -1,
       quic_span_of(sh, sizeof sh)};
   CHECK(quic_srvwire_seal_initial(&in, &ob));
   CHECK(ob.len > sizeof(sh)); /* header + AEAD tag overhead present */
 
-  quic_span tls = {0, 0};
+  quic_span                    tls = {0, 0};
   quic_srvwire_open_initial_in oin = {quic_span_of(dcid, 8), 1};
   CHECK(quic_srvwire_open_initial(&oin, quic_mspan_of(pkt, ob.len), &tls));
   CHECK(tls.n == sizeof(sh));
@@ -30,34 +30,34 @@ static void test_srvwire_initial_roundtrip(void) {
 
 /* A flipped ciphertext byte must fail AEAD on open. */
 static void test_srvwire_initial_tamper(void) {
-  const u8 dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
-  const u8 scid[6] = {'S', 'R', 'V', 'C', 'I', 'D'};
-  const u8 sh[]    = {'S', 'e', 'r', 'v', 'e', 'r', 'H', 'e', 'l', 'l', 'o'};
+  const u8  dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
+  const u8  scid[6] = {'S', 'R', 'V', 'C', 'I', 'D'};
+  const u8  sh[]    = {'S', 'e', 'r', 'v', 'e', 'r', 'H', 'e', 'l', 'l', 'o'};
   u8        pkt[1300];
-  quic_obuf ob = {pkt, sizeof pkt, 0};
+  quic_obuf ob            = {pkt, sizeof pkt, 0};
   quic_srvwire_seal_in in = {
       quic_span_of(dcid, 8), quic_span_of(scid, 6), 1, -1,
       quic_span_of(sh, sizeof sh)};
   CHECK(quic_srvwire_seal_initial(&in, &ob));
   pkt[ob.len - 1] ^= 0x01;
-  quic_span tls = {0, 0};
+  quic_span                    tls = {0, 0};
   quic_srvwire_open_initial_in oin = {quic_span_of(dcid, 8), 1};
   CHECK(!quic_srvwire_open_initial(&oin, quic_mspan_of(pkt, ob.len), &tls));
 }
 
 /* A different DCID derives different keys: open must fail. */
 static void test_srvwire_initial_wrong_key(void) {
-  const u8 dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
-  const u8 bad[8]  = {0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77};
-  const u8 scid[6] = {'S', 'R', 'V', 'C', 'I', 'D'};
-  const u8 sh[]    = {'S', 'e', 'r', 'v', 'e', 'r', 'H', 'e', 'l', 'l', 'o'};
+  const u8  dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
+  const u8  bad[8]  = {0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77};
+  const u8  scid[6] = {'S', 'R', 'V', 'C', 'I', 'D'};
+  const u8  sh[]    = {'S', 'e', 'r', 'v', 'e', 'r', 'H', 'e', 'l', 'l', 'o'};
   u8        pkt[1300];
-  quic_obuf ob = {pkt, sizeof pkt, 0};
+  quic_obuf ob            = {pkt, sizeof pkt, 0};
   quic_srvwire_seal_in in = {
       quic_span_of(dcid, 8), quic_span_of(scid, 6), 1, -1,
       quic_span_of(sh, sizeof sh)};
   CHECK(quic_srvwire_seal_initial(&in, &ob));
-  quic_span tls = {0, 0};
+  quic_span                    tls = {0, 0};
   quic_srvwire_open_initial_in oin = {quic_span_of(bad, 8), 1};
   CHECK(!quic_srvwire_open_initial(&oin, quic_mspan_of(pkt, ob.len), &tls));
 }
@@ -81,8 +81,8 @@ static void test_srvwire_handshake_roundtrip(void) {
   quic_initial_keys k;
   quic_aes128       hp;
   hs_keys(&k, &hp);
-  u8        pkt[256];
-  quic_obuf ob = {pkt, sizeof pkt, 0};
+  u8                   pkt[256];
+  quic_obuf            ob = {pkt, sizeof pkt, 0};
   quic_srvwire_seal_in in = {
       quic_span_of(dcid, 6), quic_span_of(scid, 6), 0, -1,
       quic_span_of(fl, sizeof fl)};
@@ -104,14 +104,14 @@ static void test_srvwire_handshake_wrong_key(void) {
   hs_keys(&k, &hp);
   hs_keys(&bad, &badhp);
   bad.key[0] ^= 0xff;
-  u8        pkt[256];
-  quic_obuf ob = {pkt, sizeof pkt, 0};
+  u8                   pkt[256];
+  quic_obuf            ob = {pkt, sizeof pkt, 0};
   quic_srvwire_seal_in in = {
       quic_span_of(dcid, 6), quic_span_of(scid, 6), 0, -1,
       quic_span_of(fl, sizeof fl)};
   quic_protect_keys pk = {&k, &hp};
   CHECK(quic_srvwire_seal_handshake(&pk, &in, &ob));
-  quic_span tls = {0, 0};
+  quic_span         tls   = {0, 0};
   quic_protect_keys badpk = {&bad, &hp};
   CHECK(!quic_srvwire_open_handshake(&badpk, quic_mspan_of(pkt, ob.len), &tls));
 }
@@ -137,13 +137,13 @@ static void test_srvwire_initial_acks_client(void) {
   const u8 dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
   const u8 scid[6] = {'S', 'R', 'V', 'C', 'I', 'D'};
   const u8 sh[]    = {'S', 'e', 'r', 'v', 'e', 'r', 'H', 'e', 'l', 'l', 'o'};
-  quic_initial_keys ck, sk;
-  quic_aes128       hp;
-  u8                pkt[1300];
-  quic_obuf         ob = {pkt, sizeof pkt, 0};
-  const u8         *frames;
-  usz               fl;
-  quic_ack_frame    ack;
+  quic_initial_keys    ck, sk;
+  quic_aes128          hp;
+  u8                   pkt[1300];
+  quic_obuf            ob = {pkt, sizeof pkt, 0};
+  const u8            *frames;
+  usz                  fl;
+  quic_ack_frame       ack;
   quic_srvwire_seal_in in = {
       quic_span_of(dcid, 8), quic_span_of(scid, 6), 1, 0,
       quic_span_of(sh, sizeof sh)};

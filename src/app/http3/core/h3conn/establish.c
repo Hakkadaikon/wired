@@ -27,7 +27,7 @@ static int skip_control_type(const u8 *s, usz len, usz *off) {
 int quic_h3conn_peer_settings_ok(const u8 *control_stream, usz len) {
   quic_h3_settings_state st  = {0};
   usz                    off = 0;
-  quic_h3_frame           f  = {0};
+  quic_h3_frame          f   = {0};
   if (!skip_control_type(control_stream, len, &off)) return 0;
   if (!quic_h3_frame_get(quic_span_of(control_stream + off, len - off), &f))
     return 0;

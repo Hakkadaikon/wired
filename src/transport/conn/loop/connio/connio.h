@@ -39,7 +39,8 @@ typedef struct {
 
 /* Set up an active connection: empty keyset, fresh receive state, the dispatch
  * view wired to drain ACKs into loop.sent, and the given header parameters. */
-void quic_connio_init(quic_connio *io, quic_span dcid, const quic_connio_init_in *in);
+void quic_connio_init(
+    quic_connio *io, quic_span dcid, const quic_connio_init_in *in);
 
 /* RFC 9001 5: receive one protected datagram at protection `level`. Gates via
  * connloop_on_recv; on permission, fetches the level's keys, opens the packet
@@ -58,7 +59,8 @@ typedef struct {
  * connloop_on_send; on permission, fetches the level's keys and seals a
  * protected packet into out. Returns the protected length, or 0 if
  * gated out or out is too small. */
-usz quic_connio_send(quic_connio *io, const quic_connio_send_in *in, quic_obuf *out);
+usz quic_connio_send(
+    quic_connio *io, const quic_connio_send_in *in, quic_obuf *out);
 
 /* RFC 9000 12.3: the next send packet number for `level`'s own space (peek,
  * does not advance). Each level/space numbers independently from 0. */

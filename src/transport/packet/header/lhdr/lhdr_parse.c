@@ -40,7 +40,8 @@ static int read_token(const lhdrparse_src *s, usz *off, quic_lhdr *out) {
 
 /* Read the Length varint and record the packet-number offset after it. */
 static int take_length(quic_span pkt, usz *off, quic_lhdr *out) {
-  if (!quic_varint_take(quic_span_of(pkt.p, pkt.n), off, &out->length)) return 0;
+  if (!quic_varint_take(quic_span_of(pkt.p, pkt.n), off, &out->length))
+    return 0;
   out->pn_off = *off;
   return 1;
 }

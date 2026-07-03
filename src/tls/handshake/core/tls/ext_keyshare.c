@@ -51,7 +51,8 @@ static int ks_find_x25519(const u8 *buf, usz *off, usz end, u8 pub[32]) {
   while (ks_entry_fits(buf + *off, end - *off)) {
     usz key = *off + 4;
     if (entry_ok(buf + *off, end - *off))
-      return quic_take_bytes(quic_span_of(buf, end), &key, quic_mspan_of(pub, 32));
+      return quic_take_bytes(
+          quic_span_of(buf, end), &key, quic_mspan_of(pub, 32));
     *off += 4 + ((usz)buf[*off + 2] << 8 | buf[*off + 3]);
   }
   return 0;

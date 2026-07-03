@@ -20,11 +20,14 @@ void test_ackrange_process(void) {
   {
     quic_sentpkt t;
     quic_sentpkt_init(&t);
-    for (u64 pn = 1; pn <= 5; pn++) quic_sentpkt_on_send(&t, &(quic_sentpkt_out){pn, 0, 1, 1});
+    for (u64 pn = 1; pn <= 5; pn++)
+      quic_sentpkt_on_send(&t, &(quic_sentpkt_out){pn, 0, 1, 1});
     quic_ack_range r[1] = {{5, 3}};
     usz            len  = build_ack(buf, sizeof buf, r, 1);
     CHECK(len > 0);
-    CHECK(quic_ackrange_process(&t, quic_span_of(buf, len), (quic_u64out){acked, &n}) == 1);
+    CHECK(
+        quic_ackrange_process(
+            &t, quic_span_of(buf, len), (quic_u64out){acked, &n}) == 1);
     CHECK(n == 3);                      /* 5,4,3 acked */
     CHECK(quic_sentpkt_count(&t) == 2); /* 1,2 still in flight */
   }
@@ -33,11 +36,14 @@ void test_ackrange_process(void) {
   {
     quic_sentpkt t;
     quic_sentpkt_init(&t);
-    for (u64 pn = 1; pn <= 8; pn++) quic_sentpkt_on_send(&t, &(quic_sentpkt_out){pn, 0, 1, 1});
+    for (u64 pn = 1; pn <= 8; pn++)
+      quic_sentpkt_on_send(&t, &(quic_sentpkt_out){pn, 0, 1, 1});
     quic_ack_range r[2] = {{8, 7}, {4, 3}};
     usz            len  = build_ack(buf, sizeof buf, r, 2);
     CHECK(len > 0);
-    CHECK(quic_ackrange_process(&t, quic_span_of(buf, len), (quic_u64out){acked, &n}) == 1);
+    CHECK(
+        quic_ackrange_process(
+            &t, quic_span_of(buf, len), (quic_u64out){acked, &n}) == 1);
     CHECK(n == 4);                      /* 8,7,4,3 acked */
     CHECK(quic_sentpkt_count(&t) == 4); /* 1,2,5,6 remain */
   }
@@ -48,7 +54,9 @@ void test_ackrange_process(void) {
     quic_sentpkt_init(&t);
     quic_sentpkt_on_send(&t, &(quic_sentpkt_out){1, 0, 1, 1});
     u8 bad[2] = {0x02, 0x00};
-    CHECK(quic_ackrange_process(&t, quic_span_of(bad, sizeof bad), (quic_u64out){acked, &n}) == 0);
+    CHECK(
+        quic_ackrange_process(
+            &t, quic_span_of(bad, sizeof bad), (quic_u64out){acked, &n}) == 0);
     CHECK(n == 0);
     CHECK(quic_sentpkt_count(&t) == 1);
   }

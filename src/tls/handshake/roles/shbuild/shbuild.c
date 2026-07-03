@@ -74,7 +74,7 @@ int quic_shbuild_server_hello(const quic_shbuild_in *in, quic_obuf *out) {
   if (!shb_fits(off, in->session_id.n, out->cap)) return 0;
   off         = shb_prefix(out->p, off, in);
   block_start = off;
-  end = shb_finish(
+  end         = shb_finish(
       out->p, shb_exts(out->p, out->cap, off + 2, in->server_pub), block_start);
   if (end == 0) return 0;
   out->len = end;

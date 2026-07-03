@@ -17,9 +17,10 @@ static usz put_stop(quic_obuf *out, u64 stream_id) {
 }
 
 int quic_h3cancel_request(u64 stream_id, u64 final_size, quic_obuf *out) {
-  quic_reset_stream_frame rs  = {stream_id, QUIC_H3_REQUEST_CANCELLED, final_size};
-  quic_obuf                ob = quic_obuf_of(out->p, out->cap);
-  usz                       rn, sn;
+  quic_reset_stream_frame rs = {
+      stream_id, QUIC_H3_REQUEST_CANCELLED, final_size};
+  quic_obuf ob = quic_obuf_of(out->p, out->cap);
+  usz       rn, sn;
   rn = put_reset(&ob, &rs);
   if (!rn) return 0;
   ob = quic_obuf_of(out->p + rn, out->cap - rn);

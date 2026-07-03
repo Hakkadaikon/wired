@@ -19,7 +19,8 @@ typedef struct {
 
 /* Derive-Secret(secret, label, messages) = HKDF-Expand-Label(secret, label,
  * Hash(messages), Hash.length). Writes a 32-byte secret. */
-void quic_tls_derive_secret(const quic_derive_secret_in *in, u8 out[QUIC_HKDF_PRK]);
+void quic_tls_derive_secret(
+    const quic_derive_secret_in *in, u8 out[QUIC_HKDF_PRK]);
 
 /* Handshake Secret = HKDF-Extract(derived-from-early, ECDHE shared secret). */
 void quic_tls_handshake_secret(const u8 ecdhe[32], u8 out[QUIC_HKDF_PRK]);

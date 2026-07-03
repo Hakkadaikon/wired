@@ -55,15 +55,15 @@ static void test_server_hello_roundtrip(void) {
 static void test_server_hello_wrong_type(void) {
   u8                   pub[32] = {0}, got[32], buf[256];
   quic_serverhello_out sh;
-  usz w  = build_sh(buf, sizeof(buf), pub);
-  buf[0] = 1; /* claim ClientHello */
+  usz                  w = build_sh(buf, sizeof(buf), pub);
+  buf[0]                 = 1; /* claim ClientHello */
   CHECK(quic_tls_parse_server_hello(quic_span_of(buf, w), got, &sh) == 0);
 }
 
 static void test_server_hello_truncated(void) {
   u8                   pub[32] = {0}, got[32], buf[256];
   quic_serverhello_out sh;
-  usz w = build_sh(buf, sizeof(buf), pub);
+  usz                  w = build_sh(buf, sizeof(buf), pub);
   CHECK(quic_tls_parse_server_hello(quic_span_of(buf, w - 10), got, &sh) == 0);
 }
 

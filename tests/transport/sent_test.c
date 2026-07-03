@@ -16,7 +16,8 @@ static void test_sent_ack_accounting(void) {
 static void test_sent_largest_acked_monotonic(void) {
   quic_sent s;
   quic_sent_init(&s);
-  for (u64 pn = 1; pn <= 5; pn++) quic_sent_on_send(&s, &(quic_sent_out){pn, 10, 0});
+  for (u64 pn = 1; pn <= 5; pn++)
+    quic_sent_on_send(&s, &(quic_sent_out){pn, 10, 0});
   quic_sent_on_ack(&s, 5);
   CHECK(s.largest_acked == 5);
   quic_sent_on_ack(&s, 2); /* older ack must not lower it */
@@ -29,7 +30,8 @@ static void test_sent_packet_threshold_3(void) {
   quic_sent s;
   quic_sent_init(&s);
   quic_sent_on_send(&s, &(quic_sent_out){1, 10, 0}); /* 4 below 5 -> lost */
-  quic_sent_on_send(&s, &(quic_sent_out){2, 10, 0}); /* 3 below 5 -> lost (boundary) */
+  quic_sent_on_send(
+      &s, &(quic_sent_out){2, 10, 0}); /* 3 below 5 -> lost (boundary) */
   quic_sent_on_send(&s, &(quic_sent_out){3, 10, 0}); /* 2 below 5 -> NOT lost */
   quic_sent_on_send(&s, &(quic_sent_out){5, 10, 0});
   quic_sent_on_ack(&s, 5);

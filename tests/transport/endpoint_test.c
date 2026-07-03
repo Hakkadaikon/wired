@@ -77,7 +77,8 @@ static int server_read_initial(
   u8                   type;
   usz                  body_len;
   if (pl == 0 || quic_frame_get_crypto(pkt + 18, pl, &cf) == 0) return 0;
-  if (quic_hs_parse(quic_span_of(cf.data, cf.length), &type, &body_len) == 0) return 0;
+  if (quic_hs_parse(quic_span_of(cf.data, cf.length), &type, &body_len) == 0)
+    return 0;
   return quic_hs_peer_share(cf.data + 4, body_len, peer_pub);
 }
 
@@ -130,7 +131,8 @@ static void test_endpoint_handshake(void) {
     quic_x25519(shared, cl.priv, sv.pub);
     quic_tls_handshake_secret(shared, hs);
     quic_tls_handshake_keys(
-      &(quic_handshake_keys_in){hs, quic_span_of(tr, sizeof(tr)), 1}, &cl_sees_server);
+        &(quic_handshake_keys_in){hs, quic_span_of(tr, sizeof(tr)), 1},
+        &cl_sees_server);
   }
   for (usz i = 0; i < QUIC_INITIAL_KEY; i++)
     CHECK(cl_sees_server.key[i] == sv.hs_keys.key[i]);

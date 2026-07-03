@@ -26,7 +26,8 @@ typedef struct {
 static int take_value(quic_span buf, usz *off, tparam_hdr *hdr) {
   usz before = *off;
   if (hdr->vlen > buf.n - *off) return 0;
-  if (!quic_varint_take(quic_span_of(buf.p, before + (usz)hdr->vlen), off, &hdr->value))
+  if (!quic_varint_take(
+          quic_span_of(buf.p, before + (usz)hdr->vlen), off, &hdr->value))
     return 0;
   return *off - before == (usz)hdr->vlen;
 }

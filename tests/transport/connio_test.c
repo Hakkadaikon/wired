@@ -5,18 +5,26 @@
 
 /* Test-only convenience over the connio_init_in param object. */
 static void mk_connio(
-    quic_connio *io, int is_server, u8 byte0, const u8 *dcid, u8 dcid_len,
-    u64 initial_max_data) {
+    quic_connio *io,
+    int          is_server,
+    u8           byte0,
+    const u8    *dcid,
+    u8           dcid_len,
+    u64          initial_max_data) {
   quic_connio_init_in in = {is_server, byte0, initial_max_data};
   quic_connio_init(io, quic_span_of(dcid, dcid_len), &in);
 }
 
 /* Test-only convenience over the connio_send_in param object. */
 static usz send_at(
-    quic_connio *io, int level, const u8 *frames, usz frames_len, u8 *out,
-    usz cap) {
+    quic_connio *io,
+    int          level,
+    const u8    *frames,
+    usz          frames_len,
+    u8          *out,
+    usz          cap) {
   quic_connio_send_in sin = {level, quic_span_of(frames, frames_len)};
-  quic_obuf            ob = quic_obuf_of(out, cap);
+  quic_obuf           ob  = quic_obuf_of(out, cap);
   return quic_connio_send(io, &sin, &ob);
 }
 
@@ -69,7 +77,8 @@ static void test_connio_gated_without_key(void) {
   u8 pkt[64];
   /* Handshake level has no key installed */
   CHECK(send_at(&io, QUIC_LEVEL_HANDSHAKE, frames, 1, pkt, sizeof(pkt)) == 0);
-  CHECK(quic_connio_recv(&io, QUIC_LEVEL_HANDSHAKE, quic_mspan_of(pkt, 32)) == 0);
+  CHECK(
+      quic_connio_recv(&io, QUIC_LEVEL_HANDSHAKE, quic_mspan_of(pkt, 32)) == 0);
 }
 
 /* Install Initial + Handshake keys on io and lift its anti-amp gate so sends at

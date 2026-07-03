@@ -14,13 +14,17 @@ static void test_pto_backoff(void) {
 /* 4*rttvar dominates the granularity floor. */
 static void test_pto_var_dominates(void) {
   /* srtt=100000, rttvar=10000 -> 4*rttvar=40000 > 1000; +max_ack_delay=5000 */
-  CHECK(quic_pto_duration((quic_pto_rtt){100000, 10000}, 5000, 0) == 100000 + 40000 + 5000);
+  CHECK(
+      quic_pto_duration((quic_pto_rtt){100000, 10000}, 5000, 0) ==
+      100000 + 40000 + 5000);
 }
 
 /* Granularity floor applies when 4*rttvar is tiny. */
 static void test_pto_granularity_floor(void) {
   /* 4*rttvar = 4 < 1000, so floor wins */
-  CHECK(quic_pto_duration((quic_pto_rtt){100000, 1}, 0, 0) == 100000 + QUIC_PTO_GRANULARITY);
+  CHECK(
+      quic_pto_duration((quic_pto_rtt){100000, 1}, 0, 0) ==
+      100000 + QUIC_PTO_GRANULARITY);
 }
 
 /* Backoff multiplies the base PTO. */

@@ -49,12 +49,14 @@ static int hrr_cookie_hdr(quic_obuf *out, usz cl) {
   quic_put_be16(hdr, QUIC_EXT_COOKIE);
   quic_put_be16(hdr + 2, (u16)(cl + 2));
   quic_put_be16(hdr + 4, (u16)cl);
-  return quic_put_bytes(quic_mspan_of(out->p, out->cap), &out->len, quic_span_of(hdr, 6));
+  return quic_put_bytes(
+      quic_mspan_of(out->p, out->cap), &out->len, quic_span_of(hdr, 6));
 }
 
 static int hrr_cookie_body(quic_obuf *out, quic_span ck) {
-  return hrr_cookie_hdr(out, ck.n) &&
-         quic_put_bytes(quic_mspan_of(out->p, out->cap), &out->len, quic_span_of(ck.p, ck.n));
+  return hrr_cookie_hdr(out, ck.n) && quic_put_bytes(
+                                          quic_mspan_of(out->p, out->cap),
+                                          &out->len, quic_span_of(ck.p, ck.n));
 }
 
 /* RFC 8446 4.2.2 cookie: ext_data is opaque cookie<1..2^16-1>. */
@@ -95,7 +97,7 @@ int quic_hrr_build(u16 selected_group, quic_span cookie, quic_obuf *out) {
   block_start = off;
   w           = quic_obuf_of(out->p, out->cap);
   w.len       = off + 2;
-  end         = hrr_finish(out->p, hrr_exts(&w, selected_group, cookie), block_start);
+  end = hrr_finish(out->p, hrr_exts(&w, selected_group, cookie), block_start);
   if (end == 0) return 0;
   out->len = end;
   return 1;

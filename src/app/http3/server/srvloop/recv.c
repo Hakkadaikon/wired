@@ -12,18 +12,19 @@
  * walks it). in->largest_pn is unused outside the 1-RTT space (the Initial
  * uses a 4-byte PN). */
 static int recv_initial(
-    quic_server *s, const quic_srvloop_recv_in *in,
-    quic_srvloop_recv_out *out) {
+    quic_server                *s,
+    const quic_srvloop_recv_in *in,
+    quic_srvloop_recv_out      *out) {
   return quic_initpkt_open(
-      quic_span_of(s->sdrv.odcid, s->sdrv.odcid_len), in->dgram,
-      &out->payload);
+      quic_span_of(s->sdrv.odcid, s->sdrv.odcid_len), in->dgram, &out->payload);
 }
 
 /* RFC 9001 5.1: open a Handshake packet with the peer-direction CLIENT_HS key.
  * The DCID the client wrote is the server's source id (iscid). */
 static int recv_handshake(
-    quic_server *s, const quic_srvloop_recv_in *in,
-    quic_srvloop_recv_out *out) {
+    quic_server                *s,
+    const quic_srvloop_recv_in *in,
+    quic_srvloop_recv_out      *out) {
   quic_srvloop_dirkeys dk;
   if (!quic_srvloop_open_keys(s, QUIC_LEVEL_HANDSHAKE, &dk)) return 0;
   quic_protect_keys pk = {dk.keys, &dk.hp};
@@ -34,8 +35,9 @@ static int recv_handshake(
  * CLIENT_AP key, recovering the full packet number from its truncated form
  * relative to in->largest_pn (the largest 1-RTT PN received so far). */
 static int recv_onertt(
-    quic_server *s, const quic_srvloop_recv_in *in,
-    quic_srvloop_recv_out *out) {
+    quic_server                *s,
+    const quic_srvloop_recv_in *in,
+    quic_srvloop_recv_out      *out) {
   quic_srvloop_dirkeys dk;
   if (!quic_srvloop_open_keys(s, QUIC_LEVEL_ONERTT, &dk)) return 0;
   quic_protect_keys           pk = {dk.keys, &dk.hp};
@@ -46,8 +48,9 @@ static int recv_onertt(
 
 /* RFC 9000 17.2: dispatch the open by level (table keeps CCN low). */
 static int recv_at_level(
-    quic_server *s, const quic_srvloop_recv_in *in,
-    quic_srvloop_recv_out *out) {
+    quic_server                *s,
+    const quic_srvloop_recv_in *in,
+    quic_srvloop_recv_out      *out) {
   static int (*const open_at[])(
       quic_server *, const quic_srvloop_recv_in *, quic_srvloop_recv_out *) = {
       recv_initial,
@@ -58,8 +61,9 @@ static int recv_at_level(
 }
 
 int quic_srvloop_recv(
-    quic_server *s, const quic_srvloop_recv_in *in,
-    quic_srvloop_recv_out *out) {
+    quic_server                *s,
+    const quic_srvloop_recv_in *in,
+    quic_srvloop_recv_out      *out) {
   if (in->dgram.n == 0 ||
       !quic_connrunner_packet_level(in->dgram.p[0], &out->level))
     return 0;

@@ -23,8 +23,9 @@ static int sentmeta_lost_slot(
 }
 
 void quic_sentmeta_detect_loss(
-    quic_sentmeta *m, const quic_sentmeta_loss_in *in,
-    quic_sentmeta_u64out lost) {
+    quic_sentmeta               *m,
+    const quic_sentmeta_loss_in *in,
+    quic_sentmeta_u64out         lost) {
   *lost.n = 0;
   for (usz i = 0; i < QUIC_SENTMETA_CAP; i++) {
     if (!sentmeta_lost_slot(m, i, in)) continue;

@@ -8,8 +8,8 @@ static void test_pnspaces_recv_ranges_per_space(void) {
 
   /* No reception yet => no ranges. */
   u64                   largest = 99, ranges[8];
-  quic_u64obuf          rb  = {ranges, 8, 0};
-  quic_pnspaces_ack_out out = {&largest, &rb};
+  quic_u64obuf          rb      = {ranges, 8, 0};
+  quic_pnspaces_ack_out out     = {&largest, &rb};
   CHECK(quic_pnspaces_ack_ranges(&s, 0, &out) == 0);
 
   /* Receive 8,9,10 in Initial (0); 5 in Application (2). */

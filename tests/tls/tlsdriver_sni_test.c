@@ -24,8 +24,7 @@ static void test_tlsdriver_sni_present(void) {
   w = quic_tlsdriver_raw_client_hello(&d, ch, sizeof(ch));
   CHECK(w > 0);
   CHECK(
-      quic_salpn_find_extension(quic_span_of(ch, w), QUIC_SNI_TYPE, &ext) ==
-      1);
+      quic_salpn_find_extension(quic_span_of(ch, w), QUIC_SNI_TYPE, &ext) == 1);
   CHECK(quic_salpn_extract_sni(ext, &host) == 1);
   CHECK(host.n == 11 && host.p[0] == 'e' && host.p[10] == 'm');
 }
@@ -40,8 +39,7 @@ static void test_tlsdriver_sni_absent(void) {
   w = quic_tlsdriver_raw_client_hello(&d, ch, sizeof(ch));
   CHECK(w > 0);
   CHECK(
-      quic_salpn_find_extension(quic_span_of(ch, w), QUIC_SNI_TYPE, &ext) ==
-      0);
+      quic_salpn_find_extension(quic_span_of(ch, w), QUIC_SNI_TYPE, &ext) == 0);
 }
 
 void test_tlsdriver_sni(void) {

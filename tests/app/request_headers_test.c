@@ -11,8 +11,8 @@ static void test_get_field_section(void) {
   int       is_static = 0;
   usz       used;
   u8        val[32];
-  quic_obuf vb          = quic_obuf_of(val, sizeof val);
-  quic_qpack_nameref nr = {0, 0, 0};
+  quic_obuf vb              = quic_obuf_of(val, sizeof val);
+  quic_qpack_nameref    nr  = {0, 0, 0};
   quic_h3req_headers_in hin = {
       quic_span_of(path, 1), quic_span_of(authority, 11)};
   CHECK(quic_h3req_enc_get(&hin, &ob) == 1);

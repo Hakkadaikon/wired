@@ -53,14 +53,15 @@ static void bump_len(quic_srvloop_reqacc *acc, usz end) {
 static void gather_one(const quic_stream_frame *sf, quic_srvloop_reqacc *acc) {
   usz off = (usz)sf->offset;
   if (off >= acc->cap) return;
-  quic_put_bytes(quic_mspan_of(acc->buf, acc->cap), &off, quic_span_of(sf->data, (usz)sf->length));
+  quic_put_bytes(
+      quic_mspan_of(acc->buf, acc->cap), &off,
+      quic_span_of(sf->data, (usz)sf->length));
   bump_len(acc, (usz)sf->offset + (usz)sf->length);
   *acc->fin |= sf->fin;
 }
 
 /* 1 if the walked frame is a request STREAM frame and decodes into sf. */
-static int request_stream_of(
-    u64 type, quic_span frame, quic_stream_frame *sf) {
+static int request_stream_of(u64 type, quic_span frame, quic_stream_frame *sf) {
   return is_request_frame(type, frame.p, frame.n) &&
          quic_frame_get_stream(frame.p, frame.n, sf);
 }
@@ -93,7 +94,8 @@ static int request_complete(const quic_srvloop_reqacc *acc) {
 /* RFC 9114 4.1: re-wrap the reassembled stream bytes as a single STREAM frame
  * (offset 0) and drive the HTTP/3 request decoder once. */
 static void drive_complete(
-    quic_h3srv_state *h3, quic_srvloop_reqacc *acc,
+    quic_h3srv_state               *h3,
+    quic_srvloop_reqacc            *acc,
     const quic_srvloop_dispatch_in *in) {
   u8                wrap[2080];
   quic_stream_frame f  = {0, 0, *acc->len, acc->buf, 1};
@@ -107,7 +109,8 @@ static void drive_complete(
  * once FIN closes the stream, decode the reassembled request exactly once.
  * Returns 1 if a request-stream frame was present (handled), 0 otherwise. */
 static int reassemble_and_drive(
-    quic_h3srv_state *h3, quic_srvloop_reqacc *acc,
+    quic_h3srv_state               *h3,
+    quic_srvloop_reqacc            *acc,
     const quic_srvloop_dispatch_in *in) {
   if (!gather_request(in->payload.p, in->payload.n, acc)) return 0;
   if (request_complete(acc)) drive_complete(h3, acc, in);

@@ -51,7 +51,7 @@ int quic_client_open_initial_wire(
 /* hdr identifies dcid/scid/pn; tls is the flight payload to seal. */
 typedef struct {
   quic_clientwire_hdr_in hdr;
-  quic_span               tls;
+  quic_span              tls;
 } quic_clientwire_seal_in;
 
 /* RFC 9001 5: seal a TLS flight (e.g. the client Finished) into a Handshake

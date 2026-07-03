@@ -6,7 +6,9 @@ static void test_respparse_headers_data(void) {
   u8              stream[] = {0x01, 2, 0xaa, 0xbb, 0x00, 3, 1, 2, 3};
   quic_h3req_resp resp     = {0};
   CHECK(quic_h3req_resp_parse(quic_span_of(stream, sizeof stream), &resp) == 1);
-  CHECK(resp.headers.n == 2 && resp.headers.p[0] == 0xaa && resp.headers.p[1] == 0xbb);
+  CHECK(
+      resp.headers.n == 2 && resp.headers.p[0] == 0xaa &&
+      resp.headers.p[1] == 0xbb);
   CHECK(resp.body.n == 3 && resp.body.p[0] == 1 && resp.body.p[2] == 3);
 }
 

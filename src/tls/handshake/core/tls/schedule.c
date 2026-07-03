@@ -1,9 +1,11 @@
 #include "tls/handshake/core/tls/schedule.h"
 
-void quic_tls_derive_secret(const quic_derive_secret_in *in, u8 out[QUIC_HKDF_PRK]) {
+void quic_tls_derive_secret(
+    const quic_derive_secret_in *in, u8 out[QUIC_HKDF_PRK]) {
   u8 thash[QUIC_SHA256_DIGEST];
   quic_sha256(in->messages.p, in->messages.n, thash);
-  quic_hkdf_label l = {(const char *)in->label.p, in->label.n, {thash, sizeof(thash)}};
+  quic_hkdf_label l = {
+      (const char *)in->label.p, in->label.n, {thash, sizeof(thash)}};
   quic_hkdf_expand_label(in->secret, &l, quic_mspan_of(out, QUIC_HKDF_PRK));
 }
 
@@ -43,7 +45,8 @@ void quic_tls_handshake_secret(const u8 ecdhe[32], u8 out[QUIC_HKDF_PRK]) {
 }
 
 /* Expand one packet-protection field (RFC 9001 5.1 labels) from a secret. */
-static void hs_field(const u8 secret[QUIC_HKDF_PRK], quic_span label, quic_mspan out) {
+static void hs_field(
+    const u8 secret[QUIC_HKDF_PRK], quic_span label, quic_mspan out) {
   quic_hkdf_label l = {(const char *)label.p, label.n, {0, 0}};
   quic_hkdf_expand_label(secret, &l, out);
 }
@@ -51,16 +54,22 @@ static void hs_field(const u8 secret[QUIC_HKDF_PRK], quic_span label, quic_mspan
 /* Expand the QUIC key/iv/hp triple from a traffic secret. */
 static void protection_keys(
     const u8 ts[QUIC_HKDF_PRK], quic_initial_keys *out) {
-  hs_field(ts, quic_span_of((const u8 *)"quic key", 8), quic_mspan_of(out->key, QUIC_INITIAL_KEY));
-  hs_field(ts, quic_span_of((const u8 *)"quic iv", 7), quic_mspan_of(out->iv, QUIC_INITIAL_IV));
-  hs_field(ts, quic_span_of((const u8 *)"quic hp", 7), quic_mspan_of(out->hp, QUIC_INITIAL_HP));
+  hs_field(
+      ts, quic_span_of((const u8 *)"quic key", 8),
+      quic_mspan_of(out->key, QUIC_INITIAL_KEY));
+  hs_field(
+      ts, quic_span_of((const u8 *)"quic iv", 7),
+      quic_mspan_of(out->iv, QUIC_INITIAL_IV));
+  hs_field(
+      ts, quic_span_of((const u8 *)"quic hp", 7),
+      quic_mspan_of(out->hp, QUIC_INITIAL_HP));
 }
 
 void quic_tls_handshake_keys(
     const quic_handshake_keys_in *in, quic_initial_keys *out) {
-  const char            *label = in->is_server ? "s hs traffic" : "c hs traffic";
-  u8                     ts[QUIC_HKDF_PRK];
-  quic_derive_secret_in  dsi =
+  const char           *label = in->is_server ? "s hs traffic" : "c hs traffic";
+  u8                    ts[QUIC_HKDF_PRK];
+  quic_derive_secret_in dsi =
       derive_in(in->hs_secret, (ascii_label){label, 12}, in->transcript);
   quic_tls_derive_secret(&dsi, ts);
   protection_keys(ts, out);

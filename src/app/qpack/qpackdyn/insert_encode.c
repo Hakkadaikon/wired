@@ -14,7 +14,9 @@ static usz encode_name(quic_mspan out, quic_span name) {
   quic_qpack_pfx pfx = {5, QPACK_INSERT_LITNAME};
   usz            off = quic_qpack_int_encode(out, pfx, name.n);
   if (off == 0) return 0;
-  if (!quic_put_bytes(quic_mspan_of(out.p, out.n), &off, quic_span_of(name.p, name.n))) return 0;
+  if (!quic_put_bytes(
+          quic_mspan_of(out.p, out.n), &off, quic_span_of(name.p, name.n)))
+    return 0;
   return off;
 }
 

@@ -70,7 +70,9 @@ static void test_driver_rejects_uninstalled_level(void) {
   quic_driver_feed(&cl, dg, n);
   /* ServerHello is Initial-level so it still opens; instead verify the gate
    * directly: a recv at an uninstalled level returns 0 (no state change). */
-  CHECK(quic_connio_recv(&cl.io, QUIC_LEVEL_HANDSHAKE, quic_mspan_of(dg, n)) == 0);
+  CHECK(
+      quic_connio_recv(&cl.io, QUIC_LEVEL_HANDSHAKE, quic_mspan_of(dg, n)) ==
+      0);
   CHECK(cl.io.loop.keys.installed[QUIC_LEVEL_HANDSHAKE] == 0);
 }
 

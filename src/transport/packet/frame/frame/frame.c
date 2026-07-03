@@ -24,8 +24,10 @@ usz quic_frame_put_simple(u8 *buf, usz cap, u8 type) {
 
 /* Write type, offset, length varints. Returns 1 ok, 0 on overflow. */
 static int put_crypto_hdr(quic_obuf *o, const quic_crypto_frame *f) {
-  if (!quic_varint_put(quic_mspan_of(o->p, o->cap), &o->len, QUIC_FRAME_CRYPTO)) return 0;
-  if (!quic_varint_put(quic_mspan_of(o->p, o->cap), &o->len, f->offset)) return 0;
+  if (!quic_varint_put(quic_mspan_of(o->p, o->cap), &o->len, QUIC_FRAME_CRYPTO))
+    return 0;
+  if (!quic_varint_put(quic_mspan_of(o->p, o->cap), &o->len, f->offset))
+    return 0;
   return quic_varint_put(quic_mspan_of(o->p, o->cap), &o->len, f->length);
 }
 
@@ -65,7 +67,8 @@ static int put_opt_offset(quic_obuf *o, u64 offset) {
 
 /* Write the type and stream id varints. Returns 1 ok, 0. */
 static int put_stream_prefix(quic_obuf *o, const quic_stream_frame *f) {
-  if (!quic_varint_put(quic_mspan_of(o->p, o->cap), &o->len, stream_type(f))) return 0;
+  if (!quic_varint_put(quic_mspan_of(o->p, o->cap), &o->len, stream_type(f)))
+    return 0;
   return quic_varint_put(quic_mspan_of(o->p, o->cap), &o->len, f->stream_id);
 }
 
@@ -143,7 +146,8 @@ static int take_opt_frame_type(
 
 /* Read error code, optional frame_type, and reason length at *off. */
 static int take_cc_hdr(quic_span in, usz *off, quic_conn_close_frame *f) {
-  if (!quic_varint_take(quic_span_of(in.p, in.n), off, &f->error_code)) return 0;
+  if (!quic_varint_take(quic_span_of(in.p, in.n), off, &f->error_code))
+    return 0;
   if (!take_opt_frame_type(in, off, f)) return 0;
   return quic_varint_take(quic_span_of(in.p, in.n), off, &f->reason_len);
 }

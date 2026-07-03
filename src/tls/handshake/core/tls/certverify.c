@@ -128,7 +128,8 @@ static int ed25519_key(quic_span cert, const u8 **key) {
   return 1;
 }
 
-static int verify_ed25519(quic_span cert, quic_span sig, const u8 content[130]) {
+static int verify_ed25519(
+    quic_span cert, quic_span sig, const u8 content[130]) {
   const u8 *key;
   if (sig.n != QUIC_ED25519_SIG) return 0;
   if (!ed25519_key(cert, &key)) return 0;

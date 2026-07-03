@@ -6,7 +6,7 @@
 int quic_h3srv_open_control(quic_h3srv_state *st, quic_obuf *out) {
   usz len;
   if (!quic_h3conn_open_control(out->p, out->cap, &len)) return 0;
-  out->len           = len;
+  out->len          = len;
   st->settings_sent = 1;
   return 1;
 }

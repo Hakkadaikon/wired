@@ -18,7 +18,8 @@ int wired_srvboot_is_initial(const u8 *dg, usz len) {
 
 /* Reassemble the ClientHello from the opened Initial payload's CRYPTO frame(s)
  * (peers may lead with PADDING/ACK and split the CH, RFC 9000 12.4 / 19.6). */
-static int srvboot_collect_ch(quic_crecv *cr, quic_span payload, quic_span *msg) {
+static int srvboot_collect_ch(
+    quic_crecv *cr, quic_span payload, quic_span *msg) {
   quic_crecv_init(cr);
   if (!quic_crecv_collect(cr, payload.p, payload.n)) return 0;
   if (!quic_crecv_complete_message(cr)) return 0;
@@ -43,7 +44,8 @@ static int srvboot_init(
     const wired_srvboot_conn *conn,
     const wired_srvboot_id   *id,
     const quic_header        *h) {
-  quic_server_init_in in = {id->priv, id->pub, id->cert_seed, quic_span_of(0, 0)};
+  quic_server_init_in in = {
+      id->priv, id->pub, id->cert_seed, quic_span_of(0, 0)};
   quic_server_init(conn->s, &in);
   if (!quic_server_set_cids(
           conn->s, quic_span_of(h->dcid, h->dcid_len),
@@ -93,12 +95,12 @@ static int srvboot_seal_flight(
 /* Build the server flight from the folded ClientHello and seal it. */
 static int srvboot_flight(
     quic_server *s, const wired_srvboot_id *id, quic_obuf *out) {
-  u8                    sh[512], flight[2048];
-  quic_obuf             sh_ob = quic_obuf_of(sh, sizeof sh);
-  quic_obuf             fl_ob = quic_obuf_of(flight, sizeof flight);
-  quic_sdrv_flight_out  fo    = {&sh_ob, &fl_ob};
-  srvboot_flight_bytes  fb;
-  srvboot_server        sv = {s, id};
+  u8                   sh[512], flight[2048];
+  quic_obuf            sh_ob = quic_obuf_of(sh, sizeof sh);
+  quic_obuf            fl_ob = quic_obuf_of(flight, sizeof flight);
+  quic_sdrv_flight_out fo    = {&sh_ob, &fl_ob};
+  srvboot_flight_bytes fb;
+  srvboot_server       sv = {s, id};
   if (!quic_server_build_flight(s, id->random, &fo)) return 0;
   fb = (srvboot_flight_bytes){
       quic_span_of(sh, sh_ob.len), quic_span_of(flight, fl_ob.len)};
@@ -125,7 +127,7 @@ static int srvboot_read_initial(quic_mspan dgram, const srvboot_read_out *out) {
 static int srvboot_accept_ch(
     const wired_srvboot_conn *conn,
     const wired_srvboot_id   *id,
-    quic_mspan                 dgram) {
+    quic_mspan                dgram) {
   quic_header      h;
   quic_crecv       cr;
   quic_span        ch  = quic_span_of(0, 0);
@@ -136,8 +138,9 @@ static int srvboot_accept_ch(
 }
 
 int wired_srvboot_accept(
-    const wired_srvboot_conn *conn, const wired_srvboot_in *in,
-    quic_obuf *out) {
+    const wired_srvboot_conn *conn,
+    const wired_srvboot_in   *in,
+    quic_obuf                *out) {
   if (!srvboot_accept_ch(conn, in->id, in->dgram)) return 0;
   return srvboot_flight(conn->s, in->id, out);
 }

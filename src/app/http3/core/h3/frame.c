@@ -20,7 +20,10 @@ static int put_head(h3frame_wcur *w, u64 type, u64 len) {
 usz quic_h3_frame_put(quic_obuf *out, u64 type, quic_span payload) {
   h3frame_wcur w = {out->p, out->cap, 0};
   if (!put_head(&w, type, payload.n)) return 0;
-  if (!quic_put_bytes(quic_mspan_of(w.buf, w.cap), &w.off, quic_span_of(payload.p, payload.n))) return 0;
+  if (!quic_put_bytes(
+          quic_mspan_of(w.buf, w.cap), &w.off,
+          quic_span_of(payload.p, payload.n)))
+    return 0;
   out->len = w.off;
   return w.off;
 }
@@ -118,14 +121,16 @@ static int frame_put_pair(h3frame_wcur *w, const u64 *id, const u64 *value) {
 /* Read the Identifier into the next free slot, rejecting a full array. */
 static int take_pair_id(h3frame_rcur *r, quic_h3_settings *s) {
   if (s->n >= QUIC_H3_SETTINGS_MAX) return 0;
-  return quic_varint_take(quic_span_of(r->buf, r->n), &r->off, &s->pairs[s->n].id);
+  return quic_varint_take(
+      quic_span_of(r->buf, r->n), &r->off, &s->pairs[s->n].id);
 }
 
 /* Read one (Identifier Value) pair into the next free slot of s. Returns 1
  * ok, 0 if truncated or the fixed pair array is already full. */
 static int frame_take_pair(h3frame_rcur *r, quic_h3_settings *s) {
   if (!take_pair_id(r, s)) return 0;
-  if (!quic_varint_take(quic_span_of(r->buf, r->n), &r->off, &s->pairs[s->n].value))
+  if (!quic_varint_take(
+          quic_span_of(r->buf, r->n), &r->off, &s->pairs[s->n].value))
     return 0;
   s->n++;
   return 1;

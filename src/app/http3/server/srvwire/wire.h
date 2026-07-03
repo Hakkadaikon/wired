@@ -52,8 +52,7 @@ int quic_srvwire_open_initial(
  * (RFC 9000 13.2.1); ack_pn < 0 emits CRYPTO only. Returns 1 with out->len
  * set, or 0 on overflow. */
 int quic_srvwire_seal_handshake(
-    const quic_protect_keys *k, const quic_srvwire_seal_in *in,
-    quic_obuf *out);
+    const quic_protect_keys *k, const quic_srvwire_seal_in *in, quic_obuf *out);
 
 /* RFC 9001 5: open a Handshake packet sealed by quic_srvwire_seal_handshake.
  * Returns 1, or 0 on authentication failure or short input. */

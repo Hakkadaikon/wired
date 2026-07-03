@@ -80,7 +80,7 @@ static void test_udpsess_dcid_per_path(void) {
   quic_udpsess       s;
   static const u8    dcid0[2] = {1, 2};
   static const u8    dcid1[3] = {7, 8, 9};
-  quic_span           out;
+  quic_span          out;
   t.fd        = -1;
   t.peer_addr = 0x0a000001;
   t.peer_port = 4433;
@@ -97,7 +97,7 @@ static void test_udpsess_dcid_unset(void) {
   quic_udp_transport t;
   quic_udpsess       s;
   static const u8    dcid0[1] = {5};
-  quic_span           out;
+  quic_span          out;
   t.fd        = -1;
   t.peer_addr = 0x0a000001;
   t.peer_port = 4433;

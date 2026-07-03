@@ -33,7 +33,7 @@ void quic_loss_detect(
   *lost.n = 0;
   for (usz i = 0; i < QUIC_SENTPKT_CAP; i++) {
     if (!loss_is_lost(t, i, p)) continue;
-    t->e[i].state           = QUIC_SP_LOST;
+    t->e[i].state         = QUIC_SP_LOST;
     lost.out[(*lost.n)++] = t->e[i].pn;
   }
 }

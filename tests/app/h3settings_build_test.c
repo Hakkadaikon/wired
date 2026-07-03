@@ -2,9 +2,9 @@
 
 /* RFC 9114 7.2.4: SETTINGS frame wire structure and round-trip. */
 void test_h3settings_build(void) {
-  u8                  buf[32];
-  quic_h3settings_in  in = {0x4000, 0, 100};
-  quic_obuf           ob = {buf, sizeof buf, 0};
+  u8                 buf[32];
+  quic_h3settings_in in = {0x4000, 0, 100};
+  quic_obuf          ob = {buf, sizeof buf, 0};
   CHECK(quic_h3settings_build(&in, &ob) == 1);
   usz n = ob.len;
   CHECK(n > 2 && buf[0] == QUIC_H3_FRAME_SETTINGS);

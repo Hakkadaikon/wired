@@ -15,9 +15,9 @@ static void test_hrr_detect_true(void) {
 
 /* An ordinary ServerHello (non-sentinel random) is not an HRR. */
 static void test_hrr_detect_false(void) {
-  u8               random[32], pub[32], out[256];
-  quic_shbuild_in  in;
-  quic_obuf        ob = quic_obuf_of(out, sizeof out);
+  u8              random[32], pub[32], out[256];
+  quic_shbuild_in in;
+  quic_obuf       ob = quic_obuf_of(out, sizeof out);
   for (int i = 0; i < 32; i++) {
     random[i] = (u8)i;
     pub[i]    = (u8)(0x40 + i);

@@ -45,8 +45,8 @@ static usz fullhs_build_sh(u8 *out, usz cap, const u8 pub[32]) {
 }
 
 static usz fullhs_wrap_crypto(u8 *out, usz cap, const u8 *msg, usz n) {
-  usz w = 0;
-  quic_obuf ob = quic_obuf_of(out, cap);
+  usz                        w   = 0;
+  quic_obuf                  ob  = quic_obuf_of(out, cap);
   quic_crypto_stream_emit_in ein = {0, 256};
   CHECK(quic_crypto_stream_emit(quic_span_of(msg, n), &ein, &ob) == 1);
   w = ob.len;
@@ -92,11 +92,12 @@ static void feed_auth(quic_fullhs *h, const u8 *cv, usz cv_len) {
   CHECK(
       quic_fullhs_recv_cert(h, fullhs_cert_msg, sizeof(fullhs_cert_msg)) == 1);
   CHECK(
-      quic_fullhs_recv_certverify(h, quic_span_of(cv, cv_len), QUIC_TLS_SCHEME_ED25519) ==
-      1);
+      quic_fullhs_recv_certverify(
+          h, quic_span_of(cv, cv_len), QUIC_TLS_SCHEME_ED25519) == 1);
 }
 
-/* Wrap quic_fullhs_send_finished's obuf triple for CHECK-friendly call sites. */
+/* Wrap quic_fullhs_send_finished's obuf triple for CHECK-friendly call sites.
+ */
 static int send_fin(quic_fullhs *h, u8 *out, usz cap, usz *out_len) {
   quic_obuf ob = quic_obuf_of(out, cap);
   int       ok = quic_fullhs_send_finished(h, &ob);
@@ -125,8 +126,12 @@ static void test_fullhs_e2e(void) {
   quic_tlsdriver_init(&svtls, sv_priv, sv_pub, 1);
   reach_hs_secret(&cltls, &svtls, sv_pub);
 
-  CHECK(quic_fullhs_init(&cl, &cltls, quic_span_of(fullhs_sh, sizeof(fullhs_sh))) == 1);
-  CHECK(quic_fullhs_init(&sv, &svtls, quic_span_of(fullhs_sh, sizeof(fullhs_sh))) == 1);
+  CHECK(
+      quic_fullhs_init(
+          &cl, &cltls, quic_span_of(fullhs_sh, sizeof(fullhs_sh))) == 1);
+  CHECK(
+      quic_fullhs_init(
+          &sv, &svtls, quic_span_of(fullhs_sh, sizeof(fullhs_sh))) == 1);
 
   cv_len = build_cv(
       cv, QUIC_TLS_SCHEME_ED25519, fullhs_cv_sig, sizeof(fullhs_cv_sig));
@@ -177,7 +182,9 @@ static void test_fullhs_bad_certverify(void) {
   quic_tlsdriver_init(&cltls, cl_priv, cl_pub, 0);
   quic_tlsdriver_init(&svtls, sv_priv, sv_pub, 1);
   reach_hs_secret(&cltls, &svtls, sv_pub);
-  CHECK(quic_fullhs_init(&cl, &cltls, quic_span_of(fullhs_sh, sizeof(fullhs_sh))) == 1);
+  CHECK(
+      quic_fullhs_init(
+          &cl, &cltls, quic_span_of(fullhs_sh, sizeof(fullhs_sh))) == 1);
 
   for (usz i = 0; i < 64; i++) badsig[i] = fullhs_cv_sig[i];
   badsig[0] ^= 0x01;
@@ -187,8 +194,8 @@ static void test_fullhs_bad_certverify(void) {
       quic_fullhs_recv_cert(&cl, fullhs_cert_msg, sizeof(fullhs_cert_msg)) ==
       1);
   CHECK(
-      quic_fullhs_recv_certverify(&cl, quic_span_of(cv, cv_len), QUIC_TLS_SCHEME_ED25519) ==
-      0);
+      quic_fullhs_recv_certverify(
+          &cl, quic_span_of(cv, cv_len), QUIC_TLS_SCHEME_ED25519) == 0);
   CHECK(quic_fullhs_is_complete(&cl) == 0);
 }
 
@@ -210,8 +217,12 @@ static void test_fullhs_bad_finished(void) {
   quic_tlsdriver_init(&cltls, cl_priv, cl_pub, 0);
   quic_tlsdriver_init(&svtls, sv_priv, sv_pub, 1);
   reach_hs_secret(&cltls, &svtls, sv_pub);
-  CHECK(quic_fullhs_init(&cl, &cltls, quic_span_of(fullhs_sh, sizeof(fullhs_sh))) == 1);
-  CHECK(quic_fullhs_init(&sv, &svtls, quic_span_of(fullhs_sh, sizeof(fullhs_sh))) == 1);
+  CHECK(
+      quic_fullhs_init(
+          &cl, &cltls, quic_span_of(fullhs_sh, sizeof(fullhs_sh))) == 1);
+  CHECK(
+      quic_fullhs_init(
+          &sv, &svtls, quic_span_of(fullhs_sh, sizeof(fullhs_sh))) == 1);
 
   cv_len = build_cv(
       cv, QUIC_TLS_SCHEME_ED25519, fullhs_cv_sig, sizeof(fullhs_cv_sig));

@@ -7,7 +7,9 @@
 usz quic_inittoken_put(u8 *buf, usz cap, quic_span token) {
   usz off = 0;
   if (!quic_varint_put(quic_mspan_of(buf, cap), &off, token.n)) return 0;
-  if (!quic_put_bytes(quic_mspan_of(buf, cap), &off, quic_span_of(token.p, token.n))) return 0;
+  if (!quic_put_bytes(
+          quic_mspan_of(buf, cap), &off, quic_span_of(token.p, token.n)))
+    return 0;
   return off;
 }
 

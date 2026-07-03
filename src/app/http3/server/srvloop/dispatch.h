@@ -22,10 +22,10 @@ typedef struct {
  * payload, the request-decode scratch buffer, and the completed-request
  * outputs. */
 typedef struct {
-  quic_span             payload;
-  quic_mspan            scratch;
-  int                  *got_request;
-  quic_h3reqdrive_req  *req;
+  quic_span            payload;
+  quic_mspan           scratch;
+  int                 *got_request;
+  quic_h3reqdrive_req *req;
 } quic_srvloop_dispatch_in;
 
 /* The server orchestrator, its HTTP/3 state and the cross-datagram request

@@ -24,9 +24,10 @@ void quic_conn_init(quic_conn *c) {
 
 int quic_conn_step(quic_conn *c, quic_conn_event ev) {
   u8             st    = (u8)c->phase;
-  quic_fsm_table table = {phase_rows, sizeof(phase_rows) / sizeof(phase_rows[0])};
-  int            ok    = quic_fsm_step(&st, &table, (u8)ev);
-  c->phase             = (quic_phase)st;
+  quic_fsm_table table = {
+      phase_rows, sizeof(phase_rows) / sizeof(phase_rows[0])};
+  int ok   = quic_fsm_step(&st, &table, (u8)ev);
+  c->phase = (quic_phase)st;
   return ok;
 }
 

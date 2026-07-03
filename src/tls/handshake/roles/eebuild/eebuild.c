@@ -13,7 +13,8 @@ static int eebuild_fits(usz tp_len, usz cap) {
   return tp_len <= 0xFFFF && 4 + 2 + EEBUILD_ALPN_LEN + 4 + tp_len <= cap;
 }
 
-int quic_eebuild_encrypted_extensions(quic_span transport_params, quic_obuf *out) {
+int quic_eebuild_encrypted_extensions(
+    quic_span transport_params, quic_obuf *out) {
   usz       off, alpn, ext;
   quic_obuf eob;
   if (!eebuild_fits(transport_params.n, out->cap)) return 0;

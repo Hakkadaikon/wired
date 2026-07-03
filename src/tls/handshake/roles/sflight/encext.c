@@ -11,7 +11,8 @@ static int encext_fits(usz tp_len, usz cap) {
   return tp_len <= 0xFFFF && 4 + 2 + 4 + tp_len <= cap;
 }
 
-int quic_sflight_encrypted_extensions(quic_span transport_params, quic_obuf *out) {
+int quic_sflight_encrypted_extensions(
+    quic_span transport_params, quic_obuf *out) {
   usz       off, ext;
   quic_obuf eob;
   if (!encext_fits(transport_params.n, out->cap)) return 0;

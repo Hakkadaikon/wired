@@ -37,7 +37,8 @@ typedef struct {
  * `kind` (1 ACK / 2 rtx / 3 new data) decides ack-eliciting and in-flight: an
  * ACK-only packet is neither, a retransmission or new data is both. The packet
  * number is the send level space's next-1 (connio advanced it on the send). */
-void quic_connrunner_track_sent(quic_connrunner *r, const quic_connrunner_sent_in *in);
+void quic_connrunner_track_sent(
+    quic_connrunner *r, const quic_connrunner_sent_in *in);
 
 /* RFC 9002 6.1: run real loss detection over the sentmeta ring at `now` and,
  * if the loop captured no lost pn for this send, feed the oldest sentmeta-lost

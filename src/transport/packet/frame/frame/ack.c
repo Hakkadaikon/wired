@@ -8,8 +8,11 @@
  * high: gap = prev.lo - cur.hi - 2 (RFC 9000 19.3). */
 static int put_pair(
     quic_obuf *o, const quic_ack_range *prev, const quic_ack_range *cur) {
-  if (!quic_varint_put(quic_mspan_of(o->p, o->cap), &o->len, prev->lo - cur->hi - 2)) return 0;
-  return quic_varint_put(quic_mspan_of(o->p, o->cap), &o->len, cur->hi - cur->lo);
+  if (!quic_varint_put(
+          quic_mspan_of(o->p, o->cap), &o->len, prev->lo - cur->hi - 2))
+    return 0;
+  return quic_varint_put(
+      quic_mspan_of(o->p, o->cap), &o->len, cur->hi - cur->lo);
 }
 
 /* The frame type is 0x03 when ECN counts are present, else 0x02. */
@@ -19,8 +22,10 @@ static u64 ack_type(const quic_ack_frame *f) {
 
 /* Write type, largest, ack_delay (three varints). Returns 1 ok, 0. */
 static int put_ack_meta(quic_obuf *o, const quic_ack_frame *f) {
-  if (!quic_varint_put(quic_mspan_of(o->p, o->cap), &o->len, ack_type(f))) return 0;
-  if (!quic_varint_put(quic_mspan_of(o->p, o->cap), &o->len, f->ranges[0].hi)) return 0;
+  if (!quic_varint_put(quic_mspan_of(o->p, o->cap), &o->len, ack_type(f)))
+    return 0;
+  if (!quic_varint_put(quic_mspan_of(o->p, o->cap), &o->len, f->ranges[0].hi))
+    return 0;
   return quic_varint_put(quic_mspan_of(o->p, o->cap), &o->len, f->ack_delay);
 }
 
@@ -85,7 +90,8 @@ typedef struct {
 /* Read largest, ack_delay, range count (three varints). Returns 1 ok, 0. */
 static int take_ack_meta(quic_span in, usz *off, ackdec *d) {
   if (!quic_varint_take(quic_span_of(in.p, in.n), off, &d->largest)) return 0;
-  if (!quic_varint_take(quic_span_of(in.p, in.n), off, &d->f->ack_delay)) return 0;
+  if (!quic_varint_take(quic_span_of(in.p, in.n), off, &d->f->ack_delay))
+    return 0;
   return quic_varint_take(quic_span_of(in.p, in.n), off, &d->count);
 }
 

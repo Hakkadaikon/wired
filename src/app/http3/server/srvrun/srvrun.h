@@ -9,7 +9,7 @@
  * pair). */
 typedef struct {
   quic_srvloop_handler cb;
-  void                 *ctx;
+  void                *ctx;
 } wired_srvrun_handler;
 
 /* The complete server event loop: bind a UDP socket on `port`, then forever

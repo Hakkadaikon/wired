@@ -64,7 +64,7 @@ static int decode_status(const u8 *fs, usz n, u16 *status) {
 /* RFC 9114 4.1 / RFC 9000 19.8 */
 int quic_h3conn_recv_response(quic_span stream_data, quic_h3conn_resp *resp) {
   quic_stream_frame f;
-  quic_h3req_resp    rp = {0};
+  quic_h3req_resp   rp = {0};
   if (!quic_frame_get_stream(stream_data.p, stream_data.n, &f)) return 0;
   if (!quic_h3req_resp_parse(quic_span_of(f.data, (usz)f.length), &rp))
     return 0;

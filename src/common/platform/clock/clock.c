@@ -22,8 +22,8 @@ u64 quic_clock_epoch_to_ymdhms(u64 secs) {
   u64       days = secs / 86400, rem = secs % 86400;
   clock_ymd ymd;
   clock_civil(days, &ymd);
-  return ((ymd.y * 100 + ymd.m) * 100 + ymd.d) * 1000000 + (rem / 3600) * 10000 +
-         (rem / 60 % 60) * 100 + rem % 60;
+  return ((ymd.y * 100 + ymd.m) * 100 + ymd.d) * 1000000 +
+         (rem / 3600) * 10000 + (rem / 60 % 60) * 100 + rem % 60;
 }
 
 u64 quic_clock_ymdhms(void) {

@@ -17,8 +17,9 @@ void test_retrytoken(void) {
 
   CHECK(quic_retrytoken_verify(key, &in, token) == 1);
   CHECK(quic_retrytoken_verify(key, &in2, token) == 0);
-  u8                 odcid2[8]  = {1, 2, 3, 4, 5, 6, 7, 9};
-  quic_retrytoken_in in_odcid2 = {quic_span_of(addr, 4), quic_span_of(odcid2, 8)};
+  u8                 odcid2[8] = {1, 2, 3, 4, 5, 6, 7, 9};
+  quic_retrytoken_in in_odcid2 = {
+      quic_span_of(addr, 4), quic_span_of(odcid2, 8)};
   CHECK(quic_retrytoken_verify(key, &in_odcid2, token) == 0);
   token[0] ^= 0x01;
   CHECK(quic_retrytoken_verify(key, &in, token) == 0);

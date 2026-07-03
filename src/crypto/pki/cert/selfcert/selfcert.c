@@ -27,7 +27,8 @@ static usz build_sigval(const u8 sig[64], quic_obuf *out) {
   u8  bits[65];
   usz off = 1;
   bits[0] = 0x00;
-  quic_put_bytes(quic_mspan_of(bits, sizeof(bits)), &off, quic_span_of(sig, 64));
+  quic_put_bytes(
+      quic_mspan_of(bits, sizeof(bits)), &off, quic_span_of(sig, 64));
   if (!quic_selfcert_der_tlv(QUIC_DER_BIT_STRING, quic_span_of(bits, off), out))
     return 0;
   return out->len;
@@ -39,7 +40,9 @@ static int assemble(const quic_span *parts, usz cnt, quic_obuf *out) {
   usz off = 0;
   int ok  = 1;
   for (usz i = 0; i < cnt; i++)
-    ok &= quic_put_bytes(quic_mspan_of(body, sizeof(body)), &off, quic_span_of(parts[i].p, parts[i].n));
+    ok &= quic_put_bytes(
+        quic_mspan_of(body, sizeof(body)), &off,
+        quic_span_of(parts[i].p, parts[i].n));
   return ok &&
          quic_selfcert_der_tlv(QUIC_DER_SEQUENCE, quic_span_of(body, off), out);
 }

@@ -37,8 +37,8 @@ static void hs_traffic(
     quic_span sh,
     int       is_server,
     u8        out[QUIC_HKDF_PRK]) {
-  const char            *label = is_server ? "s hs traffic" : "c hs traffic";
-  quic_derive_secret_in  in = {hs, quic_span_of((const u8 *)label, 12), sh};
+  const char           *label = is_server ? "s hs traffic" : "c hs traffic";
+  quic_derive_secret_in in    = {hs, quic_span_of((const u8 *)label, 12), sh};
   quic_tls_derive_secret(&in, out);
 }
 
@@ -134,10 +134,11 @@ static int fullhs_policy_ok(const quic_fullhs *h, const u8 *cert, usz n) {
 }
 
 /* Every CertificateEntry of the wire chain, leaf first. */
-static int fullhs_chain_parse(quic_span cert_msg, const quic_tls_cert_chain_out *out) {
+static int fullhs_chain_parse(
+    quic_span cert_msg, const quic_tls_cert_chain_out *out) {
   quic_span ctx;
-  quic_span body = quic_span_of(
-      cert_msg.p + QUIC_HS_HEADER, cert_msg.n - QUIC_HS_HEADER);
+  quic_span body =
+      quic_span_of(cert_msg.p + QUIC_HS_HEADER, cert_msg.n - QUIC_HS_HEADER);
   return quic_tls_cert_chain(body, &ctx, out);
 }
 
@@ -162,7 +163,9 @@ static int fullhs_cert_checks(
 
 /* Parse and accept (or reject) the wire chain. */
 static int fullhs_chain_accept(
-    const quic_fullhs *h, quic_span cert_msg, const quic_tls_cert_chain_out *out) {
+    const quic_fullhs             *h,
+    quic_span                      cert_msg,
+    const quic_tls_cert_chain_out *out) {
   if (!fullhs_chain_parse(cert_msg, out)) return 0;
   return fullhs_cert_checks(h, out->entries, *out->count);
 }
@@ -212,9 +215,9 @@ int quic_fullhs_recv_cert(quic_fullhs *h, const u8 *cert_msg, usz len) {
 /* Verify the CertificateVerify signature over the transcript hash through the
  * Certificate message (the message body precedes the running hash). */
 static int cv_verify(quic_fullhs *h, quic_span cv_msg, u16 scheme) {
-  u16                sig_scheme;
-  quic_span          sig, body = quic_span_of(
-      cv_msg.p + QUIC_HS_HEADER, cv_msg.n - QUIC_HS_HEADER);
+  u16       sig_scheme;
+  quic_span sig,
+      body = quic_span_of(cv_msg.p + QUIC_HS_HEADER, cv_msg.n - QUIC_HS_HEADER);
   u8                 th[QUIC_SHA256_DIGEST];
   quic_certverify_in in;
   if (!quic_tls_certverify_parse(body, &sig_scheme, &sig)) return 0;
@@ -258,7 +261,8 @@ int quic_fullhs_send_finished(quic_fullhs *h, quic_obuf *out) {
   out->p[2] = 0;
   out->p[3] = QUIC_TLS_VERIFY_DATA;
   tr_hash(h, th);
-  quic_tls_finished_verify_data(h->hs_traffic_self, th, out->p + QUIC_HS_HEADER);
+  quic_tls_finished_verify_data(
+      h->hs_traffic_self, th, out->p + QUIC_HS_HEADER);
   out->len = QUIC_HS_HEADER + QUIC_TLS_VERIFY_DATA;
   return fold_finished(h, out->p, out->len);
 }

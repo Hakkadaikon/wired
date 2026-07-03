@@ -34,8 +34,7 @@ void test_srvfin_complete(void) {
     quic_srvfin_state_init(&st, &sched, &keys);
     CHECK(
         quic_keysched_advance_handshake(
-            &sched,
-            quic_span_of(ecdhe, sizeof ecdhe),
+            &sched, quic_span_of(ecdhe, sizeof ecdhe),
             quic_span_of(tr, sizeof tr)) == 1);
     CHECK(quic_srvfin_complete(&st, tr, sizeof tr) == 1);
 

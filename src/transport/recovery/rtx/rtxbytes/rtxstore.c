@@ -13,7 +13,9 @@ int quic_rtxbytes_store(quic_rtxbytes *st, u64 pn, quic_span frame) {
 
   if (frame.n > QUIC_RTXBYTES_FRAME) return 0;
   slot = &st->s[st->next];
-  if (!quic_put_bytes(quic_mspan_of(slot->data, QUIC_RTXBYTES_FRAME), &off, quic_span_of(frame.p, frame.n)))
+  if (!quic_put_bytes(
+          quic_mspan_of(slot->data, QUIC_RTXBYTES_FRAME), &off,
+          quic_span_of(frame.p, frame.n)))
     return 0;
   slot->pn   = pn;
   slot->len  = frame.n;

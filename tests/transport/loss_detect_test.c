@@ -4,13 +4,18 @@
 static void test_loss_packet_threshold(void) {
   quic_sentpkt t;
   quic_sentpkt_init(&t);
-  quic_sentpkt_on_send(&t, &(quic_sentpkt_out){1, 1000, 1, 1}); /* 4 below 5 -> lost */
-  quic_sentpkt_on_send(&t, &(quic_sentpkt_out){2, 1000, 1, 1}); /* 3 below 5 -> lost (boundary) */
-  quic_sentpkt_on_send(&t, &(quic_sentpkt_out){3, 1000, 1, 1}); /* 2 below 5 -> NOT lost */
+  quic_sentpkt_on_send(
+      &t, &(quic_sentpkt_out){1, 1000, 1, 1}); /* 4 below 5 -> lost */
+  quic_sentpkt_on_send(
+      &t,
+      &(quic_sentpkt_out){2, 1000, 1, 1}); /* 3 below 5 -> lost (boundary) */
+  quic_sentpkt_on_send(
+      &t, &(quic_sentpkt_out){3, 1000, 1, 1}); /* 2 below 5 -> NOT lost */
   u64 lost[8];
   usz n = 0;
   /* now==sent, large loss_delay: time threshold inert, isolate packet */
-  quic_loss_detect(&t, &(quic_loss_params){5, 1000, 5000}, (quic_u64out){lost, &n});
+  quic_loss_detect(
+      &t, &(quic_loss_params){5, 1000, 5000}, (quic_u64out){lost, &n});
   CHECK(n == 2);
   CHECK(t.e[0].state == QUIC_SP_LOST);
   CHECK(t.e[1].state == QUIC_SP_LOST);
@@ -22,10 +27,14 @@ static void test_loss_packet_threshold(void) {
 static void test_loss_time_threshold(void) {
   quic_sentpkt t;
   quic_sentpkt_init(&t);
-  quic_sentpkt_on_send(&t, &(quic_sentpkt_out){5, 100, 1, 1}); /* sent at t=100, 0 below largest */
+  quic_sentpkt_on_send(
+      &t,
+      &(quic_sentpkt_out){5, 100, 1, 1}); /* sent at t=100, 0 below largest */
   u64 lost[4];
   usz n = 0;
-  quic_loss_detect(&t, &(quic_loss_params){5, 1000, 500}, (quic_u64out){lost, &n}); /* now-delay=500 > 100 */
+  quic_loss_detect(
+      &t, &(quic_loss_params){5, 1000, 500},
+      (quic_u64out){lost, &n}); /* now-delay=500 > 100 */
   CHECK(n == 1);
   CHECK(t.e[0].state == QUIC_SP_LOST);
 }
@@ -34,10 +43,12 @@ static void test_loss_time_threshold(void) {
 static void test_loss_none(void) {
   quic_sentpkt t;
   quic_sentpkt_init(&t);
-  quic_sentpkt_on_send(&t, &(quic_sentpkt_out){4, 900, 1, 1}); /* 1 below 5, recent */
+  quic_sentpkt_on_send(
+      &t, &(quic_sentpkt_out){4, 900, 1, 1}); /* 1 below 5, recent */
   u64 lost[4];
   usz n = 99;
-  quic_loss_detect(&t, &(quic_loss_params){5, 1000, 500}, (quic_u64out){lost, &n});
+  quic_loss_detect(
+      &t, &(quic_loss_params){5, 1000, 500}, (quic_u64out){lost, &n});
   CHECK(n == 0);
   CHECK(t.e[0].state == QUIC_SP_INFLIGHT);
 }

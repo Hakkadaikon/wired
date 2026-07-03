@@ -76,7 +76,7 @@ static void client_reach_hs_secret(
   CHECK(quic_tlsdriver_recv_crypto(sv, frame, fl) == 1);
   shn = client_build_sh(sh, sizeof(sh), sv_pub);
   {
-    quic_obuf ob = quic_obuf_of(frame, sizeof(frame));
+    quic_obuf                  ob  = quic_obuf_of(frame, sizeof(frame));
     quic_crypto_stream_emit_in ein = {0, 256};
     CHECK(quic_crypto_stream_emit(quic_span_of(sh, shn), &ein, &ob) == 1);
     fl = ob.len;
@@ -127,7 +127,7 @@ static void test_client_feed_serverhello(void) {
 
   shn = client_build_sh(sh, sizeof(sh), sv_pub);
   {
-    quic_obuf ob = quic_obuf_of(frame, sizeof(frame));
+    quic_obuf                  ob  = quic_obuf_of(frame, sizeof(frame));
     quic_crypto_stream_emit_in ein = {0, 256};
     CHECK(quic_crypto_stream_emit(quic_span_of(sh, shn), &ein, &ob) == 1);
     fl = ob.len;
@@ -160,8 +160,12 @@ static void test_client_e2e_confirmed(void) {
    * transcript so the golden CV/Finished verify on both. */
   client_reach_hs_secret(&c.tls, &svtls, sv_pub);
   CHECK(quic_tlsdriver_handshake_secret_ready(&svtls) == 1);
-  CHECK(quic_fullhs_init(&c.hs, &c.tls, quic_span_of(fullhs_sh, sizeof(fullhs_sh))) == 1);
-  CHECK(quic_fullhs_init(&sv, &svtls, quic_span_of(fullhs_sh, sizeof(fullhs_sh))) == 1);
+  CHECK(
+      quic_fullhs_init(
+          &c.hs, &c.tls, quic_span_of(fullhs_sh, sizeof(fullhs_sh))) == 1);
+  CHECK(
+      quic_fullhs_init(
+          &sv, &svtls, quic_span_of(fullhs_sh, sizeof(fullhs_sh))) == 1);
   c.phase = QUIC_CLIENT_HS_AUTH;
   c.fd    = -1;
 
@@ -172,8 +176,8 @@ static void test_client_e2e_confirmed(void) {
       quic_fullhs_recv_cert(&sv, fullhs_cert_msg, sizeof(fullhs_cert_msg)) ==
       1);
   CHECK(
-      quic_fullhs_recv_certverify(&sv, quic_span_of(cv, cv_len), QUIC_TLS_SCHEME_ED25519) ==
-      1);
+      quic_fullhs_recv_certverify(
+          &sv, quic_span_of(cv, cv_len), QUIC_TLS_SCHEME_ED25519) == 1);
   {
     quic_obuf ob = quic_obuf_of(svfin, sizeof(svfin));
     CHECK(quic_fullhs_send_finished(&sv, &ob) == 1);
@@ -221,7 +225,7 @@ static void policy_client(
   CHECK(quic_tlsdriver_recv_crypto(svtls, frame, fl) == 1);
   shn = client_build_sh(sh, sizeof(sh), sv_pub);
   {
-    quic_obuf ob = quic_obuf_of(frame, sizeof(frame));
+    quic_obuf                  ob  = quic_obuf_of(frame, sizeof(frame));
     quic_crypto_stream_emit_in ein = {0, 256};
     CHECK(quic_crypto_stream_emit(quic_span_of(sh, shn), &ein, &ob) == 1);
     fl = ob.len;
@@ -269,8 +273,12 @@ static void test_client_policy_valid(void) {
   quic_tlsdriver_init(&c.tls, cl_priv, cl_pub, 0);
   quic_tlsdriver_init(&svtls, sv_priv, sv_pub, 1);
   client_reach_hs_secret(&c.tls, &svtls, sv_pub);
-  CHECK(quic_fullhs_init(&c.hs, &c.tls, quic_span_of(fullhs_sh, sizeof(fullhs_sh))) == 1);
-  CHECK(quic_fullhs_init(&sv, &svtls, quic_span_of(fullhs_sh, sizeof(fullhs_sh))) == 1);
+  CHECK(
+      quic_fullhs_init(
+          &c.hs, &c.tls, quic_span_of(fullhs_sh, sizeof(fullhs_sh))) == 1);
+  CHECK(
+      quic_fullhs_init(
+          &sv, &svtls, quic_span_of(fullhs_sh, sizeof(fullhs_sh))) == 1);
   /* what feed_initial injects for a client with an in-window clock */
   quic_fullhs_set_policy(&c.hs, 20270101000000ULL, quic_span_of(0, 0));
   c.phase = QUIC_CLIENT_HS_AUTH;
@@ -282,8 +290,8 @@ static void test_client_policy_valid(void) {
       quic_fullhs_recv_cert(&sv, fullhs_cert_msg, sizeof(fullhs_cert_msg)) ==
       1);
   CHECK(
-      quic_fullhs_recv_certverify(&sv, quic_span_of(cv, cv_len), QUIC_TLS_SCHEME_ED25519) ==
-      1);
+      quic_fullhs_recv_certverify(
+          &sv, quic_span_of(cv, cv_len), QUIC_TLS_SCHEME_ED25519) == 1);
   {
     quic_obuf ob = quic_obuf_of(svfin, sizeof(svfin));
     CHECK(quic_fullhs_send_finished(&sv, &ob) == 1);
@@ -392,8 +400,12 @@ static void test_client_castore_confirmed(void) {
   quic_tlsdriver_init(&c.tls, cl_priv, cl_pub, 0);
   quic_tlsdriver_init(&svtls, sv_priv, sv_pub, 1);
   client_reach_hs_secret(&c.tls, &svtls, sv_pub);
-  CHECK(quic_fullhs_init(&c.hs, &c.tls, quic_span_of(fullhs_sh, sizeof(fullhs_sh))) == 1);
-  CHECK(quic_fullhs_init(&sv, &svtls, quic_span_of(fullhs_sh, sizeof(fullhs_sh))) == 1);
+  CHECK(
+      quic_fullhs_init(
+          &c.hs, &c.tls, quic_span_of(fullhs_sh, sizeof(fullhs_sh))) == 1);
+  CHECK(
+      quic_fullhs_init(
+          &sv, &svtls, quic_span_of(fullhs_sh, sizeof(fullhs_sh))) == 1);
   c.phase = QUIC_CLIENT_HS_AUTH;
   c.fd    = -1;
   /* what feed_initial injects for a fully armed client */
@@ -414,7 +426,8 @@ static void test_client_castore_confirmed(void) {
   /* mirror server advances its transcript with the same flight */
   CHECK(quic_fullhs_recv_cert(&sv, certmsg, n) == 1);
   CHECK(
-      quic_fullhs_recv_certverify(&sv, quic_span_of(cv, cv_len), QUIC_TLS_SCHEME_ECDSA_P256) == 1);
+      quic_fullhs_recv_certverify(
+          &sv, quic_span_of(cv, cv_len), QUIC_TLS_SCHEME_ECDSA_P256) == 1);
   {
     quic_obuf ob = quic_obuf_of(svfin, sizeof(svfin));
     CHECK(quic_fullhs_send_finished(&sv, &ob) == 1);

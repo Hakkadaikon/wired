@@ -25,7 +25,8 @@ static void derive_keys(
       quic_mspan_of(out->hp, QUIC_INITIAL_HP));
 }
 
-void quic_initial_derive(quic_span dcid, int is_server, quic_initial_keys *out) {
+void quic_initial_derive(
+    quic_span dcid, int is_server, quic_initial_keys *out) {
   u8          initial_secret[QUIC_HKDF_PRK];
   u8          side_secret[QUIC_HKDF_PRK];
   const char *label = is_server ? "server in" : "client in";

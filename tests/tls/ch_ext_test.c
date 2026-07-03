@@ -29,8 +29,7 @@ void test_ch_ext_finds_alpn_and_sni(void) {
       quic_span_of(buf, w), QUIC_SALPN_EXT_TYPE, &ext));
   CHECK(ext.p >= buf && ext.p + ext.n <= buf + w); /* view inside message */
 
-  CHECK(
-      quic_salpn_find_extension(quic_span_of(buf, w), QUIC_SNI_TYPE, &ext));
+  CHECK(quic_salpn_find_extension(quic_span_of(buf, w), QUIC_SNI_TYPE, &ext));
   CHECK(ext.n > 0);
 }
 

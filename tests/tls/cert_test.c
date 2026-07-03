@@ -21,14 +21,15 @@ static void test_cert_parse(void) {
   m[k++] = 0;
   m[k++] = 0; /* extensions length 0 */
 
-  quic_span            ctx;
+  quic_span           ctx;
   quic_tls_cert_entry first;
   CHECK(quic_tls_cert_parse(quic_span_of(m, k), &ctx, &first) == 1);
   CHECK(ctx.n == 0 && first.cert_len == 4);
   CHECK(first.cert_data[0] == 'A' && first.cert_data[3] == 'D');
 
   CHECK(
-      quic_tls_cert_parse(quic_span_of(m, k - 1), &ctx, &first) == 0); /* short */
+      quic_tls_cert_parse(quic_span_of(m, k - 1), &ctx, &first) ==
+      0); /* short */
 }
 
 /* CertificateVerify yields the scheme and the signature view. */
@@ -57,10 +58,12 @@ static void test_certverify_ed25519(void) {
   }
   for (usz i = 0; i < QUIC_ED25519_SIG; i++) sig[i] = 0;
 
-  CHECK(quic_tls_certverify_ed25519(quic_span_of(sig, 32), th, pk) == 0); /* wrong length */
   CHECK(
-      quic_tls_certverify_ed25519(quic_span_of(sig, QUIC_ED25519_SIG), th, pk) ==
-      0);
+      quic_tls_certverify_ed25519(quic_span_of(sig, 32), th, pk) ==
+      0); /* wrong length */
+  CHECK(
+      quic_tls_certverify_ed25519(
+          quic_span_of(sig, QUIC_ED25519_SIG), th, pk) == 0);
 
   /* the signed content is deterministic and well-formed */
   u8 c1[130], c2[130];

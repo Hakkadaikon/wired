@@ -18,12 +18,13 @@ typedef struct {
  * into *req and record that a request has been seen on this connection.
  * Returns 1 on success, 0 on a malformed frame or field section. */
 int quic_h3srv_on_request(
-    quic_h3srv_state *st, const quic_h3srv_req_in *in,
-    quic_h3reqdrive_req *req);
+    quic_h3srv_state        *st,
+    const quic_h3srv_req_in *in,
+    quic_h3reqdrive_req     *req);
 
 /* The request stream to reply on and the response to build. */
 typedef struct {
-  u64               stream_id;
+  u64              stream_id;
   quic_h3conn_resp resp;
 } quic_h3srv_send_in;
 
@@ -50,6 +51,6 @@ typedef struct {
 int quic_h3srv_build_response_for_method(
     const quic_h3srv_state              *st,
     const quic_h3srv_resp_for_method_in *in,
-    quic_obuf                            *out);
+    quic_obuf                           *out);
 
 #endif

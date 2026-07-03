@@ -60,8 +60,8 @@ usz quic_connrunner_process_datagram(quic_connrunner *r, quic_mspan dgram) {
   const u8 *pkts[QUIC_CONNRUNNER_MAXPKTS];
   usz       offs[QUIC_CONNRUNNER_MAXPKTS], lens[QUIC_CONNRUNNER_MAXPKTS], n, i;
   usz       accepted = 0;
-  quic_pktlist out = {pkts, offs, lens, QUIC_CONNRUNNER_MAXPKTS};
-  n = quic_udploop_split(quic_span_of(dgram.p, dgram.n), &out);
+  quic_pktlist out   = {pkts, offs, lens, QUIC_CONNRUNNER_MAXPKTS};
+  n                  = quic_udploop_split(quic_span_of(dgram.p, dgram.n), &out);
   for (i = 0; i < n; i++) {
     int elicited = 0;
     if (!recv_one(r, quic_mspan_of(dgram.p + offs[i], lens[i]), &elicited))

@@ -72,7 +72,8 @@ static void test_sdrv_session_id_echo(void) {
     static const u8 tp[1] = {0};
     ch_len                = quic_tls_client_hello(
         &(quic_clienthello_in){
-            srv_random, cli_pub, quic_span_of(0, 0), quic_span_of(tp, sizeof(tp))},
+            srv_random, cli_pub, quic_span_of(0, 0),
+            quic_span_of(tp, sizeof(tp))},
         &(quic_obuf){ch, sizeof(ch), 0});
   }
   CHECK(ch_len != 0);
@@ -107,18 +108,18 @@ static void test_sdrv_session_id_echo(void) {
 void test_sdrv(void) {
   test_sdrv_session_id_echo();
 
-  u8        cli_priv[32], cli_pub[32], srv_priv[32], srv_pub[32];
-  u8        cert_priv[32];
-  u8        ch[512], sh[256], flight[2048];
-  u8        srv_random[32], shared_cli[32], hs[32], s_traffic[32], th[32];
-  u8                   sh_pub[32];
+  u8 cli_priv[32], cli_pub[32], srv_priv[32], srv_pub[32];
+  u8 cert_priv[32];
+  u8 ch[512], sh[256], flight[2048];
+  u8 srv_random[32], shared_cli[32], hs[32], s_traffic[32], th[32];
+  u8 sh_pub[32];
   quic_serverhello_out shout;
-  usz       ch_len, sh_len, hs_len, p = 0;
-  const u8 *ee, *cm, *cv, *fin, *srv_hs_secret;
-  usz       eel, cml, cvl, finl;
-  u16       cv_scheme;
-  quic_span cv_sig;
-  quic_sdrv s;
+  usz                  ch_len, sh_len, hs_len, p = 0;
+  const u8            *ee, *cm, *cv, *fin, *srv_hs_secret;
+  usz                  eel, cml, cvl, finl;
+  u16                  cv_scheme;
+  quic_span            cv_sig;
+  quic_sdrv            s;
 
   for (usz i = 0; i < 32; i++) {
     cli_priv[i]   = (u8)(i + 1);
@@ -134,7 +135,8 @@ void test_sdrv(void) {
     static const u8 tp[1] = {0};
     ch_len                = quic_tls_client_hello(
         &(quic_clienthello_in){
-            srv_random, cli_pub, quic_span_of(0, 0), quic_span_of(tp, sizeof(tp))},
+            srv_random, cli_pub, quic_span_of(0, 0),
+            quic_span_of(tp, sizeof(tp))},
         &(quic_obuf){ch, sizeof(ch), 0});
   }
   CHECK(ch_len != 0);
@@ -236,12 +238,12 @@ void test_sdrv(void) {
         &(quic_obuf){ch2, sizeof(ch2), 0});
     CHECK(quic_sdrv_recv_client_hello(&s2, ch2, ch_len));
     {
-    quic_obuf            sh_ob = quic_obuf_of(sh2, sizeof(sh2));
-    quic_obuf            fl_ob = quic_obuf_of(flight2, sizeof(flight2));
-    quic_sdrv_flight_out fo    = {&sh_ob, &fl_ob};
-    CHECK(quic_sdrv_build_server_flight(&s2, srv_random, &fo));
-    hs2_len = fl_ob.len;
-  }
+      quic_obuf            sh_ob = quic_obuf_of(sh2, sizeof(sh2));
+      quic_obuf            fl_ob = quic_obuf_of(flight2, sizeof(flight2));
+      quic_sdrv_flight_out fo    = {&sh_ob, &fl_ob};
+      CHECK(quic_sdrv_build_server_flight(&s2, srv_random, &fo));
+      hs2_len = fl_ob.len;
+    }
     CHECK(next_hs(flight2, hs2_len, &q, &ee2, &ee2l));
     CHECK(quic_tpext_decode(quic_span_of(ee2 + 15, ee2l - 15), &tp) != 0);
 
@@ -252,8 +254,7 @@ void test_sdrv(void) {
         cid.n == sizeof(client_dcid) &&
         quic_tparam_cid_match(
             cid, quic_span_of(client_dcid, sizeof(client_dcid))));
-    CHECK(
-        quic_stp_parse(tp, QUIC_TP_INITIAL_SOURCE_CONNECTION_ID, &cido) == 1);
+    CHECK(quic_stp_parse(tp, QUIC_TP_INITIAL_SOURCE_CONNECTION_ID, &cido) == 1);
     CHECK(
         cid.n == sizeof(server_scid) &&
         quic_tparam_cid_match(

@@ -60,7 +60,8 @@ static void test_client_hello_no_sni(void) {
     pub[i]    = 0;
   }
   w = quic_tls_client_hello(
-      &(quic_clienthello_in){random, pub, quic_span_of(0, 0), quic_span_of(tp, 2)},
+      &(quic_clienthello_in){
+          random, pub, quic_span_of(0, 0), quic_span_of(tp, 2)},
       &(quic_obuf){buf, sizeof(buf), 0});
   CHECK(w > 0);
   CHECK(!ch_has_ext(buf + 4, w - 4, 0x0000)); /* SNI omitted */

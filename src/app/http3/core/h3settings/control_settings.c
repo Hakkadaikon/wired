@@ -14,10 +14,10 @@ int quic_h3settings_control_stream(u8 *out, usz cap, usz *out_len) {
   usz pre = 0;
   if (!quic_h3settings_control_prefix(out, cap, &pre)) return 0;
 
-  quic_h3settings_in in  = {
+  quic_h3settings_in in = {
       DEFAULT_MAX_FIELD_SECTION_SIZE, DEFAULT_QPACK_MAX_TABLE_CAP,
       DEFAULT_QPACK_BLOCKED_STREAMS};
-  quic_obuf          ob  = quic_obuf_of(out + pre, cap - pre);
+  quic_obuf ob = quic_obuf_of(out + pre, cap - pre);
   if (!quic_h3settings_build(&in, &ob)) return 0;
 
   *out_len = pre + ob.len;

@@ -30,7 +30,9 @@ void quic_sresetdrive_map_init(quic_sresetdrive_map *m);
 
 /* Record `token` for `cid`. Returns 1 on success, 0 if full or CID too long. */
 int quic_sresetdrive_map_add(
-    quic_sresetdrive_map *m, quic_span cid, const u8 token[QUIC_SRESETDRIVE_TOKEN]);
+    quic_sresetdrive_map *m,
+    quic_span             cid,
+    const u8              token[QUIC_SRESETDRIVE_TOKEN]);
 
 /* On a match, point `*token` at the stored token and return 1; else 0. */
 int quic_sresetdrive_map_find(

@@ -21,11 +21,17 @@ static void test_schedule_directions(void) {
 
   quic_initial_keys c_keys, s_keys, s_keys_from_client;
   quic_tls_handshake_keys(
-      &(quic_handshake_keys_in){hs, quic_span_of(transcript, sizeof(transcript)), 0}, &c_keys);
+      &(quic_handshake_keys_in){
+          hs, quic_span_of(transcript, sizeof(transcript)), 0},
+      &c_keys);
   quic_tls_handshake_keys(
-      &(quic_handshake_keys_in){hs, quic_span_of(transcript, sizeof(transcript)), 1}, &s_keys);
+      &(quic_handshake_keys_in){
+          hs, quic_span_of(transcript, sizeof(transcript)), 1},
+      &s_keys);
   quic_tls_handshake_keys(
-      &(quic_handshake_keys_in){hs, quic_span_of(transcript, sizeof(transcript)), 1}, &s_keys_from_client);
+      &(quic_handshake_keys_in){
+          hs, quic_span_of(transcript, sizeof(transcript)), 1},
+      &s_keys_from_client);
 
   /* server-direction keys are identical whoever derives them */
   for (usz i = 0; i < QUIC_INITIAL_KEY; i++)

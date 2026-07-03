@@ -26,7 +26,10 @@ static inline void quic_p256cert_put(
 
 /* Append pre-encoded TLV bytes verbatim onto the cursor. */
 static inline void quic_p256cert_put_pre(quic_p256cert_enc *e, quic_span tlv) {
-  if (e->ok && quic_put_bytes(quic_mspan_of(e->buf, e->cap), &e->off, quic_span_of(tlv.p, tlv.n))) return;
+  if (e->ok &&
+      quic_put_bytes(
+          quic_mspan_of(e->buf, e->cap), &e->off, quic_span_of(tlv.p, tlv.n)))
+    return;
   e->ok = 0;
 }
 

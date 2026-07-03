@@ -11,10 +11,11 @@
 
 #define QUIC_CLIENTWIRE_CH_MAX 1024
 
-/* A directional key plus its header-protection cipher, both derived together. */
+/* A directional key plus its header-protection cipher, both derived together.
+ */
 typedef struct {
   const quic_initial_keys *k;
-  quic_aes128               hp;
+  quic_aes128              hp;
 } cw_dirkey;
 
 /* Fetch the directional key `which` from the client's schedule and initialize
@@ -46,7 +47,8 @@ int quic_client_build_initial_wire(
 }
 
 /* RFC 9001 5.2: open the server Initial with the server-direction keys. */
-int quic_client_open_initial_wire(const quic_clientwire_open_in *in, quic_span *tls) {
+int quic_client_open_initial_wire(
+    const quic_clientwire_open_in *in, quic_span *tls) {
   quic_srvwire_open_initial_in oin = {in->dcid, in->pn};
   return quic_srvwire_open_initial(&oin, in->pkt, tls);
 }
@@ -54,10 +56,10 @@ int quic_client_open_initial_wire(const quic_clientwire_open_in *in, quic_span *
 /* RFC 9001 5: seal a Handshake flight with CLIENT_HS (own direction). */
 int quic_client_seal_handshake_wire(
     quic_client *c, const quic_clientwire_seal_in *in, quic_obuf *out) {
-  cw_dirkey             dk;
-  quic_srvwire_seal_in  si = {
+  cw_dirkey            dk;
+  quic_srvwire_seal_in si = {
       in->hdr.dcid, in->hdr.scid, in->hdr.pn, -1, in->tls};
-  quic_protect_keys      pk;
+  quic_protect_keys pk;
   if (!cw_dir_key(c, QUIC_KS_CLIENT_HS, &dk)) return 0;
   pk = (quic_protect_keys){dk.k, &dk.hp};
   return quic_srvwire_seal_handshake(&pk, &si, out);
@@ -67,8 +69,8 @@ int quic_client_seal_handshake_wire(
  */
 int quic_client_open_handshake_wire(
     quic_client *c, const quic_appdata_pkt *in, quic_span *tls) {
-  cw_dirkey          dk;
-  quic_protect_keys  pk;
+  cw_dirkey         dk;
+  quic_protect_keys pk;
   (void)in->dcid_len;
   if (!cw_dir_key(c, QUIC_KS_SERVER_HS, &dk)) return 0;
   pk = (quic_protect_keys){dk.k, &dk.hp};
@@ -99,7 +101,8 @@ static int cw_dcid_is_ours(quic_mspan pkt, quic_span scid) {
 
 /* RFC 9000 5.1 / RFC 9001 5: the DCID routes to us and the SERVER_AP key is
  * derived; both gate opening the packet. */
-static int cw_recv_ok(quic_client *c, const quic_clientwire_recv_in *in, cw_dirkey *dk) {
+static int cw_recv_ok(
+    quic_client *c, const quic_clientwire_recv_in *in, cw_dirkey *dk) {
   if (!cw_dcid_is_ours(in->pkt, in->scid)) return 0;
   return cw_dir_key(c, QUIC_KS_SERVER_AP, dk);
 }
