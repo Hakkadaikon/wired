@@ -51,19 +51,30 @@ typedef struct {
   quic_mspan              dgram; /**< the client's Initial datagram */
 } wired_srvboot_in;
 
+/** The two sealed reply datagrams of a bootstrap, kept separate because the
+ * Initial alone is padded to 1200 bytes (RFC 9000 14.1) and coalescing the
+ * Handshake flight behind it would exceed a 1500-byte MTU datagram. The caller
+ * sends each buffer as its own UDP datagram, Initial first. */
+typedef struct {
+  quic_obuf *initial; /**< sealed server Initial datagram (>= 1200 bytes) */
+  quic_obuf *flight;  /**< sealed Handshake packet datagram */
+} wired_srvboot_out;
+
 /** Recover the ClientHello from the protected Initial datagram, initialize the
  * server and its HTTP/3 loop with in->id, build the server flight, and seal it
- * into out as a server Initial (ServerHello, acknowledging the client Initial)
- * followed by a Handshake packet (Certificate/CertificateVerify/Finished),
- * concatenated. Sets out->len.
+ * as two datagrams: a server Initial (ServerHello, acknowledging the client
+ * Initial) into out->initial and a Handshake packet
+ * (Certificate/CertificateVerify/Finished) into out->flight. Sets both
+ * obufs' len.
  * The caller registers its request handler on conn->l via
  * wired_srvloop_set_handler.
  * @param conn the orchestrator/loop pair to cold-start
  * @param in the fixed server identity and the client's Initial datagram
- * @param out receives the sealed server Initial + Handshake reply
+ * @param out receives the sealed server Initial and Handshake datagrams
  * @return 1 on success, 0 if the datagram is not a valid Initial, the
  *   open/reassembly fails, or the flight cannot be built. */
 int wired_srvboot_accept(
-    const wired_srvboot_conn *conn, const wired_srvboot_in *in, quic_obuf *out);
+    const wired_srvboot_conn *conn, const wired_srvboot_in *in,
+    const wired_srvboot_out *out);
 
 #endif
