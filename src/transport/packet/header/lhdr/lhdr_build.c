@@ -23,15 +23,15 @@ static int cids_ok(const quic_lhdr_desc *d) {
 /* Build byte0+version+DCID+SCID via the invariant builder, then overwrite
  * byte0 with the caller's value (pn_len-adjusted). Returns bytes or 0. */
 static usz lhdr_put_prefix(const quic_lhdr_desc *d, quic_obuf *out) {
-  quic_header h = {0};
-  usz         w;
+  wired_header h = {0};
+  usz          w;
   if (!cids_ok(d)) return 0;
   h.version  = d->version;
   h.dcid_len = (u8)d->dcid.n;
   h.scid_len = (u8)d->scid.n;
   set_cid(h.dcid, d->dcid.p, d->dcid.n);
   set_cid(h.scid, d->scid.p, d->scid.n);
-  w = quic_header_build_long(out->p, out->cap, &h);
+  w = wired_header_build_long(out->p, out->cap, &h);
   if (w != 5 + 1 + d->dcid.n + 1 + d->scid.n) return 0;
   out->p[0] = quic_lhdr_byte0_pnlen(d->byte0, d->pn_len);
   return w;

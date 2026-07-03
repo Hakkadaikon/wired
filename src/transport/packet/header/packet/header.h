@@ -32,7 +32,7 @@ typedef struct {
   u8  dcid[QUIC_MAX_CID_LEN]; /**< destination connection id */
   u8  scid_len;               /**< valid when form == long */
   u8  scid[QUIC_MAX_CID_LEN]; /**< source connection id (long header) */
-} quic_header;
+} wired_header;
 
 /** Parse the invariant (version-independent) part of a packet header.
  * For a short header the caller must preset h->dcid_len to the local CID
@@ -41,13 +41,13 @@ typedef struct {
  * @param n length of buf in bytes
  * @param h receives the parsed header fields
  * @return bytes consumed, or 0 on malformed / truncated input. */
-usz quic_header_parse(const u8 *buf, usz n, quic_header *h);
+usz wired_header_parse(const u8 *buf, usz n, wired_header *h);
 
 /** Build the invariant part of a long header into buf (cap bytes).
  * @param buf destination buffer
  * @param cap capacity of buf in bytes
  * @param h the header fields to encode
  * @return bytes written, or 0 if it does not fit. */
-usz quic_header_build_long(u8 *buf, usz cap, const quic_header *h);
+usz wired_header_build_long(u8 *buf, usz cap, const wired_header *h);
 
 #endif
