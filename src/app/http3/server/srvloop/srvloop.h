@@ -81,7 +81,7 @@ typedef struct {
 
 /** Drive one wire iteration: open `dgram`, dispatch it, and if the step
  * produced a server-direction packet (HANDSHAKE_DONE once confirmed, or a 200
- * response to a decoded GET) seal it into out (cap) and set *out_len.
+ * response to a decoded GET) seal it into out, setting out->len.
  * @param conn the loop/orchestrator pair to drive
  * @param dgram the inbound datagram to open and dispatch
  * @param out receives the sealed outbound packet, when one is produced

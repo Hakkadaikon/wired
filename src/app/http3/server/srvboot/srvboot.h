@@ -55,7 +55,7 @@ typedef struct {
  * server and its HTTP/3 loop with in->id, build the server flight, and seal it
  * into out as a server Initial (ServerHello, acknowledging the client Initial)
  * followed by a Handshake packet (Certificate/CertificateVerify/Finished),
- * concatenated. Sets *out_len.
+ * concatenated. Sets out->len.
  * The caller registers its request handler on conn->l via
  * quic_srvloop_set_handler.
  * @param conn the orchestrator/loop pair to cold-start

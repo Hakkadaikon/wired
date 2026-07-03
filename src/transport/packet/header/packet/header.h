@@ -13,11 +13,11 @@
 
 /** Long header packet type Initial (RFC 9000 17.2), bits 5-4 of byte 0. */
 #define QUIC_LP_INITIAL 0x0
-/** Long header packet type 0-RTT (RFC 9000 17.2). */
+/** Long header packet type 0-RTT (RFC 9000 17.2), bits 5-4 of byte 0. */
 #define QUIC_LP_0RTT 0x1
-/** Long header packet type Handshake (RFC 9000 17.2). */
+/** Long header packet type Handshake (RFC 9000 17.2), bits 5-4 of byte 0. */
 #define QUIC_LP_HANDSHAKE 0x2
-/** Long header packet type Retry (RFC 9000 17.2). */
+/** Long header packet type Retry (RFC 9000 17.2), bits 5-4 of byte 0. */
 #define QUIC_LP_RETRY 0x3
 
 /** RFC 9000 17.2: longest connection id in a version 1 long header. */
