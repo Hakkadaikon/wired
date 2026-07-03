@@ -1,15 +1,15 @@
 #include "test.h"
 
 static void test_ext_block_concat(void) {
-  u8  buf[64];
-  u8  v[16], g[16];
-  usz off;
-  usz vw = quic_tls_ext_supported_versions(v, sizeof(v));
-  usz gw = quic_tls_ext_supported_groups(g, sizeof(g));
+  u8        buf[64];
+  u8        v[16], g[16];
+  usz       off;
+  usz       vw = quic_tls_ext_supported_versions(v, sizeof(v));
+  usz       gw = quic_tls_ext_supported_groups(g, sizeof(g));
   quic_obuf out;
   CHECK(quic_tls_ext_block_begin(buf, sizeof(buf), &off) == 1);
   CHECK(off == 2);
-  out = quic_obuf_of(buf, sizeof(buf));
+  out     = quic_obuf_of(buf, sizeof(buf));
   out.len = off;
   CHECK(quic_tls_ext_append(&out, quic_span_of(v, vw)) == 1);
   CHECK(quic_tls_ext_append(&out, quic_span_of(g, gw)) == 1);
@@ -30,9 +30,9 @@ static void test_ext_block_begin_guard(void) {
 }
 
 static void test_ext_block_append_guard(void) {
-  u8  buf[8];
-  u8  ext[8] = {0};
-  usz off;
+  u8        buf[8];
+  u8        ext[8] = {0};
+  usz       off;
   quic_obuf out;
   quic_tls_ext_block_begin(buf, sizeof(buf), &off);
   out     = quic_obuf_of(buf, sizeof(buf));

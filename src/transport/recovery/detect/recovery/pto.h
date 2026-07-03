@@ -20,7 +20,6 @@ typedef struct {
 
 /* PTO = srtt + max(4*rttvar, granularity) + max_ack_delay, scaled by 2^count.
  */
-u64 quic_pto_duration(
-    quic_pto_rtt rtt, u64 max_ack_delay, u32 backoff_count);
+u64 quic_pto_duration(quic_pto_rtt rtt, u64 max_ack_delay, u32 backoff_count);
 
 #endif

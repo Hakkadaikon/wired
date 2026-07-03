@@ -54,8 +54,7 @@ static int sdrv_set_cid(u8 *dst, u8 *dst_len, quic_span cid) {
   return 1;
 }
 
-int quic_sdrv_set_cids(
-    quic_sdrv *s, quic_span odcid, quic_span iscid) {
+int quic_sdrv_set_cids(quic_sdrv *s, quic_span odcid, quic_span iscid) {
   return sdrv_set_cid(s->odcid, &s->odcid_len, odcid) &&
          sdrv_set_cid(s->iscid, &s->iscid_len, iscid);
 }

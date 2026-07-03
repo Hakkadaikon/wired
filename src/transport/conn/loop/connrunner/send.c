@@ -93,7 +93,7 @@ usz quic_connrunner_flush_sends(quic_connrunner *r, u64 sent_before, int kind) {
   if (fl == 0) return 0;
   {
     quic_connio_send_in sin = {r->loop.level, quic_span_of(frames, fl)};
-    quic_obuf            ob = quic_obuf_of(r->txbuf, sizeof(r->txbuf));
+    quic_obuf           ob  = quic_obuf_of(r->txbuf, sizeof(r->txbuf));
     return quic_connio_send(&r->io, &sin, &ob);
   }
 }
@@ -102,7 +102,8 @@ usz quic_connrunner_flush_sends(quic_connrunner *r, u64 sent_before, int kind) {
  * counted in flight; a retransmission or new data (kind 2/3) is both. */
 static int kind_in_flight(int kind) { return kind >= 2; }
 
-void quic_connrunner_track_sent(quic_connrunner *r, const quic_connrunner_sent_in *in) {
+void quic_connrunner_track_sent(
+    quic_connrunner *r, const quic_connrunner_sent_in *in) {
   int infl;
   if (in->sent_len == 0) return;
   infl = kind_in_flight(in->kind);

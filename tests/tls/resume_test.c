@@ -45,7 +45,7 @@ void test_resume(void) {
   quic_resume r2                              = {0};
   CHECK(
       quic_resume_store(
-          &r2, quic_span_of(big, sizeof big), &(quic_resume_store_in){0, 10, 0}) ==
-      0);
+          &r2, quic_span_of(big, sizeof big),
+          &(quic_resume_store_in){0, 10, 0}) == 0);
   CHECK(r2.have_ticket == 0);
 }

@@ -12,7 +12,9 @@ static void test_resp_build_roundtrip(void) {
   CHECK(quic_h3resp_build(200, quic_span_of(b, sizeof b), &ob) == 1);
   CHECK(quic_h3req_resp_parse(quic_span_of(out, ob.len), &resp) == 1);
   /* field section: 2-byte prefix then Indexed Field Line for :status 200. */
-  CHECK(resp.headers.n == 3 && resp.headers.p[0] == 0x00 && resp.headers.p[1] == 0x00);
+  CHECK(
+      resp.headers.n == 3 && resp.headers.p[0] == 0x00 &&
+      resp.headers.p[1] == 0x00);
   CHECK(
       quic_qpack_indexed_decode(
           quic_span_of(resp.headers.p + 2, resp.headers.n - 2), &idx,

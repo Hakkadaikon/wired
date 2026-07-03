@@ -24,6 +24,5 @@ static int parse_body(quic_span rem, quic_span *body) {
 int quic_h3req_resp_parse(quic_span stream, quic_h3req_resp *resp) {
   usz off = get_typed(stream, QUIC_H3_FRAME_HEADERS, &resp->headers);
   if (!off) return 0;
-  return parse_body(
-      quic_span_of(stream.p + off, stream.n - off), &resp->body);
+  return parse_body(quic_span_of(stream.p + off, stream.n - off), &resp->body);
 }

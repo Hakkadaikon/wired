@@ -18,7 +18,8 @@ static int hrr_has_random(usz hdr, u8 type, usz body_len) {
 
 int quic_hrr_is_hello_retry(const u8 *sh_msg, usz len) {
   u8  type;
-  usz body_len, hdr = quic_hs_parse(quic_span_of(sh_msg, len), &type, &body_len);
+  usz body_len,
+      hdr = quic_hs_parse(quic_span_of(sh_msg, len), &type, &body_len);
   if (!hrr_has_random(hdr, type, body_len)) return 0;
   return hrr_random_matches(sh_msg + hdr + 2);
 }

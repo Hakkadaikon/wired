@@ -62,7 +62,9 @@ static void make_client_hello(struct srv_fix *f) {
   }
   quic_x25519_base(cli_pub, f->cli_priv);
   f->ch_len = quic_tls_client_hello(
-      &(quic_clienthello_in){f->srv_random, cli_pub, quic_span_of(0, 0), quic_span_of(tp, sizeof(tp))},
+      &(quic_clienthello_in){
+          f->srv_random, cli_pub, quic_span_of(0, 0),
+          quic_span_of(tp, sizeof(tp))},
       &(quic_obuf){f->ch, sizeof(f->ch), 0});
 }
 
@@ -98,10 +100,11 @@ static void drive_to_flight(struct srv_fix *f) {
  * verify_data over the transcript hash through the server Finished. */
 static void make_client_finished(struct srv_fix *f) {
   quic_serverhello_out sh;
-  u8              hs[32], c_traffic[32], th[32];
-  quic_transcript tr;
-  usz             off;
-  CHECK(quic_tls_parse_server_hello(quic_span_of(f->sh, f->sh_len), f->sh_pub, &sh));
+  u8                   hs[32], c_traffic[32], th[32];
+  quic_transcript      tr;
+  usz                  off;
+  CHECK(quic_tls_parse_server_hello(
+      quic_span_of(f->sh, f->sh_len), f->sh_pub, &sh));
   {
     u8 shared[32];
     quic_x25519(shared, f->cli_priv, f->sh_pub);
@@ -124,8 +127,8 @@ static void make_client_finished(struct srv_fix *f) {
 
 /* Wrap a TLS message as a CRYPTO-frame payload for quic_server_feed. */
 static usz srv_wrap_crypto(const u8 *msg, usz len, u8 *out, usz cap) {
-  usz n;
-  quic_obuf ob = quic_obuf_of(out, cap);
+  usz                        n;
+  quic_obuf                  ob  = quic_obuf_of(out, cap);
   quic_crypto_stream_emit_in ein = {0, 256};
   if (!quic_crypto_stream_emit(quic_span_of(msg, len), &ein, &ob)) return 0;
   n = ob.len;
@@ -193,13 +196,13 @@ static void test_server_forged_finished(void) {
 /* Forbidden order: flight before the ClientHello is refused, no Handshake key.
  */
 static void test_server_flight_before_ch(void) {
-  struct srv_fix f;
-  u8             srv_priv[32], srv_pub[32], cert_seed[32];
-  static u8      cert[1] = {0};
-  u8             sh[256], flight[2048], rnd[32];
-  quic_obuf      sh_ob = quic_obuf_of(sh, sizeof(sh));
-  quic_obuf      fl_ob = quic_obuf_of(flight, sizeof(flight));
-  quic_sdrv_flight_out fo = {&sh_ob, &fl_ob};
+  struct srv_fix       f;
+  u8                   srv_priv[32], srv_pub[32], cert_seed[32];
+  static u8            cert[1] = {0};
+  u8                   sh[256], flight[2048], rnd[32];
+  quic_obuf            sh_ob = quic_obuf_of(sh, sizeof(sh));
+  quic_obuf            fl_ob = quic_obuf_of(flight, sizeof(flight));
+  quic_sdrv_flight_out fo    = {&sh_ob, &fl_ob};
   quic_server_init_in  sin;
   for (usz i = 0; i < 32; i++) {
     srv_priv[i] = (u8)(0x40 + i);
@@ -223,9 +226,9 @@ static void test_server_fin_before_flight(void) {
   usz            plen;
   make_client_hello(&f);
   {
-    u8                   srv_priv[32], srv_pub[32], cert_seed[32];
-    static u8            cert[1] = {0};
-    quic_server_init_in  sin;
+    u8                  srv_priv[32], srv_pub[32], cert_seed[32];
+    static u8           cert[1] = {0};
+    quic_server_init_in sin;
     for (usz i = 0; i < 32; i++) srv_priv[i] = (u8)(0x40 + i);
     quic_x25519_base(srv_pub, srv_priv);
     sin = (quic_server_init_in){

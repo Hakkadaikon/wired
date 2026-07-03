@@ -13,7 +13,8 @@ static void cidxchg_set(u8 *dst, u8 *dst_len, quic_span src) {
 }
 
 /* RFC 9000 7.2/7.3 */
-int quic_cidxchg_init(quic_cidxchg *x, quic_span init_dcid, quic_span own_scid) {
+int quic_cidxchg_init(
+    quic_cidxchg *x, quic_span init_dcid, quic_span own_scid) {
   if (!cidxchg_fits((u8)init_dcid.n, (u8)own_scid.n)) return 0;
   cidxchg_set(x->init_dcid, &x->init_dcid_len, init_dcid);
   cidxchg_set(x->own_scid, &x->own_scid_len, own_scid);

@@ -6,7 +6,8 @@
 int quic_resume_store(
     quic_resume *r, quic_span ticket, const quic_resume_store_in *in) {
   usz off = 0;
-  if (!quic_put_bytes(quic_mspan_of(r->ticket, QUIC_RESUME_TICKET_MAX), &off, ticket))
+  if (!quic_put_bytes(
+          quic_mspan_of(r->ticket, QUIC_RESUME_TICKET_MAX), &off, ticket))
     return 0;
   r->ticket_len  = ticket.n;
   r->issued_at   = in->issued_at;

@@ -60,8 +60,7 @@ int quic_server_recv_initial(quic_server *s, const u8 *ch_msg, usz ch_len) {
 static int srv_derive_hs(quic_server *s, u8 ecdhe[QUIC_X25519_LEN]) {
   if (!quic_x25519(ecdhe, s->server_priv, s->sdrv.client_pub)) return 0;
   return quic_keysched_advance_handshake(
-      &s->sched,
-      quic_span_of(ecdhe, QUIC_X25519_LEN),
+      &s->sched, quic_span_of(ecdhe, QUIC_X25519_LEN),
       quic_span_of(s->tr, s->tr_through_sh));
 }
 
@@ -98,8 +97,8 @@ int quic_server_build_flight(
 /* RFC 8446 4.4.4: verify the client Finished against the client handshake
  * traffic secret and the transcript hash through the server Finished. */
 static int srv_verify_finished(quic_server *s, const u8 *msg, usz len) {
-  const u8 *hs;
-  u8        c_traffic[QUIC_HKDF_PRK], th[QUIC_SHA256_DIGEST];
+  const u8             *hs;
+  u8                    c_traffic[QUIC_HKDF_PRK], th[QUIC_SHA256_DIGEST];
   quic_derive_secret_in dsi;
   if (!quic_sdrv_handshake_secret(&s->sdrv, &hs)) return 0;
   dsi.secret   = hs;

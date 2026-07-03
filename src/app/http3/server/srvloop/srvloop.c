@@ -58,7 +58,8 @@ typedef struct {
  * byte) packet number is cleartext in the header (header protection removed in
  * place) and byte0's low bits give its length. Recover the full PN against the
  * largest seen so far and record it as the number to ACK / the new baseline. */
-static void note_app_rx(quic_srvloop *l, quic_server *s, const srvloop_opened *o) {
+static void note_app_rx(
+    quic_srvloop *l, quic_server *s, const srvloop_opened *o) {
   const u8 *pn;
   usz       pn_len;
   if (o->level != QUIC_LEVEL_ONERTT) return;
@@ -105,13 +106,13 @@ static quic_srvloop_reqacc step_reqacc(quic_srvloop *l) {
  * datagram may still be ours (RFC 9000 12.2). */
 static void step_one(
     const quic_srvloop_conn *conn, quic_mspan pkt, int *got_request) {
-  quic_srvloop *l  = conn->l;
-  quic_server  *s  = conn->s;
+  quic_srvloop            *l = conn->l;
+  quic_server             *s = conn->s;
   quic_srvloop_recv_out    ro;
-  quic_srvloop_reqacc      acc = step_reqacc(l);
-  quic_srvloop_recv_in     ri  = {pkt, app_largest_pn(l)};
+  quic_srvloop_reqacc      acc    = step_reqacc(l);
+  quic_srvloop_recv_in     ri     = {pkt, app_largest_pn(l)};
   int                      opened = quic_srvloop_recv(s, &ri, &ro);
-  srvloop_opened            o;
+  srvloop_opened           o;
   quic_srvloop_dispatch_in in;
   if (!opened) return;
   o.level = ro.level;
@@ -143,10 +144,10 @@ static void rearm_reqacc(quic_srvloop *l, int got_request) {
  * and process every slice before building one reply for the whole datagram. */
 int quic_srvloop_step(
     const quic_srvloop_conn *conn, quic_mspan dgram, quic_obuf *out) {
-  const u8 *pkts[QUIC_SRVLOOP_MAXPKTS];
-  usz       offs[QUIC_SRVLOOP_MAXPKTS], lens[QUIC_SRVLOOP_MAXPKTS], n, i;
-  int       got_request = 0;
-  int       r;
+  const u8    *pkts[QUIC_SRVLOOP_MAXPKTS];
+  usz          offs[QUIC_SRVLOOP_MAXPKTS], lens[QUIC_SRVLOOP_MAXPKTS], n, i;
+  int          got_request = 0;
+  int          r;
   quic_pktlist plist = {pkts, offs, lens, QUIC_SRVLOOP_MAXPKTS};
   n = quic_udploop_split(quic_span_of(dgram.p, dgram.n), &plist);
   for (i = 0; i < n; i++)

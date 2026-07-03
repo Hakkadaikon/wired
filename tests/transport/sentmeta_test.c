@@ -4,7 +4,8 @@ static void test_sentmeta_on_sent_adds_inflight(void) {
   quic_sentmeta m;
   quic_sentmeta_init(&m);
 
-  CHECK(quic_sentmeta_on_sent(&m, &(quic_sentmeta_out){0, 100, 1, 1, 1200}) == 1);
+  CHECK(
+      quic_sentmeta_on_sent(&m, &(quic_sentmeta_out){0, 100, 1, 1, 1200}) == 1);
   CHECK(m.count == 1);
   CHECK(m.total_in_flight == 1200);
 }
@@ -50,8 +51,10 @@ static void test_sentmeta_loss_packet_threshold_boundary(void) {
   usz           n = 0;
   quic_sentmeta_init(&m);
 
-  quic_sentmeta_on_sent(&m, &(quic_sentmeta_out){10, 0, 1, 1, 100}); /* largest_acked - 2 */
-  quic_sentmeta_on_sent(&m, &(quic_sentmeta_out){9, 0, 1, 1, 100});  /* largest_acked - 3 */
+  quic_sentmeta_on_sent(
+      &m, &(quic_sentmeta_out){10, 0, 1, 1, 100}); /* largest_acked - 2 */
+  quic_sentmeta_on_sent(
+      &m, &(quic_sentmeta_out){9, 0, 1, 1, 100}); /* largest_acked - 3 */
 
   /* largest_acked=12, huge loss_delay so only packet threshold fires. */
   quic_sentmeta_detect_loss(
@@ -72,13 +75,15 @@ static void test_sentmeta_loss_time_threshold_boundary(void) {
 
   /* now=149, loss_delay=50 -> 149 < 150, not lost. largest_acked far below. */
   quic_sentmeta_detect_loss(
-      &m, &(quic_sentmeta_loss_in){0, 149, 50}, (quic_sentmeta_u64out){lost, &n});
+      &m, &(quic_sentmeta_loss_in){0, 149, 50},
+      (quic_sentmeta_u64out){lost, &n});
   CHECK(n == 0);
   CHECK(m.total_in_flight == 200);
 
   /* now=150 -> 150 >= 100+50, lost. */
   quic_sentmeta_detect_loss(
-      &m, &(quic_sentmeta_loss_in){0, 150, 50}, (quic_sentmeta_u64out){lost, &n});
+      &m, &(quic_sentmeta_loss_in){0, 150, 50},
+      (quic_sentmeta_u64out){lost, &n});
   CHECK(n == 1);
   CHECK(lost[0] == 0);
   CHECK(m.total_in_flight == 0);

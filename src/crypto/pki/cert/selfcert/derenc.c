@@ -34,7 +34,8 @@ int quic_selfcert_der_tlv(u8 tag, quic_span val, quic_obuf *out) {
   out->p[off++] = tag;
   der_put_len(out->p + off, lo, val.n);
   off += lo;
-  quic_put_bytes(quic_mspan_of(out->p, out->cap), &off, quic_span_of(val.p, val.n));
+  quic_put_bytes(
+      quic_mspan_of(out->p, out->cap), &off, quic_span_of(val.p, val.n));
   out->len = off;
   return 1;
 }

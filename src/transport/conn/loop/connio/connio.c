@@ -16,7 +16,8 @@ static u8 level_byte0(int level) {
   return level_is_initial(level) ? 0xc3 : 0xe3;
 }
 
-void quic_connio_init(quic_connio *io, quic_span dcid, const quic_connio_init_in *in) {
+void quic_connio_init(
+    quic_connio *io, quic_span dcid, const quic_connio_init_in *in) {
   usz i;
   quic_connloop_init(&io->loop, in->is_server);
   quic_stream_read_init(&io->stream);
@@ -47,7 +48,9 @@ u64 quic_connio_rx_next(const quic_connio *io, int level) {
 /* RFC 9001 4: a level may send only once its keys are installed and the
  * connloop gate (level monotonicity, anti-amp, phase) admits the packet. */
 static int send_ready(
-    quic_connio *io, const quic_connio_send_in *in, const quic_initial_keys **keys) {
+    quic_connio               *io,
+    const quic_connio_send_in *in,
+    const quic_initial_keys  **keys) {
   /* ponytail: ack-eliciting hard-set to 1; frames here always elicit (STREAM/
    * PING). Classify frames[0] if a non-eliciting-only send is ever needed.
    * RFC 9000 12.3: gate with the SELECTED space's own next packet number. */
@@ -57,7 +60,8 @@ static int send_ready(
          quic_keyset_for_level(&io->loop.keys, in->level, keys);
 }
 
-usz quic_connio_send(quic_connio *io, const quic_connio_send_in *in, quic_obuf *out) {
+usz quic_connio_send(
+    quic_connio *io, const quic_connio_send_in *in, quic_obuf *out) {
   const quic_initial_keys *keys;
   quic_aes128              hp;
   usz                      n;

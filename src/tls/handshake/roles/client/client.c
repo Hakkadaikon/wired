@@ -55,8 +55,7 @@ usz quic_client_build_initial(quic_client *c, u8 *out, usz cap) {
   {
     quic_crypto_stream_emit_in ein = {0, QUIC_CLIENT_CRYPTO_FRAME};
     quic_obuf                  fb  = quic_obuf_of(out, cap);
-    if (!quic_crypto_stream_emit(quic_span_of(ch, ob.len), &ein, &fb))
-      return 0;
+    if (!quic_crypto_stream_emit(quic_span_of(ch, ob.len), &ein, &fb)) return 0;
     return quic_pktbuild_init_pad(out, fb.len, cap);
   }
 }
@@ -131,7 +130,8 @@ static void save_sh(quic_client *c, const u8 *msg, usz len) {
 static int feed_initial(quic_client *c, const u8 *msg, usz len) {
   if (!quic_tlsdriver_recv_crypto(&c->tls, msg, len)) return 0;
   save_sh(c, msg, len);
-  if (!quic_fullhs_init(&c->hs, &c->tls, quic_span_of(c->sh_transcript, c->sh_len)))
+  if (!quic_fullhs_init(
+          &c->hs, &c->tls, quic_span_of(c->sh_transcript, c->sh_len)))
     return 0;
   quic_fullhs_set_policy(&c->hs, c->now, quic_span_of(c->host, c->host_len));
   quic_fullhs_set_castore(&c->hs, c->castore);

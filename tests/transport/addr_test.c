@@ -6,8 +6,7 @@ static void test_addr_from_octets(void) {
   CHECK(quic_addr_from_octets((const u8[4]){192, 168, 1, 254}) == 0xC0A801FEu);
   CHECK(quic_addr_from_octets((const u8[4]){0, 0, 0, 0}) == 0u);
   CHECK(
-      quic_addr_from_octets((const u8[4]){255, 255, 255, 255}) ==
-      0xFFFFFFFFu);
+      quic_addr_from_octets((const u8[4]){255, 255, 255, 255}) == 0xFFFFFFFFu);
 }
 
 /* to_octets is the inverse of from_octets. */

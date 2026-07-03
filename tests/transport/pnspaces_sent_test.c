@@ -14,10 +14,10 @@ static void test_pnspaces_sent_ack_stays_in_space(void) {
   CHECK(quic_pnspaces_sent_count(&s, 1) == 1);
 
   /* ACK pn 0 in Handshake: first range covers just pn 0. */
-  u64 acked[8];
-  usz n_acked   = 0;
-  u64 ranges[1] = {0};
-  quic_pnspaces_ack_in in = {1, {0, ranges, 1}};
+  u64                  acked[8];
+  usz                  n_acked   = 0;
+  u64                  ranges[1] = {0};
+  quic_pnspaces_ack_in in        = {1, {0, ranges, 1}};
   quic_pnspaces_on_ack(&s, &in, (quic_u64out){acked, &n_acked});
 
   /* Handshake's pn 0 removed; Initial's pn 0 untouched. */

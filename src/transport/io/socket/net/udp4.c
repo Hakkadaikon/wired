@@ -34,7 +34,8 @@ static void put_udp(u8 *out, quic_udpports ports, quic_span payload) {
   for (usz i = 0; i < payload.n; i++) out[QUIC_UDP_HDR + i] = payload.p[i];
 }
 
-usz quic_udp4_build(quic_obuf *out, const quic_udp4meta *meta, quic_span payload) {
+usz quic_udp4_build(
+    quic_obuf *out, const quic_udp4meta *meta, quic_span payload) {
   u16 udp_len = (u16)(QUIC_UDP_HDR + payload.n);
   u32 sum;
   if ((usz)udp_len > out->cap) return 0;

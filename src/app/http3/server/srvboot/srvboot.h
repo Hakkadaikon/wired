@@ -40,7 +40,7 @@ typedef struct {
  * recover the ClientHello from. */
 typedef struct {
   const wired_srvboot_id *id;
-  quic_mspan               dgram;
+  quic_mspan              dgram;
 } wired_srvboot_in;
 
 /* Recover the ClientHello from the protected Initial datagram, initialize the
@@ -52,7 +52,6 @@ typedef struct {
  * The caller registers its request handler on conn->l via
  * quic_srvloop_set_handler. */
 int wired_srvboot_accept(
-    const wired_srvboot_conn *conn, const wired_srvboot_in *in,
-    quic_obuf *out);
+    const wired_srvboot_conn *conn, const wired_srvboot_in *in, quic_obuf *out);
 
 #endif

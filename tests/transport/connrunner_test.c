@@ -51,9 +51,9 @@ static void mk_runner(quic_connrunner *r, int is_server) {
  * process_datagram is opened, dispatched, and queues an ack-eliciting receive
  * that owes an ACK once the loop steps. */
 static void test_process_datagram_owes_ack(void) {
-  quic_connio          cl;
-  quic_connrunner      r;
-  quic_connio_init_in  cin = {0, 0xc3, 1u << 20};
+  quic_connio         cl;
+  quic_connrunner     r;
+  quic_connio_init_in cin = {0, 0xc3, 1u << 20};
   quic_connio_init(&cl, quic_span_of(g_dcid, 8), &cin);
   arm(&cl);
   mk_runner(&r, 1);
@@ -70,7 +70,7 @@ static void test_process_datagram_owes_ack(void) {
   usz n;
   {
     quic_connio_send_in sin = {QUIC_LEVEL_INITIAL, quic_span_of(frames, fl)};
-    quic_obuf            ob = quic_obuf_of(pkt, sizeof(pkt));
+    quic_obuf           ob  = quic_obuf_of(pkt, sizeof(pkt));
     n                       = quic_connio_send(&cl, &sin, &ob);
   }
   CHECK(n != 0);
@@ -173,9 +173,9 @@ static void test_retransmit_real_bytes(void) {
 /* RFC 9000 12: one advance runs recv before step before send. A sealed
  * ack-eliciting packet in, an ACK packet out, in a single call. */
 static void test_advance_roundtrip(void) {
-  quic_connio          cl;
-  quic_connrunner      r;
-  quic_connio_init_in  cin = {0, 0xc3, 1u << 20};
+  quic_connio         cl;
+  quic_connrunner     r;
+  quic_connio_init_in cin = {0, 0xc3, 1u << 20};
   quic_connio_init(&cl, quic_span_of(g_dcid, 8), &cin);
   arm(&cl);
   mk_runner(&r, 1);
@@ -186,7 +186,7 @@ static void test_advance_roundtrip(void) {
   usz n;
   {
     quic_connio_send_in sin = {QUIC_LEVEL_INITIAL, quic_span_of(frames, fl)};
-    quic_obuf            ob = quic_obuf_of(pkt, sizeof(pkt));
+    quic_obuf           ob  = quic_obuf_of(pkt, sizeof(pkt));
     n                       = quic_connio_send(&cl, &sin, &ob);
   }
   CHECK(n != 0);
@@ -197,7 +197,9 @@ static void test_advance_roundtrip(void) {
   CHECK(r.loop.ack_owed == 0);
 
   /* the sealed reply is a real ACK frame the peer can open */
-  CHECK(quic_connio_recv(&cl, QUIC_LEVEL_INITIAL, quic_mspan_of(r.txbuf, out)) == 1);
+  CHECK(
+      quic_connio_recv(&cl, QUIC_LEVEL_INITIAL, quic_mspan_of(r.txbuf, out)) ==
+      1);
 }
 
 /* RFC 9000 10.2: a closed connection does no further work in advance. */
@@ -221,7 +223,7 @@ static usz seal_ack(quic_connio *peer, u64 largest, u8 *out, usz cap) {
   CHECK(fl != 0 && frames[0] == 0x02); /* a real ACK frame was encoded */
   {
     quic_connio_send_in sin = {QUIC_LEVEL_INITIAL, quic_span_of(frames, fl)};
-    quic_obuf            ob = quic_obuf_of(out, cap);
+    quic_obuf           ob  = quic_obuf_of(out, cap);
     return quic_connio_send(peer, &sin, &ob);
   }
 }
@@ -230,9 +232,9 @@ static usz seal_ack(quic_connio *peer, u64 largest, u8 *out, usz cap) {
  * adds its sealed bytes to total_in_flight over the real advance path; the
  * peer's ACK of that packet number drops it back out (A.2.2). */
 static void test_sentmeta_inflight_tracking(void) {
-  quic_connio          peer;
-  quic_connrunner      r;
-  quic_connio_init_in  cin = {0, 0xc3, 1u << 20};
+  quic_connio         peer;
+  quic_connrunner     r;
+  quic_connio_init_in cin = {0, 0xc3, 1u << 20};
   quic_connio_init(&peer, quic_span_of(g_dcid, 8), &cin);
   arm(&peer);
   mk_runner(&r, 1);
@@ -314,7 +316,9 @@ static void test_ku_initiate_derives_then_toggles(void) {
   quic_connrunner r;
   mk_ku(&r, 1);
   r.ku_sent_in_phase = 100;
-  CHECK(quic_connrunner_maybe_initiate_ku(&r, &(quic_connrunner_ku_in){100, 10, 1}) == 1);
+  CHECK(
+      quic_connrunner_maybe_initiate_ku(
+          &r, &(quic_connrunner_ku_in){100, 10, 1}) == 1);
   CHECK(r.ku.generation == 1);
   CHECK(r.ku.have_old == 1);                 /* prior read key retained */
   CHECK(quic_keyphase_get(r.ku_phase) == 1); /* phase == gen%2 */
@@ -326,7 +330,9 @@ static void test_ku_initiate_blocked_before_confirm(void) {
   quic_connrunner r;
   mk_ku(&r, 0);
   r.ku_sent_in_phase = 100;
-  CHECK(quic_connrunner_maybe_initiate_ku(&r, &(quic_connrunner_ku_in){100, 10, 1}) == 0);
+  CHECK(
+      quic_connrunner_maybe_initiate_ku(
+          &r, &(quic_connrunner_ku_in){100, 10, 1}) == 0);
   CHECK(r.ku.generation == 0);
 }
 
@@ -337,7 +343,9 @@ static void test_ku_initiate_blocked_until_acked(void) {
   mk_ku(&r, 1);
   r.ku_unacked       = 1; /* a self update still outstanding */
   r.ku_sent_in_phase = 100;
-  CHECK(quic_connrunner_maybe_initiate_ku(&r, &(quic_connrunner_ku_in){100, 10, 1}) == 0);
+  CHECK(
+      quic_connrunner_maybe_initiate_ku(
+          &r, &(quic_connrunner_ku_in){100, 10, 1}) == 0);
   CHECK(r.ku.generation == 0);
 }
 
@@ -347,8 +355,12 @@ static void test_ku_initiate_blocked_within_3pto(void) {
   mk_ku(&r, 1);
   r.ku_completed_at  = 10; /* completed at t=10, pto=2 -> floor at 16 */
   r.ku_sent_in_phase = 100;
-  CHECK(quic_connrunner_maybe_initiate_ku(&r, &(quic_connrunner_ku_in){15, 10, 2}) == 0); /* 15 < 16 */
-  CHECK(quic_connrunner_maybe_initiate_ku(&r, &(quic_connrunner_ku_in){16, 10, 2}) == 1); /* 16 >= 16 */
+  CHECK(
+      quic_connrunner_maybe_initiate_ku(
+          &r, &(quic_connrunner_ku_in){15, 10, 2}) == 0); /* 15 < 16 */
+  CHECK(
+      quic_connrunner_maybe_initiate_ku(
+          &r, &(quic_connrunner_ku_in){16, 10, 2}) == 1); /* 16 >= 16 */
 }
 
 /* RFC 9001 6.5: the old read key is retained for the full 3*PTO window after
@@ -370,7 +382,8 @@ static void test_ku_drop_discarded_gen(void) {
   quic_connrunner r;
   mk_ku(&r, 1);
   r.ku_sent_in_phase = 100;
-  quic_connrunner_maybe_initiate_ku(&r, &(quic_connrunner_ku_in){0, 10, 2}); /* now at gen 1, phase 1 */
+  quic_connrunner_maybe_initiate_ku(
+      &r, &(quic_connrunner_ku_in){0, 10, 2}); /* now at gen 1, phase 1 */
   quic_connrunner_ku_completed(&r, 0);
   quic_connrunner_maybe_discard_ku(&r, 100, 2); /* drop the old gen-0 key */
   u8 old_phase = quic_keyphase_set(0x40, 0);    /* asks for gen 0 */

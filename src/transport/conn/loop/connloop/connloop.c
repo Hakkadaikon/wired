@@ -92,7 +92,8 @@ usz quic_connloop_on_ack(quic_connloop *c, const quic_connloop_ack_in *in) {
 }
 
 int quic_connloop_on_pto(quic_connloop *c, const quic_connloop_pto_in *in) {
-  if (!level_usable(c, in->level)) return 0; /* never probe at a discarded level */
+  if (!level_usable(c, in->level))
+    return 0; /* never probe at a discarded level */
   if (quic_sentpkt_count(&c->sent) == 0) return 0; /* no probe, stay disarmed */
   {
     quic_sentpkt_out pkt = {in->pn, 0, 1, in->len}; /* probe is a new packet */

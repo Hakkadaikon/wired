@@ -157,11 +157,11 @@ static int do_send(quic_driver *d) {
   stf.length    = 1;
   stf.data      = &msg;
   stf.fin       = 0;
-  fl = quic_frame_put_stream(frames, sizeof(frames), &stf);
+  fl            = quic_frame_put_stream(frames, sizeof(frames), &stf);
   {
     quic_connio_send_in sin = {level, quic_span_of(frames, fl)};
-    quic_obuf            ob = quic_obuf_of(d->out_buf, sizeof(d->out_buf));
-    n = quic_connio_send(&d->io, &sin, &ob);
+    quic_obuf           ob  = quic_obuf_of(d->out_buf, sizeof(d->out_buf));
+    n                       = quic_connio_send(&d->io, &sin, &ob);
   }
   if (n == 0) return 0;
   advance_order(d, msg, level);

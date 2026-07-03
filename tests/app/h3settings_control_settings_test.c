@@ -10,7 +10,8 @@ void test_h3settings_control_settings(void) {
   /* leading stream type is control */
   u64 stype;
   usz consumed = 0;
-  CHECK(quic_h3_stream_type_parse(quic_span_of(buf, n), &stype, &consumed) == 1);
+  CHECK(
+      quic_h3_stream_type_parse(quic_span_of(buf, n), &stype, &consumed) == 1);
   CHECK(consumed == 1 && quic_h3_stream_type_is_control(stype));
 
   /* the bytes after the type are a SETTINGS frame */

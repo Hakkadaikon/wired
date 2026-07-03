@@ -25,8 +25,8 @@ static int find_headers(quic_span h3, quic_span *fs, usz *end) {
  * irrelevant then), 0 on a truncated/undecodable frame, -1 to keep walking
  * (a skipped frame). */
 static int body_step(quic_span h3, usz *off, quic_h3reqdrive_req *r) {
-  quic_h3_frame f    = {0};
-  usz           used = quic_h3_frame_get(quic_span_of(h3.p + *off, h3.n - *off), &f);
+  quic_h3_frame f = {0};
+  usz used = quic_h3_frame_get(quic_span_of(h3.p + *off, h3.n - *off), &f);
   if (!used) return 0;
   *off += used;
   if (f.type != QUIC_H3_FRAME_DATA) return -1;

@@ -35,7 +35,8 @@ void test_sflight_certverify_build(void) {
   CHECK(4 + body_len == ob.len);
 
   /* body parses as scheme 0x0807 + a 64-byte signature. */
-  CHECK(quic_tls_certverify_parse(quic_span_of(out + 4, body_len), &scheme, &sig));
+  CHECK(quic_tls_certverify_parse(
+      quic_span_of(out + 4, body_len), &scheme, &sig));
   CHECK(scheme == 0x0807);
   CHECK(sig.n == 64);
 

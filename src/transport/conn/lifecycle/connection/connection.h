@@ -29,7 +29,8 @@ typedef struct {
 
 /* Initialize a connection over `in->link` with the shared DCID and role. The
  * keyset starts empty; no level can send until keys are installed. */
-void quic_connection_init(quic_connection *c, const quic_connection_init_in *in);
+void quic_connection_init(
+    quic_connection *c, const quic_connection_init_in *in);
 
 /* Assemble and protect one packet of `frames` at protection `level`
  * (QUIC_LEVEL_*), pushing it onto the link. Returns 1 on success, 0 if the

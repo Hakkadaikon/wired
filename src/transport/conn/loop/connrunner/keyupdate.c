@@ -66,7 +66,8 @@ static int reinit_floor_ok(const quic_connrunner *r, u64 now, u64 pto) {
 
 /* RFC 9001 6.1/6.5: both initiate gates -- threshold reached, confirmed, no
  * unacked self update, and the 3*PTO re-initiation floor cleared. */
-static int may_initiate(const quic_connrunner *r, const quic_connrunner_ku_in *in) {
+static int may_initiate(
+    const quic_connrunner *r, const quic_connrunner_ku_in *in) {
   return quic_kudrive_should_initiate(
              r->ku_sent_in_phase, in->threshold,
              r->io.loop.handshake_confirmed) &&
@@ -90,7 +91,8 @@ static void do_initiate(quic_connrunner *r) {
   r->ku_sent_in_phase = 0;
 }
 
-int quic_connrunner_maybe_initiate_ku(quic_connrunner *r, const quic_connrunner_ku_in *in) {
+int quic_connrunner_maybe_initiate_ku(
+    quic_connrunner *r, const quic_connrunner_ku_in *in) {
   if (!may_initiate(r, in)) return 0;
   do_initiate(r);
   return 1;

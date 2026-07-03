@@ -7,23 +7,30 @@ static void test_retry_tag_roundtrip(void) {
   for (usz i = 0; i < sizeof(retry); i++) retry[i] = (u8)(0xf0 + i);
 
   u8 tag[QUIC_RETRY_TAG];
-  quic_retry_tag(quic_span_of(odcid, 8), quic_span_of(retry, sizeof(retry)), tag);
+  quic_retry_tag(
+      quic_span_of(odcid, 8), quic_span_of(retry, sizeof(retry)), tag);
 
   /* assemble the full Retry packet (retry || tag) and verify */
   u8 full[32 + QUIC_RETRY_TAG];
   for (usz i = 0; i < sizeof(retry); i++) full[i] = retry[i];
   for (usz i = 0; i < QUIC_RETRY_TAG; i++) full[sizeof(retry) + i] = tag[i];
-  CHECK(quic_retry_verify(quic_span_of(odcid, 8), quic_span_of(full, sizeof(full))) == 1);
+  CHECK(
+      quic_retry_verify(
+          quic_span_of(odcid, 8), quic_span_of(full, sizeof(full))) == 1);
 
   /* flip one Retry byte: verification must fail */
   full[3] ^= 0x01;
-  CHECK(quic_retry_verify(quic_span_of(odcid, 8), quic_span_of(full, sizeof(full))) == 0);
+  CHECK(
+      quic_retry_verify(
+          quic_span_of(odcid, 8), quic_span_of(full, sizeof(full))) == 0);
   full[3] ^= 0x01;
   /* flip an ODCID byte: verification must fail */
   u8 bad_odcid[8];
   for (usz i = 0; i < 8; i++) bad_odcid[i] = odcid[i];
   bad_odcid[0] ^= 0x80;
-  CHECK(quic_retry_verify(quic_span_of(bad_odcid, 8), quic_span_of(full, sizeof(full))) == 0);
+  CHECK(
+      quic_retry_verify(
+          quic_span_of(bad_odcid, 8), quic_span_of(full, sizeof(full))) == 0);
 }
 
 /* The tag is deterministic for the same inputs. */
@@ -46,17 +53,23 @@ static void test_retry_tag_boundaries(void) {
   quic_retry_tag(quic_span_of(0, 0), quic_span_of(retry, 12), tag);
   for (usz i = 0; i < 12; i++) full[i] = retry[i];
   for (usz i = 0; i < QUIC_RETRY_TAG; i++) full[12 + i] = tag[i];
-  CHECK(quic_retry_verify(quic_span_of(0, 0), quic_span_of(full, sizeof(full))) == 1);
+  CHECK(
+      quic_retry_verify(quic_span_of(0, 0), quic_span_of(full, sizeof(full))) ==
+      1);
   /* flip the last tag byte: rejected */
   full[sizeof(full) - 1] ^= 0x01;
-  CHECK(quic_retry_verify(quic_span_of(0, 0), quic_span_of(full, sizeof(full))) == 0);
+  CHECK(
+      quic_retry_verify(quic_span_of(0, 0), quic_span_of(full, sizeof(full))) ==
+      0);
 
   /* maximum 20-byte ODCID */
   u8 odcid[20];
   for (usz i = 0; i < 20; i++) odcid[i] = (u8)(i + 1);
   quic_retry_tag(quic_span_of(odcid, 20), quic_span_of(retry, 12), tag);
   for (usz i = 0; i < QUIC_RETRY_TAG; i++) full[12 + i] = tag[i];
-  CHECK(quic_retry_verify(quic_span_of(odcid, 20), quic_span_of(full, sizeof(full))) == 1);
+  CHECK(
+      quic_retry_verify(
+          quic_span_of(odcid, 20), quic_span_of(full, sizeof(full))) == 1);
 }
 
 void test_retry_tag(void) {

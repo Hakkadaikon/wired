@@ -64,7 +64,9 @@ static void test_retry_process_bad_tag(void) {
   CHECK(
       quic_retry_process(
           quic_span_of(pkt, n), quic_span_of(wrong, 8),
-          &(quic_retry_process_out){&(quic_obuf){out_token, sizeof(out_token), 0}, new_dcid, &new_dcil}) == 0);
+          &(quic_retry_process_out){
+              &(quic_obuf){out_token, sizeof(out_token), 0}, new_dcid,
+              &new_dcil}) == 0);
 }
 
 /* A truncated packet is rejected. */
@@ -74,7 +76,9 @@ static void test_retry_process_short(void) {
   CHECK(
       quic_retry_process(
           quic_span_of(pkt, sizeof(pkt)), quic_span_of(0, 0),
-          &(quic_retry_process_out){&(quic_obuf){out_token, sizeof(out_token), 0}, new_dcid, &new_dcil}) == 0);
+          &(quic_retry_process_out){
+              &(quic_obuf){out_token, sizeof(out_token), 0}, new_dcid,
+              &new_dcil}) == 0);
 }
 
 /* The one-shot gate: a second Retry must be ignored. */

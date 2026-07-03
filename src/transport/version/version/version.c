@@ -31,9 +31,11 @@ typedef struct {
  * room or too many Available Versions. */
 static int put_vi_head(const version_wcursor *w, const quic_version_info *vi) {
   if (vi->n_available > QUIC_VI_MAX_AVAILABLE) return 0;
-  if (!quic_varint_put(quic_mspan_of(w->buf, w->cap), w->off, QUIC_TP_VERSION_INFORMATION))
+  if (!quic_varint_put(
+          quic_mspan_of(w->buf, w->cap), w->off, QUIC_TP_VERSION_INFORMATION))
     return 0;
-  return quic_varint_put(quic_mspan_of(w->buf, w->cap), w->off, vi_value_len(vi));
+  return quic_varint_put(
+      quic_mspan_of(w->buf, w->cap), w->off, vi_value_len(vi));
 }
 
 usz quic_version_info_encode(u8 *buf, usz cap, const quic_version_info *vi) {

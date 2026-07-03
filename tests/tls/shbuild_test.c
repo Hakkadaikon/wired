@@ -1,11 +1,12 @@
-#include "test.h"
 #include "tls/handshake/roles/shbuild/shbuild.h"
+
+#include "test.h"
 
 /* RFC 8446 4.1.3: a built ServerHello is well-framed on the wire and reads
  * back through the existing ServerHello parser. */
 static void test_shbuild_wire(void) {
-  u8  random[32], pub[32], out[256];
-  u8  sid[4] = {0xa1, 0xb2, 0xc3, 0xd4};
+  u8              random[32], pub[32], out[256];
+  u8              sid[4] = {0xa1, 0xb2, 0xc3, 0xd4};
   quic_shbuild_in in;
   quic_obuf       ob = quic_obuf_of(out, sizeof(out));
   for (usz i = 0; i < 32; i++) {
@@ -40,7 +41,7 @@ static void test_shbuild_roundtrip(void) {
 
 /* A capacity too small for the message yields 0 and no output length. */
 static void test_shbuild_overflow(void) {
-  u8  random[32] = {0}, pub[32] = {0}, out[16];
+  u8              random[32] = {0}, pub[32] = {0}, out[16];
   quic_shbuild_in in = {random, quic_span_of((void *)0, 0), 0x1301, pub};
   quic_obuf       ob = quic_obuf_of(out, sizeof(out));
   CHECK(quic_shbuild_server_hello(&in, &ob) == 0);

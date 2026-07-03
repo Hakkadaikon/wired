@@ -31,7 +31,7 @@ static void cw_derive_keys(quic_client *c) {
 static void test_cw_initial_roundtrip(void) {
   quic_client            c;
   u8                     priv[32], pub[32], pkt[1300];
-  quic_obuf              ob = quic_obuf_of(pkt, sizeof(pkt));
+  quic_obuf              ob  = quic_obuf_of(pkt, sizeof(pkt));
   quic_clientwire_hdr_in hdr = {
       quic_span_of(cw_dcid, 8), quic_span_of(cw_scid, 4), 0};
   for (usz i = 0; i < 32; i++) priv[i] = (u8)(7 + i);
@@ -51,10 +51,10 @@ static void test_cw_initial_roundtrip(void) {
 
 /* RFC 9001 5.2: client opens a server Initial sealed by the server codec. */
 static void test_cw_open_server_initial(void) {
-  const u8  sh[] = {0x02, 0x00, 0x00, 0x02, 0xab, 0xcd};
-  u8        pkt[1300];
-  quic_span tls;
-  quic_obuf ob = quic_obuf_of(pkt, sizeof(pkt));
+  const u8             sh[] = {0x02, 0x00, 0x00, 0x02, 0xab, 0xcd};
+  u8                   pkt[1300];
+  quic_span            tls;
+  quic_obuf            ob = quic_obuf_of(pkt, sizeof(pkt));
   quic_srvwire_seal_in in = {
       quic_span_of(cw_dcid, 8), quic_span_of(cw_scid, 4), 0, -1,
       quic_span_of(sh, sizeof(sh))};
@@ -79,7 +79,7 @@ static void test_cw_handshake_roundtrip(void) {
   quic_span                tls;
   const quic_initial_keys *chs, *shs;
   quic_aes128              hp;
-  quic_clientwire_seal_in sin = {
+  quic_clientwire_seal_in  sin = {
       {quic_span_of(cw_dcid, 8), quic_span_of(cw_scid, 4), 0},
       quic_span_of(fin, sizeof(fin))};
   quic_obuf ob = quic_obuf_of(pkt, sizeof(pkt));
@@ -94,8 +94,7 @@ static void test_cw_handshake_roundtrip(void) {
     quic_span         sp;
     quic_protect_keys pk = {chs, &hp};
     CHECK(
-        quic_srvwire_open_handshake(&pk, quic_mspan_of(pkt, total), &sp) ==
-        1);
+        quic_srvwire_open_handshake(&pk, quic_mspan_of(pkt, total), &sp) == 1);
     CHECK(sp.n == sizeof(fin));
   }
 
@@ -103,8 +102,8 @@ static void test_cw_handshake_roundtrip(void) {
   CHECK(quic_keysched_get(&c.tls.ks, QUIC_KS_SERVER_HS, &shs) == 1);
   quic_aes128_init(&hp, shs->hp);
   {
-    quic_obuf ob2 = quic_obuf_of(pkt, sizeof(pkt));
-    quic_srvwire_seal_in in = {
+    quic_obuf            ob2 = quic_obuf_of(pkt, sizeof(pkt));
+    quic_srvwire_seal_in in  = {
         quic_span_of(cw_dcid, 8), quic_span_of(cw_scid, 4), 0, -1,
         quic_span_of(fin, sizeof(fin))};
     quic_protect_keys pk = {shs, &hp};
@@ -122,10 +121,10 @@ static void test_cw_handshake_roundtrip(void) {
 /* WireHS negative: a client-sealed (CLIENT_HS) Handshake packet must NOT open
  * with the client's own open key (SERVER_HS); wrong direction fails AEAD. */
 static void test_cw_wrong_direction_fails(void) {
-  quic_client            c;
-  const u8               fin[] = {0x14, 0x00, 0x00, 0x01, 0x09};
-  u8                     pkt[512];
-  quic_span              tls;
+  quic_client             c;
+  const u8                fin[] = {0x14, 0x00, 0x00, 0x01, 0x09};
+  u8                      pkt[512];
+  quic_span               tls;
   quic_clientwire_seal_in sin = {
       {quic_span_of(cw_dcid, 8), quic_span_of(cw_scid, 4), 0},
       quic_span_of(fin, sizeof(fin))};

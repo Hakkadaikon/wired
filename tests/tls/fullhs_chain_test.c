@@ -82,13 +82,14 @@ static void fc_new_client(
   CHECK(quic_tlsdriver_recv_crypto(sv, frame, fl) == 1);
   shn = fc_build_sh(sh, sizeof(sh), sv_pub);
   {
-    quic_obuf ob = quic_obuf_of(frame, sizeof(frame));
+    quic_obuf                  ob  = quic_obuf_of(frame, sizeof(frame));
     quic_crypto_stream_emit_in ein = {0, 256};
     CHECK(quic_crypto_stream_emit(quic_span_of(sh, shn), &ein, &ob) == 1);
     fl = ob.len;
   }
   CHECK(quic_tlsdriver_recv_crypto(cl, frame, fl) == 1);
-  CHECK(quic_fullhs_init(h, cl, quic_span_of(fullhs_sh, sizeof(fullhs_sh))) == 1);
+  CHECK(
+      quic_fullhs_init(h, cl, quic_span_of(fullhs_sh, sizeof(fullhs_sh))) == 1);
 }
 
 /* A Certificate handshake message wrapping k DER certs, leaf first. */
@@ -135,8 +136,8 @@ static void test_fullhs_chain_stale_buffer(void) {
   cv_len = fc_build_cv(
       cv, QUIC_TLS_SCHEME_ED25519, fullhs_cv_sig, sizeof(fullhs_cv_sig));
   CHECK(
-      quic_fullhs_recv_certverify(&cl, quic_span_of(cv, cv_len), QUIC_TLS_SCHEME_ED25519) ==
-      1);
+      quic_fullhs_recv_certverify(
+          &cl, quic_span_of(cv, cv_len), QUIC_TLS_SCHEME_ED25519) == 1);
 }
 
 /* T-007: a [leaf, intermediate] message is fully retained: both certs are
@@ -191,8 +192,8 @@ static void test_fullhs_castore_wrong_root(void) {
   usz                cv_len, n;
   fc_new_client(&cltls, &svtls, &cl);
   CHECK(
-      quic_fullhs_init(&sv, &svtls, quic_span_of(fullhs_sh, sizeof(fullhs_sh))) ==
-      1);
+      quic_fullhs_init(
+          &sv, &svtls, quic_span_of(fullhs_sh, sizeof(fullhs_sh))) == 1);
   quic_castore_init(&store, roots, 2);
   CHECK(
       quic_castore_add(
@@ -207,8 +208,8 @@ static void test_fullhs_castore_wrong_root(void) {
       quic_fullhs_recv_cert(&sv, fullhs_cert_msg, sizeof(fullhs_cert_msg)) ==
       1);
   CHECK(
-      quic_fullhs_recv_certverify(&sv, quic_span_of(cv, cv_len), QUIC_TLS_SCHEME_ED25519) ==
-      1);
+      quic_fullhs_recv_certverify(
+          &sv, quic_span_of(cv, cv_len), QUIC_TLS_SCHEME_ED25519) == 1);
   {
     quic_obuf ob = quic_obuf_of(svfin, sizeof(svfin));
     CHECK(quic_fullhs_send_finished(&sv, &ob) == 1);
@@ -219,8 +220,8 @@ static void test_fullhs_castore_wrong_root(void) {
       quic_fullhs_recv_cert(&cl, fullhs_cert_msg, sizeof(fullhs_cert_msg)) ==
       0);
   CHECK(
-      quic_fullhs_recv_certverify(&cl, quic_span_of(cv, cv_len), QUIC_TLS_SCHEME_ED25519) ==
-      0);
+      quic_fullhs_recv_certverify(
+          &cl, quic_span_of(cv, cv_len), QUIC_TLS_SCHEME_ED25519) == 0);
   CHECK(quic_fullhs_recv_finished(&cl, svfin, n) == 0);
   CHECK(quic_fullhs_is_complete(&cl) == 0);
 }

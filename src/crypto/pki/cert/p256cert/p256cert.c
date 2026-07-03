@@ -14,7 +14,9 @@ static usz pc_build_sigval(quic_span sig, quic_obuf *out) {
   u8  bits[80];
   usz off = 1;
   bits[0] = 0x00;
-  if (!quic_put_bytes(quic_mspan_of(bits, sizeof(bits)), &off, quic_span_of(sig.p, sig.n))) return 0;
+  if (!quic_put_bytes(
+          quic_mspan_of(bits, sizeof(bits)), &off, quic_span_of(sig.p, sig.n)))
+    return 0;
   quic_p256cert_enc e = quic_p256cert_loaded(bits, off);
   return quic_p256cert_wrap(&e, QUIC_DER_BIT_STRING, out);
 }

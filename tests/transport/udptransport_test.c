@@ -27,7 +27,8 @@ static void test_transport_loopback(void) {
   /* Send to ourselves: discover the bound port via a second socket is
    * overkill here; just exercise send to a fixed loopback port and accept
    * either delivery or a benign error. */
-  quic_udp_transport_connect(&t, quic_addr_from_octets((const u8[4]){127, 0, 0, 1}), 0);
+  quic_udp_transport_connect(
+      &t, quic_addr_from_octets((const u8[4]){127, 0, 0, 1}), 0);
   u8  msg[4] = {1, 2, 3, 4};
   int sent   = quic_udp_transport_send(&t, msg, sizeof msg);
   CHECK(sent == 0 || sent == 1);

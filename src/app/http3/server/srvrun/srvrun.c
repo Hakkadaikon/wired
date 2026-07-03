@@ -30,7 +30,7 @@ typedef struct {
 typedef struct {
   const srvrun_cfg       *cfg;
   const quic_sockaddr_in *peer;
-  srvrun_state            *st;
+  srvrun_state           *st;
 } srvrun_step_ctx;
 
 /* Send a sealed buffer with a trace line (skip an empty one). */
@@ -59,11 +59,12 @@ static int srvrun_on_initial(const srvrun_step_ctx *ctx, quic_mspan dg) {
 
 /* A later datagram: one real-wire step, send any sealed reply. */
 static void srvrun_on_step(const srvrun_step_ctx *ctx, quic_mspan dg) {
-  u8                 out[1500];
-  quic_obuf          ob   = quic_obuf_of(out, sizeof out);
-  quic_srvloop_conn  conn = {&ctx->st->l, &ctx->st->s};
+  u8                out[1500];
+  quic_obuf         ob   = quic_obuf_of(out, sizeof out);
+  quic_srvloop_conn conn = {&ctx->st->l, &ctx->st->s};
   if (quic_srvloop_step(&conn, dg, &ob))
-    srvrun_send(ctx, quic_span_of(out, ob.len), "1-RTT reply sealed and sent\n");
+    srvrun_send(
+        ctx, quic_span_of(out, ob.len), "1-RTT reply sealed and sent\n");
 }
 
 /* RFC 9000 7: a long-header Initial only starts a NEW connection once the live

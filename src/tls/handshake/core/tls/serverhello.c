@@ -39,7 +39,7 @@ static void sh_ext(unsigned t, quic_span d, sh_fields *f) {
 
 /* Walk the extensions block reading version and key_share. */
 static int sh_walk(quic_span block, sh_fields *f) {
-  usz q = 0;
+  usz q      = 0;
   f->have_ks = 0;
   while (q + 4 <= block.n) {
     unsigned t    = (unsigned)block.p[q] << 8 | block.p[q + 1];

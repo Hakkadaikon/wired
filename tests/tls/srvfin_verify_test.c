@@ -22,24 +22,24 @@ void test_srvfin_verify(void) {
 
   /* round-trip: server accepts the genuine Finished */
   CHECK(
-      quic_srvfin_verify_client_finished(quic_span_of(msg, total), secret, th) ==
-      1);
+      quic_srvfin_verify_client_finished(
+          quic_span_of(msg, total), secret, th) == 1);
 
   /* tampered verify_data is rejected */
   u8 bad[64];
   for (usz i = 0; i < total; i++) bad[i] = msg[i];
   bad[off] ^= 0x01;
   CHECK(
-      quic_srvfin_verify_client_finished(quic_span_of(bad, total), secret, th) ==
-      0);
+      quic_srvfin_verify_client_finished(
+          quic_span_of(bad, total), secret, th) == 0);
 
   /* a different transcript hash does not verify */
   u8 th2[QUIC_SHA256_DIGEST];
   for (usz i = 0; i < QUIC_SHA256_DIGEST; i++) th2[i] = th[i];
   th2[0] ^= 0xFF;
   CHECK(
-      quic_srvfin_verify_client_finished(quic_span_of(msg, total), secret, th2) ==
-      0);
+      quic_srvfin_verify_client_finished(
+          quic_span_of(msg, total), secret, th2) == 0);
 
   /* wrong handshake type (not Finished) is rejected */
   u8 wt[64];

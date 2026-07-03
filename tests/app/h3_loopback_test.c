@@ -82,7 +82,9 @@ static void lb_make_client_hello(struct lb_fix *f) {
   }
   quic_x25519_base(cli_pub, f->cli_priv);
   f->ch_len = quic_tls_client_hello(
-      &(quic_clienthello_in){f->srv_random, cli_pub, quic_span_of(0, 0), quic_span_of(tp, sizeof(tp))},
+      &(quic_clienthello_in){
+          f->srv_random, cli_pub, quic_span_of(0, 0),
+          quic_span_of(tp, sizeof(tp))},
       &(quic_obuf){f->ch, sizeof(f->ch), 0});
 }
 
@@ -120,10 +122,11 @@ static void lb_drive_to_flight(struct lb_fix *f) {
 /* RFC 8446 4.4.4: compute the genuine client Finished from the transcript. */
 static void lb_make_client_finished(struct lb_fix *f) {
   quic_serverhello_out sh;
-  u8              hs[32], c_traffic[32], th[32];
-  quic_transcript tr;
-  usz             off;
-  CHECK(quic_tls_parse_server_hello(quic_span_of(f->sh, f->sh_len), f->sh_pub, &sh));
+  u8                   hs[32], c_traffic[32], th[32];
+  quic_transcript      tr;
+  usz                  off;
+  CHECK(quic_tls_parse_server_hello(
+      quic_span_of(f->sh, f->sh_len), f->sh_pub, &sh));
   {
     u8 shared[32];
     quic_x25519(shared, f->cli_priv, f->sh_pub);
@@ -230,7 +233,8 @@ static int lb_wire_step(
   CHECK(quic_udp_send(cfd, srv, quic_span_of(pkt, n)) == (i64)n);
   r = quic_udp_recvfrom(sfd, quic_mspan_of(rx, sizeof rx), &from);
   CHECK(r == (i64)n);
-  return quic_srvloop_step(&(quic_srvloop_conn){&f->l, &f->s}, quic_mspan_of(rx, (usz)r), out);
+  return quic_srvloop_step(
+      &(quic_srvloop_conn){&f->l, &f->s}, quic_mspan_of(rx, (usz)r), out);
 }
 
 /* (1) Loopback: the client's real protected Initial reaches a bound server
@@ -367,7 +371,7 @@ static void test_srvboot_accept(void) {
   u8               priv[32], pub[32], seed[32], rnd[32], cpriv[32], cpub[32];
   u8               dg[1500], out[4096];
   usz              total = 0;
-  quic_obuf        ob = {out, sizeof out, 0};
+  quic_obuf        ob    = {out, sizeof out, 0};
 
   for (usz i = 0; i < 32; i++) cpriv[i] = (u8)(7 + i);
   quic_x25519_base(cpub, cpriv);
@@ -401,9 +405,9 @@ static void test_srvboot_rejects_non_initial(void) {
   quic_srvloop     l;
   wired_srvboot_id id;
   u8               priv[32], pub[32], seed[32], rnd[32];
-  u8  garbage[8] = {0x40, 1, 2, 3, 4, 5, 6, 7}; /* short header, not Initial */
-  u8  out[512];
-  quic_obuf ob = {out, sizeof out, 0};
+  u8 garbage[8] = {0x40, 1, 2, 3, 4, 5, 6, 7}; /* short header, not Initial */
+  u8 out[512];
+  quic_obuf          ob   = {out, sizeof out, 0};
   wired_srvboot_conn conn = {&s, &l};
   wired_srvboot_in   in;
   sb_make_id(&id, priv, pub, seed, rnd);

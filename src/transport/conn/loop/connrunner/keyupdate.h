@@ -31,7 +31,8 @@ typedef struct {
  * self update unacknowledged), derive the next generation, rotate keys, install
  * them as the 1-RTT keyset, then toggle the advertised phase bit -- derive and
  * rotate strictly before the toggle. Returns 1 if an update was initiated. */
-int quic_connrunner_maybe_initiate_ku(quic_connrunner *r, const quic_connrunner_ku_in *in);
+int quic_connrunner_maybe_initiate_ku(
+    quic_connrunner *r, const quic_connrunner_ku_in *in);
 
 /* RFC 9001 6.5 timer path: discard the retained old read key once 3*PTO have
  * elapsed since the update completed. Returns 1 if the old key was discarded.

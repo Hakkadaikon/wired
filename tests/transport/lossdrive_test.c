@@ -4,13 +4,18 @@
 static void test_lossdrive_packet_threshold(void) {
   quic_sentpkt t;
   quic_sentpkt_init(&t);
-  quic_sentpkt_on_send(&t, &(quic_sentpkt_out){0, 100, 1, 1200}); /* gap 3 from acked 3 -> lost */
-  quic_sentpkt_on_send(&t, &(quic_sentpkt_out){1, 100, 1, 1200}); /* gap 2 -> kept */
-  quic_sentpkt_on_send(&t, &(quic_sentpkt_out){3, 200, 1, 1200}); /* the acked packet, kept */
+  quic_sentpkt_on_send(
+      &t,
+      &(quic_sentpkt_out){0, 100, 1, 1200}); /* gap 3 from acked 3 -> lost */
+  quic_sentpkt_on_send(
+      &t, &(quic_sentpkt_out){1, 100, 1, 1200}); /* gap 2 -> kept */
+  quic_sentpkt_on_send(
+      &t, &(quic_sentpkt_out){3, 200, 1, 1200}); /* the acked packet, kept */
 
   u64 lost[8];
   usz n = 0;
-  quic_lossdrive_on_ack(&t, &(quic_lossdrive_in){3, 1000, 1000000}, (quic_u64out){lost, &n});
+  quic_lossdrive_on_ack(
+      &t, &(quic_lossdrive_in){3, 1000, 1000000}, (quic_u64out){lost, &n});
 
   CHECK(n == 1);
   CHECK(lost[0] == 0);
@@ -27,7 +32,8 @@ static void test_lossdrive_none_lost(void) {
 
   u64 lost[8];
   usz n = 0;
-  quic_lossdrive_on_ack(&t, &(quic_lossdrive_in){6, 200, 1000000}, (quic_u64out){lost, &n});
+  quic_lossdrive_on_ack(
+      &t, &(quic_lossdrive_in){6, 200, 1000000}, (quic_u64out){lost, &n});
 
   CHECK(n == 0);
   CHECK(quic_sentpkt_count(&t) == 2);

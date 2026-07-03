@@ -114,8 +114,9 @@ int quic_srvwire_open_initial(
 
 /* RFC 9001 5 */
 int quic_srvwire_seal_handshake(
-    const quic_protect_keys *k, const quic_srvwire_seal_in *in,
-    quic_obuf *out) {
+    const quic_protect_keys    *k,
+    const quic_srvwire_seal_in *in,
+    quic_obuf                  *out) {
   u8        frames[2048];
   quic_obuf fb = quic_obuf_of(frames, sizeof frames);
   if (!srvwire_emit_frames(in, &fb)) return 0;

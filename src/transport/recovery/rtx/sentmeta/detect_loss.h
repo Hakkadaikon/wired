@@ -25,7 +25,8 @@ typedef struct {
  * are written to lost.out / *lost.n and removed from the ring, dropping their
  * bytes from total_in_flight (7.4). */
 void quic_sentmeta_detect_loss(
-    quic_sentmeta *m, const quic_sentmeta_loss_in *in,
-    quic_sentmeta_u64out lost);
+    quic_sentmeta               *m,
+    const quic_sentmeta_loss_in *in,
+    quic_sentmeta_u64out         lost);
 
 #endif

@@ -12,8 +12,8 @@
 /* RFC 9114 4.1 / 4.3.1, RFC 9204 4.5 */
 int quic_h3reqdrive_send_method(
     u64 stream_id, const quic_h3reqdrive_send_in *in, quic_obuf *out) {
-  u8        fs[256];
-  quic_obuf fsb = quic_obuf_of(fs, sizeof(fs));
+  u8                    fs[256];
+  quic_obuf             fsb = quic_obuf_of(fs, sizeof(fs));
   quic_h3req_headers_in hin = {in->path, in->authority};
   quic_h3conn_req_in    rin;
   if (!quic_h3req_enc_method(in->method, &hin, &fsb)) return 0;
@@ -62,7 +62,7 @@ static usz line_indexed(quic_span fs, quic_mspan scr, rline *L) {
   u64         index     = 0;
   int         is_static = 0;
   const char *name = 0, *value = 0;
-  usz c = quic_qpack_indexed_decode(fs, &index, &is_static);
+  usz         c = quic_qpack_indexed_decode(fs, &index, &is_static);
   (void)scr;
   if (!c || !quic_qpack_static_get((usz)index, &name, &value)) return 0;
   borrow_static(name, value, L);
@@ -75,7 +75,7 @@ static usz line_namref(quic_span fs, quic_mspan scr, rline *L) {
   quic_qpack_nameref r    = {0, 0, 0};
   quic_obuf          vb   = quic_obuf_of(scr.p, scr.n);
   const char        *name = 0, *value = 0;
-  usz c = quic_qpack_literal_namref_decode(fs, &r, &vb);
+  usz                c = quic_qpack_literal_namref_decode(fs, &r, &vb);
   if (!c || !quic_qpack_static_get((usz)r.index, &name, &value)) return 0;
   L->name         = (const u8 *)name;
   L->name_len     = cstr_len(name);
@@ -166,7 +166,7 @@ static int scan_lines(rd_cursor *cur, quic_h3reqdrive_req *r) {
  * or count, recovering the request pseudo-headers into r by name. */
 static int decode_lines(quic_span fs, quic_mspan scr, quic_h3reqdrive_req *r) {
   rd_cursor cur = {fs, scr, 0, 0};
-  cur.off = quic_qpack_prefix_decode(fs.p, fs.n, &(quic_qpack_prefix){0});
+  cur.off       = quic_qpack_prefix_decode(fs.p, fs.n, &(quic_qpack_prefix){0});
   if (!cur.off) return 0;
   return scan_lines(&cur, r);
 }

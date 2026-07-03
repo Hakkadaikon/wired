@@ -59,7 +59,8 @@ static int append_sni(quic_obuf *out, quic_span sni) {
   if (sni.n == 0) return 1;
   e = quic_tls_sni_encode(&bob, sni);
   quic_put_be16(body, (u16)e);
-  return (e != 0) & append_wrapped(out, QUIC_SNI_TYPE, quic_span_of(body, e + 2));
+  return (e != 0) &
+         append_wrapped(out, QUIC_SNI_TYPE, quic_span_of(body, e + 2));
 }
 
 /* ALPN offering h3 (RFC 7301). */
@@ -104,14 +105,14 @@ static usz ch_finish(u8 *buf, usz off, usz block_start) {
 }
 
 usz quic_tls_client_hello(const quic_clienthello_in *in, quic_obuf *out) {
-  usz                  off = quic_hs_begin(out->p, out->cap, QUIC_HS_CLIENT_HELLO);
-  usz                  block_start;
-  clienthello_exts_in  exts = {in->sni, in->tp};
+  usz off = quic_hs_begin(out->p, out->cap, QUIC_HS_CLIENT_HELLO);
+  usz block_start;
+  clienthello_exts_in exts = {in->sni, in->tp};
   if (off == 0 || off + 41 + 2 > out->cap)
     return 0; /* header + prefix + ext_len */
-  off          = put_prefix(out->p, off, in->random);
-  block_start  = off;
-  out->len     = off + 2;
-  off          = append_exts(out, in->pub, &exts);
+  off         = put_prefix(out->p, off, in->random);
+  block_start = off;
+  out->len    = off + 2;
+  off         = append_exts(out, in->pub, &exts);
   return ch_finish(out->p, off, block_start);
 }

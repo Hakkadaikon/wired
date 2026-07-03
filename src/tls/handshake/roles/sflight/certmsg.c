@@ -23,7 +23,9 @@ static int cert_fits(usz cert_len, usz cap) {
 static void put_entry(quic_obuf *out, quic_span cert) {
   put_be24(out->p + out->len, (u32)cert.n);
   out->len += 3;
-  quic_put_bytes(quic_mspan_of(out->p, out->cap), &out->len, quic_span_of(cert.p, cert.n)); /* room checked */
+  quic_put_bytes(
+      quic_mspan_of(out->p, out->cap), &out->len,
+      quic_span_of(cert.p, cert.n));   /* room checked */
   quic_put_be16(out->p + out->len, 0); /* empty extensions */
   out->len += 2;
 }
@@ -32,9 +34,10 @@ int quic_sflight_certificate(quic_span cert_der, quic_obuf *out) {
   usz off;
   if (!cert_fits(cert_der.n, out->cap)) return 0;
   off         = quic_hs_begin(out->p, out->cap, QUIC_HS_CERTIFICATE);
-  out->p[off] = 0;                                  /* request_context length 0 */
-  put_be24(out->p + off + 1, (u32)(cert_der.n + 5)); /* certificate_list length */
-  out->len    = off + 4;
+  out->p[off] = 0; /* request_context length 0 */
+  put_be24(
+      out->p + off + 1, (u32)(cert_der.n + 5)); /* certificate_list length */
+  out->len = off + 4;
   put_entry(out, cert_der);
   quic_hs_finish(out->p, out->len);
   return 1;

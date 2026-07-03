@@ -28,7 +28,9 @@ static void entry_set(
 
 /* RFC 9000 10.3 */
 int quic_sresetdrive_map_add(
-    quic_sresetdrive_map *m, quic_span cid, const u8 token[QUIC_SRESETDRIVE_TOKEN]) {
+    quic_sresetdrive_map *m,
+    quic_span             cid,
+    const u8              token[QUIC_SRESETDRIVE_TOKEN]) {
   if (!can_add(m, (u8)cid.n)) return 0;
   entry_set(&m->e[m->count++], cid.p, (u8)cid.n, token);
   return 1;

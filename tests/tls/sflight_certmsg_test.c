@@ -10,7 +10,7 @@ void test_sflight_certmsg(void) {
   u8                  out[64];
   usz                 body_len;
   u8                  type;
-  quic_span            ctx;
+  quic_span           ctx;
   quic_tls_cert_entry first;
   quic_obuf           ob = quic_obuf_of(out, sizeof(out));
 

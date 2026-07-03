@@ -31,7 +31,7 @@ static void test_connect_forbidden(void) {
 static void test_connect_encode_two_fields(void) {
   static const u8 authority[] = {'h', 'o', 's', 't', ':', '4', '4', '3'};
   u8              out[64];
-  quic_obuf        ob = {out, sizeof out, 0};
+  quic_obuf       ob = {out, sizeof out, 0};
   CHECK(
       quic_h3req_enc_connect(quic_span_of(authority, sizeof authority), &ob) ==
       1);

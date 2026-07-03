@@ -18,8 +18,9 @@ static void test_roundtrip_stream(void) {
   u8        req[256], resp[256];
   quic_obuf req_ob = {req, sizeof req, 0}, resp_ob = {resp, sizeof resp, 0};
 
-  quic_h3conn_req_in  req_in  = {quic_span_of(qhdrs, sizeof qhdrs), quic_span_of(0, 0)};
-  quic_h3conn_resp    resp_in = {200, quic_span_of(body, sizeof body)};
+  quic_h3conn_req_in req_in = {
+      quic_span_of(qhdrs, sizeof qhdrs), quic_span_of(0, 0)};
+  quic_h3conn_resp resp_in = {200, quic_span_of(body, sizeof body)};
   CHECK(quic_h3conn_send_request(0, &req_in, &req_ob));
 
   /* server decodes the request STREAM frame and sees a HEADERS field section */
@@ -36,8 +37,8 @@ static void test_roundtrip_stream(void) {
   CHECK(quic_h3conn_send_response(0, &resp_in, &resp_ob));
   {
     quic_h3conn_resp resp_out = {0};
-    CHECK(quic_h3conn_recv_response(
-        quic_span_of(resp, resp_ob.len), &resp_out));
+    CHECK(
+        quic_h3conn_recv_response(quic_span_of(resp, resp_ob.len), &resp_out));
     CHECK(resp_out.status == 200);
     CHECK(resp_out.body.n == sizeof(body));
     CHECK(resp_out.body.p[0] == 'h' && resp_out.body.p[1] == 'i');
@@ -71,19 +72,18 @@ static void test_roundtrip_onertt(void) {
   }
   /* open the 1-RTT packet, then decode the response from its STREAM frame */
   {
-    u64       sid = 0, off = 0;
-    const u8 *sdata = 0;
-    usz       slen  = 0;
-    int       fin   = 0;
-    u8        reframed[256];
-    usz              rf_len = 0;
+    u64              sid = 0, off = 0;
+    const u8        *sdata = 0;
+    usz              slen  = 0;
+    int              fin   = 0;
+    u8               reframed[256];
+    usz              rf_len   = 0;
     quic_h3conn_resp resp_out = {0};
     CHECK(appdata_recv_flat(
         &k, &hp, pkt, total, 4, &sid, &off, &sdata, &slen, &fin));
     CHECK(appdata_frame_flat(
         sid, off, sdata, slen, fin, reframed, sizeof(reframed), &rf_len));
-    CHECK(quic_h3conn_recv_response(
-        quic_span_of(reframed, rf_len), &resp_out));
+    CHECK(quic_h3conn_recv_response(quic_span_of(reframed, rf_len), &resp_out));
     CHECK(resp_out.status == 200);
     CHECK(resp_out.body.n == sizeof(body));
     CHECK(resp_out.body.p[0] == 'o' && resp_out.body.p[1] == 'k');
@@ -100,19 +100,19 @@ static void test_roundtrip_empty_body(void) {
     quic_h3conn_resp resp_in = {404, quic_span_of(0, 0)};
     CHECK(quic_h3conn_send_response(0, &resp_in, &resp_ob));
   }
-  CHECK(quic_h3conn_recv_response(
-      quic_span_of(resp, resp_ob.len), &resp_out));
+  CHECK(quic_h3conn_recv_response(quic_span_of(resp, resp_ob.len), &resp_out));
   CHECK(resp_out.status == 404);
   CHECK(resp_out.body.n == 0);
 }
 
 /* cap too small: send paths report overflow. */
 static void test_roundtrip_no_room(void) {
-  const u8  qhdrs[] = {0x00, 0x00};
-  u8        out[4];
-  quic_obuf          ob      = {out, sizeof out, 0};
-  quic_h3conn_req_in req_in  = {quic_span_of(qhdrs, sizeof qhdrs), quic_span_of(0, 0)};
-  quic_h3conn_resp    resp_in = {200, quic_span_of(0, 0)};
+  const u8           qhdrs[] = {0x00, 0x00};
+  u8                 out[4];
+  quic_obuf          ob     = {out, sizeof out, 0};
+  quic_h3conn_req_in req_in = {
+      quic_span_of(qhdrs, sizeof qhdrs), quic_span_of(0, 0)};
+  quic_h3conn_resp resp_in = {200, quic_span_of(0, 0)};
   CHECK(!quic_h3conn_send_request(0, &req_in, &ob));
   CHECK(!quic_h3conn_send_response(0, &resp_in, &ob));
 }

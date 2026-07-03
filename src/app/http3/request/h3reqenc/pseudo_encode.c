@@ -95,7 +95,7 @@ int quic_h3req_enc_pseudo(const quic_h3req_pseudo_in *in, quic_obuf *out) {
  * and :authority; :scheme and :path are omitted. */
 int quic_h3req_enc_connect(quic_span authority, quic_obuf *out) {
   static const u8 connect[] = {'C', 'O', 'N', 'N', 'E', 'C', 'T'};
-  pseudo_field     fields[2] = {
+  pseudo_field    fields[2] = {
       {connect, sizeof connect, ":method", QPACK_METHOD_NAME_INDEX},
       {authority.p, authority.n, ":authority", QPACK_AUTHORITY_NAME_INDEX},
   };

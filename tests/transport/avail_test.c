@@ -15,7 +15,9 @@ void test_avail(void) {
   /* common version: peer offers v1 only -> v1 */
   u32 peer_v1[] = {QUIC_VERSION_1};
   u32 chosen    = 0;
-  CHECK(quic_vers_choose_compatible(&s, quic_verlist_of(peer_v1, 1), &chosen) == 1);
+  CHECK(
+      quic_vers_choose_compatible(&s, quic_verlist_of(peer_v1, 1), &chosen) ==
+      1);
   CHECK(chosen == QUIC_VERSION_1);
 
   /* peer offers both -> our most preferred (v2) */

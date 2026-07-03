@@ -1,7 +1,6 @@
 #include "transport/io/udp/udpsess/udpsess.h"
 
-void quic_udpsess_init(
-    quic_udpsess *s, quic_udp_transport *t, quic_span dcid) {
+void quic_udpsess_init(quic_udpsess *s, quic_udp_transport *t, quic_span dcid) {
   usz i;
   s->t      = t;
   s->active = 0;

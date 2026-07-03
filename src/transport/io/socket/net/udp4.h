@@ -30,7 +30,8 @@ typedef struct {
 /* Build a UDP header + payload into out (8-byte header followed by the
  * payload, pseudo-header checksum filled in). Returns the datagram length
  * (8 + payload_len), or 0 if it does not fit in out->cap. */
-usz quic_udp4_build(quic_obuf *out, const quic_udp4meta *meta, quic_span payload);
+usz quic_udp4_build(
+    quic_obuf *out, const quic_udp4meta *meta, quic_span payload);
 
 /* Verify a received datagram's checksum given the addresses. */
 int quic_udp4_check(quic_span dgram, quic_ipv4addrs addrs);

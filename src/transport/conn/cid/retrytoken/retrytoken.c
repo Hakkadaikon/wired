@@ -19,9 +19,9 @@ static usz build_msg(u8 *msg, const quic_retrytoken_in *in) {
 }
 
 void quic_retrytoken_make(
-    const u8 key[QUIC_RETRYTOKEN_KEY],
+    const u8                  key[QUIC_RETRYTOKEN_KEY],
     const quic_retrytoken_in *in,
-    u8 token[QUIC_RETRYTOKEN_LEN]) {
+    u8                        token[QUIC_RETRYTOKEN_LEN]) {
   u8  msg[QUIC_RETRYTOKEN_MSG];
   usz n = build_msg(msg, in);
   quic_hmac_sha256(
@@ -29,9 +29,9 @@ void quic_retrytoken_make(
 }
 
 int quic_retrytoken_verify(
-    const u8 key[QUIC_RETRYTOKEN_KEY],
+    const u8                  key[QUIC_RETRYTOKEN_KEY],
     const quic_retrytoken_in *in,
-    const u8 token[QUIC_RETRYTOKEN_LEN]) {
+    const u8                  token[QUIC_RETRYTOKEN_LEN]) {
   u8 want[QUIC_RETRYTOKEN_LEN];
   quic_retrytoken_make(key, in, want);
   return quic_ct_diff32(want, token) == 0;

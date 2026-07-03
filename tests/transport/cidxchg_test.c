@@ -7,8 +7,7 @@ static void test_cidxchg_init(void) {
   u8           dcid[8] = {9, 8, 7, 6, 5, 4, 3, 2};
   u8           scid[4] = {1, 2, 3, 4};
   CHECK(
-      quic_cidxchg_init(&x, quic_span_of(dcid, 8), quic_span_of(scid, 4)) ==
-      1);
+      quic_cidxchg_init(&x, quic_span_of(dcid, 8), quic_span_of(scid, 4)) == 1);
   CHECK(x.dcid_len == 8 && x.dcid[0] == 9 && x.dcid[7] == 2);
   CHECK(x.own_scid_len == 4 && x.own_scid[3] == 4);
   CHECK(x.init_dcid_len == 8 && x.init_dcid[0] == 9);

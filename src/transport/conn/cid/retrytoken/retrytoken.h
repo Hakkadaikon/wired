@@ -21,16 +21,16 @@ typedef struct {
 /* Generate a Retry token for a client address and original DCID under the
  * server key. */
 void quic_retrytoken_make(
-    const u8 key[QUIC_RETRYTOKEN_KEY],
+    const u8                  key[QUIC_RETRYTOKEN_KEY],
     const quic_retrytoken_in *in,
-    u8 token[QUIC_RETRYTOKEN_LEN]);
+    u8                        token[QUIC_RETRYTOKEN_LEN]);
 
 /* Validate a presented token: it must equal the token the server would have
  * generated for this address and original DCID. Constant-time. Returns 1 if
  * valid. */
 int quic_retrytoken_verify(
-    const u8 key[QUIC_RETRYTOKEN_KEY],
+    const u8                  key[QUIC_RETRYTOKEN_KEY],
     const quic_retrytoken_in *in,
-    const u8 token[QUIC_RETRYTOKEN_LEN]);
+    const u8                  token[QUIC_RETRYTOKEN_LEN]);
 
 #endif

@@ -11,10 +11,10 @@
 
 void quic_connrunner_init(
     quic_connrunner *r, quic_span dcid, const quic_connrunner_init_in *in) {
-  quic_connio_init_in  cin = {in->is_server, in->byte0, in->initial_max_data};
-  quic_evloop_init_in  ein = {in->level, in->cwnd, in->send_len};
-  r->fd                    = in->fd;
-  r->peer                  = *in->peer;
+  quic_connio_init_in cin = {in->is_server, in->byte0, in->initial_max_data};
+  quic_evloop_init_in ein = {in->level, in->cwnd, in->send_len};
+  r->fd                   = in->fd;
+  r->peer                 = *in->peer;
   quic_evloop_init(&r->loop, &ein);
   quic_rtxbytes_init(&r->rtx);
   quic_sentmeta_init(&r->sent);

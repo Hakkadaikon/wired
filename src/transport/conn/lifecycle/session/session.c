@@ -18,9 +18,8 @@ static int link_tx(quic_memlink *l, quic_span qpkt, quic_ipv4addrs addrs) {
   quic_obuf     ub   = quic_obuf_of(udp, sizeof(udp));
   usz           un   = quic_udp4_build(&ub, &meta, qpkt);
   quic_ipv4_build(
-      ip,
-      &(quic_ipv4_head){
-          (u16)(20 + un), addrs.src, addrs.dst, QUIC_IP_PROTO_UDP});
+      ip, &(quic_ipv4_head){
+              (u16)(20 + un), addrs.src, addrs.dst, QUIC_IP_PROTO_UDP});
   for (usz i = 0; i < 20; i++) frame[i] = ip[i];
   for (usz i = 0; i < un; i++) frame[20 + i] = udp[i];
   return quic_memlink_send(l, frame, 20 + un);
@@ -95,7 +94,8 @@ static int read_share(u8 *pkt, usz pl, u8 peer_pub[32]) {
   u8                type;
   usz               body_len;
   if (quic_frame_get_crypto(pkt + 18, pl, &cf) == 0) return 0;
-  if (quic_hs_parse(quic_span_of(cf.data, cf.length), &type, &body_len) == 0) return 0;
+  if (quic_hs_parse(quic_span_of(cf.data, cf.length), &type, &body_len) == 0)
+    return 0;
   return quic_hs_peer_share(cf.data + 4, body_len, peer_pub);
 }
 
@@ -110,8 +110,8 @@ static usz open_initial(quic_session *s, u8 *pkt, usz rn) {
 int quic_session_accept(quic_session *s) {
   u8        pkt[1200];
   quic_obuf ob = quic_obuf_of(pkt, sizeof(pkt));
-  usz       rn = link_rx(
-      s->link, &ob, (quic_ipv4addrs){QUIC_SESSION_CA, QUIC_SESSION_SA});
+  usz       rn =
+      link_rx(s->link, &ob, (quic_ipv4addrs){QUIC_SESSION_CA, QUIC_SESSION_SA});
   usz pl = open_initial(s, pkt, rn);
   if (pl == 0) return 0;
   if (!read_share(pkt, pl, s->peer_pub)) return 0;
@@ -189,7 +189,8 @@ int quic_session_recv_stream(quic_session *s, quic_stream_frame *out) {
   static u8 pkt[1200];
   quic_obuf ob = quic_obuf_of(pkt, sizeof(pkt));
   usz       rn = link_rx(
-      s->link, &ob, (quic_ipv4addrs){peer_addr(s->is_server), my_addr(s->is_server)});
+      s->link, &ob,
+      (quic_ipv4addrs){peer_addr(s->is_server), my_addr(s->is_server)});
   usz pl = open_1rtt(s, pkt, rn);
   if (pl == 0) return 0;
   return quic_frame_get_stream(pkt + 18, pl, out) != 0;

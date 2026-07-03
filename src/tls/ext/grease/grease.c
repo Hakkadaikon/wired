@@ -4,8 +4,10 @@
 
 usz quic_grease_encode(u8 *buf, usz cap) {
   usz off = 0;
-  if (!quic_varint_put(quic_mspan_of(buf, cap), &off, QUIC_TP_GREASE_QUIC_BIT)) return 0;
-  if (!quic_varint_put(quic_mspan_of(buf, cap), &off, 0)) return 0; /* empty value */
+  if (!quic_varint_put(quic_mspan_of(buf, cap), &off, QUIC_TP_GREASE_QUIC_BIT))
+    return 0;
+  if (!quic_varint_put(quic_mspan_of(buf, cap), &off, 0))
+    return 0; /* empty value */
   return off;
 }
 
