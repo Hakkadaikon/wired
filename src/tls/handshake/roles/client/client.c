@@ -54,11 +54,12 @@ void quic_client_set_castore(quic_client *c, const quic_castore *store) {
  * when real on-wire protection is wired. The padded length is the on-wire one.
  */
 usz quic_client_build_initial(quic_client *c, u8 *out, usz cap) {
-  u8  ch[QUIC_CLIENT_HELLO_MAX];
-  usz ch_len, frame_len;
-  if (!quic_tlsdriver_client_hello(&c->tls, ch, sizeof(ch), &ch_len)) return 0;
+  u8        ch[QUIC_CLIENT_HELLO_MAX];
+  usz       frame_len;
+  quic_obuf ob = quic_obuf_of(ch, sizeof(ch));
+  if (!quic_tlsdriver_client_hello(&c->tls, &ob)) return 0;
   if (!quic_crypto_stream_emit(
-          ch, ch_len, 0, QUIC_CLIENT_CRYPTO_FRAME, out, cap, &frame_len))
+          ch, ob.len, 0, QUIC_CLIENT_CRYPTO_FRAME, out, cap, &frame_len))
     return 0;
   return quic_pktbuild_init_pad(out, frame_len, cap);
 }
@@ -80,7 +81,7 @@ static int dispatch_cert(quic_client *c, const u8 *m, usz n) {
   return quic_fullhs_recv_cert(&c->hs, m, n);
 }
 static int dispatch_cv(quic_client *c, const u8 *m, usz n) {
-  return quic_fullhs_recv_certverify(&c->hs, m, n, cv_scheme(m));
+  return quic_fullhs_recv_certverify(&c->hs, quic_span_of(m, n), cv_scheme(m));
 }
 static int dispatch_fin(quic_client *c, const u8 *m, usz n) {
   return quic_fullhs_recv_finished(&c->hs, m, n);
@@ -133,8 +134,9 @@ static void save_sh(quic_client *c, const u8 *msg, usz len) {
 static int feed_initial(quic_client *c, const u8 *msg, usz len) {
   if (!quic_tlsdriver_recv_crypto(&c->tls, msg, len)) return 0;
   save_sh(c, msg, len);
-  if (!quic_fullhs_init(&c->hs, &c->tls, c->sh_transcript, c->sh_len)) return 0;
-  quic_fullhs_set_policy(&c->hs, c->now, c->host, c->host_len);
+  if (!quic_fullhs_init(&c->hs, &c->tls, quic_span_of(c->sh_transcript, c->sh_len)))
+    return 0;
+  quic_fullhs_set_policy(&c->hs, c->now, quic_span_of(c->host, c->host_len));
   quic_fullhs_set_castore(&c->hs, c->castore);
   c->phase = QUIC_CLIENT_HS_AUTH;
   return 1;

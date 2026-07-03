@@ -13,11 +13,12 @@ static int encext_fits(usz tp_len, usz cap) {
 
 int quic_sflight_encrypted_extensions(
     const u8 *transport_params, usz tp_len, u8 *out, usz cap, usz *out_len) {
-  usz off, ext;
+  usz       off, ext;
+  quic_obuf eob;
   if (!encext_fits(tp_len, cap)) return 0;
   off = quic_hs_begin(out, cap, QUIC_HS_ENCRYPTED_EXT);
-  ext =
-      quic_tpext_encode(out + off + 2, cap - off - 2, transport_params, tp_len);
+  eob = quic_obuf_of(out + off + 2, cap - off - 2);
+  ext = quic_tpext_encode(&eob, quic_span_of(transport_params, tp_len));
   quic_put_be16(out + off, (u16)ext); /* extensions block length */
   *out_len = off + 2 + ext;
   quic_hs_finish(out, *out_len);
