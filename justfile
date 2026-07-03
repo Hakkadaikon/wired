@@ -61,5 +61,16 @@ cert:
 lint:
     clang-tidy -checks='{{tidychecks}}' $(find src -name '*.c') -- {{tidyflags}}
 
+# regenerate the public-API reference into docs/sdk. The input set is derived
+# from wired.h's transitive includes at run time, so it never drifts from the
+# real public API surface. Config lives in docs/Doxyfile.
+docs:
+    rm -rf docs/sdk
+    ( cat docs/Doxyfile; \
+      printf 'INPUT = src/wired.h %s\n' \
+        "$(cd src && clang -I. -E -H wired.h 2>&1 >/dev/null \
+           | grep -o '\./.*\.h' | sed 's|^\./|src/|' | sort -u | tr '\n' ' ')" \
+    ) | doxygen -
+
 # everything
 check: ccn test
