@@ -62,8 +62,11 @@ void wired_sendsess_ack(wired_sendsess* s, u64 lo, u64 hi);
  * wired_sendsess_sent).
  * @param s the session
  * @param largest_acked highest packet number the peer has acknowledged
+ * @param lost_pns receives the lost packet numbers (0 to skip reporting)
+ * @param cap slots at lost_pns
  * @return slices newly declared lost. */
-usz wired_sendsess_detect_lost(wired_sendsess* s, u64 largest_acked);
+usz wired_sendsess_detect_lost(
+    wired_sendsess* s, u64 largest_acked, u64* lost_pns, usz cap);
 
 /** Fire one probe timeout (RFC 9002 6.2): requeue the oldest in-flight
  * slice so it retransmits with a fresh packet number and count the probe.

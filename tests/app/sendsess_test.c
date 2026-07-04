@@ -84,14 +84,19 @@ static void test_sendsess_threshold_declares_lost(void) {
     CHECK(wired_sendsess_sent(&s, &sl, pn) == 1);
   }
   wired_sendsess_ack(&s, 4, 4); /* largest acked 4: pns 0,1 are <= 4-3 */
-  CHECK(wired_sendsess_detect_lost(&s, 4) == 2);
+  {
+    u64 lost[4] = {99, 99, 99, 99};
+    CHECK(wired_sendsess_detect_lost(&s, 4, lost, 4) == 2);
+    /* the lost packet numbers are reported (for the caller's qlog) */
+    CHECK((lost[0] == 0 && lost[1] == 1) || (lost[0] == 1 && lost[1] == 0));
+  }
   CHECK(s.requeue_n == 2);
   CHECK(wired_sendsess_inflight(&s) == 2); /* pns 2,3 remain in flight */
   /* the lost slice retransmits (requeue first), never an acked one */
   CHECK(wired_sendsess_take(&s, &sl) == 1);
   CHECK(sl.offset == 10 || sl.offset == 0); /* one of the lost slices */
   /* below-threshold in-flight packets are untouched */
-  CHECK(wired_sendsess_detect_lost(&s, 4) == 0);
+  CHECK(wired_sendsess_detect_lost(&s, 4, 0, 0) == 0);
   /* the largest acknowledged pn is tracked and never regresses */
   CHECK(s.has_acked == 1 && s.largest_acked == 4);
   wired_sendsess_ack(&s, 2, 2);
