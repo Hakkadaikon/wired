@@ -138,6 +138,84 @@ static void test_connect_state_forward(void) {
   CHECK(st == QUIC_H3_TUNNEL_CLOSED);    /* no return to RELAY */
 }
 
+/* RFC 9220 3: build a request STREAM frame with a HEADERS field section
+ * carrying :method=CONNECT, :authority and, when want_protocol, a literal
+ * :protocol field, then a matching QUIC STREAM frame header. Mirrors the
+ * wire shape wired_h3reqdrive_recv_get expects. */
+static usz build_connect_stream(
+    int want_protocol, quic_span protocol, u8 *out, usz cap) {
+  u8        fs[128];
+  quic_obuf fsb = quic_obuf_of(fs, sizeof fs);
+  static const u8 authority[] = {'h', 'o', 's', 't'};
+  CHECK(quic_h3req_enc_connect(quic_span_of(authority, sizeof authority),
+                                &fsb) == 1);
+  if (want_protocol) {
+    quic_qpack_field f = {quic_span_of((const u8 *)":protocol", 9), protocol};
+    usz w = quic_qpack_literal_name_encode(
+        quic_mspan_of(fs + fsb.len, sizeof(fs) - fsb.len), 0, &f);
+    CHECK(w > 0);
+    fsb.len += w;
+  }
+
+  u8        h3[160];
+  quic_obuf h3b = quic_obuf_of(h3, sizeof h3);
+  CHECK(
+      quic_h3_frame_put(&h3b, QUIC_H3_FRAME_HEADERS, quic_span_of(fs, fsb.len)) >
+      0);
+
+  quic_stream_frame sf = {0, 0, h3b.len, h3, 1};
+  usz               w  = quic_frame_put_stream(out, cap, &sf);
+  CHECK(w > 0);
+  return w;
+}
+
+/* A CONNECT request carrying :protocol recovers it into r.protocol. */
+static void test_connect_protocol_present(void) {
+  static const u8 ws[] = {'w', 'e', 'b', 's', 'o', 'c', 'k', 'e', 't'};
+  u8              stream[256];
+  usz n = build_connect_stream(1, quic_span_of(ws, sizeof ws), stream,
+                                sizeof stream);
+
+  u8                    scratch[128];
+  wired_h3reqdrive_req  r = {0};
+  CHECK(
+      wired_h3reqdrive_recv_get(
+          quic_span_of(stream, n), quic_mspan_of(scratch, sizeof scratch),
+          &r) == 1);
+  CHECK(r.protocol_len == sizeof ws);
+  CHECK(r.protocol != 0);
+  for (usz i = 0; i < sizeof ws; i++) CHECK(r.protocol[i] == ws[i]);
+}
+
+/* A CONNECT request without :protocol still parses, protocol_len stays 0. */
+static void test_connect_protocol_absent(void) {
+  u8  stream[256];
+  usz n = build_connect_stream(0, quic_span_of(0, 0), stream, sizeof stream);
+
+  u8                   scratch[128];
+  wired_h3reqdrive_req r = {0};
+  CHECK(
+      wired_h3reqdrive_recv_get(
+          quic_span_of(stream, n), quic_mspan_of(scratch, sizeof scratch),
+          &r) == 1);
+  CHECK(r.protocol == 0);
+  CHECK(r.protocol_len == 0);
+}
+
+/* RFC 9220 3: a server MUST NOT accept :protocol unless it advertised
+ * SETTINGS_ENABLE_CONNECT_PROTOCOL=1. */
+static void test_connect_protocol_negotiation(void) {
+  wired_h3reqdrive_req r = {0};
+  r.protocol              = (const u8 *)"websocket";
+  r.protocol_len          = 9;
+  CHECK(quic_h3_connect_protocol_ok(&r, 1) == 1); /* advertised: accepted */
+  CHECK(quic_h3_connect_protocol_ok(&r, 0) == 0); /* not advertised: reject */
+
+  r.protocol     = 0;
+  r.protocol_len = 0;
+  CHECK(quic_h3_connect_protocol_ok(&r, 0) == 1); /* no :protocol: always ok */
+}
+
 void test_connect(void) {
   test_connect_ok();
   test_connect_required();
@@ -146,4 +224,7 @@ void test_connect(void) {
   test_connect_req_ok_rejects();
   test_connect_established();
   test_connect_state_forward();
+  test_connect_protocol_present();
+  test_connect_protocol_absent();
+  test_connect_protocol_negotiation();
 }

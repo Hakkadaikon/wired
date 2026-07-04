@@ -23,6 +23,13 @@ int quic_h3_connect_ok(const quic_h3_connect_flags *f);
  * (tunnel may proceed), 0 if it must be treated as malformed. */
 int quic_h3_connect_req_ok(const wired_h3reqdrive_req *r);
 
+/* RFC 9220 3. A server MUST NOT accept a :protocol pseudo-header unless it
+ * has sent SETTINGS_ENABLE_CONNECT_PROTOCOL=1 (settings_enabled non-zero).
+ * Returns 1 if r carries no :protocol, or :protocol is present and settings_
+ * enabled is non-zero; 0 if :protocol is present but not negotiated. */
+int quic_h3_connect_protocol_ok(
+    const wired_h3reqdrive_req *r, int settings_enabled);
+
 /* RFC 9110 9.3.6. A 2xx response to CONNECT establishes the tunnel; any other
  * status does not. Returns 1 for 200..299, 0 otherwise. */
 int quic_h3_connect_established(u16 status);
