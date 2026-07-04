@@ -24,7 +24,16 @@ static void test_clock_live(void) {
   CHECK(now >= 20260101000000ULL && now < 21000101000000ULL);
 }
 
+/* The monotonic clock ticks: nonzero on a live system, never decreasing. */
+static void test_clock_mono(void) {
+  u64 a = quic_clock_mono_ms();
+  u64 b = quic_clock_mono_ms();
+  CHECK(a != 0);
+  CHECK(b >= a);
+}
+
 void test_clock(void) {
   test_clock_vectors();
   test_clock_live();
+  test_clock_mono();
 }
