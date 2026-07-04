@@ -13,6 +13,10 @@
 /**
  * Append src into buf at *off.
  *
+ * Both buf and src are borrowed views: no ownership transfers and nothing is
+ * copied into new storage, so buf and src must stay alive (and unmoved) only
+ * for the duration of this call.
+ *
  * @param buf destination buffer (its .n is the total capacity)
  * @param off write cursor into buf; advanced by src.n on success
  * @param src bytes to append
@@ -27,6 +31,9 @@ static inline int quic_put_bytes(quic_mspan buf, usz *off, quic_span src) {
 
 /**
  * Copy dst.n bytes into dst from *off (buf total).
+ *
+ * Both buf and dst are borrowed views: no ownership transfers, and each must
+ * stay alive (and unmoved) only for the duration of this call.
  *
  * @param buf source buffer to read from
  * @param off read cursor into buf; advanced by dst.n on success
