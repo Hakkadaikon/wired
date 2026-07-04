@@ -41,4 +41,11 @@ int quic_conntable_insert(
 /** Free the slot at index i so it can be reused. Out-of-range i is a no-op. */
 void quic_conntable_remove(quic_conntable* t, usz cap, int i);
 
+/** Replace slot i's CID in place (RFC 9000 7.2: after the first flight the
+ * peer addresses the locally-chosen SCID, not the Initial's DCID).
+ * @return 1 on success, 0 if i is out of range or cid_len exceeds
+ *   WIRED_MAX_CID_LEN (the slot is left untouched). */
+int quic_conntable_rekey(
+    quic_conntable* t, usz cap, int i, const u8* cid, u8 cid_len);
+
 #endif
