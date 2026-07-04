@@ -78,7 +78,7 @@ static void test_srvrun_owes_goaway_once(void) {
   CHECK(srvrun_owes_goaway(&c) == 1);
   {
     quic_obuf  gob = {out, sizeof out, 0};
-    srvrun_cfg cfg = {-1, 0, 0, 0}; /* fd unused: srvrun_send skips len==0,
+    srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0}; /* fd unused: srvrun_send skips len==0,
                                        but sealed GOAWAY is non-empty, so this
                                        exercises a real (harmless) send(2) to
                                        an invalid fd -- accepted since srvrun_
@@ -103,7 +103,7 @@ static void test_srvrun_goaway_wire_content(void) {
   sr_make_confirmed_conn(&c, &f, &ob);
   {
     quic_obuf  gob = {out, sizeof out, 0};
-    srvrun_cfg cfg = {-1, 0, 0, 0};
+    srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0};
     CHECK(srvrun_send_goaway(&cfg, &c, &gob) == 1);
     CHECK(client_open_onertt(&f, out, gob.len, &pl, &pll) == 1);
   }
@@ -145,6 +145,60 @@ static void test_srvrun_all_drained_false_when_one_up(void) {
   CHECK(srvrun_all_drained(&st) == 0);
 }
 
+#define SYS_unlinkat 263
+#define SRVRUNT_AT_FDCWD (-100)
+static const char srvrunt_qlog_path[] = "build/srvrun_qlog_test.tmp";
+
+static void srvrunt_qlog_unlink(void) {
+  syscall3(SYS_unlinkat, SRVRUNT_AT_FDCWD, srvrunt_qlog_path, 0);
+}
+
+/* No qlog path set (the default): srvrun_send writes nothing to any qlog
+ * file. */
+static void test_srvrun_send_no_qlog_path_writes_nothing(void) {
+  u8            buf[8] = {1, 2, 3, 4};
+  srvrun_conn   c       = {0};
+  srvrun_cfg    cfg     = {-1, 0, 0, 0, 0, 0};
+  srvrunt_qlog_unlink();
+  srvrun_send(&cfg, &c, quic_span_of(buf, sizeof buf), "t\n");
+  {
+    u8  out[8] = {0};
+    ssz n = wired_fio_read(srvrunt_qlog_path, quic_mspan_of(out, sizeof out));
+    CHECK(n < 0);
+  }
+}
+
+/* A qlog path set: srvrun_send appends one packet_sent record. */
+static void test_srvrun_send_qlog_path_writes_packet_sent(void) {
+  u8            buf[8] = {1, 2, 3, 4};
+  srvrun_conn   c       = {0};
+  srvrun_cfg    cfg     = {-1, 0, 0, 0, srvrunt_qlog_path, 0};
+  srvrunt_qlog_unlink();
+  srvrun_send(&cfg, &c, quic_span_of(buf, sizeof buf), "t\n");
+  {
+    u8  out[256] = {0};
+    ssz n = wired_fio_read(srvrunt_qlog_path, quic_mspan_of(out, sizeof out));
+    CHECK(n > 0);
+    CHECK(out[0] == 0x1E); /* JSON-SEQ RS */
+    CHECK(out[n - 1] == '\n');
+  }
+  srvrunt_qlog_unlink();
+}
+
+/* Empty output (pkt.n == 0): srvrun_send skips the send AND the qlog record
+ * (nothing was actually sent on the wire). */
+static void test_srvrun_send_empty_pkt_no_qlog_record(void) {
+  srvrun_conn c   = {0};
+  srvrun_cfg  cfg = {-1, 0, 0, 0, srvrunt_qlog_path, 0};
+  srvrunt_qlog_unlink();
+  srvrun_send(&cfg, &c, quic_span_of(0, 0), "t\n");
+  {
+    u8  out[8] = {0};
+    ssz n = wired_fio_read(srvrunt_qlog_path, quic_mspan_of(out, sizeof out));
+    CHECK(n < 0);
+  }
+}
+
 void test_srvrun(void) {
   test_srvrun_no_shutdown_accepts_new();
   test_srvrun_shutdown_rejects_new_initial();
@@ -155,4 +209,7 @@ void test_srvrun(void) {
   test_srvrun_unconfirmed_owes_nothing();
   test_srvrun_all_drained_true_when_all_down();
   test_srvrun_all_drained_false_when_one_up();
+  test_srvrun_send_no_qlog_path_writes_nothing();
+  test_srvrun_send_qlog_path_writes_packet_sent();
+  test_srvrun_send_empty_pkt_no_qlog_record();
 }
