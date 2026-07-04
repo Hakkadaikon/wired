@@ -87,7 +87,8 @@ static u64 not_found(quic_obuf *body_out) {
  * hard-codes 200 for every decoded request; changing that is a larger,
  * separate change). The logged status reflects whether the file was found. */
 static u64 serve_static(
-    const app_config *cfg, quic_span path, quic_obuf *body_out) {
+    const app_config *cfg, quic_span path, quic_obuf *body_out,
+    const char **content_type) {
   char resolved[512];
   char reqpath[400];
   usz  i;
@@ -101,6 +102,7 @@ static u64 serve_static(
   n = wired_fio_read(resolved, quic_mspan_of(body_out->p, body_out->cap));
   if (n < 0) return not_found(body_out);
   body_out->len = (usz)n;
+  *content_type  = wired_mimetype_for_path(resolved);
   return 200;
 }
 
@@ -121,12 +123,14 @@ static u64 serve_history(const wired_h3reqdrive_req *req, quic_obuf *body_out) {
  * body. Dispatches to static-file or history-demo mode depending on whether
  * --root was given, then logs the request. */
 static int app_on_request(
-    void *ctx, const wired_h3reqdrive_req *req, quic_obuf *body_out) {
+    void *ctx, const wired_h3reqdrive_req *req, quic_obuf *body_out,
+    const char **content_type) {
   const app_config *cfg    = (const app_config *)ctx;
   quic_span          method = quic_span_of(req->method, req->method_len);
   quic_span          path   = quic_span_of(req->path, req->path_len);
-  u64                status = cfg->root ? serve_static(cfg, path, body_out)
-                                         : serve_history(req, body_out);
+  u64                status = cfg->root
+                                   ? serve_static(cfg, path, body_out, content_type)
+                                   : serve_history(req, body_out);
   access_log(cfg, method, path, status, body_out->len);
   return 1;
 }
@@ -134,15 +138,16 @@ static int app_on_request(
 /* Self-check (ponytail: the only non-trivial app logic is the store/echo). */
 static void app_selfcheck(void) {
   u8                   out[64];
-  quic_obuf            ob   = {out, sizeof out, 0};
-  app_config           cfg  = {0, 0, 0};
+  quic_obuf            ob          = {out, sizeof out, 0};
+  app_config           cfg         = {0, 0, 0};
+  const char          *content_type = 0;
   wired_h3reqdrive_req post = {(const u8 *)"POST", 4, 0, 0, 0, 0, 0, 0,
                                (const u8 *)"hi",   2};
   wired_h3reqdrive_req get  = {(const u8 *)"GET", 3, 0, 0, 0, 0, 0, 0, 0, 0};
   g_history_len             = 0;
-  app_on_request(&cfg, &post, &ob);
+  app_on_request(&cfg, &post, &ob, &content_type);
   if (ob.len != 2 || out[0] != 'h') die("selfcheck: echo failed\n");
-  app_on_request(&cfg, &get, &ob);
+  app_on_request(&cfg, &get, &ob, &content_type);
   if (ob.len != 3 || out[1] != 'h' || out[2] != 'i')
     die("selfcheck: history failed\n");
   g_history_len = 0;

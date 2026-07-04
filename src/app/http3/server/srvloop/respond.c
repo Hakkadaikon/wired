@@ -84,11 +84,15 @@ static usz app_ack_append(wired_srvloop *l, u8 *buf, usz cap) {
 
 /* RFC 9110 9.3: ask the registered handler to build the response body for the
  * decoded request. No handler (or it declines) -> a body-less 200. The body is
- * written into the caller's buffer; *body_len is 0 when there is none. */
-static const u8 *build_body(wired_srvloop *l, u8 *body, usz *body_len) {
+ * written into the caller's buffer; *body_len is 0 when there is none.
+ * *content_type is left at its caller-supplied value (0) unless the handler
+ * sets it. */
+static const u8 *build_body(
+    wired_srvloop *l, u8 *body, usz *body_len, const char **content_type) {
   quic_obuf ob = quic_obuf_of(body, WIRED_SRVLOOP_BODY_MAX);
   *body_len    = 0;
-  if (l->on_request && l->on_request(l->req_ctx, &l->req, &ob)) {
+  if (l->on_request &&
+      l->on_request(l->req_ctx, &l->req, &ob, content_type)) {
     *body_len = ob.len;
     return body;
   }
@@ -98,17 +102,19 @@ static const u8 *build_body(wired_srvloop *l, u8 *body, usz *body_len) {
 /* RFC 9114 4.1 / 4.3.2: the 200 STREAM frame for the decoded request, carrying
  * the handler-built body; an empty section when no request was decoded. */
 static int response_frame(wired_srvloop *l, int got_request, quic_obuf *out) {
-  u8        body[WIRED_SRVLOOP_BODY_MAX];
-  usz       body_len;
-  const u8 *b;
+  u8          body[WIRED_SRVLOOP_BODY_MAX];
+  usz         body_len;
+  const u8   *b;
+  const char *content_type = 0;
   if (!got_request) {
     out->len = 0;
     return 1;
   }
-  b = build_body(l, body, &body_len);
+  b = build_body(l, body, &body_len, &content_type);
   {
     wired_h3srv_send_in send = {
-        WIRED_SRVLOOP_RESP_STREAM, {200, quic_span_of(b, body_len)}};
+        WIRED_SRVLOOP_RESP_STREAM,
+        {200, quic_span_of(b, body_len), content_type}};
     return wired_h3srv_build_response(&l->h3, &send, out);
   }
 }
