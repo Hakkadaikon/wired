@@ -1,11 +1,6 @@
 #include "app/http3/server/staticfile/staticfile.h"
 
-/* NUL-terminated string length; src/ has no libc strlen. */
-static usz staticfile_len(const char *s) {
-  usz n = 0;
-  while (s[n]) n++;
-  return n;
-}
+#include "common/bytes/util/bytes.h"
 
 /* 1 if path[i] is '/' or path is ending there (start/end-of-segment). */
 static int staticfile_is_boundary(const char *path, usz i) {
@@ -26,7 +21,7 @@ static int staticfile_dotdot_here(const char *path, usz i) {
 }
 
 int wired_staticfile_has_traversal(const char *path) {
-  usz n = staticfile_len(path);
+  usz n = quic_cstr_len(path);
   for (usz i = 0; i + 1 < n; i++)
     if (staticfile_dotdot_here(path, i)) return 1;
   return 0;
@@ -71,7 +66,7 @@ int wired_staticfile_resolve(
     const char *root, const char *reqpath, const char *index, char *out,
     usz outcap) {
   usz off  = 0;
-  usz rlen = staticfile_len(reqpath);
+  usz rlen = quic_cstr_len(reqpath);
   if (!staticfile_append_base(out, outcap, &off, root, reqpath)) return 0;
   if (!staticfile_is_dir(reqpath, rlen)) return 1;
   return staticfile_append_index(out, outcap, &off, rlen, index);
