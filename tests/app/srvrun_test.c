@@ -391,10 +391,56 @@ static void test_srvrun_failed_accept_unclaims(void) {
   CHECK(quic_conntable_insert(table, QUIC_CONNTABLE_CAP, junk + 6, 8) == 0);
 }
 
+/* PEER CLOSE FREES THE SLOT (RFC 9000 10.2.2): a routed CONNECTION_CLOSE
+ * tears the slot down — table entry gone, up cleared, no reply sent (the
+ * qlog stays empty; an ACK-only reply would have logged packet_sent) — and a
+ * later datagram carrying the dead connection's DCID creates no state. */
+static void test_srvrun_peer_close_frees_slot(void) {
+  struct lp_fix         f;
+  wired_srvboot_id      id;
+  u8                    priv[32], pub[32], seed[32], rnd[32];
+  u8                    obuf[1024], cc[32], spkt[1024];
+  quic_conntable        table[QUIC_CONNTABLE_CAP];
+  quic_sockaddr_in      peer = {0};
+  srvrun_state          st   = {table, g_srvrun_state.conns};
+  quic_obuf             ob   = {obuf, sizeof obuf, 0};
+  quic_conn_close_frame ccf  = {0, 0, 0, 0, 0};
+  usz                   ccn, slen;
+  sr_make_id(&id, priv, pub, seed, rnd);
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  sr_make_confirmed_conn(&st.conns[0], &f, &ob);
+  /* route the fixture's 1-RTT DCID (its iscid) to slot 0 */
+  CHECK(quic_conntable_insert(table, QUIC_CONNTABLE_CAP, g_cli_scid, 6) == 0);
+  ccn = quic_frame_put_conn_close(cc, sizeof cc, &ccf);
+  CHECK(ccn > 0);
+  slen = client_seal_onertt(&f, cc, ccn, spkt, sizeof spkt);
+  srvrunt_qlog_unlink();
+  {
+    srvrun_cfg      cfg = {-1, &id, 0, 0, srvrunt_qlog_path, 0, 0, 0};
+    srvrun_step_ctx ctx = {&cfg, &peer, &st};
+    srvrun_serve(&ctx, quic_mspan_of(spkt, slen));
+    /* slot freed: up cleared, DCID no longer routes */
+    CHECK(st.conns[0].up == 0);
+    CHECK(quic_conntable_find(table, QUIC_CONNTABLE_CAP, g_cli_scid, 6) == -1);
+    /* no reply was sent for the close (draining sends nothing) */
+    {
+      u8  out[64] = {0};
+      ssz n = wired_fio_read(srvrunt_qlog_path, quic_mspan_of(out, sizeof out));
+      CHECK(n < 0);
+    }
+    /* a later datagram on the dead DCID is dropped without new state */
+    srvrun_serve(&ctx, quic_mspan_of(spkt, slen));
+    CHECK(st.conns[0].up == 0);
+    CHECK(quic_conntable_find(table, QUIC_CONNTABLE_CAP, g_cli_scid, 6) == -1);
+  }
+  srvrunt_qlog_unlink();
+}
+
 void test_srvrun(void) {
   test_srvrun_no_shutdown_accepts_new();
   test_srvrun_accept_rekeys_to_slot_scid();
   test_srvrun_failed_accept_unclaims();
+  test_srvrun_peer_close_frees_slot();
   test_srvrun_shutdown_rejects_new_initial();
   test_srvrun_shutdown_refuses_slot_claim();
   test_srvrun_owes_goaway_once();
