@@ -22,11 +22,13 @@ typedef struct {
   u64 len;
 } tpblob_hdr;
 
-/* Read both header varints; on success hdr->len holds the value length. */
+/* Read both header varints; on success hdr->len holds the value length.
+ * Short-circuits (unlike a bitwise &) so a failed id read never lets the
+ * second quic_varint_take run with hdr->len still uninitialized. */
 static int blob_take_hdr(quic_span buf, usz *off, tpblob_hdr *hdr) {
-  int ok = quic_varint_take(quic_span_of(buf.p, buf.n), off, &hdr->id) &
-           quic_varint_take(quic_span_of(buf.p, buf.n), off, &hdr->len);
-  return ok && hdr->len <= buf.n - *off;
+  if (!quic_varint_take(quic_span_of(buf.p, buf.n), off, &hdr->id)) return 0;
+  if (!quic_varint_take(quic_span_of(buf.p, buf.n), off, &hdr->len)) return 0;
+  return hdr->len <= buf.n - *off;
 }
 
 usz quic_tparam_get_blob(quic_span buf, u64 *id, quic_span *val) {
@@ -99,17 +101,25 @@ static int pa_take_addrs(
          pa_take_port(v, off, &pa->ipv6_port);
 }
 
+/* Read cid_len (validating it fits pa->cid) then the cid bytes. Returns 1 ok,
+ * 0 if bad; short-circuits so pa->cid_len is never range-checked before
+ * quic_take_bytes has actually written it. */
+static int pa_take_cid(
+    quic_span v, usz *off, struct quic_preferred_address *pa) {
+  if (!quic_take_bytes(
+          quic_span_of(v.p, v.n), off, quic_mspan_of(&pa->cid_len, 1)))
+    return 0;
+  if (pa->cid_len > 20) return 0;
+  return quic_take_bytes(
+      quic_span_of(v.p, v.n), off, quic_mspan_of(pa->cid, pa->cid_len));
+}
+
 /* Read cid_len, cid, reset token. Returns 1 ok, 0 if bad. */
 static int pa_take_cid_token(
     quic_span v, usz *off, struct quic_preferred_address *pa) {
-  int ok = quic_take_bytes(
-               quic_span_of(v.p, v.n), off, quic_mspan_of(&pa->cid_len, 1)) &
-           (pa->cid_len <= 20);
-  return ok &
-         quic_take_bytes(
-             quic_span_of(v.p, v.n), off, quic_mspan_of(pa->cid, pa->cid_len)) &
-         quic_take_bytes(
-             quic_span_of(v.p, v.n), off, quic_mspan_of(pa->reset_token, 16));
+  if (!pa_take_cid(v, off, pa)) return 0;
+  return quic_take_bytes(
+      quic_span_of(v.p, v.n), off, quic_mspan_of(pa->reset_token, 16));
 }
 
 /* Parse a value view of exactly len bytes. Returns 1 ok, 0 if malformed. */
@@ -119,12 +129,21 @@ static int pa_parse_value(quic_span v, struct quic_preferred_address *pa) {
   return ok && off == v.n;
 }
 
+/* id is meaningful only when quic_tparam_get_blob succeeded (it leaves id
+ * untouched on failure), so id must be initialized before any read of it —
+ * even passing an unread id by value to a helper counts as a read for
+ * uninitialized-value analysis. */
+static int pa_blob_is_preferred_address(usz r, u64 id) {
+  if (r == 0) return 0;
+  return id == QUIC_TP_PREFERRED_ADDRESS;
+}
+
 usz quic_tparam_get_preferred_address(
     const u8 *buf, usz n, struct quic_preferred_address *pa) {
-  u64       id;
+  u64       id = 0;
   quic_span v;
-  usz       r  = quic_tparam_get_blob(quic_span_of(buf, n), &id, &v);
-  int       ok = (r != 0) & (id == QUIC_TP_PREFERRED_ADDRESS);
-  if (!ok || !pa_parse_value(v, pa)) return 0;
+  usz       r = quic_tparam_get_blob(quic_span_of(buf, n), &id, &v);
+  if (!pa_blob_is_preferred_address(r, id)) return 0;
+  if (!pa_parse_value(v, pa)) return 0;
   return r;
 }
