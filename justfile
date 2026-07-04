@@ -50,8 +50,10 @@ gen-ninja:
 ninja: gen-ninja
     ninja
 
-# run all tests (hosted, with assertions)
-test: gen-ninja
+# run all tests (hosted, with assertions). fmt first so the unity build is
+# always compiled from formatted sources — run inside `nix develop` so the
+# pinned clang-format (the one CI checks against) is the one that formats.
+test: fmt gen-ninja
     ninja build/quic_test && build/quic_test
 
 # cyclomatic complexity gate: CCN must be <= 3
