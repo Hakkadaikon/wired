@@ -18,7 +18,10 @@
 static void sr_make_confirmed_conn(
     srvrun_conn* c, struct lp_fix* f, quic_obuf* ob) {
   lp_confirm(f, ob);
-  *c = (srvrun_conn){f->s, f->l, 1, {0}, {0}, 0, 0};
+  *c    = (srvrun_conn){0};
+  c->s  = f->s;
+  c->l  = f->l;
+  c->up = 1;
 }
 
 /* Find the H3 GOAWAY frame's id in a 1-RTT payload carrying a STREAM frame on
@@ -655,6 +658,119 @@ static void test_srvrun_batch_serves_each(void) {
   CHECK(st.conns[1].peer.port_be == 0x2222);
 }
 
+/* Body handler for the takeover test: 2.5 chunks of a counting pattern. */
+static int sr_body_handler(
+    void*                       hctx,
+    const wired_h3reqdrive_req* req,
+    quic_obuf*                  body_out,
+    const char**                ct) {
+  (void)hctx;
+  (void)req;
+  (void)ct;
+  for (usz i = 0; i < 2500 && i < body_out->cap; i++)
+    body_out->p[i] = (u8)(i & 0xff);
+  body_out->len = 2500;
+  return 1;
+}
+
+/* Local socket pair on its own port (4439; the recvmmsg tests own 4437). */
+static int sr_open_sockets(i64* sfd, i64* cfd, quic_sockaddr_in* srv) {
+  *sfd = wired_udp_socket();
+  if (*sfd < 0) return 0;
+  wired_udp_addr(srv, 4439, (const u8[4]){127, 0, 0, 1});
+  if (wired_udp_bind(*sfd, srv) < 0) {
+    wired_udp_close(*sfd);
+    return 0;
+  }
+  *cfd = wired_udp_socket();
+  if (*cfd < 0) {
+    wired_udp_close(*sfd);
+    return 0;
+  }
+  return 1;
+}
+
+/* Collect every STREAM frame in an opened payload into asm_buf by offset;
+ * returns bytes of the highest offset+len seen, sets *fin if any slice
+ * carried it. */
+static usz sr_collect_stream(
+    const u8* pl, usz pll, u8* asm_buf, usz cap, usz high, int* fin) {
+  quic_framewalk      it;
+  quic_framewalk_item fr;
+  quic_stream_frame   sf;
+  quic_framewalk_init(&it, pl, pll);
+  while (quic_framewalk_next(&it, &fr)) {
+    if (fr.type < 0x08 || fr.type > 0x0f) continue;
+    if (quic_frame_get_stream(fr.start, fr.remaining, &sf) == 0) continue;
+    for (usz i = 0; i < sf.length && sf.offset + i < cap; i++)
+      asm_buf[sf.offset + i] = sf.data[i];
+    if ((usz)(sf.offset + sf.length) > high) high = sf.offset + sf.length;
+    *fin |= sf.fin;
+  }
+  return high;
+}
+
+/* TAKEOVER END TO END: a GET served through srvrun streams a 2.5-chunk
+ * response as multiple 1-RTT packets over a real socket. The client-side
+ * reassembly of the STREAM slices equals prefix+body byte for byte and ends
+ * with fin. Benign skip when the sandbox forbids sockets. */
+static void test_srvrun_takeover_streams_large_body(void) {
+  struct lp_fix    f;
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32];
+  u8               obuf[1024], get[512], spkt[1024];
+  static u8        asm_buf[4096];
+  u8               pre[64];
+  quic_obuf        preb = {pre, sizeof pre, 0};
+  quic_conntable   table[QUIC_CONNTABLE_CAP];
+  srvrun_state     st = {table, g_srvrun_state.conns};
+  quic_obuf        ob = {obuf, sizeof obuf, 0};
+  quic_sockaddr_in srv, from;
+  i64              sfd, cfd;
+  usz              glen, slen, high = 0;
+  int              fin = 0;
+  if (!sr_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
+  sr_make_id(&id, priv, pub, seed, rnd);
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  sr_make_confirmed_conn(&st.conns[0], &f, &ob);
+  st.conns[0].l.resp_external = 1;
+  st.conns[0].peer            = srv;
+  CHECK(quic_conntable_insert(table, QUIC_CONNTABLE_CAP, g_cli_scid, 6) == 0);
+  {
+    quic_obuf gob = {get, sizeof get, 0};
+    CHECK(wired_h3reqdrive_send_get(
+        0,
+        &(wired_h3reqdrive_get_in){
+            quic_span_of((const u8*)"/", 1), quic_span_of((const u8*)"h", 1)},
+        &gob));
+    glen = gob.len;
+  }
+  slen = client_seal_onertt(&f, get, glen, spkt, sizeof spkt);
+  {
+    srvrun_cfg      cfg = {cfd, &id, sr_body_handler, 0, 0, 0, 0, 0};
+    srvrun_step_ctx ctx = {&cfg, &srv, &st, 0};
+    srvrun_serve(&ctx, quic_mspan_of(spkt, slen));
+  }
+  /* 4 datagrams queued: the loop's ACK reply, then 3 response slices. */
+  for (int d = 0; d < 4; d++) {
+    u8        pkt[1500];
+    const u8* pl;
+    usz       pll;
+    i64 r = wired_udp_recvfrom(sfd, quic_mspan_of(pkt, sizeof pkt), &from);
+    CHECK(r > 0);
+    if (client_open_onertt(&f, pkt, (usz)r, &pl, &pll) != 1) continue;
+    high = sr_collect_stream(pl, pll, asm_buf, sizeof asm_buf, high, &fin);
+  }
+  wired_udp_close(cfd);
+  wired_udp_close(sfd);
+  /* the reassembled stream is exactly prefix + body, fin on the tail */
+  CHECK(quic_h3resp_prefix(200, 0, 2500, &preb) == 1);
+  CHECK(fin == 1);
+  CHECK(high == preb.len + 2500);
+  for (usz i = 0; i < preb.len; i++) CHECK(asm_buf[i] == pre[i]);
+  for (usz i = 0; i < 2500; i++) CHECK(asm_buf[preb.len + i] == (u8)(i & 0xff));
+}
+
 void test_srvrun(void) {
   test_srvrun_no_shutdown_accepts_new();
   test_srvrun_accept_rekeys_to_slot_scid();
@@ -669,6 +785,7 @@ void test_srvrun(void) {
   test_srvrun_qlog_records_initial();
   test_srvrun_qlog_skips_failed_accept();
   test_srvrun_batch_serves_each();
+  test_srvrun_takeover_streams_large_body();
   test_srvrun_shutdown_rejects_new_initial();
   test_srvrun_shutdown_refuses_slot_claim();
   test_srvrun_owes_goaway_once();

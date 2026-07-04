@@ -2,9 +2,12 @@
 
 #include "app/http3/core/h3/frame.h"
 #include "app/http3/core/h3conn/establish.h"
+#include "app/http3/request/h3resp/resp_build.h"
 #include "app/http3/server/certreload/certreload.h"
+#include "app/http3/server/sendsess/sendsess.h"
 #include "app/http3/server/sigterm/sigterm.h"
 #include "app/http3/server/srvloop/send.h"
+#include "common/bytes/util/bytes.h"
 #include "common/platform/clock/mono.h"
 #include "common/platform/debug/debug.h"
 #include "common/platform/qlog/qlog.h"
@@ -61,6 +64,7 @@ typedef struct {
   u8               scid[WIRED_MAX_CID_LEN];
   int              goaway_sent; /**< 1 once graceful-shutdown GOAWAY sent */
   u64              last_ms;     /**< monotonic ms of the last routed datagram */
+  wired_sendsess   sess;        /**< in-flight multi-packet response */
 } srvrun_conn;
 
 /* The running server's mutable state: a fixed pool of connection slots keyed
@@ -77,6 +81,16 @@ typedef struct {
   quic_conntable* table;
   srvrun_conn*    conns;
 } srvrun_state;
+
+/* Response storage, one stream per slot: 64-byte prefix room (HEADERS + DATA
+ * header framed in place, quic_h3resp_prefix) followed by the handler's body.
+ * ponytail: 16KB per response, 64 slots = 1MB BSS; raise WIRED_SRVRUN_RESP_MAX
+ * when a deployment needs bigger bodies. */
+#define WIRED_SRVRUN_RESP_MAX 16384
+#define SRVRUN_RESP_HDR_ROOM 64
+#define SRVRUN_SEND_WINDOW 10 /* RFC 9002 7.2: initial window, in packets */
+#define SRVRUN_CHUNK 1100     /* stream bytes per packet (fits a 1500 MTU) */
+static u8 g_srvrun_respstore[QUIC_CONNTABLE_CAP][WIRED_SRVRUN_RESP_MAX];
 
 /* Everything one datagram-serving step needs besides the datagram itself and
  * the resolved slot: the fixed run config, the peer address the datagram
@@ -216,6 +230,7 @@ static int srvrun_on_initial(
   srvrun_qlog_recv(ctx->cfg, 0, dg.n); /* the client's first Initial is PN 0 */
   wired_server_set_keylog_path(&c->s, ctx->cfg->keylog_path);
   wired_srvloop_set_handler(&c->l, ctx->cfg->handler, ctx->cfg->ctx);
+  c->l.resp_external = 1; /* srvrun streams the response (multi-packet) */
   srvrun_send(ctx->cfg, c, quic_span_of(ini, iob.len), "server Initial sent\n");
   srvrun_send_flight(ctx->cfg, c, hs, &out);
   return 1;
@@ -462,13 +477,104 @@ static void srvrun_open_done(const srvrun_step_ctx* ctx, int slot, int ok) {
       ctx->cfg->id->scid_len);
 }
 
+/* Fill the response body from the app handler (empty without one, or when
+ * it declines). */
+static void srvrun_call_handler(
+    const srvrun_step_ctx* ctx,
+    srvrun_conn*           c,
+    quic_obuf*             body,
+    const char**           ct) {
+  if (!ctx->cfg->handler) return;
+  if (!ctx->cfg->handler(ctx->cfg->ctx, &c->l.req, body, ct)) body->len = 0;
+}
+
+/* Build the decoded request's response into the slot's own storage — body
+ * first, prefix (RFC 9114 4.1 HEADERS + DATA header) framed right before it,
+ * no body copy — and arm the session over the whole stream. A session already
+ * in flight keeps the storage; the new request is dropped (one response at a
+ * time per connection, matching the one-request stream model). */
+static void srvrun_start_resp(const srvrun_step_ctx* ctx, int slot) {
+  srvrun_conn* c    = &ctx->st->conns[slot];
+  u8*          st   = g_srvrun_respstore[slot];
+  quic_obuf    body = quic_obuf_of(
+      st + SRVRUN_RESP_HDR_ROOM, WIRED_SRVRUN_RESP_MAX - SRVRUN_RESP_HDR_ROOM);
+  u8          pre[SRVRUN_RESP_HDR_ROOM];
+  quic_obuf   pob = quic_obuf_of(pre, sizeof pre);
+  const char* ct  = 0;
+  usz         off;
+  if (c->sess.active) return;
+  srvrun_call_handler(ctx, c, &body, &ct);
+  if (!quic_h3resp_prefix(200, ct, body.len, &pob)) return;
+  off = SRVRUN_RESP_HDR_ROOM - pob.len;
+  quic_put_bytes(
+      quic_mspan_of(st, SRVRUN_RESP_HDR_ROOM), &off,
+      quic_span_of(pre, pob.len));
+  wired_sendsess_arm(
+      &c->sess, st + SRVRUN_RESP_HDR_ROOM - pob.len, pob.len + body.len,
+      SRVRUN_CHUNK);
+}
+
+/* Seal one slice as its own 1-RTT packet (a STREAM frame on the request
+ * stream, RFC 9000 19.8) and send it. Returns 1 once logged in flight. */
+static int srvrun_send_slice(
+    const srvrun_step_ctx* ctx, srvrun_conn* c, const wired_sendq_slice* sl) {
+  u8                pl[1400], out[1500];
+  quic_obuf         plb = quic_obuf_of(pl, sizeof pl);
+  quic_obuf         ob  = quic_obuf_of(out, sizeof out);
+  quic_stream_frame f   = {
+      0, sl->offset, sl->len, c->sess.q.p + sl->offset, sl->fin};
+  u64 pn;
+  if (!quic_appdata_stream_frame(&f, &plb)) return 0;
+  pn = c->l.tx_pn++;
+  {
+    wired_srvloop_send_in sin = {
+        quic_span_of(c->l.cli_scid, c->l.cli_scid_len), pn, -1,
+        quic_span_of(pl, plb.len), 0};
+    if (!wired_srvloop_send_onertt(&c->s, &sin, &ob)) return 0;
+  }
+  srvrun_send(ctx->cfg, c, quic_span_of(out, ob.len), "response slice sent\n");
+  return wired_sendsess_sent(&c->sess, sl, pn);
+}
+
+/* Send one slice if the window allows and one is ready. */
+static int srvrun_pump_one(const srvrun_step_ctx* ctx, srvrun_conn* c) {
+  wired_sendq_slice sl;
+  if (wired_sendsess_inflight(&c->sess) >= SRVRUN_SEND_WINDOW) return 0;
+  if (!wired_sendsess_take(&c->sess, &sl)) return 0;
+  return srvrun_send_slice(ctx, c, &sl);
+}
+
+/* Transmit while the window has room and slices are ready. */
+static void srvrun_pump_sess(const srvrun_step_ctx* ctx, int slot) {
+  srvrun_conn* c = &ctx->st->conns[slot];
+  if (!c->sess.active) return;
+  while (srvrun_pump_one(ctx, c)) {
+  }
+}
+
+/* After a live step: feed the step's ACK ranges to the session, start a
+ * response for a freshly decoded request, and send what the window allows.
+ * A finished session simply goes idle. */
+static void srvrun_sess_on_step(const srvrun_step_ctx* ctx, int slot) {
+  srvrun_conn* c = &ctx->st->conns[slot];
+  for (usz i = 0; i < c->l.ack_n; i++)
+    wired_sendsess_ack(&c->sess, c->l.ack_lo[i], c->l.ack_hi[i]);
+  wired_sendsess_done(&c->sess);
+  if (c->l.got_request) srvrun_start_resp(ctx, slot);
+  srvrun_pump_sess(ctx, slot);
+}
+
 /* One live step; a peer CONNECTION_CLOSE observed by the loop frees the slot
  * afterward (RFC 9000 10.2.2: the connection is done, its state discarded). */
 static void srvrun_step_and_reap(
     const srvrun_step_ctx* ctx, int slot, quic_mspan dg) {
   srvrun_conn* c = &ctx->st->conns[slot];
   srvrun_on_step(ctx, c, dg);
-  if (c->l.peer_closed) srvrun_free_slot(ctx->st, slot);
+  if (c->l.peer_closed) {
+    srvrun_free_slot(ctx->st, slot);
+    return;
+  }
+  srvrun_sess_on_step(ctx, slot);
 }
 
 /* Drive one received datagram against its resolved slot: a new Initial
@@ -530,7 +636,8 @@ static int srvrun_open_slot(
     const srvrun_step_ctx* ctx, quic_span dcid, int is_initial) {
   int slot = srvrun_claim_slot(ctx, dcid, is_initial);
   if (slot < 0) return -1;
-  ctx->st->conns[slot] = (srvrun_conn){{0}, {0}, 0, *ctx->peer, {0}, 0, 0};
+  ctx->st->conns[slot]      = (srvrun_conn){0};
+  ctx->st->conns[slot].peer = *ctx->peer;
   if (quic_cid_generate(ctx->st->conns[slot].scid, ctx->cfg->id->scid_len))
     return slot;
   quic_conntable_remove(ctx->st->table, QUIC_CONNTABLE_CAP, slot);
