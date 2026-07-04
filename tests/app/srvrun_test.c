@@ -78,11 +78,12 @@ static void test_srvrun_owes_goaway_once(void) {
   CHECK(srvrun_owes_goaway(&c) == 1);
   {
     quic_obuf  gob = {out, sizeof out, 0};
-    srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0}; /* fd unused: srvrun_send skips len==0,
-                                       but sealed GOAWAY is non-empty, so this
-                                       exercises a real (harmless) send(2) to
-                                       an invalid fd -- accepted since srvrun_
-                                       send does not check the return value */
+    srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0}; /* fd unused: srvrun_send
+                                       skips len==0, but sealed GOAWAY is
+                                       non-empty, so this exercises a real
+                                       (harmless) send(2) to an invalid fd --
+                                       accepted since srvrun_send does not
+                                       check the return value */
     CHECK(srvrun_send_goaway(&cfg, &c, &gob) == 1);
   }
   CHECK(c.goaway_sent == 1);
@@ -103,7 +104,7 @@ static void test_srvrun_goaway_wire_content(void) {
   sr_make_confirmed_conn(&c, &f, &ob);
   {
     quic_obuf  gob = {out, sizeof out, 0};
-    srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0};
+    srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0};
     CHECK(srvrun_send_goaway(&cfg, &c, &gob) == 1);
     CHECK(client_open_onertt(&f, out, gob.len, &pl, &pll) == 1);
   }
@@ -158,7 +159,7 @@ static void srvrunt_qlog_unlink(void) {
 static void test_srvrun_send_no_qlog_path_writes_nothing(void) {
   u8            buf[8] = {1, 2, 3, 4};
   srvrun_conn   c       = {0};
-  srvrun_cfg    cfg     = {-1, 0, 0, 0, 0, 0};
+  srvrun_cfg    cfg     = {-1, 0, 0, 0, 0, 0, 0, 0};
   srvrunt_qlog_unlink();
   srvrun_send(&cfg, &c, quic_span_of(buf, sizeof buf), "t\n");
   {
@@ -172,7 +173,7 @@ static void test_srvrun_send_no_qlog_path_writes_nothing(void) {
 static void test_srvrun_send_qlog_path_writes_packet_sent(void) {
   u8            buf[8] = {1, 2, 3, 4};
   srvrun_conn   c       = {0};
-  srvrun_cfg    cfg     = {-1, 0, 0, 0, srvrunt_qlog_path, 0};
+  srvrun_cfg    cfg     = {-1, 0, 0, 0, srvrunt_qlog_path, 0, 0, 0};
   srvrunt_qlog_unlink();
   srvrun_send(&cfg, &c, quic_span_of(buf, sizeof buf), "t\n");
   {
@@ -189,7 +190,7 @@ static void test_srvrun_send_qlog_path_writes_packet_sent(void) {
  * (nothing was actually sent on the wire). */
 static void test_srvrun_send_empty_pkt_no_qlog_record(void) {
   srvrun_conn c   = {0};
-  srvrun_cfg  cfg = {-1, 0, 0, 0, srvrunt_qlog_path, 0};
+  srvrun_cfg  cfg = {-1, 0, 0, 0, srvrunt_qlog_path, 0, 0, 0};
   srvrunt_qlog_unlink();
   srvrun_send(&cfg, &c, quic_span_of(0, 0), "t\n");
   {
@@ -197,6 +198,103 @@ static void test_srvrun_send_empty_pkt_no_qlog_record(void) {
     ssz n = wired_fio_read(srvrunt_qlog_path, quic_mspan_of(out, sizeof out));
     CHECK(n < 0);
   }
+}
+
+/* Certificate hot reload (SIGHUP): srvrun_reload_if_requested drives
+ * wired_certreload_load off srvrun_test_set_reload, the same test-only-hook
+ * pattern as shutdown above (a real SIGHUP delivery is not unit-testable). */
+
+static const char srvrunt_cert_path[] = "build/srvrun_reload_cert_test.pem";
+static const char srvrunt_key_path[]  = "build/srvrun_reload_key_test.pem";
+
+/* Same golden PEM text as certreload_test.c (realchain leaf + eckey SEC1),
+ * duplicated here rather than shared across files to keep each test file
+ * self-contained (ponytail: a few literal lines, not worth a shared header). */
+#define SRVRUNT_PEM_CERT                                                \
+  "-----BEGIN CERTIFICATE-----\n"                                      \
+  "MIIBhjCCASygAwIBAgIBAzAKBggqhkjOPQQDAjAZMRcwFQYDVQQDDA53aXJlZC10\n" \
+  "ZXN0LWludDAeFw0yNjA3MDIwMzAwMTZaFw00NjA2MjcwMzAwMTZaMBYxFDASBgNV\n" \
+  "BAMMC2V4YW1wbGUuY29tMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEaiCgdwIw\n" \
+  "Wr9ZW+r2+wkv3gHqRx1516+pZtZ2nXbJzBfS1WrY6Qr1eRcyEpp1qqriguUUDLnG\n" \
+  "zj9dEaGlOqA6maNoMGYwFgYDVR0RBA8wDYILZXhhbXBsZS5jb20wDAYDVR0TAQH/\n" \
+  "BAIwADAdBgNVHQ4EFgQUtWK5IGsF72wY/FzDIVPcGRDA98gwHwYDVR0jBBgwFoAU\n" \
+  "p0+jTTg9jyM2ABMsb5MvCggSYMEwCgYIKoZIzj0EAwIDSAAwRQIgf1pfoFLUW1fX\n" \
+  "qkXST1CxjIT2zWkxf1SM922UProdj70CIQCfQ3MEJPxSIUHt3H/58fEK/cMZ+Pc9\n" \
+  "iAVZ8V5X3ScnOQ==\n"                                                 \
+  "-----END CERTIFICATE-----\n"
+#define SRVRUNT_PEM_KEY                                                 \
+  "-----BEGIN EC PRIVATE KEY-----\n"                                    \
+  "MHcCAQEEIGEwVXfogbUsrnfdXV/ibLZWhMGAQXbeSwuof7yWDf8PoAoGCCqGSM49\n"   \
+  "AwEHoUQDQgAExXHoorugQyGhZofbmSFiyMSC0ZMgR5KTsql7o85ozCdi8WXaIs9s\n"   \
+  "Jqr6SCDjgvw9xPMUV3UEDxCsEZbkEZpW/A==\n"                              \
+  "-----END EC PRIVATE KEY-----\n"
+static const char srvrunt_cert_pem[] = SRVRUNT_PEM_CERT;
+static const char srvrunt_key_pem[]  = SRVRUNT_PEM_KEY;
+
+static void srvrunt_write(const char *path, const char *text, usz n) {
+  syscall3(SYS_unlinkat, SRVRUNT_AT_FDCWD, path, 0);
+  wired_fio_append(path, quic_span_of((const u8 *)text, n));
+}
+
+/* BASELINE: no reload requested -> id is left completely untouched. */
+static void test_srvrun_no_reload_leaves_id_untouched(void) {
+  wired_srvboot_id id  = {0};
+  const u8         *pub = (const u8 *)0x2a;
+  id.pub               = pub;
+  srvrun_cfg cfg = {-1, &id, 0, 0, 0, 0, srvrunt_cert_path, srvrunt_key_path};
+  srvrun_test_set_reload(0);
+  srvrun_reload_if_requested(&cfg);
+  CHECK(id.pub == pub);
+  CHECK(id.chain_count == 0);
+}
+
+/* RELOAD APPLIED: a pending reload decodes the PEM pair into id and clears
+ * the flag (srvrun_reload_requested reads 0 afterward). */
+static void test_srvrun_reload_requested_updates_id(void) {
+  wired_srvboot_id id = {0};
+  srvrun_cfg cfg = {-1, &id, 0, 0, 0, 0, srvrunt_cert_path, srvrunt_key_path};
+  srvrunt_write(
+      srvrunt_cert_path, srvrunt_cert_pem, sizeof(srvrunt_cert_pem) - 1);
+  srvrunt_write(srvrunt_key_path, srvrunt_key_pem, sizeof(srvrunt_key_pem) - 1);
+  srvrun_test_set_reload(1);
+  srvrun_reload_if_requested(&cfg);
+  CHECK(srvrun_reload_requested() == 0);
+  CHECK(id.chain_count == 1);
+  CHECK(id.chain != 0);
+  syscall3(SYS_unlinkat, SRVRUNT_AT_FDCWD, srvrunt_cert_path, 0);
+  syscall3(SYS_unlinkat, SRVRUNT_AT_FDCWD, srvrunt_key_path, 0);
+}
+
+/* RELOAD DISABLED: cert_path unset (reload off) -> a pending flag is cleared
+ * but id is never touched, even though it is nonzero. */
+static void test_srvrun_reload_disabled_when_no_cert_path(void) {
+  wired_srvboot_id id  = {0};
+  const u8         *pub = (const u8 *)0x2a;
+  id.pub               = pub;
+  srvrun_cfg cfg = {-1, &id, 0, 0, 0, 0, 0, 0};
+  srvrun_test_set_reload(1);
+  srvrun_reload_if_requested(&cfg);
+  CHECK(srvrun_reload_requested() == 0);
+  CHECK(id.pub == pub);
+  CHECK(id.chain_count == 0);
+}
+
+/* RELOAD FAILS SAFE: a missing cert file leaves the previous identity in
+ * place instead of clobbering it with a half-decoded result. */
+static void test_srvrun_reload_failure_keeps_previous_id(void) {
+  wired_srvboot_id id  = {0};
+  const u8         *pub = (const u8 *)0x2a;
+  id.pub               = pub;
+  id.chain_count       = 7;
+  syscall3(SYS_unlinkat, SRVRUNT_AT_FDCWD, srvrunt_cert_path, 0);
+  {
+    srvrun_cfg cfg = {
+        -1, &id, 0, 0, 0, 0, srvrunt_cert_path, srvrunt_key_path};
+    srvrun_test_set_reload(1);
+    srvrun_reload_if_requested(&cfg);
+  }
+  CHECK(id.pub == pub);
+  CHECK(id.chain_count == 7);
 }
 
 void test_srvrun(void) {
@@ -212,4 +310,8 @@ void test_srvrun(void) {
   test_srvrun_send_no_qlog_path_writes_nothing();
   test_srvrun_send_qlog_path_writes_packet_sent();
   test_srvrun_send_empty_pkt_no_qlog_record();
+  test_srvrun_no_reload_leaves_id_untouched();
+  test_srvrun_reload_requested_updates_id();
+  test_srvrun_reload_disabled_when_no_cert_path();
+  test_srvrun_reload_failure_keeps_previous_id();
 }
