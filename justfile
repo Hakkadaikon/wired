@@ -6,6 +6,7 @@ cflags := "-target x86_64-linux-gnu -ffreestanding -fno-stack-protector -fno-bui
 # JCC erratum; without it, test runtime swings ~40% on code-placement luck,
 # making perf comparisons between commits meaningless.
 testflags := "-Wall -Wextra -Werror -O2 -mbranches-within-32B-boundaries -Isrc -Itests"
+fuzzflags := "-g -fsanitize=fuzzer,address -Isrc"
 
 # one-time bootstrap: install nix (Determinate Systems installer) when absent.
 # After it, `nix develop` provides clang/just/lizard/doxygen from flake.nix.
@@ -27,18 +28,26 @@ build: fmt ninja lint
 lib: ninja
     ar rcs build/libwired.a $(find build -name '*.o' ! -path 'build/src/common/platform/sys/sys.o')
 
+# regenerate build.ninja from the current source list. Covers every build
+# variant this repo has (freestanding per-object, hosted unity test, the 3
+# fuzz harnesses) in one file, each behind its own rule since different
+# flags mean incompatible .o ABIs -- see scripts/gen_ninja.sh.
+gen-ninja:
+    CFLAGS="{{cflags}}" TESTFLAGS="{{testflags}}" FUZZFLAGS="{{fuzzflags}}" \
+        CC="{{cc}}" sh scripts/gen_ninja.sh
+
 # compile every src/**/*.c freestanding to build/<path>.o (proves libc
 # independence; path-qualified objects keep the count check honest despite
-# shared basenames). build.ninja is regenerated from the current source list,
-# then ninja does parallel, header-dep incremental compilation.
-ninja:
-    CFLAGS="{{cflags}}" CC="{{cc}}" sh scripts/gen_ninja.sh
+# shared basenames). Regenerates build.ninja first so new/removed sources are
+# picked up; ninja's default target is the freestanding set (see
+# scripts/gen_ninja.sh), so a bare `ninja` here never drags in the hosted
+# test/fuzz variants.
+ninja: gen-ninja
     ninja
 
 # run all tests (hosted, with assertions)
-test:
-    mkdir -p build
-    {{cc}} {{testflags}} tests/run.c -o build/quic_test && build/quic_test
+test: gen-ninja
+    ninja build/quic_test && build/quic_test
 
 # cyclomatic complexity gate: CCN must be <= 3
 ccn:
@@ -46,18 +55,18 @@ ccn:
 
 # build the libFuzzer harness for the invariant packet-header parser and
 # the coalesced-datagram splitter (hosted, ASan+libFuzzer; src/ untouched).
-fuzz-header:
-    {{cc}} -g -fsanitize=fuzzer,address -Isrc fuzz/fuzz_header.c -o fuzz/fuzz_header
+fuzz-header: gen-ninja
+    ninja fuzz/fuzz_header
 
 # build the libFuzzer harness for the QPACK dynamic-table Indexed Field Line
 # decoder (hosted, ASan+libFuzzer; src/ untouched).
-fuzz-qpack:
-    {{cc}} -g -fsanitize=fuzzer,address -Isrc fuzz/fuzz_qpack.c -o fuzz/fuzz_qpack
+fuzz-qpack: gen-ninja
+    ninja fuzz/fuzz_qpack
 
 # build the libFuzzer harness for the X.509 certificate parser and the
 # TBSCertificate field extractor (hosted, ASan+libFuzzer; src/ untouched).
-fuzz-x509:
-    {{cc}} -g -fsanitize=fuzzer,address -Isrc fuzz/fuzz_x509.c -o fuzz/fuzz_x509
+fuzz-x509: gen-ninja
+    ninja fuzz/fuzz_x509
 
 # run every fuzz harness for secs wall-clock seconds each (default 120), for
 # CI: a bounded regression sweep, not an open-ended fuzzing campaign. Exits
