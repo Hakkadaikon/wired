@@ -74,10 +74,17 @@ static void sendsess_requeue(wired_sendsess* s, usz i) {
   s->log[i].inflight         = 0;
 }
 
-usz wired_sendsess_detect_lost(wired_sendsess* s, u64 largest_acked) {
+/* Report one lost pn to the caller's array (skipped without one). */
+static void sendsess_report_lost(u64 pn, u64* lost_pns, usz cap, usz i) {
+  if (lost_pns && i < cap) lost_pns[i] = pn;
+}
+
+usz wired_sendsess_detect_lost(
+    wired_sendsess* s, u64 largest_acked, u64* lost_pns, usz cap) {
   usz n = 0;
   for (usz i = 0; i < WIRED_SENDSESS_LOG; i++)
     if (sendsess_lost(&s->log[i], largest_acked)) {
+      sendsess_report_lost(s->log[i].pn, lost_pns, cap, n);
       sendsess_requeue(s, i);
       n++;
     }

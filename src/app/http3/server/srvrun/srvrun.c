@@ -560,18 +560,37 @@ static void srvrun_pump_sess(const srvrun_step_ctx* ctx, int slot) {
 /* After a live step: feed the step's ACK ranges to the session, start a
  * response for a freshly decoded request, and send what the window allows.
  * A finished session simply goes idle. */
+/* qlog packet_lost for one packet (time not tracked at this layer, logged
+ * 0). No-op without a qlog path. */
+static void srvrun_qlog_lost_one(const srvrun_cfg* cfg, u64 pn) {
+  char rec[128];
+  usz  w;
+  if (!cfg->qlog_path) return;
+  w = wired_qlogevent_packet_lost(rec, sizeof rec, 0, pn);
+  if (w) wired_qlog_append(cfg->qlog_path, quic_span_of((const u8*)rec, w));
+}
+
+static void srvrun_qlog_lost(const srvrun_cfg* cfg, const u64* pns, usz n) {
+  for (usz i = 0; i < n; i++) srvrun_qlog_lost_one(cfg, pns[i]);
+}
+
 /* Consume this step's ACK ranges, then declare packet-threshold losses so
- * their slices requeue ahead of new data (RFC 9002 6.1.1). */
-static void srvrun_feed_acks(srvrun_conn* c) {
+ * their slices requeue ahead of new data (RFC 9002 6.1.1), logging each
+ * lost packet to the qlog when one is configured. */
+static void srvrun_feed_acks(const srvrun_cfg* cfg, srvrun_conn* c) {
+  u64 lost[WIRED_SENDSESS_LOG];
+  usz n;
   for (usz i = 0; i < c->l.ack_n; i++)
     wired_sendsess_ack(&c->sess, c->l.ack_lo[i], c->l.ack_hi[i]);
-  if (c->sess.has_acked)
-    wired_sendsess_detect_lost(&c->sess, c->sess.largest_acked);
+  if (!c->sess.has_acked) return;
+  n = wired_sendsess_detect_lost(
+      &c->sess, c->sess.largest_acked, lost, WIRED_SENDSESS_LOG);
+  srvrun_qlog_lost(cfg, lost, n);
 }
 
 static void srvrun_sess_on_step(const srvrun_step_ctx* ctx, int slot) {
   srvrun_conn* c = &ctx->st->conns[slot];
-  srvrun_feed_acks(c);
+  srvrun_feed_acks(ctx->cfg, c);
   wired_sendsess_done(&c->sess);
   if (c->l.got_request) srvrun_start_resp(ctx, slot);
   srvrun_pump_sess(ctx, slot);
