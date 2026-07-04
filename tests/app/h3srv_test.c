@@ -144,7 +144,7 @@ static void test_h3srv_request_answered(void) {
           quic_mspan_of(scratch, sizeof scratch)},
       &r));
   {
-    wired_h3srv_send_in send = {0, {200, quic_span_of(body, sizeof body)}};
+    wired_h3srv_send_in send = {0, {200, quic_span_of(body, sizeof body), 0}};
     CHECK(wired_h3srv_build_response(&st, &send, &resp_ob));
   }
   CHECK(quic_h3conn_recv_response(quic_span_of(resp, resp_ob.len), &resp_out));
@@ -163,12 +163,12 @@ static void test_h3srv_head_no_body(void) {
   const u8          body[] = {'o', 'k'};
   u8                resp[256];
   quic_obuf         resp_ob  = {resp, sizeof resp, 0};
-  quic_h3conn_resp  resp_out = {0, quic_span_of((const u8 *)1, 99)};
+  quic_h3conn_resp  resp_out = {0, quic_span_of((const u8 *)1, 99), 0};
 
   st.settings_sent = 1;
   st.request_seen  = 1;
   {
-    wired_h3srv_send_in send = {0, {200, quic_span_of(body, sizeof body)}};
+    wired_h3srv_send_in send = {0, {200, quic_span_of(body, sizeof body), 0}};
     wired_h3srv_resp_for_method_in in = {quic_span_of(head, sizeof head), send};
     CHECK(wired_h3srv_build_response_for_method(&st, &in, &resp_ob));
   }
@@ -190,7 +190,7 @@ static void test_h3srv_get_keeps_body(void) {
   st.settings_sent = 1;
   st.request_seen  = 1;
   {
-    wired_h3srv_send_in send = {0, {200, quic_span_of(body, sizeof body)}};
+    wired_h3srv_send_in send = {0, {200, quic_span_of(body, sizeof body), 0}};
     wired_h3srv_resp_for_method_in in = {quic_span_of(get, sizeof get), send};
     CHECK(wired_h3srv_build_response_for_method(&st, &in, &resp_ob));
   }
@@ -233,7 +233,7 @@ static void test_h3srv_no_response_without_request(void) {
   u8                resp[256];
   quic_obuf         resp_ob = {resp, sizeof resp, 0};
 
-  wired_h3srv_send_in send = {0, {200, quic_span_of(0, 0)}};
+  wired_h3srv_send_in send = {0, {200, quic_span_of(0, 0), 0}};
   st.settings_sent         = 1; /* own SETTINGS sent, but no request seen */
   CHECK(!st.request_seen);
   CHECK(!wired_h3srv_build_response(&st, &send, &resp_ob));
@@ -246,7 +246,7 @@ static void test_h3srv_no_response_before_own_settings(void) {
   u8                resp[256];
   quic_obuf         resp_ob = {resp, sizeof resp, 0};
 
-  wired_h3srv_send_in send = {0, {200, quic_span_of(0, 0)}};
+  wired_h3srv_send_in send = {0, {200, quic_span_of(0, 0), 0}};
   st.request_seen = 1; /* request received, but own SETTINGS not yet sent */
   CHECK(!st.settings_sent);
   CHECK(!wired_h3srv_build_response(&st, &send, &resp_ob));
@@ -260,7 +260,7 @@ static void test_h3srv_respond_without_peer_settings(void) {
   quic_obuf         resp_ob  = {resp, sizeof resp, 0};
   quic_h3conn_resp  resp_out = {0};
 
-  wired_h3srv_send_in send = {0, {200, quic_span_of(0, 0)}};
+  wired_h3srv_send_in send = {0, {200, quic_span_of(0, 0), 0}};
   st.settings_sent         = 1;
   st.request_seen          = 1;
   CHECK(!st.peer_settings); /* peer SETTINGS never seen */

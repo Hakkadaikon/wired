@@ -16,20 +16,22 @@ static int resp_append_body(quic_span body, quic_obuf *out) {
   return 1;
 }
 
-/* Emit the HEADERS frame carrying the :status field section into out.
- * Returns its byte length, or 0 if encoding or framing lacks capacity. */
-static usz put_headers(u16 status, quic_obuf *out) {
-  u8        field[16];
+/* Emit the HEADERS frame carrying the :status (plus content-type, when
+ * given) field section into out. Returns its byte length, or 0 if encoding
+ * or framing lacks capacity. */
+static usz put_headers(u16 status, const char *content_type, quic_obuf *out) {
+  u8        field[64];
   quic_obuf fob = quic_obuf_of(field, sizeof field);
-  if (!quic_h3resp_encode_status(status, &fob)) return 0;
+  if (!quic_h3resp_encode_headers(status, content_type, &fob)) return 0;
   return quic_h3_frame_put(
       out, QUIC_H3_FRAME_HEADERS, quic_span_of(field, fob.len));
 }
 
 /* RFC 9114 4.1 */
-int quic_h3resp_build(u16 status, quic_span body, quic_obuf *out) {
+int quic_h3resp_build(
+    u16 status, const char *content_type, quic_span body, quic_obuf *out) {
   quic_obuf head = quic_obuf_of(out->p, out->cap);
-  usz       off  = put_headers(status, &head);
+  usz       off  = put_headers(status, content_type, &head);
   if (!off) return 0;
   out->len = off;
   return resp_append_body(body, out);

@@ -14,7 +14,9 @@ int quic_h3conn_send_response(
     u64 stream_id, const quic_h3conn_resp *resp, quic_obuf *out) {
   u8        h3[1500];
   quic_obuf h3ob = quic_obuf_of(h3, sizeof(h3));
-  if (!quic_h3resp_build(resp->status, resp->body, &h3ob)) return 0;
+  if (!quic_h3resp_build(
+          resp->status, resp->content_type, resp->body, &h3ob))
+    return 0;
   {
     quic_stream_frame f = {stream_id, 0, h3ob.len, h3, 1};
     if (!quic_appdata_stream_frame(&f, out)) return 0;
