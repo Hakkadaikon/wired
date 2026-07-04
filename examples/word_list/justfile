@@ -3,11 +3,12 @@
 cc := "clang"
 cflags := "-target x86_64-linux-gnu -ffreestanding -fno-stack-protector -fno-builtin -nostdlib -static -O2 -Isrc"
 
-# Build the server against the SDK static library (just lib produces
-# build/libwired.a; sys.o is excluded there, we supply our own _start).
-# The static, freestanding binary needs no libc.
+# Build the server against the SDK static library (just build runs the SDK's
+# own fmt+ninja+lint gate before archiving; sys.o is excluded from the
+# archive, we supply our own _start). The static, freestanding binary needs
+# no libc.
 build:
-    cd ../.. && just lib && {{cc}} {{cflags}} \
+    cd ../.. && just build && just lib && {{cc}} {{cflags}} \
         examples/word_list/wired_server.c \
         build/libwired.a \
         -o examples/word_list/wired_server
