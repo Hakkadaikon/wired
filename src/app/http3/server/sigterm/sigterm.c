@@ -23,7 +23,24 @@ __attribute__((naked)) static void sigterm_restorer(void) {
       : "i"(SYS_rt_sigreturn));
 }
 
-int wired_sigterm_install(void (*handler)(int)) {
+/* RFC-agnostic Unix convention: SIGHUP's signal number on Linux (all
+ * architectures) — not in common/platform/sys/syscall.h because that file is
+ * shared with unrelated in-flight work; SIGTERM's constant living there
+ * predates this rule and is left as-is. */
+#define WIRED_SIGHUP 1
+
+/* Shared registration: both SIGTERM and SIGHUP are handled by the same
+ * kernel_sigaction shape and the same rt_sigreturn trampoline, so the two
+ * public installers are one-line wrappers over this. */
+static int sigterm_install_signal(int sig, void (*handler)(int)) {
   sys_sigaction act = {handler, SA_RESTORER, sigterm_restorer, 0};
-  return syscall4(SYS_rt_sigaction, SIGTERM, &act, (void *)0, SIGSETSIZE) == 0;
+  return syscall4(SYS_rt_sigaction, sig, &act, (void *)0, SIGSETSIZE) == 0;
+}
+
+int wired_sigterm_install(void (*handler)(int)) {
+  return sigterm_install_signal(SIGTERM, handler);
+}
+
+int wired_sighup_install(void (*handler)(int)) {
+  return sigterm_install_signal(WIRED_SIGHUP, handler);
 }

@@ -17,4 +17,11 @@
  * @return 1 on success, 0 if the kernel rejected registration. */
 int wired_sigterm_install(void (*handler)(int));
 
+/** Install `handler` for SIGHUP (RFC-agnostic Unix convention: the reload
+ * signal), same registration mechanism and async-signal-safety rule as
+ * wired_sigterm_install.
+ * @param handler called with the signal number on SIGHUP delivery
+ * @return 1 on success, 0 if the kernel rejected registration. */
+int wired_sighup_install(void (*handler)(int));
+
 #endif
