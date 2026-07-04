@@ -12,4 +12,11 @@
 int quic_h3resp_build(
     u16 status, const char* content_type, quic_span body, quic_obuf* out);
 
+/* RFC 9114 4.1 / 7.1: the response prefix alone — the HEADERS frame plus the
+ * DATA frame header (type + length varints, no payload bytes) for a body of
+ * body_len bytes already sitting elsewhere. body_len 0 emits HEADERS only.
+ * Returns 1 with out->len set, 0 if out lacks capacity. */
+int quic_h3resp_prefix(
+    u16 status, const char* content_type, u64 body_len, quic_obuf* out);
+
 #endif

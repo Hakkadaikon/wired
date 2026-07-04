@@ -65,7 +65,28 @@ static void test_resp_build_content_type(void) {
   CHECK(is_static == 1 && idx == 52); /* content-type: text/html; ... */
 }
 
+/* The prefix (HEADERS + DATA header, no payload) followed by the body bytes
+ * equals the full build byte for byte, so a body already in place needs no
+ * copy; an empty body yields the HEADERS-only prefix. */
+static void test_resp_build_prefix_matches_full(void) {
+  u8        full[512], pre[64];
+  u8        body[300];
+  quic_obuf fb = {full, sizeof full, 0}, pb = {pre, sizeof pre, 0};
+  for (usz i = 0; i < sizeof body; i++) body[i] = (u8)i;
+  CHECK(quic_h3resp_build(200, "text/html", quic_span_of(body, 300), &fb) == 1);
+  CHECK(quic_h3resp_prefix(200, "text/html", 300, &pb) == 1);
+  CHECK(pb.len + 300 == fb.len);
+  for (usz i = 0; i < pb.len; i++) CHECK(pre[i] == full[i]);
+  for (usz i = 0; i < 300; i++) CHECK(full[pb.len + i] == body[i]);
+  fb.len = 0;
+  pb.len = 0;
+  CHECK(quic_h3resp_build(204, 0, quic_span_of(0, 0), &fb) == 1);
+  CHECK(quic_h3resp_prefix(204, 0, 0, &pb) == 1);
+  CHECK(pb.len == fb.len);
+}
+
 void test_resp_build(void) {
+  test_resp_build_prefix_matches_full();
   test_resp_build_roundtrip();
   test_resp_build_no_body();
   test_resp_build_overflow();
