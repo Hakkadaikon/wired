@@ -24,9 +24,11 @@ typedef u64            usz; /**< unsigned size (size_t equivalent) */
 #define SYS_rt_sigaction 13   /**< rt_sigaction(2) syscall number */
 #define SYS_rt_sigreturn 15   /**< rt_sigreturn(2) syscall number */
 #define SYS_socket 41         /**< socket(2) syscall number */
+#define SYS_sendmsg 46        /**< sendmsg(2) syscall number */
 #define SYS_sendto 44         /**< sendto(2) syscall number */
 #define SYS_recvfrom 45       /**< recvfrom(2) syscall number */
 #define SYS_bind 49           /**< bind(2) syscall number */
+#define SYS_setsockopt 54     /**< setsockopt(2) syscall number */
 #define SYS_exit 60           /**< exit(2) syscall number */
 #define SYS_clock_gettime 228 /**< clock_gettime(2) syscall number */
 #define SYS_openat 257        /**< openat(2) syscall number */

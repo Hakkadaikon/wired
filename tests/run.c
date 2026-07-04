@@ -466,6 +466,7 @@
 #include "app/http3/server/sigterm/sigterm.c"
 #include "app/http3/server/srvrun/srvrun.c"
 #include "app/http3/server/staticfile/staticfile.c"
+#include "app/http3/server/mimetype/mimetype.c"
 #include "tls/handshake/roles/client/clientwire.c"
 #include "common/varint_test.c"
 #include "transport/header_test.c"
@@ -491,6 +492,7 @@
 #include "transport/flow_test.c"
 #include "transport/udp_test.c"
 #include "transport/udp_recvfrom_test.c"
+#include "transport/udp_gso_test.c"
 #include "transport/retransmit_test.c"
 #include "transport/ack_test.c"
 #include "transport/ncid_test.c"
@@ -886,6 +888,7 @@
 #include "tls/client_wire_test.c"
 #include "app/h3_loopback_test.c"
 #include "app/staticfile_test.c"
+#include "app/mimetype_test.c"
 #include "app/h3reqenc_test.c"
 #include "transport/stats_test.c"
 // clang-format on
@@ -915,6 +918,7 @@ int main(void) {
   test_flow();
   test_udp();
   test_udp_recvfrom();
+  test_udp_gso();
   test_rtx();
   test_ack();
   test_ncid();
@@ -1326,6 +1330,7 @@ int main(void) {
   test_client_wire();
   test_h3_loopback();
   test_staticfile();
+  test_mimetype();
   test_h3reqenc();
   test_stats();
   return TEST_REPORT();
