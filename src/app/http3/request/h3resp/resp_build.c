@@ -2,6 +2,7 @@
 
 #include "app/http3/core/h3/frame.h"
 #include "app/http3/request/h3resp/field_encode.h"
+#include "common/bytes/varint/varint.h"
 
 /* Append a DATA frame after out->len when there is a body; out->len is left
  * unchanged for an empty body. Returns 1 ok, 0 if out lacks capacity. */
@@ -35,4 +36,27 @@ int quic_h3resp_build(
   if (!off) return 0;
   out->len = off;
   return resp_append_body(body, out);
+}
+
+/* Append the DATA frame header (type 0x00 + length varint) after out->len;
+ * skipped entirely for an empty body (RFC 9114 7.1). */
+static int prefix_data_hdr(u64 body_len, quic_obuf* out) {
+  usz off = out->len;
+  int ok;
+  if (!body_len) return 1;
+  ok = quic_varint_put(
+           quic_mspan_of(out->p, out->cap), &off, QUIC_H3_FRAME_DATA) &
+       quic_varint_put(quic_mspan_of(out->p, out->cap), &off, body_len);
+  if (!ok) return 0;
+  out->len = off;
+  return 1;
+}
+
+int quic_h3resp_prefix(
+    u16 status, const char* content_type, u64 body_len, quic_obuf* out) {
+  quic_obuf head = quic_obuf_of(out->p, out->cap);
+  usz       off  = put_headers(status, content_type, &head);
+  if (!off) return 0;
+  out->len = off;
+  return prefix_data_hdr(body_len, out);
 }
