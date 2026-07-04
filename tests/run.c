@@ -459,6 +459,7 @@
 #include "app/http3/server/srvloop/srvloop.c"
 #include "app/http3/server/srvboot/srvboot.c"
 #include "app/http3/server/srvrun/srvrun.c"
+#include "app/http3/server/staticfile/staticfile.c"
 #include "tls/handshake/roles/client/clientwire.c"
 #include "common/varint_test.c"
 #include "transport/header_test.c"
@@ -873,6 +874,7 @@
 #include "app/srvloop_test.c"
 #include "tls/client_wire_test.c"
 #include "app/h3_loopback_test.c"
+#include "app/staticfile_test.c"
 #include "app/h3reqenc_test.c"
 // clang-format on
 
@@ -1306,6 +1308,7 @@ int main(void) {
   test_srvloop();
   test_client_wire();
   test_h3_loopback();
+  test_staticfile();
   test_h3reqenc();
   return TEST_REPORT();
 }
