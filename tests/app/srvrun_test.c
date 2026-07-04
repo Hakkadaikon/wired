@@ -621,6 +621,40 @@ static void test_srvrun_qlog_skips_failed_accept(void) {
   CHECK(sr_qlog_count("packet_received") == 0);
 }
 
+/* BATCH SERVE: a recvmmsg-style batch of two real Initials from two peers is
+ * served message by message — both slots come up, and each slot records its
+ * own message's source address as the connection's peer (the reply target,
+ * RFC 9000 5.1). */
+static void test_srvrun_batch_serves_each(void) {
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32];
+  static u8        dgs[2][1500];
+  quic_mmsg_buf    bufs[2];
+  quic_conntable   table[QUIC_CONNTABLE_CAP];
+  srvrun_state     st        = {table, g_srvrun_state.conns};
+  const u8         odcid2[8] = {0x99, 0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22};
+  sr_make_id(&id, priv, pub, seed, rnd);
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  bufs[0].buf = quic_mspan_of(dgs[0], sizeof dgs[0]);
+  bufs[0].len =
+      (u32)sr_build_client_initial(dgs[0], sizeof dgs[0], g_sr_odcid, 8);
+  bufs[0].src = (quic_sockaddr_in){0};
+  bufs[1].buf = quic_mspan_of(dgs[1], sizeof dgs[1]);
+  bufs[1].len = (u32)sr_build_client_initial(dgs[1], sizeof dgs[1], odcid2, 8);
+  bufs[1].src = (quic_sockaddr_in){0};
+  bufs[0].src.port_be = 0x1111; /* two distinct peers */
+  bufs[1].src.port_be = 0x2222;
+  {
+    srvrun_cfg cfg = {-1, &id, 0, 0, 0, 0, 0, 0};
+    srvrun_serve_batch(&cfg, &st, bufs, 2);
+  }
+  CHECK(st.conns[0].up == 1);
+  CHECK(st.conns[1].up == 1);
+  /* each slot keeps its own message's source as the reply target */
+  CHECK(st.conns[0].peer.port_be == 0x1111);
+  CHECK(st.conns[1].peer.port_be == 0x2222);
+}
+
 void test_srvrun(void) {
   test_srvrun_no_shutdown_accepts_new();
   test_srvrun_accept_rekeys_to_slot_scid();
@@ -634,6 +668,7 @@ void test_srvrun(void) {
   test_srvrun_qlog_skips_undecryptable();
   test_srvrun_qlog_records_initial();
   test_srvrun_qlog_skips_failed_accept();
+  test_srvrun_batch_serves_each();
   test_srvrun_shutdown_rejects_new_initial();
   test_srvrun_shutdown_refuses_slot_claim();
   test_srvrun_owes_goaway_once();
