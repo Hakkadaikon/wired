@@ -145,8 +145,8 @@ static int srvboot_flight(
   srvboot_flight_bytes fb;
   srvboot_server       sv = {conn->s, id};
   if (!wired_server_build_flight(conn->s, id->random, &fo)) return 0;
-  fb = (srvboot_flight_bytes){quic_span_of(sh, sh_ob.len),
-                              quic_span_of(flight, fl_ob.len)};
+  fb = (srvboot_flight_bytes){
+      quic_span_of(sh, sh_ob.len), quic_span_of(flight, fl_ob.len)};
   if (!srvboot_seal_flight(&sv, &fb, out)) return 0;
   /* RFC 9000 12.3: later Handshake sends continue after the flight's packet
    * numbers 0..dgram_count-1. */

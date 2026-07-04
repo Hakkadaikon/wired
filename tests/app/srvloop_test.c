@@ -74,8 +74,9 @@ static void lp_make_client_hello(struct lp_fix* f) {
   }
   quic_x25519_base(cli_pub, f->cli_priv);
   f->ch_len = quic_tls_client_hello(
-      &(quic_clienthello_in){f->srv_random, cli_pub, quic_span_of(0, 0),
-                             quic_span_of(tp, sizeof(tp))},
+      &(quic_clienthello_in){
+          f->srv_random, cli_pub, quic_span_of(0, 0),
+          quic_span_of(tp, sizeof(tp))},
       &(quic_obuf){f->ch, sizeof(f->ch), 0});
 }
 
@@ -368,8 +369,8 @@ static void test_srvloop_full_roundtrip(void) {
     quic_obuf gob = {get, sizeof get, 0};
     CHECK(wired_h3reqdrive_send_get(
         0,
-        &(wired_h3reqdrive_get_in){quic_span_of((const u8*)"/", 1),
-                                   quic_span_of((const u8*)"h", 1)},
+        &(wired_h3reqdrive_get_in){
+            quic_span_of((const u8*)"/", 1), quic_span_of((const u8*)"h", 1)},
         &gob));
     glen = gob.len;
   }
@@ -497,8 +498,8 @@ static void test_srvloop_onertt_get_is_acked(void) {
     quic_obuf gob = {get, sizeof get, 0};
     CHECK(wired_h3reqdrive_send_get(
         0,
-        &(wired_h3reqdrive_get_in){quic_span_of((const u8*)"/", 1),
-                                   quic_span_of((const u8*)"h", 1)},
+        &(wired_h3reqdrive_get_in){
+            quic_span_of((const u8*)"/", 1), quic_span_of((const u8*)"h", 1)},
         &gob));
     glen = gob.len;
   }
@@ -632,8 +633,8 @@ static void test_srvloop_confirm_and_200_coalesce(void) {
     quic_obuf gob = {get, sizeof get, 0};
     CHECK(wired_h3reqdrive_send_get(
         0,
-        &(wired_h3reqdrive_get_in){quic_span_of((const u8*)"/", 1),
-                                   quic_span_of((const u8*)"h", 1)},
+        &(wired_h3reqdrive_get_in){
+            quic_span_of((const u8*)"/", 1), quic_span_of((const u8*)"h", 1)},
         &gob));
     glen = gob.len;
   }
@@ -745,8 +746,8 @@ static void test_srvloop_padding_before_stream(void) {
     quic_obuf gob = {get, sizeof get, 0};
     CHECK(wired_h3reqdrive_send_get(
         0,
-        &(wired_h3reqdrive_get_in){quic_span_of((const u8*)"/", 1),
-                                   quic_span_of((const u8*)"h", 1)},
+        &(wired_h3reqdrive_get_in){
+            quic_span_of((const u8*)"/", 1), quic_span_of((const u8*)"h", 1)},
         &gob));
     glen = gob.len;
   }
@@ -838,8 +839,8 @@ static void test_srvloop_dispatch_get_after_uni_streams(void) {
     quic_obuf gob = {get, sizeof get, 0};
     CHECK(wired_h3reqdrive_send_get(
         0,
-        &(wired_h3reqdrive_get_in){quic_span_of((const u8*)"/", 1),
-                                   quic_span_of((const u8*)"h", 1)},
+        &(wired_h3reqdrive_get_in){
+            quic_span_of((const u8*)"/", 1), quic_span_of((const u8*)"h", 1)},
         &gob));
     glen = gob.len;
   }

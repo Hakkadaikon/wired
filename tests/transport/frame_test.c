@@ -14,7 +14,7 @@ static void test_frame_simple(void) {
 static void test_frame_crypto_roundtrip(void) {
   const u8          payload[] = {0x16, 0x03, 0x03, 0xAA, 0xBB};
   quic_crypto_frame in        = {
-             .offset = 1000, .length = sizeof(payload), .data = payload};
+      .offset = 1000, .length = sizeof(payload), .data = payload};
   u8  buf[32];
   usz w = quic_frame_put_crypto(buf, sizeof(buf), &in);
   CHECK(w != 0 && buf[0] == QUIC_FRAME_CRYPTO);
@@ -38,11 +38,11 @@ static void test_frame_crypto_truncated(void) {
 static void check_stream_roundtrip(u64 sid, u64 off, u8 fin) {
   const u8          payload[] = {0xDE, 0xAD, 0xBE, 0xEF};
   quic_stream_frame in        = {
-             .stream_id = sid,
-             .offset    = off,
-             .length    = sizeof(payload),
-             .data      = payload,
-             .fin       = fin};
+      .stream_id = sid,
+      .offset    = off,
+      .length    = sizeof(payload),
+      .data      = payload,
+      .fin       = fin};
   u8  buf[32];
   usz w = quic_frame_put_stream(buf, sizeof(buf), &in);
   CHECK(w != 0 && (buf[0] & 0xF8) == QUIC_FRAME_STREAM_BASE);
@@ -63,7 +63,7 @@ static void test_frame_stream(void) {
 static void test_frame_stream_truncated(void) {
   const u8          payload[] = {1, 2, 3};
   quic_stream_frame in        = {
-             .stream_id = 4, .offset = 5, .length = 3, .data = payload, .fin = 0};
+      .stream_id = 4, .offset = 5, .length = 3, .data = payload, .fin = 0};
   u8                buf[32];
   usz               w = quic_frame_put_stream(buf, sizeof(buf), &in);
   quic_stream_frame out;

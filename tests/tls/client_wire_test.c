@@ -165,8 +165,8 @@ static void test_cw_onertt_roundtrip(void) {
   cw_derive_keys(&c);
 
   /* client GET sealed with CLIENT_AP; peer opens with the same client key. */
-  tx = (quic_appdata_tx){quic_span_of(cw_dcid, 8), 0, 4,
-                         quic_span_of(get, sizeof(get)), 0};
+  tx = (quic_appdata_tx){
+      quic_span_of(cw_dcid, 8), 0, 4, quic_span_of(get, sizeof(get)), 0};
   CHECK(quic_client_send_appdata_wire(&c, &tx, &ob) == 1);
   total = ob.len;
   CHECK(quic_keysched_get(&c.tls.ks, QUIC_KS_CLIENT_AP, &cap) == 1);

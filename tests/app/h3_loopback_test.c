@@ -68,8 +68,9 @@ static void lb_make_client_hello(struct lb_fix* f) {
   }
   quic_x25519_base(cli_pub, f->cli_priv);
   f->ch_len = quic_tls_client_hello(
-      &(quic_clienthello_in){f->srv_random, cli_pub, quic_span_of(0, 0),
-                             quic_span_of(tp, sizeof(tp))},
+      &(quic_clienthello_in){
+          f->srv_random, cli_pub, quic_span_of(0, 0),
+          quic_span_of(tp, sizeof(tp))},
       &(quic_obuf){f->ch, sizeof(f->ch), 0});
 }
 
@@ -308,8 +309,8 @@ static void test_loopback_wire_confirm_and_get(void) {
     quic_obuf gob = {get, sizeof get, 0};
     CHECK(wired_h3reqdrive_send_get(
         0,
-        &(wired_h3reqdrive_get_in){quic_span_of((const u8*)"/", 1),
-                                   quic_span_of((const u8*)"h", 1)},
+        &(wired_h3reqdrive_get_in){
+            quic_span_of((const u8*)"/", 1), quic_span_of((const u8*)"h", 1)},
         &gob));
     glen = gob.len;
   }

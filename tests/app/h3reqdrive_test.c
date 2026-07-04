@@ -35,8 +35,8 @@ static void test_reqdrive_stream(void) {
 
   CHECK(wired_h3reqdrive_send_get(
       0,
-      &(wired_h3reqdrive_get_in){quic_span_of(path, sizeof path),
-                                 quic_span_of(auth, sizeof auth)},
+      &(wired_h3reqdrive_get_in){
+          quic_span_of(path, sizeof path), quic_span_of(auth, sizeof auth)},
       &req_ob));
   CHECK(wired_h3reqdrive_recv_get(
       quic_span_of(req, req_ob.len), quic_mspan_of(scratch, sizeof scratch),
@@ -311,8 +311,8 @@ static void test_reqdrive_onertt(void) {
 
   CHECK(wired_h3reqdrive_send_get(
       4,
-      &(wired_h3reqdrive_get_in){quic_span_of(path, sizeof path),
-                                 quic_span_of(auth, sizeof auth)},
+      &(wired_h3reqdrive_get_in){
+          quic_span_of(path, sizeof path), quic_span_of(auth, sizeof auth)},
       &req_ob));
   CHECK(quic_frame_get_stream(req, req_ob.len, &f));
   CHECK(appdata_send_flat(

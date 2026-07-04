@@ -53,8 +53,9 @@ static void test_net_datagram_over_link(void) {
   quic_obuf      ub    = quic_obuf_of(udp, sizeof(udp));
   usz            un    = quic_udp4_build(&ub, &meta, quic_span_of(pl, 5));
   quic_ipv4_build(
-      ip, &(quic_ipv4_head){(u16)(QUIC_IPV4_HDR + un), 0x0a000001, 0x0a000002,
-                            QUIC_IP_PROTO_UDP});
+      ip, &(quic_ipv4_head){
+              (u16)(QUIC_IPV4_HDR + un), 0x0a000001, 0x0a000002,
+              QUIC_IP_PROTO_UDP});
   for (usz i = 0; i < QUIC_IPV4_HDR; i++) frame[i] = ip[i];
   for (usz i = 0; i < un; i++) frame[QUIC_IPV4_HDR + i] = udp[i];
 

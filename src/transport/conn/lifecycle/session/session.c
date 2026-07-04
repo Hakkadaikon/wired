@@ -18,8 +18,8 @@ static int link_tx(quic_memlink* l, quic_span qpkt, quic_ipv4addrs addrs) {
   quic_obuf     ub   = quic_obuf_of(udp, sizeof(udp));
   usz           un   = quic_udp4_build(&ub, &meta, qpkt);
   quic_ipv4_build(
-      ip, &(quic_ipv4_head){(u16)(20 + un), addrs.src, addrs.dst,
-                            QUIC_IP_PROTO_UDP});
+      ip, &(quic_ipv4_head){
+              (u16)(20 + un), addrs.src, addrs.dst, QUIC_IP_PROTO_UDP});
   for (usz i = 0; i < 20; i++) frame[i] = ip[i];
   for (usz i = 0; i < un; i++) frame[20 + i] = udp[i];
   return quic_memlink_send(l, frame, 20 + un);
