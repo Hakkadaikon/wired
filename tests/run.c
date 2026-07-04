@@ -162,6 +162,7 @@
 #include "transport/conn/lifecycle/conn/conn.c"
 #include "transport/conn/lifecycle/conn/demux.c"
 #include "transport/conn/lifecycle/conn/pnspace.c"
+#include "transport/conn/lifecycle/conntable/conntable.c"
 #include "app/datagram/datagram/datagram.c"
 #include "app/datagram/datagram/dgcc.c"
 #include "app/datagram/datagram/dgcheck.c"
@@ -526,6 +527,7 @@
 #include "transport/cwndcheck_test.c"
 #include "app/datagram_test.c"
 #include "transport/demux_test.c"
+#include "transport/conntable_test.c"
 #include "app/dgcc_test.c"
 #include "app/dgcheck_test.c"
 #include "app/dgsize_test.c"
@@ -939,6 +941,7 @@ int main(void) {
   test_cwndcheck();
   test_datagram();
   test_demux();
+  test_conntable();
   test_dgcc();
   test_dgcheck();
   test_dgsize();
