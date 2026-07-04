@@ -4,16 +4,20 @@
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
 
-/* The three common HTTP/3 + QPACK settings values to encode. */
+/* The common HTTP/3 + QPACK settings values to encode. */
 typedef struct {
   u64 max_field_section_size;
   u64 qpack_max_table_capacity;
   u64 qpack_blocked_streams;
+  u64 enable_connect_protocol; /* RFC 9220 3: non-zero appends the 0x08
+                                  SETTINGS_ENABLE_CONNECT_PROTOCOL pair */
 } quic_h3settings_in;
 
 /* RFC 9114 7.2.4: build a SETTINGS frame carrying the three common settings
  * (MAX_FIELD_SECTION_SIZE 0x06, QPACK_MAX_TABLE_CAPACITY 0x01,
- * QPACK_BLOCKED_STREAMS 0x07). Returns 1 ok with out->len set, 0 if no room. */
+ * QPACK_BLOCKED_STREAMS 0x07), plus SETTINGS_ENABLE_CONNECT_PROTOCOL (RFC 9220
+ * 3, id 0x08) when in->enable_connect_protocol is non-zero. Returns 1 ok with
+ * out->len set, 0 if no room. */
 int quic_h3settings_build(const quic_h3settings_in *in, quic_obuf *out);
 
 #endif
