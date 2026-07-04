@@ -9,11 +9,13 @@
       pkgs = nixpkgs.legacyPackages.${system};
     in {
       devShells.${system}.default = pkgs.mkShell {
-        # clang-tools ships clang-format/clang-tidy (not part of pkgs.clang);
-        # listed first so its wrapped binaries win on PATH.
+        # llvmPackages_latest: the newest stable LLVM nixpkgs ships; still
+        # pinned by flake.lock, so it only moves on an explicit
+        # `nix flake update`. clang-tools ships clang-format/clang-tidy (not
+        # part of clang); listed first so its wrapped binaries win on PATH.
         packages = [
-          pkgs.clang-tools
-          pkgs.clang
+          pkgs.llvmPackages_latest.clang-tools
+          pkgs.llvmPackages_latest.clang
           pkgs.just
           pkgs.python3Packages.lizard # a python tool; no top-level attr
           pkgs.doxygen
