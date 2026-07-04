@@ -166,7 +166,7 @@ typedef struct {
 /* Recover the ClientHello and parse the header from the Initial datagram. */
 static int srvboot_read_initial(quic_mspan dgram, const srvboot_read_out *out) {
   if (!srvboot_open_initial(dgram, out->cr, out->ch)) return 0;
-  return wired_header_parse(dgram.p, dgram.n, out->h);
+  return wired_header_parse(dgram.p, dgram.n, out->h) != 0;
 }
 
 /* Open the Initial, init the server/loop, and fold the ClientHello — up to
