@@ -167,13 +167,20 @@ static void recvmmsg_read_lens(
   for (i64 i = 0; i < r; i++) bufs[i].len = slots[i].msg_len;
 }
 
+/* MSG_WAITFORONE (linux/socket.h): block for the first datagram only, then
+ * return with whatever else is already queued. Without it, a blocking socket
+ * with a NULL timeout waits until ALL count slots are filled — a receive
+ * loop asking for a full batch would hang on a single arriving datagram. */
+#define WIRED_MSG_WAITFORONE 0x10000
+
 i64 wired_udp_recvmmsg(i64 fd, quic_mmsg_buf* bufs, usz count) {
   quic_mmsghdr slots[WIRED_RECVMMSG_MAX] = {0};
   quic_iovec   iovs[WIRED_RECVMMSG_MAX]  = {0};
   usz          n = count < WIRED_RECVMMSG_MAX ? count : WIRED_RECVMMSG_MAX;
   i64          r;
   recvmmsg_fill_all(slots, iovs, bufs, n);
-  r = syscall6(SYS_recvmmsg, fd, (i64)slots, (i64)n, 0, 0, 0);
+  r = syscall6(
+      SYS_recvmmsg, fd, (i64)slots, (i64)n, WIRED_MSG_WAITFORONE, 0, 0);
   if (r < 0) return r;
   recvmmsg_read_lens(bufs, slots, r);
   return r;

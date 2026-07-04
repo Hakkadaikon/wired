@@ -30,9 +30,9 @@ static void rmmsg_send_n(
 }
 
 /* wired_udp_recvmmsg receives 3 datagrams sent back-to-back in one syscall,
- * each slot's len and payload matching what was sent. count matches the
- * number sent: fd is blocking, and recvmmsg(2) with a NULL timeout blocks
- * until count messages arrive, so asking for more than was sent would hang. */
+ * each slot's len and payload matching what was sent. (Asking for more slots
+ * than were sent is fine — MSG_WAITFORONE returns the queued ones; see
+ * test_recvmmsg_returns_partial_batch.) */
 static void test_recvmmsg_receives_batch(void) {
   i64              sfd, cfd;
   quic_sockaddr_in srv;
@@ -96,8 +96,34 @@ static void test_recvmmsg_fallback_empty_returns_zero(void) {
   wired_udp_close(sfd);
 }
 
+/* Asking for more slots than datagrams are queued returns just the queued
+ * ones instead of blocking for the rest — the property a server receive loop
+ * depends on (block for the first datagram, drain whatever else arrived).
+ * If this regresses the call hangs here, which is the only observable
+ * failure mode of the flag. */
+static void test_recvmmsg_returns_partial_batch(void) {
+  i64              sfd, cfd;
+  quic_sockaddr_in srv;
+  quic_mmsg_buf    bufs[8];
+  u8               storage[8][16];
+  if (!rmmsg_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
+  rmmsg_send_n(cfd, &srv, 3, 8);
+  for (usz i = 0; i < 8; i++) bufs[i].buf = quic_mspan_of(storage[i], 16);
+  i64 r = wired_udp_recvmmsg(sfd, bufs, 8);
+  if (r < 0) { /* ENOSYS: nothing to prove */
+    wired_udp_close(cfd);
+    wired_udp_close(sfd);
+    return;
+  }
+  CHECK(r == 3);
+  for (i64 i = 0; i < r; i++) CHECK(bufs[i].len == 8);
+  wired_udp_close(cfd);
+  wired_udp_close(sfd);
+}
+
 void test_udp_recvmmsg(void) {
   test_recvmmsg_receives_batch();
   test_recvmmsg_fallback_receives_batch();
   test_recvmmsg_fallback_empty_returns_zero();
+  test_recvmmsg_returns_partial_batch();
 }
