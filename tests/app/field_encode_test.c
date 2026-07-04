@@ -5,7 +5,7 @@
 static void test_field_encode_status_200(void) {
   u8        out[16];
   quic_obuf ob = {out, sizeof out, 0};
-  CHECK(quic_h3resp_encode_status(200, &ob) == 1);
+  CHECK(quic_h3resp_encode_headers(200, 0, &ob) == 1);
   /* prefix: Required Insert Count 0, Delta Base 0. */
   CHECK(ob.len == 3);
   CHECK(out[0] == 0x00 && out[1] == 0x00);
@@ -22,7 +22,7 @@ static void test_field_encode_status_201(void) {
   quic_qpack_nameref r = {0, 0, 0};
   u8                 val[8];
   quic_obuf          vb = quic_obuf_of(val, sizeof val);
-  CHECK(quic_h3resp_encode_status(201, &ob) == 1);
+  CHECK(quic_h3resp_encode_headers(201, 0, &ob) == 1);
   CHECK(out[0] == 0x00 && out[1] == 0x00);
   pl = quic_qpack_literal_namref_decode(
       quic_span_of(out + 2, ob.len - 2), &r, &vb);
@@ -37,7 +37,7 @@ static void test_field_encode_status_201(void) {
 static void test_field_encode_status_404(void) {
   u8        out[16];
   quic_obuf ob = {out, sizeof out, 0};
-  CHECK(quic_h3resp_encode_status(404, &ob) == 1);
+  CHECK(quic_h3resp_encode_headers(404, 0, &ob) == 1);
   CHECK(ob.len == 3 && out[0] == 0x00 && out[1] == 0x00);
   CHECK(out[2] == 0xdb);
 }
@@ -46,7 +46,57 @@ static void test_field_encode_status_404(void) {
 static void test_field_encode_overflow(void) {
   u8        out[2];
   quic_obuf ob = {out, sizeof out, 0};
-  CHECK(quic_h3resp_encode_status(200, &ob) == 0);
+  CHECK(quic_h3resp_encode_headers(200, 0, &ob) == 0);
+}
+
+/* RFC 9204 4.5: :status 200 + content-type "text/html" (both in the static
+ * table) is the 2-byte prefix, an Indexed Field Line for :status, then an
+ * Indexed Field Line for content-type. */
+static void test_field_encode_headers_content_type_indexed(void) {
+  u8        out[16];
+  quic_obuf ob = {out, sizeof out, 0};
+  CHECK(quic_h3resp_encode_headers(200, "text/css", &ob) == 1);
+  CHECK(ob.len == 4);
+  CHECK(out[0] == 0x00 && out[1] == 0x00);
+  CHECK(out[2] == 0xd9); /* :status 200, static index 25 */
+  /* content-type: text/css is static index 51 -> 0x80|0x40|51 = 0xf3. */
+  CHECK(out[3] == 0xf3);
+}
+
+/* A content-type absent from the static table is a Literal Field Line
+ * referencing the content-type name (static index 44, "content-type" value
+ * ignored for a name-only reference). */
+static void test_field_encode_headers_content_type_literal(void) {
+  u8                 out[32];
+  quic_obuf          ob = {out, sizeof out, 0};
+  usz                pl;
+  quic_qpack_nameref r = {0, 0, 0};
+  u8                 val[32];
+  quic_obuf          vb = quic_obuf_of(val, sizeof val);
+  CHECK(quic_h3resp_encode_headers(200, "text/javascript", &ob) == 1);
+  pl = quic_qpack_literal_namref_decode(
+      quic_span_of(out + 3, ob.len - 3), &r, &vb);
+  CHECK(pl != 0);
+  CHECK(r.is_static == 1 && r.index == 44);
+  CHECK(vb.len == 15);
+}
+
+/* content_type == 0 emits only the :status field line: 2-byte prefix + the
+ * Indexed Field Line for :status 200 (static index 25), same as
+ * test_field_encode_status_200. */
+static void test_field_encode_headers_no_content_type(void) {
+  u8        out[16];
+  quic_obuf ob = {out, sizeof out, 0};
+  CHECK(quic_h3resp_encode_headers(200, 0, &ob) == 1);
+  CHECK(ob.len == 3);
+  CHECK(out[0] == 0x00 && out[1] == 0x00 && out[2] == 0xd9);
+}
+
+/* Insufficient capacity fails without writing past the buffer. */
+static void test_field_encode_headers_overflow(void) {
+  u8        out[3];
+  quic_obuf ob = {out, sizeof out, 0};
+  CHECK(quic_h3resp_encode_headers(200, "text/css", &ob) == 0);
 }
 
 void test_field_encode(void) {
@@ -54,4 +104,8 @@ void test_field_encode(void) {
   test_field_encode_status_201();
   test_field_encode_status_404();
   test_field_encode_overflow();
+  test_field_encode_headers_content_type_indexed();
+  test_field_encode_headers_content_type_literal();
+  test_field_encode_headers_no_content_type();
+  test_field_encode_headers_overflow();
 }
