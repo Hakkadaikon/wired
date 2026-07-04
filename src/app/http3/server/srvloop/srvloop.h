@@ -64,10 +64,10 @@ typedef struct {
   usz req_len;       /**< highest offset+len written into req_buf */
   u8  req_fin;       /**< 1 once a request-stream FIN was seen */
   int req_done;      /**< 1 once this request was decoded/answered */
-  /* req's path/body views point into this once the request is decoded (see
-   * drive_complete in dispatch.c); must outlive the decode call, so it lives
-   * here rather than as a stack local that dies on return. */
-  u8 req_wrap[2080];
+  u8 req_wrap[2080]; /**< backing store for req's path/body views once
+                      * decoded (see drive_complete in dispatch.c); must
+                      * outlive the decode call, so it lives here rather than
+                      * a stack local that dies on return */
 } wired_srvloop;
 
 /** Register the app response-body builder; pass 0 to clear (body-less 200).
