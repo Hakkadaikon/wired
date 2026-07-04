@@ -54,6 +54,11 @@ fuzz-header:
 fuzz-qpack:
     {{cc}} -g -fsanitize=fuzzer,address -Isrc fuzz/fuzz_qpack.c -o fuzz/fuzz_qpack
 
+# build the libFuzzer harness for the X.509 certificate parser and the
+# TBSCertificate field extractor (hosted, ASan+libFuzzer; src/ untouched).
+fuzz-x509:
+    {{cc}} -g -fsanitize=fuzzer,address -Isrc fuzz/fuzz_x509.c -o fuzz/fuzz_x509
+
 # format all sources in place (clang-format, .clang-format config)
 fmt:
     clang-format -i $(find src tests \( -name '*.c' -o -name '*.h' \))
