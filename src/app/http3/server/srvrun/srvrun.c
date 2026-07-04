@@ -570,21 +570,37 @@ static i64 srvrun_listen(u16 port) {
 #define SRVRUN_DRAIN_TICKS 25
 #define SRVRUN_DRAIN_TICK_MS 200
 
-/* One receive+serve step when a datagram is waiting. Checked once per step
- * (same granularity as SIGTERM's shutdown flag): a pending SIGHUP reloads
- * cfg->id's certificate before the datagram, if any, is served, so a fresh
- * Initial arriving right after a reload already sees the new identity. */
-static void srvrun_step(
-    const srvrun_cfg* cfg, srvrun_state* st, u8* buf, usz cap) {
-  quic_sockaddr_in peer;
-  i64              r;
-  srvrun_reload_if_requested(cfg);
-  r = wired_udp_recvfrom(cfg->fd, quic_mspan_of(buf, cap), &peer);
-  if (r > 0) {
-    srvrun_step_ctx ctx = {cfg, &peer, st, quic_clock_mono_ms()};
-    srvrun_sweep_idle(st, ctx.now_ms); /* lazy: swept on each arrival */
-    srvrun_serve(&ctx, quic_mspan_of(buf, (usz)r));
+/* Receive batch: srvrun drains up to this many datagrams per recvmmsg call.
+ * ponytail: 16 x 2048B static buffers (32KB, BSS like g_srvrun_state); raise
+ * if a profile ever shows the loop syscall-bound at higher fan-in. */
+#define SRVRUN_RX_BATCH 16
+static u8 g_srvrun_rxstorage[SRVRUN_RX_BATCH][2048];
+
+/* Serve a recvmmsg batch message by message, in arrival order. One idle
+ * sweep and one clock read cover the whole batch; each message's own source
+ * address is the peer a fresh slot records (RFC 9000 5.1). */
+static void srvrun_serve_batch(
+    const srvrun_cfg* cfg, srvrun_state* st, const quic_mmsg_buf* bufs, i64 n) {
+  u64 now = quic_clock_mono_ms();
+  srvrun_sweep_idle(st, now); /* lazy: swept on each arrival */
+  for (i64 i = 0; i < n; i++) {
+    srvrun_step_ctx ctx = {cfg, &bufs[i].src, st, now};
+    srvrun_serve(&ctx, quic_mspan_of(bufs[i].buf.p, bufs[i].len));
   }
+}
+
+/* One receive+serve step: drain up to a batch of waiting datagrams in one
+ * recvmmsg (it blocks for the first only, then returns what else is queued)
+ * and serve each. Pending SIGHUP is consumed once per step (same granularity
+ * as SIGTERM's shutdown flag): a reload lands before the batch is served, so
+ * a fresh Initial arriving right after a reload already sees the new
+ * identity. */
+static void srvrun_step(
+    const srvrun_cfg* cfg, srvrun_state* st, quic_mmsg_buf* bufs, usz nbufs) {
+  i64 r;
+  srvrun_reload_if_requested(cfg);
+  r = wired_udp_recvmmsg(cfg->fd, bufs, nbufs);
+  if (r > 0) srvrun_serve_batch(cfg, st, bufs, r);
 }
 
 /* Drain phase (RFC 9114 5.2): GOAWAY already sent to every live connection:
@@ -593,23 +609,32 @@ static void srvrun_step(
  * Returns 1 once every connection has drained or the tick budget is spent
  * (the caller should stop), 0 to keep draining. */
 static int srvrun_drain_tick(
-    const srvrun_cfg* cfg, srvrun_state* st, u8* buf, usz cap, int tick) {
+    const srvrun_cfg* cfg, srvrun_state* st, quic_mmsg_buf* bufs, int tick) {
   if (quic_poll_wait_readable(cfg->fd, SRVRUN_DRAIN_TICK_MS) > 0)
-    srvrun_step(cfg, st, buf, cap);
+    srvrun_step(cfg, st, bufs, SRVRUN_RX_BATCH);
   return srvrun_all_drained(st) || tick >= SRVRUN_DRAIN_TICKS;
+}
+
+/* Point each batch slot at its static storage. */
+static void srvrun_rx_init(quic_mmsg_buf* bufs) {
+  for (usz i = 0; i < SRVRUN_RX_BATCH; i++)
+    bufs[i].buf =
+        quic_mspan_of(g_srvrun_rxstorage[i], sizeof g_srvrun_rxstorage[i]);
 }
 
 /* Receive datagrams until told to stop: normal service while no shutdown has
  * been requested; once requested, send GOAWAY to every live connection once
  * and drain for a bounded grace period (RFC 9114 5.2) before returning. */
 static void srvrun_loop(const srvrun_cfg* cfg) {
-  srvrun_state st = {g_srvrun_table, g_srvrun_state.conns};
-  u8           buf[2048];
-  int          tick = 0;
+  srvrun_state  st = {g_srvrun_table, g_srvrun_state.conns};
+  quic_mmsg_buf bufs[SRVRUN_RX_BATCH];
+  int           tick = 0;
   quic_conntable_init(st.table, QUIC_CONNTABLE_CAP);
-  while (!srvrun_shutdown_requested()) srvrun_step(cfg, &st, buf, sizeof buf);
+  srvrun_rx_init(bufs);
+  while (!srvrun_shutdown_requested())
+    srvrun_step(cfg, &st, bufs, SRVRUN_RX_BATCH);
   srvrun_goaway_all(cfg, &st);
-  while (!srvrun_drain_tick(cfg, &st, buf, sizeof buf, tick)) tick++;
+  while (!srvrun_drain_tick(cfg, &st, bufs, tick)) tick++;
 }
 
 /* Arm SIGHUP only when a cert path was given (cfg.cert_path unset means
