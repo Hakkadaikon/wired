@@ -116,12 +116,15 @@ typedef struct {
 /** Receive up to count datagrams in one recvmmsg() syscall (Linux GRO-style
  * batched receive, kernel >= 2.6.33). Each bufs[i].buf is a caller-owned
  * destination buffer; on return bufs[i].len and bufs[i].src are filled for
- * the first N slots actually received.
+ * the first N slots actually received. On a blocking socket the call waits
+ * for the first datagram only (MSG_WAITFORONE) and then returns with
+ * whatever else was already queued, so a receive loop may always offer a
+ * full batch of slots without risking a wait for the whole batch.
  * @param fd the socket fd
  * @param bufs array of count receive slots
  * @param count number of slots in bufs
- * @return number of datagrams received (0..count), or a negative errno (e.g.
- *   ENOSYS on a kernel without recvmmsg) — the caller should fall back to
+ * @return number of datagrams received, or a negative errno (e.g. ENOSYS on
+ *   a kernel without recvmmsg) — the caller should fall back to
  *   wired_udp_recvmmsg_fallback in that case. */
 i64 wired_udp_recvmmsg(i64 fd, quic_mmsg_buf* bufs, usz count);
 
