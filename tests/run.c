@@ -248,6 +248,7 @@
 #include "transport/packet/header/packet/coalesce.c"
 #include "transport/packet/header/packet/coalorder.c"
 #include "transport/packet/header/packet/header.c"
+#include "transport/packet/header/dcidresolve/dcidresolve.c"
 #include "transport/packet/header/packet/inittoken.c"
 #include "transport/packet/header/packet/pad.c"
 #include "transport/packet/header/packet/pnlen.c"
@@ -460,6 +461,7 @@
 #include "tls/handshake/roles/client/clientwire.c"
 #include "common/varint_test.c"
 #include "transport/header_test.c"
+#include "transport/dcidresolve_test.c"
 #include "transport/pnum_test.c"
 #include "tls/tparam_test.c"
 #include "transport/frame_test.c"
@@ -875,6 +877,7 @@
 int main(void) {
   test_varint();
   test_header();
+  test_dcidresolve();
   test_pnum();
   test_tparam();
   test_frame();
