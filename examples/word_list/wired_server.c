@@ -143,7 +143,7 @@ static int app_on_request(
 static void app_selfcheck(void) {
   u8                   out[64];
   quic_obuf            ob          = {out, sizeof out, 0};
-  app_config           cfg         = {0, 0, 0};
+  app_config           cfg         = {0};
   const char          *content_type = 0;
   wired_h3reqdrive_req post = {
       .method = (const u8 *)"POST", .method_len = 4,
