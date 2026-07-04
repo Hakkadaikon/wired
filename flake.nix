@@ -15,7 +15,7 @@
           pkgs.clang-tools
           pkgs.clang
           pkgs.just
-          pkgs.lizard
+          pkgs.python3Packages.lizard # a python tool; no top-level attr
           pkgs.doxygen
           pkgs.ninja
         ];
