@@ -47,4 +47,19 @@ void test_conntable(void) {
   quic_conntable_remove(t, 4, ic);
   u8 too_long[WIRED_MAX_CID_LEN + 1] = {0};
   CHECK(quic_conntable_insert(t, 4, too_long, WIRED_MAX_CID_LEN + 1) == -1);
+
+  /* rekey replaces a live slot's CID in place (RFC 9000 7.2: the peer's
+   * subsequent DCID is the locally-chosen SCID, not the Initial's DCID) */
+  const u8 cid_f[] = {0xF0, 0xF1, 0xF2, 0xF3};
+  CHECK(quic_conntable_rekey(t, 4, ib, cid_f, 4) == 1);
+  CHECK(quic_conntable_find(t, 4, cid_b, 3) == -1); /* old key gone */
+  CHECK(quic_conntable_find(t, 4, cid_f, 4) == ib); /* new key routes */
+
+  /* rekey rejects an oversized CID and leaves the key untouched */
+  CHECK(quic_conntable_rekey(t, 4, ib, too_long, WIRED_MAX_CID_LEN + 1) == 0);
+  CHECK(quic_conntable_find(t, 4, cid_f, 4) == ib);
+
+  /* rekey rejects an out-of-range index */
+  CHECK(quic_conntable_rekey(t, 4, -1, cid_f, 4) == 0);
+  CHECK(quic_conntable_rekey(t, 4, 4, cid_f, 4) == 0);
 }
