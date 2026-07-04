@@ -20,13 +20,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y clang doxygen just
+      # Same pinned toolchain as CI and local dev (flake.nix/flake.lock).
+      - uses: DeterminateSystems/nix-installer-action@main
 
       - name: Generate API reference
-        run: just docs
+        run: nix develop -c just docs
 
       - uses: actions/upload-pages-artifact@v3
         with:

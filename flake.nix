@@ -9,7 +9,16 @@
       pkgs = nixpkgs.legacyPackages.${system};
     in {
       devShells.${system}.default = pkgs.mkShell {
-        packages = [ pkgs.clang pkgs.just pkgs.lizard pkgs.doxygen pkgs.ninja ];
+        # clang-tools ships clang-format/clang-tidy (not part of pkgs.clang);
+        # listed first so its wrapped binaries win on PATH.
+        packages = [
+          pkgs.clang-tools
+          pkgs.clang
+          pkgs.just
+          pkgs.lizard
+          pkgs.doxygen
+          pkgs.ninja
+        ];
       };
     };
 }
