@@ -47,13 +47,11 @@ void quic_conntable_remove(quic_conntable* t, usz cap, int i) {
 }
 
 /* 1 if i names a slot inside a cap-sized table. */
-static int conntable_index_ok(usz cap, int i) {
-  return i >= 0 && (usz)i < cap;
-}
+static int conntable_slot_ok(usz cap, int i) { return i >= 0 && (usz)i < cap; }
 
 int quic_conntable_rekey(
     quic_conntable* t, usz cap, int i, const u8* cid, u8 cid_len) {
-  if (!conntable_index_ok(cap, i)) return 0;
+  if (!conntable_slot_ok(cap, i)) return 0;
   if (cid_len > WIRED_MAX_CID_LEN) return 0;
   conntable_fill_slot(&t[i], cid, cid_len);
   return 1;
