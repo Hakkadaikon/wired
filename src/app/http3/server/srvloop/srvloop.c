@@ -5,6 +5,8 @@
 #include "app/http3/server/srvloop/respond.h"
 #include "transport/conn/loop/connrunner/level.h"
 #include "transport/io/udp/udploop/rxloop.h"
+#include "transport/packet/frame/frame/ack.h"
+#include "transport/packet/frame/frame/dispatch.h"
 #include "transport/packet/frame/frame/frame.h"
 #include "transport/packet/frame/pipeline/framewalk.h"
 #include "transport/packet/header/lhdr/lhdr_parse.h"
@@ -21,21 +23,23 @@ int wired_srvloop_init(wired_srvloop* l, const u8* cli_scid, u8 cli_scid_len) {
   l->h3.request_seen  = 0;
   l->cli_scid_len     = cli_scid_len;
   for (usz i = 0; i < cli_scid_len; i++) l->cli_scid[i] = cli_scid[i];
-  l->tx_pn        = 0;
-  l->hs_tx_pn     = 0;
-  l->app_rx_pn    = 0;
-  l->app_rx_seen  = 0;
-  l->hs_rx_pn     = 0;
-  l->hs_rx_seen   = 0;
-  l->hs_done_sent = 0;
-  l->ticket_sent  = 0;
-  l->on_request   = 0;
-  l->req_ctx      = 0;
-  l->got_request  = 0;
-  l->req_len      = 0;
-  l->req_fin      = 0;
-  l->req_done     = 0;
-  l->peer_closed  = 0;
+  l->tx_pn         = 0;
+  l->hs_tx_pn      = 0;
+  l->app_rx_pn     = 0;
+  l->app_rx_seen   = 0;
+  l->hs_rx_pn      = 0;
+  l->hs_rx_seen    = 0;
+  l->hs_done_sent  = 0;
+  l->ticket_sent   = 0;
+  l->on_request    = 0;
+  l->req_ctx       = 0;
+  l->got_request   = 0;
+  l->req_len       = 0;
+  l->req_fin       = 0;
+  l->req_done      = 0;
+  l->peer_closed   = 0;
+  l->resp_external = 0;
+  l->ack_n         = 0;
   return 1;
 }
 
@@ -120,6 +124,34 @@ static int srvloop_has_close(quic_span pl) {
   return 0;
 }
 
+/* Record one ACK range on l's per-step list; overflow is dropped. */
+static void srvloop_push_ack(wired_srvloop* l, u64 lo, u64 hi) {
+  if (l->ack_n >= sizeof l->ack_lo / sizeof l->ack_lo[0]) return;
+  l->ack_lo[l->ack_n] = lo;
+  l->ack_hi[l->ack_n] = hi;
+  l->ack_n++;
+}
+
+/* Decode one ACK frame and record its ranges (RFC 9000 19.3). */
+static void srvloop_take_ack(wired_srvloop* l, const u8* buf, usz n) {
+  quic_ack_frame f;
+  if (quic_ack_decode(buf, n, &f) == 0) return;
+  for (usz i = 0; i < f.n_ranges; i++)
+    srvloop_push_ack(l, f.ranges[i].lo, f.ranges[i].hi);
+}
+
+/* Surface every ACK frame in the opened payload to the caller's per-step
+ * list (RFC 9000 19.3) — the caller consumes them to advance its own sent
+ * bookkeeping (e.g. a multi-packet response in flight). */
+static void srvloop_collect_acks(wired_srvloop* l, quic_span pl) {
+  quic_framewalk      it;
+  quic_framewalk_item fr;
+  quic_framewalk_init(&it, pl.p, pl.n);
+  while (quic_framewalk_next(&it, &fr))
+    if (quic_frame_classify(fr.type) == QUIC_FK_ACK)
+      srvloop_take_ack(l, fr.start, fr.remaining);
+}
+
 /* RFC 9001 5 / 5.1: open one coalesced packet slice and walk its frames. A
  * STREAM frame sets *got_request; CRYPTO is fed to the handshake. A slice that
  * fails to open (wrong level/key) is silently skipped, as the next slice in the
@@ -138,6 +170,7 @@ static void step_one(
   o.level = ro.level;
   o.pkt   = pkt;
   l->peer_closed |= srvloop_has_close(ro.payload);
+  srvloop_collect_acks(l, ro.payload);
   note_app_rx(l, s, &o);
   note_hs_rx(l, &o);
   in = (wired_srvloop_dispatch_in){
@@ -168,12 +201,17 @@ int wired_srvloop_step(
   const u8*    pkts[WIRED_SRVLOOP_MAXPKTS];
   usz          offs[WIRED_SRVLOOP_MAXPKTS], lens[WIRED_SRVLOOP_MAXPKTS], n, i;
   int          got_request = 0;
+  int          answer;
   int          r;
   quic_pktlist plist = {pkts, offs, lens, WIRED_SRVLOOP_MAXPKTS};
+  conn->l->ack_n     = 0;
   n = quic_udploop_split(quic_span_of(dgram.p, dgram.n), &plist);
   for (i = 0; i < n; i++)
     step_one(conn, quic_mspan_of(dgram.p + offs[i], lens[i]), &got_request);
-  r = wired_srvloop_produce(conn, got_request, out);
+  conn->l->got_request = got_request;
+  /* takeover: the caller answers the request, the loop only confirms/ACKs */
+  answer = got_request && !conn->l->resp_external;
+  r      = wired_srvloop_produce(conn, answer, out);
   rearm_reqacc(conn->l, got_request);
   return r;
 }

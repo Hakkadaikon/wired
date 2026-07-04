@@ -1135,10 +1135,88 @@ static void test_srvloop_peer_close_sets_flag(void) {
   CHECK(f.l.peer_closed == 0); /* re-arm clears the mark */
 }
 
+/* ACK RANGES SURFACED (RFC 9000 19.3): ranges from an ACK frame in an opened
+ * 1-RTT payload are copied to the loop's per-step list; a payload with no
+ * ACK leaves the list empty (reset each step). */
+static void test_srvloop_collects_ack_ranges(void) {
+  struct lp_fix  f;
+  quic_obuf      ob;
+  u8             out[1024], fr[64], spkt[1024];
+  usz            fl, slen;
+  quic_ack_frame af = {0};
+  ob                = (quic_obuf){out, sizeof out, 0};
+  lp_confirm(&f, &ob);
+  /* no ACK in anything so far this step path */
+  {
+    u8 ping[1] = {0x01};
+    slen       = client_seal_onertt(&f, ping, 1, spkt, sizeof spkt);
+    ob         = (quic_obuf){out, sizeof out, 0};
+    wired_srvloop_step(
+        &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+    CHECK(f.l.ack_n == 0);
+  }
+  af.n_ranges     = 2;
+  af.ranges[0].hi = 9;
+  af.ranges[0].lo = 7;
+  af.ranges[1].hi = 4;
+  af.ranges[1].lo = 4;
+  fl              = quic_ack_encode(fr, sizeof fr, &af);
+  CHECK(fl > 0);
+  slen = client_seal_onertt(&f, fr, fl, spkt, sizeof spkt);
+  ob   = (quic_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  CHECK(f.l.ack_n == 2);
+  CHECK(f.l.ack_hi[0] == 9 && f.l.ack_lo[0] == 7);
+  CHECK(f.l.ack_hi[1] == 4 && f.l.ack_lo[1] == 4);
+}
+
+/* RESPONSE TAKEOVER: with resp_external set, a decoded GET produces no 200
+ * from the loop (the caller owns the response); the request itself is
+ * latched and readable, and re-arming clears the takeover state. */
+static void test_srvloop_external_resp_suppresses_200(void) {
+  struct lp_fix f;
+  quic_obuf     ob;
+  u8            out[1024], get[512], spkt[1024];
+  usz           glen, slen;
+  ob = (quic_obuf){out, sizeof out, 0};
+  lp_confirm(&f, &ob);
+  f.l.resp_external = 1;
+  {
+    quic_obuf gob = {get, sizeof get, 0};
+    CHECK(wired_h3reqdrive_send_get(
+        0,
+        &(wired_h3reqdrive_get_in){
+            quic_span_of((const u8*)"/", 1), quic_span_of((const u8*)"h", 1)},
+        &gob));
+    glen = gob.len;
+  }
+  slen = client_seal_onertt(&f, get, glen, spkt, sizeof spkt);
+  ob   = (quic_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  /* the request reached the caller... */
+  CHECK(f.l.got_request == 1);
+  CHECK(f.l.req.path_len == 1 && f.l.req.path[0] == '/');
+  /* ...and the loop's reply (if any) carries no HTTP/3 response */
+  if (ob.len) {
+    const u8*        pl;
+    usz              pll;
+    quic_h3conn_resp resp_out = {0};
+    CHECK(client_open_onertt(&f, out, ob.len, &pl, &pll) == 1);
+    CHECK(quic_h3conn_recv_response(quic_span_of(pl, pll), &resp_out) == 0);
+  }
+  /* re-arm clears takeover state */
+  CHECK(wired_srvloop_init(&f.l, f.l.cli_scid, f.l.cli_scid_len) == 1);
+  CHECK(f.l.resp_external == 0 && f.l.got_request == 0 && f.l.ack_n == 0);
+}
+
 void test_srvloop(void) {
   test_srvloop_handler_body_echoed();
   test_srvloop_close_frame_detected();
   test_srvloop_peer_close_sets_flag();
+  test_srvloop_collects_ack_ranges();
+  test_srvloop_external_resp_suppresses_200();
   test_srvloop_dispatch_uni_streams_not_request();
   test_srvloop_dispatch_get_after_uni_streams();
   test_srvloop_dispatch_split_request_streams();
