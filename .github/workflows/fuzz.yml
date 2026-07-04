@@ -1,0 +1,28 @@
+name: Fuzz
+
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang just
+
+      - name: run fuzz harnesses (120s each, bounded regression sweep)
+        run: just fuzz-ci 120
+
+      - name: upload crash artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-crashes
+          path: fuzz/crash-*
+          if-no-files-found: ignore

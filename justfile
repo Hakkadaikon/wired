@@ -59,6 +59,14 @@ fuzz-qpack:
 fuzz-x509:
     {{cc}} -g -fsanitize=fuzzer,address -Isrc fuzz/fuzz_x509.c -o fuzz/fuzz_x509
 
+# run every fuzz harness for secs wall-clock seconds each (default 120), for
+# CI: a bounded regression sweep, not an open-ended fuzzing campaign. Exits
+# non-zero on any crash/leak (libFuzzer's own exit code).
+fuzz-ci secs="120":
+    just fuzz-header && ./fuzz/fuzz_header -max_total_time={{secs}} -artifact_prefix=fuzz/
+    just fuzz-qpack && ./fuzz/fuzz_qpack -max_total_time={{secs}} -artifact_prefix=fuzz/
+    just fuzz-x509 && ./fuzz/fuzz_x509 -max_total_time={{secs}} -artifact_prefix=fuzz/
+
 # format all sources in place (clang-format, .clang-format config)
 fmt:
     clang-format -i $(find src tests \( -name '*.c' -o -name '*.h' \))
