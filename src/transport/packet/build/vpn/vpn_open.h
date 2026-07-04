@@ -20,6 +20,6 @@ typedef struct {
 /* On success returns 1 with *payload viewing the decrypted frames inside
  * pkt; on authentication failure returns 0. */
 int quic_vpn_open(
-    const quic_protect_keys *k, const quic_vpn_desc *d, quic_span *payload);
+    const quic_protect_keys* k, const quic_vpn_desc* d, quic_span* payload);
 
 #endif

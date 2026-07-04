@@ -9,7 +9,7 @@
 #define QUIC_TX_PN_LEN 4u
 
 usz quic_tx_packet(
-    const quic_protect_keys *k, const quic_tx_desc *d, quic_mspan out) {
+    const quic_protect_keys* k, const quic_tx_desc* d, quic_mspan out) {
   u8             hdr[64 + 2 * WIRED_MAX_CID_LEN];
   usz            len_off = 0;
   quic_obuf      ho      = quic_obuf_of(hdr, sizeof(hdr));

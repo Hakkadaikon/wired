@@ -16,6 +16,6 @@ typedef struct {
  * unexpected, missing-but-expected, or mismatching value is a violation.
  * retry_occurred / tp_present are 0/1 flags. 1 if consistent, 0 on
  * TRANSPORT_PARAMETER_ERROR. */
-int quic_tpverify_rscid(const quic_tpverify_rscid_in *in);
+int quic_tpverify_rscid(const quic_tpverify_rscid_in* in);
 
 #endif

@@ -10,6 +10,6 @@
  * is a static constant; the caller must not free it.
  * @param path NUL-terminated file path (request path or resolved file path)
  * @return NUL-terminated Content-Type string */
-const char *wired_mimetype_for_path(const char *path);
+const char* wired_mimetype_for_path(const char* path);
 
 #endif

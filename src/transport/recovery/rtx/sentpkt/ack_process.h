@@ -8,7 +8,7 @@
  * 19.3). */
 typedef struct {
   u64        ack_largest;
-  const u64 *ack_ranges;
+  const u64* ack_ranges;
   usz        n_ranges;
 } quic_ackset;
 
@@ -16,6 +16,6 @@ typedef struct {
  * falls in an acknowledged range is removed and its pn appended to
  * newly_acked.out; *newly_acked.n is set to the count. */
 void quic_ack_process(
-    quic_sentpkt *t, const quic_ackset *acked, quic_u64out newly_acked);
+    quic_sentpkt* t, const quic_ackset* acked, quic_u64out newly_acked);
 
 #endif

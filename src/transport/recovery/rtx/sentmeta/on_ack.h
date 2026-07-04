@@ -14,6 +14,6 @@ typedef struct {
  * time_sent (for an RTT sample) and whether it was ack-eliciting. Returns 1
  * when the PN was tracked, 0 otherwise (*out untouched). */
 int quic_sentmeta_on_ack(
-    quic_sentmeta *m, u64 acked_pn, quic_sentmeta_acked *out);
+    quic_sentmeta* m, u64 acked_pn, quic_sentmeta_acked* out);
 
 #endif

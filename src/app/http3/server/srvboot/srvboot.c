@@ -11,7 +11,7 @@ static int srvboot_is_long_initial(u8 byte0) {
   return (byte0 & 0x80) != 0 && (byte0 & 0x30) == 0;
 }
 
-int wired_srvboot_is_initial(const u8 *dg, usz len) {
+int wired_srvboot_is_initial(const u8* dg, usz len) {
   if (len < 6 || !srvboot_is_long_initial(dg[0])) return 0;
   return len >= (usz)6 + dg[5];
 }
@@ -19,7 +19,7 @@ int wired_srvboot_is_initial(const u8 *dg, usz len) {
 /* Reassemble the ClientHello from the opened Initial payload's CRYPTO frame(s)
  * (peers may lead with PADDING/ACK and split the CH, RFC 9000 12.4 / 19.6). */
 static int srvboot_collect_ch(
-    quic_crecv *cr, quic_span payload, quic_span *msg) {
+    quic_crecv* cr, quic_span payload, quic_span* msg) {
   quic_crecv_init(cr);
   if (!quic_crecv_collect(cr, payload.p, payload.n)) return 0;
   if (!quic_crecv_complete_message(cr)) return 0;
@@ -29,7 +29,7 @@ static int srvboot_collect_ch(
 
 /* RFC 9000 17.2: the DCID is unprotected at the front, so open the Initial and
  * recover the ClientHello. */
-static int srvboot_open_initial(quic_mspan dg, quic_crecv *cr, quic_span *msg) {
+static int srvboot_open_initial(quic_mspan dg, quic_crecv* cr, quic_span* msg) {
   quic_span payload;
   if (!wired_srvboot_is_initial(dg.p, dg.n)) return 0;
   if (!quic_initpkt_open(quic_span_of(dg.p + 6, dg.p[5]), dg, &payload))
@@ -41,9 +41,9 @@ static int srvboot_open_initial(quic_mspan dg, quic_crecv *cr, quic_span *msg) {
  * ODCID for Initial keys (RFC 9001 5.2); the client's SCID is the DCID the
  * server writes back and the loop is seeded with (RFC 9000 17.2 / 5.1). */
 static int srvboot_init(
-    const wired_srvboot_conn *conn,
-    const wired_srvboot_id   *id,
-    const wired_header       *h) {
+    const wired_srvboot_conn* conn,
+    const wired_srvboot_id*   id,
+    const wired_header*       h) {
   wired_server_init_in in = {
       id->priv, id->pub, id->cert_seed, id->chain, id->chain_count};
   wired_server_init(conn->s, &in);
@@ -70,8 +70,8 @@ typedef struct {
 /* The server and its fixed identity, threaded together through flight
  * sealing (they always travel as a pair). */
 typedef struct {
-  wired_server           *s;
-  const wired_srvboot_id *id;
+  wired_server*           s;
+  const wired_srvboot_id* id;
 } srvboot_server;
 
 /* RFC 9000 19.6 / 14.1: TLS bytes per Handshake flight datagram. 1100 keeps
@@ -88,10 +88,10 @@ static usz srvboot_chunk_len(usz remaining) {
  * recording its datagram length. Returns 1, 0 on overflow or a flight that
  * needs more than WIRED_SRVBOOT_FLIGHT_MAX datagrams. */
 static int srvboot_seal_next(
-    const srvboot_server *sv,
+    const srvboot_server* sv,
     quic_span             flight,
-    usz                  *off,
-    wired_srvboot_out    *out) {
+    usz*                  off,
+    wired_srvboot_out*    out) {
   usz       n    = srvboot_chunk_len(flight.n - *off);
   quic_obuf tail = quic_obuf_of(
       out->flight->p + out->flight->len, out->flight->cap - out->flight->len);
@@ -109,7 +109,7 @@ static int srvboot_seal_next(
 /* RFC 9000 19.6: split the flight into <= SRVBOOT_HS_CHUNK-byte CRYPTO chunks,
  * one Handshake packet datagram each, concatenated into out->flight. */
 static int srvboot_seal_hs_flight(
-    const srvboot_server *sv, quic_span flight, wired_srvboot_out *out) {
+    const srvboot_server* sv, quic_span flight, wired_srvboot_out* out) {
   usz off          = 0;
   out->dgram_count = 0;
   out->flight->len = 0;
@@ -123,9 +123,9 @@ static int srvboot_seal_hs_flight(
  * to 1200 bytes (RFC 9000 14.1), so coalescing the flight behind it would
  * exceed a 1500-byte MTU datagram. Returns 1, 0 on overflow. */
 static int srvboot_seal_flight(
-    const srvboot_server       *sv,
-    const srvboot_flight_bytes *fb,
-    wired_srvboot_out          *out) {
+    const srvboot_server*       sv,
+    const srvboot_flight_bytes* fb,
+    wired_srvboot_out*          out) {
   wired_srvloop_send_in in0 = {
       quic_span_of(sv->id->scid, sv->id->scid_len), 1,
       SRVBOOT_CLIENT_INITIAL_PN, fb->sh, 0};
@@ -135,9 +135,9 @@ static int srvboot_seal_flight(
 
 /* Build the server flight from the folded ClientHello and seal it. */
 static int srvboot_flight(
-    const wired_srvboot_conn *conn,
-    const wired_srvboot_id   *id,
-    wired_srvboot_out        *out) {
+    const wired_srvboot_conn* conn,
+    const wired_srvboot_id*   id,
+    wired_srvboot_out*        out) {
   u8                   sh[512], flight[4096];
   quic_obuf            sh_ob = quic_obuf_of(sh, sizeof sh);
   quic_obuf            fl_ob = quic_obuf_of(flight, sizeof flight);
@@ -145,8 +145,8 @@ static int srvboot_flight(
   srvboot_flight_bytes fb;
   srvboot_server       sv = {conn->s, id};
   if (!wired_server_build_flight(conn->s, id->random, &fo)) return 0;
-  fb = (srvboot_flight_bytes){
-      quic_span_of(sh, sh_ob.len), quic_span_of(flight, fl_ob.len)};
+  fb = (srvboot_flight_bytes){quic_span_of(sh, sh_ob.len),
+                              quic_span_of(flight, fl_ob.len)};
   if (!srvboot_seal_flight(&sv, &fb, out)) return 0;
   /* RFC 9000 12.3: later Handshake sends continue after the flight's packet
    * numbers 0..dgram_count-1. */
@@ -158,13 +158,13 @@ static int srvboot_flight(
  * folded ClientHello. cr must outlive ch: quic_crecv_message() returns a view
  * into cr's own reassembly buffer, so the caller owns cr's storage. */
 typedef struct {
-  quic_crecv   *cr;
-  wired_header *h;
-  quic_span    *ch;
+  quic_crecv*   cr;
+  wired_header* h;
+  quic_span*    ch;
 } srvboot_read_out;
 
 /* Recover the ClientHello and parse the header from the Initial datagram. */
-static int srvboot_read_initial(quic_mspan dgram, const srvboot_read_out *out) {
+static int srvboot_read_initial(quic_mspan dgram, const srvboot_read_out* out) {
   if (!srvboot_open_initial(dgram, out->cr, out->ch)) return 0;
   return wired_header_parse(dgram.p, dgram.n, out->h) != 0;
 }
@@ -172,8 +172,8 @@ static int srvboot_read_initial(quic_mspan dgram, const srvboot_read_out *out) {
 /* Open the Initial, init the server/loop, and fold the ClientHello — up to
  * (not including) building the flight. */
 static int srvboot_accept_ch(
-    const wired_srvboot_conn *conn,
-    const wired_srvboot_id   *id,
+    const wired_srvboot_conn* conn,
+    const wired_srvboot_id*   id,
     quic_mspan                dgram) {
   wired_header     h;
   quic_crecv       cr;
@@ -185,9 +185,9 @@ static int srvboot_accept_ch(
 }
 
 int wired_srvboot_accept(
-    const wired_srvboot_conn *conn,
-    const wired_srvboot_in   *in,
-    wired_srvboot_out        *out) {
+    const wired_srvboot_conn* conn,
+    const wired_srvboot_in*   in,
+    wired_srvboot_out*        out) {
   if (!srvboot_accept_ch(conn, in->id, in->dgram)) return 0;
   return srvboot_flight(conn, in->id, out);
 }

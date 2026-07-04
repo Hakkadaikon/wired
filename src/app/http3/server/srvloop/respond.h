@@ -13,6 +13,6 @@
  * 0.
  */
 int wired_srvloop_produce(
-    const wired_srvloop_conn *conn, int got_request, quic_obuf *out);
+    const wired_srvloop_conn* conn, int got_request, quic_obuf* out);
 
 #endif

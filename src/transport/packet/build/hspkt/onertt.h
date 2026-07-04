@@ -18,9 +18,9 @@ typedef struct {
 /* Build one protected 1-RTT packet into out; length to out->len.
  * Returns 1 on success, 0 on overflow. */
 int quic_hspkt_onertt_build(
-    const quic_protect_keys      *k,
-    const quic_hspkt_onertt_desc *d,
-    quic_obuf                    *out);
+    const quic_protect_keys*      k,
+    const quic_hspkt_onertt_desc* d,
+    quic_obuf*                    out);
 
 /* One received 1-RTT packet to open in place. largest_pn is the largest
  * packet number already received in the 1-RTT space (0 before any), used to
@@ -35,8 +35,8 @@ typedef struct {
 /* On success *payload views the plaintext within pkt. Returns 1 on success,
  * 0 on authentication failure or short input. */
 int quic_hspkt_onertt_open(
-    const quic_protect_keys           *k,
-    const quic_hspkt_onertt_open_desc *d,
-    quic_span                         *payload);
+    const quic_protect_keys*           k,
+    const quic_hspkt_onertt_open_desc* d,
+    quic_span*                         payload);
 
 #endif

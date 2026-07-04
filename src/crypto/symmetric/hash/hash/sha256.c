@@ -25,14 +25,14 @@ static const u32 H0[8] = {0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
 #define SS0(x) (ROR(x, 7) ^ ROR(x, 18) ^ ((x) >> 3))
 #define SS1(x) (ROR(x, 17) ^ ROR(x, 19) ^ ((x) >> 10))
 
-void quic_sha256_init(quic_sha256_ctx *s) {
+void quic_sha256_init(quic_sha256_ctx* s) {
   for (usz i = 0; i < 8; i++) s->h[i] = H0[i];
   s->total   = 0;
   s->buf_len = 0;
 }
 
 /* Build the 64-word message schedule from one 64-byte block. */
-static void schedule(const u8 *p, u32 w[64]) {
+static void schedule(const u8* p, u32 w[64]) {
   for (usz i = 0; i < 16; i++)
     w[i] = ((u32)p[i * 4] << 24) | ((u32)p[i * 4 + 1] << 16) |
            ((u32)p[i * 4 + 2] << 8) | (u32)p[i * 4 + 3];
@@ -50,12 +50,12 @@ static void round_step(u32 v[8], u32 kw) {
 }
 
 /* Run all 64 rounds over the working vector seeded from the hash state. */
-static void run_rounds(const u32 *h, const u32 w[64], u32 v[8]) {
+static void run_rounds(const u32* h, const u32 w[64], u32 v[8]) {
   for (usz i = 0; i < 8; i++) v[i] = h[i];
   for (usz i = 0; i < 64; i++) round_step(v, K[i] + w[i]);
 }
 
-static void compress(quic_sha256_ctx *s, const u8 *p) {
+static void compress(quic_sha256_ctx* s, const u8* p) {
   u32 w[64];
   u32 v[8];
   schedule(p, w);
@@ -64,7 +64,7 @@ static void compress(quic_sha256_ctx *s, const u8 *p) {
 }
 
 /* Absorb whole 64-byte blocks straight from data; returns bytes consumed. */
-static usz absorb_blocks(quic_sha256_ctx *s, const u8 *data, usz len) {
+static usz absorb_blocks(quic_sha256_ctx* s, const u8* data, usz len) {
   usz off = 0;
   while (len - off >= QUIC_SHA256_BLOCK) {
     compress(s, data + off);
@@ -74,21 +74,21 @@ static usz absorb_blocks(quic_sha256_ctx *s, const u8 *data, usz len) {
 }
 
 /* Append n bytes (n < block, no overflow) into the pending buffer. */
-static void buffer(quic_sha256_ctx *s, const u8 *data, usz n) {
+static void buffer(quic_sha256_ctx* s, const u8* data, usz n) {
   for (usz i = 0; i < n; i++) s->buf[s->buf_len + i] = data[i];
   s->buf_len += n;
 }
 
 /* Bytes to pull from data to complete a pending partial block, or 0 if
  * there is no partial block or not enough data to fill it. */
-static usz pending_take(const quic_sha256_ctx *s, usz len) {
+static usz pending_take(const quic_sha256_ctx* s, usz len) {
   usz want = QUIC_SHA256_BLOCK - s->buf_len;
   return (s->buf_len != 0 && len >= want) ? want : 0;
 }
 
 /* If a partial block is pending, top it up from data and flush when full.
  * Returns the number of bytes consumed from data. */
-static usz fill_pending(quic_sha256_ctx *s, const u8 *data, usz len) {
+static usz fill_pending(quic_sha256_ctx* s, const u8* data, usz len) {
   usz take = pending_take(s, len);
   buffer(s, data, take);
   if (take != 0) {
@@ -98,7 +98,7 @@ static usz fill_pending(quic_sha256_ctx *s, const u8 *data, usz len) {
   return take;
 }
 
-void quic_sha256_update(quic_sha256_ctx *s, const u8 *data, usz len) {
+void quic_sha256_update(quic_sha256_ctx* s, const u8* data, usz len) {
   usz off = fill_pending(s, data, len);
   off += absorb_blocks(s, data + off, len - off);
   buffer(s, data + off, len - off);
@@ -106,7 +106,7 @@ void quic_sha256_update(quic_sha256_ctx *s, const u8 *data, usz len) {
 }
 
 /* Write the 8-bit-per-byte big-endian length and hash words out. */
-static void put_be32(u8 *p, u32 v) {
+static void put_be32(u8* p, u32 v) {
   p[0] = (u8)(v >> 24);
   p[1] = (u8)(v >> 16);
   p[2] = (u8)(v >> 8);
@@ -115,14 +115,14 @@ static void put_be32(u8 *p, u32 v) {
 
 /* Append 0x80 then zero bytes until exactly 56 bytes sit in the block,
  * leaving room for the 8-byte length (FIPS 180-4 5.1.1). */
-static void pad_message(quic_sha256_ctx *s) {
+static void pad_message(quic_sha256_ctx* s) {
   u8 b = 0x80;
   quic_sha256_update(s, &b, 1);
   b = 0;
   while (s->buf_len != 56) quic_sha256_update(s, &b, 1);
 }
 
-void quic_sha256_final(quic_sha256_ctx *s, u8 out[QUIC_SHA256_DIGEST]) {
+void quic_sha256_final(quic_sha256_ctx* s, u8 out[QUIC_SHA256_DIGEST]) {
   u64 bits = s->total * 8;
   u8  lenbe[8];
   for (usz i = 0; i < 8; i++) lenbe[i] = (u8)(bits >> (56 - i * 8));
@@ -131,7 +131,7 @@ void quic_sha256_final(quic_sha256_ctx *s, u8 out[QUIC_SHA256_DIGEST]) {
   for (usz i = 0; i < 8; i++) put_be32(out + i * 4, s->h[i]);
 }
 
-void quic_sha256(const u8 *data, usz len, u8 out[QUIC_SHA256_DIGEST]) {
+void quic_sha256(const u8* data, usz len, u8 out[QUIC_SHA256_DIGEST]) {
   quic_sha256_ctx s;
   quic_sha256_init(&s);
   quic_sha256_update(&s, data, len);

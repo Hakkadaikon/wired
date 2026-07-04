@@ -19,6 +19,6 @@ typedef struct {
  * success, 0 if truncated, the message is not a ServerHello, or the
  * key_share is absent/not x25519. */
 int quic_tls_parse_server_hello(
-    quic_span buf, u8 server_pub[32], quic_serverhello_out *out);
+    quic_span buf, u8 server_pub[32], quic_serverhello_out* out);
 
 #endif

@@ -29,12 +29,12 @@ typedef enum {
 usz quic_qpack_enc_instr_encode(
     quic_mspan buf, quic_qpack_enc_kind kind, u64 value);
 usz quic_qpack_enc_instr_decode(
-    quic_span buf, quic_qpack_enc_kind *kind, u64 *value);
+    quic_span buf, quic_qpack_enc_kind* kind, u64* value);
 
 /* Same for decoder-stream instructions. */
 usz quic_qpack_dec_instr_encode(
     quic_mspan buf, quic_qpack_dec_kind kind, u64 value);
 usz quic_qpack_dec_instr_decode(
-    quic_span buf, quic_qpack_dec_kind *kind, u64 *value);
+    quic_span buf, quic_qpack_dec_kind* kind, u64* value);
 
 #endif

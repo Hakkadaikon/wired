@@ -77,9 +77,9 @@ static void test_clienthello_roundtrip(void) {
 
   u8  ch[1024];
   usz ch_len = quic_tls_client_hello(
-      &(quic_clienthello_in){
-          random, pub, quic_span_of((const u8 *)"example.com", 11),
-          quic_span_of(tp, sizeof tp)},
+      &(quic_clienthello_in){random, pub,
+                             quic_span_of((const u8*)"example.com", 11),
+                             quic_span_of(tp, sizeof tp)},
       &(quic_obuf){ch, sizeof ch, 0});
   CHECK(ch_len != 0);
 
@@ -94,7 +94,7 @@ static void test_clienthello_roundtrip(void) {
   quic_crypto_stream_rx_init(&rx);
   usz       offs[64];
   usz       lens[64];
-  const u8 *datp[64];
+  const u8* datp[64];
   usz       pos = 0, nf = 0;
   while (pos < flen) {
     quic_crypto_frame f;

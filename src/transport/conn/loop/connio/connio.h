@@ -40,14 +40,14 @@ typedef struct {
 /* Set up an active connection: empty keyset, fresh receive state, the dispatch
  * view wired to drain ACKs into loop.sent, and the given header parameters. */
 void quic_connio_init(
-    quic_connio *io, quic_span dcid, const quic_connio_init_in *in);
+    quic_connio* io, quic_span dcid, const quic_connio_init_in* in);
 
 /* RFC 9001 5: receive one protected datagram at protection `level`. Gates via
  * connloop_on_recv; on permission, fetches the level's keys, opens the packet
  * in place, and dispatches every recovered frame into the receive state.
  * Returns 1 if the packet was processed, 0 if gated out or authentication
  * failed. `datagram` is modified in place (header protection / AEAD). */
-int quic_connio_recv(quic_connio *io, int level, quic_mspan datagram);
+int quic_connio_recv(quic_connio* io, int level, quic_mspan datagram);
 
 /* The protection level and frame bytes to seal into a packet. */
 typedef struct {
@@ -60,13 +60,13 @@ typedef struct {
  * protected packet into out. Returns the protected length, or 0 if
  * gated out or out is too small. */
 usz quic_connio_send(
-    quic_connio *io, const quic_connio_send_in *in, quic_obuf *out);
+    quic_connio* io, const quic_connio_send_in* in, quic_obuf* out);
 
 /* RFC 9000 12.3: the next send packet number for `level`'s own space (peek,
  * does not advance). Each level/space numbers independently from 0. */
-u64 quic_connio_tx_next(const quic_connio *io, int level);
+u64 quic_connio_tx_next(const quic_connio* io, int level);
 
 /* The next expected inbound packet number for `level`'s own space. */
-u64 quic_connio_rx_next(const quic_connio *io, int level);
+u64 quic_connio_rx_next(const quic_connio* io, int level);
 
 #endif

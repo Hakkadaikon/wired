@@ -14,7 +14,7 @@ typedef struct {
   u8 incremental; /* 0 or 1 */
 } quic_h3_priority;
 
-void quic_h3_priority_init(quic_h3_priority *p);
+void quic_h3_priority_init(quic_h3_priority* p);
 
 /* True if urgency a outranks urgency b (smaller value = higher priority). */
 int quic_h3_priority_higher(u8 urg_a, u8 urg_b);

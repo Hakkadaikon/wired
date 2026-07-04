@@ -5,13 +5,13 @@
 /* TLS uses fixed big-endian length prefixes. A small cursor reads them and
  * bounds every access against the message end. */
 typedef struct {
-  const u8 *b;
+  const u8* b;
   usz       n;
   usz       off;
 } cur;
 
 /* Read a k-byte (1..3) big-endian length into *v. Returns 1 if it fits. */
-static int take_len(cur *c, usz k, u32 *v) {
+static int take_len(cur* c, usz k, u32* v) {
   if (c->off + k > c->n) return 0;
   *v = 0;
   for (usz i = 0; i < k; i++) *v = (*v << 8) | c->b[c->off + i];
@@ -20,7 +20,7 @@ static int take_len(cur *c, usz k, u32 *v) {
 }
 
 /* Take a view of len bytes at the cursor. Returns 1 if it fits. */
-static int take_view(cur *c, u32 len, const u8 **out) {
+static int take_view(cur* c, u32 len, const u8** out) {
   if (c->off + len > c->n) return 0;
   *out = c->b + c->off;
   c->off += len;
@@ -28,9 +28,9 @@ static int take_view(cur *c, u32 len, const u8 **out) {
 }
 
 /* Read a k-byte length then that many bytes as a view. */
-static int take_vec(cur *c, usz k, quic_span *out) {
+static int take_vec(cur* c, usz k, quic_span* out) {
   u32       len;
-  const u8 *p;
+  const u8* p;
   if (!take_len(c, k, &len)) return 0;
   if (!take_view(c, len, &p)) return 0;
   *out = quic_span_of(p, len);
@@ -39,7 +39,7 @@ static int take_vec(cur *c, usz k, quic_span *out) {
 
 /* The end-entity entry: cert_data (3-byte length) then its extensions
  * (2-byte length), within the certificate_list. */
-static int take_entry(cur *c, quic_tls_cert_entry *first) {
+static int take_entry(cur* c, quic_tls_cert_entry* first) {
   quic_span cert, ext;
   if (!take_vec(c, 3, &cert)) return 0;
   if (!take_vec(c, 2, &ext)) return 0; /* skip this entry's extensions */
@@ -49,7 +49,7 @@ static int take_entry(cur *c, quic_tls_cert_entry *first) {
 }
 
 int quic_tls_cert_parse(
-    quic_span buf, quic_span *context, quic_tls_cert_entry *first) {
+    quic_span buf, quic_span* context, quic_tls_cert_entry* first) {
   cur       c = {buf.p, buf.n, 0};
   quic_span list;
   cur       lc;
@@ -61,7 +61,7 @@ int quic_tls_cert_parse(
 
 /* One more entry into out->entries[*out->count], bounded by out->cap (fail
  * closed on overflow). */
-static int take_next(cur *lc, const quic_tls_cert_chain_out *out) {
+static int take_next(cur* lc, const quic_tls_cert_chain_out* out) {
   if (*out->count >= out->cap) return 0;
   if (!take_entry(lc, &out->entries[*out->count])) return 0;
   (*out->count)++;
@@ -69,14 +69,14 @@ static int take_next(cur *lc, const quic_tls_cert_chain_out *out) {
 }
 
 /* Every entry of the certificate_list, leaf first. */
-static int entries_loop(cur *lc, const quic_tls_cert_chain_out *out) {
+static int entries_loop(cur* lc, const quic_tls_cert_chain_out* out) {
   while (lc->off < lc->n)
     if (!take_next(lc, out)) return 0;
   return 1;
 }
 
 int quic_tls_cert_chain(
-    quic_span buf, quic_span *context, const quic_tls_cert_chain_out *out) {
+    quic_span buf, quic_span* context, const quic_tls_cert_chain_out* out) {
   cur       c = {buf.p, buf.n, 0};
   quic_span list;
   cur       lc;
@@ -87,7 +87,7 @@ int quic_tls_cert_chain(
   return entries_loop(&lc, out);
 }
 
-int quic_tls_certverify_parse(quic_span buf, u16 *scheme, quic_span *sig) {
+int quic_tls_certverify_parse(quic_span buf, u16* scheme, quic_span* sig) {
   cur c = {buf.p, buf.n, 0};
   u32 s;
   if (!take_len(&c, 2, &s)) return 0;
@@ -100,7 +100,7 @@ int quic_tls_certverify_parse(quic_span buf, u16 *scheme, quic_span *sig) {
 static const char ctx_str[] = "TLS 1.3, server CertificateVerify";
 
 /* Copy len bytes from src to dst. */
-static void cert_copy_bytes(u8 *dst, const u8 *src, usz len) {
+static void cert_copy_bytes(u8* dst, const u8* src, usz len) {
   for (usz i = 0; i < len; i++) dst[i] = src[i];
 }
 
@@ -116,7 +116,7 @@ static const u8 pad64[64] = {
  * 32 hash). */
 static void build_signed(const u8 transcript_hash[32], u8 out[130]) {
   cert_copy_bytes(out, pad64, 64);
-  cert_copy_bytes(out + 64, (const u8 *)ctx_str, 33);
+  cert_copy_bytes(out + 64, (const u8*)ctx_str, 33);
   out[97] = 0x00;
   cert_copy_bytes(out + 98, transcript_hash, 32);
 }

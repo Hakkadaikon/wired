@@ -7,17 +7,17 @@
 
 /* Keys, packet descriptor and HP mask threaded through one open. */
 typedef struct {
-  const quic_initial_keys         *keys;
-  const quic_hspkt_unprotect_desc *d;
+  const quic_initial_keys*         keys;
+  const quic_hspkt_unprotect_desc* d;
   u8                               mask[5];
 } hsunprot_ctx;
 
 /* RFC 9001 5.3: AEAD-open ciphertext at pkt+hdr_len using header as AAD.
  * hdr_len is the true header length (pn_off + recovered pn_len). */
-static int aead_open(const hsunprot_ctx *c, usz hdr_len, u64 pn) {
+static int aead_open(const hsunprot_ctx* c, usz hdr_len, u64 pn) {
   u8          nonce[QUIC_INITIAL_IV];
   quic_aes128 aead;
-  u8         *pkt    = c->d->pkt.p;
+  u8*         pkt    = c->d->pkt.p;
   usz         ct_len = c->d->pkt.n - hdr_len - QUIC_GCM_TAG;
   quic_protect_nonce(c->keys->iv, pn, nonce);
   quic_aes128_init(&aead, c->keys->key);
@@ -31,8 +31,8 @@ static int aead_open(const hsunprot_ctx *c, usz hdr_len, u64 pn) {
  * bytes, recover the FULL packet number from the truncated value using
  * largest_pn (the nonce/AEAD must use the full pn, not the truncated one; the
  * header bytes stay truncated as AAD), fix hdr_len and AEAD-open. */
-static int open_pkt(const hsunprot_ctx *c, quic_span *payload) {
-  u8 *pkt     = c->d->pkt.p;
+static int open_pkt(const hsunprot_ctx* c, quic_span* payload) {
+  u8* pkt     = c->d->pkt.p;
   usz pn_off  = c->d->pn_off;
   usz pn_len  = (pkt[0] & 0x03u) + 1u;
   usz hdr_len = pn_off + pn_len;
@@ -51,9 +51,9 @@ static int open_pkt(const hsunprot_ctx *c, quic_span *payload) {
  * Only byte0 is unmasked here; the pn bytes are unmasked in open_pkt once
  * their true count is known, so a short PN does not corrupt the ciphertext. */
 int quic_hspkt_unprotect(
-    const quic_protect_keys         *k,
-    const quic_hspkt_unprotect_desc *d,
-    quic_span                       *payload) {
+    const quic_protect_keys*         k,
+    const quic_hspkt_unprotect_desc* d,
+    quic_span*                       payload) {
   hsunprot_ctx c = {k->keys, d, {0}};
   if (d->pkt.n <= d->hdr_len + QUIC_GCM_TAG) return 0;
   quic_hp_mask(k->hp, d->pkt.p + d->pn_off + 4, c.mask);

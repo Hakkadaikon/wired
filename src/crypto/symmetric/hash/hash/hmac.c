@@ -19,7 +19,7 @@ static void key_block(quic_span key, u8 kb[QUIC_SHA256_BLOCK]) {
 
 /* XOR each block byte with pad and feed it into the hash. */
 static void feed_pad(
-    quic_sha256_ctx *s, const u8 kb[QUIC_SHA256_BLOCK], u8 pad) {
+    quic_sha256_ctx* s, const u8 kb[QUIC_SHA256_BLOCK], u8 pad) {
   u8 b[QUIC_SHA256_BLOCK];
   for (usz i = 0; i < QUIC_SHA256_BLOCK; i++) b[i] = kb[i] ^ pad;
   quic_sha256_update(s, b, QUIC_SHA256_BLOCK);

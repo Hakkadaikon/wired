@@ -7,7 +7,7 @@
 /* RFC 8446 4.4.3: rebuild the signed content (64*0x20 + context + 0x00 +
  * transcript_hash) and confirm the built signature verifies under the seed's
  * public key. */
-static void rebuild_signed(const u8 *thash, u8 out[130]) {
+static void rebuild_signed(const u8* thash, u8 out[130]) {
   static const char ctx[] = "TLS 1.3, server CertificateVerify";
   for (usz i = 0; i < 64; i++) out[i] = 0x20;
   for (usz i = 0; i < 33; i++) out[64 + i] = (u8)ctx[i];

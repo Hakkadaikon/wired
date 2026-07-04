@@ -9,6 +9,6 @@
  * the integer stays positive. Emits 0x02 <len> <bytes> into out (cap octets)
  * and sets *out_len. Returns 1 ok, 0 if it would not fit. */
 int quic_ecdsasig_encode_integer(
-    const u8 val[32], u8 *out, usz cap, usz *out_len);
+    const u8 val[32], u8* out, usz cap, usz* out_len);
 
 #endif

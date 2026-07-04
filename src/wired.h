@@ -30,10 +30,10 @@
  * WIRED_MAIN in the single application translation unit to emit them here,
  * forwarding to the SDK's quic_memcpy/quic_memset. */
 #ifdef WIRED_MAIN
-void *memcpy(void *dst, const void *src, usz n) {
+void* memcpy(void* dst, const void* src, usz n) {
   return quic_memcpy(dst, src, n);
 }
-void *memset(void *dst, int c, usz n) { return quic_memset(dst, c, n); }
+void* memset(void* dst, int c, usz n) { return quic_memset(dst, c, n); }
 #endif
 
 #endif

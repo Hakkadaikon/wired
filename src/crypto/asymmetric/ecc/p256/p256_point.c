@@ -12,14 +12,14 @@ const ec_point quic_p256_g = {
      0x4fe342e2fe1a7f9bULL},
     0};
 
-void quic_ec_set(ec_point *r, const ec_point *p) {
+void quic_ec_set(ec_point* r, const ec_point* p) {
   quic_fp_set(r->x, p->x);
   quic_fp_set(r->y, p->y);
   r->inf = p->inf;
 }
 
 /* y^2 mod p. */
-static void rhs_lhs(p256_fe lhs, p256_fe rhs, const ec_point *p) {
+static void rhs_lhs(p256_fe lhs, p256_fe rhs, const ec_point* p) {
   p256_fe x2, three_x, three = {3, 0, 0, 0};
   quic_fp_sqr(lhs, p->y, quic_p256_p);                         /* y^2 */
   quic_fp_sqr(x2, p->x, quic_p256_p);                          /* x^2 */
@@ -29,7 +29,7 @@ static void rhs_lhs(p256_fe lhs, p256_fe rhs, const ec_point *p) {
   quic_fp_add(rhs, (quic_fpab){rhs, p256_b}, quic_p256_p);     /* + b */
 }
 
-int quic_ec_on_curve(const ec_point *p) {
+int quic_ec_on_curve(const ec_point* p) {
   p256_fe lhs, rhs;
   if (p->inf) return 1;
   rhs_lhs(lhs, rhs, p);
@@ -37,7 +37,7 @@ int quic_ec_on_curve(const ec_point *p) {
 }
 
 /* lambda = (y2 - y1) / (x2 - x1); caller guarantees x1 != x2. */
-static void slope_add(p256_fe lam, const ec_point *p, const ec_point *q) {
+static void slope_add(p256_fe lam, const ec_point* p, const ec_point* q) {
   p256_fe num, den, inv;
   quic_fp_sub(num, (quic_fpab){q->y, p->y}, quic_p256_p);
   quic_fp_sub(den, (quic_fpab){q->x, p->x}, quic_p256_p);
@@ -46,7 +46,7 @@ static void slope_add(p256_fe lam, const ec_point *p, const ec_point *q) {
 }
 
 /* lambda = (3x^2 - 3) / (2y). */
-static void slope_double(p256_fe lam, const ec_point *p) {
+static void slope_double(p256_fe lam, const ec_point* p) {
   p256_fe x2, num, den, inv, three = {3, 0, 0, 0};
   quic_fp_sqr(x2, p->x, quic_p256_p);
   quic_fp_mul(num, (quic_fpab){three, x2}, quic_p256_p);
@@ -63,7 +63,7 @@ typedef struct {
 } p256_slope;
 
 /* From the slope and source x-coords, produce r = (x3,y3). */
-static void from_slope(ec_point *r, const p256_slope *sl) {
+static void from_slope(ec_point* r, const p256_slope* sl) {
   p256_fe x3, t;
   quic_fp_sqr(x3, sl->lam, quic_p256_p);
   quic_fp_sub(x3, (quic_fpab){x3, sl->x1}, quic_p256_p);
@@ -75,7 +75,7 @@ static void from_slope(ec_point *r, const p256_slope *sl) {
   r->inf = 0;
 }
 
-void quic_ec_double(ec_point *r, const ec_point *p) {
+void quic_ec_double(ec_point* r, const ec_point* p) {
   p256_slope sl;
   if (p->inf || quic_fp_is_zero(p->y)) {
     r->inf = 1;
@@ -89,7 +89,7 @@ void quic_ec_double(ec_point *r, const ec_point *p) {
 }
 
 /* p and q are not infinity and not mutually inverse: distinct addition. */
-static void add_distinct(ec_point *r, const ec_point *p, const ec_point *q) {
+static void add_distinct(ec_point* r, const ec_point* p, const ec_point* q) {
   p256_slope sl;
   quic_fp_set(sl.x1, p->x);
   quic_fp_set(sl.y1, p->y);
@@ -99,12 +99,12 @@ static void add_distinct(ec_point *r, const ec_point *p, const ec_point *q) {
 }
 
 /* 1 if p and q have equal x but are not equal points (sum is infinity). */
-static int is_inverse_pair(const ec_point *p, const ec_point *q) {
+static int is_inverse_pair(const ec_point* p, const ec_point* q) {
   return quic_fp_eq(p->x, q->x) && !quic_fp_eq(p->y, q->y);
 }
 
 /* Same x: result is either infinity (inverse pair) or 2p (p == q). */
-static void add_same_x(ec_point *r, const ec_point *p, const ec_point *q) {
+static void add_same_x(ec_point* r, const ec_point* p, const ec_point* q) {
   if (is_inverse_pair(p, q))
     r->inf = 1;
   else
@@ -112,7 +112,7 @@ static void add_same_x(ec_point *r, const ec_point *p, const ec_point *q) {
 }
 
 /* Handle an infinity operand. Returns 1 if r was set, 0 if both are finite. */
-static int add_infinity(ec_point *r, const ec_point *p, const ec_point *q) {
+static int add_infinity(ec_point* r, const ec_point* p, const ec_point* q) {
   if (p->inf)
     quic_ec_set(r, q);
   else if (q->inf)
@@ -122,7 +122,7 @@ static int add_infinity(ec_point *r, const ec_point *p, const ec_point *q) {
   return 1;
 }
 
-void quic_ec_add(ec_point *r, const ec_point *p, const ec_point *q) {
+void quic_ec_add(ec_point* r, const ec_point* p, const ec_point* q) {
   if (add_infinity(r, p, q)) return;
   if (quic_fp_eq(p->x, q->x))
     add_same_x(r, p, q);
@@ -152,7 +152,7 @@ static void fp_add(p256_fe r, const p256_fe a, const p256_fe b) {
 }
 static void fp_dbl(p256_fe r, const p256_fe a) { fp_add(r, a, a); }
 
-static void jac_from_affine(jac *j, const ec_point *p) {
+static void jac_from_affine(jac* j, const ec_point* p) {
   quic_fp_set(j->X, p->x);
   quic_fp_set(j->Y, p->y);
   j->Z[0] = 1;
@@ -162,7 +162,7 @@ static void jac_from_affine(jac *j, const ec_point *p) {
   }
 }
 
-static int jac_is_inf(const jac *j) { return quic_fp_is_zero(j->Z); }
+static int jac_is_inf(const jac* j) { return quic_fp_is_zero(j->Z); }
 
 /* X3 = alpha^2 - 8*beta; helper to keep doubling under CCN 3. */
 static void dbl_x(p256_fe x3, const p256_fe alpha, const p256_fe beta) {
@@ -180,7 +180,7 @@ typedef struct {
 } p256_dblv;
 
 /* Y3 = alpha*(4*beta - X3) - 8*gamma^2. */
-static void dbl_y(p256_fe y3, const p256_fe x3, const p256_dblv *d) {
+static void dbl_y(p256_fe y3, const p256_fe x3, const p256_dblv* d) {
   p256_fe t, g2;
   fp_dbl(t, d->beta);
   fp_dbl(t, t); /* 4*beta */
@@ -194,7 +194,7 @@ static void dbl_y(p256_fe y3, const p256_fe x3, const p256_dblv *d) {
 }
 
 /* r = 2*p (a = -3 doubling formulas, dbl-2001-b). */
-static void jac_double(jac *r, const jac *p) {
+static void jac_double(jac* r, const jac* p) {
   p256_fe delta, gamma, beta, alpha, t, s;
   fp_sqr(delta, p->Z);
   fp_sqr(gamma, p->Y);
@@ -220,7 +220,7 @@ typedef struct {
 } p256_addt;
 
 /* Cross terms U1,U2,S1,S2 (plus the Z terms) for Jacobian addition. */
-static void add_uv(p256_addt *t, const jac *p, const jac *q) {
+static void add_uv(p256_addt* t, const jac* p, const jac* q) {
   fp_sqr(t->z1z1, p->Z);
   fp_sqr(t->z2z2, q->Z);
   fp_mul(t->u1, p->X, t->z2z2);
@@ -233,7 +233,7 @@ static void add_uv(p256_addt *t, const jac *p, const jac *q) {
 }
 
 /* Finish addition given the cross terms and H = U2-U1, rr = 2(S2-S1). */
-static void add_finish(jac *r, const p256_addt *a) {
+static void add_finish(jac* r, const p256_addt* a) {
   p256_fe i, j, v, t;
   fp_dbl(t, a->h);
   fp_sqr(i, t); /* I = (2H)^2 */
@@ -255,7 +255,7 @@ static void add_finish(jac *r, const p256_addt *a) {
 }
 
 /* r = p + q given the cross terms; assumes p != -q, p != q. */
-static void jac_add(jac *r, p256_addt *t) {
+static void jac_add(jac* r, p256_addt* t) {
   fp_sub(t->h, t->u2, t->u1);
   fp_sub(t->rr, t->s2, t->s1);
   fp_dbl(t->rr, t->rr);
@@ -263,7 +263,7 @@ static void jac_add(jac *r, p256_addt *t) {
 }
 
 /* Same-x case: double if s1==s2 (acc==base), else result is infinity. */
-static void add_same_x_jac(jac *acc, const p256_fe s1, const p256_fe s2) {
+static void add_same_x_jac(jac* acc, const p256_fe s1, const p256_fe s2) {
   if (quic_fp_eq(s1, s2))
     jac_double(acc, acc);
   else
@@ -271,7 +271,7 @@ static void add_same_x_jac(jac *acc, const p256_fe s1, const p256_fe s2) {
 }
 
 /* acc += base, handling infinity and the doubling/inverse case. */
-static void jac_add_step(jac *acc, const jac *base) {
+static void jac_add_step(jac* acc, const jac* base) {
   p256_addt t;
   if (jac_is_inf(acc)) {
     *acc = *base;
@@ -285,13 +285,13 @@ static void jac_add_step(jac *acc, const jac *base) {
 }
 
 /* One scalar-bit step: acc = 2*acc, then += base if bit set. */
-static void ec_mul_step(jac *acc, const u8 k[32], const jac *base, usz bit) {
+static void ec_mul_step(jac* acc, const u8 k[32], const jac* base, usz bit) {
   jac_double(acc, acc);
   if ((k[bit / 8] >> (7 - (bit & 7))) & 1) jac_add_step(acc, base);
 }
 
 /* Convert Jacobian back to affine: x = X/Z^2, y = Y/Z^3. */
-static void jac_to_affine(ec_point *r, const jac *j) {
+static void jac_to_affine(ec_point* r, const jac* j) {
   p256_fe zi, zi2, zi3;
   if (jac_is_inf(j)) {
     r->inf = 1;
@@ -305,7 +305,7 @@ static void jac_to_affine(ec_point *r, const jac *j) {
   r->inf = 0;
 }
 
-void quic_ec_mul(ec_point *r, const u8 k[32], const ec_point *p) {
+void quic_ec_mul(ec_point* r, const u8 k[32], const ec_point* p) {
   jac acc = {{0}, {0}, {0}}; /* infinity: Z==0, and X,Y defined so the first
                               * jac_double(acc,acc) never reads uninit (UB) */
   jac base;

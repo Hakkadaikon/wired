@@ -35,11 +35,11 @@
 static const char pem_leaf[]  = PEM_LEAF;
 static const char pem_chain[] = PEM_LEAF PEM_INT;
 
-static quic_span pem_text(const char *s, usz n) {
-  return quic_span_of((const u8 *)s, n);
+static quic_span pem_text(const char* s, usz n) {
+  return quic_span_of((const u8*)s, n);
 }
 
-static int pem_bytes_eq(const quic_obuf *der, const u8 *exp, usz n) {
+static int pem_bytes_eq(const quic_obuf* der, const u8* exp, usz n) {
   if (der->len != n) return 0;
   for (usz i = 0; i < n; i++) {
     if (der->p[i] != exp[i]) return 0;
@@ -47,7 +47,7 @@ static int pem_bytes_eq(const quic_obuf *der, const u8 *exp, usz n) {
   return 1;
 }
 
-static int pem_label_is(quic_span label, const char *exp, usz n) {
+static int pem_label_is(quic_span label, const char* exp, usz n) {
   if (label.n != n) return 0;
   for (usz i = 0; i < n; i++) {
     if (label.p[i] != (u8)exp[i]) return 0;
@@ -56,7 +56,7 @@ static int pem_label_is(quic_span label, const char *exp, usz n) {
 }
 
 /* Decode one block of a small self-contained PEM text into out. */
-static int pem_one(const char *txt, usz txt_len, quic_obuf *out) {
+static int pem_one(const char* txt, usz txt_len, quic_obuf* out) {
   usz       at    = 0;
   quic_span label = {0, 0};
   return wired_pem_next(pem_text(txt, txt_len), &at, &label, out);
@@ -104,13 +104,13 @@ static void test_pem_padding(void) {
   const char one[]  = "-----BEGIN X-----\nZm8=\n-----END X-----\n";
   const char none[] = "-----BEGIN X-----\nZm9v\n-----END X-----\n";
   CHECK(pem_one(two, sizeof(two) - 1, &der) == 1);
-  CHECK(pem_bytes_eq(&der, (const u8 *)"f", 1));
+  CHECK(pem_bytes_eq(&der, (const u8*)"f", 1));
   der = quic_obuf_of(buf, sizeof(buf));
   CHECK(pem_one(one, sizeof(one) - 1, &der) == 1);
-  CHECK(pem_bytes_eq(&der, (const u8 *)"fo", 2));
+  CHECK(pem_bytes_eq(&der, (const u8*)"fo", 2));
   der = quic_obuf_of(buf, sizeof(buf));
   CHECK(pem_one(none, sizeof(none) - 1, &der) == 1);
-  CHECK(pem_bytes_eq(&der, (const u8 *)"foo", 3));
+  CHECK(pem_bytes_eq(&der, (const u8*)"foo", 3));
 }
 
 static void test_pem_line_shapes(void) {
@@ -119,7 +119,7 @@ static void test_pem_line_shapes(void) {
   /* CRLF line endings */
   const char crlf[] = "-----BEGIN X-----\r\nZm9vYmFy\r\n-----END X-----\r\n";
   CHECK(pem_one(crlf, sizeof(crlf) - 1, &der) == 1);
-  CHECK(pem_bytes_eq(&der, (const u8 *)"foobar", 6));
+  CHECK(pem_bytes_eq(&der, (const u8*)"foobar", 6));
   /* no trailing newline after the END line; *at reaches text end */
   const char bare[] = "-----BEGIN X-----\nZm9v\n-----END X-----";
   usz        at     = 0;
@@ -128,7 +128,7 @@ static void test_pem_line_shapes(void) {
   CHECK(
       wired_pem_next(pem_text(bare, sizeof(bare) - 1), &at, &label, &der) == 1);
   CHECK(at == sizeof(bare) - 1);
-  CHECK(pem_bytes_eq(&der, (const u8 *)"foo", 3));
+  CHECK(pem_bytes_eq(&der, (const u8*)"foo", 3));
 }
 
 static void test_pem_surrounding_text(void) {
@@ -143,7 +143,7 @@ static void test_pem_surrounding_text(void) {
   quic_span t = pem_text(txt, sizeof(txt) - 1);
   CHECK(wired_pem_next(t, &at, &label, &der) == 1);
   CHECK(pem_label_is(label, "X", 1));
-  CHECK(pem_bytes_eq(&der, (const u8 *)"foo", 3));
+  CHECK(pem_bytes_eq(&der, (const u8*)"foo", 3));
   CHECK(wired_pem_next(t, &at, &label, &der) == 0);
 }
 

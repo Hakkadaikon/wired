@@ -9,6 +9,6 @@
 u64 quic_poll_timeout_until(u64 now, u64 deadline);
 
 /* Smallest deadline among n entries. Returns 0 if n == 0. */
-u64 quic_poll_min_deadline(const u64 *deadlines, usz n);
+u64 quic_poll_min_deadline(const u64* deadlines, usz n);
 
 #endif

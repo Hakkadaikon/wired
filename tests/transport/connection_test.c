@@ -6,7 +6,7 @@
 #include "transport/packet/frame/frame/frame.h"
 
 /* Install the same 1-RTT keys on both ends so a sealed packet opens. */
-static void install_1rtt(quic_connection *c, const u8 dcid[8]) {
+static void install_1rtt(quic_connection* c, const u8 dcid[8]) {
   quic_initial_keys k;
   quic_initial_derive(quic_span_of(dcid, 8), 1, &k);
   quic_keyset_install(&c->keys, QUIC_LEVEL_ONERTT, &k);
@@ -31,7 +31,7 @@ static void test_connection_roundtrip(void) {
       .stream_id = 4,
       .offset    = 0,
       .length    = 5,
-      .data      = (const u8 *)"hello",
+      .data      = (const u8*)"hello",
       .fin       = 1};
   usz fl = quic_frame_put_stream(frames, sizeof(frames), &sf);
 

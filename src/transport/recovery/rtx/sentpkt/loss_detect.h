@@ -17,6 +17,6 @@ typedef struct {
  * below largest_acked, or older than now - loss_delay. Lost pns are
  * appended to lost.out and *lost.n is set to the count. */
 void quic_loss_detect(
-    quic_sentpkt *t, const quic_loss_params *p, quic_u64out lost);
+    quic_sentpkt* t, const quic_loss_params* p, quic_u64out lost);
 
 #endif

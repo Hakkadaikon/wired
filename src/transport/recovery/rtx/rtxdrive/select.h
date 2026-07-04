@@ -12,6 +12,6 @@
  * the frame must be resent, 0 for ACK/PADDING/malformed). Returns 0 if pn is
  * not held. */
 int quic_rtxdrive_select(
-    const quic_rtxbytes *store, u64 lost_pn, int *is_retransmittable);
+    const quic_rtxbytes* store, u64 lost_pn, int* is_retransmittable);
 
 #endif

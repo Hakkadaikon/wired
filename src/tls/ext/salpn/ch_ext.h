@@ -11,6 +11,6 @@
 
 /* Find extension ext_type. On success sets *ext (a view into ch_msg.p) and
  * returns 1; returns 0 if absent or any length field overruns ch_msg.n. */
-int quic_salpn_find_extension(quic_span ch_msg, u16 ext_type, quic_span *ext);
+int quic_salpn_find_extension(quic_span ch_msg, u16 ext_type, quic_span* ext);
 
 #endif

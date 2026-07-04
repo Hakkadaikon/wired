@@ -14,16 +14,16 @@ typedef struct {
 
 extern const ec_point quic_p256_g; /* base point G */
 
-void quic_ec_set(ec_point *r, const ec_point *p);
+void quic_ec_set(ec_point* r, const ec_point* p);
 
 /* 1 if p satisfies the curve equation (or is infinity), else 0. */
-int quic_ec_on_curve(const ec_point *p);
+int quic_ec_on_curve(const ec_point* p);
 
 /* r = p + q, r = 2p (affine, all mod p). r may alias p or q. */
-void quic_ec_add(ec_point *r, const ec_point *p, const ec_point *q);
-void quic_ec_double(ec_point *r, const ec_point *p);
+void quic_ec_add(ec_point* r, const ec_point* p, const ec_point* q);
+void quic_ec_double(ec_point* r, const ec_point* p);
 
 /* r = k * p, k big-endian 32 bytes, via double-and-add. */
-void quic_ec_mul(ec_point *r, const u8 k[32], const ec_point *p);
+void quic_ec_mul(ec_point* r, const u8 k[32], const ec_point* p);
 
 #endif

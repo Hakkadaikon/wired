@@ -17,10 +17,10 @@
 
 /* Encode supported_groups offering x25519 only. Returns bytes written into
  * buf (cap total), or 0 if it does not fit. */
-usz quic_tls_ext_supported_groups(u8 *buf, usz cap);
+usz quic_tls_ext_supported_groups(u8* buf, usz cap);
 
 /* Encode signature_algorithms offering ecdsa_secp256r1_sha256,
  * rsa_pss_rsae_sha256 and ed25519. Returns bytes written, or 0 if no room. */
-usz quic_tls_ext_sig_algs(u8 *buf, usz cap);
+usz quic_tls_ext_sig_algs(u8* buf, usz cap);
 
 #endif

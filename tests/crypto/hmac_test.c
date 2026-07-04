@@ -8,13 +8,13 @@ static void test_hmac_vectors(void) {
   u8 key1[20];
   for (usz i = 0; i < 20; i++) key1[i] = 0x0b;
   quic_hmac_sha256(
-      quic_span_of(key1, 20), quic_span_of((const u8 *)"Hi There", 8), mac);
+      quic_span_of(key1, 20), quic_span_of((const u8*)"Hi There", 8), mac);
   CHECK(digest_eq(
       mac, "b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7"));
 
   quic_hmac_sha256(
-      quic_span_of((const u8 *)"Jefe", 4),
-      quic_span_of((const u8 *)"what do ya want for nothing?", 28), mac);
+      quic_span_of((const u8*)"Jefe", 4),
+      quic_span_of((const u8*)"what do ya want for nothing?", 28), mac);
   CHECK(digest_eq(
       mac, "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843"));
 }
@@ -26,7 +26,7 @@ static void test_hmac_long_key(void) {
   quic_hmac_sha256(
       quic_span_of(key, 131),
       quic_span_of(
-          (const u8 *)"Test Using Larger Than Block-Size Key - Hash Key First",
+          (const u8*)"Test Using Larger Than Block-Size Key - Hash Key First",
           54),
       mac);
   CHECK(digest_eq(

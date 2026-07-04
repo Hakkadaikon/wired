@@ -3,7 +3,7 @@
 #include "app/qpack/qpack/string.h"
 #include "test.h"
 
-static int hf_eq(const u8 *a, usz alen, const char *b, usz blen) {
+static int hf_eq(const u8* a, usz alen, const char* b, usz blen) {
   if (alen != blen) return 0;
   for (usz i = 0; i < alen; i++)
     if (a[i] != (u8)b[i]) return 0;

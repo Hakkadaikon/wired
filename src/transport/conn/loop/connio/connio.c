@@ -17,7 +17,7 @@ static u8 level_byte0(int level) {
 }
 
 void quic_connio_init(
-    quic_connio *io, quic_span dcid, const quic_connio_init_in *in) {
+    quic_connio* io, quic_span dcid, const quic_connio_init_in* in) {
   usz i;
   quic_connloop_init(&io->loop, in->is_server);
   quic_stream_read_init(&io->stream);
@@ -37,20 +37,20 @@ void quic_connio_init(
 
 /* RFC 9000 12.3: a protection level and its packet number space share the same
  * index (Initial=0, Handshake=1, 1-RTT/Application=2). */
-u64 quic_connio_tx_next(const quic_connio *io, int level) {
+u64 quic_connio_tx_next(const quic_connio* io, int level) {
   return io->tx.pn.next[level];
 }
 
-u64 quic_connio_rx_next(const quic_connio *io, int level) {
+u64 quic_connio_rx_next(const quic_connio* io, int level) {
   return io->rx_pn[level];
 }
 
 /* RFC 9001 4: a level may send only once its keys are installed and the
  * connloop gate (level monotonicity, anti-amp, phase) admits the packet. */
 static int send_ready(
-    quic_connio               *io,
-    const quic_connio_send_in *in,
-    const quic_initial_keys  **keys) {
+    quic_connio*               io,
+    const quic_connio_send_in* in,
+    const quic_initial_keys**  keys) {
   /* ponytail: ack-eliciting hard-set to 1; frames here always elicit (STREAM/
    * PING). Classify frames[0] if a non-eliciting-only send is ever needed.
    * RFC 9000 12.3: gate with the SELECTED space's own next packet number. */
@@ -61,14 +61,14 @@ static int send_ready(
 }
 
 usz quic_connio_send(
-    quic_connio *io, const quic_connio_send_in *in, quic_obuf *out) {
-  const quic_initial_keys *keys;
+    quic_connio* io, const quic_connio_send_in* in, quic_obuf* out) {
+  const quic_initial_keys* keys;
   quic_aes128              hp;
   usz                      n;
   if (!send_ready(io, in, &keys)) return 0;
   quic_aes128_init(&hp, keys->hp);
   quic_protect_keys k    = {keys, &hp};
-  quic_span         none = quic_span_of((const u8 *)0, 0);
+  quic_span         none = quic_span_of((const u8*)0, 0);
   quic_tx_desc      t    = {
       level_byte0(in->level),
       quic_span_of(io->dcid, io->dcid_len),
@@ -87,7 +87,7 @@ usz quic_connio_send(
 
 /* RFC 9000 12.4: walk the recovered payload and dispatch each frame into the
  * receive state. Returns 1 if every frame was handled. */
-static int dispatch_all(quic_connio *io, quic_span frames) {
+static int dispatch_all(quic_connio* io, quic_span frames) {
   quic_framewalk      it;
   quic_framewalk_item fr;
   int                 ok = 1;
@@ -107,27 +107,27 @@ typedef struct {
 /* RFC 9001 4: a level may process a datagram only once its keys are installed
  * and the connloop gate (phase, discarded level) admits it. */
 static int recv_ready(
-    quic_connio *io, const connio_recv_in *in, const quic_initial_keys **keys) {
+    quic_connio* io, const connio_recv_in* in, const quic_initial_keys** keys) {
   return quic_connloop_on_recv(&io->loop, in->level, in->datagram.n) &&
          quic_keyset_for_level(&io->loop.keys, in->level, keys);
 }
 
 /* RFC 9000 8.1: a server validates the client's address upon successfully
  * receiving a Handshake packet, lifting the anti-amplification limit. */
-static int validates_address(const quic_connio *io, int level) {
+static int validates_address(const quic_connio* io, int level) {
   return io->loop.is_server && level == QUIC_LEVEL_HANDSHAKE;
 }
 
 /* Post-decrypt receive bookkeeping: advance the read PN, lift the amp limit on
  * a server's first Handshake packet (RFC 9000 8.1), then dispatch frames. */
-static int recv_accept(quic_connio *io, int level, quic_span frames) {
+static int recv_accept(quic_connio* io, int level, quic_span frames) {
   io->rx_pn[level]++; /* RFC 9000 12.3: advance only the inbound space */
   if (validates_address(io, level)) quic_connloop_validate(&io->loop);
   return dispatch_all(io, frames);
 }
 
-int quic_connio_recv(quic_connio *io, int level, quic_mspan datagram) {
-  const quic_initial_keys *keys;
+int quic_connio_recv(quic_connio* io, int level, quic_mspan datagram) {
+  const quic_initial_keys* keys;
   quic_aes128              hp;
   quic_span                frames;
   connio_recv_in           in = {level, datagram};

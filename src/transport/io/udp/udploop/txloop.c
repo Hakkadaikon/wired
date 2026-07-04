@@ -2,9 +2,9 @@
 
 #include "common/bytes/util/bytes.h"
 
-usz quic_udploop_pack(const quic_pktsrc *src, quic_obuf *out) {
+usz quic_udploop_pack(const quic_pktsrc* src, quic_obuf* out) {
   usz       off = 0;
-  const u8 *p   = src->pkts;
+  const u8* p   = src->pkts;
   for (usz i = 0; i < src->n_pkts; i++) {
     if (!quic_put_bytes(
             quic_mspan_of(out->p, out->cap), &off,
@@ -20,7 +20,7 @@ usz quic_udploop_pack(const quic_pktsrc *src, quic_obuf *out) {
 static int sent_whole(i64 r, usz len) { return r >= 0 && (usz)r == len; }
 
 usz quic_udploop_tx(
-    const quic_udpdst *dst, const quic_pktsrc *src, quic_obuf *out) {
+    const quic_udpdst* dst, const quic_pktsrc* src, quic_obuf* out) {
   usz len = quic_udploop_pack(src, out);
   i64 r;
   if (len == 0) return 0; /* RFC 9000 12.2: overflow or nothing to send */

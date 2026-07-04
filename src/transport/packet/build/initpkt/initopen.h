@@ -8,6 +8,6 @@
  * protection, and AEAD-opens the payload in place. On success *crypto views
  * the recovered frame bytes within pkt. Returns 1 on success, 0 on
  * authentication failure or short input. */
-int quic_initpkt_open(quic_span dcid, quic_mspan pkt, quic_span *crypto);
+int quic_initpkt_open(quic_span dcid, quic_mspan pkt, quic_span* crypto);
 
 #endif

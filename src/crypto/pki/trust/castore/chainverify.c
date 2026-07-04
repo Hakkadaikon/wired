@@ -18,14 +18,14 @@
 
 /* View issuer_cert's subjectPublicKey BIT STRING value and its algorithm OID.
  */
-static int issuer_key(quic_span issuer_cert, quic_span *alg, quic_span *key) {
+static int issuer_key(quic_span issuer_cert, quic_span* alg, quic_span* key) {
   quic_x509 c;
   if (!quic_x509_parse(issuer_cert, &c)) return 0;
   return quic_x509_public_key(c.tbs, alg, key);
 }
 
 /* Digest dispatch: hash kind -> length and function. */
-typedef void (*chv_hash_fn)(const u8 *, usz, u8 *);
+typedef void (*chv_hash_fn)(const u8*, usz, u8*);
 static const struct {
   u8          kind;
   usz         len;
@@ -36,7 +36,7 @@ static const struct {
     {QUIC_X509_HASH_SHA512, 64, quic_sha512},
 };
 
-static int chv_hash_select(u8 kind, usz *hlen, chv_hash_fn *fn) {
+static int chv_hash_select(u8 kind, usz* hlen, chv_hash_fn* fn) {
   for (usz i = 0; i < sizeof(chv_hashes) / sizeof(chv_hashes[0]); i++)
     if (chv_hashes[i].kind == kind) {
       *hlen = chv_hashes[i].len;
@@ -56,14 +56,14 @@ typedef struct {
 } chv_signed;
 
 /* Parse the cert and require its outer sigAlg to be allowlisted. */
-static int chv_sigalg(quic_span cert, quic_x509 *c, quic_x509_sigalg *sa) {
+static int chv_sigalg(quic_span cert, quic_x509* c, quic_x509_sigalg* sa) {
   if (!quic_x509_parse(cert, c)) return 0;
   return quic_x509_sigalg_lookup(c->sig_alg_oid, sa);
 }
 
 /* RFC 5280 6.1.3. Digest cert's tbsCertificate with the hash its own
  * signatureAlgorithm names (fail closed on unlisted algorithms). */
-static int tbs_hash(quic_span cert, chv_signed *sg) {
+static int tbs_hash(quic_span cert, chv_signed* sg) {
   quic_x509   c;
   chv_hash_fn fn;
   if (!chv_sigalg(cert, &c, &sg->sa)) return 0;
@@ -74,7 +74,7 @@ static int tbs_hash(quic_span cert, chv_signed *sg) {
 
 /* RFC 5280 4.1.1.3. View cert's signatureValue, dropping the BIT STRING's
  * leading unused-bits octet (0x00 for whole-octet signatures). */
-static int cert_sig(quic_span cert, quic_span *sig) {
+static int cert_sig(quic_span cert, quic_span* sig) {
   quic_x509 c;
   if (!quic_x509_parse(cert, &c)) return 0;
   if (c.sig.n < 1) return 0;
@@ -83,7 +83,7 @@ static int cert_sig(quic_span cert, quic_span *sig) {
 }
 
 /* SEC1 C.5. Strip one INTEGER sign pad. */
-static void chv_strip_pad(quic_span *v) {
+static void chv_strip_pad(quic_span* v) {
   if (v->n > 1 && v->p[0] == 0x00) {
     v->p++;
     v->n--;
@@ -99,7 +99,7 @@ static void chv_left_pad32(u8 out[32], quic_span v) {
 static int fits_scalar(usz len) { return len >= 1 && len <= 32; }
 
 /* Copy one INTEGER element of c into a 32-byte big-endian field. */
-static int chv_copy_int32(quic_derseq *c, u8 out[32]) {
+static int chv_copy_int32(quic_derseq* c, u8 out[32]) {
   quic_span v;
   if (!quic_derseq_next_tagged(c, QUIC_DER_INTEGER, &v)) return 0;
   chv_strip_pad(&v);
@@ -120,11 +120,11 @@ static int chv_ecdsa_split(quic_span sig, u8 r[32], u8 s[32]) {
 
 /* FIPS 186-4 6.4: a digest wider than the P-256 order uses its leftmost 32
  * bytes (a 32-byte digest is copied whole). */
-static void chv_hash_to_scalar32(const u8 *hash, u8 h32[32]) {
+static void chv_hash_to_scalar32(const u8* hash, u8 h32[32]) {
   for (usz i = 0; i < 32; i++) h32[i] = hash[i];
 }
 
-static int chv_verify_p256(quic_span key, quic_span sig, const u8 *hash) {
+static int chv_verify_p256(quic_span key, quic_span sig, const u8* hash) {
   u8 x[32], y[32], r[32], s[32], h32[32];
   if (!quic_x509_ec_pubkey(key, x, y)) return 0;
   if (!chv_ecdsa_split(sig, r, s)) return 0;
@@ -141,7 +141,7 @@ static void chv_left_pad48(u8 out[48], quic_span v) {
 }
 
 /* Copy one INTEGER element of c into a 48-byte big-endian field. */
-static int chv_copy_int48(quic_derseq *c, u8 out[48]) {
+static int chv_copy_int48(quic_derseq* c, u8 out[48]) {
   quic_span v;
   if (!quic_derseq_next_tagged(c, QUIC_DER_INTEGER, &v)) return 0;
   chv_strip_pad(&v);
@@ -191,20 +191,20 @@ static int chv_verify_rsa(quic_span key, quic_span sig, quic_span hash) {
 
 /* The issuer SPKI must be an EC key when the sigAlg says ECDSA. */
 static int verify_ecdsa_key(
-    const chv_signed *sg, quic_span alg, quic_span key) {
+    const chv_signed* sg, quic_span alg, quic_span key) {
   return quic_x509_is_ec(alg) &&
          chv_verify_ecdsa(key, sg->sig, quic_span_of(sg->hash, sg->hash_len));
 }
 
 /* The issuer SPKI must be an RSA key when the sigAlg says PKCS#1. */
-static int verify_rsa_key(const chv_signed *sg, quic_span alg, quic_span key) {
+static int verify_rsa_key(const chv_signed* sg, quic_span alg, quic_span key) {
   return quic_x509_is_rsa(alg) &&
          chv_verify_rsa(key, sg->sig, quic_span_of(sg->hash, sg->hash_len));
 }
 
 /* RFC 5280 6.1.3. Dispatch on the sigAlg's key kind, cross-checked against
  * the issuer's actual SPKI key type. */
-static int verify_by_key(const chv_signed *sg, quic_span alg, quic_span key) {
+static int verify_by_key(const chv_signed* sg, quic_span alg, quic_span key) {
   if (sg->sa.key_kind == QUIC_X509_SIG_ECDSA)
     return verify_ecdsa_key(sg, alg, key);
   return verify_rsa_key(sg, alg, key);
@@ -222,7 +222,7 @@ static int sigalg_consistent(quic_span cert) {
 
 /* The signed bytes of cert: consistent sig algs, its tbs hash under the
  * sigAlg's digest, and its raw signature. */
-static int cert_signed(quic_span cert, chv_signed *sg) {
+static int cert_signed(quic_span cert, chv_signed* sg) {
   if (!sigalg_consistent(cert)) return 0;
   if (!tbs_hash(cert, sg)) return 0;
   return cert_sig(cert, &sg->sig);

@@ -14,6 +14,6 @@ typedef struct {
 } quic_hspto_inputs;
 
 /* Arm the PTO timer? Returns 1 if it should be armed, 0 otherwise. */
-int quic_hspto_should_arm(const quic_hspto_inputs *in);
+int quic_hspto_should_arm(const quic_hspto_inputs* in);
 
 #endif

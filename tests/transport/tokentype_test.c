@@ -23,13 +23,13 @@ static void test_tokentype_empty(void) {
   u8        out[4];
   quic_obuf ob = quic_obuf_of(out, sizeof(out));
   /* an empty token is neither tag; is_retry must be false */
-  CHECK(quic_token_is_retry((const u8 *)0, 0) == 0);
+  CHECK(quic_token_is_retry((const u8*)0, 0) == 0);
   /* tag with empty body still writes the tag byte */
-  CHECK(quic_token_tag_retry(&ob, quic_span_of((const u8 *)0, 0)) == 1);
+  CHECK(quic_token_tag_retry(&ob, quic_span_of((const u8*)0, 0)) == 1);
   CHECK(quic_token_is_retry(out, 1) == 1);
   /* no room */
   quic_obuf ob0 = quic_obuf_of(out, 0);
-  CHECK(quic_token_tag_retry(&ob0, quic_span_of((const u8 *)0, 0)) == 0);
+  CHECK(quic_token_tag_retry(&ob0, quic_span_of((const u8*)0, 0)) == 0);
 }
 
 void test_tokentype(void) {

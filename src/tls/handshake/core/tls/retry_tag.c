@@ -12,7 +12,7 @@ static const u8 RETRY_NONCE[12] = {0x46, 0x15, 0x99, 0xd3, 0x5d, 0x63,
 
 /* Build the Retry Pseudo-Packet (ODCID Length, ODCID, Retry) into aad.
  * Returns its length. Caller's aad must hold 1 + odcid.n + retry.n. */
-static usz build_pseudo(quic_span odcid, quic_span retry, u8 *aad) {
+static usz build_pseudo(quic_span odcid, quic_span retry, u8* aad) {
   usz n    = 0;
   aad[n++] = (u8)odcid.n;
   for (usz i = 0; i < odcid.n; i++) aad[n++] = odcid.p[i];

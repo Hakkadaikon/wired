@@ -18,6 +18,6 @@ typedef struct {
  * QPACK_BLOCKED_STREAMS 0x07), plus SETTINGS_ENABLE_CONNECT_PROTOCOL (RFC 9220
  * 3, id 0x08) when in->enable_connect_protocol is non-zero. Returns 1 ok with
  * out->len set, 0 if no room. */
-int quic_h3settings_build(const quic_h3settings_in *in, quic_obuf *out);
+int quic_h3settings_build(const quic_h3settings_in* in, quic_obuf* out);
 
 #endif

@@ -25,10 +25,10 @@ static void test_flow_recv(void) {
 static void test_reasm_contiguous_only(void) {
   quic_reasm r;
   quic_reasm_init(&r);
-  quic_reasm_insert(&r, 0, quic_span_of((const u8 *)"abc", 3));
-  quic_reasm_insert(&r, 6, quic_span_of((const u8 *)"ghi", 3)); /* gap */
+  quic_reasm_insert(&r, 0, quic_span_of((const u8*)"abc", 3));
+  quic_reasm_insert(&r, 6, quic_span_of((const u8*)"ghi", 3)); /* gap */
   CHECK(quic_reasm_deliver(&r) == 3); /* stops at the hole */
-  quic_reasm_insert(&r, 3, quic_span_of((const u8 *)"def", 3)); /* fill */
+  quic_reasm_insert(&r, 3, quic_span_of((const u8*)"def", 3)); /* fill */
   CHECK(quic_reasm_deliver(&r) == 9); /* now flows past it */
   CHECK(r.buf[4] == 'e' && r.buf[7] == 'h');
 }
@@ -37,10 +37,10 @@ static void test_reasm_contiguous_only(void) {
 static void test_reasm_idempotent(void) {
   quic_reasm r;
   quic_reasm_init(&r);
-  quic_reasm_insert(&r, 0, quic_span_of((const u8 *)"hello", 5));
+  quic_reasm_insert(&r, 0, quic_span_of((const u8*)"hello", 5));
   CHECK(quic_reasm_deliver(&r) == 5);
-  quic_reasm_insert(&r, 2, quic_span_of((const u8 *)"llo", 3)); /* overlap */
-  CHECK(quic_reasm_deliver(&r) == 5);                           /* unchanged */
+  quic_reasm_insert(&r, 2, quic_span_of((const u8*)"llo", 3)); /* overlap */
+  CHECK(quic_reasm_deliver(&r) == 5);                          /* unchanged */
 }
 
 /* The sender is blocked when it wants more than the limit allows. */

@@ -46,7 +46,7 @@ static void test_retrydrive_initial_token(void) {
   const u8              tok[]  = {0xaa, 0xbb, 0xcc};
   const u8              scid[] = {1, 2, 3, 4};
   quic_retrydrive_state s      = {0};
-  const u8             *t;
+  const u8*             t;
   usz                   len;
 
   quic_retrydrive_initial_token(&s, &t, &len);

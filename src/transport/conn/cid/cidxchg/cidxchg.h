@@ -25,24 +25,24 @@ typedef struct {
 /* Seed the exchange: the client's first random DCID and our own SCID. The
  * current send DCID starts equal to the first DCID. Returns 1 ok, 0 if either
  * length exceeds 20. */
-int quic_cidxchg_init(quic_cidxchg *x, quic_span init_dcid, quic_span own_scid);
+int quic_cidxchg_init(quic_cidxchg* x, quic_span init_dcid, quic_span own_scid);
 
 /* RFC 9000 7.2: the client adopts the server's SCID as its DCID once it sees
  * the server's response. Returns 1 ok, 0 if scid_len > 20. */
 int quic_cidxchg_on_server_scid(
-    quic_cidxchg *x, const u8 *server_scid, u8 scid_len);
+    quic_cidxchg* x, const u8* server_scid, u8 scid_len);
 
 /* RFC 9000 7.3: the server records the DCID of the client's first Initial as
  * the original_destination_connection_id it will echo. Returns 1 ok, 0 if
  * len > 20. */
 int quic_cidxchg_remember_odcid(
-    quic_cidxchg *x, const u8 *initial_dcid, u8 len);
+    quic_cidxchg* x, const u8* initial_dcid, u8 len);
 
 /* RFC 9000 7.3: verify a received original_destination_connection_id transport
  * parameter equals the first DCID. Constant-time. 1 if matched, 0 otherwise.
  * ISCID/RSCID compare the peer's SCID (not held here) and use
  * quic_tpverify_iscid / quic_tpverify_rscid directly. */
 int quic_cidxchg_verify_odcid(
-    const quic_cidxchg *x, const u8 *odcid_tp, u8 len);
+    const quic_cidxchg* x, const u8* odcid_tp, u8 len);
 
 #endif

@@ -12,8 +12,8 @@
 /* AEAD keys plus the expanded header-protection cipher for one packet-number
  * space. keys.key/iv are the AEAD key/iv; hp is expanded from keys.hp. */
 typedef struct {
-  const quic_initial_keys *keys;
-  const quic_aes128       *hp;
+  const quic_initial_keys* keys;
+  const quic_aes128*       hp;
 } quic_protect_keys;
 
 /* Compute the 12-byte AEAD nonce: iv with the packet number XORed into its
@@ -37,7 +37,7 @@ typedef struct {
 /* Write header + ciphertext + tag into io->out, apply header protection in
  * place, and return the total protected length, or 0 if it does not fit. */
 usz quic_protect_seal(
-    const quic_protect_keys *k, const quic_protect_seal_io *io);
+    const quic_protect_keys* k, const quic_protect_seal_io* io);
 
 /* Reverse of quic_protect_seal on a protected packet held in pkt (modified
  * in place), with the header occupying hdr_len bytes and the packet number
@@ -55,6 +55,6 @@ typedef struct {
  * into pkt's payload region. Returns the plaintext length, or 0 if
  * authentication fails. */
 usz quic_protect_open(
-    const quic_protect_keys *k, const quic_protect_open_io *io);
+    const quic_protect_keys* k, const quic_protect_open_io* io);
 
 #endif

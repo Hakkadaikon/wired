@@ -11,10 +11,10 @@
 
 /* Point *msg at the contiguous prefix from offset 0 and write its length.
  * Always succeeds (length may be 0). */
-void quic_crecv_message(const quic_crecv *s, const u8 **msg, usz *len);
+void quic_crecv_message(const quic_crecv* s, const u8** msg, usz* len);
 
 /* Returns 1 if the leading TLS handshake message is completely buffered in the
  * contiguous prefix (4-byte header + declared body), else 0. */
-int quic_crecv_complete_message(const quic_crecv *s);
+int quic_crecv_complete_message(const quic_crecv* s);
 
 #endif

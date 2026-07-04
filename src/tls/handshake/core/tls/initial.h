@@ -27,6 +27,6 @@ typedef struct {
  * @param dcid the Destination Connection ID of the client's first Initial
  * @param is_server 1 for the server keys, 0 for the client keys
  * @param out receives the derived keys */
-void quic_initial_derive(quic_span dcid, int is_server, quic_initial_keys *out);
+void quic_initial_derive(quic_span dcid, int is_server, quic_initial_keys* out);
 
 #endif

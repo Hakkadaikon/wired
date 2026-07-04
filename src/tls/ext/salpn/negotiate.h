@@ -11,11 +11,11 @@
 
 /* Return 1 if the ProtocolNameList in alpn_ext_data (len bytes) offers "h3"
  * (0x68 0x33), else 0 (absent, truncated, or a length field overruns). */
-int quic_salpn_select_h3(const u8 *alpn_ext_data, usz len);
+int quic_salpn_select_h3(const u8* alpn_ext_data, usz len);
 
 /* Build the EncryptedExtensions ALPN extension selecting "h3":
  * ext_type(2)=0x0010 ext_data_len(2) list_len(2) name_len(1) "h3".
  * Writes into out (cap total), sets *out_len, returns 1; 0 if cap < 9. */
-int quic_salpn_build_response(u8 *out, usz cap, usz *out_len);
+int quic_salpn_build_response(u8* out, usz cap, usz* out_len);
 
 #endif

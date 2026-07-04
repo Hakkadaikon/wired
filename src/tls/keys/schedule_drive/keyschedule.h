@@ -38,7 +38,7 @@ typedef struct {
  *
  * @param st schedule state to initialize
  */
-void quic_keysched_init(quic_keysched *st);
+void quic_keysched_init(quic_keysched* st);
 
 /**
  * ServerHello received: derive Handshake Secret from the ECDHE shared secret
@@ -51,7 +51,7 @@ void quic_keysched_init(quic_keysched *st);
  * @return 1 on success, 0 if the stage is not init (order violation).
  */
 int quic_keysched_advance_handshake(
-    quic_keysched *st, quic_span ecdhe, quic_span transcript);
+    quic_keysched* st, quic_span ecdhe, quic_span transcript);
 
 /**
  * Finished processed: derive Master Secret and the application traffic keys.
@@ -63,7 +63,7 @@ int quic_keysched_advance_handshake(
  * @return 1 on success, 0 if the stage is not handshake (order violation).
  */
 int quic_keysched_advance_master(
-    quic_keysched *st, const u8 *transcript, usz transcript_len);
+    quic_keysched* st, const u8* transcript, usz transcript_len);
 
 /**
  * If the keys for `which` have been derived, point *out at them and return 1;
@@ -77,6 +77,6 @@ int quic_keysched_advance_master(
  * @return 1 if derived, 0 otherwise.
  */
 int quic_keysched_get(
-    const quic_keysched *st, int which, const quic_initial_keys **out);
+    const quic_keysched* st, int which, const quic_initial_keys** out);
 
 #endif

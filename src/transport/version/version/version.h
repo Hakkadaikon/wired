@@ -25,22 +25,22 @@ typedef struct {
 
 /* A read-only view of a version-number list (offered, supported, etc). */
 typedef struct {
-  const u32 *list;
+  const u32* list;
   usz        n;
 } quic_verlist;
 
-static inline quic_verlist quic_verlist_of(const u32 *list, usz n) {
+static inline quic_verlist quic_verlist_of(const u32* list, usz n) {
   quic_verlist v = {list, n};
   return v;
 }
 
 /* Encode the version_information TP (id, length, Chosen Version, Available
  * Versions) into buf of cap bytes. Returns bytes written, or 0. */
-usz quic_version_info_encode(u8 *buf, usz cap, const quic_version_info *vi);
+usz quic_version_info_encode(u8* buf, usz cap, const quic_version_info* vi);
 
 /* Decode a version_information TP at buf (n readable). Returns bytes
  * consumed, or 0 on malformed input. Chosen must appear in Available for a
  * client-sent parameter; the caller validates that per RFC 9368 4. */
-usz quic_version_info_decode(const u8 *buf, usz n, quic_version_info *vi);
+usz quic_version_info_decode(const u8* buf, usz n, quic_version_info* vi);
 
 #endif

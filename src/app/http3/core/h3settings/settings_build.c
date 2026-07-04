@@ -9,7 +9,7 @@
 
 /* RFC 9220 3: append SETTINGS_ENABLE_CONNECT_PROTOCOL when requested. */
 static void append_connect_protocol(
-    const quic_h3settings_in *in, quic_h3_settings *s) {
+    const quic_h3settings_in* in, quic_h3_settings* s) {
   if (!in->enable_connect_protocol) return;
   s->pairs[s->n].id    = QUIC_H3_SETTINGS_ENABLE_CONNECT_PROTOCOL;
   s->pairs[s->n].value = 1;
@@ -17,7 +17,7 @@ static void append_connect_protocol(
 }
 
 /* RFC 9114 7.2.4 */
-int quic_h3settings_build(const quic_h3settings_in *in, quic_obuf *out) {
+int quic_h3settings_build(const quic_h3settings_in* in, quic_obuf* out) {
   quic_h3_settings s;
   s.n              = 3;
   s.pairs[0].id    = QUIC_H3_SETTINGS_MAX_FIELD_SECTION_SIZE;

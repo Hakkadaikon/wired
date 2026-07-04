@@ -3,7 +3,7 @@
 /* Build a short-header packet [byte0, pn(pn_len), payload] in buf and seal it,
  * then open it back; checks that the payload round-trips for the given suite.
  */
-static void pcs_roundtrip(u16 suite, const u8 *key, usz keylen, u8 byte0) {
+static void pcs_roundtrip(u16 suite, const u8* key, usz keylen, u8 byte0) {
   u8 iv[12], hp[32];
   for (usz i = 0; i < 12; i++) iv[i] = (u8)(0x10 + i);
   for (usz i = 0; i < keylen; i++) hp[i] = (u8)(0x80 + i);

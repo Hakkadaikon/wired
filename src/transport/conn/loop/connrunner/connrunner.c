@@ -10,7 +10,7 @@
 #include "transport/io/udp/udploop/txloop.h"
 
 void quic_connrunner_init(
-    quic_connrunner *r, quic_span dcid, const quic_connrunner_init_in *in) {
+    quic_connrunner* r, quic_span dcid, const quic_connrunner_init_in* in) {
   quic_connio_init_in cin = {in->is_server, in->byte0, in->initial_max_data};
   quic_evloop_init_in ein = {in->level, in->cwnd, in->send_len};
   r->fd                   = in->fd;
@@ -28,7 +28,7 @@ void quic_connrunner_init(
  * in hand (or empty). Drain receives, step the loop (timers + one send
  * decision), then seal whatever the loop chose -- recv before step before send.
  * Returns the sealed datagram length to transmit, or 0. Socket-free. */
-usz quic_connrunner_advance(quic_connrunner *r, u64 now, quic_mspan dgram) {
+usz quic_connrunner_advance(quic_connrunner* r, u64 now, quic_mspan dgram) {
   u64 sent_before;
   int kind;
   usz out;
@@ -49,13 +49,13 @@ usz quic_connrunner_advance(quic_connrunner *r, u64 now, quic_mspan dgram) {
 
 /* Append an armed timer's deadline to ds (RFC 9002 6: unarmed timers do not
  * bound the wait). */
-static void push_armed(const quic_evloop_timer *t, u64 *ds, usz *n) {
+static void push_armed(const quic_evloop_timer* t, u64* ds, usz* n) {
   if (t->armed) ds[(*n)++] = t->deadline;
 }
 
 /* RFC 9002 6.2 / 6.1 / RFC 9000 10.1: the next wakeup is the soonest armed
  * timer. Returns 0 if none armed. */
-static u64 next_deadline(const quic_connrunner *r) {
+static u64 next_deadline(const quic_connrunner* r) {
   u64 ds[3];
   usz n = 0;
   push_armed(&r->loop.pto, ds, &n);
@@ -65,14 +65,14 @@ static u64 next_deadline(const quic_connrunner *r) {
 }
 
 /* Milliseconds to wait until the next deadline; 0 means block (no timer). */
-static u64 wait_timeout(const quic_connrunner *r, u64 now) {
+static u64 wait_timeout(const quic_connrunner* r, u64 now) {
   u64 dl = next_deadline(r);
   if (!dl) return 0;
   return quic_poll_timeout_until(now, dl);
 }
 
 /* Wait for and read one datagram into rxbuf; returns its length, or 0. */
-static usz wait_and_recv(quic_connrunner *r, u64 now) {
+static usz wait_and_recv(quic_connrunner* r, u64 now) {
   i64 got;
   if (quic_poll_wait_readable(r->fd, wait_timeout(r, now)) != 1) return 0;
   got = wired_udp_recvfrom(
@@ -81,7 +81,7 @@ static usz wait_and_recv(quic_connrunner *r, u64 now) {
   return (usz)got;
 }
 
-void quic_connrunner_iterate(quic_connrunner *r, u64 now) {
+void quic_connrunner_iterate(quic_connrunner* r, u64 now) {
   usz len = wait_and_recv(r, now);
   usz out = quic_connrunner_advance(r, now, quic_mspan_of(r->rxbuf, len));
   if (out) {
@@ -94,11 +94,11 @@ void quic_connrunner_iterate(quic_connrunner *r, u64 now) {
 }
 
 /* Progress halts once closed; otherwise iterate up to the bound. */
-static int run_done(const quic_connrunner *r, usz i, usz max) {
+static int run_done(const quic_connrunner* r, usz i, usz max) {
   return i >= max || r->loop.gate.phase == QUIC_CONNLOOP_CLOSED;
 }
 
-void quic_connrunner_run(quic_connrunner *r, u64 now, usz max_iterations) {
+void quic_connrunner_run(quic_connrunner* r, u64 now, usz max_iterations) {
   usz i;
   for (i = 0; !run_done(r, i, max_iterations); i++)
     quic_connrunner_iterate(r, now);

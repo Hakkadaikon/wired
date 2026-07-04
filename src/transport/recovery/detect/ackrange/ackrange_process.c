@@ -14,13 +14,13 @@ static int akr_pn_within(u64 pn, akr_pnrange r) {
 }
 
 /* 1 when slot i holds an in-flight packet whose pn is in r. */
-static int akr_slot_in_range(const quic_sentpkt *t, usz i, akr_pnrange r) {
-  const quic_sentpkt_entry *p = &t->e[i];
+static int akr_slot_in_range(const quic_sentpkt* t, usz i, akr_pnrange r) {
+  const quic_sentpkt_entry* p = &t->e[i];
   return p->used && p->state == QUIC_SP_INFLIGHT && akr_pn_within(p->pn, r);
 }
 
 /* Ack every in-flight packet in r, appending pns to out. */
-static void akr_ack_range(quic_sentpkt *t, akr_pnrange r, quic_u64out out) {
+static void akr_ack_range(quic_sentpkt* t, akr_pnrange r, quic_u64out out) {
   for (usz i = 0; i < QUIC_SENTPKT_CAP; i++) {
     if (!akr_slot_in_range(t, i, r)) continue;
     t->e[i].state       = QUIC_SP_ACKED;
@@ -30,7 +30,7 @@ static void akr_ack_range(quic_sentpkt *t, akr_pnrange r, quic_u64out out) {
 }
 
 int quic_ackrange_process(
-    quic_sentpkt *t, quic_span ack_frame, quic_u64out newly_acked) {
+    quic_sentpkt* t, quic_span ack_frame, quic_u64out newly_acked) {
   quic_ack_frame f;
   *newly_acked.n = 0;
   if (quic_ack_decode(ack_frame.p, ack_frame.n, &f) == 0) return 0;

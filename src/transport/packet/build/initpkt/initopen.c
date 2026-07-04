@@ -5,7 +5,7 @@
 #include "transport/packet/frame/pipeline/rxpacket.h"
 
 /* RFC 9001 5.2 */
-int quic_initpkt_open(quic_span dcid, quic_mspan pkt, quic_span *crypto) {
+int quic_initpkt_open(quic_span dcid, quic_mspan pkt, quic_span* crypto) {
   quic_initial_keys ck, sk;
   quic_aes128       hp;
   quic_initpkt_derive(dcid, &ck, &sk);

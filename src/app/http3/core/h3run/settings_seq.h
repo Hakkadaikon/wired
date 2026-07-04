@@ -14,6 +14,6 @@ typedef struct {
 
 /* Validate the first control frame. Returns 1 if it is SETTINGS and SETTINGS
  * has not yet been seen; 0 otherwise (wrong first frame, or a 2nd SETTINGS). */
-int quic_h3_settings_first(quic_h3_settings_state *state, u64 first_frame_type);
+int quic_h3_settings_first(quic_h3_settings_state* state, u64 first_frame_type);
 
 #endif

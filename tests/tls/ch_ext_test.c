@@ -5,7 +5,7 @@
 #include "tls/handshake/core/tls/clienthello.h"
 #include "tls/handshake/core/tls/sni.h"
 
-static usz build_ch(u8 *buf, usz cap) {
+static usz build_ch(u8* buf, usz cap) {
   u8 random[32], pub[32];
   u8 tp[3] = {0x01, 0x02, 0x03};
   for (usz i = 0; i < 32; i++) {
@@ -13,9 +13,9 @@ static usz build_ch(u8 *buf, usz cap) {
     pub[i]    = (u8)(0x40 + i);
   }
   return quic_tls_client_hello(
-      &(quic_clienthello_in){
-          random, pub, quic_span_of((const u8 *)"example.com", 11),
-          quic_span_of(tp, sizeof(tp))},
+      &(quic_clienthello_in){random, pub,
+                             quic_span_of((const u8*)"example.com", 11),
+                             quic_span_of(tp, sizeof(tp))},
       &(quic_obuf){buf, cap, 0});
 }
 

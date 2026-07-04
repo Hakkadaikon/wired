@@ -7,7 +7,7 @@
 #include "transport/recovery/rtx/sentpkt/ack_process.h"
 
 /* RFC 9000 19.8: feed a STREAM frame's bytes into the read buffer. */
-static int on_stream(quic_framedispatch_state *st, const u8 *frame, usz len) {
+static int on_stream(quic_framedispatch_state* st, const u8* frame, usz len) {
   quic_stream_frame f;
   if (quic_frame_get_stream(frame, len, &f) == 0) return 0;
   return quic_stream_read_push(
@@ -16,7 +16,7 @@ static int on_stream(quic_framedispatch_state *st, const u8 *frame, usz len) {
 
 /* RFC 9000 19.3: an ACK frame is decoded to its ranges, then replayed as the
  * wire (first_len, gap, range_len, ...) form the sent table consumes. */
-static int on_ack(quic_framedispatch_state *st, const u8 *frame, usz len) {
+static int on_ack(quic_framedispatch_state* st, const u8* frame, usz len) {
   quic_ack_frame f;
   if (quic_ack_decode(frame, len, &f) == 0) return 0;
   st->has_ack =
@@ -38,7 +38,7 @@ static int on_ack(quic_framedispatch_state *st, const u8 *frame, usz len) {
 
 /* RFC 9000 19.9: MAX_DATA raises the peer's send limit; mirror it as our
  * credit's advertised max so a later overrun is detectable. */
-static int on_max_data(quic_framedispatch_state *st, const u8 *frame, usz len) {
+static int on_max_data(quic_framedispatch_state* st, const u8* frame, usz len) {
   quic_data_frame f;
   if (quic_max_data_decode(frame, len, &f) == 0) return 0;
   st->credit->max_data = f.value;
@@ -46,7 +46,7 @@ static int on_max_data(quic_framedispatch_state *st, const u8 *frame, usz len) {
 }
 
 /* RFC 9000 19.19: record that the peer is closing. */
-static int on_close(quic_framedispatch_state *st, const u8 *frame, usz len) {
+static int on_close(quic_framedispatch_state* st, const u8* frame, usz len) {
   (void)frame;
   (void)len;
   st->close = 1;
@@ -55,14 +55,14 @@ static int on_close(quic_framedispatch_state *st, const u8 *frame, usz len) {
 
 /* PADDING (19.1) and PING (19.2) carry no state beyond the ack-eliciting
  * flag handled by the caller. */
-static int on_noop(quic_framedispatch_state *st, const u8 *frame, usz len) {
+static int on_noop(quic_framedispatch_state* st, const u8* frame, usz len) {
   (void)st;
   (void)frame;
   (void)len;
   return 1;
 }
 
-typedef int (*handler)(quic_framedispatch_state *, const u8 *, usz);
+typedef int (*handler)(quic_framedispatch_state*, const u8*, usz);
 
 /* RFC 9000 12.4: one handler per frame kind, indexed by quic_frame_kind. */
 static const handler handlers[] = {
@@ -76,7 +76,7 @@ int quic_framedispatch_ack_eliciting(u64 frame_type) {
 }
 
 int quic_framedispatch_handle(
-    quic_framedispatch_state *st, u64 frame_type, quic_span frame) {
+    quic_framedispatch_state* st, u64 frame_type, quic_span frame) {
   quic_frame_kind k = quic_frame_classify(frame_type);
   handler h = (k < sizeof handlers / sizeof handlers[0]) ? handlers[k] : 0;
   if (h == 0) return 0;

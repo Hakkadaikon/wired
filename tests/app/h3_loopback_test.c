@@ -59,7 +59,7 @@ struct lb_fix {
   usz           cli_fin_len;
 };
 
-static void lb_make_client_hello(struct lb_fix *f) {
+static void lb_make_client_hello(struct lb_fix* f) {
   static const u8 tp[1] = {0};
   u8              cli_pub[32];
   for (usz i = 0; i < 32; i++) {
@@ -68,15 +68,14 @@ static void lb_make_client_hello(struct lb_fix *f) {
   }
   quic_x25519_base(cli_pub, f->cli_priv);
   f->ch_len = quic_tls_client_hello(
-      &(quic_clienthello_in){
-          f->srv_random, cli_pub, quic_span_of(0, 0),
-          quic_span_of(tp, sizeof(tp))},
+      &(quic_clienthello_in){f->srv_random, cli_pub, quic_span_of(0, 0),
+                             quic_span_of(tp, sizeof(tp))},
       &(quic_obuf){f->ch, sizeof(f->ch), 0});
 }
 
 /* Bring the server to FLIGHT_SENT (Handshake keys derived) and init the loop.
  */
-static void lb_drive_to_flight(struct lb_fix *f) {
+static void lb_drive_to_flight(struct lb_fix* f) {
   u8 srv_priv[32], srv_pub[32], cert_seed[32];
   for (usz i = 0; i < 32; i++) {
     srv_priv[i]  = (u8)(0x40 + i);
@@ -101,7 +100,7 @@ static void lb_drive_to_flight(struct lb_fix *f) {
 }
 
 /* RFC 8446 4.4.4: compute the genuine client Finished from the transcript. */
-static void lb_make_client_finished(struct lb_fix *f) {
+static void lb_make_client_finished(struct lb_fix* f) {
   quic_serverhello_out sh;
   u8                   hs[32], c_traffic[32], th[32];
   quic_transcript      tr;
@@ -130,8 +129,8 @@ static void lb_make_client_finished(struct lb_fix *f) {
 /* Client peer: seal a Handshake CRYPTO flight toward the server with the
  * peer-direction CLIENT_HS key (the server opens with it). */
 static usz lb_seal_handshake(
-    struct lb_fix *f, const u8 *msg, usz mlen, u8 *pkt, usz cap) {
-  const quic_initial_keys *k;
+    struct lb_fix* f, const u8* msg, usz mlen, u8* pkt, usz cap) {
+  const quic_initial_keys* k;
   quic_aes128              hp;
   quic_obuf                ob = {pkt, cap, 0};
   CHECK(quic_keysched_get(&f->s.sched, QUIC_KS_CLIENT_HS, &k) == 1);
@@ -152,8 +151,8 @@ static usz lb_seal_handshake(
 
 /* Client peer: seal a 1-RTT STREAM payload toward the server with CLIENT_AP. */
 static usz lb_seal_onertt(
-    struct lb_fix *f, const u8 *pl, usz pln, u8 *pkt, usz cap) {
-  const quic_initial_keys *k;
+    struct lb_fix* f, const u8* pl, usz pln, u8* pkt, usz cap) {
+  const quic_initial_keys* k;
   quic_aes128              hp;
   usz                      total = 0;
   CHECK(quic_keysched_get(&f->s.sched, QUIC_KS_CLIENT_AP, &k) == 1);
@@ -170,8 +169,8 @@ static usz lb_seal_onertt(
 
 /* Client peer: open a server 1-RTT packet with the peer SERVER_AP key. */
 static int lb_open_onertt(
-    struct lb_fix *f, u8 *pkt, usz len, const u8 **pl, usz *pll) {
-  const quic_initial_keys *k;
+    struct lb_fix* f, u8* pkt, usz len, const u8** pl, usz* pll) {
+  const quic_initial_keys* k;
   quic_aes128              hp;
   CHECK(quic_keysched_get(&f->s.sched, QUIC_KS_SERVER_AP, &k) == 1);
   quic_aes128_init(&hp, k->hp);
@@ -186,7 +185,7 @@ static int lb_open_onertt(
 
 /* A bound server socket and a client socket, both on 127.0.0.1. Returns 1 with
  * the fds, or 0 (benign skip) if the sandbox forbids sockets. */
-static int lb_open_sockets(i64 *sfd, i64 *cfd, quic_sockaddr_in *srv) {
+static int lb_open_sockets(i64* sfd, i64* cfd, quic_sockaddr_in* srv) {
   *sfd = wired_udp_socket();
   if (*sfd < 0) return 0;
   wired_udp_addr(srv, 4435, (const u8[4]){127, 0, 0, 1});
@@ -205,13 +204,13 @@ static int lb_open_sockets(i64 *sfd, i64 *cfd, quic_sockaddr_in *srv) {
 /* Ship `pkt` from client to server and run one srvloop_step on what arrives.
  * Returns the step result; *out_len holds the sealed reply length. */
 static int lb_wire_step(
-    struct lb_fix          *f,
+    struct lb_fix*          f,
     i64                     cfd,
     i64                     sfd,
-    const quic_sockaddr_in *srv,
-    const u8               *pkt,
+    const quic_sockaddr_in* srv,
+    const u8*               pkt,
     usz                     n,
-    quic_obuf              *out) {
+    quic_obuf*              out) {
   quic_sockaddr_in from;
   u8               rx[1500];
   i64              r;
@@ -276,7 +275,7 @@ static void test_loopback_wire_confirm_and_get(void) {
   u8               cpkt[1300], out[1300], get[512];
   usz              clen, glen;
   quic_obuf        ob = {out, sizeof out, 0};
-  const u8        *pl;
+  const u8*        pl;
   usz              pll;
 
   if (!lb_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: benign skip */
@@ -292,7 +291,7 @@ static void test_loopback_wire_confirm_and_get(void) {
   CHECK(lb_wire_step(&f, cfd, sfd, &srv, cpkt, clen, &ob) == 1);
   CHECK(wired_server_is_confirmed(&f.s) == 1);
   {
-    const u8         *pkts[4];
+    const u8*         pkts[4];
     usz               offs[4], lens[4];
     quic_pktlist      plist = {pkts, offs, lens, 4};
     quic_stream_frame sf;
@@ -309,8 +308,8 @@ static void test_loopback_wire_confirm_and_get(void) {
     quic_obuf gob = {get, sizeof get, 0};
     CHECK(wired_h3reqdrive_send_get(
         0,
-        &(wired_h3reqdrive_get_in){
-            quic_span_of((const u8 *)"/", 1), quic_span_of((const u8 *)"h", 1)},
+        &(wired_h3reqdrive_get_in){quic_span_of((const u8*)"/", 1),
+                                   quic_span_of((const u8*)"h", 1)},
         &gob));
     glen = gob.len;
   }
@@ -331,7 +330,7 @@ static void test_loopback_wire_confirm_and_get(void) {
 /* Fill a wired_srvboot_id with the same fixed identity lb_drive_to_flight uses,
  * into caller-owned key buffers. */
 static void sb_make_id(
-    wired_srvboot_id *id, u8 priv[32], u8 pub[32], u8 seed[32], u8 rnd[32]) {
+    wired_srvboot_id* id, u8 priv[32], u8 pub[32], u8 seed[32], u8 rnd[32]) {
   for (usz i = 0; i < 32; i++) {
     priv[i] = (u8)(0x40 + i);
     seed[i] = (u8)(0x80 + i);
@@ -426,7 +425,7 @@ static void test_srvboot_rejects_non_initial(void) {
 static quic_span sb_chain[3];
 
 static void sb_make_chain_id(
-    wired_srvboot_id *id, u8 priv[32], u8 pub[32], u8 rnd[32]) {
+    wired_srvboot_id* id, u8 priv[32], u8 pub[32], u8 rnd[32]) {
   for (usz i = 0; i < 32; i++) {
     priv[i] = (u8)(0x40 + i);
     rnd[i]  = (u8)(0xa0 + i);
@@ -469,7 +468,7 @@ struct sb_split_fix {
  * realchain identity. The raw ClientHello is captured first: the wire builder
  * emits the identical bytes (zero random, same key_share), so the client can
  * reconstruct the transcript the server folded. */
-static void sb_split_boot(struct sb_split_fix *f) {
+static void sb_split_boot(struct sb_split_fix* f) {
   wired_srvboot_id   id;
   u8                 cpub[32], dg[1500];
   usz                total = 0;
@@ -517,8 +516,8 @@ static void test_srvboot_split_flight_datagrams(void) {
 /* Open each flight datagram with SERVER_HS and collect its CRYPTO frames into
  * the reassembler, in forward or reverse datagram order. */
 static void sb_split_collect(
-    struct sb_split_fix *f, int reverse, quic_crecv *cr) {
-  const quic_initial_keys *shs;
+    struct sb_split_fix* f, int reverse, quic_crecv* cr) {
+  const quic_initial_keys* shs;
   quic_aes128              hp;
   usz                      offs[WIRED_SRVBOOT_FLIGHT_MAX], off = 0;
   CHECK(quic_keysched_get(&f->s.sched, QUIC_KS_SERVER_HS, &shs) == 1);
@@ -544,8 +543,8 @@ static void sb_split_collect(
  * transcript, then check the trailing server Finished against it
  * (RFC 8446 4.4.4). */
 static void sb_split_check_finished(
-    const quic_crecv *cr, quic_transcript *tr, const u8 s_traffic[32]) {
-  const u8 *fl;
+    const quic_crecv* cr, quic_transcript* tr, const u8 s_traffic[32]) {
+  const u8* fl;
   usz       fln, p = 0;
   u8        th[32];
   quic_crecv_message(cr, &fl, &fln);

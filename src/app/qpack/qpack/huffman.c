@@ -46,7 +46,7 @@ static const u16 HCNT[31] = {0,  0,  0,  0, 0,  10, 26, 32, 6, 0, 5,
 typedef struct {
   u32 acc;
   u32 nbits;
-  u8 *out;
+  u8* out;
   usz dcap;
   usz olen;
   int ok;
@@ -58,7 +58,7 @@ static int code_ready(u32 acc, u32 L) {
 }
 
 /* Write one decoded symbol; fail on EOS (sym > 255) or dst overflow. */
-static void put_sym(hctx *c, u16 sym) {
+static void put_sym(hctx* c, u16 sym) {
   if (sym > 255 || c->olen >= c->dcap) {
     c->ok = 0;
     return;
@@ -67,7 +67,7 @@ static void put_sym(hctx *c, u16 sym) {
 }
 
 /* A code completed at length nbits: emit its symbol and reset the bit run. */
-static void emit_code(hctx *c) {
+static void emit_code(hctx* c) {
   put_sym(c, HSYM[HIDX[c->nbits] + (c->acc - HFIRST[c->nbits])]);
   c->acc   = 0;
   c->nbits = 0;
@@ -75,7 +75,7 @@ static void emit_code(hctx *c) {
 
 /* Fold one input bit into the accumulator, completing a symbol if ready or
  * failing once the run exceeds the longest code (RFC 7541 Appendix B). */
-static void step_bit(hctx *c, u32 bit) {
+static void step_bit(hctx* c, u32 bit) {
   c->acc = (c->acc << 1) | bit;
   c->nbits++;
   if (c->nbits > HUFF_MAXLEN) {
@@ -86,27 +86,27 @@ static void step_bit(hctx *c, u32 bit) {
 }
 
 /* Feed the 8 bits of one octet, most significant first, halting on error. */
-static void step_octet(hctx *c, u8 byte) {
+static void step_octet(hctx* c, u8 byte) {
   for (u32 b = 8; b != 0 && c->ok; b--) step_bit(c, (byte >> (b - 1)) & 1u);
 }
 
 /* Feed every input octet into c; a broken octet leaves c->ok clear so the
  * remaining octets are stepped over as no-ops. */
-static void feed(hctx *c, quic_span src) {
+static void feed(hctx* c, quic_span src) {
   for (usz i = 0; i < src.n; i++) step_octet(c, src.p[i]);
 }
 
 /* RFC 7541 5.2: the leftover bits must form valid padding -- fewer than 8 and
  * all ones (the EOS prefix). c->ok must also still hold. */
-static int pad_valid(const hctx *c) {
+static int pad_valid(const hctx* c) {
   return c->nbits < 8 && (c->nbits == 0 || c->acc == ((1u << c->nbits) - 1u));
 }
 
 /* The decode succeeded if no rule was broken and the trailing bits pad cleanly.
  */
-static int decode_ok(const hctx *c) { return c->ok && pad_valid(c); }
+static int decode_ok(const hctx* c) { return c->ok && pad_valid(c); }
 
-int quic_qpack_huffman_decode(quic_span src, quic_obuf *dst) {
+int quic_qpack_huffman_decode(quic_span src, quic_obuf* dst) {
   hctx c = {0, 0, dst->p, dst->cap, 0, 1};
   feed(&c, src);
   if (!decode_ok(&c)) return 0;

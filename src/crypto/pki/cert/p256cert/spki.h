@@ -9,6 +9,6 @@
  *              BIT STRING(0x00 || 0x04 || X(32) || Y(32)) }
  * from the affine public key (x, y) into out, setting out->len to the whole
  * SEQUENCE length. Returns 1 ok, 0 if it would not fit. */
-int quic_p256cert_spki(const u8 x[32], const u8 y[32], quic_obuf *out);
+int quic_p256cert_spki(const u8 x[32], const u8 y[32], quic_obuf* out);
 
 #endif

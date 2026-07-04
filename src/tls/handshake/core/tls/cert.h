@@ -13,7 +13,7 @@
 
 /** A view of one CertificateEntry's cert_data within the message buffer. */
 typedef struct {
-  const u8 *cert_data; /**< start of the entry's opaque cert_data (X.509) */
+  const u8* cert_data; /**< start of the entry's opaque cert_data (X.509) */
   u32       cert_len;  /**< length of cert_data in bytes */
 } quic_tls_cert_entry;
 
@@ -26,7 +26,7 @@ typedef struct {
  * @param first receives the first CertificateEntry's cert_data view
  * @return 1 on success, 0 on truncation. */
 int quic_tls_cert_parse(
-    quic_span buf, quic_span *context, quic_tls_cert_entry *first);
+    quic_span buf, quic_span* context, quic_tls_cert_entry* first);
 
 /** Longest certificate_list this SDK walks (leaf + up to 3 issuers — public
  * web chains are 2-3 entries). */
@@ -35,9 +35,9 @@ int quic_tls_cert_parse(
 /** Destination for quic_tls_cert_chain: entries[0..cap-1] and the count
  * actually written. */
 typedef struct {
-  quic_tls_cert_entry *entries; /**< receives the entry views, leaf first */
+  quic_tls_cert_entry* entries; /**< receives the entry views, leaf first */
   usz                  cap;     /**< capacity of entries */
-  usz                 *count;   /**< receives the number of entries written */
+  usz*                 count;   /**< receives the number of entries written */
 } quic_tls_cert_chain_out;
 
 /** Parse a Certificate message body (after the handshake header) and view
@@ -49,7 +49,7 @@ typedef struct {
  * @return 1 on success; 0 on truncation, trailing garbage, or more than cap
  * entries (fail closed). */
 int quic_tls_cert_chain(
-    quic_span buf, quic_span *context, const quic_tls_cert_chain_out *out);
+    quic_span buf, quic_span* context, const quic_tls_cert_chain_out* out);
 
 /** Parse a CertificateVerify body: a 2-byte SignatureScheme then a
  * 2-byte-length-prefixed signature.
@@ -57,7 +57,7 @@ int quic_tls_cert_chain(
  * @param scheme receives the SignatureScheme code point
  * @param sig receives the signature view
  * @return 1 on success, 0 on truncation. */
-int quic_tls_certverify_parse(quic_span buf, u16 *scheme, quic_span *sig);
+int quic_tls_certverify_parse(quic_span buf, u16* scheme, quic_span* sig);
 
 /** RFC 8446 4.2.3: the ed25519 SignatureScheme code point. */
 #define QUIC_TLS_SCHEME_ED25519 0x0807

@@ -4,7 +4,7 @@
 #include "transport/version/version/version.h"
 
 /* Encode versions as the VN packet's 4-big-endian-bytes-each list. */
-static void enc(u8 *buf, const u32 *v, usz n) {
+static void enc(u8* buf, const u32* v, usz n) {
   for (usz i = 0; i < n; i++) {
     buf[i * 4 + 0] = (u8)(v[i] >> 24);
     buf[i * 4 + 1] = (u8)(v[i] >> 16);

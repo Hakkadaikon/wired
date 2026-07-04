@@ -15,7 +15,7 @@
   (-1) /* no common version: abandon the attempt */
 
 /* Reset the Retry and VN reconnect state for a fresh connection attempt. */
-void quic_connrunner_reconnect_init(quic_connrunner *r);
+void quic_connrunner_reconnect_init(quic_connrunner* r);
 
 /* One received Retry: the Integrity Tag verdict, its SCID and its token. */
 typedef struct {
@@ -28,17 +28,17 @@ typedef struct {
  * first valid Retry only and only before the handshake has progressed:
  * adopts the new DCID and flags Initial key re-derivation. Returns 1 if
  * accepted, 0 if discarded/ignored. */
-int quic_connrunner_recv_retry(quic_connrunner *r, const quic_retry_event *e);
+int quic_connrunner_recv_retry(quic_connrunner* r, const quic_retry_event* e);
 
 /* RFC 9001 5.2 send path: before the next Initial after an accepted Retry,
  * re-derive the Initial keys from the new DCID and clear the re-derive flag.
  * No-op (returns 0) when no re-derivation is pending. Returns 1 if it ran. */
-int quic_connrunner_retry_rederive(quic_connrunner *r);
+int quic_connrunner_retry_rederive(quic_connrunner* r);
 
 /* RFC 9000 17.2.5.1: the token to put in the next Initial -- the stored Retry
  * token once a Retry was accepted, else empty (*len = 0). */
 void quic_connrunner_initial_token(
-    const quic_connrunner *r, const u8 **token, usz *len);
+    const quic_connrunner* r, const u8** token, usz* len);
 
 /* One Version Negotiation packet: the server's offered list and the client's
  * supported list in preference order. */
@@ -54,13 +54,13 @@ typedef struct {
  * when no common version exists, 0 to discard/ignore (downgrade, after
  * progress, or budget exhausted). */
 int quic_connrunner_recv_vn(
-    quic_connrunner *r, const quic_vn_lists *l, u32 *chosen);
+    quic_connrunner* r, const quic_vn_lists* l, u32* chosen);
 
 /* RFC 9000 17.2.5 / 6.2 receive-loop dispatch: classify one long-header packet
  * and route a Retry to recv_retry (verifying its Integrity Tag against the
  * current DCID) and a Version Negotiation to recv_vn. Returns 1 if the packet
  * was a Retry or VN that this drove (accepted or deliberately discarded), 0 if
  * it is neither so the normal protected-packet path should handle it. */
-int quic_connrunner_recv_reconnect(quic_connrunner *r, const u8 *pkt, usz len);
+int quic_connrunner_recv_reconnect(quic_connrunner* r, const u8* pkt, usz len);
 
 #endif

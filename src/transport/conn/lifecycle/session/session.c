@@ -12,14 +12,14 @@
 #define QUIC_SESSION_SA 0x0a000002u
 
 /* Wrap a QUIC packet in UDP+IPv4 and push it onto the link (no syscall). */
-static int link_tx(quic_memlink *l, quic_span qpkt, quic_ipv4addrs addrs) {
+static int link_tx(quic_memlink* l, quic_span qpkt, quic_ipv4addrs addrs) {
   u8            udp[1500], ip[20], frame[1520];
   quic_udp4meta meta = {{4433, 4433}, addrs};
   quic_obuf     ub   = quic_obuf_of(udp, sizeof(udp));
   usz           un   = quic_udp4_build(&ub, &meta, qpkt);
   quic_ipv4_build(
-      ip, &(quic_ipv4_head){
-              (u16)(20 + un), addrs.src, addrs.dst, QUIC_IP_PROTO_UDP});
+      ip, &(quic_ipv4_head){(u16)(20 + un), addrs.src, addrs.dst,
+                            QUIC_IP_PROTO_UDP});
   for (usz i = 0; i < 20; i++) frame[i] = ip[i];
   for (usz i = 0; i < un; i++) frame[20 + i] = udp[i];
   return quic_memlink_send(l, frame, 20 + un);
@@ -32,12 +32,12 @@ static int env_ok(quic_span frame, quic_ipv4addrs addrs) {
 }
 
 /* Copy n bytes from src to dst. */
-static void copy_n(u8 *dst, const u8 *src, usz n) {
+static void copy_n(u8* dst, const u8* src, usz n) {
   for (usz i = 0; i < n; i++) dst[i] = src[i];
 }
 
 /* Pull a frame, verify IP/UDP, copy out the QUIC payload. Returns its len. */
-static usz link_rx(quic_memlink *l, quic_obuf *out, quic_ipv4addrs addrs) {
+static usz link_rx(quic_memlink* l, quic_obuf* out, quic_ipv4addrs addrs) {
   u8  frame[1520];
   usz fn = quic_memlink_recv(l, frame, sizeof(frame));
   if (!env_ok(quic_span_of(frame, fn), addrs)) return 0;
@@ -58,7 +58,7 @@ static void fill_header(u8 hdr[18], u8 byte0, const u8 dcid[8], u8 pn_low) {
   hdr[17] = pn_low; /* low byte of the 4-byte packet number */
 }
 
-void quic_session_init(quic_session *s, const quic_session_init_in *in) {
+void quic_session_init(quic_session* s, const quic_session_init_in* in) {
   quic_endpoint_init(&s->ep, in->priv, in->dcid);
   quic_conn_init(&s->conn);
   quic_initial_derive(quic_span_of(in->dcid, 8), 0, &s->ikeys);
@@ -69,7 +69,7 @@ void quic_session_init(quic_session *s, const quic_session_init_in *in) {
   for (usz i = 0; i < 8; i++) s->dcid[i] = in->dcid[i];
 }
 
-int quic_session_client_hello(quic_session *s) {
+int quic_session_client_hello(quic_session* s) {
   u8  hello[256], crypto[300], hdr[18], out[1200];
   u8  rnd[32] = {0};
   usz hl      = quic_hs_build_hello(
@@ -89,7 +89,7 @@ int quic_session_client_hello(quic_session *s) {
 }
 
 /* Decode a received Initial's CRYPTO frame and extract the peer's share. */
-static int read_share(u8 *pkt, usz pl, u8 peer_pub[32]) {
+static int read_share(u8* pkt, usz pl, u8 peer_pub[32]) {
   quic_crypto_frame cf;
   u8                type;
   usz               body_len;
@@ -100,14 +100,14 @@ static int read_share(u8 *pkt, usz pl, u8 peer_pub[32]) {
 }
 
 /* Unprotect a received Initial of rn bytes in place; returns plaintext len. */
-static usz open_initial(quic_session *s, u8 *pkt, usz rn) {
+static usz open_initial(quic_session* s, u8* pkt, usz rn) {
   if (rn == 0) return 0;
   quic_protect_keys    k  = {&s->ikeys, &s->ihp};
   quic_protect_open_io io = {quic_mspan_of(pkt, rn), 18, 14, 4, 1};
   return quic_protect_open(&k, &io);
 }
 
-int quic_session_accept(quic_session *s) {
+int quic_session_accept(quic_session* s) {
   u8        pkt[1200];
   quic_obuf ob = quic_obuf_of(pkt, sizeof(pkt));
   usz       rn =
@@ -123,7 +123,7 @@ int quic_session_accept(quic_session *s) {
 /* Derive the server-direction 1-RTT keys both ends use, and the matching
  * header-protection cipher, into the session. RFC 7748 6.1: a low-order peer
  * key aborts the agreement (quic_endpoint_agree returns 0). */
-static int agree_dir(quic_session *s, const u8 peer_pub[32], quic_span tr) {
+static int agree_dir(quic_session* s, const u8 peer_pub[32], quic_span tr) {
   quic_endpoint_peer p = {peer_pub, tr, 1};
   if (!quic_endpoint_agree(&s->ep, &p)) return 0;
   quic_aes128_init(&s->hshp, s->ep.hs_keys.hp);
@@ -132,13 +132,13 @@ static int agree_dir(quic_session *s, const u8 peer_pub[32], quic_span tr) {
 
 /* Both ends derive the server-direction keys from the same ECDHE inputs. */
 static int agree_both(
-    quic_session *client, quic_session *server, quic_span tr) {
+    quic_session* client, quic_session* server, quic_span tr) {
   if (!agree_dir(server, server->peer_pub, tr)) return 0;
   return agree_dir(client, server->ep.pub, tr);
 }
 
 int quic_session_finish(
-    quic_session *client, quic_session *server, quic_span transcript) {
+    quic_session* client, quic_session* server, quic_span transcript) {
   if (!server->have_peer) return 0;
   if (!agree_both(client, server, transcript)) return 0;
   quic_conn_step(&client->conn, QUIC_CONN_EV_HS_CONFIRMED);
@@ -156,7 +156,7 @@ static u32 peer_addr(int is_server) {
   return is_server ? QUIC_SESSION_CA : QUIC_SESSION_SA;
 }
 
-int quic_session_send_stream(quic_session *s, const quic_session_msg *m) {
+int quic_session_send_stream(quic_session* s, const quic_session_msg* m) {
   u8                fr[1024], hdr[18], out[1200];
   quic_stream_frame sf = {
       .stream_id = m->stream_id,
@@ -178,14 +178,14 @@ int quic_session_send_stream(quic_session *s, const quic_session_msg *m) {
 }
 
 /* Unprotect a received 1-RTT packet of rn bytes in place; plaintext len. */
-static usz open_1rtt(quic_session *s, u8 *pkt, usz rn) {
+static usz open_1rtt(quic_session* s, u8* pkt, usz rn) {
   if (rn == 0) return 0;
   quic_protect_keys    k  = {&s->ep.hs_keys, &s->hshp};
   quic_protect_open_io io = {quic_mspan_of(pkt, rn), 18, 14, 4, 7};
   return quic_protect_open(&k, &io);
 }
 
-int quic_session_recv_stream(quic_session *s, quic_stream_frame *out) {
+int quic_session_recv_stream(quic_session* s, quic_stream_frame* out) {
   static u8 pkt[1200];
   quic_obuf ob = quic_obuf_of(pkt, sizeof(pkt));
   usz       rn = link_rx(

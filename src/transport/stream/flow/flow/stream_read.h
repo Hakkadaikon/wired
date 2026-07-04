@@ -12,14 +12,14 @@ typedef struct {
   u64        read_off; /* bytes already pulled by the application */
 } quic_stream_read;
 
-void quic_stream_read_init(quic_stream_read *s);
+void quic_stream_read_init(quic_stream_read* s);
 
 /* Buffer data received at the given stream offset. Returns 1 on success,
  * 0 if it exceeds capacity or a known final size. */
-int quic_stream_read_push(quic_stream_read *s, u64 offset, quic_span data);
+int quic_stream_read_push(quic_stream_read* s, u64 offset, quic_span data);
 
 /* Copy up to out->cap contiguous bytes from the read position into out->p,
  * advancing past them. Stops at the first gap. Sets out->len. */
-void quic_stream_read_pull(quic_stream_read *s, quic_obuf *out);
+void quic_stream_read_pull(quic_stream_read* s, quic_obuf* out);
 
 #endif

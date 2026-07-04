@@ -38,7 +38,7 @@ typedef struct {
 /* Initialize an active connection with an empty keyset and no bytes counted.
  * No level can send until keys are installed; the send level starts below
  * Initial so the first send must promote into Initial. */
-void quic_connloop_init(quic_connloop *c, int is_server);
+void quic_connloop_init(quic_connloop* c, int is_server);
 
 /* RFC 9000 12.2: account a received datagram of len bytes at protection
  * `level` and, only when that level's key is installed and the connection is
@@ -46,7 +46,7 @@ void quic_connloop_init(quic_connloop *c, int is_server);
  * received bytes always raise the anti-amplification budget. Returns 1 if the
  * packet was processed, 0 if it was dropped (no key / discarded level / closed
  * phase). */
-int quic_connloop_on_recv(quic_connloop *c, int level, usz len);
+int quic_connloop_on_recv(quic_connloop* c, int level, usz len);
 
 /* Everything quic_connloop_on_send needs besides the loop. */
 typedef struct {
@@ -63,17 +63,17 @@ typedef struct {
  * records the send (ack-eliciting packets are tracked, with `in->pn` as the
  * packet number) and arms the PTO timer when ack-eliciting data is in flight.
  * Returns 1 if sent, 0 if refused. */
-int quic_connloop_on_send(quic_connloop *c, const quic_connloop_send_in *in);
+int quic_connloop_on_send(quic_connloop* c, const quic_connloop_send_in* in);
 
 /* RFC 9000 8.1: mark the peer's address validated (a Handshake packet was
  * received, or path validation completed). Lifts the anti-amplification limit
  * so subsequent sends are no longer capped at 3x the bytes received. */
-void quic_connloop_validate(quic_connloop *c);
+void quic_connloop_validate(quic_connloop* c);
 
 /* Everything quic_connloop_on_ack needs besides the loop. */
 typedef struct {
   u64        ack_largest;
-  const u64 *ack_ranges;
+  const u64* ack_ranges;
   usz        n_ranges;
 } quic_connloop_ack_in;
 
@@ -81,7 +81,7 @@ typedef struct {
  * genuinely-tracked packets from in-flight; an ACK naming an untracked packet
  * removes nothing. Disarms the PTO timer when in-flight becomes empty.
  * Returns the number of packets newly acknowledged. */
-usz quic_connloop_on_ack(quic_connloop *c, const quic_connloop_ack_in *in);
+usz quic_connloop_on_ack(quic_connloop* c, const quic_connloop_ack_in* in);
 
 /* Everything quic_connloop_on_pto needs besides the loop. */
 typedef struct {
@@ -94,13 +94,13 @@ typedef struct {
  * new in-flight packet `in->pn`) WITHOUT abandoning existing in-flight
  * packets. Only acts while there is ack-eliciting data in flight; never arms
  * on an empty in-flight set. Returns 1 if a probe was sent, 0 otherwise. */
-int quic_connloop_on_pto(quic_connloop *c, const quic_connloop_pto_in *in);
+int quic_connloop_on_pto(quic_connloop* c, const quic_connloop_pto_in* in);
 
 /* RFC 9000 10.2: drive the close sequence one step:
  * active -> closing (local CONNECTION_CLOSE), closing/active -> draining
  * (peer CONNECTION_CLOSE or idle timeout), draining -> closed. A
  * closing-family phase never returns to active. `peer_closed` selects the
  * draining path; otherwise the phase advances along its own track. */
-void quic_connloop_close(quic_connloop *c, int peer_closed);
+void quic_connloop_close(quic_connloop* c, int peer_closed);
 
 #endif

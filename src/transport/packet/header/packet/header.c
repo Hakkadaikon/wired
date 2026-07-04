@@ -3,7 +3,7 @@
 #include "common/bytes/span/span.h"
 
 /* Copy len bytes src->dst unconditionally (len already validated). */
-static void copy_cid(u8 *dst, const u8 *src, u8 len) {
+static void copy_cid(u8* dst, const u8* src, u8 len) {
   for (u8 i = 0; i < len; i++) dst[i] = src[i];
 }
 
@@ -15,7 +15,7 @@ static int cid_fits(u8 len, usz off, usz n) {
 
 /* Read one length-prefixed CID at buf. On success advances *off by 1+len,
  * copies the CID into dst->p and sets dst->n. Returns 1 ok, 0 truncated. */
-static int read_cid(quic_span buf, usz *off, quic_mspan *dst) {
+static int read_cid(quic_span buf, usz* off, quic_mspan* dst) {
   u8 len;
   if (*off >= buf.n) return 0;
   len = buf.p[*off];
@@ -27,7 +27,7 @@ static int read_cid(quic_span buf, usz *off, quic_mspan *dst) {
 }
 
 /* Read the length-prefixed DCID then SCID at *off into h. */
-static int read_cids(quic_span buf, usz *off, wired_header *h) {
+static int read_cids(quic_span buf, usz* off, wired_header* h) {
   quic_mspan d = quic_mspan_of(h->dcid, 0);
   quic_mspan s = quic_mspan_of(h->scid, 0);
   if (!read_cid(buf, off, &d)) return 0;
@@ -37,7 +37,7 @@ static int read_cids(quic_span buf, usz *off, wired_header *h) {
   return 1;
 }
 
-static usz parse_long(const u8 *buf, usz n, wired_header *h) {
+static usz parse_long(const u8* buf, usz n, wired_header* h) {
   usz off = 5; /* byte0 + 4-byte version */
   if (n < off) return 0;
   h->form      = WIRED_FORM_LONG;
@@ -50,7 +50,7 @@ static usz parse_long(const u8 *buf, usz n, wired_header *h) {
 
 /* Short header: byte0 then DCID of the connection's known local length
  * (the caller presets h->dcid_len). */
-static usz parse_short(const u8 *buf, usz n, wired_header *h) {
+static usz parse_short(const u8* buf, usz n, wired_header* h) {
   u8 dcid_len = h->dcid_len;
   if (!cid_fits(dcid_len, 0, n)) return 0;
   h->form = WIRED_FORM_SHORT;
@@ -59,14 +59,14 @@ static usz parse_short(const u8 *buf, usz n, wired_header *h) {
   return 1 + (usz)dcid_len;
 }
 
-usz wired_header_parse(const u8 *buf, usz n, wired_header *h) {
+usz wired_header_parse(const u8* buf, usz n, wired_header* h) {
   if (n == 0) return 0;
   if (buf[0] & 0x80) return parse_long(buf, n, h);
   return parse_short(buf, n, h);
 }
 
 /* Append a length-prefixed CID; advance out->len. Returns 1 ok, 0 no room. */
-static int write_cid(quic_obuf *out, quic_span cid) {
+static int write_cid(quic_obuf* out, quic_span cid) {
   if (out->len + 1 + cid.n > out->cap) return 0;
   out->p[out->len] = (u8)cid.n;
   for (usz i = 0; i < cid.n; i++) out->p[out->len + 1 + i] = cid.p[i];
@@ -76,7 +76,7 @@ static int write_cid(quic_obuf *out, quic_span cid) {
 
 /* Write byte0 (long form + fixed bit + type) and the 4-byte version into
  * buf (cap bytes). Returns 5 (bytes written) or 0 if it does not fit. */
-static usz put_long_prefix(u8 *buf, usz cap, const wired_header *h) {
+static usz put_long_prefix(u8* buf, usz cap, const wired_header* h) {
   if (cap < 5) return 0;
   buf[0] = 0xC0 | (u8)(h->long_type << 4);
   buf[1] = (u8)(h->version >> 24);
@@ -87,14 +87,14 @@ static usz put_long_prefix(u8 *buf, usz cap, const wired_header *h) {
 }
 
 /* Append both CIDs (dcid then scid); zero out->len on overflow. */
-static void write_cids(quic_obuf *out, const wired_header *h) {
+static void write_cids(quic_obuf* out, const wired_header* h) {
   const quic_span cid[2] = {
       quic_span_of(h->dcid, h->dcid_len), quic_span_of(h->scid, h->scid_len)};
   for (usz i = 0; i < 2; i++)
     if (!write_cid(out, cid[i])) out->len = 0;
 }
 
-usz wired_header_build_long(u8 *buf, usz cap, const wired_header *h) {
+usz wired_header_build_long(u8* buf, usz cap, const wired_header* h) {
   quic_obuf out = quic_obuf_of(buf, cap);
   out.len       = put_long_prefix(buf, cap, h);
   if (out.len != 0) write_cids(&out, h);

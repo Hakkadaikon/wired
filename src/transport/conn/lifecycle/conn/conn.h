@@ -39,14 +39,14 @@ typedef struct {
 } quic_conn;
 
 /* Initialize a connection: Initial phase, all packet numbers start at 0. */
-void quic_conn_init(quic_conn *c);
+void quic_conn_init(quic_conn* c);
 
 /* Apply ev to c->phase. Returns 1 if allowed (phase updated), 0 otherwise. */
-int quic_conn_step(quic_conn *c, quic_conn_event ev);
+int quic_conn_step(quic_conn* c, quic_conn_event ev);
 
 /* Allocate the next packet number in `space`, writing it to *pn and bumping
  * the counter. The Application space is refused before the handshake is
  * confirmed (RFC 9000 12.5). Returns 1 on success, 0 if refused. */
-int quic_conn_next_pn(quic_conn *c, quic_pn_space space, u64 *pn);
+int quic_conn_next_pn(quic_conn* c, quic_pn_space space, u64* pn);
 
 #endif

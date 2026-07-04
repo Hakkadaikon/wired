@@ -6,7 +6,7 @@
 #define put_be16 quic_put_be16
 #define put_be32 quic_put_be32
 
-usz quic_ipv4_build(u8 out[QUIC_IPV4_HDR], const quic_ipv4_head *h) {
+usz quic_ipv4_build(u8 out[QUIC_IPV4_HDR], const quic_ipv4_head* h) {
   for (usz i = 0; i < QUIC_IPV4_HDR; i++) out[i] = 0;
   out[0] = 0x45; /* version 4, IHL 5 (20 bytes) */
   put_be16(out + 2, h->total_len);
@@ -18,6 +18,6 @@ usz quic_ipv4_build(u8 out[QUIC_IPV4_HDR], const quic_ipv4_head *h) {
   return QUIC_IPV4_HDR;
 }
 
-int quic_ipv4_check(const u8 *hdr) {
+int quic_ipv4_check(const u8* hdr) {
   return quic_cksum(hdr, QUIC_IPV4_HDR) == 0; /* sum incl. checksum == 0 */
 }

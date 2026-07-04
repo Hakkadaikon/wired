@@ -30,7 +30,7 @@ static quic_span tail_span(quic_span buf, usz off) {
 
 /* After the header (off bytes), decode the trailing value string into val.
  * Returns total bytes, or 0 if the header failed or the value did not fit. */
-static usz decode_value(quic_span buf, usz off, quic_obuf *val) {
+static usz decode_value(quic_span buf, usz off, quic_obuf* val) {
   usz w = off ? quic_qpack_string_decode(tail_span(buf, off), val) : 0;
   return join(off, w);
 }
@@ -44,13 +44,13 @@ static usz encode_value(quic_mspan buf, usz off, quic_span value) {
 }
 
 /* High bits of the name-reference first byte for the given flags. */
-static u8 namref_prefix(const quic_qpack_nameref *r) {
+static u8 namref_prefix(const quic_qpack_nameref* r) {
   return QPACK_NAMREF | bit(r->never, QPACK_NAMREF_N) |
          bit(r->is_static, QPACK_NAMREF_T);
 }
 
 usz quic_qpack_literal_namref_encode(
-    quic_mspan buf, const quic_qpack_nameref *r, quic_span value) {
+    quic_mspan buf, const quic_qpack_nameref* r, quic_span value) {
   quic_qpack_pfx pfx = {4, namref_prefix(r)};
   usz            off = quic_qpack_int_encode(buf, pfx, r->index);
   return encode_value(buf, off, value);
@@ -62,7 +62,7 @@ static int is_namref(quic_span buf) {
 }
 
 usz quic_qpack_literal_namref_decode(
-    quic_span buf, quic_qpack_nameref *r, quic_obuf *val) {
+    quic_span buf, quic_qpack_nameref* r, quic_obuf* val) {
   usz off;
   if (!is_namref(buf)) return 0;
   r->never     = flag(buf.p[0], QPACK_NAMREF_N);
@@ -83,7 +83,7 @@ static usz litname_name_encode(quic_mspan buf, int never, quic_span name) {
 }
 
 usz quic_qpack_literal_name_encode(
-    quic_mspan buf, int never, const quic_qpack_field *f) {
+    quic_mspan buf, int never, const quic_qpack_field* f) {
   usz off = litname_name_encode(buf, never, f->name);
   return encode_value(buf, off, f->value);
 }
@@ -95,7 +95,7 @@ static int is_litname(quic_span buf) {
 }
 
 /* H=0: copy the name octets into nm. Returns 1 ok, 0 on overflow. */
-static int name_raw(quic_span oct, quic_obuf *nm) {
+static int name_raw(quic_span oct, quic_obuf* nm) {
   usz off = 0;
   if (oct.n > nm->cap) return 0;
   if (!quic_take_bytes(
@@ -107,7 +107,7 @@ static int name_raw(quic_span oct, quic_obuf *nm) {
 
 /* Recover the name octets per the H flag (RFC 7541 5.2): H=1 is Huffman, H=0
  * is raw. Returns 1 ok, 0. */
-static int name_octets(quic_span oct, int huff, quic_obuf *nm) {
+static int name_octets(quic_span oct, int huff, quic_obuf* nm) {
   return huff ? quic_qpack_huffman_decode(oct, nm) : name_raw(oct, nm);
 }
 
@@ -118,7 +118,7 @@ static int litname_bounds(usz off, u64 len, usz n) {
 
 /* Decode the 4.5.6 name into nm. Returns bytes used from buf, or 0 on
  * truncation or overflow. huff is the first byte's H flag. */
-static usz litname_name_decode(quic_span buf, int huff, quic_obuf *nm) {
+static usz litname_name_decode(quic_span buf, int huff, quic_obuf* nm) {
   u64 len;
   usz off = quic_qpack_int_decode(buf, 3, &len);
   if (!litname_bounds(off, len, buf.n)) return 0;
@@ -127,7 +127,7 @@ static usz litname_name_decode(quic_span buf, int huff, quic_obuf *nm) {
 }
 
 usz quic_qpack_literal_name_decode(
-    quic_span buf, int *never, quic_qpack_fieldbuf *out) {
+    quic_span buf, int* never, quic_qpack_fieldbuf* out) {
   usz off;
   if (!is_litname(buf)) return 0;
   *never = flag(buf.p[0], QPACK_LITNAME_N);

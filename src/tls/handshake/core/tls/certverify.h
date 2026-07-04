@@ -16,7 +16,7 @@ typedef struct {
   u16       scheme;
   quic_span cert;
   quic_span sig;
-  const u8 *transcript_hash; /* 32 bytes */
+  const u8* transcript_hash; /* 32 bytes */
 } quic_certverify_in;
 
 /* RFC 8446 4.4.3. Verify a server CertificateVerify signature against the
@@ -25,6 +25,6 @@ typedef struct {
  * CertificateVerify", a 0x00 separator, then the transcript hash. in->scheme
  * selects the algorithm and the certificate's public key type. Returns 1 if
  * the signature verifies, 0 otherwise. */
-int quic_tls_verify_cert_signature(const quic_certverify_in *in);
+int quic_tls_verify_cert_signature(const quic_certverify_in* in);
 
 #endif

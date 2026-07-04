@@ -36,14 +36,14 @@ int quic_x509_is_p384(quic_span oid) {
 }
 
 /* RFC 5280 4.1.1.2. The algorithm OID inside an AlgorithmIdentifier. */
-static int spki_alg_oid(quic_span alg, quic_span *oid) {
+static int spki_alg_oid(quic_span alg, quic_span* oid) {
   quic_derseq c;
   quic_derseq_init(&c, alg);
   return quic_derseq_next_tagged(&c, QUIC_DER_OID, oid);
 }
 
 /* RFC 5280 4.1.2.7. Split a SPKI value into algorithm OID and key bits. */
-static int split_spki(quic_span spki, quic_span *oid, quic_span *key) {
+static int split_spki(quic_span spki, quic_span* oid, quic_span* key) {
   quic_derseq c;
   quic_span   alg;
   quic_derseq_init(&c, spki);
@@ -53,20 +53,20 @@ static int split_spki(quic_span spki, quic_span *oid, quic_span *key) {
 }
 
 /* Walk tbs to the subjectPublicKeyInfo element value. */
-static int reach_spki(quic_span tbs, quic_span *spki) {
+static int reach_spki(quic_span tbs, quic_span* spki) {
   quic_derseq c;
   return quic_x509_tbs_cursor(tbs, &c) && quic_derseq_skip(&c, SPKI_SKIP) &&
          quic_derseq_next_tagged(&c, QUIC_DER_SEQUENCE, spki);
 }
 
-int quic_x509_public_key(quic_span tbs, quic_span *alg_oid, quic_span *key) {
+int quic_x509_public_key(quic_span tbs, quic_span* alg_oid, quic_span* key) {
   quic_span spki;
   return reach_spki(tbs, &spki) && split_spki(spki, alg_oid, key);
 }
 
 /* RFC 5480 2.1.1. The namedCurve OID: the AlgorithmIdentifier's second
  * element (its parameters), after the id-ecPublicKey OID. */
-static int alg_named_curve(quic_span alg, quic_span *oid) {
+static int alg_named_curve(quic_span alg, quic_span* oid) {
   quic_derseq c;
   quic_span   first;
   quic_derseq_init(&c, alg);
@@ -75,7 +75,7 @@ static int alg_named_curve(quic_span alg, quic_span *oid) {
 }
 
 /* The SPKI's algorithm SEQUENCE value. */
-static int reach_alg(quic_span tbs, quic_span *alg) {
+static int reach_alg(quic_span tbs, quic_span* alg) {
   quic_span   spki;
   quic_derseq c;
   if (!reach_spki(tbs, &spki)) return 0;
@@ -83,7 +83,7 @@ static int reach_alg(quic_span tbs, quic_span *alg) {
   return quic_derseq_next_tagged(&c, QUIC_DER_SEQUENCE, alg);
 }
 
-int quic_x509_ec_curve(quic_span tbs, quic_span *curve_oid) {
+int quic_x509_ec_curve(quic_span tbs, quic_span* curve_oid) {
   quic_span alg;
   if (!reach_alg(tbs, &alg)) return 0;
   return alg_named_curve(alg, curve_oid);

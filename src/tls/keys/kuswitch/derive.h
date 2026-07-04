@@ -9,7 +9,7 @@
  * unchanged across a key update, so next_keys->hp is left untouched. */
 void quic_kuswitch_next_keys(
     const u8           current_secret[QUIC_HKDF_PRK],
-    quic_initial_keys *next_keys,
+    quic_initial_keys* next_keys,
     u8                 next_secret[QUIC_HKDF_PRK]);
 
 #endif

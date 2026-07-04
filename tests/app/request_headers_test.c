@@ -6,7 +6,7 @@
 static void test_get_field_section(void) {
   u8        out[64];
   quic_obuf ob   = {out, sizeof out, 0};
-  const u8 *path = (const u8 *)"/", *authority = (const u8 *)"example.com";
+  const u8 *path = (const u8*)"/", *authority = (const u8*)"example.com";
   u64       idx       = 0;
   int       is_static = 0;
   usz       used;
@@ -40,7 +40,7 @@ static void test_get_field_section(void) {
 static void test_get_overflow(void) {
   u8        out[3];
   quic_obuf ob   = {out, sizeof out, 0};
-  const u8 *path = (const u8 *)"/", *authority = (const u8 *)"example.com";
+  const u8 *path = (const u8*)"/", *authority = (const u8*)"example.com";
   quic_h3req_headers_in hin = {
       quic_span_of(path, 1), quic_span_of(authority, 11)};
   CHECK(quic_h3req_enc_get(&hin, &ob) == 0);

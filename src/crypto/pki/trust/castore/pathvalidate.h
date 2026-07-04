@@ -12,6 +12,6 @@
  * trust anchor in s: a registered root whose subject equals the tail's issuer
  * (and which signs the tail). Returns 1 if the whole path validates, else 0. */
 int quic_castore_validate_chain(
-    const quic_castore *s, const quic_span *certs, usz n_certs);
+    const quic_castore* s, const quic_span* certs, usz n_certs);
 
 #endif

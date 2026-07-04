@@ -6,12 +6,12 @@
 static int appdata_frame_flat(
     u64       sid,
     u64       off,
-    const u8 *d,
+    const u8* d,
     usz       n,
     int       fin,
-    u8       *out,
+    u8*       out,
     usz       cap,
-    usz      *out_len) {
+    usz*      out_len) {
   quic_stream_frame f  = {sid, off, n, d, (u8)(fin ? 1 : 0)};
   quic_obuf         ob = quic_obuf_of(out, cap);
   if (!quic_appdata_stream_frame(&f, &ob)) return 0;
@@ -20,18 +20,18 @@ static int appdata_frame_flat(
 }
 
 static int appdata_send_flat(
-    const quic_initial_keys *k,
-    const quic_aes128       *hp,
-    const u8                *dcid,
+    const quic_initial_keys* k,
+    const quic_aes128*       hp,
+    const u8*                dcid,
     u8                       dcid_len,
     u64                      pn,
     u64                      sid,
-    const u8                *data,
+    const u8*                data,
     usz                      len,
     int                      fin,
-    u8                      *out,
+    u8*                      out,
     usz                      cap,
-    usz                     *out_len) {
+    usz*                     out_len) {
   quic_protect_keys pk = {k, hp};
   quic_appdata_tx   tx = {{dcid, dcid_len}, pn, sid, {data, len}, fin};
   quic_obuf         ob = quic_obuf_of(out, cap);
@@ -41,16 +41,16 @@ static int appdata_send_flat(
 }
 
 static int appdata_recv_flat(
-    const quic_initial_keys *k,
-    const quic_aes128       *hp,
-    u8                      *pkt,
+    const quic_initial_keys* k,
+    const quic_aes128*       hp,
+    u8*                      pkt,
     usz                      len,
     u8                       dcid_len,
-    u64                     *sid,
-    u64                     *off,
-    const u8               **data,
-    usz                     *dlen,
-    int                     *fin) {
+    u64*                     sid,
+    u64*                     off,
+    const u8**               data,
+    usz*                     dlen,
+    int*                     fin) {
   quic_protect_keys pk = {k, hp};
   quic_appdata_pkt  ap = {{pkt, len}, dcid_len};
   quic_stream_frame f;
@@ -121,8 +121,7 @@ static void test_stream_frame_off_nofin(void) {
 static void test_stream_frame_empty(void) {
   u8  out[32];
   usz olen = 0;
-  CHECK(
-      appdata_frame_flat(8, 0, (const u8 *)"", 0, 1, out, sizeof(out), &olen));
+  CHECK(appdata_frame_flat(8, 0, (const u8*)"", 0, 1, out, sizeof(out), &olen));
   CHECK(out[0] == (QUIC_FRAME_STREAM_BASE | QUIC_STREAM_LEN | QUIC_STREAM_FIN));
 
   quic_stream_frame f;

@@ -1,7 +1,7 @@
 #include "test.h"
 
 /* hb parses a 32-char hex string into 16 bytes. */
-static void hb(const char *hex, u8 out[16]) {
+static void hb(const char* hex, u8 out[16]) {
   for (usz i = 0; i < 16; i++) {
     u8 hi = hex[i * 2], lo = hex[i * 2 + 1];
     out[i] = (u8)(((hi <= '9' ? hi - '0' : hi - 'a' + 10) << 4) |

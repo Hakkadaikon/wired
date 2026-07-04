@@ -22,7 +22,7 @@
  * @param src bytes to append
  * @return 1 ok, 0 if no room.
  */
-static inline int quic_put_bytes(quic_mspan buf, usz *off, quic_span src) {
+static inline int quic_put_bytes(quic_mspan buf, usz* off, quic_span src) {
   if (*off + src.n > buf.n) return 0;
   for (usz i = 0; i < src.n; i++) buf.p[*off + i] = src.p[i];
   *off += src.n;
@@ -40,7 +40,7 @@ static inline int quic_put_bytes(quic_mspan buf, usz *off, quic_span src) {
  * @param dst destination; exactly dst.n bytes are copied
  * @return 1 ok, 0 if truncated.
  */
-static inline int quic_take_bytes(quic_span buf, usz *off, quic_mspan dst) {
+static inline int quic_take_bytes(quic_span buf, usz* off, quic_mspan dst) {
   if (*off + dst.n > buf.n) return 0;
   for (usz i = 0; i < dst.n; i++) dst.p[i] = buf.p[*off + i];
   *off += dst.n;
@@ -62,9 +62,9 @@ static inline int quic_take_bytes(quic_span buf, usz *off, quic_mspan dst) {
  * @param n   number of bytes to copy
  * @return dst
  */
-static inline void *quic_memcpy(void *dst, const void *src, usz n) {
-  u8       *d = dst;
-  const u8 *s = src;
+static inline void* quic_memcpy(void* dst, const void* src, usz n) {
+  u8*       d = dst;
+  const u8* s = src;
   for (usz i = 0; i < n; i++) d[i] = s[i];
   return dst;
 }
@@ -77,8 +77,8 @@ static inline void *quic_memcpy(void *dst, const void *src, usz n) {
  * @param n   number of bytes to fill
  * @return dst
  */
-static inline void *quic_memset(void *dst, int c, usz n) {
-  u8 *d = dst;
+static inline void* quic_memset(void* dst, int c, usz n) {
+  u8* d = dst;
   for (usz i = 0; i < n; i++) d[i] = (u8)c;
   return dst;
 }
@@ -89,7 +89,7 @@ static inline void *quic_memset(void *dst, int c, usz n) {
  * @param s NUL-terminated string
  * @return number of bytes before the terminating NUL
  */
-static inline usz quic_cstr_len(const char *s) {
+static inline usz quic_cstr_len(const char* s) {
   usz n = 0;
   while (s[n]) n++;
   return n;

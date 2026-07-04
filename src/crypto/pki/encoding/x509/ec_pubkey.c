@@ -7,7 +7,7 @@ static int is_uncompressed(quic_span key) {
   return key.p[0] == 0x00 && key.p[1] == 0x04;
 }
 
-static void copy32(u8 dst[32], const u8 *src) {
+static void copy32(u8 dst[32], const u8* src) {
   for (usz i = 0; i < 32; i++) dst[i] = src[i];
 }
 
@@ -24,7 +24,7 @@ static int is_uncompressed384(quic_span key) {
   return key.p[0] == 0x00 && key.p[1] == 0x04;
 }
 
-static void copy48(u8 dst[48], const u8 *src) {
+static void copy48(u8 dst[48], const u8* src) {
   for (usz i = 0; i < 48; i++) dst[i] = src[i];
 }
 

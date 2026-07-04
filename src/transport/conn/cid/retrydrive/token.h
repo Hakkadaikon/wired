@@ -8,6 +8,6 @@
  * Retry token; before any Retry the token is empty. Sets *token / *len to the
  * stored token when a Retry was accepted, else *len = 0 (empty token). */
 void quic_retrydrive_initial_token(
-    const quic_retrydrive_state *s, const u8 **token, usz *len);
+    const quic_retrydrive_state* s, const u8** token, usz* len);
 
 #endif

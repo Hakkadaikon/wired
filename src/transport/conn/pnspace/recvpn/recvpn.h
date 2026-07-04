@@ -17,17 +17,17 @@ typedef struct {
   int any;     /* whether anything has been recorded yet */
 } quic_recvpn;
 
-void quic_recvpn_init(quic_recvpn *r);
+void quic_recvpn_init(quic_recvpn* r);
 
 /* Whether packet number pn has already been recorded (a duplicate). */
-int quic_recvpn_seen(const quic_recvpn *r, u64 pn);
+int quic_recvpn_seen(const quic_recvpn* r, u64 pn);
 
 /* Record packet number pn as received. Numbers older than the window are
  * ignored (treated as already acknowledged). */
-void quic_recvpn_record(quic_recvpn *r, u64 pn);
+void quic_recvpn_record(quic_recvpn* r, u64 pn);
 
 /* The first ACK range: the count of contiguous packets ending at `largest`
  * that have been received (0 if none recorded). */
-u64 quic_recvpn_first_range(const quic_recvpn *r);
+u64 quic_recvpn_first_range(const quic_recvpn* r);
 
 #endif

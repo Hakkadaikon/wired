@@ -47,7 +47,7 @@ static void test_header_build_roundtrip(void) {
 
 static void test_header_truncated(void) {
   wired_header h;
-  CHECK(wired_header_parse((const u8 *)"", 0, &h) == 0);
+  CHECK(wired_header_parse((const u8*)"", 0, &h) == 0);
   /* claims DCID len 4 but only 2 bytes follow */
   const u8 bad[] = {0xC0, 0, 0, 0, 1, 4, 0xDE, 0xAD};
   CHECK(wired_header_parse(bad, sizeof(bad), &h) == 0);

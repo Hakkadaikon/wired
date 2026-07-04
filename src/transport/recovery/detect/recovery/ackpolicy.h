@@ -15,17 +15,17 @@ typedef struct {
   u64 since_tick; /* tick of the oldest currently-pending packet */
 } quic_ackpolicy;
 
-void quic_ackpolicy_init(quic_ackpolicy *p);
+void quic_ackpolicy_init(quic_ackpolicy* p);
 
 /* Record receipt of an ack-eliciting packet at the given tick. */
-void quic_ackpolicy_on_eliciting(quic_ackpolicy *p, u64 tick);
+void quic_ackpolicy_on_eliciting(quic_ackpolicy* p, u64 tick);
 
 /* Whether an ACK should be sent now: true once two or more ack-eliciting
  * packets are pending, or once max_ack_delay has elapsed since the oldest. */
 int quic_ackpolicy_should_ack(
-    const quic_ackpolicy *p, u64 now, u64 max_ack_delay);
+    const quic_ackpolicy* p, u64 now, u64 max_ack_delay);
 
 /* Clear pending state after an ACK has been sent. */
-void quic_ackpolicy_on_ack_sent(quic_ackpolicy *p);
+void quic_ackpolicy_on_ack_sent(quic_ackpolicy* p);
 
 #endif

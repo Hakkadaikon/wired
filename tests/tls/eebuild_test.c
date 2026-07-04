@@ -13,7 +13,7 @@ void test_eebuild(void) {
   u8        out[128];
   usz       body_len, used;
   u8        type;
-  const u8 *body;
+  const u8* body;
   quic_span tpd;
   quic_obuf ob = quic_obuf_of(out, sizeof(out));
 

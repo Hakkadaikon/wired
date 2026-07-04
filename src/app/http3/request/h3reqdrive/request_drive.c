@@ -11,7 +11,7 @@
 
 /* RFC 9114 4.1 / 4.3.1, RFC 9204 4.5 */
 int wired_h3reqdrive_send_method(
-    u64 stream_id, const wired_h3reqdrive_send_in *in, quic_obuf *out) {
+    u64 stream_id, const wired_h3reqdrive_send_in* in, quic_obuf* out) {
   u8                    fs[256];
   quic_obuf             fsb = quic_obuf_of(fs, sizeof(fs));
   quic_h3req_headers_in hin = {in->path, in->authority};
@@ -23,7 +23,7 @@ int wired_h3reqdrive_send_method(
 
 /* RFC 9114 4.1 / 4.3.1, RFC 9204 4.5 */
 int wired_h3reqdrive_send_get(
-    u64 stream_id, const wired_h3reqdrive_get_in *in, quic_obuf *out) {
+    u64 stream_id, const wired_h3reqdrive_get_in* in, quic_obuf* out) {
   static const u8          method[] = {'G', 'E', 'T'};
   wired_h3reqdrive_send_in sin      = {
       quic_span_of(method, 3), in->path, in->authority, quic_span_of(0, 0)};
@@ -33,32 +33,32 @@ int wired_h3reqdrive_send_get(
 /* One recovered field line: name and value, each borrowed from the static
  * table or copied into the caller's scratch. */
 typedef struct {
-  const u8 *name;
+  const u8* name;
   usz       name_len;
-  const u8 *value;
+  const u8* value;
   usz       value_len;
   usz scratch_used; /* scratch octets this line occupies (0 if borrowed) */
 } rline;
 
 /* Length of a NUL-terminated static-table string. */
-static usz cstr_len(const char *s) {
+static usz cstr_len(const char* s) {
   usz i = 0;
   while (s[i]) i++;
   return i;
 }
 
 /* Borrow the static entry's name/value into L (both NUL-terminated strings). */
-static void borrow_static(const char *name, const char *value, rline *L) {
-  L->name         = (const u8 *)name;
+static void borrow_static(const char* name, const char* value, rline* L) {
+  L->name         = (const u8*)name;
   L->name_len     = cstr_len(name);
-  L->value        = (const u8 *)value;
+  L->value        = (const u8*)value;
   L->value_len    = cstr_len(value);
   L->scratch_used = 0;
 }
 
 /* RFC 9204 4.5.2: an Indexed Field Line -> the static entry's name and value.
  */
-static usz line_indexed(quic_span fs, quic_mspan scr, rline *L) {
+static usz line_indexed(quic_span fs, quic_mspan scr, rline* L) {
   u64         index     = 0;
   int         is_static = 0;
   const char *name = 0, *value = 0;
@@ -71,13 +71,13 @@ static usz line_indexed(quic_span fs, quic_mspan scr, rline *L) {
 
 /* RFC 9204 4.5.4: a Literal With Name Reference -> static name, copied value.
  */
-static usz line_namref(quic_span fs, quic_mspan scr, rline *L) {
+static usz line_namref(quic_span fs, quic_mspan scr, rline* L) {
   quic_qpack_nameref r    = {0, 0, 0};
   quic_obuf          vb   = quic_obuf_of(scr.p, scr.n);
-  const char        *name = 0, *value = 0;
+  const char *       name = 0, *value = 0;
   usz                c = quic_qpack_literal_namref_decode(fs, &r, &vb);
   if (!c || !quic_qpack_static_get((usz)r.index, &name, &value)) return 0;
-  L->name         = (const u8 *)name;
+  L->name         = (const u8*)name;
   L->name_len     = cstr_len(name);
   L->value        = scr.p;
   L->value_len    = vb.len;
@@ -87,7 +87,7 @@ static usz line_namref(quic_span fs, quic_mspan scr, rline *L) {
 
 /* RFC 9204 4.5.6: a Literal With Literal Name -> name in the first scratch
  * half, value in the second (disjoint, since both are written in one call). */
-static usz line_litname(quic_span fs, quic_mspan scr, rline *L) {
+static usz line_litname(quic_span fs, quic_mspan scr, rline* L) {
   int                 never = 0;
   usz                 half  = scr.n / 2;
   quic_qpack_fieldbuf fb    = {
@@ -103,7 +103,7 @@ static usz line_litname(quic_span fs, quic_mspan scr, rline *L) {
 }
 
 /* RFC 9204 4.5: decode one field line of any of the three forms. */
-static usz decode_line(quic_span fs, quic_mspan scr, rline *L) {
+static usz decode_line(quic_span fs, quic_mspan scr, rline* L) {
   usz c = line_indexed(fs, scr, L);
   if (c) return c;
   c = line_namref(fs, scr, L);
@@ -120,10 +120,10 @@ static int is_request_pseudo(quic_h3_ph_kind k) {
 /* Store one recovered line into r if it is a request pseudo-header; regular
  * fields and unknown pseudo-headers are ignored (RFC 9114 4.3.1). The slot
  * tables are indexed by kind, whose enum order matches the struct fields. */
-static void classify_line(const rline *L, wired_h3reqdrive_req *r) {
-  const u8 **val[] = {0,        &r->method,  &r->scheme, &r->authority,
+static void classify_line(const rline* L, wired_h3reqdrive_req* r) {
+  const u8** val[] = {0,        &r->method,  &r->scheme, &r->authority,
                       &r->path, &r->protocol};
-  usz       *len[] = {
+  usz*       len[] = {
       0,
       &r->method_len,
       &r->scheme_len,
@@ -148,7 +148,7 @@ typedef struct {
 
 /* Decode one line at cur->off into r, advancing cur. Returns 1 ok, 0 on a
  * malformed line. */
-static int step_line(rd_cursor *cur, wired_h3reqdrive_req *r) {
+static int step_line(rd_cursor* cur, wired_h3reqdrive_req* r) {
   rline L;
   usz   c = decode_line(
       quic_span_of(cur->fs.p + cur->off, cur->fs.n - cur->off),
@@ -162,7 +162,7 @@ static int step_line(rd_cursor *cur, wired_h3reqdrive_req *r) {
 
 /* Walk field lines from cur->off to cur->fs.n into r. Returns 1 ok, 0 on a
  * malformed line. */
-static int scan_lines(rd_cursor *cur, wired_h3reqdrive_req *r) {
+static int scan_lines(rd_cursor* cur, wired_h3reqdrive_req* r) {
   while (cur->off < cur->fs.n)
     if (!step_line(cur, r)) return 0;
   return 1;
@@ -170,7 +170,7 @@ static int scan_lines(rd_cursor *cur, wired_h3reqdrive_req *r) {
 
 /* RFC 9114 4.3.1: walk every field line after the section prefix in any order
  * or count, recovering the request pseudo-headers into r by name. */
-static int decode_lines(quic_span fs, quic_mspan scr, wired_h3reqdrive_req *r) {
+static int decode_lines(quic_span fs, quic_mspan scr, wired_h3reqdrive_req* r) {
   rd_cursor cur = {fs, scr, 0, 0};
   cur.off       = quic_qpack_prefix_decode(fs.p, fs.n, &(quic_qpack_prefix){0});
   if (!cur.off) return 0;
@@ -179,7 +179,7 @@ static int decode_lines(quic_span fs, quic_mspan scr, wired_h3reqdrive_req *r) {
 
 /* RFC 9114 4.1, RFC 9204 4.5 */
 int wired_h3reqdrive_recv_get(
-    quic_span stream_data, quic_mspan scratch, wired_h3reqdrive_req *r) {
+    quic_span stream_data, quic_mspan scratch, wired_h3reqdrive_req* r) {
   quic_span fs = quic_span_of(0, 0);
   *r           = (wired_h3reqdrive_req){0};
   if (!wired_h3reqdrive_request_sections(stream_data, &fs, r)) return 0;

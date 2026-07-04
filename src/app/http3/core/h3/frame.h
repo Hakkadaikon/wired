@@ -59,26 +59,26 @@ typedef struct {
  * place, no copy). */
 typedef struct {
   u64       type;
-  const u8 *payload;
+  const u8* payload;
   u64       payload_len;
 } quic_h3_frame;
 
 /* Generic frame (Type Length Payload). Encode returns bytes written or 0;
  * decode returns bytes consumed or 0 and views payload in place (no copy). */
-usz quic_h3_frame_put(quic_obuf *out, u64 type, quic_span payload);
-usz quic_h3_frame_get(quic_span buf, quic_h3_frame *f);
+usz quic_h3_frame_put(quic_obuf* out, u64 type, quic_span payload);
+usz quic_h3_frame_get(quic_span buf, quic_h3_frame* f);
 
 /* Single-varint-payload frames: CANCEL_PUSH / MAX_PUSH_ID carry a Push ID,
  * GOAWAY carries a Stream ID or Push ID. */
-usz quic_h3_cancel_push_put(u8 *buf, usz cap, u64 push_id);
-usz quic_h3_cancel_push_get(const u8 *buf, usz n, u64 *push_id);
-usz quic_h3_goaway_put(u8 *buf, usz cap, u64 id);
-usz quic_h3_goaway_get(const u8 *buf, usz n, u64 *id);
-usz quic_h3_max_push_id_put(u8 *buf, usz cap, u64 push_id);
-usz quic_h3_max_push_id_get(const u8 *buf, usz n, u64 *push_id);
+usz quic_h3_cancel_push_put(u8* buf, usz cap, u64 push_id);
+usz quic_h3_cancel_push_get(const u8* buf, usz n, u64* push_id);
+usz quic_h3_goaway_put(u8* buf, usz cap, u64 id);
+usz quic_h3_goaway_get(const u8* buf, usz n, u64* id);
+usz quic_h3_max_push_id_put(u8* buf, usz cap, u64 push_id);
+usz quic_h3_max_push_id_get(const u8* buf, usz n, u64* push_id);
 
 /* SETTINGS: payload is a sequence of (Identifier Value) varint pairs. */
-usz quic_h3_settings_put(u8 *buf, usz cap, const quic_h3_settings *s);
-usz quic_h3_settings_get(const u8 *buf, usz n, quic_h3_settings *s);
+usz quic_h3_settings_put(u8* buf, usz cap, const quic_h3_settings* s);
+usz quic_h3_settings_get(const u8* buf, usz n, quic_h3_settings* s);
 
 #endif

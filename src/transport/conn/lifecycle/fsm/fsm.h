@@ -13,7 +13,7 @@ typedef struct {
 
 /* A transition table: rows[0..count). */
 typedef struct {
-  const quic_fsm_row *rows;
+  const quic_fsm_row* rows;
   usz                 count;
 } quic_fsm_table;
 
@@ -21,6 +21,6 @@ typedef struct {
 
 /* Apply ev to *state using `table`. On a matching row, set *state to its `to`
  * and return 1. Otherwise leave *state unchanged and return 0. */
-int quic_fsm_step(u8 *state, const quic_fsm_table *table, u8 ev);
+int quic_fsm_step(u8* state, const quic_fsm_table* table, u8 ev);
 
 #endif

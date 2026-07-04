@@ -2,7 +2,7 @@
 #include "tls/handshake/core/tls/cert.h"
 
 /* One CertificateEntry: cert_data (3-byte length) + empty extensions. */
-static usz cc_entry(u8 *out, const u8 *cert, usz n) {
+static usz cc_entry(u8* out, const u8* cert, usz n) {
   out[0] = (u8)(n >> 16);
   out[1] = (u8)(n >> 8);
   out[2] = (u8)n;
@@ -14,7 +14,7 @@ static usz cc_entry(u8 *out, const u8 *cert, usz n) {
 
 /* A Certificate message body (RFC 8446 4.4.2, after the handshake header):
  * ctx(1)=0 | list_len(3) | entries. */
-static usz cc_body(u8 *out, const u8 *const *certs, const usz *lens, usz k) {
+static usz cc_body(u8* out, const u8* const* certs, const usz* lens, usz k) {
   usz off = 4, list;
   out[0]  = 0;
   for (usz i = 0; i < k; i++) off += cc_entry(out + off, certs[i], lens[i]);
@@ -32,7 +32,7 @@ static const u8 cc_c[2] = {0xc1, 0xc2};
 /* [leaf, issuer]: both entries viewed, leaf first, lengths exact. */
 static void test_cert_chain_two(void) {
   u8                  body[64];
-  const u8           *certs[2] = {cc_a, cc_b};
+  const u8*           certs[2] = {cc_a, cc_b};
   usz                 lens[2]  = {sizeof(cc_a), sizeof(cc_b)};
   quic_tls_cert_entry e[QUIC_TLS_CERT_CHAIN_MAX];
   quic_span           ctx;
@@ -49,7 +49,7 @@ static void test_cert_chain_two(void) {
 /* 1 entry and 3 entries both enumerate fully. */
 static void test_cert_chain_counts(void) {
   u8                  body[64];
-  const u8           *certs[3] = {cc_a, cc_b, cc_c};
+  const u8*           certs[3] = {cc_a, cc_b, cc_c};
   usz                 lens[3]  = {sizeof(cc_a), sizeof(cc_b), sizeof(cc_c)};
   quic_tls_cert_entry e[QUIC_TLS_CERT_CHAIN_MAX];
   quic_span           ctx;
@@ -71,7 +71,7 @@ static void test_cert_chain_counts(void) {
 /* More entries than cap is rejected (fail closed), not truncated. */
 static void test_cert_chain_overflow(void) {
   u8        body[96];
-  const u8 *certs[5] = {cc_a, cc_a, cc_a, cc_a, cc_a};
+  const u8* certs[5] = {cc_a, cc_a, cc_a, cc_a, cc_a};
   usz       lens[5]  = {
       sizeof(cc_a), sizeof(cc_a), sizeof(cc_a), sizeof(cc_a), sizeof(cc_a)};
   quic_tls_cert_entry e[QUIC_TLS_CERT_CHAIN_MAX];
@@ -86,7 +86,7 @@ static void test_cert_chain_overflow(void) {
 /* A truncated entry (cert bytes or extensions cut off) is rejected. */
 static void test_cert_chain_truncated(void) {
   u8                  body[64];
-  const u8           *certs[2] = {cc_a, cc_b};
+  const u8*           certs[2] = {cc_a, cc_b};
   usz                 lens[2]  = {sizeof(cc_a), sizeof(cc_b)};
   quic_tls_cert_entry e[QUIC_TLS_CERT_CHAIN_MAX];
   quic_span           ctx;

@@ -9,7 +9,7 @@
  * raise if a caller's real event text gets ETOOBIG in practice. */
 #define QLOG_MAX_RECORD 4096
 
-ssz wired_qlog_append(const char *path, quic_span record) {
+ssz wired_qlog_append(const char* path, quic_span record) {
   u8 frame[QLOG_MAX_RECORD + QLOG_FRAME_OVERHEAD];
   if (record.n > QLOG_MAX_RECORD) return WIRED_FIO_ETOOBIG;
   frame[0] = QLOG_RS;

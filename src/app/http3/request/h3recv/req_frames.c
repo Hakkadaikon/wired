@@ -2,7 +2,7 @@
 
 #include "app/http3/core/h3/frame.h"
 
-int quic_h3req_recv_first_headers(quic_span stream, quic_span *field_section) {
+int quic_h3req_recv_first_headers(quic_span stream, quic_span* field_section) {
   quic_h3_frame f;
   /* RFC 9114 4.1: the first frame on a request stream is HEADERS. */
   if (quic_h3_frame_get(stream, &f) == 0) return 0;

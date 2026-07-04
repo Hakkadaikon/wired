@@ -10,7 +10,7 @@ static int scalar_in_range(const p256_fe v) {
 }
 
 /* Load Q; valid only if on the curve and not infinity. */
-static int load_pubkey(ec_point *q, const u8 px[32], const u8 py[32]) {
+static int load_pubkey(ec_point* q, const u8 px[32], const u8 py[32]) {
   quic_fp_from_be(q->x, px);
   quic_fp_from_be(q->y, py);
   q->inf = 0;
@@ -18,7 +18,7 @@ static int load_pubkey(ec_point *q, const u8 px[32], const u8 py[32]) {
 }
 
 /* R = u1*G + u2*Q, u = (u1, u2). */
-static void compute_r(ec_point *r, quic_fpab u, const ec_point *q) {
+static void compute_r(ec_point* r, quic_fpab u, const ec_point* q) {
   ec_point a, b;
   u8       u1b[32], u2b[32];
   quic_fp_to_be(u1b, u.a);
@@ -29,7 +29,7 @@ static void compute_r(ec_point *r, quic_fpab u, const ec_point *q) {
 }
 
 /* valid iff R is finite and (R.x mod n) == r. */
-static int check_r(const ec_point *rpt, const p256_fe r) {
+static int check_r(const ec_point* rpt, const p256_fe r) {
   p256_fe rx;
   if (rpt->inf) return 0;
   quic_fp_reduce(rx, rpt->x, quic_p256_n);
@@ -38,7 +38,7 @@ static int check_r(const ec_point *rpt, const p256_fe r) {
 
 /* Inputs accepted: r,s in range and Q a valid curve point. */
 static int inputs_ok(
-    ec_point     *q,
+    ec_point*     q,
     const p256_fe r,
     const p256_fe s,
     const u8      px[32],

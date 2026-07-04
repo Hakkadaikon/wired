@@ -12,19 +12,19 @@ static usz fmt_digits(char tmp[20], u64 v, usz width) {
   return k;
 }
 
-void wired_fmt_u64(char *out, usz *at, const wired_fmt_u64_in *in) {
+void wired_fmt_u64(char* out, usz* at, const wired_fmt_u64_in* in) {
   char tmp[20];
   usz  k = fmt_digits(tmp, in->v, in->width);
   while (k) out[(*at)++] = tmp[--k];
 }
 
-void wired_log_str(const char *s) {
+void wired_log_str(const char* s) {
   usz n = 0;
   while (s[n]) n++;
   syscall3(SYS_write, 2, (i64)s, (i64)n);
 }
 
-void wired_log_ts(const char *s) {
+void wired_log_ts(const char* s) {
   i64  ts[2] = {0, 0};
   char p[24];
   usz  at = 0;

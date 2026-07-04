@@ -10,14 +10,14 @@ static const u8 V1_GOLDEN[20] = {0x38, 0x76, 0x2c, 0xf7, 0xf5, 0x59, 0x34,
                                  0xb3, 0x4d, 0x17, 0x9a, 0xe6, 0xa4, 0xc8,
                                  0x0c, 0xad, 0xcc, 0xbb, 0x7f, 0x0a};
 
-static int same(const u8 *a, const u8 *b, usz n) {
+static int same(const u8* a, const u8* b, usz n) {
   for (usz i = 0; i < n; i++)
     if (a[i] != b[i]) return 0;
   return 1;
 }
 
 static void test_salt_values(void) {
-  const u8 *s;
+  const u8* s;
   usz       len;
   CHECK(quic_version_initial_salt(QUIC_VERSION_1, &s, &len) == 1);
   CHECK(len == 20 && same(s, V1_GOLDEN, 20));
@@ -29,15 +29,15 @@ static void test_salt_values(void) {
 static void test_salts_differ(void) { CHECK(!same(V1_GOLDEN, V2_GOLDEN, 20)); }
 
 static void test_unknown_version(void) {
-  const u8 *s   = (const u8 *)0x1;
+  const u8* s   = (const u8*)0x1;
   usz       len = 99;
   CHECK(quic_version_initial_salt(0xdeadbeefu, &s, &len) == 0);
-  CHECK(s == (const u8 *)0x1 && len == 99); /* outputs untouched */
+  CHECK(s == (const u8*)0x1 && len == 99); /* outputs untouched */
 }
 
 /* RFC 9369 3.3.1 label prefixes: "quic " (v1) vs "quicv2 " (v2). */
 static void test_label_prefix(void) {
-  const char *p;
+  const char* p;
   usz         len;
   CHECK(quic_version_label_prefix(QUIC_VERSION_1, &p, &len) == 1);
   CHECK(len == 5 && p[0] == 'q' && p[4] == ' ');

@@ -22,6 +22,6 @@ typedef struct {
 
 /* Build byte0, DCID and pn into out; total length to out->len. Returns 1 on
  * success, 0 on bad args (pn_len not 1..4) or insufficient room. */
-int quic_shorthdr_build(const quic_shorthdr_desc *d, quic_obuf *out);
+int quic_shorthdr_build(const quic_shorthdr_desc* d, quic_obuf* out);
 
 #endif

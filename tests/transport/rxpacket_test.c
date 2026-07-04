@@ -7,11 +7,11 @@
 
 /* Open one Initial packet; returns 1 and the frames view on success. */
 static int r_rx(
-    const quic_initial_keys *ik,
-    const quic_aes128       *hp,
-    u8                      *pkt,
+    const quic_initial_keys* ik,
+    const quic_aes128*       hp,
+    u8*                      pkt,
     usz                      n,
-    quic_span               *frames) {
+    quic_span*               frames) {
   quic_protect_keys k = {ik, hp};
   quic_rx_desc      d = {quic_mspan_of(pkt, n), 1};
   return quic_rx_packet(&k, &d, frames);
@@ -37,7 +37,7 @@ static void test_rxpacket_payload_view(void) {
 
   u8                pkt[256];
   quic_protect_keys k    = {&ik, &hp};
-  quic_span         none = quic_span_of((const u8 *)0, 0);
+  quic_span         none = quic_span_of((const u8*)0, 0);
   quic_tx_desc      td   = {0xc3, quic_span_of(dcid, 8),   none, 1, none,
                             5,    quic_span_of(frames, fl)};
   usz n = quic_tx_packet(&k, &td, quic_mspan_of(pkt, sizeof(pkt)));
@@ -60,7 +60,7 @@ static void test_rxpacket_too_short(void) {
 }
 
 /* Build one valid Initial packet for the rejection tests. dcid is fixed. */
-static usz build_pkt(quic_initial_keys *ik, quic_aes128 *hp, u8 *pkt, usz cap) {
+static usz build_pkt(quic_initial_keys* ik, quic_aes128* hp, u8* pkt, usz cap) {
   static const u8 dcid[8] = {9, 8, 7, 6, 5, 4, 3, 2};
   u8              frames[3];
   usz             fl = 0;
@@ -68,7 +68,7 @@ static usz build_pkt(quic_initial_keys *ik, quic_aes128 *hp, u8 *pkt, usz cap) {
   quic_aes128_init(hp, ik->hp);
   fl += quic_frame_put_simple(frames + fl, sizeof(frames), QUIC_FRAME_PING);
   quic_protect_keys k    = {ik, hp};
-  quic_span         none = quic_span_of((const u8 *)0, 0);
+  quic_span         none = quic_span_of((const u8*)0, 0);
   quic_tx_desc      td   = {0xc3, quic_span_of(dcid, 8),   none, 1, none,
                             5,    quic_span_of(frames, fl)};
   return quic_tx_packet(&k, &td, quic_mspan_of(pkt, cap));

@@ -3,7 +3,7 @@
 #include "crypto/pki/encoding/x509/chain.h"
 #include "crypto/pki/encoding/x509/x509.h"
 
-void quic_castore_init(quic_castore *s, quic_castore_entry *roots, usz cap) {
+void quic_castore_init(quic_castore* s, quic_castore_entry* roots, usz cap) {
   s->roots = roots;
   s->cap   = cap;
   s->count = 0;
@@ -15,7 +15,7 @@ static int parses_as_cert(quic_span cert_der) {
   return quic_x509_parse(cert_der, &c);
 }
 
-int quic_castore_add(quic_castore *s, quic_span cert_der) {
+int quic_castore_add(quic_castore* s, quic_span cert_der) {
   if (s->count >= s->cap) return 0;
   if (!parses_as_cert(cert_der)) return 0;
   s->roots[s->count] = cert_der;
@@ -33,7 +33,7 @@ static int entry_subject_matches(quic_span entry, quic_span issuer_dn) {
 }
 
 int quic_castore_find_by_subject(
-    const quic_castore *s, quic_span issuer_dn, quic_span *root) {
+    const quic_castore* s, quic_span issuer_dn, quic_span* root) {
   for (usz i = 0; i < s->count; i++) {
     if (!entry_subject_matches(s->roots[i], issuer_dn)) continue;
     *root = s->roots[i];

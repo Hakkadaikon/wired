@@ -27,7 +27,7 @@
 
 /* Split the server flight (EE || Cert || CertVerify || Finished) into its four
  * messages by walking the 4-byte handshake headers. */
-static int next_hs(const u8 *b, usz n, usz *p, const u8 **msg, usz *len) {
+static int next_hs(const u8* b, usz n, usz* p, const u8** msg, usz* len) {
   usz body;
   u8  type;
   if (*p + 4 > n) return 0;
@@ -42,7 +42,7 @@ static int next_hs(const u8 *b, usz n, usz *p, const u8 **msg, usz *len) {
  * was built with an empty one. Insert the 32 bytes after body offset 34 (the
  * session_id length byte), bump that byte to 32, and patch the 3-byte handshake
  * length. Returns the new total length. */
-static usz ch_with_sid(u8 *out, const u8 *ch, usz ch_len, const u8 sid[32]) {
+static usz ch_with_sid(u8* out, const u8* ch, usz ch_len, const u8 sid[32]) {
   usz tail = ch_len - (4 + 35); /* bytes after the len byte */
   for (usz i = 0; i < 4 + 35; i++) out[i] = ch[i];
   for (usz i = 0; i < 32; i++) out[4 + 35 + i] = sid[i];
@@ -74,9 +74,8 @@ static void test_sdrv_session_id_echo(void) {
   {
     static const u8 tp[1] = {0};
     ch_len                = quic_tls_client_hello(
-        &(quic_clienthello_in){
-            srv_random, cli_pub, quic_span_of(0, 0),
-            quic_span_of(tp, sizeof(tp))},
+        &(quic_clienthello_in){srv_random, cli_pub, quic_span_of(0, 0),
+                                              quic_span_of(tp, sizeof(tp))},
         &(quic_obuf){ch, sizeof(ch), 0});
   }
   CHECK(ch_len != 0);
@@ -116,11 +115,11 @@ static void test_sdrv_session_id_echo(void) {
 
 /* Build a ClientHello with a real x25519 key_share, sized for the caller. */
 static usz sdrv_test_client_hello(
-    u8 *ch, usz ch_cap, const u8 *cli_pub, const u8 *srv_random) {
+    u8* ch, usz ch_cap, const u8* cli_pub, const u8* srv_random) {
   static const u8 tp[1] = {0};
   return quic_tls_client_hello(
-      &(quic_clienthello_in){
-          srv_random, cli_pub, quic_span_of(0, 0), quic_span_of(tp, 1)},
+      &(quic_clienthello_in){srv_random, cli_pub, quic_span_of(0, 0),
+                             quic_span_of(tp, 1)},
       &(quic_obuf){ch, ch_cap, 0});
 }
 
@@ -128,17 +127,17 @@ static usz sdrv_test_client_hello(
  * writing the flight bytes into sh/flight and their lengths into *sh_len /
  * *hs_len. */
 static void sdrv_test_drive(
-    quic_sdrv               *s,
-    const quic_sdrv_init_in *in,
-    const u8                *ch,
+    quic_sdrv*               s,
+    const quic_sdrv_init_in* in,
+    const u8*                ch,
     usz                      ch_len,
-    const u8                *srv_random,
-    u8                      *sh,
+    const u8*                srv_random,
+    u8*                      sh,
     usz                      sh_cap,
-    usz                     *sh_len,
-    u8                      *flight,
+    usz*                     sh_len,
+    u8*                      flight,
     usz                      flight_cap,
-    usz                     *hs_len) {
+    usz*                     hs_len) {
   quic_obuf            sh_ob = quic_obuf_of(sh, sh_cap);
   quic_obuf            fl_ob = quic_obuf_of(flight, flight_cap);
   quic_sdrv_flight_out fo    = {&sh_ob, &fl_ob};
@@ -364,7 +363,7 @@ void test_sdrv(void) {
   u8 sh_pub[32];
   quic_serverhello_out shout;
   usz                  ch_len, sh_len, hs_len, p = 0;
-  const u8            *ee, *cm, *cv, *fin, *srv_hs_secret;
+  const u8 *           ee, *cm, *cv, *fin, *srv_hs_secret;
   usz                  eel, cml, cvl, finl;
   u16                  cv_scheme;
   quic_span            cv_sig;
@@ -383,9 +382,8 @@ void test_sdrv(void) {
   {
     static const u8 tp[1] = {0};
     ch_len                = quic_tls_client_hello(
-        &(quic_clienthello_in){
-            srv_random, cli_pub, quic_span_of(0, 0),
-            quic_span_of(tp, sizeof(tp))},
+        &(quic_clienthello_in){srv_random, cli_pub, quic_span_of(0, 0),
+                                              quic_span_of(tp, sizeof(tp))},
         &(quic_obuf){ch, sizeof(ch), 0});
   }
   CHECK(ch_len != 0);
@@ -473,7 +471,7 @@ void test_sdrv(void) {
     static const u8 server_scid[] = {0x11, 0x22, 0x33, 0x44, 0x55};
     u8              ch2[512], sh2[256], flight2[2048];
     usz             hs2_len, q = 0;
-    const u8       *ee2;
+    const u8*       ee2;
     usz             ee2l;
     quic_span       tp, cid;
     quic_stp_out    cido = {0, &cid};
@@ -487,9 +485,8 @@ void test_sdrv(void) {
         &s2, quic_span_of(client_dcid, sizeof(client_dcid)),
         quic_span_of(server_scid, sizeof(server_scid))));
     ch_len = quic_tls_client_hello(
-        &(quic_clienthello_in){
-            srv_random, cli_pub, quic_span_of(0, 0),
-            quic_span_of((const u8 *)"\0", 1)},
+        &(quic_clienthello_in){srv_random, cli_pub, quic_span_of(0, 0),
+                               quic_span_of((const u8*)"\0", 1)},
         &(quic_obuf){ch2, sizeof(ch2), 0});
     CHECK(quic_sdrv_recv_client_hello(&s2, ch2, ch_len));
     {

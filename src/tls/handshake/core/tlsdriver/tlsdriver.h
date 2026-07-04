@@ -34,14 +34,14 @@ typedef struct {
   u8             my_pub[QUIC_ECDHE_LEN];
   u8             shared[QUIC_ECDHE_LEN];
   int            hs_ready; /* 1 once the handshake secret is derived */
-  const u8      *sni;      /* ClientHello server_name, view (caller-owned) */
+  const u8*      sni;      /* ClientHello server_name, view (caller-owned) */
   usz            sni_len;  /* 0 omits the SNI extension */
 } quic_tlsdriver;
 
 /* Hold the x25519 key pair and initialize the order machine, key schedule,
  * key set and CRYPTO reassembly. is_server selects the role. */
 void quic_tlsdriver_init(
-    quic_tlsdriver *d,
+    quic_tlsdriver* d,
     const u8        my_priv[QUIC_ECDHE_LEN],
     const u8        my_pub[QUIC_ECDHE_LEN],
     int             is_server);
@@ -49,29 +49,29 @@ void quic_tlsdriver_init(
 /* RFC 6066 3: set the server_name carried in our ClientHello. sni is a view;
  * the caller keeps it alive until the ClientHello is built. Never calling
  * this (or sni_len 0) omits the extension. */
-void quic_tlsdriver_set_sni(quic_tlsdriver *d, const u8 *sni, usz sni_len);
+void quic_tlsdriver_set_sni(quic_tlsdriver* d, const u8* sni, usz sni_len);
 
 /* Build the raw ClientHello bytes (zero random, our key_share, the configured
  * SNI) into out (cap bytes). Returns the length, 0 if it does not fit. */
-usz quic_tlsdriver_raw_client_hello(quic_tlsdriver *d, u8 *out, usz cap);
+usz quic_tlsdriver_raw_client_hello(quic_tlsdriver* d, u8* out, usz cap);
 
 /* Build a real ClientHello carrying our key_share and emit it as CRYPTO
  * frame(s) into out, writing the encoded length to out->len. Returns 1 on
  * success, 0 if it does not fit. */
-int quic_tlsdriver_client_hello(quic_tlsdriver *d, quic_obuf *out);
+int quic_tlsdriver_client_hello(quic_tlsdriver* d, quic_obuf* out);
 
 /* Feed one CRYPTO frame: reassemble it, and once a whole TLS message is
  * contiguous, take the peer key_share, compute the ECDHE shared secret and
  * advance the key schedule to the handshake secret (installing Handshake
  * keys). Returns 1 if the handshake secret is now derived, 0 otherwise. */
 int quic_tlsdriver_recv_crypto(
-    quic_tlsdriver *d, const u8 *crypto_frame, usz len);
+    quic_tlsdriver* d, const u8* crypto_frame, usz len);
 
 /* Point *shared at the derived 32-byte ECDHE shared secret. Returns 1 if it
  * has been derived, 0 otherwise. */
-int quic_tlsdriver_shared_secret(const quic_tlsdriver *d, const u8 **shared);
+int quic_tlsdriver_shared_secret(const quic_tlsdriver* d, const u8** shared);
 
 /* 1 once the handshake secret has been derived. */
-int quic_tlsdriver_handshake_secret_ready(const quic_tlsdriver *d);
+int quic_tlsdriver_handshake_secret_ready(const quic_tlsdriver* d);
 
 #endif

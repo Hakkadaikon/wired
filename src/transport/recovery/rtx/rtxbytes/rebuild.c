@@ -9,14 +9,14 @@ static int is_ack_or_padding(u64 type) {
   return type == QUIC_FRAME_PADDING || type == 0x02 || type == 0x03;
 }
 
-int quic_rtxbytes_retransmittable(const u8 *buf, usz len) {
+int quic_rtxbytes_retransmittable(const u8* buf, usz len) {
   u64 type;
   if (quic_varint_decode(buf, len, &type) == 0) return -1;
   return is_ack_or_padding(type) ? 0 : 1;
 }
 
 /* Copy the retransmittable frame bytes out. Returns 1 on success. */
-static int rebuild_copy(quic_span lost_frame, quic_obuf *out) {
+static int rebuild_copy(quic_span lost_frame, quic_obuf* out) {
   usz off = 0;
   if (!quic_put_bytes(
           quic_mspan_of(out->p, out->cap), &off,
@@ -26,7 +26,7 @@ static int rebuild_copy(quic_span lost_frame, quic_obuf *out) {
   return 1;
 }
 
-int quic_rtxbytes_rebuild(quic_span lost_frame, quic_obuf *out) {
+int quic_rtxbytes_rebuild(quic_span lost_frame, quic_obuf* out) {
   int rtx = quic_rtxbytes_retransmittable(lost_frame.p, lost_frame.n);
 
   if (rtx < 0) return 0;

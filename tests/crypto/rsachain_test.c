@@ -9,7 +9,7 @@ static quic_castore_entry rct_roots[2];
 
 /* Validate a one-cert wire chain [leaf] against a single-root store. */
 static int rct_validate(
-    const u8 *root, usz root_len, const u8 *leaf, usz leaf_len) {
+    const u8* root, usz root_len, const u8* leaf, usz leaf_len) {
   quic_castore s;
   quic_span    certs[1] = {quic_span_of(leaf, leaf_len)};
   quic_castore_init(&s, rct_roots, 2);

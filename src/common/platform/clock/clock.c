@@ -8,7 +8,7 @@ typedef struct {
 /* Days since 1970-01-01 to civil y/m/d (Howard Hinnant, civil_from_days).
  * The month term mp counts from March so leap days land at year end; a
  * January/February date (mp >= 10) belongs to the next civil year. */
-static void clock_civil(u64 days, clock_ymd *out) {
+static void clock_civil(u64 days, clock_ymd* out) {
   u64 z = days + 719468, era = z / 146097, doe = z - era * 146097;
   u64 yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
   u64 doy = doe - (365 * yoe + yoe / 4 - yoe / 100);

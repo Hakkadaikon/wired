@@ -3,7 +3,7 @@
 #include "test.h"
 
 /* Compare a digest against its expected bytes. */
-static int s384_eq(const u8 got[48], const u8 *want) {
+static int s384_eq(const u8 got[48], const u8* want) {
   usz diff = 0;
   for (usz i = 0; i < 48; i++) diff |= (usz)(got[i] ^ want[i]);
   return diff == 0;
@@ -30,9 +30,9 @@ static void test_sha384_vectors(void) {
       "abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmno"
       "ijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu";
   u8 got[48];
-  quic_sha384((const u8 *)"", 0, got);
+  quic_sha384((const u8*)"", 0, got);
   CHECK(s384_eq(got, want_empty));
-  quic_sha384((const u8 *)"abc", 3, got);
+  quic_sha384((const u8*)"abc", 3, got);
   CHECK(s384_eq(got, want_abc));
   quic_sha384(two_block, sizeof(two_block) - 1, got);
   CHECK(s384_eq(got, want_two));

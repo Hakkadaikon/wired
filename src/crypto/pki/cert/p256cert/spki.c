@@ -10,7 +10,7 @@ static const u8 oid_secp256r1[] = {0x2a, 0x86, 0x48, 0xce,
                                    0x3d, 0x03, 0x01, 0x07};
 
 /* RFC 5480 2.1.1. AlgorithmIdentifier SEQUENCE{ id-ecPublicKey, secp256r1 }. */
-static usz pc_build_alg(quic_obuf *out) {
+static usz pc_build_alg(quic_obuf* out) {
   u8                inner[32];
   quic_p256cert_enc e = {inner, sizeof(inner), 0, 1};
   quic_p256cert_put(
@@ -30,7 +30,7 @@ static void pack_point(u8 bits[66], const u8 x[32], const u8 y[32]) {
   quic_put_bytes(quic_mspan_of(bits, 66), &off, quic_span_of(y, 32));
 }
 
-int quic_p256cert_spki(const u8 x[32], const u8 y[32], quic_obuf *out) {
+int quic_p256cert_spki(const u8 x[32], const u8 y[32], quic_obuf* out) {
   u8                alg[32], bits[66], inner[128];
   quic_obuf         ao = quic_obuf_of(alg, sizeof(alg));
   quic_p256cert_enc e  = {inner, sizeof(inner), 0, 1};

@@ -1,7 +1,7 @@
 #include "test.h"
 
 /* uh2 parses hex into out; returns byte count. */
-static usz uh2(const char *hex, u8 *out) {
+static usz uh2(const char* hex, u8* out) {
   usz i = 0;
   while (hex[i * 2] != 0) {
     u8 hi = hex[i * 2], lo = hex[i * 2 + 1];
@@ -45,7 +45,7 @@ static void test_chapoly_open(void) {
     pt[i]  = (u8)(i * 7);
     dec[i] = 0xCC;
   }
-  quic_chapoly_ctx c = {key, nonce, {(const u8 *)"aad", 3}};
+  quic_chapoly_ctx c = {key, nonce, {(const u8*)"aad", 3}};
   quic_chapoly_seal(&c, quic_span_of(pt, 20), ct);
   CHECK(quic_chapoly_open(&c, quic_span_of(ct, 36), dec));
   for (usz i = 0; i < 20; i++) CHECK(dec[i] == pt[i]);

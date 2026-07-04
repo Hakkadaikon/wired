@@ -17,7 +17,7 @@
   (b) ^= (c);          \
   (b) = ROTL((b), 7)
 
-static u32 rd32(const u8 *p) {
+static u32 rd32(const u8* p) {
   return (u32)p[0] | ((u32)p[1] << 8) | ((u32)p[2] << 16) | ((u32)p[3] << 24);
 }
 
@@ -34,7 +34,7 @@ static void double_round(u32 x[16]) {
 }
 
 /* Build the initial 16-word state: constants, key, counter, nonce. */
-static void init_state(const u8 *key, u32 counter, const u8 *nonce, u32 s[16]) {
+static void init_state(const u8* key, u32 counter, const u8* nonce, u32 s[16]) {
   s[0] = 0x61707865;
   s[1] = 0x3320646e;
   s[2] = 0x79622d32;
@@ -68,7 +68,7 @@ void quic_chacha20_block(
 }
 
 /* XOR up to one block of keystream into out; returns bytes done. */
-static usz xor_chunk(const quic_chacha_ctx *c, quic_span in, u8 *out) {
+static usz xor_chunk(const quic_chacha_ctx* c, quic_span in, u8* out) {
   u8  ks[QUIC_CHACHA_BLOCK];
   usz n = (in.n < QUIC_CHACHA_BLOCK) ? in.n : QUIC_CHACHA_BLOCK;
   quic_chacha20_block(c->key, c->counter, c->nonce, ks);
@@ -76,7 +76,7 @@ static usz xor_chunk(const quic_chacha_ctx *c, quic_span in, u8 *out) {
   return n;
 }
 
-void quic_chacha20_xor(const quic_chacha_ctx *c, quic_span in, u8 *out) {
+void quic_chacha20_xor(const quic_chacha_ctx* c, quic_span in, u8* out) {
   quic_chacha_ctx cc  = *c;
   usz             off = 0;
   while (off < in.n) {

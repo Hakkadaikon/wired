@@ -29,12 +29,12 @@ typedef struct {
  * ticket, then the auth tag). The nonce is drawn fresh per call so the same
  * key never reuses a nonce. */
 void quic_ticket_seal(
-    const quic_ticket *t, const u8 key[QUIC_TICKET_KEY_LEN], u8 *out);
+    const quic_ticket* t, const u8 key[QUIC_TICKET_KEY_LEN], u8* out);
 
 /* Open a sealed ticket produced by quic_ticket_seal. in must span exactly
  * QUIC_TICKET_SEALED_LEN bytes. Returns 1 and fills *out on success; returns
  * 0 (leaving *out untouched) if the key is wrong or the bytes were altered. */
 int quic_ticket_open(
-    quic_span in, const u8 key[QUIC_TICKET_KEY_LEN], quic_ticket *out);
+    quic_span in, const u8 key[QUIC_TICKET_KEY_LEN], quic_ticket* out);
 
 #endif

@@ -17,20 +17,20 @@ typedef struct {
 
 /* Initialise a pool with the peer's active_connection_id_limit. The limit is
  * at least 2 per RFC 9000 5.1.1, but we accept whatever the peer sent. */
-void quic_cidpool_init(quic_cidpool *p, u64 limit);
+void quic_cidpool_init(quic_cidpool* p, u64 limit);
 
 /* Number of issued-but-not-retired connection IDs. */
-u64 quic_cidpool_active_count(const quic_cidpool *p);
+u64 quic_cidpool_active_count(const quic_cidpool* p);
 
 /* Issue the next sequence number. On success writes it to *seq and returns 1.
  * Returns 0 if issuing would exceed the active limit (the caller would have
  * to retire one first; sending more is a CONNECTION_ID_LIMIT_ERROR). */
-int quic_cidpool_issue(quic_cidpool *p, u64 *seq);
+int quic_cidpool_issue(quic_cidpool* p, u64* seq);
 
 /* Retire every sequence number below retire_prior_to (RFC 9000 5.1.2).
  * Returns 1 on success. Returns 0 if retire_prior_to exceeds next_seq, which
  * would retire a sequence number that was never issued (PROTOCOL_VIOLATION).
  * A retire_prior_to at or below the current floor is a no-op success. */
-int quic_cidpool_retire_prior_to(quic_cidpool *p, u64 retire_prior_to);
+int quic_cidpool_retire_prior_to(quic_cidpool* p, u64 retire_prior_to);
 
 #endif

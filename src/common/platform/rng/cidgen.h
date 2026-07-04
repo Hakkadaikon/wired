@@ -10,6 +10,6 @@ int quic_cid_len_valid(u8 len);
 
 /* Generate a len-byte random connection ID into cid.
    Returns 1 on success, 0 if len is out of range or RNG fails. */
-int quic_cid_generate(u8 *cid, u8 len);
+int quic_cid_generate(u8* cid, u8 len);
 
 #endif

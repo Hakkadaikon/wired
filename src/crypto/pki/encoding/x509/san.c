@@ -16,7 +16,7 @@ static u8 san_lower(u8 c) {
 }
 
 /* 1 if the two byte spans of equal length differ nowhere, ASCII-folded. */
-static int san_bytes_eq(const u8 *a, const u8 *b, usz n) {
+static int san_bytes_eq(const u8* a, const u8* b, usz n) {
   usz diff = 0;
   for (usz i = 0; i < n; i++) diff |= (usz)(san_lower(a[i]) ^ san_lower(b[i]));
   return diff == 0;
@@ -55,7 +55,7 @@ static int entry_matches(quic_span e, quic_span host) {
 }
 
 /* RFC 5280 4.2.1.6. The GeneralNames SEQUENCE value inside the extnValue. */
-static int san_names(quic_span tbs, quic_span *names) {
+static int san_names(quic_span tbs, quic_span* names) {
   quic_span san;
   if (!quic_x509_find_ext(tbs, quic_span_of(oid_san, sizeof(oid_san)), &san))
     return 0;

@@ -35,7 +35,7 @@ struct srv_fix {
 };
 
 /* Build a ClientHello with a real x25519 key_share into f. */
-static void make_client_hello(struct srv_fix *f) {
+static void make_client_hello(struct srv_fix* f) {
   static const u8 tp[1] = {0};
   u8              cli_pub[32];
   for (usz i = 0; i < 32; i++) {
@@ -44,14 +44,13 @@ static void make_client_hello(struct srv_fix *f) {
   }
   quic_x25519_base(cli_pub, f->cli_priv);
   f->ch_len = quic_tls_client_hello(
-      &(quic_clienthello_in){
-          f->srv_random, cli_pub, quic_span_of(0, 0),
-          quic_span_of(tp, sizeof(tp))},
+      &(quic_clienthello_in){f->srv_random, cli_pub, quic_span_of(0, 0),
+                             quic_span_of(tp, sizeof(tp))},
       &(quic_obuf){f->ch, sizeof(f->ch), 0});
 }
 
 /* Bring the server to FLIGHT_SENT and capture the flight bytes. */
-static void drive_to_flight(struct srv_fix *f) {
+static void drive_to_flight(struct srv_fix* f) {
   u8 srv_priv[32], srv_pub[32], cert_seed[32];
   for (usz i = 0; i < 32; i++) {
     srv_priv[i]  = (u8)(0x40 + i);
@@ -75,7 +74,7 @@ static void drive_to_flight(struct srv_fix *f) {
 /* RFC 8446 4.4.4: compute the genuine client Finished the way the client does:
  * base key = client hs traffic secret over the transcript through ServerHello;
  * verify_data over the transcript hash through the server Finished. */
-static void make_client_finished(struct srv_fix *f) {
+static void make_client_finished(struct srv_fix* f) {
   quic_serverhello_out sh;
   u8                   hs[32], c_traffic[32], th[32];
   quic_transcript      tr;
@@ -103,7 +102,7 @@ static void make_client_finished(struct srv_fix *f) {
 }
 
 /* Wrap a TLS message as a CRYPTO-frame payload for wired_server_feed. */
-static usz srv_wrap_crypto(const u8 *msg, usz len, u8 *out, usz cap) {
+static usz srv_wrap_crypto(const u8* msg, usz len, u8* out, usz cap) {
   usz                        n;
   quic_obuf                  ob  = quic_obuf_of(out, cap);
   quic_crypto_stream_emit_in ein = {0, 256};
@@ -124,7 +123,7 @@ static void test_server_happy(void) {
   /* 1-RTT not armed, not confirmed at flight time. */
   CHECK(wired_server_is_confirmed(&f.s) == 0);
   {
-    const quic_initial_keys *k;
+    const quic_initial_keys* k;
     CHECK(quic_keyset_for_level(&f.s.keys, QUIC_LEVEL_ONERTT, &k) == 0);
     CHECK(quic_keyset_for_level(&f.s.keys, QUIC_LEVEL_HANDSHAKE, &k) == 1);
   }
@@ -136,7 +135,7 @@ static void test_server_happy(void) {
   CHECK(wired_server_is_confirmed(&f.s) == 1);
   CHECK(f.s.phase == WIRED_SERVER_HS_CONFIRMED);
   {
-    const quic_initial_keys *k;
+    const quic_initial_keys* k;
     CHECK(quic_keyset_for_level(&f.s.keys, QUIC_LEVEL_ONERTT, &k) == 1);
   }
 
@@ -163,7 +162,7 @@ static void test_server_forged_finished(void) {
   CHECK(wired_server_is_confirmed(&f.s) == 0);
   CHECK(f.s.phase == WIRED_SERVER_HS_FLIGHT_SENT);
   {
-    const quic_initial_keys *k;
+    const quic_initial_keys* k;
     CHECK(quic_keyset_for_level(&f.s.keys, QUIC_LEVEL_ONERTT, &k) == 0);
   }
   hd_ob = quic_obuf_of(hsdone, sizeof(hsdone));
@@ -189,7 +188,7 @@ static void test_server_flight_before_ch(void) {
   wired_server_init(&f.s, &sin);
   CHECK(wired_server_build_flight(&f.s, rnd, &fo) == 0);
   {
-    const quic_initial_keys *k;
+    const quic_initial_keys* k;
     CHECK(quic_keyset_for_level(&f.s.keys, QUIC_LEVEL_HANDSHAKE, &k) == 0);
   }
 }
@@ -223,7 +222,7 @@ static void test_server_fin_before_flight(void) {
 }
 
 /* Concatenate the raw transcript through the server Finished into buf. */
-static usz client_transcript(struct srv_fix *f, u8 *buf) {
+static usz client_transcript(struct srv_fix* f, u8* buf) {
   usz n = 0, i;
   for (i = 0; i < f->ch_len; i++) buf[n++] = f->ch[i];
   for (i = 0; i < f->sh_len; i++) buf[n++] = f->sh[i];
@@ -235,7 +234,7 @@ static usz client_transcript(struct srv_fix *f, u8 *buf) {
  * shared ECDHE, then app_keys over the raw transcript through the server
  * Finished (CH..SH..server flight) — never the client Finished. */
 static void client_ap_keys(
-    struct srv_fix *f, int is_server, quic_initial_keys *out) {
+    struct srv_fix* f, int is_server, quic_initial_keys* out) {
   u8  shared[32], hs[32], master[32], tr[3072];
   usz tlen;
   quic_x25519(shared, f->cli_priv, f->sh_pub);
@@ -247,16 +246,16 @@ static void client_ap_keys(
 }
 
 /* Whole key material (key+iv+hp) is identical. */
-static int ap_keys_eq(const quic_initial_keys *a, const quic_initial_keys *b) {
-  const u8 *pa = (const u8 *)a, *pb = (const u8 *)b;
+static int ap_keys_eq(const quic_initial_keys* a, const quic_initial_keys* b) {
+  const u8 *pa = (const u8*)a, *pb = (const u8*)b;
   int       diff = 0;
   for (usz i = 0; i < sizeof(quic_initial_keys); i++) diff |= pa[i] ^ pb[i];
   return diff == 0;
 }
 
 /* The server's installed AP keys for one direction equal the client's. */
-static void check_dir_matches(struct srv_fix *f, int which, int is_server) {
-  const quic_initial_keys *got;
+static void check_dir_matches(struct srv_fix* f, int which, int is_server) {
+  const quic_initial_keys* got;
   quic_initial_keys        want;
   CHECK(quic_keysched_get(&f->s.sched, which, &got) == 1);
   client_ap_keys(f, is_server, &want);

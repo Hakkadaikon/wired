@@ -6,7 +6,7 @@
 /* The ECDSA-Sig-Value SEQUENCE sits inside the cert's signatureValue BIT STRING
  * (offset 323, 71 octets): octet 323 is the unused-bits count (0x00), so the
  * 70-octet DER SEQUENCE starts at offset 324. */
-static const u8 *golden_sig(void) { return quic_x509_golden + 324; }
+static const u8* golden_sig(void) { return quic_x509_golden + 324; }
 
 /* SEC1 C.5. Pull the two 32-octet INTEGER values out of the golden SEQUENCE. */
 static int golden_rs(u8 r[32], u8 s[32]) {

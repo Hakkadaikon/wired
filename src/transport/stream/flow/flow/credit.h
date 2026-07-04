@@ -13,14 +13,14 @@ typedef struct {
   u64 window;   /* how far ahead of consumed to keep the limit */
 } quic_flow_credit;
 
-void quic_flow_credit_init(quic_flow_credit *c, u64 initial_max);
+void quic_flow_credit_init(quic_flow_credit* c, u64 initial_max);
 
 /* Consume n bytes and slide the limit forward. Returns the new max_data. */
-u64 quic_flow_credit_consume(quic_flow_credit *c, u64 n);
+u64 quic_flow_credit_consume(quic_flow_credit* c, u64 n);
 
 /* Whether the peer's cumulative received bytes exceed the advertised limit:
  * a FLOW_CONTROL_ERROR when received_total > max_data. Returns 1 on violation.
  */
-int quic_flow_credit_violation(const quic_flow_credit *c, u64 received_total);
+int quic_flow_credit_violation(const quic_flow_credit* c, u64 received_total);
 
 #endif

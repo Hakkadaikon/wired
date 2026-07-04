@@ -13,6 +13,6 @@ typedef struct {
  * when possible). A name+value match is preferred over a name-only match. On
  * a hit, fills *m and returns 1. Returns 0 if no entry's name matches. */
 int quic_qpack_dyn_find(
-    const quic_qpack_dyn *t, const quic_qpack_field *f, quic_qpack_match *m);
+    const quic_qpack_dyn* t, const quic_qpack_field* f, quic_qpack_match* m);
 
 #endif

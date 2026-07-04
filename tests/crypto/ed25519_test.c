@@ -2,7 +2,7 @@
 
 static u8 hexnib(char c) { return (u8)(c <= '9' ? c - '0' : c - 'a' + 10); }
 
-static void hexbytes(const char *hex, u8 *out, usz n) {
+static void hexbytes(const char* hex, u8* out, usz n) {
   for (usz i = 0; i < n; i++)
     out[i] = (u8)((hexnib(hex[i * 2]) << 4) | hexnib(hex[i * 2 + 1]));
 }
@@ -10,7 +10,7 @@ static void hexbytes(const char *hex, u8 *out, usz n) {
 /* Verify a single RFC 8032 7.1 vector accepts, and that flipping one
  * signature byte makes it reject. */
 static void check_vector(
-    const char *pk, const char *sig, const char *msg, usz msg_len) {
+    const char* pk, const char* sig, const char* msg, usz msg_len) {
   u8 A[32], S[64], M[2], tampered[64];
   hexbytes(pk, A, 32);
   hexbytes(sig, S, 64);
@@ -58,7 +58,7 @@ static void test_sha512_empty(void) {
       0x87, 0x7e, 0xec, 0x2f, 0x63, 0xb9, 0x31, 0xbd, 0x47, 0x41, 0x7a,
       0x81, 0xa5, 0x38, 0x32, 0x7a, 0xf9, 0x27, 0xda, 0x3e};
   u8 out[64];
-  quic_sha512((const u8 *)"", 0, out);
+  quic_sha512((const u8*)"", 0, out);
   for (usz i = 0; i < 64; i++) CHECK(out[i] == want[i]);
 }
 

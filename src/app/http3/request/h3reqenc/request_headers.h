@@ -15,12 +15,12 @@ typedef struct {
  * pseudo-headers in the order :method, :scheme, :authority, :path with
  * :method = GET and :scheme = https. The given authority and path become the
  * :authority and :path values. Returns 1 with out->len set, 0 on overflow. */
-int quic_h3req_enc_get(const quic_h3req_headers_in *in, quic_obuf *out);
+int quic_h3req_enc_get(const quic_h3req_headers_in* in, quic_obuf* out);
 
 /* RFC 9114 4.3.1 / RFC 9204 4.5. Like quic_h3req_enc_get but for an arbitrary
  * :method (GET, HEAD, POST, ...); :scheme stays https. Returns 1 with
  * out->len set, 0 on overflow. */
 int quic_h3req_enc_method(
-    quic_span method, const quic_h3req_headers_in *in, quic_obuf *out);
+    quic_span method, const quic_h3req_headers_in* in, quic_obuf* out);
 
 #endif

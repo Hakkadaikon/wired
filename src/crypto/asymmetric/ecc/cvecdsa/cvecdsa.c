@@ -13,7 +13,7 @@
 
 /* Sign the 130-octet content and DER-encode (r, s). der holds up to 72. */
 static int cvec_sign(
-    const u8 priv[32], const u8 transcript_hash[32], u8 *der, usz *der_len) {
+    const u8 priv[32], const u8 transcript_hash[32], u8* der, usz* der_len) {
   u8 content[130], h[32], r[32], s[32];
   quic_cvecdsa_signed_content(transcript_hash, content);
   quic_sha256(content, 130, h);
@@ -22,7 +22,7 @@ static int cvec_sign(
 }
 
 /* Emit header(4) + scheme(2) + sig_len(2) + DER signature. */
-static void cvec_emit(u8 *out, quic_span der, usz *out_len) {
+static void cvec_emit(u8* out, quic_span der, usz* out_len) {
   usz off = quic_hs_begin(out, der.n + 8, QUIC_HS_CERTIFICATE_VERIFY);
   quic_put_be16(out + off, QUIC_SIG_ECDSA_SECP256R1_SHA256);
   quic_put_be16(out + off + 2, (u16)der.n);
@@ -34,9 +34,9 @@ static void cvec_emit(u8 *out, quic_span der, usz *out_len) {
 int quic_cvecdsa_build(
     const u8 priv[32],
     const u8 transcript_hash[32],
-    u8      *out,
+    u8*      out,
     usz      cap,
-    usz     *out_len) {
+    usz*     out_len) {
   u8  der[72];
   usz der_len = 0;
   if (!cvec_sign(priv, transcript_hash, der, &der_len)) return 0;

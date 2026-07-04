@@ -5,7 +5,7 @@
 /* Drive the legal client-side flight up to (but not including) the message at
  * index `stop`. Asserts every step is accepted; verifies cert before the
  * peer's Finished so the auth gate is open. */
-static void drive_until(quic_hsdriver *s, int stop) {
+static void drive_until(quic_hsdriver* s, int stop) {
   if (stop > 0) CHECK(quic_hsdriver_recv(s, QUIC_HSD_CLIENT_HELLO, 0) == 1);
   if (stop > 1) CHECK(quic_hsdriver_recv(s, QUIC_HSD_SERVER_HELLO, 0) == 1);
   if (stop > 2) CHECK(quic_hsdriver_recv(s, QUIC_HSD_ENCRYPTED_EXT, 1) == 1);

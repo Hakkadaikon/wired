@@ -18,9 +18,9 @@ typedef struct {
  * into *req and record that a request has been seen on this connection.
  * Returns 1 on success, 0 on a malformed frame or field section. */
 int wired_h3srv_on_request(
-    wired_h3srv_state        *st,
-    const wired_h3srv_req_in *in,
-    wired_h3reqdrive_req     *req);
+    wired_h3srv_state*        st,
+    const wired_h3srv_req_in* in,
+    wired_h3reqdrive_req*     req);
 
 /* The request stream to reply on and the response to build. */
 typedef struct {
@@ -34,7 +34,7 @@ typedef struct {
  * writes nothing. Returns 1 with out->len set, 0 on a precondition failure or
  * overflow. */
 int wired_h3srv_build_response(
-    const wired_h3srv_state *st, const wired_h3srv_send_in *in, quic_obuf *out);
+    const wired_h3srv_state* st, const wired_h3srv_send_in* in, quic_obuf* out);
 
 /* The request method (used only to detect HEAD) and the response to send. */
 typedef struct {
@@ -49,8 +49,8 @@ typedef struct {
  * wired_h3srv_build_response. Returns 1 with out->len set, 0 on a precondition
  * failure or overflow. */
 int wired_h3srv_build_response_for_method(
-    const wired_h3srv_state              *st,
-    const wired_h3srv_resp_for_method_in *in,
-    quic_obuf                            *out);
+    const wired_h3srv_state*              st,
+    const wired_h3srv_resp_for_method_in* in,
+    quic_obuf*                            out);
 
 #endif

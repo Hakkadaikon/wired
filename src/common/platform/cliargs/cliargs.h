@@ -24,7 +24,7 @@
  *               following element), or its value is not purely digits
  * @return the parsed value, or defval
  */
-i64 wired_cliargs_int(int argc, char **argv, const char *flag, i64 defval);
+i64 wired_cliargs_int(int argc, char** argv, const char* flag, i64 defval);
 
 /**
  * Find `flag` in argv and return a pointer to its following element.
@@ -35,7 +35,7 @@ i64 wired_cliargs_int(int argc, char **argv, const char *flag, i64 defval);
  * @param defval value returned when the flag is absent or dangling
  * @return argv[i+1] where argv[i] == flag, or defval
  */
-const char *wired_cliargs_str(
-    int argc, char **argv, const char *flag, const char *defval);
+const char* wired_cliargs_str(
+    int argc, char** argv, const char* flag, const char* defval);
 
 #endif

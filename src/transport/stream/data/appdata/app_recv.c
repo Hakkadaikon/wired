@@ -5,9 +5,9 @@
 /* RFC 9001 5 / RFC 9000 19.8: open the 1-RTT packet, then decode its STREAM
  * frame into f. */
 int quic_appdata_recv(
-    const quic_protect_keys *k,
-    const quic_appdata_pkt  *p,
-    quic_stream_frame       *f) {
+    const quic_protect_keys* k,
+    const quic_appdata_pkt*  p,
+    quic_stream_frame*       f) {
   quic_span payload;
   /* ponytail: this one-shot entry opens a single packet with no receive
    * history, so largest_pn is 0; full-pn recovery across truncated PNs is the

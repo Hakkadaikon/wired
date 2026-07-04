@@ -6,8 +6,8 @@
 static void test_pseudo_indexed_and_namref(void) {
   u8                   out[64];
   quic_obuf            ob = {out, sizeof out, 0};
-  const u8            *m = (const u8 *)"GET", *s = (const u8 *)"https";
-  const u8            *p = (const u8 *)"/", *a = (const u8 *)"example.com";
+  const u8 *           m = (const u8*)"GET", *s = (const u8*)"https";
+  const u8 *           p = (const u8*)"/", *a = (const u8*)"example.com";
   quic_h3req_pseudo_in in = {
       quic_span_of(m, 3), quic_span_of(s, 5), quic_span_of(a, 11),
       quic_span_of(p, 1)};
@@ -27,15 +27,15 @@ static void test_pseudo_indexed_and_namref(void) {
 static void test_pseudo_roundtrip(void) {
   u8                   out[64];
   quic_obuf            ob = {out, sizeof out, 0};
-  const u8            *m = (const u8 *)"GET", *s = (const u8 *)"https";
-  const u8            *p = (const u8 *)"/", *a = (const u8 *)"example.com";
+  const u8 *           m = (const u8*)"GET", *s = (const u8*)"https";
+  const u8 *           p = (const u8*)"/", *a = (const u8*)"example.com";
   u64                  idx       = 0;
   int                  is_static = 0;
   usz                  used;
   u8                   val[32];
   quic_obuf            vb = quic_obuf_of(val, sizeof val);
   quic_qpack_nameref   nr = {0, 0, 0};
-  const char          *nm, *vv;
+  const char *         nm, *vv;
   quic_h3req_pseudo_in in = {
       quic_span_of(m, 3), quic_span_of(s, 5), quic_span_of(a, 11),
       quic_span_of(p, 1)};
@@ -61,8 +61,8 @@ static void test_pseudo_roundtrip(void) {
 static void test_pseudo_overflow(void) {
   u8                   out[3];
   quic_obuf            ob = {out, sizeof out, 0};
-  const u8            *m = (const u8 *)"GET", *s = (const u8 *)"https";
-  const u8            *p = (const u8 *)"/", *a = (const u8 *)"example.com";
+  const u8 *           m = (const u8*)"GET", *s = (const u8*)"https";
+  const u8 *           p = (const u8*)"/", *a = (const u8*)"example.com";
   quic_h3req_pseudo_in in = {
       quic_span_of(m, 3), quic_span_of(s, 5), quic_span_of(a, 11),
       quic_span_of(p, 1)};

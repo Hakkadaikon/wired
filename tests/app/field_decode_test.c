@@ -9,24 +9,24 @@
 
 #define eq_len(s) quic_qdyn_cstr_len(s)
 
-static int eq(quic_span a, const char *b, usz blen) {
+static int eq(quic_span a, const char* b, usz blen) {
   if (a.n != blen) return 0;
   for (usz i = 0; i < a.n; i++)
     if (a.p[i] != (u8)b[i]) return 0;
   return 1;
 }
 
-static quic_qpack_field fd_field(const char *name, const char *value) {
+static quic_qpack_field fd_field(const char* name, const char* value) {
   quic_qpack_field f = {
-      quic_span_of((const u8 *)name, eq_len(name)),
-      quic_span_of((const u8 *)value, eq_len(value))};
+      quic_span_of((const u8*)name, eq_len(name)),
+      quic_span_of((const u8*)value, eq_len(value))};
   return f;
 }
 
 /* Insert (name, value), encode the dynamic reference relative to base, then
  * decode it back and assert the borrowed (name, value) round-trips. */
 static void qd_roundtrip(
-    quic_qpack_dyn *t, const char *name, const char *value) {
+    quic_qpack_dyn* t, const char* name, const char* value) {
   u8               fs[8];
   quic_obuf        ob       = quic_obuf_of(fs, sizeof(fs));
   usz              consumed = 0;

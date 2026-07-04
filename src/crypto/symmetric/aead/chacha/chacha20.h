@@ -11,8 +11,8 @@
 
 /* Stream position: key, nonce, and the starting block counter. */
 typedef struct {
-  const u8 *key;   /* QUIC_CHACHA_KEY bytes */
-  const u8 *nonce; /* QUIC_CHACHA_NONCE bytes */
+  const u8* key;   /* QUIC_CHACHA_KEY bytes */
+  const u8* nonce; /* QUIC_CHACHA_NONCE bytes */
   u32       counter;
 } quic_chacha_ctx;
 
@@ -24,6 +24,6 @@ void quic_chacha20_block(
     u8       out[QUIC_CHACHA_BLOCK]);
 
 /* Encrypt/decrypt in (XOR keystream) starting at c->counter. */
-void quic_chacha20_xor(const quic_chacha_ctx *c, quic_span in, u8 *out);
+void quic_chacha20_xor(const quic_chacha_ctx* c, quic_span in, u8* out);
 
 #endif

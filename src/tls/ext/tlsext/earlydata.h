@@ -10,15 +10,15 @@
 
 /* Encode the empty ClientHello early_data extension into out (cap total).
  * Writes the byte count to *out_len. Returns 1, or 0 if it does not fit. */
-int quic_tlsext_early_data_ch(u8 *out, usz cap, usz *out_len);
+int quic_tlsext_early_data_ch(u8* out, usz cap, usz* out_len);
 
 /* Encode the NewSessionTicket early_data extension carrying max_size into
  * out->p (out->cap total). Sets out->len. Returns 1, or 0 if it does not fit.
  */
-int quic_tlsext_early_data_nst(u32 max_size, quic_obuf *out);
+int quic_tlsext_early_data_nst(u32 max_size, quic_obuf* out);
 
 /* Parse the NewSessionTicket form at out (n readable), reporting max_size via
  * *max_size. Returns 1 on success, 0 if absent or malformed. */
-int quic_tlsext_early_data_nst_parse(const u8 *out, usz n, u32 *max_size);
+int quic_tlsext_early_data_nst_parse(const u8* out, usz n, u32* max_size);
 
 #endif

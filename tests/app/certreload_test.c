@@ -61,12 +61,12 @@ static const char                                crt_bad_key_pem[] =
     "Zm9v\n"
     "-----END EC PRIVATE KEY-----\n";
 
-static void crt_write(const char *path, const char *text, usz n) {
+static void crt_write(const char* path, const char* text, usz n) {
   syscall3(SYS_unlinkat, CRT_AT_FDCWD, path, 0);
-  wired_fio_append(path, quic_span_of((const u8 *)text, n));
+  wired_fio_append(path, quic_span_of((const u8*)text, n));
 }
 
-static void crt_unlink(const char *path) {
+static void crt_unlink(const char* path) {
   syscall3(SYS_unlinkat, CRT_AT_FDCWD, path, 0);
 }
 
@@ -104,7 +104,7 @@ static void test_certreload_loads_two_cert_chain(void) {
 static void test_certreload_missing_cert_file_fails(void) {
   wired_certreload_store store;
   wired_srvboot_id       id  = {0};
-  const u8              *pub = (const u8 *)0x1;
+  const u8*              pub = (const u8*)0x1;
   id.pub                     = pub;
   crt_write(crt_key_path, crt_key_pem, sizeof(crt_key_pem) - 1);
   CHECK(

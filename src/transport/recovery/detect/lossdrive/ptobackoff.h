@@ -13,6 +13,6 @@ typedef struct {
 
 /* RFC 9002 6.2.1: PTO = srtt + max(4*rttvar, granularity) + max_ack_delay,
  * scaled by 2^pto_count. Times are in microseconds. */
-u64 quic_lossdrive_pto(quic_pto_rtt rtt, const quic_lossdrive_ptoctx *ctx);
+u64 quic_lossdrive_pto(quic_pto_rtt rtt, const quic_lossdrive_ptoctx* ctx);
 
 #endif

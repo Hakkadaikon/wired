@@ -55,7 +55,7 @@ static void test_lhdr_handshake(void) {
   CHECK(ok == 1);
   CHECK(h.dcid.n == 1 && h.dcid.p[0] == 0x11);
   CHECK(h.scid.n == 0);
-  CHECK(h.token.p == (const u8 *)0 && h.token.n == 0);
+  CHECK(h.token.p == (const u8*)0 && h.token.n == 0);
   CHECK(h.length == 5);
   CHECK(h.pn_off == want_pn_off);
 }

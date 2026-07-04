@@ -19,7 +19,7 @@ static const char keylogt_zero_cr_hex[] =
     "0000000000000000000000000000000000000000000000000000000000000000";
 
 static void keylogt_check_line(
-    const char *label, const char *cr_hex, const char *secret_hex) {
+    const char* label, const char* cr_hex, const char* secret_hex) {
   u8  out[256] = {0};
   ssz n        = wired_fio_read(keylogt_path, quic_mspan_of(out, sizeof out));
   usz label_n  = 0;
@@ -43,7 +43,7 @@ static void keylogt_check_line(
 static void test_keylog_append_known_vector(void) {
   u8          cr[32]    = {0};
   u8          secret[4] = {0xde, 0xad, 0xbe, 0xef};
-  const char *label     = "CLIENT_HANDSHAKE_TRAFFIC_SECRET";
+  const char* label     = "CLIENT_HANDSHAKE_TRAFFIC_SECRET";
 
   keylogt_unlink();
   CHECK(
@@ -57,7 +57,7 @@ static void test_keylog_append_known_vector(void) {
 static void test_keylog_append_nibble_order_and_case(void) {
   u8          cr[32]    = {0};
   u8          secret[1] = {0x1f};
-  const char *label     = "L";
+  const char* label     = "L";
 
   cr[0]  = 0xa0;
   cr[31] = 0x09;
@@ -82,7 +82,7 @@ static void test_keylog_append_nibble_order_and_case(void) {
 /* empty secret: still one space before the newline, no secret hex bytes. */
 static void test_keylog_append_empty_secret(void) {
   u8          cr[32] = {0};
-  const char *label  = "L";
+  const char* label  = "L";
 
   keylogt_unlink();
   CHECK(wired_keylog_append(keylogt_path, label, cr, quic_span_of(0, 0)) > 0);
@@ -94,7 +94,7 @@ static void test_keylog_append_empty_secret(void) {
  * nothing is written. */
 static void test_keylog_append_secret_too_big(void) {
   static u8   secret[512] = {0};
-  const char *label       = "L";
+  const char* label       = "L";
   u8          cr[32]      = {0};
 
   keylogt_unlink();

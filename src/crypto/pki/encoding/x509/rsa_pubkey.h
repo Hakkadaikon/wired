@@ -10,6 +10,6 @@
  * Views n and e (big-endian INTEGER values) into spki_key. Also validates
  * the key: n must be canonical, odd, and >= 2048 bits; e must be canonical,
  * odd, and in [3, 2^64). Returns 1 ok, 0 on malformed or invalid input. */
-int quic_x509_rsa_pubkey(quic_span spki_key, quic_span *n, quic_span *e);
+int quic_x509_rsa_pubkey(quic_span spki_key, quic_span* n, quic_span* e);
 
 #endif

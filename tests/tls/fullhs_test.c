@@ -9,7 +9,7 @@
 #include "transport/conn/pnspace/crypto_stream/crypto_tx.h"
 
 /* Minimal ServerHello (RFC 8446 4.1.3) carrying x25519 key_share pub. */
-static usz fullhs_build_sh(u8 *out, usz cap, const u8 pub[32]) {
+static usz fullhs_build_sh(u8* out, usz cap, const u8 pub[32]) {
   usz off      = quic_hs_begin(out, cap, 2), block;
   out[off]     = 0x03;
   out[off + 1] = 0x03;
@@ -44,7 +44,7 @@ static usz fullhs_build_sh(u8 *out, usz cap, const u8 pub[32]) {
   return off;
 }
 
-static usz fullhs_wrap_crypto(u8 *out, usz cap, const u8 *msg, usz n) {
+static usz fullhs_wrap_crypto(u8* out, usz cap, const u8* msg, usz n) {
   usz                        w   = 0;
   quic_obuf                  ob  = quic_obuf_of(out, cap);
   quic_crypto_stream_emit_in ein = {0, 256};
@@ -55,7 +55,7 @@ static usz fullhs_wrap_crypto(u8 *out, usz cap, const u8 *msg, usz n) {
 
 /* Build a CertificateVerify message: type(15) len(3) | scheme(2) | sig(2+len).
  */
-static usz build_cv(u8 *out, u16 scheme, const u8 *sig, usz sig_len) {
+static usz build_cv(u8* out, u16 scheme, const u8* sig, usz sig_len) {
   usz body = 4 + sig_len;
   out[0]   = 0x0f;
   out[1]   = 0;
@@ -71,7 +71,7 @@ static usz build_cv(u8 *out, u16 scheme, const u8 *sig, usz sig_len) {
 
 /* Drive both tlsdriver sides to the handshake secret over real ECDHE. */
 static void reach_hs_secret(
-    quic_tlsdriver *cl, quic_tlsdriver *sv, const u8 sv_pub[32]) {
+    quic_tlsdriver* cl, quic_tlsdriver* sv, const u8 sv_pub[32]) {
   u8  frame[1024], sh[512];
   usz fl, shn;
   {
@@ -88,7 +88,7 @@ static void reach_hs_secret(
 }
 
 /* Feed Certificate + CertificateVerify to one fullhs side. */
-static void feed_auth(quic_fullhs *h, const u8 *cv, usz cv_len) {
+static void feed_auth(quic_fullhs* h, const u8* cv, usz cv_len) {
   CHECK(
       quic_fullhs_recv_cert(h, fullhs_cert_msg, sizeof(fullhs_cert_msg)) == 1);
   CHECK(
@@ -98,7 +98,7 @@ static void feed_auth(quic_fullhs *h, const u8 *cv, usz cv_len) {
 
 /* Wrap quic_fullhs_send_finished's obuf triple for CHECK-friendly call sites.
  */
-static int send_fin(quic_fullhs *h, u8 *out, usz cap, usz *out_len) {
+static int send_fin(quic_fullhs* h, u8* out, usz cap, usz* out_len) {
   quic_obuf ob = quic_obuf_of(out, cap);
   int       ok = quic_fullhs_send_finished(h, &ob);
   *out_len     = ob.len;
@@ -114,7 +114,7 @@ static void test_fullhs_e2e(void) {
   usz                      cv_len, n;
   quic_tlsdriver           cltls, svtls;
   quic_fullhs              cl, sv;
-  const quic_initial_keys *k;
+  const quic_initial_keys* k;
 
   for (usz i = 0; i < 32; i++) {
     cl_priv[i] = (u8)(1 + i);

@@ -1,6 +1,10 @@
 BasedOnStyle: Google
 IndentWidth: 2
 ColumnLimit: 80
+# Google style sets DerivePointerAlignment: true (guess from the file), which
+# let older clang-format versions silently keep right-aligned pointers; pin it
+# off so the declared PointerAlignment is authoritative across versions.
+DerivePointerAlignment: false
 PointerAlignment: Left
 AlignAfterOpenBracket: AlwaysBreak
 BinPackParameters: false

@@ -4,7 +4,7 @@
 #include "tls/handshake/core/tls/sni.h"
 #include "tls/handshake/core/tlsdriver/tlsdriver.h"
 
-static void sni_driver(quic_tlsdriver *d) {
+static void sni_driver(quic_tlsdriver* d) {
   u8 priv[32], pub[32];
   for (usz i = 0; i < 32; i++) {
     priv[i] = (u8)(1 + i);
@@ -20,7 +20,7 @@ static void test_tlsdriver_sni_present(void) {
   quic_span      ext, host;
   usz            w;
   sni_driver(&d);
-  quic_tlsdriver_set_sni(&d, (const u8 *)"example.com", 11);
+  quic_tlsdriver_set_sni(&d, (const u8*)"example.com", 11);
   w = quic_tlsdriver_raw_client_hello(&d, ch, sizeof(ch));
   CHECK(w > 0);
   CHECK(

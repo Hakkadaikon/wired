@@ -48,10 +48,10 @@ typedef struct {
  * QUIC_TLS_CERT_CHAIN_MAX makes the flight unbuildable (cert_count stays 0),
  * not a truncated/overflowing copy. */
 typedef struct {
-  const u8        *server_priv_x25519; /**< ECDHE x25519 private (32 bytes) */
-  const u8        *server_pub_x25519;  /**< ECDHE x25519 public (32 bytes) */
-  const u8        *sign_priv; /**< ECDSA P-256 signing scalar (32 bytes) */
-  const quic_span *chain;     /**< external chain, leaf first; NULL for
+  const u8*        server_priv_x25519; /**< ECDHE x25519 private (32 bytes) */
+  const u8*        server_pub_x25519;  /**< ECDHE x25519 public (32 bytes) */
+  const u8*        sign_priv; /**< ECDSA P-256 signing scalar (32 bytes) */
+  const quic_span* chain;     /**< external chain, leaf first; NULL for
                                * self-signed mode (caller keeps the views
                                * alive through the handshake) */
   usz chain_count;            /**< entries in chain; 0 = self-signed mode */
@@ -63,7 +63,7 @@ typedef struct {
  * schedule.
  * @param s driver state to initialize
  * @param in key material and optional external certificate chain */
-void quic_sdrv_init(quic_sdrv *s, const quic_sdrv_init_in *in);
+void quic_sdrv_init(quic_sdrv* s, const quic_sdrv_init_in* in);
 
 /** RFC 9000 7.3: record the ODCID (the DCID of the client's first Initial)
  * and the ISCID (the server's source connection id) to advertise in the
@@ -73,7 +73,7 @@ void quic_sdrv_init(quic_sdrv *s, const quic_sdrv_init_in *in);
  * @param odcid DCID of the client's first Initial packet
  * @param iscid the server's source connection id
  * @return 1 on success, 0 if either length exceeds 20. */
-int quic_sdrv_set_cids(quic_sdrv *s, quic_span odcid, quic_span iscid);
+int quic_sdrv_set_cids(quic_sdrv* s, quic_span odcid, quic_span iscid);
 
 /** RFC 8446 4.4.1: fold the ClientHello into the transcript and take the
  * client's x25519 key_share.
@@ -81,14 +81,14 @@ int quic_sdrv_set_cids(quic_sdrv *s, quic_span odcid, quic_span iscid);
  * @param ch_msg the ClientHello handshake message bytes
  * @param ch_len length of ch_msg in bytes
  * @return 1 on success, 0 if the key_share is absent or malformed. */
-int quic_sdrv_recv_client_hello(quic_sdrv *s, const u8 *ch_msg, usz ch_len);
+int quic_sdrv_recv_client_hello(quic_sdrv* s, const u8* ch_msg, usz ch_len);
 
 /** Destination for quic_sdrv_build_server_flight: sh receives the
  * ServerHello, hs the EncryptedExtensions || Certificate ||
  * CertificateVerify || Finished flight. */
 typedef struct {
-  quic_obuf *sh; /**< receives the ServerHello */
-  quic_obuf *hs; /**< receives EncryptedExtensions || Certificate ||
+  quic_obuf* sh; /**< receives the ServerHello */
+  quic_obuf* hs; /**< receives EncryptedExtensions || Certificate ||
                   * CertificateVerify || Finished */
 } quic_sdrv_flight_out;
 
@@ -99,12 +99,12 @@ typedef struct {
  * @param out destination buffers for the ServerHello and handshake flight
  * @return 1 on success, 0 if a buffer is too small. */
 int quic_sdrv_build_server_flight(
-    quic_sdrv *s, const u8 *server_random, const quic_sdrv_flight_out *out);
+    quic_sdrv* s, const u8* server_random, const quic_sdrv_flight_out* out);
 
 /** Point *secret at the derived Handshake Secret (verification aid).
  * @param s driver state
  * @param secret receives a pointer to the internal Handshake Secret
  * @return 1 if build_server_flight has run, 0 otherwise. */
-int quic_sdrv_handshake_secret(const quic_sdrv *s, const u8 **secret);
+int quic_sdrv_handshake_secret(const quic_sdrv* s, const u8** secret);
 
 #endif

@@ -13,12 +13,12 @@
  * bytes, including the 4-byte handshake header). Returns 1 if legacy_version is
  * 0x0303 and compression is the single null method, 0 on any violation or if
  * the message is truncated/not a ClientHello. */
-int quic_legacy_check_client_hello(const u8 *ch_msg, usz len);
+int quic_legacy_check_client_hello(const u8* ch_msg, usz len);
 
 /* Locate legacy_session_id in the ClientHello ch_msg (len bytes). On success
  * sets *sid to the session_id bytes (or ch_msg+offset with *sid_len 0 when
  * empty) and *sid_len to its length (0..32), returning 1. Returns 0 if the
  * message is truncated or not a ClientHello. */
-int quic_legacy_session_id(quic_span ch_msg, const u8 **sid, u8 *sid_len);
+int quic_legacy_session_id(quic_span ch_msg, const u8** sid, u8* sid_len);
 
 #endif

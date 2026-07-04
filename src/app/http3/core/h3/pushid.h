@@ -11,14 +11,14 @@ typedef struct {
   u64 max; /* one past the greatest Push ID the client permits */
 } quic_h3_push_state;
 
-void quic_h3_push_init(quic_h3_push_state *s);
+void quic_h3_push_init(quic_h3_push_state* s);
 
 /* Apply a MAX_PUSH_ID value. Returns 1 if it raises (or holds) the maximum,
  * 0 if it would lower it (which the caller must treat as a connection error).
  */
-int quic_h3_push_set_max(quic_h3_push_state *s, u64 max);
+int quic_h3_push_set_max(quic_h3_push_state* s, u64 max);
 
 /* Whether a server push with this Push ID is permitted: id < max. */
-int quic_h3_push_allowed(const quic_h3_push_state *s, u64 id);
+int quic_h3_push_allowed(const quic_h3_push_state* s, u64 id);
 
 #endif

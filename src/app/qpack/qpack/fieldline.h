@@ -13,6 +13,6 @@ usz quic_qpack_indexed_encode(quic_mspan buf, u64 index, int is_static);
 
 /* Decode an indexed field line from buf into *index and *is_static.
  * Returns bytes consumed, or 0 on a non-indexed pattern or truncation. */
-usz quic_qpack_indexed_decode(quic_span buf, u64 *index, int *is_static);
+usz quic_qpack_indexed_decode(quic_span buf, u64* index, int* is_static);
 
 #endif

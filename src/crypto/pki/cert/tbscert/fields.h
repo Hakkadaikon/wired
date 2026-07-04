@@ -23,6 +23,6 @@ typedef struct {
 
 /* RFC 5280 4.1.2. Parse a tbsCertificate (header included) into out.
  * Returns 1 ok, 0 on malformed input. */
-int quic_tbscert_parse(quic_span tbs, quic_tbscert *out);
+int quic_tbscert_parse(quic_span tbs, quic_tbscert* out);
 
 #endif

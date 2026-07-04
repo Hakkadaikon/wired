@@ -43,21 +43,21 @@ static const u64 S512_H0[8] = {0x6a09e667f3bcc908ULL, 0xbb67ae8584caa73bULL,
 #define S512SS0(x) (S512ROR(x, 1) ^ S512ROR(x, 8) ^ ((x) >> 7))
 #define S512SS1(x) (S512ROR(x, 19) ^ S512ROR(x, 61) ^ ((x) >> 6))
 
-void quic_sha512_init(quic_sha512_ctx *s) {
+void quic_sha512_init(quic_sha512_ctx* s) {
   for (usz i = 0; i < 8; i++) s->h[i] = S512_H0[i];
   s->total   = 0;
   s->buf_len = 0;
 }
 
 /* Load one 64-bit big-endian word at byte offset o. */
-static u64 load_be64(const u8 *p, usz o) {
+static u64 load_be64(const u8* p, usz o) {
   u64 v = 0;
   for (usz j = 0; j < 8; j++) v = (v << 8) | p[o + j];
   return v;
 }
 
 /* Build the 80-word message sha512_schedule from one 128-byte block. */
-static void sha512_schedule(const u8 *p, u64 w[80]) {
+static void sha512_schedule(const u8* p, u64 w[80]) {
   for (usz i = 0; i < 16; i++) w[i] = load_be64(p, i * 8);
   for (usz i = 16; i < 80; i++)
     w[i] = S512SS1(w[i - 2]) + w[i - 7] + S512SS0(w[i - 15]) + w[i - 16];
@@ -73,12 +73,12 @@ static void sha512_round_step(u64 v[8], u64 kw) {
 }
 
 /* Run all 80 rounds over the working vector seeded from the hash state. */
-static void sha512_run_rounds(const u64 *h, const u64 w[80], u64 v[8]) {
+static void sha512_run_rounds(const u64* h, const u64 w[80], u64 v[8]) {
   for (usz i = 0; i < 8; i++) v[i] = h[i];
   for (usz i = 0; i < 80; i++) sha512_round_step(v, S512_K[i] + w[i]);
 }
 
-static void sha512_compress(quic_sha512_ctx *s, const u8 *p) {
+static void sha512_compress(quic_sha512_ctx* s, const u8* p) {
   u64 w[80];
   u64 v[8];
   sha512_schedule(p, w);
@@ -87,7 +87,7 @@ static void sha512_compress(quic_sha512_ctx *s, const u8 *p) {
 }
 
 /* Absorb whole 128-byte blocks straight from data; returns bytes consumed. */
-static usz sha512_absorb_blocks(quic_sha512_ctx *s, const u8 *data, usz len) {
+static usz sha512_absorb_blocks(quic_sha512_ctx* s, const u8* data, usz len) {
   usz off = 0;
   while (len - off >= QUIC_SHA512_BLOCK) {
     sha512_compress(s, data + off);
@@ -97,21 +97,21 @@ static usz sha512_absorb_blocks(quic_sha512_ctx *s, const u8 *data, usz len) {
 }
 
 /* Append n bytes (n < block, no overflow) into the pending sha512_buffer. */
-static void sha512_buffer(quic_sha512_ctx *s, const u8 *data, usz n) {
+static void sha512_buffer(quic_sha512_ctx* s, const u8* data, usz n) {
   for (usz i = 0; i < n; i++) s->buf[s->buf_len + i] = data[i];
   s->buf_len += n;
 }
 
 /* Bytes to pull from data to complete a pending partial block, or 0 if
  * there is no partial block or not enough data to fill it. */
-static usz sha512_pending_take(const quic_sha512_ctx *s, usz len) {
+static usz sha512_pending_take(const quic_sha512_ctx* s, usz len) {
   usz want = QUIC_SHA512_BLOCK - s->buf_len;
   return (s->buf_len != 0 && len >= want) ? want : 0;
 }
 
 /* If a partial block is pending, top it up from data and flush when full.
  * Returns the number of bytes consumed from data. */
-static usz sha512_fill_pending(quic_sha512_ctx *s, const u8 *data, usz len) {
+static usz sha512_fill_pending(quic_sha512_ctx* s, const u8* data, usz len) {
   usz take = sha512_pending_take(s, len);
   sha512_buffer(s, data, take);
   if (take != 0) {
@@ -121,7 +121,7 @@ static usz sha512_fill_pending(quic_sha512_ctx *s, const u8 *data, usz len) {
   return take;
 }
 
-void quic_sha512_update(quic_sha512_ctx *s, const u8 *data, usz len) {
+void quic_sha512_update(quic_sha512_ctx* s, const u8* data, usz len) {
   usz off = sha512_fill_pending(s, data, len);
   off += sha512_absorb_blocks(s, data + off, len - off);
   sha512_buffer(s, data + off, len - off);
@@ -130,7 +130,7 @@ void quic_sha512_update(quic_sha512_ctx *s, const u8 *data, usz len) {
 
 /* Append 0x80 then zero bytes until exactly 112 bytes sit in the block,
  * leaving room for the 16-byte length (FIPS 180-4 5.1.2). */
-static void sha512_pad_message(quic_sha512_ctx *s) {
+static void sha512_pad_message(quic_sha512_ctx* s) {
   u8 b = 0x80;
   quic_sha512_update(s, &b, 1);
   b = 0;
@@ -144,11 +144,11 @@ static void put_len(u8 lenbe[16], u64 bits) {
 }
 
 /* Store one 64-bit hash word big-endian at out[0..7]. */
-static void sha512_put_be64(u8 *out, u64 v) {
+static void sha512_put_be64(u8* out, u64 v) {
   for (usz j = 0; j < 8; j++) out[j] = (u8)(v >> (56 - j * 8));
 }
 
-void quic_sha512_final(quic_sha512_ctx *s, u8 out[QUIC_SHA512_DIGEST]) {
+void quic_sha512_final(quic_sha512_ctx* s, u8 out[QUIC_SHA512_DIGEST]) {
   u8 lenbe[16];
   put_len(lenbe, s->total * 8);
   sha512_pad_message(s);
@@ -156,7 +156,7 @@ void quic_sha512_final(quic_sha512_ctx *s, u8 out[QUIC_SHA512_DIGEST]) {
   for (usz i = 0; i < 8; i++) sha512_put_be64(out + i * 8, s->h[i]);
 }
 
-void quic_sha512(const u8 *data, usz len, u8 out[QUIC_SHA512_DIGEST]) {
+void quic_sha512(const u8* data, usz len, u8 out[QUIC_SHA512_DIGEST]) {
   quic_sha512_ctx s;
   quic_sha512_init(&s);
   quic_sha512_update(&s, data, len);

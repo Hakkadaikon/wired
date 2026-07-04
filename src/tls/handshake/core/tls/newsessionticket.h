@@ -18,12 +18,12 @@
 /* Seal `t` under `key` and encode the NewSessionTicket message into out.
  * Returns total message length, or 0 if cap is too small. */
 usz quic_tls_new_session_ticket_encode(
-    u8 *out, usz cap, const quic_ticket *t, const u8 key[QUIC_TICKET_KEY_LEN]);
+    u8* out, usz cap, const quic_ticket* t, const u8 key[QUIC_TICKET_KEY_LEN]);
 
 /* Parse a NewSessionTicket message (msg.p[0..msg.n)) and return the sealed
  * ticket bytes as a view into msg (still opaque; call quic_ticket_open with
  * the server's key to recover the quic_ticket). Returns 1 on success, 0 if
  * msg is truncated or inconsistent. */
-int quic_tls_new_session_ticket_parse(quic_span msg, quic_span *sealed);
+int quic_tls_new_session_ticket_parse(quic_span msg, quic_span* sealed);
 
 #endif

@@ -28,8 +28,8 @@ typedef struct {
   usz lost;
 } quic_stats_sent;
 
-void quic_stats_rtt_get(const quic_rtt *r, quic_stats_rtt *out);
-void quic_stats_cc_get(const quic_cc *c, quic_stats_cc *out);
-void quic_stats_sent_get(const quic_sent *s, quic_stats_sent *out);
+void quic_stats_rtt_get(const quic_rtt* r, quic_stats_rtt* out);
+void quic_stats_cc_get(const quic_cc* c, quic_stats_cc* out);
+void quic_stats_sent_get(const quic_sent* s, quic_stats_sent* out);
 
 #endif

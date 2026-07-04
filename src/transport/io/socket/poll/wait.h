@@ -13,7 +13,7 @@ typedef struct {
 } quic_pollfd;
 
 /* Fill a pollfd for read-readiness on fd (fd-independent, for testing). */
-void quic_poll_fill_readable(quic_pollfd *p, i64 fd);
+void quic_poll_fill_readable(quic_pollfd* p, i64 fd);
 
 /* Wait until fd is readable or timeout_ms elapses (poll syscall).
  * Returns 1 if readable, 0 on timeout, negative errno on error. */

@@ -42,7 +42,7 @@ typedef enum {
 
 /* Apply ev to *s. Returns 1 if the transition is allowed (and *s is
  * updated), 0 if ev is not valid in the current state (s unchanged). */
-int quic_send_step(quic_send_state *s, quic_send_event ev);
-int quic_recv_step(quic_recv_state *s, quic_recv_event ev);
+int quic_send_step(quic_send_state* s, quic_send_event ev);
+int quic_recv_step(quic_recv_state* s, quic_recv_event ev);
 
 #endif

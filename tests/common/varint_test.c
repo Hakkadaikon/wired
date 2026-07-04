@@ -9,12 +9,12 @@ static void test_varint_rfc_vectors(void) {
       quic_varint_encode(buf, 15293) == 2 && buf[0] == 0x7B && buf[1] == 0xBD);
   CHECK(
       quic_varint_decode(
-          (const u8 *)"\xc2\x19\x7c\x5e\xff\x14\xe8\x8c", 8, &v) == 8 &&
+          (const u8*)"\xc2\x19\x7c\x5e\xff\x14\xe8\x8c", 8, &v) == 8 &&
       v == 151288809941952652ULL);
   CHECK(
-      quic_varint_decode((const u8 *)"\x9d\x7f\x3e\x7d", 4, &v) == 4 &&
+      quic_varint_decode((const u8*)"\x9d\x7f\x3e\x7d", 4, &v) == 4 &&
       v == 494878333);
-  CHECK(quic_varint_decode((const u8 *)"\x40\x25", 2, &v) == 2 && v == 37);
+  CHECK(quic_varint_decode((const u8*)"\x40\x25", 2, &v) == 2 && v == 37);
 }
 
 static void test_varint_roundtrip(void) {
@@ -34,9 +34,8 @@ static void test_varint_roundtrip(void) {
 
 static void test_varint_truncated(void) {
   u64 v;
-  CHECK(quic_varint_decode((const u8 *)"", 0, &v) == 0);
-  CHECK(
-      quic_varint_decode((const u8 *)"\xc0", 1, &v) == 0); /* needs 8, has 1 */
+  CHECK(quic_varint_decode((const u8*)"", 0, &v) == 0);
+  CHECK(quic_varint_decode((const u8*)"\xc0", 1, &v) == 0); /* needs 8, has 1 */
 }
 
 void test_varint(void) {

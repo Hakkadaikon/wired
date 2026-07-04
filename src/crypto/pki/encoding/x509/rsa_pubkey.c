@@ -5,7 +5,7 @@
 
 /* RFC 8017 A.1.1. A positive INTEGER carries one 0x00 pad when its top bit
  * is set; strip it so the value is the bare big-endian magnitude. */
-static void strip_pad(quic_span *v) {
+static void strip_pad(quic_span* v) {
   if (v->n > 1 && v->p[0] == 0x00) {
     v->p++;
     v->n--;
@@ -13,7 +13,7 @@ static void strip_pad(quic_span *v) {
 }
 
 /* Read one INTEGER from the cursor, stripping a sign pad. */
-static int next_int(quic_derseq *c, quic_span *v) {
+static int next_int(quic_derseq* c, quic_span* v) {
   if (!quic_derseq_next_tagged(c, QUIC_DER_INTEGER, v)) return 0;
   if (v->n == 0) return 0;
   strip_pad(v);
@@ -26,7 +26,7 @@ static int has_bitstr_prefix(quic_span key) {
 }
 
 /* Step over the BIT STRING unused-bits octet into the RSAPublicKey SEQUENCE. */
-static int into_rsa_seq(quic_span key, quic_derseq *c) {
+static int into_rsa_seq(quic_span key, quic_derseq* c) {
   quic_span seq;
   if (!has_bitstr_prefix(key)) return 0;
   quic_derseq_init(c, quic_span_of(key.p + 1, key.n - 1));
@@ -68,12 +68,12 @@ static int rpk_valid(quic_span n, quic_span e) {
 }
 
 /* RFC 8017 A.1.1. Both INTEGERs of RSAPublicKey { n, e } from the cursor. */
-static int rpk_read(quic_derseq *c, quic_span *n, quic_span *e) {
+static int rpk_read(quic_derseq* c, quic_span* n, quic_span* e) {
   if (!next_int(c, n)) return 0;
   return next_int(c, e);
 }
 
-int quic_x509_rsa_pubkey(quic_span spki_key, quic_span *n, quic_span *e) {
+int quic_x509_rsa_pubkey(quic_span spki_key, quic_span* n, quic_span* e) {
   quic_derseq c;
   if (!into_rsa_seq(spki_key, &c)) return 0;
   if (!rpk_read(&c, n, e)) return 0;

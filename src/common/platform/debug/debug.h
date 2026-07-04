@@ -29,21 +29,21 @@ typedef struct {
  * @param at  write cursor into out; advanced past the emitted digits
  * @param in  value and minimum zero-padded width
  */
-void wired_fmt_u64(char *out, usz *at, const wired_fmt_u64_in *in);
+void wired_fmt_u64(char* out, usz* at, const wired_fmt_u64_in* in);
 
 /**
  * Write a NUL-terminated string to stderr (fd 2).
  *
  * @param s NUL-terminated string to write
  */
-void wired_log_str(const char *s);
+void wired_log_str(const char* s);
 
 /**
  * Write a CLOCK_REALTIME "sec.nsec " timestamp then s to stderr.
  *
  * @param s NUL-terminated string written after the timestamp
  */
-void wired_log_ts(const char *s);
+void wired_log_ts(const char* s);
 
 /**
  * Trace macro: expands to a timestamped log under -DQUIC_DEBUG, nothing else.

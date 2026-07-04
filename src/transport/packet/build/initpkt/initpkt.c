@@ -18,7 +18,7 @@ static usz pad_target(usz dcid_len, usz scid_len) {
 static usz initpkt_min_usz(usz a, usz b) { return a < b ? a : b; }
 
 /* Build the CRYPTO frame for the ClientHello, then PADDING-fill to target. */
-static int build_payload(quic_span crypto, usz target, quic_obuf *out) {
+static int build_payload(quic_span crypto, usz target, quic_obuf* out) {
   usz                        n, fill = initpkt_min_usz(target, out->cap);
   quic_crypto_stream_emit_in in = {0, crypto.n};
   if (!quic_crypto_stream_emit(crypto, &in, out)) return 0;
@@ -30,7 +30,7 @@ static int build_payload(quic_span crypto, usz target, quic_obuf *out) {
 
 /* RFC 9000 17.2.2: emit a complete Initial long header carrying the SCID and an
  * empty Token, padded to the 1200-byte datagram floor. */
-int quic_initpkt_build(const quic_initpkt_desc *d, quic_obuf *out) {
+int quic_initpkt_build(const quic_initpkt_desc* d, quic_obuf* out) {
   quic_initial_keys ck, sk;
   quic_aes128       hp;
   u8                payload[1200];
@@ -46,7 +46,7 @@ int quic_initpkt_build(const quic_initpkt_desc *d, quic_obuf *out) {
       d->dcid,
       d->scid,
       1,
-      quic_span_of((const u8 *)0, 0),
+      quic_span_of((const u8*)0, 0),
       d->pn,
       quic_span_of(payload, po.len)};
   total = quic_tx_packet(&k, &t, quic_mspan_of(out->p, out->cap));

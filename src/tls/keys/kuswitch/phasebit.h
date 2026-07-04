@@ -11,6 +11,6 @@ u8 quic_kuswitch_phase_bit(u64 generation);
 
 /* Set the Key Phase bit (0x04) in a short-header first byte to match the
  * generation. */
-void quic_kuswitch_apply_phase(u8 *byte0, u64 generation);
+void quic_kuswitch_apply_phase(u8* byte0, u64 generation);
 
 #endif

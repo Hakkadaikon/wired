@@ -9,7 +9,7 @@ static int scan_step(u32 v, u32 negotiated) {
   return quic_verinfo_is_usable(v) ? -1 : 1;
 }
 
-int quic_vers_no_downgrade(u32 negotiated, const u32 *server_available, usz n) {
+int quic_vers_no_downgrade(u32 negotiated, const u32* server_available, usz n) {
   for (usz i = 0; i < n; i++) {
     int step = scan_step(server_available[i], negotiated);
     if (step <= 0) return step == 0;

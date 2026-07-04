@@ -20,11 +20,11 @@ typedef struct {
  * signature_algorithms extension whose scheme list is sig_algs (a sequence of
  * 2-byte SignatureSchemes). Writes into out and sets out->len to the message
  * length. Returns 1 on success, 0 if it does not fit. */
-int quic_certreq_build(quic_span sig_algs, quic_obuf *out);
+int quic_certreq_build(quic_span sig_algs, quic_obuf* out);
 
 /* Parse a CertificateRequest message msg (including the handshake header).
  * On success fills *out and returns 1. Returns 0 if truncated, not a
  * CertificateRequest, or signature_algorithms is absent. */
-int quic_certreq_parse(quic_span msg, quic_certreq *out);
+int quic_certreq_parse(quic_span msg, quic_certreq* out);
 
 #endif

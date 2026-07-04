@@ -1,7 +1,7 @@
 #include "app/http3/core/h3/priority.h"
 
 /* RFC 9218 4.1: defaults are urgency 3, non-incremental. */
-void quic_h3_priority_init(quic_h3_priority *p) {
+void quic_h3_priority_init(quic_h3_priority* p) {
   p->urgency     = QUIC_H3_URGENCY_DEFAULT;
   p->incremental = 0;
 }

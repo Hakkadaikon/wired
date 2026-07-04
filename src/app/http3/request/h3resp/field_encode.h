@@ -12,6 +12,6 @@
  * content_type == 0 emits only :status. Returns 1 with out->len set, 0 if
  * out lacks capacity. */
 int quic_h3resp_encode_headers(
-    u16 status, const char *content_type, quic_obuf *out);
+    u16 status, const char* content_type, quic_obuf* out);
 
 #endif

@@ -12,7 +12,7 @@
 #include "transport/conn/pnspace/crypto_stream/crypto_tx.h"
 
 /* Minimal ServerHello (RFC 8446 4.1.3) carrying an x25519 key_share pub. */
-static usz client_build_sh(u8 *out, usz cap, const u8 pub[32]) {
+static usz client_build_sh(u8* out, usz cap, const u8 pub[32]) {
   usz off      = quic_hs_begin(out, cap, 2), block;
   out[off]     = 0x03;
   out[off + 1] = 0x03;
@@ -48,7 +48,7 @@ static usz client_build_sh(u8 *out, usz cap, const u8 pub[32]) {
 }
 
 /* CertificateVerify: type(15) len(3) | scheme(2) | sig(2+len). */
-static usz client_build_cv(u8 *out, u16 scheme, const u8 *sig, usz sig_len) {
+static usz client_build_cv(u8* out, u16 scheme, const u8* sig, usz sig_len) {
   usz body = 4 + sig_len;
   out[0]   = 0x0f;
   out[1]   = 0;
@@ -65,7 +65,7 @@ static usz client_build_cv(u8 *out, u16 scheme, const u8 *sig, usz sig_len) {
 /* Drive a client tlsdriver and a server tlsdriver to the shared handshake
  * secret over real ECDHE (mirror of the on-wire CH/SH exchange). */
 static void client_reach_hs_secret(
-    quic_tlsdriver *cl, quic_tlsdriver *sv, const u8 sv_pub[32]) {
+    quic_tlsdriver* cl, quic_tlsdriver* sv, const u8 sv_pub[32]) {
   u8  frame[1024], sh[256];
   usz fl, shn;
   {
@@ -195,10 +195,10 @@ static void test_client_e2e_confirmed(void) {
  * cert policy, plus a server tlsdriver that consumed our ClientHello, ready
  * for the SH -> Certificate feed sequence. */
 static void policy_client(
-    quic_client    *c,
-    quic_tlsdriver *svtls,
+    quic_client*    c,
+    quic_tlsdriver* svtls,
     u64             now,
-    const u8       *host,
+    const u8*       host,
     usz             host_len) {
   u8  cl_priv[32], cl_pub[32], sv_priv[32], sv_pub[32], sh[256], frame[1024];
   usz shn, fl;
@@ -249,7 +249,7 @@ static void test_client_expired_now(void) {
 static void test_client_wrong_host(void) {
   quic_client    c;
   quic_tlsdriver svtls;
-  policy_client(&c, &svtls, 0, (const u8 *)"other.example", 13);
+  policy_client(&c, &svtls, 0, (const u8*)"other.example", 13);
   CHECK(quic_client_feed(&c, fullhs_cert_msg, sizeof(fullhs_cert_msg)) == 0);
   CHECK(quic_client_is_connected(&c) == 0);
 }
@@ -305,8 +305,8 @@ static void test_client_policy_valid(void) {
 }
 
 /* A Certificate handshake message wrapping the realchain [leaf, int]. */
-static usz rc_cert_msg(u8 *out) {
-  const u8 *certs[2] = {quic_realchain_leaf_der, quic_realchain_int_der};
+static usz rc_cert_msg(u8* out) {
+  const u8* certs[2] = {quic_realchain_leaf_der, quic_realchain_int_der};
   usz       lens[2]  = {
       sizeof(quic_realchain_leaf_der), sizeof(quic_realchain_int_der)};
   usz off = QUIC_HS_HEADER + 4, list, body;
@@ -334,7 +334,7 @@ static usz rc_cert_msg(u8 *out) {
 }
 
 /* One DER INTEGER from a 32-byte big-endian scalar. */
-static usz rc_der_int(u8 *out, const u8 v[32]) {
+static usz rc_der_int(u8* out, const u8 v[32]) {
   usz n = 32, pad;
   while (n > 1 && v[32 - n] == 0) n--;
   pad    = (v[32 - n] & 0x80) ? 1 : 0;
@@ -349,7 +349,7 @@ static const char rc_cv_ctx[] = "TLS 1.3, server CertificateVerify";
 
 /* Sign a CertificateVerify as the realchain leaf over the client's current
  * transcript (through Certificate) and frame it, scheme ecdsa_secp256r1. */
-static usz rc_sign_cv(const quic_fullhs *h, u8 *cv) {
+static usz rc_sign_cv(const quic_fullhs* h, u8* cv) {
   u8  th[32], content[130], chash[32], r[32], s[32], der[80];
   usz rn, sn, dn, body;
   quic_sha256(h->tr, h->tr_len, th);
@@ -410,7 +410,7 @@ static void test_client_castore_confirmed(void) {
   c.fd    = -1;
   /* what feed_initial injects for a fully armed client */
   quic_fullhs_set_policy(
-      &c.hs, 20270101000000ULL, quic_span_of((const u8 *)"example.com", 11));
+      &c.hs, 20270101000000ULL, quic_span_of((const u8*)"example.com", 11));
   quic_castore_init(&store, roots, 2);
   CHECK(
       quic_castore_add(

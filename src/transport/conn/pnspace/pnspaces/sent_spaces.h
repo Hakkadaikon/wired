@@ -13,12 +13,12 @@ typedef struct {
   quic_sentpkt t[QUIC_PNS_COUNT];
 } quic_pnspaces_sent;
 
-void quic_pnspaces_sent_init(quic_pnspaces_sent *s);
+void quic_pnspaces_sent_init(quic_pnspaces_sent* s);
 
 /* Record an in-flight packet in `space` only. Returns 1 on success, 0 if that
  * space's table is full. */
 int quic_pnspaces_on_send(
-    quic_pnspaces_sent *s, int space, const quic_sentpkt_out *pkt);
+    quic_pnspaces_sent* s, int space, const quic_sentpkt_out* pkt);
 
 /* The space an ACK applies to, plus its ranges (RFC 9000 19.3). */
 typedef struct {
@@ -30,9 +30,9 @@ typedef struct {
  * packet numbers are appended to newly_acked_pns and *n_acked set to the
  * count. */
 void quic_pnspaces_on_ack(
-    quic_pnspaces_sent *s, const quic_pnspaces_ack_in *in, quic_u64out acked);
+    quic_pnspaces_sent* s, const quic_pnspaces_ack_in* in, quic_u64out acked);
 
 /* In-flight count recorded in `space`. */
-usz quic_pnspaces_sent_count(const quic_pnspaces_sent *s, int space);
+usz quic_pnspaces_sent_count(const quic_pnspaces_sent* s, int space);
 
 #endif

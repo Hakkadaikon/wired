@@ -5,10 +5,10 @@
 
 /* Test-only convenience over the connio_init_in param object. */
 static void mk_connio(
-    quic_connio *io,
+    quic_connio* io,
     int          is_server,
     u8           byte0,
-    const u8    *dcid,
+    const u8*    dcid,
     u8           dcid_len,
     u64          initial_max_data) {
   quic_connio_init_in in = {is_server, byte0, initial_max_data};
@@ -17,11 +17,11 @@ static void mk_connio(
 
 /* Test-only convenience over the connio_send_in param object. */
 static usz send_at(
-    quic_connio *io,
+    quic_connio* io,
     int          level,
-    const u8    *frames,
+    const u8*    frames,
     usz          frames_len,
-    u8          *out,
+    u8*          out,
     usz          cap) {
   quic_connio_send_in sin = {level, quic_span_of(frames, frames_len)};
   quic_obuf           ob  = quic_obuf_of(out, cap);
@@ -46,7 +46,7 @@ static void test_connio_seal_open_roundtrip(void) {
       .stream_id = 4,
       .offset    = 0,
       .length    = 5,
-      .data      = (const u8 *)"hello",
+      .data      = (const u8*)"hello",
       .fin       = 1};
   usz fl = quic_frame_put_stream(frames, sizeof(frames), &sf);
   CHECK(fl != 0);
@@ -83,7 +83,7 @@ static void test_connio_gated_without_key(void) {
 
 /* Install Initial + Handshake keys on io and lift its anti-amp gate so sends at
  * both levels are admitted. */
-static void arm_two_levels(quic_connio *io) {
+static void arm_two_levels(quic_connio* io) {
   quic_initial_keys k = {0};
   io->loop.validated  = 1;
   quic_keyset_install(&io->loop.keys, QUIC_LEVEL_INITIAL, &k);

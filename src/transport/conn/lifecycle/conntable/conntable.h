@@ -25,20 +25,20 @@ typedef struct {
 } quic_conntable;
 
 /** Mark every slot free. */
-void quic_conntable_init(quic_conntable *t, usz cap);
+void quic_conntable_init(quic_conntable* t, usz cap);
 
 /** Find the live slot whose CID exactly matches dcid.
  * @return the slot index, or -1 if none matches. */
 int quic_conntable_find(
-    const quic_conntable *t, usz cap, const u8 *dcid, u8 dcid_len);
+    const quic_conntable* t, usz cap, const u8* dcid, u8 dcid_len);
 
 /** Claim the first free slot for a new connection identified by cid.
  * @return the claimed slot index, or -1 if the table is full or
  *   cid_len exceeds WIRED_MAX_CID_LEN. */
 int quic_conntable_insert(
-    quic_conntable *t, usz cap, const u8 *cid, u8 cid_len);
+    quic_conntable* t, usz cap, const u8* cid, u8 cid_len);
 
 /** Free the slot at index i so it can be reused. Out-of-range i is a no-op. */
-void quic_conntable_remove(quic_conntable *t, usz cap, int i);
+void quic_conntable_remove(quic_conntable* t, usz cap, int i);
 
 #endif

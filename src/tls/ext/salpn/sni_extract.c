@@ -4,7 +4,7 @@
 
 /* RFC 6066 3. */
 
-int quic_salpn_extract_sni(quic_span sni_ext, quic_span *host) {
+int quic_salpn_extract_sni(quic_span sni_ext, quic_span* host) {
   usz list_len;
   int ok;
   if (sni_ext.n < 2) return 0;

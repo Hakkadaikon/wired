@@ -26,27 +26,27 @@ typedef struct {
   u8  notified;    /* app told of the close, exactly once on close path */
 } quic_life;
 
-void quic_life_init(quic_life *l, u64 idle_max, u64 close_max);
+void quic_life_init(quic_life* l, u64 idle_max, u64 close_max);
 
 /* Advance one timer tick: open idles toward a silent close; CLOSING/DRAINING
  * count toward CLOSED. */
-void quic_life_tick(quic_life *l);
+void quic_life_tick(quic_life* l);
 
 /* A (non-reset) packet was received: reset the idle timer while open. */
-void quic_life_on_recv(quic_life *l);
+void quic_life_on_recv(quic_life* l);
 
 /* RFC 9000 10.1: an ack-eliciting packet was sent: reset the idle timer while
  * open. */
-void quic_life_on_send(quic_life *l);
+void quic_life_on_send(quic_life* l);
 
 /* The application starts an immediate close: send CONNECTION_CLOSE, enter
  * CLOSING. No effect once past open. */
-void quic_life_close(quic_life *l);
+void quic_life_close(quic_life* l);
 
 /* A CONNECTION_CLOSE was received from the peer: enter DRAINING. */
-void quic_life_on_peer_close(quic_life *l);
+void quic_life_on_peer_close(quic_life* l);
 
 /* A stateless reset was detected: go straight to CLOSED. */
-void quic_life_on_reset(quic_life *l);
+void quic_life_on_reset(quic_life* l);
 
 #endif

@@ -3,7 +3,7 @@
 #include "test.h"
 
 /* DER length octets (short or long form up to two length bytes). */
-static usz rpk_len(u8 *out, usz len) {
+static usz rpk_len(u8* out, usz len) {
   if (len < 128) {
     out[0] = (u8)len;
     return 1;
@@ -20,7 +20,7 @@ static usz rpk_len(u8 *out, usz len) {
 }
 
 /* One INTEGER TLV. */
-static usz rpk_int(u8 *out, const u8 *v, usz len) {
+static usz rpk_int(u8* out, const u8* v, usz len) {
   usz o  = 1;
   out[0] = 0x02;
   o += rpk_len(out + o, len);
@@ -30,7 +30,7 @@ static usz rpk_int(u8 *out, const u8 *v, usz len) {
 
 /* The BIT STRING value of an rsaEncryption subjectPublicKey holding
  * RSAPublicKey { n, e } (RFC 8017 A.1.1). Returns the total length. */
-static usz rpk_key(u8 *out, const u8 *nv, usz nl, const u8 *ev, usz el) {
+static usz rpk_key(u8* out, const u8* nv, usz nl, const u8* ev, usz el) {
   u8  body[600];
   usz blen, o = 2;
   blen = rpk_int(body, nv, nl);
@@ -44,7 +44,7 @@ static usz rpk_key(u8 *out, const u8 *nv, usz nl, const u8 *ev, usz el) {
 
 /* A canonical odd modulus of `len` value bytes with the top bit set, so the
  * INTEGER carries a 0x00 sign pad. Returns the content length (len + 1). */
-static usz rpk_padded_n(u8 *out, usz len) {
+static usz rpk_padded_n(u8* out, usz len) {
   out[0] = 0x00; /* sign pad */
   out[1] = 0xc1;
   for (usz i = 2; i < len; i++) out[i] = 0xaa;
@@ -53,7 +53,7 @@ static usz rpk_padded_n(u8 *out, usz len) {
 }
 
 /* A key with a valid 2048-bit modulus and the given exponent. */
-static usz rpk_key_e(u8 *key, const u8 *ev, usz el) {
+static usz rpk_key_e(u8* key, const u8* ev, usz el) {
   u8  nv[257];
   usz nl = rpk_padded_n(nv, 256);
   return rpk_key(key, nv, nl, ev, el);

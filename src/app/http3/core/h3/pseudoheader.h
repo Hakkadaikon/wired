@@ -24,7 +24,7 @@ typedef enum {
 /* Classify a field name of len bytes. Returns the pseudo-header kind, or
  * QUIC_H3_PH_NONE for a regular field, or QUIC_H3_PH_UNKNOWN for an
  * unrecognised ':'-prefixed name. */
-quic_h3_ph_kind quic_h3_ph_classify(const u8 *name, usz len);
+quic_h3_ph_kind quic_h3_ph_classify(const u8* name, usz len);
 
 /* Accumulates the pseudo-headers of one field section, in receipt order. */
 typedef struct {
@@ -33,16 +33,16 @@ typedef struct {
   u8 ok;          /* 0 once any ordering/duplicate/unknown rule is broken */
 } quic_h3_ph_set;
 
-void quic_h3_ph_init(quic_h3_ph_set *p);
+void quic_h3_ph_init(quic_h3_ph_set* p);
 
 /* Feed the next field name. Maintains p->ok: a pseudo-header after a regular
  * field, a duplicate pseudo-header, or an unknown pseudo-header clears it. */
-void quic_h3_ph_field(quic_h3_ph_set *p, const u8 *name, usz len);
+void quic_h3_ph_field(quic_h3_ph_set* p, const u8* name, usz len);
 
 /* Whether the accumulated pseudo-headers form a valid request / response:
  * p->ok held and the required set is present (request: :method :scheme :path;
  * response: :status). Returns 1 valid, 0 malformed. */
-int quic_h3_ph_request_ok(const quic_h3_ph_set *p);
-int quic_h3_ph_response_ok(const quic_h3_ph_set *p);
+int quic_h3_ph_request_ok(const quic_h3_ph_set* p);
+int quic_h3_ph_response_ok(const quic_h3_ph_set* p);
 
 #endif

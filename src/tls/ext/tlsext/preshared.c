@@ -4,7 +4,7 @@
 
 #define QUIC_TLSEXT_T_PRE_SHARED_KEY 0x0029
 
-static void psk_copy(u8 *dst, const u8 *src, usz n) {
+static void psk_copy(u8* dst, const u8* src, usz n) {
   for (usz i = 0; i < n; i++) dst[i] = src[i];
 }
 
@@ -14,11 +14,11 @@ static usz psk_total(usz id_len, usz binder_len) {
   return 4 + 2 + (2 + id_len + 4) + 2 + (1 + binder_len);
 }
 
-int quic_tlsext_pre_shared_key(const quic_tlsext_psk_in *in, quic_obuf *out) {
+int quic_tlsext_pre_shared_key(const quic_tlsext_psk_in* in, quic_obuf* out) {
   usz id_len     = in->identity.n;
   usz binder_len = in->binder.n;
   usz total      = psk_total(id_len, binder_len);
-  u8 *p          = out->p;
+  u8* p          = out->p;
   if (out->cap < total) return 0;
   quic_put_be16(p, QUIC_TLSEXT_T_PRE_SHARED_KEY);
   quic_put_be16(p + 2, (u16)(total - 4));
@@ -34,7 +34,7 @@ int quic_tlsext_pre_shared_key(const quic_tlsext_psk_in *in, quic_obuf *out) {
 }
 
 /* The 4-byte header names pre_shared_key with the full body readable. */
-static int psk_header_ok(const u8 *out, usz n) {
+static int psk_header_ok(const u8* out, usz n) {
   usz dlen = (usz)out[2] << 8 | out[3];
   return n >= 4 &&
          ((u16)out[0] << 8 | out[1]) == QUIC_TLSEXT_T_PRE_SHARED_KEY &&
@@ -48,7 +48,7 @@ typedef struct {
 } psk_lens;
 
 /* The single identity entry and single binder entry exactly fill the body. */
-static int psk_shape_ok(const u8 *out, usz n, psk_lens l) {
+static int psk_shape_ok(const u8* out, usz n, psk_lens l) {
   usz dlen = (usz)out[2] << 8 | out[3];
   return n >= psk_total(l.id_len, l.binder_len) &&
          dlen == psk_total(l.id_len, l.binder_len) - 4;
@@ -56,19 +56,19 @@ static int psk_shape_ok(const u8 *out, usz n, psk_lens l) {
 
 /* Header valid and the identity entry leaves the binder length byte readable.
  */
-static int psk_prefix_ok(const u8 *out, usz n, usz id_len) {
+static int psk_prefix_ok(const u8* out, usz n, usz id_len) {
   return psk_header_ok(out, n) && n >= 15 + id_len;
 }
 
 /* The full single-entry offer is well formed: prefix readable then both
  * single-entry lists exactly fill the body. */
-static int psk_offer_ok(const u8 *out, usz n, usz id_len) {
+static int psk_offer_ok(const u8* out, usz n, usz id_len) {
   psk_lens l = {id_len, out[14 + id_len]};
   return psk_prefix_ok(out, n, id_len) && psk_shape_ok(out, n, l);
 }
 
 int quic_tlsext_pre_shared_key_parse(
-    const u8 *out, usz n, quic_tlsext_psk_offer *off) {
+    const u8* out, usz n, quic_tlsext_psk_offer* off) {
   usz id_len = (n >= 8) ? ((usz)out[6] << 8 | out[7]) : 0;
   if (!psk_offer_ok(out, n, id_len)) return 0;
   off->binder_len = out[14 + id_len];

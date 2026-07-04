@@ -64,28 +64,28 @@ typedef struct {
 
 /* Initialise an active loop at `in->level`, with `in->cwnd` open,
  * `in->send_len`-byte packets, and all timers disarmed. */
-void quic_evloop_init(quic_evloop *c, const quic_evloop_init_in *in);
+void quic_evloop_init(quic_evloop* c, const quic_evloop_init_in* in);
 
 /* Queue a received packet for processing inside the next step. */
-void quic_evloop_on_receive(quic_evloop *c, int ack_eliciting);
+void quic_evloop_on_receive(quic_evloop* c, int ack_eliciting);
 
 /* Run one iteration: drain receives, handle timers, decide one send -- in that
  * order. A closed connection does nothing. */
-void quic_evloop_step(quic_evloop *c, u64 now);
+void quic_evloop_step(quic_evloop* c, u64 now);
 
 /* Repeat step until the connection is closed or `max_iterations` is reached. */
-void quic_evloop_run(quic_evloop *c, u64 now, usz max_iterations);
+void quic_evloop_run(quic_evloop* c, u64 now, usz max_iterations);
 
 /* RFC 9001 6.1: begin a key update -- only once 1-RTT is confirmed. Advances
  * the generation and retains the prior one. Returns 1 if started, 0 if barred.
  */
-int quic_evloop_initiate_key_update(quic_evloop *c, u64 now);
+int quic_evloop_initiate_key_update(quic_evloop* c, u64 now);
 
 /* RFC 9001 6.1: 1 while the previous generation's key is still retained
  * (within 3*PTO of the last update), 0 once it may be discarded. */
-int quic_evloop_old_key_retained(const quic_evloop *c, u64 now);
+int quic_evloop_old_key_retained(const quic_evloop* c, u64 now);
 
 /* RFC 9000 10.2: begin closing. Once left, the active phase never returns. */
-void quic_evloop_close(quic_evloop *c, int peer_closed);
+void quic_evloop_close(quic_evloop* c, int peer_closed);
 
 #endif

@@ -20,7 +20,7 @@ void test_v2switch(void) {
   CHECK(quic_vers_initial_salt(0x5u, &s1, &l1) == 0);
 
   /* label prefixes */
-  const char *p  = 0;
+  const char* p  = 0;
   usz         pl = 0;
   CHECK(quic_vers_label_prefix(QUIC_VERSION_1, &p, &pl) == 1);
   CHECK(pl == 5 && p[0] == 'q' && p[4] == ' ');

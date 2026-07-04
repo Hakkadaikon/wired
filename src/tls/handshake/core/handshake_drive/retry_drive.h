@@ -12,9 +12,9 @@
  * the Retry's SCID (the new DCID), new_dcid capped at WIRED_MAX_CID_LEN by
  * the caller. */
 typedef struct {
-  quic_obuf *token;
-  u8        *new_dcid;
-  u8        *new_dcil;
+  quic_obuf* token;
+  u8*        new_dcid;
+  u8*        new_dcil;
 } quic_retry_process_out;
 
 /* Verify and process a received Retry packet. On a valid tag returns 1 and
@@ -23,7 +23,7 @@ typedef struct {
 int quic_retry_process(
     quic_span                     retry_pkt,
     quic_span                     orig_dcid,
-    const quic_retry_process_out *out);
+    const quic_retry_process_out* out);
 
 /* RFC 9000 17.2.5: a client accepts at most one Retry. state is non-zero once
  * a Retry has been accepted; returns 1 to mean a further Retry must be

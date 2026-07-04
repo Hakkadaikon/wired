@@ -19,7 +19,7 @@ typedef struct {
 } varint_be_out;
 
 /* Write o->n bytes of o->v big-endian into buf, OR o->prefix into buf[0]. */
-static void put_be(u8 *buf, const varint_be_out *o) {
+static void put_be(u8* buf, const varint_be_out* o) {
   usz i = o->n;
   u64 v = o->v;
   while (i-- > 0) {
@@ -29,7 +29,7 @@ static void put_be(u8 *buf, const varint_be_out *o) {
   buf[0] |= o->prefix;
 }
 
-usz quic_varint_encode(u8 *buf, u64 v) {
+usz quic_varint_encode(u8* buf, u64 v) {
   usz             n         = quic_varint_len(v);
   static const u8 prefix[9] = {0, 0x00, 0x40, 0, 0x80, 0, 0, 0, 0xC0};
   varint_be_out   o         = {v, n, prefix[n]};
@@ -39,13 +39,13 @@ usz quic_varint_encode(u8 *buf, u64 v) {
 }
 
 /* Read n big-endian bytes (first masked of its prefix) into *out. */
-static u64 get_be(const u8 *buf, usz n) {
+static u64 get_be(const u8* buf, usz n) {
   u64 v = buf[0] & 0x3F;
   for (usz i = 1; i < n; i++) v = (v << 8) | buf[i];
   return v;
 }
 
-usz quic_varint_decode(const u8 *buf, usz n, u64 *out) {
+usz quic_varint_decode(const u8* buf, usz n, u64* out) {
   static const usz len[4] = {1, 2, 4, 8};
   usz              need;
   if (n == 0) return 0;
@@ -55,14 +55,14 @@ usz quic_varint_decode(const u8 *buf, usz n, u64 *out) {
   return need;
 }
 
-int quic_varint_take(quic_span buf, usz *off, u64 *out) {
+int quic_varint_take(quic_span buf, usz* off, u64* out) {
   usz used = quic_varint_decode(buf.p + *off, buf.n - *off, out);
   if (used == 0) return 0;
   *off += used;
   return 1;
 }
 
-int quic_varint_put(quic_mspan buf, usz *off, u64 v) {
+int quic_varint_put(quic_mspan buf, usz* off, u64 v) {
   usz need = quic_varint_len(v);
   if (need == 0 || *off + need > buf.n) return 0;
   *off += quic_varint_encode(buf.p + *off, v);

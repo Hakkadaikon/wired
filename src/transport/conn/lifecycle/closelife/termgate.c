@@ -10,7 +10,7 @@ static const quic_send_kind send_by_phase[] = {
     [QUIC_LIFE_CLOSED]   = QUIC_SEND_NONE,
 };
 
-quic_send_kind quic_life_send_kind(const quic_life *l) {
+quic_send_kind quic_life_send_kind(const quic_life* l) {
   return send_by_phase[l->phase];
 }
 
@@ -18,10 +18,10 @@ quic_send_kind quic_life_send_kind(const quic_life *l) {
  * starts and stays 0 otherwise, including an idle silent close), so reaching
  * close_max identifies the 3*PTO close deadline regardless of whether the tick
  * that hit the limit has already moved the phase to CLOSED. */
-int quic_life_close_due(const quic_life *l) {
+int quic_life_close_due(const quic_life* l) {
   return l->close_ticks > 0 && l->close_ticks >= l->close_max;
 }
 
-int quic_life_idle_due(const quic_life *l) {
+int quic_life_idle_due(const quic_life* l) {
   return l->phase == QUIC_LIFE_OPEN && l->idle_ticks >= l->idle_max;
 }

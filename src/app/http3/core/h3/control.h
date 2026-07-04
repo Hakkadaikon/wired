@@ -26,26 +26,26 @@ typedef struct {
   quic_h3_error error; /* latched; nonzero means the connection failed */
 } quic_h3_control;
 
-void quic_h3_control_init(quic_h3_control *c);
+void quic_h3_control_init(quic_h3_control* c);
 
 /* A peer opened its control stream. The second one is a STREAM_CREATION error.
  */
-void quic_h3_control_open(quic_h3_control *c);
+void quic_h3_control_open(quic_h3_control* c);
 
 /* The control stream closed: a CLOSED_CRITICAL_STREAM error. */
-void quic_h3_control_closed(quic_h3_control *c);
+void quic_h3_control_closed(quic_h3_control* c);
 
 /* A control-stream frame arrived; is_settings marks the SETTINGS type. The
  * first frame must be SETTINGS (else MISSING_SETTINGS); a later SETTINGS is
  * FRAME_UNEXPECTED. */
-void quic_h3_control_frame(quic_h3_control *c, int is_settings);
+void quic_h3_control_frame(quic_h3_control* c, int is_settings);
 
 /* A GOAWAY with `id` arrived. Accepted if not greater than a prior GOAWAY id;
  * an increase is an ID error. */
-void quic_h3_control_goaway(quic_h3_control *c, u64 id);
+void quic_h3_control_goaway(quic_h3_control* c, u64 id);
 
 /* Whether a new request with `id` may be accepted: not after a GOAWAY whose
  * limit it reaches (RFC 9114 5.2). Existing requests are unaffected. */
-int quic_h3_control_accept_request(const quic_h3_control *c, u64 id);
+int quic_h3_control_accept_request(const quic_h3_control* c, u64 id);
 
 #endif

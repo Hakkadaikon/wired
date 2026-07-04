@@ -15,6 +15,6 @@ usz quic_qpack_string_encode(quic_mspan buf, quic_span src);
 /* Decode a string literal at buf into dst, setting dst->len. H=1 values are
  * Huffman-decoded. Returns bytes consumed, or 0 on truncation, a Huffman
  * decode error, or dst overflow. */
-usz quic_qpack_string_decode(quic_span buf, quic_obuf *dst);
+usz quic_qpack_string_decode(quic_span buf, quic_obuf* dst);
 
 #endif

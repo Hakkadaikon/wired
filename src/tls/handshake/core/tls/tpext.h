@@ -12,11 +12,11 @@
 
 /* Wrap tp in the extension. Returns bytes written into out, or 0 if it does
  * not fit or tp.n exceeds 0xFFFF. */
-usz quic_tpext_encode(quic_obuf *out, quic_span tp);
+usz quic_tpext_encode(quic_obuf* out, quic_span tp);
 
 /* Parse one extension at buf. On success sets *tp (a view into buf) and
  * returns total bytes consumed; 0 if truncated, the extension_type is not
  * 0x39, or the length field overruns buf. */
-usz quic_tpext_decode(quic_span buf, quic_span *tp);
+usz quic_tpext_decode(quic_span buf, quic_span* tp);
 
 #endif

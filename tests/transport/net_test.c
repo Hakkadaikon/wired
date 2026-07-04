@@ -36,8 +36,8 @@ static void test_udp_checksum(void) {
 static void test_memlink_fifo(void) {
   quic_memlink l;
   quic_memlink_init(&l);
-  CHECK(quic_memlink_send(&l, (const u8 *)"first", 5) == 1);
-  CHECK(quic_memlink_send(&l, (const u8 *)"second", 6) == 1);
+  CHECK(quic_memlink_send(&l, (const u8*)"first", 5) == 1);
+  CHECK(quic_memlink_send(&l, (const u8*)"second", 6) == 1);
   u8 out[16];
   CHECK(quic_memlink_recv(&l, out, sizeof(out)) == 5 && out[0] == 'f');
   CHECK(quic_memlink_recv(&l, out, sizeof(out)) == 6 && out[0] == 's');
@@ -53,9 +53,8 @@ static void test_net_datagram_over_link(void) {
   quic_obuf      ub    = quic_obuf_of(udp, sizeof(udp));
   usz            un    = quic_udp4_build(&ub, &meta, quic_span_of(pl, 5));
   quic_ipv4_build(
-      ip, &(quic_ipv4_head){
-              (u16)(QUIC_IPV4_HDR + un), 0x0a000001, 0x0a000002,
-              QUIC_IP_PROTO_UDP});
+      ip, &(quic_ipv4_head){(u16)(QUIC_IPV4_HDR + un), 0x0a000001, 0x0a000002,
+                            QUIC_IP_PROTO_UDP});
   for (usz i = 0; i < QUIC_IPV4_HDR; i++) frame[i] = ip[i];
   for (usz i = 0; i < un; i++) frame[QUIC_IPV4_HDR + i] = udp[i];
 

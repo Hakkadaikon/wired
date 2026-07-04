@@ -2,7 +2,7 @@
 
 #include "test.h"
 
-static void p256_hb32(const char *hex, u8 out[32]) {
+static void p256_hb32(const char* hex, u8 out[32]) {
   for (usz i = 0; i < 32; i++) {
     u8 hi = hex[i * 2], lo = hex[i * 2 + 1];
     out[i] = (u8)(((hi <= '9' ? hi - '0' : hi - 'a' + 10) << 4) |
@@ -54,7 +54,7 @@ static void test_p256_field_bytes(void) {
 }
 
 /* Deterministic xorshift so the differential test is reproducible. */
-static u64 p256_rng(u64 *s) {
+static u64 p256_rng(u64* s) {
   *s ^= *s << 13;
   *s ^= *s >> 7;
   *s ^= *s << 17;

@@ -9,7 +9,7 @@
 
 /* Adopt peer SCID (<= 20 bytes) as our DCID (writes out->len). Returns 1 ok, 0
  * if too long. */
-int quic_cidnego_peer_dcid(quic_span peer_scid, quic_obuf *our_dcid);
+int quic_cidnego_peer_dcid(quic_span peer_scid, quic_obuf* our_dcid);
 
 /* Two connection IDs are equal iff same length and bytes. */
 int quic_cidnego_match(quic_span a, quic_span b);

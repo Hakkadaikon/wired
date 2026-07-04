@@ -59,7 +59,7 @@ static void sc_reduce64(u8 out[32], const u8 in[64]) {
 }
 
 /* k = SHA-512(R || A || M) mod L (RFC 8032 5.1.7 step 2). */
-static void hash_k(u8 k[32], const u8 *R, const u8 *A, quic_span msg) {
+static void hash_k(u8 k[32], const u8* R, const u8* A, quic_span msg) {
   quic_sha512_ctx h;
   u8              digest[64];
   quic_sha512_init(&h);
@@ -78,7 +78,7 @@ static int bytes_equal(const u8 a[32], const u8 b[32]) {
 
 /* rhs = R + [k]A' as 32-byte encoding; returns 1 on success (R decodes). */
 static int compute_rhs(
-    u8 out[32], const u8 k[32], const ge *A, const u8 R[32]) {
+    u8 out[32], const u8 k[32], const ge* A, const u8 R[32]) {
   ge kA, rhs;
   quic_ed_ge_scalarmult(&kA, k, A);
   if (!quic_ed_ge_decode(&rhs, R)) return 0;
@@ -89,7 +89,7 @@ static int compute_rhs(
 
 /* Final check: [S]B == R + [k]A' (RFC 8032 5.1.7 step 3, sufficient form). */
 static int check_equation(
-    const u8 S[32], const u8 k[32], const ge *A, const u8 R[32]) {
+    const u8 S[32], const u8 k[32], const ge* A, const u8 R[32]) {
   ge B, sB;
   u8 lhs[32], want[32];
   if (!compute_rhs(want, k, A, R)) return 0;
@@ -157,7 +157,7 @@ int quic_ed25519_keypair(
 }
 
 /* r = SHA512(prefix || msg) mod L (RFC 8032 5.1.6 step 2). */
-static void hash_r(u8 r[32], const u8 prefix[32], const u8 *msg, usz msg_len) {
+static void hash_r(u8 r[32], const u8 prefix[32], const u8* msg, usz msg_len) {
   quic_sha512_ctx h;
   u8              digest[64];
   quic_sha512_init(&h);
@@ -170,7 +170,7 @@ static void hash_r(u8 r[32], const u8 prefix[32], const u8 *msg, usz msg_len) {
 /* sig = R || S where R = [r]B, S = (r + k*a) mod L (RFC 8032 5.1.6). */
 int quic_ed25519_sign(
     const u8  seed[QUIC_ED25519_SEED],
-    const u8 *msg,
+    const u8* msg,
     usz       msg_len,
     u8        sig[QUIC_ED25519_SIG]) {
   u8 h[64], a[32], r[32], k[32];
@@ -192,13 +192,13 @@ int quic_ed25519_sign(
 
 int quic_ed25519_verify(
     const u8  sig[QUIC_ED25519_SIG],
-    const u8 *msg,
+    const u8* msg,
     usz       msg_len,
     const u8  pubkey[QUIC_ED25519_PUBKEY]) {
   ge        A;
   u8        k[32];
-  const u8 *R = sig;
-  const u8 *S = sig + 32;
+  const u8* R = sig;
+  const u8* S = sig + 32;
   if (sc_ge(S, ORDER_L)) return 0; /* S must be < L */
   if (!quic_ed_ge_decode(&A, pubkey)) return 0;
   hash_k(k, R, pubkey, (quic_span){msg, msg_len});

@@ -1,7 +1,7 @@
 #include "test.h"
 
 /* Local nul-terminated string compare; src/ has no libc strcmp. */
-static int qlogevent_streq(const char *a, const char *b) {
+static int qlogevent_streq(const char* a, const char* b) {
   usz i = 0;
   for (; a[i] || b[i]; i++)
     if (a[i] != b[i]) return 0;

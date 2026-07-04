@@ -12,11 +12,11 @@ typedef struct {
   u64 window;          /* how far ahead of consumed to keep the limit */
 } quic_stream_flow;
 
-void quic_stream_flow_init(quic_stream_flow *s, u64 window);
+void quic_stream_flow_init(quic_stream_flow* s, u64 window);
 
 /* Consume n delivered bytes and slide the limit forward. Returns the new
  * max_stream_data to advertise. */
-u64 quic_stream_flow_consume(quic_stream_flow *s, u64 n);
+u64 quic_stream_flow_consume(quic_stream_flow* s, u64 n);
 
 /* Whether a received highest offset exceeds the advertised limit: a
  * FLOW_CONTROL_ERROR when received > max_stream_data. Returns 1 on violation.

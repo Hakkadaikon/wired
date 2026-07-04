@@ -29,7 +29,7 @@ typedef struct {
  * the Length varint so the caller can rewrite it later. Returns the header
  * length (== out->len), or 0 if it does not fit. */
 usz quic_lhdr_build(
-    const quic_lhdr_desc *d, quic_obuf *out, usz *length_off_out);
+    const quic_lhdr_desc* d, quic_obuf* out, usz* length_off_out);
 
 /* RFC 9000 17.2: set byte0's low two bits to pn_len-1, leaving the form,
  * fixed bit, type, and reserved bits untouched. pn_len must be 1, 2, or 4. */

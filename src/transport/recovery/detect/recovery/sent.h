@@ -26,7 +26,7 @@ typedef struct {
   int           have_acked;
 } quic_sent;
 
-void quic_sent_init(quic_sent *s);
+void quic_sent_init(quic_sent* s);
 
 /* A packet to record as sent. */
 typedef struct {
@@ -36,14 +36,14 @@ typedef struct {
 } quic_sent_out;
 
 /* Record an in-flight packet. Returns 1 on success, 0 if the table is full. */
-int quic_sent_on_send(quic_sent *s, const quic_sent_out *pkt);
+int quic_sent_on_send(quic_sent* s, const quic_sent_out* pkt);
 
 /* Acknowledge packet pn. Idempotent: re-acking does not double-count.
  * Updates largest_acked (monotonic). Returns 1 if newly acked. */
-int quic_sent_on_ack(quic_sent *s, u64 pn);
+int quic_sent_on_ack(quic_sent* s, u64 pn);
 
 /* Mark in-flight packets at least kPacketThreshold below largest_acked as
  * lost; returns how many newly transitioned to lost. */
-usz quic_sent_detect_loss(quic_sent *s);
+usz quic_sent_detect_loss(quic_sent* s);
 
 #endif

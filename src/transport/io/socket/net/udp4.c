@@ -24,7 +24,7 @@ static u32 pseudo_sum(u32 sum, quic_ipv4addrs addrs, u16 udp_len) {
 }
 
 /* Write the 8-byte UDP header (ports, length, zero checksum) and payload. */
-static void put_udp(u8 *out, quic_udpports ports, quic_span payload) {
+static void put_udp(u8* out, quic_udpports ports, quic_span payload) {
   u16 udp_len = (u16)(QUIC_UDP_HDR + payload.n);
   put_be16(out, ports.sport);
   put_be16(out + 2, ports.dport);
@@ -35,7 +35,7 @@ static void put_udp(u8 *out, quic_udpports ports, quic_span payload) {
 }
 
 usz quic_udp4_build(
-    quic_obuf *out, const quic_udp4meta *meta, quic_span payload) {
+    quic_obuf* out, const quic_udp4meta* meta, quic_span payload) {
   u16 udp_len = (u16)(QUIC_UDP_HDR + payload.n);
   u32 sum;
   if ((usz)udp_len > out->cap) return 0;

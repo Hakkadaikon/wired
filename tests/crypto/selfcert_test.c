@@ -85,9 +85,9 @@ static void test_build_selfsigned(void) {
 
   /* A flipped TBS byte must break verification. */
   u8 bad = c.tbs.p[0];
-  ((u8 *)c.tbs.p)[0] ^= 0xff;
+  ((u8*)c.tbs.p)[0] ^= 0xff;
   CHECK(quic_ed25519_verify(c.sig.p + 1, c.tbs.p, c.tbs.n, key.p + 1) == 0);
-  ((u8 *)c.tbs.p)[0] = bad;
+  ((u8*)c.tbs.p)[0] = bad;
 }
 
 void test_selfcert(void) {

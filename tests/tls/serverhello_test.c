@@ -2,7 +2,7 @@
 
 /* Build a minimal ServerHello (RFC 8446 4.1.3) carrying supported_versions and
  * a single x25519 key_share entry. Returns total message length. */
-static usz build_sh(u8 *out, usz cap, const u8 pub[32]) {
+static usz build_sh(u8* out, usz cap, const u8 pub[32]) {
   usz off = quic_hs_begin(out, cap, 2);
   usz block, end;
   out[off]     = 0x03;

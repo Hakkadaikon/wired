@@ -34,13 +34,13 @@ static void test_tpext_bad_len(void) {
   u8        buf[16];
   quic_span out;
   quic_obuf ob = quic_obuf_of(buf, sizeof(buf));
-  usz       w  = quic_tpext_encode(&ob, quic_span_of((const u8 *)"abc", 3));
+  usz       w  = quic_tpext_encode(&ob, quic_span_of((const u8*)"abc", 3));
   /* length field claims 3 but only 2 data bytes are readable */
   CHECK(quic_tpext_decode(quic_span_of(buf, w - 1), &out) == 0);
   /* no room to encode */
   {
     quic_obuf small = quic_obuf_of(buf, 4);
-    CHECK(quic_tpext_encode(&small, quic_span_of((const u8 *)"abc", 3)) == 0);
+    CHECK(quic_tpext_encode(&small, quic_span_of((const u8*)"abc", 3)) == 0);
   }
 }
 

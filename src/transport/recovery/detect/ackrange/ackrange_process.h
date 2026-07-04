@@ -10,6 +10,6 @@
  * newly acked packets are written to newly_acked.out and *newly_acked.n is
  * set to the count. Returns 1 on success, 0 if the frame is malformed. */
 int quic_ackrange_process(
-    quic_sentpkt *t, quic_span ack_frame, quic_u64out newly_acked);
+    quic_sentpkt* t, quic_span ack_frame, quic_u64out newly_acked);
 
 #endif

@@ -5,13 +5,13 @@
 
 /* A read-only view of a u64 array. */
 typedef struct {
-  const u64 *p;
+  const u64* p;
   usz        n;
 } quic_u64view;
 
 /* A fixed-capacity u64 output buffer; the callee fills *len. */
 typedef struct {
-  u64 *p;
+  u64* p;
   usz  cap;
   usz  len;
 } quic_u64obuf;
@@ -31,6 +31,6 @@ typedef struct {
  * ranges->cap bounds the write. Returns 1 on success, 0 if received_pns is
  * empty or ranges->cap is too small. */
 int quic_ackgen_build_ranges(
-    quic_u64view received_pns, u64 *largest, quic_u64obuf *ranges);
+    quic_u64view received_pns, u64* largest, quic_u64obuf* ranges);
 
 #endif

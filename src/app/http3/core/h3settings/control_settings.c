@@ -15,7 +15,7 @@
 #define DEFAULT_ENABLE_CONNECT_PROTOCOL 0
 
 /* RFC 9114 6.2.1 */
-int quic_h3settings_control_stream(u8 *out, usz cap, usz *out_len) {
+int quic_h3settings_control_stream(u8* out, usz cap, usz* out_len) {
   usz pre = 0;
   if (!quic_h3settings_control_prefix(out, cap, &pre)) return 0;
 

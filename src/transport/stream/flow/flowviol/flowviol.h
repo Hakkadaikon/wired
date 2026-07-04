@@ -13,8 +13,8 @@
  * usage) is checked before the stream count (streams usage), so a data
  * overrun reports FLOW_CONTROL_ERROR. */
 int quic_flowviol_check(
-    const quic_flow_usage *data,
-    const quic_flow_usage *streams,
-    u64                   *error_code);
+    const quic_flow_usage* data,
+    const quic_flow_usage* streams,
+    u64*                   error_code);
 
 #endif

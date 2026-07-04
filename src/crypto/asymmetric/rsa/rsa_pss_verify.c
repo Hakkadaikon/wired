@@ -17,21 +17,21 @@ static usz rsa_byte_bits(u8 b) {
 }
 
 /* Index of the first nonzero octet, or n_len if all zero. */
-static usz rsa_first_nonzero(const u8 *n, usz n_len) {
+static usz rsa_first_nonzero(const u8* n, usz n_len) {
   usz i = 0;
   while (i < n_len && n[i] == 0) i++;
   return i;
 }
 
 /* Bit length of a big-endian integer n[0..n_len). 0 if n is zero. */
-static usz rsa_modbits(const u8 *n, usz n_len) {
+static usz rsa_modbits(const u8* n, usz n_len) {
   usz i = rsa_first_nonzero(n, n_len);
   if (i == n_len) return 0;
   return (n_len - i - 1) * 8 + rsa_byte_bits(n[i]);
 }
 
 /* e = 65537 (RFC 8017 common public exponent). */
-static void pss_e_f4(quic_bn *e) {
+static void pss_e_f4(quic_bn* e) {
   for (usz i = 0; i < QUIC_BN_LIMBS; i++) e->v[i] = 0;
   e->v[0] = 65537;
 }
@@ -43,7 +43,7 @@ static int rsa_sizes_bad(usz n_len, usz sig_len, usz hash_len) {
 }
 
 /* Sizes acceptable and the exponent is the supported F4. */
-static int pss_inputs_ok(const quic_rsa_pub *pub, usz sig_len, usz hash_len) {
+static int pss_inputs_ok(const quic_rsa_pub* pub, usz sig_len, usz hash_len) {
   if (rsa_sizes_bad(pub->n.n, sig_len, hash_len)) return 0;
   return quic_rsa_e_is_f4(pub->e.p, pub->e.n);
 }
@@ -63,13 +63,13 @@ static int rsa_recover_em(quic_span n, quic_span sig, quic_mspan em) {
 }
 
 /* RFC 8017 8.1.2 step 1 note: emBits = modBits - 1 (0 for a zero modulus). */
-static usz rsa_em_bits(const u8 *n, usz n_len) {
+static usz rsa_em_bits(const u8* n, usz n_len) {
   usz mod_bits = rsa_modbits(n, n_len);
   return mod_bits ? mod_bits - 1 : 0;
 }
 
 int quic_rsa_pss_verify(
-    const quic_rsa_pub *pub, quic_span sig, quic_span mhash) {
+    const quic_rsa_pub* pub, quic_span sig, quic_span mhash) {
   if (!pss_inputs_ok(pub, sig.n, mhash.n)) return 0;
   usz em_bits = rsa_em_bits(pub->n.p, pub->n.n);
   usz em_len  = (em_bits + 7) / 8;

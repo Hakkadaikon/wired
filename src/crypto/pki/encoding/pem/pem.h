@@ -31,6 +31,6 @@
  * @param der   receives the decoded DER bytes; the callee advances der->len
  * @return 1 when a block was decoded, 0 when no BEGIN marker remains or the
  *   block is broken (invalid base64, missing END line, or der overflow). */
-int wired_pem_next(quic_span text, usz *at, quic_span *label, quic_obuf *der);
+int wired_pem_next(quic_span text, usz* at, quic_span* label, quic_obuf* der);
 
 #endif

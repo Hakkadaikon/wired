@@ -5,7 +5,7 @@ static const u8 odcid[] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
 static const u8 scid[]  = {0x11, 0x22, 0x33, 0x44, 0x55};
 
 /* Build server TPs for (odcid, scid) into buf; returns the encoded length. */
-static usz stp_build(u8 *buf, usz cap) {
+static usz stp_build(u8* buf, usz cap) {
   quic_obuf ob = quic_obuf_of(buf, cap);
   quic_span od = quic_span_of(odcid, sizeof(odcid));
   quic_span sc = quic_span_of(scid, sizeof(scid));
@@ -14,13 +14,13 @@ static usz stp_build(u8 *buf, usz cap) {
 
 /* quic_stp_parse for an integer-valued parameter, discarding the bytes view.
  */
-static int parse_int(quic_span tp, u64 param_id, u64 *v) {
+static int parse_int(quic_span tp, u64 param_id, u64* v) {
   quic_stp_out out = {v, 0};
   return quic_stp_parse(tp, param_id, &out);
 }
 
 /* Append one integer TP at ob->len (mirrors stp/server_tp.c's put_int). */
-static int put_int_at(quic_obuf *ob, u64 id, u64 val) {
+static int put_int_at(quic_obuf* ob, u64 id, u64 val) {
   quic_obuf tail = quic_obuf_of(ob->p + ob->len, ob->cap - ob->len);
   usz       w    = quic_tparam_put_int(&tail, id, val);
   ob->len += w;

@@ -31,7 +31,7 @@ static const u8 RCON[10] = {0x01, 0x02, 0x04, 0x08, 0x10,
 /* GF(2^8) xtime: multiply by 2 modulo the AES polynomial. */
 #define XTIME(x) ((u8)(((x) << 1) ^ (((x) >> 7) * 0x1b)))
 
-static void copy16(u8 *dst, const u8 *src) {
+static void copy16(u8* dst, const u8* src) {
   for (usz i = 0; i < 16; i++) dst[i] = src[i];
 }
 
@@ -47,7 +47,7 @@ static u32 schedule_word(u32 prev, usz i) {
   return sub_word((prev << 8) | (prev >> 24)) ^ ((u32)RCON[i / 4 - 1] << 24);
 }
 
-void quic_aes128_init(quic_aes128 *a, const u8 key[QUIC_AES_BLOCK]) {
+void quic_aes128_init(quic_aes128* a, const u8 key[QUIC_AES_BLOCK]) {
   for (usz i = 0; i < 4; i++)
     a->rk[i] = ((u32)key[4 * i] << 24) | ((u32)key[4 * i + 1] << 16) |
                ((u32)key[4 * i + 2] << 8) | key[4 * i + 3];
@@ -56,7 +56,7 @@ void quic_aes128_init(quic_aes128 *a, const u8 key[QUIC_AES_BLOCK]) {
 }
 
 /* AddRoundKey: XOR 4 round-key words into the 16-byte state. */
-static void add_round_key(u8 s[16], const u32 *rk) {
+static void add_round_key(u8 s[16], const u32* rk) {
   for (usz c = 0; c < 4; c++) {
     s[4 * c] ^= (u8)(rk[c] >> 24);
     s[4 * c + 1] ^= (u8)(rk[c] >> 16);
@@ -82,7 +82,7 @@ static void shift_rows(u8 s[16]) {
 }
 
 /* MixColumns on one column (4 bytes). */
-static void mix_one(u8 *col) {
+static void mix_one(u8* col) {
   u8 a0 = col[0], a1 = col[1], a2 = col[2], a3 = col[3];
   col[0] = (u8)(XTIME(a0) ^ (XTIME(a1) ^ a1) ^ a2 ^ a3);
   col[1] = (u8)(a0 ^ XTIME(a1) ^ (XTIME(a2) ^ a2) ^ a3);
@@ -95,7 +95,7 @@ static void mix_columns(u8 s[16]) {
 }
 
 /* One full round (rounds 1..9): sub, shift, mix, add. */
-static void round_full(u8 s[16], const u32 *rk) {
+static void round_full(u8 s[16], const u32* rk) {
   sub_bytes(s);
   shift_rows(s);
   mix_columns(s);
@@ -103,14 +103,14 @@ static void round_full(u8 s[16], const u32 *rk) {
 }
 
 /* The final round (round 10) omits MixColumns. */
-static void round_last(u8 s[16], const u32 *rk) {
+static void round_last(u8 s[16], const u32* rk) {
   sub_bytes(s);
   shift_rows(s);
   add_round_key(s, rk);
 }
 
 void quic_aes128_encrypt(
-    const quic_aes128 *a, const u8 in[QUIC_AES_BLOCK], u8 out[QUIC_AES_BLOCK]) {
+    const quic_aes128* a, const u8 in[QUIC_AES_BLOCK], u8 out[QUIC_AES_BLOCK]) {
   u8 s[16];
   copy16(s, in);
   add_round_key(s, a->rk);

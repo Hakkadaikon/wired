@@ -17,7 +17,7 @@ static int has_outstanding(
   return ack_eliciting_received || ack_already_pending;
 }
 
-int quic_ackgen_should_ack(const quic_ackgen_state *s, u64 max_ack_delay) {
+int quic_ackgen_should_ack(const quic_ackgen_state* s, u64 max_ack_delay) {
   if (!has_outstanding(s->ack_eliciting_received, s->ack_already_pending))
     return 0;
   if (second_eliciting(s->ack_eliciting_received, s->ack_already_pending))

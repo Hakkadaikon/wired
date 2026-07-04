@@ -46,7 +46,7 @@ typedef struct {
 /* Everything quic_connrunner_init needs besides the runner and the DCID. */
 typedef struct {
   i64                     fd;
-  const quic_sockaddr_in *peer;
+  const quic_sockaddr_in* peer;
   int                     level;
   u64                     cwnd;
   usz                     send_len;
@@ -58,20 +58,20 @@ typedef struct {
 /* Bind the runner to fd and peer; init the loop at `level` (cwnd open,
  * send_len-byte packets) and the connio with the given header parameters. */
 void quic_connrunner_init(
-    quic_connrunner *r, quic_span dcid, const quic_connrunner_init_in *in);
+    quic_connrunner* r, quic_span dcid, const quic_connrunner_init_in* in);
 
 /* The socket-free core of one iteration (RFC 9000 12): with a datagram already
  * in `dgram` (empty = none), drain it, step the loop, and seal the send the
  * loop decided -- recv before step before send. Returns the sealed datagram
  * length in r->txbuf to transmit, or 0. */
-usz quic_connrunner_advance(quic_connrunner *r, u64 now, quic_mspan dgram);
+usz quic_connrunner_advance(quic_connrunner* r, u64 now, quic_mspan dgram);
 
 /* Run one iteration: wait readable, drain a datagram, step the loop, flush any
  * sends -- in that order (RFC 9000 12). `now` is the monotonic time. */
-void quic_connrunner_iterate(quic_connrunner *r, u64 now);
+void quic_connrunner_iterate(quic_connrunner* r, u64 now);
 
 /* Repeat iterate until the connection is closed or max_iterations is reached.
  */
-void quic_connrunner_run(quic_connrunner *r, u64 now, usz max_iterations);
+void quic_connrunner_run(quic_connrunner* r, u64 now, usz max_iterations);
 
 #endif

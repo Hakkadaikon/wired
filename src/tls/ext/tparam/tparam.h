@@ -30,11 +30,11 @@
 /* Encode one integer-valued parameter (id, varint value) into out->p (out->cap
  * bytes). Returns bytes written, or 0 if it does not fit / value out of range.
  */
-usz quic_tparam_put_int(quic_obuf *out, u64 id, u64 value);
+usz quic_tparam_put_int(quic_obuf* out, u64 id, u64 value);
 
 /* Decode one parameter at buf.p (buf.n readable). On success sets *id, *value
  * (decoded as a varint) and returns total bytes consumed; 0 on malformed
  * input or a value whose length is not a single varint. */
-usz quic_tparam_get_int(quic_span buf, u64 *id, u64 *value);
+usz quic_tparam_get_int(quic_span buf, u64* id, u64* value);
 
 #endif

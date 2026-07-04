@@ -10,6 +10,6 @@
 
 /* 1 if no downgrade: negotiated is present in server_available (preference
  * order) and no usable version precedes it. 0 if a downgrade is suspected. */
-int quic_vers_no_downgrade(u32 negotiated, const u32 *server_available, usz n);
+int quic_vers_no_downgrade(u32 negotiated, const u32* server_available, usz n);
 
 #endif

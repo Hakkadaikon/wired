@@ -9,10 +9,10 @@
 
 #define QUIC_SHA384_DIGEST 48
 
-void quic_sha384_init(quic_sha512_ctx *s);
-void quic_sha384_final(quic_sha512_ctx *s, u8 out[QUIC_SHA384_DIGEST]);
+void quic_sha384_init(quic_sha512_ctx* s);
+void quic_sha384_final(quic_sha512_ctx* s, u8 out[QUIC_SHA384_DIGEST]);
 
 /* One-shot convenience: digest of data[0..len). */
-void quic_sha384(const u8 *data, usz len, u8 out[QUIC_SHA384_DIGEST]);
+void quic_sha384(const u8* data, usz len, u8 out[QUIC_SHA384_DIGEST]);
 
 #endif

@@ -3,7 +3,7 @@
 #include "transport/io/socket/io/addr.h"
 #include "transport/io/socket/io/udp.h"
 
-int quic_udp_transport_open(quic_udp_transport *t, u16 local_port) {
+int quic_udp_transport_open(quic_udp_transport* t, u16 local_port) {
   quic_sockaddr_in sa;
   i64              fd = wired_udp_socket();
   if (fd < 0) return (int)fd;
@@ -15,13 +15,13 @@ int quic_udp_transport_open(quic_udp_transport *t, u16 local_port) {
 }
 
 int quic_udp_transport_connect(
-    quic_udp_transport *t, u32 peer_addr, u16 peer_port) {
+    quic_udp_transport* t, u32 peer_addr, u16 peer_port) {
   t->peer_addr = peer_addr;
   t->peer_port = peer_port;
   return 0;
 }
 
-int quic_udp_transport_send(quic_udp_transport *t, const u8 *buf, usz len) {
+int quic_udp_transport_send(quic_udp_transport* t, const u8* buf, usz len) {
   quic_sockaddr_in sa;
   u8               o[4];
   quic_addr_to_octets(t->peer_addr, o);
@@ -29,7 +29,7 @@ int quic_udp_transport_send(quic_udp_transport *t, const u8 *buf, usz len) {
   return wired_udp_send(t->fd, &sa, quic_span_of(buf, len)) >= 0 ? 1 : 0;
 }
 
-usz quic_udp_transport_recv(quic_udp_transport *t, u8 *buf, usz cap) {
+usz quic_udp_transport_recv(quic_udp_transport* t, u8* buf, usz cap) {
   i64 r = wired_udp_recv(t->fd, quic_mspan_of(buf, cap));
   return r > 0 ? (usz)r : 0;
 }

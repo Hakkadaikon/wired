@@ -11,7 +11,7 @@
 #define CONN_PN 0
 
 void quic_connection_init(
-    quic_connection *c, const quic_connection_init_in *in) {
+    quic_connection* c, const quic_connection_init_in* in) {
   quic_keyset_init(&c->keys);
   quic_conn_init(&c->conn);
   c->link      = in->link;
@@ -19,15 +19,15 @@ void quic_connection_init(
   for (usz i = 0; i < 8; i++) c->dcid[i] = in->dcid[i];
 }
 
-int quic_connection_send(quic_connection *c, int level, quic_span frames) {
-  const quic_initial_keys *k;
+int quic_connection_send(quic_connection* c, int level, quic_span frames) {
+  const quic_initial_keys* k;
   quic_aes128              hp;
   u8                       out[QUIC_MEMLINK_MTU];
   usz                      n;
   if (!quic_keyset_for_level(&c->keys, level, &k)) return 0;
   quic_aes128_init(&hp, k->hp);
   quic_protect_keys pk   = {k, &hp};
-  quic_span         none = quic_span_of((const u8 *)0, 0);
+  quic_span         none = quic_span_of((const u8*)0, 0);
   quic_tx_desc      t    = {
       CONN_BYTE0, quic_span_of(c->dcid, CONN_DCID_LEN), none, 1, none, CONN_PN,
       frames};
@@ -39,7 +39,7 @@ int quic_connection_send(quic_connection *c, int level, quic_span frames) {
 /* Pull and unprotect one level-`k` packet; on success *frames views the
  * plaintext. Returns 1 on success, 0 if nothing valid. */
 static int recv_open(
-    quic_connection *c, const quic_initial_keys *k, quic_span *frames) {
+    quic_connection* c, const quic_initial_keys* k, quic_span* frames) {
   quic_aes128 hp;
   static u8   pkt[QUIC_MEMLINK_MTU]; /* plaintext view outlives this call */
   usz         rn = quic_memlink_recv(c->link, pkt, sizeof(pkt));
@@ -50,8 +50,8 @@ static int recv_open(
   return quic_rx_packet(&pk, &d, frames);
 }
 
-int quic_connection_recv(quic_connection *c, int level, quic_framewalk *iter) {
-  const quic_initial_keys *k;
+int quic_connection_recv(quic_connection* c, int level, quic_framewalk* iter) {
+  const quic_initial_keys* k;
   quic_span                frames;
   if (!quic_keyset_for_level(&c->keys, level, &k)) return 0;
   if (!recv_open(c, k, &frames)) return 0;

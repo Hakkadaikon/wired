@@ -1,6 +1,6 @@
 #include "test.h"
 
-static int mem_eq(const u8 *a, const u8 *b, usz n) {
+static int mem_eq(const u8* a, const u8* b, usz n) {
   for (usz i = 0; i < n; i++)
     if (a[i] != b[i]) return 0;
   return 1;
@@ -68,8 +68,8 @@ static struct quic_preferred_address sample_pa(void) {
 }
 
 static int pa_eq(
-    const struct quic_preferred_address *a,
-    const struct quic_preferred_address *b) {
+    const struct quic_preferred_address* a,
+    const struct quic_preferred_address* b) {
   int ok = mem_eq(a->ipv4, b->ipv4, 4) && mem_eq(a->ipv6, b->ipv6, 16);
   ok     = ok && a->ipv4_port == b->ipv4_port && a->ipv6_port == b->ipv6_port;
   ok     = ok && a->cid_len == b->cid_len && mem_eq(a->cid, b->cid, a->cid_len);

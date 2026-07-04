@@ -11,7 +11,7 @@
 #define WIRED_SRVLOOP_MAXPKTS \
   8 /* coalesced packets per datagram (RFC 9000 12.2) */
 
-int wired_srvloop_init(wired_srvloop *l, const u8 *cli_scid, u8 cli_scid_len) {
+int wired_srvloop_init(wired_srvloop* l, const u8* cli_scid, u8 cli_scid_len) {
   if (cli_scid_len > 20) return 0;
   l->h3.settings_sent = 0;
   l->h3.peer_control  = 0;
@@ -37,14 +37,14 @@ int wired_srvloop_init(wired_srvloop *l, const u8 *cli_scid, u8 cli_scid_len) {
 }
 
 void wired_srvloop_set_handler(
-    wired_srvloop *l, wired_srvloop_handler cb, void *ctx) {
+    wired_srvloop* l, wired_srvloop_handler cb, void* ctx) {
   l->on_request = cb;
   l->req_ctx    = ctx;
 }
 
 /* The largest 1-RTT packet number received so far (0 before any), the baseline
  * for recovering a truncated PN (RFC 9000 A.3). */
-static u64 app_largest_pn(const wired_srvloop *l) {
+static u64 app_largest_pn(const wired_srvloop* l) {
   return l->app_rx_seen ? l->app_rx_pn : 0;
 }
 
@@ -60,8 +60,8 @@ typedef struct {
  * place) and byte0's low bits give its length. Recover the full PN against the
  * largest seen so far and record it as the number to ACK / the new baseline. */
 static void note_app_rx(
-    wired_srvloop *l, wired_server *s, const srvloop_opened *o) {
-  const u8 *pn;
+    wired_srvloop* l, wired_server* s, const srvloop_opened* o) {
+  const u8* pn;
   usz       pn_len;
   if (o->level != QUIC_LEVEL_ONERTT) return;
   pn             = o->pkt.p + 1u + s->sdrv.iscid_len;
@@ -72,7 +72,7 @@ static void note_app_rx(
 
 /* The largest Handshake packet number received so far (0 before any), the
  * baseline for recovering a truncated PN (RFC 9000 A.3). */
-static u64 hs_largest_pn(const wired_srvloop *l) {
+static u64 hs_largest_pn(const wired_srvloop* l) {
   return l->hs_rx_seen ? l->hs_rx_pn : 0;
 }
 
@@ -81,7 +81,7 @@ static u64 hs_largest_pn(const wired_srvloop *l) {
  * record the recovered PN. The client Finished does not always arrive at PN 0
  * (curl leads with an ACK-only Handshake packet), so a fixed ACK of 0 leaves
  * the Finished unacknowledged and the client PTO-retransmits it for seconds. */
-static void note_hs_rx(wired_srvloop *l, const srvloop_opened *o) {
+static void note_hs_rx(wired_srvloop* l, const srvloop_opened* o) {
   quic_lhdr h;
   if (o->level != QUIC_LEVEL_HANDSHAKE) return;
   if (!quic_lhdr_parse(quic_span_of(o->pkt.p, o->pkt.n), 0, &h)) return;
@@ -91,7 +91,7 @@ static void note_hs_rx(wired_srvloop *l, const srvloop_opened *o) {
 }
 
 /* RFC 9000 2.2: view the loop's cross-datagram request-stream accumulator. */
-static wired_srvloop_reqacc step_reqacc(wired_srvloop *l) {
+static wired_srvloop_reqacc step_reqacc(wired_srvloop* l) {
   wired_srvloop_reqacc acc;
   acc.buf  = l->req_buf;
   acc.cap  = sizeof l->req_buf;
@@ -106,9 +106,9 @@ static wired_srvloop_reqacc step_reqacc(wired_srvloop *l) {
  * fails to open (wrong level/key) is silently skipped, as the next slice in the
  * datagram may still be ours (RFC 9000 12.2). */
 static void step_one(
-    const wired_srvloop_conn *conn, quic_mspan pkt, int *got_request) {
-  wired_srvloop            *l = conn->l;
-  wired_server             *s = conn->s;
+    const wired_srvloop_conn* conn, quic_mspan pkt, int* got_request) {
+  wired_srvloop*            l = conn->l;
+  wired_server*             s = conn->s;
   wired_srvloop_recv_out    ro;
   wired_srvloop_reqacc      acc    = step_reqacc(l);
   wired_srvloop_recv_in     ri     = {pkt, app_largest_pn(l)};
@@ -133,7 +133,7 @@ static void step_one(
  * has been answered, so the next request (curl reuses stream 0 across requests)
  * reassembles from a clean buffer rather than re-triggering the finished one.
  */
-static void rearm_reqacc(wired_srvloop *l, int got_request) {
+static void rearm_reqacc(wired_srvloop* l, int got_request) {
   if (!got_request) return;
   l->req_len  = 0;
   l->req_fin  = 0;
@@ -144,8 +144,8 @@ static void rearm_reqacc(wired_srvloop *l, int got_request) {
  * Initial/ACK ahead of the Handshake carrying the client Finished). Split it
  * and process every slice before building one reply for the whole datagram. */
 int wired_srvloop_step(
-    const wired_srvloop_conn *conn, quic_mspan dgram, quic_obuf *out) {
-  const u8    *pkts[WIRED_SRVLOOP_MAXPKTS];
+    const wired_srvloop_conn* conn, quic_mspan dgram, quic_obuf* out) {
+  const u8*    pkts[WIRED_SRVLOOP_MAXPKTS];
   usz          offs[WIRED_SRVLOOP_MAXPKTS], lens[WIRED_SRVLOOP_MAXPKTS], n, i;
   int          got_request = 0;
   int          r;

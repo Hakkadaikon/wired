@@ -7,13 +7,13 @@
 
 /* Build a Retry packet with a valid integrity tag over orig_dcid. */
 static usz make_retry(
-    u8       *buf,
+    u8*       buf,
     usz       cap,
-    const u8 *orig_dcid,
+    const u8* orig_dcid,
     u8        odcil,
-    const u8 *scid,
+    const u8* scid,
     u8        scil,
-    const u8 *token,
+    const u8* token,
     usz       tlen) {
   static const u8 dummy_dcid[4]           = {0xaa, 0xbb, 0xcc, 0xdd};
   u8              tag[QUIC_RETRY_TAG_LEN] = {0};
