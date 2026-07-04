@@ -63,12 +63,16 @@ static int pem_head(quic_span text, usz at, quic_span *label, usz *body) {
   return 1;
 }
 
+/* Whether n bytes fit both der's capacity and the shift_by lookup below. */
+static int pem_emit_fits(const quic_obuf *der, usz n) {
+  return n <= 3 && der->len + n <= der->cap;
+}
+
 /* Append n bytes (1..3) of the 24-bit group acc to der, high byte first. */
 static int pem_emit(quic_obuf *der, u32 acc, usz n) {
-  if (der->len + n > der->cap) return 0;
-  for (usz i = 0; i < n; i++) {
-    der->p[der->len + i] = (u8)(acc >> (16 - 8 * i));
-  }
+  static const u8 shift_by[3] = {16, 8, 0};
+  if (!pem_emit_fits(der, n)) return 0;
+  for (usz i = 0; i < n; i++) der->p[der->len + i] = (u8)(acc >> shift_by[i]);
   der->len += n;
   return 1;
 }
