@@ -68,7 +68,13 @@ typedef struct {
   /** backing store for req's path/body views once decoded (see
    * drive_complete in dispatch.c); must outlive the decode call, so it lives
    * here rather than a stack local that dies on return */
-  u8 req_wrap[2080];
+  u8  req_wrap[2080];
+  int resp_external; /**< 1: the caller answers requests, not the loop */
+  /** ACK ranges (RFC 9000 19.3) seen in payloads opened this step, reset at
+   * the start of every wired_srvloop_step; overflow past the cap is dropped */
+  u64 ack_lo[8]; /**< range lows, parallel with ack_hi */
+  u64 ack_hi[8]; /**< range highs, ack_hi[0] from the frame's largest */
+  usz ack_n;     /**< ranges recorded this step */
 } wired_srvloop;
 
 /** Register the app response-body builder; pass 0 to clear (body-less 200).
