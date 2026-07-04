@@ -297,8 +297,104 @@ static void test_srvrun_reload_failure_keeps_previous_id(void) {
   CHECK(id.chain_count == 7);
 }
 
+/* Server identity for full srvrun_serve runs (the sb_make_id shape;
+ * h3_loopback_test.c's own copy is included later in the TU). */
+static const u8 g_sr_srv_scid[6] = {'S', 'R', 'V', 'S', 'C', 'I'};
+
+static void sr_make_id(
+    wired_srvboot_id* id, u8 priv[32], u8 pub[32], u8 seed[32], u8 rnd[32]) {
+  for (usz i = 0; i < 32; i++) {
+    priv[i] = (u8)(0x21 + i);
+    seed[i] = (u8)(0x91 + i);
+    rnd[i]  = (u8)(0x51 + i);
+  }
+  quic_x25519_base(pub, priv);
+  id->priv        = priv;
+  id->pub         = pub;
+  id->cert_seed   = seed;
+  id->scid        = g_sr_srv_scid;
+  id->scid_len    = 6;
+  id->random      = rnd;
+  id->chain       = 0;
+  id->chain_count = 0;
+}
+
+/* A real protected client Initial datagram addressed to odcid (RFC 9001 5.2:
+ * Initial keys derive from it), the same construction test_srvboot_accept
+ * uses. */
+static usz sr_build_client_initial(
+    u8* dg, usz cap, const u8* odcid, u8 odcid_len) {
+  quic_client c;
+  u8          cpriv[32], cpub[32];
+  quic_obuf   ob = quic_obuf_of(dg, cap);
+  for (usz i = 0; i < 32; i++) cpriv[i] = (u8)(11 + i);
+  quic_x25519_base(cpub, cpriv);
+  quic_tlsdriver_init(&c.tls, cpriv, cpub, 0);
+  {
+    quic_clientwire_hdr_in hdr = {
+        quic_span_of(odcid, odcid_len), quic_span_of(g_cli_scid, 6), 0};
+    CHECK(quic_client_build_initial_wire(&c, &hdr, &ob) == 1);
+  }
+  return ob.len;
+}
+
+static const u8 g_sr_odcid[8] = {0x11, 0x22, 0x33, 0x44,
+                                 0x55, 0x66, 0x77, 0x88};
+
+/* REKEY ON ACCEPT (RFC 9000 7.2): after a real Initial cold-starts a slot via
+ * srvrun_serve, the table routes by the slot's own generated SCID — the DCID
+ * the client uses from its second flight on — and no longer by the Initial's
+ * DCID. */
+static void test_srvrun_accept_rekeys_to_slot_scid(void) {
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32], dg[1500];
+  quic_conntable   table[QUIC_CONNTABLE_CAP];
+  quic_sockaddr_in peer = {0};
+  srvrun_state     st   = {table, g_srvrun_state.conns};
+  usz total             = sr_build_client_initial(dg, sizeof dg, g_sr_odcid, 8);
+  sr_make_id(&id, priv, pub, seed, rnd);
+  {
+    srvrun_cfg      cfg = {-1, &id, 0, 0, 0, 0, 0, 0};
+    srvrun_step_ctx ctx = {&cfg, &peer, &st};
+    quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+    srvrun_serve(&ctx, quic_mspan_of(dg, total));
+  }
+  CHECK(st.conns[0].up == 1);
+  /* the Initial's DCID no longer routes anywhere... */
+  CHECK(quic_conntable_find(table, QUIC_CONNTABLE_CAP, g_sr_odcid, 8) == -1);
+  /* ...the slot's generated SCID does */
+  CHECK(
+      quic_conntable_find(
+          table, QUIC_CONNTABLE_CAP, st.conns[0].scid, id.scid_len) == 0);
+}
+
+/* UNCLAIM ON FAILURE: an Initial-shaped datagram whose cold start fails must
+ * not leave a live table entry behind — the slot stays claimable. */
+static void test_srvrun_failed_accept_unclaims(void) {
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32];
+  u8               junk[64] = {0xc3, 0, 0, 0, 1, 8, 1, 2, 3, 4, 5, 6, 7, 8, 0};
+  quic_conntable   table[QUIC_CONNTABLE_CAP];
+  quic_sockaddr_in peer = {0};
+  srvrun_state     st   = {table, g_srvrun_state.conns};
+  sr_make_id(&id, priv, pub, seed, rnd);
+  {
+    srvrun_cfg      cfg = {-1, &id, 0, 0, 0, 0, 0, 0};
+    srvrun_step_ctx ctx = {&cfg, &peer, &st};
+    quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+    srvrun_serve(&ctx, quic_mspan_of(junk, sizeof junk));
+  }
+  CHECK(st.conns[0].up == 0);
+  /* no live entry remains for the junk DCID... */
+  CHECK(quic_conntable_find(table, QUIC_CONNTABLE_CAP, junk + 6, 8) == -1);
+  /* ...and the slot itself is still claimable */
+  CHECK(quic_conntable_insert(table, QUIC_CONNTABLE_CAP, junk + 6, 8) == 0);
+}
+
 void test_srvrun(void) {
   test_srvrun_no_shutdown_accepts_new();
+  test_srvrun_accept_rekeys_to_slot_scid();
+  test_srvrun_failed_accept_unclaims();
   test_srvrun_shutdown_rejects_new_initial();
   test_srvrun_shutdown_refuses_slot_claim();
   test_srvrun_owes_goaway_once();

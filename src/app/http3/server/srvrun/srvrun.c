@@ -357,14 +357,39 @@ static int srvrun_is_new(const srvrun_conn* c, quic_mspan dg) {
   return srvrun_reinit_ok(c);
 }
 
+/* Free slot i: drop its table entry and clear its connection's up flag (the
+ * shutdown drain accounting then counts it as drained). */
+static void srvrun_free_slot(srvrun_state* st, int i) {
+  quic_conntable_remove(st->table, QUIC_CONNTABLE_CAP, i);
+  st->conns[i].up = 0;
+}
+
+/* Cold-start outcome for a slot: on success, rekey its table entry to the
+ * slot's own SCID — the DCID the client addresses from its second flight on
+ * (RFC 9000 7.2) — on failure, roll the whole claim back so the slot is not
+ * leaked. */
+static void srvrun_open_done(const srvrun_step_ctx* ctx, int slot, int ok) {
+  srvrun_conn* c = &ctx->st->conns[slot];
+  c->up          = ok;
+  if (!ok) {
+    srvrun_free_slot(ctx->st, slot);
+    return;
+  }
+  quic_conntable_rekey(
+      ctx->st->table, QUIC_CONNTABLE_CAP, slot, c->scid,
+      ctx->cfg->id->scid_len);
+}
+
 /* Drive one received datagram against its resolved slot: a new Initial
  * (re)opens the connection, any other datagram steps the live loop. */
 static void srvrun_serve_slot(
-    const srvrun_step_ctx* ctx, srvrun_conn* c, quic_mspan dg) {
-  if (srvrun_is_new(c, dg))
-    c->up = srvrun_on_initial(ctx, c, dg);
-  else if (c->up)
-    srvrun_on_step(ctx, c, dg);
+    const srvrun_step_ctx* ctx, int slot, quic_mspan dg) {
+  srvrun_conn* c = &ctx->st->conns[slot];
+  if (srvrun_is_new(c, dg)) {
+    srvrun_open_done(ctx, slot, srvrun_on_initial(ctx, c, dg));
+    return;
+  }
+  if (c->up) srvrun_on_step(ctx, c, dg);
 }
 
 /* dg's DCID as a span into dg, or a 0-length span if dg is too short to carry
@@ -431,7 +456,7 @@ static void srvrun_serve(const srvrun_step_ctx* ctx, quic_mspan dg) {
     slot = srvrun_open_slot(ctx, dcid, wired_srvboot_is_initial(dg.p, dg.n));
     if (slot < 0) return;
   }
-  srvrun_serve_slot(ctx, &ctx->st->conns[slot], dg);
+  srvrun_serve_slot(ctx, slot, dg);
 }
 
 /* Bind a UDP socket on port. Returns the fd, or <0 on failure. */
