@@ -10,13 +10,13 @@
  * cert_der and empty extensions. Writes the full handshake message into out
  * and sets out->len. Returns 1, or 0 if it does not fit or cert_der exceeds
  * the 3-byte length field. */
-int quic_sflight_certificate(quic_span cert_der, quic_obuf *out);
+int quic_sflight_certificate(quic_span cert_der, quic_obuf* out);
 
 /* certs[0..count) are the chain DER views, leaf first (count in
  * 1..QUIC_TLS_CERT_CHAIN_MAX-worth of practical use; this SDK's server
  * flight path only ever passes 1 or 2). */
 typedef struct {
-  const quic_span *certs;
+  const quic_span* certs;
   usz              count;
 } quic_sflight_certchain_in;
 
@@ -27,6 +27,6 @@ typedef struct {
  * count is out of range (0 or > QUIC_TLS_CERT_CHAIN_MAX) or the list does not
  * fit in out->cap. */
 int quic_sflight_certificate_chain(
-    const quic_sflight_certchain_in *in, quic_obuf *out);
+    const quic_sflight_certchain_in* in, quic_obuf* out);
 
 #endif

@@ -32,11 +32,11 @@ typedef struct {
 /* Store a ticket and the transport parameters to remember for 0-RTT.
  * Returns 1 on success, 0 if the ticket does not fit. RFC 8446 4.6.1. */
 int quic_resume_store(
-    quic_resume *r, quic_span ticket, const quic_resume_store_in *in);
+    quic_resume* r, quic_span ticket, const quic_resume_store_in* in);
 
 /* Returns 1 when a stored ticket is still within its lifetime at `now`
  * (seconds, same clock as issued_at). RFC 8446 4.6.1. */
-int quic_resume_valid(const quic_resume *r, u64 now);
+int quic_resume_valid(const quic_resume* r, u64 now);
 
 /* Returns 1 when the new connection's transport parameters are no more
  * permissive than those remembered, so 0-RTT data stays within limits.
@@ -46,10 +46,10 @@ int quic_resume_tp_compatible(u64 remembered_max_data, u64 new_max_data);
 /* Returns 1 when 0-RTT may be attempted: ticket valid and transport
  * parameters compatible. RFC 9001 4.6. */
 int quic_resume_can_0rtt(
-    const quic_resume *r, int ticket_valid, int tp_compatible);
+    const quic_resume* r, int ticket_valid, int tp_compatible);
 
 /* Returns 1 when the stored ticket remains usable after a Retry. A Retry never
  * invalidates resumption. RFC 9000 8.1 / 17.2.5. */
-int quic_resume_after_retry(const quic_resume *r, int retry_received);
+int quic_resume_after_retry(const quic_resume* r, int retry_received);
 
 #endif

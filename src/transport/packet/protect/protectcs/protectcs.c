@@ -13,7 +13,7 @@ static u8 form_mask(u8 byte0) {
 
 /* Mask byte0 and the pn_len packet-number bytes at pn_off (RFC 9001 5.4.1). */
 static int pcs_apply_hp(
-    const quic_protectcs_keys *k, const quic_protectcs_seal_io *io) {
+    const quic_protectcs_keys* k, const quic_protectcs_seal_io* io) {
   u8             mask[5];
   quic_hp_fields f = {
       io->pkt, io->pkt + io->pn_off, io->pn_len, form_mask(io->pkt[0])};
@@ -24,9 +24,9 @@ static int pcs_apply_hp(
 }
 
 int quic_protectcs_seal(
-    const quic_protectcs_keys    *k,
-    const quic_protectcs_seal_io *io,
-    usz                          *out_len) {
+    const quic_protectcs_keys*    k,
+    const quic_protectcs_seal_io* io,
+    usz*                          out_len) {
   usz                hdr_len = io->pn_off + io->pn_len;
   quic_aead_suite_op op      = {
       k->suite, k->key, k->iv, io->pn, quic_span_of(io->pkt, hdr_len)};
@@ -39,7 +39,7 @@ int quic_protectcs_seal(
 }
 
 /* Decode the pn_len-byte packet number at pkt+pn_off into a full value. */
-static u64 pcs_read_pn(const u8 *pkt, usz pn_off, usz pn_len) {
+static u64 pcs_read_pn(const u8* pkt, usz pn_off, usz pn_len) {
   u64 pn = 0;
   for (usz i = 0; i < pn_len; i++) pn = (pn << 8) | pkt[pn_off + i];
   return pn;
@@ -48,7 +48,7 @@ static u64 pcs_read_pn(const u8 *pkt, usz pn_off, usz pn_len) {
 /* RFC 9001 5.4.1: unmask byte0, recover pn_len from its low 2 bits, then
  * unmask that many packet-number bytes. Returns pn_len, or 0 on unknown suite.
  */
-static usz pcs_remove_hp(const quic_protectcs_keys *k, u8 *pkt, usz pn_off) {
+static usz pcs_remove_hp(const quic_protectcs_keys* k, u8* pkt, usz pn_off) {
   u8 mask[5];
   if (!quic_hp_suite_mask(k->suite, k->hp_key, pkt + pn_off + 4, mask))
     return 0;
@@ -59,10 +59,10 @@ static usz pcs_remove_hp(const quic_protectcs_keys *k, u8 *pkt, usz pn_off) {
 }
 
 int quic_protectcs_open(
-    const quic_protectcs_keys    *k,
-    const quic_protectcs_open_io *io,
-    quic_span                    *payload) {
-  u8 *pkt    = io->pkt.p;
+    const quic_protectcs_keys*    k,
+    const quic_protectcs_open_io* io,
+    quic_span*                    payload) {
+  u8* pkt    = io->pkt.p;
   usz pn_len = pcs_remove_hp(k, pkt, io->pn_off);
   if (pn_len == 0) return 0;
   usz                hdr_len = io->pn_off + pn_len;

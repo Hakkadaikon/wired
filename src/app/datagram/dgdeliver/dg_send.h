@@ -16,6 +16,6 @@ typedef struct {
  * max_frame_size; otherwise 0. On success writes the frame into out (length
  * in out->len), returning 1. */
 int quic_dgdeliver_frame(
-    quic_span data, const quic_dgdeliver_opts *o, quic_obuf *out);
+    quic_span data, const quic_dgdeliver_opts* o, quic_obuf* out);
 
 #endif

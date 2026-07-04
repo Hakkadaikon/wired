@@ -14,10 +14,10 @@
 
 /* Write a tagged token: tag byte + body into out. Returns total bytes
  * written, or 0 if it does not fit. */
-usz quic_token_tag_retry(quic_obuf *out, quic_span body);
-usz quic_token_tag_newtoken(quic_obuf *out, quic_span body);
+usz quic_token_tag_retry(quic_obuf* out, quic_span body);
+usz quic_token_tag_newtoken(quic_obuf* out, quic_span body);
 
 /* True if token (len bytes) is a non-empty Retry-tagged token. */
-int quic_token_is_retry(const u8 *token, usz len);
+int quic_token_is_retry(const u8* token, usz len);
 
 #endif

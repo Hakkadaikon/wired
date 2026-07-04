@@ -22,6 +22,6 @@
  * @return bytes written (== record.n + 2) on success; a negative -errno
  *         when the underlying append fails
  */
-ssz wired_qlog_append(const char *path, quic_span record);
+ssz wired_qlog_append(const char* path, quic_span record);
 
 #endif

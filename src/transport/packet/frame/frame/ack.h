@@ -30,10 +30,10 @@ typedef struct {
 
 /* Encode an ACK frame (type 0x02, no ECN) into buf of cap bytes.
  * Returns bytes written, or 0 on overflow / empty / malformed ranges. */
-usz quic_ack_encode(u8 *buf, usz cap, const quic_ack_frame *f);
+usz quic_ack_encode(u8* buf, usz cap, const quic_ack_frame* f);
 
 /* Decode an ACK frame at buf (n readable, type byte 0x02 at buf[0]).
  * Fills *f and returns bytes consumed, or 0 on malformed / truncated input. */
-usz quic_ack_decode(const u8 *buf, usz n, quic_ack_frame *f);
+usz quic_ack_decode(const u8* buf, usz n, quic_ack_frame* f);
 
 #endif

@@ -1,6 +1,6 @@
 #include "test.h"
 
-static usz mk_crypto_msg(u8 *out, u8 offset, const u8 *data, u8 len) {
+static usz mk_crypto_msg(u8* out, u8 offset, const u8* data, u8 len) {
   usz i    = 0;
   out[i++] = 0x06;
   out[i++] = offset;
@@ -13,7 +13,7 @@ static usz mk_crypto_msg(u8 *out, u8 offset, const u8 *data, u8 len) {
 static void test_crecv_message_finished(void) {
   quic_crecv s;
   u8         fin[36];
-  const u8  *msg;
+  const u8*  msg;
   usz        len;
   u8         f[64];
   usz        fn;
@@ -59,7 +59,7 @@ static void test_crecv_message_gap_empty(void) {
   const u8   body[] = {1, 2, 3};
   u8         f[64];
   usz        fn = mk_crypto_msg(f, 4, body, sizeof body);
-  const u8  *msg;
+  const u8*  msg;
   usz        len;
 
   quic_crecv_init(&s);

@@ -314,7 +314,7 @@ static void cios_mul_row(u64 t[6], u64 ai, const p256_fe b) {
   t[5] = (u64)(c >> 64);
 }
 
-static void cios_reduce_row(u64 t[6], const quic_mont *mont) {
+static void cios_reduce_row(u64 t[6], const quic_mont* mont) {
   u64               u = t[0] * mont->n0inv;
   unsigned __int128 c = (unsigned __int128)u * mont->m[0] + t[0];
   c >>= 64;
@@ -343,7 +343,7 @@ static void mont_finalize(p256_fe r, const u64 t[6], const p256_fe m) {
 }
 
 /* r = a * b * R^-1 mod m (Montgomery product). a,b < m. */
-void quic_mont_mul(p256_fe r, quic_fpab ab, const quic_mont *mont) {
+void quic_mont_mul(p256_fe r, quic_fpab ab, const quic_mont* mont) {
   u64 t[6] = {0, 0, 0, 0, 0, 0};
   for (usz i = 0; i < 4; i++) {
     cios_mul_row(t, ab.a[i], ab.b);
@@ -353,13 +353,13 @@ void quic_mont_mul(p256_fe r, quic_fpab ab, const quic_mont *mont) {
 }
 
 /* from Montgomery form: r = a * R^-1 mod m = mont_mul(a, 1). */
-static void mont_from(p256_fe r, const p256_fe a, const quic_mont *mont) {
+static void mont_from(p256_fe r, const p256_fe a, const quic_mont* mont) {
   p256_fe one = {1, 0, 0, 0};
   quic_mont_mul(r, (quic_fpab){a, one}, mont);
 }
 
 /* a^(m-2) mod m via Montgomery mul (Fermat inverse). */
-void quic_mont_inv(p256_fe r, const p256_fe a, const quic_mont *mont) {
+void quic_mont_inv(p256_fe r, const p256_fe a, const quic_mont* mont) {
   p256_fe e, base, acc, two = {2, 0, 0, 0};
   fe_sub_raw(e, mont->m, two); /* exponent m-2 */
   /* base = a*R mod m (to Montgomery form). */

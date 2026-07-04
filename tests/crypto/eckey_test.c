@@ -26,7 +26,7 @@ static void test_eckey_pkcs8_golden(void) {
 }
 
 /* Copy the SEC1 golden and overwrite one byte at off. */
-static quic_span mutated(u8 *buf, usz off, u8 v) {
+static quic_span mutated(u8* buf, usz off, u8 v) {
   quic_memcpy(buf, quic_eckey_sec1_der, sizeof(quic_eckey_sec1_der));
   buf[off] = v;
   return quic_span_of(buf, sizeof(quic_eckey_sec1_der));

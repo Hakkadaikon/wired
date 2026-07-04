@@ -24,7 +24,7 @@ typedef struct {
  * @param sa receives the kernel-ready address
  * @param port UDP port in host byte order
  * @param octets IPv4 address octets a.b.c.d */
-void wired_udp_addr(quic_sockaddr_in *sa, u16 port, const u8 octets[4]);
+void wired_udp_addr(quic_sockaddr_in* sa, u16 port, const u8 octets[4]);
 
 /** Create a UDP socket.
  * @return the fd, or a negative errno on failure. */
@@ -35,14 +35,14 @@ i64 wired_udp_socket(void);
  * @param fd the socket fd
  * @param sa the local address to bind
  * @return 0 on success or a negative errno. */
-i64 wired_udp_bind(i64 fd, const quic_sockaddr_in *sa);
+i64 wired_udp_bind(i64 fd, const quic_sockaddr_in* sa);
 
 /** Send buf to sa.
  * @param fd the socket fd
  * @param sa the destination address
  * @param buf the datagram to send
  * @return bytes sent or a negative errno. */
-i64 wired_udp_send(i64 fd, const quic_sockaddr_in *sa, quic_span buf);
+i64 wired_udp_send(i64 fd, const quic_sockaddr_in* sa, quic_span buf);
 
 /** Receive up to buf.n bytes into buf.p.
  * @param fd the socket fd
@@ -56,7 +56,7 @@ i64 wired_udp_recv(i64 fd, quic_mspan buf);
  * @param buf destination buffer
  * @param src receives the datagram's source address
  * @return bytes read or a negative errno. */
-i64 wired_udp_recvfrom(i64 fd, quic_mspan buf, quic_sockaddr_in *src);
+i64 wired_udp_recvfrom(i64 fd, quic_mspan buf, quic_sockaddr_in* src);
 
 /** Close fd. Takes ownership of fd: after this call fd is invalid regardless
  * of the return value, and the caller must not use or close it again.
@@ -92,7 +92,7 @@ void wired_udp_gso_cmsg_build(u8 out[WIRED_GSO_CMSG_SPACE], u16 segsize);
  * @return total bytes sent, or a negative errno (e.g. the caller should fall
  *   back to wired_udp_send_batch when fd has no UDP_SEGMENT support). */
 i64 wired_udp_send_gso(
-    i64 fd, const quic_sockaddr_in *sa, quic_span buf, u16 segsize);
+    i64 fd, const quic_sockaddr_in* sa, quic_span buf, u16 segsize);
 
 /** Send count back-to-back segsize-byte segments to sa via one sendto() call
  * per segment (no GSO). The last segment may be shorter (total = buf.n). The
@@ -103,7 +103,7 @@ i64 wired_udp_send_gso(
  * @param segsize per-segment byte size (last segment may be shorter)
  * @return total bytes sent, or a negative errno on the first failure. */
 i64 wired_udp_send_batch(
-    i64 fd, const quic_sockaddr_in *sa, quic_span buf, u16 segsize);
+    i64 fd, const quic_sockaddr_in* sa, quic_span buf, u16 segsize);
 
 /** One slot of a recvmmsg() batch: caller-owned receive buffer and source
  * address, filled in by wired_udp_recvmmsg on return. */
@@ -123,7 +123,7 @@ typedef struct {
  * @return number of datagrams received (0..count), or a negative errno (e.g.
  *   ENOSYS on a kernel without recvmmsg) — the caller should fall back to
  *   wired_udp_recvmmsg_fallback in that case. */
-i64 wired_udp_recvmmsg(i64 fd, quic_mmsg_buf *bufs, usz count);
+i64 wired_udp_recvmmsg(i64 fd, quic_mmsg_buf* bufs, usz count);
 
 /** Receive up to count datagrams via a wired_udp_recvfrom() loop (one syscall
  * per datagram), stopping at the first empty/error result. The always-
@@ -133,6 +133,6 @@ i64 wired_udp_recvmmsg(i64 fd, quic_mmsg_buf *bufs, usz count);
  * @param bufs array of count receive slots
  * @param count number of slots in bufs
  * @return number of datagrams received (0..count). */
-i64 wired_udp_recvmmsg_fallback(i64 fd, quic_mmsg_buf *bufs, usz count);
+i64 wired_udp_recvmmsg_fallback(i64 fd, quic_mmsg_buf* bufs, usz count);
 
 #endif

@@ -22,7 +22,7 @@ typedef struct {
 /* Parse pkt. is_initial selects whether a Token field is present (RFC 9000
  * 17.2.2 Initial) or absent (17.2.4 Handshake). On success fills *out and
  * returns 1. Returns 0 on any malformed or truncated input. */
-int quic_lhdr_parse(quic_span pkt, int is_initial, quic_lhdr *out);
+int quic_lhdr_parse(quic_span pkt, int is_initial, quic_lhdr* out);
 
 /* RFC 9000 17.2: after HP removal the two low bits of byte 0 hold the packet
  * number length minus one. Returns 1..4. */

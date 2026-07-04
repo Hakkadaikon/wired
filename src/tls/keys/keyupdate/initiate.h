@@ -17,6 +17,6 @@ typedef struct {
 
 /* 1 if a key update may begin now: handshake confirmed and 3*PTO elapsed
  * since last_update. */
-int quic_keyupdate_may_initiate(const quic_keyupdate_in *in);
+int quic_keyupdate_may_initiate(const quic_keyupdate_in* in);
 
 #endif

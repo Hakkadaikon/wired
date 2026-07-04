@@ -36,6 +36,6 @@ typedef struct {
 /* retry_source_connection_id must be present and match the Retry Source CID
  * exactly when a Retry was processed, and absent otherwise. did_retry and
  * has_param are 0/1 flags. */
-int quic_tparam_check_retry_scid(const quic_tparam_retry_scid_in *in);
+int quic_tparam_check_retry_scid(const quic_tparam_retry_scid_in* in);
 
 #endif

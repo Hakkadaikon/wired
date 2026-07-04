@@ -8,6 +8,6 @@
  * 32-byte SHA-256 message digest. pub->e must be F4 (65537); anything else is
  * rejected. Returns 1 if the signature is valid, else 0. */
 int quic_rsa_pss_verify(
-    const quic_rsa_pub *pub, quic_span sig, quic_span mhash);
+    const quic_rsa_pub* pub, quic_span sig, quic_span mhash);
 
 #endif

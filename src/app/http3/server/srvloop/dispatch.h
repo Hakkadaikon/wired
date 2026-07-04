@@ -11,11 +11,11 @@
  * len tracks the high-water mark, fin latches the stream FIN, done latches that
  * the completed request was already decoded so it is answered only once. */
 typedef struct {
-  u8  *buf;
+  u8*  buf;
   usz  cap;
-  usz *len;
-  u8  *fin;
-  int *done;
+  usz* len;
+  u8*  fin;
+  int* done;
 } wired_srvloop_reqacc;
 
 /* Remaining arguments of wired_srvloop_dispatch beyond s/h3/acc: the opened
@@ -24,17 +24,17 @@ typedef struct {
 typedef struct {
   quic_span             payload;
   quic_mspan            scratch;
-  int                  *got_request;
-  wired_h3reqdrive_req *req;
+  int*                  got_request;
+  wired_h3reqdrive_req* req;
 } wired_srvloop_dispatch_in;
 
 /* The server orchestrator, its HTTP/3 state and the cross-datagram request
  * accumulator dispatch reads/writes together. Folded into one parameter so
  * wired_srvloop_dispatch stays <=3 args. */
 typedef struct {
-  wired_server         *s;
-  wired_h3srv_state    *h3;
-  wired_srvloop_reqacc *acc;
+  wired_server*         s;
+  wired_h3srv_state*    h3;
+  wired_srvloop_reqacc* acc;
 } wired_srvloop_dispatch_ctx;
 
 /* RFC 9000 12.4: route an opened payload's frames. CRYPTO frames (handshake)
@@ -45,6 +45,6 @@ typedef struct {
  * re-enters the handshake. Returns 1 if a frame was handled, 0 otherwise. On
  * a completed request *in->got_request is set and *in->req filled. */
 int wired_srvloop_dispatch(
-    const wired_srvloop_dispatch_ctx *ctx, const wired_srvloop_dispatch_in *in);
+    const wired_srvloop_dispatch_ctx* ctx, const wired_srvloop_dispatch_in* in);
 
 #endif

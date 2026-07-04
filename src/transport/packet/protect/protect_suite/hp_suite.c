@@ -5,7 +5,7 @@
 #include "transport/packet/protect/hp/hp_chacha.h"
 
 int quic_hp_suite_mask(
-    u16 suite, const u8 *hp_key, const u8 sample[16], u8 mask[5]) {
+    u16 suite, const u8* hp_key, const u8 sample[16], u8 mask[5]) {
   if (suite == QUIC_TLS_AES_128_GCM_SHA256) {
     quic_aes128 hp;
     quic_aes128_init(&hp, hp_key);

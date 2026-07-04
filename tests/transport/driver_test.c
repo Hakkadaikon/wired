@@ -4,7 +4,7 @@
 
 /* Shuttle one datagram from `from`'s outbox to `to`'s inbox, if any was
  * produced. Returns 1 if a datagram moved. */
-static int pump(quic_driver *from, quic_driver *to) {
+static int pump(quic_driver* from, quic_driver* to) {
   u8  dg[QUIC_DRIVER_DGRAM_CAP];
   usz n = quic_driver_take(from, dg, sizeof(dg));
   if (n == 0) return 0;

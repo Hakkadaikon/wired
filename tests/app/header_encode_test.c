@@ -5,8 +5,8 @@
 static void test_header_roundtrip(void) {
   u8                  out[64];
   quic_obuf           ob    = {out, sizeof out, 0};
-  const u8           *name  = (const u8 *)"user-agent";
-  const u8           *value = (const u8 *)"quic/1";
+  const u8*           name  = (const u8*)"user-agent";
+  const u8*           value = (const u8*)"quic/1";
   int                 never = 1;
   u8                  nm[32], val[32];
   usz                 used;
@@ -28,8 +28,8 @@ static void test_header_roundtrip(void) {
 static void test_header_overflow(void) {
   u8        out[2];
   quic_obuf ob    = {out, sizeof out, 0};
-  const u8 *name  = (const u8 *)"user-agent";
-  const u8 *value = (const u8 *)"quic/1";
+  const u8* name  = (const u8*)"user-agent";
+  const u8* value = (const u8*)"quic/1";
   CHECK(
       quic_h3req_enc_header(
           quic_span_of(name, 10), quic_span_of(value, 6), &ob) == 0);

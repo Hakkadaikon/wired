@@ -20,21 +20,21 @@ typedef struct {
 
 /* Encode pre_shared_key with one identity and one binder into out->p (out->cap
  * total). Sets out->len. Returns 1, or 0 if it does not fit. */
-int quic_tlsext_pre_shared_key(const quic_tlsext_psk_in *in, quic_obuf *out);
+int quic_tlsext_pre_shared_key(const quic_tlsext_psk_in* in, quic_obuf* out);
 
 /* Located fields of a parsed single-entry pre_shared_key. The pointers alias
  * the input buffer. */
 typedef struct {
-  const u8 *identity;
+  const u8* identity;
   usz       id_len;
   u32       ticket_age;
-  const u8 *binder;
+  const u8* binder;
   usz       binder_len;
 } quic_tlsext_psk_offer;
 
 /* Parse a single-entry pre_shared_key at out (n readable) into *off. Returns 1
  * on success, 0 if absent or malformed. */
 int quic_tlsext_pre_shared_key_parse(
-    const u8 *out, usz n, quic_tlsext_psk_offer *off);
+    const u8* out, usz n, quic_tlsext_psk_offer* off);
 
 #endif

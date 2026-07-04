@@ -124,7 +124,7 @@ static void fe_pow_p58(fe out, const fe z) {
 }
 
 /* Load 32 little-endian bytes into limbs (top bit of byte 31 is cleared). */
-static void fe_frombytes(fe h, const u8 *s) {
+static void fe_frombytes(fe h, const u8* s) {
   u64 t[4];
   for (usz i = 0; i < 4; i++) {
     t[i] = 0;
@@ -138,7 +138,7 @@ static void fe_frombytes(fe h, const u8 *s) {
 }
 
 /* Pack five reduced 51-bit limbs into 32 little-endian bytes. */
-static void store_reduced(u8 *s, const fe r) {
+static void store_reduced(u8* s, const fe r) {
   u64 w[4];
   w[0] = r[0] | (r[1] << 51);
   w[1] = (r[1] >> 13) | (r[2] << 38);
@@ -160,7 +160,7 @@ static void carry_pass(fe r) {
 }
 
 /* Fully reduce h mod p and store 32 little-endian bytes. */
-static void fe_tobytes(u8 *s, const fe h) {
+static void fe_tobytes(u8* s, const fe h) {
   fe  r;
   u64 q;
   fe_copy(r, h);
@@ -233,14 +233,14 @@ static void fe_d(fe out) {
   fe_frombytes(out, b);
 }
 
-static void ge_zero(ge *p) {
+static void ge_zero(ge* p) {
   fe_0(p->X);
   fe_1(p->Y);
   fe_1(p->Z);
   fe_0(p->T);
 }
 
-void quic_ed_ge_base(ge *p) {
+void quic_ed_ge_base(ge* p) {
   static const u8 bx[32] = {0x1a, 0xd5, 0x25, 0x8f, 0x60, 0x2d, 0x56, 0xc9,
                             0xb2, 0xa7, 0x25, 0x95, 0x60, 0xc7, 0x2c, 0x69,
                             0x5c, 0xdc, 0xd6, 0xfd, 0x31, 0xe2, 0xa4, 0xc0,
@@ -255,7 +255,7 @@ void quic_ed_ge_base(ge *p) {
   fe_mul(p->T, p->X, p->Y);
 }
 
-void quic_ed_ge_add(ge *p3, const ge *p1, const ge *p2) {
+void quic_ed_ge_add(ge* p3, const ge* p1, const ge* p2) {
   fe a, b, c, d, e, f, g, h, t, d2;
   fe_d(d2);
   fe_add(d2, d2, d2); /* 2*d */
@@ -279,7 +279,7 @@ void quic_ed_ge_add(ge *p3, const ge *p1, const ge *p2) {
   fe_mul(p3->Z, f, g);
 }
 
-void quic_ed_ge_scalarmult(ge *q, const u8 scalar[32], const ge *p) {
+void quic_ed_ge_scalarmult(ge* q, const u8 scalar[32], const ge* p) {
   ge_zero(q);
   for (usz i = 256; i-- > 0;) {
     u8 bit = (scalar[i >> 3] >> (i & 7)) & 1;
@@ -293,7 +293,7 @@ void quic_ed_ge_scalarmult(ge *q, const u8 scalar[32], const ge *p) {
   }
 }
 
-void quic_ed_ge_encode(u8 out[32], const ge *p) {
+void quic_ed_ge_encode(u8 out[32], const ge* p) {
   fe zi, x, y;
   fe_invert(zi, p->Z);
   fe_mul(x, p->X, zi);
@@ -346,7 +346,7 @@ static void decode_uv(fe u, fe v, const fe y) {
   fe_add(v, v, one);
 }
 
-int quic_ed_ge_decode(ge *p, const u8 in[32]) {
+int quic_ed_ge_decode(ge* p, const u8 in[32]) {
   fe  u, v;
   int x_0 = in[31] >> 7;
   fe_frombytes(p->Y, in);

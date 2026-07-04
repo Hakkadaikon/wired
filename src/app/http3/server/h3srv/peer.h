@@ -13,7 +13,7 @@
  *   - a second SETTINGS frame            -> H3_FRAME_UNEXPECTED (RFC 7.2.4)
  * *err is left 0 on success. */
 int wired_h3srv_on_peer_control(
-    wired_h3srv_state *st, u64 first_frame_type, u16 *err);
+    wired_h3srv_state* st, u64 first_frame_type, u16* err);
 
 /* RFC 9114 6.2 / RFC 9204 4.2. Accept a peer unidirectional stream by its type
  * (0x00 control, 0x02 QPACK encoder, 0x03 QPACK decoder). Returns 1 for any of

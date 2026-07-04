@@ -8,12 +8,12 @@ typedef struct {
   u32 pad[4];
 } poly;
 
-static u32 rd32le(const u8 *p) {
+static u32 rd32le(const u8* p) {
   return (u32)p[0] | ((u32)p[1] << 8) | ((u32)p[2] << 16) | ((u32)p[3] << 24);
 }
 
 /* Load and clamp r (RFC 8439 2.5.1) into 26-bit limbs; copy s into pad. */
-static void poly_init(poly *st, const u8 key[32]) {
+static void poly_init(poly* st, const u8 key[32]) {
   u32 t0 = rd32le(key), t1 = rd32le(key + 4);
   u32 t2 = rd32le(key + 8), t3 = rd32le(key + 12);
   st->r[0] = t0 & 0x3ffffff;
@@ -26,7 +26,7 @@ static void poly_init(poly *st, const u8 key[32]) {
 }
 
 /* Add a 16-byte (zero-padded) block with the high bit `hibit` into h. */
-static void poly_add(poly *st, const u8 *m, u32 hibit) {
+static void poly_add(poly* st, const u8* m, u32 hibit) {
   u32 t0 = rd32le(m), t1 = rd32le(m + 4), t2 = rd32le(m + 8),
       t3 = rd32le(m + 12);
   st->h[0] += t0 & 0x3ffffff;
@@ -37,7 +37,7 @@ static void poly_add(poly *st, const u8 *m, u32 hibit) {
 }
 
 /* Propagate carries from the 64-bit products d[] back into 26-bit h limbs. */
-static void carry_reduce(poly *st, u64 d[5]) {
+static void carry_reduce(poly* st, u64 d[5]) {
   u64 c = 0;
   for (usz i = 0; i < 5; i++) {
     d[i] += c;
@@ -50,11 +50,11 @@ static void carry_reduce(poly *st, u64 d[5]) {
 }
 
 /* Schoolbook multiply h*r mod 2^130-5, then carry-reduce into 26-bit limbs. */
-static void poly_mulmod(poly *st) {
+static void poly_mulmod(poly* st) {
   u64 d[5];
   u32 r0 = st->r[0], r1 = st->r[1], r2 = st->r[2], r3 = st->r[3], r4 = st->r[4];
   u32 s1 = r1 * 5, s2 = r2 * 5, s3 = r3 * 5, s4 = r4 * 5;
-  u32 *h = st->h;
+  u32* h = st->h;
   d[0]   = (u64)h[0] * r0 + (u64)h[1] * s4 + (u64)h[2] * s3 + (u64)h[3] * s2 +
          (u64)h[4] * s1;
   d[1] = (u64)h[0] * r1 + (u64)h[1] * r0 + (u64)h[2] * s4 + (u64)h[3] * s3 +
@@ -69,13 +69,13 @@ static void poly_mulmod(poly *st) {
 }
 
 /* Byte i of a final block of n message bytes: data, then 0x01, then zeros. */
-static u8 pad_byte(const u8 *m, usz i, usz n) {
+static u8 pad_byte(const u8* m, usz i, usz n) {
   if (i < n) return m[i];
   return (i == n) ? 1 : 0;
 }
 
 /* Pad a final partial block: copy n bytes, append 0x01, zero the rest. */
-static void poly_final_block(poly *st, const u8 *m, usz n) {
+static void poly_final_block(poly* st, const u8* m, usz n) {
   u8 b[16];
   for (usz i = 0; i < 16; i++) b[i] = pad_byte(m, i, n);
   poly_add(st, b, 0); /* hibit already provided by the 0x01 byte in b */
@@ -83,7 +83,7 @@ static void poly_final_block(poly *st, const u8 *m, usz n) {
 }
 
 /* Absorb full 16-byte blocks (hibit set), one partial block padded with a 1. */
-static void poly_blocks(poly *st, const u8 *msg, usz len) {
+static void poly_blocks(poly* st, const u8* msg, usz len) {
   usz off = 0;
   while (len - off >= 16) {
     poly_add(st, msg + off, 1 << 24);
@@ -131,7 +131,7 @@ static void pack(const u32 h[5], u32 w[4]) {
 }
 
 /* Final reduction and tag = (h + pad) mod 2^128, serialized little-endian. */
-static void poly_finish(poly *st, u8 tag[16]) {
+static void poly_finish(poly* st, u8 tag[16]) {
   u32 g[5], w[4];
   u64 f = 0;
   full_carry(st->h);
@@ -150,7 +150,7 @@ static void poly_finish(poly *st, u8 tag[16]) {
 
 void quic_poly1305(
     const u8  key[QUIC_POLY1305_KEY],
-    const u8 *msg,
+    const u8* msg,
     usz       len,
     u8        tag[QUIC_POLY1305_TAG]) {
   poly st;

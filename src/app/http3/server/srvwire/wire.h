@@ -35,7 +35,7 @@ typedef struct {
  * received client packet number (RFC 9000 13.2.1: ack-eliciting Initials must
  * be acknowledged so the peer stops its PTO retransmissions); ack_pn < 0
  * emits CRYPTO only. Returns 1 with out->len set, or 0 on overflow. */
-int quic_srvwire_seal_initial(const quic_srvwire_seal_in *in, quic_obuf *out);
+int quic_srvwire_seal_initial(const quic_srvwire_seal_in* in, quic_obuf* out);
 
 /* The client's original DCID (Initial keys are derived from it) and the
  * packet number the caller expects (currently unused, reserved). */
@@ -48,7 +48,7 @@ typedef struct {
  * success *tls points at the recovered flight within pkt and *tls_len holds its
  * length. Returns 1, or 0 on authentication failure or short input. */
 int quic_srvwire_open_initial(
-    const quic_srvwire_open_initial_in *in, quic_mspan pkt, quic_span *tls);
+    const quic_srvwire_open_initial_in* in, quic_mspan pkt, quic_span* tls);
 
 /* RFC 9001 5: seal a TLS flight into a Handshake packet under caller-supplied
  * directional keys (from quic_keysched_get). When in->ack_pn >= 0 the flight
@@ -56,11 +56,11 @@ int quic_srvwire_open_initial(
  * (RFC 9000 13.2.1); ack_pn < 0 emits CRYPTO only. Returns 1 with out->len
  * set, or 0 on overflow. */
 int quic_srvwire_seal_handshake(
-    const quic_protect_keys *k, const quic_srvwire_seal_in *in, quic_obuf *out);
+    const quic_protect_keys* k, const quic_srvwire_seal_in* in, quic_obuf* out);
 
 /* RFC 9001 5: open a Handshake packet sealed by quic_srvwire_seal_handshake.
  * Returns 1, or 0 on authentication failure or short input. */
 int quic_srvwire_open_handshake(
-    const quic_protect_keys *k, quic_mspan pkt, quic_span *tls);
+    const quic_protect_keys* k, quic_mspan pkt, quic_span* tls);
 
 #endif

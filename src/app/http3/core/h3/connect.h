@@ -15,20 +15,20 @@ typedef struct {
 /* RFC 9114 4.4. A CONNECT request omits the :scheme and :path pseudo-header
  * fields and MUST include the :authority pseudo-header; :method is "CONNECT".
  * Returns 1 if the presence flags satisfy this, 0 otherwise. */
-int quic_h3_connect_ok(const quic_h3_connect_flags *f);
+int quic_h3_connect_ok(const quic_h3_connect_flags* f);
 
 /* RFC 9114 4.4. Validate a decoded request as a well-formed CONNECT: :method is
  * exactly "CONNECT", :authority present, :scheme and :path absent. Derives the
  * presence flags from r and applies quic_h3_connect_ok. Returns 1 if valid
  * (tunnel may proceed), 0 if it must be treated as malformed. */
-int quic_h3_connect_req_ok(const wired_h3reqdrive_req *r);
+int quic_h3_connect_req_ok(const wired_h3reqdrive_req* r);
 
 /* RFC 9220 3. A server MUST NOT accept a :protocol pseudo-header unless it
  * has sent SETTINGS_ENABLE_CONNECT_PROTOCOL=1 (settings_enabled non-zero).
  * Returns 1 if r carries no :protocol, or :protocol is present and settings_
  * enabled is non-zero; 0 if :protocol is present but not negotiated. */
 int quic_h3_connect_protocol_ok(
-    const wired_h3reqdrive_req *r, int settings_enabled);
+    const wired_h3reqdrive_req* r, int settings_enabled);
 
 /* RFC 9110 9.3.6. A 2xx response to CONNECT establishes the tunnel; any other
  * status does not. Returns 1 for 200..299, 0 otherwise. */
@@ -47,14 +47,14 @@ typedef enum {
   QUIC_H3_TUNNEL_CLOSED
 } quic_h3_tunnel;
 
-void quic_h3_tunnel_init(quic_h3_tunnel *st);
-void quic_h3_tunnel_validated(quic_h3_tunnel *st);
+void quic_h3_tunnel_init(quic_h3_tunnel* st);
+void quic_h3_tunnel_validated(quic_h3_tunnel* st);
 /* Apply a response status. Returns 1 if it established the tunnel (2xx, once),
  * 0 otherwise (already established, failed, or wrong state). */
-int quic_h3_tunnel_response(quic_h3_tunnel *st, u16 status);
+int quic_h3_tunnel_response(quic_h3_tunnel* st, u16 status);
 /* Enter relay. Returns 1 if relay began (only from ESTABLISHED), 0 otherwise.
  */
-int  quic_h3_tunnel_relay(quic_h3_tunnel *st);
-void quic_h3_tunnel_close(quic_h3_tunnel *st);
+int  quic_h3_tunnel_relay(quic_h3_tunnel* st);
+void quic_h3_tunnel_close(quic_h3_tunnel* st);
 
 #endif

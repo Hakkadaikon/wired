@@ -1,6 +1,6 @@
 #include "test.h"
 
-static void bn_small(quic_bn *a, u64 x) {
+static void bn_small(quic_bn* a, u64 x) {
   for (usz i = 0; i < QUIC_BN_LIMBS; i++) a->v[i] = 0;
   a->v[0] = x;
 }

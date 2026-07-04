@@ -114,7 +114,7 @@ static void x25519_fe_invert(fe out, const fe z) {
 }
 
 /* Load 32 little-endian bytes into limbs (top bit of byte 31 is cleared). */
-static void x25519_fe_frombytes(fe h, const u8 *s) {
+static void x25519_fe_frombytes(fe h, const u8* s) {
   u64 t[4];
   for (usz i = 0; i < 4; i++) {
     t[i] = 0;
@@ -128,7 +128,7 @@ static void x25519_fe_frombytes(fe h, const u8 *s) {
 }
 
 /* Pack five reduced 51-bit limbs into 32 little-endian bytes. */
-static void x25519_store_reduced(u8 *s, const fe r) {
+static void x25519_store_reduced(u8* s, const fe r) {
   u64 w[4];
   w[0] = r[0] | (r[1] << 51);
   w[1] = (r[1] >> 13) | (r[2] << 38);
@@ -164,7 +164,7 @@ static void x25519_carry_final(fe r) {
 
 /* Fully reduce h mod p and store 32 little-endian bytes. h's limbs come in
  * below 2^52 (weak-reduced), so two weak passes bring r into [0, 2p). */
-static void x25519_fe_tobytes(u8 *s, const fe h) {
+static void x25519_fe_tobytes(u8* s, const fe h) {
   fe  r;
   u64 q;
   x25519_fe_copy(r, h);
@@ -184,7 +184,7 @@ typedef struct {
 } ladder_state;
 
 /* One Montgomery ladder step on st with difference x1. */
-static void ladder_step(ladder_state *st, const fe x1) {
+static void ladder_step(ladder_state* st, const fe x1) {
   fe a, b, c, d, e, da, cb;
   x25519_fe_add(a, st->x2, st->z2);
   x25519_fe_sub(b, st->x2, st->z2);

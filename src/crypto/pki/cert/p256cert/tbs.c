@@ -20,7 +20,7 @@ static const u8 pc_oid_san[] = {0x55, 0x1d, 0x11};
 /* RFC 5280 4.1.2.9. extensions is [3] EXPLICIT (context tag 0xa3). */
 #define PC_EXTENSIONS_TAG 0xa3
 
-usz quic_p256cert_sigalg(quic_obuf *out) {
+usz quic_p256cert_sigalg(quic_obuf* out) {
   u8                inner[16];
   quic_p256cert_enc e = {inner, sizeof(inner), 0, 1};
   quic_p256cert_put(
@@ -31,7 +31,7 @@ usz quic_p256cert_sigalg(quic_obuf *out) {
 
 /* RFC 5280 4.1.2.4. AttributeTypeAndValue SEQUENCE{ id-at-commonName, value }.
  */
-static usz pc_build_atv(quic_obuf *out) {
+static usz pc_build_atv(quic_obuf* out) {
   u8                inner[64];
   quic_p256cert_enc e = {inner, sizeof(inner), 0, 1};
   quic_p256cert_put(
@@ -44,7 +44,7 @@ static usz pc_build_atv(quic_obuf *out) {
 
 /* RFC 5280 4.1.2.4. Name SEQUENCE{ SET{ SEQUENCE{ id-at-commonName, value }}}.
  */
-static usz pc_build_name(quic_obuf *out) {
+static usz pc_build_name(quic_obuf* out) {
   u8                atv[64], rdn[80];
   quic_obuf         ao = quic_obuf_of(atv, sizeof(atv));
   quic_obuf         ro = quic_obuf_of(rdn, sizeof(rdn));
@@ -56,7 +56,7 @@ static usz pc_build_name(quic_obuf *out) {
 
 /* RFC 5280 4.1.2.5. Validity SEQUENCE { notBefore UTCTime, notAfter UTCTime }.
  */
-static usz pc_build_validity(quic_obuf *out) {
+static usz pc_build_validity(quic_obuf* out) {
   u8                v[48];
   quic_p256cert_enc e = {v, sizeof(v), 0, 1};
   quic_p256cert_put(
@@ -68,7 +68,7 @@ static usz pc_build_validity(quic_obuf *out) {
 }
 
 /* RFC 5280 4.1. Emit version, serial, signature AlgID, issuer onto e. */
-static void tbs_head(quic_p256cert_enc *e, quic_span name) {
+static void tbs_head(quic_p256cert_enc* e, quic_span name) {
   static const u8 version[] = {0xa0, 0x03, 0x02, 0x01, 0x02}; /* [0] v3 */
   static const u8 serial[]  = {0x02, 0x01, 0x01};             /* INTEGER 1 */
   u8              alg[16];
@@ -80,7 +80,7 @@ static void tbs_head(quic_p256cert_enc *e, quic_span name) {
 }
 
 /* RFC 5280 4.2.1.6. GeneralNames SEQUENCE{ dNSName [2] "localhost" }. */
-static usz pc_build_gennames(quic_obuf *out) {
+static usz pc_build_gennames(quic_obuf* out) {
   u8                inner[32];
   quic_p256cert_enc e = {inner, sizeof(inner), 0, 1};
   quic_p256cert_put(
@@ -91,7 +91,7 @@ static usz pc_build_gennames(quic_obuf *out) {
 
 /* RFC 5280 4.1.2.9. Extension SEQUENCE{ extnID, extnValue OCTET STRING }.
  * extnValue wraps the GeneralNames; SAN is non-critical (DEFAULT FALSE). */
-static usz pc_build_san_ext(quic_obuf *out) {
+static usz pc_build_san_ext(quic_obuf* out) {
   u8                gn[48], ext[64];
   quic_obuf         go = quic_obuf_of(gn, sizeof(gn));
   quic_p256cert_enc eg = quic_p256cert_loaded(gn, pc_build_gennames(&go));
@@ -103,7 +103,7 @@ static usz pc_build_san_ext(quic_obuf *out) {
 }
 
 /* RFC 5280 4.1.2.9. extensions [3] EXPLICIT { SEQUENCE OF Extension }. */
-static usz pc_build_extensions(quic_obuf *out) {
+static usz pc_build_extensions(quic_obuf* out) {
   u8                ext[64], seq[80];
   quic_obuf         eo = quic_obuf_of(ext, sizeof(ext));
   quic_obuf         so = quic_obuf_of(seq, sizeof(seq));
@@ -113,7 +113,7 @@ static usz pc_build_extensions(quic_obuf *out) {
   return quic_p256cert_wrap(&es, PC_EXTENSIONS_TAG, out);
 }
 
-int quic_p256cert_tbs(const u8 x[32], const u8 y[32], quic_obuf *out) {
+int quic_p256cert_tbs(const u8 x[32], const u8 y[32], quic_obuf* out) {
   u8                name[80], val[48], spki[128], exts[96], body[512];
   quic_obuf         no = quic_obuf_of(name, sizeof(name));
   quic_obuf         vo = quic_obuf_of(val, sizeof(val));

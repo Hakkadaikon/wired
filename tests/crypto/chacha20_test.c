@@ -1,7 +1,7 @@
 #include "test.h"
 
 /* uh parses hex into out; returns byte count. */
-static usz uh(const char *hex, u8 *out) {
+static usz uh(const char* hex, u8* out) {
   usz i = 0;
   while (hex[i * 2] != 0) {
     u8 hi = hex[i * 2], lo = hex[i * 2 + 1];

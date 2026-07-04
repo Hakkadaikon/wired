@@ -7,7 +7,7 @@ int quic_srvfin_should_send_handshake_done(
 }
 
 /* RFC 9000 19.20 */
-int quic_srvfin_handshake_done_frame(u8 *out, usz cap, usz *out_len) {
+int quic_srvfin_handshake_done_frame(u8* out, usz cap, usz* out_len) {
   if (cap == 0) return 0;
   out[0]   = QUIC_SRVFIN_HANDSHAKE_DONE;
   *out_len = 1;

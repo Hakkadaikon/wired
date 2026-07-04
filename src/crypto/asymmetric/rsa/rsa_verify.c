@@ -18,7 +18,7 @@ static const u8 rsa_di_sha512[RSA_DI_LEN] = {
 
 static const struct {
   usz       hash_len;
-  const u8 *prefix;
+  const u8* prefix;
 } rsa_di[] = {
     {32, rsa_di_sha256},
     {48, rsa_di_sha384},
@@ -26,22 +26,22 @@ static const struct {
 };
 
 /* The DigestInfo prefix for a digest length, or 0 for an unsupported hash. */
-static const u8 *di_prefix(usz hash_len) {
+static const u8* di_prefix(usz hash_len) {
   for (usz i = 0; i < sizeof(rsa_di) / sizeof(rsa_di[0]); i++)
     if (rsa_di[i].hash_len == hash_len) return rsa_di[i].prefix;
   return 0;
 }
 
 /* Write DigestInfo (prefix + hash) at out. */
-static void put_digestinfo(u8 *out, quic_span h) {
-  const u8 *prefix = di_prefix(h.n);
+static void put_digestinfo(u8* out, quic_span h) {
+  const u8* prefix = di_prefix(h.n);
   for (usz i = 0; i < RSA_DI_LEN; i++) out[i] = prefix[i];
   for (usz i = 0; i < h.n; i++) out[RSA_DI_LEN + i] = h.p[i];
 }
 
 /* RFC 8017 9.2. Build the expected EM = 0x00 01 FF..FF 00 DigestInfo H.
  * Returns 1 if it fits with PS>=8 octets, else 0. */
-static int emsa_pkcs1(u8 *em, usz em_len, quic_span h) {
+static int emsa_pkcs1(u8* em, usz em_len, quic_span h) {
   usz fixed = 3 + RSA_DI_LEN + h.n; /* 00 01 ...00 prefix H */
   if (em_len < fixed + 8) return 0;
   usz ps_end = em_len - fixed + 2;
@@ -54,23 +54,23 @@ static int emsa_pkcs1(u8 *em, usz em_len, quic_span h) {
 }
 
 /* The value bytes of F4 = 65537. */
-static int rsa_f4_val(const u8 *e) {
+static int rsa_f4_val(const u8* e) {
   return e[0] == 0x01 && e[1] == 0x00 && e[2] == 0x01;
 }
 
-int quic_rsa_e_is_f4(const u8 *e, usz e_len) {
+int quic_rsa_e_is_f4(const u8* e, usz e_len) {
   return e_len == 3 && rsa_f4_val(e);
 }
 
 /* Constant-time equality over len octets. 1 if equal, else 0. */
-static int ct_equal(const u8 *a, const u8 *b, usz len) {
+static int ct_equal(const u8* a, const u8* b, usz len) {
   u8 d = 0;
   for (usz i = 0; i < len; i++) d |= a[i] ^ b[i];
   return d == 0;
 }
 
 /* e = 65537 (RFC 8017 common public exponent). */
-static void rsa_e_f4(quic_bn *e) {
+static void rsa_e_f4(quic_bn* e) {
   for (usz i = 0; i < QUIC_BN_LIMBS; i++) e->v[i] = 0;
   e->v[0] = 65537;
 }
@@ -89,7 +89,7 @@ static int sizes_bad(usz n_len, usz sig_len, usz hash_len) {
 }
 
 /* Sizes acceptable and the exponent is the supported F4. */
-static int rsa_inputs_ok(const quic_rsa_pub *pub, usz sig_len, usz hash_len) {
+static int rsa_inputs_ok(const quic_rsa_pub* pub, usz sig_len, usz hash_len) {
   if (sizes_bad(pub->n.n, sig_len, hash_len)) return 0;
   return quic_rsa_e_is_f4(pub->e.p, pub->e.n);
 }
@@ -103,7 +103,7 @@ typedef struct {
 
 /* RFC 8017 8.2.2 steps 2-4: m = s^e mod n, then EM compare. s,n already <
  * range. */
-static int rsa_check(const rsav_sn *c, quic_span h) {
+static int rsa_check(const rsav_sn* c, quic_span h) {
   quic_bn bn_e, m;
   rsa_e_f4(&bn_e);
   quic_bn_modexp(&m, &c->bn_s, (quic_bn_expmod){&bn_e, &c->bn_n});
@@ -114,7 +114,7 @@ static int rsa_check(const rsav_sn *c, quic_span h) {
 }
 
 int quic_rsa_pkcs1_verify(
-    const quic_rsa_pub *pub, quic_span sig, quic_span msg_hash) {
+    const quic_rsa_pub* pub, quic_span sig, quic_span msg_hash) {
   if (!rsa_inputs_ok(pub, sig.n, msg_hash.n)) return 0;
   rsav_sn c;
   c.n_len = pub->n.n;

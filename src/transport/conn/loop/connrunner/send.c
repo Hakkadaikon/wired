@@ -6,7 +6,7 @@
 #include "transport/recovery/rtx/sentmeta/detect_loss.h"
 
 /* Any ack-eliciting packet sitting in the receive queue (RFC 9000 13.2.1). */
-static int queue_has_eliciting(const quic_connrunner *r) {
+static int queue_has_eliciting(const quic_connrunner* r) {
   usz i;
   for (i = 0; i < r->loop.rx_n; i++)
     if (r->loop.rx[i].ack_eliciting) return 1;
@@ -16,7 +16,7 @@ static int queue_has_eliciting(const quic_connrunner *r) {
 /* RFC 9000 13.2.1: the upcoming step drains the queued receives before the send
  * decision, so an ACK will be owed if one already is or any queued receive is
  * ack-eliciting. Predicting it here lets the flush match the step's choice. */
-static int will_owe_ack(const quic_connrunner *r) {
+static int will_owe_ack(const quic_connrunner* r) {
   return r->loop.ack_owed || queue_has_eliciting(r);
 }
 
@@ -24,7 +24,7 @@ static int will_owe_ack(const quic_connrunner *r) {
  * retransmission, then new data. pending_kind reads that order off the loop's
  * pre-step state (with the receive queue folded in) so the flush builds the
  * same packet the loop chose. */
-int quic_connrunner_pending_kind(const quic_connrunner *r) {
+int quic_connrunner_pending_kind(const quic_connrunner* r) {
   int present[4];
   int kind;
   present[1] = will_owe_ack(r);
@@ -39,7 +39,7 @@ int quic_connrunner_pending_kind(const quic_connrunner *r) {
  * in the send level's space. The space's next expected number is rx, so the
  * largest seen is rx-1 (RFC 9000 12.3: spaces are acknowledged independently).
  */
-static usz cr_build_ack(const quic_connrunner *r, quic_obuf *out) {
+static usz cr_build_ack(const quic_connrunner* r, quic_obuf* out) {
   quic_ack_frame f  = {0};
   u64            rx = quic_connio_rx_next(&r->io, r->loop.level);
   if (rx == 0) return 0; /* nothing received to acknowledge */
@@ -52,11 +52,11 @@ static usz cr_build_ack(const quic_connrunner *r, quic_obuf *out) {
 /* RFC 9000 19.7: a minimal ack-eliciting payload stands in for new application
  * data, and for a retransmission whose original bytes the store no longer
  * holds. */
-static usz cr_build_ping(quic_obuf *out) {
+static usz cr_build_ping(quic_obuf* out) {
   return quic_frame_put_simple(out->p, out->cap, QUIC_FRAME_PING);
 }
 
-void quic_connrunner_capture_rtx(quic_connrunner *r) {
+void quic_connrunner_capture_rtx(quic_connrunner* r) {
   r->rtx_held = r->loop.rtx_n > 0;
   if (r->rtx_held) r->rtx_pn = r->loop.rtx[0].pn;
 }
@@ -64,27 +64,27 @@ void quic_connrunner_capture_rtx(quic_connrunner *r) {
 /* RFC 9002 13.3: re-send the lost packet's actual frame bytes under the new
  * packet number. Falls back to a PING stand-in when no lost pn was captured or
  * its bytes are not held. */
-static usz cr_build_rtx(const quic_connrunner *r, quic_obuf *out) {
+static usz cr_build_rtx(const quic_connrunner* r, quic_obuf* out) {
   if (r->rtx_held) quic_rtxdrive_build(&r->rtx, r->rtx_pn, out);
   return out->len ? out->len : cr_build_ping(out);
 }
 
 /* Build the frame bytes for kinds 2/3 (retransmission / new-data stand-in);
  * kind 0 is handled before this is reached. */
-static usz cr_build_data(const quic_connrunner *r, int kind, quic_obuf *out) {
+static usz cr_build_data(const quic_connrunner* r, int kind, quic_obuf* out) {
   if (kind == 2) return cr_build_rtx(r, out);
   return cr_build_ping(out); /* new data */
 }
 
 /* Build the frame bytes for the chosen kind into out (1=ACK, 2=retransmission,
  * 3=new-data stand-in, 0=nothing). Returns the length. */
-static usz cr_build_frames(const quic_connrunner *r, int kind, quic_obuf *out) {
+static usz cr_build_frames(const quic_connrunner* r, int kind, quic_obuf* out) {
   if (kind == 1) return cr_build_ack(r, out);
   if (kind == 0) return 0;
   return cr_build_data(r, kind, out);
 }
 
-usz quic_connrunner_flush_sends(quic_connrunner *r, u64 sent_before, int kind) {
+usz quic_connrunner_flush_sends(quic_connrunner* r, u64 sent_before, int kind) {
   u8        frames[64];
   usz       fl;
   quic_obuf fb = quic_obuf_of(frames, sizeof(frames));
@@ -103,7 +103,7 @@ usz quic_connrunner_flush_sends(quic_connrunner *r, u64 sent_before, int kind) {
 static int kind_in_flight(int kind) { return kind >= 2; }
 
 void quic_connrunner_track_sent(
-    quic_connrunner *r, const quic_connrunner_sent_in *in) {
+    quic_connrunner* r, const quic_connrunner_sent_in* in) {
   int infl;
   if (in->sent_len == 0) return;
   infl = kind_in_flight(in->kind);
@@ -123,11 +123,11 @@ void quic_connrunner_track_sent(
 
 /* Feed the oldest sentmeta-lost pn into the resend slot only when the loop
  * captured none of its own (RFC 9002 13.3). */
-static int take_lost(const quic_connrunner *r, usz n) {
+static int take_lost(const quic_connrunner* r, usz n) {
   return n > 0 && !r->rtx_held;
 }
 
-void quic_connrunner_track_loss(quic_connrunner *r, u64 now) {
+void quic_connrunner_track_loss(quic_connrunner* r, u64 now) {
   u64 lost[QUIC_SENTMETA_CAP];
   usz n = 0;
   if (!r->io.disp.has_ack)

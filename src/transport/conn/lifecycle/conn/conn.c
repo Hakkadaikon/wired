@@ -17,12 +17,12 @@ static const quic_fsm_row phase_rows[] = {
     {QUIC_PHASE_DRAINING, QUIC_CONN_EV_CLOSED, QUIC_PHASE_CLOSED},
 };
 
-void quic_conn_init(quic_conn *c) {
+void quic_conn_init(quic_conn* c) {
   c->phase = QUIC_PHASE_INITIAL;
   for (usz i = 0; i < QUIC_PN_SPACE_COUNT; i++) c->next_pn[i] = 0;
 }
 
-int quic_conn_step(quic_conn *c, quic_conn_event ev) {
+int quic_conn_step(quic_conn* c, quic_conn_event ev) {
   u8             st    = (u8)c->phase;
   quic_fsm_table table = {
       phase_rows, sizeof(phase_rows) / sizeof(phase_rows[0])};
@@ -33,12 +33,12 @@ int quic_conn_step(quic_conn *c, quic_conn_event ev) {
 
 /* The Application space may only be used once the handshake is confirmed
  * (and while the connection is still open). */
-static int app_space_allowed(const quic_conn *c, quic_pn_space space) {
+static int app_space_allowed(const quic_conn* c, quic_pn_space space) {
   if (space != QUIC_PN_APPLICATION) return 1;
   return c->phase == QUIC_PHASE_CONFIRMED;
 }
 
-int quic_conn_next_pn(quic_conn *c, quic_pn_space space, u64 *pn) {
+int quic_conn_next_pn(quic_conn* c, quic_pn_space space, u64* pn) {
   if (!app_space_allowed(c, space)) return 0;
   *pn = c->next_pn[space];
   c->next_pn[space] += 1; /* strictly monotonic: no reuse, no regress */

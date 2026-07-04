@@ -17,6 +17,6 @@ typedef struct {
  * with the FIN bit set. Returns 1 with out->len set, 0 if out lacks
  * capacity. */
 int quic_h3conn_send_request(
-    u64 stream_id, const quic_h3conn_req_in *in, quic_obuf *out);
+    u64 stream_id, const quic_h3conn_req_in* in, quic_obuf* out);
 
 #endif

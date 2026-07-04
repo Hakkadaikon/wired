@@ -22,7 +22,7 @@ typedef struct {
  * server key. */
 void quic_retrytoken_make(
     const u8                  key[QUIC_RETRYTOKEN_KEY],
-    const quic_retrytoken_in *in,
+    const quic_retrytoken_in* in,
     u8                        token[QUIC_RETRYTOKEN_LEN]);
 
 /* Validate a presented token: it must equal the token the server would have
@@ -30,7 +30,7 @@ void quic_retrytoken_make(
  * valid. */
 int quic_retrytoken_verify(
     const u8                  key[QUIC_RETRYTOKEN_KEY],
-    const quic_retrytoken_in *in,
+    const quic_retrytoken_in* in,
     const u8                  token[QUIC_RETRYTOKEN_LEN]);
 
 #endif

@@ -26,10 +26,10 @@ typedef struct {
 
 /* Read one TLV from buf. The value views into buf; nothing is copied.
  * Returns 1 ok, 0 on error. */
-int quic_der_read(quic_span buf, quic_der_tlv *out);
+int quic_der_read(quic_span buf, quic_der_tlv* out);
 
 /* Read one TLV from buf, requiring a SEQUENCE tag; views its value.
  * Returns 1 ok, 0 on error or a different tag. */
-int quic_der_seq(quic_span buf, quic_span *val);
+int quic_der_seq(quic_span buf, quic_span* val);
 
 #endif

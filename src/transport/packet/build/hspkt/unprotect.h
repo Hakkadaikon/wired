@@ -23,8 +23,8 @@ typedef struct {
 /* On success *payload views the plaintext within pkt. Returns 1 on success,
  * 0 on auth failure or short input. */
 int quic_hspkt_unprotect(
-    const quic_protect_keys         *k,
-    const quic_hspkt_unprotect_desc *d,
-    quic_span                       *payload);
+    const quic_protect_keys*         k,
+    const quic_hspkt_unprotect_desc* d,
+    quic_span*                       payload);
 
 #endif

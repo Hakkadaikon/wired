@@ -16,7 +16,7 @@ static void test_cidnego_adopt(void) {
 static void test_cidnego_zero_len(void) {
   u8        dcid[20];
   quic_obuf ob = quic_obuf_of(dcid, sizeof(dcid));
-  CHECK(quic_cidnego_peer_dcid(quic_span_of((const u8 *)0, 0), &ob) == 1);
+  CHECK(quic_cidnego_peer_dcid(quic_span_of((const u8*)0, 0), &ob) == 1);
   CHECK(ob.len == 0);
   CHECK(quic_cidnego_match(quic_span_of(dcid, 0), quic_span_of(dcid, 0)) == 1);
 }

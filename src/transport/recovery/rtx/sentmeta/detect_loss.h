@@ -16,8 +16,8 @@ typedef struct {
 /* An output slice for accumulated lost PNs: out[0..*n) is filled, *n starts
  * at the caller's count and is advanced. Must hold QUIC_SENTMETA_CAP. */
 typedef struct {
-  u64 *out;
-  usz *n;
+  u64* out;
+  usz* n;
 } quic_sentmeta_u64out;
 
 /* RFC 9002 6.1: declare lost any tracked packet at or below largest_acked by
@@ -25,8 +25,8 @@ typedef struct {
  * are written to lost.out / *lost.n and removed from the ring, dropping their
  * bytes from total_in_flight (7.4). */
 void quic_sentmeta_detect_loss(
-    quic_sentmeta               *m,
-    const quic_sentmeta_loss_in *in,
+    quic_sentmeta*               m,
+    const quic_sentmeta_loss_in* in,
     quic_sentmeta_u64out         lost);
 
 #endif

@@ -11,7 +11,7 @@ static int p384ev_scalar_in_range(const p384_fe v) {
 
 /* Load Q; valid only if on the curve and not infinity. */
 static int p384ev_load_pubkey(
-    ec_point384 *q, const u8 px[48], const u8 py[48]) {
+    ec_point384* q, const u8 px[48], const u8 py[48]) {
   quic_fp384_from_be(q->x, px);
   quic_fp384_from_be(q->y, py);
   q->inf = 0;
@@ -20,7 +20,7 @@ static int p384ev_load_pubkey(
 
 /* R = u1*G + u2*Q, u = (u1, u2). */
 static void p384ev_compute_r(
-    ec_point384 *r, quic_fp384ab u, const ec_point384 *q) {
+    ec_point384* r, quic_fp384ab u, const ec_point384* q) {
   ec_point384 a, b;
   u8          u1b[48], u2b[48];
   quic_fp384_to_be(u1b, u.a);
@@ -31,7 +31,7 @@ static void p384ev_compute_r(
 }
 
 /* valid iff R is finite and (R.x mod n) == r. */
-static int p384ev_check_r(const ec_point384 *rpt, const p384_fe r) {
+static int p384ev_check_r(const ec_point384* rpt, const p384_fe r) {
   p384_fe rx;
   if (rpt->inf) return 0;
   quic_fp384_reduce(rx, rpt->x, quic_p384_n);
@@ -40,7 +40,7 @@ static int p384ev_check_r(const ec_point384 *rpt, const p384_fe r) {
 
 /* Inputs accepted: r,s in range and Q a valid curve point. */
 static int p384ev_inputs_ok(
-    ec_point384  *q,
+    ec_point384*  q,
     const p384_fe r,
     const p384_fe s,
     const u8      px[48],

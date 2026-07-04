@@ -15,6 +15,6 @@ int quic_srvfin_should_send_handshake_done(
 
 /* Write the single-byte HANDSHAKE_DONE frame. Returns 1 and sets *out_len=1,
  * or 0 if cap is 0. */
-int quic_srvfin_handshake_done_frame(u8 *out, usz cap, usz *out_len);
+int quic_srvfin_handshake_done_frame(u8* out, usz cap, usz* out_len);
 
 #endif

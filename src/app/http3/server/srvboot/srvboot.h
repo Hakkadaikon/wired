@@ -19,13 +19,13 @@
  * issued certificate chain (leaf first) to send instead of a self-signed
  * certificate. All views; the caller keeps them alive for the call. */
 typedef struct {
-  const u8        *priv;        /**< X25519 private, 32 bytes */
-  const u8        *pub;         /**< X25519 public, 32 bytes */
-  const u8        *cert_seed;   /**< ECDSA P-256 signing scalar, 32 bytes */
-  const u8        *scid;        /**< server source connection id */
+  const u8*        priv;        /**< X25519 private, 32 bytes */
+  const u8*        pub;         /**< X25519 public, 32 bytes */
+  const u8*        cert_seed;   /**< ECDSA P-256 signing scalar, 32 bytes */
+  const u8*        scid;        /**< server source connection id */
   u8               scid_len;    /**< scid length in octets, at most 20 */
-  const u8        *random;      /**< ServerHello.random, 32 bytes */
-  const quic_span *chain;       /**< optional: external chain, leaf first */
+  const u8*        random;      /**< ServerHello.random, 32 bytes */
+  const quic_span* chain;       /**< optional: external chain, leaf first */
   usz              chain_count; /**< entries in chain; 0 = self-signed */
 } wired_srvboot_id;
 
@@ -34,20 +34,20 @@ typedef struct {
  * @param dg the datagram bytes as received from the socket
  * @param len length of dg in octets
  * @return 1 if dg is a long-header Initial datagram, 0 otherwise */
-int wired_srvboot_is_initial(const u8 *dg, usz len);
+int wired_srvboot_is_initial(const u8* dg, usz len);
 
 /** The server orchestrator and its HTTP/3 loop, freshly cold-started by
  * wired_srvboot_accept and driven together thereafter (wired_srvloop_step
  * takes the same pair). */
 typedef struct {
-  wired_server  *s; /**< server-side handshake orchestrator */
-  wired_srvloop *l; /**< HTTP/3 wire loop driven after the bootstrap */
+  wired_server*  s; /**< server-side handshake orchestrator */
+  wired_srvloop* l; /**< HTTP/3 wire loop driven after the bootstrap */
 } wired_srvboot_conn;
 
 /** The fixed server identity to boot with and the client's Initial datagram to
  * recover the ClientHello from. */
 typedef struct {
-  const wired_srvboot_id *id;    /**< fixed server identity to boot with */
+  const wired_srvboot_id* id;    /**< fixed server identity to boot with */
   quic_mspan              dgram; /**< the client's Initial datagram */
 } wired_srvboot_in;
 
@@ -61,8 +61,8 @@ typedef struct {
  * (RFC 9000 19.6), concatenated in flight and sliced by dgram_len. The caller
  * sends the Initial first, then each flight slice as its own UDP datagram. */
 typedef struct {
-  quic_obuf *initial; /**< sealed server Initial datagram (>= 1200 bytes) */
-  quic_obuf *flight;  /**< all sealed Handshake datagrams, concatenated */
+  quic_obuf* initial; /**< sealed server Initial datagram (>= 1200 bytes) */
+  quic_obuf* flight;  /**< all sealed Handshake datagrams, concatenated */
   usz dgram_len[WIRED_SRVBOOT_FLIGHT_MAX]; /**< each flight datagram's length */
   usz dgram_count; /**< flight datagrams sealed (their lengths sum to
                       flight->len) */
@@ -83,8 +83,8 @@ typedef struct {
  * @return 1 on success, 0 if the datagram is not a valid Initial, the
  *   open/reassembly fails, or the flight cannot be built or does not fit. */
 int wired_srvboot_accept(
-    const wired_srvboot_conn *conn,
-    const wired_srvboot_in   *in,
-    wired_srvboot_out        *out);
+    const wired_srvboot_conn* conn,
+    const wired_srvboot_in*   in,
+    wired_srvboot_out*        out);
 
 #endif

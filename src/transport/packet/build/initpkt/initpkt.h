@@ -16,6 +16,6 @@ typedef struct {
 
 /* Writes the protected packet into out (length to out->len). Returns 1 on
  * success, 0 on overflow. */
-int quic_initpkt_build(const quic_initpkt_desc *d, quic_obuf *out);
+int quic_initpkt_build(const quic_initpkt_desc* d, quic_obuf* out);
 
 #endif

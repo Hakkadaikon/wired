@@ -14,10 +14,10 @@ void quic_protect_nonce(
 /* Copy the header into io->out and seal the payload after it, returning the
  * total length (header + ciphertext + tag) or 0 on overflow. */
 static usz seal_into(
-    const quic_initial_keys *keys, const quic_protect_seal_io *io) {
+    const quic_initial_keys* keys, const quic_protect_seal_io* io) {
   u8          nonce[QUIC_INITIAL_IV];
   quic_aes128 aead;
-  u8         *out  = io->out.p;
+  u8*         out  = io->out.p;
   usz         need = io->hdr.n + io->payload.n + QUIC_GCM_TAG;
   if (need > io->out.n) return 0;
   for (usz i = 0; i < io->hdr.n; i++) out[i] = io->hdr.p[i];
@@ -30,7 +30,7 @@ static usz seal_into(
 
 /* Apply header protection: sample 16 bytes at pn+4, mask byte0 and the
  * pn.n packet-number bytes at pn.p. */
-static void protect_header(const quic_aes128 *hp_aes, u8 *pkt, quic_mspan pn) {
+static void protect_header(const quic_aes128* hp_aes, u8* pkt, quic_mspan pn) {
   u8             mask[5];
   quic_hp_fields f = {pkt, pn.p, pn.n, QUIC_HP_LONG_MASK};
   quic_hp_mask(hp_aes, pn.p + 4, mask);
@@ -38,7 +38,7 @@ static void protect_header(const quic_aes128 *hp_aes, u8 *pkt, quic_mspan pn) {
 }
 
 usz quic_protect_seal(
-    const quic_protect_keys *k, const quic_protect_seal_io *io) {
+    const quic_protect_keys* k, const quic_protect_seal_io* io) {
   usz total = seal_into(k->keys, io);
   if (total == 0) return 0;
   protect_header(
@@ -47,10 +47,10 @@ usz quic_protect_seal(
 }
 
 usz quic_protect_open(
-    const quic_protect_keys *k, const quic_protect_open_io *io) {
+    const quic_protect_keys* k, const quic_protect_open_io* io) {
   u8          nonce[QUIC_INITIAL_IV];
   quic_aes128 aead;
-  u8         *pkt    = io->pkt.p;
+  u8*         pkt    = io->pkt.p;
   usz         ct_len = io->pkt.n - io->hdr_len - QUIC_GCM_TAG;
   /* XOR self-inverse: removes HP */
   protect_header(k->hp, pkt, quic_mspan_of(pkt + io->pn_off, io->pn_len));

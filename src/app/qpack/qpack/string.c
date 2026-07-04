@@ -25,7 +25,7 @@ typedef struct {
 } qstr_head;
 
 /* Read the length header. Returns 1 ok, 0 on truncation. */
-static int take_header(quic_span buf, qstr_head *h) {
+static int take_header(quic_span buf, qstr_head* h) {
   u64 v;
   usz used;
   if (buf.n == 0) return 0;
@@ -38,7 +38,7 @@ static int take_header(quic_span buf, qstr_head *h) {
 }
 
 /* H=0: copy the octets into dst. Returns 1 ok, 0 on overflow. */
-static int str_raw(quic_span oct, quic_obuf *dst) {
+static int str_raw(quic_span oct, quic_obuf* dst) {
   usz off = 0;
   if (oct.n > dst->cap) return 0;
   if (!quic_take_bytes(
@@ -50,13 +50,13 @@ static int str_raw(quic_span oct, quic_obuf *dst) {
 
 /* Recover the value octets per the H flag (RFC 7541 5.2): H=1 is Huffman,
  * H=0 is raw. Truncated source octets fail either way. Returns 1 ok, 0. */
-static int str_value(quic_span buf, const qstr_head *h, quic_obuf *dst) {
+static int str_value(quic_span buf, const qstr_head* h, quic_obuf* dst) {
   if (h->off + h->len > buf.n) return 0;
   quic_span oct = quic_span_of(buf.p + h->off, h->len);
   return h->huff ? quic_qpack_huffman_decode(oct, dst) : str_raw(oct, dst);
 }
 
-usz quic_qpack_string_decode(quic_span buf, quic_obuf *dst) {
+usz quic_qpack_string_decode(quic_span buf, quic_obuf* dst) {
   qstr_head h;
   if (!take_header(buf, &h)) return 0;
   if (!str_value(buf, &h, dst)) return 0;

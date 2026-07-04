@@ -36,26 +36,26 @@ typedef struct {
  * Each decode reads the type byte at buf[0], fills *f, and returns bytes
  * consumed, or 0 on truncated / malformed input. */
 
-usz quic_max_data_encode(u8 *buf, usz cap, const quic_data_frame *f);
-usz quic_max_data_decode(const u8 *buf, usz n, quic_data_frame *f);
+usz quic_max_data_encode(u8* buf, usz cap, const quic_data_frame* f);
+usz quic_max_data_decode(const u8* buf, usz n, quic_data_frame* f);
 
-usz quic_data_blocked_encode(u8 *buf, usz cap, const quic_data_frame *f);
-usz quic_data_blocked_decode(const u8 *buf, usz n, quic_data_frame *f);
+usz quic_data_blocked_encode(u8* buf, usz cap, const quic_data_frame* f);
+usz quic_data_blocked_decode(const u8* buf, usz n, quic_data_frame* f);
 
 usz quic_max_stream_data_encode(
-    u8 *buf, usz cap, const quic_stream_data_frame *f);
+    u8* buf, usz cap, const quic_stream_data_frame* f);
 usz quic_max_stream_data_decode(
-    const u8 *buf, usz n, quic_stream_data_frame *f);
+    const u8* buf, usz n, quic_stream_data_frame* f);
 
 usz quic_stream_data_blocked_encode(
-    u8 *buf, usz cap, const quic_stream_data_frame *f);
+    u8* buf, usz cap, const quic_stream_data_frame* f);
 usz quic_stream_data_blocked_decode(
-    const u8 *buf, usz n, quic_stream_data_frame *f);
+    const u8* buf, usz n, quic_stream_data_frame* f);
 
-usz quic_max_streams_encode(u8 *buf, usz cap, const quic_streams_frame *f);
-usz quic_max_streams_decode(const u8 *buf, usz n, quic_streams_frame *f);
+usz quic_max_streams_encode(u8* buf, usz cap, const quic_streams_frame* f);
+usz quic_max_streams_decode(const u8* buf, usz n, quic_streams_frame* f);
 
-usz quic_streams_blocked_encode(u8 *buf, usz cap, const quic_streams_frame *f);
-usz quic_streams_blocked_decode(const u8 *buf, usz n, quic_streams_frame *f);
+usz quic_streams_blocked_encode(u8* buf, usz cap, const quic_streams_frame* f);
+usz quic_streams_blocked_decode(const u8* buf, usz n, quic_streams_frame* f);
 
 #endif

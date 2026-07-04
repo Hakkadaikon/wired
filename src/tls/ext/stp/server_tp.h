@@ -10,6 +10,6 @@
  * success writes the TLV sequence and sets out->len; returns 1. Returns 0 if
  * it does not fit. */
 int quic_stp_build_server(
-    quic_span original_dcid, quic_span initial_scid, quic_obuf *out);
+    quic_span original_dcid, quic_span initial_scid, quic_obuf* out);
 
 #endif

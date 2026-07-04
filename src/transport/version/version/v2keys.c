@@ -10,21 +10,21 @@ static const u8 V2_SALT[QUIC_INITIAL_SALT_LEN] = {
     0x0d, 0xed, 0xe3, 0xde, 0xf7, 0x00, 0xa6, 0xdb, 0x81, 0x93,
     0x81, 0xbe, 0x6e, 0x26, 0x9d, 0xcb, 0xf9, 0xbd, 0x2e, 0xd9};
 
-static const u8 *salt_for(u32 version) {
+static const u8* salt_for(u32 version) {
   if (version == QUIC_VERSION_1) return V1_SALT;
   if (version == QUIC_VERSION_2) return V2_SALT;
   return 0;
 }
 
-int quic_version_initial_salt(u32 version, const u8 **salt, usz *len) {
-  const u8 *s = salt_for(version);
+int quic_version_initial_salt(u32 version, const u8** salt, usz* len) {
+  const u8* s = salt_for(version);
   if (!s) return 0;
   *salt = s;
   *len  = QUIC_INITIAL_SALT_LEN;
   return 1;
 }
 
-int quic_version_label_prefix(u32 version, const char **prefix, usz *len) {
+int quic_version_label_prefix(u32 version, const char** prefix, usz* len) {
   if (version == QUIC_VERSION_1) {
     *prefix = "quic ";
     *len    = 5;

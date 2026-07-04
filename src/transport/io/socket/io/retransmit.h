@@ -22,14 +22,14 @@ typedef struct {
   usz            count;
 } quic_rtx_queue;
 
-void quic_rtx_init(quic_rtx_queue *q);
+void quic_rtx_init(quic_rtx_queue* q);
 
 /* Queue a lost frame for retransmission. Returns 1 on success, 0 if the
  * queue is full or the frame is too large. */
-int quic_rtx_push(quic_rtx_queue *q, const u8 *frame, usz len);
+int quic_rtx_push(quic_rtx_queue* q, const u8* frame, usz len);
 
 /* Pop the oldest queued frame into out (capacity cap). Returns its length,
  * or 0 if the queue is empty or out is too small. */
-usz quic_rtx_pop(quic_rtx_queue *q, u8 *out, usz cap);
+usz quic_rtx_pop(quic_rtx_queue* q, u8* out, usz cap);
 
 #endif

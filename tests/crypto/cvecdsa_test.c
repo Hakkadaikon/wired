@@ -7,14 +7,14 @@
 #include "tls/handshake/core/tls/handshake.h"
 
 /* RFC 6979 A.2.5 keypair: priv X, public point (QX, QY). */
-static const char *CV_X =
+static const char* CV_X =
     "c9afa9d845ba75166b5c215767b1d6934e50c3db36e89b127b8a622b120f6721";
-static const char *CV_QX =
+static const char* CV_QX =
     "60fed4ba255a9d31c961eb74c6356d68c049b8923b61fa6ce669622e60f29fb6";
-static const char *CV_QY =
+static const char* CV_QY =
     "7903fe1008b8bc99a41ae9e95628bc64f2f1b20c2d7e9f5177a3c294d4462299";
 
-static void cv_hb32(const char *hex, u8 out[32]) {
+static void cv_hb32(const char* hex, u8 out[32]) {
   for (usz i = 0; i < 32; i++) {
     u8 hi = hex[i * 2], lo = hex[i * 2 + 1];
     out[i] = (u8)(((hi <= '9' ? hi - '0' : hi - 'a' + 10) << 4) |
@@ -54,7 +54,7 @@ static void test_cvecdsa_header(void) {
 }
 
 /* Pull the two 32-byte big-endian scalars out of an ECDSA-Sig-Value DER. */
-static void cv_take_int(const u8 *p, u8 out[32]) {
+static void cv_take_int(const u8* p, u8 out[32]) {
   usz len  = p[1];               /* INTEGER content length */
   usz skip = (len > 32) ? 1 : 0; /* leading 0x00 sign pad */
   usz vlen = len - skip;
@@ -62,8 +62,8 @@ static void cv_take_int(const u8 *p, u8 out[32]) {
   for (usz i = 0; i < vlen; i++) out[32 - vlen + i] = p[2 + skip + i];
 }
 
-static void cv_der_extract(const u8 *der, u8 r[32], u8 s[32]) {
-  const u8 *rp = der + 2; /* skip SEQ tag + len */
+static void cv_der_extract(const u8* der, u8 r[32], u8 s[32]) {
+  const u8* rp = der + 2; /* skip SEQ tag + len */
   cv_take_int(rp, r);
   cv_take_int(rp + 2 + rp[1], s); /* next INTEGER after r */
 }

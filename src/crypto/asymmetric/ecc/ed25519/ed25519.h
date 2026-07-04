@@ -13,7 +13,7 @@
  * Returns 1 if the signature is valid, 0 otherwise. */
 int quic_ed25519_verify(
     const u8  sig[QUIC_ED25519_SIG],
-    const u8 *msg,
+    const u8* msg,
     usz       msg_len,
     const u8  pubkey[QUIC_ED25519_PUBKEY]);
 
@@ -24,7 +24,7 @@ int quic_ed25519_keypair(
 /* Sign msg under seed, writing R||S (64 bytes) to sig (RFC 8032 5.1.6). */
 int quic_ed25519_sign(
     const u8  seed[QUIC_ED25519_SEED],
-    const u8 *msg,
+    const u8* msg,
     usz       msg_len,
     u8        sig[QUIC_ED25519_SIG]);
 

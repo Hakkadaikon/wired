@@ -14,7 +14,7 @@
 /* Recover the TLS flight from a packet's CRYPTO frame bytes (RFC 9000 19.6).
  * The CRYPTO frame is emitted first (any ACK frame follows it), so the type
  * byte sits at frames[0] where quic_frame_get_crypto expects it. */
-static int srvwire_take_crypto(quic_span frames, quic_span *tls) {
+static int srvwire_take_crypto(quic_span frames, quic_span* tls) {
   quic_crypto_frame cf;
   if (!quic_frame_get_crypto(frames.p, frames.n, &cf)) return 0;
   *tls = quic_span_of(cf.data, (usz)cf.length);
@@ -23,7 +23,7 @@ static int srvwire_take_crypto(quic_span frames, quic_span *tls) {
 
 /* RFC 9000 13.2.1 / 19.3: encode an ACK frame acknowledging the single client
  * packet number ack_pn. Returns bytes written, or 0 on overflow. */
-static usz put_ack_one(quic_obuf *out, u64 ack_pn) {
+static usz put_ack_one(quic_obuf* out, u64 ack_pn) {
   quic_ack_frame f = {0};
   f.n_ranges       = 1;
   f.ranges[0].hi   = ack_pn;
@@ -34,7 +34,7 @@ static usz put_ack_one(quic_obuf *out, u64 ack_pn) {
 /* Append an ACK frame for ack_pn after out->len (none when ack_pn < 0). The
  * CRYPTO frame stays at offset 0 so the open path finds it there. Returns 1,
  * or 0 on overflow. */
-static int append_ack(quic_obuf *frames, i64 ack_pn) {
+static int append_ack(quic_obuf* frames, i64 ack_pn) {
   quic_obuf tail;
   usz       a;
   if (ack_pn < 0) return 1;
@@ -48,7 +48,7 @@ static int append_ack(quic_obuf *frames, i64 ack_pn) {
 /* Build the flight frames into out: the CRYPTO frame(s) for the TLS bytes,
  * then an optional trailing ACK (when in->ack_pn >= 0). Returns 1, or 0 on
  * overflow. */
-static int srvwire_emit_frames(const quic_srvwire_seal_in *in, quic_obuf *out) {
+static int srvwire_emit_frames(const quic_srvwire_seal_in* in, quic_obuf* out) {
   quic_crypto_stream_emit_in ein = {in->crypto_off, in->tls.n};
   if (!quic_crypto_stream_emit(in->tls, &ein, out)) return 0;
   return append_ack(out, in->ack_pn);
@@ -66,13 +66,13 @@ static usz init_payload_floor(u8 dcid_len, u8 scid_len) {
 }
 
 /* Zero-fill frames up to the 1200-byte Initial floor (bounded by out->cap). */
-static void pad_initial_frames(quic_obuf *frames, usz floor) {
+static void pad_initial_frames(quic_obuf* frames, usz floor) {
   usz fill = floor < frames->cap ? floor : frames->cap;
   for (; frames->len < fill; frames->len++) frames->p[frames->len] = 0x00;
 }
 
 /* RFC 9001 5.2 */
-int quic_srvwire_seal_initial(const quic_srvwire_seal_in *in, quic_obuf *out) {
+int quic_srvwire_seal_initial(const quic_srvwire_seal_in* in, quic_obuf* out) {
   quic_initial_keys ck, sk;
   quic_aes128       hp;
   u8                frames[1200]; /* RFC 9000 14.1: room to PADDING to 1200 */
@@ -88,7 +88,7 @@ int quic_srvwire_seal_initial(const quic_srvwire_seal_in *in, quic_obuf *out) {
       in->dcid,
       in->scid,
       1,
-      quic_span_of((const u8 *)0, 0),
+      quic_span_of((const u8*)0, 0),
       in->pn,
       quic_span_of(frames, fb.len)};
   total = quic_tx_packet(&k, &t, quic_mspan_of(out->p, out->cap));
@@ -99,7 +99,7 @@ int quic_srvwire_seal_initial(const quic_srvwire_seal_in *in, quic_obuf *out) {
 
 /* RFC 9001 5.2 */
 int quic_srvwire_open_initial(
-    const quic_srvwire_open_initial_in *in, quic_mspan pkt, quic_span *tls) {
+    const quic_srvwire_open_initial_in* in, quic_mspan pkt, quic_span* tls) {
   quic_initial_keys ck, sk;
   quic_aes128       hp;
   quic_span         frames;
@@ -114,9 +114,9 @@ int quic_srvwire_open_initial(
 
 /* RFC 9001 5 */
 int quic_srvwire_seal_handshake(
-    const quic_protect_keys    *k,
-    const quic_srvwire_seal_in *in,
-    quic_obuf                  *out) {
+    const quic_protect_keys*    k,
+    const quic_srvwire_seal_in* in,
+    quic_obuf*                  out) {
   u8        frames[2048];
   quic_obuf fb = quic_obuf_of(frames, sizeof frames);
   if (!srvwire_emit_frames(in, &fb)) return 0;
@@ -128,7 +128,7 @@ int quic_srvwire_seal_handshake(
 
 /* RFC 9001 5 */
 int quic_srvwire_open_handshake(
-    const quic_protect_keys *k, quic_mspan pkt, quic_span *tls) {
+    const quic_protect_keys* k, quic_mspan pkt, quic_span* tls) {
   quic_span frames;
   if (!quic_hspkt_open(k, pkt, &frames)) return 0;
   return srvwire_take_crypto(frames, tls);

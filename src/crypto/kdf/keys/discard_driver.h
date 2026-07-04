@@ -14,6 +14,6 @@ int quic_key_should_discard_handshake(int handshake_confirmed);
 
 /* Drop the key set at level (0/1/2). Returns 1 ok, 0 if level out of range.
  * After discard, quic_keyset_for_level reports the level not installed. */
-int quic_keyset_discard(quic_keyset *state, int level);
+int quic_keyset_discard(quic_keyset* state, int level);
 
 #endif

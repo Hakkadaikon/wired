@@ -10,7 +10,7 @@
 
 /* RFC 5280 4.1.1.3. signatureValue BIT STRING (0x00 unused-bits || sig DER).
  * sig is the ECDSA-Sig-Value DER of (r, s). Writes the whole TLV. 0 on fail. */
-static usz pc_build_sigval(quic_span sig, quic_obuf *out) {
+static usz pc_build_sigval(quic_span sig, quic_obuf* out) {
   u8  bits[80];
   usz off = 1;
   bits[0] = 0x00;
@@ -22,14 +22,14 @@ static usz pc_build_sigval(quic_span sig, quic_obuf *out) {
 }
 
 /* SHA-256 the TBS, ECDSA-sign it, DER-encode (r, s) into sig. 0 on failure. */
-static int pc_sign_tbs(const u8 priv[32], quic_span tbs, quic_obuf *sig) {
+static int pc_sign_tbs(const u8 priv[32], quic_span tbs, quic_obuf* sig) {
   u8 hash[32], r[32], s[32];
   quic_sha256(tbs.p, tbs.n, hash);
   if (!quic_p256sign_sign(priv, hash, r, s)) return 0;
   return quic_ecdsasig_encode(r, s, sig->p, sig->cap, &sig->len);
 }
 
-int quic_p256cert_build(const quic_p256cert_key *k, quic_obuf *out) {
+int quic_p256cert_build(const quic_p256cert_key* k, quic_obuf* out) {
   u8                tbs[512], alg[16], sig[80], sv[96], body[640];
   quic_obuf         to = quic_obuf_of(tbs, sizeof(tbs));
   quic_obuf         ao = quic_obuf_of(alg, sizeof(alg));

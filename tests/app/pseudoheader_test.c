@@ -1,6 +1,6 @@
 #include "test.h"
 
-#define NAME(s) ((const u8 *)(s)), (sizeof(s) - 1)
+#define NAME(s) ((const u8*)(s)), (sizeof(s) - 1)
 
 /* Classification of pseudo, regular, and unknown names. */
 static void test_ph_classify(void) {

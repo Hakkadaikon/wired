@@ -9,6 +9,6 @@
  * plaintext within pkt. Returns 1 on success, 0 on authentication failure or
  * short input. */
 int quic_hspkt_open(
-    const quic_protect_keys *k, quic_mspan pkt, quic_span *payload);
+    const quic_protect_keys* k, quic_mspan pkt, quic_span* payload);
 
 #endif

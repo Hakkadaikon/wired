@@ -10,7 +10,7 @@
 #include "transport/conn/pnspace/crypto_stream/crypto_tx.h"
 
 /* Minimal ServerHello (RFC 8446 4.1.3) carrying an x25519 key_share pub. */
-static usz fp_build_sh(u8 *out, usz cap, const u8 pub[32]) {
+static usz fp_build_sh(u8* out, usz cap, const u8 pub[32]) {
   usz off      = quic_hs_begin(out, cap, 2), block;
   out[off]     = 0x03;
   out[off + 1] = 0x03;
@@ -46,7 +46,7 @@ static usz fp_build_sh(u8 *out, usz cap, const u8 pub[32]) {
 }
 
 /* CertificateVerify: type(15) len(3) | scheme(2) | sig(2+len). */
-static usz fp_build_cv(u8 *out, u16 scheme, const u8 *sig, usz sig_len) {
+static usz fp_build_cv(u8* out, u16 scheme, const u8* sig, usz sig_len) {
   usz body = 4 + sig_len;
   out[0]   = 0x0f;
   out[1]   = 0;
@@ -63,7 +63,7 @@ static usz fp_build_cv(u8 *out, u16 scheme, const u8 *sig, usz sig_len) {
 /* Drive fresh client/server tlsdrivers to the handshake secret and seed the
  * client fullhs from the golden transcript. */
 static void fp_new_client(
-    quic_tlsdriver *cl, quic_tlsdriver *sv, quic_fullhs *h) {
+    quic_tlsdriver* cl, quic_tlsdriver* sv, quic_fullhs* h) {
   u8  cl_priv[32], cl_pub[32], sv_priv[32], sv_pub[32];
   u8  frame[1024], sh[512];
   usz fl, shn;
@@ -95,7 +95,7 @@ static void fp_new_client(
 
 /* quic_fullhs_recv_cert under the given policy, on a fresh client. */
 static int fp_cert_result(
-    u64 now, const u8 *host, usz host_len, const u8 *msg, usz msg_len) {
+    u64 now, const u8* host, usz host_len, const u8* msg, usz msg_len) {
   quic_tlsdriver cl, sv;
   quic_fullhs    h;
   fp_new_client(&cl, &sv, &h);
@@ -105,7 +105,7 @@ static int fp_cert_result(
 
 /* Wrap one DER cert in a Certificate message (RFC 8446 4.4.2):
  * type(0x0b) len(3) | ctx(1)=0 | list(3) | cert(3) | cert | exts(2)=0. */
-static usz fp_wrap_cert(u8 *out, const u8 *cert, usz n) {
+static usz fp_wrap_cert(u8* out, const u8* cert, usz n) {
   usz body = n + 9;
   out[0]   = 0x0b;
   out[1]   = (u8)(body >> 16);
@@ -126,7 +126,7 @@ static usz fp_wrap_cert(u8 *out, const u8 *cert, usz n) {
 
 /* A self-signed P-256 cert (SAN dNSName "localhost", validity 2020..2030)
  * wrapped in a Certificate message. */
-static usz fp_p256_cert_msg(u8 *msg) {
+static usz fp_p256_cert_msg(u8* msg) {
   u8       priv[32], x[32], y[32], cert[600];
   usz      clen;
   ec_point q;
@@ -144,7 +144,7 @@ static usz fp_p256_cert_msg(u8 *msg) {
 /* RFC 5280 6.1: the golden cert (2026..2036) is accepted inside its window
  * and rejected after notAfter and before notBefore. */
 static void test_fullhs_policy_validity(void) {
-  const u8 *m = fullhs_cert_msg;
+  const u8* m = fullhs_cert_msg;
   usz       n = sizeof(fullhs_cert_msg);
   CHECK(fp_cert_result(20270101000000ULL, 0, 0, m, n) == 1);
   CHECK(fp_cert_result(20370101000000ULL, 0, 0, m, n) == 0);
@@ -156,7 +156,7 @@ static void test_fullhs_policy_validity(void) {
 static void test_fullhs_policy_no_san(void) {
   CHECK(
       fp_cert_result(
-          0, (const u8 *)"other.example", 13, fullhs_cert_msg,
+          0, (const u8*)"other.example", 13, fullhs_cert_msg,
           sizeof(fullhs_cert_msg)) == 0);
 }
 
@@ -165,13 +165,13 @@ static void test_fullhs_policy_no_san(void) {
 static void test_fullhs_policy_san(void) {
   u8  msg[640];
   usz n = fp_p256_cert_msg(msg);
-  CHECK(fp_cert_result(0, (const u8 *)"localhost", 9, msg, n) == 1);
-  CHECK(fp_cert_result(0, (const u8 *)"evil.example", 12, msg, n) == 0);
+  CHECK(fp_cert_result(0, (const u8*)"localhost", 9, msg, n) == 1);
+  CHECK(fp_cert_result(0, (const u8*)"evil.example", 12, msg, n) == 0);
   CHECK(
-      fp_cert_result(20260702000000ULL, (const u8 *)"localhost", 9, msg, n) ==
+      fp_cert_result(20260702000000ULL, (const u8*)"localhost", 9, msg, n) ==
       1);
   CHECK(
-      fp_cert_result(20310101000000ULL, (const u8 *)"localhost", 9, msg, n) ==
+      fp_cert_result(20310101000000ULL, (const u8*)"localhost", 9, msg, n) ==
       0);
 }
 

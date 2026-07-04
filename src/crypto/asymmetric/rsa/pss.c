@@ -22,7 +22,7 @@ static int pss_top_bits_clear(u8 top, usz zero_bits) {
 }
 
 /* DB = maskedDB XOR dbMask, then clear the leftmost zero_bits (step 8-9). */
-static void pss_unmask_db(quic_mspan db, const u8 *h, usz zero_bits) {
+static void pss_unmask_db(quic_mspan db, const u8* h, usz zero_bits) {
   u8 mask[PSS_MAX_EM];
   quic_mgf1_sha256((quic_span){h, 32}, (quic_mspan){mask, db.n});
   for (usz i = 0; i < db.n; i++) db.p[i] ^= mask[i];
@@ -30,7 +30,7 @@ static void pss_unmask_db(quic_mspan db, const u8 *h, usz zero_bits) {
 }
 
 /* RFC 8017 9.1.2 step 10: PS (zeros) then 0x01 before the salt. */
-static int pss_padding_ok(const u8 *db, usz db_len, usz salt_len) {
+static int pss_padding_ok(const u8* db, usz db_len, usz salt_len) {
   usz one = db_len - salt_len - 1;
   for (usz i = 0; i < one; i++)
     if (db[i] != 0x00) return 0;
@@ -38,7 +38,7 @@ static int pss_padding_ok(const u8 *db, usz db_len, usz salt_len) {
 }
 
 /* H' = SHA-256(0x00*8 || mHash || salt); compare to H (step 12-14). */
-static int pss_hprime_eq(const u8 *mhash, quic_span salt, const u8 *h) {
+static int pss_hprime_eq(const u8* mhash, quic_span salt, const u8* h) {
   u8              zeros[8] = {0};
   u8              hp[32];
   quic_sha256_ctx s;
@@ -60,7 +60,7 @@ static int pss_sizes_bad(usz em_len, usz hash_len) {
 
 /* RFC 8017 9.1.2 step 5: split maskedDB and H, unmask DB into db. em_db is
  * EM trimmed to the maskedDB length; returns H (= em_db.p + em_db.n). */
-static const u8 *pss_recover_db(quic_span em_db, u8 *db, usz zero_bits) {
+static const u8* pss_recover_db(quic_span em_db, u8* db, usz zero_bits) {
   for (usz i = 0; i < em_db.n; i++) db[i] = em_db.p[i];
   pss_unmask_db((quic_mspan){db, em_db.n}, em_db.p + em_db.n, zero_bits);
   return em_db.p + em_db.n;
@@ -75,9 +75,9 @@ static int pss_prefix_bad(quic_span em, usz hash_len, usz em_bits) {
 
 /* DB recovered and padding/hash-checked (steps 8-14). 1 if salt is consistent.
  * em_db is EM trimmed to the maskedDB length. */
-static int pss_db_consistent(quic_span em_db, usz zero_bits, const u8 *mhash) {
+static int pss_db_consistent(quic_span em_db, usz zero_bits, const u8* mhash) {
   u8        db[PSS_MAX_EM];
-  const u8 *h    = pss_recover_db(em_db, db, zero_bits);
+  const u8* h    = pss_recover_db(em_db, db, zero_bits);
   quic_span salt = {db + em_db.n - PSS_SALT_LEN, PSS_SALT_LEN};
   if (!pss_padding_ok(db, em_db.n, PSS_SALT_LEN)) return 0;
   return pss_hprime_eq(mhash, salt, h);

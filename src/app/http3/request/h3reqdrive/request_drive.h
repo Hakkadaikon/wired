@@ -23,7 +23,7 @@ typedef struct {
  * @param out receives the encoded STREAM frame
  * @return 1 with out->len set, 0 on overflow. */
 int wired_h3reqdrive_send_get(
-    u64 stream_id, const wired_h3reqdrive_get_in *in, quic_obuf *out);
+    u64 stream_id, const wired_h3reqdrive_get_in* in, quic_obuf* out);
 
 /** Remaining arguments of wired_h3reqdrive_send_method beyond stream_id/out:
  * the request line (method/path/authority) and the optional body. */
@@ -43,24 +43,24 @@ typedef struct {
  * @param out receives the encoded STREAM frame
  * @return 1 with out->len set, 0 on overflow. */
 int wired_h3reqdrive_send_method(
-    u64 stream_id, const wired_h3reqdrive_send_in *in, quic_obuf *out);
+    u64 stream_id, const wired_h3reqdrive_send_in* in, quic_obuf* out);
 
 /** RFC 9114 4.1 / 4.3.1, RFC 9204 4.5: recovered request pseudo-headers.
  * Each value is either a static-table view or a copy in the caller-supplied
  * scratch buffer, depending on how the peer encoded the field line. */
 typedef struct {
-  const u8 *method;        /**< :method value (static-table view or scratch) */
+  const u8* method;        /**< :method value (static-table view or scratch) */
   usz       method_len;    /**< method length in octets */
-  const u8 *scheme;        /**< :scheme value (static-table view or scratch) */
+  const u8* scheme;        /**< :scheme value (static-table view or scratch) */
   usz       scheme_len;    /**< scheme length in octets */
-  const u8 *authority;     /**< :authority value (static-table view or
+  const u8* authority;     /**< :authority value (static-table view or
                               scratch) */
   usz       authority_len; /**< authority length in octets */
-  const u8 *path;          /**< :path value (static-table view or scratch) */
+  const u8* path;          /**< :path value (static-table view or scratch) */
   usz       path_len;      /**< path length in octets */
-  const u8 *protocol;      /**< RFC 9220 3: :protocol value, 0 if absent */
+  const u8* protocol;      /**< RFC 9220 3: :protocol value, 0 if absent */
   usz       protocol_len;  /**< protocol length in octets, 0 if absent */
-  const u8 *body;          /**< request body view into stream_data, 0 if none */
+  const u8* body;          /**< request body view into stream_data, 0 if none */
   usz       body_len;      /**< 0 for GET and other bodyless requests */
 } wired_h3reqdrive_req;
 
@@ -75,6 +75,6 @@ typedef struct {
  * @param r receives the recovered pseudo-headers and body view
  * @return 1 on success, 0 on a malformed frame or field section. */
 int wired_h3reqdrive_recv_get(
-    quic_span stream_data, quic_mspan scratch, wired_h3reqdrive_req *r);
+    quic_span stream_data, quic_mspan scratch, wired_h3reqdrive_req* r);
 
 #endif

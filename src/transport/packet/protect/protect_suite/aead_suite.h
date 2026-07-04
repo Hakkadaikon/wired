@@ -13,18 +13,18 @@
  * Build one on the stack per packet and pass it by pointer. */
 typedef struct {
   u16       suite;
-  const u8 *key;
-  const u8 *iv;
+  const u8* key;
+  const u8* iv;
   u64       pn;
   quic_span aad;
 } quic_aead_suite_op;
 
 /* Seal pt into out as ciphertext followed by the 16-byte tag. Returns the
  * total written length (pt.n + 16), or 0 on an unknown suite. */
-usz quic_aead_suite_seal(const quic_aead_suite_op *op, quic_span pt, u8 *out);
+usz quic_aead_suite_seal(const quic_aead_suite_op* op, quic_span pt, u8* out);
 
 /* Open ct (ct.n ciphertext bytes followed by a 16-byte tag) into pt.
  * Returns ct.n on success, 0 on tag mismatch or unknown suite. */
-usz quic_aead_suite_open(const quic_aead_suite_op *op, quic_span ct, u8 *pt);
+usz quic_aead_suite_open(const quic_aead_suite_op* op, quic_span ct, u8* pt);
 
 #endif

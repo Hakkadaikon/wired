@@ -2,8 +2,8 @@
 
 /* RFC 9204 Appendix A. Index order is normative. */
 typedef struct {
-  const char *name;
-  const char *value;
+  const char* name;
+  const char* value;
 } qpack_static_entry;
 
 static const qpack_static_entry table[QUIC_QPACK_STATIC_COUNT] = {
@@ -110,7 +110,7 @@ static const qpack_static_entry table[QUIC_QPACK_STATIC_COUNT] = {
     {"x-frame-options", "sameorigin"},
 };
 
-int quic_qpack_static_get(usz index, const char **name, const char **value) {
+int quic_qpack_static_get(usz index, const char** name, const char** value) {
   if (index >= QUIC_QPACK_STATIC_COUNT) return 0;
   *name  = table[index].name;
   *value = table[index].value;
@@ -118,7 +118,7 @@ int quic_qpack_static_get(usz index, const char **name, const char **value) {
 }
 
 /* Two NUL-terminated strings compare equal byte for byte. */
-static int str_eq(const char *a, const char *b) {
+static int str_eq(const char* a, const char* b) {
   while (*a == *b) {
     if (*a == 0) return 1;
     a++;
@@ -128,11 +128,11 @@ static int str_eq(const char *a, const char *b) {
 }
 
 /* Entry i matches the queried name and value exactly. */
-static int entry_eq(usz i, const char *name, const char *value) {
+static int entry_eq(usz i, const char* name, const char* value) {
   return str_eq(table[i].name, name) && str_eq(table[i].value, value);
 }
 
-i64 quic_qpack_static_find(const char *name, const char *value) {
+i64 quic_qpack_static_find(const char* name, const char* value) {
   for (usz i = 0; i < QUIC_QPACK_STATIC_COUNT; i++)
     if (entry_eq(i, name, value)) return (i64)i;
   return -1;

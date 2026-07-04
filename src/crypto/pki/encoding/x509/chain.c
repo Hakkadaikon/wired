@@ -12,7 +12,7 @@
 
 /* Read the next element as a whole TLV (header included) by spanning the
  * cursor's offsets. Requires a SEQUENCE tag. 1 ok, 0 otherwise. */
-static int ch_next_seq_tlv(quic_derseq *c, quic_span *tlv) {
+static int ch_next_seq_tlv(quic_derseq* c, quic_span* tlv) {
   u8        tag;
   quic_span val;
   usz       start = c->off;
@@ -24,33 +24,33 @@ static int ch_next_seq_tlv(quic_derseq *c, quic_span *tlv) {
 
 /* Position c before the issuer Name (after version, serialNumber, signature).
  */
-static int ch_at_issuer(quic_span tbs, quic_derseq *c) {
+static int ch_at_issuer(quic_span tbs, quic_derseq* c) {
   return quic_x509_tbs_cursor(tbs, c) && quic_derseq_skip(c, ISSUER_SKIP);
 }
 
-int quic_x509_issuer(quic_span tbs, quic_span *issuer) {
+int quic_x509_issuer(quic_span tbs, quic_span* issuer) {
   quic_derseq c;
   return ch_at_issuer(tbs, &c) && ch_next_seq_tlv(&c, issuer);
 }
 
 /* Position c just past the issuer Name, before validity. */
-static int ch_after_issuer(quic_span tbs, quic_derseq *c) {
+static int ch_after_issuer(quic_span tbs, quic_derseq* c) {
   quic_span issuer;
   return ch_at_issuer(tbs, c) && ch_next_seq_tlv(c, &issuer);
 }
 
 /* Skip validity, then read the subject Name TLV. */
-static int ch_skip_to_subject(quic_derseq *c, quic_span *subject) {
+static int ch_skip_to_subject(quic_derseq* c, quic_span* subject) {
   return quic_derseq_skip(c, SUBJECT_SKIP) && ch_next_seq_tlv(c, subject);
 }
 
-int quic_x509_subject(quic_span tbs, quic_span *subject) {
+int quic_x509_subject(quic_span tbs, quic_span* subject) {
   quic_derseq c;
   return ch_after_issuer(tbs, &c) && ch_skip_to_subject(&c, subject);
 }
 
 /* 1 if the two byte spans of equal length differ nowhere. */
-static int ch_bytes_eq(const u8 *a, const u8 *b, usz n) {
+static int ch_bytes_eq(const u8* a, const u8* b, usz n) {
   usz diff = 0;
   for (usz i = 0; i < n; i++) diff |= (usz)(a[i] ^ b[i]);
   return diff == 0;

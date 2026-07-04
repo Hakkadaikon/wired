@@ -6,14 +6,14 @@
 #include "crypto/pki/trust/castore/chainverify.h"
 
 /* RFC 5280 4.1.2.4. View cert's issuer Name (header included). */
-static int cert_issuer(quic_span cert, quic_span *dn) {
+static int cert_issuer(quic_span cert, quic_span* dn) {
   quic_x509 c;
   if (!quic_x509_parse(cert, &c)) return 0;
   return quic_x509_issuer(c.tbs, dn);
 }
 
 /* RFC 5280 4.1.2.6. View cert's subject Name (header included). */
-static int cert_subject(quic_span cert, quic_span *dn) {
+static int cert_subject(quic_span cert, quic_span* dn) {
   quic_x509 c;
   if (!quic_x509_parse(cert, &c)) return 0;
   return quic_x509_subject(c.tbs, dn);
@@ -45,14 +45,14 @@ static int link_ok(quic_span child, quic_span parent) {
 /* RFC 5280 6.1.4. Find the registered anchor for issuer name and require it to
  * be a CA. */
 static int find_ca_anchor(
-    const quic_castore *s, quic_span iss, quic_span *root) {
+    const quic_castore* s, quic_span iss, quic_span* root) {
   if (!quic_castore_find_by_subject(s, iss, root)) return 0;
   return cert_is_ca(*root);
 }
 
 /* RFC 5280 6.1. The tail must chain to a registered CA trust anchor: a root
  * whose subject equals the tail's issuer, and which signs the tail. */
-static int tail_anchored(const quic_castore *s, quic_span tail) {
+static int tail_anchored(const quic_castore* s, quic_span tail) {
   quic_span iss, root;
   if (!cert_issuer(tail, &iss)) return 0;
   if (!find_ca_anchor(s, iss, &root)) return 0;
@@ -69,19 +69,19 @@ static int cert_pathlen_ok(quic_span cert, usz below) {
 
 /* One step: the link verifies and the issuer certs[i+1] admits the i
  * intermediates (certs[1..i]) between it and the leaf. */
-static int step_ok(const quic_span *certs, usz i) {
+static int step_ok(const quic_span* certs, usz i) {
   return link_ok(certs[i], certs[i + 1]) && cert_pathlen_ok(certs[i + 1], i);
 }
 
 /* Every adjacent leaf-to-tail link binds and verifies. */
-static int links_ok(const quic_span *certs, usz n) {
+static int links_ok(const quic_span* certs, usz n) {
   for (usz i = 0; i + 1 < n; i++)
     if (!step_ok(certs, i)) return 0;
   return 1;
 }
 
 int quic_castore_validate_chain(
-    const quic_castore *s, const quic_span *certs, usz n_certs) {
+    const quic_castore* s, const quic_span* certs, usz n_certs) {
   if (n_certs < 1) return 0;
   if (!links_ok(certs, n_certs)) return 0;
   return tail_anchored(s, certs[n_certs - 1]);

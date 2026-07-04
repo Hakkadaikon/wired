@@ -4,7 +4,7 @@
 #include "test.h"
 
 /* RFC 9001 5: derive a shared 1-RTT key pair for the end-to-end path. */
-static void rt_keys(quic_initial_keys *k, quic_aes128 *hp) {
+static void rt_keys(quic_initial_keys* k, quic_aes128* hp) {
   const u8 dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
   quic_initial_derive(quic_span_of(dcid, 8), 1, k);
   quic_aes128_init(hp, k->hp);
@@ -73,7 +73,7 @@ static void test_roundtrip_onertt(void) {
   /* open the 1-RTT packet, then decode the response from its STREAM frame */
   {
     u64              sid = 0, off = 0;
-    const u8        *sdata = 0;
+    const u8*        sdata = 0;
     usz              slen  = 0;
     int              fin   = 0;
     u8               reframed[256];
@@ -94,7 +94,7 @@ static void test_roundtrip_onertt(void) {
 static void test_roundtrip_empty_body(void) {
   u8               resp[128];
   quic_obuf        resp_ob  = {resp, sizeof resp, 0};
-  quic_h3conn_resp resp_out = {0, quic_span_of((const u8 *)1, 99), 0};
+  quic_h3conn_resp resp_out = {0, quic_span_of((const u8*)1, 99), 0};
 
   {
     quic_h3conn_resp resp_in = {404, quic_span_of(0, 0), 0};

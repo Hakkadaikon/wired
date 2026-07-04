@@ -8,7 +8,7 @@ int quic_tls_alpn_equal(quic_span a, quic_span b) {
   return diff == 0;
 }
 
-int quic_tls_alpn_is_h3(const u8 *proto, usz len) {
+int quic_tls_alpn_is_h3(const u8* proto, usz len) {
   static const u8 h3[2] = {0x68, 0x33};
   return quic_tls_alpn_equal(quic_span_of(proto, len), quic_span_of(h3, 2));
 }

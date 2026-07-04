@@ -2,7 +2,7 @@
 
 /* Build a CRYPTO frame (RFC 9000 19.6): type 0x06, varint offset, varint
  * length, data. Offsets/lengths here stay < 64 so each varint is one byte. */
-static usz mk_crypto(u8 *out, u8 offset, const u8 *data, u8 len) {
+static usz mk_crypto(u8* out, u8 offset, const u8* data, u8 len) {
   usz i    = 0;
   out[i++] = 0x06;
   out[i++] = offset;

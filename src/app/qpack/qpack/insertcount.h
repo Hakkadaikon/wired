@@ -18,6 +18,6 @@ typedef struct {
 
 /* Decode an EncodedInsertCount against the table state. Writes the Required
  * Insert Count to *ric. Returns 1 on success, 0 if the encoding is invalid. */
-int quic_qpack_ric_decode(u64 encoded, const quic_qpack_ric_ctx *c, u64 *ric);
+int quic_qpack_ric_decode(u64 encoded, const quic_qpack_ric_ctx* c, u64* ric);
 
 #endif

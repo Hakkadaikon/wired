@@ -53,7 +53,7 @@ static void test_initpkt_tamper(void) {
   const u8          ch[]    = {'h', 'i'};
   u8                pkt[1300];
   quic_initpkt_desc d = {
-      quic_span_of(dcid, 8), quic_span_of((const u8 *)0, 0),
+      quic_span_of(dcid, 8), quic_span_of((const u8*)0, 0),
       quic_span_of(ch, sizeof(ch)), 7};
   quic_obuf o = quic_obuf_of(pkt, sizeof(pkt));
   CHECK(quic_initpkt_build(&d, &o));

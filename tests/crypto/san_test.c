@@ -5,7 +5,7 @@
 #include "test.h"
 
 /* Parse a golden cert and match host (a string literal span) against it. */
-static int san_match(const u8 *der, usz der_len, const u8 *host, usz hlen) {
+static int san_match(const u8* der, usz der_len, const u8* host, usz hlen) {
   quic_x509 c;
   CHECK(quic_x509_parse(quic_span_of(der, der_len), &c) == 1);
   return quic_x509_san_matches(c.tbs, quic_span_of(host, hlen));

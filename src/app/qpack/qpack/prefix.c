@@ -12,7 +12,7 @@ static u8 sign_prefix(u8 sign) { return sign ? PREFIX_SIGN_BIT : 0; }
 /* off + w, or 0 if either is 0 (an empty second field means failure). */
 static usz prefix_join(usz off, usz w) { return (off && w) ? off + w : 0; }
 
-usz quic_qpack_prefix_encode(u8 *buf, usz cap, const quic_qpack_prefix *p) {
+usz quic_qpack_prefix_encode(u8* buf, usz cap, const quic_qpack_prefix* p) {
   quic_qpack_pfx ric = {8, 0};
   usz            off = quic_qpack_int_encode(
       quic_mspan_of(buf, cap), ric, p->required_insert_count);
@@ -23,7 +23,7 @@ usz quic_qpack_prefix_encode(u8 *buf, usz cap, const quic_qpack_prefix *p) {
   return prefix_join(off, w);
 }
 
-usz quic_qpack_prefix_decode(const u8 *buf, usz n, quic_qpack_prefix *p) {
+usz quic_qpack_prefix_decode(const u8* buf, usz n, quic_qpack_prefix* p) {
   usz off =
       quic_qpack_int_decode(quic_span_of(buf, n), 8, &p->required_insert_count);
   if (off == 0) return 0;

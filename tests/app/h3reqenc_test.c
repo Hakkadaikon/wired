@@ -8,7 +8,7 @@
 #include "transport/packet/frame/frame/frame.h"
 
 /* Compare a recovered (ptr,len) against a NUL-terminated literal. */
-static int em_eq(const u8 *a, usz alen, const char *b) {
+static int em_eq(const u8* a, usz alen, const char* b) {
   usz i = 0;
   while (b[i]) {
     if (i >= alen || a[i] != (u8)b[i]) return 0;
@@ -20,7 +20,7 @@ static int em_eq(const u8 *a, usz alen, const char *b) {
 /* RFC 9204 4.5.2: decode the first field line after the empty section prefix as
  * an Indexed Field Line and return its static-table index, or -1 if the leading
  * line is not a static Indexed Field Line. */
-static i64 first_static_index(const u8 *fs, usz fs_len) {
+static i64 first_static_index(const u8* fs, usz fs_len) {
   u64 index     = 0;
   int is_static = 0;
   usz off       = quic_qpack_prefix_decode(fs, fs_len, &(quic_qpack_prefix){0});
@@ -35,7 +35,7 @@ static i64 first_static_index(const u8 *fs, usz fs_len) {
  * encodes its :method as a single Indexed Field Line at that static index. */
 static void test_enc_method_static_index(void) {
   struct {
-    const char *m;
+    const char* m;
     usz         mlen;
     i64         idx;
   } cases[] = {
@@ -50,7 +50,7 @@ static void test_enc_method_static_index(void) {
     u8        fs[256];
     quic_obuf ob = {fs, sizeof fs, 0};
     CHECK(quic_h3req_enc_method(
-        quic_span_of((const u8 *)cases[i].m, cases[i].mlen), &hin, &ob));
+        quic_span_of((const u8*)cases[i].m, cases[i].mlen), &hin, &ob));
     CHECK(first_static_index(fs, ob.len) == cases[i].idx);
   }
 }
@@ -64,12 +64,12 @@ static void test_enc_method_unknown_literal(void) {
   quic_obuf             ob  = {fs, sizeof fs, 0};
   quic_h3req_headers_in hin = {
       quic_span_of(path, sizeof path), quic_span_of(auth, sizeof auth)};
-  CHECK(quic_h3req_enc_method(quic_span_of((const u8 *)"PATCH", 5), &hin, &ob));
+  CHECK(quic_h3req_enc_method(quic_span_of((const u8*)"PATCH", 5), &hin, &ob));
   CHECK(first_static_index(fs, ob.len) == -1);
 }
 
 /* Two byte ranges are identical. */
-static int enc_bytes_eq(const u8 *a, usz alen, const u8 *b, usz blen) {
+static int enc_bytes_eq(const u8* a, usz alen, const u8* b, usz blen) {
   if (alen != blen) return 0;
   for (usz i = 0; i < alen; i++)
     if (a[i] != b[i]) return 0;
@@ -86,7 +86,7 @@ static void test_enc_get_matches_method(void) {
   quic_h3req_headers_in hin = {
       quic_span_of(path, sizeof path), quic_span_of(auth, sizeof auth)};
   CHECK(quic_h3req_enc_get(&hin, &aob));
-  CHECK(quic_h3req_enc_method(quic_span_of((const u8 *)"GET", 3), &hin, &bob));
+  CHECK(quic_h3req_enc_method(quic_span_of((const u8*)"GET", 3), &hin, &bob));
   CHECK(enc_bytes_eq(a, aob.len, b, bob.len));
 }
 
@@ -100,7 +100,7 @@ static void test_send_method_post_roundtrip(void) {
   quic_obuf                req_ob = {req, sizeof req, 0};
   wired_h3reqdrive_req     r;
   wired_h3reqdrive_send_in in = {
-      quic_span_of((const u8 *)"POST", 4), quic_span_of(path, sizeof path),
+      quic_span_of((const u8*)"POST", 4), quic_span_of(path, sizeof path),
       quic_span_of(auth, sizeof auth), quic_span_of(body, sizeof body)};
   CHECK(wired_h3reqdrive_send_method(0, &in, &req_ob));
   CHECK(wired_h3reqdrive_recv_get(
@@ -114,7 +114,7 @@ static void test_send_method_post_roundtrip(void) {
 
 /* Scan the HTTP/3 frames in [h3,h3+n) for the first DATA frame, viewing its
  * payload in (*b,*blen). Returns 1 if found, 0 otherwise. */
-static int scan_for_data(const u8 *h3, usz n, const u8 **b, usz *blen) {
+static int scan_for_data(const u8* h3, usz n, const u8** b, usz* blen) {
   quic_h3_frame f   = {0};
   usz           off = 0;
   while (off < n) {
@@ -132,7 +132,7 @@ static int scan_for_data(const u8 *h3, usz n, const u8 **b, usz *blen) {
 
 /* Locate the request stream's first DATA frame body; returns 1 with (*b,*blen)
  * viewing it, 0 if no DATA frame is present. */
-static int find_data_body(const u8 *req, usz req_len, const u8 **b, usz *blen) {
+static int find_data_body(const u8* req, usz req_len, const u8** b, usz* blen) {
   quic_stream_frame f;
   if (!quic_frame_get_stream(req, req_len, &f)) return 0;
   return scan_for_data(f.data, (usz)f.length, b, blen);
@@ -147,9 +147,9 @@ static void test_send_method_body_frame(void) {
   u8                       req[256];
   quic_obuf                req_ob = {req, sizeof req, 0};
   usz                      blen   = 0;
-  const u8                *b      = 0;
+  const u8*                b      = 0;
   wired_h3reqdrive_send_in in1    = {
-      quic_span_of((const u8 *)"POST", 4), quic_span_of(path, sizeof path),
+      quic_span_of((const u8*)"POST", 4), quic_span_of(path, sizeof path),
       quic_span_of(auth, sizeof auth), quic_span_of(body, sizeof body)};
   CHECK(wired_h3reqdrive_send_method(0, &in1, &req_ob));
   CHECK(find_data_body(req, req_ob.len, &b, &blen));
@@ -157,7 +157,7 @@ static void test_send_method_body_frame(void) {
   /* boundary: no body -> no DATA frame */
   req_ob                       = (quic_obuf){req, sizeof req, 0};
   wired_h3reqdrive_send_in in2 = {
-      quic_span_of((const u8 *)"GET", 3), quic_span_of(path, sizeof path),
+      quic_span_of((const u8*)"GET", 3), quic_span_of(path, sizeof path),
       quic_span_of(auth, sizeof auth), quic_span_of(0, 0)};
   CHECK(wired_h3reqdrive_send_method(0, &in2, &req_ob));
   CHECK(find_data_body(req, req_ob.len, &b, &blen) == 0);
@@ -171,7 +171,7 @@ static void test_send_method_asterisk_path(void) {
   quic_obuf                req_ob = {req, sizeof req, 0};
   wired_h3reqdrive_req     r;
   wired_h3reqdrive_send_in in = {
-      quic_span_of((const u8 *)"OPTIONS", 7), quic_span_of(path, sizeof path),
+      quic_span_of((const u8*)"OPTIONS", 7), quic_span_of(path, sizeof path),
       quic_span_of(auth, sizeof auth), quic_span_of(0, 0)};
   CHECK(wired_h3reqdrive_send_method(0, &in, &req_ob));
   CHECK(wired_h3reqdrive_recv_get(

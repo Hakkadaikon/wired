@@ -15,7 +15,7 @@ void test_discard_driver(void) {
   for (int i = 0; i < QUIC_INITIAL_KEY; i++) k.key[i] = (u8)i;
 
   quic_keyset_install(&st, QUIC_LEVEL_INITIAL, &k);
-  const quic_initial_keys *out = 0;
+  const quic_initial_keys* out = 0;
   CHECK(quic_keyset_for_level(&st, QUIC_LEVEL_INITIAL, &out) == 1);
 
   CHECK(quic_keyset_discard(&st, QUIC_LEVEL_INITIAL) == 1);

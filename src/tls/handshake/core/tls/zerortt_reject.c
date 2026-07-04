@@ -1,7 +1,7 @@
 #include "tls/handshake/core/tls/zerortt_reject.h"
 
 /* RFC 9001 4.6.1 */
-void quic_zerortt_on_reject(int *retransmit_needed, int *discard_keys) {
+void quic_zerortt_on_reject(int* retransmit_needed, int* discard_keys) {
   *retransmit_needed = 1;
   *discard_keys      = 1;
 }

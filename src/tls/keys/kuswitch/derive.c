@@ -4,7 +4,7 @@
 
 void quic_kuswitch_next_keys(
     const u8           current_secret[QUIC_HKDF_PRK],
-    quic_initial_keys *next_keys,
+    quic_initial_keys* next_keys,
     u8                 next_secret[QUIC_HKDF_PRK]) {
   quic_hkdf_label lk = {"quic key", 8, {0, 0}};
   quic_hkdf_label li = {"quic iv", 7, {0, 0}};

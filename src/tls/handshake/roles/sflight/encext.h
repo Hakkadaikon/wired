@@ -10,6 +10,6 @@
  * 24-bit length + extensions block) into out and sets out->len. Returns 1 on
  * success, 0 if it does not fit. */
 int quic_sflight_encrypted_extensions(
-    quic_span transport_params, quic_obuf *out);
+    quic_span transport_params, quic_obuf* out);
 
 #endif

@@ -17,7 +17,7 @@
 #include "transport/stream/data/appdata/app_send.h"
 #include "transport/stream/data/appdata/stream_send.h"
 
-static int rd_eq(const u8 *a, usz alen, const char *b, usz blen) {
+static int rd_eq(const u8* a, usz alen, const char* b, usz blen) {
   if (alen != blen) return 0;
   for (usz i = 0; i < alen; i++)
     if (a[i] != (u8)b[i]) return 0;
@@ -35,8 +35,8 @@ static void test_reqdrive_stream(void) {
 
   CHECK(wired_h3reqdrive_send_get(
       0,
-      &(wired_h3reqdrive_get_in){
-          quic_span_of(path, sizeof path), quic_span_of(auth, sizeof auth)},
+      &(wired_h3reqdrive_get_in){quic_span_of(path, sizeof path),
+                                 quic_span_of(auth, sizeof auth)},
       &req_ob));
   CHECK(wired_h3reqdrive_recv_get(
       quic_span_of(req, req_ob.len), quic_mspan_of(scratch, sizeof scratch),
@@ -92,7 +92,7 @@ static void test_reqdrive_empty_body(void) {
 }
 
 /* Length of a NUL-terminated literal (test-local). */
-static usz cstr(const char *s) {
+static usz cstr(const char* s) {
   usz i = 0;
   while (s[i]) i++;
   return i;
@@ -100,10 +100,10 @@ static usz cstr(const char *s) {
 
 /* RFC 9204 4.5.6: a Literal Field Line With Literal Name carrying (name,value),
  * appended at *off in fs. */
-static void put_litname(u8 *fs, usz *off, const char *name, const char *value) {
+static void put_litname(u8* fs, usz* off, const char* name, const char* value) {
   quic_qpack_field f = {
-      quic_span_of((const u8 *)name, cstr(name)),
-      quic_span_of((const u8 *)value, cstr(value))};
+      quic_span_of((const u8*)name, cstr(name)),
+      quic_span_of((const u8*)value, cstr(value))};
   *off += quic_qpack_literal_name_encode(quic_mspan_of(fs + *off, 64), 0, &f);
 }
 
@@ -111,7 +111,7 @@ static void put_litname(u8 *fs, usz *off, const char *name, const char *value) {
  * section: pseudo-headers in :method,:authority,:scheme,:path order using a
  * mix of indexed, name-reference and literal-name forms, plus a regular
  * user-agent header as a literal-name line. */
-static usz curl_field_section(u8 *fs) {
+static usz curl_field_section(u8* fs) {
   quic_qpack_prefix  pfx  = {0, 0, 0};
   usz                off  = quic_qpack_prefix_encode(fs, 64, &pfx);
   quic_qpack_nameref path = {1, 1, 0};
@@ -122,7 +122,7 @@ static usz curl_field_section(u8 *fs) {
       quic_mspan_of(fs + off, 64), 23, 1); /* :scheme https */
   off += quic_qpack_literal_namref_encode(
       quic_mspan_of(fs + off, 64), &path,
-      quic_span_of((const u8 *)"/get", 4)); /* :path */
+      quic_span_of((const u8*)"/get", 4)); /* :path */
   put_litname(fs, &off, "user-agent", "curl/8");
   return off;
 }
@@ -152,7 +152,7 @@ static void test_reqdrive_curl_get(void) {
 /* RFC 9114 7.2.8: a real GREASE frame as sent by curl/quiche: a reserved type
  * 0x1f*N+0x21 (here matching the on-wire 8-byte varint type) carrying the
  * "GREASE is the word" payload. Returns bytes written. */
-static usz put_grease_frame(u8 *buf, usz cap) {
+static usz put_grease_frame(u8* buf, usz cap) {
   const u8  g[] = {'G', 'R', 'E', 'A', 'S', 'E', ' ', 'i', 's',
                    ' ', 't', 'h', 'e', ' ', 'w', 'o', 'r', 'd'};
   quic_obuf ob  = {buf, cap, 0};
@@ -284,7 +284,7 @@ static void test_reqdrive_multi_data(void) {
 }
 
 /* RFC 9001 5: derive a shared 1-RTT key pair for the end-to-end path. */
-static void rd_keys(quic_initial_keys *k, quic_aes128 *hp) {
+static void rd_keys(quic_initial_keys* k, quic_aes128* hp) {
   const u8 dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
   quic_initial_derive(quic_span_of(dcid, 8), 1, k);
   quic_aes128_init(hp, k->hp);
@@ -304,15 +304,15 @@ static void test_reqdrive_onertt(void) {
   wired_h3reqdrive_req r;
   quic_stream_frame    f;
   u64                  sid = 0, off = 0;
-  const u8            *sdata = 0;
+  const u8*            sdata = 0;
   usz                  slen  = 0;
   int                  fin   = 0;
   rd_keys(&k, &hp);
 
   CHECK(wired_h3reqdrive_send_get(
       4,
-      &(wired_h3reqdrive_get_in){
-          quic_span_of(path, sizeof path), quic_span_of(auth, sizeof auth)},
+      &(wired_h3reqdrive_get_in){quic_span_of(path, sizeof path),
+                                 quic_span_of(auth, sizeof auth)},
       &req_ob));
   CHECK(quic_frame_get_stream(req, req_ob.len, &f));
   CHECK(appdata_send_flat(
@@ -358,8 +358,8 @@ static void test_reqdrive_dynamic_table(void) {
   usz              consumed = 0;
   u64              base, rel;
   quic_qpack_field f = {
-      quic_span_of((const u8 *)":authority", 10),
-      quic_span_of((const u8 *)"ex.com", 6)};
+      quic_span_of((const u8*)":authority", 10),
+      quic_span_of((const u8*)"ex.com", 6)};
   quic_qpack_match m;
   quic_qpack_field d;
   quic_qpack_dyn_init(&t, 4096);

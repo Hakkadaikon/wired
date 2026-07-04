@@ -27,7 +27,7 @@ static void test_tx_pack_overflow(void) {
 /* No packets yields an empty datagram (length 0). */
 static void test_tx_pack_none(void) {
   u8          scratch[4];
-  quic_pktsrc src = {(const u8 *)0, (const usz *)0, 0};
+  quic_pktsrc src = {(const u8*)0, (const usz*)0, 0};
   quic_obuf   out = quic_obuf_of(scratch, 4);
   CHECK(quic_udploop_pack(&src, &out) == 0);
 }

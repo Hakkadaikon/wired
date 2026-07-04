@@ -3,8 +3,8 @@
 static void test_rtx_fifo(void) {
   quic_rtx_queue q;
   quic_rtx_init(&q);
-  CHECK(quic_rtx_push(&q, (const u8 *)"aaa", 3) == 1);
-  CHECK(quic_rtx_push(&q, (const u8 *)"bb", 2) == 1);
+  CHECK(quic_rtx_push(&q, (const u8*)"aaa", 3) == 1);
+  CHECK(quic_rtx_push(&q, (const u8*)"bb", 2) == 1);
   u8 out[8];
   CHECK(quic_rtx_pop(&q, out, sizeof(out)) == 3 && out[0] == 'a');
   CHECK(quic_rtx_pop(&q, out, sizeof(out)) == 2 && out[0] == 'b');

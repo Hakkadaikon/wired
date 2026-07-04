@@ -28,7 +28,7 @@ static void test_packet_level(void) {
 
 /* Install the same Initial keys on a connio pair and lift their gates so a
  * sealed packet from one opens under the other. */
-static void arm(quic_connio *io) {
+static void arm(quic_connio* io) {
   quic_initial_keys k = {0};
   io->loop.validated  = 1;
   quic_keyset_install(&io->loop.keys, QUIC_LEVEL_INITIAL, &k);
@@ -36,7 +36,7 @@ static void arm(quic_connio *io) {
 
 static const u8 g_dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
 
-static void mk_runner(quic_connrunner *r, int is_server) {
+static void mk_runner(quic_connrunner* r, int is_server) {
   quic_sockaddr_in        peer = {0};
   quic_connrunner_init_in in   = {
       -1, &peer, QUIC_LEVEL_INITIAL, 1u << 20, 64, is_server, 0xc3, 1u << 20};
@@ -63,7 +63,7 @@ static void test_process_datagram_owes_ack(void) {
       .stream_id = 4,
       .offset    = 0,
       .length    = 5,
-      .data      = (const u8 *)"hello",
+      .data      = (const u8*)"hello",
       .fin       = 1};
   usz fl = quic_frame_put_stream(frames, sizeof(frames), &sf);
   u8  pkt[256];
@@ -129,7 +129,7 @@ static void test_flush_sends_retransmit(void) {
 }
 
 /* Drive one kind==2 retransmission and return the sealed datagram length. */
-static usz drive_retransmit(quic_connrunner *r) {
+static usz drive_retransmit(quic_connrunner* r) {
   int kind   = quic_connrunner_pending_kind(r);
   u64 before = r->loop.next_pn;
   quic_connrunner_capture_rtx(r);
@@ -137,7 +137,7 @@ static usz drive_retransmit(quic_connrunner *r) {
   return quic_connrunner_flush_sends(r, before, kind);
 }
 
-static void set_lost(quic_connrunner *r, u64 pn) {
+static void set_lost(quic_connrunner* r, u64 pn) {
   r->loop.gate.handshake_complete = 1;
   r->loop.rtx_n                   = 1;
   r->loop.rtx[0].pn               = pn;
@@ -157,7 +157,7 @@ static void test_retransmit_real_bytes(void) {
       .stream_id = 4,
       .offset    = 0,
       .length    = 5,
-      .data      = (const u8 *)"hello",
+      .data      = (const u8*)"hello",
       .fin       = 1};
   usz fl = quic_frame_put_stream(frames, sizeof(frames), &sf);
   CHECK(quic_rtxbytes_store(&real.rtx, 7, quic_span_of(frames, fl)) == 1);
@@ -207,13 +207,13 @@ static void test_advance_closed_idle(void) {
   quic_connrunner r;
   mk_runner(&r, 1);
   quic_evloop_close(&r.loop, 0);
-  usz out = quic_connrunner_advance(&r, 0, quic_mspan_of((u8 *)0, 0));
+  usz out = quic_connrunner_advance(&r, 0, quic_mspan_of((u8*)0, 0));
   CHECK(out == 0);
   CHECK(r.loop.next_pn == 0);
 }
 
 /* Seal an ACK whose Largest Acknowledged is `largest` from the peer connio. */
-static usz seal_ack(quic_connio *peer, u64 largest, u8 *out, usz cap) {
+static usz seal_ack(quic_connio* peer, u64 largest, u8* out, usz cap) {
   u8             frames[32];
   quic_ack_frame f = {0};
   f.n_ranges       = 1;
@@ -241,7 +241,7 @@ static void test_sentmeta_inflight_tracking(void) {
   r.loop.gate.handshake_complete = 1;
   r.loop.have_new_data           = 1; /* originate one in-flight packet */
 
-  usz out = quic_connrunner_advance(&r, 1, quic_mspan_of((u8 *)0, 0));
+  usz out = quic_connrunner_advance(&r, 1, quic_mspan_of((u8*)0, 0));
   CHECK(out != 0);                      /* a packet went on the wire */
   CHECK(r.sent.total_in_flight == out); /* its bytes are counted in flight */
   CHECK(quic_sentmeta_find(&r.sent, 0) != QUIC_SENTMETA_CAP); /* pn 0 tracked */
@@ -279,7 +279,7 @@ static void test_sentmeta_loss_feeds_rtx(void) {
 /* A runner with a 1-RTT key installed and the key-update state seeded from it;
  * `confirmed` lifts the handshake-confirmed gate, `secret` makes derivation
  * produce distinct next-generation keys. */
-static void mk_ku(quic_connrunner *r, int confirmed) {
+static void mk_ku(quic_connrunner* r, int confirmed) {
   mk_runner(r, 0);
   quic_keyset_install(
       &r->io.loop.keys, QUIC_LEVEL_ONERTT, &(quic_initial_keys){0});
@@ -418,11 +418,11 @@ static const u8 g_retry_token[3] = {0x01, 0x02, 0x03};
 
 /* Old-shape convenience over the retry_event/vn_lists param objects. */
 static int recv_retry_flat(
-    quic_connrunner *r,
+    quic_connrunner* r,
     int              tag_valid,
-    const u8        *scid,
+    const u8*        scid,
     usz              scid_len,
-    const u8        *token,
+    const u8*        token,
     usz              token_len) {
   quic_retry_event e = {
       tag_valid, quic_span_of(scid, scid_len), quic_span_of(token, token_len)};
@@ -430,12 +430,12 @@ static int recv_retry_flat(
 }
 
 static int recv_vn_flat(
-    quic_connrunner *r,
-    const u32       *offered,
+    quic_connrunner* r,
+    const u32*       offered,
     usz              n_off,
-    const u32       *supported,
+    const u32*       supported,
     usz              n_sup,
-    u32             *chosen) {
+    u32*             chosen) {
   quic_vn_lists l = {
       quic_verlist_of(offered, n_off), quic_verlist_of(supported, n_sup)};
   return quic_connrunner_recv_vn(r, &l, chosen);
@@ -479,7 +479,7 @@ static void test_retry_rederive_then_token(void) {
   CHECK(quic_connrunner_retry_rederive(&r) == 1);    /* keys re-derived first */
   CHECK(r.io.dcid_len == 4 && r.io.dcid[0] == 0xaa); /* DCID now the SCID */
   CHECK(r.retry.key_rederive == 0);                  /* no stale-key send */
-  const u8 *tok;
+  const u8* tok;
   usz       tlen;
   quic_connrunner_initial_token(&r, &tok, &tlen);
   CHECK(tlen == 3 && tok[0] == 0x01); /* the Retry token rides the Initial */

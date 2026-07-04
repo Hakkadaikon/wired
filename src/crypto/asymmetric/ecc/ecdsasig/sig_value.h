@@ -8,6 +8,6 @@
  * whole SEQUENCE, typically 70-72 octets). Returns 1 ok, 0 if it would not fit.
  */
 int quic_ecdsasig_encode(
-    const u8 r[32], const u8 s[32], u8 *out, usz cap, usz *out_len);
+    const u8 r[32], const u8 s[32], u8* out, usz cap, usz* out_len);
 
 #endif

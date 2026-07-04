@@ -16,10 +16,10 @@
  */
 
 usz wired_qlogevent_packet_sent(
-    char *out, usz outcap, u64 time, u64 pn, usz bytes);
+    char* out, usz outcap, u64 time, u64 pn, usz bytes);
 usz wired_qlogevent_packet_received(
-    char *out, usz outcap, u64 time, u64 pn, usz bytes);
-usz wired_qlogevent_packet_lost(char *out, usz outcap, u64 time, u64 pn);
+    char* out, usz outcap, u64 time, u64 pn, usz bytes);
+usz wired_qlogevent_packet_lost(char* out, usz outcap, u64 time, u64 pn);
 
 /**
  * state is embedded verbatim as a JSON string value with no escaping —
@@ -27,6 +27,6 @@ usz wired_qlogevent_packet_lost(char *out, usz outcap, u64 time, u64 pn);
  * data derived from the wire or the application.
  */
 usz wired_qlogevent_conn_state(
-    char *out, usz outcap, u64 time, const char *state);
+    char* out, usz outcap, u64 time, const char* state);
 
 #endif

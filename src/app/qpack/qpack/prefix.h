@@ -16,9 +16,9 @@ typedef struct {
 } quic_qpack_prefix;
 
 /* Encode the prefix into buf of cap bytes. Returns bytes written or 0. */
-usz quic_qpack_prefix_encode(u8 *buf, usz cap, const quic_qpack_prefix *p);
+usz quic_qpack_prefix_encode(u8* buf, usz cap, const quic_qpack_prefix* p);
 
 /* Decode the prefix from buf of n bytes. Returns bytes consumed or 0. */
-usz quic_qpack_prefix_decode(const u8 *buf, usz n, quic_qpack_prefix *p);
+usz quic_qpack_prefix_decode(const u8* buf, usz n, quic_qpack_prefix* p);
 
 #endif

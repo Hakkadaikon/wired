@@ -13,12 +13,12 @@
 
 /* Encode the grease_quic_bit transport parameter (id, empty value) into buf
  * of cap bytes. Returns bytes written, or 0. */
-usz quic_grease_encode(u8 *buf, usz cap);
+usz quic_grease_encode(u8* buf, usz cap);
 
 /* Decode a grease_quic_bit parameter at buf (n readable). Requires an empty
  * value (RFC 9287 3). Returns bytes consumed, or 0 on a non-empty value or
  * truncated input. */
-usz quic_grease_decode(const u8 *buf, usz n);
+usz quic_grease_decode(const u8* buf, usz n);
 
 /* Whether a received first byte is acceptable. When the peer advertised
  * grease_quic_bit (peer_greases != 0), a cleared QUIC Bit is accepted;

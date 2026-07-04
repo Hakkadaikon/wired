@@ -1,7 +1,7 @@
 #include "test.h"
 
 /* Encode an ACK frame from explicit [hi,lo] ranges (descending). */
-static usz build_ack(u8 *buf, usz cap, const quic_ack_range *r, usz n) {
+static usz build_ack(u8* buf, usz cap, const quic_ack_range* r, usz n) {
   quic_ack_frame f;
   f.ack_delay = 0;
   f.has_ecn   = 0;

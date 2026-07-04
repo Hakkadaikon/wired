@@ -21,7 +21,7 @@ typedef struct {
 
 /** Start with an empty reassembly buffer.
  * @param s reassembly state to initialize */
-void quic_crecv_init(quic_crecv *s);
+void quic_crecv_init(quic_crecv* s);
 
 /** Walk a payload, write every CRYPTO frame at its offset, ignore other
  * frames. Updates the contiguous prefix.
@@ -30,6 +30,6 @@ void quic_crecv_init(quic_crecv *s);
  * @param len length of frames in bytes
  * @return 1, or 0 if a CRYPTO frame falls outside the buffer
  * (RFC 9000 19.6). */
-int quic_crecv_collect(quic_crecv *s, const u8 *frames, usz len);
+int quic_crecv_collect(quic_crecv* s, const u8* frames, usz len);
 
 #endif

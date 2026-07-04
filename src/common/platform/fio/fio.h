@@ -27,7 +27,7 @@
  *         openat/read fails; WIRED_FIO_ETOOBIG when buf is full but the
  *         file still has unread bytes
  */
-ssz wired_fio_read(const char *path, quic_mspan buf);
+ssz wired_fio_read(const char* path, quic_mspan buf);
 
 /**
  * Append data to the file at path, creating it (mode 0600) if it does not
@@ -40,6 +40,6 @@ ssz wired_fio_read(const char *path, quic_mspan buf);
  * @return bytes written (== data.n) on success; a negative -errno when
  *         openat/write fails
  */
-ssz wired_fio_append(const char *path, quic_span data);
+ssz wired_fio_append(const char* path, quic_span data);
 
 #endif

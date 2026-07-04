@@ -5,7 +5,7 @@
 /* RFC 9002 13.3: rebuild one held pn's frame into out (appending at
  * out->len). Returns 1 on success (including a skipped pn or a
  * non-retransmittable frame), 0 if out has no room. */
-static int collect_one(const quic_rtxbytes *st, u64 pn, quic_obuf *out) {
+static int collect_one(const quic_rtxbytes* st, u64 pn, quic_obuf* out) {
   quic_span frame;
   quic_obuf slice;
 
@@ -17,7 +17,7 @@ static int collect_one(const quic_rtxbytes *st, u64 pn, quic_obuf *out) {
 }
 
 int quic_rtxbytes_collect(
-    const quic_rtxbytes *st, quic_lost_pns lost, quic_obuf *out) {
+    const quic_rtxbytes* st, quic_lost_pns lost, quic_obuf* out) {
   out->len = 0;
   for (usz i = 0; i < lost.n; i++) {
     if (!collect_one(st, lost.pns[i], out)) return 0;

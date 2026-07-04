@@ -21,19 +21,19 @@ typedef struct {
 
 /* Initialize an endpoint with its private scalar and the shared DCID; derives
  * the public key. */
-void quic_endpoint_init(quic_endpoint *e, const u8 priv[32], const u8 dcid[8]);
+void quic_endpoint_init(quic_endpoint* e, const u8 priv[32], const u8 dcid[8]);
 
 /* The peer-side inputs to the key agreement: its X25519 public key (32
  * bytes), the handshake transcript, and the direction the derived keys are
  * for. */
 typedef struct {
-  const u8 *peer_pub;
+  const u8* peer_pub;
   quic_span transcript;
   int       is_server;
 } quic_endpoint_peer;
 
 /* Complete the key agreement from the peer inputs: computes the ECDHE secret
  * and the handshake-level keys. Returns 1 on success. */
-int quic_endpoint_agree(quic_endpoint *e, const quic_endpoint_peer *p);
+int quic_endpoint_agree(quic_endpoint* e, const quic_endpoint_peer* p);
 
 #endif

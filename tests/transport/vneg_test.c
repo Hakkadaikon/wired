@@ -1,6 +1,6 @@
 #include "test.h"
 
-static void init2(quic_vneg *v) {
+static void init2(quic_vneg* v) {
   u32 sup[2] = {QUIC_VERSION_1, QUIC_VERSION_2};
   quic_vneg_init(v, sup, 2);
 }

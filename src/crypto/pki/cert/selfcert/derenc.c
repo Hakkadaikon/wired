@@ -12,13 +12,13 @@ static usz len_octets(usz len) {
 }
 
 /* Write nb big-endian length octets of len at out. */
-static void der_put_be(u8 *out, usz nb, usz len) {
+static void der_put_be(u8* out, usz nb, usz len) {
   for (usz i = 0; i < nb; i++) out[i] = (u8)(len >> ((nb - 1 - i) * 8));
 }
 
 /* X.690 8.1.3. Write the length field for len at out (lo octets total).
  * Short form (lo==1): one octet. Long form: 0x80+nb lead then nb octets. */
-static void der_put_len(u8 *out, usz lo, usz len) {
+static void der_put_len(u8* out, usz lo, usz len) {
   if (lo == 1) {
     der_put_be(out, 1, len);
     return;
@@ -27,7 +27,7 @@ static void der_put_len(u8 *out, usz lo, usz len) {
   der_put_be(out + 1, lo - 1, len);
 }
 
-int quic_selfcert_der_tlv(u8 tag, quic_span val, quic_obuf *out) {
+int quic_selfcert_der_tlv(u8 tag, quic_span val, quic_obuf* out) {
   usz lo = len_octets(val.n), off = 0;
   if (lo == 0) return 0;
   if (1 + lo + val.n > out->cap) return 0;

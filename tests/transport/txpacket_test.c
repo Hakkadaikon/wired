@@ -7,26 +7,26 @@
 
 /* Seal one long-header packet (no SCID, no token). */
 static usz t_tx(
-    const quic_initial_keys *ik,
-    const quic_aes128       *hp,
+    const quic_initial_keys* ik,
+    const quic_aes128*       hp,
     quic_span                dcid,
     u64                      pn,
     quic_span                frames,
-    u8                      *pkt,
+    u8*                      pkt,
     usz                      cap) {
   quic_protect_keys k    = {ik, hp};
-  quic_span         none = quic_span_of((const u8 *)0, 0);
+  quic_span         none = quic_span_of((const u8*)0, 0);
   quic_tx_desc      d    = {0xc3, dcid, none, 1, none, pn, frames};
   return quic_tx_packet(&k, &d, quic_mspan_of(pkt, cap));
 }
 
 /* Open one Initial packet; returns 1 and the frames view on success. */
 static int t_rx(
-    const quic_initial_keys *ik,
-    const quic_aes128       *hp,
-    u8                      *pkt,
+    const quic_initial_keys* ik,
+    const quic_aes128*       hp,
+    u8*                      pkt,
     usz                      n,
-    quic_span               *frames) {
+    quic_span*               frames) {
   quic_protect_keys k = {ik, hp};
   quic_rx_desc      d = {quic_mspan_of(pkt, n), 1};
   return quic_rx_packet(&k, &d, frames);

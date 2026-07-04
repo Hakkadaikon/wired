@@ -8,7 +8,7 @@
 #include "transport/packet/protect/protect/protect.h"
 
 /* Wrap a QUIC packet in UDP+IPv4 and push it onto the link (no syscall). */
-static usz tx(quic_memlink *l, const u8 *qpkt, usz qlen, u32 src, u32 dst) {
+static usz tx(quic_memlink* l, const u8* qpkt, usz qlen, u32 src, u32 dst) {
   u8            udp[1500], ip[20], frame[1520];
   quic_udp4meta meta = {{4433, 4433}, {src, dst}};
   quic_obuf     ub   = quic_obuf_of(udp, sizeof(udp));
@@ -22,7 +22,7 @@ static usz tx(quic_memlink *l, const u8 *qpkt, usz qlen, u32 src, u32 dst) {
 }
 
 /* Pull a frame, verify IP/UDP, and copy out the QUIC payload. Returns len. */
-static usz rx(quic_memlink *l, u8 *qpkt, usz cap, u32 src, u32 dst) {
+static usz rx(quic_memlink* l, u8* qpkt, usz cap, u32 src, u32 dst) {
   u8  frame[1520];
   usz fn = quic_memlink_recv(l, frame, sizeof(frame));
   usz un = fn - 20;
@@ -39,10 +39,10 @@ static usz rx(quic_memlink *l, u8 *qpkt, usz cap, u32 src, u32 dst) {
 /* Build an Initial carrying a ClientHello, protected with the client's
  * Initial keys, into out. Returns the protected length. */
 static usz make_client_initial(
-    quic_endpoint           *c,
-    const quic_initial_keys *ik,
-    const quic_aes128       *hp,
-    u8                      *out,
+    quic_endpoint*           c,
+    const quic_initial_keys* ik,
+    const quic_aes128*       hp,
+    u8*                      out,
     usz                      cap) {
   u8  hello[256], crypto[300], hdr[18];
   u8  rnd[32] = {0};
@@ -65,10 +65,10 @@ static usz make_client_initial(
 
 /* Server receives the client Initial, unprotects, and extracts the share. */
 static int server_read_initial(
-    u8                      *pkt,
+    u8*                      pkt,
     usz                      plen,
-    const quic_initial_keys *ik,
-    const quic_aes128       *hp,
+    const quic_initial_keys* ik,
+    const quic_aes128*       hp,
     u8                       peer_pub[32]) {
   quic_protect_keys    k  = {ik, hp};
   quic_protect_open_io io = {quic_mspan_of(pkt, plen), 18, 14, 4, 1};
@@ -145,7 +145,7 @@ static void test_endpoint_handshake(void) {
       .stream_id = 4,
       .offset    = 0,
       .length    = 5,
-      .data      = (const u8 *)"hello",
+      .data      = (const u8*)"hello",
       .fin       = 1};
   usz sfl      = quic_frame_put_stream(sframe, sizeof(sframe), &sf);
   u8  shdr[18] = {0x43, 0, 0, 0, 1, 8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 7};

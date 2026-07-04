@@ -16,7 +16,7 @@ static int is_non_eliciting(u8 t) {
   return 0;
 }
 
-int quic_pktbuild_is_eliciting(const u8 *frame_types, usz n) {
+int quic_pktbuild_is_eliciting(const u8* frame_types, usz n) {
   for (usz i = 0; i < n; i++) {
     if (!is_non_eliciting(frame_types[i])) return 1;
   }

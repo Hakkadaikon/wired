@@ -9,6 +9,6 @@
  * AES, 32 for ChaCha. Returns 1 on a known suite, 0 otherwise (mask
  * untouched). */
 int quic_hp_suite_mask(
-    u16 suite, const u8 *hp_key, const u8 sample[16], u8 mask[5]);
+    u16 suite, const u8* hp_key, const u8 sample[16], u8 mask[5]);
 
 #endif

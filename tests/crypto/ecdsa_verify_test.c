@@ -3,7 +3,7 @@
 #include "crypto/symmetric/hash/hash/sha256.h"
 #include "test.h"
 
-static void ecdsa_hb32(const char *hex, u8 out[32]) {
+static void ecdsa_hb32(const char* hex, u8 out[32]) {
   for (usz i = 0; i < 32; i++) {
     u8 hi = hex[i * 2], lo = hex[i * 2 + 1];
     out[i] = (u8)(((hi <= '9' ? hi - '0' : hi - 'a' + 10) << 4) |
@@ -12,13 +12,13 @@ static void ecdsa_hb32(const char *hex, u8 out[32]) {
 }
 
 /* RFC 6979 Appendix A.2.5: P-256, key and signature over "sample"/SHA-256. */
-static const char *QX =
+static const char* QX =
     "60fed4ba255a9d31c961eb74c6356d68c049b8923b61fa6ce669622e60f29fb6";
-static const char *QY =
+static const char* QY =
     "7903fe1008b8bc99a41ae9e95628bc64f2f1b20c2d7e9f5177a3c294d4462299";
-static const char *SR =
+static const char* SR =
     "efd48b2aacb6a8fd1140dd9cd45e81d69d2c877b56aaf991c34d0ea84eaf3716";
-static const char *SS =
+static const char* SS =
     "f7cb1c942d657c41d436c7a1b6e29f65f3e900dbb9aff4064dc4ab2f843acda8";
 
 static void load_vec(u8 qx[32], u8 qy[32], u8 r[32], u8 s[32], u8 h[32]) {
@@ -26,7 +26,7 @@ static void load_vec(u8 qx[32], u8 qy[32], u8 r[32], u8 s[32], u8 h[32]) {
   ecdsa_hb32(QY, qy);
   ecdsa_hb32(SR, r);
   ecdsa_hb32(SS, s);
-  quic_sha256((const u8 *)"sample", 6, h);
+  quic_sha256((const u8*)"sample", 6, h);
 }
 
 /* Valid signature verifies. */

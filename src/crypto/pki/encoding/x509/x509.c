@@ -13,7 +13,7 @@
 
 /* RFC 5280 4.1.1.2. signatureAlgorithm ::= SEQUENCE { algorithm OID, ... }.
  * Extract the OID value from the AlgorithmIdentifier blob. */
-static int alg_oid(quic_span alg, quic_span *oid) {
+static int alg_oid(quic_span alg, quic_span* oid) {
   quic_derseq c;
   quic_derseq_init(&c, alg);
   return quic_derseq_next_tagged(&c, QUIC_DER_OID, oid);
@@ -21,8 +21,8 @@ static int alg_oid(quic_span alg, quic_span *oid) {
 
 /* Read one element of the outer SEQUENCE, keeping its header-included span
  * (the signed bytes for tbsCertificate). */
-static int outer_next(quic_derseq *c, quic_span *whole, quic_der_tlv *e) {
-  const u8 *start = c->p + c->off;
+static int outer_next(quic_derseq* c, quic_span* whole, quic_der_tlv* e) {
+  const u8* start = c->p + c->off;
   quic_span val;
   if (!quic_derseq_next(c, &e->tag, &val)) return 0;
   e->val = val;
@@ -32,14 +32,14 @@ static int outer_next(quic_derseq *c, quic_span *whole, quic_der_tlv *e) {
 
 /* RFC 5280 4.1. tbsCertificate: keep the header-included span (signed bytes).
  */
-static int take_tbs(quic_derseq *c, quic_x509 *out) {
+static int take_tbs(quic_derseq* c, quic_x509* out) {
   quic_der_tlv e;
   if (!outer_next(c, &out->tbs, &e)) return 0;
   return e.tag == QUIC_DER_SEQUENCE;
 }
 
 /* RFC 5280 4.1.1.2. signatureAlgorithm: pull out its OID. */
-static int take_alg(quic_derseq *c, quic_x509 *out) {
+static int take_alg(quic_derseq* c, quic_x509* out) {
   quic_span    whole;
   quic_der_tlv e;
   if (!outer_next(c, &whole, &e)) return 0;
@@ -48,7 +48,7 @@ static int take_alg(quic_derseq *c, quic_x509 *out) {
 }
 
 /* RFC 5280 4.1.1.3. signatureValue: a BIT STRING. */
-static int take_sig(quic_derseq *c, quic_x509 *out) {
+static int take_sig(quic_derseq* c, quic_x509* out) {
   quic_span    whole;
   quic_der_tlv e;
   if (!outer_next(c, &whole, &e)) return 0;
@@ -57,26 +57,26 @@ static int take_sig(quic_derseq *c, quic_x509 *out) {
 }
 
 /* RFC 5280 4.1. The three fields in order: tbs, algorithm, signature. */
-static int take_fields(quic_span seq, quic_x509 *out) {
+static int take_fields(quic_span seq, quic_x509* out) {
   quic_derseq c;
   quic_derseq_init(&c, seq);
   return take_tbs(&c, out) && take_alg(&c, out) && take_sig(&c, out);
 }
 
-int quic_x509_parse(quic_span cert, quic_x509 *out) {
+int quic_x509_parse(quic_span cert, quic_x509* out) {
   quic_span seq;
   return quic_der_seq(cert, &seq) && take_fields(seq, out);
 }
 
 /* Drop the optional version element, leaving the cursor before serialNumber. */
-static int skip_version(quic_derseq *c) {
+static int skip_version(quic_derseq* c) {
   quic_span val;
   if (c->off < c->len && c->p[c->off] == X509_VERSION_TAG)
     return quic_derseq_next_tagged(c, X509_VERSION_TAG, &val);
   return 1;
 }
 
-int quic_x509_tbs_cursor(quic_span tbs, quic_derseq *c) {
+int quic_x509_tbs_cursor(quic_span tbs, quic_derseq* c) {
   quic_span v;
   if (!quic_der_seq(tbs, &v)) return 0;
   quic_derseq_init(c, v);
@@ -84,12 +84,12 @@ int quic_x509_tbs_cursor(quic_span tbs, quic_derseq *c) {
 }
 
 /* Position the cursor before the extensions [3] element. */
-static int at_extensions(quic_span tbs, quic_derseq *c) {
+static int at_extensions(quic_span tbs, quic_derseq* c) {
   return quic_x509_tbs_cursor(tbs, c) && quic_derseq_skip(c, X509_EXT_SKIP);
 }
 
 /* RFC 5280 4.1.2.9. Reach the extensions SEQUENCE value inside [3]. */
-static int reach_extensions(quic_span tbs, quic_span *ext) {
+static int reach_extensions(quic_span tbs, quic_span* ext) {
   quic_derseq c;
   quic_span   wrapped;
   if (!at_extensions(tbs, &c)) return 0;
@@ -108,7 +108,7 @@ static int ext_id_is(quic_span e, quic_span oid) {
 
 /* RFC 5280 4.1.2.9. The extnValue OCTET STRING of one Extension (its last
  * element, after extnID and the optional critical BOOLEAN). */
-static int ext_value(quic_span e, quic_span *val) {
+static int ext_value(quic_span e, quic_span* val) {
   quic_derseq f;
   u8          tag;
   quic_span   o;
@@ -122,7 +122,7 @@ static int ext_value(quic_span e, quic_span *val) {
 }
 
 /* Scan the extensions SEQUENCE for the wanted extnID. */
-static int find_in_extensions(quic_span ext, quic_span oid, quic_span *val) {
+static int find_in_extensions(quic_span ext, quic_span oid, quic_span* val) {
   quic_derseq exts;
   u8          tag;
   quic_span   e;
@@ -132,7 +132,7 @@ static int find_in_extensions(quic_span ext, quic_span oid, quic_span *val) {
   return 0;
 }
 
-int quic_x509_find_ext(quic_span tbs, quic_span oid, quic_span *val) {
+int quic_x509_find_ext(quic_span tbs, quic_span oid, quic_span* val) {
   quic_span ext;
   if (!reach_extensions(tbs, &ext)) return 0;
   return find_in_extensions(ext, oid, val);

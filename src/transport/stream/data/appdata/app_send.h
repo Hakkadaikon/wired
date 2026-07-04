@@ -17,6 +17,6 @@ typedef struct {
  * data is framed as a STREAM frame (RFC 9000 19.8) and sealed with the 1-RTT
  * keys into out; length to out->len. Returns 1, or 0 on overflow. */
 int quic_appdata_send(
-    const quic_protect_keys *k, const quic_appdata_tx *tx, quic_obuf *out);
+    const quic_protect_keys* k, const quic_appdata_tx* tx, quic_obuf* out);
 
 #endif

@@ -13,6 +13,6 @@ typedef struct {
 
 /* Validate a GOAWAY id. Returns 1 if it is the first or not greater than the
  * previous one (recording it), 0 on an increase (H3_ID_ERROR). */
-int quic_h3_goaway_ok(quic_h3_goaway_state *state, u64 id);
+int quic_h3_goaway_ok(quic_h3_goaway_state* state, u64 id);
 
 #endif

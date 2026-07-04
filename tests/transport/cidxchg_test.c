@@ -34,7 +34,7 @@ static void test_cidxchg_odcid_roundtrip(void) {
   u8           bad[8]   = {1, 2, 3, 4, 5, 6, 7, 9};
   CHECK(
       quic_cidxchg_init(
-          &x, quic_span_of((const u8 *)0, 0), quic_span_of((const u8 *)0, 0)) ==
+          &x, quic_span_of((const u8*)0, 0), quic_span_of((const u8*)0, 0)) ==
       1);
   CHECK(quic_cidxchg_remember_odcid(&x, first, 8) == 1);
   CHECK(quic_cidxchg_verify_odcid(&x, first, 8) == 1);

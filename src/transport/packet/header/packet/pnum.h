@@ -13,10 +13,10 @@ usz quic_pnum_len(u64 full_pn, u64 largest_acked);
 
 /* Truncate full_pn to nbytes (1/2/4) big-endian into buf.
  * Returns nbytes. nbytes must be a valid length from quic_pnum_len. */
-usz quic_pnum_encode(u8 *buf, u64 full_pn, usz nbytes);
+usz quic_pnum_encode(u8* buf, u64 full_pn, usz nbytes);
 
 /* Recover the full packet number from a truncated value of nbytes bytes,
  * given largest_pn (the largest packet number received in this space). */
-u64 quic_pnum_decode(const u8 *buf, usz nbytes, u64 largest_pn);
+u64 quic_pnum_decode(const u8* buf, usz nbytes, u64 largest_pn);
 
 #endif

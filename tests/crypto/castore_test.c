@@ -10,14 +10,14 @@ static quic_span cst_root_span(void) {
 }
 
 /* Subject Name of the registered root (CN=Test Root CA). */
-static void root_subject(quic_span *dn) {
+static void root_subject(quic_span* dn) {
   quic_x509 c;
   CHECK(quic_x509_parse(cst_root_span(), &c) == 1);
   CHECK(quic_x509_subject(c.tbs, dn) == 1);
 }
 
 /* Issuer Name of the leaf (equals the root's subject). */
-static void leaf_issuer(quic_span *dn) {
+static void leaf_issuer(quic_span* dn) {
   quic_x509 c;
   CHECK(
       quic_x509_parse(

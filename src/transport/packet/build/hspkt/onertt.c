@@ -9,7 +9,7 @@
 #define QUIC_ONERTT_BYTE0 0x43
 
 /* RFC 9000 17.3: byte0, dcid, then a 4-byte packet number. */
-static usz build_short_header(u8 *hdr, quic_span dcid, u64 pn) {
+static usz build_short_header(u8* hdr, quic_span dcid, u64 pn) {
   usz i;
   hdr[0] = QUIC_ONERTT_BYTE0;
   for (i = 0; i < dcid.n; i++) hdr[1 + i] = dcid.p[i];
@@ -20,12 +20,12 @@ static usz build_short_header(u8 *hdr, quic_span dcid, u64 pn) {
 /* RFC 9001 5.3/5.4: seal payload after the header, then header-protect with
  * the short-header byte0 mask. */
 int quic_hspkt_onertt_build(
-    const quic_protect_keys      *k,
-    const quic_hspkt_onertt_desc *d,
-    quic_obuf                    *out) {
+    const quic_protect_keys*      k,
+    const quic_hspkt_onertt_desc* d,
+    quic_obuf*                    out) {
   u8             nonce[QUIC_INITIAL_IV], mask[5];
   quic_aes128    aead;
-  u8            *o       = out->p;
+  u8*            o       = out->p;
   usz            hdr_len = build_short_header(o, d->dcid, d->pn);
   usz            pn_off  = 1u + d->dcid.n;
   usz            need    = hdr_len + d->payload.n + QUIC_GCM_TAG;
@@ -43,9 +43,9 @@ int quic_hspkt_onertt_build(
 
 /* RFC 9001 5 / RFC 9000 A.3 */
 int quic_hspkt_onertt_open(
-    const quic_protect_keys           *k,
-    const quic_hspkt_onertt_open_desc *d,
-    quic_span                         *payload) {
+    const quic_protect_keys*           k,
+    const quic_hspkt_onertt_open_desc* d,
+    quic_span*                         payload) {
   quic_hspkt_unprotect_desc u = {
       d->pkt, 5u + (usz)d->dcid_len, 1u + (usz)d->dcid_len, QUIC_HP_SHORT_MASK,
       d->largest_pn};

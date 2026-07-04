@@ -34,26 +34,26 @@ typedef struct {
 /* Initialize an active connection driver as client (is_server 0) or server
  * (is_server 1). Installs Initial keys so the first flight can flow. dcid is
  * the shared connection id used for packet headers. */
-void quic_driver_init(quic_driver *d, int is_server, quic_span dcid);
+void quic_driver_init(quic_driver* d, int is_server, quic_span dcid);
 
 /* Queue one received datagram for the next step to process. */
-void quic_driver_feed(quic_driver *d, const u8 *dgram, usz len);
+void quic_driver_feed(quic_driver* d, const u8* dgram, usz len);
 
 /* Run one iteration: process the queued inbound datagram (advancing handshake
  * state and deriving/installing the keys it unlocks) and seal the next
  * outbound flight message into the outbox. Returns 1 if state advanced (a
  * message was processed or produced), 0 if nothing happened. */
-int quic_driver_step(quic_driver *d);
+int quic_driver_step(quic_driver* d);
 
 /* Take the datagram produced by the last step. Copies up to cap bytes into
  * out, returns the length, and clears the outbox. 0 if nothing pending. */
-usz quic_driver_take(quic_driver *d, u8 *out, usz cap);
+usz quic_driver_take(quic_driver* d, u8* out, usz cap);
 
 /* 1 once the handshake is complete (delegates to hsdriver). */
-int quic_driver_handshake_complete(const quic_driver *d);
+int quic_driver_handshake_complete(const quic_driver* d);
 
 /* Run steps until the handshake completes or max_steps is reached (diverge
  * guard). Returns the number of steps taken. */
-usz quic_driver_run(quic_driver *d, usz max_steps);
+usz quic_driver_run(quic_driver* d, usz max_steps);
 
 #endif

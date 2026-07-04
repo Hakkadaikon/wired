@@ -2,7 +2,7 @@
 
 /* Derive a pair of Handshake-level keys (same type as Initial keys; the
  * derivation label differs in production but the codec is identical). */
-static void hspkt_keys(quic_initial_keys *k, quic_aes128 *hp) {
+static void hspkt_keys(quic_initial_keys* k, quic_aes128* hp) {
   const u8 dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
   quic_initial_derive(quic_span_of(dcid, 8), 1, k); /* server side */
   quic_aes128_init(hp, k->hp);
@@ -50,7 +50,7 @@ static void test_hspkt_build_byte0(void) {
   u8                pkt[128];
   quic_protect_keys pk = {&k, &hp};
   quic_hspkt_desc   d  = {
-      quic_span_of(dcid, 4), quic_span_of((const u8 *)0, 0), 1,
+      quic_span_of(dcid, 4), quic_span_of((const u8*)0, 0), 1,
       quic_span_of(frames, sizeof(frames))};
   quic_obuf o = quic_obuf_of(pkt, sizeof(pkt));
   CHECK(quic_hspkt_build(&pk, &d, &o));
@@ -69,7 +69,7 @@ static void test_hspkt_build_tamper(void) {
   u8                pkt[128];
   quic_protect_keys pk = {&k, &hp};
   quic_hspkt_desc   d  = {
-      quic_span_of(dcid, 4), quic_span_of((const u8 *)0, 0), 3,
+      quic_span_of(dcid, 4), quic_span_of((const u8*)0, 0), 3,
       quic_span_of(frames, sizeof(frames))};
   quic_obuf o = quic_obuf_of(pkt, sizeof(pkt));
   CHECK(quic_hspkt_build(&pk, &d, &o));

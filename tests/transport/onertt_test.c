@@ -1,6 +1,6 @@
 #include "test.h"
 
-static void onertt_keys(quic_initial_keys *k, quic_aes128 *hp) {
+static void onertt_keys(quic_initial_keys* k, quic_aes128* hp) {
   const u8 dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
   quic_initial_derive(quic_span_of(dcid, 8), 1, k);
   quic_aes128_init(hp, k->hp);
@@ -73,15 +73,15 @@ static void test_onertt_tamper(void) {
  * the header carries only its low pn_len bytes. Mirrors onertt_build but with a
  * short PN. RFC 9000 17.3 / A.2, RFC 9001 5.3/5.4. */
 static usz seal_truncated(
-    const quic_initial_keys *k,
-    const quic_aes128       *hp,
-    const u8                *dcid,
+    const quic_initial_keys* k,
+    const quic_aes128*       hp,
+    const u8*                dcid,
     u8                       dcid_len,
     u64                      full_pn,
     usz                      pn_len,
-    const u8                *pl,
+    const u8*                pl,
     usz                      pl_len,
-    u8                      *out) {
+    u8*                      out) {
   u8          nonce[QUIC_INITIAL_IV], mask[5];
   quic_aes128 aead;
   usz         pn_off  = 1u + dcid_len;

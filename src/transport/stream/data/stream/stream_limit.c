@@ -6,7 +6,7 @@ int quic_stream_max_streams_ok(u64 max_streams) {
   return max_streams <= QUIC_MAX_STREAMS_LIMIT;
 }
 
-int quic_stream_max_id(const quic_stream_kind *k, u64 max_streams, u64 *out) {
+int quic_stream_max_id(const quic_stream_kind* k, u64 max_streams, u64* out) {
   if (max_streams == 0) return 0; /* no stream permitted */
   if (!quic_stream_max_streams_ok(max_streams)) return 0;
   *out = quic_stream_id(k->is_server, k->is_uni, max_streams - 1);

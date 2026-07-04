@@ -5,11 +5,11 @@
 
 /* RFC 6979 Section 3.2 for P-256 / SHA-256 (hlen == qlen == 256 bits). */
 
-static void p256sign_copy(u8 *dst, const u8 *src, usz n) {
+static void p256sign_copy(u8* dst, const u8* src, usz n) {
   for (usz i = 0; i < n; i++) dst[i] = src[i];
 }
 
-static void p256sign_set(u8 *dst, u8 val, usz n) {
+static void p256sign_set(u8* dst, u8 val, usz n) {
   for (usz i = 0; i < n; i++) dst[i] = val;
 }
 

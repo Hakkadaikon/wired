@@ -9,6 +9,6 @@
 
 /* Write the QUIC_LEVEL_* for byte0 into *level. Returns 1 on a level this loop
  * handles (Initial, Handshake, 1-RTT), 0 for 0-RTT, Retry, or a non-packet. */
-int quic_connrunner_packet_level(u8 byte0, int *level);
+int quic_connrunner_packet_level(u8 byte0, int* level);
 
 #endif

@@ -3,7 +3,7 @@
 #include "common/bytes/util/be.h"
 
 /* RFC 8446 4.2.7: type(2) + ext_data length(2) + list length(2) + groups. */
-usz quic_tls_ext_supported_groups(u8 *buf, usz cap) {
+usz quic_tls_ext_supported_groups(u8* buf, usz cap) {
   if (cap < 8) return 0;
   quic_put_be16(buf, QUIC_EXT_SUPPORTED_GROUPS);
   quic_put_be16(buf + 2, 4);
@@ -13,7 +13,7 @@ usz quic_tls_ext_supported_groups(u8 *buf, usz cap) {
 }
 
 /* RFC 8446 4.2.3: type(2) + ext_data length(2) + list length(2) + schemes. */
-usz quic_tls_ext_sig_algs(u8 *buf, usz cap) {
+usz quic_tls_ext_sig_algs(u8* buf, usz cap) {
   if (cap < 12) return 0;
   quic_put_be16(buf, QUIC_EXT_SIGNATURE_ALGORITHMS);
   quic_put_be16(buf + 2, 8);

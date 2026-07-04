@@ -1,7 +1,7 @@
 #include "test.h"
 
 /* Parse hex of arbitrary even length into out; returns byte count. */
-static usz unhex(const char *hex, u8 *out) {
+static usz unhex(const char* hex, u8* out) {
   usz i = 0;
   while (hex[i * 2] != 0) {
     u8 hi = hex[i * 2], lo = hex[i * 2 + 1];
@@ -50,7 +50,7 @@ static void test_gcm_open(void) {
     dec[i] = 0xCC;
   }
   quic_aes128_init(&a, key);
-  quic_gcm_ctx g = {&a, iv, {(const u8 *)"hdr", 3}};
+  quic_gcm_ctx g = {&a, iv, {(const u8*)"hdr", 3}};
   quic_gcm_seal(&g, quic_span_of(pt, 20), ct);
 
   CHECK(quic_gcm_open(&g, quic_span_of(ct, 36), dec) == 1);
@@ -65,7 +65,7 @@ static void test_gcm_open(void) {
   for (usz i = 0; i < 20; i++) CHECK(dec[i] == 0xCC);
 
   /* flip one AAD byte: must reject */
-  quic_gcm_ctx g2 = {&a, iv, {(const u8 *)"HDR", 3}};
+  quic_gcm_ctx g2 = {&a, iv, {(const u8*)"HDR", 3}};
   CHECK(quic_gcm_open(&g2, quic_span_of(ct, 36), dec) == 0);
 }
 

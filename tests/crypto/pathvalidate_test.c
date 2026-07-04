@@ -8,7 +8,7 @@
 
 static quic_castore_entry pv_roots[4];
 
-static void store_with_root(quic_castore *s) {
+static void store_with_root(quic_castore* s) {
   quic_castore_init(s, pv_roots, 4);
   CHECK(quic_castore_add(s, PV_SPAN(quic_castore_root_der)) == 1);
 }
@@ -75,7 +75,7 @@ static void test_non_ca_intermediate_fails(void) {
   CHECK(quic_castore_validate_chain(&s, certs, 3) == 0);
 }
 
-static void store_with_root3(quic_castore *s) {
+static void store_with_root3(quic_castore* s) {
   quic_castore_init(s, pv_roots, 4);
   CHECK(quic_castore_add(s, PV_SPAN(quic_castore_root3_der)) == 1);
 }

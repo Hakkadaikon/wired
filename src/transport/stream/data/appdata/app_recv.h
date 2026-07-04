@@ -16,8 +16,8 @@ typedef struct {
  * Returns 1, or 0 on authentication failure, short input, or malformed
  * frame. */
 int quic_appdata_recv(
-    const quic_protect_keys *k,
-    const quic_appdata_pkt  *p,
-    quic_stream_frame       *f);
+    const quic_protect_keys* k,
+    const quic_appdata_pkt*  p,
+    quic_stream_frame*       f);
 
 #endif

@@ -28,7 +28,7 @@
  * `{0, 0}`). The pointed-to bytes are borrowed, never copied.
  */
 typedef struct {
-  const u8 *p; /**< first byte of the viewed range (not owned) */
+  const u8* p; /**< first byte of the viewed range (not owned) */
   usz       n; /**< number of readable bytes at p */
 } quic_span;
 
@@ -40,7 +40,7 @@ typedef struct {
  * Construct with quic_mspan_of().
  */
 typedef struct {
-  u8 *p; /**< first byte of the writable range (not owned) */
+  u8* p; /**< first byte of the writable range (not owned) */
   usz n; /**< number of writable bytes at p */
 } quic_mspan;
 
@@ -52,7 +52,7 @@ typedef struct {
  * advances `len`. After the call, `p[0..len)` holds the produced bytes.
  */
 typedef struct {
-  u8 *p;   /**< caller-provided storage (not owned) */
+  u8* p;   /**< caller-provided storage (not owned) */
   usz cap; /**< capacity of p in bytes */
   usz len; /**< bytes written so far; the callee advances this */
 } quic_obuf;
@@ -67,7 +67,7 @@ typedef struct {
  * @param n number of readable bytes
  * @return the view as a value type
  */
-static inline quic_span quic_span_of(const u8 *p, usz n) {
+static inline quic_span quic_span_of(const u8* p, usz n) {
   quic_span s = {p, n};
   return s;
 }
@@ -82,7 +82,7 @@ static inline quic_span quic_span_of(const u8 *p, usz n) {
  * @param n number of writable bytes
  * @return the view as a value type
  */
-static inline quic_mspan quic_mspan_of(u8 *p, usz n) {
+static inline quic_mspan quic_mspan_of(u8* p, usz n) {
   quic_mspan s = {p, n};
   return s;
 }
@@ -98,7 +98,7 @@ static inline quic_mspan quic_mspan_of(u8 *p, usz n) {
  * @param cap capacity of p in bytes
  * @return the buffer view with len = 0
  */
-static inline quic_obuf quic_obuf_of(u8 *p, usz cap) {
+static inline quic_obuf quic_obuf_of(u8* p, usz cap) {
   quic_obuf b = {p, cap, 0};
   return b;
 }

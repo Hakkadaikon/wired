@@ -20,13 +20,13 @@ typedef struct {
   usz                head, tail, count;
 } quic_memlink;
 
-void quic_memlink_init(quic_memlink *l);
+void quic_memlink_init(quic_memlink* l);
 
 /* Enqueue a datagram. Returns 1 on success, 0 if full or oversize. */
-int quic_memlink_send(quic_memlink *l, const u8 *buf, usz len);
+int quic_memlink_send(quic_memlink* l, const u8* buf, usz len);
 
 /* Dequeue the oldest datagram into out (cap bytes). Returns its length, or
  * 0 if the link is empty or out is too small. */
-usz quic_memlink_recv(quic_memlink *l, u8 *out, usz cap);
+usz quic_memlink_recv(quic_memlink* l, u8* out, usz cap);
 
 #endif

@@ -20,10 +20,10 @@ typedef struct {
   int port_only;
 } quic_migrate;
 
-void quic_migrate_init(quic_migrate *m, u64 cid);
-void quic_migrate_detect(quic_migrate *m);
-void quic_migrate_challenge(quic_migrate *m);
-int  quic_migrate_validate(quic_migrate *m);
-int  quic_migrate_confirm(quic_migrate *m, u64 new_cid, int port_only);
+void quic_migrate_init(quic_migrate* m, u64 cid);
+void quic_migrate_detect(quic_migrate* m);
+void quic_migrate_challenge(quic_migrate* m);
+int  quic_migrate_validate(quic_migrate* m);
+int  quic_migrate_confirm(quic_migrate* m, u64 new_cid, int port_only);
 
 #endif

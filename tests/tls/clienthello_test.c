@@ -2,7 +2,7 @@
 
 /* Walk the ClientHello extensions block and return 1 if extension `type` is
  * present. body points at the ClientHello body (after the 4-byte hs header). */
-static int ch_has_ext(const u8 *body, usz body_len, unsigned type) {
+static int ch_has_ext(const u8* body, usz body_len, unsigned type) {
   usz p = 35 + 4 + 2; /* prefix + cipher_suites(2+2) + compression(1+1) */
   usz block_len, end, q;
   if (body_len < p + 2) return 0;
@@ -19,7 +19,7 @@ static int ch_has_ext(const u8 *body, usz body_len, unsigned type) {
   return 0;
 }
 
-static usz build(u8 *buf, usz cap) {
+static usz build(u8* buf, usz cap) {
   u8 random[32], pub[32];
   u8 tp[3] = {0x01, 0x02, 0x03};
   for (usz i = 0; i < 32; i++) {
@@ -27,9 +27,9 @@ static usz build(u8 *buf, usz cap) {
     pub[i]    = (u8)(0x40 + i);
   }
   return quic_tls_client_hello(
-      &(quic_clienthello_in){
-          random, pub, quic_span_of((const u8 *)"example.com", 11),
-          quic_span_of(tp, sizeof(tp))},
+      &(quic_clienthello_in){random, pub,
+                             quic_span_of((const u8*)"example.com", 11),
+                             quic_span_of(tp, sizeof(tp))},
       &(quic_obuf){buf, cap, 0});
 }
 
@@ -60,8 +60,8 @@ static void test_client_hello_no_sni(void) {
     pub[i]    = 0;
   }
   w = quic_tls_client_hello(
-      &(quic_clienthello_in){
-          random, pub, quic_span_of(0, 0), quic_span_of(tp, 2)},
+      &(quic_clienthello_in){random, pub, quic_span_of(0, 0),
+                             quic_span_of(tp, 2)},
       &(quic_obuf){buf, sizeof(buf), 0});
   CHECK(w > 0);
   CHECK(!ch_has_ext(buf + 4, w - 4, 0x0000)); /* SNI omitted */

@@ -12,10 +12,10 @@ typedef struct {
 
 /* Write the control stream prefix (type 0x00) into buf. Returns bytes written
  * (1), or 0 if cap is too small. */
-usz quic_h3run_control_open(u8 *buf, usz cap);
+usz quic_h3run_control_open(u8* buf, usz cap);
 
 /* Record a control stream. Returns 1 for the first, 0 for any later one
  * (H3_STREAM_CREATION_ERROR). */
-int quic_h3_control_seen(quic_h3_control_state *state);
+int quic_h3_control_seen(quic_h3_control_state* state);
 
 #endif

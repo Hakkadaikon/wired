@@ -15,14 +15,14 @@
 static int cli_char_match(char a, char b) { return a && b && a == b; }
 
 /* NUL-terminated ascii compare, no libc strcmp available. */
-static int cli_streq(const char *a, const char *b) {
+static int cli_streq(const char* a, const char* b) {
   usz i = 0;
   while (cli_char_match(a[i], b[i])) i++;
   return a[i] == b[i];
 }
 
 /* Index of argv[i] == flag with a following element, or -1 (none/dangling). */
-static int cli_find(int argc, char **argv, const char *flag) {
+static int cli_find(int argc, char** argv, const char* flag) {
   int i;
   for (i = 0; i < argc - 1; i++) {
     if (cli_streq(argv[i], flag)) return i;
@@ -38,7 +38,7 @@ static i64 cli_digit_step(i64 acc, char c) {
 
 /* Parse s as a non-negative base-10 integer; ok is set 0 on any non-digit
  * or an empty string. */
-static i64 cli_parse_u64(const char *s, int *ok) {
+static i64 cli_parse_u64(const char* s, int* ok) {
   i64 acc = 0;
   usz i;
   *ok = s[0] != 0;
@@ -52,7 +52,7 @@ static i64 cli_parse_u64(const char *s, int *ok) {
   return acc;
 }
 
-i64 wired_cliargs_int(int argc, char **argv, const char *flag, i64 defval) {
+i64 wired_cliargs_int(int argc, char** argv, const char* flag, i64 defval) {
   int idx = cli_find(argc, argv, flag);
   i64 val;
   int ok;
@@ -61,8 +61,8 @@ i64 wired_cliargs_int(int argc, char **argv, const char *flag, i64 defval) {
   return ok ? val : defval;
 }
 
-const char *wired_cliargs_str(
-    int argc, char **argv, const char *flag, const char *defval) {
+const char* wired_cliargs_str(
+    int argc, char** argv, const char* flag, const char* defval) {
   int idx = cli_find(argc, argv, flag);
   return idx < 0 ? defval : argv[idx + 1];
 }

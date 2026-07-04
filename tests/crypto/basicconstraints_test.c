@@ -33,7 +33,7 @@ static void test_no_extensions(void) {
 
 /* Offset of the BasicConstraints value {cA TRUE, pathLen 0} inside mid3's
  * DER: 30 06 01 01 ff 02 01 00. 0 if not found. */
-static usz bc_pathlen_off(const u8 *der, usz len) {
+static usz bc_pathlen_off(const u8* der, usz len) {
   static const u8 pat[8] = {0x30, 0x06, 0x01, 0x01, 0xff, 0x02, 0x01, 0x00};
   for (usz i = 0; i + sizeof(pat) <= len; i++) {
     usz j = 0;
@@ -45,7 +45,7 @@ static usz bc_pathlen_off(const u8 *der, usz len) {
 
 /* Copy mid3's DER, overwrite the byte at `rel` inside its BasicConstraints
  * TLV, and parse the copy. The caller owns `der` so the views stay alive. */
-static void mid3_patched(usz rel, u8 v, u8 *der, quic_x509 *c) {
+static void mid3_patched(usz rel, u8 v, u8* der, quic_x509* c) {
   usz off;
   for (usz i = 0; i < sizeof(quic_castore_mid3_der); i++)
     der[i] = quic_castore_mid3_der[i];

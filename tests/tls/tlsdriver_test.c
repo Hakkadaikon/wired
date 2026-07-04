@@ -7,7 +7,7 @@
 
 /* Build a minimal ServerHello (RFC 8446 4.1.3) carrying supported_versions
  * and a single x25519 key_share for pub. Returns total message length. */
-static usz build_sh_td(u8 *out, usz cap, const u8 pub[32]) {
+static usz build_sh_td(u8* out, usz cap, const u8 pub[32]) {
   usz off      = quic_hs_begin(out, cap, 2), block;
   out[off]     = 0x03;
   out[off + 1] = 0x03;
@@ -43,7 +43,7 @@ static usz build_sh_td(u8 *out, usz cap, const u8 pub[32]) {
 }
 
 /* Wrap a whole TLS message in one CRYPTO frame at offset 0. */
-static usz wrap_crypto(u8 *out, usz cap, const u8 *msg, usz n) {
+static usz wrap_crypto(u8* out, usz cap, const u8* msg, usz n) {
   usz                        w   = 0;
   quic_obuf                  ob  = quic_obuf_of(out, cap);
   quic_crypto_stream_emit_in ein = {0, 256};
@@ -62,7 +62,7 @@ static void test_tlsdriver_real_ecdhe_agree(void) {
   u8             frame[1024], sh[512];
   usz            fl, shn;
   quic_tlsdriver cl, sv;
-  const u8      *cs, *ss;
+  const u8 *     cs, *ss;
 
   for (usz i = 0; i < 32; i++) {
     cl_priv[i] = (u8)(1 + i);

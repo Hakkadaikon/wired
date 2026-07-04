@@ -32,14 +32,14 @@ extern const quic_mont quic_p256_mont_n;
 /* Operand pair (a, b) for the two-input modular ops. Two borrowed limb
  * pointers passed by value, so a call stays register-only. */
 typedef struct {
-  const u64 *a;
-  const u64 *b;
+  const u64* a;
+  const u64* b;
 } quic_fpab;
 
 /* r = a * b * R^-1 mod m (Montgomery product); r = a^-1 mod m (Fermat over
  * Montgomery mul). a,b < m. */
-void quic_mont_mul(p256_fe r, quic_fpab ab, const quic_mont *mont);
-void quic_mont_inv(p256_fe r, const p256_fe a, const quic_mont *mont);
+void quic_mont_mul(p256_fe r, quic_fpab ab, const quic_mont* mont);
+void quic_mont_inv(p256_fe r, const p256_fe a, const quic_mont* mont);
 
 void quic_fp_set(p256_fe r, const p256_fe a);
 int  quic_fp_eq(const p256_fe a, const p256_fe b);

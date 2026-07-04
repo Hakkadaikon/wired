@@ -14,15 +14,15 @@
  * 32 for ChaCha; iv is 12), hp_key is the header-protection key. */
 typedef struct {
   u16       suite;
-  const u8 *key;
-  const u8 *iv;
-  const u8 *hp_key;
+  const u8* key;
+  const u8* iv;
+  const u8* hp_key;
 } quic_protectcs_keys;
 
 /* One in-place seal: pkt holds the header followed by payload_len plaintext
  * bytes; the packet number (pn, encoded in pn_len bytes) sits at pn_off. */
 typedef struct {
-  u8 *pkt;
+  u8* pkt;
   usz pn_off;
   u8  pn_len;
   u64 pn;
@@ -33,9 +33,9 @@ typedef struct {
  * the 16-byte tag, then applies header protection. Writes the total protected
  * length to *out_len and returns 1, or 0 on an unknown suite. */
 int quic_protectcs_seal(
-    const quic_protectcs_keys    *k,
-    const quic_protectcs_seal_io *io,
-    usz                          *out_len);
+    const quic_protectcs_keys*    k,
+    const quic_protectcs_seal_io* io,
+    usz*                          out_len);
 
 /* One in-place open: pkt holds a protected packet with the packet number at
  * pn_off. */
@@ -49,8 +49,8 @@ typedef struct {
  * within pkt. Returns 1 on success, 0 on an unknown suite or authentication
  * failure. */
 int quic_protectcs_open(
-    const quic_protectcs_keys    *k,
-    const quic_protectcs_open_io *io,
-    quic_span                    *payload);
+    const quic_protectcs_keys*    k,
+    const quic_protectcs_open_io* io,
+    quic_span*                    payload);
 
 #endif

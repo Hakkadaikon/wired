@@ -3,7 +3,7 @@
 #include "common/bytes/util/ct.h"
 
 /* XOR 16 bytes of src into dst. */
-static void xor16(u8 *dst, const u8 *src) {
+static void xor16(u8* dst, const u8* src) {
   for (usz i = 0; i < 16; i++) dst[i] ^= src[i];
 }
 
@@ -35,7 +35,7 @@ static void gf_mul(const u8 x[16], const u8 y[16], u8 z[16]) {
 
 /* Absorb one 16-byte block into the GHASH accumulator y (y ^= block; y *= H).
  */
-static void ghash_block(const u8 h[16], u8 y[16], const u8 *block) {
+static void ghash_block(const u8 h[16], u8 y[16], const u8* block) {
   u8 hk[16], out[16];
   xor16(y, block);
   for (usz i = 0; i < 16; i++) hk[i] = h[i];
@@ -49,13 +49,13 @@ static usz block_n(usz off, usz len) {
 }
 
 /* Copy up to 16 bytes from p+off into b, zero-padding the rest. */
-static void load_block(u8 b[16], const u8 *p, usz off, usz len) {
+static void load_block(u8 b[16], const u8* p, usz off, usz len) {
   usz n = block_n(off, len);
   for (usz i = 0; i < 16; i++) b[i] = (i < n) ? p[off + i] : 0;
 }
 
 /* Absorb len bytes (zero-padded to a block multiple) into GHASH. */
-static void ghash_bytes(const u8 h[16], u8 y[16], const u8 *p, usz len) {
+static void ghash_bytes(const u8 h[16], u8 y[16], const u8* p, usz len) {
   usz off = 0;
   while (off < len) {
     u8 b[16];
@@ -66,7 +66,7 @@ static void ghash_bytes(const u8 h[16], u8 y[16], const u8 *p, usz len) {
 }
 
 /* Big-endian 64-bit store. */
-static void put_be64(u8 *p, u64 v) {
+static void put_be64(u8* p, u64 v) {
   for (usz i = 0; i < 8; i++) p[i] = (u8)(v >> (56 - i * 8));
 }
 
@@ -78,12 +78,12 @@ static void ctr_inc(u8 c[16]) {
 
 /* AES-CTR keystream state: key schedule plus the running counter block. */
 typedef struct {
-  const quic_aes128 *a;
+  const quic_aes128* a;
   u8                 ctr[16];
 } quic_gcm_ctr;
 
 /* XOR up to 16 keystream bytes E(K,ctr) into out; returns bytes done. */
-static usz ctr_chunk(quic_gcm_ctr *c, quic_span in, u8 *out) {
+static usz ctr_chunk(quic_gcm_ctr* c, quic_span in, u8* out) {
   u8  ks[16];
   usz n = (in.n < 16) ? in.n : 16;
   quic_aes128_encrypt(c->a, c->ctr, ks);
@@ -93,7 +93,7 @@ static usz ctr_chunk(quic_gcm_ctr *c, quic_span in, u8 *out) {
 }
 
 /* XOR keystream E(K, counter) over in, advancing the counter. */
-static void ctr_xor(quic_gcm_ctr *c, quic_span in, u8 *out) {
+static void ctr_xor(quic_gcm_ctr* c, quic_span in, u8* out) {
   usz off = 0;
   while (off < in.n)
     off += ctr_chunk(c, quic_span_of(in.p + off, in.n - off), out + off);
@@ -101,13 +101,13 @@ static void ctr_xor(quic_gcm_ctr *c, quic_span in, u8 *out) {
 
 /* Per-invocation GHASH state: the inputs plus H = E(K, 0^128) and J0. */
 typedef struct {
-  const quic_gcm_ctx *g;
+  const quic_gcm_ctx* g;
   u8                  h[16];
   u8                  j0[16];
 } quic_gcm_st;
 
 /* Build H = E(K, 0^128) and J0 = nonce || 0x00000001. */
-static void gcm_setup(const quic_gcm_ctx *g, quic_gcm_st *st) {
+static void gcm_setup(const quic_gcm_ctx* g, quic_gcm_st* st) {
   u8 zero[16];
   st->g = g;
   for (usz i = 0; i < 16; i++) zero[i] = 0;
@@ -120,14 +120,14 @@ static void gcm_setup(const quic_gcm_ctx *g, quic_gcm_st *st) {
 }
 
 /* Start the data counter at J0+1 (J0 itself encrypts the tag). */
-static void data_ctr(const quic_gcm_st *st, quic_gcm_ctr *c) {
+static void data_ctr(const quic_gcm_st* st, quic_gcm_ctr* c) {
   c->a = st->g->aes;
   for (usz i = 0; i < 16; i++) c->ctr[i] = st->j0[i];
   ctr_inc(c->ctr);
 }
 
 /* Compute the authentication tag over the AAD and ct using H and J0. */
-static void gcm_tag(const quic_gcm_st *st, quic_span ct, u8 tag[16]) {
+static void gcm_tag(const quic_gcm_st* st, quic_span ct, u8 tag[16]) {
   u8 y[16], lens[16], ej0[16];
   for (usz i = 0; i < 16; i++) y[i] = 0;
   ghash_bytes(st->h, y, st->g->aad.p, st->g->aad.n);
@@ -139,7 +139,7 @@ static void gcm_tag(const quic_gcm_st *st, quic_span ct, u8 tag[16]) {
   for (usz i = 0; i < 16; i++) tag[i] = y[i] ^ ej0[i];
 }
 
-usz quic_gcm_seal(const quic_gcm_ctx *g, quic_span pt, u8 *out) {
+usz quic_gcm_seal(const quic_gcm_ctx* g, quic_span pt, u8* out) {
   quic_gcm_st  st;
   quic_gcm_ctr c;
   gcm_setup(g, &st);
@@ -149,7 +149,7 @@ usz quic_gcm_seal(const quic_gcm_ctx *g, quic_span pt, u8 *out) {
   return pt.n + QUIC_GCM_TAG;
 }
 
-int quic_gcm_open(const quic_gcm_ctx *g, quic_span ct, u8 *pt) {
+int quic_gcm_open(const quic_gcm_ctx* g, quic_span ct, u8* pt) {
   quic_gcm_st  st;
   quic_gcm_ctr c;
   u8           want[16];

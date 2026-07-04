@@ -16,7 +16,7 @@ void test_sresetdrive_tokenmap(void) {
   CHECK(quic_sresetdrive_map_add(&m, quic_span_of(cid_a, 4), tok_a) == 1);
   CHECK(quic_sresetdrive_map_add(&m, quic_span_of(cid_b, 5), tok_b) == 1);
 
-  const u8 *got = 0;
+  const u8* got = 0;
   CHECK(quic_sresetdrive_map_find(&m, quic_span_of(cid_a, 4), &got) == 1);
   for (u8 i = 0; i < QUIC_SRESETDRIVE_TOKEN; i++) CHECK(got[i] == tok_a[i]);
 

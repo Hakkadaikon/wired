@@ -31,7 +31,7 @@ typedef struct {
  * (CRYPTO frame, padded to 1200) under the Initial keys derived from hdr->dcid.
  * Returns 1, or 0 on RNG/overflow. */
 int quic_client_build_initial_wire(
-    quic_client *c, const quic_clientwire_hdr_in *hdr, quic_obuf *out);
+    quic_client* c, const quic_clientwire_hdr_in* hdr, quic_obuf* out);
 
 /* dcid identifies the Initial keys; pkt is opened in place (header protection
  * removal); pn is the expected packet number. */
@@ -46,7 +46,7 @@ typedef struct {
  * Initial keys from in->dcid. in->pkt is mutated in place (header protection
  * removal). Returns 1, or 0 on authentication failure. */
 int quic_client_open_initial_wire(
-    const quic_clientwire_open_in *in, quic_span *tls);
+    const quic_clientwire_open_in* in, quic_span* tls);
 
 /* hdr identifies dcid/scid/pn; tls is the flight payload to seal. */
 typedef struct {
@@ -58,20 +58,20 @@ typedef struct {
  * packet under the client's own-direction Handshake key (CLIENT_HS). Returns 1,
  * or 0 if the key is not derived or on overflow. */
 int quic_client_seal_handshake_wire(
-    quic_client *c, const quic_clientwire_seal_in *in, quic_obuf *out);
+    quic_client* c, const quic_clientwire_seal_in* in, quic_obuf* out);
 
 /* RFC 9001 5: open a server Handshake packet under the peer-direction key
  * (SERVER_HS), recovering its TLS flight. in->pkt is opened in place;
  * in->dcid_len is our connection id length. Returns 1, or 0 if the key is not
  * derived or on authentication failure. */
 int quic_client_open_handshake_wire(
-    quic_client *c, const quic_appdata_pkt *in, quic_span *tls);
+    quic_client* c, const quic_appdata_pkt* in, quic_span* tls);
 
 /* RFC 9001 5: seal application data (e.g. an HTTP/3 GET) into a 1-RTT packet
  * under the client's own-direction key (CLIENT_AP). Returns 1, or 0 if the key
  * is not derived or on overflow. */
 int quic_client_send_appdata_wire(
-    quic_client *c, const quic_appdata_tx *in, quic_obuf *out);
+    quic_client* c, const quic_appdata_tx* in, quic_obuf* out);
 
 /* The received packet bytes (opened in place) and our own SCID it must route
  * to (RFC 9000 5.1). */
@@ -86,6 +86,6 @@ typedef struct {
  * not ours. Fills *out (stream_id/offset/data/fin). Returns 1, or 0 on a DCID
  * mismatch, undrived key, or auth failure. */
 int quic_client_recv_appdata_wire(
-    quic_client *c, const quic_clientwire_recv_in *in, quic_stream_frame *out);
+    quic_client* c, const quic_clientwire_recv_in* in, quic_stream_frame* out);
 
 #endif

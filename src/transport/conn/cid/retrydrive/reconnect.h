@@ -22,6 +22,6 @@ typedef struct {
  * re-derivation. Returns 0 (and leaves out untouched) if the token or SCID
  * exceeds the buffers; 1 on success. */
 int quic_retrydrive_apply(
-    quic_span retry_token, quic_span retry_scid, quic_retrydrive_state *out);
+    quic_span retry_token, quic_span retry_scid, quic_retrydrive_state* out);
 
 #endif

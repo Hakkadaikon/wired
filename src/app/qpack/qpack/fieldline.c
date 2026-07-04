@@ -21,7 +21,7 @@ static int is_indexed(quic_span buf) {
   return buf.n != 0 && (buf.p[0] & QPACK_INDEXED) != 0;
 }
 
-usz quic_qpack_indexed_decode(quic_span buf, u64 *index, int *is_static) {
+usz quic_qpack_indexed_decode(quic_span buf, u64* index, int* is_static) {
   if (!is_indexed(buf)) return 0;
   *is_static = (buf.p[0] & QPACK_STATIC) ? 1 : 0;
   return quic_qpack_int_decode(buf, 6, index);

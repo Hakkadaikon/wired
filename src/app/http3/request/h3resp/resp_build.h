@@ -10,6 +10,6 @@
  * the body. When body is empty only the HEADERS frame is emitted. Returns 1
  * with out->len set on success, 0 if out lacks capacity. */
 int quic_h3resp_build(
-    u16 status, const char *content_type, quic_span body, quic_obuf *out);
+    u16 status, const char* content_type, quic_span body, quic_obuf* out);
 
 #endif

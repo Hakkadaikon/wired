@@ -19,7 +19,7 @@ void test_srvfin_complete(void) {
     quic_keyset_init(&keys);
     quic_srvfin_state_init(&st, &sched, &keys);
     CHECK(quic_srvfin_complete(&st, tr, sizeof tr) == 0);
-    const quic_initial_keys *k;
+    const quic_initial_keys* k;
     CHECK(quic_keyset_for_level(&keys, QUIC_LEVEL_ONERTT, &k) == 0);
     CHECK(st.confirmed == 0);
   }
@@ -38,12 +38,12 @@ void test_srvfin_complete(void) {
             quic_span_of(tr, sizeof tr)) == 1);
     CHECK(quic_srvfin_complete(&st, tr, sizeof tr) == 1);
 
-    const quic_initial_keys *k;
+    const quic_initial_keys* k;
     CHECK(quic_keyset_for_level(&keys, QUIC_LEVEL_ONERTT, &k) == 1);
     CHECK(st.confirmed == 1);
 
     /* installed keys are the server application keys from the schedule */
-    const quic_initial_keys *sap;
+    const quic_initial_keys* sap;
     CHECK(quic_keysched_get(&sched, QUIC_KS_SERVER_AP, &sap) == 1);
     for (usz i = 0; i < QUIC_INITIAL_KEY; i++) CHECK(k->key[i] == sap->key[i]);
   }

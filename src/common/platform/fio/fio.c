@@ -34,7 +34,7 @@ static ssz fio_fill(i64 fd, quic_mspan buf) {
   return fio_full_result(fd, done);
 }
 
-ssz wired_fio_read(const char *path, quic_mspan buf) {
+ssz wired_fio_read(const char* path, quic_mspan buf) {
   i64 fd = syscall3(SYS_openat, FIO_AT_FDCWD, path, FIO_O_RDONLY);
   ssz got;
   if (fd < 0) return (ssz)fd;
@@ -55,7 +55,7 @@ static ssz fio_write_all(i64 fd, quic_span data) {
   return (ssz)done;
 }
 
-ssz wired_fio_append(const char *path, quic_span data) {
+ssz wired_fio_append(const char* path, quic_span data) {
   i64 fd = syscall6(
       SYS_openat, FIO_AT_FDCWD, (i64)path, FIO_O_APPEND_WR, FIO_MODE_OWNER_RW,
       0, 0);

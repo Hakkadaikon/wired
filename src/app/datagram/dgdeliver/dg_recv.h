@@ -7,6 +7,6 @@
  * 0x31 at frame.p[0]) for delivery to the application. *payload points into
  * the frame buffer (a view, no copy). Returns 1 on success, 0 on a malformed
  * frame. */
-int quic_dgdeliver_extract(quic_span frame, quic_span *payload);
+int quic_dgdeliver_extract(quic_span frame, quic_span* payload);
 
 #endif

@@ -10,11 +10,11 @@
 /* Write Token Length(varint) + token bytes into buf (cap total).
  * Returns bytes written, or 0 if it does not fit. An empty token writes
  * just a 0. */
-usz quic_inittoken_put(u8 *buf, usz cap, quic_span token);
+usz quic_inittoken_put(u8* buf, usz cap, quic_span token);
 
 /* Parse Token Length + Token at buf (n readable). On success sets *token
  * (a view into buf, p NULL if empty) and returns bytes consumed; 0 if the
  * length varint or the token bytes overrun n. */
-usz quic_inittoken_get(const u8 *buf, usz n, quic_span *token);
+usz quic_inittoken_get(const u8* buf, usz n, quic_span* token);
 
 #endif

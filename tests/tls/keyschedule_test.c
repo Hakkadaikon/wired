@@ -1,10 +1,10 @@
 #include "test.h"
 
-static void fill(u8 *p, usz n, u8 base) {
+static void fill(u8* p, usz n, u8 base) {
   for (usz i = 0; i < n; i++) p[i] = (u8)(base + i);
 }
 
-static int keys_differ(const quic_initial_keys *a, const quic_initial_keys *b) {
+static int keys_differ(const quic_initial_keys* a, const quic_initial_keys* b) {
   int d = 0;
   for (usz i = 0; i < QUIC_INITIAL_KEY; i++) d |= (a->key[i] != b->key[i]);
   return d;
@@ -16,7 +16,7 @@ static void test_keyschedule_order(void) {
   u8 ecdhe[32], tr[] = "ClientHello||ServerHello";
   fill(ecdhe, 32, 1);
   quic_keysched            st;
-  const quic_initial_keys *k;
+  const quic_initial_keys* k;
 
   quic_keysched_init(&st);
   /* nothing derived yet */
@@ -40,7 +40,7 @@ static void test_keyschedule_order(void) {
 static void test_keyschedule_skip_rejected(void) {
   u8                       tr[] = "transcript";
   quic_keysched            st;
-  const quic_initial_keys *k;
+  const quic_initial_keys* k;
   quic_keysched_init(&st);
   CHECK(quic_keysched_advance_master(&st, tr, sizeof(tr)) == 0);
   CHECK(quic_keysched_get(&st, QUIC_KS_CLIENT_AP, &k) == 0);

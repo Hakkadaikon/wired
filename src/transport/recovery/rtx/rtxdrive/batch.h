@@ -11,6 +11,6 @@
  * packet's worth of room). Non-retransmittable frames and pns not held are
  * skipped. out->len is the bytes written. Returns 1. */
 int quic_rtxdrive_batch(
-    const quic_rtxbytes *store, quic_lost_pns lost, quic_obuf *out);
+    const quic_rtxbytes* store, quic_lost_pns lost, quic_obuf* out);
 
 #endif

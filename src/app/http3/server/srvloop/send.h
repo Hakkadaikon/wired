@@ -40,7 +40,7 @@ typedef struct {
  * @param out receives the sealed packet
  * @return 1 with out->len set, 0 on overflow. */
 int wired_srvloop_send_initial(
-    const wired_server *s, const wired_srvloop_send_in *in, quic_obuf *out);
+    const wired_server* s, const wired_srvloop_send_in* in, quic_obuf* out);
 
 /** Seal a Handshake TLS flight under SERVER_HS. When in->ack_pn >= 0 the
  * flight acknowledges that received Handshake-space packet number (RFC 9000
@@ -51,7 +51,7 @@ int wired_srvloop_send_initial(
  * @return 1 with out->len set, or 0 if the key is not derived or on
  *   overflow. */
 int wired_srvloop_send_handshake(
-    const wired_server *s, const wired_srvloop_send_in *in, quic_obuf *out);
+    const wired_server* s, const wired_srvloop_send_in* in, quic_obuf* out);
 
 /** Seal a raw 1-RTT payload (for example HANDSHAKE_DONE) under SERVER_AP.
  * in->ack_pn is unused (1-RTT sealing never ACKs).
@@ -61,6 +61,6 @@ int wired_srvloop_send_handshake(
  * @return 1 with out->len set, or 0 if the key is not derived or on
  *   overflow. */
 int wired_srvloop_send_onertt(
-    const wired_server *s, const wired_srvloop_send_in *in, quic_obuf *out);
+    const wired_server* s, const wired_srvloop_send_in* in, quic_obuf* out);
 
 #endif

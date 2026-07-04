@@ -17,7 +17,7 @@
  * and the context (may be empty: {0, 0}).
  */
 typedef struct {
-  const char *label;     /**< label text without the "tls13 " prefix */
+  const char* label;     /**< label text without the "tls13 " prefix */
   usz         label_len; /**< length of label in bytes */
   quic_span   ctx;       /**< context (hash value); may be empty {0, 0} */
 } quic_hkdf_label;
@@ -54,6 +54,6 @@ int quic_hkdf_expand(
  * @return 1 on success, 0 if the label/context/length do not fit.
  */
 int quic_hkdf_expand_label(
-    const u8 prk[QUIC_HKDF_PRK], const quic_hkdf_label *l, quic_mspan okm);
+    const u8 prk[QUIC_HKDF_PRK], const quic_hkdf_label* l, quic_mspan okm);
 
 #endif

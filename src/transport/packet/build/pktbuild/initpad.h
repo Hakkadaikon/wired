@@ -9,6 +9,6 @@
  * the resulting length
  * (>= current_len), or current_len unchanged if already >= 1200 or cap < 1200.
  */
-usz quic_pktbuild_init_pad(u8 *datagram, usz current_len, usz cap);
+usz quic_pktbuild_init_pad(u8* datagram, usz current_len, usz cap);
 
 #endif

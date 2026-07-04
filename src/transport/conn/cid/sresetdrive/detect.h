@@ -14,6 +14,6 @@
 /* 1 if the packet's trailing token matches `expected_token` in constant time
  * and the packet is at least the 21-byte minimum; 0 otherwise. */
 int quic_sresetdrive_is_reset(
-    const u8 *packet, usz len, const u8 *expected_token);
+    const u8* packet, usz len, const u8* expected_token);
 
 #endif

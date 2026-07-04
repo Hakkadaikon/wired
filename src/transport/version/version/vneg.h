@@ -24,17 +24,17 @@ typedef struct {
 } quic_vneg;
 
 /* Initialize with our own supported versions (preference order). */
-void quic_vneg_init(quic_vneg *v, const u32 *supported, usz n);
+void quic_vneg_init(quic_vneg* v, const u32* supported, usz n);
 
 /* True if version is one we support. */
-int quic_vneg_supports(const quic_vneg *v, u32 version);
+int quic_vneg_supports(const quic_vneg* v, u32 version);
 
 /* Validate the peer's version_information against `in_use` (the version the
  * connection is actually using). Returns 1 if it passes the downgrade checks,
  * 0 (and sets phase to ERROR) if Chosen mismatches in_use, Available is
  * empty, or Chosen is not in Available. */
 int quic_vneg_check_downgrade(
-    quic_vneg *v, const quic_version_info *vi, u32 in_use);
+    quic_vneg* v, const quic_version_info* vi, u32 in_use);
 
 /* A received Version Negotiation packet: the version we originally sent and
  * the server's offered list. */
@@ -47,9 +47,9 @@ typedef struct {
  * reacted, or if it lists our original version, or if no mutually supported
  * version is offered. On success picks a mutual version into *chosen, latches
  * the reaction, and returns 1. */
-int quic_vneg_react(quic_vneg *v, const quic_vn_packet *pkt, u32 *chosen);
+int quic_vneg_react(quic_vneg* v, const quic_vn_packet* pkt, u32* chosen);
 
 /* Confirm `version` as negotiated; it must not change afterwards. */
-void quic_vneg_confirm(quic_vneg *v, u32 version);
+void quic_vneg_confirm(quic_vneg* v, u32 version);
 
 #endif

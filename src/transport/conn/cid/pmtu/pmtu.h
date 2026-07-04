@@ -20,15 +20,15 @@ typedef struct {
   int searching; /* whether a larger size is still worth probing */
 } quic_pmtu;
 
-void quic_pmtu_init(quic_pmtu *p);
+void quic_pmtu_init(quic_pmtu* p);
 
 /* The size to probe next, or 0 if the search is done. Sets p->probe. */
-usz quic_pmtu_next_probe(quic_pmtu *p);
+usz quic_pmtu_next_probe(quic_pmtu* p);
 
 /* A probe of `size` was acknowledged: raise the validated PMTU. */
-void quic_pmtu_on_ack(quic_pmtu *p, usz size);
+void quic_pmtu_on_ack(quic_pmtu* p, usz size);
 
 /* A probe of `size` was lost: it bounds the search from above. */
-void quic_pmtu_on_loss(quic_pmtu *p, usz size);
+void quic_pmtu_on_loss(quic_pmtu* p, usz size);
 
 #endif

@@ -23,7 +23,7 @@ static void test_gso_cmsg_build(void) {
 
 /* A bound server socket and a client socket, both on 127.0.0.1. Returns 1 with
  * the fds, or 0 (benign skip) if the sandbox forbids sockets. */
-static int gso_open_sockets(i64 *sfd, i64 *cfd, quic_sockaddr_in *srv) {
+static int gso_open_sockets(i64* sfd, i64* cfd, quic_sockaddr_in* srv) {
   *sfd = wired_udp_socket();
   if (*sfd < 0) return 0;
   wired_udp_addr(srv, 4436, (const u8[4]){127, 0, 0, 1});

@@ -6,7 +6,7 @@
 /* The context an Indexed Field Line is decoded against: the dynamic table,
  * the section's Base, and the field-section bytes from the current position. */
 typedef struct {
-  const quic_qpack_dyn *table;
+  const quic_qpack_dyn* table;
   u64                   base;
   quic_span             fs;
 } quic_qdyn_src;
@@ -18,6 +18,6 @@ typedef struct {
  * with *out filled and *consumed set, or 0 on a non-indexed pattern,
  * truncation, or an index that resolves to no live entry. */
 int quic_qdyn_decode_field(
-    const quic_qdyn_src *src, quic_qpack_field *out, usz *consumed);
+    const quic_qdyn_src* src, quic_qpack_field* out, usz* consumed);
 
 #endif

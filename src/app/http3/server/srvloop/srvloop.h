@@ -25,10 +25,10 @@
  *   caller-supplied value (0) to omit the field line
  * @return 1 to send the body, 0 for a body-less 200. */
 typedef int (*wired_srvloop_handler)(
-    void                       *ctx,
-    const wired_h3reqdrive_req *req,
-    quic_obuf                  *body_out,
-    const char                **content_type);
+    void*                       ctx,
+    const wired_h3reqdrive_req* req,
+    quic_obuf*                  body_out,
+    const char**                content_type);
 
 /** Per-connection state of the server wire loop, re-armed by
  * wired_srvloop_init and driven by wired_srvloop_step. */
@@ -50,7 +50,7 @@ typedef struct {
                      * (NewSessionTicket, RFC 8446 4.6.1) has been emitted */
   wired_srvloop_handler
                        on_request; /**< app response-body builder, 0 if unset */
-  void                *req_ctx;    /**< opaque ctx passed to on_request */
+  void*                req_ctx;    /**< opaque ctx passed to on_request */
   int                  got_request; /**< 1 when this step decoded a request */
   wired_h3reqdrive_req req; /**< the decoded request (valid when got_request) */
   u8 req_scratch[512];      /**< backing store for req's path/body views */
@@ -71,7 +71,7 @@ typedef struct {
  * @param cb the response-body builder, 0 to clear
  * @param ctx opaque context handed back to cb */
 void wired_srvloop_set_handler(
-    wired_srvloop *l, wired_srvloop_handler cb, void *ctx);
+    wired_srvloop* l, wired_srvloop_handler cb, void* ctx);
 
 /** Record the client's source connection id (the DCID for server-sent packets)
  * and reset the HTTP/3 state.
@@ -79,13 +79,13 @@ void wired_srvloop_set_handler(
  * @param cli_scid the client's source connection id
  * @param cli_scid_len cli_scid length in octets
  * @return 1, or 0 if cli_scid_len exceeds 20. */
-int wired_srvloop_init(wired_srvloop *l, const u8 *cli_scid, u8 cli_scid_len);
+int wired_srvloop_init(wired_srvloop* l, const u8* cli_scid, u8 cli_scid_len);
 
 /** The loop and its orchestrator, driven together through every wire step
  * (mirrors wired_srvboot_conn, srvboot's cold-start counterpart). */
 typedef struct {
-  wired_srvloop *l; /**< the server wire loop */
-  wired_server  *s; /**< server-side handshake orchestrator */
+  wired_srvloop* l; /**< the server wire loop */
+  wired_server*  s; /**< server-side handshake orchestrator */
 } wired_srvloop_conn;
 
 /** Drive one wire iteration: open `dgram`, dispatch it, and if the step
@@ -97,6 +97,6 @@ typedef struct {
  * @return 1 if an outbound packet was written, 0 if the step produced none
  *   (or the input was dropped). */
 int wired_srvloop_step(
-    const wired_srvloop_conn *conn, quic_mspan dgram, quic_obuf *out);
+    const wired_srvloop_conn* conn, quic_mspan dgram, quic_obuf* out);
 
 #endif

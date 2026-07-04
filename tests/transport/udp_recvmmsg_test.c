@@ -2,7 +2,7 @@
 
 /* A bound server socket and a client socket, both on 127.0.0.1. Returns 1 with
  * the fds, or 0 (benign skip) if the sandbox forbids sockets. */
-static int rmmsg_open_sockets(i64 *sfd, i64 *cfd, quic_sockaddr_in *srv) {
+static int rmmsg_open_sockets(i64* sfd, i64* cfd, quic_sockaddr_in* srv) {
   *sfd = wired_udp_socket();
   if (*sfd < 0) return 0;
   wired_udp_addr(srv, 4437, (const u8[4]){127, 0, 0, 1});
@@ -21,7 +21,7 @@ static int rmmsg_open_sockets(i64 *sfd, i64 *cfd, quic_sockaddr_in *srv) {
 /* Send count single-byte-tagged datagrams from cfd to srv, each payload
  * len bytes filled with the datagram index. */
 static void rmmsg_send_n(
-    i64 cfd, const quic_sockaddr_in *srv, int count, usz len) {
+    i64 cfd, const quic_sockaddr_in* srv, int count, usz len) {
   for (int i = 0; i < count; i++) {
     u8 payload[32];
     for (usz j = 0; j < len; j++) payload[j] = (u8)i;

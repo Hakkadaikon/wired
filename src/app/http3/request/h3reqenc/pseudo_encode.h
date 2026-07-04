@@ -20,11 +20,11 @@ typedef struct {
  * pair is in the static table is emitted as an Indexed Field Line; otherwise as
  * a Literal Field Line With Name Reference against the pseudo-header's static
  * name index. Returns 1 with out->len set, 0 if out lacks capacity. */
-int quic_h3req_enc_pseudo(const quic_h3req_pseudo_in *in, quic_obuf *out);
+int quic_h3req_enc_pseudo(const quic_h3req_pseudo_in* in, quic_obuf* out);
 
 /* RFC 9114 4.4 / RFC 9110 9.3.6. Encode a CONNECT request field section: the
  * empty prefix followed by just :method=CONNECT and :authority (no :scheme or
  * :path). Returns 1 with out->len set, 0 if out lacks capacity. */
-int quic_h3req_enc_connect(quic_span authority, quic_obuf *out);
+int quic_h3req_enc_connect(quic_span authority, quic_obuf* out);
 
 #endif

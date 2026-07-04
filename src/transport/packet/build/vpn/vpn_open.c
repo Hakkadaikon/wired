@@ -9,14 +9,14 @@
 static usz pn_len_of(u8 byte0) { return (usz)(byte0 & 0x03) + 1; }
 
 /* RFC 9000 17.1: read the recovered pn_len-byte packet number big-endian. */
-static u64 read_pn(const u8 *pn, usz pn_len) {
+static u64 read_pn(const u8* pn, usz pn_len) {
   u64 v = 0;
   for (usz i = 0; i < pn_len; i++) v = (v << 8) | pn[i];
   return v;
 }
 
 /* True if the sample and the [pn_off, pn_off+length) region fit in pkt. */
-static int region_ok(const quic_vpn_desc *d) {
+static int region_ok(const quic_vpn_desc* d) {
   usz sample = quic_hp_sample_offset(d->pn_off);
   if (!quic_hp_sample_ok(d->pkt.n, sample)) return 0;
   /* pn_off <= pkt.n (parse invariant), so pkt.n - pn_off cannot underflow;
@@ -27,9 +27,9 @@ static int region_ok(const quic_vpn_desc *d) {
 
 /* RFC 9001 5.4.1: unmask byte0, then the pn bytes; returns recovered pn. */
 static u64 remove_hp(
-    const quic_aes128 *hp, const quic_vpn_desc *d, usz *pn_len) {
+    const quic_aes128* hp, const quic_vpn_desc* d, usz* pn_len) {
   u8  mask[5];
-  u8 *pkt = d->pkt.p;
+  u8* pkt = d->pkt.p;
   quic_hp_mask(hp, pkt + quic_hp_sample_offset(d->pn_off), mask);
   pkt[0] ^= mask[0] & QUIC_HP_LONG_MASK;
   *pn_len = pn_len_of(pkt[0]);
@@ -46,7 +46,7 @@ typedef struct {
 
 /* RFC 9001 5.3: nonce = iv XOR pn, then AEAD-open ct after the header. */
 static int vpn_aead_open(
-    const quic_initial_keys *keys, u8 *pkt, const vpnopen_dims *v) {
+    const quic_initial_keys* keys, u8* pkt, const vpnopen_dims* v) {
   u8          nonce[QUIC_INITIAL_IV];
   quic_aes128 aead;
   quic_protect_nonce(keys->iv, v->pn, nonce);
@@ -59,7 +59,7 @@ static int vpn_aead_open(
 
 /* RFC 9001 5.4.1/5.3 */
 int quic_vpn_open(
-    const quic_protect_keys *k, const quic_vpn_desc *d, quic_span *payload) {
+    const quic_protect_keys* k, const quic_vpn_desc* d, quic_span* payload) {
   usz          pn_len;
   vpnopen_dims v;
   if (!region_ok(d)) return 0;

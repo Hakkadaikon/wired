@@ -18,6 +18,6 @@ typedef struct {
 
 /* Writes the frame to out and its length to out->len. Returns 1 on success,
  * 0 on overflow. */
-int quic_flowviol_close_frame(const quic_flowviol_err *e, quic_obuf *out);
+int quic_flowviol_close_frame(const quic_flowviol_err* e, quic_obuf* out);
 
 #endif

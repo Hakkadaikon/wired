@@ -2,7 +2,7 @@
 
 #include "test.h"
 
-static int sao_is(const u8 *oid, usz n, u8 key, u8 hash) {
+static int sao_is(const u8* oid, usz n, u8 key, u8 hash) {
   quic_x509_sigalg a;
   return quic_x509_sigalg_lookup(quic_span_of(oid, n), &a) == 1 &&
          a.key_kind == key && a.hash_kind == hash;

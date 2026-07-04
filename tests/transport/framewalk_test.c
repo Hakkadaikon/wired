@@ -9,13 +9,13 @@ static void test_framewalk_sequence(void) {
   u8  buf[64];
   usz n = 0;
   n += quic_frame_put_simple(buf + n, sizeof(buf) - n, QUIC_FRAME_PING);
-  quic_crypto_frame cf = {.offset = 0, .length = 3, .data = (const u8 *)"abc"};
+  quic_crypto_frame cf = {.offset = 0, .length = 3, .data = (const u8*)"abc"};
   n += quic_frame_put_crypto(buf + n, sizeof(buf) - n, &cf);
   quic_stream_frame sf = {
       .stream_id = 4,
       .offset    = 0,
       .length    = 2,
-      .data      = (const u8 *)"hi",
+      .data      = (const u8*)"hi",
       .fin       = 1};
   n += quic_frame_put_stream(buf + n, sizeof(buf) - n, &sf);
   n += quic_frame_put_simple(buf + n, sizeof(buf) - n, QUIC_FRAME_PADDING);

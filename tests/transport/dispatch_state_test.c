@@ -6,10 +6,10 @@
 /* Wire one frame into buf via its encoder, returning the byte count. */
 
 static void ds_init(
-    quic_framedispatch_state *st,
-    quic_stream_read         *s,
-    quic_sentpkt             *t,
-    quic_flow_credit         *c) {
+    quic_framedispatch_state* st,
+    quic_stream_read*         s,
+    quic_sentpkt*             t,
+    quic_flow_credit*         c) {
   quic_stream_read_init(s);
   quic_sentpkt_init(t);
   quic_flow_credit_init(c, 0);
@@ -28,7 +28,7 @@ static void test_dispatch_stream(void) {
   quic_flow_credit         c;
   ds_init(&st, &s, &t, &c);
   u8                buf[32];
-  quic_stream_frame f = {3, 0, 4, (const u8 *)"data", 0};
+  quic_stream_frame f = {3, 0, 4, (const u8*)"data", 0};
   usz               n = quic_frame_put_stream(buf, sizeof buf, &f);
   CHECK(quic_framedispatch_handle(&st, buf[0], quic_span_of(buf, n)) == 1);
   u8        out[8];
@@ -48,7 +48,7 @@ static void test_dispatch_ack(void) {
   for (u64 pn = 1; pn <= 5; pn++)
     quic_sentpkt_on_send(&t, &(quic_sentpkt_out){pn, 0, 1, 1});
   quic_ack_frame f;
-  for (usz i = 0; i < sizeof f; i++) ((u8 *)&f)[i] = 0;
+  for (usz i = 0; i < sizeof f; i++) ((u8*)&f)[i] = 0;
   f.n_ranges     = 1;
   f.ranges[0].hi = 5;
   f.ranges[0].lo = 3;
@@ -94,7 +94,7 @@ static void test_dispatch_close(void) {
   quic_sentpkt             t;
   quic_flow_credit         c;
   ds_init(&st, &s, &t, &c);
-  quic_conn_close_frame f = {0, 7, 0, 0, (const u8 *)0};
+  quic_conn_close_frame f = {0, 7, 0, 0, (const u8*)0};
   u8                    buf[16];
   usz                   n = quic_frame_put_conn_close(buf, sizeof buf, &f);
   CHECK(quic_framedispatch_handle(&st, buf[0], quic_span_of(buf, n)) == 1);

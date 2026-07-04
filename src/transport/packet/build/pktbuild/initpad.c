@@ -8,7 +8,7 @@ static int pad_fits(usz current_len, usz need, usz cap) {
   return need != 0 && current_len + need <= cap;
 }
 
-usz quic_pktbuild_init_pad(u8 *datagram, usz current_len, usz cap) {
+usz quic_pktbuild_init_pad(u8* datagram, usz current_len, usz cap) {
   usz need = quic_pad_needed(current_len);
   if (!pad_fits(current_len, need, cap)) return current_len;
   /* RFC 9000 14.1: PADDING frame is a single 0x00 octet, repeated. */

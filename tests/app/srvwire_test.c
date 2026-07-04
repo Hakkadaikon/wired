@@ -75,7 +75,7 @@ static void test_srvwire_initial_wrong_key(void) {
 }
 
 /* Shared Handshake keys for the round-trip tests (RFC 9001 5). */
-static void hs_keys(quic_initial_keys *k, quic_aes128 *hp) {
+static void hs_keys(quic_initial_keys* k, quic_aes128* hp) {
   for (usz i = 0; i < 16; i++) {
     k->key[i] = (u8)(0x10 + i);
     k->hp[i]  = (u8)(0x90 + i);
@@ -139,7 +139,7 @@ static void test_srvwire_handshake_wrong_key(void) {
 /* Walk the decrypted frames and decode the ACK frame among them (RFC
  * 9000 12.4), confirming the flight carries one. Returns 1 if found and
  * decoded. */
-static int find_trailing_ack(const u8 *frames, usz n, quic_ack_frame *ack) {
+static int find_trailing_ack(const u8* frames, usz n, quic_ack_frame* ack) {
   quic_framewalk      it;
   quic_framewalk_item fr;
   quic_framewalk_init(&it, frames, n);
@@ -161,7 +161,7 @@ static void test_srvwire_initial_acks_client(void) {
   quic_aes128          hp;
   u8                   pkt[1300];
   quic_obuf            ob = {pkt, sizeof pkt, 0};
-  const u8            *frames;
+  const u8*            frames;
   usz                  fl;
   quic_ack_frame       ack;
   quic_srvwire_seal_in in = {
@@ -196,7 +196,7 @@ static void test_srvwire_handshake_acks_client(void) {
   quic_aes128       hp;
   u8                pkt[512];
   quic_obuf         ob = {pkt, sizeof pkt, 0};
-  const u8         *frames;
+  const u8*         frames;
   usz               fl;
   quic_ack_frame    ack;
   hs_keys(&k, &hp);

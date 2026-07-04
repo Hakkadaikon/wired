@@ -16,7 +16,7 @@ static u32 hton32(u32 v) {
          ((v << 24) & 0xff000000);
 }
 
-void wired_udp_addr(quic_sockaddr_in *sa, u16 port, const u8 octets[4]) {
+void wired_udp_addr(quic_sockaddr_in* sa, u16 port, const u8 octets[4]) {
   u32 addr = ((u32)octets[0] << 24) | ((u32)octets[1] << 16) |
              ((u32)octets[2] << 8) | octets[3];
   for (usz i = 0; i < 8; i++) sa->zero[i] = 0;
@@ -29,11 +29,11 @@ i64 wired_udp_socket(void) {
   return syscall3(SYS_socket, WIRED_AF_INET, WIRED_SOCK_DGRAM, 0);
 }
 
-i64 wired_udp_bind(i64 fd, const quic_sockaddr_in *sa) {
+i64 wired_udp_bind(i64 fd, const quic_sockaddr_in* sa) {
   return syscall3(SYS_bind, fd, sa, sizeof(*sa));
 }
 
-i64 wired_udp_send(i64 fd, const quic_sockaddr_in *sa, quic_span buf) {
+i64 wired_udp_send(i64 fd, const quic_sockaddr_in* sa, quic_span buf) {
   return syscall6(
       SYS_sendto, fd, (i64)buf.p, (i64)buf.n, 0, (i64)sa, sizeof(*sa));
 }
@@ -42,7 +42,7 @@ i64 wired_udp_recv(i64 fd, quic_mspan buf) {
   return syscall6(SYS_recvfrom, fd, (i64)buf.p, (i64)buf.n, 0, 0, 0);
 }
 
-i64 wired_udp_recvfrom(i64 fd, quic_mspan buf, quic_sockaddr_in *src) {
+i64 wired_udp_recvfrom(i64 fd, quic_mspan buf, quic_sockaddr_in* src) {
   /* addrlen is in/out: pass the buffer size, kernel writes the actual length.
    */
   u32 addrlen = sizeof(*src);
@@ -55,19 +55,19 @@ i64 wired_udp_close(i64 fd) { return syscall1(SYS_close, fd); }
 /* x86_64 Linux struct iovec (16 bytes): base pointer + length. Manually
  * defined per naming-and-unity-build.md — src/ may not include <sys/uio.h>. */
 typedef struct {
-  const void *iov_base;
+  const void* iov_base;
   u64         iov_len;
 } quic_iovec;
 
 /* x86_64 Linux struct msghdr (56 bytes), manually laid out to match the
  * kernel ABI for sendmsg(2) (man 2 sendmsg / uapi socket.h). */
 typedef struct {
-  const void *msg_name;
+  const void* msg_name;
   u32         msg_namelen;
   u32         msg_namelen_pad; /* kernel struct has 4B padding here (LP64) */
-  quic_iovec *msg_iov;
+  quic_iovec* msg_iov;
   u64         msg_iovlen;
-  void       *msg_control;
+  void*       msg_control;
   u64         msg_controllen;
   u32         msg_flags;
   u32         msg_flags_pad;
@@ -76,12 +76,12 @@ typedef struct {
 void wired_udp_gso_cmsg_build(u8 out[WIRED_GSO_CMSG_SPACE], u16 segsize) {
   quic_memset(out, 0, WIRED_GSO_CMSG_SPACE);
   /* cmsg_len (u64, offset 0) = CMSG_LEN(sizeof(u16)) = 16 + 2 = 18 */
-  *(u64 *)(out + 0) = 18;
+  *(u64*)(out + 0) = 18;
   /* cmsg_level (i32, offset 8), cmsg_type (i32, offset 12) */
-  *(i32 *)(out + 8)  = WIRED_SOL_UDP;
-  *(i32 *)(out + 12) = WIRED_UDP_SEGMENT;
+  *(i32*)(out + 8)  = WIRED_SOL_UDP;
+  *(i32*)(out + 12) = WIRED_UDP_SEGMENT;
   /* payload: segsize as host-order u16 right after the header */
-  *(u16 *)(out + 16) = segsize;
+  *(u16*)(out + 16) = segsize;
 }
 
 i64 wired_udp_gso_enable(i64 fd, u16 segsize) {
@@ -92,7 +92,7 @@ i64 wired_udp_gso_enable(i64 fd, u16 segsize) {
 }
 
 i64 wired_udp_send_gso(
-    i64 fd, const quic_sockaddr_in *sa, quic_span buf, u16 segsize) {
+    i64 fd, const quic_sockaddr_in* sa, quic_span buf, u16 segsize) {
   u8          cmsg[WIRED_GSO_CMSG_SPACE];
   quic_iovec  iov = {buf.p, buf.n};
   quic_msghdr msg = {0};
@@ -113,7 +113,7 @@ static usz gso_batch_seglen(usz remaining, u16 segsize) {
 }
 
 i64 wired_udp_send_batch(
-    i64 fd, const quic_sockaddr_in *sa, quic_span buf, u16 segsize) {
+    i64 fd, const quic_sockaddr_in* sa, quic_span buf, u16 segsize) {
   usz off  = 0;
   i64 sent = 0;
   while (off < buf.n) {
@@ -145,7 +145,7 @@ typedef struct {
  * whole slot first so no uninitialized stack bytes (e.g. msg_control/
  * msg_controllen) ever reach the recvmmsg(2) syscall. */
 static void recvmmsg_fill_slot(
-    quic_mmsghdr *slot, quic_iovec *iov, quic_mmsg_buf *b) {
+    quic_mmsghdr* slot, quic_iovec* iov, quic_mmsg_buf* b) {
   *slot                     = (quic_mmsghdr){0};
   iov->iov_base             = b->buf.p;
   iov->iov_len              = b->buf.n;
@@ -157,17 +157,17 @@ static void recvmmsg_fill_slot(
 
 /* Fill every slot the syscall will read from. */
 static void recvmmsg_fill_all(
-    quic_mmsghdr *slots, quic_iovec *iovs, quic_mmsg_buf *bufs, usz n) {
+    quic_mmsghdr* slots, quic_iovec* iovs, quic_mmsg_buf* bufs, usz n) {
   for (usz i = 0; i < n; i++) recvmmsg_fill_slot(&slots[i], &iovs[i], &bufs[i]);
 }
 
 /* Copy the kernel-filled length back into each received slot. */
 static void recvmmsg_read_lens(
-    quic_mmsg_buf *bufs, const quic_mmsghdr *slots, i64 r) {
+    quic_mmsg_buf* bufs, const quic_mmsghdr* slots, i64 r) {
   for (i64 i = 0; i < r; i++) bufs[i].len = slots[i].msg_len;
 }
 
-i64 wired_udp_recvmmsg(i64 fd, quic_mmsg_buf *bufs, usz count) {
+i64 wired_udp_recvmmsg(i64 fd, quic_mmsg_buf* bufs, usz count) {
   quic_mmsghdr slots[WIRED_RECVMMSG_MAX] = {0};
   quic_iovec   iovs[WIRED_RECVMMSG_MAX]  = {0};
   usz          n = count < WIRED_RECVMMSG_MAX ? count : WIRED_RECVMMSG_MAX;
@@ -179,7 +179,7 @@ i64 wired_udp_recvmmsg(i64 fd, quic_mmsg_buf *bufs, usz count) {
   return r;
 }
 
-i64 wired_udp_recvmmsg_fallback(i64 fd, quic_mmsg_buf *bufs, usz count) {
+i64 wired_udp_recvmmsg_fallback(i64 fd, quic_mmsg_buf* bufs, usz count) {
   usz n = 0;
   while (n < count) {
     i64 r = wired_udp_recvfrom(fd, bufs[n].buf, &bufs[n].src);

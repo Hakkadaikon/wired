@@ -15,14 +15,14 @@ typedef struct {
   int known;
 } quic_finalsize;
 
-void quic_finalsize_init(quic_finalsize *f);
+void quic_finalsize_init(quic_finalsize* f);
 
 /* Record that data occupies [offset, offset+len). Returns 1 if consistent,
  * 0 (FINAL_SIZE_ERROR) if it reaches at or beyond a known final size. */
-int quic_finalsize_data(quic_finalsize *f, u64 offset, u64 len);
+int quic_finalsize_data(quic_finalsize* f, u64 offset, u64 len);
 
 /* Record the final size. Returns 1 if consistent, 0 (FINAL_SIZE_ERROR) if it
  * differs from a previously known value or is below the highest offset seen. */
-int quic_finalsize_set(quic_finalsize *f, u64 size);
+int quic_finalsize_set(quic_finalsize* f, u64 size);
 
 #endif

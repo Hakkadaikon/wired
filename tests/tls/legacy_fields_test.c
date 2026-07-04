@@ -4,7 +4,7 @@
  * session_id of sid_len bytes, and compression bytes comp[comp_len]. Returns
  * total handshake message length. */
 static usz legacy_build_ch(
-    u8 *out, u16 ver, u8 sid_len, const u8 *comp, u8 comp_len) {
+    u8* out, u16 ver, u8 sid_len, const u8* comp, u8 comp_len) {
   usz off      = quic_hs_begin(out, 256, 1);
   out[off]     = (u8)(ver >> 8);
   out[off + 1] = (u8)ver;
@@ -81,7 +81,7 @@ static void test_legacy_not_client_hello(void) {
 static void test_legacy_session_id_empty(void) {
   u8        buf[256];
   u8        comp[1] = {0};
-  const u8 *sid     = (const u8 *)1;
+  const u8* sid     = (const u8*)1;
   u8        sid_len = 99;
   usz       w       = legacy_build_ch(buf, 0x0303, 0, comp, 1);
   CHECK(quic_legacy_session_id(quic_span_of(buf, w), &sid, &sid_len) == 1);
@@ -91,7 +91,7 @@ static void test_legacy_session_id_empty(void) {
 static void test_legacy_session_id_extract(void) {
   u8        buf[256];
   u8        comp[1] = {0};
-  const u8 *sid     = 0;
+  const u8* sid     = 0;
   u8        sid_len = 0;
   usz       w       = legacy_build_ch(buf, 0x0303, 32, comp, 1);
   CHECK(quic_legacy_session_id(quic_span_of(buf, w), &sid, &sid_len) == 1);
@@ -102,7 +102,7 @@ static void test_legacy_session_id_extract(void) {
 
 static void test_legacy_session_id_overlong(void) {
   u8        buf[256];
-  const u8 *sid     = 0;
+  const u8* sid     = 0;
   u8        sid_len = 0;
   usz       off     = quic_hs_begin(buf, 256, 1);
   buf[off]          = 0x03;

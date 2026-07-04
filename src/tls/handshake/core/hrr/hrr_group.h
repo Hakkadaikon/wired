@@ -8,6 +8,6 @@
  * ClientHello with a key_share for this group. On success writes the group to
  * *group and returns 1; returns 0 if the key_share extension is absent or
  * malformed. */
-int quic_hrr_selected_group(const u8 *hrr_msg, usz len, u16 *group);
+int quic_hrr_selected_group(const u8* hrr_msg, usz len, u16* group);
 
 #endif

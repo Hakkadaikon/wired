@@ -3,7 +3,7 @@
 #include "transport/recovery/rtx/rtxbytes/rebuild.h"
 
 int quic_rtxdrive_build(
-    const quic_rtxbytes *store, u64 lost_pn, quic_obuf *out) {
+    const quic_rtxbytes* store, u64 lost_pn, quic_obuf* out) {
   quic_span frame;
 
   if (!quic_rtxbytes_get(store, lost_pn, &frame)) return (out->len = 0, 1);

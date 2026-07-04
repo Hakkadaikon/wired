@@ -15,11 +15,11 @@ typedef struct {
   usz buf_len; /* bytes pending in buf */
 } quic_sha512_ctx;
 
-void quic_sha512_init(quic_sha512_ctx *s);
-void quic_sha512_update(quic_sha512_ctx *s, const u8 *data, usz len);
-void quic_sha512_final(quic_sha512_ctx *s, u8 out[QUIC_SHA512_DIGEST]);
+void quic_sha512_init(quic_sha512_ctx* s);
+void quic_sha512_update(quic_sha512_ctx* s, const u8* data, usz len);
+void quic_sha512_final(quic_sha512_ctx* s, u8 out[QUIC_SHA512_DIGEST]);
 
 /* One-shot convenience: digest of data[0..len). */
-void quic_sha512(const u8 *data, usz len, u8 out[QUIC_SHA512_DIGEST]);
+void quic_sha512(const u8* data, usz len, u8 out[QUIC_SHA512_DIGEST]);
 
 #endif

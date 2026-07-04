@@ -9,17 +9,17 @@ u8 quic_shorthdr_byte0(int spin, int key_phase, u8 pn_len) {
 }
 
 /* True if pn_len is in range and the header fits in cap. */
-static int shorthdr_ok(usz cap, const quic_shorthdr_desc *d) {
+static int shorthdr_ok(usz cap, const quic_shorthdr_desc* d) {
   if (d->pn_len < 1 || d->pn_len > 4) return 0;
   return (usz)1 + d->dcid.n + d->pn_len <= cap;
 }
 
 /* Write pn as pn_len big-endian bytes at dst (room already checked). */
-static void shdr_put_pn(u8 *dst, u64 pn, u8 pn_len) {
+static void shdr_put_pn(u8* dst, u64 pn, u8 pn_len) {
   for (u8 i = 0; i < pn_len; i++) dst[i] = (u8)(pn >> ((pn_len - 1 - i) * 8));
 }
 
-int quic_shorthdr_build(const quic_shorthdr_desc *d, quic_obuf *out) {
+int quic_shorthdr_build(const quic_shorthdr_desc* d, quic_obuf* out) {
   usz off = 1;
   if (!shorthdr_ok(out->cap, d)) return 0;
   out->p[0] = quic_shorthdr_byte0(d->spin, d->key_phase, d->pn_len);

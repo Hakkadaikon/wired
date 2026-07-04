@@ -3,13 +3,13 @@
 #include "test.h"
 
 /* Build a one-byte-name, one-byte-value field from two C-string literals. */
-static quic_qpack_field df_field(const char *n, const char *v) {
+static quic_qpack_field df_field(const char* n, const char* v) {
   quic_qpack_field f = {
-      quic_span_of((const u8 *)n, 1), quic_span_of((const u8 *)v, 1)};
+      quic_span_of((const u8*)n, 1), quic_span_of((const u8*)v, 1)};
   return f;
 }
 
-static void seed(quic_qpack_dyn *t) {
+static void seed(quic_qpack_dyn* t) {
   quic_qpack_field a = df_field("a", "1");
   quic_qpack_field b = df_field("b", "2");
   quic_qpack_dyn_init(t, 4096);

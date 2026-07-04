@@ -21,6 +21,6 @@ typedef struct {
 /* Build header + protect_seal into out. Returns the protected length, or 0
  * on overflow. */
 usz quic_tx_packet(
-    const quic_protect_keys *k, const quic_tx_desc *d, quic_mspan out);
+    const quic_protect_keys* k, const quic_tx_desc* d, quic_mspan out);
 
 #endif

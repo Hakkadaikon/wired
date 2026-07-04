@@ -9,6 +9,6 @@
  * DATA frame body into r. On success *fs views the HEADERS field section in
  * place. Returns 1, or 0 on a malformed/truncated stream. */
 int wired_h3reqdrive_request_sections(
-    quic_span stream_data, quic_span *fs, wired_h3reqdrive_req *r);
+    quic_span stream_data, quic_span* fs, wired_h3reqdrive_req* r);
 
 #endif

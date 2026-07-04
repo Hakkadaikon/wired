@@ -11,7 +11,7 @@
 
 static const char fiot_path[] = "build/fio_test.tmp";
 
-static void fiot_make(const u8 *data, usz n) {
+static void fiot_make(const u8* data, usz n) {
   i64 fd = syscall6(
       SYS_openat, FIOT_AT_FDCWD, (i64)fiot_path, FIOT_O_CREATE_WR, FIOT_MODE, 0,
       0);

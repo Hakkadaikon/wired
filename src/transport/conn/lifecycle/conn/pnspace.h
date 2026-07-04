@@ -18,10 +18,10 @@ typedef struct {
 } quic_pnspace;
 
 /* Initialize all spaces to packet number 0. */
-void quic_pnspace_init(quic_pnspace *s);
+void quic_pnspace_init(quic_pnspace* s);
 
 /* Return the next packet number for `space` and advance that space's counter.
  * Each space is strictly monotonic and independent of the others. */
-u64 quic_pnspace_next(quic_pnspace *s, quic_pns_space space);
+u64 quic_pnspace_next(quic_pnspace* s, quic_pns_space space);
 
 #endif

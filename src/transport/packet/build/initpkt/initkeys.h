@@ -8,7 +8,7 @@
  * the Destination Connection ID of the client's first Initial packet. */
 void quic_initpkt_derive(
     quic_span          dcid,
-    quic_initial_keys *client_keys,
-    quic_initial_keys *server_keys);
+    quic_initial_keys* client_keys,
+    quic_initial_keys* server_keys);
 
 #endif

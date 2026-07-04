@@ -13,7 +13,7 @@
  * pair). */
 typedef struct {
   wired_srvloop_handler cb;  /**< the response-body builder callback */
-  void                 *ctx; /**< opaque context passed back to cb */
+  void*                 ctx; /**< opaque context passed back to cb */
 } wired_srvrun_handler;
 
 /** Optional debug-log file paths, each 0 to disable (the default): a qlog
@@ -22,10 +22,10 @@ typedef struct {
  * cert_path/key_path, when both set, enable certificate hot reload on SIGHUP
  * (re-reads the same PEM pair id was built from); 0 (either) disables it. */
 typedef struct {
-  const char *qlog_path;   /**< qlog file path, or 0 to disable */
-  const char *keylog_path; /**< NSS key log file path, or 0 to disable */
-  const char *cert_path;   /**< cert.pem path, or 0 to disable SIGHUP reload */
-  const char *key_path;    /**< key.pem path, or 0 to disable SIGHUP reload */
+  const char* qlog_path;   /**< qlog file path, or 0 to disable */
+  const char* keylog_path; /**< NSS key log file path, or 0 to disable */
+  const char* cert_path;   /**< cert.pem path, or 0 to disable SIGHUP reload */
+  const char* key_path;    /**< key.pem path, or 0 to disable SIGHUP reload */
 } wired_srvrun_obs;
 
 /** The complete server event loop: bind a UDP socket on `port`, then forever
@@ -64,7 +64,7 @@ typedef struct {
  *   shutdown completes (SIGTERM) or the process is killed. */
 int wired_server_run(
     u16                  port,
-    wired_srvboot_id    *id,
+    wired_srvboot_id*    id,
     wired_srvrun_handler h,
     wired_srvrun_obs     obs);
 

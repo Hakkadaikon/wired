@@ -310,7 +310,7 @@ static void cios6_mul_row(u64 t[8], u64 ai, const p384_fe b) {
   t[7] = (u64)(c >> 64);
 }
 
-static void cios6_reduce_row(u64 t[8], const quic_mont384 *mont) {
+static void cios6_reduce_row(u64 t[8], const quic_mont384* mont) {
   u64               u = t[0] * mont->n0inv;
   unsigned __int128 c = (unsigned __int128)u * mont->m[0] + t[0];
   c >>= 64;
@@ -335,7 +335,7 @@ static void mont6_finalize(p384_fe r, const u64 t[8], const p384_fe m) {
   if (sub) fe6_sub_raw(r, r, m);
 }
 
-void quic_mont384_mul(p384_fe r, quic_fp384ab ab, const quic_mont384 *mont) {
+void quic_mont384_mul(p384_fe r, quic_fp384ab ab, const quic_mont384* mont) {
   u64 t[8] = {0, 0, 0, 0, 0, 0, 0, 0};
   for (usz i = 0; i < 6; i++) {
     cios6_mul_row(t, ab.a[i], ab.b);
@@ -344,12 +344,12 @@ void quic_mont384_mul(p384_fe r, quic_fp384ab ab, const quic_mont384 *mont) {
   mont6_finalize(r, t, mont->m);
 }
 
-static void mont6_from(p384_fe r, const p384_fe a, const quic_mont384 *mont) {
+static void mont6_from(p384_fe r, const p384_fe a, const quic_mont384* mont) {
   p384_fe one = {1, 0, 0, 0, 0, 0};
   quic_mont384_mul(r, (quic_fp384ab){a, one}, mont);
 }
 
-void quic_mont384_inv(p384_fe r, const p384_fe a, const quic_mont384 *mont) {
+void quic_mont384_inv(p384_fe r, const p384_fe a, const quic_mont384* mont) {
   p384_fe e, base, acc, two = {2, 0, 0, 0, 0, 0};
   fe6_sub_raw(e, mont->m, two);
   quic_mont384_mul(base, (quic_fp384ab){a, mont->rr}, mont);

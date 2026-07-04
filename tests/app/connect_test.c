@@ -143,7 +143,7 @@ static void test_connect_state_forward(void) {
  * :protocol field, then a matching QUIC STREAM frame header. Mirrors the
  * wire shape wired_h3reqdrive_recv_get expects. */
 static usz build_connect_stream(
-    int want_protocol, quic_span protocol, u8 *out, usz cap) {
+    int want_protocol, quic_span protocol, u8* out, usz cap) {
   u8              fs[128];
   quic_obuf       fsb         = quic_obuf_of(fs, sizeof fs);
   static const u8 authority[] = {'h', 'o', 's', 't'};
@@ -151,7 +151,7 @@ static usz build_connect_stream(
       quic_h3req_enc_connect(quic_span_of(authority, sizeof authority), &fsb) ==
       1);
   if (want_protocol) {
-    quic_qpack_field f = {quic_span_of((const u8 *)":protocol", 9), protocol};
+    quic_qpack_field f = {quic_span_of((const u8*)":protocol", 9), protocol};
     usz              w = quic_qpack_literal_name_encode(
         quic_mspan_of(fs + fsb.len, sizeof(fs) - fsb.len), 0, &f);
     CHECK(w > 0);
@@ -207,7 +207,7 @@ static void test_connect_protocol_absent(void) {
  * SETTINGS_ENABLE_CONNECT_PROTOCOL=1. */
 static void test_connect_protocol_negotiation(void) {
   wired_h3reqdrive_req r = {0};
-  r.protocol             = (const u8 *)"websocket";
+  r.protocol             = (const u8*)"websocket";
   r.protocol_len         = 9;
   CHECK(quic_h3_connect_protocol_ok(&r, 1) == 1); /* advertised: accepted */
   CHECK(quic_h3_connect_protocol_ok(&r, 0) == 0); /* not advertised: reject */

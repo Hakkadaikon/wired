@@ -9,6 +9,6 @@
  * emit SETTINGS as its first frame. On success records that the server has
  * sent its own SETTINGS (a precondition of sending any response). Returns 1
  * with out->len set, 0 if out lacks capacity. */
-int wired_h3srv_open_control(wired_h3srv_state *st, quic_obuf *out);
+int wired_h3srv_open_control(wired_h3srv_state* st, quic_obuf* out);
 
 #endif

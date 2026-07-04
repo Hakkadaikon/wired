@@ -4,7 +4,7 @@
 
 /* RFC 9114 4.3.1 */
 int quic_h3req_enc_method(
-    quic_span method, const quic_h3req_headers_in *in, quic_obuf *out) {
+    quic_span method, const quic_h3req_headers_in* in, quic_obuf* out) {
   static const u8      scheme[] = {'h', 't', 't', 'p', 's'};
   quic_h3req_pseudo_in p        = {
       method, quic_span_of(scheme, 5), in->authority, in->path};
@@ -12,7 +12,7 @@ int quic_h3req_enc_method(
 }
 
 /* RFC 9114 4.3.1 */
-int quic_h3req_enc_get(const quic_h3req_headers_in *in, quic_obuf *out) {
+int quic_h3req_enc_get(const quic_h3req_headers_in* in, quic_obuf* out) {
   static const u8 method[] = {'G', 'E', 'T'};
   return quic_h3req_enc_method(quic_span_of(method, 3), in, out);
 }

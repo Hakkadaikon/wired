@@ -9,7 +9,7 @@
 #include "transport/conn/pnspace/crypto_stream/crypto_tx.h"
 
 /* Minimal ServerHello (RFC 8446 4.1.3) carrying an x25519 key_share pub. */
-static usz fc_build_sh(u8 *out, usz cap, const u8 pub[32]) {
+static usz fc_build_sh(u8* out, usz cap, const u8 pub[32]) {
   usz off      = quic_hs_begin(out, cap, 2), block;
   out[off]     = 0x03;
   out[off + 1] = 0x03;
@@ -45,7 +45,7 @@ static usz fc_build_sh(u8 *out, usz cap, const u8 pub[32]) {
 }
 
 /* CertificateVerify: type(15) len(3) | scheme(2) | sig(2+len). */
-static usz fc_build_cv(u8 *out, u16 scheme, const u8 *sig, usz sig_len) {
+static usz fc_build_cv(u8* out, u16 scheme, const u8* sig, usz sig_len) {
   usz body = 4 + sig_len;
   out[0]   = 0x0f;
   out[1]   = 0;
@@ -62,7 +62,7 @@ static usz fc_build_cv(u8 *out, u16 scheme, const u8 *sig, usz sig_len) {
 /* Fresh client tlsdriver at the handshake secret, fullhs seeded from the
  * golden transcript. */
 static void fc_new_client(
-    quic_tlsdriver *cl, quic_tlsdriver *sv, quic_fullhs *h) {
+    quic_tlsdriver* cl, quic_tlsdriver* sv, quic_fullhs* h) {
   u8  cl_priv[32], cl_pub[32], sv_priv[32], sv_pub[32];
   u8  frame[1024], sh[512];
   usz fl, shn;
@@ -94,7 +94,7 @@ static void fc_new_client(
 
 /* A Certificate handshake message wrapping k DER certs, leaf first. */
 static usz fc_cert_msg(
-    u8 *out, const u8 *const *certs, const usz *lens, usz k) {
+    u8* out, const u8* const* certs, const usz* lens, usz k) {
   usz off = QUIC_HS_HEADER + 4, list, body;
   for (usz i = 0; i < k; i++) {
     usz n        = lens[i];
@@ -119,7 +119,7 @@ static usz fc_cert_msg(
   return off;
 }
 
-static const u8 *fc_realchain[2]     = {0, 0}; /* set in test entry */
+static const u8* fc_realchain[2]     = {0, 0}; /* set in test entry */
 static usz       fc_realchain_len[2] = {0, 0};
 
 /* T-006: after recv_cert the caller's buffer may die; the recorded cert must
@@ -232,7 +232,7 @@ static void test_fullhs_castore_swapped(void) {
   quic_fullhs        cl;
   quic_castore       store;
   quic_castore_entry roots[2];
-  const u8 *certs[2] = {quic_realchain_int_der, quic_realchain_leaf_der};
+  const u8* certs[2] = {quic_realchain_int_der, quic_realchain_leaf_der};
   usz       lens[2]  = {
       sizeof(quic_realchain_int_der), sizeof(quic_realchain_leaf_der)};
   u8  msg[1024];

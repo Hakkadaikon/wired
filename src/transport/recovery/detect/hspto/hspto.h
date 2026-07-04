@@ -25,6 +25,6 @@ typedef struct {
 
 /* PTO = srtt + max(4*rttvar, granularity) [+ max_ack_delay if confirmed],
  * scaled by 2^pto_count (clamped). */
-u64 quic_hspto_duration(quic_hspto_rtt rtt, const quic_hspto_ctx *ctx);
+u64 quic_hspto_duration(quic_hspto_rtt rtt, const quic_hspto_ctx* ctx);
 
 #endif

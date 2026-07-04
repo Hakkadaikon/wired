@@ -1,6 +1,6 @@
 #include "test.h"
 
-static void recv_keys(quic_initial_keys *k, quic_aes128 *hp) {
+static void recv_keys(quic_initial_keys* k, quic_aes128* hp) {
   const u8 dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
   quic_initial_derive(quic_span_of(dcid, 8), 1, k);
   quic_aes128_init(hp, k->hp);
@@ -21,7 +21,7 @@ static void test_recv_wrong_dcidlen(void) {
       &k, &hp, dcid, 5, 1, 8, body, sizeof(body), 0, pkt, sizeof(pkt), &total));
 
   u64       sid = 0, off = 0;
-  const u8 *data = 0;
+  const u8* data = 0;
   usz       dlen = 0;
   int       fin  = 0;
   CHECK(!appdata_recv_flat(
@@ -50,7 +50,7 @@ static void test_recv_offset(void) {
   usz total = o.len;
 
   u64       sid = 0, off = 0;
-  const u8 *data = 0;
+  const u8* data = 0;
   usz       dlen = 0;
   int       fin  = 1;
   CHECK(appdata_recv_flat(
@@ -73,13 +73,13 @@ static void test_recv_empty_payload(void) {
   u8                     pkt[128];
   quic_protect_keys      pk = {&k, &hp};
   quic_hspkt_onertt_desc bd = {
-      quic_span_of(dcid, 4), 1, quic_span_of((const u8 *)"", 0)};
+      quic_span_of(dcid, 4), 1, quic_span_of((const u8*)"", 0)};
   quic_obuf o = quic_obuf_of(pkt, sizeof(pkt));
   CHECK(quic_hspkt_onertt_build(&pk, &bd, &o));
   usz total = o.len;
 
   u64       sid = 0, off = 0;
-  const u8 *data = 0;
+  const u8* data = 0;
   usz       dlen = 0;
   int       fin  = 0;
   CHECK(!appdata_recv_flat(
@@ -105,7 +105,7 @@ static void test_recv_malformed(void) {
   usz total = o.len;
 
   u64       sid = 0, off = 0;
-  const u8 *data = 0;
+  const u8* data = 0;
   usz       dlen = 0;
   int       fin  = 0;
   CHECK(!appdata_recv_flat(
@@ -128,7 +128,7 @@ static void test_recv_large_stream_id(void) {
       &total));
 
   u64       sid = 0, off = 0;
-  const u8 *data = 0;
+  const u8* data = 0;
   usz       dlen = 0;
   int       fin  = 0;
   CHECK(appdata_recv_flat(

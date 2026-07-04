@@ -10,7 +10,7 @@ static int alpn_fits(usz proto_len, usz cap) {
 }
 
 /* RFC 7301 3.1: list length(2) + name length(1) + proto. */
-usz quic_tls_alpn_encode(quic_obuf *out, quic_span proto) {
+usz quic_tls_alpn_encode(quic_obuf* out, quic_span proto) {
   usz off = 3;
   if (!alpn_fits(proto.n, out->cap)) return 0;
   quic_put_be16(out->p, (u16)(1 + proto.n));
@@ -23,13 +23,13 @@ usz quic_tls_alpn_encode(quic_obuf *out, quic_span proto) {
 }
 
 /* Validate the list framing and read the first name length into *name_len. */
-static int alpn_head(quic_span buf, usz list_len, usz *name_len) {
+static int alpn_head(quic_span buf, usz list_len, usz* name_len) {
   if (list_len < 1 || 2 + list_len > buf.n) return 0;
   *name_len = buf.p[2];
   return 1 + *name_len <= list_len;
 }
 
-usz quic_tls_alpn_decode_first(quic_span buf, quic_span *proto) {
+usz quic_tls_alpn_decode_first(quic_span buf, quic_span* proto) {
   usz list_len, name_len;
   if (buf.n < 3) return 0;
   list_len = (usz)buf.p[0] << 8 | buf.p[1];

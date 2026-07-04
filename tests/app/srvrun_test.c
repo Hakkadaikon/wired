@@ -16,14 +16,14 @@
 /* A confirmed srvrun_conn built from a freshly-confirmed lp_fix, up and ready
  * to receive GOAWAY. */
 static void sr_make_confirmed_conn(
-    srvrun_conn *c, struct lp_fix *f, quic_obuf *ob) {
+    srvrun_conn* c, struct lp_fix* f, quic_obuf* ob) {
   lp_confirm(f, ob);
   *c = (srvrun_conn){f->s, f->l, 1, {0}, {0}, 0};
 }
 
 /* Find the H3 GOAWAY frame's id in a 1-RTT payload carrying a STREAM frame on
  * the control stream (id 3). Returns 1 and sets *id if found. */
-static int sr_find_goaway_id(const u8 *pl, usz pll, u64 *id) {
+static int sr_find_goaway_id(const u8* pl, usz pll, u64* id) {
   quic_stream_frame sf;
   usz               n = quic_frame_get_stream(pl, pll, &sf);
   if (n == 0 || sf.stream_id != SRVRUN_CTRL_STREAM) return 0;
@@ -98,7 +98,7 @@ static void test_srvrun_goaway_wire_content(void) {
   srvrun_conn   c;
   quic_obuf     ob;
   u8            out[256], obuf[1024];
-  const u8     *pl;
+  const u8*     pl;
   usz           pll;
   u64           id = 0xffffffffu;
   ob               = (quic_obuf){obuf, sizeof obuf, 0};
@@ -232,15 +232,15 @@ static const char srvrunt_key_path[]  = "build/srvrun_reload_key_test.pem";
 static const char srvrunt_cert_pem[] = SRVRUNT_PEM_CERT;
 static const char srvrunt_key_pem[]  = SRVRUNT_PEM_KEY;
 
-static void srvrunt_write(const char *path, const char *text, usz n) {
+static void srvrunt_write(const char* path, const char* text, usz n) {
   syscall3(SYS_unlinkat, SRVRUNT_AT_FDCWD, path, 0);
-  wired_fio_append(path, quic_span_of((const u8 *)text, n));
+  wired_fio_append(path, quic_span_of((const u8*)text, n));
 }
 
 /* BASELINE: no reload requested -> id is left completely untouched. */
 static void test_srvrun_no_reload_leaves_id_untouched(void) {
   wired_srvboot_id id  = {0};
-  const u8        *pub = (const u8 *)0x2a;
+  const u8*        pub = (const u8*)0x2a;
   id.pub               = pub;
   srvrun_cfg cfg = {-1, &id, 0, 0, 0, 0, srvrunt_cert_path, srvrunt_key_path};
   srvrun_test_set_reload(0);
@@ -270,7 +270,7 @@ static void test_srvrun_reload_requested_updates_id(void) {
  * but id is never touched, even though it is nonzero. */
 static void test_srvrun_reload_disabled_when_no_cert_path(void) {
   wired_srvboot_id id  = {0};
-  const u8        *pub = (const u8 *)0x2a;
+  const u8*        pub = (const u8*)0x2a;
   id.pub               = pub;
   srvrun_cfg cfg       = {-1, &id, 0, 0, 0, 0, 0, 0};
   srvrun_test_set_reload(1);
@@ -284,7 +284,7 @@ static void test_srvrun_reload_disabled_when_no_cert_path(void) {
  * place instead of clobbering it with a half-decoded result. */
 static void test_srvrun_reload_failure_keeps_previous_id(void) {
   wired_srvboot_id id  = {0};
-  const u8        *pub = (const u8 *)0x2a;
+  const u8*        pub = (const u8*)0x2a;
   id.pub               = pub;
   id.chain_count       = 7;
   syscall3(SYS_unlinkat, SRVRUNT_AT_FDCWD, srvrunt_cert_path, 0);

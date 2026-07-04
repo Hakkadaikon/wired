@@ -5,7 +5,7 @@
 
 /* Append a DATA frame after out->len when there is a body; out->len is left
  * unchanged for an empty body. Returns 1 ok, 0 if out lacks capacity. */
-static int resp_append_body(quic_span body, quic_obuf *out) {
+static int resp_append_body(quic_span body, quic_obuf* out) {
   quic_obuf ob;
   usz       n;
   if (!body.n) return 1;
@@ -19,7 +19,7 @@ static int resp_append_body(quic_span body, quic_obuf *out) {
 /* Emit the HEADERS frame carrying the :status (plus content-type, when
  * given) field section into out. Returns its byte length, or 0 if encoding
  * or framing lacks capacity. */
-static usz put_headers(u16 status, const char *content_type, quic_obuf *out) {
+static usz put_headers(u16 status, const char* content_type, quic_obuf* out) {
   u8        field[64];
   quic_obuf fob = quic_obuf_of(field, sizeof field);
   if (!quic_h3resp_encode_headers(status, content_type, &fob)) return 0;
@@ -29,7 +29,7 @@ static usz put_headers(u16 status, const char *content_type, quic_obuf *out) {
 
 /* RFC 9114 4.1 */
 int quic_h3resp_build(
-    u16 status, const char *content_type, quic_span body, quic_obuf *out) {
+    u16 status, const char* content_type, quic_span body, quic_obuf* out) {
   quic_obuf head = quic_obuf_of(out->p, out->cap);
   usz       off  = put_headers(status, content_type, &head);
   if (!off) return 0;

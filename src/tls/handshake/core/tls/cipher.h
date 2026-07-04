@@ -14,6 +14,6 @@ int quic_cipher_supported(u16 suite);
 /* RFC 8446 B.4: pick the highest-priority supported suite from the client's
  * offered list (n_pairs big-endian u16 code points). Writes it to *chosen and
  * returns 1; returns 0 if none is supported. */
-int quic_cipher_select(const u8 *offered, usz n_pairs, u16 *chosen);
+int quic_cipher_select(const u8* offered, usz n_pairs, u16* chosen);
 
 #endif

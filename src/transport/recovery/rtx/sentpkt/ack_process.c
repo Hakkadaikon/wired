@@ -10,13 +10,13 @@ typedef struct {
 static int pn_within(u64 pn, ap_pnrange r) { return pn >= r.lo && pn <= r.hi; }
 
 /* True when slot i holds an in-flight packet whose pn is in r. */
-static int slot_in_range(const quic_sentpkt *t, usz i, ap_pnrange r) {
-  const quic_sentpkt_entry *p = &t->e[i];
+static int slot_in_range(const quic_sentpkt* t, usz i, ap_pnrange r) {
+  const quic_sentpkt_entry* p = &t->e[i];
   return p->used && p->state == QUIC_SP_INFLIGHT && pn_within(p->pn, r);
 }
 
 /* Remove every in-flight packet in r, appending pns to out. */
-static void ack_range(quic_sentpkt *t, ap_pnrange r, quic_u64out out) {
+static void ack_range(quic_sentpkt* t, ap_pnrange r, quic_u64out out) {
   for (usz i = 0; i < QUIC_SENTPKT_CAP; i++) {
     if (!slot_in_range(t, i, r)) continue;
     t->e[i].state       = QUIC_SP_ACKED;
@@ -28,7 +28,7 @@ static void ack_range(quic_sentpkt *t, ap_pnrange r, quic_u64out out) {
 /* RFC 9000 19.3: ranges are first_len, then (gap, range_len) pairs. The
  * top of each successive range is the previous low minus gap minus 2. */
 void quic_ack_process(
-    quic_sentpkt *t, const quic_ackset *acked, quic_u64out newly_acked) {
+    quic_sentpkt* t, const quic_ackset* acked, quic_u64out newly_acked) {
   *newly_acked.n = 0;
   if (acked->n_ranges == 0) return;
   u64 hi = acked->ack_largest;

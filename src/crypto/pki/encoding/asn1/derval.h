@@ -12,6 +12,6 @@ int quic_der_oid_equal(quic_span oid, quic_span expected);
 
 /* Decode a DER INTEGER value blob into *out. Strips a single leading 0x00
  * pad. Returns 1 ok; 0 if negative, empty, or wider than 8 octets. */
-int quic_der_uint(const u8 *val, usz val_len, u64 *out);
+int quic_der_uint(const u8* val, usz val_len, u64* out);
 
 #endif

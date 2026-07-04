@@ -12,14 +12,14 @@ const ec_point384 quic_p384_g = {
      0xf8f41dbd289a147cULL, 0x5d9e98bf9292dc29ULL, 0x3617de4a96262c6fULL},
     0};
 
-void quic_p384_point_set(ec_point384 *r, const ec_point384 *p) {
+void quic_p384_point_set(ec_point384* r, const ec_point384* p) {
   quic_fp384_set(r->x, p->x);
   quic_fp384_set(r->y, p->y);
   r->inf = p->inf;
 }
 
 /* lhs = y^2, rhs = x^3 - 3x + b (all mod p). */
-static void p384pt_rhs_lhs(p384_fe lhs, p384_fe rhs, const ec_point384 *p) {
+static void p384pt_rhs_lhs(p384_fe lhs, p384_fe rhs, const ec_point384* p) {
   p384_fe x2, three_x, three = {3, 0, 0, 0, 0, 0};
   quic_fp384_sqr(lhs, p->y, quic_p384_p);
   quic_fp384_sqr(x2, p->x, quic_p384_p);
@@ -29,7 +29,7 @@ static void p384pt_rhs_lhs(p384_fe lhs, p384_fe rhs, const ec_point384 *p) {
   quic_fp384_add(rhs, (quic_fp384ab){rhs, p384_b}, quic_p384_p);
 }
 
-int quic_p384_point_on_curve(const ec_point384 *p) {
+int quic_p384_point_on_curve(const ec_point384* p) {
   p384_fe lhs, rhs;
   if (p->inf) return 1;
   p384pt_rhs_lhs(lhs, rhs, p);
@@ -60,18 +60,18 @@ static void p384pt_fp_dbl(p384_fe r, const p384_fe a) {
   p384pt_fp_add(r, a, a);
 }
 
-static void p384pt_jac_from_affine(jac384 *j, const ec_point384 *p) {
+static void p384pt_jac_from_affine(jac384* j, const ec_point384* p) {
   quic_fp384_set(j->X, p->x);
   quic_fp384_set(j->Y, p->y);
   for (usz i = 0; i < 6; i++) j->Z[i] = 0;
   j->Z[0] = p->inf ? 0 : 1;
 }
 
-static void p384pt_jac_set_inf(jac384 *j) {
+static void p384pt_jac_set_inf(jac384* j) {
   for (usz i = 0; i < 6; i++) j->Z[i] = 0;
 }
 
-static int p384pt_jac_is_inf(const jac384 *j) {
+static int p384pt_jac_is_inf(const jac384* j) {
   return quic_fp384_is_zero(j->Z);
 }
 
@@ -91,7 +91,7 @@ typedef struct {
 } p384_dblv;
 
 /* Y3 = alpha*(4*beta - X3) - 8*gamma^2. */
-static void p384pt_dbl_y(p384_fe y3, const p384_fe x3, const p384_dblv *d) {
+static void p384pt_dbl_y(p384_fe y3, const p384_fe x3, const p384_dblv* d) {
   p384_fe t, g2;
   p384pt_fp_dbl(t, d->beta);
   p384pt_fp_dbl(t, t); /* 4*beta */
@@ -105,7 +105,7 @@ static void p384pt_dbl_y(p384_fe y3, const p384_fe x3, const p384_dblv *d) {
 }
 
 /* r = 2*p (a = -3 doubling, dbl-2001-b). */
-static void p384pt_jac_double(jac384 *r, const jac384 *p) {
+static void p384pt_jac_double(jac384* r, const jac384* p) {
   p384_fe delta, gamma, beta, alpha, t, s;
   p384pt_fp_sqr(delta, p->Z);
   p384pt_fp_sqr(gamma, p->Y);
@@ -131,7 +131,7 @@ typedef struct {
 } p384_addt;
 
 /* Cross terms U1,U2,S1,S2 (plus the Z terms) for Jacobian addition. */
-static void p384pt_add_uv(p384_addt *t, const jac384 *p, const jac384 *q) {
+static void p384pt_add_uv(p384_addt* t, const jac384* p, const jac384* q) {
   p384pt_fp_sqr(t->z1z1, p->Z);
   p384pt_fp_sqr(t->z2z2, q->Z);
   p384pt_fp_mul(t->u1, p->X, t->z2z2);
@@ -144,7 +144,7 @@ static void p384pt_add_uv(p384_addt *t, const jac384 *p, const jac384 *q) {
 }
 
 /* Finish addition given the cross terms and H = U2-U1, rr = 2(S2-S1). */
-static void p384pt_add_finish(jac384 *r, const p384_addt *a) {
+static void p384pt_add_finish(jac384* r, const p384_addt* a) {
   p384_fe i, j, v, t;
   p384pt_fp_dbl(t, a->h);
   p384pt_fp_sqr(i, t); /* I = (2H)^2 */
@@ -166,7 +166,7 @@ static void p384pt_add_finish(jac384 *r, const p384_addt *a) {
 }
 
 /* r = p + q given the cross terms; assumes p != -q, p != q. */
-static void p384pt_jac_add(jac384 *r, p384_addt *t) {
+static void p384pt_jac_add(jac384* r, p384_addt* t) {
   p384pt_fp_sub(t->h, t->u2, t->u1);
   p384pt_fp_sub(t->rr, t->s2, t->s1);
   p384pt_fp_dbl(t->rr, t->rr);
@@ -175,7 +175,7 @@ static void p384pt_jac_add(jac384 *r, p384_addt *t) {
 
 /* Same-x case: double if s1==s2 (acc==base), else infinity. */
 static void p384pt_add_same_x_jac(
-    jac384 *acc, const p384_fe s1, const p384_fe s2) {
+    jac384* acc, const p384_fe s1, const p384_fe s2) {
   if (quic_fp384_eq(s1, s2))
     p384pt_jac_double(acc, acc);
   else
@@ -183,7 +183,7 @@ static void p384pt_add_same_x_jac(
 }
 
 /* acc += base, handling infinity and the doubling/inverse case. */
-static void p384pt_jac_add_step(jac384 *acc, const jac384 *base) {
+static void p384pt_jac_add_step(jac384* acc, const jac384* base) {
   p384_addt t;
   if (p384pt_jac_is_inf(acc)) {
     *acc = *base;
@@ -203,13 +203,13 @@ static int p384pt_scalar_bit(const u8 k[48], usz bit) {
 
 /* One scalar-bit step: acc = 2*acc, then += base if bit set. */
 static void p384pt_ec_mul_step(
-    jac384 *acc, const u8 k[48], const jac384 *base, usz bit) {
+    jac384* acc, const u8 k[48], const jac384* base, usz bit) {
   p384pt_jac_double(acc, acc);
   if (p384pt_scalar_bit(k, bit)) p384pt_jac_add_step(acc, base);
 }
 
 /* Convert Jacobian back to affine: x = X/Z^2, y = Y/Z^3. */
-static void p384pt_jac_to_affine(ec_point384 *r, const jac384 *j) {
+static void p384pt_jac_to_affine(ec_point384* r, const jac384* j) {
   p384_fe zi, zi2, zi3;
   if (p384pt_jac_is_inf(j)) {
     r->inf = 1;
@@ -223,7 +223,7 @@ static void p384pt_jac_to_affine(ec_point384 *r, const jac384 *j) {
   r->inf = 0;
 }
 
-void quic_p384_point_mul(ec_point384 *r, const u8 k[48], const ec_point384 *p) {
+void quic_p384_point_mul(ec_point384* r, const u8 k[48], const ec_point384* p) {
   jac384 acc, base;
   p384pt_jac_set_inf(&acc);
   for (usz i = 0; i < 6; i++) acc.X[i] = acc.Y[i] = 0;
@@ -233,7 +233,7 @@ void quic_p384_point_mul(ec_point384 *r, const u8 k[48], const ec_point384 *p) {
 }
 
 /* Affine double via one Jacobian doubling (test/verify convenience). */
-void quic_p384_point_double(ec_point384 *r, const ec_point384 *p) {
+void quic_p384_point_double(ec_point384* r, const ec_point384* p) {
   jac384 j, d;
   if (p->inf || quic_fp384_is_zero(p->y)) {
     r->inf = 1;
@@ -246,7 +246,7 @@ void quic_p384_point_double(ec_point384 *r, const ec_point384 *p) {
 
 /* Affine add via Jacobian (handles infinity and the inverse pair). */
 static int p384pt_point_add_special(
-    ec_point384 *r, const ec_point384 *p, const ec_point384 *q) {
+    ec_point384* r, const ec_point384* p, const ec_point384* q) {
   if (p->inf) {
     quic_p384_point_set(r, q);
     return 1;
@@ -259,7 +259,7 @@ static int p384pt_point_add_special(
 }
 
 void quic_p384_point_add(
-    ec_point384 *r, const ec_point384 *p, const ec_point384 *q) {
+    ec_point384* r, const ec_point384* p, const ec_point384* q) {
   jac384 acc, base;
   if (p384pt_point_add_special(r, p, q)) return;
   p384pt_jac_from_affine(&acc, p);

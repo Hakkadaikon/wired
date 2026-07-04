@@ -4,11 +4,11 @@
 #include "test.h"
 #include "tls/handshake/core/tls/handshake.h"
 
-static u16 hrrt_rd16(const u8 *p) { return (u16)((p[0] << 8) | p[1]); }
+static u16 hrrt_rd16(const u8* p) { return (u16)((p[0] << 8) | p[1]); }
 
 /* Find extension of type `t` in the block at `ext` (total bytes); on a match
  * set *elen to its ext_data length and return a pointer to ext_data, else 0. */
-static const u8 *hrr_find_ext(const u8 *ext, usz total, u16 t, usz *elen) {
+static const u8* hrr_find_ext(const u8* ext, usz total, u16 t, usz* elen) {
   usz i = 0;
   while (i + 4 <= total) {
     usz el = hrrt_rd16(ext + i + 2);
@@ -24,7 +24,7 @@ static const u8 *hrr_find_ext(const u8 *ext, usz total, u16 t, usz *elen) {
 /* RFC 8446 4.1.3: the random sentinel is SHA-256("HelloRetryRequest"). */
 static void test_hrr_random_sentinel(void) {
   u8 fixed[32];
-  quic_sha256((const u8 *)"HelloRetryRequest", 17, fixed);
+  quic_sha256((const u8*)"HelloRetryRequest", 17, fixed);
   for (int i = 0; i < 32; i++) CHECK(quic_hrr_random[i] == fixed[i]);
 }
 

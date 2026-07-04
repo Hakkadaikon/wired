@@ -37,7 +37,7 @@ static void pp_scalar(u8 k[48], u8 v) {
   k[47] = v;
 }
 
-static void pp_expect(const ec_point384 *r, const u8 *x, const u8 *y) {
+static void pp_expect(const ec_point384* r, const u8* x, const u8* y) {
   u8 gx[48], gy[48];
   CHECK(r->inf == 0);
   quic_fp384_to_be(gx, r->x);

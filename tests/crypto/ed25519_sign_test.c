@@ -2,7 +2,7 @@
 
 static u8 sgn_hexnib(char c) { return (u8)(c <= '9' ? c - '0' : c - 'a' + 10); }
 
-static void sgn_hexbytes(const char *hex, u8 *out, usz n) {
+static void sgn_hexbytes(const char* hex, u8* out, usz n) {
   for (usz i = 0; i < n; i++)
     out[i] = (u8)((sgn_hexnib(hex[i * 2]) << 4) | sgn_hexnib(hex[i * 2 + 1]));
 }
@@ -10,11 +10,11 @@ static void sgn_hexbytes(const char *hex, u8 *out, usz n) {
 /* One RFC 8032 7.1 vector: seed -> public, (seed,msg) -> signature, and the
  * produced signature verifies. */
 static void sign_vector(
-    const char *seed,
-    const char *pub,
-    const char *msg,
+    const char* seed,
+    const char* pub,
+    const char* msg,
     usz         msg_len,
-    const char *sig) {
+    const char* sig) {
   u8 sd[32], pk[32], want_pk[32], M[2], want_sig[64], got_pk[32], got_sig[64];
   sgn_hexbytes(seed, sd, 32);
   sgn_hexbytes(pub, want_pk, 32);

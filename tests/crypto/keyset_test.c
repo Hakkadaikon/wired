@@ -6,7 +6,7 @@ void test_keyset(void) {
   quic_keyset st;
   quic_keyset_init(&st);
 
-  const quic_initial_keys *out = 0;
+  const quic_initial_keys* out = 0;
   CHECK(quic_keyset_for_level(&st, QUIC_LEVEL_INITIAL, &out) == 0);
 
   quic_initial_keys k;

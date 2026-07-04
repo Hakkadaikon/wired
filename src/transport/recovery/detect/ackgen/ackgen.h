@@ -20,6 +20,6 @@ typedef struct {
 } quic_ackgen_state;
 
 /* Whether an ACK should be sent now. */
-int quic_ackgen_should_ack(const quic_ackgen_state *s, u64 max_ack_delay);
+int quic_ackgen_should_ack(const quic_ackgen_state* s, u64 max_ack_delay);
 
 #endif

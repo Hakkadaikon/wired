@@ -34,7 +34,7 @@ typedef struct {
   quic_initial_keys ikeys; /* Initial-level protection (both sides share) */
   quic_aes128       ihp;   /* Initial header-protection cipher */
   quic_aes128       hshp;  /* handshake/1-RTT header-protection cipher */
-  quic_memlink     *link;  /* the in-memory transport */
+  quic_memlink*     link;  /* the in-memory transport */
   u8                dcid[8];
   u8                peer_pub[32]; /* the peer's X25519 share, once seen */
   int               is_server;
@@ -43,30 +43,30 @@ typedef struct {
 
 /* Everything quic_session_init needs besides the session. */
 typedef struct {
-  const u8     *priv; /* [32] */
-  const u8     *dcid; /* [8] */
-  quic_memlink *link;
+  const u8*     priv; /* [32] */
+  const u8*     dcid; /* [8] */
+  quic_memlink* link;
   int           is_server;
 } quic_session_init_in;
 
 /* Initialize a session over `in->link` with our private scalar and the shared
  * DCID (both ends use the same DCID to derive matching Initial keys). */
-void quic_session_init(quic_session *s, const quic_session_init_in *in);
+void quic_session_init(quic_session* s, const quic_session_init_in* in);
 
 /* Client: build and send an Initial carrying a ClientHello (our X25519 share)
  * onto the link. Returns 1 on success. */
-int quic_session_client_hello(quic_session *s);
+int quic_session_client_hello(quic_session* s);
 
 /* Server: receive the client Initial from the link, unprotect it, and recover
  * the client's X25519 share into s->peer_pub. Returns 1 on success. */
-int quic_session_accept(quic_session *s);
+int quic_session_accept(quic_session* s);
 
 /* Complete key agreement on both ends: each derives the handshake (1-RTT)
  * keys from the ECDHE shared secret over `transcript`. The client learns the
  * server's share from `peer` (in this in-memory setup the server's public key
  * is known directly). Returns 1 on success. */
 int quic_session_finish(
-    quic_session *client, quic_session *server, quic_span transcript);
+    quic_session* client, quic_session* server, quic_span transcript);
 
 /* One outgoing STREAM message: the stream, its payload, and the FIN bit. */
 typedef struct {
@@ -77,11 +77,11 @@ typedef struct {
 
 /* Send a 1-RTT STREAM frame (protected with the agreed keys) onto the link.
  * Returns 1 on success, 0 before the handshake keys are ready. */
-int quic_session_send_stream(quic_session *s, const quic_session_msg *m);
+int quic_session_send_stream(quic_session* s, const quic_session_msg* m);
 
 /* Receive and decrypt a 1-RTT STREAM frame from the link into *out (its data
  * pointer references an internal buffer valid until the next recv). Returns 1
  * on success, 0 if nothing valid was available. */
-int quic_session_recv_stream(quic_session *s, quic_stream_frame *out);
+int quic_session_recv_stream(quic_session* s, quic_stream_frame* out);
 
 #endif

@@ -16,6 +16,6 @@ extern const u8 quic_hrr_random[32];
  * must retry with; cookie (may be empty) is echoed in a cookie extension.
  * On success writes the total message length to out->len and returns 1;
  * returns 0 if it does not fit. */
-int quic_hrr_build(u16 selected_group, quic_span cookie, quic_obuf *out);
+int quic_hrr_build(u16 selected_group, quic_span cookie, quic_obuf* out);
 
 #endif

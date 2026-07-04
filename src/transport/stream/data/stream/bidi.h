@@ -12,8 +12,8 @@ typedef struct {
   quic_recv_state recv;
 } quic_bidi;
 
-void quic_bidi_init(quic_bidi *b);
+void quic_bidi_init(quic_bidi* b);
 
-int quic_bidi_closed(const quic_bidi *b);
+int quic_bidi_closed(const quic_bidi* b);
 
 #endif

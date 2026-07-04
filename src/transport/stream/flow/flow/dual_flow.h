@@ -14,6 +14,6 @@ typedef struct {
 
 /* Whether the stream and connection usages are each within their limits. */
 int quic_dual_flow_ok(
-    const quic_flow_usage *stream, const quic_flow_usage *conn);
+    const quic_flow_usage* stream, const quic_flow_usage* conn);
 
 #endif

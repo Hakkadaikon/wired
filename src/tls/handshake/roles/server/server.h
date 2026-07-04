@@ -54,7 +54,7 @@ typedef struct {
   usz tr_through_flight;   /**< transcript length through server Finished */
   u8  client_random[32];   /**< ClientHello.random (RFC 8446 4.1.2), recorded by
                             * wired_server_recv_initial for keylog lines */
-  const char *keylog_path; /**< NSS key log file path, or 0 to disable */
+  const char* keylog_path; /**< NSS key log file path, or 0 to disable */
 } wired_server;
 
 /** server_priv_x25519/server_pub_x25519 are the static ECDHE pair; cert_seed
@@ -65,10 +65,10 @@ typedef struct {
  * default of building its own self-signed P-256 end-entity certificate from
  * cert_seed (sdrv). */
 typedef struct {
-  const u8        *server_priv_x25519; /**< X25519 private, 32 bytes */
-  const u8        *server_pub_x25519;  /**< X25519 public, 32 bytes */
-  const u8        *cert_seed;   /**< ECDSA P-256 signing scalar, big-endian */
-  const quic_span *chain;       /**< optional: external chain, leaf first */
+  const u8*        server_priv_x25519; /**< X25519 private, 32 bytes */
+  const u8*        server_pub_x25519;  /**< X25519 public, 32 bytes */
+  const u8*        cert_seed;   /**< ECDSA P-256 signing scalar, big-endian */
+  const quic_span* chain;       /**< optional: external chain, leaf first */
   usz              chain_count; /**< entries in chain; 0 = self-signed */
 } wired_server_init_in;
 
@@ -76,7 +76,7 @@ typedef struct {
  * opened.
  * @param s the orchestrator to initialize
  * @param in the server key material */
-void wired_server_init(wired_server *s, const wired_server_init_in *in);
+void wired_server_init(wired_server* s, const wired_server_init_in* in);
 
 /** RFC 9000 7.3: record the DCID of the client's first Initial (the ODCID the
  * server echoes) and the server's source connection id (ISCID) so the
@@ -86,14 +86,14 @@ void wired_server_init(wired_server *s, const wired_server_init_in *in);
  * @param odcid the DCID of the client's first Initial
  * @param iscid the server's source connection id
  * @return 1 ok, 0 if either length exceeds 20. */
-int wired_server_set_cids(wired_server *s, quic_span odcid, quic_span iscid);
+int wired_server_set_cids(wired_server* s, quic_span odcid, quic_span iscid);
 
 /** Set the NSS key log file path (SSLKEYLOGFILE format); 0 disables (the
  * default). When set, wired_server_feed appends a CLIENT_HANDSHAKE_TRAFFIC_
  * SECRET line once the client Finished verifies.
  * @param s the orchestrator to configure
  * @param path NUL-terminated key log file path, or 0 to disable */
-void wired_server_set_keylog_path(wired_server *s, const char *path);
+void wired_server_set_keylog_path(wired_server* s, const char* path);
 
 /** RFC 8446 4.4.1: fold a received ClientHello (TLS handshake message bytes)
  * into the transcript, recording ClientHello.random (bytes [4,36) of ch_msg:
@@ -104,7 +104,7 @@ void wired_server_set_keylog_path(wired_server *s, const char *path);
  * @param ch_len length of ch_msg in octets
  * @return 1 on success, 0 if the message is not a usable ClientHello or out
  *   of phase. */
-int wired_server_recv_initial(wired_server *s, const u8 *ch_msg, usz ch_len);
+int wired_server_recv_initial(wired_server* s, const u8* ch_msg, usz ch_len);
 
 /** RFC 8446 4.4 / RFC 9001 4: build the server flight (ServerHello into
  * out->sh, EncryptedExtensions||Certificate||CertificateVerify||Finished into
@@ -115,7 +115,7 @@ int wired_server_recv_initial(wired_server *s, const u8 *ch_msg, usz ch_len);
  * @param out receives the ServerHello and the Handshake-level flight
  * @return 1 on success, 0 otherwise. */
 int wired_server_build_flight(
-    wired_server *s, const u8 *server_random, const quic_sdrv_flight_out *out);
+    wired_server* s, const u8* server_random, const quic_sdrv_flight_out* out);
 
 /** RFC 8446 4.4.4 / RFC 9001 4.1.2: drive the handshake with one received
  * Handshake-packet CRYPTO payload (socket-free injection). Reassembles the
@@ -126,7 +126,7 @@ int wired_server_build_flight(
  * @param crypto_payload one Handshake-packet CRYPTO payload
  * @param len length of crypto_payload in octets
  * @return 1 if it advanced the handshake, 0 otherwise. */
-int wired_server_feed(wired_server *s, const u8 *crypto_payload, usz len);
+int wired_server_feed(wired_server* s, const u8* crypto_payload, usz len);
 
 /** RFC 9001 4.1.2 / RFC 9000 19.20: write the HANDSHAKE_DONE frame, at most
  * once and only after confirmation.
@@ -134,34 +134,34 @@ int wired_server_feed(wired_server *s, const u8 *crypto_payload, usz len);
  * @param out receives the HANDSHAKE_DONE frame
  * @return 1 and sets out->len, or 0 if not confirmed, already sent, or
  *   out->cap is 0. */
-int wired_server_handshake_done(wired_server *s, quic_obuf *out);
+int wired_server_handshake_done(wired_server* s, quic_obuf* out);
 
 /** 1 once the client Finished verified and the handshake is confirmed.
  * @param s the orchestrator to inspect
  * @return 1 once the client Finished verified and the handshake is
  *   confirmed. */
-int wired_server_is_confirmed(const wired_server *s);
+int wired_server_is_confirmed(const wired_server* s);
 
 /** Open a UDP socket bound to port and wait for the ClientHello.
  * @param s the orchestrator that will own the socket
  * @param port UDP port to bind
  * @return 1 on success, 0 on socket/bind failure. */
-int wired_server_listen(wired_server *s, u16 port);
+int wired_server_listen(wired_server* s, u16 port);
 
 /** One receive iteration: pull a datagram off the socket and feed it.
  * @param s the orchestrator to pump
  * @return 1 if the handshake advanced, 0 otherwise. */
-int wired_server_pump(wired_server *s);
+int wired_server_pump(wired_server* s);
 
 /** Pump until confirmed or max_iterations is reached (bounded so a silent or
  * hostile peer cannot wedge the server).
  * @param s the orchestrator to pump
  * @param max_iterations upper bound on receive iterations
  * @return 1 if confirmed. */
-int wired_server_run_handshake(wired_server *s, int max_iterations);
+int wired_server_run_handshake(wired_server* s, int max_iterations);
 
 /** Close the UDP socket.
  * @param s the orchestrator whose socket to close */
-void wired_server_close(wired_server *s);
+void wired_server_close(wired_server* s);
 
 #endif

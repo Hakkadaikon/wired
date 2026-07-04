@@ -10,6 +10,6 @@
 
 int quic_tls_message_complete(u64 buffered, u32 declared_len);
 
-u32 quic_tls_message_len(const u8 *hs_header);
+u32 quic_tls_message_len(const u8* hs_header);
 
 #endif

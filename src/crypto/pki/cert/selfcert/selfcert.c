@@ -10,7 +10,7 @@
 static const u8 oid_ed25519_sig[] = {0x2b, 0x65, 0x70};
 
 /* RFC 5280 4.1.1.2. signatureAlgorithm SEQUENCE { id-Ed25519 } (no params). */
-static usz build_sigalg(quic_obuf *out) {
+static usz build_sigalg(quic_obuf* out) {
   u8        oid[16];
   quic_obuf o = quic_obuf_of(oid, sizeof(oid));
   if (!quic_selfcert_der_tlv(
@@ -23,7 +23,7 @@ static usz build_sigalg(quic_obuf *out) {
 }
 
 /* RFC 5280 4.1.1.3. signatureValue BIT STRING (0x00 unused bits || sig). */
-static usz build_sigval(const u8 sig[64], quic_obuf *out) {
+static usz build_sigval(const u8 sig[64], quic_obuf* out) {
   u8  bits[65];
   usz off = 1;
   bits[0] = 0x00;
@@ -35,7 +35,7 @@ static usz build_sigval(const u8 sig[64], quic_obuf *out) {
 }
 
 /* Concatenate the parts and wrap in the Certificate SEQUENCE. */
-static int assemble(const quic_span *parts, usz cnt, quic_obuf *out) {
+static int assemble(const quic_span* parts, usz cnt, quic_obuf* out) {
   u8  body[768];
   usz off = 0;
   int ok  = 1;
@@ -48,7 +48,7 @@ static int assemble(const quic_span *parts, usz cnt, quic_obuf *out) {
 }
 
 /* Derive the public key and sign the freshly built TBS. 0 on any failure. */
-static int sign_tbs(const u8 seed[32], quic_obuf *tbs, u8 sig[64]) {
+static int sign_tbs(const u8 seed[32], quic_obuf* tbs, u8 sig[64]) {
   u8 pub[32];
   if (!quic_ed25519_keypair(seed, pub)) return 0;
   if (!quic_selfcert_tbs(pub, tbs)) return 0;
@@ -56,9 +56,9 @@ static int sign_tbs(const u8 seed[32], quic_obuf *tbs, u8 sig[64]) {
 }
 
 /* True if all three lengths are non-zero (every element encoded). */
-static int parts_ok(const quic_span *p) { return p[0].n && p[1].n && p[2].n; }
+static int parts_ok(const quic_span* p) { return p[0].n && p[1].n && p[2].n; }
 
-int quic_selfcert_build(const u8 seed[32], quic_obuf *cert_out) {
+int quic_selfcert_build(const u8 seed[32], quic_obuf* cert_out) {
   u8        sig[64], tbs[512], alg[16], sv[80];
   quic_obuf to = quic_obuf_of(tbs, sizeof(tbs));
   quic_obuf ao = quic_obuf_of(alg, sizeof(alg));

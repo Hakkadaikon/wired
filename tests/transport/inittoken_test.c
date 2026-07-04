@@ -13,9 +13,9 @@ static void test_inittoken_roundtrip(void) {
 static void test_inittoken_empty(void) {
   u8        buf[8];
   quic_span out;
-  usz w = quic_inittoken_put(buf, sizeof(buf), quic_span_of((const u8 *)0, 0));
+  usz w = quic_inittoken_put(buf, sizeof(buf), quic_span_of((const u8*)0, 0));
   usz r = quic_inittoken_get(buf, w, &out);
-  CHECK(w == 1 && r == 1 && out.n == 0 && out.p == (const u8 *)0);
+  CHECK(w == 1 && r == 1 && out.n == 0 && out.p == (const u8*)0);
   CHECK(buf[0] == 0x00);
 }
 

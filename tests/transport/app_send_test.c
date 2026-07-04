@@ -1,6 +1,6 @@
 #include "test.h"
 
-static void app_keys(quic_initial_keys *k, quic_aes128 *hp) {
+static void app_keys(quic_initial_keys* k, quic_aes128* hp) {
   const u8 dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
   quic_initial_derive(quic_span_of(dcid, 8), 1, k);
   quic_aes128_init(hp, k->hp);
@@ -22,7 +22,7 @@ static void test_app_roundtrip(void) {
       &total));
 
   u64       sid = 0, off = 99;
-  const u8 *data = 0;
+  const u8* data = 0;
   usz       dlen = 0;
   int       fin  = 0;
   CHECK(appdata_recv_flat(
@@ -49,7 +49,7 @@ static void test_app_tamper(void) {
   pkt[total - 1] ^= 0x01;
 
   u64       sid = 0, off = 0;
-  const u8 *data = 0;
+  const u8* data = 0;
   usz       dlen = 0;
   int       fin  = 0;
   CHECK(!appdata_recv_flat(

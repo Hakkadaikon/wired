@@ -1,6 +1,6 @@
 #include "test.h"
 
-static void hps_uhx(const char *hex, u8 *out, usz n) {
+static void hps_uhx(const char* hex, u8* out, usz n) {
   for (usz i = 0; i < n; i++) {
     u8 hi = hex[i * 2], lo = hex[i * 2 + 1];
     out[i] = (u8)(((hi <= '9' ? hi - '0' : hi - 'a' + 10) << 4) |

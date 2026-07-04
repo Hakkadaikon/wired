@@ -24,6 +24,6 @@ typedef struct {
 /* Highest stream ID the peer may open given max_streams of the selected type.
  * Returns 1 and writes *out on success; returns 0 when max_streams is 0 (no
  * stream permitted) or exceeds 2^60. */
-int quic_stream_max_id(const quic_stream_kind *k, u64 max_streams, u64 *out);
+int quic_stream_max_id(const quic_stream_kind* k, u64 max_streams, u64* out);
 
 #endif

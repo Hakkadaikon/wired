@@ -12,11 +12,11 @@
 /* Encode a ProtocolNameList holding one protocol: list length(2) +
  * name length(1) + proto. Returns bytes written into out, or 0 if it does not
  * fit or proto.n is 0 or exceeds 0xFF. */
-usz quic_tls_alpn_encode(quic_obuf *out, quic_span proto);
+usz quic_tls_alpn_encode(quic_obuf* out, quic_span proto);
 
 /* Read the first protocol of the ProtocolNameList at buf. On success sets
  * *proto (a view into buf) and returns total bytes consumed by the whole
  * list; 0 if truncated or a length field overruns. */
-usz quic_tls_alpn_decode_first(quic_span buf, quic_span *proto);
+usz quic_tls_alpn_decode_first(quic_span buf, quic_span* proto);
 
 #endif

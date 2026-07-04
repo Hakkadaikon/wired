@@ -3,7 +3,7 @@
 #include "transport/packet/frame/frame/flowctl.h"
 
 /* RFC 9000 19.11 */
-int quic_maxstreams_frame(int uni, u64 max, quic_obuf *out) {
+int quic_maxstreams_frame(int uni, u64 max, quic_obuf* out) {
   quic_streams_frame f;
   usz                n;
   f.uni         = uni ? 1 : 0;
@@ -15,7 +15,7 @@ int quic_maxstreams_frame(int uni, u64 max, quic_obuf *out) {
 }
 
 /* RFC 9000 19.11 */
-int quic_maxstreams_parse(quic_span in, int *uni, u64 *max) {
+int quic_maxstreams_parse(quic_span in, int* uni, u64* max) {
   quic_streams_frame f;
   if (quic_max_streams_decode(in.p, in.n, &f) == 0) return 0;
   *uni = f.uni;

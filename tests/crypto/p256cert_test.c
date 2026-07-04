@@ -27,7 +27,7 @@ static void pc_pubkey(const u8 priv[32], u8 x[32], u8 y[32]) {
 
 /* Build a self-signed cert from priv/x/y into cert, returning its length. */
 static usz pc_build(
-    const u8 priv[32], const u8 x[32], const u8 y[32], u8 *cert, usz cap) {
+    const u8 priv[32], const u8 x[32], const u8 y[32], u8* cert, usz cap) {
   quic_p256cert_key k = {priv, x, y};
   quic_obuf         o = quic_obuf_of(cert, cap);
   CHECK(quic_p256cert_build(&k, &o) == 1);
@@ -37,7 +37,7 @@ static usz pc_build(
 /* Right-align a DER INTEGER value (sans/with 0x00 pad, <=32 octets) into b[32].
  */
 static void pc_be32(u8 b[32], quic_span v) {
-  const u8 *p = v.p;
+  const u8* p = v.p;
   usz       n = v.n;
   for (usz i = 0; i < 32; i++) b[i] = 0;
   if (n > 32) {
@@ -62,7 +62,7 @@ static int pc_sig_rs(quic_span der, u8 r[32], u8 s[32]) {
 }
 
 /* RFC 5280 4.1.2.7. Split a standalone SPKI into algorithm OID and key bits. */
-static int pc_split_spki(quic_span spki, quic_span *oid, quic_span *key) {
+static int pc_split_spki(quic_span spki, quic_span* oid, quic_span* key) {
   u8          tag;
   quic_span   seq, alg;
   quic_derseq c, a;
@@ -151,10 +151,10 @@ static void test_cert_selfsigned(void) {
 
   /* A flipped TBS byte must break verification. */
   u8 saved = c.tbs.p[0];
-  ((u8 *)c.tbs.p)[0] ^= 0xff;
+  ((u8*)c.tbs.p)[0] ^= 0xff;
   quic_sha256(c.tbs.p, c.tbs.n, hash);
   CHECK(quic_ecdsa_p256_verify(x, y, r, s, hash) == 0);
-  ((u8 *)c.tbs.p)[0] = saved;
+  ((u8*)c.tbs.p)[0] = saved;
 }
 
 /* RFC 5280 4.2.1.6. The cert carries a SubjectAltName dNSName "localhost",
@@ -170,11 +170,11 @@ static void test_cert_san_localhost(void) {
   CHECK(quic_x509_parse(quic_span_of(cert, clen), &c) == 1);
 
   CHECK(
-      quic_x509_san_matches(c.tbs, quic_span_of((const u8 *)"localhost", 9)) ==
+      quic_x509_san_matches(c.tbs, quic_span_of((const u8*)"localhost", 9)) ==
       1);
   CHECK(
       quic_x509_san_matches(
-          c.tbs, quic_span_of((const u8 *)"example.com", 11)) == 0);
+          c.tbs, quic_span_of((const u8*)"example.com", 11)) == 0);
 }
 
 void test_p256cert(void) {

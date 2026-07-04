@@ -1,6 +1,6 @@
 #include "test.h"
 
-static int h3f_bytes_eq(const u8 *a, const u8 *b, usz n) {
+static int h3f_bytes_eq(const u8* a, const u8* b, usz n) {
   for (usz i = 0; i < n; i++)
     if (a[i] != b[i]) return 0;
   return 1;

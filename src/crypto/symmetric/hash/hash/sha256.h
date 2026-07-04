@@ -27,7 +27,7 @@ typedef struct {
  *
  * @param s context to initialize
  */
-void quic_sha256_init(quic_sha256_ctx *s);
+void quic_sha256_init(quic_sha256_ctx* s);
 
 /**
  * Absorb data[0..len) into the running hash.
@@ -36,7 +36,7 @@ void quic_sha256_init(quic_sha256_ctx *s);
  * @param data bytes to absorb
  * @param len  number of bytes at data
  */
-void quic_sha256_update(quic_sha256_ctx *s, const u8 *data, usz len);
+void quic_sha256_update(quic_sha256_ctx* s, const u8* data, usz len);
 
 /**
  * Finish the hash and write the digest.
@@ -44,7 +44,7 @@ void quic_sha256_update(quic_sha256_ctx *s, const u8 *data, usz len);
  * @param s   context to finalize (its state is consumed)
  * @param out receives the 32-byte digest
  */
-void quic_sha256_final(quic_sha256_ctx *s, u8 out[QUIC_SHA256_DIGEST]);
+void quic_sha256_final(quic_sha256_ctx* s, u8 out[QUIC_SHA256_DIGEST]);
 
 /**
  * One-shot convenience: digest of data[0..len).
@@ -53,6 +53,6 @@ void quic_sha256_final(quic_sha256_ctx *s, u8 out[QUIC_SHA256_DIGEST]);
  * @param len  number of bytes at data
  * @param out  receives the 32-byte digest
  */
-void quic_sha256(const u8 *data, usz len, u8 out[QUIC_SHA256_DIGEST]);
+void quic_sha256(const u8* data, usz len, u8 out[QUIC_SHA256_DIGEST]);
 
 #endif

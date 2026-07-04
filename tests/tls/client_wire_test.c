@@ -13,7 +13,7 @@ static const u8 cw_scid[4] = {0x11, 0x22, 0x33, 0x44};
 
 /* Drive a fresh keysched to the master stage so all four directional keys
  * (CLIENT_HS/SERVER_HS/CLIENT_AP/SERVER_AP) are derived, then plant it in c. */
-static void cw_derive_keys(quic_client *c) {
+static void cw_derive_keys(quic_client* c) {
   u8 ecdhe[32], tr[] = "ClientHello||ServerHello";
   for (usz i = 0; i < 32; i++) ecdhe[i] = (u8)(1 + i);
   quic_keysched_init(&c->tls.ks);
@@ -155,7 +155,7 @@ static void test_cw_onertt_roundtrip(void) {
   u8                       pkt[256];
   usz                      total = 0, dlen = 0;
   u64                      sid = 0, off = 9;
-  const u8                *data = 0;
+  const u8*                data = 0;
   int                      fin  = 0;
   const quic_initial_keys *cap, *sap;
   quic_aes128              hp;
@@ -165,8 +165,8 @@ static void test_cw_onertt_roundtrip(void) {
   cw_derive_keys(&c);
 
   /* client GET sealed with CLIENT_AP; peer opens with the same client key. */
-  tx = (quic_appdata_tx){
-      quic_span_of(cw_dcid, 8), 0, 4, quic_span_of(get, sizeof(get)), 0};
+  tx = (quic_appdata_tx){quic_span_of(cw_dcid, 8), 0, 4,
+                         quic_span_of(get, sizeof(get)), 0};
   CHECK(quic_client_send_appdata_wire(&c, &tx, &ob) == 1);
   total = ob.len;
   CHECK(quic_keysched_get(&c.tls.ks, QUIC_KS_CLIENT_AP, &cap) == 1);
@@ -204,7 +204,7 @@ static void test_cw_onertt_wrong_dcid_dropped(void) {
   const u8                 not_ours[4] = {0xaa, 0xbb, 0xcc, 0xdd};
   u8                       pkt[256];
   usz                      total = 0;
-  const quic_initial_keys *sap;
+  const quic_initial_keys* sap;
   quic_aes128              hp;
   quic_stream_frame        sf;
   cw_derive_keys(&c);

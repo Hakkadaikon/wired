@@ -12,8 +12,8 @@
 int quic_cvecdsa_build(
     const u8 priv[32],
     const u8 transcript_hash[32],
-    u8      *out,
+    u8*      out,
     usz      cap,
-    usz     *out_len);
+    usz*     out_len);
 
 #endif

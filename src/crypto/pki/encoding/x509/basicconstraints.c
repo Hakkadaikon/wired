@@ -27,7 +27,7 @@ static int bc_ca_true(quic_span val) {
 }
 
 /* The basicConstraints extnValue, if the extension is present. */
-static int bc_locate(quic_span tbs, quic_span *val) {
+static int bc_locate(quic_span tbs, quic_span* val) {
   return quic_x509_find_ext(tbs, quic_span_of(oid_bc, sizeof(oid_bc)), val);
 }
 
@@ -39,7 +39,7 @@ int quic_x509_is_ca(quic_span tbs) {
 
 /* RFC 5280 4.2.1.9. The element after cA inside BasicConstraints, i.e. the
  * pathLenConstraint if present. Assumes cA is encoded (a CA cert must). */
-static int bc_pathlen_elem(quic_span val, u8 *tag, quic_span *b) {
+static int bc_pathlen_elem(quic_span val, u8* tag, quic_span* b) {
   quic_derseq c;
   u8          t;
   quic_span   bc, x;

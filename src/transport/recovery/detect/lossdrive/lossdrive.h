@@ -15,6 +15,6 @@ typedef struct {
  * sent-packet table, and returns their pns as retransmission candidates in
  * lost.out; *lost.n is set to the count. */
 void quic_lossdrive_on_ack(
-    quic_sentpkt *state, const quic_lossdrive_in *in, quic_u64out lost);
+    quic_sentpkt* state, const quic_lossdrive_in* in, quic_u64out lost);
 
 #endif

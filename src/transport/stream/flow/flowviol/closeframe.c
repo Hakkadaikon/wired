@@ -3,7 +3,7 @@
 #include "transport/packet/frame/frame/frame.h"
 
 /* RFC 9000 19.19 */
-int quic_flowviol_close_frame(const quic_flowviol_err *e, quic_obuf *out) {
+int quic_flowviol_close_frame(const quic_flowviol_err* e, quic_obuf* out) {
   quic_conn_close_frame f;
   usz                   n;
   f.is_app     = 0;

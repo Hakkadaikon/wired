@@ -18,14 +18,14 @@
 /* The directional key material a seal/open needs: the AEAD keys and the
  * header-protection cipher derived from them. */
 typedef struct {
-  const quic_initial_keys *keys;
+  const quic_initial_keys* keys;
   quic_aes128              hp;
 } wired_srvloop_dirkeys;
 
 int wired_srvloop_seal_keys(
-    const wired_server *s, int level, wired_srvloop_dirkeys *out);
+    const wired_server* s, int level, wired_srvloop_dirkeys* out);
 
 int wired_srvloop_open_keys(
-    const wired_server *s, int level, wired_srvloop_dirkeys *out);
+    const wired_server* s, int level, wired_srvloop_dirkeys* out);
 
 #endif

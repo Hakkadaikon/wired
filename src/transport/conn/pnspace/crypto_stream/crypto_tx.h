@@ -18,6 +18,6 @@ typedef struct {
  * in->max_frame bytes. Writes the total encoded length to out->len. Returns 1
  * on success, 0 if max_frame is 0 or out is too small. */
 int quic_crypto_stream_emit(
-    quic_span tls_bytes, const quic_crypto_stream_emit_in *in, quic_obuf *out);
+    quic_span tls_bytes, const quic_crypto_stream_emit_in* in, quic_obuf* out);
 
 #endif
