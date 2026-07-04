@@ -58,6 +58,8 @@ typedef struct {
   usz       authority_len; /**< authority length in octets */
   const u8 *path;          /**< :path value (static-table view or scratch) */
   usz       path_len;      /**< path length in octets */
+  const u8 *protocol;      /**< RFC 9220 3: :protocol value, 0 if absent */
+  usz       protocol_len;  /**< protocol length in octets, 0 if absent */
   const u8 *body;          /**< request body view into stream_data, 0 if none */
   usz       body_len;      /**< 0 for GET and other bodyless requests */
 } wired_h3reqdrive_req;

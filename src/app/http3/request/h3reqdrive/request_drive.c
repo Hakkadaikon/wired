@@ -114,16 +114,22 @@ static usz decode_line(quic_span fs, quic_mspan scr, rline *L) {
 /* A request pseudo-header kind has a (value, len) slot in wired_h3reqdrive_req.
  */
 static int is_request_pseudo(quic_h3_ph_kind k) {
-  return k >= QUIC_H3_PH_METHOD && k <= QUIC_H3_PH_PATH;
+  return k >= QUIC_H3_PH_METHOD && k <= QUIC_H3_PH_PROTOCOL;
 }
 
 /* Store one recovered line into r if it is a request pseudo-header; regular
  * fields and unknown pseudo-headers are ignored (RFC 9114 4.3.1). The slot
  * tables are indexed by kind, whose enum order matches the struct fields. */
 static void classify_line(const rline *L, wired_h3reqdrive_req *r) {
-  const u8 **val[] = {0, &r->method, &r->scheme, &r->authority, &r->path};
-  usz       *len[] = {
-      0, &r->method_len, &r->scheme_len, &r->authority_len, &r->path_len};
+  const u8 **val[] = {
+      0, &r->method, &r->scheme, &r->authority, &r->path, &r->protocol};
+  usz *len[] = {
+      0,
+      &r->method_len,
+      &r->scheme_len,
+      &r->authority_len,
+      &r->path_len,
+      &r->protocol_len};
   quic_h3_ph_kind k = quic_h3_ph_classify(L->name, L->name_len);
   if (!is_request_pseudo(k)) return;
   *val[k] = L->value;

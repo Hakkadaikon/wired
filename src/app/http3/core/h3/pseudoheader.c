@@ -19,7 +19,7 @@ static const struct {
 } known[] = {
     {":method", QUIC_H3_PH_METHOD},       {":scheme", QUIC_H3_PH_SCHEME},
     {":authority", QUIC_H3_PH_AUTHORITY}, {":path", QUIC_H3_PH_PATH},
-    {":status", QUIC_H3_PH_STATUS},
+    {":protocol", QUIC_H3_PH_PROTOCOL},   {":status", QUIC_H3_PH_STATUS},
 };
 
 /* A field name is a pseudo-header iff it is non-empty and starts with ':'. */
