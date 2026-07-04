@@ -34,7 +34,7 @@ __attribute__((naked)) static void sigterm_restorer(void) {
  * public installers are one-line wrappers over this. */
 static int sigterm_install_signal(int sig, void (*handler)(int)) {
   sys_sigaction act = {handler, SA_RESTORER, sigterm_restorer, 0};
-  return syscall4(SYS_rt_sigaction, sig, &act, (void *)0, SIGSETSIZE) == 0;
+  return syscall4(SYS_rt_sigaction, sig, &act, 0, SIGSETSIZE) == 0;
 }
 
 int wired_sigterm_install(void (*handler)(int)) {
