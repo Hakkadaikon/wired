@@ -5,6 +5,8 @@
 #include "app/http3/server/sigterm/sigterm.h"
 #include "app/http3/server/srvloop/send.h"
 #include "common/platform/debug/debug.h"
+#include "common/platform/qlog/qlog.h"
+#include "common/platform/qlog/qlogevent.h"
 #include "common/platform/rng/cidgen.h"
 #include "transport/conn/lifecycle/conntable/conntable.h"
 #include "transport/io/socket/io/udp.h"
@@ -22,6 +24,8 @@ typedef struct {
   const wired_srvboot_id *id;
   wired_srvloop_handler   handler;
   void                   *ctx;
+  const char             *qlog_path;   /**< qlog file path, or 0 to disable */
+  const char             *keylog_path; /**< NSS key log path, or 0 to disable */
 } srvrun_cfg;
 
 /* One live connection's mutable state: the orchestrator, the HTTP/3 loop,
@@ -67,6 +71,17 @@ typedef struct {
   srvrun_state           *st;
 } srvrun_step_ctx;
 
+/* qlog packet_sent (pn/time are not tracked at this layer, so both are logged
+ * as 0 — the record still proves a packet of `bytes` size went out). No-op
+ * when no qlog path is set. */
+static void srvrun_qlog_sent(const srvrun_cfg *cfg, usz bytes) {
+  char rec[128];
+  usz  n;
+  if (!cfg->qlog_path) return;
+  n = wired_qlogevent_packet_sent(rec, sizeof rec, 0, 0, bytes);
+  if (n) wired_qlog_append(cfg->qlog_path, quic_span_of((const u8 *)rec, n));
+}
+
 /* Send a sealed buffer to c's recorded peer, with a trace line (skip an empty
  * buffer). Always targets the slot's own peer (RFC 9000 5.1), not whichever
  * datagram was received most recently. */
@@ -78,6 +93,7 @@ static void srvrun_send(
   (void)what; /* WIRED_LOG compiles out without -DQUIC_DEBUG */
   if (pkt.n) {
     wired_udp_send(cfg->fd, &c->peer, pkt);
+    srvrun_qlog_sent(cfg, pkt.n);
     WIRED_LOG(what);
   }
 }
@@ -125,6 +141,7 @@ static int srvrun_on_initial(
   wired_srvboot_out  out  = {&iob, &hob, {0}, 0};
   if (!wired_srvboot_accept(&conn, &in, &out))
     return WIRED_LOG("srvboot accept failed\n"), 0;
+  wired_server_set_keylog_path(&c->s, ctx->cfg->keylog_path);
   wired_srvloop_set_handler(&c->l, ctx->cfg->handler, ctx->cfg->ctx);
   srvrun_send(ctx->cfg, c, quic_span_of(ini, iob.len), "server Initial sent\n");
   srvrun_send_flight(ctx->cfg, c, hs, &out);
@@ -410,8 +427,10 @@ static void srvrun_loop(const srvrun_cfg *cfg) {
 }
 
 int wired_server_run(
-    u16 port, const wired_srvboot_id *id, wired_srvrun_handler h) {
-  srvrun_cfg cfg = {srvrun_listen(port), id, h.cb, h.ctx};
+    u16 port, const wired_srvboot_id *id, wired_srvrun_handler h,
+    wired_srvrun_obs obs) {
+  srvrun_cfg cfg = {
+      srvrun_listen(port), id, h.cb, h.ctx, obs.qlog_path, obs.keylog_path};
   if (cfg.fd < 0) return 0;
   if (!wired_sigterm_install(srvrun_sigterm_handler))
     WIRED_LOG("SIGTERM install failed, no graceful shutdown\n");

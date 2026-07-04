@@ -51,6 +51,8 @@ typedef struct {
   const char *root;         /**< document root, or 0 for history-demo mode */
   const char *index;        /**< index file name for directory requests */
   const char *access_log;   /**< access log path, or 0 to disable logging */
+  const char *qlog_path;    /**< qlog file path, or 0 to disable */
+  const char *keylog_path;  /**< NSS key log file path, or 0 to disable */
 } app_config;
 
 /* One line per request: "METHOD PATH STATUS BYTES\n" (ponytail: fixed
@@ -251,11 +253,13 @@ static void load_cert_files(wired_srvboot_id *id) {
 
 /* Resolve CLI configuration: --port (default 4433), --root (static file mode,
  * absent = history demo), --index (default index.html), --access-log
- * (absent = no logging). */
+ * (absent = no logging), --qlog-file / --keylog-file (absent = disabled). */
 static u16 load_config(app_config *cfg, int argc, char **argv) {
-  cfg->root       = wired_cliargs_str(argc, argv, "--root", 0);
-  cfg->index      = wired_cliargs_str(argc, argv, "--index", "index.html");
-  cfg->access_log = wired_cliargs_str(argc, argv, "--access-log", 0);
+  cfg->root        = wired_cliargs_str(argc, argv, "--root", 0);
+  cfg->index       = wired_cliargs_str(argc, argv, "--index", "index.html");
+  cfg->access_log  = wired_cliargs_str(argc, argv, "--access-log", 0);
+  cfg->qlog_path   = wired_cliargs_str(argc, argv, "--qlog-file", 0);
+  cfg->keylog_path = wired_cliargs_str(argc, argv, "--keylog-file", 0);
   return (u16)wired_cliargs_int(argc, argv, "--port", 4433);
 }
 
@@ -274,7 +278,10 @@ __attribute__((force_align_arg_pointer, used)) static int wired_main(
   app_selfcheck();
   server_identity(&id, &keys);
   load_cert_files(&id);
-  if (!wired_server_run(port, &id, h)) die("listen failed\n");
+  {
+    wired_srvrun_obs obs = {cfg.qlog_path, cfg.keylog_path};
+    if (!wired_server_run(port, &id, h, obs)) die("listen failed\n");
+  }
   return 0;
 }
 

@@ -16,6 +16,14 @@ typedef struct {
   void                 *ctx; /**< opaque context passed back to cb */
 } wired_srvrun_handler;
 
+/** Optional debug-log file paths, each 0 to disable (the default): a qlog
+ * (RFC 9002-shaped packet_sent/packet_received events, JSON-SEQ framed) and an
+ * NSS key log (SSLKEYLOGFILE format) for decrypting a capture in Wireshark. */
+typedef struct {
+  const char *qlog_path;   /**< qlog file path, or 0 to disable */
+  const char *keylog_path; /**< NSS key log file path, or 0 to disable */
+} wired_srvrun_obs;
+
 /** The complete server event loop: bind a UDP socket on `port`, then forever
  * receive datagrams and drive them — a fresh client Initial cold-starts a
  * connection (wired_srvboot_accept), any later datagram steps the live loop
@@ -36,9 +44,11 @@ typedef struct {
  * @param port UDP port to bind
  * @param id the fixed server identity
  * @param h the application's request responder
+ * @param obs optional qlog/keylog file paths, each 0 to disable
  * @return 0 if the socket cannot be opened or bound; otherwise runs until
  *   shutdown completes (SIGTERM) or the process is killed. */
 int wired_server_run(
-    u16 port, const wired_srvboot_id *id, wired_srvrun_handler h);
+    u16 port, const wired_srvboot_id *id, wired_srvrun_handler h,
+    wired_srvrun_obs obs);
 
 #endif
