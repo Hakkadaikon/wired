@@ -122,7 +122,7 @@ static void step_one(
   note_hs_rx(l, &o);
   in = (wired_srvloop_dispatch_in){
       ro.payload, quic_mspan_of(l->req_scratch, sizeof l->req_scratch),
-      got_request, &l->req};
+      quic_mspan_of(l->req_wrap, sizeof l->req_wrap), got_request, &l->req};
   {
     wired_srvloop_dispatch_ctx ctx = {s, &l->h3, &acc};
     wired_srvloop_dispatch(&ctx, &in);
