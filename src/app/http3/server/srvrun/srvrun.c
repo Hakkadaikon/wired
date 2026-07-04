@@ -5,6 +5,7 @@
 #include "app/http3/server/certreload/certreload.h"
 #include "app/http3/server/sigterm/sigterm.h"
 #include "app/http3/server/srvloop/send.h"
+#include "common/platform/clock/mono.h"
 #include "common/platform/debug/debug.h"
 #include "common/platform/qlog/qlog.h"
 #include "common/platform/qlog/qlogevent.h"
@@ -59,6 +60,7 @@ typedef struct {
   quic_sockaddr_in peer;
   u8               scid[WIRED_MAX_CID_LEN];
   int              goaway_sent; /**< 1 once graceful-shutdown GOAWAY sent */
+  u64              last_ms;     /**< monotonic ms of the last routed datagram */
 } srvrun_conn;
 
 /* The running server's mutable state: a fixed pool of connection slots keyed
@@ -84,6 +86,7 @@ typedef struct {
   const srvrun_cfg*       cfg;
   const quic_sockaddr_in* peer;
   srvrun_state*           st;
+  u64                     now_ms; /**< monotonic ms this step started at */
 } srvrun_step_ctx;
 
 /* qlog packet_sent (pn/time are not tracked at this layer, so both are logged
@@ -368,6 +371,24 @@ static void srvrun_free_slot(srvrun_state* st, int i) {
   st->conns[i].up = 0;
 }
 
+/* Advertised max_idle_timeout in ms — keep in sync with the value
+ * QUIC_TP_MAX_IDLE_TIMEOUT carries in tls/ext/stp/server_tp.c. Evicting at
+ * (or after) the advertised value is always legitimate: the effective idle
+ * timeout is the min of both endpoints' advertisements (RFC 9000 10.1). */
+#define WIRED_SRVRUN_IDLE_MS 30000
+
+/* 1 if c has been silent at least the advertised idle timeout. */
+static int srvrun_idle_due(const srvrun_conn* c, u64 now_ms) {
+  return c->up && now_ms - c->last_ms >= WIRED_SRVRUN_IDLE_MS;
+}
+
+/* RFC 9000 10.1: silently discard every connection idle past the advertised
+ * max_idle_timeout, freeing its slot for a new client. */
+static void srvrun_sweep_idle(srvrun_state* st, u64 now_ms) {
+  for (usz i = 0; i < QUIC_CONNTABLE_CAP; i++)
+    if (srvrun_idle_due(&st->conns[i], now_ms)) srvrun_free_slot(st, (int)i);
+}
+
 /* Cold-start outcome for a slot: on success, rekey its table entry to the
  * slot's own SCID — the DCID the client addresses from its second flight on
  * (RFC 9000 7.2) — on failure, roll the whole claim back so the slot is not
@@ -398,6 +419,7 @@ static void srvrun_step_and_reap(
 static void srvrun_serve_slot(
     const srvrun_step_ctx* ctx, int slot, quic_mspan dg) {
   srvrun_conn* c = &ctx->st->conns[slot];
+  c->last_ms     = ctx->now_ms; /* RFC 9000 10.1: activity resets idle age */
   if (srvrun_is_new(c, dg)) {
     srvrun_open_done(ctx, slot, srvrun_on_initial(ctx, c, dg));
     return;
@@ -451,7 +473,7 @@ static int srvrun_open_slot(
     const srvrun_step_ctx* ctx, quic_span dcid, int is_initial) {
   int slot = srvrun_claim_slot(ctx, dcid, is_initial);
   if (slot < 0) return -1;
-  ctx->st->conns[slot] = (srvrun_conn){{0}, {0}, 0, *ctx->peer, {0}, 0};
+  ctx->st->conns[slot] = (srvrun_conn){{0}, {0}, 0, *ctx->peer, {0}, 0, 0};
   if (quic_cid_generate(ctx->st->conns[slot].scid, ctx->cfg->id->scid_len))
     return slot;
   quic_conntable_remove(ctx->st->table, QUIC_CONNTABLE_CAP, slot);
@@ -502,7 +524,8 @@ static void srvrun_step(
   srvrun_reload_if_requested(cfg);
   r = wired_udp_recvfrom(cfg->fd, quic_mspan_of(buf, cap), &peer);
   if (r > 0) {
-    srvrun_step_ctx ctx = {cfg, &peer, st};
+    srvrun_step_ctx ctx = {cfg, &peer, st, quic_clock_mono_ms()};
+    srvrun_sweep_idle(st, ctx.now_ms); /* lazy: swept on each arrival */
     srvrun_serve(&ctx, quic_mspan_of(buf, (usz)r));
   }
 }
