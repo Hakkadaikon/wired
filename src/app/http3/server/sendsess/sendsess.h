@@ -24,7 +24,9 @@ typedef struct {
   int               active; /**< 1 while a response is being delivered */
   wired_sent_slice  log[WIRED_SENDSESS_LOG];     /**< sent, not yet acked */
   wired_sendq_slice requeue[WIRED_SENDSESS_LOG]; /**< to retransmit */
-  usz               requeue_n; /**< entries pending in requeue */
+  usz               requeue_n;     /**< entries pending in requeue */
+  u64               largest_acked; /**< highest pn the peer acked (monotone) */
+  int               has_acked;     /**< 1 once any ACK arrived */
 } wired_sendsess;
 
 /** Arm the session over a full response byte stream (borrowed; must stay
@@ -52,6 +54,15 @@ int wired_sendsess_sent(wired_sendsess* s, const wired_sendq_slice* sl, u64 pn);
 /** Consume one ACK range [lo, hi]: every logged in-flight packet in the
  * range becomes acknowledged. Unknown packet numbers are ignored. */
 void wired_sendsess_ack(wired_sendsess* s, u64 lo, u64 hi);
+
+/** Declare every in-flight packet at least 3 below largest_acked lost
+ * (RFC 9002 6.1.1 packet threshold) and move its slice to the requeue for
+ * retransmission (which always uses a fresh packet number via
+ * wired_sendsess_sent).
+ * @param s the session
+ * @param largest_acked highest packet number the peer has acknowledged
+ * @return slices newly declared lost. */
+usz wired_sendsess_detect_lost(wired_sendsess* s, u64 largest_acked);
 
 /** @return 1 once everything was sent and acknowledged (session finished);
  *   also clears active. Inactive sessions report 0. */

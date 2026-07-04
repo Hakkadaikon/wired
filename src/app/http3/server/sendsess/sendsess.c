@@ -3,8 +3,10 @@
 void wired_sendsess_arm(
     wired_sendsess* s, const u8* stream, usz len, usz chunk) {
   wired_sendq_init(&s->q, stream, len, chunk);
-  s->active    = 1;
-  s->requeue_n = 0;
+  s->active        = 1;
+  s->requeue_n     = 0;
+  s->largest_acked = 0;
+  s->has_acked     = 0;
   for (usz i = 0; i < WIRED_SENDSESS_LOG; i++) s->log[i].inflight = 0;
 }
 
@@ -45,9 +47,39 @@ static int sendsess_hit(const wired_sent_slice* e, u64 lo, u64 hi) {
   return e->inflight && e->pn >= lo && e->pn <= hi;
 }
 
+/* Track the highest acknowledged pn; it never regresses. */
+static void sendsess_note_largest(wired_sendsess* s, u64 hi) {
+  if (!s->has_acked || hi > s->largest_acked) s->largest_acked = hi;
+  s->has_acked = 1;
+}
+
 void wired_sendsess_ack(wired_sendsess* s, u64 lo, u64 hi) {
+  sendsess_note_largest(s, hi);
   for (usz i = 0; i < WIRED_SENDSESS_LOG; i++)
     if (sendsess_hit(&s->log[i], lo, hi)) s->log[i].inflight = 0;
+}
+
+/* RFC 9002 6.1.1: 1 if in-flight entry e is past the packet threshold. */
+static int sendsess_lost(const wired_sent_slice* e, u64 largest_acked) {
+  return e->inflight && largest_acked >= 3 && e->pn <= largest_acked - 3;
+}
+
+/* Move log entry i's slice to the requeue (dropped silently if full — the
+ * next detect pass picks it up again since the entry stays in flight). */
+static void sendsess_requeue(wired_sendsess* s, usz i) {
+  if (s->requeue_n >= WIRED_SENDSESS_LOG) return;
+  s->requeue[s->requeue_n++] = s->log[i].sl;
+  s->log[i].inflight         = 0;
+}
+
+usz wired_sendsess_detect_lost(wired_sendsess* s, u64 largest_acked) {
+  usz n = 0;
+  for (usz i = 0; i < WIRED_SENDSESS_LOG; i++)
+    if (sendsess_lost(&s->log[i], largest_acked)) {
+      sendsess_requeue(s, i);
+      n++;
+    }
+  return n;
 }
 
 /* 1 while anything is still unsent, requeued, or unacknowledged. */
