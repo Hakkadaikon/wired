@@ -3,5 +3,12 @@
 /.ninja_log
 /.ninja_deps
 /result
+/compile_commands.json
+/fuzz/fuzz_header
+/fuzz/fuzz_qpack
+/fuzz/fuzz_x509
+/fuzz/crash-*
+/fuzz/leak-*
+/fuzz/oom-*
 tasks/
 /docs/sdk/

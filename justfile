@@ -1,12 +1,17 @@
 # wired build. libc-free, x86_64-linux only.
 
 cc := "clang"
-cflags := "-target x86_64-linux-gnu -ffreestanding -fno-stack-protector -fno-builtin -nostdlib -static -Wall -Wextra -Werror -O2 -Isrc"
-# -mbranches-within-32B-boundaries: this host's Xeon (Cascade Lake) has the
-# JCC erratum; without it, test runtime swings ~40% on code-placement luck,
-# making perf comparisons between commits meaningless.
-testflags := "-Wall -Wextra -Werror -O2 -mbranches-within-32B-boundaries -Isrc -Itests"
-fuzzflags := "-g -fsanitize=fuzzer,address -Isrc"
+# Shared warning/optimization base; the three flag sets below extend it.
+warnflags := "-Wall -Wextra -Werror -O2"
+# freestanding: the product constraint -- every src file must compile with no
+# libc at all. Also used (plus -DQUIC_DEBUG) for the example binaries.
+cflags := "-target x86_64-linux-gnu -ffreestanding -fno-stack-protector -fno-builtin -nostdlib -static " + warnflags + " -Isrc"
+# hosted test: -mbranches-within-32B-boundaries because this host's Xeon
+# (Cascade Lake) has the JCC erratum; without it, test runtime swings ~40% on
+# code-placement luck, making perf comparisons between commits meaningless.
+testflags := warnflags + " -mbranches-within-32B-boundaries -Isrc -Itests"
+# fuzz: hosted with ASan+libFuzzer instrumentation.
+fuzzflags := warnflags + " -g -fsanitize=fuzzer,address -Isrc"
 
 # one-time bootstrap: install nix (Determinate Systems installer) when absent.
 # After it, `nix develop` provides clang/just/lizard/doxygen from flake.nix.
@@ -22,11 +27,11 @@ setup:
 # `just build` keeps sources tidy and surfaces lint findings.
 build: fmt ninja lint
 
-# archive the compiled SDK objects into build/libwired.a. Excludes sys.o,
-# whose only symbol is the SDK's own _start stub — applications supply their
-# own entry point and link the rest of the SDK from this library.
-lib: ninja
-    ar rcs build/libwired.a $(find build -name '*.o' ! -path 'build/src/common/platform/sys/sys.o')
+# archive the compiled SDK objects into build/libwired.a (a ninja target;
+# sys.o is excluded there — its only symbol is the SDK's own _start stub,
+# and applications supply their own entry point).
+lib: gen-ninja
+    ninja build/libwired.a
 
 # regenerate build.ninja from the current source list. Covers every build
 # variant this repo has (freestanding per-object, hosted unity test, the 3
@@ -52,6 +57,10 @@ test: gen-ninja
 # cyclomatic complexity gate: CCN must be <= 3
 ccn:
     lizard src --CCN 3 -w
+
+# emit compile_commands.json for clangd/IDEs from the ninja graph
+compdb: gen-ninja
+    ninja -t compdb > compile_commands.json
 
 # build the libFuzzer harness for the invariant packet-header parser and
 # the coalesced-datagram splitter (hosted, ASan+libFuzzer; src/ untouched).
