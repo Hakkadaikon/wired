@@ -16,13 +16,17 @@
 
 /** Build the response body for a decoded request. Copy from `req` (its body is
  * a view into per-step scratch, not valid past the call) into body_out,
- * setting body_out->len.
+ * setting body_out->len. May set *content_type to a static NUL-terminated
+ * string to add a content-type field line; left unchanged (0) omits it.
  * @param ctx the opaque context registered with wired_srvloop_set_handler
  * @param req the decoded request; its views are not valid past the call
  * @param body_out receives the response body bytes
+ * @param content_type receives the content-type string, or left at its
+ *   caller-supplied value (0) to omit the field line
  * @return 1 to send the body, 0 for a body-less 200. */
 typedef int (*wired_srvloop_handler)(
-    void *ctx, const wired_h3reqdrive_req *req, quic_obuf *body_out);
+    void *ctx, const wired_h3reqdrive_req *req, quic_obuf *body_out,
+    const char **content_type);
 
 /** Per-connection state of the server wire loop, re-armed by
  * wired_srvloop_init and driven by wired_srvloop_step. */
