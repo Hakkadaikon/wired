@@ -76,4 +76,16 @@ static inline void *quic_memset(void *dst, int c, usz n) {
   return dst;
 }
 
+/**
+ * Freestanding NUL-terminated string length. src/ has no libc strlen.
+ *
+ * @param s NUL-terminated string
+ * @return number of bytes before the terminating NUL
+ */
+static inline usz quic_cstr_len(const char *s) {
+  usz n = 0;
+  while (s[n]) n++;
+  return n;
+}
+
 #endif
