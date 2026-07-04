@@ -164,13 +164,17 @@ static int srvrun_on_initial(
 }
 
 /* A later datagram on a live slot: one real-wire step, send any sealed
- * reply. */
+ * reply — unless the step observed a peer CONNECTION_CLOSE, in which case
+ * the connection is draining and nothing further is sent (RFC 9000 10.2.2).
+ */
 static void srvrun_on_step(
     const srvrun_step_ctx* ctx, srvrun_conn* c, quic_mspan dg) {
   u8                 out[1500];
-  quic_obuf          ob   = quic_obuf_of(out, sizeof out);
-  wired_srvloop_conn conn = {&c->l, &c->s};
-  if (wired_srvloop_step(&conn, dg, &ob))
+  quic_obuf          ob       = quic_obuf_of(out, sizeof out);
+  wired_srvloop_conn conn     = {&c->l, &c->s};
+  int                produced = wired_srvloop_step(&conn, dg, &ob);
+  if (c->l.peer_closed) return;
+  if (produced)
     srvrun_send(
         ctx->cfg, c, quic_span_of(out, ob.len),
         "1-RTT reply sealed and sent\n");
@@ -380,6 +384,15 @@ static void srvrun_open_done(const srvrun_step_ctx* ctx, int slot, int ok) {
       ctx->cfg->id->scid_len);
 }
 
+/* One live step; a peer CONNECTION_CLOSE observed by the loop frees the slot
+ * afterward (RFC 9000 10.2.2: the connection is done, its state discarded). */
+static void srvrun_step_and_reap(
+    const srvrun_step_ctx* ctx, int slot, quic_mspan dg) {
+  srvrun_conn* c = &ctx->st->conns[slot];
+  srvrun_on_step(ctx, c, dg);
+  if (c->l.peer_closed) srvrun_free_slot(ctx->st, slot);
+}
+
 /* Drive one received datagram against its resolved slot: a new Initial
  * (re)opens the connection, any other datagram steps the live loop. */
 static void srvrun_serve_slot(
@@ -389,7 +402,7 @@ static void srvrun_serve_slot(
     srvrun_open_done(ctx, slot, srvrun_on_initial(ctx, c, dg));
     return;
   }
-  if (c->up) srvrun_on_step(ctx, c, dg);
+  if (c->up) srvrun_step_and_reap(ctx, slot, dg);
 }
 
 /* dg's DCID as a span into dg, or a 0-length span if dg is too short to carry
