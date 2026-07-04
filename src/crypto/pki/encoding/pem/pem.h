@@ -21,6 +21,10 @@
  * block. label receives a view of the bytes between "BEGIN " and the closing
  * dashes (e.g. "CERTIFICATE"), borrowed from text.
  *
+ * der is a caller-owned output buffer (see quic_obuf_of): the caller retains
+ * ownership and der->p must have room for the decoded bytes, this call only
+ * appends and advances der->len, it never allocates or frees.
+ *
  * @param text  the whole PEM text (borrowed; must outlive label)
  * @param at    scan cursor into text; advanced past the decoded block
  * @param label receives the block's label as a view into text

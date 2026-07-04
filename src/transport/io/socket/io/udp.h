@@ -30,7 +30,8 @@ void wired_udp_addr(quic_sockaddr_in *sa, u16 port, const u8 octets[4]);
  * @return the fd, or a negative errno on failure. */
 i64 wired_udp_socket(void);
 
-/** Bind fd to sa.
+/** Bind fd to sa. Ownership of fd stays with the caller; wired_udp_bind
+ * neither closes it on failure nor takes it over on success.
  * @param fd the socket fd
  * @param sa the local address to bind
  * @return 0 on success or a negative errno. */
@@ -57,7 +58,8 @@ i64 wired_udp_recv(i64 fd, quic_mspan buf);
  * @return bytes read or a negative errno. */
 i64 wired_udp_recvfrom(i64 fd, quic_mspan buf, quic_sockaddr_in *src);
 
-/** Close fd.
+/** Close fd. Takes ownership of fd: after this call fd is invalid regardless
+ * of the return value, and the caller must not use or close it again.
  * @param fd the socket fd
  * @return 0 on success or a negative errno. */
 i64 wired_udp_close(i64 fd);
