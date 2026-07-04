@@ -37,6 +37,13 @@ int quic_h3_connect_req_ok(const wired_h3reqdrive_req *r) {
   return quic_h3_connect_ok(&f);
 }
 
+/* RFC 9220 3 */
+int quic_h3_connect_protocol_ok(
+    const wired_h3reqdrive_req *r, int settings_enabled) {
+  if (r->protocol == 0) return 1; /* no :protocol: negotiation irrelevant */
+  return settings_enabled != 0;
+}
+
 int quic_h3_connect_established(u16 status) {
   return status >= 200 && status < 300;
 }
