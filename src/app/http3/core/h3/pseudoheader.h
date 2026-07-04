@@ -16,6 +16,7 @@ typedef enum {
   QUIC_H3_PH_SCHEME,
   QUIC_H3_PH_AUTHORITY,
   QUIC_H3_PH_PATH,
+  QUIC_H3_PH_PROTOCOL, /* RFC 9220 3: Extended CONNECT's :protocol */
   QUIC_H3_PH_STATUS,
   QUIC_H3_PH_UNKNOWN /* a name beginning with ':' that is not known */
 } quic_h3_ph_kind;

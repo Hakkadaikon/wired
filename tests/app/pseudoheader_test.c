@@ -60,8 +60,13 @@ static void test_ph_duplicate(void) {
 static void test_ph_unknown(void) {
   quic_h3_ph_set p;
   quic_h3_ph_init(&p);
-  quic_h3_ph_field(&p, NAME(":protocol"));
+  quic_h3_ph_field(&p, NAME(":bogus"));
   CHECK(p.ok == 0);
+}
+
+/* RFC 9220 3: :protocol is a known pseudo-header (Extended CONNECT). */
+static void test_ph_classify_protocol(void) {
+  CHECK(quic_h3_ph_classify(NAME(":protocol")) == QUIC_H3_PH_PROTOCOL);
 }
 
 /* A response needs only :status. */
@@ -82,4 +87,5 @@ void test_pseudoheader(void) {
   test_ph_duplicate();
   test_ph_unknown();
   test_ph_response_ok();
+  test_ph_classify_protocol();
 }
