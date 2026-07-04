@@ -94,17 +94,19 @@ static int request_complete(const wired_srvloop_reqacc* acc) {
 }
 
 /* RFC 9114 4.1: re-wrap the reassembled stream bytes as a single STREAM frame
- * (offset 0) and drive the HTTP/3 request decoder once. */
+ * (offset 0) into in->wrap and drive the HTTP/3 request decoder once. req's
+ * path/body views end up pointing into in->wrap, so it must be caller-owned
+ * storage that outlives this call (a stack local here would dangle by the
+ * time the handler reads req). */
 static void drive_complete(
     wired_h3srv_state*               h3,
     wired_srvloop_reqacc*            acc,
     const wired_srvloop_dispatch_in* in) {
-  u8                wrap[2080];
   quic_stream_frame f  = {0, 0, *acc->len, acc->buf, 1};
-  quic_obuf         ob = quic_obuf_of(wrap, sizeof wrap);
+  quic_obuf         ob = quic_obuf_of(in->wrap.p, in->wrap.n);
   *acc->done           = 1;
   if (quic_appdata_stream_frame(&f, &ob))
-    dispatch_stream(h3, quic_span_of(wrap, ob.len), in);
+    dispatch_stream(h3, quic_span_of(in->wrap.p, ob.len), in);
 }
 
 /* RFC 9000 2.2 / RFC 9114 4.1: accumulate this payload's request-stream frames;
