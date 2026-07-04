@@ -1095,8 +1095,50 @@ static void test_srvloop_ticket_not_resent(void) {
   }
 }
 
+/* PEER CLOSE DETECTION (RFC 9000 19.19): the payload scanner recognizes both
+ * CONNECTION_CLOSE variants (0x1c transport, 0x1d application) and nothing
+ * else. */
+static void test_srvloop_close_frame_detected(void) {
+  u8                    cc[32];
+  u8                    ping[1] = {0x01};
+  quic_conn_close_frame tpt     = {0, 0, 0, 0, 0};
+  quic_conn_close_frame app     = {1, 0, 0, 0, 0};
+  usz                   n = quic_frame_put_conn_close(cc, sizeof cc, &tpt);
+  CHECK(n > 0);
+  CHECK(srvloop_has_close(quic_span_of(cc, n)) == 1);
+  n = quic_frame_put_conn_close(cc, sizeof cc, &app);
+  CHECK(n > 0);
+  CHECK(srvloop_has_close(quic_span_of(cc, n)) == 1);
+  CHECK(srvloop_has_close(quic_span_of(ping, 1)) == 0);
+}
+
+/* PEER CLOSE OBSERVED (RFC 9000 10.2.2): a 1-RTT payload carrying a
+ * CONNECTION_CLOSE marks the loop peer-closed; the ordinary confirm exchange
+ * never does, and re-arming the loop clears the mark. */
+static void test_srvloop_peer_close_sets_flag(void) {
+  struct lp_fix         f;
+  quic_obuf             ob;
+  u8                    out[1024], cc[32], spkt[1024];
+  usz                   ccn, slen;
+  quic_conn_close_frame ccf = {0, 0, 0, 0, 0};
+  ob                        = (quic_obuf){out, sizeof out, 0};
+  lp_confirm(&f, &ob);
+  CHECK(f.l.peer_closed == 0); /* normal handshake never sets it */
+  ccn = quic_frame_put_conn_close(cc, sizeof cc, &ccf);
+  CHECK(ccn > 0);
+  slen = client_seal_onertt(&f, cc, ccn, spkt, sizeof spkt);
+  ob   = (quic_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  CHECK(f.l.peer_closed == 1);
+  CHECK(wired_srvloop_init(&f.l, f.l.cli_scid, f.l.cli_scid_len) == 1);
+  CHECK(f.l.peer_closed == 0); /* re-arm clears the mark */
+}
+
 void test_srvloop(void) {
   test_srvloop_handler_body_echoed();
+  test_srvloop_close_frame_detected();
+  test_srvloop_peer_close_sets_flag();
   test_srvloop_dispatch_uni_streams_not_request();
   test_srvloop_dispatch_get_after_uni_streams();
   test_srvloop_dispatch_split_request_streams();
