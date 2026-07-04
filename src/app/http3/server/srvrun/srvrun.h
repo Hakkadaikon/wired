@@ -18,10 +18,14 @@ typedef struct {
 
 /** Optional debug-log file paths, each 0 to disable (the default): a qlog
  * (RFC 9002-shaped packet_sent/packet_received events, JSON-SEQ framed) and an
- * NSS key log (SSLKEYLOGFILE format) for decrypting a capture in Wireshark. */
+ * NSS key log (SSLKEYLOGFILE format) for decrypting a capture in Wireshark.
+ * cert_path/key_path, when both set, enable certificate hot reload on SIGHUP
+ * (re-reads the same PEM pair id was built from); 0 (either) disables it. */
 typedef struct {
   const char *qlog_path;   /**< qlog file path, or 0 to disable */
   const char *keylog_path; /**< NSS key log file path, or 0 to disable */
+  const char *cert_path;   /**< cert.pem path, or 0 to disable SIGHUP reload */
+  const char *key_path;    /**< key.pem path, or 0 to disable SIGHUP reload */
 } wired_srvrun_obs;
 
 /** The complete server event loop: bind a UDP socket on `port`, then forever
@@ -41,14 +45,25 @@ typedef struct {
  * startup race) falls back to the default action (immediate exit, no
  * GOAWAY) — acceptable for a demo; a process supervisor should signal only
  * after observing the "listening" log line.
+ *
+ * Certificate hot reload (SIGHUP): when obs.cert_path/key_path are both set,
+ * installs a SIGHUP handler; on receipt, re-reads and re-decodes the PEM pair
+ * and updates *id in place (chain/chain_count/cert_seed only) so every
+ * connection cold-started afterward uses the new material. A connection
+ * already past its handshake never re-reads id, so a reload never disturbs
+ * it. `id` is therefore NOT const: the caller must keep it (and its backing
+ * PEM-derived buffers) alive and mutable for the whole run. A reload that
+ * fails to read or decode the new PEM pair leaves the previous identity in
+ * place.
  * @param port UDP port to bind
- * @param id the fixed server identity
+ * @param id the fixed server identity; updated in place on a SIGHUP reload
  * @param h the application's request responder
- * @param obs optional qlog/keylog file paths, each 0 to disable
+ * @param obs optional qlog/keylog file paths and cert reload paths, each 0
+ *   to disable
  * @return 0 if the socket cannot be opened or bound; otherwise runs until
  *   shutdown completes (SIGTERM) or the process is killed. */
 int wired_server_run(
-    u16 port, const wired_srvboot_id *id, wired_srvrun_handler h,
+    u16 port, wired_srvboot_id *id, wired_srvrun_handler h,
     wired_srvrun_obs obs);
 
 #endif

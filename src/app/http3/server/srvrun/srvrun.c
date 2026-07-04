@@ -2,6 +2,7 @@
 
 #include "app/http3/core/h3/frame.h"
 #include "app/http3/core/h3conn/establish.h"
+#include "app/http3/server/certreload/certreload.h"
 #include "app/http3/server/sigterm/sigterm.h"
 #include "app/http3/server/srvloop/send.h"
 #include "common/platform/debug/debug.h"
@@ -16,17 +17,31 @@
 #include "transport/stream/data/appdata/stream_send.h"
 
 /* The server's fixed run context: the bound socket and the application's
- * identity + request handler. Set once at startup, never mutated — passed by
- * const pointer so no per-datagram copy (a Parameter Object folds what were 4
+ * identity + request handler. `id` points at the caller's identity struct
+ * (examples/word_list's wired_main owns it) and is NOT const: a SIGHUP
+ * reload (RFC 9114 5.2 note; see srvrun_reload_if_requested) overwrites
+ * id->chain/chain_count/cert_seed in place so every later cold-started
+ * connection (wired_srvboot_accept, via srvrun_slot_id) picks up the new
+ * material. Live connections never re-read id after their handshake keys are
+ * derived, so a reload never disturbs them (RFC 9001 4). cert_path/key_path
+ * are 0 unless --cert/--key were given, disabling reload entirely. Passed by
+ * pointer so no per-datagram copy (a Parameter Object folds what were 4
  * separate args threaded through every step). */
 typedef struct {
-  i64                     fd;
-  const wired_srvboot_id *id;
-  wired_srvloop_handler   handler;
-  void                   *ctx;
-  const char             *qlog_path;   /**< qlog file path, or 0 to disable */
-  const char             *keylog_path; /**< NSS key log path, or 0 to disable */
+  i64               fd;
+  wired_srvboot_id *id;
+  wired_srvloop_handler handler;
+  void                 *ctx;
+  const char           *qlog_path;   /**< qlog file path, or 0 to disable */
+  const char           *keylog_path; /**< NSS key log path, or 0 to disable */
+  const char           *cert_path;   /**< cert.pem path, or 0 to disable reload */
+  const char           *key_path;    /**< key.pem path, or 0 to disable reload */
 } srvrun_cfg;
+
+/* Storage a SIGHUP reload decodes into — must outlive the identity built from
+ * it, so static (same lifetime rule as g_srvrun_table/g_srvrun_state below).
+ */
+static wired_certreload_store g_srvrun_certstore;
 
 /* One live connection's mutable state: the orchestrator, the HTTP/3 loop,
  * whether it has completed its first (Initial) reply, the peer address to
@@ -277,6 +292,54 @@ __attribute__((unused)) static void srvrun_test_set_shutdown(int v) {
   g_srvrun_shutdown = v;
 }
 
+/* Certificate hot reload: set by srvrun_sighup_handler (async-signal-safe:
+ * only stores to this flag), read by the main loop to trigger a reload of
+ * cfg->id's certificate chain and signing key from cfg->cert_path/key_path.
+ * volatile for the same reason as g_srvrun_shutdown above. */
+static volatile int g_srvrun_reload;
+
+/* SIGHUP handler: same async-signal-safety rule as srvrun_sigterm_handler —
+ * set the flag and nothing else. Registration (wired_sighup_install) is not
+ * exercised by unit tests; the behavior driven off the flag below is. */
+static void srvrun_sighup_handler(int sig) {
+  (void)sig;
+  g_srvrun_reload = 1;
+}
+
+/* 1 once a certificate reload has been requested (SIGHUP, or a test forcing
+ * the flag directly). */
+static int srvrun_reload_requested(void) { return g_srvrun_reload; }
+
+/* Test-only hook: force the reload flag without a real SIGHUP delivery (same
+ * rationale as srvrun_test_set_shutdown). Also resets it, so tests do not
+ * leak reload state into one another.
+ * ponytail: unused in the freestanding build, needs the attribute to avoid
+ * -Wunused-function under -Werror there. */
+__attribute__((unused)) static void srvrun_test_set_reload(int v) {
+  g_srvrun_reload = v;
+}
+
+/* Re-decode cfg->cert_path/key_path into cfg->id in place (wired_certreload_
+ * load overwrites only chain/chain_count/cert_seed, RFC 9114 5.2-adjacent
+ * operational note: no live connection is affected, see the srvrun_cfg
+ * comment above). A failed reload (bad path or malformed PEM/DER) leaves the
+ * previous identity untouched — wired_certreload_load does not partially
+ * mutate *id on failure. No-op when reload is disabled (cert_path unset). */
+static void srvrun_reload_cert(const srvrun_cfg *cfg) {
+  if (!cfg->cert_path) return;
+  if (!wired_certreload_load(
+          cfg->cert_path, cfg->key_path, &g_srvrun_certstore, cfg->id))
+    WIRED_LOG("cert reload failed, keeping previous identity\n");
+}
+
+/* Consume a pending reload request once: clear the flag first so a SIGHUP
+ * arriving mid-reload is not lost, then (re)load if one was pending. */
+static void srvrun_reload_if_requested(const srvrun_cfg *cfg) {
+  if (!srvrun_reload_requested()) return;
+  g_srvrun_reload = 0;
+  srvrun_reload_cert(cfg);
+}
+
 /* RFC 9000 7: a long-header Initial on a slot already up only (re)cold-starts
  * it once that connection is confirmed (its DCID legitimately changes after
  * ServerHello, so gate on confirmation, not the DCID). */
@@ -390,11 +453,16 @@ static i64 srvrun_listen(u16 port) {
 #define SRVRUN_DRAIN_TICKS 25
 #define SRVRUN_DRAIN_TICK_MS 200
 
-/* One receive+serve step when a datagram is waiting. */
+/* One receive+serve step when a datagram is waiting. Checked once per step
+ * (same granularity as SIGTERM's shutdown flag): a pending SIGHUP reloads
+ * cfg->id's certificate before the datagram, if any, is served, so a fresh
+ * Initial arriving right after a reload already sees the new identity. */
 static void srvrun_step(
     const srvrun_cfg *cfg, srvrun_state *st, u8 *buf, usz cap) {
   quic_sockaddr_in peer;
-  i64 r = wired_udp_recvfrom(cfg->fd, quic_mspan_of(buf, cap), &peer);
+  i64 r;
+  srvrun_reload_if_requested(cfg);
+  r = wired_udp_recvfrom(cfg->fd, quic_mspan_of(buf, cap), &peer);
   if (r > 0) {
     srvrun_step_ctx ctx = {cfg, &peer, st};
     srvrun_serve(&ctx, quic_mspan_of(buf, (usz)r));
@@ -426,14 +494,32 @@ static void srvrun_loop(const srvrun_cfg *cfg) {
   while (!srvrun_drain_tick(cfg, &st, buf, sizeof buf, tick)) tick++;
 }
 
-int wired_server_run(
-    u16 port, const wired_srvboot_id *id, wired_srvrun_handler h,
-    wired_srvrun_obs obs) {
-  srvrun_cfg cfg = {
-      srvrun_listen(port), id, h.cb, h.ctx, obs.qlog_path, obs.keylog_path};
-  if (cfg.fd < 0) return 0;
+/* Arm SIGHUP only when a cert path was given (cfg.cert_path unset means
+ * reload is disabled, so there is nothing to reload into). */
+static void srvrun_install_sighup(const srvrun_cfg *cfg) {
+  if (!cfg->cert_path) return;
+  if (!wired_sighup_install(srvrun_sighup_handler))
+    WIRED_LOG("SIGHUP install failed, no cert reload\n");
+}
+
+/* Install the signal handlers wired_server_run needs: SIGTERM always,
+ * SIGHUP conditionally (srvrun_install_sighup). */
+static void srvrun_install_signals(const srvrun_cfg *cfg) {
   if (!wired_sigterm_install(srvrun_sigterm_handler))
     WIRED_LOG("SIGTERM install failed, no graceful shutdown\n");
+  srvrun_install_sighup(cfg);
+}
+
+int wired_server_run(
+    u16 port, wired_srvboot_id *id, wired_srvrun_handler h,
+    wired_srvrun_obs obs) {
+  srvrun_cfg cfg = {
+      srvrun_listen(port),  id,
+      h.cb,                 h.ctx,
+      obs.qlog_path,        obs.keylog_path,
+      obs.cert_path,        obs.key_path};
+  if (cfg.fd < 0) return 0;
+  srvrun_install_signals(&cfg);
   WIRED_LOG("listening\n");
   srvrun_loop(&cfg);
   return 1;
