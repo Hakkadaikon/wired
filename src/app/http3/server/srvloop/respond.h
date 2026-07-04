@@ -3,6 +3,7 @@
 
 #include "app/http3/server/srvloop/srvloop.h"
 #include "common/bytes/span/span.h"
+#include "tls/keys/ticket/ticket.h"
 
 /* RFC 9000 12.2 / 13.2.1 / RFC 9114 6.2.1: pick the outbound datagram for one
  * step. The first reply emits the confirmation (SETTINGS + HANDSHAKE_DONE),

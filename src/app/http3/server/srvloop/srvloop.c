@@ -26,6 +26,7 @@ int wired_srvloop_init(wired_srvloop *l, const u8 *cli_scid, u8 cli_scid_len) {
   l->hs_rx_pn     = 0;
   l->hs_rx_seen   = 0;
   l->hs_done_sent = 0;
+  l->ticket_sent  = 0;
   l->on_request   = 0;
   l->req_ctx      = 0;
   l->got_request  = 0;
