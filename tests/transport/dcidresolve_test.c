@@ -12,7 +12,8 @@ void test_dcidresolve(void) {
   CHECK(quic_dcidresolve_len(quic_mspan_of(sh, sizeof sh), 3) == 3);
   /* long header truncated before the length byte (need 6 bytes) */
   u8 lh_short[] = {0x80, 0, 0, 0, 0};
-  CHECK(quic_dcidresolve_len(quic_mspan_of(lh_short, sizeof lh_short), 3) == -1);
+  CHECK(
+      quic_dcidresolve_len(quic_mspan_of(lh_short, sizeof lh_short), 3) == -1);
   /* short header with nothing at all */
   CHECK(quic_dcidresolve_len(quic_mspan_of(0, 0), 3) == -1);
 

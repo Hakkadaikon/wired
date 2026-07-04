@@ -25,8 +25,10 @@
  *   caller-supplied value (0) to omit the field line
  * @return 1 to send the body, 0 for a body-less 200. */
 typedef int (*wired_srvloop_handler)(
-    void *ctx, const wired_h3reqdrive_req *req, quic_obuf *body_out,
-    const char **content_type);
+    void                       *ctx,
+    const wired_h3reqdrive_req *req,
+    quic_obuf                  *body_out,
+    const char                **content_type);
 
 /** Per-connection state of the server wire loop, re-armed by
  * wired_srvloop_init and driven by wired_srvloop_step. */

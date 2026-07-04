@@ -30,8 +30,8 @@ static void test_cliargs_int_dangling(void) {
 
 /* Flag found among others: search doesn't stop at the first argv entry. */
 static void test_cliargs_str_found(void) {
-  char *argv[] = {"prog", "--port", "8080", "--cert", "cert.pem"};
-  const char *v = wired_cliargs_str(5, argv, "--cert", 0);
+  char       *argv[] = {"prog", "--port", "8080", "--cert", "cert.pem"};
+  const char *v      = wired_cliargs_str(5, argv, "--cert", 0);
   CHECK(v != 0);
   CHECK(v[0] == 'c' && v[1] == 'e' && v[2] == 'r' && v[3] == 't');
 }

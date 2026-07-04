@@ -14,16 +14,15 @@ static int qlogevent_streq(const char *a, const char *b) {
 
 static void test_qlogevent_packet_sent(void) {
   char out[128] = {0};
-  usz  n = wired_qlogevent_packet_sent(out, sizeof out, 42, 7, 1200);
+  usz  n        = wired_qlogevent_packet_sent(out, sizeof out, 42, 7, 1200);
   CHECK(n == 52);
   CHECK(qlogevent_streq(
-      out,
-      "{\"time\":42,\"name\":\"packet_sent\",\"pn\":7,\"bytes\":1200}"));
+      out, "{\"time\":42,\"name\":\"packet_sent\",\"pn\":7,\"bytes\":1200}"));
 }
 
 static void test_qlogevent_packet_received(void) {
   char out[128] = {0};
-  usz  n = wired_qlogevent_packet_received(out, sizeof out, 100, 3, 55);
+  usz  n        = wired_qlogevent_packet_received(out, sizeof out, 100, 3, 55);
   CHECK(n == 55);
   CHECK(qlogevent_streq(
       out,
@@ -32,15 +31,14 @@ static void test_qlogevent_packet_received(void) {
 
 static void test_qlogevent_packet_lost(void) {
   char out[128] = {0};
-  usz  n = wired_qlogevent_packet_lost(out, sizeof out, 5, 9);
+  usz  n        = wired_qlogevent_packet_lost(out, sizeof out, 5, 9);
   CHECK(n == 38);
-  CHECK(qlogevent_streq(
-      out, "{\"time\":5,\"name\":\"packet_lost\",\"pn\":9}"));
+  CHECK(qlogevent_streq(out, "{\"time\":5,\"name\":\"packet_lost\",\"pn\":9}"));
 }
 
 static void test_qlogevent_conn_state(void) {
   char out[128] = {0};
-  usz  n = wired_qlogevent_conn_state(out, sizeof out, 1, "closed");
+  usz  n        = wired_qlogevent_conn_state(out, sizeof out, 1, "closed");
   CHECK(n == 61);
   CHECK(qlogevent_streq(
       out,

@@ -46,8 +46,7 @@ static int nst_ticket_fits(usz body_len, usz ticket_len) {
 
 /* Body-level check + the sealed-ticket view, once the header parsed and
  * passed nst_header_ok. */
-static int nst_take_ticket(
-    quic_span msg, usz body_len, quic_span *sealed) {
+static int nst_take_ticket(quic_span msg, usz body_len, quic_span *sealed) {
   usz ticket_len = get_be16(msg.p + 4 + 9);
   if (!nst_ticket_fits(body_len, ticket_len)) return 0;
   *sealed = quic_span_of(msg.p + 4 + 11, ticket_len);

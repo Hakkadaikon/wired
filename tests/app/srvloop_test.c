@@ -956,8 +956,10 @@ static u8  g_test_history[256];
 static usz g_test_history_len;
 
 static int lp_echo_handler(
-    void *ctx, const wired_h3reqdrive_req *req, quic_obuf *body_out,
-    const char **content_type) {
+    void                       *ctx,
+    const wired_h3reqdrive_req *req,
+    quic_obuf                  *body_out,
+    const char                **content_type) {
   usz i;
   (void)ctx;
   (void)content_type;

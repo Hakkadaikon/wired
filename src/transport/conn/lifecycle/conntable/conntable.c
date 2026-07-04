@@ -6,8 +6,7 @@ void quic_conntable_init(quic_conntable *t, usz cap) {
   for (usz i = 0; i < cap; i++) t[i].live = 0;
 }
 
-static int conntable_slot_matches(
-    const quic_conntable *slot, quic_span want) {
+static int conntable_slot_matches(const quic_conntable *slot, quic_span want) {
   return slot->live &&
          quic_demux_match(want, quic_span_of(slot->cid, slot->cid_len));
 }

@@ -121,9 +121,9 @@ static int is_request_pseudo(quic_h3_ph_kind k) {
  * fields and unknown pseudo-headers are ignored (RFC 9114 4.3.1). The slot
  * tables are indexed by kind, whose enum order matches the struct fields. */
 static void classify_line(const rline *L, wired_h3reqdrive_req *r) {
-  const u8 **val[] = {
-      0, &r->method, &r->scheme, &r->authority, &r->path, &r->protocol};
-  usz *len[] = {
+  const u8 **val[] = {0,        &r->method,  &r->scheme, &r->authority,
+                      &r->path, &r->protocol};
+  usz       *len[] = {
       0,
       &r->method_len,
       &r->scheme_len,

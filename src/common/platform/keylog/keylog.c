@@ -4,8 +4,9 @@
 #include "common/platform/fio/fio.h"
 
 #define KEYLOG_CR_HEXLEN 64 /* 32-byte client_random as lowercase hex */
-#define KEYLOG_LABEL_MAX 64 /* longest NSS label, e.g.
-                               CLIENT_HANDSHAKE_TRAFFIC_SECRET, with room */
+#define KEYLOG_LABEL_MAX                                 \
+  64                          /* longest NSS label, e.g. \
+                                 CLIENT_HANDSHAKE_TRAFFIC_SECRET, with room */
 #define KEYLOG_SECRET_MAX 128 /* generous cap for a TLS 1.3 traffic secret */
 /* label + ' ' + cr-hex + ' ' + secret-hex + '\n' */
 #define KEYLOG_LINE_MAX \
@@ -27,7 +28,8 @@ static int keylog_put_hex(quic_mspan buf, usz *off, quic_span src) {
 }
 
 static int keylog_put_str(quic_mspan buf, usz *off, const char *s) {
-  return quic_put_bytes(buf, off, quic_span_of((const u8 *)s, quic_cstr_len(s)));
+  return quic_put_bytes(
+      buf, off, quic_span_of((const u8 *)s, quic_cstr_len(s)));
 }
 
 static int keylog_put_char(quic_mspan buf, usz *off, u8 c) {
@@ -49,8 +51,7 @@ static int keylog_build_cr(
 
 /* "label cr-hex " */
 static int keylog_build_head(
-    quic_mspan line, usz *off, const char *label,
-    const u8 client_random[32]) {
+    quic_mspan line, usz *off, const char *label, const u8 client_random[32]) {
   if (!keylog_build_label(line, off, label)) return 0;
   return keylog_build_cr(line, off, client_random);
 }
@@ -63,19 +64,24 @@ static int keylog_build_tail(quic_mspan line, usz *off, quic_span secret) {
 
 /* Build "label cr-hex secret-hex\n" into line, advancing *off. */
 static int keylog_build(
-    quic_mspan line, usz *off, const char *label, const u8 client_random[32],
-    quic_span secret) {
+    quic_mspan  line,
+    usz        *off,
+    const char *label,
+    const u8    client_random[32],
+    quic_span   secret) {
   if (!keylog_build_head(line, off, label, client_random)) return 0;
   return keylog_build_tail(line, off, secret);
 }
 
 ssz wired_keylog_append(
-    const char *path, const char *label, const u8 client_random[32],
-    quic_span secret) {
+    const char *path,
+    const char *label,
+    const u8    client_random[32],
+    quic_span   secret) {
   u8  line[KEYLOG_LINE_MAX];
   usz off = 0;
-  if (!keylog_build(quic_mspan_of(line, sizeof line), &off, label,
-                     client_random, secret))
+  if (!keylog_build(
+          quic_mspan_of(line, sizeof line), &off, label, client_random, secret))
     return WIRED_FIO_ETOOBIG;
   return wired_fio_append(path, quic_span_of(line, off));
 }

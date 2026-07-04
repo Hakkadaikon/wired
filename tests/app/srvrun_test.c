@@ -78,12 +78,13 @@ static void test_srvrun_owes_goaway_once(void) {
   CHECK(srvrun_owes_goaway(&c) == 1);
   {
     quic_obuf  gob = {out, sizeof out, 0};
-    srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0}; /* fd unused: srvrun_send
-                                       skips len==0, but sealed GOAWAY is
-                                       non-empty, so this exercises a real
-                                       (harmless) send(2) to an invalid fd --
-                                       accepted since srvrun_send does not
-                                       check the return value */
+    srvrun_cfg cfg = {-1, 0, 0, 0, 0,
+                      0,  0, 0}; /* fd unused: srvrun_send
+                        skips len==0, but sealed GOAWAY is
+                        non-empty, so this exercises a real
+                        (harmless) send(2) to an invalid fd --
+                        accepted since srvrun_send does not
+                        check the return value */
     CHECK(srvrun_send_goaway(&cfg, &c, &gob) == 1);
   }
   CHECK(c.goaway_sent == 1);
@@ -157,9 +158,9 @@ static void srvrunt_qlog_unlink(void) {
 /* No qlog path set (the default): srvrun_send writes nothing to any qlog
  * file. */
 static void test_srvrun_send_no_qlog_path_writes_nothing(void) {
-  u8            buf[8] = {1, 2, 3, 4};
-  srvrun_conn   c       = {0};
-  srvrun_cfg    cfg     = {-1, 0, 0, 0, 0, 0, 0, 0};
+  u8          buf[8] = {1, 2, 3, 4};
+  srvrun_conn c      = {0};
+  srvrun_cfg  cfg    = {-1, 0, 0, 0, 0, 0, 0, 0};
   srvrunt_qlog_unlink();
   srvrun_send(&cfg, &c, quic_span_of(buf, sizeof buf), "t\n");
   {
@@ -171,9 +172,9 @@ static void test_srvrun_send_no_qlog_path_writes_nothing(void) {
 
 /* A qlog path set: srvrun_send appends one packet_sent record. */
 static void test_srvrun_send_qlog_path_writes_packet_sent(void) {
-  u8            buf[8] = {1, 2, 3, 4};
-  srvrun_conn   c       = {0};
-  srvrun_cfg    cfg     = {-1, 0, 0, 0, srvrunt_qlog_path, 0, 0, 0};
+  u8          buf[8] = {1, 2, 3, 4};
+  srvrun_conn c      = {0};
+  srvrun_cfg  cfg    = {-1, 0, 0, 0, srvrunt_qlog_path, 0, 0, 0};
   srvrunt_qlog_unlink();
   srvrun_send(&cfg, &c, quic_span_of(buf, sizeof buf), "t\n");
   {
@@ -210,7 +211,7 @@ static const char srvrunt_key_path[]  = "build/srvrun_reload_key_test.pem";
 /* Same golden PEM text as certreload_test.c (realchain leaf + eckey SEC1),
  * duplicated here rather than shared across files to keep each test file
  * self-contained (ponytail: a few literal lines, not worth a shared header). */
-#define SRVRUNT_PEM_CERT                                                \
+#define SRVRUNT_PEM_CERT                                               \
   "-----BEGIN CERTIFICATE-----\n"                                      \
   "MIIBhjCCASygAwIBAgIBAzAKBggqhkjOPQQDAjAZMRcwFQYDVQQDDA53aXJlZC10\n" \
   "ZXN0LWludDAeFw0yNjA3MDIwMzAwMTZaFw00NjA2MjcwMzAwMTZaMBYxFDASBgNV\n" \
@@ -222,11 +223,11 @@ static const char srvrunt_key_path[]  = "build/srvrun_reload_key_test.pem";
   "qkXST1CxjIT2zWkxf1SM922UProdj70CIQCfQ3MEJPxSIUHt3H/58fEK/cMZ+Pc9\n" \
   "iAVZ8V5X3ScnOQ==\n"                                                 \
   "-----END CERTIFICATE-----\n"
-#define SRVRUNT_PEM_KEY                                                 \
-  "-----BEGIN EC PRIVATE KEY-----\n"                                    \
-  "MHcCAQEEIGEwVXfogbUsrnfdXV/ibLZWhMGAQXbeSwuof7yWDf8PoAoGCCqGSM49\n"   \
-  "AwEHoUQDQgAExXHoorugQyGhZofbmSFiyMSC0ZMgR5KTsql7o85ozCdi8WXaIs9s\n"   \
-  "Jqr6SCDjgvw9xPMUV3UEDxCsEZbkEZpW/A==\n"                              \
+#define SRVRUNT_PEM_KEY                                                \
+  "-----BEGIN EC PRIVATE KEY-----\n"                                   \
+  "MHcCAQEEIGEwVXfogbUsrnfdXV/ibLZWhMGAQXbeSwuof7yWDf8PoAoGCCqGSM49\n" \
+  "AwEHoUQDQgAExXHoorugQyGhZofbmSFiyMSC0ZMgR5KTsql7o85ozCdi8WXaIs9s\n" \
+  "Jqr6SCDjgvw9xPMUV3UEDxCsEZbkEZpW/A==\n"                             \
   "-----END EC PRIVATE KEY-----\n"
 static const char srvrunt_cert_pem[] = SRVRUNT_PEM_CERT;
 static const char srvrunt_key_pem[]  = SRVRUNT_PEM_KEY;
@@ -239,7 +240,7 @@ static void srvrunt_write(const char *path, const char *text, usz n) {
 /* BASELINE: no reload requested -> id is left completely untouched. */
 static void test_srvrun_no_reload_leaves_id_untouched(void) {
   wired_srvboot_id id  = {0};
-  const u8         *pub = (const u8 *)0x2a;
+  const u8        *pub = (const u8 *)0x2a;
   id.pub               = pub;
   srvrun_cfg cfg = {-1, &id, 0, 0, 0, 0, srvrunt_cert_path, srvrunt_key_path};
   srvrun_test_set_reload(0);
@@ -269,9 +270,9 @@ static void test_srvrun_reload_requested_updates_id(void) {
  * but id is never touched, even though it is nonzero. */
 static void test_srvrun_reload_disabled_when_no_cert_path(void) {
   wired_srvboot_id id  = {0};
-  const u8         *pub = (const u8 *)0x2a;
+  const u8        *pub = (const u8 *)0x2a;
   id.pub               = pub;
-  srvrun_cfg cfg = {-1, &id, 0, 0, 0, 0, 0, 0};
+  srvrun_cfg cfg       = {-1, &id, 0, 0, 0, 0, 0, 0};
   srvrun_test_set_reload(1);
   srvrun_reload_if_requested(&cfg);
   CHECK(srvrun_reload_requested() == 0);
@@ -283,13 +284,12 @@ static void test_srvrun_reload_disabled_when_no_cert_path(void) {
  * place instead of clobbering it with a half-decoded result. */
 static void test_srvrun_reload_failure_keeps_previous_id(void) {
   wired_srvboot_id id  = {0};
-  const u8         *pub = (const u8 *)0x2a;
+  const u8        *pub = (const u8 *)0x2a;
   id.pub               = pub;
   id.chain_count       = 7;
   syscall3(SYS_unlinkat, SRVRUNT_AT_FDCWD, srvrunt_cert_path, 0);
   {
-    srvrun_cfg cfg = {
-        -1, &id, 0, 0, 0, 0, srvrunt_cert_path, srvrunt_key_path};
+    srvrun_cfg cfg = {-1, &id, 0, 0, 0, 0, srvrunt_cert_path, srvrunt_key_path};
     srvrun_test_set_reload(1);
     srvrun_reload_if_requested(&cfg);
   }

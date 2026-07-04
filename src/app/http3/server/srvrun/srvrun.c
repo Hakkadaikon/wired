@@ -28,14 +28,14 @@
  * pointer so no per-datagram copy (a Parameter Object folds what were 4
  * separate args threaded through every step). */
 typedef struct {
-  i64               fd;
-  wired_srvboot_id *id;
+  i64                   fd;
+  wired_srvboot_id     *id;
   wired_srvloop_handler handler;
   void                 *ctx;
   const char           *qlog_path;   /**< qlog file path, or 0 to disable */
   const char           *keylog_path; /**< NSS key log path, or 0 to disable */
-  const char           *cert_path;   /**< cert.pem path, or 0 to disable reload */
-  const char           *key_path;    /**< key.pem path, or 0 to disable reload */
+  const char           *cert_path; /**< cert.pem path, or 0 to disable reload */
+  const char           *key_path;  /**< key.pem path, or 0 to disable reload */
 } srvrun_cfg;
 
 /* Storage a SIGHUP reload decodes into — must outlive the identity built from
@@ -460,7 +460,7 @@ static i64 srvrun_listen(u16 port) {
 static void srvrun_step(
     const srvrun_cfg *cfg, srvrun_state *st, u8 *buf, usz cap) {
   quic_sockaddr_in peer;
-  i64 r;
+  i64              r;
   srvrun_reload_if_requested(cfg);
   r = wired_udp_recvfrom(cfg->fd, quic_mspan_of(buf, cap), &peer);
   if (r > 0) {
@@ -511,13 +511,18 @@ static void srvrun_install_signals(const srvrun_cfg *cfg) {
 }
 
 int wired_server_run(
-    u16 port, wired_srvboot_id *id, wired_srvrun_handler h,
-    wired_srvrun_obs obs) {
-  srvrun_cfg cfg = {
-      srvrun_listen(port),  id,
-      h.cb,                 h.ctx,
-      obs.qlog_path,        obs.keylog_path,
-      obs.cert_path,        obs.key_path};
+    u16                  port,
+    wired_srvboot_id    *id,
+    wired_srvrun_handler h,
+    wired_srvrun_obs     obs) {
+  srvrun_cfg cfg = {srvrun_listen(port),
+                    id,
+                    h.cb,
+                    h.ctx,
+                    obs.qlog_path,
+                    obs.keylog_path,
+                    obs.cert_path,
+                    obs.key_path};
   if (cfg.fd < 0) return 0;
   srvrun_install_signals(&cfg);
   WIRED_LOG("listening\n");

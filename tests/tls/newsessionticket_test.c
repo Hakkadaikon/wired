@@ -15,10 +15,10 @@ static quic_ticket nst_sample_ticket(void) {
 /* The encoded message starts with the NewSessionTicket handshake type and a
  * self-consistent 24-bit length (RFC 8446 4 handshake framing). */
 static void test_nst_header(void) {
-  u8         key[QUIC_TICKET_KEY_LEN];
+  u8          key[QUIC_TICKET_KEY_LEN];
   quic_ticket t = nst_sample_ticket();
-  u8         out[256];
-  usz        n;
+  u8          out[256];
+  usz         n;
   fill_nst_key(key, 0x11);
   n = quic_tls_new_session_ticket_encode(out, sizeof out, &t, key);
   CHECK(n > 4);
@@ -29,9 +29,9 @@ static void test_nst_header(void) {
 
 /* Too small a buffer is rejected, not overrun. */
 static void test_nst_no_room(void) {
-  u8         key[QUIC_TICKET_KEY_LEN];
+  u8          key[QUIC_TICKET_KEY_LEN];
   quic_ticket t = nst_sample_ticket();
-  u8         out[8];
+  u8          out[8];
   fill_nst_key(key, 0x22);
   CHECK(quic_tls_new_session_ticket_encode(out, sizeof out, &t, key) == 0);
 }
@@ -72,7 +72,9 @@ static void test_nst_parse_truncated(void) {
   quic_span   sealed;
   fill_nst_key(key, 0x55);
   n = quic_tls_new_session_ticket_encode(out, sizeof out, &t, key);
-  CHECK(quic_tls_new_session_ticket_parse(quic_span_of(out, n - 1), &sealed) == 0);
+  CHECK(
+      quic_tls_new_session_ticket_parse(quic_span_of(out, n - 1), &sealed) ==
+      0);
 }
 
 void test_newsessionticket(void) {
