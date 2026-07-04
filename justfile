@@ -44,6 +44,16 @@ test:
 ccn:
     lizard src --CCN 3 -w
 
+# build the libFuzzer harness for the invariant packet-header parser and
+# the coalesced-datagram splitter (hosted, ASan+libFuzzer; src/ untouched).
+fuzz-header:
+    {{cc}} -g -fsanitize=fuzzer,address -Isrc fuzz/fuzz_header.c -o fuzz/fuzz_header
+
+# build the libFuzzer harness for the QPACK dynamic-table Indexed Field Line
+# decoder (hosted, ASan+libFuzzer; src/ untouched).
+fuzz-qpack:
+    {{cc}} -g -fsanitize=fuzzer,address -Isrc fuzz/fuzz_qpack.c -o fuzz/fuzz_qpack
+
 # format all sources in place (clang-format, .clang-format config)
 fmt:
     clang-format -i $(find src tests \( -name '*.c' -o -name '*.h' \))
