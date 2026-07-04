@@ -7,6 +7,7 @@
  * also get the libc-named memcpy/memset a freestanding binary needs. See
  * examples/word_list for a complete server. */
 
+#include "app/http3/server/certreload/certreload.h"
 #include "app/http3/server/srvboot/srvboot.h"
 #include "app/http3/server/srvloop/send.h"
 #include "app/http3/server/srvloop/srvloop.h"
