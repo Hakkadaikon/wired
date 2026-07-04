@@ -56,9 +56,22 @@ static void test_header_truncated(void) {
   CHECK(wired_header_build_long(small, sizeof(small), &h) == 0);
 }
 
+/* Fuzz-found (2026-07-04): a long-header byte0 with fewer than 5 bytes
+ * total must not read past the buffer while pulling the 4-byte version. */
+static void test_header_long_too_short_for_version(void) {
+  wired_header h;
+  const u8     one[] = {0xCA};
+  CHECK(wired_header_parse(one, sizeof(one), &h) == 0);
+  const u8 two[] = {0xCA, 0x2F};
+  CHECK(wired_header_parse(two, sizeof(two), &h) == 0);
+  const u8 four[] = {0xCA, 0, 0, 0};
+  CHECK(wired_header_parse(four, sizeof(four), &h) == 0);
+}
+
 void test_header(void) {
   test_header_parse_long();
   test_header_parse_short();
   test_header_build_roundtrip();
   test_header_truncated();
+  test_header_long_too_short_for_version();
 }

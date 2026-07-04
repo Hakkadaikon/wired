@@ -38,7 +38,8 @@ static int read_cids(quic_span buf, usz *off, wired_header *h) {
 }
 
 static usz parse_long(const u8 *buf, usz n, wired_header *h) {
-  usz off      = 5; /* byte0 + 4-byte version */
+  usz off = 5; /* byte0 + 4-byte version */
+  if (n < off) return 0;
   h->form      = WIRED_FORM_LONG;
   h->long_type = (buf[0] >> 4) & 0x3;
   h->version = ((u32)buf[1] << 24) | ((u32)buf[2] << 16) | ((u32)buf[3] << 8) |
