@@ -155,6 +155,31 @@ static void srvrunt_qlog_unlink(void) {
   syscall3(SYS_unlinkat, SRVRUNT_AT_FDCWD, srvrunt_qlog_path, 0);
 }
 
+/* Match the NUL-terminated needle at p (caller guarantees needle-len bytes
+ * are readable). */
+static int sr_bytes_match(const u8* p, const char* s) {
+  for (usz i = 0; s[i]; i++)
+    if (p[i] != (u8)s[i]) return 0;
+  return 1;
+}
+
+static usz sr_needle_len(const char* s) {
+  usz n = 0;
+  while (s[n]) n++;
+  return n;
+}
+
+/* Occurrences of needle in the qlog test file (0 when the file is absent). */
+static int sr_qlog_count(const char* needle) {
+  u8  buf[2048] = {0};
+  int cnt       = 0;
+  ssz n  = wired_fio_read(srvrunt_qlog_path, quic_mspan_of(buf, sizeof buf));
+  usz nl = sr_needle_len(needle);
+  if (n < 0) return 0;
+  for (usz i = 0; i + nl <= (usz)n; i++) cnt += sr_bytes_match(buf + i, needle);
+  return cnt;
+}
+
 /* No qlog path set (the default): srvrun_send writes nothing to any qlog
  * file. */
 static void test_srvrun_send_no_qlog_path_writes_nothing(void) {
@@ -422,12 +447,9 @@ static void test_srvrun_peer_close_frees_slot(void) {
     /* slot freed: up cleared, DCID no longer routes */
     CHECK(st.conns[0].up == 0);
     CHECK(quic_conntable_find(table, QUIC_CONNTABLE_CAP, g_cli_scid, 6) == -1);
-    /* no reply was sent for the close (draining sends nothing) */
-    {
-      u8  out[64] = {0};
-      ssz n = wired_fio_read(srvrunt_qlog_path, quic_mspan_of(out, sizeof out));
-      CHECK(n < 0);
-    }
+    /* no reply was sent for the close (draining sends nothing) — the close
+     * datagram itself is still logged as received */
+    CHECK(sr_qlog_count("packet_sent") == 0);
     /* a later datagram on the dead DCID is dropped without new state */
     srvrun_serve(&ctx, quic_mspan_of(spkt, slen));
     CHECK(st.conns[0].up == 0);
@@ -476,6 +498,129 @@ static void test_srvrun_serve_slot_touches_last_ms(void) {
   CHECK(st.conns[2].last_ms == 12345);
 }
 
+/* Serve one sealed 1-RTT datagram carrying `pl` to a fresh confirmed slot 0,
+ * with qlog_path (or 0). The lp fixture seals under the client 1-RTT key at
+ * PN 0. Repeats the serve `times` times against the same slot. */
+static void sr_serve_onertt(
+    const char* qlog_path, const u8* pl, usz pln, int times) {
+  struct lp_fix    f;
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32];
+  u8               obuf[1024], spkt[1024];
+  quic_conntable   table[QUIC_CONNTABLE_CAP];
+  quic_sockaddr_in peer = {0};
+  srvrun_state     st   = {table, g_srvrun_state.conns};
+  quic_obuf        ob   = {obuf, sizeof obuf, 0};
+  usz              slen;
+  sr_make_id(&id, priv, pub, seed, rnd);
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  sr_make_confirmed_conn(&st.conns[0], &f, &ob);
+  CHECK(quic_conntable_insert(table, QUIC_CONNTABLE_CAP, g_cli_scid, 6) == 0);
+  slen = client_seal_onertt(&f, pl, pln, spkt, sizeof spkt);
+  {
+    srvrun_cfg      cfg = {-1, &id, 0, 0, qlog_path, 0, 0, 0};
+    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0};
+    for (int i = 0; i < times; i++)
+      srvrun_serve(&ctx, quic_mspan_of(spkt, slen));
+  }
+}
+
+/* RECEIVED LOGGED (qlog): an opened 1-RTT datagram that advances the receive
+ * packet number appends one packet_received record. */
+static void test_srvrun_qlog_records_received(void) {
+  u8 ping[1] = {0x01};
+  srvrunt_qlog_unlink();
+  sr_serve_onertt(srvrunt_qlog_path, ping, 1, 1);
+  CHECK(sr_qlog_count("packet_received") == 1);
+  srvrunt_qlog_unlink();
+}
+
+/* DUPLICATE NOT RE-LOGGED: the same datagram (same PN) served twice advances
+ * the receive PN only once, so only one record is written. */
+static void test_srvrun_qlog_no_dup_record(void) {
+  u8 ping[1] = {0x01};
+  srvrunt_qlog_unlink();
+  sr_serve_onertt(srvrunt_qlog_path, ping, 1, 2);
+  CHECK(sr_qlog_count("packet_received") == 1);
+  srvrunt_qlog_unlink();
+}
+
+/* NO PATH, NO RECORD: with qlog disabled nothing is written even for an
+ * opened datagram. */
+static void test_srvrun_qlog_recv_no_path_writes_nothing(void) {
+  u8 ping[1] = {0x01};
+  srvrunt_qlog_unlink();
+  sr_serve_onertt(0, ping, 1, 1);
+  CHECK(sr_qlog_count("packet_received") == 0);
+}
+
+/* UNDECRYPTABLE, NO RECORD: a garbage short-header datagram that opens
+ * nothing advances no PN and logs nothing. */
+static void test_srvrun_qlog_skips_undecryptable(void) {
+  struct lp_fix    f;
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32];
+  u8               obuf[1024];
+  u8               junk[32] = {0x40, 'C', 'L', 'I', 'S', 'C', 'I', 9, 9, 9};
+  quic_conntable   table[QUIC_CONNTABLE_CAP];
+  quic_sockaddr_in peer = {0};
+  srvrun_state     st   = {table, g_srvrun_state.conns};
+  quic_obuf        ob   = {obuf, sizeof obuf, 0};
+  sr_make_id(&id, priv, pub, seed, rnd);
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  sr_make_confirmed_conn(&st.conns[0], &f, &ob);
+  CHECK(quic_conntable_insert(table, QUIC_CONNTABLE_CAP, g_cli_scid, 6) == 0);
+  srvrunt_qlog_unlink();
+  {
+    srvrun_cfg      cfg = {-1, &id, 0, 0, srvrunt_qlog_path, 0, 0, 0};
+    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0};
+    srvrun_serve(&ctx, quic_mspan_of(junk, sizeof junk));
+  }
+  CHECK(sr_qlog_count("packet_received") == 0);
+}
+
+/* INITIAL ACCEPT LOGGED: a real client Initial that cold-starts a slot logs
+ * one packet_received (the client's first Initial, PN 0). */
+static void test_srvrun_qlog_records_initial(void) {
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32], dg[1500];
+  quic_conntable   table[QUIC_CONNTABLE_CAP];
+  quic_sockaddr_in peer = {0};
+  srvrun_state     st   = {table, g_srvrun_state.conns};
+  usz total             = sr_build_client_initial(dg, sizeof dg, g_sr_odcid, 8);
+  sr_make_id(&id, priv, pub, seed, rnd);
+  srvrunt_qlog_unlink();
+  {
+    srvrun_cfg      cfg = {-1, &id, 0, 0, srvrunt_qlog_path, 0, 0, 0};
+    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0};
+    quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+    srvrun_serve(&ctx, quic_mspan_of(dg, total));
+  }
+  CHECK(st.conns[0].up == 1);
+  CHECK(sr_qlog_count("packet_received") == 1);
+  srvrunt_qlog_unlink();
+}
+
+/* FAILED ACCEPT NOT LOGGED: an Initial whose cold start fails logs nothing.
+ */
+static void test_srvrun_qlog_skips_failed_accept(void) {
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32];
+  u8               junk[64] = {0xc3, 0, 0, 0, 1, 8, 1, 2, 3, 4, 5, 6, 7, 8, 0};
+  quic_conntable   table[QUIC_CONNTABLE_CAP];
+  quic_sockaddr_in peer = {0};
+  srvrun_state     st   = {table, g_srvrun_state.conns};
+  sr_make_id(&id, priv, pub, seed, rnd);
+  srvrunt_qlog_unlink();
+  {
+    srvrun_cfg      cfg = {-1, &id, 0, 0, srvrunt_qlog_path, 0, 0, 0};
+    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0};
+    quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+    srvrun_serve(&ctx, quic_mspan_of(junk, sizeof junk));
+  }
+  CHECK(sr_qlog_count("packet_received") == 0);
+}
+
 void test_srvrun(void) {
   test_srvrun_no_shutdown_accepts_new();
   test_srvrun_accept_rekeys_to_slot_scid();
@@ -483,6 +628,12 @@ void test_srvrun(void) {
   test_srvrun_peer_close_frees_slot();
   test_srvrun_idle_sweep_evicts_expired();
   test_srvrun_serve_slot_touches_last_ms();
+  test_srvrun_qlog_records_received();
+  test_srvrun_qlog_no_dup_record();
+  test_srvrun_qlog_recv_no_path_writes_nothing();
+  test_srvrun_qlog_skips_undecryptable();
+  test_srvrun_qlog_records_initial();
+  test_srvrun_qlog_skips_failed_accept();
   test_srvrun_shutdown_rejects_new_initial();
   test_srvrun_shutdown_refuses_slot_claim();
   test_srvrun_owes_goaway_once();
