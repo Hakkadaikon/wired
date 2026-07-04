@@ -18,7 +18,7 @@
 static void sr_make_confirmed_conn(
     srvrun_conn* c, struct lp_fix* f, quic_obuf* ob) {
   lp_confirm(f, ob);
-  *c = (srvrun_conn){f->s, f->l, 1, {0}, {0}, 0};
+  *c = (srvrun_conn){f->s, f->l, 1, {0}, {0}, 0, 0};
 }
 
 /* Find the H3 GOAWAY frame's id in a 1-RTT payload carrying a STREAM frame on
@@ -59,7 +59,7 @@ static void test_srvrun_shutdown_refuses_slot_claim(void) {
   srvrun_state    st      = {table, 0};
   u8              dcid[8] = {1, 2, 3, 4, 5, 6, 7, 8};
   quic_conntable_init(table, QUIC_CONNTABLE_CAP);
-  ctx = (srvrun_step_ctx){0, 0, &st};
+  ctx = (srvrun_step_ctx){0, 0, &st, 0};
   srvrun_test_set_shutdown(1);
   CHECK(srvrun_claim_slot(&ctx, quic_span_of(dcid, 8), 1) == -1);
   srvrun_test_set_shutdown(0);
@@ -355,7 +355,7 @@ static void test_srvrun_accept_rekeys_to_slot_scid(void) {
   sr_make_id(&id, priv, pub, seed, rnd);
   {
     srvrun_cfg      cfg = {-1, &id, 0, 0, 0, 0, 0, 0};
-    srvrun_step_ctx ctx = {&cfg, &peer, &st};
+    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0};
     quic_conntable_init(table, QUIC_CONNTABLE_CAP);
     srvrun_serve(&ctx, quic_mspan_of(dg, total));
   }
@@ -380,7 +380,7 @@ static void test_srvrun_failed_accept_unclaims(void) {
   sr_make_id(&id, priv, pub, seed, rnd);
   {
     srvrun_cfg      cfg = {-1, &id, 0, 0, 0, 0, 0, 0};
-    srvrun_step_ctx ctx = {&cfg, &peer, &st};
+    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0};
     quic_conntable_init(table, QUIC_CONNTABLE_CAP);
     srvrun_serve(&ctx, quic_mspan_of(junk, sizeof junk));
   }
@@ -417,7 +417,7 @@ static void test_srvrun_peer_close_frees_slot(void) {
   srvrunt_qlog_unlink();
   {
     srvrun_cfg      cfg = {-1, &id, 0, 0, srvrunt_qlog_path, 0, 0, 0};
-    srvrun_step_ctx ctx = {&cfg, &peer, &st};
+    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0};
     srvrun_serve(&ctx, quic_mspan_of(spkt, slen));
     /* slot freed: up cleared, DCID no longer routes */
     CHECK(st.conns[0].up == 0);
@@ -436,11 +436,53 @@ static void test_srvrun_peer_close_frees_slot(void) {
   srvrunt_qlog_unlink();
 }
 
+/* IDLE EVICTION (RFC 9000 10.1): the sweep frees a slot silent at least the
+ * advertised max_idle_timeout, keeps an active one, and the freed slot is
+ * claimable again. */
+static void test_srvrun_idle_sweep_evicts_expired(void) {
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_state   st    = {table, g_srvrun_state.conns};
+  u8             k1[4] = {1, 1, 1, 1}, k2[4] = {2, 2, 2, 2};
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  st.conns[0].up      = 1;
+  st.conns[0].last_ms = 1000;
+  st.conns[1].up      = 1;
+  st.conns[1].last_ms = 20000;
+  CHECK(quic_conntable_insert(table, QUIC_CONNTABLE_CAP, k1, 4) == 0);
+  CHECK(quic_conntable_insert(table, QUIC_CONNTABLE_CAP, k2, 4) == 1);
+  srvrun_sweep_idle(&st, 1000 + WIRED_SRVRUN_IDLE_MS);
+  /* the expired slot is gone, the active one survives */
+  CHECK(st.conns[0].up == 0);
+  CHECK(quic_conntable_find(table, QUIC_CONNTABLE_CAP, k1, 4) == -1);
+  CHECK(st.conns[1].up == 1);
+  CHECK(quic_conntable_find(table, QUIC_CONNTABLE_CAP, k2, 4) == 1);
+  /* the freed slot is claimable again */
+  CHECK(quic_conntable_insert(table, QUIC_CONNTABLE_CAP, k1, 4) == 0);
+}
+
+/* ACTIVITY REFRESH (RFC 9000 10.1): every datagram routed to a slot stamps
+ * its last-activity time, so a served connection never counts as idle. */
+static void test_srvrun_serve_slot_touches_last_ms(void) {
+  quic_conntable   table[QUIC_CONNTABLE_CAP];
+  srvrun_state     st    = {table, g_srvrun_state.conns};
+  quic_sockaddr_in peer  = {0};
+  u8               sh[8] = {0x40, 1, 2, 3, 4, 5, 6, 7}; /* short header */
+  srvrun_cfg       cfg   = {-1, 0, 0, 0, 0, 0, 0, 0};
+  srvrun_step_ctx  ctx   = {&cfg, &peer, &st, 12345};
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  st.conns[2].up      = 0;
+  st.conns[2].last_ms = 0;
+  srvrun_serve_slot(&ctx, 2, quic_mspan_of(sh, sizeof sh));
+  CHECK(st.conns[2].last_ms == 12345);
+}
+
 void test_srvrun(void) {
   test_srvrun_no_shutdown_accepts_new();
   test_srvrun_accept_rekeys_to_slot_scid();
   test_srvrun_failed_accept_unclaims();
   test_srvrun_peer_close_frees_slot();
+  test_srvrun_idle_sweep_evicts_expired();
+  test_srvrun_serve_slot_touches_last_ms();
   test_srvrun_shutdown_rejects_new_initial();
   test_srvrun_shutdown_refuses_slot_claim();
   test_srvrun_owes_goaway_once();
