@@ -237,6 +237,7 @@
 #include "tls/keys/keyupdate/keyupdate.c"
 #include "tls/keys/keyupdate/kuderive.c"
 #include "tls/keys/keyupdate/oldkey.c"
+#include "tls/keys/ticket/ticket.c"
 #include "transport/conn/loop/manage/dosmitigate.c"
 #include "transport/conn/loop/manage/flowobs.c"
 #include "transport/conn/loop/manage/linkability.c"
@@ -653,6 +654,7 @@
 #include "tls/alpn_match_test.c"
 #include "transport/switchrule_test.c"
 #include "tls/ticketversion_test.c"
+#include "tls/ticket_test.c"
 #include "app/zerortt_dgram_test.c"
 #include "transport/session_test.c"
 #include "crypto/der_test.c"
@@ -1075,6 +1077,7 @@ int main(void) {
   test_alpn_match();
   test_switchrule();
   test_ticketversion();
+  test_ticket();
   test_zerortt_dgram();
   test_session();
   test_der();
