@@ -4,12 +4,15 @@
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
 
-/* RFC 9114 4.1. An HTTP/3 response: the :status and its DATA body (viewed in
- * place, body.n == 0 when absent). Doubles as the encode input and the
- * decode output — both are just (:status, body). */
+/* RFC 9114 4.1. An HTTP/3 response: the :status, its DATA body (viewed in
+ * place, body.n == 0 when absent), and an optional content-type (0 to omit
+ * the field line). Doubles as the encode input and the decode output; decode
+ * never populates content_type (left 0). content_type is appended last so
+ * existing {status, body} initializers still compile (it defaults to 0). */
 typedef struct {
-  u16       status;
-  quic_span body;
+  u16         status;
+  quic_span   body;
+  const char *content_type;
 } quic_h3conn_resp;
 
 /* RFC 9114 4.1. Build an HTTP/3 response (a HEADERS frame carrying the

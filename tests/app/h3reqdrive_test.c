@@ -338,7 +338,7 @@ static void test_reqdrive_response_status(void) {
   quic_h3conn_resp resp_out = {0};
 
   {
-    quic_h3conn_resp resp_in = {200, quic_span_of(body, sizeof body)};
+    quic_h3conn_resp resp_in = {200, quic_span_of(body, sizeof body), 0};
     CHECK(quic_h3conn_send_response(0, &resp_in, &resp_ob));
   }
   CHECK(quic_h3conn_recv_response(quic_span_of(resp, resp_ob.len), &resp_out));

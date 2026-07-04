@@ -20,7 +20,7 @@ static void test_roundtrip_stream(void) {
 
   quic_h3conn_req_in req_in = {
       quic_span_of(qhdrs, sizeof qhdrs), quic_span_of(0, 0)};
-  quic_h3conn_resp resp_in = {200, quic_span_of(body, sizeof body)};
+  quic_h3conn_resp resp_in = {200, quic_span_of(body, sizeof body), 0};
   CHECK(quic_h3conn_send_request(0, &req_in, &req_ob));
 
   /* server decodes the request STREAM frame and sees a HEADERS field section */
@@ -59,7 +59,7 @@ static void test_roundtrip_onertt(void) {
 
   /* response STREAM frame */
   {
-    quic_h3conn_resp resp_in = {200, quic_span_of(body, sizeof body)};
+    quic_h3conn_resp resp_in = {200, quic_span_of(body, sizeof body), 0};
     CHECK(quic_h3conn_send_response(4, &resp_in, &h3_ob));
   }
   /* seal: re-wrap the HTTP/3 bytes as a sealed 1-RTT STREAM packet */
@@ -94,10 +94,10 @@ static void test_roundtrip_onertt(void) {
 static void test_roundtrip_empty_body(void) {
   u8               resp[128];
   quic_obuf        resp_ob  = {resp, sizeof resp, 0};
-  quic_h3conn_resp resp_out = {0, quic_span_of((const u8 *)1, 99)};
+  quic_h3conn_resp resp_out = {0, quic_span_of((const u8 *)1, 99), 0};
 
   {
-    quic_h3conn_resp resp_in = {404, quic_span_of(0, 0)};
+    quic_h3conn_resp resp_in = {404, quic_span_of(0, 0), 0};
     CHECK(quic_h3conn_send_response(0, &resp_in, &resp_ob));
   }
   CHECK(quic_h3conn_recv_response(quic_span_of(resp, resp_ob.len), &resp_out));
@@ -112,7 +112,7 @@ static void test_roundtrip_no_room(void) {
   quic_obuf          ob     = {out, sizeof out, 0};
   quic_h3conn_req_in req_in = {
       quic_span_of(qhdrs, sizeof qhdrs), quic_span_of(0, 0)};
-  quic_h3conn_resp resp_in = {200, quic_span_of(0, 0)};
+  quic_h3conn_resp resp_in = {200, quic_span_of(0, 0), 0};
   CHECK(!quic_h3conn_send_request(0, &req_in, &ob));
   CHECK(!quic_h3conn_send_response(0, &resp_in, &ob));
 }
