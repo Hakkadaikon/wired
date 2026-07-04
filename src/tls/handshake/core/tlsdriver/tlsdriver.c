@@ -39,9 +39,9 @@ usz quic_tlsdriver_raw_client_hello(quic_tlsdriver* d, u8* out, usz cap) {
   static const u8 random[32] = {0};
   static const u8 tp[1]      = {0};
   return quic_tls_client_hello(
-      &(quic_clienthello_in){random, d->my_pub,
-                             quic_span_of(d->sni, d->sni_len),
-                             quic_span_of(tp, sizeof(tp))},
+      &(quic_clienthello_in){
+          random, d->my_pub, quic_span_of(d->sni, d->sni_len),
+          quic_span_of(tp, sizeof(tp))},
       &(quic_obuf){out, cap, 0});
 }
 

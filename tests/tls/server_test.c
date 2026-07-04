@@ -44,8 +44,9 @@ static void make_client_hello(struct srv_fix* f) {
   }
   quic_x25519_base(cli_pub, f->cli_priv);
   f->ch_len = quic_tls_client_hello(
-      &(quic_clienthello_in){f->srv_random, cli_pub, quic_span_of(0, 0),
-                             quic_span_of(tp, sizeof(tp))},
+      &(quic_clienthello_in){
+          f->srv_random, cli_pub, quic_span_of(0, 0),
+          quic_span_of(tp, sizeof(tp))},
       &(quic_obuf){f->ch, sizeof(f->ch), 0});
 }
 

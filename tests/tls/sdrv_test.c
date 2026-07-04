@@ -74,8 +74,9 @@ static void test_sdrv_session_id_echo(void) {
   {
     static const u8 tp[1] = {0};
     ch_len                = quic_tls_client_hello(
-        &(quic_clienthello_in){srv_random, cli_pub, quic_span_of(0, 0),
-                                              quic_span_of(tp, sizeof(tp))},
+        &(quic_clienthello_in){
+            srv_random, cli_pub, quic_span_of(0, 0),
+            quic_span_of(tp, sizeof(tp))},
         &(quic_obuf){ch, sizeof(ch), 0});
   }
   CHECK(ch_len != 0);
@@ -118,8 +119,8 @@ static usz sdrv_test_client_hello(
     u8* ch, usz ch_cap, const u8* cli_pub, const u8* srv_random) {
   static const u8 tp[1] = {0};
   return quic_tls_client_hello(
-      &(quic_clienthello_in){srv_random, cli_pub, quic_span_of(0, 0),
-                             quic_span_of(tp, 1)},
+      &(quic_clienthello_in){
+          srv_random, cli_pub, quic_span_of(0, 0), quic_span_of(tp, 1)},
       &(quic_obuf){ch, ch_cap, 0});
 }
 
@@ -382,8 +383,9 @@ void test_sdrv(void) {
   {
     static const u8 tp[1] = {0};
     ch_len                = quic_tls_client_hello(
-        &(quic_clienthello_in){srv_random, cli_pub, quic_span_of(0, 0),
-                                              quic_span_of(tp, sizeof(tp))},
+        &(quic_clienthello_in){
+            srv_random, cli_pub, quic_span_of(0, 0),
+            quic_span_of(tp, sizeof(tp))},
         &(quic_obuf){ch, sizeof(ch), 0});
   }
   CHECK(ch_len != 0);
@@ -485,8 +487,9 @@ void test_sdrv(void) {
         &s2, quic_span_of(client_dcid, sizeof(client_dcid)),
         quic_span_of(server_scid, sizeof(server_scid))));
     ch_len = quic_tls_client_hello(
-        &(quic_clienthello_in){srv_random, cli_pub, quic_span_of(0, 0),
-                               quic_span_of((const u8*)"\0", 1)},
+        &(quic_clienthello_in){
+            srv_random, cli_pub, quic_span_of(0, 0),
+            quic_span_of((const u8*)"\0", 1)},
         &(quic_obuf){ch2, sizeof(ch2), 0});
     CHECK(quic_sdrv_recv_client_hello(&s2, ch2, ch_len));
     {

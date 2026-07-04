@@ -105,13 +105,14 @@ static void test_h3srv_request_decode(void) {
 
   CHECK(wired_h3reqdrive_send_get(
       0,
-      &(wired_h3reqdrive_get_in){quic_span_of(path, sizeof path),
-                                 quic_span_of(auth, sizeof auth)},
+      &(wired_h3reqdrive_get_in){
+          quic_span_of(path, sizeof path), quic_span_of(auth, sizeof auth)},
       &req_ob));
   CHECK(wired_h3srv_on_request(
       &st,
-      &(wired_h3srv_req_in){quic_span_of(req, req_ob.len),
-                            quic_mspan_of(scratch, sizeof scratch)},
+      &(wired_h3srv_req_in){
+          quic_span_of(req, req_ob.len),
+          quic_mspan_of(scratch, sizeof scratch)},
       &r));
   CHECK(st.request_seen);
   CHECK(srv_eq(r.path, r.path_len, "/a", 2));
@@ -133,13 +134,14 @@ static void test_h3srv_request_answered(void) {
   st.settings_sent = 1;
   CHECK(wired_h3reqdrive_send_get(
       0,
-      &(wired_h3reqdrive_get_in){quic_span_of(path, sizeof path),
-                                 quic_span_of(auth, sizeof auth)},
+      &(wired_h3reqdrive_get_in){
+          quic_span_of(path, sizeof path), quic_span_of(auth, sizeof auth)},
       &req_ob));
   CHECK(wired_h3srv_on_request(
       &st,
-      &(wired_h3srv_req_in){quic_span_of(req, req_ob.len),
-                            quic_mspan_of(scratch, sizeof scratch)},
+      &(wired_h3srv_req_in){
+          quic_span_of(req, req_ob.len),
+          quic_mspan_of(scratch, sizeof scratch)},
       &r));
   {
     wired_h3srv_send_in send = {0, {200, quic_span_of(body, sizeof body), 0}};
@@ -217,8 +219,9 @@ static void test_h3srv_options_asterisk(void) {
   CHECK(wired_h3reqdrive_send_method(0, &in, &req_ob));
   CHECK(wired_h3srv_on_request(
       &st,
-      &(wired_h3srv_req_in){quic_span_of(req, req_ob.len),
-                            quic_mspan_of(scratch, sizeof scratch)},
+      &(wired_h3srv_req_in){
+          quic_span_of(req, req_ob.len),
+          quic_mspan_of(scratch, sizeof scratch)},
       &r));
   CHECK(srv_eq(r.method, r.method_len, "OPTIONS", 7));
   CHECK(srv_eq(r.path, r.path_len, "*", 1)); /* 0x2a recovered, not rejected */

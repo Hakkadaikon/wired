@@ -211,8 +211,8 @@ static int srvrun_goaway_payload(quic_obuf* plb) {
   usz               h3n = quic_h3_goaway_put(h3, sizeof h3, SRVRUN_GOAWAY_ID);
   quic_stream_frame f;
   if (h3n == 0) return 0;
-  f = (quic_stream_frame){SRVRUN_CTRL_STREAM, srvrun_ctrl_settings_len(), h3n,
-                          h3, 0};
+  f = (quic_stream_frame){
+      SRVRUN_CTRL_STREAM, srvrun_ctrl_settings_len(), h3n, h3, 0};
   return quic_appdata_stream_frame(&f, plb);
 }
 
@@ -226,8 +226,9 @@ static int srvrun_send_goaway(
   quic_obuf             plb = quic_obuf_of(pl, sizeof pl);
   wired_srvloop_send_in sin;
   if (!srvrun_goaway_payload(&plb)) return 0;
-  sin = (wired_srvloop_send_in){quic_span_of(c->l.cli_scid, c->l.cli_scid_len),
-                                c->l.tx_pn++, -1, quic_span_of(pl, plb.len), 0};
+  sin = (wired_srvloop_send_in){
+      quic_span_of(c->l.cli_scid, c->l.cli_scid_len), c->l.tx_pn++, -1,
+      quic_span_of(pl, plb.len), 0};
   if (!wired_srvloop_send_onertt(&c->s, &sin, out)) return 0;
   srvrun_send(cfg, c, quic_span_of(out->p, out->len), "GOAWAY sent\n");
   c->goaway_sent = 1;
