@@ -113,6 +113,7 @@
 #include "common/platform/debug/debug.c"
 #include "common/platform/fio/fio.c"
 #include "common/platform/qlog/qlog.c"
+#include "common/platform/qlog/qlogevent.c"
 #include "common/platform/cliargs/cliargs.c"
 #include "common/platform/rng/challenge.c"
 #include "common/platform/rng/cidgen.c"
@@ -660,6 +661,7 @@
 #include "crypto/eckey_test.c"
 #include "common/fio_test.c"
 #include "common/qlog_test.c"
+#include "common/qlogevent_test.c"
 #include "common/cliargs_test.c"
 #include "transport/addr_test.c"
 #include "transport/udptransport_test.c"
@@ -1080,6 +1082,7 @@ int main(void) {
   test_eckey();
   test_fio();
   test_qlog();
+  test_qlogevent();
   test_cliargs();
   test_addr();
   test_udptransport();
