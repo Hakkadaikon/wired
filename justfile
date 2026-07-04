@@ -21,6 +21,14 @@ setup:
         && echo "nix already installed: $(nix --version)" \
         || curl -fsSL https://install.determinate.systems/nix | sh -s -- install
 
+# run any recipe inside the flake devShell — the pinned toolchain (latest
+# LLVM clang/clang-format/clang-tidy, the exact versions CI checks against).
+# e.g. `just nix fmt`, `just nix test`, `just nix build`. Host-installed
+# tools may be older and format/lint differently; when in doubt, go through
+# this instead of calling the recipe bare.
+nix +args:
+    nix develop -c just {{args}}
+
 # full build: format, compile freestanding (ninja), then static analysis.
 # fmt normalizes sources, ninja proves libc independence per file, lint runs
 # the CERT C / bug-finding checks. Run as one pipeline so a normal
