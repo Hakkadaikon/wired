@@ -44,6 +44,8 @@ typedef struct {
   int hs_rx_seen;   /**< 1 once a Handshake packet has been received */
   int hs_done_sent; /**< 1 once the confirmation (HANDSHAKE_DONE) has been
                      * emitted */
+  int ticket_sent;  /**< 1 once the post-confirmation session ticket
+                     * (NewSessionTicket, RFC 8446 4.6.1) has been emitted */
   wired_srvloop_handler
                        on_request; /**< app response-body builder, 0 if unset */
   void                *req_ctx;    /**< opaque ctx passed to on_request */

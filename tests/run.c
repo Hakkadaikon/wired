@@ -306,6 +306,7 @@
 #include "tls/handshake/core/tls/handshake.c"
 #include "tls/handshake/core/tls/hsdone.c"
 #include "tls/handshake/core/tls/initial.c"
+#include "tls/handshake/core/tls/newsessionticket.c"
 #include "tls/handshake/core/tls/keydiscard.c"
 #include "tls/handshake/core/tls/master.c"
 #include "tls/handshake/core/tls/msgassembly.c"
@@ -658,6 +659,7 @@
 #include "transport/switchrule_test.c"
 #include "tls/ticketversion_test.c"
 #include "tls/ticket_test.c"
+#include "tls/newsessionticket_test.c"
 #include "app/zerortt_dgram_test.c"
 #include "transport/session_test.c"
 #include "crypto/der_test.c"
@@ -1084,6 +1086,7 @@ int main(void) {
   test_switchrule();
   test_ticketversion();
   test_ticket();
+  test_newsessionticket();
   test_zerortt_dgram();
   test_session();
   test_der();

@@ -7,7 +7,9 @@
 #include "transport/conn/loop/connrunner/level.h"
 #include "transport/packet/build/hspkt/hspkt_build.h"
 #include "transport/packet/frame/frame/ack.h"
+#include "transport/packet/frame/frame/frame.h"
 #include "transport/stream/data/appdata/stream_send.h"
+#include "tls/handshake/core/tls/newsessionticket.h"
 
 #define WIRED_SRVLOOP_RESP_STREAM 0
 #define WIRED_SRVLOOP_CTRL_STREAM              \
@@ -57,12 +59,48 @@ static int build_settings_frame(wired_srvloop *l, quic_obuf *out) {
   return quic_appdata_stream_frame(&f, out);
 }
 
-/* The 1-RTT payload sent at confirmation: the SETTINGS STREAM frame (RFC 9114
- * 6.2.1) followed by HANDSHAKE_DONE (RFC 9000 19.20), in one packet. */
+/* RFC 8446 4.6.1 / RFC 9001 4: server session tickets are sealed under a
+ * fixed key for the process lifetime.
+ * ponytail: one fixed key for the process lifetime, no rotation; a real
+ * deployment needs periodic key rotation (and multi-key acceptance during
+ * overlap) so a leaked key does not compromise every ticket ever issued. */
+static const u8 g_ticket_key[QUIC_TICKET_KEY_LEN] = {
+    0x77, 0x69, 0x72, 0x65, 0x64, 0x2d, 0x74, 0x6b, 0x74, 0x2d, 0x6b, 0x65,
+    0x79, 0x2d, 0x30, 0x30, 0x77, 0x69, 0x72, 0x65, 0x64, 0x2d, 0x74, 0x6b,
+    0x74, 0x2d, 0x6b, 0x65, 0x79, 0x2d, 0x30, 0x31};
+
+/* RFC 8446 4.6.1: seal a fresh session ticket (fixed 2h lifetime; this SDK has
+ * no clock, so issued_at is left 0 and resumption checks lifetime, not age)
+ * and append it as a CRYPTO frame (RFC 9000 19.6) to a 1-RTT payload. */
+static int append_ticket_frame(quic_obuf *out) {
+  u8                msg[64 + QUIC_TICKET_SEALED_LEN];
+  quic_ticket       t = {{0}, 0, 7200};
+  quic_crypto_frame cf;
+  usz               mlen =
+      quic_tls_new_session_ticket_encode(msg, sizeof msg, &t, g_ticket_key);
+  usz written;
+  if (mlen == 0) return 0;
+  cf      = (quic_crypto_frame){0, mlen, msg};
+  written = quic_frame_put_crypto(out->p + out->len, out->cap - out->len, &cf);
+  if (written == 0) return 0;
+  out->len += written;
+  return 1;
+}
+
+/* SETTINGS (RFC 9114 6.2.1) followed by a session ticket (RFC 8446 4.6.1),
+ * the head of the confirmation payload. */
+static int confirm_head(wired_srvloop *l, quic_obuf *out) {
+  if (!build_settings_frame(l, out)) return 0;
+  return append_ticket_frame(out);
+}
+
+/* The 1-RTT payload sent at confirmation: confirm_head, then HANDSHAKE_DONE
+ * (RFC 9000 19.20) last — callers rely on HANDSHAKE_DONE being the trailing
+ * frame. */
 static int confirm_payload(const wired_srvloop_conn *c, quic_obuf *out) {
   quic_obuf ob = quic_obuf_of(out->p, out->cap);
   usz       a;
-  if (!build_settings_frame(c->l, &ob)) return 0;
+  if (!confirm_head(c->l, &ob)) return 0;
   a  = ob.len;
   ob = quic_obuf_of(out->p + a, out->cap - a);
   if (!wired_server_handshake_done(c->s, &ob)) return 0;
@@ -219,6 +257,7 @@ static int emit_confirm_then_maybe_200(
     const wired_srvloop_conn *c, int got_request, quic_obuf *out) {
   if (!emit_confirm(c, got_request, out)) return 0;
   c->l->hs_done_sent = 1;
+  c->l->ticket_sent  = 1;
   return 1;
 }
 

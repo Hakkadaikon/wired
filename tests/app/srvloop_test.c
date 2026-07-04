@@ -13,11 +13,13 @@
 #include "tls/handshake/core/tls/clienthello.h"
 #include "tls/handshake/core/tls/finished.h"
 #include "tls/handshake/core/tls/handshake.h"
+#include "tls/handshake/core/tls/newsessionticket.h"
 #include "tls/handshake/core/tls/schedule.h"
 #include "tls/handshake/core/tls/serverhello.h"
 #include "tls/handshake/core/tls/transcript.h"
 #include "tls/handshake/core/tls/x25519.h"
 #include "tls/keys/schedule_drive/keyschedule.h"
+#include "tls/keys/ticket/ticket.h"
 #include "transport/io/udp/udploop/rxloop.h"
 #include "transport/packet/build/hspkt/hspkt_open.h"
 #include "transport/packet/build/hspkt/onertt.h"
@@ -1012,6 +1014,85 @@ static void test_srvloop_handler_body_echoed(void) {
   CHECK(g_test_history[0] == 'h' && g_test_history[9] == 'd');
 }
 
+/* Walk a 1-RTT payload for a CRYPTO frame (RFC 9000 19.6) carrying a
+ * NewSessionTicket (RFC 8446 4.6.1) and return its sealed ticket bytes via
+ * *sealed. Returns 1 if found. */
+static int find_ticket_crypto(const u8 *pl, usz pll, quic_span *sealed) {
+  quic_framewalk      it;
+  quic_framewalk_item fr;
+  quic_framewalk_init(&it, pl, pll);
+  while (quic_framewalk_next(&it, &fr)) {
+    quic_crypto_frame cf;
+    if (fr.type != QUIC_FRAME_CRYPTO) continue;
+    if (quic_frame_get_crypto(fr.start, fr.remaining, &cf) == 0) continue;
+    if (quic_tls_new_session_ticket_parse(
+            quic_span_of(cf.data, cf.length), sealed))
+      return 1;
+  }
+  return 0;
+}
+
+/* SESSION TICKET AT CONFIRMATION (RFC 8446 4.6.1): the very first confirmation
+ * 1-RTT payload also carries a CRYPTO-framed NewSessionTicket the server just
+ * sealed under its own fixed key, so a client is handed something it can later
+ * present for resumption. */
+static void test_srvloop_ticket_sent_on_confirm(void) {
+  struct lp_fix f;
+  u8            out[1500];
+  quic_obuf     ob = {out, sizeof out, 0};
+  const u8     *pkts[4];
+  usz           offs[4], lens[4], np;
+  const u8     *pl;
+  usz           pll;
+  quic_span     sealed;
+  quic_ticket   opened;
+  lp_confirm(&f, &ob);
+  CHECK(f.l.ticket_sent == 1);
+  /* The confirming datagram coalesces a long-header Handshake ACK ahead of the
+   * 1-RTT packet (RFC 9000 12.2); split it before opening as 1-RTT. */
+  quic_pktlist plist = {pkts, offs, lens, 4};
+  np                 = quic_udploop_split(quic_span_of(out, ob.len), &plist);
+  CHECK(np == 2);
+  CHECK(client_open_onertt(&f, out + offs[1], lens[1], &pl, &pll) == 1);
+  CHECK(find_ticket_crypto(pl, pll, &sealed) == 1);
+  CHECK(quic_ticket_open(sealed, g_ticket_key, &opened) == 1);
+}
+
+/* NOT BEFORE CONFIRM: a datagram that has not yet driven the handshake to
+ * confirmation must not carry a session ticket. */
+static void test_srvloop_no_ticket_before_confirm(void) {
+  struct lp_fix f;
+  u8            out[1024];
+  quic_obuf     ob = {out, sizeof out, 0};
+  lp_make_client_hello(&f);
+  lp_drive_to_flight(&f);
+  CHECK(f.l.ticket_sent == 0);
+  (void)ob;
+}
+
+/* TICKET SENT EXACTLY ONCE: a second post-confirmation step (no new request)
+ * must not re-emit the CRYPTO-framed ticket. */
+static void test_srvloop_ticket_not_resent(void) {
+  struct lp_fix f;
+  u8            out[1024], junk[8] = {0};
+  u8            spkt[1024];
+  usz           slen;
+  quic_obuf     ob = {out, sizeof out, 0};
+  lp_confirm(&f, &ob);
+  CHECK(f.l.ticket_sent == 1);
+  slen = client_seal_onertt_pn(&f, 3, junk, sizeof junk, spkt, sizeof spkt);
+  ob   = (quic_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  if (ob.len > 0) {
+    const u8 *pl;
+    usz       pll;
+    quic_span sealed;
+    CHECK(client_open_onertt(&f, out, ob.len, &pl, &pll) == 1);
+    CHECK(find_ticket_crypto(pl, pll, &sealed) == 0);
+  }
+}
+
 void test_srvloop(void) {
   test_srvloop_handler_body_echoed();
   test_srvloop_dispatch_uni_streams_not_request();
@@ -1031,4 +1112,7 @@ void test_srvloop(void) {
   test_srvloop_handshake_ack_tracks_pn();
   test_srvloop_confirm_and_200_coalesce();
   test_srvloop_confirm_emitted_once();
+  test_srvloop_ticket_sent_on_confirm();
+  test_srvloop_no_ticket_before_confirm();
+  test_srvloop_ticket_not_resent();
 }
