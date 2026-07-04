@@ -64,6 +64,7 @@ typedef struct {
   usz req_len;       /**< highest offset+len written into req_buf */
   u8  req_fin;       /**< 1 once a request-stream FIN was seen */
   int req_done;      /**< 1 once this request was decoded/answered */
+  int peer_closed;   /**< 1 once a peer CONNECTION_CLOSE frame was seen */
   /** backing store for req's path/body views once decoded (see
    * drive_complete in dispatch.c); must outlive the decode call, so it lives
    * here rather than a stack local that dies on return */

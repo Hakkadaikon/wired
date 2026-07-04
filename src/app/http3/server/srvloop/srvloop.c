@@ -5,6 +5,8 @@
 #include "app/http3/server/srvloop/respond.h"
 #include "transport/conn/loop/connrunner/level.h"
 #include "transport/io/udp/udploop/rxloop.h"
+#include "transport/packet/frame/frame/frame.h"
+#include "transport/packet/frame/pipeline/framewalk.h"
 #include "transport/packet/header/lhdr/lhdr_parse.h"
 #include "transport/packet/header/packet/pnum.h"
 
@@ -33,6 +35,7 @@ int wired_srvloop_init(wired_srvloop* l, const u8* cli_scid, u8 cli_scid_len) {
   l->req_len      = 0;
   l->req_fin      = 0;
   l->req_done     = 0;
+  l->peer_closed  = 0;
   return 1;
 }
 
@@ -101,6 +104,22 @@ static wired_srvloop_reqacc step_reqacc(wired_srvloop* l) {
   return acc;
 }
 
+/* RFC 9000 19.19: 1 if type is either CONNECTION_CLOSE variant. */
+static int srvloop_close_type(u64 type) {
+  return type == QUIC_FRAME_CONN_CLOSE_TPT || type == QUIC_FRAME_CONN_CLOSE_APP;
+}
+
+/* RFC 9000 10.2.2: 1 if the opened payload carries a CONNECTION_CLOSE frame
+ * (either variant, any encryption level — the peer is closing or draining). */
+static int srvloop_has_close(quic_span pl) {
+  quic_framewalk      it;
+  quic_framewalk_item fr;
+  quic_framewalk_init(&it, pl.p, pl.n);
+  while (quic_framewalk_next(&it, &fr))
+    if (srvloop_close_type(fr.type)) return 1;
+  return 0;
+}
+
 /* RFC 9001 5 / 5.1: open one coalesced packet slice and walk its frames. A
  * STREAM frame sets *got_request; CRYPTO is fed to the handshake. A slice that
  * fails to open (wrong level/key) is silently skipped, as the next slice in the
@@ -118,6 +137,7 @@ static void step_one(
   if (!opened) return;
   o.level = ro.level;
   o.pkt   = pkt;
+  l->peer_closed |= srvloop_has_close(ro.payload);
   note_app_rx(l, s, &o);
   note_hs_rx(l, &o);
   in = (wired_srvloop_dispatch_in){
