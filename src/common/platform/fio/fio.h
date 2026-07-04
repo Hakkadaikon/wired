@@ -29,4 +29,17 @@
  */
 ssz wired_fio_read(const char *path, quic_mspan buf);
 
+/**
+ * Append data to the file at path, creating it (mode 0600) if it does not
+ * exist. Opens with openat(AT_FDCWD, path, O_WRONLY|O_CREAT|O_APPEND, 0600),
+ * writes the whole span, and closes the descriptor. Intended for streaming
+ * output (e.g. qlog/keylog) where each call adds one record.
+ *
+ * @param path NUL-terminated file path, resolved relative to the cwd
+ * @param data bytes to append
+ * @return bytes written (== data.n) on success; a negative -errno when
+ *         openat/write fails
+ */
+ssz wired_fio_append(const char *path, quic_span data);
+
 #endif
