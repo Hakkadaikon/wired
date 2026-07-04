@@ -26,3 +26,27 @@ void test_h3settings_control_settings(void) {
   /* no room */
   CHECK(quic_h3settings_control_stream(buf, 1, &n) == 0);
 }
+
+/* RFC 9220 3: the server's control stream advertises Extended CONNECT. */
+/* RFC 9220 3: no request handler validates/processes :protocol yet
+ * (quic_h3_connect_protocol_ok is unwired), so the server must not advertise
+ * a capability it does not implement. */
+void test_h3settings_control_settings_no_connect_protocol_yet(void) {
+  u8  buf[64];
+  usz n        = 0;
+  usz consumed = 0;
+  CHECK(quic_h3settings_control_stream(buf, sizeof(buf), &n) == 1);
+  quic_h3_stream_type_parse(quic_span_of(buf, n), &(u64){0}, &consumed);
+
+  quic_h3_frame f;
+  quic_h3_frame_get(quic_span_of(buf + consumed, n - consumed), &f);
+
+  quic_h3_settings s;
+  usz sr = quic_h3_settings_get(buf + consumed, n - consumed, &s);
+  CHECK(sr > 0);
+
+  int found = 0;
+  for (usz i = 0; i < s.n; i++)
+    if (s.pairs[i].id == QUIC_H3_SETTINGS_ENABLE_CONNECT_PROTOCOL) found = 1;
+  CHECK(found == 0);
+}

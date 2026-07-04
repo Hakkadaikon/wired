@@ -18,8 +18,14 @@ static void test_qpack_settings_ids(void) {
   CHECK(QUIC_H3_SETTINGS_QPACK_BLOCKED_STREAMS == 0x07);
 }
 
+/* RFC 9220 3: SETTINGS_ENABLE_CONNECT_PROTOCOL identifier is 0x08. */
+static void test_qpack_settings_connect_protocol_id(void) {
+  CHECK(QUIC_H3_SETTINGS_ENABLE_CONNECT_PROTOCOL == 0x08);
+}
+
 void test_qpack_settings(void) {
   test_qpack_settings_value();
   test_qpack_settings_default();
   test_qpack_settings_ids();
+  test_qpack_settings_connect_protocol_id();
 }

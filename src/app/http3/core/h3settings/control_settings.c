@@ -8,6 +8,11 @@
 #define DEFAULT_MAX_FIELD_SECTION_SIZE 0x4000 /* 16 KiB */
 #define DEFAULT_QPACK_MAX_TABLE_CAP 0
 #define DEFAULT_QPACK_BLOCKED_STREAMS 0
+/* RFC 9220 3: do not advertise support until a request handler actually
+ * validates and processes :protocol (quic_h3_connect_protocol_ok) — false
+ * advertising would let a client rely on a capability this server does not
+ * yet implement. */
+#define DEFAULT_ENABLE_CONNECT_PROTOCOL 0
 
 /* RFC 9114 6.2.1 */
 int quic_h3settings_control_stream(u8 *out, usz cap, usz *out_len) {
@@ -16,7 +21,7 @@ int quic_h3settings_control_stream(u8 *out, usz cap, usz *out_len) {
 
   quic_h3settings_in in = {
       DEFAULT_MAX_FIELD_SECTION_SIZE, DEFAULT_QPACK_MAX_TABLE_CAP,
-      DEFAULT_QPACK_BLOCKED_STREAMS};
+      DEFAULT_QPACK_BLOCKED_STREAMS, DEFAULT_ENABLE_CONNECT_PROTOCOL};
   quic_obuf ob = quic_obuf_of(out + pre, cap - pre);
   if (!quic_h3settings_build(&in, &ob)) return 0;
 

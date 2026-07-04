@@ -1236,7 +1236,9 @@ int main(void) {
   test_server_tp();
   test_h3settings_control_open();
   test_h3settings_build();
+  test_h3settings_build_connect_protocol();
   test_h3settings_control_settings();
+  test_h3settings_control_settings_no_connect_protocol_yet();
   test_lhdr_build();
   test_lhdr_parse();
   test_vpn_open();
