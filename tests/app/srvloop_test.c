@@ -607,7 +607,7 @@ static void lp_confirm_via_dispatch(struct lp_fix* f) {
     wired_srvloop_reqacc      acc = lp_reqacc(&f->l);
     wired_srvloop_dispatch_in in  = {
         quic_span_of(payload, plen), quic_mspan_of(scratch, sizeof scratch),
-        &got, &req};
+        quic_mspan_of(f->l.req_wrap, sizeof f->l.req_wrap), &got, &req};
     CHECK(
         wired_srvloop_dispatch(
             &(wired_srvloop_dispatch_ctx){&f->s, &f->l.h3, &acc}, &in) == 1);
@@ -718,7 +718,7 @@ static void test_srvloop_dispatch_padding_before_crypto(void) {
     wired_srvloop_reqacc      acc = lp_reqacc(&f.l);
     wired_srvloop_dispatch_in in  = {
         quic_span_of(payload, plen), quic_mspan_of(scratch, sizeof scratch),
-        &got, &req};
+        quic_mspan_of(f.l.req_wrap, sizeof f.l.req_wrap), &got, &req};
     CHECK(
         wired_srvloop_dispatch(
             &(wired_srvloop_dispatch_ctx){&f.s, &f.l.h3, &acc}, &in) == 1);
@@ -813,7 +813,7 @@ static void test_srvloop_dispatch_uni_streams_not_request(void) {
     wired_srvloop_reqacc      acc = lp_reqacc(&f.l);
     wired_srvloop_dispatch_in in  = {
         quic_span_of(payload, off), quic_mspan_of(scratch, sizeof scratch),
-        &got, &req};
+        quic_mspan_of(f.l.req_wrap, sizeof f.l.req_wrap), &got, &req};
     CHECK(
         wired_srvloop_dispatch(
             &(wired_srvloop_dispatch_ctx){&f.s, &f.l.h3, &acc}, &in) == 1);
@@ -849,7 +849,7 @@ static void test_srvloop_dispatch_get_after_uni_streams(void) {
     wired_srvloop_reqacc      acc = lp_reqacc(&f.l);
     wired_srvloop_dispatch_in in  = {
         quic_span_of(payload, off), quic_mspan_of(scratch, sizeof scratch),
-        &got, &req};
+        quic_mspan_of(f.l.req_wrap, sizeof f.l.req_wrap), &got, &req};
     CHECK(
         wired_srvloop_dispatch(
             &(wired_srvloop_dispatch_ctx){&f.s, &f.l.h3, &acc}, &in) == 1);
@@ -902,7 +902,7 @@ static void test_srvloop_dispatch_split_request_streams(void) {
     wired_srvloop_reqacc      acc = lp_reqacc(&f.l);
     wired_srvloop_dispatch_in in  = {
         quic_span_of(payload, hl + dl), quic_mspan_of(scratch, sizeof scratch),
-        &got, &req};
+        quic_mspan_of(f.l.req_wrap, sizeof f.l.req_wrap), &got, &req};
     CHECK(
         wired_srvloop_dispatch(
             &(wired_srvloop_dispatch_ctx){&f.s, &f.l.h3, &acc}, &in) == 1);
@@ -930,16 +930,16 @@ static void test_srvloop_dispatch_split_across_datagrams(void) {
     wired_srvloop_reqacc acc = lp_reqacc(&f.l);
     /* datagram 1: HEADERS only, no FIN -> accumulated, no request yet. */
     wired_srvloop_dispatch_in in1 = {
-        quic_span_of(hp, hl), quic_mspan_of(scratch, sizeof scratch), &got,
-        &req};
+        quic_span_of(hp, hl), quic_mspan_of(scratch, sizeof scratch),
+        quic_mspan_of(f.l.req_wrap, sizeof f.l.req_wrap), &got, &req};
     CHECK(
         wired_srvloop_dispatch(
             &(wired_srvloop_dispatch_ctx){&f.s, &f.l.h3, &acc}, &in1) == 1);
     CHECK(got == 0);
     /* datagram 2: DATA at offset hb, FIN -> request completes with body. */
     wired_srvloop_dispatch_in in2 = {
-        quic_span_of(dp, dl), quic_mspan_of(scratch, sizeof scratch), &got,
-        &req};
+        quic_span_of(dp, dl), quic_mspan_of(scratch, sizeof scratch),
+        quic_mspan_of(f.l.req_wrap, sizeof f.l.req_wrap), &got, &req};
     CHECK(
         wired_srvloop_dispatch(
             &(wired_srvloop_dispatch_ctx){&f.s, &f.l.h3, &acc}, &in2) == 1);
