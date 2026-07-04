@@ -21,6 +21,8 @@ typedef u64            usz; /**< unsigned size (size_t equivalent) */
 #define SYS_read 0            /**< read(2) syscall number */
 #define SYS_write 1           /**< write(2) syscall number */
 #define SYS_close 3           /**< close(2) syscall number */
+#define SYS_rt_sigaction 13   /**< rt_sigaction(2) syscall number */
+#define SYS_rt_sigreturn 15   /**< rt_sigreturn(2) syscall number */
 #define SYS_socket 41         /**< socket(2) syscall number */
 #define SYS_sendto 44         /**< sendto(2) syscall number */
 #define SYS_recvfrom 45       /**< recvfrom(2) syscall number */
@@ -29,6 +31,14 @@ typedef u64            usz; /**< unsigned size (size_t equivalent) */
 #define SYS_clock_gettime 228 /**< clock_gettime(2) syscall number */
 #define SYS_openat 257        /**< openat(2) syscall number */
 #define SYS_getrandom 318     /**< getrandom(2) syscall number */
+
+/** Signal numbers used by this SDK (Linux, all architectures). */
+#define SIGTERM 15 /**< termination request */
+
+/** x86_64 Linux rt_sigaction(2) requires SA_RESTORER plus a userspace
+ * trampoline that issues rt_sigreturn(2); the kernel refuses a bare handler
+ * with no restorer. */
+#define SA_RESTORER 0x04000000u
 
 /**
  * Six-argument raw x86_64 Linux syscall.
@@ -62,6 +72,9 @@ static inline i64 syscall6(i64 n, i64 a, i64 b, i64 c, i64 d, i64 e, i64 f) {
 /** Three-argument syscall: syscall6() with the trailing arguments zeroed. */
 #define syscall3(n, a, b, c) \
   syscall6((n), (i64)(a), (i64)(b), (i64)(c), 0, 0, 0)
+/** Four-argument syscall: syscall6() with the trailing arguments zeroed. */
+#define syscall4(n, a, b, c, d) \
+  syscall6((n), (i64)(a), (i64)(b), (i64)(c), (i64)(d), 0, 0)
 /** One-argument syscall: syscall6() with the trailing arguments zeroed. */
 #define syscall1(n, a) syscall6((n), (i64)(a), 0, 0, 0, 0, 0)
 

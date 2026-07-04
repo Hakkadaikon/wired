@@ -463,6 +463,7 @@
 #include "app/http3/server/srvloop/respond.c"
 #include "app/http3/server/srvloop/srvloop.c"
 #include "app/http3/server/srvboot/srvboot.c"
+#include "app/http3/server/sigterm/sigterm.c"
 #include "app/http3/server/srvrun/srvrun.c"
 #include "app/http3/server/staticfile/staticfile.c"
 #include "tls/handshake/roles/client/clientwire.c"
@@ -881,6 +882,7 @@
 #include "app/h3srv_test.c"
 #include "app/srvwire_test.c"
 #include "app/srvloop_test.c"
+#include "app/srvrun_test.c"
 #include "tls/client_wire_test.c"
 #include "app/h3_loopback_test.c"
 #include "app/staticfile_test.c"
@@ -1320,6 +1322,7 @@ int main(void) {
   test_h3srv();
   test_srvwire();
   test_srvloop();
+  test_srvrun();
   test_client_wire();
   test_h3_loopback();
   test_staticfile();
