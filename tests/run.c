@@ -285,6 +285,7 @@
 #include "transport/recovery/detect/recovery/rttsample.c"
 #include "transport/recovery/detect/recovery/rttvalid.c"
 #include "transport/recovery/detect/recovery/sent.c"
+#include "transport/recovery/stats/stats.c"
 #include "transport/conn/pnspace/recvpn/recvpn.c"
 #include "transport/conn/cid/retrytoken/retrytoken.c"
 #include "transport/conn/cid/retrytoken/tokentype.c"
@@ -878,6 +879,7 @@
 #include "app/h3_loopback_test.c"
 #include "app/staticfile_test.c"
 #include "app/h3reqenc_test.c"
+#include "transport/stats_test.c"
 // clang-format on
 
 int main(void) {
@@ -1313,5 +1315,6 @@ int main(void) {
   test_h3_loopback();
   test_staticfile();
   test_h3reqenc();
+  test_stats();
   return TEST_REPORT();
 }
