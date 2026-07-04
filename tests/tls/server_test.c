@@ -280,10 +280,75 @@ static void test_server_ap_keys_match_client(void) {
   check_dir_matches(&f, QUIC_KS_CLIENT_AP, 0);
 }
 
+/* ClientHello.random (RFC 8446 4.1.2) is recorded verbatim off ch_msg. */
+static void test_server_records_client_random(void) {
+  struct srv_fix f;
+  make_client_hello(&f);
+  drive_to_flight(&f);
+  /* ch_msg layout (RFC 8446 4.1.2): 4-byte handshake header, then
+   * legacy_version(2), then random(32) -- offset 6. */
+  for (usz i = 0; i < 32; i++) CHECK(f.s.client_random[i] == f.ch[6 + i]);
+}
+
+#define SYS_unlinkat 263
+#define SRVT_AT_FDCWD (-100)
+static const char srvt_keylog_path[] = "build/server_keylog_test.tmp";
+
+static void srvt_keylog_unlink(void) {
+  syscall3(SYS_unlinkat, SRVT_AT_FDCWD, srvt_keylog_path, 0);
+}
+
+/* No keylog path set (the default): a verified Finished writes nothing. */
+static void test_server_no_keylog_path_writes_nothing(void) {
+  struct srv_fix f;
+  u8             payload[256];
+  usz            plen;
+  make_client_hello(&f);
+  drive_to_flight(&f);
+  make_client_finished(&f);
+  plen = srv_wrap_crypto(f.cli_fin, f.cli_fin_len, payload, sizeof(payload));
+  srvt_keylog_unlink();
+  CHECK(wired_server_feed(&f.s, payload, plen) == 1);
+  {
+    u8  out[8] = {0};
+    ssz n      = wired_fio_read(srvt_keylog_path, quic_mspan_of(out, sizeof out));
+    CHECK(n < 0); /* file never created */
+  }
+}
+
+/* A keylog path set before the flight: a verified Finished appends one
+ * CLIENT_HANDSHAKE_TRAFFIC_SECRET line keyed by ClientHello.random. */
+static void test_server_keylog_path_writes_line(void) {
+  struct srv_fix f;
+  u8             payload[256];
+  usz            plen;
+  make_client_hello(&f);
+  drive_to_flight(&f);
+  wired_server_set_keylog_path(&f.s, srvt_keylog_path);
+  make_client_finished(&f);
+  plen = srv_wrap_crypto(f.cli_fin, f.cli_fin_len, payload, sizeof(payload));
+  srvt_keylog_unlink();
+  CHECK(wired_server_feed(&f.s, payload, plen) == 1);
+  {
+    u8  out[512] = {0};
+    ssz n = wired_fio_read(srvt_keylog_path, quic_mspan_of(out, sizeof out));
+    const char label[] = "CLIENT_HANDSHAKE_TRAFFIC_SECRET";
+    usz        label_n = sizeof(label) - 1;
+    CHECK(n > 0);
+    for (usz i = 0; i < label_n; i++) CHECK(out[i] == (u8)label[i]);
+    CHECK(out[label_n] == ' ');
+    CHECK(out[label_n + 1] == 'a' && out[label_n + 2] == '0'); /* ch[6]=0xa0 */
+  }
+  srvt_keylog_unlink();
+}
+
 void test_server(void) {
   test_server_happy();
   test_server_forged_finished();
   test_server_flight_before_ch();
   test_server_fin_before_flight();
   test_server_ap_keys_match_client();
+  test_server_records_client_random();
+  test_server_no_keylog_path_writes_nothing();
+  test_server_keylog_path_writes_line();
 }

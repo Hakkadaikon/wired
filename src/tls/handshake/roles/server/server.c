@@ -1,6 +1,8 @@
 #include "tls/handshake/roles/server/server.h"
 
+#include "common/platform/keylog/keylog.h"
 #include "tls/handshake/core/tls/handshake.h"
+#include "tls/handshake/core/tls/hs_message.h"
 #include "tls/handshake/core/tls/schedule.h"
 #include "tls/handshake/core/tls/transcript.h"
 #include "tls/handshake/core/tls/x25519.h"
@@ -40,15 +42,34 @@ void wired_server_init(wired_server *s, const wired_server_init_in *in) {
   s->tr_len            = 0;
   s->tr_through_sh     = 0;
   s->tr_through_flight = 0;
+  s->keylog_path       = 0;
 }
 
 int wired_server_set_cids(wired_server *s, quic_span odcid, quic_span iscid) {
   return quic_sdrv_set_cids(&s->sdrv, odcid, iscid);
 }
 
+void wired_server_set_keylog_path(wired_server *s, const char *path) {
+  s->keylog_path = path;
+}
+
+/* RFC 8446 4.1.2: legacy_version(2) precedes ClientHello.random, both after
+ * the 4-byte handshake header (QUIC_HS_HEADER) put_prefix wrote them at. */
+#define SRV_CH_RANDOM_OFF (QUIC_HS_HEADER + 2)
+
+/* Record ClientHello.random off ch_msg for later keylog lines; a no-op if
+ * ch_msg is too short to carry it (already validated well-formed by
+ * quic_sdrv_recv_client_hello, so this only guards the copy itself). */
+static void srv_record_client_random(
+    wired_server *s, const u8 *ch_msg, usz ch_len) {
+  if (ch_len < SRV_CH_RANDOM_OFF + 32u) return;
+  srv_copy32(s->client_random, ch_msg + SRV_CH_RANDOM_OFF);
+}
+
 int wired_server_recv_initial(wired_server *s, const u8 *ch_msg, usz ch_len) {
   if (s->phase != WIRED_SERVER_HS_INITIAL) return 0;
   if (!quic_sdrv_recv_client_hello(&s->sdrv, ch_msg, ch_len)) return 0;
+  srv_record_client_random(s, ch_msg, ch_len);
   srv_tr_add(s, ch_msg, ch_len);
   s->phase = WIRED_SERVER_HS_CH_RECVD;
   return 1;
@@ -95,20 +116,34 @@ int wired_server_build_flight(
   return 1;
 }
 
+/* NSS Key Log Format (SSLKEYLOGFILE): a verified client Finished is the point
+ * the client handshake traffic secret is known-good, the earliest safe moment
+ * to log it (logging an unverified secret would leak a value never proven to
+ * match the peer). No-op when no keylog path is set. */
+static void srv_log_c_hs_traffic(const wired_server *s, const u8 *c_traffic) {
+  if (!s->keylog_path) return;
+  wired_keylog_append(
+      s->keylog_path, "CLIENT_HANDSHAKE_TRAFFIC_SECRET", s->client_random,
+      quic_span_of(c_traffic, QUIC_HKDF_PRK));
+}
+
 /* RFC 8446 4.4.4: verify the client Finished against the client handshake
  * traffic secret and the transcript hash through the server Finished. */
 static int srv_verify_finished(wired_server *s, const u8 *msg, usz len) {
   const u8             *hs;
   u8                    c_traffic[QUIC_HKDF_PRK], th[QUIC_SHA256_DIGEST];
   quic_derive_secret_in dsi;
+  int                   ok;
   if (!quic_sdrv_handshake_secret(&s->sdrv, &hs)) return 0;
   dsi.secret   = hs;
   dsi.label    = quic_span_of((const u8 *)"c hs traffic", 12);
   dsi.messages = quic_span_of(s->tr, s->tr_through_sh);
   quic_tls_derive_secret(&dsi, c_traffic);
   quic_sha256(s->tr, s->tr_through_flight, th);
-  return quic_srvfin_verify_client_finished(
+  ok = quic_srvfin_verify_client_finished(
       quic_span_of(msg, len), c_traffic, th);
+  if (ok) srv_log_c_hs_traffic(s, c_traffic);
+  return ok;
 }
 
 /* RFC 8446 7.1: on a verified client Finished, complete the handshake. The

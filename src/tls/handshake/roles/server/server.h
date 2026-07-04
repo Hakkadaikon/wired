@@ -52,6 +52,9 @@ typedef struct {
   usz tr_len;            /**< bytes through the latest folded message */
   usz tr_through_sh;     /**< transcript length through ServerHello */
   usz tr_through_flight; /**< transcript length through server Finished */
+  u8  client_random[32]; /**< ClientHello.random (RFC 8446 4.1.2), recorded by
+                           * wired_server_recv_initial for keylog lines */
+  const char *keylog_path; /**< NSS key log file path, or 0 to disable */
 } wired_server;
 
 /** server_priv_x25519/server_pub_x25519 are the static ECDHE pair; cert_seed
@@ -85,8 +88,17 @@ void wired_server_init(wired_server *s, const wired_server_init_in *in);
  * @return 1 ok, 0 if either length exceeds 20. */
 int wired_server_set_cids(wired_server *s, quic_span odcid, quic_span iscid);
 
+/** Set the NSS key log file path (SSLKEYLOGFILE format); 0 disables (the
+ * default). When set, wired_server_feed appends a CLIENT_HANDSHAKE_TRAFFIC_
+ * SECRET line once the client Finished verifies.
+ * @param s the orchestrator to configure
+ * @param path NUL-terminated key log file path, or 0 to disable */
+void wired_server_set_keylog_path(wired_server *s, const char *path);
+
 /** RFC 8446 4.4.1: fold a received ClientHello (TLS handshake message bytes)
- * into the transcript. Advances INITIAL -> CH_RECVD.
+ * into the transcript, recording ClientHello.random (bytes [4,36) of ch_msg:
+ * legacy_version(2) precedes it, RFC 8446 4.1.2) for later keylog lines.
+ * Advances INITIAL -> CH_RECVD.
  * @param s the orchestrator to advance
  * @param ch_msg the ClientHello handshake message bytes
  * @param ch_len length of ch_msg in octets
