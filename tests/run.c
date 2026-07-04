@@ -463,6 +463,7 @@
 #include "app/http3/server/srvloop/dispatch.c"
 #include "app/http3/server/srvloop/send.c"
 #include "app/http3/server/srvloop/respond.c"
+#include "app/http3/server/sendq/sendq.c"
 #include "app/http3/server/srvloop/srvloop.c"
 #include "app/http3/server/srvboot/srvboot.c"
 #include "app/http3/server/sigterm/sigterm.c"
@@ -889,6 +890,7 @@
 #include "app/h3srv_test.c"
 #include "app/srvwire_test.c"
 #include "app/srvloop_test.c"
+#include "app/sendq_test.c"
 #include "app/srvrun_test.c"
 #include "app/certreload_test.c"
 #include "tls/client_wire_test.c"
@@ -1336,6 +1338,7 @@ int main(void) {
   test_h3srv();
   test_srvwire();
   test_srvloop();
+  test_sendq();
   test_srvrun();
   test_certreload();
   test_client_wire();
