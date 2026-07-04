@@ -50,10 +50,11 @@ static void test_rxpacket_payload_view(void) {
   CHECK(got.p[2] == QUIC_FRAME_PING);
 }
 
-/* A packet shorter than its header is rejected. */
+/* A packet shorter than its header is rejected. Keys are zeroed, not derived:
+ * the length check must reject the packet before they are ever read. */
 static void test_rxpacket_too_short(void) {
-  quic_initial_keys ik;
-  quic_aes128       hp;
+  quic_initial_keys ik     = {0};
+  quic_aes128       hp     = {0};
   u8                buf[4] = {0};
   quic_span         got;
   CHECK(r_rx(&ik, &hp, buf, sizeof(buf), &got) == 0);
