@@ -110,6 +110,7 @@
 #include "tls/handshake/core/tls/aead_params.c"
 #include "tls/handshake/core/tls/cipher.c"
 #include "common/platform/clock/clock.c"
+#include "common/platform/clock/mono.c"
 #include "common/platform/debug/debug.c"
 #include "common/platform/fio/fio.c"
 #include "common/platform/qlog/qlog.c"
