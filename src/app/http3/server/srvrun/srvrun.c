@@ -90,6 +90,11 @@ typedef struct {
 #define SRVRUN_RESP_HDR_ROOM 64
 #define SRVRUN_SEND_WINDOW 10 /* RFC 9002 7.2: initial window, in packets */
 #define SRVRUN_CHUNK 1100     /* stream bytes per packet (fits a 1500 MTU) */
+/* ponytail: fixed 300ms probe tick with a 5-probe budget, not an RTT-derived
+ * PTO (the server tracks no RTT for its own sends yet); refine when the
+ * send path grows RTT sampling. */
+#define SRVRUN_PTO_MS 300
+#define SRVRUN_PTO_MAX 5
 static u8 g_srvrun_respstore[QUIC_CONNTABLE_CAP][WIRED_SRVRUN_RESP_MAX];
 
 /* Everything one datagram-serving step needs besides the datagram itself and
@@ -572,6 +577,31 @@ static void srvrun_sess_on_step(const srvrun_step_ctx* ctx, int slot) {
   srvrun_pump_sess(ctx, slot);
 }
 
+/* 1 if this slot's session is waiting on acknowledgements. */
+static int srvrun_sess_waiting(const srvrun_conn* c) {
+  return c->up && c->sess.active && wired_sendsess_inflight(&c->sess) != 0;
+}
+
+/* Probe or tear down one slot on a PTO tick (RFC 9002 6.2): a spent probe
+ * budget frees the slot (the peer stopped acknowledging), otherwise the
+ * requeued probe goes straight back out. */
+static void srvrun_pto_slot(const srvrun_step_ctx* ctx, int slot) {
+  srvrun_conn* c = &ctx->st->conns[slot];
+  if (!srvrun_sess_waiting(c)) return;
+  if (!wired_sendsess_pto_fire(&c->sess, SRVRUN_PTO_MAX)) {
+    srvrun_free_slot(ctx->st, slot);
+    return;
+  }
+  srvrun_pump_sess(ctx, slot);
+}
+
+/* A poll timeout with responses in flight: fire the probe pass over every
+ * waiting slot. */
+static void srvrun_fire_ptos(const srvrun_cfg* cfg, srvrun_state* st) {
+  srvrun_step_ctx ctx = {cfg, 0, st, quic_clock_mono_ms()};
+  for (usz i = 0; i < QUIC_CONNTABLE_CAP; i++) srvrun_pto_slot(&ctx, (int)i);
+}
+
 /* One live step; a peer CONNECTION_CLOSE observed by the loop frees the slot
  * afterward (RFC 9000 10.2.2: the connection is done, its state discarded). */
 static void srvrun_step_and_reap(
@@ -710,10 +740,28 @@ static void srvrun_serve_batch(
  * as SIGTERM's shutdown flag): a reload lands before the batch is served, so
  * a fresh Initial arriving right after a reload already sees the new
  * identity. */
+/* Wait for input: block in recvmmsg unless a response is awaiting ACKs, in
+ * which case poll with the probe tick so silence still makes progress.
+ * @return 1 to receive, 0 when the tick expired instead. */
+static int srvrun_any_waiting(const srvrun_state* st) {
+  for (usz i = 0; i < QUIC_CONNTABLE_CAP; i++)
+    if (srvrun_sess_waiting(&st->conns[i])) return 1;
+  return 0;
+}
+
+static int srvrun_wait_input(const srvrun_cfg* cfg, srvrun_state* st) {
+  if (!srvrun_any_waiting(st)) return 1; /* nothing in flight: just block */
+  return quic_poll_wait_readable(cfg->fd, SRVRUN_PTO_MS) > 0;
+}
+
 static void srvrun_step(
     const srvrun_cfg* cfg, srvrun_state* st, quic_mmsg_buf* bufs, usz nbufs) {
   i64 r;
   srvrun_reload_if_requested(cfg);
+  if (!srvrun_wait_input(cfg, st)) {
+    srvrun_fire_ptos(cfg, st);
+    return;
+  }
   r = wired_udp_recvmmsg(cfg->fd, bufs, nbufs);
   if (r > 0) srvrun_serve_batch(cfg, st, bufs, r);
 }

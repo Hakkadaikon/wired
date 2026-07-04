@@ -27,6 +27,7 @@ typedef struct {
   usz               requeue_n;     /**< entries pending in requeue */
   u64               largest_acked; /**< highest pn the peer acked (monotone) */
   int               has_acked;     /**< 1 once any ACK arrived */
+  int               pto_count;     /**< probes fired since the last ACK */
 } wired_sendsess;
 
 /** Arm the session over a full response byte stream (borrowed; must stay
@@ -63,6 +64,15 @@ void wired_sendsess_ack(wired_sendsess* s, u64 lo, u64 hi);
  * @param largest_acked highest packet number the peer has acknowledged
  * @return slices newly declared lost. */
 usz wired_sendsess_detect_lost(wired_sendsess* s, u64 largest_acked);
+
+/** Fire one probe timeout (RFC 9002 6.2): requeue the oldest in-flight
+ * slice so it retransmits with a fresh packet number and count the probe.
+ * Any ACK resets the count (wired_sendsess_ack).
+ * @param s the session
+ * @param max probes allowed since the last ACK
+ * @return 1 (probed, or nothing was in flight), 0 once the budget is spent —
+ *   the caller should tear the connection down. */
+int wired_sendsess_pto_fire(wired_sendsess* s, int max);
 
 /** @return 1 once everything was sent and acknowledged (session finished);
  *   also clears active. Inactive sessions report 0. */
