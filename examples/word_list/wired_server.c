@@ -53,6 +53,8 @@ typedef struct {
   const char *access_log;   /**< access log path, or 0 to disable logging */
   const char *qlog_path;    /**< qlog file path, or 0 to disable */
   const char *keylog_path;  /**< NSS key log file path, or 0 to disable */
+  const char *cert_path;    /**< cert.pem path (--cert, default cert.pem) */
+  const char *key_path;     /**< key.pem path (--key, default key.pem) */
 } app_config;
 
 /* One line per request: "METHOD PATH STATUS BYTES\n" (ponytail: fixed
@@ -143,9 +145,10 @@ static void app_selfcheck(void) {
   quic_obuf            ob          = {out, sizeof out, 0};
   app_config           cfg         = {0, 0, 0};
   const char          *content_type = 0;
-  wired_h3reqdrive_req post = {(const u8 *)"POST", 4, 0, 0, 0, 0, 0, 0,
-                               (const u8 *)"hi",   2};
-  wired_h3reqdrive_req get  = {(const u8 *)"GET", 3, 0, 0, 0, 0, 0, 0, 0, 0};
+  wired_h3reqdrive_req post = {
+      .method = (const u8 *)"POST", .method_len = 4,
+      .body = (const u8 *)"hi",     .body_len = 2};
+  wired_h3reqdrive_req get = {.method = (const u8 *)"GET", .method_len = 3};
   g_history_len             = 0;
   app_on_request(&cfg, &post, &ob, &content_type);
   if (ob.len != 2 || out[0] != 'h') die("selfcheck: echo failed\n");
@@ -187,79 +190,52 @@ static void server_identity(wired_srvboot_id *id, server_keys *k) {
 }
 
 /* Optional drop-in certificate: cert.pem (fullchain, leaf first, at most 2
- * certificates) and key.pem (P-256 private key) read from the cwd at startup.
- * Static storage because the identity holds views into it for the whole run.
- * ponytail: 8 KiB cert / 4 KiB key caps — grow the arrays if a chain outgrows
- * them. */
-static u8        cert_pem[8192], key_pem[4096], chain_der[8192];
-static quic_span chain[2];
-static u8        leaf_priv[32];
-
-/* Decode up to 2 CERTIFICATE blocks (RFC 7468 5) from a fullchain PEM. */
-static int next_cert(quic_span text, usz *at, quic_obuf *der, usz n) {
-  quic_span label;
-  return n < 2 && wired_pem_next(text, at, &label, der);
-}
-
-/* Fill chain[] from the PEM text, leaf first; die if no block decodes. */
-static usz load_pem_chain(quic_span text) {
-  quic_obuf der = quic_obuf_of(chain_der, sizeof chain_der);
-  usz       at = 0, n = 0, start = 0;
-  while (next_cert(text, &at, &der, n)) {
-    chain[n++] = quic_span_of(chain_der + start, der.len - start);
-    start      = der.len;
-  }
-  if (n == 0) die("bad cert.pem/key.pem\n");
-  return n;
-}
-
-/* Extract the P-256 private scalar from key.pem's first block (EC PRIVATE
- * KEY or PKCS#8 PRIVATE KEY; wired_eckey_p256_priv validates the DER). */
-static void load_key_priv(quic_span text) {
-  u8        der_buf[192];
-  quic_obuf der = quic_obuf_of(der_buf, sizeof der_buf);
-  quic_span label;
-  usz       at = 0;
-  if (!wired_pem_next(text, &at, &label, &der)) die("bad cert.pem/key.pem\n");
-  if (!wired_eckey_p256_priv(quic_span_of(der_buf, der.len), leaf_priv))
-    die("bad cert.pem/key.pem\n");
-}
+ * certificates) and key.pem (P-256 private key), default paths overridable
+ * via --cert/--key. wired_certreload_load (app/http3/server/certreload) does
+ * the actual PEM/DER decode; store is static because the identity holds
+ * views into it for the whole run, and a later SIGHUP reload (srvrun.c)
+ * reuses the very same loader against the same paths. */
+static wired_certreload_store cert_store;
 
 static void log_chain(usz n) {
   wired_log_str(n == 2 ? "cert.pem: 2 certs\n" : "cert.pem: 1 cert\n");
 }
 
-/* Point the identity at the loaded chain and its signing scalar. */
-static void install_cert(wired_srvboot_id *id, ssz cn, ssz kn) {
-  if (cn < 0 || kn < 0) die("bad cert.pem/key.pem\n");
-  id->chain_count = load_pem_chain(quic_span_of(cert_pem, (usz)cn));
-  load_key_priv(quic_span_of(key_pem, (usz)kn));
-  id->cert_seed = leaf_priv;
-  id->chain     = chain;
-  log_chain(id->chain_count);
+/* 1 if path opens and reads at least one byte (existence probe only; the
+ * byte itself is discarded — wired_certreload_load re-reads the whole file
+ * right after). */
+static int cert_file_present(const char *path) {
+  u8 probe[1];
+  return wired_fio_read(path, quic_mspan_of(probe, sizeof probe)) >= 0;
 }
 
-/* Drop-in loader: both files absent keeps the self-signed identity; a broken
- * or half-present pair dies rather than silently serving self-signed. */
-static void load_cert_files(wired_srvboot_id *id) {
-  ssz cn = wired_fio_read("cert.pem", quic_mspan_of(cert_pem, sizeof cert_pem));
-  ssz kn = wired_fio_read("key.pem", quic_mspan_of(key_pem, sizeof key_pem));
-  if (cn < 0 && kn < 0) {
+/* Drop-in loader: neither cert_path nor key_path present (no --cert/--key
+ * and no cert.pem/key.pem in the cwd) keeps the self-signed identity; a
+ * broken or half-present pair dies rather than silently serving
+ * self-signed. */
+static void load_cert_files(
+    wired_srvboot_id *id, const char *cert_path, const char *key_path) {
+  if (!cert_file_present(cert_path) && !cert_file_present(key_path)) {
     wired_log_str("self-signed (no cert.pem)\n");
     return;
   }
-  install_cert(id, cn, kn);
+  if (!wired_certreload_load(cert_path, key_path, &cert_store, id))
+    die("bad cert.pem/key.pem\n");
+  log_chain(id->chain_count);
 }
 
 /* Resolve CLI configuration: --port (default 4433), --root (static file mode,
  * absent = history demo), --index (default index.html), --access-log
- * (absent = no logging), --qlog-file / --keylog-file (absent = disabled). */
+ * (absent = no logging), --qlog-file / --keylog-file (absent = disabled),
+ * --cert / --key (cert.pem/key.pem in the cwd by default). */
 static u16 load_config(app_config *cfg, int argc, char **argv) {
   cfg->root        = wired_cliargs_str(argc, argv, "--root", 0);
   cfg->index       = wired_cliargs_str(argc, argv, "--index", "index.html");
   cfg->access_log  = wired_cliargs_str(argc, argv, "--access-log", 0);
   cfg->qlog_path   = wired_cliargs_str(argc, argv, "--qlog-file", 0);
   cfg->keylog_path = wired_cliargs_str(argc, argv, "--keylog-file", 0);
+  cfg->cert_path   = wired_cliargs_str(argc, argv, "--cert", "cert.pem");
+  cfg->key_path    = wired_cliargs_str(argc, argv, "--key", "key.pem");
   return (u16)wired_cliargs_int(argc, argv, "--port", 4433);
 }
 
@@ -277,9 +253,10 @@ __attribute__((force_align_arg_pointer, used)) static int wired_main(
   wired_srvrun_handler h    = {app_on_request, &cfg};
   app_selfcheck();
   server_identity(&id, &keys);
-  load_cert_files(&id);
+  load_cert_files(&id, cfg.cert_path, cfg.key_path);
   {
-    wired_srvrun_obs obs = {cfg.qlog_path, cfg.keylog_path};
+    wired_srvrun_obs obs = {
+        cfg.qlog_path, cfg.keylog_path, cfg.cert_path, cfg.key_path};
     if (!wired_server_run(port, &id, h, obs)) die("listen failed\n");
   }
   return 0;
