@@ -125,3 +125,65 @@ i64 wired_udp_send_batch(
   }
   return sent;
 }
+
+/* x86_64 Linux struct mmsghdr (man 2 recvmmsg / uapi socket.h): the msghdr
+ * above plus the kernel-filled received length. */
+typedef struct {
+  quic_msghdr msg_hdr;
+  u32         msg_len;
+  u32         msg_len_pad; /* kernel struct has 4B padding here (LP64) */
+} quic_mmsghdr;
+
+/* recvmmsg() caps count at IOV_MAX-equivalent batch sizes in practice; QUIC
+ * datagram batches are always small, so a fixed on-stack cap is enough
+ * (ponytail: fixed cap, raise WIRED_RECVMMSG_MAX if a caller ever needs more).
+ */
+#define WIRED_RECVMMSG_MAX 64
+
+/* Point one iovec+msghdr+mmsghdr slot at bufs[i].buf so the kernel writes
+ * directly into the caller's storage; src doubles as msg_name. */
+static void recvmmsg_fill_slot(
+    quic_mmsghdr *slot, quic_iovec *iov, quic_mmsg_buf *b) {
+  iov->iov_base             = b->buf.p;
+  iov->iov_len              = b->buf.n;
+  slot->msg_hdr.msg_name    = &b->src;
+  slot->msg_hdr.msg_namelen = sizeof(b->src);
+  slot->msg_hdr.msg_iov     = iov;
+  slot->msg_hdr.msg_iovlen  = 1;
+  slot->msg_len             = 0;
+}
+
+/* Fill every slot the syscall will read from. */
+static void recvmmsg_fill_all(
+    quic_mmsghdr *slots, quic_iovec *iovs, quic_mmsg_buf *bufs, usz n) {
+  for (usz i = 0; i < n; i++) recvmmsg_fill_slot(&slots[i], &iovs[i], &bufs[i]);
+}
+
+/* Copy the kernel-filled length back into each received slot. */
+static void recvmmsg_read_lens(
+    quic_mmsg_buf *bufs, const quic_mmsghdr *slots, i64 r) {
+  for (i64 i = 0; i < r; i++) bufs[i].len = slots[i].msg_len;
+}
+
+i64 wired_udp_recvmmsg(i64 fd, quic_mmsg_buf *bufs, usz count) {
+  quic_mmsghdr slots[WIRED_RECVMMSG_MAX];
+  quic_iovec   iovs[WIRED_RECVMMSG_MAX];
+  usz          n = count < WIRED_RECVMMSG_MAX ? count : WIRED_RECVMMSG_MAX;
+  i64          r;
+  recvmmsg_fill_all(slots, iovs, bufs, n);
+  r = syscall6(SYS_recvmmsg, fd, (i64)slots, (i64)n, 0, 0, 0);
+  if (r < 0) return r;
+  recvmmsg_read_lens(bufs, slots, r);
+  return r;
+}
+
+i64 wired_udp_recvmmsg_fallback(i64 fd, quic_mmsg_buf *bufs, usz count) {
+  usz n = 0;
+  while (n < count) {
+    i64 r = wired_udp_recvfrom(fd, bufs[n].buf, &bufs[n].src);
+    if (r <= 0) break;
+    bufs[n].len = (u32)r;
+    n += 1;
+  }
+  return (i64)n;
+}

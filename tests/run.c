@@ -465,6 +465,7 @@
 #include "app/http3/server/srvloop/srvloop.c"
 #include "app/http3/server/srvboot/srvboot.c"
 #include "app/http3/server/sigterm/sigterm.c"
+#include "app/http3/server/certreload/certreload.c"
 #include "app/http3/server/srvrun/srvrun.c"
 #include "app/http3/server/staticfile/staticfile.c"
 #include "app/http3/server/mimetype/mimetype.c"
@@ -492,6 +493,7 @@
 #include "transport/cc_test.c"
 #include "transport/flow_test.c"
 #include "transport/udp_test.c"
+#include "transport/udp_recvmmsg_test.c"
 #include "transport/udp_recvfrom_test.c"
 #include "transport/udp_gso_test.c"
 #include "transport/retransmit_test.c"
@@ -887,6 +889,7 @@
 #include "app/srvwire_test.c"
 #include "app/srvloop_test.c"
 #include "app/srvrun_test.c"
+#include "app/certreload_test.c"
 #include "tls/client_wire_test.c"
 #include "app/h3_loopback_test.c"
 #include "app/staticfile_test.c"
@@ -921,6 +924,7 @@ int main(void) {
   test_udp();
   test_udp_recvfrom();
   test_udp_gso();
+  test_udp_recvmmsg();
   test_rtx();
   test_ack();
   test_ncid();
@@ -1332,6 +1336,7 @@ int main(void) {
   test_srvwire();
   test_srvloop();
   test_srvrun();
+  test_certreload();
   test_client_wire();
   test_h3_loopback();
   test_staticfile();

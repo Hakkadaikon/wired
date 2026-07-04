@@ -104,4 +104,34 @@ i64 wired_udp_send_gso(
 i64 wired_udp_send_batch(
     i64 fd, const quic_sockaddr_in *sa, quic_span buf, u16 segsize);
 
+/** One slot of a recvmmsg() batch: caller-owned receive buffer and source
+ * address, filled in by wired_udp_recvmmsg on return. */
+typedef struct {
+  quic_mspan       buf; /**< in: destination buffer; unused bytes untouched */
+  quic_sockaddr_in src; /**< out: datagram's source address */
+  u32              len; /**< out: bytes received into buf.p */
+} quic_mmsg_buf;
+
+/** Receive up to count datagrams in one recvmmsg() syscall (Linux GRO-style
+ * batched receive, kernel >= 2.6.33). Each bufs[i].buf is a caller-owned
+ * destination buffer; on return bufs[i].len and bufs[i].src are filled for
+ * the first N slots actually received.
+ * @param fd the socket fd
+ * @param bufs array of count receive slots
+ * @param count number of slots in bufs
+ * @return number of datagrams received (0..count), or a negative errno (e.g.
+ *   ENOSYS on a kernel without recvmmsg) — the caller should fall back to
+ *   wired_udp_recvmmsg_fallback in that case. */
+i64 wired_udp_recvmmsg(i64 fd, quic_mmsg_buf *bufs, usz count);
+
+/** Receive up to count datagrams via a wired_udp_recvfrom() loop (one syscall
+ * per datagram), stopping at the first empty/error result. The always-
+ * available fallback path for a kernel without recvmmsg support — symmetric
+ * with wired_udp_send_batch on the send side.
+ * @param fd the socket fd
+ * @param bufs array of count receive slots
+ * @param count number of slots in bufs
+ * @return number of datagrams received (0..count). */
+i64 wired_udp_recvmmsg_fallback(i64 fd, quic_mmsg_buf *bufs, usz count);
+
 #endif
