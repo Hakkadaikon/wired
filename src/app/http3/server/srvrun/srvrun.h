@@ -24,11 +24,20 @@ typedef struct {
  * socket and blocks in recvfrom, the sanctioned socket-owning layer over the
  * socket-free srvboot/srvloop core. RFC 9000 7: one connection at a time, in
  * arrival order.
+ *
+ * Graceful shutdown (RFC 9114 5.2): installs a SIGTERM handler before
+ * serving. On receipt, new connections stop being accepted, GOAWAY is sent
+ * once to every live connection, and the process exits once every connection
+ * has drained or a bounded grace period elapses.
+ * ponytail: a SIGTERM delivered before this handler is installed (a narrow
+ * startup race) falls back to the default action (immediate exit, no
+ * GOAWAY) — acceptable for a demo; a process supervisor should signal only
+ * after observing the "listening" log line.
  * @param port UDP port to bind
  * @param id the fixed server identity
  * @param h the application's request responder
- * @return 0 if the socket cannot be opened or bound; otherwise runs until the
- *   process is killed. */
+ * @return 0 if the socket cannot be opened or bound; otherwise runs until
+ *   shutdown completes (SIGTERM) or the process is killed. */
 int wired_server_run(
     u16 port, const wired_srvboot_id *id, wired_srvrun_handler h);
 
