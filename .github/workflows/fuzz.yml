@@ -11,13 +11,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y clang just
+      # Same pinned toolchain as CI and local dev (flake.nix/flake.lock).
+      - uses: DeterminateSystems/nix-installer-action@main
 
       - name: run fuzz harnesses (120s each, bounded regression sweep)
-        run: just fuzz-ci 120
+        run: nix develop -c just fuzz-ci 120
 
       - name: upload crash artifacts
         if: failure()

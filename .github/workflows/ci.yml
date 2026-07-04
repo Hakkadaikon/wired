@@ -10,20 +10,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y clang clang-format just ninja-build
-          pip install lizard
+      # The flake (flake.nix + flake.lock) is the single source of truth for
+      # the toolchain: CI runs the exact same clang/clang-tidy/clang-format/
+      # lizard versions as `nix develop` locally, so a green gate here means
+      # the same commands are green on a developer machine and vice versa.
+      - uses: DeterminateSystems/nix-installer-action@main
 
       - name: fmt-check
-        run: just fmt-check
+        run: nix develop -c just fmt-check
 
       - name: compile (freestanding, proves libc independence)
-        run: just ninja
+        run: nix develop -c just ninja
 
       - name: test (hosted unity build)
-        run: just test
+        run: nix develop -c just test
 
       - name: ccn (lizard, CCN <= 3)
-        run: just ccn
+        run: nix develop -c just ccn
+
+      - name: lint (clang-tidy, CERT C + bug finders)
+        run: nix develop -c just lint
