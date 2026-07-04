@@ -141,16 +141,18 @@ typedef struct {
 #define WIRED_RECVMMSG_MAX 64
 
 /* Point one iovec+msghdr+mmsghdr slot at bufs[i].buf so the kernel writes
- * directly into the caller's storage; src doubles as msg_name. */
+ * directly into the caller's storage; src doubles as msg_name. Zeroes the
+ * whole slot first so no uninitialized stack bytes (e.g. msg_control/
+ * msg_controllen) ever reach the recvmmsg(2) syscall. */
 static void recvmmsg_fill_slot(
     quic_mmsghdr *slot, quic_iovec *iov, quic_mmsg_buf *b) {
+  *slot                     = (quic_mmsghdr){0};
   iov->iov_base             = b->buf.p;
   iov->iov_len              = b->buf.n;
   slot->msg_hdr.msg_name    = &b->src;
   slot->msg_hdr.msg_namelen = sizeof(b->src);
   slot->msg_hdr.msg_iov     = iov;
   slot->msg_hdr.msg_iovlen  = 1;
-  slot->msg_len             = 0;
 }
 
 /* Fill every slot the syscall will read from. */
@@ -166,8 +168,8 @@ static void recvmmsg_read_lens(
 }
 
 i64 wired_udp_recvmmsg(i64 fd, quic_mmsg_buf *bufs, usz count) {
-  quic_mmsghdr slots[WIRED_RECVMMSG_MAX];
-  quic_iovec   iovs[WIRED_RECVMMSG_MAX];
+  quic_mmsghdr slots[WIRED_RECVMMSG_MAX] = {0};
+  quic_iovec   iovs[WIRED_RECVMMSG_MAX]  = {0};
   usz          n = count < WIRED_RECVMMSG_MAX ? count : WIRED_RECVMMSG_MAX;
   i64          r;
   recvmmsg_fill_all(slots, iovs, bufs, n);
