@@ -46,7 +46,7 @@ static usz put_status_line(u16 status, u8 *out, usz cap) {
 /* Append the content-type field line: Indexed when the value is in the
  * static table, else a Literal referencing the static content-type name. */
 static usz put_content_type_line(const char *content_type, u8 *out, usz cap) {
-  quic_qpack_nameref r = {QPACK_CONTENT_TYPE_NAME_INDEX, 1, 0};
+  quic_qpack_nameref r   = {QPACK_CONTENT_TYPE_NAME_INDEX, 1, 0};
   usz                len = quic_cstr_len(content_type);
   i64                idx = quic_qpack_static_find("content-type", content_type);
   if (idx >= 0)

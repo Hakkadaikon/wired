@@ -40,12 +40,11 @@ void test_conntable(void) {
   const u8 cid_e[] = {0xEE};
   int      ic      = quic_conntable_insert(t, 4, cid_c, 1);
   CHECK(ic >= 0);
-  CHECK(quic_conntable_insert(t, 4, cid_d, 1) >= 0); /* last free slot */
+  CHECK(quic_conntable_insert(t, 4, cid_d, 1) >= 0);  /* last free slot */
   CHECK(quic_conntable_insert(t, 4, cid_e, 1) == -1); /* table full */
 
   /* oversized CID is rejected regardless of free slots */
   quic_conntable_remove(t, 4, ic);
   u8 too_long[WIRED_MAX_CID_LEN + 1] = {0};
-  CHECK(
-      quic_conntable_insert(t, 4, too_long, WIRED_MAX_CID_LEN + 1) == -1);
+  CHECK(quic_conntable_insert(t, 4, too_long, WIRED_MAX_CID_LEN + 1) == -1);
 }

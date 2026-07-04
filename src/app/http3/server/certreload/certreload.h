@@ -36,7 +36,9 @@ typedef struct {
  * @return 1 on success; 0 if either file cannot be read, the PEM/DER is
  *   malformed, or the chain has zero certificates. */
 int wired_certreload_load(
-    const char *cert_path, const char *key_path,
-    wired_certreload_store *store, wired_srvboot_id *id);
+    const char             *cert_path,
+    const char             *key_path,
+    wired_certreload_store *store,
+    wired_srvboot_id       *id);
 
 #endif

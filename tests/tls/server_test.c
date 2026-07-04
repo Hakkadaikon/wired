@@ -311,7 +311,7 @@ static void test_server_no_keylog_path_writes_nothing(void) {
   CHECK(wired_server_feed(&f.s, payload, plen) == 1);
   {
     u8  out[8] = {0};
-    ssz n      = wired_fio_read(srvt_keylog_path, quic_mspan_of(out, sizeof out));
+    ssz n = wired_fio_read(srvt_keylog_path, quic_mspan_of(out, sizeof out));
     CHECK(n < 0); /* file never created */
   }
 }

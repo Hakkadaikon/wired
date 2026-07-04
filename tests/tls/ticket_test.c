@@ -21,8 +21,8 @@ static void test_ticket_roundtrip(void) {
   quic_ticket_seal(&in, key, sealed);
 
   quic_ticket out;
-  int ok = quic_ticket_open(
-      quic_span_of(sealed, QUIC_TICKET_SEALED_LEN), key, &out);
+  int         ok =
+      quic_ticket_open(quic_span_of(sealed, QUIC_TICKET_SEALED_LEN), key, &out);
   CHECK(ok == 1);
   CHECK(out.issued_at == in.issued_at);
   CHECK(out.lifetime_secs == in.lifetime_secs);
@@ -40,8 +40,8 @@ static void test_ticket_tamper_detected(void) {
   sealed[QUIC_TICKET_SEALED_LEN - 1] ^= 0x01;
 
   quic_ticket out;
-  int ok = quic_ticket_open(
-      quic_span_of(sealed, QUIC_TICKET_SEALED_LEN), key, &out);
+  int         ok =
+      quic_ticket_open(quic_span_of(sealed, QUIC_TICKET_SEALED_LEN), key, &out);
   CHECK(ok == 0);
 }
 
@@ -56,7 +56,7 @@ static void test_ticket_wrong_key_rejected(void) {
   u8 wrong_key[QUIC_TICKET_KEY_LEN];
   fill_key(wrong_key, 0x44);
   quic_ticket out;
-  int ok = quic_ticket_open(
+  int         ok = quic_ticket_open(
       quic_span_of(sealed, QUIC_TICKET_SEALED_LEN), wrong_key, &out);
   CHECK(ok == 0);
 }

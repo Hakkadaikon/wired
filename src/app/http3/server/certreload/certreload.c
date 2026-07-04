@@ -6,14 +6,17 @@
 
 /* Decode one more CERTIFICATE block (RFC 7468 5) from text into der, up to
  * WIRED_CERTRELOAD_CHAIN_MAX total. */
-static int certreload_next_cert(quic_span text, usz *at, quic_obuf *der, usz n) {
+static int certreload_next_cert(
+    quic_span text, usz *at, quic_obuf *der, usz n) {
   quic_span label;
-  return n < WIRED_CERTRELOAD_CHAIN_MAX && wired_pem_next(text, at, &label, der);
+  return n < WIRED_CERTRELOAD_CHAIN_MAX &&
+         wired_pem_next(text, at, &label, der);
 }
 
 /* Fill store->chain[] from cert.pem's text, leaf first. Returns the number of
  * certificates decoded (0 if none). */
-static usz certreload_load_chain(quic_span text, wired_certreload_store *store) {
+static usz certreload_load_chain(
+    quic_span text, wired_certreload_store *store) {
   quic_obuf der = quic_obuf_of(store->chain_der, sizeof store->chain_der);
   usz       at = 0, n = 0, start = 0;
   while (certreload_next_cert(text, &at, &der, n)) {
@@ -44,8 +47,10 @@ static ssz certreload_read_file(const char *path, u8 *buf, usz cap) {
 /* Decode cert_text/key_text (already read into memory) into store and point
  * id at the result. Returns 1 on success. */
 static int certreload_decode(
-    quic_span cert_text, quic_span key_text, wired_certreload_store *store,
-    wired_srvboot_id *id) {
+    quic_span               cert_text,
+    quic_span               key_text,
+    wired_certreload_store *store,
+    wired_srvboot_id       *id) {
   usz n = certreload_load_chain(cert_text, store);
   if (n == 0) return 0;
   if (!certreload_load_key(key_text, store)) return 0;
@@ -56,8 +61,10 @@ static int certreload_decode(
 }
 
 int wired_certreload_load(
-    const char *cert_path, const char *key_path,
-    wired_certreload_store *store, wired_srvboot_id *id) {
+    const char             *cert_path,
+    const char             *key_path,
+    wired_certreload_store *store,
+    wired_srvboot_id       *id) {
   u8  cert_pem[8192], key_pem[4096];
   ssz cn = certreload_read_file(cert_path, cert_pem, sizeof cert_pem);
   ssz kn = certreload_read_file(key_path, key_pem, sizeof key_pem);

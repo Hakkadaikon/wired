@@ -4,12 +4,12 @@
 #include "app/http3/server/h3srv/respond.h"
 #include "app/http3/server/srvloop/keys.h"
 #include "app/http3/server/srvloop/send.h"
+#include "tls/handshake/core/tls/newsessionticket.h"
 #include "transport/conn/loop/connrunner/level.h"
 #include "transport/packet/build/hspkt/hspkt_build.h"
 #include "transport/packet/frame/frame/ack.h"
 #include "transport/packet/frame/frame/frame.h"
 #include "transport/stream/data/appdata/stream_send.h"
-#include "tls/handshake/core/tls/newsessionticket.h"
 
 #define WIRED_SRVLOOP_RESP_STREAM 0
 #define WIRED_SRVLOOP_CTRL_STREAM              \
@@ -65,9 +65,9 @@ static int build_settings_frame(wired_srvloop *l, quic_obuf *out) {
  * deployment needs periodic key rotation (and multi-key acceptance during
  * overlap) so a leaked key does not compromise every ticket ever issued. */
 static const u8 g_ticket_key[QUIC_TICKET_KEY_LEN] = {
-    0x77, 0x69, 0x72, 0x65, 0x64, 0x2d, 0x74, 0x6b, 0x74, 0x2d, 0x6b, 0x65,
-    0x79, 0x2d, 0x30, 0x30, 0x77, 0x69, 0x72, 0x65, 0x64, 0x2d, 0x74, 0x6b,
-    0x74, 0x2d, 0x6b, 0x65, 0x79, 0x2d, 0x30, 0x31};
+    0x77, 0x69, 0x72, 0x65, 0x64, 0x2d, 0x74, 0x6b, 0x74, 0x2d, 0x6b,
+    0x65, 0x79, 0x2d, 0x30, 0x30, 0x77, 0x69, 0x72, 0x65, 0x64, 0x2d,
+    0x74, 0x6b, 0x74, 0x2d, 0x6b, 0x65, 0x79, 0x2d, 0x30, 0x31};
 
 /* RFC 8446 4.6.1: seal a fresh session ticket (fixed 2h lifetime; this SDK has
  * no clock, so issued_at is left 0 and resumption checks lifetime, not age)
@@ -129,8 +129,7 @@ static const u8 *build_body(
     wired_srvloop *l, u8 *body, usz *body_len, const char **content_type) {
   quic_obuf ob = quic_obuf_of(body, WIRED_SRVLOOP_BODY_MAX);
   *body_len    = 0;
-  if (l->on_request &&
-      l->on_request(l->req_ctx, &l->req, &ob, content_type)) {
+  if (l->on_request && l->on_request(l->req_ctx, &l->req, &ob, content_type)) {
     *body_len = ob.len;
     return body;
   }

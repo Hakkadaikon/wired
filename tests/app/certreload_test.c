@@ -14,10 +14,10 @@
 #define SYS_unlinkat 263
 #define CRT_AT_FDCWD (-100)
 
-static const char crt_cert_path[]      = "build/certreload_cert_test.pem";
-static const char crt_key_path[]       = "build/certreload_key_test.pem";
-static const char crt_cert_2_path[]    = "build/certreload_cert2_test.pem";
-static const char crt_bad_key_path[]   = "build/certreload_badkey_test.pem";
+static const char crt_cert_path[]    = "build/certreload_cert_test.pem";
+static const char crt_key_path[]     = "build/certreload_key_test.pem";
+static const char crt_cert_2_path[]  = "build/certreload_cert2_test.pem";
+static const char crt_bad_key_path[] = "build/certreload_badkey_test.pem";
 
 /* PEM_LEAF/PEM_INT match pem_test.c's realchain golden encoding. */
 #define CRT_PEM_LEAF                                                   \
@@ -33,7 +33,7 @@ static const char crt_bad_key_path[]   = "build/certreload_badkey_test.pem";
   "iAVZ8V5X3ScnOQ==\n"                                                 \
   "-----END CERTIFICATE-----\n"
 
-#define CRT_PEM_INT                                                     \
+#define CRT_PEM_INT                                                    \
   "-----BEGIN CERTIFICATE-----\n"                                      \
   "MIIBdzCCAR6gAwIBAgIBAjAKBggqhkjOPQQDAjAaMRgwFgYDVQQDDA93aXJlZC10\n" \
   "ZXN0LXJvb3QwHhcNMjYwNzAyMDMwMDE2WhcNNDYwNjI3MDMwMDE2WjAZMRcwFQYD\n" \
@@ -46,19 +46,20 @@ static const char crt_bad_key_path[]   = "build/certreload_badkey_test.pem";
   "-----END CERTIFICATE-----\n"
 
 /* base64 of quic_eckey_sec1_der (eckey_golden.h), computed offline. */
-#define CRT_PEM_KEY                                                     \
-  "-----BEGIN EC PRIVATE KEY-----\n"                                    \
-  "MHcCAQEEIGEwVXfogbUsrnfdXV/ibLZWhMGAQXbeSwuof7yWDf8PoAoGCCqGSM49\n"   \
-  "AwEHoUQDQgAExXHoorugQyGhZofbmSFiyMSC0ZMgR5KTsql7o85ozCdi8WXaIs9s\n"   \
-  "Jqr6SCDjgvw9xPMUV3UEDxCsEZbkEZpW/A==\n"                              \
+#define CRT_PEM_KEY                                                    \
+  "-----BEGIN EC PRIVATE KEY-----\n"                                   \
+  "MHcCAQEEIGEwVXfogbUsrnfdXV/ibLZWhMGAQXbeSwuof7yWDf8PoAoGCCqGSM49\n" \
+  "AwEHoUQDQgAExXHoorugQyGhZofbmSFiyMSC0ZMgR5KTsql7o85ozCdi8WXaIs9s\n" \
+  "Jqr6SCDjgvw9xPMUV3UEDxCsEZbkEZpW/A==\n"                             \
   "-----END EC PRIVATE KEY-----\n"
 
-static const char crt_cert_pem[]     = CRT_PEM_LEAF;
-static const char crt_cert2_pem[]    = CRT_PEM_LEAF CRT_PEM_INT;
-static const char crt_key_pem[]      = CRT_PEM_KEY;
-static const char crt_bad_key_pem[]  = "-----BEGIN EC PRIVATE KEY-----\n"
-                                       "Zm9v\n"
-                                       "-----END EC PRIVATE KEY-----\n";
+static const char crt_cert_pem[]  = CRT_PEM_LEAF;
+static const char crt_cert2_pem[] = CRT_PEM_LEAF CRT_PEM_INT;
+static const char                                crt_key_pem[] = CRT_PEM_KEY;
+static const char                                crt_bad_key_pem[] =
+    "-----BEGIN EC PRIVATE KEY-----\n"
+    "Zm9v\n"
+    "-----END EC PRIVATE KEY-----\n";
 
 static void crt_write(const char *path, const char *text, usz n) {
   syscall3(SYS_unlinkat, CRT_AT_FDCWD, path, 0);
@@ -76,8 +77,7 @@ static void test_certreload_loads_single_cert(void) {
   wired_srvboot_id       id = {0};
   crt_write(crt_cert_path, crt_cert_pem, sizeof(crt_cert_pem) - 1);
   crt_write(crt_key_path, crt_key_pem, sizeof(crt_key_pem) - 1);
-  CHECK(
-      wired_certreload_load(crt_cert_path, crt_key_path, &store, &id) == 1);
+  CHECK(wired_certreload_load(crt_cert_path, crt_key_path, &store, &id) == 1);
   CHECK(id.chain_count == 1);
   CHECK(id.chain[0].n == sizeof(quic_realchain_leaf_der));
   CHECK(id.cert_seed == store.priv);
@@ -91,8 +91,7 @@ static void test_certreload_loads_two_cert_chain(void) {
   wired_srvboot_id       id = {0};
   crt_write(crt_cert_2_path, crt_cert2_pem, sizeof(crt_cert2_pem) - 1);
   crt_write(crt_key_path, crt_key_pem, sizeof(crt_key_pem) - 1);
-  CHECK(
-      wired_certreload_load(crt_cert_2_path, crt_key_path, &store, &id) == 1);
+  CHECK(wired_certreload_load(crt_cert_2_path, crt_key_path, &store, &id) == 1);
   CHECK(id.chain_count == 2);
   CHECK(id.chain[0].n == sizeof(quic_realchain_leaf_der));
   CHECK(id.chain[1].n == sizeof(quic_realchain_int_der));
@@ -123,8 +122,7 @@ static void test_certreload_malformed_key_fails(void) {
   crt_write(crt_cert_path, crt_cert_pem, sizeof(crt_cert_pem) - 1);
   crt_write(crt_bad_key_path, crt_bad_key_pem, sizeof(crt_bad_key_pem) - 1);
   CHECK(
-      wired_certreload_load(crt_cert_path, crt_bad_key_path, &store, &id) ==
-      0);
+      wired_certreload_load(crt_cert_path, crt_bad_key_path, &store, &id) == 0);
   crt_unlink(crt_cert_path);
   crt_unlink(crt_bad_key_path);
 }

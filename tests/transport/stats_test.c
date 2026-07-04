@@ -42,7 +42,8 @@ static void test_stats_sent_get_inflight_and_loss(void) {
   CHECK(quic_sent_on_send(&s, &p2));
   CHECK(quic_sent_on_send(&s, &p3));
   CHECK(quic_sent_on_send(&s, &p4));
-  quic_sent_on_ack(&s, 3); /* largest_acked=3, pn=0 now >= threshold(3) behind */
+  quic_sent_on_ack(
+      &s, 3); /* largest_acked=3, pn=0 now >= threshold(3) behind */
   CHECK(quic_sent_detect_loss(&s) == 1); /* pn=0 lost */
 
   quic_stats_sent out;

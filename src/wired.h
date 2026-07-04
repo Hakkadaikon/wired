@@ -8,11 +8,11 @@
  * examples/word_list for a complete server. */
 
 #include "app/http3/server/certreload/certreload.h"
+#include "app/http3/server/mimetype/mimetype.h"
 #include "app/http3/server/srvboot/srvboot.h"
 #include "app/http3/server/srvloop/send.h"
 #include "app/http3/server/srvloop/srvloop.h"
 #include "app/http3/server/srvrun/srvrun.h"
-#include "app/http3/server/mimetype/mimetype.h"
 #include "app/http3/server/staticfile/staticfile.h"
 #include "common/bytes/util/bytes.h"
 #include "common/platform/cliargs/cliargs.h"

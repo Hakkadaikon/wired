@@ -12,17 +12,12 @@ typedef struct {
 } mimetype_entry;
 
 static const mimetype_entry MIMETYPE_TABLE[] = {
-    {"html", "text/html"},
-    {"css", "text/css"},
-    {"js", "text/javascript"},
-    {"json", "application/json"},
-    {"txt", "text/plain"},
-    {"png", "image/png"},
-    {"jpg", "image/jpeg"},
-    {"jpeg", "image/jpeg"},
+    {"html", "text/html"},     {"css", "text/css"},
+    {"js", "text/javascript"}, {"json", "application/json"},
+    {"txt", "text/plain"},     {"png", "image/png"},
+    {"jpg", "image/jpeg"},     {"jpeg", "image/jpeg"},
 };
-#define MIMETYPE_TABLE_LEN \
-  (sizeof(MIMETYPE_TABLE) / sizeof(MIMETYPE_TABLE[0]))
+#define MIMETYPE_TABLE_LEN (sizeof(MIMETYPE_TABLE) / sizeof(MIMETYPE_TABLE[0]))
 
 /* 1 if a[i] mismatches ext at position i, or ext ends there (a run short). */
 static int mimetype_ext_mismatch(const char *a, const char *ext, usz i) {

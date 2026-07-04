@@ -7,11 +7,11 @@
  * (test_send_gso_delivers_total_bytes below) proves it is accepted for real. */
 static void test_gso_cmsg_build(void) {
   static const u8 want[WIRED_GSO_CMSG_SPACE] = {
-      18, 0, 0, 0, 0, 0, 0, 0, /* cmsg_len */
-      17, 0, 0, 0,             /* cmsg_level = SOL_UDP */
-      103, 0, 0, 0,            /* cmsg_type = UDP_SEGMENT */
-      176, 4,                  /* segsize = 1200 (LE) */
-      0, 0, 0, 0, 0, 0,        /* padding to CMSG_SPACE */
+      18,  0, 0, 0, 0, 0, 0, 0, /* cmsg_len */
+      17,  0, 0, 0,             /* cmsg_level = SOL_UDP */
+      103, 0, 0, 0,             /* cmsg_type = UDP_SEGMENT */
+      176, 4,                   /* segsize = 1200 (LE) */
+      0,   0, 0, 0, 0, 0,       /* padding to CMSG_SPACE */
   };
   u8  buf[WIRED_GSO_CMSG_SPACE];
   int eq = 1;
@@ -59,7 +59,8 @@ static void test_send_batch_delivers_segments(void) {
   for (usz i = 0; i < sizeof payload; i++) payload[i] = (u8)i;
   if (!gso_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
   CHECK(
-      wired_udp_send_batch(cfd, &srv, quic_span_of(payload, sizeof payload), 10) ==
+      wired_udp_send_batch(
+          cfd, &srv, quic_span_of(payload, sizeof payload), 10) ==
       (i64)sizeof payload);
   CHECK(gso_recv_count(sfd) == 3);
   wired_udp_close(cfd);
@@ -76,7 +77,8 @@ static void test_send_gso_delivers_total_bytes(void) {
   if (!gso_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
   wired_udp_gso_enable(cfd, 10);
   CHECK(
-      wired_udp_send_gso(cfd, &srv, quic_span_of(payload, sizeof payload), 10) ==
+      wired_udp_send_gso(
+          cfd, &srv, quic_span_of(payload, sizeof payload), 10) ==
       (i64)sizeof payload);
   CHECK(gso_recv_count(sfd) == 3);
   wired_udp_close(cfd);

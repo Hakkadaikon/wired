@@ -49,11 +49,11 @@ typedef struct {
   int               hs_done_sent; /**< HANDSHAKE_DONE emitted (at most once) */
   u8  server_priv[32]; /**< RFC 7748 x25519 private (owns the ECDHE) */
   u8  tr[WIRED_SERVER_TRANSCRIPT_MAX]; /**< raw handshake transcript bytes */
-  usz tr_len;            /**< bytes through the latest folded message */
-  usz tr_through_sh;     /**< transcript length through ServerHello */
-  usz tr_through_flight; /**< transcript length through server Finished */
-  u8  client_random[32]; /**< ClientHello.random (RFC 8446 4.1.2), recorded by
-                           * wired_server_recv_initial for keylog lines */
+  usz tr_len;              /**< bytes through the latest folded message */
+  usz tr_through_sh;       /**< transcript length through ServerHello */
+  usz tr_through_flight;   /**< transcript length through server Finished */
+  u8  client_random[32];   /**< ClientHello.random (RFC 8446 4.1.2), recorded by
+                            * wired_server_recv_initial for keylog lines */
   const char *keylog_path; /**< NSS key log file path, or 0 to disable */
 } wired_server;
 

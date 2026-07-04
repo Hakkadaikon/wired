@@ -31,7 +31,10 @@ int wired_staticfile_has_traversal(const char *path);
  * @return 1 on success; 0 if reqpath contains a ".." segment or the
  *   resolved path (with NUL) does not fit in outcap */
 int wired_staticfile_resolve(
-    const char *root, const char *reqpath, const char *index, char *out,
-    usz outcap);
+    const char *root,
+    const char *reqpath,
+    const char *index,
+    char       *out,
+    usz         outcap);
 
 #endif

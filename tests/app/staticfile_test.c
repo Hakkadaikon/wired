@@ -27,8 +27,8 @@ void test_staticfile(void) {
   CHECK(staticfile_streq(out, "/root/index.html"));
 
   /* directory-looking path -> index appended */
-  CHECK(
-      wired_staticfile_resolve("/root", "/sub/", "index.html", out, sizeof out));
+  CHECK(wired_staticfile_resolve(
+      "/root", "/sub/", "index.html", out, sizeof out));
   CHECK(staticfile_streq(out, "/root/sub/index.html"));
 
   /* traversal: leading ../ */

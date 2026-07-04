@@ -41,9 +41,9 @@ static void keylogt_check_line(
 /* known client_random (all zero) + secret -> exact expected line, lowercase
  * hex, space-separated, newline-terminated. */
 static void test_keylog_append_known_vector(void) {
-  u8 cr[32]      = {0};
-  u8 secret[4]   = {0xde, 0xad, 0xbe, 0xef};
-  const char *label = "CLIENT_HANDSHAKE_TRAFFIC_SECRET";
+  u8          cr[32]    = {0};
+  u8          secret[4] = {0xde, 0xad, 0xbe, 0xef};
+  const char *label     = "CLIENT_HANDSHAKE_TRAFFIC_SECRET";
 
   keylogt_unlink();
   CHECK(
@@ -55,11 +55,11 @@ static void test_keylog_append_known_vector(void) {
 
 /* a nonzero byte proves nibble order/case: 0x1f -> "1f", not "F1"/"1F". */
 static void test_keylog_append_nibble_order_and_case(void) {
-  u8 cr[32]         = {0};
-  u8 secret[1]      = {0x1f};
-  const char *label = "L";
+  u8          cr[32]    = {0};
+  u8          secret[1] = {0x1f};
+  const char *label     = "L";
 
-  cr[0] = 0xa0;
+  cr[0]  = 0xa0;
   cr[31] = 0x09;
 
   keylogt_unlink();
@@ -68,9 +68,9 @@ static void test_keylog_append_nibble_order_and_case(void) {
       0);
   {
     u8  out[256] = {0};
-    ssz n = wired_fio_read(keylogt_path, quic_mspan_of(out, sizeof out));
+    ssz n        = wired_fio_read(keylogt_path, quic_mspan_of(out, sizeof out));
     CHECK(n > 0);
-    CHECK(out[2] == 'a' && out[3] == '0');   /* label(1) + ' '(1) */
+    CHECK(out[2] == 'a' && out[3] == '0'); /* label(1) + ' '(1) */
     CHECK(out[2 + 62] == '0' && out[2 + 63] == '9');
     CHECK(out[2 + 64] == ' ');
     CHECK(out[2 + 65] == '1' && out[2 + 66] == 'f');
@@ -81,12 +81,11 @@ static void test_keylog_append_nibble_order_and_case(void) {
 
 /* empty secret: still one space before the newline, no secret hex bytes. */
 static void test_keylog_append_empty_secret(void) {
-  u8 cr[32]         = {0};
-  const char *label = "L";
+  u8          cr[32] = {0};
+  const char *label  = "L";
 
   keylogt_unlink();
-  CHECK(
-      wired_keylog_append(keylogt_path, label, cr, quic_span_of(0, 0)) > 0);
+  CHECK(wired_keylog_append(keylogt_path, label, cr, quic_span_of(0, 0)) > 0);
   keylogt_check_line(label, keylogt_zero_cr_hex, "");
   keylogt_unlink();
 }

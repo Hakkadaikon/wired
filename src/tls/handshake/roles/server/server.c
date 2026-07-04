@@ -140,8 +140,8 @@ static int srv_verify_finished(wired_server *s, const u8 *msg, usz len) {
   dsi.messages = quic_span_of(s->tr, s->tr_through_sh);
   quic_tls_derive_secret(&dsi, c_traffic);
   quic_sha256(s->tr, s->tr_through_flight, th);
-  ok = quic_srvfin_verify_client_finished(
-      quic_span_of(msg, len), c_traffic, th);
+  ok =
+      quic_srvfin_verify_client_finished(quic_span_of(msg, len), c_traffic, th);
   if (ok) srv_log_c_hs_traffic(s, c_traffic);
   return ok;
 }

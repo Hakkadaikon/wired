@@ -63,7 +63,9 @@ typedef struct {
  * @return 0 if the socket cannot be opened or bound; otherwise runs until
  *   shutdown completes (SIGTERM) or the process is killed. */
 int wired_server_run(
-    u16 port, wired_srvboot_id *id, wired_srvrun_handler h,
-    wired_srvrun_obs obs);
+    u16                  port,
+    wired_srvboot_id    *id,
+    wired_srvrun_handler h,
+    wired_srvrun_obs     obs);
 
 #endif

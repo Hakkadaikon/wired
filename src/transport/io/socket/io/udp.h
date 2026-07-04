@@ -74,10 +74,11 @@ i64 wired_udp_close(i64 fd);
  * @return 0 on success, or a negative errno (e.g. unsupported kernel). */
 i64 wired_udp_gso_enable(i64 fd, u16 segsize);
 
-/** Build a UDP_SEGMENT cmsg buffer for sendmsg() into out[0..WIRED_GSO_CMSG_SPACE).
- * Pure byte-layout builder, no syscall: cmsg_len=18, cmsg_level=SOL_UDP,
- * cmsg_type=UDP_SEGMENT, followed by segsize as a little-endian u16, zero-
- * padded to WIRED_GSO_CMSG_SPACE bytes (Linux CMSG_SPACE(sizeof(u16))).
+/** Build a UDP_SEGMENT cmsg buffer for sendmsg() into
+ * out[0..WIRED_GSO_CMSG_SPACE). Pure byte-layout builder, no syscall:
+ * cmsg_len=18, cmsg_level=SOL_UDP, cmsg_type=UDP_SEGMENT, followed by segsize
+ * as a little-endian u16, zero- padded to WIRED_GSO_CMSG_SPACE bytes (Linux
+ * CMSG_SPACE(sizeof(u16))).
  * @param out destination buffer, must be >= WIRED_GSO_CMSG_SPACE bytes
  * @param segsize per-segment byte size to encode */
 void wired_udp_gso_cmsg_build(u8 out[WIRED_GSO_CMSG_SPACE], u16 segsize);

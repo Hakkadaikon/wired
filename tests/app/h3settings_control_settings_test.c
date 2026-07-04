@@ -42,7 +42,7 @@ void test_h3settings_control_settings_no_connect_protocol_yet(void) {
   quic_h3_frame_get(quic_span_of(buf + consumed, n - consumed), &f);
 
   quic_h3_settings s;
-  usz sr = quic_h3_settings_get(buf + consumed, n - consumed, &s);
+  usz              sr = quic_h3_settings_get(buf + consumed, n - consumed, &s);
   CHECK(sr > 0);
 
   int found = 0;

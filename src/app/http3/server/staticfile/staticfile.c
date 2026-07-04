@@ -63,8 +63,11 @@ static int staticfile_append_base(
 }
 
 int wired_staticfile_resolve(
-    const char *root, const char *reqpath, const char *index, char *out,
-    usz outcap) {
+    const char *root,
+    const char *reqpath,
+    const char *index,
+    char       *out,
+    usz         outcap) {
   usz off  = 0;
   usz rlen = quic_cstr_len(reqpath);
   if (!staticfile_append_base(out, outcap, &off, root, reqpath)) return 0;
