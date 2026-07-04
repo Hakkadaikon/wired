@@ -7,6 +7,7 @@ void wired_sendsess_arm(
   s->requeue_n     = 0;
   s->largest_acked = 0;
   s->has_acked     = 0;
+  s->pto_count     = 0;
   for (usz i = 0; i < WIRED_SENDSESS_LOG; i++) s->log[i].inflight = 0;
 }
 
@@ -55,6 +56,7 @@ static void sendsess_note_largest(wired_sendsess* s, u64 hi) {
 
 void wired_sendsess_ack(wired_sendsess* s, u64 lo, u64 hi) {
   sendsess_note_largest(s, hi);
+  s->pto_count = 0; /* the peer is alive: probe budget starts over */
   for (usz i = 0; i < WIRED_SENDSESS_LOG; i++)
     if (sendsess_hit(&s->log[i], lo, hi)) s->log[i].inflight = 0;
 }
@@ -80,6 +82,29 @@ usz wired_sendsess_detect_lost(wired_sendsess* s, u64 largest_acked) {
       n++;
     }
   return n;
+}
+
+/* 1 if log[i] is in flight and older (smaller pn) than log[best]. */
+static int sendsess_older(const wired_sendsess* s, int best, usz i) {
+  return s->log[i].inflight &&
+         (best < 0 || s->log[i].pn < s->log[(usz)best].pn);
+}
+
+/* Index of the oldest in-flight entry, -1 when none is. */
+static int sendsess_oldest(const wired_sendsess* s) {
+  int best = -1;
+  for (usz i = 0; i < WIRED_SENDSESS_LOG; i++)
+    if (sendsess_older(s, best, i)) best = (int)i;
+  return best;
+}
+
+int wired_sendsess_pto_fire(wired_sendsess* s, int max) {
+  int i = sendsess_oldest(s);
+  if (i < 0) return 1;
+  if (s->pto_count >= max) return 0;
+  s->pto_count++;
+  sendsess_requeue(s, (usz)i);
+  return 1;
 }
 
 /* 1 while anything is still unsent, requeued, or unacknowledged. */

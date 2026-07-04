@@ -100,10 +100,68 @@ static void test_sendsess_threshold_declares_lost(void) {
   CHECK(s.has_acked == 0);
 }
 
+/* A PTO probe requeues the oldest in-flight slice (smallest pn) so it goes
+ * out again with a fresh packet number; younger packets stay in flight. */
+static void test_sendsess_pto_probes_oldest(void) {
+  u8                bytes[30];
+  wired_sendsess    s;
+  wired_sendq_slice sl;
+  wired_sendsess_arm(&s, bytes, 30, 10);
+  for (u64 pn = 0; pn < 3; pn++) {
+    CHECK(wired_sendsess_take(&s, &sl) == 1);
+    CHECK(wired_sendsess_sent(&s, &sl, pn + 7) == 1);
+  }
+  CHECK(wired_sendsess_pto_fire(&s, 5) == 1);
+  CHECK(s.requeue_n == 1);
+  CHECK(s.requeue[0].offset == 0); /* pn 7 carried offset 0: the oldest */
+  CHECK(wired_sendsess_inflight(&s) == 2);
+  CHECK(s.pto_count == 1);
+}
+
+/* An arriving ACK resets the PTO backoff counter. */
+static void test_sendsess_pto_resets_on_ack(void) {
+  u8                bytes[20];
+  wired_sendsess    s;
+  wired_sendq_slice sl;
+  wired_sendsess_arm(&s, bytes, 20, 10);
+  wired_sendsess_take(&s, &sl);
+  wired_sendsess_sent(&s, &sl, 0);
+  wired_sendsess_take(&s, &sl);
+  wired_sendsess_sent(&s, &sl, 1);
+  CHECK(wired_sendsess_pto_fire(&s, 5) == 1);
+  CHECK(wired_sendsess_pto_fire(&s, 5) == 1);
+  CHECK(s.pto_count == 2);
+  wired_sendsess_ack(&s, 0, 0);
+  CHECK(s.pto_count == 0);
+}
+
+/* Exhausting the PTO budget reports failure (the caller tears the
+ * connection down); with nothing in flight a fire is a harmless no-op. */
+static void test_sendsess_pto_exhaustion_fails(void) {
+  u8                bytes[10];
+  wired_sendsess    s;
+  wired_sendq_slice sl;
+  wired_sendsess_arm(&s, bytes, 10, 10);
+  CHECK(wired_sendsess_pto_fire(&s, 2) == 1); /* nothing in flight: no-op */
+  CHECK(s.pto_count == 0);
+  wired_sendsess_take(&s, &sl);
+  wired_sendsess_sent(&s, &sl, 0);
+  CHECK(wired_sendsess_pto_fire(&s, 2) == 1); /* probe 1 */
+  wired_sendsess_take(&s, &sl);               /* re-send the probe */
+  wired_sendsess_sent(&s, &sl, 1);
+  CHECK(wired_sendsess_pto_fire(&s, 2) == 1); /* probe 2 */
+  wired_sendsess_take(&s, &sl);
+  wired_sendsess_sent(&s, &sl, 2);
+  CHECK(wired_sendsess_pto_fire(&s, 2) == 0); /* budget spent: failed */
+}
+
 void test_sendsess(void) {
   test_sendsess_take_and_track();
   test_sendsess_ack_consumes();
   test_sendsess_done_only_after_all_acked();
   test_sendsess_requeue_first();
   test_sendsess_threshold_declares_lost();
+  test_sendsess_pto_probes_oldest();
+  test_sendsess_pto_resets_on_ack();
+  test_sendsess_pto_exhaustion_fails();
 }
