@@ -100,6 +100,60 @@ static void srvrun_qlog_sent(const srvrun_cfg* cfg, usz bytes) {
   if (n) wired_qlog_append(cfg->qlog_path, quic_span_of((const u8*)rec, n));
 }
 
+/* qlog packet_received (time not tracked at this layer; bytes is the whole
+ * datagram, matching packet_sent's granularity). No-op without a qlog path.
+ */
+static void srvrun_qlog_recv(const srvrun_cfg* cfg, u64 pn, usz bytes) {
+  char rec[128];
+  usz  n;
+  if (!cfg->qlog_path) return;
+  n = wired_qlogevent_packet_received(rec, sizeof rec, 0, pn, bytes);
+  if (n) wired_qlog_append(cfg->qlog_path, quic_span_of((const u8*)rec, n));
+}
+
+/* Snapshot of the loop's per-space receive marks, taken before a step; a
+ * post-step difference proves the datagram carried at least one packet that
+ * actually opened (an undecryptable datagram advances nothing). */
+typedef struct {
+  int app_seen;
+  u64 app_pn;
+  int hs_seen;
+  u64 hs_pn;
+} srvrun_rxmark;
+
+static srvrun_rxmark srvrun_rx_mark(const wired_srvloop* l) {
+  return (srvrun_rxmark){
+      l->app_rx_seen, l->app_rx_pn, l->hs_rx_seen, l->hs_rx_pn};
+}
+
+static int srvrun_rx_app_adv(const srvrun_rxmark* m, const wired_srvloop* l) {
+  return l->app_rx_seen != m->app_seen || l->app_rx_pn != m->app_pn;
+}
+
+static int srvrun_rx_hs_adv(const srvrun_rxmark* m, const wired_srvloop* l) {
+  return l->hs_rx_seen != m->hs_seen || l->hs_rx_pn != m->hs_pn;
+}
+
+static int srvrun_rx_advanced(const srvrun_rxmark* m, const wired_srvloop* l) {
+  return srvrun_rx_app_adv(m, l) || srvrun_rx_hs_adv(m, l);
+}
+
+/* The PN to log for this step: the 1-RTT space's if it moved, else the
+ * Handshake space's. */
+static u64 srvrun_rx_pn(const srvrun_rxmark* m, const wired_srvloop* l) {
+  return srvrun_rx_app_adv(m, l) ? l->app_rx_pn : l->hs_rx_pn;
+}
+
+/* Log packet_received once per datagram that advanced a receive PN. */
+static void srvrun_note_recv(
+    const srvrun_step_ctx* ctx,
+    const srvrun_rxmark*   m,
+    const srvrun_conn*     c,
+    usz                    bytes) {
+  if (srvrun_rx_advanced(m, &c->l))
+    srvrun_qlog_recv(ctx->cfg, srvrun_rx_pn(m, &c->l), bytes);
+}
+
 /* Send a sealed buffer to c's recorded peer, with a trace line (skip an empty
  * buffer). Always targets the slot's own peer (RFC 9000 5.1), not whichever
  * datagram was received most recently. */
@@ -159,6 +213,7 @@ static int srvrun_on_initial(
   wired_srvboot_out  out  = {&iob, &hob, {0}, 0};
   if (!wired_srvboot_accept(&conn, &in, &out))
     return WIRED_LOG("srvboot accept failed\n"), 0;
+  srvrun_qlog_recv(ctx->cfg, 0, dg.n); /* the client's first Initial is PN 0 */
   wired_server_set_keylog_path(&c->s, ctx->cfg->keylog_path);
   wired_srvloop_set_handler(&c->l, ctx->cfg->handler, ctx->cfg->ctx);
   srvrun_send(ctx->cfg, c, quic_span_of(ini, iob.len), "server Initial sent\n");
@@ -175,7 +230,9 @@ static void srvrun_on_step(
   u8                 out[1500];
   quic_obuf          ob       = quic_obuf_of(out, sizeof out);
   wired_srvloop_conn conn     = {&c->l, &c->s};
+  srvrun_rxmark      mark     = srvrun_rx_mark(&c->l);
   int                produced = wired_srvloop_step(&conn, dg, &ob);
+  srvrun_note_recv(ctx, &mark, c, dg.n);
   if (c->l.peer_closed) return;
   if (produced)
     srvrun_send(
