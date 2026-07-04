@@ -555,10 +555,18 @@ static void srvrun_pump_sess(const srvrun_step_ctx* ctx, int slot) {
 /* After a live step: feed the step's ACK ranges to the session, start a
  * response for a freshly decoded request, and send what the window allows.
  * A finished session simply goes idle. */
-static void srvrun_sess_on_step(const srvrun_step_ctx* ctx, int slot) {
-  srvrun_conn* c = &ctx->st->conns[slot];
+/* Consume this step's ACK ranges, then declare packet-threshold losses so
+ * their slices requeue ahead of new data (RFC 9002 6.1.1). */
+static void srvrun_feed_acks(srvrun_conn* c) {
   for (usz i = 0; i < c->l.ack_n; i++)
     wired_sendsess_ack(&c->sess, c->l.ack_lo[i], c->l.ack_hi[i]);
+  if (c->sess.has_acked)
+    wired_sendsess_detect_lost(&c->sess, c->sess.largest_acked);
+}
+
+static void srvrun_sess_on_step(const srvrun_step_ctx* ctx, int slot) {
+  srvrun_conn* c = &ctx->st->conns[slot];
+  srvrun_feed_acks(c);
   wired_sendsess_done(&c->sess);
   if (c->l.got_request) srvrun_start_resp(ctx, slot);
   srvrun_pump_sess(ctx, slot);
