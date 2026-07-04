@@ -1,6 +1,6 @@
 ---
-description: Never commit unless the three-point gate (test + freestanding build + CCN) all pass AND object count equals source count.
-appliesTo: before every commit, after editing any C source under src/, before reporting a domain "done"
+description: Never commit unless the three-point gate (test + freestanding build + CCN) all pass AND object count equals source count. Before pushing, also check every job in .github/workflows/ that your diff's file types can affect.
+appliesTo: before every commit, after editing any C source under src/, before reporting a domain "done", before every push to main
 alwaysApply: true
 ---
 
@@ -10,6 +10,66 @@ This repo has been corrupted by partial green judgements: a passing `just test`
 that was stale, a `| tail` that swallowed a CCN failure, a `just check` that
 omitted the freestanding build. Every shortcut below is a real failure that
 shipped to `main`. Do not repeat them.
+
+## The three-point gate is NOT the whole CI — check the workflow list too
+
+The three-point gate below catches most logic/build regressions, but it is a
+LOCAL SUBSET of `.github/workflows/`. A fully green three-point gate has still
+shipped a red CI run to `main` (2026-07-05): `ci.yml` also runs `fmt-check`
+(`clang-format --dry-run --Werror`) and `lint` (clang-tidy), neither of which
+`just test`/`just ninja`/`lizard` exercises; `docs.yml` runs `just docs`
+(doxygen, `WARN_AS_ERROR`) on every push to `main` and is a SEPARATE workflow
+the three-point gate never touches at all.
+
+Before pushing (not just before committing), run this once per session (or
+whenever `.github/workflows/*.yml` might have changed) and match your diff's
+file types against it:
+
+```sh
+find .github/workflows -type f
+```
+
+As of writing, the jobs are:
+
+| Workflow  | Job(s)                          | Triggers on                       | Local equivalent |
+|-----------|----------------------------------|------------------------------------|-------------------|
+| `ci.yml`  | `fmt-check`                      | any `.c`/`.h` touched              | `just fmt-check` (needs the pinned clang-format — see caveat below) |
+| `ci.yml`  | compile (`just ninja`)           | any `src/**/*.c`                   | part of the three-point gate |
+| `ci.yml`  | test (`just test`)               | any `src/**/*.c`, `tests/**/*.c`   | part of the three-point gate |
+| `ci.yml`  | ccn (`just ccn`)                 | any `src/**/*.c`                   | part of the three-point gate |
+| `ci.yml`  | lint (`just lint`, clang-tidy)   | any `src/**/*.c`                   | `just lint` (needs the pinned clang-tidy — same caveat) |
+| `docs.yml`| build+deploy (`just docs`)       | any push to `main` (struct/enum/fn doc comments in `src/**/*.h`) | `just docs` (doxygen; pure-hosted, usually runnable without nix — see below) |
+
+If your diff touches `src/**/*.h` (adding/renaming a struct or union member,
+a public function, an enum) or any `.c`/`.h` formatting, do not stop at the
+three-point gate — also run `just docs` locally (doxygen has no libc-free
+constraint and commonly runs outside `nix develop`) and, when possible,
+`just fmt-check`/`just lint` through the pinned toolchain before pushing.
+
+### When the sandbox blocks `nix develop`
+
+`nix develop` needs to write `~/.cache/nix/fetcher-locks/*.lock`; some sandboxed
+execution environments deny that write even though the file itself is
+writable, so `nix develop -c <recipe>` fails with a "Read-only file system"
+error that has nothing to do with the repo. When this happens:
+
+- Do NOT trust a host-installed `clang-format`/`clang-tidy` to match the pinned
+  version in `flake.lock` — a version skew silently reformats or reflows
+  differently (2026-07-05: local 18.1.3 vs. CI's newer pin disagreed on a
+  doc-comment's line-wrap). If you must format by hand, copy the EXACT
+  layout (spacing, wrap column, line breaks) of the nearest existing sibling
+  declaration instead of composing your own — do not trust your own comment
+  formatting to survive `fmt-check` unverified.
+  - Concretely: prefer a plain preceding `/** ... */` block over `/**< ... */`
+    inline trailing form when adding one new struct member near existing
+    ones — the trailing form's column alignment is what disagreed across
+    clang-format versions last time.
+- `just docs` (doxygen) has no `-ffreestanding`/libc constraint, so it is far
+  more likely to run with a bare host `doxygen` than the clang-format/clang-tidy
+  jobs are. Try it directly before assuming it needs `nix develop`.
+- If neither can be verified locally, say so explicitly, push, and watch the
+  actual workflow run (`gh run list` / `gh run view --log-failed`) rather than
+  declaring the change done on the three-point gate alone.
 
 ## The three-point gate (all must pass, every commit)
 
