@@ -41,6 +41,7 @@ typedef struct {
   const char*           keylog_path; /**< NSS key log path, or 0 to disable */
   const char*           cert_path; /**< cert.pem path, or 0 to disable reload */
   const char*           key_path;  /**< key.pem path, or 0 to disable reload */
+  int                   cc_algo;   /**< QUIC_CC_ALGO_* for fresh connections */
 } srvrun_cfg;
 
 /* Storage a SIGHUP reload decodes into — must outlive the identity built from
@@ -718,7 +719,7 @@ static int srvrun_open_slot(
   if (slot < 0) return -1;
   ctx->st->conns[slot]      = (srvrun_conn){0};
   ctx->st->conns[slot].peer = *ctx->peer;
-  quic_cc_init(&ctx->st->conns[slot].cc);
+  quic_cc_init_algo(&ctx->st->conns[slot].cc, ctx->cfg->cc_algo);
   if (quic_cid_generate(ctx->st->conns[slot].scid, ctx->cfg->id->scid_len))
     return slot;
   quic_conntable_remove(ctx->st->table, QUIC_CONNTABLE_CAP, slot);
@@ -864,14 +865,16 @@ int wired_server_run(
     wired_srvboot_id*    id,
     wired_srvrun_handler h,
     wired_srvrun_obs     obs) {
-  srvrun_cfg cfg = {srvrun_listen(port),
-                    id,
-                    h.cb,
-                    h.ctx,
-                    obs.qlog_path,
-                    obs.keylog_path,
-                    obs.cert_path,
-                    obs.key_path};
+  srvrun_cfg cfg = {
+      srvrun_listen(port),
+      id,
+      h.cb,
+      h.ctx,
+      obs.qlog_path,
+      obs.keylog_path,
+      obs.cert_path,
+      obs.key_path,
+      obs.cc_algo};
   if (cfg.fd < 0) return 0;
   srvrun_install_signals(&cfg);
   WIRED_LOG("listening\n");

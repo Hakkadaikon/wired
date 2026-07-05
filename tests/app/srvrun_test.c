@@ -83,7 +83,7 @@ static void test_srvrun_owes_goaway_once(void) {
   {
     quic_obuf  gob = {out, sizeof out, 0};
     srvrun_cfg cfg = {-1, 0, 0, 0, 0,
-                      0,  0, 0}; /* fd unused: srvrun_send
+                      0,  0, 0, 0}; /* fd unused: srvrun_send
                         skips len==0, but sealed GOAWAY is
                         non-empty, so this exercises a real
                         (harmless) send(2) to an invalid fd --
@@ -109,7 +109,7 @@ static void test_srvrun_goaway_wire_content(void) {
   sr_make_confirmed_conn(&c, &f, &ob);
   {
     quic_obuf  gob = {out, sizeof out, 0};
-    srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0};
     CHECK(srvrun_send_goaway(&cfg, &c, &gob) == 1);
     CHECK(client_open_onertt(&f, out, gob.len, &pl, &pll) == 1);
   }
@@ -189,7 +189,7 @@ static int sr_qlog_count(const char* needle) {
 static void test_srvrun_send_no_qlog_path_writes_nothing(void) {
   u8          buf[8] = {1, 2, 3, 4};
   srvrun_conn c      = {0};
-  srvrun_cfg  cfg    = {-1, 0, 0, 0, 0, 0, 0, 0};
+  srvrun_cfg  cfg    = {-1, 0, 0, 0, 0, 0, 0, 0, 0};
   srvrunt_qlog_unlink();
   srvrun_send(&cfg, &c, quic_span_of(buf, sizeof buf), "t\n");
   {
@@ -203,7 +203,7 @@ static void test_srvrun_send_no_qlog_path_writes_nothing(void) {
 static void test_srvrun_send_qlog_path_writes_packet_sent(void) {
   u8          buf[8] = {1, 2, 3, 4};
   srvrun_conn c      = {0};
-  srvrun_cfg  cfg    = {-1, 0, 0, 0, srvrunt_qlog_path, 0, 0, 0};
+  srvrun_cfg  cfg    = {-1, 0, 0, 0, srvrunt_qlog_path, 0, 0, 0, 0};
   srvrunt_qlog_unlink();
   srvrun_send(&cfg, &c, quic_span_of(buf, sizeof buf), "t\n");
   {
@@ -220,7 +220,7 @@ static void test_srvrun_send_qlog_path_writes_packet_sent(void) {
  * (nothing was actually sent on the wire). */
 static void test_srvrun_send_empty_pkt_no_qlog_record(void) {
   srvrun_conn c   = {0};
-  srvrun_cfg  cfg = {-1, 0, 0, 0, srvrunt_qlog_path, 0, 0, 0};
+  srvrun_cfg  cfg = {-1, 0, 0, 0, srvrunt_qlog_path, 0, 0, 0, 0};
   srvrunt_qlog_unlink();
   srvrun_send(&cfg, &c, quic_span_of(0, 0), "t\n");
   {
@@ -271,7 +271,8 @@ static void test_srvrun_no_reload_leaves_id_untouched(void) {
   wired_srvboot_id id  = {0};
   const u8*        pub = (const u8*)0x2a;
   id.pub               = pub;
-  srvrun_cfg cfg = {-1, &id, 0, 0, 0, 0, srvrunt_cert_path, srvrunt_key_path};
+  srvrun_cfg cfg = {-1, &id, 0, 0, 0, 0, srvrunt_cert_path, srvrunt_key_path,
+                    0};
   srvrun_test_set_reload(0);
   srvrun_reload_if_requested(&cfg);
   CHECK(id.pub == pub);
@@ -282,7 +283,8 @@ static void test_srvrun_no_reload_leaves_id_untouched(void) {
  * the flag (srvrun_reload_requested reads 0 afterward). */
 static void test_srvrun_reload_requested_updates_id(void) {
   wired_srvboot_id id = {0};
-  srvrun_cfg cfg = {-1, &id, 0, 0, 0, 0, srvrunt_cert_path, srvrunt_key_path};
+  srvrun_cfg cfg = {-1, &id, 0, 0, 0, 0, srvrunt_cert_path, srvrunt_key_path,
+                    0};
   srvrunt_write(
       srvrunt_cert_path, srvrunt_cert_pem, sizeof(srvrunt_cert_pem) - 1);
   srvrunt_write(srvrunt_key_path, srvrunt_key_pem, sizeof(srvrunt_key_pem) - 1);
@@ -301,7 +303,7 @@ static void test_srvrun_reload_disabled_when_no_cert_path(void) {
   wired_srvboot_id id  = {0};
   const u8*        pub = (const u8*)0x2a;
   id.pub               = pub;
-  srvrun_cfg cfg       = {-1, &id, 0, 0, 0, 0, 0, 0};
+  srvrun_cfg cfg       = {-1, &id, 0, 0, 0, 0, 0, 0, 0};
   srvrun_test_set_reload(1);
   srvrun_reload_if_requested(&cfg);
   CHECK(srvrun_reload_requested() == 0);
@@ -318,7 +320,8 @@ static void test_srvrun_reload_failure_keeps_previous_id(void) {
   id.chain_count       = 7;
   syscall3(SYS_unlinkat, SRVRUNT_AT_FDCWD, srvrunt_cert_path, 0);
   {
-    srvrun_cfg cfg = {-1, &id, 0, 0, 0, 0, srvrunt_cert_path, srvrunt_key_path};
+    srvrun_cfg cfg = {-1, &id, 0, 0, 0, 0, srvrunt_cert_path, srvrunt_key_path,
+                      0};
     srvrun_test_set_reload(1);
     srvrun_reload_if_requested(&cfg);
   }
@@ -383,7 +386,7 @@ static void test_srvrun_accept_rekeys_to_slot_scid(void) {
   usz total             = sr_build_client_initial(dg, sizeof dg, g_sr_odcid, 8);
   sr_make_id(&id, priv, pub, seed, rnd);
   {
-    srvrun_cfg      cfg = {-1, &id, 0, 0, 0, 0, 0, 0};
+    srvrun_cfg      cfg = {-1, &id, 0, 0, 0, 0, 0, 0, 0};
     srvrun_step_ctx ctx = {&cfg, &peer, &st, 0};
     quic_conntable_init(table, QUIC_CONNTABLE_CAP);
     srvrun_serve(&ctx, quic_mspan_of(dg, total));
@@ -408,7 +411,7 @@ static void test_srvrun_failed_accept_unclaims(void) {
   srvrun_state     st   = {table, g_srvrun_state.conns};
   sr_make_id(&id, priv, pub, seed, rnd);
   {
-    srvrun_cfg      cfg = {-1, &id, 0, 0, 0, 0, 0, 0};
+    srvrun_cfg      cfg = {-1, &id, 0, 0, 0, 0, 0, 0, 0};
     srvrun_step_ctx ctx = {&cfg, &peer, &st, 0};
     quic_conntable_init(table, QUIC_CONNTABLE_CAP);
     srvrun_serve(&ctx, quic_mspan_of(junk, sizeof junk));
@@ -445,7 +448,7 @@ static void test_srvrun_peer_close_frees_slot(void) {
   slen = client_seal_onertt(&f, cc, ccn, spkt, sizeof spkt);
   srvrunt_qlog_unlink();
   {
-    srvrun_cfg      cfg = {-1, &id, 0, 0, srvrunt_qlog_path, 0, 0, 0};
+    srvrun_cfg      cfg = {-1, &id, 0, 0, srvrunt_qlog_path, 0, 0, 0, 0};
     srvrun_step_ctx ctx = {&cfg, &peer, &st, 0};
     srvrun_serve(&ctx, quic_mspan_of(spkt, slen));
     /* slot freed: up cleared, DCID no longer routes */
@@ -493,7 +496,7 @@ static void test_srvrun_serve_slot_touches_last_ms(void) {
   srvrun_state     st    = {table, g_srvrun_state.conns};
   quic_sockaddr_in peer  = {0};
   u8               sh[8] = {0x40, 1, 2, 3, 4, 5, 6, 7}; /* short header */
-  srvrun_cfg       cfg   = {-1, 0, 0, 0, 0, 0, 0, 0};
+  srvrun_cfg       cfg   = {-1, 0, 0, 0, 0, 0, 0, 0, 0};
   srvrun_step_ctx  ctx   = {&cfg, &peer, &st, 12345};
   quic_conntable_init(table, QUIC_CONNTABLE_CAP);
   st.conns[2].up      = 0;
@@ -522,7 +525,7 @@ static void sr_serve_onertt(
   CHECK(quic_conntable_insert(table, QUIC_CONNTABLE_CAP, g_cli_scid, 6) == 0);
   slen = client_seal_onertt(&f, pl, pln, spkt, sizeof spkt);
   {
-    srvrun_cfg      cfg = {-1, &id, 0, 0, qlog_path, 0, 0, 0};
+    srvrun_cfg      cfg = {-1, &id, 0, 0, qlog_path, 0, 0, 0, 0};
     srvrun_step_ctx ctx = {&cfg, &peer, &st, 0};
     for (int i = 0; i < times; i++)
       srvrun_serve(&ctx, quic_mspan_of(spkt, slen));
@@ -576,7 +579,7 @@ static void test_srvrun_qlog_skips_undecryptable(void) {
   CHECK(quic_conntable_insert(table, QUIC_CONNTABLE_CAP, g_cli_scid, 6) == 0);
   srvrunt_qlog_unlink();
   {
-    srvrun_cfg      cfg = {-1, &id, 0, 0, srvrunt_qlog_path, 0, 0, 0};
+    srvrun_cfg      cfg = {-1, &id, 0, 0, srvrunt_qlog_path, 0, 0, 0, 0};
     srvrun_step_ctx ctx = {&cfg, &peer, &st, 0};
     srvrun_serve(&ctx, quic_mspan_of(junk, sizeof junk));
   }
@@ -595,7 +598,7 @@ static void test_srvrun_qlog_records_initial(void) {
   sr_make_id(&id, priv, pub, seed, rnd);
   srvrunt_qlog_unlink();
   {
-    srvrun_cfg      cfg = {-1, &id, 0, 0, srvrunt_qlog_path, 0, 0, 0};
+    srvrun_cfg      cfg = {-1, &id, 0, 0, srvrunt_qlog_path, 0, 0, 0, 0};
     srvrun_step_ctx ctx = {&cfg, &peer, &st, 0};
     quic_conntable_init(table, QUIC_CONNTABLE_CAP);
     srvrun_serve(&ctx, quic_mspan_of(dg, total));
@@ -617,7 +620,7 @@ static void test_srvrun_qlog_skips_failed_accept(void) {
   sr_make_id(&id, priv, pub, seed, rnd);
   srvrunt_qlog_unlink();
   {
-    srvrun_cfg      cfg = {-1, &id, 0, 0, srvrunt_qlog_path, 0, 0, 0};
+    srvrun_cfg      cfg = {-1, &id, 0, 0, srvrunt_qlog_path, 0, 0, 0, 0};
     srvrun_step_ctx ctx = {&cfg, &peer, &st, 0};
     quic_conntable_init(table, QUIC_CONNTABLE_CAP);
     srvrun_serve(&ctx, quic_mspan_of(junk, sizeof junk));
@@ -649,7 +652,7 @@ static void test_srvrun_batch_serves_each(void) {
   bufs[0].src.port_be = 0x1111; /* two distinct peers */
   bufs[1].src.port_be = 0x2222;
   {
-    srvrun_cfg cfg = {-1, &id, 0, 0, 0, 0, 0, 0};
+    srvrun_cfg cfg = {-1, &id, 0, 0, 0, 0, 0, 0, 0};
     srvrun_serve_batch(&cfg, &st, bufs, 2);
   }
   CHECK(st.conns[0].up == 1);
@@ -748,7 +751,7 @@ static void test_srvrun_takeover_streams_large_body(void) {
   }
   slen = client_seal_onertt(&f, get, glen, spkt, sizeof spkt);
   {
-    srvrun_cfg      cfg = {cfd, &id, sr_body_handler, 0, 0, 0, 0, 0};
+    srvrun_cfg      cfg = {cfd, &id, sr_body_handler, 0, 0, 0, 0, 0, 0};
     srvrun_step_ctx ctx = {&cfg, &srv, &st, 0};
     srvrun_serve(&ctx, quic_mspan_of(spkt, slen));
   }
@@ -772,6 +775,27 @@ static void test_srvrun_takeover_streams_large_body(void) {
   for (usz i = 0; i < 2500; i++) CHECK(asm_buf[preb.len + i] == (u8)(i & 0xff));
 }
 
+/* CC SELECTION: the run config's algorithm choice reaches each fresh
+ * connection's controller; the zero default stays NewReno. */
+static void test_srvrun_cc_algo_selected(void) {
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32], dg[1500];
+  quic_conntable   table[QUIC_CONNTABLE_CAP];
+  quic_sockaddr_in peer = {0};
+  srvrun_state     st   = {table, g_srvrun_state.conns};
+  usz total             = sr_build_client_initial(dg, sizeof dg, g_sr_odcid, 8);
+  sr_make_id(&id, priv, pub, seed, rnd);
+  {
+    srvrun_cfg      cfg = {-1, &id, 0, 0, 0, 0, 0, 0, QUIC_CC_ALGO_CUBIC};
+    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0};
+    quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+    srvrun_serve(&ctx, quic_mspan_of(dg, total));
+  }
+  CHECK(st.conns[0].up == 1);
+  CHECK(st.conns[0].cc.algo == QUIC_CC_ALGO_CUBIC);
+  CHECK(st.conns[0].cc.cwnd == QUIC_CC_INIT_WINDOW);
+}
+
 void test_srvrun(void) {
   test_srvrun_no_shutdown_accepts_new();
   test_srvrun_accept_rekeys_to_slot_scid();
@@ -787,6 +811,7 @@ void test_srvrun(void) {
   test_srvrun_qlog_skips_failed_accept();
   test_srvrun_batch_serves_each();
   test_srvrun_takeover_streams_large_body();
+  test_srvrun_cc_algo_selected();
   test_srvrun_shutdown_rejects_new_initial();
   test_srvrun_shutdown_refuses_slot_claim();
   test_srvrun_owes_goaway_once();

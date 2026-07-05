@@ -13,7 +13,7 @@
 #include "wired.h"
 
 /* A fatal error: print and exit (freestanding, no libc atexit). */
-static void die(const char *msg) {
+static void die(const char* msg) {
   wired_log_str(msg);
   syscall1(SYS_exit, 1);
 }
@@ -29,7 +29,7 @@ static usz g_history_len;
 
 /* RFC 9110 9.3.3: append the POST body, newline-separated, truncating at cap.
  */
-static void history_append(const u8 *body, usz n) {
+static void history_append(const u8* body, usz n) {
   usz i;
   if (g_history_len < HISTORY_MAX) g_history[g_history_len++] = '\n';
   for (i = 0; i < n && g_history_len < HISTORY_MAX; i++)
@@ -38,7 +38,7 @@ static void history_append(const u8 *body, usz n) {
 
 /* Copy up to out->cap bytes of src into out, setting out->len to the count
  * copied. */
-static void copy_capped(quic_obuf *out, quic_span src) {
+static void copy_capped(quic_obuf* out, quic_span src) {
   usz i;
   for (i = 0; i < src.n && i < out->cap; i++) out->p[i] = src.p[i];
   out->len = i;
@@ -48,21 +48,24 @@ static void copy_capped(quic_obuf *out, quic_span src) {
  * to app_on_request as its opaque ctx. --root selects static file mode;
  * absent, the demo history mode runs unchanged (back-compat). */
 typedef struct {
-  const char *root;         /**< document root, or 0 for history-demo mode */
-  const char *index;        /**< index file name for directory requests */
-  const char *access_log;   /**< access log path, or 0 to disable logging */
-  const char *qlog_path;    /**< qlog file path, or 0 to disable */
-  const char *keylog_path;  /**< NSS key log file path, or 0 to disable */
-  const char *cert_path;    /**< cert.pem path (--cert, default cert.pem) */
-  const char *key_path;     /**< key.pem path (--key, default key.pem) */
+  const char* root;        /**< document root, or 0 for history-demo mode */
+  const char* index;       /**< index file name for directory requests */
+  const char* access_log;  /**< access log path, or 0 to disable logging */
+  const char* qlog_path;   /**< qlog file path, or 0 to disable */
+  const char* keylog_path; /**< NSS key log file path, or 0 to disable */
+  const char* cert_path;   /**< cert.pem path (--cert, default cert.pem) */
+  const char* key_path;    /**< key.pem path (--key, default key.pem) */
 } app_config;
 
 /* One line per request: "METHOD PATH STATUS BYTES\n" (ponytail: fixed
  * single-line format, no log levels/rotation — add if an operator needs it).
  */
 static void access_log(
-    const app_config *cfg, quic_span method, quic_span path, u64 status,
-    u64 nbytes) {
+    const app_config* cfg,
+    quic_span         method,
+    quic_span         path,
+    u64               status,
+    u64               nbytes) {
   char line[512];
   usz  at = 0;
   if (!cfg->access_log) return;
@@ -76,12 +79,12 @@ static void access_log(
   line[at++] = ' ';
   wired_fmt_u64(line, &at, &(wired_fmt_u64_in){nbytes, 1});
   line[at++] = '\n';
-  wired_fio_append(cfg->access_log, quic_span_of((const u8 *)line, at));
+  wired_fio_append(cfg->access_log, quic_span_of((const u8*)line, at));
 }
 
 /* Write the 404 body and return its status code. */
-static u64 not_found(quic_obuf *body_out) {
-  copy_capped(body_out, quic_span_of((const u8 *)"404 Not Found\n", 14));
+static u64 not_found(quic_obuf* body_out) {
+  copy_capped(body_out, quic_span_of((const u8*)"404 Not Found\n", 14));
   return 404;
 }
 
@@ -91,8 +94,10 @@ static u64 not_found(quic_obuf *body_out) {
  * hard-codes 200 for every decoded request; changing that is a larger,
  * separate change). The logged status reflects whether the file was found. */
 static u64 serve_static(
-    const app_config *cfg, quic_span path, quic_obuf *body_out,
-    const char **content_type) {
+    const app_config* cfg,
+    quic_span         path,
+    quic_obuf*        body_out,
+    const char**      content_type) {
   char resolved[512];
   char reqpath[400];
   usz  i;
@@ -106,14 +111,14 @@ static u64 serve_static(
   n = wired_fio_read(resolved, quic_mspan_of(body_out->p, body_out->cap));
   if (n < 0) return not_found(body_out);
   body_out->len = (usz)n;
-  *content_type  = wired_mimetype_for_path(resolved);
+  *content_type = wired_mimetype_for_path(resolved);
   return 200;
 }
 
 /* History-demo mode (--root absent): RFC 9110 9.3.1 (GET) returns the log;
  * 9.3.3 (POST) appends and echoes. Always returns 200 (matches the wire
  * :status, which srvloop always sends as 200). */
-static u64 serve_history(const wired_h3reqdrive_req *req, quic_obuf *body_out) {
+static u64 serve_history(const wired_h3reqdrive_req* req, quic_obuf* body_out) {
   if (req->method_len == 4 && req->method[0] == 'P') {
     history_append(req->body, req->body_len);
     copy_capped(body_out, quic_span_of(req->body, req->body_len));
@@ -127,14 +132,15 @@ static u64 serve_history(const wired_h3reqdrive_req *req, quic_obuf *body_out) {
  * body. Dispatches to static-file or history-demo mode depending on whether
  * --root was given, then logs the request. */
 static int app_on_request(
-    void *ctx, const wired_h3reqdrive_req *req, quic_obuf *body_out,
-    const char **content_type) {
-  const app_config *cfg    = (const app_config *)ctx;
-  quic_span          method = quic_span_of(req->method, req->method_len);
-  quic_span          path   = quic_span_of(req->path, req->path_len);
-  u64                status = cfg->root
-                                   ? serve_static(cfg, path, body_out, content_type)
-                                   : serve_history(req, body_out);
+    void*                       ctx,
+    const wired_h3reqdrive_req* req,
+    quic_obuf*                  body_out,
+    const char**                content_type) {
+  const app_config* cfg    = (const app_config*)ctx;
+  quic_span         method = quic_span_of(req->method, req->method_len);
+  quic_span         path   = quic_span_of(req->path, req->path_len);
+  u64 status = cfg->root ? serve_static(cfg, path, body_out, content_type)
+                         : serve_history(req, body_out);
   access_log(cfg, method, path, status, body_out->len);
   return 1;
 }
@@ -142,14 +148,16 @@ static int app_on_request(
 /* Self-check (ponytail: the only non-trivial app logic is the store/echo). */
 static void app_selfcheck(void) {
   u8                   out[64];
-  quic_obuf            ob          = {out, sizeof out, 0};
-  app_config           cfg         = {0};
-  const char          *content_type = 0;
-  wired_h3reqdrive_req post = {
-      .method = (const u8 *)"POST", .method_len = 4,
-      .body = (const u8 *)"hi",     .body_len = 2};
-  wired_h3reqdrive_req get = {.method = (const u8 *)"GET", .method_len = 3};
-  g_history_len             = 0;
+  quic_obuf            ob           = {out, sizeof out, 0};
+  app_config           cfg          = {0};
+  const char*          content_type = 0;
+  wired_h3reqdrive_req post         = {
+              .method     = (const u8*)"POST",
+              .method_len = 4,
+              .body       = (const u8*)"hi",
+              .body_len   = 2};
+  wired_h3reqdrive_req get = {.method = (const u8*)"GET", .method_len = 3};
+  g_history_len            = 0;
   app_on_request(&cfg, &post, &ob, &content_type);
   if (ob.len != 2 || out[0] != 'h') die("selfcheck: echo failed\n");
   app_on_request(&cfg, &get, &ob, &content_type);
@@ -172,7 +180,7 @@ typedef struct {
   u8 rnd[32];
 } server_keys;
 
-static void server_identity(wired_srvboot_id *id, server_keys *k) {
+static void server_identity(wired_srvboot_id* id, server_keys* k) {
   for (usz i = 0; i < 32; i++) {
     k->priv[i] = (u8)(0x40 + i);
     k->seed[i] = (u8)(0x80 + i);
@@ -204,7 +212,7 @@ static void log_chain(usz n) {
 /* 1 if path opens and reads at least one byte (existence probe only; the
  * byte itself is discarded — wired_certreload_load re-reads the whole file
  * right after). */
-static int cert_file_present(const char *path) {
+static int cert_file_present(const char* path) {
   u8 probe[1];
   return wired_fio_read(path, quic_mspan_of(probe, sizeof probe)) >= 0;
 }
@@ -214,7 +222,7 @@ static int cert_file_present(const char *path) {
  * broken or half-present pair dies rather than silently serving
  * self-signed. */
 static void load_cert_files(
-    wired_srvboot_id *id, const char *cert_path, const char *key_path) {
+    wired_srvboot_id* id, const char* cert_path, const char* key_path) {
   if (!cert_file_present(cert_path) && !cert_file_present(key_path)) {
     wired_log_str("self-signed (no cert.pem)\n");
     return;
@@ -228,7 +236,7 @@ static void load_cert_files(
  * absent = history demo), --index (default index.html), --access-log
  * (absent = no logging), --qlog-file / --keylog-file (absent = disabled),
  * --cert / --key (cert.pem/key.pem in the cwd by default). */
-static u16 load_config(app_config *cfg, int argc, char **argv) {
+static u16 load_config(app_config* cfg, int argc, char** argv) {
   cfg->root        = wired_cliargs_str(argc, argv, "--root", 0);
   cfg->index       = wired_cliargs_str(argc, argv, "--index", "index.html");
   cfg->access_log  = wired_cliargs_str(argc, argv, "--access-log", 0);
@@ -245,7 +253,7 @@ static u16 load_config(app_config *cfg, int argc, char **argv) {
  * with RSP%16==0 (see _start); re-align so SSE moves in x25519/AEAD do not
  * fault. */
 __attribute__((force_align_arg_pointer, used)) static int wired_main(
-    int argc, char **argv) {
+    int argc, char** argv) {
   wired_srvboot_id     id;
   server_keys          keys;
   app_config           cfg;
@@ -256,7 +264,7 @@ __attribute__((force_align_arg_pointer, used)) static int wired_main(
   load_cert_files(&id, cfg.cert_path, cfg.key_path);
   {
     wired_srvrun_obs obs = {
-        cfg.qlog_path, cfg.keylog_path, cfg.cert_path, cfg.key_path};
+        cfg.qlog_path, cfg.keylog_path, cfg.cert_path, cfg.key_path, 0};
     if (!wired_server_run(port, &id, h, obs)) die("listen failed\n");
   }
   return 0;
