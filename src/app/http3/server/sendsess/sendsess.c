@@ -70,9 +70,13 @@ usz wired_sendsess_peek_ack(
   return n;
 }
 
+int wired_sendsess_covered(const wired_sent_slice* e, u64 lo, u64 hi) {
+  return e->inflight && e->pn >= lo && e->pn <= hi;
+}
+
 /* 1 if in-flight entry e is acknowledged by [lo, hi]. */
 static int sendsess_hit(const wired_sent_slice* e, u64 lo, u64 hi) {
-  return e->inflight && e->pn >= lo && e->pn <= hi;
+  return wired_sendsess_covered(e, lo, hi);
 }
 
 /* Track the highest acknowledged pn; it never regresses. */

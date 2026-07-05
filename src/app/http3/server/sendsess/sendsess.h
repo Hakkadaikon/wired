@@ -54,6 +54,9 @@ int wired_sendsess_take(wired_sendsess* s, wired_sendq_slice* out);
 int wired_sendsess_sent(
     wired_sendsess* s, const wired_sendq_slice* sl, u64 pn, u64 now_ms);
 
+/** @return 1 if log entry e is in flight and inside [lo, hi]. */
+int wired_sendsess_covered(const wired_sent_slice* e, u64 lo, u64 hi);
+
 /** Stream bytes currently in flight (congestion-window occupancy). */
 usz wired_sendsess_inflight_bytes(const wired_sendsess* s);
 

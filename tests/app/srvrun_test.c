@@ -796,6 +796,38 @@ static void test_srvrun_cc_algo_selected(void) {
   CHECK(st.conns[0].cc.cwnd == QUIC_CC_INIT_WINDOW);
 }
 
+/* HYSTART WIRING: rising round RTTs feed the detector and end slow start
+ * (ssthresh drops to cwnd); the round boundary comes from the next send pn.
+ * Unit-drives the ack path with fabricated sent times. */
+static void test_srvrun_hystart_ends_slow_start(void) {
+  srvrun_conn* c = &g_srvrun_state.conns[3];
+  *c             = (srvrun_conn){0};
+  quic_cc_init(&c->cc);
+  quic_hystart_init(&c->hs);
+  c->up = 1;
+  wired_sendsess_arm(&c->sess, g_srvrun_respstore[3], 16000, 100);
+  {
+    wired_sendq_slice sl;
+    /* round 1: 8 packets sent at t=0, acked at t=40 (RTT 40) */
+    for (u64 pn = 0; pn < 8; pn++) {
+      CHECK(wired_sendsess_take(&c->sess, &sl) == 1);
+      CHECK(wired_sendsess_sent(&c->sess, &sl, pn, 0) == 1);
+    }
+    c->l.tx_pn = 8; /* production: sending advanced the next pn */
+    for (u64 pn = 0; pn < 8; pn++) srvrun_hystart_ack(c, pn, pn, 40);
+    CHECK(c->cc.ssthresh == ~(u64)0); /* still slow start */
+    /* round 2: RTT jumped to 60 >= 40 + eta(5): exit on the 8th sample */
+    for (u64 pn = 8; pn < 16; pn++) {
+      CHECK(wired_sendsess_take(&c->sess, &sl) == 1);
+      CHECK(wired_sendsess_sent(&c->sess, &sl, pn, 100) == 1);
+    }
+    c->l.tx_pn = 16;
+    for (u64 pn = 8; pn < 16; pn++) srvrun_hystart_ack(c, pn, pn, 160);
+  }
+  CHECK(c->cc.ssthresh == c->cc.cwnd); /* slow start ended */
+  c->up = 0;
+}
+
 void test_srvrun(void) {
   test_srvrun_no_shutdown_accepts_new();
   test_srvrun_accept_rekeys_to_slot_scid();
@@ -812,6 +844,7 @@ void test_srvrun(void) {
   test_srvrun_batch_serves_each();
   test_srvrun_takeover_streams_large_body();
   test_srvrun_cc_algo_selected();
+  test_srvrun_hystart_ends_slow_start();
   test_srvrun_shutdown_rejects_new_initial();
   test_srvrun_shutdown_refuses_slot_claim();
   test_srvrun_owes_goaway_once();
