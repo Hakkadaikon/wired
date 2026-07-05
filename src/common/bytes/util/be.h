@@ -18,6 +18,10 @@ static inline void quic_put_be32(u8* p, u32 v) {
   p[3] = (u8)v;
 }
 
+static inline u16 quic_get_be16(const u8* p) {
+  return (u16)((u16)p[0] << 8 | p[1]);
+}
+
 static inline u32 quic_get_be32(const u8* p) {
   return ((u32)p[0] << 24) | ((u32)p[1] << 16) | ((u32)p[2] << 8) | (u32)p[3];
 }

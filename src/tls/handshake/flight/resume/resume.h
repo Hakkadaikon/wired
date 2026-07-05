@@ -3,6 +3,7 @@
 
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
+#include "tls/handshake/core/tls/schedule.h"
 
 /* Resumption driver: hold a TLS session ticket (RFC 8446 4.6.1) across
  * connections and decide whether 0-RTT may be attempted on a later connection
@@ -19,20 +20,38 @@ typedef struct {
   u32 lifetime;  /* ticket_lifetime, seconds */
   u64 max_data;  /* RFC 9000 7.4.1: remembered initial_max_data */
   int have_ticket;
+  u8  psk[32];  /* RFC 8446 4.6.1: the resumption PSK captured with it */
+  int have_psk; /* 1 when psk holds a value */
 } quic_resume;
 
 /* The transport parameters and ticket metadata to remember alongside a
  * stored ticket, besides the ticket bytes themselves. */
 typedef struct {
-  u64 issued_at; /* RFC 8446 4.6.1 ticket issuance time */
-  u32 lifetime;  /* ticket_lifetime, seconds */
-  u64 max_data;  /* RFC 9000 7.4.1: remembered initial_max_data */
+  u64       issued_at; /* RFC 8446 4.6.1 ticket issuance time */
+  u32       lifetime;  /* ticket_lifetime, seconds */
+  u64       max_data;  /* RFC 9000 7.4.1: remembered initial_max_data */
+  const u8* psk;       /* 32-byte resumption PSK, or 0 when unknown */
 } quic_resume_store_in;
 
 /* Store a ticket and the transport parameters to remember for 0-RTT.
  * Returns 1 on success, 0 if the ticket does not fit. RFC 8446 4.6.1. */
 int quic_resume_store(
     quic_resume* r, quic_span ticket, const quic_resume_store_in* in);
+
+/* Serialize the stored session (ticket, metadata, PSK) into an opaque blob
+ * the application can persist across processes (quiche session() shape).
+ * Returns the byte count, or 0 when nothing is stored / out is too small. */
+usz quic_resume_session(const quic_resume* r, u8* out, usz cap);
+
+/* Restore a blob produced by quic_resume_session. Returns 1 on success, 0 on
+ * a malformed/truncated blob (r is left untouched then). */
+int quic_resume_set_session(quic_resume* r, quic_span blob);
+
+/* Derive the 0-RTT early keys from the stored session's PSK over the new
+ * connection's ClientHello (RFC 9001 4.6 via quic_tls_early_keys). Returns 1,
+ * or 0 when the session carries no PSK. */
+int quic_resume_early_keys(
+    const quic_resume* r, const u8* ch, usz ch_len, quic_initial_keys* out);
 
 /* Returns 1 when a stored ticket is still within its lifetime at `now`
  * (seconds, same clock as issued_at). RFC 8446 4.6.1. */
