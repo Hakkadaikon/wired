@@ -120,7 +120,27 @@ static void test_bbr_estimators(void) {
   CHECK(b.rtprop_ms == 60);
 }
 
+/* The cwnd-gain schedule: aggressive 289% through STARTUP/DRAIN (the pipe
+ * estimate is still forming), 200% headroom cruising PROBE_BW, neutral in
+ * PROBE_RTT. */
+static void test_bbr_cwnd_gain_table(void) {
+  quic_bbr b;
+  quic_bbr_init(&b);
+  CHECK(quic_bbr_cwnd_gain_pct(&b) == 289);
+  quic_bbr_on_round(&b, 100);
+  quic_bbr_on_round(&b, 101);
+  quic_bbr_on_round(&b, 102);
+  quic_bbr_on_round(&b, 103);
+  CHECK(quic_bbr_cwnd_gain_pct(&b) == 289); /* DRAIN keeps the headroom */
+  quic_bbr_drained(&b, 1);
+  CHECK(quic_bbr_cwnd_gain_pct(&b) == 200); /* PROBE_BW */
+  quic_bbr_on_rtt(&b, 50, 0);
+  quic_bbr_check_probe_rtt(&b, 20000);
+  CHECK(quic_bbr_cwnd_gain_pct(&b) == 100); /* PROBE_RTT */
+}
+
 void test_bbr(void) {
+  test_bbr_cwnd_gain_table();
   test_bbr_startup_growth_and_fill();
   test_bbr_drain_exit_and_latch();
   test_bbr_cycle_advances_only_in_probe_bw();
