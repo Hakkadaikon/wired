@@ -615,8 +615,7 @@ static int srvrun_pace_ok(const srvrun_step_ctx* ctx, const srvrun_conn* c) {
 /* Schedule the next paced send (RFC 9002 7.7: ~1.25x cwnd/srtt rate). */
 static void srvrun_pace_next(const srvrun_step_ctx* ctx, srvrun_conn* c) {
   c->next_send_ms =
-      ctx->now_ms +
-      quic_pacing_interval(c->srtt_ms, c->cc.cwnd, QUIC_MAX_DATAGRAM);
+      ctx->now_ms + quic_cc_pacing_ms(&c->cc, c->srtt_ms, QUIC_MAX_DATAGRAM);
 }
 
 /* 1 while the controller is still in slow start (no loss, no exit yet). */
@@ -679,6 +678,8 @@ static void srvrun_feed_acks(
 static void srvrun_sess_on_step(const srvrun_step_ctx* ctx, int slot) {
   srvrun_conn* c = &ctx->st->conns[slot];
   srvrun_feed_acks(ctx, ctx->cfg, c);
+  quic_cc_bbr_tick(
+      &c->cc, wired_sendsess_inflight_bytes(&c->sess), ctx->now_ms);
   wired_sendsess_done(&c->sess);
   if (c->l.got_request) srvrun_start_resp(ctx, slot);
   srvrun_pump_sess(ctx, slot);
