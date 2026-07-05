@@ -1,5 +1,6 @@
 #include "app/http3/request/h3reqdrive/request_drive.h"
 
+#include "app/http3/core/h3/priupdate.h"
 #include "app/http3/core/h3/pseudoheader.h"
 #include "app/http3/core/h3conn/request.h"
 #include "app/http3/request/h3reqdrive/request_parse.h"
@@ -117,9 +118,25 @@ static int is_request_pseudo(quic_h3_ph_kind k) {
   return k >= QUIC_H3_PH_METHOD && k <= QUIC_H3_PH_PROTOCOL;
 }
 
+/* 1 if the recovered line's name is exactly the NUL-terminated s. */
+static int line_name_is(const rline* L, const char* s) {
+  usz n    = cstr_len(s);
+  u8  diff = (u8)(L->name_len != n);
+  for (usz i = 0; i < n && i < L->name_len; i++) diff |= L->name[i] ^ (u8)s[i];
+  return diff == 0;
+}
+
+/* RFC 9218 5: a regular `priority` header carries the request's priority
+ * field value; other regular fields stay ignored. */
+static void take_priority(const rline* L, wired_h3reqdrive_req* r) {
+  if (line_name_is(L, "priority"))
+    quic_h3_priority_sfv(quic_span_of(L->value, L->value_len), &r->priority);
+}
+
 /* Store one recovered line into r if it is a request pseudo-header; regular
- * fields and unknown pseudo-headers are ignored (RFC 9114 4.3.1). The slot
- * tables are indexed by kind, whose enum order matches the struct fields. */
+ * fields carry at most the priority header (RFC 9218 5); unknown
+ * pseudo-headers are ignored (RFC 9114 4.3.1). The slot tables are indexed
+ * by kind, whose enum order matches the struct fields. */
 static void classify_line(const rline* L, wired_h3reqdrive_req* r) {
   const u8** val[] = {0,        &r->method,  &r->scheme, &r->authority,
                       &r->path, &r->protocol};
@@ -131,7 +148,10 @@ static void classify_line(const rline* L, wired_h3reqdrive_req* r) {
       &r->path_len,
       &r->protocol_len};
   quic_h3_ph_kind k = quic_h3_ph_classify(L->name, L->name_len);
-  if (!is_request_pseudo(k)) return;
+  if (!is_request_pseudo(k)) {
+    take_priority(L, r);
+    return;
+  }
   *val[k] = L->value;
   *len[k] = L->value_len;
 }
@@ -182,6 +202,7 @@ int wired_h3reqdrive_recv_get(
     quic_span stream_data, quic_mspan scratch, wired_h3reqdrive_req* r) {
   quic_span fs = quic_span_of(0, 0);
   *r           = (wired_h3reqdrive_req){0};
+  quic_h3_priority_init(&r->priority);
   if (!wired_h3reqdrive_request_sections(stream_data, &fs, r)) return 0;
   if (!decode_lines(fs, scratch, r)) return 0;
   return 1;
