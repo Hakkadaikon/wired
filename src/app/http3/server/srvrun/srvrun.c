@@ -18,6 +18,7 @@
 #include "transport/io/socket/poll/wait.h"
 #include "transport/packet/header/dcidresolve/dcidresolve.h"
 #include "transport/packet/header/packet/header.h"
+#include "transport/recovery/congestion/cc/cc.h"
 #include "transport/stream/data/appdata/stream_send.h"
 
 /* The server's fixed run context: the bound socket and the application's
@@ -65,6 +66,7 @@ typedef struct {
   int              goaway_sent; /**< 1 once graceful-shutdown GOAWAY sent */
   u64              last_ms;     /**< monotonic ms of the last routed datagram */
   wired_sendsess   sess;        /**< in-flight multi-packet response */
+  quic_cc          cc;          /**< NewReno window gating sess's pump */
 } srvrun_conn;
 
 /* The running server's mutable state: a fixed pool of connection slots keyed
@@ -88,8 +90,7 @@ typedef struct {
  * when a deployment needs bigger bodies. */
 #define WIRED_SRVRUN_RESP_MAX 16384
 #define SRVRUN_RESP_HDR_ROOM 64
-#define SRVRUN_SEND_WINDOW 10 /* RFC 9002 7.2: initial window, in packets */
-#define SRVRUN_CHUNK 1100     /* stream bytes per packet (fits a 1500 MTU) */
+#define SRVRUN_CHUNK 1100 /* stream bytes per packet (fits a 1500 MTU) */
 /* ponytail: fixed 300ms probe tick with a 5-probe budget, not an RTT-derived
  * PTO (the server tracks no RTT for its own sends yet); refine when the
  * send path grows RTT sampling. */
@@ -538,13 +539,15 @@ static int srvrun_send_slice(
     if (!wired_srvloop_send_onertt(&c->s, &sin, &ob)) return 0;
   }
   srvrun_send(ctx->cfg, c, quic_span_of(out, ob.len), "response slice sent\n");
-  return wired_sendsess_sent(&c->sess, sl, pn);
+  return wired_sendsess_sent(&c->sess, sl, pn, ctx->now_ms);
 }
 
-/* Send one slice if the window allows and one is ready. */
+/* Send one slice if the congestion window has room (RFC 9002 7) and one is
+ * ready. */
 static int srvrun_pump_one(const srvrun_step_ctx* ctx, srvrun_conn* c) {
   wired_sendq_slice sl;
-  if (wired_sendsess_inflight(&c->sess) >= SRVRUN_SEND_WINDOW) return 0;
+  if (wired_sendsess_inflight_bytes(&c->sess) + SRVRUN_CHUNK > c->cc.cwnd)
+    return 0;
   if (!wired_sendsess_take(&c->sess, &sl)) return 0;
   return srvrun_send_slice(ctx, c, &sl);
 }
@@ -577,20 +580,40 @@ static void srvrun_qlog_lost(const srvrun_cfg* cfg, const u64* pns, usz n) {
 /* Consume this step's ACK ranges, then declare packet-threshold losses so
  * their slices requeue ahead of new data (RFC 9002 6.1.1), logging each
  * lost packet to the qlog when one is configured. */
-static void srvrun_feed_acks(const srvrun_cfg* cfg, srvrun_conn* c) {
+/* Credit one ACK range to the congestion controller before consuming it
+ * (RFC 9002 7.3.2: growth per acked bytes; the newest send time among the
+ * hits drives recovery exit). */
+static void srvrun_cc_range(srvrun_conn* c, u64 lo, u64 hi) {
+  u64 newest = 0;
+  usz bytes  = wired_sendsess_peek_ack(&c->sess, lo, hi, &newest);
+  if (bytes) quic_cc_on_ack(&c->cc, bytes, newest);
+  wired_sendsess_ack(&c->sess, lo, hi);
+}
+
+/* Threshold pass: requeue losses, shrink the window once per loss event,
+ * log each lost packet.
+ * ponytail: on_loss is fed now for both times (a fresh recovery per loss
+ * event — more conservative than per-period; refine with per-packet sent
+ * times when RTT sampling lands). */
+static void srvrun_reap_losses(
+    const srvrun_step_ctx* ctx, const srvrun_cfg* cfg, srvrun_conn* c) {
   u64 lost[WIRED_SENDSESS_LOG];
-  usz n;
-  for (usz i = 0; i < c->l.ack_n; i++)
-    wired_sendsess_ack(&c->sess, c->l.ack_lo[i], c->l.ack_hi[i]);
-  if (!c->sess.has_acked) return;
-  n = wired_sendsess_detect_lost(
+  usz n = wired_sendsess_detect_lost(
       &c->sess, c->sess.largest_acked, lost, WIRED_SENDSESS_LOG);
+  if (n) quic_cc_on_loss(&c->cc, ctx->now_ms, ctx->now_ms);
   srvrun_qlog_lost(cfg, lost, n);
+}
+
+static void srvrun_feed_acks(
+    const srvrun_step_ctx* ctx, const srvrun_cfg* cfg, srvrun_conn* c) {
+  for (usz i = 0; i < c->l.ack_n; i++)
+    srvrun_cc_range(c, c->l.ack_lo[i], c->l.ack_hi[i]);
+  if (c->sess.has_acked) srvrun_reap_losses(ctx, cfg, c);
 }
 
 static void srvrun_sess_on_step(const srvrun_step_ctx* ctx, int slot) {
   srvrun_conn* c = &ctx->st->conns[slot];
-  srvrun_feed_acks(ctx->cfg, c);
+  srvrun_feed_acks(ctx, ctx->cfg, c);
   wired_sendsess_done(&c->sess);
   if (c->l.got_request) srvrun_start_resp(ctx, slot);
   srvrun_pump_sess(ctx, slot);
@@ -695,6 +718,7 @@ static int srvrun_open_slot(
   if (slot < 0) return -1;
   ctx->st->conns[slot]      = (srvrun_conn){0};
   ctx->st->conns[slot].peer = *ctx->peer;
+  quic_cc_init(&ctx->st->conns[slot].cc);
   if (quic_cid_generate(ctx->st->conns[slot].scid, ctx->cfg->id->scid_len))
     return slot;
   quic_conntable_remove(ctx->st->table, QUIC_CONNTABLE_CAP, slot);

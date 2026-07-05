@@ -34,13 +34,40 @@ static int sendsess_free_slot(const wired_sendsess* s) {
 }
 
 int wired_sendsess_sent(
-    wired_sendsess* s, const wired_sendq_slice* sl, u64 pn) {
+    wired_sendsess* s, const wired_sendq_slice* sl, u64 pn, u64 now_ms) {
   int i = sendsess_free_slot(s);
   if (i < 0) return 0;
   s->log[i].pn       = pn;
   s->log[i].sl       = *sl;
   s->log[i].inflight = 1;
+  s->log[i].sent_ms  = now_ms;
   return 1;
+}
+
+usz wired_sendsess_inflight_bytes(const wired_sendsess* s) {
+  usz n = 0;
+  for (usz i = 0; i < WIRED_SENDSESS_LOG; i++)
+    if (s->log[i].inflight) n += s->log[i].sl.len;
+  return n;
+}
+
+static int sendsess_hit(const wired_sent_slice* e, u64 lo, u64 hi);
+
+/* Fold one log entry into the peek accumulation. */
+static usz peek_one(const wired_sent_slice* e, u64 lo, u64 hi, u64* newest) {
+  if (!sendsess_hit(e, lo, hi)) return 0;
+  if (e->sent_ms > *newest) *newest = e->sent_ms;
+  return e->sl.len;
+}
+
+usz wired_sendsess_peek_ack(
+    const wired_sendsess* s, u64 lo, u64 hi, u64* newest_sent_ms) {
+  usz n      = 0;
+  u64 newest = 0;
+  for (usz i = 0; i < WIRED_SENDSESS_LOG; i++)
+    n += peek_one(&s->log[i], lo, hi, &newest);
+  if (n) *newest_sent_ms = newest;
+  return n;
 }
 
 /* 1 if in-flight entry e is acknowledged by [lo, hi]. */
