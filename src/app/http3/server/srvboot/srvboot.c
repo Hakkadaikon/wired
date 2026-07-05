@@ -2,8 +2,10 @@
 
 #include "app/http3/server/srvloop/send.h"
 #include "common/bytes/util/be.h"
+#include "common/bytes/util/num.h"
 #include "transport/conn/loop/crecv/collect.h"
 #include "transport/conn/loop/crecv/message.h"
+#include "transport/io/udp/udploop/rxloop.h"
 #include "transport/packet/build/initpkt/initopen.h"
 #include "transport/packet/header/lhdr/lhdr_parse.h"
 #include "transport/packet/header/packet/header.h"
@@ -18,27 +20,6 @@ static int srvboot_is_long_initial(u8 byte0) {
 int wired_srvboot_is_initial(const u8* dg, usz len) {
   if (len < 6 || !srvboot_is_long_initial(dg[0])) return 0;
   return len >= (usz)6 + dg[5];
-}
-
-/* Reassemble the ClientHello from the opened Initial payload's CRYPTO frame(s)
- * (peers may lead with PADDING/ACK and split the CH, RFC 9000 12.4 / 19.6). */
-static int srvboot_collect_ch(
-    quic_crecv* cr, quic_span payload, quic_span* msg) {
-  quic_crecv_init(cr);
-  if (!quic_crecv_collect(cr, payload.p, payload.n)) return 0;
-  if (!quic_crecv_complete_message(cr)) return 0;
-  quic_crecv_message(cr, &msg->p, &msg->n);
-  return 1;
-}
-
-/* RFC 9000 17.2: the DCID is unprotected at the front, so open the Initial and
- * recover the ClientHello. */
-static int srvboot_open_initial(quic_mspan dg, quic_crecv* cr, quic_span* msg) {
-  quic_span payload;
-  if (!wired_srvboot_is_initial(dg.p, dg.n)) return 0;
-  if (!quic_initpkt_open(quic_span_of(dg.p + 6, dg.p[5]), dg, &payload))
-    return 0;
-  return srvboot_collect_ch(cr, payload, msg);
 }
 
 /* Init the server and its loop. The client's DCID (this Initial's DCID) is the
@@ -166,44 +147,105 @@ static int srvboot_flight(
   return 1;
 }
 
-/* Where srvboot_read_initial recovers the reassembly state, header, and
- * folded ClientHello. cr must outlive ch: quic_crecv_message() returns a view
- * into cr's own reassembly buffer, so the caller owns cr's storage. */
-typedef struct {
-  quic_crecv*   cr;
-  wired_header* h;
-  quic_span*    ch;
-} srvboot_read_out;
-
-/* Recover the ClientHello and parse the header from the Initial datagram. */
-static int srvboot_read_initial(quic_mspan dgram, const srvboot_read_out* out) {
-  if (!srvboot_open_initial(dgram, out->cr, out->ch)) return 0;
-  return wired_header_parse(dgram.p, dgram.n, out->h) != 0;
+void wired_srvboot_acc_reset(wired_srvboot_acc* a) {
+  quic_crecv_init(&a->cr);
+  a->largest_pn = 0;
+  a->any        = 0;
+  a->opened     = 0;
 }
 
-/* Open the Initial, init the server/loop, and fold the ClientHello — up to
- * (not including) building the flight. */
-static int srvboot_accept_ch(
+/* Accumulated byte difference between two ids of the same length. */
+static u8 srvboot_cid_diff(const u8* x, const u8* y, u8 len) {
+  u8 diff = 0;
+  for (u8 i = 0; i < len; i++) diff |= x[i] ^ y[i];
+  return diff;
+}
+
+/* 1 if dg's DCID equals the accumulator's bound one (its Initial keys). */
+static int srvboot_acc_same_dcid(const wired_srvboot_acc* a, quic_mspan dg) {
+  wired_header h;
+  if (!wired_header_parse(dg.p, dg.n, &h)) return 0;
+  if (h.dcid_len != a->hdr.dcid_len) return 0;
+  return srvboot_cid_diff(h.dcid, a->hdr.dcid, h.dcid_len) == 0;
+}
+
+/* Bind the accumulator to its first datagram's header. */
+static int srvboot_acc_bind(wired_srvboot_acc* a, quic_mspan dg) {
+  if (!wired_header_parse(dg.p, dg.n, &a->hdr)) return 0;
+  a->any = 1;
+  return 1;
+}
+
+/* 1 if dg may feed a: an Initial, and (after the first) the same DCID. */
+static int srvboot_acc_admit(wired_srvboot_acc* a, quic_mspan dg) {
+  if (!wired_srvboot_is_initial(dg.p, dg.n)) return 0;
+  if (a->any) return srvboot_acc_same_dcid(a, dg);
+  return srvboot_acc_bind(a, dg);
+}
+
+/* Open one coalesced packet slice if it is an Initial and absorb its CRYPTO
+ * chunks and packet number; other packet types and chunks falling outside
+ * the buffer are skipped (RFC 9000 12.2 / 19.6). */
+static int srvboot_acc_take(wired_srvboot_acc* a, quic_mspan pkt) {
+  quic_span payload;
+  quic_span odcid = quic_span_of(a->hdr.dcid, a->hdr.dcid_len);
+  if (!srvboot_is_long_initial(pkt.p[0])) return 0;
+  if (!quic_initpkt_open(odcid, pkt, &payload)) return 0;
+  quic_crecv_collect(&a->cr, payload.p, payload.n);
+  a->largest_pn = quic_u64_max(a->largest_pn, srvboot_initial_pn(pkt));
+  a->opened++;
+  return 1;
+}
+
+/* Coalesced packets per boot datagram (RFC 9000 12.2). */
+#define SRVBOOT_ACC_PKTS 4
+
+int wired_srvboot_acc_feed(wired_srvboot_acc* a, quic_mspan dg) {
+  const u8*    pkts[SRVBOOT_ACC_PKTS];
+  usz          offs[SRVBOOT_ACC_PKTS], lens[SRVBOOT_ACC_PKTS], n, got = 0;
+  quic_pktlist pl = {pkts, offs, lens, SRVBOOT_ACC_PKTS};
+  if (!srvboot_acc_admit(a, dg)) return 0;
+  n = quic_udploop_split(quic_span_of(dg.p, dg.n), &pl);
+  for (usz i = 0; i < n; i++)
+    got += (usz)srvboot_acc_take(a, quic_mspan_of(dg.p + offs[i], lens[i]));
+  return got != 0;
+}
+
+int wired_srvboot_acc_complete(const wired_srvboot_acc* a) {
+  return a->any && quic_crecv_complete_message(&a->cr);
+}
+
+/* Init the server/loop from the bound header and fold the reassembled
+ * ClientHello. */
+static int srvboot_acc_start(
     const wired_srvboot_conn* conn,
     const wired_srvboot_id*   id,
-    quic_mspan                dgram,
-    u64*                      pn) {
-  wired_header     h;
-  quic_crecv       cr;
-  quic_span        ch  = quic_span_of(0, 0);
-  srvboot_read_out out = {&cr, &h, &ch};
-  if (!srvboot_read_initial(dgram, &out)) return 0;
-  *pn = srvboot_initial_pn(dgram);
-  if (!srvboot_init(conn, id, &h)) return 0;
+    wired_srvboot_acc*        a) {
+  quic_span ch;
+  quic_crecv_message(&a->cr, &ch.p, &ch.n);
+  if (!srvboot_init(conn, id, &a->hdr)) return 0;
   return wired_server_recv_initial(conn->s, ch.p, ch.n);
+}
+
+int wired_srvboot_accept_acc(
+    const wired_srvboot_conn* conn,
+    const wired_srvboot_id*   id,
+    wired_srvboot_acc*        a,
+    wired_srvboot_out*        out) {
+  if (!wired_srvboot_acc_complete(a)) return 0;
+  if (!srvboot_acc_start(conn, id, a)) return 0;
+  out->client_pn = a->largest_pn;
+  return srvboot_flight(conn, id, a->largest_pn, out);
 }
 
 int wired_srvboot_accept(
     const wired_srvboot_conn* conn,
     const wired_srvboot_in*   in,
     wired_srvboot_out*        out) {
-  if (!srvboot_accept_ch(conn, in->id, in->dgram, &out->client_pn)) return 0;
-  return srvboot_flight(conn, in->id, out->client_pn, out);
+  wired_srvboot_acc a; /* single-datagram fast path, caller-stack lifetime */
+  wired_srvboot_acc_reset(&a);
+  if (!wired_srvboot_acc_feed(&a, in->dgram)) return 0;
+  return wired_srvboot_accept_acc(conn, in->id, &a, out);
 }
 
 /* 1 if dg is big enough to owe a response and wears a long header

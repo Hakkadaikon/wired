@@ -4,6 +4,8 @@
 #include "app/http3/server/srvloop/srvloop.h"
 #include "common/bytes/span/span.h"
 #include "tls/handshake/roles/server/server.h"
+#include "transport/conn/loop/crecv/collect.h"
+#include "transport/packet/header/packet/header.h"
 
 /** @file
  * RFC 9000 17.2 / RFC 9001 5 / RFC 8446 4.4: cold-start a server connection
@@ -102,5 +104,57 @@ int wired_srvboot_accept(
  * @param cap bytes available at out
  * @return bytes written, or 0 when no response is owed. */
 usz wired_srvboot_vneg(quic_span dg, u8* out, usz cap);
+
+/** One nascent connection's ClientHello reassembly across Initial datagrams:
+ * a ClientHello too big for one Initial (a post-quantum hybrid key share
+ * pushes it near 1.7KB) arrives as CRYPTO chunks spread over several packets
+ * (RFC 9000 19.6), and the server may not build its flight until the whole
+ * message is contiguous. */
+typedef struct {
+  quic_crecv   cr;  /**< CRYPTO stream reassembly buffer */
+  wired_header hdr; /**< the first datagram's header: its DCID is the ODCID
+                       the Initial keys derive from (fixed for the whole
+                       boot), its SCID the id the server replies to */
+  u64 largest_pn;   /**< highest Initial packet number opened so far (the one
+                       the boot flight acknowledges, RFC 9000 13.2.1) */
+  int any;          /**< 1 once the first datagram bound this accumulator */
+  usz opened;       /**< Initial packets successfully opened so far — 0 means
+                       nothing authenticated yet and the attempt is
+                       abandonable without loss */
+} wired_srvboot_acc;
+
+/** Empty the accumulator for a fresh connection attempt.
+ * @param a the accumulator to reset */
+void wired_srvboot_acc_reset(wired_srvboot_acc* a);
+
+/** Absorb one Initial datagram: every coalesced Initial packet in it is
+ * opened with the bound ODCID's keys and its CRYPTO chunks land at their
+ * stream offsets (duplicates and any arrival order are fine). The first
+ * datagram binds the accumulator; later ones must repeat its DCID.
+ * @param a the accumulator
+ * @param dg the received datagram (opened in place)
+ * @return 1 if at least one Initial packet in the datagram authenticated
+ *   and was absorbed, 0 if it was refused (not an Initial, unparseable, a
+ *   foreign DCID, or nothing in it opened under the bound keys). */
+int wired_srvboot_acc_feed(wired_srvboot_acc* a, quic_mspan dg);
+
+/** @param a the accumulator
+ * @return 1 once the buffered CRYPTO prefix folds a complete ClientHello. */
+int wired_srvboot_acc_complete(const wired_srvboot_acc* a);
+
+/** Cold-start the connection from a completed accumulator: initialize the
+ * server and loop from the bound header, fold the reassembled ClientHello,
+ * and seal the flight, acknowledging the highest Initial packet number
+ * received (out fields as in wired_srvboot_accept).
+ * @param conn the orchestrator/loop pair to cold-start
+ * @param id the fixed server identity
+ * @param a a complete accumulator (wired_srvboot_acc_complete)
+ * @param out receives the sealed flight and the acknowledged packet number
+ * @return 1, or 0 when the accumulator is incomplete or the boot fails. */
+int wired_srvboot_accept_acc(
+    const wired_srvboot_conn* conn,
+    const wired_srvboot_id*   id,
+    wired_srvboot_acc*        a,
+    wired_srvboot_out*        out);
 
 #endif

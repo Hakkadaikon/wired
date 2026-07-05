@@ -505,6 +505,190 @@ static void test_srvboot_vneg_guards(void) {
   CHECK(wired_srvboot_vneg(quic_span_of(dg, sizeof dg), vn, sizeof vn) == 0);
 }
 
+/* Build the fixed test client's raw ClientHello bytes (no CRYPTO framing). */
+static usz sb_build_raw_ch(quic_client* c, u8* ch, usz cap) {
+  usz n;
+  u8  cpriv[32], cpub[32];
+  for (usz i = 0; i < 32; i++) cpriv[i] = (u8)(7 + i);
+  quic_x25519_base(cpub, cpriv);
+  quic_tlsdriver_init(&c->tls, cpriv, cpub, 0);
+  n = quic_tlsdriver_raw_client_hello(&c->tls, ch, cap);
+  CHECK(n > 100); /* both split chunks below must be non-empty */
+  return n;
+}
+
+/* Seal one ClientHello chunk as its own protected Initial datagram at the
+ * given CRYPTO offset and packet number — the shape each piece of an
+ * oversized (split) ClientHello arrives in. */
+static usz sb_seal_ch_chunk(u8* dg, usz cap, quic_span chunk, u64 off, u64 pn) {
+  quic_initpkt_desc d = {
+      quic_span_of(g_scid, 6), quic_span_of(g_scid, 6), chunk, pn, off};
+  quic_obuf o = quic_obuf_of(dg, cap);
+  CHECK(quic_initpkt_build(&d, &o) == 1);
+  return o.len;
+}
+
+/* Accept from the accumulator with the fixed identity; returns the result. */
+static int sb_accept_acc(wired_srvboot_acc* a, wired_srvboot_out* out) {
+  wired_server       s;
+  wired_srvloop      l;
+  wired_srvboot_id   id;
+  u8                 priv[32], pub[32], seed[32], rnd[32];
+  wired_srvboot_conn conn = {&s, &l};
+  sb_make_id(&id, priv, pub, seed, rnd);
+  return wired_srvboot_accept_acc(&conn, &id, a, out);
+}
+
+/* A ClientHello split across two Initial datagrams is incomplete after the
+ * first (no flight may be sent yet) and accepted after the second, ACKing
+ * the highest packet number received (RFC 9000 19.6 / 13.2.1). */
+static void test_bootacc_split_two_datagrams(void) {
+  quic_client       c;
+  u8                ch[2048], dg1[1400], dg2[1400], ini[1500], hs[1500];
+  quic_obuf         iob = {ini, sizeof ini, 0};
+  quic_obuf         hob = {hs, sizeof hs, 0};
+  wired_srvboot_out out = {&iob, &hob, {0}, 0, 0};
+  wired_srvboot_acc a;
+  usz               n = sb_build_raw_ch(&c, ch, sizeof ch);
+  usz n1 = sb_seal_ch_chunk(dg1, sizeof dg1, quic_span_of(ch, 60), 0, 0);
+  usz n2 =
+      sb_seal_ch_chunk(dg2, sizeof dg2, quic_span_of(ch + 60, n - 60), 60, 1);
+  wired_srvboot_acc_reset(&a);
+  CHECK(wired_srvboot_acc_feed(&a, quic_mspan_of(dg1, n1)) == 1);
+  CHECK(wired_srvboot_acc_complete(&a) == 0);
+  CHECK(wired_srvboot_acc_feed(&a, quic_mspan_of(dg2, n2)) == 1);
+  CHECK(wired_srvboot_acc_complete(&a) == 1);
+  CHECK(sb_accept_acc(&a, &out) == 1);
+  CHECK(out.client_pn == 1);
+  CHECK(iob.len >= 1200);
+}
+
+/* Chunks arriving in reverse order still complete the ClientHello: each is
+ * buffered at its offset and only the contiguous prefix decides. */
+static void test_bootacc_out_of_order(void) {
+  quic_client       c;
+  u8                ch[2048], dg1[1400], dg2[1400];
+  wired_srvboot_acc a;
+  usz               n = sb_build_raw_ch(&c, ch, sizeof ch);
+  usz n1 = sb_seal_ch_chunk(dg1, sizeof dg1, quic_span_of(ch, 60), 0, 0);
+  usz n2 =
+      sb_seal_ch_chunk(dg2, sizeof dg2, quic_span_of(ch + 60, n - 60), 60, 1);
+  wired_srvboot_acc_reset(&a);
+  CHECK(wired_srvboot_acc_feed(&a, quic_mspan_of(dg2, n2)) == 1);
+  CHECK(wired_srvboot_acc_complete(&a) == 0);
+  CHECK(wired_srvboot_acc_feed(&a, quic_mspan_of(dg1, n1)) == 1);
+  CHECK(wired_srvboot_acc_complete(&a) == 1);
+}
+
+/* A datagram whose DCID differs from the one that claimed the accumulator
+ * is refused outright: buffer, contiguity, and packet-number state stay
+ * untouched (its Initial keys belong to another connection). */
+static void test_bootacc_foreign_dcid_ignored(void) {
+  quic_client       c;
+  u8                ch[2048], dg1[1400], alien[1400];
+  wired_srvboot_acc a;
+  usz               n = sb_build_raw_ch(&c, ch, sizeof ch);
+  usz n1 = sb_seal_ch_chunk(dg1, sizeof dg1, quic_span_of(ch, 60), 0, 0);
+  usz na;
+  {
+    static const u8   other[6] = {9, 9, 9, 9, 9, 9};
+    quic_initpkt_desc d        = {
+        quic_span_of(other, 6), quic_span_of(g_scid, 6),
+        quic_span_of(ch + 60, n - 60), 5, 60};
+    quic_obuf o = quic_obuf_of(alien, sizeof alien);
+    CHECK(quic_initpkt_build(&d, &o) == 1);
+    na = o.len;
+  }
+  wired_srvboot_acc_reset(&a);
+  CHECK(wired_srvboot_acc_feed(&a, quic_mspan_of(dg1, n1)) == 1);
+  {
+    usz before = a.cr.received_to;
+    u64 pn     = a.largest_pn;
+    CHECK(wired_srvboot_acc_feed(&a, quic_mspan_of(alien, na)) == 0);
+    CHECK(a.cr.received_to == before);
+    CHECK(a.largest_pn == pn);
+    CHECK(wired_srvboot_acc_complete(&a) == 0);
+  }
+}
+
+/* Retransmitted (duplicate) chunks are idempotent: feeding the same
+ * datagram twice leaves the buffer exactly as one feed did. */
+static void test_bootacc_duplicate_idempotent(void) {
+  quic_client       c;
+  u8                ch[2048], dg1[1400], dg2[1400];
+  wired_srvboot_acc a;
+  usz               n = sb_build_raw_ch(&c, ch, sizeof ch);
+  usz n1 = sb_seal_ch_chunk(dg1, sizeof dg1, quic_span_of(ch, 60), 0, 0);
+  usz n2 =
+      sb_seal_ch_chunk(dg2, sizeof dg2, quic_span_of(ch + 60, n - 60), 60, 1);
+  u8 copy[1400];
+  for (usz i = 0; i < n1; i++) copy[i] = dg1[i];
+  wired_srvboot_acc_reset(&a);
+  CHECK(wired_srvboot_acc_feed(&a, quic_mspan_of(dg1, n1)) == 1);
+  CHECK(wired_srvboot_acc_feed(&a, quic_mspan_of(copy, n1)) == 1);
+  CHECK(a.cr.received_to == 60);
+  CHECK(wired_srvboot_acc_complete(&a) == 0);
+  CHECK(wired_srvboot_acc_feed(&a, quic_mspan_of(dg2, n2)) == 1);
+  CHECK(wired_srvboot_acc_complete(&a) == 1);
+}
+
+/* The recorded largest packet number never regresses, and the accepted
+ * flight ACKs that maximum — not whichever packet happened to arrive last
+ * (RFC 9000 13.2.1). */
+static void test_bootacc_pn_monotone_ack_max(void) {
+  quic_client       c;
+  u8                ch[2048], dg1[1400], dg2[1400], ini[1500], hs[1500];
+  quic_obuf         iob = {ini, sizeof ini, 0};
+  quic_obuf         hob = {hs, sizeof hs, 0};
+  wired_srvboot_out out = {&iob, &hob, {0}, 0, 0};
+  wired_srvboot_acc a;
+  usz               n = sb_build_raw_ch(&c, ch, sizeof ch);
+  usz n1 = sb_seal_ch_chunk(dg1, sizeof dg1, quic_span_of(ch, 60), 0, 1);
+  usz n2 =
+      sb_seal_ch_chunk(dg2, sizeof dg2, quic_span_of(ch + 60, n - 60), 60, 2);
+  wired_srvboot_acc_reset(&a);
+  CHECK(wired_srvboot_acc_feed(&a, quic_mspan_of(dg2, n2)) == 1);
+  CHECK(a.largest_pn == 2);
+  CHECK(wired_srvboot_acc_feed(&a, quic_mspan_of(dg1, n1)) == 1);
+  CHECK(a.largest_pn == 2);
+  CHECK(sb_accept_acc(&a, &out) == 1);
+  CHECK(out.client_pn == 2);
+}
+
+/* A CRYPTO chunk falling outside the reassembly buffer is dropped without
+ * disturbing what was already buffered. */
+static void test_bootacc_overflow_chunk_ignored(void) {
+  quic_client       c;
+  u8                ch[2048], dg1[1400], wild[1400];
+  wired_srvboot_acc a;
+  usz               n = sb_build_raw_ch(&c, ch, sizeof ch);
+  usz               n1, nw;
+  (void)n;
+  n1 = sb_seal_ch_chunk(dg1, sizeof dg1, quic_span_of(ch, 60), 0, 0);
+  nw = sb_seal_ch_chunk(wild, sizeof wild, quic_span_of(ch, 60), 2040, 3);
+  wired_srvboot_acc_reset(&a);
+  CHECK(wired_srvboot_acc_feed(&a, quic_mspan_of(dg1, n1)) == 1);
+  wired_srvboot_acc_feed(&a, quic_mspan_of(wild, nw));
+  CHECK(a.cr.received_to == 60);
+  CHECK(wired_srvboot_acc_complete(&a) == 0);
+}
+
+/* Two Initial packets coalesced into ONE datagram (RFC 9000 12.2) are both
+ * opened and both chunks land — not just the first packet. */
+static void test_bootacc_coalesced_initials(void) {
+  quic_client       c;
+  u8                ch[2048], dg[2900];
+  wired_srvboot_acc a;
+  usz               n = sb_build_raw_ch(&c, ch, sizeof ch);
+  usz n1 = sb_seal_ch_chunk(dg, sizeof dg, quic_span_of(ch, 60), 0, 0);
+  usz n2 = sb_seal_ch_chunk(
+      dg + n1, sizeof dg - n1, quic_span_of(ch + 60, n - 60), 60, 1);
+  wired_srvboot_acc_reset(&a);
+  CHECK(wired_srvboot_acc_feed(&a, quic_mspan_of(dg, n1 + n2)) == 1);
+  CHECK(wired_srvboot_acc_complete(&a) == 1);
+  CHECK(a.largest_pn == 1);
+}
+
 /* Identity whose Certificate carries the external realchain, leaf first, root
  * included (RFC 8446 4.4.2 allows it) so the flight outgrows one MTU datagram,
  * signing the CertificateVerify with the leaf's P-256 key. File-scope: sdrv
@@ -703,6 +887,13 @@ void test_h3_loopback(void) {
   test_srvboot_acks_actual_initial_pn();
   test_srvboot_vneg_responds_to_alien_version();
   test_srvboot_vneg_guards();
+  test_bootacc_split_two_datagrams();
+  test_bootacc_out_of_order();
+  test_bootacc_foreign_dcid_ignored();
+  test_bootacc_duplicate_idempotent();
+  test_bootacc_pn_monotone_ack_max();
+  test_bootacc_overflow_chunk_ignored();
+  test_bootacc_coalesced_initials();
   test_srvboot_split_flight_datagrams();
   test_srvboot_split_flight_reassembled();
   test_srvboot_split_flight_out_of_order();
