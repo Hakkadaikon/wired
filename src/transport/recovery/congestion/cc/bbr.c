@@ -112,3 +112,8 @@ u64 quic_bbr_pacing_gain_pct(const quic_bbr* b) {
   if (b->phase == QUIC_BBR_PROBE_BW) return bbr_cycle_pct[b->cycle_idx];
   return by_phase[b->phase];
 }
+
+u64 quic_bbr_cwnd_gain_pct(const quic_bbr* b) {
+  static const u64 by_phase[4] = {289, 289, 200, 100};
+  return by_phase[b->phase];
+}

@@ -69,4 +69,8 @@ void quic_bbr_probe_rtt_exit(quic_bbr* b, u64 now_ms);
  * inverse, PROBE_BW cycles 125,75,100x6, PROBE_RTT 100). */
 u64 quic_bbr_pacing_gain_pct(const quic_bbr* b);
 
+/** The phase's cwnd gain in percent (STARTUP/DRAIN 289, PROBE_BW 200,
+ * PROBE_RTT 100 — the caller floors PROBE_RTT's window separately). */
+u64 quic_bbr_cwnd_gain_pct(const quic_bbr* b);
+
 #endif
