@@ -242,6 +242,7 @@
 #include "tls/keys/keyupdate/kuderive.c"
 #include "tls/keys/keyupdate/oldkey.c"
 #include "tls/keys/ticket/ticket.c"
+#include "tls/keys/ticketguard/ticketguard.c"
 #include "transport/conn/loop/manage/dosmitigate.c"
 #include "transport/conn/loop/manage/flowobs.c"
 #include "transport/conn/loop/manage/linkability.c"
@@ -883,6 +884,7 @@
 #include "transport/udpsess_test.c"
 #include "tls/alpnver_test.c"
 #include "tls/resume_test.c"
+#include "tls/ticketguard_test.c"
 #include "tls/earlydrive_test.c"
 #include "crypto/rfc6979_test.c"
 #include "crypto/p256sign_test.c"
@@ -1335,6 +1337,7 @@ int main(void) {
   test_udpsess();
   test_alpnver();
   test_resume();
+  test_ticketguard();
   test_earlydrive();
   test_rfc6979();
   test_p256sign();
