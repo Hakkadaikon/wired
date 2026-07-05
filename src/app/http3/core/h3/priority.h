@@ -10,9 +10,11 @@
 #define QUIC_H3_URGENCY_DEFAULT 3
 #define QUIC_H3_URGENCY_MAX 7
 
+/** RFC 9218 4: a request's priority — urgency (lower is more urgent) and
+ * whether the response may be served incrementally. */
 typedef struct {
-  u8 urgency;     /* 0..7 */
-  u8 incremental; /* 0 or 1 */
+  u8 urgency;     /**< 0..7, default 3 */
+  u8 incremental; /**< 0 or 1, default 0 */
 } quic_h3_priority;
 
 void quic_h3_priority_init(quic_h3_priority* p);
