@@ -20,6 +20,7 @@
 #include "transport/packet/header/packet/header.h"
 #include "transport/recovery/congestion/cc/cc.h"
 #include "transport/recovery/congestion/cc/hystart.h"
+#include "transport/recovery/congestion/cc/pacing.h"
 #include "transport/stream/data/appdata/stream_send.h"
 
 /* The server's fixed run context: the bound socket and the application's
@@ -70,6 +71,8 @@ typedef struct {
   wired_sendsess   sess;        /**< in-flight multi-packet response */
   quic_cc          cc;          /**< congestion window gating sess's pump */
   quic_hystart     hs;          /**< slow-start exit detector (RFC 9406) */
+  u64              srtt_ms;     /**< smoothed RTT of this connection's acks */
+  u64              next_send_ms; /**< pacing: earliest time to send again */
 } srvrun_conn;
 
 /* The running server's mutable state: a fixed pool of connection slots keyed
@@ -545,14 +548,30 @@ static int srvrun_send_slice(
   return wired_sendsess_sent(&c->sess, sl, pn, ctx->now_ms);
 }
 
-/* Send one slice if the congestion window has room (RFC 9002 7) and one is
- * ready. */
+static int  srvrun_pace_ok(const srvrun_step_ctx* ctx, const srvrun_conn* c);
+static void srvrun_pace_next(const srvrun_step_ctx* ctx, srvrun_conn* c);
+
+/* 1 when both the congestion window (RFC 9002 7) and the pacing schedule
+ * (RFC 9002 7.7) allow another packet now. */
+static int srvrun_can_send(const srvrun_step_ctx* ctx, const srvrun_conn* c) {
+  return wired_sendsess_inflight_bytes(&c->sess) + SRVRUN_CHUNK <= c->cc.cwnd &&
+         srvrun_pace_ok(ctx, c);
+}
+
+/* Ship one slice and schedule the next paced send. */
+static int srvrun_slice_out(
+    const srvrun_step_ctx* ctx, srvrun_conn* c, const wired_sendq_slice* sl) {
+  if (!srvrun_send_slice(ctx, c, sl)) return 0;
+  srvrun_pace_next(ctx, c);
+  return 1;
+}
+
+/* Send one slice if the gates allow and one is ready. */
 static int srvrun_pump_one(const srvrun_step_ctx* ctx, srvrun_conn* c) {
   wired_sendq_slice sl;
-  if (wired_sendsess_inflight_bytes(&c->sess) + SRVRUN_CHUNK > c->cc.cwnd)
-    return 0;
+  if (!srvrun_can_send(ctx, c)) return 0;
   if (!wired_sendsess_take(&c->sess, &sl)) return 0;
-  return srvrun_send_slice(ctx, c, &sl);
+  return srvrun_slice_out(ctx, c, &sl);
 }
 
 /* Transmit while the window has room and slices are ready. */
@@ -583,6 +602,23 @@ static void srvrun_qlog_lost(const srvrun_cfg* cfg, const u64* pns, usz n) {
 /* Consume this step's ACK ranges, then declare packet-threshold losses so
  * their slices requeue ahead of new data (RFC 9002 6.1.1), logging each
  * lost packet to the qlog when one is configured. */
+/* RFC 9002 5.3 (shape): seed on the first sample, then 7/8 old + 1/8 new. */
+static void srvrun_rtt_note(srvrun_conn* c, u64 sample_ms) {
+  c->srtt_ms = c->srtt_ms ? (7 * c->srtt_ms + sample_ms) / 8 : sample_ms;
+}
+
+/* 1 when pacing allows a send now: unpaced until the first RTT sample. */
+static int srvrun_pace_ok(const srvrun_step_ctx* ctx, const srvrun_conn* c) {
+  return !c->srtt_ms || ctx->now_ms >= c->next_send_ms;
+}
+
+/* Schedule the next paced send (RFC 9002 7.7: ~1.25x cwnd/srtt rate). */
+static void srvrun_pace_next(const srvrun_step_ctx* ctx, srvrun_conn* c) {
+  c->next_send_ms =
+      ctx->now_ms +
+      quic_pacing_interval(c->srtt_ms, c->cc.cwnd, QUIC_MAX_DATAGRAM);
+}
+
 /* 1 while the controller is still in slow start (no loss, no exit yet). */
 static int srvrun_in_slow_start(const srvrun_conn* c) {
   return c->cc.cwnd < c->cc.ssthresh && !c->cc.in_recovery;
@@ -592,6 +628,7 @@ static int srvrun_in_slow_start(const srvrun_conn* c) {
  * exit detector (RFC 9406); on the verdict, end slow start by dropping
  * ssthresh to the current window. Round boundary: the next pn to be sent. */
 static void srvrun_hystart_ack(srvrun_conn* c, u64 pn, u64 sent_ms, u64 now) {
+  srvrun_rtt_note(c, now - sent_ms);
   if (!srvrun_in_slow_start(c)) return;
   if (quic_hystart_sample(&c->hs, now - sent_ms, pn, c->l.tx_pn))
     c->cc.ssthresh = c->cc.cwnd;
@@ -647,9 +684,10 @@ static void srvrun_sess_on_step(const srvrun_step_ctx* ctx, int slot) {
   srvrun_pump_sess(ctx, slot);
 }
 
-/* 1 if this slot's session is waiting on acknowledgements. */
+/* 1 while this slot still owes response bytes (in flight, paced, or window
+ * blocked) — the loop must keep ticking for it. */
 static int srvrun_sess_waiting(const srvrun_conn* c) {
-  return c->up && c->sess.active && wired_sendsess_inflight(&c->sess) != 0;
+  return c->up && c->sess.active;
 }
 
 /* Probe or tear down one slot on a PTO tick (RFC 9002 6.2): a spent probe

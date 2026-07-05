@@ -828,6 +828,36 @@ static void test_srvrun_hystart_ends_slow_start(void) {
   c->up = 0;
 }
 
+/* RTT EWMA (RFC 9002 5.3 shape): first sample seeds srtt, later ones blend
+ * 7/8 old + 1/8 new. */
+static void test_srvrun_rtt_ewma(void) {
+  srvrun_conn c = {0};
+  srvrun_rtt_note(&c, 100);
+  CHECK(c.srtt_ms == 100);
+  srvrun_rtt_note(&c, 200);
+  CHECK(c.srtt_ms == 112); /* (7*100 + 200) / 8 */
+}
+
+/* PACING GATE: before the first RTT sample sends are unpaced; with an srtt,
+ * a send scheduled in the future blocks the pump and the next-send time
+ * advances by the pacing interval (1.25 * pkt * srtt / cwnd). */
+static void test_srvrun_pacing_gate(void) {
+  srvrun_conn     c   = {0};
+  srvrun_cfg      cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0};
+  srvrun_state    st  = {0, 0};
+  srvrun_step_ctx ctx = {&cfg, 0, &st, 1000};
+  quic_cc_init(&c.cc);                  /* cwnd 12000 */
+  CHECK(srvrun_pace_ok(&ctx, &c) == 1); /* srtt 0: unpaced */
+  c.srtt_ms      = 100;
+  c.next_send_ms = 1010; /* future */
+  CHECK(srvrun_pace_ok(&ctx, &c) == 0);
+  c.next_send_ms = 1000; /* due now */
+  CHECK(srvrun_pace_ok(&ctx, &c) == 1);
+  srvrun_pace_next(&ctx, &c);
+  /* 5 * 1200 * 100 / (4 * 12000) = 12ms */
+  CHECK(c.next_send_ms == 1012);
+}
+
 void test_srvrun(void) {
   test_srvrun_no_shutdown_accepts_new();
   test_srvrun_accept_rekeys_to_slot_scid();
@@ -845,6 +875,8 @@ void test_srvrun(void) {
   test_srvrun_takeover_streams_large_body();
   test_srvrun_cc_algo_selected();
   test_srvrun_hystart_ends_slow_start();
+  test_srvrun_rtt_ewma();
+  test_srvrun_pacing_gate();
   test_srvrun_shutdown_rejects_new_initial();
   test_srvrun_shutdown_refuses_slot_claim();
   test_srvrun_owes_goaway_once();
