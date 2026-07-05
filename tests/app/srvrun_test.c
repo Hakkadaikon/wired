@@ -402,6 +402,32 @@ static void test_srvrun_accept_rekeys_to_slot_scid(void) {
           table, QUIC_CONNTABLE_CAP, st.conns[0].scid, id.scid_len) == 0);
 }
 
+/* An unknown-version datagram never claims a connection slot: it is answered
+ * (or dropped) before routing, so the table stays empty (RFC 9000 5.2.2). */
+static void test_srvrun_alien_version_claims_no_slot(void) {
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32];
+  u8               dg[1200] = {0};
+  quic_conntable   table[QUIC_CONNTABLE_CAP];
+  quic_sockaddr_in peer = {0};
+  srvrun_state     st   = {table, g_srvrun_state.conns};
+  dg[0]                 = 0xd3;
+  dg[4]                 = 0xcf; /* alien version */
+  dg[5]                 = 6;
+  for (usz i = 0; i < 6; i++) dg[6 + i] = (u8)(0x60 + i);
+  dg[12] = 4;
+  sr_make_id(&id, priv, pub, seed, rnd);
+  {
+    srvrun_cfg      cfg = {-1, &id, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0};
+    quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+    st.conns[0].up = 0;
+    srvrun_serve(&ctx, quic_mspan_of(dg, sizeof dg));
+  }
+  CHECK(st.conns[0].up == 0);
+  CHECK(quic_conntable_find(table, QUIC_CONNTABLE_CAP, dg + 6, 6) == -1);
+}
+
 /* UNCLAIM ON FAILURE: an Initial-shaped datagram whose cold start fails must
  * not leave a live table entry behind — the slot stays claimable. */
 static void test_srvrun_failed_accept_unclaims(void) {
@@ -863,6 +889,7 @@ static void test_srvrun_pacing_gate(void) {
 void test_srvrun(void) {
   test_srvrun_no_shutdown_accepts_new();
   test_srvrun_accept_rekeys_to_slot_scid();
+  test_srvrun_alien_version_claims_no_slot();
   test_srvrun_failed_accept_unclaims();
   test_srvrun_peer_close_frees_slot();
   test_srvrun_idle_sweep_evicts_expired();

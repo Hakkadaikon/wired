@@ -377,7 +377,7 @@ static void test_srvboot_accept(void) {
 
   wired_srvboot_conn conn = {&s, &l};
   wired_srvboot_in   in;
-  wired_srvboot_out  out = {&iob, &hob, {0}, 0};
+  wired_srvboot_out  out = {&iob, &hob, {0}, 0, 0};
   sb_make_id(&id, priv, pub, seed, rnd);
   in = (wired_srvboot_in){&id, quic_mspan_of(dg, total)};
   CHECK(wired_srvboot_accept(&conn, &in, &out) == 1);
@@ -412,13 +412,97 @@ static void test_srvboot_rejects_non_initial(void) {
   u8 ini[1500], hs[1500];
   quic_obuf          iob  = {ini, sizeof ini, 0};
   quic_obuf          hob  = {hs, sizeof hs, 0};
-  wired_srvboot_out  out  = {&iob, &hob, {0}, 0};
+  wired_srvboot_out  out  = {&iob, &hob, {0}, 0, 0};
   wired_srvboot_conn conn = {&s, &l};
   wired_srvboot_in   in;
   sb_make_id(&id, priv, pub, seed, rnd);
   in = (wired_srvboot_in){&id, quic_mspan_of(garbage, sizeof garbage)};
   CHECK(wired_srvboot_is_initial(garbage, sizeof garbage) == 0);
   CHECK(wired_srvboot_accept(&conn, &in, &out) == 0);
+}
+
+/* The server Initial acknowledges the packet number the client Initial
+ * actually carried (a retransmitted Initial arrives with pn > 0), not a
+ * hardcoded 0 (RFC 9000 13.2.1). */
+static void test_srvboot_acks_actual_initial_pn(void) {
+  quic_client        c;
+  wired_server       s;
+  wired_srvloop      l;
+  wired_srvboot_id   id;
+  u8                 priv[32], pub[32], seed[32], rnd[32], cpriv[32], cpub[32];
+  u8                 dg[1500], ini[1500], hs[1500];
+  quic_obuf          iob  = {ini, sizeof ini, 0};
+  quic_obuf          hob  = {hs, sizeof hs, 0};
+  wired_srvboot_out  out  = {&iob, &hob, {0}, 0, 0};
+  wired_srvboot_conn conn = {&s, &l};
+  wired_srvboot_in   in;
+  usz                total = 0;
+  for (usz i = 0; i < 32; i++) cpriv[i] = (u8)(7 + i);
+  quic_x25519_base(cpub, cpriv);
+  quic_tlsdriver_init(&c.tls, cpriv, cpub, 0);
+  {
+    quic_clientwire_hdr_in hdr = {
+        quic_span_of(g_scid, 6), quic_span_of(g_scid, 6), 2};
+    quic_obuf ob = quic_obuf_of(dg, sizeof dg);
+    CHECK(quic_client_build_initial_wire(&c, &hdr, &ob) == 1);
+    total = ob.len;
+  }
+  sb_make_id(&id, priv, pub, seed, rnd);
+  in = (wired_srvboot_in){&id, quic_mspan_of(dg, total)};
+  CHECK(wired_srvboot_accept(&conn, &in, &out) == 1);
+  CHECK(out.client_pn == 2);
+}
+
+/* An unknown-version long-header datagram of answerable size draws a Version
+ * Negotiation packet with the connection ids swapped and v1 as the only
+ * offered version (RFC 9000 5.2.2 / RFC 8999 6). */
+static void test_srvboot_vneg_responds_to_alien_version(void) {
+  u8               dg[1200] = {0};
+  u8               vn[64];
+  usz              n;
+  quic_vneg_packet p;
+  dg[0] = 0xd3; /* long header, v2 Initial type bits 01 */
+  dg[1] = 0x6b;
+  dg[2] = 0x33;
+  dg[3] = 0x43;
+  dg[4] = 0xcf; /* QUIC v2 version number */
+  dg[5] = 8;    /* DCID */
+  for (usz i = 0; i < 8; i++) dg[6 + i] = (u8)(0x11 * (i + 1));
+  dg[14] = 5; /* SCID */
+  for (usz i = 0; i < 5; i++) dg[15 + i] = (u8)(0xa0 + i);
+  n = wired_srvboot_vneg(quic_span_of(dg, sizeof dg), vn, sizeof vn);
+  CHECK(n > 0);
+  CHECK(quic_vneg_parse(vn, n, &p) == n);
+  CHECK(p.dcid_len == 5); /* response DCID = received SCID */
+  CHECK(p.dcid[0] == 0xa0 && p.dcid[4] == 0xa4);
+  CHECK(p.scid_len == 8); /* response SCID = received DCID */
+  CHECK(p.scid[0] == 0x11 && p.scid[7] == 0x88);
+  CHECK(p.count == 1);
+  CHECK(quic_get_be32(p.versions) == 1);
+}
+
+/* No Version Negotiation for: an under-1200 datagram (amplification guard),
+ * version 0 (never answer VN with VN, RFC 9000 6.1), version 1 (supported),
+ * a short header, or an unparseable header. */
+static void test_srvboot_vneg_guards(void) {
+  u8 dg[1200] = {0};
+  u8 vn[64];
+  dg[0]  = 0xd3;
+  dg[4]  = 0xcf; /* alien version 0x000000cf */
+  dg[5]  = 4;
+  dg[10] = 4;
+  CHECK(wired_srvboot_vneg(quic_span_of(dg, 1199), vn, sizeof vn) == 0);
+  CHECK(wired_srvboot_vneg(quic_span_of(dg, sizeof dg), vn, sizeof vn) > 0);
+  dg[4] = 0; /* version 0: a VN packet itself */
+  CHECK(wired_srvboot_vneg(quic_span_of(dg, sizeof dg), vn, sizeof vn) == 0);
+  dg[4] = 1; /* version 1: supported, normal path */
+  CHECK(wired_srvboot_vneg(quic_span_of(dg, sizeof dg), vn, sizeof vn) == 0);
+  dg[4] = 0xcf;
+  dg[0] = 0x53; /* short header */
+  CHECK(wired_srvboot_vneg(quic_span_of(dg, sizeof dg), vn, sizeof vn) == 0);
+  dg[0] = 0xd3;
+  dg[5] = 21; /* DCID longer than any valid connection id */
+  CHECK(wired_srvboot_vneg(quic_span_of(dg, sizeof dg), vn, sizeof vn) == 0);
 }
 
 /* Identity whose Certificate carries the external realchain, leaf first, root
@@ -481,7 +565,7 @@ static void sb_split_boot(struct sb_split_fix* f) {
   wired_srvboot_in   in;
   f->iob = quic_obuf_of(f->ini, sizeof f->ini);
   f->hob = quic_obuf_of(f->hs, sizeof f->hs);
-  f->out = (wired_srvboot_out){&f->iob, &f->hob, {0}, 0};
+  f->out = (wired_srvboot_out){&f->iob, &f->hob, {0}, 0, 0};
   for (usz i = 0; i < 32; i++) f->cpriv[i] = (u8)(7 + i);
   quic_x25519_base(cpub, f->cpriv);
   quic_tlsdriver_init(&f->c.tls, f->cpriv, cpub, 0);
@@ -616,6 +700,9 @@ void test_h3_loopback(void) {
   test_loopback_wire_confirm_and_get();
   test_srvboot_accept();
   test_srvboot_rejects_non_initial();
+  test_srvboot_acks_actual_initial_pn();
+  test_srvboot_vneg_responds_to_alien_version();
+  test_srvboot_vneg_guards();
   test_srvboot_split_flight_datagrams();
   test_srvboot_split_flight_reassembled();
   test_srvboot_split_flight_out_of_order();
