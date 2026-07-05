@@ -137,6 +137,7 @@
 #include "app/http3/core/h3/reuse.c"
 #include "transport/conn/lifecycle/closelife/keepalive.c"
 #include "app/http3/core/h3/priority.c"
+#include "app/http3/core/h3/priupdate.c"
 #include "crypto/symmetric/hash/hash/sha512.c"
 #include "crypto/symmetric/hash/hash/sha384.c"
 #include "crypto/pki/encoding/x509/sigalgoid.c"
@@ -899,6 +900,7 @@
 #include "app/h3srv_test.c"
 #include "app/srvwire_test.c"
 #include "app/srvloop_test.c"
+#include "app/priupdate_test.c"
 #include "app/sendq_test.c"
 #include "app/sendsess_test.c"
 #include "app/srvrun_test.c"
@@ -1352,6 +1354,7 @@ int main(void) {
   test_h3srv();
   test_srvwire();
   test_srvloop();
+  test_priupdate();
   test_sendq();
   test_sendsess();
   test_srvrun();
