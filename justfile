@@ -95,12 +95,29 @@ fuzz-ci secs="120":
     just fuzz-qpack && ./fuzz/fuzz_qpack -max_total_time={{secs}} -artifact_prefix=fuzz/
     just fuzz-x509 && ./fuzz/fuzz_x509 -max_total_time={{secs}} -artifact_prefix=fuzz/
 
-# format all sources in place (clang-format, .clang-format config)
+# format all sources in place (clang-format, .clang-format config).
+# Reroutes itself through the flake devShell when run outside one: a host
+# clang-format of another version reflows differently and CI's fmt-check
+# rejects the result (2026-07-05: a host-18.x `just fmt` undid the pinned
+# layout across 8 files). Without nix it runs the host binary as a last
+# resort and says so.
 fmt:
+    #!/usr/bin/env sh
+    if [ -z "$IN_NIX_SHELL" ] && command -v nix >/dev/null 2>&1; then
+        exec nix develop -c just fmt
+    fi
+    if [ -z "$IN_NIX_SHELL" ]; then
+        echo "warning: no nix; formatting with the host clang-format (may disagree with CI's pin)" >&2
+    fi
     clang-format -i $(find src tests \( -name '*.c' -o -name '*.h' \))
 
-# verify formatting without writing (fails on diff)
+# verify formatting without writing (fails on diff); same devShell reroute
+# as fmt so the verdict matches CI's pinned clang-format.
 fmt-check:
+    #!/usr/bin/env sh
+    if [ -z "$IN_NIX_SHELL" ] && command -v nix >/dev/null 2>&1; then
+        exec nix develop -c just fmt-check
+    fi
     clang-format --dry-run --Werror $(find src tests \( -name '*.c' -o -name '*.h' \))
 
 # clang-tidy check set: CERT C secure-coding rules + bug finders, minus the
@@ -117,6 +134,11 @@ cert:
 
 # static analysis: CERT C rules (see `cert`) plus bug finders. Includes cert.
 lint:
+    #!/usr/bin/env sh
+    # same devShell reroute as fmt: clang-tidy findings differ across versions
+    if [ -z "$IN_NIX_SHELL" ] && command -v nix >/dev/null 2>&1; then
+        exec nix develop -c just lint
+    fi
     clang-tidy -checks='{{tidychecks}}' $(find src -name '*.c') -- {{tidyflags}}
 
 # regenerate the public-API reference into docs/sdk. The input set is derived
