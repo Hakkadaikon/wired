@@ -583,10 +583,10 @@ static void srvrun_qlog_lost(const srvrun_cfg* cfg, const u64* pns, usz n) {
 /* Credit one ACK range to the congestion controller before consuming it
  * (RFC 9002 7.3.2: growth per acked bytes; the newest send time among the
  * hits drives recovery exit). */
-static void srvrun_cc_range(srvrun_conn* c, u64 lo, u64 hi) {
+static void srvrun_cc_range(srvrun_conn* c, u64 lo, u64 hi, u64 now_ms) {
   u64 newest = 0;
   usz bytes  = wired_sendsess_peek_ack(&c->sess, lo, hi, &newest);
-  if (bytes) quic_cc_on_ack(&c->cc, bytes, newest);
+  if (bytes) quic_cc_on_ack(&c->cc, bytes, newest, now_ms);
   wired_sendsess_ack(&c->sess, lo, hi);
 }
 
@@ -607,7 +607,7 @@ static void srvrun_reap_losses(
 static void srvrun_feed_acks(
     const srvrun_step_ctx* ctx, const srvrun_cfg* cfg, srvrun_conn* c) {
   for (usz i = 0; i < c->l.ack_n; i++)
-    srvrun_cc_range(c, c->l.ack_lo[i], c->l.ack_hi[i]);
+    srvrun_cc_range(c, c->l.ack_lo[i], c->l.ack_hi[i], ctx->now_ms);
   if (c->sess.has_acked) srvrun_reap_losses(ctx, cfg, c);
 }
 
