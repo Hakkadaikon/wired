@@ -68,7 +68,33 @@ static void test_cc_cubic_mode(void) {
   CHECK(c.cwnd == 72000); /* K+5s: 10 + 50 segments, convex growth */
 }
 
+/* BBR mode: acks feed the delivery-rate sampler; once a round closes, cwnd
+ * becomes cwnd_gain x BDP (btl_bw x rtprop) and pacing follows
+ * pacing_gain x btl_bw. The drain handoff needs the caller's inflight. */
+static void test_cc_bbr_mode(void) {
+  quic_cc c;
+  quic_cc_init_algo(&c, QUIC_CC_ALGO_BBR);
+  CHECK(c.cwnd == QUIC_CC_INIT_WINDOW);
+  /* one round: 60000 bytes acked over 50ms -> bw 1200 B/ms, rtprop 50 */
+  quic_cc_on_ack(&c, 60000, 0, 50);
+  quic_cc_bbr_tick(&c, 0, 51); /* round (>= rtprop) elapsed: sample taken */
+  CHECK(c.bbr.btl_bw == 1176); /* 60000 / 51ms */
+  CHECK(c.bbr.rtprop_ms == 50);
+  /* STARTUP cwnd = 289% x BDP = 2.89 x 1176 x 50 = 169932 */
+  CHECK(c.cwnd == 169932);
+  /* BBR pacing: mtu x 100 / (gain x btl_bw) = 1200x100/(289x1176) = 0ms
+   * floor -> at least 1ms interval when bw known */
+  CHECK(quic_cc_pacing_ms(&c, 999, 1200) == 1);
+  /* NewReno/CUBIC path unchanged: srtt-based interval */
+  {
+    quic_cc n;
+    quic_cc_init(&n);
+    CHECK(quic_cc_pacing_ms(&n, 100, 1200) == 12);
+  }
+}
+
 void test_cc(void) {
+  test_cc_bbr_mode();
   test_cc_cubic_mode();
   test_cc_slow_start();
   test_cc_loss_halves_floor();
