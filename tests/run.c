@@ -147,6 +147,7 @@
 #include "app/qpack/qpack/relindex.c"
 #include "crypto/symmetric/aead/aes/aes.c"
 #include "transport/recovery/congestion/cc/cc.c"
+#include "transport/recovery/congestion/cc/bbr.c"
 #include "transport/recovery/congestion/cc/cubic.c"
 #include "transport/recovery/congestion/cc/hystart.c"
 #include "transport/recovery/congestion/cc/ccloss.c"
@@ -548,6 +549,7 @@
 #include "app/datagram_test.c"
 #include "transport/demux_test.c"
 #include "transport/conntable_test.c"
+#include "transport/bbr_test.c"
 #include "transport/cubic_test.c"
 #include "transport/hystart_test.c"
 #include "app/dgcc_test.c"
@@ -980,6 +982,7 @@ int main(void) {
   test_datagram();
   test_demux();
   test_conntable();
+  test_bbr();
   test_cubic();
   test_hystart();
   test_dgcc();
