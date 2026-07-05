@@ -3,16 +3,17 @@
 #include "tls/ext/tparam/tparam.h"
 #include "tls/ext/tparam/tpblob.h"
 
-/* RFC 9000 18.2 integer-valued parameters the server advertises. */
+/* RFC 9000 18.2 integer-valued parameters the server advertises; the two
+ * tunable slots hold their defaults and are overridden per build. */
+#define STP_DEFAULT_MAX_DATA 1048576
+#define STP_DEFAULT_MAX_STREAMS_BIDI 100
 static const struct {
   u64 id, val;
 } int_params[] = {
     {QUIC_TP_MAX_IDLE_TIMEOUT, 30000},
-    {QUIC_TP_INITIAL_MAX_DATA, 1048576},
     {QUIC_TP_INITIAL_MAX_STREAM_DATA_BIDI_LOCAL, 262144},
     {QUIC_TP_INITIAL_MAX_STREAM_DATA_BIDI_REMOTE, 262144},
     {QUIC_TP_INITIAL_MAX_STREAM_DATA_UNI, 262144},
-    {QUIC_TP_INITIAL_MAX_STREAMS_BIDI, 100},
     {QUIC_TP_INITIAL_MAX_STREAMS_UNI, 100},
 };
 
@@ -43,13 +44,36 @@ static int put_int_params(quic_obuf* out) {
   return ok;
 }
 
-int quic_stp_build_server(
-    quic_span original_dcid, quic_span initial_scid, quic_obuf* out) {
+/* A zero field keeps the built-in default. */
+static u64 lim_or(u64 v, u64 dflt) { return v ? v : dflt; }
+
+/* Append the two operator-tunable limits (RFC 9000 18.2). */
+static int put_tunables(quic_obuf* out, const quic_stp_limits* lim) {
+  quic_stp_limits d = {0, 0};
+  if (!lim) lim = &d;
+  return put_int(
+             out, QUIC_TP_INITIAL_MAX_DATA,
+             lim_or(lim->max_data, STP_DEFAULT_MAX_DATA)) &
+         put_int(
+             out, QUIC_TP_INITIAL_MAX_STREAMS_BIDI,
+             lim_or(lim->max_streams_bidi, STP_DEFAULT_MAX_STREAMS_BIDI));
+}
+
+int quic_stp_build_server_lim(
+    quic_span              original_dcid,
+    quic_span              initial_scid,
+    const quic_stp_limits* lim,
+    quic_obuf*             out) {
   int ok;
   out->len = 0;
   ok =
       put_blob(out, QUIC_TP_ORIGINAL_DESTINATION_CONNECTION_ID, original_dcid) &
-      put_int_params(out) &
+      put_int_params(out) & put_tunables(out, lim) &
       put_blob(out, QUIC_TP_INITIAL_SOURCE_CONNECTION_ID, initial_scid);
   return ok;
+}
+
+int quic_stp_build_server(
+    quic_span original_dcid, quic_span initial_scid, quic_obuf* out) {
+  return quic_stp_build_server_lim(original_dcid, initial_scid, 0, out);
 }

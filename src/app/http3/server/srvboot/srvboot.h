@@ -27,6 +27,8 @@ typedef struct {
   const u8*        random;      /**< ServerHello.random, 32 bytes */
   const quic_span* chain;       /**< optional: external chain, leaf first */
   usz              chain_count; /**< entries in chain; 0 = self-signed */
+  u64              max_data;    /**< advertised initial_max_data; 0 = default */
+  u64 max_streams_bidi; /**< advertised initial_max_streams_bidi; 0 = default */
 } wired_srvboot_id;
 
 /** RFC 9000 17.2: 1 if dg is a long-header Initial datagram (a Handshake or

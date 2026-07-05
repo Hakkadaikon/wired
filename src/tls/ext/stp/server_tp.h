@@ -9,7 +9,22 @@
  * (RFC 9000 7.3); initial_scid is the server's source connection id. On
  * success writes the TLV sequence and sets out->len; returns 1. Returns 0 if
  * it does not fit. */
+/* RFC 9000 18.2: the operator-tunable integer limits this server
+ * advertises; a zero field falls back to the built-in default. */
+typedef struct {
+  u64 max_data;         /* initial_max_data (0x04), default 1MiB */
+  u64 max_streams_bidi; /* initial_max_streams_bidi (0x08), default 100 */
+} quic_stp_limits;
+
 int quic_stp_build_server(
     quic_span original_dcid, quic_span initial_scid, quic_obuf* out);
+
+/* As quic_stp_build_server, with the tunable limits overriding defaults
+ * (lim = 0 keeps every default). */
+int quic_stp_build_server_lim(
+    quic_span              original_dcid,
+    quic_span              initial_scid,
+    const quic_stp_limits* lim,
+    quic_obuf*             out);
 
 #endif

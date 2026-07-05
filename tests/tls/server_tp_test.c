@@ -91,7 +91,41 @@ static void test_client_tp_extract(void) {
   CHECK(parse_int(tp, QUIC_TP_INITIAL_MAX_STREAMS_BIDI, &v) && v == 3);
 }
 
+/* Find integer TP `want` in a built blob and return its varint value. */
+static int tp_int_value(const u8* tp, usz n, u64 want, u64* val) {
+  usz off = 0;
+  while (off < n) {
+    u64       id;
+    quic_span v;
+    usz used = quic_tparam_get_blob(quic_span_of(tp + off, n - off), &id, &v);
+    if (!used) return 0;
+    off += used;
+    if (id != want) continue;
+    usz voff = 0;
+    return quic_varint_take(v, &voff, val);
+  }
+  return 0;
+}
+
+/* Custom limits override the advertised defaults; zero fields keep them. */
+static void test_server_tp_tunable_limits(void) {
+  u8              od[4] = {1, 2, 3, 4}, sc[4] = {5, 6, 7, 8};
+  u8              tp[256];
+  quic_obuf       ob  = {tp, sizeof tp, 0};
+  quic_stp_limits lim = {2000000, 5};
+  u64             v   = 0;
+  CHECK(quic_stp_build_server_lim(
+      quic_span_of(od, 4), quic_span_of(sc, 4), &lim, &ob));
+  CHECK(tp_int_value(tp, ob.len, 0x04, &v) && v == 2000000);
+  CHECK(tp_int_value(tp, ob.len, 0x08, &v) && v == 5);
+  ob.len = 0;
+  CHECK(quic_stp_build_server(quic_span_of(od, 4), quic_span_of(sc, 4), &ob));
+  CHECK(tp_int_value(tp, ob.len, 0x04, &v) && v == 1048576);
+  CHECK(tp_int_value(tp, ob.len, 0x08, &v) && v == 100);
+}
+
 void test_server_tp(void) {
+  test_server_tp_tunable_limits();
   test_server_tp_ids_and_values();
   test_server_tp_no_room();
   test_server_tp_parse_absent();

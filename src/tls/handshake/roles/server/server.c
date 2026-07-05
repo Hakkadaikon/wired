@@ -49,6 +49,12 @@ int wired_server_set_cids(wired_server* s, quic_span odcid, quic_span iscid) {
   return quic_sdrv_set_cids(&s->sdrv, odcid, iscid);
 }
 
+void wired_server_set_limits(
+    wired_server* s, u64 max_data, u64 max_streams_bidi) {
+  s->sdrv.limits.max_data         = max_data;
+  s->sdrv.limits.max_streams_bidi = max_streams_bidi;
+}
+
 void wired_server_set_keylog_path(wired_server* s, const char* path) {
   s->keylog_path = path;
 }
