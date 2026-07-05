@@ -33,7 +33,14 @@ nix +args:
 # fmt normalizes sources, ninja proves libc independence per file, lint runs
 # the CERT C / bug-finding checks. Run as one pipeline so a normal
 # `just build` keeps sources tidy and surfaces lint findings.
-build: fmt ninja lint
+# Reroutes once into the flake devShell (like fmt/lint) so all three legs —
+# including ninja's clang — run the pinned toolchain in a single entry.
+build:
+    #!/usr/bin/env sh
+    if [ -z "$IN_NIX_SHELL" ] && command -v nix >/dev/null 2>&1; then
+        exec nix develop -c just build
+    fi
+    just fmt ninja lint
 
 # archive the compiled SDK objects into build/libwired.a (a ninja target;
 # sys.o is excluded there — its only symbol is the SDK's own _start stub,
