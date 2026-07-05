@@ -12,10 +12,10 @@ static void test_sendsess_take_and_track(void) {
   CHECK(wired_sendsess_inflight(&s) == 0);
   CHECK(wired_sendsess_take(&s, &sl) == 1);
   CHECK(sl.offset == 0 && sl.len == 10);
-  CHECK(wired_sendsess_sent(&s, &sl, 5) == 1);
+  CHECK(wired_sendsess_sent(&s, &sl, 5, 0) == 1);
   CHECK(wired_sendsess_inflight(&s) == 1);
   CHECK(wired_sendsess_take(&s, &sl) == 1);
-  CHECK(wired_sendsess_sent(&s, &sl, 6) == 1);
+  CHECK(wired_sendsess_sent(&s, &sl, 6, 0) == 1);
   CHECK(wired_sendsess_inflight(&s) == 2);
 }
 
@@ -27,9 +27,9 @@ static void test_sendsess_ack_consumes(void) {
   wired_sendq_slice sl;
   wired_sendsess_arm(&s, bytes, 20, 10);
   wired_sendsess_take(&s, &sl);
-  wired_sendsess_sent(&s, &sl, 5);
+  wired_sendsess_sent(&s, &sl, 5, 0);
   wired_sendsess_take(&s, &sl);
-  wired_sendsess_sent(&s, &sl, 6);
+  wired_sendsess_sent(&s, &sl, 6, 0);
   wired_sendsess_ack(&s, 9, 12); /* unknown pns: no effect */
   CHECK(wired_sendsess_inflight(&s) == 2);
   wired_sendsess_ack(&s, 5, 5);
@@ -47,10 +47,10 @@ static void test_sendsess_done_only_after_all_acked(void) {
   wired_sendsess_arm(&s, bytes, 15, 10);
   CHECK(wired_sendsess_done(&s) == 0); /* nothing sent yet */
   wired_sendsess_take(&s, &sl);
-  wired_sendsess_sent(&s, &sl, 0);
+  wired_sendsess_sent(&s, &sl, 0, 0);
   CHECK(wired_sendsess_done(&s) == 0); /* tail unsent */
   wired_sendsess_take(&s, &sl);
-  wired_sendsess_sent(&s, &sl, 1);
+  wired_sendsess_sent(&s, &sl, 1, 0);
   CHECK(wired_sendsess_done(&s) == 0); /* all sent, none acked */
   wired_sendsess_ack(&s, 0, 1);
   CHECK(wired_sendsess_done(&s) == 1);
@@ -81,7 +81,7 @@ static void test_sendsess_threshold_declares_lost(void) {
   wired_sendsess_arm(&s, bytes, 50, 10);
   for (u64 pn = 0; pn < 5; pn++) { /* pns 0..4 in flight */
     CHECK(wired_sendsess_take(&s, &sl) == 1);
-    CHECK(wired_sendsess_sent(&s, &sl, pn) == 1);
+    CHECK(wired_sendsess_sent(&s, &sl, pn, 0) == 1);
   }
   wired_sendsess_ack(&s, 4, 4); /* largest acked 4: pns 0,1 are <= 4-3 */
   {
@@ -114,7 +114,7 @@ static void test_sendsess_pto_probes_oldest(void) {
   wired_sendsess_arm(&s, bytes, 30, 10);
   for (u64 pn = 0; pn < 3; pn++) {
     CHECK(wired_sendsess_take(&s, &sl) == 1);
-    CHECK(wired_sendsess_sent(&s, &sl, pn + 7) == 1);
+    CHECK(wired_sendsess_sent(&s, &sl, pn + 7, 0) == 1);
   }
   CHECK(wired_sendsess_pto_fire(&s, 5) == 1);
   CHECK(s.requeue_n == 1);
@@ -130,9 +130,9 @@ static void test_sendsess_pto_resets_on_ack(void) {
   wired_sendq_slice sl;
   wired_sendsess_arm(&s, bytes, 20, 10);
   wired_sendsess_take(&s, &sl);
-  wired_sendsess_sent(&s, &sl, 0);
+  wired_sendsess_sent(&s, &sl, 0, 0);
   wired_sendsess_take(&s, &sl);
-  wired_sendsess_sent(&s, &sl, 1);
+  wired_sendsess_sent(&s, &sl, 1, 0);
   CHECK(wired_sendsess_pto_fire(&s, 5) == 1);
   CHECK(wired_sendsess_pto_fire(&s, 5) == 1);
   CHECK(s.pto_count == 2);
@@ -150,14 +150,38 @@ static void test_sendsess_pto_exhaustion_fails(void) {
   CHECK(wired_sendsess_pto_fire(&s, 2) == 1); /* nothing in flight: no-op */
   CHECK(s.pto_count == 0);
   wired_sendsess_take(&s, &sl);
-  wired_sendsess_sent(&s, &sl, 0);
+  wired_sendsess_sent(&s, &sl, 0, 0);
   CHECK(wired_sendsess_pto_fire(&s, 2) == 1); /* probe 1 */
   wired_sendsess_take(&s, &sl);               /* re-send the probe */
-  wired_sendsess_sent(&s, &sl, 1);
+  wired_sendsess_sent(&s, &sl, 1, 0);
   CHECK(wired_sendsess_pto_fire(&s, 2) == 1); /* probe 2 */
   wired_sendsess_take(&s, &sl);
-  wired_sendsess_sent(&s, &sl, 2);
+  wired_sendsess_sent(&s, &sl, 2, 0);
   CHECK(wired_sendsess_pto_fire(&s, 2) == 0); /* budget spent: failed */
+}
+
+/* peek_ack reports the bytes and newest send time an ACK range would
+ * consume, without consuming it; inflight_bytes sums in-flight lens. */
+static void test_sendsess_peek_ack_bytes(void) {
+  u8                bytes[25];
+  wired_sendsess    s;
+  wired_sendq_slice sl;
+  u64               newest = 0;
+  wired_sendsess_arm(&s, bytes, 25, 10);
+  wired_sendsess_take(&s, &sl);
+  CHECK(wired_sendsess_sent(&s, &sl, 0, 100) == 1); /* 10 bytes, t=100 */
+  wired_sendsess_take(&s, &sl);
+  CHECK(wired_sendsess_sent(&s, &sl, 1, 200) == 1); /* 10 bytes, t=200 */
+  wired_sendsess_take(&s, &sl);
+  CHECK(wired_sendsess_sent(&s, &sl, 2, 300) == 1); /* 5 bytes, t=300 */
+  CHECK(wired_sendsess_inflight_bytes(&s) == 25);
+  CHECK(wired_sendsess_peek_ack(&s, 0, 1, &newest) == 20);
+  CHECK(newest == 200);
+  CHECK(wired_sendsess_peek_ack(&s, 7, 9, &newest) == 0); /* unknown pns */
+  /* peek does not consume: everything still in flight */
+  CHECK(wired_sendsess_inflight(&s) == 3);
+  wired_sendsess_ack(&s, 0, 1);
+  CHECK(wired_sendsess_inflight_bytes(&s) == 5);
 }
 
 void test_sendsess(void) {
@@ -169,4 +193,5 @@ void test_sendsess(void) {
   test_sendsess_pto_probes_oldest();
   test_sendsess_pto_resets_on_ack();
   test_sendsess_pto_exhaustion_fails();
+  test_sendsess_peek_ack_bytes();
 }

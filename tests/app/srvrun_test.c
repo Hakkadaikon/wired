@@ -22,6 +22,7 @@ static void sr_make_confirmed_conn(
   c->s  = f->s;
   c->l  = f->l;
   c->up = 1;
+  quic_cc_init(&c->cc);
 }
 
 /* Find the H3 GOAWAY frame's id in a 1-RTT payload carrying a STREAM frame on

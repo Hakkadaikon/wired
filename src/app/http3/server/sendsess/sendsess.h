@@ -17,6 +17,7 @@ typedef struct {
   u64               pn;       /**< packet number it went out with */
   wired_sendq_slice sl;       /**< the slice itself */
   int               inflight; /**< 1 until acked (or moved to requeue) */
+  u64               sent_ms;  /**< monotonic send time (congestion input) */
 } wired_sent_slice;
 
 typedef struct {
@@ -47,10 +48,24 @@ usz wired_sendsess_inflight(const wired_sendsess* s);
  * @return 1 with *out filled, 0 if nothing is ready to send. */
 int wired_sendsess_take(wired_sendsess* s, wired_sendq_slice* out);
 
-/** Record that slice sl went out as packet pn (fills a log slot).
+/** Record that slice sl went out as packet pn at now_ms (fills a log slot).
  * @return 1, or 0 if the log is full (the caller should stop transmitting
  *   until acknowledgements drain it). */
-int wired_sendsess_sent(wired_sendsess* s, const wired_sendq_slice* sl, u64 pn);
+int wired_sendsess_sent(
+    wired_sendsess* s, const wired_sendq_slice* sl, u64 pn, u64 now_ms);
+
+/** Stream bytes currently in flight (congestion-window occupancy). */
+usz wired_sendsess_inflight_bytes(const wired_sendsess* s);
+
+/** Bytes an ACK of [lo, hi] would newly acknowledge, without consuming it.
+ * @param s the session
+ * @param lo lowest packet number in the range
+ * @param hi highest packet number in the range
+ * @param newest_sent_ms receives the newest send time among the hits
+ *   (untouched when the range hits nothing)
+ * @return total stream bytes of the in-flight packets the range covers. */
+usz wired_sendsess_peek_ack(
+    const wired_sendsess* s, u64 lo, u64 hi, u64* newest_sent_ms);
 
 /** Consume one ACK range [lo, hi]: every logged in-flight packet in the
  * range becomes acknowledged. Unknown packet numbers are ignored. */
