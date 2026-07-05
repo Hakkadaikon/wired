@@ -37,6 +37,14 @@ typedef struct {
  * emits CRYPTO only. Returns 1 with out->len set, or 0 on overflow. */
 int quic_srvwire_seal_initial(const quic_srvwire_seal_in* in, quic_obuf* out);
 
+/* Seal pre-built frame bytes (in->tls holds raw frames, e.g. a
+ * CONNECTION_CLOSE refusing the connection) into a padded server Initial
+ * without CRYPTO wrapping, plus the usual trailing ACK when ack_pn >= 0
+ * (RFC 9000 17.2.2 / 19.19). Returns 1 with out->len set, or 0 on overflow.
+ */
+int quic_srvwire_seal_initial_frames(
+    const quic_srvwire_seal_in* in, quic_obuf* out);
+
 /* The client's original DCID (Initial keys are derived from it) and the
  * packet number the caller expects (currently unused, reserved). */
 typedef struct {
