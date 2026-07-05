@@ -25,7 +25,7 @@ static i64 first_static_index(const u8* fs, usz fs_len) {
   int is_static = 0;
   usz off       = quic_qpack_prefix_decode(fs, fs_len, &(quic_qpack_prefix){0});
   usz c         = off ? quic_qpack_indexed_decode(
-                            quic_span_of(fs + off, fs_len - off), &index, &is_static)
+                    quic_span_of(fs + off, fs_len - off), &index, &is_static)
                       : 0;
   if (!c || !is_static) return -1;
   return (i64)index;
