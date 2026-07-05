@@ -1,6 +1,7 @@
 #ifndef WIRED_H3REQDRIVE_REQUEST_DRIVE_H
 #define WIRED_H3REQDRIVE_REQUEST_DRIVE_H
 
+#include "app/http3/core/h3/priority.h"
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
 
@@ -49,19 +50,20 @@ int wired_h3reqdrive_send_method(
  * Each value is either a static-table view or a copy in the caller-supplied
  * scratch buffer, depending on how the peer encoded the field line. */
 typedef struct {
-  const u8* method;        /**< :method value (static-table view or scratch) */
-  usz       method_len;    /**< method length in octets */
-  const u8* scheme;        /**< :scheme value (static-table view or scratch) */
-  usz       scheme_len;    /**< scheme length in octets */
-  const u8* authority;     /**< :authority value (static-table view or
-                              scratch) */
-  usz       authority_len; /**< authority length in octets */
-  const u8* path;          /**< :path value (static-table view or scratch) */
-  usz       path_len;      /**< path length in octets */
-  const u8* protocol;      /**< RFC 9220 3: :protocol value, 0 if absent */
-  usz       protocol_len;  /**< protocol length in octets, 0 if absent */
-  const u8* body;          /**< request body view into stream_data, 0 if none */
-  usz       body_len;      /**< 0 for GET and other bodyless requests */
+  const u8* method;     /**< :method value (static-table view or scratch) */
+  usz       method_len; /**< method length in octets */
+  const u8* scheme;     /**< :scheme value (static-table view or scratch) */
+  usz       scheme_len; /**< scheme length in octets */
+  const u8* authority;  /**< :authority value (static-table view or
+                           scratch) */
+  usz              authority_len; /**< authority length in octets */
+  const u8*        path;     /**< :path value (static-table view or scratch) */
+  usz              path_len; /**< path length in octets */
+  const u8*        protocol; /**< RFC 9220 3: :protocol value, 0 if absent */
+  usz              protocol_len; /**< protocol length in octets, 0 if absent */
+  const u8*        body; /**< request body view into stream_data, 0 if none */
+  usz              body_len; /**< 0 for GET and other bodyless requests */
+  quic_h3_priority priority; /**< RFC 9218 5 priority header (defaults) */
 } wired_h3reqdrive_req;
 
 /** RFC 9114 4.1, RFC 9204 4.5: decode a STREAM frame carrying a request:
