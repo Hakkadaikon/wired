@@ -1,0 +1,35 @@
+#!/bin/sh
+# quic-interop-runner endpoint entrypoint (server role only).
+# Contract: https://github.com/quic-interop/quic-interop-runner —
+# the runner mounts /www (served files), /certs (cert.pem + priv.key),
+# /logs (QLOGDIR target), and sets ROLE / TESTCASE / SSLKEYLOGFILE.
+# Exit 127 declares an unsupported role or test case.
+set -e
+
+if [ "$ROLE" != "server" ]; then
+  echo "wired is a server-only endpoint (ROLE=$ROLE unsupported)" >&2
+  exit 127
+fi
+
+case "$TESTCASE" in
+  handshake | transfer | http3) ;;
+  *)
+    echo "unsupported test case: $TESTCASE" >&2
+    exit 127
+    ;;
+esac
+
+QLOG=""
+[ -n "$QLOGDIR" ] && QLOG="--qlog-file $QLOGDIR/server.sqlog"
+KEYLOG=""
+[ -n "$SSLKEYLOGFILE" ] && KEYLOG="--keylog-file $SSLKEYLOGFILE"
+
+# The runner health-checks the endpoint before starting the client.
+echo "wired interop server: testcase=$TESTCASE"
+
+exec /wired/wired_server \
+  --port 443 \
+  --root /www \
+  --cert /certs/cert.pem \
+  --key /certs/priv.key \
+  $QLOG $KEYLOG
