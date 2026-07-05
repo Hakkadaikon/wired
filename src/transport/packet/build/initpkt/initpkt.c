@@ -18,9 +18,10 @@ static usz pad_target(usz dcid_len, usz scid_len) {
 static usz initpkt_min_usz(usz a, usz b) { return a < b ? a : b; }
 
 /* Build the CRYPTO frame for the ClientHello, then PADDING-fill to target. */
-static int build_payload(quic_span crypto, usz target, quic_obuf* out) {
+static int build_payload(
+    quic_span crypto, u64 off, usz target, quic_obuf* out) {
   usz                        n, fill = initpkt_min_usz(target, out->cap);
-  quic_crypto_stream_emit_in in = {0, crypto.n};
+  quic_crypto_stream_emit_in in = {off, crypto.n};
   if (!quic_crypto_stream_emit(crypto, &in, out)) return 0;
   n = out->len;
   for (; n < fill; n++) out->p[n] = 0x00;
@@ -38,7 +39,8 @@ int quic_initpkt_build(const quic_initpkt_desc* d, quic_obuf* out) {
   usz               total;
   quic_initpkt_derive(d->dcid, &ck, &sk);
   quic_aes128_init(&hp, ck.hp);
-  if (!build_payload(d->crypto, pad_target(d->dcid.n, d->scid.n), &po))
+  if (!build_payload(
+          d->crypto, d->crypto_off, pad_target(d->dcid.n, d->scid.n), &po))
     return 0;
   quic_protect_keys k = {&ck, &hp};
   quic_tx_desc      t = {

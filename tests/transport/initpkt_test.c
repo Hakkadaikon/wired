@@ -31,7 +31,7 @@ static void test_initpkt_roundtrip(void) {
   u8                pkt[1300];
   quic_initpkt_desc d = {
       quic_span_of(dcid, 8), quic_span_of(scid, 4),
-      quic_span_of(ch, sizeof(ch)), 2};
+      quic_span_of(ch, sizeof(ch)), 2, 0};
   quic_obuf o = quic_obuf_of(pkt, sizeof(pkt));
   CHECK(quic_initpkt_build(&d, &o));
   /* RFC 9000 14.1: the datagram reaches the 1200-byte minimum */
@@ -47,6 +47,27 @@ static void test_initpkt_roundtrip(void) {
   for (usz i = 0; i < sizeof(ch); i++) CHECK(crypto.p[3 + i] == ch[i]);
 }
 
+/* A non-zero stream offset lands in the CRYPTO frame header, so a split
+ * ClientHello's later chunk reassembles at its true position
+ * (RFC 9000 19.6). */
+static void test_initpkt_crypto_offset(void) {
+  const u8          dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
+  const u8          ch[]    = {'t', 'a', 'i', 'l'};
+  u8                pkt[1300];
+  quic_initpkt_desc d = {
+      quic_span_of(dcid, 8), quic_span_of((const u8*)0, 0),
+      quic_span_of(ch, sizeof(ch)), 1, 7};
+  quic_obuf o = quic_obuf_of(pkt, sizeof(pkt));
+  quic_span crypto;
+  CHECK(quic_initpkt_build(&d, &o));
+  CHECK(quic_initpkt_open(
+      quic_span_of(dcid, 8), quic_mspan_of(pkt, o.len), &crypto));
+  /* CRYPTO frame: type, offset varint (7), length varint (4), the chunk */
+  CHECK(crypto.p[0] == 0x06);
+  CHECK(crypto.p[1] == 0x07 && crypto.p[2] == 0x04);
+  for (usz i = 0; i < sizeof(ch); i++) CHECK(crypto.p[3 + i] == ch[i]);
+}
+
 /* A tampered ciphertext byte makes open fail (AEAD authentication). */
 static void test_initpkt_tamper(void) {
   const u8          dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
@@ -54,7 +75,7 @@ static void test_initpkt_tamper(void) {
   u8                pkt[1300];
   quic_initpkt_desc d = {
       quic_span_of(dcid, 8), quic_span_of((const u8*)0, 0),
-      quic_span_of(ch, sizeof(ch)), 7};
+      quic_span_of(ch, sizeof(ch)), 7, 0};
   quic_obuf o = quic_obuf_of(pkt, sizeof(pkt));
   CHECK(quic_initpkt_build(&d, &o));
   pkt[o.len - 1] ^= 0x01;
@@ -66,5 +87,6 @@ static void test_initpkt_tamper(void) {
 void test_initpkt(void) {
   test_initpkt_keys_rfc();
   test_initpkt_roundtrip();
+  test_initpkt_crypto_offset();
   test_initpkt_tamper();
 }

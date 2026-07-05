@@ -42,7 +42,7 @@ int quic_client_build_initial_wire(
   usz ch_len = cw_client_hello(c, ch, sizeof(ch));
   if (ch_len == 0) return 0;
   quic_initpkt_desc d = {
-      hdr->dcid, hdr->scid, quic_span_of(ch, ch_len), hdr->pn};
+      hdr->dcid, hdr->scid, quic_span_of(ch, ch_len), hdr->pn, 0};
   return quic_initpkt_build(&d, out);
 }
 
