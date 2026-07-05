@@ -3,6 +3,7 @@
 
 #include "common/bytes/span/span.h"
 #include "crypto/kdf/hkdf/hkdf.h"
+#include "tls/ext/stp/server_tp.h"
 #include "tls/handshake/core/tls/cert.h"
 #include "tls/handshake/core/tls/transcript.h"
 
@@ -35,6 +36,7 @@ typedef struct {
   u8              odcid_len; /**< bytes used in odcid (0..20) */
   u8              iscid[20]; /**< RFC 9000 7.3 server SCID */
   u8              iscid_len; /**< bytes used in iscid (0..20) */
+  quic_stp_limits limits;    /**< advertised tunable limits (0 = defaults) */
 } quic_sdrv;
 
 /** Inputs to quic_sdrv_init.

@@ -45,9 +45,9 @@ static int emit_ee(quic_sdrv* s, quic_obuf* flight) {
   u8        tp[256], msg[1024];
   quic_obuf tob = quic_obuf_of(tp, sizeof(tp));
   quic_obuf mob = quic_obuf_of(msg, sizeof(msg));
-  if (!quic_stp_build_server(
+  if (!quic_stp_build_server_lim(
           quic_span_of(s->odcid, s->odcid_len),
-          quic_span_of(s->iscid, s->iscid_len), &tob))
+          quic_span_of(s->iscid, s->iscid_len), &s->limits, &tob))
     return 0;
   if (!quic_eebuild_encrypted_extensions(quic_span_of(tp, tob.len), &mob))
     return 0;

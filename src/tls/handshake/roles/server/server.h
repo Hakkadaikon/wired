@@ -88,6 +88,14 @@ void wired_server_init(wired_server* s, const wired_server_init_in* in);
  * @return 1 ok, 0 if either length exceeds 20. */
 int wired_server_set_cids(wired_server* s, quic_span odcid, quic_span iscid);
 
+/** Override the advertised transport-parameter limits (RFC 9000 18.2);
+ * a zero field keeps its built-in default. Call before the flight is built.
+ * @param s the server
+ * @param max_data initial_max_data in bytes (0 = default)
+ * @param max_streams_bidi initial_max_streams_bidi (0 = default) */
+void wired_server_set_limits(
+    wired_server* s, u64 max_data, u64 max_streams_bidi);
+
 /** Set the NSS key log file path (SSLKEYLOGFILE format); 0 disables (the
  * default). When set, wired_server_feed appends a CLIENT_HANDSHAKE_TRAFFIC_
  * SECRET line once the client Finished verifies.

@@ -47,6 +47,7 @@ static int srvboot_init(
   wired_server_init_in in = {
       id->priv, id->pub, id->cert_seed, id->chain, id->chain_count};
   wired_server_init(conn->s, &in);
+  wired_server_set_limits(conn->s, id->max_data, id->max_streams_bidi);
   if (!wired_server_set_cids(
           conn->s, quic_span_of(h->dcid, h->dcid_len),
           quic_span_of(id->scid, id->scid_len)))

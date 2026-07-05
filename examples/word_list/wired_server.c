@@ -195,6 +195,8 @@ static void server_identity(wired_srvboot_id* id, server_keys* k) {
   id->random      = k->rnd;
   id->chain       = 0; /* self-signed; see README.md for an external chain */
   id->chain_count = 0;
+  id->max_data    = 0;
+  id->max_streams_bidi = 0;
 }
 
 /* Optional drop-in certificate: cert.pem (fullchain, leaf first, at most 2

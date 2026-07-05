@@ -341,14 +341,16 @@ static void sr_make_id(
     rnd[i]  = (u8)(0x51 + i);
   }
   quic_x25519_base(pub, priv);
-  id->priv        = priv;
-  id->pub         = pub;
-  id->cert_seed   = seed;
-  id->scid        = g_sr_srv_scid;
-  id->scid_len    = 6;
-  id->random      = rnd;
-  id->chain       = 0;
-  id->chain_count = 0;
+  id->priv             = priv;
+  id->pub              = pub;
+  id->cert_seed        = seed;
+  id->scid             = g_sr_srv_scid;
+  id->scid_len         = 6;
+  id->random           = rnd;
+  id->chain            = 0;
+  id->chain_count      = 0;
+  id->max_data         = 0;
+  id->max_streams_bidi = 0;
 }
 
 /* A real protected client Initial datagram addressed to odcid (RFC 9001 5.2:
