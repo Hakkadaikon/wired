@@ -1,24 +1,25 @@
 # quic-interop-runner endpoint
 
-`wired` を [quic-interop-runner](https://github.com/quic-interop/quic-interop-runner)
-のサーバーエンドポイントとして走らせるための最小構成。
+Minimal scaffolding to run `wired` as a server endpoint under the
+[quic-interop-runner](https://github.com/quic-interop/quic-interop-runner).
 
-## 使い方(runner ホスト側)
+## Usage (on the runner host)
 
 ```sh
 just ninja examples/word_list/wired_server
 docker build -t wired-interop -f interop/Dockerfile .
-# quic-interop-runner の implementations.json に追記:
+# add to the runner's implementations.json:
 #   "wired": { "image": "wired-interop", "url": "...", "role": "server" }
 python3 run.py -s wired -c quic-go -t handshake,transfer,http3
 ```
 
-## 対応テストケース
+## Supported test cases
 
-`handshake` / `transfer` / `http3`(それ以外は exit 127 で未対応を宣言)。
-クライアントロールは未提供(サーバー専用 SDK のため exit 127)。
+`handshake` / `transfer` / `http3` (anything else exits 127 to declare it
+unsupported). No client role is provided (server-only SDK, exit 127).
 
-## 制約
+## Limitations
 
-- 応答ボディはスロットあたり 16KB まで(それ超過のファイルは 404)。
-- Retry・アドレス検証は未実装のため `retry` テストは未対応。
+- Response bodies are capped at 16KB per connection slot (larger files 404).
+- Retry / address validation is not implemented, so the `retry` test is
+  unsupported.
