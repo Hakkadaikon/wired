@@ -1,10 +1,14 @@
 #include "app/http3/server/srvboot/srvboot.h"
 
 #include "app/http3/server/srvloop/send.h"
+#include "common/bytes/util/be.h"
 #include "transport/conn/loop/crecv/collect.h"
 #include "transport/conn/loop/crecv/message.h"
 #include "transport/packet/build/initpkt/initopen.h"
+#include "transport/packet/header/lhdr/lhdr_parse.h"
 #include "transport/packet/header/packet/header.h"
+#include "transport/packet/header/packet/pnum.h"
+#include "transport/packet/header/packet/vneg.h"
 
 /* RFC 9000 17.2: byte0 has the long-header bit set and Initial type bits 00. */
 static int srvboot_is_long_initial(u8 byte0) {
@@ -55,11 +59,16 @@ static int srvboot_init(
   return wired_srvloop_init(conn->l, h->scid, h->scid_len);
 }
 
-/* RFC 9000 13.2.1: the client's first Initial is packet number 0; the server
- * acknowledges it in the ServerHello Initial so the peer stops retransmitting.
- * The Handshake space has no received packet yet, so its flight carries no ACK
- * (-1). */
-#define SRVBOOT_CLIENT_INITIAL_PN 0
+/* RFC 9000 13.2.1 / A.3: the opened Initial's packet number is cleartext once
+ * header protection is off; recover it against a baseline of 0 (nothing seen
+ * yet in this space). A retransmitted Initial arrives with pn > 0, and the
+ * ServerHello Initial must acknowledge the number actually received or the
+ * peer keeps retransmitting. */
+static u64 srvboot_initial_pn(quic_mspan dg) {
+  quic_lhdr h;
+  if (!quic_lhdr_parse(quic_span_of(dg.p, dg.n), 1, &h)) return 0;
+  return quic_pnum_decode(dg.p + h.pn_off, quic_lhdr_pn_len(dg.p[0]), 0);
+}
 
 /* The two pieces of a server flight: the ServerHello (Initial space) and the
  * Handshake-space flight (Certificate/CertificateVerify/Finished). */
@@ -73,6 +82,7 @@ typedef struct {
 typedef struct {
   wired_server*           s;
   const wired_srvboot_id* id;
+  u64                     ack_pn; /**< client Initial pn the flight ACKs */
 } srvboot_server;
 
 /* RFC 9000 19.6 / 14.1: TLS bytes per Handshake flight datagram. 1100 keeps
@@ -128,8 +138,8 @@ static int srvboot_seal_flight(
     const srvboot_flight_bytes* fb,
     wired_srvboot_out*          out) {
   wired_srvloop_send_in in0 = {
-      quic_span_of(sv->id->scid, sv->id->scid_len), 1,
-      SRVBOOT_CLIENT_INITIAL_PN, fb->sh, 0};
+      quic_span_of(sv->id->scid, sv->id->scid_len), 1, (i64)sv->ack_pn, fb->sh,
+      0};
   if (!wired_srvloop_send_initial(sv->s, &in0, out->initial)) return 0;
   return srvboot_seal_hs_flight(sv, fb->flight, out);
 }
@@ -138,13 +148,14 @@ static int srvboot_seal_flight(
 static int srvboot_flight(
     const wired_srvboot_conn* conn,
     const wired_srvboot_id*   id,
+    u64                       ack_pn,
     wired_srvboot_out*        out) {
   u8                   sh[512], flight[4096];
   quic_obuf            sh_ob = quic_obuf_of(sh, sizeof sh);
   quic_obuf            fl_ob = quic_obuf_of(flight, sizeof flight);
   quic_sdrv_flight_out fo    = {&sh_ob, &fl_ob};
   srvboot_flight_bytes fb;
-  srvboot_server       sv = {conn->s, id};
+  srvboot_server       sv = {conn->s, id, ack_pn};
   if (!wired_server_build_flight(conn->s, id->random, &fo)) return 0;
   fb = (srvboot_flight_bytes){
       quic_span_of(sh, sh_ob.len), quic_span_of(flight, fl_ob.len)};
@@ -175,12 +186,14 @@ static int srvboot_read_initial(quic_mspan dgram, const srvboot_read_out* out) {
 static int srvboot_accept_ch(
     const wired_srvboot_conn* conn,
     const wired_srvboot_id*   id,
-    quic_mspan                dgram) {
+    quic_mspan                dgram,
+    u64*                      pn) {
   wired_header     h;
   quic_crecv       cr;
   quic_span        ch  = quic_span_of(0, 0);
   srvboot_read_out out = {&cr, &h, &ch};
   if (!srvboot_read_initial(dgram, &out)) return 0;
+  *pn = srvboot_initial_pn(dgram);
   if (!srvboot_init(conn, id, &h)) return 0;
   return wired_server_recv_initial(conn->s, ch.p, ch.n);
 }
@@ -189,6 +202,33 @@ int wired_srvboot_accept(
     const wired_srvboot_conn* conn,
     const wired_srvboot_in*   in,
     wired_srvboot_out*        out) {
-  if (!srvboot_accept_ch(conn, in->id, in->dgram)) return 0;
-  return srvboot_flight(conn, in->id, out);
+  if (!srvboot_accept_ch(conn, in->id, in->dgram, &out->client_pn)) return 0;
+  return srvboot_flight(conn, in->id, out->client_pn, out);
+}
+
+/* 1 if dg is big enough to owe a response and wears a long header
+ * (RFC 9000 6: no Version Negotiation for a sub-1200-byte datagram). */
+static int srvboot_vn_sized(quic_span dg) {
+  return dg.n >= 1200 && (dg.p[0] & 0x80) != 0;
+}
+
+/* 1 if v is neither a Version Negotiation packet's 0 (RFC 9000 6.1) nor the
+ * one version this server speaks. */
+static int srvboot_vn_alien(u32 v) { return v != 0 && v != 1; }
+
+/* 1 if dg is a long-header datagram of an unsupported version. */
+static int srvboot_vn_owed(quic_span dg) {
+  return srvboot_vn_sized(dg) && srvboot_vn_alien(quic_get_be32(dg.p + 1));
+}
+
+usz wired_srvboot_vneg(quic_span dg, u8* out, usz cap) {
+  static const u32 versions[1] = {1};
+  wired_header     h;
+  quic_vneg_desc   d;
+  if (!srvboot_vn_owed(dg)) return 0;
+  if (!wired_header_parse(dg.p, dg.n, &h)) return 0;
+  d = (quic_vneg_desc){
+      quic_span_of(h.dcid, h.dcid_len), quic_span_of(h.scid, h.scid_len),
+      versions, 1};
+  return quic_vneg_respond(out, cap, &d);
 }

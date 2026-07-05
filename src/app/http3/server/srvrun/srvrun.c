@@ -236,10 +236,10 @@ static int srvrun_on_initial(
   wired_srvboot_conn conn = {&c->s, &c->l};
   wired_srvboot_id   sid  = srvrun_slot_id(ctx->cfg->id, c);
   wired_srvboot_in   in   = {&sid, dg};
-  wired_srvboot_out  out  = {&iob, &hob, {0}, 0};
+  wired_srvboot_out  out  = {&iob, &hob, {0}, 0, 0};
   if (!wired_srvboot_accept(&conn, &in, &out))
     return WIRED_LOG("srvboot accept failed\n"), 0;
-  srvrun_qlog_recv(ctx->cfg, 0, dg.n); /* the client's first Initial is PN 0 */
+  srvrun_qlog_recv(ctx->cfg, out.client_pn, dg.n);
   wired_server_set_keylog_path(&c->s, ctx->cfg->keylog_path);
   wired_srvloop_set_handler(&c->l, ctx->cfg->handler, ctx->cfg->ctx);
   c->l.resp_external = 1; /* srvrun streams the response (multi-packet) */
@@ -797,13 +797,31 @@ static int srvrun_open_slot(
  * fresh slot only for an unrecognized DCID on a new Initial, RFC 9000 5.1/7)
  * and serve it there. Silently drops a datagram that matches no slot and
  * cannot claim or initialize a new one. */
+/* Answer an unsupported-version datagram with Version Negotiation, straight
+ * to the sender — no connection slot is involved (RFC 9000 5.2.2). Returns 1
+ * when the datagram was consumed this way. */
+static int srvrun_vneg(const srvrun_step_ctx* ctx, quic_mspan dg) {
+  u8  vn[64];
+  usz n = wired_srvboot_vneg(quic_span_of(dg.p, dg.n), vn, sizeof vn);
+  if (!n) return 0;
+  wired_udp_send(ctx->cfg->fd, ctx->peer, quic_span_of(vn, n));
+  return 1;
+}
+
+/* The slot dg routes to: an existing DCID match, else a fresh claim (only
+ * for a new Initial); -1 when neither. */
+static int srvrun_route(
+    const srvrun_step_ctx* ctx, quic_span dcid, quic_mspan dg) {
+  int slot = srvrun_find_slot(ctx, dcid);
+  if (slot >= 0) return slot;
+  return srvrun_open_slot(ctx, dcid, wired_srvboot_is_initial(dg.p, dg.n));
+}
+
 static void srvrun_serve(const srvrun_step_ctx* ctx, quic_mspan dg) {
-  quic_span dcid = srvrun_dcid(dg, ctx->cfg->id->scid_len);
-  int       slot = srvrun_find_slot(ctx, dcid);
-  if (slot < 0) {
-    slot = srvrun_open_slot(ctx, dcid, wired_srvboot_is_initial(dg.p, dg.n));
-    if (slot < 0) return;
-  }
+  int slot;
+  if (srvrun_vneg(ctx, dg)) return;
+  slot = srvrun_route(ctx, srvrun_dcid(dg, ctx->cfg->id->scid_len), dg);
+  if (slot < 0) return;
   srvrun_serve_slot(ctx, slot, dg);
 }
 

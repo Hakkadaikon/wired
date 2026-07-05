@@ -68,6 +68,8 @@ typedef struct {
   usz dgram_len[WIRED_SRVBOOT_FLIGHT_MAX]; /**< each flight datagram's length */
   usz dgram_count; /**< flight datagrams sealed (their lengths sum to
                       flight->len) */
+  u64 client_pn;   /**< the client Initial's recovered packet number (the one
+                      the server Initial acknowledges, RFC 9000 13.2.1) */
 } wired_srvboot_out;
 
 /** Recover the ClientHello from the protected Initial datagram, initialize the
@@ -88,5 +90,17 @@ int wired_srvboot_accept(
     const wired_srvboot_conn* conn,
     const wired_srvboot_in*   in,
     wired_srvboot_out*        out);
+
+/** Answer a long-header datagram of an unsupported version with a Version
+ * Negotiation packet offering v1, connection ids swapped (RFC 9000 5.2.2 /
+ * RFC 8999 6). No response for: a datagram under 1200 bytes (amplification
+ * guard, RFC 9000 6), version 0 (never answer a Version Negotiation packet
+ * with another, RFC 9000 6.1), a supported version, a short header, or an
+ * unparseable header.
+ * @param dg the received datagram
+ * @param out receives the Version Negotiation packet
+ * @param cap bytes available at out
+ * @return bytes written, or 0 when no response is owed. */
+usz wired_srvboot_vneg(quic_span dg, u8* out, usz cap);
 
 #endif
