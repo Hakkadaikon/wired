@@ -689,6 +689,57 @@ static void test_bootacc_coalesced_initials(void) {
   CHECK(a.largest_pn == 1);
 }
 
+/* An authenticated ClientHello the server cannot serve (its key_share
+ * carries only a hybrid group, no standalone x25519) draws an Initial
+ * CONNECTION_CLOSE with the TLS handshake_failure code, acknowledging the
+ * received packet, so the peer fails fast instead of retrying into a
+ * timeout (RFC 9001 4.8 / RFC 9000 10.2). */
+static void test_srvboot_refusal_closes_unservable(void) {
+  quic_client       c;
+  u8                ch[512], dg[1400], ref[1500];
+  u8                ini[1500], hs[1500];
+  quic_obuf         iob = {ini, sizeof ini, 0};
+  quic_obuf         hob = {hs, sizeof hs, 0};
+  wired_srvboot_out out = {&iob, &hob, {0}, 0, 0};
+  wired_srvboot_acc a;
+  usz               n = sb_build_raw_ch(&c, ch, sizeof ch);
+  usz               nd, nr, hit = 0;
+  /* rewrite the x25519 key_share entry's group to a hybrid id the server
+   * does not implement (entry header 001d 0020 -> 11ec 0020) */
+  for (usz i = 0; i + 4 <= n; i++)
+    if (ch[i] == 0 && ch[i + 1] == 0x1d && ch[i + 2] == 0 &&
+        ch[i + 3] == 0x20) {
+      ch[i]     = 0x11;
+      ch[i + 1] = 0xec;
+      hit       = 1;
+      break;
+    }
+  CHECK(hit == 1);
+  nd = sb_seal_ch_chunk(dg, sizeof dg, quic_span_of(ch, n), 0, 3);
+  wired_srvboot_acc_reset(&a);
+  CHECK(wired_srvboot_acc_feed(&a, quic_mspan_of(dg, nd)) == 1);
+  CHECK(wired_srvboot_acc_complete(&a) == 1);
+  CHECK(sb_accept_acc(&a, &out) == 0); /* unservable key share */
+  nr = wired_srvboot_refusal(&a, quic_span_of(g_scid, 6), ref, sizeof ref);
+  CHECK(nr >= 1200); /* a padded server Initial datagram */
+  {
+    quic_initial_keys ck, sk;
+    quic_aes128       hp;
+    quic_span         frames;
+    quic_protect_keys k;
+    quic_rx_desc      d = {quic_mspan_of(ref, nr), 1};
+    quic_initpkt_derive(quic_span_of(g_scid, 6), &ck, &sk);
+    quic_aes128_init(&hp, sk.hp);
+    k = (quic_protect_keys){&sk, &hp};
+    CHECK(quic_rx_packet(&k, &d, &frames) == 1);
+    /* CONNECTION_CLOSE (transport): type 1c, code 0x128 (varint 41 28),
+     * frame type 0, empty reason */
+    CHECK(frames.p[0] == 0x1c);
+    CHECK(frames.p[1] == 0x41 && frames.p[2] == 0x28);
+    CHECK(frames.p[3] == 0x00 && frames.p[4] == 0x00);
+  }
+}
+
 /* Identity whose Certificate carries the external realchain, leaf first, root
  * included (RFC 8446 4.4.2 allows it) so the flight outgrows one MTU datagram,
  * signing the CertificateVerify with the leaf's P-256 key. File-scope: sdrv
@@ -894,6 +945,7 @@ void test_h3_loopback(void) {
   test_bootacc_pn_monotone_ack_max();
   test_bootacc_overflow_chunk_ignored();
   test_bootacc_coalesced_initials();
+  test_srvboot_refusal_closes_unservable();
   test_srvboot_split_flight_datagrams();
   test_srvboot_split_flight_reassembled();
   test_srvboot_split_flight_out_of_order();
