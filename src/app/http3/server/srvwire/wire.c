@@ -1,5 +1,6 @@
 #include "app/http3/server/srvwire/wire.h"
 
+#include "common/bytes/util/bytes.h"
 #include "crypto/symmetric/aead/aes/aes.h"
 #include "transport/conn/pnspace/crypto_stream/crypto_tx.h"
 #include "transport/packet/build/hspkt/hspkt_build.h"
@@ -71,17 +72,16 @@ static void pad_initial_frames(quic_obuf* frames, usz floor) {
   for (; frames->len < fill; frames->len++) frames->p[frames->len] = 0x00;
 }
 
-/* RFC 9001 5.2 */
-int quic_srvwire_seal_initial(const quic_srvwire_seal_in* in, quic_obuf* out) {
+/* Pad the built frames to the Initial floor and seal them as one server
+ * Initial packet under the server-direction Initial keys (RFC 9001 5.2). */
+static int srvwire_initial_tx(
+    const quic_srvwire_seal_in* in, quic_obuf* fb, quic_obuf* out) {
   quic_initial_keys ck, sk;
   quic_aes128       hp;
-  u8                frames[1200]; /* RFC 9000 14.1: room to PADDING to 1200 */
-  quic_obuf         fb = quic_obuf_of(frames, sizeof frames);
   usz               total;
   quic_initpkt_derive(in->dcid, &ck, &sk);
   quic_aes128_init(&hp, sk.hp);
-  if (!srvwire_emit_frames(in, &fb)) return 0;
-  pad_initial_frames(&fb, init_payload_floor((u8)in->dcid.n, (u8)in->scid.n));
+  pad_initial_frames(fb, init_payload_floor((u8)in->dcid.n, (u8)in->scid.n));
   quic_protect_keys k = {&sk, &hp};
   quic_tx_desc      t = {
       0xc3,
@@ -90,11 +90,31 @@ int quic_srvwire_seal_initial(const quic_srvwire_seal_in* in, quic_obuf* out) {
       1,
       quic_span_of((const u8*)0, 0),
       in->pn,
-      quic_span_of(frames, fb.len)};
+      quic_span_of(fb->p, fb->len)};
   total = quic_tx_packet(&k, &t, quic_mspan_of(out->p, out->cap));
   if (total == 0) return 0;
   out->len = total;
   return 1;
+}
+
+/* RFC 9001 5.2 */
+int quic_srvwire_seal_initial(const quic_srvwire_seal_in* in, quic_obuf* out) {
+  u8        frames[1200]; /* RFC 9000 14.1: room to PADDING to 1200 */
+  quic_obuf fb = quic_obuf_of(frames, sizeof frames);
+  if (!srvwire_emit_frames(in, &fb)) return 0;
+  return srvwire_initial_tx(in, &fb, out);
+}
+
+/* RFC 9000 17.2.2: seal pre-built frames (in->tls holds raw frame bytes,
+ * e.g. a CONNECTION_CLOSE refusing the connection) into a server Initial
+ * without CRYPTO wrapping, plus the usual trailing ACK. */
+int quic_srvwire_seal_initial_frames(
+    const quic_srvwire_seal_in* in, quic_obuf* out) {
+  u8        frames[1200];
+  quic_obuf fb = quic_obuf_of(frames, sizeof frames);
+  if (!quic_put_bytes(quic_mspan_of(fb.p, fb.cap), &fb.len, in->tls)) return 0;
+  if (!append_ack(&fb, in->ack_pn)) return 0;
+  return srvwire_initial_tx(in, &fb, out);
 }
 
 /* RFC 9001 5.2 */
