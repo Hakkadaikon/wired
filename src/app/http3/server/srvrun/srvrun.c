@@ -73,6 +73,11 @@ typedef struct {
   quic_hystart     hs;          /**< slow-start exit detector (RFC 9406) */
   u64              srtt_ms;     /**< smoothed RTT of this connection's acks */
   u64              next_send_ms; /**< pacing: earliest time to send again */
+  /** boot-stage ClientHello reassembly across Initial datagrams (a
+   * post-quantum-sized ClientHello spans two, RFC 9000 19.6).
+   * ponytail: one fixed accumulator per slot (~4KB x 64 slots of BSS);
+   * pool-share across slots if the footprint ever matters. */
+  wired_srvboot_acc boot;
 } srvrun_conn;
 
 /* The running server's mutable state: a fixed pool of connection slots keyed
@@ -228,16 +233,15 @@ static wired_srvboot_id srvrun_slot_id(
  * Initial alone is padded to 1200 bytes, RFC 9000 14.1, so coalescing them
  * would exceed a 1500-byte MTU datagram). Returns 1 once the connection is
  * up. */
-static int srvrun_on_initial(
+static int srvrun_boot_finish(
     const srvrun_step_ctx* ctx, srvrun_conn* c, quic_mspan dg) {
   u8                 ini[1500], hs[4096];
   quic_obuf          iob  = quic_obuf_of(ini, sizeof ini);
   quic_obuf          hob  = quic_obuf_of(hs, sizeof hs);
   wired_srvboot_conn conn = {&c->s, &c->l};
   wired_srvboot_id   sid  = srvrun_slot_id(ctx->cfg->id, c);
-  wired_srvboot_in   in   = {&sid, dg};
   wired_srvboot_out  out  = {&iob, &hob, {0}, 0, 0};
-  if (!wired_srvboot_accept(&conn, &in, &out))
+  if (!wired_srvboot_accept_acc(&conn, &sid, &c->boot, &out))
     return WIRED_LOG("srvboot accept failed\n"), 0;
   srvrun_qlog_recv(ctx->cfg, out.client_pn, dg.n);
   wired_server_set_keylog_path(&c->s, ctx->cfg->keylog_path);
@@ -245,7 +249,38 @@ static int srvrun_on_initial(
   c->l.resp_external = 1; /* srvrun streams the response (multi-packet) */
   srvrun_send(ctx->cfg, c, quic_span_of(ini, iob.len), "server Initial sent\n");
   srvrun_send_flight(ctx->cfg, c, hs, &out);
+  wired_srvboot_acc_reset(&c->boot); /* the reassembly buffer is spent */
   return 1;
+}
+
+/* srvrun_on_initial: the datagram was absorbed but the ClientHello is not
+ * whole yet — keep the slot claimed and wait for the next Initial. */
+#define SRVRUN_BOOT_PENDING 2
+
+/* Feed dg into c's boot accumulator, restarting it for a fresh attempt (a
+ * just-claimed slot, or a confirmed connection re-cold-starting). */
+static int srvrun_boot_feed(srvrun_conn* c, quic_mspan dg) {
+  if (c->up || !c->boot.any) wired_srvboot_acc_reset(&c->boot);
+  return wired_srvboot_acc_feed(&c->boot, dg);
+}
+
+/* First datagram(s) on this slot: reassemble the ClientHello across Initial
+ * datagrams and cold-start the connection once it is whole (the server
+ * Initial is padded to 1200 bytes, RFC 9000 14.1, so the flight is sent as
+ * separate datagrams). Returns 1 once the connection is up, 0 on a failed
+ * boot, SRVRUN_BOOT_PENDING while more ClientHello is owed. */
+/* A refused datagram settles a claim that never authenticated anything
+ * (junk unclaims immediately) but does not tear down a boot that has real
+ * packets absorbed — spoofed garbage must not kill a half-open handshake. */
+static int srvrun_boot_salvage(const srvrun_conn* c) {
+  return c->boot.opened ? SRVRUN_BOOT_PENDING : 0;
+}
+
+static int srvrun_on_initial(
+    const srvrun_step_ctx* ctx, srvrun_conn* c, quic_mspan dg) {
+  if (!srvrun_boot_feed(c, dg)) return srvrun_boot_salvage(c);
+  if (!wired_srvboot_acc_complete(&c->boot)) return SRVRUN_BOOT_PENDING;
+  return srvrun_boot_finish(ctx, c, dg);
 }
 
 /* A later datagram on a live slot: one real-wire step, send any sealed
@@ -453,6 +488,7 @@ static int srvrun_is_new(const srvrun_conn* c, quic_mspan dg) {
 static void srvrun_free_slot(srvrun_state* st, int i) {
   quic_conntable_remove(st->table, QUIC_CONNTABLE_CAP, i);
   st->conns[i].up = 0;
+  wired_srvboot_acc_reset(&st->conns[i].boot);
 }
 
 /* Advertised max_idle_timeout in ms — keep in sync with the value
@@ -461,9 +497,16 @@ static void srvrun_free_slot(srvrun_state* st, int i) {
  * timeout is the min of both endpoints' advertisements (RFC 9000 10.1). */
 #define WIRED_SRVRUN_IDLE_MS 30000
 
+/* 1 if the slot holds anything reclaimable: a live connection, or a boot
+ * still reassembling its ClientHello (a stalled one would otherwise pin its
+ * table entry forever). */
+static int srvrun_slot_busy(const srvrun_conn* c) {
+  return c->up || c->boot.any;
+}
+
 /* 1 if c has been silent at least the advertised idle timeout. */
 static int srvrun_idle_due(const srvrun_conn* c, u64 now_ms) {
-  return c->up && now_ms - c->last_ms >= WIRED_SRVRUN_IDLE_MS;
+  return srvrun_slot_busy(c) && now_ms - c->last_ms >= WIRED_SRVRUN_IDLE_MS;
 }
 
 /* RFC 9000 10.1: silently discard every connection idle past the advertised
@@ -726,12 +769,20 @@ static void srvrun_step_and_reap(
 
 /* Drive one received datagram against its resolved slot: a new Initial
  * (re)opens the connection, any other datagram steps the live loop. */
+/* Drive one cold-start feeding: a pending boot keeps its claim (and its
+ * accumulator) for the next datagram; success or failure settles the slot. */
+static void srvrun_cold_start(
+    const srvrun_step_ctx* ctx, int slot, quic_mspan dg) {
+  int r = srvrun_on_initial(ctx, &ctx->st->conns[slot], dg);
+  if (r != SRVRUN_BOOT_PENDING) srvrun_open_done(ctx, slot, r);
+}
+
 static void srvrun_serve_slot(
     const srvrun_step_ctx* ctx, int slot, quic_mspan dg) {
   srvrun_conn* c = &ctx->st->conns[slot];
   c->last_ms     = ctx->now_ms; /* RFC 9000 10.1: activity resets idle age */
   if (srvrun_is_new(c, dg)) {
-    srvrun_open_done(ctx, slot, srvrun_on_initial(ctx, c, dg));
+    srvrun_cold_start(ctx, slot, dg);
     return;
   }
   if (c->up) srvrun_step_and_reap(ctx, slot, dg);
