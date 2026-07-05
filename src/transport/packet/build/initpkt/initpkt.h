@@ -10,8 +10,10 @@
 typedef struct {
   quic_span dcid;
   quic_span scid;
-  quic_span crypto; /* the ClientHello bytes */
+  quic_span crypto; /* the ClientHello bytes (or a chunk of them) */
   u64       pn;
+  u64       crypto_off; /* CRYPTO stream offset of crypto's first byte
+                           (RFC 9000 19.6): 0 for an unsplit ClientHello */
 } quic_initpkt_desc;
 
 /* Writes the protected packet into out (length to out->len). Returns 1 on
