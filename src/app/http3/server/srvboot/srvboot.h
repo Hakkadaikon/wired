@@ -157,4 +157,16 @@ int wired_srvboot_accept_acc(
     wired_srvboot_acc*        a,
     wired_srvboot_out*        out);
 
+/** Refuse an authenticated but unservable connection attempt: an Initial
+ * CONNECTION_CLOSE carrying the TLS handshake_failure code (0x128,
+ * RFC 9001 4.8), acknowledging the highest received packet number so the
+ * peer stops retransmitting and fails fast (RFC 9000 10.2).
+ * @param a the bound accumulator of the refused attempt
+ * @param scid the server connection id to answer with
+ * @param out receives the sealed Initial datagram
+ * @param cap bytes available at out
+ * @return bytes written, or 0 on overflow. */
+usz wired_srvboot_refusal(
+    const wired_srvboot_acc* a, quic_span scid, u8* out, usz cap);
+
 #endif

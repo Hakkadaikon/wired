@@ -1,12 +1,14 @@
 #include "app/http3/server/srvboot/srvboot.h"
 
 #include "app/http3/server/srvloop/send.h"
+#include "app/http3/server/srvwire/wire.h"
 #include "common/bytes/util/be.h"
 #include "common/bytes/util/num.h"
 #include "transport/conn/loop/crecv/collect.h"
 #include "transport/conn/loop/crecv/message.h"
 #include "transport/io/udp/udploop/rxloop.h"
 #include "transport/packet/build/initpkt/initopen.h"
+#include "transport/packet/frame/frame/frame.h"
 #include "transport/packet/header/lhdr/lhdr_parse.h"
 #include "transport/packet/header/packet/header.h"
 #include "transport/packet/header/packet/pnum.h"
@@ -236,6 +238,24 @@ int wired_srvboot_accept_acc(
   if (!srvboot_acc_start(conn, id, a)) return 0;
   out->client_pn = a->largest_pn;
   return srvboot_flight(conn, id, a->largest_pn, out);
+}
+
+usz wired_srvboot_refusal(
+    const wired_srvboot_acc* a, quic_span scid, u8* out, usz cap) {
+  u8                    fr[8];
+  quic_conn_close_frame f  = {0, 0x128, 0, 0, 0}; /* TLS handshake_failure */
+  usz                   fn = quic_frame_put_conn_close(fr, sizeof fr, &f);
+  quic_obuf             ob = quic_obuf_of(out, cap);
+  quic_srvwire_seal_in  wi = {
+      quic_span_of(a->hdr.dcid, a->hdr.dcid_len),
+      scid,
+      1,
+      (i64)a->largest_pn,
+      quic_span_of(fr, fn),
+      0};
+  if (fn == 0) return 0;
+  if (!quic_srvwire_seal_initial_frames(&wi, &ob)) return 0;
+  return ob.len;
 }
 
 int wired_srvboot_accept(

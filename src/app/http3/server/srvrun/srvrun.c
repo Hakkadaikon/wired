@@ -233,6 +233,18 @@ static wired_srvboot_id srvrun_slot_id(
  * Initial alone is padded to 1200 bytes, RFC 9000 14.1, so coalescing them
  * would exceed a 1500-byte MTU datagram). Returns 1 once the connection is
  * up. */
+/* RFC 9000 10.2: answer an authenticated-but-unservable boot with an
+ * Initial CONNECTION_CLOSE so the peer fails fast instead of retrying into
+ * its handshake timeout. Always reports the boot failed. */
+static int srvrun_refuse(const srvrun_step_ctx* ctx, const srvrun_conn* c) {
+  u8  pkt[1500];
+  usz n = wired_srvboot_refusal(
+      &c->boot, quic_span_of(c->scid, ctx->cfg->id->scid_len), pkt, sizeof pkt);
+  WIRED_LOG("srvboot accept failed\n");
+  if (n) srvrun_send(ctx->cfg, c, quic_span_of(pkt, n), "boot refused\n");
+  return 0;
+}
+
 static int srvrun_boot_finish(
     const srvrun_step_ctx* ctx, srvrun_conn* c, quic_mspan dg) {
   u8                 ini[1500], hs[4096];
@@ -242,7 +254,7 @@ static int srvrun_boot_finish(
   wired_srvboot_id   sid  = srvrun_slot_id(ctx->cfg->id, c);
   wired_srvboot_out  out  = {&iob, &hob, {0}, 0, 0};
   if (!wired_srvboot_accept_acc(&conn, &sid, &c->boot, &out))
-    return WIRED_LOG("srvboot accept failed\n"), 0;
+    return srvrun_refuse(ctx, c);
   srvrun_qlog_recv(ctx->cfg, out.client_pn, dg.n);
   wired_server_set_keylog_path(&c->s, ctx->cfg->keylog_path);
   wired_srvloop_set_handler(&c->l, ctx->cfg->handler, ctx->cfg->ctx);
