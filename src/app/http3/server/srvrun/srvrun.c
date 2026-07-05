@@ -19,6 +19,7 @@
 #include "transport/packet/header/dcidresolve/dcidresolve.h"
 #include "transport/packet/header/packet/header.h"
 #include "transport/recovery/congestion/cc/cc.h"
+#include "transport/recovery/congestion/cc/hystart.h"
 #include "transport/stream/data/appdata/stream_send.h"
 
 /* The server's fixed run context: the bound socket and the application's
@@ -67,7 +68,8 @@ typedef struct {
   int              goaway_sent; /**< 1 once graceful-shutdown GOAWAY sent */
   u64              last_ms;     /**< monotonic ms of the last routed datagram */
   wired_sendsess   sess;        /**< in-flight multi-packet response */
-  quic_cc          cc;          /**< NewReno window gating sess's pump */
+  quic_cc          cc;          /**< congestion window gating sess's pump */
+  quic_hystart     hs;          /**< slow-start exit detector (RFC 9406) */
 } srvrun_conn;
 
 /* The running server's mutable state: a fixed pool of connection slots keyed
@@ -581,12 +583,37 @@ static void srvrun_qlog_lost(const srvrun_cfg* cfg, const u64* pns, usz n) {
 /* Consume this step's ACK ranges, then declare packet-threshold losses so
  * their slices requeue ahead of new data (RFC 9002 6.1.1), logging each
  * lost packet to the qlog when one is configured. */
+/* 1 while the controller is still in slow start (no loss, no exit yet). */
+static int srvrun_in_slow_start(const srvrun_conn* c) {
+  return c->cc.cwnd < c->cc.ssthresh && !c->cc.in_recovery;
+}
+
+/* Feed one acked packet's RTT sample (now - send time) to the slow-start
+ * exit detector (RFC 9406); on the verdict, end slow start by dropping
+ * ssthresh to the current window. Round boundary: the next pn to be sent. */
+static void srvrun_hystart_ack(srvrun_conn* c, u64 pn, u64 sent_ms, u64 now) {
+  if (!srvrun_in_slow_start(c)) return;
+  if (quic_hystart_sample(&c->hs, now - sent_ms, pn, c->l.tx_pn))
+    c->cc.ssthresh = c->cc.cwnd;
+}
+
+/* Feed every in-flight packet an ACK range covers to the detector before
+ * the range is consumed. */
+static void srvrun_hystart_range(srvrun_conn* c, u64 lo, u64 hi, u64 now) {
+  for (usz i = 0; i < WIRED_SENDSESS_LOG; i++) {
+    const wired_sent_slice* e = &c->sess.log[i];
+    if (wired_sendsess_covered(e, lo, hi))
+      srvrun_hystart_ack(c, e->pn, e->sent_ms, now);
+  }
+}
+
 /* Credit one ACK range to the congestion controller before consuming it
  * (RFC 9002 7.3.2: growth per acked bytes; the newest send time among the
  * hits drives recovery exit). */
 static void srvrun_cc_range(srvrun_conn* c, u64 lo, u64 hi, u64 now_ms) {
   u64 newest = 0;
   usz bytes  = wired_sendsess_peek_ack(&c->sess, lo, hi, &newest);
+  srvrun_hystart_range(c, lo, hi, now_ms);
   if (bytes) quic_cc_on_ack(&c->cc, bytes, newest, now_ms);
   wired_sendsess_ack(&c->sess, lo, hi);
 }
@@ -720,6 +747,7 @@ static int srvrun_open_slot(
   ctx->st->conns[slot]      = (srvrun_conn){0};
   ctx->st->conns[slot].peer = *ctx->peer;
   quic_cc_init_algo(&ctx->st->conns[slot].cc, ctx->cfg->cc_algo);
+  quic_hystart_init(&ctx->st->conns[slot].hs);
   if (quic_cid_generate(ctx->st->conns[slot].scid, ctx->cfg->id->scid_len))
     return slot;
   quic_conntable_remove(ctx->st->table, QUIC_CONNTABLE_CAP, slot);
