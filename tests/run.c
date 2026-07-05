@@ -148,6 +148,7 @@
 #include "crypto/symmetric/aead/aes/aes.c"
 #include "transport/recovery/congestion/cc/cc.c"
 #include "transport/recovery/congestion/cc/cubic.c"
+#include "transport/recovery/congestion/cc/hystart.c"
 #include "transport/recovery/congestion/cc/ccloss.c"
 #include "transport/recovery/congestion/cc/ccphase.c"
 #include "transport/recovery/congestion/cc/cwndcheck.c"
@@ -548,6 +549,7 @@
 #include "transport/demux_test.c"
 #include "transport/conntable_test.c"
 #include "transport/cubic_test.c"
+#include "transport/hystart_test.c"
 #include "app/dgcc_test.c"
 #include "app/dgcheck_test.c"
 #include "app/dgsize_test.c"
@@ -979,6 +981,7 @@ int main(void) {
   test_demux();
   test_conntable();
   test_cubic();
+  test_hystart();
   test_dgcc();
   test_dgcheck();
   test_dgsize();
