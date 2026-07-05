@@ -402,6 +402,92 @@ static void test_srvrun_accept_rekeys_to_slot_scid(void) {
           table, QUIC_CONNTABLE_CAP, st.conns[0].scid, id.scid_len) == 0);
 }
 
+/* Raw ClientHello + one sealed chunk Initial, the srvrun-side split fixture
+ * (mirrors the srvboot accumulator tests' construction). */
+static usz sr_raw_ch(quic_client* c, u8* ch, usz cap) {
+  u8 cpriv[32], cpub[32];
+  for (usz i = 0; i < 32; i++) cpriv[i] = (u8)(11 + i);
+  quic_x25519_base(cpub, cpriv);
+  quic_tlsdriver_init(&c->tls, cpriv, cpub, 0);
+  return quic_tlsdriver_raw_client_hello(&c->tls, ch, cap);
+}
+
+static usz sr_seal_chunk(u8* dg, usz cap, quic_span chunk, u64 off, u64 pn) {
+  quic_initpkt_desc d = {
+      quic_span_of(g_sr_odcid, 8), quic_span_of(g_cli_scid, 6), chunk, pn, off};
+  quic_obuf o = quic_obuf_of(dg, cap);
+  CHECK(quic_initpkt_build(&d, &o) == 1);
+  return o.len;
+}
+
+/* A ClientHello split across two Initial datagrams: the first claims the
+ * slot and keeps it (not up yet, no flight), the second completes the
+ * reassembly and boots the connection (RFC 9000 19.6). */
+static void test_srvrun_split_ch_boots_across_datagrams(void) {
+  wired_srvboot_id id;
+  quic_client      c;
+  u8               priv[32], pub[32], seed[32], rnd[32];
+  u8               ch[512], dg1[1400], dg2[1400];
+  quic_conntable   table[QUIC_CONNTABLE_CAP];
+  quic_sockaddr_in peer = {0};
+  srvrun_state     st   = {table, g_srvrun_state.conns};
+  usz              n    = sr_raw_ch(&c, ch, sizeof ch);
+  usz n1 = sr_seal_chunk(dg1, sizeof dg1, quic_span_of(ch, 60), 0, 0);
+  usz n2 = sr_seal_chunk(dg2, sizeof dg2, quic_span_of(ch + 60, n - 60), 60, 1);
+  CHECK(n > 100);
+  sr_make_id(&id, priv, pub, seed, rnd);
+  {
+    srvrun_cfg      cfg = {-1, &id, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0};
+    quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+    st.conns[0].up       = 0;
+    st.conns[0].boot.any = 0;
+    srvrun_serve(&ctx, quic_mspan_of(dg1, n1));
+    CHECK(st.conns[0].up == 0); /* half a ClientHello: no boot yet */
+    CHECK(quic_conntable_find(table, QUIC_CONNTABLE_CAP, g_sr_odcid, 8) == 0);
+    srvrun_serve(&ctx, quic_mspan_of(dg2, n2));
+  }
+  CHECK(st.conns[0].up == 1);
+  CHECK(
+      quic_conntable_find(
+          table, QUIC_CONNTABLE_CAP, st.conns[0].scid, id.scid_len) == 0);
+}
+
+/* A boot that never completes is reclaimed by the idle sweep, and the freed
+ * slot then boots a fresh attempt normally. */
+static void test_srvrun_stalled_boot_swept(void) {
+  wired_srvboot_id id;
+  quic_client      c;
+  u8               priv[32], pub[32], seed[32], rnd[32];
+  u8               ch[512], dg1[1400], dg2[1400], d1[1400], d2[1400];
+  quic_conntable   table[QUIC_CONNTABLE_CAP];
+  quic_sockaddr_in peer = {0};
+  srvrun_state     st   = {table, g_srvrun_state.conns};
+  usz              n    = sr_raw_ch(&c, ch, sizeof ch);
+  usz n1 = sr_seal_chunk(dg1, sizeof dg1, quic_span_of(ch, 60), 0, 0);
+  usz n2 = sr_seal_chunk(dg2, sizeof dg2, quic_span_of(ch + 60, n - 60), 60, 1);
+  for (usz i = 0; i < n1; i++) d1[i] = dg1[i];
+  for (usz i = 0; i < n2; i++) d2[i] = dg2[i];
+  sr_make_id(&id, priv, pub, seed, rnd);
+  {
+    srvrun_cfg      cfg = {-1, &id, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_step_ctx ctx = {&cfg, &peer, &st, 1000};
+    quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+    st.conns[0].up       = 0;
+    st.conns[0].boot.any = 0;
+    srvrun_serve(&ctx, quic_mspan_of(dg1, n1));
+    CHECK(st.conns[0].boot.any == 1);
+    srvrun_sweep_idle(&st, 1000 + WIRED_SRVRUN_IDLE_MS);
+    /* reclaimed: table entry gone, accumulator emptied */
+    CHECK(quic_conntable_find(table, QUIC_CONNTABLE_CAP, g_sr_odcid, 8) == -1);
+    CHECK(st.conns[0].boot.any == 0);
+    /* the same slot claims and boots a fresh attempt */
+    srvrun_serve(&ctx, quic_mspan_of(d1, n1));
+    srvrun_serve(&ctx, quic_mspan_of(d2, n2));
+  }
+  CHECK(st.conns[0].up == 1);
+}
+
 /* An unknown-version datagram never claims a connection slot: it is answered
  * (or dropped) before routing, so the table stays empty (RFC 9000 5.2.2). */
 static void test_srvrun_alien_version_claims_no_slot(void) {
@@ -889,6 +975,8 @@ static void test_srvrun_pacing_gate(void) {
 void test_srvrun(void) {
   test_srvrun_no_shutdown_accepts_new();
   test_srvrun_accept_rekeys_to_slot_scid();
+  test_srvrun_split_ch_boots_across_datagrams();
+  test_srvrun_stalled_boot_swept();
   test_srvrun_alien_version_claims_no_slot();
   test_srvrun_failed_accept_unclaims();
   test_srvrun_peer_close_frees_slot();
