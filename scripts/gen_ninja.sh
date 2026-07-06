@@ -84,6 +84,9 @@ dbgsrcs=$(printf '%s\n' "$srcs" | grep -v '^src/common/platform/sys/sys\.c$' \
     echo "    examples/word_list/wired_server.c $dbgsrcs"
     echo "  extra = -DQUIC_DEBUG"
     echo
+    echo "build examples/webtransport_echo/wired_server: cc_freestanding_bin \$"
+    echo "    examples/webtransport_echo/wired_server.c build/libwired.a"
+    echo
     echo "# 'ninja' with no args builds only the freestanding objects (the"
     echo "# libc-independence proof); everything else is opt-in by target."
     echo "build freestanding: phony $objs"
