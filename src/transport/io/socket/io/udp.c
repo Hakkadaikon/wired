@@ -208,3 +208,32 @@ i64 wired_udp_reuseport_enable(i64 fd) {
       SYS_setsockopt, fd, WIRED_SOL_SOCKET, WIRED_SO_REUSEPORT, (i64)&val,
       sizeof(val), 0);
 }
+
+/* MSG_DONTWAIT (linux/socket.h): non-blocking for this call only, unlike
+ * O_NONBLOCK which is a persistent open-file-description flag. */
+#define WIRED_MSG_DONTWAIT 0x40
+
+i64 wired_udp_recvmmsg_nowait(i64 fd, quic_mmsg_buf* bufs, usz count) {
+  quic_mmsghdr slots[WIRED_RECVMMSG_MAX] = {0};
+  quic_iovec   iovs[WIRED_RECVMMSG_MAX]  = {0};
+  usz          n = count < WIRED_RECVMMSG_MAX ? count : WIRED_RECVMMSG_MAX;
+  i64          r;
+  recvmmsg_fill_all(slots, iovs, bufs, n);
+  r = syscall6(
+      SYS_recvmmsg, fd, (i64)slots, (i64)n,
+      WIRED_MSG_WAITFORONE | WIRED_MSG_DONTWAIT, 0, 0);
+  if (r < 0) return r;
+  recvmmsg_read_lens(bufs, slots, r);
+  return r;
+}
+
+/* SO_BUSY_POLL setsockopt name (Linux, needs CONFIG_NET_RX_BUSY_POLL). Level
+ * is SOL_SOCKET (reused from wired_udp_reuseport_enable above) with an int
+ * microsecond value — unlike WIRED_SOL_UDP/u16 used by the GSO setsockopt. */
+#define WIRED_SO_BUSY_POLL 46
+
+i64 wired_udp_busy_poll_enable(i64 fd, int microseconds) {
+  return syscall6(
+      SYS_setsockopt, fd, WIRED_SOL_SOCKET, WIRED_SO_BUSY_POLL,
+      (i64)&microseconds, sizeof(microseconds), 0);
+}

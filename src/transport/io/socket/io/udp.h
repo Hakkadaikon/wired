@@ -145,4 +145,22 @@ i64 wired_udp_recvmmsg_fallback(i64 fd, quic_mmsg_buf* bufs, usz count);
  * @return 0 on success, or a negative errno. */
 i64 wired_udp_reuseport_enable(i64 fd);
 
+/** Same as wired_udp_recvmmsg but non-blocking (MSG_DONTWAIT): returns
+ * immediately with a negative errno (e.g. EAGAIN) if no datagram is queued,
+ * instead of waiting for the first one.
+ * @param fd the socket fd
+ * @param bufs array of count receive slots
+ * @param count number of slots in bufs
+ * @return number of datagrams received, or a negative errno. */
+i64 wired_udp_recvmmsg_nowait(i64 fd, quic_mmsg_buf* bufs, usz count);
+
+/** Enable SO_BUSY_POLL on fd: the kernel spins the driver's poll routine for
+ * up to microseconds before sleeping (Linux, needs CONFIG_NET_RX_BUSY_POLL
+ * and driver support; a no-op on kernels/drivers without it). The codec does
+ * not interpret magnitude — 0 is a valid value, it just disables this knob.
+ * @param fd the socket fd
+ * @param microseconds busy-poll budget in microseconds
+ * @return 0 on success, or a negative errno. */
+i64 wired_udp_busy_poll_enable(i64 fd, int microseconds);
+
 #endif
