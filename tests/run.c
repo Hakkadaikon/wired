@@ -924,6 +924,7 @@
 #include "app/wt_session_test.c"
 #include "app/wterrmap_test.c"
 #include "app/wtcapsule_test.c"
+#include "app/srvworkers_migration_test.c"
 // clang-format on
 
 int main(void) {
@@ -1384,5 +1385,6 @@ int main(void) {
   test_wt_session();
   test_wterrmap();
   test_wtcapsule();
+  test_srvworkers_migration();
   return TEST_REPORT();
 }
