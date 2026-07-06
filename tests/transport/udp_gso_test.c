@@ -85,8 +85,40 @@ static void test_send_gso_delivers_total_bytes(void) {
   wired_udp_close(sfd);
 }
 
+/* wired_udp_reuseport_enable, set on two sockets BEFORE bind, lets both bind
+ * the same fixed port (4437, distinct from the GSO tests' 4436) — without
+ * SO_REUSEPORT the second bind would fail with EADDRINUSE. Benign skip when
+ * the sandbox forbids sockets, same pattern as gso_open_sockets above. */
+static void test_reuseport_enable_allows_shared_bind(void) {
+  i64              fd1, fd2;
+  quic_sockaddr_in addr;
+  fd1 = wired_udp_socket();
+  if (fd1 < 0) return; /* sandbox: skip */
+  fd2 = wired_udp_socket();
+  if (fd2 < 0) {
+    wired_udp_close(fd1);
+    return; /* sandbox: skip */
+  }
+  wired_udp_addr(&addr, 4437, (const u8[4]){127, 0, 0, 1});
+  if (wired_udp_reuseport_enable(fd1) < 0 ||
+      wired_udp_reuseport_enable(fd2) < 0) {
+    wired_udp_close(fd1);
+    wired_udp_close(fd2);
+    return; /* sandbox: skip (SO_REUSEPORT unsupported) */
+  }
+  if (wired_udp_bind(fd1, &addr) < 0) {
+    wired_udp_close(fd1);
+    wired_udp_close(fd2);
+    return; /* sandbox: skip */
+  }
+  CHECK(wired_udp_bind(fd2, &addr) == 0);
+  wired_udp_close(fd1);
+  wired_udp_close(fd2);
+}
+
 void test_udp_gso(void) {
   test_gso_cmsg_build();
   test_send_batch_delivers_segments();
   test_send_gso_delivers_total_bytes();
+  test_reuseport_enable_allows_shared_bind();
 }
