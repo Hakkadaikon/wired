@@ -1,0 +1,12 @@
+# wired multi-worker real-UDP server sample. libc-free, x86_64-linux only.
+# This is a ninja target in the SDK's build.ninja (see scripts/gen_ninja.sh);
+# this justfile is just the entry point.
+
+# Build against the SDK static library, after the SDK's own fmt+ninja+lint
+# gate. The static, freestanding binary needs no libc.
+build:
+    cd ../.. && just build && ninja examples/word_list_pinned/wired_server
+
+# Build and run with 4 workers, one pinned per CPU core.
+run: build
+    ./wired_server --workers 4 --pin-cores 1
