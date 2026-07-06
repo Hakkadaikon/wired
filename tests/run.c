@@ -484,6 +484,7 @@
 #include "tls/handshake/roles/client/clientwire.c"
 #include "app/webtransport/session/session/session.c"
 #include "app/webtransport/errmap/errmap/errmap.c"
+#include "app/webtransport/capsule/wtcapsule/wtcapsule.c"
 #include "common/varint_test.c"
 #include "transport/header_test.c"
 #include "transport/dcidresolve_test.c"
