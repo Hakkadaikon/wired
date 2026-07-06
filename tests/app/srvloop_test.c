@@ -37,16 +37,26 @@
 
 static const u8 g_cli_scid[6] = {'C', 'L', 'I', 'S', 'C', 'I'};
 
-/* View a loop's cross-datagram request-stream accumulator (RFC 9000 2.2), so a
- * direct wired_srvloop_dispatch call reassembles into the loop's own buffer. */
+/* View a loop's stream-0 cross-datagram request accumulator (RFC 9000 2.2), so
+ * a direct wired_srvloop_dispatch call reassembles into the loop's own buffer.
+ * These tests all drive the request stream (id 0), so slot 0 is the one the
+ * table would allocate for it (wired_srvloop_step's stream_slot_for does the
+ * same lookup on the live path). */
 static wired_srvloop_reqacc lp_reqacc(wired_srvloop* l) {
-  wired_srvloop_reqacc acc;
-  acc.buf  = l->req_buf;
-  acc.cap  = sizeof l->req_buf;
-  acc.len  = &l->req_len;
-  acc.fin  = &l->req_fin;
-  acc.done = &l->req_done;
+  wired_srvloop_reqacc       acc;
+  wired_srvloop_stream_slot* slot = &l->streams[0];
+  acc.buf                         = slot->req_buf;
+  acc.cap                         = sizeof slot->req_buf;
+  acc.len                         = &slot->req_len;
+  acc.fin                         = &slot->req_fin;
+  acc.done                        = &slot->req_done;
   return acc;
+}
+
+/* View slot 0's re-wrap buffer (RFC 9000 2.2), the caller-owned storage a
+ * direct wired_srvloop_dispatch call needs for in->wrap. */
+static quic_mspan lp_wrap0(wired_srvloop* l) {
+  return quic_mspan_of(l->streams[0].req_wrap, sizeof l->streams[0].req_wrap);
 }
 
 struct lp_fix {
@@ -607,7 +617,7 @@ static void lp_confirm_via_dispatch(struct lp_fix* f) {
     wired_srvloop_reqacc      acc = lp_reqacc(&f->l);
     wired_srvloop_dispatch_in in  = {
         quic_span_of(payload, plen), quic_mspan_of(scratch, sizeof scratch),
-        quic_mspan_of(f->l.req_wrap, sizeof f->l.req_wrap), &got, &req};
+        lp_wrap0(&f->l), &got, &req};
     CHECK(
         wired_srvloop_dispatch(
             &(wired_srvloop_dispatch_ctx){&f->s, &f->l.h3, &acc}, &in) == 1);
@@ -718,7 +728,7 @@ static void test_srvloop_dispatch_padding_before_crypto(void) {
     wired_srvloop_reqacc      acc = lp_reqacc(&f.l);
     wired_srvloop_dispatch_in in  = {
         quic_span_of(payload, plen), quic_mspan_of(scratch, sizeof scratch),
-        quic_mspan_of(f.l.req_wrap, sizeof f.l.req_wrap), &got, &req};
+        lp_wrap0(&f.l), &got, &req};
     CHECK(
         wired_srvloop_dispatch(
             &(wired_srvloop_dispatch_ctx){&f.s, &f.l.h3, &acc}, &in) == 1);
@@ -813,7 +823,7 @@ static void test_srvloop_dispatch_uni_streams_not_request(void) {
     wired_srvloop_reqacc      acc = lp_reqacc(&f.l);
     wired_srvloop_dispatch_in in  = {
         quic_span_of(payload, off), quic_mspan_of(scratch, sizeof scratch),
-        quic_mspan_of(f.l.req_wrap, sizeof f.l.req_wrap), &got, &req};
+        lp_wrap0(&f.l), &got, &req};
     CHECK(
         wired_srvloop_dispatch(
             &(wired_srvloop_dispatch_ctx){&f.s, &f.l.h3, &acc}, &in) == 1);
@@ -849,7 +859,7 @@ static void test_srvloop_dispatch_get_after_uni_streams(void) {
     wired_srvloop_reqacc      acc = lp_reqacc(&f.l);
     wired_srvloop_dispatch_in in  = {
         quic_span_of(payload, off), quic_mspan_of(scratch, sizeof scratch),
-        quic_mspan_of(f.l.req_wrap, sizeof f.l.req_wrap), &got, &req};
+        lp_wrap0(&f.l), &got, &req};
     CHECK(
         wired_srvloop_dispatch(
             &(wired_srvloop_dispatch_ctx){&f.s, &f.l.h3, &acc}, &in) == 1);
@@ -883,6 +893,82 @@ static usz lp_split_post_frames(
   return hb;
 }
 
+/* Build a POST on stream_id as two separate request STREAM frames split at
+ * the HTTP/3 HEADERS/DATA boundary (like lp_split_post_frames, but for any
+ * client bidi stream id, and any body — so two different streams' requests
+ * can be told apart by their bodies in the same-slot-collision test below). */
+static usz lp_split_post_frames_on(
+    u64         stream_id,
+    const u8*   body,
+    usz         body_len,
+    u8*         hp,
+    usz         hcap,
+    usz*        hl,
+    u8*         dp,
+    usz         dcap,
+    usz*        dl) {
+  u8                       reqb[256];
+  usz                      rlen = 0, hb;
+  quic_stream_frame        sf;
+  quic_h3_frame            hf = {0};
+  wired_h3reqdrive_send_in in = {
+      quic_span_of((const u8*)"POST", 4), quic_span_of((const u8*)"/", 1),
+      quic_span_of((const u8*)"h", 1), quic_span_of(body, body_len)};
+  quic_obuf rob = {reqb, sizeof reqb, 0};
+  CHECK(wired_h3reqdrive_send_method(stream_id, &in, &rob));
+  rlen = rob.len;
+  CHECK(quic_frame_get_stream(reqb, rlen, &sf) > 0);
+  hb = quic_h3_frame_get(quic_span_of(sf.data, (usz)sf.length), &hf);
+  CHECK(hb > 0 && hf.type == QUIC_H3_FRAME_HEADERS);
+  CHECK(appdata_frame_flat(stream_id, 0, sf.data, hb, 0, hp, hcap, hl));
+  CHECK(appdata_frame_flat(
+      stream_id, hb, sf.data + hb, (usz)sf.length - hb, 1, dp, dcap, dl));
+  return hb;
+}
+
+/* TWO INDEPENDENT REQUEST STREAMS (RFC 9000 2.2, the property a single fixed
+ * request slot could not have): stream 0's and stream 4's POSTs are each
+ * split into HEADERS/DATA and interleaved across datagrams — stream 0's
+ * HEADERS, then stream 4's HEADERS, then stream 4's DATA+FIN, then stream 0's
+ * DATA+FIN. Each must decode with ITS OWN body, proving the two streams
+ * reassemble into separate slots rather than clobbering a shared buffer. */
+static void test_srvloop_two_streams_reassemble_independently(void) {
+  struct lp_fix f;
+  u8            h0[256], d0[256], h4[256], d4[256], out[1024], spkt[1024];
+  usz           h0l, d0l, h4l, d4l, slen;
+  quic_obuf     ob = {out, sizeof out, 0};
+  const u8*     body0 = (const u8*)"AA";
+  const u8*     body4 = (const u8*)"BBB";
+  lp_split_post_frames_on(0, body0, 2, h0, sizeof h0, &h0l, d0, sizeof d0, &d0l);
+  lp_split_post_frames_on(4, body4, 3, h4, sizeof h4, &h4l, d4, sizeof d4, &d4l);
+  lp_confirm(&f, &ob);
+  /* datagram 1: stream 0's HEADERS only, then stream 4's HEADERS only -> no
+   * request completes yet on either stream. */
+  slen = client_seal_onertt_pn(&f, 3, h0, h0l, spkt, sizeof spkt);
+  ob   = (quic_obuf){out, sizeof out, 0};
+  wired_srvloop_step(&(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  CHECK(f.l.got_request == 0);
+  slen = client_seal_onertt_pn(&f, 4, h4, h4l, spkt, sizeof spkt);
+  ob   = (quic_obuf){out, sizeof out, 0};
+  wired_srvloop_step(&(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  CHECK(f.l.got_request == 0);
+  /* datagram 3: stream 4's DATA+FIN completes stream 4's request with ITS
+   * body ("BBB"), stream 0's slot is untouched. */
+  slen = client_seal_onertt_pn(&f, 5, d4, d4l, spkt, sizeof spkt);
+  ob   = (quic_obuf){out, sizeof out, 0};
+  wired_srvloop_step(&(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  CHECK(f.l.got_request == 1);
+  CHECK(f.l.req.body_len == 3 && f.l.req.body[0] == 'B' && f.l.req.body[1] == 'B' &&
+        f.l.req.body[2] == 'B');
+  /* datagram 4: stream 0's DATA+FIN completes stream 0's request with ITS OWN
+   * body ("AA") — not stream 4's, and not corrupted by stream 4's slot. */
+  slen = client_seal_onertt_pn(&f, 6, d0, d0l, spkt, sizeof spkt);
+  ob   = (quic_obuf){out, sizeof out, 0};
+  wired_srvloop_step(&(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  CHECK(f.l.got_request == 1);
+  CHECK(f.l.req.body_len == 2 && f.l.req.body[0] == 'A' && f.l.req.body[1] == 'A');
+}
+
 /* RFC 9000 2.2 / RFC 9114 4.1: a POST whose HEADERS and DATA arrive as two
  * separate request STREAM frames in ONE datagram is reassembled in offset order
  * and the body recovered — not dropped as body 0. */
@@ -902,7 +988,7 @@ static void test_srvloop_dispatch_split_request_streams(void) {
     wired_srvloop_reqacc      acc = lp_reqacc(&f.l);
     wired_srvloop_dispatch_in in  = {
         quic_span_of(payload, hl + dl), quic_mspan_of(scratch, sizeof scratch),
-        quic_mspan_of(f.l.req_wrap, sizeof f.l.req_wrap), &got, &req};
+        lp_wrap0(&f.l), &got, &req};
     CHECK(
         wired_srvloop_dispatch(
             &(wired_srvloop_dispatch_ctx){&f.s, &f.l.h3, &acc}, &in) == 1);
@@ -931,7 +1017,7 @@ static void test_srvloop_dispatch_split_across_datagrams(void) {
     /* datagram 1: HEADERS only, no FIN -> accumulated, no request yet. */
     wired_srvloop_dispatch_in in1 = {
         quic_span_of(hp, hl), quic_mspan_of(scratch, sizeof scratch),
-        quic_mspan_of(f.l.req_wrap, sizeof f.l.req_wrap), &got, &req};
+        lp_wrap0(&f.l), &got, &req};
     CHECK(
         wired_srvloop_dispatch(
             &(wired_srvloop_dispatch_ctx){&f.s, &f.l.h3, &acc}, &in1) == 1);
@@ -939,7 +1025,7 @@ static void test_srvloop_dispatch_split_across_datagrams(void) {
     /* datagram 2: DATA at offset hb, FIN -> request completes with body. */
     wired_srvloop_dispatch_in in2 = {
         quic_span_of(dp, dl), quic_mspan_of(scratch, sizeof scratch),
-        quic_mspan_of(f.l.req_wrap, sizeof f.l.req_wrap), &got, &req};
+        lp_wrap0(&f.l), &got, &req};
     CHECK(
         wired_srvloop_dispatch(
             &(wired_srvloop_dispatch_ctx){&f.s, &f.l.h3, &acc}, &in2) == 1);
@@ -1221,6 +1307,7 @@ void test_srvloop(void) {
   test_srvloop_dispatch_get_after_uni_streams();
   test_srvloop_dispatch_split_request_streams();
   test_srvloop_dispatch_split_across_datagrams();
+  test_srvloop_two_streams_reassemble_independently();
   test_srvloop_send_initial_roundtrip();
   test_srvloop_wrong_direction_open_fails();
   test_srvloop_no_onertt_seal_before_confirm();
