@@ -197,6 +197,7 @@
 #include "transport/packet/frame/frame/frame.c"
 #include "transport/packet/frame/frame/ncid.c"
 #include "transport/packet/frame/frame/ncid_check.c"
+#include "transport/packet/frame/frame/ncid_worker.c"
 #include "transport/packet/frame/frame/permit.c"
 #include "transport/packet/frame/frame/stream_bounds.c"
 #include "transport/packet/frame/frame/stream_ctl.c"
