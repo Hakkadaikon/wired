@@ -389,6 +389,7 @@
 #include "app/http3/core/h3settings/control_open.c"
 #include "app/http3/core/h3settings/settings_build.c"
 #include "app/http3/core/h3settings/control_settings.c"
+#include "app/http3/core/capsule/capsule.c"
 #include "transport/packet/header/lhdr/lhdr_build.c"
 #include "transport/packet/header/lhdr/lhdr_parse.c"
 #include "transport/packet/build/vpn/vpn_open.c"
@@ -818,6 +819,7 @@
 #include "app/h3settings_control_open_test.c"
 #include "app/h3settings_build_test.c"
 #include "app/h3settings_control_settings_test.c"
+#include "app/capsule_test.c"
 #include "transport/lhdr_build_test.c"
 #include "transport/lhdr_parse_test.c"
 #include "transport/vpn_open_test.c"
@@ -1266,6 +1268,7 @@ int main(void) {
   test_h3settings_build_connect_protocol();
   test_h3settings_control_settings();
   test_h3settings_control_settings_no_connect_protocol_yet();
+  test_capsule();
   test_lhdr_build();
   test_lhdr_parse();
   test_vpn_open();
