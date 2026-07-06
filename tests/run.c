@@ -482,6 +482,8 @@
 #include "app/http3/server/srvpin/srvpin.c"
 #include "app/http3/server/srvworkers/srvworkers.c"
 #include "tls/handshake/roles/client/clientwire.c"
+#include "app/webtransport/session/session/session.c"
+#include "app/webtransport/errmap/errmap/errmap.c"
 #include "common/varint_test.c"
 #include "transport/header_test.c"
 #include "transport/dcidresolve_test.c"
@@ -918,6 +920,8 @@
 #include "app/srvpin_test.c"
 #include "app/srvworkers_test.c"
 #include "transport/stats_test.c"
+#include "app/wt_session_test.c"
+#include "app/wterrmap_test.c"
 // clang-format on
 
 int main(void) {
@@ -1375,5 +1379,7 @@ int main(void) {
   test_stats();
   test_srvpin();
   test_srvworkers();
+  test_wt_session();
+  test_wterrmap();
   return TEST_REPORT();
 }
