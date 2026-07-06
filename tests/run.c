@@ -481,6 +481,7 @@
 #include "app/http3/server/mimetype/mimetype.c"
 #include "app/http3/server/srvpin/srvpin.c"
 #include "app/http3/server/srvworkers/srvworkers.c"
+#include "app/http3/server/srvpoll/srvpoll.c"
 #include "tls/handshake/roles/client/clientwire.c"
 #include "app/webtransport/session/session/session.c"
 #include "app/webtransport/errmap/errmap/errmap.c"
