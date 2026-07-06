@@ -1,4 +1,5 @@
 #include "test.h"
+#include "app/datagram/datagram/datagram.h"
 #include "transport/packet/frame/frame/ack.h"
 #include "transport/packet/frame/frame/flowctl.h"
 #include "transport/packet/frame/frame/frame.h"
@@ -18,6 +19,7 @@ static void ds_init(
   st->credit        = c;
   st->ack_eliciting = 0;
   st->close         = 0;
+  st->has_datagram  = 0;
 }
 
 /* STREAM frame delivers bytes the application can pull back. */
@@ -115,6 +117,37 @@ static void test_dispatch_padding(void) {
   CHECK(st.close == 0);
 }
 
+/* RFC 9221 5: a DATAGRAM frame is decoded and its payload exposed on state. */
+static void test_dispatch_datagram(void) {
+  quic_framedispatch_state st;
+  quic_stream_read         s;
+  quic_sentpkt              t;
+  quic_flow_credit          c;
+  ds_init(&st, &s, &t, &c);
+  quic_datagram_frame f = {4, (const u8*)"data"};
+  u8                  buf[16];
+  usz                 n = quic_datagram_encode(quic_mspan_of(buf, sizeof buf), &f, 1);
+  CHECK(n != 0);
+  CHECK(quic_framedispatch_handle(&st, buf[0], quic_span_of(buf, n)) == 1);
+  CHECK(st.has_datagram == 1);
+  CHECK(st.datagram.n == 4);
+  CHECK(st.datagram.p[0] == 'd' && st.datagram.p[3] == 'a');
+  CHECK(st.ack_eliciting == 1); /* RFC 9221 4: DATAGRAM is ack-eliciting */
+}
+
+/* A DATAGRAM frame whose LEN varint overruns the buffer is malformed and
+ * rejected, leaving has_datagram unset. */
+static void test_dispatch_datagram_malformed(void) {
+  quic_framedispatch_state st;
+  quic_stream_read         s;
+  quic_sentpkt              t;
+  quic_flow_credit          c;
+  ds_init(&st, &s, &t, &c);
+  u8 buf[3] = {QUIC_FRAME_DATAGRAM_LEN, 0x40, 0xff}; /* length varint = 255 */
+  CHECK(quic_framedispatch_handle(&st, buf[0], quic_span_of(buf, sizeof buf)) == 0);
+  CHECK(st.has_datagram == 0);
+}
+
 /* Unknown frame type is rejected. */
 static void test_dispatch_unknown(void) {
   quic_framedispatch_state st;
@@ -145,6 +178,8 @@ void test_dispatch_state(void) {
   test_dispatch_ping();
   test_dispatch_close();
   test_dispatch_padding();
+  test_dispatch_datagram();
+  test_dispatch_datagram_malformed();
   test_dispatch_unknown();
   test_dispatch_ack_eliciting_predicate();
 }
