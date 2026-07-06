@@ -30,6 +30,38 @@ typedef int (*wired_srvloop_handler)(
     quic_obuf*                  body_out,
     const char**                content_type);
 
+/** RFC 9000 2.2: how many client bidi (request) streams one connection can
+ * reassemble concurrently. Small and fixed: this is not meant to support
+ * hundreds of concurrent streams, just the original single request stream
+ * (id 0) plus near-term room for a handful of WebTransport bidi/uni streams. */
+#define WIRED_SRVLOOP_MAX_STREAMS 4
+
+/** One request stream's cross-datagram reassembly state — everything the
+ * original single-stream wired_srvloop held, now per stream id. free (in_use
+ * == 0) until first claimed by wired_srvloop_step for a stream id, and freed
+ * again once its request has been answered (mirroring the old single-slot
+ * re-arm in wired_srvloop_step). */
+typedef struct {
+  int                   in_use;    /**< 0 = free slot */
+  u64                   stream_id; /**< the client bidi stream id this slot
+                                      reassembles */
+  wired_h3reqdrive_req  req; /**< the decoded request, valid once req_done */
+  u8  req_scratch[512]; /**< backing store for req's path/body views */
+  /* RFC 9000 2.2: this stream reassembled across datagrams. curl splits one
+   * request's HEADERS and DATA into separate STREAM frames in separate 1-RTT
+   * packets; each frame's data is written at its offset here and the request
+   * is decoded only once FIN arrives.
+   * ponytail: overflow past req_buf is truncated. */
+  u8  req_buf[2048]; /**< offset-indexed request stream bytes */
+  usz req_len;       /**< highest offset+len written into req_buf */
+  u8  req_fin;       /**< 1 once a request-stream FIN was seen */
+  int req_done;      /**< 1 once this request was decoded/answered */
+  /** backing store for req's path/body views once decoded (see
+   * drive_complete in dispatch.c); must outlive the decode call, so it lives
+   * here rather than a stack local that dies on return */
+  u8  req_wrap[2080];
+} wired_srvloop_stream_slot;
+
 /** Per-connection state of the server wire loop, re-armed by
  * wired_srvloop_init and driven by wired_srvloop_step. */
 typedef struct {
@@ -51,24 +83,22 @@ typedef struct {
   wired_srvloop_handler
                        on_request; /**< app response-body builder, 0 if unset */
   void*                req_ctx;    /**< opaque ctx passed to on_request */
-  int                  got_request; /**< 1 when this step decoded a request */
-  wired_h3reqdrive_req req; /**< the decoded request (valid when got_request) */
-  u8 req_scratch[512];      /**< backing store for req's path/body views */
-  /* RFC 9000 2.2: the request stream (id 0) reassembled across datagrams. curl
-   * splits one request's HEADERS and DATA into separate STREAM frames in
-   * separate 1-RTT packets; each frame's data is written at its offset here and
-   * the request is decoded only once FIN arrives.
-   * ponytail: a single request stream (id 0) only; one request per connection,
-   * re-armed by wired_srvloop_init. Overflow past req_buf is truncated. */
-  u8  req_buf[2048]; /**< offset-indexed request stream bytes */
-  usz req_len;       /**< highest offset+len written into req_buf */
-  u8  req_fin;       /**< 1 once a request-stream FIN was seen */
-  int req_done;      /**< 1 once this request was decoded/answered */
+  /** RFC 9000 2.2: one reassembly slot per concurrent client bidi (request)
+   * stream, looked up/allocated by stream id (see stream_slot_find/alloc in
+   * srvloop.c). streams[0] is claimed for stream id 0 on the connection's
+   * first request, exactly as the old single-slot fields were — so a
+   * connection that only ever uses stream 0 behaves identically to before. */
+  wired_srvloop_stream_slot streams[WIRED_SRVLOOP_MAX_STREAMS];
+  /** Mirrors the most recently completed request this step, across whichever
+   * slot decoded it — the pre-existing single-stream API surface (got_request/
+   * req), kept so existing callers reading these two fields directly need no
+   * change. For the single-request-stream (id 0) case this is exactly the old
+   * behavior; wired_srvloop_step also updates it for whichever slot completed
+   * last if more than one did. */
+  int                  got_request;
+  wired_h3reqdrive_req req; /**< the mirrored most-recently-completed request;
+                              valid only when got_request is set */
   int peer_closed;   /**< 1 once a peer CONNECTION_CLOSE frame was seen */
-  /** backing store for req's path/body views once decoded (see
-   * drive_complete in dispatch.c); must outlive the decode call, so it lives
-   * here rather than a stack local that dies on return */
-  u8  req_wrap[2080];
   int resp_external; /**< 1: the caller answers requests, not the loop */
   /** ACK ranges (RFC 9000 19.3) seen in payloads opened this step, reset at
    * the start of every wired_srvloop_step; overflow past the cap is dropped */

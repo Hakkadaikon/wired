@@ -166,3 +166,16 @@ int wired_srvloop_dispatch(
   if (reassemble_and_drive(ctx->h3, ctx->acc, in)) return 1;
   return dispatch_non_request(ctx->s, in->payload.p, in->payload.n);
 }
+
+int wired_srvloop_payload_stream_id(quic_span payload, u64* stream_id_out) {
+  quic_framewalk      it;
+  quic_framewalk_item fr;
+  quic_stream_frame   sf;
+  quic_framewalk_init(&it, payload.p, payload.n);
+  while (quic_framewalk_next(&it, &fr))
+    if (request_stream_of(fr.type, quic_span_of(fr.start, fr.remaining), &sf)) {
+      *stream_id_out = sf.stream_id;
+      return 1;
+    }
+  return 0;
+}
