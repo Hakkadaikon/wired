@@ -36,6 +36,9 @@ typedef u64            usz; /**< unsigned size (size_t equivalent) */
 #define SYS_clock_gettime 228 /**< clock_gettime(2) syscall number */
 #define SYS_openat 257        /**< openat(2) syscall number */
 #define SYS_getrandom 318     /**< getrandom(2) syscall number */
+#define SYS_fork 57           /**< fork(2) syscall number */
+#define SYS_wait4 61          /**< wait4(2) syscall number */
+#define SYS_exit_group 231    /**< exit_group(2) syscall number */
 
 /** Signal numbers used by this SDK (Linux, all architectures). */
 #define SIGTERM 15 /**< termination request */

@@ -479,6 +479,7 @@
 #include "app/http3/server/staticfile/staticfile.c"
 #include "app/http3/server/mimetype/mimetype.c"
 #include "app/http3/server/srvpin/srvpin.c"
+#include "app/http3/server/srvworkers/srvworkers.c"
 #include "tls/handshake/roles/client/clientwire.c"
 #include "common/varint_test.c"
 #include "transport/header_test.c"
@@ -913,6 +914,7 @@
 #include "app/mimetype_test.c"
 #include "app/h3reqenc_test.c"
 #include "app/srvpin_test.c"
+#include "app/srvworkers_test.c"
 #include "transport/stats_test.c"
 // clang-format on
 
@@ -1369,5 +1371,6 @@ int main(void) {
   test_h3reqenc();
   test_stats();
   test_srvpin();
+  test_srvworkers();
   return TEST_REPORT();
 }
