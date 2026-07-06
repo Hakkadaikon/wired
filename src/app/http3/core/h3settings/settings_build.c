@@ -7,12 +7,33 @@
 #define QPACK_MAX_TABLE_CAPACITY 0x01
 #define QPACK_BLOCKED_STREAMS 0x07
 
+/* RFC 9297 2.1.1. */
+#define QUIC_H3_SETTINGS_H3_DATAGRAM 0x33
+/* draft-ietf-webtrans-http3-15. */
+#define QUIC_H3_SETTINGS_WT_ENABLED 0x2c7cf000
+
 /* RFC 9220 3: append SETTINGS_ENABLE_CONNECT_PROTOCOL when requested. */
 static void append_connect_protocol(
     const quic_h3settings_in* in, quic_h3_settings* s) {
   if (!in->enable_connect_protocol) return;
   s->pairs[s->n].id    = QUIC_H3_SETTINGS_ENABLE_CONNECT_PROTOCOL;
   s->pairs[s->n].value = 1;
+  s->n++;
+}
+
+/* RFC 9297 2.1.1: append SETTINGS_H3_DATAGRAM when requested. */
+static void append_h3_datagram(const quic_h3settings_in* in, quic_h3_settings* s) {
+  if (!in->enable_h3_datagram) return;
+  s->pairs[s->n].id    = QUIC_H3_SETTINGS_H3_DATAGRAM;
+  s->pairs[s->n].value = 1;
+  s->n++;
+}
+
+/* draft-ietf-webtrans-http3-15: append SETTINGS_WT_ENABLED when requested. */
+static void append_wt_enabled(const quic_h3settings_in* in, quic_h3_settings* s) {
+  if (!in->wt_enabled) return;
+  s->pairs[s->n].id    = QUIC_H3_SETTINGS_WT_ENABLED;
+  s->pairs[s->n].value = in->wt_enabled;
   s->n++;
 }
 
@@ -27,6 +48,8 @@ int quic_h3settings_build(const quic_h3settings_in* in, quic_obuf* out) {
   s.pairs[2].id    = QPACK_BLOCKED_STREAMS;
   s.pairs[2].value = in->qpack_blocked_streams;
   append_connect_protocol(in, &s);
+  append_h3_datagram(in, &s);
+  append_wt_enabled(in, &s);
 
   usz w = quic_h3_settings_put(out->p, out->cap, &s);
   if (w == 0) return 0;
