@@ -116,9 +116,53 @@ static void test_reuseport_enable_allows_shared_bind(void) {
   wired_udp_close(fd2);
 }
 
+/* wired_udp_recvmmsg_nowait on a socket with nothing queued returns
+ * immediately (negative errno), never blocks. */
+static void test_recvmmsg_nowait_returns_immediately_when_empty(void) {
+  i64              sfd, cfd;
+  quic_sockaddr_in srv;
+  u8               rx[64];
+  quic_mmsg_buf    bufs[1] = {{quic_mspan_of(rx, sizeof rx), {0}, 0}};
+  if (!gso_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
+  CHECK(wired_udp_recvmmsg_nowait(sfd, bufs, 1) < 0);
+  wired_udp_close(cfd);
+  wired_udp_close(sfd);
+}
+
+/* wired_udp_recvmmsg_nowait after a real send delivers the datagram, same as
+ * the blocking wired_udp_recvmmsg would once data is queued. */
+static void test_recvmmsg_nowait_delivers_queued_datagram(void) {
+  i64              sfd, cfd;
+  quic_sockaddr_in srv;
+  u8               rx[64];
+  quic_mmsg_buf    bufs[1] = {{quic_mspan_of(rx, sizeof rx), {0}, 0}};
+  const u8         payload[5] = {1, 2, 3, 4, 5};
+  if (!gso_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
+  CHECK(
+      wired_udp_send(cfd, &srv, quic_span_of(payload, sizeof payload)) ==
+      (i64)sizeof payload);
+  CHECK(wired_udp_recvmmsg_nowait(sfd, bufs, 1) == 1);
+  CHECK(bufs[0].len == sizeof payload);
+  wired_udp_close(cfd);
+  wired_udp_close(sfd);
+}
+
+/* wired_udp_busy_poll_enable on a real socket returns without crashing
+ * whether or not the kernel/driver actually supports SO_BUSY_POLL. */
+static void test_busy_poll_enable_does_not_crash(void) {
+  i64 fd = wired_udp_socket();
+  if (fd < 0) return; /* sandbox: skip */
+  wired_udp_busy_poll_enable(fd, 50);
+  wired_udp_close(fd);
+  CHECK(1);
+}
+
 void test_udp_gso(void) {
   test_gso_cmsg_build();
   test_send_batch_delivers_segments();
   test_send_gso_delivers_total_bytes();
   test_reuseport_enable_allows_shared_bind();
+  test_recvmmsg_nowait_returns_immediately_when_empty();
+  test_recvmmsg_nowait_delivers_queued_datagram();
+  test_busy_poll_enable_does_not_crash();
 }
