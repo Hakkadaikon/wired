@@ -893,6 +893,10 @@ static i64 srvrun_listen(u16 port) {
   quic_sockaddr_in sa;
   i64              fd = wired_udp_socket();
   if (fd < 0) return fd;
+  /* Best-effort: lets multiple srvworkers children share one port (tasks/
+   * core-pinning-plan.md PIN-004). A single-worker run does not need it, so a
+   * failure here is not fatal -- fall through to bind unconditionally. */
+  wired_udp_reuseport_enable(fd);
   wired_udp_addr(&sa, port, (const u8[4]){0, 0, 0, 0});
   if (wired_udp_bind(fd, &sa) < 0) return -1;
   return fd;
