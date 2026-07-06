@@ -7,7 +7,8 @@ int quic_h3req_enc_method(
     quic_span method, const quic_h3req_headers_in* in, quic_obuf* out) {
   static const u8      scheme[] = {'h', 't', 't', 'p', 's'};
   quic_h3req_pseudo_in p        = {
-      method, quic_span_of(scheme, 5), in->authority, in->path};
+      method, quic_span_of(scheme, 5), in->authority, in->path,
+      quic_span_of(0, 0)};
   return quic_h3req_enc_pseudo(&p, out);
 }
 

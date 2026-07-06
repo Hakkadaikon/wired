@@ -70,16 +70,37 @@ static int put_fields(const pseudo_field* fields, usz n, quic_obuf* out) {
   return 1;
 }
 
-/* Encode the section prefix then nf field lines from fields into out.
- * Returns 1 with out->len set, 0 on overflow. */
-static int put_section(const pseudo_field* fields, usz nf, quic_obuf* out) {
+/* RFC 9220 3 / RFC 9204 4.5.6: :protocol has no static-table entry, so it is
+ * always a Literal Field Line With Literal Name. Returns 1 ok, 0 on overflow.
+ */
+static int put_protocol(quic_span protocol, quic_obuf* out) {
+  static const u8  name[] = ":protocol";
+  quic_qpack_field f      = {quic_span_of(name, sizeof name - 1), protocol};
+  usz w = quic_qpack_literal_name_encode(
+      quic_mspan_of(out->p + out->len, out->cap - out->len), 0, &f);
+  if (!w) return 0;
+  out->len += w;
+  return 1;
+}
+
+/* Append :protocol when non-empty; an empty span omits it entirely. Returns 1
+ * ok, 0 on overflow. */
+static int put_optional_protocol(quic_span protocol, quic_obuf* out) {
+  if (protocol.n == 0) return 1;
+  return put_protocol(protocol, out);
+}
+
+/* Encode the section prefix, nf field lines from fields, then :protocol when
+ * non-empty, into out. Returns 1 with out->len set, 0 on overflow. */
+static int put_section(
+    const pseudo_field* fields, usz nf, quic_span protocol, quic_obuf* out) {
   usz off = put_section_prefix(out->p, out->cap);
   if (!off) return 0;
   out->len = off;
-  return put_fields(fields, nf, out);
+  return put_fields(fields, nf, out) && put_optional_protocol(protocol, out);
 }
 
-/* RFC 9204 4.5 / RFC 9114 4.3.1 */
+/* RFC 9204 4.5 / RFC 9114 4.3.1, RFC 9220 3 */
 int quic_h3req_enc_pseudo(const quic_h3req_pseudo_in* in, quic_obuf* out) {
   pseudo_field fields[4] = {
       {in->method.p, in->method.n, ":method", QPACK_METHOD_NAME_INDEX},
@@ -88,7 +109,7 @@ int quic_h3req_enc_pseudo(const quic_h3req_pseudo_in* in, quic_obuf* out) {
        QPACK_AUTHORITY_NAME_INDEX},
       {in->path.p, in->path.n, ":path", QPACK_PATH_NAME_INDEX},
   };
-  return put_section(fields, 4, out);
+  return put_section(fields, 4, in->protocol, out);
 }
 
 /* RFC 9114 4.4 / RFC 9110 9.3.6: a CONNECT request carries only :method=CONNECT
@@ -99,5 +120,5 @@ int quic_h3req_enc_connect(quic_span authority, quic_obuf* out) {
       {connect, sizeof connect, ":method", QPACK_METHOD_NAME_INDEX},
       {authority.p, authority.n, ":authority", QPACK_AUTHORITY_NAME_INDEX},
   };
-  return put_section(fields, 2, out);
+  return put_section(fields, 2, quic_span_of(0, 0), out);
 }
