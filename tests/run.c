@@ -923,6 +923,7 @@
 #include "transport/stats_test.c"
 #include "app/wt_session_test.c"
 #include "app/wterrmap_test.c"
+#include "app/wtcapsule_test.c"
 // clang-format on
 
 int main(void) {
@@ -1382,5 +1383,6 @@ int main(void) {
   test_srvworkers();
   test_wt_session();
   test_wterrmap();
+  test_wtcapsule();
   return TEST_REPORT();
 }
