@@ -196,3 +196,15 @@ i64 wired_udp_recvmmsg_fallback(i64 fd, quic_mmsg_buf* bufs, usz count) {
   }
   return (i64)n;
 }
+
+/* SOL_SOCKET setsockopt level constant (Linux). */
+#define WIRED_SOL_SOCKET 1
+/* SO_REUSEPORT setsockopt name (Linux, kernel >= 3.9). */
+#define WIRED_SO_REUSEPORT 15
+
+i64 wired_udp_reuseport_enable(i64 fd) {
+  int val = 1;
+  return syscall6(
+      SYS_setsockopt, fd, WIRED_SOL_SOCKET, WIRED_SO_REUSEPORT, (i64)&val,
+      sizeof(val), 0);
+}
