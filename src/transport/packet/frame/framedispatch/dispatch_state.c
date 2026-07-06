@@ -1,6 +1,7 @@
 #include "transport/packet/frame/framedispatch/dispatch_state.h"
 
 #include "transport/packet/frame/frame/ack.h"
+#include "app/datagram/dgdeliver/dg_recv.h"
 #include "transport/packet/frame/frame/dispatch.h"
 #include "transport/packet/frame/frame/flowctl.h"
 #include "transport/packet/frame/frame/frame.h"
@@ -53,6 +54,16 @@ static int on_close(quic_framedispatch_state* st, const u8* frame, usz len) {
   return 1;
 }
 
+/* RFC 9221 5: decode a DATAGRAM frame and expose its payload view to a
+ * higher layer (e.g. a future WebTransport session) to drain later; malformed
+ * input is rejected so the caller can close the connection. */
+static int on_datagram(quic_framedispatch_state* st, const u8* frame, usz len) {
+  quic_span f = quic_span_of(frame, len);
+  if (!quic_dgdeliver_extract(f, &st->datagram)) return 0;
+  st->has_datagram = 1;
+  return 1;
+}
+
 /* PADDING (19.1) and PING (19.2) carry no state beyond the ack-eliciting
  * flag handled by the caller. */
 static int on_noop(quic_framedispatch_state* st, const u8* frame, usz len) {
@@ -69,6 +80,7 @@ static const handler handlers[] = {
     [QUIC_FK_PADDING] = on_noop,      [QUIC_FK_PING] = on_noop,
     [QUIC_FK_ACK] = on_ack,           [QUIC_FK_STREAM] = on_stream,
     [QUIC_FK_MAX_DATA] = on_max_data, [QUIC_FK_CONNECTION_CLOSE] = on_close,
+    [QUIC_FK_DATAGRAM] = on_datagram,
 };
 
 int quic_framedispatch_ack_eliciting(u64 frame_type) {
