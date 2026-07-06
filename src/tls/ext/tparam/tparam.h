@@ -26,6 +26,14 @@
 #define QUIC_TP_ACTIVE_CONNECTION_ID_LIMIT 0x0e
 #define QUIC_TP_INITIAL_SOURCE_CONNECTION_ID 0x0f
 #define QUIC_TP_RETRY_SOURCE_CONNECTION_ID 0x10
+/* max_datagram_frame_size (RFC 9221 3): the max DATAGRAM frame size this
+ * endpoint will accept; 0 or absent means DATAGRAM frames are not supported,
+ * RECOMMENDED value when supported is 65535. Encode/decode is just the
+ * generic single-varint form below (quic_tparam_put_int/get_int); any size
+ * enforcement is a different domain's job. Defined in
+ * app/datagram/datagram/datagram.h (QUIC_TP_MAX_DATAGRAM_FRAME_SIZE) since
+ * that domain owns the DATAGRAM frame codec this parameter gates -- not
+ * redefined here to avoid a duplicate macro. */
 
 /* Encode one integer-valued parameter (id, varint value) into out->p (out->cap
  * bytes). Returns bytes written, or 0 if it does not fit / value out of range.
