@@ -93,6 +93,13 @@ static void test_h3srv_accept_uni_streams(void) {
   CHECK(wired_h3srv_accept_uni(QUIC_H3_STREAM_QPACK_DECODER));
 }
 
+/* draft-ietf-webtrans-http3-15 4.3: the WebTransport uni stream type (0x54)
+ * is accepted; an unknown/unassigned type is not. */
+static void test_h3srv_accept_uni_webtransport(void) {
+  CHECK(wired_h3srv_accept_uni(QUIC_H3_STREAM_WEBTRANSPORT));
+  CHECK(!wired_h3srv_accept_uni(0x99));
+}
+
 /* RFC 9114 4.1: a GET request HEADERS is decoded, marking request_seen, and
  * the :path / :authority are recovered. */
 static void test_h3srv_request_decode(void) {
@@ -279,6 +286,7 @@ void test_h3srv(void) {
   test_h3srv_peer_second_settings_unexpected();
   test_h3srv_peer_second_control_creation();
   test_h3srv_accept_uni_streams();
+  test_h3srv_accept_uni_webtransport();
   test_h3srv_request_decode();
   test_h3srv_request_answered();
   test_h3srv_head_no_body();
