@@ -23,6 +23,9 @@
 #define QUIC_H3_STREAM_QPACK_ENCODER 0x02
 #define QUIC_H3_STREAM_QPACK_DECODER 0x03
 
+/* draft-ietf-webtrans-http3-15 4.3: WebTransport unidirectional stream. */
+#define QUIC_H3_STREAM_WEBTRANSPORT 0x54
+
 /* RFC 9114 8.1 error codes. */
 #define QUIC_H3_NO_ERROR 0x0100
 #define QUIC_H3_GENERAL_PROTOCOL_ERROR 0x0101

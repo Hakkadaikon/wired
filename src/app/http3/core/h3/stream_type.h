@@ -14,5 +14,6 @@ int quic_h3_stream_type_parse(quic_span buf, u64* type, usz* consumed);
 int quic_h3_stream_type_is_control(u64 type);
 int quic_h3_stream_type_is_push(u64 type);
 int quic_h3_stream_type_is_qpack(u64 type);
+int quic_h3_stream_type_is_webtransport(u64 type);
 
 #endif

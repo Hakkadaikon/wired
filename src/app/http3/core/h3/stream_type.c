@@ -23,3 +23,8 @@ int quic_h3_stream_type_is_qpack(u64 type) {
   return type == QUIC_H3_STREAM_QPACK_ENCODER ||
          type == QUIC_H3_STREAM_QPACK_DECODER;
 }
+
+/* draft-ietf-webtrans-http3-15 4.3: WebTransport unidirectional stream. */
+int quic_h3_stream_type_is_webtransport(u64 type) {
+  return type == QUIC_H3_STREAM_WEBTRANSPORT;
+}

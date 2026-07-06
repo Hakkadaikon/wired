@@ -47,8 +47,17 @@ int wired_h3srv_on_peer_control(
   return 1;
 }
 
-/* RFC 9114 6.2 / RFC 9204 4.2 */
+/* Accepted uni stream type classifiers, scanned until one matches. */
+static int (*const accept_uni_checks[])(u64) = {
+    quic_h3_stream_type_is_control,
+    quic_h3_stream_type_is_qpack,
+    quic_h3_stream_type_is_webtransport,
+};
+
+/* RFC 9114 6.2 / RFC 9204 4.2 / draft-ietf-webtrans-http3-15 4.3 */
 int wired_h3srv_accept_uni(u64 stream_type) {
-  return quic_h3_stream_type_is_control(stream_type) ||
-         quic_h3_stream_type_is_qpack(stream_type);
+  for (usz i = 0; i < sizeof(accept_uni_checks) / sizeof(*accept_uni_checks);
+       i++)
+    if (accept_uni_checks[i](stream_type)) return 1;
+  return 0;
 }
