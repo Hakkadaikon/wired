@@ -138,4 +138,11 @@ i64 wired_udp_recvmmsg(i64 fd, quic_mmsg_buf* bufs, usz count);
  * @return number of datagrams received (0..count). */
 i64 wired_udp_recvmmsg_fallback(i64 fd, quic_mmsg_buf* bufs, usz count);
 
+/** Enable SO_REUSEPORT on fd so multiple sockets (e.g. one per worker
+ * process) can bind the same port; the kernel shards incoming datagrams
+ * across them by a 4-tuple hash (Linux, kernel >= 3.9).
+ * @param fd the socket fd
+ * @return 0 on success, or a negative errno. */
+i64 wired_udp_reuseport_enable(i64 fd);
+
 #endif
