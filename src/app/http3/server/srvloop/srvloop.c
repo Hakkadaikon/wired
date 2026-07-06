@@ -15,6 +15,21 @@
 #define WIRED_SRVLOOP_MAXPKTS \
   8 /* coalesced packets per datagram (RFC 9000 12.2) */
 
+/* Mark every stream reassembly slot free and its accumulator clean (RFC 9000
+ * 2.2) — mirrors the old flat req_len/req_fin/req_done reset in
+ * wired_srvloop_init, now done for every slot rather than one fixed field
+ * set, so a slot used without going through stream_slot_claim (a direct
+ * wired_srvloop_dispatch call, as the tests do) still starts from zero. */
+static void streams_reset(wired_srvloop* l) {
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_STREAMS; i++) {
+    l->streams[i].in_use    = 0;
+    l->streams[i].stream_id = 0;
+    l->streams[i].req_len   = 0;
+    l->streams[i].req_fin   = 0;
+    l->streams[i].req_done  = 0;
+  }
+}
+
 int wired_srvloop_init(wired_srvloop* l, const u8* cli_scid, u8 cli_scid_len) {
   if (cli_scid_len > 20) return 0;
   l->h3.settings_sent = 0;
@@ -34,12 +49,10 @@ int wired_srvloop_init(wired_srvloop* l, const u8* cli_scid, u8 cli_scid_len) {
   l->on_request    = 0;
   l->req_ctx       = 0;
   l->got_request   = 0;
-  l->req_len       = 0;
-  l->req_fin       = 0;
-  l->req_done      = 0;
   l->peer_closed   = 0;
   l->resp_external = 0;
   l->ack_n         = 0;
+  streams_reset(l);
   return 1;
 }
 
@@ -97,14 +110,54 @@ static void note_hs_rx(wired_srvloop* l, const srvloop_opened* o) {
   l->hs_rx_seen = 1;
 }
 
-/* RFC 9000 2.2: view the loop's cross-datagram request-stream accumulator. */
-static wired_srvloop_reqacc step_reqacc(wired_srvloop* l) {
+/* 1 if slot is claimed and reassembling stream_id. */
+static int slot_matches(const wired_srvloop_stream_slot* slot, u64 stream_id) {
+  return slot->in_use && slot->stream_id == stream_id;
+}
+
+/* RFC 9000 2.2: find the slot already reassembling stream_id.
+ * @return the slot index, or -1 if this stream has no slot yet. */
+static int stream_slot_find(const wired_srvloop* l, u64 stream_id) {
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_STREAMS; i++)
+    if (slot_matches(&l->streams[i], stream_id)) return (int)i;
+  return -1;
+}
+
+/* Claim and reset a free slot for stream_id.
+ * @return the slot index, or -1 if the table is full. */
+static int stream_slot_claim(wired_srvloop* l, u64 stream_id) {
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_STREAMS; i++) {
+    if (l->streams[i].in_use) continue;
+    l->streams[i].in_use    = 1;
+    l->streams[i].stream_id = stream_id;
+    l->streams[i].req_len   = 0;
+    l->streams[i].req_fin   = 0;
+    l->streams[i].req_done  = 0;
+    return (int)i;
+  }
+  return -1;
+}
+
+/* RFC 9000 2.2: the slot reassembling stream_id, allocating one on first
+ * sight. streams[0] is always the first (and, in the single-request-stream
+ * case, only) slot ever claimed, since stream id 0 is the first request
+ * stream a connection sees — so the pre-existing single-stream behavior is
+ * exactly "the table's entry for stream id 0". A full table drops the
+ * stream's frames (returns -1), same as the old fixed capacity of one. */
+static int stream_slot_for(wired_srvloop* l, u64 stream_id) {
+  int i = stream_slot_find(l, stream_id);
+  if (i >= 0) return i;
+  return stream_slot_claim(l, stream_id);
+}
+
+/* RFC 9000 2.2: view one stream slot's cross-datagram request accumulator. */
+static wired_srvloop_reqacc slot_reqacc(wired_srvloop_stream_slot* slot) {
   wired_srvloop_reqacc acc;
-  acc.buf  = l->req_buf;
-  acc.cap  = sizeof l->req_buf;
-  acc.len  = &l->req_len;
-  acc.fin  = &l->req_fin;
-  acc.done = &l->req_done;
+  acc.buf  = slot->req_buf;
+  acc.cap  = sizeof slot->req_buf;
+  acc.len  = &slot->req_len;
+  acc.fin  = &slot->req_fin;
+  acc.done = &slot->req_done;
   return acc;
 }
 
@@ -152,20 +205,69 @@ static void srvloop_collect_acks(wired_srvloop* l, quic_span pl) {
       srvloop_take_ack(l, fr.start, fr.remaining);
 }
 
+/* RFC 9000 2.2: the slot this payload's frames dispatch into — its own
+ * request stream's slot when a request-stream frame is present, else slot 0
+ * as a scratch landing pad for a CRYPTO/handshake payload (which never
+ * reaches reassemble_and_drive far enough to touch it; RFC 9000 12.4). A
+ * request stream beyond WIRED_SRVLOOP_MAX_STREAMS capacity has no slot
+ * (matching the old fixed capacity of one) and its frames are dropped. */
+static int step_slot_for(wired_srvloop* l, quic_span payload) {
+  u64 stream_id;
+  if (!wired_srvloop_payload_stream_id(payload, &stream_id)) return 0;
+  return stream_slot_for(l, stream_id);
+}
+
+/* Landing pad for a payload with no request-stream frame (CRYPTO/handshake):
+ * reassemble_and_drive's gather_request never matches a frame on this path, so
+ * this slot's buffers are never actually read or written — one static instance
+ * avoids re-zeroing ~4.6KB of stack on every non-request packet (every
+ * Initial/Handshake step, RFC 9000 12.4). Not connection state: nothing here
+ * is meaningful across calls. */
+static wired_srvloop_stream_slot g_srvloop_no_slot;
+
+/* Dispatch this opened payload into slot i (or, when i < 0, accept only the
+ * non-request/handshake path — a full stream table drops the request-stream
+ * frames rather than corrupting an unrelated slot). *got_request/l->req mirror
+ * the pre-existing single-stream API surface: when this call newly decodes a
+ * request, they are updated to it and slot i is recorded as the one to rearm
+ * after the whole datagram is processed. */
+static void step_dispatch(
+    const wired_srvloop_conn* conn,
+    quic_span                 payload,
+    int                       slot_i,
+    int*                      got_request,
+    int*                      done_slot) {
+  wired_srvloop*             l = conn->l;
+  wired_srvloop_stream_slot* slot =
+      slot_i >= 0 ? &l->streams[slot_i] : &g_srvloop_no_slot;
+  wired_srvloop_reqacc      acc = slot_reqacc(slot);
+  int                       got = 0;
+  wired_srvloop_dispatch_in in  = {
+      payload, quic_mspan_of(slot->req_scratch, sizeof slot->req_scratch),
+      quic_mspan_of(slot->req_wrap, sizeof slot->req_wrap), &got, &slot->req};
+  wired_srvloop_dispatch_ctx ctx = {conn->s, &l->h3, &acc};
+  wired_srvloop_dispatch(&ctx, &in);
+  if (!got) return;
+  *got_request = 1;
+  *done_slot   = slot_i;
+  l->req       = slot->req;
+}
+
 /* RFC 9001 5 / 5.1: open one coalesced packet slice and walk its frames. A
  * STREAM frame sets *got_request; CRYPTO is fed to the handshake. A slice that
  * fails to open (wrong level/key) is silently skipped, as the next slice in the
  * datagram may still be ours (RFC 9000 12.2). */
 static void step_one(
-    const wired_srvloop_conn* conn, quic_mspan pkt, int* got_request) {
-  wired_srvloop*            l = conn->l;
-  wired_server*             s = conn->s;
-  wired_srvloop_recv_out    ro;
-  wired_srvloop_reqacc      acc    = step_reqacc(l);
-  wired_srvloop_recv_in     ri     = {pkt, app_largest_pn(l)};
-  int                       opened = wired_srvloop_recv(s, &ri, &ro);
-  srvloop_opened            o;
-  wired_srvloop_dispatch_in in;
+    const wired_srvloop_conn* conn,
+    quic_mspan                pkt,
+    int*                      got_request,
+    int*                      done_slot) {
+  wired_srvloop*         l = conn->l;
+  wired_server*          s = conn->s;
+  wired_srvloop_recv_out ro;
+  wired_srvloop_recv_in  ri     = {pkt, app_largest_pn(l)};
+  int                    opened = wired_srvloop_recv(s, &ri, &ro);
+  srvloop_opened         o;
   if (!opened) return;
   o.level = ro.level;
   o.pkt   = pkt;
@@ -173,24 +275,20 @@ static void step_one(
   srvloop_collect_acks(l, ro.payload);
   note_app_rx(l, s, &o);
   note_hs_rx(l, &o);
-  in = (wired_srvloop_dispatch_in){
-      ro.payload, quic_mspan_of(l->req_scratch, sizeof l->req_scratch),
-      quic_mspan_of(l->req_wrap, sizeof l->req_wrap), got_request, &l->req};
-  {
-    wired_srvloop_dispatch_ctx ctx = {s, &l->h3, &acc};
-    wired_srvloop_dispatch(&ctx, &in);
-  }
+  step_dispatch(
+      conn, ro.payload, step_slot_for(l, ro.payload), got_request, done_slot);
 }
 
-/* RFC 9000 2.2: re-arm the request-stream accumulator after a completed request
- * has been answered, so the next request (curl reuses stream 0 across requests)
- * reassembles from a clean buffer rather than re-triggering the finished one.
- */
-static void rearm_reqacc(wired_srvloop* l, int got_request) {
-  if (!got_request) return;
-  l->req_len  = 0;
-  l->req_fin  = 0;
-  l->req_done = 0;
+/* RFC 9000 2.2: re-arm the slot that answered this step's request, so the next
+ * request on that stream (curl reuses stream 0 across requests) reassembles
+ * from a clean buffer rather than re-triggering the finished one. */
+static void rearm_reqacc(wired_srvloop* l, int got_request, int done_slot) {
+  wired_srvloop_stream_slot* slot;
+  if (!got_request || done_slot < 0) return;
+  slot           = &l->streams[done_slot];
+  slot->req_len  = 0;
+  slot->req_fin  = 0;
+  slot->req_done = 0;
 }
 
 /* RFC 9000 12.2: a received datagram may coalesce several QUIC packets (e.g. an
@@ -201,17 +299,20 @@ int wired_srvloop_step(
   const u8*    pkts[WIRED_SRVLOOP_MAXPKTS];
   usz          offs[WIRED_SRVLOOP_MAXPKTS], lens[WIRED_SRVLOOP_MAXPKTS], n, i;
   int          got_request = 0;
+  int          done_slot   = -1;
   int          answer;
   int          r;
   quic_pktlist plist = {pkts, offs, lens, WIRED_SRVLOOP_MAXPKTS};
   conn->l->ack_n     = 0;
   n = quic_udploop_split(quic_span_of(dgram.p, dgram.n), &plist);
   for (i = 0; i < n; i++)
-    step_one(conn, quic_mspan_of(dgram.p + offs[i], lens[i]), &got_request);
+    step_one(
+        conn, quic_mspan_of(dgram.p + offs[i], lens[i]), &got_request,
+        &done_slot);
   conn->l->got_request = got_request;
   /* takeover: the caller answers the request, the loop only confirms/ACKs */
   answer = got_request && !conn->l->resp_external;
   r      = wired_srvloop_produce(conn, answer, out);
-  rearm_reqacc(conn->l, got_request);
+  rearm_reqacc(conn->l, got_request, done_slot);
   return r;
 }
