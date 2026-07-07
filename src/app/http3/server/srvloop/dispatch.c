@@ -1,5 +1,6 @@
 #include "app/http3/server/srvloop/dispatch.h"
 
+#include "app/datagram/datagram/dgcheck.h"
 #include "app/datagram/dgdeliver/dg_recv.h"
 #include "app/http3/core/h3/frame.h"
 #include "app/http3/core/h3/stream_type.h"
@@ -427,20 +428,38 @@ static void queue_rx_datagram(wired_srvloop* l, quic_span payload) {
   l->rx_datagram_n++;
 }
 
-/* Decode frame's DATAGRAM payload and queue it; a malformed frame queues
- * nothing. Caller (gather_one_datagram) has already confirmed the type and
- * queue room. */
+/* RFC 9221 3: this connection's own advertised max_datagram_frame_size (0 =
+ * never advertised, this repo's existing sentinel) authorizes payload as a
+ * DATAGRAM the peer had a right to send. Delegates to the pre-existing
+ * predicate (dgcheck.h); the "we advertised at all" flag is derived here from
+ * the 0-sentinel rather than threaded as a separate bit. */
+static int datagram_size_ok(const wired_srvloop* l, usz payload_len) {
+  return quic_datagram_recv_ok(
+      l->we_advertised_max_datagram, l->we_advertised_max_datagram > 0,
+      (u64)payload_len);
+}
+
+/* Decode frame's DATAGRAM payload and either queue it (RFC 9221 3 size check
+ * passes) or latch l->datagram_violation for the caller to close the
+ * connection over (RFC 9221 3: PROTOCOL_VIOLATION). A malformed frame queues
+ * nothing and is not itself a violation (distinct failure mode). Caller
+ * (gather_one_datagram) has already confirmed the type and queue room. */
 static void queue_decoded_datagram(wired_srvloop* l, quic_span frame) {
   quic_span payload;
   if (!quic_dgdeliver_extract(frame, &payload)) return;
+  if (!datagram_size_ok(l, payload.n)) {
+    l->datagram_violation = 1;
+    return;
+  }
   queue_rx_datagram(l, payload);
 }
 
 /* RFC 9221 5: if the walked frame of `type` at `frame` is a DATAGRAM and the
- * queue has room, decode its payload and queue it. A full queue drops the
- * newly arrived datagram (see rx_datagram_n's doc for why): RFC 9221 datagrams
- * are unreliable, so silently dropping one under sustained load is within
- * spec rather than a bug to fix. */
+ * queue has room, decode its payload and queue it (or latch a violation, see
+ * queue_decoded_datagram). A full queue drops the newly arrived datagram (see
+ * rx_datagram_n's doc for why): RFC 9221 datagrams are unreliable, so silently
+ * dropping one under sustained load is within spec rather than a bug to fix.
+ */
 static void gather_one_datagram(wired_srvloop* l, u64 type, quic_span frame) {
   if (quic_frame_classify(type) != QUIC_FK_DATAGRAM) return;
   if (l->rx_datagram_n >= WIRED_SRVLOOP_MAX_RX_DATAGRAMS) return;
