@@ -157,6 +157,34 @@ static void test_busy_poll_enable_does_not_crash(void) {
   CHECK(1);
 }
 
+/* Same testability bar as test_busy_poll_enable_does_not_crash above (tasks/
+ * polling-driver-plan.md POLL-003b): call the real setsockopt on a real
+ * socket, confirm it does not crash. Not verifying kernel-side effect. */
+static void test_prefer_busy_poll_enable_does_not_crash(void) {
+  i64 fd = wired_udp_socket();
+  if (fd < 0) return; /* sandbox: skip */
+  wired_udp_prefer_busy_poll_enable(fd, 1);
+  wired_udp_close(fd);
+  CHECK(1);
+}
+
+static void test_busy_poll_budget_set_does_not_crash(void) {
+  i64 fd = wired_udp_socket();
+  if (fd < 0) return; /* sandbox: skip */
+  wired_udp_busy_poll_budget_set(fd, 8);
+  wired_udp_close(fd);
+  CHECK(1);
+}
+
+/* tasks/core-pinning-plan.md PIN-007, SET direction only. */
+static void test_incoming_cpu_set_does_not_crash(void) {
+  i64 fd = wired_udp_socket();
+  if (fd < 0) return; /* sandbox: skip */
+  wired_udp_incoming_cpu_set(fd, 0);
+  wired_udp_close(fd);
+  CHECK(1);
+}
+
 void test_udp_gso(void) {
   test_gso_cmsg_build();
   test_send_batch_delivers_segments();
@@ -165,4 +193,7 @@ void test_udp_gso(void) {
   test_recvmmsg_nowait_returns_immediately_when_empty();
   test_recvmmsg_nowait_delivers_queued_datagram();
   test_busy_poll_enable_does_not_crash();
+  test_prefer_busy_poll_enable_does_not_crash();
+  test_busy_poll_budget_set_does_not_crash();
+  test_incoming_cpu_set_does_not_crash();
 }
