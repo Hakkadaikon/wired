@@ -969,6 +969,103 @@ static void test_srvloop_two_streams_reassemble_independently(void) {
   CHECK(f.l.req.body_len == 2 && f.l.req.body[0] == 'A' && f.l.req.body[1] == 'A');
 }
 
+/* draft-ietf-webtrans-http3-15 4.3: a WT bidi stream's stream_id has the same
+ * low bits (00) as a normal client-initiated request stream, so it can only be
+ * told apart by its leading bytes: the varint-encoded value 0x41 (2-byte wire
+ * form {0x40, 0x41}, RFC 9000 16 — 65 exceeds the 1-byte range). Build stream
+ * id's offset-0 STREAM frame with that leading varint plus one application
+ * byte behind it. */
+static usz lp_wt_bidi_stream(u8* out, usz cap, u64 stream_id) {
+  u8                sig[3] = {0x40, 0x41, 'X'};
+  quic_stream_frame sf     = {stream_id, 0, sizeof sig, sig, 0};
+  return quic_frame_put_stream(out, cap, &sf);
+}
+
+/* STREAM ID CLASSIFICATION (draft-ietf-webtrans-http3-15 4.3): a stream
+ * whose id classifies as a request (low bits 00) but whose leading bytes
+ * decode to the WT_STREAM signal (0x41) must NOT be committed to the request-
+ * reassembly path (no reassembly slot claimed for it), and a CONCURRENT
+ * normal request stream (id 0) on the same connection must complete
+ * unaffected — proving the WT stream did not corrupt or steal the other
+ * stream's slot. Driven through wired_srvloop_step (the real per-datagram,
+ * per-slot path — stream_slot_for/step_slot_for), not a direct dispatch call,
+ * so the slot-claiming machinery itself is exercised. */
+static void test_srvloop_wt_bidi_stream_not_request(void) {
+  struct lp_fix f;
+  u8            h0[256], d0[256], wt[64], out[1024], spkt[1024];
+  usz           h0l, d0l, wtl, slen;
+  quic_obuf     ob    = {out, sizeof out, 0};
+  const u8*     body0 = (const u8*)"AA";
+  lp_split_post_frames_on(0, body0, 2, h0, sizeof h0, &h0l, d0, sizeof d0, &d0l);
+  wtl = lp_wt_bidi_stream(wt, sizeof wt, 4);
+  lp_confirm(&f, &ob);
+  /* datagram 1: stream 0's HEADERS, then stream 4's (WT) offset-0 signal
+   * frame in the SAME payload -> no request completes yet, and the WT stream
+   * must not have claimed a slot despite its id classifying as request-like. */
+  {
+    u8  payload[512];
+    usz off = 0;
+    for (usz i = 0; i < h0l; i++) payload[off++] = h0[i];
+    for (usz i = 0; i < wtl; i++) payload[off++] = wt[i];
+    slen = client_seal_onertt_pn(&f, 3, payload, off, spkt, sizeof spkt);
+  }
+  ob = (quic_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  CHECK(f.l.got_request == 0);
+  /* only slot 0 (stream 0's) is claimed; no slot exists for stream 4. */
+  CHECK(f.l.streams[0].in_use == 1 && f.l.streams[0].stream_id == 0);
+  for (usz i = 1; i < WIRED_SRVLOOP_MAX_STREAMS; i++)
+    CHECK(f.l.streams[i].in_use == 0);
+  /* datagram 2: stream 0's DATA+FIN completes ITS OWN request, unaffected by
+   * the WT stream's earlier frame in datagram 1. */
+  slen = client_seal_onertt_pn(&f, 4, d0, d0l, spkt, sizeof spkt);
+  ob   = (quic_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  CHECK(f.l.got_request == 1);
+  CHECK(
+      f.l.req.body_len == 2 && f.l.req.body[0] == 'A' && f.l.req.body[1] == 'A');
+  /* stream 4 still claimed no slot after the whole exchange. */
+  for (usz i = 1; i < WIRED_SRVLOOP_MAX_STREAMS; i++)
+    CHECK(f.l.streams[i].in_use == 0);
+}
+
+/* REGRESSION: a normal request stream whose first application byte happens to
+ * be 0x40 (a valid 2-byte varint PREFIX byte, but decoding to a value other
+ * than 0x41 with the second byte below) must still classify as a request —
+ * the signal check must match the full decoded varint VALUE, not merely
+ * detect the 2-byte-varint prefix pattern. */
+static void test_srvloop_stream_leading_0x40_not_wt_signal(void) {
+  struct lp_fix        f;
+  u8                   payload[256], reqb[256];
+  usz                  rlen;
+  wired_h3reqdrive_req req;
+  u8                   scratch[512];
+  int                  got = 0;
+  const u8*            body = (const u8*)"hi";
+  wired_h3reqdrive_send_in in = {
+      quic_span_of((const u8*)"POST", 4), quic_span_of((const u8*)"/", 1),
+      quic_span_of((const u8*)"h", 1), quic_span_of(body, 2)};
+  quic_obuf rob = {reqb, sizeof reqb, 0};
+  lp_make_client_hello(&f);
+  lp_drive_to_flight(&f);
+  CHECK(wired_h3reqdrive_send_method(0, &in, &rob));
+  rlen = rob.len;
+  for (usz i = 0; i < rlen; i++) payload[i] = reqb[i];
+  {
+    wired_srvloop_reqacc      acc = lp_reqacc(&f.l);
+    wired_srvloop_dispatch_in in2 = {
+        quic_span_of(payload, rlen), quic_mspan_of(scratch, sizeof scratch),
+        lp_wrap0(&f.l), &got, &req};
+    CHECK(
+        wired_srvloop_dispatch(
+            &(wired_srvloop_dispatch_ctx){&f.s, &f.l.h3, &acc}, &in2) == 1);
+  }
+  CHECK(got == 1);
+  CHECK(req.body_len == 2 && req.body[0] == 'h' && req.body[1] == 'i');
+}
+
 /* RFC 9000 2.2 / RFC 9114 4.1: a POST whose HEADERS and DATA arrive as two
  * separate request STREAM frames in ONE datagram is reassembled in offset order
  * and the body recovered — not dropped as body 0. */
@@ -1308,6 +1405,8 @@ void test_srvloop(void) {
   test_srvloop_dispatch_split_request_streams();
   test_srvloop_dispatch_split_across_datagrams();
   test_srvloop_two_streams_reassemble_independently();
+  test_srvloop_wt_bidi_stream_not_request();
+  test_srvloop_stream_leading_0x40_not_wt_signal();
   test_srvloop_send_initial_roundtrip();
   test_srvloop_wrong_direction_open_fails();
   test_srvloop_no_onertt_seal_before_confirm();
