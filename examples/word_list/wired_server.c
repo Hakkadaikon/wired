@@ -55,6 +55,7 @@ typedef struct {
   const char* keylog_path; /**< NSS key log file path, or 0 to disable */
   const char* cert_path;   /**< cert.pem path (--cert, default cert.pem) */
   const char* key_path;    /**< key.pem path (--key, default key.pem) */
+  int         busy_poll;   /**< --busy-poll: 1 = MSG_DONTWAIT spin loop */
 } app_config;
 
 /* One line per request: "METHOD PATH STATUS BYTES\n" (ponytail: fixed
@@ -238,7 +239,8 @@ static void load_cert_files(
 /* Resolve CLI configuration: --port (default 4433), --root (static file mode,
  * absent = history demo), --index (default index.html), --access-log
  * (absent = no logging), --qlog-file / --keylog-file (absent = disabled),
- * --cert / --key (cert.pem/key.pem in the cwd by default). */
+ * --cert / --key (cert.pem/key.pem in the cwd by default), --busy-poll
+ * (absent = 0, tasks/polling-driver-plan.md Phase 3). */
 static u16 load_config(app_config* cfg, int argc, char** argv) {
   cfg->root        = wired_cliargs_str(argc, argv, "--root", 0);
   cfg->index       = wired_cliargs_str(argc, argv, "--index", "index.html");
@@ -247,6 +249,7 @@ static u16 load_config(app_config* cfg, int argc, char** argv) {
   cfg->keylog_path = wired_cliargs_str(argc, argv, "--keylog-file", 0);
   cfg->cert_path   = wired_cliargs_str(argc, argv, "--cert", "cert.pem");
   cfg->key_path    = wired_cliargs_str(argc, argv, "--key", "key.pem");
+  cfg->busy_poll   = (int)wired_cliargs_int(argc, argv, "--busy-poll", 0);
   return (u16)wired_cliargs_int(argc, argv, "--port", 4433);
 }
 
@@ -268,7 +271,9 @@ __attribute__((force_align_arg_pointer, used)) static int wired_main(
   {
     wired_srvrun_obs obs = {
         cfg.qlog_path, cfg.keylog_path, cfg.cert_path, cfg.key_path, 0};
-    if (!wired_server_run(port, &id, h, obs)) die("listen failed\n");
+    wired_srvrun_opt opt = {cfg.busy_poll, 0};
+    if (!wired_server_run_opt(port, &id, h, obs, &opt))
+      die("listen failed\n");
   }
   return 0;
 }
