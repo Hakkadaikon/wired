@@ -3,6 +3,7 @@
 
 #include "app/http3/request/h3reqdrive/request_drive.h"
 #include "app/http3/server/h3srv/state.h"
+#include "app/http3/server/srvloop/srvloop.h"
 #include "common/bytes/span/span.h"
 #include "tls/handshake/roles/server/server.h"
 
@@ -33,17 +34,26 @@ typedef struct {
 
 /* The server orchestrator, its HTTP/3 state and the cross-datagram request
  * accumulator dispatch reads/writes together. Folded into one parameter so
- * wired_srvloop_dispatch stays <=3 args. */
+ * wired_srvloop_dispatch stays <=3 args. l is the owning loop, whose
+ * wt_streams[] table draft-ietf-webtrans-http3-15 4.3 WT bidi traffic and
+ * whose rx_datagrams[] queue RFC 9221 5 DATAGRAM frames are each gathered into
+ * independent of the request path above; 0 in a test that exercises only the
+ * request path directly (WT/DATAGRAM gathering are then both skipped). */
 typedef struct {
   wired_server*         s;
   wired_h3srv_state*    h3;
   wired_srvloop_reqacc* acc;
+  wired_srvloop*        l;
 } wired_srvloop_dispatch_ctx;
 
 /* RFC 9000 12.4: route an opened payload's frames. CRYPTO frames (handshake)
  * drive the server orchestrator (wired_server_feed); a request STREAM frame
  * (1-RTT app data) is accumulated into ctx->acc at its offset and, once FIN
- * closes the stream, decoded as an HTTP/3 request. The two paths are kept
+ * closes the stream, decoded as an HTTP/3 request. A WT bidi STREAM frame
+ * (draft-ietf-webtrans-http3-15 4.3, ctx->l != 0) is gathered into ctx->l's
+ * wt_streams[] table, and a DATAGRAM frame (RFC 9221 5, ctx->l != 0) into
+ * ctx->l's rx_datagrams[] queue, independent of whether a request frame is
+ * ALSO present in the same payload. The two request/handshake paths are kept
  * separate: a Handshake payload never reaches HTTP/3, a 1-RTT request never
  * re-enters the handshake. Returns 1 if a frame was handled, 0 otherwise. On
  * a completed request *in->got_request is set and *in->req filled. */
