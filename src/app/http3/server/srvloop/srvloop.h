@@ -97,6 +97,38 @@ typedef struct {
   int offered;
 } wired_srvloop_wt_stream_slot;
 
+/** draft-ietf-webtrans-http3-15 4.3: how many concurrent WebTransport uni
+ * streams (client-initiated, RFC 9000 2.1 low bits 10) one connection can
+ * reassemble. Separate table from wt_streams[] (bidi): a uni stream's
+ * directionality is structurally different (no response half), even though
+ * its post-type-byte bytes are raw application data just like a WT bidi
+ * stream's post-signal bytes. */
+#define WIRED_SRVLOOP_MAX_WT_UNI_STREAMS 4
+
+/** One WebTransport uni stream's cross-datagram reassembly state (draft-ietf-
+ * webtrans-http3-15 4.3). free (in_use == 0) until the stream's leading
+ * type-id varint (0x54, RFC 9000 2.1 uni stream) is first sighted. buf holds
+ * the stream's bytes AFTER the type varint — mirrors wired_srvloop_wt_stream_
+ * slot's buf/sig_len shape (renamed type_len here since a uni stream's
+ * offset-0 varint is a stream TYPE, not a mid-stream signal). */
+typedef struct {
+  int in_use; /**< 0 = free slot */
+  u64 stream_id; /**< the WT uni stream id this slot reassembles */
+  /** bytes the leading type varint occupied on the wire (RFC 9000 16: 2 for
+   * 0x54's own encoding, but recorded rather than assumed), same role as
+   * wired_srvloop_wt_stream_slot's sig_len. */
+  usz type_len;
+  /** offset-indexed bytes past the type varint.
+   * ponytail: overflow past this cap is truncated, same policy as
+   * wired_srvloop_wt_stream_slot's buf. */
+  u8  buf[1024];
+  usz len; /**< high-water mark into buf */
+  u8  fin; /**< 1 once this stream's FIN was seen */
+  /** 1 once wired_wt_session_offer_stream has been called for this slot's
+   * stream_id, mirroring wired_srvloop_wt_stream_slot's offered field. */
+  int offered;
+} wired_srvloop_wt_uni_stream_slot;
+
 /** RFC 9221 5: how many received QUIC DATAGRAM frames one connection queues
  * before a future consumer (a WebTransport session, Phase 7b Slice 2) drains
  * them. Datagrams are unordered/unreliable per RFC 9221, so — unlike the
@@ -147,6 +179,10 @@ typedef struct {
    * slice can wire an app-facing callback over it; this slice only reassembles
    * and associates with the connection's WT session, it does not deliver. */
   wired_srvloop_wt_stream_slot wt_streams[WIRED_SRVLOOP_MAX_WT_STREAMS];
+  /** draft-ietf-webtrans-http3-15 4.3: one reassembly slot per concurrent WT
+   * uni stream, separate from wt_streams[] above (different directionality,
+   * see wired_srvloop_wt_uni_stream_slot's doc). */
+  wired_srvloop_wt_uni_stream_slot wt_uni_streams[WIRED_SRVLOOP_MAX_WT_UNI_STREAMS];
   /** Mirrors the most recently completed request this step, across whichever
    * slot decoded it — the pre-existing single-stream API surface (got_request/
    * req), kept so existing callers reading these two fields directly need no
@@ -211,6 +247,22 @@ int wired_srvloop_wt_slot_find(const wired_srvloop* l, u64 stream_id);
  * @param stream_id the WT bidi stream id
  * @return the slot index, or -1 if the table is full. */
 int wired_srvloop_wt_slot_claim(wired_srvloop* l, u64 stream_id);
+
+/** draft-ietf-webtrans-http3-15 4.3: find the wt_uni_streams slot already
+ * reassembling stream_id, mirroring wired_srvloop_wt_slot_find for the
+ * separate uni table.
+ * @param l the loop to search
+ * @param stream_id the WT uni stream id
+ * @return the slot index, or -1 if this stream has no slot yet. */
+int wired_srvloop_wt_uni_slot_find(const wired_srvloop* l, u64 stream_id);
+
+/** draft-ietf-webtrans-http3-15 4.3: claim and reset a free wt_uni_streams
+ * slot for stream_id, called the first time a uni stream's leading type
+ * varint is recognized as 0x54, mirroring wired_srvloop_wt_slot_claim.
+ * @param l the loop to claim a slot on
+ * @param stream_id the WT uni stream id
+ * @return the slot index, or -1 if the table is full. */
+int wired_srvloop_wt_uni_slot_claim(wired_srvloop* l, u64 stream_id);
 
 /** The loop and its orchestrator, driven together through every wire step
  * (mirrors wired_srvboot_conn, srvboot's cold-start counterpart). */
