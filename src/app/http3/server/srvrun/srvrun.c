@@ -506,11 +506,26 @@ static int srvrun_is_new(const srvrun_conn* c, quic_mspan dg) {
 }
 
 /* Free slot i: drop its table entry and clear its connection's up flag (the
- * shutdown drain accounting then counts it as drained). */
+ * shutdown drain accounting then counts it as drained).
+ *
+ * ponytail: connection teardown (peer CONNECTION_CLOSE, boot failure, or
+ * idle sweep -- the 3 call sites below) is treated as WebTransport session
+ * termination (tasks/webtransport-plan.md WT-F-001/002/003). This is a
+ * deliberate approximation, not the spec-accurate trigger: the real rule
+ * cares about the CONNECT stream's own FIN/RESET independent of whether the
+ * rest of the connection stays alive, and there is no mechanism yet to
+ * detect a per-stream RESET_STREAM on just that stream (this session's
+ * investigation, see tasks/wt-pin-poll-progress.md). Revisit once
+ * stream-level RESET_STREAM dispatch reaches srvrun/srvloop. */
 static void srvrun_free_slot(srvrun_state* st, int i) {
+  srvrun_conn* c = &st->conns[i];
+  if (c->wt_active) {
+    wired_wt_session_close(&c->wt);
+    c->wt_active = 0;
+  }
   quic_conntable_remove(st->table, QUIC_CONNTABLE_CAP, i);
-  st->conns[i].up = 0;
-  wired_srvboot_acc_reset(&st->conns[i].boot);
+  c->up = 0;
+  wired_srvboot_acc_reset(&c->boot);
 }
 
 /* Advertised max_idle_timeout in ms — keep in sync with the value
