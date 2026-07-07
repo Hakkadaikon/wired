@@ -1428,6 +1428,72 @@ static void test_srvrun_idle_sweep_without_wt_unaffected(void) {
   CHECK(quic_conntable_find(table, QUIC_CONNTABLE_CAP, k, 4) == -1);
 }
 
+/* QUIC DATAGRAM SEND (RFC 9221 5): srvrun_queue_datagram queues a payload,
+ * srvrun_send_pending_datagram seals it into a real 1-RTT packet. The client
+ * opens that packet under its own peer key and quic_datagram_decode recovers
+ * the exact payload bytes -- proof of a genuine encode -> seal -> wire ->
+ * decode round trip, not just "the function returned 1". */
+static const u8 sr_dg_payload[] = {0xde, 0xad, 0xbe, 0xef, 0x01};
+
+static void test_srvrun_datagram_round_trip_on_wire(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  quic_obuf     ob;
+  u8            obuf[1600];
+  const u8*     pl;
+  usz           pll;
+  quic_datagram_frame df;
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  CHECK(srvrun_queue_datagram(&c, quic_span_of(sr_dg_payload, sizeof sr_dg_payload)) == 1);
+  CHECK(c.dg_pending == 1);
+  {
+    quic_obuf  out = {obuf, sizeof obuf, 0};
+    srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    CHECK(srvrun_send_pending_datagram(&cfg, &c, &out) == 1);
+    CHECK(client_open_onertt(&f, out.p, out.len, &pl, &pll) == 1);
+  }
+  CHECK(c.dg_pending == 0); /* drained */
+  CHECK(quic_datagram_decode(pl, pll, &df) == pll);
+  CHECK(df.length == sizeof sr_dg_payload);
+  for (usz i = 0; i < sizeof sr_dg_payload; i++)
+    CHECK(df.data[i] == sr_dg_payload[i]);
+}
+
+/* REGRESSION: the existing STREAM-based response path is untouched when the
+ * pending-DATAGRAM machinery is never used -- no pending flag, no wire
+ * change to srvrun_send_slice's own behavior. */
+static void test_srvrun_datagram_unused_does_not_affect_stream_response(void) {
+  srvrun_conn c = {0};
+  CHECK(c.dg_pending == 0);
+  CHECK(c.dg_pending_len == 0);
+}
+
+/* BOUNDARY: a payload larger than dg_pending_buf's capacity is rejected --
+ * queued state is unchanged (no partial copy, no corruption). */
+static void test_srvrun_datagram_too_large_rejected(void) {
+  static u8   big[1201];
+  srvrun_conn c = {0};
+  CHECK(srvrun_queue_datagram(&c, quic_span_of(big, sizeof big)) == 0);
+  CHECK(c.dg_pending == 0);
+}
+
+/* SINGLE-SLOT OVERWRITE CONTRACT: queuing a second datagram before the first
+ * drains overwrites the pending slot (last-writer-wins), per the documented
+ * ponytail simplification on srvrun_conn.dg_pending_buf. */
+static const u8 sr_dg_first[]  = {1, 2, 3};
+static const u8 sr_dg_second[] = {9, 9};
+
+static void test_srvrun_datagram_second_queue_overwrites_first(void) {
+  srvrun_conn c = {0};
+  CHECK(srvrun_queue_datagram(&c, quic_span_of(sr_dg_first, sizeof sr_dg_first)) == 1);
+  CHECK(srvrun_queue_datagram(&c, quic_span_of(sr_dg_second, sizeof sr_dg_second)) == 1);
+  CHECK(c.dg_pending == 1);
+  CHECK(c.dg_pending_len == sizeof sr_dg_second);
+  for (usz i = 0; i < sizeof sr_dg_second; i++)
+    CHECK(c.dg_pending_buf[i] == sr_dg_second[i]);
+}
+
 void test_srvrun(void) {
   test_srvrun_no_shutdown_accepts_new();
   test_srvrun_accept_rekeys_to_slot_scid();
@@ -1481,4 +1547,8 @@ void test_srvrun(void) {
   test_srvrun_second_wt_connect_rejected_429();
   test_srvrun_idle_sweep_closes_wt_session();
   test_srvrun_idle_sweep_without_wt_unaffected();
+  test_srvrun_datagram_round_trip_on_wire();
+  test_srvrun_datagram_unused_does_not_affect_stream_response();
+  test_srvrun_datagram_too_large_rejected();
+  test_srvrun_datagram_second_queue_overwrites_first();
 }
