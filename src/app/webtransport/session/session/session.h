@@ -32,6 +32,10 @@ typedef enum {
  * hundreds of concurrent pre-establishment arrivals, just enough room for the
  * short race between a client opening streams and the server's own 2xx. */
 #define WIRED_WT_MAX_BUFFERED_STREAMS 4
+
+/** How many pre-establishment datagrams this session buffers. Same rationale
+ * as WIRED_WT_MAX_BUFFERED_STREAMS: room for the short race window, not a
+ * general-purpose queue. */
 #define WIRED_WT_MAX_BUFFERED_DATAGRAMS 4
 
 /** Fixed capacity for one buffered pre-establishment datagram's payload.
@@ -44,24 +48,26 @@ typedef enum {
  * reassembly state lives in the transport layer (e.g. srvloop's stream
  * table) -- this only records "this session claims this stream id". */
 typedef struct {
-  int in_use;
-  u64 stream_id;
+  int in_use;    /**< 1 if this slot holds a buffered stream, 0 if free */
+  u64 stream_id; /**< the buffered stream's id */
 } wired_wt_buffered_stream;
 
 /** One buffered pre-establishment datagram, copied (not viewed) since the
  * caller's span may not outlive the call that offered it. */
 typedef struct {
-  int in_use;
-  u8  data[WIRED_WT_BUFFERED_DATAGRAM_CAP];
-  usz len;
+  int in_use;                               /**< 1 if this slot holds a buffered
+                                                datagram, 0 if free */
+  u8  data[WIRED_WT_BUFFERED_DATAGRAM_CAP]; /**< copied payload bytes */
+  usz len; /**< number of valid bytes in data */
 } wired_wt_buffered_datagram;
 
 /** A WebTransport session. connect_stream_id is this session's identity
  * (draft-ietf-webtrans-http3-15 SS4.3: the session ID equals the CONNECT
  * request's client-initiated bidi stream ID). */
 typedef struct {
-  wired_wt_state state;
-  u64            connect_stream_id;
+  wired_wt_state state;             /**< current lifecycle state */
+  u64            connect_stream_id; /**< this session's identity (the CONNECT
+                                        stream's id) */
   wired_wt_buffered_stream
       streams[WIRED_WT_MAX_BUFFERED_STREAMS]; /**< pre-establishment stream
                                                   buffer; slots persist and
