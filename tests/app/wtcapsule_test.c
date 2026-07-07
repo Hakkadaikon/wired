@@ -126,6 +126,40 @@ static void test_wtcapsule_sequential_drain_then_close(void) {
   CHECK(at == out.len);
 }
 
+/* TEST 8: WT-E-010 pin -- the HTTP/3 WebTransport mapping defines no
+ * per-stream flow-control capsule (a hypothetical WT_MAX_STREAM_DATA /
+ * WT_STREAM_DATA_BLOCKED, as opposed to the legitimately-deferred
+ * per-SESSION WT_MAX_DATA family at 0x190B4D3D etc. -- see
+ * tasks/webtransport-plan.md WT-E-004..009 vs WT-E-010). There is no wire
+ * codepoint to construct for a type this SDK will never emit or receive, so
+ * this test instead pins the two facts that ARE checkable:
+ *
+ * 1. wtcapsule.h's decode functions reject ANY capsule type outside its own
+ *    {WT_CLOSE_SESSION, WT_DRAIN_SESSION} set without advancing *at -- shown
+ *    here using the per-SESSION WT_MAX_DATA codepoint (0x190B4D3D) as a
+ *    stand-in "some other capsule type" probe, since no per-stream
+ *    codepoint is defined anywhere to construct one from.
+ * 2. wtcapsule.h declares exactly four functions (encode/decode close,
+ *    encode/decode drain) -- confirmed by the grep in this task's report,
+ *    not expressible as a runtime assertion in C.
+ */
+static void test_wtcapsule_no_per_stream_flow_control_capsule(void) {
+  u8        buf[32];
+  quic_obuf out = quic_obuf_of(buf, sizeof buf);
+  usz       at  = 0;
+  u32       code_out;
+  quic_span msg_out;
+  u8        value[4] = {1, 2, 3, 4};
+
+  /* 0x190B4D3D is WT_MAX_DATA (per-SESSION, deferred per WT-E-004..009) --
+   * used only as "a capsule type wtcapsule does not own" probe. */
+  CHECK(quic_capsule_encode(&out, 0x190B4D3DULL, quic_span_of(value, sizeof value)));
+  CHECK(!quic_wtcapsule_decode_close(quic_span_of(buf, out.len), &at, &code_out, &msg_out));
+  CHECK(at == 0);
+  CHECK(!quic_wtcapsule_decode_drain(quic_span_of(buf, out.len), &at));
+  CHECK(at == 0);
+}
+
 void test_wtcapsule(void) {
   test_wtcapsule_close_roundtrip();
   test_wtcapsule_close_roundtrip_empty_message();
@@ -134,4 +168,5 @@ void test_wtcapsule(void) {
   test_wtcapsule_wrong_type_does_not_advance();
   test_wtcapsule_close_decode_body_too_short();
   test_wtcapsule_sequential_drain_then_close();
+  test_wtcapsule_no_per_stream_flow_control_capsule();
 }
