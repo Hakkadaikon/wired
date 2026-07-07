@@ -7,6 +7,7 @@
 #include "app/http3/server/sendsess/sendsess.h"
 #include "app/http3/server/sigterm/sigterm.h"
 #include "app/http3/server/srvloop/send.h"
+#include "app/http3/server/srvpoll/srvpoll.h"
 #include "common/bytes/util/bytes.h"
 #include "common/platform/clock/mono.h"
 #include "common/platform/debug/debug.h"
@@ -44,6 +45,7 @@ typedef struct {
   const char*           cert_path; /**< cert.pem path, or 0 to disable reload */
   const char*           key_path;  /**< key.pem path, or 0 to disable reload */
   int                   cc_algo;   /**< QUIC_CC_ALGO_* for fresh connections */
+  int                   busy_poll; /**< 1: nonblocking spin instead of poll */
 } srvrun_cfg;
 
 /* Storage a SIGHUP reload decodes into — must outlive the identity built from
@@ -888,8 +890,15 @@ static void srvrun_serve(const srvrun_step_ctx* ctx, quic_mspan dg) {
   srvrun_serve_slot(ctx, slot, dg);
 }
 
+/* so_busy_poll_us > 0 enables SO_BUSY_POLL on fd (tasks/polling-driver-
+ * plan.md POLL-003a); best-effort like SO_REUSEPORT, a no-op when <= 0 or
+ * unsupported by the kernel/driver. */
+static void srvrun_maybe_busy_poll(i64 fd, int so_busy_poll_us) {
+  if (so_busy_poll_us > 0) wired_udp_busy_poll_enable(fd, so_busy_poll_us);
+}
+
 /* Bind a UDP socket on port. Returns the fd, or <0 on failure. */
-static i64 srvrun_listen(u16 port) {
+static i64 srvrun_listen(u16 port, int so_busy_poll_us) {
   quic_sockaddr_in sa;
   i64              fd = wired_udp_socket();
   if (fd < 0) return fd;
@@ -897,6 +906,7 @@ static i64 srvrun_listen(u16 port) {
    * core-pinning-plan.md PIN-004). A single-worker run does not need it, so a
    * failure here is not fatal -- fall through to bind unconditionally. */
   wired_udp_reuseport_enable(fd);
+  srvrun_maybe_busy_poll(fd, so_busy_poll_us);
   wired_udp_addr(&sa, port, (const u8[4]){0, 0, 0, 0});
   if (wired_udp_bind(fd, &sa) < 0) return -1;
   return fd;
@@ -945,9 +955,22 @@ static int srvrun_any_waiting(const srvrun_state* st) {
   return 0;
 }
 
+/* busy_poll=1: the blocking poll(2) itself is replaced by a non-blocking
+ * return (tasks/polling-driver-plan.md -- the srvrun_any_waiting branch above
+ * is kept as-is; only this leaf call changes). The actual non-blocking
+ * receive happens at the recvmmsg step (srvrun_recv), so there is nothing
+ * left to wait for here. */
 static int srvrun_wait_input(const srvrun_cfg* cfg, srvrun_state* st) {
   if (!srvrun_any_waiting(st)) return 1; /* nothing in flight: just block */
+  if (cfg->busy_poll) return 1;
   return quic_poll_wait_readable(cfg->fd, SRVRUN_PTO_MS) > 0;
+}
+
+/* The batch receive call itself: MSG_DONTWAIT spin-step in busy_poll mode,
+ * the existing blocking recvmmsg otherwise (byte-identical default path). */
+static i64 srvrun_recv(const srvrun_cfg* cfg, quic_mmsg_buf* bufs, usz nbufs) {
+  if (cfg->busy_poll) return wired_srvpoll_spin_step(cfg->fd, bufs, nbufs);
+  return wired_udp_recvmmsg(cfg->fd, bufs, nbufs);
 }
 
 static void srvrun_step(
@@ -958,7 +981,7 @@ static void srvrun_step(
     srvrun_fire_ptos(cfg, st);
     return;
   }
-  r = wired_udp_recvmmsg(cfg->fd, bufs, nbufs);
+  r = srvrun_recv(cfg, bufs, nbufs);
   if (r > 0) srvrun_serve_batch(cfg, st, bufs, r);
 }
 
@@ -1012,13 +1035,14 @@ static void srvrun_install_signals(const srvrun_cfg* cfg) {
   srvrun_install_sighup(cfg);
 }
 
-int wired_server_run(
-    u16                  port,
-    wired_srvboot_id*    id,
-    wired_srvrun_handler h,
-    wired_srvrun_obs     obs) {
+int wired_server_run_opt(
+    u16                     port,
+    wired_srvboot_id*       id,
+    wired_srvrun_handler    h,
+    wired_srvrun_obs        obs,
+    const wired_srvrun_opt* opt) {
   srvrun_cfg cfg = {
-      srvrun_listen(port),
+      srvrun_listen(port, opt->so_busy_poll_us),
       id,
       h.cb,
       h.ctx,
@@ -1026,10 +1050,20 @@ int wired_server_run(
       obs.keylog_path,
       obs.cert_path,
       obs.key_path,
-      obs.cc_algo};
+      obs.cc_algo,
+      opt->busy_poll};
   if (cfg.fd < 0) return 0;
   srvrun_install_signals(&cfg);
   WIRED_LOG("listening\n");
   srvrun_loop(&cfg);
   return 1;
+}
+
+int wired_server_run(
+    u16                  port,
+    wired_srvboot_id*    id,
+    wired_srvrun_handler h,
+    wired_srvrun_obs     obs) {
+  static const wired_srvrun_opt default_opt = {0, 0};
+  return wired_server_run_opt(port, id, h, obs, &default_opt);
 }
