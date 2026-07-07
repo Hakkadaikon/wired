@@ -1331,6 +1331,62 @@ static void test_srvrun_wt_connect_origin_malformed_403(void) {
   CHECK(conns[0].sess.active == 1); /* the 403 was still armed */
 }
 
+/* WT-F-001/002/003 (approximation): tearing down the connection tears down
+ * its WebTransport session too. srvrun_free_slot is the one hook common to
+ * every teardown path (peer close, boot failure, idle sweep); this drives it
+ * via the idle sweep, the cheapest of the three to set up in a unit test.
+ * This is NOT the spec-accurate trigger (the real rule is the CONNECT
+ * stream's own FIN/RESET, independent of whether the rest of the connection
+ * survives) -- see the comment on srvrun_free_slot and
+ * tasks/wt-pin-poll-progress.md for why that finer-grained signal does not
+ * exist yet. */
+static void test_srvrun_idle_sweep_closes_wt_session(void) {
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_conn    conns[QUIC_CONNTABLE_CAP] = {0};
+  quic_obuf      ob;
+  u8             obuf[1024];
+  struct lp_fix  f;
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  sr_make_confirmed_conn(&conns[0], &f, &ob);
+  sr_set_req(&conns[0], 1, 1, 4);
+  {
+    srvrun_cfg      cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_state    st  = {table, conns};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_start_resp(&ctx, 0);
+  }
+  CHECK(conns[0].wt_active == 1);
+  CHECK(conns[0].wt.state == WIRED_WT_ESTABLISHED);
+  conns[0].last_ms = 1000;
+  {
+    srvrun_state st = {table, conns};
+    srvrun_sweep_idle(&st, 1000 + WIRED_SRVRUN_IDLE_MS);
+  }
+  CHECK(conns[0].wt_active == 0);
+  CHECK(conns[0].wt.state == WIRED_WT_CLOSED);
+  CHECK(conns[0].up == 0);
+}
+
+/* REGRESSION: a connection with no active WT session (wt_active == 0) tears
+ * down exactly as before -- srvrun_free_slot is the most commonly hit
+ * teardown path, so a crash or behavior change here would be severe. */
+static void test_srvrun_idle_sweep_without_wt_unaffected(void) {
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_conn    conns[QUIC_CONNTABLE_CAP] = {0};
+  srvrun_state   st                        = {table, conns};
+  u8             k[4]                      = {9, 9, 9, 9};
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  conns[0].up        = 1;
+  conns[0].last_ms   = 1000;
+  conns[0].wt_active = 0;
+  CHECK(quic_conntable_insert(table, QUIC_CONNTABLE_CAP, k, 4) == 0);
+  srvrun_sweep_idle(&st, 1000 + WIRED_SRVRUN_IDLE_MS);
+  CHECK(conns[0].up == 0);
+  CHECK(conns[0].wt_active == 0);
+  CHECK(quic_conntable_find(table, QUIC_CONNTABLE_CAP, k, 4) == -1);
+}
+
 void test_srvrun(void) {
   test_srvrun_no_shutdown_accepts_new();
   test_srvrun_accept_rekeys_to_slot_scid();
@@ -1381,4 +1437,6 @@ void test_srvrun(void) {
   test_srvrun_wt_connect_missing_authority_no_session();
   test_srvrun_wt_connect_origin_ok_establishes();
   test_srvrun_wt_connect_origin_malformed_403();
+  test_srvrun_idle_sweep_closes_wt_session();
+  test_srvrun_idle_sweep_without_wt_unaffected();
 }
