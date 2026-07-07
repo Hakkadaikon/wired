@@ -81,6 +81,11 @@ typedef struct {
 /** Same as wired_server_run, plus opt-in polling-driver behavior. `opt` must
  * not be 0; wired_server_run itself passes an all-zero opt so its behavior is
  * byte-identical to before this was added.
+ * @param port UDP port to bind
+ * @param id the fixed server identity; updated in place on a SIGHUP reload
+ * @param h the application's request responder
+ * @param obs optional qlog/keylog file paths and cert reload paths, each 0
+ *   to disable
  * @param opt busy_poll / so_busy_poll_us knobs, see wired_srvrun_opt
  * @return same as wired_server_run. */
 int wired_server_run_opt(
