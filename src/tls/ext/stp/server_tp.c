@@ -73,6 +73,15 @@ static int put_tunables(quic_obuf* out, const quic_stp_limits* lim) {
              lim->max_datagram_frame_size);
 }
 
+/* reset_stream_at (draft-ietf-quic-reliable-stream-reset 4): advertise
+ * support unconditionally via an empty-valued TP -- the codec
+ * (quic_reset_stream_at_encode/_decode) is stable, and announcing costs
+ * nothing even though no live sender uses it yet (unlike
+ * max_datagram_frame_size, whose receive side is not wired). */
+static int put_reset_stream_at(quic_obuf* out) {
+  return put_blob(out, QUIC_TP_RESET_STREAM_AT, quic_span_of(0, 0));
+}
+
 int quic_stp_build_server_lim(
     quic_span              original_dcid,
     quic_span              initial_scid,
@@ -82,7 +91,7 @@ int quic_stp_build_server_lim(
   out->len = 0;
   ok =
       put_blob(out, QUIC_TP_ORIGINAL_DESTINATION_CONNECTION_ID, original_dcid) &
-      put_int_params(out) & put_tunables(out, lim) &
+      put_int_params(out) & put_tunables(out, lim) & put_reset_stream_at(out) &
       put_blob(out, QUIC_TP_INITIAL_SOURCE_CONNECTION_ID, initial_scid);
   return ok;
 }

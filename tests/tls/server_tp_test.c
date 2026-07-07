@@ -149,9 +149,50 @@ static void test_server_tp_datagram_frame_size(void) {
   CHECK(tp_int_value(tp, ob.len, 0x20, &v) == 0);
 }
 
+/* reset_stream_at (0x1d, draft-ietf-quic-reliable-stream-reset 4): sent
+ * unconditionally with an empty value -- id and length are each a 1-byte
+ * varint (0x1d < 0x40, length 0 < 0x40), no content bytes: {0x1d, 0x00}. */
+static void test_server_tp_reset_stream_at_empty(void) {
+  u8        buf[256];
+  quic_span found;
+  u64       id = 0;
+  usz       n  = stp_build(buf, sizeof(buf));
+  CHECK(n != 0);
+  usz off = 0;
+  int ok  = 0;
+  while (off < n) {
+    usz used =
+        quic_tparam_get_blob(quic_span_of(buf + off, n - off), &id, &found);
+    if (!used) break;
+    if (id == QUIC_TP_RESET_STREAM_AT && found.n == 0) ok = 1;
+    off += used;
+  }
+  CHECK(ok);
+
+  /* Hand-verified exact byte pair also occurs literally in the buffer. */
+  int found_bytes = 0;
+  for (usz i = 0; i + 1 < n; i++)
+    if (buf[i] == 0x1d && buf[i + 1] == 0x00) found_bytes = 1;
+  CHECK(found_bytes);
+}
+
+/* Regression: existing TPs are unaffected by adding reset_stream_at. */
+static void test_server_tp_reset_stream_at_does_not_disturb_others(void) {
+  u8  buf[256];
+  u64 v;
+  usz n = stp_build(buf, sizeof(buf));
+  CHECK(n != 0);
+  quic_span tp = quic_span_of(buf, n);
+  CHECK(parse_int(tp, QUIC_TP_INITIAL_MAX_DATA, &v) && v == 1048576);
+  CHECK(parse_int(tp, QUIC_TP_INITIAL_MAX_STREAMS_BIDI, &v) && v == 100);
+  CHECK(tp_int_value(buf, n, 0x20, &v) == 0); /* max_datagram_frame_size */
+}
+
 void test_server_tp(void) {
   test_server_tp_tunable_limits();
   test_server_tp_datagram_frame_size();
+  test_server_tp_reset_stream_at_empty();
+  test_server_tp_reset_stream_at_does_not_disturb_others();
   test_server_tp_ids_and_values();
   test_server_tp_no_room();
   test_server_tp_parse_absent();
