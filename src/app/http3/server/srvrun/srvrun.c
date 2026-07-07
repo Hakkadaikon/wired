@@ -1,5 +1,6 @@
 #include "app/http3/server/srvrun/srvrun.h"
 
+#include "app/datagram/dgdeliver/dg_send.h"
 #include "app/http3/core/h3/frame.h"
 #include "app/http3/core/h3conn/establish.h"
 #include "app/http3/request/h3resp/resp_build.h"
@@ -88,6 +89,16 @@ typedef struct {
                           * for now (tasks/webtransport-plan.md scope). */
   int wt_active; /**< 1 once wired_wt_session_init has been called for this
                     slot */
+  /** One pending outbound QUIC DATAGRAM (RFC 9221 5), queued by
+   * srvrun_wt_send_datagram and drained by srvrun_send_pending_datagram on
+   * the next step. ponytail: single-slot, not a queue — a second send
+   * request before the first drains overwrites dg_pending_buf/dg_pending_len
+   * (last-writer-wins). Acceptable first-cut simplification (DATAGRAM
+   * delivery is unreliable/unordered by design, RFC 9221 1); a real queue can
+   * replace this if an app needs to burst more than one per step. */
+  u8  dg_pending_buf[1200];
+  usz dg_pending_len;
+  int dg_pending; /**< 1 while dg_pending_buf holds an undrained datagram */
 } srvrun_conn;
 
 /* The running server's mutable state: a fixed pool of connection slots keyed
@@ -387,6 +398,65 @@ static int srvrun_send_goaway(
  * exists to seal with), and no GOAWAY has gone out yet. */
 static int srvrun_owes_goaway(const srvrun_conn* c) {
   return c->up && c->l.hs_done_sent && !c->goaway_sent;
+}
+
+/* Queue data as c's one pending outbound QUIC DATAGRAM (RFC 9221), to be sent
+ * on the connection's next step (srvrun_send_pending_datagram). Copies data
+ * into c->dg_pending_buf, so the caller's span need not outlive this call.
+ *
+ * srvrun-internal for now rather than a wired_wt_session API: the
+ * pending-datagram slot lives on srvrun_conn (not wired_wt_session), since
+ * QUIC DATAGRAM sending is generic transport, not WebTransport-specific.
+ * A future WT-specific wrapper (e.g. wired_wt_send_datagram, sketched in
+ * tasks/webtransport-plan.md but not yet declared anywhere) can call this
+ * once srvrun exposes a stable per-connection handle to WT sessions; adding
+ * that bridge now would be speculative (no second caller yet), and no
+ * production code decides to send a datagram yet either (that needs the
+ * app-facing callback hook from the plan's API sketch, also not built) --
+ * hence still test-only, same situation as srvrun_test_set_shutdown above.
+ *
+ * Does not check the peer's advertised max_datagram_frame_size, since this
+ * SDK does not yet retain peer transport parameters (see
+ * tasks/webtransport-plan.md WT-A-007/008). Bounded only by the local
+ * dg_pending_buf capacity, consistent with how other frame types in this file
+ * are already bounded by a local packet-size budget (SRVRUN_CHUNK et al.)
+ * rather than a peer-advertised limit.
+ * ponytail: unused in the freestanding build (only tests/run.c calls this),
+ * so it needs the attribute to avoid -Wunused-function under -Werror there.
+ * @return 1 if queued, 0 if data.n exceeds dg_pending_buf's capacity */
+__attribute__((unused)) static int srvrun_queue_datagram(
+    srvrun_conn* c, quic_span data) {
+  if (data.n > sizeof c->dg_pending_buf) return 0;
+  quic_memcpy(c->dg_pending_buf, data.p, data.n);
+  c->dg_pending_len = data.n;
+  c->dg_pending     = 1;
+  return 1;
+}
+
+/* Seal c's one pending QUIC DATAGRAM (RFC 9221 5) into a 1-RTT packet and send
+ * it. Unlike srvrun_send_slice/srvrun_send_goaway, there is no
+ * wired_sendsess/ACK-loss bookkeeping: RFC 9221 1 DATAGRAM frames are never
+ * retransmitted. max_frame_size is passed as the local plaintext buffer's own
+ * capacity, so quic_dgdeliver_frame's internal size check bounds against
+ * local capacity, not a (nonexistent) peer-advertised limit. Clears
+ * c->dg_pending on success. Returns 1 if sent, 0 if the frame could not be
+ * built (e.g. it would not fit). */
+static int srvrun_send_pending_datagram(
+    const srvrun_cfg* cfg, srvrun_conn* c, quic_obuf* out) {
+  u8                  pl[1400];
+  quic_obuf           plb = quic_obuf_of(pl, sizeof pl);
+  quic_dgdeliver_opts o   = {.with_length = 1, .max_frame_size = sizeof pl};
+  wired_srvloop_send_in sin;
+  if (!quic_dgdeliver_frame(
+          quic_span_of(c->dg_pending_buf, c->dg_pending_len), &o, &plb))
+    return 0;
+  sin = (wired_srvloop_send_in){
+      quic_span_of(c->l.cli_scid, c->l.cli_scid_len), c->l.tx_pn++, -1,
+      quic_span_of(pl, plb.len), 0};
+  if (!wired_srvloop_send_onertt(&c->s, &sin, out)) return 0;
+  srvrun_send(cfg, c, quic_span_of(out->p, out->len), "DATAGRAM sent\n");
+  c->dg_pending = 0;
+  return 1;
 }
 
 /* Send GOAWAY to every live connection that still owes one (RFC 9114 5.2), the
@@ -896,6 +966,15 @@ static void srvrun_feed_acks(
   if (c->sess.has_acked) srvrun_reap_losses(ctx, cfg, c);
 }
 
+/* Send c's pending DATAGRAM (if any) using a scratch quic_obuf on the stack,
+ * the same shape srvrun_send_pending_datagram expects. */
+static void srvrun_pump_datagram(const srvrun_step_ctx* ctx, srvrun_conn* c) {
+  u8        out[1500];
+  quic_obuf ob = quic_obuf_of(out, sizeof out);
+  if (!c->dg_pending) return;
+  srvrun_send_pending_datagram(ctx->cfg, c, &ob);
+}
+
 static void srvrun_sess_on_step(const srvrun_step_ctx* ctx, int slot) {
   srvrun_conn* c = &ctx->st->conns[slot];
   srvrun_feed_acks(ctx, ctx->cfg, c);
@@ -904,6 +983,7 @@ static void srvrun_sess_on_step(const srvrun_step_ctx* ctx, int slot) {
   wired_sendsess_done(&c->sess);
   if (c->l.got_request) srvrun_start_resp(ctx, slot);
   srvrun_pump_sess(ctx, slot);
+  srvrun_pump_datagram(ctx, c);
 }
 
 /* 1 while this slot still owes response bytes (in flight, paced, or window
