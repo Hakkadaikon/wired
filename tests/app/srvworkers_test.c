@@ -33,11 +33,12 @@ static void test_srvworkers_slot_for_pid_empty_table(void) {
  * server, so srvworkers_child_start's exit_group fires right away. */
 static void sw_child_noop(
     u16 port, wired_srvboot_id* id, wired_srvrun_handler h,
-    wired_srvrun_obs obs) {
+    wired_srvrun_obs obs, int worker_index) {
   (void)port;
   (void)id;
   (void)h;
   (void)obs;
+  (void)worker_index;
 }
 
 /* TEST: fork_all(workers=2) starts two distinct live children and records
@@ -108,6 +109,42 @@ static void test_srvworkers_resolve_count_passthrough(void) {
   CHECK(srvworkers_resolve_count(3) == 3);
 }
 
+/* Test child body that proves worker_index really reaches the child body
+ * (tasks/core-pinning-plan.md PIN-007 wiring, srvworkers_child_start ->
+ * g_srvworkers_child_fn): exits with worker_index as its exit status, which
+ * the parent's wait4 status can decode without any new IPC machinery. */
+static void sw_child_echo_index(
+    u16 port, wired_srvboot_id* id, wired_srvrun_handler h,
+    wired_srvrun_obs obs, int worker_index) {
+  (void)port;
+  (void)id;
+  (void)h;
+  (void)obs;
+  syscall1(SYS_exit_group, worker_index);
+}
+
+/* TEST: srvworkers_child_start passes its own worker_index through to the
+ * child body unchanged (here worker_index=1, the second of two forked
+ * workers) -- decoded from the exit status wait4 reports (WIFEXITED/
+ * WEXITSTATUS: low byte of status, shifted right 8). */
+static void test_srvworkers_child_start_passes_worker_index(void) {
+  srvworkers_table     t   = {0};
+  wired_srvworkers_opt opt = {2, 0};
+  wired_srvboot_id     id  = {0};
+  wired_srvrun_handler h   = {0};
+  wired_srvrun_obs     obs = {0};
+  i64                  status;
+
+  srvworkers_test_set_child_fn(sw_child_echo_index);
+  CHECK(srvworkers_fork_all(&t, 0, &id, h, obs, &opt) == 0);
+
+  syscall4(SYS_wait4, t.pid[0], &status, 0, 0);
+  CHECK(((status >> 8) & 0xff) == 0);
+  syscall4(SYS_wait4, t.pid[1], &status, 0, 0);
+  CHECK(((status >> 8) & 0xff) == 1);
+  srvworkers_test_set_child_fn(0);
+}
+
 void test_srvworkers(void) {
   test_srvworkers_slot_for_pid_finds_match();
   test_srvworkers_slot_for_pid_empty_table();
@@ -116,4 +153,5 @@ void test_srvworkers(void) {
   test_srvworkers_resolve_count_zero_is_auto();
   test_srvworkers_resolve_count_clamps_to_max();
   test_srvworkers_resolve_count_passthrough();
+  test_srvworkers_child_start_passes_worker_index();
 }
