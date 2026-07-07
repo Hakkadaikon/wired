@@ -18,7 +18,7 @@ usz quic_qpack_prefix_encode(u8* buf, usz cap, const quic_qpack_prefix* p) {
       quic_mspan_of(buf, cap), ric, p->required_insert_count);
   quic_qpack_pfx db = {7, sign_prefix(p->sign)};
   usz            w  = off ? quic_qpack_int_encode(
-                    quic_mspan_of(buf + off, cap - off), db, p->delta_base)
+                                quic_mspan_of(buf + off, cap - off), db, p->delta_base)
                           : 0;
   return prefix_join(off, w);
 }
