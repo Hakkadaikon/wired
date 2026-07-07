@@ -10,6 +10,7 @@
 #include "app/http3/server/srvloop/send.h"
 #include "app/http3/core/h3/connect.h"
 #include "app/http3/server/srvpoll/srvpoll.h"
+#include "app/webtransport/errmap/errmap/errmap.h"
 #include "app/webtransport/session/session/session.h"
 #include "common/bytes/util/bytes.h"
 #include "common/platform/clock/mono.h"
@@ -320,6 +321,60 @@ static int srvrun_on_initial(
   return srvrun_boot_finish(ctx, c, dg);
 }
 
+/* RFC 9114 4.1.1/8.1: a server aborts a stream with a RESET_STREAM +
+ * STOP_SENDING pair carrying err_code on both -- same shape as
+ * quic_h3cancel_request, which pairs the two for H3_REQUEST_CANCELLED, but
+ * parameterized over the error code so callers can carry either an
+ * HTTP/3-level code (e.g. H3_REQUEST_REJECTED) or a WebTransport application
+ * code already mapped through quic_wterrmap_to_http3. */
+static usz srvrun_wt_busy_reset_payload(u64 stream_id, u64 err_code, quic_obuf* plb) {
+  quic_reset_stream_frame rs = {stream_id, err_code, 0};
+  quic_stop_sending_frame ss = {stream_id, err_code};
+  usz                     rn = quic_reset_stream_encode(plb->p, plb->cap, &rs);
+  usz                     sn;
+  if (!rn) return 0;
+  sn = quic_stop_sending_encode(plb->p + rn, plb->cap - rn, &ss);
+  if (!sn) return 0;
+  return rn + sn;
+}
+
+/* Seal the RESET_STREAM+STOP_SENDING pair above into out as its own 1-RTT
+ * packet on stream_id. Returns 1 with out->len set, 0 if the payload or the
+ * seal failed. */
+static int srvrun_seal_wt_busy_reset(
+    srvrun_conn* c, u64 stream_id, u64 err_code, quic_obuf* out) {
+  u8                    pl[64];
+  quic_obuf             plb = quic_obuf_of(pl, sizeof pl);
+  wired_srvloop_send_in sin;
+  usz                   pln = srvrun_wt_busy_reset_payload(stream_id, err_code, &plb);
+  if (!pln) return 0;
+  sin = (wired_srvloop_send_in){
+      quic_span_of(c->l.cli_scid, c->l.cli_scid_len), c->l.tx_pn++, -1,
+      quic_span_of(pl, pln), 0};
+  return wired_srvloop_send_onertt(&c->s, &sin, out);
+}
+
+/* Seal and send the RESET_STREAM+STOP_SENDING pair carrying err_code as its
+ * own 1-RTT packet. */
+static void srvrun_send_wt_busy_reset(
+    const srvrun_cfg* cfg, srvrun_conn* c, u64 stream_id, u64 err_code) {
+  u8        out[128];
+  quic_obuf ob = quic_obuf_of(out, sizeof out);
+  if (!srvrun_seal_wt_busy_reset(c, stream_id, err_code, &ob)) return;
+  srvrun_send(cfg, c, quic_span_of(out, ob.len), "WT busy RESET_STREAM sent\n");
+}
+
+/* draft-ietf-webtrans-http3-15 4.3/8.2: a buffered-stream-capacity rejection
+ * (wired_wt_session_offer_stream returned 0, i.e. WIRED_WT_MAX_BUFFERED_
+ * STREAMS is full on an unestablished session) is the caller's own contract
+ * to enforce (session.h's offer_stream doc): reset the stream with
+ * WT_BUFFERED_STREAM_REJECTED, mapped through quic_wterrmap_to_http3 since
+ * it is a WebTransport application error code, not an HTTP/3-level one. */
+static void srvrun_reject_wt_slot(const srvrun_cfg* cfg, srvrun_conn* c, u64 stream_id) {
+  srvrun_send_wt_busy_reset(
+      cfg, c, stream_id, quic_wterrmap_to_http3(QUIC_WTERR_BUFFERED_STREAM_REJECTED));
+}
+
 /* draft-ietf-webtrans-http3-15 4.3: associate one newly-reassembled WT bidi
  * stream slot with c's WebTransport session, exactly once (slot->offered
  * latches it) — the session only needs to know the stream id, not its bytes
@@ -328,10 +383,17 @@ static int srvrun_on_initial(
  * protocol-level mismatch this slice leaves as accepted-and-ignored, matching
  * the pre-Slice-3 fallback: routing to a session that does not exist is not
  * meaningful, so nothing is offered and the slot is simply left reassembled
- * but unclaimed by any session. */
-static void srvrun_offer_wt_slot(srvrun_conn* c, wired_srvloop_wt_stream_slot* slot) {
+ * but unclaimed by any session. A 0 return (buffer full) is rejected on the
+ * wire and the slot freed so a retry does not loop forever re-offering the
+ * same doomed stream id. */
+static void srvrun_offer_wt_slot(
+    const srvrun_cfg* cfg, srvrun_conn* c, wired_srvloop_wt_stream_slot* slot) {
   if (!c->wt_active) return;
-  wired_wt_session_offer_stream(&c->wt, slot->stream_id);
+  if (!wired_wt_session_offer_stream(&c->wt, slot->stream_id)) {
+    srvrun_reject_wt_slot(cfg, c, slot->stream_id);
+    slot->in_use = 0;
+    return;
+  }
   slot->offered = 1;
 }
 
@@ -347,10 +409,10 @@ static int wt_slot_needs_offer(const wired_srvloop_wt_stream_slot* slot) {
  * reassembled bytes themselves to an app-facing callback is out of scope here
  * (tasks/webtransport-plan.md Phase 7b/Slice 4) — this only makes the
  * association, per the session's own offer_stream contract. */
-static void srvrun_offer_wt_streams(srvrun_conn* c) {
+static void srvrun_offer_wt_streams(const srvrun_cfg* cfg, srvrun_conn* c) {
   for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_STREAMS; i++) {
     wired_srvloop_wt_stream_slot* slot = &c->l.wt_streams[i];
-    if (wt_slot_needs_offer(slot)) srvrun_offer_wt_slot(c, slot);
+    if (wt_slot_needs_offer(slot)) srvrun_offer_wt_slot(cfg, c, slot);
   }
 }
 
@@ -385,11 +447,16 @@ static void srvrun_drain_rx_datagrams(const srvrun_cfg* cfg, srvrun_conn* c) {
 /* draft-ietf-webtrans-http3-15 4.3: associate one newly-reassembled WT uni
  * stream slot with c's WebTransport session, mirroring srvrun_offer_wt_slot's
  * bidi counterpart exactly (same offer_stream contract, same no-active-
- * session fallback of leaving the slot reassembled but unclaimed). */
+ * session fallback of leaving the slot reassembled but unclaimed, same
+ * reject-and-free-the-slot handling of a buffer-full 0 return). */
 static void srvrun_offer_wt_uni_slot(
-    srvrun_conn* c, wired_srvloop_wt_uni_stream_slot* slot) {
+    const srvrun_cfg* cfg, srvrun_conn* c, wired_srvloop_wt_uni_stream_slot* slot) {
   if (!c->wt_active) return;
-  wired_wt_session_offer_stream(&c->wt, slot->stream_id);
+  if (!wired_wt_session_offer_stream(&c->wt, slot->stream_id)) {
+    srvrun_reject_wt_slot(cfg, c, slot->stream_id);
+    slot->in_use = 0;
+    return;
+  }
   slot->offered = 1;
 }
 
@@ -403,10 +470,10 @@ static int wt_uni_slot_needs_offer(const wired_srvloop_wt_uni_stream_slot* slot)
  * datagram's frames into c->l.wt_uni_streams[], associate every slot this
  * step (or an earlier one) claimed but has not yet offered to c->wt, mirroring
  * srvrun_offer_wt_streams for the separate uni table. */
-static void srvrun_offer_wt_uni_streams(srvrun_conn* c) {
+static void srvrun_offer_wt_uni_streams(const srvrun_cfg* cfg, srvrun_conn* c) {
   for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_UNI_STREAMS; i++) {
     wired_srvloop_wt_uni_stream_slot* slot = &c->l.wt_uni_streams[i];
-    if (wt_uni_slot_needs_offer(slot)) srvrun_offer_wt_uni_slot(c, slot);
+    if (wt_uni_slot_needs_offer(slot)) srvrun_offer_wt_uni_slot(cfg, c, slot);
   }
 }
 
@@ -422,8 +489,8 @@ static void srvrun_on_step(
   srvrun_rxmark      mark     = srvrun_rx_mark(&c->l);
   int                produced = wired_srvloop_step(&conn, dg, &ob);
   srvrun_note_recv(ctx, &mark, c, dg.n);
-  srvrun_offer_wt_streams(c);
-  srvrun_offer_wt_uni_streams(c);
+  srvrun_offer_wt_streams(ctx->cfg, c);
+  srvrun_offer_wt_uni_streams(ctx->cfg, c);
   srvrun_drain_rx_datagrams(ctx->cfg, c);
   if (c->l.peer_closed) return;
   if (produced)
@@ -874,50 +941,6 @@ static void srvrun_start_app_resp(
       SRVRUN_CHUNK);
 }
 
-/* RFC 9114 4.1.1/8.1: a server SHOULD abort a rejected request's stream with
- * H3_REQUEST_REJECTED, independent of any HTTP-level status the request also
- * receives (here, the 429 srvrun_reject_wt_busy already arms). Build the
- * RESET_STREAM + STOP_SENDING pair -- same shape as quic_h3cancel_request,
- * which pairs the two for the analogous H3_REQUEST_CANCELLED case, but this
- * one carries H3_REQUEST_REJECTED instead. */
-static usz srvrun_wt_busy_reset_payload(u64 stream_id, quic_obuf* plb) {
-  quic_reset_stream_frame rs = {stream_id, QUIC_H3_REQUEST_REJECTED, 0};
-  quic_stop_sending_frame ss = {stream_id, QUIC_H3_REQUEST_REJECTED};
-  usz                     rn = quic_reset_stream_encode(plb->p, plb->cap, &rs);
-  usz                     sn;
-  if (!rn) return 0;
-  sn = quic_stop_sending_encode(plb->p + rn, plb->cap - rn, &ss);
-  if (!sn) return 0;
-  return rn + sn;
-}
-
-/* Seal the RESET_STREAM+STOP_SENDING pair above into out as its own 1-RTT
- * packet on the rejected Extended CONNECT's stream. Returns 1 with out->len
- * set, 0 if the payload or the seal failed. */
-static int srvrun_seal_wt_busy_reset(
-    srvrun_conn* c, u64 stream_id, quic_obuf* out) {
-  u8                    pl[64];
-  quic_obuf             plb = quic_obuf_of(pl, sizeof pl);
-  wired_srvloop_send_in sin;
-  usz                   pln = srvrun_wt_busy_reset_payload(stream_id, &plb);
-  if (!pln) return 0;
-  sin = (wired_srvloop_send_in){
-      quic_span_of(c->l.cli_scid, c->l.cli_scid_len), c->l.tx_pn++, -1,
-      quic_span_of(pl, pln), 0};
-  return wired_srvloop_send_onertt(&c->s, &sin, out);
-}
-
-/* Seal and send the RESET_STREAM+STOP_SENDING pair (RFC 9114 4.1.1/8.1) as
- * its own 1-RTT packet, alongside (not instead of) the 429
- * srvrun_reject_wt_busy already arms. */
-static void srvrun_send_wt_busy_reset(
-    const srvrun_cfg* cfg, srvrun_conn* c, u64 stream_id) {
-  u8        out[128];
-  quic_obuf ob = quic_obuf_of(out, sizeof out);
-  if (!srvrun_seal_wt_busy_reset(c, stream_id, &ob)) return;
-  srvrun_send(cfg, c, quic_span_of(out, ob.len), "WT busy RESET_STREAM sent\n");
-}
-
 /* Reject this Extended CONNECT with 429 (WT-C-010/011: a second Extended
  * CONNECT arriving while a WT session is already active on this connection)
  * without disturbing the existing session. One session per connection for
@@ -929,7 +952,7 @@ static void srvrun_send_wt_busy_reset(
 static void srvrun_reject_wt_busy(
     const srvrun_cfg* cfg, srvrun_conn* c, int slot) {
   srvrun_start_wt_status(c, slot, 429);
-  srvrun_send_wt_busy_reset(cfg, c, c->l.req_stream_id);
+  srvrun_send_wt_busy_reset(cfg, c, c->l.req_stream_id, QUIC_H3_REQUEST_REJECTED);
 }
 
 /* A well-formed Extended CONNECT for WebTransport either establishes a
