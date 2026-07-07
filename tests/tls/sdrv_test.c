@@ -1,5 +1,6 @@
 #include "tls/handshake/core/sdrv/sdrv.h"
 
+#include "app/datagram/datagram/datagram.h"
 #include "crypto/pki/encoding/x509/ec_pubkey.h"
 #include "crypto/pki/encoding/x509/spki.h"
 #include "crypto/pki/encoding/x509/x509.h"
@@ -486,6 +487,10 @@ void test_sdrv(void) {
     CHECK(quic_sdrv_set_cids(
         &s2, quic_span_of(client_dcid, sizeof(client_dcid)),
         quic_span_of(server_scid, sizeof(server_scid))));
+    /* WT-A-006: opting in to DATAGRAM support (RFC 9221 3) makes the real
+     * server flight advertise a non-zero max_datagram_frame_size, not just
+     * the isolated codec. */
+    s2.limits.max_datagram_frame_size = 65535;
     ch_len = quic_tls_client_hello(
         &(quic_clienthello_in){
             srv_random, cli_pub, quic_span_of(0, 0),
@@ -514,6 +519,15 @@ void test_sdrv(void) {
         cid.n == sizeof(server_scid) &&
         quic_tparam_cid_match(
             cid, quic_span_of(server_scid, sizeof(server_scid))));
+
+    /* WT-A-006: the real flight's transport parameters carry the opted-in
+     * max_datagram_frame_size (0x20), not zero/absent. */
+    {
+      u64          dgram_size = 0;
+      quic_stp_out dgo        = {&dgram_size, 0};
+      CHECK(quic_stp_parse(tp, QUIC_TP_MAX_DATAGRAM_FRAME_SIZE, &dgo) == 1);
+      CHECK(dgram_size == 65535);
+    }
   }
 
   /* Finished verifies under the server handshake traffic secret (derived
