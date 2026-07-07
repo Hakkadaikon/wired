@@ -46,28 +46,46 @@ static int sf_is_wt_signalled(const quic_stream_frame* sf) {
          is_wt_stream_signal(quic_span_of(sf->data, (usz)sf->length));
 }
 
+/* draft-ietf-webtrans-http3-15 4.3: this frame is either the stream's leading
+ * signal (offset 0, decodes to 0x41) or belongs to a stream already claimed
+ * in wt_streams[] by an earlier signal frame. Either way it is WT bidi
+ * traffic, not a request. l may be 0 (a caller exercising only the request
+ * path directly, see wired_srvloop_dispatch_ctx's doc) — a stream can only be
+ * ALREADY claimed via a loop that does not exist, so only the offset-0 signal
+ * check applies then. */
+static int wt_frame_relevant(const wired_srvloop* l, const quic_stream_frame* sf) {
+  if (sf_is_wt_signalled(sf)) return 1;
+  return l && wired_srvloop_wt_slot_find(l, sf->stream_id) >= 0;
+}
+
 /* 1 if sf is a client bidi request stream — i.e. its id classifies as request
- * and it is not a WT bidi stream signalled at its first frame. A WT bidi
- * stream must never be committed to the HTTP/3 request-reassembly path; full
- * routing to a wired_wt_session is Phase 7b future work (see
- * wired_srvloop_dispatch's header doc). Per this call's scope, a WT stream is
- * simply not treated as a request (feed_or_accept's existing "accepted but
- * ignored" path takes it from here). */
-static int sf_is_request(const quic_stream_frame* sf) {
-  return is_request_stream(sf->stream_id) && !sf_is_wt_signalled(sf);
+ * and it is not WT bidi traffic (wt_frame_relevant: either this frame is the
+ * leading 0x41 signal, or an earlier frame already claimed this stream in
+ * l->wt_streams[]). A WT bidi stream must never be committed to the HTTP/3
+ * request-reassembly path, at ANY offset — checking only offset 0 here would
+ * let a WT stream's post-signal continuation frame (offset>0) be misread as
+ * request data (draft-ietf-webtrans-http3-15 4.3's leading-bytes requirement
+ * is about where the SIGNAL may appear, not about which frames of an already-
+ * classified stream still count as application data). Full routing to a
+ * wired_wt_session is Phase 7b future work (see wired_srvloop_dispatch's
+ * header doc); per this call's scope, a WT stream is simply not treated as a
+ * request (feed_or_accept's existing "accepted but ignored" path takes it
+ * from here). */
+static int sf_is_request(const wired_srvloop* l, const quic_stream_frame* sf) {
+  return is_request_stream(sf->stream_id) && !wt_frame_relevant(l, sf);
 }
 
 /* 1 if the STREAM frame at `frame` is a client bidi request stream. */
-static int stream_is_request(const u8* frame, usz rem) {
+static int stream_is_request(const wired_srvloop* l, const u8* frame, usz rem) {
   quic_stream_frame sf;
   if (quic_frame_get_stream(frame, rem, &sf) == 0) return 0;
-  return sf_is_request(&sf);
+  return sf_is_request(l, &sf);
 }
 
 /* 1 if the walked frame of `type` at `frame` is a client bidi request STREAM.
  */
-static int is_request_frame(u64 type, const u8* frame, usz rem) {
-  return is_stream(type) && stream_is_request(frame, rem);
+static int is_request_frame(const wired_srvloop* l, u64 type, const u8* frame, usz rem) {
+  return is_stream(type) && stream_is_request(l, frame, rem);
 }
 
 /* RFC 9114 4.1: hand the (reassembled) request STREAM frame to the HTTP/3
@@ -102,9 +120,13 @@ static void gather_one(const quic_stream_frame* sf, wired_srvloop_reqacc* acc) {
   *acc->fin |= sf->fin;
 }
 
-/* 1 if the walked frame is a request STREAM frame and decodes into sf. */
-static int request_stream_of(u64 type, quic_span frame, quic_stream_frame* sf) {
-  return is_request_frame(type, frame.p, frame.n) &&
+/* 1 if the walked frame is a request STREAM frame and decodes into sf. l is
+ * threaded through to is_request_frame so a WT bidi stream's continuation
+ * frame (offset>0, already claimed in l->wt_streams[]) is excluded here too,
+ * not just its own offset-0 signal frame. */
+static int request_stream_of(
+    const wired_srvloop* l, u64 type, quic_span frame, quic_stream_frame* sf) {
+  return is_request_frame(l, type, frame.p, frame.n) &&
          quic_frame_get_stream(frame.p, frame.n, sf);
 }
 
@@ -113,14 +135,15 @@ static int request_stream_of(u64 type, quic_span frame, quic_stream_frame* sf) {
  * skipping PADDING/ACK and the unidirectional STREAMs (control / QPACK) curl
  * sends first. Returns 1 if any request-stream frame was seen this datagram. */
 static int gather_request(
-    const u8* payload, usz len, wired_srvloop_reqacc* acc) {
+    const wired_srvloop* l, const u8* payload, usz len,
+    wired_srvloop_reqacc* acc) {
   quic_framewalk      it;
   quic_framewalk_item fr;
   int                 seen = 0;
   quic_stream_frame   sf;
   quic_framewalk_init(&it, payload, len);
   while (quic_framewalk_next(&it, &fr))
-    if (request_stream_of(fr.type, quic_span_of(fr.start, fr.remaining), &sf)) {
+    if (request_stream_of(l, fr.type, quic_span_of(fr.start, fr.remaining), &sf)) {
       gather_one(&sf, acc);
       seen = 1;
     }
@@ -141,15 +164,6 @@ static int request_complete(const wired_srvloop_reqacc* acc) {
 static int client_bidi_stream_of(u64 type, quic_span frame, quic_stream_frame* sf) {
   return is_stream(type) && quic_frame_get_stream(frame.p, frame.n, sf) &&
          is_request_stream(sf->stream_id);
-}
-
-/* draft-ietf-webtrans-http3-15 4.3: this frame is either the stream's leading
- * signal (offset 0, decodes to 0x41) or belongs to a stream already claimed
- * in wt_streams[] by an earlier signal frame. Either way it is WT bidi
- * traffic, not a request. */
-static int wt_frame_relevant(const wired_srvloop* l, const quic_stream_frame* sf) {
-  return sf_is_wt_signalled(sf) ||
-         wired_srvloop_wt_slot_find(l, sf->stream_id) >= 0;
 }
 
 /* draft-ietf-webtrans-http3-15 4.3: bytes of THIS frame's own data that are
@@ -504,11 +518,9 @@ static void drive_complete(
  * once FIN closes the stream, decode the reassembled request exactly once.
  * Returns 1 if a request-stream frame was present (handled), 0 otherwise. */
 static int reassemble_and_drive(
-    wired_h3srv_state*               h3,
-    wired_srvloop_reqacc*            acc,
-    const wired_srvloop_dispatch_in* in) {
-  if (!gather_request(in->payload.p, in->payload.n, acc)) return 0;
-  if (request_complete(acc)) drive_complete(h3, acc, in);
+    const wired_srvloop_dispatch_ctx* ctx, const wired_srvloop_dispatch_in* in) {
+  if (!gather_request(ctx->l, in->payload.p, in->payload.n, ctx->acc)) return 0;
+  if (request_complete(ctx->acc)) drive_complete(ctx->h3, ctx->acc, in);
   return 1;
 }
 
@@ -596,18 +608,19 @@ int wired_srvloop_dispatch(
     const wired_srvloop_dispatch_ctx* ctx,
     const wired_srvloop_dispatch_in*  in) {
   int handled_side = dispatch_gather_side_channels(ctx, in->payload);
-  if (reassemble_and_drive(ctx->h3, ctx->acc, in)) return 1;
+  if (reassemble_and_drive(ctx, in)) return 1;
   if (handled_side) return 1;
   return dispatch_non_request(ctx->s, in->payload.p, in->payload.n);
 }
 
-int wired_srvloop_payload_stream_id(quic_span payload, u64* stream_id_out) {
+int wired_srvloop_payload_stream_id(
+    const wired_srvloop* l, quic_span payload, u64* stream_id_out) {
   quic_framewalk      it;
   quic_framewalk_item fr;
   quic_stream_frame   sf;
   quic_framewalk_init(&it, payload.p, payload.n);
   while (quic_framewalk_next(&it, &fr))
-    if (request_stream_of(fr.type, quic_span_of(fr.start, fr.remaining), &sf)) {
+    if (request_stream_of(l, fr.type, quic_span_of(fr.start, fr.remaining), &sf)) {
       *stream_id_out = sf.stream_id;
       return 1;
     }
