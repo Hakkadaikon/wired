@@ -14,6 +14,10 @@
 typedef struct {
   u64 max_data;         /**< initial_max_data (0x04), default 1MiB */
   u64 max_streams_bidi; /**< initial_max_streams_bidi (0x08), default 100 */
+  u64 max_datagram_frame_size; /**< max_datagram_frame_size (0x20, RFC 9221 3),
+                                * 0 = not advertised (no built-in default: the
+                                * caller opts in once DATAGRAM delivery is
+                                * wired end-to-end) */
 } quic_stp_limits;
 
 int quic_stp_build_server(
