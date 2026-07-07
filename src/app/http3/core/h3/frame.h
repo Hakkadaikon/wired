@@ -26,6 +26,14 @@
 /* draft-ietf-webtrans-http3-15 4.3: WebTransport unidirectional stream. */
 #define QUIC_H3_STREAM_WEBTRANSPORT 0x54
 
+/* draft-ietf-webtrans-http3-15 4.3: the WT_STREAM signal a WebTransport bidi
+ * stream (client- or server-initiated) MUST send as the varint-encoded value
+ * of its very first bytes, before any application data. 65 exceeds the 1-byte
+ * varint range (RFC 9000 16, max 0x3F), so on the wire it is the 2-byte
+ * encoding {0x40, 0x41} — decode with quic_varint_take/quic_varint_decode,
+ * never compare a raw leading byte to 0x41. */
+#define QUIC_H3_STREAM_WEBTRANSPORT_BIDI 0x41
+
 /* RFC 9114 8.1 error codes. */
 #define QUIC_H3_NO_ERROR 0x0100
 #define QUIC_H3_GENERAL_PROTOCOL_ERROR 0x0101
