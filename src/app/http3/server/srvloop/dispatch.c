@@ -1,9 +1,12 @@
 #include "app/http3/server/srvloop/dispatch.h"
 
+#include "app/datagram/dgdeliver/dg_recv.h"
 #include "app/http3/core/h3/frame.h"
 #include "app/http3/server/h3srv/respond.h"
+#include "app/http3/server/srvloop/srvloop.h"
 #include "common/bytes/util/bytes.h"
 #include "common/bytes/varint/varint.h"
+#include "transport/packet/frame/frame/dispatch.h"
 #include "transport/packet/frame/frame/frame.h"
 #include "transport/packet/frame/pipeline/framewalk.h"
 #include "transport/stream/data/appdata/stream_send.h"
@@ -127,6 +130,176 @@ static int request_complete(const wired_srvloop_reqacc* acc) {
   return *acc->fin && !*acc->done;
 }
 
+/* 1 if the walked frame at `frame` is ANY client-bidi-id-shaped STREAM frame
+ * (low bits 00) — the id space a WT bidi stream shares with request streams,
+ * unlike request_stream_of this does NOT exclude a WT-signalled stream, since
+ * this is exactly the classifier gather_wt_stream needs to find WT frames
+ * request_stream_of deliberately skips. */
+static int client_bidi_stream_of(u64 type, quic_span frame, quic_stream_frame* sf) {
+  return is_stream(type) && quic_frame_get_stream(frame.p, frame.n, sf) &&
+         is_request_stream(sf->stream_id);
+}
+
+/* draft-ietf-webtrans-http3-15 4.3: this frame is either the stream's leading
+ * signal (offset 0, decodes to 0x41) or belongs to a stream already claimed
+ * in wt_streams[] by an earlier signal frame. Either way it is WT bidi
+ * traffic, not a request. */
+static int wt_frame_relevant(const wired_srvloop* l, const quic_stream_frame* sf) {
+  return sf_is_wt_signalled(sf) ||
+         wired_srvloop_wt_slot_find(l, sf->stream_id) >= 0;
+}
+
+/* draft-ietf-webtrans-http3-15 4.3: bytes of THIS frame's own data that are
+ * the leading signal, not application data — slot->sig_len for the offset-0
+ * signal frame itself (whose data begins with the signal varint, possibly
+ * followed by application bytes that landed in the same frame), 0 for any
+ * later frame (pure application data, the signal never reappears past
+ * offset 0). */
+static usz wt_frame_skip(const quic_stream_frame* sf, const wired_srvloop_wt_stream_slot* slot) {
+  return sf->offset == 0 ? slot->sig_len : 0;
+}
+
+/* Raise slot->len to end, clamped to cap — same shape as dispatch.c's
+ * bump_len for the request accumulator. */
+static void bump_wt_len(wired_srvloop_wt_stream_slot* slot, usz end, usz cap) {
+  usz hi = end < cap ? end : cap;
+  if (hi > slot->len) slot->len = hi;
+}
+
+/* draft-ietf-webtrans-http3-15 4.3: land one WT bidi STREAM frame's
+ * application bytes into slot->buf. Two distinct quantities: `skip` is how
+ * many bytes of THIS frame's own data are the signal rather than application
+ * data (nonzero only for the offset-0 frame, see wt_frame_skip); `buf_off` is
+ * where in slot->buf this frame's application bytes land — every frame's
+ * stream-level offset is shifted left by the signal's FULL encoded length
+ * (slot->sig_len), since the signal itself never occupies any buf position,
+ * not just the offset-0 frame's own skip.
+ * ponytail: data past slot->buf's cap is truncated, same policy as the
+ * request accumulator's gather_one. */
+static void gather_wt_one(const quic_stream_frame* sf, wired_srvloop_wt_stream_slot* slot) {
+  usz skip    = wt_frame_skip(sf, slot);
+  usz buf_off = (usz)sf->offset - slot->sig_len + skip;
+  usz start   = buf_off;
+  usz cap     = sizeof slot->buf;
+  usz n       = (usz)sf->length - skip;
+  if (buf_off >= cap) return;
+  quic_put_bytes(
+      quic_mspan_of(slot->buf, cap), &buf_off, quic_span_of(sf->data + skip, n));
+  bump_wt_len(slot, start + n, cap);
+  slot->fin |= sf->fin;
+}
+
+/* draft-ietf-webtrans-http3-15 4.3: find-or-claim the wt_streams slot for a
+ * newly-signalled stream, recording the signal's own encoded length so
+ * gather_wt_one can skip exactly that many bytes. Returns -1 (dropped, table
+ * full) exactly like stream_slot_claim's fixed-capacity fallback. */
+static int wt_slot_for_signal(wired_srvloop* l, const quic_stream_frame* sf) {
+  int i = wired_srvloop_wt_slot_claim(l, sf->stream_id);
+  u64 v;
+  usz off = 0;
+  if (i < 0) return -1;
+  quic_varint_take(quic_span_of(sf->data, (usz)sf->length), &off, &v);
+  l->wt_streams[i].sig_len = off;
+  return i;
+}
+
+/* draft-ietf-webtrans-http3-15 4.3: the wt_streams[] slot index for sf, which
+ * wt_frame_relevant already confirmed is WT bidi traffic — claim one on the
+ * leading signal frame, look up the existing one otherwise. */
+static int wt_slot_for(wired_srvloop* l, const quic_stream_frame* sf) {
+  if (sf->offset == 0) return wt_slot_for_signal(l, sf);
+  return wired_srvloop_wt_slot_find(l, sf->stream_id);
+}
+
+/* draft-ietf-webtrans-http3-15 4.3: land sf (already confirmed WT bidi
+ * traffic) into its slot, claiming one on the leading signal frame. A full
+ * table (i<0) still counts the frame as seen, matching stream_slot_claim's
+ * fixed-capacity fallback of dropping the data but not the classification. */
+static void gather_wt_land(wired_srvloop* l, const quic_stream_frame* sf) {
+  int i = wt_slot_for(l, sf);
+  if (i >= 0) gather_wt_one(sf, &l->wt_streams[i]);
+}
+
+/* draft-ietf-webtrans-http3-15 4.3: if the walked frame at `frame` is WT bidi
+ * traffic (wt_frame_relevant), gather it into its slot. Returns 1 if it was
+ * (whether or not a slot was available to hold it — matching gather_request's
+ * seen semantics). */
+static int gather_wt_frame(wired_srvloop* l, u64 type, quic_span frame) {
+  quic_stream_frame sf;
+  if (!client_bidi_stream_of(type, frame, &sf)) return 0;
+  if (!wt_frame_relevant(l, &sf)) return 0;
+  gather_wt_land(l, &sf);
+  return 1;
+}
+
+/* RFC 9000 2.2 / 12.4, draft-ietf-webtrans-http3-15 4.3: write every WT bidi
+ * STREAM frame in this payload into its own wt_streams[] slot, at its offset
+ * past the signal — independent of whether a request stream is ALSO present
+ * in the same payload (a coalesced datagram may carry both). A stream is
+ * recognized as WT bidi from its first (offset-0) signal frame; the slot is
+ * claimed at that point. Returns 1 if any WT bidi frame was seen. */
+static int gather_wt_stream(wired_srvloop* l, const u8* payload, usz len) {
+  quic_framewalk      it;
+  quic_framewalk_item fr;
+  int                 seen = 0;
+  quic_framewalk_init(&it, payload, len);
+  while (quic_framewalk_next(&it, &fr))
+    seen |= gather_wt_frame(l, fr.type, quic_span_of(fr.start, fr.remaining));
+  return seen;
+}
+
+/* RFC 9221 5: copy one decoded DATAGRAM frame's payload into the next free
+ * rx_datagrams slot (truncated to its cap, matching this repo's existing
+ * truncate-on-overflow policy for fixed buffers). Caller has already checked
+ * the queue is not full. */
+static void queue_rx_datagram(wired_srvloop* l, quic_span payload) {
+  wired_srvloop_rx_datagram* slot = &l->rx_datagrams[l->rx_datagram_n];
+  usz cap                         = sizeof slot->buf;
+  usz n                           = payload.n < cap ? payload.n : cap;
+  usz off                         = 0;
+  quic_put_bytes(quic_mspan_of(slot->buf, cap), &off, quic_span_of(payload.p, n));
+  slot->len = n;
+  l->rx_datagram_n++;
+}
+
+/* Decode frame's DATAGRAM payload and queue it; a malformed frame queues
+ * nothing. Caller (gather_one_datagram) has already confirmed the type and
+ * queue room. */
+static void queue_decoded_datagram(wired_srvloop* l, quic_span frame) {
+  quic_span payload;
+  if (!quic_dgdeliver_extract(frame, &payload)) return;
+  queue_rx_datagram(l, payload);
+}
+
+/* RFC 9221 5: if the walked frame of `type` at `frame` is a DATAGRAM and the
+ * queue has room, decode its payload and queue it. A full queue drops the
+ * newly arrived datagram (see rx_datagram_n's doc for why): RFC 9221 datagrams
+ * are unreliable, so silently dropping one under sustained load is within
+ * spec rather than a bug to fix. */
+static void gather_one_datagram(wired_srvloop* l, u64 type, quic_span frame) {
+  if (quic_frame_classify(type) != QUIC_FK_DATAGRAM) return;
+  if (l->rx_datagram_n >= WIRED_SRVLOOP_MAX_RX_DATAGRAMS) return;
+  queue_decoded_datagram(l, frame);
+}
+
+/* RFC 9221 5: queue every DATAGRAM frame in this payload into l->rx_datagrams,
+ * independent of whether the same payload also carries a request or WT bidi
+ * stream frame (a coalesced 1-RTT packet may carry all three). Returns 1 if
+ * any DATAGRAM frame was seen this payload (whether or not the queue had room
+ * to hold it), so the caller can keep such a payload out of
+ * dispatch_non_request's handshake-feed fallback. */
+static int gather_rx_datagrams(wired_srvloop* l, const u8* payload, usz len) {
+  quic_framewalk      it;
+  quic_framewalk_item fr;
+  int                 seen = 0;
+  quic_framewalk_init(&it, payload, len);
+  while (quic_framewalk_next(&it, &fr)) {
+    if (quic_frame_classify(fr.type) == QUIC_FK_DATAGRAM) seen = 1;
+    gather_one_datagram(l, fr.type, quic_span_of(fr.start, fr.remaining));
+  }
+  return seen;
+}
+
 /* RFC 9114 4.1: re-wrap the reassembled stream bytes as a single STREAM frame
  * (offset 0) into in->wrap and drive the HTTP/3 request decoder once. req's
  * path/body views end up pointing into in->wrap, so it must be caller-owned
@@ -189,15 +362,48 @@ static int dispatch_non_request(wired_server* s, const u8* payload, usz len) {
   return feed_or_accept(s, payload, len);
 }
 
+/* 1 if ctx has a loop to gather WT bidi traffic into (ctx->l != 0) and this
+ * payload carried any (draft-ietf-webtrans-http3-15 4.3). A dispatch caller
+ * exercising only the request path directly (l == 0) skips WT gathering
+ * entirely rather than dereferencing a null loop. */
+static int dispatch_gather_wt(const wired_srvloop_dispatch_ctx* ctx, quic_span payload) {
+  if (!ctx->l) return 0;
+  return gather_wt_stream(ctx->l, payload.p, payload.n);
+}
+
+/* 1 if ctx has a loop to queue DATAGRAM frames into (ctx->l != 0) and this
+ * payload carried any (RFC 9221 5). A dispatch caller exercising only the
+ * request path directly (l == 0) skips DATAGRAM gathering entirely rather
+ * than dereferencing a null loop. */
+static int dispatch_gather_datagrams(
+    const wired_srvloop_dispatch_ctx* ctx, quic_span payload) {
+  if (!ctx->l) return 0;
+  return gather_rx_datagrams(ctx->l, payload.p, payload.n);
+}
+
 /* RFC 9000 12.4 / 2.1, RFC 9114 6.2: a payload may lead with PADDING/ACK before
  * its CRYPTO or STREAM frame (curl/quiche do this). A client bidi STREAM drives
  * HTTP/3; unidirectional STREAMs are accepted but ignored; anything else is
  * handed whole to wired_server_feed, whose crecv reassembles a split
- * ClientHello/Finished. A STREAM payload never re-enters the handshake. */
+ * ClientHello/Finished. A STREAM payload never re-enters the handshake, and
+ * neither does a WT bidi stream (draft-ietf-webtrans-http3-15 4.3) or a
+ * DATAGRAM frame (RFC 9221 5) — both are gathered independently before either
+ * path below, since a coalesced payload may carry all three. */
+/* Gather this payload's WT bidi and DATAGRAM frames (each independent of the
+ * other, see wired_srvloop_dispatch's doc); 1 if either kind was present. */
+static int dispatch_gather_side_channels(
+    const wired_srvloop_dispatch_ctx* ctx, quic_span payload) {
+  int got_wt = dispatch_gather_wt(ctx, payload);
+  int got_dg = dispatch_gather_datagrams(ctx, payload);
+  return got_wt | got_dg;
+}
+
 int wired_srvloop_dispatch(
     const wired_srvloop_dispatch_ctx* ctx,
     const wired_srvloop_dispatch_in*  in) {
+  int handled_side = dispatch_gather_side_channels(ctx, in->payload);
   if (reassemble_and_drive(ctx->h3, ctx->acc, in)) return 1;
+  if (handled_side) return 1;
   return dispatch_non_request(ctx->s, in->payload.p, in->payload.n);
 }
 
