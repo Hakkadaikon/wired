@@ -21,6 +21,7 @@
 #include "transport/conn/lifecycle/conntable/conntable.h"
 #include "transport/io/socket/io/udp.h"
 #include "transport/io/socket/poll/wait.h"
+#include "transport/packet/frame/frame/frame.h"
 #include "transport/packet/frame/frame/stream_ctl.h"
 #include "transport/packet/header/dcidresolve/dcidresolve.h"
 #include "transport/packet/header/packet/header.h"
@@ -362,6 +363,45 @@ static void srvrun_send_wt_busy_reset(
   quic_obuf ob = quic_obuf_of(out, sizeof out);
   if (!srvrun_seal_wt_busy_reset(c, stream_id, err_code, &ob)) return;
   srvrun_send(cfg, c, quic_span_of(out, ob.len), "WT busy RESET_STREAM sent\n");
+}
+
+/* RFC 9000 10.2.3: an application-level CONNECTION_CLOSE (type 0x1d,
+ * is_app=1) carrying an HTTP/3 or WebTransport-level error code and reason.
+ * Mirrors wired_srvboot_refusal's is_app=0 handshake-rejection pattern
+ * (srvboot.c) but for use OUTSIDE handshake rejection -- an established
+ * connection closing itself for an application-level protocol violation. */
+static usz srvrun_app_close_payload(u64 error_code, quic_span reason, quic_obuf* plb) {
+  quic_conn_close_frame cc = {1, error_code, 0, reason.n, reason.p};
+  return quic_frame_put_conn_close(plb->p, plb->cap, &cc);
+}
+
+/* Seal the CONNECTION_CLOSE above into out as its own 1-RTT packet. Returns
+ * 1 with out->len set, 0 if the payload or the seal failed. */
+static int srvrun_seal_app_close(
+    srvrun_conn* c, u64 error_code, quic_span reason, quic_obuf* out) {
+  u8                    pl[64];
+  quic_obuf             plb = quic_obuf_of(pl, sizeof pl);
+  wired_srvloop_send_in sin;
+  usz                   pln = srvrun_app_close_payload(error_code, reason, &plb);
+  if (!pln) return 0;
+  sin = (wired_srvloop_send_in){
+      quic_span_of(c->l.cli_scid, c->l.cli_scid_len), c->l.tx_pn++, -1,
+      quic_span_of(pl, pln), 0};
+  return wired_srvloop_send_onertt(&c->s, &sin, out);
+}
+
+/* Seal and send an application-level CONNECTION_CLOSE as its own 1-RTT
+ * packet.
+ * ponytail: no live caller yet (the violation-detection trigger is a
+ * separate follow-up, tasks/webtransport-plan.md WT-C-005後半) -- only
+ * tests/run.c calls this today, so it needs the attribute to avoid
+ * -Wunused-function under -Werror in the freestanding build. */
+__attribute__((unused)) static void srvrun_send_app_close(
+    const srvrun_cfg* cfg, srvrun_conn* c, u64 error_code, quic_span reason) {
+  u8        out[128];
+  quic_obuf ob = quic_obuf_of(out, sizeof out);
+  if (!srvrun_seal_app_close(c, error_code, reason, &ob)) return;
+  srvrun_send(cfg, c, quic_span_of(out, ob.len), "app CONNECTION_CLOSE sent\n");
 }
 
 /* draft-ietf-webtrans-http3-15 4.3/8.2: a buffered-stream-capacity rejection
@@ -1312,8 +1352,32 @@ static void srvrun_maybe_busy_poll(i64 fd, int so_busy_poll_us) {
   if (so_busy_poll_us > 0) wired_udp_busy_poll_enable(fd, so_busy_poll_us);
 }
 
+/* SO_PREFER_BUSY_POLL only has kernel effect when SO_BUSY_POLL is also
+ * enabled (tasks/polling-driver-plan.md POLL-003b); hoisted so the caller's
+ * `if` stays a single condition (CCN). */
+static int srvrun_prefer_busy_poll_wanted(const wired_srvrun_opt* opt) {
+  return opt->so_busy_poll_us > 0 && opt->so_prefer_busy_poll;
+}
+
+/* so_prefer_busy_poll/so_busy_poll_budget: best-effort like SO_REUSEPORT and
+ * srvrun_maybe_busy_poll above, each independently opt-in. */
+static void srvrun_maybe_prefer_busy_poll(i64 fd, const wired_srvrun_opt* opt) {
+  if (srvrun_prefer_busy_poll_wanted(opt))
+    wired_udp_prefer_busy_poll_enable(fd, 1);
+}
+
+static void srvrun_maybe_busy_poll_budget(i64 fd, const wired_srvrun_opt* opt) {
+  if (opt->so_busy_poll_budget > 0)
+    wired_udp_busy_poll_budget_set(fd, opt->so_busy_poll_budget);
+}
+
+/* -1 = disabled (wired_srvrun_opt's own sentinel; see srvrun.h). */
+static void srvrun_maybe_incoming_cpu(i64 fd, const wired_srvrun_opt* opt) {
+  if (opt->incoming_cpu >= 0) wired_udp_incoming_cpu_set(fd, opt->incoming_cpu);
+}
+
 /* Bind a UDP socket on port. Returns the fd, or <0 on failure. */
-static i64 srvrun_listen(u16 port, int so_busy_poll_us) {
+static i64 srvrun_listen(u16 port, const wired_srvrun_opt* opt) {
   quic_sockaddr_in sa;
   i64              fd = wired_udp_socket();
   if (fd < 0) return fd;
@@ -1321,7 +1385,10 @@ static i64 srvrun_listen(u16 port, int so_busy_poll_us) {
    * core-pinning-plan.md PIN-004). A single-worker run does not need it, so a
    * failure here is not fatal -- fall through to bind unconditionally. */
   wired_udp_reuseport_enable(fd);
-  srvrun_maybe_busy_poll(fd, so_busy_poll_us);
+  srvrun_maybe_busy_poll(fd, opt->so_busy_poll_us);
+  srvrun_maybe_prefer_busy_poll(fd, opt);
+  srvrun_maybe_busy_poll_budget(fd, opt);
+  srvrun_maybe_incoming_cpu(fd, opt);
   wired_udp_addr(&sa, port, (const u8[4]){0, 0, 0, 0});
   if (wired_udp_bind(fd, &sa) < 0) return -1;
   return fd;
@@ -1457,7 +1524,7 @@ int wired_server_run_opt(
     wired_srvrun_obs        obs,
     const wired_srvrun_opt* opt) {
   srvrun_cfg cfg = {
-      srvrun_listen(port, opt->so_busy_poll_us),
+      srvrun_listen(port, opt),
       id,
       h.cb,
       h.ctx,
@@ -1481,6 +1548,6 @@ int wired_server_run(
     wired_srvboot_id*    id,
     wired_srvrun_handler h,
     wired_srvrun_obs     obs) {
-  static const wired_srvrun_opt default_opt = {0, 0, 0, 0};
+  static const wired_srvrun_opt default_opt = {0, 0, 0, 0, 0, 0, -1};
   return wired_server_run_opt(port, id, h, obs, &default_opt);
 }
