@@ -32,8 +32,11 @@ static void test_srvworkers_slot_for_pid_empty_table(void) {
 /* Trivial test child body: returns immediately instead of running a real
  * server, so srvworkers_child_start's exit_group fires right away. */
 static void sw_child_noop(
-    u16 port, wired_srvboot_id* id, wired_srvrun_handler h,
-    wired_srvrun_obs obs, int worker_index) {
+    u16                  port,
+    wired_srvboot_id*    id,
+    wired_srvrun_handler h,
+    wired_srvrun_obs     obs,
+    int                  worker_index) {
   (void)port;
   (void)id;
   (void)h;
@@ -44,10 +47,10 @@ static void sw_child_noop(
 /* TEST: fork_all(workers=2) starts two distinct live children and records
  * both pids in the table. */
 static void test_srvworkers_fork_all_starts_two_children(void) {
-  srvworkers_table    t   = {0};
+  srvworkers_table     t   = {0};
   wired_srvworkers_opt opt = {2, 0};
-  wired_srvboot_id    id  = {0};
-  wired_srvrun_handler h  = {0};
+  wired_srvboot_id     id  = {0};
+  wired_srvrun_handler h   = {0};
   wired_srvrun_obs     obs = {0};
   i64                  status;
 
@@ -68,9 +71,9 @@ static void test_srvworkers_fork_all_starts_two_children(void) {
  * replacement in the SAME slot -- proving the restart-with-same-index
  * contract without an infinite supervisor loop. */
 static void test_srvworkers_supervise_once_restarts_same_slot(void) {
-  srvworkers_table    t    = {0};
+  srvworkers_table     t   = {0};
   wired_srvworkers_opt opt = {1, 0};
-  wired_srvboot_id    id   = {0};
+  wired_srvboot_id     id  = {0};
   wired_srvrun_handler h   = {0};
   wired_srvrun_obs     obs = {0};
   i64                  first_pid, status;
@@ -100,8 +103,9 @@ static void test_srvworkers_resolve_count_zero_is_auto(void) {
 /* TEST (boundary): a workers count beyond the fixed table size is clamped,
  * never left to overrun srvworkers_table.pid[]. */
 static void test_srvworkers_resolve_count_clamps_to_max(void) {
-  CHECK(srvworkers_resolve_count(WIRED_SRVWORKERS_MAX + 100) ==
-        WIRED_SRVWORKERS_MAX);
+  CHECK(
+      srvworkers_resolve_count(WIRED_SRVWORKERS_MAX + 100) ==
+      WIRED_SRVWORKERS_MAX);
 }
 
 /* TEST: a within-range count passes through unchanged. */
@@ -114,8 +118,11 @@ static void test_srvworkers_resolve_count_passthrough(void) {
  * g_srvworkers_child_fn): exits with worker_index as its exit status, which
  * the parent's wait4 status can decode without any new IPC machinery. */
 static void sw_child_echo_index(
-    u16 port, wired_srvboot_id* id, wired_srvrun_handler h,
-    wired_srvrun_obs obs, int worker_index) {
+    u16                  port,
+    wired_srvboot_id*    id,
+    wired_srvrun_handler h,
+    wired_srvrun_obs     obs,
+    int                  worker_index) {
   (void)port;
   (void)id;
   (void)h;

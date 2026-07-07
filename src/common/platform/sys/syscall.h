@@ -18,27 +18,27 @@ typedef unsigned char  u8;  /**< unsigned 8-bit integer / byte */
 typedef i64            ssz; /**< signed size (ssize_t equivalent) */
 typedef u64            usz; /**< unsigned size (size_t equivalent) */
 
-#define SYS_read 0            /**< read(2) syscall number */
-#define SYS_write 1           /**< write(2) syscall number */
-#define SYS_close 3           /**< close(2) syscall number */
-#define SYS_rt_sigaction 13   /**< rt_sigaction(2) syscall number */
-#define SYS_rt_sigreturn 15   /**< rt_sigreturn(2) syscall number */
-#define SYS_socket 41         /**< socket(2) syscall number */
-#define SYS_sendmsg 46        /**< sendmsg(2) syscall number */
-#define SYS_sendto 44         /**< sendto(2) syscall number */
-#define SYS_recvfrom 45       /**< recvfrom(2) syscall number */
-#define SYS_bind 49           /**< bind(2) syscall number */
-#define SYS_recvmmsg 299      /**< recvmmsg(2) syscall number */
-#define SYS_setsockopt 54     /**< setsockopt(2) syscall number */
-#define SYS_exit 60           /**< exit(2) syscall number */
+#define SYS_read 0                /**< read(2) syscall number */
+#define SYS_write 1               /**< write(2) syscall number */
+#define SYS_close 3               /**< close(2) syscall number */
+#define SYS_rt_sigaction 13       /**< rt_sigaction(2) syscall number */
+#define SYS_rt_sigreturn 15       /**< rt_sigreturn(2) syscall number */
+#define SYS_socket 41             /**< socket(2) syscall number */
+#define SYS_sendmsg 46            /**< sendmsg(2) syscall number */
+#define SYS_sendto 44             /**< sendto(2) syscall number */
+#define SYS_recvfrom 45           /**< recvfrom(2) syscall number */
+#define SYS_bind 49               /**< bind(2) syscall number */
+#define SYS_recvmmsg 299          /**< recvmmsg(2) syscall number */
+#define SYS_setsockopt 54         /**< setsockopt(2) syscall number */
+#define SYS_exit 60               /**< exit(2) syscall number */
 #define SYS_sched_setaffinity 203 /**< sched_setaffinity(2) syscall number */
 #define SYS_sched_getaffinity 204 /**< sched_getaffinity(2) syscall number */
-#define SYS_clock_gettime 228 /**< clock_gettime(2) syscall number */
-#define SYS_openat 257        /**< openat(2) syscall number */
-#define SYS_getrandom 318     /**< getrandom(2) syscall number */
-#define SYS_fork 57           /**< fork(2) syscall number */
-#define SYS_wait4 61          /**< wait4(2) syscall number */
-#define SYS_exit_group 231    /**< exit_group(2) syscall number */
+#define SYS_clock_gettime 228     /**< clock_gettime(2) syscall number */
+#define SYS_openat 257            /**< openat(2) syscall number */
+#define SYS_getrandom 318         /**< getrandom(2) syscall number */
+#define SYS_fork 57               /**< fork(2) syscall number */
+#define SYS_wait4 61              /**< wait4(2) syscall number */
+#define SYS_exit_group 231        /**< exit_group(2) syscall number */
 
 /** Signal numbers used by this SDK (Linux, all architectures). */
 #define SIGTERM 15 /**< termination request */

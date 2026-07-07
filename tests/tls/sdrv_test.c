@@ -358,11 +358,7 @@ static void test_sdrv_chain_overflow(void) {
  * transport parameters blob tp (RFC 9001 8.2), so tests can pin
  * quic_sdrv_recv_client_hello's handling of specific parameters. */
 static usz sdrv_test_client_hello_tp(
-    u8*        ch,
-    usz        ch_cap,
-    const u8*  cli_pub,
-    const u8*  srv_random,
-    quic_span  tp) {
+    u8* ch, usz ch_cap, const u8* cli_pub, const u8* srv_random, quic_span tp) {
   return quic_tls_client_hello(
       &(quic_clienthello_in){srv_random, cli_pub, quic_span_of(0, 0), tp},
       &(quic_obuf){ch, ch_cap, 0});
@@ -411,8 +407,7 @@ static void test_sdrv_recv_client_hello_stores_peer_max_datagram_frame_size(
 /* Absent-parameter case: the transport parameters extension is present but
  * does not carry max_datagram_frame_size -- the field must stay 0 (RFC 9221 3
  * is an optional parameter), and the handshake must still succeed. */
-static void test_sdrv_recv_client_hello_no_max_datagram_param_stays_zero(
-    void) {
+static void test_sdrv_recv_client_hello_no_max_datagram_param_stays_zero(void) {
   u8        cli_pub[32], srv_random[32];
   u8        tpbuf[16], ch[512];
   quic_obuf tob = quic_obuf_of(tpbuf, sizeof(tpbuf));
@@ -521,9 +516,10 @@ static void test_sdrv_keyshare_walk_rejects_overclaimed_exts_len(void) {
     srv_random[i] = (u8)(0xa0 + i);
   }
   quic_x25519_base(cli_pub, cli_priv);
-  ch_len = sdrv_test_client_hello(scratch, sizeof(scratch), cli_pub, srv_random);
+  ch_len =
+      sdrv_test_client_hello(scratch, sizeof(scratch), cli_pub, srv_random);
   CHECK(ch_len != 0);
-  ch                              = sdrv_test_malloc_exact(scratch, ch_len);
+  ch                             = sdrv_test_malloc_exact(scratch, ch_len);
   ch[SDRV_TEST_EXTS_LEN_OFF]     = 0xff;
   ch[SDRV_TEST_EXTS_LEN_OFF + 1] = 0xff;
   sdrv_test_blot_ext_type(ch, SDRV_TEST_KEYSHARE_TYPE_OFF);
@@ -541,9 +537,8 @@ static void test_sdrv_keyshare_walk_rejects_overclaimed_exts_len(void) {
  * the transport-parameters walk); the TP extension's own type field is
  * blotted out so THAT walk cannot return early either. */
 static void test_sdrv_tp_walk_rejects_overclaimed_exts_len(void) {
-  u8        cli_priv[32], cli_pub[32], srv_random[32], scratch[512], tpbuf[16],
-      *ch;
-  usz       ch_len, tp_len;
+  u8  cli_priv[32], cli_pub[32], srv_random[32], scratch[512], tpbuf[16], *ch;
+  usz ch_len, tp_len;
   quic_obuf tob = quic_obuf_of(tpbuf, sizeof(tpbuf));
   quic_sdrv s;
   for (usz i = 0; i < 32; i++) {
@@ -557,7 +552,7 @@ static void test_sdrv_tp_walk_rejects_overclaimed_exts_len(void) {
       scratch, sizeof(scratch), cli_pub, srv_random,
       quic_span_of(tpbuf, tp_len));
   CHECK(ch_len != 0);
-  ch                              = sdrv_test_malloc_exact(scratch, ch_len);
+  ch                             = sdrv_test_malloc_exact(scratch, ch_len);
   ch[SDRV_TEST_EXTS_LEN_OFF]     = 0xff;
   ch[SDRV_TEST_EXTS_LEN_OFF + 1] = 0xff;
   sdrv_test_blot_ext_type(ch, SDRV_TEST_TP_TYPE_OFF);
@@ -571,8 +566,7 @@ static void test_sdrv_tp_walk_rejects_overclaimed_exts_len(void) {
  * not just an overclaimed outer extensions-length. The first extension after
  * the extensions-length field is supported_versions; its own 2-byte
  * ext_data length sits right after its 2-byte type. */
-static void test_sdrv_keyshare_walk_rejects_overclaimed_ext_payload_len(
-    void) {
+static void test_sdrv_keyshare_walk_rejects_overclaimed_ext_payload_len(void) {
   u8        cli_priv[32], cli_pub[32], srv_random[32], scratch[512], *ch;
   usz       ch_len, first_ext_len_off;
   quic_sdrv s;
@@ -581,10 +575,11 @@ static void test_sdrv_keyshare_walk_rejects_overclaimed_ext_payload_len(
     srv_random[i] = (u8)(0xa0 + i);
   }
   quic_x25519_base(cli_pub, cli_priv);
-  ch_len = sdrv_test_client_hello(scratch, sizeof(scratch), cli_pub, srv_random);
+  ch_len =
+      sdrv_test_client_hello(scratch, sizeof(scratch), cli_pub, srv_random);
   CHECK(ch_len != 0);
-  ch                 = sdrv_test_malloc_exact(scratch, ch_len);
-  first_ext_len_off  = SDRV_TEST_EXTS_LEN_OFF + 2 + 2;
+  ch                        = sdrv_test_malloc_exact(scratch, ch_len);
+  first_ext_len_off         = SDRV_TEST_EXTS_LEN_OFF + 2 + 2;
   ch[first_ext_len_off]     = 0xff;
   ch[first_ext_len_off + 1] = 0xff;
   sdrv_test_init_any(&s);
@@ -605,7 +600,8 @@ static void test_sdrv_keyshare_walk_accepts_exact_exts_len(void) {
     srv_random[i] = (u8)(0xa0 + i);
   }
   quic_x25519_base(cli_pub, cli_priv);
-  ch_len = sdrv_test_client_hello(scratch, sizeof(scratch), cli_pub, srv_random);
+  ch_len =
+      sdrv_test_client_hello(scratch, sizeof(scratch), cli_pub, srv_random);
   CHECK(ch_len != 0);
   ch = sdrv_test_malloc_exact(scratch, ch_len);
   sdrv_test_init_any(&s);
@@ -759,7 +755,7 @@ void test_sdrv(void) {
      * server flight advertise a non-zero max_datagram_frame_size, not just
      * the isolated codec. */
     s2.limits.max_datagram_frame_size = 65535;
-    ch_len = quic_tls_client_hello(
+    ch_len                            = quic_tls_client_hello(
         &(quic_clienthello_in){
             srv_random, cli_pub, quic_span_of(0, 0),
             quic_span_of((const u8*)"\0", 1)},

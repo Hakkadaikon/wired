@@ -23,7 +23,7 @@ static usz encode_name(quic_mspan out, quic_span name) {
 usz quic_qdyn_insert_literal(const quic_qpack_field* f, quic_obuf* out) {
   usz off = encode_name(quic_mspan_of(out->p, out->cap), f->name);
   usz w   = off ? quic_qpack_string_encode(
-                      quic_mspan_of(out->p + off, out->cap - off), f->value)
+                    quic_mspan_of(out->p + off, out->cap - off), f->value)
                 : 0;
   if (w == 0) return 0;
   out->len = off + w;

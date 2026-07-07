@@ -1,6 +1,7 @@
 #include "app/http3/server/srvrun/srvrun.h"
 
 #include "app/datagram/dgdeliver/dg_send.h"
+#include "app/http3/core/h3/connect.h"
 #include "app/http3/core/h3/frame.h"
 #include "app/http3/core/h3conn/establish.h"
 #include "app/http3/request/h3resp/resp_build.h"
@@ -8,7 +9,6 @@
 #include "app/http3/server/sendsess/sendsess.h"
 #include "app/http3/server/sigterm/sigterm.h"
 #include "app/http3/server/srvloop/send.h"
-#include "app/http3/core/h3/connect.h"
 #include "app/http3/server/srvpoll/srvpoll.h"
 #include "app/webtransport/errmap/errmap/errmap.h"
 #include "app/webtransport/session/session/session.h"
@@ -53,9 +53,9 @@ typedef struct {
   const char*           key_path;  /**< key.pem path, or 0 to disable reload */
   int                   cc_algo;   /**< QUIC_CC_ALGO_* for fresh connections */
   int                   busy_poll; /**< 1: nonblocking spin instead of poll */
-  wired_wt_on_datagram  wt_on_datagram;  /**< app WT datagram callback, 0 to
-                                           * disable */
-  void*                 wt_datagram_ctx; /**< opaque ctx for wt_on_datagram */
+  wired_wt_on_datagram  wt_on_datagram; /**< app WT datagram callback, 0 to
+                                         * disable */
+  void* wt_datagram_ctx;                /**< opaque ctx for wt_on_datagram */
 } srvrun_cfg;
 
 /* Storage a SIGHUP reload decodes into — must outlive the identity built from
@@ -91,9 +91,9 @@ typedef struct {
    * pool-share across slots if the footprint ever matters. */
   wired_srvboot_acc boot;
   wired_wt_session  wt; /**< WebTransport session for this connection, if any
-                          * (draft-ietf-webtrans-http3-15 SS4); valid only
-                          * when wt_active is set. One session per connection
-                          * for now (tasks/webtransport-plan.md scope). */
+                         * (draft-ietf-webtrans-http3-15 SS4); valid only
+                         * when wt_active is set. One session per connection
+                         * for now (tasks/webtransport-plan.md scope). */
   int wt_active; /**< 1 once wired_wt_session_init has been called for this
                     slot */
   /** One pending outbound QUIC DATAGRAM (RFC 9221 5), queued by
@@ -335,7 +335,8 @@ static int srvrun_on_initial(
  * parameterized over the error code so callers can carry either an
  * HTTP/3-level code (e.g. H3_REQUEST_REJECTED) or a WebTransport application
  * code already mapped through quic_wterrmap_to_http3. */
-static usz srvrun_wt_busy_reset_payload(u64 stream_id, u64 err_code, quic_obuf* plb) {
+static usz srvrun_wt_busy_reset_payload(
+    u64 stream_id, u64 err_code, quic_obuf* plb) {
   quic_reset_stream_frame rs = {stream_id, err_code, 0};
   quic_stop_sending_frame ss = {stream_id, err_code};
   usz                     rn = quic_reset_stream_encode(plb->p, plb->cap, &rs);
@@ -354,7 +355,7 @@ static int srvrun_seal_wt_busy_reset(
   u8                    pl[64];
   quic_obuf             plb = quic_obuf_of(pl, sizeof pl);
   wired_srvloop_send_in sin;
-  usz                   pln = srvrun_wt_busy_reset_payload(stream_id, err_code, &plb);
+  usz pln = srvrun_wt_busy_reset_payload(stream_id, err_code, &plb);
   if (!pln) return 0;
   sin = (wired_srvloop_send_in){
       quic_span_of(c->l.cli_scid, c->l.cli_scid_len), c->l.tx_pn++, -1,
@@ -377,7 +378,8 @@ static void srvrun_send_wt_busy_reset(
  * Mirrors wired_srvboot_refusal's is_app=0 handshake-rejection pattern
  * (srvboot.c) but for use OUTSIDE handshake rejection -- an established
  * connection closing itself for an application-level protocol violation. */
-static usz srvrun_app_close_payload(u64 error_code, quic_span reason, quic_obuf* plb) {
+static usz srvrun_app_close_payload(
+    u64 error_code, quic_span reason, quic_obuf* plb) {
   quic_conn_close_frame cc = {1, error_code, 0, reason.n, reason.p};
   return quic_frame_put_conn_close(plb->p, plb->cap, &cc);
 }
@@ -389,7 +391,7 @@ static int srvrun_seal_app_close(
   u8                    pl[64];
   quic_obuf             plb = quic_obuf_of(pl, sizeof pl);
   wired_srvloop_send_in sin;
-  usz                   pln = srvrun_app_close_payload(error_code, reason, &plb);
+  usz pln = srvrun_app_close_payload(error_code, reason, &plb);
   if (!pln) return 0;
   sin = (wired_srvloop_send_in){
       quic_span_of(c->l.cli_scid, c->l.cli_scid_len), c->l.tx_pn++, -1,
@@ -455,9 +457,11 @@ static void srvrun_send_transport_close(
  * to enforce (session.h's offer_stream doc): reset the stream with
  * WT_BUFFERED_STREAM_REJECTED, mapped through quic_wterrmap_to_http3 since
  * it is a WebTransport application error code, not an HTTP/3-level one. */
-static void srvrun_reject_wt_slot(const srvrun_cfg* cfg, srvrun_conn* c, u64 stream_id) {
+static void srvrun_reject_wt_slot(
+    const srvrun_cfg* cfg, srvrun_conn* c, u64 stream_id) {
   srvrun_send_wt_busy_reset(
-      cfg, c, stream_id, quic_wterrmap_to_http3(QUIC_WTERR_BUFFERED_STREAM_REJECTED));
+      cfg, c, stream_id,
+      quic_wterrmap_to_http3(QUIC_WTERR_BUFFERED_STREAM_REJECTED));
 }
 
 /* draft-ietf-webtrans-http3-15 4.3: associate one newly-reassembled WT bidi
@@ -510,11 +514,14 @@ static void srvrun_offer_wt_streams(const srvrun_cfg* cfg, srvrun_conn* c) {
  * state (buffered-vs-associated) stays consistent regardless of whether an app
  * callback is registered. */
 static void srvrun_deliver_rx_datagram(
-    const srvrun_cfg* cfg, srvrun_conn* c, const wired_srvloop_rx_datagram* dg) {
+    const srvrun_cfg*                cfg,
+    srvrun_conn*                     c,
+    const wired_srvloop_rx_datagram* dg) {
   quic_span data = quic_span_of(dg->buf, dg->len);
   if (!c->wt_active) return;
   wired_wt_session_offer_datagram(&c->wt, data);
-  if (cfg->wt_on_datagram) cfg->wt_on_datagram(cfg->wt_datagram_ctx, &c->wt, data);
+  if (cfg->wt_on_datagram)
+    cfg->wt_on_datagram(cfg->wt_datagram_ctx, &c->wt, data);
 }
 
 /* RFC 9221 5 (Phase 7b Slice 2): drain every DATAGRAM this step's
@@ -535,7 +542,9 @@ static void srvrun_drain_rx_datagrams(const srvrun_cfg* cfg, srvrun_conn* c) {
  * session fallback of leaving the slot reassembled but unclaimed, same
  * reject-and-free-the-slot handling of a buffer-full 0 return). */
 static void srvrun_offer_wt_uni_slot(
-    const srvrun_cfg* cfg, srvrun_conn* c, wired_srvloop_wt_uni_stream_slot* slot) {
+    const srvrun_cfg*                 cfg,
+    srvrun_conn*                      c,
+    wired_srvloop_wt_uni_stream_slot* slot) {
   if (!c->wt_active) return;
   if (!wired_wt_session_offer_stream(&c->wt, slot->stream_id)) {
     srvrun_reject_wt_slot(cfg, c, slot->stream_id);
@@ -547,7 +556,8 @@ static void srvrun_offer_wt_uni_slot(
 
 /* A reassembled-but-not-yet-associated uni slot, mirroring wt_slot_needs_offer
  * for the separate uni table. */
-static int wt_uni_slot_needs_offer(const wired_srvloop_wt_uni_stream_slot* slot) {
+static int wt_uni_slot_needs_offer(
+    const wired_srvloop_wt_uni_stream_slot* slot) {
   return slot->in_use && !slot->offered;
 }
 
@@ -723,9 +733,9 @@ __attribute__((unused)) static int srvrun_queue_datagram(
  * peer's limit, or it would not fit the local buffer). */
 static int srvrun_send_pending_datagram(
     const srvrun_cfg* cfg, srvrun_conn* c, quic_obuf* out) {
-  u8        pl[1400];
-  quic_obuf plb        = quic_obuf_of(pl, sizeof pl);
-  u64       peer_limit = c->s.sdrv.peer_max_datagram_frame_size;
+  u8                    pl[1400];
+  quic_obuf             plb        = quic_obuf_of(pl, sizeof pl);
+  u64                   peer_limit = c->s.sdrv.peer_max_datagram_frame_size;
   quic_dgdeliver_opts   o = {.with_length = 1, .max_frame_size = peer_limit};
   wired_srvloop_send_in sin;
   if (!quic_dgdeliver_frame(
@@ -943,9 +953,8 @@ static int wt_bytes_eq(const u8* m, const u8* want, usz len) {
 /* r's :protocol value is exactly "webtransport-h3"
  * (draft-ietf-webtrans-http3-15 SS3, not the older draft's "webtransport"). */
 static int wt_protocol_is_webtransport_h3(const wired_h3reqdrive_req* r) {
-  static const u8 want[] = {
-      'w', 'e', 'b', 't', 'r', 'a', 'n', 's', 'p', 'o', 'r', 't',
-      '-', 'h', '3'};
+  static const u8 want[] = {'w', 'e', 'b', 't', 'r', 'a', 'n', 's',
+                            'p', 'o', 'r', 't', '-', 'h', '3'};
   if (!r->protocol || r->protocol_len != sizeof want) return 0;
   return wt_bytes_eq(r->protocol, want, sizeof want);
 }
@@ -1004,7 +1013,7 @@ static int wt_origin_ok(const wired_h3reqdrive_req* r) {
  * both the 2xx that establishes a session and the 403 that rejects one
  * (WT-B-005/007/008). */
 static void srvrun_start_wt_status(srvrun_conn* c, int slot, u16 status) {
-  u8*       st  = g_srvrun_respstore[slot];
+  u8*       st = g_srvrun_respstore[slot];
   u8        pre[SRVRUN_RESP_HDR_ROOM];
   quic_obuf pob = quic_obuf_of(pre, sizeof pre);
   usz       off;
@@ -1038,8 +1047,8 @@ static void srvrun_reject_wt(srvrun_conn* c, int slot) {
  * out so srvrun_start_resp itself stays at its gate/dispatch decision (CCN). */
 static void srvrun_start_app_resp(
     const srvrun_step_ctx* ctx, srvrun_conn* c, int slot) {
-  u8*         st   = g_srvrun_respstore[slot];
-  quic_obuf   body = quic_obuf_of(
+  u8*       st   = g_srvrun_respstore[slot];
+  quic_obuf body = quic_obuf_of(
       st + SRVRUN_RESP_HDR_ROOM, WIRED_SRVRUN_RESP_MAX - SRVRUN_RESP_HDR_ROOM);
   u8          pre[SRVRUN_RESP_HDR_ROOM];
   quic_obuf   pob = quic_obuf_of(pre, sizeof pre);
@@ -1067,7 +1076,8 @@ static void srvrun_start_app_resp(
 static void srvrun_reject_wt_busy(
     const srvrun_cfg* cfg, srvrun_conn* c, int slot) {
   srvrun_start_wt_status(c, slot, 429);
-  srvrun_send_wt_busy_reset(cfg, c, c->l.req_stream_id, QUIC_H3_REQUEST_REJECTED);
+  srvrun_send_wt_busy_reset(
+      cfg, c, c->l.req_stream_id, QUIC_H3_REQUEST_REJECTED);
 }
 
 /* RFC 9000 2.1: bit 0x01 of a stream id is the initiator role (0 = client),

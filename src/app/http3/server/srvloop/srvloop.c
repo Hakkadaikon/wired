@@ -65,21 +65,21 @@ int wired_srvloop_init(wired_srvloop* l, const u8* cli_scid, u8 cli_scid_len) {
   l->h3.request_seen  = 0;
   l->cli_scid_len     = cli_scid_len;
   for (usz i = 0; i < cli_scid_len; i++) l->cli_scid[i] = cli_scid[i];
-  l->tx_pn         = 0;
-  l->hs_tx_pn      = 0;
-  l->app_rx_pn     = 0;
-  l->app_rx_seen   = 0;
-  l->hs_rx_pn      = 0;
-  l->hs_rx_seen    = 0;
-  l->hs_done_sent  = 0;
-  l->ticket_sent   = 0;
-  l->on_request    = 0;
-  l->req_ctx       = 0;
-  l->got_request   = 0;
-  l->peer_closed   = 0;
-  l->resp_external = 0;
-  l->ack_n         = 0;
-  l->rx_datagram_n = 0;
+  l->tx_pn                      = 0;
+  l->hs_tx_pn                   = 0;
+  l->app_rx_pn                  = 0;
+  l->app_rx_seen                = 0;
+  l->hs_rx_pn                   = 0;
+  l->hs_rx_seen                 = 0;
+  l->hs_done_sent               = 0;
+  l->ticket_sent                = 0;
+  l->on_request                 = 0;
+  l->req_ctx                    = 0;
+  l->got_request                = 0;
+  l->peer_closed                = 0;
+  l->resp_external              = 0;
+  l->ack_n                      = 0;
+  l->rx_datagram_n              = 0;
   l->we_advertised_max_datagram = 0;
   l->datagram_violation         = 0;
   streams_reset(l);
@@ -183,7 +183,8 @@ static int stream_slot_for(wired_srvloop* l, u64 stream_id) {
 }
 
 /* 1 if wt slot is claimed and reassembling stream_id. */
-static int wt_slot_matches(const wired_srvloop_wt_stream_slot* slot, u64 stream_id) {
+static int wt_slot_matches(
+    const wired_srvloop_wt_stream_slot* slot, u64 stream_id) {
   return slot->in_use && slot->stream_id == stream_id;
 }
 

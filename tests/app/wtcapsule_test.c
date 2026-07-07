@@ -13,14 +13,16 @@
  * message. */
 static void test_wtcapsule_close_roundtrip(void) {
   u8        buf[64];
-  quic_obuf out = quic_obuf_of(buf, sizeof buf);
+  quic_obuf out    = quic_obuf_of(buf, sizeof buf);
   u8        msg[5] = {'h', 'e', 'l', 'l', 'o'};
   usz       at     = 0;
   u32       code_out;
   quic_span msg_out;
 
-  CHECK(quic_wtcapsule_encode_close(&out, 0xDEADBEEF, quic_span_of(msg, sizeof msg)));
-  CHECK(quic_wtcapsule_decode_close(quic_span_of(buf, out.len), &at, &code_out, &msg_out));
+  CHECK(quic_wtcapsule_encode_close(
+      &out, 0xDEADBEEF, quic_span_of(msg, sizeof msg)));
+  CHECK(quic_wtcapsule_decode_close(
+      quic_span_of(buf, out.len), &at, &code_out, &msg_out));
   CHECK(code_out == 0xDEADBEEF);
   CHECK(msg_out.n == 5);
   for (usz i = 0; i < 5; i++) CHECK(msg_out.p[i] == msg[i]);
@@ -36,7 +38,8 @@ static void test_wtcapsule_close_roundtrip_empty_message(void) {
   quic_span msg_out;
 
   CHECK(quic_wtcapsule_encode_close(&out, 1, quic_span_of(0, 0)));
-  CHECK(quic_wtcapsule_decode_close(quic_span_of(buf, out.len), &at, &code_out, &msg_out));
+  CHECK(quic_wtcapsule_decode_close(
+      quic_span_of(buf, out.len), &at, &code_out, &msg_out));
   CHECK(code_out == 1);
   CHECK(msg_out.n == 0);
   CHECK(at == out.len);
@@ -79,7 +82,8 @@ static void test_wtcapsule_wrong_type_does_not_advance(void) {
   quic_span msg_out;
 
   CHECK(quic_wtcapsule_encode_drain(&out));
-  CHECK(!quic_wtcapsule_decode_close(quic_span_of(buf, out.len), &at, &code_out, &msg_out));
+  CHECK(!quic_wtcapsule_decode_close(
+      quic_span_of(buf, out.len), &at, &code_out, &msg_out));
   CHECK(at == 0);
   /* Same position now succeeds as a drain decode. */
   CHECK(quic_wtcapsule_decode_drain(quic_span_of(buf, out.len), &at));
@@ -90,7 +94,7 @@ static void test_wtcapsule_wrong_type_does_not_advance(void) {
  * short to hold the 32-bit error code. */
 static void test_wtcapsule_close_decode_body_too_short(void) {
   u8        buf[16];
-  quic_obuf out = quic_obuf_of(buf, sizeof buf);
+  quic_obuf out           = quic_obuf_of(buf, sizeof buf);
   u8        short_body[2] = {0, 0};
   usz       at            = 0;
   u32       code_out;
@@ -98,8 +102,10 @@ static void test_wtcapsule_close_decode_body_too_short(void) {
 
   /* Hand-encode a generic capsule with type 0x2843 but a 2-byte body
    * (shorter than the mandatory 4-byte error code). */
-  CHECK(quic_capsule_encode(&out, 0x2843, quic_span_of(short_body, sizeof short_body)));
-  CHECK(!quic_wtcapsule_decode_close(quic_span_of(buf, out.len), &at, &code_out, &msg_out));
+  CHECK(quic_capsule_encode(
+      &out, 0x2843, quic_span_of(short_body, sizeof short_body)));
+  CHECK(!quic_wtcapsule_decode_close(
+      quic_span_of(buf, out.len), &at, &code_out, &msg_out));
   CHECK(at == 0);
 }
 
@@ -107,7 +113,7 @@ static void test_wtcapsule_close_decode_body_too_short(void) {
  * back-to-back in one buffer. */
 static void test_wtcapsule_sequential_drain_then_close(void) {
   u8        buf[64];
-  quic_obuf out = quic_obuf_of(buf, sizeof buf);
+  quic_obuf out    = quic_obuf_of(buf, sizeof buf);
   u8        msg[3] = {'h', 'i', '!'};
   usz       at     = 0;
   u32       code_out;
@@ -153,8 +159,10 @@ static void test_wtcapsule_no_per_stream_flow_control_capsule(void) {
 
   /* 0x190B4D3D is WT_MAX_DATA (per-SESSION, deferred per WT-E-004..009) --
    * used only as "a capsule type wtcapsule does not own" probe. */
-  CHECK(quic_capsule_encode(&out, 0x190B4D3DULL, quic_span_of(value, sizeof value)));
-  CHECK(!quic_wtcapsule_decode_close(quic_span_of(buf, out.len), &at, &code_out, &msg_out));
+  CHECK(quic_capsule_encode(
+      &out, 0x190B4D3DULL, quic_span_of(value, sizeof value)));
+  CHECK(!quic_wtcapsule_decode_close(
+      quic_span_of(buf, out.len), &at, &code_out, &msg_out));
   CHECK(at == 0);
   CHECK(!quic_wtcapsule_decode_drain(quic_span_of(buf, out.len), &at));
   CHECK(at == 0);

@@ -33,7 +33,7 @@ i64 wired_srvpoll_spin_step(i64 fd, quic_mmsg_buf* bufs, usz count);
  * lifetime of its polling loop and threads it through each step call. */
 typedef struct {
   u64 empty_spins; /**< consecutive empty steps so far, capped at
-                     * WIRED_SRVPOLL_BACKOFF_MAX. */
+                    * WIRED_SRVPOLL_BACKOFF_MAX. */
 } wired_srvpoll_backoff;
 
 /** Like wired_srvpoll_spin_step, but scales the number of PAUSE

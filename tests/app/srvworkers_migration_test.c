@@ -1,6 +1,5 @@
-#include "transport/packet/frame/frame/ncid_worker.h"
-
 #include "test.h"
+#include "transport/packet/frame/frame/ncid_worker.h"
 
 /* @file
  * tasks/core-pinning-plan.md test 12: a named acceptance test that
@@ -45,13 +44,13 @@ static void test_migration_cid_bits_survive_unchanged(void) {
  * connection state. This disagreement is the documented, out-of-scope
  * limitation (PIN-005), not a bug in either mechanism individually. */
 static void test_migration_naive_hash_disagrees_with_cid(void) {
-  u8  cid[8]           = {0};
-  u32 original_ip      = 0x0A000003; /* 10.0.0.3 */
-  u32 original_port    = 12345;
-  u32 migrated_ip      = 0x0A000004; /* 10.0.0.4, post-rebind */
-  u32 migrated_port    = 9999;
-  int num_workers      = 4;
-  int cid_worker       = 2;
+  u8  cid[8]        = {0};
+  u32 original_ip   = 0x0A000003; /* 10.0.0.3 */
+  u32 original_port = 12345;
+  u32 migrated_ip   = 0x0A000004; /* 10.0.0.4, post-rebind */
+  u32 migrated_port = 9999;
+  int num_workers   = 4;
+  int cid_worker    = 2;
   u32 hash_before, hash_after, cid_after;
 
   CHECK(quic_ncid_worker_encode(cid, sizeof cid, 2, (u32)cid_worker) == 0);
@@ -63,7 +62,7 @@ static void test_migration_naive_hash_disagrees_with_cid(void) {
   CHECK((int)hash_before == cid_worker); /* agree at connection start */
   CHECK((int)cid_after == cid_worker);   /* CID bits: unchanged by migration */
   CHECK(hash_after != cid_after); /* THE GAP: kernel hash now disagrees */
-  CHECK(hash_after == 3);         /* exact number pinned as a regression anchor */
+  CHECK(hash_after == 3); /* exact number pinned as a regression anchor */
 }
 
 void test_srvworkers_migration(void) {

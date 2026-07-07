@@ -74,7 +74,9 @@ static void test_pseudo_overflow(void) {
 static usz wrap_stream(const u8* fs, usz fs_len, u8* out, usz cap) {
   u8        h3[192];
   quic_obuf h3b = quic_obuf_of(h3, sizeof h3);
-  CHECK(quic_h3_frame_put(&h3b, QUIC_H3_FRAME_HEADERS, quic_span_of(fs, fs_len)) > 0);
+  CHECK(
+      quic_h3_frame_put(&h3b, QUIC_H3_FRAME_HEADERS, quic_span_of(fs, fs_len)) >
+      0);
   quic_stream_frame sf = {0, 0, h3b.len, h3, 1};
   return quic_frame_put_stream(out, cap, &sf);
 }
@@ -84,9 +86,9 @@ static usz wrap_stream(const u8* fs, usz fs_len, u8* out, usz cap) {
  * through the existing receive-side parser (request_drive.c classify_line).
  */
 static void test_pseudo_protocol_roundtrip(void) {
-  static const u8      m[] = "CONNECT", s[] = "https", a[] = "host",
-                  p[]      = "/wt", proto[] = "webtransport-h3";
-  quic_h3req_pseudo_in in  = {
+  static const u8 m[] = "CONNECT", s[] = "https", a[] = "host", p[] = "/wt",
+                  proto[] = "webtransport-h3";
+  quic_h3req_pseudo_in in = {
       quic_span_of(m, sizeof m - 1), quic_span_of(s, sizeof s - 1),
       quic_span_of(a, sizeof a - 1), quic_span_of(p, sizeof p - 1),
       quic_span_of(proto, sizeof proto - 1)};
@@ -114,7 +116,7 @@ static void test_pseudo_protocol_roundtrip(void) {
  * (no Extended CONNECT) does not regress. */
 static void test_pseudo_protocol_omitted(void) {
   static const u8      m[] = "GET", s[] = "https", a[] = "host", p[] = "/";
-  quic_h3req_pseudo_in in  = {
+  quic_h3req_pseudo_in in = {
       quic_span_of(m, sizeof m - 1), quic_span_of(s, sizeof s - 1),
       quic_span_of(a, sizeof a - 1), quic_span_of(p, sizeof p - 1),
       quic_span_of(0, 0)};
@@ -126,7 +128,7 @@ static void test_pseudo_protocol_omitted(void) {
    * relying on the struct's zero-initialized tail) produce identical bytes. */
   quic_h3req_pseudo_in in2 = {
       in.method, in.scheme, in.authority, in.path, quic_span_of(0, 0)};
-  quic_obuf            b_ob = quic_obuf_of(fs_without, sizeof fs_without);
+  quic_obuf b_ob = quic_obuf_of(fs_without, sizeof fs_without);
   CHECK(quic_h3req_enc_pseudo(&in2, &b_ob) == 1);
 
   CHECK(a_ob.len == b_ob.len);

@@ -46,12 +46,14 @@ static void test_stream_buffer_limit_rejects_overflow(void) {
  * existing buffered datagrams are unchanged. */
 static void test_datagram_buffer_limit_drops_overflow(void) {
   wired_wt_session s;
-  u8               a = 0xaa;
+  u8               a                = 0xaa;
   u8               overflow_payload = 0xff;
   wired_wt_session_init(&s, 4);
   for (u64 i = 0; i < WIRED_WT_MAX_BUFFERED_DATAGRAMS; i++)
     CHECK(wired_wt_session_offer_datagram(&s, quic_span_of(&a, 1)) == 1);
-  CHECK(wired_wt_session_offer_datagram(&s, quic_span_of(&overflow_payload, 1)) == 0);
+  CHECK(
+      wired_wt_session_offer_datagram(&s, quic_span_of(&overflow_payload, 1)) ==
+      0);
   for (usz i = 0; i < WIRED_WT_MAX_BUFFERED_DATAGRAMS; i++) {
     CHECK(s.datagrams[i].in_use == 1);
     CHECK(s.datagrams[i].data[0] == 0xaa);

@@ -42,11 +42,11 @@ typedef int (*wired_srvloop_handler)(
  * again once its request has been answered (mirroring the old single-slot
  * re-arm in wired_srvloop_step). */
 typedef struct {
-  int                   in_use;    /**< 0 = free slot */
-  u64                   stream_id; /**< the client bidi stream id this slot
-                                      reassembles */
-  wired_h3reqdrive_req  req; /**< the decoded request, valid once req_done */
-  u8  req_scratch[512]; /**< backing store for req's path/body views */
+  int in_use;               /**< 0 = free slot */
+  u64 stream_id;            /**< the client bidi stream id this slot
+                               reassembles */
+  wired_h3reqdrive_req req; /**< the decoded request, valid once req_done */
+  u8 req_scratch[512];      /**< backing store for req's path/body views */
   /* RFC 9000 2.2: this stream reassembled across datagrams. curl splits one
    * request's HEADERS and DATA into separate STREAM frames in separate 1-RTT
    * packets; each frame's data is written at its offset here and the request
@@ -59,7 +59,7 @@ typedef struct {
   /** backing store for req's path/body views once decoded (see
    * drive_complete in dispatch.c); must outlive the decode call, so it lives
    * here rather than a stack local that dies on return */
-  u8  req_wrap[2080];
+  u8 req_wrap[2080];
 } wired_srvloop_stream_slot;
 
 /** RFC 9000 2.2: how many concurrent WebTransport bidi streams (draft-ietf-
@@ -75,7 +75,7 @@ typedef struct {
  * signal varint — the signal itself is not application data and is skipped
  * before writing (see gather_wt_stream in dispatch.c). */
 typedef struct {
-  int in_use; /**< 0 = free slot */
+  int in_use;    /**< 0 = free slot */
   u64 stream_id; /**< the WT bidi stream id this slot reassembles */
   /** bytes the leading 0x41 signal varint itself occupied on the wire (RFC
    * 9000 16: 2 for 0x41's own encoding, but recorded rather than assumed) —
@@ -112,7 +112,7 @@ typedef struct {
  * slot's buf/sig_len shape (renamed type_len here since a uni stream's
  * offset-0 varint is a stream TYPE, not a mid-stream signal). */
 typedef struct {
-  int in_use; /**< 0 = free slot */
+  int in_use;    /**< 0 = free slot */
   u64 stream_id; /**< the WT uni stream id this slot reassembles */
   /** bytes the leading type varint occupied on the wire (RFC 9000 16: 2 for
    * 0x54's own encoding, but recorded rather than assumed), same role as
@@ -165,8 +165,8 @@ typedef struct {
   int ticket_sent;  /**< 1 once the post-confirmation session ticket
                      * (NewSessionTicket, RFC 8446 4.6.1) has been emitted */
   wired_srvloop_handler
-                       on_request; /**< app response-body builder, 0 if unset */
-  void*                req_ctx;    /**< opaque ctx passed to on_request */
+        on_request; /**< app response-body builder, 0 if unset */
+  void* req_ctx;    /**< opaque ctx passed to on_request */
   /** RFC 9000 2.2: one reassembly slot per concurrent client bidi (request)
    * stream, looked up/allocated by stream id (see stream_slot_find/alloc in
    * srvloop.c). streams[0] is claimed for stream id 0 on the connection's
@@ -182,7 +182,8 @@ typedef struct {
   /** draft-ietf-webtrans-http3-15 4.3: one reassembly slot per concurrent WT
    * uni stream, separate from wt_streams[] above (different directionality,
    * see wired_srvloop_wt_uni_stream_slot's doc). */
-  wired_srvloop_wt_uni_stream_slot wt_uni_streams[WIRED_SRVLOOP_MAX_WT_UNI_STREAMS];
+  wired_srvloop_wt_uni_stream_slot
+      wt_uni_streams[WIRED_SRVLOOP_MAX_WT_UNI_STREAMS];
   /** Mirrors the most recently completed request this step, across whichever
    * slot decoded it — the pre-existing single-stream API surface (got_request/
    * req), kept so existing callers reading these two fields directly need no
@@ -192,9 +193,9 @@ typedef struct {
   int                  got_request;
   wired_h3reqdrive_req req; /**< the mirrored most-recently-completed request;
                               valid only when got_request is set */
-  u64 req_stream_id; /**< the client bidi stream id req was decoded from;
-                        valid only when got_request is set (mirrors req from
-                        whichever slot completed, same rule) */
+  u64 req_stream_id;        /**< the client bidi stream id req was decoded from;
+                               valid only when got_request is set (mirrors req from
+                               whichever slot completed, same rule) */
   int peer_closed;   /**< 1 once a peer CONNECTION_CLOSE frame was seen */
   int resp_external; /**< 1: the caller answers requests, not the loop */
   /** ACK ranges (RFC 9000 19.3) seen in payloads opened this step, reset at

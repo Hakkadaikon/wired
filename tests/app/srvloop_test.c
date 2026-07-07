@@ -899,15 +899,15 @@ static usz lp_split_post_frames(
  * client bidi stream id, and any body — so two different streams' requests
  * can be told apart by their bodies in the same-slot-collision test below). */
 static usz lp_split_post_frames_on(
-    u64         stream_id,
-    const u8*   body,
-    usz         body_len,
-    u8*         hp,
-    usz         hcap,
-    usz*        hl,
-    u8*         dp,
-    usz         dcap,
-    usz*        dl) {
+    u64       stream_id,
+    const u8* body,
+    usz       body_len,
+    u8*       hp,
+    usz       hcap,
+    usz*      hl,
+    u8*       dp,
+    usz       dcap,
+    usz*      dl) {
   u8                       reqb[256];
   usz                      rlen = 0, hb;
   quic_stream_frame        sf;
@@ -937,37 +937,46 @@ static void test_srvloop_two_streams_reassemble_independently(void) {
   struct lp_fix f;
   u8            h0[256], d0[256], h4[256], d4[256], out[1024], spkt[1024];
   usz           h0l, d0l, h4l, d4l, slen;
-  quic_obuf     ob = {out, sizeof out, 0};
+  quic_obuf     ob    = {out, sizeof out, 0};
   const u8*     body0 = (const u8*)"AA";
   const u8*     body4 = (const u8*)"BBB";
-  lp_split_post_frames_on(0, body0, 2, h0, sizeof h0, &h0l, d0, sizeof d0, &d0l);
-  lp_split_post_frames_on(4, body4, 3, h4, sizeof h4, &h4l, d4, sizeof d4, &d4l);
+  lp_split_post_frames_on(
+      0, body0, 2, h0, sizeof h0, &h0l, d0, sizeof d0, &d0l);
+  lp_split_post_frames_on(
+      4, body4, 3, h4, sizeof h4, &h4l, d4, sizeof d4, &d4l);
   lp_confirm(&f, &ob);
   /* datagram 1: stream 0's HEADERS only, then stream 4's HEADERS only -> no
    * request completes yet on either stream. */
   slen = client_seal_onertt_pn(&f, 3, h0, h0l, spkt, sizeof spkt);
   ob   = (quic_obuf){out, sizeof out, 0};
-  wired_srvloop_step(&(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
   CHECK(f.l.got_request == 0);
   slen = client_seal_onertt_pn(&f, 4, h4, h4l, spkt, sizeof spkt);
   ob   = (quic_obuf){out, sizeof out, 0};
-  wired_srvloop_step(&(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
   CHECK(f.l.got_request == 0);
   /* datagram 3: stream 4's DATA+FIN completes stream 4's request with ITS
    * body ("BBB"), stream 0's slot is untouched. */
   slen = client_seal_onertt_pn(&f, 5, d4, d4l, spkt, sizeof spkt);
   ob   = (quic_obuf){out, sizeof out, 0};
-  wired_srvloop_step(&(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
   CHECK(f.l.got_request == 1);
-  CHECK(f.l.req.body_len == 3 && f.l.req.body[0] == 'B' && f.l.req.body[1] == 'B' &&
-        f.l.req.body[2] == 'B');
+  CHECK(
+      f.l.req.body_len == 3 && f.l.req.body[0] == 'B' &&
+      f.l.req.body[1] == 'B' && f.l.req.body[2] == 'B');
   /* datagram 4: stream 0's DATA+FIN completes stream 0's request with ITS OWN
    * body ("AA") — not stream 4's, and not corrupted by stream 4's slot. */
   slen = client_seal_onertt_pn(&f, 6, d0, d0l, spkt, sizeof spkt);
   ob   = (quic_obuf){out, sizeof out, 0};
-  wired_srvloop_step(&(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
   CHECK(f.l.got_request == 1);
-  CHECK(f.l.req.body_len == 2 && f.l.req.body[0] == 'A' && f.l.req.body[1] == 'A');
+  CHECK(
+      f.l.req.body_len == 2 && f.l.req.body[0] == 'A' &&
+      f.l.req.body[1] == 'A');
 }
 
 /* draft-ietf-webtrans-http3-15 4.3: a WT bidi stream's stream_id has the same
@@ -997,7 +1006,8 @@ static void test_srvloop_wt_bidi_stream_not_request(void) {
   usz           h0l, d0l, wtl, slen;
   quic_obuf     ob    = {out, sizeof out, 0};
   const u8*     body0 = (const u8*)"AA";
-  lp_split_post_frames_on(0, body0, 2, h0, sizeof h0, &h0l, d0, sizeof d0, &d0l);
+  lp_split_post_frames_on(
+      0, body0, 2, h0, sizeof h0, &h0l, d0, sizeof d0, &d0l);
   wtl = lp_wt_bidi_stream(wt, sizeof wt, 4);
   lp_confirm(&f, &ob);
   /* datagram 1: stream 0's HEADERS, then stream 4's (WT) offset-0 signal
@@ -1026,7 +1036,8 @@ static void test_srvloop_wt_bidi_stream_not_request(void) {
       &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
   CHECK(f.l.got_request == 1);
   CHECK(
-      f.l.req.body_len == 2 && f.l.req.body[0] == 'A' && f.l.req.body[1] == 'A');
+      f.l.req.body_len == 2 && f.l.req.body[0] == 'A' &&
+      f.l.req.body[1] == 'A');
   /* stream 4 still claimed no slot after the whole exchange. */
   for (usz i = 1; i < WIRED_SRVLOOP_MAX_STREAMS; i++)
     CHECK(f.l.streams[i].in_use == 0);
@@ -1036,8 +1047,13 @@ static void test_srvloop_wt_bidi_stream_not_request(void) {
  * post-signal continuation frames a WT bidi stream sends after its leading
  * 0x41 signal frame). */
 static usz lp_stream_frame_at(
-    u8* out, usz cap, u64 stream_id, u64 offset, const u8* data, usz data_len,
-    u8 fin) {
+    u8*       out,
+    usz       cap,
+    u64       stream_id,
+    u64       offset,
+    const u8* data,
+    usz       data_len,
+    u8        fin) {
   quic_stream_frame sf = {stream_id, offset, data_len, data, fin};
   return quic_frame_put_stream(out, cap, &sf);
 }
@@ -1058,8 +1074,8 @@ static void test_srvloop_wt_bidi_stream_reassembled(void) {
   quic_obuf     ob = {out, sizeof out, 0};
   /* offset 0: 2-byte 0x41 signal ({0x40,0x41}) + "AB" application bytes. */
   const u8* sig_plus_ab = (const u8*)"\x40\x41" "AB";
-  const u8* cd          = (const u8*)"CD";
-  f0l = lp_stream_frame_at(f0, sizeof f0, 4, 0, sig_plus_ab, 4, 0);
+  const u8* cd = (const u8*)"CD";
+  f0l          = lp_stream_frame_at(f0, sizeof f0, 4, 0, sig_plus_ab, 4, 0);
   /* offset 4 on the WIRE == offset 2 in the post-signal application stream
    * (the 2-byte signal occupies wire offsets 0-1, "AB" occupies 2-3). */
   f1l = lp_stream_frame_at(f1, sizeof f1, 4, 4, cd, 2, 1);
@@ -1109,9 +1125,9 @@ static void test_srvloop_wt_bidi_continuation_not_absorbed_into_request(void) {
   usz           f0l, f1l, slen;
   quic_obuf     ob = {out, sizeof out, 0};
   const u8*     sig_plus_ab = (const u8*)"\x40\x41" "AB";
-  const u8*     cd          = (const u8*)"CD";
-  f0l = lp_stream_frame_at(f0, sizeof f0, 4, 0, sig_plus_ab, 4, 0);
-  f1l = lp_stream_frame_at(f1, sizeof f1, 4, 4, cd, 2, 1);
+  const u8* cd = (const u8*)"CD";
+  f0l          = lp_stream_frame_at(f0, sizeof f0, 4, 0, sig_plus_ab, 4, 0);
+  f1l          = lp_stream_frame_at(f1, sizeof f1, 4, 4, cd, 2, 1);
   lp_confirm(&f, &ob);
   slen = client_seal_onertt_pn(&f, 3, f0, f0l, spkt, sizeof spkt);
   ob   = (quic_obuf){out, sizeof out, 0};
@@ -1124,7 +1140,8 @@ static void test_srvloop_wt_bidi_continuation_not_absorbed_into_request(void) {
       &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
   CHECK(!lp_streams_slot_claims(&f.l, 4));
   CHECK(f.l.got_request == 0);
-  for (usz i = 0; i < WIRED_SRVLOOP_MAX_STREAMS; i++) CHECK(f.l.streams[i].in_use == 0);
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_STREAMS; i++)
+    CHECK(f.l.streams[i].in_use == 0);
 }
 
 /* CONCURRENCY (draft-ietf-webtrans-http3-15 4.3): a WT bidi stream (id 4) and
@@ -1137,7 +1154,8 @@ static void test_srvloop_wt_stream_concurrent_with_request(void) {
   usz           h0l, d0l, wtl, slen;
   quic_obuf     ob    = {out, sizeof out, 0};
   const u8*     body0 = (const u8*)"AA";
-  lp_split_post_frames_on(0, body0, 2, h0, sizeof h0, &h0l, d0, sizeof d0, &d0l);
+  lp_split_post_frames_on(
+      0, body0, 2, h0, sizeof h0, &h0l, d0, sizeof d0, &d0l);
   wtl = lp_wt_bidi_stream(wt, sizeof wt, 4);
   lp_confirm(&f, &ob);
   /* datagram 1: stream 0's HEADERS + stream 4's WT signal, same payload. */
@@ -1167,12 +1185,15 @@ static void test_srvloop_wt_stream_concurrent_with_request(void) {
       &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
   CHECK(f.l.got_request == 1);
   CHECK(
-      f.l.req.body_len == 2 && f.l.req.body[0] == 'A' && f.l.req.body[1] == 'A');
+      f.l.req.body_len == 2 && f.l.req.body[0] == 'A' &&
+      f.l.req.body[1] == 'A');
   /* the WT slot from datagram 1 is still intact, untouched by the request's
    * own completion. */
   {
     int i = wired_srvloop_wt_slot_find(&f.l, 4);
-    CHECK(i >= 0 && f.l.wt_streams[i].len == 1 && f.l.wt_streams[i].buf[0] == 'X');
+    CHECK(
+        i >= 0 && f.l.wt_streams[i].len == 1 &&
+        f.l.wt_streams[i].buf[0] == 'X');
   }
 }
 
@@ -1186,9 +1207,9 @@ static void test_srvloop_wt_signal_only_frame_then_data(void) {
   struct lp_fix f;
   u8            f0[64], f1[64], out[1024], spkt[1024];
   usz           f0l, f1l, slen;
-  quic_obuf     ob        = {out, sizeof out, 0};
-  const u8*     sig_only  = (const u8*)"\x40\x41"; /* signal, no app bytes */
-  const u8*     app       = (const u8*)"Z";
+  quic_obuf     ob       = {out, sizeof out, 0};
+  const u8*     sig_only = (const u8*)"\x40\x41"; /* signal, no app bytes */
+  const u8*     app      = (const u8*)"Z";
   f0l = lp_stream_frame_at(f0, sizeof f0, 4, 0, sig_only, 2, 0);
   f1l = lp_stream_frame_at(f1, sizeof f1, 4, 2, app, 1, 1);
   lp_confirm(&f, &ob);
@@ -1223,7 +1244,7 @@ static void test_srvloop_wt_stream_without_session_no_crash(void) {
   u8            wt[64], out[1024], spkt[1024];
   usz           wtl, slen;
   quic_obuf     ob = {out, sizeof out, 0};
-  wtl = lp_wt_bidi_stream(wt, sizeof wt, 4);
+  wtl              = lp_wt_bidi_stream(wt, sizeof wt, 4);
   lp_confirm(&f, &ob);
   slen = client_seal_onertt_pn(&f, 3, wt, wtl, spkt, sizeof spkt);
   ob   = (quic_obuf){out, sizeof out, 0};
@@ -1232,7 +1253,9 @@ static void test_srvloop_wt_stream_without_session_no_crash(void) {
   CHECK(f.l.got_request == 0);
   {
     int i = wired_srvloop_wt_slot_find(&f.l, 4);
-    CHECK(i >= 0 && f.l.wt_streams[i].len == 1 && f.l.wt_streams[i].buf[0] == 'X');
+    CHECK(
+        i >= 0 && f.l.wt_streams[i].len == 1 &&
+        f.l.wt_streams[i].buf[0] == 'X');
   }
   /* no other connection state disturbed: request table clean, no peer-close
    * latched. */
@@ -1264,10 +1287,11 @@ static void test_srvloop_wt_uni_stream_reassembled(void) {
   u8            f0[64], f1[64], out[1024], spkt[1024];
   usz           f0l, f1l, slen;
   quic_obuf     ob = {out, sizeof out, 0};
-  /* offset 0: 2-byte 0x54 type varint ({0x40,0x54}) + "AB" application bytes. */
+  /* offset 0: 2-byte 0x54 type varint ({0x40,0x54}) + "AB" application bytes.
+   */
   const u8* type_plus_ab = (const u8*)"\x40\x54" "AB";
-  const u8* cd           = (const u8*)"CD";
-  f0l = lp_stream_frame_at(f0, sizeof f0, 2, 0, type_plus_ab, 4, 0);
+  const u8* cd = (const u8*)"CD";
+  f0l          = lp_stream_frame_at(f0, sizeof f0, 2, 0, type_plus_ab, 4, 0);
   /* offset 4 on the WIRE == offset 2 in the post-type application stream (the
    * 2-byte type varint occupies wire offsets 0-1, "AB" occupies 2-3). */
   f1l = lp_stream_frame_at(f1, sizeof f1, 2, 4, cd, 2, 1);
@@ -1305,7 +1329,7 @@ static void test_srvloop_uni_control_qpack_still_ignored(void) {
   struct lp_fix f;
   u8            payload[256], out[1024], spkt[1024];
   usz           off = 0, slen;
-  quic_obuf     ob = {out, sizeof out, 0};
+  quic_obuf     ob  = {out, sizeof out, 0};
   off += lp_uni_stream(payload + off, sizeof payload - off, 2, 0x00);
   off += lp_uni_stream(payload + off, sizeof payload - off, 6, 0x02);
   off += lp_uni_stream(payload + off, sizeof payload - off, 10, 0x03);
@@ -1331,7 +1355,7 @@ static void test_srvloop_uni_unrecognized_type_no_crash(void) {
   u8            payload[64], out[1024], spkt[1024];
   usz           off, slen;
   quic_obuf     ob = {out, sizeof out, 0};
-  off = lp_uni_stream(payload, sizeof payload, 2, 0x7f);
+  off              = lp_uni_stream(payload, sizeof payload, 2, 0x7f);
   lp_confirm(&f, &ob);
   slen = client_seal_onertt_pn(&f, 3, payload, off, spkt, sizeof spkt);
   ob   = (quic_obuf){out, sizeof out, 0};
@@ -1352,7 +1376,7 @@ static void test_srvloop_wt_uni_stream_without_session_no_crash(void) {
   u8            wt[64], out[1024], spkt[1024];
   usz           wtl, slen;
   quic_obuf     ob = {out, sizeof out, 0};
-  wtl = lp_wt_uni_stream(wt, sizeof wt, 2);
+  wtl              = lp_wt_uni_stream(wt, sizeof wt, 2);
   lp_confirm(&f, &ob);
   slen = client_seal_onertt_pn(&f, 3, wt, wtl, spkt, sizeof spkt);
   ob   = (quic_obuf){out, sizeof out, 0};
@@ -1391,10 +1415,9 @@ static void test_srvloop_datagram_queued_on_step(void) {
       &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
   CHECK(f.l.rx_datagram_n == 1);
   CHECK(
-      f.l.rx_datagrams[0].len == 5 &&
-      f.l.rx_datagrams[0].buf[0] == 'h' && f.l.rx_datagrams[0].buf[1] == 'e' &&
-      f.l.rx_datagrams[0].buf[2] == 'l' && f.l.rx_datagrams[0].buf[3] == 'l' &&
-      f.l.rx_datagrams[0].buf[4] == 'o');
+      f.l.rx_datagrams[0].len == 5 && f.l.rx_datagrams[0].buf[0] == 'h' &&
+      f.l.rx_datagrams[0].buf[1] == 'e' && f.l.rx_datagrams[0].buf[2] == 'l' &&
+      f.l.rx_datagrams[0].buf[3] == 'l' && f.l.rx_datagrams[0].buf[4] == 'o');
 }
 
 /* RFC 9221 5: several DATAGRAM frames arriving across separate steps (separate
@@ -1415,15 +1438,15 @@ static void test_srvloop_datagram_queue_overflow_drops_newest(void) {
     u8                  b  = (u8)('A' + i);
     quic_datagram_frame df = {.length = 1, .data = &b};
     plen = quic_datagram_encode(quic_mspan_of(payload, sizeof payload), &df, 1);
-    slen = client_seal_onertt_pn(
-        &f, 3 + i, payload, plen, spkt, sizeof spkt);
-    ob = (quic_obuf){out, sizeof out, 0};
+    slen = client_seal_onertt_pn(&f, 3 + i, payload, plen, spkt, sizeof spkt);
+    ob   = (quic_obuf){out, sizeof out, 0};
     wired_srvloop_step(
         &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
   }
   CHECK(f.l.rx_datagram_n == WIRED_SRVLOOP_MAX_RX_DATAGRAMS);
   for (i = 0; i < WIRED_SRVLOOP_MAX_RX_DATAGRAMS; i++)
-    CHECK(f.l.rx_datagrams[i].len == 1 && f.l.rx_datagrams[i].buf[0] == 'A' + i);
+    CHECK(
+        f.l.rx_datagrams[i].len == 1 && f.l.rx_datagrams[i].buf[0] == 'A' + i);
   /* one more beyond capacity: dropped, queue stays at max, existing entries
    * untouched. */
   {
@@ -1439,7 +1462,8 @@ static void test_srvloop_datagram_queue_overflow_drops_newest(void) {
   }
   CHECK(f.l.rx_datagram_n == WIRED_SRVLOOP_MAX_RX_DATAGRAMS);
   for (i = 0; i < WIRED_SRVLOOP_MAX_RX_DATAGRAMS; i++)
-    CHECK(f.l.rx_datagrams[i].len == 1 && f.l.rx_datagrams[i].buf[0] == 'A' + i);
+    CHECK(
+        f.l.rx_datagrams[i].len == 1 && f.l.rx_datagrams[i].buf[0] == 'A' + i);
 }
 
 /* RFC 9221 3: a DATAGRAM frame whose payload fits within the connection's own
@@ -1538,14 +1562,14 @@ static void test_srvloop_request_only_leaves_rx_datagrams_empty(void) {
  * the signal check must match the full decoded varint VALUE, not merely
  * detect the 2-byte-varint prefix pattern. */
 static void test_srvloop_stream_leading_0x40_not_wt_signal(void) {
-  struct lp_fix        f;
-  u8                   payload[256], reqb[256];
-  usz                  rlen;
-  wired_h3reqdrive_req req;
-  u8                   scratch[512];
-  int                  got = 0;
-  const u8*            body = (const u8*)"hi";
-  wired_h3reqdrive_send_in in = {
+  struct lp_fix            f;
+  u8                       payload[256], reqb[256];
+  usz                      rlen;
+  wired_h3reqdrive_req     req;
+  u8                       scratch[512];
+  int                      got  = 0;
+  const u8*                body = (const u8*)"hi";
+  wired_h3reqdrive_send_in in   = {
       quic_span_of((const u8*)"POST", 4), quic_span_of((const u8*)"/", 1),
       quic_span_of((const u8*)"h", 1), quic_span_of(body, 2)};
   quic_obuf rob = {reqb, sizeof reqb, 0};

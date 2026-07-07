@@ -73,9 +73,9 @@ static void test_reset_stream_at(void) {
    * final_size=50 and reliable_size=10 both fit a 1-byte varint (prefix
    * 00, value <= 0x3F); corrupting the trailing byte to 0x3F (63) keeps
    * it a valid-length 1-byte varint but 63 > 50. */
-  in.final_size     = 50;
-  in.reliable_size  = 10;
-  w                 = quic_reset_stream_at_encode(buf, sizeof(buf), &in);
+  in.final_size    = 50;
+  in.reliable_size = 10;
+  w                = quic_reset_stream_at_encode(buf, sizeof(buf), &in);
   CHECK(w != 0);
   buf[w - 1] = 0x3F;
   CHECK(quic_reset_stream_at_decode(buf, w, &out) == 0);

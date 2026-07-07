@@ -135,7 +135,7 @@ static void test_recvmmsg_nowait_delivers_queued_datagram(void) {
   i64              sfd, cfd;
   quic_sockaddr_in srv;
   u8               rx[64];
-  quic_mmsg_buf    bufs[1] = {{quic_mspan_of(rx, sizeof rx), {0}, 0}};
+  quic_mmsg_buf    bufs[1]    = {{quic_mspan_of(rx, sizeof rx), {0}, 0}};
   const u8         payload[5] = {1, 2, 3, 4, 5};
   if (!gso_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
   CHECK(

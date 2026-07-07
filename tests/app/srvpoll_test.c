@@ -103,7 +103,8 @@ static void test_srvpoll_backoff_resets_on_data(void) {
     return;
   }
   for (usz i = 0; i < 2; i++) bufs[i].buf = quic_mspan_of(storage[i], 16);
-  for (int i = 0; i < 3; i++) wired_srvpoll_spin_step_backoff(sfd, bufs, 2, &bo);
+  for (int i = 0; i < 3; i++)
+    wired_srvpoll_spin_step_backoff(sfd, bufs, 2, &bo);
   CHECK(bo.empty_spins == 3);
   wired_udp_send(cfd, &srv, quic_span_of((const u8[]){1, 2, 3}, 3));
   i64 r = wired_srvpoll_spin_step_backoff(sfd, bufs, 2, &bo);
@@ -122,7 +123,8 @@ static void test_srvpoll_backoff_caps_at_maximum(void) {
   wired_srvpoll_backoff bo = {0};
   if (!sp_open_socket(&sfd, &srv)) return; /* sandbox: skip */
   for (usz i = 0; i < 2; i++) bufs[i].buf = quic_mspan_of(storage[i], 16);
-  for (int i = 0; i < 1000; i++) wired_srvpoll_spin_step_backoff(sfd, bufs, 2, &bo);
+  for (int i = 0; i < 1000; i++)
+    wired_srvpoll_spin_step_backoff(sfd, bufs, 2, &bo);
   CHECK(bo.empty_spins == WIRED_SRVPOLL_BACKOFF_MAX);
   wired_udp_close(sfd);
 }
