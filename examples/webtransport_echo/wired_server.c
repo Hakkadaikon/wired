@@ -147,8 +147,9 @@ static void server_identity(wired_srvboot_id* id, server_keys* k) {
   id->chain            = 0; /* self-signed; see word_list's README for a
                                 real-CA chain drop-in, same recipe applies */
   id->chain_count      = 0;
-  id->max_data         = 0;
-  id->max_streams_bidi = 0;
+  id->max_data                = 0;
+  id->max_streams_bidi        = 0;
+  id->max_datagram_frame_size = 0;
 }
 
 /* CLI configuration: --port only (default 4433). No --root/--cert/--key
