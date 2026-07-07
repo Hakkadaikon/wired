@@ -1,7 +1,9 @@
 #include "app/http3/server/srvloop/dispatch.h"
 
+#include "app/http3/core/h3/frame.h"
 #include "app/http3/server/h3srv/respond.h"
 #include "common/bytes/util/bytes.h"
+#include "common/bytes/varint/varint.h"
 #include "transport/packet/frame/frame/frame.h"
 #include "transport/packet/frame/pipeline/framewalk.h"
 #include "transport/stream/data/appdata/stream_send.h"
@@ -17,11 +19,43 @@ static int is_stream(u64 type) {
  * which curl opens before the request and must NOT be treated as a request. */
 static int is_request_stream(u64 stream_id) { return (stream_id & 0x03) == 0; }
 
+/* draft-ietf-webtrans-http3-15 4.3: 1 if this bidi stream's very first bytes
+ * (an offset-0 STREAM frame's data) decode as the WT_STREAM signal varint
+ * (value 0x41). Only offset 0 is ever checked here — the signal MUST be the
+ * stream's leading bytes, so a later (offset>0) frame is never mistaken for
+ * one. Truncated/undecodable leading bytes are not the signal (0). */
+static int is_wt_stream_signal(quic_span data) {
+  u64 v;
+  usz off = 0;
+  if (!quic_varint_take(data, &off, &v)) return 0;
+  return v == QUIC_H3_STREAM_WEBTRANSPORT_BIDI;
+}
+
+/* 1 if sf is the stream's first-sighted (offset 0) frame and its leading bytes
+ * are the WT_STREAM signal — the one case that overrides an id-based request
+ * classification (see sf_is_request below). Any other frame (offset>0) is
+ * never checked against the signal, matching "MUST be the leading bytes". */
+static int sf_is_wt_signalled(const quic_stream_frame* sf) {
+  return sf->offset == 0 &&
+         is_wt_stream_signal(quic_span_of(sf->data, (usz)sf->length));
+}
+
+/* 1 if sf is a client bidi request stream — i.e. its id classifies as request
+ * and it is not a WT bidi stream signalled at its first frame. A WT bidi
+ * stream must never be committed to the HTTP/3 request-reassembly path; full
+ * routing to a wired_wt_session is Phase 7b future work (see
+ * wired_srvloop_dispatch's header doc). Per this call's scope, a WT stream is
+ * simply not treated as a request (feed_or_accept's existing "accepted but
+ * ignored" path takes it from here). */
+static int sf_is_request(const quic_stream_frame* sf) {
+  return is_request_stream(sf->stream_id) && !sf_is_wt_signalled(sf);
+}
+
 /* 1 if the STREAM frame at `frame` is a client bidi request stream. */
 static int stream_is_request(const u8* frame, usz rem) {
   quic_stream_frame sf;
   if (quic_frame_get_stream(frame, rem, &sf) == 0) return 0;
-  return is_request_stream(sf.stream_id);
+  return sf_is_request(&sf);
 }
 
 /* 1 if the walked frame of `type` at `frame` is a client bidi request STREAM.
