@@ -705,12 +705,27 @@ static void srvrun_start_app_resp(
       SRVRUN_CHUNK);
 }
 
+/* Reject this Extended CONNECT with 429 (WT-C-010/011: a second Extended
+ * CONNECT arriving while a WT session is already active on this connection)
+ * without disturbing the existing session. One session per connection for
+ * now (tasks/webtransport-plan.md scope) -- srvrun_start_wt would otherwise
+ * unconditionally re-init c->wt, silently resetting an ESTABLISHED session
+ * back to UNESTABLISHED and dropping its buffered state. */
+static void srvrun_reject_wt_busy(srvrun_conn* c, int slot) {
+  srvrun_start_wt_status(c, slot, 429);
+}
+
 /* A well-formed Extended CONNECT for WebTransport either establishes a
- * session (Origin absent, or present and well-formed) or is rejected with
- * 403 (Origin present but malformed, WT-B-005/007/008). */
+ * session (Origin absent, or present and well-formed, and no session already
+ * active on this connection -- WT-C-010/011), or is rejected: 403 for a
+ * malformed Origin (WT-B-005/007/008), 429 if a session is already active. */
 static void srvrun_dispatch_wt(srvrun_conn* c, int slot) {
   if (!wt_origin_ok(&c->l.req)) {
     srvrun_reject_wt(c, slot);
+    return;
+  }
+  if (c->wt_active) {
+    srvrun_reject_wt_busy(c, slot);
     return;
   }
   srvrun_start_wt(c, slot);
