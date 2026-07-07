@@ -415,12 +415,10 @@ static int srvrun_owes_goaway(const srvrun_conn* c) {
  * app-facing callback hook from the plan's API sketch, also not built) --
  * hence still test-only, same situation as srvrun_test_set_shutdown above.
  *
- * Does not check the peer's advertised max_datagram_frame_size, since this
- * SDK does not yet retain peer transport parameters (see
- * tasks/webtransport-plan.md WT-A-007/008). Bounded only by the local
- * dg_pending_buf capacity, consistent with how other frame types in this file
- * are already bounded by a local packet-size budget (SRVRUN_CHUNK et al.)
- * rather than a peer-advertised limit.
+ * Queuing itself is bounded only by the local dg_pending_buf capacity, same
+ * as other frame types in this file (SRVRUN_CHUNK et al.); the peer's
+ * advertised max_datagram_frame_size (RFC 9221 3) is enforced later, at send
+ * time, by srvrun_send_pending_datagram.
  * ponytail: unused in the freestanding build (only tests/run.c calls this),
  * so it needs the attribute to avoid -Wunused-function under -Werror there.
  * @return 1 if queued, 0 if data.n exceeds dg_pending_buf's capacity */
@@ -436,16 +434,20 @@ __attribute__((unused)) static int srvrun_queue_datagram(
 /* Seal c's one pending QUIC DATAGRAM (RFC 9221 5) into a 1-RTT packet and send
  * it. Unlike srvrun_send_slice/srvrun_send_goaway, there is no
  * wired_sendsess/ACK-loss bookkeeping: RFC 9221 1 DATAGRAM frames are never
- * retransmitted. max_frame_size is passed as the local plaintext buffer's own
- * capacity, so quic_dgdeliver_frame's internal size check bounds against
- * local capacity, not a (nonexistent) peer-advertised limit. Clears
- * c->dg_pending on success. Returns 1 if sent, 0 if the frame could not be
- * built (e.g. it would not fit). */
+ * retransmitted. max_frame_size is the peer's advertised
+ * max_datagram_frame_size (quic_sdrv_recv_client_hello populated it from the
+ * real ClientHello transport parameters): quic_dgdeliver_frame's internal
+ * quic_datagram_allowed check rejects the send outright when the
+ * peer never advertised support (value 0) or when the encoded frame would
+ * exceed the peer's advertised limit. Clears c->dg_pending on success.
+ * Returns 1 if sent, 0 if the frame could not be built (too large for the
+ * peer's limit, or it would not fit the local buffer). */
 static int srvrun_send_pending_datagram(
     const srvrun_cfg* cfg, srvrun_conn* c, quic_obuf* out) {
-  u8                  pl[1400];
-  quic_obuf           plb = quic_obuf_of(pl, sizeof pl);
-  quic_dgdeliver_opts o   = {.with_length = 1, .max_frame_size = sizeof pl};
+  u8        pl[1400];
+  quic_obuf plb        = quic_obuf_of(pl, sizeof pl);
+  u64       peer_limit = c->s.sdrv.peer_max_datagram_frame_size;
+  quic_dgdeliver_opts   o = {.with_length = 1, .max_frame_size = peer_limit};
   wired_srvloop_send_in sin;
   if (!quic_dgdeliver_frame(
           quic_span_of(c->dg_pending_buf, c->dg_pending_len), &o, &plb))
