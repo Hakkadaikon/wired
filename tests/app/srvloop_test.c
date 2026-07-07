@@ -1196,6 +1196,139 @@ static void test_srvloop_wt_stream_without_session_no_crash(void) {
   CHECK(f.l.peer_closed == 0);
 }
 
+/* draft-ietf-webtrans-http3-15 4.3: a WT uni stream's leading (offset-0)
+ * bytes are the type varint 0x54 (2-byte wire form {0x40, 0x54}, RFC 9000
+ * 16 — 84 exceeds the 1-byte range), unambiguously identifying the stream's
+ * type with no signal/app-data ambiguity (unlike WT bidi's 0x41). Build
+ * stream id's offset-0 STREAM frame with that leading varint plus one
+ * application byte behind it. */
+static usz lp_wt_uni_stream(u8* out, usz cap, u64 stream_id) {
+  u8                sig[3] = {0x40, 0x54, 'X'};
+  quic_stream_frame sf     = {stream_id, 0, sizeof sig, sig, 0};
+  return quic_frame_put_stream(out, cap, &sf);
+}
+
+/* NEW UNI STREAM CLASSIFICATION (draft-ietf-webtrans-http3-15 4.3): a WT-typed
+ * (0x54) client uni stream's post-type-byte application bytes are reassembled
+ * into wt_uni_streams[], split across TWO STREAM frames like curl's HEADERS/
+ * DATA split — the offset-0 type frame immediately followed by application
+ * bytes, then a separate offset>0 frame with more bytes and FIN. Mirrors
+ * test_srvloop_wt_bidi_stream_reassembled's own driving style/shape for the
+ * separate uni table. */
+static void test_srvloop_wt_uni_stream_reassembled(void) {
+  struct lp_fix f;
+  u8            f0[64], f1[64], out[1024], spkt[1024];
+  usz           f0l, f1l, slen;
+  quic_obuf     ob = {out, sizeof out, 0};
+  /* offset 0: 2-byte 0x54 type varint ({0x40,0x54}) + "AB" application bytes. */
+  const u8* type_plus_ab = (const u8*)"\x40\x54" "AB";
+  const u8* cd           = (const u8*)"CD";
+  f0l = lp_stream_frame_at(f0, sizeof f0, 2, 0, type_plus_ab, 4, 0);
+  /* offset 4 on the WIRE == offset 2 in the post-type application stream (the
+   * 2-byte type varint occupies wire offsets 0-1, "AB" occupies 2-3). */
+  f1l = lp_stream_frame_at(f1, sizeof f1, 2, 4, cd, 2, 1);
+  lp_confirm(&f, &ob);
+  slen = client_seal_onertt_pn(&f, 3, f0, f0l, spkt, sizeof spkt);
+  ob   = (quic_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  slen = client_seal_onertt_pn(&f, 4, f1, f1l, spkt, sizeof spkt);
+  ob   = (quic_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  {
+    int i = wired_srvloop_wt_uni_slot_find(&f.l, 2);
+    CHECK(i >= 0);
+    CHECK(f.l.wt_uni_streams[i].len == 4);
+    CHECK(
+        f.l.wt_uni_streams[i].buf[0] == 'A' &&
+        f.l.wt_uni_streams[i].buf[1] == 'B' &&
+        f.l.wt_uni_streams[i].buf[2] == 'C' &&
+        f.l.wt_uni_streams[i].buf[3] == 'D');
+    CHECK(f.l.wt_uni_streams[i].fin == 1);
+  }
+}
+
+/* REGRESSION: existing control (0x00)/QPACK (0x02/0x03) uni streams, now
+ * newly CLASSIFIED (offset-0 type peeked) for the first time by this slice's
+ * gather_uni_stream, still behave EXACTLY as before -- accepted (no crash,
+ * no got_request), and critically no wt_uni_streams[] slot is claimed for any
+ * of them (only a 0x54-typed stream ever claims one). Driven through the live
+ * wired_srvloop_step path (ctx->l set), unlike the pre-existing direct-
+ * dispatch test_srvloop_dispatch_uni_streams_not_request, so the classifier
+ * added in THIS slice is actually exercised. */
+static void test_srvloop_uni_control_qpack_still_ignored(void) {
+  struct lp_fix f;
+  u8            payload[256], out[1024], spkt[1024];
+  usz           off = 0, slen;
+  quic_obuf     ob = {out, sizeof out, 0};
+  off += lp_uni_stream(payload + off, sizeof payload - off, 2, 0x00);
+  off += lp_uni_stream(payload + off, sizeof payload - off, 6, 0x02);
+  off += lp_uni_stream(payload + off, sizeof payload - off, 10, 0x03);
+  lp_confirm(&f, &ob);
+  slen = client_seal_onertt_pn(&f, 3, payload, off, spkt, sizeof spkt);
+  ob   = (quic_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  CHECK(f.l.got_request == 0);
+  CHECK(f.l.peer_closed == 0);
+  CHECK(wired_srvloop_wt_uni_slot_find(&f.l, 2) < 0);
+  CHECK(wired_srvloop_wt_uni_slot_find(&f.l, 6) < 0);
+  CHECK(wired_srvloop_wt_uni_slot_find(&f.l, 10) < 0);
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_UNI_STREAMS; i++)
+    CHECK(f.l.wt_uni_streams[i].in_use == 0);
+}
+
+/* An unrecognized uni stream type (neither control/QPACK/WebTransport) does
+ * not crash and falls back to accepted-and-ignored, exactly like the known
+ * non-WT types above -- no slot claimed, no got_request, no peer_closed. */
+static void test_srvloop_uni_unrecognized_type_no_crash(void) {
+  struct lp_fix f;
+  u8            payload[64], out[1024], spkt[1024];
+  usz           off, slen;
+  quic_obuf     ob = {out, sizeof out, 0};
+  off = lp_uni_stream(payload, sizeof payload, 2, 0x7f);
+  lp_confirm(&f, &ob);
+  slen = client_seal_onertt_pn(&f, 3, payload, off, spkt, sizeof spkt);
+  ob   = (quic_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  CHECK(f.l.got_request == 0);
+  CHECK(f.l.peer_closed == 0);
+  CHECK(wired_srvloop_wt_uni_slot_find(&f.l, 2) < 0);
+}
+
+/* REGRESSION: a WT uni stream arriving on a connection with no active
+ * WebTransport session must not crash or corrupt state -- mirrors
+ * test_srvloop_wt_stream_without_session_no_crash for the separate uni table.
+ * srvloop/dispatch does not know about wired_wt_session at all; the
+ * association happens one layer up in srvrun.c, gated on c->wt_active. */
+static void test_srvloop_wt_uni_stream_without_session_no_crash(void) {
+  struct lp_fix f;
+  u8            wt[64], out[1024], spkt[1024];
+  usz           wtl, slen;
+  quic_obuf     ob = {out, sizeof out, 0};
+  wtl = lp_wt_uni_stream(wt, sizeof wt, 2);
+  lp_confirm(&f, &ob);
+  slen = client_seal_onertt_pn(&f, 3, wt, wtl, spkt, sizeof spkt);
+  ob   = (quic_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  CHECK(f.l.got_request == 0);
+  {
+    int i = wired_srvloop_wt_uni_slot_find(&f.l, 2);
+    CHECK(
+        i >= 0 && f.l.wt_uni_streams[i].len == 1 &&
+        f.l.wt_uni_streams[i].buf[0] == 'X');
+  }
+  /* no other connection state disturbed: request table clean, no peer-close
+   * latched, and the (structurally disjoint) WT bidi table untouched. */
+  CHECK(f.l.streams[0].in_use == 0);
+  CHECK(f.l.peer_closed == 0);
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_STREAMS; i++)
+    CHECK(f.l.wt_streams[i].in_use == 0);
+}
+
 /* RFC 9221 5: a real encoded DATAGRAM frame, driven through the live
  * wired_srvloop_step path, lands its payload bytes in rx_datagrams[0] and
  * rx_datagram_n becomes 1. */
@@ -1665,6 +1798,10 @@ void test_srvloop(void) {
   test_srvloop_wt_stream_concurrent_with_request();
   test_srvloop_wt_signal_only_frame_then_data();
   test_srvloop_wt_stream_without_session_no_crash();
+  test_srvloop_wt_uni_stream_reassembled();
+  test_srvloop_uni_control_qpack_still_ignored();
+  test_srvloop_uni_unrecognized_type_no_crash();
+  test_srvloop_wt_uni_stream_without_session_no_crash();
   test_srvloop_datagram_queued_on_step();
   test_srvloop_datagram_queue_overflow_drops_newest();
   test_srvloop_request_only_leaves_rx_datagrams_empty();
