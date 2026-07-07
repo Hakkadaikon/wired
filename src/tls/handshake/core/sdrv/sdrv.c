@@ -84,16 +84,34 @@ typedef struct {
   usz       end;
 } sdrv_ch_block;
 
+/* Safely read one extension's 4-byte type+length header at *q within blk and
+ * advance *q past its declared extension_data. Returns 0 (and leaves *q
+ * untouched) if either the header itself or its declared length would run
+ * past blk->end. blk->end must already be a validated real bound (see
+ * sdrv_ch_exts_span, which clamps the peer's self-reported extensions
+ * length to the real ClientHello body before any walk starts); this check
+ * is what stops the walk's own loop guard (q + 4 <= end) from being trusted
+ * as the sole bounds check -- the loop guard alone permits reading the
+ * header before confirming the header's OWN declared length also fits. */
+static int sdrv_ch_hdr(
+    const sdrv_ch_block* blk, usz* q, unsigned* type, usz* dlen) {
+  if (*q + 4 > blk->end) return 0;
+  *type = (unsigned)blk->b[*q] << 8 | blk->b[*q + 1];
+  *dlen = (usz)blk->b[*q + 2] << 8 | blk->b[*q + 3];
+  if (*q + 4 + *dlen > blk->end) return 0;
+  *q += 4 + *dlen;
+  return 1;
+}
+
 /* One extension at *q: -1 overrun, 1 key_share taken, 0 skip; *q advances.
  * RFC 8446 4.2.8: the ClientHello key_share lists several KeyShareEntry, so
  * scan the list for x25519 rather than assuming it is the first entry. */
 static int sdrv_ch_one(const sdrv_ch_block* blk, usz* q, u8 pub[32]) {
-  unsigned t    = (unsigned)blk->b[*q] << 8 | blk->b[*q + 1];
-  usz      dlen = (usz)blk->b[*q + 2] << 8 | blk->b[*q + 3];
-  if (*q + 4 + dlen > blk->end) return -1;
-  *q += 4 + dlen;
-  return (t == QUIC_EXT_KEY_SHARE)
-             ? quic_tls_ext_key_share_scan(blk->b + *q - dlen, dlen, pub)
+  unsigned type;
+  usz      dlen, start = *q;
+  if (!sdrv_ch_hdr(blk, q, &type, &dlen)) return -1;
+  return (type == QUIC_EXT_KEY_SHARE)
+             ? quic_tls_ext_key_share_scan(blk->b + start + 4, dlen, pub)
              : 0;
 }
 
@@ -129,24 +147,6 @@ static usz sdrv_ch_prefix(const u8* b, usz n) {
   return prefix_fits(p, 2, n) ? p : 0;
 }
 
-/* The extensions-length field at b[exts]/b[exts+1] is the client's own
- * claim about how many extension-list bytes follow; it is NOT validated
- * against the real buffer by sdrv_ch_prefix (which only bounds the
- * fixed-size prefix before it). Read it and clamp the claimed end to n (the
- * caller's genuine allocated length), rather than trusting it outright --
- * an attacker-controlled ClientHello can claim an extensions length far
- * longer than the bytes actually present, and every walker downstream
- * (sdrv_ch_walk / sdrv_ch_find_tp) must never read past the real buffer.
- * Returns 0 if the length field itself doesn't fit, or the walk start (b +
- * exts + 2) would already overrun n. */
-static usz sdrv_ch_exts_end(const u8* b, usz n, usz exts) {
-  usz blen, remaining;
-  if (exts + 2 > n) return 0;
-  blen      = (usz)b[exts] << 8 | b[exts + 1];
-  remaining = n - (exts + 2);
-  return blen <= remaining ? exts + 2 + blen : 0;
-}
-
 /* The message is a well-framed ClientHello; sets *body_len. */
 static int sdrv_is_client_hello(const u8* buf, usz n, usz* body_len) {
   u8 type;
@@ -154,36 +154,28 @@ static int sdrv_is_client_hello(const u8* buf, usz n, usz* body_len) {
          type == QUIC_HS_CLIENT_HELLO;
 }
 
-/* b/body is the ClientHello body (past the 4-byte handshake header) and its
- * quic_hs_parse-verified length. Locate the extensions list within it,
- * checked against body (the real, verified remaining bytes, not a further
- * self-reported length one layer down), and set *start and *end to the
- * [start,end) span sdrv_ch_walk / sdrv_ch_find_tp should scan. Returns 0 on
- * any malformed/truncated extensions list. */
-static int sdrv_ch_body_range(const u8* b, usz body, usz* start, usz* end) {
+/* Locate the ClientHello's extensions list within body (a real, already
+ * length-validated ClientHello body, per quic_hs_parse): sets *start to just
+ * past the 2-byte extensions-length field and *end to where the list
+ * actually ends. The extensions-length field is self-reported by the peer,
+ * so *end is clamped to body -- a claimed length that would run past the
+ * real body is a malformed ClientHello and fails closed (0) here, rather
+ * than handing an out-of-bounds *end to the walkers below. */
+static int sdrv_ch_exts_span(const u8* b, usz body, usz* start, usz* end) {
   usz exts = sdrv_ch_prefix(b, body);
+  usz blen;
   if (exts == 0) return 0;
-  *end = sdrv_ch_exts_end(b, body, exts);
-  if (*end == 0) return 0;
+  blen   = (usz)b[exts] << 8 | b[exts + 1];
   *start = exts + 2;
-  return 1;
-}
-
-/* Locate the ClientHello's extension list, checked against the REAL buffer
- * length ch_len (not just the client's own self-reported lengths at each
- * framing layer): sets *start and *end to the [start,end) span sdrv_ch_walk
- * and sdrv_ch_find_tp should scan, both relative to ch+4. Returns 0 on any
- * malformed/truncated ClientHello. */
-static int sdrv_ch_range(const u8* ch, usz ch_len, usz* start, usz* end) {
-  usz body;
-  return sdrv_is_client_hello(ch, ch_len, &body) &&
-         sdrv_ch_body_range(ch + 4, body, start, end);
+  *end   = *start + blen;
+  return *end <= body;
 }
 
 /* Take the client x25519 key_share from a ClientHello (header included). */
 static int take_client_keyshare(const u8* ch, usz ch_len, u8 pub[32]) {
-  usz start, end;
-  if (!sdrv_ch_range(ch, ch_len, &start, &end)) return 0;
+  usz body, start, end;
+  if (!sdrv_is_client_hello(ch, ch_len, &body)) return 0;
+  if (!sdrv_ch_exts_span(ch + 4, body, &start, &end)) return 0;
   return sdrv_ch_walk(ch + 4, start, end, pub);
 }
 
@@ -191,12 +183,10 @@ static int take_client_keyshare(const u8* ch, usz ch_len, u8 pub[32]) {
  * (*ext set to its full TLV, header included, for quic_tpext_decode), 0
  * skip; *q advances. */
 static int sdrv_ch_tp_one(const sdrv_ch_block* blk, usz* q, quic_span* ext) {
-  usz      start = *q;
-  unsigned t     = (unsigned)blk->b[*q] << 8 | blk->b[*q + 1];
-  usz      dlen  = (usz)blk->b[*q + 2] << 8 | blk->b[*q + 3];
-  if (*q + 4 + dlen > blk->end) return -1;
-  *q += 4 + dlen;
-  if (t != QUIC_TPEXT_TYPE) return 0;
+  unsigned type;
+  usz      dlen, start = *q;
+  if (!sdrv_ch_hdr(blk, q, &type, &dlen)) return -1;
+  if (type != QUIC_TPEXT_TYPE) return 0;
   *ext = quic_span_of(blk->b + start, 4 + dlen);
   return 1;
 }
@@ -217,8 +207,9 @@ static int sdrv_ch_find_tp(const u8* b, usz q, usz end, quic_span* tp) {
  * *ext on success, 0 if the ClientHello is malformed or carries no such
  * extension. */
 static int find_client_tp_ext(const u8* ch, usz ch_len, quic_span* ext) {
-  usz start, end;
-  if (!sdrv_ch_range(ch, ch_len, &start, &end)) return 0;
+  usz body, start, end;
+  if (!sdrv_is_client_hello(ch, ch_len, &body)) return 0;
+  if (!sdrv_ch_exts_span(ch + 4, body, &start, &end)) return 0;
   return sdrv_ch_find_tp(ch + 4, start, end, ext);
 }
 
