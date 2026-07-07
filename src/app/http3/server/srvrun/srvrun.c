@@ -13,6 +13,7 @@
 #include "app/webtransport/errmap/errmap/errmap.h"
 #include "app/webtransport/session/session/session.h"
 #include "common/bytes/util/bytes.h"
+#include "common/diag/error/error.h"
 #include "common/platform/clock/mono.h"
 #include "common/platform/debug/debug.h"
 #include "common/platform/qlog/qlog.h"
@@ -286,6 +287,12 @@ static int srvrun_boot_finish(
   wired_server_set_keylog_path(&c->s, ctx->cfg->keylog_path);
   wired_srvloop_set_handler(&c->l, ctx->cfg->handler, ctx->cfg->ctx);
   c->l.resp_external = 1; /* srvrun streams the response (multi-packet) */
+  /* RFC 9221 3: this connection's own advertised max_datagram_frame_size,
+   * threaded to dispatch.c's DATAGRAM-gathering size check (see
+   * wired_srvloop.we_advertised_max_datagram's doc). Same sid/base value
+   * quic_stp_build_server_lim already sends in the transport parameters
+   * (WT-A-006) — sid is this slot's own copy of cfg->id, built above. */
+  c->l.we_advertised_max_datagram = sid.max_datagram_frame_size;
   srvrun_send(ctx->cfg, c, quic_span_of(ini, iob.len), "server Initial sent\n");
   srvrun_send_flight(ctx->cfg, c, hs, &out);
   wired_srvboot_acc_reset(&c->boot); /* the reassembly buffer is spent */
@@ -404,6 +411,44 @@ __attribute__((unused)) static void srvrun_send_app_close(
   srvrun_send(cfg, c, quic_span_of(out, ob.len), "app CONNECTION_CLOSE sent\n");
 }
 
+/* RFC 9000 10.2.3: a transport-level CONNECTION_CLOSE (type 0x1c, is_app=0)
+ * carrying a standard RFC 9000 20.1 error code -- the sibling of
+ * srvrun_seal_app_close for a violation the transport itself detects (e.g.
+ * RFC 9221 3's PROTOCOL_VIOLATION), rather than an HTTP/3/WebTransport
+ * application error. frame_type 0 (unknown/unspecified) matches
+ * wired_srvboot_refusal's own transport-close payload. */
+static usz srvrun_transport_close_payload(
+    u64 error_code, quic_span reason, quic_obuf* plb) {
+  quic_conn_close_frame cc = {0, error_code, 0, reason.n, reason.p};
+  return quic_frame_put_conn_close(plb->p, plb->cap, &cc);
+}
+
+/* Seal the CONNECTION_CLOSE above into out as its own 1-RTT packet. Returns
+ * 1 with out->len set, 0 if the payload or the seal failed. */
+static int srvrun_seal_transport_close(
+    srvrun_conn* c, u64 error_code, quic_span reason, quic_obuf* out) {
+  u8                    pl[64];
+  quic_obuf             plb = quic_obuf_of(pl, sizeof pl);
+  wired_srvloop_send_in sin;
+  usz pln = srvrun_transport_close_payload(error_code, reason, &plb);
+  if (!pln) return 0;
+  sin = (wired_srvloop_send_in){
+      quic_span_of(c->l.cli_scid, c->l.cli_scid_len), c->l.tx_pn++, -1,
+      quic_span_of(pl, pln), 0};
+  return wired_srvloop_send_onertt(&c->s, &sin, out);
+}
+
+/* Seal and send a transport-level CONNECTION_CLOSE as its own 1-RTT packet
+ * (RFC 9000 20.1 error code, e.g. QUIC_ERR_PROTOCOL_VIOLATION). */
+static void srvrun_send_transport_close(
+    const srvrun_cfg* cfg, srvrun_conn* c, u64 error_code, quic_span reason) {
+  u8        out[128];
+  quic_obuf ob = quic_obuf_of(out, sizeof out);
+  if (!srvrun_seal_transport_close(c, error_code, reason, &ob)) return;
+  srvrun_send(
+      cfg, c, quic_span_of(out, ob.len), "transport CONNECTION_CLOSE sent\n");
+}
+
 /* draft-ietf-webtrans-http3-15 4.3/8.2: a buffered-stream-capacity rejection
  * (wired_wt_session_offer_stream returned 0, i.e. WIRED_WT_MAX_BUFFERED_
  * STREAMS is full on an unestablished session) is the caller's own contract
@@ -517,10 +562,30 @@ static void srvrun_offer_wt_uni_streams(const srvrun_cfg* cfg, srvrun_conn* c) {
   }
 }
 
+/* RFC 9221 3: this step's DATAGRAM gathering (dispatch.c) latched a violation
+ * -- close the connection with a transport-level PROTOCOL_VIOLATION. Split out
+ * of srvrun_on_step to keep its own branch count at the CCN gate. */
+static void srvrun_close_on_datagram_violation(
+    const srvrun_cfg* cfg, srvrun_conn* c) {
+  static const u8 reason[] = "DATAGRAM exceeds advertised limit";
+  srvrun_send_transport_close(
+      cfg, c, QUIC_ERR_PROTOCOL_VIOLATION,
+      quic_span_of(reason, sizeof reason - 1));
+}
+
+/* Send this step's sealed reply, if any and if the connection is not
+ * draining after a peer CONNECTION_CLOSE (RFC 9000 10.2.2). */
+static void srvrun_send_step_reply(
+    const srvrun_cfg* cfg, srvrun_conn* c, int produced, quic_span out) {
+  if (c->l.peer_closed) return;
+  if (produced) srvrun_send(cfg, c, out, "1-RTT reply sealed and sent\n");
+}
+
 /* A later datagram on a live slot: one real-wire step, send any sealed
- * reply — unless the step observed a peer CONNECTION_CLOSE, in which case
- * the connection is draining and nothing further is sent (RFC 9000 10.2.2).
- */
+ * reply — unless this step's own DATAGRAM gathering found an RFC 9221 3
+ * violation, in which case the connection closes itself instead (see
+ * srvrun_close_on_datagram_violation), or the step observed a peer
+ * CONNECTION_CLOSE (srvrun_send_step_reply's own gate). */
 static void srvrun_on_step(
     const srvrun_step_ctx* ctx, srvrun_conn* c, quic_mspan dg) {
   u8                 out[1500];
@@ -532,11 +597,11 @@ static void srvrun_on_step(
   srvrun_offer_wt_streams(ctx->cfg, c);
   srvrun_offer_wt_uni_streams(ctx->cfg, c);
   srvrun_drain_rx_datagrams(ctx->cfg, c);
-  if (c->l.peer_closed) return;
-  if (produced)
-    srvrun_send(
-        ctx->cfg, c, quic_span_of(out, ob.len),
-        "1-RTT reply sealed and sent\n");
+  if (c->l.datagram_violation) {
+    srvrun_close_on_datagram_violation(ctx->cfg, c);
+    return;
+  }
+  srvrun_send_step_reply(ctx->cfg, c, produced, quic_span_of(out, ob.len));
 }
 
 /* RFC 9114 6.2.1: first server unidirectional (control) stream id, same value
