@@ -1794,6 +1794,25 @@ static void test_srvrun_datagram_round_trip_on_wire(void) {
     CHECK(df.data[i] == sr_dg_payload[i]);
 }
 
+/* WT-A-005 / RFC 9297 2.1: a QUIC DATAGRAM must never be queued before this
+ * endpoint's own SETTINGS_H3_DATAGRAM has been sent (SETTINGS are never
+ * acked in HTTP/3, so "sent" is the enforceable half of the ordering).
+ * sr_make_confirmed_conn drives a real confirmation, which sends SETTINGS
+ * as part of building the first response (build_settings_frame) -- so
+ * settings_sent is already 1 there; this test drives the not-yet-sent case
+ * by direct injection, the same style already used by every other
+ * srvrun_conn fixture in this file that does not go through the wire (e.g.
+ * test_srvrun_datagram_too_large_rejected below). No production caller
+ * reaches srvrun_queue_datagram before confirmation today (it is
+ * `__attribute__((unused))`, called only from tests/run.c per its own
+ * comment) so this is a defensive guard, not a reachable-today bug fix --
+ * but it is real, direct-callable behavior of the function under test. */
+static void test_srvrun_datagram_dropped_before_settings_sent(void) {
+  srvrun_conn c = {0}; /* c.l.h3.settings_sent == 0, the not-yet-sent state */
+  CHECK(srvrun_queue_datagram(&c, quic_span_of(sr_dg_payload, sizeof sr_dg_payload)) == 0);
+  CHECK(c.dg_pending == 0);
+}
+
 /* PEER-LIMIT ENFORCEMENT: a peer that never advertised
  * max_datagram_frame_size (0 = unsupported) must have its DATAGRAM send
  * rejected outright, queued state and all -- 0 is "does not support
@@ -1860,7 +1879,8 @@ static const u8 sr_dg_first[]  = {1, 2, 3};
 static const u8 sr_dg_second[] = {9, 9};
 
 static void test_srvrun_datagram_second_queue_overwrites_first(void) {
-  srvrun_conn c = {0};
+  srvrun_conn c        = {0};
+  c.l.h3.settings_sent = 1; /* RFC 9297 2.1: queuing requires SETTINGS sent */
   CHECK(srvrun_queue_datagram(&c, quic_span_of(sr_dg_first, sizeof sr_dg_first)) == 1);
   CHECK(srvrun_queue_datagram(&c, quic_span_of(sr_dg_second, sizeof sr_dg_second)) == 1);
   CHECK(c.dg_pending == 1);
@@ -2132,6 +2152,7 @@ void test_srvrun(void) {
   test_srvrun_idle_sweep_closes_wt_session();
   test_srvrun_idle_sweep_without_wt_unaffected();
   test_srvrun_datagram_round_trip_on_wire();
+  test_srvrun_datagram_dropped_before_settings_sent();
   test_srvrun_datagram_rejected_when_peer_unadvertised();
   test_srvrun_datagram_rejected_over_peer_limit();
   test_srvrun_datagram_unused_does_not_affect_stream_response();
