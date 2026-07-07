@@ -1432,7 +1432,9 @@ static void test_srvrun_idle_sweep_without_wt_unaffected(void) {
  * srvrun_send_pending_datagram seals it into a real 1-RTT packet. The client
  * opens that packet under its own peer key and quic_datagram_decode recovers
  * the exact payload bytes -- proof of a genuine encode -> seal -> wire ->
- * decode round trip, not just "the function returned 1". */
+ * decode round trip, not just "the function returned 1". Requires a non-zero
+ * peer_max_datagram_frame_size (the peer must have advertised support) since
+ * srvrun_send_pending_datagram now enforces it. */
 static const u8 sr_dg_payload[] = {0xde, 0xad, 0xbe, 0xef, 0x01};
 
 static void test_srvrun_datagram_round_trip_on_wire(void) {
@@ -1445,6 +1447,7 @@ static void test_srvrun_datagram_round_trip_on_wire(void) {
   quic_datagram_frame df;
   ob = (quic_obuf){obuf, sizeof obuf, 0};
   sr_make_confirmed_conn(&c, &f, &ob);
+  c.s.sdrv.peer_max_datagram_frame_size = 65535;
   CHECK(srvrun_queue_datagram(&c, quic_span_of(sr_dg_payload, sizeof sr_dg_payload)) == 1);
   CHECK(c.dg_pending == 1);
   {
@@ -1458,6 +1461,47 @@ static void test_srvrun_datagram_round_trip_on_wire(void) {
   CHECK(df.length == sizeof sr_dg_payload);
   for (usz i = 0; i < sizeof sr_dg_payload; i++)
     CHECK(df.data[i] == sr_dg_payload[i]);
+}
+
+/* PEER-LIMIT ENFORCEMENT: a peer that never advertised
+ * max_datagram_frame_size (0 = unsupported) must have its DATAGRAM send
+ * rejected outright, queued state and all -- 0 is "does not support
+ * DATAGRAM", not "unlimited". */
+static void test_srvrun_datagram_rejected_when_peer_unadvertised(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  quic_obuf     ob;
+  u8            obuf[1600];
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  CHECK(c.s.sdrv.peer_max_datagram_frame_size == 0);
+  CHECK(srvrun_queue_datagram(&c, quic_span_of(sr_dg_payload, sizeof sr_dg_payload)) == 1);
+  {
+    quic_obuf  out = {obuf, sizeof obuf, 0};
+    srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    CHECK(srvrun_send_pending_datagram(&cfg, &c, &out) == 0);
+  }
+  CHECK(c.dg_pending == 1); /* still pending: the send never went out */
+}
+
+/* PEER-LIMIT ENFORCEMENT: a frame that exceeds the peer's advertised
+ * max_datagram_frame_size is rejected even though it fits the local buffer,
+ * while the same payload under a sufficient peer limit still succeeds. */
+static void test_srvrun_datagram_rejected_over_peer_limit(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  quic_obuf     ob;
+  u8            obuf[1600];
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.s.sdrv.peer_max_datagram_frame_size = 3; /* smaller than the encoded frame */
+  CHECK(srvrun_queue_datagram(&c, quic_span_of(sr_dg_payload, sizeof sr_dg_payload)) == 1);
+  {
+    quic_obuf  out = {obuf, sizeof obuf, 0};
+    srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    CHECK(srvrun_send_pending_datagram(&cfg, &c, &out) == 0);
+  }
+  CHECK(c.dg_pending == 1);
 }
 
 /* REGRESSION: the existing STREAM-based response path is untouched when the
@@ -1548,6 +1592,8 @@ void test_srvrun(void) {
   test_srvrun_idle_sweep_closes_wt_session();
   test_srvrun_idle_sweep_without_wt_unaffected();
   test_srvrun_datagram_round_trip_on_wire();
+  test_srvrun_datagram_rejected_when_peer_unadvertised();
+  test_srvrun_datagram_rejected_over_peer_limit();
   test_srvrun_datagram_unused_does_not_affect_stream_response();
   test_srvrun_datagram_too_large_rejected();
   test_srvrun_datagram_second_queue_overwrites_first();
