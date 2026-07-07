@@ -20,6 +20,7 @@
 #include "transport/conn/lifecycle/conntable/conntable.h"
 #include "transport/io/socket/io/udp.h"
 #include "transport/io/socket/poll/wait.h"
+#include "transport/packet/frame/frame/stream_ctl.h"
 #include "transport/packet/header/dcidresolve/dcidresolve.h"
 #include "transport/packet/header/packet/header.h"
 #include "transport/recovery/congestion/cc/cc.h"
@@ -777,27 +778,76 @@ static void srvrun_start_app_resp(
       SRVRUN_CHUNK);
 }
 
+/* RFC 9114 4.1.1/8.1: a server SHOULD abort a rejected request's stream with
+ * H3_REQUEST_REJECTED, independent of any HTTP-level status the request also
+ * receives (here, the 429 srvrun_reject_wt_busy already arms). Build the
+ * RESET_STREAM + STOP_SENDING pair -- same shape as quic_h3cancel_request,
+ * which pairs the two for the analogous H3_REQUEST_CANCELLED case, but this
+ * one carries H3_REQUEST_REJECTED instead. */
+static usz srvrun_wt_busy_reset_payload(u64 stream_id, quic_obuf* plb) {
+  quic_reset_stream_frame rs = {stream_id, QUIC_H3_REQUEST_REJECTED, 0};
+  quic_stop_sending_frame ss = {stream_id, QUIC_H3_REQUEST_REJECTED};
+  usz                     rn = quic_reset_stream_encode(plb->p, plb->cap, &rs);
+  usz                     sn;
+  if (!rn) return 0;
+  sn = quic_stop_sending_encode(plb->p + rn, plb->cap - rn, &ss);
+  if (!sn) return 0;
+  return rn + sn;
+}
+
+/* Seal the RESET_STREAM+STOP_SENDING pair above into out as its own 1-RTT
+ * packet on the rejected Extended CONNECT's stream. Returns 1 with out->len
+ * set, 0 if the payload or the seal failed. */
+static int srvrun_seal_wt_busy_reset(
+    srvrun_conn* c, u64 stream_id, quic_obuf* out) {
+  u8                    pl[64];
+  quic_obuf             plb = quic_obuf_of(pl, sizeof pl);
+  wired_srvloop_send_in sin;
+  usz                   pln = srvrun_wt_busy_reset_payload(stream_id, &plb);
+  if (!pln) return 0;
+  sin = (wired_srvloop_send_in){
+      quic_span_of(c->l.cli_scid, c->l.cli_scid_len), c->l.tx_pn++, -1,
+      quic_span_of(pl, pln), 0};
+  return wired_srvloop_send_onertt(&c->s, &sin, out);
+}
+
+/* Seal and send the RESET_STREAM+STOP_SENDING pair (RFC 9114 4.1.1/8.1) as
+ * its own 1-RTT packet, alongside (not instead of) the 429
+ * srvrun_reject_wt_busy already arms. */
+static void srvrun_send_wt_busy_reset(
+    const srvrun_cfg* cfg, srvrun_conn* c, u64 stream_id) {
+  u8        out[128];
+  quic_obuf ob = quic_obuf_of(out, sizeof out);
+  if (!srvrun_seal_wt_busy_reset(c, stream_id, &ob)) return;
+  srvrun_send(cfg, c, quic_span_of(out, ob.len), "WT busy RESET_STREAM sent\n");
+}
+
 /* Reject this Extended CONNECT with 429 (WT-C-010/011: a second Extended
  * CONNECT arriving while a WT session is already active on this connection)
  * without disturbing the existing session. One session per connection for
  * now (tasks/webtransport-plan.md scope) -- srvrun_start_wt would otherwise
  * unconditionally re-init c->wt, silently resetting an ESTABLISHED session
- * back to UNESTABLISHED and dropping its buffered state. */
-static void srvrun_reject_wt_busy(srvrun_conn* c, int slot) {
+ * back to UNESTABLISHED and dropping its buffered state. Also aborts the
+ * rejected stream with H3_REQUEST_REJECTED (RFC 9114 4.1.1/8.1), independent
+ * of and in addition to the 429 above. */
+static void srvrun_reject_wt_busy(
+    const srvrun_cfg* cfg, srvrun_conn* c, int slot) {
   srvrun_start_wt_status(c, slot, 429);
+  srvrun_send_wt_busy_reset(cfg, c, c->l.req_stream_id);
 }
 
 /* A well-formed Extended CONNECT for WebTransport either establishes a
  * session (Origin absent, or present and well-formed, and no session already
  * active on this connection -- WT-C-010/011), or is rejected: 403 for a
  * malformed Origin (WT-B-005/007/008), 429 if a session is already active. */
-static void srvrun_dispatch_wt(srvrun_conn* c, int slot) {
+static void srvrun_dispatch_wt(
+    const srvrun_cfg* cfg, srvrun_conn* c, int slot) {
   if (!wt_origin_ok(&c->l.req)) {
     srvrun_reject_wt(c, slot);
     return;
   }
   if (c->wt_active) {
-    srvrun_reject_wt_busy(c, slot);
+    srvrun_reject_wt_busy(cfg, c, slot);
     return;
   }
   srvrun_start_wt(c, slot);
@@ -813,7 +863,7 @@ static void srvrun_start_resp(const srvrun_step_ctx* ctx, int slot) {
   srvrun_conn* c = &ctx->st->conns[slot];
   if (c->sess.active) return;
   if (srvrun_is_wt_connect(&c->l.req)) {
-    srvrun_dispatch_wt(c, slot);
+    srvrun_dispatch_wt(ctx->cfg, c, slot);
     return;
   }
   srvrun_start_app_resp(ctx, c, slot);
