@@ -1081,14 +1081,20 @@ static int sr_wt_handler(
 }
 
 static const u8 sr_wt_authority[]      = "host";
+static const u8 sr_wt_scheme[]         = "https";
+static const u8 sr_wt_path[]           = "/wt";
 static const u8 sr_wt_method_get[]     = "GET";
 static const u8 sr_wt_method_connect[] = "CONNECT";
 static const u8 sr_wt_protocol[]       = "webtransport-h3";
+static const u8 sr_wt_origin_ok[]      = "https://example.test";
 
 /* Populate c->l.req/req_stream_id/got_request for a synthetic decoded
  * request -- srvrun_start_resp only reads these mirror fields, so no real
  * wire round-trip is needed to drive it. connect_method/with_protocol pick
- * from the fixed literals above (no libc strlen available in this SDK). */
+ * from the fixed literals above (no libc strlen available in this SDK).
+ * :scheme/:path are always set to well-formed values here (WT-B-003/004's
+ * required Extended CONNECT shape); tests that need them missing clear the
+ * field directly after calling this. */
 static void sr_set_req(
     srvrun_conn* c, int connect_method, int with_protocol, u64 stream_id) {
   if (connect_method) {
@@ -1100,10 +1106,10 @@ static void sr_set_req(
   }
   c->l.req.authority     = sr_wt_authority;
   c->l.req.authority_len = sizeof sr_wt_authority - 1;
-  c->l.req.scheme        = 0;
-  c->l.req.scheme_len    = 0;
-  c->l.req.path          = 0;
-  c->l.req.path_len      = 0;
+  c->l.req.scheme        = sr_wt_scheme;
+  c->l.req.scheme_len    = sizeof sr_wt_scheme - 1;
+  c->l.req.path          = sr_wt_path;
+  c->l.req.path_len      = sizeof sr_wt_path - 1;
   if (with_protocol) {
     c->l.req.protocol     = sr_wt_protocol;
     c->l.req.protocol_len = sizeof sr_wt_protocol - 1;
@@ -1111,10 +1117,12 @@ static void sr_set_req(
     c->l.req.protocol     = 0;
     c->l.req.protocol_len = 0;
   }
-  c->l.req.body      = 0;
-  c->l.req.body_len  = 0;
-  c->l.req_stream_id = stream_id;
-  c->l.got_request   = 1;
+  c->l.req.origin     = 0;
+  c->l.req.origin_len = 0;
+  c->l.req.body       = 0;
+  c->l.req.body_len   = 0;
+  c->l.req_stream_id  = stream_id;
+  c->l.got_request    = 1;
 }
 
 /* REGRESSION: a normal GET (no :protocol) still goes through
@@ -1194,6 +1202,134 @@ static void test_srvrun_plain_connect_no_protocol_no_wt_session(void) {
   CHECK(g_sr_wt_handler_calls == 1); /* falls through to the normal handler */
 }
 
+/* WT-B-003/004: a well-formed Extended CONNECT missing :scheme is not
+ * recognized as one -- no session, falls to the normal handler path (today's
+ * only defined behavior for a malformed CONNECT-shaped request). */
+static void test_srvrun_wt_connect_missing_scheme_no_session(void) {
+  struct lp_fix  f;
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_conn    conns[QUIC_CONNTABLE_CAP] = {0};
+  quic_obuf      ob;
+  u8             obuf[1024];
+  ob                    = (quic_obuf){obuf, sizeof obuf, 0};
+  g_sr_wt_handler_calls = 0;
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  sr_make_confirmed_conn(&conns[0], &f, &ob);
+  sr_set_req(&conns[0], 1, 1, 4);
+  conns[0].l.req.scheme     = 0;
+  conns[0].l.req.scheme_len = 0;
+  {
+    srvrun_cfg      cfg = {-1, 0, sr_wt_handler, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_state    st  = {table, conns};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_start_resp(&ctx, 0);
+  }
+  CHECK(conns[0].wt_active == 0);
+  CHECK(g_sr_wt_handler_calls == 1);
+}
+
+/* WT-B-003/004: a well-formed Extended CONNECT missing :path is likewise not
+ * recognized -- same fallthrough as the missing-:scheme case above. */
+static void test_srvrun_wt_connect_missing_path_no_session(void) {
+  struct lp_fix  f;
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_conn    conns[QUIC_CONNTABLE_CAP] = {0};
+  quic_obuf      ob;
+  u8             obuf[1024];
+  ob                    = (quic_obuf){obuf, sizeof obuf, 0};
+  g_sr_wt_handler_calls = 0;
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  sr_make_confirmed_conn(&conns[0], &f, &ob);
+  sr_set_req(&conns[0], 1, 1, 4);
+  conns[0].l.req.path     = 0;
+  conns[0].l.req.path_len = 0;
+  {
+    srvrun_cfg      cfg = {-1, 0, sr_wt_handler, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_state    st  = {table, conns};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_start_resp(&ctx, 0);
+  }
+  CHECK(conns[0].wt_active == 0);
+  CHECK(g_sr_wt_handler_calls == 1);
+}
+
+/* WT-B-003/004: a well-formed Extended CONNECT missing :authority is likewise
+ * not recognized -- same fallthrough. */
+static void test_srvrun_wt_connect_missing_authority_no_session(void) {
+  struct lp_fix  f;
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_conn    conns[QUIC_CONNTABLE_CAP] = {0};
+  quic_obuf      ob;
+  u8             obuf[1024];
+  ob                    = (quic_obuf){obuf, sizeof obuf, 0};
+  g_sr_wt_handler_calls = 0;
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  sr_make_confirmed_conn(&conns[0], &f, &ob);
+  sr_set_req(&conns[0], 1, 1, 4);
+  conns[0].l.req.authority     = 0;
+  conns[0].l.req.authority_len = 0;
+  {
+    srvrun_cfg      cfg = {-1, 0, sr_wt_handler, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_state    st  = {table, conns};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_start_resp(&ctx, 0);
+  }
+  CHECK(conns[0].wt_active == 0);
+  CHECK(g_sr_wt_handler_calls == 1);
+}
+
+/* WT-B-005/007/008: a well-formed, non-empty Origin still establishes the
+ * session normally (positive case -- presence alone is not a rejection
+ * reason). */
+static void test_srvrun_wt_connect_origin_ok_establishes(void) {
+  struct lp_fix  f;
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_conn    conns[QUIC_CONNTABLE_CAP] = {0};
+  quic_obuf      ob;
+  u8             obuf[1024];
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  sr_make_confirmed_conn(&conns[0], &f, &ob);
+  sr_set_req(&conns[0], 1, 1, 4);
+  conns[0].l.req.origin     = sr_wt_origin_ok;
+  conns[0].l.req.origin_len = sizeof sr_wt_origin_ok - 1;
+  {
+    srvrun_cfg      cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_state    st  = {table, conns};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_start_resp(&ctx, 0);
+  }
+  CHECK(conns[0].wt_active == 1);
+  CHECK(conns[0].wt.state == WIRED_WT_ESTABLISHED);
+  CHECK(conns[0].sess.active == 1);
+}
+
+/* WT-B-005/007/008: a present but malformed (empty-value) Origin gets a
+ * 403-equivalent response instead of establishing a session -- no
+ * wired_wt_session is created, but a response is still armed (the 403). */
+static void test_srvrun_wt_connect_origin_malformed_403(void) {
+  struct lp_fix  f;
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_conn    conns[QUIC_CONNTABLE_CAP] = {0};
+  quic_obuf      ob;
+  u8             obuf[1024];
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  sr_make_confirmed_conn(&conns[0], &f, &ob);
+  sr_set_req(&conns[0], 1, 1, 4);
+  conns[0].l.req.origin     = sr_wt_origin_ok; /* present, but... */
+  conns[0].l.req.origin_len = 0;               /* ...empty: malformed */
+  {
+    srvrun_cfg      cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_state    st  = {table, conns};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_start_resp(&ctx, 0);
+  }
+  CHECK(conns[0].wt_active == 0);
+  CHECK(conns[0].wt.state != WIRED_WT_ESTABLISHED);
+  CHECK(conns[0].sess.active == 1); /* the 403 was still armed */
+}
+
 void test_srvrun(void) {
   test_srvrun_no_shutdown_accepts_new();
   test_srvrun_accept_rekeys_to_slot_scid();
@@ -1239,4 +1375,9 @@ void test_srvrun(void) {
   test_srvrun_normal_request_unaffected_by_wt_branch();
   test_srvrun_wt_connect_establishes_session();
   test_srvrun_plain_connect_no_protocol_no_wt_session();
+  test_srvrun_wt_connect_missing_scheme_no_session();
+  test_srvrun_wt_connect_missing_path_no_session();
+  test_srvrun_wt_connect_missing_authority_no_session();
+  test_srvrun_wt_connect_origin_ok_establishes();
+  test_srvrun_wt_connect_origin_malformed_403();
 }
