@@ -64,4 +64,20 @@ void test_wterrmap(void) {
    * shifted). This is a genuine divergence, not an unconstructable case. */
   CHECK((30 - 0x21) % 0x1f != 0);
   CHECK(quic_wterrmap_from_http3(reserved_h, &reserved_out) == 0);
+
+  /* 7: named WT application error codes (webtransport-plan.md Section G)
+   * carry the exact hex values from the draft. Most are not wired to a
+   * live trigger site yet (see errmap.h doc comment) but a wrong constant
+   * is a real bug independent of that, and each round-trips through the
+   * same mapping arithmetic checked above. */
+  CHECK(QUIC_WTERR_BUFFERED_STREAM_REJECTED == 0x3994bd84u);
+  CHECK(QUIC_WTERR_SESSION_GONE == 0x170d7b68u);
+  CHECK(QUIC_WTERR_FLOW_CONTROL_ERROR == 0x045d4487u);
+  CHECK(QUIC_WTERR_ALPN_ERROR == 0x0817b3ddu);
+  CHECK(QUIC_WTERR_REQUIREMENTS_NOT_MET == 0x212c0d48u);
+  wterrmap_check_roundtrip(QUIC_WTERR_BUFFERED_STREAM_REJECTED);
+  wterrmap_check_roundtrip(QUIC_WTERR_SESSION_GONE);
+  wterrmap_check_roundtrip(QUIC_WTERR_FLOW_CONTROL_ERROR);
+  wterrmap_check_roundtrip(QUIC_WTERR_ALPN_ERROR);
+  wterrmap_check_roundtrip(QUIC_WTERR_REQUIREMENTS_NOT_MET);
 }
