@@ -317,6 +317,40 @@ static int srvrun_on_initial(
   return srvrun_boot_finish(ctx, c, dg);
 }
 
+/* draft-ietf-webtrans-http3-15 4.3: associate one newly-reassembled WT bidi
+ * stream slot with c's WebTransport session, exactly once (slot->offered
+ * latches it) — the session only needs to know the stream id, not its bytes
+ * (wired_wt_session_offer_stream's own signature, session.h). A stray WT bidi
+ * stream on a connection with no active session (!c->wt_active) is a
+ * protocol-level mismatch this slice leaves as accepted-and-ignored, matching
+ * the pre-Slice-3 fallback: routing to a session that does not exist is not
+ * meaningful, so nothing is offered and the slot is simply left reassembled
+ * but unclaimed by any session. */
+static void srvrun_offer_wt_slot(srvrun_conn* c, wired_srvloop_wt_stream_slot* slot) {
+  if (!c->wt_active) return;
+  wired_wt_session_offer_stream(&c->wt, slot->stream_id);
+  slot->offered = 1;
+}
+
+/* A reassembled-but-not-yet-associated slot: in_use (claimed by a WT-bidi
+ * stream) and not already offered to the session this connection owns. */
+static int wt_slot_needs_offer(const wired_srvloop_wt_stream_slot* slot) {
+  return slot->in_use && !slot->offered;
+}
+
+/* draft-ietf-webtrans-http3-15 4.3: after a step has reassembled this
+ * datagram's frames into c->l.wt_streams[], associate every slot this step
+ * (or an earlier one) claimed but has not yet offered to c->wt. Delivering the
+ * reassembled bytes themselves to an app-facing callback is out of scope here
+ * (tasks/webtransport-plan.md Phase 7b/Slice 4) — this only makes the
+ * association, per the session's own offer_stream contract. */
+static void srvrun_offer_wt_streams(srvrun_conn* c) {
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_STREAMS; i++) {
+    wired_srvloop_wt_stream_slot* slot = &c->l.wt_streams[i];
+    if (wt_slot_needs_offer(slot)) srvrun_offer_wt_slot(c, slot);
+  }
+}
+
 /* A later datagram on a live slot: one real-wire step, send any sealed
  * reply — unless the step observed a peer CONNECTION_CLOSE, in which case
  * the connection is draining and nothing further is sent (RFC 9000 10.2.2).
@@ -329,6 +363,7 @@ static void srvrun_on_step(
   srvrun_rxmark      mark     = srvrun_rx_mark(&c->l);
   int                produced = wired_srvloop_step(&conn, dg, &ob);
   srvrun_note_recv(ctx, &mark, c, dg.n);
+  srvrun_offer_wt_streams(c);
   if (c->l.peer_closed) return;
   if (produced)
     srvrun_send(
