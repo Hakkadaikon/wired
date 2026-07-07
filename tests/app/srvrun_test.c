@@ -1920,6 +1920,7 @@ static void test_srvrun_rx_datagram_delivers_to_callback(void) {
       .length = sizeof sr_rxdg_payload, .data = sr_rxdg_payload};
   ob = (quic_obuf){obuf, sizeof obuf, 0};
   sr_make_confirmed_conn(&conns[0], &f, &ob);
+  conns[0].l.we_advertised_max_datagram = 100; /* RFC 9221 3: opted in */
   sr_establish_wt(conns, table, 4);
   plen = quic_datagram_encode(quic_mspan_of(payload, sizeof payload), &df, 1);
   slen = client_seal_onertt_pn(&f, 3, payload, plen, spkt, sizeof spkt);
@@ -2005,6 +2006,68 @@ static void test_srvrun_rx_datagram_no_session_callback_not_invoked(void) {
   CHECK(c.l.rx_datagram_n == 0);
 }
 
+/* RFC 9000 10.2.3: srvrun_seal_transport_close builds a correctly-encoded
+ * transport-level (is_app=0, type 0x1c) CONNECTION_CLOSE -- the sibling of
+ * test_srvrun_seal_app_close_is_application_level's is_app=1 check, proving
+ * the two close primitives are distinct and this one carries a standard RFC
+ * 9000 20.1 error code (PROTOCOL_VIOLATION, 0x0a) rather than an application
+ * one. */
+static void test_srvrun_seal_transport_close_is_transport_level(void) {
+  struct lp_fix         f;
+  quic_obuf             ob;
+  u8                    obuf[1024];
+  u8                    pkt[256];
+  quic_obuf             pktb = quic_obuf_of(pkt, sizeof pkt);
+  const u8*             pl;
+  usz                   pll;
+  quic_conn_close_frame ccf;
+  usz                   rn;
+  const u8*             reason = (const u8*)"DATAGRAM too large";
+  srvrun_conn           c      = {0};
+  ob                           = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  CHECK(srvrun_seal_transport_close(
+      &c, QUIC_ERR_PROTOCOL_VIOLATION, quic_span_of(reason, 18), &pktb));
+  CHECK(client_open_onertt(&f, pktb.p, pktb.len, &pl, &pll) == 1);
+  rn = quic_frame_get_conn_close(pl, pll, &ccf);
+  CHECK(rn != 0 && rn == pll);
+  CHECK(ccf.is_app == 0);
+  CHECK(ccf.error_code == QUIC_ERR_PROTOCOL_VIOLATION);
+}
+
+/* RFC 9221 3 / WT-A-007/008: a DATAGRAM frame whose payload exceeds this
+ * connection's own advertised max_datagram_frame_size, driven through the
+ * real srvrun_on_step (not just wired_srvloop_step in isolation), latches
+ * l.datagram_violation and does NOT queue the oversized frame -- proving the
+ * live entry point srvrun.c's caller (srvrun_serve) actually reaches and acts
+ * on dispatch.c's check, not just wired_srvloop_step in isolation
+ * (test_srvloop_datagram_exceeding_advertised_limit_rejected already covers
+ * that layer). srvrun_on_step's own srvrun_close_on_datagram_violation branch
+ * then calls srvrun_send_transport_close (proven correct on the wire by
+ * test_srvrun_seal_transport_close_is_transport_level above) -- fd=-1 makes
+ * the actual sendto(2) a harmless no-op, same convention as every other
+ * srvrun_send test in this file (e.g. test_srvrun_owes_goaway_once). */
+static void test_srvrun_oversized_datagram_latches_violation_on_step(void) {
+  struct lp_fix       f;
+  quic_obuf           ob;
+  u8                  obuf[1024], payload[512], spkt[1024];
+  usz                 plen, slen;
+  srvrun_conn         c   = {0};
+  srvrun_cfg          cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+  srvrun_step_ctx     ctx = {&cfg, 0, 0, 0};
+  u8                  data[200];
+  quic_datagram_frame df = {.length = sizeof data, .data = data};
+  for (usz i = 0; i < sizeof data; i++) data[i] = (u8)i;
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.l.we_advertised_max_datagram = 100; /* RFC 9221 3: advertised limit 100 */
+  plen = quic_datagram_encode(quic_mspan_of(payload, sizeof payload), &df, 1);
+  slen = client_seal_onertt_pn(&f, 3, payload, plen, spkt, sizeof spkt);
+  srvrun_on_step(&ctx, &c, quic_mspan_of(spkt, slen));
+  CHECK(c.l.datagram_violation == 1);
+  CHECK(c.l.rx_datagram_n == 0); /* the oversized frame was never queued */
+}
+
 void test_srvrun(void) {
   test_srvrun_no_shutdown_accepts_new();
   test_srvrun_accept_rekeys_to_slot_scid();
@@ -2078,4 +2141,6 @@ void test_srvrun(void) {
   test_srvrun_rx_datagram_multiple_all_delivered();
   test_srvrun_rx_datagram_no_callback_still_drains();
   test_srvrun_rx_datagram_no_session_callback_not_invoked();
+  test_srvrun_seal_transport_close_is_transport_level();
+  test_srvrun_oversized_datagram_latches_violation_on_step();
 }
