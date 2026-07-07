@@ -71,7 +71,66 @@ static void test_srvpoll_spin_step_data_returns_count_unchanged(void) {
   wired_udp_close(sfd);
 }
 
+/* TEST 3: consecutive empty spins grow the backoff counter. */
+static void test_srvpoll_backoff_grows_on_consecutive_empty(void) {
+  i64                   sfd;
+  quic_sockaddr_in      srv;
+  quic_mmsg_buf         bufs[2];
+  u8                    storage[2][16];
+  wired_srvpoll_backoff bo = {0};
+  if (!sp_open_socket(&sfd, &srv)) return; /* sandbox: skip */
+  for (usz i = 0; i < 2; i++) bufs[i].buf = quic_mspan_of(storage[i], 16);
+  for (int i = 0; i < 5; i++) {
+    i64 r = wired_srvpoll_spin_step_backoff(sfd, bufs, 2, &bo);
+    CHECK(r <= 0);
+    CHECK(bo.empty_spins == (u64)(i + 1));
+  }
+  wired_udp_close(sfd);
+}
+
+/* TEST 4: the instant a real datagram arrives, the backoff resets to 0 --
+ * no leftover backoff carries into a burst. */
+static void test_srvpoll_backoff_resets_on_data(void) {
+  i64                   sfd, cfd;
+  quic_sockaddr_in      srv;
+  quic_mmsg_buf         bufs[2];
+  u8                    storage[2][16];
+  wired_srvpoll_backoff bo = {0};
+  if (!sp_open_socket(&sfd, &srv)) return; /* sandbox: skip */
+  cfd = wired_udp_socket();
+  if (cfd < 0) {
+    wired_udp_close(sfd);
+    return;
+  }
+  for (usz i = 0; i < 2; i++) bufs[i].buf = quic_mspan_of(storage[i], 16);
+  for (int i = 0; i < 3; i++) wired_srvpoll_spin_step_backoff(sfd, bufs, 2, &bo);
+  CHECK(bo.empty_spins == 3);
+  wired_udp_send(cfd, &srv, quic_span_of((const u8[]){1, 2, 3}, 3));
+  i64 r = wired_srvpoll_spin_step_backoff(sfd, bufs, 2, &bo);
+  if (r > 0) CHECK(bo.empty_spins == 0);
+  wired_udp_close(cfd);
+  wired_udp_close(sfd);
+}
+
+/* TEST 5: the backoff caps out and does not grow unboundedly across many
+ * consecutive empty spins. */
+static void test_srvpoll_backoff_caps_at_maximum(void) {
+  i64                   sfd;
+  quic_sockaddr_in      srv;
+  quic_mmsg_buf         bufs[2];
+  u8                    storage[2][16];
+  wired_srvpoll_backoff bo = {0};
+  if (!sp_open_socket(&sfd, &srv)) return; /* sandbox: skip */
+  for (usz i = 0; i < 2; i++) bufs[i].buf = quic_mspan_of(storage[i], 16);
+  for (int i = 0; i < 1000; i++) wired_srvpoll_spin_step_backoff(sfd, bufs, 2, &bo);
+  CHECK(bo.empty_spins == WIRED_SRVPOLL_BACKOFF_MAX);
+  wired_udp_close(sfd);
+}
+
 void test_srvpoll(void) {
   test_srvpoll_spin_step_empty_never_blocks();
   test_srvpoll_spin_step_data_returns_count_unchanged();
+  test_srvpoll_backoff_grows_on_consecutive_empty();
+  test_srvpoll_backoff_resets_on_data();
+  test_srvpoll_backoff_caps_at_maximum();
 }
