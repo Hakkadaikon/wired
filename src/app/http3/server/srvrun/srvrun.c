@@ -584,26 +584,65 @@ static int wt_protocol_is_webtransport_h3(const wired_h3reqdrive_req* r) {
   return wt_bytes_eq(r->protocol, want, sizeof want);
 }
 
-/* r is a well-formed Extended CONNECT (RFC 9220 3) for WebTransport: a valid
- * CONNECT, :protocol negotiated (settings always advertised, Step 1 above),
- * and :protocol is exactly "webtransport-h3". */
+/* :method value equals the 7 octets "CONNECT" (same idiom as connect.c's own
+ * method_is_connect, duplicated here because that one is private to
+ * connect.c and connect_forbidden's shape does not fit Extended CONNECT
+ * below). */
+static int wt_method_is_connect(const wired_h3reqdrive_req* r) {
+  static const u8 want[] = {'C', 'O', 'N', 'N', 'E', 'C', 'T'};
+  if (!r->method || r->method_len != sizeof want) return 0;
+  return wt_bytes_eq(r->method, want, sizeof want);
+}
+
+/* r carries :scheme, :authority and :path, all required (non-forbidden) for
+ * Extended CONNECT unlike plain CONNECT (RFC 9220 3 / RFC 9114 4.4 contrast:
+ * quic_h3_connect_req_ok enforces the opposite, plain-CONNECT shape, so it
+ * cannot be reused here). */
+static int wt_ext_fields_present(const wired_h3reqdrive_req* r) {
+  return r->scheme != 0 && r->authority != 0 && r->path != 0;
+}
+
+/* r's request line is CONNECT with :scheme/:authority/:path all present
+ * (WT-B-003/004): the Extended CONNECT shape, checked before :protocol. */
+static int wt_ext_connect_shape_ok(const wired_h3reqdrive_req* r) {
+  if (!wt_method_is_connect(r)) return 0;
+  return wt_ext_fields_present(r);
+}
+
+/* r is a well-formed Extended CONNECT (RFC 9220 3) for WebTransport:
+ * :method=CONNECT, :scheme/:authority/:path all present (WT-B-003/004),
+ * :protocol negotiated (settings always advertised, Step 1 above) and equal
+ * to "webtransport-h3". */
 static int srvrun_is_wt_connect(const wired_h3reqdrive_req* r) {
-  if (!quic_h3_connect_req_ok(r)) return 0;
+  if (!wt_ext_connect_shape_ok(r)) return 0;
   if (!wt_protocol_is_webtransport_h3(r)) return 0;
   return quic_h3_connect_protocol_ok(r, 1);
 }
 
-/* Seal a bare 2xx (no body, no content-type) into the slot's own storage and
- * arm the session over it — the same low-level prefix+arm mechanism
- * srvrun_start_resp uses for a normal 200, minus the app handler: this is
- * protocol-level WebTransport session establishment (draft-ietf-webtrans-
- * http3-15 SS3.2), not an application response. */
-static void srvrun_start_wt_resp(srvrun_conn* c, int slot) {
+/* WebTransport draft-ietf-webtrans-http3-15 SS3.6: when Origin is present it
+ * must be a non-empty value for the server to validate; this SDK has no
+ * origin-allowlist configuration surface yet (YAGNI -- no in-tree consumer
+ * needs one), so "well-formed and non-empty" is the whole check today.
+ * Absent Origin is not itself a rejection reason (WT-B-005: only applies to
+ * browser clients, which this SDK cannot detect server-side). */
+static int wt_origin_ok(const wired_h3reqdrive_req* r) {
+  if (!r->origin) return 1; /* absent: not a browser client, or none sent */
+  return r->origin_len != 0;
+}
+
+/* Seal a bare status-only response (no body, no content-type) into the
+ * slot's own storage and arm the session over it — the same low-level
+ * prefix+arm mechanism srvrun_start_app_resp uses for a normal 200, minus the
+ * app handler: this is protocol-level WebTransport response building
+ * (draft-ietf-webtrans-http3-15 SS3.2), not an application response. Used for
+ * both the 2xx that establishes a session and the 403 that rejects one
+ * (WT-B-005/007/008). */
+static void srvrun_start_wt_status(srvrun_conn* c, int slot, u16 status) {
   u8*       st  = g_srvrun_respstore[slot];
   u8        pre[SRVRUN_RESP_HDR_ROOM];
   quic_obuf pob = quic_obuf_of(pre, sizeof pre);
   usz       off;
-  if (!quic_h3resp_prefix(200, 0, 0, &pob)) return;
+  if (!quic_h3resp_prefix(status, 0, 0, &pob)) return;
   off = SRVRUN_RESP_HDR_ROOM - pob.len;
   quic_put_bytes(
       quic_mspan_of(st, SRVRUN_RESP_HDR_ROOM), &off,
@@ -619,7 +658,13 @@ static void srvrun_start_wt(srvrun_conn* c, int slot) {
   wired_wt_session_init(&c->wt, c->l.req_stream_id);
   wired_wt_session_establish(&c->wt);
   c->wt_active = 1;
-  srvrun_start_wt_resp(c, slot);
+  srvrun_start_wt_status(c, slot, 200);
+}
+
+/* Reject this Extended CONNECT with 403 (WT-B-005/007/008: a present but
+ * malformed Origin) without establishing a session. */
+static void srvrun_reject_wt(srvrun_conn* c, int slot) {
+  srvrun_start_wt_status(c, slot, 403);
 }
 
 /* Body of srvrun_start_resp for a normal (non-WT) request: run the app
@@ -645,17 +690,28 @@ static void srvrun_start_app_resp(
       SRVRUN_CHUNK);
 }
 
+/* A well-formed Extended CONNECT for WebTransport either establishes a
+ * session (Origin absent, or present and well-formed) or is rejected with
+ * 403 (Origin present but malformed, WT-B-005/007/008). */
+static void srvrun_dispatch_wt(srvrun_conn* c, int slot) {
+  if (!wt_origin_ok(&c->l.req)) {
+    srvrun_reject_wt(c, slot);
+    return;
+  }
+  srvrun_start_wt(c, slot);
+}
+
 /* Build the decoded request's response into the slot's own storage and arm
  * the session over the whole stream. A session already in flight keeps the
  * storage; the new request is dropped (one response at a time per
  * connection, matching the one-request stream model). An Extended CONNECT
  * for WebTransport (RFC 9220 3, draft-ietf-webtrans-http3-15 SS3) establishes
- * a WT session instead and never reaches the app handler. */
+ * a WT session or is rejected with 403, and never reaches the app handler. */
 static void srvrun_start_resp(const srvrun_step_ctx* ctx, int slot) {
   srvrun_conn* c = &ctx->st->conns[slot];
   if (c->sess.active) return;
   if (srvrun_is_wt_connect(&c->l.req)) {
-    srvrun_start_wt(c, slot);
+    srvrun_dispatch_wt(c, slot);
     return;
   }
   srvrun_start_app_resp(ctx, c, slot);
