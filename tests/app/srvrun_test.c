@@ -1331,6 +1331,47 @@ static void test_srvrun_wt_connect_origin_malformed_403(void) {
   CHECK(conns[0].sess.active == 1); /* the 403 was still armed */
 }
 
+/* WT-C-010/011: a second Extended CONNECT arriving on a connection that
+ * already has an active WT session is rejected (429) instead of silently
+ * overwriting the existing session. The critical assertion is the last one:
+ * without the c->wt_active guard in srvrun_dispatch_wt, srvrun_start_wt would
+ * unconditionally re-init c->wt, resetting it from ESTABLISHED back to
+ * UNESTABLISHED -- this test fails on that regression and passes with the
+ * guard in place. */
+static void test_srvrun_second_wt_connect_rejected_429(void) {
+  struct lp_fix  f;
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_conn    conns[QUIC_CONNTABLE_CAP] = {0};
+  quic_obuf      ob;
+  u8             obuf[1024];
+  ob                    = (quic_obuf){obuf, sizeof obuf, 0};
+  g_sr_wt_handler_calls = 0;
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  sr_make_confirmed_conn(&conns[0], &f, &ob);
+  sr_set_req(&conns[0], 1, 1, 4);
+  {
+    srvrun_cfg      cfg = {-1, 0, sr_wt_handler, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_state    st  = {table, conns};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_start_resp(&ctx, 0);
+  }
+  CHECK(conns[0].wt_active == 1);
+  CHECK(conns[0].wt.state == WIRED_WT_ESTABLISHED);
+  conns[0].sess.active = 0; /* pretend the first 2xx finished sending */
+  sr_set_req(&conns[0], 1, 1, 8); /* second Extended CONNECT, different stream */
+  {
+    srvrun_cfg      cfg = {-1, 0, sr_wt_handler, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_state    st  = {table, conns};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_start_resp(&ctx, 0);
+  }
+  CHECK(g_sr_wt_handler_calls == 0);
+  CHECK(conns[0].sess.active == 1); /* the 429 was armed */
+  CHECK(conns[0].wt_active == 1);
+  CHECK(conns[0].wt.state == WIRED_WT_ESTABLISHED); /* original session intact */
+  CHECK(conns[0].wt.connect_stream_id == 4);         /* still the first id */
+}
+
 /* WT-F-001/002/003 (approximation): tearing down the connection tears down
  * its WebTransport session too. srvrun_free_slot is the one hook common to
  * every teardown path (peer close, boot failure, idle sweep); this drives it
@@ -1437,6 +1478,7 @@ void test_srvrun(void) {
   test_srvrun_wt_connect_missing_authority_no_session();
   test_srvrun_wt_connect_origin_ok_establishes();
   test_srvrun_wt_connect_origin_malformed_403();
+  test_srvrun_second_wt_connect_rejected_429();
   test_srvrun_idle_sweep_closes_wt_session();
   test_srvrun_idle_sweep_without_wt_unaffected();
 }
