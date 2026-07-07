@@ -43,6 +43,20 @@ static void wt_streams_reset(wired_srvloop* l) {
   }
 }
 
+/* Mark every WT uni stream reassembly slot free (draft-ietf-webtrans-http3-15
+ * 4.3), mirroring wt_streams_reset above for the separate wt_uni_streams
+ * table. */
+static void wt_uni_streams_reset(wired_srvloop* l) {
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_UNI_STREAMS; i++) {
+    l->wt_uni_streams[i].in_use    = 0;
+    l->wt_uni_streams[i].stream_id = 0;
+    l->wt_uni_streams[i].type_len  = 0;
+    l->wt_uni_streams[i].len       = 0;
+    l->wt_uni_streams[i].fin       = 0;
+    l->wt_uni_streams[i].offered   = 0;
+  }
+}
+
 int wired_srvloop_init(wired_srvloop* l, const u8* cli_scid, u8 cli_scid_len) {
   if (cli_scid_len > 20) return 0;
   l->h3.settings_sent = 0;
@@ -68,6 +82,7 @@ int wired_srvloop_init(wired_srvloop* l, const u8* cli_scid, u8 cli_scid_len) {
   l->rx_datagram_n = 0;
   streams_reset(l);
   wt_streams_reset(l);
+  wt_uni_streams_reset(l);
   return 1;
 }
 
@@ -190,6 +205,36 @@ int wired_srvloop_wt_slot_claim(wired_srvloop* l, u64 stream_id) {
     l->wt_streams[i].len       = 0;
     l->wt_streams[i].fin       = 0;
     l->wt_streams[i].offered   = 0;
+    return (int)i;
+  }
+  return -1;
+}
+
+/* 1 if wt uni slot is claimed and reassembling stream_id. */
+static int wt_uni_slot_matches(
+    const wired_srvloop_wt_uni_stream_slot* slot, u64 stream_id) {
+  return slot->in_use && slot->stream_id == stream_id;
+}
+
+/* draft-ietf-webtrans-http3-15 4.3: find the wt_uni_streams slot already
+ * reassembling stream_id.
+ * @return the slot index, or -1 if this stream has no slot yet. */
+int wired_srvloop_wt_uni_slot_find(const wired_srvloop* l, u64 stream_id) {
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_UNI_STREAMS; i++)
+    if (wt_uni_slot_matches(&l->wt_uni_streams[i], stream_id)) return (int)i;
+  return -1;
+}
+
+/* Claim and reset a free wt_uni_streams slot for stream_id. */
+int wired_srvloop_wt_uni_slot_claim(wired_srvloop* l, u64 stream_id) {
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_UNI_STREAMS; i++) {
+    if (l->wt_uni_streams[i].in_use) continue;
+    l->wt_uni_streams[i].in_use    = 1;
+    l->wt_uni_streams[i].stream_id = stream_id;
+    l->wt_uni_streams[i].type_len  = 0;
+    l->wt_uni_streams[i].len       = 0;
+    l->wt_uni_streams[i].fin       = 0;
+    l->wt_uni_streams[i].offered   = 0;
     return (int)i;
   }
   return -1;
