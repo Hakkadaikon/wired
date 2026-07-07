@@ -1,9 +1,12 @@
 #include "tls/handshake/core/sdrv/sdrv.h"
 
+#include "app/datagram/datagram/datagram.h"
 #include "crypto/asymmetric/ecc/p256/p256_point.h"
 #include "crypto/pki/cert/p256cert/p256cert.h"
+#include "tls/ext/stp/parse_tp.h"
 #include "tls/handshake/core/tls/ext_keyshare.h"
 #include "tls/handshake/core/tls/handshake.h"
+#include "tls/handshake/core/tls/tpext.h"
 
 /* RFC 8446 4 / RFC 9001 4: drive the server handshake flight. */
 
@@ -46,7 +49,8 @@ static void sdrv_take_chain(quic_sdrv* s, const quic_sdrv_init_in* in) {
 }
 
 void quic_sdrv_init(quic_sdrv* s, const quic_sdrv_init_in* in) {
-  s->limits = (quic_stp_limits){0, 0, 0};
+  s->limits                       = (quic_stp_limits){0, 0, 0};
+  s->peer_max_datagram_frame_size = 0;
   sdrv_copy32(s->server_priv, in->server_priv_x25519);
   sdrv_copy32(s->server_pub, in->server_pub_x25519);
   sdrv_copy32(s->p256_priv, in->sign_priv);
@@ -125,6 +129,24 @@ static usz sdrv_ch_prefix(const u8* b, usz n) {
   return prefix_fits(p, 2, n) ? p : 0;
 }
 
+/* The extensions-length field at b[exts]/b[exts+1] is the client's own
+ * claim about how many extension-list bytes follow; it is NOT validated
+ * against the real buffer by sdrv_ch_prefix (which only bounds the
+ * fixed-size prefix before it). Read it and clamp the claimed end to n (the
+ * caller's genuine allocated length), rather than trusting it outright --
+ * an attacker-controlled ClientHello can claim an extensions length far
+ * longer than the bytes actually present, and every walker downstream
+ * (sdrv_ch_walk / sdrv_ch_find_tp) must never read past the real buffer.
+ * Returns 0 if the length field itself doesn't fit, or the walk start (b +
+ * exts + 2) would already overrun n. */
+static usz sdrv_ch_exts_end(const u8* b, usz n, usz exts) {
+  usz blen, remaining;
+  if (exts + 2 > n) return 0;
+  blen      = (usz)b[exts] << 8 | b[exts + 1];
+  remaining = n - (exts + 2);
+  return blen <= remaining ? exts + 2 + blen : 0;
+}
+
 /* The message is a well-framed ClientHello; sets *body_len. */
 static int sdrv_is_client_hello(const u8* buf, usz n, usz* body_len) {
   u8 type;
@@ -132,14 +154,86 @@ static int sdrv_is_client_hello(const u8* buf, usz n, usz* body_len) {
          type == QUIC_HS_CLIENT_HELLO;
 }
 
+/* b/body is the ClientHello body (past the 4-byte handshake header) and its
+ * quic_hs_parse-verified length. Locate the extensions list within it,
+ * checked against body (the real, verified remaining bytes, not a further
+ * self-reported length one layer down), and set *start and *end to the
+ * [start,end) span sdrv_ch_walk / sdrv_ch_find_tp should scan. Returns 0 on
+ * any malformed/truncated extensions list. */
+static int sdrv_ch_body_range(const u8* b, usz body, usz* start, usz* end) {
+  usz exts = sdrv_ch_prefix(b, body);
+  if (exts == 0) return 0;
+  *end = sdrv_ch_exts_end(b, body, exts);
+  if (*end == 0) return 0;
+  *start = exts + 2;
+  return 1;
+}
+
+/* Locate the ClientHello's extension list, checked against the REAL buffer
+ * length ch_len (not just the client's own self-reported lengths at each
+ * framing layer): sets *start and *end to the [start,end) span sdrv_ch_walk
+ * and sdrv_ch_find_tp should scan, both relative to ch+4. Returns 0 on any
+ * malformed/truncated ClientHello. */
+static int sdrv_ch_range(const u8* ch, usz ch_len, usz* start, usz* end) {
+  usz body;
+  return sdrv_is_client_hello(ch, ch_len, &body) &&
+         sdrv_ch_body_range(ch + 4, body, start, end);
+}
+
 /* Take the client x25519 key_share from a ClientHello (header included). */
 static int take_client_keyshare(const u8* ch, usz ch_len, u8 pub[32]) {
-  usz body, exts, blen;
-  if (!sdrv_is_client_hello(ch, ch_len, &body)) return 0;
-  exts = sdrv_ch_prefix(ch + 4, body);
-  if (exts == 0) return 0;
-  blen = (usz)ch[4 + exts] << 8 | ch[5 + exts];
-  return sdrv_ch_walk(ch + 4, exts + 2, exts + 2 + blen, pub);
+  usz start, end;
+  if (!sdrv_ch_range(ch, ch_len, &start, &end)) return 0;
+  return sdrv_ch_walk(ch + 4, start, end, pub);
+}
+
+/* One extension at *q: -1 overrun, 1 quic_transport_parameters (0x39) found
+ * (*ext set to its full TLV, header included, for quic_tpext_decode), 0
+ * skip; *q advances. */
+static int sdrv_ch_tp_one(const sdrv_ch_block* blk, usz* q, quic_span* ext) {
+  usz      start = *q;
+  unsigned t     = (unsigned)blk->b[*q] << 8 | blk->b[*q + 1];
+  usz      dlen  = (usz)blk->b[*q + 2] << 8 | blk->b[*q + 3];
+  if (*q + 4 + dlen > blk->end) return -1;
+  *q += 4 + dlen;
+  if (t != QUIC_TPEXT_TYPE) return 0;
+  *ext = quic_span_of(blk->b + start, 4 + dlen);
+  return 1;
+}
+
+/* Walk the same extension list as sdrv_ch_walk (RFC 9001 8.2 quic_transport_
+ * parameters, extension_type 0x39), independently of the key_share scan --
+ * a second small dedicated walk rather than folding two unrelated searches
+ * into one function, to keep CCN low. */
+static int sdrv_ch_find_tp(const u8* b, usz q, usz end, quic_span* tp) {
+  sdrv_ch_block blk = {b, end};
+  int           r   = 0;
+  while (r == 0 && q + 4 <= end) r = sdrv_ch_tp_one(&blk, &q, tp);
+  return r == 1;
+}
+
+/* Find the ClientHello's quic_transport_parameters extension_data (the raw
+ * TLV, header included, as quic_tpext_decode expects). Returns 1 and sets
+ * *ext on success, 0 if the ClientHello is malformed or carries no such
+ * extension. */
+static int find_client_tp_ext(const u8* ch, usz ch_len, quic_span* ext) {
+  usz start, end;
+  if (!sdrv_ch_range(ch, ch_len, &start, &end)) return 0;
+  return sdrv_ch_find_tp(ch + 4, start, end, ext);
+}
+
+/* RFC 9221 3: extract the peer's advertised max_datagram_frame_size from the
+ * ClientHello's transport parameters, if present. Leaves *out at 0 (absent /
+ * unsupported) when the extension or the specific parameter is missing --
+ * this is an optional parameter, never a ClientHello rejection. */
+static void take_peer_max_datagram_frame_size(
+    const u8* ch, usz ch_len, u64* out) {
+  quic_span    ext, tp;
+  quic_stp_out out_v = {out, 0};
+  *out               = 0;
+  if (!find_client_tp_ext(ch, ch_len, &ext)) return;
+  if (quic_tpext_decode(ext, &tp) == 0) return;
+  quic_stp_parse(tp, QUIC_TP_MAX_DATAGRAM_FRAME_SIZE, &out_v);
 }
 
 /* The legacy_session_id at body offset 34 is fully framed in ch_msg: the length
@@ -164,6 +258,8 @@ static int take_client_sid(quic_sdrv* s, const u8* ch_msg, usz ch_len) {
 int quic_sdrv_recv_client_hello(quic_sdrv* s, const u8* ch_msg, usz ch_len) {
   if (!take_client_keyshare(ch_msg, ch_len, s->client_pub)) return 0;
   if (!take_client_sid(s, ch_msg, ch_len)) return 0;
+  take_peer_max_datagram_frame_size(
+      ch_msg, ch_len, &s->peer_max_datagram_frame_size);
   quic_transcript_add(&s->tr, ch_msg, ch_len);
   return 1;
 }
