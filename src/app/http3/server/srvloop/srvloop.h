@@ -62,6 +62,58 @@ typedef struct {
   u8  req_wrap[2080];
 } wired_srvloop_stream_slot;
 
+/** RFC 9000 2.2: how many concurrent WebTransport bidi streams (draft-ietf-
+ * webtrans-http3-15 4.3) one connection can reassemble. Separate from
+ * WIRED_SRVLOOP_MAX_STREAMS/wired_srvloop_stream_slot: a WT bidi stream's
+ * bytes past the leading 0x41 signal are raw application data with no HTTP/3
+ * HEADERS/DATA framing, so they need no req_scratch/req_wrap-shaped fields. */
+#define WIRED_SRVLOOP_MAX_WT_STREAMS 4
+
+/** One WebTransport bidi stream's cross-datagram reassembly state (draft-
+ * ietf-webtrans-http3-15 4.3). free (in_use == 0) until the stream's leading
+ * 0x41 signal frame is first sighted. buf holds the stream's bytes AFTER the
+ * signal varint — the signal itself is not application data and is skipped
+ * before writing (see gather_wt_stream in dispatch.c). */
+typedef struct {
+  int in_use; /**< 0 = free slot */
+  u64 stream_id; /**< the WT bidi stream id this slot reassembles */
+  /** bytes the leading 0x41 signal varint itself occupied on the wire (RFC
+   * 9000 16: 2 for 0x41's own encoding, but recorded rather than assumed) —
+   * every later (offset>0) frame's stream-relative offset is shifted back by
+   * this much to land in the same post-signal coordinate space buf uses. */
+  usz sig_len;
+  /** offset-indexed bytes past the signal varint (offset 0 of this buffer is
+   * the first application byte, not the 0x41 signal).
+   * ponytail: overflow past this cap is truncated, same policy as
+   * wired_srvloop_stream_slot's req_buf. */
+  u8  buf[1024];
+  usz len; /**< high-water mark into buf */
+  u8  fin; /**< 1 once this stream's FIN was seen */
+  /** 1 once wired_wt_session_offer_stream has been called for this slot's
+   * stream_id (the caller driving the loop, e.g. srvrun.c, sets this after
+   * offering — the loop itself does not know about wired_wt_session). Kept
+   * here rather than re-derived so the association happens exactly once per
+   * stream regardless of how many steps its data arrives across. */
+  int offered;
+} wired_srvloop_wt_stream_slot;
+
+/** RFC 9221 5: how many received QUIC DATAGRAM frames one connection queues
+ * before a future consumer (a WebTransport session, Phase 7b Slice 2) drains
+ * them. Datagrams are unordered/unreliable per RFC 9221, so — unlike the
+ * single-slot send side — the receive side uses a small fixed queue rather
+ * than one overwritable slot: losing an already-arrived datagram to a same-step
+ * overwrite is a worse user-visible bug than the send side's "last write wins"
+ * (see rx_datagram_n's overflow policy below). 4 is an arbitrary small size,
+ * not a protocol limit; raise it if a real workload needs deeper queuing. */
+#define WIRED_SRVLOOP_MAX_RX_DATAGRAMS 4
+
+/** One queued received QUIC DATAGRAM frame's payload (RFC 9221 5). Copied
+ * (not a view) since the source packet buffer does not outlive the step. */
+typedef struct {
+  u8  buf[256]; /**< the datagram's payload bytes */
+  usz len;      /**< bytes valid in buf */
+} wired_srvloop_rx_datagram;
+
 /** Per-connection state of the server wire loop, re-armed by
  * wired_srvloop_init and driven by wired_srvloop_step. */
 typedef struct {
@@ -89,6 +141,12 @@ typedef struct {
    * first request, exactly as the old single-slot fields were — so a
    * connection that only ever uses stream 0 behaves identically to before. */
   wired_srvloop_stream_slot streams[WIRED_SRVLOOP_MAX_STREAMS];
+  /** draft-ietf-webtrans-http3-15 4.3: one reassembly slot per concurrent WT
+   * bidi stream, separate from streams[] above (see
+   * wired_srvloop_wt_stream_slot's doc for why). Reachable here so a future
+   * slice can wire an app-facing callback over it; this slice only reassembles
+   * and associates with the connection's WT session, it does not deliver. */
+  wired_srvloop_wt_stream_slot wt_streams[WIRED_SRVLOOP_MAX_WT_STREAMS];
   /** Mirrors the most recently completed request this step, across whichever
    * slot decoded it — the pre-existing single-stream API surface (got_request/
    * req), kept so existing callers reading these two fields directly need no
@@ -108,6 +166,19 @@ typedef struct {
   u64 ack_lo[8]; /**< range lows, parallel with ack_hi */
   u64 ack_hi[8]; /**< range highs, ack_hi[0] from the frame's largest */
   usz ack_n;     /**< ranges recorded this step */
+  /** RFC 9221 5: received QUIC DATAGRAM frame payloads queued for a future
+   * consumer to drain (Phase 7b Slice 2), oldest first. Filled by
+   * gather_rx_datagrams in dispatch.c alongside the request/WT-stream
+   * gathering above — a single 1-RTT packet may coalesce a DATAGRAM frame
+   * with a request or WT stream frame, so this runs independently of both. */
+  wired_srvloop_rx_datagram rx_datagrams[WIRED_SRVLOOP_MAX_RX_DATAGRAMS];
+  /** count of entries valid in rx_datagrams, 0..WIRED_SRVLOOP_MAX_RX_DATAGRAMS.
+   * Once the queue is full, a newly arrived datagram is dropped (matching RFC
+   * 9221's unreliable-delivery semantics) rather than overwriting an
+   * already-queued one — this is the receive-side counterpart of the send
+   * side's single-slot "last write wins", chosen because losing an
+   * already-arrived datagram to a same-step overwrite is worse. */
+  usz rx_datagram_n;
 } wired_srvloop;
 
 /** Register the app response-body builder; pass 0 to clear (body-less 200).
@@ -124,6 +195,22 @@ void wired_srvloop_set_handler(
  * @param cli_scid_len cli_scid length in octets
  * @return 1, or 0 if cli_scid_len exceeds 20. */
 int wired_srvloop_init(wired_srvloop* l, const u8* cli_scid, u8 cli_scid_len);
+
+/** draft-ietf-webtrans-http3-15 4.3: find the wt_streams slot already
+ * reassembling stream_id, so dispatch.c's gather_wt_stream can route a later
+ * (offset>0) frame into the same slot its signal frame claimed.
+ * @param l the loop to search
+ * @param stream_id the WT bidi stream id
+ * @return the slot index, or -1 if this stream has no slot yet. */
+int wired_srvloop_wt_slot_find(const wired_srvloop* l, u64 stream_id);
+
+/** draft-ietf-webtrans-http3-15 4.3: claim and reset a free wt_streams slot
+ * for stream_id, called the first time a stream's leading 0x41 signal is
+ * recognized.
+ * @param l the loop to claim a slot on
+ * @param stream_id the WT bidi stream id
+ * @return the slot index, or -1 if the table is full. */
+int wired_srvloop_wt_slot_claim(wired_srvloop* l, u64 stream_id);
 
 /** The loop and its orchestrator, driven together through every wire step
  * (mirrors wired_srvboot_conn, srvboot's cold-start counterpart). */
