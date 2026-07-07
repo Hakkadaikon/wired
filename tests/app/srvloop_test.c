@@ -1,5 +1,6 @@
 #include "app/http3/server/srvloop/srvloop.h"
 
+#include "app/datagram/datagram/datagram.h"
 #include "app/http3/core/h3/frame.h"
 #include "app/http3/core/h3conn/response.h"
 #include "app/http3/request/h3reqdrive/request_drive.h"
@@ -620,7 +621,7 @@ static void lp_confirm_via_dispatch(struct lp_fix* f) {
         lp_wrap0(&f->l), &got, &req};
     CHECK(
         wired_srvloop_dispatch(
-            &(wired_srvloop_dispatch_ctx){&f->s, &f->l.h3, &acc}, &in) == 1);
+            &(wired_srvloop_dispatch_ctx){&f->s, &f->l.h3, &acc, 0}, &in) == 1);
   }
   CHECK(wired_server_is_confirmed(&f->s) == 1);
 }
@@ -731,7 +732,7 @@ static void test_srvloop_dispatch_padding_before_crypto(void) {
         lp_wrap0(&f.l), &got, &req};
     CHECK(
         wired_srvloop_dispatch(
-            &(wired_srvloop_dispatch_ctx){&f.s, &f.l.h3, &acc}, &in) == 1);
+            &(wired_srvloop_dispatch_ctx){&f.s, &f.l.h3, &acc, 0}, &in) == 1);
   }
   CHECK(wired_server_is_confirmed(&f.s) == 1);
 }
@@ -826,7 +827,7 @@ static void test_srvloop_dispatch_uni_streams_not_request(void) {
         lp_wrap0(&f.l), &got, &req};
     CHECK(
         wired_srvloop_dispatch(
-            &(wired_srvloop_dispatch_ctx){&f.s, &f.l.h3, &acc}, &in) == 1);
+            &(wired_srvloop_dispatch_ctx){&f.s, &f.l.h3, &acc, 0}, &in) == 1);
   }
   CHECK(got == 0);
 }
@@ -862,7 +863,7 @@ static void test_srvloop_dispatch_get_after_uni_streams(void) {
         lp_wrap0(&f.l), &got, &req};
     CHECK(
         wired_srvloop_dispatch(
-            &(wired_srvloop_dispatch_ctx){&f.s, &f.l.h3, &acc}, &in) == 1);
+            &(wired_srvloop_dispatch_ctx){&f.s, &f.l.h3, &acc, 0}, &in) == 1);
   }
   CHECK(got == 1);
 }
@@ -1031,6 +1032,260 @@ static void test_srvloop_wt_bidi_stream_not_request(void) {
     CHECK(f.l.streams[i].in_use == 0);
 }
 
+/* Build a STREAM frame at an explicit offset carrying `data` (used for the
+ * post-signal continuation frames a WT bidi stream sends after its leading
+ * 0x41 signal frame). */
+static usz lp_stream_frame_at(
+    u8* out, usz cap, u64 stream_id, u64 offset, const u8* data, usz data_len,
+    u8 fin) {
+  quic_stream_frame sf = {stream_id, offset, data_len, data, fin};
+  return quic_frame_put_stream(out, cap, &sf);
+}
+
+/* draft-ietf-webtrans-http3-15 4.3: a WT bidi stream's application bytes,
+ * split across TWO STREAM frames like curl's HEADERS/DATA split — the
+ * offset-0 signal frame (0x41, 2 bytes on the wire) immediately followed by
+ * application bytes, then a SEPARATE offset>0 frame with more application
+ * bytes and FIN. Confirms gather_wt_stream's reassembly lands the exact
+ * application payload (not including the signal) into wt_streams[], and that
+ * FIN is tracked. Driven through wired_srvloop_step, the real per-datagram
+ * path (mirrors test_srvloop_wt_bidi_stream_not_request's own driving style).
+ */
+static void test_srvloop_wt_bidi_stream_reassembled(void) {
+  struct lp_fix f;
+  u8            f0[64], f1[64], out[1024], spkt[1024];
+  usz           f0l, f1l, slen;
+  quic_obuf     ob = {out, sizeof out, 0};
+  /* offset 0: 2-byte 0x41 signal ({0x40,0x41}) + "AB" application bytes. */
+  const u8* sig_plus_ab = (const u8*)"\x40\x41" "AB";
+  const u8* cd          = (const u8*)"CD";
+  f0l = lp_stream_frame_at(f0, sizeof f0, 4, 0, sig_plus_ab, 4, 0);
+  /* offset 4 on the WIRE == offset 2 in the post-signal application stream
+   * (the 2-byte signal occupies wire offsets 0-1, "AB" occupies 2-3). */
+  f1l = lp_stream_frame_at(f1, sizeof f1, 4, 4, cd, 2, 1);
+  lp_confirm(&f, &ob);
+  slen = client_seal_onertt_pn(&f, 3, f0, f0l, spkt, sizeof spkt);
+  ob   = (quic_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  slen = client_seal_onertt_pn(&f, 4, f1, f1l, spkt, sizeof spkt);
+  ob   = (quic_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  {
+    int i = wired_srvloop_wt_slot_find(&f.l, 4);
+    CHECK(i >= 0);
+    CHECK(f.l.wt_streams[i].len == 4);
+    CHECK(
+        f.l.wt_streams[i].buf[0] == 'A' && f.l.wt_streams[i].buf[1] == 'B' &&
+        f.l.wt_streams[i].buf[2] == 'C' && f.l.wt_streams[i].buf[3] == 'D');
+    CHECK(f.l.wt_streams[i].fin == 1);
+  }
+}
+
+/* CONCURRENCY (draft-ietf-webtrans-http3-15 4.3): a WT bidi stream (id 4) and
+ * a normal HTTP/3 request stream (id 0) on the SAME connection, coalesced into
+ * the SAME payload/step, must both reassemble correctly into their own
+ * separate tables (streams[] vs wt_streams[]) without interfering. */
+static void test_srvloop_wt_stream_concurrent_with_request(void) {
+  struct lp_fix f;
+  u8            h0[256], d0[256], wt[64], out[1024], spkt[1024];
+  usz           h0l, d0l, wtl, slen;
+  quic_obuf     ob    = {out, sizeof out, 0};
+  const u8*     body0 = (const u8*)"AA";
+  lp_split_post_frames_on(0, body0, 2, h0, sizeof h0, &h0l, d0, sizeof d0, &d0l);
+  wtl = lp_wt_bidi_stream(wt, sizeof wt, 4);
+  lp_confirm(&f, &ob);
+  /* datagram 1: stream 0's HEADERS + stream 4's WT signal, same payload. */
+  {
+    u8  payload[512];
+    usz off = 0;
+    for (usz i = 0; i < h0l; i++) payload[off++] = h0[i];
+    for (usz i = 0; i < wtl; i++) payload[off++] = wt[i];
+    slen = client_seal_onertt_pn(&f, 3, payload, off, spkt, sizeof spkt);
+  }
+  ob = (quic_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  CHECK(f.l.got_request == 0);
+  /* the WT stream's slot exists (separate table), the request table has only
+   * stream 0's slot -- neither corrupted the other. */
+  {
+    int i = wired_srvloop_wt_slot_find(&f.l, 4);
+    CHECK(i >= 0);
+    CHECK(f.l.wt_streams[i].len == 1 && f.l.wt_streams[i].buf[0] == 'X');
+  }
+  CHECK(f.l.streams[0].in_use == 1 && f.l.streams[0].stream_id == 0);
+  /* datagram 2: stream 0's DATA+FIN completes ITS OWN request. */
+  slen = client_seal_onertt_pn(&f, 4, d0, d0l, spkt, sizeof spkt);
+  ob   = (quic_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  CHECK(f.l.got_request == 1);
+  CHECK(
+      f.l.req.body_len == 2 && f.l.req.body[0] == 'A' && f.l.req.body[1] == 'A');
+  /* the WT slot from datagram 1 is still intact, untouched by the request's
+   * own completion. */
+  {
+    int i = wired_srvloop_wt_slot_find(&f.l, 4);
+    CHECK(i >= 0 && f.l.wt_streams[i].len == 1 && f.l.wt_streams[i].buf[0] == 'X');
+  }
+}
+
+/* OFFSET-SKIP BOUNDARY (draft-ietf-webtrans-http3-15 4.3): the signal frame
+ * carries ONLY the 1-byte-decoded-as-2-byte-wire signal varint, no
+ * application bytes at all (length 2, exactly the signal's own wire size);
+ * a SECOND frame at offset 2 carries the actual application data. Confirms
+ * the reassembled buffer starts with the application data at buf[0] with no
+ * off-by-one leak of the signal's own bytes. */
+static void test_srvloop_wt_signal_only_frame_then_data(void) {
+  struct lp_fix f;
+  u8            f0[64], f1[64], out[1024], spkt[1024];
+  usz           f0l, f1l, slen;
+  quic_obuf     ob        = {out, sizeof out, 0};
+  const u8*     sig_only  = (const u8*)"\x40\x41"; /* signal, no app bytes */
+  const u8*     app       = (const u8*)"Z";
+  f0l = lp_stream_frame_at(f0, sizeof f0, 4, 0, sig_only, 2, 0);
+  f1l = lp_stream_frame_at(f1, sizeof f1, 4, 2, app, 1, 1);
+  lp_confirm(&f, &ob);
+  slen = client_seal_onertt_pn(&f, 3, f0, f0l, spkt, sizeof spkt);
+  ob   = (quic_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  slen = client_seal_onertt_pn(&f, 4, f1, f1l, spkt, sizeof spkt);
+  ob   = (quic_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  {
+    int i = wired_srvloop_wt_slot_find(&f.l, 4);
+    CHECK(i >= 0);
+    CHECK(f.l.wt_streams[i].len == 1);
+    CHECK(f.l.wt_streams[i].buf[0] == 'Z'); /* NOT a leftover signal byte */
+    CHECK(f.l.wt_streams[i].fin == 1);
+  }
+}
+
+/* REGRESSION: a WT bidi stream arriving on a connection with no active
+ * WebTransport session must not crash or corrupt state. This slice's
+ * srvloop/dispatch layer does not know about wired_wt_session at all (the
+ * association happens one layer up, in srvrun.c, gated on c->wt_active) -- so
+ * from srvloop's own point of view there is nothing special to assert beyond
+ * "reassembly still behaves exactly as the no-session-awareness tests above
+ * already prove". This test pins that a dispatch_ctx with l set (the WT
+ * gathering path IS active) but no session concept involved at all completes
+ * without corrupting the connection's other state. */
+static void test_srvloop_wt_stream_without_session_no_crash(void) {
+  struct lp_fix f;
+  u8            wt[64], out[1024], spkt[1024];
+  usz           wtl, slen;
+  quic_obuf     ob = {out, sizeof out, 0};
+  wtl = lp_wt_bidi_stream(wt, sizeof wt, 4);
+  lp_confirm(&f, &ob);
+  slen = client_seal_onertt_pn(&f, 3, wt, wtl, spkt, sizeof spkt);
+  ob   = (quic_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  CHECK(f.l.got_request == 0);
+  {
+    int i = wired_srvloop_wt_slot_find(&f.l, 4);
+    CHECK(i >= 0 && f.l.wt_streams[i].len == 1 && f.l.wt_streams[i].buf[0] == 'X');
+  }
+  /* no other connection state disturbed: request table clean, no peer-close
+   * latched. */
+  CHECK(f.l.streams[0].in_use == 0);
+  CHECK(f.l.peer_closed == 0);
+}
+
+/* RFC 9221 5: a real encoded DATAGRAM frame, driven through the live
+ * wired_srvloop_step path, lands its payload bytes in rx_datagrams[0] and
+ * rx_datagram_n becomes 1. */
+static void test_srvloop_datagram_queued_on_step(void) {
+  struct lp_fix       f;
+  u8                  payload[64], out[1024], spkt[1024];
+  usz                 plen, slen;
+  quic_obuf           ob = {out, sizeof out, 0};
+  quic_datagram_frame df = {.length = 5, .data = (const u8*)"hello"};
+  plen = quic_datagram_encode(quic_mspan_of(payload, sizeof payload), &df, 1);
+  lp_confirm(&f, &ob);
+  slen = client_seal_onertt_pn(&f, 3, payload, plen, spkt, sizeof spkt);
+  ob   = (quic_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  CHECK(f.l.rx_datagram_n == 1);
+  CHECK(
+      f.l.rx_datagrams[0].len == 5 &&
+      f.l.rx_datagrams[0].buf[0] == 'h' && f.l.rx_datagrams[0].buf[1] == 'e' &&
+      f.l.rx_datagrams[0].buf[2] == 'l' && f.l.rx_datagrams[0].buf[3] == 'l' &&
+      f.l.rx_datagrams[0].buf[4] == 'o');
+}
+
+/* RFC 9221 5: several DATAGRAM frames arriving across separate steps (separate
+ * incoming packets) fill the queue in order up to
+ * WIRED_SRVLOOP_MAX_RX_DATAGRAMS, and one more beyond capacity is dropped
+ * (queue stays at max, earlier entries are not disturbed) -- the "drop
+ * newest" overflow policy documented on rx_datagram_n. */
+static void test_srvloop_datagram_queue_overflow_drops_newest(void) {
+  struct lp_fix f;
+  u8            payload[64], out[1024], spkt[1024];
+  usz           plen, slen;
+  quic_obuf     ob = {out, sizeof out, 0};
+  usz           i;
+  lp_confirm(&f, &ob);
+  /* fill the queue: WIRED_SRVLOOP_MAX_RX_DATAGRAMS datagrams, byte value i. */
+  for (i = 0; i < WIRED_SRVLOOP_MAX_RX_DATAGRAMS; i++) {
+    u8                  b  = (u8)('A' + i);
+    quic_datagram_frame df = {.length = 1, .data = &b};
+    plen = quic_datagram_encode(quic_mspan_of(payload, sizeof payload), &df, 1);
+    slen = client_seal_onertt_pn(
+        &f, 3 + i, payload, plen, spkt, sizeof spkt);
+    ob = (quic_obuf){out, sizeof out, 0};
+    wired_srvloop_step(
+        &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  }
+  CHECK(f.l.rx_datagram_n == WIRED_SRVLOOP_MAX_RX_DATAGRAMS);
+  for (i = 0; i < WIRED_SRVLOOP_MAX_RX_DATAGRAMS; i++)
+    CHECK(f.l.rx_datagrams[i].len == 1 && f.l.rx_datagrams[i].buf[0] == 'A' + i);
+  /* one more beyond capacity: dropped, queue stays at max, existing entries
+   * untouched. */
+  {
+    u8                  b  = 'Z';
+    quic_datagram_frame df = {.length = 1, .data = &b};
+    plen = quic_datagram_encode(quic_mspan_of(payload, sizeof payload), &df, 1);
+    slen = client_seal_onertt_pn(
+        &f, 3 + WIRED_SRVLOOP_MAX_RX_DATAGRAMS, payload, plen, spkt,
+        sizeof spkt);
+    ob = (quic_obuf){out, sizeof out, 0};
+    wired_srvloop_step(
+        &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  }
+  CHECK(f.l.rx_datagram_n == WIRED_SRVLOOP_MAX_RX_DATAGRAMS);
+  for (i = 0; i < WIRED_SRVLOOP_MAX_RX_DATAGRAMS; i++)
+    CHECK(f.l.rx_datagrams[i].len == 1 && f.l.rx_datagrams[i].buf[0] == 'A' + i);
+}
+
+/* REGRESSION: a payload with only a request stream (no DATAGRAM) leaves
+ * rx_datagram_n at 0 and the request path behaves exactly as before. */
+static void test_srvloop_request_only_leaves_rx_datagrams_empty(void) {
+  struct lp_fix f;
+  u8            get[512], out[1024], spkt[1024];
+  usz           glen, slen;
+  quic_obuf     ob  = {out, sizeof out, 0};
+  quic_obuf     gob = {get, sizeof get, 0};
+  lp_confirm(&f, &ob);
+  CHECK(wired_h3reqdrive_send_get(
+      0,
+      &(wired_h3reqdrive_get_in){
+          quic_span_of((const u8*)"/", 1), quic_span_of((const u8*)"h", 1)},
+      &gob));
+  glen = gob.len;
+  slen = client_seal_onertt_pn(&f, 3, get, glen, spkt, sizeof spkt);
+  ob   = (quic_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  CHECK(f.l.got_request == 1);
+  CHECK(f.l.rx_datagram_n == 0);
+}
+
 /* REGRESSION: a normal request stream whose first application byte happens to
  * be 0x40 (a valid 2-byte varint PREFIX byte, but decoding to a value other
  * than 0x41 with the second byte below) must still classify as a request —
@@ -1060,7 +1315,7 @@ static void test_srvloop_stream_leading_0x40_not_wt_signal(void) {
         lp_wrap0(&f.l), &got, &req};
     CHECK(
         wired_srvloop_dispatch(
-            &(wired_srvloop_dispatch_ctx){&f.s, &f.l.h3, &acc}, &in2) == 1);
+            &(wired_srvloop_dispatch_ctx){&f.s, &f.l.h3, &acc, 0}, &in2) == 1);
   }
   CHECK(got == 1);
   CHECK(req.body_len == 2 && req.body[0] == 'h' && req.body[1] == 'i');
@@ -1088,7 +1343,7 @@ static void test_srvloop_dispatch_split_request_streams(void) {
         lp_wrap0(&f.l), &got, &req};
     CHECK(
         wired_srvloop_dispatch(
-            &(wired_srvloop_dispatch_ctx){&f.s, &f.l.h3, &acc}, &in) == 1);
+            &(wired_srvloop_dispatch_ctx){&f.s, &f.l.h3, &acc, 0}, &in) == 1);
   }
   CHECK(got == 1);
   CHECK(req.body_len == 2 && req.body[0] == 'h' && req.body[1] == 'i');
@@ -1117,7 +1372,7 @@ static void test_srvloop_dispatch_split_across_datagrams(void) {
         lp_wrap0(&f.l), &got, &req};
     CHECK(
         wired_srvloop_dispatch(
-            &(wired_srvloop_dispatch_ctx){&f.s, &f.l.h3, &acc}, &in1) == 1);
+            &(wired_srvloop_dispatch_ctx){&f.s, &f.l.h3, &acc, 0}, &in1) == 1);
     CHECK(got == 0);
     /* datagram 2: DATA at offset hb, FIN -> request completes with body. */
     wired_srvloop_dispatch_in in2 = {
@@ -1125,7 +1380,7 @@ static void test_srvloop_dispatch_split_across_datagrams(void) {
         lp_wrap0(&f.l), &got, &req};
     CHECK(
         wired_srvloop_dispatch(
-            &(wired_srvloop_dispatch_ctx){&f.s, &f.l.h3, &acc}, &in2) == 1);
+            &(wired_srvloop_dispatch_ctx){&f.s, &f.l.h3, &acc, 0}, &in2) == 1);
   }
   CHECK(got == 1);
   CHECK(req.body_len == 2 && req.body[0] == 'h' && req.body[1] == 'i');
@@ -1406,6 +1661,13 @@ void test_srvloop(void) {
   test_srvloop_dispatch_split_across_datagrams();
   test_srvloop_two_streams_reassemble_independently();
   test_srvloop_wt_bidi_stream_not_request();
+  test_srvloop_wt_bidi_stream_reassembled();
+  test_srvloop_wt_stream_concurrent_with_request();
+  test_srvloop_wt_signal_only_frame_then_data();
+  test_srvloop_wt_stream_without_session_no_crash();
+  test_srvloop_datagram_queued_on_step();
+  test_srvloop_datagram_queue_overflow_drops_newest();
+  test_srvloop_request_only_leaves_rx_datagrams_empty();
   test_srvloop_stream_leading_0x40_not_wt_signal();
   test_srvloop_send_initial_roundtrip();
   test_srvloop_wrong_direction_open_fails();
