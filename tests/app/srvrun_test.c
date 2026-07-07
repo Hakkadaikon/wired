@@ -1046,9 +1046,11 @@ static void test_srvrun_busy_poll_step_never_blocks(void) {
  * the srvrun_cfg they build. Both must produce busy_poll=0, proving
  * wired_server_run's internal default_opt wrapper is wired correctly. */
 static void test_srvrun_opt_zeroed_matches_plain_default(void) {
-  wired_srvrun_opt opt = {0, 0, 0, 0};
+  wired_srvrun_opt opt = {0, 0, 0, 0, 0, 0, 0};
   CHECK(opt.busy_poll == 0);
   CHECK(opt.so_busy_poll_us == 0);
+  CHECK(opt.so_prefer_busy_poll == 0);
+  CHECK(opt.so_busy_poll_budget == 0);
 }
 
 /* BOUNDARY: so_busy_poll_us=0 -- srvrun_maybe_busy_poll's `> 0` guard skips
@@ -1057,10 +1059,13 @@ static void test_srvrun_opt_zeroed_matches_plain_default(void) {
  * SO_BUSY_POLL's kernel-side value directly (out of scope, YAGNI;
  * wired_udp_busy_poll_enable's own success/failure is already covered at
  * the udp_gso_test.c layer) so this is proven at the call-boundary instead:
- * srvrun_listen(port, 0) still succeeds exactly as before this task (the
- * regression bar), i.e. the guard being skipped never blocks the bind. */
+ * srvrun_listen(port, opt) still succeeds exactly as before this task (the
+ * regression bar), i.e. the guard being skipped never blocks the bind. Also
+ * covers so_prefer_busy_poll/so_busy_poll_budget/incoming_cpu at their
+ * disabled defaults (0/0/-1) in the same call. */
 static void test_srvrun_so_busy_poll_zero_still_binds(void) {
-  i64 fd = srvrun_listen(4492, 0);
+  wired_srvrun_opt opt = {0, 0, 0, 0, 0, 0, -1};
+  i64              fd  = srvrun_listen(4492, &opt);
   CHECK(fd >= 0);
   wired_udp_close(fd);
 }
@@ -1585,6 +1590,86 @@ static void test_srvrun_second_wt_connect_sends_reset_stream(void) {
   CHECK(rn + sn == pll); /* nothing else in the packet */
 }
 
+/* RFC 9000 10.2.3: srvrun_seal_app_close builds a correctly-encoded
+ * application-level (is_app=1, type 0x1d) CONNECTION_CLOSE -- distinct from
+ * wired_srvboot_refusal/quic_flowviol_close_frame's is_app=0 (type 0x1c)
+ * transport-level variant. A dormant primitive (tasks/webtransport-plan.md
+ * WT-C-005後半): no live caller yet, this test is its only current
+ * exercise, matching srvrun_send_wt_busy_reset's own one-round-dormant
+ * precedent before WT-C-009 later found its first caller. */
+static void test_srvrun_seal_app_close_is_application_level(void) {
+  struct lp_fix         f;
+  quic_obuf             ob;
+  u8                    obuf[1024];
+  u8                    pkt[256];
+  quic_obuf             pktb = quic_obuf_of(pkt, sizeof pkt);
+  const u8*             pl;
+  usz                   pll;
+  quic_conn_close_frame ccf;
+  usz                   rn;
+  const u8*             reason  = (const u8*)"WT frame error";
+  srvrun_conn           c       = {0};
+  ob                            = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  CHECK(srvrun_seal_app_close(
+            &c, QUIC_H3_FRAME_ERROR, quic_span_of(reason, 14), &pktb) == 1);
+  CHECK(client_open_onertt(&f, pktb.p, pktb.len, &pl, &pll) == 1);
+  rn = quic_frame_get_conn_close(pl, pll, &ccf);
+  CHECK(rn != 0 && rn == pll);
+  CHECK(ccf.is_app == 1);
+  CHECK(ccf.error_code == QUIC_H3_FRAME_ERROR);
+  CHECK(ccf.reason_len == 14);
+  {
+    int eq = 1;
+    for (usz i = 0; i < 14; i++)
+      if (ccf.reason[i] != reason[i]) eq = 0;
+    CHECK(eq);
+  }
+}
+
+/* Boundary: an empty reason string round-trips correctly. */
+static void test_srvrun_seal_app_close_empty_reason(void) {
+  struct lp_fix         f;
+  quic_obuf             ob;
+  u8                    obuf[1024];
+  u8                    pkt[256];
+  quic_obuf             pktb = quic_obuf_of(pkt, sizeof pkt);
+  const u8*             pl;
+  usz                   pll;
+  quic_conn_close_frame ccf;
+  usz                   rn;
+  srvrun_conn           c = {0};
+  ob                      = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  CHECK(srvrun_seal_app_close(
+            &c, QUIC_H3_FRAME_ERROR, quic_span_of((const u8*)"", 0), &pktb) ==
+        1);
+  CHECK(client_open_onertt(&f, pktb.p, pktb.len, &pl, &pll) == 1);
+  rn = quic_frame_get_conn_close(pl, pll, &ccf);
+  CHECK(rn != 0 && rn == pll);
+  CHECK(ccf.is_app == 1);
+  CHECK(ccf.reason_len == 0);
+}
+
+/* srvrun_send_app_close is the seal-then-wire-send wrapper (mirrors
+ * srvrun_send_wt_busy_reset): with cfg.fd == -1 (this test's fixture, no
+ * real socket) the underlying sendto fails but must not crash -- confirms
+ * the function is reachable/callable, the only exercise this dormant
+ * primitive has until a future violation-detection round wires a live
+ * caller. */
+static void test_srvrun_send_app_close_does_not_crash(void) {
+  struct lp_fix f;
+  quic_obuf     ob;
+  u8            obuf[1024];
+  srvrun_conn   c   = {0};
+  srvrun_cfg    cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+  ob                = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  srvrun_send_app_close(
+      &cfg, &c, QUIC_H3_FRAME_ERROR, quic_span_of((const u8*)"x", 1));
+  CHECK(1);
+}
+
 /* REGRESSION: the FIRST (accepted) Extended CONNECT establishes a session
  * and must never trigger the reject-path RESET_STREAM -- wt_active stays
  * false at dispatch time, so srvrun_reject_wt_busy (and the reset it sends)
@@ -1977,6 +2062,9 @@ void test_srvrun(void) {
   test_srvrun_wt_connect_origin_malformed_403();
   test_srvrun_second_wt_connect_rejected_429();
   test_srvrun_second_wt_connect_sends_reset_stream();
+  test_srvrun_seal_app_close_is_application_level();
+  test_srvrun_seal_app_close_empty_reason();
+  test_srvrun_send_app_close_does_not_crash();
   test_srvrun_first_wt_connect_no_reset_stream();
   test_srvrun_idle_sweep_closes_wt_session();
   test_srvrun_idle_sweep_without_wt_unaffected();
