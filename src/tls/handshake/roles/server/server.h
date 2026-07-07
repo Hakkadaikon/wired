@@ -92,9 +92,12 @@ int wired_server_set_cids(wired_server* s, quic_span odcid, quic_span iscid);
  * a zero field keeps its built-in default. Call before the flight is built.
  * @param s the server
  * @param max_data initial_max_data in bytes (0 = default)
- * @param max_streams_bidi initial_max_streams_bidi (0 = default) */
+ * @param max_streams_bidi initial_max_streams_bidi (0 = default)
+ * @param max_datagram_frame_size max_datagram_frame_size (RFC 9221 3), 0 =
+ *   not advertised (no default: opt in once DATAGRAM delivery is wired) */
 void wired_server_set_limits(
-    wired_server* s, u64 max_data, u64 max_streams_bidi);
+    wired_server* s, u64 max_data, u64 max_streams_bidi,
+    u64 max_datagram_frame_size);
 
 /** Set the NSS key log file path (SSLKEYLOGFILE format); 0 disables (the
  * default). When set, wired_server_feed appends a CLIENT_HANDSHAKE_TRAFFIC_

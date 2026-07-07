@@ -1,5 +1,6 @@
 #include "tls/ext/stp/server_tp.h"
 
+#include "app/datagram/datagram/datagram.h"
 #include "tls/ext/tparam/tparam.h"
 #include "tls/ext/tparam/tpblob.h"
 
@@ -47,16 +48,29 @@ static int put_int_params(quic_obuf* out) {
 /* A zero field keeps the built-in default. */
 static u64 lim_or(u64 v, u64 dflt) { return v ? v : dflt; }
 
-/* Append the two operator-tunable limits (RFC 9000 18.2). */
+/* Append an integer TP only when val is non-zero (RFC 9221 3: 0 or absent
+ * both mean "not supported", so omitting it is equivalent and cheaper). No
+ * built-in default: unlike max_data/max_streams_bidi, absence is the correct
+ * out-of-the-box behavior until a caller opts in. Returns 1 if it fit or was
+ * skipped, 0 only on an actual encode failure. */
+static int put_int_opt(quic_obuf* out, u64 id, u64 val) {
+  return val ? put_int(out, id, val) : 1;
+}
+
+/* Append the operator-tunable limits (RFC 9000 18.2) plus the opt-in
+ * max_datagram_frame_size (RFC 9221 3). */
 static int put_tunables(quic_obuf* out, const quic_stp_limits* lim) {
-  quic_stp_limits d = {0, 0};
+  quic_stp_limits d = {0, 0, 0};
   if (!lim) lim = &d;
   return put_int(
              out, QUIC_TP_INITIAL_MAX_DATA,
              lim_or(lim->max_data, STP_DEFAULT_MAX_DATA)) &
          put_int(
              out, QUIC_TP_INITIAL_MAX_STREAMS_BIDI,
-             lim_or(lim->max_streams_bidi, STP_DEFAULT_MAX_STREAMS_BIDI));
+             lim_or(lim->max_streams_bidi, STP_DEFAULT_MAX_STREAMS_BIDI)) &
+         put_int_opt(
+             out, QUIC_TP_MAX_DATAGRAM_FRAME_SIZE,
+             lim->max_datagram_frame_size);
 }
 
 int quic_stp_build_server_lim(

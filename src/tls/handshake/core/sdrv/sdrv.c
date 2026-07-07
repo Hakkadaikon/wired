@@ -46,7 +46,7 @@ static void sdrv_take_chain(quic_sdrv* s, const quic_sdrv_init_in* in) {
 }
 
 void quic_sdrv_init(quic_sdrv* s, const quic_sdrv_init_in* in) {
-  s->limits = (quic_stp_limits){0, 0};
+  s->limits = (quic_stp_limits){0, 0, 0};
   sdrv_copy32(s->server_priv, in->server_priv_x25519);
   sdrv_copy32(s->server_pub, in->server_pub_x25519);
   sdrv_copy32(s->p256_priv, in->sign_priv);

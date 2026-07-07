@@ -31,6 +31,10 @@ typedef struct {
   usz              chain_count; /**< entries in chain; 0 = self-signed */
   u64              max_data;    /**< advertised initial_max_data; 0 = default */
   u64 max_streams_bidi; /**< advertised initial_max_streams_bidi; 0 = default */
+  u64 max_datagram_frame_size; /**< advertised max_datagram_frame_size
+                                * (RFC 9221 3); 0 = not advertised (no
+                                * default -- opt in once DATAGRAM delivery is
+                                * wired end-to-end) */
 } wired_srvboot_id;
 
 /** RFC 9000 17.2: 1 if dg is a long-header Initial datagram (a Handshake or
