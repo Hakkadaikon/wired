@@ -30,6 +30,19 @@ static void streams_reset(wired_srvloop* l) {
   }
 }
 
+/* Mark every WT bidi stream reassembly slot free (draft-ietf-webtrans-http3-15
+ * 4.3), mirroring streams_reset above for the separate wt_streams table. */
+static void wt_streams_reset(wired_srvloop* l) {
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_STREAMS; i++) {
+    l->wt_streams[i].in_use    = 0;
+    l->wt_streams[i].stream_id = 0;
+    l->wt_streams[i].sig_len   = 0;
+    l->wt_streams[i].len       = 0;
+    l->wt_streams[i].fin       = 0;
+    l->wt_streams[i].offered   = 0;
+  }
+}
+
 int wired_srvloop_init(wired_srvloop* l, const u8* cli_scid, u8 cli_scid_len) {
   if (cli_scid_len > 20) return 0;
   l->h3.settings_sent = 0;
@@ -52,7 +65,9 @@ int wired_srvloop_init(wired_srvloop* l, const u8* cli_scid, u8 cli_scid_len) {
   l->peer_closed   = 0;
   l->resp_external = 0;
   l->ack_n         = 0;
+  l->rx_datagram_n = 0;
   streams_reset(l);
+  wt_streams_reset(l);
   return 1;
 }
 
@@ -150,6 +165,36 @@ static int stream_slot_for(wired_srvloop* l, u64 stream_id) {
   return stream_slot_claim(l, stream_id);
 }
 
+/* 1 if wt slot is claimed and reassembling stream_id. */
+static int wt_slot_matches(const wired_srvloop_wt_stream_slot* slot, u64 stream_id) {
+  return slot->in_use && slot->stream_id == stream_id;
+}
+
+/* draft-ietf-webtrans-http3-15 4.3: find the wt_streams slot already
+ * reassembling stream_id.
+ * @return the slot index, or -1 if this stream has no slot yet. */
+int wired_srvloop_wt_slot_find(const wired_srvloop* l, u64 stream_id) {
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_STREAMS; i++)
+    if (wt_slot_matches(&l->wt_streams[i], stream_id)) return (int)i;
+  return -1;
+}
+
+/* Claim and reset a free wt_streams slot for stream_id.
+ * @return the slot index, or -1 if the table is full. */
+int wired_srvloop_wt_slot_claim(wired_srvloop* l, u64 stream_id) {
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_STREAMS; i++) {
+    if (l->wt_streams[i].in_use) continue;
+    l->wt_streams[i].in_use    = 1;
+    l->wt_streams[i].stream_id = stream_id;
+    l->wt_streams[i].sig_len   = 0;
+    l->wt_streams[i].len       = 0;
+    l->wt_streams[i].fin       = 0;
+    l->wt_streams[i].offered   = 0;
+    return (int)i;
+  }
+  return -1;
+}
+
 /* RFC 9000 2.2: view one stream slot's cross-datagram request accumulator. */
 static wired_srvloop_reqacc slot_reqacc(wired_srvloop_stream_slot* slot) {
   wired_srvloop_reqacc acc;
@@ -245,7 +290,7 @@ static void step_dispatch(
   wired_srvloop_dispatch_in in  = {
       payload, quic_mspan_of(slot->req_scratch, sizeof slot->req_scratch),
       quic_mspan_of(slot->req_wrap, sizeof slot->req_wrap), &got, &slot->req};
-  wired_srvloop_dispatch_ctx ctx = {conn->s, &l->h3, &acc};
+  wired_srvloop_dispatch_ctx ctx = {conn->s, &l->h3, &acc, l};
   wired_srvloop_dispatch(&ctx, &in);
   if (!got) return;
   *got_request     = 1;
