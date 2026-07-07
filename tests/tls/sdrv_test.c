@@ -1,5 +1,7 @@
 #include "tls/handshake/core/sdrv/sdrv.h"
 
+#include <stdlib.h> /* malloc/free: hosted test build only, see test.h */
+
 #include "app/datagram/datagram/datagram.h"
 #include "crypto/pki/encoding/x509/ec_pubkey.h"
 #include "crypto/pki/encoding/x509/spki.h"
@@ -352,7 +354,273 @@ static void test_sdrv_chain_overflow(void) {
   }
 }
 
+/* Build a ClientHello with a real x25519 key_share and a caller-supplied
+ * transport parameters blob tp (RFC 9001 8.2), so tests can pin
+ * quic_sdrv_recv_client_hello's handling of specific parameters. */
+static usz sdrv_test_client_hello_tp(
+    u8*        ch,
+    usz        ch_cap,
+    const u8*  cli_pub,
+    const u8*  srv_random,
+    quic_span  tp) {
+  return quic_tls_client_hello(
+      &(quic_clienthello_in){srv_random, cli_pub, quic_span_of(0, 0), tp},
+      &(quic_obuf){ch, ch_cap, 0});
+}
+
+/* A fresh sdrv driver plus a ClientHello signing key pair, common to the
+ * peer_max_datagram_frame_size tests below. */
+static void sdrv_dgram_test_setup(
+    quic_sdrv* s, u8 cli_pub[32], u8 srv_random[32]) {
+  u8 cli_priv[32], srv_priv[32], srv_pub[32], cert_priv[32];
+  for (usz i = 0; i < 32; i++) {
+    cli_priv[i]   = (u8)(i + 1);
+    srv_priv[i]   = (u8)(0x40 + i);
+    cert_priv[i]  = (u8)(0x80 + i);
+    srv_random[i] = (u8)(0xa0 + i);
+  }
+  quic_x25519_base(cli_pub, cli_priv);
+  quic_x25519_base(srv_pub, srv_priv);
+  {
+    quic_sdrv_init_in din = {srv_priv, srv_pub, cert_priv, 0, 0};
+    quic_sdrv_init(s, &din);
+  }
+}
+
+/* A ClientHello carrying max_datagram_frame_size in its transport parameters
+ * makes quic_sdrv_recv_client_hello store the exact advertised value on
+ * sdrv.peer_max_datagram_frame_size. */
+static void test_sdrv_recv_client_hello_stores_peer_max_datagram_frame_size(
+    void) {
+  u8        cli_pub[32], srv_random[32];
+  u8        tpbuf[16], ch[512];
+  quic_obuf tob = quic_obuf_of(tpbuf, sizeof(tpbuf));
+  usz       tp_len;
+  usz       ch_len;
+  quic_sdrv s;
+  tp_len = quic_tparam_put_int(&tob, QUIC_TP_MAX_DATAGRAM_FRAME_SIZE, 65535);
+  CHECK(tp_len != 0);
+  sdrv_dgram_test_setup(&s, cli_pub, srv_random);
+  ch_len = sdrv_test_client_hello_tp(
+      ch, sizeof(ch), cli_pub, srv_random, quic_span_of(tpbuf, tp_len));
+  CHECK(ch_len != 0);
+  CHECK(quic_sdrv_recv_client_hello(&s, ch, ch_len));
+  CHECK(s.peer_max_datagram_frame_size == 65535);
+}
+
+/* Absent-parameter case: the transport parameters extension is present but
+ * does not carry max_datagram_frame_size -- the field must stay 0 (RFC 9221 3
+ * is an optional parameter), and the handshake must still succeed. */
+static void test_sdrv_recv_client_hello_no_max_datagram_param_stays_zero(
+    void) {
+  u8        cli_pub[32], srv_random[32];
+  u8        tpbuf[16], ch[512];
+  quic_obuf tob = quic_obuf_of(tpbuf, sizeof(tpbuf));
+  usz       tp_len;
+  usz       ch_len;
+  quic_sdrv s;
+  tp_len = quic_tparam_put_int(&tob, QUIC_TP_MAX_IDLE_TIMEOUT, 30000);
+  CHECK(tp_len != 0);
+  sdrv_dgram_test_setup(&s, cli_pub, srv_random);
+  ch_len = sdrv_test_client_hello_tp(
+      ch, sizeof(ch), cli_pub, srv_random, quic_span_of(tpbuf, tp_len));
+  CHECK(ch_len != 0);
+  CHECK(quic_sdrv_recv_client_hello(&s, ch, ch_len));
+  CHECK(s.peer_max_datagram_frame_size == 0);
+}
+
+/* Absent-extension case: an older/non-WT ClientHello with no transport
+ * parameters extension at all must still succeed, leaving the field at 0. */
+static void test_sdrv_recv_client_hello_no_tp_ext_stays_zero(void) {
+  u8        cli_pub[32], srv_random[32];
+  u8        ch[512];
+  usz       ch_len;
+  quic_sdrv s;
+  sdrv_dgram_test_setup(&s, cli_pub, srv_random);
+  ch_len = sdrv_test_client_hello(ch, sizeof(ch), cli_pub, srv_random);
+  CHECK(ch_len != 0);
+  CHECK(quic_sdrv_recv_client_hello(&s, ch, ch_len));
+  CHECK(s.peer_max_datagram_frame_size == 0);
+}
+
+/* RFC 8446 4.1.2: the ClientHello's own extensions-length field sits right
+ * after the fixed legacy_version(2) + random(32) + empty session_id(1) +
+ * one cipher_suite(2+2) + null compression(1+1) prefix, i.e. at body offset
+ * 41 (message offset 4 + 41 = 45). sdrv_test_client_hello/_tp always build
+ * that exact fixed prefix shape, so the offset is stable across the tests
+ * below rather than a magic number. */
+#define SDRV_TEST_EXTS_LEN_OFF 45
+
+/* Fixed offsets of the key_share and transport_parameters extension_type
+ * fields within the ClientHellos built by sdrv_test_client_hello[_tp]:
+ * append_core always emits supported_versions(3+4), supported_groups(4+4),
+ * sig_algs(8+4), key_share(38+4) in that order right after the extensions-
+ * length field (offset 41 in body / 45 in ch), so key_share's type field
+ * sits at 45 + 2+4+2+4+8+4 = 74 (2-byte-aligned running sum: 43 -> supported_
+ * versions header, 50 -> supported_groups header, 58 -> sig_algs header,
+ * 70 -> key_share header, so its type field is at ch offset 74). ALPN(5+4)
+ * follows key_share, then transport_parameters is always appended last, so
+ * its type field is at 70+4+38 (past key_share) +4+5 (past ALPN) = 121 in
+ * body, i.e. ch offset 125 -- independent of the TP payload's own length,
+ * since everything before it is fixed-size. */
+#define SDRV_TEST_KEYSHARE_TYPE_OFF 74
+#define SDRV_TEST_TP_TYPE_OFF 125
+
+/* A driver initialized with an arbitrary-but-fixed key set, enough to drive
+ * quic_sdrv_recv_client_hello in the malformed-input tests below (they never
+ * reach build_server_flight, so the exact key values don't matter). */
+static void sdrv_test_init_any(quic_sdrv* s) {
+  u8 srv_priv[32], srv_pub[32], cert_priv[32];
+  for (usz i = 0; i < 32; i++) {
+    srv_priv[i]  = (u8)(0x40 + i);
+    cert_priv[i] = (u8)(0x80 + i);
+  }
+  quic_x25519_base(srv_pub, srv_priv);
+  {
+    quic_sdrv_init_in din = {srv_priv, srv_pub, cert_priv, 0, 0};
+    quic_sdrv_init(s, &din);
+  }
+}
+
+/* Copy n bytes into a heap buffer allocated at EXACTLY n bytes (no slack) so
+ * any out-of-bounds read past it is a real heap-buffer-overflow that
+ * AddressSanitizer (or, on glibc, malloc's own guard pages under enough
+ * pressure) catches deterministically -- unlike a stack/VLA buffer, whose
+ * surrounding frame may contain readable padding that lets an overrun read
+ * silently succeed instead of crashing. */
+static u8* sdrv_test_malloc_exact(const u8* src, usz n) {
+  u8* p = malloc(n);
+  for (usz i = 0; i < n; i++) p[i] = src[i];
+  return p;
+}
+
+/* Overwrite a 2-byte big-endian extension_type field at ch[off] with a value
+ * that never matches a real registered type used in these ClientHellos, so
+ * the walk being tested cannot short-circuit by finding its target extension
+ * before reaching the corrupted tail -- it must keep scanning, which is what
+ * turns the overclaimed extensions-length into a genuine out-of-bounds read
+ * instead of a walk that happens to succeed first. */
+static void sdrv_test_blot_ext_type(u8* ch, usz off) {
+  ch[off]     = 0xba;
+  ch[off + 1] = 0xad;
+}
+
+/* A ClientHello whose self-reported extensions length claims far more bytes
+ * than actually remain in the real (exactly-sized) buffer must not walk past
+ * it while scanning for key_share -- it is a malformed ClientHello and must
+ * be rejected (0), not read out of bounds. The key_share extension's own
+ * type field is blotted out so the walk cannot return early on a match
+ * before reaching the real end of the buffer, forcing it to actually run
+ * into the overclaimed (out-of-bounds) tail. */
+static void test_sdrv_keyshare_walk_rejects_overclaimed_exts_len(void) {
+  u8        cli_priv[32], cli_pub[32], srv_random[32], scratch[512], *ch;
+  usz       ch_len;
+  quic_sdrv s;
+  for (usz i = 0; i < 32; i++) {
+    cli_priv[i]   = (u8)(i + 1);
+    srv_random[i] = (u8)(0xa0 + i);
+  }
+  quic_x25519_base(cli_pub, cli_priv);
+  ch_len = sdrv_test_client_hello(scratch, sizeof(scratch), cli_pub, srv_random);
+  CHECK(ch_len != 0);
+  ch                              = sdrv_test_malloc_exact(scratch, ch_len);
+  ch[SDRV_TEST_EXTS_LEN_OFF]     = 0xff;
+  ch[SDRV_TEST_EXTS_LEN_OFF + 1] = 0xff;
+  sdrv_test_blot_ext_type(ch, SDRV_TEST_KEYSHARE_TYPE_OFF);
+  sdrv_test_init_any(&s);
+  CHECK(!quic_sdrv_recv_client_hello(&s, ch, ch_len));
+  free(ch);
+}
+
+/* Same corruption, targeting the transport-parameters walk specifically: a
+ * ClientHello carrying a real transport_parameters extension, but whose
+ * outer extensions-length claims far more than the real buffer holds, must
+ * not let find_client_tp_ext walk out of bounds either. The key_share
+ * extension is left intact (so the earlier key_share walk in
+ * quic_sdrv_recv_client_hello still succeeds normally and control reaches
+ * the transport-parameters walk); the TP extension's own type field is
+ * blotted out so THAT walk cannot return early either. */
+static void test_sdrv_tp_walk_rejects_overclaimed_exts_len(void) {
+  u8        cli_priv[32], cli_pub[32], srv_random[32], scratch[512], tpbuf[16],
+      *ch;
+  usz       ch_len, tp_len;
+  quic_obuf tob = quic_obuf_of(tpbuf, sizeof(tpbuf));
+  quic_sdrv s;
+  for (usz i = 0; i < 32; i++) {
+    cli_priv[i]   = (u8)(i + 1);
+    srv_random[i] = (u8)(0xa0 + i);
+  }
+  quic_x25519_base(cli_pub, cli_priv);
+  tp_len = quic_tparam_put_int(&tob, QUIC_TP_MAX_DATAGRAM_FRAME_SIZE, 65535);
+  CHECK(tp_len != 0);
+  ch_len = sdrv_test_client_hello_tp(
+      scratch, sizeof(scratch), cli_pub, srv_random,
+      quic_span_of(tpbuf, tp_len));
+  CHECK(ch_len != 0);
+  ch                              = sdrv_test_malloc_exact(scratch, ch_len);
+  ch[SDRV_TEST_EXTS_LEN_OFF]     = 0xff;
+  ch[SDRV_TEST_EXTS_LEN_OFF + 1] = 0xff;
+  sdrv_test_blot_ext_type(ch, SDRV_TEST_TP_TYPE_OFF);
+  sdrv_test_init_any(&s);
+  CHECK(!quic_sdrv_recv_client_hello(&s, ch, ch_len));
+  free(ch);
+}
+
+/* A single extension whose OWN length field claims more bytes than remain
+ * in an otherwise validly-clamped extensions list must also be rejected,
+ * not just an overclaimed outer extensions-length. The first extension after
+ * the extensions-length field is supported_versions; its own 2-byte
+ * ext_data length sits right after its 2-byte type. */
+static void test_sdrv_keyshare_walk_rejects_overclaimed_ext_payload_len(
+    void) {
+  u8        cli_priv[32], cli_pub[32], srv_random[32], scratch[512], *ch;
+  usz       ch_len, first_ext_len_off;
+  quic_sdrv s;
+  for (usz i = 0; i < 32; i++) {
+    cli_priv[i]   = (u8)(i + 1);
+    srv_random[i] = (u8)(0xa0 + i);
+  }
+  quic_x25519_base(cli_pub, cli_priv);
+  ch_len = sdrv_test_client_hello(scratch, sizeof(scratch), cli_pub, srv_random);
+  CHECK(ch_len != 0);
+  ch                 = sdrv_test_malloc_exact(scratch, ch_len);
+  first_ext_len_off  = SDRV_TEST_EXTS_LEN_OFF + 2 + 2;
+  ch[first_ext_len_off]     = 0xff;
+  ch[first_ext_len_off + 1] = 0xff;
+  sdrv_test_init_any(&s);
+  CHECK(!quic_sdrv_recv_client_hello(&s, ch, ch_len));
+  free(ch);
+}
+
+/* Boundary: the extensions-length field exactly equal to the real remaining
+ * bytes (no corruption at all -- this is simply a genuine, well-formed
+ * ClientHello built at its exact real size) must still parse successfully.
+ * Proves the fix does not reject valid input off-by-one. */
+static void test_sdrv_keyshare_walk_accepts_exact_exts_len(void) {
+  u8        cli_priv[32], cli_pub[32], srv_random[32], scratch[512], *ch;
+  usz       ch_len;
+  quic_sdrv s;
+  for (usz i = 0; i < 32; i++) {
+    cli_priv[i]   = (u8)(i + 1);
+    srv_random[i] = (u8)(0xa0 + i);
+  }
+  quic_x25519_base(cli_pub, cli_priv);
+  ch_len = sdrv_test_client_hello(scratch, sizeof(scratch), cli_pub, srv_random);
+  CHECK(ch_len != 0);
+  ch = sdrv_test_malloc_exact(scratch, ch_len);
+  sdrv_test_init_any(&s);
+  CHECK(quic_sdrv_recv_client_hello(&s, ch, ch_len));
+  free(ch);
+}
+
 void test_sdrv(void) {
+  test_sdrv_keyshare_walk_rejects_overclaimed_exts_len();
+  test_sdrv_tp_walk_rejects_overclaimed_exts_len();
+  test_sdrv_keyshare_walk_rejects_overclaimed_ext_payload_len();
+  test_sdrv_keyshare_walk_accepts_exact_exts_len();
+  test_sdrv_recv_client_hello_stores_peer_max_datagram_frame_size();
+  test_sdrv_recv_client_hello_no_max_datagram_param_stays_zero();
+  test_sdrv_recv_client_hello_no_tp_ext_stays_zero();
   test_sdrv_session_id_echo();
   test_sdrv_external_chain();
   test_sdrv_external_chain_wrong_key();
