@@ -163,6 +163,41 @@ static void test_reqdrive_priority_header(void) {
   }
 }
 
+/* WebTransport draft-ietf-webtrans-http3-15 SS3.6: a regular `origin` header
+ * lands on the decoded request; without one r.origin stays 0 (absent, not an
+ * empty string). */
+static void test_reqdrive_origin_header(void) {
+  u8                   fs[96], req[256], scratch[128];
+  usz                  off;
+  quic_obuf            req_ob = {req, sizeof req, 0};
+  wired_h3reqdrive_req r;
+  quic_qpack_prefix    pfx = {0, 0, 0};
+  off                      = quic_qpack_prefix_encode(fs, 64, &pfx);
+  off += quic_qpack_indexed_encode(
+      quic_mspan_of(fs + off, 64), 17, 1); /* :method GET */
+  put_litname(fs, &off, "origin", "https://example.test");
+  {
+    quic_h3conn_req_in req_in = {quic_span_of(fs, off), quic_span_of(0, 0)};
+    CHECK(quic_h3conn_send_request(0, &req_in, &req_ob));
+  }
+  CHECK(wired_h3reqdrive_recv_get(
+      quic_span_of(req, req_ob.len), quic_mspan_of(scratch, sizeof scratch),
+      &r));
+  CHECK(rd_eq(r.origin, r.origin_len, "https://example.test", 20));
+  /* a request without the header leaves origin absent */
+  {
+    u8                 fs2[64], req2[256];
+    quic_obuf          ob2 = {req2, sizeof req2, 0};
+    usz                n2  = curl_field_section(fs2);
+    quic_h3conn_req_in in2 = {quic_span_of(fs2, n2), quic_span_of(0, 0)};
+    CHECK(quic_h3conn_send_request(0, &in2, &ob2));
+    CHECK(wired_h3reqdrive_recv_get(
+        quic_span_of(req2, ob2.len), quic_mspan_of(scratch, sizeof scratch),
+        &r));
+    CHECK(r.origin == 0 && r.origin_len == 0);
+  }
+}
+
 /* RFC 9114 4.1 / RFC 9204 4.5: a curl-style GET (reordered pseudo-headers,
  * mixed encodings, an extra regular header) decodes; all four pseudo-headers
  * are recovered by name regardless of order or count. */
@@ -413,6 +448,7 @@ static void test_reqdrive_dynamic_table(void) {
 
 void test_h3reqdrive(void) {
   test_reqdrive_priority_header();
+  test_reqdrive_origin_header();
   test_reqdrive_stream();
   test_reqdrive_post_body();
   test_reqdrive_empty_body();
