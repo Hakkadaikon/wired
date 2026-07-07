@@ -1590,6 +1590,80 @@ static void test_srvrun_second_wt_connect_sends_reset_stream(void) {
   CHECK(rn + sn == pll); /* nothing else in the packet */
 }
 
+/* WT-C-006/007 regression: stream id 8 (& 3 == 0) is a client-initiated bidi
+ * id, same shape as the existing establishes_session test's id 4 -- confirms
+ * the new validation does not reject a well-formed id. */
+static void test_srvrun_wt_connect_client_bidi_id_establishes_session(void) {
+  struct lp_fix  f;
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_conn    conns[QUIC_CONNTABLE_CAP] = {0};
+  quic_obuf      ob;
+  u8             obuf[1024];
+  ob                    = (quic_obuf){obuf, sizeof obuf, 0};
+  g_sr_wt_handler_calls = 0;
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  sr_make_confirmed_conn(&conns[0], &f, &ob);
+  sr_set_req(&conns[0], 1, 1, 8);
+  {
+    srvrun_cfg      cfg = {-1, 0, sr_wt_handler, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_state    st  = {table, conns};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_start_resp(&ctx, 0);
+  }
+  CHECK(conns[0].wt_active == 1);
+  CHECK(conns[0].wt.state == WIRED_WT_ESTABLISHED);
+  CHECK(conns[0].wt.connect_stream_id == 8);
+}
+
+/* WT-C-006/007: this SDK's live receive path only ever surfaces a client-bidi
+ * req_stream_id (it comes from the same reassembly path that only tracks
+ * request streams), so a non-client-bidi id can never reach srvrun_start_resp
+ * today -- this is a defensive check exercised by driving srvrun_start_resp
+ * directly with a stream id whose low bits are not both clear (5 & 3 == 1,
+ * a client-initiated unidirectional id), the same direct-injection style
+ * sr_set_req already uses for every other WT-connect branch in this file.
+ * No session is established and the RESET_STREAM+STOP_SENDING pair carries
+ * H3_ID_ERROR, mirroring test_srvrun_second_wt_connect_sends_reset_stream's
+ * decode-back verification. */
+static void test_srvrun_wt_connect_non_client_bidi_id_rejected(void) {
+  struct lp_fix           f;
+  quic_conntable          table[QUIC_CONNTABLE_CAP];
+  srvrun_conn             conns[QUIC_CONNTABLE_CAP] = {0};
+  quic_obuf               ob;
+  u8                      obuf[1024];
+  u8                      pkt[256];
+  quic_obuf               pktb = quic_obuf_of(pkt, sizeof pkt);
+  const u8*               pl;
+  usz                     pll;
+  quic_reset_stream_frame rs;
+  quic_stop_sending_frame ss;
+  usz                     rn, sn;
+  ob                    = (quic_obuf){obuf, sizeof obuf, 0};
+  g_sr_wt_handler_calls = 0;
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  sr_make_confirmed_conn(&conns[0], &f, &ob);
+  sr_set_req(&conns[0], 1, 1, 5); /* 5 & 3 == 1: client-initiated uni, not bidi */
+  {
+    srvrun_cfg      cfg = {-1, 0, sr_wt_handler, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_state    st  = {table, conns};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_start_resp(&ctx, 0);
+  }
+  CHECK(conns[0].wt_active == 0);
+  CHECK(g_sr_wt_handler_calls == 0); /* rejected, not routed to app handler */
+  CHECK(srvrun_seal_wt_busy_reset(&conns[0], 5, QUIC_H3_ID_ERROR, &pktb) == 1);
+  CHECK(client_open_onertt(&f, pktb.p, pktb.len, &pl, &pll) == 1);
+  rn = quic_reset_stream_decode(pl, pll, &rs);
+  CHECK(rn != 0);
+  CHECK(rs.stream_id == 5);
+  CHECK(rs.error_code == QUIC_H3_ID_ERROR);
+  sn = quic_stop_sending_decode(pl + rn, pll - rn, &ss);
+  CHECK(sn != 0);
+  CHECK(ss.stream_id == 5);
+  CHECK(ss.error_code == QUIC_H3_ID_ERROR);
+  CHECK(rn + sn == pll); /* nothing else in the packet */
+}
+
 /* RFC 9000 10.2.3: srvrun_seal_app_close builds a correctly-encoded
  * application-level (is_app=1, type 0x1d) CONNECTION_CLOSE -- distinct from
  * wired_srvboot_refusal/quic_flowviol_close_frame's is_app=0 (type 0x1c)
@@ -2145,6 +2219,8 @@ void test_srvrun(void) {
   test_srvrun_wt_connect_origin_malformed_403();
   test_srvrun_second_wt_connect_rejected_429();
   test_srvrun_second_wt_connect_sends_reset_stream();
+  test_srvrun_wt_connect_client_bidi_id_establishes_session();
+  test_srvrun_wt_connect_non_client_bidi_id_rejected();
   test_srvrun_seal_app_close_is_application_level();
   test_srvrun_seal_app_close_empty_reason();
   test_srvrun_send_app_close_does_not_crash();
