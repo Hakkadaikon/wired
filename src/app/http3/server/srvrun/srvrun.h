@@ -93,11 +93,24 @@ typedef struct {
    * nothing is delivered). */
   wired_wt_on_datagram wt_on_datagram;
   void*                wt_datagram_ctx; /**< opaque ctx passed to wt_on_datagram */
+  int so_prefer_busy_poll; /**< 0 = disabled (default); 1 = also enable
+                            * SO_PREFER_BUSY_POLL (requires so_busy_poll_us > 0
+                            * to have kernel effect, see srvrun.c's guard). */
+  int so_busy_poll_budget; /**< > 0: also enable SO_BUSY_POLL_BUDGET with this
+                            * packet budget; 0 = disabled (default). */
+  /** tasks/core-pinning-plan.md PIN-007, SET direction only. -1 = disabled
+   * (the default) -- a dedicated sentinel, not 0, because CPU 0 is itself a
+   * valid target and there is no natural "0 means off" value here (unlike
+   * so_busy_poll_us/so_busy_poll_budget, where 0 already means "no budget").
+   * >= 0: also enable SO_INCOMING_CPU with this CPU number. */
+  int incoming_cpu;
 } wired_srvrun_opt;
 
 /** Same as wired_server_run, plus opt-in polling-driver behavior. `opt` must
- * not be 0; wired_server_run itself passes an all-zero opt so its behavior is
- * byte-identical to before this was added.
+ * not be 0; wired_server_run itself passes an opt with every knob at its
+ * disabled default (all-zero except incoming_cpu, which is -1; see
+ * wired_srvrun_opt) so its behavior is byte-identical to before this was
+ * added.
  * @param port UDP port to bind
  * @param id the fixed server identity; updated in place on a SIGHUP reload
  * @param h the application's request responder
