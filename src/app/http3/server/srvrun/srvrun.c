@@ -50,6 +50,9 @@ typedef struct {
   const char*           key_path;  /**< key.pem path, or 0 to disable reload */
   int                   cc_algo;   /**< QUIC_CC_ALGO_* for fresh connections */
   int                   busy_poll; /**< 1: nonblocking spin instead of poll */
+  wired_wt_on_datagram  wt_on_datagram;  /**< app WT datagram callback, 0 to
+                                           * disable */
+  void*                 wt_datagram_ctx; /**< opaque ctx for wt_on_datagram */
 } srvrun_cfg;
 
 /* Storage a SIGHUP reload decodes into — must outlive the identity built from
@@ -351,6 +354,62 @@ static void srvrun_offer_wt_streams(srvrun_conn* c) {
   }
 }
 
+/* RFC 9221 5 / draft-ietf-webtrans-http3-15 SS4 (Phase 7b Slice 2): deliver one
+ * queued received DATAGRAM to the app callback, if a session is active and a
+ * callback is registered. wired_wt_session_offer_datagram (session.h) is
+ * purely internal buffering/association bookkeeping -- it has no path to an
+ * app callback itself, so wt_on_datagram is invoked here directly rather than
+ * threaded through it. Still calls offer_datagram first so the session's own
+ * state (buffered-vs-associated) stays consistent regardless of whether an app
+ * callback is registered. */
+static void srvrun_deliver_rx_datagram(
+    const srvrun_cfg* cfg, srvrun_conn* c, const wired_srvloop_rx_datagram* dg) {
+  quic_span data = quic_span_of(dg->buf, dg->len);
+  if (!c->wt_active) return;
+  wired_wt_session_offer_datagram(&c->wt, data);
+  if (cfg->wt_on_datagram) cfg->wt_on_datagram(cfg->wt_datagram_ctx, &c->wt, data);
+}
+
+/* RFC 9221 5 (Phase 7b Slice 2): drain every DATAGRAM this step's
+ * gather_rx_datagrams (dispatch.c) queued into c->l.rx_datagrams, delivering
+ * each to the app callback (srvrun_deliver_rx_datagram) in arrival order, then
+ * empty the queue -- rx_datagram_n persists across steps until drained (only
+ * wired_srvloop_init resets it), so this must run every step regardless of
+ * whether this step itself added anything. */
+static void srvrun_drain_rx_datagrams(const srvrun_cfg* cfg, srvrun_conn* c) {
+  for (usz i = 0; i < c->l.rx_datagram_n; i++)
+    srvrun_deliver_rx_datagram(cfg, c, &c->l.rx_datagrams[i]);
+  c->l.rx_datagram_n = 0;
+}
+
+/* draft-ietf-webtrans-http3-15 4.3: associate one newly-reassembled WT uni
+ * stream slot with c's WebTransport session, mirroring srvrun_offer_wt_slot's
+ * bidi counterpart exactly (same offer_stream contract, same no-active-
+ * session fallback of leaving the slot reassembled but unclaimed). */
+static void srvrun_offer_wt_uni_slot(
+    srvrun_conn* c, wired_srvloop_wt_uni_stream_slot* slot) {
+  if (!c->wt_active) return;
+  wired_wt_session_offer_stream(&c->wt, slot->stream_id);
+  slot->offered = 1;
+}
+
+/* A reassembled-but-not-yet-associated uni slot, mirroring wt_slot_needs_offer
+ * for the separate uni table. */
+static int wt_uni_slot_needs_offer(const wired_srvloop_wt_uni_stream_slot* slot) {
+  return slot->in_use && !slot->offered;
+}
+
+/* draft-ietf-webtrans-http3-15 4.3: after a step has reassembled this
+ * datagram's frames into c->l.wt_uni_streams[], associate every slot this
+ * step (or an earlier one) claimed but has not yet offered to c->wt, mirroring
+ * srvrun_offer_wt_streams for the separate uni table. */
+static void srvrun_offer_wt_uni_streams(srvrun_conn* c) {
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_UNI_STREAMS; i++) {
+    wired_srvloop_wt_uni_stream_slot* slot = &c->l.wt_uni_streams[i];
+    if (wt_uni_slot_needs_offer(slot)) srvrun_offer_wt_uni_slot(c, slot);
+  }
+}
+
 /* A later datagram on a live slot: one real-wire step, send any sealed
  * reply — unless the step observed a peer CONNECTION_CLOSE, in which case
  * the connection is draining and nothing further is sent (RFC 9000 10.2.2).
@@ -364,6 +423,8 @@ static void srvrun_on_step(
   int                produced = wired_srvloop_step(&conn, dg, &ob);
   srvrun_note_recv(ctx, &mark, c, dg.n);
   srvrun_offer_wt_streams(c);
+  srvrun_offer_wt_uni_streams(c);
+  srvrun_drain_rx_datagrams(ctx->cfg, c);
   if (c->l.peer_closed) return;
   if (produced)
     srvrun_send(
@@ -1382,7 +1443,9 @@ int wired_server_run_opt(
       obs.cert_path,
       obs.key_path,
       obs.cc_algo,
-      opt->busy_poll};
+      opt->busy_poll,
+      opt->wt_on_datagram,
+      opt->wt_datagram_ctx};
   if (cfg.fd < 0) return 0;
   srvrun_install_signals(&cfg);
   WIRED_LOG("listening\n");
@@ -1395,6 +1458,6 @@ int wired_server_run(
     wired_srvboot_id*    id,
     wired_srvrun_handler h,
     wired_srvrun_obs     obs) {
-  static const wired_srvrun_opt default_opt = {0, 0};
+  static const wired_srvrun_opt default_opt = {0, 0, 0, 0};
   return wired_server_run_opt(port, id, h, obs, &default_opt);
 }
