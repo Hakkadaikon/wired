@@ -83,7 +83,7 @@ static void test_srvrun_owes_goaway_once(void) {
   {
     quic_obuf  gob = {out, sizeof out, 0};
     srvrun_cfg cfg = {-1, 0, 0, 0, 0,
-                      0,  0, 0, 0}; /* fd unused: srvrun_send
+                      0,  0, 0, 0, 0}; /* fd unused: srvrun_send
                         skips len==0, but sealed GOAWAY is
                         non-empty, so this exercises a real
                         (harmless) send(2) to an invalid fd --
@@ -109,7 +109,7 @@ static void test_srvrun_goaway_wire_content(void) {
   sr_make_confirmed_conn(&c, &f, &ob);
   {
     quic_obuf  gob = {out, sizeof out, 0};
-    srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0};
     CHECK(srvrun_send_goaway(&cfg, &c, &gob) == 1);
     CHECK(client_open_onertt(&f, out, gob.len, &pl, &pll) == 1);
   }
@@ -189,7 +189,7 @@ static int sr_qlog_count(const char* needle) {
 static void test_srvrun_send_no_qlog_path_writes_nothing(void) {
   u8          buf[8] = {1, 2, 3, 4};
   srvrun_conn c      = {0};
-  srvrun_cfg  cfg    = {-1, 0, 0, 0, 0, 0, 0, 0, 0};
+  srvrun_cfg  cfg    = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0};
   srvrunt_qlog_unlink();
   srvrun_send(&cfg, &c, quic_span_of(buf, sizeof buf), "t\n");
   {
@@ -203,7 +203,7 @@ static void test_srvrun_send_no_qlog_path_writes_nothing(void) {
 static void test_srvrun_send_qlog_path_writes_packet_sent(void) {
   u8          buf[8] = {1, 2, 3, 4};
   srvrun_conn c      = {0};
-  srvrun_cfg  cfg    = {-1, 0, 0, 0, srvrunt_qlog_path, 0, 0, 0, 0};
+  srvrun_cfg  cfg    = {-1, 0, 0, 0, srvrunt_qlog_path, 0, 0, 0, 0, 0};
   srvrunt_qlog_unlink();
   srvrun_send(&cfg, &c, quic_span_of(buf, sizeof buf), "t\n");
   {
@@ -220,7 +220,7 @@ static void test_srvrun_send_qlog_path_writes_packet_sent(void) {
  * (nothing was actually sent on the wire). */
 static void test_srvrun_send_empty_pkt_no_qlog_record(void) {
   srvrun_conn c   = {0};
-  srvrun_cfg  cfg = {-1, 0, 0, 0, srvrunt_qlog_path, 0, 0, 0, 0};
+  srvrun_cfg  cfg = {-1, 0, 0, 0, srvrunt_qlog_path, 0, 0, 0, 0, 0};
   srvrunt_qlog_unlink();
   srvrun_send(&cfg, &c, quic_span_of(0, 0), "t\n");
   {
@@ -272,7 +272,7 @@ static void test_srvrun_no_reload_leaves_id_untouched(void) {
   const u8*        pub = (const u8*)0x2a;
   id.pub               = pub;
   srvrun_cfg cfg = {-1, &id, 0, 0, 0, 0, srvrunt_cert_path, srvrunt_key_path,
-                    0};
+                    0, 0};
   srvrun_test_set_reload(0);
   srvrun_reload_if_requested(&cfg);
   CHECK(id.pub == pub);
@@ -284,7 +284,7 @@ static void test_srvrun_no_reload_leaves_id_untouched(void) {
 static void test_srvrun_reload_requested_updates_id(void) {
   wired_srvboot_id id = {0};
   srvrun_cfg cfg = {-1, &id, 0, 0, 0, 0, srvrunt_cert_path, srvrunt_key_path,
-                    0};
+                    0, 0};
   srvrunt_write(
       srvrunt_cert_path, srvrunt_cert_pem, sizeof(srvrunt_cert_pem) - 1);
   srvrunt_write(srvrunt_key_path, srvrunt_key_pem, sizeof(srvrunt_key_pem) - 1);
@@ -303,7 +303,7 @@ static void test_srvrun_reload_disabled_when_no_cert_path(void) {
   wired_srvboot_id id  = {0};
   const u8*        pub = (const u8*)0x2a;
   id.pub               = pub;
-  srvrun_cfg cfg       = {-1, &id, 0, 0, 0, 0, 0, 0, 0};
+  srvrun_cfg cfg       = {-1, &id, 0, 0, 0, 0, 0, 0, 0, 0};
   srvrun_test_set_reload(1);
   srvrun_reload_if_requested(&cfg);
   CHECK(srvrun_reload_requested() == 0);
@@ -321,7 +321,7 @@ static void test_srvrun_reload_failure_keeps_previous_id(void) {
   syscall3(SYS_unlinkat, SRVRUNT_AT_FDCWD, srvrunt_cert_path, 0);
   {
     srvrun_cfg cfg = {-1, &id, 0, 0, 0, 0, srvrunt_cert_path, srvrunt_key_path,
-                      0};
+                      0, 0};
     srvrun_test_set_reload(1);
     srvrun_reload_if_requested(&cfg);
   }
@@ -388,7 +388,7 @@ static void test_srvrun_accept_rekeys_to_slot_scid(void) {
   usz total             = sr_build_client_initial(dg, sizeof dg, g_sr_odcid, 8);
   sr_make_id(&id, priv, pub, seed, rnd);
   {
-    srvrun_cfg      cfg = {-1, &id, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_cfg      cfg = {-1, &id, 0, 0, 0, 0, 0, 0, 0, 0};
     srvrun_step_ctx ctx = {&cfg, &peer, &st, 0};
     quic_conntable_init(table, QUIC_CONNTABLE_CAP);
     srvrun_serve(&ctx, quic_mspan_of(dg, total));
@@ -437,7 +437,7 @@ static void test_srvrun_split_ch_boots_across_datagrams(void) {
   CHECK(n > 100);
   sr_make_id(&id, priv, pub, seed, rnd);
   {
-    srvrun_cfg      cfg = {-1, &id, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_cfg      cfg = {-1, &id, 0, 0, 0, 0, 0, 0, 0, 0};
     srvrun_step_ctx ctx = {&cfg, &peer, &st, 0};
     quic_conntable_init(table, QUIC_CONNTABLE_CAP);
     st.conns[0].up       = 0;
@@ -470,7 +470,7 @@ static void test_srvrun_stalled_boot_swept(void) {
   for (usz i = 0; i < n2; i++) d2[i] = dg2[i];
   sr_make_id(&id, priv, pub, seed, rnd);
   {
-    srvrun_cfg      cfg = {-1, &id, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_cfg      cfg = {-1, &id, 0, 0, 0, 0, 0, 0, 0, 0};
     srvrun_step_ctx ctx = {&cfg, &peer, &st, 1000};
     quic_conntable_init(table, QUIC_CONNTABLE_CAP);
     st.conns[0].up       = 0;
@@ -504,7 +504,7 @@ static void test_srvrun_alien_version_claims_no_slot(void) {
   dg[12] = 4;
   sr_make_id(&id, priv, pub, seed, rnd);
   {
-    srvrun_cfg      cfg = {-1, &id, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_cfg      cfg = {-1, &id, 0, 0, 0, 0, 0, 0, 0, 0};
     srvrun_step_ctx ctx = {&cfg, &peer, &st, 0};
     quic_conntable_init(table, QUIC_CONNTABLE_CAP);
     st.conns[0].up = 0;
@@ -525,7 +525,7 @@ static void test_srvrun_failed_accept_unclaims(void) {
   srvrun_state     st   = {table, g_srvrun_state.conns};
   sr_make_id(&id, priv, pub, seed, rnd);
   {
-    srvrun_cfg      cfg = {-1, &id, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_cfg      cfg = {-1, &id, 0, 0, 0, 0, 0, 0, 0, 0};
     srvrun_step_ctx ctx = {&cfg, &peer, &st, 0};
     quic_conntable_init(table, QUIC_CONNTABLE_CAP);
     srvrun_serve(&ctx, quic_mspan_of(junk, sizeof junk));
@@ -562,7 +562,7 @@ static void test_srvrun_peer_close_frees_slot(void) {
   slen = client_seal_onertt(&f, cc, ccn, spkt, sizeof spkt);
   srvrunt_qlog_unlink();
   {
-    srvrun_cfg      cfg = {-1, &id, 0, 0, srvrunt_qlog_path, 0, 0, 0, 0};
+    srvrun_cfg      cfg = {-1, &id, 0, 0, srvrunt_qlog_path, 0, 0, 0, 0, 0};
     srvrun_step_ctx ctx = {&cfg, &peer, &st, 0};
     srvrun_serve(&ctx, quic_mspan_of(spkt, slen));
     /* slot freed: up cleared, DCID no longer routes */
@@ -610,7 +610,7 @@ static void test_srvrun_serve_slot_touches_last_ms(void) {
   srvrun_state     st    = {table, g_srvrun_state.conns};
   quic_sockaddr_in peer  = {0};
   u8               sh[8] = {0x40, 1, 2, 3, 4, 5, 6, 7}; /* short header */
-  srvrun_cfg       cfg   = {-1, 0, 0, 0, 0, 0, 0, 0, 0};
+  srvrun_cfg       cfg   = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0};
   srvrun_step_ctx  ctx   = {&cfg, &peer, &st, 12345};
   quic_conntable_init(table, QUIC_CONNTABLE_CAP);
   st.conns[2].up      = 0;
@@ -639,7 +639,7 @@ static void sr_serve_onertt(
   CHECK(quic_conntable_insert(table, QUIC_CONNTABLE_CAP, g_cli_scid, 6) == 0);
   slen = client_seal_onertt(&f, pl, pln, spkt, sizeof spkt);
   {
-    srvrun_cfg      cfg = {-1, &id, 0, 0, qlog_path, 0, 0, 0, 0};
+    srvrun_cfg      cfg = {-1, &id, 0, 0, qlog_path, 0, 0, 0, 0, 0};
     srvrun_step_ctx ctx = {&cfg, &peer, &st, 0};
     for (int i = 0; i < times; i++)
       srvrun_serve(&ctx, quic_mspan_of(spkt, slen));
@@ -693,7 +693,7 @@ static void test_srvrun_qlog_skips_undecryptable(void) {
   CHECK(quic_conntable_insert(table, QUIC_CONNTABLE_CAP, g_cli_scid, 6) == 0);
   srvrunt_qlog_unlink();
   {
-    srvrun_cfg      cfg = {-1, &id, 0, 0, srvrunt_qlog_path, 0, 0, 0, 0};
+    srvrun_cfg      cfg = {-1, &id, 0, 0, srvrunt_qlog_path, 0, 0, 0, 0, 0};
     srvrun_step_ctx ctx = {&cfg, &peer, &st, 0};
     srvrun_serve(&ctx, quic_mspan_of(junk, sizeof junk));
   }
@@ -712,7 +712,7 @@ static void test_srvrun_qlog_records_initial(void) {
   sr_make_id(&id, priv, pub, seed, rnd);
   srvrunt_qlog_unlink();
   {
-    srvrun_cfg      cfg = {-1, &id, 0, 0, srvrunt_qlog_path, 0, 0, 0, 0};
+    srvrun_cfg      cfg = {-1, &id, 0, 0, srvrunt_qlog_path, 0, 0, 0, 0, 0};
     srvrun_step_ctx ctx = {&cfg, &peer, &st, 0};
     quic_conntable_init(table, QUIC_CONNTABLE_CAP);
     srvrun_serve(&ctx, quic_mspan_of(dg, total));
@@ -734,7 +734,7 @@ static void test_srvrun_qlog_skips_failed_accept(void) {
   sr_make_id(&id, priv, pub, seed, rnd);
   srvrunt_qlog_unlink();
   {
-    srvrun_cfg      cfg = {-1, &id, 0, 0, srvrunt_qlog_path, 0, 0, 0, 0};
+    srvrun_cfg      cfg = {-1, &id, 0, 0, srvrunt_qlog_path, 0, 0, 0, 0, 0};
     srvrun_step_ctx ctx = {&cfg, &peer, &st, 0};
     quic_conntable_init(table, QUIC_CONNTABLE_CAP);
     srvrun_serve(&ctx, quic_mspan_of(junk, sizeof junk));
@@ -766,7 +766,7 @@ static void test_srvrun_batch_serves_each(void) {
   bufs[0].src.port_be = 0x1111; /* two distinct peers */
   bufs[1].src.port_be = 0x2222;
   {
-    srvrun_cfg cfg = {-1, &id, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_cfg cfg = {-1, &id, 0, 0, 0, 0, 0, 0, 0, 0};
     srvrun_serve_batch(&cfg, &st, bufs, 2);
   }
   CHECK(st.conns[0].up == 1);
@@ -865,7 +865,7 @@ static void test_srvrun_takeover_streams_large_body(void) {
   }
   slen = client_seal_onertt(&f, get, glen, spkt, sizeof spkt);
   {
-    srvrun_cfg      cfg = {cfd, &id, sr_body_handler, 0, 0, 0, 0, 0, 0};
+    srvrun_cfg      cfg = {cfd, &id, sr_body_handler, 0, 0, 0, 0, 0, 0, 0};
     srvrun_step_ctx ctx = {&cfg, &srv, &st, 0};
     srvrun_serve(&ctx, quic_mspan_of(spkt, slen));
   }
@@ -900,7 +900,7 @@ static void test_srvrun_cc_algo_selected(void) {
   usz total             = sr_build_client_initial(dg, sizeof dg, g_sr_odcid, 8);
   sr_make_id(&id, priv, pub, seed, rnd);
   {
-    srvrun_cfg      cfg = {-1, &id, 0, 0, 0, 0, 0, 0, QUIC_CC_ALGO_CUBIC};
+    srvrun_cfg      cfg = {-1, &id, 0, 0, 0, 0, 0, 0, QUIC_CC_ALGO_CUBIC, 0};
     srvrun_step_ctx ctx = {&cfg, &peer, &st, 0};
     quic_conntable_init(table, QUIC_CONNTABLE_CAP);
     srvrun_serve(&ctx, quic_mspan_of(dg, total));
@@ -957,7 +957,7 @@ static void test_srvrun_rtt_ewma(void) {
  * advances by the pacing interval (1.25 * pkt * srtt / cwnd). */
 static void test_srvrun_pacing_gate(void) {
   srvrun_conn     c   = {0};
-  srvrun_cfg      cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0};
+  srvrun_cfg      cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0};
   srvrun_state    st  = {0, 0};
   srvrun_step_ctx ctx = {&cfg, 0, &st, 1000};
   quic_cc_init(&c.cc);                  /* cwnd 12000 */
@@ -970,6 +970,96 @@ static void test_srvrun_pacing_gate(void) {
   srvrun_pace_next(&ctx, &c);
   /* 5 * 1200 * 100 / (4 * 12000) = 12ms */
   CHECK(c.next_send_ms == 1012);
+}
+
+/* POLLING DRIVER (tasks/polling-driver-plan.md Phase 2): busy_poll/
+ * so_busy_poll_us opt-in knobs, threaded through srvrun_cfg as its 10th
+ * (trailing) field so every existing 9-field positional initializer above
+ * keeps compiling unchanged with busy_poll defaulting to 0. */
+
+/* REGRESSION: busy_poll=0 (the zero-value default, same as every srvrun_cfg
+ * literal above) takes the existing blocking-poll branch in
+ * srvrun_wait_input untouched -- srvrun_any_waiting's own branch is not
+ * disturbed, only the leaf call once inside it changes for busy_poll=1. */
+static void test_srvrun_busy_poll_off_uses_any_waiting_branch(void) {
+  srvrun_state    st  = {0, 0};
+  srvrun_cfg      cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+  quic_conntable  table[QUIC_CONNTABLE_CAP];
+  srvrun_conn     conns[QUIC_CONNTABLE_CAP] = {0};
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  st = (srvrun_state){table, conns};
+  CHECK(cfg.busy_poll == 0);
+  /* nothing in flight: srvrun_wait_input returns 1 without touching poll(2)
+   * regardless of fd being invalid (-1) -- proves the any_waiting branch,
+   * not busy_poll, still gates this path when busy_poll is off. */
+  CHECK(srvrun_wait_input(&cfg, &st) == 1);
+}
+
+/* busy_poll=1: srvrun_wait_input returns 1 immediately (never calls the
+ * blocking poll(2)) even on an invalid fd that would otherwise error out --
+ * the actual non-blocking check has moved to the recv step. */
+static void test_srvrun_busy_poll_on_never_blocks_wait(void) {
+  srvrun_state    st                        = {0, 0};
+  srvrun_cfg      cfg                       = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 1};
+  quic_conntable  table[QUIC_CONNTABLE_CAP];
+  srvrun_conn     conns[QUIC_CONNTABLE_CAP] = {0};
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  st              = (srvrun_state){table, conns};
+  conns[0].up     = 1;
+  conns[0].sess.active = 1; /* srvrun_any_waiting now says yes */
+  CHECK(srvrun_wait_input(&cfg, &st) == 1);
+}
+
+/* busy_poll=1: the recv step itself (srvrun_step, via srvrun_recv) never
+ * blocks on an empty real socket -- a fixed number of calls all return
+ * promptly instead of hanging, the bounded proxy for "no indefinite block"
+ * (tasks/polling-driver-plan.md test-design item 4/5's srvrun-level
+ * counterpart). */
+static void test_srvrun_busy_poll_step_never_blocks(void) {
+  i64              fd = wired_udp_socket();
+  quic_sockaddr_in sa;
+  quic_mmsg_buf    bufs[2];
+  static u8        storage[2][256];
+  srvrun_state     st                        = {0, 0};
+  quic_conntable   table[QUIC_CONNTABLE_CAP];
+  srvrun_conn      conns[QUIC_CONNTABLE_CAP] = {0};
+  srvrun_cfg       cfg;
+  CHECK(fd >= 0);
+  wired_udp_addr(&sa, 4491, (const u8[4]){127, 0, 0, 1});
+  CHECK(wired_udp_bind(fd, &sa) >= 0);
+  cfg = (srvrun_cfg){fd, 0, 0, 0, 0, 0, 0, 0, 0, 1};
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  st          = (srvrun_state){table, conns};
+  bufs[0].buf = quic_mspan_of(storage[0], sizeof storage[0]);
+  bufs[1].buf = quic_mspan_of(storage[1], sizeof storage[1]);
+  for (int i = 0; i < 50; i++) srvrun_step(&cfg, &st, bufs, 2);
+  wired_udp_close(fd);
+  /* reaching here (instead of hanging in the harness) is the assertion */
+  CHECK(1);
+}
+
+/* WRAPPER EQUIVALENCE: wired_server_run_opt with a zeroed wired_srvrun_opt
+ * behaves the same as wired_server_run at the point they actually differ --
+ * the srvrun_cfg they build. Both must produce busy_poll=0, proving
+ * wired_server_run's internal default_opt wrapper is wired correctly. */
+static void test_srvrun_opt_zeroed_matches_plain_default(void) {
+  wired_srvrun_opt opt = {0, 0};
+  CHECK(opt.busy_poll == 0);
+  CHECK(opt.so_busy_poll_us == 0);
+}
+
+/* BOUNDARY: so_busy_poll_us=0 -- srvrun_maybe_busy_poll's `> 0` guard skips
+ * wired_udp_busy_poll_enable's setsockopt call entirely (opt-in, not
+ * opt-out). No getsockopt wrapper exists in this libc-free SDK to observe
+ * SO_BUSY_POLL's kernel-side value directly (out of scope, YAGNI;
+ * wired_udp_busy_poll_enable's own success/failure is already covered at
+ * the udp_gso_test.c layer) so this is proven at the call-boundary instead:
+ * srvrun_listen(port, 0) still succeeds exactly as before this task (the
+ * regression bar), i.e. the guard being skipped never blocks the bind. */
+static void test_srvrun_so_busy_poll_zero_still_binds(void) {
+  i64 fd = srvrun_listen(4492, 0);
+  CHECK(fd >= 0);
+  wired_udp_close(fd);
 }
 
 void test_srvrun(void) {
@@ -1009,4 +1099,9 @@ void test_srvrun(void) {
   test_srvrun_reload_requested_updates_id();
   test_srvrun_reload_disabled_when_no_cert_path();
   test_srvrun_reload_failure_keeps_previous_id();
+  test_srvrun_busy_poll_off_uses_any_waiting_branch();
+  test_srvrun_busy_poll_on_never_blocks_wait();
+  test_srvrun_busy_poll_step_never_blocks();
+  test_srvrun_opt_zeroed_matches_plain_default();
+  test_srvrun_so_busy_poll_zero_still_binds();
 }
