@@ -76,7 +76,7 @@ static int put_fields(const pseudo_field* fields, usz n, quic_obuf* out) {
 static int put_protocol(quic_span protocol, quic_obuf* out) {
   static const u8  name[] = ":protocol";
   quic_qpack_field f      = {quic_span_of(name, sizeof name - 1), protocol};
-  usz w = quic_qpack_literal_name_encode(
+  usz              w      = quic_qpack_literal_name_encode(
       quic_mspan_of(out->p + out->len, out->cap - out->len), 0, &f);
   if (!w) return 0;
   out->len += w;

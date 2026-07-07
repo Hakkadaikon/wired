@@ -45,7 +45,8 @@
  * @param message         UTF-8 error message, message.n <= 1024 (may be empty)
  * @return 1 on success, 0 if message is too long or it doesn't fit in out
  */
-int quic_wtcapsule_encode_close(quic_obuf* out, u32 app_error_code, quic_span message);
+int quic_wtcapsule_encode_close(
+    quic_obuf* out, u32 app_error_code, quic_span message);
 
 /** Encode a WT_DRAIN_SESSION capsule (type 0x78ae, empty body) into out.
  * @param out destination buffer view
@@ -75,7 +76,8 @@ int quic_wtcapsule_encode_drain(quic_obuf* out);
  * @param message         set to a view of the error message on success
  * @return 1 on success, 0 otherwise (see above)
  */
-int quic_wtcapsule_decode_close(quic_span data, usz* at, u32* app_error_code, quic_span* message);
+int quic_wtcapsule_decode_close(
+    quic_span data, usz* at, u32* app_error_code, quic_span* message);
 
 /** Attempt to decode the capsule at *at within data as a WT_DRAIN_SESSION.
  * Same "wrong type / incomplete, don't consume" contract as

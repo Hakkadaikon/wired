@@ -11,9 +11,8 @@ static u32 wterrmap_test_lcg(u32* state) {
 }
 
 static const u32 wterrmap_boundary_vals[] = {
-    0,          1,          29,         30,         31,        32,
-    60,         61,         929,        930,        931,       0x7fffffff,
-    0xfffffffe, 0xffffffff,
+    0,  1,   29,  30,  31,         32,         60,
+    61, 929, 930, 931, 0x7fffffff, 0xfffffffe, 0xffffffff,
 };
 #define WTERRMAP_NBOUNDARY \
   (sizeof(wterrmap_boundary_vals) / sizeof(wterrmap_boundary_vals[0]))
@@ -48,7 +47,7 @@ void test_wterrmap(void) {
   /* 3: reserved codepoint within [first, last] must be rejected. shifted=30
    * => h = first + 30 = 0x52e4a40fa8f9, which is of reserved form on h
    * itself: (h - 0x21) % 0x1f == 0. */
-  u64 reserved_h  = WTERRMAP_FIRST + 30;
+  u64 reserved_h   = WTERRMAP_FIRST + 30;
   u32 reserved_out = 0;
   CHECK((reserved_h - 0x21) % 0x1f == 0);
   CHECK(quic_wterrmap_from_http3(reserved_h, &reserved_out) == 0);

@@ -338,17 +338,17 @@ static void sb_make_id(
     rnd[i]  = (u8)(0xa0 + i);
   }
   quic_x25519_base(pub, priv);
-  id->priv             = priv;
-  id->pub              = pub;
-  id->cert_seed        = seed;
-  id->scid             = g_scid;
-  id->scid_len         = 6;
-  id->random           = rnd;
-  id->chain            = 0;
-  id->chain_count      = 0;
-  id->max_data                 = 0;
-  id->max_streams_bidi         = 0;
-  id->max_datagram_frame_size  = 0;
+  id->priv                    = priv;
+  id->pub                     = pub;
+  id->cert_seed               = seed;
+  id->scid                    = g_scid;
+  id->scid_len                = 6;
+  id->random                  = rnd;
+  id->chain                   = 0;
+  id->chain_count             = 0;
+  id->max_data                = 0;
+  id->max_streams_bidi        = 0;
+  id->max_datagram_frame_size = 0;
 }
 
 /* wired_srvboot_accept cold-starts a server from a real client Initial
@@ -760,17 +760,17 @@ static void sb_make_chain_id(
       quic_span_of(quic_realchain_int_der, sizeof quic_realchain_int_der);
   sb_chain[2] =
       quic_span_of(quic_realchain_root_der, sizeof quic_realchain_root_der);
-  id->priv             = priv;
-  id->pub              = pub;
-  id->cert_seed        = quic_realchain_leaf_priv;
-  id->scid             = g_scid;
-  id->scid_len         = 6;
-  id->random           = rnd;
-  id->chain            = sb_chain;
-  id->chain_count      = 3;
-  id->max_data                 = 0;
-  id->max_streams_bidi         = 0;
-  id->max_datagram_frame_size  = 0;
+  id->priv                    = priv;
+  id->pub                     = pub;
+  id->cert_seed               = quic_realchain_leaf_priv;
+  id->scid                    = g_scid;
+  id->scid_len                = 6;
+  id->random                  = rnd;
+  id->chain                   = sb_chain;
+  id->chain_count             = 3;
+  id->max_data                = 0;
+  id->max_streams_bidi        = 0;
+  id->max_datagram_frame_size = 0;
 }
 
 /* A bootstrapped server with the realchain identity plus everything the

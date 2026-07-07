@@ -82,8 +82,9 @@ static wired_wt_buffered_datagram* datagram_free_slot(wired_wt_session* s) {
   return 0;
 }
 
-static void datagram_slot_fill(wired_wt_buffered_datagram* slot, quic_span data) {
-  usz n = quic_u64_min(data.n, WIRED_WT_BUFFERED_DATAGRAM_CAP);
+static void datagram_slot_fill(
+    wired_wt_buffered_datagram* slot, quic_span data) {
+  usz n        = quic_u64_min(data.n, WIRED_WT_BUFFERED_DATAGRAM_CAP);
   slot->in_use = 1;
   slot->len    = n;
   quic_memcpy(slot->data, data.p, n);

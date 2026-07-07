@@ -14,9 +14,9 @@ typedef struct {
   u64 enable_h3_datagram;      /* RFC 9297 2.1.1: non-zero appends the 0x33
                                    SETTINGS_H3_DATAGRAM pair (value must be
                                    0 or 1) */
-  u64 wt_enabled;               /* draft-ietf-webtrans-http3-15: non-zero
-                                    appends the 0x2c7cf000 SETTINGS_WT_ENABLED
-                                    pair carrying this value */
+  u64 wt_enabled;              /* draft-ietf-webtrans-http3-15: non-zero
+                                   appends the 0x2c7cf000 SETTINGS_WT_ENABLED
+                                   pair carrying this value */
 } quic_h3settings_in;
 
 /* RFC 9114 7.2.4: build a SETTINGS frame carrying the three common settings

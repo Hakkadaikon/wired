@@ -42,8 +42,7 @@ static void test_tparam_max_datagram_frame_size(void) {
     u8        buf[32];
     u64       id, val;
     quic_obuf ob = quic_obuf_of(buf, sizeof(buf));
-    usz       w =
-        quic_tparam_put_int(&ob, QUIC_TP_MAX_DATAGRAM_FRAME_SIZE, cases[i]);
+    usz w = quic_tparam_put_int(&ob, QUIC_TP_MAX_DATAGRAM_FRAME_SIZE, cases[i]);
     usz r = quic_tparam_get_int(quic_span_of(buf, w), &id, &val);
     CHECK(
         w != 0 && r == w && id == QUIC_TP_MAX_DATAGRAM_FRAME_SIZE &&

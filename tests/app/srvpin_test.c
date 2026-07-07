@@ -17,7 +17,9 @@ static i64 sp_raw_getaffinity(u8* mask, usz n) {
 
 /* 1 iff byte i of mask has exactly bit `bit` set and every other bit (in that
  * byte) clear. */
-static int sp_byte_is_only_bit(u8 byte, int bit) { return byte == (u8)(1 << bit); }
+static int sp_byte_is_only_bit(u8 byte, int bit) {
+  return byte == (u8)(1 << bit);
+}
 
 /* TEST 1: on this CI environment, cpu_count returns >= 1. */
 static void test_srvpin_cpu_count_at_least_one(void) {

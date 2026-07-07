@@ -22,7 +22,8 @@ static void append_connect_protocol(
 }
 
 /* RFC 9297 2.1.1: append SETTINGS_H3_DATAGRAM when requested. */
-static void append_h3_datagram(const quic_h3settings_in* in, quic_h3_settings* s) {
+static void append_h3_datagram(
+    const quic_h3settings_in* in, quic_h3_settings* s) {
   if (!in->enable_h3_datagram) return;
   s->pairs[s->n].id    = QUIC_H3_SETTINGS_H3_DATAGRAM;
   s->pairs[s->n].value = 1;
@@ -30,7 +31,8 @@ static void append_h3_datagram(const quic_h3settings_in* in, quic_h3_settings* s
 }
 
 /* draft-ietf-webtrans-http3-15: append SETTINGS_WT_ENABLED when requested. */
-static void append_wt_enabled(const quic_h3settings_in* in, quic_h3_settings* s) {
+static void append_wt_enabled(
+    const quic_h3settings_in* in, quic_h3_settings* s) {
   if (!in->wt_enabled) return;
   s->pairs[s->n].id    = QUIC_H3_SETTINGS_WT_ENABLED;
   s->pairs[s->n].value = in->wt_enabled;

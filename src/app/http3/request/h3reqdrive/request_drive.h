@@ -67,7 +67,7 @@ typedef struct {
   const u8* origin; /**< regular `origin` header value (static-table view or
                        scratch), 0 if absent (RFC 9220 3 / WebTransport draft
                        SS3.6 origin check applies only when present) */
-  usz origin_len; /**< origin length in octets, 0 if absent */
+  usz origin_len;   /**< origin length in octets, 0 if absent */
 } wired_h3reqdrive_req;
 
 /** RFC 9114 4.1, RFC 9204 4.5: decode a STREAM frame carrying a request:

@@ -92,12 +92,12 @@ typedef struct {
    * drain of received QUIC DATAGRAMs a no-op consume (the queue still empties,
    * nothing is delivered). */
   wired_wt_on_datagram wt_on_datagram;
-  void*                wt_datagram_ctx; /**< opaque ctx passed to wt_on_datagram */
-  int so_prefer_busy_poll; /**< 0 = disabled (default); 1 = also enable
-                            * SO_PREFER_BUSY_POLL (requires so_busy_poll_us > 0
-                            * to have kernel effect, see srvrun.c's guard). */
-  int so_busy_poll_budget; /**< > 0: also enable SO_BUSY_POLL_BUDGET with this
-                            * packet budget; 0 = disabled (default). */
+  void* wt_datagram_ctx;     /**< opaque ctx passed to wt_on_datagram */
+  int   so_prefer_busy_poll; /**< 0 = disabled (default); 1 = also enable
+                              * SO_PREFER_BUSY_POLL (requires so_busy_poll_us > 0
+                              * to have kernel effect, see srvrun.c's guard). */
+  int so_busy_poll_budget;   /**< > 0: also enable SO_BUSY_POLL_BUDGET with this
+                              * packet budget; 0 = disabled (default). */
   /** tasks/core-pinning-plan.md PIN-007, SET direction only. -1 = disabled
    * (the default) -- a dedicated sentinel, not 0, because CPU 0 is itself a
    * valid target and there is no natural "0 means off" value here (unlike

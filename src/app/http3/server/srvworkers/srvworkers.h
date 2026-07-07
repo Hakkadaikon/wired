@@ -49,10 +49,10 @@ typedef struct {
  * @return negative only if the very first fork() itself fails before any
  *   worker starts; otherwise this does not return. */
 int wired_srvworkers_run(
-    u16                     port,
-    wired_srvboot_id*       id,
-    wired_srvrun_handler    h,
-    wired_srvrun_obs        obs,
+    u16                         port,
+    wired_srvboot_id*           id,
+    wired_srvrun_handler        h,
+    wired_srvrun_obs            obs,
     const wired_srvworkers_opt* opt);
 
 #endif

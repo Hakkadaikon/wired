@@ -76,6 +76,6 @@ int quic_tlsext_pre_shared_key_parse(
   off->id_len     = id_len;
   off->ticket_age = (u32)out[8 + id_len] << 24 | (u32)out[9 + id_len] << 16 |
                     (u32)out[10 + id_len] << 8 | out[11 + id_len];
-  off->binder     = out + 15 + id_len;
+  off->binder = out + 15 + id_len;
   return 1;
 }

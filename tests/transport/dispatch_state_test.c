@@ -1,5 +1,5 @@
-#include "test.h"
 #include "app/datagram/datagram/datagram.h"
+#include "test.h"
 #include "transport/packet/frame/frame/ack.h"
 #include "transport/packet/frame/frame/flowctl.h"
 #include "transport/packet/frame/frame/frame.h"
@@ -121,12 +121,12 @@ static void test_dispatch_padding(void) {
 static void test_dispatch_datagram(void) {
   quic_framedispatch_state st;
   quic_stream_read         s;
-  quic_sentpkt              t;
-  quic_flow_credit          c;
+  quic_sentpkt             t;
+  quic_flow_credit         c;
   ds_init(&st, &s, &t, &c);
   quic_datagram_frame f = {4, (const u8*)"data"};
   u8                  buf[16];
-  usz                 n = quic_datagram_encode(quic_mspan_of(buf, sizeof buf), &f, 1);
+  usz n = quic_datagram_encode(quic_mspan_of(buf, sizeof buf), &f, 1);
   CHECK(n != 0);
   CHECK(quic_framedispatch_handle(&st, buf[0], quic_span_of(buf, n)) == 1);
   CHECK(st.has_datagram == 1);
@@ -140,11 +140,13 @@ static void test_dispatch_datagram(void) {
 static void test_dispatch_datagram_malformed(void) {
   quic_framedispatch_state st;
   quic_stream_read         s;
-  quic_sentpkt              t;
-  quic_flow_credit          c;
+  quic_sentpkt             t;
+  quic_flow_credit         c;
   ds_init(&st, &s, &t, &c);
   u8 buf[3] = {QUIC_FRAME_DATAGRAM_LEN, 0x40, 0xff}; /* length varint = 255 */
-  CHECK(quic_framedispatch_handle(&st, buf[0], quic_span_of(buf, sizeof buf)) == 0);
+  CHECK(
+      quic_framedispatch_handle(&st, buf[0], quic_span_of(buf, sizeof buf)) ==
+      0);
   CHECK(st.has_datagram == 0);
 }
 

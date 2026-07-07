@@ -28,7 +28,7 @@ typedef struct {
   u64 error_code; /* Application Protocol Error Code */
   u64 final_size;
   u64 reliable_size; /* delivery guarantee up to this byte offset; MUST be
-                       * <= final_size (decode rejects a violation) */
+                      * <= final_size (decode rejects a violation) */
 } quic_reset_stream_at_frame;
 
 /* Encode into buf of cap bytes. Returns bytes written, or 0 on overflow. */

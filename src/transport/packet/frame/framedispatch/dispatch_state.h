@@ -17,11 +17,11 @@ typedef struct {
   u8                close;   /* set on CONNECTION_CLOSE (RFC 9000 19.19) */
   u8                has_ack; /* set when an ACK frame arrived (RFC 9000 19.3) */
   u64               largest_acked; /* its Largest Acknowledged, when has_ack */
-  u8         has_datagram; /* set when a DATAGRAM frame arrived (RFC 9221 5) */
-  quic_span  datagram;     /* its payload view, when has_datagram (no copy);
-                             * a future higher layer (e.g. WebTransport
-                             * session) still needs to drain this per frame -
-                             * only the most recent one is kept here. */
+  u8        has_datagram; /* set when a DATAGRAM frame arrived (RFC 9221 5) */
+  quic_span datagram;     /* its payload view, when has_datagram (no copy);
+                           * a future higher layer (e.g. WebTransport
+                           * session) still needs to drain this per frame -
+                           * only the most recent one is kept here. */
 } quic_framedispatch_state;
 
 /* Dispatch one frame by type. frame starts at the type varint and covers the

@@ -24,7 +24,8 @@ static int capsule_fits(const quic_obuf* out, usz total) {
   return total > 0 && out->len <= out->cap && total <= out->cap - out->len;
 }
 
-static void capsule_write(quic_obuf* out, u64 type, quic_span value, usz total) {
+static void capsule_write(
+    quic_obuf* out, u64 type, quic_span value, usz total) {
   usz        off  = 0;
   quic_mspan tail = capsule_out_tail(out);
   quic_varint_put(tail, &off, type);
@@ -44,7 +45,8 @@ int quic_capsule_encode(quic_obuf* out, u64 type, quic_span value) {
  * *len (declared Capsule Length) and *consumed (bytes used by the two
  * varints, i.e. where the Value begins relative to *at). Returns 0 if
  * either varint is truncated. */
-static int capsule_header_read(quic_span data, usz at, u64* type, u64* len, usz* consumed) {
+static int capsule_header_read(
+    quic_span data, usz at, u64* type, u64* len, usz* consumed) {
   usz off = at;
   if (!quic_varint_take(data, &off, type)) return 0;
   if (!quic_varint_take(data, &off, len)) return 0;

@@ -31,16 +31,22 @@ static int srvworkers_slot_for_pid(const i64* pids, int n, i64 pid) {
  * it), so it needs the attribute to avoid -Wunused-function under -Werror
  * there. */
 typedef void (*srvworkers_child_fn)(
-    u16 port, wired_srvboot_id* id, wired_srvrun_handler h,
-    wired_srvrun_obs obs, int worker_index);
+    u16                  port,
+    wired_srvboot_id*    id,
+    wired_srvrun_handler h,
+    wired_srvrun_obs     obs,
+    int                  worker_index);
 
 /* tasks/core-pinning-plan.md PIN-007: hint the kernel to steer this worker's
  * incoming packets toward the same CPU it is pinned to (worker_index),
  * reducing cache-line bouncing between the RSS/RPS-selected CPU and the
  * process actually handling the socket. SET direction only. */
 static void srvworkers_run_real(
-    u16 port, wired_srvboot_id* id, wired_srvrun_handler h,
-    wired_srvrun_obs obs, int worker_index) {
+    u16                  port,
+    wired_srvboot_id*    id,
+    wired_srvrun_handler h,
+    wired_srvrun_obs     obs,
+    int                  worker_index) {
   wired_srvrun_opt opt = {0, 0, 0, 0, 0, 0, worker_index};
   wired_server_run_opt(port, id, h, obs, &opt);
 }
@@ -61,12 +67,12 @@ __attribute__((unused)) static void srvworkers_test_set_child_fn(
  * cleanly rather than falling into the parent's supervisor code below this
  * call. Never returns. */
 static void srvworkers_child_start(
-    int                      worker_index,
-    u16                      port,
-    wired_srvboot_id*       id,
-    wired_srvrun_handler    h,
-    wired_srvrun_obs        obs,
-    int                      pin_cores) {
+    int                  worker_index,
+    u16                  port,
+    wired_srvboot_id*    id,
+    wired_srvrun_handler h,
+    wired_srvrun_obs     obs,
+    int                  pin_cores) {
   if (pin_cores) wired_srvpin_bind_self(worker_index);
   g_srvworkers_child_fn(port, id, h, obs, worker_index);
   syscall1(SYS_exit_group, 0);
@@ -76,13 +82,13 @@ static void srvworkers_child_start(
  * srvworkers_child_start). On the parent side, records the new pid in slot
  * worker_index and returns 0; returns negative on fork() failure itself. */
 static int srvworkers_fork_one(
-    srvworkers_table*       t,
-    int                      worker_index,
-    u16                      port,
-    wired_srvboot_id*       id,
-    wired_srvrun_handler    h,
-    wired_srvrun_obs        obs,
-    int                      pin_cores) {
+    srvworkers_table*    t,
+    int                  worker_index,
+    u16                  port,
+    wired_srvboot_id*    id,
+    wired_srvrun_handler h,
+    wired_srvrun_obs     obs,
+    int                  pin_cores) {
   i64 pid = syscall1(SYS_fork, 0);
   if (pid < 0) return (int)pid;
   if (pid == 0)
@@ -95,12 +101,12 @@ static int srvworkers_fork_one(
  * first fork() failure (the "initial fork setup itself fails" contract
  * case); otherwise returns 0 once every worker has started. */
 static int srvworkers_fork_all(
-    srvworkers_table*             t,
-    u16                            port,
-    wired_srvboot_id*             id,
-    wired_srvrun_handler          h,
-    wired_srvrun_obs              obs,
-    const wired_srvworkers_opt*   opt) {
+    srvworkers_table*           t,
+    u16                         port,
+    wired_srvboot_id*           id,
+    wired_srvrun_handler        h,
+    wired_srvrun_obs            obs,
+    const wired_srvworkers_opt* opt) {
   t->n = opt->workers;
   for (int i = 0; i < t->n; i++) {
     int r = srvworkers_fork_one(t, i, port, id, h, obs, opt->pin_cores);
@@ -117,17 +123,16 @@ static int srvworkers_fork_all(
  * This is the unit test seam: one call = one detect-and-restart cycle, no
  * infinite loop. */
 static void srvworkers_supervise_once(
-    srvworkers_table*             t,
-    u16                            port,
-    wired_srvboot_id*             id,
-    wired_srvrun_handler          h,
-    wired_srvrun_obs              obs,
-    const wired_srvworkers_opt*   opt) {
+    srvworkers_table*           t,
+    u16                         port,
+    wired_srvboot_id*           id,
+    wired_srvrun_handler        h,
+    wired_srvrun_obs            obs,
+    const wired_srvworkers_opt* opt) {
   i64 status;
   i64 dead = syscall4(SYS_wait4, -1, &status, 0, 0);
   int slot = srvworkers_slot_for_pid(t->pid, t->n, dead);
-  if (slot >= 0)
-    srvworkers_fork_one(t, slot, port, id, h, obs, opt->pin_cores);
+  if (slot >= 0) srvworkers_fork_one(t, slot, port, id, h, obs, opt->pin_cores);
 }
 
 /* Resolve opt->workers into a concrete count: 0 means auto-detect via
@@ -140,11 +145,11 @@ static int srvworkers_resolve_count(int workers) {
 }
 
 int wired_srvworkers_run(
-    u16                          port,
-    wired_srvboot_id*            id,
-    wired_srvrun_handler         h,
-    wired_srvrun_obs             obs,
-    const wired_srvworkers_opt*  opt) {
+    u16                         port,
+    wired_srvboot_id*           id,
+    wired_srvrun_handler        h,
+    wired_srvrun_obs            obs,
+    const wired_srvworkers_opt* opt) {
   srvworkers_table     t     = {0};
   wired_srvworkers_opt local = *opt;
   int                  r;

@@ -50,8 +50,10 @@ int wired_server_set_cids(wired_server* s, quic_span odcid, quic_span iscid) {
 }
 
 void wired_server_set_limits(
-    wired_server* s, u64 max_data, u64 max_streams_bidi,
-    u64 max_datagram_frame_size) {
+    wired_server* s,
+    u64           max_data,
+    u64           max_streams_bidi,
+    u64           max_datagram_frame_size) {
   s->sdrv.limits.max_data                = max_data;
   s->sdrv.limits.max_streams_bidi        = max_streams_bidi;
   s->sdrv.limits.max_datagram_frame_size = max_datagram_frame_size;

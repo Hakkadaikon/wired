@@ -19,8 +19,12 @@ int quic_h3settings_control_stream(u8* out, usz cap, usz* out_len) {
   if (!quic_h3settings_control_prefix(out, cap, &pre)) return 0;
 
   quic_h3settings_in in = {
-      DEFAULT_MAX_FIELD_SECTION_SIZE, DEFAULT_QPACK_MAX_TABLE_CAP,
-      DEFAULT_QPACK_BLOCKED_STREAMS, DEFAULT_ENABLE_CONNECT_PROTOCOL, 0, 0};
+      DEFAULT_MAX_FIELD_SECTION_SIZE,
+      DEFAULT_QPACK_MAX_TABLE_CAP,
+      DEFAULT_QPACK_BLOCKED_STREAMS,
+      DEFAULT_ENABLE_CONNECT_PROTOCOL,
+      0,
+      0};
   quic_obuf ob = quic_obuf_of(out + pre, cap - pre);
   if (!quic_h3settings_build(&in, &ob)) return 0;
 
