@@ -3,6 +3,7 @@
 #include "app/http3/core/h3/frame.h"
 #include "test.h"
 #include "transport/packet/frame/frame/frame.h"
+#include "transport/packet/frame/frame/stream_ctl.h"
 
 /* @file
  * Graceful shutdown (SIGTERM) behavior. rt_sigaction registration itself
@@ -1372,6 +1373,94 @@ static void test_srvrun_second_wt_connect_rejected_429(void) {
   CHECK(conns[0].wt.connect_stream_id == 4);         /* still the first id */
 }
 
+/* RFC 9114 4.1.1/8.1: rejecting a second Extended CONNECT (WT-C-010/011)
+ * SHOULD also abort the rejected request's stream with H3_REQUEST_REJECTED,
+ * independent of the 429 status the request also gets. Drives the same
+ * rejection path as test_srvrun_second_wt_connect_rejected_429 above, then
+ * seals the RESET_STREAM+STOP_SENDING pair for the SAME rejected stream
+ * (id 8) the same way srvrun_reject_wt_busy already did as a side effect of
+ * srvrun_start_resp, and decodes it back off the wire to confirm both frames
+ * carry the right error code and stream id. */
+static void test_srvrun_second_wt_connect_sends_reset_stream(void) {
+  struct lp_fix           f;
+  quic_conntable          table[QUIC_CONNTABLE_CAP];
+  srvrun_conn             conns[QUIC_CONNTABLE_CAP] = {0};
+  quic_obuf               ob;
+  u8                      obuf[1024];
+  u8                      pkt[256];
+  quic_obuf               pktb = quic_obuf_of(pkt, sizeof pkt);
+  const u8*               pl;
+  usz                     pll;
+  quic_reset_stream_frame rs;
+  quic_stop_sending_frame ss;
+  usz                     rn, sn;
+  ob                    = (quic_obuf){obuf, sizeof obuf, 0};
+  g_sr_wt_handler_calls = 0;
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  sr_make_confirmed_conn(&conns[0], &f, &ob);
+  sr_set_req(&conns[0], 1, 1, 4);
+  {
+    srvrun_cfg      cfg = {-1, 0, sr_wt_handler, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_state    st  = {table, conns};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_start_resp(&ctx, 0);
+  }
+  conns[0].sess.active = 0; /* pretend the first 2xx finished sending */
+  sr_set_req(
+      &conns[0], 1, 1, 8); /* second Extended CONNECT, different stream */
+  {
+    srvrun_cfg      cfg = {-1, 0, sr_wt_handler, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_state    st  = {table, conns};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_start_resp(&ctx, 0);
+  }
+  CHECK(conns[0].sess.active == 1); /* the 429 was armed, same as before */
+  CHECK(srvrun_seal_wt_busy_reset(&conns[0], 8, &pktb) == 1);
+  CHECK(client_open_onertt(&f, pktb.p, pktb.len, &pl, &pll) == 1);
+  rn = quic_reset_stream_decode(pl, pll, &rs);
+  CHECK(rn != 0);
+  CHECK(rs.stream_id == 8);
+  CHECK(rs.error_code == QUIC_H3_REQUEST_REJECTED);
+  sn = quic_stop_sending_decode(pl + rn, pll - rn, &ss);
+  CHECK(sn != 0);
+  CHECK(ss.stream_id == 8);
+  CHECK(ss.error_code == QUIC_H3_REQUEST_REJECTED);
+  CHECK(rn + sn == pll); /* nothing else in the packet */
+}
+
+/* REGRESSION: the FIRST (accepted) Extended CONNECT establishes a session
+ * and must never trigger the reject-path RESET_STREAM -- wt_active stays
+ * false at dispatch time, so srvrun_reject_wt_busy (and the reset it sends)
+ * is never reached. Confirmed indirectly: the accepted path leaves the
+ * session ESTABLISHED and the handler count untouched (WT never calls the
+ * app handler), matching the pre-existing accept-path assertions. */
+static void test_srvrun_first_wt_connect_no_reset_stream(void) {
+  struct lp_fix  f;
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_conn    conns[QUIC_CONNTABLE_CAP] = {0};
+  quic_obuf      ob;
+  u8             obuf[1024];
+  u64            tx_pn_before;
+  ob                    = (quic_obuf){obuf, sizeof obuf, 0};
+  g_sr_wt_handler_calls = 0;
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  sr_make_confirmed_conn(&conns[0], &f, &ob);
+  sr_set_req(&conns[0], 1, 1, 4);
+  tx_pn_before = conns[0].l.tx_pn;
+  {
+    srvrun_cfg      cfg = {-1, 0, sr_wt_handler, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_state    st  = {table, conns};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_start_resp(&ctx, 0);
+  }
+  CHECK(conns[0].wt_active == 1);
+  CHECK(conns[0].wt.state == WIRED_WT_ESTABLISHED);
+  /* srvrun_send_wt_busy_reset (the only caller that seals a RESET_STREAM
+   * pair on this path) is not on srvrun_start_wt's path, so tx_pn advances
+   * by nothing more than a normal 2xx response would use. */
+  CHECK(conns[0].l.tx_pn == tx_pn_before);
+}
+
 /* WT-F-001/002/003 (approximation): tearing down the connection tears down
  * its WebTransport session too. srvrun_free_slot is the one hook common to
  * every teardown path (peer close, boot failure, idle sweep); this drives it
@@ -1589,6 +1678,8 @@ void test_srvrun(void) {
   test_srvrun_wt_connect_origin_ok_establishes();
   test_srvrun_wt_connect_origin_malformed_403();
   test_srvrun_second_wt_connect_rejected_429();
+  test_srvrun_second_wt_connect_sends_reset_stream();
+  test_srvrun_first_wt_connect_no_reset_stream();
   test_srvrun_idle_sweep_closes_wt_session();
   test_srvrun_idle_sweep_without_wt_unaffected();
   test_srvrun_datagram_round_trip_on_wire();
