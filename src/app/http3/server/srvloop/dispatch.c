@@ -2,6 +2,8 @@
 
 #include "app/datagram/dgdeliver/dg_recv.h"
 #include "app/http3/core/h3/frame.h"
+#include "app/http3/core/h3/stream_type.h"
+#include "app/http3/server/h3srv/peer.h"
 #include "app/http3/server/h3srv/respond.h"
 #include "app/http3/server/srvloop/srvloop.h"
 #include "common/bytes/util/bytes.h"
@@ -248,6 +250,169 @@ static int gather_wt_stream(wired_srvloop* l, const u8* payload, usz len) {
   return seen;
 }
 
+/* RFC 9000 2.1: a client-initiated unidirectional stream has low bits 10. */
+static int is_uni_stream(u64 stream_id) { return (stream_id & 0x03) == 2; }
+
+/* RFC 9114 6.2 / RFC 9204 4.2 / draft-ietf-webtrans-http3-15 4.3: peek (never
+ * consumes/advances any state beyond this local decode) an uni stream's
+ * offset-0 leading type varint and classify it via wired_h3srv_accept_uni —
+ * the SAME classifier that already recognizes control (0x00) / QPACK
+ * (0x02/0x03) / WebTransport (0x54), reused rather than reimplemented. An
+ * undecodable leading varint classifies as not-accepted (0), same as any
+ * other unrecognized type. */
+static int uni_stream_type_accepted(quic_span data) {
+  u64 v;
+  usz off = 0;
+  if (!quic_varint_take(data, &off, &v)) return 0;
+  return wired_h3srv_accept_uni(v);
+}
+
+/* draft-ietf-webtrans-http3-15 4.3: 1 if this uni stream's very first bytes
+ * (an offset-0 STREAM frame's data) decode as the WT uni stream type varint
+ * (0x54, RFC 9114 6.2/RFC 9220). Unlike a WT bidi stream's signal byte, a uni
+ * stream's type is unambiguous and never mid-stream — only offset 0 is ever
+ * checked, matching is_wt_stream_signal's own read-only peek (no state is
+ * consumed beyond the local varint decode). */
+static int is_wt_uni_stream_type(quic_span data) {
+  u64 v;
+  usz off = 0;
+  if (!quic_varint_take(data, &off, &v)) return 0;
+  return v == QUIC_H3_STREAM_WEBTRANSPORT;
+}
+
+/* 1 if sf is the stream's first-sighted (offset 0) frame and its leading
+ * bytes decode as the WT uni stream type — the classification this slice adds
+ * for a uni stream (mirrors sf_is_wt_signalled's bidi counterpart). */
+static int sf_is_wt_uni_typed(const quic_stream_frame* sf) {
+  return sf->offset == 0 &&
+         is_wt_uni_stream_type(quic_span_of(sf->data, (usz)sf->length));
+}
+
+/* 1 if the walked frame at `frame` is a client uni STREAM frame (low bits 10)
+ * — the id space wt_uni_streams draws from, decoded into sf for the caller. */
+static int client_uni_stream_of(u64 type, quic_span frame, quic_stream_frame* sf) {
+  return is_stream(type) && quic_frame_get_stream(frame.p, frame.n, sf) &&
+         is_uni_stream(sf->stream_id);
+}
+
+/* draft-ietf-webtrans-http3-15 4.3: this uni frame is either the stream's
+ * leading type byte (offset 0, decodes to 0x54) or belongs to a uni stream
+ * already claimed in wt_uni_streams[] by an earlier typed frame. */
+static int wt_uni_frame_relevant(const wired_srvloop* l, const quic_stream_frame* sf) {
+  return sf_is_wt_uni_typed(sf) ||
+         wired_srvloop_wt_uni_slot_find(l, sf->stream_id) >= 0;
+}
+
+/* Bytes of THIS uni frame's own data that are the leading type varint, not
+ * application data — mirrors wt_frame_skip's bidi counterpart. */
+static usz wt_uni_frame_skip(
+    const quic_stream_frame* sf, const wired_srvloop_wt_uni_stream_slot* slot) {
+  return sf->offset == 0 ? slot->type_len : 0;
+}
+
+/* Raise slot->len to end, clamped to cap — identical shape to bump_wt_len,
+ * duplicated per-table since the two slot structs are distinct types. */
+static void bump_wt_uni_len(
+    wired_srvloop_wt_uni_stream_slot* slot, usz end, usz cap) {
+  usz hi = end < cap ? end : cap;
+  if (hi > slot->len) slot->len = hi;
+}
+
+/* draft-ietf-webtrans-http3-15 4.3: land one WT uni STREAM frame's application
+ * bytes into slot->buf, mirroring gather_wt_one's bidi counterpart exactly
+ * (skip the type varint's own bytes on the offset-0 frame, shift every
+ * frame's offset back by the type varint's full encoded length). */
+static void gather_wt_uni_one(
+    const quic_stream_frame* sf, wired_srvloop_wt_uni_stream_slot* slot) {
+  usz skip    = wt_uni_frame_skip(sf, slot);
+  usz buf_off = (usz)sf->offset - slot->type_len + skip;
+  usz start   = buf_off;
+  usz cap     = sizeof slot->buf;
+  usz n       = (usz)sf->length - skip;
+  if (buf_off >= cap) return;
+  quic_put_bytes(
+      quic_mspan_of(slot->buf, cap), &buf_off, quic_span_of(sf->data + skip, n));
+  bump_wt_uni_len(slot, start + n, cap);
+  slot->fin |= sf->fin;
+}
+
+/* draft-ietf-webtrans-http3-15 4.3: find-or-claim the wt_uni_streams slot for
+ * a newly-typed stream, recording the type varint's own encoded length so
+ * gather_wt_uni_one can skip exactly that many bytes. */
+static int wt_uni_slot_for_type(wired_srvloop* l, const quic_stream_frame* sf) {
+  int i = wired_srvloop_wt_uni_slot_claim(l, sf->stream_id);
+  u64 v;
+  usz off = 0;
+  if (i < 0) return -1;
+  quic_varint_take(quic_span_of(sf->data, (usz)sf->length), &off, &v);
+  l->wt_uni_streams[i].type_len = off;
+  return i;
+}
+
+/* draft-ietf-webtrans-http3-15 4.3: the wt_uni_streams[] slot index for sf,
+ * which wt_uni_frame_relevant already confirmed is WT uni traffic. */
+static int wt_uni_slot_for(wired_srvloop* l, const quic_stream_frame* sf) {
+  if (sf->offset == 0) return wt_uni_slot_for_type(l, sf);
+  return wired_srvloop_wt_uni_slot_find(l, sf->stream_id);
+}
+
+/* draft-ietf-webtrans-http3-15 4.3: land sf (already confirmed WT uni
+ * traffic) into its slot, claiming one on the leading type frame. */
+static void gather_wt_uni_land(wired_srvloop* l, const quic_stream_frame* sf) {
+  int i = wt_uni_slot_for(l, sf);
+  if (i >= 0) gather_wt_uni_one(sf, &l->wt_uni_streams[i]);
+}
+
+/* draft-ietf-webtrans-http3-15 4.3 / RFC 9114 6.2: classify a client uni
+ * stream's leading type and gather it if (and only if) it is 0x54
+ * (WebTransport). A recognized-but-not-WT type (control/QPACK,
+ * wired_h3srv_accept_uni's existing classifier — reused rather than
+ * reimplemented) or an unrecognized type is deliberately left untouched here:
+ * has_stream/feed_or_accept's existing "STREAM frame present -> accepted,
+ * content ignored" behavior already covers it unchanged, so this adds
+ * classification without altering that path's outcome. */
+static void gather_wt_uni_frame(wired_srvloop* l, const quic_stream_frame* sf) {
+  quic_span data = quic_span_of(sf->data, (usz)sf->length);
+  /* Classification-only peek (read-only, advances nothing): confirms this
+   * offset-0 type is one wired_h3srv_accept_uni recognizes at all (control/
+   * QPACK/WebTransport). The return value itself is unused here on purpose —
+   * a recognized-but-non-WT type takes no further action in THIS function
+   * either way, matching the pre-existing has_stream/feed_or_accept
+   * accepted-and-ignored behavior for those types byte-for-byte. */
+  if (sf->offset == 0) uni_stream_type_accepted(data);
+  if (!wt_uni_frame_relevant(l, sf)) return;
+  gather_wt_uni_land(l, sf);
+}
+
+/* 1 if the walked frame at `frame` is a client uni STREAM frame whose leading
+ * (or already-claimed) type classifies as WebTransport (0x54); gathers it into
+ * wt_uni_streams[] when so. Returns 1 iff this frame belonged to a uni stream
+ * at all (matching gather_wt_frame's "seen" semantics for the bidi table) —
+ * this lets the caller keep such a payload out of dispatch_non_request's
+ * handshake-feed fallback exactly like a bidi/request STREAM frame does. */
+static int gather_uni_frame(wired_srvloop* l, u64 type, quic_span frame) {
+  quic_stream_frame sf;
+  if (!client_uni_stream_of(type, frame, &sf)) return 0;
+  gather_wt_uni_frame(l, &sf);
+  return 1;
+}
+
+/* RFC 9000 2.2 / 12.4, draft-ietf-webtrans-http3-15 4.3: write every client
+ * uni STREAM frame's WT-typed (0x54) bytes into its own wt_uni_streams[] slot,
+ * at its offset past the type varint; a control/QPACK/unrecognized-typed uni
+ * stream frame is classified (client_uni_stream_of matches) but left
+ * otherwise untouched (gather_wt_uni_frame's no-op path). Returns 1 if any uni
+ * STREAM frame was seen this payload, independent of its type. */
+static int gather_uni_stream(wired_srvloop* l, const u8* payload, usz len) {
+  quic_framewalk      it;
+  quic_framewalk_item fr;
+  int                 seen = 0;
+  quic_framewalk_init(&it, payload, len);
+  while (quic_framewalk_next(&it, &fr))
+    seen |= gather_uni_frame(l, fr.type, quic_span_of(fr.start, fr.remaining));
+  return seen;
+}
+
 /* RFC 9221 5: copy one decoded DATAGRAM frame's payload into the next free
  * rx_datagrams slot (truncated to its cap, matching this repo's existing
  * truncate-on-overflow policy for fixed buffers). Caller has already checked
@@ -381,21 +546,31 @@ static int dispatch_gather_datagrams(
   return gather_rx_datagrams(ctx->l, payload.p, payload.n);
 }
 
+/* 1 if ctx has a loop to gather uni stream traffic into (ctx->l != 0) and this
+ * payload carried any client uni STREAM frame (draft-ietf-webtrans-http3-15
+ * 4.3 / RFC 9114 6.2), mirroring dispatch_gather_wt for the uni table. */
+static int dispatch_gather_uni(const wired_srvloop_dispatch_ctx* ctx, quic_span payload) {
+  if (!ctx->l) return 0;
+  return gather_uni_stream(ctx->l, payload.p, payload.n);
+}
+
 /* RFC 9000 12.4 / 2.1, RFC 9114 6.2: a payload may lead with PADDING/ACK before
  * its CRYPTO or STREAM frame (curl/quiche do this). A client bidi STREAM drives
  * HTTP/3; unidirectional STREAMs are accepted but ignored; anything else is
  * handed whole to wired_server_feed, whose crecv reassembles a split
  * ClientHello/Finished. A STREAM payload never re-enters the handshake, and
- * neither does a WT bidi stream (draft-ietf-webtrans-http3-15 4.3) or a
- * DATAGRAM frame (RFC 9221 5) — both are gathered independently before either
- * path below, since a coalesced payload may carry all three. */
-/* Gather this payload's WT bidi and DATAGRAM frames (each independent of the
- * other, see wired_srvloop_dispatch's doc); 1 if either kind was present. */
+ * neither does a WT bidi stream (draft-ietf-webtrans-http3-15 4.3), a client
+ * uni stream (control/QPACK/WebTransport, same draft/RFC 9114 6.2), or a
+ * DATAGRAM frame (RFC 9221 5) — all three are gathered independently before
+ * either path below, since a coalesced payload may carry any combination. */
+/* Gather this payload's WT bidi, uni, and DATAGRAM frames (each independent of
+ * the others, see wired_srvloop_dispatch's doc); 1 if any kind was present. */
 static int dispatch_gather_side_channels(
     const wired_srvloop_dispatch_ctx* ctx, quic_span payload) {
-  int got_wt = dispatch_gather_wt(ctx, payload);
-  int got_dg = dispatch_gather_datagrams(ctx, payload);
-  return got_wt | got_dg;
+  int got_wt  = dispatch_gather_wt(ctx, payload);
+  int got_uni = dispatch_gather_uni(ctx, payload);
+  int got_dg  = dispatch_gather_datagrams(ctx, payload);
+  return got_wt | got_uni | got_dg;
 }
 
 int wired_srvloop_dispatch(
