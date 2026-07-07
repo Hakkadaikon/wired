@@ -69,4 +69,25 @@ int wired_server_run(
     wired_srvrun_handler h,
     wired_srvrun_obs     obs);
 
+/** Opt-in polling-driver knobs (tasks/polling-driver-plan.md), both off (0)
+ * by default so wired_server_run's behavior is unchanged. */
+typedef struct {
+  int busy_poll; /**< 1: MSG_DONTWAIT spin loop instead of blocking poll(2) */
+  int so_busy_poll_us; /**< >0: also enable SO_BUSY_POLL (microseconds).
+                        * Independent of busy_poll; a no-op on a kernel/driver
+                        * without CONFIG_NET_RX_BUSY_POLL support. */
+} wired_srvrun_opt;
+
+/** Same as wired_server_run, plus opt-in polling-driver behavior. `opt` must
+ * not be 0; wired_server_run itself passes an all-zero opt so its behavior is
+ * byte-identical to before this was added.
+ * @param opt busy_poll / so_busy_poll_us knobs, see wired_srvrun_opt
+ * @return same as wired_server_run. */
+int wired_server_run_opt(
+    u16                     port,
+    wired_srvboot_id*       id,
+    wired_srvrun_handler    h,
+    wired_srvrun_obs        obs,
+    const wired_srvrun_opt* opt);
+
 #endif
