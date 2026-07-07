@@ -26,6 +26,12 @@
 #define QUIC_TP_ACTIVE_CONNECTION_ID_LIMIT 0x0e
 #define QUIC_TP_INITIAL_SOURCE_CONNECTION_ID 0x0f
 #define QUIC_TP_RETRY_SOURCE_CONNECTION_ID 0x10
+/* reset_stream_at (draft-ietf-quic-reliable-stream-reset 4): announces
+ * support for the RESET_STREAM_AT frame (0x24). Empty-valued -- presence
+ * alone is the signal, so it is encoded via the generic blob form
+ * (quic_tparam_put_blob/quic_tparam_get_blob) with a zero-length value,
+ * never quic_tparam_put_int/get_int. */
+#define QUIC_TP_RESET_STREAM_AT 0x1d
 /* max_datagram_frame_size (RFC 9221 3): the max DATAGRAM frame size this
  * endpoint will accept; 0 or absent means DATAGRAM frames are not supported,
  * RECOMMENDED value when supported is 65535. Encode/decode is just the
