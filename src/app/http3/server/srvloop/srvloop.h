@@ -215,6 +215,19 @@ typedef struct {
    * side's single-slot "last write wins", chosen because losing an
    * already-arrived datagram to a same-step overwrite is worse. */
   usz rx_datagram_n;
+  /** RFC 9221 3: this connection's own advertised max_datagram_frame_size
+   * transport parameter value, 0 = not advertised (same sentinel convention as
+   * wired_srvboot_id.max_datagram_frame_size, which this is populated from at
+   * connection boot — see srvrun_boot_finish). Used by dispatch.c's DATAGRAM
+   * gathering to reject a frame the peer had no right to send
+   * (quic_datagram_recv_ok). */
+  u64 we_advertised_max_datagram;
+  /** 1 once a received DATAGRAM frame violated RFC 9221 3 (exceeded
+   * we_advertised_max_datagram, or arrived when it was never advertised) —
+   * mirrors peer_closed's shape: dispatch.c only marks this, the caller
+   * driving the loop (srvrun.c's srvrun_on_step) checks it after the step and
+   * closes the connection. */
+  int datagram_violation;
 } wired_srvloop;
 
 /** Register the app response-body builder; pass 0 to clear (body-less 200).
