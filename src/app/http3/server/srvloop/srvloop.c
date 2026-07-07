@@ -305,7 +305,7 @@ static void srvloop_collect_acks(wired_srvloop* l, quic_span pl) {
  * (matching the old fixed capacity of one) and its frames are dropped. */
 static int step_slot_for(wired_srvloop* l, quic_span payload) {
   u64 stream_id;
-  if (!wired_srvloop_payload_stream_id(payload, &stream_id)) return 0;
+  if (!wired_srvloop_payload_stream_id(l, payload, &stream_id)) return 0;
   return stream_slot_for(l, stream_id);
 }
 

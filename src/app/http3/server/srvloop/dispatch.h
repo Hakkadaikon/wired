@@ -63,10 +63,15 @@ int wired_srvloop_dispatch(
 /* RFC 9000 2.1/2.2: find the stream id of this payload's first client bidi
  * request STREAM frame (low two bits 0), so the caller can route the payload
  * to that stream's own reassembly slot before dispatching it. A payload with
- * no request-stream frame (handshake CRYPTO, or curl's unidirectional control/
- * QPACK streams) is not this connection's request traffic.
+ * no request-stream frame (handshake CRYPTO, curl's unidirectional control/
+ * QPACK streams, or a WebTransport bidi stream's signal/continuation frame —
+ * draft-ietf-webtrans-http3-15 4.3, l's wt_streams[] table excludes it at ANY
+ * offset, not just its leading signal) is not this connection's request
+ * traffic. l may be 0 to check only the offset-0 signal (a caller with no
+ * loop to consult, matching wired_srvloop_dispatch_ctx's own l==0 allowance).
  * @return 1 with *stream_id_out set, or 0 if no request-stream frame is
  *   present. */
-int wired_srvloop_payload_stream_id(quic_span payload, u64* stream_id_out);
+int wired_srvloop_payload_stream_id(
+    const wired_srvloop* l, quic_span payload, u64* stream_id_out);
 
 #endif
