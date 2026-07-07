@@ -248,9 +248,10 @@ static void step_dispatch(
   wired_srvloop_dispatch_ctx ctx = {conn->s, &l->h3, &acc};
   wired_srvloop_dispatch(&ctx, &in);
   if (!got) return;
-  *got_request = 1;
-  *done_slot   = slot_i;
-  l->req       = slot->req;
+  *got_request     = 1;
+  *done_slot       = slot_i;
+  l->req           = slot->req;
+  l->req_stream_id = slot->stream_id;
 }
 
 /* RFC 9001 5 / 5.1: open one coalesced packet slice and walk its frames. A

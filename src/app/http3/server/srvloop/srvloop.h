@@ -98,6 +98,9 @@ typedef struct {
   int                  got_request;
   wired_h3reqdrive_req req; /**< the mirrored most-recently-completed request;
                               valid only when got_request is set */
+  u64 req_stream_id; /**< the client bidi stream id req was decoded from;
+                        valid only when got_request is set (mirrors req from
+                        whichever slot completed, same rule) */
   int peer_closed;   /**< 1 once a peer CONNECTION_CLOSE frame was seen */
   int resp_external; /**< 1: the caller answers requests, not the loop */
   /** ACK ranges (RFC 9000 19.3) seen in payloads opened this step, reset at
