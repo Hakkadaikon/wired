@@ -1,5 +1,6 @@
 #include "transport/packet/frame/pipeline/framewalk.h"
 
+#include "app/datagram/datagram/datagram.h"
 #include "test.h"
 #include "transport/packet/frame/frame/frame.h"
 
@@ -49,7 +50,51 @@ static void test_framewalk_unmeasurable(void) {
   CHECK(quic_framewalk_next(&it, &fr) == 0);
 }
 
+/* RFC 9221 5 regression: a 0x31 (explicit Length) DATAGRAM frame followed by
+ * another frame must be measured correctly, so the walk continues to see the
+ * second frame rather than truncating the rest of the packet. */
+static void test_framewalk_datagram_len_then_ping(void) {
+  u8                  buf[64];
+  usz                 n = 0;
+  quic_datagram_frame df = {.length = 3, .data = (const u8*)"xyz"};
+  n += quic_datagram_encode(quic_mspan_of(buf + n, sizeof(buf) - n), &df, 1);
+  n += quic_frame_put_simple(buf + n, sizeof(buf) - n, QUIC_FRAME_PING);
+
+  quic_framewalk it;
+  quic_framewalk_init(&it, buf, n);
+  quic_framewalk_item fr;
+
+  CHECK(quic_framewalk_next(&it, &fr) == 1);
+  CHECK(fr.type == QUIC_FRAME_DATAGRAM_LEN);
+
+  CHECK(quic_framewalk_next(&it, &fr) == 1);
+  CHECK(fr.type == QUIC_FRAME_PING);
+
+  CHECK(quic_framewalk_next(&it, &fr) == 0);
+}
+
+/* RFC 9221 5: a 0x30 (no Length) DATAGRAM frame consumes the rest of the
+ * packet, as it must be the last frame. */
+static void test_framewalk_datagram_no_len_consumes_rest(void) {
+  u8                  buf[64];
+  usz                 n = 0;
+  quic_datagram_frame df = {.length = 5, .data = (const u8*)"hello"};
+  n += quic_datagram_encode(quic_mspan_of(buf + n, sizeof(buf) - n), &df, 0);
+
+  quic_framewalk it;
+  quic_framewalk_init(&it, buf, n);
+  quic_framewalk_item fr;
+
+  CHECK(quic_framewalk_next(&it, &fr) == 1);
+  CHECK(fr.type == QUIC_FRAME_DATAGRAM);
+  CHECK(fr.remaining == n);
+
+  CHECK(quic_framewalk_next(&it, &fr) == 0);
+}
+
 void test_framewalk(void) {
   test_framewalk_sequence();
   test_framewalk_unmeasurable();
+  test_framewalk_datagram_len_then_ping();
+  test_framewalk_datagram_no_len_consumes_rest();
 }
