@@ -8,11 +8,10 @@
 #define DEFAULT_MAX_FIELD_SECTION_SIZE 0x4000 /* 16 KiB */
 #define DEFAULT_QPACK_MAX_TABLE_CAP 0
 #define DEFAULT_QPACK_BLOCKED_STREAMS 0
-/* RFC 9220 3: do not advertise support until a request handler actually
- * validates and processes :protocol (quic_h3_connect_protocol_ok) — false
- * advertising would let a client rely on a capability this server does not
- * yet implement. */
-#define DEFAULT_ENABLE_CONNECT_PROTOCOL 0
+/* RFC 9220 3: srvrun's request path now validates :protocol
+ * (quic_h3_connect_protocol_ok, wired via srvrun_is_wt_connect) before
+ * establishing a WebTransport session, so it is safe to advertise. */
+#define DEFAULT_ENABLE_CONNECT_PROTOCOL 1
 
 /* RFC 9114 6.2.1 */
 int quic_h3settings_control_stream(u8* out, usz cap, usz* out_len) {

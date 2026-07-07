@@ -1276,7 +1276,7 @@ int main(void) {
   test_h3settings_build();
   test_h3settings_build_connect_protocol();
   test_h3settings_control_settings();
-  test_h3settings_control_settings_no_connect_protocol_yet();
+  test_h3settings_control_settings_advertises_connect_protocol();
   test_capsule();
   test_lhdr_build();
   test_lhdr_parse();

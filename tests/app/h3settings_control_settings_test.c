@@ -27,11 +27,10 @@ void test_h3settings_control_settings(void) {
   CHECK(quic_h3settings_control_stream(buf, 1, &n) == 0);
 }
 
-/* RFC 9220 3: the server's control stream advertises Extended CONNECT. */
-/* RFC 9220 3: no request handler validates/processes :protocol yet
- * (quic_h3_connect_protocol_ok is unwired), so the server must not advertise
- * a capability it does not implement. */
-void test_h3settings_control_settings_no_connect_protocol_yet(void) {
+/* RFC 9220 3: the server's control stream advertises Extended CONNECT — the
+ * request path now validates :protocol before establishing a WebTransport
+ * session (srvrun_is_wt_connect), so it is safe to advertise support. */
+void test_h3settings_control_settings_advertises_connect_protocol(void) {
   u8  buf[64];
   usz n        = 0;
   usz consumed = 0;
@@ -48,5 +47,5 @@ void test_h3settings_control_settings_no_connect_protocol_yet(void) {
   int found = 0;
   for (usz i = 0; i < s.n; i++)
     if (s.pairs[i].id == QUIC_H3_SETTINGS_ENABLE_CONNECT_PROTOCOL) found = 1;
-  CHECK(found == 0);
+  CHECK(found == 1);
 }
