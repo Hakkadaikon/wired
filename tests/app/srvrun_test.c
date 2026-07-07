@@ -1,6 +1,7 @@
 #include "app/http3/server/srvrun/srvrun.h"
 
 #include "app/http3/core/h3/frame.h"
+#include "app/webtransport/errmap/errmap/errmap.h"
 #include "test.h"
 #include "transport/packet/frame/frame/frame.h"
 #include "transport/packet/frame/frame/stream_ctl.h"
@@ -1167,15 +1168,16 @@ static void test_srvrun_wt_uni_stream_offered_to_session(void) {
   struct lp_fix f;
   quic_obuf     ob;
   u8            obuf[1024];
-  srvrun_conn   c = {0};
-  ob              = (quic_obuf){obuf, sizeof obuf, 0};
+  srvrun_conn   c   = {0};
+  srvrun_cfg    cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+  ob                = (quic_obuf){obuf, sizeof obuf, 0};
   sr_make_confirmed_conn(&c, &f, &ob);
   wired_wt_session_init(&c.wt, 4);
   c.wt_active = 1;
   c.l.wt_uni_streams[0].in_use    = 1;
   c.l.wt_uni_streams[0].stream_id = 2;
   c.l.wt_uni_streams[0].offered   = 0;
-  srvrun_offer_wt_uni_streams(&c);
+  srvrun_offer_wt_uni_streams(&cfg, &c);
   CHECK(c.l.wt_uni_streams[0].offered == 1);
   CHECK(c.wt.streams[0].in_use == 1 && c.wt.streams[0].stream_id == 2);
 }
@@ -1188,15 +1190,123 @@ static void test_srvrun_wt_uni_stream_no_session_not_offered(void) {
   struct lp_fix f;
   quic_obuf     ob;
   u8            obuf[1024];
-  srvrun_conn   c = {0};
-  ob              = (quic_obuf){obuf, sizeof obuf, 0};
+  srvrun_conn   c   = {0};
+  srvrun_cfg    cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+  ob                = (quic_obuf){obuf, sizeof obuf, 0};
   sr_make_confirmed_conn(&c, &f, &ob);
   c.wt_active                     = 0;
   c.l.wt_uni_streams[0].in_use    = 1;
   c.l.wt_uni_streams[0].stream_id = 2;
   c.l.wt_uni_streams[0].offered   = 0;
-  srvrun_offer_wt_uni_streams(&c);
+  srvrun_offer_wt_uni_streams(&cfg, &c);
   CHECK(c.l.wt_uni_streams[0].offered == 0);
+}
+
+/* REGRESSION (mirrors test_srvrun_wt_uni_stream_offered_to_session for the
+ * bidi table): a freshly-claimed WT bidi slot on a connection with an active,
+ * UNESTABLISHED, non-full session is associated normally -- no RESET_STREAM,
+ * offered set to 1. */
+static void test_srvrun_wt_bidi_stream_offered_to_session(void) {
+  struct lp_fix f;
+  quic_obuf     ob;
+  u8            obuf[1024];
+  srvrun_conn   c            = {0};
+  srvrun_cfg    cfg          = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+  u64           tx_pn_before;
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  wired_wt_session_init(&c.wt, 4);
+  c.wt_active                 = 1;
+  c.l.wt_streams[0].in_use    = 1;
+  c.l.wt_streams[0].stream_id = 8;
+  c.l.wt_streams[0].offered   = 0;
+  tx_pn_before                = c.l.tx_pn;
+  srvrun_offer_wt_streams(&cfg, &c);
+  CHECK(c.l.wt_streams[0].offered == 1);
+  CHECK(c.l.wt_streams[0].in_use == 1); /* stays claimed, not freed */
+  CHECK(c.wt.streams[0].in_use == 1 && c.wt.streams[0].stream_id == 8);
+  CHECK(c.l.tx_pn == tx_pn_before); /* no RESET_STREAM sealed */
+}
+
+/* WT-C-009 (buffer-full rejection): fill every WIRED_WT_MAX_BUFFERED_STREAMS
+ * slot of an UNESTABLISHED session directly via wired_wt_session_offer_stream
+ * (the same buffering path test_srvrun_wt_uni_stream_offered_to_session
+ * exercises for one slot), so the session's own buffer is at capacity before
+ * a reassembled WT bidi slot is offered. wired_wt_session_offer_stream then
+ * returns 0 (session.c's stream_free_slot finds nothing), so
+ * srvrun_offer_wt_slot must reject the stream on the wire with
+ * WT_BUFFERED_STREAM_REJECTED (0x3994bd84) mapped through
+ * quic_wterrmap_to_http3 (draft-ietf-webtrans-http3-15 8.2) -- NOT the
+ * H3_REQUEST_REJECTED the WT-C-010 busy-reset path carries, since this is an
+ * application-level WT error code, not an HTTP/3-level one. The expected
+ * wire value (0x52e4df8fc205) is hand-derived: first=0x52e4a40fa8db,
+ * n=0x3994bd84 (966049156), h = first + n + floor(n/0x1e) = first +
+ * 966049156 + 34501755 = 0x52e4df8fc205. */
+static void test_srvrun_wt_bidi_stream_buffer_full_sends_reset(void) {
+  struct lp_fix f;
+  quic_obuf     ob;
+  u8            obuf[1024];
+  u8            pkt[256];
+  quic_obuf     pktb = quic_obuf_of(pkt, sizeof pkt);
+  const u8*     pl;
+  usz           pll;
+  quic_reset_stream_frame rs;
+  quic_stop_sending_frame ss;
+  usz                     rn, sn;
+  srvrun_conn   c   = {0};
+  srvrun_cfg    cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+  usz           i;
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  wired_wt_session_init(&c.wt, 4); /* leaves state UNESTABLISHED */
+  c.wt_active = 1;
+  for (i = 0; i < WIRED_WT_MAX_BUFFERED_STREAMS; i++)
+    CHECK(wired_wt_session_offer_stream(&c.wt, 100 + i) == 1);
+  c.l.wt_streams[0].in_use    = 1;
+  c.l.wt_streams[0].stream_id = 999;
+  c.l.wt_streams[0].offered   = 0;
+  srvrun_offer_wt_streams(&cfg, &c);
+  CHECK(c.l.wt_streams[0].offered == 0); /* never associated */
+  CHECK(c.l.wt_streams[0].in_use == 0);  /* freed, not left claimed forever */
+  CHECK(srvrun_seal_wt_busy_reset(
+            &c, 999, quic_wterrmap_to_http3(QUIC_WTERR_BUFFERED_STREAM_REJECTED),
+            &pktb) == 1);
+  CHECK(client_open_onertt(&f, pktb.p, pktb.len, &pl, &pll) == 1);
+  rn = quic_reset_stream_decode(pl, pll, &rs);
+  CHECK(rn != 0);
+  CHECK(rs.stream_id == 999);
+  CHECK(rs.error_code == 0x52e4df8fc205ULL);
+  sn = quic_stop_sending_decode(pl + rn, pll - rn, &ss);
+  CHECK(sn != 0);
+  CHECK(ss.stream_id == 999);
+  CHECK(ss.error_code == 0x52e4df8fc205ULL);
+  CHECK(rn + sn == pll);
+}
+
+/* Mirrors test_srvrun_wt_bidi_stream_buffer_full_sends_reset for the uni
+ * table: same buffer-full trigger, same rejection contract. */
+static void test_srvrun_wt_uni_stream_buffer_full_sends_reset(void) {
+  struct lp_fix f;
+  quic_obuf     ob;
+  u8            obuf[1024];
+  srvrun_conn   c   = {0};
+  srvrun_cfg    cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+  usz           i;
+  u64           tx_pn_before;
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  wired_wt_session_init(&c.wt, 4);
+  c.wt_active = 1;
+  for (i = 0; i < WIRED_WT_MAX_BUFFERED_STREAMS; i++)
+    CHECK(wired_wt_session_offer_stream(&c.wt, 200 + i) == 1);
+  c.l.wt_uni_streams[0].in_use    = 1;
+  c.l.wt_uni_streams[0].stream_id = 777;
+  c.l.wt_uni_streams[0].offered   = 0;
+  tx_pn_before                    = c.l.tx_pn;
+  srvrun_offer_wt_uni_streams(&cfg, &c);
+  CHECK(c.l.wt_uni_streams[0].offered == 0);
+  CHECK(c.l.wt_uni_streams[0].in_use == 0);
+  CHECK(c.l.tx_pn != tx_pn_before); /* a RESET_STREAM pair was sealed */
 }
 
 /* An Extended CONNECT with :protocol=webtransport-h3 establishes a WT
@@ -1462,7 +1572,7 @@ static void test_srvrun_second_wt_connect_sends_reset_stream(void) {
     srvrun_start_resp(&ctx, 0);
   }
   CHECK(conns[0].sess.active == 1); /* the 429 was armed, same as before */
-  CHECK(srvrun_seal_wt_busy_reset(&conns[0], 8, &pktb) == 1);
+  CHECK(srvrun_seal_wt_busy_reset(&conns[0], 8, QUIC_H3_REQUEST_REJECTED, &pktb) == 1);
   CHECK(client_open_onertt(&f, pktb.p, pktb.len, &pl, &pll) == 1);
   rn = quic_reset_stream_decode(pl, pll, &rs);
   CHECK(rn != 0);
@@ -1854,6 +1964,9 @@ void test_srvrun(void) {
   test_srvrun_so_busy_poll_zero_still_binds();
   test_srvrun_wt_uni_stream_offered_to_session();
   test_srvrun_wt_uni_stream_no_session_not_offered();
+  test_srvrun_wt_bidi_stream_offered_to_session();
+  test_srvrun_wt_bidi_stream_buffer_full_sends_reset();
+  test_srvrun_wt_uni_stream_buffer_full_sends_reset();
   test_srvrun_normal_request_unaffected_by_wt_branch();
   test_srvrun_wt_connect_establishes_session();
   test_srvrun_plain_connect_no_protocol_no_wt_session();
