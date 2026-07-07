@@ -64,6 +64,10 @@ typedef struct {
   const u8*        body; /**< request body view into stream_data, 0 if none */
   usz              body_len; /**< 0 for GET and other bodyless requests */
   quic_h3_priority priority; /**< RFC 9218 5 priority header (defaults) */
+  const u8* origin; /**< regular `origin` header value (static-table view or
+                       scratch), 0 if absent (RFC 9220 3 / WebTransport draft
+                       SS3.6 origin check applies only when present) */
+  usz origin_len; /**< origin length in octets, 0 if absent */
 } wired_h3reqdrive_req;
 
 /** RFC 9114 4.1, RFC 9204 4.5: decode a STREAM frame carrying a request:

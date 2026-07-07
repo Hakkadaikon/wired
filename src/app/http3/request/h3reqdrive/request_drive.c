@@ -133,10 +133,27 @@ static void take_priority(const rline* L, wired_h3reqdrive_req* r) {
     quic_h3_priority_sfv(quic_span_of(L->value, L->value_len), &r->priority);
 }
 
+/* WebTransport draft-ietf-webtrans-http3-15 SS3.6 / RFC 9220 3: a regular
+ * `origin` header carries the browser client's origin for the server to
+ * validate. Same borrow-or-scratch view as any other recovered line; other
+ * regular fields stay ignored. */
+static void take_origin(const rline* L, wired_h3reqdrive_req* r) {
+  if (!line_name_is(L, "origin")) return;
+  r->origin     = L->value;
+  r->origin_len = L->value_len;
+}
+
+/* A regular (non-pseudo-header) field: at most priority (RFC 9218 5) and
+ * origin (WebTransport draft SS3.6) are captured; anything else is ignored
+ * (RFC 9114 4.3.1). */
+static void classify_regular(const rline* L, wired_h3reqdrive_req* r) {
+  take_priority(L, r);
+  take_origin(L, r);
+}
+
 /* Store one recovered line into r if it is a request pseudo-header; regular
- * fields carry at most the priority header (RFC 9218 5); unknown
- * pseudo-headers are ignored (RFC 9114 4.3.1). The slot tables are indexed
- * by kind, whose enum order matches the struct fields. */
+ * fields go through classify_regular. The slot tables are indexed by kind,
+ * whose enum order matches the struct fields. */
 static void classify_line(const rline* L, wired_h3reqdrive_req* r) {
   const u8** val[] = {0,        &r->method,  &r->scheme, &r->authority,
                       &r->path, &r->protocol};
@@ -149,7 +166,7 @@ static void classify_line(const rline* L, wired_h3reqdrive_req* r) {
       &r->protocol_len};
   quic_h3_ph_kind k = quic_h3_ph_classify(L->name, L->name_len);
   if (!is_request_pseudo(k)) {
-    take_priority(L, r);
+    classify_regular(L, r);
     return;
   }
   *val[k] = L->value;
