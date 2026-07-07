@@ -1070,10 +1070,47 @@ static void srvrun_reject_wt_busy(
   srvrun_send_wt_busy_reset(cfg, c, c->l.req_stream_id, QUIC_H3_REQUEST_REJECTED);
 }
 
+/* RFC 9000 2.1: bit 0x01 of a stream id is the initiator role (0 = client),
+ * bit 0x02 is the directionality (0 = bidi) -- so a client-initiated bidi
+ * stream id is exactly the ones with both low bits clear. Same check as
+ * srvloop/dispatch.c's is_request_stream, duplicated here because that one is
+ * file-static and srvrun.c has no visibility into it. */
+static int srvrun_stream_id_is_client_bidi(u64 stream_id) {
+  return (stream_id & 0x03) == 0;
+}
+
+/* draft-ietf-webtrans-http3-15 SS3.2/SS4 (WT-C-006/007): the WT session id is
+ * the CONNECT stream's own id, so it must be a client-initiated bidi stream
+ * id (RFC 9000 2.1) or the session would be keyed by an id that cannot
+ * possibly be the client's request stream. RFC 9114 8.1 lists H3_ID_ERROR for
+ * exactly this "stream id used incorrectly" case; it is a stream-level abort
+ * reason, so this mirrors srvrun_reject_wt_busy's RESET_STREAM+STOP_SENDING
+ * shape rather than a CONNECTION_CLOSE. */
+static void srvrun_reject_wt_bad_id(
+    const srvrun_cfg* cfg, srvrun_conn* c, int slot) {
+  srvrun_start_wt_status(c, slot, 403);
+  srvrun_send_wt_busy_reset(cfg, c, c->l.req_stream_id, QUIC_H3_ID_ERROR);
+}
+
+/* Body of srvrun_dispatch_wt once Origin has passed and no session is
+ * already active: reject a non-client-bidi session id (WT-C-006/007) or
+ * establish the session. Split out so srvrun_dispatch_wt itself stays at one
+ * gate (CCN). */
+static void srvrun_dispatch_wt_free_slot(
+    const srvrun_cfg* cfg, srvrun_conn* c, int slot) {
+  if (!srvrun_stream_id_is_client_bidi(c->l.req_stream_id)) {
+    srvrun_reject_wt_bad_id(cfg, c, slot);
+    return;
+  }
+  srvrun_start_wt(c, slot);
+}
+
 /* A well-formed Extended CONNECT for WebTransport either establishes a
  * session (Origin absent, or present and well-formed, and no session already
  * active on this connection -- WT-C-010/011), or is rejected: 403 for a
- * malformed Origin (WT-B-005/007/008), 429 if a session is already active. */
+ * malformed Origin (WT-B-005/007/008), 429 if a session is already active,
+ * or H3_ID_ERROR if the CONNECT stream's own id is not a client-initiated
+ * bidi stream id (WT-C-006/007). */
 static void srvrun_dispatch_wt(
     const srvrun_cfg* cfg, srvrun_conn* c, int slot) {
   if (!wt_origin_ok(&c->l.req)) {
@@ -1084,7 +1121,7 @@ static void srvrun_dispatch_wt(
     srvrun_reject_wt_busy(cfg, c, slot);
     return;
   }
-  srvrun_start_wt(c, slot);
+  srvrun_dispatch_wt_free_slot(cfg, c, slot);
 }
 
 /* Build the decoded request's response into the slot's own storage and arm
