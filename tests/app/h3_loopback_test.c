@@ -346,8 +346,9 @@ static void sb_make_id(
   id->random           = rnd;
   id->chain            = 0;
   id->chain_count      = 0;
-  id->max_data         = 0;
-  id->max_streams_bidi = 0;
+  id->max_data                 = 0;
+  id->max_streams_bidi         = 0;
+  id->max_datagram_frame_size  = 0;
 }
 
 /* wired_srvboot_accept cold-starts a server from a real client Initial
@@ -767,8 +768,9 @@ static void sb_make_chain_id(
   id->random           = rnd;
   id->chain            = sb_chain;
   id->chain_count      = 3;
-  id->max_data         = 0;
-  id->max_streams_bidi = 0;
+  id->max_data                 = 0;
+  id->max_streams_bidi         = 0;
+  id->max_datagram_frame_size  = 0;
 }
 
 /* A bootstrapped server with the realchain identity plus everything the
