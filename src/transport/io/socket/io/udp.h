@@ -163,4 +163,29 @@ i64 wired_udp_recvmmsg_nowait(i64 fd, quic_mmsg_buf* bufs, usz count);
  * @return 0 on success, or a negative errno. */
 i64 wired_udp_busy_poll_enable(i64 fd, int microseconds);
 
+/** Enable/disable SO_PREFER_BUSY_POLL on fd: prefers busy-polling over
+ * interrupts for this socket. Only has kernel effect when SO_BUSY_POLL
+ * (wired_udp_busy_poll_enable with microseconds > 0) is also enabled on the
+ * same fd (Linux, needs CONFIG_NET_RX_BUSY_POLL and driver support).
+ * @param fd the socket fd
+ * @param enable 0 or 1
+ * @return 0 on success, or a negative errno. */
+i64 wired_udp_prefer_busy_poll_enable(i64 fd, int enable);
+
+/** Set SO_BUSY_POLL_BUDGET on fd: caps how many packets a single busy-poll
+ * spin processes before yielding (Linux, needs CONFIG_NET_RX_BUSY_POLL).
+ * @param fd the socket fd
+ * @param budget packet budget per spin
+ * @return 0 on success, or a negative errno. */
+i64 wired_udp_busy_poll_budget_set(i64 fd, int budget);
+
+/** Set SO_INCOMING_CPU on fd: hints the kernel to steer this socket's
+ * incoming packets toward the given CPU (RPS/RSS steering, Linux). SET
+ * direction only -- this libc-free SDK has no getsockopt infrastructure, so
+ * there is no corresponding getter.
+ * @param fd the socket fd
+ * @param cpu target CPU number
+ * @return 0 on success, or a negative errno. */
+i64 wired_udp_incoming_cpu_set(i64 fd, int cpu);
+
 #endif
