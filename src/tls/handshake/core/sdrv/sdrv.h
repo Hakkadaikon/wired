@@ -37,6 +37,11 @@ typedef struct {
   u8              iscid[20]; /**< RFC 9000 7.3 server SCID */
   u8              iscid_len; /**< bytes used in iscid (0..20) */
   quic_stp_limits limits;    /**< advertised tunable limits (0 = defaults) */
+  u64 peer_max_datagram_frame_size; /**< peer's max_datagram_frame_size
+                                     * (0x20, RFC 9221 3) from the ClientHello
+                                     * transport parameters; 0 = not
+                                     * advertised (peer does not support
+                                     * DATAGRAM) */
 } quic_sdrv;
 
 /** Inputs to quic_sdrv_init.
