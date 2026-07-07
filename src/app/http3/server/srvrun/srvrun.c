@@ -7,7 +7,9 @@
 #include "app/http3/server/sendsess/sendsess.h"
 #include "app/http3/server/sigterm/sigterm.h"
 #include "app/http3/server/srvloop/send.h"
+#include "app/http3/core/h3/connect.h"
 #include "app/http3/server/srvpoll/srvpoll.h"
+#include "app/webtransport/session/session/session.h"
 #include "common/bytes/util/bytes.h"
 #include "common/platform/clock/mono.h"
 #include "common/platform/debug/debug.h"
@@ -80,6 +82,12 @@ typedef struct {
    * ponytail: one fixed accumulator per slot (~4KB x 64 slots of BSS);
    * pool-share across slots if the footprint ever matters. */
   wired_srvboot_acc boot;
+  wired_wt_session  wt; /**< WebTransport session for this connection, if any
+                          * (draft-ietf-webtrans-http3-15 SS4); valid only
+                          * when wt_active is set. One session per connection
+                          * for now (tasks/webtransport-plan.md scope). */
+  int wt_active; /**< 1 once wired_wt_session_init has been called for this
+                    slot */
 } srvrun_conn;
 
 /* The running server's mutable state: a fixed pool of connection slots keyed
@@ -557,21 +565,75 @@ static void srvrun_call_handler(
   if (!ctx->cfg->handler(ctx->cfg->ctx, &c->l.req, body, ct)) body->len = 0;
 }
 
-/* Build the decoded request's response into the slot's own storage — body
- * first, prefix (RFC 9114 4.1 HEADERS + DATA header) framed right before it,
- * no body copy — and arm the session over the whole stream. A session already
- * in flight keeps the storage; the new request is dropped (one response at a
- * time per connection, matching the one-request stream model). */
-static void srvrun_start_resp(const srvrun_step_ctx* ctx, int slot) {
-  srvrun_conn* c    = &ctx->st->conns[slot];
-  u8*          st   = g_srvrun_respstore[slot];
-  quic_obuf    body = quic_obuf_of(
+/* All len octets of m equal want (draft-ietf-webtrans-http3-15 SS3: the
+ * :protocol value is matched byte for byte, same idiom as connect.c's own
+ * method_is_connect). */
+static int wt_bytes_eq(const u8* m, const u8* want, usz len) {
+  for (usz i = 0; i < len; i++)
+    if (m[i] != want[i]) return 0;
+  return 1;
+}
+
+/* r's :protocol value is exactly "webtransport-h3"
+ * (draft-ietf-webtrans-http3-15 SS3, not the older draft's "webtransport"). */
+static int wt_protocol_is_webtransport_h3(const wired_h3reqdrive_req* r) {
+  static const u8 want[] = {
+      'w', 'e', 'b', 't', 'r', 'a', 'n', 's', 'p', 'o', 'r', 't',
+      '-', 'h', '3'};
+  if (!r->protocol || r->protocol_len != sizeof want) return 0;
+  return wt_bytes_eq(r->protocol, want, sizeof want);
+}
+
+/* r is a well-formed Extended CONNECT (RFC 9220 3) for WebTransport: a valid
+ * CONNECT, :protocol negotiated (settings always advertised, Step 1 above),
+ * and :protocol is exactly "webtransport-h3". */
+static int srvrun_is_wt_connect(const wired_h3reqdrive_req* r) {
+  if (!quic_h3_connect_req_ok(r)) return 0;
+  if (!wt_protocol_is_webtransport_h3(r)) return 0;
+  return quic_h3_connect_protocol_ok(r, 1);
+}
+
+/* Seal a bare 2xx (no body, no content-type) into the slot's own storage and
+ * arm the session over it — the same low-level prefix+arm mechanism
+ * srvrun_start_resp uses for a normal 200, minus the app handler: this is
+ * protocol-level WebTransport session establishment (draft-ietf-webtrans-
+ * http3-15 SS3.2), not an application response. */
+static void srvrun_start_wt_resp(srvrun_conn* c, int slot) {
+  u8*       st  = g_srvrun_respstore[slot];
+  u8        pre[SRVRUN_RESP_HDR_ROOM];
+  quic_obuf pob = quic_obuf_of(pre, sizeof pre);
+  usz       off;
+  if (!quic_h3resp_prefix(200, 0, 0, &pob)) return;
+  off = SRVRUN_RESP_HDR_ROOM - pob.len;
+  quic_put_bytes(
+      quic_mspan_of(st, SRVRUN_RESP_HDR_ROOM), &off,
+      quic_span_of(pre, pob.len));
+  wired_sendsess_arm(
+      &c->sess, st + SRVRUN_RESP_HDR_ROOM - pob.len, pob.len, SRVRUN_CHUNK);
+}
+
+/* Establish a WebTransport session for this Extended CONNECT (draft-ietf-
+ * webtrans-http3-15 SS3.2/SS4): the session id is the CONNECT stream's own
+ * id. Skips the normal app-handler response path entirely. */
+static void srvrun_start_wt(srvrun_conn* c, int slot) {
+  wired_wt_session_init(&c->wt, c->l.req_stream_id);
+  wired_wt_session_establish(&c->wt);
+  c->wt_active = 1;
+  srvrun_start_wt_resp(c, slot);
+}
+
+/* Body of srvrun_start_resp for a normal (non-WT) request: run the app
+ * handler, then frame+arm the response exactly as before this task. Split
+ * out so srvrun_start_resp itself stays at its gate/dispatch decision (CCN). */
+static void srvrun_start_app_resp(
+    const srvrun_step_ctx* ctx, srvrun_conn* c, int slot) {
+  u8*         st   = g_srvrun_respstore[slot];
+  quic_obuf   body = quic_obuf_of(
       st + SRVRUN_RESP_HDR_ROOM, WIRED_SRVRUN_RESP_MAX - SRVRUN_RESP_HDR_ROOM);
   u8          pre[SRVRUN_RESP_HDR_ROOM];
   quic_obuf   pob = quic_obuf_of(pre, sizeof pre);
   const char* ct  = 0;
   usz         off;
-  if (c->sess.active) return;
   srvrun_call_handler(ctx, c, &body, &ct);
   if (!quic_h3resp_prefix(200, ct, body.len, &pob)) return;
   off = SRVRUN_RESP_HDR_ROOM - pob.len;
@@ -581,6 +643,22 @@ static void srvrun_start_resp(const srvrun_step_ctx* ctx, int slot) {
   wired_sendsess_arm(
       &c->sess, st + SRVRUN_RESP_HDR_ROOM - pob.len, pob.len + body.len,
       SRVRUN_CHUNK);
+}
+
+/* Build the decoded request's response into the slot's own storage and arm
+ * the session over the whole stream. A session already in flight keeps the
+ * storage; the new request is dropped (one response at a time per
+ * connection, matching the one-request stream model). An Extended CONNECT
+ * for WebTransport (RFC 9220 3, draft-ietf-webtrans-http3-15 SS3) establishes
+ * a WT session instead and never reaches the app handler. */
+static void srvrun_start_resp(const srvrun_step_ctx* ctx, int slot) {
+  srvrun_conn* c = &ctx->st->conns[slot];
+  if (c->sess.active) return;
+  if (srvrun_is_wt_connect(&c->l.req)) {
+    srvrun_start_wt(c, slot);
+    return;
+  }
+  srvrun_start_app_resp(ctx, c, slot);
 }
 
 /* Seal one slice as its own 1-RTT packet (a STREAM frame on the request
@@ -956,7 +1034,7 @@ static int srvrun_any_waiting(const srvrun_state* st) {
 }
 
 /* busy_poll=1: the blocking poll(2) itself is replaced by a non-blocking
- * return (tasks/polling-driver-plan.md -- the srvrun_any_waiting branch above
+ * return (tasks/polling-driver-plan.md — the srvrun_any_waiting branch above
  * is kept as-is; only this leaf call changes). The actual non-blocking
  * receive happens at the recvmmsg step (srvrun_recv), so there is nothing
  * left to wait for here. */
