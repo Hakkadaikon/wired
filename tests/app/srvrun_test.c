@@ -1062,6 +1062,138 @@ static void test_srvrun_so_busy_poll_zero_still_binds(void) {
   wired_udp_close(fd);
 }
 
+/* WEBTRANSPORT EXTENDED CONNECT (tasks/webtransport-plan.md Phase 7a):
+ * srvrun_start_resp establishes a wired_wt_session for a well-formed
+ * Extended CONNECT (:protocol=webtransport-h3) instead of calling the app
+ * handler. Counts invocations to prove the handler path was skipped. */
+static int  g_sr_wt_handler_calls = 0;
+static int sr_wt_handler(
+    void*                       hctx,
+    const wired_h3reqdrive_req* req,
+    quic_obuf*                  body_out,
+    const char**                ct) {
+  (void)hctx;
+  (void)req;
+  (void)ct;
+  g_sr_wt_handler_calls++;
+  body_out->len = 0;
+  return 1;
+}
+
+static const u8 sr_wt_authority[]      = "host";
+static const u8 sr_wt_method_get[]     = "GET";
+static const u8 sr_wt_method_connect[] = "CONNECT";
+static const u8 sr_wt_protocol[]       = "webtransport-h3";
+
+/* Populate c->l.req/req_stream_id/got_request for a synthetic decoded
+ * request -- srvrun_start_resp only reads these mirror fields, so no real
+ * wire round-trip is needed to drive it. connect_method/with_protocol pick
+ * from the fixed literals above (no libc strlen available in this SDK). */
+static void sr_set_req(
+    srvrun_conn* c, int connect_method, int with_protocol, u64 stream_id) {
+  if (connect_method) {
+    c->l.req.method     = sr_wt_method_connect;
+    c->l.req.method_len = sizeof sr_wt_method_connect - 1;
+  } else {
+    c->l.req.method     = sr_wt_method_get;
+    c->l.req.method_len = sizeof sr_wt_method_get - 1;
+  }
+  c->l.req.authority     = sr_wt_authority;
+  c->l.req.authority_len = sizeof sr_wt_authority - 1;
+  c->l.req.scheme        = 0;
+  c->l.req.scheme_len    = 0;
+  c->l.req.path          = 0;
+  c->l.req.path_len      = 0;
+  if (with_protocol) {
+    c->l.req.protocol     = sr_wt_protocol;
+    c->l.req.protocol_len = sizeof sr_wt_protocol - 1;
+  } else {
+    c->l.req.protocol     = 0;
+    c->l.req.protocol_len = 0;
+  }
+  c->l.req.body      = 0;
+  c->l.req.body_len  = 0;
+  c->l.req_stream_id = stream_id;
+  c->l.got_request   = 1;
+}
+
+/* REGRESSION: a normal GET (no :protocol) still goes through
+ * srvrun_call_handler unchanged -- the app handler is invoked exactly once
+ * and no WT session is created. */
+static void test_srvrun_normal_request_unaffected_by_wt_branch(void) {
+  struct lp_fix  f;
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_conn    conns[QUIC_CONNTABLE_CAP] = {0};
+  quic_obuf      ob;
+  u8             obuf[1024];
+  ob                    = (quic_obuf){obuf, sizeof obuf, 0};
+  g_sr_wt_handler_calls = 0;
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  sr_make_confirmed_conn(&conns[0], &f, &ob);
+  sr_set_req(&conns[0], 0, 0, 0);
+  {
+    srvrun_cfg      cfg = {-1, 0, sr_wt_handler, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_state    st  = {table, conns};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_start_resp(&ctx, 0);
+  }
+  CHECK(g_sr_wt_handler_calls == 1);
+  CHECK(conns[0].wt_active == 0);
+  CHECK(conns[0].sess.active == 1); /* the normal 200 was still armed */
+}
+
+/* An Extended CONNECT with :protocol=webtransport-h3 establishes a WT
+ * session keyed by the CONNECT stream's own id and never calls the app
+ * handler. */
+static void test_srvrun_wt_connect_establishes_session(void) {
+  struct lp_fix  f;
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_conn    conns[QUIC_CONNTABLE_CAP] = {0};
+  quic_obuf      ob;
+  u8             obuf[1024];
+  ob                    = (quic_obuf){obuf, sizeof obuf, 0};
+  g_sr_wt_handler_calls = 0;
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  sr_make_confirmed_conn(&conns[0], &f, &ob);
+  sr_set_req(&conns[0], 1, 1, 4);
+  {
+    srvrun_cfg      cfg = {-1, 0, sr_wt_handler, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_state    st  = {table, conns};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_start_resp(&ctx, 0);
+  }
+  CHECK(g_sr_wt_handler_calls == 0);
+  CHECK(conns[0].wt_active == 1);
+  CHECK(conns[0].wt.state == WIRED_WT_ESTABLISHED);
+  CHECK(conns[0].wt.connect_stream_id == 4);
+  CHECK(conns[0].sess.active == 1); /* the bare 2xx was armed */
+}
+
+/* A plain CONNECT (no :protocol at all) is not Extended CONNECT: no WT
+ * session is created, and it falls through to the existing app-handler path
+ * (today's only defined behavior for a bare CONNECT -- there is no
+ * CONNECT-specific handling yet). */
+static void test_srvrun_plain_connect_no_protocol_no_wt_session(void) {
+  struct lp_fix  f;
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_conn    conns[QUIC_CONNTABLE_CAP] = {0};
+  quic_obuf      ob;
+  u8             obuf[1024];
+  ob                    = (quic_obuf){obuf, sizeof obuf, 0};
+  g_sr_wt_handler_calls = 0;
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  sr_make_confirmed_conn(&conns[0], &f, &ob);
+  sr_set_req(&conns[0], 1, 0, 4);
+  {
+    srvrun_cfg      cfg = {-1, 0, sr_wt_handler, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_state    st  = {table, conns};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_start_resp(&ctx, 0);
+  }
+  CHECK(conns[0].wt_active == 0);
+  CHECK(g_sr_wt_handler_calls == 1); /* falls through to the normal handler */
+}
+
 void test_srvrun(void) {
   test_srvrun_no_shutdown_accepts_new();
   test_srvrun_accept_rekeys_to_slot_scid();
@@ -1104,4 +1236,7 @@ void test_srvrun(void) {
   test_srvrun_busy_poll_step_never_blocks();
   test_srvrun_opt_zeroed_matches_plain_default();
   test_srvrun_so_busy_poll_zero_still_binds();
+  test_srvrun_normal_request_unaffected_by_wt_branch();
+  test_srvrun_wt_connect_establishes_session();
+  test_srvrun_plain_connect_no_protocol_no_wt_session();
 }
