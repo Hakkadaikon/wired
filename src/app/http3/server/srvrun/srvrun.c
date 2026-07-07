@@ -688,11 +688,21 @@ static int srvrun_owes_goaway(const srvrun_conn* c) {
  * as other frame types in this file (SRVRUN_CHUNK et al.); the peer's
  * advertised max_datagram_frame_size (RFC 9221 3) is enforced later, at send
  * time, by srvrun_send_pending_datagram.
+ *
+ * RFC 9297 2.1: an endpoint MUST NOT send a QUIC DATAGRAM frame before it has
+ * sent its own SETTINGS_H3_DATAGRAM=1 (SETTINGS are never acked in HTTP/3, so
+ * "sent" -- not "peer-observed" -- is the enforceable half of the ordering).
+ * c->l.h3.settings_sent is that exact flag (set by wired_h3srv_open_control,
+ * called at handshake confirmation before any response); silently drop the
+ * queue request rather than invent a new error path, matching this being a
+ * self-imposed ordering constraint, not a peer-facing fault.
  * ponytail: unused in the freestanding build (only tests/run.c calls this),
  * so it needs the attribute to avoid -Wunused-function under -Werror there.
- * @return 1 if queued, 0 if data.n exceeds dg_pending_buf's capacity */
+ * @return 1 if queued, 0 if data.n exceeds dg_pending_buf's capacity or our
+ * own SETTINGS have not been sent yet (RFC 9297 2.1) */
 __attribute__((unused)) static int srvrun_queue_datagram(
     srvrun_conn* c, quic_span data) {
+  if (!c->l.h3.settings_sent) return 0;
   if (data.n > sizeof c->dg_pending_buf) return 0;
   quic_memcpy(c->dg_pending_buf, data.p, data.n);
   c->dg_pending_len = data.n;
