@@ -6,8 +6,9 @@
 /* RFC 9000 12.4: walk a decrypted payload frame by frame. Each frame begins
  * with its type as a varint; the walker reports the type and advances past the
  * whole frame. Frame lengths are measured with the existing frame decoders, so
- * only the frame kinds the pipeline emits (PADDING, PING, CRYPTO, STREAM,
- * CONNECTION_CLOSE) can be walked. */
+ * only the frame kinds with a decoder (PADDING, PING, ACK, CRYPTO, STREAM,
+ * CONNECTION_CLOSE, HANDSHAKE_DONE, and DATAGRAM per RFC 9221 5) can be
+ * walked; any other kind stops the walk (quic_framewalk_next returns 0). */
 
 typedef struct {
   const u8* cur;
