@@ -237,3 +237,34 @@ i64 wired_udp_busy_poll_enable(i64 fd, int microseconds) {
       SYS_setsockopt, fd, WIRED_SOL_SOCKET, WIRED_SO_BUSY_POLL,
       (i64)&microseconds, sizeof(microseconds), 0);
 }
+
+/* SO_PREFER_BUSY_POLL setsockopt name (Linux). Only has kernel effect when
+ * SO_BUSY_POLL is also enabled (tasks/polling-driver-plan.md POLL-003b). */
+#define WIRED_SO_PREFER_BUSY_POLL 69
+
+i64 wired_udp_prefer_busy_poll_enable(i64 fd, int enable) {
+  return syscall6(
+      SYS_setsockopt, fd, WIRED_SOL_SOCKET, WIRED_SO_PREFER_BUSY_POLL,
+      (i64)&enable, sizeof(enable), 0);
+}
+
+/* SO_BUSY_POLL_BUDGET setsockopt name (Linux): caps packets processed per
+ * busy-poll spin (tasks/polling-driver-plan.md POLL-003b). */
+#define WIRED_SO_BUSY_POLL_BUDGET 70
+
+i64 wired_udp_busy_poll_budget_set(i64 fd, int budget) {
+  return syscall6(
+      SYS_setsockopt, fd, WIRED_SOL_SOCKET, WIRED_SO_BUSY_POLL_BUDGET,
+      (i64)&budget, sizeof(budget), 0);
+}
+
+/* SO_INCOMING_CPU setsockopt name (Linux). SET direction only: no
+ * getsockopt wrapper exists in this libc-free SDK (tasks/core-pinning-plan.md
+ * PIN-007) and adding the first one is out of scope for this feature. */
+#define WIRED_SO_INCOMING_CPU 49
+
+i64 wired_udp_incoming_cpu_set(i64 fd, int cpu) {
+  return syscall6(
+      SYS_setsockopt, fd, WIRED_SOL_SOCKET, WIRED_SO_INCOMING_CPU, (i64)&cpu,
+      sizeof(cpu), 0);
+}
