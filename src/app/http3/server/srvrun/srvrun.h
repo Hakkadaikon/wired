@@ -3,10 +3,21 @@
 
 #include "app/http3/server/srvboot/srvboot.h"
 #include "app/http3/server/srvloop/srvloop.h"
+#include "app/webtransport/session/session/session.h"
 
 /** @file
  * The complete server event loop: the sanctioned socket-owning layer over the
  * socket-free srvboot/srvloop core. */
+
+/** draft-ietf-webtrans-http3-15 SS4: app-facing delivery of one received
+ * QUIC DATAGRAM (RFC 9221 5) associated with a WebTransport session, drained
+ * from wired_srvloop's rx_datagrams queue once per connection step. data is a
+ * view into per-step scratch, not valid past the call.
+ * @param app_ctx opaque context registered alongside this callback
+ * @param s the session the datagram is associated with
+ * @param data the datagram's payload bytes */
+typedef void (*wired_wt_on_datagram)(
+    void* app_ctx, wired_wt_session* s, quic_span data);
 
 /** The application's request responder: the callback and its opaque context,
  * registered on the loop as a pair (wired_srvloop_set_handler takes the same
@@ -76,6 +87,12 @@ typedef struct {
   int so_busy_poll_us; /**< >0: also enable SO_BUSY_POLL (microseconds).
                         * Independent of busy_poll; a no-op on a kernel/driver
                         * without CONFIG_NET_RX_BUSY_POLL support. */
+  /** draft-ietf-webtrans-http3-15 SS4: app-facing WebTransport datagram
+   * delivery, 0 to disable (the default) — a 0 callback makes the per-step
+   * drain of received QUIC DATAGRAMs a no-op consume (the queue still empties,
+   * nothing is delivered). */
+  wired_wt_on_datagram wt_on_datagram;
+  void*                wt_datagram_ctx; /**< opaque ctx passed to wt_on_datagram */
 } wired_srvrun_opt;
 
 /** Same as wired_server_run, plus opt-in polling-driver behavior. `opt` must
