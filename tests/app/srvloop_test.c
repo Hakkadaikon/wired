@@ -1340,6 +1340,7 @@ static void test_srvloop_datagram_queued_on_step(void) {
   quic_datagram_frame df = {.length = 5, .data = (const u8*)"hello"};
   plen = quic_datagram_encode(quic_mspan_of(payload, sizeof payload), &df, 1);
   lp_confirm(&f, &ob);
+  f.l.we_advertised_max_datagram = 100; /* RFC 9221 3: server opted in */
   slen = client_seal_onertt_pn(&f, 3, payload, plen, spkt, sizeof spkt);
   ob   = (quic_obuf){out, sizeof out, 0};
   wired_srvloop_step(
@@ -1364,6 +1365,7 @@ static void test_srvloop_datagram_queue_overflow_drops_newest(void) {
   quic_obuf     ob = {out, sizeof out, 0};
   usz           i;
   lp_confirm(&f, &ob);
+  f.l.we_advertised_max_datagram = 100; /* RFC 9221 3: server opted in */
   /* fill the queue: WIRED_SRVLOOP_MAX_RX_DATAGRAMS datagrams, byte value i. */
   for (i = 0; i < WIRED_SRVLOOP_MAX_RX_DATAGRAMS; i++) {
     u8                  b  = (u8)('A' + i);
@@ -1394,6 +1396,73 @@ static void test_srvloop_datagram_queue_overflow_drops_newest(void) {
   CHECK(f.l.rx_datagram_n == WIRED_SRVLOOP_MAX_RX_DATAGRAMS);
   for (i = 0; i < WIRED_SRVLOOP_MAX_RX_DATAGRAMS; i++)
     CHECK(f.l.rx_datagrams[i].len == 1 && f.l.rx_datagrams[i].buf[0] == 'A' + i);
+}
+
+/* RFC 9221 3: a DATAGRAM frame whose payload fits within the connection's own
+ * advertised max_datagram_frame_size is accepted and queued normally --
+ * equivalence-partition boundary "at the limit" (payload.n == advertised). */
+static void test_srvloop_datagram_within_advertised_limit_accepted(void) {
+  struct lp_fix       f;
+  u8                  payload[64], out[1024], spkt[1024];
+  usz                 plen, slen;
+  quic_obuf           ob = {out, sizeof out, 0};
+  u8                  data[50];
+  quic_datagram_frame df = {.length = sizeof data, .data = data};
+  for (usz i = 0; i < sizeof data; i++) data[i] = (u8)i;
+  plen = quic_datagram_encode(quic_mspan_of(payload, sizeof payload), &df, 1);
+  lp_confirm(&f, &ob);
+  f.l.we_advertised_max_datagram = 100; /* RFC 9221 3: server opted in */
+  slen = client_seal_onertt_pn(&f, 3, payload, plen, spkt, sizeof spkt);
+  ob   = (quic_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  CHECK(f.l.rx_datagram_n == 1);
+  CHECK(f.l.rx_datagrams[0].len == sizeof data);
+  CHECK(f.l.datagram_violation == 0);
+}
+
+/* RFC 9221 3: a DATAGRAM frame whose payload EXCEEDS the connection's own
+ * advertised max_datagram_frame_size is a PROTOCOL_VIOLATION -- rejected, not
+ * queued, and the violation is latched for srvrun.c to close the connection
+ * over. */
+static void test_srvloop_datagram_exceeding_advertised_limit_rejected(void) {
+  struct lp_fix       f;
+  u8                  payload[512], out[1024], spkt[1024];
+  usz                 plen, slen;
+  quic_obuf           ob = {out, sizeof out, 0};
+  u8                  data[200];
+  quic_datagram_frame df = {.length = sizeof data, .data = data};
+  for (usz i = 0; i < sizeof data; i++) data[i] = (u8)i;
+  plen = quic_datagram_encode(quic_mspan_of(payload, sizeof payload), &df, 1);
+  lp_confirm(&f, &ob);
+  f.l.we_advertised_max_datagram = 100; /* RFC 9221 3: advertised limit 100 */
+  slen = client_seal_onertt_pn(&f, 3, payload, plen, spkt, sizeof spkt);
+  ob   = (quic_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  CHECK(f.l.rx_datagram_n == 0);
+  CHECK(f.l.datagram_violation == 1);
+}
+
+/* RFC 9221 3: a connection that never advertised max_datagram_frame_size
+ * (we_advertised_max_datagram == 0, this repo's "unset" sentinel) rejects ANY
+ * received DATAGRAM frame as a PROTOCOL_VIOLATION -- the we_advertised=0
+ * branch of quic_datagram_recv_ok, exercised via the live dispatch path. */
+static void test_srvloop_datagram_without_advertising_rejected(void) {
+  struct lp_fix       f;
+  u8                  payload[64], out[1024], spkt[1024];
+  usz                 plen, slen;
+  quic_obuf           ob = {out, sizeof out, 0};
+  quic_datagram_frame df = {.length = 5, .data = (const u8*)"hello"};
+  plen = quic_datagram_encode(quic_mspan_of(payload, sizeof payload), &df, 1);
+  lp_confirm(&f, &ob);
+  /* f.l.we_advertised_max_datagram left at its wired_srvloop_init default: 0 */
+  slen = client_seal_onertt_pn(&f, 3, payload, plen, spkt, sizeof spkt);
+  ob   = (quic_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  CHECK(f.l.rx_datagram_n == 0);
+  CHECK(f.l.datagram_violation == 1);
 }
 
 /* REGRESSION: a payload with only a request stream (no DATAGRAM) leaves
@@ -1804,6 +1873,9 @@ void test_srvloop(void) {
   test_srvloop_wt_uni_stream_without_session_no_crash();
   test_srvloop_datagram_queued_on_step();
   test_srvloop_datagram_queue_overflow_drops_newest();
+  test_srvloop_datagram_within_advertised_limit_accepted();
+  test_srvloop_datagram_exceeding_advertised_limit_rejected();
+  test_srvloop_datagram_without_advertising_rejected();
   test_srvloop_request_only_leaves_rx_datagrams_empty();
   test_srvloop_stream_leading_0x40_not_wt_signal();
   test_srvloop_send_initial_roundtrip();
