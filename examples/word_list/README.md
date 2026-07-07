@@ -89,6 +89,10 @@ just run             # builds and starts on 0.0.0.0:4433
 `_start`). On startup the server prints `listening on 0.0.0.0:4433` and waits for
 the ClientHello. Stop it with Ctrl-C.
 
+Pass `--busy-poll` to spin the receive loop with `MSG_DONTWAIT` instead of
+blocking on `poll(2)` (`tasks/polling-driver-plan.md`); default is off
+(unchanged blocking behavior).
+
 ## Connecting with `curl --http3`
 
 Run the server on a host where the client can reach UDP `4433`, then:
