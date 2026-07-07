@@ -1083,6 +1083,50 @@ static void test_srvloop_wt_bidi_stream_reassembled(void) {
   }
 }
 
+/* 1 if some streams[] slot has claimed stream_id — the request-reassembly
+ * table a WT bidi stream must NEVER appear in, at any offset. */
+static int lp_streams_slot_claims(const wired_srvloop* l, u64 stream_id) {
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_STREAMS; i++)
+    if (l->streams[i].in_use && l->streams[i].stream_id == stream_id) return 1;
+  return 0;
+}
+
+/* REGRESSION (draft-ietf-webtrans-http3-15 4.3): a WT bidi stream's
+ * post-signal CONTINUATION frame (offset>0) must be excluded from the
+ * request-reassembly path exactly like its own offset-0 signal frame is --
+ * sf_is_request must consult wt_frame_relevant (l->wt_streams[] membership),
+ * not just the current frame's own offset. Before this was fixed, the
+ * offset>0 frame's id-based classification alone made it look like a fresh
+ * request stream: step_slot_for/wired_srvloop_payload_stream_id claimed a
+ * streams[] slot for stream 4 and gather_request copied its bytes into that
+ * slot's req_buf, alongside (not instead of) the correct wt_streams[]
+ * landing. This reuses test_srvloop_wt_bidi_stream_reassembled's exact wire
+ * shape and asserts the ADDITIONAL invariant that test didn't check: no
+ * streams[] slot ever exists for stream 4. */
+static void test_srvloop_wt_bidi_continuation_not_absorbed_into_request(void) {
+  struct lp_fix f;
+  u8            f0[64], f1[64], out[1024], spkt[1024];
+  usz           f0l, f1l, slen;
+  quic_obuf     ob = {out, sizeof out, 0};
+  const u8*     sig_plus_ab = (const u8*)"\x40\x41" "AB";
+  const u8*     cd          = (const u8*)"CD";
+  f0l = lp_stream_frame_at(f0, sizeof f0, 4, 0, sig_plus_ab, 4, 0);
+  f1l = lp_stream_frame_at(f1, sizeof f1, 4, 4, cd, 2, 1);
+  lp_confirm(&f, &ob);
+  slen = client_seal_onertt_pn(&f, 3, f0, f0l, spkt, sizeof spkt);
+  ob   = (quic_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  CHECK(!lp_streams_slot_claims(&f.l, 4));
+  slen = client_seal_onertt_pn(&f, 4, f1, f1l, spkt, sizeof spkt);
+  ob   = (quic_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  CHECK(!lp_streams_slot_claims(&f.l, 4));
+  CHECK(f.l.got_request == 0);
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_STREAMS; i++) CHECK(f.l.streams[i].in_use == 0);
+}
+
 /* CONCURRENCY (draft-ietf-webtrans-http3-15 4.3): a WT bidi stream (id 4) and
  * a normal HTTP/3 request stream (id 0) on the SAME connection, coalesced into
  * the SAME payload/step, must both reassemble correctly into their own
@@ -1864,6 +1908,7 @@ void test_srvloop(void) {
   test_srvloop_two_streams_reassemble_independently();
   test_srvloop_wt_bidi_stream_not_request();
   test_srvloop_wt_bidi_stream_reassembled();
+  test_srvloop_wt_bidi_continuation_not_absorbed_into_request();
   test_srvloop_wt_stream_concurrent_with_request();
   test_srvloop_wt_signal_only_frame_then_data();
   test_srvloop_wt_stream_without_session_no_crash();
