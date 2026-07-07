@@ -32,12 +32,17 @@ static int srvworkers_slot_for_pid(const i64* pids, int n, i64 pid) {
  * there. */
 typedef void (*srvworkers_child_fn)(
     u16 port, wired_srvboot_id* id, wired_srvrun_handler h,
-    wired_srvrun_obs obs);
+    wired_srvrun_obs obs, int worker_index);
 
+/* tasks/core-pinning-plan.md PIN-007: hint the kernel to steer this worker's
+ * incoming packets toward the same CPU it is pinned to (worker_index),
+ * reducing cache-line bouncing between the RSS/RPS-selected CPU and the
+ * process actually handling the socket. SET direction only. */
 static void srvworkers_run_real(
     u16 port, wired_srvboot_id* id, wired_srvrun_handler h,
-    wired_srvrun_obs obs) {
-  wired_server_run(port, id, h, obs);
+    wired_srvrun_obs obs, int worker_index) {
+  wired_srvrun_opt opt = {0, 0, 0, 0, 0, 0, worker_index};
+  wired_server_run_opt(port, id, h, obs, &opt);
 }
 
 static srvworkers_child_fn g_srvworkers_child_fn = srvworkers_run_real;
@@ -63,7 +68,7 @@ static void srvworkers_child_start(
     wired_srvrun_obs        obs,
     int                      pin_cores) {
   if (pin_cores) wired_srvpin_bind_self(worker_index);
-  g_srvworkers_child_fn(port, id, h, obs);
+  g_srvworkers_child_fn(port, id, h, obs, worker_index);
   syscall1(SYS_exit_group, 0);
 }
 
