@@ -397,12 +397,66 @@ static void test_srvrun_accept_rekeys_to_slot_scid(void) {
     srvrun_serve(&ctx, quic_mspan_of(dg, total));
   }
   CHECK(st.conns[0].up == 1);
-  /* the Initial's DCID no longer routes anywhere... */
-  CHECK(quic_conntable_find(table, QUIC_CONNTABLE_CAP, g_sr_odcid, 8) == -1);
-  /* ...the slot's generated SCID does */
+  /* the Initial's DCID keeps routing here (RFC 9000 7.2/17.2.2: a client
+   * Initial retransmitted before it has seen the new SCID must still reach
+   * this same slot, not spawn a duplicate connection) ... */
+  CHECK(quic_conntable_find(table, QUIC_CONNTABLE_CAP, g_sr_odcid, 8) == 0);
+  /* ...and so does the slot's generated SCID */
   CHECK(
       quic_conntable_find(
           table, QUIC_CONNTABLE_CAP, st.conns[0].scid, id.scid_len) == 0);
+}
+
+/* BOOT RETRANSMIT (RFC 9000 13.3): before the handshake is confirmed, the
+ * same client Initial arriving again (its first reply lost or delayed) must
+ * resend the cached accept flight, not run a fresh boot -- a fresh boot
+ * would regenerate the slot's SCID and its keys, which is what left Chrome
+ * unable to complete a handshake (tasks/interop-gap.md). This test proves
+ * the slot's identity is untouched by the retransmit: same SCID, same
+ * cached flight bytes, still not confirmed. */
+static void test_srvrun_initial_retransmit_resends_cached_flight(void) {
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32], dg[1500];
+  quic_conntable   table[QUIC_CONNTABLE_CAP];
+  quic_sockaddr_in peer = {0};
+  srvrun_state     st   = {table, g_srvrun_state.conns};
+  usz total             = sr_build_client_initial(dg, sizeof dg, g_sr_odcid, 8);
+  u8  first_scid[WIRED_MAX_CID_LEN];
+  usz first_boot_ini_len, first_boot_dgram_count, send_count_after_first;
+  sr_make_id(&id, priv, pub, seed, rnd);
+  {
+    srvrun_cfg      cfg = {-1, &id, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0};
+    quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+    srvrun_test_reset_send_count();
+    srvrun_serve(&ctx, quic_mspan_of(dg, total));
+    CHECK(st.conns[0].up == 1);
+    for (usz i = 0; i < id.scid_len; i++) first_scid[i] = st.conns[0].scid[i];
+    first_boot_ini_len     = st.conns[0].boot_ini_len;
+    first_boot_dgram_count = st.conns[0].boot_dgram_count;
+    CHECK(first_boot_ini_len > 0);
+    /* not confirmed yet -- this Initial carried no client Finished */
+    CHECK(wired_server_is_confirmed(&st.conns[0].s) == 0);
+    send_count_after_first = srvrun_test_send_count();
+    CHECK(send_count_after_first > 0); /* the accept flight went out */
+
+    /* the exact same datagram arrives again (a lost first reply) */
+    srvrun_serve(&ctx, quic_mspan_of(dg, total));
+  }
+  CHECK(st.conns[0].up == 1);
+  /* the retransmit triggered its own sends -- proof the cached flight was
+   * actually resent, not silently dropped into the confirmed-connection
+   * step path (which would leave the send count unchanged) */
+  CHECK(srvrun_test_send_count() > send_count_after_first);
+  /* still the same slot, same identity -- a fresh boot would have
+   * regenerated scid and reset the boot cache */
+  CHECK(
+      quic_conntable_find(
+          table, QUIC_CONNTABLE_CAP, st.conns[0].scid, id.scid_len) == 0);
+  for (usz i = 0; i < id.scid_len; i++)
+    CHECK(st.conns[0].scid[i] == first_scid[i]);
+  CHECK(st.conns[0].boot_ini_len == first_boot_ini_len);
+  CHECK(st.conns[0].boot_dgram_count == first_boot_dgram_count);
 }
 
 /* Raw ClientHello + one sealed chunk Initial, the srvrun-side split fixture
@@ -2755,6 +2809,7 @@ void test_srvrun(void) {
   test_srvrun_wt_full_session_lifecycle_on_wire();
   test_srvrun_no_shutdown_accepts_new();
   test_srvrun_accept_rekeys_to_slot_scid();
+  test_srvrun_initial_retransmit_resends_cached_flight();
   test_srvrun_split_ch_boots_across_datagrams();
   test_srvrun_stalled_boot_swept();
   test_srvrun_alien_version_claims_no_slot();
