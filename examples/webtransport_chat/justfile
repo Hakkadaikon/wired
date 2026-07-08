@@ -1,0 +1,12 @@
+# wired WebTransport chat sample. libc-free, x86_64-linux only.
+# Mirrors examples/word_list/justfile; its ninja target is registered in the
+# SDK's scripts/gen_ninja.sh alongside word_list's.
+
+# Build the server against the SDK static library, after the SDK's own
+# fmt+ninja+lint gate. The static, freestanding binary needs no libc.
+build:
+    cd ../.. && just build && ninja examples/webtransport_chat/wired_server
+
+# Build and run (binds 0.0.0.0:4433; Ctrl-C to stop).
+run: build
+    ./wired_server
