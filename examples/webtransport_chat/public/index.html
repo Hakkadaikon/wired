@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <title>wired WebTransport Chat</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <h1>WebTransport Chat</h1>
+
+    <section id="connection-panel">
+      <label for="url">サーバーURL</label>
+      <input id="url" type="text" value="https://localhost:4433/" />
+
+      <label for="certHash">証明書ハッシュ (SHA-256)</label>
+      <input
+        id="certHash"
+        type="text"
+        placeholder="サーバー起動ログのSHA-256フィンガープリントを貼り付け(コロン区切りでも可。複数はカンマ区切り)"
+      />
+
+      <button id="connect" type="button">接続</button>
+      <span id="status" class="status status-disconnected">disconnected</span>
+    </section>
+
+    <ul id="messages"></ul>
+
+    <form id="chat-form">
+      <input id="author" type="text" placeholder="名前" required />
+      <input id="text" type="text" placeholder="メッセージ" required />
+      <button type="submit">送信</button>
+    </form>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
