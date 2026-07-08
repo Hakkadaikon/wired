@@ -95,6 +95,11 @@ typedef struct {
    * here rather than re-derived so the association happens exactly once per
    * stream regardless of how many steps its data arrives across. */
   int offered;
+  /** how much of buf[0..len) the caller driving the loop (srvrun.c) has
+   * already delivered to an app-facing stream-data callback; the loop itself
+   * never reads this, it only resets it to 0 on claim (mirrors offered's
+   * split: the loop owns reassembly, the caller owns delivery bookkeeping). */
+  usz delivered_len;
 } wired_srvloop_wt_stream_slot;
 
 /** draft-ietf-webtrans-http3-15 4.3: how many concurrent WebTransport uni
@@ -127,6 +132,10 @@ typedef struct {
   /** 1 once wired_wt_session_offer_stream has been called for this slot's
    * stream_id, mirroring wired_srvloop_wt_stream_slot's offered field. */
   int offered;
+  /** how much of buf[0..len) has already been delivered to an app-facing
+   * stream-data callback, mirroring wired_srvloop_wt_stream_slot's
+   * delivered_len field (see its doc for the ownership split). */
+  usz delivered_len;
 } wired_srvloop_wt_uni_stream_slot;
 
 /** RFC 9221 5: how many received QUIC DATAGRAM frames one connection queues
