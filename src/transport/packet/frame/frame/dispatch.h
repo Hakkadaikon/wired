@@ -29,7 +29,8 @@ typedef enum {
   QUIC_FK_PATH_RESPONSE,
   QUIC_FK_CONNECTION_CLOSE,
   QUIC_FK_HANDSHAKE_DONE,
-  QUIC_FK_DATAGRAM
+  QUIC_FK_DATAGRAM,
+  QUIC_FK_RESET_STREAM_AT
 } quic_frame_kind;
 
 /* Classify a frame type value into its kind. */
