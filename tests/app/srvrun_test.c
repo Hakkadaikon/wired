@@ -2590,7 +2590,168 @@ static void test_srvrun_wt_full_session_lifecycle_on_wire(void) {
   CHECK(conns[0].up == 1); /* the connection itself is untouched */
 }
 
+/* Reset the global connection table srvrun_loop owns (g_srvrun_table/
+ * g_srvrun_state, srvrun.c) to a clean slate -- wired_server_broadcast_
+ * datagram operates on these globals directly (it has no srvrun_state
+ * parameter, since it must be callable from inside a wt_on_datagram
+ * callback whose signature carries no such handle), so tests exercising it
+ * must isolate themselves from whatever an earlier test left behind. */
+static void sr_reset_global_table(void) {
+  for (usz i = 0; i < QUIC_CONNTABLE_CAP; i++)
+    g_srvrun_state.conns[i] = (srvrun_conn){0};
+  quic_conntable_init(g_srvrun_table, QUIC_CONNTABLE_CAP);
+}
+
+/* BROADCAST: every connection with an active WT session gets the payload
+ * queued -- the two-recipient baseline case. */
+static void test_srvrun_broadcast_datagram_queues_active_wt_sessions(void) {
+  sr_reset_global_table();
+  g_srvrun_state.conns[0].up                 = 1;
+  g_srvrun_state.conns[0].wt_active          = 1;
+  g_srvrun_state.conns[0].l.h3.settings_sent = 1;
+  g_srvrun_state.conns[1].up                 = 1;
+  g_srvrun_state.conns[1].wt_active          = 1;
+  g_srvrun_state.conns[1].l.h3.settings_sent = 1;
+  CHECK(
+      wired_server_broadcast_datagram(
+          quic_span_of(sr_dg_payload, sizeof sr_dg_payload)) == 1);
+  CHECK(g_srvrun_state.conns[0].dg_pending == 1);
+  CHECK(g_srvrun_state.conns[0].dg_pending_len == sizeof sr_dg_payload);
+  CHECK(g_srvrun_state.conns[1].dg_pending == 1);
+  for (usz i = 0; i < sizeof sr_dg_payload; i++) {
+    CHECK(g_srvrun_state.conns[0].dg_pending_buf[i] == sr_dg_payload[i]);
+    CHECK(g_srvrun_state.conns[1].dg_pending_buf[i] == sr_dg_payload[i]);
+  }
+}
+
+/* BOUNDARY: a connection with no active WT session (wt_active == 0) is not
+ * a broadcast recipient, even if it is up. */
+static void test_srvrun_broadcast_datagram_skips_inactive_wt(void) {
+  sr_reset_global_table();
+  g_srvrun_state.conns[0].up        = 1;
+  g_srvrun_state.conns[0].wt_active = 0;
+  CHECK(
+      wired_server_broadcast_datagram(
+          quic_span_of(sr_dg_payload, sizeof sr_dg_payload)) == 1);
+  CHECK(g_srvrun_state.conns[0].dg_pending == 0);
+}
+
+/* BOUNDARY: an unused slot (up == 0) is skipped, not touched -- must not
+ * crash and must not queue on a slot that was never a live connection. */
+static void test_srvrun_broadcast_datagram_skips_unused_slot(void) {
+  sr_reset_global_table();
+  CHECK(
+      wired_server_broadcast_datagram(
+          quic_span_of(sr_dg_payload, sizeof sr_dg_payload)) == 1);
+  for (usz i = 0; i < QUIC_CONNTABLE_CAP; i++)
+    CHECK(g_srvrun_state.conns[i].dg_pending == 0);
+}
+
+/* BOUNDARY: a payload larger than the per-connection dg_pending_buf capacity
+ * is rejected outright -- 0 returned, no connection is queued. */
+static void test_srvrun_broadcast_datagram_rejects_oversize(void) {
+  u8 big[1300];
+  sr_reset_global_table();
+  g_srvrun_state.conns[0].up        = 1;
+  g_srvrun_state.conns[0].wt_active = 1;
+  CHECK(wired_server_broadcast_datagram(quic_span_of(big, sizeof big)) == 0);
+  CHECK(g_srvrun_state.conns[0].dg_pending == 0);
+}
+
+/* REAL-WIRE: two independent WT-established clients; one's DATAGRAM,
+ * received by the server's wt_on_datagram callback, is broadcast to both --
+ * both actually receive it over sealed 1-RTT wire bytes. This is the
+ * end-to-end proof a chat app depends on (a message one client sends
+ * reaches every other connected client), not just internal state. */
+static wired_wt_session* g_bcast_last_sess;
+static void              sr_broadcast_relay(
+    void* app_ctx, wired_wt_session* s, quic_span data) {
+  (void)app_ctx;
+  g_bcast_last_sess = s;
+  wired_server_broadcast_datagram(data);
+}
+
+static void test_srvrun_broadcast_datagram_reaches_two_real_clients(void) {
+  struct lp_fix       f0, f1;
+  quic_obuf           ob0, ob1;
+  u8                  obuf0[1024], obuf1[1024];
+  u8                  out0[1024], out1[1024], spkt[1024];
+  usz                 slen;
+  const u8*           pl;
+  usz                 pll;
+  quic_datagram_frame df;
+
+  sr_reset_global_table();
+  ob0 = (quic_obuf){obuf0, sizeof obuf0, 0};
+  ob1 = (quic_obuf){obuf1, sizeof obuf1, 0};
+  sr_make_confirmed_conn(&g_srvrun_state.conns[0], &f0, &ob0);
+  sr_make_confirmed_conn(&g_srvrun_state.conns[1], &f1, &ob1);
+  g_srvrun_state.conns[0].s.sdrv.peer_max_datagram_frame_size = 65535;
+  g_srvrun_state.conns[1].s.sdrv.peer_max_datagram_frame_size = 65535;
+  g_srvrun_state.conns[0].l.we_advertised_max_datagram        = 65535;
+  g_srvrun_state.conns[1].l.we_advertised_max_datagram        = 65535;
+
+  /* Establish WT sessions on both connections (mirrors sr_set_req +
+   * srvrun_start_resp's own driving style used throughout this file). */
+  sr_set_req(&g_srvrun_state.conns[0], 1, 1, 4);
+  sr_set_req(&g_srvrun_state.conns[1], 1, 1, 4);
+  {
+    srvrun_cfg      cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_state    st  = {g_srvrun_table, g_srvrun_state.conns};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_start_resp(&ctx, 0);
+    ctx.st = &st;
+    srvrun_start_resp(&ctx, 1);
+  }
+  CHECK(g_srvrun_state.conns[0].wt_active == 1);
+  CHECK(g_srvrun_state.conns[1].wt_active == 1);
+
+  /* Client 0 sends a DATAGRAM; the server's wt_on_datagram callback relays
+   * it to every WT-active connection via wired_server_broadcast_datagram. */
+  {
+    srvrun_cfg      cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, sr_broadcast_relay,
+                           0,  0, 0};
+    srvrun_state    st  = {g_srvrun_table, g_srvrun_state.conns};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    u8              dgpl[64];
+    usz             dgpll;
+    quic_datagram_frame in = {sizeof sr_dg_payload, sr_dg_payload};
+    dgpll = quic_datagram_encode(quic_mspan_of(dgpl, sizeof dgpl), &in, 1);
+    slen  = client_seal_onertt_pn(&f0, 3, dgpl, dgpll, spkt, sizeof spkt);
+    srvrun_on_step(&ctx, &g_srvrun_state.conns[0], quic_mspan_of(spkt, slen));
+  }
+  CHECK(g_bcast_last_sess == &g_srvrun_state.conns[0].wt);
+
+  /* Both connections now have the payload queued for their next send;
+   * drain and open each on its OWN client side to prove the bytes are
+   * correct end to end, not just copied in memory. */
+  {
+    quic_obuf  sendob0 = {out0, sizeof out0, 0};
+    quic_obuf  sendob1 = {out1, sizeof out1, 0};
+    srvrun_cfg cfg     = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    CHECK(
+        srvrun_send_pending_datagram(
+            &cfg, &g_srvrun_state.conns[0], &sendob0) == 1);
+    CHECK(
+        srvrun_send_pending_datagram(
+            &cfg, &g_srvrun_state.conns[1], &sendob1) == 1);
+    CHECK(client_open_onertt(&f0, sendob0.p, sendob0.len, &pl, &pll) == 1);
+    CHECK(quic_datagram_decode(pl, pll, &df) == pll);
+    for (usz i = 0; i < sizeof sr_dg_payload; i++)
+      CHECK(df.data[i] == sr_dg_payload[i]);
+    CHECK(client_open_onertt(&f1, sendob1.p, sendob1.len, &pl, &pll) == 1);
+    CHECK(quic_datagram_decode(pl, pll, &df) == pll);
+    for (usz i = 0; i < sizeof sr_dg_payload; i++)
+      CHECK(df.data[i] == sr_dg_payload[i]);
+  }
+}
+
 void test_srvrun(void) {
+  test_srvrun_broadcast_datagram_queues_active_wt_sessions();
+  test_srvrun_broadcast_datagram_skips_inactive_wt();
+  test_srvrun_broadcast_datagram_skips_unused_slot();
+  test_srvrun_broadcast_datagram_rejects_oversize();
+  test_srvrun_broadcast_datagram_reaches_two_real_clients();
   test_srvrun_wt_full_session_lifecycle_on_wire();
   test_srvrun_no_shutdown_accepts_new();
   test_srvrun_accept_rekeys_to_slot_scid();
