@@ -1821,6 +1821,90 @@ static void test_srvrun_idle_sweep_closes_wt_session(void) {
   CHECK(conns[0].up == 0);
 }
 
+/* draft-ietf-webtrans-http3-15 SS4.4 / WT-F-001/002/003: the CONNECT stream
+ * closing (dispatch.c's gather_stream_closes latching closed_stream_id) ends
+ * the WT session immediately, independent of whole-connection teardown -- the
+ * fourth trigger the TLA+ model (tasks/loopeng/webtransport/) found the
+ * existing three (peer CONNECTION_CLOSE / idle timeout / accept failure, all
+ * srvrun_free_slot) missing. The connection itself stays up (conns[0].up is
+ * never touched by srvrun_on_step for this), only the session closes. */
+static void test_srvrun_connect_stream_reset_closes_wt_session(void) {
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_conn    conns[QUIC_CONNTABLE_CAP] = {0};
+  quic_obuf      ob;
+  u8             obuf[1024];
+  struct lp_fix  f;
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  sr_make_confirmed_conn(&conns[0], &f, &ob);
+  sr_set_req(&conns[0], 1, 1, 4);
+  {
+    srvrun_cfg      cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_state    st  = {table, conns};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_start_resp(&ctx, 0);
+  }
+  CHECK(conns[0].wt_active == 1);
+  CHECK(conns[0].wt.connect_stream_id == 4);
+  conns[0].l.closed_stream_id   = 4; /* the CONNECT stream's own id */
+  conns[0].l.closed_stream_seen = 1;
+  srvrun_close_wt_on_stream_close(&conns[0]);
+  CHECK(conns[0].wt.state == WIRED_WT_CLOSED);
+  CHECK(conns[0].l.closed_stream_seen == 0); /* consumed every step */
+}
+
+/* BOUNDARY: a close on a DIFFERENT stream id (e.g. a WT bidi/uni data stream,
+ * not the CONNECT stream itself) must not touch the session -- only the exact
+ * connect_stream_id id closes it. */
+static void test_srvrun_other_stream_reset_does_not_close_wt_session(void) {
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_conn    conns[QUIC_CONNTABLE_CAP] = {0};
+  quic_obuf      ob;
+  u8             obuf[1024];
+  struct lp_fix  f;
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  sr_make_confirmed_conn(&conns[0], &f, &ob);
+  sr_set_req(&conns[0], 1, 1, 4);
+  {
+    srvrun_cfg      cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_state    st  = {table, conns};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_start_resp(&ctx, 0);
+  }
+  CHECK(conns[0].wt_active == 1);
+  conns[0].l.closed_stream_id   = 8; /* a different (WT bidi) stream id */
+  conns[0].l.closed_stream_seen = 1;
+  srvrun_close_wt_on_stream_close(&conns[0]);
+  CHECK(conns[0].wt.state == WIRED_WT_ESTABLISHED);
+  CHECK(conns[0].wt_active == 1);
+  CHECK(conns[0].l.closed_stream_seen == 0); /* still consumed every step */
+}
+
+/* REGRESSION: a step with no stream-close latched (closed_stream_seen == 0)
+ * leaves an established WT session untouched. */
+static void test_srvrun_no_stream_close_leaves_wt_session(void) {
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_conn    conns[QUIC_CONNTABLE_CAP] = {0};
+  quic_obuf      ob;
+  u8             obuf[1024];
+  struct lp_fix  f;
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  sr_make_confirmed_conn(&conns[0], &f, &ob);
+  sr_set_req(&conns[0], 1, 1, 4);
+  {
+    srvrun_cfg      cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_state    st  = {table, conns};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_start_resp(&ctx, 0);
+  }
+  CHECK(conns[0].wt_active == 1);
+  srvrun_close_wt_on_stream_close(&conns[0]);
+  CHECK(conns[0].wt.state == WIRED_WT_ESTABLISHED);
+  CHECK(conns[0].wt_active == 1);
+}
+
 /* REGRESSION: a connection with no active WT session (wt_active == 0) tears
  * down exactly as before -- srvrun_free_slot is the most commonly hit
  * teardown path, so a crash or behavior change here would be severe. */
@@ -2439,6 +2523,9 @@ void test_srvrun(void) {
   test_srvrun_seal_app_close_empty_reason();
   test_srvrun_send_app_close_does_not_crash();
   test_srvrun_first_wt_connect_no_reset_stream();
+  test_srvrun_connect_stream_reset_closes_wt_session();
+  test_srvrun_other_stream_reset_does_not_close_wt_session();
+  test_srvrun_no_stream_close_leaves_wt_session();
   test_srvrun_idle_sweep_closes_wt_session();
   test_srvrun_idle_sweep_without_wt_unaffected();
   test_srvrun_datagram_round_trip_on_wire();
