@@ -19,6 +19,19 @@
 typedef void (*wired_wt_on_datagram)(
     void* app_ctx, wired_wt_session* s, quic_span data);
 
+/** draft-ietf-webtrans-http3-15 4.3: app-facing delivery of one reassembled
+ * chunk of a WebTransport bidi/uni stream's bytes, drained from wired_srvloop's
+ * wt_streams/wt_uni_streams once per connection step. data is a view into
+ * per-step scratch, not valid past the call. fin=1 marks the stream's end.
+ * @param app_ctx opaque context registered alongside this callback
+ * @param s the session the stream is associated with
+ * @param stream_id the WT bidi/uni stream id
+ * @param data the stream's reassembled bytes so far past the signal/type byte
+ * @param fin 1 once the stream's FIN has been seen */
+typedef void (*wired_wt_on_stream_data)(
+    void* app_ctx, wired_wt_session* s, u64 stream_id, quic_span data,
+    int fin);
+
 /** The application's request responder: the callback and its opaque context,
  * registered on the loop as a pair (wired_srvloop_set_handler takes the same
  * pair). */
@@ -92,7 +105,13 @@ typedef struct {
    * drain of received QUIC DATAGRAMs a no-op consume (the queue still empties,
    * nothing is delivered). */
   wired_wt_on_datagram wt_on_datagram;
-  void* wt_datagram_ctx;     /**< opaque ctx passed to wt_on_datagram */
+  void* wt_datagram_ctx; /**< opaque ctx passed to wt_on_datagram */
+  /** draft-ietf-webtrans-http3-15 4.3: app-facing WebTransport bidi/uni
+   * stream-data delivery, 0 to disable (the default) — a 0 callback makes the
+   * per-step delta-delivery of reassembled WT stream bytes a no-op (reassembly
+   * and offer_stream association still happen, nothing is delivered). */
+  wired_wt_on_stream_data wt_on_stream_data;
+  void* wt_stream_data_ctx;  /**< opaque ctx passed to wt_on_stream_data */
   int   so_prefer_busy_poll; /**< 0 = disabled (default); 1 = also enable
                               * SO_PREFER_BUSY_POLL (requires so_busy_poll_us > 0
                               * to have kernel effect, see srvrun.c's guard). */

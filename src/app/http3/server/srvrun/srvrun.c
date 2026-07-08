@@ -56,6 +56,9 @@ typedef struct {
   wired_wt_on_datagram  wt_on_datagram; /**< app WT datagram callback, 0 to
                                          * disable */
   void* wt_datagram_ctx;                /**< opaque ctx for wt_on_datagram */
+  wired_wt_on_stream_data wt_on_stream_data; /**< app WT stream-data callback,
+                                              * 0 to disable */
+  void* wt_stream_data_ctx; /**< opaque ctx for wt_on_stream_data */
 } srvrun_cfg;
 
 /* Storage a SIGHUP reload decodes into — must outlive the identity built from
@@ -492,17 +495,69 @@ static int wt_slot_needs_offer(const wired_srvloop_wt_stream_slot* slot) {
   return slot->in_use && !slot->offered;
 }
 
+/* A fresh, not-yet-delivered FIN on an empty stream (no bytes ever, closing
+ * frame carried none either) — the one case wt_stream_delta_pending's plain
+ * len > delivered_len check misses. */
+static int wt_stream_fin_only(usz len, u8 fin, usz delivered_len) {
+  return fin && delivered_len == 0 && len == 0;
+}
+
+/* Whether this step has anything new worth delivering for one WT stream slot:
+ * either fresh bytes past the last delivery, or a fresh FIN with no bytes at
+ * all (see wt_stream_fin_only). */
+static int wt_stream_delta_pending(usz len, u8 fin, usz delivered_len) {
+  if (len > delivered_len) return 1;
+  return wt_stream_fin_only(len, fin, delivered_len);
+}
+
+/* Whether srvrun_deliver_wt_stream_delta has anything to do at all: an active
+ * session, a registered callback, and a pending delta (wt_stream_delta_pending)
+ * — folded into one predicate so the caller is a single guarded early return. */
+static int wt_stream_delta_ready(
+    const srvrun_cfg* cfg, const srvrun_conn* c, usz len, u8 fin,
+    usz delivered_len) {
+  if (!c->wt_active || !cfg->wt_on_stream_data) return 0;
+  return wt_stream_delta_pending(len, fin, delivered_len);
+}
+
+/* draft-ietf-webtrans-http3-15 4.3 (Phase 7b Slice 4): deliver the bytes a WT
+ * bidi/uni slot has accumulated since the last delivery to the app callback.
+ * A slot's buf is a cumulative reassembly buffer (not a queue), so "new data
+ * this step" is buf[delivered_len..len) — the caller passes a pointer to the
+ * slot's own delivered_len so this can advance it in place. Called every step
+ * for every in_use slot regardless of offered, so bytes that arrive before
+ * the stream's session association still reach the app once one exists,
+ * mirroring srvrun_offer_wt_slot's own no-active-session fallback (silently
+ * skip rather than buffer growing unboundedly). */
+static void srvrun_deliver_wt_stream_delta(
+    const srvrun_cfg* cfg, srvrun_conn* c, u64 stream_id, const u8* buf,
+    usz len, u8 fin, usz* delivered_len) {
+  if (!wt_stream_delta_ready(cfg, c, len, fin, *delivered_len)) return;
+  cfg->wt_on_stream_data(
+      cfg->wt_stream_data_ctx, &c->wt, stream_id,
+      quic_span_of(buf + *delivered_len, len - *delivered_len), fin);
+  *delivered_len = len;
+}
+
+/* One wt_streams slot's per-step work: offer it to the session if this step
+ * (or an earlier one) claimed it but has not yet offered it, then deliver any
+ * new bytes to the app callback — split out of srvrun_offer_wt_streams so the
+ * loop itself stays at the CCN gate. */
+static void srvrun_offer_and_deliver_wt_slot(
+    const srvrun_cfg* cfg, srvrun_conn* c, wired_srvloop_wt_stream_slot* slot) {
+  if (wt_slot_needs_offer(slot)) srvrun_offer_wt_slot(cfg, c, slot);
+  if (!slot->in_use) return;
+  srvrun_deliver_wt_stream_delta(
+      cfg, c, slot->stream_id, slot->buf, slot->len, slot->fin,
+      &slot->delivered_len);
+}
+
 /* draft-ietf-webtrans-http3-15 4.3: after a step has reassembled this
- * datagram's frames into c->l.wt_streams[], associate every slot this step
- * (or an earlier one) claimed but has not yet offered to c->wt. Delivering the
- * reassembled bytes themselves to an app-facing callback is out of scope here
- * (tasks/webtransport-plan.md Phase 7b/Slice 4) — this only makes the
- * association, per the session's own offer_stream contract. */
+ * datagram's frames into c->l.wt_streams[], run srvrun_offer_and_deliver_wt_
+ * slot over every slot. */
 static void srvrun_offer_wt_streams(const srvrun_cfg* cfg, srvrun_conn* c) {
-  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_STREAMS; i++) {
-    wired_srvloop_wt_stream_slot* slot = &c->l.wt_streams[i];
-    if (wt_slot_needs_offer(slot)) srvrun_offer_wt_slot(cfg, c, slot);
-  }
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_STREAMS; i++)
+    srvrun_offer_and_deliver_wt_slot(cfg, c, &c->l.wt_streams[i]);
 }
 
 /* RFC 9221 5 / draft-ietf-webtrans-http3-15 SS4 (Phase 7b Slice 2): deliver one
@@ -561,15 +616,26 @@ static int wt_uni_slot_needs_offer(
   return slot->in_use && !slot->offered;
 }
 
+/* One wt_uni_streams slot's per-step work, mirroring
+ * srvrun_offer_and_deliver_wt_slot for the separate uni table. */
+static void srvrun_offer_and_deliver_wt_uni_slot(
+    const srvrun_cfg*                 cfg,
+    srvrun_conn*                      c,
+    wired_srvloop_wt_uni_stream_slot* slot) {
+  if (wt_uni_slot_needs_offer(slot)) srvrun_offer_wt_uni_slot(cfg, c, slot);
+  if (!slot->in_use) return;
+  srvrun_deliver_wt_stream_delta(
+      cfg, c, slot->stream_id, slot->buf, slot->len, slot->fin,
+      &slot->delivered_len);
+}
+
 /* draft-ietf-webtrans-http3-15 4.3: after a step has reassembled this
- * datagram's frames into c->l.wt_uni_streams[], associate every slot this
- * step (or an earlier one) claimed but has not yet offered to c->wt, mirroring
- * srvrun_offer_wt_streams for the separate uni table. */
+ * datagram's frames into c->l.wt_uni_streams[], run srvrun_offer_and_deliver_
+ * wt_uni_slot over every slot, mirroring srvrun_offer_wt_streams for the
+ * separate uni table. */
 static void srvrun_offer_wt_uni_streams(const srvrun_cfg* cfg, srvrun_conn* c) {
-  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_UNI_STREAMS; i++) {
-    wired_srvloop_wt_uni_stream_slot* slot = &c->l.wt_uni_streams[i];
-    if (wt_uni_slot_needs_offer(slot)) srvrun_offer_wt_uni_slot(cfg, c, slot);
-  }
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_UNI_STREAMS; i++)
+    srvrun_offer_and_deliver_wt_uni_slot(cfg, c, &c->l.wt_uni_streams[i]);
 }
 
 /* RFC 9221 3: this step's DATAGRAM gathering (dispatch.c) latched a violation
@@ -1657,7 +1723,9 @@ int wired_server_run_opt(
       obs.cc_algo,
       opt->busy_poll,
       opt->wt_on_datagram,
-      opt->wt_datagram_ctx};
+      opt->wt_datagram_ctx,
+      opt->wt_on_stream_data,
+      opt->wt_stream_data_ctx};
   if (cfg.fd < 0) return 0;
   srvrun_install_signals(&cfg);
   WIRED_LOG("listening\n");
@@ -1670,6 +1738,7 @@ int wired_server_run(
     wired_srvboot_id*    id,
     wired_srvrun_handler h,
     wired_srvrun_obs     obs) {
-  static const wired_srvrun_opt default_opt = {0, 0, 0, 0, 0, 0, -1};
+  static const wired_srvrun_opt default_opt = {
+      0, 0, 0, 0, 0, 0, 0, 0, -1};
   return wired_server_run_opt(port, id, h, obs, &default_opt);
 }
