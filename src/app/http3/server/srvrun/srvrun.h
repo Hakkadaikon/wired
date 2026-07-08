@@ -29,8 +29,7 @@ typedef void (*wired_wt_on_datagram)(
  * @param data the stream's reassembled bytes so far past the signal/type byte
  * @param fin 1 once the stream's FIN has been seen */
 typedef void (*wired_wt_on_stream_data)(
-    void* app_ctx, wired_wt_session* s, u64 stream_id, quic_span data,
-    int fin);
+    void* app_ctx, wired_wt_session* s, u64 stream_id, quic_span data, int fin);
 
 /** The application's request responder: the callback and its opaque context,
  * registered on the loop as a pair (wired_srvloop_set_handler takes the same
