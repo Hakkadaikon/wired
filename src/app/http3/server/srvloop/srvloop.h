@@ -100,6 +100,11 @@ typedef struct {
    * never reads this, it only resets it to 0 on claim (mirrors offered's
    * split: the loop owns reassembly, the caller owns delivery bookkeeping). */
   usz delivered_len;
+  /** 1 once a fin=1 delivery has been made to the app-facing stream-data
+   * callback for this slot; distinguishes "FIN already delivered" from
+   * "delivered_len==0, nothing sent yet" for a stream whose FIN carries no
+   * bytes (delivered_len alone cannot tell those two apart when len==0). */
+  int fin_delivered;
 } wired_srvloop_wt_stream_slot;
 
 /** draft-ietf-webtrans-http3-15 4.3: how many concurrent WebTransport uni
@@ -136,6 +141,9 @@ typedef struct {
    * stream-data callback, mirroring wired_srvloop_wt_stream_slot's
    * delivered_len field (see its doc for the ownership split). */
   usz delivered_len;
+  /** 1 once a fin=1 delivery has been made, mirroring
+   * wired_srvloop_wt_stream_slot's fin_delivered field. */
+  int fin_delivered;
 } wired_srvloop_wt_uni_stream_slot;
 
 /** RFC 9221 5: how many received QUIC DATAGRAM frames one connection queues
