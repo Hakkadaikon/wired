@@ -143,4 +143,20 @@ int wired_server_run_opt(
     wired_srvrun_obs        obs,
     const wired_srvrun_opt* opt);
 
+/** RFC 9221 5 / draft-ietf-webtrans-http3-15 SS4: broadcast data as a QUIC
+ * DATAGRAM to every connection with an active WebTransport session (queued
+ * for each such connection's own next step, same single-slot last-writer-
+ * wins contract as this SDK's per-connection DATAGRAM queue). Typically
+ * called from inside a wired_wt_on_datagram callback to fan a received
+ * message out to every other participant (e.g. a chat app) — that callback
+ * has no handle to the connection table itself, so this is the only way to
+ * reach connections other than the one that just received data.
+ * Callable only from inside the server's own loop (i.e. from a callback);
+ * this SDK's server loop is single-threaded and this call is neither
+ * signal-safe nor thread-safe.
+ * @param data payload to broadcast; must fit the per-connection DATAGRAM cap
+ * @return 1 if queued for every active WT session, 0 if data exceeds the cap
+ */
+int wired_server_broadcast_datagram(quic_span data);
+
 #endif
