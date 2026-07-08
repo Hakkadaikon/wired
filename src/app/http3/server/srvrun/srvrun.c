@@ -109,6 +109,17 @@ typedef struct {
   u8  dg_pending_buf[1200];
   usz dg_pending_len;
   int dg_pending; /**< 1 while dg_pending_buf holds an undrained datagram */
+  /** RFC 9000 13.3: until the handshake is confirmed, a client Initial
+   * retransmission (same DCID, a fresh datagram because the prior flight was
+   * lost or delayed) must get the identical flight resent, not a fresh boot.
+   * Cached verbatim from the accept flight this slot last sealed; replayed
+   * by srvrun_resend_boot_flight, untouched once wired_server_is_confirmed
+   * is true (srvrun_reinit_ok then stops routing retransmits here at all). */
+  u8  boot_ini[1500];
+  usz boot_ini_len;
+  u8  boot_hs[4096];
+  usz boot_dgram_len[WIRED_SRVBOOT_FLIGHT_MAX];
+  usz boot_dgram_count;
 } srvrun_conn;
 
 /* The running server's mutable state: a fixed pool of connection slots keyed
@@ -219,6 +230,22 @@ static void srvrun_note_recv(
 /* Send a sealed buffer to c's recorded peer, with a trace line (skip an empty
  * buffer). Always targets the slot's own peer (RFC 9000 5.1), not whichever
  * datagram was received most recently. */
+/* Test-only send counter: how many times srvrun_send has fired since the
+ * last srvrun_test_reset_send_count, so a test can assert an exact number of
+ * UDP sends happened (e.g. proving a boot retransmit resent a flight)
+ * without needing a real socket to observe bytes on. Not signal-safe/thread-
+ * safe -- fine, this SDK's server loop is single-threaded and tests are the
+ * only caller. */
+static usz g_srvrun_send_count;
+
+__attribute__((unused)) static void srvrun_test_reset_send_count(void) {
+  g_srvrun_send_count = 0;
+}
+
+__attribute__((unused)) static usz srvrun_test_send_count(void) {
+  return g_srvrun_send_count;
+}
+
 static void srvrun_send(
     const srvrun_cfg*  cfg,
     const srvrun_conn* c,
@@ -229,23 +256,33 @@ static void srvrun_send(
     wired_udp_send(cfg->fd, &c->peer, pkt);
     srvrun_qlog_sent(cfg, pkt.n);
     WIRED_LOG(what);
+    g_srvrun_send_count++;
   }
 }
 
 /* Send each sealed Handshake flight datagram in order (a flight split per
  * RFC 9000 19.6 arrives as dgram_count slices of the flight buffer). */
+static void srvrun_send_flight_dgrams(
+    const srvrun_cfg*  cfg,
+    const srvrun_conn* c,
+    const u8*          hs,
+    const usz*         dgram_len,
+    usz                dgram_count) {
+  usz off = 0;
+  for (usz i = 0; i < dgram_count; i++) {
+    srvrun_send(
+        cfg, c, quic_span_of(hs + off, dgram_len[i]),
+        "server Handshake flight sent\n");
+    off += dgram_len[i];
+  }
+}
+
 static void srvrun_send_flight(
     const srvrun_cfg*        cfg,
     const srvrun_conn*       c,
     const u8*                hs,
     const wired_srvboot_out* out) {
-  usz off = 0;
-  for (usz i = 0; i < out->dgram_count; i++) {
-    srvrun_send(
-        cfg, c, quic_span_of(hs + off, out->dgram_len[i]),
-        "server Handshake flight sent\n");
-    off += out->dgram_len[i];
-  }
+  srvrun_send_flight_dgrams(cfg, c, hs, out->dgram_len, out->dgram_count);
 }
 
 /* Build this slot's own wired_srvboot_id: every field from cfg->id except
@@ -278,9 +315,8 @@ static int srvrun_refuse(const srvrun_step_ctx* ctx, const srvrun_conn* c) {
 
 static int srvrun_boot_finish(
     const srvrun_step_ctx* ctx, srvrun_conn* c, quic_mspan dg) {
-  u8                 ini[1500], hs[4096];
-  quic_obuf          iob  = quic_obuf_of(ini, sizeof ini);
-  quic_obuf          hob  = quic_obuf_of(hs, sizeof hs);
+  quic_obuf          iob  = quic_obuf_of(c->boot_ini, sizeof c->boot_ini);
+  quic_obuf          hob  = quic_obuf_of(c->boot_hs, sizeof c->boot_hs);
   wired_srvboot_conn conn = {&c->s, &c->l};
   wired_srvboot_id   sid  = srvrun_slot_id(ctx->cfg->id, c);
   wired_srvboot_out  out  = {&iob, &hob, {0}, 0, 0};
@@ -296,8 +332,14 @@ static int srvrun_boot_finish(
    * quic_stp_build_server_lim already sends in the transport parameters
    * (WT-A-006) — sid is this slot's own copy of cfg->id, built above. */
   c->l.we_advertised_max_datagram = sid.max_datagram_frame_size;
-  srvrun_send(ctx->cfg, c, quic_span_of(ini, iob.len), "server Initial sent\n");
-  srvrun_send_flight(ctx->cfg, c, hs, &out);
+  c->boot_ini_len                 = iob.len;
+  for (usz i = 0; i < out.dgram_count; i++)
+    c->boot_dgram_len[i] = out.dgram_len[i];
+  c->boot_dgram_count = out.dgram_count;
+  srvrun_send(
+      ctx->cfg, c, quic_span_of(c->boot_ini, c->boot_ini_len),
+      "server Initial sent\n");
+  srvrun_send_flight(ctx->cfg, c, c->boot_hs, &out);
   wired_srvboot_acc_reset(&c->boot); /* the reassembly buffer is spent */
   return 1;
 }
@@ -1006,6 +1048,23 @@ static int srvrun_is_new(const srvrun_conn* c, quic_mspan dg) {
   return srvrun_reinit_ok(c);
 }
 
+/* c is up but its handshake is not confirmed yet -- still within the window
+ * where an Initial retransmit means "resend the same flight", not "start a
+ * fresh connection" (RFC 9000 13.3). */
+static int srvrun_awaiting_confirm(const srvrun_conn* c) {
+  return c->up && !wired_server_is_confirmed(&c->s);
+}
+
+/* RFC 9000 13.3: an Initial on a slot already up, not yet confirmed, and not
+ * eligible to (re)cold-start (srvrun_is_new said no) is the client
+ * retransmitting its first flight because the server's reply hasn't reached
+ * it yet -- not a new connection attempt. */
+static int srvrun_is_boot_retransmit(const srvrun_conn* c, quic_mspan dg) {
+  if (!wired_srvboot_is_initial(dg.p, dg.n)) return 0;
+  if (!srvrun_awaiting_confirm(c)) return 0;
+  return c->boot_ini_len != 0;
+}
+
 /* Free slot i: drop its table entry and clear its connection's up flag (the
  * shutdown drain accounting then counts it as drained).
  *
@@ -1508,14 +1567,41 @@ static void srvrun_cold_start(
   if (r != SRVRUN_BOOT_PENDING) srvrun_open_done(ctx, slot, r);
 }
 
+/* RFC 9000 13.3: resend c's cached accept flight verbatim -- same Initial,
+ * same Handshake datagrams -- instead of stepping dg through the confirmed-
+ * connection path, where an Initial-keyed retransmit would just fail to
+ * decrypt and get silently dropped. */
+static void srvrun_resend_boot_flight(
+    const srvrun_step_ctx* ctx, srvrun_conn* c) {
+  srvrun_send(
+      ctx->cfg, c, quic_span_of(c->boot_ini, c->boot_ini_len),
+      "server Initial resent\n");
+  srvrun_send_flight_dgrams(
+      ctx->cfg, c, c->boot_hs, c->boot_dgram_len, c->boot_dgram_count);
+}
+
+/* dg is a fresh cold-start Initial (srvrun_cold_start) or a retransmit of
+ * one already accepted but not yet confirmed (srvrun_resend_boot_flight),
+ * dispatched to whichever applies. Returns 1 if either handled dg. */
+static int srvrun_serve_boot(
+    const srvrun_step_ctx* ctx, int slot, quic_mspan dg) {
+  srvrun_conn* c = &ctx->st->conns[slot];
+  if (srvrun_is_new(c, dg)) {
+    srvrun_cold_start(ctx, slot, dg);
+    return 1;
+  }
+  if (srvrun_is_boot_retransmit(c, dg)) {
+    srvrun_resend_boot_flight(ctx, c);
+    return 1;
+  }
+  return 0;
+}
+
 static void srvrun_serve_slot(
     const srvrun_step_ctx* ctx, int slot, quic_mspan dg) {
   srvrun_conn* c = &ctx->st->conns[slot];
   c->last_ms     = ctx->now_ms; /* RFC 9000 10.1: activity resets idle age */
-  if (srvrun_is_new(c, dg)) {
-    srvrun_cold_start(ctx, slot, dg);
-    return;
-  }
+  if (srvrun_serve_boot(ctx, slot, dg)) return;
   if (c->up) srvrun_step_and_reap(ctx, slot, dg);
 }
 
