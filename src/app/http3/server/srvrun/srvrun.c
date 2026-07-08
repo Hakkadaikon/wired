@@ -825,8 +825,7 @@ static int srvrun_owes_goaway(const srvrun_conn* c) {
  * so it needs the attribute to avoid -Wunused-function under -Werror there.
  * @return 1 if queued, 0 if data.n exceeds dg_pending_buf's capacity or our
  * own SETTINGS have not been sent yet (RFC 9297 2.1) */
-__attribute__((unused)) static int srvrun_queue_datagram(
-    srvrun_conn* c, quic_span data) {
+static int srvrun_queue_datagram(srvrun_conn* c, quic_span data) {
   if (!c->l.h3.settings_sent) return 0;
   if (data.n > sizeof c->dg_pending_buf) return 0;
   quic_memcpy(c->dg_pending_buf, data.p, data.n);
@@ -862,6 +861,32 @@ static int srvrun_send_pending_datagram(
   if (!wired_srvloop_send_onertt(&c->s, &sin, out)) return 0;
   srvrun_send(cfg, c, quic_span_of(out->p, out->len), "DATAGRAM sent\n");
   c->dg_pending = 0;
+  return 1;
+}
+
+/* c is a live connection with an active WT session -- a broadcast target.
+ * Split out of srvrun_broadcast_to_all to keep its own branch count at the
+ * CCN gate (mirrors srvrun_owes_goaway's own role for srvrun_goaway_all). */
+static int srvrun_is_broadcast_target(const srvrun_conn* c) {
+  return c->up && c->wt_active;
+}
+
+/* Queue data into every connection with an active WT session's own single-
+ * slot DATAGRAM queue (srvrun_queue_datagram) -- mirrors srvrun_goaway_all's
+ * fan-out shape, swapping the goaway-owed guard for wt_active. Each
+ * connection still drains through its own srvrun_send_pending_datagram on
+ * its own next step, same as any other queued datagram; this only makes
+ * every eligible connection's slot hold the same payload at once. */
+static void srvrun_broadcast_to_all(srvrun_state* st, quic_span data) {
+  for (usz i = 0; i < QUIC_CONNTABLE_CAP; i++)
+    if (srvrun_is_broadcast_target(&st->conns[i]))
+      srvrun_queue_datagram(&st->conns[i], data);
+}
+
+int wired_server_broadcast_datagram(quic_span data) {
+  if (data.n > sizeof g_srvrun_state.conns[0].dg_pending_buf) return 0;
+  srvrun_broadcast_to_all(
+      &(srvrun_state){g_srvrun_table, g_srvrun_state.conns}, data);
   return 1;
 }
 
