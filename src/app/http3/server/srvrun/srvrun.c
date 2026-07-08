@@ -495,19 +495,22 @@ static int wt_slot_needs_offer(const wired_srvloop_wt_stream_slot* slot) {
   return slot->in_use && !slot->offered;
 }
 
-/* A fresh, not-yet-delivered FIN on an empty stream (no bytes ever, closing
- * frame carried none either) — the one case wt_stream_delta_pending's plain
- * len > delivered_len check misses. */
-static int wt_stream_fin_only(usz len, u8 fin, usz delivered_len) {
-  return fin && delivered_len == 0 && len == 0;
+/* A fresh, not-yet-delivered FIN — the one case wt_stream_delta_pending's
+ * plain len > delivered_len check misses (a stream whose closing frame, or
+ * whose only frame, carries no new bytes). fin_delivered (not delivered_len)
+ * is the guard: delivered_len alone cannot tell "FIN already delivered" apart
+ * from "nothing delivered yet" when both are 0. */
+static int wt_stream_fin_only(u8 fin, int fin_delivered) {
+  return fin && !fin_delivered;
 }
 
 /* Whether this step has anything new worth delivering for one WT stream slot:
- * either fresh bytes past the last delivery, or a fresh FIN with no bytes at
- * all (see wt_stream_fin_only). */
-static int wt_stream_delta_pending(usz len, u8 fin, usz delivered_len) {
+ * either fresh bytes past the last delivery, or a fresh FIN (see
+ * wt_stream_fin_only). */
+static int wt_stream_delta_pending(
+    usz len, u8 fin, usz delivered_len, int fin_delivered) {
   if (len > delivered_len) return 1;
-  return wt_stream_fin_only(len, fin, delivered_len);
+  return wt_stream_fin_only(fin, fin_delivered);
 }
 
 /* Whether srvrun_deliver_wt_stream_delta has anything to do at all: an active
@@ -515,28 +518,30 @@ static int wt_stream_delta_pending(usz len, u8 fin, usz delivered_len) {
  * — folded into one predicate so the caller is a single guarded early return. */
 static int wt_stream_delta_ready(
     const srvrun_cfg* cfg, const srvrun_conn* c, usz len, u8 fin,
-    usz delivered_len) {
+    usz delivered_len, int fin_delivered) {
   if (!c->wt_active || !cfg->wt_on_stream_data) return 0;
-  return wt_stream_delta_pending(len, fin, delivered_len);
+  return wt_stream_delta_pending(len, fin, delivered_len, fin_delivered);
 }
 
 /* draft-ietf-webtrans-http3-15 4.3 (Phase 7b Slice 4): deliver the bytes a WT
  * bidi/uni slot has accumulated since the last delivery to the app callback.
  * A slot's buf is a cumulative reassembly buffer (not a queue), so "new data
- * this step" is buf[delivered_len..len) — the caller passes a pointer to the
- * slot's own delivered_len so this can advance it in place. Called every step
- * for every in_use slot regardless of offered, so bytes that arrive before
- * the stream's session association still reach the app once one exists,
- * mirroring srvrun_offer_wt_slot's own no-active-session fallback (silently
- * skip rather than buffer growing unboundedly). */
+ * this step" is buf[delivered_len..len) — the caller passes pointers to the
+ * slot's own delivered_len/fin_delivered so this can advance them in place.
+ * Called every step for every in_use slot regardless of offered, so bytes
+ * that arrive before the stream's session association still reach the app
+ * once one exists, mirroring srvrun_offer_wt_slot's own no-active-session
+ * fallback (silently skip rather than buffer growing unboundedly). */
 static void srvrun_deliver_wt_stream_delta(
     const srvrun_cfg* cfg, srvrun_conn* c, u64 stream_id, const u8* buf,
-    usz len, u8 fin, usz* delivered_len) {
-  if (!wt_stream_delta_ready(cfg, c, len, fin, *delivered_len)) return;
+    usz len, u8 fin, usz* delivered_len, int* fin_delivered) {
+  if (!wt_stream_delta_ready(cfg, c, len, fin, *delivered_len, *fin_delivered))
+    return;
   cfg->wt_on_stream_data(
       cfg->wt_stream_data_ctx, &c->wt, stream_id,
       quic_span_of(buf + *delivered_len, len - *delivered_len), fin);
   *delivered_len = len;
+  if (fin) *fin_delivered = 1;
 }
 
 /* One wt_streams slot's per-step work: offer it to the session if this step
@@ -549,7 +554,7 @@ static void srvrun_offer_and_deliver_wt_slot(
   if (!slot->in_use) return;
   srvrun_deliver_wt_stream_delta(
       cfg, c, slot->stream_id, slot->buf, slot->len, slot->fin,
-      &slot->delivered_len);
+      &slot->delivered_len, &slot->fin_delivered);
 }
 
 /* draft-ietf-webtrans-http3-15 4.3: after a step has reassembled this
@@ -626,7 +631,7 @@ static void srvrun_offer_and_deliver_wt_uni_slot(
   if (!slot->in_use) return;
   srvrun_deliver_wt_stream_delta(
       cfg, c, slot->stream_id, slot->buf, slot->len, slot->fin,
-      &slot->delivered_len);
+      &slot->delivered_len, &slot->fin_delivered);
 }
 
 /* draft-ietf-webtrans-http3-15 4.3: after a step has reassembled this
