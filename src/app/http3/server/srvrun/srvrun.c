@@ -53,9 +53,9 @@ typedef struct {
   const char*           key_path;  /**< key.pem path, or 0 to disable reload */
   int                   cc_algo;   /**< QUIC_CC_ALGO_* for fresh connections */
   int                   busy_poll; /**< 1: nonblocking spin instead of poll */
-  wired_wt_on_datagram  wt_on_datagram; /**< app WT datagram callback, 0 to
-                                         * disable */
-  void* wt_datagram_ctx;                /**< opaque ctx for wt_on_datagram */
+  wired_wt_on_datagram  wt_on_datagram;    /**< app WT datagram callback, 0 to
+                                            * disable */
+  void*                   wt_datagram_ctx; /**< opaque ctx for wt_on_datagram */
   wired_wt_on_stream_data wt_on_stream_data; /**< app WT stream-data callback,
                                               * 0 to disable */
   void* wt_stream_data_ctx; /**< opaque ctx for wt_on_stream_data */
@@ -522,10 +522,15 @@ static int wt_stream_delta_pending(
 
 /* Whether srvrun_deliver_wt_stream_delta has anything to do at all: an active
  * session, a registered callback, and a pending delta (wt_stream_delta_pending)
- * — folded into one predicate so the caller is a single guarded early return. */
+ * — folded into one predicate so the caller is a single guarded early return.
+ */
 static int wt_stream_delta_ready(
-    const srvrun_cfg* cfg, const srvrun_conn* c, usz len, u8 fin,
-    usz delivered_len, int fin_delivered) {
+    const srvrun_cfg*  cfg,
+    const srvrun_conn* c,
+    usz                len,
+    u8                 fin,
+    usz                delivered_len,
+    int                fin_delivered) {
   if (!c->wt_active || !cfg->wt_on_stream_data) return 0;
   return wt_stream_delta_pending(len, fin, delivered_len, fin_delivered);
 }
@@ -540,8 +545,14 @@ static int wt_stream_delta_ready(
  * once one exists, mirroring srvrun_offer_wt_slot's own no-active-session
  * fallback (silently skip rather than buffer growing unboundedly). */
 static void srvrun_deliver_wt_stream_delta(
-    const srvrun_cfg* cfg, srvrun_conn* c, u64 stream_id, const u8* buf,
-    usz len, u8 fin, usz* delivered_len, int* fin_delivered) {
+    const srvrun_cfg* cfg,
+    srvrun_conn*      c,
+    u64               stream_id,
+    const u8*         buf,
+    usz               len,
+    u8                fin,
+    usz*              delivered_len,
+    int*              fin_delivered) {
   if (!wt_stream_delta_ready(cfg, c, len, fin, *delivered_len, *fin_delivered))
     return;
   cfg->wt_on_stream_data(
@@ -1776,7 +1787,6 @@ int wired_server_run(
     wired_srvboot_id*    id,
     wired_srvrun_handler h,
     wired_srvrun_obs     obs) {
-  static const wired_srvrun_opt default_opt = {
-      0, 0, 0, 0, 0, 0, 0, 0, -1};
+  static const wired_srvrun_opt default_opt = {0, 0, 0, 0, 0, 0, 0, 0, -1};
   return wired_server_run_opt(port, id, h, obs, &default_opt);
 }

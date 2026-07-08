@@ -204,12 +204,12 @@ int wired_srvloop_wt_slot_find(const wired_srvloop* l, u64 stream_id) {
 int wired_srvloop_wt_slot_claim(wired_srvloop* l, u64 stream_id) {
   for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_STREAMS; i++) {
     if (l->wt_streams[i].in_use) continue;
-    l->wt_streams[i].in_use       = 1;
-    l->wt_streams[i].stream_id    = stream_id;
-    l->wt_streams[i].sig_len      = 0;
-    l->wt_streams[i].len          = 0;
-    l->wt_streams[i].fin          = 0;
-    l->wt_streams[i].offered      = 0;
+    l->wt_streams[i].in_use        = 1;
+    l->wt_streams[i].stream_id     = stream_id;
+    l->wt_streams[i].sig_len       = 0;
+    l->wt_streams[i].len           = 0;
+    l->wt_streams[i].fin           = 0;
+    l->wt_streams[i].offered       = 0;
     l->wt_streams[i].delivered_len = 0;
     l->wt_streams[i].fin_delivered = 0;
     return (int)i;
@@ -236,12 +236,12 @@ int wired_srvloop_wt_uni_slot_find(const wired_srvloop* l, u64 stream_id) {
 int wired_srvloop_wt_uni_slot_claim(wired_srvloop* l, u64 stream_id) {
   for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_UNI_STREAMS; i++) {
     if (l->wt_uni_streams[i].in_use) continue;
-    l->wt_uni_streams[i].in_use       = 1;
-    l->wt_uni_streams[i].stream_id    = stream_id;
-    l->wt_uni_streams[i].type_len     = 0;
-    l->wt_uni_streams[i].len          = 0;
-    l->wt_uni_streams[i].fin          = 0;
-    l->wt_uni_streams[i].offered      = 0;
+    l->wt_uni_streams[i].in_use        = 1;
+    l->wt_uni_streams[i].stream_id     = stream_id;
+    l->wt_uni_streams[i].type_len      = 0;
+    l->wt_uni_streams[i].len           = 0;
+    l->wt_uni_streams[i].fin           = 0;
+    l->wt_uni_streams[i].offered       = 0;
     l->wt_uni_streams[i].delivered_len = 0;
     l->wt_uni_streams[i].fin_delivered = 0;
     return (int)i;

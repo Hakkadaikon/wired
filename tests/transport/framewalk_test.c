@@ -101,7 +101,8 @@ static void test_framewalk_datagram_no_len_consumes_rest(void) {
 static void test_framewalk_reset_stream_then_ping(void) {
   u8                      buf[64];
   usz                     n  = 0;
-  quic_reset_stream_frame rf = {.stream_id = 4, .error_code = 1, .final_size = 0};
+  quic_reset_stream_frame rf = {
+      .stream_id = 4, .error_code = 1, .final_size = 0};
   n += quic_reset_stream_encode(buf + n, sizeof(buf) - n, &rf);
   n += quic_frame_put_simple(buf + n, sizeof(buf) - n, QUIC_FRAME_PING);
 
@@ -119,9 +120,9 @@ static void test_framewalk_reset_stream_then_ping(void) {
 }
 
 static void test_framewalk_stop_sending_then_ping(void) {
-  u8                       buf[64];
-  usz                      n  = 0;
-  quic_stop_sending_frame  sf = {.stream_id = 4, .error_code = 2};
+  u8                      buf[64];
+  usz                     n  = 0;
+  quic_stop_sending_frame sf = {.stream_id = 4, .error_code = 2};
   n += quic_stop_sending_encode(buf + n, sizeof(buf) - n, &sf);
   n += quic_frame_put_simple(buf + n, sizeof(buf) - n, QUIC_FRAME_PING);
 
@@ -140,7 +141,7 @@ static void test_framewalk_stop_sending_then_ping(void) {
 
 static void test_framewalk_reset_stream_at_then_ping(void) {
   u8                         buf[64];
-  usz                        n = 0;
+  usz                        n  = 0;
   quic_reset_stream_at_frame rf = {
       .stream_id = 4, .error_code = 3, .final_size = 10, .reliable_size = 5};
   n += quic_reset_stream_at_encode(buf + n, sizeof(buf) - n, &rf);

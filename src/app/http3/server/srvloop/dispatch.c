@@ -573,7 +573,8 @@ static int closed_frame_id(u64 type, quic_span frame, u64* stream_id_out) {
  * one seen this step survives if more than one arrives (mirrors got_request's
  * own "last one wins" mirroring), which is enough for the single-CONNECT-
  * stream-per-connection shape this SDK serves. */
-static void gather_one_stream_close(wired_srvloop* l, u64 type, quic_span frame) {
+static void gather_one_stream_close(
+    wired_srvloop* l, u64 type, quic_span frame) {
   u64 stream_id;
   if (!closed_frame_id(type, frame, &stream_id)) return;
   l->closed_stream_id   = stream_id;
