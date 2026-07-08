@@ -1255,7 +1255,7 @@ static void test_srvrun_wt_bidi_stream_buffer_full_sends_reset(void) {
   quic_obuf               pktb = quic_obuf_of(pkt, sizeof pkt);
   const u8*               pl;
   usz                     pll;
-  quic_reset_stream_frame rs;
+  quic_reset_stream_at_frame rs;
   quic_stop_sending_frame ss;
   usz                     rn, sn;
   srvrun_conn             c   = {0};
@@ -1278,10 +1278,15 @@ static void test_srvrun_wt_bidi_stream_buffer_full_sends_reset(void) {
           &c, 999, quic_wterrmap_to_http3(QUIC_WTERR_BUFFERED_STREAM_REJECTED),
           &pktb) == 1);
   CHECK(client_open_onertt(&f, pktb.p, pktb.len, &pl, &pll) == 1);
-  rn = quic_reset_stream_decode(pl, pll, &rs);
+  rn = quic_reset_stream_at_decode(pl, pll, &rs);
   CHECK(rn != 0);
   CHECK(rs.stream_id == 999);
   CHECK(rs.error_code == 0x52e4df8fc205ULL);
+  /* WT-F-007: RESET_STREAM_AT (not a plain RESET_STREAM), both size fields
+   * 0 -- this stream never carried any application bytes to guarantee
+   * delivery of. */
+  CHECK(rs.final_size == 0);
+  CHECK(rs.reliable_size == 0);
   sn = quic_stop_sending_decode(pl + rn, pll - rn, &ss);
   CHECK(sn != 0);
   CHECK(ss.stream_id == 999);
@@ -1556,7 +1561,7 @@ static void test_srvrun_second_wt_connect_sends_reset_stream(void) {
   quic_obuf               pktb = quic_obuf_of(pkt, sizeof pkt);
   const u8*               pl;
   usz                     pll;
-  quic_reset_stream_frame rs;
+  quic_reset_stream_at_frame rs;
   quic_stop_sending_frame ss;
   usz                     rn, sn;
   ob                    = (quic_obuf){obuf, sizeof obuf, 0};
@@ -1584,7 +1589,7 @@ static void test_srvrun_second_wt_connect_sends_reset_stream(void) {
       srvrun_seal_wt_busy_reset(
           &conns[0], 8, QUIC_H3_REQUEST_REJECTED, &pktb) == 1);
   CHECK(client_open_onertt(&f, pktb.p, pktb.len, &pl, &pll) == 1);
-  rn = quic_reset_stream_decode(pl, pll, &rs);
+  rn = quic_reset_stream_at_decode(pl, pll, &rs);
   CHECK(rn != 0);
   CHECK(rs.stream_id == 8);
   CHECK(rs.error_code == QUIC_H3_REQUEST_REJECTED);
@@ -1640,7 +1645,7 @@ static void test_srvrun_wt_connect_non_client_bidi_id_rejected(void) {
   quic_obuf               pktb = quic_obuf_of(pkt, sizeof pkt);
   const u8*               pl;
   usz                     pll;
-  quic_reset_stream_frame rs;
+  quic_reset_stream_at_frame rs;
   quic_stop_sending_frame ss;
   usz                     rn, sn;
   ob                    = (quic_obuf){obuf, sizeof obuf, 0};
@@ -1659,7 +1664,7 @@ static void test_srvrun_wt_connect_non_client_bidi_id_rejected(void) {
   CHECK(g_sr_wt_handler_calls == 0); /* rejected, not routed to app handler */
   CHECK(srvrun_seal_wt_busy_reset(&conns[0], 5, QUIC_H3_ID_ERROR, &pktb) == 1);
   CHECK(client_open_onertt(&f, pktb.p, pktb.len, &pl, &pll) == 1);
-  rn = quic_reset_stream_decode(pl, pll, &rs);
+  rn = quic_reset_stream_at_decode(pl, pll, &rs);
   CHECK(rn != 0);
   CHECK(rs.stream_id == 5);
   CHECK(rs.error_code == QUIC_H3_ID_ERROR);
