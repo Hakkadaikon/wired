@@ -332,18 +332,25 @@ static int srvrun_on_initial(
   return srvrun_boot_finish(ctx, c, dg);
 }
 
-/* RFC 9114 4.1.1/8.1: a server aborts a stream with a RESET_STREAM +
- * STOP_SENDING pair carrying err_code on both -- same shape as
- * quic_h3cancel_request, which pairs the two for H3_REQUEST_CANCELLED, but
- * parameterized over the error code so callers can carry either an
- * HTTP/3-level code (e.g. H3_REQUEST_REJECTED) or a WebTransport application
- * code already mapped through quic_wterrmap_to_http3. */
+/* RFC 9114 4.1.1/8.1, draft-ietf-quic-reliable-stream-reset: a server aborts
+ * a stream with a RESET_STREAM_AT + STOP_SENDING pair carrying err_code on
+ * both -- same shape as quic_h3cancel_request, which pairs a plain
+ * RESET_STREAM with STOP_SENDING for H3_REQUEST_CANCELLED, but parameterized
+ * over the error code so callers can carry either an HTTP/3-level code (e.g.
+ * H3_REQUEST_REJECTED) or a WebTransport application code already mapped
+ * through quic_wterrmap_to_http3. RESET_STREAM_AT (not a plain RESET_STREAM,
+ * WT-F-007) since a WT session's stream aborts are draft-ietf-webtrans-
+ * http3-15's own preference for reliable delivery up to a point; every
+ * current caller aborts a stream that never carried any application bytes
+ * (a buffer-full/busy/bad-id rejection at association time), so final_size
+ * and reliable_size are both 0 -- there is nothing yet to guarantee
+ * delivery of. */
 static usz srvrun_wt_busy_reset_payload(
     u64 stream_id, u64 err_code, quic_obuf* plb) {
-  quic_reset_stream_frame rs = {stream_id, err_code, 0};
-  quic_stop_sending_frame ss = {stream_id, err_code};
-  usz                     rn = quic_reset_stream_encode(plb->p, plb->cap, &rs);
-  usz                     sn;
+  quic_reset_stream_at_frame rs = {stream_id, err_code, 0, 0};
+  quic_stop_sending_frame    ss = {stream_id, err_code};
+  usz rn = quic_reset_stream_at_encode(plb->p, plb->cap, &rs);
+  usz sn;
   if (!rn) return 0;
   sn = quic_stop_sending_encode(plb->p + rn, plb->cap - rn, &ss);
   if (!sn) return 0;
