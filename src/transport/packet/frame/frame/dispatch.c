@@ -41,7 +41,8 @@ static const kind_row TABLE[] = {
     {0x1d, QUIC_FK_CONNECTION_CLOSE},
     {0x1e, QUIC_FK_HANDSHAKE_DONE},
     {0x30, QUIC_FK_DATAGRAM},
-    {0x31, QUIC_FK_DATAGRAM}};
+    {0x31, QUIC_FK_DATAGRAM},
+    {0x24, QUIC_FK_RESET_STREAM_AT}};
 
 quic_frame_kind quic_frame_classify(u64 type) {
   usz n = sizeof(TABLE) / sizeof(TABLE[0]);

@@ -5,6 +5,7 @@
 #include "transport/packet/frame/frame/ack.h"
 #include "transport/packet/frame/frame/dispatch.h"
 #include "transport/packet/frame/frame/frame.h"
+#include "transport/packet/frame/frame/stream_ctl.h"
 
 void quic_framewalk_init(quic_framewalk* it, const u8* frames, usz len) {
   it->cur       = frames;
@@ -37,6 +38,23 @@ static usz datagram_len(const u8* buf, usz n) {
   quic_datagram_frame f;
   return quic_datagram_decode(buf, n, &f);
 }
+/* RFC 9000 19.4/19.5, draft-ietf-quic-reliable-stream-reset: these three
+ * stream-control kinds share the same decode-returns-bytes-consumed shape as
+ * the frames above, so the walker can skip over them like any other
+ * measurable frame instead of stalling when one is coalesced with other
+ * frames in the same payload. */
+static usz reset_stream_len(const u8* buf, usz n) {
+  quic_reset_stream_frame f;
+  return quic_reset_stream_decode(buf, n, &f);
+}
+static usz stop_sending_len(const u8* buf, usz n) {
+  quic_stop_sending_frame f;
+  return quic_stop_sending_decode(buf, n, &f);
+}
+static usz reset_stream_at_len(const u8* buf, usz n) {
+  quic_reset_stream_at_frame f;
+  return quic_reset_stream_at_decode(buf, n, &f);
+}
 
 /* Single-byte kinds (PADDING/PING/HANDSHAKE_DONE) have no table row; they are
  * measured before the lookup (see frame_len, single_byte below). */
@@ -51,6 +69,9 @@ static const len_row LEN_TABLE[] = {
     {QUIC_FK_STREAM, stream_len},
     {QUIC_FK_CONNECTION_CLOSE, conn_close_len},
     {QUIC_FK_DATAGRAM, datagram_len},
+    {QUIC_FK_RESET_STREAM, reset_stream_len},
+    {QUIC_FK_STOP_SENDING, stop_sending_len},
+    {QUIC_FK_RESET_STREAM_AT, reset_stream_at_len},
 };
 
 /* Length of a frame the walker measures via a decoder, or 0 if kind has no
