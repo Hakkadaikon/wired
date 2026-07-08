@@ -246,6 +246,15 @@ typedef struct {
    * driving the loop (srvrun.c's srvrun_on_step) checks it after the step and
    * closes the connection. */
   int datagram_violation;
+  /** RFC 9000 19.4/19.5 (draft-ietf-webtrans-http3-15 SS4.4): the client bidi
+   * stream id a FIN, RESET_STREAM, or STOP_SENDING closed THIS step, valid
+   * only when closed_stream_seen is set. Mirrors peer_closed's shape:
+   * dispatch.c only records it, the caller (srvrun.c) decides what a closed
+   * id means for whatever session it may belong to (e.g. a WebTransport
+   * CONNECT stream closing independently of the rest of the connection) —
+   * this loop has no notion of a WT session and does not interpret the id. */
+  u64 closed_stream_id;
+  int closed_stream_seen; /**< 1 once closed_stream_id was set this step */
 } wired_srvloop;
 
 /** Register the app response-body builder; pass 0 to clear (body-less 200).

@@ -82,6 +82,8 @@ int wired_srvloop_init(wired_srvloop* l, const u8* cli_scid, u8 cli_scid_len) {
   l->rx_datagram_n              = 0;
   l->we_advertised_max_datagram = 0;
   l->datagram_violation         = 0;
+  l->closed_stream_id           = 0;
+  l->closed_stream_seen         = 0;
   streams_reset(l);
   wt_streams_reset(l);
   wt_uni_streams_reset(l);

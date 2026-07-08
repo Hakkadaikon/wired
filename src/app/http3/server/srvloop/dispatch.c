@@ -11,6 +11,7 @@
 #include "common/bytes/varint/varint.h"
 #include "transport/packet/frame/frame/dispatch.h"
 #include "transport/packet/frame/frame/frame.h"
+#include "transport/packet/frame/frame/stream_ctl.h"
 #include "transport/packet/frame/pipeline/framewalk.h"
 #include "transport/stream/data/appdata/stream_send.h"
 
@@ -511,6 +512,103 @@ static int gather_rx_datagrams(wired_srvloop* l, const u8* payload, usz len) {
   return seen;
 }
 
+/* RFC 9000 19.4: extract the stream id RESET_STREAM (0x04) closed, 0 if frame
+ * is not a RESET_STREAM or fails to decode. draft-ietf-quic-reliable-stream-
+ * reset's RESET_STREAM_AT (0x24) is deliberately excluded here: it declares a
+ * RELIABLE size and is not itself the close signal this loop tracks (WT-F-007
+ * scope, srvrun.c does not yet emit it so there is no live peer path to test
+ * against). */
+static int reset_stream_id(u64 type, quic_span frame, u64* stream_id_out) {
+  quic_reset_stream_frame f;
+  if (quic_frame_classify(type) != QUIC_FK_RESET_STREAM) return 0;
+  if (quic_reset_stream_decode(frame.p, frame.n, &f) == 0) return 0;
+  *stream_id_out = f.stream_id;
+  return 1;
+}
+
+/* RFC 9000 19.5: extract the stream id STOP_SENDING (0x05) named, 0 if frame
+ * is not a STOP_SENDING or fails to decode. STOP_SENDING is the peer telling
+ * US to stop sending on stream_id — recorded the same as a RESET_STREAM
+ * closing it, since either end of a bidi stream that will never carry more
+ * data again is the observable "this stream is done" signal this loop
+ * tracks. */
+static int stop_sending_id(u64 type, quic_span frame, u64* stream_id_out) {
+  quic_stop_sending_frame f;
+  if (quic_frame_classify(type) != QUIC_FK_STOP_SENDING) return 0;
+  if (quic_stop_sending_decode(frame.p, frame.n, &f) == 0) return 0;
+  *stream_id_out = f.stream_id;
+  return 1;
+}
+
+/* RFC 9000 19.8: 1 if frame is a client bidi STREAM frame with FIN set,
+ * *stream_id_out set to its id — a client-initiated bidi stream (e.g. a
+ * WebTransport CONNECT stream, draft-ietf-webtrans-http3-15 SS4.4) ending its
+ * client-to-server half. Reuses client_bidi_stream_of's own id-space check
+ * rather than is_request_stream directly, so a stream already claimed by
+ * wt_streams[] (checked elsewhere, not here) is not excluded: closing is
+ * tracked independent of which path is reassembling the stream's bytes. */
+static int stream_fin_id(u64 type, quic_span frame, u64* stream_id_out) {
+  quic_stream_frame sf;
+  if (!client_bidi_stream_of(type, frame, &sf) || !sf.fin) return 0;
+  *stream_id_out = sf.stream_id;
+  return 1;
+}
+
+/* RFC 9000 19.4/19.5/19.8: the stream id `frame` (of `type`) closes, via
+ * whichever of the three close-shaped decoders recognizes it; 0 if frame is
+ * none of them. Split from gather_one_stream_close to keep its own branch
+ * count at the CCN gate. */
+static int closed_frame_id(u64 type, quic_span frame, u64* stream_id_out) {
+  if (reset_stream_id(type, frame, stream_id_out)) return 1;
+  if (stop_sending_id(type, frame, stream_id_out)) return 1;
+  return stream_fin_id(type, frame, stream_id_out);
+}
+
+/* RFC 9000 19.4/19.5/19.8: if the walked frame at `frame` closes a stream
+ * (closed_frame_id), latch its id into l->closed_stream_id — a peer ending
+ * its side of a bidi stream (e.g. the CONNECT stream of a WebTransport
+ * session, draft-ietf-webtrans-http3-15 SS4.4) independent of the rest of the
+ * connection. l has no notion of what stream_id belongs to; the caller
+ * driving the loop (srvrun.c) decides what a closed id means. Only the last
+ * one seen this step survives if more than one arrives (mirrors got_request's
+ * own "last one wins" mirroring), which is enough for the single-CONNECT-
+ * stream-per-connection shape this SDK serves. */
+static void gather_one_stream_close(wired_srvloop* l, u64 type, quic_span frame) {
+  u64 stream_id;
+  if (!closed_frame_id(type, frame, &stream_id)) return;
+  l->closed_stream_id   = stream_id;
+  l->closed_stream_seen = 1;
+}
+
+/* 1 if kind is one of the close-shaped frame kinds gather_stream_closes scans
+ * for (RESET_STREAM/STOP_SENDING/any STREAM, the latter since a FIN-bearing
+ * one is only distinguishable after decoding). Split out to keep
+ * gather_stream_closes' own branch count at the CCN gate. */
+static int is_close_shaped(quic_frame_kind kind, u64 type) {
+  return kind == QUIC_FK_RESET_STREAM || kind == QUIC_FK_STOP_SENDING ||
+         is_stream(type);
+}
+
+/* RFC 9000 19.4/19.5/19.8: scan this payload for RESET_STREAM/STOP_SENDING/
+ * FIN-bearing STREAM frames, mirroring gather_rx_datagrams' shape for a
+ * different frame kind set. Returns 1 if any was seen this payload (whether
+ * or not it was the last one latched); this deliberately does NOT gate
+ * dispatch_non_request's handshake-feed fallback the way gather_request/
+ * gather_wt_stream/gather_rx_datagrams do, since a FIN-bearing STREAM frame
+ * is already a STREAM frame those paths (or has_stream's own check) already
+ * account for. */
+static int gather_stream_closes(wired_srvloop* l, const u8* payload, usz len) {
+  quic_framewalk      it;
+  quic_framewalk_item fr;
+  int                 seen = 0;
+  quic_framewalk_init(&it, payload, len);
+  while (quic_framewalk_next(&it, &fr)) {
+    if (is_close_shaped(quic_frame_classify(fr.type), fr.type)) seen = 1;
+    gather_one_stream_close(l, fr.type, quic_span_of(fr.start, fr.remaining));
+  }
+  return seen;
+}
+
 /* RFC 9114 4.1: re-wrap the reassembled stream bytes as a single STREAM frame
  * (offset 0) into in->wrap and drive the HTTP/3 request decoder once. req's
  * path/body views end up pointing into in->wrap, so it must be caller-owned
@@ -601,6 +699,19 @@ static int dispatch_gather_uni(
   return gather_uni_stream(ctx->l, payload.p, payload.n);
 }
 
+/* 1 if ctx has a loop to latch a closed stream id into (ctx->l != 0) and this
+ * payload carried a RESET_STREAM/STOP_SENDING/FIN-bearing STREAM frame
+ * (RFC 9000 19.4/19.5/19.8), mirroring dispatch_gather_wt for
+ * gather_stream_closes. A payload carrying only RESET_STREAM/STOP_SENDING
+ * (neither of which has_stream's STREAM-only check recognizes) would
+ * otherwise fall through to dispatch_non_request's handshake-feed fallback
+ * (RFC 9000 12.4: a 1-RTT payload must never re-enter the handshake). */
+static int dispatch_gather_closes(
+    const wired_srvloop_dispatch_ctx* ctx, quic_span payload) {
+  if (!ctx->l) return 0;
+  return gather_stream_closes(ctx->l, payload.p, payload.n);
+}
+
 /* RFC 9000 12.4 / 2.1, RFC 9114 6.2: a payload may lead with PADDING/ACK before
  * its CRYPTO or STREAM frame (curl/quiche do this). A client bidi STREAM drives
  * HTTP/3; unidirectional STREAMs are accepted but ignored; anything else is
@@ -610,14 +721,16 @@ static int dispatch_gather_uni(
  * uni stream (control/QPACK/WebTransport, same draft/RFC 9114 6.2), or a
  * DATAGRAM frame (RFC 9221 5) — all three are gathered independently before
  * either path below, since a coalesced payload may carry any combination. */
-/* Gather this payload's WT bidi, uni, and DATAGRAM frames (each independent of
- * the others, see wired_srvloop_dispatch's doc); 1 if any kind was present. */
+/* Gather this payload's WT bidi, uni, DATAGRAM, and stream-close frames (each
+ * independent of the others, see wired_srvloop_dispatch's doc); 1 if any kind
+ * was present. */
 static int dispatch_gather_side_channels(
     const wired_srvloop_dispatch_ctx* ctx, quic_span payload) {
-  int got_wt  = dispatch_gather_wt(ctx, payload);
-  int got_uni = dispatch_gather_uni(ctx, payload);
-  int got_dg  = dispatch_gather_datagrams(ctx, payload);
-  return got_wt | got_uni | got_dg;
+  int got_wt     = dispatch_gather_wt(ctx, payload);
+  int got_uni    = dispatch_gather_uni(ctx, payload);
+  int got_dg     = dispatch_gather_datagrams(ctx, payload);
+  int got_closes = dispatch_gather_closes(ctx, payload);
+  return got_wt | got_uni | got_dg | got_closes;
 }
 
 int wired_srvloop_dispatch(
