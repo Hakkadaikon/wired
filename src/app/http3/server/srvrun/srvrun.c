@@ -643,6 +643,31 @@ static void srvrun_offer_wt_uni_streams(const srvrun_cfg* cfg, srvrun_conn* c) {
     srvrun_offer_and_deliver_wt_uni_slot(cfg, c, &c->l.wt_uni_streams[i]);
 }
 
+/* draft-ietf-webtrans-http3-15 SS4.4: this step's stream-close gathering
+ * (dispatch.c's gather_stream_closes) latched a RESET_STREAM/STOP_SENDING/FIN
+ * on the exact stream id that is this connection's active WT session's
+ * CONNECT stream -- close the session now, independent of whether the rest
+ * of the connection is still alive. This is the fourth, precise trigger the
+ * TLA+ model (tasks/loopeng/webtransport/) found missing: the existing
+ * srvrun_free_slot trigger only fires on whole-connection teardown, so a
+ * CONNECT stream closing while the connection stays open previously left the
+ * session established indefinitely. c->l.closed_stream_seen is consumed
+ * (cleared) here every step regardless of whether it matched, mirroring
+ * datagram_violation's own per-step latch-and-clear shape. */
+/* 1 if the stream this step's gather_stream_closes latched is this
+ * connection's active WT session's own CONNECT stream — split out of
+ * srvrun_close_wt_on_stream_close to keep its own branch count at the CCN
+ * gate. */
+static int wt_connect_stream_closed(const srvrun_conn* c) {
+  if (!c->wt_active || !c->l.closed_stream_seen) return 0;
+  return c->l.closed_stream_id == c->wt.connect_stream_id;
+}
+
+static void srvrun_close_wt_on_stream_close(srvrun_conn* c) {
+  if (wt_connect_stream_closed(c)) wired_wt_session_close(&c->wt);
+  c->l.closed_stream_seen = 0;
+}
+
 /* RFC 9221 3: this step's DATAGRAM gathering (dispatch.c) latched a violation
  * -- close the connection with a transport-level PROTOCOL_VIOLATION. Split out
  * of srvrun_on_step to keep its own branch count at the CCN gate. */
@@ -678,6 +703,7 @@ static void srvrun_on_step(
   srvrun_offer_wt_streams(ctx->cfg, c);
   srvrun_offer_wt_uni_streams(ctx->cfg, c);
   srvrun_drain_rx_datagrams(ctx->cfg, c);
+  srvrun_close_wt_on_stream_close(c);
   if (c->l.datagram_violation) {
     srvrun_close_on_datagram_violation(ctx->cfg, c);
     return;
