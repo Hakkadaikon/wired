@@ -2465,7 +2465,126 @@ static void test_srvrun_wt_uni_stream_data_delivered_on_offer(void) {
   CHECK(c.l.wt_uni_streams[0].delivered_len == 1);
 }
 
+/* PHASE 7c: full in-tree client/server integration. Extended CONNECT
+ * establishes a WT session -> a WT bidi stream's reassembled bytes reach the
+ * app callback -> a QUIC DATAGRAM round-trips on the wire and reaches the app
+ * callback -> the CONNECT stream's own RESET_STREAM (on the wire, via
+ * srvrun_on_step's real dispatch path) closes the session, independent of
+ * the connection itself, which stays up. Every step drives real sealed 1-RTT
+ * packets through srvrun_on_step (not direct field injection), the same
+ * client/server pair sr_make_confirmed_conn builds elsewhere in this file. */
+static void test_srvrun_wt_full_session_lifecycle_on_wire(void) {
+  struct lp_fix   f;
+  quic_conntable  table[QUIC_CONNTABLE_CAP];
+  srvrun_conn     conns[QUIC_CONNTABLE_CAP] = {0};
+  quic_obuf       ob;
+  u8              obuf[1024];
+  u8              wt[64], out[1024], spkt[1024];
+  usz             wtl, slen;
+  const u8*       pl;
+  usz             pll;
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  sr_make_confirmed_conn(&conns[0], &f, &ob);
+
+  /* Step 1: Extended CONNECT (:protocol=webtransport-h3, stream 4)
+   * establishes the WT session -- mirrors test_srvrun_wt_connect_establishes_
+   * session's own driving style (srvrun_start_resp reads the mirrored
+   * req/req_stream_id fields, no real HEADERS bytes needed to exercise this
+   * layer). */
+  sr_set_req(&conns[0], 1, 1, 4);
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, sr_dg_handler, 0, sr_stream_data_handler,
+        0};
+    srvrun_state    st  = {table, conns};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_start_resp(&ctx, 0);
+  }
+  CHECK(conns[0].wt_active == 1);
+  CHECK(conns[0].wt.state == WIRED_WT_ESTABLISHED);
+  CHECK(conns[0].wt.connect_stream_id == 4);
+
+  /* Step 2: a WT bidi stream (id 8, the next client-initiated bidi id after
+   * the CONNECT stream) sends its leading 0x41 signal + one application byte
+   * -- reassembled by dispatch.c's gather_wt_stream then delivered to the
+   * app callback by srvrun_offer_wt_streams, both driven through the real
+   * srvrun_on_step path this time (not direct slot injection). */
+  {
+    srvrun_cfg      cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, sr_dg_handler, 0, sr_stream_data_handler,
+        0};
+    srvrun_state    st  = {table, conns};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    g_srsd_calls        = 0;
+    wtl = lp_wt_bidi_stream(wt, sizeof wt, 8);
+    slen = client_seal_onertt_pn(&f, 3, wt, wtl, spkt, sizeof spkt);
+    srvrun_on_step(&ctx, &conns[0], quic_mspan_of(spkt, slen));
+  }
+  CHECK(g_srsd_calls == 1);
+  CHECK(g_srsd_last_stream_id == 8);
+  CHECK(g_srsd_last_len == 1 && g_srsd_last_buf[0] == 'X');
+  CHECK(g_srsd_last_sess == &conns[0].wt);
+
+  /* Step 3: a QUIC DATAGRAM round-trips -- queued server-side, sealed and
+   * opened by the client, then fed back in as a received 1-RTT payload so
+   * the receive side (framewalk -> gather_rx_datagrams -> srvrun_drain_rx_
+   * datagrams -> app callback) is exercised on the exact bytes the send side
+   * produced, a real encode -> wire -> decode -> deliver round trip. */
+  {
+    quic_datagram_frame df;
+    u8                  dgpl[64];
+    usz                 dgpll;
+    conns[0].s.sdrv.peer_max_datagram_frame_size = 65535;
+    conns[0].l.we_advertised_max_datagram        = 65535;
+    CHECK(
+        srvrun_queue_datagram(
+            &conns[0], quic_span_of(sr_dg_payload, sizeof sr_dg_payload)) ==
+        1);
+    {
+      quic_obuf  sendob = {out, sizeof out, 0};
+      srvrun_cfg cfg    = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+      CHECK(srvrun_send_pending_datagram(&cfg, &conns[0], &sendob) == 1);
+      CHECK(client_open_onertt(&f, sendob.p, sendob.len, &pl, &pll) == 1);
+    }
+    CHECK(quic_datagram_decode(pl, pll, &df) == pll);
+    for (usz i = 0; i < sizeof sr_dg_payload; i++)
+      CHECK(df.data[i] == sr_dg_payload[i]);
+    dgpll = quic_datagram_encode(quic_mspan_of(dgpl, sizeof dgpl), &df, 1);
+    {
+      srvrun_cfg      cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, sr_dg_handler, 0,
+                              0,  0};
+      srvrun_state    st  = {table, conns};
+      srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+      slen = client_seal_onertt_pn(&f, 4, dgpl, dgpll, spkt, sizeof spkt);
+      g_srdg_calls = 0;
+      srvrun_on_step(&ctx, &conns[0], quic_mspan_of(spkt, slen));
+    }
+    CHECK(g_srdg_calls == 1);
+    CHECK(g_srdg_last_len == sizeof sr_dg_payload);
+  }
+
+  /* Step 4: the CONNECT stream itself (id 4) is RESET on the wire -- the
+   * fourth close trigger (dispatch.c's gather_stream_closes -> srvrun.c's
+   * srvrun_close_wt_on_stream_close) closes the session, while the
+   * connection stays up (srvrun_on_step never touches conns[0].up for this
+   * path). */
+  {
+    quic_reset_stream_frame rs = {4, 0, 0};
+    u8                      rspl[32];
+    usz                     rspll = quic_reset_stream_encode(rspl, sizeof rspl, &rs);
+    srvrun_cfg               cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_state              st = {table, conns};
+    srvrun_step_ctx           ctx = {&cfg, 0, &st, 0};
+    slen = client_seal_onertt_pn(&f, 5, rspl, rspll, spkt, sizeof spkt);
+    srvrun_on_step(&ctx, &conns[0], quic_mspan_of(spkt, slen));
+  }
+  CHECK(conns[0].wt.state == WIRED_WT_CLOSED);
+  CHECK(conns[0].up == 1); /* the connection itself is untouched */
+}
+
 void test_srvrun(void) {
+  test_srvrun_wt_full_session_lifecycle_on_wire();
   test_srvrun_no_shutdown_accepts_new();
   test_srvrun_accept_rekeys_to_slot_scid();
   test_srvrun_split_ch_boots_across_datagrams();
