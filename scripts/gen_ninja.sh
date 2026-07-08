@@ -87,6 +87,9 @@ dbgsrcs=$(printf '%s\n' "$srcs" | grep -v '^src/common/platform/sys/sys\.c$' \
     echo "build examples/webtransport_echo/wired_server: cc_freestanding_bin \$"
     echo "    examples/webtransport_echo/wired_server.c build/libwired.a"
     echo
+    echo "build examples/webtransport_chat/wired_server: cc_freestanding_bin \$"
+    echo "    examples/webtransport_chat/wired_server.c build/libwired.a"
+    echo
     echo "build examples/word_list_pinned/wired_server: cc_freestanding_bin \$"
     echo "    examples/word_list_pinned/wired_server.c build/libwired.a"
     echo
