@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>webtransport_chat frontend tests</title>
+</head>
+<body>
+<h1>webtransport_chat frontend tests</h1>
+<!--
+  ES module imports are same-origin fetches; file:// URLs are blocked by
+  browsers for module scripts. Serve this directory over HTTP first, e.g.:
+    python3 -m http.server 8000
+  then open http://localhost:8000/tests/index.html
+-->
+<script type="module" src="./message.test.js"></script>
+<script type="module" src="./connectionState.test.js"></script>
+<script type="module" src="./chatSession.test.js"></script>
+<script type="module" src="./webtransportClient.test.js"></script>
+</body>
+</html>

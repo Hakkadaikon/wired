@@ -1,0 +1,70 @@
+body {
+  font-family: system-ui, sans-serif;
+  max-width: 640px;
+  margin: 2rem auto;
+  padding: 0 1rem;
+}
+
+#connection-panel {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+#connection-panel input[type='text'] {
+  flex: 1 1 auto;
+  min-width: 12rem;
+}
+
+.status {
+  padding: 0.15rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  color: white;
+}
+
+.status-disconnected {
+  background: #b00020;
+}
+
+.status-connecting {
+  background: #b8860b;
+}
+
+.status-connected {
+  background: #2e7d32;
+}
+
+.status-closed {
+  background: #757575;
+}
+
+#messages {
+  list-style: none;
+  margin: 0 0 1rem;
+  padding: 0.5rem;
+  height: 20rem;
+  overflow-y: auto;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
+
+#messages li {
+  padding: 0.15rem 0;
+  border-bottom: 1px solid #eee;
+}
+
+#chat-form {
+  display: flex;
+  gap: 0.5rem;
+}
+
+#chat-form #author {
+  flex: 0 0 8rem;
+}
+
+#chat-form #text {
+  flex: 1 1 auto;
+}
