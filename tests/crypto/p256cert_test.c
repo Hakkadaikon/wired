@@ -28,7 +28,7 @@ static void pc_pubkey(const u8 priv[32], u8 x[32], u8 y[32]) {
 /* Build a self-signed cert from priv/x/y into cert, returning its length. */
 static usz pc_build(
     const u8 priv[32], const u8 x[32], const u8 y[32], u8* cert, usz cap) {
-  quic_p256cert_key k = {priv, x, y};
+  quic_p256cert_key k = {priv, x, y, 0};
   quic_obuf         o = quic_obuf_of(cert, cap);
   CHECK(quic_p256cert_build(&k, &o) == 1);
   return o.len;
@@ -177,10 +177,86 @@ static void test_cert_san_localhost(void) {
           c.tbs, quic_span_of((const u8*)"example.com", 11)) == 0);
 }
 
+/* id-ce-subjectAltName = 2.5.29.17 (RFC 5280 4.2.1.6), mirroring san.c's own
+ * copy -- this test reaches for the raw extnValue bytes directly since
+ * quic_x509_san_matches only checks dNSName entries, not iPAddress. */
+static const u8 pct_oid_san[] = {0x55, 0x1d, 0x11};
+
+/* 1 if der[i..i+6) is the GeneralName TLV for iPAddress [7] IMPLICIT OCTET
+ * STRING (tag 0x87, RFC 5280 4.2.1.6) carrying exactly ip[4]. */
+static int pc_ipv4_tlv_at(const u8* p, const u8 ip[4]) {
+  if (p[0] != 0x87 || p[1] != 4) return 0;
+  for (usz j = 0; j < 4; j++)
+    if (p[2 + j] != ip[j]) return 0;
+  return 1;
+}
+
+/* 1 if der contains, anywhere, the fixed-length iPAddress TLV for ip[4]. A
+ * substring scan is fine here: the TLV's tag byte cannot appear as a false
+ * match inside the fixed-shape dNSName entry this same GeneralNames
+ * SEQUENCE also carries. */
+static int pc_has_san_ipv4(quic_span der, const u8 ip[4]) {
+  if (der.n < 6) return 0;
+  for (usz i = 0; i + 6 <= der.n; i++)
+    if (pc_ipv4_tlv_at(der.p + i, ip)) return 1;
+  return 0;
+}
+
+/* san_ipv4 omitted (0): the SAN extension carries only dNSName, unchanged
+ * from before this field existed (regression guard). */
+static void test_cert_san_ipv4_omitted(void) {
+  u8 priv[32], x[32], y[32];
+  for (usz i = 0; i < 32; i++) priv[i] = (u8)(0x50 + i);
+  pc_pubkey(priv, x, y);
+
+  u8                cert[1024];
+  quic_p256cert_key k = {priv, x, y, 0};
+  quic_obuf         o = quic_obuf_of(cert, sizeof(cert));
+  CHECK(quic_p256cert_build(&k, &o) == 1);
+
+  quic_x509 c;
+  quic_span san;
+  CHECK(quic_x509_parse(quic_span_of(cert, o.len), &c) == 1);
+  CHECK(quic_x509_find_ext(c.tbs, quic_span_of(pct_oid_san, 3), &san) == 1);
+  {
+    const u8 zero_ip[4] = {0, 0, 0, 0};
+    CHECK(pc_has_san_ipv4(san, zero_ip) == 0);
+  }
+}
+
+/* RFC 5280 4.2.1.6: san_ipv4 given adds an iPAddress GeneralName alongside
+ * dNSName=localhost -- the entry a browser checks when validating a
+ * WebTransport connection to a bare IP literal (draft-ietf-webtrans-http3-15
+ * serverCertificateHashes pinning still enforces hostname validation). */
+static void test_cert_san_ipv4_present(void) {
+  u8 priv[32], x[32], y[32];
+  for (usz i = 0; i < 32; i++) priv[i] = (u8)(0x60 + i);
+  pc_pubkey(priv, x, y);
+
+  const u8          ip[4] = {160, 251, 55, 132};
+  u8                cert[1024];
+  quic_p256cert_key k = {priv, x, y, ip};
+  quic_obuf         o = quic_obuf_of(cert, sizeof(cert));
+  CHECK(quic_p256cert_build(&k, &o) == 1);
+
+  quic_x509 c;
+  quic_span san;
+  CHECK(quic_x509_parse(quic_span_of(cert, o.len), &c) == 1);
+  CHECK(quic_x509_find_ext(c.tbs, quic_span_of(pct_oid_san, 3), &san) == 1);
+  CHECK(pc_has_san_ipv4(san, ip) == 1);
+  /* dNSName=localhost is still there too -- san_ipv4 adds, does not
+   * replace */
+  CHECK(
+      quic_x509_san_matches(c.tbs, quic_span_of((const u8*)"localhost", 9)) ==
+      1);
+}
+
 void test_p256cert(void) {
   test_spki_roundtrip();
   test_p256cert_parse();
   test_cert_spki_key();
   test_cert_selfsigned();
   test_cert_san_localhost();
+  test_cert_san_ipv4_omitted();
+  test_cert_san_ipv4_present();
 }

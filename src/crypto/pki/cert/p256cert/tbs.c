@@ -17,6 +17,9 @@ static const u8 pc_cn_value[]   = "localhost";
 static const u8 pc_oid_san[] = {0x55, 0x1d, 0x11};
 /* RFC 5280 4.2.1.6. dNSName is [2] IMPLICIT IA5String (context tag 0x82). */
 #define PC_SAN_DNSNAME_TAG 0x82
+/* RFC 5280 4.2.1.6. iPAddress is [7] IMPLICIT OCTET STRING (context tag
+ * 0x87); a 4-byte value is an IPv4 address in network byte order. */
+#define PC_SAN_IPADDR_TAG 0x87
 /* RFC 5280 4.1.2.9. extensions is [3] EXPLICIT (context tag 0xa3). */
 #define PC_EXTENSIONS_TAG 0xa3
 
@@ -79,23 +82,30 @@ static void tbs_head(quic_p256cert_enc* e, quic_span name) {
   quic_p256cert_put_pre(e, name);
 }
 
-/* RFC 5280 4.2.1.6. GeneralNames SEQUENCE{ dNSName [2] "localhost" }. */
-static usz pc_build_gennames(quic_obuf* out) {
-  u8                inner[32];
+/* RFC 5280 4.2.1.6. GeneralNames SEQUENCE{ dNSName [2] "localhost",
+ * iPAddress [7] san_ipv4 (if given) }. A browser validating a connection to
+ * an IP literal checks this entry, not the dNSName one -- omitting it is
+ * what breaks WebTransport serverCertificateHashes pinning to a bare IP
+ * (draft-ietf-webtrans-http3-15, hostname validation still applies). */
+static usz pc_build_gennames(const u8* san_ipv4, quic_obuf* out) {
+  u8                inner[48];
   quic_p256cert_enc e = {inner, sizeof(inner), 0, 1};
   quic_p256cert_put(
       &e, PC_SAN_DNSNAME_TAG,
       quic_span_of(pc_cn_value, sizeof(pc_cn_value) - 1));
+  if (san_ipv4)
+    quic_p256cert_put(&e, PC_SAN_IPADDR_TAG, quic_span_of(san_ipv4, 4));
   return quic_p256cert_wrap(&e, QUIC_DER_SEQUENCE, out);
 }
 
 /* RFC 5280 4.1.2.9. Extension SEQUENCE{ extnID, extnValue OCTET STRING }.
  * extnValue wraps the GeneralNames; SAN is non-critical (DEFAULT FALSE). */
-static usz pc_build_san_ext(quic_obuf* out) {
+static usz pc_build_san_ext(const u8* san_ipv4, quic_obuf* out) {
   u8                gn[48], ext[64];
   quic_obuf         go = quic_obuf_of(gn, sizeof(gn));
-  quic_p256cert_enc eg = quic_p256cert_loaded(gn, pc_build_gennames(&go));
-  quic_p256cert_enc e  = {ext, sizeof(ext), 0, 1};
+  quic_p256cert_enc eg =
+      quic_p256cert_loaded(gn, pc_build_gennames(san_ipv4, &go));
+  quic_p256cert_enc e = {ext, sizeof(ext), 0, 1};
   quic_p256cert_put(
       &e, QUIC_DER_OID, quic_span_of(pc_oid_san, sizeof(pc_oid_san)));
   quic_p256cert_put(&e, QUIC_DER_OCTET_STRING, quic_span_of(eg.buf, eg.off));
@@ -103,17 +113,19 @@ static usz pc_build_san_ext(quic_obuf* out) {
 }
 
 /* RFC 5280 4.1.2.9. extensions [3] EXPLICIT { SEQUENCE OF Extension }. */
-static usz pc_build_extensions(quic_obuf* out) {
+static usz pc_build_extensions(const u8* san_ipv4, quic_obuf* out) {
   u8                ext[64], seq[80];
   quic_obuf         eo = quic_obuf_of(ext, sizeof(ext));
   quic_obuf         so = quic_obuf_of(seq, sizeof(seq));
-  quic_p256cert_enc ee = quic_p256cert_loaded(ext, pc_build_san_ext(&eo));
+  quic_p256cert_enc ee =
+      quic_p256cert_loaded(ext, pc_build_san_ext(san_ipv4, &eo));
   quic_p256cert_enc es = quic_p256cert_loaded(
       seq, quic_p256cert_wrap(&ee, QUIC_DER_SEQUENCE, &so));
   return quic_p256cert_wrap(&es, PC_EXTENSIONS_TAG, out);
 }
 
-int quic_p256cert_tbs(const u8 x[32], const u8 y[32], quic_obuf* out) {
+int quic_p256cert_tbs(
+    const u8 x[32], const u8 y[32], const u8* san_ipv4, quic_obuf* out) {
   u8                name[80], val[48], spki[128], exts[96], body[512];
   quic_obuf         no = quic_obuf_of(name, sizeof(name));
   quic_obuf         vo = quic_obuf_of(val, sizeof(val));
@@ -126,7 +138,8 @@ int quic_p256cert_tbs(const u8 x[32], const u8 y[32], quic_obuf* out) {
   quic_p256cert_put_pre(&e, quic_span_of(val, pc_build_validity(&vo)));
   quic_p256cert_put_pre(&e, quic_span_of(name, nn)); /* subject */
   quic_p256cert_put_pre(&e, quic_span_of(spki, so.len));
-  quic_p256cert_put_pre(&e, quic_span_of(exts, pc_build_extensions(&xo)));
+  quic_p256cert_put_pre(
+      &e, quic_span_of(exts, pc_build_extensions(san_ipv4, &xo)));
   out->len = quic_p256cert_wrap(&e, QUIC_DER_SEQUENCE, out);
   return out->len != 0;
 }

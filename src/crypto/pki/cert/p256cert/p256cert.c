@@ -37,7 +37,7 @@ int quic_p256cert_build(const quic_p256cert_key* k, quic_obuf* out) {
   quic_obuf         vo = quic_obuf_of(sv, sizeof(sv));
   usz               an = quic_p256cert_sigalg(&ao), svn;
   quic_p256cert_enc e  = {body, sizeof(body), 0, 1};
-  if (!quic_p256cert_tbs(k->x, k->y, &to)) return 0;
+  if (!quic_p256cert_tbs(k->x, k->y, k->san_ipv4, &to)) return 0;
   if (!pc_sign_tbs(k->priv, quic_span_of(tbs, to.len), &go)) return 0;
   svn = pc_build_sigval(quic_span_of(sig, go.len), &vo);
   quic_p256cert_put_pre(&e, quic_span_of(tbs, to.len));
