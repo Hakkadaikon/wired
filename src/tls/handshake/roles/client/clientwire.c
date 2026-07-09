@@ -53,12 +53,19 @@ int quic_client_open_initial_wire(
   return quic_srvwire_open_initial(&oin, in->pkt, tls);
 }
 
-/* RFC 9001 5: seal a Handshake flight with CLIENT_HS (own direction). */
+/* RFC 9001 5: seal a Handshake flight with CLIENT_HS (own direction). The
+ * key-derivation dcid slot is unused (keys come from the schedule); in->
+ * hdr.dcid is the header's DCID. */
 int quic_client_seal_handshake_wire(
     quic_client* c, const quic_clientwire_seal_in* in, quic_obuf* out) {
   cw_dirkey            dk;
-  quic_srvwire_seal_in si = {in->hdr.dcid, in->hdr.scid, in->hdr.pn,
-                             -1,           in->tls,      0};
+  quic_srvwire_seal_in si = {quic_span_of((const u8*)0, 0),
+                             in->hdr.dcid,
+                             in->hdr.scid,
+                             in->hdr.pn,
+                             -1,
+                             in->tls,
+                             0};
   quic_protect_keys    pk;
   if (!cw_dir_key(c, QUIC_KS_CLIENT_HS, &dk)) return 0;
   pk = (quic_protect_keys){dk.k, &dk.hp};

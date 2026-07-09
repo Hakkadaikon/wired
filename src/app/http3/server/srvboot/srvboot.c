@@ -31,8 +31,8 @@ static int srvboot_init(
     const wired_srvboot_conn* conn,
     const wired_srvboot_id*   id,
     const wired_header*       h) {
-  wired_server_init_in in = {id->priv,      id->pub,         id->cert_seed,
-                             id->chain,     id->chain_count, id->san_ipv4,
+  wired_server_init_in in = {id->priv,    id->pub,         id->cert_seed,
+                             id->chain,   id->chain_count, id->san_ipv4,
                              id->now_secs};
   wired_server_init(conn->s, &in);
   wired_server_set_limits(
@@ -63,11 +63,14 @@ typedef struct {
 } srvboot_flight_bytes;
 
 /* The server and its fixed identity, threaded together through flight
- * sealing (they always travel as a pair). */
+ * sealing (they always travel as a pair). cli_scid is the client's SCID from
+ * its Initial: the DCID every reply is addressed to (RFC 9000 7.2), possibly
+ * zero-length (Chrome). */
 typedef struct {
   wired_server*           s;
   const wired_srvboot_id* id;
-  u64                     ack_pn; /**< client Initial pn the flight ACKs */
+  u64                     ack_pn;   /**< client Initial pn the flight ACKs */
+  quic_span               cli_scid; /**< reply DCID (RFC 9000 7.2) */
 } srvboot_server;
 
 /* RFC 9000 19.6 / 14.1: TLS bytes per Handshake flight datagram. 1100 keeps
@@ -92,8 +95,8 @@ static int srvboot_seal_next(
   quic_obuf tail = quic_obuf_of(
       out->flight->p + out->flight->len, out->flight->cap - out->flight->len);
   wired_srvloop_send_in in = {
-      quic_span_of(sv->id->scid, sv->id->scid_len), out->dgram_count, -1,
-      quic_span_of(flight.p + *off, n), *off};
+      sv->cli_scid, out->dgram_count, -1, quic_span_of(flight.p + *off, n),
+      *off};
   if (out->dgram_count >= WIRED_SRVBOOT_FLIGHT_MAX) return 0;
   if (!wired_srvloop_send_handshake(sv->s, &in, &tail)) return 0;
   out->dgram_len[out->dgram_count++] = tail.len;
@@ -122,9 +125,7 @@ static int srvboot_seal_flight(
     const srvboot_server*       sv,
     const srvboot_flight_bytes* fb,
     wired_srvboot_out*          out) {
-  wired_srvloop_send_in in0 = {
-      quic_span_of(sv->id->scid, sv->id->scid_len), 1, (i64)sv->ack_pn, fb->sh,
-      0};
+  wired_srvloop_send_in in0 = {sv->cli_scid, 1, (i64)sv->ack_pn, fb->sh, 0};
   if (!wired_srvloop_send_initial(sv->s, &in0, out->initial)) return 0;
   return srvboot_seal_hs_flight(sv, fb->flight, out);
 }
@@ -140,7 +141,9 @@ static int srvboot_flight(
   quic_obuf            fl_ob = quic_obuf_of(flight, sizeof flight);
   quic_sdrv_flight_out fo    = {&sh_ob, &fl_ob};
   srvboot_flight_bytes fb;
-  srvboot_server       sv = {conn->s, id, ack_pn};
+  srvboot_server       sv = {
+      conn->s, id, ack_pn,
+      quic_span_of(conn->l->cli_scid, conn->l->cli_scid_len)};
   if (!wired_server_build_flight(conn->s, id->random, &fo)) return 0;
   fb = (srvboot_flight_bytes){
       quic_span_of(sh, sh_ob.len), quic_span_of(flight, fl_ob.len)};
@@ -250,6 +253,7 @@ usz wired_srvboot_refusal(
   quic_obuf             ob = quic_obuf_of(out, cap);
   quic_srvwire_seal_in  wi = {
       quic_span_of(a->hdr.dcid, a->hdr.dcid_len),
+      quic_span_of(a->hdr.scid, a->hdr.scid_len),
       scid,
       1,
       (i64)a->largest_pn,

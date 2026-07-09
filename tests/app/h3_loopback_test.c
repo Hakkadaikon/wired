@@ -139,6 +139,7 @@ static usz lb_seal_handshake(
   /* ack_pn 0: also acknowledge the server's Handshake PN 0, exercising the
    * server open path against a flight that carries a trailing ACK frame. */
   quic_srvwire_seal_in in = {
+      quic_span_of((const u8*)0, 0),
       quic_span_of(f->s.sdrv.iscid, f->s.sdrv.iscid_len),
       quic_span_of(g_scid, 6),
       0,
@@ -403,6 +404,84 @@ static void test_srvboot_accept(void) {
   /* wired_srvboot_is_initial classifies the datagram; a short one is rejected.
    */
   CHECK(wired_srvboot_is_initial(dg, total) == 1);
+}
+
+/* Run wired_srvboot_accept on a client Initial built with the given DCID and
+ * SCID, filling out's reply datagrams. */
+static void sb_accept_cids(
+    quic_span          dcid,
+    quic_span          scid,
+    wired_srvboot_out* out,
+    wired_server*      s,
+    wired_srvloop*     l) {
+  quic_client      c;
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32], cpriv[32], cpub[32];
+  u8               dg[1500];
+  usz              total = 0;
+  for (usz i = 0; i < 32; i++) cpriv[i] = (u8)(7 + i);
+  quic_x25519_base(cpub, cpriv);
+  quic_tlsdriver_init(&c.tls, cpriv, cpub, 0);
+  {
+    quic_clientwire_hdr_in hdr = {dcid, scid, 0};
+    quic_obuf              ob  = quic_obuf_of(dg, sizeof dg);
+    CHECK(quic_client_build_initial_wire(&c, &hdr, &ob) == 1);
+    total = ob.len;
+  }
+  wired_srvboot_conn conn = {s, l};
+  wired_srvboot_in   in;
+  sb_make_id(&id, priv, pub, seed, rnd);
+  in = (wired_srvboot_in){&id, quic_mspan_of(dg, total)};
+  CHECK(wired_srvboot_accept(&conn, &in, out) == 1);
+}
+
+/* The reply datagram's header DCID equals want (RFC 9000 7.2). */
+static void sb_check_hdr_dcid(quic_span dg, quic_span want) {
+  wired_header h;
+  CHECK(wired_header_parse(dg.p, dg.n, &h) != 0);
+  CHECK(h.dcid_len == want.n);
+  for (usz i = 0; i < want.n; i++) CHECK(h.dcid[i] == want.p[i]);
+}
+
+/* RFC 9000 7.2 / 17.2: the server addresses every reply to the client's SCID.
+ * The client's original DCID only seeds the Initial keys (RFC 9001 5.2), and
+ * the server's own SCID goes in the reply's SCID field -- neither belongs in
+ * the reply's DCID. A client whose DCID and SCID are distinct values catches
+ * either mix-up; a same-value client (as the accept test above uses) cannot.
+ * A real browser silently discards a reply addressed to a CID it does not
+ * own, so this mix-up presents as a handshake that goes completely
+ * unanswered. */
+static void test_srvboot_reply_dcid_is_client_scid(void) {
+  static const u8 cli_dcid[8] = {0x38, 0x6f, 0xd3, 0x6a,
+                                 0x70, 0x8d, 0x3c, 0xab};
+  static const u8 cli_scid[5] = {0xc1, 0x15, 0xc1, 0xd5, 0x01};
+  wired_server    s;
+  wired_srvloop   l;
+  u8              ini[1500], hs[1500];
+  quic_obuf       iob = {ini, sizeof ini, 0};
+  quic_obuf       hob = {hs, sizeof hs, 0};
+  wired_srvboot_out out = {&iob, &hob, {0}, 0, 0};
+  sb_accept_cids(
+      quic_span_of(cli_dcid, 8), quic_span_of(cli_scid, 5), &out, &s, &l);
+  sb_check_hdr_dcid(quic_span_of(ini, iob.len), quic_span_of(cli_scid, 5));
+  sb_check_hdr_dcid(quic_span_of(hs, hob.len), quic_span_of(cli_scid, 5));
+}
+
+/* Chrome sends a zero-length SCID (it routes replies by address); the reply
+ * DCID must then be zero-length as well (RFC 9000 7.2). */
+static void test_srvboot_reply_dcid_empty_client_scid(void) {
+  static const u8 cli_dcid[8] = {0x11, 0x22, 0x33, 0x44,
+                                 0x55, 0x66, 0x77, 0x88};
+  wired_server    s;
+  wired_srvloop   l;
+  u8              ini[1500], hs[1500];
+  quic_obuf       iob = {ini, sizeof ini, 0};
+  quic_obuf       hob = {hs, sizeof hs, 0};
+  wired_srvboot_out out = {&iob, &hob, {0}, 0, 0};
+  sb_accept_cids(
+      quic_span_of(cli_dcid, 8), quic_span_of((const u8*)0, 0), &out, &s, &l);
+  sb_check_hdr_dcid(quic_span_of(ini, iob.len), quic_span_of((const u8*)0, 0));
+  sb_check_hdr_dcid(quic_span_of(hs, hob.len), quic_span_of((const u8*)0, 0));
 }
 
 /* A datagram that is not a valid Initial is refused (no flight produced). */
@@ -940,6 +1019,8 @@ void test_h3_loopback(void) {
   test_loopback_initial_datagram();
   test_loopback_wire_confirm_and_get();
   test_srvboot_accept();
+  test_srvboot_reply_dcid_is_client_scid();
+  test_srvboot_reply_dcid_empty_client_scid();
   test_srvboot_rejects_non_initial();
   test_srvboot_acks_actual_initial_pn();
   test_srvboot_vneg_responds_to_alien_version();

@@ -156,6 +156,7 @@ static usz client_seal_handshake(
   CHECK(quic_keysched_get(&f->s.sched, QUIC_KS_CLIENT_HS, &k) == 1);
   quic_aes128_init(&hp, k->hp);
   quic_srvwire_seal_in in = {
+      quic_span_of((const u8*)0, 0),
       quic_span_of(f->s.sdrv.iscid, f->s.sdrv.iscid_len),
       quic_span_of(g_cli_scid, 6),
       0,
@@ -178,6 +179,7 @@ static usz client_seal_handshake_pn(
   CHECK(quic_keysched_get(&f->s.sched, QUIC_KS_CLIENT_HS, &k) == 1);
   quic_aes128_init(&hp, k->hp);
   quic_srvwire_seal_in in = {
+      quic_span_of((const u8*)0, 0),
       quic_span_of(f->s.sdrv.iscid, f->s.sdrv.iscid_len),
       quic_span_of(g_cli_scid, 6),
       pn,
@@ -242,13 +244,6 @@ static void test_srvloop_wrong_direction_open_fails(void) {
   quic_span                tls = {0, 0};
   lp_make_client_hello(&f);
   lp_drive_to_flight(&f);
-  quic_srvwire_seal_in in = {
-      quic_span_of(g_cli_scid, 6),
-      quic_span_of(g_cli_scid, 0),
-      0,
-      -1,
-      quic_span_of(f.flight, f.flight_len),
-      0};
   CHECK(quic_keysched_get(&f.s.sched, QUIC_KS_SERVER_HS, &own) == 1);
   quic_aes128_init(&ownhp, own->hp);
   {
@@ -257,7 +252,6 @@ static void test_srvloop_wrong_direction_open_fails(void) {
         quic_span_of(f.flight, f.flight_len), 0};
     CHECK(wired_srvloop_send_handshake(&f.s, &sin, &ob));
   }
-  (void)in;
   /* SERVER_HS (own / client-peer) opens it; CLIENT_HS (server-open) must NOT.
    */
   {

@@ -57,6 +57,7 @@ static void test_cw_open_server_initial(void) {
   quic_obuf            ob = quic_obuf_of(pkt, sizeof(pkt));
   quic_srvwire_seal_in in = {
       quic_span_of(cw_dcid, 8),
+      quic_span_of(cw_dcid, 8),
       quic_span_of(cw_scid, 4),
       0,
       -1,
@@ -108,6 +109,7 @@ static void test_cw_handshake_roundtrip(void) {
   {
     quic_obuf            ob2 = quic_obuf_of(pkt, sizeof(pkt));
     quic_srvwire_seal_in in  = {
+        quic_span_of((const u8*)0, 0),
         quic_span_of(cw_dcid, 8),
         quic_span_of(cw_scid, 4),
         0,
