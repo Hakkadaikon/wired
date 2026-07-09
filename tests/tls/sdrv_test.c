@@ -86,7 +86,7 @@ static void test_sdrv_session_id_echo(void) {
   ch2_len = ch_with_sid(ch2, ch, ch_len, sid);
 
   {
-    quic_sdrv_init_in din = {srv_priv, srv_pub, cert_priv, 0, 0, 0};
+    quic_sdrv_init_in din = {srv_priv, srv_pub, cert_priv, 0, 0, 0, 0};
     quic_sdrv_init(&s, &din);
   }
   CHECK(quic_sdrv_recv_client_hello(&s, ch2, ch2_len));
@@ -104,7 +104,7 @@ static void test_sdrv_session_id_echo(void) {
 
   /* TLS 1.3 native ClientHello (empty session_id) still works: echo len 0. */
   {
-    quic_sdrv_init_in din = {srv_priv, srv_pub, cert_priv, 0, 0, 0};
+    quic_sdrv_init_in din = {srv_priv, srv_pub, cert_priv, 0, 0, 0, 0};
     quic_sdrv_init(&s, &din);
   }
   CHECK(quic_sdrv_recv_client_hello(&s, ch, ch_len));
@@ -181,7 +181,7 @@ static void test_sdrv_external_chain(void) {
 
   {
     quic_sdrv_init_in in = {srv_priv, srv_pub, quic_realchain_leaf_priv,
-                            chain,    2,       0};
+                            chain,    2,       0, 0};
     sdrv_test_drive(
         &s, &in, ch, ch_len, srv_random, sh, sizeof(sh), &sh_len, flight,
         sizeof(flight), &hs_len);
@@ -283,7 +283,7 @@ static void test_sdrv_external_chain_wrong_key(void) {
   CHECK(ch_len != 0);
 
   {
-    quic_sdrv_init_in in = {srv_priv, srv_pub, wrong_priv, chain, 2, 0};
+    quic_sdrv_init_in in = {srv_priv, srv_pub, wrong_priv, chain, 2, 0, 0};
     sdrv_test_drive(
         &s, &in, ch, ch_len, srv_random, sh, sizeof(sh), &sh_len, flight,
         sizeof(flight), &hs_len);
@@ -344,7 +344,7 @@ static void test_sdrv_chain_overflow(void) {
   CHECK(ch_len != 0);
 
   {
-    quic_sdrv_init_in    in    = {srv_priv, srv_pub, cert_priv, chain, 5, 0};
+    quic_sdrv_init_in    in    = {srv_priv, srv_pub, cert_priv, chain, 5, 0, 0};
     quic_obuf            sh_ob = quic_obuf_of(sh, sizeof(sh));
     quic_obuf            fl_ob = quic_obuf_of(flight, sizeof(flight));
     quic_sdrv_flight_out fo    = {&sh_ob, &fl_ob};
@@ -378,7 +378,7 @@ static void sdrv_dgram_test_setup(
   quic_x25519_base(cli_pub, cli_priv);
   quic_x25519_base(srv_pub, srv_priv);
   {
-    quic_sdrv_init_in din = {srv_priv, srv_pub, cert_priv, 0, 0, 0};
+    quic_sdrv_init_in din = {srv_priv, srv_pub, cert_priv, 0, 0, 0, 0};
     quic_sdrv_init(s, &din);
   }
 }
@@ -472,7 +472,7 @@ static void sdrv_test_init_any(quic_sdrv* s) {
   }
   quic_x25519_base(srv_pub, srv_priv);
   {
-    quic_sdrv_init_in din = {srv_priv, srv_pub, cert_priv, 0, 0, 0};
+    quic_sdrv_init_in din = {srv_priv, srv_pub, cert_priv, 0, 0, 0, 0};
     quic_sdrv_init(s, &din);
   }
 }
@@ -657,7 +657,7 @@ void test_sdrv(void) {
 
   /* server: drive the flight (the driver builds its own P-256 cert). */
   {
-    quic_sdrv_init_in din = {srv_priv, srv_pub, cert_priv, 0, 0, 0};
+    quic_sdrv_init_in din = {srv_priv, srv_pub, cert_priv, 0, 0, 0, 0};
     quic_sdrv_init(&s, &din);
   }
   CHECK(quic_sdrv_recv_client_hello(&s, ch, ch_len));
@@ -745,7 +745,7 @@ void test_sdrv(void) {
     quic_sdrv       s2;
 
     {
-      quic_sdrv_init_in din = {srv_priv, srv_pub, cert_priv, 0, 0, 0};
+      quic_sdrv_init_in din = {srv_priv, srv_pub, cert_priv, 0, 0, 0, 0};
       quic_sdrv_init(&s2, &din);
     }
     CHECK(quic_sdrv_set_cids(

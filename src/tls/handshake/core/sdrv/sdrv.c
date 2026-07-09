@@ -24,8 +24,9 @@ static int sdrv_has_san_ipv4(const quic_sdrv* s) {
 
 /* RFC 5480 / RFC 5280 4.1: build the self-signed P-256 end-entity certificate
  * from p256_priv into the owned buffer and record it as the 1-entry chain to
- * send. */
-static void sdrv_build_cert(quic_sdrv* s) {
+ * send. now_secs anchors the validity window (see
+ * quic_sdrv_init_in.now_secs's doc). */
+static void sdrv_build_cert(quic_sdrv* s, u64 now_secs) {
   ec_point q;
   u8       pub_x[32], pub_y[32];
   quic_ec_mul(&q, s->p256_priv, &quic_p256_g);
@@ -33,7 +34,7 @@ static void sdrv_build_cert(quic_sdrv* s) {
   quic_fp_to_be(pub_y, q.y);
   {
     const u8*         ip = sdrv_has_san_ipv4(s) ? s->san_ipv4 : 0;
-    quic_p256cert_key k  = {s->p256_priv, pub_x, pub_y, ip};
+    quic_p256cert_key k  = {s->p256_priv, pub_x, pub_y, ip, now_secs};
     quic_obuf         o  = quic_obuf_of(s->cert_buf, sizeof(s->cert_buf));
     quic_p256cert_build(&k, &o);
     s->certs[0]   = quic_span_of(s->cert_buf, o.len);
@@ -75,7 +76,7 @@ void quic_sdrv_init(quic_sdrv* s, const quic_sdrv_init_in* in) {
   if (sdrv_use_chain(in))
     sdrv_take_chain(s, in);
   else
-    sdrv_build_cert(s);
+    sdrv_build_cert(s, in->now_secs);
   s->hs_ready  = 0;
   s->odcid_len = 0;
   s->iscid_len = 0;
