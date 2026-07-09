@@ -202,23 +202,34 @@ static void log_cert_fingerprint(const u8 priv[32], const u8* san_ipv4) {
   wired_log_str(line);
 }
 
+typedef struct {
+  u16         port;
+  const char* qlog_path;
+  const char* keylog_path;
+} app_config;
+
 /* CLI configuration: --port (default 4433), --san-ipv4 (optional, adds an
  * IPv4 SAN entry to the self-signed cert; die()s on a malformed value rather
- * than silently booting without hostname validation working). */
-static u16 load_config(int argc, char** argv, u8 san_ipv4[4], int* have_it) {
+ * than silently booting without hostname validation working), --qlog/--keylog
+ * (optional debug log paths, see wired_srvrun_obs). */
+static void load_config(
+    app_config* cfg, int argc, char** argv, u8 san_ipv4[4], int* have_it) {
   const char* ip_str = wired_cliargs_str(argc, argv, "--san-ipv4", 0);
-  *have_it           = ip_str != 0;
+  *have_it            = ip_str != 0;
   if (ip_str && !parse_ipv4(ip_str, san_ipv4))
     die("--san-ipv4: expected dotted-quad a.b.c.d\n");
-  return (u16)wired_cliargs_int(argc, argv, "--port", 4433);
+  cfg->port        = (u16)wired_cliargs_int(argc, argv, "--port", 4433);
+  cfg->qlog_path   = wired_cliargs_str(argc, argv, "--qlog", 0);
+  cfg->keylog_path = wired_cliargs_str(argc, argv, "--keylog", 0);
 }
 
 __attribute__((force_align_arg_pointer, used)) static int wired_main(
     int argc, char** argv) {
   wired_srvboot_id id;
   server_keys      keys;
+  app_config       cfg;
   int              have_san_ipv4;
-  u16 port = load_config(argc, argv, keys.san_ipv4, &have_san_ipv4);
+  load_config(&cfg, argc, argv, keys.san_ipv4, &have_san_ipv4);
   wired_srvrun_handler h   = {app_on_request, 0};
   wired_srvrun_opt     opt = {0};
 
@@ -227,8 +238,9 @@ __attribute__((force_align_arg_pointer, used)) static int wired_main(
   opt.incoming_cpu   = -1;
   opt.wt_on_datagram = wt_on_datagram_cb;
   {
-    wired_srvrun_obs obs = {0, 0, 0, 0, 0};
-    if (!wired_server_run_opt(port, &id, h, obs, &opt)) die("listen failed\n");
+    wired_srvrun_obs obs = {cfg.qlog_path, cfg.keylog_path, 0, 0, 0};
+    if (!wired_server_run_opt(cfg.port, &id, h, obs, &opt))
+      die("listen failed\n");
   }
   return 0;
 }
