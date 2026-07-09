@@ -92,6 +92,7 @@ static void server_identity(wired_srvboot_id* id, server_keys* k) {
   id->max_streams_bidi        = 0;
   id->max_datagram_frame_size = 0;
   id->san_ipv4                = 0;
+  id->now_secs                = 0;
 }
 
 /* Resolve CLI configuration: --port (default 4433), --workers (default 0 =
