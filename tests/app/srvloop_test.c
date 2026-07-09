@@ -101,7 +101,7 @@ static void lp_drive_to_flight(struct lp_fix* f) {
   }
   quic_x25519_base(srv_pub, srv_priv);
 
-  wired_server_init_in sin   = {srv_priv, srv_pub, cert_seed, 0, 0};
+  wired_server_init_in sin   = {srv_priv, srv_pub, cert_seed, 0, 0, 0};
   quic_obuf            sh_ob = quic_obuf_of(f->sh, sizeof(f->sh));
   quic_obuf            fl_ob = quic_obuf_of(f->flight, sizeof(f->flight));
   quic_sdrv_flight_out fo    = {&sh_ob, &fl_ob};
