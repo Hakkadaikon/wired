@@ -57,6 +57,65 @@ static int app_on_request(
   return 1;
 }
 
+/* --- CLI: --san-ipv4 a.b.c.d ---------------------------------------------
+ * RFC 5280 4.2.1.6: a browser validating a WebTransport connection to a bare
+ * IP literal (draft-ietf-webtrans-http3-15 serverCertificateHashes pinning
+ * still enforces hostname validation, RFC 9110 4.3.5) checks the
+ * certificate's SAN for that literal -- the SDK's default self-signed cert
+ * carries only dNSName=localhost, so connecting to an IP address without
+ * this flag fails hostname validation even with a correctly pinned hash. */
+
+static int is_digit(char c) { return c >= '0' && c <= '9'; }
+
+/* Consume base-10 digits from s[*off..) into *v (as u32), advancing *off.
+ * Returns the digit count consumed; *v is only meaningful if it overflowed
+ * 255 (caller's job to check) or the count is 0 (no digits at all). */
+static usz consume_digits(const char* s, usz* off, u32* v) {
+  usz digits = 0;
+  *v         = 0;
+  while (is_digit(s[*off])) {
+    *v = *v * 10 + (u32)(s[*off] - '0');
+    digits++;
+    (*off)++;
+  }
+  return digits;
+}
+
+/* One base-10 octet (0..255) parsed from s[*off..), stopping at '.' or end.
+ * Returns 1 ok, 0 on empty/out-of-range/no digits consumed. */
+static int parse_octet(const char* s, usz* off, u8* out) {
+  u32 v;
+  usz digits = consume_digits(s, off, &v);
+  if (!digits || v > 255) return 0;
+  *out = (u8)v;
+  return 1;
+}
+
+/* The '.' separator after octet i (i < 3), or the closing NUL after octet 3.
+ * Returns 1 and advances *off past a separator, 0 on a mismatch. */
+static int parse_ipv4_sep(const char* s, usz* off, usz octet_index) {
+  if (octet_index == 3) return s[*off] == 0;
+  if (s[*off] != '.') return 0;
+  (*off)++;
+  return 1;
+}
+
+/* Parse octet i and the separator/terminator after it. Returns 1 ok, 0 on
+ * malformed input at this position. */
+static int parse_ipv4_field(const char* s, usz* off, usz i, u8* out) {
+  if (!parse_octet(s, off, out)) return 0;
+  return parse_ipv4_sep(s, off, i);
+}
+
+/* "a.b.c.d" -> ip[4] network-byte-order. Returns 1 ok, 0 on malformed input
+ * (wrong octet count, out-of-range octet, or trailing garbage). */
+static int parse_ipv4(const char* s, u8 ip[4]) {
+  usz off = 0;
+  for (usz i = 0; i < 4; i++)
+    if (!parse_ipv4_field(s, &off, i, &ip[i])) return 0;
+  return 1;
+}
+
 /* Fixed, deterministic server identity for wired_server_run_opt (same recipe
  * as webtransport_echo/word_list: a demo needs no key rotation). */
 static const u8 SERVER_SCID[6] = {'W', 'T', 'C', 'H', 'A', 'T'};
@@ -66,9 +125,11 @@ typedef struct {
   u8 pub[32];
   u8 seed[32];
   u8 rnd[32];
+  u8 san_ipv4[4];
 } server_keys;
 
-static void server_identity(wired_srvboot_id* id, server_keys* k) {
+static void server_identity(
+    wired_srvboot_id* id, server_keys* k, int have_san_ipv4) {
   for (usz i = 0; i < 32; i++) {
     k->priv[i] = (u8)(0x50 + i);
     k->seed[i] = (u8)(0x90 + i);
@@ -86,6 +147,7 @@ static void server_identity(wired_srvboot_id* id, server_keys* k) {
   id->max_data                = 0;
   id->max_streams_bidi        = 0;
   id->max_datagram_frame_size = 65535; /* required for DATAGRAM delivery */
+  id->san_ipv4                = have_san_ipv4 ? k->san_ipv4 : 0;
 }
 
 /* --- Startup cert fingerprint log --------------------------------------- */
@@ -109,8 +171,10 @@ static usz hex_fingerprint(const u8 digest[32], char* out) {
 
 /* RFC 5480 / RFC 5280 4.1: rebuild the same self-signed cert sdrv would (see
  * sdrv_build_cert), then SHA-256 the DER and log it as a fingerprint so an
- * operator can pin/verify this server's identity out-of-band. */
-static void log_cert_fingerprint(const u8 priv[32]) {
+ * operator can pin/verify this server's identity out-of-band. san_ipv4 (0 to
+ * omit) mirrors server_identity's own choice, so the logged fingerprint
+ * always matches what the server actually sends. */
+static void log_cert_fingerprint(const u8 priv[32], const u8* san_ipv4) {
   ec_point q;
   u8       pub_x[32], pub_y[32];
   u8       cert_buf[1024];
@@ -122,7 +186,7 @@ static void log_cert_fingerprint(const u8 priv[32]) {
   quic_fp_to_be(pub_x, q.x);
   quic_fp_to_be(pub_y, q.y);
   {
-    quic_p256cert_key k = {priv, pub_x, pub_y};
+    quic_p256cert_key k = {priv, pub_x, pub_y, san_ipv4};
     quic_obuf         o = quic_obuf_of(cert_buf, sizeof cert_buf);
     quic_p256cert_build(&k, &o);
     quic_sha256(cert_buf, o.len, digest);
@@ -138,21 +202,28 @@ static void log_cert_fingerprint(const u8 priv[32]) {
   wired_log_str(line);
 }
 
-/* CLI configuration: --port only (default 4433). */
-static u16 load_config(int argc, char** argv) {
+/* CLI configuration: --port (default 4433), --san-ipv4 (optional, adds an
+ * IPv4 SAN entry to the self-signed cert; die()s on a malformed value rather
+ * than silently booting without hostname validation working). */
+static u16 load_config(int argc, char** argv, u8 san_ipv4[4], int* have_it) {
+  const char* ip_str = wired_cliargs_str(argc, argv, "--san-ipv4", 0);
+  *have_it           = ip_str != 0;
+  if (ip_str && !parse_ipv4(ip_str, san_ipv4))
+    die("--san-ipv4: expected dotted-quad a.b.c.d\n");
   return (u16)wired_cliargs_int(argc, argv, "--port", 4433);
 }
 
 __attribute__((force_align_arg_pointer, used)) static int wired_main(
     int argc, char** argv) {
-  wired_srvboot_id     id;
-  server_keys          keys;
-  u16                  port = load_config(argc, argv);
-  wired_srvrun_handler h    = {app_on_request, 0};
-  wired_srvrun_opt     opt  = {0};
+  wired_srvboot_id id;
+  server_keys      keys;
+  int              have_san_ipv4;
+  u16 port = load_config(argc, argv, keys.san_ipv4, &have_san_ipv4);
+  wired_srvrun_handler h   = {app_on_request, 0};
+  wired_srvrun_opt     opt = {0};
 
-  server_identity(&id, &keys);
-  log_cert_fingerprint(keys.priv);
+  server_identity(&id, &keys, have_san_ipv4);
+  log_cert_fingerprint(keys.priv, id.san_ipv4);
   opt.incoming_cpu   = -1;
   opt.wt_on_datagram = wt_on_datagram_cb;
   {
