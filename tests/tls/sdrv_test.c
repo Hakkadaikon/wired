@@ -180,8 +180,8 @@ static void test_sdrv_external_chain(void) {
   CHECK(ch_len != 0);
 
   {
-    quic_sdrv_init_in in = {srv_priv, srv_pub, quic_realchain_leaf_priv,
-                            chain,    2,       0, 0};
+    quic_sdrv_init_in in = {
+        srv_priv, srv_pub, quic_realchain_leaf_priv, chain, 2, 0, 0};
     sdrv_test_drive(
         &s, &in, ch, ch_len, srv_random, sh, sizeof(sh), &sh_len, flight,
         sizeof(flight), &hs_len);

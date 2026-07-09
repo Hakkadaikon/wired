@@ -69,15 +69,15 @@ static void vt_append(u8* dst, usz* off, const u8* src, usz n) {
  * serial/sigAlg/issuer). Returns the written length. */
 static usz build_tbs_with_validity(
     const u8 nb[13], const u8 na[13], u8 tbs[70]) {
-  static const u8 head[]     = {
+  static const u8 head[] = {
       0x02, 0x01, 0x01, /* serial: INTEGER 1 */
       0x02, 0x01, 0x00, /* sigAlg placeholder: INTEGER 0 */
       0x02, 0x01, 0x00, /* issuer placeholder: INTEGER 0 */
       0x30, 30,         /* Validity SEQUENCE, len = 2*(2+13) */
   };
   static const u8 utctime_tl[] = {0x17, 13};
-  u8               body[64];
-  usz              n = 0;
+  u8              body[64];
+  usz             n = 0;
   vt_append(body, &n, head, sizeof(head));
   vt_append(body, &n, utctime_tl, sizeof(utctime_tl));
   vt_append(body, &n, nb, 13);

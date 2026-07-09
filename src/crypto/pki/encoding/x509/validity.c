@@ -106,8 +106,9 @@ static void put_2digits(u64 v, u8* out) {
  * hour, minute, second), most significant first. */
 static void utctime_fields(u64 ymdhms, u8 out[12]) {
   static const u64 divisor[6] = {10000000000ULL, 100000000ULL, 1000000ULL,
-                                 10000ULL,        100ULL,       1ULL};
-  for (usz i = 0; i < 6; i++) put_2digits((ymdhms / divisor[i]) % 100, out + 2 * i);
+                                 10000ULL,       100ULL,       1ULL};
+  for (usz i = 0; i < 6; i++)
+    put_2digits((ymdhms / divisor[i]) % 100, out + 2 * i);
 }
 
 void quic_x509_utctime_encode(u64 ymdhms, u8 out[13]) {
