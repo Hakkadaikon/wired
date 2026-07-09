@@ -43,6 +43,15 @@ typedef struct {
    * (dNSName=localhost only, the pre-existing behavior). Ignored when
    * chain_count > 0 (an external chain's own SAN is used as-is). */
   const u8* san_ipv4;
+  /** RFC 5280 4.1.2.5.1: UNIX epoch seconds the self-signed certificate's
+   * validity window is anchored to (notBefore = now_secs, notAfter =
+   * now_secs + 14 days -- the W3C WebTransport spec's
+   * serverCertificateHashes pinning rejects any cert whose validity window
+   * exceeds 14 days). Pass quic_clock_epoch_secs() for a real deployment; 0
+   * keeps a fixed 2020-2030 window (tests only -- that window is far outside
+   * 14 days and will fail serverCertificateHashes validation in a browser).
+   * Ignored when chain_count > 0. */
+  u64 now_secs;
 } wired_srvboot_id;
 
 /** RFC 9000 17.2: 1 if dg is a long-header Initial datagram (a Handshake or
