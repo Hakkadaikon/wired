@@ -200,6 +200,7 @@ static void server_identity(wired_srvboot_id* id, server_keys* k) {
   id->max_streams_bidi        = 0;
   id->max_datagram_frame_size = 65535;
   id->san_ipv4                = 0;
+  id->now_secs                = 0;
 }
 
 /* Optional drop-in certificate: cert.pem (fullchain, leaf first, at most 2
