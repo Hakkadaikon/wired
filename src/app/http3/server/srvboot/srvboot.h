@@ -35,6 +35,14 @@ typedef struct {
                                 * (RFC 9221 3); 0 = not advertised (no
                                 * default -- opt in once DATAGRAM delivery is
                                 * wired end-to-end) */
+  /** RFC 5280 4.2.1.6: 4-byte IPv4 address (network byte order) added to the
+   * self-signed certificate's Subject Alternative Name as an iPAddress
+   * entry, alongside the fixed dNSName=localhost -- a browser validating a
+   * WebTransport connection to a bare IP literal checks this entry (RFC 9110
+   * 4.3.5), not just the serverCertificateHashes-pinned hash. 0 to omit
+   * (dNSName=localhost only, the pre-existing behavior). Ignored when
+   * chain_count > 0 (an external chain's own SAN is used as-is). */
+  const u8* san_ipv4;
 } wired_srvboot_id;
 
 /** RFC 9000 17.2: 1 if dg is a long-header Initial datagram (a Handshake or

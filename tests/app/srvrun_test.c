@@ -354,6 +354,7 @@ static void sr_make_id(
   id->max_data                = 0;
   id->max_streams_bidi        = 0;
   id->max_datagram_frame_size = 0;
+  id->san_ipv4                = 0;
 }
 
 /* A real protected client Initial datagram addressed to odcid (RFC 9001 5.2:
