@@ -95,3 +95,22 @@ int quic_x509_validity_ok(quic_span tbs, u64 now) {
   if (!reach_validity(tbs, &v)) return 0;
   return validity_bounds(v, &nb, &na) && in_window(nb, na, now);
 }
+
+/* Two decimal digits (0..99) of v, most significant first, into out. */
+static void put_2digits(u64 v, u8* out) {
+  out[0] = (u8)('0' + (v / 10) % 10);
+  out[1] = (u8)('0' + v % 10);
+}
+
+/* YYYYMMDDHHMMSS split into 6 two-digit fields (year mod 100, month, day,
+ * hour, minute, second), most significant first. */
+static void utctime_fields(u64 ymdhms, u8 out[12]) {
+  static const u64 divisor[6] = {10000000000ULL, 100000000ULL, 1000000ULL,
+                                 10000ULL,        100ULL,       1ULL};
+  for (usz i = 0; i < 6; i++) put_2digits((ymdhms / divisor[i]) % 100, out + 2 * i);
+}
+
+void quic_x509_utctime_encode(u64 ymdhms, u8 out[13]) {
+  utctime_fields(ymdhms, out);
+  out[12] = 'Z';
+}

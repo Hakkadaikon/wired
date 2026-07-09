@@ -32,8 +32,18 @@ static void test_clock_mono(void) {
   CHECK(b >= a);
 }
 
+/* Raw epoch seconds land in the same sane window, and agree with
+ * quic_clock_ymdhms once run back through the existing epoch->ymdhms
+ * converter (both read the same underlying clock). */
+static void test_clock_epoch_secs(void) {
+  u64 secs = quic_clock_epoch_secs();
+  CHECK(secs >= 1767225600ULL); /* 2026-01-01T00:00:00Z */
+  CHECK(quic_clock_epoch_to_ymdhms(secs) == quic_clock_ymdhms());
+}
+
 void test_clock(void) {
   test_clock_vectors();
   test_clock_live();
   test_clock_mono();
+  test_clock_epoch_secs();
 }
