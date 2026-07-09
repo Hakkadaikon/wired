@@ -134,7 +134,7 @@ static usz fp_p256_cert_msg(u8* msg) {
   quic_ec_mul(&q, priv, &quic_p256_g);
   quic_fp_to_be(x, q.x);
   quic_fp_to_be(y, q.y);
-  quic_p256cert_key k = {priv, x, y, 0};
+  quic_p256cert_key k = {priv, x, y, 0, 0};
   quic_obuf         o = quic_obuf_of(cert, sizeof(cert));
   CHECK(quic_p256cert_build(&k, &o) == 1);
   clen = o.len;

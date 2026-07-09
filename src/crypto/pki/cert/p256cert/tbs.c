@@ -1,8 +1,10 @@
 #include "crypto/pki/cert/p256cert/tbs.h"
 
+#include "common/platform/clock/clock.h"
 #include "crypto/pki/cert/p256cert/enc.h"
 #include "crypto/pki/cert/p256cert/spki.h"
 #include "crypto/pki/encoding/asn1/der.h"
+#include "crypto/pki/encoding/x509/validity.h"
 
 /* RFC 5758 3.2. ecdsa-with-SHA256 OID 1.2.840.10045.4.3.2. */
 static const u8 oid_ecdsa_sha256[] = {0x2a, 0x86, 0x48, 0xce,
@@ -57,16 +59,36 @@ static usz pc_build_name(quic_obuf* out) {
   return quic_p256cert_wrap(&es, QUIC_DER_SEQUENCE, out);
 }
 
+/* W3C WebTransport serverCertificateHashes rejects any cert whose validity
+ * window exceeds 14 days (https://www.w3.org/TR/webtransport/#dom-
+ * webtransporthash); anchor notAfter that far past notBefore. */
+#define PC_VALIDITY_DAYS 14
+#define PC_SECS_PER_DAY 86400ULL
+
+/* notBefore = now_secs, notAfter = now_secs + 14 days, both formatted as
+ * UTCTime (RFC 5280 4.1.2.5.1) into nb_out/na_out[13]. */
+static void pc_validity_window(u64 now_secs, u8 nb_out[13], u8 na_out[13]) {
+  u64 na_secs = now_secs + PC_VALIDITY_DAYS * PC_SECS_PER_DAY;
+  quic_x509_utctime_encode(quic_clock_epoch_to_ymdhms(now_secs), nb_out);
+  quic_x509_utctime_encode(quic_clock_epoch_to_ymdhms(na_secs), na_out);
+}
+
 /* RFC 5280 4.1.2.5. Validity SEQUENCE { notBefore UTCTime, notAfter UTCTime }.
- */
-static usz pc_build_validity(quic_obuf* out) {
-  u8                v[48];
+ * now_secs = 0 keeps the fixed 2020-2030 window (tests only); otherwise the
+ * window is anchored to now_secs (see pc_validity_window). */
+static usz pc_build_validity(u64 now_secs, quic_obuf* out) {
+  u8                v[48], nb[13], na[13];
   quic_p256cert_enc e = {v, sizeof(v), 0, 1};
-  quic_p256cert_put(
-      &e, 0x17,
-      quic_span_of(pc_not_before, sizeof(pc_not_before) - 1)); /* UTCTime */
-  quic_p256cert_put(
-      &e, 0x17, quic_span_of(pc_not_after, sizeof(pc_not_after) - 1));
+  if (now_secs) {
+    pc_validity_window(now_secs, nb, na);
+    quic_p256cert_put(&e, 0x17, quic_span_of(nb, sizeof(nb)));
+    quic_p256cert_put(&e, 0x17, quic_span_of(na, sizeof(na)));
+  } else {
+    quic_p256cert_put(
+        &e, 0x17, quic_span_of(pc_not_before, sizeof(pc_not_before) - 1));
+    quic_p256cert_put(
+        &e, 0x17, quic_span_of(pc_not_after, sizeof(pc_not_after) - 1));
+  }
   return quic_p256cert_wrap(&e, QUIC_DER_SEQUENCE, out);
 }
 
@@ -125,7 +147,8 @@ static usz pc_build_extensions(const u8* san_ipv4, quic_obuf* out) {
 }
 
 int quic_p256cert_tbs(
-    const u8 x[32], const u8 y[32], const u8* san_ipv4, quic_obuf* out) {
+    const u8 x[32], const u8 y[32], const u8* san_ipv4, u64 now_secs,
+    quic_obuf* out) {
   u8                name[80], val[48], spki[128], exts[96], body[512];
   quic_obuf         no = quic_obuf_of(name, sizeof(name));
   quic_obuf         vo = quic_obuf_of(val, sizeof(val));
@@ -135,7 +158,8 @@ int quic_p256cert_tbs(
   quic_p256cert_enc e  = {body, sizeof(body), 0, 1};
   quic_p256cert_spki(x, y, &so);
   tbs_head(&e, quic_span_of(name, nn));
-  quic_p256cert_put_pre(&e, quic_span_of(val, pc_build_validity(&vo)));
+  quic_p256cert_put_pre(
+      &e, quic_span_of(val, pc_build_validity(now_secs, &vo)));
   quic_p256cert_put_pre(&e, quic_span_of(name, nn)); /* subject */
   quic_p256cert_put_pre(&e, quic_span_of(spki, so.len));
   quic_p256cert_put_pre(
