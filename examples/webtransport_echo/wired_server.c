@@ -53,18 +53,19 @@ static void wt_selfcheck_session(void) {
   if (!wired_wt_session_close(&s)) die("wt: close failed\n");
   if (s.state != WIRED_WT_CLOSED) die("wt: not closed\n");
 
-  wired_log_str("wt-selfcheck: session unestablished->established->closed ok\n");
+  wired_log_str(
+      "wt-selfcheck: session unestablished->established->closed ok\n");
 }
 
 /* WT_CLOSE_SESSION capsule: encode then decode round-trips the error code and
  * message, built on the existing generic RFC 9297 Capsule Protocol codec. */
 static void wt_selfcheck_capsule(void) {
-  u8         buf[64];
-  quic_obuf  ob = {buf, sizeof buf, 0};
-  const u8   msg[] = {'b', 'y', 'e'};
-  u32        code_out;
-  quic_span  msg_out;
-  usz        at = 0;
+  u8        buf[64];
+  quic_obuf ob    = {buf, sizeof buf, 0};
+  const u8  msg[] = {'b', 'y', 'e'};
+  u32       code_out;
+  quic_span msg_out;
+  usz       at = 0;
 
   if (!quic_wtcapsule_encode_close(&ob, 0x2a, quic_span_of(msg, sizeof msg)))
     die("wt: capsule encode failed\n");
@@ -138,18 +139,19 @@ static void server_identity(wired_srvboot_id* id, server_keys* k) {
     k->rnd[i]  = (u8)(0xb0 + i);
   }
   quic_x25519_base(k->pub, k->priv);
-  id->priv             = k->priv;
-  id->pub              = k->pub;
-  id->cert_seed        = k->seed;
-  id->scid             = SERVER_SCID;
-  id->scid_len         = sizeof SERVER_SCID;
-  id->random           = k->rnd;
-  id->chain            = 0; /* self-signed; see word_list's README for a
-                                real-CA chain drop-in, same recipe applies */
-  id->chain_count      = 0;
+  id->priv      = k->priv;
+  id->pub       = k->pub;
+  id->cert_seed = k->seed;
+  id->scid      = SERVER_SCID;
+  id->scid_len  = sizeof SERVER_SCID;
+  id->random    = k->rnd;
+  id->chain     = 0; /* self-signed; see word_list's README for a
+                         real-CA chain drop-in, same recipe applies */
+  id->chain_count             = 0;
   id->max_data                = 0;
   id->max_streams_bidi        = 0;
   id->max_datagram_frame_size = 65535;
+  id->san_ipv4                = 0;
 }
 
 /* CLI configuration: --port only (default 4433). No --root/--cert/--key
