@@ -10,13 +10,11 @@
 #define WIRED_MAIN /* this TU emits the libc memcpy/memset shim */
 #include "wired.h"
 
-/* Certificate-build internals, pulled in directly (not part of wired.h's
- * umbrella) to compute the startup fingerprint log line -- same precedent as
- * webtransport_echo including app/webtransport headers directly. */
+/* Pulled in directly (not part of wired.h's umbrella): the wall clock that
+ * anchors the certificate validity window and the hash for the startup
+ * fingerprint log line -- same precedent as webtransport_echo including
+ * app/webtransport headers directly. */
 #include "common/platform/clock/clock.h"
-#include "crypto/asymmetric/ecc/p256/p256_field.h"
-#include "crypto/asymmetric/ecc/p256/p256_point.h"
-#include "crypto/pki/cert/p256cert/p256cert.h"
 #include "crypto/symmetric/hash/hash/sha256.h"
 
 /* A fatal error: print and exit (freestanding, no libc atexit). */
@@ -171,32 +169,26 @@ static usz hex_fingerprint(const u8 digest[32], char* out) {
   return n;
 }
 
-/* RFC 5480 / RFC 5280 4.1: rebuild the same self-signed cert sdrv would (see
- * sdrv_build_cert), then SHA-256 the DER and log it as a fingerprint so an
- * operator can pin/verify this server's identity out-of-band. san_ipv4/
- * now_secs (0 to omit/use the fixed window) mirror server_identity's own
- * choice, so the logged fingerprint always matches what the server actually
- * sends -- both this call and wired_server_run_opt's internal cert build
- * must see the identical now_secs, or the validity window (and so the whole
- * DER) differs by the seconds elapsed between the two calls. */
-static void log_cert_fingerprint(
-    const u8 priv[32], const u8* san_ipv4, u64 now_secs) {
-  ec_point q;
-  u8       pub_x[32], pub_y[32];
-  u8       cert_buf[1024];
-  u8       digest[32];
-  char     line[16 + 32 * 3 + 2];
-  usz      n = 0;
+/* SHA-256 the exact certificate DER this identity serves (the cert the TLS
+ * flight carries, built by a throwaway wired_server_init from the same id
+ * srvboot boots every connection with) and log it as a colon-hex fingerprint
+ * -- the value a browser pins via serverCertificateHashes. Hashing the real
+ * build output instead of reconstructing the cert in parallel means the log
+ * cannot drift from the wire: a parallel reconstruction eventually disagrees
+ * on an input (signing key, SAN, validity anchor) and pins an unservable
+ * hash. */
+static void log_cert_fingerprint(const wired_srvboot_id* id) {
+  static wired_server  s; /* throwaway, sized in KB: keep it off the stack */
+  wired_server_init_in in = {id->priv,  id->pub,         id->cert_seed,
+                             id->chain, id->chain_count, id->san_ipv4,
+                             id->now_secs};
+  u8   digest[32];
+  char line[32 + 32 * 3 + 2];
+  usz  n = 0;
 
-  quic_ec_mul(&q, priv, &quic_p256_g);
-  quic_fp_to_be(pub_x, q.x);
-  quic_fp_to_be(pub_y, q.y);
-  {
-    quic_p256cert_key k = {priv, pub_x, pub_y, san_ipv4, now_secs};
-    quic_obuf         o = quic_obuf_of(cert_buf, sizeof cert_buf);
-    quic_p256cert_build(&k, &o);
-    quic_sha256(cert_buf, o.len, digest);
-  }
+  wired_server_init(&s, &in);
+  if (s.sdrv.cert_count == 0) die("cert build failed\n");
+  quic_sha256(s.sdrv.certs[0].p, s.sdrv.certs[0].n, digest);
 
   {
     static const char prefix[] = "cert sha-256 fingerprint: ";
@@ -241,7 +233,7 @@ __attribute__((force_align_arg_pointer, used)) static int wired_main(
   u64                  now_secs = quic_clock_epoch_secs();
 
   server_identity(&id, &keys, have_san_ipv4, now_secs);
-  log_cert_fingerprint(keys.priv, id.san_ipv4, now_secs);
+  log_cert_fingerprint(&id);
   opt.incoming_cpu   = -1;
   opt.wt_on_datagram = wt_on_datagram_cb;
   {
