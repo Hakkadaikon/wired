@@ -13,6 +13,7 @@
 /* Certificate-build internals, pulled in directly (not part of wired.h's
  * umbrella) to compute the startup fingerprint log line -- same precedent as
  * webtransport_echo including app/webtransport headers directly. */
+#include "common/platform/clock/clock.h"
 #include "crypto/asymmetric/ecc/p256/p256_field.h"
 #include "crypto/asymmetric/ecc/p256/p256_point.h"
 #include "crypto/pki/cert/p256cert/p256cert.h"
@@ -129,7 +130,7 @@ typedef struct {
 } server_keys;
 
 static void server_identity(
-    wired_srvboot_id* id, server_keys* k, int have_san_ipv4) {
+    wired_srvboot_id* id, server_keys* k, int have_san_ipv4, u64 now_secs) {
   for (usz i = 0; i < 32; i++) {
     k->priv[i] = (u8)(0x50 + i);
     k->seed[i] = (u8)(0x90 + i);
@@ -148,6 +149,7 @@ static void server_identity(
   id->max_streams_bidi        = 0;
   id->max_datagram_frame_size = 65535; /* required for DATAGRAM delivery */
   id->san_ipv4                = have_san_ipv4 ? k->san_ipv4 : 0;
+  id->now_secs                = now_secs;
 }
 
 /* --- Startup cert fingerprint log --------------------------------------- */
@@ -171,10 +173,14 @@ static usz hex_fingerprint(const u8 digest[32], char* out) {
 
 /* RFC 5480 / RFC 5280 4.1: rebuild the same self-signed cert sdrv would (see
  * sdrv_build_cert), then SHA-256 the DER and log it as a fingerprint so an
- * operator can pin/verify this server's identity out-of-band. san_ipv4 (0 to
- * omit) mirrors server_identity's own choice, so the logged fingerprint
- * always matches what the server actually sends. */
-static void log_cert_fingerprint(const u8 priv[32], const u8* san_ipv4) {
+ * operator can pin/verify this server's identity out-of-band. san_ipv4/
+ * now_secs (0 to omit/use the fixed window) mirror server_identity's own
+ * choice, so the logged fingerprint always matches what the server actually
+ * sends -- both this call and wired_server_run_opt's internal cert build
+ * must see the identical now_secs, or the validity window (and so the whole
+ * DER) differs by the seconds elapsed between the two calls. */
+static void log_cert_fingerprint(
+    const u8 priv[32], const u8* san_ipv4, u64 now_secs) {
   ec_point q;
   u8       pub_x[32], pub_y[32];
   u8       cert_buf[1024];
@@ -186,7 +192,7 @@ static void log_cert_fingerprint(const u8 priv[32], const u8* san_ipv4) {
   quic_fp_to_be(pub_x, q.x);
   quic_fp_to_be(pub_y, q.y);
   {
-    quic_p256cert_key k = {priv, pub_x, pub_y, san_ipv4};
+    quic_p256cert_key k = {priv, pub_x, pub_y, san_ipv4, now_secs};
     quic_obuf         o = quic_obuf_of(cert_buf, sizeof cert_buf);
     quic_p256cert_build(&k, &o);
     quic_sha256(cert_buf, o.len, digest);
@@ -230,11 +236,12 @@ __attribute__((force_align_arg_pointer, used)) static int wired_main(
   app_config       cfg;
   int              have_san_ipv4;
   load_config(&cfg, argc, argv, keys.san_ipv4, &have_san_ipv4);
-  wired_srvrun_handler h   = {app_on_request, 0};
-  wired_srvrun_opt     opt = {0};
+  wired_srvrun_handler h        = {app_on_request, 0};
+  wired_srvrun_opt     opt      = {0};
+  u64                  now_secs = quic_clock_epoch_secs();
 
-  server_identity(&id, &keys, have_san_ipv4);
-  log_cert_fingerprint(keys.priv, id.san_ipv4);
+  server_identity(&id, &keys, have_san_ipv4, now_secs);
+  log_cert_fingerprint(keys.priv, id.san_ipv4, now_secs);
   opt.incoming_cpu   = -1;
   opt.wt_on_datagram = wt_on_datagram_cb;
   {
