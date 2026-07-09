@@ -17,6 +17,7 @@ static void test_srvwire_initial_roundtrip(void) {
   quic_obuf ob            = {pkt, sizeof pkt, 0};
   quic_srvwire_seal_in in = {
       quic_span_of(dcid, 8),
+      quic_span_of(dcid, 8),
       quic_span_of(scid, 6),
       1,
       -1,
@@ -41,6 +42,7 @@ static void test_srvwire_initial_tamper(void) {
   quic_obuf ob            = {pkt, sizeof pkt, 0};
   quic_srvwire_seal_in in = {
       quic_span_of(dcid, 8),
+      quic_span_of(dcid, 8),
       quic_span_of(scid, 6),
       1,
       -1,
@@ -62,6 +64,7 @@ static void test_srvwire_initial_wrong_key(void) {
   u8        pkt[1300];
   quic_obuf ob            = {pkt, sizeof pkt, 0};
   quic_srvwire_seal_in in = {
+      quic_span_of(dcid, 8),
       quic_span_of(dcid, 8),
       quic_span_of(scid, 6),
       1,
@@ -96,6 +99,7 @@ static void test_srvwire_handshake_roundtrip(void) {
   u8                   pkt[256];
   quic_obuf            ob = {pkt, sizeof pkt, 0};
   quic_srvwire_seal_in in = {
+      quic_span_of((const u8*)0, 0),
       quic_span_of(dcid, 6),
       quic_span_of(scid, 6),
       0,
@@ -123,6 +127,7 @@ static void test_srvwire_handshake_wrong_key(void) {
   u8                   pkt[256];
   quic_obuf            ob = {pkt, sizeof pkt, 0};
   quic_srvwire_seal_in in = {
+      quic_span_of((const u8*)0, 0),
       quic_span_of(dcid, 6),
       quic_span_of(scid, 6),
       0,
@@ -166,6 +171,7 @@ static void test_srvwire_initial_acks_client(void) {
   quic_ack_frame       ack;
   quic_srvwire_seal_in in = {
       quic_span_of(dcid, 8),
+      quic_span_of(dcid, 8),
       quic_span_of(scid, 6),
       1,
       0,
@@ -201,6 +207,7 @@ static void test_srvwire_handshake_acks_client(void) {
   quic_ack_frame    ack;
   hs_keys(&k, &hp);
   quic_srvwire_seal_in in = {
+      quic_span_of((const u8*)0, 0),
       quic_span_of(dcid, 6),
       quic_span_of(scid, 6),
       0,

@@ -73,7 +73,10 @@ static void pad_initial_frames(quic_obuf* frames, usz floor) {
 }
 
 /* Pad the built frames to the Initial floor and seal them as one server
- * Initial packet under the server-direction Initial keys (RFC 9001 5.2). */
+ * Initial packet under the server-direction Initial keys (RFC 9001 5.2,
+ * derived from in->dcid), with in->hdr_dcid as the header's Destination
+ * Connection ID (RFC 9000 7.2: the client's SCID, never the key-derivation
+ * DCID -- the peer discards a reply addressed to a CID it does not own). */
 static int srvwire_initial_tx(
     const quic_srvwire_seal_in* in, quic_obuf* fb, quic_obuf* out) {
   quic_initial_keys ck, sk;
@@ -81,11 +84,12 @@ static int srvwire_initial_tx(
   usz               total;
   quic_initpkt_derive(in->dcid, &ck, &sk);
   quic_aes128_init(&hp, sk.hp);
-  pad_initial_frames(fb, init_payload_floor((u8)in->dcid.n, (u8)in->scid.n));
+  pad_initial_frames(
+      fb, init_payload_floor((u8)in->hdr_dcid.n, (u8)in->scid.n));
   quic_protect_keys k = {&sk, &hp};
   quic_tx_desc      t = {
       0xc3,
-      in->dcid,
+      in->hdr_dcid,
       in->scid,
       1,
       quic_span_of((const u8*)0, 0),
@@ -132,7 +136,8 @@ int quic_srvwire_open_initial(
   return srvwire_take_crypto(frames, tls);
 }
 
-/* RFC 9001 5 */
+/* RFC 9001 5. Keys come from the caller, so in->dcid is unused here; the
+ * header's DCID is in->hdr_dcid (RFC 9000 7.2). */
 int quic_srvwire_seal_handshake(
     const quic_protect_keys*    k,
     const quic_srvwire_seal_in* in,
@@ -141,7 +146,7 @@ int quic_srvwire_seal_handshake(
   quic_obuf fb = quic_obuf_of(frames, sizeof frames);
   if (!srvwire_emit_frames(in, &fb)) return 0;
   quic_hspkt_desc d = {
-      in->dcid, in->scid, in->pn, quic_span_of(frames, fb.len)};
+      in->hdr_dcid, in->scid, in->pn, quic_span_of(frames, fb.len)};
   if (!quic_hspkt_build(k, &d, out)) return 0;
   return 1;
 }

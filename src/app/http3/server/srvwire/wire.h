@@ -19,9 +19,19 @@
  * to acknowledge (< 0 for none), the TLS flight to wrap in CRYPTO, and the
  * CRYPTO stream offset of the flight's first byte (RFC 9000 19.6; 0 for an
  * unsplit flight, the chunk's start offset when a flight is split across
- * packets). */
+ * packets).
+ *
+ * dcid and hdr_dcid are distinct on purpose. dcid is the Initial KEY
+ * DERIVATION input (RFC 9001 5.2: the client's original DCID, fixed for the
+ * connection's whole handshake; unused by seal_handshake, whose keys the
+ * caller supplies). hdr_dcid is the value WRITTEN INTO the packet header's
+ * Destination Connection ID field (RFC 9000 7.2 / 17.2: the peer's SCID --
+ * possibly zero-length, e.g. Chrome). They coincide only by accident;
+ * writing dcid into the header addresses a datagram the peer does not
+ * recognize as its own and silently discards (RFC 9000 5.1). */
 typedef struct {
-  quic_span dcid;
+  quic_span dcid;     /**< Initial key derivation input (RFC 9001 5.2) */
+  quic_span hdr_dcid; /**< header Destination Connection ID (RFC 9000 7.2) */
   quic_span scid;
   u64       pn;
   i64       ack_pn;
@@ -30,11 +40,12 @@ typedef struct {
 } quic_srvwire_seal_in;
 
 /* RFC 9001 5.2: seal a TLS flight (e.g. ServerHello) into a server Initial
- * packet under the server Initial keys derived from in->dcid. When
- * in->ack_pn >= 0 the flight leads with an ACK frame acknowledging that
- * received client packet number (RFC 9000 13.2.1: ack-eliciting Initials must
- * be acknowledged so the peer stops its PTO retransmissions); ack_pn < 0
- * emits CRYPTO only. Returns 1 with out->len set, or 0 on overflow. */
+ * packet under the server Initial keys derived from in->dcid, addressed to
+ * in->hdr_dcid. When in->ack_pn >= 0 the flight leads with an ACK frame
+ * acknowledging that received client packet number (RFC 9000 13.2.1:
+ * ack-eliciting Initials must be acknowledged so the peer stops its PTO
+ * retransmissions); ack_pn < 0 emits CRYPTO only. Returns 1 with out->len
+ * set, or 0 on overflow. */
 int quic_srvwire_seal_initial(const quic_srvwire_seal_in* in, quic_obuf* out);
 
 /* Seal pre-built frame bytes (in->tls holds raw frames, e.g. a

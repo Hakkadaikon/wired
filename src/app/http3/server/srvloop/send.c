@@ -5,12 +5,17 @@
 #include "crypto/kdf/keys/keyset.h"
 #include "transport/packet/build/hspkt/onertt.h"
 
-/* RFC 9001 5.2: the server Initial is protected with the keys derived from the
- * client's original DCID (odcid), the same value the client opens with. */
+/* RFC 9001 5.2: the server Initial is protected with the keys derived from
+ * the client's original DCID (odcid), the same value the client opens with --
+ * but it is ADDRESSED to in->cli_scid, the client's own SCID (RFC 9000 7.2;
+ * possibly zero-length). Writing the odcid into the header instead makes the
+ * client discard the reply unread (RFC 9000 5.1) and PTO-retransmit its
+ * Initial until it idles out. */
 int wired_srvloop_send_initial(
     const wired_server* s, const wired_srvloop_send_in* in, quic_obuf* out) {
   quic_srvwire_seal_in wi = {
       quic_span_of(s->sdrv.odcid, s->sdrv.odcid_len),
+      in->cli_scid,
       quic_span_of(s->sdrv.iscid, s->sdrv.iscid_len),
       in->pn,
       in->ack_pn,
@@ -19,15 +24,20 @@ int wired_srvloop_send_initial(
   return quic_srvwire_seal_initial(&wi, out);
 }
 
-/* RFC 9001 5 / 5.1: Handshake flight sealed with the own-direction SERVER_HS.
- */
+/* RFC 9001 5 / 5.1: Handshake flight sealed with the own-direction SERVER_HS,
+ * addressed to the client's SCID (RFC 9000 7.2). The key-derivation dcid slot
+ * is unused at this level (keys come from the schedule). */
 int wired_srvloop_send_handshake(
     const wired_server* s, const wired_srvloop_send_in* in, quic_obuf* out) {
   wired_srvloop_dirkeys dk;
   quic_srvwire_seal_in  wi = {
-      in->cli_scid, quic_span_of(s->sdrv.iscid, s->sdrv.iscid_len),
-      in->pn,       in->ack_pn,
-      in->payload,  in->crypto_off};
+      quic_span_of((const u8*)0, 0),
+      in->cli_scid,
+      quic_span_of(s->sdrv.iscid, s->sdrv.iscid_len),
+      in->pn,
+      in->ack_pn,
+      in->payload,
+      in->crypto_off};
   quic_protect_keys k;
   if (!wired_srvloop_seal_keys(s, QUIC_LEVEL_HANDSHAKE, &dk)) return 0;
   k = (quic_protect_keys){dk.keys, &dk.hp};
