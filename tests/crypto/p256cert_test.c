@@ -1,5 +1,6 @@
 #include "crypto/pki/cert/p256cert/p256cert.h"
 
+#include "common/platform/clock/clock.h"
 #include "crypto/asymmetric/ecc/p256/ecdsa_verify.h"
 #include "crypto/asymmetric/ecc/p256/p256_field.h"
 #include "crypto/asymmetric/ecc/p256/p256_point.h"
@@ -28,7 +29,7 @@ static void pc_pubkey(const u8 priv[32], u8 x[32], u8 y[32]) {
 /* Build a self-signed cert from priv/x/y into cert, returning its length. */
 static usz pc_build(
     const u8 priv[32], const u8 x[32], const u8 y[32], u8* cert, usz cap) {
-  quic_p256cert_key k = {priv, x, y, 0};
+  quic_p256cert_key k = {priv, x, y, 0, 0};
   quic_obuf         o = quic_obuf_of(cert, cap);
   CHECK(quic_p256cert_build(&k, &o) == 1);
   return o.len;
@@ -210,7 +211,7 @@ static void test_cert_san_ipv4_omitted(void) {
   pc_pubkey(priv, x, y);
 
   u8                cert[1024];
-  quic_p256cert_key k = {priv, x, y, 0};
+  quic_p256cert_key k = {priv, x, y, 0, 0};
   quic_obuf         o = quic_obuf_of(cert, sizeof(cert));
   CHECK(quic_p256cert_build(&k, &o) == 1);
 
@@ -235,7 +236,7 @@ static void test_cert_san_ipv4_present(void) {
 
   const u8          ip[4] = {160, 251, 55, 132};
   u8                cert[1024];
-  quic_p256cert_key k = {priv, x, y, ip};
+  quic_p256cert_key k = {priv, x, y, ip, 0};
   quic_obuf         o = quic_obuf_of(cert, sizeof(cert));
   CHECK(quic_p256cert_build(&k, &o) == 1);
 
@@ -251,6 +252,63 @@ static void test_cert_san_ipv4_present(void) {
       1);
 }
 
+/* W3C WebTransport serverCertificateHashes rejects a cert whose validity
+ * window exceeds 14 days -- now_secs given anchors notBefore = now_secs and
+ * notAfter = now_secs + 14 days exactly, not the pre-existing 2020-2030
+ * window. */
+static void test_cert_now_secs_14day_window(void) {
+  u8 priv[32], x[32], y[32];
+  for (usz i = 0; i < 32; i++) priv[i] = (u8)(0x70 + i);
+  pc_pubkey(priv, x, y);
+
+  const u64 now       = 1782988200ULL; /* 2026-07-02T10:30:00Z */
+  const u64 fourteen_d = 14ULL * 86400ULL;
+  u8        cert[1024];
+  quic_p256cert_key k = {priv, x, y, 0, now};
+  quic_obuf         o = quic_obuf_of(cert, sizeof(cert));
+  CHECK(quic_p256cert_build(&k, &o) == 1);
+
+  quic_x509 c;
+  CHECK(quic_x509_parse(quic_span_of(cert, o.len), &c) == 1);
+
+  /* quic_x509_validity_ok takes YYYYMMDDHHMMSS, not raw epoch seconds --
+   * round every probe through the same converter the cert builder used. */
+  {
+    u64 nb   = quic_clock_epoch_to_ymdhms(now);
+    u64 na   = quic_clock_epoch_to_ymdhms(now + fourteen_d);
+    u64 nb_m = quic_clock_epoch_to_ymdhms(now - 1);
+    u64 na_p = quic_clock_epoch_to_ymdhms(now + fourteen_d + 1);
+    /* inside the window */
+    CHECK(quic_x509_validity_ok(c.tbs, nb) == 1);
+    CHECK(quic_x509_validity_ok(c.tbs, na) == 1);
+    /* one second outside either edge */
+    CHECK(quic_x509_validity_ok(c.tbs, nb_m) == 0);
+    CHECK(quic_x509_validity_ok(c.tbs, na_p) == 0);
+  }
+  /* the fixed 2020-2030 window (no now_secs) would have accepted this --
+   * confirms the window actually narrowed, not just shifted. */
+  CHECK(quic_x509_validity_ok(c.tbs, 20280101000000ULL) == 0);
+}
+
+/* now_secs = 0 (the default/test sentinel) keeps the pre-existing fixed
+ * 2020-2030 window -- a regression guard against breaking callers that pass
+ * a zero-initialized quic_p256cert_key. */
+static void test_cert_now_secs_zero_keeps_fixed_window(void) {
+  u8 priv[32], x[32], y[32];
+  for (usz i = 0; i < 32; i++) priv[i] = (u8)(0x80 + i);
+  pc_pubkey(priv, x, y);
+
+  u8                cert[1024];
+  quic_p256cert_key k = {priv, x, y, 0, 0};
+  quic_obuf         o = quic_obuf_of(cert, sizeof(cert));
+  CHECK(quic_p256cert_build(&k, &o) == 1);
+
+  quic_x509 c;
+  CHECK(quic_x509_parse(quic_span_of(cert, o.len), &c) == 1);
+  CHECK(quic_x509_validity_ok(c.tbs, 20200101000000ULL) == 1);
+  CHECK(quic_x509_validity_ok(c.tbs, 20300101000000ULL) == 1);
+}
+
 void test_p256cert(void) {
   test_spki_roundtrip();
   test_p256cert_parse();
@@ -259,4 +317,6 @@ void test_p256cert(void) {
   test_cert_san_localhost();
   test_cert_san_ipv4_omitted();
   test_cert_san_ipv4_present();
+  test_cert_now_secs_14day_window();
+  test_cert_now_secs_zero_keeps_fixed_window();
 }
