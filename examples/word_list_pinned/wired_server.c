@@ -9,9 +9,8 @@
  * See README.md for the demonstrated feature and its known limitation. */
 
 #define WIRED_MAIN /* this TU emits the libc memcpy/memset shim */
-#include "wired.h"
-
 #include "app/http3/server/srvworkers/srvworkers.h"
+#include "wired.h"
 
 /* A fatal error: print and exit (freestanding, no libc atexit). */
 static void die(const char* msg) {
@@ -81,31 +80,31 @@ static void server_identity(wired_srvboot_id* id, server_keys* k) {
     k->rnd[i]  = (u8)(0xa0 + i);
   }
   quic_x25519_base(k->pub, k->priv);
-  id->priv             = k->priv;
-  id->pub              = k->pub;
-  id->cert_seed        = k->seed;
-  id->scid             = SERVER_SCID;
-  id->scid_len         = sizeof SERVER_SCID;
-  id->random           = k->rnd;
-  id->chain            = 0; /* self-signed */
-  id->chain_count      = 0;
+  id->priv                    = k->priv;
+  id->pub                     = k->pub;
+  id->cert_seed               = k->seed;
+  id->scid                    = SERVER_SCID;
+  id->scid_len                = sizeof SERVER_SCID;
+  id->random                  = k->rnd;
+  id->chain                   = 0; /* self-signed */
+  id->chain_count             = 0;
   id->max_data                = 0;
   id->max_streams_bidi        = 0;
   id->max_datagram_frame_size = 0;
+  id->san_ipv4                = 0;
 }
 
 /* Resolve CLI configuration: --port (default 4433), --workers (default 0 =
  * auto-detect CPU count), --pin-cores (default 0 = no affinity pinning). */
 typedef struct {
-  u16                   port;
-  wired_srvworkers_opt  wopt;
+  u16                  port;
+  wired_srvworkers_opt wopt;
 } app_config;
 
 static void load_config(app_config* cfg, int argc, char** argv) {
-  cfg->port         = (u16)wired_cliargs_int(argc, argv, "--port", 4433);
-  cfg->wopt.workers = (int)wired_cliargs_int(argc, argv, "--workers", 0);
-  cfg->wopt.pin_cores =
-      (int)wired_cliargs_int(argc, argv, "--pin-cores", 0);
+  cfg->port           = (u16)wired_cliargs_int(argc, argv, "--port", 4433);
+  cfg->wopt.workers   = (int)wired_cliargs_int(argc, argv, "--workers", 0);
+  cfg->wopt.pin_cores = (int)wired_cliargs_int(argc, argv, "--pin-cores", 0);
 }
 
 __attribute__((force_align_arg_pointer, used)) static int wired_main(
