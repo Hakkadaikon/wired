@@ -9,7 +9,10 @@
  * key into out, setting out->len. san_ipv4/now_secs: see quic_p256cert_key's
  * doc (0 to omit/use the fixed window). Returns 1 ok, 0 on failure. */
 int quic_p256cert_tbs(
-    const u8 x[32], const u8 y[32], const u8* san_ipv4, u64 now_secs,
+    const u8   x[32],
+    const u8   y[32],
+    const u8*  san_ipv4,
+    u64        now_secs,
     quic_obuf* out);
 
 /* RFC 5480 2.1.1. signatureAlgorithm SEQUENCE { ecdsa-with-SHA256 } (no

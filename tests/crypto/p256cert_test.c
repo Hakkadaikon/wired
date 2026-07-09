@@ -261,9 +261,9 @@ static void test_cert_now_secs_14day_window(void) {
   for (usz i = 0; i < 32; i++) priv[i] = (u8)(0x70 + i);
   pc_pubkey(priv, x, y);
 
-  const u64 now       = 1782988200ULL; /* 2026-07-02T10:30:00Z */
-  const u64 fourteen_d = 14ULL * 86400ULL;
-  u8        cert[1024];
+  const u64         now        = 1782988200ULL; /* 2026-07-02T10:30:00Z */
+  const u64         fourteen_d = 14ULL * 86400ULL;
+  u8                cert[1024];
   quic_p256cert_key k = {priv, x, y, 0, now};
   quic_obuf         o = quic_obuf_of(cert, sizeof(cert));
   CHECK(quic_p256cert_build(&k, &o) == 1);

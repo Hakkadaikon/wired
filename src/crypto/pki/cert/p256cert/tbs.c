@@ -147,7 +147,10 @@ static usz pc_build_extensions(const u8* san_ipv4, quic_obuf* out) {
 }
 
 int quic_p256cert_tbs(
-    const u8 x[32], const u8 y[32], const u8* san_ipv4, u64 now_secs,
+    const u8   x[32],
+    const u8   y[32],
+    const u8*  san_ipv4,
+    u64        now_secs,
     quic_obuf* out) {
   u8                name[80], val[48], spki[128], exts[96], body[512];
   quic_obuf         no = quic_obuf_of(name, sizeof(name));
