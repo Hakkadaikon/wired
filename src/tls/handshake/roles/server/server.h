@@ -73,6 +73,10 @@ typedef struct {
   /** RFC 5280 4.2.1.6: see wired_srvboot_id.san_ipv4's doc -- threaded here
    * to sdrv's self-signed certificate builder. 0 to omit. */
   const u8* san_ipv4;
+  /** RFC 5280 4.1.2.5.1: see wired_srvboot_id.now_secs's doc -- threaded here
+   * to sdrv's self-signed certificate builder. 0 to keep the fixed
+   * 2020-2030 window (tests only). */
+  u64 now_secs;
 } wired_server_init_in;
 
 /** Initialize the orchestrator with the server key material. No socket is

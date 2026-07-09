@@ -68,6 +68,10 @@ typedef struct {
   usz chain_count;            /**< entries in chain; 0 = self-signed mode */
   /** RFC 5280 4.2.1.6: see wired_srvboot_id.san_ipv4's doc. 0 to omit. */
   const u8* san_ipv4;
+  /** RFC 5280 4.1.2.5.1: see wired_srvboot_id.now_secs's doc. Only used in
+   * self-signed mode (ignored when an external chain is given). 0 to keep
+   * the fixed 2020-2030 window (tests only). */
+  u64 now_secs;
 } quic_sdrv_init_in;
 
 /** Hold the server key material. If in->chain is NULL/empty, build the
