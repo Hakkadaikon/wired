@@ -153,10 +153,10 @@ static void app_selfcheck(void) {
   app_config           cfg          = {0};
   const char*          content_type = 0;
   wired_h3reqdrive_req post         = {
-              .method     = (const u8*)"POST",
-              .method_len = 4,
-              .body       = (const u8*)"hi",
-              .body_len   = 2};
+      .method     = (const u8*)"POST",
+      .method_len = 4,
+      .body       = (const u8*)"hi",
+      .body_len   = 2};
   wired_h3reqdrive_req get = {.method = (const u8*)"GET", .method_len = 3};
   g_history_len            = 0;
   app_on_request(&cfg, &post, &ob, &content_type);
@@ -196,9 +196,10 @@ static void server_identity(wired_srvboot_id* id, server_keys* k) {
   id->random      = k->rnd;
   id->chain       = 0; /* self-signed; see README.md for an external chain */
   id->chain_count = 0;
-  id->max_data                = 0;
+  id->max_data    = 0;
   id->max_streams_bidi        = 0;
   id->max_datagram_frame_size = 65535;
+  id->san_ipv4                = 0;
 }
 
 /* Optional drop-in certificate: cert.pem (fullchain, leaf first, at most 2
@@ -271,9 +272,8 @@ __attribute__((force_align_arg_pointer, used)) static int wired_main(
   {
     wired_srvrun_obs obs = {
         cfg.qlog_path, cfg.keylog_path, cfg.cert_path, cfg.key_path, 0};
-    wired_srvrun_opt opt = {cfg.busy_poll, 0, 0, 0, 0, 0, -1};
-    if (!wired_server_run_opt(port, &id, h, obs, &opt))
-      die("listen failed\n");
+    wired_srvrun_opt opt = {cfg.busy_poll, 0, 0, 0, 0, 0, 0, 0, -1};
+    if (!wired_server_run_opt(port, &id, h, obs, &opt)) die("listen failed\n");
   }
   return 0;
 }
