@@ -84,7 +84,7 @@ static void lb_drive_to_flight(struct lb_fix* f) {
   }
   quic_x25519_base(srv_pub, srv_priv);
 
-  wired_server_init_in sin   = {srv_priv, srv_pub, cert_seed, 0, 0, 0};
+  wired_server_init_in sin   = {srv_priv, srv_pub, cert_seed, 0, 0, 0, 0};
   quic_obuf            sh_ob = quic_obuf_of(f->sh, sizeof(f->sh));
   quic_obuf            fl_ob = quic_obuf_of(f->flight, sizeof(f->flight));
   quic_sdrv_flight_out fo    = {&sh_ob, &fl_ob};
@@ -350,6 +350,7 @@ static void sb_make_id(
   id->max_streams_bidi        = 0;
   id->max_datagram_frame_size = 0;
   id->san_ipv4                = 0;
+  id->now_secs                = 0;
 }
 
 /* wired_srvboot_accept cold-starts a server from a real client Initial
@@ -773,6 +774,7 @@ static void sb_make_chain_id(
   id->max_streams_bidi        = 0;
   id->max_datagram_frame_size = 0;
   id->san_ipv4                = 0;
+  id->now_secs                = 0;
 }
 
 /* A bootstrapped server with the realchain identity plus everything the
