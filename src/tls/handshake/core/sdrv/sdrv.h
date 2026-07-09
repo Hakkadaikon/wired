@@ -15,11 +15,15 @@
 
 /** Server-side handshake driver state. */
 typedef struct {
-  u8 server_priv[32];      /**< RFC 7748 x25519 private */
-  u8 server_pub[32];       /**< RFC 7748 x25519 public */
-  u8 p256_priv[32];        /**< RFC 5480 ECDSA P-256 signing scalar; also the
-                            * TBS signer for a self-built certificate */
-  u8        cert_buf[512]; /**< self-signed P-256 cert DER (owned) */
+  u8 server_priv[32]; /**< RFC 7748 x25519 private */
+  u8 server_pub[32];  /**< RFC 7748 x25519 public */
+  u8 p256_priv[32];   /**< RFC 5480 ECDSA P-256 signing scalar; also the
+                       * TBS signer for a self-built certificate */
+  u8 cert_buf[512];   /**< self-signed P-256 cert DER (owned) */
+  /** RFC 5280 4.2.1.6: see wired_srvboot_id.san_ipv4's doc. All-zero (the
+   * zero-initialized default) means omit -- 0.0.0.0 is never a real peer, so
+   * this needs no separate "is it set" flag. */
+  u8        san_ipv4[4];
   quic_span certs[QUIC_TLS_CERT_CHAIN_MAX]; /**< RFC 8446 4.4.2
                                              * certificate_list, leaf first
                                              * (caller-owned views in
@@ -62,6 +66,8 @@ typedef struct {
                                * self-signed mode (caller keeps the views
                                * alive through the handshake) */
   usz chain_count;            /**< entries in chain; 0 = self-signed mode */
+  /** RFC 5280 4.2.1.6: see wired_srvboot_id.san_ipv4's doc. 0 to omit. */
+  const u8* san_ipv4;
 } quic_sdrv_init_in;
 
 /** Hold the server key material. If in->chain is NULL/empty, build the

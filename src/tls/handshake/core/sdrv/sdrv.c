@@ -14,6 +14,14 @@ static void sdrv_copy32(u8* dst, const u8* src) {
   for (usz i = 0; i < 32; i++) dst[i] = src[i];
 }
 
+/* 0 if s->san_ipv4 is all-zero (the zero-initialized default, meaning "no
+ * IPv4 SAN requested" -- 0.0.0.0 is never a real peer). */
+static int sdrv_has_san_ipv4(const quic_sdrv* s) {
+  for (usz i = 0; i < 4; i++)
+    if (s->san_ipv4[i]) return 1;
+  return 0;
+}
+
 /* RFC 5480 / RFC 5280 4.1: build the self-signed P-256 end-entity certificate
  * from p256_priv into the owned buffer and record it as the 1-entry chain to
  * send. */
@@ -23,11 +31,14 @@ static void sdrv_build_cert(quic_sdrv* s) {
   quic_ec_mul(&q, s->p256_priv, &quic_p256_g);
   quic_fp_to_be(pub_x, q.x);
   quic_fp_to_be(pub_y, q.y);
-  quic_p256cert_key k = {s->p256_priv, pub_x, pub_y};
-  quic_obuf         o = quic_obuf_of(s->cert_buf, sizeof(s->cert_buf));
-  quic_p256cert_build(&k, &o);
-  s->certs[0]   = quic_span_of(s->cert_buf, o.len);
-  s->cert_count = 1;
+  {
+    const u8*         ip = sdrv_has_san_ipv4(s) ? s->san_ipv4 : 0;
+    quic_p256cert_key k  = {s->p256_priv, pub_x, pub_y, ip};
+    quic_obuf         o  = quic_obuf_of(s->cert_buf, sizeof(s->cert_buf));
+    quic_p256cert_build(&k, &o);
+    s->certs[0]   = quic_span_of(s->cert_buf, o.len);
+    s->cert_count = 1;
+  }
 }
 
 /* in carries a non-empty externally issued chain to use instead of a
@@ -48,12 +59,19 @@ static void sdrv_take_chain(quic_sdrv* s, const quic_sdrv_init_in* in) {
   s->cert_count = in->chain_count;
 }
 
+/* Copy in->san_ipv4 into s->san_ipv4[4], or zero it (the "omit" sentinel,
+ * see sdrv_has_san_ipv4) when in->san_ipv4 is 0. */
+static void sdrv_copy_san_ipv4(quic_sdrv* s, const u8* san_ipv4) {
+  for (usz i = 0; i < 4; i++) s->san_ipv4[i] = san_ipv4 ? san_ipv4[i] : 0;
+}
+
 void quic_sdrv_init(quic_sdrv* s, const quic_sdrv_init_in* in) {
   s->limits                       = (quic_stp_limits){0, 0, 0};
   s->peer_max_datagram_frame_size = 0;
   sdrv_copy32(s->server_priv, in->server_priv_x25519);
   sdrv_copy32(s->server_pub, in->server_pub_x25519);
   sdrv_copy32(s->p256_priv, in->sign_priv);
+  sdrv_copy_san_ipv4(s, in->san_ipv4);
   if (sdrv_use_chain(in))
     sdrv_take_chain(s, in);
   else

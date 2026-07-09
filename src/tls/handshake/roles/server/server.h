@@ -70,6 +70,9 @@ typedef struct {
   const u8*        cert_seed;   /**< ECDSA P-256 signing scalar, big-endian */
   const quic_span* chain;       /**< optional: external chain, leaf first */
   usz              chain_count; /**< entries in chain; 0 = self-signed */
+  /** RFC 5280 4.2.1.6: see wired_srvboot_id.san_ipv4's doc -- threaded here
+   * to sdrv's self-signed certificate builder. 0 to omit. */
+  const u8* san_ipv4;
 } wired_server_init_in;
 
 /** Initialize the orchestrator with the server key material. No socket is
