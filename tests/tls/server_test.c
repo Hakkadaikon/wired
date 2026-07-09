@@ -59,7 +59,7 @@ static void drive_to_flight(struct srv_fix* f) {
   }
   quic_x25519_base(srv_pub, srv_priv);
 
-  wired_server_init_in sin   = {srv_priv, srv_pub, cert_seed, 0, 0};
+  wired_server_init_in sin   = {srv_priv, srv_pub, cert_seed, 0, 0, 0};
   quic_obuf            sh_ob = quic_obuf_of(f->sh, sizeof(f->sh));
   quic_obuf            fl_ob = quic_obuf_of(f->flight, sizeof(f->flight));
   quic_sdrv_flight_out fo    = {&sh_ob, &fl_ob};
@@ -185,7 +185,7 @@ static void test_server_flight_before_ch(void) {
     rnd[i]      = (u8)i;
   }
   quic_x25519_base(srv_pub, srv_priv);
-  sin = (wired_server_init_in){srv_priv, srv_pub, cert_seed, 0, 0};
+  sin = (wired_server_init_in){srv_priv, srv_pub, cert_seed, 0, 0, 0};
   wired_server_init(&f.s, &sin);
   CHECK(wired_server_build_flight(&f.s, rnd, &fo) == 0);
   {
@@ -205,7 +205,7 @@ static void test_server_fin_before_flight(void) {
     wired_server_init_in sin;
     for (usz i = 0; i < 32; i++) srv_priv[i] = (u8)(0x40 + i);
     quic_x25519_base(srv_pub, srv_priv);
-    sin = (wired_server_init_in){srv_priv, srv_pub, cert_seed, 0, 0};
+    sin = (wired_server_init_in){srv_priv, srv_pub, cert_seed, 0, 0, 0};
     wired_server_init(&f.s, &sin);
     CHECK(wired_server_recv_initial(&f.s, f.ch, f.ch_len) == 1);
   }
