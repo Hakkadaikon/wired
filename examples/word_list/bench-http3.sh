@@ -18,11 +18,19 @@ TIMES="$(mktemp /tmp/wired-bench.XXXXXX)"
 trap 'rm -f "$TIMES"' EXIT
 
 echo "=== $N requests to $URL ==="
+FAILS=0
 for i in $(seq 1 "$N"); do
-  $CURL --http3-only --insecure -o /dev/null -s \
-    -w '%{time_appconnect} %{time_total}\n' \
-    "$URL" -d hello --max-time 8 >>"$TIMES" || echo "request $i FAILED"
+  # curl prints the -w line even on failure, so only successful requests
+  # may reach $TIMES; -S still shows the error reason on stderr
+  if line="$($CURL --http3-only --insecure -o /dev/null -sS \
+    -w '%{time_appconnect} %{time_total}' "$URL" -d hello --max-time 8)"; then
+    echo "$line" >>"$TIMES"
+  else
+    FAILS=$((FAILS + 1))
+    echo "request $i FAILED (partial times: $line)"
+  fi
 done
+echo "failures: $FAILS/$N"
 
 # column <n>: sorted min / median / p90, in milliseconds
 col_stats() {
