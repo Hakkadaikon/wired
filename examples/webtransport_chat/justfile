@@ -10,3 +10,8 @@ build:
 # Build and run (binds 0.0.0.0:4433; Ctrl-C to stop).
 run: build
     ./wired_server
+
+# Build and run over AF_XDP instead of a plain UDP socket (root required;
+# same flags as examples/word_list, see README.md).
+run-xdp: build
+    sudo ./wired_server --ifindex $IFINDEX --ip $IP --san-ipv4 $IP --skb-mode

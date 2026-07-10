@@ -201,15 +201,62 @@ static void log_cert_fingerprint(const wired_srvboot_id* id) {
 }
 
 typedef struct {
-  u16         port;
-  const char* qlog_path;
-  const char* keylog_path;
+  u16              port;
+  const char*      qlog_path;
+  const char*      keylog_path;
+  int              use_xdp; /**< --ifindex given: run over AF_XDP */
+  wired_srvxdp_cfg xdp;     /**< --ifindex/--queue/--ip/--skb-mode */
 } app_config;
+
+/* Both chars nonzero and equal: the "still matching" predicate, so
+ * cliargs_streq's while carries only one condition (same helper trio as
+ * examples/word_list; the examples are separate binaries, no collision). */
+static int cliargs_char_match(char a, char b) { return a && b && a == b; }
+
+/* NUL-terminated ascii compare, no libc strcmp available. */
+static int cliargs_streq(const char* a, const char* b) {
+  usz i = 0;
+  while (cliargs_char_match(a[i], b[i])) i++;
+  return a[i] == b[i];
+}
+
+/* 1 if flag appears anywhere in argv (presence-only switch, e.g.
+ * --skb-mode); wired_cliargs_str needs a following element so it cannot
+ * detect a flag given last with nothing after it. */
+static int cliargs_flag(int argc, char** argv, const char* flag) {
+  int i;
+  for (i = 0; i < argc; i++)
+    if (cliargs_streq(argv[i], flag)) return 1;
+  return 0;
+}
+
+/* attach_flags: 0 = native XDP, 2 (XDP_FLAGS_SKB_MODE) = generic mode for
+ * drivers/veth without native XDP support. */
+static void load_config_xdp_flags(app_config* cfg, int argc, char** argv) {
+  cfg->xdp.queue_id     = (u32)wired_cliargs_int(argc, argv, "--queue", 0);
+  cfg->xdp.port         = cfg->port;
+  cfg->xdp.bind_flags   = 0;
+  cfg->xdp.attach_flags = cliargs_flag(argc, argv, "--skb-mode") ? 2u : 0u;
+}
+
+/* --ifindex selects the AF_XDP driver (same flags as examples/word_list);
+ * --ip is then required (no sensible default address). Must run after
+ * cfg->port is set: the BPF filter is built for that port. */
+static void load_config_xdp(app_config* cfg, int argc, char** argv) {
+  i64 ifindex  = wired_cliargs_int(argc, argv, "--ifindex", -1);
+  cfg->use_xdp = ifindex >= 0;
+  if (!cfg->use_xdp) return;
+  cfg->xdp.ifindex = (u32)ifindex;
+  if (!parse_ipv4(wired_cliargs_str(argc, argv, "--ip", ""), cfg->xdp.ip))
+    die("--ip a.b.c.d is required with --ifindex\n");
+  load_config_xdp_flags(cfg, argc, argv);
+}
 
 /* CLI configuration: --port (default 4433), --san-ipv4 (optional, adds an
  * IPv4 SAN entry to the self-signed cert; die()s on a malformed value rather
  * than silently booting without hostname validation working), --qlog/--keylog
- * (optional debug log paths, see wired_srvrun_obs). */
+ * (optional debug log paths, see wired_srvrun_obs), and the optional AF_XDP
+ * driver (--ifindex/--queue/--ip/--skb-mode, tasks/xdp-driver-plan.md). */
 static void load_config(
     app_config* cfg, int argc, char** argv, u8 san_ipv4[4], int* have_it) {
   const char* ip_str = wired_cliargs_str(argc, argv, "--san-ipv4", 0);
@@ -219,6 +266,27 @@ static void load_config(
   cfg->port        = (u16)wired_cliargs_int(argc, argv, "--port", 4433);
   cfg->qlog_path   = wired_cliargs_str(argc, argv, "--qlog", 0);
   cfg->keylog_path = wired_cliargs_str(argc, argv, "--keylog", 0);
+  load_config_xdp(cfg, argc, argv);
+}
+
+/* Run the same server loop over an AF_XDP socket (examples/word_list's
+ * DRIVER_XDP, minus the stats dump -- word_list stays the diagnostic
+ * reference). The SDK routes every send through its one TX seam,
+ * WebTransport DATAGRAM broadcasts included, so the chat logic above is
+ * driver-agnostic. */
+static int run_xdp(
+    const app_config*       cfg,
+    wired_srvboot_id*       id,
+    wired_srvrun_handler    h,
+    const wired_srvrun_obs* obs,
+    wired_srvrun_opt*       opt) {
+  wired_srvxdp xdp = {0};
+  int          ok;
+  if (wired_srvxdp_open(&xdp, &cfg->xdp) < 0) die("AF_XDP open failed\n");
+  opt->xdp = &xdp;
+  ok       = wired_server_run_opt(cfg->port, id, h, *obs, opt);
+  wired_srvxdp_close(&xdp);
+  return ok;
 }
 
 __attribute__((force_align_arg_pointer, used)) static int wired_main(
@@ -238,8 +306,10 @@ __attribute__((force_align_arg_pointer, used)) static int wired_main(
   opt.wt_on_datagram = wt_on_datagram_cb;
   {
     wired_srvrun_obs obs = {cfg.qlog_path, cfg.keylog_path, 0, 0, 0};
-    if (!wired_server_run_opt(cfg.port, &id, h, obs, &opt))
-      die("listen failed\n");
+    int              ok  = cfg.use_xdp
+                               ? run_xdp(&cfg, &id, h, &obs, &opt)
+                               : wired_server_run_opt(cfg.port, &id, h, obs, &opt);
+    if (!ok) die("listen failed\n");
   }
   return 0;
 }
