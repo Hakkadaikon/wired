@@ -93,6 +93,9 @@ dbgsrcs=$(printf '%s\n' "$srcs" | grep -v '^src/common/platform/sys/sys\.c$' \
     echo "build examples/word_list_pinned/wired_server: cc_freestanding_bin \$"
     echo "    examples/word_list_pinned/wired_server.c build/libwired.a"
     echo
+    echo "build examples/word_list_xdp/wired_server: cc_freestanding_bin \$"
+    echo "    examples/word_list_xdp/wired_server.c build/libwired.a"
+    echo
     echo "# 'ninja' with no args builds only the freestanding objects (the"
     echo "# libc-independence proof); everything else is opt-in by target."
     echo "build freestanding: phony $objs"
