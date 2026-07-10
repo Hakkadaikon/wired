@@ -10,6 +10,7 @@
 #include "app/http3/server/sigterm/sigterm.h"
 #include "app/http3/server/srvloop/send.h"
 #include "app/http3/server/srvpoll/srvpoll.h"
+#include "app/http3/server/srvxdp/srvxdp.h"
 #include "app/webtransport/errmap/errmap/errmap.h"
 #include "app/webtransport/session/session/session.h"
 #include "common/bytes/util/bytes.h"
@@ -59,7 +60,8 @@ typedef struct {
   void*                   wt_datagram_ctx; /**< opaque ctx for wt_on_datagram */
   wired_wt_on_stream_data wt_on_stream_data; /**< app WT stream-data callback,
                                               * 0 to disable */
-  void* wt_stream_data_ctx; /**< opaque ctx for wt_on_stream_data */
+  void*         wt_stream_data_ctx; /**< opaque ctx for wt_on_stream_data */
+  wired_srvxdp* xdp; /**< 0 = UDP socket path; non-0 = AF_XDP driver */
 } srvrun_cfg;
 
 /* Storage a SIGHUP reload decodes into — must outlive the identity built from
@@ -247,11 +249,15 @@ __attribute__((unused)) static usz srvrun_test_send_count(void) {
   return g_srvrun_send_count;
 }
 
-/* The one TX seam: every actual send routes through here (tasks/xdp-driver-
- * plan.md adds a driver branch on top of this in a later commit). */
+/* The one TX seam: AF_XDP when cfg->xdp is set, the UDP socket otherwise
+ * (tasks/xdp-driver-plan.md). Both srvrun_send and the direct Version
+ * Negotiation send route through this. */
 static void srvrun_tx(
     const srvrun_cfg* cfg, const quic_sockaddr_in* sa, quic_span pkt) {
-  wired_udp_send(cfg->fd, sa, pkt);
+  if (cfg->xdp)
+    wired_srvxdp_send(cfg->xdp, sa, pkt);
+  else
+    wired_udp_send(cfg->fd, sa, pkt);
 }
 
 static void srvrun_send(
@@ -1847,20 +1853,36 @@ static int srvrun_any_waiting(const srvrun_state* st) {
   return 0;
 }
 
-/* busy_poll=1: the blocking poll(2) itself is replaced by a non-blocking
- * return (tasks/polling-driver-plan.md — the srvrun_any_waiting branch above
- * is kept as-is; only this leaf call changes). The actual non-blocking
- * receive happens at the recvmmsg step (srvrun_recv), so there is nothing
- * left to wait for here. */
+/* Non-blocking receive path: the busy_poll spin loop and the AF_XDP driver
+ * both drain without ever waiting in poll(2) (tasks/xdp-driver-plan.md). */
+static int srvrun_polling(const srvrun_cfg* cfg) {
+  return cfg->busy_poll || cfg->xdp != 0;
+}
+
+/* busy_poll=1 or xdp!=0: the blocking poll(2) itself is replaced by a non-
+ * blocking return (tasks/polling-driver-plan.md — the srvrun_any_waiting
+ * branch above is kept as-is; only this leaf call changes). The actual non-
+ * blocking receive happens at the recv step (srvrun_recv), so there is
+ * nothing left to wait for here. */
 static int srvrun_wait_input(const srvrun_cfg* cfg, srvrun_state* st) {
   if (!srvrun_any_waiting(st)) return 1; /* nothing in flight: just block */
-  if (cfg->busy_poll) return 1;
+  if (srvrun_polling(cfg)) return 1;
   return quic_poll_wait_readable(cfg->fd, SRVRUN_PTO_MS) > 0;
 }
 
-/* The batch receive call itself: MSG_DONTWAIT spin-step in busy_poll mode,
- * the existing blocking recvmmsg otherwise (byte-identical default path). */
+/* AF_XDP rx_burst step: pause once on an empty burst, same spin-step shape
+ * as wired_srvpoll_spin_step (srvrun_recv below). */
+static i64 srvrun_recv_xdp(const srvrun_cfg* cfg, quic_mmsg_buf* bufs, usz nbufs) {
+  i64 n = wired_srvxdp_rx_burst(cfg->xdp, bufs, nbufs);
+  if (!n) __builtin_ia32_pause();
+  return n;
+}
+
+/* The batch receive call itself: AF_XDP when cfg->xdp is set, MSG_DONTWAIT
+ * spin-step in busy_poll mode, the existing blocking recvmmsg otherwise
+ * (byte-identical default path). */
 static i64 srvrun_recv(const srvrun_cfg* cfg, quic_mmsg_buf* bufs, usz nbufs) {
+  if (cfg->xdp) return srvrun_recv_xdp(cfg, bufs, nbufs);
   if (cfg->busy_poll) return wired_srvpoll_spin_step(cfg->fd, bufs, nbufs);
   return wired_udp_recvmmsg(cfg->fd, bufs, nbufs);
 }
@@ -1947,7 +1969,8 @@ int wired_server_run_opt(
       opt->wt_on_datagram,
       opt->wt_datagram_ctx,
       opt->wt_on_stream_data,
-      opt->wt_stream_data_ctx};
+      opt->wt_stream_data_ctx,
+      opt->xdp};
   if (cfg.fd < 0) return 0;
   srvrun_install_signals(&cfg);
   WIRED_LOG("listening\n");
@@ -1960,6 +1983,6 @@ int wired_server_run(
     wired_srvboot_id*    id,
     wired_srvrun_handler h,
     wired_srvrun_obs     obs) {
-  static const wired_srvrun_opt default_opt = {0, 0, 0, 0, 0, 0, 0, 0, -1};
+  static const wired_srvrun_opt default_opt = {0, 0, 0, 0, 0, 0, 0, 0, -1, 0};
   return wired_server_run_opt(port, id, h, obs, &default_opt);
 }
