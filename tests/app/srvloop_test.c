@@ -655,8 +655,7 @@ static void test_srvloop_connect_drives_without_fin(void) {
   usz                  n;
   quic_h3req_pseudo_in pin = {
       quic_span_of((const u8*)"CONNECT", 7),
-      quic_span_of((const u8*)"https", 5),
-      quic_span_of((const u8*)"h", 1),
+      quic_span_of((const u8*)"https", 5), quic_span_of((const u8*)"h", 1),
       quic_span_of((const u8*)"/", 1),
       quic_span_of((const u8*)"webtransport", 12)};
   lp_confirm_via_dispatch(&f);
