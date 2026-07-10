@@ -253,15 +253,17 @@ static void test_cert_san_ipv4_present(void) {
 }
 
 /* W3C WebTransport serverCertificateHashes rejects a cert whose validity
- * window exceeds 14 days -- now_secs given anchors notBefore = now_secs and
- * notAfter = now_secs + 14 days exactly, not the pre-existing 2020-2030
- * window. */
+ * window exceeds 14 days -- now_secs given anchors a window of exactly 14
+ * days, backdated one hour (notBefore = now_secs - 3600) so a client whose
+ * clock runs slightly behind the server's does not see a not-yet-valid
+ * cert; the browser checks notBefore against ITS OWN clock. */
 static void test_cert_now_secs_14day_window(void) {
   u8 priv[32], x[32], y[32];
   for (usz i = 0; i < 32; i++) priv[i] = (u8)(0x70 + i);
   pc_pubkey(priv, x, y);
 
   const u64         now        = 1782988200ULL; /* 2026-07-02T10:30:00Z */
+  const u64         nb_secs    = now - 3600ULL;
   const u64         fourteen_d = 14ULL * 86400ULL;
   u8                cert[1024];
   quic_p256cert_key k = {priv, x, y, 0, now};
@@ -274,11 +276,12 @@ static void test_cert_now_secs_14day_window(void) {
   /* quic_x509_validity_ok takes YYYYMMDDHHMMSS, not raw epoch seconds --
    * round every probe through the same converter the cert builder used. */
   {
-    u64 nb   = quic_clock_epoch_to_ymdhms(now);
-    u64 na   = quic_clock_epoch_to_ymdhms(now + fourteen_d);
-    u64 nb_m = quic_clock_epoch_to_ymdhms(now - 1);
-    u64 na_p = quic_clock_epoch_to_ymdhms(now + fourteen_d + 1);
-    /* inside the window */
+    u64 nb   = quic_clock_epoch_to_ymdhms(nb_secs);
+    u64 na   = quic_clock_epoch_to_ymdhms(nb_secs + fourteen_d);
+    u64 nb_m = quic_clock_epoch_to_ymdhms(nb_secs - 1);
+    u64 na_p = quic_clock_epoch_to_ymdhms(nb_secs + fourteen_d + 1);
+    /* now itself and both inclusive edges are inside the window */
+    CHECK(quic_x509_validity_ok(c.tbs, quic_clock_epoch_to_ymdhms(now)) == 1);
     CHECK(quic_x509_validity_ok(c.tbs, nb) == 1);
     CHECK(quic_x509_validity_ok(c.tbs, na) == 1);
     /* one second outside either edge */
