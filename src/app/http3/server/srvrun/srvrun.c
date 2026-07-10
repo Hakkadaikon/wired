@@ -247,6 +247,13 @@ __attribute__((unused)) static usz srvrun_test_send_count(void) {
   return g_srvrun_send_count;
 }
 
+/* The one TX seam: every actual send routes through here (tasks/xdp-driver-
+ * plan.md adds a driver branch on top of this in a later commit). */
+static void srvrun_tx(
+    const srvrun_cfg* cfg, const quic_sockaddr_in* sa, quic_span pkt) {
+  wired_udp_send(cfg->fd, sa, pkt);
+}
+
 static void srvrun_send(
     const srvrun_cfg*  cfg,
     const srvrun_conn* c,
@@ -254,7 +261,7 @@ static void srvrun_send(
     const char*        what) {
   (void)what; /* WIRED_LOG compiles out without -DQUIC_DEBUG */
   if (pkt.n) {
-    wired_udp_send(cfg->fd, &c->peer, pkt);
+    srvrun_tx(cfg, &c->peer, pkt);
     srvrun_qlog_sent(cfg, pkt.n);
     WIRED_LOG(what);
     g_srvrun_send_count++;
@@ -1727,7 +1734,7 @@ static int srvrun_vneg(const srvrun_step_ctx* ctx, quic_mspan dg) {
   u8  vn[64];
   usz n = wired_srvboot_vneg(quic_span_of(dg.p, dg.n), vn, sizeof vn);
   if (!n) return 0;
-  wired_udp_send(ctx->cfg->fd, ctx->peer, quic_span_of(vn, n));
+  srvrun_tx(ctx->cfg, ctx->peer, quic_span_of(vn, n));
   return 1;
 }
 
