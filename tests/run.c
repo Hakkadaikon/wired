@@ -264,6 +264,7 @@
 #include "transport/io/xdp/xskumem/xskumem.c"
 #include "transport/io/xdp/xsksetup/xsksetup.c"
 #include "transport/io/xdp/xdpframe/xdpframe.c"
+#include "app/http3/server/srvxdp/srvxdp.c"
 #include "transport/packet/header/packet/coalesce.c"
 #include "transport/packet/header/packet/coalorder.c"
 #include "transport/packet/header/packet/header.c"
@@ -941,6 +942,7 @@
 #include "transport/xskumem_test.c"
 #include "transport/xsksetup_test.c"
 #include "transport/xdpframe_test.c"
+#include "transport/srvxdp_test.c"
 // clang-format on
 
 int main(void) {
@@ -1413,5 +1415,6 @@ int main(void) {
   test_xskumem();
   test_xsksetup();
   test_xdpframe();
+  test_srvxdp();
   return TEST_REPORT();
 }
