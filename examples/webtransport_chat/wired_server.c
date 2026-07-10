@@ -14,6 +14,7 @@
  * anchors the certificate validity window and the hash for the startup
  * fingerprint log line -- same precedent as webtransport_echo including
  * app/webtransport headers directly. */
+#include "app/http3/server/srvpin/srvpin.h"
 #include "common/platform/clock/clock.h"
 #include "crypto/symmetric/hash/hash/sha256.h"
 
@@ -204,9 +205,18 @@ typedef struct {
   u16              port;
   const char*      qlog_path;
   const char*      keylog_path;
-  int              use_xdp; /**< --ifindex given: run over AF_XDP */
-  wired_srvxdp_cfg xdp;     /**< --ifindex/--queue/--ip/--skb-mode */
+  int              pin_core; /**< --pin-core: CPU to pin to, -1 = off */
+  int              use_xdp;  /**< --ifindex given: run over AF_XDP */
+  wired_srvxdp_cfg xdp;      /**< --ifindex/--queue/--ip/--skb-mode */
 } app_config;
+
+/* --pin-core N: pin the process to CPU N via sched_setaffinity before the
+ * run loop, so the XDP spin never migrates off its cache-warm core. */
+static void maybe_pin_core(int cpu) {
+  if (cpu < 0) return;
+  if (wired_srvpin_bind_self(cpu) < 0)
+    die("--pin-core: pinning failed (bad CPU index?)\n");
+}
 
 /* Both chars nonzero and equal: the "still matching" predicate, so
  * cliargs_streq's while carries only one condition (same helper trio as
@@ -266,6 +276,7 @@ static void load_config(
   cfg->port        = (u16)wired_cliargs_int(argc, argv, "--port", 4433);
   cfg->qlog_path   = wired_cliargs_str(argc, argv, "--qlog", 0);
   cfg->keylog_path = wired_cliargs_str(argc, argv, "--keylog", 0);
+  cfg->pin_core    = (int)wired_cliargs_int(argc, argv, "--pin-core", -1);
   load_config_xdp(cfg, argc, argv);
 }
 
@@ -304,6 +315,7 @@ __attribute__((force_align_arg_pointer, used)) static int wired_main(
   log_cert_fingerprint(&id);
   opt.incoming_cpu   = -1;
   opt.wt_on_datagram = wt_on_datagram_cb;
+  maybe_pin_core(cfg.pin_core);
   {
     wired_srvrun_obs obs = {cfg.qlog_path, cfg.keylog_path, 0, 0, 0};
     int              ok  = cfg.use_xdp
