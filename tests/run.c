@@ -258,6 +258,7 @@
 #include "transport/io/socket/net/ipv4.c"
 #include "transport/io/socket/net/memlink.c"
 #include "transport/io/socket/net/udp4.c"
+#include "transport/io/xdp/xdpmac/xdpmac.c"
 #include "transport/packet/header/packet/coalesce.c"
 #include "transport/packet/header/packet/coalorder.c"
 #include "transport/packet/header/packet/header.c"
@@ -929,6 +930,7 @@
 #include "app/srvworkers_migration_test.c"
 #include "app/srvpoll_test.c"
 #include "transport/eth_test.c"
+#include "transport/xdpmac_test.c"
 // clang-format on
 
 int main(void) {
@@ -1395,5 +1397,6 @@ int main(void) {
   test_srvworkers_migration();
   test_srvpoll();
   test_eth();
+  test_xdpmac();
   return TEST_REPORT();
 }
