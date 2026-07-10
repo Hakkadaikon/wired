@@ -18,6 +18,7 @@
 #define WIRED_MAIN /* this TU emits the libc memcpy/memset shim */
 #include "wired.h"
 
+#include "app/http3/server/srvpin/srvpin.h"
 #include "app/http3/server/srvworkers/srvworkers.h"
 
 /* A fatal error: print and exit (freestanding, no libc atexit). */
@@ -67,6 +68,7 @@ typedef struct {
   const char* cert_path;   /**< cert.pem path (--cert, default cert.pem) */
   const char* key_path;    /**< key.pem path (--key, default key.pem) */
   int         busy_poll;   /**< --busy-poll: 1 = MSG_DONTWAIT spin loop */
+  int         pin_core;    /**< --pin-core: CPU to pin to, -1 = off */
   u16         port;        /**< --port, default 4433 */
   driver_kind      driver; /**< which of the three run paths to take */
   wired_srvworkers_opt workers; /**< --workers/--pin-cores, DRIVER_WORKERS */
@@ -400,6 +402,7 @@ static void load_config(app_config* cfg, int argc, char** argv) {
   cfg->cert_path   = wired_cliargs_str(argc, argv, "--cert", "cert.pem");
   cfg->key_path    = wired_cliargs_str(argc, argv, "--key", "key.pem");
   cfg->busy_poll   = (int)wired_cliargs_int(argc, argv, "--busy-poll", 0);
+  cfg->pin_core    = (int)wired_cliargs_int(argc, argv, "--pin-core", -1);
   cfg->port        = (u16)wired_cliargs_int(argc, argv, "--port", 4433);
   cfg->driver      = load_config_driver(argc, argv);
   if (cfg->driver == DRIVER_WORKERS) {
@@ -478,10 +481,27 @@ static int run_xdp(
   return ok;
 }
 
+/* --pin-core N: pin this single process to CPU N via sched_setaffinity,
+ * before the run loop starts, so the busy-poll/XDP spin never migrates off
+ * its cache-warm core. The workers driver has its own per-child --pin-cores
+ * and forked children would inherit this mask, so the two are exclusive. */
+static void pin_core_checked(int cpu) {
+  if (wired_srvpin_bind_self(cpu) < 0)
+    die("--pin-core: pinning failed (bad CPU index?)\n");
+}
+
+static void maybe_pin_core(const app_config* cfg) {
+  if (cfg->pin_core < 0) return;
+  if (cfg->driver == DRIVER_WORKERS)
+    die("--pin-core is exclusive with --workers (use --pin-cores 1)\n");
+  pin_core_checked(cfg->pin_core);
+}
+
 /* Dispatch to the driver selected by --workers/--ifindex; DRIVER_PLAIN
  * (neither given) is the default. */
 static int run_server(
     const app_config* cfg, wired_srvboot_id* id, wired_srvrun_handler h) {
+  maybe_pin_core(cfg);
   if (cfg->driver == DRIVER_WORKERS) return run_workers(cfg, id, h);
   if (cfg->driver == DRIVER_XDP) return run_xdp(cfg, id, h);
   return run_plain(cfg, id, h);
