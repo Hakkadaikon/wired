@@ -254,6 +254,7 @@
 #include "transport/conn/loop/manage/zerortt_policy.c"
 #include "transport/conn/cid/migrate/migrate.c"
 #include "transport/io/socket/net/checksum.c"
+#include "transport/io/socket/net/eth.c"
 #include "transport/io/socket/net/ipv4.c"
 #include "transport/io/socket/net/memlink.c"
 #include "transport/io/socket/net/udp4.c"
@@ -927,6 +928,7 @@
 #include "app/wtcapsule_test.c"
 #include "app/srvworkers_migration_test.c"
 #include "app/srvpoll_test.c"
+#include "transport/eth_test.c"
 // clang-format on
 
 int main(void) {
@@ -1392,5 +1394,6 @@ int main(void) {
   test_wtcapsule();
   test_srvworkers_migration();
   test_srvpoll();
+  test_eth();
   return TEST_REPORT();
 }
