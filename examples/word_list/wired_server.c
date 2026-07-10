@@ -273,7 +273,7 @@ __attribute__((force_align_arg_pointer, used)) static int wired_main(
   {
     wired_srvrun_obs obs = {
         cfg.qlog_path, cfg.keylog_path, cfg.cert_path, cfg.key_path, 0};
-    wired_srvrun_opt opt = {cfg.busy_poll, 0, 0, 0, 0, 0, 0, 0, -1};
+    wired_srvrun_opt opt = {cfg.busy_poll, 0, 0, 0, 0, 0, 0, 0, -1, 0};
     if (!wired_server_run_opt(port, &id, h, obs, &opt)) die("listen failed\n");
   }
   return 0;

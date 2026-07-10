@@ -3,6 +3,7 @@
 
 #include "app/http3/server/srvboot/srvboot.h"
 #include "app/http3/server/srvloop/srvloop.h"
+#include "app/http3/server/srvxdp/srvxdp.h"
 #include "app/webtransport/session/session/session.h"
 
 /** @file
@@ -122,6 +123,12 @@ typedef struct {
    * so_busy_poll_us/so_busy_poll_budget, where 0 already means "no budget").
    * >= 0: also enable SO_INCOMING_CPU with this CPU number. */
   int incoming_cpu;
+  /** tasks/xdp-driver-plan.md: 0 (the default) = unchanged UDP socket path;
+   * non-0 = an already-open AF_XDP driver (wired_srvxdp_open), routing recv
+   * and send through it instead. The UDP socket from `port` is still bound
+   * (port reservation + PASS-frame absorption via the BPF filter's
+   * fallback), so cfg->fd stays valid either way. */
+  wired_srvxdp* xdp;
 } wired_srvrun_opt;
 
 /** Same as wired_server_run, plus opt-in polling-driver behavior. `opt` must
