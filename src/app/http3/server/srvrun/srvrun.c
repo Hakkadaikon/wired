@@ -1179,13 +1179,25 @@ static int wt_bytes_eq(const u8* m, const u8* want, usz len) {
   return 1;
 }
 
-/* r's :protocol value is exactly "webtransport-h3"
- * (draft-ietf-webtrans-http3-15 SS3, not the older draft's "webtransport"). */
-static int wt_protocol_is_webtransport_h3(const wired_h3reqdrive_req* r) {
-  static const u8 want[] = {'w', 'e', 'b', 't', 'r', 'a', 'n', 's',
-                            'p', 'o', 'r', 't', '-', 'h', '3'};
-  if (!r->protocol || r->protocol_len != sizeof want) return 0;
-  return wt_bytes_eq(r->protocol, want, sizeof want);
+/* r's :protocol equals the n-octet token want. */
+static int wt_protocol_token_eq(
+    const wired_h3reqdrive_req* r, const u8* want, usz n) {
+  if (!r->protocol || r->protocol_len != n) return 0;
+  return wt_bytes_eq(r->protocol, want, n);
+}
+
+/* r's :protocol is a WebTransport token: "webtransport" (what every deployed
+ * browser generation -- Chrome 149 included, a draft-07 implementation --
+ * actually sends) or "webtransport-h3" (draft-ietf-webtrans-http3-15 SS3's
+ * renamed token). Accepting only the draft-15 spelling turned away every
+ * real browser. */
+static int wt_protocol_is_webtransport(const wired_h3reqdrive_req* r) {
+  static const u8 d7[]  = {'w', 'e', 'b', 't', 'r', 'a', 'n',
+                           's', 'p', 'o', 'r', 't'};
+  static const u8 d15[] = {'w', 'e', 'b', 't', 'r', 'a', 'n', 's',
+                           'p', 'o', 'r', 't', '-', 'h', '3'};
+  if (wt_protocol_token_eq(r, d7, sizeof d7)) return 1;
+  return wt_protocol_token_eq(r, d15, sizeof d15);
 }
 
 /* :method value equals the 7 octets "CONNECT" (same idiom as connect.c's own
@@ -1215,11 +1227,11 @@ static int wt_ext_connect_shape_ok(const wired_h3reqdrive_req* r) {
 
 /* r is a well-formed Extended CONNECT (RFC 9220 3) for WebTransport:
  * :method=CONNECT, :scheme/:authority/:path all present (WT-B-003/004),
- * :protocol negotiated (settings always advertised, Step 1 above) and equal
- * to "webtransport-h3". */
+ * :protocol negotiated (settings always advertised, Step 1 above) and a
+ * WebTransport token (see wt_protocol_is_webtransport). */
 static int srvrun_is_wt_connect(const wired_h3reqdrive_req* r) {
   if (!wt_ext_connect_shape_ok(r)) return 0;
-  if (!wt_protocol_is_webtransport_h3(r)) return 0;
+  if (!wt_protocol_is_webtransport(r)) return 0;
   return quic_h3_connect_protocol_ok(r, 1);
 }
 
@@ -1379,6 +1391,18 @@ static void srvrun_start_resp(const srvrun_step_ctx* ctx, int slot) {
   srvrun_start_app_resp(ctx, c, slot);
 }
 
+/* draft-ietf-webtrans-http3 4 / RFC 9114 4.1: a normal response ends its
+ * stream with FIN, but the Extended CONNECT stream IS the WebTransport
+ * session and stays open for its whole lifetime -- a FIN on the
+ * session-accept 200 reads as "session over" and Chrome closes with code 0
+ * the moment it arrives.
+ * ponytail: keyed on wt_active, so a busy-429 sent while a session is live
+ * also loses its FIN; that reject path already hardcodes stream id 0 and
+ * needs real per-stream plumbing before FIN precision there matters. */
+static u8 srvrun_slice_fin(const srvrun_conn* c, const wired_sendq_slice* sl) {
+  return (u8)(sl->fin && !c->wt_active);
+}
+
 /* Seal one slice as its own 1-RTT packet (a STREAM frame on the request
  * stream, RFC 9000 19.8) and send it. Returns 1 once logged in flight. */
 static int srvrun_send_slice(
@@ -1387,7 +1411,8 @@ static int srvrun_send_slice(
   quic_obuf         plb = quic_obuf_of(pl, sizeof pl);
   quic_obuf         ob  = quic_obuf_of(out, sizeof out);
   quic_stream_frame f   = {
-      0, sl->offset, sl->len, c->sess.q.p + sl->offset, sl->fin};
+      0, sl->offset, sl->len, c->sess.q.p + sl->offset,
+      srvrun_slice_fin(c, sl)};
   u64 pn;
   if (!quic_appdata_stream_frame(&f, &plb)) return 0;
   pn = c->l.tx_pn++;

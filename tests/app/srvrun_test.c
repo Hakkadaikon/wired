@@ -1465,6 +1465,36 @@ static void test_srvrun_wt_connect_establishes_session(void) {
   CHECK(conns[0].sess.active == 1); /* the bare 2xx was armed */
 }
 
+/* Chrome (a draft-07-generation implementation) sends
+ * :protocol=webtransport -- the token every deployed browser uses -- not
+ * draft-15's webtransport-h3. Both tokens must establish a session, or no
+ * real browser can ever connect (verified live against Chrome 149). */
+static const u8 sr_wt_protocol_d7[] = "webtransport";
+
+static void test_srvrun_wt_connect_webtransport_token(void) {
+  struct lp_fix  f;
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_conn    conns[QUIC_CONNTABLE_CAP] = {0};
+  quic_obuf      ob;
+  u8             obuf[1024];
+  ob                    = (quic_obuf){obuf, sizeof obuf, 0};
+  g_sr_wt_handler_calls = 0;
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  sr_make_confirmed_conn(&conns[0], &f, &ob);
+  sr_set_req(&conns[0], 1, 1, 4);
+  conns[0].l.req.protocol     = sr_wt_protocol_d7;
+  conns[0].l.req.protocol_len = sizeof sr_wt_protocol_d7 - 1;
+  {
+    srvrun_cfg   cfg = {-1, 0, sr_wt_handler, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_state st  = {table, conns};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_start_resp(&ctx, 0);
+  }
+  CHECK(g_sr_wt_handler_calls == 0);
+  CHECK(conns[0].wt_active == 1);
+  CHECK(conns[0].wt.state == WIRED_WT_ESTABLISHED);
+}
+
 /* A plain CONNECT (no :protocol at all) is not Extended CONNECT: no WT
  * session is created, and it falls through to the existing app-handler path
  * (today's only defined behavior for a bare CONNECT -- there is no
@@ -2915,6 +2945,7 @@ void test_srvrun(void) {
   test_srvrun_wt_uni_stream_buffer_full_sends_reset();
   test_srvrun_normal_request_unaffected_by_wt_branch();
   test_srvrun_wt_connect_establishes_session();
+  test_srvrun_wt_connect_webtransport_token();
   test_srvrun_plain_connect_no_protocol_no_wt_session();
   test_srvrun_wt_connect_missing_scheme_no_session();
   test_srvrun_wt_connect_missing_path_no_session();
