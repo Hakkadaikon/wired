@@ -4,6 +4,7 @@
 #include "transport/packet/header/packet/pnum.h"
 #include "transport/packet/protect/hp/hp.h"
 #include "transport/packet/protect/hp/hpapply.h"
+#include "transport/packet/protect/hp/hpsample.h"
 
 /* Keys, packet descriptor and HP mask threaded through one open. */
 typedef struct {
@@ -55,8 +56,15 @@ int quic_hspkt_unprotect(
     const quic_hspkt_unprotect_desc* d,
     quic_span*                       payload) {
   hsunprot_ctx c = {k->keys, d, {0}};
-  if (d->pkt.n <= d->hdr_len + QUIC_GCM_TAG) return 0;
-  quic_hp_mask(k->hp, d->pkt.p + d->pn_off + 4, c.mask);
+  /* RFC 9001 5.4.2: the only length bound this side may impose before the
+   * true PN length is known is that the HP sample (16 bytes at pn_off+4)
+   * fits. Demanding room for a maximal 4-byte packet number instead rejects
+   * every minimum-size packet with a shorter PN -- the PN length is the
+   * sender's choice (RFC 9000 17.3.1), and Chrome's ACK-only 1-RTT packets
+   * are exactly that minimum shape. open_pkt re-checks against the true
+   * header length once the PN length is unmasked. */
+  if (!quic_hp_sample_ok(d->pkt.n, quic_hp_sample_offset(d->pn_off))) return 0;
+  quic_hp_mask(k->hp, d->pkt.p + quic_hp_sample_offset(d->pn_off), c.mask);
   d->pkt.p[0] ^= c.mask[0] & d->bits_mask;
   return open_pkt(&c, payload);
 }

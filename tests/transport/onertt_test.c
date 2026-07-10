@@ -132,9 +132,35 @@ static void test_onertt_truncated_pn(void) {
   CHECK(!quic_hspkt_onertt_open(&pk, &o0, &out));
 }
 
+/* Chrome's ACK-only 1-RTT packets are the minimum length whose header-
+ * protection sample still fits: byte0(1) + dcid(6) + pn(1) + frames(3) +
+ * tag(16) = 27 bytes. The open path must not demand room for a 4-byte packet
+ * number -- the PN length is the sender's choice (RFC 9000 17.3.1) and only
+ * the HP sample bound (RFC 9001 5.4.2) limits how small a packet can be.
+ * Rejecting these dropped every ACK Chrome sent after its CONNECT and the
+ * connection blackholed. */
+static void test_onertt_min_length_short_pn(void) {
+  quic_initial_keys k;
+  quic_aes128       hp;
+  const u8          dcid[6]  = {1, 2, 3, 4, 5, 6};
+  const u8          frames[] = {0x01, 0x01, 0x01}; /* PING PING PING */
+  u8                pkt[64];
+  quic_span         out;
+  usz               total;
+  quic_protect_keys pk = {&k, &hp};
+  onertt_keys(&k, &hp);
+  total = seal_truncated(&k, &hp, dcid, 6, 42, 1, frames, sizeof frames, pkt);
+  CHECK(total == 27); /* the exact shape Chrome sends */
+  quic_hspkt_onertt_open_desc od = {quic_mspan_of(pkt, total), 6, 30};
+  CHECK(quic_hspkt_onertt_open(&pk, &od, &out));
+  CHECK(out.n == sizeof frames);
+  for (usz i = 0; i < sizeof frames; i++) CHECK(out.p[i] == frames[i]);
+}
+
 void test_onertt(void) {
   test_onertt_roundtrip();
   test_onertt_byte0();
   test_onertt_tamper();
   test_onertt_truncated_pn();
+  test_onertt_min_length_short_pn();
 }
