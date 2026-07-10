@@ -52,6 +52,10 @@ static void sxt_init(sxt_world* w, wired_srvxdp* x) {
   x->xsk.umem_len = SXT_UMEM_LEN;
   x->xsk.fd       = -1;
   x->map_fd = x->prog_fd = x->link_fd = -1;
+  /* our identity, initialized the same way wired_srvxdp_open does it:
+   * 10.7.0.1:4433, the golden RX vector's destination */
+  quic_memcpy((u8*)&x->ip_be, (const u8[]){10, 7, 0, 1}, 4);
+  x->port = 4433;
   quic_xdpmac_init(&x->macs);
   quic_xskumem_alloc_init(&x->txpool, 64u * QUIC_XSKUMEM_FRAME_SIZE, 64u);
 }
@@ -152,6 +156,13 @@ static void test_srvxdp_send_basic(void) {
   d = quic_xskring_desc_at(&w.ktx, idx);
   CHECK(quic_xdpframe_parse(quic_span_of(w.umem + d->addr, d->len), &rx) == 1);
   CHECK(rx.payload_len == 3 && rx.payload[0] == 0xc0 && rx.payload[2] == 0xee);
+  /* the frame's source must be our identity, byte-exact on the wire:
+   * 10.7.0.1:4433 (a reversed source IP passed every earlier check) */
+  {
+    const u8* sip = (const u8*)&rx.src.addr_be;
+    CHECK(sip[0] == 10 && sip[1] == 7 && sip[2] == 0 && sip[3] == 1);
+    CHECK(quic_get_be16((const u8*)&rx.src.port_be) == 4433);
+  }
 }
 
 /* 4: a completion posted by the "kernel" for a sent tx frame comes back to
