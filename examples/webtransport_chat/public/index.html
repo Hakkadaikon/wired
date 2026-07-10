@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="ja">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <title>wired WebTransport Chat</title>
@@ -9,26 +9,26 @@
     <h1>WebTransport Chat</h1>
 
     <section id="connection-panel">
-      <label for="url">サーバーURL</label>
+      <label for="url">Server URL</label>
       <input id="url" type="text" value="https://localhost:4433/" />
 
-      <label for="certHash">証明書ハッシュ (SHA-256)</label>
+      <label for="certHash">Certificate hash (SHA-256)</label>
       <input
         id="certHash"
         type="text"
-        placeholder="サーバー起動ログのSHA-256フィンガープリントを貼り付け(コロン区切りでも可。複数はカンマ区切り)"
+        placeholder="Paste the SHA-256 fingerprint from the server startup log (colons OK; separate multiple hashes with commas)"
       />
 
-      <button id="connect" type="button">接続</button>
+      <button id="connect" type="button">Connect</button>
       <span id="status" class="status status-disconnected">disconnected</span>
     </section>
 
     <ul id="messages"></ul>
 
     <form id="chat-form">
-      <input id="author" type="text" placeholder="名前" required />
-      <input id="text" type="text" placeholder="メッセージ" required />
-      <button type="submit">送信</button>
+      <input id="author" type="text" placeholder="Name" required />
+      <input id="text" type="text" placeholder="Message" required />
+      <button type="submit">Send</button>
     </form>
 
     <script type="module" src="./app.js"></script>
