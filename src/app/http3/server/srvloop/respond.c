@@ -54,7 +54,11 @@ static int build_settings_frame(wired_srvloop* l, quic_obuf* out) {
   u8                ctl[64];
   quic_obuf         ctlb = quic_obuf_of(ctl, sizeof ctl);
   quic_stream_frame f;
-  if (!wired_h3srv_open_control(&l->h3, &ctlb)) return 0;
+  /* advertise WebTransport + H3 datagrams only when the QUIC transport also
+   * negotiated max_datagram_frame_size (RFC 9297 2.1.1 MUST) */
+  if (!wired_h3srv_open_control(
+          &l->h3, l->we_advertised_max_datagram > 0, &ctlb))
+    return 0;
   f = (quic_stream_frame){WIRED_SRVLOOP_CTRL_STREAM, 0, ctlb.len, ctl, 0};
   return quic_appdata_stream_frame(&f, out);
 }

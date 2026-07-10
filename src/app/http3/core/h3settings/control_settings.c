@@ -13,11 +13,13 @@
  * establishing a WebTransport session, so it is safe to advertise. */
 #define DEFAULT_ENABLE_CONNECT_PROTOCOL 1
 
-/* RFC 9114 6.2.1 */
-int quic_h3settings_control_stream(u8* out, usz cap, usz* out_len) {
-  usz pre = 0;
-  if (!quic_h3settings_control_prefix(out, cap, &pre)) return 0;
+/* draft-ietf-webtrans-http3 8.2: sessions this server accepts per
+ * connection -- srvloop serves one WebTransport session at a time. */
+#define DEFAULT_WT_MAX_SESSIONS 1
 
+/* The control-stream SETTINGS values: the defaults, plus the H3-datagram +
+ * WebTransport pair when advertise_wt is set. */
+static quic_h3settings_in control_settings_in(int advertise_wt) {
   quic_h3settings_in in = {
       DEFAULT_MAX_FIELD_SECTION_SIZE,
       DEFAULT_QPACK_MAX_TABLE_CAP,
@@ -25,9 +27,22 @@ int quic_h3settings_control_stream(u8* out, usz cap, usz* out_len) {
       DEFAULT_ENABLE_CONNECT_PROTOCOL,
       0,
       0};
-  quic_obuf ob = quic_obuf_of(out + pre, cap - pre);
-  if (!quic_h3settings_build(&in, &ob)) return 0;
+  if (advertise_wt) {
+    in.enable_h3_datagram = 1;
+    in.wt_max_sessions    = DEFAULT_WT_MAX_SESSIONS;
+  }
+  return in;
+}
 
+/* RFC 9114 6.2.1 */
+int quic_h3settings_control_stream(
+    int advertise_wt, u8* out, usz cap, usz* out_len) {
+  usz                pre = 0;
+  quic_h3settings_in in  = control_settings_in(advertise_wt);
+  quic_obuf          ob;
+  if (!quic_h3settings_control_prefix(out, cap, &pre)) return 0;
+  ob = quic_obuf_of(out + pre, cap - pre);
+  if (!quic_h3settings_build(&in, &ob)) return 0;
   *out_len = pre + ob.len;
   return 1;
 }

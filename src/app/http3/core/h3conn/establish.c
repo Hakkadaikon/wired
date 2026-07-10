@@ -9,8 +9,9 @@
 #define QUIC_H3_CONTROL_STREAM_TYPE 0x00
 
 /* RFC 9114 6.2 / 7.2.4 */
-int quic_h3conn_open_control(u8* out, usz cap, usz* out_len) {
-  return quic_h3settings_control_stream(out, cap, out_len);
+int quic_h3conn_open_control(
+    int advertise_wt, u8* out, usz cap, usz* out_len) {
+  return quic_h3settings_control_stream(advertise_wt, out, cap, out_len);
 }
 
 /* RFC 9114 6.2.1: consume the leading control stream type, leaving *off at the
