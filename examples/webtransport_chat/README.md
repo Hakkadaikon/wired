@@ -23,6 +23,14 @@ cd examples/webtransport_chat
 just run     # binds 0.0.0.0:4433, Ctrl-C to stop
 ```
 
+To run over AF_XDP instead of a plain UDP socket (root required; same flags
+as `word_list`, `--skb-mode` for drivers without native XDP support):
+
+```sh
+just build
+sudo ./wired_server --ifindex <n> --ip <a.b.c.d> --san-ipv4 <a.b.c.d> --skb-mode
+```
+
 On startup it logs the self-signed certificate's SHA-256 fingerprint:
 
 ```
