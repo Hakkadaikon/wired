@@ -6,9 +6,12 @@
 #include "common/platform/sys/syscall.h"
 
 /* RFC 9114 6.2.1 / 7.2.4. Open the server's single local control stream and
- * emit SETTINGS as its first frame. On success records that the server has
- * sent its own SETTINGS (a precondition of sending any response). Returns 1
- * with out->len set, 0 if out lacks capacity. */
-int wired_h3srv_open_control(wired_h3srv_state* st, quic_obuf* out);
+ * emit SETTINGS as its first frame; advertise_wt additionally advertises H3
+ * datagrams and WebTransport sessions (see quic_h3settings_control_stream).
+ * On success records that the server has sent its own SETTINGS (a
+ * precondition of sending any response). Returns 1 with out->len set, 0 if
+ * out lacks capacity. */
+int wired_h3srv_open_control(
+    wired_h3srv_state* st, int advertise_wt, quic_obuf* out);
 
 #endif

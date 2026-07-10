@@ -9,8 +9,11 @@
 
 /* RFC 9297 2.1.1. */
 #define QUIC_H3_SETTINGS_H3_DATAGRAM 0x33
-/* draft-ietf-webtrans-http3-15. */
-#define QUIC_H3_SETTINGS_WT_ENABLED 0x2c7cf000
+/* draft-ietf-webtrans-http3 8.2 SETTINGS_WEBTRANSPORT_MAX_SESSIONS -- the
+ * identifier browsers key WebTransport support on (quiche names it
+ * SETTINGS_WEBTRANS_MAX_SESSIONS_DRAFT07); a peer that does not see it
+ * refuses every session with ERR_METHOD_NOT_SUPPORTED. */
+#define QUIC_H3_SETTINGS_WT_MAX_SESSIONS 0xc671706a
 
 /* RFC 9220 3: append SETTINGS_ENABLE_CONNECT_PROTOCOL when requested. */
 static void append_connect_protocol(
@@ -30,12 +33,13 @@ static void append_h3_datagram(
   s->n++;
 }
 
-/* draft-ietf-webtrans-http3-15: append SETTINGS_WT_ENABLED when requested. */
-static void append_wt_enabled(
+/* draft-ietf-webtrans-http3 8.2: append SETTINGS_WEBTRANSPORT_MAX_SESSIONS
+ * when requested. */
+static void append_wt_max_sessions(
     const quic_h3settings_in* in, quic_h3_settings* s) {
-  if (!in->wt_enabled) return;
-  s->pairs[s->n].id    = QUIC_H3_SETTINGS_WT_ENABLED;
-  s->pairs[s->n].value = in->wt_enabled;
+  if (!in->wt_max_sessions) return;
+  s->pairs[s->n].id    = QUIC_H3_SETTINGS_WT_MAX_SESSIONS;
+  s->pairs[s->n].value = in->wt_max_sessions;
   s->n++;
 }
 
@@ -51,7 +55,7 @@ int quic_h3settings_build(const quic_h3settings_in* in, quic_obuf* out) {
   s.pairs[2].value = in->qpack_blocked_streams;
   append_connect_protocol(in, &s);
   append_h3_datagram(in, &s);
-  append_wt_enabled(in, &s);
+  append_wt_max_sessions(in, &s);
 
   usz w = quic_h3_settings_put(out->p, out->cap, &s);
   if (w == 0) return 0;

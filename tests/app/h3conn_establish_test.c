@@ -7,12 +7,12 @@ void test_h3conn_establish(void) {
   u8  cs[64];
   usz n = 0;
 
-  CHECK(quic_h3conn_open_control(cs, sizeof(cs), &n));
+  CHECK(quic_h3conn_open_control(0, cs, sizeof(cs), &n));
   CHECK(n > 0);
   CHECK(quic_h3conn_peer_settings_ok(cs, n));
 
   /* cap too small for the control stream */
-  CHECK(!quic_h3conn_open_control(cs, 0, &n));
+  CHECK(!quic_h3conn_open_control(0, cs, 0, &n));
 
   /* a non-control stream type (0x01 push) is rejected */
   {

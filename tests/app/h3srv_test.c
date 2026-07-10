@@ -23,7 +23,7 @@ static void test_h3srv_control_settings_first(void) {
   quic_obuf         ob = {out, sizeof out, 0};
 
   CHECK(!st.settings_sent);
-  CHECK(wired_h3srv_open_control(&st, &ob));
+  CHECK(wired_h3srv_open_control(&st, 0, &ob));
   CHECK(st.settings_sent);
   CHECK(quic_h3conn_peer_settings_ok(out, ob.len));
 }
@@ -35,7 +35,7 @@ static void test_h3srv_control_no_capacity(void) {
   u8                out[1];
   quic_obuf         ob = {out, sizeof out, 0};
 
-  CHECK(!wired_h3srv_open_control(&st, &ob));
+  CHECK(!wired_h3srv_open_control(&st, 0, &ob));
   CHECK(!st.settings_sent);
 }
 

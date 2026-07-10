@@ -792,23 +792,23 @@ static void srvrun_on_step(
  * offset — this server sends control-stream data exactly twice (SETTINGS at
  * confirmation, GOAWAY at most once at shutdown), so no general offset
  * tracker is needed. */
-static usz srvrun_ctrl_settings_len(void) {
+static usz srvrun_ctrl_settings_len(int advertise_wt) {
   u8  tmp[64];
   usz n = 0;
-  quic_h3conn_open_control(tmp, sizeof tmp, &n);
+  quic_h3conn_open_control(advertise_wt, tmp, sizeof tmp, &n);
   return n;
 }
 
 /* Build the 1-RTT payload for a GOAWAY (RFC 9114 5.2): the H3 GOAWAY frame
  * wrapped in a STREAM frame at the control stream's fixed post-SETTINGS
  * offset. Returns 1 with plb->len set, 0 on overflow. */
-static int srvrun_goaway_payload(quic_obuf* plb) {
+static int srvrun_goaway_payload(int advertise_wt, quic_obuf* plb) {
   u8                h3[16];
   usz               h3n = quic_h3_goaway_put(h3, sizeof h3, SRVRUN_GOAWAY_ID);
   quic_stream_frame f;
   if (h3n == 0) return 0;
   f = (quic_stream_frame){
-      SRVRUN_CTRL_STREAM, srvrun_ctrl_settings_len(), h3n, h3, 0};
+      SRVRUN_CTRL_STREAM, srvrun_ctrl_settings_len(advertise_wt), h3n, h3, 0};
   return quic_appdata_stream_frame(&f, plb);
 }
 
@@ -821,7 +821,8 @@ static int srvrun_send_goaway(
   u8                    pl[64];
   quic_obuf             plb = quic_obuf_of(pl, sizeof pl);
   wired_srvloop_send_in sin;
-  if (!srvrun_goaway_payload(&plb)) return 0;
+  if (!srvrun_goaway_payload(c->l.we_advertised_max_datagram > 0, &plb))
+    return 0;
   sin = (wired_srvloop_send_in){
       quic_span_of(c->l.cli_scid, c->l.cli_scid_len), c->l.tx_pn++, -1,
       quic_span_of(pl, plb.len), 0};
