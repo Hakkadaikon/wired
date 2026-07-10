@@ -1,6 +1,8 @@
-# wired real-UDP server sample. libc-free, x86_64-linux only.
-# Both binaries are ninja targets in the SDK's build.ninja (see
-# scripts/gen_ninja.sh); this justfile is just the entry point.
+# wired HTTP/3 server sample. libc-free, x86_64-linux only. One binary, three
+# I/O drivers selected by CLI flag at startup (plain UDP / multi-worker /
+# AF_XDP, see README.md). Both build targets (release, debug) are ninja
+# targets in the SDK's build.ninja (see scripts/gen_ninja.sh); this justfile
+# is just the entry point.
 
 # Build the server against the SDK static library, after the SDK's own
 # fmt+ninja+lint gate. The static, freestanding binary needs no libc.
@@ -20,3 +22,14 @@ run: build
 # Debug build and run (with trace logging).
 run-debug: build-debug
     ./wired_server_debug
+
+# Build and run with 4 worker processes, one pinned per CPU core
+# (tasks/core-pinning-plan.md). fork + SO_REUSEPORT, not threads.
+run-workers: build
+    ./wired_server --workers 4 --pin-cores 1
+
+# Build and run over AF_XDP instead of a plain UDP socket (root required;
+# tasks/xdp-driver-plan.md). See README.md for the veth+netns interop recipe
+# and the full flag list.
+run-xdp: build
+    sudo ./wired_server --ifindex $IFINDEX --queue 0 --ip $IP --port 4433 --cert cert.pem --key key.pem

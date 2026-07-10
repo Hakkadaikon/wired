@@ -93,6 +93,128 @@ Pass `--busy-poll` to spin the receive loop with `MSG_DONTWAIT` instead of
 blocking on `poll(2)` (`tasks/polling-driver-plan.md`); default is off
 (unchanged blocking behavior).
 
+## Three ways to run it
+
+The default is a plain single-process UDP socket (above). Two more I/O
+drivers are opt-in via CLI flags, both driving the exact same application
+(message log / static file server) — `--workers` and `--ifindex` are mutually
+exclusive (the process dies at startup if both are given).
+
+### Multi-worker (`--workers`, `tasks/core-pinning-plan.md`)
+
+`fork`s N shared-nothing worker *processes* (not threads), each running its
+own copy of the unmodified single-process server loop on a socket shared via
+`SO_REUSEPORT`, optionally pinned one-per-CPU-core via `sched_setaffinity`.
+The parent process is a supervisor that re-forks any worker that dies, in the
+same slot (so pinning stays consistent).
+
+| flag | default | meaning |
+|---|---|---|
+| `--workers N` | — (required to select this driver) | number of worker processes; `0` = auto-detect CPU count |
+| `--pin-cores 1` | `0` | pin worker *i* to CPU *i*; `0` = workers float freely across cores |
+
+```sh
+just run-workers               # 4 workers, pinned one-per-core
+./wired_server --workers 8     # 8 workers, unpinned
+```
+
+Each worker binds the same UDP port with `SO_REUSEPORT`; the kernel load-
+balances incoming datagrams across the worker sockets by hashing the packet's
+4-tuple (source/destination IP and port).
+
+**Known limitation: QUIC connection migration.** RFC 9000 Section 9 allows a
+QUIC connection to migrate — the client's IP address or port can change
+mid-connection (e.g. a NAT rebind when a mobile client switches networks).
+The client's later packets then carry a *different* 4-tuple than the one the
+kernel's `SO_REUSEPORT` hash used to route the original handshake to a
+worker; the kernel has no notion of "this new 4-tuple belongs to the same
+QUIC connection" and can route it to a **different worker**, which will not
+recognize the connection. The SDK ships a building block that *could* inform
+a smarter router — server-issued connection IDs can carry a worker index in
+their leading bits (`quic_ncid_worker_encode`/`quic_ncid_worker_decode`,
+`src/transport/packet/frame/frame/ncid_worker.h`) — but making the kernel's
+routing itself CID-aware would need `SO_ATTACH_REUSEPORT_EBPF`, and per the
+design investigation (`tasks/core-pinning-plan.md`, finding PIN-006): the
+simpler `cBPF` variant cannot safely parse QUIC's variable-length CID (no
+bounds-checked variable-length reads), and hand-rolled eBPF bytecode (no
+`libbpf`/`clang` in this freestanding, libc-free SDK) is judged too costly
+for this SDK's scope. This is a documented, out-of-scope gap, not a bug being
+silently papered over — see `tests/app/srvworkers_migration_test.c` for a
+test that pins down the concrete numbers where the CID's worker-index bits
+and a naive 4-tuple-hash-based routing decision disagree.
+
+### AF_XDP (`--ifindex`, `tasks/xdp-driver-plan.md`)
+
+Routes receive/send through an **AF_XDP** socket instead of a plain UDP
+socket: packets are polled straight out of a shared UMEM ring (RX/TX/Fill/
+Completion), with zero per-packet `recvfrom`/`sendto` syscalls on the receive
+side.
+
+Prerequisites: **root** (raw `AF_XDP` socket + BPF program load), **Linux
+kernel 5.9 or later** (`BPF_LINK_CREATE` for XDP programs), and a network
+interface to bind to — a `veth` pair in its own network namespace is the
+easiest way to test without touching a real NIC.
+
+| flag | required | default | meaning |
+|---|---|---|---|
+| `--ifindex N` | yes | — | network interface index to bind to |
+| `--queue N` | no | `0` | RX queue index to bind |
+| `--ip a.b.c.d` | yes | — | our IPv4 address (dotted-quad) |
+| `--skb-mode` | no | off | attach the XDP program in generic/SKB mode (`XDP_FLAGS_SKB_MODE`) instead of native mode |
+
+`--port`/`--cert`/`--key` are shared with the other two drivers (above).
+
+#### veth + netns verification recipe (root required)
+
+`veth` interfaces often do not support **native** XDP, so this recipe uses
+`--skb-mode` (generic XDP) from the start.
+
+```sh
+sudo ip netns add wiredcli
+sudo ip link add veth0 type veth peer name veth1
+sudo ip link set veth1 netns wiredcli
+sudo ip addr add 10.7.0.1/24 dev veth0 && sudo ip link set veth0 up
+sudo ip netns exec wiredcli sh -c 'ip addr add 10.7.0.2/24 dev veth1; ip link set veth1 up; ip link set lo up'
+IFIDX=$(ip -o link show veth0 | cut -d: -f1)
+sudo ./wired_server --ifindex $IFIDX --queue 0 --ip 10.7.0.1 --port 4433 --skb-mode --cert cert.pem --key key.pem
+# from another terminal:
+sudo ip netns exec wiredcli curl --http3-only -kv https://10.7.0.1:4433/
+```
+
+Stop the server with Ctrl-C (or `SIGTERM`) once done; it prints the
+`XDP_STATISTICS` counters (see below) and exits.
+
+```sh
+# cleanup
+sudo ip netns del wiredcli
+sudo ip link del veth0
+```
+
+Confirming the path really goes through XDP:
+
+- `ip link show veth0` should show an attached program: `xdp` (native) or
+  `xdpgeneric` (SKB mode) plus a `prog/id`.
+- On exit, the server prints six `XDP_STATISTICS` counters: `rx_dropped`,
+  `rx_invalid_descs`, `tx_invalid_descs`, `rx_ring_full`,
+  `rx_fill_ring_empty_descs`, `tx_ring_empty_descs`. Their presence (a
+  successful `getsockopt(XDP_STATISTICS)`) itself confirms the socket was a
+  real AF_XDP socket, not a fallback.
+- `/proc/net/udp` still shows the UDP socket bound to the port (it stays
+  open for port reservation and to absorb non-QUIC frames the BPF filter
+  passes through), but its receive queue (`rx_queue` column) should **not**
+  grow under load — traffic for the matched port is redirected to the
+  AF_XDP socket by the BPF filter before it ever reaches the UDP socket.
+
+#### Known limitations
+
+- Only tested against a single-queue interface (`veth` has one RX queue by
+  default); a multi-queue NIC needs one `wired_server` instance per queue, or
+  `ethtool -L <if> combined 1` to pin it down to one queue first.
+- MTU > 1500 / multi-buffer (jumbo frame) packets are not supported.
+- `veth`'s `CHECKSUM_PARTIAL` offload means the RX path does not verify the
+  IPv4/UDP checksum itself; QUIC's own AEAD authentication is the actual
+  integrity guarantee, same as the plain-UDP/multi-worker drivers.
+
 ## Connecting with `curl --http3`
 
 Run the server on a host where the client can reach UDP `4433`, then:
