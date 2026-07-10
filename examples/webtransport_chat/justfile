@@ -15,3 +15,22 @@ run: build
 # same flags as examples/word_list, see README.md).
 run-xdp: build
     sudo ./wired_server --ifindex $IFINDEX --ip $IP --san-ipv4 $IP --skb-mode
+
+# Serve the frontend for local development (http://localhost:8000/).
+# localhost is a secure context, so WebTransport works over plain HTTP here.
+serve-frontend:
+    cd public && python3 -m http.server 8000
+
+# Serve the frontend over TLS (https://<host>:8443/) for access from another
+# machine: a non-localhost http:// page is not a secure context and the
+# browser disables the WebTransport API entirely. Needs public/cert.pem and
+# public/key.pem (self-signed is fine; accept the browser warning once).
+serve-frontend-tls:
+    cd public && python3 -c "\
+    import http.server, ssl; \
+    srv = http.server.HTTPServer(('0.0.0.0', 8443), http.server.SimpleHTTPRequestHandler); \
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER); \
+    ctx.load_cert_chain('cert.pem', 'key.pem'); \
+    srv.socket = ctx.wrap_socket(srv.socket, server_side=True); \
+    print('https://0.0.0.0:8443/'); \
+    srv.serve_forever()"

@@ -49,8 +49,18 @@ opens the `WebTransport` connection to `https://localhost:4433/`. Any static
 file server works; ES module `import` requires HTTP(S), not `file://`:
 
 ```sh
-cd examples/webtransport_chat/public
-python3 -m http.server 8000
+cd examples/webtransport_chat
+just serve-frontend       # http://localhost:8000/ (local development)
+```
+
+To open the frontend from another machine (e.g. the server runs on a VPS),
+plain HTTP is not enough: a non-localhost `http://` page is not a secure
+context, so the browser disables the WebTransport API entirely. Serve it
+over TLS instead — put a `cert.pem`/`key.pem` pair in `public/` (self-signed
+is fine; accept the browser warning once):
+
+```sh
+just serve-frontend-tls   # https://<host>:8443/
 ```
 
 ## Connect from Chrome
