@@ -93,6 +93,11 @@ Pass `--busy-poll` to spin the receive loop with `MSG_DONTWAIT` instead of
 blocking on `poll(2)` (`tasks/polling-driver-plan.md`); default is off
 (unchanged blocking behavior).
 
+Pass `--pin-core N` to pin the process to CPU N (`sched_setaffinity`) —
+mainly useful with `--busy-poll` or the AF_XDP driver, whose spin loop
+otherwise migrates across cores and loses cache/NIC-queue locality. Not for
+`--workers`, which has its own per-child `--pin-cores`.
+
 ## Three ways to run it
 
 The default is a plain single-process UDP socket (above). Two more I/O

@@ -31,6 +31,10 @@ just build
 sudo ./wired_server --ifindex <n> --ip <a.b.c.d> --san-ipv4 <a.b.c.d> --skb-mode
 ```
 
+Add `--pin-core N` to pin the process to CPU N — the XDP driver spins one
+core at 100%, and pinning keeps that spin on a single cache-warm core
+instead of migrating.
+
 On startup it logs the self-signed certificate's SHA-256 fingerprint:
 
 ```
