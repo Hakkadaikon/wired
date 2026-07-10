@@ -452,14 +452,14 @@ static void sb_check_hdr_dcid(quic_span dg, quic_span want) {
  * own, so this mix-up presents as a handshake that goes completely
  * unanswered. */
 static void test_srvboot_reply_dcid_is_client_scid(void) {
-  static const u8 cli_dcid[8] = {0x38, 0x6f, 0xd3, 0x6a,
-                                 0x70, 0x8d, 0x3c, 0xab};
-  static const u8 cli_scid[5] = {0xc1, 0x15, 0xc1, 0xd5, 0x01};
-  wired_server    s;
-  wired_srvloop   l;
-  u8              ini[1500], hs[1500];
-  quic_obuf       iob = {ini, sizeof ini, 0};
-  quic_obuf       hob = {hs, sizeof hs, 0};
+  static const u8   cli_dcid[8] = {0x38, 0x6f, 0xd3, 0x6a,
+                                   0x70, 0x8d, 0x3c, 0xab};
+  static const u8   cli_scid[5] = {0xc1, 0x15, 0xc1, 0xd5, 0x01};
+  wired_server      s;
+  wired_srvloop     l;
+  u8                ini[1500], hs[1500];
+  quic_obuf         iob = {ini, sizeof ini, 0};
+  quic_obuf         hob = {hs, sizeof hs, 0};
   wired_srvboot_out out = {&iob, &hob, {0}, 0, 0};
   sb_accept_cids(
       quic_span_of(cli_dcid, 8), quic_span_of(cli_scid, 5), &out, &s, &l);
@@ -470,13 +470,13 @@ static void test_srvboot_reply_dcid_is_client_scid(void) {
 /* Chrome sends a zero-length SCID (it routes replies by address); the reply
  * DCID must then be zero-length as well (RFC 9000 7.2). */
 static void test_srvboot_reply_dcid_empty_client_scid(void) {
-  static const u8 cli_dcid[8] = {0x11, 0x22, 0x33, 0x44,
-                                 0x55, 0x66, 0x77, 0x88};
-  wired_server    s;
-  wired_srvloop   l;
-  u8              ini[1500], hs[1500];
-  quic_obuf       iob = {ini, sizeof ini, 0};
-  quic_obuf       hob = {hs, sizeof hs, 0};
+  static const u8   cli_dcid[8] = {0x11, 0x22, 0x33, 0x44,
+                                   0x55, 0x66, 0x77, 0x88};
+  wired_server      s;
+  wired_srvloop     l;
+  u8                ini[1500], hs[1500];
+  quic_obuf         iob = {ini, sizeof ini, 0};
+  quic_obuf         hob = {hs, sizeof hs, 0};
   wired_srvboot_out out = {&iob, &hob, {0}, 0, 0};
   sb_accept_cids(
       quic_span_of(cli_dcid, 8), quic_span_of((const u8*)0, 0), &out, &s, &l);

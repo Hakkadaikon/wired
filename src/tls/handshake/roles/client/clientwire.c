@@ -59,14 +59,15 @@ int quic_client_open_initial_wire(
 int quic_client_seal_handshake_wire(
     quic_client* c, const quic_clientwire_seal_in* in, quic_obuf* out) {
   cw_dirkey            dk;
-  quic_srvwire_seal_in si = {quic_span_of((const u8*)0, 0),
-                             in->hdr.dcid,
-                             in->hdr.scid,
-                             in->hdr.pn,
-                             -1,
-                             in->tls,
-                             0};
-  quic_protect_keys    pk;
+  quic_srvwire_seal_in si = {
+      quic_span_of((const u8*)0, 0),
+      in->hdr.dcid,
+      in->hdr.scid,
+      in->hdr.pn,
+      -1,
+      in->tls,
+      0};
+  quic_protect_keys pk;
   if (!cw_dir_key(c, QUIC_KS_CLIENT_HS, &dk)) return 0;
   pk = (quic_protect_keys){dk.k, &dk.hp};
   return quic_srvwire_seal_handshake(&pk, &si, out);
