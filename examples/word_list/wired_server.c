@@ -430,6 +430,36 @@ static int run_workers(
   return wired_srvworkers_run(cfg->port, id, h, obs, &cfg->workers) >= 0;
 }
 
+/* Print the six XDP_STATISTICS counters (xsksetup.h order) as
+ * "name value\n" lines. A stats read failure (e.g. socket already gone)
+ * silently skips printing -- this runs at shutdown, after the run loop has
+ * already returned, so there is nothing left to recover into. */
+static const char* const XDP_STAT_NAMES[6] = {
+    "rx_dropped",
+    "rx_invalid_descs",
+    "tx_invalid_descs",
+    "rx_ring_full",
+    "rx_fill_ring_empty_descs",
+    "tx_ring_empty_descs",
+};
+
+static void print_xdp_stat_line(const char* name, u64 v) {
+  char line[64];
+  usz  at = 0;
+  while (*name) line[at++] = *name++;
+  line[at++] = ' ';
+  wired_fmt_u64(line, &at, &(wired_fmt_u64_in){v, 1});
+  line[at++] = '\n';
+  line[at]   = 0;
+  wired_log_str(line);
+}
+
+static void print_xdp_stats(i64 fd) {
+  u64 stats[6];
+  if (quic_xsksetup_stats(fd, stats) < 0) return;
+  for (usz i = 0; i < 6; i++) print_xdp_stat_line(XDP_STAT_NAMES[i], stats[i]);
+}
+
 /* DRIVER_XDP: open the AF_XDP socket/rings/BPF filter, then run the same
  * server loop with recv/send routed through it (tasks/xdp-driver-plan.md).
  * Prints the XDP_STATISTICS counters on exit. */
@@ -443,6 +473,7 @@ static int run_xdp(
     wired_srvrun_opt opt = {0, 0, 0, 0, 0, 0, 0, 0, -1, &xdp};
     ok = wired_server_run_opt(cfg->port, id, h, obs, &opt);
   }
+  print_xdp_stats(xdp.xsk.fd);
   wired_srvxdp_close(&xdp);
   return ok;
 }
