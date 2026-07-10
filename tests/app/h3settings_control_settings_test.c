@@ -63,9 +63,9 @@ static int hcs_has_pair(const quic_h3_settings* s, u64 id, u64 value) {
  * before it will open a WebTransport session (their absence surfaces as
  * ERR_METHOD_NOT_SUPPORTED); without it neither appears. */
 void test_h3settings_control_settings_advertises_wt(void) {
-  u8  buf[64];
-  usz n        = 0;
-  usz consumed = 0;
+  u8               buf[64];
+  usz              n        = 0;
+  usz              consumed = 0;
   quic_h3_settings s;
 
   CHECK(quic_h3settings_control_stream(1, buf, sizeof(buf), &n) == 1);
@@ -73,10 +73,12 @@ void test_h3settings_control_settings_advertises_wt(void) {
   CHECK(quic_h3_settings_get(buf + consumed, n - consumed, &s) > 0);
   CHECK(hcs_has_pair(&s, 0x33, 1) == 1);
   CHECK(hcs_has_pair(&s, 0xc671706a, 1) == 1);
+  CHECK(hcs_has_pair(&s, 0x2b603742, 1) == 1);
 
   CHECK(quic_h3settings_control_stream(0, buf, sizeof(buf), &n) == 1);
   quic_h3_stream_type_parse(quic_span_of(buf, n), &(u64){0}, &consumed);
   CHECK(quic_h3_settings_get(buf + consumed, n - consumed, &s) > 0);
   CHECK(hcs_has_pair(&s, 0x33, 1) == 0);
   CHECK(hcs_has_pair(&s, 0xc671706a, 1) == 0);
+  CHECK(hcs_has_pair(&s, 0x2b603742, 1) == 0);
 }

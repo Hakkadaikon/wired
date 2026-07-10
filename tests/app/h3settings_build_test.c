@@ -53,16 +53,18 @@ void test_h3settings_build_connect_protocol(void) {
  * WebTransport support" and the browser refuses every session with
  * ERR_METHOD_NOT_SUPPORTED. */
 void test_h3settings_build_h3_datagram_and_wt_enabled(void) {
-  u8                 buf[32];
+  u8                 buf[48];
   quic_h3settings_in in = {0x4000, 0, 100, 0, 1, 5};
   quic_obuf          ob = {buf, sizeof buf, 0};
   CHECK(quic_h3settings_build(&in, &ob) == 1);
 
   quic_h3_settings s;
   usz              sr = quic_h3_settings_get(buf, ob.len, &s);
-  CHECK(sr == ob.len && s.n == 5);
+  CHECK(sr == ob.len && s.n == 6);
   CHECK(s.pairs[3].id == 0x33 && s.pairs[3].value == 1);
   CHECK(s.pairs[4].id == 0xc671706a && s.pairs[4].value == 5);
+  /* draft-02 companion pair: Chrome 149 keys on this one (verified live) */
+  CHECK(s.pairs[5].id == 0x2b603742 && s.pairs[5].value == 1);
 }
 
 /* Both flags at 0 (the default) keep the 3-pair wire form, matching the

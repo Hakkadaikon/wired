@@ -9,11 +9,16 @@
 
 /* RFC 9297 2.1.1. */
 #define QUIC_H3_SETTINGS_H3_DATAGRAM 0x33
-/* draft-ietf-webtrans-http3 8.2 SETTINGS_WEBTRANSPORT_MAX_SESSIONS -- the
- * identifier browsers key WebTransport support on (quiche names it
- * SETTINGS_WEBTRANS_MAX_SESSIONS_DRAFT07); a peer that does not see it
- * refuses every session with ERR_METHOD_NOT_SUPPORTED. */
+/* draft-ietf-webtrans-http3 8.2 SETTINGS_WEBTRANSPORT_MAX_SESSIONS (quiche's
+ * SETTINGS_WEBTRANS_MAX_SESSIONS_DRAFT07) -- the identifier current-draft
+ * peers key WebTransport support on. */
 #define QUIC_H3_SETTINGS_WT_MAX_SESSIONS 0xc671706a
+/* draft-ietf-webtrans-http3-02 SETTINGS_ENABLE_WEBTRANSPORT (quiche's
+ * SETTINGS_WEBTRANS_DRAFT00). Chrome 149 negotiates WebTransport only when
+ * this draft-02 pair is present (verified live: advertising the draft-07
+ * identifier alone still fails its SupportsWebTransport() check), so both
+ * generations are advertised together. */
+#define QUIC_H3_SETTINGS_WT_DRAFT02 0x2b603742
 
 /* RFC 9220 3: append SETTINGS_ENABLE_CONNECT_PROTOCOL when requested. */
 static void append_connect_protocol(
@@ -33,13 +38,17 @@ static void append_h3_datagram(
   s->n++;
 }
 
-/* draft-ietf-webtrans-http3 8.2: append SETTINGS_WEBTRANSPORT_MAX_SESSIONS
- * when requested. */
+/* draft-ietf-webtrans-http3 8.2 + draft-02: append both generations'
+ * WebTransport settings when requested (see QUIC_H3_SETTINGS_WT_DRAFT02's
+ * doc for why the legacy pair is still required). */
 static void append_wt_max_sessions(
     const quic_h3settings_in* in, quic_h3_settings* s) {
   if (!in->wt_max_sessions) return;
   s->pairs[s->n].id    = QUIC_H3_SETTINGS_WT_MAX_SESSIONS;
   s->pairs[s->n].value = in->wt_max_sessions;
+  s->n++;
+  s->pairs[s->n].id    = QUIC_H3_SETTINGS_WT_DRAFT02;
+  s->pairs[s->n].value = 1;
   s->n++;
 }
 
