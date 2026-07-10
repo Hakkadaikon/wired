@@ -93,11 +93,23 @@ static int take_opt_offset(quic_span in, usz* off, u64* offset) {
   return quic_varint_take(quic_span_of(in.p, in.n), off, offset);
 }
 
+/* RFC 9000 19.8: the Length field is present only when the LEN bit is set;
+ * absent, the data extends to the end of the packet (the usual shape of a
+ * packet's last frame -- Chrome ships its CONNECT HEADERS this way, so
+ * reading a phantom Length varint here truncated every browser request). */
+static int take_opt_length(quic_span in, usz* off, u64* length) {
+  if ((in.p[0] & QUIC_STREAM_LEN) == 0) {
+    *length = in.n - *off;
+    return 1;
+  }
+  return quic_varint_take(quic_span_of(in.p, in.n), off, length);
+}
+
 /* Read stream id, optional offset (when OFF set), and length at *off. */
 static int take_stream_hdr(quic_span in, usz* off, quic_stream_frame* f) {
   if (!quic_varint_take(quic_span_of(in.p, in.n), off, &f->stream_id)) return 0;
   if (!take_opt_offset(in, off, &f->offset)) return 0;
-  return quic_varint_take(quic_span_of(in.p, in.n), off, &f->length);
+  return take_opt_length(in, off, &f->length);
 }
 
 usz quic_frame_get_stream(const u8* buf, usz n, quic_stream_frame* f) {
