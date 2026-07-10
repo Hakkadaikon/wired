@@ -1162,6 +1162,35 @@ static void test_srvrun_busy_poll_step_never_blocks(void) {
   CHECK(1);
 }
 
+/* Polling drivers never reach the poll-timeout probe pass, so the PTO tick
+ * is clocked instead: the 1024th spin arms the SRVRUN_PTO_MS window and
+ * fires, further due spins inside the window do not re-fire, and the
+ * blocking driver never ticks the clocked path at all. */
+static void test_srvrun_polling_pto_tick(void) {
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_conn    conns[QUIC_CONNTABLE_CAP] = {0};
+  srvrun_cfg     cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0};
+  srvrun_state   st;
+  u64            armed;
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  st                   = (srvrun_state){table, conns};
+  g_srvrun_pto_next_ms = 0;
+  g_srvrun_pto_spin    = 0;
+  for (int i = 0; i < 1023; i++) srvrun_polling_ptos(&cfg, &st);
+  CHECK(g_srvrun_pto_next_ms == 0); /* not yet due: clock never read */
+  srvrun_polling_ptos(&cfg, &st); /* 1024th spin: due, arms the window */
+  armed = g_srvrun_pto_next_ms;
+  CHECK(armed > 0);
+  g_srvrun_pto_spin = 1023; /* force the next call due again */
+  srvrun_polling_ptos(&cfg, &st);
+  CHECK(g_srvrun_pto_next_ms == armed); /* inside the window: no re-fire */
+  cfg.busy_poll        = 0;
+  g_srvrun_pto_next_ms = 0;
+  g_srvrun_pto_spin    = 1023;
+  srvrun_polling_ptos(&cfg, &st);
+  CHECK(g_srvrun_pto_next_ms == 0); /* blocking driver: clocked path off */
+}
+
 /* WRAPPER EQUIVALENCE: wired_server_run_opt with a zeroed wired_srvrun_opt
  * behaves the same as wired_server_run at the point they actually differ --
  * the srvrun_cfg they build. Both must produce busy_poll=0, proving
@@ -2940,6 +2969,7 @@ void test_srvrun(void) {
   test_srvrun_busy_poll_off_uses_any_waiting_branch();
   test_srvrun_busy_poll_on_never_blocks_wait();
   test_srvrun_busy_poll_step_never_blocks();
+  test_srvrun_polling_pto_tick();
   test_srvrun_opt_zeroed_matches_plain_default();
   test_srvrun_so_busy_poll_zero_still_binds();
   test_srvrun_wt_uni_stream_offered_to_session();

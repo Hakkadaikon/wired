@@ -1859,6 +1859,32 @@ static int srvrun_polling(const srvrun_cfg* cfg) {
   return cfg->busy_poll || cfg->xdp != 0;
 }
 
+/* PTO probe deadline for the polling drivers. They never sleep in poll(2),
+ * so the poll-timeout probe pass in srvrun_step is unreachable for them and
+ * a lost reply would otherwise never be retransmitted (RFC 9002 6.2). */
+static u64 g_srvrun_pto_next_ms;
+/* Spin-iteration counter pacing the clock read below. */
+static u32 g_srvrun_pto_spin;
+
+/* 1 on every 1024th call in a polling driver: the mono-clock read is a real
+ * syscall, too costly to pay per spin iteration for a 300ms deadline. */
+static int srvrun_pto_due(const srvrun_cfg* cfg) {
+  if (!srvrun_polling(cfg)) return 0;
+  g_srvrun_pto_spin++;
+  return (g_srvrun_pto_spin & 1023u) == 0;
+}
+
+/* Clocked stand-in for the poll-timeout probe pass: fire the PTOs on the
+ * same SRVRUN_PTO_MS cadence the blocking driver gets from poll(2). */
+static void srvrun_polling_ptos(const srvrun_cfg* cfg, srvrun_state* st) {
+  u64 now;
+  if (!srvrun_pto_due(cfg)) return;
+  now = quic_clock_mono_ms();
+  if (now < g_srvrun_pto_next_ms) return;
+  g_srvrun_pto_next_ms = now + SRVRUN_PTO_MS;
+  srvrun_fire_ptos(cfg, st);
+}
+
 /* busy_poll=1 or xdp!=0: the blocking poll(2) itself is replaced by a non-
  * blocking return (tasks/polling-driver-plan.md — the srvrun_any_waiting
  * branch above is kept as-is; only this leaf call changes). The actual non-
@@ -1892,6 +1918,7 @@ static void srvrun_step(
     const srvrun_cfg* cfg, srvrun_state* st, quic_mmsg_buf* bufs, usz nbufs) {
   i64 r;
   srvrun_reload_if_requested(cfg);
+  srvrun_polling_ptos(cfg, st);
   if (!srvrun_wait_input(cfg, st)) {
     srvrun_fire_ptos(cfg, st);
     return;
