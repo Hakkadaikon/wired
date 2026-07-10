@@ -461,6 +461,62 @@ static void test_srvrun_initial_retransmit_resends_cached_flight(void) {
   CHECK(st.conns[0].boot_dgram_count == first_boot_dgram_count);
 }
 
+/* Append a minimal well-formed (undecryptable) Handshake long-header packet
+ * at off: byte0 0xE0, version 1, the given DCID, no SCID, a 5-byte body.
+ * Returns the new datagram length. */
+static usz sr_append_handshake_pkt(u8* dg, usz off, const u8* dcid, u8 n) {
+  dg[off++] = 0xe0; /* long header, fixed bit, type Handshake */
+  dg[off++] = 0;
+  dg[off++] = 0;
+  dg[off++] = 0;
+  dg[off++] = 1; /* version 1 */
+  dg[off++] = n;
+  for (usz i = 0; i < n; i++) dg[off++] = dcid[i];
+  dg[off++] = 0; /* scid_len 0 */
+  dg[off++] = 5; /* Length: 5 (1-byte varint) */
+  for (usz i = 0; i < 5; i++) dg[off++] = (u8)(0xa0 + i);
+  return off;
+}
+
+/* SECOND FLIGHT COALESCING (RFC 9000 12.2): a client's second datagram
+ * coalesces an Initial (ACKing the server flight) with a Handshake packet
+ * carrying its Finished -- curl/ngtcp2 and Chrome both send this shape.
+ * That datagram is NOT a bare Initial retransmit: swallowing it to resend
+ * the cached boot flight would discard the Finished, leave the handshake
+ * unconfirmed forever, and stall the connection right after it reports
+ * connected (observed live with curl). It must fall through to the step
+ * path, so no cached-flight resend fires. */
+static void test_srvrun_coalesced_handshake_not_boot_retransmit(void) {
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32], dg[1500], dg2[1500];
+  quic_conntable   table[QUIC_CONNTABLE_CAP];
+  quic_sockaddr_in peer = {0};
+  srvrun_state     st   = {table, g_srvrun_state.conns};
+  usz total             = sr_build_client_initial(dg, sizeof dg, g_sr_odcid, 8);
+  usz n2, send_count_after_boot;
+  sr_make_id(&id, priv, pub, seed, rnd);
+  {
+    srvrun_cfg      cfg = {-1, &id, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0};
+    quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+    srvrun_test_reset_send_count();
+    srvrun_serve(&ctx, quic_mspan_of(dg, total));
+    CHECK(st.conns[0].up == 1);
+    CHECK(wired_server_is_confirmed(&st.conns[0].s) == 0);
+    send_count_after_boot = srvrun_test_send_count();
+    CHECK(send_count_after_boot > 0);
+
+    /* the same Initial coalesced with an (undecryptable) Handshake packet:
+     * classification, not decryption, is what is under test here */
+    for (usz i = 0; i < total; i++) dg2[i] = dg[i];
+    n2 = sr_append_handshake_pkt(dg2, total, st.conns[0].scid, id.scid_len);
+    srvrun_serve(&ctx, quic_mspan_of(dg2, n2));
+  }
+  /* not intercepted: no cached-flight resend fired for the coalesced dgram */
+  CHECK(srvrun_test_send_count() == send_count_after_boot);
+  CHECK(st.conns[0].up == 1);
+}
+
 /* Raw ClientHello + one sealed chunk Initial, the srvrun-side split fixture
  * (mirrors the srvboot accumulator tests' construction). */
 static usz sr_raw_ch(quic_client* c, u8* ch, usz cap) {
@@ -2812,6 +2868,7 @@ void test_srvrun(void) {
   test_srvrun_no_shutdown_accepts_new();
   test_srvrun_accept_rekeys_to_slot_scid();
   test_srvrun_initial_retransmit_resends_cached_flight();
+  test_srvrun_coalesced_handshake_not_boot_retransmit();
   test_srvrun_split_ch_boots_across_datagrams();
   test_srvrun_stalled_boot_swept();
   test_srvrun_alien_version_claims_no_slot();

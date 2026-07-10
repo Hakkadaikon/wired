@@ -22,6 +22,7 @@
 #include "transport/conn/lifecycle/conntable/conntable.h"
 #include "transport/io/socket/io/udp.h"
 #include "transport/io/socket/poll/wait.h"
+#include "transport/io/udp/udploop/rxloop.h"
 #include "transport/packet/frame/frame/frame.h"
 #include "transport/packet/frame/frame/stream_ctl.h"
 #include "transport/packet/header/dcidresolve/dcidresolve.h"
@@ -1055,14 +1056,42 @@ static int srvrun_awaiting_confirm(const srvrun_conn* c) {
   return c->up && !wired_server_is_confirmed(&c->s);
 }
 
-/* RFC 9000 13.3: an Initial on a slot already up, not yet confirmed, and not
- * eligible to (re)cold-start (srvrun_is_new said no) is the client
- * retransmitting its first flight because the server's reply hasn't reached
- * it yet -- not a new connection attempt. */
+/* 1 if b0 wears a long header of the Initial type (RFC 9000 17.2.2). */
+static int srvrun_pkt_is_initial(u8 b0) {
+  return (b0 & 0x80) != 0 && (b0 & 0x30) == 0;
+}
+
+/* 1 if every packet at offs[0..n) within dg is an Initial. */
+static int srvrun_pkts_all_initial(quic_mspan dg, const usz* offs, usz n) {
+  for (usz i = 0; i < n; i++)
+    if (!srvrun_pkt_is_initial(dg.p[offs[i]])) return 0;
+  return 1;
+}
+
+/* RFC 9000 12.2: 1 if dg parses as coalesced packets that are ALL Initials.
+ * A client's second flight coalesces an Initial (ACK) with a Handshake
+ * packet carrying its Finished -- such a datagram is handshake progress, not
+ * a bare first-flight retransmit, and must never be swallowed by the cached
+ * boot-flight resend (that discards the Finished and wedges the handshake
+ * unconfirmed; curl connects and then stalls on its request). */
+static int srvrun_dgram_all_initial(quic_mspan dg) {
+  const u8*    pkts[4];
+  usz          offs[4], lens[4], n;
+  quic_pktlist pl = {pkts, offs, lens, 4};
+  n               = quic_udploop_split(quic_span_of(dg.p, dg.n), &pl);
+  return n != 0 && srvrun_pkts_all_initial(dg, offs, n);
+}
+
+/* RFC 9000 13.3: an all-Initial datagram on a slot already up, not yet
+ * confirmed, and not eligible to (re)cold-start (srvrun_is_new said no) is
+ * the client retransmitting its first flight because the server's reply
+ * hasn't reached it yet -- not a new connection attempt. A datagram that
+ * coalesces anything beyond Initials (srvrun_dgram_all_initial says no)
+ * carries handshake progress and takes the step path instead. */
 static int srvrun_is_boot_retransmit(const srvrun_conn* c, quic_mspan dg) {
-  if (!wired_srvboot_is_initial(dg.p, dg.n)) return 0;
   if (!srvrun_awaiting_confirm(c)) return 0;
-  return c->boot_ini_len != 0;
+  if (c->boot_ini_len == 0) return 0;
+  return srvrun_dgram_all_initial(dg);
 }
 
 /* Free slot i: drop its table entry and clear its connection's up flag (the
