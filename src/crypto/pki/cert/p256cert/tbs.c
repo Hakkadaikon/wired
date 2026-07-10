@@ -64,12 +64,21 @@ static usz pc_build_name(quic_obuf* out) {
  * webtransporthash); anchor notAfter that far past notBefore. */
 #define PC_VALIDITY_DAYS 14
 #define PC_SECS_PER_DAY 86400ULL
+/* A browser checks notBefore against ITS OWN clock; anchoring notBefore at
+ * the server's exact "now" fails whenever the client's clock runs behind the
+ * server's. Backdate an hour to absorb ordinary skew; the total window stays
+ * exactly 14 days. */
+#define PC_BACKDATE_SECS 3600ULL
 
-/* notBefore = now_secs, notAfter = now_secs + 14 days, both formatted as
- * UTCTime (RFC 5280 4.1.2.5.1) into nb_out/na_out[13]. */
+/* notBefore = now_secs - 1h, notAfter = notBefore + 14 days, both formatted
+ * as UTCTime (RFC 5280 4.1.2.5.1) into nb_out/na_out[13]. An epoch within
+ * the first hour (tests with tiny values) anchors at now_secs unbackdated
+ * rather than wrapping. */
 static void pc_validity_window(u64 now_secs, u8 nb_out[13], u8 na_out[13]) {
-  u64 na_secs = now_secs + PC_VALIDITY_DAYS * PC_SECS_PER_DAY;
-  quic_x509_utctime_encode(quic_clock_epoch_to_ymdhms(now_secs), nb_out);
+  u64 nb_secs = now_secs > PC_BACKDATE_SECS ? now_secs - PC_BACKDATE_SECS
+                                            : now_secs;
+  u64 na_secs = nb_secs + PC_VALIDITY_DAYS * PC_SECS_PER_DAY;
+  quic_x509_utctime_encode(quic_clock_epoch_to_ymdhms(nb_secs), nb_out);
   quic_x509_utctime_encode(quic_clock_epoch_to_ymdhms(na_secs), na_out);
 }
 
