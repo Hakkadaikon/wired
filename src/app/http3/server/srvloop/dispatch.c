@@ -4,6 +4,7 @@
 #include "app/datagram/dgdeliver/dg_recv.h"
 #include "app/http3/core/h3/frame.h"
 #include "app/http3/core/h3/stream_type.h"
+#include "app/http3/request/h3reqdrive/request_drive.h"
 #include "app/http3/server/h3srv/peer.h"
 #include "app/http3/server/h3srv/respond.h"
 #include "app/http3/server/srvloop/srvloop.h"
@@ -158,8 +159,65 @@ static int gather_request(
 
 /* RFC 9000 2.2: the request is complete once FIN closed the stream and it has
  * not already been decoded/answered (curl FINs the request's last STREAM). */
-static int request_complete(const wired_srvloop_reqacc* acc) {
-  return *acc->fin && !*acc->done;
+/* Bytes of the complete HTTP/3 HEADERS frame at the head of acc, or 0 when
+ * none is fully buffered yet (or the first frame is not HEADERS). */
+static usz acc_headers_frame_len(const wired_srvloop_reqacc* acc) {
+  quic_h3_frame f;
+  usz           n = quic_h3_frame_get(quic_span_of(acc->buf, *acc->len), &f);
+  if (n == 0) return 0;
+  return f.type == QUIC_H3_FRAME_HEADERS ? n : 0;
+}
+
+/* Constant-shape 7-octet compare (the CONNECT method token). */
+static int dispatch_bytes_eq7(const u8* m, const u8* want) {
+  u8 d = 0;
+  for (usz i = 0; i < 7; i++) d |= m[i] ^ want[i];
+  return d == 0;
+}
+
+static int req_method_is_connect(const wired_h3reqdrive_req* r) {
+  static const u8 want[] = {'C', 'O', 'N', 'N', 'E', 'C', 'T'};
+  if (!r->method || r->method_len != sizeof want) return 0;
+  return dispatch_bytes_eq7(r->method, want);
+}
+
+/* Wrap acc's first n bytes as a STREAM frame in in->wrap (the same caller-
+ * owned buffer drive_complete reuses right after) and decode the request
+ * into *r. Returns 1 on a successful decode. */
+static int peek_decode_request(
+    const wired_srvloop_reqacc*      acc,
+    const wired_srvloop_dispatch_in* in,
+    usz                              n,
+    wired_h3reqdrive_req*            r) {
+  quic_stream_frame f  = {0, 0, n, acc->buf, 0};
+  quic_obuf         ob = quic_obuf_of(in->wrap.p, in->wrap.n);
+  if (!quic_appdata_stream_frame(&f, &ob)) return 0;
+  return wired_h3reqdrive_recv_get(
+      quic_span_of(in->wrap.p, ob.len), in->scratch, r);
+}
+
+/* RFC 9220 3 / draft-ietf-webtrans-http3 3: an Extended CONNECT's request
+ * stream never carries FIN -- the stream IS the WebTransport session and
+ * stays open for its whole lifetime -- so a CONNECT request is complete at
+ * its HEADERS frame. 1 if acc currently holds one complete HEADERS frame
+ * that decodes to a CONNECT request. */
+static int connect_headers_complete(
+    const wired_srvloop_reqacc* acc, const wired_srvloop_dispatch_in* in) {
+  wired_h3reqdrive_req r;
+  usz                  n = acc_headers_frame_len(acc);
+  if (n == 0) return 0;
+  if (!peek_decode_request(acc, in, n, &r)) return 0;
+  return req_method_is_connect(&r);
+}
+
+/* A request is complete at FIN (RFC 9114 4.1) or, for a CONNECT, at its
+ * complete HEADERS frame (see connect_headers_complete -- waiting for a FIN
+ * that never comes starved every browser WebTransport session). */
+static int request_complete(
+    const wired_srvloop_reqacc* acc, const wired_srvloop_dispatch_in* in) {
+  if (*acc->done) return 0;
+  if (*acc->fin) return 1;
+  return connect_headers_complete(acc, in);
 }
 
 /* 1 if the walked frame at `frame` is ANY client-bidi-id-shaped STREAM frame
@@ -633,7 +691,7 @@ static int reassemble_and_drive(
     const wired_srvloop_dispatch_ctx* ctx,
     const wired_srvloop_dispatch_in*  in) {
   if (!gather_request(ctx->l, in->payload.p, in->payload.n, ctx->acc)) return 0;
-  if (request_complete(ctx->acc)) drive_complete(ctx->h3, ctx->acc, in);
+  if (request_complete(ctx->acc, in)) drive_complete(ctx->h3, ctx->acc, in);
   return 1;
 }
 

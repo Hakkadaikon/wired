@@ -4,6 +4,7 @@
 #include "app/http3/core/h3/frame.h"
 #include "app/http3/core/h3conn/response.h"
 #include "app/http3/request/h3reqdrive/request_drive.h"
+#include "app/http3/request/h3reqenc/pseudo_encode.h"
 #include "app/http3/server/srvloop/dispatch.h"
 #include "app/http3/server/srvloop/keys.h"
 #include "app/http3/server/srvloop/recv.h"
@@ -618,6 +619,86 @@ static void lp_confirm_via_dispatch(struct lp_fix* f) {
             &(wired_srvloop_dispatch_ctx){&f->s, &f->l.h3, &acc, 0}, &in) == 1);
   }
   CHECK(wired_server_is_confirmed(&f->s) == 1);
+}
+
+/* Build one request STREAM frame (stream 0, offset 0) whose payload is a
+ * complete HEADERS frame for the given pseudo-headers, with the given FIN. */
+static usz lp_build_headers_stream(
+    const quic_h3req_pseudo_in* pin, int fin, u8* out, usz cap) {
+  u8        fields[256], h3buf[300];
+  quic_obuf fob = quic_obuf_of(fields, sizeof fields);
+  quic_obuf hob = quic_obuf_of(h3buf, sizeof h3buf);
+  quic_obuf sob = quic_obuf_of(out, cap);
+  CHECK(quic_h3req_enc_pseudo(pin, &fob) == 1);
+  CHECK(
+      quic_h3_frame_put(
+          &hob, QUIC_H3_FRAME_HEADERS, quic_span_of(fields, fob.len)) != 0);
+  {
+    quic_stream_frame sf = {0, 0, hob.len, h3buf, fin};
+    CHECK(quic_appdata_stream_frame(&sf, &sob) == 1);
+  }
+  return sob.len;
+}
+
+/* RFC 9220 3 / draft-ietf-webtrans-http3 3: an Extended CONNECT's request
+ * stream stays open for the whole session -- there is NO FIN after its
+ * HEADERS (the stream IS the session). The request must therefore be decoded
+ * as soon as its complete HEADERS frame is buffered; gating the decode on
+ * FIN starves every browser CONNECT forever (observed live: Chrome's CONNECT
+ * went unanswered while the server ACKed and idled out). A non-CONNECT
+ * request without FIN must still wait: its body may follow. */
+static void test_srvloop_connect_drives_without_fin(void) {
+  struct lp_fix        f;
+  u8                   scratch[512], stream[512];
+  wired_h3reqdrive_req req;
+  int                  got = 0;
+  usz                  n;
+  quic_h3req_pseudo_in pin = {
+      quic_span_of((const u8*)"CONNECT", 7),
+      quic_span_of((const u8*)"https", 5),
+      quic_span_of((const u8*)"h", 1),
+      quic_span_of((const u8*)"/", 1),
+      quic_span_of((const u8*)"webtransport", 12)};
+  lp_confirm_via_dispatch(&f);
+  n = lp_build_headers_stream(&pin, 0, stream, sizeof stream);
+  {
+    wired_srvloop_reqacc      acc = lp_reqacc(&f.l);
+    wired_srvloop_dispatch_in in  = {
+        quic_span_of(stream, n), quic_mspan_of(scratch, sizeof scratch),
+        lp_wrap0(&f.l), &got, &req};
+    CHECK(
+        wired_srvloop_dispatch(
+            &(wired_srvloop_dispatch_ctx){&f.s, &f.l.h3, &acc, 0}, &in) == 1);
+  }
+  CHECK(got == 1); /* decoded despite no FIN */
+  CHECK(req.method_len == 7 && req.method[0] == 'C');
+  CHECK(req.protocol_len == 12);
+}
+
+/* The FIN gate stays for everything that is not a CONNECT: a GET without FIN
+ * is not decoded yet (a request body/trailer may still be in flight). */
+static void test_srvloop_get_still_waits_for_fin(void) {
+  struct lp_fix        f;
+  u8                   scratch[512], stream[512];
+  wired_h3reqdrive_req req;
+  int                  got = 0;
+  usz                  n;
+  quic_h3req_pseudo_in pin = {
+      quic_span_of((const u8*)"GET", 3), quic_span_of((const u8*)"https", 5),
+      quic_span_of((const u8*)"h", 1), quic_span_of((const u8*)"/", 1),
+      quic_span_of((const u8*)0, 0)};
+  lp_confirm_via_dispatch(&f);
+  n = lp_build_headers_stream(&pin, 0, stream, sizeof stream);
+  {
+    wired_srvloop_reqacc      acc = lp_reqacc(&f.l);
+    wired_srvloop_dispatch_in in  = {
+        quic_span_of(stream, n), quic_mspan_of(scratch, sizeof scratch),
+        lp_wrap0(&f.l), &got, &req};
+    CHECK(
+        wired_srvloop_dispatch(
+            &(wired_srvloop_dispatch_ctx){&f.s, &f.l.h3, &acc, 0}, &in) == 1);
+  }
+  CHECK(got == 0); /* still gated on FIN */
 }
 
 /* COALESCED CONFIRM + 200 (RFC 9000 12.2, RFC 9114 6.2.1): when one datagram
@@ -1953,6 +2034,8 @@ void test_srvloop(void) {
   test_srvloop_onertt_get_is_acked();
   test_srvloop_handshake_ack_tracks_pn();
   test_srvloop_confirm_and_200_coalesce();
+  test_srvloop_connect_drives_without_fin();
+  test_srvloop_get_still_waits_for_fin();
   test_srvloop_confirm_emitted_once();
   test_srvloop_ticket_sent_on_confirm();
   test_srvloop_no_ticket_before_confirm();
