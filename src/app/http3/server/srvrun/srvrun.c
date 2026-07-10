@@ -1192,8 +1192,8 @@ static int wt_protocol_token_eq(
  * renamed token). Accepting only the draft-15 spelling turned away every
  * real browser. */
 static int wt_protocol_is_webtransport(const wired_h3reqdrive_req* r) {
-  static const u8 d7[]  = {'w', 'e', 'b', 't', 'r', 'a', 'n',
-                           's', 'p', 'o', 'r', 't'};
+  static const u8 d7[]  = {'w', 'e', 'b', 't', 'r', 'a',
+                           'n', 's', 'p', 'o', 'r', 't'};
   static const u8 d15[] = {'w', 'e', 'b', 't', 'r', 'a', 'n', 's',
                            'p', 'o', 'r', 't', '-', 'h', '3'};
   if (wt_protocol_token_eq(r, d7, sizeof d7)) return 1;
