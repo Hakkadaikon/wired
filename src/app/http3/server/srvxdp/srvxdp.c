@@ -12,12 +12,8 @@
  * multiplication-result): SRVXDP_TXPOOL_BASE is a UMEM byte offset, so the
  * product must be computed at that width, not implicitly widened from a
  * u32*u32 result after the fact. */
-#define SRVXDP_TXPOOL_BASE ((u64)SRVXDP_TXPOOL_FRAMES * QUIC_XSKSETUP_FRAME_SIZE)
-
-static u32 srvxdp_ip_be(const u8 ip[4]) {
-  return ((u32)ip[0] << 24) | ((u32)ip[1] << 16) | ((u32)ip[2] << 8) |
-         (u32)ip[3];
-}
+#define SRVXDP_TXPOOL_BASE \
+  ((u64)SRVXDP_TXPOOL_FRAMES * QUIC_XSKSETUP_FRAME_SIZE)
 
 /* Close one fd unconditionally; a negative fd is simply not closed. */
 static void srvxdp_close_fd(i64* fd) {
@@ -78,8 +74,11 @@ i64 wired_srvxdp_open(wired_srvxdp* x, const wired_srvxdp_cfg* cfg) {
   x->map_fd  = -1;
   x->prog_fd = -1;
   x->link_fd = -1;
-  x->ip_be   = srvxdp_ip_be(cfg->ip);
-  x->port    = cfg->port;
+  /* ip_be holds the address as network-order BYTES (same shape as
+   * quic_sockaddr_in.addr_be), so tx_meta's get_be32 round-trips it; a
+   * host-order u32 here byte-reverses the reply's source IP on the wire. */
+  quic_memcpy((u8*)&x->ip_be, cfg->ip, 4);
+  x->port = cfg->port;
   quic_xdpmac_init(&x->macs);
   quic_xskumem_alloc_init(&x->txpool, SRVXDP_TXPOOL_BASE, SRVXDP_TXPOOL_FRAMES);
 
