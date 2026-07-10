@@ -1872,7 +1872,8 @@ static int srvrun_wait_input(const srvrun_cfg* cfg, srvrun_state* st) {
 
 /* AF_XDP rx_burst step: pause once on an empty burst, same spin-step shape
  * as wired_srvpoll_spin_step (srvrun_recv below). */
-static i64 srvrun_recv_xdp(const srvrun_cfg* cfg, quic_mmsg_buf* bufs, usz nbufs) {
+static i64 srvrun_recv_xdp(
+    const srvrun_cfg* cfg, quic_mmsg_buf* bufs, usz nbufs) {
   i64 n = wired_srvxdp_rx_burst(cfg->xdp, bufs, nbufs);
   if (!n) __builtin_ia32_pause();
   return n;
