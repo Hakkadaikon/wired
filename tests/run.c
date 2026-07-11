@@ -120,6 +120,7 @@
 #include "common/platform/rng/challenge.c"
 #include "common/platform/rng/cidgen.c"
 #include "common/platform/rng/rng.c"
+#include "common/platform/thread/thread.c"
 #include "transport/io/socket/io/udptransport.c"
 #include "transport/io/socket/io/addr.c"
 #include "crypto/pki/encoding/asn1/derval.c"
@@ -264,6 +265,7 @@
 #include "transport/io/xdp/xskumem/xskumem.c"
 #include "transport/io/xdp/xsksetup/xsksetup.c"
 #include "transport/io/xdp/xdpframe/xdpframe.c"
+#include "app/http3/server/srvxdpbpf/srvxdpbpf.c"
 #include "app/http3/server/srvxdp/srvxdp.c"
 #include "transport/packet/header/packet/coalesce.c"
 #include "transport/packet/header/packet/coalorder.c"
@@ -705,6 +707,7 @@
 #include "transport/udptransport_test.c"
 #include "common/clock_test.c"
 #include "common/debug_test.c"
+#include "common/thread_test.c"
 #include "common/rng_test.c"
 #include "common/cidgen_test.c"
 #include "common/challenge_test.c"
@@ -921,6 +924,7 @@
 #include "app/sendq_test.c"
 #include "app/sendsess_test.c"
 #include "app/srvrun_test.c"
+#include "app/sigmask_test.c"
 #include "app/certreload_test.c"
 #include "tls/client_wire_test.c"
 #include "app/h3_loopback_test.c"
@@ -942,6 +946,7 @@
 #include "transport/xskumem_test.c"
 #include "transport/xsksetup_test.c"
 #include "transport/xdpframe_test.c"
+#include "transport/srvxdpbpf_test.c"
 #include "transport/srvxdp_test.c"
 // clang-format on
 
@@ -1158,6 +1163,7 @@ int main(void) {
   test_rng();
   test_clock();
   test_debug();
+  test_thread();
   test_cidgen();
   test_challenge();
   test_cipher();
@@ -1394,6 +1400,7 @@ int main(void) {
   test_sendq();
   test_sendsess();
   test_srvrun();
+  test_sigmask();
   test_certreload();
   test_client_wire();
   test_h3_loopback();
@@ -1415,6 +1422,7 @@ int main(void) {
   test_xskumem();
   test_xsksetup();
   test_xdpframe();
+  test_srvxdpbpf();
   test_srvxdp();
   return TEST_REPORT();
 }
