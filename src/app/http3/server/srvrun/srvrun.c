@@ -20,6 +20,7 @@
 #include "common/platform/qlog/qlog.h"
 #include "common/platform/qlog/qlogevent.h"
 #include "common/platform/rng/cidgen.h"
+#include "common/platform/thread/thread.h"
 #include "transport/conn/lifecycle/conntable/conntable.h"
 #include "transport/io/socket/io/udp.h"
 #include "transport/io/socket/poll/wait.h"
@@ -984,11 +985,124 @@ static void srvrun_broadcast_to_all(srvrun_state* st, quic_span data) {
       srvrun_queue_datagram(&st->conns[i], data);
 }
 
-int wired_server_broadcast_datagram(quic_span data) {
-  if (data.n > sizeof g_srvrun_state.conns[0].dg_pending_buf) return 0;
+/* Phase E (tasks/loopeng/srvinbox-mesh): multi-worker broadcast fan-out. One
+ * registry entry per srvthreads worker, keyed by the registering thread's
+ * own tid (wired_thread_tid) -- srvrun.c never touches srvthreads' or
+ * srvinbox's internals beyond wired_srvinbox_ring itself (the include in
+ * srvrun.h), keeping the dependency direction srvrun -> srvinbox only. A
+ * capacity of 16 mirrors srvthreads.h's WIRED_SRVTHREADS_MAX without srvrun.c
+ * including that header (it would invert the intended dependency direction:
+ * srvthreads depends on srvrun, not the reverse). */
+#define SRVRUN_BCAST_MAX 16
+
+typedef struct {
+  i64                   tid;       /**< registering thread's tid, 0 = free */
+  int                   index;     /**< this worker's 0-based mesh index */
+  int                   n_total;   /**< total worker count in the mesh */
+  wired_srvinbox_ring*  inbox_row; /**< row[j] = ring fed by worker j */
+} srvrun_bcast_entry;
+
+static srvrun_bcast_entry g_srvrun_bcast[SRVRUN_BCAST_MAX];
+static int                g_srvrun_bcast_n; /* registered entry count */
+
+/* Registry slot index for tid, or -1 if tid is not registered. */
+static int srvrun_bcast_find(i64 tid) {
+  for (int i = 0; i < SRVRUN_BCAST_MAX; i++)
+    if (g_srvrun_bcast[i].tid == tid) return i;
+  return -1;
+}
+
+void wired_srvrun_broadcast_register(
+    int index, int n_total, wired_srvinbox_ring* inbox_row) {
+  i64 tid = wired_thread_tid();
+  int slot;
+  if (srvrun_bcast_find(tid) >= 0) return; /* already registered */
+  slot = srvrun_bcast_find(0);
+  if (slot < 0) return; /* registry full, drop the registration */
+  g_srvrun_bcast[slot] = (srvrun_bcast_entry){tid, index, n_total, inbox_row};
+  g_srvrun_bcast_n++;
+}
+
+void wired_srvrun_broadcast_unregister(void) {
+  int slot = srvrun_bcast_find(wired_thread_tid());
+  if (slot < 0) return;
+  g_srvrun_bcast[slot] = (srvrun_bcast_entry){0};
+  g_srvrun_bcast_n--;
+}
+
+/* Push data into every registered worker t's inbox row at column my_index
+ * (the caller's own mesh index) -- best-effort per target, mirroring
+ * srvrun_broadcast_to_all's own best-effort per-connection queuing. Reaches
+ * the caller's own inbox row too (t == my_index included), matching every
+ * other worker's own broadcast reaching its own row. */
+static void srvrun_bcast_mesh_push(int my_index, quic_span data) {
+  for (int t = 0; t < SRVRUN_BCAST_MAX; t++) {
+    if (!g_srvrun_bcast[t].tid) continue;
+    wired_srvinbox_push(
+        &g_srvrun_bcast[t].inbox_row[my_index], data.p, data.n);
+  }
+}
+
+/* Single-process fallback path (0 or 1 workers registered): the original
+ * direct fan-out, byte-identical to before Phase E. */
+static int srvrun_broadcast_direct(quic_span data) {
   srvrun_broadcast_to_all(
       &(srvrun_state){g_srvrun_table, g_srvrun_state.conns}, data);
   return 1;
+}
+
+/* Multi-worker path (>= 2 workers registered): push into every worker's
+ * inbox row at the calling worker's own column. 0 if the calling thread was
+ * never registered (it has no column to push from), else 1. */
+static int srvrun_broadcast_mesh(quic_span data) {
+  int slot = srvrun_bcast_find(wired_thread_tid());
+  if (slot < 0) return 0;
+  srvrun_bcast_mesh_push(g_srvrun_bcast[slot].index, data);
+  return 1;
+}
+
+/* data.n fits every fan-out target's payload capacity (dg_pending_buf and
+ * every wired_srvinbox_ring slot share the same 1200-byte cap by
+ * construction, WIRED_SRVINBOX_SLOT_MAX). */
+static int srvrun_broadcast_fits(quic_span data) {
+  return data.n <= sizeof g_srvrun_state.conns[0].dg_pending_buf;
+}
+
+int wired_server_broadcast_datagram(quic_span data) {
+  if (!srvrun_broadcast_fits(data)) return 0;
+  if (g_srvrun_bcast_n <= 1) return srvrun_broadcast_direct(data);
+  return srvrun_broadcast_mesh(data);
+}
+
+/* Pop at most one message from row[j] and, if there was one, fan it out to
+ * st's local WT connections -- the loop body of srvrun_bcast_drain_self,
+ * split out so the loop itself stays at the CCN gate. */
+static void srvrun_bcast_drain_one(
+    srvrun_state* st, wired_srvinbox_ring* row, int j) {
+  u8  buf[WIRED_SRVINBOX_SLOT_MAX];
+  usz n = wired_srvinbox_pop(&row[j], buf, sizeof buf);
+  if (n) srvrun_broadcast_to_all(st, quic_span_of(buf, n));
+}
+
+/* This thread's own registry slot, or -1 if there is nothing to drain: fewer
+ * than 2 workers registered (single-worker/default behavior is untouched,
+ * mirroring wired_server_broadcast_datagram's own <= 1 guard) or the calling
+ * thread never registered at all. */
+static int srvrun_bcast_drain_slot(void) {
+  if (g_srvrun_bcast_n <= 1) return -1;
+  return srvrun_bcast_find(wired_thread_tid());
+}
+
+/* Drain every ring in this worker's own inbox row into its local WT
+ * connections -- one pop per source ring per call, matching the depth-4
+ * ring's best-effort/bounded-catch-up shape (a source that published more
+ * than one message since the last drain catches up over a few steps rather
+ * than blocking this one). */
+static void srvrun_bcast_drain_self(srvrun_state* st) {
+  int slot = srvrun_bcast_drain_slot();
+  if (slot < 0) return;
+  for (int j = 0; j < g_srvrun_bcast[slot].n_total; j++)
+    srvrun_bcast_drain_one(st, g_srvrun_bcast[slot].inbox_row, j);
 }
 
 /* Send GOAWAY to every live connection that still owes one (RFC 9114 5.2), the
@@ -1049,6 +1163,8 @@ static int srvrun_shutdown_requested(void) {
 __attribute__((unused)) static void srvrun_test_set_shutdown(int v) {
   __atomic_store_n(&g_srvrun_shutdown, v, __ATOMIC_RELEASE);
 }
+
+int* wired_srvrun_shutdown_word(void) { return &g_srvrun_shutdown; }
 
 /* Certificate hot reload: a monotonically increasing generation counter, bumped
  * by srvrun_sighup_handler (async-signal-safe: __atomic_fetch_add is a single
@@ -1979,6 +2095,7 @@ static void srvrun_step(
     const srvrun_cfg* cfg, srvrun_state* st, quic_mmsg_buf* bufs, usz nbufs) {
   i64 r;
   srvrun_reload_if_requested(cfg, cfg->env);
+  srvrun_bcast_drain_self(st); /* Phase E: other workers' broadcasts */
   srvrun_polling_ptos(cfg, st);
   if (!srvrun_wait_input(cfg, st)) {
     srvrun_fire_ptos(cfg, st);
