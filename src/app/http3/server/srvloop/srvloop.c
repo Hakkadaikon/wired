@@ -316,14 +316,6 @@ static int step_slot_for(wired_srvloop* l, quic_span payload) {
   return stream_slot_for(l, stream_id);
 }
 
-/* Landing pad for a payload with no request-stream frame (CRYPTO/handshake):
- * reassemble_and_drive's gather_request never matches a frame on this path, so
- * this slot's buffers are never actually read or written — one static instance
- * avoids re-zeroing ~4.6KB of stack on every non-request packet (every
- * Initial/Handshake step, RFC 9000 12.4). Not connection state: nothing here
- * is meaningful across calls. */
-static wired_srvloop_stream_slot g_srvloop_no_slot;
-
 /* Dispatch this opened payload into slot i (or, when i < 0, accept only the
  * non-request/handshake path — a full stream table drops the request-stream
  * frames rather than corrupting an unrelated slot). *got_request/l->req mirror
@@ -338,7 +330,7 @@ static void step_dispatch(
     int*                      done_slot) {
   wired_srvloop*             l = conn->l;
   wired_srvloop_stream_slot* slot =
-      slot_i >= 0 ? &l->streams[slot_i] : &g_srvloop_no_slot;
+      slot_i >= 0 ? &l->streams[slot_i] : &l->no_slot;
   wired_srvloop_reqacc      acc = slot_reqacc(slot);
   int                       got = 0;
   wired_srvloop_dispatch_in in  = {

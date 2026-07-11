@@ -255,6 +255,13 @@ typedef struct {
    * this loop has no notion of a WT session and does not interpret the id. */
   u64 closed_stream_id;
   int closed_stream_seen; /**< 1 once closed_stream_id was set this step */
+  /** Landing pad for a payload with no request-stream frame (CRYPTO/
+   * handshake): reassemble_and_drive's gather_request never matches a frame
+   * on this path, so this slot's buffers are never actually read or
+   * written. Not connection state: nothing here is meaningful across calls.
+   * Per-instance (not a file-scope static) so multiple server loops running
+   * concurrently never share one scratch slot. */
+  wired_srvloop_stream_slot no_slot;
 } wired_srvloop;
 
 /** Register the app response-body builder; pass 0 to clear (body-less 200).
