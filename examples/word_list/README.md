@@ -96,14 +96,16 @@ blocking on `poll(2)` (`tasks/polling-driver-plan.md`); default is off
 Pass `--pin-core N` to pin the process to CPU N (`sched_setaffinity`) —
 mainly useful with `--busy-poll` or the AF_XDP driver, whose spin loop
 otherwise migrates across cores and loses cache/NIC-queue locality. Not for
-`--workers`, which has its own per-child `--pin-cores`.
+`--workers`/`--cores`, which have their own per-worker pinning.
 
-## Three ways to run it
+## Four ways to run it
 
-The default is a plain single-process UDP socket (above). Two more I/O
-drivers are opt-in via CLI flags, both driving the exact same application
-(message log / static file server) — `--workers` and `--ifindex` are mutually
-exclusive (the process dies at startup if both are given).
+The default is a plain single-process UDP socket (above). Three more I/O
+drivers are opt-in via CLI flags, all driving the exact same application
+(message log / static file server). `--workers` is mutually exclusive with
+both `--cores` and `--ifindex` (a different SDK entry point); `--cores` and
+`--ifindex` combine (AF_XDP multi-queue mode, below) — the process dies at
+startup on a conflicting combination.
 
 ### Multi-worker (`--workers`, `tasks/core-pinning-plan.md`)
 
@@ -147,6 +149,59 @@ for this SDK's scope. This is a documented, out-of-scope gap, not a bug being
 silently papered over — see `tests/app/srvworkers_migration_test.c` for a
 test that pins down the concrete numbers where the CID's worker-index bits
 and a naive 4-tuple-hash-based routing decision disagree.
+
+### Multi-thread (`--cores`, `src/app/http3/server/srvthreads/`)
+
+A DPDK-style control-thread + N-worker-thread fan-out (`clone(2)`/`futex(2)`,
+no libc pthreads): one control thread pins itself (optional), blocks
+`SIGTERM`/`SIGHUP`, spawns N worker threads sharing the process's address
+space (unlike `--workers`' forked processes), then unblocks and installs the
+signal handlers on itself alone. Each worker gets its own copy of the server
+state (`wired_srvrun_env`) and its own core pin, and runs the same
+single-process server loop. `wired_server_broadcast_datagram` (used by
+`examples/webtransport_chat`) still reaches every worker's sessions, routed
+through a per-worker-pair SPSC ring mesh (`src/app/http3/server/srvinbox/`).
+
+| flag | required | default | meaning |
+|---|---|---|---|
+| `--cores a,b,c` | yes (to select this driver) | — | comma-separated CPU index per worker thread; worker *i* pins to `cores[i]` |
+| `--control-core N` | no | unpinned | CPU to pin the control thread to |
+
+```sh
+./wired_server --cores 0,1,2,3                    # 4 worker threads, UDP+SO_REUSEPORT
+./wired_server --cores 0,1,2,3 --control-core 4    # + control thread pinned to core 4
+```
+
+Combined with `--ifindex`, this becomes AF_XDP **multi-queue** mode: worker
+*i* opens NIC queue *i* against one BPF filter shared for the whole
+interface (`src/app/http3/server/srvxdpbpf/`) instead of each worker
+attaching its own (a second `BPF_LINK_CREATE` on the same interface fails
+`-EBUSY`, which is what made single-queue-only true for the plain
+`--ifindex` driver below).
+
+```sh
+sudo ./wired_server --ifindex $IFIDX --cores 0,1,2,3 --ip 10.7.0.1 --skb-mode --cert cert.pem --key key.pem
+```
+
+Set the NIC's queue count to match `--cores`' length first (a mismatch is
+not validated — extra worker queues past what the NIC provides simply
+receive nothing):
+
+```sh
+sudo ethtool -L $IFACE combined 4
+```
+
+Same connection-migration caveat as `--workers` above applies here too (a
+migrated connection's new 4-tuple can hash to a different worker's RX queue
+via RSS and go unrecognized) — the `--workers` section's discussion and
+`quic_ncid_worker_encode`/`decode` building blocks apply unchanged.
+
+**Trade-off vs. `--workers`:** threads share one address space, so a crash in
+one worker takes the whole process down (no per-worker crash isolation, and
+no re-spawn-on-crash supervisor — `--workers`' fork model has both). Use
+`--workers` when isolation matters more than the lower cross-worker
+communication cost; use `--cores` for AF_XDP multi-queue (which `--workers`
+cannot do at all) or when the shared-address-space broadcast path matters.
 
 ### AF_XDP (`--ifindex`, `tasks/xdp-driver-plan.md`)
 
@@ -212,9 +267,10 @@ Confirming the path really goes through XDP:
 
 #### Known limitations
 
-- Only tested against a single-queue interface (`veth` has one RX queue by
-  default); a multi-queue NIC needs one `wired_server` instance per queue, or
-  `ethtool -L <if> combined 1` to pin it down to one queue first.
+- The plain `--ifindex` driver (no `--cores`) is only tested against a
+  single-queue interface (`veth` has one RX queue by default); a multi-queue
+  NIC needs either `ethtool -L <if> combined 1` to pin it down to one queue
+  first, or `--cores` (above) to run one worker thread per queue instead.
 - MTU > 1500 / multi-buffer (jumbo frame) packets are not supported.
 - `veth`'s `CHECKSUM_PARTIAL` offload means the RX path does not verify the
   IPv4/UDP checksum itself; QUIC's own AEAD authentication is the actual
