@@ -28,8 +28,8 @@
  * config selecting multi-queue mode. */
 typedef struct {
   int cores[WIRED_SRVTHREADS_MAX]; /**< CPU index for worker i */
-  int n_cores;                     /**< number of workers, <= WIRED_SRVTHREADS_MAX */
-  int control_core; /**< CPU to pin the control thread to; -1 = don't pin */
+  int n_cores;          /**< number of workers, <= WIRED_SRVTHREADS_MAX */
+  int control_core;     /**< CPU to pin the control thread to; -1 = don't pin */
   wired_srvrun_opt run; /**< busy_poll etc., copied to every worker
                          * (no_signal_handlers is forced to 1 regardless of
                          * what is passed here: only the control thread
@@ -59,10 +59,10 @@ typedef struct {
  *   opening the shared BPF filter or allocating per-worker env storage
  *   fails before any worker starts. */
 int wired_srvthreads_run(
-    u16                          port,
-    wired_srvboot_id*            id,
-    wired_srvrun_handler         h,
-    wired_srvrun_obs             obs,
-    const wired_srvthreads_opt*  opt);
+    u16                         port,
+    wired_srvboot_id*           id,
+    wired_srvrun_handler        h,
+    wired_srvrun_obs            obs,
+    const wired_srvthreads_opt* opt);
 
 #endif

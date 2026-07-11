@@ -1006,10 +1006,10 @@ static void srvrun_broadcast_to_all(srvrun_state* st, quic_span data) {
 #define SRVRUN_BCAST_MAX 16
 
 typedef struct {
-  i64                   tid;       /**< registering thread's tid, 0 = free */
-  int                   index;     /**< this worker's 0-based mesh index */
-  int                   n_total;   /**< total worker count in the mesh */
-  wired_srvinbox_ring*  inbox_row; /**< row[j] = ring fed by worker j */
+  i64                  tid;       /**< registering thread's tid, 0 = free */
+  int                  index;     /**< this worker's 0-based mesh index */
+  int                  n_total;   /**< total worker count in the mesh */
+  wired_srvinbox_ring* inbox_row; /**< row[j] = ring fed by worker j */
 } srvrun_bcast_entry;
 
 static srvrun_bcast_entry g_srvrun_bcast[SRVRUN_BCAST_MAX];
@@ -1048,8 +1048,7 @@ void wired_srvrun_broadcast_unregister(void) {
 static void srvrun_bcast_mesh_push(int my_index, quic_span data) {
   for (int t = 0; t < SRVRUN_BCAST_MAX; t++) {
     if (!g_srvrun_bcast[t].tid) continue;
-    wired_srvinbox_push(
-        &g_srvrun_bcast[t].inbox_row[my_index], data.p, data.n);
+    wired_srvinbox_push(&g_srvrun_bcast[t].inbox_row[my_index], data.p, data.n);
   }
 }
 

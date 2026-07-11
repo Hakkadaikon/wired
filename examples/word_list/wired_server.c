@@ -19,11 +19,10 @@
  * application logic below. */
 
 #define WIRED_MAIN /* this TU emits the libc memcpy/memset shim */
-#include "wired.h"
-
 #include "app/http3/server/srvpin/srvpin.h"
 #include "app/http3/server/srvthreads/srvthreads.h"
 #include "app/http3/server/srvworkers/srvworkers.h"
+#include "wired.h"
 
 /* A fatal error: print and exit (freestanding, no libc atexit). */
 static void die(const char* msg) {
@@ -61,7 +60,12 @@ static void copy_capped(quic_obuf* out, quic_span src) {
  * handed to app_on_request as its opaque ctx. --root selects static file
  * mode; absent, the demo history mode runs unchanged (back-compat). driver
  * selects which of the three run paths wired_main takes. */
-typedef enum { DRIVER_PLAIN, DRIVER_WORKERS, DRIVER_XDP, DRIVER_THREADS } driver_kind;
+typedef enum {
+  DRIVER_PLAIN,
+  DRIVER_WORKERS,
+  DRIVER_XDP,
+  DRIVER_THREADS
+} driver_kind;
 
 typedef struct {
   const char* root;        /**< document root, or 0 for history-demo mode */
@@ -74,9 +78,9 @@ typedef struct {
   int         busy_poll;   /**< --busy-poll: 1 = MSG_DONTWAIT spin loop */
   int         pin_core;    /**< --pin-core: CPU to pin to, -1 = off */
   u16         port;        /**< --port, default 4433 */
-  driver_kind      driver; /**< which of the three run paths to take */
+  driver_kind driver;      /**< which of the three run paths to take */
   wired_srvworkers_opt workers; /**< --workers/--pin-cores, DRIVER_WORKERS */
-  wired_srvxdp_cfg      xdp;    /**< --ifindex/--queue/--ip/--skb-mode */
+  wired_srvxdp_cfg     xdp;     /**< --ifindex/--queue/--ip/--skb-mode */
   wired_srvthreads_opt threads; /**< --cores/--control-core, DRIVER_THREADS */
 } app_config;
 
@@ -175,10 +179,10 @@ static void app_selfcheck(void) {
   app_config           cfg          = {0};
   const char*          content_type = 0;
   wired_h3reqdrive_req post         = {
-      .method     = (const u8*)"POST",
-      .method_len = 4,
-      .body       = (const u8*)"hi",
-      .body_len   = 2};
+              .method     = (const u8*)"POST",
+              .method_len = 4,
+              .body       = (const u8*)"hi",
+              .body_len   = 2};
   wired_h3reqdrive_req get = {.method = (const u8*)"GET", .method_len = 3};
   g_history_len            = 0;
   app_on_request(&cfg, &post, &ob, &content_type);
@@ -210,15 +214,15 @@ static void server_identity(wired_srvboot_id* id, server_keys* k) {
     k->rnd[i]  = (u8)(0xa0 + i);
   }
   quic_x25519_base(k->pub, k->priv);
-  id->priv                    = k->priv;
-  id->pub                     = k->pub;
-  id->cert_seed               = k->seed;
-  id->scid                    = SERVER_SCID;
-  id->scid_len                = sizeof SERVER_SCID;
-  id->random                  = k->rnd;
-  id->chain                   = 0; /* self-signed; see README.md for an external chain */
-  id->chain_count             = 0;
-  id->max_data                = 0;
+  id->priv        = k->priv;
+  id->pub         = k->pub;
+  id->cert_seed   = k->seed;
+  id->scid        = SERVER_SCID;
+  id->scid_len    = sizeof SERVER_SCID;
+  id->random      = k->rnd;
+  id->chain       = 0; /* self-signed; see README.md for an external chain */
+  id->chain_count = 0;
+  id->max_data    = 0;
   id->max_streams_bidi        = 0;
   id->max_datagram_frame_size = 65535;
   id->san_ipv4                = 0;
@@ -493,9 +497,8 @@ static void load_config_threads(app_config* cfg, int argc, char** argv) {
 
 /* --workers/--pin-cores, tasks/core-pinning-plan.md. */
 static void load_config_workers(app_config* cfg, int argc, char** argv) {
-  cfg->workers.workers = (int)wired_cliargs_int(argc, argv, "--workers", 0);
-  cfg->workers.pin_cores =
-      (int)wired_cliargs_int(argc, argv, "--pin-cores", 0);
+  cfg->workers.workers   = (int)wired_cliargs_int(argc, argv, "--workers", 0);
+  cfg->workers.pin_cores = (int)wired_cliargs_int(argc, argv, "--pin-cores", 0);
 }
 
 /* DRIVER_PLAIN needs no extra knobs. */
@@ -570,12 +573,8 @@ static int run_workers(
  * silently skips printing -- this runs at shutdown, after the run loop has
  * already returned, so there is nothing left to recover into. */
 static const char* const XDP_STAT_NAMES[6] = {
-    "rx_dropped",
-    "rx_invalid_descs",
-    "tx_invalid_descs",
-    "rx_ring_full",
-    "rx_fill_ring_empty_descs",
-    "tx_ring_empty_descs",
+    "rx_dropped",   "rx_invalid_descs",         "tx_invalid_descs",
+    "rx_ring_full", "rx_fill_ring_empty_descs", "tx_ring_empty_descs",
 };
 
 static void print_xdp_stat_line(const char* name, u64 v) {
@@ -606,7 +605,7 @@ static int run_xdp(
   {
     wired_srvrun_obs obs = {0, 0, cfg->cert_path, cfg->key_path, 0};
     wired_srvrun_opt opt = {0, 0, 0, 0, 0, 0, 0, 0, -1, &xdp, 0};
-    ok = wired_server_run_opt(cfg->port, id, h, obs, &opt);
+    ok                   = wired_server_run_opt(cfg->port, id, h, obs, &opt);
   }
   print_xdp_stats(xdp.xsk.fd);
   wired_srvxdp_close(&xdp);

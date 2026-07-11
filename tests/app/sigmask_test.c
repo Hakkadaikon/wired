@@ -1,5 +1,4 @@
 #include "app/http3/server/sigterm/sigterm.h"
-
 #include "test.h"
 
 /* @file
