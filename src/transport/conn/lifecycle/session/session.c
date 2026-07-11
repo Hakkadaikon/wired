@@ -186,12 +186,11 @@ static usz open_1rtt(quic_session* s, u8* pkt, usz rn) {
 }
 
 int quic_session_recv_stream(quic_session* s, quic_stream_frame* out) {
-  static u8 pkt[1200];
-  quic_obuf ob = quic_obuf_of(pkt, sizeof(pkt));
+  quic_obuf ob = quic_obuf_of(s->rxbuf, sizeof(s->rxbuf));
   usz       rn = link_rx(
       s->link, &ob,
       (quic_ipv4addrs){peer_addr(s->is_server), my_addr(s->is_server)});
-  usz pl = open_1rtt(s, pkt, rn);
+  usz pl = open_1rtt(s, s->rxbuf, rn);
   if (pl == 0) return 0;
-  return quic_frame_get_stream(pkt + 18, pl, out) != 0;
+  return quic_frame_get_stream(s->rxbuf + 18, pl, out) != 0;
 }

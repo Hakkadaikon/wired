@@ -39,6 +39,12 @@ typedef struct {
   u8                peer_pub[32]; /* the peer's X25519 share, once seen */
   int               is_server;
   int               have_peer; /* peer share recovered */
+  /** Scratch for quic_session_recv_stream's unprotect: per-instance so two
+   * sessions stepping concurrently never share one buffer. Backs
+   * quic_session_recv_stream's out->data view, valid until this session's
+   * next recv_stream call, same lifetime rule as before this became a
+   * member. */
+  u8 rxbuf[1200];
 } quic_session;
 
 /* Everything quic_session_init needs besides the session. */
