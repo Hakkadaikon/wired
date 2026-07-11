@@ -2,6 +2,7 @@
 #define WIRED_SRVRUN_SRVRUN_H
 
 #include "app/http3/server/srvboot/srvboot.h"
+#include "app/http3/server/srvinbox/srvinbox.h"
 #include "app/http3/server/srvloop/srvloop.h"
 #include "app/http3/server/srvxdp/srvxdp.h"
 #include "app/webtransport/session/session/session.h"
@@ -195,6 +196,21 @@ int wired_srvrun_serve_env(
     wired_srvrun_obs        obs,
     const wired_srvrun_opt* opt);
 
+/** The process-wide graceful-shutdown word (RFC 9114 5.2): 0 until a
+ * shutdown is requested, then monotonically 1 (never reset outside test
+ * teardown). Every wired_srvrun_serve_env/wired_server_run loop in the
+ * process polls this once per iteration (srvrun.c's srvrun_shutdown_requested)
+ * to stop accepting new connections and start draining live ones -- the same
+ * word wired_sigterm_install's default handler sets. A caller running its
+ * own multi-threaded fan-out over wired_srvrun_serve_env (one instance per
+ * thread, wired_srvrun_opt.no_signal_handlers=1 on every instance but the
+ * one installing signals) uses the returned pointer to both observe the
+ * word (e.g. a timed futex wait) and set it (e.g. from its own signal
+ * handler), so every thread's loop sees the same 0->1 transition without a
+ * separate flag to keep in sync.
+ * @return pointer to the shared shutdown word; never 0 */
+int* wired_srvrun_shutdown_word(void);
+
 /** RFC 9221 5 / draft-ietf-webtrans-http3-15 SS4: broadcast data as a QUIC
  * DATAGRAM to every connection with an active WebTransport session (queued
  * for each such connection's own next step, same single-slot last-writer-
@@ -208,7 +224,37 @@ int wired_srvrun_serve_env(
  * signal-safe nor thread-safe.
  * @param data payload to broadcast; must fit the per-connection DATAGRAM cap
  * @return 1 if queued for every active WT session, 0 if data exceeds the cap
- */
+ *
+ * Multi-worker fan-out (Phase E, tasks/loopeng/srvinbox-mesh): when 2 or more
+ * workers are registered via wired_srvrun_broadcast_register, this no longer
+ * reaches only the calling worker's own connections. It also pushes the
+ * payload into every registered worker's inbox row (wired_srvinbox_push, one
+ * push per target worker including the caller itself) so each worker's own
+ * wired_srvrun_serve_env loop delivers it to its own WT sessions on a later
+ * step (srvrun.c drains the calling worker's inbox row once per step). With
+ * 0 or 1 workers registered (the default, single-process behavior), this is
+ * unchanged: only the direct fan-out below runs. */
 int wired_server_broadcast_datagram(quic_span data);
+
+/** Register the calling thread as srvthreads worker `index` of `n_total`,
+ * with its own N-ring inbox row (inbox_row[j] receives broadcasts sent by
+ * worker j, including j == index -- a worker's own broadcast reaches its own
+ * inbox row too, same as every other worker's). Called once by each worker
+ * before serving, typically right before wired_srvrun_serve_env. n_total and
+ * inbox_row are owned by the caller (srvthreads); srvrun only keeps
+ * pointers into them and never allocates or frees the mesh itself, so
+ * inbox_row must stay live and unmoved until wired_srvrun_broadcast_unregister.
+ * @param index this worker's 0-based index, < n_total
+ * @param n_total total worker count in the mesh, <= 16 (srvrun's fixed
+ *   registry capacity)
+ * @param inbox_row this worker's own row of n_total rings, row[j] fed by
+ *   worker j's broadcasts */
+void wired_srvrun_broadcast_register(
+    int index, int n_total, wired_srvinbox_ring* inbox_row);
+
+/** Unregister the calling thread's broadcast registry entry (symmetric with
+ * wired_srvrun_broadcast_register), typically at worker shutdown. A no-op if
+ * the calling thread was never registered. */
+void wired_srvrun_broadcast_unregister(void);
 
 #endif
