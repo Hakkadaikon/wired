@@ -1177,18 +1177,22 @@ static void test_srvrun_polling_pto_tick(void) {
   g_srvrun_pto_next_ms = 0;
   g_srvrun_pto_spin    = 0;
   for (int i = 0; i < 1023; i++) srvrun_polling_ptos(&cfg, &st);
-  CHECK(g_srvrun_pto_next_ms == 0); /* not yet due: clock never read */
-  srvrun_polling_ptos(&cfg, &st); /* 1024th spin: due, arms the window */
+  /* not yet due: the clock was never read */
+  CHECK(g_srvrun_pto_next_ms == 0);
+  /* 1024th spin: due, arms the window */
+  srvrun_polling_ptos(&cfg, &st);
   armed = g_srvrun_pto_next_ms;
   CHECK(armed > 0);
-  g_srvrun_pto_spin = 1023; /* force the next call due again */
+  /* force the next call due again: inside the window it must not re-fire */
+  g_srvrun_pto_spin = 1023;
   srvrun_polling_ptos(&cfg, &st);
-  CHECK(g_srvrun_pto_next_ms == armed); /* inside the window: no re-fire */
+  CHECK(g_srvrun_pto_next_ms == armed);
+  /* blocking driver: the clocked path stays off entirely */
   cfg.busy_poll        = 0;
   g_srvrun_pto_next_ms = 0;
   g_srvrun_pto_spin    = 1023;
   srvrun_polling_ptos(&cfg, &st);
-  CHECK(g_srvrun_pto_next_ms == 0); /* blocking driver: clocked path off */
+  CHECK(g_srvrun_pto_next_ms == 0);
 }
 
 /* WRAPPER EQUIVALENCE: wired_server_run_opt with a zeroed wired_srvrun_opt
