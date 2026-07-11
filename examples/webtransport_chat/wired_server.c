@@ -15,6 +15,7 @@
  * fingerprint log line -- same precedent as webtransport_echo including
  * app/webtransport headers directly. */
 #include "app/http3/server/srvpin/srvpin.h"
+#include "app/http3/server/srvthreads/srvthreads.h"
 #include "common/platform/clock/clock.h"
 #include "crypto/symmetric/hash/hash/sha256.h"
 
@@ -116,6 +117,55 @@ static int parse_ipv4(const char* s, u8 ip[4]) {
   return 1;
 }
 
+/* --- CLI: --cores a,b,c (+ --control-core N) -----------------------------
+ * Thread-based worker fan-out (srvthreads.h): one CPU index per worker,
+ * comma-separated, no libc strtok. */
+
+/* One base-10 core index parsed from s[*off..), stopping at ',' or end.
+ * Returns 1 ok, 0 on empty/no digits consumed (reuses consume_digits, no
+ * upper-bound check -- a bad CPU index is caught by sched_setaffinity, same
+ * as --pin-core). */
+static int cores_parse_one(const char* s, usz* off, int* out) {
+  u32 v;
+  usz digits = consume_digits(s, off, &v);
+  if (!digits) return 0;
+  *out = (int)v;
+  return 1;
+}
+
+/* 1 and advances *off past a ',' when one follows (more entries to parse);
+ * 0 with *off left at the NUL when the list ends here. */
+static int cores_parse_more(const char* s, usz* off) {
+  if (s[*off] != ',') return 0;
+  (*off)++;
+  return 1;
+}
+
+/* Parse one entry (index n) into out[n] and advance *off past it. Returns 1
+ * ok, 0 if n is already at cap or the entry itself is malformed. */
+static int cores_parse_entry(const char* s, usz* off, int* out, int n, int cap) {
+  if (n >= cap) return 0;
+  return cores_parse_one(s, off, &out[n]);
+}
+
+/* n if the list ended right here (NUL), -1 if cores_parse_more said "no more"
+ * but trailing garbage remains (e.g. a stray separator other than ','). */
+static int cores_parse_done(const char* s, usz off, int n) {
+  return s[off] == 0 ? n : -1;
+}
+
+/* "a,b,c" -> out[0..n), up to cap entries. Returns the count parsed, or -1 on
+ * a malformed entry or more entries than cap. */
+static int cores_parse(const char* s, int* out, int cap) {
+  usz off = 0;
+  int n   = 0;
+  while (cores_parse_entry(s, &off, out, n, cap)) {
+    n++;
+    if (!cores_parse_more(s, &off)) return cores_parse_done(s, off, n);
+  }
+  return -1;
+}
+
 /* Fixed, deterministic server identity for wired_server_run_opt (same recipe
  * as webtransport_echo/word_list: a demo needs no key rotation). */
 static const u8 SERVER_SCID[6] = {'W', 'T', 'C', 'H', 'A', 'T'};
@@ -202,12 +252,14 @@ static void log_cert_fingerprint(const wired_srvboot_id* id) {
 }
 
 typedef struct {
-  u16              port;
-  const char*      qlog_path;
-  const char*      keylog_path;
-  int              pin_core; /**< --pin-core: CPU to pin to, -1 = off */
-  int              use_xdp;  /**< --ifindex given: run over AF_XDP */
-  wired_srvxdp_cfg xdp;      /**< --ifindex/--queue/--ip/--skb-mode */
+  u16                   port;
+  const char*           qlog_path;
+  const char*           keylog_path;
+  int                   pin_core;    /**< --pin-core: CPU to pin to, -1 = off */
+  int                   use_xdp;     /**< --ifindex given: run over AF_XDP */
+  wired_srvxdp_cfg      xdp;         /**< --ifindex/--queue/--ip/--skb-mode */
+  int                   use_threads; /**< --cores given: thread-based fan-out */
+  wired_srvthreads_opt  threads;     /**< --cores/--control-core, DRIVER_THREADS */
 } app_config;
 
 /* --pin-core N: pin the process to CPU N via sched_setaffinity before the
@@ -262,11 +314,49 @@ static void load_config_xdp(app_config* cfg, int argc, char** argv) {
   load_config_xdp_flags(cfg, argc, argv);
 }
 
+/* threads.xdp: 0 in UDP + SO_REUSEPORT mode, or the already-populated
+ * cfg->xdp when --ifindex was also given (AF_XDP multi-queue mode, worker i
+ * serves queue i). Split out so load_config_threads has no bare ?: of its
+ * own. */
+static const wired_srvxdp_cfg* threads_xdp_cfg(const app_config* cfg) {
+  if (cfg->use_xdp) return &cfg->xdp;
+  return 0;
+}
+
+/* cores_str is already known non-0 (load_config_threads' guard); parses
+ * --cores/--control-core and the fixed srvrun knobs into cfg->threads. */
+static void load_config_threads_body(
+    app_config* cfg, int argc, char** argv, const char* cores_str) {
+  cfg->threads.n_cores =
+      cores_parse(cores_str, cfg->threads.cores, WIRED_SRVTHREADS_MAX);
+  if (cfg->threads.n_cores <= 0) die("--cores: malformed core list\n");
+  cfg->threads.control_core =
+      (int)wired_cliargs_int(argc, argv, "--control-core", -1);
+  cfg->threads.run                = (wired_srvrun_opt){0};
+  cfg->threads.run.incoming_cpu   = -1;
+  cfg->threads.run.wt_on_datagram = wt_on_datagram_cb;
+  cfg->threads.xdp                = threads_xdp_cfg(cfg);
+}
+
+/* --cores a,b,c (+ optional --control-core N): thread-based worker fan-out
+ * (srvthreads.h) sharing one address space, replacing the plain single-
+ * process path. Must run after load_config_xdp: with --ifindex also given,
+ * threads.xdp points at the already-populated cfg->xdp so srvthreads runs
+ * AF_XDP in multi-queue mode instead of UDP + SO_REUSEPORT. */
+static void load_config_threads(app_config* cfg, int argc, char** argv) {
+  const char* cores_str = wired_cliargs_str(argc, argv, "--cores", 0);
+  cfg->use_threads       = cores_str != 0;
+  if (!cfg->use_threads) return;
+  load_config_threads_body(cfg, argc, argv, cores_str);
+}
+
 /* CLI configuration: --port (default 4433), --san-ipv4 (optional, adds an
  * IPv4 SAN entry to the self-signed cert; die()s on a malformed value rather
  * than silently booting without hostname validation working), --qlog/--keylog
- * (optional debug log paths, see wired_srvrun_obs), and the optional AF_XDP
- * driver (--ifindex/--queue/--ip/--skb-mode, tasks/xdp-driver-plan.md). */
+ * (optional debug log paths, see wired_srvrun_obs), the optional AF_XDP
+ * driver (--ifindex/--queue/--ip/--skb-mode, tasks/xdp-driver-plan.md), and
+ * the optional thread-based fan-out (--cores/--control-core; composes with
+ * --ifindex for AF_XDP multi-queue mode). */
 static void load_config(
     app_config* cfg, int argc, char** argv, u8 san_ipv4[4], int* have_it) {
   const char* ip_str = wired_cliargs_str(argc, argv, "--san-ipv4", 0);
@@ -278,6 +368,7 @@ static void load_config(
   cfg->keylog_path = wired_cliargs_str(argc, argv, "--keylog", 0);
   cfg->pin_core    = (int)wired_cliargs_int(argc, argv, "--pin-core", -1);
   load_config_xdp(cfg, argc, argv);
+  load_config_threads(cfg, argc, argv);
 }
 
 /* Run the same server loop over an AF_XDP socket (examples/word_list's
@@ -300,6 +391,38 @@ static int run_xdp(
   return ok;
 }
 
+/* --cores a,b,c: thread-based worker fan-out (srvthreads.h), sharing one
+ * address space; the control thread pins itself per --control-core and joins
+ * every worker on shutdown. Takes priority over --ifindex-only XDP mode
+ * (composes with it instead, via cfg->threads.xdp set in
+ * load_config_threads). */
+static int run_threads(
+    const app_config* cfg, wired_srvboot_id* id, wired_srvrun_handler h,
+    const wired_srvrun_obs* obs) {
+  return wired_srvthreads_run(cfg->port, id, h, *obs, &cfg->threads);
+}
+
+/* Dispatch to the driver selected by --cores/--ifindex; --cores (thread fan-
+ * out) takes priority since it composes with --ifindex itself (AF_XDP multi-
+ * queue mode, cfg->threads.xdp). Neither given runs the plain single-process
+ * path, matching wired_server_run_opt's own default. */
+static int run_dispatch(
+    const app_config* cfg, wired_srvboot_id* id, wired_srvrun_handler h,
+    const wired_srvrun_obs* obs, wired_srvrun_opt* opt) {
+  if (cfg->use_threads) return run_threads(cfg, id, h, obs);
+  if (cfg->use_xdp) return run_xdp(cfg, id, h, obs, opt);
+  return wired_server_run_opt(cfg->port, id, h, *obs, opt);
+}
+
+/* --pin-core pins the single OS process/thread wired_main runs in; it is
+ * meaningless once --cores hands worker pinning to srvthreads (which has its
+ * own per-worker cores[] plus --control-core), so it is skipped in that mode
+ * rather than fighting srvthreads for the same CPU mask. */
+static void maybe_pin_core_unless_threaded(const app_config* cfg) {
+  if (cfg->use_threads) return;
+  maybe_pin_core(cfg->pin_core);
+}
+
 __attribute__((force_align_arg_pointer, used)) static int wired_main(
     int argc, char** argv) {
   wired_srvboot_id id;
@@ -315,13 +438,10 @@ __attribute__((force_align_arg_pointer, used)) static int wired_main(
   log_cert_fingerprint(&id);
   opt.incoming_cpu   = -1;
   opt.wt_on_datagram = wt_on_datagram_cb;
-  maybe_pin_core(cfg.pin_core);
+  maybe_pin_core_unless_threaded(&cfg);
   {
     wired_srvrun_obs obs = {cfg.qlog_path, cfg.keylog_path, 0, 0, 0};
-    int              ok  = cfg.use_xdp
-                               ? run_xdp(&cfg, &id, h, &obs, &opt)
-                               : wired_server_run_opt(cfg.port, &id, h, obs, &opt);
-    if (!ok) die("listen failed\n");
+    if (!run_dispatch(&cfg, &id, h, &obs, &opt)) die("listen failed\n");
   }
   return 0;
 }
