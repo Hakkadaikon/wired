@@ -21,7 +21,11 @@ typedef u64            usz; /**< unsigned size (size_t equivalent) */
 #define SYS_read 0                /**< read(2) syscall number */
 #define SYS_write 1               /**< write(2) syscall number */
 #define SYS_close 3               /**< close(2) syscall number */
+#define SYS_mmap 9                /**< mmap(2) syscall number */
+#define SYS_mprotect 10           /**< mprotect(2) syscall number */
+#define SYS_munmap 11             /**< munmap(2) syscall number */
 #define SYS_rt_sigaction 13       /**< rt_sigaction(2) syscall number */
+#define SYS_rt_sigprocmask 14     /**< rt_sigprocmask(2) syscall number */
 #define SYS_rt_sigreturn 15       /**< rt_sigreturn(2) syscall number */
 #define SYS_socket 41             /**< socket(2) syscall number */
 #define SYS_sendmsg 46            /**< sendmsg(2) syscall number */
@@ -30,7 +34,10 @@ typedef u64            usz; /**< unsigned size (size_t equivalent) */
 #define SYS_bind 49               /**< bind(2) syscall number */
 #define SYS_recvmmsg 299          /**< recvmmsg(2) syscall number */
 #define SYS_setsockopt 54         /**< setsockopt(2) syscall number */
+#define SYS_clone 56              /**< clone(2) syscall number */
 #define SYS_exit 60               /**< exit(2) syscall number */
+#define SYS_gettid 186            /**< gettid(2) syscall number */
+#define SYS_futex 202             /**< futex(2) syscall number */
 #define SYS_sched_setaffinity 203 /**< sched_setaffinity(2) syscall number */
 #define SYS_sched_getaffinity 204 /**< sched_getaffinity(2) syscall number */
 #define SYS_clock_gettime 228     /**< clock_gettime(2) syscall number */
@@ -77,12 +84,17 @@ static inline i64 syscall6(i64 n, i64 a, i64 b, i64 c, i64 d, i64 e, i64 f) {
   return ret;
 }
 
+/** Two-argument syscall: syscall6() with the trailing arguments zeroed. */
+#define syscall2(n, a, b) syscall6((n), (i64)(a), (i64)(b), 0, 0, 0, 0)
 /** Three-argument syscall: syscall6() with the trailing arguments zeroed. */
 #define syscall3(n, a, b, c) \
   syscall6((n), (i64)(a), (i64)(b), (i64)(c), 0, 0, 0)
 /** Four-argument syscall: syscall6() with the trailing arguments zeroed. */
 #define syscall4(n, a, b, c, d) \
   syscall6((n), (i64)(a), (i64)(b), (i64)(c), (i64)(d), 0, 0)
+/** Five-argument syscall: syscall6() with the trailing argument zeroed. */
+#define syscall5(n, a, b, c, d, e) \
+  syscall6((n), (i64)(a), (i64)(b), (i64)(c), (i64)(d), (i64)(e), 0)
 /** One-argument syscall: syscall6() with the trailing arguments zeroed. */
 #define syscall1(n, a) syscall6((n), (i64)(a), 0, 0, 0, 0, 0)
 

@@ -1,12 +1,10 @@
 #include "transport/io/xdp/xsksetup/xsksetup.h"
 
 /* Syscall numbers not in the shared syscall.h table: this file is the only
- * user of each (naming-and-unity-build.md local-#define rule). Verified
- * against /usr/include/x86_64-linux-gnu/asm/unistd_64.h on this host
- * (6.8.0): __NR_mmap=9 (line 13), __NR_munmap=11 (line 15),
- * __NR_getsockopt=55 (line 59). */
-#define SYS_mmap 9
-#define SYS_munmap 11
+ * user (naming-and-unity-build.md local-#define rule). Verified against
+ * /usr/include/x86_64-linux-gnu/asm/unistd_64.h on this host (6.8.0):
+ * __NR_getsockopt=55 (line 59). mmap/munmap moved to the shared table when
+ * the thread runtime became a second user. */
 #define SYS_getsockopt 55
 
 /* AF_XDP / SOL_XDP (linux/bits/socket.h, x86_64-linux-gnu):
