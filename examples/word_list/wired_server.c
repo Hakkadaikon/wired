@@ -12,13 +12,17 @@
  * Three ways to run it, chosen by CLI flags at startup (mutually exclusive):
  * plain single-process UDP (the default), multi-worker (--workers N, fork +
  * SO_REUSEPORT, tasks/core-pinning-plan.md), or AF_XDP (--ifindex N --ip
- * a.b.c.d, tasks/xdp-driver-plan.md). All three drive the same application
- * logic below. */
+ * a.b.c.d, tasks/xdp-driver-plan.md). A fourth: --cores a,b,c (+ optional
+ * --control-core N), thread-based fan-out (srvthreads.h) sharing one address
+ * space instead of forking; combined with --ifindex it runs AF_XDP in
+ * multi-queue mode (worker i serves queue i). All four drive the same
+ * application logic below. */
 
 #define WIRED_MAIN /* this TU emits the libc memcpy/memset shim */
 #include "wired.h"
 
 #include "app/http3/server/srvpin/srvpin.h"
+#include "app/http3/server/srvthreads/srvthreads.h"
 #include "app/http3/server/srvworkers/srvworkers.h"
 
 /* A fatal error: print and exit (freestanding, no libc atexit). */
@@ -57,7 +61,7 @@ static void copy_capped(quic_obuf* out, quic_span src) {
  * handed to app_on_request as its opaque ctx. --root selects static file
  * mode; absent, the demo history mode runs unchanged (back-compat). driver
  * selects which of the three run paths wired_main takes. */
-typedef enum { DRIVER_PLAIN, DRIVER_WORKERS, DRIVER_XDP } driver_kind;
+typedef enum { DRIVER_PLAIN, DRIVER_WORKERS, DRIVER_XDP, DRIVER_THREADS } driver_kind;
 
 typedef struct {
   const char* root;        /**< document root, or 0 for history-demo mode */
@@ -73,6 +77,7 @@ typedef struct {
   driver_kind      driver; /**< which of the three run paths to take */
   wired_srvworkers_opt workers; /**< --workers/--pin-cores, DRIVER_WORKERS */
   wired_srvxdp_cfg      xdp;    /**< --ifindex/--queue/--ip/--skb-mode */
+  wired_srvthreads_opt threads; /**< --cores/--control-core, DRIVER_THREADS */
 } app_config;
 
 /* One line per request: "METHOD PATH STATUS BYTES\n" (ponytail: fixed
@@ -315,6 +320,73 @@ static int ipaddr_parse(const char* s, u8 out[4]) {
   return 1;
 }
 
+/* One accumulate step of a base-10 int (CPU index), same shape as
+ * ipoctet_step but unbounded (a CPU index isn't a 0..255 octet). -1 signals
+ * "stop" (a non-digit). */
+static int core_digit_step(int acc, char c) {
+  int d = ipoctet_digit(c);
+  if (d < 0) return -1;
+  return (acc < 0 ? 0 : acc) * 10 + d;
+}
+
+/* Parse one base-10 int starting at s[*i], stopping at ',' or NUL; advances
+ * *i past the consumed digits. 0 ok / -1 on empty (no digits consumed). */
+static int core_digit_parse(const char* s, usz* i, int* out) {
+  int v = -1;
+  int next;
+  while ((next = core_digit_step(v, s[*i])) >= 0) {
+    v = next;
+    (*i)++;
+  }
+  if (v < 0) return 0;
+  *out = v;
+  return 1;
+}
+
+/* 1 and consumes s[*i] if it is the ',' separator; 1 without consuming at
+ * NUL (end of list); 0 (malformed) on anything else. */
+static int core_sep(const char* s, usz* i) {
+  if (s[*i] == 0) return 1;
+  if (s[*i] != ',') return 0;
+  (*i)++;
+  return 1;
+}
+
+/* One core-then-separator step: parses *out and consumes the following ','
+ * or NUL. 0 on any malformed field/separator. */
+static int core_field(const char* s, usz* i, int* out) {
+  if (!core_digit_parse(s, i, out)) return 0;
+  return core_sep(s, i);
+}
+
+/* 1 if a field cannot be parsed into out[n] (no room left, or the field
+ * itself is malformed) -- combined into one predicate so cores_fill's loop
+ * body carries only one branch. */
+static int core_field_stop(const char* s, usz* i, int* out, int n, int cap) {
+  return n >= cap || !core_field(s, i, &out[n]);
+}
+
+/* Parses fields into out[0..cap) until NUL or a malformed field; returns the
+ * count parsed, or -1 when cap ran out or a field was malformed before NUL
+ * (cores_parse turns that into the 0/malformed result). */
+static int cores_fill(const char* s, usz* i, int* out, int cap) {
+  int n = 0;
+  while (s[*i] != 0) {
+    if (core_field_stop(s, i, out, n, cap)) return -1;
+    n++;
+  }
+  return n;
+}
+
+/* Parse "a,b,c" into out[0..n), n <= cap. Returns n (0 on malformed input,
+ * an empty string, or more entries than cap), so the caller can die() on a
+ * bad --cores value. */
+static int cores_parse(const char* s, int* out, int cap) {
+  usz i = 0;
+  int n = cores_fill(s, &i, out, cap);
+  return n > 0 ? n : 0;
+}
+
 /* Both chars nonzero and equal: the "still matching" predicate, so
  * cliargs_streq's while carries only one condition. */
 static int cliargs_char_match(char a, char b) { return a && b && a == b; }
@@ -336,27 +408,37 @@ static int cliargs_flag(int argc, char** argv, const char* flag) {
   return 0;
 }
 
-/* --workers and --ifindex select different SDK entry points and cannot
- * compose; the && lives here so load_config_driver's own branching stays a
- * flat if/if/return chain. */
-static int driver_conflict(int has_workers, int has_xdp) {
-  return has_workers && has_xdp;
+/* --workers selects a different SDK entry point than --cores/--ifindex and
+ * cannot compose with either; --ifindex alone still composes with --cores
+ * (AF_XDP multi-queue mode, see load_config_threads). */
+static int driver_conflict(int has_workers, int has_xdp, int has_cores) {
+  if (!has_workers) return 0;
+  return has_xdp || has_cores;
 }
 
-/* Selects the driver once has_workers/has_xdp are known to not both hold. */
-static driver_kind driver_select(int has_workers, int has_xdp) {
+/* has_workers/has_xdp only, once has_cores is known 0 (driver_select's
+ * tail). */
+static driver_kind driver_select_tail(int has_workers, int has_xdp) {
   if (has_xdp) return DRIVER_XDP;
   if (has_workers) return DRIVER_WORKERS;
   return DRIVER_PLAIN;
 }
 
-/* Which driver --workers/--ifindex select; dies on both given together. */
+/* Selects the driver once driver_conflict is known to not hold. */
+static driver_kind driver_select(int has_workers, int has_xdp, int has_cores) {
+  if (has_cores) return DRIVER_THREADS;
+  return driver_select_tail(has_workers, has_xdp);
+}
+
+/* Which driver --workers/--ifindex/--cores select; dies on an exclusive
+ * combination. */
 static driver_kind load_config_driver(int argc, char** argv) {
   int has_workers = wired_cliargs_int(argc, argv, "--workers", -1) >= 0;
   int has_xdp     = wired_cliargs_int(argc, argv, "--ifindex", -1) >= 0;
-  if (driver_conflict(has_workers, has_xdp))
-    die("--workers and --ifindex are exclusive\n");
-  return driver_select(has_workers, has_xdp);
+  int has_cores   = wired_cliargs_str(argc, argv, "--cores", 0) != 0;
+  if (driver_conflict(has_workers, has_xdp, has_cores))
+    die("--workers is exclusive with --cores/--ifindex\n");
+  return driver_select(has_workers, has_xdp, has_cores);
 }
 
 /* --ifindex is required (no sensible default interface); a missing one is a
@@ -386,13 +468,68 @@ static void load_config_xdp(app_config* cfg, int argc, char** argv) {
   cfg->xdp.attach_flags = cliargs_flag(argc, argv, "--skb-mode") ? 2u : 0u;
 }
 
+/* --cores a,b,c,... and --control-core N (DRIVER_THREADS): thread-based
+ * fan-out over srvthreads.h, sharing one address space. Composes with
+ * --ifindex/--ip: when given, load_config_xdp is reused to fill cfg->xdp and
+ * threads.xdp points at it, selecting AF_XDP multi-queue mode (worker i
+ * serves queue i). */
+static void load_config_threads(app_config* cfg, int argc, char** argv) {
+  const char* cores_str = wired_cliargs_str(argc, argv, "--cores", "");
+  cfg->threads.n_cores =
+      cores_parse(cores_str, cfg->threads.cores, WIRED_SRVTHREADS_MAX);
+  if (cfg->threads.n_cores <= 0) die("--cores: malformed core list\n");
+  cfg->threads.control_core =
+      (int)wired_cliargs_int(argc, argv, "--control-core", -1);
+  cfg->threads.run              = (wired_srvrun_opt){0};
+  cfg->threads.run.busy_poll    = cfg->busy_poll;
+  cfg->threads.run.incoming_cpu = -1;
+  if (wired_cliargs_int(argc, argv, "--ifindex", -1) >= 0) {
+    load_config_xdp(cfg, argc, argv);
+    cfg->threads.xdp = &cfg->xdp;
+  } else {
+    cfg->threads.xdp = 0;
+  }
+}
+
+/* --workers/--pin-cores, tasks/core-pinning-plan.md. */
+static void load_config_workers(app_config* cfg, int argc, char** argv) {
+  cfg->workers.workers = (int)wired_cliargs_int(argc, argv, "--workers", 0);
+  cfg->workers.pin_cores =
+      (int)wired_cliargs_int(argc, argv, "--pin-cores", 0);
+}
+
+/* DRIVER_PLAIN needs no extra knobs. */
+static void load_config_plain(app_config* cfg, int argc, char** argv) {
+  (void)cfg;
+  (void)argc;
+  (void)argv;
+}
+
+/* driver_kind -> knob loader, indexed by driver_kind's own enum values so
+ * dispatch is a table lookup instead of an if/if/if chain. */
+typedef void (*load_config_fn)(app_config*, int, char**);
+static const load_config_fn LOAD_CONFIG_BY_DRIVER[4] = {
+    load_config_plain,   /* DRIVER_PLAIN */
+    load_config_workers, /* DRIVER_WORKERS */
+    load_config_xdp,     /* DRIVER_XDP */
+    load_config_threads, /* DRIVER_THREADS */
+};
+
+/* Loads the driver-specific knobs once cfg->driver is known (load_config's
+ * tail): --workers/--pin-cores, --ifindex/--queue/--ip/--skb-mode, or
+ * --cores/--control-core. A no-op for DRIVER_PLAIN. */
+static void load_config_driver_opts(app_config* cfg, int argc, char** argv) {
+  LOAD_CONFIG_BY_DRIVER[cfg->driver](cfg, argc, argv);
+}
+
 /* Resolve CLI configuration: --port (default 4433), --root (static file mode,
  * absent = history demo), --index (default index.html), --access-log
  * (absent = no logging), --qlog-file / --keylog-file (absent = disabled),
  * --cert / --key (cert.pem/key.pem in the cwd by default), --busy-poll
  * (absent = 0, tasks/polling-driver-plan.md Phase 3), and the driver
  * selection (--workers/--pin-cores, tasks/core-pinning-plan.md; --ifindex/
- * --queue/--ip/--skb-mode, tasks/xdp-driver-plan.md). */
+ * --queue/--ip/--skb-mode, tasks/xdp-driver-plan.md; --cores/--control-core).
+ */
 static void load_config(app_config* cfg, int argc, char** argv) {
   cfg->root        = wired_cliargs_str(argc, argv, "--root", 0);
   cfg->index       = wired_cliargs_str(argc, argv, "--index", "index.html");
@@ -405,12 +542,7 @@ static void load_config(app_config* cfg, int argc, char** argv) {
   cfg->pin_core    = (int)wired_cliargs_int(argc, argv, "--pin-core", -1);
   cfg->port        = (u16)wired_cliargs_int(argc, argv, "--port", 4433);
   cfg->driver      = load_config_driver(argc, argv);
-  if (cfg->driver == DRIVER_WORKERS) {
-    cfg->workers.workers = (int)wired_cliargs_int(argc, argv, "--workers", 0);
-    cfg->workers.pin_cores =
-        (int)wired_cliargs_int(argc, argv, "--pin-cores", 0);
-  }
-  if (cfg->driver == DRIVER_XDP) load_config_xdp(cfg, argc, argv);
+  load_config_driver_opts(cfg, argc, argv);
 }
 
 /* DRIVER_PLAIN: the plain single-process wired_server_run_opt path (identical
@@ -419,7 +551,7 @@ static int run_plain(
     const app_config* cfg, wired_srvboot_id* id, wired_srvrun_handler h) {
   wired_srvrun_obs obs = {
       cfg->qlog_path, cfg->keylog_path, cfg->cert_path, cfg->key_path, 0};
-  wired_srvrun_opt opt = {cfg->busy_poll, 0, 0, 0, 0, 0, 0, 0, -1, 0};
+  wired_srvrun_opt opt = {cfg->busy_poll, 0, 0, 0, 0, 0, 0, 0, -1, 0, 0};
   return wired_server_run_opt(cfg->port, id, h, obs, &opt);
 }
 
@@ -473,12 +605,21 @@ static int run_xdp(
   if (wired_srvxdp_open(&xdp, &cfg->xdp) < 0) die("AF_XDP open failed\n");
   {
     wired_srvrun_obs obs = {0, 0, cfg->cert_path, cfg->key_path, 0};
-    wired_srvrun_opt opt = {0, 0, 0, 0, 0, 0, 0, 0, -1, &xdp};
+    wired_srvrun_opt opt = {0, 0, 0, 0, 0, 0, 0, 0, -1, &xdp, 0};
     ok = wired_server_run_opt(cfg->port, id, h, obs, &opt);
   }
   print_xdp_stats(xdp.xsk.fd);
   wired_srvxdp_close(&xdp);
   return ok;
+}
+
+/* DRIVER_THREADS: N worker threads fan out inside this one process
+ * (srvthreads.h). Same 1=ok/0=fail convention as wired_srvworkers_run. */
+static int run_threads(
+    const app_config* cfg, wired_srvboot_id* id, wired_srvrun_handler h) {
+  wired_srvrun_obs obs = {
+      cfg->qlog_path, cfg->keylog_path, cfg->cert_path, cfg->key_path, 0};
+  return wired_srvthreads_run(cfg->port, id, h, obs, &cfg->threads);
 }
 
 /* --pin-core N: pin this single process to CPU N via sched_setaffinity,
@@ -490,21 +631,36 @@ static void pin_core_checked(int cpu) {
     die("--pin-core: pinning failed (bad CPU index?)\n");
 }
 
+/* Dies if --pin-core was combined with a driver that has its own pinning
+ * knob (checked once cfg->pin_core >= 0 is known, maybe_pin_core's tail). */
+static void pin_core_conflict_check(driver_kind driver) {
+  if (driver == DRIVER_WORKERS)
+    die("--pin-core is exclusive with --workers (use --pin-cores 1)\n");
+  if (driver == DRIVER_THREADS)
+    die("--pin-core is exclusive with --cores (use --control-core)\n");
+}
+
 static void maybe_pin_core(const app_config* cfg) {
   if (cfg->pin_core < 0) return;
-  if (cfg->driver == DRIVER_WORKERS)
-    die("--pin-core is exclusive with --workers (use --pin-cores 1)\n");
+  pin_core_conflict_check(cfg->driver);
   pin_core_checked(cfg->pin_core);
 }
 
-/* Dispatch to the driver selected by --workers/--ifindex; DRIVER_PLAIN
- * (neither given) is the default. */
+/* run_server's dispatch once DRIVER_WORKERS is known not to match. */
+static int run_server_tail(
+    const app_config* cfg, wired_srvboot_id* id, wired_srvrun_handler h) {
+  if (cfg->driver == DRIVER_XDP) return run_xdp(cfg, id, h);
+  if (cfg->driver == DRIVER_THREADS) return run_threads(cfg, id, h);
+  return run_plain(cfg, id, h);
+}
+
+/* Dispatch to the driver selected by --workers/--ifindex/--cores;
+ * DRIVER_PLAIN (none given) is the default. */
 static int run_server(
     const app_config* cfg, wired_srvboot_id* id, wired_srvrun_handler h) {
   maybe_pin_core(cfg);
   if (cfg->driver == DRIVER_WORKERS) return run_workers(cfg, id, h);
-  if (cfg->driver == DRIVER_XDP) return run_xdp(cfg, id, h);
-  return run_plain(cfg, id, h);
+  return run_server_tail(cfg, id, h);
 }
 
 /* The real entry point once argc/argv have been recovered from the kernel
