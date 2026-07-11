@@ -10,6 +10,15 @@
  * The complete server event loop: the sanctioned socket-owning layer over the
  * socket-free srvboot/srvloop core. */
 
+/** Opaque: one server loop instance's mutable state (connection table,
+ * response/rx storage, pacing scratch). wired_server_run/wired_server_run_opt
+ * drive a single process-wide instance of this internally; wired_srvrun_env_*
+ * plus wired_srvrun_serve_env let a caller allocate and run additional,
+ * independent instances (e.g. one per thread). Never dereference members
+ * directly -- allocate wired_srvrun_env_size() bytes and pass the pointer
+ * through. */
+typedef struct wired_srvrun_env wired_srvrun_env;
+
 /** draft-ietf-webtrans-http3-15 SS4: app-facing delivery of one received
  * QUIC DATAGRAM (RFC 9221 5) associated with a WebTransport session, drained
  * from wired_srvloop's rx_datagrams queue once per connection step. data is a
@@ -129,6 +138,11 @@ typedef struct {
    * (port reservation + PASS-frame absorption via the BPF filter's
    * fallback), so cfg->fd stays valid either way. */
   wired_srvxdp* xdp;
+  /** 0 (the default) = install SIGTERM/SIGHUP as wired_server_run always has;
+   * 1 = skip signal installation entirely. Set this when running more than
+   * one wired_srvrun_serve_env instance in the same process (e.g. one per
+   * thread) -- only one of them may own the process-wide signal handlers. */
+  int no_signal_handlers;
 } wired_srvrun_opt;
 
 /** Same as wired_server_run, plus opt-in polling-driver behavior. `opt` must
@@ -144,6 +158,37 @@ typedef struct {
  * @param opt busy_poll / so_busy_poll_us knobs, see wired_srvrun_opt
  * @return same as wired_server_run. */
 int wired_server_run_opt(
+    u16                     port,
+    wired_srvboot_id*       id,
+    wired_srvrun_handler    h,
+    wired_srvrun_obs        obs,
+    const wired_srvrun_opt* opt);
+
+/** Byte size of one wired_srvrun_env instance, for a caller allocating one
+ * (statically, or via an SDK-external allocator) to pass to
+ * wired_srvrun_env_init / wired_srvrun_serve_env. */
+usz wired_srvrun_env_size(void);
+
+/** Zero-initialize env (its connection table, response/rx storage, and
+ * pacing scratch) before its first use with wired_srvrun_serve_env. */
+void wired_srvrun_env_init(wired_srvrun_env* env);
+
+/** Same as wired_server_run_opt, but driven off caller-owned `env` instead
+ * of the SDK's single process-wide instance -- lets a caller run more than
+ * one independent server loop in the same process (e.g. one per thread, each
+ * with its own env and its own bound port). Set opt->no_signal_handlers=1
+ * for every instance but one, since SIGTERM/SIGHUP are process-wide.
+ * @param env caller-owned state, sized wired_srvrun_env_size() and
+ *   initialized with wired_srvrun_env_init before the first call
+ * @param port UDP port to bind
+ * @param id the fixed server identity; updated in place on a SIGHUP reload
+ * @param h the application's request responder
+ * @param obs optional qlog/keylog file paths and cert reload paths, each 0
+ *   to disable
+ * @param opt busy_poll / so_busy_poll_us / no_signal_handlers knobs
+ * @return same as wired_server_run. */
+int wired_srvrun_serve_env(
+    wired_srvrun_env*       env,
     u16                     port,
     wired_srvboot_id*       id,
     wired_srvrun_handler    h,
