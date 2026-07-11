@@ -33,7 +33,7 @@
 /** One ring slot: a datagram payload and its length. */
 typedef struct {
   u8  buf[WIRED_SRVINBOX_SLOT_MAX]; /**< payload bytes */
-  usz len;                         /**< valid byte count in buf */
+  usz len;                          /**< valid byte count in buf */
 } wired_srvinbox_slot;
 
 /** A single-producer/single-consumer ring of depth WIRED_SRVINBOX_DEPTH.
@@ -45,8 +45,8 @@ typedef struct {
  * different one) may ever call pop. */
 typedef struct {
   wired_srvinbox_slot slots[WIRED_SRVINBOX_DEPTH]; /**< ring storage */
-  u32 prod; /**< free-running publish counter, producer-owned */
-  u32 cons; /**< free-running release counter, consumer-owned */
+  u32                 prod; /**< free-running publish counter, producer-owned */
+  u32                 cons; /**< free-running release counter, consumer-owned */
 } wired_srvinbox_ring;
 
 /** Zero-initialize r (prod = cons = 0, empty ring). */

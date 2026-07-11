@@ -106,7 +106,7 @@ typedef struct {
 
 static void sib_stress_producer_fn(void* argp) {
   sib_stress_producer_arg* a = (sib_stress_producer_arg*)argp;
-  u8                        b = 0;
+  u8                       b = 0;
   for (u32 i = 0; i < SIB_STRESS_N; i++) {
     if (wired_srvinbox_push(a->r, &b, 1))
       a->sent++;
@@ -117,7 +117,7 @@ static void sib_stress_producer_fn(void* argp) {
 
 static void sib_stress_consumer_fn(void* argp) {
   sib_stress_consumer_arg* a = (sib_stress_consumer_arg*)argp;
-  u8                        out[WIRED_SRVINBOX_SLOT_MAX];
+  u8                       out[WIRED_SRVINBOX_SLOT_MAX];
   for (;;) {
     usz n = wired_srvinbox_pop(a->r, out, sizeof out);
     if (n) {
@@ -137,8 +137,8 @@ static void test_srvinbox_thread_stress(void) {
   volatile u32            stop = 0;
   sib_stress_producer_arg pa   = {&r, 0, 0};
   sib_stress_consumer_arg ca   = {&r, &stop, 0};
-  wired_thread             pt = {0, 0, 0};
-  wired_thread             ct = {0, 0, 0};
+  wired_thread            pt   = {0, 0, 0};
+  wired_thread            ct   = {0, 0, 0};
   wired_srvinbox_ring_init(&r);
   CHECK(wired_thread_start(&ct, sib_stress_consumer_fn, &ca) == 0);
   CHECK(wired_thread_start(&pt, sib_stress_producer_fn, &pa) == 0);
@@ -184,8 +184,7 @@ static void sib_mesh_worker_a_fn(void* argp) {
   sib_mesh_worker_arg* a = (sib_mesh_worker_arg*)argp;
   wired_srvrun_broadcast_register(a->index, 2, a->row);
   __atomic_store_n(&sib_mesh_a_registered, 1, __ATOMIC_RELEASE);
-  while (!__atomic_load_n(&sib_mesh_b_registered, __ATOMIC_ACQUIRE))
-    ;
+  while (!__atomic_load_n(&sib_mesh_b_registered, __ATOMIC_ACQUIRE));
   wired_server_broadcast_datagram(quic_span_of(sib_msg_b, sizeof sib_msg_b));
   __atomic_store_n(&sib_mesh_b_may_check, 1, __ATOMIC_RELEASE);
   wired_srvrun_broadcast_unregister();
@@ -195,8 +194,7 @@ static void sib_mesh_worker_b_fn(void* argp) {
   sib_mesh_worker_arg* a = (sib_mesh_worker_arg*)argp;
   wired_srvrun_broadcast_register(a->index, 2, a->row);
   __atomic_store_n(&sib_mesh_b_registered, 1, __ATOMIC_RELEASE);
-  while (!__atomic_load_n(&sib_mesh_b_may_check, __ATOMIC_ACQUIRE))
-    ;
+  while (!__atomic_load_n(&sib_mesh_b_may_check, __ATOMIC_ACQUIRE));
   wired_srvrun_broadcast_unregister();
 }
 
@@ -205,9 +203,9 @@ static void test_srvinbox_registry_two_worker_mesh_delivers(void) {
   wired_srvinbox_ring row_b[2]; /* worker B's own row: row_b[j] fed by j */
   sib_mesh_worker_arg aarg = {row_a, 0};
   sib_mesh_worker_arg barg = {row_b, 1};
-  wired_thread          ta = {0, 0, 0};
-  wired_thread          tb = {0, 0, 0};
-  u8                    out[WIRED_SRVINBOX_SLOT_MAX];
+  wired_thread        ta   = {0, 0, 0};
+  wired_thread        tb   = {0, 0, 0};
+  u8                  out[WIRED_SRVINBOX_SLOT_MAX];
   for (int i = 0; i < 2; i++) {
     wired_srvinbox_ring_init(&row_a[i]);
     wired_srvinbox_ring_init(&row_b[i]);

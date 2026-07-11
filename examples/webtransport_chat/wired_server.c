@@ -143,7 +143,8 @@ static int cores_parse_more(const char* s, usz* off) {
 
 /* Parse one entry (index n) into out[n] and advance *off past it. Returns 1
  * ok, 0 if n is already at cap or the entry itself is malformed. */
-static int cores_parse_entry(const char* s, usz* off, int* out, int n, int cap) {
+static int cores_parse_entry(
+    const char* s, usz* off, int* out, int n, int cap) {
   if (n >= cap) return 0;
   return cores_parse_one(s, off, &out[n]);
 }
@@ -230,12 +231,12 @@ static usz hex_fingerprint(const u8 digest[32], char* out) {
  * hash. */
 static void log_cert_fingerprint(const wired_srvboot_id* id) {
   static wired_server  s; /* throwaway, sized in KB: keep it off the stack */
-  wired_server_init_in in = {id->priv,  id->pub,         id->cert_seed,
-                             id->chain, id->chain_count, id->san_ipv4,
+  wired_server_init_in in = {id->priv,    id->pub,         id->cert_seed,
+                             id->chain,   id->chain_count, id->san_ipv4,
                              id->now_secs};
-  u8   digest[32];
-  char line[32 + 32 * 3 + 2];
-  usz  n = 0;
+  u8                   digest[32];
+  char                 line[32 + 32 * 3 + 2];
+  usz                  n = 0;
 
   wired_server_init(&s, &in);
   if (s.sdrv.cert_count == 0) die("cert build failed\n");
@@ -252,14 +253,14 @@ static void log_cert_fingerprint(const wired_srvboot_id* id) {
 }
 
 typedef struct {
-  u16                   port;
-  const char*           qlog_path;
-  const char*           keylog_path;
-  int                   pin_core;    /**< --pin-core: CPU to pin to, -1 = off */
-  int                   use_xdp;     /**< --ifindex given: run over AF_XDP */
-  wired_srvxdp_cfg      xdp;         /**< --ifindex/--queue/--ip/--skb-mode */
-  int                   use_threads; /**< --cores given: thread-based fan-out */
-  wired_srvthreads_opt  threads;     /**< --cores/--control-core, DRIVER_THREADS */
+  u16                  port;
+  const char*          qlog_path;
+  const char*          keylog_path;
+  int                  pin_core;    /**< --pin-core: CPU to pin to, -1 = off */
+  int                  use_xdp;     /**< --ifindex given: run over AF_XDP */
+  wired_srvxdp_cfg     xdp;         /**< --ifindex/--queue/--ip/--skb-mode */
+  int                  use_threads; /**< --cores given: thread-based fan-out */
+  wired_srvthreads_opt threads; /**< --cores/--control-core, DRIVER_THREADS */
 } app_config;
 
 /* --pin-core N: pin the process to CPU N via sched_setaffinity before the
@@ -345,7 +346,7 @@ static void load_config_threads_body(
  * AF_XDP in multi-queue mode instead of UDP + SO_REUSEPORT. */
 static void load_config_threads(app_config* cfg, int argc, char** argv) {
   const char* cores_str = wired_cliargs_str(argc, argv, "--cores", 0);
-  cfg->use_threads       = cores_str != 0;
+  cfg->use_threads      = cores_str != 0;
   if (!cfg->use_threads) return;
   load_config_threads_body(cfg, argc, argv, cores_str);
 }
@@ -360,7 +361,7 @@ static void load_config_threads(app_config* cfg, int argc, char** argv) {
 static void load_config(
     app_config* cfg, int argc, char** argv, u8 san_ipv4[4], int* have_it) {
   const char* ip_str = wired_cliargs_str(argc, argv, "--san-ipv4", 0);
-  *have_it            = ip_str != 0;
+  *have_it           = ip_str != 0;
   if (ip_str && !parse_ipv4(ip_str, san_ipv4))
     die("--san-ipv4: expected dotted-quad a.b.c.d\n");
   cfg->port        = (u16)wired_cliargs_int(argc, argv, "--port", 4433);
@@ -397,7 +398,9 @@ static int run_xdp(
  * (composes with it instead, via cfg->threads.xdp set in
  * load_config_threads). */
 static int run_threads(
-    const app_config* cfg, wired_srvboot_id* id, wired_srvrun_handler h,
+    const app_config*       cfg,
+    wired_srvboot_id*       id,
+    wired_srvrun_handler    h,
     const wired_srvrun_obs* obs) {
   return wired_srvthreads_run(cfg->port, id, h, *obs, &cfg->threads);
 }
@@ -407,8 +410,11 @@ static int run_threads(
  * queue mode, cfg->threads.xdp). Neither given runs the plain single-process
  * path, matching wired_server_run_opt's own default. */
 static int run_dispatch(
-    const app_config* cfg, wired_srvboot_id* id, wired_srvrun_handler h,
-    const wired_srvrun_obs* obs, wired_srvrun_opt* opt) {
+    const app_config*       cfg,
+    wired_srvboot_id*       id,
+    wired_srvrun_handler    h,
+    const wired_srvrun_obs* obs,
+    wired_srvrun_opt*       opt) {
   if (cfg->use_threads) return run_threads(cfg, id, h, obs);
   if (cfg->use_xdp) return run_xdp(cfg, id, h, obs, opt);
   return wired_server_run_opt(cfg->port, id, h, *obs, opt);

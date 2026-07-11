@@ -33,15 +33,15 @@
  * been joined, so the frame is guaranteed live for the whole worker
  * lifetime. */
 typedef struct {
-  int                     index; /**< worker index == cores[]/queue_id */
-  int                     n_total;    /**< worker count (broadcast registry) */
-  wired_srvinbox_ring*    inbox_row;  /**< this worker's N-ring receive row */
+  int                     index;     /**< worker index == cores[]/queue_id */
+  int                     n_total;   /**< worker count (broadcast registry) */
+  wired_srvinbox_ring*    inbox_row; /**< this worker's N-ring receive row */
   wired_srvrun_env*       env;
   u16                     port;
   wired_srvboot_id        id; /**< per-worker copy (SIGHUP reload safety) */
   wired_srvrun_handler    h;
   wired_srvrun_obs        obs;
-  wired_srvrun_opt        run; /**< no_signal_handlers forced to 1 */
+  wired_srvrun_opt        run;     /**< no_signal_handlers forced to 1 */
   const wired_srvxdp_cfg* xdp_cfg; /**< 0 in UDP mode */
   wired_srvxdpbpf*        bpf;     /**< shared BPF, XDP mode only */
 } srvthreads_worker_arg;
@@ -67,7 +67,7 @@ static void srvthreads_worker_serve_udp(srvthreads_worker_arg* a) {
 static void srvthreads_worker_serve_xdp(srvthreads_worker_arg* a) {
   wired_srvxdp     x;
   wired_srvxdp_cfg cfg = *a->xdp_cfg;
-  cfg.queue_id          = (u32)a->index;
+  cfg.queue_id         = (u32)a->index;
   if (wired_srvxdp_open_shared(&x, &cfg, a->bpf) < 0) return;
   a->run.xdp = &x;
   wired_srvrun_broadcast_register(a->index, a->n_total, a->inbox_row);
@@ -129,8 +129,7 @@ static wired_srvrun_env* srvthreads_env_at(u8* base, int i) {
  * mesh[i][j]. Sized off n_cores like srvthreads_alloc_envs, so it stays
  * proportional instead of a fixed WIRED_SRVTHREADS_MAX*MAX allocation. */
 static wired_srvinbox_ring* srvthreads_alloc_mesh(int n_cores) {
-  i64 sz =
-      (i64)sizeof(wired_srvinbox_ring) * (i64)n_cores * (i64)n_cores;
+  i64 sz   = (i64)sizeof(wired_srvinbox_ring) * (i64)n_cores * (i64)n_cores;
   i64 base = syscall6(
       SYS_mmap, 0, sz, SRVTHREADS_PROT_RW, SRVTHREADS_MAP_PRIVATE_ANON, -1, 0);
   if (base < 0) return 0;
@@ -169,18 +168,18 @@ static void srvthreads_fill_arg(
     wired_srvrun_obs            obs,
     const wired_srvthreads_opt* opt,
     wired_srvxdpbpf*            bpf) {
-  a->index         = i;
-  a->n_total       = n;
-  a->inbox_row     = srvthreads_row_at(mesh, i, n);
-  a->env           = srvthreads_env_at(envs, i);
-  a->port          = port;
-  a->id            = *id;
-  a->h             = h;
-  a->obs           = obs;
-  a->run           = opt->run;
+  a->index                  = i;
+  a->n_total                = n;
+  a->inbox_row              = srvthreads_row_at(mesh, i, n);
+  a->env                    = srvthreads_env_at(envs, i);
+  a->port                   = port;
+  a->id                     = *id;
+  a->h                      = h;
+  a->obs                    = obs;
+  a->run                    = opt->run;
   a->run.no_signal_handlers = 1;
-  a->xdp_cfg       = opt->xdp;
-  a->bpf           = bpf;
+  a->xdp_cfg                = opt->xdp;
+  a->bpf                    = bpf;
 }
 
 /* Spawn every worker thread. On the first wired_thread_start failure, stops
@@ -188,11 +187,10 @@ static void srvthreads_fill_arg(
  * running (the caller's cleanup path still joins threads[0..i) via
  * srvthreads_join_all -- see wired_srvthreads_run). */
 static i64 srvthreads_spawn_all(
-    wired_thread*           threads,
-    srvthreads_worker_arg*  args,
-    int                     n) {
+    wired_thread* threads, srvthreads_worker_arg* args, int n) {
   for (int i = 0; i < n; i++) {
-    i64 r = wired_thread_start(&threads[i], srvthreads_worker_trampoline, &args[i]);
+    i64 r =
+        wired_thread_start(&threads[i], srvthreads_worker_trampoline, &args[i]);
     if (r < 0) return r;
   }
   return 0;
@@ -208,19 +206,22 @@ static void srvthreads_join_all(wired_thread* threads, int n) {
  * syscall, EINTR, or the timeout itself) all fall through to re-check the
  * word, matching the summary's "timeout is the liveness floor" argument. */
 static void srvthreads_wait_shutdown(int* word) {
-  quic_timespec ts = {SRVTHREADS_WAIT_MS / 1000, (SRVTHREADS_WAIT_MS % 1000) * 1000000};
+  quic_timespec ts = {
+      SRVTHREADS_WAIT_MS / 1000, (SRVTHREADS_WAIT_MS % 1000) * 1000000};
   while (__atomic_load_n(word, __ATOMIC_ACQUIRE) == 0)
     syscall6(SYS_futex, (i64)word, SRVTHREADS_FUTEX_WAIT, 0, (i64)&ts, 0, 0);
 }
 
 /* Open the shared per-interface BPF filter in XDP mode; a no-op success (fd
  * table left zeroed, never used) in UDP mode. */
-static i64 srvthreads_open_bpf(wired_srvxdpbpf* bpf, const wired_srvxdp_cfg* xdp) {
+static i64 srvthreads_open_bpf(
+    wired_srvxdpbpf* bpf, const wired_srvxdp_cfg* xdp) {
   if (!xdp) return 0;
   return wired_srvxdpbpf_open(bpf, xdp->ifindex, xdp->port, xdp->attach_flags);
 }
 
-static void srvthreads_close_bpf(wired_srvxdpbpf* bpf, const wired_srvxdp_cfg* xdp) {
+static void srvthreads_close_bpf(
+    wired_srvxdpbpf* bpf, const wired_srvxdp_cfg* xdp) {
   if (xdp) wired_srvxdpbpf_close(bpf);
 }
 
@@ -264,10 +265,10 @@ static int srvthreads_alloc_state(
  * table + broadcast mesh; any failure tears down what already succeeded and
  * returns 0. */
 static int srvthreads_setup(
-    wired_srvxdpbpf*      bpf,
-    u8**                  envs,
-    wired_srvinbox_ring** mesh,
-    int                   n,
+    wired_srvxdpbpf*        bpf,
+    u8**                    envs,
+    wired_srvinbox_ring**   mesh,
+    int                     n,
     const wired_srvxdp_cfg* xdp) {
   if (srvthreads_open_bpf(bpf, xdp) < 0) return 0;
   if (srvthreads_alloc_state(envs, mesh, n)) return 1;

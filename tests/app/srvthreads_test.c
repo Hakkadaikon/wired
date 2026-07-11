@@ -26,8 +26,7 @@ static void srvthreads_test_worker(void* argp) {
   int index = ((srvthreads_worker_arg*)argp)->index;
   __atomic_fetch_or(&g_seen_index_mask, 1 << index, __ATOMIC_RELAXED);
   __atomic_fetch_add(&g_seen_count, 1, __ATOMIC_RELAXED);
-  while (__atomic_load_n(wired_srvrun_shutdown_word(), __ATOMIC_ACQUIRE) == 0)
-    ;
+  while (__atomic_load_n(wired_srvrun_shutdown_word(), __ATOMIC_ACQUIRE) == 0);
 }
 
 /* Flips the shared shutdown word 1 after a short spin, from a second
@@ -36,8 +35,7 @@ static void srvthreads_test_worker(void* argp) {
  * test. */
 static void srvthreads_test_request_shutdown(void* argp) {
   (void)argp;
-  for (volatile int i = 0; i < 200000; i++)
-    ;
+  for (volatile int i = 0; i < 200000; i++);
   __atomic_store_n(wired_srvrun_shutdown_word(), 1, __ATOMIC_RELEASE);
 }
 
@@ -46,11 +44,11 @@ static void srvthreads_test_request_shutdown(void* argp) {
  * join before cleanup, timed futex wait, monotonic word) exercised
  * end-to-end without any real socket. */
 static void test_srvthreads_run_joins_all_workers_on_shutdown(void) {
-  wired_thread          requester;
-  wired_srvthreads_opt  opt = {0};
-  wired_srvboot_id      id  = {0};
-  wired_srvrun_handler  h   = {0};
-  wired_srvrun_obs      obs = {0};
+  wired_thread         requester;
+  wired_srvthreads_opt opt = {0};
+  wired_srvboot_id     id  = {0};
+  wired_srvrun_handler h   = {0};
+  wired_srvrun_obs     obs = {0};
 
   __atomic_store_n(wired_srvrun_shutdown_word(), 0, __ATOMIC_RELEASE);
   g_seen_index_mask = 0;
@@ -81,8 +79,8 @@ static void test_srvthreads_run_joins_all_workers_on_shutdown(void) {
  * run above are exactly one env_size() apart). */
 static void test_srvthreads_env_at_strides_by_env_size(void) {
   u8*               base = srvthreads_alloc_envs(2);
-  wired_srvrun_env* e0    = srvthreads_env_at(base, 0);
-  wired_srvrun_env* e1    = srvthreads_env_at(base, 1);
+  wired_srvrun_env* e0   = srvthreads_env_at(base, 0);
+  wired_srvrun_env* e1   = srvthreads_env_at(base, 1);
   CHECK(base != 0);
   CHECK((u8*)e0 == base);
   CHECK((usz)((u8*)e1 - (u8*)e0) == wired_srvrun_env_size());

@@ -15,9 +15,7 @@ static int srvinbox_full_at(u32 prod, u32 cons) {
 
 /* 1 if the ring is empty per the given (possibly stale) prod value: no
  * published message past cons yet. */
-static int srvinbox_empty_at(u32 prod, u32 cons) {
-  return cons == prod;
-}
+static int srvinbox_empty_at(u32 prod, u32 cons) { return cons == prod; }
 
 /* Producer-side full check, reloading cons (ACQUIRE) exactly once if the
  * producer's own first look shows full -- tasks/loopeng/srvinbox-mesh
