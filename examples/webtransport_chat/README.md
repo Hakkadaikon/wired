@@ -35,6 +35,19 @@ Add `--pin-core N` to pin the process to CPU N — the XDP driver spins one
 core at 100%, and pinning keeps that spin on a single cache-warm core
 instead of migrating.
 
+To fan out across multiple CPU cores instead (a control thread + N worker
+threads sharing one address space, `src/app/http3/server/srvthreads/`; see
+`examples/word_list/README.md`'s "Multi-thread" section for the full
+picture), pass `--cores` instead of `--pin-core`. Broadcast still reaches
+every worker's sessions:
+
+```sh
+./wired_server --cores 0,1,2,3                 # 4 worker threads, UDP
+./wired_server --cores 0,1,2,3 --control-core 4 # + control thread pinned
+# combined with --ifindex: AF_XDP multi-queue, worker i serves queue i
+sudo ./wired_server --ifindex <n> --cores 0,1,2,3 --ip <a.b.c.d> --san-ipv4 <a.b.c.d> --skb-mode
+```
+
 On startup it logs the self-signed certificate's SHA-256 fingerprint:
 
 ```
