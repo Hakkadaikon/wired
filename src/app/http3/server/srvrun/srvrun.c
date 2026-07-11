@@ -67,6 +67,16 @@ typedef struct {
    * wired_server_run/wired_server_run_opt, or a caller-supplied instance for
    * wired_srvrun_serve_env. Never 0 once srvrun_loop is reached. */
   wired_srvrun_env* env;
+  /** 1 when this instance does not own SIGTERM/SIGHUP (a srvthreads worker:
+   * the control thread installs the handlers and owns the shutdown word,
+   * this instance only polls it). Such an instance keeps SIGTERM/SIGHUP
+   * blocked for its whole lifetime (srvthreads blocks before cloning), so an
+   * unbounded blocking wait -- plain recvmmsg with nothing in flight -- would
+   * never be interrupted and would never observe shutdown. Forces the same
+   * timeout-bounded wait busy_poll/xdp already use, so the loop head's
+   * shutdown poll (srvrun_step) is reached at least once per SRVRUN_PTO_MS
+   * even when idle. */
+  int no_signal_handlers;
 } srvrun_cfg;
 
 /* One live connection's mutable state: the orchestrator, the HTTP/3 loop,
@@ -2067,9 +2077,20 @@ static void srvrun_polling_ptos(const srvrun_cfg* cfg, srvrun_state* st) {
  * branch above is kept as-is; only this leaf call changes). The actual non-
  * blocking receive happens at the recv step (srvrun_recv), so there is
  * nothing left to wait for here. */
+/* 1 if nothing requires a bounded wait: no response is awaiting ACKs, and
+ * this instance owns SIGTERM/SIGHUP so an unbounded blocking recv can still
+ * be interrupted. A srvthreads worker keeps SIGTERM/SIGHUP blocked for its
+ * whole lifetime (no_signal_handlers), so only a timeout -- never a signal
+ * -- can break it out of the loop to observe shutdown; it always takes the
+ * bounded path below even with nothing in flight. */
+static int srvrun_may_block_unbounded(const srvrun_cfg* cfg, srvrun_state* st) {
+  if (cfg->no_signal_handlers) return 0;
+  return !srvrun_any_waiting(st);
+}
+
 static int srvrun_wait_input(const srvrun_cfg* cfg, srvrun_state* st) {
-  if (!srvrun_any_waiting(st)) return 1; /* nothing in flight: just block */
   if (srvrun_polling(cfg)) return 1;
+  if (srvrun_may_block_unbounded(cfg, st)) return 1;
   return quic_poll_wait_readable(cfg->fd, SRVRUN_PTO_MS) > 0;
 }
 
@@ -2185,7 +2206,8 @@ static srvrun_cfg srvrun_build_cfg(
       opt->wt_on_stream_data,
       opt->wt_stream_data_ctx,
       opt->xdp,
-      env};
+      env,
+      opt->no_signal_handlers};
 }
 
 usz wired_srvrun_env_size(void) { return sizeof(wired_srvrun_env); }
