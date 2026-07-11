@@ -44,3 +44,23 @@ int wired_sigterm_install(void (*handler)(int)) {
 int wired_sighup_install(void (*handler)(int)) {
   return sigterm_install_signal(WIRED_SIGHUP, handler);
 }
+
+/* rt_sigprocmask(2) `how` values on Linux x86_64
+ * (include/uapi/asm-generic/signal-defs.h): SIG_BLOCK=0, SIG_UNBLOCK=1. */
+#define WIRED_SIG_BLOCK 0
+#define WIRED_SIG_UNBLOCK 1
+
+/* Shared mask change: a kernel sigset_t is a u64 bitmap where bit (signum-1)
+ * selects the signal; both public wrappers pass the same SIGTERM|SIGHUP set. */
+static int sigterm_mask_shutdown(int how) {
+  u64 mask = (1ull << (SIGTERM - 1)) | (1ull << (WIRED_SIGHUP - 1));
+  return syscall4(SYS_rt_sigprocmask, how, &mask, 0, SIGSETSIZE) == 0;
+}
+
+int wired_sigmask_block_shutdown(void) {
+  return sigterm_mask_shutdown(WIRED_SIG_BLOCK);
+}
+
+int wired_sigmask_unblock_shutdown(void) {
+  return sigterm_mask_shutdown(WIRED_SIG_UNBLOCK);
+}

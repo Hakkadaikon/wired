@@ -24,4 +24,17 @@ int wired_sigterm_install(void (*handler)(int));
  * @return 1 on success, 0 if the kernel rejected registration. */
 int wired_sighup_install(void (*handler)(int));
 
+/** Block SIGTERM and SIGHUP for the calling thread (rt_sigprocmask(2)).
+ * Intended multi-worker order: the control thread blocks, then clone(2)s
+ * workers (which inherit the mask), then unblocks — so shutdown signals are
+ * only ever delivered to the control thread.
+ * @return 1 on success, 0 if the kernel rejected the mask change. */
+int wired_sigmask_block_shutdown(void);
+
+/** Unblock SIGTERM and SIGHUP for the calling thread (rt_sigprocmask(2)),
+ * the counterpart of wired_sigmask_block_shutdown. Any signal that arrived
+ * while blocked is delivered before this returns.
+ * @return 1 on success, 0 if the kernel rejected the mask change. */
+int wired_sigmask_unblock_shutdown(void);
+
 #endif
