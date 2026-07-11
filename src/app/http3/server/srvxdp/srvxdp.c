@@ -2,7 +2,6 @@
 
 #include "common/bytes/util/be.h"
 #include "common/bytes/util/bytes.h"
-#include "transport/io/xdp/xdpbpf/xdpbpf.h"
 #include "transport/io/xdp/xdpframe/xdpframe.h"
 
 /** Number of frames in the TX pool (UMEM frames 64..127; the RX pool,
@@ -15,65 +14,10 @@
 #define SRVXDP_TXPOOL_BASE \
   ((u64)SRVXDP_TXPOOL_FRAMES * QUIC_XSKSETUP_FRAME_SIZE)
 
-/* Close one fd unconditionally; a negative fd is simply not closed. */
-static void srvxdp_close_fd(i64* fd) {
-  if (*fd >= 0) syscall1(SYS_close, *fd);
-  *fd = -1;
-}
-
-/* Undo whatever of x's BPF objects were already built, in reverse order. */
-static void srvxdp_bpf_unwind(wired_srvxdp* x) {
-  i64* fds[3] = {&x->link_fd, &x->prog_fd, &x->map_fd};
-  for (usz i = 0; i < 3; i++) srvxdp_close_fd(fds[i]);
-}
-
-/* Create the XSKMAP and load the redirect-filter program built around it.
- * Returns 0, or the first negative errno. */
-static i64 srvxdp_bpf_load(wired_srvxdp* x, const wired_srvxdp_cfg* cfg) {
-  u64 insns[QUIC_XDPBPF_PROG_LEN];
-  x->map_fd = quic_xdpbpf_map_create(SRVXDP_TXPOOL_FRAMES);
-  if (x->map_fd < 0) return x->map_fd;
-  quic_xdpbpf_prog_build(insns, (i32)x->map_fd, cfg->port);
-  x->prog_fd =
-      quic_xdpbpf_prog_load(insns, QUIC_XDPBPF_PROG_LEN, quic_mspan_of(0, 0));
-  return x->prog_fd < 0 ? x->prog_fd : 0;
-}
-
-/* Attach the loaded program to the interface, then point the map's
- * queue_id slot at x->xsk.fd. Returns 0, or the first negative errno. */
-static i64 srvxdp_bpf_attach(wired_srvxdp* x, const wired_srvxdp_cfg* cfg) {
-  x->link_fd =
-      quic_xdpbpf_link_create(x->prog_fd, cfg->ifindex, cfg->attach_flags);
-  if (x->link_fd < 0) return x->link_fd;
-  return quic_xdpbpf_map_set(x->map_fd, cfg->queue_id, (u32)x->xsk.fd);
-}
-
-/* Build, load and attach the redirect filter, then wire the map to
- * x->xsk.fd. Returns 0, or the first negative errno. */
-static i64 srvxdp_bpf_build(wired_srvxdp* x, const wired_srvxdp_cfg* cfg) {
-  i64 r = srvxdp_bpf_load(x, cfg);
-  if (r < 0) return r;
-  return srvxdp_bpf_attach(x, cfg);
-}
-
-/* Open the AF_XDP socket/rings; the step that needs no BPF objects yet. */
-static i64 srvxdp_open_head(wired_srvxdp* x, const wired_srvxdp_cfg* cfg) {
-  quic_xsk_cfg xc = {cfg->ifindex, cfg->queue_id, cfg->bind_flags};
-  return quic_xsksetup_open(&x->xsk, &xc);
-}
-
-/* Build the BPF filter/map/link and wire the map to x->xsk.fd; the step
- * that needs x->xsk already open. */
-static i64 srvxdp_open_body(wired_srvxdp* x, const wired_srvxdp_cfg* cfg) {
-  return srvxdp_bpf_build(x, cfg);
-}
-
-i64 wired_srvxdp_open(wired_srvxdp* x, const wired_srvxdp_cfg* cfg) {
-  i64 r;
-  *x         = (wired_srvxdp){0};
-  x->map_fd  = -1;
-  x->prog_fd = -1;
-  x->link_fd = -1;
+/* Initialize x's non-BPF state (identity, MAC cache, TX pool) from cfg. */
+static void srvxdp_init_state(wired_srvxdp* x, const wired_srvxdp_cfg* cfg) {
+  *x            = (wired_srvxdp){0};
+  x->bpf.map_fd = x->bpf.prog_fd = x->bpf.link_fd = -1;
   /* ip_be holds the address as network-order BYTES (same shape as
    * quic_sockaddr_in.addr_be), so tx_meta's get_be32 round-trips it; a
    * host-order u32 here byte-reverses the reply's source IP on the wire. */
@@ -81,20 +25,40 @@ i64 wired_srvxdp_open(wired_srvxdp* x, const wired_srvxdp_cfg* cfg) {
   x->port = cfg->port;
   quic_xdpmac_init(&x->macs);
   quic_xskumem_alloc_init(&x->txpool, SRVXDP_TXPOOL_BASE, SRVXDP_TXPOOL_FRAMES);
+}
 
-  r = srvxdp_open_head(x, cfg);
+/* Open the AF_XDP socket/rings and point bpf's queue_id map slot at the new
+ * socket's fd, closing the socket again if the registration fails. Returns
+ * 0, or the first negative errno. */
+static i64 srvxdp_open_xsk(
+    wired_srvxdp* x, const wired_srvxdp_cfg* cfg, wired_srvxdpbpf* bpf) {
+  quic_xsk_cfg xc = {cfg->ifindex, cfg->queue_id, cfg->bind_flags};
+  i64          r  = quic_xsksetup_open(&x->xsk, &xc);
   if (r < 0) return r;
-  r = srvxdp_open_body(x, cfg);
-  if (r < 0) {
-    srvxdp_bpf_unwind(x);
-    quic_xsksetup_close(&x->xsk);
-    return r;
-  }
-  return 0;
+  r = wired_srvxdpbpf_register(bpf, cfg->queue_id, (u32)x->xsk.fd);
+  if (r < 0) quic_xsksetup_close(&x->xsk);
+  return r;
+}
+
+i64 wired_srvxdp_open(wired_srvxdp* x, const wired_srvxdp_cfg* cfg) {
+  i64 r;
+  srvxdp_init_state(x, cfg);
+  r = wired_srvxdpbpf_open(&x->bpf, cfg->ifindex, cfg->port, cfg->attach_flags);
+  if (r < 0) return r;
+  x->bpf_owned = 1;
+  r            = srvxdp_open_xsk(x, cfg, &x->bpf);
+  if (r < 0) wired_srvxdpbpf_close(&x->bpf);
+  return r;
+}
+
+i64 wired_srvxdp_open_shared(
+    wired_srvxdp* x, const wired_srvxdp_cfg* cfg, wired_srvxdpbpf* bpf) {
+  srvxdp_init_state(x, cfg);
+  return srvxdp_open_xsk(x, cfg, bpf);
 }
 
 void wired_srvxdp_close(wired_srvxdp* x) {
-  srvxdp_bpf_unwind(x);
+  if (x->bpf_owned) wired_srvxdpbpf_close(&x->bpf);
   quic_xsksetup_close(&x->xsk);
 }
 

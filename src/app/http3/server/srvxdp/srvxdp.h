@@ -1,6 +1,7 @@
 #ifndef WIRED_SRVXDP_SRVXDP_H
 #define WIRED_SRVXDP_SRVXDP_H
 
+#include "app/http3/server/srvxdpbpf/srvxdpbpf.h"
 #include "common/bytes/span/span.h"
 #include "transport/io/socket/io/udp.h"
 #include "transport/io/xdp/xdpmac/xdpmac.h"
@@ -26,9 +27,9 @@ typedef struct {
   u32 attach_flags; /**< 0 = native XDP, XDP_FLAGS_SKB_MODE(2) = generic/veth */
 } wired_srvxdp_cfg;
 
-/** One open AF_XDP driver instance: the socket/rings, the BPF objects that
- * redirect traffic into it, the TX frame pool, and the learned peer MAC
- * cache. */
+/** One open AF_XDP driver instance: the socket/rings, the TX frame pool,
+ * the learned peer MAC cache, and — when this instance opened its own BPF
+ * redirect filter rather than joining a shared one — those BPF objects. */
 typedef struct {
   quic_xsk           xsk;        /**< AF_XDP socket, UMEM and four rings */
   quic_xskumem_alloc txpool;     /**< TX frame pool, UMEM frames 64..127 */
@@ -37,21 +38,39 @@ typedef struct {
   int                have_mac;   /**< 0 until our_mac is learned */
   u32                ip_be;      /**< cfg->ip, network byte order */
   u16                port;       /**< cfg->port, host order */
-  i64                map_fd;     /**< XSKMAP fd */
-  i64                prog_fd;    /**< loaded XDP program fd */
-  i64                link_fd;    /**< BPF link attaching prog to ifindex */
+  /** BPF map/prog/link owned by this instance; fds are -1 when opened
+   * against a shared wired_srvxdpbpf (wired_srvxdp_open_shared) */
+  wired_srvxdpbpf bpf;
+  /** 1 when wired_srvxdp_open built bpf and close() must tear it down */
+  int bpf_owned;
 } wired_srvxdp;
 
-/** Open one AF_XDP-backed server socket: quic_xsksetup_open, then create the
- * XSKMAP, build and load the redirect-filter program, attach it to the
- * interface, and point the map's queue_id slot at the new socket. The TX
- * frame pool is initialized over UMEM frames 64..127 (the RX pool, frames
- * 0..63, is left to the kernel's fill/rx rings). On any failure, everything
- * already built is torn down and a negative errno is returned.
+/** Open one AF_XDP-backed server socket with its own BPF redirect filter:
+ * wired_srvxdpbpf_open on cfg->ifindex, then quic_xsksetup_open, then point
+ * the map's queue_id slot at the new socket. The TX frame pool is
+ * initialized over UMEM frames 64..127 (the RX pool, frames 0..63, is left
+ * to the kernel's fill/rx rings). On any failure, everything already built
+ * is torn down and a negative errno is returned. For multiple queues on one
+ * interface, use wired_srvxdp_open_shared instead: the kernel rejects a
+ * second XDP link on the same ifindex with -EBUSY.
  * @param x   zero-initialized output; filled in on success
  * @param cfg interface/queue/address/port and bind/attach flags
  * @return 0 on success, or a negative errno */
 i64 wired_srvxdp_open(wired_srvxdp* x, const wired_srvxdp_cfg* cfg);
+
+/** Open one AF_XDP-backed server socket against an already-open shared
+ * per-interface BPF object: quic_xsksetup_open, then register the new
+ * socket's fd in bpf's cfg->queue_id slot. x keeps no reference to bpf
+ * afterwards (x->bpf stays -1/-1/-1, unowned): the caller owns bpf's
+ * lifetime and must keep it open while any registered socket is in use.
+ * On failure the socket is closed and a negative errno is returned.
+ * @param x   zero-initialized output; filled in on success
+ * @param cfg interface/queue/address/port and bind flags (attach_flags
+ *            is unused: attachment happened in wired_srvxdpbpf_open)
+ * @param bpf shared BPF objects for cfg->ifindex (wired_srvxdpbpf_open)
+ * @return 0 on success, or a negative errno */
+i64 wired_srvxdp_open_shared(
+    wired_srvxdp* x, const wired_srvxdp_cfg* cfg, wired_srvxdpbpf* bpf);
 
 /** Drain up to nbufs received datagrams into bufs. First reaps the
  * completion ring (returning any finished TX frames to txpool), then
@@ -79,8 +98,9 @@ i64 wired_srvxdp_rx_burst(wired_srvxdp* x, quic_mmsg_buf* bufs, usz nbufs);
 i64 wired_srvxdp_send(
     wired_srvxdp* x, const quic_sockaddr_in* dst, quic_span pkt);
 
-/** Tear down x: close the BPF link/prog/map fds, then quic_xsksetup_close
- * the socket/rings/UMEM.
+/** Tear down x: close the owned BPF link/prog/map fds (skipped when x was
+ * opened against a shared wired_srvxdpbpf, which the caller owns), then
+ * quic_xsksetup_close the socket/rings/UMEM.
  * @param x driver instance to close */
 void wired_srvxdp_close(wired_srvxdp* x);
 

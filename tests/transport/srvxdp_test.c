@@ -51,7 +51,7 @@ static void sxt_init(sxt_world* w, wired_srvxdp* x) {
   x->xsk.umem     = w->umem;
   x->xsk.umem_len = SXT_UMEM_LEN;
   x->xsk.fd       = -1;
-  x->map_fd = x->prog_fd = x->link_fd = -1;
+  x->bpf.map_fd = x->bpf.prog_fd = x->bpf.link_fd = -1;
   /* our identity, initialized the same way wired_srvxdp_open does it:
    * 10.7.0.1:4433, the golden RX vector's destination */
   quic_memcpy((u8*)&x->ip_be, (const u8[]){10, 7, 0, 1}, 4);
