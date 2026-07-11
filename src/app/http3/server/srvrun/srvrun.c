@@ -62,12 +62,11 @@ typedef struct {
                                               * 0 to disable */
   void*         wt_stream_data_ctx; /**< opaque ctx for wt_on_stream_data */
   wired_srvxdp* xdp; /**< 0 = UDP socket path; non-0 = AF_XDP driver */
+  /** The mutable server state this run drives -- g_srvrun_env for
+   * wired_server_run/wired_server_run_opt, or a caller-supplied instance for
+   * wired_srvrun_serve_env. Never 0 once srvrun_loop is reached. */
+  wired_srvrun_env* env;
 } srvrun_cfg;
-
-/* Storage a SIGHUP reload decodes into — must outlive the identity built from
- * it, so static (same lifetime rule as g_srvrun_table/g_srvrun_state below).
- */
-static wired_certreload_store g_srvrun_certstore;
 
 /* One live connection's mutable state: the orchestrator, the HTTP/3 loop,
  * whether it has completed its first (Initial) reply, the peer address to
@@ -125,21 +124,6 @@ typedef struct {
   usz boot_dgram_count;
 } srvrun_conn;
 
-/* The running server's mutable state: a fixed pool of connection slots keyed
- * by DCID (RFC 9000 5.1) so one socket serves several clients at once.
- * ponytail: static storage, not a local — QUIC_CONNTABLE_CAP slots of
- * wired_server+wired_srvloop run into the hundreds of KB, too large for a
- * thread stack. A single-threaded server needs exactly one instance. */
-static quic_conntable g_srvrun_table[QUIC_CONNTABLE_CAP];
-static struct {
-  srvrun_conn conns[QUIC_CONNTABLE_CAP];
-} g_srvrun_state;
-
-typedef struct {
-  quic_conntable* table;
-  srvrun_conn*    conns;
-} srvrun_state;
-
 /* Response storage, one stream per slot: 64-byte prefix room (HEADERS + DATA
  * header framed in place, quic_h3resp_prefix) followed by the handler's body.
  * ponytail: 16KB per response, 64 slots = 1MB BSS; raise WIRED_SRVRUN_RESP_MAX
@@ -152,7 +136,69 @@ typedef struct {
  * send path grows RTT sampling. */
 #define SRVRUN_PTO_MS 300
 #define SRVRUN_PTO_MAX 5
-static u8 g_srvrun_respstore[QUIC_CONNTABLE_CAP][WIRED_SRVRUN_RESP_MAX];
+
+/* Receive batch: srvrun drains up to this many datagrams per recvmmsg call.
+ * ponytail: 16 x 2048B storage (32KB) per env; raise if a profile ever shows
+ * the loop syscall-bound at higher fan-in. Hoisted here (from its former
+ * point of use, next to g_srvrun_rxstorage) so wired_srvrun_env below can
+ * size its rxstorage member. */
+#define SRVRUN_RX_BATCH 16
+
+/* One server loop instance's whole mutable state, formerly a set of separate
+ * file-scope globals (a single-threaded server needed exactly one instance of
+ * each). Bundled into one struct, still with exactly one process-wide
+ * instance (g_srvrun_env below) for wired_server_run/wired_server_run_opt,
+ * but now also allocatable by a caller wanting more than one independent
+ * server loop (wired_srvrun_env_size/init + wired_srvrun_serve_env).
+ * shutdown/reload live outside this struct (srvrun.h's doc): they are
+ * process-wide signal-driven flags, not per-instance state. */
+struct wired_srvrun_env {
+  /* RFC 9000 5.1: a fixed pool of connection slots keyed by DCID, so one
+   * socket serves several clients at once. */
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_conn    conns[QUIC_CONNTABLE_CAP];
+  /* Response storage, one stream per slot (see WIRED_SRVRUN_RESP_MAX above).
+   */
+  u8 respstore[QUIC_CONNTABLE_CAP][WIRED_SRVRUN_RESP_MAX];
+  /* Receive batch storage (SRVRUN_RX_BATCH above). */
+  u8 rxstorage[SRVRUN_RX_BATCH][2048];
+  /* Storage a SIGHUP reload decodes into — must outlive the identity built
+   * from it. */
+  wired_certreload_store certstore;
+  /* PTO probe deadline for the polling drivers (srvrun_polling_ptos). */
+  u64 pto_next_ms;
+  /* Spin-iteration counter pacing the clock read in srvrun_pto_due. */
+  u32 pto_spin;
+  /* Test-only: how many times srvrun_send has fired since the last
+   * srvrun_test_reset_send_count (see its doc below). */
+  usz send_count;
+  /* The reload generation this env has already applied (srvrun_reload_
+   * if_requested); a single-threaded run sees at most one pending generation
+   * at a time, so "gen != seen" behaves exactly like the old boolean flag. */
+  u32 reload_seen_gen;
+};
+
+/* The one process-wide instance wired_server_run/wired_server_run_opt drive
+ * -- a single-threaded server needs exactly one. wired_srvrun_serve_env lets
+ * a caller supply its own instead, for more than one independent loop. */
+static wired_srvrun_env g_srvrun_env;
+
+/* Aliases so every existing reference below (and in tests/app/srvrun_test.c,
+ * which reaches into these by name) keeps compiling unchanged against the one
+ * process-wide instance -- the env split moved the storage, not the names. */
+#define g_srvrun_table (g_srvrun_env.table)
+#define g_srvrun_state (g_srvrun_env)
+#define g_srvrun_respstore (g_srvrun_env.respstore)
+#define g_srvrun_rxstorage (g_srvrun_env.rxstorage)
+#define g_srvrun_certstore (g_srvrun_env.certstore)
+#define g_srvrun_pto_next_ms (g_srvrun_env.pto_next_ms)
+#define g_srvrun_pto_spin (g_srvrun_env.pto_spin)
+#define g_srvrun_send_count (g_srvrun_env.send_count)
+
+typedef struct {
+  quic_conntable* table;
+  srvrun_conn*    conns;
+} srvrun_state;
 
 /* Everything one datagram-serving step needs besides the datagram itself and
  * the resolved slot: the fixed run config, the peer address the datagram
@@ -237,10 +283,8 @@ static void srvrun_note_recv(
  * last srvrun_test_reset_send_count, so a test can assert an exact number of
  * UDP sends happened (e.g. proving a boot retransmit resent a flight)
  * without needing a real socket to observe bytes on. Not signal-safe/thread-
- * safe -- fine, this SDK's server loop is single-threaded and tests are the
- * only caller. */
-static usz g_srvrun_send_count;
-
+ * safe -- fine, each env's own send_count is only touched by that env's own
+ * loop, and tests are the only other caller. */
 __attribute__((unused)) static void srvrun_test_reset_send_count(void) {
   g_srvrun_send_count = 0;
 }
@@ -967,11 +1011,17 @@ static int srvrun_all_drained(const srvrun_state* st) {
   return 1;
 }
 
-/* Graceful shutdown: set by srvrun_sigterm_handler (async-signal-safe: it only
- * stores to this flag), read by the main loop to stop accepting new
- * connections and start winding down live ones. volatile because a signal
- * handler writes it asynchronously to the loop reading it. */
-static volatile int g_srvrun_shutdown;
+/* Graceful shutdown: set by srvrun_sigterm_handler (async-signal-safe: it
+ * only stores to this word), read by the main loop to stop accepting new
+ * connections and start winding down live ones. A process-wide word, not an
+ * env member: SIGTERM is process-wide, so every srvrun loop in the process
+ * shares one shutdown state, whether serving through the single g_srvrun_env
+ * or a caller-supplied one via wired_srvrun_serve_env. 0->1 monotonic only
+ * (never reset back to 0 outside test teardown) so a concurrent reader never
+ * observes it going backward; __atomic_store_n/__atomic_load_n (same
+ * idiom as xskring.c) make the cross-thread handoff well-defined without a
+ * lock. */
+static int g_srvrun_shutdown;
 
 /* SIGTERM handler: the ONLY thing safe to do here is set a flag (async-signal-
  * safe rule) — no syscalls, no allocation, nothing the interrupted code might
@@ -980,12 +1030,14 @@ static volatile int g_srvrun_shutdown;
  * behavior driven off the flag below is. */
 static void srvrun_sigterm_handler(int sig) {
   (void)sig;
-  g_srvrun_shutdown = 1;
+  __atomic_store_n(&g_srvrun_shutdown, 1, __ATOMIC_RELEASE);
 }
 
 /* 1 once a graceful shutdown has been requested (SIGTERM, or a test forcing
  * the flag directly). */
-static int srvrun_shutdown_requested(void) { return g_srvrun_shutdown; }
+static int srvrun_shutdown_requested(void) {
+  return __atomic_load_n(&g_srvrun_shutdown, __ATOMIC_RELAXED);
+}
 
 /* Test-only hook: force the shutdown flag without going through a real
  * SIGTERM delivery (rt_sigaction registration is not unit-testable — see
@@ -995,34 +1047,47 @@ static int srvrun_shutdown_requested(void) { return g_srvrun_shutdown; }
  * ponytail: unused in the freestanding build (only tests/run.c calls this),
  * so it needs the attribute to avoid -Wunused-function under -Werror there. */
 __attribute__((unused)) static void srvrun_test_set_shutdown(int v) {
-  g_srvrun_shutdown = v;
+  __atomic_store_n(&g_srvrun_shutdown, v, __ATOMIC_RELEASE);
 }
 
-/* Certificate hot reload: set by srvrun_sighup_handler (async-signal-safe:
- * only stores to this flag), read by the main loop to trigger a reload of
- * cfg->id's certificate chain and signing key from cfg->cert_path/key_path.
- * volatile for the same reason as g_srvrun_shutdown above. */
-static volatile int g_srvrun_reload;
+/* Certificate hot reload: a monotonically increasing generation counter, bumped
+ * by srvrun_sighup_handler (async-signal-safe: __atomic_fetch_add is a single
+ * lock xadd on x86, nothing else). Process-wide like g_srvrun_shutdown above
+ * (SIGHUP is process-wide too) -- each env tracks its own reload_seen_gen so
+ * "was this generation already applied by THIS env" is answered per-instance
+ * even though the generation itself is shared. */
+static u32 g_srvrun_reload_gen;
 
 /* SIGHUP handler: same async-signal-safety rule as srvrun_sigterm_handler —
- * set the flag and nothing else. Registration (wired_sighup_install) is not
- * exercised by unit tests; the behavior driven off the flag below is. */
+ * bump the generation and nothing else. Registration (wired_sighup_install)
+ * is not exercised by unit tests; the behavior driven off the counter below
+ * is. */
 static void srvrun_sighup_handler(int sig) {
   (void)sig;
-  g_srvrun_reload = 1;
+  __atomic_fetch_add(&g_srvrun_reload_gen, 1, __ATOMIC_RELEASE);
 }
 
-/* 1 once a certificate reload has been requested (SIGHUP, or a test forcing
- * the flag directly). */
-static int srvrun_reload_requested(void) { return g_srvrun_reload; }
+/* 1 once a certificate reload is pending for env: its own reload_seen_gen has
+ * not caught up to the current generation yet (SIGHUP, or a test forcing the
+ * generation directly). */
+static int srvrun_reload_requested(const wired_srvrun_env* env) {
+  u32 gen = __atomic_load_n(&g_srvrun_reload_gen, __ATOMIC_ACQUIRE);
+  return gen != env->reload_seen_gen;
+}
 
-/* Test-only hook: force the reload flag without a real SIGHUP delivery (same
- * rationale as srvrun_test_set_shutdown). Also resets it, so tests do not
- * leak reload state into one another.
+/* Test-only hook: force a reload to be (or not be) pending for g_srvrun_env
+ * without a real SIGHUP delivery (same rationale as srvrun_test_set_shutdown).
+ * v=1 makes one generation pending; v=0 marks the current generation already
+ * seen, so tests do not leak reload state into one another.
  * ponytail: unused in the freestanding build, needs the attribute to avoid
  * -Wunused-function under -Werror there. */
 __attribute__((unused)) static void srvrun_test_set_reload(int v) {
-  g_srvrun_reload = v;
+  if (v) {
+    __atomic_fetch_add(&g_srvrun_reload_gen, 1, __ATOMIC_RELEASE);
+    return;
+  }
+  g_srvrun_env.reload_seen_gen =
+      __atomic_load_n(&g_srvrun_reload_gen, __ATOMIC_ACQUIRE);
 }
 
 /* Re-decode cfg->cert_path/key_path into cfg->id in place (wired_certreload_
@@ -1031,19 +1096,22 @@ __attribute__((unused)) static void srvrun_test_set_reload(int v) {
  * comment above). A failed reload (bad path or malformed PEM/DER) leaves the
  * previous identity untouched — wired_certreload_load does not partially
  * mutate *id on failure. No-op when reload is disabled (cert_path unset). */
-static void srvrun_reload_cert(const srvrun_cfg* cfg) {
+static void srvrun_reload_cert(
+    const srvrun_cfg* cfg, wired_certreload_store* store) {
   if (!cfg->cert_path) return;
-  if (!wired_certreload_load(
-          cfg->cert_path, cfg->key_path, &g_srvrun_certstore, cfg->id))
+  if (!wired_certreload_load(cfg->cert_path, cfg->key_path, store, cfg->id))
     WIRED_LOG("cert reload failed, keeping previous identity\n");
 }
 
-/* Consume a pending reload request once: clear the flag first so a SIGHUP
- * arriving mid-reload is not lost, then (re)load if one was pending. */
-static void srvrun_reload_if_requested(const srvrun_cfg* cfg) {
-  if (!srvrun_reload_requested()) return;
-  g_srvrun_reload = 0;
-  srvrun_reload_cert(cfg);
+/* Consume a pending reload request once: mark this generation seen first so a
+ * SIGHUP arriving mid-reload is not lost (it bumps the generation again),
+ * then (re)load if one was pending. */
+static void srvrun_reload_if_requested(
+    const srvrun_cfg* cfg, wired_srvrun_env* env) {
+  if (!srvrun_reload_requested(env)) return;
+  env->reload_seen_gen =
+      __atomic_load_n(&g_srvrun_reload_gen, __ATOMIC_ACQUIRE);
+  srvrun_reload_cert(cfg, &env->certstore);
 }
 
 /* RFC 9000 7: a long-header Initial on a slot already up only (re)cold-starts
@@ -1819,12 +1887,6 @@ static i64 srvrun_listen(u16 port, const wired_srvrun_opt* opt) {
 #define SRVRUN_DRAIN_TICKS 25
 #define SRVRUN_DRAIN_TICK_MS 200
 
-/* Receive batch: srvrun drains up to this many datagrams per recvmmsg call.
- * ponytail: 16 x 2048B static buffers (32KB, BSS like g_srvrun_state); raise
- * if a profile ever shows the loop syscall-bound at higher fan-in. */
-#define SRVRUN_RX_BATCH 16
-static u8 g_srvrun_rxstorage[SRVRUN_RX_BATCH][2048];
-
 /* Serve a recvmmsg batch message by message, in arrival order. One idle
  * sweep and one clock read cover the whole batch; each message's own source
  * address is the peer a fresh slot records (RFC 9000 5.1). */
@@ -1859,29 +1921,28 @@ static int srvrun_polling(const srvrun_cfg* cfg) {
   return cfg->busy_poll || cfg->xdp != 0;
 }
 
-/* PTO probe deadline for the polling drivers. They never sleep in poll(2),
- * so the poll-timeout probe pass in srvrun_step is unreachable for them and
- * a lost reply would otherwise never be retransmitted (RFC 9002 6.2). */
-static u64 g_srvrun_pto_next_ms;
-/* Spin-iteration counter pacing the clock read below. */
-static u32 g_srvrun_pto_spin;
+/* env->pto_next_ms/pto_spin: the PTO probe deadline for the polling drivers.
+ * They never sleep in poll(2), so the poll-timeout probe pass in srvrun_step
+ * is unreachable for them and a lost reply would otherwise never be
+ * retransmitted (RFC 9002 6.2). pto_spin paces the clock read below (1 on
+ * every 1024th call). */
 
 /* 1 on every 1024th call in a polling driver: the mono-clock read is a real
  * syscall, too costly to pay per spin iteration for a 300ms deadline. */
-static int srvrun_pto_due(const srvrun_cfg* cfg) {
+static int srvrun_pto_due(const srvrun_cfg* cfg, wired_srvrun_env* env) {
   if (!srvrun_polling(cfg)) return 0;
-  g_srvrun_pto_spin++;
-  return (g_srvrun_pto_spin & 1023u) == 0;
+  env->pto_spin++;
+  return (env->pto_spin & 1023u) == 0;
 }
 
 /* Clocked stand-in for the poll-timeout probe pass: fire the PTOs on the
  * same SRVRUN_PTO_MS cadence the blocking driver gets from poll(2). */
 static void srvrun_polling_ptos(const srvrun_cfg* cfg, srvrun_state* st) {
   u64 now;
-  if (!srvrun_pto_due(cfg)) return;
+  if (!srvrun_pto_due(cfg, cfg->env)) return;
   now = quic_clock_mono_ms();
-  if (now < g_srvrun_pto_next_ms) return;
-  g_srvrun_pto_next_ms = now + SRVRUN_PTO_MS;
+  if (now < cfg->env->pto_next_ms) return;
+  cfg->env->pto_next_ms = now + SRVRUN_PTO_MS;
   srvrun_fire_ptos(cfg, st);
 }
 
@@ -1917,7 +1978,7 @@ static i64 srvrun_recv(const srvrun_cfg* cfg, quic_mmsg_buf* bufs, usz nbufs) {
 static void srvrun_step(
     const srvrun_cfg* cfg, srvrun_state* st, quic_mmsg_buf* bufs, usz nbufs) {
   i64 r;
-  srvrun_reload_if_requested(cfg);
+  srvrun_reload_if_requested(cfg, cfg->env);
   srvrun_polling_ptos(cfg, st);
   if (!srvrun_wait_input(cfg, st)) {
     srvrun_fire_ptos(cfg, st);
@@ -1939,22 +2000,21 @@ static int srvrun_drain_tick(
   return srvrun_all_drained(st) || tick >= SRVRUN_DRAIN_TICKS;
 }
 
-/* Point each batch slot at its static storage. */
-static void srvrun_rx_init(quic_mmsg_buf* bufs) {
+/* Point each batch slot at env's own storage. */
+static void srvrun_rx_init(wired_srvrun_env* env, quic_mmsg_buf* bufs) {
   for (usz i = 0; i < SRVRUN_RX_BATCH; i++)
-    bufs[i].buf =
-        quic_mspan_of(g_srvrun_rxstorage[i], sizeof g_srvrun_rxstorage[i]);
+    bufs[i].buf = quic_mspan_of(env->rxstorage[i], sizeof env->rxstorage[i]);
 }
 
 /* Receive datagrams until told to stop: normal service while no shutdown has
  * been requested; once requested, send GOAWAY to every live connection once
  * and drain for a bounded grace period (RFC 9114 5.2) before returning. */
 static void srvrun_loop(const srvrun_cfg* cfg) {
-  srvrun_state  st = {g_srvrun_table, g_srvrun_state.conns};
+  srvrun_state  st = {cfg->env->table, cfg->env->conns};
   quic_mmsg_buf bufs[SRVRUN_RX_BATCH];
   int           tick = 0;
   quic_conntable_init(st.table, QUIC_CONNTABLE_CAP);
-  srvrun_rx_init(bufs);
+  srvrun_rx_init(cfg->env, bufs);
   while (!srvrun_shutdown_requested())
     srvrun_step(cfg, &st, bufs, SRVRUN_RX_BATCH);
   srvrun_goaway_all(cfg, &st);
@@ -1970,20 +2030,29 @@ static void srvrun_install_sighup(const srvrun_cfg* cfg) {
 }
 
 /* Install the signal handlers wired_server_run needs: SIGTERM always,
- * SIGHUP conditionally (srvrun_install_sighup). */
-static void srvrun_install_signals(const srvrun_cfg* cfg) {
+ * SIGHUP conditionally (srvrun_install_sighup). Skipped entirely when
+ * opt->no_signal_handlers is set -- e.g. a second wired_srvrun_serve_env
+ * instance running alongside one that already owns the process-wide
+ * handlers. */
+static void srvrun_install_signals(
+    const srvrun_cfg* cfg, const wired_srvrun_opt* opt) {
+  if (opt->no_signal_handlers) return;
   if (!wired_sigterm_install(srvrun_sigterm_handler))
     WIRED_LOG("SIGTERM install failed, no graceful shutdown\n");
   srvrun_install_sighup(cfg);
 }
 
-int wired_server_run_opt(
+/* Build the fixed run context from the app-facing port/id/handler/obs/opt
+ * plus the mutable env this run drives -- the shared body of
+ * wired_server_run_opt and wired_srvrun_serve_env. */
+static srvrun_cfg srvrun_build_cfg(
+    wired_srvrun_env*       env,
     u16                     port,
     wired_srvboot_id*       id,
     wired_srvrun_handler    h,
     wired_srvrun_obs        obs,
     const wired_srvrun_opt* opt) {
-  srvrun_cfg cfg = {
+  return (srvrun_cfg){
       srvrun_listen(port, opt),
       id,
       h.cb,
@@ -1998,12 +2067,38 @@ int wired_server_run_opt(
       opt->wt_datagram_ctx,
       opt->wt_on_stream_data,
       opt->wt_stream_data_ctx,
-      opt->xdp};
+      opt->xdp,
+      env};
+}
+
+usz wired_srvrun_env_size(void) { return sizeof(wired_srvrun_env); }
+
+void wired_srvrun_env_init(wired_srvrun_env* env) {
+  *env = (wired_srvrun_env){0};
+}
+
+int wired_srvrun_serve_env(
+    wired_srvrun_env*       env,
+    u16                     port,
+    wired_srvboot_id*       id,
+    wired_srvrun_handler    h,
+    wired_srvrun_obs        obs,
+    const wired_srvrun_opt* opt) {
+  srvrun_cfg cfg = srvrun_build_cfg(env, port, id, h, obs, opt);
   if (cfg.fd < 0) return 0;
-  srvrun_install_signals(&cfg);
+  srvrun_install_signals(&cfg, opt);
   WIRED_LOG("listening\n");
   srvrun_loop(&cfg);
   return 1;
+}
+
+int wired_server_run_opt(
+    u16                     port,
+    wired_srvboot_id*       id,
+    wired_srvrun_handler    h,
+    wired_srvrun_obs        obs,
+    const wired_srvrun_opt* opt) {
+  return wired_srvrun_serve_env(&g_srvrun_env, port, id, h, obs, opt);
 }
 
 int wired_server_run(
@@ -2011,6 +2106,7 @@ int wired_server_run(
     wired_srvboot_id*    id,
     wired_srvrun_handler h,
     wired_srvrun_obs     obs) {
-  static const wired_srvrun_opt default_opt = {0, 0, 0, 0, 0, 0, 0, 0, -1, 0};
+  static const wired_srvrun_opt default_opt = {0, 0, 0,  0, 0, 0,
+                                               0, 0, -1, 0, 0};
   return wired_server_run_opt(port, id, h, obs, &default_opt);
 }
