@@ -14,12 +14,13 @@
 /** Fixed capacity: one UMEM frame per fill/comp/rx/tx ring entry slot count
  * below, matching xskumem's QUIC_XSKUMEM_FRAMES (128 frames of 2048B). */
 #define QUIC_XSKSETUP_UMEM_FRAMES 128u
+/** Byte size of one UMEM frame, matching xskumem's QUIC_XSKUMEM_FRAME_SIZE. */
 #define QUIC_XSKSETUP_FRAME_SIZE 2048u
-/* Cast to u64 before multiplying: both operands are u32, and a plain u32*u32
- * product then gets implicitly widened when used as a u64 length/offset
- * (bugprone-implicit-widening-of-multiplication-result). The current
- * constants fit in 32 bits either way, but computing the product in the
- * target width is what the mmap length/UMEM offset math actually needs. */
+/** Total UMEM byte length. Cast to u64 before multiplying: both operands are
+ * u32, and a plain u32*u32 product then gets implicitly widened when used as
+ * a u64 length/offset (bugprone-implicit-widening-of-multiplication-result).
+ * The current constants fit in 32 bits either way, but computing the product
+ * in the target width is what the mmap length/UMEM offset math needs. */
 #define QUIC_XSKSETUP_UMEM_LEN \
   ((u64)QUIC_XSKSETUP_UMEM_FRAMES * QUIC_XSKSETUP_FRAME_SIZE)
 
@@ -28,28 +29,49 @@
 
 /** Caller-supplied configuration for one AF_XDP socket. */
 typedef struct {
+  /** network interface index */
   u32 ifindex;
+  /** RX queue index to bind */
   u32 queue_id;
+  /** XDP bind flags (0 = kernel default) */
   u16 bind_flags;
 } quic_xsk_cfg;
 
 /** One open AF_XDP socket: the fd, its UMEM, the four rings, and the mmap
  * regions backing them (kept so quic_xsksetup_close can munmap them). */
 typedef struct {
+  /** the AF_XDP socket fd, -1 once closed */
   i64 fd;
+  /** UMEM base address */
   u8* umem;
+  /** UMEM byte length */
   usz umem_len;
 
-  quic_xskring rx, tx, fill, comp;
+  /** RX ring (kernel -> app: received frames) */
+  quic_xskring rx;
+  /** TX ring (app -> kernel: frames to send) */
+  quic_xskring tx;
+  /** fill ring (app -> kernel: free RX frames) */
+  quic_xskring fill;
+  /** completion ring (kernel -> app: finished TX frames) */
+  quic_xskring comp;
 
+  /** mmap region backing the rx ring */
   void* map_rx;
-  usz   map_rx_len;
+  /** byte length of map_rx */
+  usz map_rx_len;
+  /** mmap region backing the tx ring */
   void* map_tx;
-  usz   map_tx_len;
+  /** byte length of map_tx */
+  usz map_tx_len;
+  /** mmap region backing the fill ring */
   void* map_fill;
-  usz   map_fill_len;
+  /** byte length of map_fill */
+  usz map_fill_len;
+  /** mmap region backing the comp ring */
   void* map_comp;
-  usz   map_comp_len;
+  /** byte length of map_comp */
+  usz map_comp_len;
 } quic_xsk;
 
 /** Open one AF_XDP socket bound to cfg->ifindex/queue_id: socket -> UMEM

@@ -16,8 +16,11 @@
  * xdp_desc). Entry type of the rx/tx rings; fill/comp rings hold a bare u64
  * frame address instead. */
 typedef struct {
+  /** UMEM byte offset of the frame */
   u64 addr;
+  /** frame byte length */
   u32 len;
+  /** kernel flags, 0 on every frame this SDK produces */
   u32 options;
 } quic_xdp_desc;
 
@@ -25,22 +28,33 @@ typedef struct {
  * local variables). producer/consumer are the shared index cells; desc is
  * the entry array (u64[] for fill/comp, quic_xdp_desc[] for rx/tx). */
 typedef struct {
-  u32*  producer;
-  u32*  consumer;
+  /** shared producer index cell */
+  u32* producer;
+  /** shared consumer index cell */
+  u32* consumer;
+  /** entry array (u64[] for fill/comp, quic_xdp_desc[] for rx/tx) */
   void* desc;
-  u32   size;
+  /** ring capacity, a power of two */
+  u32 size;
 } quic_xskring_view;
 
 /** One SPSC ring side, caching the peer's last-known index so the hot path
  * avoids re-reading the shared cell on every call. */
 typedef struct {
-  u32*  producer;
-  u32*  consumer;
+  /** shared producer index cell */
+  u32* producer;
+  /** shared consumer index cell */
+  u32* consumer;
+  /** entry array (u64[] for fill/comp, quic_xdp_desc[] for rx/tx) */
   void* desc;
-  u32   mask;
-  u32   size;
-  u32   cached_prod;
-  u32   cached_cons;
+  /** size - 1, masks a raw index into a slot */
+  u32 mask;
+  /** ring capacity, a power of two */
+  u32 size;
+  /** last-seen value of *producer */
+  u32 cached_prod;
+  /** last-seen value of *consumer */
+  u32 cached_cons;
 } quic_xskring;
 
 /** Initialize r from a view. size must be a power of two. */
@@ -67,8 +81,12 @@ u32 quic_xskring_cons_peek(quic_xskring* r, u32 n, u32* idx);
 /** Release n previously peeked slots back to the producer. */
 void quic_xskring_cons_release(quic_xskring* r, u32 n);
 
-/** Slot accessors; idx is a raw (unmasked) index, masked here. */
-u64*           quic_xskring_addr_at(quic_xskring* r, u32 idx);
+/** Address slot accessor (fill/comp rings); idx is a raw (unmasked) index,
+ * masked here. */
+u64* quic_xskring_addr_at(quic_xskring* r, u32 idx);
+
+/** Descriptor slot accessor (rx/tx rings); idx is a raw (unmasked) index,
+ * masked here. */
 quic_xdp_desc* quic_xskring_desc_at(quic_xskring* r, u32 idx);
 
 #endif
