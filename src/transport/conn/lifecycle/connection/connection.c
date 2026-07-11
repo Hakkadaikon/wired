@@ -37,16 +37,16 @@ int quic_connection_send(quic_connection* c, int level, quic_span frames) {
 }
 
 /* Pull and unprotect one level-`k` packet; on success *frames views the
- * plaintext. Returns 1 on success, 0 if nothing valid. */
+ * plaintext. Returns 1 on success, 0 if nothing valid. c->rxbuf backs the
+ * view, so it outlives this call (until c's next recv). */
 static int recv_open(
     quic_connection* c, const quic_initial_keys* k, quic_span* frames) {
   quic_aes128 hp;
-  static u8   pkt[QUIC_MEMLINK_MTU]; /* plaintext view outlives this call */
-  usz         rn = quic_memlink_recv(c->link, pkt, sizeof(pkt));
+  usz         rn = quic_memlink_recv(c->link, c->rxbuf, sizeof(c->rxbuf));
   if (rn == 0) return 0;
   quic_aes128_init(&hp, k->hp);
   quic_protect_keys pk = {k, &hp};
-  quic_rx_desc      d  = {quic_mspan_of(pkt, rn), 1};
+  quic_rx_desc      d  = {quic_mspan_of(c->rxbuf, rn), 1};
   return quic_rx_packet(&pk, &d, frames);
 }
 

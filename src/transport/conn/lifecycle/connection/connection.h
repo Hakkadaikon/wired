@@ -18,6 +18,12 @@ typedef struct {
   quic_memlink* link;
   u8            dcid[8];
   int           is_server;
+  /** Scratch for quic_connection_recv's unprotect: per-instance so two
+   * connections stepping concurrently (e.g. from separate threads) never
+   * share one buffer. The returned plaintext view stays valid until this
+   * connection's next recv, same lifetime rule as before this became a
+   * member. */
+  u8 rxbuf[QUIC_MEMLINK_MTU];
 } quic_connection;
 
 /* Everything quic_connection_init needs besides the connection. */
