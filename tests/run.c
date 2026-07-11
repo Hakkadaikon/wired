@@ -486,11 +486,13 @@
 #include "app/http3/server/srvboot/srvboot.c"
 #include "app/http3/server/sigterm/sigterm.c"
 #include "app/http3/server/certreload/certreload.c"
+#include "app/http3/server/srvinbox/srvinbox.c"
 #include "app/http3/server/srvrun/srvrun.c"
 #include "app/http3/server/staticfile/staticfile.c"
 #include "app/http3/server/mimetype/mimetype.c"
 #include "app/http3/server/srvpin/srvpin.c"
 #include "app/http3/server/srvworkers/srvworkers.c"
+#include "app/http3/server/srvthreads/srvthreads.c"
 #include "app/http3/server/srvpoll/srvpoll.c"
 #include "tls/handshake/roles/client/clientwire.c"
 #include "app/webtransport/session/session/session.c"
@@ -933,6 +935,8 @@
 #include "app/h3reqenc_test.c"
 #include "app/srvpin_test.c"
 #include "app/srvworkers_test.c"
+#include "app/srvinbox_test.c"
+#include "app/srvthreads_test.c"
 #include "transport/stats_test.c"
 #include "app/wt_session_test.c"
 #include "app/wterrmap_test.c"
@@ -1410,6 +1414,8 @@ int main(void) {
   test_stats();
   test_srvpin();
   test_srvworkers();
+  test_srvinbox();
+  test_srvthreads();
   test_wt_session();
   test_wterrmap();
   test_wtcapsule();
