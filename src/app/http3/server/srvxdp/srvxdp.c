@@ -2,6 +2,7 @@
 
 #include "common/bytes/util/be.h"
 #include "common/bytes/util/bytes.h"
+#include "common/platform/debug/debug.h"
 #include "transport/io/xdp/xdpframe/xdpframe.h"
 
 /** Number of frames in the TX pool (UMEM frames 64..127; the RX pool,
@@ -196,4 +197,30 @@ i64 wired_srvxdp_send(
   n = quic_xdpframe_build(
       quic_mspan_of(x->xsk.umem + addr, QUIC_XSKSETUP_FRAME_SIZE), &m, pkt);
   return srvxdp_tx_submit(x, addr, n);
+}
+
+/* Names for quic_xsksetup_stats's out[6], in its documented order
+ * (linux/if_xdp.h struct xdp_statistics field order). */
+static const char* const SRVXDP_STAT_NAMES[6] = {
+    "rx_dropped",   "rx_invalid_descs",         "tx_invalid_descs",
+    "rx_ring_full", "rx_fill_ring_empty_descs", "tx_ring_empty_descs",
+};
+
+/* Format one "name value\n" line into line (caller-sized) and log it. */
+static void srvxdp_log_stat_line(const char* name, u64 v) {
+  char line[64];
+  usz  at = 0;
+  while (*name) line[at++] = *name++;
+  line[at++] = ' ';
+  wired_fmt_u64(line, &at, &(wired_fmt_u64_in){v, 1});
+  line[at++] = '\n';
+  line[at]   = 0;
+  wired_log_str(line);
+}
+
+void wired_srvxdp_print_stats(i64 fd) {
+  u64 stats[6];
+  if (quic_xsksetup_stats(fd, stats) < 0) return;
+  for (usz i = 0; i < 6; i++)
+    srvxdp_log_stat_line(SRVXDP_STAT_NAMES[i], stats[i]);
 }
