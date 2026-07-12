@@ -43,18 +43,25 @@ static void hs_traffic(
 }
 
 /* Derive both directions' handshake traffic secrets over the transcript
- * through ServerHello and seed the cumulative transcript with it. */
+ * through ServerHello and seed the cumulative transcript with it.
+ * RFC 8446 4.4.1/7.1: that transcript is ClientHello||ServerHello, not
+ * ServerHello alone -- h->tls->transcript_ch (saved by quic_tlsdriver_
+ * client_hello, empty on the server side, see tlsdriver.h's doc comment)
+ * is prepended first, exactly like tlsdriver.c's own build_transcript does
+ * for the handshake-secret derivation. */
 static void seed_secrets(quic_fullhs* h, const u8* sh, usz sh_len) {
   u8        hs[QUIC_HKDF_PRK];
   const u8* ecdhe;
-  quic_span sh_span = quic_span_of(sh, sh_len);
+  quic_span tr_span;
   quic_tlsdriver_shared_secret(h->tls, &ecdhe);
   quic_tls_handshake_secret(ecdhe, hs);
-  /* peer direction is the opposite of our own role. */
-  hs_traffic(hs, sh_span, !h->is_server, h->hs_traffic_peer);
-  hs_traffic(hs, sh_span, h->is_server, h->hs_traffic_self);
   h->tr_len = 0;
+  tr_add(h, h->tls->transcript_ch, h->tls->transcript_ch_len);
   tr_add(h, sh, sh_len);
+  tr_span = quic_span_of(h->tr, h->tr_len);
+  /* peer direction is the opposite of our own role. */
+  hs_traffic(hs, tr_span, !h->is_server, h->hs_traffic_peer);
+  hs_traffic(hs, tr_span, h->is_server, h->hs_traffic_self);
 }
 
 /* Walk the order machine through the flight already exchanged before this
