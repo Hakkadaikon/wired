@@ -494,6 +494,7 @@
 #include "app/http3/server/srvpin/srvpin.c"
 #include "app/http3/server/srvworkers/srvworkers.c"
 #include "app/http3/server/srvthreads/srvthreads.c"
+#include "app/http3/server/srvdriver/srvdriver.c"
 #include "app/http3/server/srvpoll/srvpoll.c"
 #include "tls/handshake/roles/client/clientwire.c"
 #include "app/webtransport/session/session/session.c"
@@ -939,6 +940,7 @@
 #include "app/srvinbox_test.c"
 #include "app/srvthreads_test.c"
 #include "app/srvthreads_datagram_test.c"
+#include "app/srvdriver_test.c"
 #include "transport/stats_test.c"
 #include "app/wt_session_test.c"
 #include "app/wterrmap_test.c"
@@ -1419,6 +1421,7 @@ int main(void) {
   test_srvinbox();
   test_srvthreads();
   test_srvthreads_datagram();
+  test_srvdriver();
   test_wt_session();
   test_wterrmap();
   test_wtcapsule();
