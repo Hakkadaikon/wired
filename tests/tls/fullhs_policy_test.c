@@ -56,8 +56,7 @@ static usz fp_build_sh(u8* out, usz cap, const u8 pub[32]) {
  * caller that needs to mirror the same transcript on a server-side fullhs
  * can reuse it. */
 static void fp_new_client(
-    quic_tlsdriver* cl, quic_tlsdriver* sv, quic_fullhs* h, u8* sh,
-    usz* shn) {
+    quic_tlsdriver* cl, quic_tlsdriver* sv, quic_fullhs* h, u8* sh, usz* shn) {
   u8  cl_priv[32], cl_pub[32], sv_priv[32], sv_pub[32];
   u8  frame[1024];
   usz fl;

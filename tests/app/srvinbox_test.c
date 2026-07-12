@@ -175,7 +175,7 @@ static u8 g_sib_env_storage[8u * 1024u * 1024u];
  * registered fallback path only ever reads the unused process-global
  * g_srvrun_env). Regression pin for srvrun.c's srvrun_broadcast_registered. */
 static void test_srvinbox_registry_single_worker_reaches_own_env(void) {
-  wired_srvrun_env* env = (wired_srvrun_env*)(void*)g_sib_env_storage;
+  wired_srvrun_env*   env = (wired_srvrun_env*)(void*)g_sib_env_storage;
   wired_srvinbox_ring row[1];
   srvrun_conn*        c;
   CHECK(sizeof g_sib_env_storage >= wired_srvrun_env_size());
@@ -241,12 +241,12 @@ static void test_srvinbox_registry_two_worker_mesh_delivers(void) {
   wired_srvinbox_ring row_a[2]; /* worker A's own row: row_a[j] fed by j */
   wired_srvinbox_ring row_b[2]; /* worker B's own row: row_b[j] fed by j */
   srvrun_conn*        conn_a;
-  srvrun_conn*         conn_b;
+  srvrun_conn*        conn_b;
   sib_mesh_worker_arg aarg;
   sib_mesh_worker_arg barg;
-  wired_thread         ta = {0, 0, 0};
-  wired_thread         tb = {0, 0, 0};
-  u8                   out[WIRED_SRVINBOX_SLOT_MAX];
+  wired_thread        ta = {0, 0, 0};
+  wired_thread        tb = {0, 0, 0};
+  u8                  out[WIRED_SRVINBOX_SLOT_MAX];
 
   CHECK(sizeof g_sib_mesh_env_a >= wired_srvrun_env_size());
   CHECK(sizeof g_sib_mesh_env_b >= wired_srvrun_env_size());
@@ -260,8 +260,8 @@ static void test_srvinbox_registry_two_worker_mesh_delivers(void) {
     wired_srvinbox_ring_init(&row_a[i]);
     wired_srvinbox_ring_init(&row_b[i]);
   }
-  aarg = (sib_mesh_worker_arg){row_a, 0, env_a, conn_a};
-  barg = (sib_mesh_worker_arg){row_b, 1, env_b, conn_b};
+  aarg                  = (sib_mesh_worker_arg){row_a, 0, env_a, conn_a};
+  barg                  = (sib_mesh_worker_arg){row_b, 1, env_b, conn_b};
   sib_mesh_a_registered = 0;
   sib_mesh_b_registered = 0;
   sib_mesh_b_may_check  = 0;

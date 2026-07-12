@@ -1024,8 +1024,10 @@ static int srvrun_bcast_find(i64 tid) {
 }
 
 void wired_srvrun_broadcast_register(
-    int index, int n_total, wired_srvinbox_ring* inbox_row,
-    wired_srvrun_env* env) {
+    int                  index,
+    int                  n_total,
+    wired_srvinbox_ring* inbox_row,
+    wired_srvrun_env*    env) {
   i64 tid = wired_thread_tid();
   int slot;
   if (srvrun_bcast_find(tid) >= 0) return; /* already registered */
@@ -1514,7 +1516,7 @@ static void srvrun_reject_wt(wired_srvrun_env* env, srvrun_conn* c, int slot) {
  * out so srvrun_start_resp itself stays at its gate/dispatch decision (CCN). */
 static void srvrun_start_app_resp(
     const srvrun_step_ctx* ctx, srvrun_conn* c, int slot) {
-  u8* st = ctx->cfg->env->respstore[slot];
+  u8*       st   = ctx->cfg->env->respstore[slot];
   quic_obuf body = quic_obuf_of(
       st + SRVRUN_RESP_HDR_ROOM, WIRED_SRVRUN_RESP_MAX - SRVRUN_RESP_HDR_ROOM);
   u8          pre[SRVRUN_RESP_HDR_ROOM];

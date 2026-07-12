@@ -61,8 +61,11 @@ static usz fullhs_wrap_crypto(u8* out, usz cap, const u8* msg, usz n) {
  * message quic_fullhs_init must seed its transcript with (RFC 8446 4.4.1),
  * not some unrelated fixed constant. */
 static void reach_hs_secret(
-    quic_tlsdriver* cl, quic_tlsdriver* sv, const u8 sv_pub[32], u8* sh,
-    usz* shn) {
+    quic_tlsdriver* cl,
+    quic_tlsdriver* sv,
+    const u8        sv_pub[32],
+    u8*             sh,
+    usz*            shn) {
   u8  frame[1024];
   usz fl;
   {
