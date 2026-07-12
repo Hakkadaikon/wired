@@ -225,32 +225,42 @@ int* wired_srvrun_shutdown_word(void);
  * @param data payload to broadcast; must fit the per-connection DATAGRAM cap
  * @return 1 if queued for every active WT session, 0 if data exceeds the cap
  *
- * Multi-worker fan-out (Phase E, tasks/loopeng/srvinbox-mesh): when 2 or more
- * workers are registered via wired_srvrun_broadcast_register, this no longer
- * reaches only the calling worker's own connections. It also pushes the
- * payload into every registered worker's inbox row (wired_srvinbox_push, one
- * push per target worker including the caller itself) so each worker's own
- * wired_srvrun_serve_env loop delivers it to its own WT sessions on a later
- * step (srvrun.c drains the calling worker's inbox row once per step). With
- * 0 or 1 workers registered (the default, single-process behavior), this is
- * unchanged: only the direct fan-out below runs. */
+ * Threaded fan-out (Phase E, tasks/loopeng/srvinbox-mesh): a caller running
+ * inside a srvthreads worker (registered via wired_srvrun_broadcast_register)
+ * is fanned out into ITS OWN registered env -- srvthreads gives every worker
+ * its own connection table, so the single process-wide g_srvrun_env this
+ * function used to always target is empty/unused for every registered
+ * worker and would silently reach no one. With 2 or more workers registered,
+ * the payload is also pushed into every OTHER registered worker's inbox row
+ * (wired_srvinbox_push) so each one's own wired_srvrun_serve_env loop
+ * delivers it to its own WT sessions on a later step (srvrun.c drains the
+ * calling worker's inbox row once per step). An unregistered caller (the
+ * default, single-process wired_server_run(_opt) or a lone
+ * wired_srvrun_serve_env instance) is unchanged: the direct fan-out targets
+ * the single g_srvrun_env as before Phase E. */
 int wired_server_broadcast_datagram(quic_span data);
 
 /** Register the calling thread as srvthreads worker `index` of `n_total`,
  * with its own N-ring inbox row (inbox_row[j] receives broadcasts sent by
- * worker j, including j == index -- a worker's own broadcast reaches its own
- * inbox row too, same as every other worker's). Called once by each worker
- * before serving, typically right before wired_srvrun_serve_env. n_total and
- * inbox_row are owned by the caller (srvthreads); srvrun only keeps
- * pointers into them and never allocates or frees the mesh itself, so
- * inbox_row must stay live and unmoved until wired_srvrun_broadcast_unregister.
+ * worker j, j != index only -- the caller's own broadcasts reach its own
+ * connections directly, not through this row, so double-delivery to itself
+ * never happens) and its own env (the connection table
+ * wired_server_broadcast_datagram fans out into when this thread is the
+ * caller). Called once by each worker before serving, typically right before
+ * wired_srvrun_serve_env. n_total, inbox_row and env are owned by the caller
+ * (srvthreads); srvrun only keeps pointers into them and never allocates or
+ * frees them itself, so all three must stay live and unmoved until
+ * wired_srvrun_broadcast_unregister.
  * @param index this worker's 0-based index, < n_total
  * @param n_total total worker count in the mesh, <= 16 (srvrun's fixed
  *   registry capacity)
  * @param inbox_row this worker's own row of n_total rings, row[j] fed by
- *   worker j's broadcasts */
+ *   worker j's broadcasts (j != index; row[index] is never written)
+ * @param env this worker's own wired_srvrun_env, the connection table a
+ *   broadcast this thread sends is fanned out into directly */
 void wired_srvrun_broadcast_register(
-    int index, int n_total, wired_srvinbox_ring* inbox_row);
+    int index, int n_total, wired_srvinbox_ring* inbox_row,
+    wired_srvrun_env* env);
 
 /** Unregister the calling thread's broadcast registry entry (symmetric with
  * wired_srvrun_broadcast_register), typically at worker shutdown. A no-op if

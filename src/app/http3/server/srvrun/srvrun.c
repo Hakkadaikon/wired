@@ -1010,6 +1010,7 @@ typedef struct {
   int                  index;     /**< this worker's 0-based mesh index */
   int                  n_total;   /**< total worker count in the mesh */
   wired_srvinbox_ring* inbox_row; /**< row[j] = ring fed by worker j */
+  wired_srvrun_env*    env; /**< this worker's own env (its connection table) */
 } srvrun_bcast_entry;
 
 static srvrun_bcast_entry g_srvrun_bcast[SRVRUN_BCAST_MAX];
@@ -1023,13 +1024,15 @@ static int srvrun_bcast_find(i64 tid) {
 }
 
 void wired_srvrun_broadcast_register(
-    int index, int n_total, wired_srvinbox_ring* inbox_row) {
+    int index, int n_total, wired_srvinbox_ring* inbox_row,
+    wired_srvrun_env* env) {
   i64 tid = wired_thread_tid();
   int slot;
   if (srvrun_bcast_find(tid) >= 0) return; /* already registered */
   slot = srvrun_bcast_find(0);
   if (slot < 0) return; /* registry full, drop the registration */
-  g_srvrun_bcast[slot] = (srvrun_bcast_entry){tid, index, n_total, inbox_row};
+  g_srvrun_bcast[slot] =
+      (srvrun_bcast_entry){tid, index, n_total, inbox_row, env};
   g_srvrun_bcast_n++;
 }
 
@@ -1040,33 +1043,47 @@ void wired_srvrun_broadcast_unregister(void) {
   g_srvrun_bcast_n--;
 }
 
-/* Push data into every registered worker t's inbox row at column my_index
- * (the caller's own mesh index) -- best-effort per target, mirroring
- * srvrun_broadcast_to_all's own best-effort per-connection queuing. Reaches
- * the caller's own inbox row too (t == my_index included), matching every
- * other worker's own broadcast reaching its own row. */
-static void srvrun_bcast_mesh_push(int my_index, quic_span data) {
+/* t is a mesh push target: a registered slot other than the caller's own. */
+static int srvrun_bcast_mesh_target(int t, int my_slot) {
+  return g_srvrun_bcast[t].tid != 0 && t != my_slot;
+}
+
+/* Push data into every OTHER registered worker t's inbox row at column
+ * my_index (the caller's own mesh index) -- best-effort per target, mirroring
+ * srvrun_broadcast_to_all's own best-effort per-connection queuing. The
+ * caller's own connections are reached directly by srvrun_broadcast_registered
+ * instead (its own env's table), not through this mesh push -- pushing into
+ * its own row here too would double-deliver: once now via the direct
+ * fan-out, once more next step when it drains its own inbox row. my_slot
+ * lets the loop skip exactly the caller's own registry entry. */
+static void srvrun_bcast_mesh_push(int my_slot, int my_index, quic_span data) {
   for (int t = 0; t < SRVRUN_BCAST_MAX; t++) {
-    if (!g_srvrun_bcast[t].tid) continue;
+    if (!srvrun_bcast_mesh_target(t, my_slot)) continue;
     wired_srvinbox_push(&g_srvrun_bcast[t].inbox_row[my_index], data.p, data.n);
   }
 }
 
-/* Single-process fallback path (0 or 1 workers registered): the original
- * direct fan-out, byte-identical to before Phase E. */
+/* Single-process fallback path: the calling thread is not registered (no
+ * srvthreads worker ever called wired_srvrun_broadcast_register), so this is
+ * either wired_server_run(_opt) or the one-and-only wired_srvrun_serve_env
+ * instance -- both drive the single process-wide g_srvrun_env, byte-identical
+ * to before Phase E. */
 static int srvrun_broadcast_direct(quic_span data) {
   srvrun_broadcast_to_all(
       &(srvrun_state){g_srvrun_table, g_srvrun_state.conns}, data);
   return 1;
 }
 
-/* Multi-worker path (>= 2 workers registered): push into every worker's
- * inbox row at the calling worker's own column. 0 if the calling thread was
- * never registered (it has no column to push from), else 1. */
-static int srvrun_broadcast_mesh(quic_span data) {
-  int slot = srvrun_bcast_find(wired_thread_tid());
-  if (slot < 0) return 0;
-  srvrun_bcast_mesh_push(g_srvrun_bcast[slot].index, data);
+/* A registered srvthreads worker (any n_total, including 1): fan out to the
+ * calling worker's OWN env (its own connection table) first -- the env a
+ * plain g_srvrun_env-based fan-out would completely miss, since srvthreads
+ * gives every worker its own mmap'd env instead of the single global one.
+ * With 2+ workers also push into every OTHER registered worker's inbox row
+ * (Phase E mesh) so their own next step delivers it to their own sessions. */
+static int srvrun_broadcast_registered(int slot, quic_span data) {
+  srvrun_bcast_entry* e = &g_srvrun_bcast[slot];
+  srvrun_broadcast_to_all(&(srvrun_state){e->env->table, e->env->conns}, data);
+  if (e->n_total > 1) srvrun_bcast_mesh_push(slot, e->index, data);
   return 1;
 }
 
@@ -1078,9 +1095,11 @@ static int srvrun_broadcast_fits(quic_span data) {
 }
 
 int wired_server_broadcast_datagram(quic_span data) {
+  int slot;
   if (!srvrun_broadcast_fits(data)) return 0;
-  if (g_srvrun_bcast_n <= 1) return srvrun_broadcast_direct(data);
-  return srvrun_broadcast_mesh(data);
+  slot = srvrun_bcast_find(wired_thread_tid());
+  if (slot < 0) return srvrun_broadcast_direct(data);
+  return srvrun_broadcast_registered(slot, data);
 }
 
 /* Pop at most one message from row[j] and, if there was one, fan it out to
@@ -1459,8 +1478,9 @@ static int wt_origin_ok(const wired_h3reqdrive_req* r) {
  * (draft-ietf-webtrans-http3-15 SS3.2), not an application response. Used for
  * both the 2xx that establishes a session and the 403 that rejects one
  * (WT-B-005/007/008). */
-static void srvrun_start_wt_status(srvrun_conn* c, int slot, u16 status) {
-  u8*       st = g_srvrun_respstore[slot];
+static void srvrun_start_wt_status(
+    wired_srvrun_env* env, srvrun_conn* c, int slot, u16 status) {
+  u8*       st = env->respstore[slot];
   u8        pre[SRVRUN_RESP_HDR_ROOM];
   quic_obuf pob = quic_obuf_of(pre, sizeof pre);
   usz       off;
@@ -1476,17 +1496,17 @@ static void srvrun_start_wt_status(srvrun_conn* c, int slot, u16 status) {
 /* Establish a WebTransport session for this Extended CONNECT (draft-ietf-
  * webtrans-http3-15 SS3.2/SS4): the session id is the CONNECT stream's own
  * id. Skips the normal app-handler response path entirely. */
-static void srvrun_start_wt(srvrun_conn* c, int slot) {
+static void srvrun_start_wt(wired_srvrun_env* env, srvrun_conn* c, int slot) {
   wired_wt_session_init(&c->wt, c->l.req_stream_id);
   wired_wt_session_establish(&c->wt);
   c->wt_active = 1;
-  srvrun_start_wt_status(c, slot, 200);
+  srvrun_start_wt_status(env, c, slot, 200);
 }
 
 /* Reject this Extended CONNECT with 403 (WT-B-005/007/008: a present but
  * malformed Origin) without establishing a session. */
-static void srvrun_reject_wt(srvrun_conn* c, int slot) {
-  srvrun_start_wt_status(c, slot, 403);
+static void srvrun_reject_wt(wired_srvrun_env* env, srvrun_conn* c, int slot) {
+  srvrun_start_wt_status(env, c, slot, 403);
 }
 
 /* Body of srvrun_start_resp for a normal (non-WT) request: run the app
@@ -1494,7 +1514,7 @@ static void srvrun_reject_wt(srvrun_conn* c, int slot) {
  * out so srvrun_start_resp itself stays at its gate/dispatch decision (CCN). */
 static void srvrun_start_app_resp(
     const srvrun_step_ctx* ctx, srvrun_conn* c, int slot) {
-  u8*       st   = g_srvrun_respstore[slot];
+  u8* st = ctx->cfg->env->respstore[slot];
   quic_obuf body = quic_obuf_of(
       st + SRVRUN_RESP_HDR_ROOM, WIRED_SRVRUN_RESP_MAX - SRVRUN_RESP_HDR_ROOM);
   u8          pre[SRVRUN_RESP_HDR_ROOM];
@@ -1522,7 +1542,7 @@ static void srvrun_start_app_resp(
  * of and in addition to the 429 above. */
 static void srvrun_reject_wt_busy(
     const srvrun_cfg* cfg, srvrun_conn* c, int slot) {
-  srvrun_start_wt_status(c, slot, 429);
+  srvrun_start_wt_status(cfg->env, c, slot, 429);
   srvrun_send_wt_busy_reset(
       cfg, c, c->l.req_stream_id, QUIC_H3_REQUEST_REJECTED);
 }
@@ -1545,7 +1565,7 @@ static int srvrun_stream_id_is_client_bidi(u64 stream_id) {
  * shape rather than a CONNECTION_CLOSE. */
 static void srvrun_reject_wt_bad_id(
     const srvrun_cfg* cfg, srvrun_conn* c, int slot) {
-  srvrun_start_wt_status(c, slot, 403);
+  srvrun_start_wt_status(cfg->env, c, slot, 403);
   srvrun_send_wt_busy_reset(cfg, c, c->l.req_stream_id, QUIC_H3_ID_ERROR);
 }
 
@@ -1559,7 +1579,7 @@ static void srvrun_dispatch_wt_free_slot(
     srvrun_reject_wt_bad_id(cfg, c, slot);
     return;
   }
-  srvrun_start_wt(c, slot);
+  srvrun_start_wt(cfg->env, c, slot);
 }
 
 /* A well-formed Extended CONNECT for WebTransport either establishes a
@@ -1571,7 +1591,7 @@ static void srvrun_dispatch_wt_free_slot(
 static void srvrun_dispatch_wt(
     const srvrun_cfg* cfg, srvrun_conn* c, int slot) {
   if (!wt_origin_ok(&c->l.req)) {
-    srvrun_reject_wt(c, slot);
+    srvrun_reject_wt(cfg->env, c, slot);
     return;
   }
   if (c->wt_active) {
