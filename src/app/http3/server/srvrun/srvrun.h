@@ -259,8 +259,10 @@ int wired_server_broadcast_datagram(quic_span data);
  * @param env this worker's own wired_srvrun_env, the connection table a
  *   broadcast this thread sends is fanned out into directly */
 void wired_srvrun_broadcast_register(
-    int index, int n_total, wired_srvinbox_ring* inbox_row,
-    wired_srvrun_env* env);
+    int                  index,
+    int                  n_total,
+    wired_srvinbox_ring* inbox_row,
+    wired_srvrun_env*    env);
 
 /** Unregister the calling thread's broadcast registry entry (symmetric with
  * wired_srvrun_broadcast_register), typically at worker shutdown. A no-op if

@@ -199,7 +199,8 @@ static int derive_handshake_secret(
  * a no-op on the client side (msg there is the ServerHello, already the
  * second message; transcript_ch was set when this side's own ClientHello
  * was built). */
-static void save_server_side_transcript_ch(quic_tlsdriver* d, const u8* msg, usz n) {
+static void save_server_side_transcript_ch(
+    quic_tlsdriver* d, const u8* msg, usz n) {
   if (!d->is_server) return;
   quic_memcpy(d->transcript_ch, msg, n);
   d->transcript_ch_len = n;

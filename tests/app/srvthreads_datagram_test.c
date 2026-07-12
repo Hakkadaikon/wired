@@ -1,11 +1,11 @@
+#include "app/datagram/datagram/datagram.h"
 #include "app/http3/core/h3/frame.h"
-#include "common/bytes/util/bytes.h"
-#include "common/platform/debug/debug.h"
 #include "app/http3/request/h3reqenc/pseudo_encode.h"
 #include "app/http3/server/srvrun/srvrun.h"
 #include "app/http3/server/srvthreads/srvthreads.h"
-#include "app/datagram/datagram/datagram.h"
 #include "app/webtransport/session/session/session.h"
+#include "common/bytes/util/bytes.h"
+#include "common/platform/debug/debug.h"
 #include "common/platform/thread/thread.h"
 #include "crypto/kdf/hkdf/hkdf.h"
 #include "test.h"
@@ -61,8 +61,9 @@ typedef struct {
 
 static void sdt_set_rcvtimeo(i64 fd, i64 ms) {
   sdt_timeval tv = {ms / 1000, (ms % 1000) * 1000};
-  syscall6(SYS_setsockopt, fd, 1 /* SOL_SOCKET */, 20 /* SO_RCVTIMEO */,
-           (i64)&tv, sizeof(tv), 0);
+  syscall6(
+      SYS_setsockopt, fd, 1 /* SOL_SOCKET */, 20 /* SO_RCVTIMEO */, (i64)&tv,
+      sizeof(tv), 0);
 }
 
 /* --- server identity (self-signed, DATAGRAM-enabled) ---------------------
@@ -78,7 +79,7 @@ static void sdt_make_id(
   quic_x25519_base(pub, priv);
   id->priv                    = priv;
   id->pub                     = pub;
-  id->cert_seed                = seed;
+  id->cert_seed               = seed;
   id->scid                    = g_sdt_srv_scid;
   id->scid_len                = 6;
   id->random                  = rnd;
@@ -104,7 +105,7 @@ static void sdt_on_datagram_cb(void* ctx, wired_wt_session* s, quic_span d) {
  * plain UDP + SO_REUSEPORT mode -- exactly `--cores 0`) until the shared
  * shutdown word is set. */
 static void sdt_server_thread(void* argp) {
-  wired_srvboot_id* id = (wired_srvboot_id*)argp;
+  wired_srvboot_id*    id  = (wired_srvboot_id*)argp;
   wired_srvthreads_opt opt = {0};
   opt.cores[0]             = 0;
   opt.n_cores              = 1;
@@ -123,14 +124,14 @@ static void sdt_server_thread(void* argp) {
  * for: a peer that only ever sees the server's bytes on the wire. */
 
 struct sdt_client {
-  quic_client c;
-  i64         fd;
+  quic_client      c;
+  i64              fd;
   quic_sockaddr_in srv;
-  u8          priv[32], pub[32];
-  u8          ch[512]; /* our own raw ClientHello, saved for the transcript */
-  usz         ch_len;
-  u8          chsh[900]; /* CH||SH, growing to CH||SH||EE below */
-  usz         chsh_len;
+  u8               priv[32], pub[32];
+  u8  ch[512]; /* our own raw ClientHello, saved for the transcript */
+  usz ch_len;
+  u8  chsh[900]; /* CH||SH, growing to CH||SH||EE below */
+  usz chsh_len;
 };
 
 /* RFC 9221 3: advertise max_datagram_frame_size in our own ClientHello's
@@ -144,10 +145,9 @@ struct sdt_client {
 static usz sdt_build_ch_with_dg_tp(struct sdt_client* cx, u8* ch, usz cap) {
   u8        tp[16];
   quic_obuf tob = quic_obuf_of(tp, sizeof tp);
-  usz       tn  = quic_tparam_put_int(
-      &tob, QUIC_TP_MAX_DATAGRAM_FRAME_SIZE, 65535);
-  static const u8 random[32] = {0};
-  quic_clienthello_in in     = {
+  usz tn = quic_tparam_put_int(&tob, QUIC_TP_MAX_DATAGRAM_FRAME_SIZE, 65535);
+  static const u8     random[32] = {0};
+  quic_clienthello_in in         = {
       random, cx->pub, quic_span_of((const u8*)0, 0), quic_span_of(tp, tn)};
   quic_obuf ob = quic_obuf_of(ch, cap);
   usz       n  = quic_tls_client_hello(&in, &ob);
@@ -165,7 +165,7 @@ static void sdt_client_init(struct sdt_client* cx) {
    * for the transcript -- reproduces byte-for-byte what sdt_do_initial sends
    * on the wire. */
   cx->ch_len = sdt_build_ch_with_dg_tp(cx, cx->ch, sizeof cx->ch);
-  cx->fd = wired_udp_socket();
+  cx->fd     = wired_udp_socket();
   if (cx->fd >= 0) sdt_set_rcvtimeo(cx->fd, 200); /* 200ms per recv */
   wired_udp_addr(&cx->srv, SDT_PORT, (const u8[4]){127, 0, 0, 1});
 }
@@ -182,15 +182,21 @@ static void sdt_client_init(struct sdt_client* cx) {
  * *out_len and returns 1. */
 static int sdt_recv_one(i64 fd, u8* buf, usz cap, usz* out_len) {
   quic_sockaddr_in from;
-  i64 r = wired_udp_recvfrom(fd, quic_mspan_of(buf, cap), &from);
+  i64              r = wired_udp_recvfrom(fd, quic_mspan_of(buf, cap), &from);
   if (r <= 0) return 0;
   *out_len = (usz)r;
   return 1;
 }
 
 static int sdt_initial_attempt(
-    struct sdt_client* cx, quic_span dg, u8* ini_reply, usz cap, usz* ilen,
-    u8* hs_reply, usz hcap, usz* hlen) {
+    struct sdt_client* cx,
+    quic_span          dg,
+    u8*                ini_reply,
+    usz                cap,
+    usz*               ilen,
+    u8*                hs_reply,
+    usz                hcap,
+    usz*               hlen) {
   if (wired_udp_send(cx->fd, &cx->srv, dg) < 0) return 0;
   if (!sdt_recv_one(cx->fd, ini_reply, cap, ilen)) return 0;
   return sdt_recv_one(cx->fd, hs_reply, hcap, hlen);
@@ -203,8 +209,14 @@ static int sdt_initial_attempt(
 /* Retry sdt_initial_attempt up to 30 times over the already-built Initial
  * datagram dg. */
 static int sdt_retry_initial(
-    struct sdt_client* cx, quic_span dg, u8* ini_reply, usz cap, usz* ilen,
-    u8* hs_reply, usz hcap, usz* hlen) {
+    struct sdt_client* cx,
+    quic_span          dg,
+    u8*                ini_reply,
+    usz                cap,
+    usz*               ilen,
+    u8*                hs_reply,
+    usz                hcap,
+    usz*               hlen) {
   for (int attempt = 0; attempt < 30; attempt++)
     if (sdt_initial_attempt(cx, dg, ini_reply, cap, ilen, hs_reply, hcap, hlen))
       return 1;
@@ -217,17 +229,21 @@ static int sdt_retry_initial(
  * via quic_tlsdriver_raw_client_hello's hardcoded empty transport parameters
  * (see sdt_build_ch_with_dg_tp's doc). */
 static int sdt_do_initial(
-    struct sdt_client* cx, u8* ini_reply, usz cap, usz* ilen, u8* hs_reply,
-    usz hcap, usz* hlen) {
-  u8        dg[1500];
-  quic_obuf ob = quic_obuf_of(dg, sizeof dg);
-  quic_initpkt_desc d = {
+    struct sdt_client* cx,
+    u8*                ini_reply,
+    usz                cap,
+    usz*               ilen,
+    u8*                hs_reply,
+    usz                hcap,
+    usz*               hlen) {
+  u8                dg[1500];
+  quic_obuf         ob = quic_obuf_of(dg, sizeof dg);
+  quic_initpkt_desc d  = {
       quic_span_of(g_sdt_cli_scid, 6), quic_span_of(g_sdt_cli_scid, 6),
       quic_span_of(cx->ch, cx->ch_len), 0, 0};
   if (!quic_initpkt_build(&d, &ob)) return 0;
   return sdt_retry_initial(
-      cx, quic_span_of(dg, ob.len), ini_reply, cap, ilen, hs_reply, hcap,
-      hlen);
+      cx, quic_span_of(dg, ob.len), ini_reply, cap, ilen, hs_reply, hcap, hlen);
 }
 
 /* Open the server's Initial reply (ServerHello) and feed it to our own
@@ -259,7 +275,7 @@ static int sdt_do_initial(
  * ClientHello, then tls.n bytes of ServerHello. Returns 0 if it would
  * overflow. */
 static int sdt_append_chsh(struct sdt_client* cx, quic_span tls) {
-  usz off = 0;
+  usz        off = 0;
   quic_mspan buf = quic_mspan_of(cx->chsh, sizeof cx->chsh);
   if (!quic_put_bytes(buf, &off, quic_span_of(cx->ch, cx->ch_len))) return 0;
   if (!quic_put_bytes(buf, &off, tls)) return 0;
@@ -268,9 +284,9 @@ static int sdt_append_chsh(struct sdt_client* cx, quic_span tls) {
 }
 
 static int sdt_feed_serverhello(struct sdt_client* cx, quic_span tls) {
-  u8                          cframe[600];
-  quic_obuf                   cb  = quic_obuf_of(cframe, sizeof cframe);
-  quic_crypto_stream_emit_in  ein = {0, (usz)tls.n};
+  u8                         cframe[600];
+  quic_obuf                  cb  = quic_obuf_of(cframe, sizeof cframe);
+  quic_crypto_stream_emit_in ein = {0, (usz)tls.n};
   if (!sdt_append_chsh(cx, tls)) return 0;
   if (!quic_crypto_stream_emit(tls, &ein, &cb)) return 0;
   return quic_tlsdriver_recv_crypto(&cx->c.tls, cframe, cb.len);
@@ -292,9 +308,9 @@ static int sdt_rederive_hs_keys(struct sdt_client* cx) {
 }
 
 static int sdt_open_initial(struct sdt_client* cx, u8* pkt, usz len) {
-  quic_span                tls;
-  quic_clientwire_open_in  oin = {quic_span_of(g_sdt_cli_scid, 6),
-                                   quic_mspan_of(pkt, len), 0};
+  quic_span               tls;
+  quic_clientwire_open_in oin = {
+      quic_span_of(g_sdt_cli_scid, 6), quic_mspan_of(pkt, len), 0};
   if (!quic_client_open_initial_wire(&oin, &tls)) return 0;
   if (!sdt_feed_serverhello(cx, tls)) return 0;
   return sdt_rederive_hs_keys(cx);
@@ -335,9 +351,9 @@ static int sdt_open_initial(struct sdt_client* cx, u8* pkt, usz len) {
 static int sdt_build_chshee(struct sdt_client* cx, const u8* ee, usz ee_len) {
   usz        off    = 0;
   usz        sh_len = cx->chsh_len - cx->ch_len;
-  quic_mspan buf = quic_mspan_of(cx->c.sh_transcript, sizeof cx->c.sh_transcript);
-  if (!quic_put_bytes(
-          buf, &off, quic_span_of(cx->chsh + cx->ch_len, sh_len)))
+  quic_mspan buf =
+      quic_mspan_of(cx->c.sh_transcript, sizeof cx->c.sh_transcript);
+  if (!quic_put_bytes(buf, &off, quic_span_of(cx->chsh + cx->ch_len, sh_len)))
     return 0;
   if (!quic_put_bytes(buf, &off, quic_span_of(ee, ee_len))) return 0;
   cx->c.sh_len = off;
@@ -355,8 +371,8 @@ static int sdt_seed_fullhs(struct sdt_client* cx, const u8* ee, usz ee_len) {
  * overwrite quic_fullhs_init's CH||SH||EE-tainted versions -- see this
  * function group's file-level doc for why. */
 static int sdt_rederive_finished_secrets(struct sdt_client* cx) {
-  u8        hs[QUIC_HKDF_PRK];
-  const u8* shared;
+  u8                    hs[QUIC_HKDF_PRK];
+  const u8*             shared;
   quic_derive_secret_in peer_in, self_in;
   if (!quic_tlsdriver_shared_secret(&cx->c.tls, &shared)) return 0;
   quic_tls_handshake_secret(shared, hs);
@@ -371,7 +387,8 @@ static int sdt_rederive_finished_secrets(struct sdt_client* cx) {
   return 1;
 }
 
-static int sdt_finish_hs_secrets(struct sdt_client* cx, const u8* ee, usz ee_len) {
+static int sdt_finish_hs_secrets(
+    struct sdt_client* cx, const u8* ee, usz ee_len) {
   if (!sdt_seed_fullhs(cx, ee, ee_len)) return 0;
   return sdt_rederive_finished_secrets(cx);
 }
@@ -402,8 +419,10 @@ static const struct {
 
 static int sdt_feed_one_hs_msg(struct sdt_client* cx, const u8* m, usz n) {
   u8 t = m[0];
-  for (usz i = 0; i < sizeof sdt_hs_feed_table / sizeof sdt_hs_feed_table[0]; i++)
-    if (sdt_hs_feed_table[i].type == t) return sdt_hs_feed_table[i].fn(cx, m, n);
+  for (usz i = 0; i < sizeof sdt_hs_feed_table / sizeof sdt_hs_feed_table[0];
+       i++)
+    if (sdt_hs_feed_table[i].type == t)
+      return sdt_hs_feed_table[i].fn(cx, m, n);
   return 0;
 }
 
@@ -438,7 +457,8 @@ static usz sdt_consume_ee(struct sdt_client* cx, const u8* p, usz n) {
 /* One message step within sdt_feed_rest's walk: feeds the message at p[off..)
  * and returns the offset just past it, or 0 (== off's only valid "done"
  * value when off > 0) on a malformed/rejected message. */
-static usz sdt_feed_rest_step(struct sdt_client* cx, const u8* p, usz off, usz n) {
+static usz sdt_feed_rest_step(
+    struct sdt_client* cx, const u8* p, usz off, usz n) {
   usz total = sdt_hs_msg_total(p, off, n);
   if (total == 0) return 0;
   if (!sdt_feed_one_hs_msg(cx, p + off, total)) return 0;
@@ -472,9 +492,9 @@ static int sdt_open_handshake(struct sdt_client* cx, u8* pkt, usz len) {
 /* Seal our own Finished into a Handshake packet (CLIENT_HS, our own
  * direction) and send it. */
 static int sdt_send_finished(struct sdt_client* cx) {
-  u8        fin[128], pkt[512];
-  quic_obuf fob = quic_obuf_of(fin, sizeof fin);
-  quic_obuf pkt_ob;
+  u8                      fin[128], pkt[512];
+  quic_obuf               fob = quic_obuf_of(fin, sizeof fin);
+  quic_obuf               pkt_ob;
   quic_clientwire_seal_in sin;
   if (!quic_fullhs_send_finished(&cx->c.hs, &fob)) return 0;
   pkt_ob = quic_obuf_of(pkt, sizeof pkt);
@@ -498,13 +518,13 @@ static int sdt_confirm(struct sdt_client* cx) {
 static int sdt_open_onertt(
     struct sdt_client* cx, u8* pkt, usz len, const u8** pl, usz* pll) {
   const quic_initial_keys* k;
-  quic_aes128               hp;
-  quic_span                 v;
+  quic_aes128              hp;
+  quic_span                v;
   if (!quic_keysched_get(&cx->c.tls.ks, QUIC_KS_SERVER_AP, &k)) return 0;
   quic_aes128_init(&hp, k->hp);
   {
-    quic_protect_keys pk = {k, &hp};
-    quic_hspkt_onertt_open_desc d = {quic_mspan_of(pkt, len), 6, 0};
+    quic_protect_keys           pk = {k, &hp};
+    quic_hspkt_onertt_open_desc d  = {quic_mspan_of(pkt, len), 6, 0};
     if (!quic_hspkt_onertt_open(&pk, &d, &v)) return 0;
   }
   *pl  = v.p;
@@ -543,12 +563,12 @@ static int sdt_slice_has_hs_done(struct sdt_client* cx, const u8* p, usz n) {
 }
 
 static int sdt_try_recv_hs_done(struct sdt_client* cx) {
-  u8                pkt[1500];
-  quic_sockaddr_in  from;
-  const u8*         pkts[8];
-  usz               offs[8], lens[8];
-  quic_pktlist      plist = {pkts, offs, lens, 8};
-  usz               n, i;
+  u8               pkt[1500];
+  quic_sockaddr_in from;
+  const u8*        pkts[8];
+  usz              offs[8], lens[8];
+  quic_pktlist     plist = {pkts, offs, lens, 8};
+  usz              n, i;
   i64 r = wired_udp_recvfrom(cx->fd, quic_mspan_of(pkt, sizeof pkt), &from);
   if (r <= 0) return 0;
   n = quic_udploop_split(quic_span_of(pkt, (usz)r), &plist);
@@ -576,8 +596,9 @@ static int sdt_wait_hs_done(struct sdt_client* cx) {
 static int sdt_recv_accept_flight(struct sdt_client* cx) {
   u8  ini_reply[1500], hs_reply[1500];
   usz ilen = 0, hlen = 0;
-  if (!sdt_do_initial(cx, ini_reply, sizeof ini_reply, &ilen, hs_reply,
-                       sizeof hs_reply, &hlen))
+  if (!sdt_do_initial(
+          cx, ini_reply, sizeof ini_reply, &ilen, hs_reply, sizeof hs_reply,
+          &hlen))
     return 0;
   if (!sdt_open_initial(cx, ini_reply, ilen)) return 0;
   return sdt_open_handshake(cx, hs_reply, hlen);
@@ -631,17 +652,17 @@ static int sdt_handshake(struct sdt_client* cx) {
  * STREAM frame happens in sdt_seal_stream0 below (it needs the client's own
  * key schedule, unlike this pure encode step). */
 static usz sdt_build_connect(u8* out, usz cap) {
-  u8        fields[256];
-  quic_obuf fob = quic_obuf_of(fields, sizeof fields);
-  quic_obuf hob = quic_obuf_of(out, cap);
+  u8                   fields[256];
+  quic_obuf            fob = quic_obuf_of(fields, sizeof fields);
+  quic_obuf            hob = quic_obuf_of(out, cap);
   quic_h3req_pseudo_in pin = {
       quic_span_of((const u8*)"CONNECT", 7),
-      quic_span_of((const u8*)"https", 5),
-      quic_span_of((const u8*)"h", 1),
+      quic_span_of((const u8*)"https", 5), quic_span_of((const u8*)"h", 1),
       quic_span_of((const u8*)"/", 1),
       quic_span_of((const u8*)"webtransport", 12)};
   if (!quic_h3req_enc_pseudo(&pin, &fob)) return 0;
-  if (!quic_h3_frame_put(&hob, QUIC_H3_FRAME_HEADERS, quic_span_of(fields, fob.len)))
+  if (!quic_h3_frame_put(
+          &hob, QUIC_H3_FRAME_HEADERS, quic_span_of(fields, fob.len)))
     return 0;
   return hob.len;
 }
@@ -652,8 +673,8 @@ static usz sdt_build_connect(u8* out, usz cap) {
 static usz sdt_seal_stream0(
     struct sdt_client* cx, const u8* payload, usz plen, u8* out, usz cap) {
   const quic_initial_keys* k;
-  quic_aes128               hp;
-  quic_appdata_tx           tx = {
+  quic_aes128              hp;
+  quic_appdata_tx          tx = {
       quic_span_of(g_sdt_cli_scid, 6), 0, 0, quic_span_of(payload, plen), 0};
   quic_obuf ob = quic_obuf_of(out, cap);
   if (!quic_keysched_get(&cx->c.tls.ks, QUIC_KS_CLIENT_AP, &k)) return 0;
@@ -673,8 +694,7 @@ static int sdt_send_connect(struct sdt_client* cx) {
   if (flen == 0) return 0;
   plen = sdt_seal_stream0(cx, frame, flen, pkt, sizeof pkt);
   if (plen == 0) return 0;
-  return wired_udp_send(cx->fd, &cx->srv, quic_span_of(pkt, plen)) ==
-         (i64)plen;
+  return wired_udp_send(cx->fd, &cx->srv, quic_span_of(pkt, plen)) == (i64)plen;
 }
 
 /* 1 if this 1-RTT payload carries a STREAM frame on stream 0 whose data opens
@@ -725,10 +745,10 @@ static int sdt_stream0_has_2xx(const u8* pl, usz pll) {
 /* One receive attempt while waiting for the CONNECT's 2xx: 1 if this
  * datagram was the 1-RTT reply and it carried the 2xx, 0 to keep waiting. */
 static int sdt_try_recv_2xx(struct sdt_client* cx) {
-  u8  pkt[1500];
+  u8               pkt[1500];
   quic_sockaddr_in from;
-  const u8* pl;
-  usz       pll;
+  const u8*        pl;
+  usz              pll;
   i64 r = wired_udp_recvfrom(cx->fd, quic_mspan_of(pkt, sizeof pkt), &from);
   if (!sdt_recv_is_onertt(r, pkt)) return 0;
   if (!sdt_open_onertt(cx, pkt, (usz)r, &pl, &pll)) return 0;
@@ -762,12 +782,16 @@ static int sdt_client_ap_key(struct sdt_client* cx, quic_protect_keys* pk) {
 /* Build a 1-RTT packet carrying one QUIC DATAGRAM frame (RFC 9221 5) over
  * payload into out, under CLIENT_AP. flen/frame are caller-owned scratch. */
 static int sdt_build_datagram_pkt(
-    struct sdt_client* cx, const u8* payload, usz n, u8* frame, usz frame_cap,
-    quic_obuf* out) {
-  quic_mspan           fb  = quic_mspan_of(frame, frame_cap);
-  quic_datagram_frame  df  = {n, payload};
-  usz                  flen = quic_datagram_encode(fb, &df, 0);
-  quic_protect_keys    pk;
+    struct sdt_client* cx,
+    const u8*          payload,
+    usz                n,
+    u8*                frame,
+    usz                frame_cap,
+    quic_obuf*         out) {
+  quic_mspan             fb   = quic_mspan_of(frame, frame_cap);
+  quic_datagram_frame    df   = {n, payload};
+  usz                    flen = quic_datagram_encode(fb, &df, 0);
+  quic_protect_keys      pk;
   quic_hspkt_onertt_desc d = {
       quic_span_of(g_sdt_cli_scid, 6), 1, quic_span_of(frame, flen)};
   if (flen == 0) return 0;
@@ -776,8 +800,8 @@ static int sdt_build_datagram_pkt(
 }
 
 static int sdt_send_datagram(struct sdt_client* cx, const u8* payload, usz n) {
-  u8         frame[300], pkt[512];
-  quic_obuf  ob = quic_obuf_of(pkt, sizeof pkt);
+  u8        frame[300], pkt[512];
+  quic_obuf ob = quic_obuf_of(pkt, sizeof pkt);
   if (!sdt_build_datagram_pkt(cx, payload, n, frame, sizeof frame, &ob))
     return 0;
   return wired_udp_send(cx->fd, &cx->srv, quic_span_of(pkt, ob.len)) ==
@@ -799,7 +823,8 @@ static int sdt_is_datagram_frame(const quic_framewalk_item* fr) {
 /* fr is a DATAGRAM frame (RFC 9221 5) whose payload equals want[0..want_len).
  */
 /* Decode fr as a DATAGRAM frame into *df. Returns 0 if fr is not one. */
-static int sdt_decode_datagram(const quic_framewalk_item* fr, quic_datagram_frame* df) {
+static int sdt_decode_datagram(
+    const quic_framewalk_item* fr, quic_datagram_frame* df) {
   if (!sdt_is_datagram_frame(fr)) return 0;
   return quic_datagram_decode(fr->start, fr->remaining, df) != 0;
 }
@@ -838,8 +863,9 @@ static int sdt_onertt_is_our_echo(
   return sdt_payload_has_our_datagram(pl, pll, payload, plen);
 }
 
-static int sdt_try_recv_echo(struct sdt_client* cx, const u8* payload, usz plen) {
-  u8  pkt[1500];
+static int sdt_try_recv_echo(
+    struct sdt_client* cx, const u8* payload, usz plen) {
+  u8               pkt[1500];
   quic_sockaddr_in from;
   i64 r = wired_udp_recvfrom(cx->fd, quic_mspan_of(pkt, sizeof pkt), &from);
   if (r <= 0) return -1; /* nothing queued this round */
@@ -847,7 +873,8 @@ static int sdt_try_recv_echo(struct sdt_client* cx, const u8* payload, usz plen)
 }
 
 /* Drain up to 5 replies for one send, looking for our own echo among them. */
-static int sdt_drain_for_echo(struct sdt_client* cx, const u8* payload, usz plen) {
+static int sdt_drain_for_echo(
+    struct sdt_client* cx, const u8* payload, usz plen) {
   for (int j = 0; j < 5; j++) {
     int r = sdt_try_recv_echo(cx, payload, plen);
     if (r != 0) return r > 0;
@@ -973,9 +1000,9 @@ static u8 g_sdt_env_storage[8u * 1024u * 1024u];
  * already sent (srvrun_queue_datagram's own gate, RFC 9297 2.1) -- the state
  * a real confirmed WT connection reaches, without running any handshake. */
 static void sdt_mark_wt_active(srvrun_conn* c) {
-  *c              = (srvrun_conn){0};
-  c->up           = 1;
-  c->wt_active    = 1;
+  *c                    = (srvrun_conn){0};
+  c->up                 = 1;
+  c->wt_active          = 1;
   c->l.h3.settings_sent = 1;
   wired_wt_session_init(&c->wt, 0);
   wired_wt_session_establish(&c->wt);
@@ -988,9 +1015,9 @@ static void sdt_mark_wt_active(srvrun_conn* c) {
  * g_srvrun_env, which this connection was never placed in. */
 static void test_srvthreads_broadcast_misses_caller_owned_env(void) {
   wired_srvrun_env* env = (wired_srvrun_env*)(void*)g_sdt_env_storage;
-  srvrun_state       st;
-  srvrun_conn*       c;
-  const u8           msg[] = "root-cause-probe";
+  srvrun_state      st;
+  srvrun_conn*      c;
+  const u8          msg[] = "root-cause-probe";
   /* wired_srvrun_env's own layout (table[CAP] then conns[CAP] inline, see
    * srvrun.c's struct definition, visible in this same unity TU) -- NOT
    * srvrun_state, which holds two POINTERS, not inline arrays. Building an
@@ -1004,7 +1031,8 @@ static void test_srvthreads_broadcast_misses_caller_owned_env(void) {
   sdt_mark_wt_active(c);
 
   CHECK(c->dg_pending == 0); /* baseline: nothing queued yet */
-  CHECK(wired_server_broadcast_datagram(quic_span_of(msg, sizeof msg - 1)) == 1);
+  CHECK(
+      wired_server_broadcast_datagram(quic_span_of(msg, sizeof msg - 1)) == 1);
   /* THE BUG: the public broadcast API reports success (1) -- it always does,
    * srvrun_broadcast_direct has no target count to fail on -- but it never
    * actually reached this env's connection, because it iterated
@@ -1020,7 +1048,8 @@ static void test_srvthreads_broadcast_misses_caller_owned_env(void) {
   srvrun_broadcast_to_all(&st, quic_span_of(msg, sizeof msg - 1));
   CHECK(c->dg_pending == 1);
   CHECK(c->dg_pending_len == sizeof msg - 1);
-  for (usz i = 0; i < sizeof msg - 1; i++) CHECK(c->dg_pending_buf[i] == msg[i]);
+  for (usz i = 0; i < sizeof msg - 1; i++)
+    CHECK(c->dg_pending_buf[i] == msg[i]);
   /* THE FIX (verified in tests/app/srvinbox_test.c's
    * test_srvinbox_registry_single_worker_reaches_own_env, not repeated here):
    * once this thread calls wired_srvrun_broadcast_register(0, 1, row, env)
