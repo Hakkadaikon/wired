@@ -81,6 +81,56 @@ static void server_identity(
   id->now_secs                = now_secs;
 }
 
+/* --- Startup cert fingerprint log --------------------------------------- */
+
+/* One nibble (0..15) to its lowercase hex ASCII digit. */
+static char hex_nibble(u8 v) {
+  return (char)(v < 10 ? '0' + v : 'a' + (v - 10));
+}
+
+/* digest[0..32) -> "xx:xx:...:xx" (32*2 hex digits + 31 colons) into out,
+ * which must be at least 32*3 bytes. Returns the written length. */
+static usz hex_fingerprint(const u8 digest[32], char* out) {
+  usz n = 0;
+  for (usz i = 0; i < 32; i++) {
+    if (i != 0) out[n++] = ':';
+    out[n++] = hex_nibble((u8)(digest[i] >> 4));
+    out[n++] = hex_nibble((u8)(digest[i] & 0xf));
+  }
+  return n;
+}
+
+/* SHA-256 the exact certificate DER this identity serves (the cert the TLS
+ * flight carries, built by a throwaway wired_server_init from the same id
+ * srvboot boots every connection with) and log it as a colon-hex fingerprint
+ * -- the value a browser pins via serverCertificateHashes. Hashing the real
+ * build output instead of reconstructing the cert in parallel means the log
+ * cannot drift from the wire: a parallel reconstruction eventually disagrees
+ * on an input (signing key, SAN, validity anchor) and pins an unservable
+ * hash. */
+static void log_cert_fingerprint(const wired_srvboot_id* id) {
+  static wired_server  s; /* throwaway, sized in KB: keep it off the stack */
+  wired_server_init_in in = {id->priv,    id->pub,         id->cert_seed,
+                             id->chain,   id->chain_count, id->san_ipv4,
+                             id->now_secs};
+  u8                   digest[32];
+  char                 line[32 + 32 * 3 + 2];
+  usz                  n = 0;
+
+  wired_server_init(&s, &in);
+  if (s.sdrv.cert_count == 0) wired_die("cert build failed\n");
+  quic_sha256(s.sdrv.certs[0].p, s.sdrv.certs[0].n, digest);
+
+  {
+    static const char prefix[] = "cert sha-256 fingerprint: ";
+    for (; prefix[n] != 0; n++) line[n] = prefix[n];
+  }
+  n += hex_fingerprint(digest, line + n);
+  line[n++] = '\n';
+  line[n]   = 0;
+  wired_log_str(line);
+}
+
 /* --san-ipv4 a.b.c.d: RFC 5280 4.2.1.6 SAN entry a browser checks when
  * connecting to a bare IP literal (the default self-signed cert otherwise
  * carries only dNSName=localhost). */
@@ -106,6 +156,7 @@ __attribute__((force_align_arg_pointer, used)) int wired_main(
 
   load_san_ipv4(argc, argv, keys.san_ipv4, &have_san_ipv4);
   server_identity(&id, &keys, have_san_ipv4, now_secs);
+  log_cert_fingerprint(&id);
 
   if (!wired_srvdriver_parse(argc, argv, &opt))
     wired_die(
