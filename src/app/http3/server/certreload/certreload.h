@@ -41,4 +41,23 @@ int wired_certreload_load(
     wired_certreload_store* store,
     wired_srvboot_id*       id);
 
+/**
+ * If cert_path is set (non-NULL, non-empty), load the certificate/key pair
+ * via wired_certreload_load into store/id, replacing id's self-signed
+ * identity with the loaded one. wired_die()s with a diagnostic if cert_path
+ * is set but the load fails (e.g. key_path missing or unreadable). A no-op
+ * when cert_path is unset — id keeps whatever identity the caller already
+ * set (typically a demo self-signed one).
+ *
+ * @param cert_path NUL-terminated certificate PEM path, or 0/empty to skip
+ * @param key_path  NUL-terminated private key PEM path
+ * @param store     destination for the loaded chain/key material
+ * @param id        server identity to update on success
+ */
+void wired_certreload_load_or_selfsigned(
+    const char*             cert_path,
+    const char*             key_path,
+    wired_certreload_store* store,
+    wired_srvboot_id*       id);
+
 #endif
