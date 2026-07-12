@@ -6,7 +6,7 @@ Minimal scaffolding to run `wired` as a server endpoint under the
 ## Usage (on the runner host)
 
 ```sh
-just ninja examples/word_list/wired_server
+just gen-ninja && ninja examples/word_list/wired_server
 docker build -t wired-interop -f interop/Dockerfile .
 # add to the runner's implementations.json:
 #   "wired": { "image": "wired-interop", "url": "...", "role": "server" }
