@@ -87,7 +87,81 @@ static void test_srvthreads_env_at_strides_by_env_size(void) {
   srvthreads_free_envs(base, 2);
 }
 
+/* TEST LIST for wired_srvthreads_parse_cores (examples/webtransport_chat and
+ * examples/word_list each reimplement this comma-list parser today; this
+ * pulls it into the SDK):
+ * 1. single core "0" -> ok, n_cores=1, cores[0]=0
+ * 2. multi core "2,3,4,5" -> ok, n_cores=4, cores=[2,3,4,5]
+ * 3. empty string "" -> fail (no fields at all is malformed, not "0 cores")
+ * 4. exactly WIRED_SRVTHREADS_MAX (16) entries -> ok
+ * 5. WIRED_SRVTHREADS_MAX+1 (17) entries -> fail (exceeds cap)
+ * 6. non-digit mixed in "2,x,4" -> fail
+ * 7. trailing comma "2,3," -> fail (empty trailing field rejected)
+ * 8. leading comma ",2,3" -> fail (empty leading field rejected)
+ */
+
+static void test_srvthreads_parse_cores_single(void) {
+  wired_srvthreads_opt opt = {0};
+  CHECK(wired_srvthreads_parse_cores("0", &opt) == 1);
+  CHECK(opt.n_cores == 1);
+  CHECK(opt.cores[0] == 0);
+}
+
+static void test_srvthreads_parse_cores_multi(void) {
+  wired_srvthreads_opt opt = {0};
+  CHECK(wired_srvthreads_parse_cores("2,3,4,5", &opt) == 1);
+  CHECK(opt.n_cores == 4);
+  CHECK(opt.cores[0] == 2);
+  CHECK(opt.cores[1] == 3);
+  CHECK(opt.cores[2] == 4);
+  CHECK(opt.cores[3] == 5);
+}
+
+static void test_srvthreads_parse_cores_empty(void) {
+  wired_srvthreads_opt opt = {0};
+  CHECK(wired_srvthreads_parse_cores("", &opt) == 0);
+}
+
+static void test_srvthreads_parse_cores_max(void) {
+  wired_srvthreads_opt opt = {0};
+  CHECK(
+      wired_srvthreads_parse_cores(
+          "0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15", &opt) == 1);
+  CHECK(opt.n_cores == (int)WIRED_SRVTHREADS_MAX);
+  CHECK(opt.cores[15] == 15);
+}
+
+static void test_srvthreads_parse_cores_over_max(void) {
+  wired_srvthreads_opt opt = {0};
+  CHECK(
+      wired_srvthreads_parse_cores(
+          "0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16", &opt) == 0);
+}
+
+static void test_srvthreads_parse_cores_non_digit(void) {
+  wired_srvthreads_opt opt = {0};
+  CHECK(wired_srvthreads_parse_cores("2,x,4", &opt) == 0);
+}
+
+static void test_srvthreads_parse_cores_trailing_comma(void) {
+  wired_srvthreads_opt opt = {0};
+  CHECK(wired_srvthreads_parse_cores("2,3,", &opt) == 0);
+}
+
+static void test_srvthreads_parse_cores_leading_comma(void) {
+  wired_srvthreads_opt opt = {0};
+  CHECK(wired_srvthreads_parse_cores(",2,3", &opt) == 0);
+}
+
 void test_srvthreads(void) {
   test_srvthreads_run_joins_all_workers_on_shutdown();
   test_srvthreads_env_at_strides_by_env_size();
+  test_srvthreads_parse_cores_single();
+  test_srvthreads_parse_cores_multi();
+  test_srvthreads_parse_cores_empty();
+  test_srvthreads_parse_cores_max();
+  test_srvthreads_parse_cores_over_max();
+  test_srvthreads_parse_cores_non_digit();
+  test_srvthreads_parse_cores_trailing_comma();
+  test_srvthreads_parse_cores_leading_comma();
 }
