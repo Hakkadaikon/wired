@@ -117,6 +117,7 @@
 #include "common/platform/qlog/qlogevent.c"
 #include "common/platform/keylog/keylog.c"
 #include "common/platform/cliargs/cliargs.c"
+#include "common/platform/exit/exit.c"
 #include "common/platform/rng/challenge.c"
 #include "common/platform/rng/cidgen.c"
 #include "common/platform/rng/rng.c"
