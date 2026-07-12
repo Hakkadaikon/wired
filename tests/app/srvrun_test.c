@@ -2947,12 +2947,70 @@ static void test_srvrun_broadcast_datagram_reaches_two_real_clients(void) {
   }
 }
 
+/* RECEIVE-ONLY PEER: a broadcast DATAGRAM queued for a connection that never
+ * itself receives anything (a WebTransport client that only listens, e.g.
+ * every tab but the sender in webtransport_chat) must still reach it --
+ * srvrun_sess_on_step's own srvrun_pump_datagram call never runs for such a
+ * peer, so only the poll-timeout tick (srvrun_fire_ptos, via
+ * srvrun_any_waiting -> srvrun_has_outbound seeing dg_pending) can flush it.
+ * Regression for the bug where dg_pending was invisible to
+ * srvrun_any_waiting: a receive-only broadcast target silently never got
+ * the message until it happened to send something of its own. */
+static void test_srvrun_broadcast_datagram_flushes_on_poll_tick_alone(void) {
+  struct lp_fix f;
+  quic_obuf     ob;
+  u8            obuf[1024];
+
+  sr_reset_global_table();
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&g_srvrun_state.conns[0], &f, &ob);
+  g_srvrun_state.conns[0].s.sdrv.peer_max_datagram_frame_size = 65535;
+  g_srvrun_state.conns[0].l.we_advertised_max_datagram        = 65535;
+  sr_set_req(&g_srvrun_state.conns[0], 1, 1, 4);
+  {
+    srvrun_cfg      cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_state    st  = {g_srvrun_table, g_srvrun_state.conns};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_start_resp(&ctx, 0);
+  }
+  CHECK(g_srvrun_state.conns[0].wt_active == 1);
+
+  /* Queue a broadcast the same way srvrun_bcast_drain_self/
+   * wired_server_broadcast_datagram does -- NOT via any receive on this
+   * connection. */
+  CHECK(
+      srvrun_queue_datagram(
+          &g_srvrun_state.conns[0],
+          quic_span_of(sr_dg_payload, sizeof sr_dg_payload)) == 1);
+  CHECK(g_srvrun_state.conns[0].dg_pending == 1);
+
+  /* The connection has never received a packet of its own since (no
+   * srvrun_sess_on_step call for it), so only a poll-timeout tick can flush
+   * dg_pending -- exactly what srvrun_wait_input's srvrun_any_waiting check
+   * exists to trigger in the real loop. */
+  {
+    srvrun_cfg   cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_state st  = {g_srvrun_table, g_srvrun_state.conns};
+    CHECK(srvrun_any_waiting(&st) == 1);
+    srvrun_fire_ptos(&cfg, &st);
+  }
+  CHECK(g_srvrun_state.conns[0].dg_pending == 0);
+  /* The flush went out through the real path (srvrun_fire_ptos ->
+   * srvrun_dg_slot -> srvrun_pump_datagram -> srvrun_send_pending_datagram
+   * -> srvrun_send, cfg->fd == -1 here matching this file's existing
+   * no-socket srvrun_cfg pattern -- see test_srvrun_owes_goaway_once above
+   * for the same harmless-invalid-fd precedent). dg_pending's transition to
+   * 0 is the proof the flush happened; wire-byte correctness is already
+   * covered by test_srvrun_broadcast_datagram_reaches_two_real_clients. */
+}
+
 void test_srvrun(void) {
   test_srvrun_broadcast_datagram_queues_active_wt_sessions();
   test_srvrun_broadcast_datagram_skips_inactive_wt();
   test_srvrun_broadcast_datagram_skips_unused_slot();
   test_srvrun_broadcast_datagram_rejects_oversize();
   test_srvrun_broadcast_datagram_reaches_two_real_clients();
+  test_srvrun_broadcast_datagram_flushes_on_poll_tick_alone();
   test_srvrun_wt_full_session_lifecycle_on_wire();
   test_srvrun_no_shutdown_accepts_new();
   test_srvrun_accept_rekeys_to_slot_scid();
