@@ -66,3 +66,76 @@ const char* wired_cliargs_str(
   int idx = cli_find(argc, argv, flag);
   return idx < 0 ? defval : argv[idx + 1];
 }
+
+/* Index of argv[i] == flag over the FULL range (unlike cli_find, which
+ * stops at argc-1 because it assumes a following value). Used by
+ * wired_cliargs_flag, where flag may legally be argv's last element. */
+static int cli_find_any(int argc, char** argv, const char* flag) {
+  int i;
+  for (i = 0; i < argc; i++) {
+    if (cli_streq(argv[i], flag)) return i;
+  }
+  return -1;
+}
+
+int wired_cliargs_flag(int argc, char** argv, const char* flag) {
+  return cli_find_any(argc, argv, flag) >= 0;
+}
+
+/* True if c is a base-10 digit; kept separate so its caller's while carries
+ * only one condition (CCN budget, matches cli_char_match's pattern above). */
+static int cli_is_digit(char c) { return c >= '0' && c <= '9'; }
+
+/* Consume a run of digits at s[*i], accumulating into *val (no range check
+ * here). Advances *i past the digits and returns the digit count (0 means
+ * no digits were present). */
+static usz ip_digits_read(const char* s, usz* i, i64* val) {
+  i64 acc = 0;
+  usz n   = 0;
+  while (cli_is_digit(s[*i])) {
+    acc = acc * 10 + (s[*i] - '0');
+    (*i)++;
+    n++;
+  }
+  *val = acc;
+  return n;
+}
+
+/* An octet is invalid if it had no digits at all, or overflows a byte. */
+static int ip_octet_invalid(usz ndigits, i64 val) {
+  return ndigits == 0 || val > 255;
+}
+
+/* Parse one dotted-decimal octet at s[*i], requiring it be followed by
+ * `want` ('.' for octets 0-2, NUL for the last). Advances *i past `want`
+ * and stores the byte in *out on success. */
+static int ip_octet_parse(const char* s, usz* i, char want, u8* out) {
+  i64 val;
+  usz n = ip_digits_read(s, i, &val);
+  if (ip_octet_invalid(n, val)) return 0;
+  if (s[*i] != want) return 0;
+  *out = (u8)val;
+  (*i)++;
+  return 1;
+}
+
+/* Separator expected after octet idx: '.' for the first 3, NUL for the
+ * last. Hoisted out so the caller's loop body carries only one branch. */
+static char ip_octet_sep(int idx) {
+  if (idx < 3) return '.';
+  return 0;
+}
+
+int wired_cliargs_ipv4(const char* s, u8 out[4]) {
+  u8  parsed[4];
+  usz i = 0;
+  int idx;
+  for (idx = 0; idx < 4; idx++) {
+    if (!ip_octet_parse(s, &i, ip_octet_sep(idx), &parsed[idx])) return 0;
+  }
+  out[0] = parsed[0];
+  out[1] = parsed[1];
+  out[2] = parsed[2];
+  out[3] = parsed[3];
+  return 1;
+}

@@ -38,4 +38,28 @@ i64 wired_cliargs_int(int argc, char** argv, const char* flag, i64 defval);
 const char* wired_cliargs_str(
     int argc, char** argv, const char* flag, const char* defval);
 
+/**
+ * Find `flag` anywhere in argv, including argv's last element (unlike
+ * `wired_cliargs_int`/`wired_cliargs_str`, no following value is expected).
+ *
+ * @param argc argument count
+ * @param argv argument vector
+ * @param flag NUL-terminated flag to search for, e.g. "--verbose"
+ * @return 1 if flag is present in argv, 0 otherwise
+ */
+int wired_cliargs_flag(int argc, char** argv, const char* flag);
+
+/**
+ * Parse a dotted-decimal IPv4 address ("a.b.c.d") into 4 bytes.
+ *
+ * Rejects (leaving out unchanged): any octet outside 0-255, a segment
+ * count other than 4, an empty segment, a non-digit character, or
+ * trailing garbage after the last octet. Leading zeros are accepted.
+ *
+ * @param s   NUL-terminated dotted-decimal string
+ * @param out 4-byte buffer receiving the parsed octets on success
+ * @return 1 on success, 0 on any parse error
+ */
+int wired_cliargs_ipv4(const char* s, u8 out[4]);
+
 #endif
