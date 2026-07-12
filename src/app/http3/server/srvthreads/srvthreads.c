@@ -48,13 +48,15 @@ typedef struct {
 
 typedef void (*srvthreads_worker_fn)(void* arg);
 
-/* Register this worker's broadcast inbox row before serving, unregister on
- * the way out -- symmetric with wired_srvrun_broadcast_register's contract.
- * A no-op when n_total <= 1 registers too (srvrun's own broadcast path
- * collapses to the pre-Phase-E direct fan-out in that case). */
+/* env_init first, then register (which hands out a pointer into this env) --
+ * so the registry never exposes an env another thread could read mid-init.
+ * Registration is unconditional, not just for n_total > 1: even a lone
+ * worker (n_total == 1) must register, since it is this registration that
+ * lets wired_server_broadcast_datagram find THIS worker's own env instead of
+ * silently fanning out into the unused single-process g_srvrun_env. */
 static void srvthreads_worker_serve_udp(srvthreads_worker_arg* a) {
-  wired_srvrun_broadcast_register(a->index, a->n_total, a->inbox_row);
   wired_srvrun_env_init(a->env);
+  wired_srvrun_broadcast_register(a->index, a->n_total, a->inbox_row, a->env);
   wired_srvrun_serve_env(a->env, a->port, &a->id, a->h, a->obs, &a->run);
   wired_srvrun_broadcast_unregister();
 }
@@ -70,8 +72,8 @@ static void srvthreads_worker_serve_xdp(srvthreads_worker_arg* a) {
   cfg.queue_id         = (u32)a->index;
   if (wired_srvxdp_open_shared(&x, &cfg, a->bpf) < 0) return;
   a->run.xdp = &x;
-  wired_srvrun_broadcast_register(a->index, a->n_total, a->inbox_row);
   wired_srvrun_env_init(a->env);
+  wired_srvrun_broadcast_register(a->index, a->n_total, a->inbox_row, a->env);
   wired_srvrun_serve_env(a->env, a->port, &a->id, a->h, a->obs, &a->run);
   wired_srvrun_broadcast_unregister();
   wired_srvxdp_close(&x);
