@@ -1,6 +1,6 @@
 /* Real-UDP HTTP/3 server, plus a WebTransport building-blocks self-test.
- * libc-free, x86_64-linux, direct syscalls, own _start, static. Driven by the
- * single SDK header <wired.h>, same as examples/word_list.
+ * libc-free, x86_64-linux, direct syscalls, static. Driven by the single SDK
+ * header <wired.h> (WIRED_MAIN supplies _start), same as examples/word_list.
  *
  * HONEST SCOPE (see README.md for the full explanation): this binary serves
  * plain HTTP/3 requests exactly like word_list. It does NOT serve real,
@@ -22,14 +22,43 @@
 #include "app/webtransport/capsule/wtcapsule/wtcapsule.h"
 #include "app/webtransport/errmap/errmap/errmap.h"
 #include "app/webtransport/session/session/session.h"
-
-/* A fatal error: print and exit (freestanding, no libc atexit). */
-static void die(const char* msg) {
-  wired_log_str(msg);
-  syscall1(SYS_exit, 1);
-}
+#include "common/platform/exit/exit.h"
 
 /* --- WebTransport building-blocks self-test (startup only, logged) ------- */
+
+/* wired_die with msg unless ok. */
+static void wt_selfcheck_require(int ok, const char* msg) {
+  if (!ok) wired_die(msg);
+}
+
+/* Pre-establishment: a stream and a datagram are buffered while
+ * unestablished. */
+static void wt_selfcheck_session_buffer(wired_wt_session* s) {
+  wt_selfcheck_require(
+      s->state == WIRED_WT_UNESTABLISHED, "wt: bad init state\n");
+  wt_selfcheck_require(
+      wired_wt_session_offer_stream(s, /*stream_id=*/4),
+      "wt: buffer stream failed\n");
+  wt_selfcheck_require(
+      wired_wt_session_offer_datagram(s, quic_span_of((const u8*)"hi", 2)),
+      "wt: buffer datagram failed\n");
+}
+
+/* Establish, then a post-establishment stream is associated directly. */
+static void wt_selfcheck_session_establish(wired_wt_session* s) {
+  wt_selfcheck_require(
+      wired_wt_session_establish(s), "wt: establish failed\n");
+  wt_selfcheck_require(
+      s->state == WIRED_WT_ESTABLISHED, "wt: not established\n");
+  wt_selfcheck_require(
+      wired_wt_session_offer_stream(s, /*stream_id=*/8),
+      "wt: post-establish stream offer failed\n");
+}
+
+static void wt_selfcheck_session_close(wired_wt_session* s) {
+  if (!wired_wt_session_close(s)) wired_die("wt: close failed\n");
+  if (s->state != WIRED_WT_CLOSED) wired_die("wt: not closed\n");
+}
 
 /* Session state machine: unestablished -> a pre-establishment stream/datagram
  * is buffered -> establish -> both are considered associated -> close.
@@ -37,44 +66,37 @@ static void die(const char* msg) {
 static void wt_selfcheck_session(void) {
   wired_wt_session s;
   wired_wt_session_init(&s, /*connect_stream_id=*/0);
-  if (s.state != WIRED_WT_UNESTABLISHED) die("wt: bad init state\n");
-
-  if (!wired_wt_session_offer_stream(&s, /*stream_id=*/4))
-    die("wt: buffer stream failed\n");
-  if (!wired_wt_session_offer_datagram(&s, quic_span_of((const u8*)"hi", 2)))
-    die("wt: buffer datagram failed\n");
-
-  if (!wired_wt_session_establish(&s)) die("wt: establish failed\n");
-  if (s.state != WIRED_WT_ESTABLISHED) die("wt: not established\n");
-
-  if (!wired_wt_session_offer_stream(&s, /*stream_id=*/8))
-    die("wt: post-establish stream offer failed\n");
-
-  if (!wired_wt_session_close(&s)) die("wt: close failed\n");
-  if (s.state != WIRED_WT_CLOSED) die("wt: not closed\n");
-
+  wt_selfcheck_session_buffer(&s);
+  wt_selfcheck_session_establish(&s);
+  wt_selfcheck_session_close(&s);
   wired_log_str(
       "wt-selfcheck: session unestablished->established->closed ok\n");
+}
+
+/* Encode then decode a WT_CLOSE_SESSION capsule, checking both steps
+ * succeed. Returns the decoded fields via code_out and msg_out. */
+static void wt_selfcheck_capsule_roundtrip(
+    u32 code, quic_span msg, u32* code_out, quic_span* msg_out) {
+  u8        buf[64];
+  quic_obuf ob = {buf, sizeof buf, 0};
+  usz       at = 0;
+  if (!quic_wtcapsule_encode_close(&ob, code, msg))
+    wired_die("wt: capsule encode failed\n");
+  if (!quic_wtcapsule_decode_close(
+          quic_span_of(buf, ob.len), &at, code_out, msg_out))
+    wired_die("wt: capsule decode failed\n");
 }
 
 /* WT_CLOSE_SESSION capsule: encode then decode round-trips the error code and
  * message, built on the existing generic RFC 9297 Capsule Protocol codec. */
 static void wt_selfcheck_capsule(void) {
-  u8        buf[64];
-  quic_obuf ob    = {buf, sizeof buf, 0};
   const u8  msg[] = {'b', 'y', 'e'};
   u32       code_out;
   quic_span msg_out;
-  usz       at = 0;
-
-  if (!quic_wtcapsule_encode_close(&ob, 0x2a, quic_span_of(msg, sizeof msg)))
-    die("wt: capsule encode failed\n");
-  if (!quic_wtcapsule_decode_close(
-          quic_span_of(buf, ob.len), &at, &code_out, &msg_out))
-    die("wt: capsule decode failed\n");
+  wt_selfcheck_capsule_roundtrip(
+      0x2a, quic_span_of(msg, sizeof msg), &code_out, &msg_out);
   if (code_out != 0x2a || msg_out.n != sizeof msg)
-    die("wt: capsule round-trip mismatch\n");
-
+    wired_die("wt: capsule round-trip mismatch\n");
   wired_log_str("wt-selfcheck: WT_CLOSE_SESSION capsule round-trip ok\n");
 }
 
@@ -86,7 +108,7 @@ static void wt_selfcheck_errmap(void) {
   u32 n_out;
 
   if (!quic_wterrmap_from_http3(h, &n_out) || n_out != n)
-    die("wt: errmap round-trip mismatch\n");
+    wired_die("wt: errmap round-trip mismatch\n");
 
   wired_log_str("wt-selfcheck: error-code mapping round-trip ok\n");
 }
@@ -163,7 +185,7 @@ static u16 load_config(int argc, char** argv) {
   return (u16)wired_cliargs_int(argc, argv, "--port", 4433);
 }
 
-__attribute__((force_align_arg_pointer, used)) static int wired_main(
+__attribute__((force_align_arg_pointer)) int wired_main(
     int argc, char** argv) {
   wired_srvboot_id     id;
   server_keys          keys;
@@ -174,20 +196,7 @@ __attribute__((force_align_arg_pointer, used)) static int wired_main(
   server_identity(&id, &keys);
   {
     wired_srvrun_obs obs = {0, 0, 0, 0, 0};
-    if (!wired_server_run(port, &id, h, obs)) die("listen failed\n");
+    if (!wired_server_run(port, &id, h, obs)) wired_die("listen failed\n");
   }
   return 0;
-}
-
-/* Freestanding entry point; identical recipe to examples/word_list (see its
- * wired_server.c for the full explanation of the stack-alignment dance). */
-__attribute__((naked)) void _start(void) {
-  asm volatile(
-      "mov (%rsp), %rdi\n"
-      "lea 8(%rsp), %rsi\n"
-      "and $-16, %rsp\n"
-      "call wired_main\n"
-      "mov %eax, %edi\n"
-      "mov $60, %eax\n" /* SYS_exit */
-      "syscall\n");
 }
