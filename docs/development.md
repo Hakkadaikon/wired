@@ -24,52 +24,44 @@ and the workflow for adding a domain.
 
 ## Architecture
 
-The codebase is 124 domains, one per `src/<dir>/`, stacked in dependency layers.
-Higher layers depend on lower ones; the I/O layer sits to the side and drives
-the loop; the verification layer is tooling kept out of the shipped binary.
+The codebase is five top-level groups under `src/` — `app`, `tls`, `transport`,
+`crypto`, `common` — stacked in dependency layers, with one domain per leaf
+`src/<dir>/`. Higher layers depend on lower ones; the verification layer is
+tooling kept out of the shipped binary.
 
 ```mermaid
 flowchart TB
-    subgraph H3["HTTP/3"]
-        h3["h3 · h3recv · h3req · h3resp · h3run · h3settings · h3conn<br/>h3reqenc · h3reqdrive · h3cancel · qpack · qpackdyn"]
+    subgraph APP["app — HTTP/3 & application"]
+        app["http3 (core · request · server) · qpack (qpack · qpackdyn)<br/>datagram (datagram · dgdeliver) · webtransport (capsule · errmap · session)"]
     end
-    subgraph DRV["Connection driving"]
-        drv["driver · tlsdriver · fullhs · sdrv · srvfin · shbuild · sflight<br/>client · endpoint · session · hrr · stp · salpn · alpnver"]
+    subgraph TRANSPORT["transport — QUIC transport"]
+        transport["conn (cid · lifecycle · loop · pnspace) · packet (build · frame · header · protect)<br/>stream (data · flow) · recovery (congestion · detect · rtx · stats)<br/>version (version · versmgr · vndrive) · io (socket · udp · xdp)"]
     end
-    subgraph CORE["QUIC core"]
-        core["frame · varint · cid · cidxchg · stream · conn · flow · error · version · fsm<br/>ackrange · recvpn · pnspaces · keys · keyupdate · kuswitch · path · closelife · migrate<br/>retrytoken · retrydrive · vndrive · sreset · resume · grease · datagram"]
+    subgraph TLS["tls — TLS 1.3"]
+        tls["handshake (core · flight · roles) · ext (tlsext · tparam · tpverify · alpnver · …)<br/>keys (schedule_drive · keyupdate · kudrive · kuswitch · ticket · …)"]
     end
-    subgraph PKT["Packet protection"]
-        pkt["packet · lhdr · shorthdr · hp · protect · protectcs · hspkt · initpkt · vpn · pnspaces"]
+    subgraph CRYPTO["crypto — primitives"]
+        crypto["symmetric (aead · hash) · asymmetric (bignum · ecc · rsa)<br/>kdf (hkdf · keys) · pki (cert · encoding · trust)"]
     end
-    subgraph TLS["TLS 1.3"]
-        tls["tls · tlsext · certreq · tparam · tpverify · selfcert · castore · x509 · tbscert"]
-    end
-    subgraph CRYPTO["Crypto primitives"]
-        crypto["hash · hkdf · aes · gcm · chacha · rsa · ed25519 · p256<br/>bignum · rng · asn1"]
-    end
-    subgraph BASE["Foundation"]
-        base["sys · util"]
+    subgraph COMMON["common — foundation"]
+        common["bytes (span · util · varint) · diag (error)<br/>platform (sys · rng · clock · fio · qlog · …)"]
     end
 
-    H3 --> DRV --> CORE --> PKT --> TLS --> CRYPTO --> BASE
-
-    subgraph IO["I/O & loop"]
-        io["io · net · connrunner · connio · connloop · udploop · framedispatch<br/>evloop · pktbuild · rtxbytes · rtxdrive · lossdrive · kudrive · sentmeta · hspto<br/>ackgen · idledrive · udpsess · earlydrive · poll · recovery · cc · cwndctl · losstime · sentpkt · pmtu"]
-    end
-    IO --> CORE
-    IO -.drives.-> DRV
+    APP --> TRANSPORT --> TLS --> CRYPTO --> COMMON
 
     subgraph VERIFY["Verification layer (not shipped)"]
         verify["TLA+ specs (tasks/loopeng/)<br/>Lean 4 proofs (tasks/fv/)"]
     end
-    verify -. invariants become tests .-> CORE
+    verify -. invariants become tests .-> TRANSPORT
 ```
 
 To find code: one concern lives in exactly one `src/<dir>/` (MECE). The
-directory name is the domain; its public API is prefixed `quic_<domain>_`. So
-`grep -rn 'quic_stream_' src/stream/` is the whole story for stream framing,
-and a new behavior belongs in the layer whose responsibilities it matches.
+directory name is the domain; its public API is prefixed `quic_<domain>_`. The
+app-facing layers (server, srvloop, h3srv, udp, pem, fio, and friends) are the
+one exception: they carry the SDK brand prefix `wired_<domain>_` instead. So
+`grep -rn 'quic_stream_' src/transport/stream/` is the whole story for stream
+framing, and a new behavior belongs in the layer whose responsibilities it
+matches.
 
 ## Build system
 
@@ -83,7 +75,7 @@ flowchart LR
 
     src --> build["just build<br/>freestanding per-file<br/>-ffreestanding -nostdlib<br/>→ build/&lt;path&gt;.o"]
     src --> ninja["just ninja<br/>scripts/gen_ninja.sh → build.ninja<br/>parallel + header-dep incremental"]
-    src --> test["just test<br/>tests/run.c unity build<br/>(all *_test.c, one TU)<br/>393 tests, assertions on"]
+    src --> test["just test<br/>tests/run.c unity build<br/>(all *_test.c, one TU)<br/>assertions on"]
 
     build --> gate
     test --> gate
@@ -103,7 +95,7 @@ flowchart LR
   incremental rebuilds — the fast inner loop while iterating.
 - **`just test`** compiles `tests/run.c`, a single unity translation unit that
   `#include`s every production `.c` once and every `*_test.c` once, then runs
-  all 393 tests with assertions on.
+  every test with assertions on.
 - **`just check`** runs the gate (`ccn` + `test`); the full commit gate adds
   `just build` and the object-count check (see below).
 - **`just lib`** archives the compiled SDK objects into `build/libwired.a`
