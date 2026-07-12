@@ -20,32 +20,16 @@ JSON-over-DATAGRAM) lives entirely in the frontend's `application/chatSession.js
 
 ```sh
 cd examples/webtransport_chat
-just run     # binds 0.0.0.0:4433, Ctrl-C to stop
+just run     # plain UDP socket, binds 0.0.0.0:4433, Ctrl-C to stop
 ```
 
-To run over AF_XDP instead of a plain UDP socket (root required; same flags
-as `word_list`, `--skb-mode` for drivers without native XDP support):
+Plain UDP is the default and works everywhere. When the browser will connect
+to a bare IP instead of `localhost` (e.g. the server runs on a VPS), add
+`--san-ipv4` so the self-signed certificate carries a matching IP SAN:
 
 ```sh
 just build
-sudo ./wired_server --ifindex <n> --ip <a.b.c.d> --san-ipv4 <a.b.c.d> --skb-mode
-```
-
-Add `--pin-core N` to pin the process to CPU N — the XDP driver spins one
-core at 100%, and pinning keeps that spin on a single cache-warm core
-instead of migrating.
-
-To fan out across multiple CPU cores instead (a control thread + N worker
-threads sharing one address space, `src/app/http3/server/srvthreads/`; see
-`examples/word_list/README.md`'s "Multi-thread" section for the full
-picture), pass `--cores` instead of `--pin-core`. Broadcast still reaches
-every worker's sessions:
-
-```sh
-./wired_server --cores 0,1,2,3                 # 4 worker threads, UDP
-./wired_server --cores 0,1,2,3 --control-core 4 # + control thread pinned
-# combined with --ifindex: AF_XDP multi-queue, worker i serves queue i
-sudo ./wired_server --ifindex <n> --cores 0,1,2,3 --ip <a.b.c.d> --san-ipv4 <a.b.c.d> --skb-mode
+./wired_server --san-ipv4 <a.b.c.d>
 ```
 
 On startup it logs the self-signed certificate's SHA-256 fingerprint:
@@ -58,7 +42,29 @@ This value is deterministic (fixed demo key material, same recipe as
 `word_list`/`webtransport_echo`) — it will be the same every run unless you
 edit `server_identity`'s seed bytes.
 
-## Serve the frontend
+### AF_XDP (optional)
+
+Where the NIC driver supports native or generic XDP TX, the server can run
+over AF_XDP instead of a plain UDP socket (root required; same flags as
+`word_list`, `--skb-mode` for drivers without native XDP support):
+
+```sh
+just build
+sudo ./wired_server --ifindex <n> --ip <a.b.c.d> --san-ipv4 <a.b.c.d> --skb-mode
+# or: IFINDEX=<n> IP=<a.b.c.d> just run-xdp
+```
+
+Virtual NICs such as `virtio_net` (typical on KVM-based VPSes) can accept
+generic-XDP TX frames without ever putting them on the wire, leaving the
+server unreachable — use the plain UDP driver there.
+
+Add `--pin-core N` to pin the process to CPU N — the XDP driver spins one
+core at 100%, and pinning keeps that spin on a single cache-warm core
+instead of migrating.
+
+## Frontend
+
+### Serve the frontend
 
 The frontend is a separate static site — WebTransport does not require it to
 be served by the same process, only from the same-origin browser tab that
@@ -80,7 +86,7 @@ is fine; accept the browser warning once):
 just serve-frontend-tls   # https://<host>:8443/
 ```
 
-## Connect from Chrome
+### Connect from Chrome
 
 Self-signed certificates fail normal CA validation, so WebTransport requires
 opting in via `serverCertificateHashes` — this is what the frontend's
@@ -96,7 +102,7 @@ opting in via `serverCertificateHashes` — this is what the frontend's
    another browser window) and confirm messages sent from one tab appear in
    the other.
 
-### `serverCertificateHashes` constraints (read before debugging a connect failure)
+#### `serverCertificateHashes` constraints (read before debugging a connect failure)
 
 The WebTransport spec requires a certificate pinned via
 `serverCertificateHashes` to be an ECDSA cert with a validity period of at
@@ -108,12 +114,12 @@ regenerating), which some browser versions may reject outright regardless of
 a correct hash. If `serverCertificateHashes` is rejected for this reason in
 your Chrome version, the practical workaround is launching Chrome with
 `--ignore-certificate-errors-spki-list=<base64-spki-hash>` instead (a
-different pinning mechanism with no validity-window constraint), or building
-a real chart with `--cert`/`--key` external CA material (see `word_list`'s
-README for that flow — this example does not yet expose the flags, see
+different pinning mechanism with no validity-window constraint), or serving
+a real CA-issued certificate (see `word_list`'s README for its
+`--cert`/`--key` flow — this example does not wire those flags, see
 Limitations below).
 
-## Architecture
+### Architecture
 
 ```
 Server (C, libc-free)                Frontend (public/, plain JS, no framework)
@@ -135,6 +141,46 @@ Each frontend layer's own file has more detail in a header comment. Tests
 live in `public/tests/*.test.js`, driven by a self-written minimal assertion
 runner (`public/tests/testRunner.js` — no framework, no bundler, no npm
 dependency, per this repo's `examples/` convention of staying dependency-free).
+
+## Options
+
+Driver selection and its flags are the SDK's `wired_srvdriver_parse`
+(`src/app/http3/server/srvdriver/`), the same set as `word_list`:
+
+| Flag | Default | Meaning |
+|---|---|---|
+| `--port N` | `4433` | UDP port |
+| `--pin-core N` | unpinned | pin the single-process server to CPU N |
+| `--workers N [--pin-cores 1]` | — | N forked worker processes (`SO_REUSEPORT`) |
+| `--cores a,b,c [--control-core N]` | — | worker threads pinned to those CPUs |
+| `--ifindex N [--queue N --ip a.b.c.d --skb-mode]` | — | AF_XDP driver (root) |
+
+`--workers` cannot combine with `--cores` or `--ifindex`; `--cores` plus
+`--ifindex` is AF_XDP multi-queue mode (worker *i* serves NIC queue *i*). The
+drivers are covered in detail in [docs/getting-started.md](../../docs/getting-started.md).
+
+With `--cores` (a control thread + N worker threads sharing one address
+space, `src/app/http3/server/srvthreads/`), broadcast still reaches every
+worker's sessions:
+
+```sh
+./wired_server --cores 0,1,2,3                  # 4 worker threads, UDP
+./wired_server --cores 0,1,2,3 --control-core 4 # + control thread pinned
+# combined with --ifindex: AF_XDP multi-queue, worker i serves queue i
+sudo ./wired_server --ifindex <n> --cores 0,1,2,3 --ip <a.b.c.d> --san-ipv4 <a.b.c.d> --skb-mode
+```
+
+With `--workers` (forked processes, separate address spaces) a DATAGRAM is
+only broadcast to sessions in the same worker process — fine for a load
+demo, wrong for a chat room.
+
+This example adds three flags of its own on top of the driver set:
+
+| Flag | Default | Meaning |
+|---|---|---|
+| `--san-ipv4 a.b.c.d` | off | add an IP SAN to the self-signed certificate |
+| `--qlog PATH` | off | qlog output |
+| `--keylog PATH` | off | TLS key log (`SSLKEYLOGFILE` format) output |
 
 ## Testing
 
@@ -175,7 +221,8 @@ rendered on the page.
 - The self-signed certificate's fixed 10-year validity window is
   incompatible with some browsers' `serverCertificateHashes` constraints —
   see the dedicated section above.
-- `--cert`/`--key` (external CA certificate) are not wired into this
-  example's CLI, unlike `word_list` — `--port` is the only flag. Add the same
-  flow from `word_list/wired_server.c` if you need a certificate a browser
-  accepts without the pinning workaround.
+- `--cert`/`--key` (external CA certificate) are the one `word_list` flag
+  pair this example's CLI does not wire — the driver flags above all work,
+  but the certificate is always the fixed self-signed identity. Add
+  `word_list`'s `wired_certreload_load_or_selfsigned` flow if you need a
+  certificate a browser accepts without the pinning workaround.
