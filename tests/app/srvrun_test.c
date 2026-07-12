@@ -1950,7 +1950,7 @@ static void test_srvrun_wt_connect_non_client_bidi_id_rejected(void) {
  * application-level (is_app=1, type 0x1d) CONNECTION_CLOSE -- distinct from
  * wired_srvboot_refusal/quic_flowviol_close_frame's is_app=0 (type 0x1c)
  * transport-level variant. A dormant primitive (tasks/webtransport-plan.md
- * WT-C-005後半): no live caller yet, this test is its only current
+ * WT-C-005 second half): no live caller yet, this test is its only current
  * exercise, matching srvrun_send_wt_busy_reset's own one-round-dormant
  * precedent before WT-C-009 later found its first caller. */
 static void test_srvrun_seal_app_close_is_application_level(void) {

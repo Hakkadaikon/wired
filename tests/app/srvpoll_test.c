@@ -2,11 +2,12 @@
 
 #include "test.h"
 
-/* tasks/polling-driver-plan.md テスト設計 1,2,5。wired_srvpoll_spin_step は
- * wired_udp_recvmmsg_nowait を1回呼び、結果が「データ無し」(0 or 負の
- * errno)ならPAUSE命令を1回発行するだけ — 戻り値そのものは一切
- * 変換/破棄しない(tests/transport/udp_recvmmsg_test.c と同じ実ソケット
- * パターンで検証: sfdへ送らなければMSG_DONTWAITは即座に空を返す)。 */
+/* tasks/polling-driver-plan.md test designs 1, 2, 5. wired_srvpoll_spin_step
+ * calls wired_udp_recvmmsg_nowait once and, when the result is "no data"
+ * (0 or a negative errno), issues a single PAUSE instruction -- the return
+ * value itself is never transformed or dropped (verified with the same
+ * real-socket pattern as tests/transport/udp_recvmmsg_test.c: with nothing
+ * sent to sfd, MSG_DONTWAIT returns empty immediately). */
 
 /* A bound (non-listening-peer) socket, used as the recv side. Returns 1 with
  * the fd, or 0 (benign skip) if the sandbox forbids sockets. */

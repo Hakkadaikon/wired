@@ -523,7 +523,7 @@ static int srvrun_seal_app_close(
 /* Seal and send an application-level CONNECTION_CLOSE as its own 1-RTT
  * packet.
  * ponytail: no live caller yet (the violation-detection trigger is a
- * separate follow-up, tasks/webtransport-plan.md WT-C-005後半) -- only
+ * separate follow-up, tasks/webtransport-plan.md WT-C-005 second half) -- only
  * tests/run.c calls this today, so it needs the attribute to avoid
  * -Wunused-function under -Werror in the freestanding build. */
 __attribute__((unused)) static void srvrun_send_app_close(
