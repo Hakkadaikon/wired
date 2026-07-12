@@ -104,4 +104,12 @@ i64 wired_srvxdp_send(
  * @param x driver instance to close */
 void wired_srvxdp_close(wired_srvxdp* x);
 
+/** Read XDP_STATISTICS for fd (quic_xsksetup_stats) and log one line per
+ * counter (name + value) via wired_log_str. A no-op (silently returns) if
+ * the stats read fails.
+ *
+ * @param fd the XDP socket file descriptor
+ */
+void wired_srvxdp_print_stats(i64 fd);
+
 #endif

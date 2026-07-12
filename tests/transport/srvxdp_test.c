@@ -222,6 +222,13 @@ static void test_srvxdp_mac_miss(void) {
   CHECK(quic_xskring_cons_peek(&w.ktx, 1, &idx) == 0);
 }
 
+/* 7: print_stats on a bad fd (no real kernel socket) fails the underlying
+ * getsockopt and returns without touching anything -- just proves it does
+ * not crash. */
+static void test_srvxdp_print_stats_bad_fd(void) {
+  wired_srvxdp_print_stats(-1);
+}
+
 void test_srvxdp(void) {
   test_srvxdp_rx_basic();
   test_srvxdp_rx_conservation();
@@ -229,4 +236,5 @@ void test_srvxdp(void) {
   test_srvxdp_completion_reap();
   test_srvxdp_txpool_exhaustion();
   test_srvxdp_mac_miss();
+  test_srvxdp_print_stats_bad_fd();
 }
