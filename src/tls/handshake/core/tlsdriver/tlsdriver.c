@@ -1,5 +1,6 @@
 #include "tls/handshake/core/tlsdriver/tlsdriver.h"
 
+#include "common/bytes/util/bytes.h"
 #include "tls/handshake/core/tls/clienthello.h"
 #include "tls/handshake/core/tls/ext_keyshare.h"
 #include "tls/handshake/core/tls/handshake.h"
@@ -24,10 +25,11 @@ void quic_tlsdriver_init(
   quic_hsdriver_init(&d->hs, is_server);
   quic_keysched_init(&d->ks);
   quic_keyset_init(&d->keys);
-  d->is_server = is_server;
-  d->hs_ready  = 0;
-  d->sni       = 0;
-  d->sni_len   = 0;
+  d->is_server         = is_server;
+  d->hs_ready          = 0;
+  d->sni               = 0;
+  d->sni_len           = 0;
+  d->transcript_ch_len = 0;
 }
 
 void quic_tlsdriver_set_sni(quic_tlsdriver* d, const u8* sni, usz sni_len) {
@@ -48,8 +50,13 @@ usz quic_tlsdriver_raw_client_hello(quic_tlsdriver* d, u8* out, usz cap) {
 int quic_tlsdriver_client_hello(quic_tlsdriver* d, quic_obuf* out) {
   u8  ch[512];
   usz n = quic_tlsdriver_raw_client_hello(d, ch, sizeof(ch));
-  if (n == 0) return 0;
   quic_crypto_stream_emit_in in = {0, QUIC_TLSDRIVER_CRYPTO_MAX};
+  if (n == 0) return 0;
+  /* RFC 8446 4.4.1: keep our own emitted ClientHello bytes so derive_
+   * handshake can prepend them to the ServerHello transcript later -- see
+   * the field's doc comment in tlsdriver.h. */
+  quic_memcpy(d->transcript_ch, ch, n);
+  d->transcript_ch_len = n;
   return quic_crypto_stream_emit(quic_span_of(ch, n), &in, out);
 }
 
@@ -148,6 +155,22 @@ static void install_handshake_keys(quic_tlsdriver* d) {
   d->hs_ready = 1;
 }
 
+/* RFC 8446 4.4.1: the client-side transcript is ClientHello||ServerHello, not
+ * ServerHello alone -- copy our saved ClientHello bytes (quic_tlsdriver_
+ * client_hello) then msg (the just-received ServerHello) into one contiguous
+ * buffer. The server side has no prior message of its own here (msg IS the
+ * first message, the ClientHello), so transcript_ch_len is 0 and this is a
+ * plain copy of msg -- byte-identical to the pre-fix behavior for is_server.
+ * Returns the combined length, or 0 if it would not fit buf. */
+static usz build_transcript(
+    const quic_tlsdriver* d, const u8* msg, usz n, u8* buf, usz cap) {
+  usz total = d->transcript_ch_len + n;
+  if (total > cap) return 0;
+  quic_memcpy(buf, d->transcript_ch, d->transcript_ch_len);
+  quic_memcpy(buf + d->transcript_ch_len, msg, n);
+  return total;
+}
+
 /* ECDHE shared secret, then advance the schedule to the handshake secret.
  * RFC 7748 6.1: a low-order peer key gives an all-zero secret; reject it. */
 static int derive_handshake_secret(
@@ -155,9 +178,31 @@ static int derive_handshake_secret(
     const u8*       msg,
     usz             n,
     const u8        peer_pub[QUIC_ECDHE_LEN]) {
+  u8  transcript[1024];
+  usz tn;
   if (!quic_crypto_stream_ecdhe(d->my_priv, peer_pub, d->shared)) return 0;
+  tn = build_transcript(d, msg, n, transcript, sizeof transcript);
+  if (tn == 0) return 0;
   return quic_keysched_advance_handshake(
-      &d->ks, quic_span_of(d->shared, QUIC_ECDHE_LEN), quic_span_of(msg, n));
+      &d->ks, quic_span_of(d->shared, QUIC_ECDHE_LEN),
+      quic_span_of(transcript, tn));
+}
+
+/* RFC 8446 4.4.1: the server side has no ClientHello of its own emission to
+ * prepend (quic_tlsdriver_client_hello is a client-only call) -- msg here
+ * IS the peer's ClientHello, the first message of the transcript, so save
+ * it the same way the client side's quic_tlsdriver_client_hello does for
+ * its own emitted bytes -- AFTER the handshake-secret transcript is built
+ * (build_transcript's own transcript_ch||msg shape must not see msg twice,
+ * once as transcript_ch and once as msg itself). This is for the layer
+ * above (quic_fullhs's own transcript, seeded from this same ClientHello);
+ * a no-op on the client side (msg there is the ServerHello, already the
+ * second message; transcript_ch was set when this side's own ClientHello
+ * was built). */
+static void save_server_side_transcript_ch(quic_tlsdriver* d, const u8* msg, usz n) {
+  if (!d->is_server) return;
+  quic_memcpy(d->transcript_ch, msg, n);
+  d->transcript_ch_len = n;
 }
 
 /* Derive the ECDHE shared secret and advance the key schedule to the
@@ -167,6 +212,7 @@ static int derive_handshake(quic_tlsdriver* d, const u8* msg, usz n) {
   if (!peer_keyshare(d, msg, n, peer_pub)) return 0;
   if (!derive_handshake_secret(d, msg, n, peer_pub)) return 0;
   install_handshake_keys(d);
+  save_server_side_transcript_ch(d, msg, n);
   return 1;
 }
 

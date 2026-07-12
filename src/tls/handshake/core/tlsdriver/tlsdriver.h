@@ -36,6 +36,16 @@ typedef struct {
   int            hs_ready; /* 1 once the handshake secret is derived */
   const u8*      sni;      /* ClientHello server_name, view (caller-owned) */
   usz            sni_len;  /* 0 omits the SNI extension */
+  /** RFC 8446 4.4.1: the handshake-secret transcript hash is over every
+   * handshake message seen so far, not just the most recent one -- a client
+   * derives its handshake keys from ClientHello||ServerHello, a server from
+   * the same two messages in the same order. quic_tlsdriver_client_hello
+   * copies the exact bytes it emits here so recv_crypto's ServerHello can be
+   * appended to them (the client side of derive_handshake); the server side
+   * (is_server=1) has no prior message of its own to prepend, so this stays
+   * empty and its ClientHello-only transcript is already correct. */
+  u8  transcript_ch[512];
+  usz transcript_ch_len;
 } quic_tlsdriver;
 
 /* Hold the x25519 key pair and initialize the order machine, key schedule,
