@@ -11,8 +11,11 @@ if [ "$ROLE" != "server" ]; then
   exit 127
 fi
 
+# Only http3 for now: every other QUIC test case (handshake, transfer, ...)
+# transfers files over HTTP/0.9 (ALPN hq-interop, see the runner's quic.md),
+# which this h3-only server does not speak.
 case "$TESTCASE" in
-  handshake | transfer | http3) ;;
+  http3) ;;
   *)
     echo "unsupported test case: $TESTCASE" >&2
     exit 127
