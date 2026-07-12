@@ -16,7 +16,8 @@ just run             # build + listen on 0.0.0.0:4433 (Ctrl-C to stop)
 
 Other recipes: `just build` (binary only), `just build-debug` / `just run-debug`
 (trace logging via `-DQUIC_DEBUG`), `just run-workers` (4 worker processes, one
-pinned per core), `just run-xdp` (AF_XDP; root, needs `$IFINDEX` and `$IP`).
+pinned per core), `just run-xdp` (AF_XDP; root, needs `$IFINDEX`, `$IP`, and a
+`cert.pem`/`key.pem` pair in the cwd — it passes `--cert`/`--key`).
 
 ## Verify
 
@@ -38,15 +39,17 @@ QUIC + TLS 1.3 handshake against this server and received `HTTP/3 200`.
 | `--access-log PATH` | off | one line per request: `METHOD PATH STATUS BYTES` |
 | `--cert PATH` / `--key PATH` | self-signed | PEM certificate and key (below) |
 | `--qlog-file PATH` / `--keylog-file PATH` | off | qlog / TLS key log output |
-| `--busy-poll` | off | spin the receive loop instead of blocking in `poll(2)` |
+| `--busy-poll 1` | off | spin the receive loop instead of blocking in `poll(2)` |
 | `--pin-core N` | unpinned | pin the single-process server to CPU N |
 | `--workers N [--pin-cores 1]` | — | N forked worker processes (`SO_REUSEPORT`) |
 | `--cores a,b,c [--control-core N]` | — | worker threads pinned to those CPUs |
 | `--ifindex N [--queue N --ip a.b.c.d --skb-mode]` | — | AF_XDP driver (root) |
 
-`--workers` cannot combine with `--cores` or `--ifindex`; `--cores` plus
-`--ifindex` is AF_XDP multi-queue mode (worker *i* serves NIC queue *i*). The
-drivers are covered in detail in [docs/getting-started.md](../../docs/getting-started.md).
+`--workers` cannot combine with `--cores` or `--ifindex`, and `--pin-core`
+cannot combine with `--workers` or `--cores` (they have their own pinning
+flags); `--cores` plus `--ifindex` is AF_XDP multi-queue mode (worker *i*
+serves NIC queue *i*). The drivers are covered in detail in
+[docs/getting-started.md](../../docs/getting-started.md).
 
 ## Certificates
 

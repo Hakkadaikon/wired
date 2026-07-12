@@ -61,6 +61,7 @@ HTTP/3, and the I/O driver selected at startup. Condensed from
 #define WIRED_MAIN /* emits the libc shim + _start a -nostdlib binary needs */
 #include "wired.h"
 #include "app/http3/server/srvdriver/srvdriver.h"
+#include "common/platform/exit/exit.h" /* wired_die */
 
 static int app_on_request(
     void* ctx, const wired_h3reqdrive_req* req,
@@ -113,7 +114,8 @@ for a single process, `--workers N` for forked workers on one port,
 ## Supported platform
 
 x86_64-linux only. The AF_XDP driver additionally needs root and kernel 5.9
-or later; on NICs without native XDP, `--skb-mode` selects generic XDP —
+or later (`BPF_LINK_CREATE` for XDP); on NICs without native XDP,
+`--skb-mode` selects generic XDP —
 note that some virtualized drivers (e.g. `virtio_net`) do not deliver AF_XDP
 TX in generic mode, so prefer the plain UDP driver there.
 

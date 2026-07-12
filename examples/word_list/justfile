@@ -1,6 +1,6 @@
-# wired HTTP/3 server sample. libc-free, x86_64-linux only. One binary, three
+# wired HTTP/3 server sample. libc-free, x86_64-linux only. One binary, four
 # I/O drivers selected by CLI flag at startup (plain UDP / multi-worker /
-# AF_XDP, see README.md). Both build targets (release, debug) are ninja
+# multi-thread / AF_XDP, see README.md). Both build targets (release, debug) are ninja
 # targets in the SDK's build.ninja (see scripts/gen_ninja.sh); this justfile
 # is just the entry point.
 

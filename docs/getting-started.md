@@ -35,7 +35,7 @@ The full recipe list:
 | `build` | `fmt` + `ninja` + `lint` as one pipeline. |
 | `ninja` | Compile every `src/**/*.c` with `-ffreestanding -nostdlib` into `build/<path>.o` — the proof of libc independence. |
 | `lib` | Archive the SDK objects into `build/libwired.a` (excludes the SDK's own `_start` stub so your app supplies the entry point). |
-| `test` | Build and run `build/quic_test`: `tests/run.c` is a single unity translation unit including every production `.c` and every `*_test.c`, assertions on. |
+| `test` | Format, then build and run `build/quic_test`: `tests/run.c` is a single unity translation unit including every production `.c` and every `*_test.c`, assertions on. |
 | `ccn` | `lizard src --CCN 3 -w` — every function must hold cyclomatic complexity ≤ 3. |
 | `check` | `ccn` + `test`. |
 | `fmt` / `fmt-check` | clang-format in place / verify without writing. |
@@ -71,7 +71,8 @@ Build the static library, then compile your application freestanding against
 
 ```sh
 just lib
-clang -target x86_64-linux-gnu -ffreestanding -nostdlib -static \
+clang -target x86_64-linux-gnu -ffreestanding -fno-stack-protector \
+      -fno-builtin -nostdlib -static \
       -Isrc -o my_server my_server.c build/libwired.a
 ```
 
@@ -83,13 +84,14 @@ entry stub, which recovers `argc`/`argv` from the kernel stack and calls your
 ```c
 #define WIRED_MAIN
 #include "wired.h"
-#include "app/http3/server/srvdriver/srvdriver.h"
+#include "app/http3/server/srvdriver/srvdriver.h" /* driver selection */
+#include "common/platform/exit/exit.h"            /* wired_die */
 
 int wired_main(int argc, char** argv);
 ```
 
-Note `srvdriver.h` (driver selection) is included separately from `wired.h` —
-both examples do exactly this.
+Note `srvdriver.h` (driver selection) and `exit.h` (`wired_die`) are included
+separately from `wired.h` — the examples do exactly this.
 
 ### A minimal server
 
@@ -148,10 +150,11 @@ four drive the same application callback.
 | Single-process (default) | no flag | `--pin-core N` | Blocking `poll(2)` loop; simplest. |
 | Multi-process fork | `--workers N` | `--pin-cores 1` | N `fork`ed workers sharing the port via `SO_REUSEPORT`; a supervisor re-forks a dead worker. `0` = CPU count. |
 | Multi-thread | `--cores a,b,c` | `--control-core N` | `clone(2)`/`futex(2)` fan-out (no pthreads); worker *i* pins to `cores[i]`. |
-| AF_XDP | `--ifindex N` | `--queue N --ip a.b.c.d --skb-mode` | Packets polled from a shared UMEM ring, zero per-packet syscalls on receive. Root and kernel ≥ 5.9 required. |
+| AF_XDP | `--ifindex N` | `--queue N --ip a.b.c.d --skb-mode` | Packets polled from a shared UMEM ring, zero per-packet syscalls on receive. Root and kernel ≥ 5.9 (`BPF_LINK_CREATE` for XDP) required. |
 
 Rules enforced by the parser: `--workers` cannot combine with `--cores` or
-`--ifindex`; `--pin-core` is for the single-process driver only. `--cores`
+`--ifindex`; `--pin-core` is rejected alongside `--workers`/`--cores` (each
+has its own pinning flag) and only the single-process driver applies it. `--cores`
 **plus** `--ifindex` is AF_XDP multi-queue mode (worker *i* serves NIC queue
 *i* against one shared BPF filter).
 

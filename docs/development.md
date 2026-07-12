@@ -73,31 +73,34 @@ matches.
 flowchart LR
     src["src/**/*.c<br/>(find-discovered)"]
 
-    src --> build["just build<br/>freestanding per-file<br/>-ffreestanding -nostdlib<br/>→ build/&lt;path&gt;.o"]
-    src --> ninja["just ninja<br/>scripts/gen_ninja.sh → build.ninja<br/>parallel + header-dep incremental"]
+    src --> ninja["just ninja<br/>freestanding per-file<br/>-ffreestanding -nostdlib<br/>→ build/&lt;path&gt;.o"]
+    src --> build["just build<br/>fmt + ninja + lint<br/>(one pinned-toolchain pipeline)"]
     src --> test["just test<br/>tests/run.c unity build<br/>(all *_test.c, one TU)<br/>assertions on"]
 
-    build --> gate
+    ninja --> gate
     test --> gate
     ccn["lizard src --CCN 3 -w"] --> gate
 
-    gate{"three-point gate<br/>build · test · ccn<br/>+ object==source count"}
+    gate{"three-point gate<br/>ninja · test · ccn<br/>+ object==source count"}
     gate -->|all green| commit["git commit"]
     gate -->|any red| stop["blocked"]
 ```
 
-- **`just build`** compiles each `.c` individually under `-ffreestanding
-  -nostdlib` into a path-qualified `build/<path>.o`. This is the proof of libc
-  independence: if a file needs a standard header, the build fails — fix the
-  code, don't add the header. The path-qualified `.o` also lets the count check
-  work despite shared basenames (`frame.c`, `grease.c`, …).
-- **`just ninja`** generates `build.ninja` and does parallel, header-aware
-  incremental rebuilds — the fast inner loop while iterating.
+- **`just ninja`** compiles each `.c` individually under `-ffreestanding
+  -nostdlib` into a path-qualified `build/<path>.o` (regenerating
+  `build.ninja` first; parallel, header-aware incremental). This is the proof
+  of libc independence: if a file needs a standard header, the build fails —
+  fix the code, don't add the header. The path-qualified `.o` also lets the
+  count check work despite shared basenames (`frame.c`, `grease.c`, …).
+- **`just build`** runs `fmt` + `ninja` + `lint` as one pipeline through the
+  pinned toolchain — the everyday entry point that also keeps sources
+  formatted and surfaces lint findings. The gate uses `ninja` directly so
+  formatting side effects can't touch the pass/fail signal.
 - **`just test`** compiles `tests/run.c`, a single unity translation unit that
   `#include`s every production `.c` once and every `*_test.c` once, then runs
   every test with assertions on.
 - **`just check`** runs the gate (`ccn` + `test`); the full commit gate adds
-  `just build` and the object-count check (see below).
+  `just ninja` and the object-count check (see below).
 - **`just lib`** archives the compiled SDK objects into `build/libwired.a`
   (runs `ninja` first). `sys.o` — the SDK's own `_start` stub — is excluded,
   so an application links the library and supplies its own entry point;
@@ -119,7 +122,7 @@ A change that breaks any of these is not done.
   -nostdlib`. Do not include `<stdio.h>`, `<string.h>`, etc. in `src/`. Write
   your own small byte loops, or use the existing `util/*` inline helpers
   (`bytes.h`, `be.h`, `ct.h`, `num.h`) — never re-roll `memcpy`/`put_be32`/a
-  constant-time compare a second time. Verify: `just build`.
+  constant-time compare a second time. Verify: `just ninja`.
 - **CCN ≤ 3 for every function.** `lizard` counts `&&`, `||`, `?:`, `if`,
   `for`, `while` as +1 each. Factor compound conditions into named predicate
   helpers and branch clusters into table + function-pointer dispatch. Count
@@ -140,7 +143,7 @@ count check. Run them guarded so a red result cannot reach `git commit`:
 
 ```sh
 if just test 2>&1 | grep -q "all tests passed" \
-   && just build >/dev/null 2>&1 \
+   && just ninja >/dev/null 2>&1 \
    && lizard src --CCN 3 -w \
    && [ "$(find src -name '*.c' | wc -l)" = "$(find build -name '*.o' | wc -l)" ]; then
     git commit -m "..."
@@ -232,5 +235,3 @@ the RFC, the test-design viewpoints:
    sub-step helper.
 5. **Micro-commit.** ~30–50 line conventional commits with an RFC section
    reference; keep `feat(<domain>):` and `test(<domain>):` as distinct commits.
-</content>
-</invoke>
