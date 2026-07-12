@@ -65,4 +65,26 @@ int wired_srvthreads_run(
     wired_srvrun_obs            obs,
     const wired_srvthreads_opt* opt);
 
+/** Parse a comma-separated core list ("2,3,4,5") into opt->cores[] and
+ * opt->n_cores, e.g. for a --cores CLI flag (examples/webtransport_chat and
+ * examples/word_list each reimplemented this parser separately; this is the
+ * shared version).
+ *
+ * The empty string is rejected rather than accepted as "0 cores": an empty
+ * --cores value is always a caller mistake (the thread-fan-out driver is
+ * only selected when --cores is given at all), so treating it as malformed
+ * surfaces the mistake instead of silently running zero workers. The same
+ * reasoning rejects a leading/trailing/doubled comma: an empty field is not
+ * a valid core number, so "2,3," and ",2,3" are malformed rather than
+ * silently ignoring the empty field.
+ *
+ * @param s   NUL-terminated comma-separated list of non-negative base-10
+ *            core numbers, e.g. "2,3,4,5"
+ * @param opt destination; cores[]/n_cores are written on success, left
+ *            untouched on failure
+ * @return 1 on success, 0 if s is malformed (non-digit, empty field) or
+ *         the parsed core count exceeds WIRED_SRVTHREADS_MAX
+ */
+int wired_srvthreads_parse_cores(const char* s, wired_srvthreads_opt* opt);
+
 #endif
