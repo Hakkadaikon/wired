@@ -2,7 +2,7 @@
 
 QUIC is not complete in a single RFC.
 Only when several standards are stacked together — the transport core itself, TLS 1.3 for encryption, the cryptographic primitives beneath it, HTTP/3 spoken above it, and even the IP and UDP that form the foundation — does one connection come together.
-Here the implemented specifications are divided into six groups, showing why each group is needed and what each specification is for.
+Here the implemented specifications are divided into seven groups, showing why each group is needed and what each specification is for.
 
 ## QUIC core
 
@@ -85,6 +85,18 @@ QPACK splits the encoder and decoder instructions onto separate streams and sync
 | RFC 9204 | QPACK: Field Compression for HTTP/3 | https://www.rfc-editor.org/rfc/rfc9204 | Header compression that avoids head-of-line blocking under stream independence. |
 | RFC 7541 | HPACK: Header Compression for HTTP/2 | https://www.rfc-editor.org/rfc/rfc7541 | Defines the static table, Huffman code, and integer encoding that QPACK reuses. |
 | RFC 9218 | Extensible Prioritization Scheme for HTTP | https://www.rfc-editor.org/rfc/rfc9218 | Defines the mechanism for conveying request priorities. |
+
+## WebTransport
+
+HTTP/3 carries requests and responses, but an application that wants raw bidirectional streams and datagrams between a browser and a server needs one more layer.
+WebTransport overlays such a session on top of an HTTP/3 connection: an Extended CONNECT request establishes the session, and the streams and DATAGRAMs bound to it become the application's transport.
+This SDK implements the server side — the session state machine, the WebTransport capsules, and the error-code mapping under `src/app/webtransport/` — and `examples/webtransport_chat` drives a live session from a real browser.
+
+| Spec | Title | Link | Why |
+|------|------------|--------|-----------|
+| draft-ietf-webtrans-http3 | WebTransport over HTTP/3 | https://datatracker.ietf.org/doc/html/draft-ietf-webtrans-http3 | The body of the protocol: the session state machine, the WebTransport stream signals, the session-close capsules, and the application error-code mapping; implemented against draft-15. |
+| RFC 9220 | Bootstrapping WebSockets with HTTP/3 | https://www.rfc-editor.org/rfc/rfc9220 | Brings Extended CONNECT into HTTP/3; the `:protocol` pseudo-header and SETTINGS_ENABLE_CONNECT_PROTOCOL that session establishment rides on. |
+| RFC 9297 | HTTP Datagrams and the Capsule Protocol | https://www.rfc-editor.org/rfc/rfc9297 | Binds DATAGRAMs to a request stream via SETTINGS_H3_DATAGRAM and defines the generic capsule envelope the WebTransport capsules are layered on. |
 
 ## Lower-layer protocols
 
