@@ -28,14 +28,44 @@ static usz certreload_load_chain(
   return n;
 }
 
-/* Extract the P-256 private scalar from key.pem's first PEM block into
- * store->priv. Returns 1 on success. */
+/* 1 if the cstring s still has a byte at i and it equals c. */
+static int certreload_label_ch(const char* s, usz i, u8 c) {
+  return s[i] != 0 && (u8)s[i] == c;
+}
+
+static int certreload_label_eq(quic_span label, const char* s) {
+  usz i;
+  for (i = 0; i < label.n; i++)
+    if (!certreload_label_ch(s, i, label.p[i])) return 0;
+  return s[i] == 0;
+}
+
+/* RFC 7468 10/13: the two labels wired_eckey_p256_priv can decode. Anything
+ * else -- notably the "EC PARAMETERS" block `openssl ecparam -genkey`
+ * prepends before the key -- is not the key and must be skipped. */
+static int certreload_key_label(quic_span label) {
+  return certreload_label_eq(label, "EC PRIVATE KEY") ||
+         certreload_label_eq(label, "PRIVATE KEY");
+}
+
+/* Decode PEM blocks until one carries a private-key label; 1 with its DER
+ * appended to der, 0 when text runs out first. */
+static int certreload_next_key(quic_span text, usz* at, quic_obuf* der) {
+  quic_span label;
+  while (wired_pem_next(text, at, &label, der)) {
+    if (certreload_key_label(label)) return 1;
+    der->len = 0; /* discard a skipped block's DER */
+  }
+  return 0;
+}
+
+/* Extract the P-256 private scalar from key.pem's first private-key PEM
+ * block into store->priv. Returns 1 on success. */
 static int certreload_load_key(quic_span text, wired_certreload_store* store) {
   u8        der_buf[192];
   quic_obuf der = quic_obuf_of(der_buf, sizeof der_buf);
-  quic_span label;
   usz       at = 0;
-  if (!wired_pem_next(text, &at, &label, &der)) return 0;
+  if (!certreload_next_key(text, &at, &der)) return 0;
   return wired_eckey_p256_priv(quic_span_of(der_buf, der.len), store->priv);
 }
 
