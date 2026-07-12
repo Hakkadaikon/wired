@@ -37,10 +37,9 @@ static u32 srvdriver_xdp_attach_flags(int argc, char** argv) {
  * by WIRED_SRVDRIVER_XDP and WIRED_SRVDRIVER_THREADS (the latter when
  * --ifindex was also given, selecting AF_XDP multi-queue mode: worker i
  * serves queue i). */
-static int srvdriver_load_xdp(
-    int argc, char** argv, wired_srvdriver_opt* opt) {
+static int srvdriver_load_xdp(int argc, char** argv, wired_srvdriver_opt* opt) {
   wired_srvxdp_cfg* xdp     = &opt->xdp;
-  i64                ifindex = wired_cliargs_int(argc, argv, "--ifindex", -1);
+  i64               ifindex = wired_cliargs_int(argc, argv, "--ifindex", -1);
   if (ifindex < 0) return 0;
   if (!wired_cliargs_ipv4(wired_cliargs_str(argc, argv, "--ip", ""), xdp->ip))
     return 0;
@@ -205,7 +204,9 @@ static int srvdriver_run_threads(
 }
 
 typedef int (*srvdriver_run_fn)(
-    wired_srvboot_id*, wired_srvrun_handler, wired_srvrun_obs,
+    wired_srvboot_id*,
+    wired_srvrun_handler,
+    wired_srvrun_obs,
     const wired_srvdriver_opt*);
 
 static const srvdriver_run_fn SRVDRIVER_RUN_BY_KIND[4] = {

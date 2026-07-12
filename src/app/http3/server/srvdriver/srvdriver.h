@@ -32,12 +32,15 @@ typedef enum {
  * parsing). */
 typedef struct {
   wired_srvdriver_kind kind;
-  u16 port; /**< --port (default 4433); the single source of truth for the
-             * UDP port both wired_srvdriver_run binds/serves on AND (XDP
-             * only) the BPF redirect filter matches -- kept in opt instead
-             * of a separate function argument so the two can never drift
-             * apart and silently filter out every real packet. */
-  int pin_core; /**< WIRED_SRVDRIVER_PLAIN only: CPU to pin to, -1 = off */
+  u16                  port;    /**< --port (default 4433); the single source of
+                                 * truth for the UDP port both wired_srvdriver_run
+                                 * binds/serves on AND (XDP only) the BPF redirect
+                                 * filter matches -- kept in opt instead of a
+                                 * separate function argument so the two can
+                                 * never drift apart and silently filter out
+                                 * every real packet. */
+  int pin_core;                 /**< WIRED_SRVDRIVER_PLAIN only: CPU to pin
+                                 * to, -1 = off */
   wired_srvrun_opt     run;     /**< PLAIN/XDP: busy_poll and app callbacks */
   wired_srvworkers_opt workers; /**< WORKERS knobs */
   wired_srvxdp_cfg     xdp;     /**< XDP knobs (also used by THREADS+ifindex) */
