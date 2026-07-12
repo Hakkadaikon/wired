@@ -4,8 +4,10 @@
 /** @file
  * Single-header public entry for the wired QUIC/HTTP3 SDK. Include this and
  * (optionally, in exactly one translation unit) define WIRED_MAIN before it to
- * also get the libc-named memcpy/memset a freestanding binary needs. See
- * examples/word_list for a complete server. */
+ * also get the libc-named memcpy/memset and the freestanding `_start` entry
+ * point a -nostdlib binary needs. The application TU that defines WIRED_MAIN
+ * must also define `int wired_main(int argc, char** argv)` as its own main.
+ * See examples/word_list for a complete server. */
 
 #include "app/http3/server/certreload/certreload.h"
 #include "app/http3/server/mimetype/mimetype.h"
@@ -34,6 +36,27 @@ void* memcpy(void* dst, const void* src, usz n) {
   return quic_memcpy(dst, src, n);
 }
 void* memset(void* dst, int c, usz n) { return quic_memset(dst, c, n); }
+
+/* Freestanding entry point (x86_64-linux, -nostdlib). Each application TU
+ * that defines WIRED_MAIN must also define `int wired_main(int argc, char**
+ * argv)` (non-static, so this can link to it) as its own main. Linux enters
+ * _start with RSP%16==0 and no return address on the stack; the asm below
+ * recovers argc/argv from the kernel-built initial stack, 16-byte-aligns
+ * RSP for the SysV ABI's post-call state wired_main expects (its own
+ * force_align_arg_pointer attribute handles the rest), and exits with
+ * wired_main's return value. */
+int wired_main(int argc, char** argv);
+
+__attribute__((naked)) void _start(void) {
+  asm volatile(
+      "mov (%rsp), %rdi\n"
+      "lea 8(%rsp), %rsi\n"
+      "and $-16, %rsp\n"
+      "call wired_main\n"
+      "mov %eax, %edi\n"
+      "mov $60, %eax\n" /* SYS_exit */
+      "syscall\n");
+}
 #endif
 
 #endif
