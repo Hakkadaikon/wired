@@ -1,35 +1,121 @@
 # wired
 
-wired is a libc-free SDK for QUIC / TLS 1.3 / HTTP/3.
-It calls x86_64 Linux syscalls directly, supplies its own `_start`, and uses neither the standard library nor any external dependency.
-The only thing it leaves to the kernel is raw UDP I/O; packet framing, encryption, loss recovery, congestion control, streams, and HTTP/3 are all implemented in user space.
+`wired` is a libc-free QUIC / HTTP/3 / WebTransport server SDK in C for
+x86_64-linux, featuring:
 
-## Documentation
+- **zero dependencies, zero libc** — every source compiles under
+  `-ffreestanding -nostdlib`, talks to the kernel through raw syscalls only,
+  and ships its own `_start`. The compile itself is the proof: if a file
+  needs a standard header, the build fails
+- **the full stack in user space** — QUIC ([RFC 9000](https://www.rfc-editor.org/rfc/rfc9000) /
+  [9001](https://www.rfc-editor.org/rfc/rfc9001) / [9002](https://www.rfc-editor.org/rfc/rfc9002)),
+  TLS 1.3 ([RFC 8446](https://www.rfc-editor.org/rfc/rfc8446)),
+  HTTP/3 ([RFC 9114](https://www.rfc-editor.org/rfc/rfc9114)),
+  QPACK ([RFC 9204](https://www.rfc-editor.org/rfc/rfc9204)), and
+  WebTransport ([draft-ietf-webtrans-http3](https://datatracker.ietf.org/doc/draft-ietf-webtrans-http3/));
+  the kernel only carries already-encrypted UDP bytes
+- **four I/O drivers behind one CLI** — single-process `poll`, multi-process
+  fork (`SO_REUSEPORT`), multi-thread fan-out (raw `clone`/`futex`, no
+  pthreads), and AF_XDP (packets polled from a shared UMEM ring, zero
+  per-packet receive syscalls)
+- **its own verified cryptography** — AES-128-GCM, ChaCha20-Poly1305, X25519,
+  Ed25519, ECDSA P-256, RSA, SHA-2, HKDF — each checked against its published
+  RFC/FIPS vectors
+- **auditable by construction** — every function holds cyclomatic complexity
+  ≤ 3 (lizard-enforced in CI), clang-tidy CERT C rules on every push, three
+  libFuzzer harnesses run nightly, and a
+  [quic-interop-runner](https://github.com/quic-interop/quic-interop-runner)
+  server endpoint is included
 
-- [docs/arch/overview.md](docs/arch/overview.md): the boundary between user space and the kernel, the five layers, and the data flow for sending, receiving, and the handshake.
-- [docs/arch/layers.md](docs/arch/layers.md): the problem each of the common / crypto / transport / tls / app layers solves and the key points of its design.
-- [docs/arch/rfcs.md](docs/arch/rfcs.md): the list of implemented RFCs and FIPS publications, and why each specification is needed.
-- [docs/usage.md](docs/usage.md): the build and the `just` targets, the source layout, and how to use the library.
-- [docs/development.md](docs/development.md): the development constraints and workflow, and how to add a domain.
-- [docs/security.md](docs/security.md): the security properties the SDK enforces, by subsystem, and the checks left to the caller.
+See the [API reference](https://hakkadaikon.github.io/wired/),
+[examples](examples/), and [Getting Started](docs/getting-started.md) to get
+started with `wired`.
+
+[![CI](https://github.com/Hakkadaikon/wired/actions/workflows/ci.yml/badge.svg)](https://github.com/Hakkadaikon/wired/actions/workflows/ci.yml)
+[![Fuzz](https://github.com/Hakkadaikon/wired/actions/workflows/fuzz.yml/badge.svg)](https://github.com/Hakkadaikon/wired/actions/workflows/fuzz.yml)
+[![Docs](https://github.com/Hakkadaikon/wired/actions/workflows/docs.yml/badge.svg)](https://github.com/Hakkadaikon/wired/actions/workflows/docs.yml)
+[![MIT Licensed](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 ## Quick start
 
 ```sh
-just build
+just setup           # one-time: installs Nix if absent
+just build           # format + freestanding compile + lint
 
-# Run the sample
 cd examples/word_list
-just build
-./wired_server
+just run             # binds 0.0.0.0:4433
 
-# POST
-docker run --rm ymuski/curl-http3 curl --http3-only --insecure -v --trace-ascii - https://[ipv4 addr]:4433/ -d 'hello' 2>&1
-docker run --rm ymuski/curl-http3 curl --http3-only --insecure -v --trace-ascii - https://[ipv4 addr]:4433/ -d 'world' 2>&1
-
-# GET
-docker run --rm ymuski/curl-http3 curl --http3-only --insecure -v --trace-ascii - https://[ipv4 addr]:4433/  2>&1
+# from any machine that can reach UDP 4433:
+docker run --rm ymuski/curl-http3 \
+    curl --http3-only --insecure -v https://<host>:4433/
 ```
+
+## Example
+
+The application side of a server is one callback plus one run call; the SDK
+owns everything else — bind, handshake, packet protection, loss recovery,
+HTTP/3, and the I/O driver selected at startup. Condensed from
+[examples/word_list](examples/word_list/wired_server.c):
+
+```c
+#define WIRED_MAIN /* emits the libc shim + _start a -nostdlib binary needs */
+#include "wired.h"
+#include "app/http3/server/srvdriver/srvdriver.h"
+
+static int app_on_request(
+    void* ctx, const wired_h3reqdrive_req* req,
+    quic_obuf* body_out, const char** content_type) {
+  /* answer req (method/path/body views) by filling body_out */
+  return 1;
+}
+
+int wired_main(int argc, char** argv) {
+  wired_srvboot_id     id;
+  wired_srvdriver_opt  opt;
+  wired_srvrun_handler h   = {app_on_request, 0};
+  wired_srvrun_obs     obs = {0};
+
+  server_identity(&id); /* keys + self-signed cert seed, see examples/ */
+  if (!wired_srvdriver_parse(argc, argv, &opt)) wired_die("bad flags\n");
+  if (!wired_srvdriver_run(&id, h, obs, &opt)) wired_die("listen failed\n");
+  return 0;
+}
+```
+
+The same binary then picks its I/O driver from the command line: no flags
+for a single process, `--workers N` for forked workers on one port,
+`--cores a,b,c` for a thread fan-out, `--ifindex N` for AF_XDP.
+
+## Examples
+
+| Example | What it shows |
+|---|---|
+| [word_list](examples/word_list/) | HTTP/3 message log (POST/GET) or static-file server; all four I/O drivers; CA-certificate drop-in |
+| [webtransport_chat](examples/webtransport_chat/) | Browser chat: live WebTransport sessions, DATAGRAM broadcast to every client, framework-free JS frontend |
+| [webtransport_echo](examples/webtransport_echo/) | The WebTransport building blocks (session lifecycle, capsules, error mapping) driven in isolation |
+
+## Documentation
+
+- [Getting Started](docs/getting-started.md) — build, test, run the
+  examples, and use the SDK in your own application.
+- [Architecture](docs/arch/overview.md) — the user-space/kernel boundary,
+  the five layers, and the send/receive/handshake data flows; with
+  [per-layer detail](docs/arch/layers.md) and the
+  [implemented specifications](docs/arch/rfcs.md).
+- [Development](docs/development.md) — the constraints every change must
+  hold (libc-free, CCN ≤ 3, unity build) and how to add a domain.
+- [Security](docs/security.md) — the security properties the SDK enforces,
+  by subsystem, and the checks left to the caller.
+- [Syscalls](docs/syscalls.md) — every syscall the SDK issues, and why.
+- [API reference](https://hakkadaikon.github.io/wired/) — doxygen for the
+  public `wired.h` surface, regenerated on every push to `main`.
+
+## Supported platform
+
+x86_64-linux only. The AF_XDP driver additionally needs root and kernel 5.9
+or later; on NICs without native XDP, `--skb-mode` selects generic XDP —
+note that some virtualized drivers (e.g. `virtio_net`) do not deliver AF_XDP
+TX in generic mode, so prefer the plain UDP driver there.
 
 ## License
 
