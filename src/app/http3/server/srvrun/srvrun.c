@@ -1785,9 +1785,25 @@ static int srvrun_sess_waiting(const srvrun_conn* c) {
   return c->up && c->sess.active;
 }
 
+/* 1 while this slot has anything outbound that only a poll-loop tick (not
+ * this connection's own next receive) will flush: an in-flight HTTP
+ * response (srvrun_sess_waiting) or a broadcast DATAGRAM (dg_pending, RFC
+ * 9221 5 -- queued by srvrun_broadcast_to_all/srvrun_bcast_drain_self but
+ * only ever flushed from srvrun_pump_datagram, which srvrun_sess_on_step
+ * reaches only when THIS connection itself next receives something). Used
+ * only to decide whether the loop must keep ticking (srvrun_any_waiting);
+ * NOT for the PTO probe/teardown decision below, which is specifically
+ * about wired_sendsess retransmission and must not fire for a connection
+ * that merely has a queued DATAGRAM and no HTTP response in flight. */
+static int srvrun_has_outbound(const srvrun_conn* c) {
+  return c->up && (c->sess.active || c->dg_pending);
+}
+
 /* Probe or tear down one slot on a PTO tick (RFC 9002 6.2): a spent probe
  * budget frees the slot (the peer stopped acknowledging), otherwise the
- * requeued probe goes straight back out. */
+ * requeued probe goes straight back out. Separate from the dg_pending flush
+ * below: a slot with only a queued broadcast DATAGRAM and no HTTP response
+ * in flight must never enter wired_sendsess's retransmission accounting. */
 static void srvrun_pto_slot(const srvrun_step_ctx* ctx, int slot) {
   srvrun_conn* c = &ctx->st->conns[slot];
   if (!srvrun_sess_waiting(c)) return;
@@ -1798,11 +1814,27 @@ static void srvrun_pto_slot(const srvrun_step_ctx* ctx, int slot) {
   srvrun_pump_sess(ctx, slot);
 }
 
-/* A poll timeout with responses in flight: fire the probe pass over every
- * waiting slot. */
+/* Flush one slot's queued broadcast DATAGRAM (if any) on a poll-loop tick --
+ * the counterpart to srvrun_pto_slot for dg_pending, since a receive-only
+ * peer (e.g. a WebTransport client that only listens) never runs
+ * srvrun_sess_on_step's own srvrun_pump_datagram call on its own. */
+static void srvrun_dg_slot(const srvrun_step_ctx* ctx, int slot) {
+  srvrun_conn* c = &ctx->st->conns[slot];
+  if (c->up) srvrun_pump_datagram(ctx, c);
+}
+
+/* One slot's tick work on a poll timeout: PTO probe/teardown, then flush any
+ * queued broadcast DATAGRAM -- split out so the loop below stays flat. */
+static void srvrun_tick_slot(const srvrun_step_ctx* ctx, int slot) {
+  srvrun_pto_slot(ctx, slot);
+  srvrun_dg_slot(ctx, slot);
+}
+
+/* A poll timeout with responses or broadcast DATAGRAMs in flight: fire the
+ * probe/flush pass over every waiting slot. */
 static void srvrun_fire_ptos(const srvrun_cfg* cfg, srvrun_state* st) {
   srvrun_step_ctx ctx = {cfg, 0, st, quic_clock_mono_ms()};
-  for (usz i = 0; i < QUIC_CONNTABLE_CAP; i++) srvrun_pto_slot(&ctx, (int)i);
+  for (usz i = 0; i < QUIC_CONNTABLE_CAP; i++) srvrun_tick_slot(&ctx, (int)i);
 }
 
 /* One live step; a peer CONNECTION_CLOSE observed by the loop frees the slot
@@ -2036,7 +2068,7 @@ static void srvrun_serve_batch(
  * @return 1 to receive, 0 when the tick expired instead. */
 static int srvrun_any_waiting(const srvrun_state* st) {
   for (usz i = 0; i < QUIC_CONNTABLE_CAP; i++)
-    if (srvrun_sess_waiting(&st->conns[i])) return 1;
+    if (srvrun_has_outbound(&st->conns[i])) return 1;
   return 0;
 }
 
