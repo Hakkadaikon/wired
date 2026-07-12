@@ -53,9 +53,19 @@ static const char crt_bad_key_path[] = "build/certreload_badkey_test.pem";
   "Jqr6SCDjgvw9xPMUV3UEDxCsEZbkEZpW/A==\n"                             \
   "-----END EC PRIVATE KEY-----\n"
 
+/* openssl ecparam -genkey prepends this parameters block (the prime256v1
+ * OID) before the EC PRIVATE KEY block; a loader that decodes the first PEM
+ * block as the key chokes on it (quic-interop-runner's certs.sh emits keys
+ * in exactly this shape). */
+#define CRT_PEM_EC_PARAMS              \
+  "-----BEGIN EC PARAMETERS-----\n"    \
+  "BggqhkjOPQMBBw==\n"                 \
+  "-----END EC PARAMETERS-----\n"
+
 static const char crt_cert_pem[]  = CRT_PEM_LEAF;
 static const char crt_cert2_pem[] = CRT_PEM_LEAF CRT_PEM_INT;
 static const char                                crt_key_pem[] = CRT_PEM_KEY;
+static const char crt_key_params_pem[] = CRT_PEM_EC_PARAMS CRT_PEM_KEY;
 static const char                                crt_bad_key_pem[] =
     "-----BEGIN EC PRIVATE KEY-----\n"
     "Zm9v\n"
@@ -115,6 +125,22 @@ static void test_certreload_missing_cert_file_fails(void) {
   crt_unlink(crt_key_path);
 }
 
+/* EC PARAMETERS PREFIX: a key.pem whose first PEM block is openssl ecparam's
+ * EC PARAMETERS (with the EC PRIVATE KEY block after it) still loads -- the
+ * loader must skip non-key blocks instead of decoding the first block as the
+ * key. */
+static void test_certreload_key_with_ec_params_prefix(void) {
+  wired_certreload_store store;
+  wired_srvboot_id       id = {0};
+  crt_write(crt_cert_path, crt_cert_pem, sizeof(crt_cert_pem) - 1);
+  crt_write(crt_key_path, crt_key_params_pem, sizeof(crt_key_params_pem) - 1);
+  CHECK(wired_certreload_load(crt_cert_path, crt_key_path, &store, &id) == 1);
+  CHECK(id.chain_count == 1);
+  CHECK(id.cert_seed == store.priv);
+  crt_unlink(crt_cert_path);
+  crt_unlink(crt_key_path);
+}
+
 /* MALFORMED KEY: a key.pem whose DER is not a valid P-256 key fails. */
 static void test_certreload_malformed_key_fails(void) {
   wired_certreload_store store;
@@ -166,6 +192,7 @@ static void test_certreload_or_selfsigned_loads(void) {
 void test_certreload(void) {
   test_certreload_loads_single_cert();
   test_certreload_loads_two_cert_chain();
+  test_certreload_key_with_ec_params_prefix();
   test_certreload_missing_cert_file_fails();
   test_certreload_malformed_key_fails();
   test_certreload_or_selfsigned_noop_on_null();
