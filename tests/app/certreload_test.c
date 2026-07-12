@@ -127,9 +127,48 @@ static void test_certreload_malformed_key_fails(void) {
   crt_unlink(crt_bad_key_path);
 }
 
+/* NO-OP: cert_path unset (NULL) leaves id/store untouched. */
+static void test_certreload_or_selfsigned_noop_on_null(void) {
+  wired_certreload_store store;
+  wired_srvboot_id       id  = {0};
+  const u8*              pub = (const u8*)0x1;
+  id.pub                     = pub;
+  wired_certreload_load_or_selfsigned(0, crt_key_path, &store, &id);
+  CHECK(id.chain_count == 0);
+  CHECK(id.pub == pub);
+}
+
+/* NO-OP: cert_path unset (empty string) leaves id/store untouched. */
+static void test_certreload_or_selfsigned_noop_on_empty(void) {
+  wired_certreload_store store;
+  wired_srvboot_id       id  = {0};
+  const u8*              pub = (const u8*)0x1;
+  id.pub                     = pub;
+  wired_certreload_load_or_selfsigned("", crt_key_path, &store, &id);
+  CHECK(id.chain_count == 0);
+  CHECK(id.pub == pub);
+}
+
+/* LOADS: a valid cert_path/key_path pair updates id's chain via the same
+ * decode path as wired_certreload_load. */
+static void test_certreload_or_selfsigned_loads(void) {
+  wired_certreload_store store;
+  wired_srvboot_id       id = {0};
+  crt_write(crt_cert_path, crt_cert_pem, sizeof(crt_cert_pem) - 1);
+  crt_write(crt_key_path, crt_key_pem, sizeof(crt_key_pem) - 1);
+  wired_certreload_load_or_selfsigned(crt_cert_path, crt_key_path, &store, &id);
+  CHECK(id.chain_count == 1);
+  CHECK(id.chain[0].n == sizeof(quic_realchain_leaf_der));
+  crt_unlink(crt_cert_path);
+  crt_unlink(crt_key_path);
+}
+
 void test_certreload(void) {
   test_certreload_loads_single_cert();
   test_certreload_loads_two_cert_chain();
   test_certreload_missing_cert_file_fails();
   test_certreload_malformed_key_fails();
+  test_certreload_or_selfsigned_noop_on_null();
+  test_certreload_or_selfsigned_noop_on_empty();
+  test_certreload_or_selfsigned_loads();
 }

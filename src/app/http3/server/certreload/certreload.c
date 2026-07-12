@@ -1,5 +1,7 @@
 #include "app/http3/server/certreload/certreload.h"
 
+#include "common/platform/debug/debug.h"
+#include "common/platform/exit/exit.h"
 #include "common/platform/fio/fio.h"
 #include "crypto/pki/encoding/eckey/eckey.h"
 #include "crypto/pki/encoding/pem/pem.h"
@@ -72,4 +74,32 @@ int wired_certreload_load(
   return certreload_decode(
       quic_span_of(cert_pem, (usz)cn), quic_span_of(key_pem, (usz)kn), store,
       id);
+}
+
+/* 1 if cert_path carries a real value (non-NULL, non-empty). */
+static int certreload_path_set(const char* cert_path) {
+  return cert_path && cert_path[0];
+}
+
+/* Load or die: wired_certreload_load's own file/PEM/DER checks decide
+ * failure; this only turns that failure into a diagnostic + process exit and
+ * logs the chain length on success. */
+static void certreload_load_or_die(
+    const char*             cert_path,
+    const char*             key_path,
+    wired_certreload_store* store,
+    wired_srvboot_id*       id) {
+  if (!wired_certreload_load(cert_path, key_path, store, id))
+    wired_die("certreload: bad cert/key file\n");
+  wired_log_str(
+      id->chain_count == 2 ? "cert.pem: 2 certs\n" : "cert.pem: 1 cert\n");
+}
+
+void wired_certreload_load_or_selfsigned(
+    const char*             cert_path,
+    const char*             key_path,
+    wired_certreload_store* store,
+    wired_srvboot_id*       id) {
+  if (certreload_path_set(cert_path))
+    certreload_load_or_die(cert_path, key_path, store, id);
 }
