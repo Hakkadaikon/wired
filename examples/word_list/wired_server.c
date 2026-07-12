@@ -273,9 +273,7 @@ int wired_main(int argc, char** argv) {
       wired_cliargs_str(argc, argv, "--qlog-file", 0),
       wired_cliargs_str(argc, argv, "--keylog-file", 0), cfg.cert_path,
       cfg.key_path, 0};
-  if (!wired_srvdriver_run(
-          (u16)wired_cliargs_int(argc, argv, "--port", 4433), &id, h, obs,
-          &cfg.driver))
+  if (!wired_srvdriver_run(&id, h, obs, &cfg.driver))
     wired_die("listen failed\n");
   return 0;
 }

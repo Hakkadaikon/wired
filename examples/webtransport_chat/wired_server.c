@@ -147,10 +147,9 @@ __attribute__((force_align_arg_pointer, used)) int wired_main(
   server_keys          keys;
   wired_srvdriver_opt  opt;
   int                  have_san_ipv4;
-  u16 port = (u16)wired_cliargs_int(argc, argv, "--port", 4433);
-  u64 now_secs = quic_clock_epoch_secs();
-  wired_srvrun_handler h   = {app_on_request, 0};
-  wired_srvrun_obs     obs = {
+  u64                  now_secs = quic_clock_epoch_secs();
+  wired_srvrun_handler h        = {app_on_request, 0};
+  wired_srvrun_obs     obs      = {
       wired_cliargs_str(argc, argv, "--qlog", 0),
       wired_cliargs_str(argc, argv, "--keylog", 0), 0, 0, 0};
 
@@ -165,7 +164,7 @@ __attribute__((force_align_arg_pointer, used)) int wired_main(
   opt.run.incoming_cpu   = -1;
   opt.run.wt_on_datagram = wt_on_datagram_cb;
 
-  if (!wired_srvdriver_run(port, &id, h, obs, &opt))
+  if (!wired_srvdriver_run(&id, h, obs, &opt))
     wired_die("listen failed\n");
   return 0;
 }
