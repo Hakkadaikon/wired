@@ -1,51 +1,44 @@
-/* Real-UDP HTTP/3 server. libc-free, x86_64-linux, direct syscalls, own _start,
- * static. Driven by the single SDK header <wired.h>.
+/* Real-UDP HTTP/3 server. libc-free, x86_64-linux, direct syscalls, driven by
+ * the single SDK header <wired.h>.
  *
- * The whole server — bind, receive, cold-start each client Initial, drive the
- * handshake, answer HTTP/3 requests, seal every reply — is wired_server_run.
- * This file is just the application: a message log (POST appends and echoes,
- * GET returns the whole log) or, with --root, a static file server; the demo
- * server identity; CLI configuration; and the freestanding entry point. See
+ * The whole server -- bind, receive, cold-start each client Initial, drive
+ * the handshake, answer HTTP/3 requests, seal every reply -- lives in the
+ * SDK (wired_srvdriver_run). This file is just the application: a message
+ * log (POST appends and echoes, GET returns the whole log) or, with --root,
+ * a static file server; the demo server identity; and CLI configuration. See
  * examples/README.md for what completes here vs. what an external HTTP/3
  * client additionally needs.
  *
- * Three ways to run it, chosen by CLI flags at startup (mutually exclusive):
- * plain single-process UDP (the default), multi-worker (--workers N, fork +
- * SO_REUSEPORT, tasks/core-pinning-plan.md), or AF_XDP (--ifindex N --ip
- * a.b.c.d, tasks/xdp-driver-plan.md). A fourth: --cores a,b,c (+ optional
- * --control-core N), thread-based fan-out (srvthreads.h) sharing one address
- * space instead of forking; combined with --ifindex it runs AF_XDP in
- * multi-queue mode (worker i serves queue i). All four drive the same
- * application logic below. */
+ * Four ways to run it, chosen by CLI flags at startup and resolved by
+ * wired_srvdriver_parse (mutually exclusive, see srvdriver.h): plain
+ * single-process UDP (the default), multi-worker (--workers N), AF_XDP
+ * (--ifindex N --ip a.b.c.d), or thread-based fan-out (--cores a,b,c). */
 
-#define WIRED_MAIN /* this TU emits the libc memcpy/memset shim */
-#include "app/http3/server/srvpin/srvpin.h"
-#include "app/http3/server/srvthreads/srvthreads.h"
-#include "app/http3/server/srvworkers/srvworkers.h"
+#define WIRED_MAIN /* this TU emits the libc memcpy/memset shim and _start */
+#include "app/http3/server/srvdriver/srvdriver.h"
+#include "common/platform/exit/exit.h"
 #include "wired.h"
 
-/* A fatal error: print and exit (freestanding, no libc atexit). */
-static void die(const char* msg) {
-  wired_log_str(msg);
-  syscall1(SYS_exit, 1);
-}
-
 /* In-memory message store. POST bodies are appended (newline-separated); GET
- * returns the whole log. Outside the connection state on purpose: re-initing a
- * connection (RFC 9000 7) does NOT clear it, so a POST is visible to a later
- * GET on a reconnect.
- * ponytail: fixed 8 KiB, in-RAM only — a POST past the cap is truncated. */
+ * returns the whole log. Outside the connection state on purpose: re-initing
+ * a connection (RFC 9000 7) does NOT clear it, so a POST is visible to a
+ * later GET on a reconnect.
+ * ponytail: fixed 8 KiB, in-RAM only -- a POST past the cap is truncated. */
 #define HISTORY_MAX 8192
 static u8  g_history[HISTORY_MAX];
 static usz g_history_len;
+
+/* 1 while there is room left in g_history and body[i] is still in range. */
+static int history_room(usz i, usz n) {
+  return i < n && g_history_len < HISTORY_MAX;
+}
 
 /* RFC 9110 9.3.3: append the POST body, newline-separated, truncating at cap.
  */
 static void history_append(const u8* body, usz n) {
   usz i;
   if (g_history_len < HISTORY_MAX) g_history[g_history_len++] = '\n';
-  for (i = 0; i < n && g_history_len < HISTORY_MAX; i++)
-    g_history[g_history_len++] = body[i];
+  for (i = 0; history_room(i, n); i++) g_history[g_history_len++] = body[i];
 }
 
 /* Copy up to out->cap bytes of src into out, setting out->len to the count
@@ -59,33 +52,24 @@ static void copy_capped(quic_obuf* out, quic_span src) {
 /* Application/driver configuration, resolved once at startup from argv and
  * handed to app_on_request as its opaque ctx. --root selects static file
  * mode; absent, the demo history mode runs unchanged (back-compat). driver
- * selects which of the three run paths wired_main takes. */
-typedef enum {
-  DRIVER_PLAIN,
-  DRIVER_WORKERS,
-  DRIVER_XDP,
-  DRIVER_THREADS
-} driver_kind;
-
+ * carries which of the four run paths wired_srvdriver_run takes. */
 typedef struct {
-  const char* root;        /**< document root, or 0 for history-demo mode */
-  const char* index;       /**< index file name for directory requests */
-  const char* access_log;  /**< access log path, or 0 to disable logging */
-  const char* qlog_path;   /**< qlog file path, or 0 to disable */
-  const char* keylog_path; /**< NSS key log file path, or 0 to disable */
-  const char* cert_path;   /**< cert.pem path (--cert, default cert.pem) */
-  const char* key_path;    /**< key.pem path (--key, default key.pem) */
-  int         busy_poll;   /**< --busy-poll: 1 = MSG_DONTWAIT spin loop */
-  int         pin_core;    /**< --pin-core: CPU to pin to, -1 = off */
-  u16         port;        /**< --port, default 4433 */
-  driver_kind driver;      /**< which of the three run paths to take */
-  wired_srvworkers_opt workers; /**< --workers/--pin-cores, DRIVER_WORKERS */
-  wired_srvxdp_cfg     xdp;     /**< --ifindex/--queue/--ip/--skb-mode */
-  wired_srvthreads_opt threads; /**< --cores/--control-core, DRIVER_THREADS */
+  const char*         root;       /**< document root, or 0 for history mode */
+  const char*         index;      /**< index file name for dir requests */
+  const char*         access_log; /**< access log path, or 0 to disable */
+  const char*         cert_path;  /**< cert.pem path (--cert) */
+  const char*         key_path;   /**< key.pem path (--key) */
+  wired_srvdriver_opt driver;     /**< resolved driver selection + knobs */
 } app_config;
 
+/* Append span's bytes to line at *at, stopping at cap. */
+static void log_append_span(char* line, usz cap, usz* at, quic_span span) {
+  usz i;
+  for (i = 0; i < span.n && *at < cap; i++) line[(*at)++] = (char)span.p[i];
+}
+
 /* One line per request: "METHOD PATH STATUS BYTES\n" (ponytail: fixed
- * single-line format, no log levels/rotation — add if an operator needs it).
+ * single-line format, no log levels/rotation -- add if an operator needs it).
  */
 static void access_log(
     const app_config* cfg,
@@ -96,11 +80,9 @@ static void access_log(
   char line[512];
   usz  at = 0;
   if (!cfg->access_log) return;
-  for (usz i = 0; i < method.n && at < sizeof line - 1; i++)
-    line[at++] = (char)method.p[i];
+  log_append_span(line, sizeof line - 1, &at, method);
   line[at++] = ' ';
-  for (usz i = 0; i < path.n && at < sizeof line - 40; i++)
-    line[at++] = (char)path.p[i];
+  log_append_span(line, sizeof line - 40, &at, path);
   line[at++] = ' ';
   wired_fmt_u64(line, &at, &(wired_fmt_u64_in){status, 1});
   line[at++] = ' ';
@@ -115,9 +97,16 @@ static u64 not_found(quic_obuf* body_out) {
   return 404;
 }
 
+/* NUL-terminate path into reqpath (cap-1 bytes max). */
+static void reqpath_copy(char* reqpath, usz cap, quic_span path) {
+  usz i;
+  for (i = 0; i < path.n && i < cap - 1; i++) reqpath[i] = (char)path.p[i];
+  reqpath[i] = 0;
+}
+
 /* Static-file mode (quiche-server's --root/--index): resolve the request path
  * under cfg->root and serve the file's bytes, or a 404 body when it does not
- * resolve/open (the wire :status stays 200 — see srvloop/respond.c, which
+ * resolve/open (the wire :status stays 200 -- see srvloop/respond.c, which
  * hard-codes 200 for every decoded request; changing that is a larger,
  * separate change). The logged status reflects whether the file was found. */
 static u64 serve_static(
@@ -127,11 +116,8 @@ static u64 serve_static(
     const char**      content_type) {
   char resolved[512];
   char reqpath[400];
-  usz  i;
   ssz  n;
-  for (i = 0; i < path.n && i < sizeof reqpath - 1; i++)
-    reqpath[i] = (char)path.p[i];
-  reqpath[i] = 0;
+  reqpath_copy(reqpath, sizeof reqpath, path);
   if (!wired_staticfile_resolve(
           cfg->root, reqpath, cfg->index, resolved, sizeof resolved))
     return not_found(body_out);
@@ -172,6 +158,16 @@ static int app_on_request(
   return 1;
 }
 
+/* 1 if ob holds exactly "hi" (the POST echo). */
+static int selfcheck_echo_ok(const quic_obuf* ob, const u8* out) {
+  return ob->len == 2 && out[0] == 'h';
+}
+
+/* 1 if ob holds exactly "\nhi" (the GET history dump after one POST). */
+static int selfcheck_history_ok(const quic_obuf* ob, const u8* out) {
+  return ob->len == 3 && out[1] == 'h' && out[2] == 'i';
+}
+
 /* Self-check (ponytail: the only non-trivial app logic is the store/echo). */
 static void app_selfcheck(void) {
   u8                   out[64];
@@ -186,20 +182,20 @@ static void app_selfcheck(void) {
   wired_h3reqdrive_req get = {.method = (const u8*)"GET", .method_len = 3};
   g_history_len            = 0;
   app_on_request(&cfg, &post, &ob, &content_type);
-  if (ob.len != 2 || out[0] != 'h') die("selfcheck: echo failed\n");
+  if (!selfcheck_echo_ok(&ob, out)) wired_die("selfcheck: echo failed\n");
   app_on_request(&cfg, &get, &ob, &content_type);
-  if (ob.len != 3 || out[1] != 'h' || out[2] != 'i')
-    die("selfcheck: history failed\n");
+  if (!selfcheck_history_ok(&ob, out))
+    wired_die("selfcheck: history failed\n");
   g_history_len = 0;
 }
 
-/* Fixed, deterministic server identity for wired_server_run: X25519 handshake
- * key pair, the ECDSA P-256 signing scalar (cert_seed), the server SCID, and a
- * fixed ServerHello random. A demo needs no rotation. */
+/* Fixed, deterministic server identity for wired_srvdriver_run: X25519
+ * handshake key pair, the ECDSA P-256 signing scalar (cert_seed), the server
+ * SCID, and a fixed ServerHello random. A demo needs no rotation. */
 static const u8 SERVER_SCID[6] = {'C', 'L', 'I', 'S', 'C', 'I'};
 
-/* The demo server's fixed key material buffers, owned by the caller (_start)
- * so they outlive wired_server_run. */
+/* The demo server's fixed key material buffers, owned by the caller
+ * (wired_main) so they outlive wired_srvdriver_run. */
 typedef struct {
   u8 priv[32];
   u8 pub[32];
@@ -231,471 +227,55 @@ static void server_identity(wired_srvboot_id* id, server_keys* k) {
 
 /* Optional drop-in certificate: cert.pem (fullchain, leaf first, at most 2
  * certificates) and key.pem (P-256 private key), default paths overridable
- * via --cert/--key. wired_certreload_load (app/http3/server/certreload) does
- * the actual PEM/DER decode; store is static because the identity holds
- * views into it for the whole run, and a later SIGHUP reload (srvrun.c)
- * reuses the very same loader against the same paths. */
+ * via --cert/--key; static because the identity holds views into it for the
+ * whole run, and a later SIGHUP reload (srvrun.c) reuses the same paths. */
 static wired_certreload_store cert_store;
 
-static void log_chain(usz n) {
-  wired_log_str(n == 2 ? "cert.pem: 2 certs\n" : "cert.pem: 1 cert\n");
-}
-
-/* 1 if path opens and reads at least one byte (existence probe only; the
- * byte itself is discarded — wired_certreload_load re-reads the whole file
- * right after). WIRED_FIO_ETOOBIG counts as present too: it means the 1-byte
- * probe buffer filled and the file still had more data, i.e. the file exists
- * and is larger than a byte (every real cert/key is). */
-static int cert_file_present(const char* path) {
-  u8  probe[1];
-  ssz r = wired_fio_read(path, quic_mspan_of(probe, sizeof probe));
-  return r >= 0 || r == WIRED_FIO_ETOOBIG;
-}
-
-/* Drop-in loader: neither cert_path nor key_path present (no --cert/--key
- * and no cert.pem/key.pem in the cwd) keeps the self-signed identity; a
- * broken or half-present pair dies rather than silently serving
- * self-signed. */
-static void load_cert_files(
-    wired_srvboot_id* id, const char* cert_path, const char* key_path) {
-  if (!cert_file_present(cert_path) && !cert_file_present(key_path)) {
-    wired_log_str("self-signed (no cert.pem)\n");
-    return;
-  }
-  if (!wired_certreload_load(cert_path, key_path, &cert_store, id))
-    die("bad cert.pem/key.pem\n");
-  log_chain(id->chain_count);
-}
-
-/* One decimal digit of a.b.c.d, or -1 if c is not '0'..'9'. */
-static int ipoctet_digit(char c) {
-  return (c >= '0' && c <= '9') ? c - '0' : -1;
-}
-
-/* One accumulate step for ipoctet_parse's loop; -1 signals "stop" (a
- * non-digit or already out of 0..255 range). */
-static int ipoctet_step(int acc, char c) {
-  int d = ipoctet_digit(c);
-  if (d < 0) return -1;
-  return (acc < 0 ? 0 : acc) * 10 + d;
-}
-
-/* 0..255, the only range a byte octet can hold. */
-static int ipoctet_in_range(int v) { return v >= 0 && v <= 255; }
-
-/* Parse one 0..255 octet starting at s[*i], stopping at '.' or NUL; advances
- * *i past the consumed digits. -1 on empty or out-of-range input (no libc
- * inet_aton available). */
-static int ipoctet_parse(const char* s, usz* i) {
-  int v = -1;
-  int next;
-  while ((next = ipoctet_step(v, s[*i])) >= 0) {
-    v = next;
-    (*i)++;
-  }
-  return ipoctet_in_range(v) ? v : -1;
-}
-
-/* 1 if s[i] is the '.' separator expected before octet k<3; advances i past
- * it. 0 (malformed) if it is missing. */
-static int ipaddr_sep(const char* s, usz* i, usz k) {
-  if (k >= 3) return 1;
-  if (s[*i] != '.') return 0;
-  (*i)++;
-  return 1;
-}
-
-/* One octet-then-separator step of ipaddr_parse's loop: parses out[k] and
- * consumes the following '.' (k<3) or nothing (k==3). 0 on any malformed
- * octet/separator. */
-static int ipaddr_step(const char* s, usz* i, usz k, u8 out[4]) {
-  int v = ipoctet_parse(s, i);
-  if (v < 0) return 0;
-  out[k] = (u8)v;
-  return ipaddr_sep(s, i, k);
-}
-
-/* Parse "a.b.c.d" into out[0..3]; returns 1 on success, 0 on any malformed
- * octet (dies at the call site — a bad --ip is a fatal config error). */
-static int ipaddr_parse(const char* s, u8 out[4]) {
-  usz i = 0;
-  for (usz k = 0; k < 4; k++)
-    if (!ipaddr_step(s, &i, k, out)) return 0;
-  return 1;
-}
-
-/* One accumulate step of a base-10 int (CPU index), same shape as
- * ipoctet_step but unbounded (a CPU index isn't a 0..255 octet). -1 signals
- * "stop" (a non-digit). */
-static int core_digit_step(int acc, char c) {
-  int d = ipoctet_digit(c);
-  if (d < 0) return -1;
-  return (acc < 0 ? 0 : acc) * 10 + d;
-}
-
-/* Parse one base-10 int starting at s[*i], stopping at ',' or NUL; advances
- * *i past the consumed digits. 0 ok / -1 on empty (no digits consumed). */
-static int core_digit_parse(const char* s, usz* i, int* out) {
-  int v = -1;
-  int next;
-  while ((next = core_digit_step(v, s[*i])) >= 0) {
-    v = next;
-    (*i)++;
-  }
-  if (v < 0) return 0;
-  *out = v;
-  return 1;
-}
-
-/* 1 and consumes s[*i] if it is the ',' separator; 1 without consuming at
- * NUL (end of list); 0 (malformed) on anything else. */
-static int core_sep(const char* s, usz* i) {
-  if (s[*i] == 0) return 1;
-  if (s[*i] != ',') return 0;
-  (*i)++;
-  return 1;
-}
-
-/* One core-then-separator step: parses *out and consumes the following ','
- * or NUL. 0 on any malformed field/separator. */
-static int core_field(const char* s, usz* i, int* out) {
-  if (!core_digit_parse(s, i, out)) return 0;
-  return core_sep(s, i);
-}
-
-/* 1 if a field cannot be parsed into out[n] (no room left, or the field
- * itself is malformed) -- combined into one predicate so cores_fill's loop
- * body carries only one branch. */
-static int core_field_stop(const char* s, usz* i, int* out, int n, int cap) {
-  return n >= cap || !core_field(s, i, &out[n]);
-}
-
-/* Parses fields into out[0..cap) until NUL or a malformed field; returns the
- * count parsed, or -1 when cap ran out or a field was malformed before NUL
- * (cores_parse turns that into the 0/malformed result). */
-static int cores_fill(const char* s, usz* i, int* out, int cap) {
-  int n = 0;
-  while (s[*i] != 0) {
-    if (core_field_stop(s, i, out, n, cap)) return -1;
-    n++;
-  }
-  return n;
-}
-
-/* Parse "a,b,c" into out[0..n), n <= cap. Returns n (0 on malformed input,
- * an empty string, or more entries than cap), so the caller can die() on a
- * bad --cores value. */
-static int cores_parse(const char* s, int* out, int cap) {
-  usz i = 0;
-  int n = cores_fill(s, &i, out, cap);
-  return n > 0 ? n : 0;
-}
-
-/* Both chars nonzero and equal: the "still matching" predicate, so
- * cliargs_streq's while carries only one condition. */
-static int cliargs_char_match(char a, char b) { return a && b && a == b; }
-
-/* NUL-terminated ascii compare, no libc strcmp available. */
-static int cliargs_streq(const char* a, const char* b) {
-  usz i = 0;
-  while (cliargs_char_match(a[i], b[i])) i++;
-  return a[i] == b[i];
-}
-
-/* 1 if flag appears anywhere in argv (presence-only switch, e.g.
- * --skb-mode); wired_cliargs_str needs a following element so it cannot
- * detect a flag given last with nothing after it. */
-static int cliargs_flag(int argc, char** argv, const char* flag) {
-  int i;
-  for (i = 0; i < argc; i++)
-    if (cliargs_streq(argv[i], flag)) return 1;
-  return 0;
-}
-
-/* --workers selects a different SDK entry point than --cores/--ifindex and
- * cannot compose with either; --ifindex alone still composes with --cores
- * (AF_XDP multi-queue mode, see load_config_threads). */
-static int driver_conflict(int has_workers, int has_xdp, int has_cores) {
-  if (!has_workers) return 0;
-  return has_xdp || has_cores;
-}
-
-/* has_workers/has_xdp only, once has_cores is known 0 (driver_select's
- * tail). */
-static driver_kind driver_select_tail(int has_workers, int has_xdp) {
-  if (has_xdp) return DRIVER_XDP;
-  if (has_workers) return DRIVER_WORKERS;
-  return DRIVER_PLAIN;
-}
-
-/* Selects the driver once driver_conflict is known to not hold. */
-static driver_kind driver_select(int has_workers, int has_xdp, int has_cores) {
-  if (has_cores) return DRIVER_THREADS;
-  return driver_select_tail(has_workers, has_xdp);
-}
-
-/* Which driver --workers/--ifindex/--cores select; dies on an exclusive
- * combination. */
-static driver_kind load_config_driver(int argc, char** argv) {
-  int has_workers = wired_cliargs_int(argc, argv, "--workers", -1) >= 0;
-  int has_xdp     = wired_cliargs_int(argc, argv, "--ifindex", -1) >= 0;
-  int has_cores   = wired_cliargs_str(argc, argv, "--cores", 0) != 0;
-  if (driver_conflict(has_workers, has_xdp, has_cores))
-    die("--workers is exclusive with --cores/--ifindex\n");
-  return driver_select(has_workers, has_xdp, has_cores);
-}
-
-/* --ifindex is required (no sensible default interface); a missing one is a
- * fatal config error. */
-static void load_config_xdp_ifindex(
-    wired_srvxdp_cfg* xdp, int argc, char** argv) {
-  i64 ifindex = wired_cliargs_int(argc, argv, "--ifindex", -1);
-  if (ifindex < 0) die("--ifindex is required\n");
-  xdp->ifindex = (u32)ifindex;
-}
-
-/* --ip is required (no sensible default address); a missing/malformed one is
- * a fatal config error. */
-static void load_config_xdp_ip(wired_srvxdp_cfg* xdp, int argc, char** argv) {
-  if (!ipaddr_parse(wired_cliargs_str(argc, argv, "--ip", ""), xdp->ip))
-    die("--ip a.b.c.d is required\n");
-}
-
-/* attach_flags: 0 = native XDP, 2 (XDP_FLAGS_SKB_MODE) = generic mode for
- * drivers/veth without native XDP support. */
-static void load_config_xdp(app_config* cfg, int argc, char** argv) {
-  load_config_xdp_ifindex(&cfg->xdp, argc, argv);
-  load_config_xdp_ip(&cfg->xdp, argc, argv);
-  cfg->xdp.queue_id     = (u32)wired_cliargs_int(argc, argv, "--queue", 0);
-  cfg->xdp.port         = cfg->port;
-  cfg->xdp.bind_flags   = 0;
-  cfg->xdp.attach_flags = cliargs_flag(argc, argv, "--skb-mode") ? 2u : 0u;
-}
-
-/* --cores a,b,c,... and --control-core N (DRIVER_THREADS): thread-based
- * fan-out over srvthreads.h, sharing one address space. Composes with
- * --ifindex/--ip: when given, load_config_xdp is reused to fill cfg->xdp and
- * threads.xdp points at it, selecting AF_XDP multi-queue mode (worker i
- * serves queue i). */
-static void load_config_threads(app_config* cfg, int argc, char** argv) {
-  const char* cores_str = wired_cliargs_str(argc, argv, "--cores", "");
-  cfg->threads.n_cores =
-      cores_parse(cores_str, cfg->threads.cores, WIRED_SRVTHREADS_MAX);
-  if (cfg->threads.n_cores <= 0) die("--cores: malformed core list\n");
-  cfg->threads.control_core =
-      (int)wired_cliargs_int(argc, argv, "--control-core", -1);
-  cfg->threads.run              = (wired_srvrun_opt){0};
-  cfg->threads.run.busy_poll    = cfg->busy_poll;
-  cfg->threads.run.incoming_cpu = -1;
-  if (wired_cliargs_int(argc, argv, "--ifindex", -1) >= 0) {
-    load_config_xdp(cfg, argc, argv);
-    cfg->threads.xdp = &cfg->xdp;
-  } else {
-    cfg->threads.xdp = 0;
-  }
-}
-
-/* --workers/--pin-cores, tasks/core-pinning-plan.md. */
-static void load_config_workers(app_config* cfg, int argc, char** argv) {
-  cfg->workers.workers   = (int)wired_cliargs_int(argc, argv, "--workers", 0);
-  cfg->workers.pin_cores = (int)wired_cliargs_int(argc, argv, "--pin-cores", 0);
-}
-
-/* DRIVER_PLAIN needs no extra knobs. */
-static void load_config_plain(app_config* cfg, int argc, char** argv) {
-  (void)cfg;
-  (void)argc;
-  (void)argv;
-}
-
-/* driver_kind -> knob loader, indexed by driver_kind's own enum values so
- * dispatch is a table lookup instead of an if/if/if chain. */
-typedef void (*load_config_fn)(app_config*, int, char**);
-static const load_config_fn LOAD_CONFIG_BY_DRIVER[4] = {
-    load_config_plain,   /* DRIVER_PLAIN */
-    load_config_workers, /* DRIVER_WORKERS */
-    load_config_xdp,     /* DRIVER_XDP */
-    load_config_threads, /* DRIVER_THREADS */
-};
-
-/* Loads the driver-specific knobs once cfg->driver is known (load_config's
- * tail): --workers/--pin-cores, --ifindex/--queue/--ip/--skb-mode, or
- * --cores/--control-core. A no-op for DRIVER_PLAIN. */
-static void load_config_driver_opts(app_config* cfg, int argc, char** argv) {
-  LOAD_CONFIG_BY_DRIVER[cfg->driver](cfg, argc, argv);
-}
-
-/* Resolve CLI configuration: --port (default 4433), --root (static file mode,
- * absent = history demo), --index (default index.html), --access-log
- * (absent = no logging), --qlog-file / --keylog-file (absent = disabled),
- * --cert / --key (cert.pem/key.pem in the cwd by default), --busy-poll
- * (absent = 0, tasks/polling-driver-plan.md Phase 3), and the driver
- * selection (--workers/--pin-cores, tasks/core-pinning-plan.md; --ifindex/
- * --queue/--ip/--skb-mode, tasks/xdp-driver-plan.md; --cores/--control-core).
- */
+/* Resolve CLI configuration: --port (default 4433), --root (static file
+ * mode, absent = history demo), --index (default index.html), --access-log
+ * (absent = no logging), --cert/--key (cert.pem/key.pem in the cwd by
+ * default), and the driver selection (--workers/--pin-cores, --ifindex/
+ * --queue/--ip/--skb-mode, --cores/--control-core, --pin-core, --busy-poll).
+ * qlog/keylog paths go straight into the wired_srvrun_obs built in
+ * wired_main and are passed through by wired_srvdriver_run to every driver
+ * except WORKERS. */
 static void load_config(app_config* cfg, int argc, char** argv) {
-  cfg->root        = wired_cliargs_str(argc, argv, "--root", 0);
-  cfg->index       = wired_cliargs_str(argc, argv, "--index", "index.html");
-  cfg->access_log  = wired_cliargs_str(argc, argv, "--access-log", 0);
-  cfg->qlog_path   = wired_cliargs_str(argc, argv, "--qlog-file", 0);
-  cfg->keylog_path = wired_cliargs_str(argc, argv, "--keylog-file", 0);
-  cfg->cert_path   = wired_cliargs_str(argc, argv, "--cert", "cert.pem");
-  cfg->key_path    = wired_cliargs_str(argc, argv, "--key", "key.pem");
-  cfg->busy_poll   = (int)wired_cliargs_int(argc, argv, "--busy-poll", 0);
-  cfg->pin_core    = (int)wired_cliargs_int(argc, argv, "--pin-core", -1);
-  cfg->port        = (u16)wired_cliargs_int(argc, argv, "--port", 4433);
-  cfg->driver      = load_config_driver(argc, argv);
-  load_config_driver_opts(cfg, argc, argv);
+  cfg->root       = wired_cliargs_str(argc, argv, "--root", 0);
+  cfg->index      = wired_cliargs_str(argc, argv, "--index", "index.html");
+  cfg->access_log = wired_cliargs_str(argc, argv, "--access-log", 0);
+  /* wired_certreload_load_or_selfsigned dies if cert_path is set but the
+   * load fails, so --cert has no implicit "cert.pem in the cwd" default
+   * (unlike --index/--access-log) -- pass --cert/--key explicitly to load
+   * a real certificate; absent, the demo stays self-signed. */
+  cfg->cert_path = wired_cliargs_str(argc, argv, "--cert", 0);
+  cfg->key_path  = wired_cliargs_str(argc, argv, "--key", "key.pem");
+  if (!wired_srvdriver_parse(argc, argv, &cfg->driver))
+    wired_die("bad driver flag combination\n");
+  cfg->driver.run.busy_poll =
+      (int)wired_cliargs_int(argc, argv, "--busy-poll", 0);
+  cfg->driver.run.incoming_cpu = -1;
 }
 
-/* DRIVER_PLAIN: the plain single-process wired_server_run_opt path (identical
- * behavior to before the three drivers were unified). */
-static int run_plain(
-    const app_config* cfg, wired_srvboot_id* id, wired_srvrun_handler h) {
-  wired_srvrun_obs obs = {
-      cfg->qlog_path, cfg->keylog_path, cfg->cert_path, cfg->key_path, 0};
-  wired_srvrun_opt opt = {cfg->busy_poll, 0, 0, 0, 0, 0, 0, 0, -1, 0, 0};
-  return wired_server_run_opt(cfg->port, id, h, obs, &opt);
-}
-
-/* DRIVER_WORKERS: fork N shared-nothing worker processes (tasks/core-pinning-
- * plan.md). wired_srvworkers_run does not return in normal operation; it
- * returns only negative, on the very first fork() failing. Normalized to
- * run_server's 1=ok/0=fail convention (matches wired_server_run_opt's). */
-static int run_workers(
-    const app_config* cfg, wired_srvboot_id* id, wired_srvrun_handler h) {
-  wired_srvrun_obs obs = {0, 0, cfg->cert_path, cfg->key_path, 0};
-  return wired_srvworkers_run(cfg->port, id, h, obs, &cfg->workers) >= 0;
-}
-
-/* Print the six XDP_STATISTICS counters (xsksetup.h order) as
- * "name value\n" lines. A stats read failure (e.g. socket already gone)
- * silently skips printing -- this runs at shutdown, after the run loop has
- * already returned, so there is nothing left to recover into. */
-static const char* const XDP_STAT_NAMES[6] = {
-    "rx_dropped",   "rx_invalid_descs",         "tx_invalid_descs",
-    "rx_ring_full", "rx_fill_ring_empty_descs", "tx_ring_empty_descs",
-};
-
-static void print_xdp_stat_line(const char* name, u64 v) {
-  char line[64];
-  usz  at = 0;
-  while (*name) line[at++] = *name++;
-  line[at++] = ' ';
-  wired_fmt_u64(line, &at, &(wired_fmt_u64_in){v, 1});
-  line[at++] = '\n';
-  line[at]   = 0;
-  wired_log_str(line);
-}
-
-static void print_xdp_stats(i64 fd) {
-  u64 stats[6];
-  if (quic_xsksetup_stats(fd, stats) < 0) return;
-  for (usz i = 0; i < 6; i++) print_xdp_stat_line(XDP_STAT_NAMES[i], stats[i]);
-}
-
-/* DRIVER_XDP: open the AF_XDP socket/rings/BPF filter, then run the same
- * server loop with recv/send routed through it (tasks/xdp-driver-plan.md).
- * Prints the XDP_STATISTICS counters on exit. */
-static int run_xdp(
-    const app_config* cfg, wired_srvboot_id* id, wired_srvrun_handler h) {
-  wired_srvxdp xdp = {0};
-  int          ok;
-  if (wired_srvxdp_open(&xdp, &cfg->xdp) < 0) die("AF_XDP open failed\n");
-  {
-    wired_srvrun_obs obs = {0, 0, cfg->cert_path, cfg->key_path, 0};
-    wired_srvrun_opt opt = {0, 0, 0, 0, 0, 0, 0, 0, -1, &xdp, 0};
-    ok                   = wired_server_run_opt(cfg->port, id, h, obs, &opt);
-  }
-  print_xdp_stats(xdp.xsk.fd);
-  wired_srvxdp_close(&xdp);
-  return ok;
-}
-
-/* DRIVER_THREADS: N worker threads fan out inside this one process
- * (srvthreads.h). Same 1=ok/0=fail convention as wired_srvworkers_run. */
-static int run_threads(
-    const app_config* cfg, wired_srvboot_id* id, wired_srvrun_handler h) {
-  wired_srvrun_obs obs = {
-      cfg->qlog_path, cfg->keylog_path, cfg->cert_path, cfg->key_path, 0};
-  return wired_srvthreads_run(cfg->port, id, h, obs, &cfg->threads);
-}
-
-/* --pin-core N: pin this single process to CPU N via sched_setaffinity,
- * before the run loop starts, so the busy-poll/XDP spin never migrates off
- * its cache-warm core. The workers driver has its own per-child --pin-cores
- * and forked children would inherit this mask, so the two are exclusive. */
-static void pin_core_checked(int cpu) {
-  if (wired_srvpin_bind_self(cpu) < 0)
-    die("--pin-core: pinning failed (bad CPU index?)\n");
-}
-
-/* Dies if --pin-core was combined with a driver that has its own pinning
- * knob (checked once cfg->pin_core >= 0 is known, maybe_pin_core's tail). */
-static void pin_core_conflict_check(driver_kind driver) {
-  if (driver == DRIVER_WORKERS)
-    die("--pin-core is exclusive with --workers (use --pin-cores 1)\n");
-  if (driver == DRIVER_THREADS)
-    die("--pin-core is exclusive with --cores (use --control-core)\n");
-}
-
-static void maybe_pin_core(const app_config* cfg) {
-  if (cfg->pin_core < 0) return;
-  pin_core_conflict_check(cfg->driver);
-  pin_core_checked(cfg->pin_core);
-}
-
-/* run_server's dispatch once DRIVER_WORKERS is known not to match. */
-static int run_server_tail(
-    const app_config* cfg, wired_srvboot_id* id, wired_srvrun_handler h) {
-  if (cfg->driver == DRIVER_XDP) return run_xdp(cfg, id, h);
-  if (cfg->driver == DRIVER_THREADS) return run_threads(cfg, id, h);
-  return run_plain(cfg, id, h);
-}
-
-/* Dispatch to the driver selected by --workers/--ifindex/--cores;
- * DRIVER_PLAIN (none given) is the default. */
-static int run_server(
-    const app_config* cfg, wired_srvboot_id* id, wired_srvrun_handler h) {
-  maybe_pin_core(cfg);
-  if (cfg->driver == DRIVER_WORKERS) return run_workers(cfg, id, h);
-  return run_server_tail(cfg, id, h);
-}
-
-/* The real entry point once argc/argv have been recovered from the kernel
- * stack by _start below. force_align_arg_pointer: the SysV ABI assumes a
- * return address was pushed (RSP%16==8) on entry, but _start's asm calls in
- * with RSP%16==0 (see _start); re-align so SSE moves in x25519/AEAD do not
- * fault. */
-__attribute__((force_align_arg_pointer, used)) static int wired_main(
-    int argc, char** argv) {
+/* The real entry point, called from _start (see wired.h's WIRED_MAIN block)
+ * with argc/argv recovered from the kernel stack. */
+int wired_main(int argc, char** argv) {
   wired_srvboot_id     id;
   server_keys          keys;
   app_config           cfg = {0};
   wired_srvrun_handler h   = {app_on_request, &cfg};
+  wired_srvrun_obs     obs;
   app_selfcheck();
   load_config(&cfg, argc, argv);
   server_identity(&id, &keys);
-  load_cert_files(&id, cfg.cert_path, cfg.key_path);
-  if (!run_server(&cfg, &id, h)) die("listen failed\n");
+  wired_certreload_load_or_selfsigned(
+      cfg.cert_path, cfg.key_path, &cert_store, &id);
+  obs = (wired_srvrun_obs){
+      wired_cliargs_str(argc, argv, "--qlog-file", 0),
+      wired_cliargs_str(argc, argv, "--keylog-file", 0), cfg.cert_path,
+      cfg.key_path, 0};
+  if (!wired_srvdriver_run(
+          (u16)wired_cliargs_int(argc, argv, "--port", 4433), &id, h, obs,
+          &cfg.driver))
+    wired_die("listen failed\n");
   return 0;
-}
-
-/* Freestanding entry point. Linux x86_64 enters _start with the kernel-built
- * stack image: [argc][argv[0]]..[argv[argc-1]][NULL][envp...], RSP 16-byte
- * aligned at entry (no return address was pushed, unlike a normal call). This
- * reads argc into rdi and &argv[0] into rsi, then aligns down before calling
- * wired_main so the callee sees the SysV-expected RSP%16==8-after-call state.
- * naked: this function has no prologue/epilogue of its own, only the asm
- * below, since it is a real stack-frameless entry point, not a callable C
- * function. */
-__attribute__((naked)) void _start(void) {
-  asm volatile(
-      "mov (%rsp), %rdi\n"
-      "lea 8(%rsp), %rsi\n"
-      "and $-16, %rsp\n"
-      "call wired_main\n"
-      "mov %eax, %edi\n"
-      "mov $60, %eax\n" /* SYS_exit */
-      "syscall\n");
 }
