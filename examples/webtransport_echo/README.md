@@ -1,7 +1,7 @@
 # WebTransport building-blocks sample
 
-`wired_server.c` is a plain HTTP/3 server — same skeleton as
-`examples/word_list` (`wired_server_run` + a request callback), libc-free,
+`wired_server.c` is a plain HTTP/3 server (`wired_server_run` + a request
+callback — the single-process driver `examples/word_list` also runs), libc-free,
 x86_64-linux, own `_start`, direct syscalls — that additionally drives the
 SDK's WebTransport building blocks once at startup and logs each step to
 stdout, so a reader can watch each component run in a real compiled binary.
@@ -45,8 +45,9 @@ requests with a short text body. Stop it with Ctrl-C.
   (`src/app/webtransport/errmap/`) — the WebTransport <-> HTTP/3 error-code
   mapping (draft-ietf-webtrans-http3-15 Section 8.2).
 
-Each component is unit-tested in `tests/app/webtransport/`; this sample
-calls them directly, once, purely for observation over stdout.
+Each component is unit-tested in `tests/app/` (`wt_session_test.c`,
+`wtcapsule_test.c`, `wterrmap_test.c`); this sample calls them directly,
+once, purely for observation over stdout.
 
 ## Scope
 

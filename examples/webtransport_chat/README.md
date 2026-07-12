@@ -1,7 +1,7 @@
 # WebTransport chat sample
 
 A minimal, real chat app over WebTransport: a libc-free HTTP/3 server
-(`wired_server.c`) broadcasts every received QUIC DATAGRAM to every other
+(`wired_server.c`) broadcasts every received QUIC DATAGRAM to every
 connected client, and a framework-free JavaScript frontend
 (`public/`) sends/receives them from the browser.
 
@@ -12,7 +12,8 @@ building blocks at startup, with no live wire traffic), this sample is a real
 end-to-end WebTransport session: Extended CONNECT establishes the session,
 `wired_wt_on_datagram` receives each client's message, and the SDK's
 `wired_server_broadcast_datagram` (`src/app/http3/server/srvrun/srvrun.h`)
-fans it out to every other active session. The server never parses message
+fans it out to every active session — including the sender's own, which is
+how the sender sees their message appear. The server never parses message
 contents — it is a dumb relay; the chat protocol (author/text/timestamp,
 JSON-over-DATAGRAM) lives entirely in the frontend's `application/chatSession.js`.
 
@@ -38,9 +39,10 @@ On startup it logs the self-signed certificate's SHA-256 fingerprint:
 cert sha-256 fingerprint: b4:6d:57:7b:de:f6:70:d6:f1:f9:e9:91:c3:a3:6a:db:15:e8:7d:39:34:24:a4:54:89:ed:de:43:22:39:70:88
 ```
 
-This value is deterministic (fixed demo key material, same recipe as
-`word_list`/`webtransport_echo`) — it will be the same every run unless you
-edit `server_identity`'s seed bytes.
+This value changes on every restart: the certificate's validity window is
+anchored to the startup time (see the `serverCertificateHashes` constraints
+below), so the DER — and therefore the fingerprint — differs per run. Always
+copy the value from the **current** run's log.
 
 ### AF_XDP (optional)
 
@@ -90,15 +92,15 @@ just serve-frontend-tls   # https://<host>:8443/
 
 Self-signed certificates fail normal CA validation, so WebTransport requires
 opting in via `serverCertificateHashes` — this is what the frontend's
-"証明書ハッシュ" field is for.
+"Certificate hash (SHA-256)" field is for.
 
 1. Copy the `cert sha-256 fingerprint: ...` value from the server's startup
    log (colons are fine, the frontend strips them).
 2. Open `http://localhost:8000/` (the frontend, not the WebTransport server
    itself — no HTTPS needed for a plain static file server).
-3. Paste the fingerprint into the "証明書ハッシュ" field, confirm the server
-   URL (`https://localhost:4433/` by default), click "接続".
-4. Enter a name and message, hit "送信". Open the page in a second tab (or
+3. Paste the fingerprint into the "Certificate hash (SHA-256)" field, confirm
+   the server URL (`https://localhost:4433/` by default), click "Connect".
+4. Enter a name and message, hit "Send". Open the page in a second tab (or
    another browser window) and confirm messages sent from one tab appear in
    the other.
 
@@ -107,17 +109,13 @@ opting in via `serverCertificateHashes` — this is what the frontend's
 The WebTransport spec requires a certificate pinned via
 `serverCertificateHashes` to be an ECDSA cert with a validity period of at
 most **14 days** (draft-ietf-webtrans-http3, referencing the WebRTC identity
-provider security model). **This SDK's demo certificate does not meet that
-constraint** — `quic_p256cert_build`'s fixed validity window is
-2020-01-01–2030-01-01 (a 10-year span, chosen so a demo never needs
-regenerating), which some browser versions may reject outright regardless of
-a correct hash. If `serverCertificateHashes` is rejected for this reason in
-your Chrome version, the practical workaround is launching Chrome with
-`--ignore-certificate-errors-spki-list=<base64-spki-hash>` instead (a
-different pinning mechanism with no validity-window constraint), or serving
-a real CA-issued certificate (see `word_list`'s README for its
-`--cert`/`--key` flow — this example does not wire those flags, see
-Limitations below).
+provider security model). This sample's certificate meets it: the server
+builds the self-signed leaf at startup with a validity window anchored one
+hour back and spanning exactly 14 days. The flip side is that the
+fingerprint changes on every restart — a connect failure after a server
+restart usually means the browser still holds the previous run's hash, so
+re-copy it from the current log. A very long-lived server process also
+outlives its own 14-day window; restart it.
 
 ### Architecture
 
@@ -218,9 +216,9 @@ rendered on the page.
   network round trip) this is not observable in practice.
 - No authentication, no persistence, no message history for a client that
   joins after a message was sent.
-- The self-signed certificate's fixed 10-year validity window is
-  incompatible with some browsers' `serverCertificateHashes` constraints —
-  see the dedicated section above.
+- The self-signed certificate (and its fingerprint) regenerates on every
+  restart with a 14-day validity window — re-copy the hash into the browser
+  after each restart; see the `serverCertificateHashes` section above.
 - `--cert`/`--key` (external CA certificate) are the one `word_list` flag
   pair this example's CLI does not wire — the driver flags above all work,
   but the certificate is always the fixed self-signed identity. Add
