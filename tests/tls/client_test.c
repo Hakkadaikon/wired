@@ -1,6 +1,8 @@
 #include "tls/handshake/roles/client/client.h"
 
+#include "crypto/asymmetric/ecc/ed25519/ed25519.h"
 #include "crypto/asymmetric/ecc/p256sign/sign.h"
+#include "crypto/pki/cert/selfcert/selfcert.h"
 #include "crypto/symmetric/hash/hash/sha256.h"
 #include "fullhs_golden.h"
 #include "realchain_golden.h"
@@ -9,6 +11,8 @@
 #include "tls/handshake/core/tls/handshake.h"
 #include "tls/handshake/core/tls/hsdriver.h"
 #include "tls/handshake/core/tls/x25519.h"
+#include "tls/handshake/roles/sflight/certmsg.h"
+#include "tls/handshake/roles/sflight/certverify_build.h"
 #include "transport/conn/pnspace/crypto_stream/crypto_tx.h"
 
 /* Minimal ServerHello (RFC 8446 4.1.3) carrying an x25519 key_share pub. */
@@ -47,42 +51,44 @@ static usz client_build_sh(u8* out, usz cap, const u8 pub[32]) {
   return off;
 }
 
-/* CertificateVerify: type(15) len(3) | scheme(2) | sig(2+len). */
-static usz client_build_cv(u8* out, u16 scheme, const u8* sig, usz sig_len) {
-  usz body = 4 + sig_len;
-  out[0]   = 0x0f;
-  out[1]   = 0;
-  out[2]   = (u8)(body >> 8);
-  out[3]   = (u8)body;
-  out[4]   = (u8)(scheme >> 8);
-  out[5]   = (u8)scheme;
-  out[6]   = (u8)(sig_len >> 8);
-  out[7]   = (u8)sig_len;
-  for (usz i = 0; i < sig_len; i++) out[8 + i] = sig[i];
-  return 4 + body;
-}
-
 /* Drive a client tlsdriver and a server tlsdriver to the shared handshake
- * secret over real ECDHE (mirror of the on-wire CH/SH exchange). */
+ * secret over real ECDHE (mirror of the on-wire CH/SH exchange). Hands back
+ * the real ServerHello bytes exchanged (sh, *shn) -- the same message
+ * quic_fullhs_init must seed its transcript with (RFC 8446 4.4.1), not some
+ * unrelated fixed constant. */
 static void client_reach_hs_secret(
-    quic_tlsdriver* cl, quic_tlsdriver* sv, const u8 sv_pub[32]) {
-  u8  frame[1024], sh[256];
-  usz fl, shn;
+    quic_tlsdriver* cl, quic_tlsdriver* sv, const u8 sv_pub[32], u8* sh,
+    usz* shn) {
+  u8  frame[1024];
+  usz fl;
   {
     quic_obuf ob = quic_obuf_of(frame, sizeof(frame));
     CHECK(quic_tlsdriver_client_hello(cl, &ob) == 1);
     fl = ob.len;
   }
   CHECK(quic_tlsdriver_recv_crypto(sv, frame, fl) == 1);
-  shn = client_build_sh(sh, sizeof(sh), sv_pub);
+  *shn = client_build_sh(sh, 256, sv_pub);
   {
     quic_obuf                  ob  = quic_obuf_of(frame, sizeof(frame));
     quic_crypto_stream_emit_in ein = {0, 256};
-    CHECK(quic_crypto_stream_emit(quic_span_of(sh, shn), &ein, &ob) == 1);
+    CHECK(quic_crypto_stream_emit(quic_span_of(sh, *shn), &ein, &ob) == 1);
     fl = ob.len;
   }
   CHECK(quic_tlsdriver_recv_crypto(cl, frame, fl) == 1);
   CHECK(quic_tlsdriver_handshake_secret_ready(cl) == 1);
+}
+
+/* A freshly built self-signed Ed25519 leaf, wrapped as a TLS Certificate
+ * message (RFC 8446 4.4.2) -- built once per test from seed, not a golden
+ * constant, so its signature always matches whatever transcript this run's
+ * real ClientHello/ServerHello exchange produced. */
+static usz client_build_cert_msg(const u8 seed[32], u8* out, usz cap) {
+  u8        der[512];
+  quic_obuf dob = quic_obuf_of(der, sizeof(der));
+  quic_obuf mob = quic_obuf_of(out, cap);
+  CHECK(quic_selfcert_build(seed, &dob) == 1);
+  CHECK(quic_sflight_certificate(quic_span_of(der, dob.len), &mob) == 1);
+  return mob.len;
 }
 
 /* RFC 9000 14.1: the Initial built by start is padded to 1200 bytes. */
@@ -143,9 +149,10 @@ static void test_client_e2e_confirmed(void) {
   quic_client    c;
   quic_fullhs    sv;
   quic_tlsdriver svtls;
-  u8             cv[256], svfin[64];
+  u8             sh[256], cert_seed[32], cert_msg[768];
+  u8             th[QUIC_SHA256_DIGEST], cv[256], svfin[64];
   u8             cl_priv[32], cl_pub[32], sv_priv[32], sv_pub[32];
-  usz            cv_len, n;
+  usz            shn, cert_msg_len, cv_len, n;
 
   for (usz i = 0; i < 32; i++) {
     cl_priv[i] = (u8)(1 + i);
@@ -156,25 +163,27 @@ static void test_client_e2e_confirmed(void) {
   quic_tlsdriver_init(&c.tls, cl_priv, cl_pub, 0);
   quic_tlsdriver_init(&svtls, sv_priv, sv_pub, 1);
 
-  /* both sides agree the same ECDHE secret, then fix fullhs to the golden
-   * transcript so the golden CV/Finished verify on both. */
-  client_reach_hs_secret(&c.tls, &svtls, sv_pub);
+  /* both sides agree the same ECDHE secret, then seed fullhs from the real
+   * ServerHello bytes exchanged so a freshly signed CV/Finished verify on
+   * both (RFC 8446 4.4.1). */
+  client_reach_hs_secret(&c.tls, &svtls, sv_pub, sh, &shn);
   CHECK(quic_tlsdriver_handshake_secret_ready(&svtls) == 1);
-  CHECK(
-      quic_fullhs_init(
-          &c.hs, &c.tls, quic_span_of(fullhs_sh, sizeof(fullhs_sh))) == 1);
-  CHECK(
-      quic_fullhs_init(
-          &sv, &svtls, quic_span_of(fullhs_sh, sizeof(fullhs_sh))) == 1);
+  CHECK(quic_fullhs_init(&c.hs, &c.tls, quic_span_of(sh, shn)) == 1);
+  CHECK(quic_fullhs_init(&sv, &svtls, quic_span_of(sh, shn)) == 1);
   c.phase = QUIC_CLIENT_HS_AUTH;
   c.fd    = -1;
 
+  for (usz i = 0; i < 32; i++) cert_seed[i] = (u8)(90 + i);
+  cert_msg_len = client_build_cert_msg(cert_seed, cert_msg, sizeof(cert_msg));
+
   /* server authenticates itself and signs its Finished. */
-  cv_len = client_build_cv(
-      cv, QUIC_TLS_SCHEME_ED25519, fullhs_cv_sig, sizeof(fullhs_cv_sig));
-  CHECK(
-      quic_fullhs_recv_cert(&sv, fullhs_cert_msg, sizeof(fullhs_cert_msg)) ==
-      1);
+  CHECK(quic_fullhs_recv_cert(&sv, cert_msg, cert_msg_len) == 1);
+  {
+    quic_obuf cvob = quic_obuf_of(cv, sizeof(cv));
+    quic_sha256(sv.tr, sv.tr_len, th);
+    CHECK(quic_sflight_certificate_verify(cert_seed, th, &cvob) == 1);
+    cv_len = cvob.len;
+  }
   CHECK(
       quic_fullhs_recv_certverify(
           &sv, quic_span_of(cv, cv_len), QUIC_TLS_SCHEME_ED25519) == 1);
@@ -185,7 +194,7 @@ static void test_client_e2e_confirmed(void) {
   }
 
   /* client consumes the server's auth flight via feed; reaches confirmed. */
-  CHECK(quic_client_feed(&c, fullhs_cert_msg, sizeof(fullhs_cert_msg)) == 1);
+  CHECK(quic_client_feed(&c, cert_msg, cert_msg_len) == 1);
   CHECK(quic_client_feed(&c, cv, cv_len) == 1);
   CHECK(quic_client_feed(&c, svfin, n) == 1);
   CHECK(quic_client_is_connected(&c) == 1);
@@ -260,9 +269,10 @@ static void test_client_policy_valid(void) {
   quic_client    c;
   quic_fullhs    sv;
   quic_tlsdriver svtls;
-  u8             cv[256], svfin[64];
+  u8             sh[256], cert_seed[32], cert_msg[768];
+  u8             th[QUIC_SHA256_DIGEST], cv[256], svfin[64];
   u8             cl_priv[32], cl_pub[32], sv_priv[32], sv_pub[32];
-  usz            cv_len, n;
+  usz            shn, cert_msg_len, cv_len, n;
 
   for (usz i = 0; i < 32; i++) {
     cl_priv[i] = (u8)(1 + i);
@@ -272,23 +282,24 @@ static void test_client_policy_valid(void) {
   quic_x25519_base(sv_pub, sv_priv);
   quic_tlsdriver_init(&c.tls, cl_priv, cl_pub, 0);
   quic_tlsdriver_init(&svtls, sv_priv, sv_pub, 1);
-  client_reach_hs_secret(&c.tls, &svtls, sv_pub);
-  CHECK(
-      quic_fullhs_init(
-          &c.hs, &c.tls, quic_span_of(fullhs_sh, sizeof(fullhs_sh))) == 1);
-  CHECK(
-      quic_fullhs_init(
-          &sv, &svtls, quic_span_of(fullhs_sh, sizeof(fullhs_sh))) == 1);
+  client_reach_hs_secret(&c.tls, &svtls, sv_pub, sh, &shn);
+  CHECK(quic_fullhs_init(&c.hs, &c.tls, quic_span_of(sh, shn)) == 1);
+  CHECK(quic_fullhs_init(&sv, &svtls, quic_span_of(sh, shn)) == 1);
   /* what feed_initial injects for a client with an in-window clock */
   quic_fullhs_set_policy(&c.hs, 20270101000000ULL, quic_span_of(0, 0));
   c.phase = QUIC_CLIENT_HS_AUTH;
   c.fd    = -1;
 
-  cv_len = client_build_cv(
-      cv, QUIC_TLS_SCHEME_ED25519, fullhs_cv_sig, sizeof(fullhs_cv_sig));
-  CHECK(
-      quic_fullhs_recv_cert(&sv, fullhs_cert_msg, sizeof(fullhs_cert_msg)) ==
-      1);
+  for (usz i = 0; i < 32; i++) cert_seed[i] = (u8)(100 + i);
+  cert_msg_len = client_build_cert_msg(cert_seed, cert_msg, sizeof(cert_msg));
+
+  CHECK(quic_fullhs_recv_cert(&sv, cert_msg, cert_msg_len) == 1);
+  {
+    quic_obuf cvob = quic_obuf_of(cv, sizeof(cv));
+    quic_sha256(sv.tr, sv.tr_len, th);
+    CHECK(quic_sflight_certificate_verify(cert_seed, th, &cvob) == 1);
+    cv_len = cvob.len;
+  }
   CHECK(
       quic_fullhs_recv_certverify(
           &sv, quic_span_of(cv, cv_len), QUIC_TLS_SCHEME_ED25519) == 1);
@@ -298,7 +309,7 @@ static void test_client_policy_valid(void) {
     n = ob.len;
   }
 
-  CHECK(quic_client_feed(&c, fullhs_cert_msg, sizeof(fullhs_cert_msg)) == 1);
+  CHECK(quic_client_feed(&c, cert_msg, cert_msg_len) == 1);
   CHECK(quic_client_feed(&c, cv, cv_len) == 1);
   CHECK(quic_client_feed(&c, svfin, n) == 1);
   CHECK(quic_client_is_connected(&c) == 1);
@@ -387,9 +398,9 @@ static void test_client_castore_confirmed(void) {
   quic_tlsdriver     svtls;
   quic_castore       store;
   quic_castore_entry roots[2];
-  u8                 certmsg[1024], cv[256], svfin[64];
+  u8                 sh[256], certmsg[1024], cv[256], svfin[64];
   u8                 cl_priv[32], cl_pub[32], sv_priv[32], sv_pub[32];
-  usz                n, cv_len, fn;
+  usz                shn, n, cv_len, fn;
 
   for (usz i = 0; i < 32; i++) {
     cl_priv[i] = (u8)(1 + i);
@@ -399,13 +410,9 @@ static void test_client_castore_confirmed(void) {
   quic_x25519_base(sv_pub, sv_priv);
   quic_tlsdriver_init(&c.tls, cl_priv, cl_pub, 0);
   quic_tlsdriver_init(&svtls, sv_priv, sv_pub, 1);
-  client_reach_hs_secret(&c.tls, &svtls, sv_pub);
-  CHECK(
-      quic_fullhs_init(
-          &c.hs, &c.tls, quic_span_of(fullhs_sh, sizeof(fullhs_sh))) == 1);
-  CHECK(
-      quic_fullhs_init(
-          &sv, &svtls, quic_span_of(fullhs_sh, sizeof(fullhs_sh))) == 1);
+  client_reach_hs_secret(&c.tls, &svtls, sv_pub, sh, &shn);
+  CHECK(quic_fullhs_init(&c.hs, &c.tls, quic_span_of(sh, shn)) == 1);
+  CHECK(quic_fullhs_init(&sv, &svtls, quic_span_of(sh, shn)) == 1);
   c.phase = QUIC_CLIENT_HS_AUTH;
   c.fd    = -1;
   /* what feed_initial injects for a fully armed client */
