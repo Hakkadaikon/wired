@@ -19,6 +19,11 @@ case "$TESTCASE" in
     ;;
 esac
 
+# Simulator routing + UDP checksum-offload disable: the base image's own
+# entrypoint runs /setup.sh before serving, and replacing the entrypoint
+# means we must run it ourselves or the sim's packets never reach us.
+/setup.sh
+
 QLOG=""
 [ -n "$QLOGDIR" ] && QLOG="--qlog-file $QLOGDIR/server.sqlog"
 KEYLOG=""
