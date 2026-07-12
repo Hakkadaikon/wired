@@ -149,31 +149,65 @@ static void test_srvinbox_thread_stress(void) {
   CHECK(pa.sent == ca.received);
 }
 
-/* Broadcast registry, single-worker (n_total<=1): wired_server_broadcast_
- * datagram must keep using the pre-Phase-E direct fan-out untouched --
- * exercised in full by srvrun_test.c's existing broadcast tests (unchanged
- * by this task); here just confirm register/unregister with n_total=1 is a
- * harmless no-op around that path (no crash, still returns 1). */
-static void test_srvinbox_registry_single_worker_noop(void) {
+/* A connection slot with an active WebTransport session and its own SETTINGS
+ * already sent (srvrun_queue_datagram's own gate, RFC 9297 2.1) -- the state
+ * a real confirmed WT connection reaches, without running any handshake.
+ * Mirrors srvthreads_datagram_test.c's sdt_mark_wt_active (same unity TU). */
+static void sib_mark_wt_active(srvrun_conn* c) {
+  *c                    = (srvrun_conn){0};
+  c->up                 = 1;
+  c->wt_active          = 1;
+  c->l.h3.settings_sent = 1;
+  wired_wt_session_init(&c->wt, 0);
+  wired_wt_session_establish(&c->wt);
+}
+
+/* wired_srvrun_env is opaque outside srvrun.c's own TU; this file is unity-
+ * built into that same TU, so its full definition (and srvrun_conn's) is
+ * visible here too, same precedent as srvthreads_datagram_test.c. Static, not
+ * stack: ~4.6 MiB (wired_srvrun_env_size()), 8 MiB storage for headroom. */
+static u8 g_sib_env_storage[8u * 1024u * 1024u];
+
+/* Broadcast registry, single-worker (n_total==1): registering hands
+ * wired_server_broadcast_datagram this thread's OWN env, so a WT-active
+ * connection living in it is reached -- the fix for the reported bug (a
+ * lone --cores 0 worker's own broadcast used to vanish, since the un-
+ * registered fallback path only ever reads the unused process-global
+ * g_srvrun_env). Regression pin for srvrun.c's srvrun_broadcast_registered. */
+static void test_srvinbox_registry_single_worker_reaches_own_env(void) {
+  wired_srvrun_env* env = (wired_srvrun_env*)(void*)g_sib_env_storage;
   wired_srvinbox_ring row[1];
+  srvrun_conn*        c;
+  CHECK(sizeof g_sib_env_storage >= wired_srvrun_env_size());
+  wired_srvrun_env_init(env);
   wired_srvinbox_ring_init(&row[0]);
-  wired_srvrun_broadcast_register(0, 1, row);
+  c = &env->conns[0];
+  sib_mark_wt_active(c);
+
+  wired_srvrun_broadcast_register(0, 1, row, env);
   CHECK(
       wired_server_broadcast_datagram(
           quic_span_of(sib_msg_a, sizeof sib_msg_a)) == 1);
+  CHECK(c->dg_pending == 1);
+  CHECK(c->dg_pending_len == sizeof sib_msg_a);
+  for (usz i = 0; i < sizeof sib_msg_a; i++)
+    CHECK(c->dg_pending_buf[i] == sib_msg_a[i]);
   wired_srvrun_broadcast_unregister();
 }
 
-/* Real 2-worker mesh: two threads each register their own inbox row (a 2x2
- * mesh, srvrun.c owns the N*N wiring internally -- this test only supplies
- * each worker's own row and calls the public API), worker A broadcasts, and
- * worker B's own row[A] receives it -- proven by popping row[A] directly
- * (the delivery contract), not by reaching into worker A's internals. tid-
- * keyed registration (wired_thread_tid()) means this needs two real threads:
- * the same thread cannot hold two mesh slots at once. */
+/* Real 2-worker mesh: two threads each register their own inbox row AND own
+ * env (a 2x2 mesh, srvrun.c owns the N*N wiring internally -- this test only
+ * supplies each worker's own row/env and calls the public API). Worker A
+ * broadcasts: its OWN WT-active connection is reached directly (env fan-out,
+ * not the mesh -- srvrun_broadcast_registered's own-worker path), and worker
+ * B's row[A] receives it for B's own next-step drain to reach B's
+ * connections. tid-keyed registration (wired_thread_tid()) means this needs
+ * two real threads: the same thread cannot hold two mesh slots at once. */
 typedef struct {
   wired_srvinbox_ring* row;   /**< this worker's own N-ring row */
   int                  index; /**< this worker's mesh index */
+  wired_srvrun_env*    env;   /**< this worker's own env */
+  srvrun_conn*         conn;  /**< this worker's own WT-active connection */
 } sib_mesh_worker_arg;
 
 static volatile u32 sib_mesh_a_registered;
@@ -182,7 +216,7 @@ static volatile u32 sib_mesh_b_may_check;
 
 static void sib_mesh_worker_a_fn(void* argp) {
   sib_mesh_worker_arg* a = (sib_mesh_worker_arg*)argp;
-  wired_srvrun_broadcast_register(a->index, 2, a->row);
+  wired_srvrun_broadcast_register(a->index, 2, a->row, a->env);
   __atomic_store_n(&sib_mesh_a_registered, 1, __ATOMIC_RELEASE);
   while (!__atomic_load_n(&sib_mesh_b_registered, __ATOMIC_ACQUIRE));
   wired_server_broadcast_datagram(quic_span_of(sib_msg_b, sizeof sib_msg_b));
@@ -192,24 +226,42 @@ static void sib_mesh_worker_a_fn(void* argp) {
 
 static void sib_mesh_worker_b_fn(void* argp) {
   sib_mesh_worker_arg* a = (sib_mesh_worker_arg*)argp;
-  wired_srvrun_broadcast_register(a->index, 2, a->row);
+  wired_srvrun_broadcast_register(a->index, 2, a->row, a->env);
   __atomic_store_n(&sib_mesh_b_registered, 1, __ATOMIC_RELEASE);
   while (!__atomic_load_n(&sib_mesh_b_may_check, __ATOMIC_ACQUIRE));
   wired_srvrun_broadcast_unregister();
 }
 
+static u8 g_sib_mesh_env_a[8u * 1024u * 1024u];
+static u8 g_sib_mesh_env_b[8u * 1024u * 1024u];
+
 static void test_srvinbox_registry_two_worker_mesh_delivers(void) {
+  wired_srvrun_env*   env_a = (wired_srvrun_env*)(void*)g_sib_mesh_env_a;
+  wired_srvrun_env*   env_b = (wired_srvrun_env*)(void*)g_sib_mesh_env_b;
   wired_srvinbox_ring row_a[2]; /* worker A's own row: row_a[j] fed by j */
   wired_srvinbox_ring row_b[2]; /* worker B's own row: row_b[j] fed by j */
-  sib_mesh_worker_arg aarg = {row_a, 0};
-  sib_mesh_worker_arg barg = {row_b, 1};
-  wired_thread        ta   = {0, 0, 0};
-  wired_thread        tb   = {0, 0, 0};
-  u8                  out[WIRED_SRVINBOX_SLOT_MAX];
+  srvrun_conn*        conn_a;
+  srvrun_conn*         conn_b;
+  sib_mesh_worker_arg aarg;
+  sib_mesh_worker_arg barg;
+  wired_thread         ta = {0, 0, 0};
+  wired_thread         tb = {0, 0, 0};
+  u8                   out[WIRED_SRVINBOX_SLOT_MAX];
+
+  CHECK(sizeof g_sib_mesh_env_a >= wired_srvrun_env_size());
+  CHECK(sizeof g_sib_mesh_env_b >= wired_srvrun_env_size());
+  wired_srvrun_env_init(env_a);
+  wired_srvrun_env_init(env_b);
+  conn_a = &env_a->conns[0];
+  conn_b = &env_b->conns[0];
+  sib_mark_wt_active(conn_a);
+  sib_mark_wt_active(conn_b);
   for (int i = 0; i < 2; i++) {
     wired_srvinbox_ring_init(&row_a[i]);
     wired_srvinbox_ring_init(&row_b[i]);
   }
+  aarg = (sib_mesh_worker_arg){row_a, 0, env_a, conn_a};
+  barg = (sib_mesh_worker_arg){row_b, 1, env_b, conn_b};
   sib_mesh_a_registered = 0;
   sib_mesh_b_registered = 0;
   sib_mesh_b_may_check  = 0;
@@ -217,14 +269,26 @@ static void test_srvinbox_registry_two_worker_mesh_delivers(void) {
   CHECK(wired_thread_start(&tb, sib_mesh_worker_b_fn, &barg) == 0);
   CHECK(wired_thread_join(&ta) == 0);
   CHECK(wired_thread_join(&tb) == 0);
+
+  /* Worker A's OWN connection got A's broadcast directly (env fan-out, not
+   * through any ring). */
+  CHECK(conn_a->dg_pending == 1);
+  CHECK(conn_a->dg_pending_len == sizeof sib_msg_b);
+  for (usz i = 0; i < sizeof sib_msg_b; i++)
+    CHECK(conn_a->dg_pending_buf[i] == sib_msg_b[i]);
   /* Worker B's own row, column 0 (worker A's source column), holds A's
-   * broadcast -- delivered through wired_server_broadcast_datagram alone,
-   * never by writing worker B's ring directly. */
+   * broadcast for B's own next-step drain -- delivered through
+   * wired_server_broadcast_datagram alone, never by writing B's ring
+   * directly. B's own connection is untouched here: draining row_b is
+   * srvrun_bcast_drain_self's job (srvrun.c), exercised by srvrun_test.c's
+   * poll-tick tests, not this ring-level test. */
   CHECK(wired_srvinbox_pop(&row_b[0], out, sizeof out) == sizeof sib_msg_b);
   for (usz i = 0; i < sizeof sib_msg_b; i++) CHECK(out[i] == sib_msg_b[i]);
-  /* Worker A's own row also received its own broadcast (source == target
-   * included, tasks/loopeng/srvinbox-mesh S-014's own-row inclusion). */
-  CHECK(wired_srvinbox_pop(&row_a[0], out, sizeof out) == sizeof sib_msg_b);
+  /* A's own row is NOT pushed for its own broadcast anymore (own-row
+   * inclusion was replaced by the direct env fan-out above -- pushing it too
+   * would double-deliver: once now, once more when A drains its own row on
+   * its next step). */
+  CHECK(wired_srvinbox_pop(&row_a[0], out, sizeof out) == 0);
 }
 
 void test_srvinbox(void) {
@@ -235,6 +299,6 @@ void test_srvinbox(void) {
   test_srvinbox_wrap_around();
   test_srvinbox_pop_undersized_dst_leaves_slot();
   test_srvinbox_thread_stress();
-  test_srvinbox_registry_single_worker_noop();
+  test_srvinbox_registry_single_worker_reaches_own_env();
   test_srvinbox_registry_two_worker_mesh_delivers();
 }
