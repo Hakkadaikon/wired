@@ -937,6 +937,7 @@
 #include "app/srvworkers_test.c"
 #include "app/srvinbox_test.c"
 #include "app/srvthreads_test.c"
+#include "app/srvthreads_datagram_test.c"
 #include "transport/stats_test.c"
 #include "app/wt_session_test.c"
 #include "app/wterrmap_test.c"
@@ -1416,6 +1417,7 @@ int main(void) {
   test_srvworkers();
   test_srvinbox();
   test_srvthreads();
+  test_srvthreads_datagram();
   test_wt_session();
   test_wterrmap();
   test_wtcapsule();
