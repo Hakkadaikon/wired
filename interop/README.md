@@ -8,10 +8,14 @@ Minimal scaffolding to run `wired` as a server endpoint under the
 ```sh
 just gen-ninja && ninja examples/word_list/wired_server
 docker build -t wired-interop -f interop/Dockerfile .
-# add to the runner's implementations.json:
+# add to the runner's implementations_quic.json:
 #   "wired": { "image": "wired-interop", "url": "...", "role": "server" }
 python3 run.py -s wired -c quic-go -t handshake,transfer,http3
 ```
+
+`tasks/verify/02_interop_runner.sh` automates all of the above (including a
+venv for the runner's Python requirements). The runner additionally needs
+Docker, docker compose, and Wireshark 4.5+ (`tshark`).
 
 ## Supported test cases
 
