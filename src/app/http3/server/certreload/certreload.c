@@ -64,7 +64,7 @@ static int certreload_next_key(quic_span text, usz* at, quic_obuf* der) {
 static int certreload_load_key(quic_span text, wired_certreload_store* store) {
   u8        der_buf[192];
   quic_obuf der = quic_obuf_of(der_buf, sizeof der_buf);
-  usz       at = 0;
+  usz       at  = 0;
   if (!certreload_next_key(text, &at, &der)) return 0;
   return wired_eckey_p256_priv(quic_span_of(der_buf, der.len), store->priv);
 }

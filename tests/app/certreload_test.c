@@ -57,16 +57,16 @@ static const char crt_bad_key_path[] = "build/certreload_badkey_test.pem";
  * OID) before the EC PRIVATE KEY block; a loader that decodes the first PEM
  * block as the key chokes on it (quic-interop-runner's certs.sh emits keys
  * in exactly this shape). */
-#define CRT_PEM_EC_PARAMS              \
-  "-----BEGIN EC PARAMETERS-----\n"    \
-  "BggqhkjOPQMBBw==\n"                 \
+#define CRT_PEM_EC_PARAMS           \
+  "-----BEGIN EC PARAMETERS-----\n" \
+  "BggqhkjOPQMBBw==\n"              \
   "-----END EC PARAMETERS-----\n"
 
 static const char crt_cert_pem[]  = CRT_PEM_LEAF;
 static const char crt_cert2_pem[] = CRT_PEM_LEAF CRT_PEM_INT;
 static const char                                crt_key_pem[] = CRT_PEM_KEY;
 static const char crt_key_params_pem[] = CRT_PEM_EC_PARAMS CRT_PEM_KEY;
-static const char                                crt_bad_key_pem[] =
+static const char                                          crt_bad_key_pem[] =
     "-----BEGIN EC PRIVATE KEY-----\n"
     "Zm9v\n"
     "-----END EC PRIVATE KEY-----\n";
