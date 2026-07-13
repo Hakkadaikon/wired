@@ -186,6 +186,20 @@ int wired_srvloop_slot_for(wired_srvloop* l, u64 stream_id) {
   return stream_slot_claim(l, stream_id);
 }
 
+/* RFC 9000 2.2: free the streams[] slot reassembling stream_id once its
+ * response is fully answered and acked -- HTTP/3 never reuses a stream id,
+ * so without this the table's 4 slots exhaust after 4 sequential requests
+ * on distinct streams. A stream_id with no slot is a no-op. */
+void wired_srvloop_slot_release(wired_srvloop* l, u64 stream_id) {
+  int i = stream_slot_find(l, stream_id);
+  if (i < 0) return;
+  l->streams[i].in_use    = 0;
+  l->streams[i].stream_id = 0;
+  l->streams[i].req_len   = 0;
+  l->streams[i].req_fin   = 0;
+  l->streams[i].req_done  = 0;
+}
+
 /* 1 if wt slot is claimed and reassembling stream_id. */
 static int wt_slot_matches(
     const wired_srvloop_wt_stream_slot* slot, u64 stream_id) {
@@ -250,7 +264,6 @@ int wired_srvloop_wt_uni_slot_claim(wired_srvloop* l, u64 stream_id) {
   }
   return -1;
 }
-
 
 /* RFC 9000 19.19: 1 if type is either CONNECTION_CLOSE variant. */
 static int srvloop_close_type(u64 type) {
@@ -326,7 +339,11 @@ static void step_one(const wired_srvloop_conn* conn, quic_mspan pkt) {
   o.level = ro.level;
   o.pkt   = pkt;
   l->peer_closed |= srvloop_has_close(ro.payload);
-  srvloop_collect_acks(l, ro.payload);
+  /* Restricted to 1-RTT: the caller's bookkeeping (wired_sendsess) keys
+   * entries by pn in the 1-RTT space only, so an ACK opened at the Initial/
+   * Handshake level could otherwise hit an unrelated 1-RTT pn by
+   * coincidence. */
+  if (ro.level == QUIC_LEVEL_ONERTT) srvloop_collect_acks(l, ro.payload);
   note_app_rx(l, s, &o);
   note_hs_rx(l, &o);
   step_dispatch(conn, ro.payload);
