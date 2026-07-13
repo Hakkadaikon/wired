@@ -1011,6 +1011,177 @@ static usz sr_collect_stream(
   return high;
 }
 
+/* Collect every STREAM frame in an opened payload into a per-stream-id
+ * bucket (asm[i] for the i-th distinct stream_id seen, up to max_streams).
+ * Mirrors sr_collect_stream's offset-indexed reassembly, but keyed by
+ * stream_id instead of assuming a single response stream -- what a parallel
+ * multi-stream response needs to verify each stream's bytes land in its own
+ * buffer, not interleaved with a sibling's. */
+typedef struct {
+  u64 stream_id;
+  int used;
+  u8* buf;
+  usz cap;
+  usz high;
+  int fin;
+} sr_stream_bucket;
+
+static sr_stream_bucket* sr_bucket_for(
+    sr_stream_bucket* buckets, usz max_streams, u64 stream_id) {
+  usz i;
+  for (i = 0; i < max_streams; i++) {
+    if (buckets[i].used && buckets[i].stream_id == stream_id)
+      return &buckets[i];
+    if (!buckets[i].used) {
+      buckets[i].used      = 1;
+      buckets[i].stream_id = stream_id;
+      return &buckets[i];
+    }
+  }
+  return 0;
+}
+
+static void sr_collect_stream_multi(
+    const u8* pl, usz pll, sr_stream_bucket* buckets, usz max_streams) {
+  quic_framewalk      it;
+  quic_framewalk_item fr;
+  quic_stream_frame   sf;
+  quic_framewalk_init(&it, pl, pll);
+  while (quic_framewalk_next(&it, &fr)) {
+    sr_stream_bucket* b;
+    if (fr.type < 0x08 || fr.type > 0x0f) continue;
+    if (quic_frame_get_stream(fr.start, fr.remaining, &sf) == 0) continue;
+    b = sr_bucket_for(buckets, max_streams, sf.stream_id);
+    if (!b) continue;
+    for (usz i = 0; i < sf.length && sf.offset + i < b->cap; i++)
+      b->buf[sf.offset + i] = sf.data[i];
+    if ((usz)(sf.offset + sf.length) > b->high) b->high = sf.offset + sf.length;
+    b->fin |= sf.fin;
+  }
+}
+
+/* PARALLEL RESPONSES: three GETs on distinct streams (0, 4, 8), coalesced
+ * into ONE datagram (the exact quic-go interop shape: HEADERS for all three
+ * packed into one 1-RTT packet), each answered with its own small body from
+ * its own resp[] slot. Every stream's reassembled bytes must be exactly its
+ * own body, unmixed with the others' -- the core property multiplexing
+ * needs (RFC 9000 2.2). Benign skip when the sandbox forbids sockets. */
+static int sr_parallel_body_handler(
+    void*                       hctx,
+    const wired_h3reqdrive_req* req,
+    quic_obuf*                  body_out,
+    const char**                ct) {
+  (void)hctx;
+  (void)ct;
+  /* one byte body: 'A'/'B'/'C' keyed by the request path ("/a", "/b", "/c")
+   * so each stream's response is trivially distinguishable. */
+  if (req->path_len >= 2 && body_out->cap >= 1) {
+    body_out->p[0] = req->path[1];
+    body_out->len  = 1;
+    return 1;
+  }
+  return 0;
+}
+
+static void test_srvrun_parallel_responses_three_streams(void) {
+  struct lp_fix            f;
+  wired_srvboot_id         id;
+  u8                       priv[32], pub[32], seed[32], rnd[32];
+  u8                       obuf[1024], payload[512], spkt[1024];
+  u8                       asm_bufs[3][64] = {{0}};
+  sr_stream_bucket         buckets[3]      = {0};
+  static const u64         stream_ids[3]   = {0, 4, 8};
+  static const char* const paths[3]        = {"/a", "/b", "/c"};
+  quic_conntable           table[QUIC_CONNTABLE_CAP];
+  srvrun_state             st = {table, g_srvrun_state.conns};
+  quic_obuf                ob = {obuf, sizeof obuf, 0};
+  quic_sockaddr_in         srv, from;
+  i64                      sfd, cfd;
+  usz                      off, slen;
+  if (!sr_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
+  sr_make_id(&id, priv, pub, seed, rnd);
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  sr_make_confirmed_conn(&st.conns[0], &f, &ob);
+  st.conns[0].l.resp_external = 1;
+  st.conns[0].peer            = srv;
+  CHECK(quic_conntable_insert(table, QUIC_CONNTABLE_CAP, g_cli_scid, 6) == 0);
+  for (usz i = 0; i < 3; i++) {
+    buckets[i].buf = asm_bufs[i];
+    buckets[i].cap = sizeof asm_bufs[i];
+  }
+  /* all three GETs' HEADERS frames coalesced into ONE payload/datagram. */
+  off = 0;
+  for (usz i = 0; i < 3; i++) {
+    u8        get[128];
+    quic_obuf gob = {get, sizeof get, 0};
+    usz       plen;
+    CHECK(wired_h3reqdrive_send_get(
+        stream_ids[i],
+        &(wired_h3reqdrive_get_in){
+            quic_span_of((const u8*)paths[i], 2),
+            quic_span_of((const u8*)"h", 1)},
+        &gob));
+    plen = gob.len;
+    for (usz j = 0; j < plen; j++) payload[off++] = get[j];
+  }
+  slen = client_seal_onertt(&f, payload, off, spkt, sizeof spkt);
+  {
+    srvrun_cfg cfg = {
+        cfd,
+        &id,
+        sr_parallel_body_handler,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        &g_srvrun_env,
+        0};
+    srvrun_step_ctx ctx = {&cfg, &srv, &st, 0};
+    srvrun_serve(&ctx, quic_mspan_of(spkt, slen));
+  }
+  /* every request completed in the same step: three resp[] slots claimed. */
+  CHECK(st.conns[0].resp[0].in_use == 1);
+  CHECK(st.conns[0].resp[1].in_use == 1);
+  CHECK(st.conns[0].resp[2].in_use == 1);
+  /* drain replies until all three streams have seen fin (bounded: at most a
+   * handful of small single-chunk responses plus the ack-only reply). */
+  for (int d = 0; d < 8; d++) {
+    u8        pkt[1500];
+    const u8* pl;
+    usz       pll;
+    int       all_fin;
+    i64 r = wired_udp_recvfrom(sfd, quic_mspan_of(pkt, sizeof pkt), &from);
+    CHECK(r > 0);
+    if (client_open_onertt(&f, pkt, (usz)r, &pl, &pll) == 1)
+      sr_collect_stream_multi(pl, pll, buckets, 3);
+    all_fin = buckets[0].used && buckets[0].fin && buckets[1].used &&
+              buckets[1].fin && buckets[2].used && buckets[2].fin;
+    if (all_fin) break;
+  }
+  wired_udp_close(cfd);
+  wired_udp_close(sfd);
+  /* each stream's reassembled body is its OWN prefix + single byte, never a
+   * sibling's -- proves the streams did not cross-contaminate. */
+  for (usz i = 0; i < 3; i++) {
+    u8        pre[64];
+    quic_obuf preb = {pre, sizeof pre, 0};
+    CHECK(buckets[i].used == 1);
+    CHECK(buckets[i].fin == 1);
+    CHECK(quic_h3resp_prefix(200, 0, 1, &preb) == 1);
+    CHECK(buckets[i].high == preb.len + 1);
+    for (usz j = 0; j < preb.len; j++) CHECK(buckets[i].buf[j] == pre[j]);
+    CHECK(buckets[i].buf[preb.len] == (u8)paths[i][1]);
+  }
+}
+
 /* TAKEOVER END TO END: a GET served through srvrun streams a 2.5-chunk
  * response as multiple 1-RTT packets over a real socket. The client-side
  * reassembly of the STREAM slices equals prefix+body byte for byte and ends
@@ -3303,6 +3474,7 @@ void test_srvrun(void) {
   test_srvrun_qlog_skips_failed_accept();
   test_srvrun_batch_serves_each();
   test_srvrun_takeover_streams_large_body();
+  test_srvrun_parallel_responses_three_streams();
   test_srvrun_cc_algo_selected();
   test_srvrun_hystart_ends_slow_start();
   test_srvrun_rtt_ewma();
