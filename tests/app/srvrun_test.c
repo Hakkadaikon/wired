@@ -3600,6 +3600,57 @@ static void test_srvrun_pump_stops_at_log_capacity(void) {
  * versa, since pn is one connection-wide monotonic space) all still work
  * with two sessions live at once. Every byte of both bodies must eventually
  * reach the log/requeue/acked union -- none silently dropped (I3). */
+/* CROSS-STREAM ACK MUST NOT FALSELY ADVANCE A SIBLING'S LOSS THRESHOLD:
+ * an ACK range naming only slot 1's pns must leave slot 0's still-in-flight
+ * slices alone -- broadcasting the range to every resp[] slot (srvrun_
+ * feed_ack_range) must not let a sibling's ACK raise this slot's own
+ * largest_acked and falsely push its unacked-but-not-actually-lost slices
+ * past the packet-loss threshold (RFC 9002 6.1.1). This is exactly what a
+ * real quic-go client's ACKs for streams 4/8 did to stream 0's in-flight
+ * slices on a 500KB body (interop http3 test case): offsets past ~90KB
+ * were spuriously requeued and re-sent from ~55KB. */
+static void test_srvrun_sibling_ack_does_not_lose_other_slot(void) {
+  static u8     body0[8 * SRVRUN_CHUNK];
+  static u8     body1[4 * SRVRUN_CHUNK];
+  struct lp_fix f;
+  srvrun_conn   c;
+  quic_obuf     ob = {0};
+  u8            obuf[1024];
+  u64           pn0_b;
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.cc.cwnd           = 1u << 20; /* isolate the ACK-broadcast gate from cwnd */
+  c.resp[0].in_use    = 1;
+  c.resp[0].stream_id = 0;
+  c.resp[1].in_use    = 1;
+  c.resp[1].stream_id = 4;
+  wired_sendsess_arm(&c.resp[0].sess, body0, sizeof body0, SRVRUN_CHUNK);
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0};
+    srvrun_state    st  = {0, &c};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 1};
+    /* slot 0 sends all 8 slices first (fresh pns pn0_a..pn0_a+7), then
+     * slot 1 arms and sends its own 4 slices with the next fresh pns --
+     * slot 1's pns are all numerically past every pn slot 0 ever used, so
+     * an ACK naming only slot 1's range names pns slot 0 never sent. */
+    srvrun_pump_sess(&ctx, 0);
+    CHECK(wired_sendsess_inflight(&c.resp[0].sess) == 8);
+    pn0_b = c.l.tx_pn;
+    wired_sendsess_arm(&c.resp[1].sess, body1, sizeof body1, SRVRUN_CHUNK);
+    srvrun_pump_sess(&ctx, 0);
+    CHECK(wired_sendsess_inflight(&c.resp[1].sess) == 4);
+
+    /* ACK only slot 1's range. Slot 0's log must be untouched: still all 8
+     * in flight, no requeue, largest_acked never set (slot 0 has not
+     * actually been acked yet). */
+    srvrun_feed_ack_range(&cfg, &c, pn0_b, pn0_b + 3, ctx.now_ms);
+    CHECK(wired_sendsess_inflight(&c.resp[0].sess) == 8);
+    CHECK(c.resp[0].sess.requeue_n == 0);
+    CHECK(c.resp[0].sess.has_acked == 0);
+  }
+}
+
 static void test_srvrun_loss_and_retransmit_across_two_responses(void) {
   static u8     body0[(WIRED_SENDSESS_LOG + 4) * SRVRUN_CHUNK];
   static u8     body1[(WIRED_SENDSESS_LOG + 4) * SRVRUN_CHUNK];
@@ -3697,6 +3748,7 @@ void test_srvrun(void) {
   test_srvrun_bigbuf_pool_serves_large_body();
   test_srvrun_fifth_sequential_get_reuses_freed_slot();
   test_srvrun_pto_budget_exhausted_tears_down_connection();
+  test_srvrun_sibling_ack_does_not_lose_other_slot();
   test_srvrun_loss_and_retransmit_across_two_responses();
   test_srvrun_pump_stops_at_log_capacity();
   test_srvrun_accept_rekeys_to_slot_scid();
