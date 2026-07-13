@@ -990,6 +990,23 @@ static int sr_bigbuf_body_handler(
   return 1;
 }
 
+/* Body handler for the slot-reuse test: a trivial single-byte body, so one
+ * ACK finishes the session (drives srvrun_resp_reap without a multi-slice
+ * pump). */
+static int sr_tiny_body_handler(
+    void*                       hctx,
+    const wired_h3reqdrive_req* req,
+    quic_obuf*                  body_out,
+    const char**                ct) {
+  (void)hctx;
+  (void)req;
+  (void)ct;
+  if (body_out->cap < 1) return 0;
+  body_out->p[0] = 'x';
+  body_out->len  = 1;
+  return 1;
+}
+
 /* Local socket pair on its own port (4439; the recvmmsg tests own 4437). */
 static int sr_open_sockets(i64* sfd, i64* cfd, quic_sockaddr_in* srv) {
   *sfd = wired_udp_socket();
@@ -3463,6 +3480,42 @@ static void test_srvrun_bigbuf_pool_serves_large_body(void) {
   CHECK(c.resp[0].sess.q.len > WIRED_SRVRUN_RESP_MAX);
 }
 
+/* SLOT REUSE: HTTP/3 never reuses a stream id, so resp[]'s SRVRUN_RESP_SLOTS
+ * (4, matching the receive side's WIRED_SRVLOOP_MAX_STREAMS) must free a
+ * slot once its response is fully sent and acked -- otherwise a 5th
+ * sequential request permanently finds every slot busy (TLA+ resp-multiplex
+ * guard I4). Drives all SRVRUN_RESP_SLOTS+1 requests one at a time, each
+ * through start -> pump -> ack -> reap, on distinct stream ids. */
+static void test_srvrun_fifth_sequential_get_reuses_freed_slot(void) {
+  struct lp_fix f;
+  srvrun_conn   c  = {0};
+  quic_obuf     ob = {0};
+  u8            obuf[1024];
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.cc.cwnd = 1u << 20; /* isolate slot reuse from cwnd/log gating */
+  {
+    srvrun_cfg cfg = {-1, 0, sr_tiny_body_handler, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                      0,  0, &g_srvrun_env,        0};
+    srvrun_state    st  = {0, &c};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    for (u64 i = 0; i < SRVRUN_RESP_SLOTS + 1; i++) {
+      u64 stream_id = i * 4; /* client-initiated bidi stream ids: 0,4,8,... */
+      u64 pn0       = c.l.tx_pn;
+      srvrun_resp* r;
+      sr_set_req(&c, 0, 0, stream_id);
+      srvrun_start_resp(&ctx, 0);
+      r = srvrun_resp_find(&c, stream_id);
+      CHECK(r != 0);
+      CHECK(r->in_use == 1);
+      srvrun_pump_sess(&ctx, 0);
+      wired_sendsess_ack(&r->sess, pn0, c.l.tx_pn - 1);
+      srvrun_reap_resps(cfg.env, &c);
+      CHECK(r->in_use == 0);
+    }
+  }
+}
+
 /* LOG-FULL GATE: with the congestion window wide open, the pump must stop
  * at WIRED_SENDSESS_LOG in-flight slices. One more take would send a slice
  * that wired_sendsess_sent (log full) can record in neither log nor requeue
@@ -3511,6 +3564,7 @@ void test_srvrun(void) {
   test_srvrun_wt_full_session_lifecycle_on_wire();
   test_srvrun_no_shutdown_accepts_new();
   test_srvrun_bigbuf_pool_serves_large_body();
+  test_srvrun_fifth_sequential_get_reuses_freed_slot();
   test_srvrun_pump_stops_at_log_capacity();
   test_srvrun_accept_rekeys_to_slot_scid();
   test_srvrun_initial_retransmit_resends_cached_flight();
