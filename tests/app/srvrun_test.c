@@ -3234,6 +3234,42 @@ static void test_srvrun_broadcast_datagram_flushes_on_poll_tick_alone(void) {
    * covered by test_srvrun_broadcast_datagram_reaches_two_real_clients. */
 }
 
+/* LOG-FULL GATE: with the congestion window wide open, the pump must stop
+ * at WIRED_SENDSESS_LOG in-flight slices. One more take would send a slice
+ * that wired_sendsess_sent (log full) can record in neither log nor requeue
+ * -- if that packet then drops, the stream has a permanent hole and the
+ * peer stalls waiting for the missing offset. ACKing frees log entries and
+ * the pump must resume where it stopped. */
+static void test_srvrun_pump_stops_at_log_capacity(void) {
+  static u8     body[(WIRED_SENDSESS_LOG + 4) * SRVRUN_CHUNK];
+  struct lp_fix f;
+  srvrun_conn   c;
+  quic_obuf     ob = {0};
+  u8            obuf[1024];
+  u64           pn0;
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.cc.cwnd = 1u << 20; /* wide open: isolate the log gate from cwnd */
+  pn0       = c.l.tx_pn;
+  wired_sendsess_arm(&c.sess, body, sizeof body, SRVRUN_CHUNK);
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0};
+    srvrun_state    st  = {0, &c};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 1};
+    srvrun_pump_sess(&ctx, 0);
+    CHECK(wired_sendsess_inflight(&c.sess) == WIRED_SENDSESS_LOG);
+    /* the take that cannot be logged must not have happened */
+    CHECK(c.sess.q.cur == (usz)WIRED_SENDSESS_LOG * SRVRUN_CHUNK);
+    /* ACK the first 4 slices: log entries free up, the pump resumes and
+     * drains the remaining 4 slices without losing any */
+    wired_sendsess_ack(&c.sess, pn0, pn0 + 3);
+    srvrun_pump_sess(&ctx, 0);
+    CHECK(c.sess.q.cur == sizeof body);
+    CHECK(wired_sendsess_inflight(&c.sess) == WIRED_SENDSESS_LOG);
+  }
+}
+
 void test_srvrun(void) {
   test_srvrun_broadcast_datagram_queues_active_wt_sessions();
   test_srvrun_broadcast_datagram_skips_inactive_wt();
@@ -3243,6 +3279,7 @@ void test_srvrun(void) {
   test_srvrun_broadcast_datagram_flushes_on_poll_tick_alone();
   test_srvrun_wt_full_session_lifecycle_on_wire();
   test_srvrun_no_shutdown_accepts_new();
+  test_srvrun_pump_stops_at_log_capacity();
   test_srvrun_accept_rekeys_to_slot_scid();
   test_srvrun_initial_retransmit_resends_cached_flight();
   test_srvrun_coalesced_handshake_not_boot_retransmit();
