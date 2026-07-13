@@ -88,6 +88,21 @@ typedef struct {
  * sharing cfg->id's fixed scid would make every connection answer to the same
  * DCID, collapsing quic_conntable's routing to a single slot. Indexed in
  * parallel with the conntable slot of the same index. */
+/* One in-flight response answering one request stream. The connection's PN
+ * space (l.tx_pn) and congestion controller (cc, below) stay per-connection
+ * -- only the send session (unsent/in-flight/requeue bookkeeping) is
+ * per-stream, so up to SRVRUN_RESP_SLOTS requests can be in flight
+ * concurrently on one connection (RFC 9000 2.2). */
+typedef struct {
+  int            in_use;
+  u64            stream_id;
+  wired_sendsess sess;
+} srvrun_resp;
+/* Matches WIRED_SRVLOOP_MAX_STREAMS: the receive side's stream-slot table
+ * bounds how many distinct request streams a connection reassembles at
+ * once, so the response side never needs more slots than that. */
+#define SRVRUN_RESP_SLOTS WIRED_SRVLOOP_MAX_STREAMS
+
 typedef struct {
   wired_server     s;
   wired_srvloop    l;
@@ -96,11 +111,12 @@ typedef struct {
   u8               scid[WIRED_MAX_CID_LEN];
   int              goaway_sent; /**< 1 once graceful-shutdown GOAWAY sent */
   u64              last_ms;     /**< monotonic ms of the last routed datagram */
-  wired_sendsess   sess;        /**< in-flight multi-packet response */
-  quic_cc          cc;          /**< congestion window gating sess's pump */
-  quic_hystart     hs;          /**< slow-start exit detector (RFC 9406) */
-  u64              srtt_ms;     /**< smoothed RTT of this connection's acks */
-  u64              next_send_ms; /**< pacing: earliest time to send again */
+  srvrun_resp      resp[SRVRUN_RESP_SLOTS]; /**< in-flight responses, one per
+                                                answered request stream */
+  quic_cc      cc;      /**< congestion window gating every resp[]'s pump */
+  quic_hystart hs;      /**< slow-start exit detector (RFC 9406) */
+  u64          srtt_ms; /**< smoothed RTT of this connection's acks */
+  u64          next_send_ms; /**< pacing: earliest time to send again */
   /** boot-stage ClientHello reassembly across Initial datagrams (a
    * post-quantum-sized ClientHello spans two, RFC 9000 19.6).
    * ponytail: one fixed accumulator per slot (~4KB x 64 slots of BSS);
@@ -135,10 +151,14 @@ typedef struct {
   usz boot_dgram_count;
 } srvrun_conn;
 
-/* Response storage, one stream per slot: 64-byte prefix room (HEADERS + DATA
- * header framed in place, quic_h3resp_prefix) followed by the handler's body.
- * ponytail: 16KB per response, 64 slots = 1MB BSS; raise WIRED_SRVRUN_RESP_MAX
- * when a deployment needs bigger bodies. */
+/* Response storage, one row per (connection slot, response slot): 64-byte
+ * prefix room (HEADERS + DATA header framed in place, quic_h3resp_prefix)
+ * followed by the handler's body.
+ * ponytail: 16KB per response, 64 conns x 4 response slots = 4MB BSS; raise
+ * WIRED_SRVRUN_RESP_MAX when a deployment needs bigger bodies (srvbigbuf.h
+ * covers the >16KB case without growing this fixed grid). A srvthreads
+ * deployment (--cores N) holds one wired_srvrun_env per worker, so this
+ * multiplies by N there too. */
 #define WIRED_SRVRUN_RESP_MAX 16384
 #define SRVRUN_RESP_HDR_ROOM 64
 #define SRVRUN_CHUNK 1100 /* stream bytes per packet (fits a 1500 MTU) */
@@ -168,9 +188,9 @@ struct wired_srvrun_env {
    * socket serves several clients at once. */
   quic_conntable table[QUIC_CONNTABLE_CAP];
   srvrun_conn    conns[QUIC_CONNTABLE_CAP];
-  /* Response storage, one stream per slot (see WIRED_SRVRUN_RESP_MAX above).
-   */
-  u8 respstore[QUIC_CONNTABLE_CAP][WIRED_SRVRUN_RESP_MAX];
+  /* Response storage, one row per (connection slot, response slot) (see
+   * WIRED_SRVRUN_RESP_MAX above). */
+  u8 respstore[QUIC_CONNTABLE_CAP][SRVRUN_RESP_SLOTS][WIRED_SRVRUN_RESP_MAX];
   /* Receive batch storage (SRVRUN_RX_BATCH above). */
   u8 rxstorage[SRVRUN_RX_BATCH][2048];
   /* Storage a SIGHUP reload decodes into — must outlive the identity built
@@ -1473,16 +1493,53 @@ static int wt_origin_ok(const wired_h3reqdrive_req* r) {
   return r->origin_len != 0;
 }
 
-/* Seal a bare status-only response (no body, no content-type) into the
- * slot's own storage and arm the session over it — the same low-level
- * prefix+arm mechanism srvrun_start_app_resp uses for a normal 200, minus the
- * app handler: this is protocol-level WebTransport response building
+/* 1 if r is claimed and answering stream_id. */
+static int srvrun_resp_matches(const srvrun_resp* r, u64 stream_id) {
+  return r->in_use && r->stream_id == stream_id;
+}
+
+/* The in-use resp[] slot answering stream_id, or 0 if none (RFC 9000 2.2:
+ * at most one response per request stream at a time). */
+static srvrun_resp* srvrun_resp_find(srvrun_conn* c, u64 stream_id) {
+  for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++)
+    if (srvrun_resp_matches(&c->resp[i], stream_id)) return &c->resp[i];
+  return 0;
+}
+
+/* Claim and reset a free resp[] slot for stream_id (caller has already
+ * confirmed via srvrun_resp_find that stream_id has none). 0 if every slot
+ * is busy -- the request is dropped, same bound as the old single-response-
+ * per-connection behavior but per stream instead of per connection. */
+static srvrun_resp* srvrun_resp_claim(srvrun_conn* c, u64 stream_id) {
+  for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++) {
+    if (c->resp[i].in_use) continue;
+    c->resp[i].in_use    = 1;
+    c->resp[i].stream_id = stream_id;
+    return &c->resp[i];
+  }
+  return 0;
+}
+
+/* r's index within c->resp[], for locating its respstore row
+ * (env->respstore[slot][index]). */
+static usz srvrun_resp_index(const srvrun_conn* c, const srvrun_resp* r) {
+  return (usz)(r - c->resp);
+}
+
+/* Seal a bare status-only response (no body, no content-type) into r's own
+ * storage row and arm r's session over it — the same low-level prefix+arm
+ * mechanism srvrun_start_app_resp uses for a normal 200, minus the app
+ * handler: this is protocol-level WebTransport response building
  * (draft-ietf-webtrans-http3-15 SS3.2), not an application response. Used for
  * both the 2xx that establishes a session and the 403 that rejects one
  * (WT-B-005/007/008). */
 static void srvrun_start_wt_status(
-    wired_srvrun_env* env, srvrun_conn* c, int slot, u16 status) {
-  u8*       st = env->respstore[slot];
+    wired_srvrun_env* env,
+    int               slot,
+    srvrun_conn*      c,
+    srvrun_resp*      r,
+    u16               status) {
+  u8*       st = env->respstore[slot][srvrun_resp_index(c, r)];
   u8        pre[SRVRUN_RESP_HDR_ROOM];
   quic_obuf pob = quic_obuf_of(pre, sizeof pre);
   usz       off;
@@ -1492,31 +1549,33 @@ static void srvrun_start_wt_status(
       quic_mspan_of(st, SRVRUN_RESP_HDR_ROOM), &off,
       quic_span_of(pre, pob.len));
   wired_sendsess_arm(
-      &c->sess, st + SRVRUN_RESP_HDR_ROOM - pob.len, pob.len, SRVRUN_CHUNK);
+      &r->sess, st + SRVRUN_RESP_HDR_ROOM - pob.len, pob.len, SRVRUN_CHUNK);
 }
 
 /* Establish a WebTransport session for this Extended CONNECT (draft-ietf-
  * webtrans-http3-15 SS3.2/SS4): the session id is the CONNECT stream's own
  * id. Skips the normal app-handler response path entirely. */
-static void srvrun_start_wt(wired_srvrun_env* env, srvrun_conn* c, int slot) {
+static void srvrun_start_wt(
+    wired_srvrun_env* env, int slot, srvrun_conn* c, srvrun_resp* r) {
   wired_wt_session_init(&c->wt, c->l.req_stream_id);
   wired_wt_session_establish(&c->wt);
   c->wt_active = 1;
-  srvrun_start_wt_status(env, c, slot, 200);
+  srvrun_start_wt_status(env, slot, c, r, 200);
 }
 
 /* Reject this Extended CONNECT with 403 (WT-B-005/007/008: a present but
  * malformed Origin) without establishing a session. */
-static void srvrun_reject_wt(wired_srvrun_env* env, srvrun_conn* c, int slot) {
-  srvrun_start_wt_status(env, c, slot, 403);
+static void srvrun_reject_wt(
+    wired_srvrun_env* env, int slot, srvrun_conn* c, srvrun_resp* r) {
+  srvrun_start_wt_status(env, slot, c, r, 403);
 }
 
 /* Body of srvrun_start_resp for a normal (non-WT) request: run the app
  * handler, then frame+arm the response exactly as before this task. Split
  * out so srvrun_start_resp itself stays at its gate/dispatch decision (CCN). */
 static void srvrun_start_app_resp(
-    const srvrun_step_ctx* ctx, srvrun_conn* c, int slot) {
-  u8*       st   = ctx->cfg->env->respstore[slot];
+    const srvrun_step_ctx* ctx, srvrun_conn* c, int slot, srvrun_resp* r) {
+  u8*       st   = ctx->cfg->env->respstore[slot][srvrun_resp_index(c, r)];
   quic_obuf body = quic_obuf_of(
       st + SRVRUN_RESP_HDR_ROOM, WIRED_SRVRUN_RESP_MAX - SRVRUN_RESP_HDR_ROOM);
   u8          pre[SRVRUN_RESP_HDR_ROOM];
@@ -1530,7 +1589,7 @@ static void srvrun_start_app_resp(
       quic_mspan_of(st, SRVRUN_RESP_HDR_ROOM), &off,
       quic_span_of(pre, pob.len));
   wired_sendsess_arm(
-      &c->sess, st + SRVRUN_RESP_HDR_ROOM - pob.len, pob.len + body.len,
+      &r->sess, st + SRVRUN_RESP_HDR_ROOM - pob.len, pob.len + body.len,
       SRVRUN_CHUNK);
 }
 
@@ -1543,8 +1602,8 @@ static void srvrun_start_app_resp(
  * rejected stream with H3_REQUEST_REJECTED (RFC 9114 4.1.1/8.1), independent
  * of and in addition to the 429 above. */
 static void srvrun_reject_wt_busy(
-    const srvrun_cfg* cfg, srvrun_conn* c, int slot) {
-  srvrun_start_wt_status(cfg->env, c, slot, 429);
+    const srvrun_cfg* cfg, srvrun_conn* c, int slot, srvrun_resp* r) {
+  srvrun_start_wt_status(cfg->env, slot, c, r, 429);
   srvrun_send_wt_busy_reset(
       cfg, c, c->l.req_stream_id, QUIC_H3_REQUEST_REJECTED);
 }
@@ -1566,8 +1625,8 @@ static int srvrun_stream_id_is_client_bidi(u64 stream_id) {
  * reason, so this mirrors srvrun_reject_wt_busy's RESET_STREAM+STOP_SENDING
  * shape rather than a CONNECTION_CLOSE. */
 static void srvrun_reject_wt_bad_id(
-    const srvrun_cfg* cfg, srvrun_conn* c, int slot) {
-  srvrun_start_wt_status(cfg->env, c, slot, 403);
+    const srvrun_cfg* cfg, srvrun_conn* c, int slot, srvrun_resp* r) {
+  srvrun_start_wt_status(cfg->env, slot, c, r, 403);
   srvrun_send_wt_busy_reset(cfg, c, c->l.req_stream_id, QUIC_H3_ID_ERROR);
 }
 
@@ -1576,12 +1635,12 @@ static void srvrun_reject_wt_bad_id(
  * establish the session. Split out so srvrun_dispatch_wt itself stays at one
  * gate (CCN). */
 static void srvrun_dispatch_wt_free_slot(
-    const srvrun_cfg* cfg, srvrun_conn* c, int slot) {
+    const srvrun_cfg* cfg, srvrun_conn* c, int slot, srvrun_resp* r) {
   if (!srvrun_stream_id_is_client_bidi(c->l.req_stream_id)) {
-    srvrun_reject_wt_bad_id(cfg, c, slot);
+    srvrun_reject_wt_bad_id(cfg, c, slot, r);
     return;
   }
-  srvrun_start_wt(cfg->env, c, slot);
+  srvrun_start_wt(cfg->env, slot, c, r);
 }
 
 /* A well-formed Extended CONNECT for WebTransport either establishes a
@@ -1591,56 +1650,72 @@ static void srvrun_dispatch_wt_free_slot(
  * or H3_ID_ERROR if the CONNECT stream's own id is not a client-initiated
  * bidi stream id (WT-C-006/007). */
 static void srvrun_dispatch_wt(
-    const srvrun_cfg* cfg, srvrun_conn* c, int slot) {
+    const srvrun_cfg* cfg, srvrun_conn* c, int slot, srvrun_resp* r) {
   if (!wt_origin_ok(&c->l.req)) {
-    srvrun_reject_wt(cfg->env, c, slot);
+    srvrun_reject_wt(cfg->env, slot, c, r);
     return;
   }
   if (c->wt_active) {
-    srvrun_reject_wt_busy(cfg, c, slot);
+    srvrun_reject_wt_busy(cfg, c, slot, r);
     return;
   }
-  srvrun_dispatch_wt_free_slot(cfg, c, slot);
+  srvrun_dispatch_wt_free_slot(cfg, c, slot, r);
 }
 
-/* Build the decoded request's response into the slot's own storage and arm
- * the session over the whole stream. A session already in flight keeps the
- * storage; the new request is dropped (one response at a time per
- * connection, matching the one-request stream model). An Extended CONNECT
- * for WebTransport (RFC 9220 3, draft-ietf-webtrans-http3-15 SS3) establishes
- * a WT session or is rejected with 403, and never reaches the app handler. */
+/* Build the decoded request's response into a freshly claimed resp[] slot
+ * and arm its session over the whole stream. Guard 1 (TLA+ resp-multiplex,
+ * tasks/loopeng/resp-multiplex/summary.md): a request stream that already
+ * has an in-flight response is dropped rather than claiming a second slot
+ * for it (its existing response keeps flowing); a request with no free slot
+ * anywhere is also dropped (bounded, same policy as the old single-response-
+ * per-connection table). An Extended CONNECT for WebTransport (RFC 9220 3,
+ * draft-ietf-webtrans-http3-15 SS3) establishes a WT session or is rejected
+ * with 403, and never reaches the app handler. */
+/* Claim a fresh resp[] slot for c->l.req_stream_id, or 0 when the stream
+ * already has one in flight (guard 1) or every slot is busy. */
+static srvrun_resp* srvrun_start_resp_claim(srvrun_conn* c) {
+  if (srvrun_resp_find(c, c->l.req_stream_id)) return 0;
+  return srvrun_resp_claim(c, c->l.req_stream_id);
+}
+
 static void srvrun_start_resp(const srvrun_step_ctx* ctx, int slot) {
   srvrun_conn* c = &ctx->st->conns[slot];
-  if (c->sess.active) return;
+  srvrun_resp* r = srvrun_start_resp_claim(c);
+  if (!r) return;
   if (srvrun_is_wt_connect(&c->l.req)) {
-    srvrun_dispatch_wt(ctx->cfg, c, slot);
+    srvrun_dispatch_wt(ctx->cfg, c, slot, r);
     return;
   }
-  srvrun_start_app_resp(ctx, c, slot);
+  srvrun_start_app_resp(ctx, c, slot, r);
 }
 
 /* draft-ietf-webtrans-http3 4 / RFC 9114 4.1: a normal response ends its
  * stream with FIN, but the Extended CONNECT stream IS the WebTransport
  * session and stays open for its whole lifetime -- a FIN on the
  * session-accept 200 reads as "session over" and Chrome closes with code 0
- * the moment it arrives.
- * ponytail: keyed on wt_active, so a busy-429 sent while a session is live
- * also loses its FIN; that reject path already hardcodes stream id 0 and
- * needs real per-stream plumbing before FIN precision there matters. */
-static u8 srvrun_slice_fin(const srvrun_conn* c, const wired_sendq_slice* sl) {
-  return (u8)(sl->fin && !c->wt_active);
+ * the moment it arrives. Scoped to r's own stream_id (not the whole
+ * connection): a wt_active connection may still have OTHER streams' normal
+ * responses in flight (RFC 9000 2.2), and those must still get their FIN. */
+static u8 srvrun_slice_fin(
+    const srvrun_conn* c, const srvrun_resp* r, const wired_sendq_slice* sl) {
+  int is_wt_connect_stream =
+      c->wt_active && r->stream_id == c->wt.connect_stream_id;
+  return (u8)(sl->fin && !is_wt_connect_stream);
 }
 
-/* Seal one slice as its own 1-RTT packet (a STREAM frame on the request
+/* Seal one slice as its own 1-RTT packet (a STREAM frame on r's request
  * stream, RFC 9000 19.8) and send it. Returns 1 once logged in flight. */
 static int srvrun_send_slice(
-    const srvrun_step_ctx* ctx, srvrun_conn* c, const wired_sendq_slice* sl) {
+    const srvrun_step_ctx*   ctx,
+    srvrun_conn*             c,
+    srvrun_resp*             r,
+    const wired_sendq_slice* sl) {
   u8                pl[1400], out[1500];
   quic_obuf         plb = quic_obuf_of(pl, sizeof pl);
   quic_obuf         ob  = quic_obuf_of(out, sizeof out);
   quic_stream_frame f   = {
-      0, sl->offset, sl->len, c->sess.q.p + sl->offset,
-      srvrun_slice_fin(c, sl)};
+      r->stream_id, sl->offset, sl->len, r->sess.q.p + sl->offset,
+      srvrun_slice_fin(c, r, sl)};
   u64 pn;
   if (!quic_appdata_stream_frame(&f, &plb)) return 0;
   pn = c->l.tx_pn++;
@@ -1651,45 +1726,72 @@ static int srvrun_send_slice(
     if (!wired_srvloop_send_onertt(&c->s, &sin, &ob)) return 0;
   }
   srvrun_send(ctx->cfg, c, quic_span_of(out, ob.len), "response slice sent\n");
-  return wired_sendsess_sent(&c->sess, sl, pn, ctx->now_ms);
+  return wired_sendsess_sent(&r->sess, sl, pn, ctx->now_ms);
 }
 
 static int  srvrun_pace_ok(const srvrun_step_ctx* ctx, const srvrun_conn* c);
 static void srvrun_pace_next(const srvrun_step_ctx* ctx, srvrun_conn* c);
 
-/* 1 when the send log has a free entry, the congestion window (RFC 9002 7)
- * has room, and the pacing schedule (RFC 9002 7.7) allows another packet
- * now. The log gate must come first: a slice taken and sent while the log
- * is full can be recorded in neither log nor requeue -- if that packet then
- * drops, the stream has a permanent hole the peer waits on forever. */
-static int srvrun_can_send(const srvrun_step_ctx* ctx, const srvrun_conn* c) {
-  return wired_sendsess_inflight(&c->sess) < WIRED_SENDSESS_LOG &&
-         wired_sendsess_inflight_bytes(&c->sess) + SRVRUN_CHUNK <= c->cc.cwnd &&
+/* Sum of in-flight stream bytes across every resp[] slot -- the congestion
+ * window (RFC 9002 7) gates the connection's TOTAL in-flight, not any one
+ * stream's. */
+static usz srvrun_inflight_bytes_all(const srvrun_conn* c) {
+  usz total = 0;
+  for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++)
+    if (c->resp[i].in_use)
+      total += wired_sendsess_inflight_bytes(&c->resp[i].sess);
+  return total;
+}
+
+/* 1 when r's send log has a free entry, the connection's congestion window
+ * (RFC 9002 7) has room for one more chunk across every slot combined, and
+ * the pacing schedule (RFC 9002 7.7) allows another packet now. The log
+ * gate must come first: a slice taken and sent while the log is full can be
+ * recorded in neither log nor requeue -- if that packet then drops, the
+ * stream has a permanent hole the peer waits on forever. */
+static int srvrun_can_send(
+    const srvrun_step_ctx* ctx, const srvrun_conn* c, const srvrun_resp* r) {
+  return wired_sendsess_inflight(&r->sess) < WIRED_SENDSESS_LOG &&
+         srvrun_inflight_bytes_all(c) + SRVRUN_CHUNK <= c->cc.cwnd &&
          srvrun_pace_ok(ctx, c);
 }
 
 /* Ship one slice and schedule the next paced send. */
 static int srvrun_slice_out(
-    const srvrun_step_ctx* ctx, srvrun_conn* c, const wired_sendq_slice* sl) {
-  if (!srvrun_send_slice(ctx, c, sl)) return 0;
+    const srvrun_step_ctx*   ctx,
+    srvrun_conn*             c,
+    srvrun_resp*             r,
+    const wired_sendq_slice* sl) {
+  if (!srvrun_send_slice(ctx, c, r, sl)) return 0;
   srvrun_pace_next(ctx, c);
   return 1;
 }
 
-/* Send one slice if the gates allow and one is ready. */
-static int srvrun_pump_one(const srvrun_step_ctx* ctx, srvrun_conn* c) {
+/* Send one slice from r if the gates allow and one is ready. */
+static int srvrun_pump_one(
+    const srvrun_step_ctx* ctx, srvrun_conn* c, srvrun_resp* r) {
   wired_sendq_slice sl;
-  if (!srvrun_can_send(ctx, c)) return 0;
-  if (!wired_sendsess_take(&c->sess, &sl)) return 0;
-  return srvrun_slice_out(ctx, c, &sl);
+  if (!srvrun_can_send(ctx, c, r)) return 0;
+  if (!wired_sendsess_take(&r->sess, &sl)) return 0;
+  return srvrun_slice_out(ctx, c, r, &sl);
 }
 
-/* Transmit while the window has room and slices are ready. */
+/* Transmit from one resp[] slot while the window has room and slices are
+ * ready. */
+static void srvrun_pump_resp(
+    const srvrun_step_ctx* ctx, srvrun_conn* c, srvrun_resp* r) {
+  if (!r->in_use) return;
+  while (srvrun_pump_one(ctx, c, r)) {
+  }
+}
+
+/* Transmit while the window has room and slices are ready, across every
+ * in-flight response on this connection (RFC 9000 2.2: several requests may
+ * be in flight at once). */
 static void srvrun_pump_sess(const srvrun_step_ctx* ctx, int slot) {
   srvrun_conn* c = &ctx->st->conns[slot];
-  if (!c->sess.active) return;
-  while (srvrun_pump_one(ctx, c)) {
-  }
+  for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++)
+    srvrun_pump_resp(ctx, c, &c->resp[i]);
 }
 
 /* After a live step: feed the step's ACK ranges to the session, start a
@@ -1743,46 +1845,78 @@ static void srvrun_hystart_ack(srvrun_conn* c, u64 pn, u64 sent_ms, u64 now) {
     c->cc.ssthresh = c->cc.cwnd;
 }
 
-/* Feed every in-flight packet an ACK range covers to the detector before
- * the range is consumed. */
-static void srvrun_hystart_range(srvrun_conn* c, u64 lo, u64 hi, u64 now) {
+/* Feed every in-flight packet an ACK range covers in r's log to the
+ * detector before the range is consumed. */
+static void srvrun_hystart_range(
+    srvrun_conn* c, const srvrun_resp* r, u64 lo, u64 hi, u64 now) {
   for (usz i = 0; i < WIRED_SENDSESS_LOG; i++) {
-    const wired_sent_slice* e = &c->sess.log[i];
+    const wired_sent_slice* e = &r->sess.log[i];
     if (wired_sendsess_covered(e, lo, hi))
       srvrun_hystart_ack(c, e->pn, e->sent_ms, now);
   }
 }
 
-/* Credit one ACK range to the congestion controller before consuming it
- * (RFC 9002 7.3.2: growth per acked bytes; the newest send time among the
- * hits drives recovery exit). */
-static void srvrun_cc_range(srvrun_conn* c, u64 lo, u64 hi, u64 now_ms) {
+/* Credit one ACK range against r's log to the congestion controller before
+ * consuming it (RFC 9002 7.3.2: growth per acked bytes; the newest send
+ * time among the hits drives recovery exit). Guard 5 (TLA+ resp-multiplex):
+ * a range is broadcast to every resp[] slot, but wired_sendsess_ack only
+ * consumes the pns that hit ITS OWN log (sendsess.c), so a range naming
+ * another stream's pns is a no-op here -- pn is a single monotonic
+ * per-connection space (c->l.tx_pn), so at most one slot's log ever holds a
+ * given pn. */
+static void srvrun_cc_range(
+    srvrun_conn* c, srvrun_resp* r, u64 lo, u64 hi, u64 now_ms) {
   u64 newest = 0;
-  usz bytes  = wired_sendsess_peek_ack(&c->sess, lo, hi, &newest);
-  srvrun_hystart_range(c, lo, hi, now_ms);
+  usz bytes  = wired_sendsess_peek_ack(&r->sess, lo, hi, &newest);
+  srvrun_hystart_range(c, r, lo, hi, now_ms);
   if (bytes) quic_cc_on_ack(&c->cc, bytes, newest, now_ms);
-  wired_sendsess_ack(&c->sess, lo, hi);
+  wired_sendsess_ack(&r->sess, lo, hi);
 }
 
-/* Threshold pass: requeue losses, shrink the window once per loss event,
- * log each lost packet.
- * ponytail: on_loss is fed now for both times (a fresh recovery per loss
- * event — more conservative than per-period; refine with per-packet sent
- * times when RTT sampling lands). */
-static void srvrun_reap_losses(
-    const srvrun_step_ctx* ctx, const srvrun_cfg* cfg, srvrun_conn* c) {
+/* Threshold pass over r's log: requeue losses, log each lost packet. The
+ * congestion-window shrink (quic_cc_on_loss) is applied once per step by
+ * the caller (srvrun_feed_acks), not here, so a loss on several concurrent
+ * responses in the same step still only shrinks the connection's one
+ * window once. */
+static usz srvrun_reap_losses_resp(const srvrun_cfg* cfg, srvrun_resp* r) {
   u64 lost[WIRED_SENDSESS_LOG];
   usz n = wired_sendsess_detect_lost(
-      &c->sess, c->sess.largest_acked, lost, WIRED_SENDSESS_LOG);
-  if (n) quic_cc_on_loss(&c->cc, ctx->now_ms, ctx->now_ms);
+      &r->sess, r->sess.largest_acked, lost, WIRED_SENDSESS_LOG);
   srvrun_qlog_lost(cfg, lost, n);
+  return n;
+}
+
+/* Feed one ACK range to one in-flight resp[] slot's session (guard 5
+ * above) and run its loss-detection pass. A no-op for an unused slot. */
+static usz srvrun_feed_ack_range_resp(
+    const srvrun_cfg* cfg,
+    srvrun_conn*      c,
+    srvrun_resp*      r,
+    u64               lo,
+    u64               hi,
+    u64               now_ms) {
+  if (!r->in_use) return 0;
+  srvrun_cc_range(c, r, lo, hi, now_ms);
+  if (!r->sess.has_acked) return 0;
+  return srvrun_reap_losses_resp(cfg, r);
+}
+
+/* Broadcast one ACK range to every in-flight response's send session. */
+static usz srvrun_feed_ack_range(
+    const srvrun_cfg* cfg, srvrun_conn* c, u64 lo, u64 hi, u64 now_ms) {
+  usz lost = 0;
+  for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++)
+    lost += srvrun_feed_ack_range_resp(cfg, c, &c->resp[i], lo, hi, now_ms);
+  return lost;
 }
 
 static void srvrun_feed_acks(
     const srvrun_step_ctx* ctx, const srvrun_cfg* cfg, srvrun_conn* c) {
+  usz lost = 0;
   for (usz i = 0; i < c->l.ack_n; i++)
-    srvrun_cc_range(c, c->l.ack_lo[i], c->l.ack_hi[i], ctx->now_ms);
-  if (c->sess.has_acked) srvrun_reap_losses(ctx, cfg, c);
+    lost += srvrun_feed_ack_range(
+        cfg, c, c->l.ack_lo[i], c->l.ack_hi[i], ctx->now_ms);
+  if (lost) quic_cc_on_loss(&c->cc, ctx->now_ms, ctx->now_ms);
 }
 
 /* Send c's pending DATAGRAM (if any) using a scratch quic_obuf on the stack,
@@ -1815,21 +1949,43 @@ static void srvrun_start_done_resps(const srvrun_step_ctx* ctx, int slot) {
     srvrun_start_done_resp(ctx, slot, c->l.done_slots[i]);
 }
 
+/* Once r's session goes idle (wired_sendsess_done: every slice sent and
+ * acked), free r's slot and the matching srvloop receive-side slot --
+ * HTTP/3 never reuses a stream id, so without releasing the receive slot
+ * too, WIRED_SRVLOOP_MAX_STREAMS sequential requests on distinct streams
+ * would permanently exhaust it (guard: TLA+ resp-multiplex I4). */
+static void srvrun_resp_reap(srvrun_conn* c, srvrun_resp* r) {
+  if (!r->in_use || !wired_sendsess_done(&r->sess)) return;
+  wired_srvloop_slot_release(&c->l, r->stream_id);
+  r->in_use = 0;
+}
+
+static void srvrun_reap_resps(srvrun_conn* c) {
+  for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++) srvrun_resp_reap(c, &c->resp[i]);
+}
+
 static void srvrun_sess_on_step(const srvrun_step_ctx* ctx, int slot) {
   srvrun_conn* c = &ctx->st->conns[slot];
   srvrun_feed_acks(ctx, ctx->cfg, c);
-  quic_cc_bbr_tick(
-      &c->cc, wired_sendsess_inflight_bytes(&c->sess), ctx->now_ms);
-  wired_sendsess_done(&c->sess);
+  quic_cc_bbr_tick(&c->cc, srvrun_inflight_bytes_all(c), ctx->now_ms);
+  srvrun_reap_resps(c);
   srvrun_start_done_resps(ctx, slot);
   srvrun_pump_sess(ctx, slot);
   srvrun_pump_datagram(ctx, c);
 }
 
+/* 1 if any resp[] slot is in use -- a connection with at least one response
+ * still being built or in flight. */
+static int srvrun_any_resp_active(const srvrun_conn* c) {
+  for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++)
+    if (c->resp[i].in_use) return 1;
+  return 0;
+}
+
 /* 1 while this slot still owes response bytes (in flight, paced, or window
  * blocked) — the loop must keep ticking for it. */
 static int srvrun_sess_waiting(const srvrun_conn* c) {
-  return c->up && c->sess.active;
+  return c->up && srvrun_any_resp_active(c);
 }
 
 /* 1 while this slot has anything outbound that only a poll-loop tick (not
@@ -1843,18 +1999,35 @@ static int srvrun_sess_waiting(const srvrun_conn* c) {
  * about wired_sendsess retransmission and must not fire for a connection
  * that merely has a queued DATAGRAM and no HTTP response in flight. */
 static int srvrun_has_outbound(const srvrun_conn* c) {
-  return c->up && (c->sess.active || c->dg_pending);
+  return c->up && (srvrun_any_resp_active(c) || c->dg_pending);
 }
 
-/* Probe or tear down one slot on a PTO tick (RFC 9002 6.2): a spent probe
- * budget frees the slot (the peer stopped acknowledging), otherwise the
- * requeued probe goes straight back out. Separate from the dg_pending flush
- * below: a slot with only a queued broadcast DATAGRAM and no HTTP response
- * in flight must never enter wired_sendsess's retransmission accounting. */
+/* 1 if r is unused or still has PTO probe budget; 0 once a used slot's
+ * budget is spent. */
+static int srvrun_resp_pto_ok(srvrun_resp* r) {
+  if (!r->in_use) return 1;
+  return wired_sendsess_pto_fire(&r->sess, SRVRUN_PTO_MAX);
+}
+
+/* Probe every in-flight response on this connection slot on a PTO tick (RFC
+ * 9002 6.2). The probe budget (SRVRUN_PTO_MAX) is a connection-wide policy,
+ * not per-stream: the peer going silent means it likely stopped
+ * acknowledging the whole connection, not just one stream, so the first
+ * resp[] slot to exhaust its budget tears down the entire connection slot
+ * rather than leaving the others to probe alone against a dead peer.
+ * @return 1 if every in-flight response still has probe budget, 0 if any
+ *   slot's budget is spent (caller tears the connection slot down). */
+static int srvrun_pto_resps(srvrun_conn* c) {
+  for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++) {
+    if (!srvrun_resp_pto_ok(&c->resp[i])) return 0;
+  }
+  return 1;
+}
+
 static void srvrun_pto_slot(const srvrun_step_ctx* ctx, int slot) {
   srvrun_conn* c = &ctx->st->conns[slot];
   if (!srvrun_sess_waiting(c)) return;
-  if (!wired_sendsess_pto_fire(&c->sess, SRVRUN_PTO_MAX)) {
+  if (!srvrun_pto_resps(c)) {
     srvrun_free_slot(ctx->st, slot);
     return;
   }

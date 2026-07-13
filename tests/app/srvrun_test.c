@@ -1105,21 +1105,21 @@ static void test_srvrun_hystart_ends_slow_start(void) {
   quic_cc_init(&c->cc);
   quic_hystart_init(&c->hs);
   c->up = 1;
-  wired_sendsess_arm(&c->sess, g_srvrun_respstore[3], 16000, 100);
+  wired_sendsess_arm(&c->resp[0].sess, g_srvrun_respstore[3][0], 16000, 100);
   {
     wired_sendq_slice sl;
     /* round 1: 8 packets sent at t=0, acked at t=40 (RTT 40) */
     for (u64 pn = 0; pn < 8; pn++) {
-      CHECK(wired_sendsess_take(&c->sess, &sl) == 1);
-      CHECK(wired_sendsess_sent(&c->sess, &sl, pn, 0) == 1);
+      CHECK(wired_sendsess_take(&c->resp[0].sess, &sl) == 1);
+      CHECK(wired_sendsess_sent(&c->resp[0].sess, &sl, pn, 0) == 1);
     }
     c->l.tx_pn = 8; /* production: sending advanced the next pn */
     for (u64 pn = 0; pn < 8; pn++) srvrun_hystart_ack(c, pn, pn, 40);
     CHECK(c->cc.ssthresh == ~(u64)0); /* still slow start */
     /* round 2: RTT jumped to 60 >= 40 + eta(5): exit on the 8th sample */
     for (u64 pn = 8; pn < 16; pn++) {
-      CHECK(wired_sendsess_take(&c->sess, &sl) == 1);
-      CHECK(wired_sendsess_sent(&c->sess, &sl, pn, 100) == 1);
+      CHECK(wired_sendsess_take(&c->resp[0].sess, &sl) == 1);
+      CHECK(wired_sendsess_sent(&c->resp[0].sess, &sl, pn, 100) == 1);
     }
     c->l.tx_pn = 16;
     for (u64 pn = 8; pn < 16; pn++) srvrun_hystart_ack(c, pn, pn, 160);
@@ -1193,9 +1193,10 @@ static void test_srvrun_busy_poll_on_never_blocks_wait(void) {
   quic_conntable table[QUIC_CONNTABLE_CAP];
   srvrun_conn    conns[QUIC_CONNTABLE_CAP] = {0};
   quic_conntable_init(table, QUIC_CONNTABLE_CAP);
-  st                   = (srvrun_state){table, conns};
-  conns[0].up          = 1;
-  conns[0].sess.active = 1; /* srvrun_any_waiting now says yes */
+  st                           = (srvrun_state){table, conns};
+  conns[0].up                  = 1;
+  conns[0].resp[0].in_use      = 1;
+  conns[0].resp[0].sess.active = 1; /* srvrun_any_waiting now says yes */
   CHECK(srvrun_wait_input(&cfg, &st) == 1);
 }
 
@@ -1377,7 +1378,7 @@ static void test_srvrun_normal_request_unaffected_by_wt_branch(void) {
   }
   CHECK(g_sr_wt_handler_calls == 1);
   CHECK(conns[0].wt_active == 0);
-  CHECK(conns[0].sess.active == 1); /* the normal 200 was still armed */
+  CHECK(conns[0].resp[0].sess.active == 1); /* the normal 200 was still armed */
 }
 
 /* draft-ietf-webtrans-http3-15 4.3: once a WT uni stream slot has been
@@ -1572,7 +1573,7 @@ static void test_srvrun_wt_connect_establishes_session(void) {
   CHECK(conns[0].wt_active == 1);
   CHECK(conns[0].wt.state == WIRED_WT_ESTABLISHED);
   CHECK(conns[0].wt.connect_stream_id == 4);
-  CHECK(conns[0].sess.active == 1); /* the bare 2xx was armed */
+  CHECK(conns[0].resp[0].sess.active == 1); /* the bare 2xx was armed */
 }
 
 /* Chrome (a draft-07-generation implementation) sends
@@ -1735,7 +1736,7 @@ static void test_srvrun_wt_connect_origin_ok_establishes(void) {
   }
   CHECK(conns[0].wt_active == 1);
   CHECK(conns[0].wt.state == WIRED_WT_ESTABLISHED);
-  CHECK(conns[0].sess.active == 1);
+  CHECK(conns[0].resp[0].sess.active == 1);
 }
 
 /* WT-B-005/007/008: a present but malformed (empty-value) Origin gets a
@@ -1762,7 +1763,7 @@ static void test_srvrun_wt_connect_origin_malformed_403(void) {
   }
   CHECK(conns[0].wt_active == 0);
   CHECK(conns[0].wt.state != WIRED_WT_ESTABLISHED);
-  CHECK(conns[0].sess.active == 1); /* the 403 was still armed */
+  CHECK(conns[0].resp[0].sess.active == 1); /* the 403 was still armed */
 }
 
 /* WT-C-010/011: a second Extended CONNECT arriving on a connection that
@@ -1792,7 +1793,7 @@ static void test_srvrun_second_wt_connect_rejected_429(void) {
   }
   CHECK(conns[0].wt_active == 1);
   CHECK(conns[0].wt.state == WIRED_WT_ESTABLISHED);
-  conns[0].sess.active = 0; /* pretend the first 2xx finished sending */
+  conns[0].resp[0].in_use = 0; /* pretend the first 2xx finished sending */
   sr_set_req(
       &conns[0], 1, 1, 8); /* second Extended CONNECT, different stream */
   {
@@ -1803,7 +1804,7 @@ static void test_srvrun_second_wt_connect_rejected_429(void) {
     srvrun_start_resp(&ctx, 0);
   }
   CHECK(g_sr_wt_handler_calls == 0);
-  CHECK(conns[0].sess.active == 1); /* the 429 was armed */
+  CHECK(conns[0].resp[0].sess.active == 1); /* the 429 was armed */
   CHECK(conns[0].wt_active == 1);
   CHECK(
       conns[0].wt.state == WIRED_WT_ESTABLISHED); /* original session intact */
@@ -1843,7 +1844,7 @@ static void test_srvrun_second_wt_connect_sends_reset_stream(void) {
     srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
     srvrun_start_resp(&ctx, 0);
   }
-  conns[0].sess.active = 0; /* pretend the first 2xx finished sending */
+  conns[0].resp[0].in_use = 0; /* pretend the first 2xx finished sending */
   sr_set_req(
       &conns[0], 1, 1, 8); /* second Extended CONNECT, different stream */
   {
@@ -1853,7 +1854,9 @@ static void test_srvrun_second_wt_connect_sends_reset_stream(void) {
     srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
     srvrun_start_resp(&ctx, 0);
   }
-  CHECK(conns[0].sess.active == 1); /* the 429 was armed, same as before */
+  CHECK(
+      conns[0].resp[0].sess.active ==
+      1); /* the 429 was armed, same as before */
   CHECK(
       srvrun_seal_wt_busy_reset(
           &conns[0], 8, QUIC_H3_REQUEST_REJECTED, &pktb) == 1);
@@ -3077,7 +3080,7 @@ static void test_srvrun_broadcast_datagram_rejects_oversize(void) {
  * reaches every other connected client), not just internal state. */
 static wired_wt_session* g_bcast_last_sess;
 static void              sr_broadcast_relay(
-    void* app_ctx, wired_wt_session* s, quic_span data) {
+                 void* app_ctx, wired_wt_session* s, quic_span data) {
   (void)app_ctx;
   g_bcast_last_sess = s;
   wired_server_broadcast_datagram(data);
@@ -3249,24 +3252,26 @@ static void test_srvrun_pump_stops_at_log_capacity(void) {
   u64           pn0;
   ob = (quic_obuf){obuf, sizeof obuf, 0};
   sr_make_confirmed_conn(&c, &f, &ob);
-  c.cc.cwnd = 1u << 20; /* wide open: isolate the log gate from cwnd */
-  pn0       = c.l.tx_pn;
-  wired_sendsess_arm(&c.sess, body, sizeof body, SRVRUN_CHUNK);
+  c.cc.cwnd        = 1u << 20; /* wide open: isolate the log gate from cwnd */
+  pn0              = c.l.tx_pn;
+  c.resp[0].in_use = 1;
+  c.resp[0].stream_id = 0;
+  wired_sendsess_arm(&c.resp[0].sess, body, sizeof body, SRVRUN_CHUNK);
   {
     srvrun_cfg cfg = {
         -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0};
     srvrun_state    st  = {0, &c};
     srvrun_step_ctx ctx = {&cfg, 0, &st, 1};
     srvrun_pump_sess(&ctx, 0);
-    CHECK(wired_sendsess_inflight(&c.sess) == WIRED_SENDSESS_LOG);
+    CHECK(wired_sendsess_inflight(&c.resp[0].sess) == WIRED_SENDSESS_LOG);
     /* the take that cannot be logged must not have happened */
-    CHECK(c.sess.q.cur == (usz)WIRED_SENDSESS_LOG * SRVRUN_CHUNK);
+    CHECK(c.resp[0].sess.q.cur == (usz)WIRED_SENDSESS_LOG * SRVRUN_CHUNK);
     /* ACK the first 4 slices: log entries free up, the pump resumes and
      * drains the remaining 4 slices without losing any */
-    wired_sendsess_ack(&c.sess, pn0, pn0 + 3);
+    wired_sendsess_ack(&c.resp[0].sess, pn0, pn0 + 3);
     srvrun_pump_sess(&ctx, 0);
-    CHECK(c.sess.q.cur == sizeof body);
-    CHECK(wired_sendsess_inflight(&c.sess) == WIRED_SENDSESS_LOG);
+    CHECK(c.resp[0].sess.q.cur == sizeof body);
+    CHECK(wired_sendsess_inflight(&c.resp[0].sess) == WIRED_SENDSESS_LOG);
   }
 }
 
