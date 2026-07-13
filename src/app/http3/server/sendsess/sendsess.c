@@ -1,5 +1,7 @@
 #include "app/http3/server/sendsess/sendsess.h"
 
+#include "transport/recovery/detect/recovery/lossdetect.h"
+
 void wired_sendsess_arm(
     wired_sendsess* s, const u8* stream, usz len, usz chunk) {
   wired_sendq_init(&s->q, stream, len, chunk);
@@ -93,8 +95,26 @@ void wired_sendsess_ack(wired_sendsess* s, u64 lo, u64 hi) {
 }
 
 /* RFC 9002 6.1.1: 1 if in-flight entry e is past the packet threshold. */
-static int sendsess_lost(const wired_sent_slice* e, u64 largest_acked) {
-  return e->inflight && largest_acked >= 3 && e->pn <= largest_acked - 3;
+static int sendsess_lost_by_packet(
+    const wired_sent_slice* e, u64 largest_acked) {
+  return quic_loss_by_packet(largest_acked, e->pn);
+}
+
+/* RFC 9002 6.1.2: 1 if in-flight entry e has sat unacknowledged past the
+ * time threshold. srtt_us == 0 (no RTT sample yet) always reads not-lost --
+ * the packet threshold alone still applies via sendsess_lost. */
+static int sendsess_lost_by_time(
+    const wired_sent_slice* e, u64 now_ms, u64 srtt_us) {
+  quic_loss_when when = {now_ms * 1000, e->sent_ms * 1000};
+  return srtt_us && quic_loss_by_time(when, srtt_us, srtt_us);
+}
+
+/* RFC 9002 6.1: an in-flight entry is lost once EITHER criterion fires. */
+static int sendsess_lost(
+    const wired_sent_slice* e, u64 largest_acked, u64 now_ms, u64 srtt_us) {
+  if (!e->inflight) return 0;
+  return sendsess_lost_by_packet(e, largest_acked) ||
+         sendsess_lost_by_time(e, now_ms, srtt_us);
 }
 
 /* Move log entry i's slice to the requeue (dropped silently if full — the
@@ -111,10 +131,15 @@ static void sendsess_report_lost(u64 pn, u64* lost_pns, usz cap, usz i) {
 }
 
 usz wired_sendsess_detect_lost(
-    wired_sendsess* s, u64 largest_acked, u64* lost_pns, usz cap) {
+    wired_sendsess* s,
+    u64             largest_acked,
+    u64             now_ms,
+    u64             srtt_us,
+    u64*            lost_pns,
+    usz             cap) {
   usz n = 0;
   for (usz i = 0; i < WIRED_SENDSESS_LOG; i++)
-    if (sendsess_lost(&s->log[i], largest_acked)) {
+    if (sendsess_lost(&s->log[i], largest_acked, now_ms, srtt_us)) {
       sendsess_report_lost(s->log[i].pn, lost_pns, cap, n);
       sendsess_requeue(s, i);
       n++;

@@ -74,17 +74,25 @@ usz wired_sendsess_peek_ack(
  * range becomes acknowledged. Unknown packet numbers are ignored. */
 void wired_sendsess_ack(wired_sendsess* s, u64 lo, u64 hi);
 
-/** Declare every in-flight packet at least 3 below largest_acked lost
- * (RFC 9002 6.1.1 packet threshold) and move its slice to the requeue for
- * retransmission (which always uses a fresh packet number via
- * wired_sendsess_sent).
+/** Declare every in-flight packet lost by RFC 9002 6.1's two independent
+ * criteria (packet threshold, 6.1.1, OR time threshold, 6.1.2 -- either one
+ * alone is sufficient) and move its slice to the requeue for retransmission
+ * (which always uses a fresh packet number via wired_sendsess_sent).
  * @param s the session
  * @param largest_acked highest packet number the peer has acknowledged
+ * @param now_ms current monotonic time
+ * @param srtt_us smoothed RTT, microseconds (0 before any sample: time
+ *   threshold is skipped, packet threshold alone still applies)
  * @param lost_pns receives the lost packet numbers (0 to skip reporting)
  * @param cap slots at lost_pns
  * @return slices newly declared lost. */
 usz wired_sendsess_detect_lost(
-    wired_sendsess* s, u64 largest_acked, u64* lost_pns, usz cap);
+    wired_sendsess* s,
+    u64             largest_acked,
+    u64             now_ms,
+    u64             srtt_us,
+    u64*            lost_pns,
+    usz             cap);
 
 /** Fire one probe timeout (RFC 9002 6.2): requeue the oldest in-flight
  * slice so it retransmits with a fresh packet number and count the probe.
