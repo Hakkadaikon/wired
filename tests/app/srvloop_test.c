@@ -1001,6 +1001,66 @@ static usz lp_split_post_frames_on(
   return hb;
 }
 
+/* TWO REQUEST STREAMS COALESCED INTO THE SAME PAYLOAD (RFC 9000 2.2 / 12.4)
+ * and COMPLETING IN THE SAME STEP: quic-go packs the HEADERS of parallel
+ * GETs into one 1-RTT packet, so per-frame slot routing (not one slot per
+ * payload) is required or the second stream's bytes overwrite the first
+ * slot's buffer at the same offsets. And when both requests complete in one
+ * step, done_slots must deliver BOTH -- the single got_request/req mirror
+ * only carries the last. */
+static void test_srvloop_two_requests_complete_same_step(void) {
+  struct lp_fix f;
+  u8            h0[256], d0[256], h4[256], d4[256], out[1024], spkt[1024];
+  u8            payload[512];
+  usz           h0l, d0l, h4l, d4l, slen, off;
+  quic_obuf     ob    = {out, sizeof out, 0};
+  const u8*     body0 = (const u8*)"AA";
+  const u8*     body4 = (const u8*)"BBB";
+  lp_split_post_frames_on(
+      0, body0, 2, h0, sizeof h0, &h0l, d0, sizeof d0, &d0l);
+  lp_split_post_frames_on(
+      4, body4, 3, h4, sizeof h4, &h4l, d4, sizeof d4, &d4l);
+  lp_confirm(&f, &ob);
+  /* datagram 1: BOTH streams' HEADERS frames in ONE payload -> each stream
+   * claims its own slot with its own bytes, nothing completes yet. */
+  off = 0;
+  for (usz i = 0; i < h0l; i++) payload[off++] = h0[i];
+  for (usz i = 0; i < h4l; i++) payload[off++] = h4[i];
+  slen = client_seal_onertt_pn(&f, 3, payload, off, spkt, sizeof spkt);
+  ob   = (quic_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  CHECK(f.l.got_request == 0);
+  CHECK(f.l.done_n == 0);
+  CHECK(f.l.streams[0].in_use == 1 && f.l.streams[0].stream_id == 0);
+  CHECK(f.l.streams[1].in_use == 1 && f.l.streams[1].stream_id == 4);
+  /* datagram 2: BOTH streams' DATA+FIN in ONE payload -> both requests
+   * complete in the same step, each slot decoding its OWN body. */
+  off = 0;
+  for (usz i = 0; i < d0l; i++) payload[off++] = d0[i];
+  for (usz i = 0; i < d4l; i++) payload[off++] = d4[i];
+  slen = client_seal_onertt_pn(&f, 4, payload, off, spkt, sizeof spkt);
+  ob   = (quic_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  CHECK(f.l.done_n == 2);
+  {
+    const wired_srvloop_stream_slot* s0 = &f.l.streams[f.l.done_slots[0]];
+    const wired_srvloop_stream_slot* s1 = &f.l.streams[f.l.done_slots[1]];
+    CHECK(s0->stream_id == 0);
+    CHECK(
+        s0->req.body_len == 2 && s0->req.body[0] == 'A' &&
+        s0->req.body[1] == 'A');
+    CHECK(s1->stream_id == 4);
+    CHECK(
+        s1->req.body_len == 3 && s1->req.body[0] == 'B' &&
+        s1->req.body[2] == 'B');
+  }
+  /* the single mirror carries the last-completed one */
+  CHECK(f.l.got_request == 1);
+  CHECK(f.l.req_stream_id == 4);
+}
+
 /* TWO INDEPENDENT REQUEST STREAMS (RFC 9000 2.2, the property a single fixed
  * request slot could not have): stream 0's and stream 4's POSTs are each
  * split into HEADERS/DATA and interleaved across datagrams — stream 0's
@@ -2004,6 +2064,7 @@ void test_srvloop(void) {
   test_srvloop_dispatch_split_request_streams();
   test_srvloop_dispatch_split_across_datagrams();
   test_srvloop_two_streams_reassemble_independently();
+  test_srvloop_two_requests_complete_same_step();
   test_srvloop_wt_bidi_stream_not_request();
   test_srvloop_wt_bidi_stream_reassembled();
   test_srvloop_wt_bidi_continuation_not_absorbed_into_request();
