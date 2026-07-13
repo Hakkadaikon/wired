@@ -1631,9 +1631,34 @@ static u8* srvrun_resp_shrink_to_fixed(
 /* Body of srvrun_start_resp for a normal (non-WT) request: run the app
  * handler, then frame+arm the response exactly as before this task. Split
  * out so srvrun_start_resp itself stays at its gate/dispatch decision (CCN). */
+#ifdef QUIC_DEBUG
+static void srvrun_debug_start(u64 stream_id) {
+  char buf[64];
+  usz  at   = 0;
+  buf[at++] = 'S';
+  buf[at++] = 'T';
+  buf[at++] = 'A';
+  buf[at++] = 'R';
+  buf[at++] = 'T';
+  buf[at++] = ' ';
+  buf[at++] = 's';
+  buf[at++] = 'i';
+  buf[at++] = 'd';
+  buf[at++] = '=';
+  wired_fmt_u64(buf, &at, &(wired_fmt_u64_in){stream_id, 1});
+  buf[at++] = '\n';
+  buf[at]   = 0;
+  wired_log_str(buf);
+}
+#endif
+
 static void srvrun_start_app_resp(
     const srvrun_step_ctx* ctx, srvrun_conn* c, int slot, srvrun_resp* r) {
-  u8*       st = srvrun_resp_storage(ctx, slot, c, r);
+  u8* st;
+#ifdef QUIC_DEBUG
+  srvrun_debug_start(r->stream_id);
+#endif
+  st = srvrun_resp_storage(ctx, slot, c, r);
   quic_obuf body =
       quic_obuf_of(st + SRVRUN_RESP_HDR_ROOM, srvrun_resp_storage_cap(r));
   u8          pre[SRVRUN_RESP_HDR_ROOM];
