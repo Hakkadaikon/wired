@@ -3250,8 +3250,9 @@ static void test_srvrun_broadcast_datagram_rejects_oversize(void) {
  * end-to-end proof a chat app depends on (a message one client sends
  * reaches every other connected client), not just internal state. */
 static wired_wt_session* g_bcast_last_sess;
-static void              sr_broadcast_relay(
-                 void* app_ctx, wired_wt_session* s, quic_span data) {
+
+static void sr_broadcast_relay(
+    void* app_ctx, wired_wt_session* s, quic_span data) {
   (void)app_ctx;
   g_bcast_last_sess = s;
   wired_server_broadcast_datagram(data);
