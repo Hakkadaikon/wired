@@ -33,6 +33,8 @@
 #include "transport/recovery/congestion/cc/cc.h"
 #include "transport/recovery/congestion/cc/hystart.h"
 #include "transport/recovery/congestion/cc/pacing.h"
+#include "transport/recovery/detect/recovery/pto.h"
+#include "transport/recovery/detect/recovery/rtt.h"
 #include "transport/stream/data/appdata/stream_send.h"
 
 /* The server's fixed run context: the bound socket and the application's
@@ -120,8 +122,13 @@ typedef struct {
                                                 answered request stream */
   quic_cc      cc;      /**< congestion window gating every resp[]'s pump */
   quic_hystart hs;      /**< slow-start exit detector (RFC 9406) */
-  u64          srtt_ms; /**< smoothed RTT of this connection's acks */
+  u64          srtt_ms; /**< smoothed RTT of this connection's acks (pacing) */
   u64          next_send_ms; /**< pacing: earliest time to send again */
+  /** RFC 9002 5/6.2: RTT estimator (smoothed_rtt/rttvar in us) feeding this
+   * connection's PTO deadline (srvrun_pto_deadline_ms) -- separate from
+   * srtt_ms above (ms, EWMA-only, pacing's simpler input) because PTO needs
+   * rttvar too. */
+  quic_rtt rtt;
   /** boot-stage ClientHello reassembly across Initial datagrams (a
    * post-quantum-sized ClientHello spans two, RFC 9000 19.6).
    * ponytail: one fixed accumulator per slot (~4KB x 64 slots of BSS);
@@ -167,10 +174,20 @@ typedef struct {
 #define WIRED_SRVRUN_RESP_MAX 16384
 #define SRVRUN_RESP_HDR_ROOM 64
 #define SRVRUN_CHUNK 1100 /* stream bytes per packet (fits a 1500 MTU) */
-/* ponytail: fixed 300ms probe tick with a 5-probe budget, not an RTT-derived
- * PTO (the server tracks no RTT for its own sends yet); refine when the
- * send path grows RTT sampling. */
-#define SRVRUN_PTO_MS 300
+/* srvrun_wait_input's poll(2) timeout: how often srvrun_step wakes up to
+ * check whether any in-flight resp[] has crossed its own RTT-derived PTO
+ * deadline (srvrun_pto_deadline_ms) -- this is a poll cadence, NOT the PTO
+ * duration itself (that used to be conflated: firing a probe on every
+ * SRVRUN_PTO_MS tick regardless of actual RTT resent real, merely-slow
+ * packets on any link faster than ~300ms RTT, stalling large transfers --
+ * see interop http3 500KB case). Short enough that the deadline check below
+ * still fires close to on time even on a fast link (RFC 9002 6.2's own PTO
+ * floor is far below this). */
+#define SRVRUN_PTO_MS 25
+/* RFC 9000 18.2's default when the peer's own transport parameter isn't
+ * tracked (srvrun does not parse the client's max_ack_delay yet -- YAGNI
+ * until a deployment needs a non-default value). */
+#define SRVRUN_MAX_ACK_DELAY_US 25000
 #define SRVRUN_PTO_MAX 5
 
 /* Receive batch: srvrun drains up to this many datagrams per recvmmsg call.
@@ -1897,9 +1914,13 @@ static void srvrun_qlog_lost(const srvrun_cfg* cfg, const u64* pns, usz n) {
 /* Consume this step's ACK ranges, then declare packet-threshold losses so
  * their slices requeue ahead of new data (RFC 9002 6.1.1), logging each
  * lost packet to the qlog when one is configured. */
-/* RFC 9002 5.3 (shape): seed on the first sample, then 7/8 old + 1/8 new. */
+/* RFC 9002 5.3 (shape): seed on the first sample, then 7/8 old + 1/8 new.
+ * Also feeds the full RFC 9002 5 estimator (rtt, us) that
+ * srvrun_pto_deadline_ms needs for rttvar -- srtt_ms above stays the simpler
+ * ms-only EWMA pacing already relies on, unchanged. */
 static void srvrun_rtt_note(srvrun_conn* c, u64 sample_ms) {
   c->srtt_ms = c->srtt_ms ? (7 * c->srtt_ms + sample_ms) / 8 : sample_ms;
+  quic_rtt_sample(&c->rtt, sample_ms * 1000, 0);
 }
 
 /* 1 when pacing allows a send now: unpaced until the first RTT sample. */
@@ -2178,25 +2199,59 @@ static void srvrun_debug_pto(u64 stream_id, int count) {
 }
 #endif
 
-static int srvrun_resp_pto_ok(srvrun_resp* r) {
-  if (!r->in_use) return 1;
+/* RFC 9002 6.2: this connection's current PTO duration in ms, scaled by
+ * 2^pto_count backoff. Before any RTT sample exists, fall back to the RFC
+ * 9002 6.2.2 kInitialRtt-based default (quic_rtt_init seeds exactly that),
+ * so an idle-but-just-opened connection still gets a sane (not zero)
+ * deadline. */
+static u64 srvrun_pto_deadline_ms(const srvrun_conn* c, int pto_count) {
+  quic_pto_rtt rtt = {c->rtt.smoothed_rtt, c->rtt.rttvar};
+  u64 us = quic_pto_duration(rtt, SRVRUN_MAX_ACK_DELAY_US, (u32)pto_count);
+  return us / 1000;
+}
+
+/* 1 if r's oldest in-flight slice is still within its PTO window (RFC 9002
+ * 6.2: probe only once send_time + PTO has elapsed) -- nothing in flight
+ * counts as "not due" too, since wired_sendsess_pto_fire's own nothing-in-
+ * flight case is a no-op anyway. */
+static int srvrun_resp_pto_due(
+    const srvrun_conn* c, const srvrun_resp* r, u64 now_ms) {
+  u64 sent_ms;
+  if (!wired_sendsess_oldest_sent_ms(&r->sess, &sent_ms)) return 0;
+  return now_ms >= sent_ms + srvrun_pto_deadline_ms(c, r->sess.pto_count);
+}
+
+/* 1 if r has nothing to probe right now: unused, or its PTO deadline
+ * hasn't elapsed yet. */
+static int srvrun_resp_pto_not_due(
+    const srvrun_conn* c, const srvrun_resp* r, u64 now_ms) {
+  return !r->in_use || !srvrun_resp_pto_due(c, r, now_ms);
+}
+
+static int srvrun_resp_pto_ok(
+    const srvrun_conn* c, srvrun_resp* r, u64 now_ms) {
+  if (srvrun_resp_pto_not_due(c, r, now_ms)) return 1;
 #ifdef QUIC_DEBUG
   srvrun_debug_pto(r->stream_id, r->sess.pto_count);
 #endif
   return wired_sendsess_pto_fire(&r->sess, SRVRUN_PTO_MAX);
 }
 
-/* Probe every in-flight response on this connection slot on a PTO tick (RFC
- * 9002 6.2). The probe budget (SRVRUN_PTO_MAX) is a connection-wide policy,
- * not per-stream: the peer going silent means it likely stopped
- * acknowledging the whole connection, not just one stream, so the first
- * resp[] slot to exhaust its budget tears down the entire connection slot
- * rather than leaving the others to probe alone against a dead peer.
+/* Probe every in-flight response on this connection slot whose own
+ * RTT-derived PTO deadline has actually elapsed (RFC 9002 6.2) -- not on
+ * every poll tick regardless of RTT, which fired probes against packets
+ * that were merely slow rather than lost on any link faster than the old
+ * fixed SRVRUN_PTO_MS. The probe budget (SRVRUN_PTO_MAX) is a
+ * connection-wide policy, not per-stream: the peer going silent means it
+ * likely stopped acknowledging the whole connection, not just one stream,
+ * so the first resp[] slot to exhaust its budget tears down the entire
+ * connection slot rather than leaving the others to probe alone against a
+ * dead peer.
  * @return 1 if every in-flight response still has probe budget, 0 if any
  *   slot's budget is spent (caller tears the connection slot down). */
-static int srvrun_pto_resps(srvrun_conn* c) {
+static int srvrun_pto_resps(srvrun_conn* c, u64 now_ms) {
   for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++) {
-    if (!srvrun_resp_pto_ok(&c->resp[i])) return 0;
+    if (!srvrun_resp_pto_ok(c, &c->resp[i], now_ms)) return 0;
   }
   return 1;
 }
@@ -2204,7 +2259,7 @@ static int srvrun_pto_resps(srvrun_conn* c) {
 static void srvrun_pto_slot(const srvrun_step_ctx* ctx, int slot) {
   srvrun_conn* c = &ctx->st->conns[slot];
   if (!srvrun_sess_waiting(c)) return;
-  if (!srvrun_pto_resps(c)) {
+  if (!srvrun_pto_resps(c, ctx->now_ms)) {
     srvrun_free_slot(ctx->st, slot);
     return;
   }
@@ -2345,6 +2400,7 @@ static int srvrun_open_slot(
   ctx->st->conns[slot].peer = *ctx->peer;
   quic_cc_init_algo(&ctx->st->conns[slot].cc, ctx->cfg->cc_algo);
   quic_hystart_init(&ctx->st->conns[slot].hs);
+  quic_rtt_init(&ctx->st->conns[slot].rtt);
   if (quic_cid_generate(ctx->st->conns[slot].scid, ctx->cfg->id->scid_len))
     return slot;
   quic_conntable_remove(ctx->st->table, QUIC_CONNTABLE_CAP, slot);

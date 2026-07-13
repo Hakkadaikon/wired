@@ -95,6 +95,17 @@ usz wired_sendsess_detect_lost(
  *   the caller should tear the connection down. */
 int wired_sendsess_pto_fire(wired_sendsess* s, int max);
 
+/** The send time of the oldest in-flight slice — what a PTO deadline
+ * (RFC 9002 6.2) counts forward from. The caller compares this against its
+ * own now/RTT-derived PTO duration before calling wired_sendsess_pto_fire,
+ * so a session with nothing in flight yet, or whose oldest slice is still
+ * well within its PTO window, is never probed too early.
+ * @param s the session
+ * @param out receives the oldest in-flight entry's sent_ms (untouched if
+ *   nothing is in flight)
+ * @return 1 with *out filled, 0 if nothing is currently in flight. */
+int wired_sendsess_oldest_sent_ms(const wired_sendsess* s, u64* out);
+
 /** @return 1 once everything was sent and acknowledged (session finished);
  *   also clears active. Inactive sessions report 0. */
 int wired_sendsess_done(wired_sendsess* s);

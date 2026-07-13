@@ -136,6 +136,13 @@ static int sendsess_oldest(const wired_sendsess* s) {
   return best;
 }
 
+int wired_sendsess_oldest_sent_ms(const wired_sendsess* s, u64* out) {
+  int i = sendsess_oldest(s);
+  if (i < 0) return 0;
+  *out = s->log[(usz)i].sent_ms;
+  return 1;
+}
+
 int wired_sendsess_pto_fire(wired_sendsess* s, int max) {
   int i = sendsess_oldest(s);
   if (i < 0) return 1;
