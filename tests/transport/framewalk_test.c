@@ -2,7 +2,10 @@
 
 #include "app/datagram/datagram/datagram.h"
 #include "test.h"
+#include "transport/packet/frame/frame/connctl.h"
+#include "transport/packet/frame/frame/flowctl.h"
 #include "transport/packet/frame/frame/frame.h"
+#include "transport/packet/frame/frame/ncid.h"
 #include "transport/packet/frame/frame/stream_ctl.h"
 
 /* RFC 9000 12.4: the walker yields each frame's type in order across a mix of
@@ -44,7 +47,7 @@ static void test_framewalk_sequence(void) {
 
 /* An unmeasurable frame type stops the walk rather than misreading bytes. */
 static void test_framewalk_unmeasurable(void) {
-  u8             buf[1] = {0x10}; /* MAX_DATA: not in the measurable set */
+  u8             buf[1] = {0x21}; /* not a defined frame type (RFC 9000 19) */
   quic_framewalk it;
   quic_framewalk_init(&it, buf, sizeof(buf));
   quic_framewalk_item fr;
@@ -160,6 +163,117 @@ static void test_framewalk_reset_stream_at_then_ping(void) {
   CHECK(quic_framewalk_next(&it, &fr) == 0);
 }
 
+/* Walk buf/n and assert it yields exactly [want_type, PING] then ends. */
+static void fw_check_then_ping(const u8* buf, usz n, u64 want_type) {
+  quic_framewalk      it;
+  quic_framewalk_item fr;
+  quic_framewalk_init(&it, buf, n);
+  CHECK(quic_framewalk_next(&it, &fr) == 1);
+  CHECK(fr.type == want_type);
+  CHECK(quic_framewalk_next(&it, &fr) == 1);
+  CHECK(fr.type == QUIC_FRAME_PING);
+  CHECK(quic_framewalk_next(&it, &fr) == 0);
+}
+
+/* RFC 9000 19.7/19.9-19.18 regression: every flow-control and connection-
+ * management frame a real peer coalesces with request STREAM frames must be
+ * measurable, or the walk stops and the rest of the packet -- including
+ * STREAM/ACK frames -- is silently dropped while note_app_rx still ACKs the
+ * pn (permanent data loss: the peer never retransmits). quic-go coalesces
+ * NEW_CONNECTION_ID with the first request's STREAM frames right after the
+ * handshake, which is how the http3 interop test hit this. */
+static void test_framewalk_flow_frames_then_ping(void) {
+  u8  buf[64];
+  usz n;
+
+  n = quic_max_data_encode(buf, sizeof buf, &(quic_data_frame){77});
+  n += quic_frame_put_simple(buf + n, sizeof buf - n, QUIC_FRAME_PING);
+  fw_check_then_ping(buf, n, QUIC_FRAME_MAX_DATA);
+
+  n = quic_data_blocked_encode(buf, sizeof buf, &(quic_data_frame){77});
+  n += quic_frame_put_simple(buf + n, sizeof buf - n, QUIC_FRAME_PING);
+  fw_check_then_ping(buf, n, QUIC_FRAME_DATA_BLOCKED);
+
+  n = quic_max_stream_data_encode(
+      buf, sizeof buf, &(quic_stream_data_frame){4, 524288});
+  n += quic_frame_put_simple(buf + n, sizeof buf - n, QUIC_FRAME_PING);
+  fw_check_then_ping(buf, n, QUIC_FRAME_MAX_STREAM_DATA);
+
+  n = quic_stream_data_blocked_encode(
+      buf, sizeof buf, &(quic_stream_data_frame){4, 524288});
+  n += quic_frame_put_simple(buf + n, sizeof buf - n, QUIC_FRAME_PING);
+  fw_check_then_ping(buf, n, QUIC_FRAME_STREAM_DATA_BLOCKED);
+
+  n = quic_max_streams_encode(buf, sizeof buf, &(quic_streams_frame){10, 0});
+  n += quic_frame_put_simple(buf + n, sizeof buf - n, QUIC_FRAME_PING);
+  fw_check_then_ping(buf, n, QUIC_FRAME_MAX_STREAMS_BIDI);
+
+  n = quic_max_streams_encode(buf, sizeof buf, &(quic_streams_frame){10, 1});
+  n += quic_frame_put_simple(buf + n, sizeof buf - n, QUIC_FRAME_PING);
+  fw_check_then_ping(buf, n, QUIC_FRAME_MAX_STREAMS_UNI);
+
+  n = quic_streams_blocked_encode(
+      buf, sizeof buf, &(quic_streams_frame){10, 0});
+  n += quic_frame_put_simple(buf + n, sizeof buf - n, QUIC_FRAME_PING);
+  fw_check_then_ping(buf, n, QUIC_FRAME_STREAMS_BLOCKED_BIDI);
+
+  n = quic_streams_blocked_encode(
+      buf, sizeof buf, &(quic_streams_frame){10, 1});
+  n += quic_frame_put_simple(buf + n, sizeof buf - n, QUIC_FRAME_PING);
+  fw_check_then_ping(buf, n, QUIC_FRAME_STREAMS_BLOCKED_UNI);
+}
+
+static void test_framewalk_conn_frames_then_ping(void) {
+  u8       buf[64];
+  usz      n;
+  const u8 pathdata[QUIC_PATH_DATA] = {1, 2, 3, 4, 5, 6, 7, 8};
+
+  n = quic_new_token_encode(
+      buf, sizeof buf, &(quic_new_token_frame){5, (const u8*)"token"});
+  n += quic_frame_put_simple(buf + n, sizeof buf - n, QUIC_FRAME_PING);
+  fw_check_then_ping(buf, n, QUIC_FRAME_NEW_TOKEN);
+
+  n = quic_retire_cid_encode(buf, sizeof buf, 7);
+  n += quic_frame_put_simple(buf + n, sizeof buf - n, QUIC_FRAME_PING);
+  fw_check_then_ping(buf, n, QUIC_FRAME_RETIRE_CID);
+
+  n = quic_path_encode(buf, sizeof buf, QUIC_FRAME_PATH_CHALLENGE, pathdata);
+  n += quic_frame_put_simple(buf + n, sizeof buf - n, QUIC_FRAME_PING);
+  fw_check_then_ping(buf, n, QUIC_FRAME_PATH_CHALLENGE);
+
+  n = quic_path_encode(buf, sizeof buf, QUIC_FRAME_PATH_RESPONSE, pathdata);
+  n += quic_frame_put_simple(buf + n, sizeof buf - n, QUIC_FRAME_PING);
+  fw_check_then_ping(buf, n, QUIC_FRAME_PATH_RESPONSE);
+}
+
+/* The exact real-world shape: NEW_CONNECTION_ID coalesced ahead of a request
+ * STREAM frame. The STREAM frame must still be reachable by the walk. */
+static void test_framewalk_ncid_then_stream(void) {
+  u8              buf[96];
+  usz             n;
+  quic_ncid_frame nf = {.seq = 1, .retire_prior_to = 0, .cid_len = 8};
+  for (usz i = 0; i < 8; i++) nf.cid[i] = (u8)i;
+  for (usz i = 0; i < QUIC_NCID_TOKEN; i++) nf.token[i] = (u8)(0x40 + i);
+  n = quic_ncid_encode(buf, sizeof buf, &nf);
+  CHECK(n > 0);
+  quic_stream_frame sf = {
+      .stream_id = 4,
+      .offset    = 0,
+      .length    = 2,
+      .data      = (const u8*)"hi",
+      .fin       = 1};
+  n += quic_frame_put_stream(buf + n, sizeof buf - n, &sf);
+
+  quic_framewalk      it;
+  quic_framewalk_item fr;
+  quic_framewalk_init(&it, buf, n);
+  CHECK(quic_framewalk_next(&it, &fr) == 1);
+  CHECK(fr.type == QUIC_FRAME_NEW_CID);
+  CHECK(quic_framewalk_next(&it, &fr) == 1);
+  CHECK((fr.type & 0xf8) == QUIC_FRAME_STREAM_BASE);
+  CHECK(quic_framewalk_next(&it, &fr) == 0);
+}
+
 void test_framewalk(void) {
   test_framewalk_sequence();
   test_framewalk_unmeasurable();
@@ -168,4 +282,7 @@ void test_framewalk(void) {
   test_framewalk_reset_stream_then_ping();
   test_framewalk_stop_sending_then_ping();
   test_framewalk_reset_stream_at_then_ping();
+  test_framewalk_flow_frames_then_ping();
+  test_framewalk_conn_frames_then_ping();
+  test_framewalk_ncid_then_stream();
 }
