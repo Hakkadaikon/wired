@@ -223,10 +223,13 @@ typedef struct {
   int peer_closed;   /**< 1 once a peer CONNECTION_CLOSE frame was seen */
   int resp_external; /**< 1: the caller answers requests, not the loop */
   /** ACK ranges (RFC 9000 19.3) seen in payloads opened this step, reset at
-   * the start of every wired_srvloop_step; overflow past the cap is dropped */
-  u64 ack_lo[8]; /**< range lows, parallel with ack_hi */
-  u64 ack_hi[8]; /**< range highs, ack_hi[0] from the frame's largest */
-  usz ack_n;     /**< ranges recorded this step */
+   * the start of every wired_srvloop_step; overflow past the cap is dropped.
+   * 32 matches quic_ack_decode's own max range count (ack.h), so a single
+   * ACK frame's ranges are never truncated here before the caller (multiple
+   * per-stream send sessions, each keyed by pn) gets to consume them. */
+  u64 ack_lo[32]; /**< range lows, parallel with ack_hi */
+  u64 ack_hi[32]; /**< range highs, ack_hi[0] from the frame's largest */
+  usz ack_n;      /**< ranges recorded this step */
   /** RFC 9221 5: received QUIC DATAGRAM frame payloads queued for a future
    * consumer to drain (Phase 7b Slice 2), oldest first. Filled by
    * gather_rx_datagrams in dispatch.c alongside the request/WT-stream
@@ -288,6 +291,17 @@ int wired_srvloop_init(wired_srvloop* l, const u8* cli_scid, u8 cli_scid_len);
  * @return the slot index, or -1 when the table is full (the stream's frames
  *   are dropped, same as the old fixed capacity of one). */
 int wired_srvloop_slot_for(wired_srvloop* l, u64 stream_id);
+
+/** RFC 9000 2.2: free the streams[] slot reassembling stream_id, once its
+ * response has been fully sent and acknowledged -- called by the response
+ * driver (srvrun.c) so a stream id's slot becomes reusable for a later
+ * request. HTTP/3 never reuses a stream id, so without this the table's
+ * WIRED_SRVLOOP_MAX_STREAMS slots exhaust permanently after that many
+ * sequential requests on distinct streams.
+ * @param l the loop whose streams[] table to release from
+ * @param stream_id the client bidi request stream id; a no-op if it has no
+ *   slot. */
+void wired_srvloop_slot_release(wired_srvloop* l, u64 stream_id);
 
 /** draft-ietf-webtrans-http3-15 4.3: find the wt_streams slot already
  * reassembling stream_id, so dispatch.c's gather_wt_stream can route a later
