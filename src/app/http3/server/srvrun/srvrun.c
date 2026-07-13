@@ -1843,6 +1843,47 @@ static usz srvrun_inflight_bytes_all(const srvrun_conn* c) {
   return total;
 }
 
+#ifdef QUIC_DEBUG
+/* Dump cwnd/inflight/log state once a step's send gate blocks -- narrows
+ * down which of the three srvrun_can_send conditions is the culprit when a
+ * transfer stalls to PTO-only progress (tasks/todo.md Phase 7 next steps). */
+static void srvrun_debug_cc(
+    u64 stream_id, u64 inflight_bytes, u64 cwnd, usz log_n) {
+  char buf[128];
+  usz  at   = 0;
+  buf[at++] = 'C';
+  buf[at++] = 'C';
+  buf[at++] = ' ';
+  buf[at++] = 's';
+  buf[at++] = 'i';
+  buf[at++] = 'd';
+  buf[at++] = '=';
+  wired_fmt_u64(buf, &at, &(wired_fmt_u64_in){stream_id, 1});
+  buf[at++] = ' ';
+  buf[at++] = 'i';
+  buf[at++] = 'n';
+  buf[at++] = 'f';
+  buf[at++] = '=';
+  wired_fmt_u64(buf, &at, &(wired_fmt_u64_in){inflight_bytes, 1});
+  buf[at++] = ' ';
+  buf[at++] = 'c';
+  buf[at++] = 'w';
+  buf[at++] = 'n';
+  buf[at++] = 'd';
+  buf[at++] = '=';
+  wired_fmt_u64(buf, &at, &(wired_fmt_u64_in){cwnd, 1});
+  buf[at++] = ' ';
+  buf[at++] = 'l';
+  buf[at++] = 'o';
+  buf[at++] = 'g';
+  buf[at++] = '=';
+  wired_fmt_u64(buf, &at, &(wired_fmt_u64_in){(u64)log_n, 1});
+  buf[at++] = '\n';
+  buf[at]   = 0;
+  wired_log_str(buf);
+}
+#endif
+
 /* 1 when r's send log has a free entry, the connection's congestion window
  * (RFC 9002 7) has room for one more chunk across every slot combined, and
  * the pacing schedule (RFC 9002 7.7) allows another packet now. The log
@@ -1854,6 +1895,20 @@ static int srvrun_can_send(
   return wired_sendsess_inflight(&r->sess) < WIRED_SENDSESS_LOG &&
          srvrun_inflight_bytes_all(c) + SRVRUN_CHUNK <= c->cc.cwnd &&
          srvrun_pace_ok(ctx, c);
+}
+
+/* srvrun_can_send's verdict, plus a QUIC_DEBUG dump on the blocked path --
+ * split out so the extra branch never touches srvrun_can_send's own CCN. */
+static int srvrun_can_send_traced(
+    const srvrun_step_ctx* ctx, const srvrun_conn* c, const srvrun_resp* r) {
+  int ok = srvrun_can_send(ctx, c, r);
+#ifdef QUIC_DEBUG
+  if (!ok)
+    srvrun_debug_cc(
+        r->stream_id, srvrun_inflight_bytes_all(c), c->cc.cwnd,
+        wired_sendsess_inflight(&r->sess));
+#endif
+  return ok;
 }
 
 /* Ship one slice and schedule the next paced send. */
@@ -1871,7 +1926,7 @@ static int srvrun_slice_out(
 static int srvrun_pump_one(
     const srvrun_step_ctx* ctx, srvrun_conn* c, srvrun_resp* r) {
   wired_sendq_slice sl;
-  if (!srvrun_can_send(ctx, c, r)) return 0;
+  if (!srvrun_can_send_traced(ctx, c, r)) return 0;
   if (!wired_sendsess_take(&r->sess, &sl)) return 0;
   return srvrun_slice_out(ctx, c, r, &sl);
 }
