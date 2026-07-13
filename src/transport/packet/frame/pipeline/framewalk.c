@@ -3,8 +3,11 @@
 #include "app/datagram/datagram/datagram.h"
 #include "common/bytes/varint/varint.h"
 #include "transport/packet/frame/frame/ack.h"
+#include "transport/packet/frame/frame/connctl.h"
 #include "transport/packet/frame/frame/dispatch.h"
+#include "transport/packet/frame/frame/flowctl.h"
 #include "transport/packet/frame/frame/frame.h"
+#include "transport/packet/frame/frame/ncid.h"
 #include "transport/packet/frame/frame/stream_ctl.h"
 
 void quic_framewalk_init(quic_framewalk* it, const u8* frames, usz len) {
@@ -55,6 +58,55 @@ static usz reset_stream_at_len(const u8* buf, usz n) {
   quic_reset_stream_at_frame f;
   return quic_reset_stream_at_decode(buf, n, &f);
 }
+/* RFC 9000 19.7/19.9-19.18: the flow-control and connection-management
+ * frames a real peer coalesces with STREAM/ACK frames. Each reuses its own
+ * decoder's bytes-consumed return, same shape as the frames above -- without
+ * a row here the walk stops at the frame and everything after it in the
+ * packet is dropped while the pn still gets ACKed (permanent data loss). */
+static usz max_data_len(const u8* buf, usz n) {
+  quic_data_frame f;
+  return quic_max_data_decode(buf, n, &f);
+}
+static usz data_blocked_len(const u8* buf, usz n) {
+  quic_data_frame f;
+  return quic_data_blocked_decode(buf, n, &f);
+}
+static usz max_stream_data_len(const u8* buf, usz n) {
+  quic_stream_data_frame f;
+  return quic_max_stream_data_decode(buf, n, &f);
+}
+static usz stream_data_blocked_len(const u8* buf, usz n) {
+  quic_stream_data_frame f;
+  return quic_stream_data_blocked_decode(buf, n, &f);
+}
+static usz max_streams_len(const u8* buf, usz n) {
+  quic_streams_frame f;
+  return quic_max_streams_decode(buf, n, &f);
+}
+static usz streams_blocked_len(const u8* buf, usz n) {
+  quic_streams_frame f;
+  return quic_streams_blocked_decode(buf, n, &f);
+}
+static usz new_token_len(const u8* buf, usz n) {
+  quic_new_token_frame f;
+  return quic_new_token_decode(buf, n, &f);
+}
+static usz ncid_len(const u8* buf, usz n) {
+  quic_ncid_frame f;
+  return quic_ncid_decode(buf, n, &f);
+}
+static usz retire_cid_len(const u8* buf, usz n) {
+  u64 seq;
+  return quic_retire_cid_decode(buf, n, &seq);
+}
+static usz path_challenge_len(const u8* buf, usz n) {
+  u8 data[QUIC_PATH_DATA];
+  return quic_path_decode(buf, n, QUIC_FRAME_PATH_CHALLENGE, data);
+}
+static usz path_response_len(const u8* buf, usz n) {
+  u8 data[QUIC_PATH_DATA];
+  return quic_path_decode(buf, n, QUIC_FRAME_PATH_RESPONSE, data);
+}
 
 /* Single-byte kinds (PADDING/PING/HANDSHAKE_DONE) have no table row; they are
  * measured before the lookup (see frame_len, single_byte below). */
@@ -72,6 +124,17 @@ static const len_row LEN_TABLE[] = {
     {QUIC_FK_RESET_STREAM, reset_stream_len},
     {QUIC_FK_STOP_SENDING, stop_sending_len},
     {QUIC_FK_RESET_STREAM_AT, reset_stream_at_len},
+    {QUIC_FK_MAX_DATA, max_data_len},
+    {QUIC_FK_DATA_BLOCKED, data_blocked_len},
+    {QUIC_FK_MAX_STREAM_DATA, max_stream_data_len},
+    {QUIC_FK_STREAM_DATA_BLOCKED, stream_data_blocked_len},
+    {QUIC_FK_MAX_STREAMS, max_streams_len},
+    {QUIC_FK_STREAMS_BLOCKED, streams_blocked_len},
+    {QUIC_FK_NEW_TOKEN, new_token_len},
+    {QUIC_FK_NEW_CONNECTION_ID, ncid_len},
+    {QUIC_FK_RETIRE_CONNECTION_ID, retire_cid_len},
+    {QUIC_FK_PATH_CHALLENGE, path_challenge_len},
+    {QUIC_FK_PATH_RESPONSE, path_response_len},
 };
 
 /* Length of a frame the walker measures via a decoder, or 0 if kind has no
