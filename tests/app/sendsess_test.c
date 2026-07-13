@@ -105,6 +105,31 @@ static void test_sendsess_threshold_declares_lost(void) {
   CHECK(s.has_acked == 0);
 }
 
+/* wired_sendsess_oldest_sent_ms reports the oldest in-flight slice's send
+ * time -- what a caller compares against an RTT-derived PTO deadline before
+ * ever calling wired_sendsess_pto_fire, so a session isn't probed before
+ * its PTO window has actually elapsed. Nothing in flight (never armed, or
+ * fully acked) reports 0/no-op. */
+static void test_sendsess_oldest_sent_ms(void) {
+  u8                bytes[30];
+  wired_sendsess    s;
+  wired_sendq_slice sl;
+  u64               out = 999;
+  wired_sendsess_arm(&s, bytes, 30, 10);
+  CHECK(wired_sendsess_oldest_sent_ms(&s, &out) == 0); /* nothing sent yet */
+  CHECK(wired_sendsess_take(&s, &sl) == 1);
+  CHECK(wired_sendsess_sent(&s, &sl, 0, 1000) == 1);
+  CHECK(wired_sendsess_take(&s, &sl) == 1);
+  CHECK(wired_sendsess_sent(&s, &sl, 1, 1500) == 1);
+  CHECK(wired_sendsess_oldest_sent_ms(&s, &out) == 1);
+  CHECK(out == 1000);           /* the earlier of the two in-flight sends */
+  wired_sendsess_ack(&s, 0, 0); /* the oldest slice is acked... */
+  CHECK(wired_sendsess_oldest_sent_ms(&s, &out) == 1);
+  CHECK(out == 1500); /* ...so the remaining slice is now the oldest */
+  wired_sendsess_ack(&s, 1, 1); /* nothing in flight anymore */
+  CHECK(wired_sendsess_oldest_sent_ms(&s, &out) == 0);
+}
+
 /* A PTO probe requeues the oldest in-flight slice (smallest pn) so it goes
  * out again with a fresh packet number; younger packets stay in flight. */
 static void test_sendsess_pto_probes_oldest(void) {
@@ -190,6 +215,7 @@ void test_sendsess(void) {
   test_sendsess_done_only_after_all_acked();
   test_sendsess_requeue_first();
   test_sendsess_threshold_declares_lost();
+  test_sendsess_oldest_sent_ms();
   test_sendsess_pto_probes_oldest();
   test_sendsess_pto_resets_on_ack();
   test_sendsess_pto_exhaustion_fails();

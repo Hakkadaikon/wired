@@ -25,6 +25,7 @@ static void sr_make_confirmed_conn(
   c->l  = f->l;
   c->up = 1;
   quic_cc_init(&c->cc);
+  quic_rtt_init(&c->rtt);
 }
 
 /* Find the H3 GOAWAY frame's id in a 1-RTT payload carrying a STREAM frame on
@@ -3523,13 +3524,70 @@ static void test_srvrun_fifth_sequential_get_reuses_freed_slot(void) {
  * connection up (each probe just requeues the oldest in-flight slice); the
  * next one exhausts the budget and srvrun_pto_slot tears the connection
  * slot down (c->up -> 0), matching TLA+ resp-multiplex's connection-wide
- * PTO-budget guard. */
+ * PTO-budget guard. Each probe only actually fires once the RTT-derived PTO
+ * deadline (srvrun_pto_deadline_ms) has elapsed (RFC 9002 6.2) -- a call
+ * before the deadline is a no-op that doesn't consume budget, which is
+ * exactly the bug this test's own history caught (SRVRUN_PTO_MS used to be
+ * a fixed 300ms fired on every poll tick regardless of RTT, resending
+ * merely-slow packets on any faster link). Advances now_ms past each
+ * doubling-backoff deadline explicitly rather than assuming a fixed probe
+ * interval. */
 static void test_srvrun_pto_budget_exhausted_tears_down_connection(void) {
   struct lp_fix  f;
   quic_conntable table[QUIC_CONNTABLE_CAP];
   srvrun_state   st = {table, g_srvrun_state.conns};
   quic_obuf      ob;
   u8             obuf[1024];
+  u64            now = 0;
+  ob                 = (quic_obuf){obuf, sizeof obuf, 0};
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  sr_make_confirmed_conn(&st.conns[0], &f, &ob);
+  st.conns[0].cc.cwnd = 1u << 20;
+  CHECK(quic_conntable_insert(table, QUIC_CONNTABLE_CAP, g_cli_scid, 6) == 0);
+  {
+    srvrun_cfg cfg = {-1, 0, sr_tiny_body_handler, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                      0,  0, &g_srvrun_env,        0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, now};
+    sr_set_req(&st.conns[0], 0, 0, 0);
+    srvrun_start_resp(&ctx, 0);
+    srvrun_pump_sess(&ctx, 0); /* one slice in flight, never acked, sent
+                                * at now_ms == 0 */
+    CHECK(st.conns[0].resp[0].in_use == 1);
+    /* no RTT sample yet: PTO uses quic_rtt_init's kInitialRtt-based default.
+     * quic_rtt_init seeds smoothed_rtt=333000us, rttvar=166500us; base PTO =
+     * srtt + max(4*rttvar, granularity) + max_ack_delay =
+     * 333000 + 666000 + 25000 = 1024000us == 1024ms, doubling per probe. */
+    now = 1025;
+    for (int i = 0; i < SRVRUN_PTO_MAX; i++) {
+      srvrun_step_ctx tick = {&cfg, 0, &st, now};
+      srvrun_pto_slot(&tick, 0);
+      CHECK(st.conns[0].up == 1);
+      now += 1024u << (i + 1); /* each probe doubles the backoff (2^count) */
+    }
+    {
+      srvrun_step_ctx tick = {&cfg, 0, &st, now};
+      srvrun_pto_slot(&tick, 0); /* budget spent: tears the connection down */
+      CHECK(st.conns[0].up == 0);
+    }
+  }
+}
+
+/* REGRESSION (interop http3, 500KB body over a 15ms-RTT link): once a real
+ * RTT sample is in, a slice that is merely slow -- still well inside its
+ * own RTT-derived PTO window -- must NOT be probed just because a poll
+ * tick landed after it. The old SRVRUN_PTO_MS=300 fixed-interval design
+ * fired here unconditionally, resending in-flight data that was never lost
+ * and stalling the transfer (see tasks/todo.md this session's investigation).
+ * A tick at a small multiple of a 15ms RTT (well under the ~50-60ms PTO a
+ * 15ms/7.5ms-rttvar sample implies) must leave the slice untouched; only a
+ * tick that has actually crossed the deadline may probe it. */
+static void test_srvrun_pto_not_due_within_rtt_window(void) {
+  struct lp_fix  f;
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_state   st = {table, g_srvrun_state.conns};
+  quic_obuf      ob;
+  u8             obuf[1024];
+  u64            sent_at, deadline_ms;
   ob = (quic_obuf){obuf, sizeof obuf, 0};
   quic_conntable_init(table, QUIC_CONNTABLE_CAP);
   sr_make_confirmed_conn(&st.conns[0], &f, &ob);
@@ -3539,16 +3597,29 @@ static void test_srvrun_pto_budget_exhausted_tears_down_connection(void) {
     srvrun_cfg cfg = {-1, 0, sr_tiny_body_handler, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                       0,  0, &g_srvrun_env,        0};
     srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    /* seed a real 15ms RTT sample (this link's actual delay), same as the
+     * interop scenario's simple-p2p --delay=15ms. */
+    srvrun_rtt_note(&st.conns[0], 15);
     sr_set_req(&st.conns[0], 0, 0, 0);
     srvrun_start_resp(&ctx, 0);
-    srvrun_pump_sess(&ctx, 0); /* one slice in flight, never acked */
+    srvrun_pump_sess(&ctx, 0); /* slice sent at now_ms == 0 */
     CHECK(st.conns[0].resp[0].in_use == 1);
-    for (int i = 0; i < SRVRUN_PTO_MAX; i++) {
-      srvrun_pto_slot(&ctx, 0);
+    sent_at     = 0;
+    deadline_ms = srvrun_pto_deadline_ms(&st.conns[0], 0);
+    CHECK(deadline_ms > 0);
+    /* well within the window: no probe, budget untouched */
+    {
+      srvrun_step_ctx tick = {&cfg, 0, &st, sent_at + deadline_ms / 2};
+      srvrun_pto_slot(&tick, 0);
+      CHECK(st.conns[0].resp[0].sess.pto_count == 0);
       CHECK(st.conns[0].up == 1);
     }
-    srvrun_pto_slot(&ctx, 0); /* budget spent: tears the connection down */
-    CHECK(st.conns[0].up == 0);
+    /* past the deadline: now it fires */
+    {
+      srvrun_step_ctx tick = {&cfg, 0, &st, sent_at + deadline_ms + 1};
+      srvrun_pto_slot(&tick, 0);
+      CHECK(st.conns[0].resp[0].sess.pto_count == 1);
+    }
   }
 }
 
@@ -3748,6 +3819,7 @@ void test_srvrun(void) {
   test_srvrun_bigbuf_pool_serves_large_body();
   test_srvrun_fifth_sequential_get_reuses_freed_slot();
   test_srvrun_pto_budget_exhausted_tears_down_connection();
+  test_srvrun_pto_not_due_within_rtt_window();
   test_srvrun_sibling_ack_does_not_lose_other_slot();
   test_srvrun_loss_and_retransmit_across_two_responses();
   test_srvrun_pump_stops_at_log_capacity();
