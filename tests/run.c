@@ -268,6 +268,7 @@
 #include "transport/io/xdp/xdpframe/xdpframe.c"
 #include "app/http3/server/srvxdpbpf/srvxdpbpf.c"
 #include "app/http3/server/srvxdp/srvxdp.c"
+#include "app/http3/server/srvbigbuf/srvbigbuf.c"
 #include "transport/packet/header/packet/coalesce.c"
 #include "transport/packet/header/packet/coalorder.c"
 #include "transport/packet/header/packet/header.c"
@@ -941,6 +942,7 @@
 #include "app/srvthreads_test.c"
 #include "app/srvthreads_datagram_test.c"
 #include "app/srvdriver_test.c"
+#include "app/srvbigbuf_test.c"
 #include "transport/stats_test.c"
 #include "app/wt_session_test.c"
 #include "app/wterrmap_test.c"
@@ -1422,6 +1424,7 @@ int main(void) {
   test_srvthreads();
   test_srvthreads_datagram();
   test_srvdriver();
+  test_srvbigbuf();
   test_wt_session();
   test_wterrmap();
   test_wtcapsule();
