@@ -974,6 +974,22 @@ static int sr_body_handler(
   return 1;
 }
 
+/* Body handler for the bigbuf pool test: fills the whole cap the storage
+ * layer handed it with a counting pattern, proving the pool row (not the
+ * 16KB fixed row) backed the write. */
+static int sr_bigbuf_body_handler(
+    void*                       hctx,
+    const wired_h3reqdrive_req* req,
+    quic_obuf*                  body_out,
+    const char**                ct) {
+  (void)hctx;
+  (void)req;
+  (void)ct;
+  for (usz i = 0; i < body_out->cap; i++) body_out->p[i] = (u8)(i & 0xff);
+  body_out->len = body_out->cap;
+  return 1;
+}
+
 /* Local socket pair on its own port (4439; the recvmmsg tests own 4437). */
 static int sr_open_sockets(i64* sfd, i64* cfd, quic_sockaddr_in* srv) {
   *sfd = wired_udp_socket();
@@ -3409,6 +3425,44 @@ static void test_srvrun_broadcast_datagram_flushes_on_poll_tick_alone(void) {
    * covered by test_srvrun_broadcast_datagram_reaches_two_real_clients. */
 }
 
+/* BIGBUF POOL: a body far past WIRED_SRVRUN_RESP_MAX (16KB) -- e.g. the
+ * interop runner's 500KB fixture -- must be served from a claimed
+ * srvbigbuf pool row instead of ETOOBIG-failing against the fixed row.
+ * srvrun_start_resp is driven directly (c->l.req/req_stream_id mirror, same
+ * as test_srvrun_pump_stops_at_log_capacity below): no real wire round-trip
+ * is needed to prove the storage-selection and arm-length behavior. */
+static void test_srvrun_bigbuf_pool_serves_large_body(void) {
+  struct lp_fix f;
+  srvrun_conn   c  = {0};
+  quic_obuf     ob = {0};
+  u8            obuf[1024];
+  u8            pre[64];
+  quic_obuf     preb = {pre, sizeof pre, 0};
+  ob                 = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  sr_set_req(&c, 0, 0, 0);
+  {
+    srvrun_cfg cfg = {
+        -1, 0, sr_bigbuf_body_handler, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0,  0, &g_srvrun_env,          0};
+    srvrun_state    st  = {0, &c};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_start_resp(&ctx, 0);
+  }
+  /* claimed a pool row, not the fixed 16KB row */
+  CHECK(c.resp[0].in_use == 1);
+  CHECK(c.resp[0].bigbuf_row >= 0);
+  /* the handler filled the whole pool-row cap (past HDR_ROOM); the armed
+   * session covers prefix + that many body bytes, well past 16KB */
+  CHECK(
+      quic_h3resp_prefix(
+          200, 0, WIRED_SRVBIGBUF_ROW_CAP - SRVRUN_RESP_HDR_ROOM, &preb) == 1);
+  CHECK(
+      c.resp[0].sess.q.len ==
+      preb.len + (WIRED_SRVBIGBUF_ROW_CAP - SRVRUN_RESP_HDR_ROOM));
+  CHECK(c.resp[0].sess.q.len > WIRED_SRVRUN_RESP_MAX);
+}
+
 /* LOG-FULL GATE: with the congestion window wide open, the pump must stop
  * at WIRED_SENDSESS_LOG in-flight slices. One more take would send a slice
  * that wired_sendsess_sent (log full) can record in neither log nor requeue
@@ -3456,6 +3510,7 @@ void test_srvrun(void) {
   test_srvrun_broadcast_datagram_flushes_on_poll_tick_alone();
   test_srvrun_wt_full_session_lifecycle_on_wire();
   test_srvrun_no_shutdown_accepts_new();
+  test_srvrun_bigbuf_pool_serves_large_body();
   test_srvrun_pump_stops_at_log_capacity();
   test_srvrun_accept_rekeys_to_slot_scid();
   test_srvrun_initial_retransmit_resends_cached_flight();
