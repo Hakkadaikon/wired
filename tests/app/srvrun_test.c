@@ -3807,6 +3807,54 @@ static void test_srvrun_loss_and_retransmit_across_two_responses(void) {
   }
 }
 
+/* ROUND-ROBIN, NOT DRAIN-THEN-NEXT: with three responses armed at once and
+ * cwnd tight enough to allow only a few chunks per pump, every resp[] slot
+ * must get a turn before any slot gets a second one -- srvrun_pump_sess used
+ * to drain resp[0] to its log cap (or cwnd) before resp[1]/resp[2] ever sent
+ * a byte, so the first-registered stream always claimed the shared cwnd
+ * first. Against a real quic-go client sending 3 parallel GETs, that let
+ * stream 0's log fill to WIRED_SENDSESS_LOG while streams 4/8 starved, fell
+ * behind on real send time, and their own in-flight slices then tripped
+ * RFC 9002 6.1.1's packet threshold -- not because anything was actually
+ * lost, but because slot 0 had burned through pns far faster than its
+ * siblings got to send at all. */
+static void test_srvrun_pump_round_robins_across_slots(void) {
+  static u8     body0[8 * SRVRUN_CHUNK];
+  static u8     body1[8 * SRVRUN_CHUNK];
+  static u8     body2[8 * SRVRUN_CHUNK];
+  struct lp_fix f;
+  srvrun_conn   c;
+  quic_obuf     ob = {0};
+  u8            obuf[1024];
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  /* room for exactly 3 chunks per pump pass -- one per slot, not enough for
+   * any slot to take a second turn within the same round. */
+  c.cc.cwnd           = 3 * SRVRUN_CHUNK;
+  c.resp[0].in_use    = 1;
+  c.resp[0].stream_id = 0;
+  c.resp[1].in_use    = 1;
+  c.resp[1].stream_id = 4;
+  c.resp[2].in_use    = 1;
+  c.resp[2].stream_id = 8;
+  wired_sendsess_arm(&c.resp[0].sess, body0, sizeof body0, SRVRUN_CHUNK);
+  wired_sendsess_arm(&c.resp[1].sess, body1, sizeof body1, SRVRUN_CHUNK);
+  wired_sendsess_arm(&c.resp[2].sess, body2, sizeof body2, SRVRUN_CHUNK);
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0};
+    srvrun_state    st  = {0, &c};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 1};
+    srvrun_pump_sess(&ctx, 0);
+    /* cwnd allows exactly 3 chunks total: a round-robin pump spends them one
+     * per slot. A drain-then-next pump would instead spend all 3 on slot 0
+     * and leave slots 1/2 at zero. */
+    CHECK(wired_sendsess_inflight(&c.resp[0].sess) == 1);
+    CHECK(wired_sendsess_inflight(&c.resp[1].sess) == 1);
+    CHECK(wired_sendsess_inflight(&c.resp[2].sess) == 1);
+  }
+}
+
 void test_srvrun(void) {
   test_srvrun_broadcast_datagram_queues_active_wt_sessions();
   test_srvrun_broadcast_datagram_skips_inactive_wt();
@@ -3822,6 +3870,7 @@ void test_srvrun(void) {
   test_srvrun_pto_not_due_within_rtt_window();
   test_srvrun_sibling_ack_does_not_lose_other_slot();
   test_srvrun_loss_and_retransmit_across_two_responses();
+  test_srvrun_pump_round_robins_across_slots();
   test_srvrun_pump_stops_at_log_capacity();
   test_srvrun_accept_rekeys_to_slot_scid();
   test_srvrun_initial_retransmit_resends_cached_flight();

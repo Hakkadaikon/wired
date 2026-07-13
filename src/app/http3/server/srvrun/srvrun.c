@@ -124,6 +124,16 @@ typedef struct {
   quic_hystart hs;      /**< slow-start exit detector (RFC 9406) */
   u64          srtt_ms; /**< smoothed RTT of this connection's acks (pacing) */
   u64          next_send_ms; /**< pacing: earliest time to send again */
+  /** RFC 9002 6.1.1: highest pn ACKed anywhere on this connection's ONE
+   * packet number space (monotone) -- every resp[]'s packet-loss threshold
+   * check must compare against this, not a per-stream value. Packet numbers
+   * are shared across every resp[] slot (c->l.tx_pn), so with several
+   * responses in flight at once a stream's own next ACK can lag well behind
+   * pns its siblings have already burned through; a per-stream
+   * largest_acked (sess.largest_acked, still used only to gate whether a
+   * stream has been ACKed at all) reads that lag as reordering and
+   * mass-requeues slices that were never actually lost. */
+  u64 largest_acked;
   /** RFC 9002 5/6.2: RTT estimator (smoothed_rtt/rttvar in us) feeding this
    * connection's PTO deadline (srvrun_pto_deadline_ms) -- separate from
    * srtt_ms above (ms, EWMA-only, pacing's simpler input) because PTO needs
@@ -1931,22 +1941,27 @@ static int srvrun_pump_one(
   return srvrun_slice_out(ctx, c, r, &sl);
 }
 
-/* Transmit from one resp[] slot while the window has room and slices are
- * ready. */
-static void srvrun_pump_resp(
-    const srvrun_step_ctx* ctx, srvrun_conn* c, srvrun_resp* r) {
-  if (!r->in_use) return;
-  while (srvrun_pump_one(ctx, c, r)) {
-  }
+/* One round-robin pass: try exactly one slice from every in-use resp[]
+ * slot, in order. @return 1 if any slot actually sent one. */
+static int srvrun_pump_round(const srvrun_step_ctx* ctx, srvrun_conn* c) {
+  int sent = 0;
+  for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++)
+    sent |= srvrun_pump_one(ctx, c, &c->resp[i]);
+  return sent;
 }
 
 /* Transmit while the window has room and slices are ready, across every
  * in-flight response on this connection (RFC 9000 2.2: several requests may
- * be in flight at once). */
+ * be in flight at once) -- round-robin one slice per slot per pass, so a
+ * single stream with a full send log never starves its siblings of the
+ * connection's one shared cwnd (a strict per-slot drain-then-next order let
+ * slot 0 claim the whole window every step; slot 2 fell far enough behind on
+ * real send time that its own in-flight slices tripped RFC 9002 6.1.1's
+ * packet threshold, not because they were actually lost). */
 static void srvrun_pump_sess(const srvrun_step_ctx* ctx, int slot) {
   srvrun_conn* c = &ctx->st->conns[slot];
-  for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++)
-    srvrun_pump_resp(ctx, c, &c->resp[i]);
+  while (srvrun_pump_round(ctx, c)) {
+  }
 }
 
 /* After a live step: feed the step's ACK ranges to the session, start a
@@ -2093,17 +2108,20 @@ static void srvrun_debug_loss(
 #endif
 }
 
-static usz srvrun_reap_losses_resp(const srvrun_cfg* cfg, srvrun_resp* r) {
+static usz srvrun_reap_losses_resp(
+    const srvrun_cfg* cfg, const srvrun_conn* c, srvrun_resp* r, u64 now_ms) {
   u64 lost[WIRED_SENDSESS_LOG];
   usz n = wired_sendsess_detect_lost(
-      &r->sess, r->sess.largest_acked, lost, WIRED_SENDSESS_LOG);
-  srvrun_debug_loss(r, r->sess.largest_acked, lost, n);
+      &r->sess, c->largest_acked, now_ms, c->rtt.smoothed_rtt, lost,
+      WIRED_SENDSESS_LOG);
+  srvrun_debug_loss(r, c->largest_acked, lost, n);
   srvrun_qlog_lost(cfg, lost, n);
   return n;
 }
 
-/* Feed one ACK range to one in-flight resp[] slot's session (guard 5
- * above) and run its loss-detection pass. A no-op for an unused slot. */
+/* Feed one ACK range to one in-flight resp[] slot's session and run its
+ * loss-detection pass against the connection's ONE largest_acked (RFC 9002
+ * 6.1.1 -- see the srvrun_conn field comment). A no-op for an unused slot. */
 static usz srvrun_feed_ack_range_resp(
     const srvrun_cfg* cfg,
     srvrun_conn*      c,
@@ -2114,13 +2132,16 @@ static usz srvrun_feed_ack_range_resp(
   if (!r->in_use) return 0;
   srvrun_cc_range(c, r, lo, hi, now_ms);
   if (!r->sess.has_acked) return 0;
-  return srvrun_reap_losses_resp(cfg, r);
+  return srvrun_reap_losses_resp(cfg, c, r, now_ms);
 }
 
-/* Broadcast one ACK range to every in-flight response's send session. */
+/* Broadcast one ACK range to every in-flight response's send session, after
+ * raising the connection's shared largest_acked (RFC 9002 6.1.1: one packet
+ * number space, one largest_acked -- never regresses). */
 static usz srvrun_feed_ack_range(
     const srvrun_cfg* cfg, srvrun_conn* c, u64 lo, u64 hi, u64 now_ms) {
   usz lost = 0;
+  if (hi > c->largest_acked) c->largest_acked = hi;
   for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++)
     lost += srvrun_feed_ack_range_resp(cfg, c, &c->resp[i], lo, hi, now_ms);
   return lost;
