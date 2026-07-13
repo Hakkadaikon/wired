@@ -3516,6 +3516,42 @@ static void test_srvrun_fifth_sequential_get_reuses_freed_slot(void) {
   }
 }
 
+/* PTO BUDGET: the probe-timeout budget (SRVRUN_PTO_MAX) is a
+ * connection-wide policy, not per-slot (srvrun_pto_resps) -- a silent peer
+ * likely stopped acknowledging the whole connection, not just one stream.
+ * SRVRUN_PTO_MAX consecutive probes with no intervening ACK must leave the
+ * connection up (each probe just requeues the oldest in-flight slice); the
+ * next one exhausts the budget and srvrun_pto_slot tears the connection
+ * slot down (c->up -> 0), matching TLA+ resp-multiplex's connection-wide
+ * PTO-budget guard. */
+static void test_srvrun_pto_budget_exhausted_tears_down_connection(void) {
+  struct lp_fix  f;
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_state   st = {table, g_srvrun_state.conns};
+  quic_obuf      ob;
+  u8             obuf[1024];
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  sr_make_confirmed_conn(&st.conns[0], &f, &ob);
+  st.conns[0].cc.cwnd = 1u << 20;
+  CHECK(quic_conntable_insert(table, QUIC_CONNTABLE_CAP, g_cli_scid, 6) == 0);
+  {
+    srvrun_cfg cfg = {-1, 0, sr_tiny_body_handler, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                      0,  0, &g_srvrun_env,        0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    sr_set_req(&st.conns[0], 0, 0, 0);
+    srvrun_start_resp(&ctx, 0);
+    srvrun_pump_sess(&ctx, 0); /* one slice in flight, never acked */
+    CHECK(st.conns[0].resp[0].in_use == 1);
+    for (int i = 0; i < SRVRUN_PTO_MAX; i++) {
+      srvrun_pto_slot(&ctx, 0);
+      CHECK(st.conns[0].up == 1);
+    }
+    srvrun_pto_slot(&ctx, 0); /* budget spent: tears the connection down */
+    CHECK(st.conns[0].up == 0);
+  }
+}
+
 /* LOG-FULL GATE: with the congestion window wide open, the pump must stop
  * at WIRED_SENDSESS_LOG in-flight slices. One more take would send a slice
  * that wired_sendsess_sent (log full) can record in neither log nor requeue
@@ -3565,6 +3601,7 @@ void test_srvrun(void) {
   test_srvrun_no_shutdown_accepts_new();
   test_srvrun_bigbuf_pool_serves_large_body();
   test_srvrun_fifth_sequential_get_reuses_freed_slot();
+  test_srvrun_pto_budget_exhausted_tears_down_connection();
   test_srvrun_pump_stops_at_log_capacity();
   test_srvrun_accept_rekeys_to_slot_scid();
   test_srvrun_initial_retransmit_resends_cached_flight();
