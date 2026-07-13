@@ -1794,13 +1794,34 @@ static void srvrun_pump_datagram(const srvrun_step_ctx* ctx, srvrun_conn* c) {
   srvrun_send_pending_datagram(ctx->cfg, c, &ob);
 }
 
+/* Mirror one completed request into l->req/req_stream_id and start its
+ * response -- the mirror is the single-request interface srvrun_start_resp
+ * reads, re-pointed here per completion so each of a step's requests is
+ * answered with ITS OWN decode, not just the last one dispatch mirrored. */
+static void srvrun_start_done_resp(
+    const srvrun_step_ctx* ctx, int slot, u8 done_i) {
+  srvrun_conn*                     c  = &ctx->st->conns[slot];
+  const wired_srvloop_stream_slot* sl = &c->l.streams[done_i];
+  c->l.req                            = sl->req;
+  c->l.req_stream_id                  = sl->stream_id;
+  srvrun_start_resp(ctx, slot);
+}
+
+/* Start a response for every request that completed this step (RFC 9000
+ * 2.2: a datagram may complete several request streams at once). */
+static void srvrun_start_done_resps(const srvrun_step_ctx* ctx, int slot) {
+  srvrun_conn* c = &ctx->st->conns[slot];
+  for (usz i = 0; i < c->l.done_n; i++)
+    srvrun_start_done_resp(ctx, slot, c->l.done_slots[i]);
+}
+
 static void srvrun_sess_on_step(const srvrun_step_ctx* ctx, int slot) {
   srvrun_conn* c = &ctx->st->conns[slot];
   srvrun_feed_acks(ctx, ctx->cfg, c);
   quic_cc_bbr_tick(
       &c->cc, wired_sendsess_inflight_bytes(&c->sess), ctx->now_ms);
   wired_sendsess_done(&c->sess);
-  if (c->l.got_request) srvrun_start_resp(ctx, slot);
+  srvrun_start_done_resps(ctx, slot);
   srvrun_pump_sess(ctx, slot);
   srvrun_pump_datagram(ctx, c);
 }

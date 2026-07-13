@@ -684,15 +684,116 @@ static void drive_complete(
     dispatch_stream(h3, quic_span_of(in->wrap.p, ob.len), in);
 }
 
+/* RFC 9000 2.2: view one stream slot's cross-datagram request accumulator
+ * (the routed path's per-slot counterpart of the caller-built ctx->acc). */
+static wired_srvloop_reqacc route_slot_acc(wired_srvloop_stream_slot* slot) {
+  wired_srvloop_reqacc acc;
+  acc.buf  = slot->req_buf;
+  acc.cap  = sizeof slot->req_buf;
+  acc.len  = &slot->req_len;
+  acc.fin  = &slot->req_fin;
+  acc.done = &slot->req_done;
+  return acc;
+}
+
+/* Land one request STREAM frame in its own stream's slot (claiming one on
+ * first sight) and mark that slot touched. A full table drops the frame --
+ * same policy as the old single fixed slot. */
+static void route_land(
+    wired_srvloop* l, const quic_stream_frame* sf, u32* touched) {
+  int                  i = wired_srvloop_slot_for(l, sf->stream_id);
+  wired_srvloop_reqacc acc;
+  if (i < 0) return;
+  acc = route_slot_acc(&l->streams[i]);
+  gather_one(sf, &acc);
+  *touched |= 1u << i;
+}
+
+/* RFC 9000 2.2 / 12.4: route every request STREAM frame in this payload to
+ * its own stream's slot (a payload may coalesce frames of several request
+ * streams -- quic-go packs parallel GETs' HEADERS into one packet). Returns
+ * 1 if any request-stream frame was seen, with *touched marking the slots
+ * written. */
+static int route_request_frames(
+    const wired_srvloop_dispatch_ctx* ctx, quic_span payload, u32* touched) {
+  quic_framewalk      it;
+  quic_framewalk_item fr;
+  int                 seen = 0;
+  quic_stream_frame   sf;
+  quic_framewalk_init(&it, payload.p, payload.n);
+  while (quic_framewalk_next(&it, &fr))
+    if (request_stream_of(
+            ctx->l, fr.type, quic_span_of(fr.start, fr.remaining), &sf)) {
+      route_land(ctx->l, &sf, touched);
+      seen = 1;
+    }
+  return seen;
+}
+
+/* Append slot i to this step's completion list and mirror its request into
+ * l->req/req_stream_id (the pre-existing single-request API surface; the
+ * mirror carries the LAST completion when more than one lands this step). */
+static void route_note_done(wired_srvloop* l, int i) {
+  l->req           = l->streams[i].req;
+  l->req_stream_id = l->streams[i].stream_id;
+  if (l->done_n < WIRED_SRVLOOP_MAX_STREAMS) l->done_slots[l->done_n++] = (u8)i;
+}
+
+/* Decode slot i's request if it just completed, using the slot's OWN
+ * scratch/wrap/req storage (each stream's decoded views must stay alive
+ * independently of the others'). */
+static void route_complete_slot(
+    const wired_srvloop_dispatch_ctx* ctx,
+    const wired_srvloop_dispatch_in*  in,
+    int                               i) {
+  wired_srvloop_stream_slot* slot = &ctx->l->streams[i];
+  wired_srvloop_reqacc       acc  = route_slot_acc(slot);
+  int                        got  = 0;
+  wired_srvloop_dispatch_in  sin  = {
+      in->payload, quic_mspan_of(slot->req_scratch, sizeof slot->req_scratch),
+      quic_mspan_of(slot->req_wrap, sizeof slot->req_wrap), &got, &slot->req};
+  if (!request_complete(&acc, &sin)) return;
+  drive_complete(ctx->h3, &acc, &sin);
+  if (got) route_note_done(ctx->l, i);
+}
+
+/* Run completion over every slot this payload touched. */
+static void route_complete_touched(
+    const wired_srvloop_dispatch_ctx* ctx,
+    const wired_srvloop_dispatch_in*  in,
+    u32                               touched) {
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_STREAMS; i++)
+    if ((touched >> i) & 1u) route_complete_slot(ctx, in, (int)i);
+}
+
+/* The routed (ctx->l != 0) reassembly path: per-frame slot routing, then
+ * per-touched-slot completion. */
+static int reassemble_routed(
+    const wired_srvloop_dispatch_ctx* ctx,
+    const wired_srvloop_dispatch_in*  in) {
+  u32 touched = 0;
+  if (!route_request_frames(ctx, in->payload, &touched)) return 0;
+  route_complete_touched(ctx, in, touched);
+  return 1;
+}
+
+/* The single-accumulator (ctx->l == 0) path: the caller owns the acc and the
+ * scratch/wrap/req in `in` -- the direct-dispatch test surface. */
+static int reassemble_single(
+    const wired_srvloop_dispatch_ctx* ctx,
+    const wired_srvloop_dispatch_in*  in) {
+  if (!gather_request(ctx->l, in->payload.p, in->payload.n, ctx->acc)) return 0;
+  if (request_complete(ctx->acc, in)) drive_complete(ctx->h3, ctx->acc, in);
+  return 1;
+}
+
 /* RFC 9000 2.2 / RFC 9114 4.1: accumulate this payload's request-stream frames;
  * once FIN closes the stream, decode the reassembled request exactly once.
  * Returns 1 if a request-stream frame was present (handled), 0 otherwise. */
 static int reassemble_and_drive(
     const wired_srvloop_dispatch_ctx* ctx,
     const wired_srvloop_dispatch_in*  in) {
-  if (!gather_request(ctx->l, in->payload.p, in->payload.n, ctx->acc)) return 0;
-  if (request_complete(ctx->acc, in)) drive_complete(ctx->h3, ctx->acc, in);
-  return 1;
+  return ctx->l ? reassemble_routed(ctx, in) : reassemble_single(ctx, in);
 }
 
 /* 1 if the payload carries a STREAM frame of any kind (request or uni). Such a
@@ -799,19 +900,4 @@ int wired_srvloop_dispatch(
   if (reassemble_and_drive(ctx, in)) return 1;
   if (handled_side) return 1;
   return dispatch_non_request(ctx->s, in->payload.p, in->payload.n);
-}
-
-int wired_srvloop_payload_stream_id(
-    const wired_srvloop* l, quic_span payload, u64* stream_id_out) {
-  quic_framewalk      it;
-  quic_framewalk_item fr;
-  quic_stream_frame   sf;
-  quic_framewalk_init(&it, payload.p, payload.n);
-  while (quic_framewalk_next(&it, &fr))
-    if (request_stream_of(
-            l, fr.type, quic_span_of(fr.start, fr.remaining), &sf)) {
-      *stream_id_out = sf.stream_id;
-      return 1;
-    }
-  return 0;
 }

@@ -213,6 +213,13 @@ typedef struct {
   u64 req_stream_id;        /**< the client bidi stream id req was decoded from;
                                valid only when got_request is set (mirrors req from
                                whichever slot completed, same rule) */
+  /** Every slot whose request completed THIS step, in completion order --
+   * the multi-request counterpart of the single got_request/req mirror
+   * above (which only carries the last one). Reset at the start of every
+   * wired_srvloop_step; each entry indexes streams[], whose slot holds its
+   * own decoded req (views valid until that slot's next request begins). */
+  u8  done_slots[WIRED_SRVLOOP_MAX_STREAMS];
+  usz done_n;        /**< entries valid in done_slots this step */
   int peer_closed;   /**< 1 once a peer CONNECTION_CLOSE frame was seen */
   int resp_external; /**< 1: the caller answers requests, not the loop */
   /** ACK ranges (RFC 9000 19.3) seen in payloads opened this step, reset at
@@ -255,13 +262,6 @@ typedef struct {
    * this loop has no notion of a WT session and does not interpret the id. */
   u64 closed_stream_id;
   int closed_stream_seen; /**< 1 once closed_stream_id was set this step */
-  /** Landing pad for a payload with no request-stream frame (CRYPTO/
-   * handshake): reassemble_and_drive's gather_request never matches a frame
-   * on this path, so this slot's buffers are never actually read or
-   * written. Not connection state: nothing here is meaningful across calls.
-   * Per-instance (not a file-scope static) so multiple server loops running
-   * concurrently never share one scratch slot. */
-  wired_srvloop_stream_slot no_slot;
 } wired_srvloop;
 
 /** Register the app response-body builder; pass 0 to clear (body-less 200).
@@ -278,6 +278,16 @@ void wired_srvloop_set_handler(
  * @param cli_scid_len cli_scid length in octets
  * @return 1, or 0 if cli_scid_len exceeds 20. */
 int wired_srvloop_init(wired_srvloop* l, const u8* cli_scid, u8 cli_scid_len);
+
+/** RFC 9000 2.2: the streams[] slot reassembling request stream_id,
+ * allocating a free one on first sight -- dispatch.c routes each request
+ * STREAM frame to its own stream's slot through this (a payload may coalesce
+ * frames of several request streams).
+ * @param l the loop whose streams[] table to search/claim
+ * @param stream_id the client bidi request stream id
+ * @return the slot index, or -1 when the table is full (the stream's frames
+ *   are dropped, same as the old fixed capacity of one). */
+int wired_srvloop_slot_for(wired_srvloop* l, u64 stream_id);
 
 /** draft-ietf-webtrans-http3-15 4.3: find the wt_streams slot already
  * reassembling stream_id, so dispatch.c's gather_wt_stream can route a later
