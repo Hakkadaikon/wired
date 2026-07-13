@@ -3590,6 +3590,101 @@ static void test_srvrun_pump_stops_at_log_capacity(void) {
   }
 }
 
+/* LOSS + RETRANSMIT ACROSS TWO CONCURRENT RESPONSES: two resp[] slots each
+ * push past WIRED_SENDSESS_LOG in-flight slices (33+, TLA+ resp-multiplex's
+ * flagged test-design pitfall: the log-full gate only fires above LOG
+ * capacity). slot 0 gets a clean ACK sweep; slot 1's ACK skips the middle
+ * of its log, past the packet-loss threshold (RFC 9002 6.1.1), forcing a
+ * requeue -- proving the loss detector, requeue, and pn-broadcast (guard 5:
+ * an ACK range naming slot 0's pns is a no-op against slot 1's log and vice
+ * versa, since pn is one connection-wide monotonic space) all still work
+ * with two sessions live at once. Every byte of both bodies must eventually
+ * reach the log/requeue/acked union -- none silently dropped (I3). */
+static void test_srvrun_loss_and_retransmit_across_two_responses(void) {
+  static u8     body0[(WIRED_SENDSESS_LOG + 4) * SRVRUN_CHUNK];
+  static u8     body1[(WIRED_SENDSESS_LOG + 4) * SRVRUN_CHUNK];
+  struct lp_fix f;
+  srvrun_conn   c;
+  quic_obuf     ob = {0};
+  u8            obuf[1024];
+  u64           pn0_a, pn0_b;
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.cc.cwnd           = 1u << 20; /* isolate the log gate from cwnd */
+  c.resp[0].in_use    = 1;
+  c.resp[0].stream_id = 0;
+  c.resp[1].in_use    = 1;
+  c.resp[1].stream_id = 4;
+  pn0_a               = c.l.tx_pn;
+  wired_sendsess_arm(&c.resp[0].sess, body0, sizeof body0, SRVRUN_CHUNK);
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0};
+    srvrun_state    st  = {0, &c};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 1};
+    /* slot 0 fills its log first (pns pn0_a..pn0_a+31), then slot 1 arms
+     * and fills its own log with fresh pns right after. */
+    srvrun_pump_sess(&ctx, 0);
+    CHECK(wired_sendsess_inflight(&c.resp[0].sess) == WIRED_SENDSESS_LOG);
+    pn0_b = c.l.tx_pn;
+    wired_sendsess_arm(&c.resp[1].sess, body1, sizeof body1, SRVRUN_CHUNK);
+    srvrun_pump_sess(&ctx, 0);
+    CHECK(wired_sendsess_inflight(&c.resp[1].sess) == WIRED_SENDSESS_LOG);
+
+    /* slot 0: a clean ACK sweep of its whole log -- no loss, pump drains
+     * the remaining 4 slices. A range naming slot 0's pns must not touch
+     * slot 1's still-untouched log (guard 5). */
+    srvrun_feed_ack_range(
+        &cfg, &c, pn0_a, pn0_a + WIRED_SENDSESS_LOG - 1, ctx.now_ms);
+    CHECK(wired_sendsess_inflight(&c.resp[1].sess) == WIRED_SENDSESS_LOG);
+    /* hystart_ack's srtt sample would otherwise arm pacing and block the
+     * very next pump at this fixed now_ms; reset it so only the log/cwnd
+     * gates (this test's actual subject) govern srvrun_can_send. */
+    c.srtt_ms      = 0;
+    c.next_send_ms = 0;
+    srvrun_pump_sess(&ctx, 0);
+    CHECK(c.resp[0].sess.q.cur == sizeof body0);
+
+    /* slot 1: ACK only the tail (largest_acked jumps to the log's last pn),
+     * skipping the first WIRED_SENDSESS_LOG-3 slices entirely -- every one
+     * of those is now 3+ behind largest_acked, past RFC 9002 6.1.1's
+     * packet-loss threshold, so the detector must requeue all of them
+     * rather than silently drop them. */
+    srvrun_feed_ack_range(
+        &cfg, &c, pn0_b + WIRED_SENDSESS_LOG - 1,
+        pn0_b + WIRED_SENDSESS_LOG - 1, ctx.now_ms);
+    CHECK(c.resp[1].sess.requeue_n > 0);
+    c.srtt_ms      = 0;
+    c.next_send_ms = 0;
+    /* the pump retransmits the requeued slices (fresh pns) then resumes the
+     * unsent tail; eventually every byte is either in flight or sent. Fresh
+     * pns keep climbing past what a single ACK range names, so each round
+     * ACKs everything currently logged before pumping again -- the same
+     * ACK-drains-the-window cycle a real peer runs, just driven by hand. */
+    for (int round = 0; round < 8 && c.resp[1].sess.q.cur < sizeof body1;
+         round++) {
+      u64 lo = 0, hi = 0;
+      int found = 0;
+      srvrun_pump_sess(&ctx, 0);
+      for (usz i = 0; i < WIRED_SENDSESS_LOG; i++) {
+        const wired_sent_slice* e = &c.resp[1].sess.log[i];
+        if (!e->inflight) continue;
+        if (!found || e->pn < lo) lo = e->pn;
+        if (!found || e->pn > hi) hi = e->pn;
+        found = 1;
+      }
+      if (found) {
+        srvrun_feed_ack_range(&cfg, &c, lo, hi, ctx.now_ms);
+        c.srtt_ms      = 0;
+        c.next_send_ms = 0;
+      }
+    }
+    CHECK(c.resp[1].sess.q.cur == sizeof body1);
+    CHECK(c.resp[1].sess.requeue_n == 0);
+    CHECK(wired_sendsess_inflight(&c.resp[1].sess) == 0);
+  }
+}
+
 void test_srvrun(void) {
   test_srvrun_broadcast_datagram_queues_active_wt_sessions();
   test_srvrun_broadcast_datagram_skips_inactive_wt();
@@ -3602,6 +3697,7 @@ void test_srvrun(void) {
   test_srvrun_bigbuf_pool_serves_large_body();
   test_srvrun_fifth_sequential_get_reuses_freed_slot();
   test_srvrun_pto_budget_exhausted_tears_down_connection();
+  test_srvrun_loss_and_retransmit_across_two_responses();
   test_srvrun_pump_stops_at_log_capacity();
   test_srvrun_accept_rekeys_to_slot_scid();
   test_srvrun_initial_retransmit_resends_cached_flight();
