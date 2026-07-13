@@ -1657,10 +1657,14 @@ static int srvrun_send_slice(
 static int  srvrun_pace_ok(const srvrun_step_ctx* ctx, const srvrun_conn* c);
 static void srvrun_pace_next(const srvrun_step_ctx* ctx, srvrun_conn* c);
 
-/* 1 when both the congestion window (RFC 9002 7) and the pacing schedule
- * (RFC 9002 7.7) allow another packet now. */
+/* 1 when the send log has a free entry, the congestion window (RFC 9002 7)
+ * has room, and the pacing schedule (RFC 9002 7.7) allows another packet
+ * now. The log gate must come first: a slice taken and sent while the log
+ * is full can be recorded in neither log nor requeue -- if that packet then
+ * drops, the stream has a permanent hole the peer waits on forever. */
 static int srvrun_can_send(const srvrun_step_ctx* ctx, const srvrun_conn* c) {
-  return wired_sendsess_inflight_bytes(&c->sess) + SRVRUN_CHUNK <= c->cc.cwnd &&
+  return wired_sendsess_inflight(&c->sess) < WIRED_SENDSESS_LOG &&
+         wired_sendsess_inflight_bytes(&c->sess) + SRVRUN_CHUNK <= c->cc.cwnd &&
          srvrun_pace_ok(ctx, c);
 }
 
