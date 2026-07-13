@@ -1942,10 +1942,61 @@ static void srvrun_cc_range(
  * the caller (srvrun_feed_acks), not here, so a loss on several concurrent
  * responses in the same step still only shrinks the connection's one
  * window once. */
+#ifdef QUIC_DEBUG
+static void srvrun_debug_loss_pns(char* buf, usz* at, const u64* lost, usz n) {
+  for (usz i = 0; i < n && i < 8; i++) {
+    wired_fmt_u64(buf, at, &(wired_fmt_u64_in){lost[i], 1});
+    buf[(*at)++] = ',';
+  }
+}
+#endif
+
+static void srvrun_debug_loss(
+    const srvrun_resp* r, u64 la, const u64* lost, usz n) {
+#ifdef QUIC_DEBUG
+  char buf[256];
+  usz  at   = 0;
+  buf[at++] = 'L';
+  buf[at++] = 'O';
+  buf[at++] = 'S';
+  buf[at++] = 'S';
+  buf[at++] = ' ';
+  buf[at++] = 's';
+  buf[at++] = 'i';
+  buf[at++] = 'd';
+  buf[at++] = '=';
+  wired_fmt_u64(buf, &at, &(wired_fmt_u64_in){r->stream_id, 1});
+  buf[at++] = ' ';
+  buf[at++] = 'l';
+  buf[at++] = 'a';
+  buf[at++] = '=';
+  wired_fmt_u64(buf, &at, &(wired_fmt_u64_in){la, 1});
+  buf[at++] = ' ';
+  buf[at++] = 'n';
+  buf[at++] = '=';
+  wired_fmt_u64(buf, &at, &(wired_fmt_u64_in){n, 1});
+  buf[at++] = ' ';
+  buf[at++] = 'p';
+  buf[at++] = 'n';
+  buf[at++] = 's';
+  buf[at++] = '=';
+  srvrun_debug_loss_pns(buf, &at, lost, n);
+  buf[at++] = '\n';
+  buf[at]   = 0;
+  wired_log_str(buf);
+#else
+  (void)r;
+  (void)la;
+  (void)lost;
+  (void)n;
+#endif
+}
+
 static usz srvrun_reap_losses_resp(const srvrun_cfg* cfg, srvrun_resp* r) {
   u64 lost[WIRED_SENDSESS_LOG];
   usz n = wired_sendsess_detect_lost(
       &r->sess, r->sess.largest_acked, lost, WIRED_SENDSESS_LOG);
+  srvrun_debug_loss(r, r->sess.largest_acked, lost, n);
   srvrun_qlog_lost(cfg, lost, n);
   return n;
 }
