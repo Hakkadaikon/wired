@@ -164,9 +164,11 @@ static void sib_mark_wt_active(srvrun_conn* c) {
 
 /* wired_srvrun_env is opaque outside srvrun.c's own TU; this file is unity-
  * built into that same TU, so its full definition (and srvrun_conn's) is
- * visible here too, same precedent as srvthreads_datagram_test.c. Static, not
- * stack: ~4.6 MiB (wired_srvrun_env_size()), 8 MiB storage for headroom. */
-static u8 g_sib_env_storage[8u * 1024u * 1024u];
+ * visible here too, same precedent as srvthreads_datagram_test.c. Static,
+ * not stack: grew to ~9 MiB once respstore became per-(conn,stream) and the
+ * srvbigbuf pool was added (see srvthreads_datagram_test.c's own note); 16
+ * MiB storage for headroom. */
+static u8 g_sib_env_storage[16u * 1024u * 1024u];
 
 /* Broadcast registry, single-worker (n_total==1): registering hands
  * wired_server_broadcast_datagram this thread's OWN env, so a WT-active
@@ -232,8 +234,8 @@ static void sib_mesh_worker_b_fn(void* argp) {
   wired_srvrun_broadcast_unregister();
 }
 
-static u8 g_sib_mesh_env_a[8u * 1024u * 1024u];
-static u8 g_sib_mesh_env_b[8u * 1024u * 1024u];
+static u8 g_sib_mesh_env_a[16u * 1024u * 1024u];
+static u8 g_sib_mesh_env_b[16u * 1024u * 1024u];
 
 static void test_srvinbox_registry_two_worker_mesh_delivers(void) {
   wired_srvrun_env*   env_a = (wired_srvrun_env*)(void*)g_sib_mesh_env_a;

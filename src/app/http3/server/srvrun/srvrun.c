@@ -8,6 +8,7 @@
 #include "app/http3/server/certreload/certreload.h"
 #include "app/http3/server/sendsess/sendsess.h"
 #include "app/http3/server/sigterm/sigterm.h"
+#include "app/http3/server/srvbigbuf/srvbigbuf.h"
 #include "app/http3/server/srvloop/send.h"
 #include "app/http3/server/srvpoll/srvpoll.h"
 #include "app/http3/server/srvxdp/srvxdp.h"
@@ -97,6 +98,10 @@ typedef struct {
   int            in_use;
   u64            stream_id;
   wired_sendsess sess;
+  /* -1: this response's body fit the connection slot's fixed respstore row.
+   * >=0: the body instead lives in this wired_srvbigbuf row (env->bigbuf),
+   * released back to the pool when this resp[] slot is reaped. */
+  int bigbuf_row;
 } srvrun_resp;
 /* Matches WIRED_SRVLOOP_MAX_STREAMS: the receive side's stream-slot table
  * bounds how many distinct request streams a connection reassembles at
@@ -193,6 +198,11 @@ struct wired_srvrun_env {
   u8 respstore[QUIC_CONNTABLE_CAP][SRVRUN_RESP_SLOTS][WIRED_SRVRUN_RESP_MAX];
   /* Receive batch storage (SRVRUN_RX_BATCH above). */
   u8 rxstorage[SRVRUN_RX_BATCH][2048];
+  /* Backing storage for the large-body pool (srvbigbuf.h) plus the pool
+   * itself, a view over it. A response body that does not fit
+   * WIRED_SRVRUN_RESP_MAX (16KB) borrows a row here instead. */
+  u8              bigbuf_rows[WIRED_SRVBIGBUF_ROWS][WIRED_SRVBIGBUF_ROW_CAP];
+  wired_srvbigbuf bigbuf;
   /* Storage a SIGHUP reload decodes into — must outlive the identity built
    * from it. */
   wired_certreload_store certstore;
@@ -1513,8 +1523,9 @@ static srvrun_resp* srvrun_resp_find(srvrun_conn* c, u64 stream_id) {
 static srvrun_resp* srvrun_resp_claim(srvrun_conn* c, u64 stream_id) {
   for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++) {
     if (c->resp[i].in_use) continue;
-    c->resp[i].in_use    = 1;
-    c->resp[i].stream_id = stream_id;
+    c->resp[i].in_use     = 1;
+    c->resp[i].stream_id  = stream_id;
+    c->resp[i].bigbuf_row = -1;
     return &c->resp[i];
   }
   return 0;
@@ -1570,14 +1581,61 @@ static void srvrun_reject_wt(
   srvrun_start_wt_status(env, slot, c, r, 403);
 }
 
+/* r's storage row for this response: the fixed per-(conn,stream) respstore
+ * row (WIRED_SRVRUN_RESP_MAX = 16KB, SRVRUN_RESP_HDR_ROOM reserved at the
+ * front for the framed HEADERS prefix), or -- when the app handler needs
+ * more room than that -- a claimed wired_srvbigbuf row (srvbigbuf.h),
+ * reserving the same HDR_ROOM prefix at its own front. Pool exhaustion
+ * falls back to the fixed row (its cap simply bounds the handler's write,
+ * same as before this pool existed): a body that then overflows the fixed
+ * row is truncated by the handler's own quic_obuf cap, not a new failure
+ * mode. r->bigbuf_row records which storage was used, -1 for the fixed row,
+ * so srvrun_resp_reap knows whether to release a pool row later. */
+static u8* srvrun_resp_storage(
+    const srvrun_step_ctx* ctx, int slot, srvrun_conn* c, srvrun_resp* r) {
+  u8* fixed = ctx->cfg->env->respstore[slot][srvrun_resp_index(c, r)];
+  u8* big   = wired_srvbigbuf_claim(&ctx->cfg->env->bigbuf, &r->bigbuf_row);
+  return big ? big : fixed;
+}
+
+/* Bytes available in st for body_out (past the HDR_ROOM prefix), matching
+ * whichever storage srvrun_resp_storage chose. */
+static usz srvrun_resp_storage_cap(const srvrun_resp* r) {
+  return (r->bigbuf_row >= 0 ? WIRED_SRVBIGBUF_ROW_CAP
+                             : WIRED_SRVRUN_RESP_MAX) -
+         SRVRUN_RESP_HDR_ROOM;
+}
+
+/* If r's body ended up small enough for the fixed respstore row after all
+ * (the common case: most responses are far under 16KB), copy it there and
+ * release the pool row immediately -- pool rows are scarce (2 total) and a
+ * response that never needed one should not hold one for its whole
+ * lifetime. body/pre are already-framed bytes at st (HDR_ROOM prefix +
+ * body); total is their combined length. */
+static u8* srvrun_resp_shrink_to_fixed(
+    const srvrun_step_ctx* ctx,
+    int                    slot,
+    srvrun_conn*           c,
+    srvrun_resp*           r,
+    u8*                    st,
+    usz                    total) {
+  u8* fixed;
+  if (r->bigbuf_row < 0 || total > WIRED_SRVRUN_RESP_MAX) return st;
+  fixed = ctx->cfg->env->respstore[slot][srvrun_resp_index(c, r)];
+  quic_memcpy(fixed, st, total);
+  wired_srvbigbuf_release(&ctx->cfg->env->bigbuf, r->bigbuf_row);
+  r->bigbuf_row = -1;
+  return fixed;
+}
+
 /* Body of srvrun_start_resp for a normal (non-WT) request: run the app
  * handler, then frame+arm the response exactly as before this task. Split
  * out so srvrun_start_resp itself stays at its gate/dispatch decision (CCN). */
 static void srvrun_start_app_resp(
     const srvrun_step_ctx* ctx, srvrun_conn* c, int slot, srvrun_resp* r) {
-  u8*       st   = ctx->cfg->env->respstore[slot][srvrun_resp_index(c, r)];
-  quic_obuf body = quic_obuf_of(
-      st + SRVRUN_RESP_HDR_ROOM, WIRED_SRVRUN_RESP_MAX - SRVRUN_RESP_HDR_ROOM);
+  u8*       st = srvrun_resp_storage(ctx, slot, c, r);
+  quic_obuf body =
+      quic_obuf_of(st + SRVRUN_RESP_HDR_ROOM, srvrun_resp_storage_cap(r));
   u8          pre[SRVRUN_RESP_HDR_ROOM];
   quic_obuf   pob = quic_obuf_of(pre, sizeof pre);
   const char* ct  = 0;
@@ -1588,9 +1646,9 @@ static void srvrun_start_app_resp(
   quic_put_bytes(
       quic_mspan_of(st, SRVRUN_RESP_HDR_ROOM), &off,
       quic_span_of(pre, pob.len));
-  wired_sendsess_arm(
-      &r->sess, st + SRVRUN_RESP_HDR_ROOM - pob.len, pob.len + body.len,
-      SRVRUN_CHUNK);
+  st = srvrun_resp_shrink_to_fixed(
+      ctx, slot, c, r, st + SRVRUN_RESP_HDR_ROOM - pob.len, pob.len + body.len);
+  wired_sendsess_arm(&r->sess, st, pob.len + body.len, SRVRUN_CHUNK);
 }
 
 /* Reject this Extended CONNECT with 429 (WT-C-010/011: a second Extended
@@ -1949,26 +2007,35 @@ static void srvrun_start_done_resps(const srvrun_step_ctx* ctx, int slot) {
     srvrun_start_done_resp(ctx, slot, c->l.done_slots[i]);
 }
 
+/* Return r's borrowed wired_srvbigbuf row to the pool, if it holds one. */
+static void srvrun_resp_release_bigbuf(wired_srvrun_env* env, srvrun_resp* r) {
+  if (r->bigbuf_row >= 0) wired_srvbigbuf_release(&env->bigbuf, r->bigbuf_row);
+}
+
 /* Once r's session goes idle (wired_sendsess_done: every slice sent and
  * acked), free r's slot and the matching srvloop receive-side slot --
  * HTTP/3 never reuses a stream id, so without releasing the receive slot
  * too, WIRED_SRVLOOP_MAX_STREAMS sequential requests on distinct streams
- * would permanently exhaust it (guard: TLA+ resp-multiplex I4). */
-static void srvrun_resp_reap(srvrun_conn* c, srvrun_resp* r) {
+ * would permanently exhaust it (guard: TLA+ resp-multiplex I4). A body that
+ * borrowed a wired_srvbigbuf row returns it to the pool here too. */
+static void srvrun_resp_reap(
+    wired_srvrun_env* env, srvrun_conn* c, srvrun_resp* r) {
   if (!r->in_use || !wired_sendsess_done(&r->sess)) return;
   wired_srvloop_slot_release(&c->l, r->stream_id);
+  srvrun_resp_release_bigbuf(env, r);
   r->in_use = 0;
 }
 
-static void srvrun_reap_resps(srvrun_conn* c) {
-  for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++) srvrun_resp_reap(c, &c->resp[i]);
+static void srvrun_reap_resps(wired_srvrun_env* env, srvrun_conn* c) {
+  for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++)
+    srvrun_resp_reap(env, c, &c->resp[i]);
 }
 
 static void srvrun_sess_on_step(const srvrun_step_ctx* ctx, int slot) {
   srvrun_conn* c = &ctx->st->conns[slot];
   srvrun_feed_acks(ctx, ctx->cfg, c);
   quic_cc_bbr_tick(&c->cc, srvrun_inflight_bytes_all(c), ctx->now_ms);
-  srvrun_reap_resps(c);
+  srvrun_reap_resps(ctx->cfg->env, c);
   srvrun_start_done_resps(ctx, slot);
   srvrun_pump_sess(ctx, slot);
   srvrun_pump_datagram(ctx, c);
@@ -2465,6 +2532,8 @@ usz wired_srvrun_env_size(void) { return sizeof(wired_srvrun_env); }
 
 void wired_srvrun_env_init(wired_srvrun_env* env) {
   *env = (wired_srvrun_env){0};
+  wired_srvbigbuf_init(
+      &env->bigbuf, &env->bigbuf_rows[0][0], WIRED_SRVBIGBUF_ROW_CAP);
 }
 
 int wired_srvrun_serve_env(
@@ -2488,6 +2557,12 @@ int wired_server_run_opt(
     wired_srvrun_handler    h,
     wired_srvrun_obs        obs,
     const wired_srvrun_opt* opt) {
+  /* g_srvrun_env is BSS-zeroed (static storage), which happens to already
+   * match wired_srvrun_env_init's own zeroing -- except bigbuf, whose
+   * wired_srvbigbuf_init call points it at this env's own row storage. */
+  wired_srvbigbuf_init(
+      &g_srvrun_env.bigbuf, &g_srvrun_env.bigbuf_rows[0][0],
+      WIRED_SRVBIGBUF_ROW_CAP);
   return wired_srvrun_serve_env(&g_srvrun_env, port, id, h, obs, opt);
 }
 
