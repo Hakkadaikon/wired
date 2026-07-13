@@ -1917,17 +1917,23 @@ static void srvrun_hystart_range(
 /* Credit one ACK range against r's log to the congestion controller before
  * consuming it (RFC 9002 7.3.2: growth per acked bytes; the newest send
  * time among the hits drives recovery exit). Guard 5 (TLA+ resp-multiplex):
- * a range is broadcast to every resp[] slot, but wired_sendsess_ack only
- * consumes the pns that hit ITS OWN log (sendsess.c), so a range naming
- * another stream's pns is a no-op here -- pn is a single monotonic
- * per-connection space (c->l.tx_pn), so at most one slot's log ever holds a
- * given pn. */
+ * a range is broadcast to every resp[] slot, and wired_sendsess_ack only
+ * clears the log entries that hit ITS OWN log (sendsess.c) -- but it also
+ * unconditionally raises largest_acked to the range's hi, even when hi
+ * belongs to another slot's pn (pn is a single monotonic per-connection
+ * space, so a broadcast range routinely names pns this slot never sent).
+ * That falsely advances this slot's packet-loss threshold (RFC 9002
+ * 6.1.1) and requeues in-flight slices that were never actually lost --
+ * observed against a real quic-go client on a 500KB body: offsets past
+ * ~90KB were re-sent from ~55KB after an ACK for a sibling stream's pns.
+ * Only forward the range when it actually hits something in r's own log. */
 static void srvrun_cc_range(
     srvrun_conn* c, srvrun_resp* r, u64 lo, u64 hi, u64 now_ms) {
   u64 newest = 0;
   usz bytes  = wired_sendsess_peek_ack(&r->sess, lo, hi, &newest);
+  if (!bytes) return;
   srvrun_hystart_range(c, r, lo, hi, now_ms);
-  if (bytes) quic_cc_on_ack(&c->cc, bytes, newest, now_ms);
+  quic_cc_on_ack(&c->cc, bytes, newest, now_ms);
   wired_sendsess_ack(&r->sess, lo, hi);
 }
 
