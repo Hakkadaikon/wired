@@ -2153,8 +2153,36 @@ static int srvrun_has_outbound(const srvrun_conn* c) {
 
 /* 1 if r is unused or still has PTO probe budget; 0 once a used slot's
  * budget is spent. */
+#ifdef QUIC_DEBUG
+static void srvrun_debug_pto(u64 stream_id, int count) {
+  char buf[64];
+  usz  at   = 0;
+  buf[at++] = 'P';
+  buf[at++] = 'T';
+  buf[at++] = 'O';
+  buf[at++] = ' ';
+  buf[at++] = 's';
+  buf[at++] = 'i';
+  buf[at++] = 'd';
+  buf[at++] = '=';
+  wired_fmt_u64(buf, &at, &(wired_fmt_u64_in){stream_id, 1});
+  buf[at++] = ' ';
+  buf[at++] = 'c';
+  buf[at++] = 'n';
+  buf[at++] = 't';
+  buf[at++] = '=';
+  wired_fmt_u64(buf, &at, &(wired_fmt_u64_in){(u64)count, 1});
+  buf[at++] = '\n';
+  buf[at]   = 0;
+  wired_log_str(buf);
+}
+#endif
+
 static int srvrun_resp_pto_ok(srvrun_resp* r) {
   if (!r->in_use) return 1;
+#ifdef QUIC_DEBUG
+  srvrun_debug_pto(r->stream_id, r->sess.pto_count);
+#endif
   return wired_sendsess_pto_fire(&r->sess, SRVRUN_PTO_MAX);
 }
 
