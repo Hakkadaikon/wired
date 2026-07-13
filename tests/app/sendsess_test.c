@@ -86,7 +86,7 @@ static void test_sendsess_threshold_declares_lost(void) {
   wired_sendsess_ack(&s, 4, 4); /* largest acked 4: pns 0,1 are <= 4-3 */
   {
     u64 lost[4] = {99, 99, 99, 99};
-    CHECK(wired_sendsess_detect_lost(&s, 4, lost, 4) == 2);
+    CHECK(wired_sendsess_detect_lost(&s, 4, 0, 0, lost, 4) == 2);
     /* the lost packet numbers are reported (for the caller's qlog) */
     CHECK((lost[0] == 0 && lost[1] == 1) || (lost[0] == 1 && lost[1] == 0));
   }
@@ -96,13 +96,54 @@ static void test_sendsess_threshold_declares_lost(void) {
   CHECK(wired_sendsess_take(&s, &sl) == 1);
   CHECK(sl.offset == 10 || sl.offset == 0); /* one of the lost slices */
   /* below-threshold in-flight packets are untouched */
-  CHECK(wired_sendsess_detect_lost(&s, 4, 0, 0) == 0);
+  CHECK(wired_sendsess_detect_lost(&s, 4, 0, 0, 0, 0) == 0);
   /* the largest acknowledged pn is tracked and never regresses */
   CHECK(s.has_acked == 1 && s.largest_acked == 4);
   wired_sendsess_ack(&s, 2, 2);
   CHECK(s.largest_acked == 4);
   wired_sendsess_arm(&s, bytes, 50, 10); /* re-arm resets the tracker */
   CHECK(s.has_acked == 0);
+}
+
+/* RFC 9002 6.1.2: the time threshold alone (independent of the packet
+ * threshold) can also declare a slice lost -- the two criteria are an OR,
+ * not a sequence. pn 4 is only 1 below largest_acked (well under
+ * kPacketThreshold=3), so the packet threshold alone would leave it in
+ * flight; a large elapsed time past 9/8*srtt must still declare it lost. */
+static void test_sendsess_time_threshold_declares_lost_alone(void) {
+  u8                bytes[20];
+  wired_sendsess    s;
+  wired_sendq_slice sl;
+  wired_sendsess_arm(&s, bytes, 20, 10);
+  CHECK(wired_sendsess_take(&s, &sl) == 1);
+  CHECK(wired_sendsess_sent(&s, &sl, 4, 0) == 1); /* pn 4 sent at t=0ms */
+  wired_sendsess_ack(&s, 5, 5); /* largest_acked=5: pn 4 is only 1 below */
+  {
+    u64 lost[1] = {99};
+    /* srtt=1000us -> time threshold = 9/8*1000 = 1125us. at now_ms=2
+     * (2000us elapsed), well past it; packet threshold alone (5-4=1 < 3)
+     * would not have caught this. */
+    CHECK(wired_sendsess_detect_lost(&s, 5, 2, 1000, lost, 1) == 1);
+    CHECK(lost[0] == 4);
+  }
+  CHECK(s.requeue_n == 1);
+  CHECK(wired_sendsess_inflight(&s) == 0);
+}
+
+/* srtt_us == 0 (no RTT sample yet) must not spuriously satisfy the time
+ * threshold -- quic_loss_by_time's elapsed>=threshold could otherwise fire
+ * on any elapsed time with threshold computed from a zero RTT. Same setup
+ * as above but srtt_us=0: pn 4 must stay in flight. */
+static void test_sendsess_time_threshold_skipped_without_rtt_sample(void) {
+  u8                bytes[20];
+  wired_sendsess    s;
+  wired_sendq_slice sl;
+  wired_sendsess_arm(&s, bytes, 20, 10);
+  CHECK(wired_sendsess_take(&s, &sl) == 1);
+  CHECK(wired_sendsess_sent(&s, &sl, 4, 0) == 1);
+  wired_sendsess_ack(&s, 5, 5);
+  CHECK(wired_sendsess_detect_lost(&s, 5, 2, 0, 0, 0) == 0);
+  CHECK(wired_sendsess_inflight(&s) == 1);
 }
 
 /* wired_sendsess_oldest_sent_ms reports the oldest in-flight slice's send
@@ -215,6 +256,8 @@ void test_sendsess(void) {
   test_sendsess_done_only_after_all_acked();
   test_sendsess_requeue_first();
   test_sendsess_threshold_declares_lost();
+  test_sendsess_time_threshold_declares_lost_alone();
+  test_sendsess_time_threshold_skipped_without_rtt_sample();
   test_sendsess_oldest_sent_ms();
   test_sendsess_pto_probes_oldest();
   test_sendsess_pto_resets_on_ack();
