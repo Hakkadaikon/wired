@@ -134,7 +134,17 @@ static u64 bbr_pacing_ms(const quic_cc* c, u64 mtu) {
   return quic_u64_max(mtu / rate, 1);
 }
 
+/* NewReno/CUBIC pacing: RFC 9002 7.7 interval, floored at 1ms once an RTT
+ * sample exists -- integer ms truncates any interval under 1ms to 0, which
+ * left srvrun_pump_sess's per-step drain loop unpaced once cwnd grew large
+ * enough (interval = 5*mtu*srtt/(4*cwnd) < 1), bursting a whole log's worth
+ * of packets in one step and overflowing the network simulator's queue. */
+static u64 newreno_pacing_ms(const quic_cc* c, u64 srtt_ms, u64 mtu) {
+  u64 ms = quic_pacing_interval(srtt_ms, c->cwnd, mtu);
+  return srtt_ms ? quic_u64_max(ms, 1) : ms;
+}
+
 u64 quic_cc_pacing_ms(const quic_cc* c, u64 srtt_ms, u64 mtu) {
   if (c->algo == QUIC_CC_ALGO_BBR) return bbr_pacing_ms(c, mtu);
-  return quic_pacing_interval(srtt_ms, c->cwnd, mtu);
+  return newreno_pacing_ms(c, srtt_ms, mtu);
 }

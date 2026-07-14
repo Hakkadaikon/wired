@@ -93,6 +93,32 @@ static void test_cc_bbr_mode(void) {
   }
 }
 
+/* A large cwnd (post-slow-start) with a real RTT sample makes
+ * 5*mtu*srtt/(4*cwnd) truncate below 1ms -- srvrun_pump_sess's per-step
+ * drain loop then never re-checks pacing within the step, bursting an
+ * entire log's worth of packets at once (observed: 17 packets in ~2.7ms
+ * against a real quic-go client, overflowing the network simulator's queue
+ * and losing 7 of them). Once an RTT sample exists, the interval must floor
+ * at 1ms so the step boundary itself paces sends. */
+static void test_cc_pacing_floors_at_1ms_once_rtt_known(void) {
+  quic_cc c;
+  quic_cc_init(&c);
+  c.cwnd = 71055; /* real value observed mid-transfer: 5*1200*40/(4*71055)
+                     truncates to 0 unfloored */
+  CHECK(quic_pacing_interval(40, c.cwnd, 1200) == 0);
+  CHECK(quic_cc_pacing_ms(&c, 40, 1200) == 1);
+}
+
+/* No RTT sample yet (srtt_ms == 0): srvrun_pace_ok's own !c->srtt_ms check
+ * already bypasses pacing entirely, so the interval must stay 0, not be
+ * floored -- flooring here would just be dead weight the caller ignores. */
+static void test_cc_pacing_zero_srtt_stays_unfloored(void) {
+  quic_cc c;
+  quic_cc_init(&c);
+  c.cwnd = 71055;
+  CHECK(quic_cc_pacing_ms(&c, 0, 1200) == 0);
+}
+
 void test_cc(void) {
   test_cc_bbr_mode();
   test_cc_cubic_mode();
@@ -101,4 +127,6 @@ void test_cc(void) {
   test_cc_no_grow_in_recovery();
   test_cc_recovery_exit();
   test_cc_persistent_collapse();
+  test_cc_pacing_floors_at_1ms_once_rtt_known();
+  test_cc_pacing_zero_srtt_stays_unfloored();
 }
