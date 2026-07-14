@@ -2065,22 +2065,22 @@ static void test_srvloop_external_resp_suppresses_200(void) {
  * rotated the server's generation seals under the TRUE next generation,
  * not a fixed generation 1. */
 static usz client_seal_onertt_pn_gen(
-    struct lp_fix* f,
-    u64            pn,
-    int            steps_ahead,
-    const u8*      pl,
-    usz            pln,
-    u8*            pkt,
-    usz            cap) {
+    wired_server* s,
+    u64           pn,
+    int           steps_ahead,
+    const u8*     pl,
+    usz           pln,
+    u8*           pkt,
+    usz           cap) {
   quic_initial_keys        next;
-  const quic_initial_keys* use   = &f->s.ku.cur;
-  int                      phase = (int)quic_keyphase_bit(f->s.ku.generation);
+  const quic_initial_keys* use   = &s->ku.cur;
+  int                      phase = (int)quic_keyphase_bit(s->ku.generation);
   quic_aes128              hp;
   usz                      total = 0;
   if (steps_ahead == 1) {
     u8 next_secret[QUIC_HKDF_PRK];
-    quic_kuswitch_next_keys(f->s.ku_secret, &next, next_secret);
-    quic_memcpy(next.hp, f->s.ku.cur.hp, QUIC_INITIAL_HP);
+    quic_kuswitch_next_keys(s->ku_secret, &next, next_secret);
+    quic_memcpy(next.hp, s->ku.cur.hp, QUIC_INITIAL_HP);
     use   = &next;
     phase = 1 - phase;
   }
@@ -2088,7 +2088,7 @@ static usz client_seal_onertt_pn_gen(
   {
     quic_protect_keys      pk = {use, &hp};
     quic_hspkt_onertt_desc d  = {
-        quic_span_of(f->s.sdrv.iscid, f->s.sdrv.iscid_len), pn,
+        quic_span_of(s->sdrv.iscid, s->sdrv.iscid_len), pn,
         quic_span_of(pl, pln), phase};
     quic_obuf o = quic_obuf_of(pkt, cap);
     CHECK(quic_hspkt_onertt_build(&pk, &d, &o));
@@ -2118,7 +2118,7 @@ static void test_srvloop_recv_same_phase_uses_current_keys(void) {
         &gob));
     glen = gob.len;
   }
-  slen = client_seal_onertt_pn_gen(&f, 7, 0, get, glen, spkt, sizeof spkt);
+  slen = client_seal_onertt_pn_gen(&f.s, 7, 0, get, glen, spkt, sizeof spkt);
   ob   = (quic_obuf){out, sizeof out, 0};
   CHECK(
       wired_srvloop_step(
@@ -2147,7 +2147,7 @@ static void test_srvloop_recv_new_phase_derives_next_keys(void) {
         &gob));
     glen = gob.len;
   }
-  slen = client_seal_onertt_pn_gen(&f, 7, 1, get, glen, spkt, sizeof spkt);
+  slen = client_seal_onertt_pn_gen(&f.s, 7, 1, get, glen, spkt, sizeof spkt);
   ob   = (quic_obuf){out, sizeof out, 0};
   CHECK(
       wired_srvloop_step(
@@ -2206,7 +2206,7 @@ static void test_srvloop_send_keys_follow_peer_update_before_ack(void) {
     glen = gob.len;
   }
   /* seal this GET under generation 1 -- the peer's Key Update */
-  slen = client_seal_onertt_pn_gen(&f, 7, 1, get, glen, spkt, sizeof spkt);
+  slen = client_seal_onertt_pn_gen(&f.s, 7, 1, get, glen, spkt, sizeof spkt);
   ob   = (quic_obuf){out, sizeof out, 0};
   CHECK(
       wired_srvloop_step(
@@ -2252,7 +2252,7 @@ static void test_srvloop_recv_failed_decrypt_does_not_advance_generation(void) {
   /* seal under generation 1 (the only key material this test has), then
    * flip a ciphertext byte so it authenticates under neither generation 0
    * (current), any retained old, nor the derived next-generation probe. */
-  slen = client_seal_onertt_pn_gen(&f, 7, 1, get, glen, spkt, sizeof spkt);
+  slen = client_seal_onertt_pn_gen(&f.s, 7, 1, get, glen, spkt, sizeof spkt);
   spkt[slen - 1] ^= 0xff; /* corrupt the last ciphertext/tag byte */
   ob = (quic_obuf){out, sizeof out, 0};
   CHECK(
@@ -2282,10 +2282,10 @@ static void test_srvloop_recv_reordered_packet_uses_old_keys(void) {
     glen = gob.len;
   }
   /* seal one gen-0 packet now, to arrive "late" after the update below */
-  slen_old =
-      client_seal_onertt_pn_gen(&f, 6, 0, get, glen, spkt_old, sizeof spkt_old);
+  slen_old = client_seal_onertt_pn_gen(
+      &f.s, 6, 0, get, glen, spkt_old, sizeof spkt_old);
   /* the update: gen-1 packet confirms and rotates gen 0 into old */
-  slen = client_seal_onertt_pn_gen(&f, 7, 1, get, glen, spkt, sizeof spkt);
+  slen = client_seal_onertt_pn_gen(&f.s, 7, 1, get, glen, spkt, sizeof spkt);
   ob   = (quic_obuf){out, sizeof out, 0};
   CHECK(
       wired_srvloop_step(
@@ -2359,7 +2359,7 @@ static void test_srvloop_recv_follows_repeated_key_updates_across_generations(
     glen = gob.len;
   }
   /* update 1: gen 0 -> gen 1 */
-  slen = client_seal_onertt_pn_gen(&f, 7, 1, get, glen, spkt, sizeof spkt);
+  slen = client_seal_onertt_pn_gen(&f.s, 7, 1, get, glen, spkt, sizeof spkt);
   ob   = (quic_obuf){out, sizeof out, 0};
   CHECK(
       wired_srvloop_step(
@@ -2371,7 +2371,7 @@ static void test_srvloop_recv_follows_repeated_key_updates_across_generations(
    * (it always derives exactly one step past whatever CLIENT_AP currently
    * holds; since generation 1 is now current, feeding it gen==1 here seals
    * under the true generation 2). */
-  slen = client_seal_onertt_pn_gen(&f, 8, 1, get, glen, spkt, sizeof spkt);
+  slen = client_seal_onertt_pn_gen(&f.s, 8, 1, get, glen, spkt, sizeof spkt);
   ob   = (quic_obuf){out, sizeof out, 0};
   CHECK(
       wired_srvloop_step(
