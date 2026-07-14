@@ -1343,6 +1343,51 @@ static void test_srvrun_rtt_ewma(void) {
   CHECK(c.srtt_ms == 112); /* (7*100 + 200) / 8 */
 }
 
+/* RFC 9002 5.1: "an endpoint... SHOULD generate an RTT sample using only
+ * the largest acknowledged packet in the received ACK frame" -- one ACK
+ * range that hits several in-flight slices sent far apart in time must
+ * feed the RTT estimator exactly one sample (from the newest of the hits),
+ * not one sample per hit. Feeding every hit dragged smoothed_rtt toward the
+ * oldest (least representative) send times -- observed as srtt climbing
+ * from ~36ms to ~55ms over an interop run whose simulated RTT never
+ * changed, once srvrun_pump_round's round-robin pumping spread a single
+ * slot's own slices further apart in real send time than the old
+ * drain-then-next order did. */
+static void test_srvrun_rtt_sample_uses_newest_hit_only(void) {
+  static u8     body[3 * SRVRUN_CHUNK];
+  struct lp_fix f;
+  srvrun_conn   c;
+  quic_obuf     ob = {0};
+  u8            obuf[1024];
+  u64           pn0;
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.resp[0].in_use    = 1;
+  c.resp[0].stream_id = 0;
+  pn0                 = c.l.tx_pn;
+  wired_sendsess_arm(&c.resp[0].sess, body, sizeof body, SRVRUN_CHUNK);
+  {
+    /* three slices sent 100ms apart (pn0 at t=0, pn0+1 at t=100, pn0+2 at
+     * t=200) -- a real gap round-robin pumping can produce across an
+     * otherwise-idle slot's own queue. */
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0};
+    srvrun_resp*      r = &c.resp[0];
+    wired_sendq_slice sl;
+    CHECK(wired_sendsess_take(&r->sess, &sl) == 1);
+    CHECK(wired_sendsess_sent(&r->sess, &sl, pn0, 0) == 1);
+    CHECK(wired_sendsess_take(&r->sess, &sl) == 1);
+    CHECK(wired_sendsess_sent(&r->sess, &sl, pn0 + 1, 100) == 1);
+    CHECK(wired_sendsess_take(&r->sess, &sl) == 1);
+    CHECK(wired_sendsess_sent(&r->sess, &sl, pn0 + 2, 200) == 1);
+    /* one ACK range at t=215 covers all three: newest send time is 200,
+     * so the sample must be 215-200=15, not an average pulled toward the
+     * pn0 slice's 215-0=215. */
+    srvrun_feed_ack_range(&cfg, &c, pn0, pn0 + 2, 215);
+    CHECK(c.srtt_ms == 15);
+  }
+}
+
 /* PACING GATE: before the first RTT sample sends are unpaced; with an srtt,
  * a send scheduled in the future blocks the pump and the next-send time
  * advances by the pacing interval (1.25 * pkt * srtt / cwnd). */
@@ -3894,6 +3939,7 @@ void test_srvrun(void) {
   test_srvrun_cc_algo_selected();
   test_srvrun_hystart_ends_slow_start();
   test_srvrun_rtt_ewma();
+  test_srvrun_rtt_sample_uses_newest_hit_only();
   test_srvrun_pacing_gate();
   test_srvrun_shutdown_rejects_new_initial();
   test_srvrun_shutdown_refuses_slot_claim();

@@ -2009,18 +2009,29 @@ static int srvrun_in_slow_start(const srvrun_conn* c) {
   return c->cc.cwnd < c->cc.ssthresh && !c->cc.in_recovery;
 }
 
-/* Feed one acked packet's RTT sample (now - send time) to the slow-start
- * exit detector (RFC 9406); on the verdict, end slow start by dropping
- * ssthresh to the current window. Round boundary: the next pn to be sent. */
+/* Feed one acked packet's sample to the slow-start exit detector (RFC 9406,
+ * which explicitly samples every ACKed packet in a round, not just the
+ * newest); on the verdict, end slow start by dropping ssthresh to the
+ * current window. Round boundary: the next pn to be sent. Does NOT touch
+ * the RTT estimator -- see srvrun_hystart_range's comment for why. */
 static void srvrun_hystart_ack(srvrun_conn* c, u64 pn, u64 sent_ms, u64 now) {
-  srvrun_rtt_note(c, now - sent_ms);
   if (!srvrun_in_slow_start(c)) return;
   if (quic_hystart_sample(&c->hs, now - sent_ms, pn, c->l.tx_pn))
     c->cc.ssthresh = c->cc.cwnd;
 }
 
-/* Feed every in-flight packet an ACK range covers in r's log to the
- * detector before the range is consumed. */
+/* Feed every in-flight packet an ACK range covers to the hystart detector
+ * (RFC 9406 intends every sample in the round, unlike RTT estimation) --
+ * the RTT estimator itself is fed separately, once, from the range's newest
+ * send time (RFC 9002 5.1: "an endpoint... SHOULD generate an RTT sample
+ * using only the largest acknowledged packet in the received ACK frame").
+ * Feeding every hit here fed the SAME range's older, already-in-flight-a-
+ * while slices as separate samples too -- under round-robin pumping
+ * (srvrun_pump_round) a slot's own slices spread further apart in real send
+ * time than under the old drain-then-next order, so those older samples'
+ * inflated (now - sent_ms) dragged smoothed_rtt further from the true RTT
+ * every ACK, observed as srtt climbing from ~36ms to ~55ms over a run whose
+ * simulated RTT never changed. */
 static void srvrun_hystart_range(
     srvrun_conn* c, const srvrun_resp* r, u64 lo, u64 hi, u64 now) {
   for (usz i = 0; i < WIRED_SENDSESS_LOG; i++) {
@@ -2048,6 +2059,7 @@ static void srvrun_cc_range(
   u64 newest = 0;
   usz bytes  = wired_sendsess_peek_ack(&r->sess, lo, hi, &newest);
   if (!bytes) return;
+  srvrun_rtt_note(c, now_ms - newest);
   srvrun_hystart_range(c, r, lo, hi, now_ms);
   quic_cc_on_ack(&c->cc, bytes, newest, now_ms);
   wired_sendsess_ack(&r->sess, lo, hi);
@@ -2068,7 +2080,7 @@ static void srvrun_debug_loss_pns(char* buf, usz* at, const u64* lost, usz n) {
 #endif
 
 static void srvrun_debug_loss(
-    const srvrun_resp* r, u64 la, const u64* lost, usz n) {
+    const srvrun_resp* r, u64 la, u64 srtt_us, const u64* lost, usz n) {
 #ifdef QUIC_DEBUG
   char buf[256];
   usz  at   = 0;
@@ -2088,6 +2100,15 @@ static void srvrun_debug_loss(
   buf[at++] = '=';
   wired_fmt_u64(buf, &at, &(wired_fmt_u64_in){la, 1});
   buf[at++] = ' ';
+  buf[at++] = 's';
+  buf[at++] = 'r';
+  buf[at++] = 't';
+  buf[at++] = 't';
+  buf[at++] = 'u';
+  buf[at++] = 's';
+  buf[at++] = '=';
+  wired_fmt_u64(buf, &at, &(wired_fmt_u64_in){srtt_us, 1});
+  buf[at++] = ' ';
   buf[at++] = 'n';
   buf[at++] = '=';
   wired_fmt_u64(buf, &at, &(wired_fmt_u64_in){n, 1});
@@ -2103,6 +2124,7 @@ static void srvrun_debug_loss(
 #else
   (void)r;
   (void)la;
+  (void)srtt_us;
   (void)lost;
   (void)n;
 #endif
@@ -2114,7 +2136,7 @@ static usz srvrun_reap_losses_resp(
   usz n = wired_sendsess_detect_lost(
       &r->sess, c->largest_acked, now_ms, c->rtt.smoothed_rtt, lost,
       WIRED_SENDSESS_LOG);
-  srvrun_debug_loss(r, c->largest_acked, lost, n);
+  srvrun_debug_loss(r, c->largest_acked, c->rtt.smoothed_rtt, lost, n);
   srvrun_qlog_lost(cfg, lost, n);
   return n;
 }
