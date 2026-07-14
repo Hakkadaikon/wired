@@ -44,7 +44,7 @@ static void test_recv_offset(void) {
   u8                     pkt[128];
   quic_protect_keys      pk = {&k, &hp};
   quic_hspkt_onertt_desc bd = {
-      quic_span_of(dcid, 4), 3, quic_span_of(frame, flen)};
+      quic_span_of(dcid, 4), 3, quic_span_of(frame, flen), 0};
   quic_obuf o = quic_obuf_of(pkt, sizeof(pkt));
   CHECK(quic_hspkt_onertt_build(&pk, &bd, &o));
   usz total = o.len;
@@ -73,7 +73,7 @@ static void test_recv_empty_payload(void) {
   u8                     pkt[128];
   quic_protect_keys      pk = {&k, &hp};
   quic_hspkt_onertt_desc bd = {
-      quic_span_of(dcid, 4), 1, quic_span_of((const u8*)"", 0)};
+      quic_span_of(dcid, 4), 1, quic_span_of((const u8*)"", 0), 0};
   quic_obuf o = quic_obuf_of(pkt, sizeof(pkt));
   CHECK(quic_hspkt_onertt_build(&pk, &bd, &o));
   usz total = o.len;
@@ -99,7 +99,7 @@ static void test_recv_malformed(void) {
   u8                     pkt[128];
   quic_protect_keys      pk = {&k, &hp};
   quic_hspkt_onertt_desc bd = {
-      quic_span_of(dcid, 4), 2, quic_span_of(bad, sizeof(bad))};
+      quic_span_of(dcid, 4), 2, quic_span_of(bad, sizeof(bad)), 0};
   quic_obuf o = quic_obuf_of(pkt, sizeof(pkt));
   CHECK(quic_hspkt_onertt_build(&pk, &bd, &o));
   usz total = o.len;

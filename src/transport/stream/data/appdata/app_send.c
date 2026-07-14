@@ -11,6 +11,6 @@ int quic_appdata_send(
       tx->stream_id, 0, tx->data.n, tx->data.p, (u8)(tx->fin ? 1 : 0)};
   quic_obuf fb = quic_obuf_of(frame, sizeof(frame));
   if (!quic_appdata_stream_frame(&f, &fb)) return 0;
-  quic_hspkt_onertt_desc d = {tx->dcid, tx->pn, quic_span_of(frame, fb.len)};
+  quic_hspkt_onertt_desc d = {tx->dcid, tx->pn, quic_span_of(frame, fb.len), 0};
   return quic_hspkt_onertt_build(k, &d, out);
 }

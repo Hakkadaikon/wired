@@ -3,6 +3,7 @@
 #include "app/http3/server/srvloop/keys.h"
 #include "app/http3/server/srvwire/wire.h"
 #include "crypto/kdf/keys/keyset.h"
+#include "tls/keys/keyupdate/keyphase.h"
 #include "transport/packet/build/hspkt/onertt.h"
 
 /* RFC 9001 5.2: the server Initial is protected with the keys derived from
@@ -64,12 +65,18 @@ static int send_onertt_keys(
   return 1;
 }
 
-/* RFC 9001 5 / 5.1: 1-RTT payload sealed with the own-direction SERVER_AP. */
+/* RFC 9001 5 / 5.1 / 6: 1-RTT payload sealed with the own-direction
+ * SERVER_AP, its Key Phase bit set to this endpoint's current send-side
+ * generation (quic_hspkt_onertt_build's byte0 has no way to infer the
+ * phase from the keys alone -- the wire bit is the only signal a peer
+ * uses to detect an update, RFC 9001 6.3). 0 (generation 0's phase) before
+ * kuswitch is seeded, matching send_onertt_keys's own fallback. */
 int wired_srvloop_send_onertt(
     const wired_server* s, const wired_srvloop_send_in* in, quic_obuf* out) {
-  quic_aes128            hp;
-  quic_protect_keys      pk;
-  quic_hspkt_onertt_desc d = {in->cli_scid, in->pn, in->payload};
+  quic_aes128       hp;
+  quic_protect_keys pk;
+  int phase = s->ku_seeded ? quic_keyphase_bit(s->ku_send.generation) : 0;
+  quic_hspkt_onertt_desc d = {in->cli_scid, in->pn, in->payload, phase};
   if (!send_onertt_keys(s, &hp, &pk)) return 0;
   return quic_hspkt_onertt_build(&pk, &d, out);
 }

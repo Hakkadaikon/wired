@@ -162,7 +162,7 @@ static usz lb_seal_onertt(
   quic_protect_keys      pk = {k, &hp};
   quic_hspkt_onertt_desc d  = {
       quic_span_of(f->s.sdrv.iscid, f->s.sdrv.iscid_len), 0,
-      quic_span_of(pl, pln)};
+      quic_span_of(pl, pln), 0};
   quic_obuf o = quic_obuf_of(pkt, cap);
   CHECK(quic_hspkt_onertt_build(&pk, &d, &o));
   total = o.len;

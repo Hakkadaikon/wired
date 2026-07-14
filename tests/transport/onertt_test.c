@@ -18,7 +18,7 @@ static void test_onertt_roundtrip(void) {
   u8                     pkt[64];
   quic_protect_keys      pk = {&k, &hp};
   quic_hspkt_onertt_desc d  = {
-      quic_span_of(dcid, 5), 12, quic_span_of(frames, sizeof(frames))};
+      quic_span_of(dcid, 5), 12, quic_span_of(frames, sizeof(frames)), 0};
   quic_obuf o = quic_obuf_of(pkt, sizeof(pkt));
   CHECK(quic_hspkt_onertt_build(&pk, &d, &o));
   CHECK(o.len == 5u + 5u + sizeof(frames) + 16u); /* byte0+dcid+pn+ct+tag */
@@ -42,7 +42,7 @@ static void test_onertt_byte0(void) {
   u8                     pkt[64];
   quic_protect_keys      pk = {&k, &hp};
   quic_hspkt_onertt_desc d  = {
-      quic_span_of(dcid, 4), 1, quic_span_of(frames, sizeof(frames))};
+      quic_span_of(dcid, 4), 1, quic_span_of(frames, sizeof(frames)), 0};
   quic_obuf o = quic_obuf_of(pkt, sizeof(pkt));
   CHECK(quic_hspkt_onertt_build(&pk, &d, &o));
   CHECK((pkt[0] & 0x80) == 0x00); /* short header form */
@@ -59,7 +59,7 @@ static void test_onertt_tamper(void) {
   u8                     pkt[64];
   quic_protect_keys      pk = {&k, &hp};
   quic_hspkt_onertt_desc d  = {
-      quic_span_of(dcid, 4), 5, quic_span_of(frames, sizeof(frames))};
+      quic_span_of(dcid, 4), 5, quic_span_of(frames, sizeof(frames)), 0};
   quic_obuf o = quic_obuf_of(pkt, sizeof(pkt));
   CHECK(quic_hspkt_onertt_build(&pk, &d, &o));
   pkt[o.len - 1] ^= 0x01;
