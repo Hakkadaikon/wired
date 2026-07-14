@@ -1858,7 +1858,7 @@ static usz srvrun_inflight_bytes_all(const srvrun_conn* c) {
  * down which of the three srvrun_can_send conditions is the culprit when a
  * transfer stalls to PTO-only progress (tasks/todo.md Phase 7 next steps). */
 static void srvrun_debug_cc(
-    u64 stream_id, u64 inflight_bytes, u64 cwnd, usz log_n) {
+    u64 stream_id, u64 inflight_bytes, u64 cwnd, usz log_n, int in_recovery) {
   char buf[128];
   usz  at   = 0;
   buf[at++] = 'C';
@@ -1888,6 +1888,12 @@ static void srvrun_debug_cc(
   buf[at++] = 'g';
   buf[at++] = '=';
   wired_fmt_u64(buf, &at, &(wired_fmt_u64_in){(u64)log_n, 1});
+  buf[at++] = ' ';
+  buf[at++] = 'r';
+  buf[at++] = 'e';
+  buf[at++] = 'c';
+  buf[at++] = '=';
+  wired_fmt_u64(buf, &at, &(wired_fmt_u64_in){(u64)in_recovery, 1});
   buf[at++] = '\n';
   buf[at]   = 0;
   wired_log_str(buf);
@@ -1925,7 +1931,7 @@ static int srvrun_can_send_new_traced(
   if (!ok)
     srvrun_debug_cc(
         r->stream_id, srvrun_inflight_bytes_all(c), c->cc.cwnd,
-        wired_sendsess_inflight(&r->sess));
+        wired_sendsess_inflight(&r->sess), c->cc.in_recovery);
 #endif
   return ok;
 }
