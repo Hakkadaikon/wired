@@ -2,37 +2,12 @@
 
 #include "app/http3/server/srvloop/keys.h"
 #include "common/bytes/util/bytes.h"
-#include "common/platform/debug/debug.h"
 #include "crypto/kdf/keys/keyset.h"
 #include "tls/keys/kuswitch/derive.h"
 #include "transport/conn/loop/connrunner/level.h"
 #include "transport/packet/build/hspkt/hspkt_open.h"
 #include "transport/packet/build/hspkt/onertt.h"
 #include "transport/packet/build/initpkt/initopen.h"
-
-#ifdef QUIC_DEBUG
-/* Trace a Key Update rotation (both recv and send sides) once confirmed --
- * narrows down whether the send side actually advances in lockstep with
- * the recv side on a real peer (tasks/todo.md this session's interop
- * follow-up). */
-static void recv_debug_rotate(u64 recv_gen, u64 send_gen) {
-  char buf[64];
-  usz  at   = 0;
-  buf[at++] = 'K';
-  buf[at++] = 'U';
-  buf[at++] = ' ';
-  buf[at++] = 'r';
-  buf[at++] = '=';
-  wired_fmt_u64(buf, &at, &(wired_fmt_u64_in){recv_gen, 1});
-  buf[at++] = ' ';
-  buf[at++] = 's';
-  buf[at++] = '=';
-  wired_fmt_u64(buf, &at, &(wired_fmt_u64_in){send_gen, 1});
-  buf[at++] = '\n';
-  buf[at]   = 0;
-  wired_log_str(buf);
-}
-#endif
 
 /* RFC 9001 5.1: open a received Initial under the keys derived from the
  * client's original DCID; the raw frame payload is returned (the dispatcher
@@ -124,9 +99,6 @@ static void onertt_rotate_to(
   quic_kuswitch_rotate(&s->ku, next);
   quic_memcpy(s->ku_secret, next_secret, QUIC_HKDF_PRK);
   onertt_rotate_send(s);
-#ifdef QUIC_DEBUG
-  recv_debug_rotate(s->ku.generation, s->ku_send.generation);
-#endif
 }
 
 /* RFC 9001 6.3: current generation first (the common case, every packet

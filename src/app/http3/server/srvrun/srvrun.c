@@ -1679,34 +1679,9 @@ static u8* srvrun_resp_shrink_to_fixed(
 /* Body of srvrun_start_resp for a normal (non-WT) request: run the app
  * handler, then frame+arm the response exactly as before this task. Split
  * out so srvrun_start_resp itself stays at its gate/dispatch decision (CCN). */
-#ifdef QUIC_DEBUG
-static void srvrun_debug_start(u64 stream_id) {
-  char buf[64];
-  usz  at   = 0;
-  buf[at++] = 'S';
-  buf[at++] = 'T';
-  buf[at++] = 'A';
-  buf[at++] = 'R';
-  buf[at++] = 'T';
-  buf[at++] = ' ';
-  buf[at++] = 's';
-  buf[at++] = 'i';
-  buf[at++] = 'd';
-  buf[at++] = '=';
-  wired_fmt_u64(buf, &at, &(wired_fmt_u64_in){stream_id, 1});
-  buf[at++] = '\n';
-  buf[at]   = 0;
-  wired_log_str(buf);
-}
-#endif
-
 static void srvrun_start_app_resp(
     const srvrun_step_ctx* ctx, srvrun_conn* c, int slot, srvrun_resp* r) {
-  u8* st;
-#ifdef QUIC_DEBUG
-  srvrun_debug_start(r->stream_id);
-#endif
-  st = srvrun_resp_storage(ctx, slot, c, r);
+  u8*       st = srvrun_resp_storage(ctx, slot, c, r);
   quic_obuf body =
       quic_obuf_of(st + SRVRUN_RESP_HDR_ROOM, srvrun_resp_storage_cap(r));
   u8          pre[SRVRUN_RESP_HDR_ROOM];
@@ -1875,53 +1850,6 @@ static usz srvrun_inflight_bytes_all(const srvrun_conn* c) {
   return total;
 }
 
-#ifdef QUIC_DEBUG
-/* Dump cwnd/inflight/log state once a step's send gate blocks -- narrows
- * down which of the three srvrun_can_send conditions is the culprit when a
- * transfer stalls to PTO-only progress (tasks/todo.md Phase 7 next steps). */
-static void srvrun_debug_cc(
-    u64 stream_id, u64 inflight_bytes, u64 cwnd, usz log_n, int in_recovery) {
-  char buf[128];
-  usz  at   = 0;
-  buf[at++] = 'C';
-  buf[at++] = 'C';
-  buf[at++] = ' ';
-  buf[at++] = 's';
-  buf[at++] = 'i';
-  buf[at++] = 'd';
-  buf[at++] = '=';
-  wired_fmt_u64(buf, &at, &(wired_fmt_u64_in){stream_id, 1});
-  buf[at++] = ' ';
-  buf[at++] = 'i';
-  buf[at++] = 'n';
-  buf[at++] = 'f';
-  buf[at++] = '=';
-  wired_fmt_u64(buf, &at, &(wired_fmt_u64_in){inflight_bytes, 1});
-  buf[at++] = ' ';
-  buf[at++] = 'c';
-  buf[at++] = 'w';
-  buf[at++] = 'n';
-  buf[at++] = 'd';
-  buf[at++] = '=';
-  wired_fmt_u64(buf, &at, &(wired_fmt_u64_in){cwnd, 1});
-  buf[at++] = ' ';
-  buf[at++] = 'l';
-  buf[at++] = 'o';
-  buf[at++] = 'g';
-  buf[at++] = '=';
-  wired_fmt_u64(buf, &at, &(wired_fmt_u64_in){(u64)log_n, 1});
-  buf[at++] = ' ';
-  buf[at++] = 'r';
-  buf[at++] = 'e';
-  buf[at++] = 'c';
-  buf[at++] = '=';
-  wired_fmt_u64(buf, &at, &(wired_fmt_u64_in){(u64)in_recovery, 1});
-  buf[at++] = '\n';
-  buf[at]   = 0;
-  wired_log_str(buf);
-}
-#endif
-
 /* 1 when r's send log has a free entry. The log gate applies to every send
  * regardless of cwnd: a slice taken and sent while the log is full can be
  * recorded in neither log nor requeue -- if that packet then drops, the
@@ -1942,20 +1870,6 @@ static int srvrun_cwnd_has_room(const srvrun_conn* c) {
  * both the log and cwnd gates apply. */
 static int srvrun_can_send_new(const srvrun_conn* c, const srvrun_resp* r) {
   return srvrun_log_has_room(r) && srvrun_cwnd_has_room(c);
-}
-
-/* srvrun_can_send_new's verdict, plus a QUIC_DEBUG dump on the blocked path
- * -- split out so the extra branch never touches its own CCN. */
-static int srvrun_can_send_new_traced(
-    const srvrun_conn* c, const srvrun_resp* r) {
-  int ok = srvrun_can_send_new(c, r);
-#ifdef QUIC_DEBUG
-  if (!ok)
-    srvrun_debug_cc(
-        r->stream_id, srvrun_inflight_bytes_all(c), c->cc.cwnd,
-        wired_sendsess_inflight(&r->sess), c->cc.in_recovery);
-#endif
-  return ok;
 }
 
 /* RFC 9002 7.5: "Probe packets MUST NOT be blocked by the congestion
@@ -1979,7 +1893,7 @@ static int srvrun_has_requeued(const srvrun_resp* r) {
  * blanket "requeue bypasses everything". */
 static int srvrun_pump_gate_ok(const srvrun_conn* c, const srvrun_resp* r) {
   if (srvrun_has_requeued(r)) return srvrun_log_has_room(r);
-  return srvrun_can_send_new_traced(c, r);
+  return srvrun_can_send_new(c, r);
 }
 
 /* Send one slice from r if the gates allow and one is ready. Pacing's
@@ -2135,73 +2049,12 @@ static void srvrun_cc_range(
  * the caller (srvrun_feed_acks), not here, so a loss on several concurrent
  * responses in the same step still only shrinks the connection's one
  * window once. */
-#ifdef QUIC_DEBUG
-static void srvrun_debug_loss_pns(char* buf, usz* at, const u64* lost, usz n) {
-  for (usz i = 0; i < n && i < 8; i++) {
-    wired_fmt_u64(buf, at, &(wired_fmt_u64_in){lost[i], 1});
-    buf[(*at)++] = ',';
-  }
-}
-#endif
-
-static void srvrun_debug_loss(
-    const srvrun_resp* r, u64 la, u64 srtt_us, const u64* lost, usz n) {
-#ifdef QUIC_DEBUG
-  char buf[256];
-  usz  at   = 0;
-  buf[at++] = 'L';
-  buf[at++] = 'O';
-  buf[at++] = 'S';
-  buf[at++] = 'S';
-  buf[at++] = ' ';
-  buf[at++] = 's';
-  buf[at++] = 'i';
-  buf[at++] = 'd';
-  buf[at++] = '=';
-  wired_fmt_u64(buf, &at, &(wired_fmt_u64_in){r->stream_id, 1});
-  buf[at++] = ' ';
-  buf[at++] = 'l';
-  buf[at++] = 'a';
-  buf[at++] = '=';
-  wired_fmt_u64(buf, &at, &(wired_fmt_u64_in){la, 1});
-  buf[at++] = ' ';
-  buf[at++] = 's';
-  buf[at++] = 'r';
-  buf[at++] = 't';
-  buf[at++] = 't';
-  buf[at++] = 'u';
-  buf[at++] = 's';
-  buf[at++] = '=';
-  wired_fmt_u64(buf, &at, &(wired_fmt_u64_in){srtt_us, 1});
-  buf[at++] = ' ';
-  buf[at++] = 'n';
-  buf[at++] = '=';
-  wired_fmt_u64(buf, &at, &(wired_fmt_u64_in){n, 1});
-  buf[at++] = ' ';
-  buf[at++] = 'p';
-  buf[at++] = 'n';
-  buf[at++] = 's';
-  buf[at++] = '=';
-  srvrun_debug_loss_pns(buf, &at, lost, n);
-  buf[at++] = '\n';
-  buf[at]   = 0;
-  wired_log_str(buf);
-#else
-  (void)r;
-  (void)la;
-  (void)srtt_us;
-  (void)lost;
-  (void)n;
-#endif
-}
-
 static usz srvrun_reap_losses_resp(
     const srvrun_cfg* cfg, const srvrun_conn* c, srvrun_resp* r, u64 now_ms) {
   u64 lost[WIRED_SENDSESS_LOG];
   usz n = wired_sendsess_detect_lost(
       &r->sess, c->largest_acked, now_ms, c->rtt.smoothed_rtt, lost,
       WIRED_SENDSESS_LOG);
-  srvrun_debug_loss(r, c->largest_acked, c->rtt.smoothed_rtt, lost, n);
   srvrun_qlog_lost(cfg, lost, n);
   return n;
 }
@@ -2336,33 +2189,6 @@ static int srvrun_has_outbound(const srvrun_conn* c) {
   return c->up && (srvrun_any_resp_active(c) || c->dg_pending);
 }
 
-/* 1 if r is unused or still has PTO probe budget; 0 once a used slot's
- * budget is spent. */
-#ifdef QUIC_DEBUG
-static void srvrun_debug_pto(u64 stream_id, int count) {
-  char buf[64];
-  usz  at   = 0;
-  buf[at++] = 'P';
-  buf[at++] = 'T';
-  buf[at++] = 'O';
-  buf[at++] = ' ';
-  buf[at++] = 's';
-  buf[at++] = 'i';
-  buf[at++] = 'd';
-  buf[at++] = '=';
-  wired_fmt_u64(buf, &at, &(wired_fmt_u64_in){stream_id, 1});
-  buf[at++] = ' ';
-  buf[at++] = 'c';
-  buf[at++] = 'n';
-  buf[at++] = 't';
-  buf[at++] = '=';
-  wired_fmt_u64(buf, &at, &(wired_fmt_u64_in){(u64)count, 1});
-  buf[at++] = '\n';
-  buf[at]   = 0;
-  wired_log_str(buf);
-}
-#endif
-
 /* RFC 9002 6.2: this connection's current PTO duration in ms, scaled by
  * 2^pto_count backoff. Before any RTT sample exists, fall back to the RFC
  * 9002 6.2.2 kInitialRtt-based default (quic_rtt_init seeds exactly that),
@@ -2408,9 +2234,6 @@ static int srvrun_resp_pto_not_due(
 static int srvrun_resp_pto_ok(
     const srvrun_conn* c, srvrun_resp* r, u64 now_ms) {
   if (srvrun_resp_pto_not_due(c, r, now_ms)) return 1;
-#ifdef QUIC_DEBUG
-  srvrun_debug_pto(r->stream_id, r->sess.pto_count);
-#endif
   return wired_sendsess_pto_fire(&r->sess, SRVRUN_PTO_MAX);
 }
 
