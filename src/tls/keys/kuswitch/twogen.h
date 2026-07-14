@@ -8,11 +8,15 @@
  * can still be decrypted until the retention period ends. A received packet's
  * Key Phase bit selects which generation decrypts it. */
 
+/** RFC 9001 6.3/6.5 two-generation key state: the current 1-RTT keys and,
+ * once a Key Update has happened, the immediately prior generation's keys
+ * (retained so packets still in flight under the old key keep decrypting
+ * until the retention period ends). */
 typedef struct {
-  quic_initial_keys cur; /* current generation's keys */
-  quic_initial_keys old; /* prior generation's keys (valid when have_old) */
-  u64 generation;        /* current send/receive generation, starts at 0 */
-  int have_old;          /* 1 while old is populated and retained */
+  quic_initial_keys cur; /**< current generation's keys */
+  quic_initial_keys old; /**< prior generation's keys (valid when have_old) */
+  u64 generation;        /**< current send/receive generation, starts at 0 */
+  int have_old;          /**< 1 while old is populated and retained */
 } quic_kuswitch_state;
 
 /* Initialise at generation 0 with the first 1-RTT keys; no old key yet. */
