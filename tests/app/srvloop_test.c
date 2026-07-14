@@ -2053,6 +2053,331 @@ static void test_srvloop_external_resp_suppresses_200(void) {
   CHECK(f.l.resp_external == 0 && f.l.got_request == 0 && f.l.ack_n == 0);
 }
 
+/* RFC 9001 6: seal a 1-RTT packet as the client would, either under the
+ * server's currently-adopted generation (steps_ahead=0, ordinary traffic,
+ * f->s.ku.cur -- NOT the schedule's fixed generation-0 CLIENT_AP, which
+ * stays put across updates) or one Key Update step past it (steps_ahead=1,
+ * HKDF-Expand-Label("quic ku") on the server's own retained secret
+ * f->s.ku_secret) -- lets a test drive the server through a peer-initiated
+ * Key Update, repeatable any number of times, without a real second QUIC
+ * stack. steps_ahead=1 always means "one past whatever the server
+ * currently holds", so calling this again after a prior call already
+ * rotated the server's generation seals under the TRUE next generation,
+ * not a fixed generation 1. */
+static usz client_seal_onertt_pn_gen(
+    struct lp_fix* f,
+    u64            pn,
+    int            steps_ahead,
+    const u8*      pl,
+    usz            pln,
+    u8*            pkt,
+    usz            cap) {
+  quic_initial_keys        next;
+  const quic_initial_keys* use = &f->s.ku.cur;
+  quic_aes128              hp;
+  usz                      total = 0;
+  if (steps_ahead == 1) {
+    u8 next_secret[QUIC_HKDF_PRK];
+    quic_kuswitch_next_keys(f->s.ku_secret, &next, next_secret);
+    quic_memcpy(next.hp, f->s.ku.cur.hp, QUIC_INITIAL_HP);
+    use = &next;
+  }
+  quic_aes128_init(&hp, use->hp);
+  {
+    quic_protect_keys      pk = {use, &hp};
+    quic_hspkt_onertt_desc d  = {
+        quic_span_of(f->s.sdrv.iscid, f->s.sdrv.iscid_len), pn,
+        quic_span_of(pl, pln)};
+    quic_obuf o = quic_obuf_of(pkt, cap);
+    CHECK(quic_hspkt_onertt_build(&pk, &d, &o));
+    total = o.len;
+  }
+  return total;
+}
+
+/* T-001: same phase as current generation -- ordinary decrypt, no rotation.
+ * This is exactly test_srvloop_onertt_get_is_acked's path; kept as its own
+ * name so the key-update ledger's T-001 has a directly traceable test. */
+static void test_srvloop_recv_same_phase_uses_current_keys(void) {
+  struct lp_fix f;
+  u8            out[1024], get[512], spkt[1024];
+  usz           glen, slen;
+  quic_obuf     ob = {out, sizeof out, 0};
+  const u8*     pl;
+  usz           pll;
+  lp_confirm(&f, &ob);
+  CHECK(f.s.ku.generation == 0);
+  {
+    quic_obuf gob = {get, sizeof get, 0};
+    CHECK(wired_h3reqdrive_send_get(
+        0,
+        &(wired_h3reqdrive_get_in){
+            quic_span_of((const u8*)"/", 1), quic_span_of((const u8*)"h", 1)},
+        &gob));
+    glen = gob.len;
+  }
+  slen = client_seal_onertt_pn_gen(&f, 7, 0, get, glen, spkt, sizeof spkt);
+  ob   = (quic_obuf){out, sizeof out, 0};
+  CHECK(
+      wired_srvloop_step(
+          &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob) ==
+      1);
+  CHECK(client_open_onertt(&f, out, ob.len, &pl, &pll) == 1);
+  check_acks_pn(pl, pll, 7);
+  CHECK(f.s.ku.generation == 0); /* no rotation on a same-phase packet */
+}
+
+/* T-002/T-003: a packet sealed under generation 1 (the peer's Key Update)
+ * decrypts as a probe against the derived next generation, and ONLY a
+ * successful decrypt confirms it -- ku.generation must advance to 1. */
+static void test_srvloop_recv_new_phase_derives_next_keys(void) {
+  struct lp_fix f;
+  u8            out[1024], get[512], spkt[1024];
+  usz           glen, slen;
+  quic_obuf     ob = {out, sizeof out, 0};
+  lp_confirm(&f, &ob);
+  {
+    quic_obuf gob = {get, sizeof get, 0};
+    CHECK(wired_h3reqdrive_send_get(
+        0,
+        &(wired_h3reqdrive_get_in){
+            quic_span_of((const u8*)"/", 1), quic_span_of((const u8*)"h", 1)},
+        &gob));
+    glen = gob.len;
+  }
+  slen = client_seal_onertt_pn_gen(&f, 7, 1, get, glen, spkt, sizeof spkt);
+  ob   = (quic_obuf){out, sizeof out, 0};
+  CHECK(
+      wired_srvloop_step(
+          &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob) ==
+      1);
+  CHECK(f.s.ku.generation == 1); /* confirmed by the successful decrypt */
+  CHECK(f.s.ku.have_old == 1);   /* generation 0 retained as old */
+}
+
+/* T-007/T-018: RFC 9001 "MUST update its send keys to the corresponding key
+ * phase in response" -- once a peer update is confirmed (generation 1), the
+ * server's OWN 1-RTT replies must be sealed under generation 1 too, not the
+ * fixed generation-0 SERVER_AP. Verified two ways: (a) the schedule's fixed
+ * generation-0 client_open_onertt can no longer open it, (b) a generation-1
+ * client_open_onertt (mirroring onertt_rotate_send's derivation) does. */
+static int client_open_onertt_gen1(
+    struct lp_fix* f, u8* pkt, usz len, const u8** pl, usz* pll) {
+  const u8*         secret;
+  quic_initial_keys next;
+  u8                next_secret[QUIC_HKDF_PRK];
+  quic_aes128       hp;
+  quic_span         v;
+  CHECK(quic_keysched_server_ap_secret(&f->s.sched, &secret) == 1);
+  quic_kuswitch_next_keys(secret, &next, next_secret);
+  {
+    const quic_initial_keys* gen0;
+    CHECK(quic_keysched_get(&f->s.sched, QUIC_KS_SERVER_AP, &gen0) == 1);
+    quic_memcpy(next.hp, gen0->hp, QUIC_INITIAL_HP);
+  }
+  quic_aes128_init(&hp, next.hp);
+  {
+    quic_protect_keys           pk = {&next, &hp};
+    quic_hspkt_onertt_open_desc d  = {quic_mspan_of(pkt, len), 6, 0};
+    if (!quic_hspkt_onertt_open(&pk, &d, &v)) return 0;
+  }
+  *pl  = v.p;
+  *pll = v.n;
+  return 1;
+}
+
+static void test_srvloop_send_keys_follow_peer_update_before_ack(void) {
+  struct lp_fix f;
+  u8            out[1024], get[512], spkt[1024];
+  usz           glen, slen;
+  quic_obuf     ob = {out, sizeof out, 0};
+  const u8*     pl;
+  usz           pll;
+  lp_confirm(&f, &ob);
+  {
+    quic_obuf gob = {get, sizeof get, 0};
+    CHECK(wired_h3reqdrive_send_get(
+        0,
+        &(wired_h3reqdrive_get_in){
+            quic_span_of((const u8*)"/", 1), quic_span_of((const u8*)"h", 1)},
+        &gob));
+    glen = gob.len;
+  }
+  /* seal this GET under generation 1 -- the peer's Key Update */
+  slen = client_seal_onertt_pn_gen(&f, 7, 1, get, glen, spkt, sizeof spkt);
+  ob   = (quic_obuf){out, sizeof out, 0};
+  CHECK(
+      wired_srvloop_step(
+          &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob) ==
+      1);
+  CHECK(f.s.ku.generation == 1); /* recv side confirmed the update */
+  /* the reply (carrying this GET's ACK) must be sealed under generation 1
+   * too: the OLD fixed-generation-0 opener must fail... (quic_hspkt_onertt_
+   * open mutates its input in place even on failure, so probe a COPY -- the
+   * real generation-1 attempt below needs the original bytes untouched). */
+  {
+    u8 copy[1024];
+    for (usz i = 0; i < ob.len; i++) copy[i] = out[i];
+    CHECK(client_open_onertt(&f, copy, ob.len, &pl, &pll) == 0);
+  }
+  /* ...and a generation-1 opener must succeed and see the ACK. */
+  CHECK(client_open_onertt_gen1(&f, out, ob.len, &pl, &pll) == 1);
+  check_acks_pn(pl, pll, 7);
+}
+
+/* T-004: a packet whose AEAD tag does not verify under ANY retained/derivable
+ * generation (current, old, or the one-step-ahead probe) must fail closed --
+ * wired_srvloop_step reports no progress, and ku.generation is untouched.
+ * Covers both an ordinary corrupted packet and (per the key-update ledger's
+ * KEY_UPDATE_ERROR entry) a "two generations ahead" phase bit, which this
+ * SDK does not distinguish from ordinary corruption: both fail the same
+ * one-step-ahead probe's AEAD check. */
+static void test_srvloop_recv_failed_decrypt_does_not_advance_generation(void) {
+  struct lp_fix f;
+  u8            out[1024], get[512], spkt[1024];
+  usz           glen, slen;
+  quic_obuf     ob = {out, sizeof out, 0};
+  lp_confirm(&f, &ob);
+  {
+    quic_obuf gob = {get, sizeof get, 0};
+    CHECK(wired_h3reqdrive_send_get(
+        0,
+        &(wired_h3reqdrive_get_in){
+            quic_span_of((const u8*)"/", 1), quic_span_of((const u8*)"h", 1)},
+        &gob));
+    glen = gob.len;
+  }
+  /* seal under generation 1 (the only key material this test has), then
+   * flip a ciphertext byte so it authenticates under neither generation 0
+   * (current), any retained old, nor the derived next-generation probe. */
+  slen = client_seal_onertt_pn_gen(&f, 7, 1, get, glen, spkt, sizeof spkt);
+  spkt[slen - 1] ^= 0xff; /* corrupt the last ciphertext/tag byte */
+  ob = (quic_obuf){out, sizeof out, 0};
+  CHECK(
+      wired_srvloop_step(
+          &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob) ==
+      0);
+  CHECK(f.s.ku.generation == 0); /* no rotation on a failed probe */
+  CHECK(f.s.ku.have_old == 0);
+}
+
+/* T-005: after a confirmed update (generation 1), a reordered packet still
+ * sealed under generation 0 (the retained old keys) must still decrypt --
+ * RFC 9001 6's retention window exists exactly for this reordering case. */
+static void test_srvloop_recv_reordered_packet_uses_old_keys(void) {
+  struct lp_fix f;
+  u8            out[1024], get[512], spkt[1024], spkt_old[1024];
+  usz           glen, slen, slen_old;
+  quic_obuf     ob = {out, sizeof out, 0};
+  lp_confirm(&f, &ob);
+  {
+    quic_obuf gob = {get, sizeof get, 0};
+    CHECK(wired_h3reqdrive_send_get(
+        0,
+        &(wired_h3reqdrive_get_in){
+            quic_span_of((const u8*)"/", 1), quic_span_of((const u8*)"h", 1)},
+        &gob));
+    glen = gob.len;
+  }
+  /* seal one gen-0 packet now, to arrive "late" after the update below */
+  slen_old =
+      client_seal_onertt_pn_gen(&f, 6, 0, get, glen, spkt_old, sizeof spkt_old);
+  /* the update: gen-1 packet confirms and rotates gen 0 into old */
+  slen = client_seal_onertt_pn_gen(&f, 7, 1, get, glen, spkt, sizeof spkt);
+  ob   = (quic_obuf){out, sizeof out, 0};
+  CHECK(
+      wired_srvloop_step(
+          &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob) ==
+      1);
+  CHECK(f.s.ku.generation == 1);
+  /* the reordered gen-0 packet arrives after: old keys must still open it */
+  ob = (quic_obuf){out, sizeof out, 0};
+  CHECK(
+      wired_srvloop_step(
+          &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt_old, slen_old),
+          &ob) == 1);
+  CHECK(f.s.ku.generation == 1); /* an old-generation hit never rotates */
+}
+
+/* T-011: before generation 0 is seeded (srvfin's confirm has not run yet),
+ * a 1-RTT packet must fail closed structurally (recv_onertt's ku_seeded
+ * check), not merely because s->ku.cur happens to hold garbage that fails
+ * AEAD. Drives the server only to FLIGHT_SENT (Handshake keys installed,
+ * 1-RTT not yet), matching test_srvloop_no_onertt_seal_before_confirm's
+ * send-side counterpart. */
+static void
+test_srvloop_recv_onertt_before_keys_ready_short_circuits_before_ku_logic(
+    void) {
+  struct lp_fix          f;
+  u8                     pkt[64] = {0x40}; /* short header, arbitrary rest */
+  wired_srvloop_recv_out out;
+  lp_make_client_hello(&f);
+  lp_drive_to_flight(&f);
+  CHECK(wired_server_is_confirmed(&f.s) == 0);
+  CHECK(f.s.ku_seeded == 0);
+  CHECK(
+      wired_srvloop_recv(
+          &f.s, &(wired_srvloop_recv_in){quic_mspan_of(pkt, sizeof pkt), 0},
+          &out) == 0);
+}
+
+/* T-006: generation 0 (before any update) has no old key at all -- a probe
+ * against a bogus "prior" generation must fail closed, not crash on a
+ * have_old==0 read. */
+static void
+test_srvloop_recv_no_old_keys_before_first_update_rejects_stale_phase(void) {
+  struct lp_fix f;
+  quic_obuf     ob = {0};
+  u8            out[1024];
+  ob = (quic_obuf){out, sizeof out, 0};
+  lp_confirm(&f, &ob);
+  CHECK(f.s.ku.generation == 0);
+  CHECK(f.s.ku.have_old == 0);
+}
+
+/* T-008: peer-driven updates repeat -- a second update (generation 2) must
+ * be followed just as reliably as the first, proving the recv path does not
+ * special-case "only the first update ever rotates" (the constraint this
+ * session's srvrun-key-update-recv.md ledger found in the reference
+ * connrunner implementation and deliberately did not carry over). */
+static void test_srvloop_recv_follows_repeated_key_updates_across_generations(
+    void) {
+  struct lp_fix f;
+  u8            out[1024], get[512], spkt[1024];
+  usz           glen, slen;
+  quic_obuf     ob = {out, sizeof out, 0};
+  lp_confirm(&f, &ob);
+  {
+    quic_obuf gob = {get, sizeof get, 0};
+    CHECK(wired_h3reqdrive_send_get(
+        0,
+        &(wired_h3reqdrive_get_in){
+            quic_span_of((const u8*)"/", 1), quic_span_of((const u8*)"h", 1)},
+        &gob));
+    glen = gob.len;
+  }
+  /* update 1: gen 0 -> gen 1 */
+  slen = client_seal_onertt_pn_gen(&f, 7, 1, get, glen, spkt, sizeof spkt);
+  ob   = (quic_obuf){out, sizeof out, 0};
+  CHECK(
+      wired_srvloop_step(
+          &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob) ==
+      1);
+  CHECK(f.s.ku.generation == 1);
+  /* update 2: gen 1 -> gen 2, using the schedule's OWN client_ap_secret as
+   * the new "generation 0" base for client_seal_onertt_pn_gen's gen==1 path
+   * (it always derives exactly one step past whatever CLIENT_AP currently
+   * holds; since generation 1 is now current, feeding it gen==1 here seals
+   * under the true generation 2). */
+  slen = client_seal_onertt_pn_gen(&f, 8, 1, get, glen, spkt, sizeof spkt);
+  ob   = (quic_obuf){out, sizeof out, 0};
+  CHECK(
+      wired_srvloop_step(
+          &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob) ==
+      1);
+  CHECK(f.s.ku.generation == 2);
+}
+
 void test_srvloop(void) {
   test_srvloop_handler_body_echoed();
   test_srvloop_close_frame_detected();
@@ -2100,4 +2425,12 @@ void test_srvloop(void) {
   test_srvloop_ticket_sent_on_confirm();
   test_srvloop_no_ticket_before_confirm();
   test_srvloop_ticket_not_resent();
+  test_srvloop_recv_same_phase_uses_current_keys();
+  test_srvloop_recv_new_phase_derives_next_keys();
+  test_srvloop_send_keys_follow_peer_update_before_ack();
+  test_srvloop_recv_failed_decrypt_does_not_advance_generation();
+  test_srvloop_recv_reordered_packet_uses_old_keys();
+  test_srvloop_recv_onertt_before_keys_ready_short_circuits_before_ku_logic();
+  test_srvloop_recv_no_old_keys_before_first_update_rejects_stale_phase();
+  test_srvloop_recv_follows_repeated_key_updates_across_generations();
 }

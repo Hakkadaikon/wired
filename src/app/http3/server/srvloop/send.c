@@ -44,13 +44,32 @@ int wired_srvloop_send_handshake(
   return quic_srvwire_seal_handshake(&k, &wi, out);
 }
 
+/* RFC 9001 6.2: this endpoint's send-side generation (s->ku_send.cur,
+ * advanced by onertt_rotate_send once a peer Key Update is confirmed --
+ * RFC 9001 "MUST update its send keys to the corresponding key phase in
+ * response"). Falls back to the schedule's fixed generation-0 SERVER_AP only
+ * if seeding kuswitch itself failed (should not happen once confirmed; a
+ * missing key still fails closed). Owns hp's storage via the caller's out
+ * param so the returned quic_protect_keys stays valid. */
+static int send_onertt_keys(
+    const wired_server* s, quic_aes128* hp, quic_protect_keys* out) {
+  wired_srvloop_dirkeys dk;
+  if (s->ku_seeded) {
+    quic_aes128_init(hp, s->ku_send.cur.hp);
+    *out = (quic_protect_keys){&s->ku_send.cur, hp};
+    return 1;
+  }
+  if (!wired_srvloop_seal_keys(s, QUIC_LEVEL_ONERTT, &dk)) return 0;
+  *out = (quic_protect_keys){dk.keys, &dk.hp};
+  return 1;
+}
+
 /* RFC 9001 5 / 5.1: 1-RTT payload sealed with the own-direction SERVER_AP. */
 int wired_srvloop_send_onertt(
     const wired_server* s, const wired_srvloop_send_in* in, quic_obuf* out) {
-  wired_srvloop_dirkeys dk;
-  if (!wired_srvloop_seal_keys(s, QUIC_LEVEL_ONERTT, &dk)) return 0;
-  quic_protect_keys      pk = {dk.keys, &dk.hp};
-  quic_hspkt_onertt_desc d  = {in->cli_scid, in->pn, in->payload};
-  if (!quic_hspkt_onertt_build(&pk, &d, out)) return 0;
-  return 1;
+  quic_aes128            hp;
+  quic_protect_keys      pk;
+  quic_hspkt_onertt_desc d = {in->cli_scid, in->pn, in->payload};
+  if (!send_onertt_keys(s, &hp, &pk)) return 0;
+  return quic_hspkt_onertt_build(&pk, &d, out);
 }

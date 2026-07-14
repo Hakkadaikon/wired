@@ -31,6 +31,13 @@ typedef struct {
   u8  master[QUIC_HKDF_PRK]; /**< Master Secret (derived on
                                 reaching stage 1) */
   quic_initial_keys keys[4]; /**< traffic keys indexed by QUIC_KS_* */
+  u8 client_ap_secret[QUIC_HKDF_PRK]; /**< client_application_traffic_secret_0
+                                       * (RFC 8446 7.1), retained past stage 2
+                                       * so RFC 9001 6 key updates can derive
+                                       * the next generation from it */
+  u8 server_ap_secret[QUIC_HKDF_PRK]; /**< server_application_traffic_secret_0,
+                                       * retained for the same reason on the
+                                       * send side (RFC 9001 6.2) */
 } quic_keysched;
 
 /**
@@ -78,5 +85,25 @@ int quic_keysched_advance_master(
  */
 int quic_keysched_get(
     const quic_keysched* st, int which, const quic_initial_keys** out);
+
+/**
+ * The retained client_application_traffic_secret_0, valid once stage 2 is
+ * reached (same guard as quic_keysched_get with QUIC_KS_CLIENT_AP).
+ *
+ * @param st  schedule state to query
+ * @param out receives a pointer to the QUIC_HKDF_PRK-byte secret
+ * @return 1 if derived, 0 otherwise.
+ */
+int quic_keysched_client_ap_secret(const quic_keysched* st, const u8** out);
+
+/**
+ * The retained server_application_traffic_secret_0, valid once stage 2 is
+ * reached. Same shape as quic_keysched_client_ap_secret, for the send side.
+ *
+ * @param st  schedule state to query
+ * @param out receives a pointer to the QUIC_HKDF_PRK-byte secret
+ * @return 1 if derived, 0 otherwise.
+ */
+int quic_keysched_server_ap_secret(const quic_keysched* st, const u8** out);
 
 #endif
