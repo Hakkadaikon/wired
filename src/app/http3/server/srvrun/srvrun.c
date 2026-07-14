@@ -22,6 +22,7 @@
 #include "common/platform/qlog/qlogevent.h"
 #include "common/platform/rng/cidgen.h"
 #include "common/platform/thread/thread.h"
+#include "tls/keys/kuswitch/twogen.h"
 #include "transport/conn/lifecycle/conntable/conntable.h"
 #include "transport/io/socket/io/udp.h"
 #include "transport/io/socket/poll/wait.h"
@@ -139,6 +140,16 @@ typedef struct {
    * srtt_ms above (ms, EWMA-only, pacing's simpler input) because PTO needs
    * rttvar too. */
   quic_rtt rtt;
+  /** RFC 9001 6.5: monotonic ms this connection's Key Update generation last
+   * advanced (s->ku.generation), used to floor how long the retained old
+   * 1-RTT keys survive (srvrun_ku_discard_stale, 3x the PTO). Meaningless
+   * until s->ku.have_old is set (a rotation at now_ms==0 is valid, so
+   * have_old -- not this field being nonzero -- is the "has rotated" flag).
+   */
+  u64 ku_rotated_at_ms;
+  /** ku.generation as of the last step, so a rotation can be detected without
+   * srvloop itself tracking wall-clock time (recv.c has none). */
+  u64 ku_seen_gen;
   /** boot-stage ClientHello reassembly across Initial datagrams (a
    * post-quantum-sized ClientHello spans two, RFC 9000 19.6).
    * ponytail: one fixed accumulator per slot (~4KB x 64 slots of BSS);
@@ -873,6 +884,15 @@ static void srvrun_send_step_reply(
   if (produced) srvrun_send(cfg, c, out, "1-RTT reply sealed and sent\n");
 }
 
+/* RFC 9001 6.3: a rotation just confirmed (ku.generation advanced past what
+ * this step last observed) -- record when, so the retained old key's
+ * 3x-PTO retention floor (srvrun_ku_discard_stale) has a start line. */
+static void srvrun_ku_note_rotation(srvrun_conn* c, u64 now_ms) {
+  if (c->s.ku.generation == c->ku_seen_gen) return;
+  c->ku_seen_gen      = c->s.ku.generation;
+  c->ku_rotated_at_ms = now_ms;
+}
+
 /* A later datagram on a live slot: one real-wire step, send any sealed
  * reply — unless this step's own DATAGRAM gathering found an RFC 9221 3
  * violation, in which case the connection closes itself instead (see
@@ -885,6 +905,7 @@ static void srvrun_on_step(
   wired_srvloop_conn conn     = {&c->l, &c->s};
   srvrun_rxmark      mark     = srvrun_rx_mark(&c->l);
   int                produced = wired_srvloop_step(&conn, dg, &ob);
+  srvrun_ku_note_rotation(c, ctx->now_ms);
   srvrun_note_recv(ctx, &mark, c, dg.n);
   srvrun_offer_wt_streams(ctx->cfg, c);
   srvrun_offer_wt_uni_streams(ctx->cfg, c);
@@ -1841,6 +1862,7 @@ static int srvrun_send_slice(
 
 static int  srvrun_pace_ok(const srvrun_step_ctx* ctx, const srvrun_conn* c);
 static void srvrun_pace_next(const srvrun_step_ctx* ctx, srvrun_conn* c);
+static void srvrun_ku_discard_stale(srvrun_conn* c, u64 now_ms);
 
 /* Sum of in-flight stream bytes across every resp[] slot -- the congestion
  * window (RFC 9002 7) gates the connection's TOTAL in-flight, not any one
@@ -2283,6 +2305,7 @@ static void srvrun_sess_on_step(const srvrun_step_ctx* ctx, int slot) {
   srvrun_start_done_resps(ctx, slot);
   srvrun_pump_sess(ctx, slot);
   srvrun_pump_datagram(ctx, c);
+  srvrun_ku_discard_stale(c, ctx->now_ms);
 }
 
 /* 1 if any resp[] slot is in use -- a connection with at least one response
@@ -2349,6 +2372,19 @@ static u64 srvrun_pto_deadline_ms(const srvrun_conn* c, int pto_count) {
   quic_pto_rtt rtt = {c->rtt.smoothed_rtt, c->rtt.rttvar};
   u64 us = quic_pto_duration(rtt, SRVRUN_MAX_ACK_DELAY_US, (u32)pto_count);
   return us / 1000;
+}
+
+/* RFC 9001 6.5: "SHOULD retain old read keys for no more than three times
+ * the PTO" -- once that floor (measured from the rotation this connection's
+ * own 1x-PTO deadline calc already knows how to size) has elapsed, drop the
+ * retained old generation. A no-op before any rotation (ku_rotated_at_ms
+ * stays 0 until the first one, and have_old is 0 until then too). */
+static void srvrun_ku_discard_stale(srvrun_conn* c, u64 now_ms) {
+  u64 floor_ms;
+  if (!c->s.ku.have_old) return;
+  floor_ms = 3u * srvrun_pto_deadline_ms(c, 0);
+  if (now_ms >= c->ku_rotated_at_ms + floor_ms)
+    quic_kuswitch_discard_old(&c->s.ku);
 }
 
 /* 1 if r's oldest in-flight slice is still within its PTO window (RFC 9002
