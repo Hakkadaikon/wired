@@ -1894,24 +1894,33 @@ static void srvrun_debug_cc(
 }
 #endif
 
-/* 1 when r's send log has a free entry and the connection's congestion
- * window (RFC 9002 7) has room for one more chunk across every slot
- * combined. Pacing (RFC 9002 7.7) is NOT checked here -- it gates whole
- * round-robin passes (srvrun_pump_round_gated), not individual slots, so one
- * slot's send can't consume the connection's one shared pacing budget before
- * its siblings get their turn in the same pass. The log gate must come
- * first: a slice taken and sent while the log is full can be recorded in
- * neither log nor requeue -- if that packet then drops, the stream has a
- * permanent hole the peer waits on forever. */
-static int srvrun_can_send(const srvrun_conn* c, const srvrun_resp* r) {
-  return wired_sendsess_inflight(&r->sess) < WIRED_SENDSESS_LOG &&
-         srvrun_inflight_bytes_all(c) + SRVRUN_CHUNK <= c->cc.cwnd;
+/* 1 when r's send log has a free entry. The log gate applies to every send
+ * regardless of cwnd: a slice taken and sent while the log is full can be
+ * recorded in neither log nor requeue -- if that packet then drops, the
+ * stream has a permanent hole the peer waits on forever. */
+static int srvrun_log_has_room(const srvrun_resp* r) {
+  return wired_sendsess_inflight(&r->sess) < WIRED_SENDSESS_LOG;
 }
 
-/* srvrun_can_send's verdict, plus a QUIC_DEBUG dump on the blocked path --
- * split out so the extra branch never touches srvrun_can_send's own CCN. */
-static int srvrun_can_send_traced(const srvrun_conn* c, const srvrun_resp* r) {
-  int ok = srvrun_can_send(c, r);
+/* 1 when the connection's congestion window (RFC 9002 7) has room for one
+ * more chunk across every slot combined. Pacing (RFC 9002 7.7) is NOT
+ * checked here -- it gates whole round-robin passes
+ * (srvrun_pump_round_gated), not individual slots. */
+static int srvrun_cwnd_has_room(const srvrun_conn* c) {
+  return srvrun_inflight_bytes_all(c) + SRVRUN_CHUNK <= c->cc.cwnd;
+}
+
+/* 1 when a brand-new slice (from r's sendq, not its requeue) may go out:
+ * both the log and cwnd gates apply. */
+static int srvrun_can_send_new(const srvrun_conn* c, const srvrun_resp* r) {
+  return srvrun_log_has_room(r) && srvrun_cwnd_has_room(c);
+}
+
+/* srvrun_can_send_new's verdict, plus a QUIC_DEBUG dump on the blocked path
+ * -- split out so the extra branch never touches its own CCN. */
+static int srvrun_can_send_new_traced(
+    const srvrun_conn* c, const srvrun_resp* r) {
+  int ok = srvrun_can_send_new(c, r);
 #ifdef QUIC_DEBUG
   if (!ok)
     srvrun_debug_cc(
@@ -1921,13 +1930,37 @@ static int srvrun_can_send_traced(const srvrun_conn* c, const srvrun_resp* r) {
   return ok;
 }
 
+/* RFC 9002 7.5: "Probe packets MUST NOT be blocked by the congestion
+ * controller." A PTO probe is a retransmit of an already-in-flight slice
+ * that wired_sendsess_pto_fire moved to r->sess's requeue (sendsess.c) --
+ * gating it on cwnd re-creates the exact deadlock RFC 9002 7.5 forbids: cwnd
+ * can only grow from new ACKs, new ACKs need new sends, and a probe stuck
+ * behind a full cwnd is the one send that would produce that ACK. */
+static int srvrun_has_requeued(const srvrun_resp* r) {
+  return r->sess.requeue_n != 0;
+}
+
+/* 1 when r may send right now: a queued probe retransmit only needs the log
+ * gate (RFC 9002 7.5 bypasses cwnd for it); brand-new data needs both
+ * gates. The log gate is checked for a probe too, even though
+ * sendsess_requeue (sendsess.c) already cleared its log entry's inflight
+ * flag the moment it moved to requeue -- so requeue_n != 0 always implies
+ * at least that many free log entries, and this check can never actually
+ * fail for a probe. It stays as an explicit invariant, not dead code: it
+ * documents that a probe's cwnd exemption is deliberately narrower than a
+ * blanket "requeue bypasses everything". */
+static int srvrun_pump_gate_ok(const srvrun_conn* c, const srvrun_resp* r) {
+  if (srvrun_has_requeued(r)) return srvrun_log_has_room(r);
+  return srvrun_can_send_new_traced(c, r);
+}
+
 /* Send one slice from r if the gates allow and one is ready. Pacing's
  * next-send time is scheduled once per whole pass by the caller
  * (srvrun_pump_round_gated), not per slice. */
 static int srvrun_pump_one(
     const srvrun_step_ctx* ctx, srvrun_conn* c, srvrun_resp* r) {
   wired_sendq_slice sl;
-  if (!srvrun_can_send_traced(c, r)) return 0;
+  if (!srvrun_pump_gate_ok(c, r)) return 0;
   if (!wired_sendsess_take(&r->sess, &sl)) return 0;
   return srvrun_send_slice(ctx, c, r, &sl);
 }
