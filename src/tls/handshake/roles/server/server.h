@@ -5,6 +5,7 @@
 #include "common/platform/sys/syscall.h"
 #include "tls/handshake/core/sdrv/sdrv.h"
 #include "tls/handshake/roles/srvfin/complete.h"
+#include "tls/keys/kuswitch/twogen.h"
 #include "transport/conn/loop/crecv/collect.h"
 #include "transport/io/socket/io/udp.h"
 
@@ -55,6 +56,17 @@ typedef struct {
   u8  client_random[32];   /**< ClientHello.random (RFC 8446 4.1.2), recorded by
                             * wired_server_recv_initial for keylog lines */
   const char* keylog_path; /**< NSS key log file path, or 0 to disable */
+  quic_kuswitch_state ku;  /**< RFC 9001 6: CLIENT_AP (peer-driven, recv-side)
+                            * 1-RTT key generations */
+  u8 ku_secret[QUIC_HKDF_PRK];      /**< current generation's client_ap secret,
+                                     * needed to derive the next generation */
+  quic_kuswitch_state ku_send;      /**< RFC 9001 6.2: SERVER_AP (send-side)
+                                     * generations, kept in lockstep with ku so a
+                                     * confirmed peer update also advances what
+                                     * this endpoint seals with */
+  u8 ku_send_secret[QUIC_HKDF_PRK]; /**< current generation's server_ap
+                                     * secret */
+  int ku_seeded; /**< 1 once ku/ku_send hold real generation-0 keys */
 } wired_server;
 
 /** server_priv_x25519/server_pub_x25519 are the static ECDHE pair; cert_seed

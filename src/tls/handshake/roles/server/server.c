@@ -43,6 +43,7 @@ void wired_server_init(wired_server* s, const wired_server_init_in* in) {
   s->tr_through_sh     = 0;
   s->tr_through_flight = 0;
   s->keylog_path       = 0;
+  s->ku_seeded         = 0;
 }
 
 int wired_server_set_cids(wired_server* s, quic_span odcid, quic_span iscid) {
@@ -160,10 +161,44 @@ static int srv_verify_finished(wired_server* s, const u8* msg, usz len) {
  * application_traffic_secret_0 is derived over the transcript through the
  * server Finished (tr_through_flight), NOT the client Finished, so both peers
  * reach the same 1-RTT keys. */
+/* RFC 9001 6: seed generation 0 of the peer-driven (recv) key schedule from
+ * the just-confirmed client_ap keys/secret, so a later Key Update can
+ * derive generation 1 (kuswitch/derive.h needs the secret, not just
+ * key/iv/hp). */
+static int srv_seed_kuswitch_recv(wired_server* s) {
+  const quic_initial_keys* client_ap;
+  const u8*                secret;
+  if (!quic_keysched_get(&s->sched, QUIC_KS_CLIENT_AP, &client_ap)) return 0;
+  if (!quic_keysched_client_ap_secret(&s->sched, &secret)) return 0;
+  quic_kuswitch_init(&s->ku, client_ap);
+  srv_copy32(s->ku_secret, secret);
+  return 1;
+}
+
+/* RFC 9001 6.2: seed generation 0 of the send-side key schedule the same
+ * way, in lockstep with the recv side, so this endpoint's own send keys can
+ * be advanced once a peer update is confirmed. */
+static int srv_seed_kuswitch_send(wired_server* s) {
+  const quic_initial_keys* server_ap;
+  const u8*                secret;
+  if (!quic_keysched_get(&s->sched, QUIC_KS_SERVER_AP, &server_ap)) return 0;
+  if (!quic_keysched_server_ap_secret(&s->sched, &secret)) return 0;
+  quic_kuswitch_init(&s->ku_send, server_ap);
+  srv_copy32(s->ku_send_secret, secret);
+  return 1;
+}
+
+static void srv_seed_kuswitch(wired_server* s) {
+  int recv_ok  = srv_seed_kuswitch_recv(s);
+  int send_ok  = srv_seed_kuswitch_send(s);
+  s->ku_seeded = recv_ok && send_ok;
+}
+
 static int srv_complete(wired_server* s, const u8* msg, usz len) {
   (void)msg;
   (void)len;
   if (!quic_srvfin_complete(&s->fin, s->tr, s->tr_through_flight)) return 0;
+  srv_seed_kuswitch(s);
   s->phase = WIRED_SERVER_HS_CONFIRMED;
   return 1;
 }
