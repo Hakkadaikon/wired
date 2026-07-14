@@ -3668,6 +3668,92 @@ static void test_srvrun_pto_not_due_within_rtt_window(void) {
   }
 }
 
+/* Drive a real peer-initiated Key Update through srvrun_on_step (the real
+ * wire path, not direct field injection) so c->s.ku actually rotates:
+ * generation 0 -> 1, have_old set. Returns the ms the rotation lands at,
+ * which callers use as the 3x-PTO retention floor's start line. */
+static u64 sr_rotate_ku(srvrun_step_ctx* ctx, srvrun_conn* c, u64 now_ms) {
+  u8  get[512], spkt[1024];
+  usz glen, slen;
+  {
+    quic_obuf gob = {get, sizeof get, 0};
+    CHECK(wired_h3reqdrive_send_get(
+        0,
+        &(wired_h3reqdrive_get_in){
+            quic_span_of((const u8*)"/", 1), quic_span_of((const u8*)"h", 1)},
+        &gob));
+    glen = gob.len;
+  }
+  slen = client_seal_onertt_pn_gen(&c->s, 7, 1, get, glen, spkt, sizeof spkt);
+  {
+    srvrun_step_ctx tick = {ctx->cfg, 0, ctx->st, now_ms};
+    srvrun_on_step(&tick, c, quic_mspan_of(spkt, slen));
+  }
+  return now_ms;
+}
+
+/* T-009: within the 3x-PTO retention floor after a confirmed rotation, the
+ * retained old generation must still be there (RFC 9001 6.5 "SHOULD retain
+ * old read keys for no more than three times the PTO"). */
+static void test_srvrun_ku_old_keys_retained_within_3pto_window(void) {
+  struct lp_fix  f;
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_state   st = {table, g_srvrun_state.conns};
+  quic_obuf      ob;
+  u8             obuf[1024];
+  u64            rotated_at, floor_ms;
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  sr_make_confirmed_conn(&st.conns[0], &f, &ob);
+  st.conns[0].cc.cwnd = 1u << 20;
+  CHECK(quic_conntable_insert(table, QUIC_CONNTABLE_CAP, g_cli_scid, 6) == 0);
+  {
+    srvrun_cfg cfg = {-1, 0, sr_tiny_body_handler, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                      0,  0, &g_srvrun_env,        0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_rtt_note(&st.conns[0], 15);
+    rotated_at = sr_rotate_ku(&ctx, &st.conns[0], 0);
+    CHECK(st.conns[0].s.ku.generation == 1);
+    CHECK(st.conns[0].s.ku.have_old == 1);
+    floor_ms = 3u * srvrun_pto_deadline_ms(&st.conns[0], 0);
+    {
+      srvrun_step_ctx tick = {&cfg, 0, &st, rotated_at + floor_ms - 1};
+      srvrun_sess_on_step(&tick, 0);
+      CHECK(st.conns[0].s.ku.have_old == 1);
+    }
+  }
+}
+
+/* T-010: once the 3x-PTO floor has fully elapsed, the retained old
+ * generation is discarded (RFC 9001 6.5's upper bound; boundary: one ms
+ * short still retains, per T-009 above). */
+static void test_srvrun_ku_old_keys_discarded_after_3pto_window(void) {
+  struct lp_fix  f;
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_state   st = {table, g_srvrun_state.conns};
+  quic_obuf      ob;
+  u8             obuf[1024];
+  u64            rotated_at, floor_ms;
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  sr_make_confirmed_conn(&st.conns[0], &f, &ob);
+  st.conns[0].cc.cwnd = 1u << 20;
+  CHECK(quic_conntable_insert(table, QUIC_CONNTABLE_CAP, g_cli_scid, 6) == 0);
+  {
+    srvrun_cfg cfg = {-1, 0, sr_tiny_body_handler, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                      0,  0, &g_srvrun_env,        0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_rtt_note(&st.conns[0], 15);
+    rotated_at = sr_rotate_ku(&ctx, &st.conns[0], 0);
+    floor_ms   = 3u * srvrun_pto_deadline_ms(&st.conns[0], 0);
+    {
+      srvrun_step_ctx tick = {&cfg, 0, &st, rotated_at + floor_ms};
+      srvrun_sess_on_step(&tick, 0);
+      CHECK(st.conns[0].s.ku.have_old == 0);
+    }
+  }
+}
+
 /* LOG-FULL GATE: with the congestion window wide open, the pump must stop
  * at WIRED_SENDSESS_LOG in-flight slices. One more take would send a slice
  * that wired_sendsess_sent (log full) can record in neither log nor requeue
@@ -4301,6 +4387,8 @@ void test_srvrun(void) {
   test_srvrun_fifth_sequential_get_reuses_freed_slot();
   test_srvrun_pto_budget_exhausted_tears_down_connection();
   test_srvrun_pto_not_due_within_rtt_window();
+  test_srvrun_ku_old_keys_retained_within_3pto_window();
+  test_srvrun_ku_old_keys_discarded_after_3pto_window();
   test_srvrun_sibling_ack_does_not_lose_other_slot();
   test_srvrun_loss_and_retransmit_across_two_responses();
   test_srvrun_pump_round_robins_across_slots();
