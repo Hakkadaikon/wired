@@ -203,7 +203,7 @@ static usz client_seal_onertt(
   quic_protect_keys      pk = {k, &hp};
   quic_hspkt_onertt_desc d  = {
       quic_span_of(f->s.sdrv.iscid, f->s.sdrv.iscid_len), 0,
-      quic_span_of(pl, pln)};
+      quic_span_of(pl, pln), 0};
   quic_obuf o = quic_obuf_of(pkt, cap);
   CHECK(quic_hspkt_onertt_build(&pk, &d, &o));
   total = o.len;
@@ -447,7 +447,7 @@ static usz client_seal_onertt_pn(
   quic_protect_keys      pk = {k, &hp};
   quic_hspkt_onertt_desc d  = {
       quic_span_of(f->s.sdrv.iscid, f->s.sdrv.iscid_len), pn,
-      quic_span_of(pl, pln)};
+      quic_span_of(pl, pln), 0};
   quic_obuf o = quic_obuf_of(pkt, cap);
   CHECK(quic_hspkt_onertt_build(&pk, &d, &o));
   total = o.len;
@@ -2073,21 +2073,23 @@ static usz client_seal_onertt_pn_gen(
     u8*            pkt,
     usz            cap) {
   quic_initial_keys        next;
-  const quic_initial_keys* use = &f->s.ku.cur;
+  const quic_initial_keys* use   = &f->s.ku.cur;
+  int                      phase = (int)quic_keyphase_bit(f->s.ku.generation);
   quic_aes128              hp;
   usz                      total = 0;
   if (steps_ahead == 1) {
     u8 next_secret[QUIC_HKDF_PRK];
     quic_kuswitch_next_keys(f->s.ku_secret, &next, next_secret);
     quic_memcpy(next.hp, f->s.ku.cur.hp, QUIC_INITIAL_HP);
-    use = &next;
+    use   = &next;
+    phase = 1 - phase;
   }
   quic_aes128_init(&hp, use->hp);
   {
     quic_protect_keys      pk = {use, &hp};
     quic_hspkt_onertt_desc d  = {
         quic_span_of(f->s.sdrv.iscid, f->s.sdrv.iscid_len), pn,
-        quic_span_of(pl, pln)};
+        quic_span_of(pl, pln), phase};
     quic_obuf o = quic_obuf_of(pkt, cap);
     CHECK(quic_hspkt_onertt_build(&pk, &d, &o));
     total = o.len;

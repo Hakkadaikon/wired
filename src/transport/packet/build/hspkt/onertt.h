@@ -8,11 +8,18 @@
  * Connection ID, and a 4-byte packet number. Sealed and header-protected with
  * the 1-RTT keys. */
 
-/* One 1-RTT packet to build: DCID, packet number, plaintext payload. */
+/* One 1-RTT packet to build: DCID, packet number, plaintext payload, and the
+ * Key Phase bit (RFC 9001 6) this packet's protection keys belong to --
+ * defaults to 0 for every caller that never rotates (position-initialized
+ * literals omitting it get 0, generation 0's phase, matching k's keys
+ * before any update). A caller that DOES rotate (srvloop/send.c) must pass
+ * its own current generation's phase bit; quic_hspkt_onertt_build has no
+ * way to infer it from k alone. */
 typedef struct {
   quic_span dcid;
   u64       pn;
   quic_span payload;
+  int       phase_bit;
 } quic_hspkt_onertt_desc;
 
 /* Build one protected 1-RTT packet into out; length to out->len.

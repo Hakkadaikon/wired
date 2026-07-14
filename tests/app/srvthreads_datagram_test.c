@@ -793,7 +793,7 @@ static int sdt_build_datagram_pkt(
   usz                    flen = quic_datagram_encode(fb, &df, 0);
   quic_protect_keys      pk;
   quic_hspkt_onertt_desc d = {
-      quic_span_of(g_sdt_cli_scid, 6), 1, quic_span_of(frame, flen)};
+      quic_span_of(g_sdt_cli_scid, 6), 1, quic_span_of(frame, flen), 0};
   if (flen == 0) return 0;
   if (!sdt_client_ap_key(cx, &pk)) return 0;
   return quic_hspkt_onertt_build(&pk, &d, out);
