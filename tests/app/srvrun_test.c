@@ -3943,6 +3943,351 @@ static void test_srvrun_pacing_floor_does_not_starve_round(void) {
   }
 }
 
+/* RFC 9002 7.5: "Probe packets MUST NOT be blocked by the congestion
+ * controller." A PTO-requeued slice must go out even though cwnd is
+ * already fully used by the one slice still in flight -- gating it on cwnd
+ * would deadlock: cwnd only grows from new ACKs, new ACKs need new sends,
+ * and this probe is the one send that would produce that ACK (the exact
+ * stall observed against a real quic-go interop run: cwnd/inflight both
+ * stuck at the same value with the send log never draining). */
+static void test_srvrun_pto_probe_bypasses_cwnd(void) {
+  static u8     body0[4 * SRVRUN_CHUNK];
+  static u8     body1[4 * SRVRUN_CHUNK];
+  struct lp_fix f;
+  srvrun_conn   c;
+  quic_obuf     ob = {0};
+  u8            obuf[1024];
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.cc.cwnd           = 1u << 20; /* wide open for the initial sends */
+  c.resp[0].in_use    = 1;
+  c.resp[0].stream_id = 0;
+  c.resp[1].in_use    = 1;
+  c.resp[1].stream_id = 4;
+  wired_sendsess_arm(&c.resp[0].sess, body0, sizeof body0, SRVRUN_CHUNK);
+  wired_sendsess_arm(&c.resp[1].sess, body1, sizeof body1, SRVRUN_CHUNK);
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0};
+    srvrun_state    st  = {0, &c};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    /* drive each slot to exactly one in-flight slice, one round at a time,
+     * before cwnd gets tightened below (a wide-open cwnd here would drain
+     * each slot's whole log via srvrun_pump_sess's inner loop instead). */
+    c.cc.cwnd = 2 * SRVRUN_CHUNK;
+    srvrun_pump_sess(&ctx, 0);
+    CHECK(wired_sendsess_inflight(&c.resp[0].sess) == 1);
+    CHECK(wired_sendsess_inflight(&c.resp[1].sess) == 1);
+    /* now shrink cwnd to exactly slot 1's one chunk -- no room for even a
+     * sliver more, so a cwnd-gated resend of slot 0's probe would fail. */
+    c.cc.cwnd = SRVRUN_CHUNK;
+    /* PTO fires on slot 0 only: its slice moves to requeue. Slot 1's slice
+     * is still in flight and alone accounts for cwnd's one chunk of room,
+     * so a cwnd-gated pump would find no room for slot 0's probe. */
+    CHECK(wired_sendsess_pto_fire(&c.resp[0].sess, SRVRUN_PTO_MAX));
+    CHECK(c.resp[0].sess.requeue_n == 1);
+    srvrun_pump_sess(&ctx, 0);
+    /* the probe went out despite cwnd offering no room: requeue drained,
+     * still exactly one slice in flight on slot 0 (the resend, not new
+     * data); slot 1 untouched. */
+    CHECK(c.resp[0].sess.requeue_n == 0);
+    CHECK(wired_sendsess_inflight(&c.resp[0].sess) == 1);
+    CHECK(c.resp[0].sess.q.cur == SRVRUN_CHUNK);
+    CHECK(wired_sendsess_inflight(&c.resp[1].sess) == 1);
+    CHECK(c.resp[1].sess.q.cur == SRVRUN_CHUNK);
+  }
+}
+
+/* Regression counterpart to test_srvrun_pto_probe_bypasses_cwnd: with an
+ * EMPTY requeue (no PTO fired), brand-new data must still respect cwnd --
+ * the bypass added for probes must not leak into ordinary new sends. */
+static void test_srvrun_new_send_still_blocked_by_cwnd(void) {
+  static u8     body[4 * SRVRUN_CHUNK];
+  struct lp_fix f;
+  srvrun_conn   c;
+  quic_obuf     ob = {0};
+  u8            obuf[1024];
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.cc.cwnd           = SRVRUN_CHUNK - 1; /* not even room for one chunk */
+  c.resp[0].in_use    = 1;
+  c.resp[0].stream_id = 0;
+  wired_sendsess_arm(&c.resp[0].sess, body, sizeof body, SRVRUN_CHUNK);
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0};
+    srvrun_state    st  = {0, &c};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    CHECK(c.resp[0].sess.requeue_n == 0); /* nothing queued: not a probe */
+    srvrun_pump_sess(&ctx, 0);
+    CHECK(wired_sendsess_inflight(&c.resp[0].sess) == 0);
+    CHECK(c.resp[0].sess.q.cur == 0);
+  }
+}
+
+/* Several probes queued at once (packet-threshold loss can requeue many
+ * slices in a single detect pass) must ALL bypass cwnd in the same
+ * round-robin pass -- not just the first one -- draining the whole requeue
+ * before any brand-new data goes out. */
+static void test_srvrun_pto_probe_drains_multiple_requeued_slices(void) {
+  static u8     body0[(WIRED_SENDSESS_LOG + 4) * SRVRUN_CHUNK];
+  static u8     body1[SRVRUN_CHUNK];
+  struct lp_fix f;
+  srvrun_conn   c;
+  quic_obuf     ob = {0};
+  u8            obuf[1024];
+  u64           pn0;
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.cc.cwnd           = 1u << 20; /* isolate: fill the log, not cwnd, first */
+  c.resp[0].in_use    = 1;
+  c.resp[0].stream_id = 0;
+  c.resp[1].in_use    = 1;
+  c.resp[1].stream_id = 4;
+  pn0                 = c.l.tx_pn;
+  wired_sendsess_arm(&c.resp[0].sess, body0, sizeof body0, SRVRUN_CHUNK);
+  wired_sendsess_arm(&c.resp[1].sess, body1, sizeof body1, SRVRUN_CHUNK);
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0};
+    srvrun_state    st  = {0, &c};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_pump_sess(&ctx, 0); /* slot 0's log fills (32), slot 1 sends 1 */
+    CHECK(wired_sendsess_inflight(&c.resp[0].sess) == WIRED_SENDSESS_LOG);
+    /* ACK only the tail: every earlier slice trips the packet-loss
+     * threshold at once and moves to requeue (same shape as
+     * test_srvrun_loss_and_retransmit_across_two_responses). */
+    c.largest_acked = pn0 + WIRED_SENDSESS_LOG - 1;
+    {
+      u64 lost[WIRED_SENDSESS_LOG];
+      usz n = wired_sendsess_detect_lost(
+          &c.resp[0].sess, c.largest_acked, ctx.now_ms, 0, lost,
+          WIRED_SENDSESS_LOG);
+      CHECK(n > 1); /* more than one probe queued at once */
+    }
+    /* now pin cwnd down to nothing: a cwnd-gated pump could send none of
+     * the requeued probes, let alone drain all of them. */
+    c.cc.cwnd = 0;
+    srvrun_pump_sess(&ctx, 0);
+    CHECK(c.resp[0].sess.requeue_n == 0); /* every queued probe went out */
+  }
+}
+
+/* RFC 9002 7.5 exempts cwnd, not the log. A requeued probe can never
+ * actually collide with a full log (sendsess_requeue clears its own log
+ * entry's inflight flag the instant it queues, so requeue_n != 0 always
+ * implies at least that many free entries) -- but brand-new data (no probe
+ * queued) must still be capped at WIRED_SENDSESS_LOG regardless of how wide
+ * open cwnd is. Exercised the same way test_srvrun_pump_stops_at_log_capacity
+ * does, with cwnd wide open, to isolate the log gate as the only thing
+ * standing in the way. */
+static void test_srvrun_pto_probe_still_respects_log_capacity(void) {
+  static u8     body[(WIRED_SENDSESS_LOG + 4) * SRVRUN_CHUNK];
+  struct lp_fix f;
+  srvrun_conn   c;
+  quic_obuf     ob = {0};
+  u8            obuf[1024];
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.cc.cwnd           = 1u << 20; /* wide open: isolate the log gate */
+  c.resp[0].in_use    = 1;
+  c.resp[0].stream_id = 0;
+  wired_sendsess_arm(&c.resp[0].sess, body, sizeof body, SRVRUN_CHUNK);
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0};
+    srvrun_state    st  = {0, &c};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_pump_sess(&ctx, 0); /* log fills to capacity, 4 slices unsent */
+    CHECK(wired_sendsess_inflight(&c.resp[0].sess) == WIRED_SENDSESS_LOG);
+    CHECK(c.resp[0].sess.q.cur == (usz)WIRED_SENDSESS_LOG * SRVRUN_CHUNK);
+    /* no probe queued, log full, cwnd wide open: the log gate alone must
+     * stop the pump from sending the remaining unsent tail. */
+    CHECK(c.resp[0].sess.requeue_n == 0);
+    srvrun_pump_sess(&ctx, 0);
+    CHECK(c.resp[0].sess.q.cur == (usz)WIRED_SENDSESS_LOG * SRVRUN_CHUNK);
+  }
+}
+
+/* A queued probe must not leak its cwnd bypass to a SIBLING slot's
+ * brand-new send within the same round-robin pass: slot 0 has a probe
+ * queued (bypasses cwnd), slot 1 has only fresh sendq data (must still
+ * respect cwnd). */
+static void test_srvrun_pto_bypass_does_not_leak_to_sibling_new_sends(void) {
+  static u8     body0[SRVRUN_CHUNK];
+  static u8     body1[SRVRUN_CHUNK];
+  struct lp_fix f;
+  srvrun_conn   c;
+  quic_obuf     ob = {0};
+  u8            obuf[1024];
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.resp[0].in_use    = 1;
+  c.resp[0].stream_id = 0;
+  wired_sendsess_arm(&c.resp[0].sess, body0, sizeof body0, SRVRUN_CHUNK);
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0};
+    srvrun_state    st  = {0, &c};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    c.cc.cwnd           = 1u << 20;
+    srvrun_pump_sess(&ctx, 0); /* slot 0 sends its one slice */
+    CHECK(c.resp[0].sess.q.cur == SRVRUN_CHUNK);
+    CHECK(wired_sendsess_pto_fire(&c.resp[0].sess, SRVRUN_PTO_MAX));
+    CHECK(c.resp[0].sess.requeue_n == 1);
+    /* slot 1 arms AFTER slot 0's probe is already queued, and cwnd is
+     * pinned to exactly zero room: slot 0's probe must still go out (RFC
+     * 9002 7.5), but slot 1's brand-new data must NOT. */
+    c.resp[1].in_use    = 1;
+    c.resp[1].stream_id = 4;
+    wired_sendsess_arm(&c.resp[1].sess, body1, sizeof body1, SRVRUN_CHUNK);
+    c.cc.cwnd = 0;
+    srvrun_pump_sess(&ctx, 0);
+    CHECK(c.resp[0].sess.requeue_n == 0); /* slot 0's probe bypassed cwnd */
+    CHECK(wired_sendsess_inflight(&c.resp[0].sess) == 1);
+    CHECK(wired_sendsess_inflight(&c.resp[1].sess) == 0); /* slot 1 blocked */
+    CHECK(c.resp[1].sess.q.cur == 0);
+  }
+}
+
+/* Between a PTO firing (sendsess_requeue clears the log entry's inflight
+ * flag) and the actual resend, inflight bytes must already reflect the
+ * drop -- this is what lets cwnd stop looking artificially full even
+ * before the resend happens (srvrun_inflight_bytes_all reads the log's
+ * inflight flags directly, so this is really a sendsess.c invariant
+ * exercised through srvrun's own accounting helper). */
+static void test_srvrun_pto_requeue_frees_inflight_bytes_before_resend(void) {
+  static u8     body[SRVRUN_CHUNK];
+  struct lp_fix f;
+  srvrun_conn   c;
+  quic_obuf     ob = {0};
+  u8            obuf[1024];
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.cc.cwnd           = 1u << 20;
+  c.resp[0].in_use    = 1;
+  c.resp[0].stream_id = 0;
+  wired_sendsess_arm(&c.resp[0].sess, body, sizeof body, SRVRUN_CHUNK);
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0};
+    srvrun_state    st  = {0, &c};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_pump_sess(&ctx, 0);
+    CHECK(srvrun_inflight_bytes_all(&c) == SRVRUN_CHUNK);
+    CHECK(wired_sendsess_pto_fire(&c.resp[0].sess, SRVRUN_PTO_MAX));
+    /* before any resend happens, the byte accounting already dropped --
+     * the requeued slice is no longer counted as in flight. */
+    CHECK(srvrun_inflight_bytes_all(&c) == 0);
+  }
+}
+
+/* No in-flight data at all (requeue empty too): PTO firing is defined as a
+ * no-op (wired_sendsess_pto_fire returns 1 without touching anything), and
+ * the pump must not fabricate a send from nothing. */
+static void test_srvrun_pto_noop_when_nothing_inflight(void) {
+  static u8     body[SRVRUN_CHUNK];
+  struct lp_fix f;
+  srvrun_conn   c;
+  quic_obuf     ob = {0};
+  u8            obuf[1024];
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.cc.cwnd           = 1u << 20;
+  c.resp[0].in_use    = 1;
+  c.resp[0].stream_id = 0;
+  wired_sendsess_arm(&c.resp[0].sess, body, sizeof body, SRVRUN_CHUNK);
+  {
+    CHECK(wired_sendsess_inflight(&c.resp[0].sess) == 0);
+    CHECK(c.resp[0].sess.requeue_n == 0);
+    CHECK(wired_sendsess_pto_fire(&c.resp[0].sess, SRVRUN_PTO_MAX) == 1);
+    CHECK(c.resp[0].sess.requeue_n == 0); /* still nothing queued */
+  }
+}
+
+/* RFC 9002 only exempts PTO probes from the congestion controller (7.5);
+ * pacing (7.7) is a separate mechanism this change must not also bypass.
+ * A queued probe still has to wait for srvrun_pace_ok like any other send
+ * in the same round-robin pass. */
+static void test_srvrun_pto_probe_still_gated_by_pacing(void) {
+  static u8     body[SRVRUN_CHUNK];
+  struct lp_fix f;
+  srvrun_conn   c;
+  quic_obuf     ob = {0};
+  u8            obuf[1024];
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.cc.cwnd           = 1u << 20;
+  c.resp[0].in_use    = 1;
+  c.resp[0].stream_id = 0;
+  wired_sendsess_arm(&c.resp[0].sess, body, sizeof body, SRVRUN_CHUNK);
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0};
+    srvrun_state    st  = {0, &c};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_pump_sess(&ctx, 0);
+    CHECK(wired_sendsess_pto_fire(&c.resp[0].sess, SRVRUN_PTO_MAX));
+    CHECK(c.resp[0].sess.requeue_n == 1);
+    /* an RTT sample exists and the pacing deadline is far in the future:
+     * srvrun_pace_ok must say no, so the queued probe stays queued despite
+     * cwnd being wide open. */
+    c.srtt_ms      = 40;
+    c.next_send_ms = ctx.now_ms + 1000;
+    srvrun_pump_sess(&ctx, 0);
+    CHECK(c.resp[0].sess.requeue_n == 1); /* pacing still blocked it */
+  }
+}
+
+/* END-TO-END REGRESSION for the real interop stall: two slots share a cwnd
+ * pinned so tight neither slot alone has room for a fresh chunk. Slot 0's
+ * one in-flight slice PTOs -- without RFC 9002 7.5's cwnd bypass, this
+ * deadlocks forever (cwnd only grows from ACKs, ACKs need sends, the probe
+ * IS the send that would produce one). With the bypass, the probe goes out,
+ * an ACK for it arrives, and cwnd starts growing again -- breaking the
+ * exact stall observed against a real quic-go client (cwnd/inflight stuck
+ * at the same value, log never draining, eventual PTO-budget teardown). */
+static void test_srvrun_pto_resend_breaks_cwnd_deadlock(void) {
+  static u8     body0[SRVRUN_CHUNK];
+  static u8     body1[SRVRUN_CHUNK];
+  struct lp_fix f;
+  srvrun_conn   c;
+  quic_obuf     ob = {0};
+  u8            obuf[1024];
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.resp[0].in_use    = 1;
+  c.resp[0].stream_id = 0;
+  c.resp[1].in_use    = 1;
+  c.resp[1].stream_id = 4;
+  wired_sendsess_arm(&c.resp[0].sess, body0, sizeof body0, SRVRUN_CHUNK);
+  wired_sendsess_arm(&c.resp[1].sess, body1, sizeof body1, SRVRUN_CHUNK);
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0};
+    srvrun_state    st  = {0, &c};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    c.cc.cwnd           = 2 * SRVRUN_CHUNK; /* exactly enough for one each */
+    srvrun_pump_sess(&ctx, 0);
+    CHECK(wired_sendsess_inflight(&c.resp[0].sess) == 1);
+    CHECK(wired_sendsess_inflight(&c.resp[1].sess) == 1);
+    /* pin cwnd to exactly slot 1's chunk -- slot 0's probe has no cwnd
+     * room, matching the real stall's inf==cwnd-ish stuck state. */
+    c.cc.cwnd = SRVRUN_CHUNK;
+    CHECK(wired_sendsess_pto_fire(&c.resp[0].sess, SRVRUN_PTO_MAX));
+    CHECK(c.resp[0].sess.requeue_n == 1);
+    srvrun_pump_sess(&ctx, 0);
+    CHECK(c.resp[0].sess.requeue_n == 0); /* the probe broke the deadlock */
+    /* the probe used a FRESH pn (wired_sendsess_take/srvrun_send_slice
+     * mint a new one on every send, retransmit or not) -- feed an ACK
+     * range covering everything sent so far and confirm cwnd actually
+     * grows again, proving the deadlock is broken end to end, not just
+     * that one packet moved. */
+    quic_cc_on_ack(&c.cc, SRVRUN_CHUNK, ctx.now_ms, ctx.now_ms);
+    CHECK(c.cc.cwnd > SRVRUN_CHUNK);
+  }
+}
+
 void test_srvrun(void) {
   test_srvrun_broadcast_datagram_queues_active_wt_sessions();
   test_srvrun_broadcast_datagram_skips_inactive_wt();
@@ -3960,6 +4305,15 @@ void test_srvrun(void) {
   test_srvrun_loss_and_retransmit_across_two_responses();
   test_srvrun_pump_round_robins_across_slots();
   test_srvrun_pacing_floor_does_not_starve_round();
+  test_srvrun_pto_probe_bypasses_cwnd();
+  test_srvrun_new_send_still_blocked_by_cwnd();
+  test_srvrun_pto_probe_drains_multiple_requeued_slices();
+  test_srvrun_pto_probe_still_respects_log_capacity();
+  test_srvrun_pto_bypass_does_not_leak_to_sibling_new_sends();
+  test_srvrun_pto_requeue_frees_inflight_bytes_before_resend();
+  test_srvrun_pto_noop_when_nothing_inflight();
+  test_srvrun_pto_probe_still_gated_by_pacing();
+  test_srvrun_pto_resend_breaks_cwnd_deadlock();
   test_srvrun_pump_stops_at_log_capacity();
   test_srvrun_accept_rekeys_to_slot_scid();
   test_srvrun_initial_retransmit_resends_cached_flight();
