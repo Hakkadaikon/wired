@@ -3900,6 +3900,49 @@ static void test_srvrun_pump_round_robins_across_slots(void) {
   }
 }
 
+/* PACING GATES PASSES, NOT SLOTS: once an RTT sample exists and cwnd has
+ * grown large enough that the pacing interval floors to 1ms (quic_cc.c),
+ * that floor must limit how often a whole round-robin PASS may run, not
+ * block sibling slots within the SAME pass -- pacing rescheduling
+ * next_send_ms after slot 0's slice used to make srvrun_pace_ok fail for
+ * slots 4/8 before they ever got a turn in the same step, so a real 3-way
+ * parallel GET left two of the three streams completely unserved. */
+static void test_srvrun_pacing_floor_does_not_starve_round(void) {
+  static u8     body0[4 * SRVRUN_CHUNK];
+  static u8     body1[4 * SRVRUN_CHUNK];
+  static u8     body2[4 * SRVRUN_CHUNK];
+  struct lp_fix f;
+  srvrun_conn   c;
+  quic_obuf     ob = {0};
+  u8            obuf[1024];
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  /* real values observed mid-transfer: interval = 5*1200*40/(4*71055)
+   * truncates to 0, floored to 1ms by quic_cc_pacing_ms. */
+  c.srtt_ms           = 40;
+  c.cc.cwnd           = 71055;
+  c.resp[0].in_use    = 1;
+  c.resp[0].stream_id = 0;
+  c.resp[1].in_use    = 1;
+  c.resp[1].stream_id = 4;
+  c.resp[2].in_use    = 1;
+  c.resp[2].stream_id = 8;
+  wired_sendsess_arm(&c.resp[0].sess, body0, sizeof body0, SRVRUN_CHUNK);
+  wired_sendsess_arm(&c.resp[1].sess, body1, sizeof body1, SRVRUN_CHUNK);
+  wired_sendsess_arm(&c.resp[2].sess, body2, sizeof body2, SRVRUN_CHUNK);
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0};
+    srvrun_state    st  = {0, &c};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 1};
+    srvrun_pump_sess(&ctx, 0);
+    /* one pacing-gated pass must still reach every slot, not just slot 0. */
+    CHECK(wired_sendsess_inflight(&c.resp[0].sess) == 1);
+    CHECK(wired_sendsess_inflight(&c.resp[1].sess) == 1);
+    CHECK(wired_sendsess_inflight(&c.resp[2].sess) == 1);
+  }
+}
+
 void test_srvrun(void) {
   test_srvrun_broadcast_datagram_queues_active_wt_sessions();
   test_srvrun_broadcast_datagram_skips_inactive_wt();
@@ -3916,6 +3959,7 @@ void test_srvrun(void) {
   test_srvrun_sibling_ack_does_not_lose_other_slot();
   test_srvrun_loss_and_retransmit_across_two_responses();
   test_srvrun_pump_round_robins_across_slots();
+  test_srvrun_pacing_floor_does_not_starve_round();
   test_srvrun_pump_stops_at_log_capacity();
   test_srvrun_accept_rekeys_to_slot_scid();
   test_srvrun_initial_retransmit_resends_cached_flight();

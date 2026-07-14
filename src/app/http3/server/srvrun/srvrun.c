@@ -1894,24 +1894,24 @@ static void srvrun_debug_cc(
 }
 #endif
 
-/* 1 when r's send log has a free entry, the connection's congestion window
- * (RFC 9002 7) has room for one more chunk across every slot combined, and
- * the pacing schedule (RFC 9002 7.7) allows another packet now. The log
- * gate must come first: a slice taken and sent while the log is full can be
- * recorded in neither log nor requeue -- if that packet then drops, the
- * stream has a permanent hole the peer waits on forever. */
-static int srvrun_can_send(
-    const srvrun_step_ctx* ctx, const srvrun_conn* c, const srvrun_resp* r) {
+/* 1 when r's send log has a free entry and the connection's congestion
+ * window (RFC 9002 7) has room for one more chunk across every slot
+ * combined. Pacing (RFC 9002 7.7) is NOT checked here -- it gates whole
+ * round-robin passes (srvrun_pump_round_gated), not individual slots, so one
+ * slot's send can't consume the connection's one shared pacing budget before
+ * its siblings get their turn in the same pass. The log gate must come
+ * first: a slice taken and sent while the log is full can be recorded in
+ * neither log nor requeue -- if that packet then drops, the stream has a
+ * permanent hole the peer waits on forever. */
+static int srvrun_can_send(const srvrun_conn* c, const srvrun_resp* r) {
   return wired_sendsess_inflight(&r->sess) < WIRED_SENDSESS_LOG &&
-         srvrun_inflight_bytes_all(c) + SRVRUN_CHUNK <= c->cc.cwnd &&
-         srvrun_pace_ok(ctx, c);
+         srvrun_inflight_bytes_all(c) + SRVRUN_CHUNK <= c->cc.cwnd;
 }
 
 /* srvrun_can_send's verdict, plus a QUIC_DEBUG dump on the blocked path --
  * split out so the extra branch never touches srvrun_can_send's own CCN. */
-static int srvrun_can_send_traced(
-    const srvrun_step_ctx* ctx, const srvrun_conn* c, const srvrun_resp* r) {
-  int ok = srvrun_can_send(ctx, c, r);
+static int srvrun_can_send_traced(const srvrun_conn* c, const srvrun_resp* r) {
+  int ok = srvrun_can_send(c, r);
 #ifdef QUIC_DEBUG
   if (!ok)
     srvrun_debug_cc(
@@ -1921,24 +1921,15 @@ static int srvrun_can_send_traced(
   return ok;
 }
 
-/* Ship one slice and schedule the next paced send. */
-static int srvrun_slice_out(
-    const srvrun_step_ctx*   ctx,
-    srvrun_conn*             c,
-    srvrun_resp*             r,
-    const wired_sendq_slice* sl) {
-  if (!srvrun_send_slice(ctx, c, r, sl)) return 0;
-  srvrun_pace_next(ctx, c);
-  return 1;
-}
-
-/* Send one slice from r if the gates allow and one is ready. */
+/* Send one slice from r if the gates allow and one is ready. Pacing's
+ * next-send time is scheduled once per whole pass by the caller
+ * (srvrun_pump_round_gated), not per slice. */
 static int srvrun_pump_one(
     const srvrun_step_ctx* ctx, srvrun_conn* c, srvrun_resp* r) {
   wired_sendq_slice sl;
-  if (!srvrun_can_send_traced(ctx, c, r)) return 0;
+  if (!srvrun_can_send_traced(c, r)) return 0;
   if (!wired_sendsess_take(&r->sess, &sl)) return 0;
-  return srvrun_slice_out(ctx, c, r, &sl);
+  return srvrun_send_slice(ctx, c, r, &sl);
 }
 
 /* One round-robin pass: try exactly one slice from every in-use resp[]
@@ -1947,6 +1938,19 @@ static int srvrun_pump_round(const srvrun_step_ctx* ctx, srvrun_conn* c) {
   int sent = 0;
   for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++)
     sent |= srvrun_pump_one(ctx, c, &c->resp[i]);
+  return sent;
+}
+
+/* One pacing-gated round-robin pass: the whole pass (up to SRVRUN_RESP_SLOTS
+ * slices, one per slot) counts as a single paced send, so pacing limits how
+ * often a PASS may run, not how often each SLOT within it may run -- pacing
+ * and round-robin fairness would otherwise fight (a 1ms pacing floor made
+ * slot 0's first slice push next_send_ms a full ms into the future before
+ * slots 4/8 ever got a turn in the same step, starving them completely). */
+static int srvrun_pump_round_gated(const srvrun_step_ctx* ctx, srvrun_conn* c) {
+  if (!srvrun_pace_ok(ctx, c)) return 0;
+  int sent = srvrun_pump_round(ctx, c);
+  if (sent) srvrun_pace_next(ctx, c);
   return sent;
 }
 
@@ -1960,7 +1964,7 @@ static int srvrun_pump_round(const srvrun_step_ctx* ctx, srvrun_conn* c) {
  * packet threshold, not because they were actually lost). */
 static void srvrun_pump_sess(const srvrun_step_ctx* ctx, int slot) {
   srvrun_conn* c = &ctx->st->conns[slot];
-  while (srvrun_pump_round(ctx, c)) {
+  while (srvrun_pump_round_gated(ctx, c)) {
   }
 }
 
