@@ -1,0 +1,59 @@
+name: Interop
+
+on:
+  workflow_dispatch:
+
+jobs:
+  quic-interop-runner:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: DeterminateSystems/nix-installer-action@main
+
+      - name: install tshark (runner needs Wireshark 4.5+ for trace analysis)
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y tshark
+
+      - name: build server binary
+        run: nix develop -c sh -c 'just gen-ninja && ninja examples/word_list/wired_server'
+
+      - name: build docker image
+        run: docker build -t wired-interop -f interop/Dockerfile .
+
+      - name: clone quic-interop-runner
+        run: git clone --depth 1 https://github.com/quic-interop/quic-interop-runner.git runner
+
+      - name: install runner requirements
+        run: |
+          python3 -m venv runner/.venv
+          runner/.venv/bin/pip install --quiet -r runner/requirements.txt
+
+      - name: register wired as server implementation
+        run: |
+          python3 - runner/implementations_quic.json <<'PY'
+          import json, sys
+          path = sys.argv[1]
+          with open(path) as f:
+              data = json.load(f)
+          data["wired"] = {
+              "image": "wired-interop",
+              "url": "https://github.com/Hakkadaikon/wired",
+              "role": "server",
+          }
+          with open(path, "w") as f:
+              json.dump(data, f, indent=2)
+          PY
+
+      - name: run handshake / transfer / http3 test cases
+        working-directory: runner
+        run: ./.venv/bin/python run.py -s wired -c quic-go -t handshake,transfer,http3
+
+      - name: upload runner logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: interop-logs
+          path: runner/logs
+          if-no-files-found: ignore
