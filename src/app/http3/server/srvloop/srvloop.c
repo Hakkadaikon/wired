@@ -87,9 +87,8 @@ int wired_srvloop_init(wired_srvloop* l, const u8* cli_scid, u8 cli_scid_len) {
   l->max_data_seen              = 0;
   l->max_data_seen_flag         = 0;
   l->max_stream_data_n          = 0;
-  quic_recvpn_init(&l->app_ack_recv);
+  quic_pnspaces_recv_init(&l->ack_recv);
   quic_ackpolicy_init(&l->app_ack_policy);
-  quic_recvpn_init(&l->hs_ack_recv);
   quic_ackpolicy_init(&l->hs_ack_policy);
   l->now_ms = 0;
   streams_reset(l);
@@ -335,13 +334,14 @@ static int srvloop_payload_ack_eliciting(quic_span pl) {
  * packet (e.g. ACK-only) touches neither -- receiving only ACKs is never
  * itself a reason to ACK. */
 static void srvloop_note_ack_owed(
-    quic_recvpn*    recv,
-    quic_ackpolicy* policy,
-    quic_span       pl,
-    u64             pn,
-    u64             now_ms) {
+    quic_pnspaces_recv* recv,
+    int                 space,
+    quic_ackpolicy*     policy,
+    quic_span           pl,
+    u64                 pn,
+    u64                 now_ms) {
   if (!srvloop_payload_ack_eliciting(pl)) return;
-  quic_recvpn_record(recv, pn);
+  quic_pnspaces_on_recv(recv, space, pn);
   quic_ackpolicy_on_eliciting(policy, now_ms);
 }
 
@@ -367,10 +367,12 @@ static void step_dispatch(const wired_srvloop_conn* conn, quic_span payload) {
 static void step_note_ack_owed(wired_srvloop* l, quic_span payload, int level) {
   if (level == QUIC_LEVEL_ONERTT)
     srvloop_note_ack_owed(
-        &l->app_ack_recv, &l->app_ack_policy, payload, l->app_rx_pn, l->now_ms);
+        &l->ack_recv, QUIC_PNS_APP, &l->app_ack_policy, payload, l->app_rx_pn,
+        l->now_ms);
   if (level == QUIC_LEVEL_HANDSHAKE)
     srvloop_note_ack_owed(
-        &l->hs_ack_recv, &l->hs_ack_policy, payload, l->hs_rx_pn, l->now_ms);
+        &l->ack_recv, QUIC_PNS_HANDSHAKE, &l->hs_ack_policy, payload,
+        l->hs_rx_pn, l->now_ms);
 }
 
 /* RFC 9001 5 / 5.1: open one coalesced packet slice and walk its frames. A
