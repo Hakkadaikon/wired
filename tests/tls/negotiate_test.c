@@ -43,12 +43,53 @@ void test_negotiate_truncated(void) {
 }
 
 void test_negotiate_build_response(void) {
-  u8              out[16];
+  u8              out[24];
   usz             n;
-  static const u8 want[9] = {0x00, 0x10, 0x00, 0x05, 0x00,
-                             0x03, 0x02, 0x68, 0x33};
-  CHECK(quic_salpn_build_response(out, sizeof(out), &n) == 1);
+  static const u8 want_h3[9]  = {0x00, 0x10, 0x00, 0x05, 0x00,
+                                 0x03, 0x02, 0x68, 0x33};
+  static const u8 want_hq[17] = {0x00, 0x10, 0x00, 0x0d, 0x00, 0x0b,
+                                 0x0a, 0x68, 0x71, 0x2d, 0x69, 0x6e,
+                                 0x74, 0x65, 0x72, 0x6f, 0x70};
+  CHECK(quic_salpn_build_response(QUIC_SALPN_H3, out, sizeof(out), &n) == 1);
   CHECK(n == 9);
-  for (usz i = 0; i < 9; i++) CHECK(out[i] == want[i]);
-  CHECK(quic_salpn_build_response(out, 8, &n) == 0); /* too small */
+  for (usz i = 0; i < 9; i++) CHECK(out[i] == want_h3[i]);
+  CHECK(
+      quic_salpn_build_response(QUIC_SALPN_H3, out, 8, &n) ==
+      0); /* too small */
+
+  CHECK(quic_salpn_build_response(QUIC_SALPN_HQ, out, sizeof(out), &n) == 1);
+  CHECK(n == 17);
+  for (usz i = 0; i < 17; i++) CHECK(out[i] == want_hq[i]);
+  CHECK(
+      quic_salpn_build_response(QUIC_SALPN_HQ, out, 16, &n) ==
+      0); /* too small */
+
+  CHECK(quic_salpn_build_response(QUIC_SALPN_NONE, out, sizeof(out), &n) == 0);
+}
+
+void test_negotiate_selects_hq(void) {
+  /* list_len=11, name_len=10, "hq-interop" */
+  u8 list[13] = {0x00, 0x0b, 0x0a, 0x68, 0x71, 0x2d, 0x69,
+                 0x6e, 0x74, 0x65, 0x72, 0x6f, 0x70};
+  CHECK(quic_salpn_select_hq(list, sizeof(list)) == 1);
+  CHECK(quic_salpn_select_h3(list, sizeof(list)) == 0);
+}
+
+void test_negotiate_prefers_h3_over_hq(void) {
+  /* "hq-interop" then "h3" -- h3 wins regardless of offer order */
+  u8 list[16] = {0x00, 0x0e, 0x0a, 0x68, 0x71, 0x2d, 0x69, 0x6e,
+                 0x74, 0x65, 0x72, 0x6f, 0x70, 0x02, 0x68, 0x33};
+  CHECK(quic_salpn_negotiate(list, sizeof(list)) == QUIC_SALPN_H3);
+}
+
+void test_negotiate_selects_hq_when_only_offered(void) {
+  u8 list[13] = {0x00, 0x0b, 0x0a, 0x68, 0x71, 0x2d, 0x69,
+                 0x6e, 0x74, 0x65, 0x72, 0x6f, 0x70};
+  CHECK(quic_salpn_negotiate(list, sizeof(list)) == QUIC_SALPN_HQ);
+}
+
+void test_negotiate_none_when_neither_offered(void) {
+  /* "h2" only */
+  u8 list[5] = {0x00, 0x03, 0x02, 0x68, 0x32};
+  CHECK(quic_salpn_negotiate(list, sizeof(list)) == QUIC_SALPN_NONE);
 }

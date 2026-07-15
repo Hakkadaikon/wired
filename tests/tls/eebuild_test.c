@@ -17,7 +17,8 @@ void test_eebuild(void) {
   quic_span tpd;
   quic_obuf ob = quic_obuf_of(out, sizeof(out));
 
-  CHECK(quic_eebuild_encrypted_extensions(quic_span_of(tp, sizeof(tp)), &ob));
+  CHECK(quic_eebuild_encrypted_extensions(
+      QUIC_SALPN_H3, quic_span_of(tp, sizeof(tp)), &ob));
 
   /* handshake header: type 0x08, length consistent with ob.len. */
   CHECK(quic_hs_parse(quic_span_of(out, ob.len), &type, &body_len) == 4);
@@ -40,5 +41,35 @@ void test_eebuild(void) {
 
   /* a tight cap (one byte short) must be refused. */
   ob = quic_obuf_of(out, ob.len - 1);
-  CHECK(!quic_eebuild_encrypted_extensions(quic_span_of(tp, sizeof(tp)), &ob));
+  CHECK(!quic_eebuild_encrypted_extensions(
+      QUIC_SALPN_H3, quic_span_of(tp, sizeof(tp)), &ob));
+}
+
+/* hq-interop selected: the ALPN extension carries "hq-interop" (17 bytes)
+ * instead of "h3" (9), and the 0x39 extension still follows it. */
+void test_eebuild_selects_hq(void) {
+  const u8  tp[5] = {0xaa, 0xbb, 0xcc, 0xdd, 0xee};
+  u8        out[128];
+  usz       body_len;
+  u8        type;
+  const u8* body;
+  quic_obuf ob = quic_obuf_of(out, sizeof(out));
+
+  CHECK(quic_eebuild_encrypted_extensions(
+      QUIC_SALPN_HQ, quic_span_of(tp, sizeof(tp)), &ob));
+  CHECK(quic_hs_parse(quic_span_of(out, ob.len), &type, &body_len) == 4);
+  body = out + 4;
+  CHECK(((usz)body[2] << 8 | body[3]) == QUIC_SALPN_EXT_TYPE);
+  CHECK(quic_salpn_select_hq(body + 6, 13)); /* ext_data: list_len + name */
+  CHECK(!quic_salpn_select_h3(body + 6, 13));
+}
+
+/* No protocol negotiated (QUIC_SALPN_NONE) must fail closed -- nothing is
+ * built, matching the safe-failure this task's ALPN negotiation relies on. */
+void test_eebuild_rejects_no_negotiation(void) {
+  const u8  tp[5] = {0xaa, 0xbb, 0xcc, 0xdd, 0xee};
+  u8        out[128];
+  quic_obuf ob = quic_obuf_of(out, sizeof(out));
+  CHECK(!quic_eebuild_encrypted_extensions(
+      QUIC_SALPN_NONE, quic_span_of(tp, sizeof(tp)), &ob));
 }
