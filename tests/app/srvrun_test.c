@@ -4492,6 +4492,33 @@ static void test_srvrun_onertt_get_is_acked_via_srvrun_on_step(void) {
   wired_udp_close(sfd);
 }
 
+/* T-024 (direct): srvrun_on_step writes its ctx->now_ms straight into
+ * c->l.now_ms every step -- the exact field quic_ackpolicy_should_ack reads
+ * for the delayed-ACK timer (srvloop.c's app_ack_due) -- proving there is
+ * one shared clock, not a second independent one for the ACK timer.
+ * srvrun_pto_deadline_ms/srvrun_pto_resps read the very same ctx->now_ms
+ * argument on this same step (srvrun.c:2614), so a value observed here on
+ * c.l.now_ms is what PTO judged against too. No socket needed: this reads
+ * connection state directly rather than a wire reply. */
+static void test_srvrun_ack_timer_shares_now_ms_with_pto(void) {
+  struct lp_fix    f;
+  srvrun_conn      c  = {0};
+  quic_obuf        ob = {0};
+  u8               obuf[1024];
+  static const u64 now_ms = 12345;
+  ob                      = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0};
+    srvrun_step_ctx ctx     = {&cfg, 0, 0, now_ms};
+    u8              ping[1] = {0x01}, spkt[1024];
+    usz slen = client_seal_onertt_pn(&f, 11, ping, 1, spkt, sizeof spkt);
+    srvrun_on_step(&ctx, &c, quic_mspan_of(spkt, slen));
+  }
+  CHECK(c.l.now_ms == now_ms);
+}
+
 /* SLOT REUSE: HTTP/3 never reuses a stream id, so resp[]'s SRVRUN_RESP_SLOTS
  * (4, matching the receive side's WIRED_SRVLOOP_MAX_STREAMS) must free a
  * slot once its response is fully sent and acked -- otherwise a 5th
@@ -5700,6 +5727,7 @@ void test_srvrun(void) {
   test_srvrun_batch_serves_each();
   test_srvrun_takeover_streams_large_body();
   test_srvrun_onertt_get_is_acked_via_srvrun_on_step();
+  test_srvrun_ack_timer_shares_now_ms_with_pto();
   test_srvrun_parallel_responses_three_streams();
   test_srvrun_cc_algo_selected();
   test_srvrun_hystart_ends_slow_start();

@@ -2248,6 +2248,75 @@ static void test_srvloop_ack_large_pn_jump_handled_by_existing_recvpn(void) {
   CHECK(a.ranges[0].hi == 100000 && a.ranges[0].lo == 100000);
 }
 
+/* T-010: exactly QUIC_ACK_MAX_RANGES (32) single-packet ranges, all within
+ * quic_recvpn's QUIC_RECVPN_WINDOW (64) -- receiving pn 1, 3, 5, ..., 63 (32
+ * odd packet numbers, every even one missing) yields 32 independent ranges,
+ * proving the window comfortably reaches the range-count ceiling without
+ * quic_ack_encode rejecting the frame. */
+static void test_srvloop_ack_ranges_within_window_all_included(void) {
+  struct lp_fix  f;
+  quic_obuf      ob;
+  u8             out[1024], ping[1] = {0x01}, spkt[1024];
+  usz            slen;
+  quic_ack_frame a;
+  u64            pn;
+  ob = (quic_obuf){out, sizeof out, 0};
+  lp_confirm(&f, &ob);
+  for (pn = 1; pn <= 61; pn += 2) {
+    slen = client_seal_onertt_pn(&f, pn, ping, 1, spkt, sizeof spkt);
+    ob   = (quic_obuf){out, sizeof out, 0};
+    wired_srvloop_step(
+        &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  }
+  f.l.now_ms += WIRED_SRVLOOP_MAX_ACK_DELAY_MS;
+  slen = client_seal_onertt_pn(&f, 63, ping, 1, spkt, sizeof spkt);
+  ob   = (quic_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  {
+    const u8* pl;
+    usz       pll;
+    CHECK(client_open_onertt(&f, out, ob.len, &pl, &pll) == 1);
+    CHECK(find_ack_frame(pl, pll, &a) == 1);
+  }
+  CHECK(a.n_ranges == QUIC_ACK_MAX_RANGES);
+  CHECK(a.ranges[0].hi == 63 && a.ranges[0].lo == 63);
+  CHECK(a.ranges[QUIC_ACK_MAX_RANGES - 1].hi == 1);
+}
+
+/* T-011 (integration): one more single-packet range than
+ * QUIC_ACK_MAX_RANGES (33, all within the 64-pn recvpn window) must not
+ * corrupt srvloop -- app_ack_encode_ranges (respond.c, called directly here
+ * exactly like T-020/T-021 above) falls back to appending nothing rather
+ * than a truncated/overflowing ACK frame; it is emit_ack_only's caller that
+ * then has nothing to send, not an encoder crash or garbage frame. */
+static void test_srvloop_ack_encode_overflow_falls_back_safely(void) {
+  struct lp_fix f;
+  quic_obuf     ob;
+  u8            out[1024], ping[1] = {0x01}, spkt[1024];
+  usz           slen;
+  u64           pn;
+  ob = (quic_obuf){out, sizeof out, 0};
+  lp_confirm(&f, &ob);
+  for (pn = 1; pn <= 63; pn += 2) {
+    slen = client_seal_onertt_pn(&f, pn, ping, 1, spkt, sizeof spkt);
+    ob   = (quic_obuf){out, sizeof out, 0};
+    wired_srvloop_step(
+        &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  }
+  f.l.now_ms += WIRED_SRVLOOP_MAX_ACK_DELAY_MS;
+  slen = client_seal_onertt_pn(&f, 65, ping, 1, spkt, sizeof spkt);
+  ob   = (quic_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  {
+    u8  buf[512];
+    usz n = app_ack_encode_ranges(&f.l, buf, sizeof buf);
+    CHECK(
+        n == 0); /* 33 ranges overflow QUIC_ACK_MAX_RANGES: no ACK, no crash */
+  }
+}
+
 /* T-018: the App and Handshake pn spaces are independent (RFC 9000 12.3) --
  * an App-space packet does not perturb the Handshake ACK's tracked pn, and
  * vice versa (proven here by confirming the Handshake ACK still reflects the
@@ -3013,6 +3082,8 @@ void test_srvloop(void) {
   test_srvloop_ack_stale_pn_outside_window_ignored();
   test_srvloop_ack_recvpn_window_boundary();
   test_srvloop_ack_large_pn_jump_handled_by_existing_recvpn();
+  test_srvloop_ack_ranges_within_window_all_included();
+  test_srvloop_ack_encode_overflow_falls_back_safely();
   test_srvloop_ack_pn_spaces_independent();
   test_srvloop_ack_nothing_pending_no_ack_frame_emitted();
   test_srvloop_ack_delay_field_encodes_actual_delay();
