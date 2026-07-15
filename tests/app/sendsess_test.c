@@ -250,6 +250,57 @@ static void test_sendsess_peek_ack_bytes(void) {
   CHECK(wired_sendsess_inflight_bytes(&s) == 5);
 }
 
+/* A fresh arm starts at stream base offset 0 (the common, non-streaming
+ * case): the absolute offset helper matches the slice's own offset. */
+static void test_sendsess_stream_offset_defaults_to_zero(void) {
+  u8                bytes[20];
+  wired_sendsess    s;
+  wired_sendq_slice sl;
+  wired_sendsess_arm(&s, bytes, 20, 10);
+  wired_sendsess_take(&s, &sl);
+  CHECK(wired_sendsess_stream_offset(&s, &sl) == 0);
+}
+
+/* wired_sendsess_set_base_offset shifts every subsequent slice's absolute
+ * stream offset by the given amount, without touching the slice's own
+ * (round-local) offset -- this is how a re-armed round N+1 continues the
+ * QUIC stream's absolute byte numbering instead of restarting at 0
+ * (T-018: streaming rounds must not rewind the stream offset). */
+static void test_sendsess_stream_offset_after_base_set(void) {
+  u8                bytes[20];
+  wired_sendsess    s;
+  wired_sendq_slice sl;
+  wired_sendsess_arm(&s, bytes, 20, 10);
+  wired_sendsess_set_base_offset(&s, 640 * 1024);
+  wired_sendsess_take(&s, &sl);
+  CHECK(sl.offset == 0); /* round-local offset is unchanged */
+  CHECK(wired_sendsess_stream_offset(&s, &sl) == 640 * 1024);
+  wired_sendsess_take(&s, &sl);
+  CHECK(sl.offset == 10);
+  CHECK(wired_sendsess_stream_offset(&s, &sl) == 640 * 1024 + 10);
+}
+
+/* Re-arming for the next round resets active/log/requeue state AND the base
+ * offset back to 0 (a fresh arm always starts a session from scratch) -- a
+ * streaming round driver must call set_base_offset again after every arm
+ * with the cumulative bytes sent so far (T-019: no accidental double count
+ * or silent reset losing the accumulated offset). */
+static void test_sendsess_stream_offset_explicit_each_round(void) {
+  u8                bytes[10];
+  wired_sendsess    s;
+  wired_sendq_slice sl;
+  wired_sendsess_arm(&s, bytes, 10, 10);
+  wired_sendsess_set_base_offset(&s, 100);
+  wired_sendsess_take(&s, &sl);
+  CHECK(wired_sendsess_stream_offset(&s, &sl) == 100);
+  /* round 2: re-arm over a fresh buffer, explicitly advance the base by
+   * exactly what round 1 sent (100 + 10 == 110) -- no gap, no overlap. */
+  wired_sendsess_arm(&s, bytes, 10, 10);
+  wired_sendsess_set_base_offset(&s, 110);
+  wired_sendsess_take(&s, &sl);
+  CHECK(wired_sendsess_stream_offset(&s, &sl) == 110);
+}
+
 void test_sendsess(void) {
   test_sendsess_take_and_track();
   test_sendsess_ack_consumes();
@@ -263,4 +314,7 @@ void test_sendsess(void) {
   test_sendsess_pto_resets_on_ack();
   test_sendsess_pto_exhaustion_fails();
   test_sendsess_peek_ack_bytes();
+  test_sendsess_stream_offset_defaults_to_zero();
+  test_sendsess_stream_offset_after_base_set();
+  test_sendsess_stream_offset_explicit_each_round();
 }

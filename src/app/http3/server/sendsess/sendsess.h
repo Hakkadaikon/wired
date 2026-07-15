@@ -29,6 +29,12 @@ typedef struct {
   u64               largest_acked; /**< highest pn the peer acked (monotone) */
   int               has_acked;     /**< 1 once any ACK arrived */
   int               pto_count;     /**< probes fired since the last ACK */
+  /** RFC 9000 19.8: bytes already sent on this QUIC stream before the
+   * current arm's round-local offsets. 0 for a single-round response;
+   * a streaming response advances this via wired_sendsess_set_base_offset
+   * before each re-arm so the STREAM frame's absolute offset keeps
+   * counting up instead of restarting at 0 every round. */
+  u64 stream_base_offset;
 } wired_sendsess;
 
 /** Arm the session over a full response byte stream (borrowed; must stay
@@ -42,6 +48,23 @@ void wired_sendsess_arm(
 
 /** @return slices currently in flight (sent, unacknowledged). */
 usz wired_sendsess_inflight(const wired_sendsess* s);
+
+/** Set the QUIC stream's absolute byte offset that this arm's round-local
+ * offset 0 corresponds to (RFC 9000 19.8). Call before arming (or between
+ * takes) a streaming response's next round with the total bytes already
+ * sent in prior rounds; a single-round response never calls this and stays
+ * at the default 0.
+ * @param s the session
+ * @param base_offset absolute stream bytes sent before this round */
+void wired_sendsess_set_base_offset(wired_sendsess* s, u64 base_offset);
+
+/** The absolute QUIC stream offset (RFC 9000 19.8) for slice sl, taken from
+ * this session: sl's own (round-local) offset plus stream_base_offset.
+ * @param s the session sl came from
+ * @param sl a slice from wired_sendsess_take
+ * @return the absolute stream byte offset to put on the wire */
+u64 wired_sendsess_stream_offset(
+    const wired_sendsess* s, const wired_sendq_slice* sl);
 
 /** Take the next slice to transmit: a requeued (lost) slice first, else the
  * next unsent one.
