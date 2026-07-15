@@ -1437,6 +1437,8 @@ static int srvrun_is_boot_retransmit(const srvrun_conn* c, quic_mspan dg) {
   return srvrun_dgram_all_initial(dg);
 }
 
+static void srvrun_resp_release_bigbuf(wired_srvrun_env* env, srvrun_resp* r);
+
 /* Free slot i: drop its table entry and clear its connection's up flag (the
  * shutdown drain accounting then counts it as drained).
  *
@@ -1449,12 +1451,23 @@ static int srvrun_is_boot_retransmit(const srvrun_conn* c, quic_mspan dg) {
  * detect a per-stream RESET_STREAM on just that stream (this session's
  * investigation, see tasks/wt-pin-poll-progress.md). Revisit once
  * stream-level RESET_STREAM dispatch reaches srvrun/srvloop. */
-static void srvrun_free_slot(srvrun_state* st, int i) {
+/* Release every resp[] slot's bigbuf pool row (T-015): a streaming response
+ * mid-flight when its connection tears down (idle timeout, boot failure,
+ * CONNECTION_CLOSE) would otherwise leave its claimed row permanently
+ * marked in_use -- srvrun_open_slot only zeroes the conn struct on reuse, it
+ * never touches wired_srvbigbuf's own in_use[] bookkeeping. */
+static void srvrun_free_bigbuf_rows(wired_srvrun_env* env, srvrun_conn* c) {
+  for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++)
+    srvrun_resp_release_bigbuf(env, &c->resp[i]);
+}
+
+static void srvrun_free_slot(wired_srvrun_env* env, srvrun_state* st, int i) {
   srvrun_conn* c = &st->conns[i];
   if (c->wt_active) {
     wired_wt_session_close(&c->wt);
     c->wt_active = 0;
   }
+  srvrun_free_bigbuf_rows(env, c);
   quic_conntable_remove(st->table, QUIC_CONNTABLE_CAP, i);
   c->up = 0;
   wired_srvboot_acc_reset(&c->boot);
@@ -1480,9 +1493,11 @@ static int srvrun_idle_due(const srvrun_conn* c, u64 now_ms) {
 
 /* RFC 9000 10.1: silently discard every connection idle past the advertised
  * max_idle_timeout, freeing its slot for a new client. */
-static void srvrun_sweep_idle(srvrun_state* st, u64 now_ms) {
+static void srvrun_sweep_idle(
+    wired_srvrun_env* env, srvrun_state* st, u64 now_ms) {
   for (usz i = 0; i < QUIC_CONNTABLE_CAP; i++)
-    if (srvrun_idle_due(&st->conns[i], now_ms)) srvrun_free_slot(st, (int)i);
+    if (srvrun_idle_due(&st->conns[i], now_ms))
+      srvrun_free_slot(env, st, (int)i);
 }
 
 /* Cold-start outcome for a slot: on success, rekey its table entry to the
@@ -1493,7 +1508,7 @@ static void srvrun_open_done(const srvrun_step_ctx* ctx, int slot, int ok) {
   srvrun_conn* c = &ctx->st->conns[slot];
   c->up          = ok;
   if (!ok) {
-    srvrun_free_slot(ctx->st, slot);
+    srvrun_free_slot(ctx->cfg->env, ctx->st, slot);
     return;
   }
   quic_conntable_rekey(
@@ -2534,7 +2549,7 @@ static void srvrun_pto_slot(const srvrun_step_ctx* ctx, int slot) {
   srvrun_conn* c = &ctx->st->conns[slot];
   if (!srvrun_sess_waiting(c)) return;
   if (!srvrun_pto_resps(c, ctx->now_ms)) {
-    srvrun_free_slot(ctx->st, slot);
+    srvrun_free_slot(ctx->cfg->env, ctx->st, slot);
     return;
   }
   srvrun_pump_sess(ctx, slot);
@@ -2570,7 +2585,7 @@ static void srvrun_step_and_reap(
   srvrun_conn* c = &ctx->st->conns[slot];
   srvrun_on_step(ctx, c, dg);
   if (c->l.peer_closed) {
-    srvrun_free_slot(ctx->st, slot);
+    srvrun_free_slot(ctx->cfg->env, ctx->st, slot);
     return;
   }
   srvrun_sess_on_step(ctx, slot);
@@ -2777,7 +2792,7 @@ static i64 srvrun_listen(u16 port, const wired_srvrun_opt* opt) {
 static void srvrun_serve_batch(
     const srvrun_cfg* cfg, srvrun_state* st, const quic_mmsg_buf* bufs, i64 n) {
   u64 now = quic_clock_mono_ms();
-  srvrun_sweep_idle(st, now); /* lazy: swept on each arrival */
+  srvrun_sweep_idle(cfg->env, st, now); /* lazy: swept on each arrival */
   for (i64 i = 0; i < n; i++) {
     srvrun_step_ctx ctx = {cfg, &bufs[i].src, st, now};
     srvrun_serve(&ctx, quic_mspan_of(bufs[i].buf.p, bufs[i].len));
