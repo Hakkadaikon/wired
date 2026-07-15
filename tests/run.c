@@ -488,6 +488,7 @@
 #include "app/http3/server/srvboot/srvboot.c"
 #include "app/http3/server/sigterm/sigterm.c"
 #include "app/http3/server/certreload/certreload.c"
+#include "app/http3/server/hq09/hq09.c"
 #include "app/http3/server/srvinbox/srvinbox.c"
 #include "app/http3/server/srvrun/srvrun.c"
 #include "app/http3/server/staticfile/staticfile.c"
@@ -933,6 +934,7 @@
 #include "app/certreload_test.c"
 #include "tls/client_wire_test.c"
 #include "app/h3_loopback_test.c"
+#include "app/hq09_test.c"
 #include "app/staticfile_test.c"
 #include "app/mimetype_test.c"
 #include "app/h3reqenc_test.c"
@@ -1420,6 +1422,7 @@ int main(void) {
   test_certreload();
   test_client_wire();
   test_h3_loopback();
+  test_hq09();
   test_staticfile();
   test_mimetype();
   test_h3reqenc();
