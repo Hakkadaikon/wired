@@ -2122,16 +2122,23 @@ static void srvrun_stream_credit_raise(srvrun_resp* r, u64 value) {
   if (value > r->stream_credit) r->stream_credit = value;
 }
 
-/* RFC 9000 4.1/19.10: apply this step's last-seen MAX_STREAM_DATA to the
- * named resp[] slot's running stream credit. A stream_id naming no in-use
- * slot (already reaped, or never claimed) is a no-op -- srvloop has no
- * notion of resp[] slots and cannot itself validate the id. */
+/* Apply one this-step MAX_STREAM_DATA slot to its named resp[] slot's
+ * running stream credit. A stream_id naming no in-use slot (already reaped,
+ * or never claimed) is a no-op -- srvloop has no notion of resp[] slots and
+ * cannot itself validate the id. */
+static void srvrun_apply_one_stream_credit_update(srvrun_conn* c, usz i) {
+  srvrun_resp* r = srvrun_resp_find(c, c->l.max_stream_data_stream_id[i]);
+  if (r) srvrun_stream_credit_raise(r, c->l.max_stream_data_value[i]);
+}
+
+/* RFC 9000 4.1/19.10: apply EVERY distinct MAX_STREAM_DATA slot this step
+ * latched (dispatch.c's gather_one_max_stream_data) -- several parallel
+ * streamed responses can each be raised in the same step, and applying only
+ * one would leave the rest stuck at their prior credit ceiling forever. */
 static void srvrun_apply_stream_credit_update(srvrun_conn* c) {
-  srvrun_resp* r;
-  if (!c->l.max_stream_data_seen) return;
-  c->l.max_stream_data_seen = 0;
-  r = srvrun_resp_find(c, c->l.max_stream_data_stream_id);
-  if (r) srvrun_stream_credit_raise(r, c->l.max_stream_data_value);
+  usz n                  = c->l.max_stream_data_n;
+  c->l.max_stream_data_n = 0;
+  for (usz i = 0; i < n; i++) srvrun_apply_one_stream_credit_update(c, i);
 }
 
 /* RFC 9002 7.5: "Probe packets MUST NOT be blocked by the congestion

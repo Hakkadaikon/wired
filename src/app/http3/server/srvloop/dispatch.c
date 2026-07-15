@@ -686,17 +686,40 @@ static int gather_max_data(wired_srvloop* l, const u8* payload, usz len) {
   return seen;
 }
 
-/* RFC 9000 19.10: latch the last MAX_STREAM_DATA (stream id, value) seen in
- * this payload -- mirrors closed_stream_id's "last one wins this step"
- * shape (srvloop.h's doc). The caller (srvrun.c) resolves which resp[] slot
+/* Index of stream_id's existing slot in l's this-step MAX_STREAM_DATA
+ * latch, or -1 if it has none yet. */
+static int max_stream_data_slot_for(const wired_srvloop* l, u64 stream_id) {
+  for (usz i = 0; i < l->max_stream_data_n; i++)
+    if (l->max_stream_data_stream_id[i] == stream_id) return (int)i;
+  return -1;
+}
+
+/* RFC 9000 19.10: latch (stream_id, value) into its own slot -- a repeat
+ * stream_id this step overwrites its existing slot (only the newest value
+ * for a given stream matters); a new one takes the next free slot, silently
+ * dropped if every slot is already used (WIRED_SRVLOOP_MAX_STREAMS already
+ * bounds how many distinct request streams this connection reassembles at
+ * once, so more distinct MAX_STREAM_DATA targets than that in one step
+ * cannot happen). The caller (srvrun.c) resolves which resp[] slot each
  * stream_id belongs to and raises that slot's own running credit, never
  * lowering it (RFC 9000 4.1). */
+/* stream_id's slot: its existing one (max_stream_data_slot_for), else a
+ * freshly claimed one, else -1 once every slot is already used. */
+static int max_stream_data_slot(wired_srvloop* l, u64 stream_id) {
+  int i = max_stream_data_slot_for(l, stream_id);
+  if (i >= 0) return i;
+  if (l->max_stream_data_n >= WIRED_SRVLOOP_MAX_STREAMS) return -1;
+  i                               = (int)l->max_stream_data_n++;
+  l->max_stream_data_stream_id[i] = stream_id;
+  return i;
+}
+
 static void gather_one_max_stream_data(wired_srvloop* l, quic_span frame) {
   quic_stream_data_frame f;
+  int                    i;
   if (quic_max_stream_data_decode(frame.p, frame.n, &f) == 0) return;
-  l->max_stream_data_stream_id = f.stream_id;
-  l->max_stream_data_value     = f.value;
-  l->max_stream_data_seen      = 1;
+  i = max_stream_data_slot(l, f.stream_id);
+  if (i >= 0) l->max_stream_data_value[i] = f.value;
 }
 
 /* RFC 9000 19.10: scan this payload for MAX_STREAM_DATA frames. Returns 1 if

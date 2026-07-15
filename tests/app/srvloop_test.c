@@ -2075,9 +2075,76 @@ static void test_srvloop_gather_max_stream_data_raises_credit(void) {
   ob   = (quic_obuf){out, sizeof out, 0};
   wired_srvloop_step(
       &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
-  CHECK(f.l.max_stream_data_seen == 1);
-  CHECK(f.l.max_stream_data_stream_id == 4);
-  CHECK(f.l.max_stream_data_value == 300000);
+  CHECK(f.l.max_stream_data_n == 1);
+  CHECK(f.l.max_stream_data_stream_id[0] == 4);
+  CHECK(f.l.max_stream_data_value[0] == 300000);
+}
+
+/* T-020: a single step coalescing MAX_STREAM_DATA frames for several
+ * distinct streams (e.g. 3 parallel large downloads each raised at once)
+ * latches every one of them, not just the last -- the bug a single-slot
+ * latch caused against a real quic-go client (parallel transfers stalling
+ * at their initial credit once one stream's raise silently dropped
+ * another's). */
+static void test_srvloop_gather_max_stream_data_keeps_every_distinct_stream(
+    void) {
+  struct lp_fix          f;
+  quic_obuf              ob;
+  u8                     out[1024], fr[96], spkt[1024];
+  usz                    at   = 0, fl, slen;
+  quic_stream_data_frame msd0 = {4, 100000};
+  quic_stream_data_frame msd1 = {8, 200000};
+  quic_stream_data_frame msd2 = {12, 300000};
+  ob                          = (quic_obuf){out, sizeof out, 0};
+  lp_confirm(&f, &ob);
+  fl = quic_max_stream_data_encode(fr + at, sizeof(fr) - at, &msd0);
+  CHECK(fl > 0);
+  at += fl;
+  fl = quic_max_stream_data_encode(fr + at, sizeof(fr) - at, &msd1);
+  CHECK(fl > 0);
+  at += fl;
+  fl = quic_max_stream_data_encode(fr + at, sizeof(fr) - at, &msd2);
+  CHECK(fl > 0);
+  at += fl;
+  slen = client_seal_onertt(&f, fr, at, spkt, sizeof spkt);
+  ob   = (quic_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  CHECK(f.l.max_stream_data_n == 3);
+  CHECK(f.l.max_stream_data_stream_id[0] == 4);
+  CHECK(f.l.max_stream_data_value[0] == 100000);
+  CHECK(f.l.max_stream_data_stream_id[1] == 8);
+  CHECK(f.l.max_stream_data_value[1] == 200000);
+  CHECK(f.l.max_stream_data_stream_id[2] == 12);
+  CHECK(f.l.max_stream_data_value[2] == 300000);
+}
+
+/* A second MAX_STREAM_DATA for the SAME stream id within one step overwrites
+ * that stream's own slot rather than consuming a second one -- only the
+ * newest value for a given stream matters, same as the old single-latch
+ * behavior when there was only ever one stream to raise. */
+static void test_srvloop_gather_max_stream_data_same_stream_overwrites(void) {
+  struct lp_fix          f;
+  quic_obuf              ob;
+  u8                     out[1024], fr[64], spkt[1024];
+  usz                    at   = 0, fl, slen;
+  quic_stream_data_frame msd0 = {4, 100000};
+  quic_stream_data_frame msd1 = {4, 500000};
+  ob                          = (quic_obuf){out, sizeof out, 0};
+  lp_confirm(&f, &ob);
+  fl = quic_max_stream_data_encode(fr + at, sizeof(fr) - at, &msd0);
+  CHECK(fl > 0);
+  at += fl;
+  fl = quic_max_stream_data_encode(fr + at, sizeof(fr) - at, &msd1);
+  CHECK(fl > 0);
+  at += fl;
+  slen = client_seal_onertt(&f, fr, at, spkt, sizeof spkt);
+  ob   = (quic_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  CHECK(f.l.max_stream_data_n == 1);
+  CHECK(f.l.max_stream_data_stream_id[0] == 4);
+  CHECK(f.l.max_stream_data_value[0] == 500000);
 }
 
 /* A step with no flow-control frame leaves both latches unset (0/absent),
@@ -2095,7 +2162,7 @@ static void test_srvloop_no_flowctl_frame_leaves_latches_unset(void) {
   wired_srvloop_step(
       &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
   CHECK(f.l.max_data_seen_flag == 0);
-  CHECK(f.l.max_stream_data_seen == 0);
+  CHECK(f.l.max_stream_data_n == 0);
 }
 
 /* PEER CLOSE OBSERVED (RFC 9000 10.2.2): a 1-RTT payload carrying a
@@ -2531,6 +2598,8 @@ void test_srvloop(void) {
   test_srvloop_gather_max_data_raises_credit();
   test_srvloop_gather_max_data_keeps_running_high();
   test_srvloop_gather_max_stream_data_raises_credit();
+  test_srvloop_gather_max_stream_data_keeps_every_distinct_stream();
+  test_srvloop_gather_max_stream_data_same_stream_overwrites();
   test_srvloop_no_flowctl_frame_leaves_latches_unset();
   test_srvloop_peer_close_sets_flag();
   test_srvloop_collects_ack_ranges();
