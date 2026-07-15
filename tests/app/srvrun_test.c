@@ -3624,6 +3624,47 @@ static void test_srvrun_hq09_resp_has_no_h3_framing(void) {
                                      * no H3 prefix bytes added */
 }
 
+/* Body handler for the hq-interop missing-file test: an empty body (no
+ * headers to carry a 404 status on this ALPN, RFC 9114-style status codes
+ * don't apply -- HTTP/0.9 has none). */
+static int sr_empty_body_handler(
+    void*                       hctx,
+    const wired_h3reqdrive_req* req,
+    quic_obuf*                  body_out,
+    const char**                ct) {
+  (void)hctx;
+  (void)req;
+  (void)ct;
+  body_out->len = 0;
+  return 1;
+}
+
+/* T-013 (hq-interop, see hq09.h): a body-less response still arms cleanly
+ * (empty body, FIN on the only -- zero-length -- slice) rather than
+ * failing or leaving the session unarmed; the peer sees the stream open
+ * and immediately close, not a stall. */
+static void test_srvrun_hq09_missing_file_arms_empty_body(void) {
+  struct lp_fix f;
+  srvrun_conn   c  = {0};
+  quic_obuf     ob = {0};
+  u8            obuf[1024];
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.s.sdrv.alpn = QUIC_SALPN_HQ;
+  sr_set_req(&c, 0, 0, 0);
+  {
+    srvrun_cfg cfg = {
+        -1, 0, sr_empty_body_handler, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0,  0, &g_srvrun_env,         0};
+    srvrun_state    st  = {0, &c};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_start_resp(&ctx, 0);
+  }
+  CHECK(c.resp[0].in_use == 1);
+  CHECK(c.resp[0].sess.q.len == 0);
+  CHECK(wired_sendsess_done(&c.resp[0].sess) == 1); /* nothing to send */
+}
+
 /* SLOT REUSE: HTTP/3 never reuses a stream id, so resp[]'s SRVRUN_RESP_SLOTS
  * (4, matching the receive side's WIRED_SRVLOOP_MAX_STREAMS) must free a
  * slot once its response is fully sent and acked -- otherwise a 5th
@@ -4769,6 +4810,7 @@ void test_srvrun(void) {
   test_srvrun_bigbuf_pool_serves_large_body();
   test_srvrun_bigbuf_pool_exhausted_falls_back_to_fixed_row();
   test_srvrun_hq09_resp_has_no_h3_framing();
+  test_srvrun_hq09_missing_file_arms_empty_body();
   test_srvrun_fifth_sequential_get_reuses_freed_slot();
   test_srvrun_pto_budget_exhausted_tears_down_connection();
   test_srvrun_pto_not_due_within_rtt_window();
