@@ -9,6 +9,9 @@
 #include "transport/packet/build/hspkt/hspkt_build.h"
 #include "transport/packet/frame/frame/ack.h"
 #include "transport/packet/frame/frame/frame.h"
+#include "transport/recovery/detect/ackgen/ackrange.h"
+#include "transport/recovery/detect/ackgen/ackrangeconv.h"
+#include "transport/recovery/detect/recovery/ackdelay.h"
 #include "transport/stream/data/appdata/stream_send.h"
 
 #define WIRED_SRVLOOP_RESP_STREAM 0
@@ -112,12 +115,57 @@ static int confirm_payload(const wired_srvloop_conn* c, quic_obuf* out) {
   return 1;
 }
 
-/* RFC 9000 13.2.1: append an ACK of the last received 1-RTT packet number to a
- * 1-RTT payload, so the client stops retransmitting it. Returns the ACK length
- * (0 if no 1-RTT packet has been received yet). */
+/* RFC 9000 13.2.1/13.2.2/19.3: whether an ACK is owed on the App pn space
+ * right now (quic_ackpolicy, already latched by srvloop.c's receive path). */
+static int app_ack_due(const wired_srvloop* l) {
+  return quic_ackpolicy_should_ack(
+      &l->app_ack_policy, l->now_ms, WIRED_SRVLOOP_MAX_ACK_DELAY_MS);
+}
+
+/* RFC 9000 19.3: encode a full multi-range ACK frame from the App pn
+ * space's received-pn window (quic_pnspaces_recv, RFC 9000 12.3/13.2.1),
+ * with an ack_delay reflecting how long the oldest unacked eliciting packet
+ * has waited (quic_ack_delay_encode, RFC 9000 19.3/13.2.5). Returns the
+ * encoded length, 0 if the window is empty or encoding fails (e.g. the
+ * range count would overflow QUIC_ACK_MAX_RANGES -- caller then sends no
+ * ACK this round rather than a corrupt one). */
+static usz app_ack_encode_ranges(wired_srvloop* l, u8* buf, usz cap) {
+  u64            raw[2 * QUIC_ACK_MAX_RANGES + 1];
+  u64            largest;
+  quic_u64obuf   ranges = {raw, sizeof raw / sizeof raw[0], 0};
+  quic_ack_frame f      = {0};
+  if (!quic_pnspaces_ack_ranges(
+          &l->ack_recv, QUIC_PNS_APP,
+          &(quic_pnspaces_ack_out){&largest, &ranges}))
+    return 0;
+  if (!quic_ackrangeconv_to_frame(largest, raw, ranges.len, &f)) return 0;
+  f.ack_delay = quic_ack_delay_encode(
+      (l->now_ms - l->app_ack_policy.since_tick) * 1000,
+      QUIC_ACK_DELAY_EXPONENT_DEFAULT);
+  return quic_ack_encode(buf, cap, &f);
+}
+
+/* RFC 9000 13.2.1: append a multi-range ACK of the App pn space's received
+ * packets to a 1-RTT payload that already carries other data (confirmation
+ * or a 200 response) -- piggybacking costs nothing extra on the wire, so
+ * these paths always attach a pending ACK rather than waiting out the delay
+ * window on a packet that's going out anyway. Nothing to append (the App
+ * space's window is empty) is the only reason this returns 0. Clears the
+ * pending state once encoded (quic_ackpolicy_on_ack_sent) so the next
+ * step's due-check starts fresh. */
 static usz app_ack_append(wired_srvloop* l, u8* buf, usz cap) {
-  if (!l->app_rx_seen) return 0;
-  return encode_ack_one(buf, cap, l->app_rx_pn);
+  usz n = app_ack_encode_ranges(l, buf, cap);
+  if (n) quic_ackpolicy_on_ack_sent(&l->app_ack_policy);
+  return n;
+}
+
+/* RFC 9000 13.2.1/13.2.2: append an ACK ONLY when one is actually due
+ * (quic_ackpolicy_should_ack) -- for emit_ack_only's bare-ACK packet, where
+ * sending one costs a whole extra packet on the wire, so the delay window
+ * genuinely matters (unlike app_ack_append's piggyback callers above). */
+static usz app_ack_append_if_due(wired_srvloop* l, u8* buf, usz cap) {
+  if (!app_ack_due(l)) return 0;
+  return app_ack_append(l, buf, cap);
 }
 
 #define WIRED_SRVLOOP_BODY_MAX                                                \
@@ -235,10 +283,13 @@ static int emit_response(const wired_srvloop_conn* c, quic_obuf* out) {
 
 /* RFC 9000 13.2.1: a 1-RTT packet carrying only an ACK of the received packet,
  * sent post-confirmation when no request decoded — so the confirmation is not
- * re-emitted yet the client's 1-RTT packet is still acknowledged. */
+ * re-emitted yet the client's 1-RTT packet is still acknowledged. Only sent
+ * when the delayed-ACK policy actually calls for one now (RFC 9000
+ * 13.2.1/13.2.2) -- unlike the piggyback callers above, this packet exists
+ * solely to carry the ACK, so the delay window matters here. */
 static int emit_ack_only(const wired_srvloop_conn* c, quic_obuf* out) {
-  u8  pl[16];
-  usz a = app_ack_append(c->l, pl, sizeof pl);
+  u8  pl[288]; /* room for QUIC_ACK_MAX_RANGES ranges, not just one pn */
+  usz a = app_ack_append_if_due(c->l, pl, sizeof pl);
   if (a == 0) return 0;
   wired_srvloop_send_in sin = {
       quic_span_of(c->l->cli_scid, c->l->cli_scid_len), c->l->tx_pn++, -1,

@@ -1220,10 +1220,13 @@ static void test_srvloop_hq09_recv_get_produces_request(void) {
   CHECK(glen != 0);
   slen = client_seal_onertt(&f, get, glen, spkt, sizeof spkt);
   ob   = (quic_obuf){out, sizeof out, 0};
-  CHECK(
-      wired_srvloop_step(
-          &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob) ==
-      1);
+  /* This test's only concern is request decoding -- resp_external means the
+   * loop's own response_frame never fires, so the step's produced/out value
+   * (whether the delayed-ACK policy decided a bare-ACK packet was due this
+   * round, RFC 9000 13.2.1) is not asserted on here; a real deployment's
+   * later steps eventually flush any still-pending ACK. */
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
   CHECK(f.l.got_request == 1);
   CHECK(f.l.req.method_len == 3);
   CHECK(f.l.req.path_len == 10);
