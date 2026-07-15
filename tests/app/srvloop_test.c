@@ -2055,6 +2055,99 @@ static void test_srvloop_ack_non_eliciting_not_recorded(void) {
   CHECK(f.l.app_ack_policy.pending == 0);
 }
 
+/* T-001: with nothing ever received on the App pn space, no ACK is owed
+ * (quic_ackpolicy starts at pending == 0) -- a fresh connection's very
+ * first step (the Handshake confirm alone, no 1-RTT packet yet) must not
+ * synthesize an App-space ACK out of nothing. */
+static void test_srvloop_ack_no_eliciting_no_ack(void) {
+  struct lp_fix f;
+  u8            out[1024];
+  quic_obuf     ob = (quic_obuf){out, sizeof out, 0};
+  lp_confirm(&f, &ob);
+  CHECK(f.l.app_ack_policy.pending == 0);
+  CHECK(
+      quic_ackpolicy_should_ack(
+          &f.l.app_ack_policy, f.l.now_ms, WIRED_SRVLOOP_MAX_ACK_DELAY_MS) ==
+      0);
+}
+
+/* T-004/T-005: a lone ack-eliciting packet is not due for an ACK until
+ * WIRED_SRVLOOP_MAX_ACK_DELAY_MS elapses (RFC 9000 13.2.1's delay window),
+ * but becomes due at exactly that many ms. */
+static void test_srvloop_ack_delay_window_boundary(void) {
+  struct lp_fix f;
+  quic_obuf     ob;
+  u8            out[1024], ping[1] = {0x01}, spkt[1024];
+  usz           slen;
+  ob = (quic_obuf){out, sizeof out, 0};
+  lp_confirm(&f, &ob);
+  slen = client_seal_onertt_pn(&f, 7, ping, 1, spkt, sizeof spkt);
+  ob   = (quic_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  CHECK(
+      quic_ackpolicy_should_ack(
+          &f.l.app_ack_policy, f.l.app_ack_policy.since_tick,
+          WIRED_SRVLOOP_MAX_ACK_DELAY_MS) == 0); /* T-004: not yet due */
+  CHECK(
+      quic_ackpolicy_should_ack(
+          &f.l.app_ack_policy,
+          f.l.app_ack_policy.since_tick + WIRED_SRVLOOP_MAX_ACK_DELAY_MS,
+          WIRED_SRVLOOP_MAX_ACK_DELAY_MS) == 1); /* T-005: exactly due */
+}
+
+/* T-006 (RFC 9000 13.2.2): a second ack-eliciting packet arriving while the
+ * first is still unacked forces an immediate ACK, even at elapsed time 0
+ * (well within the delay window) -- proven by quic_ackpolicy_should_ack
+ * itself (a direct, non-destructive check of the 2-pending case), since
+ * driving a second real wired_srvloop_step would immediately act on that
+ * due-ness via emit_ack_only and clear pending back to 0 before this test
+ * could observe it. */
+static void test_srvloop_ack_second_eliciting_forces_immediate(void) {
+  quic_ackpolicy p;
+  quic_ackpolicy_init(&p);
+  quic_ackpolicy_on_eliciting(&p, 0);
+  CHECK(p.pending == 1);
+  CHECK(
+      quic_ackpolicy_should_ack(&p, 0, WIRED_SRVLOOP_MAX_ACK_DELAY_MS) ==
+      0); /* one pending, no delay elapsed: not yet due */
+  quic_ackpolicy_on_eliciting(&p, 0);
+  CHECK(p.pending == 2);
+  CHECK(
+      quic_ackpolicy_should_ack(&p, 0, WIRED_SRVLOOP_MAX_ACK_DELAY_MS) ==
+      1); /* second pending: due immediately, delay window irrelevant */
+}
+
+/* T-007: once app_ack_append actually encodes and sends an ACK, pending is
+ * cleared (quic_ackpolicy_on_ack_sent) so the next due-check starts fresh
+ * rather than staying stuck at "due" forever. */
+static void test_srvloop_ack_sent_clears_pending_state(void) {
+  struct lp_fix f;
+  quic_obuf     ob;
+  u8            out[1024], ping[1] = {0x01}, spkt[1024];
+  usz           slen;
+  ob = (quic_obuf){out, sizeof out, 0};
+  lp_confirm(&f, &ob);
+  slen = client_seal_onertt_pn(&f, 7, ping, 1, spkt, sizeof spkt);
+  ob   = (quic_obuf){out, sizeof out, 0};
+  /* the confirm step's own piggyback (app_ack_append, unconditional) already
+   * sends and clears any pending ACK from confirmation itself; this second
+   * step's ping is the one under test. */
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  CHECK(f.l.app_ack_policy.pending == 1);
+  /* GET decoded or not, confirm_pending is already false (post-confirm), so
+   * produce_confirmed's emit_ack_only/emit_response always piggybacks via
+   * app_ack_append (unconditional) -- proven directly here without a second
+   * wired_srvloop_step, since app_ack_append is what this task added. */
+  {
+    u8  buf[288];
+    usz n = app_ack_append(&f.l, buf, sizeof buf);
+    CHECK(n > 0);
+  }
+  CHECK(f.l.app_ack_policy.pending == 0);
+}
+
 /* RFC 9000 19.9: a MAX_DATA frame in a 1-RTT payload latches its value onto
  * max_data_seen -- the connection-level send credit ceiling the caller
  * (srvrun.c) may now raise its own running credit to. */
@@ -2637,8 +2730,12 @@ void test_srvloop(void) {
   test_srvloop_handler_body_echoed();
   test_srvloop_close_frame_detected();
   test_srvloop_hq09_recv_get_produces_request();
+  test_srvloop_ack_no_eliciting_no_ack();
   test_srvloop_ack_eliciting_records_pn_and_pending();
   test_srvloop_ack_non_eliciting_not_recorded();
+  test_srvloop_ack_delay_window_boundary();
+  test_srvloop_ack_second_eliciting_forces_immediate();
+  test_srvloop_ack_sent_clears_pending_state();
   test_srvloop_gather_max_data_raises_credit();
   test_srvloop_gather_max_data_keeps_running_high();
   test_srvloop_gather_max_stream_data_raises_credit();
