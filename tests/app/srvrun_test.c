@@ -3671,6 +3671,17 @@ static void test_srvrun_bigbuf_pool_exhausted_falls_back_to_fixed_row(void) {
  * fixtures in this file; reset both before each streaming test. */
 static u64 sr_stream_total_len;
 static usz sr_stream_round_cap;
+/* T-008: a round starting at exactly this offset simulates the underlying
+ * source failing mid-stream (e.g. a read(2) error past round 0) -- the
+ * handler declines (returns 0) instead of writing a body. UINT64_MAX (never
+ * a real offset) disables the simulation; reset before/after any test that
+ * sets it so it doesn't leak into later streaming tests. */
+static u64 sr_stream_fail_at_offset = (u64)-1;
+/* T-009: total_len as the underlying source (a shrinking file) actually
+ * reports once a round is already in flight -- smaller than
+ * sr_stream_total_len, which is what round 0 already promised via
+ * *total_size. UINT64_MAX disables the simulation (source never shrinks). */
+static u64 sr_stream_shrinks_to = (u64)-1;
 
 static int sr_stream_body_handler(
     void*                       hctx,
@@ -3680,17 +3691,23 @@ static int sr_stream_body_handler(
     const char**                ct,
     int*                        more,
     u64*                        total_size) {
+  u64 actual_total = sr_stream_shrinks_to != (u64)-1 && offset != 0
+                         ? sr_stream_shrinks_to
+                         : sr_stream_total_len;
   usz cap =
       body_out->cap < sr_stream_round_cap ? body_out->cap : sr_stream_round_cap;
-  usz remaining = (usz)(sr_stream_total_len - offset);
-  usz n         = remaining < cap ? remaining : cap;
+  usz remaining;
+  usz n;
   (void)hctx;
   (void)req;
   (void)ct;
+  if (offset == sr_stream_fail_at_offset) return 0;
+  remaining = offset < actual_total ? (usz)(actual_total - offset) : 0;
+  n         = remaining < cap ? remaining : cap;
   for (usz i = 0; i < n; i++) body_out->p[i] = (u8)((offset + i) & 0xff);
   body_out->len = n;
   if (offset == 0) *total_size = sr_stream_total_len;
-  if (offset + n < sr_stream_total_len) *more = 1;
+  if (offset + n < actual_total) *more = 1;
   return 1;
 }
 
@@ -3711,6 +3728,132 @@ static void sr_drive_round_to_done(srvrun_step_ctx* ctx, srvrun_conn* c) {
     if (c->l.tx_pn == pn0) break; /* nothing sendable (e.g. cwnd/credit) */
     wired_sendsess_ack(&r->sess, pn0, c->l.tx_pn - 1);
   }
+}
+
+/* T-007: with the bigbuf pool exhausted, a streaming handler's response
+ * still falls back to the fixed row instead of stalling or corrupting
+ * state -- srvrun_resp_storage_cap hands it WIRED_SRVRUN_RESP_MAX's smaller
+ * cap, so a total_size bigger than that still streams (multiple rounds),
+ * just through the fixed row every round instead of a pool row. */
+static void test_srvrun_streaming_bigbuf_exhausted_falls_back_to_fixed_row(
+    void) {
+  struct lp_fix f;
+  srvrun_conn   c  = {0};
+  quic_obuf     ob = {0};
+  u8            obuf[1024];
+  int           held[WIRED_SRVBIGBUF_ROWS];
+  usz           fixed_cap;
+  ob        = (quic_obuf){obuf, sizeof obuf, 0};
+  fixed_cap = WIRED_SRVRUN_RESP_MAX - SRVRUN_RESP_HDR_ROOM;
+  sr_stream_total_len =
+      fixed_cap + 10; /* needs 2 rounds even on the fixed row */
+  sr_stream_round_cap = fixed_cap;
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.s.sdrv.alpn = QUIC_SALPN_HQ;
+  c.cc.cwnd     = 1u << 20;
+  sr_set_req(&c, 0, 0, 0);
+  wired_srvbigbuf_init(
+      &g_srvrun_env.bigbuf, &g_srvrun_env.bigbuf_rows[0][0],
+      WIRED_SRVBIGBUF_ROW_CAP);
+  for (usz i = 0; i < WIRED_SRVBIGBUF_ROWS; i++)
+    CHECK(wired_srvbigbuf_claim(&g_srvrun_env.bigbuf, &held[i]) != 0);
+  {
+    srvrun_cfg cfg = {
+        -1, 0, sr_stream_body_handler, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0,  0, &g_srvrun_env,          0};
+    srvrun_state    st  = {0, &c};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_start_resp(&ctx, 0);
+    CHECK(c.resp[0].bigbuf_row == -1); /* fell back, pool was full */
+    CHECK(c.resp[0].sess.q.len == fixed_cap);
+    CHECK(c.resp[0].streaming == 1); /* 10 bytes remain past the fixed cap */
+    sr_drive_round_to_done(&ctx, &c);
+    srvrun_reap_resps(&ctx, &c, 0);
+    CHECK(c.resp[0].bigbuf_row == -1); /* still the fixed row, not a pool one */
+    CHECK(c.resp[0].sess.q.len == 10);
+    CHECK(c.resp[0].streaming == 0);
+  }
+  for (usz i = 0; i < WIRED_SRVBIGBUF_ROWS; i++)
+    wired_srvbigbuf_release(&g_srvrun_env.bigbuf, held[i]);
+}
+
+/* T-008: a round-1+ handler failure (simulating a mid-stream read error)
+ * truncates the response at what was already sent -- srvrun_resp_next_round
+ * treats a declined round like an empty final round (body->len forced to 0
+ * by srvrun_call_handler, more left 0), not a retry loop or a stall. The
+ * bytes already sent and acked in round 0 stay valid; only the truncation
+ * point matters here. */
+static void test_srvrun_streaming_mid_round_read_error_truncates(void) {
+  struct lp_fix f;
+  srvrun_conn   c  = {0};
+  quic_obuf     ob = {0};
+  u8            obuf[2048];
+  ob                       = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_stream_total_len      = 300;
+  sr_stream_round_cap      = 100;
+  sr_stream_fail_at_offset = 100; /* round 1 (offset 100) fails */
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.s.sdrv.alpn = QUIC_SALPN_HQ;
+  c.cc.cwnd     = 1u << 20;
+  sr_set_req(&c, 0, 0, 0);
+  {
+    srvrun_cfg cfg = {
+        -1, 0, sr_stream_body_handler, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0,  0, &g_srvrun_env,          0};
+    srvrun_state    st  = {0, &c};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_start_resp(&ctx, 0);
+    CHECK(c.resp[0].sess.q.len == 100); /* round 0 succeeded normally */
+    sr_drive_round_to_done(&ctx, &c);
+    srvrun_reap_resps(&ctx, &c, 0);   /* round 1: handler declines */
+    CHECK(c.resp[0].sess.q.len == 0); /* truncated: empty final round */
+    CHECK(c.resp[0].streaming == 0);  /* not left mid-stream forever */
+    sr_drive_round_to_done(&ctx, &c);
+    srvrun_reap_resps(&ctx, &c, 0);
+    CHECK(c.resp[0].in_use == 0); /* slot released, no stall */
+  }
+  sr_stream_fail_at_offset = (u64)-1; /* don't leak into later tests */
+}
+
+/* T-009: the source shrinking between round 0 (which already promised
+ * sr_stream_total_len via *total_size) and round 1 completes with the
+ * bytes actually available instead of hanging waiting for bytes that will
+ * never come -- the handler's own *more logic (offset + n < actual_total)
+ * naturally stops asking for further rounds once it reaches the shorter
+ * length, so the response finishes at fewer bytes than round 0 declared. */
+static void test_srvrun_streaming_file_shrinks_completes_with_actual_bytes(
+    void) {
+  struct lp_fix f;
+  srvrun_conn   c  = {0};
+  quic_obuf     ob = {0};
+  u8            obuf[2048];
+  ob                  = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_stream_total_len = 300; /* what round 0 promises */
+  sr_stream_round_cap = 100;
+  sr_stream_shrinks_to =
+      150; /* the source actually only has 150 bytes past round 0 */
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.s.sdrv.alpn = QUIC_SALPN_HQ;
+  c.cc.cwnd     = 1u << 20;
+  sr_set_req(&c, 0, 0, 0);
+  {
+    srvrun_cfg cfg = {
+        -1, 0, sr_stream_body_handler, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0,  0, &g_srvrun_env,          0};
+    srvrun_state    st  = {0, &c};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_start_resp(&ctx, 0);
+    CHECK(c.resp[0].sess.q.len == 100); /* round 0: unaffected by the later
+                                            shrink */
+    sr_drive_round_to_done(&ctx, &c);
+    srvrun_reap_resps(&ctx, &c, 0); /* round 1: sees the shrunk total (150) */
+    CHECK(c.resp[0].sess.q.len == 50); /* 150 - 100 already sent */
+    CHECK(c.resp[0].streaming == 0);   /* completes, does not hang */
+    sr_drive_round_to_done(&ctx, &c);
+    srvrun_reap_resps(&ctx, &c, 0);
+    CHECK(c.resp[0].in_use == 0);
+  }
+  sr_stream_shrinks_to = (u64)-1; /* don't leak into later tests */
 }
 
 /* T-004/T-006: a streaming response's first round arms only up to
@@ -5292,6 +5435,9 @@ void test_srvrun(void) {
   test_srvrun_streaming_body_row_cap_plus_one_streams();
   test_srvrun_streaming_last_round_not_shrunk_to_fixed();
   test_srvrun_streaming_rearm_respects_existing_send_gates();
+  test_srvrun_streaming_bigbuf_exhausted_falls_back_to_fixed_row();
+  test_srvrun_streaming_mid_round_read_error_truncates();
+  test_srvrun_streaming_file_shrinks_completes_with_actual_bytes();
   test_srvrun_fifth_sequential_get_reuses_freed_slot();
   test_srvrun_pto_budget_exhausted_tears_down_connection();
   test_srvrun_pto_not_due_within_rtt_window();
