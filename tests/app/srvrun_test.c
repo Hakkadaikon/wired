@@ -980,11 +980,17 @@ static void test_srvrun_batch_serves_each(void) {
 static int sr_body_handler(
     void*                       hctx,
     const wired_h3reqdrive_req* req,
+    u64                         offset,
     quic_obuf*                  body_out,
-    const char**                ct) {
+    const char**                ct,
+    int*                        more,
+    u64*                        total_size) {
   (void)hctx;
   (void)req;
   (void)ct;
+  (void)offset;
+  (void)more;
+  (void)total_size;
   for (usz i = 0; i < 2500 && i < body_out->cap; i++)
     body_out->p[i] = (u8)(i & 0xff);
   body_out->len = 2500;
@@ -997,11 +1003,17 @@ static int sr_body_handler(
 static int sr_bigbuf_body_handler(
     void*                       hctx,
     const wired_h3reqdrive_req* req,
+    u64                         offset,
     quic_obuf*                  body_out,
-    const char**                ct) {
+    const char**                ct,
+    int*                        more,
+    u64*                        total_size) {
   (void)hctx;
   (void)req;
   (void)ct;
+  (void)offset;
+  (void)more;
+  (void)total_size;
   for (usz i = 0; i < body_out->cap; i++) body_out->p[i] = (u8)(i & 0xff);
   body_out->len = body_out->cap;
   return 1;
@@ -1013,11 +1025,17 @@ static int sr_bigbuf_body_handler(
 static int sr_tiny_body_handler(
     void*                       hctx,
     const wired_h3reqdrive_req* req,
+    u64                         offset,
     quic_obuf*                  body_out,
-    const char**                ct) {
+    const char**                ct,
+    int*                        more,
+    u64*                        total_size) {
   (void)hctx;
   (void)req;
   (void)ct;
+  (void)offset;
+  (void)more;
+  (void)total_size;
   if (body_out->cap < 1) return 0;
   body_out->p[0] = 'x';
   body_out->len  = 1;
@@ -1119,10 +1137,16 @@ static void sr_collect_stream_multi(
 static int sr_parallel_body_handler(
     void*                       hctx,
     const wired_h3reqdrive_req* req,
+    u64                         offset,
     quic_obuf*                  body_out,
-    const char**                ct) {
+    const char**                ct,
+    int*                        more,
+    u64*                        total_size) {
   (void)hctx;
   (void)ct;
+  (void)offset;
+  (void)more;
+  (void)total_size;
   /* one byte body: 'A'/'B'/'C' keyed by the request path ("/a", "/b", "/c")
    * so each stream's response is trivially distinguishable. */
   if (req->path_len >= 2 && body_out->cap >= 1) {
@@ -1566,11 +1590,17 @@ static int g_sr_wt_handler_calls = 0;
 static int sr_wt_handler(
     void*                       hctx,
     const wired_h3reqdrive_req* req,
+    u64                         offset,
     quic_obuf*                  body_out,
-    const char**                ct) {
+    const char**                ct,
+    int*                        more,
+    u64*                        total_size) {
   (void)hctx;
   (void)req;
   (void)ct;
+  (void)offset;
+  (void)more;
+  (void)total_size;
   g_sr_wt_handler_calls++;
   body_out->len = 0;
   return 1;
@@ -3630,11 +3660,17 @@ static void test_srvrun_hq09_resp_has_no_h3_framing(void) {
 static int sr_empty_body_handler(
     void*                       hctx,
     const wired_h3reqdrive_req* req,
+    u64                         offset,
     quic_obuf*                  body_out,
-    const char**                ct) {
+    const char**                ct,
+    int*                        more,
+    u64*                        total_size) {
   (void)hctx;
   (void)req;
   (void)ct;
+  (void)offset;
+  (void)more;
+  (void)total_size;
   body_out->len = 0;
   return 1;
 }
@@ -3695,7 +3731,7 @@ static void test_srvrun_fifth_sequential_get_reuses_freed_slot(void) {
       CHECK(r->in_use == 1);
       srvrun_pump_sess(&ctx, 0);
       wired_sendsess_ack(&r->sess, pn0, c.l.tx_pn - 1);
-      srvrun_reap_resps(cfg.env, &c);
+      srvrun_reap_resps(&ctx, &c, 0);
       CHECK(r->in_use == 0);
     }
   }

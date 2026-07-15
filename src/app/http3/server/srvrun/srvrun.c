@@ -113,6 +113,20 @@ typedef struct {
    * accounting; srvrun_can_send_new gates new sends on it so that never
    * happens. */
   u64 stream_credit;
+  /* 1 while the app handler has more response body to produce past this
+   * round (wired_srvloop_handler's *more): srvrun_resp_reap must re-invoke
+   * the handler for the next round instead of releasing this slot once its
+   * sendsess goes idle. 0 for every ordinary (single-round) response. */
+  int streaming;
+  /* Response body bytes delivered to the handler/sendsess so far, across
+   * every round of a streaming response (RFC 9000 19.8's absolute stream
+   * offset for the NEXT round to arm at). Meaningless while !streaming. */
+  u64 stream_off;
+  /* 1 once the h3 HEADERS+DATA prefix has been written for this response
+   * (only the first round writes it; every later round is raw body bytes
+   * continuing the same DATA frame). Meaningless on the hq-interop path,
+   * which never frames at all. */
+  int stream_h3_framed;
 } srvrun_resp;
 /* Matches WIRED_SRVLOOP_MAX_STREAMS: the receive side's stream-slot table
  * bounds how many distinct request streams a connection reassembles at
@@ -1487,15 +1501,23 @@ static void srvrun_open_done(const srvrun_step_ctx* ctx, int slot, int ok) {
       ctx->cfg->id->scid_len);
 }
 
-/* Fill the response body from the app handler (empty without one, or when
- * it declines). */
+/* Fill one round of the response body from the app handler (empty without
+ * one, or when it declines), starting at offset (0 on a response's first
+ * round). more and total_size are the handler's streaming out-params (see
+ * wired_srvloop_handler): left at their caller-zeroed defaults by every
+ * ordinary (single-round) handler. */
 static void srvrun_call_handler(
     const srvrun_step_ctx* ctx,
     srvrun_conn*           c,
+    u64                    offset,
     quic_obuf*             body,
-    const char**           ct) {
+    const char**           ct,
+    int*                   more,
+    u64*                   total_size) {
   if (!ctx->cfg->handler) return;
-  if (!ctx->cfg->handler(ctx->cfg->ctx, &c->l.req, body, ct)) body->len = 0;
+  if (!ctx->cfg->handler(
+          ctx->cfg->ctx, &c->l.req, offset, body, ct, more, total_size))
+    body->len = 0;
 }
 
 /* All len octets of m equal want (draft-ietf-webtrans-http3-15 SS3: the
@@ -1597,6 +1619,7 @@ static srvrun_resp* srvrun_resp_claim(srvrun_conn* c, u64 stream_id) {
     c->resp[i].in_use     = 1;
     c->resp[i].stream_id  = stream_id;
     c->resp[i].bigbuf_row = -1;
+    c->resp[i].streaming  = 0;
     /* RFC 9000 18.2/19.10: seed this stream's send credit from the peer's
      * ClientHello TP (initial_max_stream_data_bidi_local, RFC 9000 18.2:
      * the TP sender's own locally-initiated streams' credit -- this
@@ -1711,7 +1734,9 @@ static u8* srvrun_resp_shrink_to_fixed(
  * (RFC 9114 4.1 doesn't apply -- there is no HTTP/3 on this connection).
  * Arms directly over the body already written at st + HDR_ROOM, skipping
  * the H3 prefix build/shrink-to-fixed dance that assumes a framed
- * response. */
+ * response. Every round (streaming or not) takes this same path: hq-interop
+ * never frames, so there is no first-round-only prefix to skip on later
+ * rounds (T-010). */
 static void srvrun_arm_hq09_resp(
     srvrun_resp* r, u8* st, const quic_obuf* body) {
   wired_sendsess_arm(
@@ -1719,20 +1744,25 @@ static void srvrun_arm_hq09_resp(
 }
 
 /* RFC 9114 4.1: frame the handler's body as HEADERS+DATA (quic_h3resp_prefix)
- * ahead of it, then arm over prefix+body. Split out of srvrun_start_app_resp
- * so hq-interop's un-framed sibling can skip this whole shape (CCN). */
-static void srvrun_arm_h3_resp(
+ * ahead of it, then arm over prefix+body. total_len is the DATA frame's
+ * declared length (T-012/T-021: the full streaming response's total size,
+ * not just this round's body -- HTTP/3 commits to one length upfront and
+ * every later round's bytes are additional payload of that same frame, so
+ * only round 0 ever calls this). Split out of srvrun_start_app_resp so
+ * hq-interop's un-framed sibling can skip this whole shape (CCN). */
+static void srvrun_arm_h3_resp_framed(
     const srvrun_step_ctx* ctx,
     srvrun_conn*           c,
     int                    slot,
     srvrun_resp*           r,
     u8*                    st,
     const quic_obuf*       body,
-    const char*            ct) {
+    const char*            ct,
+    u64                    total_len) {
   u8        pre[SRVRUN_RESP_HDR_ROOM];
   quic_obuf pob = quic_obuf_of(pre, sizeof pre);
   usz       off;
-  if (!quic_h3resp_prefix(200, ct, body->len, &pob)) return;
+  if (!quic_h3resp_prefix(200, ct, total_len, &pob)) return;
   off = SRVRUN_RESP_HDR_ROOM - pob.len;
   quic_put_bytes(
       quic_mspan_of(st, SRVRUN_RESP_HDR_ROOM), &off,
@@ -1743,21 +1773,92 @@ static void srvrun_arm_h3_resp(
   wired_sendsess_arm(&r->sess, st, pob.len + body->len, SRVRUN_CHUNK);
 }
 
+/* RFC 9114 4.1: a streaming response's round 1+ is unframed body bytes
+ * continuing the DATA frame round 0 already declared -- no HEADERS/DATA
+ * prefix, unlike round 0's srvrun_arm_h3_resp_framed (T-011/T-013: the
+ * bigbuf-to-fixed shrink is also skipped here, since a shrink would discard
+ * the storage row round 0's bytes may still be in flight from). */
+static void srvrun_arm_h3_resp_round(
+    srvrun_resp* r, u8* st, const quic_obuf* body) {
+  wired_sendsess_arm(
+      &r->sess, st + SRVRUN_RESP_HDR_ROOM, body->len, SRVRUN_CHUNK);
+}
+
+/* RFC 9114 4.1: frame+arm round 0, or arm a later round's unframed
+ * continuation -- whichever this call is (T-011). */
+static void srvrun_arm_h3_resp(
+    const srvrun_step_ctx* ctx,
+    srvrun_conn*           c,
+    int                    slot,
+    srvrun_resp*           r,
+    u8*                    st,
+    const quic_obuf*       body,
+    const char*            ct,
+    u64                    total_len) {
+  if (r->stream_h3_framed) {
+    srvrun_arm_h3_resp_round(r, st, body);
+    return;
+  }
+  r->stream_h3_framed = 1;
+  srvrun_arm_h3_resp_framed(ctx, c, slot, r, st, body, ct, total_len);
+}
+
+/* Prime r's streaming state after round 0 (T-004/T-006): stays 0 for an
+ * ordinary single-round response. */
+static void srvrun_prime_streaming(srvrun_resp* r, int more, usz round_len) {
+  r->streaming = more != 0;
+  if (!more) return;
+  wired_sendsess_set_base_offset(&r->sess, 0);
+  r->stream_off = round_len;
+}
+
+/* Arm r's round-0 body over st, hq-interop-raw or H3-framed depending on
+ * what this connection negotiated (T-010/T-011), and prime the streaming
+ * state (T-004/T-006) when the handler asked for another round. */
+static void srvrun_arm_round0(
+    const srvrun_step_ctx* ctx,
+    srvrun_conn*           c,
+    int                    slot,
+    srvrun_resp*           r,
+    u8*                    st,
+    const quic_obuf*       body,
+    const char*            ct,
+    int                    more,
+    u64                    total_size) {
+  u64 total_len = more ? total_size : body->len;
+  if (c->s.sdrv.alpn == QUIC_SALPN_HQ)
+    srvrun_arm_hq09_resp(r, st, body);
+  else
+    srvrun_arm_h3_resp(ctx, c, slot, r, st, body, ct, total_len);
+  srvrun_prime_streaming(r, more, body->len);
+}
+
+/* Run the app handler's round 0 into body/ct/more/total_size (out params). */
+static void srvrun_call_round0(
+    const srvrun_step_ctx* ctx,
+    srvrun_conn*           c,
+    quic_obuf*             body,
+    const char**           ct,
+    int*                   more,
+    u64*                   total_size) {
+  srvrun_call_handler(ctx, c, 0, body, ct, more, total_size);
+}
+
 /* Body of srvrun_start_resp for a normal (non-WT) request: run the app
- * handler, then frame+arm the response -- H3-framed or hq-interop-raw
- * depending on what this connection negotiated. Split out so
+ * handler's first round, then frame+arm the response -- H3-framed or
+ * hq-interop-raw depending on what this connection negotiated. Split out so
  * srvrun_start_resp itself stays at its gate/dispatch decision (CCN). */
 static void srvrun_start_app_resp(
     const srvrun_step_ctx* ctx, srvrun_conn* c, int slot, srvrun_resp* r) {
   u8*       st = srvrun_resp_storage(ctx, slot, c, r);
   quic_obuf body =
       quic_obuf_of(st + SRVRUN_RESP_HDR_ROOM, srvrun_resp_storage_cap(r));
-  const char* ct = 0;
-  srvrun_call_handler(ctx, c, &body, &ct);
-  if (c->s.sdrv.alpn == QUIC_SALPN_HQ)
-    srvrun_arm_hq09_resp(r, st, &body);
-  else
-    srvrun_arm_h3_resp(ctx, c, slot, r, st, &body, ct);
+  const char* ct         = 0;
+  int         more       = 0;
+  u64         total_size = 0;
+  r->stream_h3_framed    = 0;
+  srvrun_call_round0(ctx, c, &body, &ct, &more, &total_size);
+  srvrun_arm_round0(ctx, c, slot, r, st, &body, ct, more, total_size);
 }
 
 /* Reject this Extended CONNECT with 429 (WT-C-010/011: a second Extended
@@ -2258,23 +2359,59 @@ static void srvrun_resp_release_bigbuf(wired_srvrun_env* env, srvrun_resp* r) {
   if (r->bigbuf_row >= 0) wired_srvbigbuf_release(&env->bigbuf, r->bigbuf_row);
 }
 
+/* Run r's next streaming round: call the handler at the cumulative offset
+ * already delivered, then re-arm over the fresh round's bytes (T-004/T-006).
+ * hq-interop never frames a length so it always continues; H3 already wrote
+ * its DATA frame's total length in round 0 (stream_h3_framed), so its later
+ * rounds are just more of that frame's payload (srvrun_arm_h3_resp_round via
+ * srvrun_arm_h3_resp). Clears r->streaming once the handler stops asking for
+ * more. */
+static void srvrun_resp_next_round(
+    const srvrun_step_ctx* ctx, srvrun_conn* c, int slot, srvrun_resp* r) {
+  u8*       st = srvrun_resp_storage(ctx, slot, c, r);
+  quic_obuf body =
+      quic_obuf_of(st + SRVRUN_RESP_HDR_ROOM, srvrun_resp_storage_cap(r));
+  const char* ct         = 0;
+  int         more       = 0;
+  u64         total_size = 0;
+  srvrun_call_handler(ctx, c, r->stream_off, &body, &ct, &more, &total_size);
+  if (c->s.sdrv.alpn == QUIC_SALPN_HQ)
+    srvrun_arm_hq09_resp(r, st, &body);
+  else
+    srvrun_arm_h3_resp(ctx, c, slot, r, st, &body, ct, 0);
+  wired_sendsess_set_base_offset(&r->sess, r->stream_off);
+  r->stream_off += body.len;
+  r->streaming = more != 0;
+}
+
 /* Once r's session goes idle (wired_sendsess_done: every slice sent and
- * acked), free r's slot and the matching srvloop receive-side slot --
- * HTTP/3 never reuses a stream id, so without releasing the receive slot
- * too, WIRED_SRVLOOP_MAX_STREAMS sequential requests on distinct streams
- * would permanently exhaust it (guard: TLA+ resp-multiplex I4). A body that
- * borrowed a wired_srvbigbuf row returns it to the pool here too. */
+ * acked), either advance a streaming response to its next round (T-004) or
+ * free r's slot and the matching srvloop receive-side slot -- HTTP/3 never
+ * reuses a stream id, so without releasing the receive slot too,
+ * WIRED_SRVLOOP_MAX_STREAMS sequential requests on distinct streams would
+ * permanently exhaust it (guard: TLA+ resp-multiplex I4). A body that
+ * borrowed a wired_srvbigbuf row returns it to the pool here too (T-005:
+ * only once streaming is actually done, not between rounds). */
+static int srvrun_resp_not_yet_idle(srvrun_resp* r) {
+  return !r->in_use || !wired_sendsess_done(&r->sess);
+}
+
 static void srvrun_resp_reap(
-    wired_srvrun_env* env, srvrun_conn* c, srvrun_resp* r) {
-  if (!r->in_use || !wired_sendsess_done(&r->sess)) return;
+    const srvrun_step_ctx* ctx, srvrun_conn* c, int slot, srvrun_resp* r) {
+  if (srvrun_resp_not_yet_idle(r)) return;
+  if (r->streaming) {
+    srvrun_resp_next_round(ctx, c, slot, r);
+    return;
+  }
   wired_srvloop_slot_release(&c->l, r->stream_id);
-  srvrun_resp_release_bigbuf(env, r);
+  srvrun_resp_release_bigbuf(ctx->cfg->env, r);
   r->in_use = 0;
 }
 
-static void srvrun_reap_resps(wired_srvrun_env* env, srvrun_conn* c) {
+static void srvrun_reap_resps(
+    const srvrun_step_ctx* ctx, srvrun_conn* c, int slot) {
   for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++)
-    srvrun_resp_reap(env, c, &c->resp[i]);
+    srvrun_resp_reap(ctx, c, slot, &c->resp[i]);
 }
 
 static void srvrun_sess_on_step(const srvrun_step_ctx* ctx, int slot) {
@@ -2283,7 +2420,7 @@ static void srvrun_sess_on_step(const srvrun_step_ctx* ctx, int slot) {
   quic_cc_bbr_tick(&c->cc, srvrun_inflight_bytes_all(c), ctx->now_ms);
   srvrun_apply_conn_credit_update(c);
   srvrun_apply_stream_credit_update(c);
-  srvrun_reap_resps(ctx->cfg->env, c);
+  srvrun_reap_resps(ctx, c, slot);
   srvrun_start_done_resps(ctx, slot);
   srvrun_pump_sess(ctx, slot);
   srvrun_pump_datagram(ctx, c);

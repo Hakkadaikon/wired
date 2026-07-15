@@ -46,8 +46,7 @@ static void wt_selfcheck_session_buffer(wired_wt_session* s) {
 
 /* Establish, then a post-establishment stream is associated directly. */
 static void wt_selfcheck_session_establish(wired_wt_session* s) {
-  wt_selfcheck_require(
-      wired_wt_session_establish(s), "wt: establish failed\n");
+  wt_selfcheck_require(wired_wt_session_establish(s), "wt: establish failed\n");
   wt_selfcheck_require(
       s->state == WIRED_WT_ESTABLISHED, "wt: not established\n");
   wt_selfcheck_require(
@@ -127,8 +126,11 @@ static void wt_selfcheck(void) {
 static int app_on_request(
     void*                       ctx,
     const wired_h3reqdrive_req* req,
+    u64                         offset,
     quic_obuf*                  body_out,
-    const char**                content_type) {
+    const char**                content_type,
+    int*                        more,
+    u64*                        total_size) {
   static const u8 body[] =
       "webtransport_echo: plain HTTP/3 only over the wire.\n"
       "WebTransport session/capsule/errmap building blocks are exercised\n"
@@ -136,6 +138,9 @@ static int app_on_request(
   usz i;
   (void)ctx;
   (void)req;
+  (void)offset;
+  (void)more;
+  (void)total_size;
   *content_type = "text/plain";
   for (i = 0; i < sizeof body - 1 && i < body_out->cap; i++)
     body_out->p[i] = body[i];
@@ -185,8 +190,7 @@ static u16 load_config(int argc, char** argv) {
   return (u16)wired_cliargs_int(argc, argv, "--port", 4433);
 }
 
-__attribute__((force_align_arg_pointer)) int wired_main(
-    int argc, char** argv) {
+__attribute__((force_align_arg_pointer)) int wired_main(int argc, char** argv) {
   wired_srvboot_id     id;
   server_keys          keys;
   u16                  port = load_config(argc, argv);

@@ -14,21 +14,45 @@
  * the conversation has reached. An example program wraps this in a UDP
  * recv/send. */
 
-/** Build the response body for a decoded request. Copy from `req` (its body is
- * a view into per-step scratch, not valid past the call) into body_out,
- * setting body_out->len. May set *content_type to a static NUL-terminated
- * string to add a content-type field line; left unchanged (0) omits it.
+/** Build (a round of) the response body for a decoded request. Copy from
+ * `req` (its body is a view into per-step scratch, not valid past the call)
+ * into body_out, setting body_out->len. May set *content_type to a static
+ * NUL-terminated string to add a content-type field line; left unchanged (0)
+ * omits it.
+ *
+ * offset is the count of response body bytes already delivered by prior
+ * rounds (0 on the first call for a request). A handler whose whole body
+ * fits in one round ignores offset and never touches *more or *total_size
+ * (both default to "done"/"unknown"): this is the common case and every
+ * existing handler's behavior is unchanged. A handler with more body than
+ * fits body_out's capacity writes as much as fits starting at offset, sets
+ * *more = 1, and (on the first round only, offset == 0) sets *total_size to
+ * the full body length if known -- callers that frame the body with an
+ * upfront length field (e.g. HTTP/3's DATA frame) need this to write that
+ * length before any bytes are available. The caller then invokes this
+ * handler again with offset advanced by the bytes it just produced,
+ * repeating until *more is left 0.
+ *
  * @param ctx the opaque context registered with wired_srvloop_set_handler
  * @param req the decoded request; its views are not valid past the call
- * @param body_out receives the response body bytes
+ * @param offset response body bytes already delivered by prior rounds
+ * @param body_out receives this round's response body bytes
  * @param content_type receives the content-type string, or left at its
- *   caller-supplied value (0) to omit the field line
+ *   caller-supplied value (0) to omit the field line (only consulted on the
+ *   first round, offset == 0)
+ * @param more caller-zeroed before the call; set to 1 to request another
+ *   round starting at offset + body_out->len
+ * @param total_size caller-zeroed before the call; on the first round
+ *   (offset == 0) only, set to the full body length if known up front
  * @return 1 to send the body, 0 for a body-less 200. */
 typedef int (*wired_srvloop_handler)(
     void*                       ctx,
     const wired_h3reqdrive_req* req,
+    u64                         offset,
     quic_obuf*                  body_out,
-    const char**                content_type);
+    const char**                content_type,
+    int*                        more,
+    u64*                        total_size);
 
 /** RFC 9000 2.2: how many client bidi (request) streams one connection can
  * reassemble concurrently. Small and fixed: this is not meant to support
