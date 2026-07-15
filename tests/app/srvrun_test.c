@@ -3872,6 +3872,161 @@ static void test_srvrun_streaming_h3_prefix_receives_total_size_not_round_len(
   CHECK(c.resp[0].sess.q.len == preb.len + 100); /* prefix + round 0's body */
 }
 
+/* T-002: a body whose total size lands exactly on the fixed respstore row's
+ * capacity (WIRED_SRVRUN_RESP_MAX - HDR_ROOM) fits in a single round -- the
+ * handler is asked for round_cap far bigger than that so it's never the
+ * limiting factor, and the round-0 body length must equal the fixed row's
+ * cap exactly, with no second round requested. */
+static void test_srvrun_streaming_body_exactly_row_cap_single_round(void) {
+  struct lp_fix f;
+  srvrun_conn   c  = {0};
+  quic_obuf     ob = {0};
+  u8            obuf[2048];
+  usz           cap;
+  ob                  = (quic_obuf){obuf, sizeof obuf, 0};
+  cap                 = WIRED_SRVRUN_RESP_MAX - SRVRUN_RESP_HDR_ROOM;
+  sr_stream_total_len = cap;
+  sr_stream_round_cap = cap + 1000; /* bigger than the buffer, never binds */
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.s.sdrv.alpn = QUIC_SALPN_HQ;
+  c.cc.cwnd     = 1u << 20;
+  sr_set_req(&c, 0, 0, 0);
+  {
+    srvrun_cfg cfg = {
+        -1, 0, sr_stream_body_handler, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0,  0, &g_srvrun_env,          0};
+    srvrun_state    st  = {0, &c};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_start_resp(&ctx, 0);
+  }
+  CHECK(c.resp[0].sess.q.len == cap);
+  CHECK(c.resp[0].streaming == 0);   /* exact fit: no second round */
+  CHECK(c.resp[0].bigbuf_row == -1); /* the fixed row, not the pool */
+}
+
+/* T-003: total size one byte past the bigbuf pool row's own capacity (the
+ * largest single-round buffer this server has) crosses into a second round
+ * -- round 0 fills the pool row's cap exactly and asks for a second round
+ * carrying the last byte. */
+static void test_srvrun_streaming_body_row_cap_plus_one_streams(void) {
+  struct lp_fix f;
+  srvrun_conn   c  = {0};
+  quic_obuf     ob = {0};
+  u8            obuf[2048];
+  usz           pool_cap;
+  ob                  = (quic_obuf){obuf, sizeof obuf, 0};
+  pool_cap            = WIRED_SRVBIGBUF_ROW_CAP - SRVRUN_RESP_HDR_ROOM;
+  sr_stream_total_len = pool_cap + 1;
+  sr_stream_round_cap = pool_cap + 1000; /* never the limiting factor */
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.s.sdrv.alpn = QUIC_SALPN_HQ;
+  c.cc.cwnd     = 1u << 20;
+  sr_set_req(&c, 0, 0, 0);
+  wired_srvbigbuf_init(
+      &g_srvrun_env.bigbuf, &g_srvrun_env.bigbuf_rows[0][0],
+      WIRED_SRVBIGBUF_ROW_CAP);
+  {
+    srvrun_cfg cfg = {
+        -1, 0, sr_stream_body_handler, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0,  0, &g_srvrun_env,          0};
+    srvrun_state    st  = {0, &c};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_start_resp(&ctx, 0);
+    CHECK(c.resp[0].bigbuf_row >= 0); /* body exceeds the fixed row */
+    CHECK(
+        c.resp[0].sess.q.len == WIRED_SRVBIGBUF_ROW_CAP - SRVRUN_RESP_HDR_ROOM);
+    CHECK(c.resp[0].streaming == 1); /* one byte remains for round 1 */
+    sr_drive_round_to_done(&ctx, &c);
+    srvrun_reap_resps(&ctx, &c, 0);
+    CHECK(c.resp[0].sess.q.len == 1); /* round 1: the last byte */
+    CHECK(c.resp[0].streaming == 0);
+  }
+  wired_srvbigbuf_release(&g_srvrun_env.bigbuf, c.resp[0].bigbuf_row);
+}
+
+/* T-013: a streaming response's bigbuf pool row survives across rounds --
+ * srvrun_resp_shrink_to_fixed's "small enough after all, copy to the fixed
+ * row and release the pool row" optimization must NOT fire on a streaming
+ * round (it would discard the pool row a still-in-flight earlier round's
+ * bytes point into). Round 0 already claims a pool row (T-003's test above
+ * proves that); this test drives a further round and checks the SAME pool
+ * row index survives (never shrunk to the fixed row mid-stream). */
+static void test_srvrun_streaming_last_round_not_shrunk_to_fixed(void) {
+  struct lp_fix f;
+  srvrun_conn   c  = {0};
+  quic_obuf     ob = {0};
+  u8            obuf[2048];
+  usz           pool_cap;
+  int           row0;
+  ob                  = (quic_obuf){obuf, sizeof obuf, 0};
+  pool_cap            = WIRED_SRVBIGBUF_ROW_CAP - SRVRUN_RESP_HDR_ROOM;
+  sr_stream_total_len = pool_cap + 10; /* small final round (10 bytes) */
+  sr_stream_round_cap = pool_cap;      /* round 0 fills the pool row exactly */
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.s.sdrv.alpn = QUIC_SALPN_HQ;
+  c.cc.cwnd     = 1u << 20;
+  sr_set_req(&c, 0, 0, 0);
+  wired_srvbigbuf_init(
+      &g_srvrun_env.bigbuf, &g_srvrun_env.bigbuf_rows[0][0],
+      WIRED_SRVBIGBUF_ROW_CAP);
+  {
+    srvrun_cfg cfg = {
+        -1, 0, sr_stream_body_handler, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0,  0, &g_srvrun_env,          0};
+    srvrun_state    st  = {0, &c};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_start_resp(&ctx, 0);
+    CHECK(c.resp[0].bigbuf_row >= 0);
+    row0 = c.resp[0].bigbuf_row;
+    sr_drive_round_to_done(&ctx, &c);
+    srvrun_reap_resps(&ctx, &c, 0); /* round 1: last 10 bytes, tiny */
+    /* round 1's 10-byte body would fit the fixed row, but streaming skips
+     * the shrink-to-fixed optimization -- same pool row, not released. */
+    CHECK(c.resp[0].streaming == 0);
+    CHECK(c.resp[0].bigbuf_row == row0);
+    CHECK(c.resp[0].sess.q.len == 10);
+  }
+  wired_srvbigbuf_release(&g_srvrun_env.bigbuf, c.resp[0].bigbuf_row);
+}
+
+/* T-014: a streaming response's next round is armed via srvrun_resp_reap,
+ * which runs inside srvrun_sess_on_step's normal step loop -- the same one
+ * that gates every new send on cwnd (srvrun_pump_sess/srvrun_can_send_new).
+ * With cwnd pinned to 0, srvrun_reap_resps must still ADVANCE the round
+ * (the handler runs, the next round is armed in resp[]'s state) but the
+ * pump loop must not have snuck bytes onto the wire around that gate --
+ * proven by srvrun_pump_sess draining nothing (0 inflight) immediately
+ * after the round-1 arm, same as any ordinary new send blocked by cwnd. */
+static void test_srvrun_streaming_rearm_respects_existing_send_gates(void) {
+  struct lp_fix f;
+  srvrun_conn   c  = {0};
+  quic_obuf     ob = {0};
+  u8            obuf[2048];
+  ob                  = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_stream_total_len = 300;
+  sr_stream_round_cap = 100;
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.s.sdrv.alpn = QUIC_SALPN_HQ;
+  c.cc.cwnd     = 1u << 20;
+  sr_set_req(&c, 0, 0, 0);
+  {
+    srvrun_cfg cfg = {
+        -1, 0, sr_stream_body_handler, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0,  0, &g_srvrun_env,          0};
+    srvrun_state    st  = {0, &c};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_start_resp(&ctx, 0);
+    sr_drive_round_to_done(&ctx, &c);
+    c.cc.cwnd = 0;                  /* pin cwnd to 0 before round 1 arms */
+    srvrun_reap_resps(&ctx, &c, 0); /* round 1 armed despite cwnd == 0 */
+    CHECK(c.resp[0].in_use == 1);
+    CHECK(c.resp[0].sess.q.len == 100); /* armed: bytes are queued... */
+    CHECK(wired_sendsess_inflight(&c.resp[0].sess) == 0); /* ...but unsent */
+    srvrun_pump_sess(&ctx, 0); /* cwnd == 0: the ordinary new-send gate */
+    CHECK(wired_sendsess_inflight(&c.resp[0].sess) == 0); /* still blocked */
+  }
+}
+
 /* T-013: hq-interop (see hq09.h) responses carry no HEADERS/DATA framing --
  * the armed session length equals the handler's body length exactly (a
  * bare 1-byte body arms to exactly 1 byte, not "1 byte + H3 prefix
@@ -5097,6 +5252,10 @@ void test_srvrun(void) {
   test_srvrun_streaming_stream_offset_accumulates_across_rounds();
   test_srvrun_streaming_concurrent_requests_do_not_corrupt_each_other();
   test_srvrun_streaming_h3_prefix_receives_total_size_not_round_len();
+  test_srvrun_streaming_body_exactly_row_cap_single_round();
+  test_srvrun_streaming_body_row_cap_plus_one_streams();
+  test_srvrun_streaming_last_round_not_shrunk_to_fixed();
+  test_srvrun_streaming_rearm_respects_existing_send_gates();
   test_srvrun_fifth_sequential_get_reuses_freed_slot();
   test_srvrun_pto_budget_exhausted_tears_down_connection();
   test_srvrun_pto_not_due_within_rtt_window();

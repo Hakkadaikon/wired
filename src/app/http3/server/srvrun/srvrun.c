@@ -1691,11 +1691,19 @@ static void srvrun_reject_wt(
  * same as before this pool existed): a body that then overflows the fixed
  * row is truncated by the handler's own quic_obuf cap, not a new failure
  * mode. r->bigbuf_row records which storage was used, -1 for the fixed row,
- * so srvrun_resp_reap knows whether to release a pool row later. */
+ * so srvrun_resp_reap knows whether to release a pool row later. A
+ * streaming response's later rounds (r->bigbuf_row already >= 0) reuse that
+ * SAME row instead of re-claiming -- a second claim here would either grab
+ * a different pool row (silently orphaning round 0's, since only one index
+ * is tracked) or, if the pool is momentarily full, hand back 0 and corrupt
+ * an otherwise-fine ongoing stream. */
 static u8* srvrun_resp_storage(
     const srvrun_step_ctx* ctx, int slot, srvrun_conn* c, srvrun_resp* r) {
   u8* fixed = ctx->cfg->env->respstore[slot][srvrun_resp_index(c, r)];
-  u8* big   = wired_srvbigbuf_claim(&ctx->cfg->env->bigbuf, &r->bigbuf_row);
+  u8* big;
+  if (r->bigbuf_row >= 0)
+    return wired_srvbigbuf_row(&ctx->cfg->env->bigbuf, r->bigbuf_row);
+  big = wired_srvbigbuf_claim(&ctx->cfg->env->bigbuf, &r->bigbuf_row);
   return big ? big : fixed;
 }
 
