@@ -375,6 +375,7 @@
 #include "transport/packet/build/pktbuild/eliciting.c"
 #include "transport/recovery/detect/ackgen/ackgen.c"
 #include "transport/recovery/detect/ackgen/ackrange.c"
+#include "transport/recovery/detect/ackgen/ackrangeconv.c"
 #include "transport/recovery/detect/ackgen/ackfreq.c"
 #include "crypto/pki/trust/castore/castore.c"
 #include "crypto/pki/trust/castore/chainverify.c"
@@ -792,6 +793,7 @@
 #include "transport/eliciting_test.c"
 #include "transport/ackgen_test.c"
 #include "transport/ackrange_test.c"
+#include "transport/ackrangeconv_test.c"
 #include "transport/ackfreq_test.c"
 #include "crypto/castore_test.c"
 #include "crypto/chainverify_test.c"
@@ -1253,6 +1255,7 @@ int main(void) {
   test_eliciting();
   test_ackgen();
   test_ackrange();
+  test_ackrangeconv();
   test_ackfreq();
   test_castore();
   test_chainverify();
