@@ -28,7 +28,10 @@ transfers files over HTTP/0.9 (ALPN `hq-interop`, see the runner's
 
 ## Limitations
 
-- Response bodies are capped at 16KB per connection slot; the `http3` test
-  case's 500KB file currently exceeds this.
+- Response bodies larger than 16KB are served from a shared large-body pool
+  (`srvbigbuf`, 2 rows) instead of the fixed per-slot 16KB storage; the
+  `http3` test case's 500KB file fits within this and passes. A third
+  concurrent large body beyond the pool's row count still falls back to the
+  16KB-capped path.
 - Retry / address validation is not implemented, so the `retry` test is
   unsupported.
