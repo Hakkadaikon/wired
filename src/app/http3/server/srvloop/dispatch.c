@@ -11,6 +11,7 @@
 #include "common/bytes/util/bytes.h"
 #include "common/bytes/varint/varint.h"
 #include "transport/packet/frame/frame/dispatch.h"
+#include "transport/packet/frame/frame/flowctl.h"
 #include "transport/packet/frame/frame/frame.h"
 #include "transport/packet/frame/frame/stream_ctl.h"
 #include "transport/packet/frame/pipeline/framewalk.h"
@@ -648,6 +649,71 @@ static int is_close_shaped(quic_frame_kind kind, u64 type) {
          is_stream(type);
 }
 
+/* 1 if candidate should replace l->max_data_seen: either nothing latched
+ * yet this step, or candidate is the higher of the two seen so far -- split
+ * out so gather_one_max_data's own CCN stays at the gate (a compound `||`
+ * counts as +1 on top of its enclosing if). */
+static int max_data_is_new_high(const wired_srvloop* l, u64 candidate) {
+  return !l->max_data_seen_flag || candidate > l->max_data_seen;
+}
+
+/* RFC 9000 19.9: latch the highest MAX_DATA value seen in this payload --
+ * only ever raised by the caller (srvrun.c), never applied here, since RFC
+ * 9000 4.1 forbids a send credit from ever decreasing and this loop has no
+ * notion of the running credit to compare against. Caller (gather_max_data)
+ * has already confirmed frame's kind, so this only decodes. */
+static void gather_one_max_data(wired_srvloop* l, quic_span frame) {
+  quic_data_frame f;
+  if (quic_max_data_decode(frame.p, frame.n, &f) == 0) return;
+  if (max_data_is_new_high(l, f.value)) l->max_data_seen = f.value;
+  l->max_data_seen_flag = 1;
+}
+
+/* RFC 9000 19.9: scan this payload for MAX_DATA frames, mirroring
+ * gather_stream_closes' shape for a different frame kind. Returns 1 if any
+ * was seen. */
+static int gather_max_data(wired_srvloop* l, const u8* payload, usz len) {
+  quic_framewalk      it;
+  quic_framewalk_item fr;
+  int                 seen = 0;
+  quic_framewalk_init(&it, payload, len);
+  while (quic_framewalk_next(&it, &fr)) {
+    if (quic_frame_classify(fr.type) != QUIC_FK_MAX_DATA) continue;
+    seen = 1;
+    gather_one_max_data(l, quic_span_of(fr.start, fr.remaining));
+  }
+  return seen;
+}
+
+/* RFC 9000 19.10: latch the last MAX_STREAM_DATA (stream id, value) seen in
+ * this payload -- mirrors closed_stream_id's "last one wins this step"
+ * shape (srvloop.h's doc). The caller (srvrun.c) resolves which resp[] slot
+ * stream_id belongs to and raises that slot's own running credit, never
+ * lowering it (RFC 9000 4.1). */
+static void gather_one_max_stream_data(wired_srvloop* l, quic_span frame) {
+  quic_stream_data_frame f;
+  if (quic_max_stream_data_decode(frame.p, frame.n, &f) == 0) return;
+  l->max_stream_data_stream_id = f.stream_id;
+  l->max_stream_data_value     = f.value;
+  l->max_stream_data_seen      = 1;
+}
+
+/* RFC 9000 19.10: scan this payload for MAX_STREAM_DATA frames. Returns 1 if
+ * any was seen. */
+static int gather_max_stream_data(
+    wired_srvloop* l, const u8* payload, usz len) {
+  quic_framewalk      it;
+  quic_framewalk_item fr;
+  int                 seen = 0;
+  quic_framewalk_init(&it, payload, len);
+  while (quic_framewalk_next(&it, &fr)) {
+    if (quic_frame_classify(fr.type) != QUIC_FK_MAX_STREAM_DATA) continue;
+    seen = 1;
+    gather_one_max_stream_data(l, quic_span_of(fr.start, fr.remaining));
+  }
+  return seen;
+}
+
 /* RFC 9000 19.4/19.5/19.8: scan this payload for RESET_STREAM/STOP_SENDING/
  * FIN-bearing STREAM frames, mirroring gather_rx_datagrams' shape for a
  * different frame kind set. Returns 1 if any was seen this payload (whether
@@ -872,6 +938,18 @@ static int dispatch_gather_closes(
   return gather_stream_closes(ctx->l, payload.p, payload.n);
 }
 
+/* RFC 9000 19.9/19.10: 1 if ctx has a loop to latch a flow-control update
+ * into and this payload carried a MAX_DATA or MAX_STREAM_DATA frame,
+ * mirroring dispatch_gather_closes for the flow-control frame kinds. */
+static int dispatch_gather_flowctl(
+    const wired_srvloop_dispatch_ctx* ctx, quic_span payload) {
+  int got_max_data, got_max_stream_data;
+  if (!ctx->l) return 0;
+  got_max_data        = gather_max_data(ctx->l, payload.p, payload.n);
+  got_max_stream_data = gather_max_stream_data(ctx->l, payload.p, payload.n);
+  return got_max_data | got_max_stream_data;
+}
+
 /* RFC 9000 12.4 / 2.1, RFC 9114 6.2: a payload may lead with PADDING/ACK before
  * its CRYPTO or STREAM frame (curl/quiche do this). A client bidi STREAM drives
  * HTTP/3; unidirectional STREAMs are accepted but ignored; anything else is
@@ -886,11 +964,12 @@ static int dispatch_gather_closes(
  * was present. */
 static int dispatch_gather_side_channels(
     const wired_srvloop_dispatch_ctx* ctx, quic_span payload) {
-  int got_wt     = dispatch_gather_wt(ctx, payload);
-  int got_uni    = dispatch_gather_uni(ctx, payload);
-  int got_dg     = dispatch_gather_datagrams(ctx, payload);
-  int got_closes = dispatch_gather_closes(ctx, payload);
-  return got_wt | got_uni | got_dg | got_closes;
+  int got_wt      = dispatch_gather_wt(ctx, payload);
+  int got_uni     = dispatch_gather_uni(ctx, payload);
+  int got_dg      = dispatch_gather_datagrams(ctx, payload);
+  int got_closes  = dispatch_gather_closes(ctx, payload);
+  int got_flowctl = dispatch_gather_flowctl(ctx, payload);
+  return got_wt | got_uni | got_dg | got_closes | got_flowctl;
 }
 
 int wired_srvloop_dispatch(

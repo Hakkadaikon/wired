@@ -265,6 +265,25 @@ typedef struct {
    * this loop has no notion of a WT session and does not interpret the id. */
   u64 closed_stream_id;
   int closed_stream_seen; /**< 1 once closed_stream_id was set this step */
+  /** RFC 9000 19.9: highest MAX_DATA value seen across every 1-RTT payload
+   * opened this step (gather_max_data in dispatch.c) -- the connection-level
+   * send credit ceiling this endpoint may now use. 0 = none seen this step
+   * (the caller, srvrun.c, only raises its own running credit when this is
+   * higher than what it already holds; a lower or absent value here is a
+   * no-op per RFC 9000 4.1's "never decreases"). Not reset across steps by
+   * this loop itself -- srvrun.c's own credit state is the only thing that
+   * persists across steps; this field is this step's observation only. */
+  u64 max_data_seen;
+  int max_data_seen_flag; /**< 1 once max_data_seen was set this step */
+  /** RFC 9000 19.10: the stream id and value of the last MAX_STREAM_DATA
+   * frame seen this step, mirroring closed_stream_id's "last one wins this
+   * step" shape. A single step coalescing more than one MAX_STREAM_DATA
+   * (e.g. one per stream) only exposes the last; srvrun.c drains this once
+   * per step same as closed_stream_id. */
+  u64 max_stream_data_stream_id;
+  u64 max_stream_data_value;
+  int max_stream_data_seen; /**< 1 once the two fields above were set this
+                              step */
 } wired_srvloop;
 
 /** Register the app response-body builder; pass 0 to clear (body-less 200).
