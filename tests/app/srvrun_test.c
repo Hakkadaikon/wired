@@ -4442,6 +4442,56 @@ static void test_srvrun_hq09_missing_file_arms_empty_body(void) {
   CHECK(wired_sendsess_done(&c.resp[0].sess) == 1); /* nothing to send */
 }
 
+/* T-019/T-024: srvrun's own receive path (srvrun_serve/srvrun_on_step)
+ * shares its wired_srvloop's new multi-range delayed-ACK state exactly like
+ * srvloop's own direct wired_srvloop_step callers do -- proven here over a
+ * real loopback socket (so the sealed reply is read back exactly as the
+ * wire would deliver it) by driving a GET through srvrun_serve at
+ * now_ms >= WIRED_SRVLOOP_MAX_ACK_DELAY_MS (T-024: srvrun's own
+ * srvrun_step_ctx.now_ms is quic_ackpolicy's clock, the same one PTO/RTT
+ * already share) and checking the sealed reply's ACK frame covers the
+ * received pn. Benign skip when the sandbox forbids sockets. */
+static void test_srvrun_onertt_get_is_acked_via_srvrun_on_step(void) {
+  struct lp_fix    f;
+  srvrun_conn      c  = {0};
+  quic_obuf        ob = {0};
+  u8               obuf[1024], get[512], spkt[1024];
+  quic_sockaddr_in srv, from;
+  i64              sfd, cfd;
+  usz              glen, slen;
+  const u8*        pl;
+  usz              pll;
+  if (!sr_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.peer = srv;
+  {
+    quic_obuf gob = {get, sizeof get, 0};
+    CHECK(wired_h3reqdrive_send_get(
+        0,
+        &(wired_h3reqdrive_get_in){
+            quic_span_of((const u8*)"/", 1), quic_span_of((const u8*)"h", 1)},
+        &gob));
+    glen = gob.len;
+  }
+  slen = client_seal_onertt_pn(&f, 9, get, glen, spkt, sizeof spkt);
+  {
+    srvrun_cfg cfg = {cfd,           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                      &g_srvrun_env, 0};
+    srvrun_step_ctx ctx = {&cfg, &srv, 0, WIRED_SRVLOOP_MAX_ACK_DELAY_MS};
+    srvrun_on_step(&ctx, &c, quic_mspan_of(spkt, slen));
+  }
+  {
+    u8  pkt[1500];
+    i64 r = wired_udp_recvfrom(sfd, quic_mspan_of(pkt, sizeof pkt), &from);
+    CHECK(r > 0);
+    CHECK(client_open_onertt(&f, pkt, (usz)r, &pl, &pll) == 1);
+    check_acks_pn(pl, pll, 9);
+  }
+  wired_udp_close(cfd);
+  wired_udp_close(sfd);
+}
+
 /* SLOT REUSE: HTTP/3 never reuses a stream id, so resp[]'s SRVRUN_RESP_SLOTS
  * (4, matching the receive side's WIRED_SRVLOOP_MAX_STREAMS) must free a
  * slot once its response is fully sent and acked -- otherwise a 5th
@@ -5649,6 +5699,7 @@ void test_srvrun(void) {
   test_srvrun_qlog_skips_failed_accept();
   test_srvrun_batch_serves_each();
   test_srvrun_takeover_streams_large_body();
+  test_srvrun_onertt_get_is_acked_via_srvrun_on_step();
   test_srvrun_parallel_responses_three_streams();
   test_srvrun_cc_algo_selected();
   test_srvrun_hystart_ends_slow_start();
