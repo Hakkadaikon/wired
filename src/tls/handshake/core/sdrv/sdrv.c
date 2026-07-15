@@ -3,6 +3,8 @@
 #include "app/datagram/datagram/datagram.h"
 #include "crypto/asymmetric/ecc/p256/p256_point.h"
 #include "crypto/pki/cert/p256cert/p256cert.h"
+#include "tls/ext/salpn/ch_ext.h"
+#include "tls/ext/salpn/negotiate.h"
 #include "tls/ext/stp/parse_tp.h"
 #include "tls/ext/tparam/tparam.h"
 #include "tls/handshake/core/tls/ext_keyshare.h"
@@ -70,6 +72,7 @@ static void sdrv_copy_san_ipv4(quic_sdrv* s, const u8* san_ipv4) {
 void quic_sdrv_init(quic_sdrv* s, const quic_sdrv_init_in* in) {
   s->limits                       = (quic_stp_limits){0, 0, 0};
   s->peer_max_datagram_frame_size = 0;
+  s->alpn                         = QUIC_SALPN_NONE;
   sdrv_copy32(s->server_priv, in->server_priv_x25519);
   sdrv_copy32(s->server_pub, in->server_pub_x25519);
   sdrv_copy32(s->p256_priv, in->sign_priv);
@@ -281,6 +284,21 @@ static int take_client_sid(quic_sdrv* s, const u8* ch_msg, usz ch_len) {
   return 1;
 }
 
+/* RFC 7301 3.1/3.2: negotiate ALPN from the ClientHello's ALPN extension
+ * (0x0010), preferring h3 over hq-interop (quic_salpn_negotiate). Absent or
+ * malformed ALPN extension negotiates QUIC_SALPN_NONE the same as an
+ * extension present but offering neither -- both fail the handshake at the
+ * caller (quic_sdrv_recv_client_hello returning that outcome is not itself
+ * a parse failure; the caller checks s->alpn before building a flight). */
+static void sdrv_negotiate_alpn(quic_sdrv* s, const u8* ch_msg, usz ch_len) {
+  quic_span ext;
+  s->alpn = QUIC_SALPN_NONE;
+  if (!quic_salpn_find_extension(
+          quic_span_of(ch_msg, ch_len), QUIC_SALPN_EXT_TYPE, &ext))
+    return;
+  s->alpn = quic_salpn_negotiate(ext.p, ext.n);
+}
+
 int quic_sdrv_recv_client_hello(quic_sdrv* s, const u8* ch_msg, usz ch_len) {
   if (!take_client_keyshare(ch_msg, ch_len, s->client_pub)) return 0;
   if (!take_client_sid(s, ch_msg, ch_len)) return 0;
@@ -291,6 +309,7 @@ int quic_sdrv_recv_client_hello(quic_sdrv* s, const u8* ch_msg, usz ch_len) {
   take_peer_tp_int(
       ch_msg, ch_len, QUIC_TP_INITIAL_MAX_STREAM_DATA_BIDI_LOCAL,
       &s->peer_initial_max_stream_data_bidi_local);
+  sdrv_negotiate_alpn(s, ch_msg, ch_len);
   quic_transcript_add(&s->tr, ch_msg, ch_len);
   return 1;
 }
