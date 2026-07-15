@@ -3504,6 +3504,15 @@ static void test_srvrun_bigbuf_pool_serves_large_body(void) {
   ob                 = (quic_obuf){obuf, sizeof obuf, 0};
   sr_make_confirmed_conn(&c, &f, &ob);
   sr_set_req(&c, 0, 0, 0);
+  /* g_srvrun_env is BSS-zeroed but never routed through
+   * wired_server_run_opt/wired_srvrun_env_init in this direct-call test, so
+   * bigbuf.rows starts NULL -- wired_srvbigbuf_row would then compute
+   * NULL + row_idx*row_cap, an out-of-bounds write the handler below would
+   * silently perform. Point it at this env's own row storage first, same as
+   * the real entry points do. */
+  wired_srvbigbuf_init(
+      &g_srvrun_env.bigbuf, &g_srvrun_env.bigbuf_rows[0][0],
+      WIRED_SRVBIGBUF_ROW_CAP);
   {
     srvrun_cfg cfg = {
         -1, 0, sr_bigbuf_body_handler, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -3524,6 +3533,52 @@ static void test_srvrun_bigbuf_pool_serves_large_body(void) {
       c.resp[0].sess.q.len ==
       preb.len + (WIRED_SRVBIGBUF_ROW_CAP - SRVRUN_RESP_HDR_ROOM));
   CHECK(c.resp[0].sess.q.len > WIRED_SRVRUN_RESP_MAX);
+  /* g_srvrun_env.bigbuf is process-wide, shared with every other test in
+   * this file -- release the claimed row so a later test (e.g. the
+   * exhaustion test below) sees a clean pool, matching what
+   * srvrun_resp_reap does for a real response once its session finishes. */
+  wired_srvbigbuf_release(&g_srvrun_env.bigbuf, c.resp[0].bigbuf_row);
+}
+
+/* BIGBUF POOL EXHAUSTION: with every pool row already claimed (e.g. two
+ * other large responses still in flight), a further large-body handler must
+ * fall back to the fixed 16KB row instead of failing -- srvrun_resp_storage's
+ * "big ? big : fixed" ternary, exercised here with wired_srvbigbuf_claim
+ * pre-exhausted rather than mocked, so the real pool state gates the real
+ * fallback path. The handler still writes past 16KB (sr_bigbuf_body_handler
+ * fills the whole cap it's handed); srvrun_resp_storage_cap must have handed
+ * it the smaller WIRED_SRVRUN_RESP_MAX-sized cap, not the pool's, so the body
+ * is silently bounded by that cap rather than overflowing. */
+static void test_srvrun_bigbuf_pool_exhausted_falls_back_to_fixed_row(void) {
+  struct lp_fix f;
+  srvrun_conn   c  = {0};
+  quic_obuf     ob = {0};
+  u8            obuf[1024];
+  int           held[WIRED_SRVBIGBUF_ROWS];
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  sr_set_req(&c, 0, 0, 0);
+  /* Fresh pool state for this test, independent of what other tests left
+   * behind (see the sibling large-body test's comment on rows starting
+   * NULL). */
+  wired_srvbigbuf_init(
+      &g_srvrun_env.bigbuf, &g_srvrun_env.bigbuf_rows[0][0],
+      WIRED_SRVBIGBUF_ROW_CAP);
+  for (usz i = 0; i < WIRED_SRVBIGBUF_ROWS; i++)
+    CHECK(wired_srvbigbuf_claim(&g_srvrun_env.bigbuf, &held[i]) != 0);
+  {
+    srvrun_cfg cfg = {
+        -1, 0, sr_bigbuf_body_handler, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0,  0, &g_srvrun_env,          0};
+    srvrun_state    st  = {0, &c};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_start_resp(&ctx, 0);
+  }
+  CHECK(c.resp[0].in_use == 1);
+  CHECK(c.resp[0].bigbuf_row == -1); /* fell back, not a pool row */
+  CHECK(c.resp[0].sess.q.len <= WIRED_SRVRUN_RESP_MAX);
+  for (usz i = 0; i < WIRED_SRVBIGBUF_ROWS; i++)
+    wired_srvbigbuf_release(&g_srvrun_env.bigbuf, held[i]);
 }
 
 /* SLOT REUSE: HTTP/3 never reuses a stream id, so resp[]'s SRVRUN_RESP_SLOTS
@@ -4384,6 +4439,7 @@ void test_srvrun(void) {
   test_srvrun_wt_full_session_lifecycle_on_wire();
   test_srvrun_no_shutdown_accepts_new();
   test_srvrun_bigbuf_pool_serves_large_body();
+  test_srvrun_bigbuf_pool_exhausted_falls_back_to_fixed_row();
   test_srvrun_fifth_sequential_get_reuses_freed_slot();
   test_srvrun_pto_budget_exhausted_tears_down_connection();
   test_srvrun_pto_not_due_within_rtt_window();
