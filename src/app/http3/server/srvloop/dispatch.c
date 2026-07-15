@@ -7,6 +7,7 @@
 #include "app/http3/request/h3reqdrive/request_drive.h"
 #include "app/http3/server/h3srv/peer.h"
 #include "app/http3/server/h3srv/respond.h"
+#include "app/http3/server/hq09/hq09.h"
 #include "app/http3/server/srvloop/srvloop.h"
 #include "common/bytes/util/bytes.h"
 #include "common/bytes/varint/varint.h"
@@ -750,6 +751,27 @@ static void drive_complete(
     dispatch_stream(h3, quic_span_of(in->wrap.p, ob.len), in);
 }
 
+/* quic-interop-runner's hq-interop (HTTP/0.9 over QUIC, see hq09.h):
+ * parse acc's reassembled bytes as a single "GET <path>\r\n" request line
+ * (no QPACK/HEADERS framing at all -- the accumulated bytes ARE the
+ * request line). On a valid line, sets *in->req's path (a view into acc's
+ * own storage, which outlives this call the same way in->wrap does for the
+ * H3 path) and marks the request complete; an invalid line marks acc done
+ * without producing a request (the stream is spent either way, matching
+ * drive_complete's "decode at most once" contract). */
+static void drive_complete_hq09(
+    wired_srvloop_reqacc* acc, const wired_srvloop_dispatch_in* in) {
+  quic_span path;
+  *acc->done = 1;
+  if (!wired_hq09_parse_get(quic_span_of(acc->buf, *acc->len), &path)) return;
+  *in->req            = (wired_h3reqdrive_req){0};
+  in->req->method     = (const u8*)"GET";
+  in->req->method_len = 3;
+  in->req->path       = path.p;
+  in->req->path_len   = path.n;
+  *in->got_request    = 1;
+}
+
 /* RFC 9000 2.2: view one stream slot's cross-datagram request accumulator
  * (the routed path's per-slot counterpart of the caller-built ctx->acc). */
 static wired_srvloop_reqacc route_slot_acc(wired_srvloop_stream_slot* slot) {
@@ -805,6 +827,20 @@ static void route_note_done(wired_srvloop* l, int i) {
   if (l->done_n < WIRED_SRVLOOP_MAX_STREAMS) l->done_slots[l->done_n++] = (u8)i;
 }
 
+/* RFC 9114 4.1 vs hq-interop (see hq09.h): dispatch slot i's just-completed
+ * request through whichever decoder this connection negotiated -- QPACK/
+ * HEADERS for h3, a bare "GET <path>\r\n" line for hq-interop. Split out so
+ * route_complete_slot's own CCN stays at the gate. */
+static void route_dispatch_complete(
+    const wired_srvloop_dispatch_ctx* ctx,
+    wired_srvloop_reqacc*             acc,
+    const wired_srvloop_dispatch_in*  sin) {
+  if (ctx->s->sdrv.alpn == QUIC_SALPN_HQ)
+    drive_complete_hq09(acc, sin);
+  else
+    drive_complete(ctx->h3, acc, sin);
+}
+
 /* Decode slot i's request if it just completed, using the slot's OWN
  * scratch/wrap/req storage (each stream's decoded views must stay alive
  * independently of the others'). */
@@ -819,7 +855,7 @@ static void route_complete_slot(
       in->payload, quic_mspan_of(slot->req_scratch, sizeof slot->req_scratch),
       quic_mspan_of(slot->req_wrap, sizeof slot->req_wrap), &got, &slot->req};
   if (!request_complete(&acc, &sin)) return;
-  drive_complete(ctx->h3, &acc, &sin);
+  route_dispatch_complete(ctx, &acc, &sin);
   if (got) route_note_done(ctx->l, i);
 }
 
