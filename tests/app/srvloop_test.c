@@ -12,6 +12,7 @@
 #include "app/http3/server/srvwire/wire.h"
 #include "crypto/kdf/keys/keyset.h"
 #include "test.h"
+#include "tls/ext/tparam/tparam.h"
 #include "tls/handshake/core/tls/clienthello.h"
 #include "tls/handshake/core/tls/finished.h"
 #include "tls/handshake/core/tls/handshake.h"
@@ -77,18 +78,33 @@ struct lp_fix {
   usz           cli_fin_len;
 };
 
+/* RFC 9000 18.2: initial_max_data + initial_max_stream_data_bidi_local, set
+ * generously high (16MB) so every existing fixture-driven test's sends stay
+ * far under the send-credit ceiling -- these tests exercise other gates
+ * (cwnd, log capacity, ...), not flow control, so the credit itself must
+ * never be the constraining factor here. */
+static usz lp_client_tp(u8* tp, usz cap) {
+  quic_obuf tob = quic_obuf_of(tp, cap);
+  usz       n1  = quic_tparam_put_int(&tob, QUIC_TP_INITIAL_MAX_DATA, 1u << 24);
+  quic_obuf tob2 = quic_obuf_of(tp + n1, cap - n1);
+  usz       n2   = quic_tparam_put_int(
+      &tob2, QUIC_TP_INITIAL_MAX_STREAM_DATA_BIDI_LOCAL, 1u << 24);
+  return n1 + n2;
+}
+
 static void lp_make_client_hello(struct lp_fix* f) {
-  static const u8 tp[1] = {0};
-  u8              cli_pub[32];
+  u8  tp[32];
+  usz tp_len;
+  u8  cli_pub[32];
   for (usz i = 0; i < 32; i++) {
     f->cli_priv[i]   = (u8)(i + 1);
     f->srv_random[i] = (u8)(0xa0 + i);
   }
   quic_x25519_base(cli_pub, f->cli_priv);
+  tp_len    = lp_client_tp(tp, sizeof(tp));
   f->ch_len = quic_tls_client_hello(
       &(quic_clienthello_in){
-          f->srv_random, cli_pub, quic_span_of(0, 0),
-          quic_span_of(tp, sizeof(tp))},
+          f->srv_random, cli_pub, quic_span_of(0, 0), quic_span_of(tp, tp_len)},
       &(quic_obuf){f->ch, sizeof(f->ch), 0});
 }
 
@@ -1954,6 +1970,91 @@ static void test_srvloop_close_frame_detected(void) {
   CHECK(srvloop_has_close(quic_span_of(ping, 1)) == 0);
 }
 
+/* RFC 9000 19.9: a MAX_DATA frame in a 1-RTT payload latches its value onto
+ * max_data_seen -- the connection-level send credit ceiling the caller
+ * (srvrun.c) may now raise its own running credit to. */
+static void test_srvloop_gather_max_data_raises_credit(void) {
+  struct lp_fix   f;
+  quic_obuf       ob;
+  u8              out[1024], fr[16], spkt[1024];
+  usz             fl, slen;
+  quic_data_frame md = {2000000};
+  ob                 = (quic_obuf){out, sizeof out, 0};
+  lp_confirm(&f, &ob);
+  fl = quic_max_data_encode(fr, sizeof fr, &md);
+  CHECK(fl > 0);
+  slen = client_seal_onertt(&f, fr, fl, spkt, sizeof spkt);
+  ob   = (quic_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  CHECK(f.l.max_data_seen_flag == 1);
+  CHECK(f.l.max_data_seen == 2000000);
+}
+
+/* RFC 9000 19.9: two MAX_DATA frames in the same step latch the HIGHER of
+ * the two values, never the lower or the last-seen -- max_data_seen tracks
+ * a running high-water mark within the step, mirroring RFC 9000 4.1's
+ * "never decreases" at the gather layer itself. */
+static void test_srvloop_gather_max_data_keeps_running_high(void) {
+  struct lp_fix   f;
+  quic_obuf       ob;
+  u8              out[1024], fr[32], spkt[1024];
+  usz             fl, fl2, slen;
+  quic_data_frame lo = {1000}, hi = {5000};
+  ob = (quic_obuf){out, sizeof out, 0};
+  lp_confirm(&f, &ob);
+  fl = quic_max_data_encode(fr, sizeof fr, &hi);
+  CHECK(fl > 0);
+  fl2 = quic_max_data_encode(fr + fl, sizeof fr - fl, &lo);
+  CHECK(fl2 > 0);
+  slen = client_seal_onertt(&f, fr, fl + fl2, spkt, sizeof spkt);
+  ob   = (quic_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  CHECK(f.l.max_data_seen == 5000);
+}
+
+/* RFC 9000 19.10: a MAX_STREAM_DATA frame in a 1-RTT payload latches its
+ * (stream_id, value) onto max_stream_data_stream_id/_value -- the caller
+ * resolves which resp[] slot stream_id names and raises that slot's own
+ * running credit. */
+static void test_srvloop_gather_max_stream_data_raises_credit(void) {
+  struct lp_fix          f;
+  quic_obuf              ob;
+  u8                     out[1024], fr[32], spkt[1024];
+  usz                    fl, slen;
+  quic_stream_data_frame msd = {4, 300000};
+  ob                         = (quic_obuf){out, sizeof out, 0};
+  lp_confirm(&f, &ob);
+  fl = quic_max_stream_data_encode(fr, sizeof fr, &msd);
+  CHECK(fl > 0);
+  slen = client_seal_onertt(&f, fr, fl, spkt, sizeof spkt);
+  ob   = (quic_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  CHECK(f.l.max_stream_data_seen == 1);
+  CHECK(f.l.max_stream_data_stream_id == 4);
+  CHECK(f.l.max_stream_data_value == 300000);
+}
+
+/* A step with no flow-control frame leaves both latches unset (0/absent),
+ * the baseline every other MAX_DATA/MAX_STREAM_DATA test's assertions rely
+ * on being false by default. */
+static void test_srvloop_no_flowctl_frame_leaves_latches_unset(void) {
+  struct lp_fix f;
+  quic_obuf     ob;
+  u8            out[1024], ping[1] = {0x01}, spkt[1024];
+  usz           slen;
+  ob = (quic_obuf){out, sizeof out, 0};
+  lp_confirm(&f, &ob);
+  slen = client_seal_onertt(&f, ping, 1, spkt, sizeof spkt);
+  ob   = (quic_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  CHECK(f.l.max_data_seen_flag == 0);
+  CHECK(f.l.max_stream_data_seen == 0);
+}
+
 /* PEER CLOSE OBSERVED (RFC 9000 10.2.2): a 1-RTT payload carrying a
  * CONNECTION_CLOSE marks the loop peer-closed; the ordinary confirm exchange
  * never does, and re-arming the loop clears the mark. */
@@ -2383,6 +2484,10 @@ static void test_srvloop_recv_follows_repeated_key_updates_across_generations(
 void test_srvloop(void) {
   test_srvloop_handler_body_echoed();
   test_srvloop_close_frame_detected();
+  test_srvloop_gather_max_data_raises_credit();
+  test_srvloop_gather_max_data_keeps_running_high();
+  test_srvloop_gather_max_stream_data_raises_credit();
+  test_srvloop_no_flowctl_frame_leaves_latches_unset();
   test_srvloop_peer_close_sets_flag();
   test_srvloop_collects_ack_ranges();
   test_srvloop_external_resp_suppresses_200();

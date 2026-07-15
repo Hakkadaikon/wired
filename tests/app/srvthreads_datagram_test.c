@@ -143,9 +143,23 @@ struct sdt_client {
  * going through it, and hand-sync tlsdriver's own transcript_ch bookkeeping
  * (normally quic_tlsdriver_client_hello's job) to the same bytes. */
 static usz sdt_build_ch_with_dg_tp(struct sdt_client* cx, u8* ch, usz cap) {
-  u8        tp[16];
+  u8        tp[32];
   quic_obuf tob = quic_obuf_of(tp, sizeof tp);
   usz tn = quic_tparam_put_int(&tob, QUIC_TP_MAX_DATAGRAM_FRAME_SIZE, 65535);
+  /* RFC 9000 18.2: the server's send-credit gates (srvrun_can_send_new) now
+   * consult initial_max_data/initial_max_stream_data_bidi_local from this
+   * ClientHello -- without them the server's WT-status 2xx response is
+   * blocked from byte 0, unrelated to what this test actually exercises
+   * (the DATAGRAM broadcast echo). Generously high so it never binds. */
+  {
+    quic_obuf tob2 = quic_obuf_of(tp + tn, sizeof tp - tn);
+    tn += quic_tparam_put_int(&tob2, QUIC_TP_INITIAL_MAX_DATA, 1u << 24);
+  }
+  {
+    quic_obuf tob3 = quic_obuf_of(tp + tn, sizeof tp - tn);
+    tn += quic_tparam_put_int(
+        &tob3, QUIC_TP_INITIAL_MAX_STREAM_DATA_BIDI_LOCAL, 1u << 24);
+  }
   static const u8     random[32] = {0};
   quic_clienthello_in in         = {
       random, cx->pub, quic_span_of((const u8*)0, 0), quic_span_of(tp, tn)};

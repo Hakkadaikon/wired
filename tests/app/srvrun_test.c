@@ -26,6 +26,22 @@ static void sr_make_confirmed_conn(
   c->up = 1;
   quic_cc_init(&c->cc);
   quic_rtt_init(&c->rtt);
+  /* RFC 9000 18.2/19.9: this test drives srvrun_conn directly (not through
+   * srvrun_boot_finish, the real seeding point), so the connection-level
+   * send credit must be seeded here from the same ClientHello TP the
+   * fixture's lp_client_tp already advertises (16MB) -- otherwise every
+   * resp[] slot's send is blocked from byte 0, unrelated to whatever gate
+   * a given test actually means to exercise. */
+  c->conn_credit = c->s.sdrv.peer_initial_max_data;
+  /* Same reasoning, per-stream: many existing tests set up resp[] slots by
+   * direct field assignment (c.resp[i].in_use = 1, .stream_id = ...) rather
+   * than through srvrun_resp_claim (the real seeding point for
+   * stream_credit). Seed every slot here so those tests -- which exercise
+   * cwnd/log/PTO gates, not flow control -- are not incidentally blocked by
+   * an unrelated 0 stream credit; a test that specifically wants to
+   * exercise the stream-credit gate overrides this afterward. */
+  for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++)
+    c->resp[i].stream_credit = c->s.sdrv.peer_initial_max_data;
 }
 
 /* Find the H3 GOAWAY frame's id in a 1-RTT payload carrying a STREAM frame on
@@ -3809,6 +3825,291 @@ static void test_srvrun_ku_old_keys_discarded_after_3pto_window(void) {
   }
 }
 
+/* T-010: end-to-end -- a real MAX_DATA frame, driven through srvrun_on_step
+ * (the real receive path, not field injection), raises the connection's
+ * send credit; a subsequent srvrun_sess_on_step (the real per-step apply +
+ * pump path) then actually sends a slice that was blocked before the frame
+ * arrived. Proves the gather -> apply -> gate wiring end to end, not just
+ * each piece in isolation. */
+static void test_srvrun_recv_max_data_then_send_unblocks(void) {
+  static u8       body[4 * SRVRUN_CHUNK];
+  struct lp_fix   f;
+  srvrun_conn     c;
+  quic_obuf       ob = {0};
+  u8              obuf[1024], fr[16], spkt[1024];
+  usz             fl, slen;
+  quic_data_frame md = {SRVRUN_CHUNK * 10};
+  ob                 = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.cc.cwnd               = 1u << 20;
+  c.conn_credit           = SRVRUN_CHUNK / 2; /* blocks any send */
+  c.resp[0].in_use        = 1;
+  c.resp[0].stream_id     = 0;
+  c.resp[0].stream_credit = 1u << 24;
+  wired_sendsess_arm(&c.resp[0].sess, body, sizeof body, SRVRUN_CHUNK);
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0};
+    srvrun_state    st  = {0, &c};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 1};
+    srvrun_pump_sess(&ctx, 0);
+    CHECK(c.resp[0].sess.q.cur == 0); /* still blocked before MAX_DATA */
+    fl = quic_max_data_encode(fr, sizeof fr, &md);
+    CHECK(fl > 0);
+    slen = client_seal_onertt(&f, fr, fl, spkt, sizeof spkt);
+    srvrun_on_step(&ctx, &c, quic_mspan_of(spkt, slen));
+    srvrun_sess_on_step(&ctx, 0);
+    CHECK(c.conn_credit == SRVRUN_CHUNK * 10);
+    CHECK(c.resp[0].sess.q.cur > 0); /* unblocked, actually sent */
+  }
+}
+
+/* T-006: RFC 9000 4.1 "MUST NOT reduce" -- a MAX_DATA lower than the
+ * connection's already-running credit is a no-op; the higher value stays. */
+static void test_srvrun_conn_credit_ignores_lower_max_data(void) {
+  struct lp_fix   f;
+  srvrun_conn     c;
+  quic_obuf       ob = {0};
+  u8              obuf[1024], fr[16], spkt[1024];
+  usz             fl, slen;
+  quic_data_frame md = {SRVRUN_CHUNK}; /* far below the seeded 16MB */
+  ob                 = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  {
+    u64        before = c.conn_credit;
+    srvrun_cfg cfg    = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0};
+    srvrun_state    st  = {0, &c};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 1};
+    fl                  = quic_max_data_encode(fr, sizeof fr, &md);
+    CHECK(fl > 0);
+    slen = client_seal_onertt(&f, fr, fl, spkt, sizeof spkt);
+    srvrun_on_step(&ctx, &c, quic_mspan_of(spkt, slen));
+    srvrun_sess_on_step(&ctx, 0);
+    CHECK(c.conn_credit == before); /* unchanged, not lowered */
+  }
+}
+
+/* T-008: same "MUST NOT reduce" rule at the per-stream level. */
+static void test_srvrun_stream_credit_ignores_lower_max_stream_data(void) {
+  struct lp_fix          f;
+  srvrun_conn            c;
+  quic_obuf              ob = {0};
+  u8                     obuf[1024], fr[32], spkt[1024];
+  usz                    fl, slen;
+  quic_stream_data_frame msd = {0, SRVRUN_CHUNK}; /* far below seeded 16MB */
+  ob                         = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.resp[0].in_use    = 1;
+  c.resp[0].stream_id = 0;
+  {
+    u64        before = c.resp[0].stream_credit;
+    srvrun_cfg cfg    = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0};
+    srvrun_state    st  = {0, &c};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 1};
+    fl                  = quic_max_stream_data_encode(fr, sizeof fr, &msd);
+    CHECK(fl > 0);
+    slen = client_seal_onertt(&f, fr, fl, spkt, sizeof spkt);
+    srvrun_on_step(&ctx, &c, quic_mspan_of(spkt, slen));
+    srvrun_sess_on_step(&ctx, 0);
+    CHECK(c.resp[0].stream_credit == before); /* unchanged, not lowered */
+  }
+}
+
+/* T-009: a MAX_STREAM_DATA naming a stream_id with no in-use resp[] slot
+ * (never claimed, or already reaped) is a no-op -- srvrun_apply_stream_
+ * credit_update must not crash or touch an unrelated slot. */
+static void test_srvrun_max_stream_data_unknown_stream_is_noop(void) {
+  struct lp_fix          f;
+  srvrun_conn            c;
+  quic_obuf              ob = {0};
+  u8                     obuf[1024], fr[32], spkt[1024];
+  usz                    fl, slen;
+  quic_stream_data_frame msd = {8, SRVRUN_CHUNK * 5}; /* stream 8: no slot */
+  ob                         = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  {
+    u64        before_slot0_credit;
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0};
+    srvrun_state    st  = {0, &c};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 1};
+    before_slot0_credit = c.resp[0].stream_credit;
+    fl                  = quic_max_stream_data_encode(fr, sizeof fr, &msd);
+    CHECK(fl > 0);
+    slen = client_seal_onertt(&f, fr, fl, spkt, sizeof spkt);
+    srvrun_on_step(&ctx, &c, quic_mspan_of(spkt, slen));
+    srvrun_sess_on_step(&ctx, 0);                          /* must not crash */
+    CHECK(c.resp[0].stream_credit == before_slot0_credit); /* untouched */
+  }
+}
+
+/* T-015: a PTO-driven resend (the requeued slice, not a new take) must not
+ * double-count against the send credit -- q.cur already reflects that
+ * offset range as consumed from the first send, and a resend reuses the
+ * same range rather than taking a fresh one. With credit sized for exactly
+ * one chunk, sending it once, firing PTO, and letting the resend go out
+ * again must leave q.cur unchanged (still one chunk), never advancing past
+ * the credit ceiling. */
+static void test_srvrun_pto_resend_does_not_double_count_credit(void) {
+  static u8     body[SRVRUN_CHUNK];
+  struct lp_fix f;
+  srvrun_conn   c;
+  quic_obuf     ob = {0};
+  u8            obuf[1024];
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.cc.cwnd               = 1u << 20;
+  c.conn_credit           = SRVRUN_CHUNK; /* exactly one chunk, no more */
+  c.resp[0].in_use        = 1;
+  c.resp[0].stream_id     = 0;
+  c.resp[0].stream_credit = SRVRUN_CHUNK;
+  wired_sendsess_arm(&c.resp[0].sess, body, sizeof body, SRVRUN_CHUNK);
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0};
+    srvrun_state    st  = {0, &c};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_pump_sess(&ctx, 0);
+    CHECK(c.resp[0].sess.q.cur == SRVRUN_CHUNK); /* the only chunk, sent */
+    CHECK(wired_sendsess_pto_fire(&c.resp[0].sess, SRVRUN_PTO_MAX));
+    CHECK(c.resp[0].sess.requeue_n == 1);
+    srvrun_pump_sess(&ctx, 0); /* resend goes out via the requeue path */
+    /* q.cur is untouched by the resend (it never re-takes from sendq) --
+     * still exactly the credit ceiling, not double-counted past it. */
+    CHECK(c.resp[0].sess.q.cur == SRVRUN_CHUNK);
+    CHECK(c.resp[0].sess.requeue_n == 0);
+  }
+}
+
+/* T-011: RFC 9000 4.1 -- a connection-level send credit smaller than one
+ * chunk blocks new sends even with cwnd/log wide open. srvrun_can_send_new
+ * must gate on it independent of the other two gates. */
+static void test_srvrun_conn_credit_exhausted_blocks_send(void) {
+  static u8     body[4 * SRVRUN_CHUNK];
+  struct lp_fix f;
+  srvrun_conn   c;
+  quic_obuf     ob = {0};
+  u8            obuf[1024];
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.cc.cwnd               = 1u << 20; /* wide open: isolate the credit gate */
+  c.conn_credit           = SRVRUN_CHUNK / 2; /* less than one chunk */
+  c.resp[0].in_use        = 1;
+  c.resp[0].stream_id     = 0;
+  c.resp[0].stream_credit = 1u << 24; /* wide open: isolate conn credit */
+  wired_sendsess_arm(&c.resp[0].sess, body, sizeof body, SRVRUN_CHUNK);
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0};
+    srvrun_state    st  = {0, &c};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 1};
+    srvrun_pump_sess(&ctx, 0);
+    CHECK(c.resp[0].sess.q.cur == 0);
+    CHECK(wired_sendsess_inflight(&c.resp[0].sess) == 0);
+  }
+}
+
+/* T-012: a stream-level send credit smaller than one chunk blocks new sends
+ * on THAT slot only -- a sibling slot with its own room keeps sending
+ * (RFC 9000 4.1's stream-level credit is per-stream, independent of the
+ * connection-level one and of other streams'). */
+static void test_srvrun_stream_credit_exhausted_blocks_only_that_slot(void) {
+  static u8     body0[4 * SRVRUN_CHUNK];
+  static u8     body1[4 * SRVRUN_CHUNK];
+  struct lp_fix f;
+  srvrun_conn   c;
+  quic_obuf     ob = {0};
+  u8            obuf[1024];
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.cc.cwnd               = 1u << 20;
+  c.conn_credit           = 1u << 24; /* wide open: isolate stream credit */
+  c.resp[0].in_use        = 1;
+  c.resp[0].stream_id     = 0;
+  c.resp[0].stream_credit = SRVRUN_CHUNK / 2; /* less than one chunk */
+  c.resp[1].in_use        = 1;
+  c.resp[1].stream_id     = 4;
+  c.resp[1].stream_credit = 1u << 24; /* plenty */
+  wired_sendsess_arm(&c.resp[0].sess, body0, sizeof body0, SRVRUN_CHUNK);
+  wired_sendsess_arm(&c.resp[1].sess, body1, sizeof body1, SRVRUN_CHUNK);
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0};
+    srvrun_state    st  = {0, &c};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 1};
+    srvrun_pump_sess(&ctx, 0);
+    CHECK(c.resp[0].sess.q.cur == 0); /* blocked */
+    CHECK(c.resp[1].sess.q.cur > 0);  /* unaffected */
+  }
+}
+
+/* T-013: the connection-level credit is ONE ceiling shared by every resp[]
+ * slot (RFC 9000 4.1: max_data covers all streams combined) -- consumption
+ * must sum across slots the same way cwnd's srvrun_inflight_bytes_all does,
+ * not gate each slot against the full credit independently (which would
+ * let N slots each consume up to the full ceiling, N times over). */
+static void test_srvrun_conn_credit_sums_across_slots(void) {
+  static u8     body0[4 * SRVRUN_CHUNK];
+  static u8     body1[4 * SRVRUN_CHUNK];
+  struct lp_fix f;
+  srvrun_conn   c;
+  quic_obuf     ob = {0};
+  u8            obuf[1024];
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.cc.cwnd = 1u << 20;
+  /* room for exactly one chunk total once slot 0 has already consumed one */
+  c.conn_credit           = SRVRUN_CHUNK + SRVRUN_CHUNK / 2;
+  c.resp[0].in_use        = 1;
+  c.resp[0].stream_id     = 0;
+  c.resp[0].stream_credit = 1u << 24;
+  c.resp[1].in_use        = 1;
+  c.resp[1].stream_id     = 4;
+  c.resp[1].stream_credit = 1u << 24;
+  wired_sendsess_arm(&c.resp[0].sess, body0, sizeof body0, SRVRUN_CHUNK);
+  wired_sendsess_arm(&c.resp[1].sess, body1, sizeof body1, SRVRUN_CHUNK);
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0};
+    srvrun_state    st  = {0, &c};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 1};
+    srvrun_pump_sess(&ctx, 0);
+    /* slot 0 (round-robin's first) takes the one available chunk; slot 1
+     * finds the connection-wide ceiling already spent */
+    CHECK(c.resp[0].sess.q.cur == SRVRUN_CHUNK);
+    CHECK(c.resp[1].sess.q.cur == 0);
+  }
+}
+
+/* T-014: the boundary itself -- a credit exactly equal to what one chunk
+ * would consume still allows that send (the gate is `consumed + chunk <=
+ * credit`, so equality passes). */
+static void test_srvrun_send_credit_boundary_exact_fit_allowed(void) {
+  static u8     body[4 * SRVRUN_CHUNK];
+  struct lp_fix f;
+  srvrun_conn   c;
+  quic_obuf     ob = {0};
+  u8            obuf[1024];
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.cc.cwnd               = 1u << 20;
+  c.conn_credit           = SRVRUN_CHUNK; /* exactly one chunk */
+  c.resp[0].in_use        = 1;
+  c.resp[0].stream_id     = 0;
+  c.resp[0].stream_credit = SRVRUN_CHUNK; /* exactly one chunk */
+  wired_sendsess_arm(&c.resp[0].sess, body, sizeof body, SRVRUN_CHUNK);
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0};
+    srvrun_state    st  = {0, &c};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 1};
+    srvrun_pump_sess(&ctx, 0);
+    CHECK(c.resp[0].sess.q.cur == SRVRUN_CHUNK);
+  }
+}
+
 /* LOG-FULL GATE: with the congestion window wide open, the pump must stop
  * at WIRED_SENDSESS_LOG in-flight slices. One more take would send a slice
  * that wired_sendsess_sent (log full) can record in neither log nor requeue
@@ -4458,6 +4759,15 @@ void test_srvrun(void) {
   test_srvrun_pto_noop_when_nothing_inflight();
   test_srvrun_pto_probe_still_gated_by_pacing();
   test_srvrun_pto_resend_breaks_cwnd_deadlock();
+  test_srvrun_recv_max_data_then_send_unblocks();
+  test_srvrun_max_stream_data_unknown_stream_is_noop();
+  test_srvrun_pto_resend_does_not_double_count_credit();
+  test_srvrun_conn_credit_ignores_lower_max_data();
+  test_srvrun_stream_credit_ignores_lower_max_stream_data();
+  test_srvrun_conn_credit_exhausted_blocks_send();
+  test_srvrun_stream_credit_exhausted_blocks_only_that_slot();
+  test_srvrun_conn_credit_sums_across_slots();
+  test_srvrun_send_credit_boundary_exact_fit_allowed();
   test_srvrun_pump_stops_at_log_capacity();
   test_srvrun_accept_rekeys_to_slot_scid();
   test_srvrun_initial_retransmit_resends_cached_flight();
