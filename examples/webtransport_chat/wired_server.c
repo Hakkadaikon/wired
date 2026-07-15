@@ -7,11 +7,10 @@
  * its CLI parsing are delegated wholesale to app/http3/server/srvdriver. */
 
 #define WIRED_MAIN /* this TU emits the libc memcpy/memset shim */
-#include "wired.h"
-
 #include "app/http3/server/srvdriver/srvdriver.h"
 #include "common/platform/clock/clock.h"
 #include "common/platform/exit/exit.h"
+#include "wired.h"
 
 /* --- WebTransport chat: fan received datagrams out to every session ------ */
 
@@ -30,8 +29,11 @@ static void wt_on_datagram_cb(
 static int app_on_request(
     void*                       ctx,
     const wired_h3reqdrive_req* req,
+    u64                         offset,
     quic_obuf*                  body_out,
-    const char**                content_type) {
+    const char**                content_type,
+    int*                        more,
+    u64*                        total_size) {
   static const u8 body[] =
       "webtransport_chat: connect via WebTransport and send DATAGRAMs.\n"
       "Every received datagram is broadcast, unmodified, to every other\n"
@@ -39,6 +41,9 @@ static int app_on_request(
   usz i;
   (void)ctx;
   (void)req;
+  (void)offset;
+  (void)more;
+  (void)total_size;
   *content_type = "text/plain";
   for (i = 0; i < sizeof body - 1 && i < body_out->cap; i++)
     body_out->p[i] = body[i];
@@ -136,7 +141,7 @@ static void log_cert_fingerprint(const wired_srvboot_id* id) {
  * carries only dNSName=localhost). */
 static void load_san_ipv4(int argc, char** argv, u8 san_ipv4[4], int* have_it) {
   const char* ip_str = wired_cliargs_str(argc, argv, "--san-ipv4", 0);
-  *have_it            = ip_str != 0;
+  *have_it           = ip_str != 0;
   if (ip_str && !wired_cliargs_ipv4(ip_str, san_ipv4))
     wired_die("--san-ipv4: expected dotted-quad a.b.c.d\n");
 }
@@ -164,7 +169,6 @@ __attribute__((force_align_arg_pointer, used)) int wired_main(
   opt.run.incoming_cpu   = -1;
   opt.run.wt_on_datagram = wt_on_datagram_cb;
 
-  if (!wired_srvdriver_run(&id, h, obs, &opt))
-    wired_die("listen failed\n");
+  if (!wired_srvdriver_run(&id, h, obs, &opt)) wired_die("listen failed\n");
   return 0;
 }

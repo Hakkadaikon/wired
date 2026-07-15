@@ -104,28 +104,60 @@ static void reqpath_copy(char* reqpath, usz cap, quic_span path) {
   reqpath[i] = 0;
 }
 
+/* Read one round of resolved's bytes starting at offset into body_out,
+ * requesting another round (*more = 1) whenever bytes remain past this
+ * round. total_size is reported once, on the first round, so a caller that
+ * frames the body with an upfront length field (HTTP/3's DATA frame) can
+ * write that length before the rest of the bytes exist. A file that fits in
+ * one round (the common case) never sets *more: this is plain
+ * wired_fio_read's whole-file behavior, only reached via open+pread so the
+ * two paths share one read loop instead of diverging. */
+static u64 serve_static_round(
+    const char* resolved,
+    u64         offset,
+    quic_obuf*  body_out,
+    int*        more,
+    u64*        total_size) {
+  ssz fd = wired_fio_open(resolved);
+  ssz total, got;
+  if (fd < 0) return not_found(body_out);
+  total = wired_fio_size(resolved);
+  if (total < 0) {
+    wired_fio_close(fd);
+    return not_found(body_out);
+  }
+  if (offset == 0) *total_size = (u64)total;
+  got = wired_fio_pread(fd, quic_mspan_of(body_out->p, body_out->cap), offset);
+  wired_fio_close(fd);
+  if (got < 0) return not_found(body_out);
+  body_out->len = (usz)got;
+  if (offset + (u64)got < (u64)total) *more = 1;
+  return 200;
+}
+
 /* Static-file mode (quiche-server's --root/--index): resolve the request path
  * under cfg->root and serve the file's bytes, or a 404 body when it does not
  * resolve/open (the wire :status stays 200 -- see srvloop/respond.c, which
  * hard-codes 200 for every decoded request; changing that is a larger,
- * separate change). The logged status reflects whether the file was found. */
+ * separate change). The logged status reflects whether the file was found.
+ * A body larger than one round (body_out->cap) streams via serve_static_round
+ * across repeated calls at increasing offset (see wired_srvloop_handler). */
 static u64 serve_static(
     const app_config* cfg,
     quic_span         path,
+    u64               offset,
     quic_obuf*        body_out,
-    const char**      content_type) {
+    const char**      content_type,
+    int*              more,
+    u64*              total_size) {
   char resolved[512];
   char reqpath[400];
-  ssz  n;
   reqpath_copy(reqpath, sizeof reqpath, path);
   if (!wired_staticfile_resolve(
           cfg->root, reqpath, cfg->index, resolved, sizeof resolved))
     return not_found(body_out);
-  n = wired_fio_read(resolved, quic_mspan_of(body_out->p, body_out->cap));
-  if (n < 0) return not_found(body_out);
-  body_out->len = (usz)n;
-  *content_type = wired_mimetype_for_path(resolved);
-  return 200;
+  if (offset == 0) *content_type = wired_mimetype_for_path(resolved);
+  return serve_static_round(resolved, offset, body_out, more, total_size);
 }
 
 /* History-demo mode (--root absent): RFC 9110 9.3.1 (GET) returns the log;
@@ -143,18 +175,24 @@ static u64 serve_history(const wired_h3reqdrive_req* req, quic_obuf* body_out) {
 
 /* The request body is a scratch view, so both paths copy out. Always sends a
  * body. Dispatches to static-file or history-demo mode depending on whether
- * --root was given, then logs the request. */
+ * --root was given, then logs the request (once, on the first round -- a
+ * streamed multi-round static file would otherwise log once per round). */
 static int app_on_request(
     void*                       ctx,
     const wired_h3reqdrive_req* req,
+    u64                         offset,
     quic_obuf*                  body_out,
-    const char**                content_type) {
+    const char**                content_type,
+    int*                        more,
+    u64*                        total_size) {
   const app_config* cfg    = (const app_config*)ctx;
   quic_span         method = quic_span_of(req->method, req->method_len);
   quic_span         path   = quic_span_of(req->path, req->path_len);
-  u64 status = cfg->root ? serve_static(cfg, path, body_out, content_type)
-                         : serve_history(req, body_out);
-  access_log(cfg, method, path, status, body_out->len);
+  u64               status = cfg->root ? serve_static(
+                               cfg, path, offset, body_out, content_type, more,
+                               total_size)
+                                       : serve_history(req, body_out);
+  if (offset == 0) access_log(cfg, method, path, status, body_out->len);
   return 1;
 }
 
@@ -174,6 +212,8 @@ static void app_selfcheck(void) {
   quic_obuf            ob           = {out, sizeof out, 0};
   app_config           cfg          = {0};
   const char*          content_type = 0;
+  int                  more         = 0;
+  u64                  total_size   = 0;
   wired_h3reqdrive_req post         = {
               .method     = (const u8*)"POST",
               .method_len = 4,
@@ -181,11 +221,10 @@ static void app_selfcheck(void) {
               .body_len   = 2};
   wired_h3reqdrive_req get = {.method = (const u8*)"GET", .method_len = 3};
   g_history_len            = 0;
-  app_on_request(&cfg, &post, &ob, &content_type);
+  app_on_request(&cfg, &post, 0, &ob, &content_type, &more, &total_size);
   if (!selfcheck_echo_ok(&ob, out)) wired_die("selfcheck: echo failed\n");
-  app_on_request(&cfg, &get, &ob, &content_type);
-  if (!selfcheck_history_ok(&ob, out))
-    wired_die("selfcheck: history failed\n");
+  app_on_request(&cfg, &get, 0, &ob, &content_type, &more, &total_size);
+  if (!selfcheck_history_ok(&ob, out)) wired_die("selfcheck: history failed\n");
   g_history_len = 0;
 }
 

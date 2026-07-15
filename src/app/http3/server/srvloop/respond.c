@@ -131,9 +131,13 @@ static usz app_ack_append(wired_srvloop* l, u8* buf, usz cap) {
  * sets it. */
 static const u8* build_body(
     wired_srvloop* l, u8* body, usz* body_len, const char** content_type) {
-  quic_obuf ob = quic_obuf_of(body, WIRED_SRVLOOP_BODY_MAX);
-  *body_len    = 0;
-  if (l->on_request && l->on_request(l->req_ctx, &l->req, &ob, content_type)) {
+  quic_obuf ob         = quic_obuf_of(body, WIRED_SRVLOOP_BODY_MAX);
+  int       more       = 0;
+  u64       total_size = 0;
+  *body_len            = 0;
+  if (l->on_request &&
+      l->on_request(
+          l->req_ctx, &l->req, 0, &ob, content_type, &more, &total_size)) {
     *body_len = ob.len;
     return body;
   }
