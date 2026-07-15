@@ -3856,6 +3856,56 @@ static void test_srvrun_streaming_file_shrinks_completes_with_actual_bytes(
   sr_stream_shrinks_to = (u64)-1; /* don't leak into later tests */
 }
 
+/* T-022 (found via real quic-go interop, not in the original ledger): round
+ * 0's own sendq marks fin at the end of ITS buffer (wired_sendq_next has no
+ * notion of "more rounds coming"), so srvrun_slice_fin must suppress that
+ * fin for every round while r->streaming is still 1 -- otherwise the peer
+ * sees the QUIC stream close after round 0's bytes and never asks for (or
+ * even waits for) the rest, exactly what broke against a real client:
+ * downloads truncated at exactly one round's worth of bytes. Only the
+ * response's true last round (streaming already cleared) may carry fin. */
+static void test_srvrun_streaming_round_fin_suppressed_until_final(void) {
+  struct lp_fix     f;
+  srvrun_conn       c  = {0};
+  quic_obuf         ob = {0};
+  u8                obuf[2048];
+  wired_sendq_slice sl;
+  ob                  = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_stream_total_len = 200;
+  sr_stream_round_cap = 100;
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.s.sdrv.alpn = QUIC_SALPN_HQ;
+  c.cc.cwnd     = 1u << 20;
+  sr_set_req(&c, 0, 0, 0);
+  {
+    srvrun_cfg cfg = {
+        -1, 0, sr_stream_body_handler, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0,  0, &g_srvrun_env,          0};
+    srvrun_state    st  = {0, &c};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_start_resp(&ctx, 0);
+    /* round 0: fills exactly its own 100-byte buffer -- wired_sendq_next's
+     * raw fin is 1 here (end of THIS round's queue), but the wire-level fin
+     * must be suppressed because r->streaming is still 1 (200 total, only
+     * 100 sent so far). */
+    CHECK(wired_sendsess_take(&c.resp[0].sess, &sl) == 1);
+    CHECK(sl.offset == 0 && sl.len == 100);
+    CHECK(sl.fin == 1); /* raw sendq signal: end of round 0's queue */
+    CHECK(c.resp[0].streaming == 1);
+    CHECK(srvrun_slice_fin(&c, &c.resp[0], &sl) == 0); /* wire: NOT the end */
+    /* put the slice back so sr_drive_round_to_done's normal pump/ack path
+     * drives round 0 to completion (matching a real send/ack cycle). */
+    c.resp[0].sess.q.cur = 0;
+    sr_drive_round_to_done(&ctx, &c);
+    srvrun_reap_resps(&ctx, &c, 0); /* -> round 1 armed: the last 100 bytes */
+    CHECK(c.resp[0].stream_off == 200);
+    CHECK(c.resp[0].streaming == 0); /* round 1 is the true final round */
+    CHECK(wired_sendsess_take(&c.resp[0].sess, &sl) == 1);
+    CHECK(sl.fin == 1);
+    CHECK(srvrun_slice_fin(&c, &c.resp[0], &sl) == 1); /* wire: really done */
+  }
+}
+
 /* T-004/T-006: a streaming response's first round arms only up to
  * sr_stream_round_cap bytes (not the whole sr_stream_total_len), and once
  * that round's slices are all acked, srvrun_resp_reap re-invokes the handler
@@ -5438,6 +5488,7 @@ void test_srvrun(void) {
   test_srvrun_streaming_bigbuf_exhausted_falls_back_to_fixed_row();
   test_srvrun_streaming_mid_round_read_error_truncates();
   test_srvrun_streaming_file_shrinks_completes_with_actual_bytes();
+  test_srvrun_streaming_round_fin_suppressed_until_final();
   test_srvrun_fifth_sequential_get_reuses_freed_slot();
   test_srvrun_pto_budget_exhausted_tears_down_connection();
   test_srvrun_pto_not_due_within_rtt_window();
