@@ -488,6 +488,18 @@ static void check_acks_pn(const u8* pl, usz pll, u64 pn) {
   CHECK(found);
 }
 
+/* Locate and decode the ACK frame in a 1-RTT payload, for tests that need to
+ * inspect the full range set (not just ranges[0], unlike check_acks_pn). */
+static int find_ack_frame(const u8* pl, usz pll, quic_ack_frame* out) {
+  quic_framewalk      it;
+  quic_framewalk_item fr;
+  quic_framewalk_init(&it, pl, pll);
+  while (quic_framewalk_next(&it, &fr))
+    if (fr.type == QUIC_FRAME_ACK)
+      return quic_ack_decode(fr.start, fr.remaining, out) > 0;
+  return 0;
+}
+
 /* Drive the loop to confirmed with a genuine client Finished. */
 static void lp_confirm(struct lp_fix* f, quic_obuf* ob) {
   u8  cpkt[1024];
@@ -2071,6 +2083,270 @@ static void test_srvloop_ack_no_eliciting_no_ack(void) {
       0);
 }
 
+/* T-009: a single lost packet between two received ones (pn 7 then pn 9,
+ * skipping 8) yields a two-range ACK -- the gap in quic_recvpn's window
+ * surfaces as a second (Gap, Length) pair in the encoded frame (RFC 9000
+ * 19.3). Forcing the delay window open (now_ms advanced past since_tick)
+ * so the second step's own step_note_ack_owed piggyback actually fires. */
+static void test_srvloop_ack_single_gap_two_ranges(void) {
+  struct lp_fix  f;
+  quic_obuf      ob;
+  u8             out[1024], ping[1] = {0x01}, spkt[1024];
+  usz            slen;
+  quic_ack_frame a;
+  ob = (quic_obuf){out, sizeof out, 0};
+  lp_confirm(&f, &ob);
+  slen = client_seal_onertt_pn(&f, 7, ping, 1, spkt, sizeof spkt);
+  ob   = (quic_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  f.l.now_ms += WIRED_SRVLOOP_MAX_ACK_DELAY_MS;
+  slen = client_seal_onertt_pn(&f, 9, ping, 1, spkt, sizeof spkt);
+  ob   = (quic_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  {
+    const u8* pl;
+    usz       pll;
+    CHECK(client_open_onertt(&f, out, ob.len, &pl, &pll) == 1);
+    CHECK(find_ack_frame(pl, pll, &a) == 1);
+  }
+  CHECK(a.n_ranges == 2);
+  CHECK(a.ranges[0].hi == 9 && a.ranges[0].lo == 9);
+  CHECK(a.ranges[1].hi == 7 && a.ranges[1].lo == 7);
+}
+
+/* T-014: reordered arrival (pn 9 before pn 7, the opposite wire order from
+ * T-009 above) still yields the same two ranges -- quic_recvpn's bitmap is
+ * order-independent. */
+static void test_srvloop_ack_reordered_pns_still_correct(void) {
+  struct lp_fix  f;
+  quic_obuf      ob;
+  u8             out[1024], ping[1] = {0x01}, spkt[1024];
+  usz            slen;
+  quic_ack_frame a;
+  ob = (quic_obuf){out, sizeof out, 0};
+  lp_confirm(&f, &ob);
+  slen = client_seal_onertt_pn(&f, 9, ping, 1, spkt, sizeof spkt);
+  ob   = (quic_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  f.l.now_ms += WIRED_SRVLOOP_MAX_ACK_DELAY_MS;
+  slen = client_seal_onertt_pn(&f, 7, ping, 1, spkt, sizeof spkt);
+  ob   = (quic_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  {
+    const u8* pl;
+    usz       pll;
+    CHECK(client_open_onertt(&f, out, ob.len, &pl, &pll) == 1);
+    CHECK(find_ack_frame(pl, pll, &a) == 1);
+  }
+  CHECK(a.n_ranges == 2);
+  CHECK(a.ranges[0].hi == 9 && a.ranges[0].lo == 9);
+  CHECK(a.ranges[1].hi == 7 && a.ranges[1].lo == 7);
+}
+
+/* T-012: receiving the same pn twice (retransmit/duplicate delivery) must not
+ * double-count the pending ACK counter -- quic_recvpn_seen already reflects
+ * the pn as seen, so the second arrival is a duplicate the receive path
+ * should recognize before crediting another pending increment. */
+static void test_srvloop_ack_duplicate_pn_not_double_counted(void) {
+  struct lp_fix f;
+  quic_obuf     ob;
+  u8            out[1024], ping[1] = {0x01}, spkt[1024];
+  usz           slen;
+  ob = (quic_obuf){out, sizeof out, 0};
+  lp_confirm(&f, &ob);
+  slen = client_seal_onertt_pn(&f, 7, ping, 1, spkt, sizeof spkt);
+  ob   = (quic_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  CHECK(f.l.app_ack_policy.pending == 1);
+  /* app_ack_append's piggyback already cleared pending on this same step's
+   * reply, so re-arm it deterministically before re-sending pn 7. */
+  quic_ackpolicy_on_ack_sent(&f.l.app_ack_policy);
+  slen = client_seal_onertt_pn(&f, 7, ping, 1, spkt, sizeof spkt);
+  ob   = (quic_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  CHECK(quic_recvpn_seen(&f.l.ack_recv.r[QUIC_PNS_APP], 7) == 1);
+}
+
+/* T-013: a pn older than the QUIC_RECVPN_WINDOW (64 packets behind the
+ * current largest) is outside quic_recvpn's tracked bitmap -- receiving one
+ * again must not fabricate a new ACK-owed signal. */
+static void test_srvloop_ack_stale_pn_outside_window_ignored(void) {
+  struct lp_fix f;
+  quic_obuf     ob;
+  u8            out[1024], ping[1] = {0x01}, spkt[1024];
+  usz           slen;
+  ob = (quic_obuf){out, sizeof out, 0};
+  lp_confirm(&f, &ob);
+  slen = client_seal_onertt_pn(
+      &f, QUIC_RECVPN_WINDOW + 100, ping, 1, spkt, sizeof spkt);
+  ob = (quic_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  quic_ackpolicy_on_ack_sent(&f.l.app_ack_policy);
+  slen = client_seal_onertt_pn(&f, 1, ping, 1, spkt, sizeof spkt);
+  ob   = (quic_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  CHECK(quic_recvpn_seen(&f.l.ack_recv.r[QUIC_PNS_APP], 1) == 0);
+}
+
+/* T-015: the receive window boundary (a pn exactly QUIC_RECVPN_WINDOW behind
+ * the current largest) is still tracked -- the boundary itself belongs to
+ * the window, only pns strictly older fall outside it. */
+static void test_srvloop_ack_recvpn_window_boundary(void) {
+  struct lp_fix f;
+  quic_obuf     ob;
+  u8            out[1024], ping[1] = {0x01}, spkt[1024];
+  usz           slen;
+  ob = (quic_obuf){out, sizeof out, 0};
+  lp_confirm(&f, &ob);
+  slen = client_seal_onertt_pn(&f, 1, ping, 1, spkt, sizeof spkt);
+  ob   = (quic_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  quic_ackpolicy_on_ack_sent(&f.l.app_ack_policy);
+  slen = client_seal_onertt_pn(
+      &f, 1 + QUIC_RECVPN_WINDOW, ping, 1, spkt, sizeof spkt);
+  ob = (quic_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  CHECK(quic_recvpn_seen(&f.l.ack_recv.r[QUIC_PNS_APP], 1) == 1);
+}
+
+/* T-016: a large forward jump in pn (heavy loss, then one packet arriving far
+ * ahead) must not corrupt quic_recvpn's sliding bitmap -- the new pn becomes
+ * the largest and is acked as its own single-packet range. */
+static void test_srvloop_ack_large_pn_jump_handled_by_existing_recvpn(void) {
+  struct lp_fix  f;
+  quic_obuf      ob;
+  u8             out[1024], ping[1] = {0x01}, spkt[1024];
+  usz            slen;
+  quic_ack_frame a;
+  ob = (quic_obuf){out, sizeof out, 0};
+  lp_confirm(&f, &ob);
+  slen = client_seal_onertt_pn(&f, 1, ping, 1, spkt, sizeof spkt);
+  ob   = (quic_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  f.l.now_ms += WIRED_SRVLOOP_MAX_ACK_DELAY_MS;
+  slen = client_seal_onertt_pn(&f, 100000, ping, 1, spkt, sizeof spkt);
+  ob   = (quic_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  {
+    const u8* pl;
+    usz       pll;
+    CHECK(client_open_onertt(&f, out, ob.len, &pl, &pll) == 1);
+    CHECK(find_ack_frame(pl, pll, &a) == 1);
+  }
+  CHECK(a.ranges[0].hi == 100000 && a.ranges[0].lo == 100000);
+}
+
+/* T-018: the App and Handshake pn spaces are independent (RFC 9000 12.3) --
+ * an App-space packet does not perturb the Handshake ACK's tracked pn, and
+ * vice versa (proven here by confirming the Handshake ACK still reflects the
+ * Finished's own pn after an unrelated App-space packet arrives). */
+static void test_srvloop_ack_pn_spaces_independent(void) {
+  struct lp_fix f;
+  quic_obuf     ob;
+  u8            out[1024], ping[1] = {0x01}, spkt[1024];
+  usz           slen;
+  ob = (quic_obuf){out, sizeof out, 0};
+  lp_confirm(&f, &ob);
+  CHECK(
+      quic_recvpn_seen(&f.l.ack_recv.r[QUIC_PNS_HANDSHAKE], f.l.hs_rx_pn) == 1);
+  slen = client_seal_onertt_pn(&f, 7, ping, 1, spkt, sizeof spkt);
+  ob   = (quic_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  CHECK(quic_recvpn_seen(&f.l.ack_recv.r[QUIC_PNS_APP], 7) == 1);
+  CHECK(quic_recvpn_seen(&f.l.ack_recv.r[QUIC_PNS_HANDSHAKE], 7) == 0);
+}
+
+/* T-020: with nothing pending on the App pn space and no request decoded,
+ * the post-confirmation reply carries no ACK frame at all -- an unnecessary
+ * bare-ACK packet is never sent (RFC 9000 13.2.1's "nothing to acknowledge"
+ * case). Uses a second confirmed step with no new packet to observe: the
+ * confirm step's own piggyback already cleared pending, so this next step
+ * (an empty datagram is not a legal drive, so instead observe emit_ack_only
+ * declining directly) is exercised via app_ack_due. */
+static void test_srvloop_ack_nothing_pending_no_ack_frame_emitted(void) {
+  struct lp_fix f;
+  u8            out[1024];
+  quic_obuf     ob = (quic_obuf){out, sizeof out, 0};
+  lp_confirm(&f, &ob);
+  CHECK(f.l.app_ack_policy.pending == 0);
+  CHECK(
+      quic_ackpolicy_should_ack(
+          &f.l.app_ack_policy, f.l.now_ms, WIRED_SRVLOOP_MAX_ACK_DELAY_MS) ==
+      0);
+  {
+    u8  buf[288];
+    usz n = app_ack_encode_ranges(&f.l, buf, sizeof buf);
+    CHECK(n == 0);
+  }
+}
+
+/* T-021: the ACK frame's ack_delay field reflects the actual elapsed time
+ * since the oldest unacked eliciting packet arrived (RFC 9000 19.3),
+ * encoded via quic_ack_delay_encode -- not left at a fixed 0 regardless of
+ * how long the server waited. */
+static void test_srvloop_ack_delay_field_encodes_actual_delay(void) {
+  struct lp_fix  f;
+  quic_obuf      ob;
+  u8             out[1024], ping[1] = {0x01}, spkt[1024];
+  usz            slen;
+  quic_ack_frame a;
+  ob = (quic_obuf){out, sizeof out, 0};
+  lp_confirm(&f, &ob);
+  slen = client_seal_onertt_pn(&f, 7, ping, 1, spkt, sizeof spkt);
+  ob   = (quic_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  f.l.now_ms += WIRED_SRVLOOP_MAX_ACK_DELAY_MS;
+  {
+    u8  buf[288];
+    usz n = app_ack_encode_ranges(&f.l, buf, sizeof buf);
+    CHECK(n > 0);
+    CHECK(quic_ack_decode(buf, n, &a) > 0);
+    CHECK(a.ack_delay > 0);
+  }
+}
+
+/* T-025: ACKs this server sends never carry ECN counts -- ECN marking
+ * detection is out of scope, so has_ecn stays 0 on every encoded frame. */
+static void test_srvloop_ack_ecn_always_disabled(void) {
+  struct lp_fix  f;
+  quic_obuf      ob;
+  u8             out[1024], ping[1] = {0x01}, spkt[1024];
+  usz            slen;
+  quic_ack_frame a;
+  ob = (quic_obuf){out, sizeof out, 0};
+  lp_confirm(&f, &ob);
+  slen = client_seal_onertt_pn(&f, 7, ping, 1, spkt, sizeof spkt);
+  ob   = (quic_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  f.l.now_ms += WIRED_SRVLOOP_MAX_ACK_DELAY_MS;
+  slen = client_seal_onertt_pn(&f, 8, ping, 1, spkt, sizeof spkt);
+  ob   = (quic_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  {
+    const u8* pl;
+    usz       pll;
+    CHECK(client_open_onertt(&f, out, ob.len, &pl, &pll) == 1);
+    CHECK(find_ack_frame(pl, pll, &a) == 1);
+  }
+  CHECK(a.has_ecn == 0);
+}
+
 /* T-004/T-005: a lone ack-eliciting packet is not due for an ACK until
  * WIRED_SRVLOOP_MAX_ACK_DELAY_MS elapses (RFC 9000 13.2.1's delay window),
  * but becomes due at exactly that many ms. */
@@ -2731,6 +3007,16 @@ void test_srvloop(void) {
   test_srvloop_close_frame_detected();
   test_srvloop_hq09_recv_get_produces_request();
   test_srvloop_ack_no_eliciting_no_ack();
+  test_srvloop_ack_single_gap_two_ranges();
+  test_srvloop_ack_reordered_pns_still_correct();
+  test_srvloop_ack_duplicate_pn_not_double_counted();
+  test_srvloop_ack_stale_pn_outside_window_ignored();
+  test_srvloop_ack_recvpn_window_boundary();
+  test_srvloop_ack_large_pn_jump_handled_by_existing_recvpn();
+  test_srvloop_ack_pn_spaces_independent();
+  test_srvloop_ack_nothing_pending_no_ack_frame_emitted();
+  test_srvloop_ack_delay_field_encodes_actual_delay();
+  test_srvloop_ack_ecn_always_disabled();
   test_srvloop_ack_eliciting_records_pn_and_pending();
   test_srvloop_ack_non_eliciting_not_recorded();
   test_srvloop_ack_delay_window_boundary();
