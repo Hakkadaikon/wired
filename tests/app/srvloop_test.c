@@ -1193,6 +1193,43 @@ static void test_srvloop_wt_bidi_stream_not_request(void) {
     CHECK(f.l.streams[i].in_use == 0);
 }
 
+/* T-012/T-014/T-015: hq-interop (see hq09.h) end to end -- a single client
+ * bidi STREAM frame carrying "GET <path>\r\n" with FIN set, on a
+ * connection whose ALPN negotiation is forced to QUIC_SALPN_HQ (the
+ * negotiation itself is covered independently by tests/tls/negotiate_test.c
+ * and eebuild_test.c; this only exercises what a resolved hq-interop
+ * connection does with a request). The reassembled bytes must decode as an
+ * hq-interop GET, not attempt QPACK/HEADERS parsing (which they are not). */
+static void test_srvloop_hq09_recv_get_produces_request(void) {
+  struct lp_fix f;
+  quic_obuf     ob;
+  u8            out[1024], get[64], spkt[1024];
+  usz           glen, slen;
+  ob = (quic_obuf){out, sizeof out, 0};
+  lp_confirm(&f, &ob);
+  f.s.sdrv.alpn     = QUIC_SALPN_HQ;
+  f.l.resp_external = 1; /* real deployments always set this (srvrun.c);
+                          * srvloop's own response_frame (unset case) never
+                          * negotiates hq-interop and is not this task's
+                          * scope. */
+  {
+    static const u8   line[] = "GET /file1.txt\r\n";
+    quic_stream_frame sf     = {0, 0, sizeof(line) - 1, line, 1};
+    glen                     = quic_frame_put_stream(get, sizeof get, &sf);
+  }
+  CHECK(glen != 0);
+  slen = client_seal_onertt(&f, get, glen, spkt, sizeof spkt);
+  ob   = (quic_obuf){out, sizeof out, 0};
+  CHECK(
+      wired_srvloop_step(
+          &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob) ==
+      1);
+  CHECK(f.l.got_request == 1);
+  CHECK(f.l.req.method_len == 3);
+  CHECK(f.l.req.path_len == 10);
+  CHECK(f.l.req.path[0] == '/');
+}
+
 /* Build a STREAM frame at an explicit offset carrying `data` (used for the
  * post-signal continuation frames a WT bidi stream sends after its leading
  * 0x41 signal frame). */
@@ -2484,6 +2521,7 @@ static void test_srvloop_recv_follows_repeated_key_updates_across_generations(
 void test_srvloop(void) {
   test_srvloop_handler_body_echoed();
   test_srvloop_close_frame_detected();
+  test_srvloop_hq09_recv_get_produces_request();
   test_srvloop_gather_max_data_raises_credit();
   test_srvloop_gather_max_data_keeps_running_high();
   test_srvloop_gather_max_stream_data_raises_credit();
