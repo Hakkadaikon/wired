@@ -3337,6 +3337,535 @@ static void test_srvrun_wt_full_session_lifecycle_on_wire(void) {
   CHECK(conns[0].up == 1); /* the connection itself is untouched */
 }
 
+/* MULTI-SESSION: a second Extended CONNECT on a DIFFERENT stream, while the
+ * connection's open-session count is below SRVRUN_MAX_WT_SESSIONS, is
+ * accepted as its own independent session rather than rejected with 429 --
+ * both sessions stay ESTABLISHED at once, keyed by their own CONNECT stream
+ * id. */
+static void test_srvrun_wt_accept_second_session_below_limit(void) {
+  struct lp_fix  f;
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_conn    conns[QUIC_CONNTABLE_CAP] = {0};
+  quic_obuf      ob;
+  u8             obuf[1024];
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  sr_make_confirmed_conn(&conns[0], &f, &ob);
+  sr_set_req(&conns[0], 1, 1, 4);
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0};
+    srvrun_state    st  = {table, conns};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_start_resp(&ctx, 0);
+  }
+  CHECK(conns[0].wt_active == 1);
+  CHECK(conns[0].wt.state == WIRED_WT_ESTABLISHED);
+  conns[0].resp[0].in_use = 0;    /* pretend the first 2xx finished sending */
+  sr_set_req(&conns[0], 1, 1, 8); /* second Extended CONNECT, different id */
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0};
+    srvrun_state    st  = {table, conns};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_start_resp(&ctx, 0);
+  }
+  CHECK(conns[0].wt_active == 1); /* the first session, still established */
+  CHECK(conns[0].wt.state == WIRED_WT_ESTABLISHED);
+  CHECK(conns[0].wt.connect_stream_id == 4);
+  CHECK(conns[0].wt1_active == 1); /* the second session, its own slot */
+  CHECK(conns[0].wt1.state == WIRED_WT_ESTABLISHED);
+  CHECK(conns[0].wt1.connect_stream_id == 8);
+  CHECK(conns[0].resp[0].sess.active == 1); /* the second 2xx was armed */
+}
+
+/* MULTI-SESSION BOUNDARY: once SRVRUN_MAX_WT_SESSIONS sessions are open, a
+ * further Extended CONNECT is rejected with 429 exactly as the single-
+ * session path always was, and no new slot is created. */
+static void test_srvrun_wt_reject_at_session_limit(void) {
+  struct lp_fix  f;
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_conn    conns[QUIC_CONNTABLE_CAP] = {0};
+  quic_obuf      ob;
+  u8             obuf[1024];
+  ob                    = (quic_obuf){obuf, sizeof obuf, 0};
+  g_sr_wt_handler_calls = 0;
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  sr_make_confirmed_conn(&conns[0], &f, &ob);
+  sr_set_req(&conns[0], 1, 1, 4);
+  {
+    srvrun_cfg      cfg = {-1, 0, sr_wt_handler, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                           0,  0, &g_srvrun_env, 0};
+    srvrun_state    st  = {table, conns};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_start_resp(&ctx, 0);
+  }
+  conns[0].resp[0].in_use = 0;
+  sr_set_req(&conns[0], 1, 1, 8);
+  {
+    srvrun_cfg      cfg = {-1, 0, sr_wt_handler, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                           0,  0, &g_srvrun_env, 0};
+    srvrun_state    st  = {table, conns};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_start_resp(&ctx, 0);
+  }
+  CHECK(conns[0].wt_active == 1 && conns[0].wt1_active == 1); /* both full */
+  conns[0].resp[0].in_use = 0;
+  sr_set_req(&conns[0], 1, 1, 12); /* third Extended CONNECT: over the limit */
+  {
+    srvrun_cfg      cfg = {-1, 0, sr_wt_handler, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                           0,  0, &g_srvrun_env, 0};
+    srvrun_state    st  = {table, conns};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_start_resp(&ctx, 0);
+  }
+  CHECK(g_sr_wt_handler_calls == 0);
+  CHECK(conns[0].resp[0].sess.active == 1);    /* the 429 was armed */
+  CHECK(conns[0].wt.connect_stream_id == 4);   /* first session untouched */
+  CHECK(conns[0].wt1.connect_stream_id == 8);  /* second session untouched */
+  CHECK(srvrun_wt_free_slot(&conns[0]) == -1); /* no slot was created */
+}
+
+/* PATH RECORDING: an accepted Extended CONNECT's own :path value is copied
+ * into its session slot. */
+static void test_srvrun_wt_accept_records_path(void) {
+  struct lp_fix   f;
+  quic_conntable  table[QUIC_CONNTABLE_CAP];
+  srvrun_conn     conns[QUIC_CONNTABLE_CAP] = {0};
+  quic_obuf       ob;
+  u8              obuf[1024];
+  static const u8 custom_path[] = "/wt/room-1";
+  ob                            = (quic_obuf){obuf, sizeof obuf, 0};
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  sr_make_confirmed_conn(&conns[0], &f, &ob);
+  sr_set_req(&conns[0], 1, 1, 4);
+  conns[0].l.req.path     = custom_path;
+  conns[0].l.req.path_len = sizeof custom_path - 1;
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0};
+    srvrun_state    st  = {table, conns};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_start_resp(&ctx, 0);
+  }
+  CHECK(conns[0].wt_active == 1);
+  CHECK(conns[0].wt_path_len[0] == sizeof custom_path - 1);
+  for (usz i = 0; i < sizeof custom_path - 1; i++)
+    CHECK(conns[0].wt_path[0][i] == custom_path[i]);
+}
+
+/* DISTINCT PATHS: two simultaneously-open sessions bound to different :path
+ * values coexist -- neither overwrites the other's recorded path. */
+static void test_srvrun_wt_distinct_paths_coexist(void) {
+  struct lp_fix   f;
+  quic_conntable  table[QUIC_CONNTABLE_CAP];
+  srvrun_conn     conns[QUIC_CONNTABLE_CAP] = {0};
+  quic_obuf       ob;
+  u8              obuf[1024];
+  static const u8 path_a[] = "/wt/a";
+  static const u8 path_b[] = "/wt/b";
+  ob                       = (quic_obuf){obuf, sizeof obuf, 0};
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  sr_make_confirmed_conn(&conns[0], &f, &ob);
+  sr_set_req(&conns[0], 1, 1, 4);
+  conns[0].l.req.path     = path_a;
+  conns[0].l.req.path_len = sizeof path_a - 1;
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0};
+    srvrun_state    st  = {table, conns};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_start_resp(&ctx, 0);
+  }
+  conns[0].resp[0].in_use = 0;
+  sr_set_req(&conns[0], 1, 1, 8);
+  conns[0].l.req.path     = path_b;
+  conns[0].l.req.path_len = sizeof path_b - 1;
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0};
+    srvrun_state    st  = {table, conns};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_start_resp(&ctx, 0);
+  }
+  CHECK(conns[0].wt_path_len[0] == sizeof path_a - 1);
+  CHECK(conns[0].wt_path_len[1] == sizeof path_b - 1);
+  for (usz i = 0; i < sizeof path_a - 1; i++)
+    CHECK(conns[0].wt_path[0][i] == path_a[i]);
+  for (usz i = 0; i < sizeof path_b - 1; i++)
+    CHECK(conns[0].wt_path[1][i] == path_b[i]);
+}
+
+/* ROUTING: srvrun_wt_slot_by_connect_id resolves a stream/datagram reference
+ * to the exactly one active session slot whose own CONNECT stream id
+ * matches, with two sessions open at once. */
+static void test_srvrun_wt_stream_routes_to_matching_session(void) {
+  srvrun_conn c = {0};
+  c.wt_active   = 1;
+  wired_wt_session_init(&c.wt, 4);
+  c.wt1_active = 1;
+  wired_wt_session_init(&c.wt1, 8);
+  CHECK(srvrun_wt_slot_by_connect_id(&c, 4) == 0);
+  CHECK(srvrun_wt_slot_by_connect_id(&c, 8) == 1);
+}
+
+/* FOREIGN REFERENCE: a stream/datagram referencing a session id that matches
+ * no currently open session resolves to no slot at all (-1), regardless of
+ * how many sessions ARE open. */
+static void test_srvrun_wt_foreign_stream_id_rejected(void) {
+  srvrun_conn c = {0};
+  c.wt_active   = 1;
+  wired_wt_session_init(&c.wt, 4);
+  c.wt1_active = 1;
+  wired_wt_session_init(&c.wt1, 8);
+  CHECK(srvrun_wt_slot_by_connect_id(&c, 12) == -1);
+  CHECK(srvrun_wt_slot_by_connect_id(&c, 0) == -1);
+}
+
+/* EXCLUSIVITY: srvrun_wt_slot_by_connect_id never returns two different
+ * indices for the same stream id -- every call is a pure function of c's
+ * slots, so calling it twice for the same id and two different open sessions
+ * yields exactly one, stable, answer each time (structural mutual
+ * exclusion: a stream_id can only equal one slot's own connect_stream_id at
+ * once). */
+static void test_srvrun_wt_stream_exclusive_ownership(void) {
+  srvrun_conn c = {0};
+  c.wt_active   = 1;
+  wired_wt_session_init(&c.wt, 4);
+  c.wt1_active = 1;
+  wired_wt_session_init(&c.wt1, 8);
+  CHECK(srvrun_wt_slot_by_connect_id(&c, 4) == 0);
+  CHECK(srvrun_wt_slot_by_connect_id(&c, 4) == 0); /* stable, not slot 1 too */
+  CHECK(srvrun_wt_slot_by_connect_id(&c, 8) == 1);
+  CHECK(srvrun_wt_slot_by_connect_id(&c, 8) == 1); /* stable, not slot 0 too */
+}
+
+/* DATAGRAM ROUTING: same routing key (srvrun_wt_slot_by_connect_id) governs
+ * datagram association too, the datagram-side mirror of the stream-routing
+ * test above. */
+static void test_srvrun_wt_dgram_routes_to_matching_session(void) {
+  srvrun_conn c = {0};
+  c.wt_active   = 1;
+  wired_wt_session_init(&c.wt, 4);
+  c.wt1_active = 1;
+  wired_wt_session_init(&c.wt1, 8);
+  CHECK(srvrun_wt_slot_by_connect_id(&c, 4) == 0);
+  CHECK(srvrun_wt_slot_by_connect_id(&c, 8) == 1);
+}
+
+/* DATAGRAM FOREIGN REFERENCE: the datagram-side mirror of the foreign-stream
+ * rejection test above. */
+static void test_srvrun_wt_foreign_dgram_id_rejected(void) {
+  srvrun_conn c = {0};
+  c.wt_active   = 1;
+  wired_wt_session_init(&c.wt, 4);
+  CHECK(srvrun_wt_slot_by_connect_id(&c, 99) == -1);
+}
+
+/* INDEPENDENCE: closing one session (via the real CONNECT-stream-close
+ * trigger, srvrun_close_wt_on_stream_close) leaves a second, simultaneously
+ * open session's state (state/connect_stream_id/buffered streams)
+ * completely untouched. */
+static void test_srvrun_wt_close_one_session_leaves_others_untouched(void) {
+  struct lp_fix  f;
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_conn    conns[QUIC_CONNTABLE_CAP] = {0};
+  quic_obuf      ob;
+  u8             obuf[1024];
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  sr_make_confirmed_conn(&conns[0], &f, &ob);
+  sr_set_req(&conns[0], 1, 1, 4);
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0};
+    srvrun_state    st  = {table, conns};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_start_resp(&ctx, 0);
+  }
+  conns[0].resp[0].in_use = 0;
+  sr_set_req(&conns[0], 1, 1, 8);
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0};
+    srvrun_state    st  = {table, conns};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_start_resp(&ctx, 0);
+  }
+  CHECK(conns[0].wt.state == WIRED_WT_ESTABLISHED);
+  CHECK(conns[0].wt1.state == WIRED_WT_ESTABLISHED);
+  /* close only session 0's own CONNECT stream (id 4) */
+  conns[0].l.closed_stream_id   = 4;
+  conns[0].l.closed_stream_seen = 1;
+  srvrun_close_wt_on_stream_close(&conns[0]);
+  CHECK(conns[0].wt.state == WIRED_WT_CLOSED);
+  CHECK(conns[0].wt1.state == WIRED_WT_ESTABLISHED); /* untouched */
+  CHECK(conns[0].wt1.connect_stream_id == 8);        /* untouched */
+}
+
+/* INDEPENDENCE (drain): draining one session leaves a second, simultaneously
+ * open session's state untouched. */
+static void test_srvrun_wt_drain_one_session_leaves_others_untouched(void) {
+  srvrun_conn c = {0};
+  c.wt_active   = 1;
+  wired_wt_session_init(&c.wt, 4);
+  wired_wt_session_establish(&c.wt);
+  c.wt1_active = 1;
+  wired_wt_session_init(&c.wt1, 8);
+  wired_wt_session_establish(&c.wt1);
+  CHECK(wired_wt_session_drain(&c.wt) == 1);
+  CHECK(c.wt.state == WIRED_WT_DRAINING);
+  CHECK(c.wt1.state == WIRED_WT_ESTABLISHED); /* untouched */
+  CHECK(c.wt1.connect_stream_id == 8);        /* untouched */
+}
+
+/* SLOT REUSE: closing a session while the connection is at its session limit
+ * frees its slot immediately, so a subsequent Extended CONNECT is accepted
+ * rather than rejected. */
+static void test_srvrun_wt_close_frees_slot_for_new_accept(void) {
+  struct lp_fix  f;
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_conn    conns[QUIC_CONNTABLE_CAP] = {0};
+  quic_obuf      ob;
+  u8             obuf[1024];
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  sr_make_confirmed_conn(&conns[0], &f, &ob);
+  sr_set_req(&conns[0], 1, 1, 4);
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0};
+    srvrun_state    st  = {table, conns};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_start_resp(&ctx, 0);
+  }
+  conns[0].resp[0].in_use = 0;
+  sr_set_req(&conns[0], 1, 1, 8);
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0};
+    srvrun_state    st  = {table, conns};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_start_resp(&ctx, 0);
+  }
+  CHECK(srvrun_wt_free_slot(&conns[0]) == -1); /* both slots occupied */
+  /* close session 0 (CONNECT stream id 4) */
+  conns[0].l.closed_stream_id   = 4;
+  conns[0].l.closed_stream_seen = 1;
+  srvrun_close_wt_on_stream_close(&conns[0]);
+  CHECK(srvrun_wt_free_slot(&conns[0]) == 0); /* slot 0 is free again */
+  conns[0].resp[0].in_use = 0;
+  sr_set_req(&conns[0], 1, 1, 12); /* a third Extended CONNECT now fits */
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0};
+    srvrun_state    st  = {table, conns};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_start_resp(&ctx, 0);
+  }
+  CHECK(conns[0].wt.state == WIRED_WT_ESTABLISHED); /* reused slot 0 */
+  CHECK(conns[0].wt.connect_stream_id == 12);
+  CHECK(conns[0].resp[0].sess.active == 1); /* the new 2xx was armed */
+}
+
+/* WHOLE-CONNECTION TEARDOWN: srvrun_free_slot (peer close / idle sweep /
+ * boot failure) closes EVERY currently open session, not just one. */
+static void test_srvrun_wt_free_slot_closes_all_open_sessions(void) {
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_conn    conns[QUIC_CONNTABLE_CAP] = {0};
+  quic_obuf      ob;
+  u8             obuf[1024];
+  struct lp_fix  f;
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  sr_make_confirmed_conn(&conns[0], &f, &ob);
+  sr_set_req(&conns[0], 1, 1, 4);
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0};
+    srvrun_state    st  = {table, conns};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_start_resp(&ctx, 0);
+  }
+  conns[0].resp[0].in_use = 0;
+  sr_set_req(&conns[0], 1, 1, 8);
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0};
+    srvrun_state    st  = {table, conns};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_start_resp(&ctx, 0);
+  }
+  CHECK(conns[0].wt.state == WIRED_WT_ESTABLISHED);
+  CHECK(conns[0].wt1.state == WIRED_WT_ESTABLISHED);
+  {
+    srvrun_state st = {table, conns};
+    srvrun_free_slot(&g_srvrun_env, &st, 0);
+  }
+  CHECK(conns[0].wt.state == WIRED_WT_CLOSED);
+  CHECK(conns[0].wt1.state == WIRED_WT_CLOSED);
+  CHECK(conns[0].wt_active == 0);
+  CHECK(conns[0].wt1_active == 0);
+}
+
+/* PRECISE CLOSE: the CONNECT-stream-close trigger closes only the ONE
+ * session whose own CONNECT stream matches, even with two sessions open --
+ * the multi-session generalization of the existing single-session
+ * regression test above. */
+static void test_srvrun_wt_connect_stream_close_closes_only_that_session(void) {
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_conn    conns[QUIC_CONNTABLE_CAP] = {0};
+  quic_obuf      ob;
+  u8             obuf[1024];
+  struct lp_fix  f;
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  sr_make_confirmed_conn(&conns[0], &f, &ob);
+  sr_set_req(&conns[0], 1, 1, 4);
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0};
+    srvrun_state    st  = {table, conns};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_start_resp(&ctx, 0);
+  }
+  conns[0].resp[0].in_use = 0;
+  sr_set_req(&conns[0], 1, 1, 8);
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0};
+    srvrun_state    st  = {table, conns};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_start_resp(&ctx, 0);
+  }
+  /* close session 1's own CONNECT stream (id 8), not session 0's */
+  conns[0].l.closed_stream_id   = 8;
+  conns[0].l.closed_stream_seen = 1;
+  srvrun_close_wt_on_stream_close(&conns[0]);
+  CHECK(conns[0].wt.state == WIRED_WT_ESTABLISHED); /* untouched */
+  CHECK(conns[0].wt1.state == WIRED_WT_CLOSED);
+  CHECK(conns[0].l.closed_stream_seen == 0); /* consumed every step */
+}
+
+/* BOUNDARY: fill SRVRUN_MAX_WT_SESSIONS slots, close them one at a time in a
+ * different order than opened, and confirm each close makes exactly its own
+ * slot (and only its own) reusable again. */
+static void test_srvrun_wt_all_slots_cycle_through_open_and_close(void) {
+  struct lp_fix  f;
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_conn    conns[QUIC_CONNTABLE_CAP] = {0};
+  quic_obuf      ob;
+  u8             obuf[1024];
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  sr_make_confirmed_conn(&conns[0], &f, &ob);
+  sr_set_req(&conns[0], 1, 1, 4);
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0};
+    srvrun_state    st  = {table, conns};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_start_resp(&ctx, 0);
+  }
+  conns[0].resp[0].in_use = 0;
+  sr_set_req(&conns[0], 1, 1, 8);
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env, 0};
+    srvrun_state    st  = {table, conns};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_start_resp(&ctx, 0);
+  }
+  CHECK(srvrun_wt_free_slot(&conns[0]) == -1); /* at the limit */
+  /* close slot 1's session (id 8) FIRST, out of open order */
+  conns[0].l.closed_stream_id   = 8;
+  conns[0].l.closed_stream_seen = 1;
+  srvrun_close_wt_on_stream_close(&conns[0]);
+  CHECK(srvrun_wt_free_slot(&conns[0]) == 1); /* exactly slot 1 freed */
+  /* now close slot 0's session (id 4) too */
+  conns[0].l.closed_stream_id   = 4;
+  conns[0].l.closed_stream_seen = 1;
+  srvrun_close_wt_on_stream_close(&conns[0]);
+  CHECK(srvrun_wt_free_slot(&conns[0]) == 0); /* both free, first-fit is 0 */
+  CHECK(conns[0].wt_active == 0 && conns[0].wt1_active == 0);
+}
+
+/* BACKWARD COMPATIBILITY BOUNDARY: with only ONE session ever opened on a
+ * connection (the pre-multi-session common case), behavior matches the
+ * legacy single-session implementation exactly -- a second Extended CONNECT
+ * on the SAME already-open session's stream id is unreachable in practice
+ * (each request stream claims at most one resp[] slot), so the boundary this
+ * covers is: exactly one slot occupied, one slot free, the free slot is
+ * found and used, and the occupied slot's own state is never disturbed by
+ * unrelated routing/free-slot lookups. */
+static void test_srvrun_wt_limit_one_matches_legacy_behavior(void) {
+  srvrun_conn c = {0};
+  c.wt_active   = 1;
+  wired_wt_session_init(&c.wt, 4);
+  wired_wt_session_establish(&c.wt);
+  CHECK(srvrun_wt_free_slot(&c) == 1); /* the still-free second slot */
+  CHECK(srvrun_wt_slot_by_connect_id(&c, 4) == 0);
+  CHECK(c.wt.state == WIRED_WT_ESTABLISHED); /* untouched by the lookups */
+}
+
+/* PRE-ESTABLISHMENT BUFFERING: a stream/datagram offered to a session while
+ * it is still UNESTABLISHED, with a second session also open, associates
+ * only with the session it was actually offered to. */
+static void test_srvrun_wt_establish_associates_only_own_buffered_items(void) {
+  srvrun_conn c = {0};
+  c.wt_active   = 1;
+  wired_wt_session_init(&c.wt, 4); /* left UNESTABLISHED */
+  c.wt1_active = 1;
+  wired_wt_session_init(&c.wt1, 8);
+  wired_wt_session_establish(&c.wt1); /* the other session is established */
+  CHECK(wired_wt_session_offer_stream(&c.wt, 100) == 1); /* buffered on wt */
+  CHECK(c.wt.streams[0].in_use == 1 && c.wt.streams[0].stream_id == 100);
+  CHECK(c.wt1.streams[0].in_use == 0); /* wt1's own buffer untouched */
+  CHECK(wired_wt_session_establish(&c.wt) == 1);
+  CHECK(c.wt.state == WIRED_WT_ESTABLISHED);
+  CHECK(c.wt.streams[0].stream_id == 100); /* still associated with wt only */
+  CHECK(c.wt1.streams[0].in_use == 0);     /* still untouched */
+}
+
+/* SLOT REUSE HYGIENE: a slot that closes and is reused by a new session
+ * carries none of the previous session's connect_stream_id or buffered
+ * stream/datagram state -- wired_wt_session_init's own zeroing (session.c)
+ * is what this depends on. Drives the session directly (wired_wt_session_
+ * init/offer_stream, not srvrun_start_resp) so the buffered stream is
+ * offered while the session is still UNESTABLISHED -- srvrun_start_resp's
+ * own srvrun_start_wt always establishes in the same step it inits, which
+ * would make offer_stream associate directly instead of buffering (session.c's
+ * session_associates_directly). */
+static void test_srvrun_wt_reused_slot_has_no_stale_data(void) {
+  srvrun_conn c = {0};
+  c.wt_active   = 1;
+  wired_wt_session_init(&c.wt, 4);                      /* left UNESTABLISHED */
+  CHECK(wired_wt_session_offer_stream(&c.wt, 42) == 1); /* buffered */
+  CHECK(c.wt.streams[0].in_use == 1);
+  c.l.closed_stream_id   = 4;
+  c.l.closed_stream_seen = 1;
+  srvrun_close_wt_on_stream_close(&c);
+  CHECK(srvrun_wt_free_slot(&c) == 0); /* slot 0 is free again */
+  /* a new session reuses slot 0 with a different CONNECT stream id */
+  wired_wt_session_init(&c.wt, 20);
+  wired_wt_session_establish(&c.wt);
+  c.wt_active = 1;
+  CHECK(c.wt.connect_stream_id == 20); /* not the stale 4 */
+  CHECK(c.wt.streams[0].in_use == 0);  /* the stale buffered stream 42 did not
+                                        * survive reuse */
+  CHECK(c.wt.state == WIRED_WT_ESTABLISHED);
+}
+
+/* CAPACITY: the session limit must fit within the existing per-connection WT
+ * stream-table capacity -- with SRVRUN_MAX_WT_SESSIONS sessions open, each
+ * still has room for at least one bidi and one uni stream in the shared
+ * WIRED_SRVLOOP_MAX_WT_STREAMS/WIRED_SRVLOOP_MAX_WT_UNI_STREAMS tables. */
+static void test_srvrun_wt_session_limit_fits_stream_table_capacity(void) {
+  CHECK(SRVRUN_MAX_WT_SESSIONS >= 1);
+  CHECK(SRVRUN_MAX_WT_SESSIONS <= WIRED_SRVLOOP_MAX_WT_STREAMS);
+  CHECK(SRVRUN_MAX_WT_SESSIONS <= WIRED_SRVLOOP_MAX_WT_UNI_STREAMS);
+}
+
 /* Reset the global connection table srvrun_loop owns (g_srvrun_table/
  * g_srvrun_state, srvrun.c) to a clean slate -- wired_server_broadcast_
  * datagram operates on these globals directly (it has no srvrun_state
@@ -5713,6 +6242,25 @@ void test_srvrun(void) {
   test_srvrun_broadcast_datagram_reaches_two_real_clients();
   test_srvrun_broadcast_datagram_flushes_on_poll_tick_alone();
   test_srvrun_wt_full_session_lifecycle_on_wire();
+  test_srvrun_wt_accept_second_session_below_limit();
+  test_srvrun_wt_reject_at_session_limit();
+  test_srvrun_wt_accept_records_path();
+  test_srvrun_wt_distinct_paths_coexist();
+  test_srvrun_wt_stream_routes_to_matching_session();
+  test_srvrun_wt_foreign_stream_id_rejected();
+  test_srvrun_wt_stream_exclusive_ownership();
+  test_srvrun_wt_dgram_routes_to_matching_session();
+  test_srvrun_wt_foreign_dgram_id_rejected();
+  test_srvrun_wt_close_one_session_leaves_others_untouched();
+  test_srvrun_wt_drain_one_session_leaves_others_untouched();
+  test_srvrun_wt_close_frees_slot_for_new_accept();
+  test_srvrun_wt_free_slot_closes_all_open_sessions();
+  test_srvrun_wt_connect_stream_close_closes_only_that_session();
+  test_srvrun_wt_all_slots_cycle_through_open_and_close();
+  test_srvrun_wt_limit_one_matches_legacy_behavior();
+  test_srvrun_wt_establish_associates_only_own_buffered_items();
+  test_srvrun_wt_reused_slot_has_no_stale_data();
+  test_srvrun_wt_session_limit_fits_stream_table_capacity();
   test_srvrun_no_shutdown_accepts_new();
   test_srvrun_bigbuf_pool_serves_large_body();
   test_srvrun_bigbuf_pool_exhausted_falls_back_to_fixed_row();
