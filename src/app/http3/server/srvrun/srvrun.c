@@ -1987,11 +1987,22 @@ static void srvrun_start_resp(const srvrun_step_ctx* ctx, int slot) {
  * the moment it arrives. Scoped to r's own stream_id (not the whole
  * connection): a wt_active connection may still have OTHER streams' normal
  * responses in flight (RFC 9000 2.2), and those must still get their FIN. */
-static u8 srvrun_slice_fin(
-    const srvrun_conn* c, const srvrun_resp* r, const wired_sendq_slice* sl) {
+/* r's stream never gets FIN: either it IS the WebTransport session stream
+ * (draft-ietf-webtrans-http3 4, see the caller's own comment), or -- a
+ * streaming response mid-flight -- wired_sendq_next's fin marks the END OF
+ * THIS ROUND'S BUFFER, not the end of the whole response (r->streaming is 1
+ * exactly while more rounds remain), so it would otherwise be a premature
+ * FIN at every round boundary except the true last one. */
+static int srvrun_slice_fin_suppressed(
+    const srvrun_conn* c, const srvrun_resp* r) {
   int is_wt_connect_stream =
       c->wt_active && r->stream_id == c->wt.connect_stream_id;
-  return (u8)(sl->fin && !is_wt_connect_stream);
+  return is_wt_connect_stream || r->streaming;
+}
+
+static u8 srvrun_slice_fin(
+    const srvrun_conn* c, const srvrun_resp* r, const wired_sendq_slice* sl) {
+  return (u8)(sl->fin && !srvrun_slice_fin_suppressed(c, r));
 }
 
 /* Seal one slice as its own 1-RTT packet (a STREAM frame on r's request
