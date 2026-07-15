@@ -2013,6 +2013,45 @@ static void test_srvloop_close_frame_detected(void) {
   CHECK(srvloop_has_close(quic_span_of(ping, 1)) == 0);
 }
 
+/* T-002: an ack-eliciting 1-RTT packet (here, a PING frame) records its pn
+ * into the App packet-number-space's receive window and marks an ACK owed
+ * (quic_ackpolicy pending). */
+static void test_srvloop_ack_eliciting_records_pn_and_pending(void) {
+  struct lp_fix f;
+  quic_obuf     ob;
+  u8            out[1024], ping[1] = {0x01}, spkt[1024];
+  usz           slen;
+  ob = (quic_obuf){out, sizeof out, 0};
+  lp_confirm(&f, &ob);
+  slen = client_seal_onertt_pn(&f, 7, ping, 1, spkt, sizeof spkt);
+  ob   = (quic_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  CHECK(quic_recvpn_seen(&f.l.app_ack_recv, 7) == 1);
+  CHECK(f.l.app_ack_policy.pending == 1);
+}
+
+/* T-003: a non-ack-eliciting 1-RTT packet (ACK-only) does not record its pn
+ * into the receive window and does not raise the ACK-owed pending count --
+ * receiving only ACKs is never itself a reason to ACK. */
+static void test_srvloop_ack_non_eliciting_not_recorded(void) {
+  struct lp_fix  f;
+  quic_obuf      ob;
+  u8             out[1024], fr[16], spkt[1024];
+  usz            fl, slen;
+  quic_ack_frame ackf = {0, 1, {{0, 0}}, 0, 0, 0, 0};
+  ob                  = (quic_obuf){out, sizeof out, 0};
+  lp_confirm(&f, &ob);
+  fl = quic_ack_encode(fr, sizeof fr, &ackf);
+  CHECK(fl > 0);
+  slen = client_seal_onertt_pn(&f, 7, fr, fl, spkt, sizeof spkt);
+  ob   = (quic_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  CHECK(quic_recvpn_seen(&f.l.app_ack_recv, 7) == 0);
+  CHECK(f.l.app_ack_policy.pending == 0);
+}
+
 /* RFC 9000 19.9: a MAX_DATA frame in a 1-RTT payload latches its value onto
  * max_data_seen -- the connection-level send credit ceiling the caller
  * (srvrun.c) may now raise its own running credit to. */
@@ -2595,6 +2634,8 @@ void test_srvloop(void) {
   test_srvloop_handler_body_echoed();
   test_srvloop_close_frame_detected();
   test_srvloop_hq09_recv_get_produces_request();
+  test_srvloop_ack_eliciting_records_pn_and_pending();
+  test_srvloop_ack_non_eliciting_not_recorded();
   test_srvloop_gather_max_data_raises_credit();
   test_srvloop_gather_max_data_keeps_running_high();
   test_srvloop_gather_max_stream_data_raises_credit();

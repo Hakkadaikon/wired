@@ -87,6 +87,11 @@ int wired_srvloop_init(wired_srvloop* l, const u8* cli_scid, u8 cli_scid_len) {
   l->max_data_seen              = 0;
   l->max_data_seen_flag         = 0;
   l->max_stream_data_n          = 0;
+  quic_recvpn_init(&l->app_ack_recv);
+  quic_ackpolicy_init(&l->app_ack_policy);
+  quic_recvpn_init(&l->hs_ack_recv);
+  quic_ackpolicy_init(&l->hs_ack_policy);
+  l->now_ms = 0;
   streams_reset(l);
   wt_streams_reset(l);
   wt_uni_streams_reset(l);
@@ -312,6 +317,34 @@ static void srvloop_collect_acks(wired_srvloop* l, quic_span pl) {
       srvloop_take_ack(l, fr.start, fr.remaining);
 }
 
+/* RFC 9000 13.2: 1 if any frame in pl is ack-eliciting (every frame except
+ * PADDING/ACK/CONNECTION_CLOSE). */
+static int srvloop_payload_ack_eliciting(quic_span pl) {
+  quic_framewalk      it;
+  quic_framewalk_item fr;
+  int                 eliciting = 0;
+  quic_framewalk_init(&it, pl.p, pl.n);
+  while (quic_framewalk_next(&it, &fr))
+    eliciting |= quic_frame_ack_eliciting(quic_frame_classify(fr.type));
+  return eliciting;
+}
+
+/* RFC 9000 13.2.1/13.2.2: an ack-eliciting packet in this pn space records
+ * pn into its receive window (dedup + reordering-tolerant) and raises the
+ * pending count that decides whether/when an ACK is owed. A non-eliciting
+ * packet (e.g. ACK-only) touches neither -- receiving only ACKs is never
+ * itself a reason to ACK. */
+static void srvloop_note_ack_owed(
+    quic_recvpn*    recv,
+    quic_ackpolicy* policy,
+    quic_span       pl,
+    u64             pn,
+    u64             now_ms) {
+  if (!srvloop_payload_ack_eliciting(pl)) return;
+  quic_recvpn_record(recv, pn);
+  quic_ackpolicy_on_eliciting(policy, now_ms);
+}
+
 /* Dispatch this opened payload. Request STREAM frames are routed per frame
  * to their own stream's slot inside wired_srvloop_dispatch (ctx->l != 0
  * selects the routed path); a slot whose request completes is appended to
@@ -325,6 +358,19 @@ static void step_dispatch(const wired_srvloop_conn* conn, quic_span payload) {
       payload, quic_mspan_of(0, 0), quic_mspan_of(0, 0), &got, &l->req};
   wired_srvloop_dispatch_ctx ctx = {conn->s, &l->h3, 0, l};
   wired_srvloop_dispatch(&ctx, &in);
+}
+
+/* This opened slice's level determines which pn space (App/Handshake) owns
+ * its ack-eliciting bookkeeping (RFC 9000 12.3); Initial is out of this
+ * loop's scope (srvboot's own layer). Split out of step_one to keep its
+ * own branch count at the CCN gate. */
+static void step_note_ack_owed(wired_srvloop* l, quic_span payload, int level) {
+  if (level == QUIC_LEVEL_ONERTT)
+    srvloop_note_ack_owed(
+        &l->app_ack_recv, &l->app_ack_policy, payload, l->app_rx_pn, l->now_ms);
+  if (level == QUIC_LEVEL_HANDSHAKE)
+    srvloop_note_ack_owed(
+        &l->hs_ack_recv, &l->hs_ack_policy, payload, l->hs_rx_pn, l->now_ms);
 }
 
 /* RFC 9001 5 / 5.1: open one coalesced packet slice and walk its frames. A
@@ -349,6 +395,7 @@ static void step_one(const wired_srvloop_conn* conn, quic_mspan pkt) {
   if (ro.level == QUIC_LEVEL_ONERTT) srvloop_collect_acks(l, ro.payload);
   note_app_rx(l, s, &o);
   note_hs_rx(l, &o);
+  step_note_ack_owed(l, ro.payload, ro.level);
   step_dispatch(conn, ro.payload);
 }
 
