@@ -8,8 +8,7 @@ static void test_hq09_parse_get_request_extracts_path(void) {
   quic_span       path;
   CHECK(wired_hq09_parse_get(quic_span_of(line, sizeof(line) - 1), &path));
   CHECK(path.n == 10);
-  CHECK(
-      path.p[0] == '/' && path.p[1] == 'f' && path.p[9] == 't');
+  CHECK(path.p[0] == '/' && path.p[1] == 'f' && path.p[9] == 't');
 }
 
 /* T-010: a line ending in bare "\n" (no "\r") is tolerated the same way,
@@ -35,12 +34,12 @@ static void test_hq09_parse_get_request_tolerates_no_newline(void) {
 /* T-011: neither a non-GET method nor a path missing its leading "/" is
  * accepted. */
 static void test_hq09_parse_get_request_rejects_non_get_or_no_slash(void) {
-  static const u8 not_get[]  = "PUT /file1.txt\r\n";
-  static const u8 no_slash[] = "GET file1.txt\r\n";
+  static const u8 not_get[]   = "PUT /file1.txt\r\n";
+  static const u8 no_slash[]  = "GET file1.txt\r\n";
   static const u8 too_short[] = "GE";
   quic_span       path;
-  CHECK(!wired_hq09_parse_get(
-      quic_span_of(not_get, sizeof(not_get) - 1), &path));
+  CHECK(
+      !wired_hq09_parse_get(quic_span_of(not_get, sizeof(not_get) - 1), &path));
   CHECK(!wired_hq09_parse_get(
       quic_span_of(no_slash, sizeof(no_slash) - 1), &path));
   CHECK(!wired_hq09_parse_get(
