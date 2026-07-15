@@ -16,6 +16,13 @@
  * the conversation has reached. An example program wraps this in a UDP
  * recv/send. */
 
+/** RFC 9000 18.2's default max_ack_delay when the peer's own transport
+ * parameter isn't tracked (this SDK does not parse the client's
+ * max_ack_delay yet -- YAGNI until a deployment needs a non-default value).
+ * Matches srvrun.c's own SRVRUN_MAX_ACK_DELAY_US (25000us = 25ms); kept as
+ * a separate constant here since srvloop must not depend on srvrun. */
+#define WIRED_SRVLOOP_MAX_ACK_DELAY_MS 25
+
 /** Build (a round of) the response body for a decoded request. Copy from
  * `req` (its body is a view into per-step scratch, not valid past the call)
  * into body_out, setting body_out->len. May set *content_type to a static
