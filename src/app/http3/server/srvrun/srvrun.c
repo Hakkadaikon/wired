@@ -1706,27 +1706,58 @@ static u8* srvrun_resp_shrink_to_fixed(
   return fixed;
 }
 
-/* Body of srvrun_start_resp for a normal (non-WT) request: run the app
- * handler, then frame+arm the response exactly as before this task. Split
- * out so srvrun_start_resp itself stays at its gate/dispatch decision (CCN). */
-static void srvrun_start_app_resp(
-    const srvrun_step_ctx* ctx, srvrun_conn* c, int slot, srvrun_resp* r) {
-  u8*       st = srvrun_resp_storage(ctx, slot, c, r);
-  quic_obuf body =
-      quic_obuf_of(st + SRVRUN_RESP_HDR_ROOM, srvrun_resp_storage_cap(r));
-  u8          pre[SRVRUN_RESP_HDR_ROOM];
-  quic_obuf   pob = quic_obuf_of(pre, sizeof pre);
-  const char* ct  = 0;
-  usz         off;
-  srvrun_call_handler(ctx, c, &body, &ct);
-  if (!quic_h3resp_prefix(200, ct, body.len, &pob)) return;
+/* quic-interop-runner's hq-interop (HTTP/0.9 over QUIC, see hq09.h): the
+ * response is the handler's body bytes verbatim, no HEADERS/DATA framing
+ * (RFC 9114 4.1 doesn't apply -- there is no HTTP/3 on this connection).
+ * Arms directly over the body already written at st + HDR_ROOM, skipping
+ * the H3 prefix build/shrink-to-fixed dance that assumes a framed
+ * response. */
+static void srvrun_arm_hq09_resp(
+    srvrun_resp* r, u8* st, const quic_obuf* body) {
+  wired_sendsess_arm(
+      &r->sess, st + SRVRUN_RESP_HDR_ROOM, body->len, SRVRUN_CHUNK);
+}
+
+/* RFC 9114 4.1: frame the handler's body as HEADERS+DATA (quic_h3resp_prefix)
+ * ahead of it, then arm over prefix+body. Split out of srvrun_start_app_resp
+ * so hq-interop's un-framed sibling can skip this whole shape (CCN). */
+static void srvrun_arm_h3_resp(
+    const srvrun_step_ctx* ctx,
+    srvrun_conn*           c,
+    int                    slot,
+    srvrun_resp*           r,
+    u8*                    st,
+    const quic_obuf*       body,
+    const char*            ct) {
+  u8        pre[SRVRUN_RESP_HDR_ROOM];
+  quic_obuf pob = quic_obuf_of(pre, sizeof pre);
+  usz       off;
+  if (!quic_h3resp_prefix(200, ct, body->len, &pob)) return;
   off = SRVRUN_RESP_HDR_ROOM - pob.len;
   quic_put_bytes(
       quic_mspan_of(st, SRVRUN_RESP_HDR_ROOM), &off,
       quic_span_of(pre, pob.len));
   st = srvrun_resp_shrink_to_fixed(
-      ctx, slot, c, r, st + SRVRUN_RESP_HDR_ROOM - pob.len, pob.len + body.len);
-  wired_sendsess_arm(&r->sess, st, pob.len + body.len, SRVRUN_CHUNK);
+      ctx, slot, c, r, st + SRVRUN_RESP_HDR_ROOM - pob.len,
+      pob.len + body->len);
+  wired_sendsess_arm(&r->sess, st, pob.len + body->len, SRVRUN_CHUNK);
+}
+
+/* Body of srvrun_start_resp for a normal (non-WT) request: run the app
+ * handler, then frame+arm the response -- H3-framed or hq-interop-raw
+ * depending on what this connection negotiated. Split out so
+ * srvrun_start_resp itself stays at its gate/dispatch decision (CCN). */
+static void srvrun_start_app_resp(
+    const srvrun_step_ctx* ctx, srvrun_conn* c, int slot, srvrun_resp* r) {
+  u8*       st = srvrun_resp_storage(ctx, slot, c, r);
+  quic_obuf body =
+      quic_obuf_of(st + SRVRUN_RESP_HDR_ROOM, srvrun_resp_storage_cap(r));
+  const char* ct = 0;
+  srvrun_call_handler(ctx, c, &body, &ct);
+  if (c->s.sdrv.alpn == QUIC_SALPN_HQ)
+    srvrun_arm_hq09_resp(r, st, &body);
+  else
+    srvrun_arm_h3_resp(ctx, c, slot, r, st, &body, ct);
 }
 
 /* Reject this Extended CONNECT with 429 (WT-C-010/011: a second Extended
