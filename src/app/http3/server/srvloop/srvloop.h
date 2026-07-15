@@ -275,12 +275,16 @@ typedef struct {
    * persists across steps; this field is this step's observation only. */
   u64 max_data_seen;
   int max_data_seen_flag; /**< 1 once max_data_seen was set this step */
-  /** RFC 9000 19.10: the stream id and value of the last MAX_STREAM_DATA
-   * frame seen this step, mirroring closed_stream_id's "last one wins this
-   * step" shape. A single step coalescing more than one MAX_STREAM_DATA
-   * (e.g. one per stream) only exposes the last; srvrun.c drains this once
-   * per step same as closed_stream_id. */
+  /** RFC 9000 19.10: the stream id of the last MAX_STREAM_DATA frame seen
+   * this step, mirroring closed_stream_id's "last one wins this step"
+   * shape. A single step coalescing more than one MAX_STREAM_DATA (e.g. one
+   * per stream) only exposes the last; srvrun.c drains this once per step
+   * same as closed_stream_id. Valid only when max_stream_data_seen is
+   * set. */
   u64 max_stream_data_stream_id;
+  /** RFC 9000 19.10: the value carried by the same MAX_STREAM_DATA frame
+   * max_stream_data_stream_id names. Valid only when max_stream_data_seen
+   * is set. */
   u64 max_stream_data_value;
   int max_stream_data_seen; /**< 1 once the two fields above were set this
                               step */
