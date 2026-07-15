@@ -299,19 +299,25 @@ typedef struct {
    * persists across steps; this field is this step's observation only. */
   u64 max_data_seen;
   int max_data_seen_flag; /**< 1 once max_data_seen was set this step */
-  /** RFC 9000 19.10: the stream id of the last MAX_STREAM_DATA frame seen
-   * this step, mirroring closed_stream_id's "last one wins this step"
-   * shape. A single step coalescing more than one MAX_STREAM_DATA (e.g. one
-   * per stream) only exposes the last; srvrun.c drains this once per step
-   * same as closed_stream_id. Valid only when max_stream_data_seen is
-   * set. */
-  u64 max_stream_data_stream_id;
-  /** RFC 9000 19.10: the value carried by the same MAX_STREAM_DATA frame
-   * max_stream_data_stream_id names. Valid only when max_stream_data_seen
-   * is set. */
-  u64 max_stream_data_value;
-  int max_stream_data_seen; /**< 1 once the two fields above were set this
-                              step */
+  /** RFC 9000 19.10: every distinct MAX_STREAM_DATA (stream id, value) seen
+   * this step, one slot per distinct stream id named (up to
+   * WIRED_SRVLOOP_MAX_STREAMS -- a single step coalescing a MAX_STREAM_DATA
+   * per in-flight response, e.g. 3 parallel GETs each raised by the peer at
+   * once, must not lose all but the last one the way a single-slot latch
+   * would: srvrun.c only checks ONE resp[] slot's credit per raise, so a
+   * dropped update leaves that stream's send credit stuck at its initial
+   * value forever, and a large streamed response silently stalls at that
+   * ceiling). A repeat stream id this step overwrites its own slot instead
+   * of consuming a second one (only the newest value matters, same as the
+   * old single-latch behavior for a given stream). srvrun.c drains every
+   * used slot once per step. */
+  u64 max_stream_data_stream_id[WIRED_SRVLOOP_MAX_STREAMS];
+  /** RFC 9000 19.10: the value carried by the same-indexed
+   * max_stream_data_stream_id slot. Valid only for i < max_stream_data_n. */
+  u64 max_stream_data_value[WIRED_SRVLOOP_MAX_STREAMS];
+  /** Slots in max_stream_data_stream_id/_value actually used this step (0 to
+   * WIRED_SRVLOOP_MAX_STREAMS). 0 = none seen. */
+  usz max_stream_data_n;
 } wired_srvloop;
 
 /** Register the app response-body builder; pass 0 to clear (body-less 200).
