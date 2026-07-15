@@ -3,6 +3,7 @@
 
 #include "common/bytes/span/span.h"
 #include "crypto/kdf/hkdf/hkdf.h"
+#include "tls/ext/salpn/negotiate.h"
 #include "tls/ext/stp/server_tp.h"
 #include "tls/handshake/core/tls/cert.h"
 #include "tls/handshake/core/tls/transcript.h"
@@ -60,6 +61,12 @@ typedef struct {
                                                 * THIS endpoint may send on a
                                                 * client-initiated (HTTP/3
                                                 * request) stream; 0 = absent */
+  quic_salpn_choice alpn; /**< RFC 7301 3.1/3.2: this server's negotiated
+                           * ALPN protocol (h3 preferred, hq-interop
+                           * fallback), from the ClientHello's ALPN
+                           * extension. QUIC_SALPN_NONE if the client
+                           * offered neither -- the caller (server.c) must
+                           * fail the handshake rather than proceed. */
 } quic_sdrv;
 
 /** Inputs to quic_sdrv_init.
