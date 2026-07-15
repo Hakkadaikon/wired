@@ -668,7 +668,7 @@ static void test_srvrun_stalled_boot_swept(void) {
     st.conns[0].boot.any = 0;
     srvrun_serve(&ctx, quic_mspan_of(dg1, n1));
     CHECK(st.conns[0].boot.any == 1);
-    srvrun_sweep_idle(&st, 1000 + WIRED_SRVRUN_IDLE_MS);
+    srvrun_sweep_idle(&g_srvrun_env, &st, 1000 + WIRED_SRVRUN_IDLE_MS);
     /* reclaimed: table entry gone, accumulator emptied */
     CHECK(quic_conntable_find(table, QUIC_CONNTABLE_CAP, g_sr_odcid, 8) == -1);
     CHECK(st.conns[0].boot.any == 0);
@@ -787,7 +787,7 @@ static void test_srvrun_idle_sweep_evicts_expired(void) {
   st.conns[1].last_ms = 20000;
   CHECK(quic_conntable_insert(table, QUIC_CONNTABLE_CAP, k1, 4) == 0);
   CHECK(quic_conntable_insert(table, QUIC_CONNTABLE_CAP, k2, 4) == 1);
-  srvrun_sweep_idle(&st, 1000 + WIRED_SRVRUN_IDLE_MS);
+  srvrun_sweep_idle(&g_srvrun_env, &st, 1000 + WIRED_SRVRUN_IDLE_MS);
   /* the expired slot is gone, the active one survives */
   CHECK(st.conns[0].up == 0);
   CHECK(quic_conntable_find(table, QUIC_CONNTABLE_CAP, k1, 4) == -1);
@@ -795,6 +795,42 @@ static void test_srvrun_idle_sweep_evicts_expired(void) {
   CHECK(quic_conntable_find(table, QUIC_CONNTABLE_CAP, k2, 4) == 1);
   /* the freed slot is claimable again */
   CHECK(quic_conntable_insert(table, QUIC_CONNTABLE_CAP, k1, 4) == 0);
+}
+
+/* T-015: a connection torn down (here, idle sweep) mid-streaming-response
+ * releases its resp[] slots' claimed bigbuf pool rows -- otherwise
+ * wired_srvbigbuf's own in_use[] bookkeeping never learns the row is free
+ * (srvrun_open_slot only zeroes the conn struct on reuse, it never touches
+ * the pool), and that row is leaked for the server's whole remaining
+ * lifetime. */
+static void test_srvrun_idle_sweep_releases_bigbuf_row(void) {
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_state   st    = {table, g_srvrun_state.conns};
+  u8             k1[4] = {9, 9, 9, 9};
+  int            row;
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  wired_srvbigbuf_init(
+      &g_srvrun_env.bigbuf, &g_srvrun_env.bigbuf_rows[0][0],
+      WIRED_SRVBIGBUF_ROW_CAP);
+  st.conns[0]                = (srvrun_conn){0};
+  st.conns[0].up             = 1;
+  st.conns[0].last_ms        = 1000;
+  st.conns[0].resp[0].in_use = 1;
+  CHECK(
+      wired_srvbigbuf_claim(
+          &g_srvrun_env.bigbuf, &st.conns[0].resp[0].bigbuf_row) != 0);
+  row = st.conns[0].resp[0].bigbuf_row;
+  CHECK(quic_conntable_insert(table, QUIC_CONNTABLE_CAP, k1, 4) == 0);
+  srvrun_sweep_idle(&g_srvrun_env, &st, 1000 + WIRED_SRVRUN_IDLE_MS);
+  CHECK(st.conns[0].up == 0);
+  /* the row is free again: claiming it (or any row, with only 2 total)
+   * succeeds, proving it was actually released rather than leaked. */
+  {
+    int row2;
+    CHECK(wired_srvbigbuf_claim(&g_srvrun_env.bigbuf, &row2) != 0);
+    CHECK(row2 == row); /* the lowest-index free row is this one again */
+    wired_srvbigbuf_release(&g_srvrun_env.bigbuf, row2);
+  }
 }
 
 /* ACTIVITY REFRESH (RFC 9000 10.1): every datagram routed to a slot stamps
@@ -2392,7 +2428,7 @@ static void test_srvrun_idle_sweep_closes_wt_session(void) {
   conns[0].last_ms = 1000;
   {
     srvrun_state st = {table, conns};
-    srvrun_sweep_idle(&st, 1000 + WIRED_SRVRUN_IDLE_MS);
+    srvrun_sweep_idle(&g_srvrun_env, &st, 1000 + WIRED_SRVRUN_IDLE_MS);
   }
   CHECK(conns[0].wt_active == 0);
   CHECK(conns[0].wt.state == WIRED_WT_CLOSED);
@@ -2499,7 +2535,7 @@ static void test_srvrun_idle_sweep_without_wt_unaffected(void) {
   conns[0].last_ms   = 1000;
   conns[0].wt_active = 0;
   CHECK(quic_conntable_insert(table, QUIC_CONNTABLE_CAP, k, 4) == 0);
-  srvrun_sweep_idle(&st, 1000 + WIRED_SRVRUN_IDLE_MS);
+  srvrun_sweep_idle(&g_srvrun_env, &st, 1000 + WIRED_SRVRUN_IDLE_MS);
   CHECK(conns[0].up == 0);
   CHECK(conns[0].wt_active == 0);
   CHECK(quic_conntable_find(table, QUIC_CONNTABLE_CAP, k, 4) == -1);
@@ -5293,6 +5329,7 @@ void test_srvrun(void) {
   test_srvrun_failed_accept_unclaims();
   test_srvrun_peer_close_frees_slot();
   test_srvrun_idle_sweep_evicts_expired();
+  test_srvrun_idle_sweep_releases_bigbuf_row();
   test_srvrun_serve_slot_touches_last_ms();
   test_srvrun_qlog_records_received();
   test_srvrun_qlog_no_dup_record();
