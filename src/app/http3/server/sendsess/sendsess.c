@@ -5,12 +5,22 @@
 void wired_sendsess_arm(
     wired_sendsess* s, const u8* stream, usz len, usz chunk) {
   wired_sendq_init(&s->q, stream, len, chunk);
-  s->active        = 1;
-  s->requeue_n     = 0;
-  s->largest_acked = 0;
-  s->has_acked     = 0;
-  s->pto_count     = 0;
+  s->active             = 1;
+  s->requeue_n          = 0;
+  s->largest_acked      = 0;
+  s->has_acked          = 0;
+  s->pto_count          = 0;
+  s->stream_base_offset = 0;
   for (usz i = 0; i < WIRED_SENDSESS_LOG; i++) s->log[i].inflight = 0;
+}
+
+void wired_sendsess_set_base_offset(wired_sendsess* s, u64 base_offset) {
+  s->stream_base_offset = base_offset;
+}
+
+u64 wired_sendsess_stream_offset(
+    const wired_sendsess* s, const wired_sendq_slice* sl) {
+  return s->stream_base_offset + sl->offset;
 }
 
 usz wired_sendsess_inflight(const wired_sendsess* s) {

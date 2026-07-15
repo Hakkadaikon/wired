@@ -1881,8 +1881,8 @@ static int srvrun_send_slice(
   quic_obuf         plb = quic_obuf_of(pl, sizeof pl);
   quic_obuf         ob  = quic_obuf_of(out, sizeof out);
   quic_stream_frame f   = {
-      r->stream_id, sl->offset, sl->len, r->sess.q.p + sl->offset,
-      srvrun_slice_fin(c, r, sl)};
+      r->stream_id, wired_sendsess_stream_offset(&r->sess, sl), sl->len,
+      r->sess.q.p + sl->offset, srvrun_slice_fin(c, r, sl)};
   u64 pn;
   if (!quic_appdata_stream_frame(&f, &plb)) return 0;
   pn = c->l.tx_pn++;
