@@ -4492,6 +4492,59 @@ static void test_srvrun_onertt_get_is_acked_via_srvrun_on_step(void) {
   wired_udp_close(sfd);
 }
 
+/* T-019 (multi-range): srvrun_on_step's shared ACK state is not merely a
+ * single-pn passthrough -- two datagrams with a gap between their pns (7,
+ * then 9, skipping 8) drive the exact same two-range gap-encoding through
+ * srvrun's real-socket path that test_srvloop_ack_single_gap_two_ranges
+ * proves directly against wired_srvloop_step. */
+static void test_srvrun_multi_range_ack_via_srvrun_on_step(void) {
+  struct lp_fix    f;
+  srvrun_conn      c  = {0};
+  quic_obuf        ob = {0};
+  u8               obuf[1024], ping[1] = {0x01}, spkt[1024];
+  quic_sockaddr_in srv, from;
+  i64              sfd, cfd;
+  usz              slen;
+  if (!sr_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.peer = srv;
+  /* Both datagrams are fed before any recvfrom: pn 7 is not yet due (its own
+   * step's now_ms == since_tick == 0) so it sends nothing, and pn 9's step
+   * (now_ms advanced past the delay window) is the one whose reply this test
+   * reads back -- avoiding a blocking recvfrom on a step that may send
+   * nothing. */
+  {
+    srvrun_cfg cfg = {cfd,           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                      &g_srvrun_env, 0};
+    srvrun_step_ctx ctx = {&cfg, &srv, 0, 0};
+    slen = client_seal_onertt_pn(&f, 7, ping, 1, spkt, sizeof spkt);
+    srvrun_on_step(&ctx, &c, quic_mspan_of(spkt, slen));
+  }
+  {
+    srvrun_cfg cfg = {cfd,           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                      &g_srvrun_env, 0};
+    srvrun_step_ctx ctx = {&cfg, &srv, 0, WIRED_SRVLOOP_MAX_ACK_DELAY_MS};
+    slen = client_seal_onertt_pn(&f, 9, ping, 1, spkt, sizeof spkt);
+    srvrun_on_step(&ctx, &c, quic_mspan_of(spkt, slen));
+  }
+  {
+    u8             pkt[1500];
+    const u8*      pl;
+    usz            pll;
+    quic_ack_frame a;
+    i64 r = wired_udp_recvfrom(sfd, quic_mspan_of(pkt, sizeof pkt), &from);
+    CHECK(r > 0);
+    CHECK(client_open_onertt(&f, pkt, (usz)r, &pl, &pll) == 1);
+    CHECK(find_ack_frame(pl, pll, &a) == 1);
+    CHECK(a.n_ranges == 2);
+    CHECK(a.ranges[0].hi == 9 && a.ranges[0].lo == 9);
+    CHECK(a.ranges[1].hi == 7 && a.ranges[1].lo == 7);
+  }
+  wired_udp_close(cfd);
+  wired_udp_close(sfd);
+}
+
 /* T-024 (direct): srvrun_on_step writes its ctx->now_ms straight into
  * c->l.now_ms every step -- the exact field quic_ackpolicy_should_ack reads
  * for the delayed-ACK timer (srvloop.c's app_ack_due) -- proving there is
@@ -5727,6 +5780,7 @@ void test_srvrun(void) {
   test_srvrun_batch_serves_each();
   test_srvrun_takeover_streams_large_body();
   test_srvrun_onertt_get_is_acked_via_srvrun_on_step();
+  test_srvrun_multi_range_ack_via_srvrun_on_step();
   test_srvrun_ack_timer_shares_now_ms_with_pto();
   test_srvrun_parallel_responses_three_streams();
   test_srvrun_cc_algo_selected();
