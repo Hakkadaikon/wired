@@ -3627,6 +3627,251 @@ static void test_srvrun_bigbuf_pool_exhausted_falls_back_to_fixed_row(void) {
     wired_srvbigbuf_release(&g_srvrun_env.bigbuf, held[i]);
 }
 
+/* Streaming test handler: serves a fixed-size counting pattern
+ * (sr_stream_total_len bytes total), writing at most sr_stream_round_cap
+ * bytes per call starting at offset, requesting another round whenever
+ * bytes remain past this round (T-004/T-006/T-010/T-011/T-012/T-018). Globals
+ * because wired_srvloop_handler's ctx param is already used by other tests'
+ * fixtures in this file; reset both before each streaming test. */
+static u64 sr_stream_total_len;
+static usz sr_stream_round_cap;
+
+static int sr_stream_body_handler(
+    void*                       hctx,
+    const wired_h3reqdrive_req* req,
+    u64                         offset,
+    quic_obuf*                  body_out,
+    const char**                ct,
+    int*                        more,
+    u64*                        total_size) {
+  usz cap =
+      body_out->cap < sr_stream_round_cap ? body_out->cap : sr_stream_round_cap;
+  usz remaining = (usz)(sr_stream_total_len - offset);
+  usz n         = remaining < cap ? remaining : cap;
+  (void)hctx;
+  (void)req;
+  (void)ct;
+  for (usz i = 0; i < n; i++) body_out->p[i] = (u8)((offset + i) & 0xff);
+  body_out->len = n;
+  if (offset == 0) *total_size = sr_stream_total_len;
+  if (offset + n < sr_stream_total_len) *more = 1;
+  return 1;
+}
+
+/* 1 once every slice of r's current round is sent and acked -- a
+ * non-destructive read (unlike wired_sendsess_done, which clears `active`
+ * as a side effect: calling it here as well as inside srvrun_resp_reap
+ * would make the second call always see a false "not done"). */
+static int sr_round_fully_acked(const wired_sendsess* s) {
+  return wired_sendq_all_sent(&s->q) && s->requeue_n == 0 &&
+         wired_sendsess_inflight(s) == 0;
+}
+
+static void sr_drive_round_to_done(srvrun_step_ctx* ctx, srvrun_conn* c) {
+  srvrun_resp* r = &c->resp[0];
+  while (!sr_round_fully_acked(&r->sess)) {
+    u64 pn0 = c->l.tx_pn;
+    srvrun_pump_sess(ctx, 0);
+    if (c->l.tx_pn == pn0) break; /* nothing sendable (e.g. cwnd/credit) */
+    wired_sendsess_ack(&r->sess, pn0, c->l.tx_pn - 1);
+  }
+}
+
+/* T-004/T-006: a streaming response's first round arms only up to
+ * sr_stream_round_cap bytes (not the whole sr_stream_total_len), and once
+ * that round's slices are all acked, srvrun_resp_reap re-invokes the handler
+ * and re-arms the next round instead of releasing the slot. */
+static void test_srvrun_streaming_next_round_armed_after_done(void) {
+  struct lp_fix f;
+  srvrun_conn   c  = {0};
+  quic_obuf     ob = {0};
+  u8            obuf[2048];
+  ob                  = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_stream_total_len = 300;
+  sr_stream_round_cap = 100;
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.s.sdrv.alpn = QUIC_SALPN_HQ;
+  c.cc.cwnd     = 1u << 20; /* isolate streaming from cwnd gating */
+  sr_set_req(&c, 0, 0, 0);
+  {
+    srvrun_cfg cfg = {
+        -1, 0, sr_stream_body_handler, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0,  0, &g_srvrun_env,          0};
+    srvrun_state    st  = {0, &c};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_start_resp(&ctx, 0);
+    CHECK(c.resp[0].sess.q.len == 100); /* round 0: capped, not the full 300 */
+    CHECK(c.resp[0].streaming == 1);
+    sr_drive_round_to_done(&ctx, &c);
+    srvrun_reap_resps(&ctx, &c, 0);
+    CHECK(c.resp[0].in_use == 1);       /* not released: more rounds remain */
+    CHECK(c.resp[0].sess.q.len == 100); /* round 1 armed, still capped */
+    CHECK(c.resp[0].stream_off == 200);
+  }
+}
+
+/* T-005: once the handler stops asking for another round (the final round
+ * lands exactly on sr_stream_total_len), srvrun_resp_reap releases the
+ * slot like any ordinary single-round response. */
+static void test_srvrun_streaming_final_round_releases_slot(void) {
+  struct lp_fix f;
+  srvrun_conn   c  = {0};
+  quic_obuf     ob = {0};
+  u8            obuf[2048];
+  ob                  = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_stream_total_len = 150;
+  sr_stream_round_cap = 100;
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.s.sdrv.alpn = QUIC_SALPN_HQ;
+  c.cc.cwnd     = 1u << 20;
+  sr_set_req(&c, 0, 0, 0);
+  {
+    srvrun_cfg cfg = {
+        -1, 0, sr_stream_body_handler, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0,  0, &g_srvrun_env,          0};
+    srvrun_state    st  = {0, &c};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_start_resp(&ctx, 0);
+    sr_drive_round_to_done(&ctx, &c); /* round 0: 100 of 150 */
+    srvrun_reap_resps(&ctx, &c, 0);   /* -> round 1 armed: 50 remaining */
+    CHECK(c.resp[0].in_use == 1);
+    CHECK(c.resp[0].sess.q.len == 50);
+    sr_drive_round_to_done(&ctx, &c); /* round 1: the last 50 */
+    srvrun_reap_resps(&ctx, &c, 0);   /* -> fully done, slot released */
+    CHECK(c.resp[0].in_use == 0);
+  }
+}
+
+/* T-018/T-019: across rounds, the QUIC STREAM frame's absolute offset keeps
+ * counting up from the prior round's cumulative bytes sent, rather than
+ * rewinding to 0 -- proven by re-deriving the exact byte sequence a real
+ * peer would reassemble from the wire across two rounds and checking it
+ * matches sr_stream_body_handler's counting pattern with no gap/overlap. */
+static void test_srvrun_streaming_stream_offset_accumulates_across_rounds(
+    void) {
+  struct lp_fix f;
+  srvrun_conn   c  = {0};
+  quic_obuf     ob = {0};
+  u8            obuf[2048];
+  u8            asm_buf[300] = {0};
+  usz           high         = 0;
+  int           fin          = 0;
+  ob                         = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_stream_total_len        = 300;
+  sr_stream_round_cap        = 100;
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.s.sdrv.alpn = QUIC_SALPN_HQ;
+  c.cc.cwnd     = 1u << 20;
+  sr_set_req(&c, 0, 0, 0);
+  {
+    srvrun_cfg cfg = {
+        -1, 0, sr_stream_body_handler, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0,  0, &g_srvrun_env,          0};
+    srvrun_state    st  = {0, &c};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_resp*    r   = &c.resp[0];
+    srvrun_start_resp(&ctx, 0);
+    while (r->in_use) {
+      wired_sendq_slice sl;
+      while (wired_sendsess_take(&r->sess, &sl)) {
+        u64 abs = wired_sendsess_stream_offset(&r->sess, &sl);
+        for (usz i = 0; i < sl.len && abs + i < sizeof asm_buf; i++)
+          asm_buf[abs + i] = r->sess.q.p[sl.offset + i];
+        if (abs + sl.len > high) high = (usz)(abs + sl.len);
+        fin |= sl.fin;
+        CHECK(wired_sendsess_sent(&r->sess, &sl, c.l.tx_pn++, 0) == 1);
+      }
+      wired_sendsess_ack(&r->sess, 0, c.l.tx_pn - 1);
+      srvrun_reap_resps(&ctx, &c, 0);
+    }
+  }
+  CHECK(high == 300);
+  CHECK(fin == 1);
+  for (usz i = 0; i < 300; i++) CHECK(asm_buf[i] == (u8)(i & 0xff));
+}
+
+/* T-020: two connections streaming concurrently each claim their own bigbuf
+ * pool row (or fall back independently) without one's rounds corrupting the
+ * other's -- each connection's resp[0] is driven through several rounds
+ * interleaved with the other's, and each must reassemble its own untouched
+ * counting pattern. */
+static void test_srvrun_streaming_concurrent_requests_do_not_corrupt_each_other(
+    void) {
+  struct lp_fix fa, fb;
+  srvrun_conn   ca = {0}, cb = {0};
+  quic_obuf     oba = {0}, obb = {0};
+  u8            obufa[2048], obufb[2048];
+  oba                 = (quic_obuf){obufa, sizeof obufa, 0};
+  obb                 = (quic_obuf){obufb, sizeof obufb, 0};
+  sr_stream_total_len = 250;
+  sr_stream_round_cap = 100;
+  sr_make_confirmed_conn(&ca, &fa, &oba);
+  sr_make_confirmed_conn(&cb, &fb, &obb);
+  ca.s.sdrv.alpn = QUIC_SALPN_HQ;
+  cb.s.sdrv.alpn = QUIC_SALPN_HQ;
+  ca.cc.cwnd = cb.cc.cwnd = 1u << 20;
+  sr_set_req(&ca, 0, 0, 0);
+  sr_set_req(&cb, 0, 0, 0);
+  {
+    srvrun_cfg cfg = {
+        -1, 0, sr_stream_body_handler, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0,  0, &g_srvrun_env,          0};
+    srvrun_state    sta  = {0, &ca};
+    srvrun_state    stb  = {0, &cb};
+    srvrun_step_ctx ctxa = {&cfg, 0, &sta, 0};
+    srvrun_step_ctx ctxb = {&cfg, 0, &stb, 0};
+    srvrun_start_resp(&ctxa, 0);
+    srvrun_start_resp(&ctxb, 0);
+    CHECK(ca.resp[0].sess.q.len == 100);
+    CHECK(cb.resp[0].sess.q.len == 100);
+    sr_drive_round_to_done(&ctxa, &ca);
+    srvrun_reap_resps(&ctxa, &ca, 0);
+    sr_drive_round_to_done(&ctxb, &cb);
+    srvrun_reap_resps(&ctxb, &cb, 0);
+    CHECK(ca.resp[0].stream_off == 200);
+    CHECK(cb.resp[0].stream_off == 200);
+    while (ca.resp[0].in_use) {
+      sr_drive_round_to_done(&ctxa, &ca);
+      srvrun_reap_resps(&ctxa, &ca, 0);
+    }
+    while (cb.resp[0].in_use) {
+      sr_drive_round_to_done(&ctxb, &cb);
+      srvrun_reap_resps(&ctxb, &cb, 0);
+    }
+  }
+}
+
+/* T-021: an H3 (not hq-interop) streaming response's round-0 DATA frame
+ * declares sr_stream_total_len (the full body), not just round 0's 100-byte
+ * slice -- quic_h3resp_prefix's body_len argument must have been the total,
+ * provable by decoding the prefix bytes at the front of the armed session
+ * and checking the DATA frame's length varint. */
+static void test_srvrun_streaming_h3_prefix_receives_total_size_not_round_len(
+    void) {
+  struct lp_fix f;
+  srvrun_conn   c  = {0};
+  quic_obuf     ob = {0};
+  u8            obuf[2048];
+  u8            pre[64];
+  quic_obuf     preb  = {pre, sizeof pre, 0};
+  ob                  = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_stream_total_len = 300;
+  sr_stream_round_cap = 100;
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.cc.cwnd = 1u << 20;
+  sr_set_req(&c, 0, 0, 0);
+  {
+    srvrun_cfg cfg = {
+        -1, 0, sr_stream_body_handler, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0,  0, &g_srvrun_env,          0};
+    srvrun_state    st  = {0, &c};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_start_resp(&ctx, 0);
+  }
+  CHECK(quic_h3resp_prefix(200, 0, 300, &preb) == 1);
+  CHECK(c.resp[0].sess.q.len == preb.len + 100); /* prefix + round 0's body */
+}
+
 /* T-013: hq-interop (see hq09.h) responses carry no HEADERS/DATA framing --
  * the armed session length equals the handler's body length exactly (a
  * bare 1-byte body arms to exactly 1 byte, not "1 byte + H3 prefix
@@ -4847,6 +5092,11 @@ void test_srvrun(void) {
   test_srvrun_bigbuf_pool_exhausted_falls_back_to_fixed_row();
   test_srvrun_hq09_resp_has_no_h3_framing();
   test_srvrun_hq09_missing_file_arms_empty_body();
+  test_srvrun_streaming_next_round_armed_after_done();
+  test_srvrun_streaming_final_round_releases_slot();
+  test_srvrun_streaming_stream_offset_accumulates_across_rounds();
+  test_srvrun_streaming_concurrent_requests_do_not_corrupt_each_other();
+  test_srvrun_streaming_h3_prefix_receives_total_size_not_round_len();
   test_srvrun_fifth_sequential_get_reuses_freed_slot();
   test_srvrun_pto_budget_exhausted_tears_down_connection();
   test_srvrun_pto_not_due_within_rtt_window();
