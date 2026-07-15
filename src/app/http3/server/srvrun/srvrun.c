@@ -15,6 +15,7 @@
 #include "app/webtransport/errmap/errmap/errmap.h"
 #include "app/webtransport/session/session/session.h"
 #include "common/bytes/util/bytes.h"
+#include "common/bytes/util/num.h"
 #include "common/diag/error/error.h"
 #include "common/platform/clock/mono.h"
 #include "common/platform/debug/debug.h"
@@ -97,6 +98,23 @@ typedef struct {
  * -- only the send session (unsent/in-flight/requeue bookkeeping) is
  * per-stream, so up to SRVRUN_RESP_SLOTS requests can be in flight
  * concurrently on one connection (RFC 9000 2.2). */
+/* draft-ietf-webtrans-http3-15 SS4 / RFC 9220 3: how many independent
+ * WebTransport sessions one connection holds open (unest/est/draining, not
+ * closed) at once. A small constant, not WIRED_SRVLOOP_MAX_WT_STREAMS/
+ * WIRED_SRVLOOP_MAX_WT_UNI_STREAMS (each 4) -- those bound one connection's
+ * total reassembled WT stream slots, shared across however many sessions are
+ * open, so SRVRUN_MAX_WT_SESSIONS must stay well under either to leave every
+ * session room for more than one stream (see srvrun_wt_session_limit_fits_
+ * stream_table_capacity's compile-time check below). */
+#define SRVRUN_MAX_WT_SESSIONS 2
+
+/* Bytes retained of an accepted Extended CONNECT's own :path pseudo-header
+ * (draft-ietf-webtrans-http3-15 SS3.2), enough for typical endpoint paths
+ * (e.g. quic-interop-runner's "/<endpoint>") without growing per-slot storage
+ * for an arbitrarily long one; overflow is truncated, not rejected -- the
+ * value is descriptive bookkeeping, not itself validated. */
+#define SRVRUN_WT_PATH_CAP 128
+
 typedef struct {
   int            in_use;
   u64            stream_id;
@@ -197,12 +215,28 @@ typedef struct {
    * ponytail: one fixed accumulator per slot (~4KB x 64 slots of BSS);
    * pool-share across slots if the footprint ever matters. */
   wired_srvboot_acc boot;
-  wired_wt_session  wt; /**< WebTransport session for this connection, if any
-                         * (draft-ietf-webtrans-http3-15 SS4); valid only
-                         * when wt_active is set. One session per connection
-                         * for now (tasks/webtransport-plan.md scope). */
-  int wt_active; /**< 1 once wired_wt_session_init has been called for this
-                    slot */
+  /** Up to SRVRUN_MAX_WT_SESSIONS independent WebTransport sessions this
+   * connection holds at once (draft-ietf-webtrans-http3-15 SS4). wt/wt_active
+   * is slot 0 -- kept as the original scalar fields (not wt[0]/wt_active[0])
+   * so every existing single-session caller/test outside this file that
+   * constructs a srvrun_conn directly keeps compiling unchanged; wt1/
+   * wt1_active is slot 1, the second concurrently-open session this
+   * connection can now hold. srvrun_wt_slot/srvrun_wt_active below give both
+   * slots a uniform index-based view so the routing helpers can loop 0..
+   * SRVRUN_MAX_WT_SESSIONS instead of hand-unrolling 2 cases everywhere. Each
+   * slot's own connect_stream_id (wired_wt_session's identity field) is its
+   * routing key -- distinct sessions never share a slot, and closing one slot
+   * never touches the other. */
+  wired_wt_session wt;
+  int wt_active; /**< 1 once wired_wt_session_init has been called for slot 0 */
+  wired_wt_session wt1;
+  int              wt1_active; /**< slot 1's own wt_active */
+  /** Each active slot's own Extended CONNECT :path value, copied rather than
+   * viewed since the decoded request's own storage does not outlive the step
+   * that established the session. Meaningless while the corresponding slot is
+   * inactive. */
+  u8  wt_path[SRVRUN_MAX_WT_SESSIONS][SRVRUN_WT_PATH_CAP];
+  usz wt_path_len[SRVRUN_MAX_WT_SESSIONS];
   /** One pending outbound QUIC DATAGRAM (RFC 9221 5), queued by
    * srvrun_wt_send_datagram and drained by srvrun_send_pending_datagram on
    * the next step. ponytail: single-slot, not a queue — a second send
@@ -688,6 +722,75 @@ static void srvrun_send_transport_close(
       cfg, c, quic_span_of(out, ob.len), "transport CONNECTION_CLOSE sent\n");
 }
 
+/* Index-based view over the two physical slots (wt/wt_active, wt1/wt1_active)
+ * so every routing helper below can loop 0..SRVRUN_MAX_WT_SESSIONS uniformly
+ * instead of hand-unrolling both cases. c is never NULL in this file's own
+ * call sites (every caller already holds a live srvrun_conn*); i is always
+ * either 0 or 1 in-bounds since every caller loops against
+ * SRVRUN_MAX_WT_SESSIONS==2. */
+static wired_wt_session* srvrun_wt_slot(srvrun_conn* c, int i) {
+  return i == 0 ? &c->wt : &c->wt1;
+}
+
+static int* srvrun_wt_active_slot(srvrun_conn* c, int i) {
+  return i == 0 ? &c->wt_active : &c->wt1_active;
+}
+
+/* const-correct sibling of srvrun_wt_slot for read-only callers. */
+static const wired_wt_session* srvrun_wt_slot_c(const srvrun_conn* c, int i) {
+  return i == 0 ? &c->wt : &c->wt1;
+}
+
+static int srvrun_wt_is_active(const srvrun_conn* c, int i) {
+  return i == 0 ? c->wt_active : c->wt1_active;
+}
+
+/* The session slot index whose OWN connect_stream_id equals stream_id and is
+ * currently active, or -1 if none (draft-ietf-webtrans-http3-15 SS4.3 / RFC
+ * 9220 3: a WebTransport session's identity IS its CONNECT stream's id, so
+ * this is the routing key every stream/datagram reference resolves through).
+ * A stream_id with no matching active slot is a foreign reference: the
+ * caller must not route it to any session. */
+static int wt_slot_is_connect_id(const srvrun_conn* c, int i, u64 stream_id) {
+  return srvrun_wt_is_active(c, i) &&
+         srvrun_wt_slot_c(c, i)->connect_stream_id == stream_id;
+}
+
+static int srvrun_wt_slot_by_connect_id(const srvrun_conn* c, u64 stream_id) {
+  for (int i = 0; i < SRVRUN_MAX_WT_SESSIONS; i++)
+    if (wt_slot_is_connect_id(c, i, stream_id)) return i;
+  return -1;
+}
+
+/* The first currently-inactive session slot, or -1 if every slot holds an
+ * open session (SRVRUN_MAX_WT_SESSIONS reached) -- the accept-path capacity
+ * check (accept below the limit, reject at it) and the reuse point once a
+ * slot frees. */
+static int srvrun_wt_free_slot(const srvrun_conn* c) {
+  for (int i = 0; i < SRVRUN_MAX_WT_SESSIONS; i++)
+    if (!srvrun_wt_is_active(c, i)) return i;
+  return -1;
+}
+
+/* The first active session slot willing to accept stream_id: one it already
+ * tracks (wired_wt_session_offer_stream is idempotent-by-buffering/
+ * associates-directly once established, session.c), else the first active
+ * slot in order with room. This is the only signal available at this layer
+ * for "which session a WT data stream belongs to" -- the wire format this SDK
+ * parses (dispatch.c's 0x41/0x54 signal) carries no session id, so a
+ * production caller cannot yet name an explicit target the way
+ * srvrun_wt_slot_by_connect_id's CONNECT-stream-close routing can. First-fit
+ * across active slots keeps today's one-session behavior unchanged (with one
+ * active slot there is exactly one candidate) while still being structurally
+ * exclusive (a stream offered here lands in at most one slot per call).
+ * Returns -1 if no active slot exists (mirrors
+ * the pre-multi-session no-active-session fallback). */
+static int srvrun_wt_slot_for_new_stream(const srvrun_conn* c) {
+  for (int i = 0; i < SRVRUN_MAX_WT_SESSIONS; i++)
+    if (srvrun_wt_is_active(c, i)) return i;
+  return -1;
+}
+
 /* draft-ietf-webtrans-http3-15 4.3/8.2: a buffered-stream-capacity rejection
  * (wired_wt_session_offer_stream returned 0, i.e. WIRED_WT_MAX_BUFFERED_
  * STREAMS is full on an unestablished session) is the caller's own contract
@@ -705,8 +808,9 @@ static void srvrun_reject_wt_slot(
  * stream slot with c's WebTransport session, exactly once (slot->offered
  * latches it) — the session only needs to know the stream id, not its bytes
  * (wired_wt_session_offer_stream's own signature, session.h). A stray WT bidi
- * stream on a connection with no active session (!c->wt_active) is a
- * protocol-level mismatch this slice leaves as accepted-and-ignored, matching
+ * stream on a connection with no active session (srvrun_wt_slot_for_new_
+ * stream returns -1) is a protocol-level mismatch this slice leaves as
+ * accepted-and-ignored, matching
  * the pre-Slice-3 fallback: routing to a session that does not exist is not
  * meaningful, so nothing is offered and the slot is simply left reassembled
  * but unclaimed by any session. A 0 return (buffer full) is rejected on the
@@ -714,8 +818,10 @@ static void srvrun_reject_wt_slot(
  * same doomed stream id. */
 static void srvrun_offer_wt_slot(
     const srvrun_cfg* cfg, srvrun_conn* c, wired_srvloop_wt_stream_slot* slot) {
-  if (!c->wt_active) return;
-  if (!wired_wt_session_offer_stream(&c->wt, slot->stream_id)) {
+  int sidx = srvrun_wt_slot_for_new_stream(c);
+  if (sidx < 0) return;
+  if (!wired_wt_session_offer_stream(
+          srvrun_wt_slot(c, sidx), slot->stream_id)) {
     srvrun_reject_wt_slot(cfg, c, slot->stream_id);
     slot->in_use = 0;
     return;
@@ -748,17 +854,17 @@ static int wt_stream_delta_pending(
 }
 
 /* Whether srvrun_deliver_wt_stream_delta has anything to do at all: an active
- * session, a registered callback, and a pending delta (wt_stream_delta_pending)
- * — folded into one predicate so the caller is a single guarded early return.
- */
+ * session slot (sidx >= 0, from srvrun_wt_slot_for_new_stream), a registered
+ * callback, and a pending delta (wt_stream_delta_pending) — folded into one
+ * predicate so the caller is a single guarded early return. */
 static int wt_stream_delta_ready(
-    const srvrun_cfg*  cfg,
-    const srvrun_conn* c,
-    usz                len,
-    u8                 fin,
-    usz                delivered_len,
-    int                fin_delivered) {
-  if (!c->wt_active || !cfg->wt_on_stream_data) return 0;
+    const srvrun_cfg* cfg,
+    int               sidx,
+    usz               len,
+    u8                fin,
+    usz               delivered_len,
+    int               fin_delivered) {
+  if (sidx < 0 || !cfg->wt_on_stream_data) return 0;
   return wt_stream_delta_pending(len, fin, delivered_len, fin_delivered);
 }
 
@@ -767,23 +873,28 @@ static int wt_stream_delta_ready(
  * A slot's buf is a cumulative reassembly buffer (not a queue), so "new data
  * this step" is buf[delivered_len..len) — the caller passes pointers to the
  * slot's own delivered_len/fin_delivered so this can advance them in place.
- * Called every step for every in_use slot regardless of offered, so bytes
- * that arrive before the stream's session association still reach the app
- * once one exists, mirroring srvrun_offer_wt_slot's own no-active-session
- * fallback (silently skip rather than buffer growing unboundedly). */
+ * sidx is the session slot this stream was offered to (srvrun_offer_wt_slot's
+ * own resolution), so the callback's session pointer always matches the
+ * slot the stream is actually associated with. Called every step for every
+ * in_use slot regardless of offered, so bytes that arrive before the
+ * stream's session association still reach the app once one exists,
+ * mirroring srvrun_offer_wt_slot's own no-active-session fallback (silently
+ * skip rather than buffer growing unboundedly). */
 static void srvrun_deliver_wt_stream_delta(
     const srvrun_cfg* cfg,
     srvrun_conn*      c,
+    int               sidx,
     u64               stream_id,
     const u8*         buf,
     usz               len,
     u8                fin,
     usz*              delivered_len,
     int*              fin_delivered) {
-  if (!wt_stream_delta_ready(cfg, c, len, fin, *delivered_len, *fin_delivered))
+  if (!wt_stream_delta_ready(
+          cfg, sidx, len, fin, *delivered_len, *fin_delivered))
     return;
   cfg->wt_on_stream_data(
-      cfg->wt_stream_data_ctx, &c->wt, stream_id,
+      cfg->wt_stream_data_ctx, srvrun_wt_slot(c, sidx), stream_id,
       quic_span_of(buf + *delivered_len, len - *delivered_len), fin);
   *delivered_len = len;
   if (fin) *fin_delivered = 1;
@@ -795,10 +906,12 @@ static void srvrun_deliver_wt_stream_delta(
  * loop itself stays at the CCN gate. */
 static void srvrun_offer_and_deliver_wt_slot(
     const srvrun_cfg* cfg, srvrun_conn* c, wired_srvloop_wt_stream_slot* slot) {
+  int sidx;
   if (wt_slot_needs_offer(slot)) srvrun_offer_wt_slot(cfg, c, slot);
   if (!slot->in_use) return;
+  sidx = srvrun_wt_slot_for_new_stream(c);
   srvrun_deliver_wt_stream_delta(
-      cfg, c, slot->stream_id, slot->buf, slot->len, slot->fin,
+      cfg, c, sidx, slot->stream_id, slot->buf, slot->len, slot->fin,
       &slot->delivered_len, &slot->fin_delivered);
 }
 
@@ -823,10 +936,11 @@ static void srvrun_deliver_rx_datagram(
     srvrun_conn*                     c,
     const wired_srvloop_rx_datagram* dg) {
   quic_span data = quic_span_of(dg->buf, dg->len);
-  if (!c->wt_active) return;
-  wired_wt_session_offer_datagram(&c->wt, data);
+  int       sidx = srvrun_wt_slot_for_new_stream(c);
+  if (sidx < 0) return;
+  wired_wt_session_offer_datagram(srvrun_wt_slot(c, sidx), data);
   if (cfg->wt_on_datagram)
-    cfg->wt_on_datagram(cfg->wt_datagram_ctx, &c->wt, data);
+    cfg->wt_on_datagram(cfg->wt_datagram_ctx, srvrun_wt_slot(c, sidx), data);
 }
 
 /* RFC 9221 5 (Phase 7b Slice 2): drain every DATAGRAM this step's
@@ -850,8 +964,10 @@ static void srvrun_offer_wt_uni_slot(
     const srvrun_cfg*                 cfg,
     srvrun_conn*                      c,
     wired_srvloop_wt_uni_stream_slot* slot) {
-  if (!c->wt_active) return;
-  if (!wired_wt_session_offer_stream(&c->wt, slot->stream_id)) {
+  int sidx = srvrun_wt_slot_for_new_stream(c);
+  if (sidx < 0) return;
+  if (!wired_wt_session_offer_stream(
+          srvrun_wt_slot(c, sidx), slot->stream_id)) {
     srvrun_reject_wt_slot(cfg, c, slot->stream_id);
     slot->in_use = 0;
     return;
@@ -872,10 +988,12 @@ static void srvrun_offer_and_deliver_wt_uni_slot(
     const srvrun_cfg*                 cfg,
     srvrun_conn*                      c,
     wired_srvloop_wt_uni_stream_slot* slot) {
+  int sidx;
   if (wt_uni_slot_needs_offer(slot)) srvrun_offer_wt_uni_slot(cfg, c, slot);
   if (!slot->in_use) return;
+  sidx = srvrun_wt_slot_for_new_stream(c);
   srvrun_deliver_wt_stream_delta(
-      cfg, c, slot->stream_id, slot->buf, slot->len, slot->fin,
+      cfg, c, sidx, slot->stream_id, slot->buf, slot->len, slot->fin,
       &slot->delivered_len, &slot->fin_delivered);
 }
 
@@ -890,26 +1008,36 @@ static void srvrun_offer_wt_uni_streams(const srvrun_cfg* cfg, srvrun_conn* c) {
 
 /* draft-ietf-webtrans-http3-15 SS4.4: this step's stream-close gathering
  * (dispatch.c's gather_stream_closes) latched a RESET_STREAM/STOP_SENDING/FIN
- * on the exact stream id that is this connection's active WT session's
- * CONNECT stream -- close the session now, independent of whether the rest
- * of the connection is still alive. This is the fourth, precise trigger the
- * TLA+ model (tasks/loopeng/webtransport/) found missing: the existing
- * srvrun_free_slot trigger only fires on whole-connection teardown, so a
- * CONNECT stream closing while the connection stays open previously left the
- * session established indefinitely. c->l.closed_stream_seen is consumed
- * (cleared) here every step regardless of whether it matched, mirroring
- * datagram_violation's own per-step latch-and-clear shape. */
-/* 1 if the stream this step's gather_stream_closes latched is this
- * connection's active WT session's own CONNECT stream — split out of
- * srvrun_close_wt_on_stream_close to keep its own branch count at the CCN
- * gate. */
-static int wt_connect_stream_closed(const srvrun_conn* c) {
-  if (!c->wt_active || !c->l.closed_stream_seen) return 0;
-  return c->l.closed_stream_id == c->wt.connect_stream_id;
+ * on the exact stream id that is one of this connection's active WT
+ * sessions' own CONNECT stream -- close that one session now, independent of
+ * whether the rest of the connection is still alive. This is a precise
+ * per-session trigger distinct from srvrun_free_slot's own whole-connection
+ * teardown: without it, a CONNECT stream closing while the connection stays
+ * open would leave that session established indefinitely. c->l.closed_
+ * stream_seen is consumed (cleared) here every step regardless of whether it
+ * matched, mirroring datagram_violation's own per-step latch-and-clear
+ * shape. */
+/* The active session slot whose OWN CONNECT stream is the one this step's
+ * gather_stream_closes latched, or -1 if none matches (or nothing was
+ * latched) — split out of srvrun_close_wt_on_stream_close to keep its own
+ * branch count at the CCN gate. Only the ONE matching slot ever closes:
+ * srvrun_wt_slot_by_connect_id's own exact-match lookup is what keeps every
+ * other open session on this connection untouched. */
+static int wt_connect_stream_slot(const srvrun_conn* c) {
+  if (!c->l.closed_stream_seen) return -1;
+  return srvrun_wt_slot_by_connect_id(c, c->l.closed_stream_id);
 }
 
 static void srvrun_close_wt_on_stream_close(srvrun_conn* c) {
-  if (wt_connect_stream_closed(c)) wired_wt_session_close(&c->wt);
+  int sidx = wt_connect_stream_slot(c);
+  if (sidx >= 0) {
+    wired_wt_session_close(srvrun_wt_slot(c, sidx));
+    /* Closing frees the slot -- a later Extended CONNECT may reuse it
+     * (srvrun_wt_free_slot's own check is the active flag, not session state,
+     * since WIRED_WT_UNESTABLISHED's enum value 0 is indistinguishable from
+     * "never initialized" by state alone). */
+    *srvrun_wt_active_slot(c, sidx) = 0;
+  }
   c->l.closed_stream_seen = 0;
 }
 
@@ -1106,11 +1234,19 @@ static int srvrun_send_pending_datagram(
   return 1;
 }
 
-/* c is a live connection with an active WT session -- a broadcast target.
- * Split out of srvrun_broadcast_to_all to keep its own branch count at the
- * CCN gate (mirrors srvrun_owes_goaway's own role for srvrun_goaway_all). */
+/* 1 if c has any active WT session (any slot), regardless of which one. */
+static int wt_any_active(const srvrun_conn* c) {
+  for (int i = 0; i < SRVRUN_MAX_WT_SESSIONS; i++)
+    if (srvrun_wt_is_active(c, i)) return 1;
+  return 0;
+}
+
+/* c is a live connection with at least one active WT session -- a broadcast
+ * target. Split out of srvrun_broadcast_to_all to keep its own branch count
+ * at the CCN gate (mirrors srvrun_owes_goaway's own role for
+ * srvrun_goaway_all). */
 static int srvrun_is_broadcast_target(const srvrun_conn* c) {
-  return c->up && c->wt_active;
+  return c->up && wt_any_active(c);
 }
 
 /* Queue data into every connection with an active WT session's own single-
@@ -1476,12 +1612,19 @@ static void srvrun_free_bigbuf_rows(wired_srvrun_env* env, srvrun_conn* c) {
     srvrun_resp_release_bigbuf(env, &c->resp[i]);
 }
 
+/* Close every open WT session slot on c, not just one -- whole-connection
+ * teardown must never leave a session behind. */
+static void srvrun_close_all_wt(srvrun_conn* c) {
+  for (int i = 0; i < SRVRUN_MAX_WT_SESSIONS; i++) {
+    if (!(*srvrun_wt_active_slot(c, i))) continue;
+    wired_wt_session_close(srvrun_wt_slot(c, i));
+    (*srvrun_wt_active_slot(c, i)) = 0;
+  }
+}
+
 static void srvrun_free_slot(wired_srvrun_env* env, srvrun_state* st, int i) {
   srvrun_conn* c = &st->conns[i];
-  if (c->wt_active) {
-    wired_wt_session_close(&c->wt);
-    c->wt_active = 0;
-  }
+  srvrun_close_all_wt(c);
   srvrun_free_bigbuf_rows(env, c);
   quic_conntable_remove(st->table, QUIC_CONNTABLE_CAP, i);
   c->up = 0;
@@ -1694,14 +1837,27 @@ static void srvrun_start_wt_status(
       &r->sess, st + SRVRUN_RESP_HDR_ROOM - pob.len, pob.len, SRVRUN_CHUNK);
 }
 
+/* Record this Extended CONNECT's own :path value into session slot sidx:
+ * copied, not viewed, since c->l.req's storage does not outlive this step.
+ * Overflow past SRVRUN_WT_PATH_CAP is truncated (see its own doc). */
+static void srvrun_wt_record_path(srvrun_conn* c, int sidx) {
+  usz n = quic_u64_min(c->l.req.path_len, SRVRUN_WT_PATH_CAP);
+  quic_memcpy(c->wt_path[sidx], c->l.req.path, n);
+  c->wt_path_len[sidx] = n;
+}
+
 /* Establish a WebTransport session for this Extended CONNECT (draft-ietf-
- * webtrans-http3-15 SS3.2/SS4): the session id is the CONNECT stream's own
- * id. Skips the normal app-handler response path entirely. */
+ * webtrans-http3-15 SS3.2/SS4) in the first free session slot: the session id
+ * is the CONNECT stream's own id. Skips the normal app-handler response path
+ * entirely. Caller (srvrun_dispatch_wt_free_slot) already confirmed a free
+ * slot exists. */
 static void srvrun_start_wt(
     wired_srvrun_env* env, int slot, srvrun_conn* c, srvrun_resp* r) {
-  wired_wt_session_init(&c->wt, c->l.req_stream_id);
-  wired_wt_session_establish(&c->wt);
-  c->wt_active = 1;
+  int sidx = srvrun_wt_free_slot(c);
+  wired_wt_session_init(srvrun_wt_slot(c, sidx), c->l.req_stream_id);
+  wired_wt_session_establish(srvrun_wt_slot(c, sidx));
+  (*srvrun_wt_active_slot(c, sidx)) = 1;
+  srvrun_wt_record_path(c, sidx);
   srvrun_start_wt_status(env, slot, c, r, 200);
 }
 
@@ -1928,14 +2084,13 @@ static void srvrun_start_app_resp(
   srvrun_arm_round0(ctx, c, slot, r, st, &body, ct, more, total_size);
 }
 
-/* Reject this Extended CONNECT with 429 (WT-C-010/011: a second Extended
- * CONNECT arriving while a WT session is already active on this connection)
- * without disturbing the existing session. One session per connection for
- * now (tasks/webtransport-plan.md scope) -- srvrun_start_wt would otherwise
- * unconditionally re-init c->wt, silently resetting an ESTABLISHED session
- * back to UNESTABLISHED and dropping its buffered state. Also aborts the
- * rejected stream with H3_REQUEST_REJECTED (RFC 9114 4.1.1/8.1), independent
- * of and in addition to the 429 above. */
+/* Reject this Extended CONNECT with 429 (WT-C-010/011: a new Extended CONNECT
+ * arriving while every session slot is already occupied, SRVRUN_MAX_WT_
+ * SESSIONS reached) without disturbing any existing session -- srvrun_start_wt
+ * only ever claims a FREE slot (srvrun_wt_free_slot), so an existing
+ * ESTABLISHED session's own slot is never re-initialized by this path. Also
+ * aborts the rejected stream with H3_REQUEST_REJECTED (RFC 9114 4.1.1/8.1),
+ * independent of and in addition to the 429 above. */
 static void srvrun_reject_wt_busy(
     const srvrun_cfg* cfg, srvrun_conn* c, int slot, srvrun_resp* r) {
   srvrun_start_wt_status(cfg->env, slot, c, r, 429);
@@ -1990,7 +2145,7 @@ static void srvrun_dispatch_wt(
     srvrun_reject_wt(cfg->env, slot, c, r);
     return;
   }
-  if (c->wt_active) {
+  if (srvrun_wt_free_slot(c) < 0) {
     srvrun_reject_wt_busy(cfg, c, slot, r);
     return;
   }
@@ -2039,8 +2194,7 @@ static void srvrun_start_resp(const srvrun_step_ctx* ctx, int slot) {
  * FIN at every round boundary except the true last one. */
 static int srvrun_slice_fin_suppressed(
     const srvrun_conn* c, const srvrun_resp* r) {
-  int is_wt_connect_stream =
-      c->wt_active && r->stream_id == c->wt.connect_stream_id;
+  int is_wt_connect_stream = srvrun_wt_slot_by_connect_id(c, r->stream_id) >= 0;
   return is_wt_connect_stream || r->streaming;
 }
 
