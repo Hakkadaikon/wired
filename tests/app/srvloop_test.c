@@ -2027,7 +2027,7 @@ static void test_srvloop_ack_eliciting_records_pn_and_pending(void) {
   ob   = (quic_obuf){out, sizeof out, 0};
   wired_srvloop_step(
       &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
-  CHECK(quic_recvpn_seen(&f.l.app_ack_recv, 7) == 1);
+  CHECK(quic_recvpn_seen(&f.l.ack_recv.r[QUIC_PNS_APP], 7) == 1);
   CHECK(f.l.app_ack_policy.pending == 1);
 }
 
@@ -2048,7 +2048,7 @@ static void test_srvloop_ack_non_eliciting_not_recorded(void) {
   ob   = (quic_obuf){out, sizeof out, 0};
   wired_srvloop_step(
       &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
-  CHECK(quic_recvpn_seen(&f.l.app_ack_recv, 7) == 0);
+  CHECK(quic_recvpn_seen(&f.l.ack_recv.r[QUIC_PNS_APP], 7) == 0);
   CHECK(f.l.app_ack_policy.pending == 0);
 }
 

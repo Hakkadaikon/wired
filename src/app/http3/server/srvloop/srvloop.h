@@ -5,7 +5,7 @@
 #include "app/http3/server/h3srv/state.h"
 #include "common/bytes/span/span.h"
 #include "tls/handshake/roles/server/server.h"
-#include "transport/conn/pnspace/recvpn/recvpn.h"
+#include "transport/conn/pnspace/pnspaces/recv_spaces.h"
 #include "transport/recovery/detect/recovery/ackpolicy.h"
 
 /** @file
@@ -203,17 +203,15 @@ typedef struct {
   u64 hs_rx_pn;    /**< last received Handshake packet number to ACK (the
                     * client Finished's actual PN, which is not always 0) */
   int hs_rx_seen;  /**< 1 once a Handshake packet has been received */
-  /** RFC 9000 13.2.1/13.2.2/19.3: this connection's 1-RTT (application)
-   * packet-number-space ACK state -- every received pn (quic_recvpn's own
-   * 64-pn sliding window bounds how far back it tracks, RFC 9000 13.2.3)
-   * plus whether/when an ACK is owed (quic_ackpolicy). Independent of
-   * hs_ack_* below (RFC 9000 12.3: packet number spaces are separate). */
-  quic_recvpn    app_ack_recv;
-  quic_ackpolicy app_ack_policy;
-  /** Same as app_ack_recv/app_ack_policy, for the Handshake packet number
-   * space. */
-  quic_recvpn    hs_ack_recv;
-  quic_ackpolicy hs_ack_policy;
+  /** RFC 9000 12.3/13.2.1/13.2.2/19.3: every packet number space's received-pn
+   * window (quic_pnspaces_recv, independent per space -- Initial is out of
+   * this loop's scope, srvboot's own layer) plus whether/when each space
+   * owes an ACK (quic_ackpolicy, one instance per space since App and
+   * Handshake ack independently). Indexed by QUIC_PNS_APP/QUIC_PNS_HANDSHAKE
+   * (transport/conn/lifecycle/conn/pnspace.h). */
+  quic_pnspaces_recv ack_recv;
+  quic_ackpolicy     app_ack_policy;
+  quic_ackpolicy     hs_ack_policy;
   /** Monotonic ms this step is being driven at -- the time source
    * quic_ackpolicy's delayed-ACK timer measures against. The caller (e.g.
    * srvrun.c) sets this once per step, sharing its own PTO/RTT time source
