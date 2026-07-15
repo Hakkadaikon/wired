@@ -4,6 +4,7 @@
 #include "crypto/asymmetric/ecc/p256/p256_point.h"
 #include "crypto/pki/cert/p256cert/p256cert.h"
 #include "tls/ext/stp/parse_tp.h"
+#include "tls/ext/tparam/tparam.h"
 #include "tls/handshake/core/tls/ext_keyshare.h"
 #include "tls/handshake/core/tls/handshake.h"
 #include "tls/handshake/core/tls/tpext.h"
@@ -246,6 +247,21 @@ static void take_peer_max_datagram_frame_size(
   quic_stp_parse(tp, QUIC_TP_MAX_DATAGRAM_FRAME_SIZE, &out_v);
 }
 
+/* RFC 9000 4.1/18.2: extract one integer-valued transport parameter (param_id)
+ * from the ClientHello's transport parameters, if present. Leaves *out at 0
+ * (absent) when the extension or the specific parameter is missing -- both
+ * initial_max_data and initial_max_stream_data_bidi_local default to "send
+ * nothing" when unadvertised, matching this SDK's existing absent-parameter
+ * convention (take_peer_max_datagram_frame_size above). */
+static void take_peer_tp_int(const u8* ch, usz ch_len, u64 param_id, u64* out) {
+  quic_span    ext, tp;
+  quic_stp_out out_v = {out, 0};
+  *out               = 0;
+  if (!find_client_tp_ext(ch, ch_len, &ext)) return;
+  if (quic_tpext_decode(ext, &tp) == 0) return;
+  quic_stp_parse(tp, param_id, &out_v);
+}
+
 /* The legacy_session_id at body offset 34 is fully framed in ch_msg: the length
  * byte is present, is <=32, and its bytes all lie within ch_msg. */
 static int sdrv_sid_fits(const u8* ch_msg, usz ch_len) {
@@ -270,6 +286,11 @@ int quic_sdrv_recv_client_hello(quic_sdrv* s, const u8* ch_msg, usz ch_len) {
   if (!take_client_sid(s, ch_msg, ch_len)) return 0;
   take_peer_max_datagram_frame_size(
       ch_msg, ch_len, &s->peer_max_datagram_frame_size);
+  take_peer_tp_int(
+      ch_msg, ch_len, QUIC_TP_INITIAL_MAX_DATA, &s->peer_initial_max_data);
+  take_peer_tp_int(
+      ch_msg, ch_len, QUIC_TP_INITIAL_MAX_STREAM_DATA_BIDI_LOCAL,
+      &s->peer_initial_max_stream_data_bidi_local);
   quic_transcript_add(&s->tr, ch_msg, ch_len);
   return 1;
 }

@@ -46,6 +46,20 @@ typedef struct {
                                      * transport parameters; 0 = not
                                      * advertised (peer does not support
                                      * DATAGRAM) */
+  u64 peer_initial_max_data;        /**< peer's initial_max_data (0x04, RFC 9000
+                                     * 18.2) from the ClientHello transport
+                                     * parameters -- the connection-level credit
+                                     * this endpoint may send the peer, before any
+                                     * MAX_DATA update; 0 = absent (send nothing,
+                                     * the RFC's safe default) */
+  u64 peer_initial_max_stream_data_bidi_local; /**< peer's
+                                                * initial_max_stream_data_bidi_local
+                                                * (0x05, RFC 9000 18.2): the TP
+                                                * sender's own locally-initiated
+                                                * streams' credit, i.e. what
+                                                * THIS endpoint may send on a
+                                                * client-initiated (HTTP/3
+                                                * request) stream; 0 = absent */
 } quic_sdrv;
 
 /** Inputs to quic_sdrv_init.

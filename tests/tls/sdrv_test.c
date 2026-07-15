@@ -438,6 +438,93 @@ static void test_sdrv_recv_client_hello_no_tp_ext_stays_zero(void) {
   CHECK(s.peer_max_datagram_frame_size == 0);
 }
 
+/* RFC 9000 18.2: a ClientHello carrying initial_max_data in its transport
+ * parameters makes quic_sdrv_recv_client_hello store the exact advertised
+ * value on sdrv.peer_initial_max_data -- the connection-level send credit
+ * this endpoint (the server) may use, before any MAX_DATA update. */
+static void test_sdrv_recv_client_hello_stores_peer_initial_max_data(void) {
+  u8        cli_pub[32], srv_random[32];
+  u8        tpbuf[16], ch[512];
+  quic_obuf tob = quic_obuf_of(tpbuf, sizeof(tpbuf));
+  usz       tp_len;
+  usz       ch_len;
+  quic_sdrv s;
+  tp_len = quic_tparam_put_int(&tob, QUIC_TP_INITIAL_MAX_DATA, 1048576);
+  CHECK(tp_len != 0);
+  sdrv_dgram_test_setup(&s, cli_pub, srv_random);
+  ch_len = sdrv_test_client_hello_tp(
+      ch, sizeof(ch), cli_pub, srv_random, quic_span_of(tpbuf, tp_len));
+  CHECK(ch_len != 0);
+  CHECK(quic_sdrv_recv_client_hello(&s, ch, ch_len));
+  CHECK(s.peer_initial_max_data == 1048576);
+}
+
+/* RFC 9000 18.2's safe default: a TP extension present but without
+ * initial_max_data leaves the send credit at 0 (send nothing), never an
+ * uninitialized or stale value. */
+static void test_sdrv_recv_client_hello_no_initial_max_data_stays_zero(void) {
+  u8        cli_pub[32], srv_random[32];
+  u8        tpbuf[16], ch[512];
+  quic_obuf tob = quic_obuf_of(tpbuf, sizeof(tpbuf));
+  usz       tp_len;
+  usz       ch_len;
+  quic_sdrv s;
+  tp_len = quic_tparam_put_int(&tob, QUIC_TP_MAX_IDLE_TIMEOUT, 30000);
+  CHECK(tp_len != 0);
+  sdrv_dgram_test_setup(&s, cli_pub, srv_random);
+  ch_len = sdrv_test_client_hello_tp(
+      ch, sizeof(ch), cli_pub, srv_random, quic_span_of(tpbuf, tp_len));
+  CHECK(ch_len != 0);
+  CHECK(quic_sdrv_recv_client_hello(&s, ch, ch_len));
+  CHECK(s.peer_initial_max_data == 0);
+}
+
+/* RFC 9000 18.2: a ClientHello carrying initial_max_stream_data_bidi_local
+ * makes quic_sdrv_recv_client_hello store the exact advertised value --
+ * the per-stream send credit for streams the CLIENT (the TP sender) itself
+ * initiates, i.e. HTTP/3 request streams the server replies on. */
+static void
+test_sdrv_recv_client_hello_stores_peer_initial_max_stream_data_bidi_local(
+    void) {
+  u8        cli_pub[32], srv_random[32];
+  u8        tpbuf[16], ch[512];
+  quic_obuf tob = quic_obuf_of(tpbuf, sizeof(tpbuf));
+  usz       tp_len;
+  usz       ch_len;
+  quic_sdrv s;
+  tp_len = quic_tparam_put_int(
+      &tob, QUIC_TP_INITIAL_MAX_STREAM_DATA_BIDI_LOCAL, 262144);
+  CHECK(tp_len != 0);
+  sdrv_dgram_test_setup(&s, cli_pub, srv_random);
+  ch_len = sdrv_test_client_hello_tp(
+      ch, sizeof(ch), cli_pub, srv_random, quic_span_of(tpbuf, tp_len));
+  CHECK(ch_len != 0);
+  CHECK(quic_sdrv_recv_client_hello(&s, ch, ch_len));
+  CHECK(s.peer_initial_max_stream_data_bidi_local == 262144);
+}
+
+/* Absent-parameter case, stream-level: the TP extension is present but
+ * without initial_max_stream_data_bidi_local -- the per-stream send credit
+ * stays 0 (send nothing on any stream until MAX_STREAM_DATA arrives). */
+static void
+test_sdrv_recv_client_hello_no_initial_max_stream_data_bidi_local_stays_zero(
+    void) {
+  u8        cli_pub[32], srv_random[32];
+  u8        tpbuf[16], ch[512];
+  quic_obuf tob = quic_obuf_of(tpbuf, sizeof(tpbuf));
+  usz       tp_len;
+  usz       ch_len;
+  quic_sdrv s;
+  tp_len = quic_tparam_put_int(&tob, QUIC_TP_MAX_IDLE_TIMEOUT, 30000);
+  CHECK(tp_len != 0);
+  sdrv_dgram_test_setup(&s, cli_pub, srv_random);
+  ch_len = sdrv_test_client_hello_tp(
+      ch, sizeof(ch), cli_pub, srv_random, quic_span_of(tpbuf, tp_len));
+  CHECK(ch_len != 0);
+  CHECK(quic_sdrv_recv_client_hello(&s, ch, ch_len));
+  CHECK(s.peer_initial_max_stream_data_bidi_local == 0);
+}
+
 /* RFC 8446 4.1.2: the ClientHello's own extensions-length field sits right
  * after the fixed legacy_version(2) + random(32) + empty session_id(1) +
  * one cipher_suite(2+2) + null compression(1+1) prefix, i.e. at body offset
@@ -617,6 +704,10 @@ void test_sdrv(void) {
   test_sdrv_recv_client_hello_stores_peer_max_datagram_frame_size();
   test_sdrv_recv_client_hello_no_max_datagram_param_stays_zero();
   test_sdrv_recv_client_hello_no_tp_ext_stays_zero();
+  test_sdrv_recv_client_hello_stores_peer_initial_max_data();
+  test_sdrv_recv_client_hello_no_initial_max_data_stays_zero();
+  test_sdrv_recv_client_hello_stores_peer_initial_max_stream_data_bidi_local();
+  test_sdrv_recv_client_hello_no_initial_max_stream_data_bidi_local_stays_zero();
   test_sdrv_session_id_echo();
   test_sdrv_external_chain();
   test_sdrv_external_chain_wrong_key();
