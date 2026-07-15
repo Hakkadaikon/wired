@@ -43,6 +43,28 @@ ssz wired_fio_read(const char* path, quic_mspan buf) {
   return got;
 }
 
+/* newfstatat's struct stat layout (x86_64 Linux): st_size sits at byte
+ * offset 48, sized as a signed 8-byte off_t. Only that one field is read. */
+#define FIO_STAT_BUF_LEN 144
+#define FIO_STAT_SIZE_OFF 48
+
+ssz wired_fio_open(const char* path) {
+  return (ssz)syscall3(SYS_openat, FIO_AT_FDCWD, path, FIO_O_RDONLY);
+}
+
+void wired_fio_close(i64 fd) { syscall1(SYS_close, fd); }
+
+ssz wired_fio_pread(i64 fd, quic_mspan buf, u64 off) {
+  return (ssz)syscall4(SYS_pread64, fd, buf.p, buf.n, off);
+}
+
+ssz wired_fio_size(const char* path) {
+  u8  st[FIO_STAT_BUF_LEN];
+  i64 ret = syscall4(SYS_newfstatat, FIO_AT_FDCWD, path, st, 0);
+  if (ret < 0) return (ssz)ret;
+  return (ssz) * (const i64*)(st + FIO_STAT_SIZE_OFF);
+}
+
 /* Write the whole span to fd, looping past short writes. A negative return
  * from write(2) (-errno) ends the loop early. */
 static ssz fio_write_all(i64 fd, quic_span data) {

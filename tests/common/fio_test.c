@@ -94,6 +94,83 @@ static void test_fio_append_empty(void) {
   fiot_unlink();
 }
 
+/* wired_fio_size reports the total byte count without opening/reading. */
+static void test_fio_size_reports_total(void) {
+  u8 data[7] = {1, 2, 3, 4, 5, 6, 7};
+  fiot_make(data, 7);
+  CHECK(wired_fio_size(fiot_path) == 7);
+  fiot_unlink();
+}
+
+/* wired_fio_size on a missing path passes -errno through (negative). */
+static void test_fio_size_missing(void) {
+  CHECK(wired_fio_size("build/fio_test_missing.tmp") < 0);
+}
+
+/* wired_fio_open + wired_fio_pread: reading from offset 0 behaves like
+ * wired_fio_read for a buffer at least as big as the file. */
+static void test_fio_open_pread_close_roundtrip(void) {
+  u8  data[5] = {0x11, 0x22, 0x33, 0x44, 0x55};
+  u8  out[16] = {0};
+  ssz fd;
+  fiot_make(data, 5);
+  fd = wired_fio_open(fiot_path);
+  CHECK(fd >= 0);
+  CHECK(wired_fio_pread(fd, quic_mspan_of(out, sizeof out), 0) == 5);
+  for (usz i = 0; i < 5; i++) CHECK(out[i] == data[i]);
+  wired_fio_close(fd);
+  fiot_unlink();
+}
+
+/* wired_fio_pread at a nonzero offset returns the bytes starting there
+ * (RFC-free but the round semantics rely on this: round N+1 must resume
+ * exactly where round N left off). */
+static void test_fio_pread_nonzero_offset(void) {
+  u8  data[6] = {10, 20, 30, 40, 50, 60};
+  u8  out[3]  = {0};
+  ssz fd;
+  fiot_make(data, 6);
+  fd = wired_fio_open(fiot_path);
+  CHECK(fd >= 0);
+  CHECK(wired_fio_pread(fd, quic_mspan_of(out, sizeof out), 3) == 3);
+  CHECK(out[0] == 40 && out[1] == 50 && out[2] == 60);
+  wired_fio_close(fd);
+  fiot_unlink();
+}
+
+/* wired_fio_pread past EOF returns 0, not an error or a short garbage read. */
+static void test_fio_pread_at_eof(void) {
+  u8  data[4] = {1, 2, 3, 4};
+  u8  out[4]  = {0xff, 0xff, 0xff, 0xff};
+  ssz fd;
+  fiot_make(data, 4);
+  fd = wired_fio_open(fiot_path);
+  CHECK(fd >= 0);
+  CHECK(wired_fio_pread(fd, quic_mspan_of(out, sizeof out), 4) == 0);
+  wired_fio_close(fd);
+  fiot_unlink();
+}
+
+/* wired_fio_pread with a buffer smaller than the remaining bytes returns
+ * exactly buf.n (a short round, not EOF) -- the caller reads on. */
+static void test_fio_pread_partial_round(void) {
+  u8  data[10] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
+  u8  out[4]   = {0};
+  ssz fd;
+  fiot_make(data, 10);
+  fd = wired_fio_open(fiot_path);
+  CHECK(fd >= 0);
+  CHECK(wired_fio_pread(fd, quic_mspan_of(out, sizeof out), 0) == 4);
+  CHECK(out[0] == 0 && out[3] == 3);
+  wired_fio_close(fd);
+  fiot_unlink();
+}
+
+/* wired_fio_open on a missing path passes -errno through. */
+static void test_fio_open_missing(void) {
+  CHECK(wired_fio_open("build/fio_test_missing.tmp") < 0);
+}
+
 void test_fio(void) {
   test_fio_roundtrip();
   test_fio_missing();
@@ -102,4 +179,11 @@ void test_fio(void) {
   test_fio_empty();
   test_fio_append_appends();
   test_fio_append_empty();
+  test_fio_size_reports_total();
+  test_fio_size_missing();
+  test_fio_open_pread_close_roundtrip();
+  test_fio_pread_nonzero_offset();
+  test_fio_pread_at_eof();
+  test_fio_pread_partial_round();
+  test_fio_open_missing();
 }

@@ -21,6 +21,8 @@ typedef u64            usz; /**< unsigned size (size_t equivalent) */
 #define SYS_read 0                /**< read(2) syscall number */
 #define SYS_write 1               /**< write(2) syscall number */
 #define SYS_close 3               /**< close(2) syscall number */
+#define SYS_newfstatat 262        /**< newfstatat(2) syscall number */
+#define SYS_pread64 17            /**< pread64(2) syscall number */
 #define SYS_mmap 9                /**< mmap(2) syscall number */
 #define SYS_mprotect 10           /**< mprotect(2) syscall number */
 #define SYS_munmap 11             /**< munmap(2) syscall number */
