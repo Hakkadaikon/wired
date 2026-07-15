@@ -1300,6 +1300,10 @@ int main(void) {
   test_negotiate_h3_among_others();
   test_negotiate_truncated();
   test_negotiate_build_response();
+  test_negotiate_selects_hq();
+  test_negotiate_prefers_h3_over_hq();
+  test_negotiate_selects_hq_when_only_offered();
+  test_negotiate_none_when_neither_offered();
   test_sni_extract_from_clienthello();
   test_sni_extract_truncated();
   test_sni_extract_wrong_name_type();
@@ -1400,6 +1404,8 @@ int main(void) {
   test_p256cert();
   test_cvecdsa();
   test_eebuild();
+  test_eebuild_selects_hq();
+  test_eebuild_rejects_no_negotiation();
   test_crecv_collect();
   test_crecv_message();
   test_server();
