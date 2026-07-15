@@ -3711,6 +3711,37 @@ static int sr_stream_body_handler(
   return 1;
 }
 
+/* T-023 (found via real quic-go interop, not in the original ledger):
+ * streaming test handler keyed by the REQUEST'S OWN PATH (its first byte),
+ * not a shared global -- proves each stream's later rounds still see ITS
+ * OWN request, not whichever stream's request happened to complete most
+ * recently on the connection (the bug: c->l.req is a per-connection mirror
+ * srvloop overwrites every time any sibling stream's request completes;
+ * srvrun_resp_next_round must use r->stream_req, a copy taken at round 0,
+ * not c->l.req directly). Writes req->path[0] repeated sr_stream_round_cap
+ * times per round, up to sr_stream_total_len bytes total. */
+static int sr_stream_body_handler_by_path(
+    void*                       hctx,
+    const wired_h3reqdrive_req* req,
+    u64                         offset,
+    quic_obuf*                  body_out,
+    const char**                ct,
+    int*                        more,
+    u64*                        total_size) {
+  usz cap =
+      body_out->cap < sr_stream_round_cap ? body_out->cap : sr_stream_round_cap;
+  usz remaining =
+      offset < sr_stream_total_len ? (usz)(sr_stream_total_len - offset) : 0;
+  usz n = remaining < cap ? remaining : cap;
+  (void)hctx;
+  (void)ct;
+  for (usz i = 0; i < n; i++) body_out->p[i] = req->path[0];
+  body_out->len = n;
+  if (offset == 0) *total_size = sr_stream_total_len;
+  if (offset + n < sr_stream_total_len) *more = 1;
+  return 1;
+}
+
 /* 1 once every slice of r's current round is sent and acked -- a
  * non-destructive read (unlike wired_sendsess_done, which clears `active`
  * as a side effect: calling it here as well as inside srvrun_resp_reap
@@ -3720,14 +3751,22 @@ static int sr_round_fully_acked(const wired_sendsess* s) {
          wired_sendsess_inflight(s) == 0;
 }
 
-static void sr_drive_round_to_done(srvrun_step_ctx* ctx, srvrun_conn* c) {
-  srvrun_resp* r = &c->resp[0];
+/* Drive resp[]'s idx-th slot's current round to fully-acked (pump/ack loop,
+ * same as sr_drive_round_to_done below but for a caller juggling more than
+ * one resp[] slot on the same connection). */
+static void sr_drive_resp_round_to_done(
+    srvrun_step_ctx* ctx, srvrun_conn* c, usz idx) {
+  srvrun_resp* r = &c->resp[idx];
   while (!sr_round_fully_acked(&r->sess)) {
     u64 pn0 = c->l.tx_pn;
     srvrun_pump_sess(ctx, 0);
     if (c->l.tx_pn == pn0) break; /* nothing sendable (e.g. cwnd/credit) */
     wired_sendsess_ack(&r->sess, pn0, c->l.tx_pn - 1);
   }
+}
+
+static void sr_drive_round_to_done(srvrun_step_ctx* ctx, srvrun_conn* c) {
+  sr_drive_resp_round_to_done(ctx, c, 0);
 }
 
 /* T-007: with the bigbuf pool exhausted, a streaming handler's response
@@ -4067,6 +4106,79 @@ static void test_srvrun_streaming_concurrent_requests_do_not_corrupt_each_other(
       sr_drive_round_to_done(&ctxb, &cb);
       srvrun_reap_resps(&ctxb, &cb, 0);
     }
+  }
+}
+
+/* T-023 (found via real quic-go interop, not in the original ledger): TWO
+ * streams on the SAME connection streaming in parallel -- the shape that
+ * actually broke against quic-go (3 parallel GETs, each raising the other's
+ * completion of c->l.req between rounds). Stream 0 requests path "A", is
+ * driven through round 0 only; THEN stream 4's request ("B") starts and
+ * completes its own round 0, overwriting c->l.req (route_note_done's "last
+ * completed wins" mirror) the way a sibling's completion would in the real
+ * failure. Stream 0's round 1 must still serve ITS OWN path ("A" bytes),
+ * proving srvrun_resp_next_round used its own stream_req copy, not the
+ * now-stale-for-stream-0 c->l.req. */
+static void test_srvrun_streaming_later_round_uses_own_stream_not_sibling(
+    void) {
+  struct lp_fix   f;
+  srvrun_conn     c  = {0};
+  quic_obuf       ob = {0};
+  u8              obuf[2048];
+  static const u8 path_a[] = "A";
+  static const u8 path_b[] = "B";
+  ob                       = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_stream_total_len      = 200;
+  sr_stream_round_cap      = 100;
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.s.sdrv.alpn = QUIC_SALPN_HQ;
+  c.cc.cwnd     = 1u << 20;
+  {
+    srvrun_cfg cfg = {
+        -1,
+        0,
+        sr_stream_body_handler_by_path,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        &g_srvrun_env,
+        0};
+    srvrun_state    st  = {0, &c};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    /* stream 0 ("A"): round 0 only, still streaming (100 of 200 sent). */
+    sr_set_req(&c, 0, 0, 0);
+    c.l.req.path     = path_a;
+    c.l.req.path_len = 1;
+    srvrun_start_resp(&ctx, 0);
+    CHECK(c.resp[0].streaming == 1);
+    sr_drive_round_to_done(&ctx, &c);
+    /* stream 4 ("B") starts and finishes its OWN round 0 next, on the SAME
+     * connection slot (its resp[] claims a DIFFERENT resp[] array slot,
+     * srvrun_resp_claim's usual "first free slot" search) -- this is what
+     * overwrites c->l.req with "B" (route_note_done's mirror), the exact
+     * moment a sibling stream's completion clobbered stream 0's request in
+     * the real bug. */
+    sr_set_req(&c, 0, 0, 4);
+    c.l.req.path     = path_b;
+    c.l.req.path_len = 1;
+    srvrun_start_resp(&ctx, 0);
+    CHECK(c.resp[1].streaming == 1);          /* claimed the next resp[] slot */
+    sr_drive_resp_round_to_done(&ctx, &c, 1); /* ack stream 4's round 0 too */
+    /* stream 0's round 1: must still see path "A", not the now-current "B"
+     * c->l.req holds. */
+    srvrun_reap_resps(&ctx, &c, 0);
+    CHECK(c.resp[0].sess.q.p[0] == 'A');
+    /* stream 4's own round 1 likewise still sees "B". */
+    CHECK(c.resp[1].sess.q.p[0] == 'B');
   }
 }
 
@@ -5480,6 +5592,7 @@ void test_srvrun(void) {
   test_srvrun_streaming_final_round_releases_slot();
   test_srvrun_streaming_stream_offset_accumulates_across_rounds();
   test_srvrun_streaming_concurrent_requests_do_not_corrupt_each_other();
+  test_srvrun_streaming_later_round_uses_own_stream_not_sibling();
   test_srvrun_streaming_h3_prefix_receives_total_size_not_round_len();
   test_srvrun_streaming_body_exactly_row_cap_single_round();
   test_srvrun_streaming_body_row_cap_plus_one_streams();

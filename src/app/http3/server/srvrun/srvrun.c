@@ -127,6 +127,17 @@ typedef struct {
    * continuing the same DATA frame). Meaningless on the hq-interop path,
    * which never frames at all. */
   int stream_h3_framed;
+  /* Round 0's request method/path, copied out of c->l.req (a per-connection
+   * mirror of "whichever request completed most recently this step" --
+   * route_note_done overwrites it every time ANY stream on this connection
+   * finishes, so a later round calling the handler with c->l.req directly
+   * would silently serve a DIFFERENT stream's path the moment a sibling
+   * response's request completes in between rounds; the bug this fixes
+   * against a real quic-go client running 3 parallel large downloads:
+   * whichever stream's request happened to complete last got served to
+   * every other stream's later rounds too). Meaningless while !streaming. */
+  u8                   stream_req_scratch[512];
+  wired_h3reqdrive_req stream_req;
 } srvrun_resp;
 /* Matches WIRED_SRVLOOP_MAX_STREAMS: the receive side's stream-slot table
  * bounds how many distinct request streams a connection reassembles at
@@ -1522,16 +1533,16 @@ static void srvrun_open_done(const srvrun_step_ctx* ctx, int slot, int ok) {
  * wired_srvloop_handler): left at their caller-zeroed defaults by every
  * ordinary (single-round) handler. */
 static void srvrun_call_handler(
-    const srvrun_step_ctx* ctx,
-    srvrun_conn*           c,
-    u64                    offset,
-    quic_obuf*             body,
-    const char**           ct,
-    int*                   more,
-    u64*                   total_size) {
+    const srvrun_step_ctx*      ctx,
+    const wired_h3reqdrive_req* req,
+    u64                         offset,
+    quic_obuf*                  body,
+    const char**                ct,
+    int*                        more,
+    u64*                        total_size) {
   if (!ctx->cfg->handler) return;
   if (!ctx->cfg->handler(
-          ctx->cfg->ctx, &c->l.req, offset, body, ct, more, total_size))
+          ctx->cfg->ctx, req, offset, body, ct, more, total_size))
     body->len = 0;
 }
 
@@ -1826,13 +1837,42 @@ static void srvrun_arm_h3_resp(
   srvrun_arm_h3_resp_framed(ctx, c, slot, r, st, body, ct, total_len);
 }
 
+/* Copy up to n bytes of src into dst, capped at n -- the shared byte-copy
+ * loop for both fields srvrun_copy_stream_req scratches out. */
+static void srvrun_scratch_copy(u8* dst, const u8* src, usz n) {
+  for (usz i = 0; i < n; i++) dst[i] = src[i];
+}
+
+/* Copy req's method/path into r's own scratch (see stream_req's doc): later
+ * rounds must call the handler with THIS copy, never c->l.req directly,
+ * since c->l.req is a per-connection mirror any sibling stream's completion
+ * overwrites between rounds. method+path share one scratch buffer, method
+ * first (it is always short: "GET"/"POST"/...). */
+static void srvrun_copy_stream_req(
+    srvrun_resp* r, const wired_h3reqdrive_req* req) {
+  usz cap  = sizeof r->stream_req_scratch;
+  usz mlen = req->method_len < 8 ? req->method_len : 8;
+  usz plen = req->path_len < cap - mlen ? req->path_len : cap - mlen;
+  srvrun_scratch_copy(r->stream_req_scratch, req->method, mlen);
+  srvrun_scratch_copy(r->stream_req_scratch + mlen, req->path, plen);
+  r->stream_req            = *req;
+  r->stream_req.method     = r->stream_req_scratch;
+  r->stream_req.method_len = mlen;
+  r->stream_req.path       = r->stream_req_scratch + mlen;
+  r->stream_req.path_len   = plen;
+  r->stream_req.body       = 0; /* not valid past round 0, streaming is GET */
+  r->stream_req.body_len   = 0;
+}
+
 /* Prime r's streaming state after round 0 (T-004/T-006): stays 0 for an
  * ordinary single-round response. */
-static void srvrun_prime_streaming(srvrun_resp* r, int more, usz round_len) {
+static void srvrun_prime_streaming(
+    srvrun_resp* r, const wired_h3reqdrive_req* req, int more, usz round_len) {
   r->streaming = more != 0;
   if (!more) return;
   wired_sendsess_set_base_offset(&r->sess, 0);
   r->stream_off = round_len;
+  srvrun_copy_stream_req(r, req);
 }
 
 /* Arm r's round-0 body over st, hq-interop-raw or H3-framed depending on
@@ -1853,7 +1893,7 @@ static void srvrun_arm_round0(
     srvrun_arm_hq09_resp(r, st, body);
   else
     srvrun_arm_h3_resp(ctx, c, slot, r, st, body, ct, total_len);
-  srvrun_prime_streaming(r, more, body->len);
+  srvrun_prime_streaming(r, &c->l.req, more, body->len);
 }
 
 /* Run the app handler's round 0 into body/ct/more/total_size (out params). */
@@ -1864,7 +1904,7 @@ static void srvrun_call_round0(
     const char**           ct,
     int*                   more,
     u64*                   total_size) {
-  srvrun_call_handler(ctx, c, 0, body, ct, more, total_size);
+  srvrun_call_handler(ctx, &c->l.req, 0, body, ct, more, total_size);
 }
 
 /* Body of srvrun_start_resp for a normal (non-WT) request: run the app
@@ -2415,7 +2455,8 @@ static void srvrun_resp_next_round(
   const char* ct         = 0;
   int         more       = 0;
   u64         total_size = 0;
-  srvrun_call_handler(ctx, c, r->stream_off, &body, &ct, &more, &total_size);
+  srvrun_call_handler(
+      ctx, &r->stream_req, r->stream_off, &body, &ct, &more, &total_size);
   if (c->s.sdrv.alpn == QUIC_SALPN_HQ)
     srvrun_arm_hq09_resp(r, st, &body);
   else
