@@ -949,10 +949,14 @@ static void srvrun_ku_note_rotation(srvrun_conn* c, u64 now_ms) {
 static void srvrun_on_step(
     const srvrun_step_ctx* ctx, srvrun_conn* c, quic_mspan dg) {
   u8                 out[1500];
-  quic_obuf          ob       = quic_obuf_of(out, sizeof out);
-  wired_srvloop_conn conn     = {&c->l, &c->s};
-  srvrun_rxmark      mark     = srvrun_rx_mark(&c->l);
-  int                produced = wired_srvloop_step(&conn, dg, &ob);
+  quic_obuf          ob   = quic_obuf_of(out, sizeof out);
+  wired_srvloop_conn conn = {&c->l, &c->s};
+  srvrun_rxmark      mark = srvrun_rx_mark(&c->l);
+  int                produced;
+  c->l.now_ms = ctx->now_ms; /* T-024: share srvrun's own PTO/RTT clock with
+                              * quic_ackpolicy's delayed-ACK timer, not a
+                              * second one. */
+  produced = wired_srvloop_step(&conn, dg, &ob);
   srvrun_ku_note_rotation(c, ctx->now_ms);
   srvrun_note_recv(ctx, &mark, c, dg.n);
   srvrun_offer_wt_streams(ctx->cfg, c);
