@@ -105,6 +105,14 @@ typedef struct {
    * >=0: the body instead lives in this wired_srvbigbuf row (env->bigbuf),
    * released back to the pool when this resp[] slot is reaped. */
   int bigbuf_row;
+  /* RFC 9000 18.2/19.10: this stream's send credit -- the peer's
+   * initial_max_stream_data_bidi_local (seeded when this slot starts,
+   * srvrun_start_resp) raised by any MAX_STREAM_DATA the peer sends
+   * naming this stream (never lowered, RFC 9000 4.1). Bytes sent past
+   * this ceiling would be a FLOW_CONTROL_ERROR from the peer's own
+   * accounting; srvrun_can_send_new gates new sends on it so that never
+   * happens. */
+  u64 stream_credit;
 } srvrun_resp;
 /* Matches WIRED_SRVLOOP_MAX_STREAMS: the receive side's stream-slot table
  * bounds how many distinct request streams a connection reassembles at
@@ -135,6 +143,15 @@ typedef struct {
    * stream has been ACKed at all) reads that lag as reordering and
    * mass-requeues slices that were never actually lost. */
   u64 largest_acked;
+  /** RFC 9000 18.2/19.9: this connection's send credit -- the peer's
+   * initial_max_data (seeded once at handshake confirm, srvrun_boot_finish)
+   * raised by any MAX_DATA the peer sends (never lowered, RFC 9000 4.1).
+   * Every resp[] slot's send draws from this ONE connection-wide ceiling
+   * (RFC 9000 4.1's max_data covers all streams combined), so the check
+   * sums every slot's consumed bytes the same way srvrun_inflight_bytes_all
+   * already sums in-flight bytes for cwnd -- a different quantity (consumed
+   * is monotonic, in-flight drops on ACK), but the same fan-out shape. */
+  u64 conn_credit;
   /** RFC 9002 5/6.2: RTT estimator (smoothed_rtt/rttvar in us) feeding this
    * connection's PTO deadline (srvrun_pto_deadline_ms) -- separate from
    * srtt_ms above (ms, EWMA-only, pacing's simpler input) because PTO needs
@@ -469,7 +486,13 @@ static int srvrun_boot_finish(
    * quic_stp_build_server_lim already sends in the transport parameters
    * (WT-A-006) — sid is this slot's own copy of cfg->id, built above. */
   c->l.we_advertised_max_datagram = sid.max_datagram_frame_size;
-  c->boot_ini_len                 = iob.len;
+  /* RFC 9000 18.2/19.9: seed this connection's send credit from the peer's
+   * ClientHello TP now that quic_sdrv_recv_client_hello has run (inside
+   * wired_srvboot_accept_acc above); MAX_DATA frames only ever raise it
+   * from here (srvrun_ku_discard_stale's neighbors gather_max_data /
+   * srvrun_sess_on_step apply those raises each step). */
+  c->conn_credit  = c->s.sdrv.peer_initial_max_data;
+  c->boot_ini_len = iob.len;
   for (usz i = 0; i < out.dgram_count; i++)
     c->boot_dgram_len[i] = out.dgram_len[i];
   c->boot_dgram_count = out.dgram_count;
@@ -1574,6 +1597,13 @@ static srvrun_resp* srvrun_resp_claim(srvrun_conn* c, u64 stream_id) {
     c->resp[i].in_use     = 1;
     c->resp[i].stream_id  = stream_id;
     c->resp[i].bigbuf_row = -1;
+    /* RFC 9000 18.2/19.10: seed this stream's send credit from the peer's
+     * ClientHello TP (initial_max_stream_data_bidi_local, RFC 9000 18.2:
+     * the TP sender's own locally-initiated streams' credit -- this
+     * client-initiated request stream). MAX_STREAM_DATA naming stream_id
+     * only ever raises it (srvrun_sess_on_step applies those each step). */
+    c->resp[i].stream_credit =
+        c->s.sdrv.peer_initial_max_stream_data_bidi_local;
     return &c->resp[i];
   }
   return 0;
@@ -1866,10 +1896,76 @@ static int srvrun_cwnd_has_room(const srvrun_conn* c) {
   return srvrun_inflight_bytes_all(c) + SRVRUN_CHUNK <= c->cc.cwnd;
 }
 
+/* RFC 9000 4.1: sum of stream bytes already handed to wired_sendsess_take
+ * (r->sess.q.cur, the sendq's next-unsent-offset cursor) across every
+ * resp[] slot -- the cumulative total the connection's ONE conn_credit
+ * (initial_max_data + any MAX_DATA raises) bounds. A retransmit reuses an
+ * offset range already counted here, so PTO/loss resends never double-count
+ * (mirrors srvrun_inflight_bytes_all's per-slot fan-out, but this quantity
+ * only grows -- it is not cleared by an ACK the way in-flight bytes are). */
+static usz srvrun_conn_consumed_bytes(const srvrun_conn* c) {
+  usz total = 0;
+  for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++)
+    if (c->resp[i].in_use) total += c->resp[i].sess.q.cur;
+  return total;
+}
+
+/* 1 when the connection's send credit (RFC 9000 18.2/19.9) has room for one
+ * more chunk, summed across every resp[] slot the same way cwnd is. */
+static int srvrun_conn_credit_has_room(const srvrun_conn* c) {
+  return srvrun_conn_consumed_bytes(c) + SRVRUN_CHUNK <= c->conn_credit;
+}
+
+/* 1 when r's own stream-level send credit (RFC 9000 18.2/19.10) has room
+ * for one more chunk. Consumed bytes for one stream are exactly its own
+ * sendq cursor (no cross-slot fan-out needed at this level). */
+static int srvrun_stream_credit_has_room(const srvrun_resp* r) {
+  return r->sess.q.cur + SRVRUN_CHUNK <= r->stream_credit;
+}
+
+/* 1 when RFC 9000 4.1's two flow-control credits (connection and stream)
+ * both have room for one more chunk -- split out so srvrun_can_send_new's
+ * own CCN stays at the gate. */
+static int srvrun_credit_has_room(const srvrun_conn* c, const srvrun_resp* r) {
+  return srvrun_conn_credit_has_room(c) && srvrun_stream_credit_has_room(r);
+}
+
 /* 1 when a brand-new slice (from r's sendq, not its requeue) may go out:
- * both the log and cwnd gates apply. */
+ * the log, cwnd, and both flow-control credit gates all apply. */
 static int srvrun_can_send_new(const srvrun_conn* c, const srvrun_resp* r) {
-  return srvrun_log_has_room(r) && srvrun_cwnd_has_room(c);
+  return srvrun_log_has_room(r) && srvrun_cwnd_has_room(c) &&
+         srvrun_credit_has_room(c, r);
+}
+
+/* RFC 9000 4.1/19.9: apply this step's highest-seen MAX_DATA (srvloop's
+ * gather_max_data) to the connection's running send credit -- raise only,
+ * per RFC 9000 4.1 ("MUST NOT reduce"), and always consume the step's
+ * latch so a later step's absence of a new MAX_DATA is not mistaken for
+ * this one's value persisting (srvloop.h's l->max_data_seen is this step's
+ * observation only, not a running value itself). */
+static void srvrun_apply_conn_credit_update(srvrun_conn* c) {
+  if (!c->l.max_data_seen_flag) return;
+  if (c->l.max_data_seen > c->conn_credit) c->conn_credit = c->l.max_data_seen;
+  c->l.max_data_seen_flag = 0;
+}
+
+/* Raise r's stream credit to value if that is higher, RFC 9000 4.1's
+ * raise-only rule -- split out so srvrun_apply_stream_credit_update's own
+ * CCN stays at the gate. */
+static void srvrun_stream_credit_raise(srvrun_resp* r, u64 value) {
+  if (value > r->stream_credit) r->stream_credit = value;
+}
+
+/* RFC 9000 4.1/19.10: apply this step's last-seen MAX_STREAM_DATA to the
+ * named resp[] slot's running stream credit. A stream_id naming no in-use
+ * slot (already reaped, or never claimed) is a no-op -- srvloop has no
+ * notion of resp[] slots and cannot itself validate the id. */
+static void srvrun_apply_stream_credit_update(srvrun_conn* c) {
+  srvrun_resp* r;
+  if (!c->l.max_stream_data_seen) return;
+  c->l.max_stream_data_seen = 0;
+  r = srvrun_resp_find(c, c->l.max_stream_data_stream_id);
+  if (r) srvrun_stream_credit_raise(r, c->l.max_stream_data_value);
 }
 
 /* RFC 9002 7.5: "Probe packets MUST NOT be blocked by the congestion
@@ -2154,6 +2250,8 @@ static void srvrun_sess_on_step(const srvrun_step_ctx* ctx, int slot) {
   srvrun_conn* c = &ctx->st->conns[slot];
   srvrun_feed_acks(ctx, ctx->cfg, c);
   quic_cc_bbr_tick(&c->cc, srvrun_inflight_bytes_all(c), ctx->now_ms);
+  srvrun_apply_conn_credit_update(c);
+  srvrun_apply_stream_credit_update(c);
   srvrun_reap_resps(ctx->cfg->env, c);
   srvrun_start_done_resps(ctx, slot);
   srvrun_pump_sess(ctx, slot);
