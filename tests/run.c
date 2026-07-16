@@ -117,6 +117,7 @@
 #include "common/platform/qlog/qlogevent.c"
 #include "common/platform/keylog/keylog.c"
 #include "common/platform/cliargs/cliargs.c"
+#include "common/platform/envp/envp.c"
 #include "common/platform/exit/exit.c"
 #include "common/platform/rng/challenge.c"
 #include "common/platform/rng/cidgen.c"
@@ -403,6 +404,7 @@
 #include "app/http3/core/h3settings/settings_build.c"
 #include "app/http3/core/h3settings/control_settings.c"
 #include "app/http3/core/capsule/capsule.c"
+#include "app/http3/core/sfield/sfield.c"
 #include "transport/packet/header/lhdr/lhdr_build.c"
 #include "transport/packet/header/lhdr/lhdr_parse.c"
 #include "transport/packet/build/vpn/vpn_open.c"
@@ -503,6 +505,7 @@
 #include "app/webtransport/session/session/session.c"
 #include "app/webtransport/errmap/errmap/errmap.c"
 #include "app/webtransport/capsule/wtcapsule/wtcapsule.c"
+#include "app/webtransport/wtwire/wtwire.c"
 #include "common/varint_test.c"
 #include "transport/header_test.c"
 #include "transport/dcidresolve_test.c"
@@ -710,6 +713,7 @@
 #include "common/qlogevent_test.c"
 #include "common/keylog_test.c"
 #include "common/cliargs_test.c"
+#include "common/envp_test.c"
 #include "transport/addr_test.c"
 #include "transport/udptransport_test.c"
 #include "common/clock_test.c"
@@ -843,6 +847,7 @@
 #include "app/h3settings_build_test.c"
 #include "app/h3settings_control_settings_test.c"
 #include "app/capsule_test.c"
+#include "app/sfield_test.c"
 #include "transport/lhdr_build_test.c"
 #include "transport/lhdr_parse_test.c"
 #include "transport/vpn_open_test.c"
@@ -951,6 +956,7 @@
 #include "app/wt_session_test.c"
 #include "app/wterrmap_test.c"
 #include "app/wtcapsule_test.c"
+#include "app/wtwire_test.c"
 #include "app/srvworkers_migration_test.c"
 #include "app/srvpoll_test.c"
 #include "transport/eth_test.c"
@@ -1172,6 +1178,7 @@ int main(void) {
   test_qlogevent();
   test_keylog();
   test_cliargs();
+  test_envp();
   test_addr();
   test_udptransport();
   test_rng();
@@ -1322,6 +1329,7 @@ int main(void) {
   test_h3settings_control_settings_advertises_connect_protocol();
   test_h3settings_control_settings_advertises_wt();
   test_capsule();
+  test_sfield();
   test_lhdr_build();
   test_lhdr_parse();
   test_vpn_open();
@@ -1440,6 +1448,7 @@ int main(void) {
   test_wt_session();
   test_wterrmap();
   test_wtcapsule();
+  test_wtwire();
   test_srvworkers_migration();
   test_srvpoll();
   test_eth();
