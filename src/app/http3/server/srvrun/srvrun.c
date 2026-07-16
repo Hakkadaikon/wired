@@ -29,6 +29,7 @@
 #include "transport/io/socket/poll/wait.h"
 #include "transport/io/udp/udploop/rxloop.h"
 #include "transport/packet/frame/frame/frame.h"
+#include "transport/packet/frame/frame/ncid_worker.h"
 #include "transport/packet/frame/frame/stream_ctl.h"
 #include "transport/packet/header/dcidresolve/dcidresolve.h"
 #include "transport/packet/header/packet/header.h"
@@ -82,6 +83,10 @@ typedef struct {
    * shutdown poll (srvrun_step) is reached at least once per SRVRUN_PTO_MS
    * even when idle. */
   int no_signal_handlers;
+  /** AF_XDP core-routing: -1 disabled, >= 0 (only meaningful when xdp is
+   * also set) is this worker's own core/queue index, see
+   * wired_srvrun_opt.core_id. */
+  int core_id;
 } srvrun_cfg;
 
 /* One live connection's mutable state: the orchestrator, the HTTP/3 loop,
@@ -2893,6 +2898,28 @@ static int srvrun_claim_slot(
       ctx->st->table, QUIC_CONNTABLE_CAP, dcid.p, (u8)dcid.n);
 }
 
+/* AF_XDP core-routing (see wired_srvrun_opt.core_id): only in XDP mode with a
+ * non-negative core_id does a freshly generated CID get its leading byte
+ * overwritten with this worker's own core/queue index, so the BPF filter can
+ * key an XSKMAP lookup off the CID instead of the NIC's rx_queue_index.
+ * Neither guard is a validating boundary -- quic_ncid_worker_encode itself
+ * already no-ops (returns < 0) on a zero-length cid; there is simply nothing
+ * to embed into. */
+static int srvrun_xdp_core_routing(const srvrun_cfg* cfg) {
+  return cfg->xdp != 0 && cfg->core_id >= 0;
+}
+
+/* One place both a fresh accept (srvrun_open_slot) and any future additional-
+ * CID issuance route through, so both share the exact same core-id embedding
+ * policy (see NEW_CONNECTION_ID note in srvrun.h's core_id doc). Returns 1 on
+ * success matching quic_cid_generate's own contract. */
+static int srvrun_issue_cid(const srvrun_cfg* cfg, u8* cid, u8 cid_len) {
+  if (!quic_cid_generate(cid, cid_len)) return 0;
+  if (srvrun_xdp_core_routing(cfg))
+    quic_ncid_worker_encode(cid, cid_len, 8, (u32)cfg->core_id);
+  return 1;
+}
+
 /* Claim and initialize a fresh slot for dcid: record the peer, and generate
  * this slot's own scid (never cfg->id's fixed one — every slot sharing it
  * would collapse conntable's routing back to a single slot). Returns the slot
@@ -2907,7 +2934,8 @@ static int srvrun_open_slot(
   quic_cc_init_algo(&ctx->st->conns[slot].cc, ctx->cfg->cc_algo);
   quic_hystart_init(&ctx->st->conns[slot].hs);
   quic_rtt_init(&ctx->st->conns[slot].rtt);
-  if (quic_cid_generate(ctx->st->conns[slot].scid, ctx->cfg->id->scid_len))
+  if (srvrun_issue_cid(
+          ctx->cfg, ctx->st->conns[slot].scid, ctx->cfg->id->scid_len))
     return slot;
   quic_conntable_remove(ctx->st->table, QUIC_CONNTABLE_CAP, slot);
   return -1;
@@ -3197,7 +3225,8 @@ static srvrun_cfg srvrun_build_cfg(
       opt->wt_stream_data_ctx,
       opt->xdp,
       env,
-      opt->no_signal_handlers};
+      opt->no_signal_handlers,
+      opt->core_id};
 }
 
 usz wired_srvrun_env_size(void) { return sizeof(wired_srvrun_env); }
@@ -3244,6 +3273,6 @@ int wired_server_run(
     wired_srvrun_handler h,
     wired_srvrun_obs     obs) {
   static const wired_srvrun_opt default_opt = {0, 0, 0,  0, 0, 0,
-                                               0, 0, -1, 0, 0};
+                                               0, 0, -1, 0, 0, -1};
   return wired_server_run_opt(port, id, h, obs, &default_opt);
 }

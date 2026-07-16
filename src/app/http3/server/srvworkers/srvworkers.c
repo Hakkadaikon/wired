@@ -47,7 +47,7 @@ static void srvworkers_run_real(
     wired_srvrun_handler h,
     wired_srvrun_obs     obs,
     int                  worker_index) {
-  wired_srvrun_opt opt = {0, 0, 0, 0, 0, 0, 0, 0, worker_index, 0, 0};
+  wired_srvrun_opt opt = {0, 0, 0, 0, 0, 0, 0, 0, worker_index, 0, 0, -1};
   wired_server_run_opt(port, id, h, obs, &opt);
 }
 

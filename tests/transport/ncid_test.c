@@ -71,6 +71,24 @@ static void test_ncid_worker_masks_oversize_index(void) {
   CHECK(quic_ncid_worker_decode(cid, sizeof(cid), 2) == 3);
 }
 
+/* AF_XDP core-routing use case: bits=8 packs the whole leading byte, so the
+ * min (0) and max (15, WIRED_SRVTHREADS_MAX-1) core indices both round-trip
+ * exactly through cid[0]. */
+static void test_ncid_worker_encode_decode_roundtrip_bits8_boundary(void) {
+  u8 cid_min[4] = {0xAA, 0x11, 0x22, 0x33};
+  CHECK(quic_ncid_worker_encode(cid_min, sizeof(cid_min), 8, 0) == 0);
+  CHECK(quic_ncid_worker_decode(cid_min, sizeof(cid_min), 8) == 0);
+  CHECK(cid_min[0] == 0);
+
+  u8 cid_max[4] = {0xAA, 0x11, 0x22, 0x33};
+  CHECK(quic_ncid_worker_encode(cid_max, sizeof(cid_max), 8, 15) == 0);
+  CHECK(quic_ncid_worker_decode(cid_max, sizeof(cid_max), 8) == 15);
+  CHECK(cid_max[0] == 15);
+  /* bytes past cid[0] are untouched either way */
+  CHECK(cid_min[1] == 0x11 && cid_min[3] == 0x33);
+  CHECK(cid_max[1] == 0x11 && cid_max[3] == 0x33);
+}
+
 void test_ncid(void) {
   test_ncid_roundtrip();
   test_ncid_invalid_and_truncated();
@@ -79,4 +97,5 @@ void test_ncid(void) {
   test_ncid_worker_invalid_bits();
   test_ncid_worker_zero_len();
   test_ncid_worker_masks_oversize_index();
+  test_ncid_worker_encode_decode_roundtrip_bits8_boundary();
 }
