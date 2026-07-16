@@ -1,6 +1,7 @@
 #ifndef QUIC_H3RESP_RESP_BUILD_H
 #define QUIC_H3RESP_RESP_BUILD_H
 
+#include "app/qpack/qpack/field.h"
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
 
@@ -18,5 +19,18 @@ int quic_h3resp_build(
  * Returns 1 with out->len set, 0 if out lacks capacity. */
 int quic_h3resp_prefix(
     u16 status, const char* content_type, u64 body_len, quic_obuf* out);
+
+/* Same as quic_h3resp_prefix plus, when extra is non-null, one trailing
+ * Literal Field Line With Literal Name (RFC 9204 4.5.6) in the HEADERS
+ * frame's field section carrying extra's (name, value) verbatim -- e.g. the
+ * wt-protocol response header of WebTransport subprotocol negotiation.
+ * extra == 0 behaves identically to quic_h3resp_prefix. Returns 1 with
+ * out->len set, 0 if out lacks capacity. */
+int quic_h3resp_prefix_field(
+    u16                     status,
+    const char*             content_type,
+    u64                     body_len,
+    const quic_qpack_field* extra,
+    quic_obuf*              out);
 
 #endif

@@ -17,13 +17,18 @@ static int resp_append_body(quic_span body, quic_obuf* out) {
   return 1;
 }
 
-/* Emit the HEADERS frame carrying the :status (plus content-type, when
- * given) field section into out. Returns its byte length, or 0 if encoding
- * or framing lacks capacity. */
-static usz put_headers(u16 status, const char* content_type, quic_obuf* out) {
-  u8        field[64];
+/* Emit the HEADERS frame carrying the :status (plus content-type and extra,
+ * when given) field section into out. Returns its byte length, or 0 if
+ * encoding or framing lacks capacity. */
+static usz put_headers(
+    u16                     status,
+    const char*             content_type,
+    const quic_qpack_field* extra,
+    quic_obuf*              out) {
+  u8        field[192];
   quic_obuf fob = quic_obuf_of(field, sizeof field);
-  if (!quic_h3resp_encode_headers(status, content_type, &fob)) return 0;
+  if (!quic_h3resp_encode_headers_field(status, content_type, extra, &fob))
+    return 0;
   return quic_h3_frame_put(
       out, QUIC_H3_FRAME_HEADERS, quic_span_of(field, fob.len));
 }
@@ -32,7 +37,7 @@ static usz put_headers(u16 status, const char* content_type, quic_obuf* out) {
 int quic_h3resp_build(
     u16 status, const char* content_type, quic_span body, quic_obuf* out) {
   quic_obuf head = quic_obuf_of(out->p, out->cap);
-  usz       off  = put_headers(status, content_type, &head);
+  usz       off  = put_headers(status, content_type, 0, &head);
   if (!off) return 0;
   out->len = off;
   return resp_append_body(body, out);
@@ -52,11 +57,20 @@ static int prefix_data_hdr(u64 body_len, quic_obuf* out) {
   return 1;
 }
 
-int quic_h3resp_prefix(
-    u16 status, const char* content_type, u64 body_len, quic_obuf* out) {
+int quic_h3resp_prefix_field(
+    u16                     status,
+    const char*             content_type,
+    u64                     body_len,
+    const quic_qpack_field* extra,
+    quic_obuf*              out) {
   quic_obuf head = quic_obuf_of(out->p, out->cap);
-  usz       off  = put_headers(status, content_type, &head);
+  usz       off  = put_headers(status, content_type, extra, &head);
   if (!off) return 0;
   out->len = off;
   return prefix_data_hdr(body_len, out);
+}
+
+int quic_h3resp_prefix(
+    u16 status, const char* content_type, u64 body_len, quic_obuf* out) {
+  return quic_h3resp_prefix_field(status, content_type, body_len, 0, out);
 }

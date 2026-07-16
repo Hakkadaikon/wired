@@ -77,12 +77,43 @@ static usz put_prefix_and_status(u16 status, u8* out, usz cap) {
   return n ? off + n : 0;
 }
 
+/* Append one Literal Field Line With Literal Name (RFC 9204 4.5.6) at *off
+ * when extra is non-null; a no-op (success) otherwise. */
+static int append_extra_field(
+    const quic_qpack_field* extra, u8* out, usz cap, usz* off) {
+  usz n;
+  if (!extra) return 1;
+  n = quic_qpack_literal_name_encode(
+      quic_mspan_of(out + *off, cap - *off), 0, extra);
+  if (!n) return 0;
+  *off += n;
+  return 1;
+}
+
+/* Encode the prefix, the :status line and the optional content-type line
+ * into out, returning the byte offset past them, or 0 on overflow. */
+static usz put_status_and_ct(
+    u16 status, const char* content_type, u8* out, usz cap) {
+  usz off = put_prefix_and_status(status, out, cap);
+  if (!off) return 0;
+  return append_content_type(content_type, out, cap, &off) ? off : 0;
+}
+
+/* RFC 9204 4.5 */
+int quic_h3resp_encode_headers_field(
+    u16                     status,
+    const char*             content_type,
+    const quic_qpack_field* extra,
+    quic_obuf*              out) {
+  usz off = put_status_and_ct(status, content_type, out->p, out->cap);
+  if (!off) return 0;
+  if (!append_extra_field(extra, out->p, out->cap, &off)) return 0;
+  out->len = off;
+  return 1;
+}
+
 /* RFC 9204 4.5 */
 int quic_h3resp_encode_headers(
     u16 status, const char* content_type, quic_obuf* out) {
-  usz off = put_prefix_and_status(status, out->p, out->cap);
-  if (!off) return 0;
-  if (!append_content_type(content_type, out->p, out->cap, &off)) return 0;
-  out->len = off;
-  return 1;
+  return quic_h3resp_encode_headers_field(status, content_type, 0, out);
 }
