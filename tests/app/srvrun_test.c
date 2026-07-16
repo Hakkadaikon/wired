@@ -1419,8 +1419,12 @@ static void test_srvrun_takeover_streams_large_body(void) {
     srvrun_step_ctx ctx = {&cfg, &srv, &st, 0};
     srvrun_serve(&ctx, quic_mspan_of(spkt, slen));
   }
-  /* 4 datagrams queued: the loop's ACK reply, then 3 response slices. */
-  for (int d = 0; d < 4; d++) {
+  /* 3 datagrams queued: the takeover response's 3 slices. The loop's own
+   * step reply carries no separate ACK-only packet here -- RFC 9000
+   * 13.2.1/13.2.2's delayed-ACK policy does not owe an ACK yet after a
+   * single ack-eliciting packet within max_ack_delay, and the takeover
+   * response itself carries no piggybacked ACK of its own. */
+  for (int d = 0; d < 3; d++) {
     u8        pkt[1500];
     const u8* pl;
     usz       pll;
