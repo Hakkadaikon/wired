@@ -272,6 +272,59 @@ int* wired_srvrun_shutdown_word(void);
  * the single g_srvrun_env as before Phase E. */
 int wired_server_broadcast_datagram(quic_span data);
 
+/** Open a new server-initiated unidirectional stream on s's connection (RFC
+ * 9000 2.1: id 3 mod 4) and send the whole payload on it, closing with FIN
+ * on the final slice. payload must already carry the WebTransport stream
+ * signal prefix (draft-ietf-webtrans-http3-15 4.2: varint 0x54 + the CONNECT
+ * stream id, quic_wtwire_signal_put) -- this SDK sends the bytes verbatim.
+ * The SDK holds payload as a VIEW (no copy), so the caller must keep it
+ * alive and unmoved until every byte has been acknowledged (the send slot
+ * frees itself then). Delivery is congestion/flow-control gated and paced
+ * like any response stream (RFC 9000 4.1 / RFC 9002 7). Callable only from
+ * inside the server's own loop (a callback), same contract as
+ * wired_server_broadcast_datagram.
+ * @param s the session whose connection the stream is opened on
+ * @param payload the complete stream bytes, signal prefix included
+ * @return the allocated stream id, or negative when s resolves to no live
+ *   connection or every send slot is busy */
+i64 wired_server_wt_open_uni(wired_wt_session* s, quic_span payload);
+
+/** Same as wired_server_wt_open_uni, but a server-initiated bidirectional
+ * stream (RFC 9000 2.1: id 1 mod 4; signal prefix varint 0x41).
+ * @param s the session whose connection the stream is opened on
+ * @param payload the complete stream bytes, signal prefix included
+ * @return the allocated stream id, or negative on failure */
+i64 wired_server_wt_open_bidi(wired_wt_session* s, quic_span payload);
+
+/** Send payload on this endpoint's send direction of the client-initiated
+ * bidirectional stream `stream_id` (a WebTransport data stream the client
+ * opened), closing with FIN on the final slice. No prefix is added -- the
+ * bytes go out verbatim, and the same view/liveness contract as
+ * wired_server_wt_open_uni applies.
+ * @param s the session whose connection carries the stream
+ * @param stream_id the client-opened bidi stream to reply on
+ * @param payload the bytes to send
+ * @return 1 accepted, 0 when s resolves to no live connection or every send
+ *   slot is busy */
+int wired_server_wt_stream_reply(
+    wired_wt_session* s, u64 stream_id, quic_span payload);
+
+/** Queue one HTTP Datagram (RFC 9297) to this session's peer: the SDK
+ * prefixes the quarter-stream-id varint (the session's CONNECT stream id /
+ * 4, RFC 9297 2.1) and sends it as a QUIC DATAGRAM (RFC 9221) on one of the
+ * loop's next steps. The payload is copied at queue time, so it need not
+ * outlive the call. Unlike wired_server_broadcast_datagram's single
+ * last-writer-wins slot, sends queue into a bounded ring, so a burst of
+ * many datagrams is delivered without overwriting. Frames exceeding the
+ * peer's advertised max_datagram_frame_size are dropped at send time (RFC
+ * 9221 3), matching this SDK's existing per-connection DATAGRAM policy.
+ * @param s the session the datagram is addressed to
+ * @param payload the HTTP Datagram payload (qsid prefix NOT included)
+ * @return 1 queued, 0 when s resolves to no live connection, this
+ *   endpoint's SETTINGS have not been sent yet (RFC 9297 2.1), the ring is
+ *   full, or the prefixed payload exceeds a ring slot */
+int wired_server_wt_send_datagram_to(wired_wt_session* s, quic_span payload);
+
 /** Register the calling thread as srvthreads worker `index` of `n_total`,
  * with its own N-ring inbox row (inbox_row[j] receives broadcasts sent by
  * worker j, j != index only -- the caller's own broadcasts reach its own
