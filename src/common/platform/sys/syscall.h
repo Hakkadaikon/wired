@@ -44,6 +44,7 @@ typedef u64            usz; /**< unsigned size (size_t equivalent) */
 #define SYS_sched_getaffinity 204 /**< sched_getaffinity(2) syscall number */
 #define SYS_clock_gettime 228     /**< clock_gettime(2) syscall number */
 #define SYS_openat 257            /**< openat(2) syscall number */
+#define SYS_mkdirat 258           /**< mkdirat(2) syscall number */
 #define SYS_getrandom 318         /**< getrandom(2) syscall number */
 #define SYS_fork 57               /**< fork(2) syscall number */
 #define SYS_wait4 61              /**< wait4(2) syscall number */
