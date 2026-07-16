@@ -68,6 +68,13 @@ typedef struct {
                        scratch), 0 if absent (RFC 9220 3 / WebTransport draft
                        SS3.6 origin check applies only when present) */
   usz origin_len;   /**< origin length in octets, 0 if absent */
+  /** WebTransport subprotocol negotiation: the raw `wt-available-protocols`
+   * header value (an RFC 8941 sf-list of sf-strings, the client's offer in
+   * preference order), copied verbatim -- not a scratch view like origin,
+   * so the offer survives past the decode's scratch lifetime. A value that
+   * does not fit is dropped (treated as absent). */
+  u8  wt_avail[256];
+  usz wt_avail_len; /**< wt-available-protocols length in octets, 0 if absent */
 } wired_h3reqdrive_req;
 
 /** RFC 9114 4.1, RFC 9204 4.5: decode a STREAM frame carrying a request:
