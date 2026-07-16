@@ -217,8 +217,8 @@ typedef struct {
    * Handshake ack independently). Indexed by QUIC_PNS_APP/QUIC_PNS_HANDSHAKE
    * (transport/conn/lifecycle/conn/pnspace.h). */
   quic_pnspaces_recv ack_recv;
-  quic_ackpolicy     app_ack_policy;
-  quic_ackpolicy     hs_ack_policy;
+  quic_ackpolicy     app_ack_policy; /**< App space's delayed-ACK timer */
+  quic_ackpolicy     hs_ack_policy;  /**< Handshake space's delayed-ACK timer */
   /** Monotonic ms this step is being driven at -- the time source
    * quic_ackpolicy's delayed-ACK timer measures against. The caller (e.g.
    * srvrun.c) sets this once per step, sharing its own PTO/RTT time source
