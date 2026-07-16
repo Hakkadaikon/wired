@@ -4,6 +4,7 @@
 #include "app/http3/core/h3/connect.h"
 #include "app/http3/core/h3/frame.h"
 #include "app/http3/core/h3conn/establish.h"
+#include "app/http3/core/sfield/sfield.h"
 #include "app/http3/request/h3resp/resp_build.h"
 #include "app/http3/server/certreload/certreload.h"
 #include "app/http3/server/sendsess/sendsess.h"
@@ -87,6 +88,12 @@ typedef struct {
    * also set) is this worker's own core/queue index, see
    * wired_srvrun_opt.core_id. */
   int core_id;
+  /** WebTransport subprotocol negotiation (draft-ietf-webtrans-http3-15
+   * SS3.4): space-separated server subprotocol list, 0 to disable. */
+  const char* wt_protocols;
+  /** Session-established notification, 0 to disable. */
+  wired_wt_on_session wt_on_session;
+  void*               wt_session_ctx; /**< opaque ctx for wt_on_session */
 } srvrun_cfg;
 
 /* One live connection's mutable state: the orchestrator, the HTTP/3 loop,
@@ -1816,30 +1823,27 @@ static usz srvrun_resp_index(const srvrun_conn* c, const srvrun_resp* r) {
   return (usz)(r - c->resp);
 }
 
-/* Seal a bare status-only response (no body, no content-type) into r's own
- * storage row and arm r's session over it — the same low-level prefix+arm
- * mechanism srvrun_start_app_resp uses for a normal 200, minus the app
- * handler: this is protocol-level WebTransport response building
- * (draft-ietf-webtrans-http3-15 SS3.2), not an application response. Used for
- * both the 2xx that establishes a session and the 403 that rejects one
- * (WT-B-005/007/008). */
+/* Seal a bare status-only response (no body, no content-type, plus one
+ * optional extra field line) into r's own storage row and arm r's session
+ * over it — the same low-level prefix+arm mechanism srvrun_start_app_resp
+ * uses for a normal 200, minus the app handler: this is protocol-level
+ * WebTransport response building (draft-ietf-webtrans-http3-15 SS3.2), not
+ * an application response. Used for both the 2xx that establishes a session
+ * (extra = the wt-protocol header when a subprotocol was negotiated,
+ * SS3.4) and the 403 that rejects one (WT-B-005/007/008, extra = 0). The
+ * response is bodyless, so it is written at the row's start rather than
+ * right-aligned into the body path's SRVRUN_RESP_HDR_ROOM prefix area. */
 static void srvrun_start_wt_status(
-    wired_srvrun_env* env,
-    int               slot,
-    srvrun_conn*      c,
-    srvrun_resp*      r,
-    u16               status) {
-  u8*       st = env->respstore[slot][srvrun_resp_index(c, r)];
-  u8        pre[SRVRUN_RESP_HDR_ROOM];
-  quic_obuf pob = quic_obuf_of(pre, sizeof pre);
-  usz       off;
-  if (!quic_h3resp_prefix(status, 0, 0, &pob)) return;
-  off = SRVRUN_RESP_HDR_ROOM - pob.len;
-  quic_put_bytes(
-      quic_mspan_of(st, SRVRUN_RESP_HDR_ROOM), &off,
-      quic_span_of(pre, pob.len));
-  wired_sendsess_arm(
-      &r->sess, st + SRVRUN_RESP_HDR_ROOM - pob.len, pob.len, SRVRUN_CHUNK);
+    wired_srvrun_env*       env,
+    int                     slot,
+    srvrun_conn*            c,
+    srvrun_resp*            r,
+    u16                     status,
+    const quic_qpack_field* extra) {
+  u8*       st  = env->respstore[slot][srvrun_resp_index(c, r)];
+  quic_obuf pob = quic_obuf_of(st, WIRED_SRVRUN_RESP_MAX);
+  if (!quic_h3resp_prefix_field(status, 0, 0, extra, &pob)) return;
+  wired_sendsess_arm(&r->sess, st, pob.len, SRVRUN_CHUNK);
 }
 
 /* Record this Extended CONNECT's own :path value into session slot sidx:
@@ -1851,26 +1855,141 @@ static void srvrun_wt_record_path(srvrun_conn* c, int sidx) {
   c->wt_path_len[sidx] = n;
 }
 
+/* The n octets at s (up to the next ' ' or NUL) equal item byte for byte. */
+static int srvrun_tok_eq(const char* s, usz n, quic_span item) {
+  return n == item.n && wt_bytes_eq((const u8*)s, item.p, n);
+}
+
+/* Octets at s before the next ' ' or NUL: one entry of the space-separated
+ * server subprotocol list (wired_srvrun_opt.wt_protocols). */
+static usz srvrun_tok_len(const char* s) {
+  usz n = 0;
+  while (s[n] && s[n] != ' ') n++;
+  return n;
+}
+
+static const char* srvrun_skip_spaces(const char* s) {
+  while (*s == ' ') s++;
+  return s;
+}
+
+/* item is one of the entries of the space-separated server subprotocol
+ * list. */
+static int srvrun_wt_server_has(const char* list, quic_span item) {
+  const char* s = list;
+  while (*s) {
+    usz n = srvrun_tok_len(s);
+    if (srvrun_tok_eq(s, n, item)) return 1;
+    s = srvrun_skip_spaces(s + n);
+  }
+  return 0;
+}
+
+/* Decode the offer's next member into out and test server membership.
+ * Returns -1 on end-of-list or a syntax error (stop, nothing selected), 0 on
+ * a member the server does not support (continue), or the member's decoded
+ * length (selected). */
+static int srvrun_wt_try_next(
+    const char* list, quic_sfield_iter* it, u8* out, usz cap) {
+  quic_obuf ob = quic_obuf_of(out, cap);
+  int       rc = quic_sfield_next_string(it, &ob);
+  if (rc <= 0) return -1;
+  return srvrun_wt_server_has(list, quic_span_of(out, ob.len)) ? (int)ob.len
+                                                               : 0;
+}
+
+/* draft-ietf-webtrans-http3-15 SS3.4: pick the first member of the client's
+ * wt-available-protocols offer (an RFC 8941 sf-list of sf-strings, client
+ * preference order) that the server's own space-separated list contains.
+ * Returns the selected token's length in out, or 0 when there is no common
+ * subprotocol or the offer is not a valid sf-list (RFC 8941 4.2: a list that
+ * fails to parse is discarded entirely). */
+static usz srvrun_wt_select(
+    const char* list, quic_span avail, u8* out, usz cap) {
+  quic_sfield_iter it;
+  int              r = 0;
+  quic_sfield_iter_init(&it, avail);
+  while (r == 0) r = srvrun_wt_try_next(list, &it, out, cap);
+  return r < 0 ? 0 : (usz)r;
+}
+
+/* The negotiated subprotocol for one Extended CONNECT: the raw token and its
+ * sf-string encoding (the wt-protocol header's value, DQUOTE-wrapped per RFC
+ * 8941 4.1.6 -- the reference peer rejects an unquoted value). Both lengths
+ * are 0 when negotiation is disabled, no offer was sent, or nothing
+ * matched. */
+typedef struct {
+  u8  tok[64];
+  usz tok_len;
+  u8  sfv[66];
+  usz sfv_len;
+} srvrun_wt_proto;
+
+/* The raw selected token for this Extended CONNECT, or 0 octets when
+ * negotiation is disabled (cfg->wt_protocols == 0) or no offer was sent. */
+static usz srvrun_wt_negotiate(
+    const srvrun_cfg* cfg, const srvrun_conn* c, u8* out, usz cap) {
+  const wired_h3reqdrive_req* req = &c->l.req;
+  if (!cfg->wt_protocols || !req->wt_avail_len) return 0;
+  return srvrun_wt_select(
+      cfg->wt_protocols, quic_span_of(req->wt_avail, req->wt_avail_len), out,
+      cap);
+}
+
+/* Fill p for this Extended CONNECT: select the token, then sf-string-encode
+ * it for the wt-protocol header; an encoding failure drops the selection
+ * entirely (no header, empty notification). */
+static void srvrun_wt_proto_pick(
+    const srvrun_cfg* cfg, const srvrun_conn* c, srvrun_wt_proto* p) {
+  p->tok_len = srvrun_wt_negotiate(cfg, c, p->tok, sizeof p->tok);
+  p->sfv_len = 0;
+  if (p->tok_len)
+    p->sfv_len = quic_sfield_string_encode(
+        p->sfv, sizeof p->sfv, quic_span_of(p->tok, p->tok_len));
+  if (!p->sfv_len) p->tok_len = 0;
+}
+
+/* Notify the app that session slot sidx was established (its 2xx has been
+ * built), with the recorded :path and the negotiated subprotocol (empty when
+ * none). No-op without a registered callback. */
+static void srvrun_wt_notify(
+    const srvrun_cfg* cfg, srvrun_conn* c, int sidx, quic_span protocol) {
+  if (!cfg->wt_on_session) return;
+  cfg->wt_on_session(
+      cfg->wt_session_ctx, srvrun_wt_slot(c, sidx),
+      quic_span_of(c->wt_path[sidx], c->wt_path_len[sidx]), protocol);
+}
+
 /* Establish a WebTransport session for this Extended CONNECT (draft-ietf-
  * webtrans-http3-15 SS3.2/SS4) in the first free session slot: the session id
- * is the CONNECT stream's own id. Skips the normal app-handler response path
- * entirely. Caller (srvrun_dispatch_wt_free_slot) already confirmed a free
- * slot exists. */
+ * is the CONNECT stream's own id. The 200 carries a wt-protocol header when
+ * a subprotocol was negotiated (SS3.4), and the app's wt_on_session callback
+ * (if any) fires once after it is built. Skips the normal app-handler
+ * response path entirely. Caller (srvrun_dispatch_wt_free_slot) already
+ * confirmed a free slot exists. */
 static void srvrun_start_wt(
-    wired_srvrun_env* env, int slot, srvrun_conn* c, srvrun_resp* r) {
-  int sidx = srvrun_wt_free_slot(c);
+    const srvrun_cfg* cfg, int slot, srvrun_conn* c, srvrun_resp* r) {
+  static const u8  name[] = {'w', 't', '-', 'p', 'r', 'o',
+                             't', 'o', 'c', 'o', 'l'};
+  srvrun_wt_proto  p;
+  quic_qpack_field f;
+  int              sidx = srvrun_wt_free_slot(c);
+  srvrun_wt_proto_pick(cfg, c, &p);
+  f = (quic_qpack_field){
+      quic_span_of(name, sizeof name), quic_span_of(p.sfv, p.sfv_len)};
   wired_wt_session_init(srvrun_wt_slot(c, sidx), c->l.req_stream_id);
   wired_wt_session_establish(srvrun_wt_slot(c, sidx));
   (*srvrun_wt_active_slot(c, sidx)) = 1;
   srvrun_wt_record_path(c, sidx);
-  srvrun_start_wt_status(env, slot, c, r, 200);
+  srvrun_start_wt_status(cfg->env, slot, c, r, 200, p.sfv_len ? &f : 0);
+  srvrun_wt_notify(cfg, c, sidx, quic_span_of(p.tok, p.tok_len));
 }
 
 /* Reject this Extended CONNECT with 403 (WT-B-005/007/008: a present but
  * malformed Origin) without establishing a session. */
 static void srvrun_reject_wt(
     wired_srvrun_env* env, int slot, srvrun_conn* c, srvrun_resp* r) {
-  srvrun_start_wt_status(env, slot, c, r, 403);
+  srvrun_start_wt_status(env, slot, c, r, 403, 0);
 }
 
 /* r's storage row for this response: the fixed per-(conn,stream) respstore
@@ -2098,7 +2217,7 @@ static void srvrun_start_app_resp(
  * independent of and in addition to the 429 above. */
 static void srvrun_reject_wt_busy(
     const srvrun_cfg* cfg, srvrun_conn* c, int slot, srvrun_resp* r) {
-  srvrun_start_wt_status(cfg->env, slot, c, r, 429);
+  srvrun_start_wt_status(cfg->env, slot, c, r, 429, 0);
   srvrun_send_wt_busy_reset(
       cfg, c, c->l.req_stream_id, QUIC_H3_REQUEST_REJECTED);
 }
@@ -2121,7 +2240,7 @@ static int srvrun_stream_id_is_client_bidi(u64 stream_id) {
  * shape rather than a CONNECTION_CLOSE. */
 static void srvrun_reject_wt_bad_id(
     const srvrun_cfg* cfg, srvrun_conn* c, int slot, srvrun_resp* r) {
-  srvrun_start_wt_status(cfg->env, slot, c, r, 403);
+  srvrun_start_wt_status(cfg->env, slot, c, r, 403, 0);
   srvrun_send_wt_busy_reset(cfg, c, c->l.req_stream_id, QUIC_H3_ID_ERROR);
 }
 
@@ -2135,7 +2254,7 @@ static void srvrun_dispatch_wt_free_slot(
     srvrun_reject_wt_bad_id(cfg, c, slot, r);
     return;
   }
-  srvrun_start_wt(cfg->env, slot, c, r);
+  srvrun_start_wt(cfg, slot, c, r);
 }
 
 /* A well-formed Extended CONNECT for WebTransport either establishes a
@@ -3226,7 +3345,10 @@ static srvrun_cfg srvrun_build_cfg(
       opt->xdp,
       env,
       opt->no_signal_handlers,
-      opt->core_id};
+      opt->core_id,
+      opt->wt_protocols,
+      opt->wt_on_session,
+      opt->wt_session_ctx};
 }
 
 usz wired_srvrun_env_size(void) { return sizeof(wired_srvrun_env); }
@@ -3272,7 +3394,7 @@ int wired_server_run(
     wired_srvboot_id*    id,
     wired_srvrun_handler h,
     wired_srvrun_obs     obs) {
-  static const wired_srvrun_opt default_opt = {0, 0, 0,  0, 0, 0,
-                                               0, 0, -1, 0, 0, -1};
+  static const wired_srvrun_opt default_opt = {0,  0, 0, 0,  0, 0, 0, 0,
+                                               -1, 0, 0, -1, 0, 0, 0};
   return wired_server_run_opt(port, id, h, obs, &default_opt);
 }

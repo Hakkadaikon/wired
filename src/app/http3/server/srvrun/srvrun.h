@@ -42,6 +42,18 @@ typedef void (*wired_wt_on_datagram)(
 typedef void (*wired_wt_on_stream_data)(
     void* app_ctx, wired_wt_session* s, u64 stream_id, quic_span data, int fin);
 
+/** WebTransport subprotocol negotiation (draft-ietf-webtrans-http3-15 SS3.4):
+ * app-facing notification that a WebTransport session was established (its
+ * 2xx accept response has been built). path and protocol are views into
+ * per-connection/per-call scratch, not valid past the call.
+ * @param app_ctx opaque context registered alongside this callback
+ * @param s the session that was just established
+ * @param path the Extended CONNECT's :path value
+ * @param protocol the negotiated subprotocol (the raw token, not its
+ *   sf-string encoding); empty when no subprotocol was negotiated */
+typedef void (*wired_wt_on_session)(
+    void* app_ctx, wired_wt_session* s, quic_span path, quic_span protocol);
+
 /** The application's request responder: the callback and its opaque context,
  * registered on the loop as a pair (wired_srvloop_set_handler takes the same
  * pair). */
@@ -152,6 +164,18 @@ typedef struct {
    * instead of NIC queue after a connection migrates. Ignored when xdp is 0
    * (SO_REUSEPORT/plain UDP mode never embeds a core id). */
   int core_id;
+  /** WebTransport subprotocol negotiation (draft-ietf-webtrans-http3-15
+   * SS3.4): the server's own supported subprotocols as a space-separated
+   * string, 0 to disable (the default) -- with 0, an Extended CONNECT's
+   * wt-available-protocols offer is ignored and the 2xx carries no
+   * wt-protocol header, exactly the pre-negotiation behavior. */
+  const char* wt_protocols;
+  /** Session-established notification, 0 to disable (the default) -- called
+   * once per accepted Extended CONNECT, after its 2xx response is built,
+   * with the session's :path and the negotiated subprotocol (empty span when
+   * none was negotiated). */
+  wired_wt_on_session wt_on_session;
+  void*               wt_session_ctx; /**< opaque ctx passed to wt_on_session */
 } wired_srvrun_opt;
 
 /** Same as wired_server_run, plus opt-in polling-driver behavior. `opt` must
