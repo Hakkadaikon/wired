@@ -531,27 +531,27 @@ static void test_srvrun_open_slot_xdp_embeds_core_id_zero(void) {
 }
 
 /* NON-XDP MODE (xdp == 0, the SO_REUSEPORT/plain-UDP default): core_id is
- * never consulted. Driven directly at srvrun_issue_cid (the shared CID-issue
- * seam) rather than through a full accept, since a real accept's SCID is
- * genuinely random and could coincidentally collide with any fixed
- * "would-have-been-embedded" byte picked here. */
+ * never consulted -- checked directly against srvrun_xdp_core_routing's own
+ * gate (the single predicate srvrun_issue_cid consults to decide whether to
+ * embed at all), not by asserting a freshly generated random byte differs
+ * from some fixed value (that would be a 1/256 flaky false-negative on a
+ * genuine coincidence, not a real embedding). */
 static void test_srvrun_open_slot_non_xdp_no_core_id_embedding(void) {
-  u8         cid[8] = {0};
-  srvrun_cfg cfg    = {.xdp = 0, .core_id = 7};
-  CHECK(srvrun_issue_cid(&cfg, cid, sizeof cid) == 1);
-  CHECK(cid[0] != 7); /* astronomically unlikely to coincide by chance */
+  srvrun_cfg cfg = {.xdp = 0, .core_id = 7};
+  CHECK(srvrun_xdp_core_routing(&cfg) == 0);
 }
 
-/* CORE_ID < 0 (disabled sentinel) with xdp set still does not embed --
- * mirrors wired_server_run's own default_opt (xdp unset there, but core_id
- * defaults to -1 the same way incoming_cpu does). */
+/* CORE_ID < 0 (disabled sentinel) with xdp set still does not embed -- again
+ * checked against srvrun_xdp_core_routing's own gate directly, mirrors
+ * wired_server_run's own default_opt (xdp unset there, but core_id defaults
+ * to -1 the same way incoming_cpu does). */
 static void test_srvrun_issue_cid_xdp_negative_core_id_no_embed(void) {
   u8           cid[8] = {0};
   wired_srvxdp fake_xdp;
   srvrun_cfg   cfg = {.xdp = &fake_xdp, .core_id = -1};
-  CHECK(srvrun_issue_cid(&cfg, cid, sizeof cid) == 1);
-  CHECK(cid[0] != 15); /* nothing to specifically assert equal; just no crash
-                        * and a real random byte was written */
+  CHECK(srvrun_xdp_core_routing(&cfg) == 0);
+  CHECK(srvrun_issue_cid(&cfg, cid, sizeof cid) == 1); /* still succeeds, just
+                                                        * without embedding */
 }
 
 /* CORE_ID embedding via the shared seam directly (xdp on, core_id in
