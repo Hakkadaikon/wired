@@ -309,6 +309,12 @@ int quic_sdrv_recv_client_hello(quic_sdrv* s, const u8* ch_msg, usz ch_len) {
   take_peer_tp_int(
       ch_msg, ch_len, QUIC_TP_INITIAL_MAX_STREAM_DATA_BIDI_LOCAL,
       &s->peer_initial_max_stream_data_bidi_local);
+  take_peer_tp_int(
+      ch_msg, ch_len, QUIC_TP_INITIAL_MAX_STREAM_DATA_BIDI_REMOTE,
+      &s->peer_initial_max_stream_data_bidi_remote);
+  take_peer_tp_int(
+      ch_msg, ch_len, QUIC_TP_INITIAL_MAX_STREAM_DATA_UNI,
+      &s->peer_initial_max_stream_data_uni);
   sdrv_negotiate_alpn(s, ch_msg, ch_len);
   quic_transcript_add(&s->tr, ch_msg, ch_len);
   return 1;
