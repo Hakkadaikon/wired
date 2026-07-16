@@ -61,6 +61,16 @@ static void srvthreads_worker_serve_udp(srvthreads_worker_arg* a) {
   wired_srvrun_broadcast_unregister();
 }
 
+/* Point a->run at the just-opened queue and this worker's own core/queue
+ * index (worker i == queue i == core-routing byte i, the same 1:1 mapping
+ * wired_srvxdpbpf_register relies on) -- split out from
+ * srvthreads_worker_serve_xdp so the index-passing itself is directly
+ * testable without a real AF_XDP queue open succeeding. */
+static void srvthreads_arm_xdp_run(srvthreads_worker_arg* a, wired_srvxdp* x) {
+  a->run.xdp     = x;
+  a->run.core_id = a->index;
+}
+
 /* XDP mode: open this worker's queue (queue_id == worker index) against the
  * shared per-interface BPF object, serve through it, then close it -- x is
  * a stack local (not heap, not the caller's frame) because it must not
@@ -71,7 +81,7 @@ static void srvthreads_worker_serve_xdp(srvthreads_worker_arg* a) {
   wired_srvxdp_cfg cfg = *a->xdp_cfg;
   cfg.queue_id         = (u32)a->index;
   if (wired_srvxdp_open_shared(&x, &cfg, a->bpf) < 0) return;
-  a->run.xdp = &x;
+  srvthreads_arm_xdp_run(a, &x);
   wired_srvrun_env_init(a->env);
   wired_srvrun_broadcast_register(a->index, a->n_total, a->inbox_row, a->env);
   wired_srvrun_serve_env(a->env, a->port, &a->id, a->h, a->obs, &a->run);

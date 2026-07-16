@@ -153,6 +153,30 @@ static void test_srvthreads_parse_cores_leading_comma(void) {
   CHECK(wired_srvthreads_parse_cores(",2,3", &opt) == 0);
 }
 
+/* AF_XDP CORE ROUTING: each worker passes its own index (== queue id) into
+ * the srvrun opt that drives its CID issuance, once its queue is armed. */
+static void test_srvthreads_xdp_worker_passes_own_core_id_to_cid_issuance(
+    void) {
+  srvthreads_worker_arg a = {0};
+  wired_srvxdp          x;
+  a.index = 5;
+  srvthreads_arm_xdp_run(&a, &x);
+  CHECK(a.run.xdp == &x);
+  CHECK(a.run.core_id == 5);
+}
+
+/* NON-XDP MODE: srvthreads_arm_xdp_run is only ever called from the xdp
+ * dispatch branch (srvthreads_worker_main); a UDP-mode worker's run.core_id
+ * is whatever wired_srvthreads_opt.run.core_id was (untouched, default -1
+ * from a zero-initialized opt), never overwritten with the worker index. */
+static void test_srvthreads_non_xdp_mode_uses_plain_cid_generation(void) {
+  srvthreads_worker_arg a = {0};
+  a.index                 = 5;
+  a.run.core_id           = -1;
+  CHECK(a.xdp_cfg == 0);
+  CHECK(a.run.core_id == -1);
+}
+
 void test_srvthreads(void) {
   test_srvthreads_run_joins_all_workers_on_shutdown();
   test_srvthreads_env_at_strides_by_env_size();
@@ -164,4 +188,6 @@ void test_srvthreads(void) {
   test_srvthreads_parse_cores_non_digit();
   test_srvthreads_parse_cores_trailing_comma();
   test_srvthreads_parse_cores_leading_comma();
+  test_srvthreads_xdp_worker_passes_own_core_id_to_cid_issuance();
+  test_srvthreads_non_xdp_mode_uses_plain_cid_generation();
 }

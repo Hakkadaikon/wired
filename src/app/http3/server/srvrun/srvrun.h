@@ -144,6 +144,14 @@ typedef struct {
    * one wired_srvrun_serve_env instance in the same process (e.g. one per
    * thread) -- only one of them may own the process-wide signal handlers. */
   int no_signal_handlers;
+  /** AF_XDP multi-queue core-routing: -1 = disabled (the default, a
+   * dedicated sentinel like incoming_cpu since core 0 is itself valid).
+   * >= 0, only when xdp is also set: this worker's own core/queue index,
+   * packed into the leading byte of every SCID this worker generates
+   * (quic_ncid_worker_encode, bits=8) so a BPF filter can route by CID
+   * instead of NIC queue after a connection migrates. Ignored when xdp is 0
+   * (SO_REUSEPORT/plain UDP mode never embeds a core id). */
+  int core_id;
 } wired_srvrun_opt;
 
 /** Same as wired_server_run, plus opt-in polling-driver behavior. `opt` must
