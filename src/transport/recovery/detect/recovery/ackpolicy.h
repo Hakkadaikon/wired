@@ -10,9 +10,10 @@
  * the oldest unacked ack-eliciting packet. Time is abstracted as a monotonic
  * tick count; max_ack_delay is expressed in the same unit. */
 
+/** Delayed-ACK timer state for one packet number space. */
 typedef struct {
-  u64 pending;    /* unacked ack-eliciting packets received */
-  u64 since_tick; /* tick of the oldest currently-pending packet */
+  u64 pending;    /**< unacked ack-eliciting packets received */
+  u64 since_tick; /**< tick of the oldest currently-pending packet */
 } quic_ackpolicy;
 
 void quic_ackpolicy_init(quic_ackpolicy* p);

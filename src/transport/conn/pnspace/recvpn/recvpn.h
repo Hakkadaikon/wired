@@ -11,10 +11,11 @@
 #define QUIC_RECVPN_WINDOW \
   64 /* packets below `largest` tracked in the bitmap */
 
+/** Sliding window of received packet numbers for one packet number space. */
 typedef struct {
-  u64 largest; /* highest packet number recorded (valid once any seen) */
-  u64 bitmap;  /* bit i set => (largest - 1 - i) was received */
-  int any;     /* whether anything has been recorded yet */
+  u64 largest; /**< highest packet number recorded (valid once any seen) */
+  u64 bitmap;  /**< bit i set => (largest - 1 - i) was received */
+  int any;     /**< whether anything has been recorded yet */
 } quic_recvpn;
 
 void quic_recvpn_init(quic_recvpn* r);

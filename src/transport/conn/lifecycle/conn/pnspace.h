@@ -13,8 +13,10 @@ typedef enum {
   QUIC_PNS_COUNT
 } quic_pns_space;
 
+/** Per-space next-packet-number counters (RFC 9000 12.3). */
 typedef struct {
-  u64 next[QUIC_PNS_COUNT];
+  u64 next[QUIC_PNS_COUNT]; /**< next packet number, indexed by quic_pns_space
+                             */
 } quic_pnspace;
 
 /* Initialize all spaces to packet number 0. */
