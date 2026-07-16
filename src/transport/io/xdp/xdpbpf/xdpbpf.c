@@ -37,6 +37,7 @@
 #define BPF_INSN_JGT_REG 0x2d   /* BPF_JMP|BPF_JGT|BPF_X: if r_dst>r_src goto */
 #define BPF_INSN_JNE_IMM 0x55   /* BPF_JMP|BPF_JNE|BPF_K: if r_dst!=imm goto */
 #define BPF_INSN_JSET_IMM 0x45  /* BPF_JMP|BPF_JSET|BPF_K: if r_dst&imm goto */
+#define BPF_INSN_JA 0x05        /* BPF_JMP|BPF_JA: unconditional goto */
 #define BPF_INSN_LDDW_IMM 0x18  /* BPF_LD|BPF_DW|BPF_IMM: 16-byte wide load */
 #define BPF_INSN_CALL 0x85      /* BPF_JMP|BPF_CALL */
 #define BPF_INSN_EXIT 0x95      /* BPF_JMP|BPF_EXIT */
@@ -58,39 +59,134 @@ static u16 bpf_htons(u16 port) {
   return (u16)(((port & 0xffu) << 8) | (port >> 8));
 }
 
-/* Fixed 23-instruction filter template (see xdpbpf.h for the semantics);
- * indices 14 and 16 are patched per call with the port and map fd. */
-static void bpf_prog_template(u64 out[QUIC_XDPBPF_PROG_LEN]) {
-  out[0]  = bpf_insn(BPF_INSN_LDXW, 2, 1, 0, 0);
-  out[1]  = bpf_insn(BPF_INSN_LDXW, 3, 1, 4, 0);
-  out[2]  = bpf_insn(BPF_INSN_MOV64_REG, 5, 2, 0, 0);
-  out[3]  = bpf_insn(BPF_INSN_ADD64_IMM, 5, 0, 0, 42);
-  out[4]  = bpf_insn(BPF_INSN_JGT_REG, 5, 3, 16, 0);
-  out[5]  = bpf_insn(BPF_INSN_LDXH, 4, 2, 12, 0);
-  out[6]  = bpf_insn(BPF_INSN_JNE_IMM, 4, 0, 14, 0x0008);
-  out[7]  = bpf_insn(BPF_INSN_LDXB, 4, 2, 14, 0);
-  out[8]  = bpf_insn(BPF_INSN_JNE_IMM, 4, 0, 12, 0x45);
-  out[9]  = bpf_insn(BPF_INSN_LDXH, 4, 2, 20, 0);
-  out[10] = bpf_insn(BPF_INSN_JSET_IMM, 4, 0, 10, 0xff3f);
+/* Fixed instruction indices past the eth/IPv4/UDP/dport prologue (idx 0-14,
+ * unchanged from the original 23-instruction filter): where each named block
+ * of the core-routing extension starts, so the jump-offset arithmetic below
+ * reads as "index of X" rather than a bare number repeated at every use. */
+#define BPF_IDX_CORE_START 15 /* short-header boundary check begins */
+#define BPF_IDX_CHECK_LONG 21 /* top-bit set: decide short vs long */
+#define BPF_IDX_LONG 24       /* long-header path begins */
+#define BPF_IDX_HAS_DCID 30   /* long header, DCID len != 0 */
+#define BPF_IDX_FALLBACK 32   /* rx_queue_index fallback key load */
+#define BPF_IDX_REDIRECT 33   /* map fd load + bpf_redirect_map() call */
+#define BPF_IDX_PASS 38       /* dport/boundary miss -> XDP_PASS */
+
+/* off for a forward jump from instruction `from` to instruction `to` (BPF's
+ * off field is relative to the instruction AFTER the jump itself). */
+static u16 bpf_off(int from, int to) { return (u16)(to - (from + 1)); }
+
+/* idx 0-14: eth/IPv4(IHL=5)/UDP header validate + dport compare, byte-for-
+ * byte the original fixed template -- every jump here now targets
+ * BPF_IDX_PASS instead of the old idx21, since the redirect-map epilogue
+ * moved to make room for the core-routing block. dport itself (idx14) is
+ * patched by the caller after this runs. */
+static void bpf_prog_prologue(u64 out[QUIC_XDPBPF_PROG_LEN]) {
+  out[0] = bpf_insn(BPF_INSN_LDXW, 2, 1, 0, 0);
+  out[1] = bpf_insn(BPF_INSN_LDXW, 3, 1, 4, 0);
+  out[2] = bpf_insn(BPF_INSN_MOV64_REG, 5, 2, 0, 0);
+  out[3] = bpf_insn(BPF_INSN_ADD64_IMM, 5, 0, 0, 42);
+  out[4] = bpf_insn(BPF_INSN_JGT_REG, 5, 3, bpf_off(4, BPF_IDX_PASS), 0);
+  out[5] = bpf_insn(BPF_INSN_LDXH, 4, 2, 12, 0);
+  out[6] = bpf_insn(BPF_INSN_JNE_IMM, 4, 0, bpf_off(6, BPF_IDX_PASS), 0x0008);
+  out[7] = bpf_insn(BPF_INSN_LDXB, 4, 2, 14, 0);
+  out[8] = bpf_insn(BPF_INSN_JNE_IMM, 4, 0, bpf_off(8, BPF_IDX_PASS), 0x45);
+  out[9] = bpf_insn(BPF_INSN_LDXH, 4, 2, 20, 0);
+  out[10] =
+      bpf_insn(BPF_INSN_JSET_IMM, 4, 0, bpf_off(10, BPF_IDX_PASS), 0xff3f);
   out[11] = bpf_insn(BPF_INSN_LDXB, 4, 2, 23, 0);
-  out[12] = bpf_insn(BPF_INSN_JNE_IMM, 4, 0, 8, 17);
+  out[12] = bpf_insn(BPF_INSN_JNE_IMM, 4, 0, bpf_off(12, BPF_IDX_PASS), 17);
   out[13] = bpf_insn(BPF_INSN_LDXH, 4, 2, 36, 0);
-  out[14] = bpf_insn(BPF_INSN_JNE_IMM, 4, 0, 6, 0); /* patched: dport */
-  out[15] = bpf_insn(BPF_INSN_LDXW, 2, 1, 16, 0);
-  out[16] = bpf_insn(BPF_INSN_LDDW_IMM, 1, BPF_SRC_MAP_FD, 0, 0); /* patched */
-  out[17] = bpf_insn(0, 0, 0, 0, 0);
-  out[18] = bpf_insn(BPF_INSN_MOV64_IMM, 3, 0, 0, XDP_PASS);
-  out[19] = bpf_insn(BPF_INSN_CALL, 0, 0, 0, BPF_FUNC_REDIRECT_MAP);
-  out[20] = bpf_insn(BPF_INSN_EXIT, 0, 0, 0, 0);
-  out[21] = bpf_insn(BPF_INSN_MOV64_IMM, 0, 0, 0, XDP_PASS);
-  out[22] = bpf_insn(BPF_INSN_EXIT, 0, 0, 0, 0);
+  out[14] = bpf_insn(BPF_INSN_JNE_IMM, 4, 0, bpf_off(14, BPF_IDX_PASS), 0);
+}
+
+/* idx 15-20: short-header boundary check (data+44<=data_end, since the core
+ * id byte is at offset 43), read the QUIC header's first byte, and split on
+ * its top bit (RFC 9000 17.2/17.3: 1 = long header candidate, 0 = short
+ * header -- a top bit of 0 is never valid on the wire this filter expects,
+ * so it falls back rather than misreading a non-QUIC byte as a core id). */
+static void bpf_prog_header_split(u64 out[QUIC_XDPBPF_PROG_LEN]) {
+  int i      = BPF_IDX_CORE_START;
+  out[i]     = bpf_insn(BPF_INSN_MOV64_REG, 5, 2, 0, 0);
+  out[i + 1] = bpf_insn(BPF_INSN_ADD64_IMM, 5, 0, 0, 44);
+  out[i + 2] =
+      bpf_insn(BPF_INSN_JGT_REG, 5, 3, bpf_off(i + 2, BPF_IDX_FALLBACK), 0);
+  out[i + 3] = bpf_insn(BPF_INSN_LDXB, 4, 2, 42, 0);
+  out[i + 4] = bpf_insn(
+      BPF_INSN_JSET_IMM, 4, 0, bpf_off(i + 4, BPF_IDX_CHECK_LONG), 0x80);
+  out[i + 5] = bpf_insn(BPF_INSN_JA, 0, 0, bpf_off(i + 5, BPF_IDX_FALLBACK), 0);
+}
+
+/* idx 21-23: BPF_IDX_CHECK_LONG splits short (top bit 1, next bit 0) from
+ * long (both bits 1); the short path reads the DCID's first byte straight
+ * out of the fixed short-header layout (offset 43, RFC 9000 17.3) into r2,
+ * overwriting the data pointer with the core-routing key -- r2 is dead for
+ * data access from here on, same reuse the original template already made
+ * of r2 at the old idx15 (rx_queue_index load). */
+static void bpf_prog_short_path(u64 out[QUIC_XDPBPF_PROG_LEN]) {
+  out[BPF_IDX_CHECK_LONG] = bpf_insn(
+      BPF_INSN_JSET_IMM, 4, 0, bpf_off(BPF_IDX_CHECK_LONG, BPF_IDX_LONG), 0x40);
+  out[BPF_IDX_CHECK_LONG + 1] = bpf_insn(BPF_INSN_LDXB, 2, 2, 43, 0);
+  out[BPF_IDX_CHECK_LONG + 2] = bpf_insn(
+      BPF_INSN_JA, 0, 0, bpf_off(BPF_IDX_CHECK_LONG + 2, BPF_IDX_REDIRECT), 0);
+}
+
+/* idx 24-31: long-header path (RFC 9000 17.2) -- boundary-check up to
+ * offset 49 (version(4) + DCID-len(1) byte + the DCID's own first byte),
+ * read the explicit DCID length byte at offset 47, fall back on a
+ * zero-length DCID (no core id byte exists then), else read the DCID's
+ * first byte at offset 48 into r2 the same way the short path does. */
+static void bpf_prog_long_path(u64 out[QUIC_XDPBPF_PROG_LEN]) {
+  int i      = BPF_IDX_LONG;
+  out[i]     = bpf_insn(BPF_INSN_MOV64_REG, 5, 2, 0, 0);
+  out[i + 1] = bpf_insn(BPF_INSN_ADD64_IMM, 5, 0, 0, 49);
+  out[i + 2] =
+      bpf_insn(BPF_INSN_JGT_REG, 5, 3, bpf_off(i + 2, BPF_IDX_FALLBACK), 0);
+  out[i + 3] = bpf_insn(BPF_INSN_LDXB, 4, 2, 47, 0);
+  out[i + 4] =
+      bpf_insn(BPF_INSN_JNE_IMM, 4, 0, bpf_off(i + 4, BPF_IDX_HAS_DCID), 0);
+  out[i + 5] = bpf_insn(BPF_INSN_JA, 0, 0, bpf_off(i + 5, BPF_IDX_FALLBACK), 0);
+  out[BPF_IDX_HAS_DCID]     = bpf_insn(BPF_INSN_LDXB, 2, 2, 48, 0);
+  out[BPF_IDX_HAS_DCID + 1] = bpf_insn(
+      BPF_INSN_JA, 0, 0, bpf_off(BPF_IDX_HAS_DCID + 1, BPF_IDX_REDIRECT), 0);
+}
+
+/* idx 32-39: the rx_queue_index fallback key load (BPF_IDX_FALLBACK, the
+ * original template's only routing key before this task), then the shared
+ * redirect-map epilogue every path above converges on (BPF_IDX_REDIRECT),
+ * and finally the XDP_PASS trap every dport/boundary miss above jumps to
+ * (BPF_IDX_PASS). map_fd (idx REDIRECT+0/+1, the LDDW) is patched by the
+ * caller after this runs, same as the original template's idx16. */
+static void bpf_prog_epilogue(u64 out[QUIC_XDPBPF_PROG_LEN]) {
+  out[BPF_IDX_FALLBACK] = bpf_insn(BPF_INSN_LDXW, 2, 1, 16, 0);
+  out[BPF_IDX_REDIRECT] =
+      bpf_insn(BPF_INSN_LDDW_IMM, 1, BPF_SRC_MAP_FD, 0, 0); /* patched */
+  out[BPF_IDX_REDIRECT + 1] = bpf_insn(0, 0, 0, 0, 0);
+  out[BPF_IDX_REDIRECT + 2] = bpf_insn(BPF_INSN_MOV64_IMM, 3, 0, 0, XDP_PASS);
+  out[BPF_IDX_REDIRECT + 3] =
+      bpf_insn(BPF_INSN_CALL, 0, 0, 0, BPF_FUNC_REDIRECT_MAP);
+  out[BPF_IDX_REDIRECT + 4] = bpf_insn(BPF_INSN_EXIT, 0, 0, 0, 0);
+  out[BPF_IDX_PASS]         = bpf_insn(BPF_INSN_MOV64_IMM, 0, 0, 0, XDP_PASS);
+  out[BPF_IDX_PASS + 1]     = bpf_insn(BPF_INSN_EXIT, 0, 0, 0, 0);
+}
+
+/* Fixed filter template (see xdpbpf.h for the full semantics); dport
+ * (idx14) and map_fd (the LDDW at BPF_IDX_REDIRECT) are patched per call by
+ * quic_xdpbpf_prog_build. */
+static void bpf_prog_template(u64 out[QUIC_XDPBPF_PROG_LEN]) {
+  bpf_prog_prologue(out);
+  bpf_prog_header_split(out);
+  bpf_prog_short_path(out);
+  bpf_prog_long_path(out);
+  bpf_prog_epilogue(out);
 }
 
 usz quic_xdpbpf_prog_build(
     u64 out[QUIC_XDPBPF_PROG_LEN], i32 map_fd, u16 port) {
   bpf_prog_template(out);
-  out[14] = bpf_insn(BPF_INSN_JNE_IMM, 4, 0, 6, bpf_htons(port));
-  out[16] = bpf_insn(BPF_INSN_LDDW_IMM, 1, BPF_SRC_MAP_FD, 0, map_fd);
+  out[14] = bpf_insn(
+      BPF_INSN_JNE_IMM, 4, 0, bpf_off(14, BPF_IDX_PASS), bpf_htons(port));
+  out[BPF_IDX_REDIRECT] =
+      bpf_insn(BPF_INSN_LDDW_IMM, 1, BPF_SRC_MAP_FD, 0, map_fd);
   return QUIC_XDPBPF_PROG_LEN;
 }
 
