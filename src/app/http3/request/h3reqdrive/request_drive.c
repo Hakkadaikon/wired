@@ -9,6 +9,7 @@
 #include "app/qpack/qpack/literal.h"
 #include "app/qpack/qpack/prefix.h"
 #include "app/qpack/qpack/static_table.h"
+#include "common/bytes/util/bytes.h"
 
 /* RFC 9114 4.1 / 4.3.1, RFC 9204 4.5 */
 int wired_h3reqdrive_send_method(
@@ -143,12 +144,25 @@ static void take_origin(const rline* L, wired_h3reqdrive_req* r) {
   r->origin_len = L->value_len;
 }
 
-/* A regular (non-pseudo-header) field: at most priority (RFC 9218 5) and
- * origin (WebTransport draft SS3.6) are captured; anything else is ignored
- * (RFC 9114 4.3.1). */
+/* WebTransport draft-ietf-webtrans-http3-15 SS3.4: a regular
+ * `wt-available-protocols` header carries the client's subprotocol offer (an
+ * RFC 8941 sf-list of sf-strings). Copied verbatim into r's own fixed buffer
+ * (unlike origin's borrowed view, see request_drive.h); a value that does not
+ * fit is dropped, leaving the offer absent. */
+static void take_wt_avail(const rline* L, wired_h3reqdrive_req* r) {
+  if (!line_name_is(L, "wt-available-protocols")) return;
+  if (L->value_len > sizeof r->wt_avail) return;
+  quic_memcpy(r->wt_avail, L->value, L->value_len);
+  r->wt_avail_len = L->value_len;
+}
+
+/* A regular (non-pseudo-header) field: at most priority (RFC 9218 5), origin
+ * (WebTransport draft SS3.6) and wt-available-protocols (WebTransport draft
+ * SS3.4) are captured; anything else is ignored (RFC 9114 4.3.1). */
 static void classify_regular(const rline* L, wired_h3reqdrive_req* r) {
   take_priority(L, r);
   take_origin(L, r);
+  take_wt_avail(L, r);
 }
 
 /* Store one recovered line into r if it is a request pseudo-header; regular
