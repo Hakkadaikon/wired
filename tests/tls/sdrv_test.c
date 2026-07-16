@@ -525,6 +525,77 @@ test_sdrv_recv_client_hello_no_initial_max_stream_data_bidi_local_stays_zero(
   CHECK(s.peer_initial_max_stream_data_bidi_local == 0);
 }
 
+/* RFC 9000 18.2: a ClientHello carrying initial_max_stream_data_bidi_remote
+ * makes quic_sdrv_recv_client_hello store the exact advertised value --
+ * the per-stream send credit for bidi streams the REMOTE endpoint (this
+ * server) initiates toward the TP sender, e.g. a server-opened WebTransport
+ * bidi stream. */
+static void
+test_sdrv_recv_client_hello_stores_peer_initial_max_stream_data_bidi_remote(
+    void) {
+  u8        cli_pub[32], srv_random[32];
+  u8        tpbuf[16], ch[512];
+  quic_obuf tob = quic_obuf_of(tpbuf, sizeof(tpbuf));
+  usz       tp_len;
+  usz       ch_len;
+  quic_sdrv s;
+  tp_len = quic_tparam_put_int(
+      &tob, QUIC_TP_INITIAL_MAX_STREAM_DATA_BIDI_REMOTE, 131072);
+  CHECK(tp_len != 0);
+  sdrv_dgram_test_setup(&s, cli_pub, srv_random);
+  ch_len = sdrv_test_client_hello_tp(
+      ch, sizeof(ch), cli_pub, srv_random, quic_span_of(tpbuf, tp_len));
+  CHECK(ch_len != 0);
+  CHECK(quic_sdrv_recv_client_hello(&s, ch, ch_len));
+  CHECK(s.peer_initial_max_stream_data_bidi_remote == 131072);
+}
+
+/* RFC 9000 18.2: a ClientHello carrying initial_max_stream_data_uni makes
+ * quic_sdrv_recv_client_hello store the exact advertised value -- the
+ * per-stream send credit for uni streams this server opens toward the TP
+ * sender, e.g. a server-opened WebTransport uni stream. */
+static void test_sdrv_recv_client_hello_stores_peer_initial_max_stream_data_uni(
+    void) {
+  u8        cli_pub[32], srv_random[32];
+  u8        tpbuf[16], ch[512];
+  quic_obuf tob = quic_obuf_of(tpbuf, sizeof(tpbuf));
+  usz       tp_len;
+  usz       ch_len;
+  quic_sdrv s;
+  tp_len =
+      quic_tparam_put_int(&tob, QUIC_TP_INITIAL_MAX_STREAM_DATA_UNI, 65536);
+  CHECK(tp_len != 0);
+  sdrv_dgram_test_setup(&s, cli_pub, srv_random);
+  ch_len = sdrv_test_client_hello_tp(
+      ch, sizeof(ch), cli_pub, srv_random, quic_span_of(tpbuf, tp_len));
+  CHECK(ch_len != 0);
+  CHECK(quic_sdrv_recv_client_hello(&s, ch, ch_len));
+  CHECK(s.peer_initial_max_stream_data_uni == 65536);
+}
+
+/* Absent-parameter case for both server-initiated-stream credits: the TP
+ * extension is present but carries neither 0x06 nor 0x07 -- both stay 0
+ * (send nothing on a server-opened stream until MAX_STREAM_DATA arrives,
+ * RFC 9000 18.2's safe default). */
+static void
+test_sdrv_recv_client_hello_no_server_initiated_stream_credit_stays_zero(void) {
+  u8        cli_pub[32], srv_random[32];
+  u8        tpbuf[16], ch[512];
+  quic_obuf tob = quic_obuf_of(tpbuf, sizeof(tpbuf));
+  usz       tp_len;
+  usz       ch_len;
+  quic_sdrv s;
+  tp_len = quic_tparam_put_int(&tob, QUIC_TP_MAX_IDLE_TIMEOUT, 30000);
+  CHECK(tp_len != 0);
+  sdrv_dgram_test_setup(&s, cli_pub, srv_random);
+  ch_len = sdrv_test_client_hello_tp(
+      ch, sizeof(ch), cli_pub, srv_random, quic_span_of(tpbuf, tp_len));
+  CHECK(ch_len != 0);
+  CHECK(quic_sdrv_recv_client_hello(&s, ch, ch_len));
+  CHECK(s.peer_initial_max_stream_data_bidi_remote == 0);
+  CHECK(s.peer_initial_max_stream_data_uni == 0);
+}
+
 /* RFC 8446 4.1.2: the ClientHello's own extensions-length field sits right
  * after the fixed legacy_version(2) + random(32) + empty session_id(1) +
  * one cipher_suite(2+2) + null compression(1+1) prefix, i.e. at body offset
@@ -708,6 +779,9 @@ void test_sdrv(void) {
   test_sdrv_recv_client_hello_no_initial_max_data_stays_zero();
   test_sdrv_recv_client_hello_stores_peer_initial_max_stream_data_bidi_local();
   test_sdrv_recv_client_hello_no_initial_max_stream_data_bidi_local_stays_zero();
+  test_sdrv_recv_client_hello_stores_peer_initial_max_stream_data_bidi_remote();
+  test_sdrv_recv_client_hello_stores_peer_initial_max_stream_data_uni();
+  test_sdrv_recv_client_hello_no_server_initiated_stream_credit_stays_zero();
   test_sdrv_session_id_echo();
   test_sdrv_external_chain();
   test_sdrv_external_chain_wrong_key();

@@ -61,6 +61,15 @@ typedef struct {
                                                 * THIS endpoint may send on a
                                                 * client-initiated (HTTP/3
                                                 * request) stream; 0 = absent */
+  /** peer's initial_max_stream_data_bidi_remote (0x06, RFC 9000 18.2): the
+   * per-stream credit for bidi streams the REMOTE endpoint (this server)
+   * initiates toward the TP sender, e.g. a server-opened WebTransport bidi
+   * stream; 0 = absent (send nothing until MAX_STREAM_DATA). */
+  u64 peer_initial_max_stream_data_bidi_remote;
+  /** peer's initial_max_stream_data_uni (0x07, RFC 9000 18.2): the
+   * per-stream credit for uni streams this server opens toward the TP
+   * sender, e.g. a server-opened WebTransport uni stream; 0 = absent. */
+  u64               peer_initial_max_stream_data_uni;
   quic_salpn_choice alpn; /**< RFC 7301 3.1/3.2: this server's negotiated
                            * ALPN protocol (h3 preferred, hq-interop
                            * fallback), from the ClientHello's ALPN
