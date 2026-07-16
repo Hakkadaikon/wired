@@ -3,7 +3,11 @@
 #define FIO_AT_FDCWD (-100) /* openat: resolve path against the cwd */
 #define FIO_O_RDONLY 0
 #define FIO_O_APPEND_WR 0x441u /* O_WRONLY|O_CREAT|O_APPEND */
+#define FIO_O_TRUNC_WR 0x241u  /* O_WRONLY|O_CREAT|O_TRUNC */
 #define FIO_MODE_OWNER_RW 0600
+#define FIO_MODE_WORLD_R 0644 /* rw owner, r group/other */
+#define FIO_MODE_DIR 0755     /* rwx owner, rx group/other */
+#define FIO_EEXIST 17
 
 /* read returning <= 0 ends the fill loop: 0 is EOF, negative is -errno. */
 static int fio_read_done(i64 ret) { return ret <= 0; }
@@ -86,4 +90,23 @@ ssz wired_fio_append(const char* path, quic_span data) {
   put = fio_write_all(fd, data);
   syscall1(SYS_close, fd);
   return put;
+}
+
+/* An already existing directory is not a failure for wired_fio_mkdir. */
+static int fio_mkdir_ok(i64 ret) { return ret == 0 || ret == -FIO_EEXIST; }
+
+i64 wired_fio_mkdir(const char* path) {
+  i64 ret = syscall3(SYS_mkdirat, FIO_AT_FDCWD, path, FIO_MODE_DIR);
+  return fio_mkdir_ok(ret) ? 0 : ret;
+}
+
+i64 wired_fio_write_new(const char* path, quic_span data) {
+  i64 fd = syscall6(
+      SYS_openat, FIO_AT_FDCWD, (i64)path, FIO_O_TRUNC_WR, FIO_MODE_WORLD_R, 0,
+      0);
+  ssz put;
+  if (fd < 0) return fd;
+  put = fio_write_all(fd, data);
+  syscall1(SYS_close, fd);
+  return put < 0 ? (i64)put : 0;
 }

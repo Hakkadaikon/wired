@@ -78,6 +78,30 @@ ssz wired_fio_size(const char* path);
 ssz wired_fio_pread(i64 fd, quic_mspan buf, u64 off);
 
 /**
+ * Create the directory at path (mkdirat(AT_FDCWD, path, 0755)). A path that
+ * already exists (EEXIST) counts as success, so repeated calls are harmless.
+ * Mode 0755 keeps the directory readable by other uids (e.g. a runner
+ * outside the container inspecting the results).
+ *
+ * @param path NUL-terminated directory path, resolved relative to the cwd
+ * @return 0 on success or when the path already exists; a negative -errno
+ *         otherwise (e.g. a missing parent directory)
+ */
+i64 wired_fio_mkdir(const char* path);
+
+/**
+ * Replace the file at path with data. Opens with openat(AT_FDCWD, path,
+ * O_WRONLY|O_CREAT|O_TRUNC, 0644), writes the whole span (looping past
+ * short writes), and closes the descriptor. Any previous content is
+ * discarded. Mode 0644 keeps the file readable by other uids.
+ *
+ * @param path NUL-terminated file path, resolved relative to the cwd
+ * @param data bytes to write
+ * @return 0 on success; a negative -errno when openat/write fails
+ */
+i64 wired_fio_write_new(const char* path, quic_span data);
+
+/**
  * Close a descriptor from wired_fio_open. Idempotent misuse (already closed,
  * negative fd) is the caller's responsibility to avoid; this simply issues
  * close(2).

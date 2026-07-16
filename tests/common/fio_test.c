@@ -171,6 +171,79 @@ static void test_fio_open_missing(void) {
   CHECK(wired_fio_open("build/fio_test_missing.tmp") < 0);
 }
 
+#define FIOT_AT_REMOVEDIR 0x200 /* unlinkat: remove a directory */
+
+static const char fiot_dir[] = "build/fio_test_dir.tmp";
+
+static void fiot_rmdir(void) {
+  syscall3(SYS_unlinkat, FIOT_AT_FDCWD, fiot_dir, FIOT_AT_REMOVEDIR);
+}
+
+/* wired_fio_write_new writes the whole span to a fresh file. */
+static void test_fio_write_new_roundtrip(void) {
+  const u8 data[3] = {'x', 'y', 'z'};
+  u8       out[8]  = {0};
+  fiot_unlink();
+  CHECK(wired_fio_write_new(fiot_path, quic_span_of(data, 3)) == 0);
+  CHECK(wired_fio_read(fiot_path, quic_mspan_of(out, sizeof out)) == 3);
+  CHECK(out[0] == 'x' && out[1] == 'y' && out[2] == 'z');
+  fiot_unlink();
+}
+
+/* A second wired_fio_write_new truncates: no byte of the longer first
+ * content survives a shorter rewrite. */
+static void test_fio_write_new_truncates(void) {
+  const u8 longer[5]  = {1, 2, 3, 4, 5};
+  const u8 shorter[2] = {9, 8};
+  u8       out[8]     = {0};
+  CHECK(wired_fio_write_new(fiot_path, quic_span_of(longer, 5)) == 0);
+  CHECK(wired_fio_write_new(fiot_path, quic_span_of(shorter, 2)) == 0);
+  CHECK(wired_fio_read(fiot_path, quic_mspan_of(out, sizeof out)) == 2);
+  CHECK(out[0] == 9 && out[1] == 8);
+  fiot_unlink();
+}
+
+/* Empty span: a zero-byte file results. */
+static void test_fio_write_new_empty(void) {
+  const u8 data[1] = {7};
+  CHECK(wired_fio_write_new(fiot_path, quic_span_of(data, 1)) == 0);
+  CHECK(wired_fio_write_new(fiot_path, quic_span_of(0, 0)) == 0);
+  CHECK(wired_fio_size(fiot_path) == 0);
+  fiot_unlink();
+}
+
+/* Missing parent directory: openat's -errno is passed through. */
+static void test_fio_write_new_missing_parent(void) {
+  const u8 data[1] = {1};
+  CHECK(
+      wired_fio_write_new("build/fio_test_nodir.tmp/f", quic_span_of(data, 1)) <
+      0);
+}
+
+/* wired_fio_mkdir creates a directory that write_new can then write into. */
+static void test_fio_mkdir_then_write(void) {
+  const u8   data[1] = {5};
+  const char file[]  = "build/fio_test_dir.tmp/f";
+  fiot_rmdir();
+  CHECK(wired_fio_mkdir(fiot_dir) == 0);
+  CHECK(wired_fio_write_new(file, quic_span_of(data, 1)) == 0);
+  CHECK(wired_fio_size(file) == 1);
+  syscall3(SYS_unlinkat, FIOT_AT_FDCWD, file, 0);
+  fiot_rmdir();
+}
+
+/* An already existing directory counts as success. */
+static void test_fio_mkdir_existing(void) {
+  CHECK(wired_fio_mkdir(fiot_dir) == 0);
+  CHECK(wired_fio_mkdir(fiot_dir) == 0);
+  fiot_rmdir();
+}
+
+/* A missing parent in a nested path passes -errno through. */
+static void test_fio_mkdir_missing_parent(void) {
+  CHECK(wired_fio_mkdir("build/fio_test_nodir.tmp/sub") < 0);
+}
+
 void test_fio(void) {
   test_fio_roundtrip();
   test_fio_missing();
@@ -186,4 +259,11 @@ void test_fio(void) {
   test_fio_pread_at_eof();
   test_fio_pread_partial_round();
   test_fio_open_missing();
+  test_fio_write_new_roundtrip();
+  test_fio_write_new_truncates();
+  test_fio_write_new_empty();
+  test_fio_write_new_missing_parent();
+  test_fio_mkdir_then_write();
+  test_fio_mkdir_existing();
+  test_fio_mkdir_missing_parent();
 }
