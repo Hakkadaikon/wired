@@ -74,6 +74,7 @@ void test_h3settings_control_settings_advertises_wt(void) {
   CHECK(hcs_has_pair(&s, 0x33, 1) == 1);
   CHECK(hcs_has_pair(&s, 0xc671706a, 1) == 1);
   CHECK(hcs_has_pair(&s, 0x2b603742, 1) == 1);
+  CHECK(hcs_has_pair(&s, 0x2c7cf000, 1) == 1);
 
   CHECK(quic_h3settings_control_stream(0, buf, sizeof(buf), &n) == 1);
   quic_h3_stream_type_parse(quic_span_of(buf, n), &(u64){0}, &consumed);
@@ -81,4 +82,5 @@ void test_h3settings_control_settings_advertises_wt(void) {
   CHECK(hcs_has_pair(&s, 0x33, 1) == 0);
   CHECK(hcs_has_pair(&s, 0xc671706a, 1) == 0);
   CHECK(hcs_has_pair(&s, 0x2b603742, 1) == 0);
+  CHECK(hcs_has_pair(&s, 0x2c7cf000, 1) == 0);
 }
