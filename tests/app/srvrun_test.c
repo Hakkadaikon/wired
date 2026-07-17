@@ -7369,6 +7369,189 @@ static void test_srvrun_wt_datagram_ring_full_rejects_then_recovers(void) {
   CHECK(g_srvrun_env.dgring_n == 1);
 }
 
+/* RECEIVE-SIDE FLOW CONTROL (RFC 9000 4.1/19.9/19.10): srvrun_seal_max_
+ * stream_data encodes a MAX_STREAM_DATA the client can decode, naming the
+ * right stream and value. */
+static void test_srvrun_wt_max_stream_data_wire_shape(void) {
+  struct lp_fix          f;
+  quic_obuf              ob = {0};
+  u8                     obuf[1024], pkt[256];
+  quic_obuf              pktb = quic_obuf_of(pkt, sizeof pkt);
+  const u8*              pl;
+  usz                    pll;
+  quic_stream_data_frame msd;
+  usz                    n;
+  srvrun_conn*           c;
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  c  = sr_wtsend_fixture(&f, &ob);
+  CHECK(srvrun_seal_max_stream_data(c, 4, 20000, &pktb) == 1);
+  CHECK(client_open_onertt(&f, pktb.p, pktb.len, &pl, &pll) == 1);
+  n = quic_max_stream_data_decode(pl, pll, &msd);
+  CHECK(n != 0 && n == pll);
+  CHECK(msd.stream_id == 4);
+  CHECK(msd.value == 20000);
+}
+
+/* Same shape, for the connection-wide MAX_DATA frame. */
+static void test_srvrun_wt_max_data_wire_shape(void) {
+  struct lp_fix   f;
+  quic_obuf       ob = {0};
+  u8              obuf[1024], pkt[256];
+  quic_obuf       pktb = quic_obuf_of(pkt, sizeof pkt);
+  const u8*       pl;
+  usz             pll;
+  quic_data_frame md;
+  usz             n;
+  srvrun_conn*    c;
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  c  = sr_wtsend_fixture(&f, &ob);
+  CHECK(srvrun_seal_max_data(c, 90000, &pktb) == 1);
+  CHECK(client_open_onertt(&f, pktb.p, pktb.len, &pl, &pll) == 1);
+  n = quic_max_data_decode(pl, pll, &md);
+  CHECK(n != 0 && n == pll);
+  CHECK(md.value == 90000);
+}
+
+/* PROGRESSION (RFC 9000 4.1): as a WT bidi slot's delivered_len advances,
+ * srvrun_grant_wt_credit raises that stream's own credit_advertised (never
+ * lowers it) and the connection-wide rx_max_data_advertised, both strictly
+ * following delivered progress -- proving the credit stays tied to actual
+ * reassembly progress, not emitted unconditionally every step. */
+static void test_srvrun_wt_credit_advances_with_delivery(void) {
+  struct lp_fix f;
+  quic_obuf     ob = {0};
+  u8            obuf[1024];
+  srvrun_conn*  c;
+  u64           first_stream_credit, first_conn_credit;
+  ob                           = (quic_obuf){obuf, sizeof obuf, 0};
+  c                            = sr_wtsend_fixture(&f, &ob);
+  c->l.wt_streams[0].in_use    = 1;
+  c->l.wt_streams[0].stream_id = 4;
+  sr_wt_slot_set_frontier(&c->l.wt_streams[0], 100);
+  c->l.wt_streams[0].delivered_len = 100;
+  {
+    srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0,
+                      0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                      0,  0, 0, 0, 0};
+    srvrun_grant_wt_credit(&cfg, c);
+  }
+  first_stream_credit = c->l.wt_streams[0].credit_advertised;
+  first_conn_credit   = c->rx_max_data_advertised;
+  CHECK(first_stream_credit == 100 + WIRED_SRVLOOP_WT_BUF_CAP);
+  CHECK(first_conn_credit == 100 + WIRED_SRVLOOP_WT_BUF_CAP);
+  /* more bytes delivered -- both ceilings rise, never fall. */
+  sr_wt_slot_set_frontier(&c->l.wt_streams[0], 500);
+  c->l.wt_streams[0].delivered_len = 500;
+  {
+    srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0,
+                      0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                      0,  0, 0, 0, 0};
+    srvrun_grant_wt_credit(&cfg, c);
+  }
+  CHECK(c->l.wt_streams[0].credit_advertised > first_stream_credit);
+  CHECK(c->rx_max_data_advertised > first_conn_credit);
+  /* a step with no further delivery re-sends nothing (send_count unchanged
+   * -- proven indirectly: credit_advertised/rx_max_data_advertised stay put,
+   * since a re-send would only happen if wt_credit_stream_due were
+   * (incorrectly) true again). */
+  {
+    u64        stream_before = c->l.wt_streams[0].credit_advertised;
+    u64        conn_before   = c->rx_max_data_advertised;
+    srvrun_cfg cfg           = {-1, 0, 0, 0, 0, 0, 0, 0,
+                                0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                                0,  0, 0, 0, 0};
+    srvrun_grant_wt_credit(&cfg, c);
+    CHECK(c->l.wt_streams[0].credit_advertised == stream_before);
+    CHECK(c->rx_max_data_advertised == conn_before);
+  }
+}
+
+/* GATE: a connection with no WT slot ever claimed never emits a gratuitous
+ * MAX_DATA -- the bug this guards against sent a MAX_DATA(WIRED_SRVLOOP_WT_
+ * BUF_CAP) on every plain HTTP/3 connection's very first step, an unasked-
+ * for frame with nothing to raise credit for. */
+static void test_srvrun_wt_credit_no_op_without_any_wt_slot(void) {
+  struct lp_fix f;
+  quic_obuf     ob = {0};
+  u8            obuf[1024];
+  srvrun_conn*  c;
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  c  = sr_wtsend_fixture(&f, &ob);
+  {
+    srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0,
+                      0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                      0,  0, 0, 0, 0};
+    srvrun_grant_wt_credit(&cfg, c);
+  }
+  CHECK(c->rx_max_data_advertised == 0);
+}
+
+/* SLOT RELEASE + RECLAIM (RFC 9000 2.1/19.8): once a WT bidi slot's FIN has
+ * been delivered to the app, srvrun_offer_and_deliver_wt_slot (reached via
+ * srvrun_offer_wt_streams) frees it -- a 5th distinct WT bidi stream (past
+ * WIRED_SRVLOOP_MAX_WT_STREAMS == 4) can then claim the freed slot rather
+ * than being dropped by a permanently-exhausted table. */
+static void test_srvrun_wt_slot_released_after_fin_and_reclaimed(void) {
+  struct lp_fix f;
+  quic_obuf     ob = {0};
+  u8            obuf[1024];
+  srvrun_conn*  c;
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  c  = sr_wtsend_fixture(&f, &ob);
+  /* fill every slot with a finished, fully-delivered stream. */
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_STREAMS; i++) {
+    c->l.wt_streams[i].in_use    = 1;
+    c->l.wt_streams[i].stream_id = 4 + 4 * (u64)i;
+    c->l.wt_streams[i].offered   = 1;
+    c->l.wt_streams[i].fin       = 1;
+    c->l.wt_streams[i].fin_off   = 0; /* empty stream, FIN at offset 0 */
+  }
+  {
+    srvrun_cfg cfg = {
+        -1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        sr_stream_data_handler,
+        0,
+        0,
+        &g_srvrun_env,
+        0,
+        0,
+        0,
+        0,
+        0};
+    srvrun_offer_wt_streams(&cfg, c);
+  }
+  /* every slot's FIN was delivered and the slot freed. */
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_STREAMS; i++)
+    CHECK(c->l.wt_streams[i].in_use == 0);
+  /* a fresh (5th) stream id now successfully claims a slot. */
+  CHECK(wired_srvloop_wt_slot_claim(&c->l, 100) >= 0);
+}
+
+/* STALE ID REJECTED: once a stream id has been released, a late/duplicate
+ * frame naming that SAME id (a reordered retransmission arriving after the
+ * slot was already reaped) must not re-claim a slot -- RFC 9000 2.1's
+ * strictly-increasing stream id space means a peer never legitimately reuses
+ * one, so re-claiming would let stale data resurrect a finished stream. */
+static void test_srvrun_wt_released_id_not_reclaimed(void) {
+  wired_srvloop l;
+  wired_srvloop_init(&l, (const u8*)"c", 1);
+  CHECK(wired_srvloop_wt_slot_claim(&l, 4) >= 0);
+  wired_srvloop_wt_slot_release(&l, 4);
+  CHECK(wired_srvloop_wt_slot_claim(&l, 4) < 0);  /* same id: stale, rejected */
+  CHECK(wired_srvloop_wt_slot_claim(&l, 8) >= 0); /* a genuinely new id: ok */
+}
+
 void test_srvrun(void) {
   test_srvrun_broadcast_datagram_queues_active_wt_sessions();
   test_srvrun_broadcast_datagram_skips_inactive_wt();
@@ -7567,4 +7750,10 @@ void test_srvrun(void) {
   test_srvrun_wt_send_datagram_to_requires_settings_sent();
   test_srvrun_wt_datagram_ring_drains_200_queued();
   test_srvrun_wt_datagram_ring_full_rejects_then_recovers();
+  test_srvrun_wt_max_stream_data_wire_shape();
+  test_srvrun_wt_max_data_wire_shape();
+  test_srvrun_wt_credit_advances_with_delivery();
+  test_srvrun_wt_credit_no_op_without_any_wt_slot();
+  test_srvrun_wt_slot_released_after_fin_and_reclaimed();
+  test_srvrun_wt_released_id_not_reclaimed();
 }
