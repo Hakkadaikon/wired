@@ -19,6 +19,11 @@
  * identifier alone still fails its SupportsWebTransport() check), so both
  * generations are advertised together. */
 #define QUIC_H3_SETTINGS_WT_DRAFT02 0x2b603742
+/* draft-ietf-webtrans-http3-15 3.1 SETTINGS_WT_ENABLED. webtransport-go's
+ * client requires this exact identifier to be non-zero and accepts neither
+ * the draft-07 max-sessions pair nor the draft-02 pair in its place, so all
+ * three generations go out together. */
+#define QUIC_H3_SETTINGS_WT_ENABLED 0x2c7cf000
 
 /* RFC 9220 3: append SETTINGS_ENABLE_CONNECT_PROTOCOL when requested. */
 static void append_connect_protocol(
@@ -48,6 +53,9 @@ static void append_wt_max_sessions(
   s->pairs[s->n].value = in->wt_max_sessions;
   s->n++;
   s->pairs[s->n].id    = QUIC_H3_SETTINGS_WT_DRAFT02;
+  s->pairs[s->n].value = 1;
+  s->n++;
+  s->pairs[s->n].id    = QUIC_H3_SETTINGS_WT_ENABLED;
   s->pairs[s->n].value = 1;
   s->n++;
 }
