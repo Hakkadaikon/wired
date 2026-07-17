@@ -106,17 +106,19 @@ typedef struct {
 #define WIRED_SRVLOOP_MAX_WT_STREAMS 6
 
 /** Byte capacity of one WT bidi/uni reassembly slot's receive window (buf
- * below). Smaller than one full BDP for quic-interop-runner's simulated link
- * (10Mbps/30ms RTT is ~37KB) -- kept down so wired_srvloop (embedded in
- * srvrun_conn, 6 bidi + 6 uni slots) stays small enough for existing test
- * helpers that stack-allocate a whole QUIC_CONNTABLE_CAP-sized connection
- * table (srvrun_test.c) to not overflow an 8MB default stack: a larger
- * window (32KB) passed locally but SIGSEGV'd in CI, whose effective stack
- * limit runs tighter than a plain `ulimit -s` check here shows. Correctness
- * does not depend on the window covering a full BDP -- srvrun.c keeps
- * re-granting flow-control credit every step, so a multi-megabyte WT stream
- * still flows, just over more round trips than a larger window would need. */
-#define WIRED_SRVLOOP_WT_BUF_CAP 4096
+ * below). Sized past one full BDP for quic-interop-runner's simulated link
+ * (10Mbps/30ms RTT is ~37KB) so a single WT stream's throughput is not
+ * window-capped -- with 5 streams sharing one connection's fair share of
+ * that link, a smaller window left several of quic-interop-runner's
+ * WebTransport send-mode transfer tests short of finishing inside its fixed
+ * per-test timeout (verified against a real webtransport-go run). Used to be
+ * kept at 4KB because wired_srvloop is embedded in srvrun_conn (6 bidi + 6
+ * uni slots), and srvrun_test.c's test helpers used to stack-allocate a
+ * whole QUIC_CONNTABLE_CAP-sized connection table each -- that allocation
+ * has since moved to static storage (matching production's own g_srvrun_env
+ * singleton, which was never on the stack to begin with), so this can now
+ * size for throughput instead of a stack budget it no longer shares. */
+#define WIRED_SRVLOOP_WT_BUF_CAP 49152
 
 /** How many disjoint received-but-not-yet-contiguous byte ranges one WT
  * slot's window tracks past its frontier (see wired_srvloop_wt_window). RFC
