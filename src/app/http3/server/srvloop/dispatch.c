@@ -291,17 +291,29 @@ static void gather_wt_one(
   }
 }
 
+/* draft-ietf-webtrans-http3-15 4.3: the leading signal on a WT bidi stream is
+ * TWO varints -- the WT_STREAM type (0x41) and the session id (the CONNECT
+ * stream's own id) -- so skipping only the type varint's length left the
+ * session id's own bytes as a leading garbage byte on every request line
+ * (found via a real webtransport-go interop run: the app's GET parser saw an
+ * extra byte before "GET "). Consume both and sum their lengths. */
+static usz wt_signal_len(quic_span data) {
+  u64 v;
+  usz off = 0;
+  quic_varint_take(data, &off, &v);
+  quic_varint_take(data, &off, &v);
+  return off;
+}
+
 /* draft-ietf-webtrans-http3-15 4.3: find-or-claim the wt_streams slot for a
  * newly-signalled stream, recording the signal's own encoded length so
  * gather_wt_one can skip exactly that many bytes. Returns -1 (dropped, table
  * full) exactly like stream_slot_claim's fixed-capacity fallback. */
 static int wt_slot_for_signal(wired_srvloop* l, const quic_stream_frame* sf) {
   int i = wired_srvloop_wt_slot_claim(l, sf->stream_id);
-  u64 v;
-  usz off = 0;
   if (i < 0) return -1;
-  quic_varint_take(quic_span_of(sf->data, (usz)sf->length), &off, &v);
-  l->wt_streams[i].sig_len = off;
+  l->wt_streams[i].sig_len =
+      wt_signal_len(quic_span_of(sf->data, (usz)sf->length));
   return i;
 }
 
@@ -461,15 +473,14 @@ static void gather_wt_uni_one(
 }
 
 /* draft-ietf-webtrans-http3-15 4.3: find-or-claim the wt_uni_streams slot for
- * a newly-typed stream, recording the type varint's own encoded length so
- * gather_wt_uni_one can skip exactly that many bytes. */
+ * a newly-typed stream, recording the leading signal's full encoded length
+ * (type varint + session id varint, see wt_signal_len) so gather_wt_uni_one
+ * can skip exactly that many bytes. */
 static int wt_uni_slot_for_type(wired_srvloop* l, const quic_stream_frame* sf) {
   int i = wired_srvloop_wt_uni_slot_claim(l, sf->stream_id);
-  u64 v;
-  usz off = 0;
   if (i < 0) return -1;
-  quic_varint_take(quic_span_of(sf->data, (usz)sf->length), &off, &v);
-  l->wt_uni_streams[i].type_len = off;
+  l->wt_uni_streams[i].type_len =
+      wt_signal_len(quic_span_of(sf->data, (usz)sf->length));
   return i;
 }
 
