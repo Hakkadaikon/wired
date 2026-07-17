@@ -108,13 +108,15 @@ typedef struct {
 /** Byte capacity of one WT bidi/uni reassembly slot's receive window (buf
  * below). Smaller than one full BDP for quic-interop-runner's simulated link
  * (10Mbps/30ms RTT is ~37KB) -- kept down so wired_srvloop (embedded in
- * srvrun_conn, 4 bidi + 4 uni slots) stays small enough for existing test
+ * srvrun_conn, 6 bidi + 6 uni slots) stays small enough for existing test
  * helpers that stack-allocate a whole QUIC_CONNTABLE_CAP-sized connection
- * table (srvrun_test.c) to not overflow an 8MB default stack. Correctness
+ * table (srvrun_test.c) to not overflow an 8MB default stack: a larger
+ * window (32KB) passed locally but SIGSEGV'd in CI, whose effective stack
+ * limit runs tighter than a plain `ulimit -s` check here shows. Correctness
  * does not depend on the window covering a full BDP -- srvrun.c keeps
  * re-granting flow-control credit every step, so a multi-megabyte WT stream
  * still flows, just over more round trips than a larger window would need. */
-#define WIRED_SRVLOOP_WT_BUF_CAP 32768
+#define WIRED_SRVLOOP_WT_BUF_CAP 4096
 
 /** How many disjoint received-but-not-yet-contiguous byte ranges one WT
  * slot's window tracks past its frontier (see wired_srvloop_wt_window). RFC
