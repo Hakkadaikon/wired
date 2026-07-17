@@ -1298,6 +1298,33 @@ static int wt_any_slot_in_use(const srvrun_conn* c) {
   return wt_any_bidi_slot_in_use(c) || wt_any_uni_slot_in_use(c);
 }
 
+/* RFC 9000 4.1: how many WT bidi/uni slots on c are currently in use -- the
+ * connection-wide MAX_DATA ceiling needs one buffer's worth of slack PER
+ * open slot (each slot's own MAX_STREAM_DATA independently opens up to a
+ * full WIRED_SRVLOOP_WT_BUF_CAP ahead of what it delivered), not a single
+ * buffer's worth shared across every slot -- undercounting this starved
+ * every slot but one down to the connection ceiling once several were
+ * active at once (found via a real webtransport-go interop run: streams
+ * stalled hard the moment their combined MAX_STREAM_DATA ceilings outran a
+ * one-buffer-wide MAX_DATA). */
+static usz wt_bidi_slots_in_use(const srvrun_conn* c) {
+  usz n = 0;
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_STREAMS; i++)
+    if (c->l.wt_streams[i].in_use) n++;
+  return n;
+}
+
+static usz wt_uni_slots_in_use(const srvrun_conn* c) {
+  usz n = 0;
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_UNI_STREAMS; i++)
+    if (c->l.wt_uni_streams[i].in_use) n++;
+  return n;
+}
+
+static usz wt_slots_in_use(const srvrun_conn* c) {
+  return wt_bidi_slots_in_use(c) + wt_uni_slots_in_use(c);
+}
+
 /* RFC 9000 4.1/19.9: re-grant this connection's receive credit once its total
  * WT progress (every slot combined) has advanced enough past what was last
  * advertised -- the connection-wide counterpart of srvrun_grant_stream_
@@ -1306,7 +1333,8 @@ static int wt_any_slot_in_use(const srvrun_conn* c) {
  * connection ceiling. A no-op while no WT slot has ever been claimed
  * (wt_any_slot_in_use). */
 static void srvrun_grant_conn_credit(const srvrun_cfg* cfg, srvrun_conn* c) {
-  u64 ceiling = wt_slot_credit_ceiling(srvrun_wt_rx_delivered_total(c));
+  u64 ceiling = srvrun_wt_rx_delivered_total(c) +
+                (u64)wt_slots_in_use(c) * WIRED_SRVLOOP_WT_BUF_CAP;
   if (!wt_any_slot_in_use(c)) return;
   if (!wt_credit_stream_due(ceiling, c->rx_max_data_advertised)) return;
   srvrun_send_max_data(cfg, c, ceiling);
