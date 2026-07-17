@@ -1007,9 +1007,13 @@ static void test_srvthreads_datagram_self_echo(void) {
  * built into that same TU (see the file doc above), so its full definition
  * is visible here too. Static, not stack: grew to ~9 MiB once respstore
  * became per-(conn,stream) (1 MiB -> 4 MiB) and the srvbigbuf pool (1.25
- * MiB) was added; 16 MiB leaves headroom since that call cannot be used in
- * a static array bound. */
-static u8 g_sdt_env_storage[16u * 1024u * 1024u];
+ * MiB) was added, then past 45 MiB once every connection's WT bidi+uni
+ * slots got a real-throughput-sized receive window
+ * (WIRED_SRVLOOP_WT_BUF_CAP: 12 slots * QUIC_CONNTABLE_CAP=64 conns) --
+ * that call cannot be used in a static array bound, so this constant must
+ * track it by hand (see srvinbox_test.c's g_sib_env_storage sizing note for
+ * the crash this exact gap caused). 96 MiB leaves headroom. */
+static u8 g_sdt_env_storage[96u * 1024u * 1024u];
 
 /* A connection slot with an active WebTransport session and its own SETTINGS
  * already sent (srvrun_queue_datagram's own gate, RFC 9297 2.1) -- the state
