@@ -13,6 +13,27 @@
 #include "transport/packet/frame/frame/frame.h"
 #include "transport/packet/frame/frame/stream_ctl.h"
 
+/* Shared backing storage for every test's own srvrun_conn conns[] (see
+ * sr_test_conns below): ONE static array, not one per call site. Each
+ * srvrun_conn embeds wired_srvloop, whose WT receive windows
+ * (WIRED_SRVLOOP_WT_BUF_CAP) this repo wants sized for real throughput, not
+ * a stack (or per-test BSS) budget -- one static QUIC_CONNTABLE_CAP-sized
+ * array shared by every test costs the same BSS regardless of how many test
+ * functions reuse it; 46 independent statics (this file's original fix,
+ * cbe1f44) each paid the full array's cost again, and once the window grew
+ * past a few KB that summed to a multi-gigabyte BSS the loader could not
+ * even map (a real crash this exact way, found immediately after widening
+ * the window in a later commit). */
+static srvrun_conn g_test_conns[QUIC_CONNTABLE_CAP];
+
+/* Zero the shared conns[] and hand back a pointer to it, mirroring what each
+ * call site's own `srvrun_conn conns[QUIC_CONNTABLE_CAP] = {0};` used to
+ * declare locally. */
+static srvrun_conn* sr_test_conns(void) {
+  quic_memset(g_test_conns, 0, sizeof g_test_conns);
+  return g_test_conns;
+}
+
 /* @file
  * Graceful shutdown (SIGTERM) behavior. rt_sigaction registration itself
  * (sigterm.c) delivers a real kernel signal and is not exercised here — these
@@ -163,22 +184,20 @@ static void test_srvrun_unconfirmed_owes_nothing(void) {
 
 /* DRAIN COMPLETE: srvrun_all_drained is 1 once every slot is down. */
 static void test_srvrun_all_drained_true_when_all_down(void) {
-  srvrun_state       st;
-  quic_conntable     table[QUIC_CONNTABLE_CAP];
-  static srvrun_conn conns[QUIC_CONNTABLE_CAP];
-  quic_memset(conns, 0, sizeof conns);
-  st = (srvrun_state){table, conns};
+  srvrun_state   st;
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_conn*   conns = sr_test_conns();
+  st                   = (srvrun_state){table, conns};
   CHECK(srvrun_all_drained(&st) == 1);
 }
 
 /* DRAIN PENDING: one slot still up -> not drained. */
 static void test_srvrun_all_drained_false_when_one_up(void) {
-  srvrun_state       st;
-  quic_conntable     table[QUIC_CONNTABLE_CAP];
-  static srvrun_conn conns[QUIC_CONNTABLE_CAP];
-  quic_memset(conns, 0, sizeof conns);
-  conns[3].up = 1;
-  st          = (srvrun_state){table, conns};
+  srvrun_state   st;
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_conn*   conns = sr_test_conns();
+  conns[3].up          = 1;
+  st                   = (srvrun_state){table, conns};
   CHECK(srvrun_all_drained(&st) == 0);
 }
 
@@ -1622,9 +1641,8 @@ static void test_srvrun_busy_poll_off_uses_any_waiting_branch(void) {
   srvrun_state st = {0, 0};
   srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
                     0,  0, 0, 0, 0};
-  quic_conntable     table[QUIC_CONNTABLE_CAP];
-  static srvrun_conn conns[QUIC_CONNTABLE_CAP];
-  quic_memset(conns, 0, sizeof conns);
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_conn*   conns = sr_test_conns();
   quic_conntable_init(table, QUIC_CONNTABLE_CAP);
   st = (srvrun_state){table, conns};
   CHECK(cfg.busy_poll == 0);
@@ -1641,9 +1659,8 @@ static void test_srvrun_busy_poll_on_never_blocks_wait(void) {
   srvrun_state st = {0, 0};
   srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, &g_srvrun_env,
                     0,  0, 0, 0, 0};
-  quic_conntable     table[QUIC_CONNTABLE_CAP];
-  static srvrun_conn conns[QUIC_CONNTABLE_CAP];
-  quic_memset(conns, 0, sizeof conns);
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_conn*   conns = sr_test_conns();
   quic_conntable_init(table, QUIC_CONNTABLE_CAP);
   st                           = (srvrun_state){table, conns};
   conns[0].up                  = 1;
@@ -1658,15 +1675,14 @@ static void test_srvrun_busy_poll_on_never_blocks_wait(void) {
  * (tasks/polling-driver-plan.md test-design item 4/5's srvrun-level
  * counterpart). */
 static void test_srvrun_busy_poll_step_never_blocks(void) {
-  i64                fd = wired_udp_socket();
-  quic_sockaddr_in   sa;
-  quic_mmsg_buf      bufs[2];
-  static u8          storage[2][256];
-  srvrun_state       st = {0, 0};
-  quic_conntable     table[QUIC_CONNTABLE_CAP];
-  static srvrun_conn conns[QUIC_CONNTABLE_CAP];
-  quic_memset(conns, 0, sizeof conns);
-  srvrun_cfg cfg;
+  i64              fd = wired_udp_socket();
+  quic_sockaddr_in sa;
+  quic_mmsg_buf    bufs[2];
+  static u8        storage[2][256];
+  srvrun_state     st = {0, 0};
+  quic_conntable   table[QUIC_CONNTABLE_CAP];
+  srvrun_conn*     conns = sr_test_conns();
+  srvrun_cfg       cfg;
   CHECK(fd >= 0);
   wired_udp_addr(&sa, 4491, (const u8[4]){127, 0, 0, 1});
   CHECK(wired_udp_bind(fd, &sa) >= 0);
@@ -1688,9 +1704,8 @@ static void test_srvrun_busy_poll_step_never_blocks(void) {
  * fires, further due spins inside the window do not re-fire, and the
  * blocking driver never ticks the clocked path at all. */
 static void test_srvrun_polling_pto_tick(void) {
-  quic_conntable     table[QUIC_CONNTABLE_CAP];
-  static srvrun_conn conns[QUIC_CONNTABLE_CAP];
-  quic_memset(conns, 0, sizeof conns);
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_conn*   conns = sr_test_conns();
   srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, &g_srvrun_env,
                     0,  0, 0, 0, 0};
   srvrun_state st;
@@ -1821,12 +1836,11 @@ static void sr_set_req(
  * srvrun_call_handler unchanged -- the app handler is invoked exactly once
  * and no WT session is created. */
 static void test_srvrun_normal_request_unaffected_by_wt_branch(void) {
-  struct lp_fix      f;
-  quic_conntable     table[QUIC_CONNTABLE_CAP];
-  static srvrun_conn conns[QUIC_CONNTABLE_CAP];
-  quic_memset(conns, 0, sizeof conns);
-  quic_obuf ob;
-  u8        obuf[1024];
+  struct lp_fix  f;
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_conn*   conns = sr_test_conns();
+  quic_obuf      ob;
+  u8             obuf[1024];
   ob                    = (quic_obuf){obuf, sizeof obuf, 0};
   g_sr_wt_handler_calls = 0;
   quic_conntable_init(table, QUIC_CONNTABLE_CAP);
@@ -2015,12 +2029,11 @@ static void test_srvrun_wt_uni_stream_buffer_full_sends_reset(void) {
  * session keyed by the CONNECT stream's own id and never calls the app
  * handler. */
 static void test_srvrun_wt_connect_establishes_session(void) {
-  struct lp_fix      f;
-  quic_conntable     table[QUIC_CONNTABLE_CAP];
-  static srvrun_conn conns[QUIC_CONNTABLE_CAP];
-  quic_memset(conns, 0, sizeof conns);
-  quic_obuf ob;
-  u8        obuf[1024];
+  struct lp_fix  f;
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_conn*   conns = sr_test_conns();
+  quic_obuf      ob;
+  u8             obuf[1024];
   ob                    = (quic_obuf){obuf, sizeof obuf, 0};
   g_sr_wt_handler_calls = 0;
   quic_conntable_init(table, QUIC_CONNTABLE_CAP);
@@ -2047,12 +2060,11 @@ static void test_srvrun_wt_connect_establishes_session(void) {
 static const u8 sr_wt_protocol_d7[] = "webtransport";
 
 static void test_srvrun_wt_connect_webtransport_token(void) {
-  struct lp_fix      f;
-  quic_conntable     table[QUIC_CONNTABLE_CAP];
-  static srvrun_conn conns[QUIC_CONNTABLE_CAP];
-  quic_memset(conns, 0, sizeof conns);
-  quic_obuf ob;
-  u8        obuf[1024];
+  struct lp_fix  f;
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_conn*   conns = sr_test_conns();
+  quic_obuf      ob;
+  u8             obuf[1024];
   ob                    = (quic_obuf){obuf, sizeof obuf, 0};
   g_sr_wt_handler_calls = 0;
   quic_conntable_init(table, QUIC_CONNTABLE_CAP);
@@ -2077,12 +2089,11 @@ static void test_srvrun_wt_connect_webtransport_token(void) {
  * (today's only defined behavior for a bare CONNECT -- there is no
  * CONNECT-specific handling yet). */
 static void test_srvrun_plain_connect_no_protocol_no_wt_session(void) {
-  struct lp_fix      f;
-  quic_conntable     table[QUIC_CONNTABLE_CAP];
-  static srvrun_conn conns[QUIC_CONNTABLE_CAP];
-  quic_memset(conns, 0, sizeof conns);
-  quic_obuf ob;
-  u8        obuf[1024];
+  struct lp_fix  f;
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_conn*   conns = sr_test_conns();
+  quic_obuf      ob;
+  u8             obuf[1024];
   ob                    = (quic_obuf){obuf, sizeof obuf, 0};
   g_sr_wt_handler_calls = 0;
   quic_conntable_init(table, QUIC_CONNTABLE_CAP);
@@ -2103,12 +2114,11 @@ static void test_srvrun_plain_connect_no_protocol_no_wt_session(void) {
  * recognized as one -- no session, falls to the normal handler path (today's
  * only defined behavior for a malformed CONNECT-shaped request). */
 static void test_srvrun_wt_connect_missing_scheme_no_session(void) {
-  struct lp_fix      f;
-  quic_conntable     table[QUIC_CONNTABLE_CAP];
-  static srvrun_conn conns[QUIC_CONNTABLE_CAP];
-  quic_memset(conns, 0, sizeof conns);
-  quic_obuf ob;
-  u8        obuf[1024];
+  struct lp_fix  f;
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_conn*   conns = sr_test_conns();
+  quic_obuf      ob;
+  u8             obuf[1024];
   ob                    = (quic_obuf){obuf, sizeof obuf, 0};
   g_sr_wt_handler_calls = 0;
   quic_conntable_init(table, QUIC_CONNTABLE_CAP);
@@ -2130,12 +2140,11 @@ static void test_srvrun_wt_connect_missing_scheme_no_session(void) {
 /* WT-B-003/004: a well-formed Extended CONNECT missing :path is likewise not
  * recognized -- same fallthrough as the missing-:scheme case above. */
 static void test_srvrun_wt_connect_missing_path_no_session(void) {
-  struct lp_fix      f;
-  quic_conntable     table[QUIC_CONNTABLE_CAP];
-  static srvrun_conn conns[QUIC_CONNTABLE_CAP];
-  quic_memset(conns, 0, sizeof conns);
-  quic_obuf ob;
-  u8        obuf[1024];
+  struct lp_fix  f;
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_conn*   conns = sr_test_conns();
+  quic_obuf      ob;
+  u8             obuf[1024];
   ob                    = (quic_obuf){obuf, sizeof obuf, 0};
   g_sr_wt_handler_calls = 0;
   quic_conntable_init(table, QUIC_CONNTABLE_CAP);
@@ -2157,12 +2166,11 @@ static void test_srvrun_wt_connect_missing_path_no_session(void) {
 /* WT-B-003/004: a well-formed Extended CONNECT missing :authority is likewise
  * not recognized -- same fallthrough. */
 static void test_srvrun_wt_connect_missing_authority_no_session(void) {
-  struct lp_fix      f;
-  quic_conntable     table[QUIC_CONNTABLE_CAP];
-  static srvrun_conn conns[QUIC_CONNTABLE_CAP];
-  quic_memset(conns, 0, sizeof conns);
-  quic_obuf ob;
-  u8        obuf[1024];
+  struct lp_fix  f;
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_conn*   conns = sr_test_conns();
+  quic_obuf      ob;
+  u8             obuf[1024];
   ob                    = (quic_obuf){obuf, sizeof obuf, 0};
   g_sr_wt_handler_calls = 0;
   quic_conntable_init(table, QUIC_CONNTABLE_CAP);
@@ -2185,12 +2193,11 @@ static void test_srvrun_wt_connect_missing_authority_no_session(void) {
  * session normally (positive case -- presence alone is not a rejection
  * reason). */
 static void test_srvrun_wt_connect_origin_ok_establishes(void) {
-  struct lp_fix      f;
-  quic_conntable     table[QUIC_CONNTABLE_CAP];
-  static srvrun_conn conns[QUIC_CONNTABLE_CAP];
-  quic_memset(conns, 0, sizeof conns);
-  quic_obuf ob;
-  u8        obuf[1024];
+  struct lp_fix  f;
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_conn*   conns = sr_test_conns();
+  quic_obuf      ob;
+  u8             obuf[1024];
   ob = (quic_obuf){obuf, sizeof obuf, 0};
   quic_conntable_init(table, QUIC_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
@@ -2214,12 +2221,11 @@ static void test_srvrun_wt_connect_origin_ok_establishes(void) {
  * 403-equivalent response instead of establishing a session -- no
  * wired_wt_session is created, but a response is still armed (the 403). */
 static void test_srvrun_wt_connect_origin_malformed_403(void) {
-  struct lp_fix      f;
-  quic_conntable     table[QUIC_CONNTABLE_CAP];
-  static srvrun_conn conns[QUIC_CONNTABLE_CAP];
-  quic_memset(conns, 0, sizeof conns);
-  quic_obuf ob;
-  u8        obuf[1024];
+  struct lp_fix  f;
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_conn*   conns = sr_test_conns();
+  quic_obuf      ob;
+  u8             obuf[1024];
   ob = (quic_obuf){obuf, sizeof obuf, 0};
   quic_conntable_init(table, QUIC_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
@@ -2247,12 +2253,11 @@ static void test_srvrun_wt_connect_origin_malformed_403(void) {
  * UNESTABLISHED -- this test fails on that regression and passes with the
  * guard in place. */
 static void test_srvrun_second_wt_connect_rejected_429(void) {
-  struct lp_fix      f;
-  quic_conntable     table[QUIC_CONNTABLE_CAP];
-  static srvrun_conn conns[QUIC_CONNTABLE_CAP];
-  quic_memset(conns, 0, sizeof conns);
-  quic_obuf ob;
-  u8        obuf[1024];
+  struct lp_fix  f;
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_conn*   conns = sr_test_conns();
+  quic_obuf      ob;
+  u8             obuf[1024];
   ob                    = (quic_obuf){obuf, sizeof obuf, 0};
   g_sr_wt_handler_calls = 0;
   quic_conntable_init(table, QUIC_CONNTABLE_CAP);
@@ -2294,10 +2299,9 @@ static void test_srvrun_second_wt_connect_rejected_429(void) {
  * srvrun_start_resp, and decodes it back off the wire to confirm both frames
  * carry the right error code and stream id. */
 static void test_srvrun_second_wt_connect_sends_reset_stream(void) {
-  struct lp_fix      f;
-  quic_conntable     table[QUIC_CONNTABLE_CAP];
-  static srvrun_conn conns[QUIC_CONNTABLE_CAP];
-  quic_memset(conns, 0, sizeof conns);
+  struct lp_fix              f;
+  quic_conntable             table[QUIC_CONNTABLE_CAP];
+  srvrun_conn*               conns = sr_test_conns();
   quic_obuf                  ob;
   u8                         obuf[1024];
   u8                         pkt[256];
@@ -2351,12 +2355,11 @@ static void test_srvrun_second_wt_connect_sends_reset_stream(void) {
  * id, same shape as the existing establishes_session test's id 4 -- confirms
  * the new validation does not reject a well-formed id. */
 static void test_srvrun_wt_connect_client_bidi_id_establishes_session(void) {
-  struct lp_fix      f;
-  quic_conntable     table[QUIC_CONNTABLE_CAP];
-  static srvrun_conn conns[QUIC_CONNTABLE_CAP];
-  quic_memset(conns, 0, sizeof conns);
-  quic_obuf ob;
-  u8        obuf[1024];
+  struct lp_fix  f;
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_conn*   conns = sr_test_conns();
+  quic_obuf      ob;
+  u8             obuf[1024];
   ob                    = (quic_obuf){obuf, sizeof obuf, 0};
   g_sr_wt_handler_calls = 0;
   quic_conntable_init(table, QUIC_CONNTABLE_CAP);
@@ -2385,10 +2388,9 @@ static void test_srvrun_wt_connect_client_bidi_id_establishes_session(void) {
  * H3_ID_ERROR, mirroring test_srvrun_second_wt_connect_sends_reset_stream's
  * decode-back verification. */
 static void test_srvrun_wt_connect_non_client_bidi_id_rejected(void) {
-  struct lp_fix      f;
-  quic_conntable     table[QUIC_CONNTABLE_CAP];
-  static srvrun_conn conns[QUIC_CONNTABLE_CAP];
-  quic_memset(conns, 0, sizeof conns);
+  struct lp_fix              f;
+  quic_conntable             table[QUIC_CONNTABLE_CAP];
+  srvrun_conn*               conns = sr_test_conns();
   quic_obuf                  ob;
   u8                         obuf[1024];
   u8                         pkt[256];
@@ -2515,13 +2517,12 @@ static void test_srvrun_send_app_close_does_not_crash(void) {
  * session ESTABLISHED and the handler count untouched (WT never calls the
  * app handler), matching the pre-existing accept-path assertions. */
 static void test_srvrun_first_wt_connect_no_reset_stream(void) {
-  struct lp_fix      f;
-  quic_conntable     table[QUIC_CONNTABLE_CAP];
-  static srvrun_conn conns[QUIC_CONNTABLE_CAP];
-  quic_memset(conns, 0, sizeof conns);
-  quic_obuf ob;
-  u8        obuf[1024];
-  u64       tx_pn_before;
+  struct lp_fix  f;
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_conn*   conns = sr_test_conns();
+  quic_obuf      ob;
+  u8             obuf[1024];
+  u64            tx_pn_before;
   ob                    = (quic_obuf){obuf, sizeof obuf, 0};
   g_sr_wt_handler_calls = 0;
   quic_conntable_init(table, QUIC_CONNTABLE_CAP);
@@ -2553,12 +2554,11 @@ static void test_srvrun_first_wt_connect_no_reset_stream(void) {
  * tasks/wt-pin-poll-progress.md for why that finer-grained signal does not
  * exist yet. */
 static void test_srvrun_idle_sweep_closes_wt_session(void) {
-  quic_conntable     table[QUIC_CONNTABLE_CAP];
-  static srvrun_conn conns[QUIC_CONNTABLE_CAP];
-  quic_memset(conns, 0, sizeof conns);
-  quic_obuf     ob;
-  u8            obuf[1024];
-  struct lp_fix f;
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_conn*   conns = sr_test_conns();
+  quic_obuf      ob;
+  u8             obuf[1024];
+  struct lp_fix  f;
   ob = (quic_obuf){obuf, sizeof obuf, 0};
   quic_conntable_init(table, QUIC_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
@@ -2591,12 +2591,11 @@ static void test_srvrun_idle_sweep_closes_wt_session(void) {
  * srvrun_free_slot) missing. The connection itself stays up (conns[0].up is
  * never touched by srvrun_on_step for this), only the session closes. */
 static void test_srvrun_connect_stream_reset_closes_wt_session(void) {
-  quic_conntable     table[QUIC_CONNTABLE_CAP];
-  static srvrun_conn conns[QUIC_CONNTABLE_CAP];
-  quic_memset(conns, 0, sizeof conns);
-  quic_obuf     ob;
-  u8            obuf[1024];
-  struct lp_fix f;
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_conn*   conns = sr_test_conns();
+  quic_obuf      ob;
+  u8             obuf[1024];
+  struct lp_fix  f;
   ob = (quic_obuf){obuf, sizeof obuf, 0};
   quic_conntable_init(table, QUIC_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
@@ -2622,12 +2621,11 @@ static void test_srvrun_connect_stream_reset_closes_wt_session(void) {
  * not the CONNECT stream itself) must not touch the session -- only the exact
  * connect_stream_id id closes it. */
 static void test_srvrun_other_stream_reset_does_not_close_wt_session(void) {
-  quic_conntable     table[QUIC_CONNTABLE_CAP];
-  static srvrun_conn conns[QUIC_CONNTABLE_CAP];
-  quic_memset(conns, 0, sizeof conns);
-  quic_obuf     ob;
-  u8            obuf[1024];
-  struct lp_fix f;
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_conn*   conns = sr_test_conns();
+  quic_obuf      ob;
+  u8             obuf[1024];
+  struct lp_fix  f;
   ob = (quic_obuf){obuf, sizeof obuf, 0};
   quic_conntable_init(table, QUIC_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
@@ -2652,12 +2650,11 @@ static void test_srvrun_other_stream_reset_does_not_close_wt_session(void) {
 /* REGRESSION: a step with no stream-close latched (closed_stream_seen == 0)
  * leaves an established WT session untouched. */
 static void test_srvrun_no_stream_close_leaves_wt_session(void) {
-  quic_conntable     table[QUIC_CONNTABLE_CAP];
-  static srvrun_conn conns[QUIC_CONNTABLE_CAP];
-  quic_memset(conns, 0, sizeof conns);
-  quic_obuf     ob;
-  u8            obuf[1024];
-  struct lp_fix f;
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_conn*   conns = sr_test_conns();
+  quic_obuf      ob;
+  u8             obuf[1024];
+  struct lp_fix  f;
   ob = (quic_obuf){obuf, sizeof obuf, 0};
   quic_conntable_init(table, QUIC_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
@@ -2680,11 +2677,10 @@ static void test_srvrun_no_stream_close_leaves_wt_session(void) {
  * down exactly as before -- srvrun_free_slot is the most commonly hit
  * teardown path, so a crash or behavior change here would be severe. */
 static void test_srvrun_idle_sweep_without_wt_unaffected(void) {
-  quic_conntable     table[QUIC_CONNTABLE_CAP];
-  static srvrun_conn conns[QUIC_CONNTABLE_CAP];
-  quic_memset(conns, 0, sizeof conns);
-  srvrun_state st   = {table, conns};
-  u8           k[4] = {9, 9, 9, 9};
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_conn*   conns = sr_test_conns();
+  srvrun_state   st    = {table, conns};
+  u8             k[4]  = {9, 9, 9, 9};
   quic_conntable_init(table, QUIC_CONNTABLE_CAP);
   conns[0].up        = 1;
   conns[0].last_ms   = 1000;
@@ -2889,10 +2885,9 @@ static void sr_establish_wt(
 static const u8 sr_rxdg_payload[] = {0xaa, 0xbb, 0xcc};
 
 static void test_srvrun_rx_datagram_delivers_to_callback(void) {
-  struct lp_fix      f;
-  quic_conntable     table[QUIC_CONNTABLE_CAP];
-  static srvrun_conn conns[QUIC_CONNTABLE_CAP];
-  quic_memset(conns, 0, sizeof conns);
+  struct lp_fix       f;
+  quic_conntable      table[QUIC_CONNTABLE_CAP];
+  srvrun_conn*        conns = sr_test_conns();
   quic_obuf           ob;
   u8                  obuf[1024], payload[64], spkt[1024], out[1024];
   usz                 plen, slen;
@@ -2930,10 +2925,9 @@ static void test_srvrun_rx_datagram_delivers_to_callback(void) {
  * reachable via the wire in the test above) to keep this test focused on the
  * drain loop itself. */
 static void test_srvrun_rx_datagram_multiple_all_delivered(void) {
-  quic_conntable     table[QUIC_CONNTABLE_CAP];
-  static srvrun_conn conns[QUIC_CONNTABLE_CAP];
-  quic_memset(conns, 0, sizeof conns);
-  usz i;
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_conn*   conns = sr_test_conns();
+  usz            i;
   sr_establish_wt(conns, table, 4);
   for (i = 0; i < 3; i++) {
     conns[0].l.rx_datagrams[i].buf[0] = (u8)('A' + i);
@@ -2957,9 +2951,8 @@ static void test_srvrun_rx_datagram_multiple_all_delivered(void) {
  * queue without crashing (this SDK's "0/NULL disables the optional feature"
  * convention). */
 static void test_srvrun_rx_datagram_no_callback_still_drains(void) {
-  quic_conntable     table[QUIC_CONNTABLE_CAP];
-  static srvrun_conn conns[QUIC_CONNTABLE_CAP];
-  quic_memset(conns, 0, sizeof conns);
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_conn*   conns = sr_test_conns();
   sr_establish_wt(conns, table, 4);
   conns[0].l.rx_datagrams[0].buf[0] = 'Z';
   conns[0].l.rx_datagrams[0].len    = 1;
@@ -3387,16 +3380,15 @@ static void test_srvrun_wt_uni_stream_data_delivered_on_offer(void) {
  * packets through srvrun_on_step (not direct field injection), the same
  * client/server pair sr_make_confirmed_conn builds elsewhere in this file. */
 static void test_srvrun_wt_full_session_lifecycle_on_wire(void) {
-  struct lp_fix      f;
-  quic_conntable     table[QUIC_CONNTABLE_CAP];
-  static srvrun_conn conns[QUIC_CONNTABLE_CAP];
-  quic_memset(conns, 0, sizeof conns);
-  quic_obuf ob;
-  u8        obuf[1024];
-  u8        wt[64], out[1024], spkt[1024];
-  usz       wtl, slen;
-  const u8* pl;
-  usz       pll;
+  struct lp_fix  f;
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_conn*   conns = sr_test_conns();
+  quic_obuf      ob;
+  u8             obuf[1024];
+  u8             wt[64], out[1024], spkt[1024];
+  usz            wtl, slen;
+  const u8*      pl;
+  usz            pll;
   ob = (quic_obuf){obuf, sizeof obuf, 0};
   quic_conntable_init(table, QUIC_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
@@ -3563,12 +3555,11 @@ static void test_srvrun_wt_full_session_lifecycle_on_wire(void) {
  * both sessions stay ESTABLISHED at once, keyed by their own CONNECT stream
  * id. */
 static void test_srvrun_wt_accept_second_session_below_limit(void) {
-  struct lp_fix      f;
-  quic_conntable     table[QUIC_CONNTABLE_CAP];
-  static srvrun_conn conns[QUIC_CONNTABLE_CAP];
-  quic_memset(conns, 0, sizeof conns);
-  quic_obuf ob;
-  u8        obuf[1024];
+  struct lp_fix  f;
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_conn*   conns = sr_test_conns();
+  quic_obuf      ob;
+  u8             obuf[1024];
   ob = (quic_obuf){obuf, sizeof obuf, 0};
   quic_conntable_init(table, QUIC_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
@@ -3606,12 +3597,11 @@ static void test_srvrun_wt_accept_second_session_below_limit(void) {
  * further Extended CONNECT is rejected with 429 exactly as the single-
  * session path always was, and no new slot is created. */
 static void test_srvrun_wt_reject_at_session_limit(void) {
-  struct lp_fix      f;
-  quic_conntable     table[QUIC_CONNTABLE_CAP];
-  static srvrun_conn conns[QUIC_CONNTABLE_CAP];
-  quic_memset(conns, 0, sizeof conns);
-  quic_obuf ob;
-  u8        obuf[1024];
+  struct lp_fix  f;
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_conn*   conns = sr_test_conns();
+  quic_obuf      ob;
+  u8             obuf[1024];
   ob                    = (quic_obuf){obuf, sizeof obuf, 0};
   g_sr_wt_handler_calls = 0;
   quic_conntable_init(table, QUIC_CONNTABLE_CAP);
@@ -3653,10 +3643,9 @@ static void test_srvrun_wt_reject_at_session_limit(void) {
 /* PATH RECORDING: an accepted Extended CONNECT's own :path value is copied
  * into its session slot. */
 static void test_srvrun_wt_accept_records_path(void) {
-  struct lp_fix      f;
-  quic_conntable     table[QUIC_CONNTABLE_CAP];
-  static srvrun_conn conns[QUIC_CONNTABLE_CAP];
-  quic_memset(conns, 0, sizeof conns);
+  struct lp_fix   f;
+  quic_conntable  table[QUIC_CONNTABLE_CAP];
+  srvrun_conn*    conns = sr_test_conns();
   quic_obuf       ob;
   u8              obuf[1024];
   static const u8 custom_path[] = "/wt/room-1";
@@ -3683,10 +3672,9 @@ static void test_srvrun_wt_accept_records_path(void) {
 /* DISTINCT PATHS: two simultaneously-open sessions bound to different :path
  * values coexist -- neither overwrites the other's recorded path. */
 static void test_srvrun_wt_distinct_paths_coexist(void) {
-  struct lp_fix      f;
-  quic_conntable     table[QUIC_CONNTABLE_CAP];
-  static srvrun_conn conns[QUIC_CONNTABLE_CAP];
-  quic_memset(conns, 0, sizeof conns);
+  struct lp_fix   f;
+  quic_conntable  table[QUIC_CONNTABLE_CAP];
+  srvrun_conn*    conns = sr_test_conns();
   quic_obuf       ob;
   u8              obuf[1024];
   static const u8 path_a[] = "/wt/a";
@@ -3796,12 +3784,11 @@ static void test_srvrun_wt_foreign_dgram_id_rejected(void) {
  * open session's state (state/connect_stream_id/buffered streams)
  * completely untouched. */
 static void test_srvrun_wt_close_one_session_leaves_others_untouched(void) {
-  struct lp_fix      f;
-  quic_conntable     table[QUIC_CONNTABLE_CAP];
-  static srvrun_conn conns[QUIC_CONNTABLE_CAP];
-  quic_memset(conns, 0, sizeof conns);
-  quic_obuf ob;
-  u8        obuf[1024];
+  struct lp_fix  f;
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_conn*   conns = sr_test_conns();
+  quic_obuf      ob;
+  u8             obuf[1024];
   ob = (quic_obuf){obuf, sizeof obuf, 0};
   quic_conntable_init(table, QUIC_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
@@ -3855,12 +3842,11 @@ static void test_srvrun_wt_drain_one_session_leaves_others_untouched(void) {
  * frees its slot immediately, so a subsequent Extended CONNECT is accepted
  * rather than rejected. */
 static void test_srvrun_wt_close_frees_slot_for_new_accept(void) {
-  struct lp_fix      f;
-  quic_conntable     table[QUIC_CONNTABLE_CAP];
-  static srvrun_conn conns[QUIC_CONNTABLE_CAP];
-  quic_memset(conns, 0, sizeof conns);
-  quic_obuf ob;
-  u8        obuf[1024];
+  struct lp_fix  f;
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_conn*   conns = sr_test_conns();
+  quic_obuf      ob;
+  u8             obuf[1024];
   ob = (quic_obuf){obuf, sizeof obuf, 0};
   quic_conntable_init(table, QUIC_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
@@ -3907,12 +3893,11 @@ static void test_srvrun_wt_close_frees_slot_for_new_accept(void) {
 /* WHOLE-CONNECTION TEARDOWN: srvrun_free_slot (peer close / idle sweep /
  * boot failure) closes EVERY currently open session, not just one. */
 static void test_srvrun_wt_free_slot_closes_all_open_sessions(void) {
-  quic_conntable     table[QUIC_CONNTABLE_CAP];
-  static srvrun_conn conns[QUIC_CONNTABLE_CAP];
-  quic_memset(conns, 0, sizeof conns);
-  quic_obuf     ob;
-  u8            obuf[1024];
-  struct lp_fix f;
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_conn*   conns = sr_test_conns();
+  quic_obuf      ob;
+  u8             obuf[1024];
+  struct lp_fix  f;
   ob = (quic_obuf){obuf, sizeof obuf, 0};
   quic_conntable_init(table, QUIC_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
@@ -3952,12 +3937,11 @@ static void test_srvrun_wt_free_slot_closes_all_open_sessions(void) {
  * the multi-session generalization of the existing single-session
  * regression test above. */
 static void test_srvrun_wt_connect_stream_close_closes_only_that_session(void) {
-  quic_conntable     table[QUIC_CONNTABLE_CAP];
-  static srvrun_conn conns[QUIC_CONNTABLE_CAP];
-  quic_memset(conns, 0, sizeof conns);
-  quic_obuf     ob;
-  u8            obuf[1024];
-  struct lp_fix f;
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_conn*   conns = sr_test_conns();
+  quic_obuf      ob;
+  u8             obuf[1024];
+  struct lp_fix  f;
   ob = (quic_obuf){obuf, sizeof obuf, 0};
   quic_conntable_init(table, QUIC_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
@@ -3993,12 +3977,11 @@ static void test_srvrun_wt_connect_stream_close_closes_only_that_session(void) {
  * different order than opened, and confirm each close makes exactly its own
  * slot (and only its own) reusable again. */
 static void test_srvrun_wt_all_slots_cycle_through_open_and_close(void) {
-  struct lp_fix      f;
-  quic_conntable     table[QUIC_CONNTABLE_CAP];
-  static srvrun_conn conns[QUIC_CONNTABLE_CAP];
-  quic_memset(conns, 0, sizeof conns);
-  quic_obuf ob;
-  u8        obuf[1024];
+  struct lp_fix  f;
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_conn*   conns = sr_test_conns();
+  quic_obuf      ob;
+  u8             obuf[1024];
   ob = (quic_obuf){obuf, sizeof obuf, 0};
   quic_conntable_init(table, QUIC_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
@@ -6555,12 +6538,11 @@ static void srn_wt_start(
  * value is the DQUOTE-wrapped sf-string (the reference peer rejects an
  * unquoted value). */
 static void test_srvrun_wt_negotiate_picks_first_client_choice(void) {
-  struct lp_fix      f;
-  quic_conntable     table[QUIC_CONNTABLE_CAP];
-  static srvrun_conn conns[QUIC_CONNTABLE_CAP];
-  quic_memset(conns, 0, sizeof conns);
-  quic_obuf ob;
-  u8        obuf[1024];
+  struct lp_fix  f;
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_conn*   conns = sr_test_conns();
+  quic_obuf      ob;
+  u8             obuf[1024];
   ob = (quic_obuf){obuf, sizeof obuf, 0};
   quic_conntable_init(table, QUIC_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
@@ -6579,12 +6561,11 @@ static void test_srvrun_wt_negotiate_picks_first_client_choice(void) {
 /* No common subprotocol: the session is still accepted (200 armed), but the
  * response carries no wt-protocol header. */
 static void test_srvrun_wt_negotiate_no_common_no_header(void) {
-  struct lp_fix      f;
-  quic_conntable     table[QUIC_CONNTABLE_CAP];
-  static srvrun_conn conns[QUIC_CONNTABLE_CAP];
-  quic_memset(conns, 0, sizeof conns);
-  quic_obuf ob;
-  u8        obuf[1024];
+  struct lp_fix  f;
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_conn*   conns = sr_test_conns();
+  quic_obuf      ob;
+  u8             obuf[1024];
   ob = (quic_obuf){obuf, sizeof obuf, 0};
   quic_conntable_init(table, QUIC_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
@@ -6600,12 +6581,11 @@ static void test_srvrun_wt_negotiate_no_common_no_header(void) {
 /* No wt-available-protocols header at all: the session is accepted exactly
  * as before negotiation existed, no wt-protocol header. */
 static void test_srvrun_wt_negotiate_absent_offer_no_header(void) {
-  struct lp_fix      f;
-  quic_conntable     table[QUIC_CONNTABLE_CAP];
-  static srvrun_conn conns[QUIC_CONNTABLE_CAP];
-  quic_memset(conns, 0, sizeof conns);
-  quic_obuf ob;
-  u8        obuf[1024];
+  struct lp_fix  f;
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_conn*   conns = sr_test_conns();
+  quic_obuf      ob;
+  u8             obuf[1024];
   ob = (quic_obuf){obuf, sizeof obuf, 0};
   quic_conntable_init(table, QUIC_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
@@ -6622,12 +6602,11 @@ static void test_srvrun_wt_negotiate_absent_offer_no_header(void) {
  * 3.3.3 requires DQUOTEs) is discarded entirely (RFC 8941 4.2): no
  * wt-protocol header, session still accepted. */
 static void test_srvrun_wt_negotiate_bad_syntax_no_header(void) {
-  struct lp_fix      f;
-  quic_conntable     table[QUIC_CONNTABLE_CAP];
-  static srvrun_conn conns[QUIC_CONNTABLE_CAP];
-  quic_memset(conns, 0, sizeof conns);
-  quic_obuf ob;
-  u8        obuf[1024];
+  struct lp_fix  f;
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_conn*   conns = sr_test_conns();
+  quic_obuf      ob;
+  u8             obuf[1024];
   ob = (quic_obuf){obuf, sizeof obuf, 0};
   quic_conntable_init(table, QUIC_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
@@ -6643,12 +6622,11 @@ static void test_srvrun_wt_negotiate_bad_syntax_no_header(void) {
 /* REGRESSION: wt_protocols unset (0, the default) skips negotiation even
  * when the client sent an offer -- identical to the pre-negotiation 200. */
 static void test_srvrun_wt_negotiate_disabled_unchanged(void) {
-  struct lp_fix      f;
-  quic_conntable     table[QUIC_CONNTABLE_CAP];
-  static srvrun_conn conns[QUIC_CONNTABLE_CAP];
-  quic_memset(conns, 0, sizeof conns);
-  quic_obuf ob;
-  u8        obuf[1024];
+  struct lp_fix  f;
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_conn*   conns = sr_test_conns();
+  quic_obuf      ob;
+  u8             obuf[1024];
   ob = (quic_obuf){obuf, sizeof obuf, 0};
   quic_conntable_init(table, QUIC_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
@@ -6686,12 +6664,11 @@ static void srn_wt_on_session(
 /* wt_on_session fires exactly once per accepted Extended CONNECT, with the
  * recorded :path and the negotiated raw token (not its sf-string form). */
 static void test_srvrun_wt_on_session_notified_once(void) {
-  struct lp_fix      f;
-  quic_conntable     table[QUIC_CONNTABLE_CAP];
-  static srvrun_conn conns[QUIC_CONNTABLE_CAP];
-  quic_memset(conns, 0, sizeof conns);
-  quic_obuf ob;
-  u8        obuf[1024];
+  struct lp_fix  f;
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_conn*   conns = sr_test_conns();
+  quic_obuf      ob;
+  u8             obuf[1024];
   ob                  = (quic_obuf){obuf, sizeof obuf, 0};
   g_srn_wt_sess_calls = 0;
   quic_conntable_init(table, QUIC_CONNTABLE_CAP);
@@ -6710,12 +6687,11 @@ static void test_srvrun_wt_on_session_notified_once(void) {
 /* No negotiation result -> the callback still fires, with an empty protocol
  * span. */
 static void test_srvrun_wt_on_session_empty_protocol(void) {
-  struct lp_fix      f;
-  quic_conntable     table[QUIC_CONNTABLE_CAP];
-  static srvrun_conn conns[QUIC_CONNTABLE_CAP];
-  quic_memset(conns, 0, sizeof conns);
-  quic_obuf ob;
-  u8        obuf[1024];
+  struct lp_fix  f;
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_conn*   conns = sr_test_conns();
+  quic_obuf      ob;
+  u8             obuf[1024];
   ob                  = (quic_obuf){obuf, sizeof obuf, 0};
   g_srn_wt_sess_calls = 0;
   quic_conntable_init(table, QUIC_CONNTABLE_CAP);
@@ -6729,13 +6705,12 @@ static void test_srvrun_wt_on_session_empty_protocol(void) {
 /* A second session on the same connection gets its own notification with its
  * own :path and its own session slot. */
 static void test_srvrun_wt_on_session_two_sessions_each_path(void) {
-  static const u8    second_path[] = "/two";
-  struct lp_fix      f;
-  quic_conntable     table[QUIC_CONNTABLE_CAP];
-  static srvrun_conn conns[QUIC_CONNTABLE_CAP];
-  quic_memset(conns, 0, sizeof conns);
-  quic_obuf ob;
-  u8        obuf[1024];
+  static const u8 second_path[] = "/two";
+  struct lp_fix   f;
+  quic_conntable  table[QUIC_CONNTABLE_CAP];
+  srvrun_conn*    conns = sr_test_conns();
+  quic_obuf       ob;
+  u8              obuf[1024];
   ob                  = (quic_obuf){obuf, sizeof obuf, 0};
   g_srn_wt_sess_calls = 0;
   quic_conntable_init(table, QUIC_CONNTABLE_CAP);
@@ -7512,6 +7487,46 @@ static void test_srvrun_wt_credit_advances_with_delivery(void) {
   }
 }
 
+/* REGRESSION: with several WT slots active at once, the connection-wide
+ * MAX_DATA ceiling must give each of them its own full WIRED_SRVLOOP_WT_
+ * BUF_CAP of slack, not a single buffer's worth shared across all of them --
+ * the bug this guards against summed delivered_len across every slot but
+ * then added only ONE buffer's worth on top (wt_slot_credit_ceiling, meant
+ * for a single stream's own ceiling, applied to the connection total by
+ * mistake). With N slots open, undercounting starved every slot past the
+ * first back down to the shared ceiling the moment their combined MAX_
+ * STREAM_DATA advertisements outran it (found via a real webtransport-go
+ * interop run: streams stalled hard past a few hundred KB combined once 3+
+ * were active). Three slots (2 bidi, 1 uni) each 100 bytes delivered: the
+ * ceiling must be 300 + 3*WIRED_SRVLOOP_WT_BUF_CAP, not 300 + 1*CAP. */
+static void test_srvrun_wt_credit_conn_ceiling_scales_with_slot_count(void) {
+  struct lp_fix f;
+  quic_obuf     ob = {0};
+  u8            obuf[1024];
+  srvrun_conn*  c;
+  ob                           = (quic_obuf){obuf, sizeof obuf, 0};
+  c                            = sr_wtsend_fixture(&f, &ob);
+  c->l.wt_streams[0].in_use    = 1;
+  c->l.wt_streams[0].stream_id = 4;
+  sr_wt_slot_set_frontier(&c->l.wt_streams[0], 100);
+  c->l.wt_streams[0].delivered_len = 100;
+  c->l.wt_streams[1].in_use        = 1;
+  c->l.wt_streams[1].stream_id     = 8;
+  sr_wt_slot_set_frontier(&c->l.wt_streams[1], 100);
+  c->l.wt_streams[1].delivered_len = 100;
+  c->l.wt_uni_streams[0].in_use    = 1;
+  c->l.wt_uni_streams[0].stream_id = 2;
+  sr_wt_uni_slot_set_frontier(&c->l.wt_uni_streams[0], 100);
+  c->l.wt_uni_streams[0].delivered_len = 100;
+  {
+    srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0,
+                      0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                      0,  0, 0, 0, 0};
+    srvrun_grant_wt_credit(&cfg, c);
+  }
+  CHECK(c->rx_max_data_advertised == 300 + 3 * (u64)WIRED_SRVLOOP_WT_BUF_CAP);
+}
+
 /* GATE: a connection with no WT slot ever claimed never emits a gratuitous
  * MAX_DATA -- the bug this guards against sent a MAX_DATA(WIRED_SRVLOOP_WT_
  * BUF_CAP) on every plain HTTP/3 connection's very first step, an unasked-
@@ -7799,6 +7814,7 @@ void test_srvrun(void) {
   test_srvrun_wt_max_stream_data_wire_shape();
   test_srvrun_wt_max_data_wire_shape();
   test_srvrun_wt_credit_advances_with_delivery();
+  test_srvrun_wt_credit_conn_ceiling_scales_with_slot_count();
   test_srvrun_wt_credit_no_op_without_any_wt_slot();
   test_srvrun_wt_slot_released_after_fin_and_reclaimed();
   test_srvrun_wt_released_id_not_reclaimed();
