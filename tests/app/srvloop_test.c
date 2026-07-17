@@ -1260,6 +1260,101 @@ static usz lp_stream_frame_at(
   return quic_frame_put_stream(out, cap, &sf);
 }
 
+/* WINDOW UNIT TESTS (draft-ietf-webtrans-http3-15 4.3 / RFC 9000 2.2): direct
+ * calls into wired_srvloop_wt_window_accept/_slide, the smallest unit that
+ * proves the receive-window's out-of-order/frontier/slide invariants without
+ * needing a full wire-encoded STREAM frame for every case. */
+
+/* Fresh window: base 0, no ranges, frontier 0. */
+static void test_srvloop_wt_window_starts_empty(void) {
+  wired_srvloop_wt_window w = {0};
+  CHECK(w.base == 0 && w.range_n == 0 && w.frontier == 0);
+}
+
+/* IN-ORDER: two adjacent in-order writes each land at their own offset and
+ * the frontier tracks the contiguous total after each. */
+static void test_srvloop_wt_window_in_order_advances_frontier(void) {
+  wired_srvloop_wt_window w = {0};
+  usz                     rel_off, accepted;
+  wired_srvloop_wt_window_accept(&w, 0, 3, &rel_off, &accepted);
+  CHECK(rel_off == 0 && accepted == 3 && w.frontier == 3);
+  wired_srvloop_wt_window_accept(&w, 3, 4, &rel_off, &accepted);
+  CHECK(rel_off == 3 && accepted == 4 && w.frontier == 7);
+}
+
+/* OUT-OF-ORDER (a hole, then the fill): a frame landing past a gap does NOT
+ * advance the frontier (the gap is still unfilled) -- only once the gap is
+ * filled does the frontier jump to include both the earlier "ahead" write and
+ * the gap-filler in one contiguous run. */
+static void test_srvloop_wt_window_gap_then_fill_advances_frontier(void) {
+  wired_srvloop_wt_window w = {0};
+  usz                     rel_off, accepted;
+  /* bytes [5,8) arrive first -- a gap [0,5) is still open, so frontier stays
+   * 0 even though 3 bytes are buffered. */
+  wired_srvloop_wt_window_accept(&w, 5, 3, &rel_off, &accepted);
+  CHECK(rel_off == 5 && accepted == 3 && w.frontier == 0);
+  /* the gap [0,5) fills -- frontier jumps all the way to 8, not just 5,
+   * because the two ranges merge into one contiguous run. */
+  wired_srvloop_wt_window_accept(&w, 0, 5, &rel_off, &accepted);
+  CHECK(rel_off == 0 && accepted == 5 && w.frontier == 8);
+}
+
+/* BOUNDARY: a write landing exactly at the window's cap is accepted in full;
+ * one byte past the cap is truncated to what fits, and a write entirely
+ * beyond the cap is accepted 0 bytes (dropped) -- off-by-one at the window
+ * edge. */
+static void test_srvloop_wt_window_boundary_at_cap(void) {
+  wired_srvloop_wt_window w = {0};
+  usz                     rel_off, accepted;
+  wired_srvloop_wt_window_accept(
+      &w, WIRED_SRVLOOP_WT_BUF_CAP - 2, 2, &rel_off, &accepted);
+  CHECK(accepted == 2); /* exactly fills the last 2 bytes of the window */
+  wired_srvloop_wt_window_accept(
+      &w, WIRED_SRVLOOP_WT_BUF_CAP - 1, 3, &rel_off, &accepted);
+  CHECK(accepted == 1); /* only the 1 byte that still fits */
+  wired_srvloop_wt_window_accept(
+      &w, WIRED_SRVLOOP_WT_BUF_CAP, 5, &rel_off, &accepted);
+  CHECK(accepted == 0); /* entirely beyond the window: dropped, not crashed */
+}
+
+/* SLIDE: once delivered_to reaches the current frontier, sliding moves base
+ * forward by the frontier and frees that much room at buf's front -- a
+ * later write at the (now-freed) offset succeeds where it would have been
+ * out-of-window before the slide. */
+static void test_srvloop_wt_window_slide_frees_room(void) {
+  wired_srvloop_wt_window w = {0};
+  u8                      buf[WIRED_SRVLOOP_WT_BUF_CAP];
+  usz                     rel_off, accepted;
+  wired_srvloop_wt_window_accept(&w, 0, 100, &rel_off, &accepted);
+  CHECK(w.frontier == 100);
+  /* Not yet due: delivered_to hasn't reached the frontier. */
+  wired_srvloop_wt_window_slide(&w, buf, sizeof buf, 50);
+  CHECK(w.base == 0);
+  /* Delivered up to the frontier -- slide advances base and resets frontier
+   * bookkeeping to the new (empty) window. */
+  wired_srvloop_wt_window_slide(&w, buf, sizeof buf, 100);
+  CHECK(w.base == 100 && w.frontier == 0 && w.range_n == 0);
+  /* A byte that would have been past the old window's cap is now inside the
+   * freed room, at the new base-relative offset. */
+  wired_srvloop_wt_window_accept(
+      &w, 100 + WIRED_SRVLOOP_WT_BUF_CAP - 1, 1, &rel_off, &accepted);
+  CHECK(accepted == 1 && rel_off == WIRED_SRVLOOP_WT_BUF_CAP - 1);
+}
+
+/* A write entirely below win.base (already delivered and slid past) is
+ * dropped -- proves the stale-prefix guard, not just the forward-window
+ * boundary above. */
+static void test_srvloop_wt_window_stale_write_dropped(void) {
+  wired_srvloop_wt_window w = {0};
+  u8                      buf[WIRED_SRVLOOP_WT_BUF_CAP];
+  usz                     rel_off, accepted;
+  wired_srvloop_wt_window_accept(&w, 0, 10, &rel_off, &accepted);
+  wired_srvloop_wt_window_slide(&w, buf, sizeof buf, 10);
+  CHECK(w.base == 10);
+  wired_srvloop_wt_window_accept(&w, 3, 4, &rel_off, &accepted);
+  CHECK(accepted == 0); /* [3,7) is entirely below base 10 -- stale */
+}
+
 /* draft-ietf-webtrans-http3-15 4.3: a WT bidi stream's application bytes,
  * split across TWO STREAM frames like curl's HEADERS/DATA split — the
  * offset-0 signal frame (0x41, 2 bytes on the wire) immediately followed by
@@ -1293,7 +1388,7 @@ static void test_srvloop_wt_bidi_stream_reassembled(void) {
   {
     int i = wired_srvloop_wt_slot_find(&f.l, 4);
     CHECK(i >= 0);
-    CHECK(f.l.wt_streams[i].len == 4);
+    CHECK(f.l.wt_streams[i].win.frontier == 4);
     CHECK(
         f.l.wt_streams[i].buf[0] == 'A' && f.l.wt_streams[i].buf[1] == 'B' &&
         f.l.wt_streams[i].buf[2] == 'C' && f.l.wt_streams[i].buf[3] == 'D');
@@ -1377,7 +1472,8 @@ static void test_srvloop_wt_stream_concurrent_with_request(void) {
   {
     int i = wired_srvloop_wt_slot_find(&f.l, 4);
     CHECK(i >= 0);
-    CHECK(f.l.wt_streams[i].len == 1 && f.l.wt_streams[i].buf[0] == 'X');
+    CHECK(
+        f.l.wt_streams[i].win.frontier == 1 && f.l.wt_streams[i].buf[0] == 'X');
   }
   CHECK(f.l.streams[0].in_use == 1 && f.l.streams[0].stream_id == 0);
   /* datagram 2: stream 0's DATA+FIN completes ITS OWN request. */
@@ -1394,7 +1490,7 @@ static void test_srvloop_wt_stream_concurrent_with_request(void) {
   {
     int i = wired_srvloop_wt_slot_find(&f.l, 4);
     CHECK(
-        i >= 0 && f.l.wt_streams[i].len == 1 &&
+        i >= 0 && f.l.wt_streams[i].win.frontier == 1 &&
         f.l.wt_streams[i].buf[0] == 'X');
   }
 }
@@ -1426,7 +1522,7 @@ static void test_srvloop_wt_signal_only_frame_then_data(void) {
   {
     int i = wired_srvloop_wt_slot_find(&f.l, 4);
     CHECK(i >= 0);
-    CHECK(f.l.wt_streams[i].len == 1);
+    CHECK(f.l.wt_streams[i].win.frontier == 1);
     CHECK(f.l.wt_streams[i].buf[0] == 'Z'); /* NOT a leftover signal byte */
     CHECK(f.l.wt_streams[i].fin == 1);
   }
@@ -1456,7 +1552,7 @@ static void test_srvloop_wt_stream_without_session_no_crash(void) {
   {
     int i = wired_srvloop_wt_slot_find(&f.l, 4);
     CHECK(
-        i >= 0 && f.l.wt_streams[i].len == 1 &&
+        i >= 0 && f.l.wt_streams[i].win.frontier == 1 &&
         f.l.wt_streams[i].buf[0] == 'X');
   }
   /* no other connection state disturbed: request table clean, no peer-close
@@ -1509,7 +1605,7 @@ static void test_srvloop_wt_uni_stream_reassembled(void) {
   {
     int i = wired_srvloop_wt_uni_slot_find(&f.l, 2);
     CHECK(i >= 0);
-    CHECK(f.l.wt_uni_streams[i].len == 4);
+    CHECK(f.l.wt_uni_streams[i].win.frontier == 4);
     CHECK(
         f.l.wt_uni_streams[i].buf[0] == 'A' &&
         f.l.wt_uni_streams[i].buf[1] == 'B' &&
@@ -1588,7 +1684,7 @@ static void test_srvloop_wt_uni_stream_without_session_no_crash(void) {
   {
     int i = wired_srvloop_wt_uni_slot_find(&f.l, 2);
     CHECK(
-        i >= 0 && f.l.wt_uni_streams[i].len == 1 &&
+        i >= 0 && f.l.wt_uni_streams[i].win.frontier == 1 &&
         f.l.wt_uni_streams[i].buf[0] == 'X');
   }
   /* no other connection state disturbed: request table clean, no peer-close
@@ -3108,6 +3204,12 @@ void test_srvloop(void) {
   test_srvloop_dispatch_split_across_datagrams();
   test_srvloop_two_streams_reassemble_independently();
   test_srvloop_two_requests_complete_same_step();
+  test_srvloop_wt_window_starts_empty();
+  test_srvloop_wt_window_in_order_advances_frontier();
+  test_srvloop_wt_window_gap_then_fill_advances_frontier();
+  test_srvloop_wt_window_boundary_at_cap();
+  test_srvloop_wt_window_slide_frees_room();
+  test_srvloop_wt_window_stale_write_dropped();
   test_srvloop_wt_bidi_stream_not_request();
   test_srvloop_wt_bidi_stream_reassembled();
   test_srvloop_wt_bidi_continuation_not_absorbed_into_request();

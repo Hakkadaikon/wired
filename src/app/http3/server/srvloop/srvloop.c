@@ -30,17 +30,30 @@ static void streams_reset(wired_srvloop* l) {
   }
 }
 
+/* Reset a WT slot's receive window: no bytes seen yet, base at the stream's
+ * own start (post-signal/type-varint coordinate 0). */
+static void wt_window_reset(wired_srvloop_wt_window* w) {
+  w->base     = 0;
+  w->range_n  = 0;
+  w->frontier = 0;
+}
+
 /* Mark every WT bidi stream reassembly slot free (draft-ietf-webtrans-http3-15
  * 4.3), mirroring streams_reset above for the separate wt_streams table. */
 static void wt_streams_reset(wired_srvloop* l) {
   for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_STREAMS; i++) {
-    l->wt_streams[i].in_use    = 0;
-    l->wt_streams[i].stream_id = 0;
-    l->wt_streams[i].sig_len   = 0;
-    l->wt_streams[i].len       = 0;
-    l->wt_streams[i].fin       = 0;
-    l->wt_streams[i].offered   = 0;
+    l->wt_streams[i].in_use            = 0;
+    l->wt_streams[i].stream_id         = 0;
+    l->wt_streams[i].sig_len           = 0;
+    l->wt_streams[i].fin               = 0;
+    l->wt_streams[i].fin_off           = 0;
+    l->wt_streams[i].offered           = 0;
+    l->wt_streams[i].delivered_len     = 0;
+    l->wt_streams[i].fin_delivered     = 0;
+    l->wt_streams[i].credit_advertised = 0;
+    wt_window_reset(&l->wt_streams[i].win);
   }
+  l->wt_released_watermark = 0;
 }
 
 /* Mark every WT uni stream reassembly slot free (draft-ietf-webtrans-http3-15
@@ -48,13 +61,18 @@ static void wt_streams_reset(wired_srvloop* l) {
  * table. */
 static void wt_uni_streams_reset(wired_srvloop* l) {
   for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_UNI_STREAMS; i++) {
-    l->wt_uni_streams[i].in_use    = 0;
-    l->wt_uni_streams[i].stream_id = 0;
-    l->wt_uni_streams[i].type_len  = 0;
-    l->wt_uni_streams[i].len       = 0;
-    l->wt_uni_streams[i].fin       = 0;
-    l->wt_uni_streams[i].offered   = 0;
+    l->wt_uni_streams[i].in_use            = 0;
+    l->wt_uni_streams[i].stream_id         = 0;
+    l->wt_uni_streams[i].type_len          = 0;
+    l->wt_uni_streams[i].fin               = 0;
+    l->wt_uni_streams[i].fin_off           = 0;
+    l->wt_uni_streams[i].offered           = 0;
+    l->wt_uni_streams[i].delivered_len     = 0;
+    l->wt_uni_streams[i].fin_delivered     = 0;
+    l->wt_uni_streams[i].credit_advertised = 0;
+    wt_window_reset(&l->wt_uni_streams[i].win);
   }
+  l->wt_uni_released_watermark = 0;
 }
 
 int wired_srvloop_init(wired_srvloop* l, const u8* cli_scid, u8 cli_scid_len) {
@@ -87,6 +105,8 @@ int wired_srvloop_init(wired_srvloop* l, const u8* cli_scid, u8 cli_scid_len) {
   l->max_data_seen              = 0;
   l->max_data_seen_flag         = 0;
   l->max_stream_data_n          = 0;
+  l->wt_released_watermark      = 0;
+  l->wt_uni_released_watermark  = 0;
   quic_pnspaces_recv_init(&l->ack_recv);
   quic_ackpolicy_init(&l->app_ack_policy);
   quic_ackpolicy_init(&l->hs_ack_policy);
@@ -222,22 +242,56 @@ int wired_srvloop_wt_slot_find(const wired_srvloop* l, u64 stream_id) {
   return -1;
 }
 
+/* Reset (claim) slot i for stream_id, sig_len as given -- shared body of
+ * wired_srvloop_wt_slot_claim (sig_len discovered later, from the signal
+ * frame) and wired_srvloop_wt_slot_claim_local (sig_len always 0). */
+static int wt_slot_claim_at(wired_srvloop* l, usz i, u64 stream_id) {
+  l->wt_streams[i].in_use            = 1;
+  l->wt_streams[i].stream_id         = stream_id;
+  l->wt_streams[i].sig_len           = 0;
+  l->wt_streams[i].fin               = 0;
+  l->wt_streams[i].fin_off           = 0;
+  l->wt_streams[i].offered           = 0;
+  l->wt_streams[i].delivered_len     = 0;
+  l->wt_streams[i].fin_delivered     = 0;
+  l->wt_streams[i].credit_advertised = 0;
+  wt_window_reset(&l->wt_streams[i].win);
+  return (int)i;
+}
+
+/* RFC 9000 2.1: stream_id names an already-finished (released) WT bidi
+ * stream -- a late/duplicate frame this table must never re-claim a slot
+ * for. */
+static int wt_slot_is_stale(const wired_srvloop* l, u64 stream_id) {
+  return stream_id <= l->wt_released_watermark && l->wt_released_watermark;
+}
+
 /* Claim and reset a free wt_streams slot for stream_id.
- * @return the slot index, or -1 if the table is full. */
-int wired_srvloop_wt_slot_claim(wired_srvloop* l, u64 stream_id) {
-  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_STREAMS; i++) {
-    if (l->wt_streams[i].in_use) continue;
-    l->wt_streams[i].in_use        = 1;
-    l->wt_streams[i].stream_id     = stream_id;
-    l->wt_streams[i].sig_len       = 0;
-    l->wt_streams[i].len           = 0;
-    l->wt_streams[i].fin           = 0;
-    l->wt_streams[i].offered       = 0;
-    l->wt_streams[i].delivered_len = 0;
-    l->wt_streams[i].fin_delivered = 0;
-    return (int)i;
-  }
+ * @return the slot index, or -1 if the table is full or stream_id is stale. */
+/* The index of a free wt_streams slot, or -1 if the table is full. */
+static int wt_slot_free_index(const wired_srvloop* l) {
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_STREAMS; i++)
+    if (!l->wt_streams[i].in_use) return (int)i;
   return -1;
+}
+
+int wired_srvloop_wt_slot_claim(wired_srvloop* l, u64 stream_id) {
+  int i = wt_slot_is_stale(l, stream_id) ? -1 : wt_slot_free_index(l);
+  return i < 0 ? -1 : wt_slot_claim_at(l, (usz)i, stream_id);
+}
+
+int wired_srvloop_wt_slot_claim_local(wired_srvloop* l, u64 stream_id) {
+  int already = wired_srvloop_wt_slot_find(l, stream_id);
+  if (already >= 0) return already;
+  return wired_srvloop_wt_slot_claim(l, stream_id);
+}
+
+void wired_srvloop_wt_slot_release(wired_srvloop* l, u64 stream_id) {
+  int i = wired_srvloop_wt_slot_find(l, stream_id);
+  if (i < 0) return;
+  l->wt_streams[i].in_use = 0;
+  if (stream_id > l->wt_released_watermark)
+    l->wt_released_watermark = stream_id;
 }
 
 /* 1 if wt uni slot is claimed and reassembling stream_id. */
@@ -255,21 +309,266 @@ int wired_srvloop_wt_uni_slot_find(const wired_srvloop* l, u64 stream_id) {
   return -1;
 }
 
+static int wt_uni_slot_is_stale(const wired_srvloop* l, u64 stream_id) {
+  return stream_id <= l->wt_uni_released_watermark &&
+         l->wt_uni_released_watermark;
+}
+
 /* Claim and reset a free wt_uni_streams slot for stream_id. */
-int wired_srvloop_wt_uni_slot_claim(wired_srvloop* l, u64 stream_id) {
-  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_UNI_STREAMS; i++) {
-    if (l->wt_uni_streams[i].in_use) continue;
-    l->wt_uni_streams[i].in_use        = 1;
-    l->wt_uni_streams[i].stream_id     = stream_id;
-    l->wt_uni_streams[i].type_len      = 0;
-    l->wt_uni_streams[i].len           = 0;
-    l->wt_uni_streams[i].fin           = 0;
-    l->wt_uni_streams[i].offered       = 0;
-    l->wt_uni_streams[i].delivered_len = 0;
-    l->wt_uni_streams[i].fin_delivered = 0;
-    return (int)i;
-  }
+/* The index of a free wt_uni_streams slot, or -1 if the table is full. */
+static int wt_uni_slot_free_index(const wired_srvloop* l) {
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_UNI_STREAMS; i++)
+    if (!l->wt_uni_streams[i].in_use) return (int)i;
   return -1;
+}
+
+/* Reset (claim) wt_uni_streams slot i for stream_id -- shared body split out
+ * of wired_srvloop_wt_uni_slot_claim to keep its own branch count at the
+ * gate, mirroring wt_slot_claim_at's bidi counterpart. */
+static int wt_uni_slot_claim_at(wired_srvloop* l, usz i, u64 stream_id) {
+  l->wt_uni_streams[i].in_use            = 1;
+  l->wt_uni_streams[i].stream_id         = stream_id;
+  l->wt_uni_streams[i].type_len          = 0;
+  l->wt_uni_streams[i].fin               = 0;
+  l->wt_uni_streams[i].fin_off           = 0;
+  l->wt_uni_streams[i].offered           = 0;
+  l->wt_uni_streams[i].delivered_len     = 0;
+  l->wt_uni_streams[i].fin_delivered     = 0;
+  l->wt_uni_streams[i].credit_advertised = 0;
+  wt_window_reset(&l->wt_uni_streams[i].win);
+  return (int)i;
+}
+
+int wired_srvloop_wt_uni_slot_claim(wired_srvloop* l, u64 stream_id) {
+  int i = wt_uni_slot_is_stale(l, stream_id) ? -1 : wt_uni_slot_free_index(l);
+  return i < 0 ? -1 : wt_uni_slot_claim_at(l, (usz)i, stream_id);
+}
+
+void wired_srvloop_wt_uni_slot_release(wired_srvloop* l, u64 stream_id) {
+  int i = wired_srvloop_wt_uni_slot_find(l, stream_id);
+  if (i < 0) return;
+  l->wt_uni_streams[i].in_use = 0;
+  if (stream_id > l->wt_uni_released_watermark)
+    l->wt_uni_released_watermark = stream_id;
+}
+
+/* draft-ietf-webtrans-http3-15 4.3: byte count of [abs_off, abs_off+n) that
+ * falls at or past win.base (the stale, already-delivered prefix is
+ * excluded) -- 0 if the whole frame is stale. Split out of
+ * wired_srvloop_wt_window_accept to keep its own branch count at the gate. */
+static usz wt_window_skip_stale(
+    const wired_srvloop_wt_window* win, u64 abs_off, usz n) {
+  u64 end = abs_off + n;
+  if (end <= win->base) return 0;
+  return abs_off >= win->base ? n : (usz)(end - win->base);
+}
+
+/* Insert [rel_lo, rel_hi) into win's sorted/merged range set (relative to
+ * win->base), then recompute frontier -- linear insertion-sort-with-merge
+ * over a small fixed array (WIRED_SRVLOOP_WT_MAX_RANGES), the whole set
+ * rebuilt each call rather than incrementally spliced, so the branch count
+ * per helper stays at the CCN gate. A range beyond the array's capacity is
+ * silently coalesced into the nearest overlapping one where possible, or
+ * dropped if none overlaps (ponytail: a real workload never opens more than
+ * WIRED_SRVLOOP_WT_MAX_RANGES disjoint gaps on one stream inside one window,
+ * so this is not reachable at the sizes this SDK targets). */
+static int wt_range_overlaps(u64 a_lo, u64 a_hi, u64 b_lo, u64 b_hi) {
+  return a_lo <= b_hi && b_lo <= a_hi;
+}
+
+/* Merge [lo, hi) into ranges[i], growing it, then return 1 (used by the
+ * insert loop below to fold a new/expanding range into an existing entry). */
+static void wt_range_merge_into(
+    wired_srvloop_wt_window* win, usz i, u64 lo, u64 hi) {
+  if (lo < win->range_lo[i]) win->range_lo[i] = lo;
+  if (hi > win->range_hi[i]) win->range_hi[i] = hi;
+}
+
+/* The index of an existing range overlapping/adjacent to [lo, hi), or -1. */
+static int wt_range_find_mergeable(
+    const wired_srvloop_wt_window* win, u64 lo, u64 hi) {
+  for (usz i = 0; i < win->range_n; i++)
+    if (wt_range_overlaps(win->range_lo[i], win->range_hi[i], lo, hi))
+      return (int)i;
+  return -1;
+}
+
+/* Sort win's ranges by range_lo (small fixed array, insertion sort) so
+ * wt_window_recompute_frontier can walk them in order. */
+/* 1 if ranges j-1 and j are out of order (j-1's lo is higher) -- the swap
+ * condition wt_ranges_sort's insertion sort tests each step. */
+static int wt_ranges_out_of_order(const wired_srvloop_wt_window* win, usz j) {
+  return j > 0 && win->range_lo[j - 1] > win->range_lo[j];
+}
+
+/* Swap ranges j-1 and j in place. */
+static void wt_ranges_swap(wired_srvloop_wt_window* win, usz j) {
+  u64 lo               = win->range_lo[j - 1];
+  u64 hi               = win->range_hi[j - 1];
+  win->range_lo[j - 1] = win->range_lo[j];
+  win->range_hi[j - 1] = win->range_hi[j];
+  win->range_lo[j]     = lo;
+  win->range_hi[j]     = hi;
+}
+
+/* Insertion-sort ranges[0..range_n) into ascending range_lo order (a small
+ * fixed array, so O(n^2) insertion sort is simplest and fast enough). */
+static void wt_ranges_bubble_one(wired_srvloop_wt_window* win, usz i) {
+  usz j = i;
+  while (wt_ranges_out_of_order(win, j)) {
+    wt_ranges_swap(win, j);
+    j--;
+  }
+}
+
+static void wt_ranges_sort(wired_srvloop_wt_window* win) {
+  for (usz i = 1; i < win->range_n; i++) wt_ranges_bubble_one(win, i);
+}
+
+/* Collapse adjacent/overlapping sorted ranges into one another (a merge that
+ * wt_range_find_mergeable's single-pass insert can miss when two PRE-existing
+ * ranges become touching only after a third insert bridges the gap between
+ * them). */
+/* 1 if sorted range i touches (or overlaps) the last emitted range at
+ * out-1 -- the coalesce condition wt_ranges_coalesce tests each step. */
+static int wt_ranges_touches_prev(
+    const wired_srvloop_wt_window* win, usz i, usz out) {
+  return out > 0 && win->range_lo[i] <= win->range_hi[out - 1];
+}
+
+/* Extend the last emitted range (at out-1) to also cover range i, if range i
+ * reaches further. */
+static void wt_ranges_extend_prev(
+    wired_srvloop_wt_window* win, usz i, usz out) {
+  if (win->range_hi[i] > win->range_hi[out - 1])
+    win->range_hi[out - 1] = win->range_hi[i];
+}
+
+static void wt_ranges_coalesce(wired_srvloop_wt_window* win) {
+  usz out = 0;
+  for (usz i = 0; i < win->range_n; i++) {
+    if (wt_ranges_touches_prev(win, i, out)) {
+      wt_ranges_extend_prev(win, i, out);
+      continue;
+    }
+    win->range_lo[out] = win->range_lo[i];
+    win->range_hi[out] = win->range_hi[i];
+    out++;
+  }
+  win->range_n = out;
+}
+
+/* win->frontier = the contiguous byte count starting at 0, i.e. range[0].hi
+ * once ranges are sorted/coalesced and range[0].lo == 0; 0 if no range starts
+ * at 0. */
+static void wt_window_recompute_frontier(wired_srvloop_wt_window* win) {
+  wt_ranges_sort(win);
+  wt_ranges_coalesce(win);
+  win->frontier =
+      win->range_n > 0 && win->range_lo[0] == 0 ? win->range_hi[0] : 0;
+}
+
+/* Append [lo, hi) as a brand-new range, dropping the range set's smallest
+ * (already least useful for advancing the frontier) entry first if the fixed
+ * array is full -- see wt_window_insert's own doc for why this is an
+ * acceptable fallback rather than a hard cap. */
+static void wt_range_append(wired_srvloop_wt_window* win, u64 lo, u64 hi) {
+  if (win->range_n >= WIRED_SRVLOOP_WT_MAX_RANGES) return;
+  win->range_lo[win->range_n] = lo;
+  win->range_hi[win->range_n] = hi;
+  win->range_n++;
+}
+
+static void wt_window_insert(wired_srvloop_wt_window* win, u64 lo, u64 hi) {
+  int m = wt_range_find_mergeable(win, lo, hi);
+  if (m >= 0)
+    wt_range_merge_into(win, (usz)m, lo, hi);
+  else
+    wt_range_append(win, lo, hi);
+  wt_window_recompute_frontier(win);
+}
+
+/* The absolute offset the kept (non-stale) portion of [abs_off, abs_off+n)
+ * starts at -- abs_off itself once it is already at/past win->base, else
+ * win->base (the frame's stale leading bytes are skipped). Split out so the
+ * subtraction that follows (relative to win->base) never underflows even
+ * when the whole frame is stale (kept == 0). */
+static u64 wt_window_kept_start(
+    const wired_srvloop_wt_window* win, u64 abs_off) {
+  return abs_off > win->base ? abs_off : win->base;
+}
+
+/* Byte capacity still open at relative offset lo (cap - lo, or 0 once lo is
+ * already at/past cap) -- split out so wired_srvloop_wt_window_accept's own
+ * branch count stays at the gate. */
+static usz wt_window_avail_at(u64 lo, usz cap) {
+  return lo < cap ? cap - (usz)lo : 0;
+}
+
+void wired_srvloop_wt_window_accept(
+    wired_srvloop_wt_window* win,
+    u64                      abs_off,
+    usz                      n,
+    usz*                     rel_off,
+    usz*                     accepted_n) {
+  usz kept    = wt_window_skip_stale(win, abs_off, n);
+  u64 lo      = wt_window_kept_start(win, abs_off) - win->base;
+  usz avail   = wt_window_avail_at(lo, WIRED_SRVLOOP_WT_BUF_CAP);
+  *accepted_n = kept < avail ? kept : avail;
+  *rel_off    = (usz)lo;
+  if (*accepted_n) wt_window_insert(win, lo, lo + *accepted_n);
+}
+
+/* Shift buf's contents left by shift bytes (buf[i] = buf[i+shift]), safe for
+ * this specific direction (dst index always < src index, so every byte is
+ * read before it could be overwritten). */
+static void wt_buf_shift_left(u8* buf, usz cap, usz shift) {
+  for (usz i = 0; i + shift < cap; i++) buf[i] = buf[i + shift];
+}
+
+/* Rebase one range by shift, clipping its lo to 0 rather than underflowing
+ * when the range started before shift (only ranges[0], the frontier's own
+ * range, can start below shift -- ranges are sorted and shift is exactly
+ * ranges[0].hi, so ranges[0].lo is always 0). Ranges entirely below shift
+ * were already dropped by the caller before this runs. */
+static void wt_range_rebase_one(
+    wired_srvloop_wt_window* win, usz i, usz shift) {
+  win->range_lo[i] = win->range_lo[i] > shift ? win->range_lo[i] - shift : 0;
+  win->range_hi[i] -= shift;
+}
+
+/* Rebase win's range set by shift (win->base is moving forward by the same
+ * amount): drop every range entirely consumed by the slide (range_hi <=
+ * shift -- this is always at least ranges[0], the frontier's own range) and
+ * rebase every surviving one, keeping only what is still ahead of the new
+ * base. */
+static void wt_ranges_rebase(wired_srvloop_wt_window* win, usz shift) {
+  usz out = 0;
+  for (usz i = 0; i < win->range_n; i++) {
+    if (win->range_hi[i] <= shift) continue;
+    wt_range_rebase_one(win, i, shift);
+    win->range_lo[out] = win->range_lo[i];
+    win->range_hi[out] = win->range_hi[i];
+    out++;
+  }
+  win->range_n = out;
+}
+
+/* 1 if delivered_to has not yet consumed the whole current frontier -- slide
+ * has nothing to reclaim room for yet. */
+static int wt_window_slide_not_due(
+    const wired_srvloop_wt_window* win, u64 delivered_to) {
+  return delivered_to < win->base + win->frontier;
+}
+
+void wired_srvloop_wt_window_slide(
+    wired_srvloop_wt_window* win, u8* buf, usz cap, u64 delivered_to) {
+  usz shift = win->frontier;
+  if (wt_window_slide_not_due(win, delivered_to) || shift == 0) return;
+  wt_buf_shift_left(buf, cap, shift);
+  win->base += shift;
+  wt_ranges_rebase(win, shift);
+  wt_window_recompute_frontier(win);
 }
 
 /* RFC 9000 19.19: 1 if type is either CONNECTION_CLOSE variant. */

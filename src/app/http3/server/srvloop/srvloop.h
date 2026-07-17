@@ -102,42 +102,98 @@ typedef struct {
  * HEADERS/DATA framing, so they need no req_scratch/req_wrap-shaped fields. */
 #define WIRED_SRVLOOP_MAX_WT_STREAMS 4
 
+/** Byte capacity of one WT bidi/uni reassembly slot's receive window (buf
+ * below). Smaller than one full BDP for quic-interop-runner's simulated link
+ * (10Mbps/30ms RTT is ~37KB) -- kept down so wired_srvloop (embedded in
+ * srvrun_conn, 4 bidi + 4 uni slots) stays small enough for existing test
+ * helpers that stack-allocate a whole QUIC_CONNTABLE_CAP-sized connection
+ * table (srvrun_test.c) to not overflow an 8MB default stack. Correctness
+ * does not depend on the window covering a full BDP -- srvrun.c keeps
+ * re-granting flow-control credit every step, so a multi-megabyte WT stream
+ * still flows, just over more round trips than a larger window would need. */
+#define WIRED_SRVLOOP_WT_BUF_CAP 4096
+
+/** How many disjoint received-but-not-yet-contiguous byte ranges one WT
+ * slot's window tracks past its frontier (see wired_srvloop_wt_window). RFC
+ * 9000 2.2 reassembly is offset-indexed and reordering-tolerant by design, so
+ * a lost-then-retransmitted frame routinely lands after a gap; a small fixed
+ * set (rather than one high-water mark) is what lets the frontier — and
+ * therefore delivery — advance correctly once the gap fills, instead of
+ * silently skipping the buffered-but-undelivered bytes past it. */
+#define WIRED_SRVLOOP_WT_MAX_RANGES 8
+
+/** One WT bidi/uni slot's receive-window bookkeeping, shared shape for both
+ * tables (see wired_srvloop_wt_stream_slot / _uni_stream_slot below). base is
+ * the absolute post-signal stream offset of buf[0] — bytes below base have
+ * already been delivered and slid out of buf (see wt_window_slide in
+ * srvloop.c); a write at an absolute offset < base is stale (already
+ * delivered) and dropped, one at >= base + WIRED_SRVLOOP_WT_BUF_CAP is
+ * outside the currently granted window and dropped too. ranges[0..range_n)
+ * are disjoint, sorted, merged (relative to base) intervals of bytes actually
+ * written into buf; frontier is the contiguous prefix length starting at 0
+ * (ranges[0].lo == 0) — the caller (srvrun.c) may only deliver buf[0..
+ * frontier), never past a gap, however far the high-water mark itself
+ * reaches. */
+typedef struct {
+  u64 base; /**< absolute post-signal stream offset of buf[0] */
+  u64 range_lo[WIRED_SRVLOOP_WT_MAX_RANGES]; /**< relative to base */
+  u64 range_hi[WIRED_SRVLOOP_WT_MAX_RANGES]; /**< exclusive */
+  usz range_n;  /**< number of disjoint ranges currently tracked */
+  usz frontier; /**< contiguous bytes from base, i.e. ranges[0].hi when
+                 * ranges[0].lo == 0, else 0 */
+} wired_srvloop_wt_window;
+
 /** One WebTransport bidi stream's cross-datagram reassembly state (draft-
  * ietf-webtrans-http3-15 4.3). free (in_use == 0) until the stream's leading
- * 0x41 signal frame is first sighted. buf holds the stream's bytes AFTER the
- * signal varint — the signal itself is not application data and is skipped
- * before writing (see gather_wt_stream in dispatch.c). */
+ * 0x41 signal frame is first sighted, OR (server-initiated bidi, RFC 9000
+ * 2.1 id bits 01) pre-claimed by srvrun.c at wired_server_wt_open_bidi time
+ * with sig_len left 0 — such a stream carries no signal prefix at all, the
+ * client's reply bytes start at its own offset 0. buf holds the stream's
+ * bytes AFTER the signal varint — the signal itself is not application data
+ * and is skipped before writing (see gather_wt_stream in dispatch.c). */
 typedef struct {
   int in_use;    /**< 0 = free slot */
   u64 stream_id; /**< the WT bidi stream id this slot reassembles */
   /** bytes the leading 0x41 signal varint itself occupied on the wire (RFC
    * 9000 16: 2 for 0x41's own encoding, but recorded rather than assumed) —
    * every later (offset>0) frame's stream-relative offset is shifted back by
-   * this much to land in the same post-signal coordinate space buf uses. */
-  usz sig_len;
-  /** offset-indexed bytes past the signal varint (offset 0 of this buffer is
-   * the first application byte, not the 0x41 signal).
-   * ponytail: overflow past this cap is truncated, same policy as
-   * wired_srvloop_stream_slot's req_buf. */
-  u8  buf[1024];
-  usz len; /**< high-water mark into buf */
-  u8  fin; /**< 1 once this stream's FIN was seen */
+   * this much to land in the same post-signal coordinate space buf uses. 0
+   * for a server-initiated bidi stream (srvrun.c's pre-claim), which has no
+   * signal at all. */
+  usz                     sig_len;
+  wired_srvloop_wt_window win; /**< receive-window bookkeeping, see its doc */
+  /** offset-indexed bytes past the signal varint, relative to win.base
+   * (offset 0 of this buffer is win.base's own first application byte).
+   * ponytail: a write outside [win.base, win.base + cap) is dropped (either
+   * stale or past the granted window), same truncate-on-overflow policy
+   * family as wired_srvloop_stream_slot's req_buf. */
+  u8  buf[WIRED_SRVLOOP_WT_BUF_CAP];
+  u8  fin;     /**< 1 once this stream's FIN was seen */
+  u64 fin_off; /**< the absolute offset FIN was seen at; valid only when fin
+                */
   /** 1 once wired_wt_session_offer_stream has been called for this slot's
    * stream_id (the caller driving the loop, e.g. srvrun.c, sets this after
    * offering — the loop itself does not know about wired_wt_session). Kept
    * here rather than re-derived so the association happens exactly once per
    * stream regardless of how many steps its data arrives across. */
   int offered;
-  /** how much of buf[0..len) the caller driving the loop (srvrun.c) has
-   * already delivered to an app-facing stream-data callback; the loop itself
-   * never reads this, it only resets it to 0 on claim (mirrors offered's
-   * split: the loop owns reassembly, the caller owns delivery bookkeeping). */
-  usz delivered_len;
+  /** how much of the stream (in win.base + win.frontier terms, i.e. an
+   * absolute offset) the caller driving the loop (srvrun.c) has already
+   * delivered to an app-facing stream-data callback; the loop itself never
+   * reads this, it only resets it to 0 on claim (mirrors offered's split:
+   * the loop owns reassembly, the caller owns delivery bookkeeping). */
+  u64 delivered_len;
   /** 1 once a fin=1 delivery has been made to the app-facing stream-data
    * callback for this slot; distinguishes "FIN already delivered" from
    * "delivered_len==0, nothing sent yet" for a stream whose FIN carries no
    * bytes (delivered_len alone cannot tell those two apart when len==0). */
   int fin_delivered;
+  /** RFC 9000 4.1/19.10: the MAX_STREAM_DATA value last advertised to the
+   * peer for this stream (0 before any raise past the initial transport
+   * parameter), so the caller driving the loop (srvrun.c) can tell whether
+   * the window has advanced enough to be worth re-announcing -- an
+   * advertisement MUST NOT decrease, so this only ever grows. */
+  u64 credit_advertised;
 } wired_srvloop_wt_stream_slot;
 
 /** draft-ietf-webtrans-http3-15 4.3: how many concurrent WebTransport uni
@@ -160,23 +216,27 @@ typedef struct {
   /** bytes the leading type varint occupied on the wire (RFC 9000 16: 2 for
    * 0x54's own encoding, but recorded rather than assumed), same role as
    * wired_srvloop_wt_stream_slot's sig_len. */
-  usz type_len;
-  /** offset-indexed bytes past the type varint.
-   * ponytail: overflow past this cap is truncated, same policy as
+  usz                     type_len;
+  wired_srvloop_wt_window win; /**< receive-window bookkeeping, see its doc */
+  /** offset-indexed bytes past the type varint, relative to win.base.
+   * ponytail: a write outside the granted window is dropped, same policy as
    * wired_srvloop_wt_stream_slot's buf. */
-  u8  buf[1024];
-  usz len; /**< high-water mark into buf */
-  u8  fin; /**< 1 once this stream's FIN was seen */
+  u8  buf[WIRED_SRVLOOP_WT_BUF_CAP];
+  u8  fin;     /**< 1 once this stream's FIN was seen */
+  u64 fin_off; /**< the absolute offset FIN was seen at; valid only when fin */
   /** 1 once wired_wt_session_offer_stream has been called for this slot's
    * stream_id, mirroring wired_srvloop_wt_stream_slot's offered field. */
   int offered;
-  /** how much of buf[0..len) has already been delivered to an app-facing
-   * stream-data callback, mirroring wired_srvloop_wt_stream_slot's
-   * delivered_len field (see its doc for the ownership split). */
-  usz delivered_len;
+  /** how much of the stream (absolute offset) has already been delivered to
+   * an app-facing stream-data callback, mirroring wired_srvloop_wt_stream_
+   * slot's delivered_len field (see its doc for the ownership split). */
+  u64 delivered_len;
   /** 1 once a fin=1 delivery has been made, mirroring
    * wired_srvloop_wt_stream_slot's fin_delivered field. */
   int fin_delivered;
+  /** MAX_STREAM_DATA last advertised for this stream, mirroring
+   * wired_srvloop_wt_stream_slot's credit_advertised field. */
+  u64 credit_advertised;
 } wired_srvloop_wt_uni_stream_slot;
 
 /** RFC 9221 5: how many received QUIC DATAGRAM frames one connection queues
@@ -189,11 +249,18 @@ typedef struct {
  * not a protocol limit; raise it if a real workload needs deeper queuing. */
 #define WIRED_SRVLOOP_MAX_RX_DATAGRAMS 4
 
+/** Byte capacity of one queued received QUIC DATAGRAM's payload (RFC 9221
+ * 5/3). 1200 comfortably covers a max_datagram_frame_size-bounded HTTP
+ * Datagram (RFC 9297 2.1: quarter-stream-id varint, up to 8 bytes, plus up to
+ * ~998 bytes of application payload under a typical ~1200-byte
+ * max_datagram_frame_size) without truncating it on receive. */
+#define WIRED_SRVLOOP_RX_DATAGRAM_CAP 1200
+
 /** One queued received QUIC DATAGRAM frame's payload (RFC 9221 5). Copied
  * (not a view) since the source packet buffer does not outlive the step. */
 typedef struct {
-  u8  buf[256]; /**< the datagram's payload bytes */
-  usz len;      /**< bytes valid in buf */
+  u8  buf[WIRED_SRVLOOP_RX_DATAGRAM_CAP]; /**< the datagram's payload bytes */
+  usz len;                                /**< bytes valid in buf */
 } wired_srvloop_rx_datagram;
 
 /** Per-connection state of the server wire loop, re-armed by
@@ -346,6 +413,16 @@ typedef struct {
   /** Slots in max_stream_data_stream_id/_value actually used this step (0 to
    * WIRED_SRVLOOP_MAX_STREAMS). 0 = none seen. */
   usz max_stream_data_n;
+  /** RFC 9000 2.1: the highest WT bidi stream id ever released
+   * (wired_srvloop_wt_slot_release), 0 before any release. Since a peer's
+   * stream ids of one type are strictly increasing (RFC 9000 2.1), a claim
+   * attempt naming an id at or below this watermark is necessarily a stale/
+   * reordered frame for an already-finished stream, not a fresh one --
+   * wired_srvloop_wt_slot_claim rejects it rather than re-claiming a slot a
+   * delayed duplicate could otherwise reopen after the app already saw FIN. */
+  u64 wt_released_watermark;
+  /** Same as wt_released_watermark, for the separate wt_uni_streams table. */
+  u64 wt_uni_released_watermark;
 } wired_srvloop;
 
 /** Register the app response-body builder; pass 0 to clear (body-less 200).
@@ -415,6 +492,69 @@ int wired_srvloop_wt_uni_slot_find(const wired_srvloop* l, u64 stream_id);
  * @param stream_id the WT uni stream id
  * @return the slot index, or -1 if the table is full. */
 int wired_srvloop_wt_uni_slot_claim(wired_srvloop* l, u64 stream_id);
+
+/** RFC 9000 2.1: pre-claim a wt_streams slot for a stream id THIS endpoint
+ * itself opened (a server-initiated bidi stream, id bits 01) -- unlike
+ * wired_srvloop_wt_slot_claim, called before any frame for stream_id has
+ * arrived, with sig_len left 0 (no signal prefix: the peer's reply is raw
+ * application data from its own offset 0). Idempotent: a stream_id already
+ * claimed is returned unchanged rather than re-reset, so calling this once
+ * per wired_server_wt_open_bidi is safe even if a frame beat it to the slot
+ * in a pathological reordering.
+ * @param l the loop to claim a slot on
+ * @param stream_id the server-initiated bidi stream id
+ * @return the slot index, or -1 if the table is full. */
+int wired_srvloop_wt_slot_claim_local(wired_srvloop* l, u64 stream_id);
+
+/** draft-ietf-webtrans-http3-15 4.3: free the wt_streams[] slot reassembling
+ * stream_id once its FIN has been fully delivered to the app, mirroring
+ * wired_srvloop_slot_release for the WT bidi table. Also raises the table's
+ * released-id watermark (see wired_srvloop_wt_slot_claim's doc) so a late
+ * duplicate/reordered frame for this now-freed id is never mistaken for a
+ * fresh stream.
+ * @param l the loop whose wt_streams[] table to release from
+ * @param stream_id the WT bidi stream id; a no-op if it has no slot. */
+void wired_srvloop_wt_slot_release(wired_srvloop* l, u64 stream_id);
+
+/** Same as wired_srvloop_wt_slot_release, for the separate wt_uni_streams
+ * table. */
+void wired_srvloop_wt_uni_slot_release(wired_srvloop* l, u64 stream_id);
+
+/** draft-ietf-webtrans-http3-15 4.3: clamp [abs_off, abs_off+n) to win's
+ * currently open window (drop the stale prefix already delivered/below
+ * win.base, and the part beyond win.base + WIRED_SRVLOOP_WT_BUF_CAP the peer
+ * has no granted credit for yet) and record the accepted portion into win's
+ * range set, recomputing win.frontier. The caller (dispatch.c) still owns the
+ * actual buf write, at *rel_off for *accepted_n bytes -- this only answers
+ * "where, and how much".
+ * @param win the slot's window to accept into
+ * @param abs_off the frame's absolute (post-signal) stream offset
+ * @param n the frame's byte count
+ * @param rel_off set to the offset into buf to write the accepted bytes at
+ * @param accepted_n set to how many trailing bytes of [abs_off, abs_off+n)
+ *   fall inside the open window (0 if none do -- entirely stale or entirely
+ *   beyond the window) */
+void wired_srvloop_wt_window_accept(
+    wired_srvloop_wt_window* win,
+    u64                      abs_off,
+    usz                      n,
+    usz*                     rel_off,
+    usz*                     accepted_n);
+
+/** draft-ietf-webtrans-http3-15 4.3 / RFC 9000 4.1: once delivered_to (an
+ * absolute offset, srvrun.c's own delivered_len) has consumed the whole
+ * current frontier, slide the window forward so buf has room for more --
+ * shift any bytes still buffered past the frontier (an out-of-order
+ * continuation already written ahead of a since-filled gap) down to buf[0],
+ * advance win.base by the delivered frontier, and rebase every range in
+ * win.ranges by the same amount. A no-op if delivered_to has not yet reached
+ * win.base + win.frontier (nothing contiguous left to reclaim room for).
+ * @param win the slot's window to slide
+ * @param buf the slot's own backing buffer (same one window offsets index)
+ * @param cap buf's capacity (WIRED_SRVLOOP_WT_BUF_CAP)
+ * @param delivered_to the absolute offset delivered up to so far */
+void wired_srvloop_wt_window_slide(
+    wired_srvloop_wt_window* win, u8* buf, usz cap, u64 delivered_to);
 
 /** The loop and its orchestrator, driven together through every wire step
  * (mirrors wired_srvboot_conn, srvboot's cold-start counterpart). */
