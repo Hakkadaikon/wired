@@ -233,6 +233,23 @@ static int client_bidi_stream_of(
          is_request_stream(sf->stream_id);
 }
 
+/* RFC 9000 2.1: a server-initiated bidirectional stream has low bits 01 --
+ * the client's reply half of a stream THIS endpoint opened
+ * (wired_server_wt_open_bidi, srvrun.c). */
+static int is_server_bidi_stream(u64 stream_id) {
+  return (stream_id & 0x03) == 1;
+}
+
+/* 1 if the walked frame at `frame` belongs to a server-initiated bidi stream
+ * (RFC 9000 2.1 id bits 01) -- the client-to-server reply half of a stream
+ * srvrun.c itself opened (wired_server_wt_open_bidi). Mirrors
+ * client_bidi_stream_of's shape for the separate id space. */
+static int server_bidi_stream_of(
+    u64 type, quic_span frame, quic_stream_frame* sf) {
+  return is_stream(type) && quic_frame_get_stream(frame.p, frame.n, sf) &&
+         is_server_bidi_stream(sf->stream_id);
+}
+
 /* draft-ietf-webtrans-http3-15 4.3: bytes of THIS frame's own data that are
  * the leading signal, not application data — slot->sig_len for the offset-0
  * signal frame itself (whose data begins with the signal varint, possibly
@@ -244,36 +261,34 @@ static usz wt_frame_skip(
   return sf->offset == 0 ? slot->sig_len : 0;
 }
 
-/* Raise slot->len to end, clamped to cap — same shape as dispatch.c's
- * bump_len for the request accumulator. */
-static void bump_wt_len(wired_srvloop_wt_stream_slot* slot, usz end, usz cap) {
-  usz hi = end < cap ? end : cap;
-  if (hi > slot->len) slot->len = hi;
-}
-
 /* draft-ietf-webtrans-http3-15 4.3: land one WT bidi STREAM frame's
- * application bytes into slot->buf. Two distinct quantities: `skip` is how
- * many bytes of THIS frame's own data are the signal rather than application
- * data (nonzero only for the offset-0 frame, see wt_frame_skip); `buf_off` is
- * where in slot->buf this frame's application bytes land — every frame's
- * stream-level offset is shifted left by the signal's FULL encoded length
- * (slot->sig_len), since the signal itself never occupies any buf position,
- * not just the offset-0 frame's own skip.
- * ponytail: data past slot->buf's cap is truncated, same policy as the
- * request accumulator's gather_one. */
+ * application bytes into slot->buf, honoring the slot's receive window (RFC
+ * 9000 2.2's offset-indexed, reordering-tolerant reassembly — a frame may
+ * arrive with a gap before it, or entirely re-cover already-delivered bytes).
+ * `skip` is how many bytes of THIS frame's own data are the signal rather
+ * than application data (nonzero only for the offset-0 frame, see
+ * wt_frame_skip); `abs_off` is the frame's absolute post-signal stream
+ * offset — every frame's stream-level offset is shifted left by the signal's
+ * FULL encoded length (slot->sig_len), since the signal itself never
+ * occupies any stream position, not just the offset-0 frame's own skip.
+ * wired_srvloop_wt_window_accept answers where (and how much of) this lands
+ * in slot->buf; bytes outside the currently open window are dropped (see its
+ * own doc). */
 static void gather_wt_one(
     const quic_stream_frame* sf, wired_srvloop_wt_stream_slot* slot) {
   usz skip    = wt_frame_skip(sf, slot);
-  usz buf_off = (usz)sf->offset - slot->sig_len + skip;
-  usz start   = buf_off;
-  usz cap     = sizeof slot->buf;
+  u64 abs_off = sf->offset - slot->sig_len + skip;
   usz n       = (usz)sf->length - skip;
-  if (buf_off >= cap) return;
-  quic_put_bytes(
-      quic_mspan_of(slot->buf, cap), &buf_off,
-      quic_span_of(sf->data + skip, n));
-  bump_wt_len(slot, start + n, cap);
-  slot->fin |= sf->fin;
+  usz rel_off, accepted;
+  wired_srvloop_wt_window_accept(&slot->win, abs_off, n, &rel_off, &accepted);
+  if (accepted)
+    quic_put_bytes(
+        quic_mspan_of(slot->buf, sizeof slot->buf), &rel_off,
+        quic_span_of(sf->data + skip + (n - accepted), accepted));
+  if (sf->fin) {
+    slot->fin     = 1;
+    slot->fin_off = abs_off + n;
+  }
 }
 
 /* draft-ietf-webtrans-http3-15 4.3: find-or-claim the wt_streams slot for a
@@ -319,19 +334,45 @@ static int gather_wt_frame(wired_srvloop* l, u64 type, quic_span frame) {
   return 1;
 }
 
+/* RFC 9000 2.1: land one server-initiated bidi stream's reply frame into its
+ * pre-claimed wt_streams[] slot (wired_server_wt_open_bidi's own
+ * wired_srvloop_wt_slot_claim_local call, srvrun.c). Unlike a client-signalled
+ * WT stream, there is no signal varint to discover here -- a stream with no
+ * slot yet is a frame for an id this endpoint never opened (or already
+ * reaped), and is left alone rather than auto-claiming one, since only
+ * srvrun.c (which alone knows the matching wired_wt_session) may open a slot
+ * for this id space. Returns 1 iff frame belongs to this id space at all
+ * (whether or not a slot existed to receive it), mirroring gather_wt_frame's
+ * own seen semantics. */
+static int gather_server_bidi_frame(
+    wired_srvloop* l, u64 type, quic_span frame) {
+  quic_stream_frame sf;
+  int               i;
+  if (!server_bidi_stream_of(type, frame, &sf)) return 0;
+  i = wired_srvloop_wt_slot_find(l, sf.stream_id);
+  if (i >= 0) gather_wt_one(&sf, &l->wt_streams[i]);
+  return 1;
+}
+
 /* RFC 9000 2.2 / 12.4, draft-ietf-webtrans-http3-15 4.3: write every WT bidi
  * STREAM frame in this payload into its own wt_streams[] slot, at its offset
  * past the signal — independent of whether a request stream is ALSO present
  * in the same payload (a coalesced datagram may carry both). A stream is
  * recognized as WT bidi from its first (offset-0) signal frame; the slot is
- * claimed at that point. Returns 1 if any WT bidi frame was seen. */
+ * claimed at that point. Also gathers a server-initiated bidi stream's client
+ * reply (gather_server_bidi_frame), a disjoint id space (RFC 9000 2.1 bits 01
+ * vs. 00) so a single pass over the payload's frames covers both. Returns 1
+ * if any WT bidi frame (either id space) was seen. */
 static int gather_wt_stream(wired_srvloop* l, const u8* payload, usz len) {
   quic_framewalk      it;
   quic_framewalk_item fr;
   int                 seen = 0;
   quic_framewalk_init(&it, payload, len);
-  while (quic_framewalk_next(&it, &fr))
+  while (quic_framewalk_next(&it, &fr)) {
+    seen |= gather_server_bidi_frame(
+        l, fr.type, quic_span_of(fr.start, fr.remaining));
     seen |= gather_wt_frame(l, fr.type, quic_span_of(fr.start, fr.remaining));
+  }
   return seen;
 }
 
@@ -397,31 +438,26 @@ static usz wt_uni_frame_skip(
   return sf->offset == 0 ? slot->type_len : 0;
 }
 
-/* Raise slot->len to end, clamped to cap — identical shape to bump_wt_len,
- * duplicated per-table since the two slot structs are distinct types. */
-static void bump_wt_uni_len(
-    wired_srvloop_wt_uni_stream_slot* slot, usz end, usz cap) {
-  usz hi = end < cap ? end : cap;
-  if (hi > slot->len) slot->len = hi;
-}
-
 /* draft-ietf-webtrans-http3-15 4.3: land one WT uni STREAM frame's application
  * bytes into slot->buf, mirroring gather_wt_one's bidi counterpart exactly
  * (skip the type varint's own bytes on the offset-0 frame, shift every
- * frame's offset back by the type varint's full encoded length). */
+ * frame's offset back by the type varint's full encoded length, honor the
+ * slot's receive window). */
 static void gather_wt_uni_one(
     const quic_stream_frame* sf, wired_srvloop_wt_uni_stream_slot* slot) {
   usz skip    = wt_uni_frame_skip(sf, slot);
-  usz buf_off = (usz)sf->offset - slot->type_len + skip;
-  usz start   = buf_off;
-  usz cap     = sizeof slot->buf;
+  u64 abs_off = sf->offset - slot->type_len + skip;
   usz n       = (usz)sf->length - skip;
-  if (buf_off >= cap) return;
-  quic_put_bytes(
-      quic_mspan_of(slot->buf, cap), &buf_off,
-      quic_span_of(sf->data + skip, n));
-  bump_wt_uni_len(slot, start + n, cap);
-  slot->fin |= sf->fin;
+  usz rel_off, accepted;
+  wired_srvloop_wt_window_accept(&slot->win, abs_off, n, &rel_off, &accepted);
+  if (accepted)
+    quic_put_bytes(
+        quic_mspan_of(slot->buf, sizeof slot->buf), &rel_off,
+        quic_span_of(sf->data + skip + (n - accepted), accepted));
+  if (sf->fin) {
+    slot->fin     = 1;
+    slot->fin_off = abs_off + n;
+  }
 }
 
 /* draft-ietf-webtrans-http3-15 4.3: find-or-claim the wt_uni_streams slot for
