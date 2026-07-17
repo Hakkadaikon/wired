@@ -1403,13 +1403,16 @@ static void test_srvloop_wt_bidi_stream_reassembled(void) {
   u8            f0[64], f1[64], out[1024], spkt[1024];
   usz           f0l, f1l, slen;
   quic_obuf     ob = {out, sizeof out, 0};
-  /* offset 0: 2-byte 0x41 signal ({0x40,0x41}) + "AB" application bytes. */
-  const u8* sig_plus_ab = (const u8*)"\x40\x41" "AB";
+  /* offset 0: the 2-byte 0x41 type ({0x40,0x41}) plus a 1-byte session id
+   * varint (this stream's own CONNECT id, 4) -- draft-ietf-webtrans-http3-15
+   * 4.3's signal is TWO varints, not one -- followed by "AB" application
+   * bytes. */
+  const u8* sig_plus_ab = (const u8*)"\x40\x41\x04" "AB";
   const u8* cd = (const u8*)"CD";
-  f0l          = lp_stream_frame_at(f0, sizeof f0, 4, 0, sig_plus_ab, 4, 0);
-  /* offset 4 on the WIRE == offset 2 in the post-signal application stream
-   * (the 2-byte signal occupies wire offsets 0-1, "AB" occupies 2-3). */
-  f1l = lp_stream_frame_at(f1, sizeof f1, 4, 4, cd, 2, 1);
+  f0l          = lp_stream_frame_at(f0, sizeof f0, 4, 0, sig_plus_ab, 5, 0);
+  /* offset 5 on the WIRE == offset 2 in the post-signal application stream
+   * (the 3-byte signal occupies wire offsets 0-2, "AB" occupies 3-4). */
+  f1l = lp_stream_frame_at(f1, sizeof f1, 4, 5, cd, 2, 1);
   lp_confirm(&f, &ob);
   slen = client_seal_onertt_pn(&f, 3, f0, f0l, spkt, sizeof spkt);
   ob   = (quic_obuf){out, sizeof out, 0};
@@ -1455,10 +1458,10 @@ static void test_srvloop_wt_bidi_continuation_not_absorbed_into_request(void) {
   u8            f0[64], f1[64], out[1024], spkt[1024];
   usz           f0l, f1l, slen;
   quic_obuf     ob = {out, sizeof out, 0};
-  const u8*     sig_plus_ab = (const u8*)"\x40\x41" "AB";
+  const u8*     sig_plus_ab = (const u8*)"\x40\x41\x04" "AB";
   const u8* cd = (const u8*)"CD";
-  f0l          = lp_stream_frame_at(f0, sizeof f0, 4, 0, sig_plus_ab, 4, 0);
-  f1l          = lp_stream_frame_at(f1, sizeof f1, 4, 4, cd, 2, 1);
+  f0l          = lp_stream_frame_at(f0, sizeof f0, 4, 0, sig_plus_ab, 5, 0);
+  f1l          = lp_stream_frame_at(f1, sizeof f1, 4, 5, cd, 2, 1);
   lp_confirm(&f, &ob);
   slen = client_seal_onertt_pn(&f, 3, f0, f0l, spkt, sizeof spkt);
   ob   = (quic_obuf){out, sizeof out, 0};
@@ -1539,11 +1542,12 @@ static void test_srvloop_wt_signal_only_frame_then_data(void) {
   struct lp_fix f;
   u8            f0[64], f1[64], out[1024], spkt[1024];
   usz           f0l, f1l, slen;
-  quic_obuf     ob       = {out, sizeof out, 0};
-  const u8*     sig_only = (const u8*)"\x40\x41"; /* signal, no app bytes */
-  const u8*     app      = (const u8*)"Z";
-  f0l = lp_stream_frame_at(f0, sizeof f0, 4, 0, sig_only, 2, 0);
-  f1l = lp_stream_frame_at(f1, sizeof f1, 4, 2, app, 1, 1);
+  quic_obuf     ob = {out, sizeof out, 0};
+  const u8*     sig_only =
+      (const u8*)"\x40\x41\x04"; /* type + session id, no app bytes */
+  const u8* app = (const u8*)"Z";
+  f0l           = lp_stream_frame_at(f0, sizeof f0, 4, 0, sig_only, 3, 0);
+  f1l           = lp_stream_frame_at(f1, sizeof f1, 4, 3, app, 1, 1);
   lp_confirm(&f, &ob);
   slen = client_seal_onertt_pn(&f, 3, f0, f0l, spkt, sizeof spkt);
   ob   = (quic_obuf){out, sizeof out, 0};
@@ -1596,13 +1600,15 @@ static void test_srvloop_wt_stream_without_session_no_crash(void) {
 }
 
 /* draft-ietf-webtrans-http3-15 4.3: a WT uni stream's leading (offset-0)
- * bytes are the type varint 0x54 (2-byte wire form {0x40, 0x54}, RFC 9000
- * 16 — 84 exceeds the 1-byte range), unambiguously identifying the stream's
- * type with no signal/app-data ambiguity (unlike WT bidi's 0x41). Build
- * stream id's offset-0 STREAM frame with that leading varint plus one
+ * bytes are TWO varints -- the type 0x54 (2-byte wire form {0x40, 0x54},
+ * RFC 9000 16 -- 84 exceeds the 1-byte range) and the session id (this
+ * stream's own CONNECT stream id, here always < 64 so it fits the 1-byte
+ * varint form) -- unambiguously identifying the stream's type with no
+ * signal/app-data ambiguity (unlike WT bidi's 0x41). Build stream id's
+ * offset-0 STREAM frame with that leading 3-byte signal plus one
  * application byte behind it. */
 static usz lp_wt_uni_stream(u8* out, usz cap, u64 stream_id) {
-  u8                sig[3] = {0x40, 0x54, 'X'};
+  u8                sig[4] = {0x40, 0x54, (u8)stream_id, 'X'};
   quic_stream_frame sf     = {stream_id, 0, sizeof sig, sig, 0};
   return quic_frame_put_stream(out, cap, &sf);
 }
@@ -1619,14 +1625,15 @@ static void test_srvloop_wt_uni_stream_reassembled(void) {
   u8            f0[64], f1[64], out[1024], spkt[1024];
   usz           f0l, f1l, slen;
   quic_obuf     ob = {out, sizeof out, 0};
-  /* offset 0: 2-byte 0x54 type varint ({0x40,0x54}) + "AB" application bytes.
-   */
-  const u8* type_plus_ab = (const u8*)"\x40\x54" "AB";
+  /* offset 0: the 2-byte 0x54 type varint ({0x40,0x54}) plus a 1-byte session
+   * id varint (this stream's own CONNECT id, 2) -- the leading signal is TWO
+   * varints, not one -- followed by "AB" application bytes. */
+  const u8* type_plus_ab = (const u8*)"\x40\x54\x02" "AB";
   const u8* cd = (const u8*)"CD";
-  f0l          = lp_stream_frame_at(f0, sizeof f0, 2, 0, type_plus_ab, 4, 0);
-  /* offset 4 on the WIRE == offset 2 in the post-type application stream (the
-   * 2-byte type varint occupies wire offsets 0-1, "AB" occupies 2-3). */
-  f1l = lp_stream_frame_at(f1, sizeof f1, 2, 4, cd, 2, 1);
+  f0l          = lp_stream_frame_at(f0, sizeof f0, 2, 0, type_plus_ab, 5, 0);
+  /* offset 5 on the WIRE == offset 2 in the post-type application stream (the
+   * 3-byte signal occupies wire offsets 0-2, "AB" occupies 3-4). */
+  f1l = lp_stream_frame_at(f1, sizeof f1, 2, 5, cd, 2, 1);
   lp_confirm(&f, &ob);
   slen = client_seal_onertt_pn(&f, 3, f0, f0l, spkt, sizeof spkt);
   ob   = (quic_obuf){out, sizeof out, 0};
