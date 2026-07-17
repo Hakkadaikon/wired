@@ -114,7 +114,7 @@ typedef struct {
  * does not depend on the window covering a full BDP -- srvrun.c keeps
  * re-granting flow-control credit every step, so a multi-megabyte WT stream
  * still flows, just over more round trips than a larger window would need. */
-#define WIRED_SRVLOOP_WT_BUF_CAP 4096
+#define WIRED_SRVLOOP_WT_BUF_CAP 32768
 
 /** How many disjoint received-but-not-yet-contiguous byte ranges one WT
  * slot's window tracks past its frontier (see wired_srvloop_wt_window). RFC
