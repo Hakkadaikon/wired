@@ -30,6 +30,7 @@
 #include "transport/io/socket/io/udp.h"
 #include "transport/io/socket/poll/wait.h"
 #include "transport/io/udp/udploop/rxloop.h"
+#include "transport/packet/frame/frame/flowctl.h"
 #include "transport/packet/frame/frame/frame.h"
 #include "transport/packet/frame/frame/ncid_worker.h"
 #include "transport/packet/frame/frame/stream_ctl.h"
@@ -302,6 +303,15 @@ typedef struct {
   /** RFC 9000 2.1: server-initiated bidi streams opened; the next bidi id
    * is 1 + 4 * wt_bidi_opened (nothing else opens server bidi streams). */
   u64 wt_bidi_opened;
+  /** RFC 9000 4.1/19.9: this connection's own receive-side MAX_DATA last
+   * advertised to the peer (0 before any raise past the initial transport
+   * parameter) -- srvrun_wt_credit_due compares the sum of every WT slot's
+   * delivered bytes against this to decide whether a fresh MAX_DATA is due
+   * (an advertisement MUST NOT decrease, so this only ever grows). Distinct
+   * from conn_credit, which is this connection's SEND-side ceiling (the
+   * peer's own MAX_DATA to us) -- flow control is per-direction (RFC
+   * 9000 4.1). */
+  u64 rx_max_data_advertised;
 } srvrun_conn;
 
 /* Response storage, one row per (connection slot, response slot): 64-byte
@@ -900,22 +910,38 @@ static int wt_slot_needs_offer(const wired_srvloop_wt_stream_slot* slot) {
   return slot->in_use && !slot->offered;
 }
 
+/* The absolute stream offset the slot's receive window has contiguously
+ * reassembled up to so far (RFC 9000 2.2) -- the caller may only deliver up
+ * to here, never past a gap, however far an out-of-order frame's own
+ * high-water mark reaches (wired_srvloop_wt_window's own frontier doc). */
+static u64 wt_frontier_abs(const wired_srvloop_wt_window* win) {
+  return win->base + win->frontier;
+}
+
 /* A fresh, not-yet-delivered FIN — the one case wt_stream_delta_pending's
- * plain len > delivered_len check misses (a stream whose closing frame, or
- * whose only frame, carries no new bytes). fin_delivered (not delivered_len)
- * is the guard: delivered_len alone cannot tell "FIN already delivered" apart
- * from "nothing delivered yet" when both are 0. */
-static int wt_stream_fin_only(u8 fin, int fin_delivered) {
-  return fin && !fin_delivered;
+ * plain frontier > delivered_len check misses (a stream whose closing frame,
+ * or whose only frame, carries no new bytes past the frontier already
+ * delivered). fin_delivered (not delivered_len) is the guard: delivered_len
+ * alone cannot tell "FIN already delivered" apart from "nothing delivered
+ * yet" when both are 0. A FIN is deliverable only once the frontier has
+ * actually reached the offset it was seen at (fin_off) -- FIN itself can
+ * arrive out of order, same as any other STREAM frame (RFC 9000 19.8). */
+static int wt_stream_fin_only(
+    u8 fin, u64 fin_off, u64 frontier_abs, int fin_delivered) {
+  return fin && !fin_delivered && frontier_abs >= fin_off;
 }
 
 /* Whether this step has anything new worth delivering for one WT stream slot:
  * either fresh bytes past the last delivery, or a fresh FIN (see
  * wt_stream_fin_only). */
 static int wt_stream_delta_pending(
-    usz len, u8 fin, usz delivered_len, int fin_delivered) {
-  if (len > delivered_len) return 1;
-  return wt_stream_fin_only(fin, fin_delivered);
+    u64 frontier_abs,
+    u8  fin,
+    u64 fin_off,
+    u64 delivered_len,
+    int fin_delivered) {
+  if (frontier_abs > delivered_len) return 1;
+  return wt_stream_fin_only(fin, fin_off, frontier_abs, fin_delivered);
 }
 
 /* Whether srvrun_deliver_wt_stream_delta has anything to do at all: an active
@@ -925,50 +951,83 @@ static int wt_stream_delta_pending(
 static int wt_stream_delta_ready(
     const srvrun_cfg* cfg,
     int               sidx,
-    usz               len,
+    u64               frontier_abs,
     u8                fin,
-    usz               delivered_len,
+    u64               fin_off,
+    u64               delivered_len,
     int               fin_delivered) {
   if (sidx < 0 || !cfg->wt_on_stream_data) return 0;
-  return wt_stream_delta_pending(len, fin, delivered_len, fin_delivered);
+  return wt_stream_delta_pending(
+      frontier_abs, fin, fin_off, delivered_len, fin_delivered);
 }
 
 /* draft-ietf-webtrans-http3-15 4.3 (Phase 7b Slice 4): deliver the bytes a WT
- * bidi/uni slot has accumulated since the last delivery to the app callback.
- * A slot's buf is a cumulative reassembly buffer (not a queue), so "new data
- * this step" is buf[delivered_len..len) — the caller passes pointers to the
- * slot's own delivered_len/fin_delivered so this can advance them in place.
- * sidx is the session slot this stream was offered to (srvrun_offer_wt_slot's
- * own resolution), so the callback's session pointer always matches the
- * slot the stream is actually associated with. Called every step for every
- * in_use slot regardless of offered, so bytes that arrive before the
- * stream's session association still reach the app once one exists,
- * mirroring srvrun_offer_wt_slot's own no-active-session fallback (silently
- * skip rather than buffer growing unboundedly). */
+ * bidi/uni slot has reassembled contiguously (up to its window's frontier)
+ * since the last delivery to the app callback. buf is window-relative (buf[0]
+ * is win->base's own first byte), so "new data this step" is buf[delivered_
+ * len - win->base .. frontier - win->base) — the caller passes pointers to
+ * the slot's own delivered_len/fin_delivered so this can advance them in
+ * place. sidx is the session slot this stream was offered to
+ * (srvrun_offer_wt_slot's own resolution), so the callback's session pointer
+ * always matches the slot the stream is actually associated with. Called
+ * every step for every in_use slot regardless of offered, so bytes that
+ * arrive before the stream's session association still reach the app once
+ * one exists, mirroring srvrun_offer_wt_slot's own no-active-session fallback
+ * (silently skip rather than buffer growing unboundedly). */
+/* 1 if this delivery includes the stream's FIN -- a FIN was seen AND the
+ * frontier has reached the offset it was seen at (RFC 9000 19.8: FIN can
+ * itself arrive out of order, so "seen" alone is not "deliverable yet").
+ * Shared by both call sites in srvrun_deliver_wt_stream_delta that need this
+ * exact condition, keeping its own branch count at the gate. */
+static int wt_delivered_fin(u8 fin, u64 frontier_abs, u64 fin_off) {
+  return fin && frontier_abs >= fin_off;
+}
+
 static void srvrun_deliver_wt_stream_delta(
-    const srvrun_cfg* cfg,
-    srvrun_conn*      c,
-    int               sidx,
-    u64               stream_id,
-    const u8*         buf,
-    usz               len,
-    u8                fin,
-    usz*              delivered_len,
-    int*              fin_delivered) {
+    const srvrun_cfg*              cfg,
+    srvrun_conn*                   c,
+    int                            sidx,
+    u64                            stream_id,
+    const u8*                      buf,
+    const wired_srvloop_wt_window* win,
+    u8                             fin,
+    u64                            fin_off,
+    u64*                           delivered_len,
+    int*                           fin_delivered) {
+  u64 frontier_abs = wt_frontier_abs(win);
+  int fin_now      = wt_delivered_fin(fin, frontier_abs, fin_off);
   if (!wt_stream_delta_ready(
-          cfg, sidx, len, fin, *delivered_len, *fin_delivered))
+          cfg, sidx, frontier_abs, fin, fin_off, *delivered_len,
+          *fin_delivered))
     return;
   cfg->wt_on_stream_data(
       cfg->wt_stream_data_ctx, srvrun_wt_slot(c, sidx), stream_id,
-      quic_span_of(buf + *delivered_len, len - *delivered_len), fin);
-  *delivered_len = len;
-  if (fin) *fin_delivered = 1;
+      quic_span_of(
+          buf + (*delivered_len - win->base),
+          (usz)(frontier_abs - *delivered_len)),
+      fin_now);
+  *delivered_len = frontier_abs;
+  if (fin_now) *fin_delivered = 1;
+}
+
+/* RFC 9000 2.2 / 19.8: once a WT bidi slot's FIN has been delivered to the
+ * app, its stream is fully spent -- free the slot (raising the table's
+ * released-id watermark, wired_srvloop_wt_slot_release) so a later Extended
+ * CONNECT's worth of new streams is not permanently blocked by
+ * WIRED_SRVLOOP_MAX_WT_STREAMS exhausting after that many sequential
+ * streams, mirroring srvrun_resp_reap's own release of streams[]. */
+static void srvrun_reap_wt_slot(
+    wired_srvloop* l, wired_srvloop_wt_stream_slot* slot) {
+  if (!slot->in_use || !slot->fin_delivered) return;
+  wired_srvloop_wt_slot_release(l, slot->stream_id);
 }
 
 /* One wt_streams slot's per-step work: offer it to the session if this step
- * (or an earlier one) claimed it but has not yet offered it, then deliver any
- * new bytes to the app callback — split out of srvrun_offer_wt_streams so the
- * loop itself stays at the CCN gate. */
+ * (or an earlier one) claimed it but has not yet offered it, deliver any new
+ * contiguous bytes to the app callback, slide the receive window forward once
+ * everything contiguous has been delivered (making room for more), then reap
+ * the slot if its FIN has now been fully delivered — split out of
+ * srvrun_offer_wt_streams so the loop itself stays at the CCN gate. */
 static void srvrun_offer_and_deliver_wt_slot(
     const srvrun_cfg* cfg, srvrun_conn* c, wired_srvloop_wt_stream_slot* slot) {
   int sidx;
@@ -976,8 +1035,11 @@ static void srvrun_offer_and_deliver_wt_slot(
   if (!slot->in_use) return;
   sidx = srvrun_wt_slot_for_new_stream(c);
   srvrun_deliver_wt_stream_delta(
-      cfg, c, sidx, slot->stream_id, slot->buf, slot->len, slot->fin,
-      &slot->delivered_len, &slot->fin_delivered);
+      cfg, c, sidx, slot->stream_id, slot->buf, &slot->win, slot->fin,
+      slot->fin_off, &slot->delivered_len, &slot->fin_delivered);
+  wired_srvloop_wt_window_slide(
+      &slot->win, slot->buf, sizeof slot->buf, slot->delivered_len);
+  srvrun_reap_wt_slot(&c->l, slot);
 }
 
 /* draft-ietf-webtrans-http3-15 4.3: after a step has reassembled this
@@ -1047,6 +1109,14 @@ static int wt_uni_slot_needs_offer(
   return slot->in_use && !slot->offered;
 }
 
+/* RFC 9000 2.2 / 19.8: same reap-once-FIN-delivered policy as
+ * srvrun_reap_wt_slot, for the separate uni table. */
+static void srvrun_reap_wt_uni_slot(
+    wired_srvloop* l, wired_srvloop_wt_uni_stream_slot* slot) {
+  if (!slot->in_use || !slot->fin_delivered) return;
+  wired_srvloop_wt_uni_slot_release(l, slot->stream_id);
+}
+
 /* One wt_uni_streams slot's per-step work, mirroring
  * srvrun_offer_and_deliver_wt_slot for the separate uni table. */
 static void srvrun_offer_and_deliver_wt_uni_slot(
@@ -1058,8 +1128,11 @@ static void srvrun_offer_and_deliver_wt_uni_slot(
   if (!slot->in_use) return;
   sidx = srvrun_wt_slot_for_new_stream(c);
   srvrun_deliver_wt_stream_delta(
-      cfg, c, sidx, slot->stream_id, slot->buf, slot->len, slot->fin,
-      &slot->delivered_len, &slot->fin_delivered);
+      cfg, c, sidx, slot->stream_id, slot->buf, &slot->win, slot->fin,
+      slot->fin_off, &slot->delivered_len, &slot->fin_delivered);
+  wired_srvloop_wt_window_slide(
+      &slot->win, slot->buf, sizeof slot->buf, slot->delivered_len);
+  srvrun_reap_wt_uni_slot(&c->l, slot);
 }
 
 /* draft-ietf-webtrans-http3-15 4.3: after a step has reassembled this
@@ -1069,6 +1142,190 @@ static void srvrun_offer_and_deliver_wt_uni_slot(
 static void srvrun_offer_wt_uni_streams(const srvrun_cfg* cfg, srvrun_conn* c) {
   for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_UNI_STREAMS; i++)
     srvrun_offer_and_deliver_wt_uni_slot(cfg, c, &c->l.wt_uni_streams[i]);
+}
+
+/* RFC 9000 4.1: the most a WT slot's receive window can currently absorb --
+ * bytes already delivered (and reclaimed, wired_srvloop_wt_window_slide) plus
+ * one full buffer's worth ahead of them, i.e. the credit that keeps the
+ * peer's send window always fully covered by buffer capacity (this SDK's own
+ * invariant: never advertise more than buf can actually hold). */
+static u64 wt_slot_credit_ceiling(u64 delivered_len) {
+  return delivered_len + WIRED_SRVLOOP_WT_BUF_CAP;
+}
+
+/* RFC 9000 4.1/19.10: whether stream_id's MAX_STREAM_DATA is worth
+ * re-announcing right now -- the window has advanced enough that the new
+ * ceiling exceeds what was last advertised. An advertisement MUST NOT
+ * decrease, so a ceiling at or below credit_advertised is never sent. */
+static int wt_credit_stream_due(u64 ceiling, u64 credit_advertised) {
+  return ceiling > credit_advertised;
+}
+
+/* Seal one MAX_STREAM_DATA frame (RFC 9000 19.10) naming stream_id/value as
+ * its own 1-RTT packet and send it, mirroring srvrun_seal_wt_busy_reset's
+ * shape for a different frame. */
+static int srvrun_seal_max_stream_data(
+    srvrun_conn* c, u64 stream_id, u64 value, quic_obuf* out) {
+  u8                     pl[32];
+  quic_obuf              plb = quic_obuf_of(pl, sizeof pl);
+  quic_stream_data_frame f   = {stream_id, value};
+  wired_srvloop_send_in  sin;
+  usz                    pln = quic_max_stream_data_encode(plb.p, plb.cap, &f);
+  if (!pln) return 0;
+  plb.len = pln;
+  sin     = (wired_srvloop_send_in){
+      quic_span_of(c->l.cli_scid, c->l.cli_scid_len), c->l.tx_pn++, -1,
+      quic_span_of(pl, pln), 0};
+  return wired_srvloop_send_onertt(&c->s, &sin, out);
+}
+
+static void srvrun_send_max_stream_data(
+    const srvrun_cfg* cfg, srvrun_conn* c, u64 stream_id, u64 value) {
+  u8        out[128];
+  quic_obuf ob = quic_obuf_of(out, sizeof out);
+  if (!srvrun_seal_max_stream_data(c, stream_id, value, &ob)) return;
+  srvrun_send(cfg, c, quic_span_of(out, ob.len), "WT MAX_STREAM_DATA sent\n");
+}
+
+/* RFC 9000 4.1/19.10: re-grant stream_id's receive credit if the window has
+ * advanced enough to be worth it (wt_credit_stream_due), recording the new
+ * ceiling so a later step's absence of further progress does not re-send the
+ * same value. Shared body for both the bidi (wt_streams) and uni
+ * (wt_uni_streams) tables -- each caller passes its own slot's stream_id/
+ * delivered_len/credit_advertised. */
+static void srvrun_grant_stream_credit(
+    const srvrun_cfg* cfg,
+    srvrun_conn*      c,
+    u64               stream_id,
+    u64               delivered_len,
+    u64*              credit_advertised) {
+  u64 ceiling = wt_slot_credit_ceiling(delivered_len);
+  if (!wt_credit_stream_due(ceiling, *credit_advertised)) return;
+  srvrun_send_max_stream_data(cfg, c, stream_id, ceiling);
+  *credit_advertised = ceiling;
+}
+
+/* One in-use wt_streams slot's own credit re-grant, split out so the driving
+ * loop stays at the CCN gate. */
+static void srvrun_grant_wt_slot_credit(
+    const srvrun_cfg* cfg, srvrun_conn* c, wired_srvloop_wt_stream_slot* slot) {
+  if (!slot->in_use) return;
+  srvrun_grant_stream_credit(
+      cfg, c, slot->stream_id, slot->delivered_len, &slot->credit_advertised);
+}
+
+static void srvrun_grant_wt_uni_slot_credit(
+    const srvrun_cfg*                 cfg,
+    srvrun_conn*                      c,
+    wired_srvloop_wt_uni_stream_slot* slot) {
+  if (!slot->in_use) return;
+  srvrun_grant_stream_credit(
+      cfg, c, slot->stream_id, slot->delivered_len, &slot->credit_advertised);
+}
+
+/* RFC 9000 4.1/19.9: this connection's total WT receive progress across every
+ * in-use bidi and uni slot -- the raw ingredient srvrun_grant_conn_credit
+ * sums into one connection-wide MAX_DATA ceiling, mirroring
+ * srvrun_conn_consumed_bytes' send-side fan-out shape for the opposite
+ * direction. */
+/* Sum of delivered_len across every in-use wt_streams (bidi) slot -- the
+ * bidi half of srvrun_wt_rx_delivered_total's fan-out, split out so each
+ * loop stays at the CCN gate. */
+static u64 srvrun_wt_bidi_delivered_total(const srvrun_conn* c) {
+  u64 total = 0;
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_STREAMS; i++)
+    if (c->l.wt_streams[i].in_use) total += c->l.wt_streams[i].delivered_len;
+  return total;
+}
+
+/* Sum of delivered_len across every in-use wt_uni_streams slot -- the uni
+ * half of srvrun_wt_rx_delivered_total's fan-out. */
+static u64 srvrun_wt_uni_delivered_total(const srvrun_conn* c) {
+  u64 total = 0;
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_UNI_STREAMS; i++)
+    if (c->l.wt_uni_streams[i].in_use)
+      total += c->l.wt_uni_streams[i].delivered_len;
+  return total;
+}
+
+static u64 srvrun_wt_rx_delivered_total(const srvrun_conn* c) {
+  return srvrun_wt_bidi_delivered_total(c) + srvrun_wt_uni_delivered_total(c);
+}
+
+/* Seal one MAX_DATA frame (RFC 9000 19.9) as its own 1-RTT packet and send
+ * it, mirroring srvrun_seal_max_stream_data for the connection-wide frame. */
+static int srvrun_seal_max_data(srvrun_conn* c, u64 value, quic_obuf* out) {
+  u8                    pl[24];
+  quic_obuf             plb = quic_obuf_of(pl, sizeof pl);
+  quic_data_frame       f   = {value};
+  wired_srvloop_send_in sin;
+  usz                   pln = quic_max_data_encode(plb.p, plb.cap, &f);
+  if (!pln) return 0;
+  plb.len = pln;
+  sin     = (wired_srvloop_send_in){
+      quic_span_of(c->l.cli_scid, c->l.cli_scid_len), c->l.tx_pn++, -1,
+      quic_span_of(pl, pln), 0};
+  return wired_srvloop_send_onertt(&c->s, &sin, out);
+}
+
+static void srvrun_send_max_data(
+    const srvrun_cfg* cfg, srvrun_conn* c, u64 value) {
+  u8        out[128];
+  quic_obuf ob = quic_obuf_of(out, sizeof out);
+  if (!srvrun_seal_max_data(c, value, &ob)) return;
+  srvrun_send(cfg, c, quic_span_of(out, ob.len), "WT MAX_DATA sent\n");
+}
+
+/* 1 if any WT bidi or uni slot is currently in use -- srvrun_grant_conn_
+ * credit's own gate: a connection with no WT reassembly activity at all has
+ * nothing this MAX_DATA raise is for (the server's own initial_max_data
+ * transport parameter, server_tp.c, already covers ordinary request/response
+ * traffic), so sending one unconditionally every step would put an unasked-
+ * for frame on the wire of every plain HTTP/3 connection too. */
+static int wt_any_bidi_slot_in_use(const srvrun_conn* c) {
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_STREAMS; i++)
+    if (c->l.wt_streams[i].in_use) return 1;
+  return 0;
+}
+
+static int wt_any_uni_slot_in_use(const srvrun_conn* c) {
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_UNI_STREAMS; i++)
+    if (c->l.wt_uni_streams[i].in_use) return 1;
+  return 0;
+}
+
+static int wt_any_slot_in_use(const srvrun_conn* c) {
+  return wt_any_bidi_slot_in_use(c) || wt_any_uni_slot_in_use(c);
+}
+
+/* RFC 9000 4.1/19.9: re-grant this connection's receive credit once its total
+ * WT progress (every slot combined) has advanced enough past what was last
+ * advertised -- the connection-wide counterpart of srvrun_grant_stream_
+ * credit, using the same ceiling shape (delivered + one buffer's worth of
+ * slack) so raising every open stream's own window never outruns the shared
+ * connection ceiling. A no-op while no WT slot has ever been claimed
+ * (wt_any_slot_in_use). */
+static void srvrun_grant_conn_credit(const srvrun_cfg* cfg, srvrun_conn* c) {
+  u64 ceiling = wt_slot_credit_ceiling(srvrun_wt_rx_delivered_total(c));
+  if (!wt_any_slot_in_use(c)) return;
+  if (!wt_credit_stream_due(ceiling, c->rx_max_data_advertised)) return;
+  srvrun_send_max_data(cfg, c, ceiling);
+  c->rx_max_data_advertised = ceiling;
+}
+
+/* draft-ietf-webtrans-http3-15 4.3 / RFC 9000 4.1: after a step's reassembly/
+ * delivery/window-slide passes, re-grant flow-control credit for every WT
+ * slot whose window has advanced (srvrun_grant_wt_slot_credit/_uni), then the
+ * connection-wide ceiling once (srvrun_grant_conn_credit) -- called once per
+ * step regardless of whether this step itself delivered anything, so a
+ * connection with an idle WT slot still eventually catches up after a burst
+ * a few steps earlier. */
+static void srvrun_grant_wt_credit(const srvrun_cfg* cfg, srvrun_conn* c) {
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_STREAMS; i++)
+    srvrun_grant_wt_slot_credit(cfg, c, &c->l.wt_streams[i]);
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_UNI_STREAMS; i++)
+    srvrun_grant_wt_uni_slot_credit(cfg, c, &c->l.wt_uni_streams[i]);
+  srvrun_grant_conn_credit(cfg, c);
 }
 
 /* draft-ietf-webtrans-http3-15 SS4.4: this step's stream-close gathering
@@ -1154,6 +1411,7 @@ static void srvrun_on_step(
   srvrun_note_recv(ctx, &mark, c, dg.n);
   srvrun_offer_wt_streams(ctx->cfg, c);
   srvrun_offer_wt_uni_streams(ctx->cfg, c);
+  srvrun_grant_wt_credit(ctx->cfg, c);
   srvrun_drain_rx_datagrams(ctx->cfg, c);
   srvrun_close_wt_on_stream_close(c);
   if (c->l.datagram_violation) {
@@ -1569,14 +1827,34 @@ i64 wired_server_wt_open_uni(wired_wt_session* s, quic_span payload) {
   return srvrun_wtsend_arm_id(w, srvrun_next_uni_id(c), payload);
 }
 
+/* RFC 9000 2.1 / draft-ietf-webtrans-http3-15 4.3: pre-register id's receive
+ * side as a WT bidi slot with no signal prefix (server-initiated bidi carries
+ * none, unlike a client-signalled stream) and associate it with s directly --
+ * this endpoint already knows which session owns id (it just opened it), so
+ * there is no offer/accept race to resolve the way an incoming client-
+ * signalled stream has (srvrun_offer_wt_slot's own srvrun_wt_slot_for_new_
+ * stream lookup). A full wt_streams[] table silently leaves the reply
+ * unreceivable, same fixed-capacity drop policy as every other WT slot table
+ * here. */
+static void srvrun_wt_preclaim_bidi_recv(
+    srvrun_conn* c, wired_wt_session* s, u64 id) {
+  int i = wired_srvloop_wt_slot_claim_local(&c->l, id);
+  if (i < 0) return;
+  c->l.wt_streams[i].offered = 1;
+  wired_wt_session_offer_stream(s, id);
+}
+
 i64 wired_server_wt_open_bidi(wired_wt_session* s, quic_span payload) {
   srvrun_conn*   c = srvrun_session_conn(s);
   srvrun_wtsend* w;
+  u64            id;
   if (!c) return -1;
   w = srvrun_wtsend_claim(
       c, c->s.sdrv.peer_initial_max_stream_data_bidi_remote);
   if (!w) return -1;
-  return srvrun_wtsend_arm_id(w, srvrun_next_bidi_id(c), payload);
+  id = srvrun_next_bidi_id(c);
+  srvrun_wt_preclaim_bidi_recv(c, s, id);
+  return srvrun_wtsend_arm_id(w, id, payload);
 }
 
 int wired_server_wt_stream_reply(
