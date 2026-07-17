@@ -3059,6 +3059,29 @@ static void sr_stream_data_handler(
     g_srsd_last_buf[i] = data.p[i];
 }
 
+/* Set a WT bidi slot's receive window as if n contiguous bytes had been
+ * written from offset 0 -- the hand-constructed-state tests below poke a
+ * slot directly rather than driving real wire frames through it, so the
+ * window's range-set fields (win.range_lo/hi/n, win.frontier) must be kept
+ * consistent by hand too (frontier alone is not enough: srvrun_offer_wt_
+ * streams also calls wired_srvloop_wt_window_slide, which recomputes
+ * frontier from the range set on every call). */
+static void sr_wt_slot_set_frontier(wired_srvloop_wt_stream_slot* slot, u64 n) {
+  slot->win.range_n     = n > 0 ? 1 : 0;
+  slot->win.range_lo[0] = 0;
+  slot->win.range_hi[0] = n;
+  slot->win.frontier    = n;
+}
+
+/* Same as sr_wt_slot_set_frontier, for the separate wt_uni_streams table. */
+static void sr_wt_uni_slot_set_frontier(
+    wired_srvloop_wt_uni_stream_slot* slot, u64 n) {
+  slot->win.range_n     = n > 0 ? 1 : 0;
+  slot->win.range_lo[0] = 0;
+  slot->win.range_hi[0] = n;
+  slot->win.frontier    = n;
+}
+
 /* A freshly-claimed WT bidi slot with bytes already reassembled (offered==0,
  * as a real first step would leave it) delivers those bytes to the callback
  * in the same step it is offered to the session -- proving offer and deliver
@@ -3099,8 +3122,8 @@ static void test_srvrun_wt_stream_data_delivered_on_offer(void) {
   c.l.wt_streams[0].offered   = 0;
   c.l.wt_streams[0].buf[0]    = 'h';
   c.l.wt_streams[0].buf[1]    = 'i';
-  c.l.wt_streams[0].len       = 2;
-  g_srsd_calls                = 0;
+  sr_wt_slot_set_frontier(&c.l.wt_streams[0], 2);
+  g_srsd_calls = 0;
   srvrun_offer_wt_streams(&cfg, &c);
   CHECK(c.l.wt_streams[0].offered == 1);
   CHECK(g_srsd_calls == 1);
@@ -3151,11 +3174,11 @@ static void test_srvrun_wt_stream_data_delivers_delta_only(void) {
   c.l.wt_streams[0].offered       = 1; /* already offered a prior step */
   c.l.wt_streams[0].buf[0]        = 'h';
   c.l.wt_streams[0].buf[1]        = 'i';
-  c.l.wt_streams[0].len           = 2;
   c.l.wt_streams[0].delivered_len = 2; /* those 2 bytes were delivered before */
   c.l.wt_streams[0].buf[2]        = '!';
-  c.l.wt_streams[0].len           = 3; /* one more byte arrives this step */
-  g_srsd_calls                    = 0;
+  sr_wt_slot_set_frontier(
+      &c.l.wt_streams[0], 3); /* one more byte arrives this step */
+  g_srsd_calls = 0;
   srvrun_offer_wt_streams(&cfg, &c);
   CHECK(g_srsd_calls == 1);
   CHECK(g_srsd_last_len == 1); /* only the new byte, not all 3 */
@@ -3199,8 +3222,7 @@ static void test_srvrun_wt_stream_data_fin_only_delivered(void) {
   c.l.wt_streams[0].in_use    = 1;
   c.l.wt_streams[0].stream_id = 8;
   c.l.wt_streams[0].offered   = 1;
-  c.l.wt_streams[0].len       = 0;
-  c.l.wt_streams[0].fin       = 1;
+  c.l.wt_streams[0].fin       = 1; /* fin_off left 0: the stream is empty */
   g_srsd_calls                = 0;
   srvrun_offer_wt_streams(&cfg, &c);
   CHECK(g_srsd_calls == 1);
@@ -3229,8 +3251,8 @@ static void test_srvrun_wt_stream_data_no_callback_still_offers(void) {
   c.l.wt_streams[0].in_use    = 1;
   c.l.wt_streams[0].stream_id = 8;
   c.l.wt_streams[0].buf[0]    = 'x';
-  c.l.wt_streams[0].len       = 1;
-  g_srsd_calls                = 0;
+  sr_wt_slot_set_frontier(&c.l.wt_streams[0], 1);
+  g_srsd_calls = 0;
   srvrun_offer_wt_streams(&cfg, &c);
   CHECK(c.l.wt_streams[0].offered == 1);
   CHECK(g_srsd_calls == 0);
@@ -3272,8 +3294,8 @@ static void test_srvrun_wt_stream_data_no_session_not_delivered(void) {
   c.l.wt_streams[0].in_use    = 1;
   c.l.wt_streams[0].stream_id = 8;
   c.l.wt_streams[0].buf[0]    = 'x';
-  c.l.wt_streams[0].len       = 1;
-  g_srsd_calls                = 0;
+  sr_wt_slot_set_frontier(&c.l.wt_streams[0], 1);
+  g_srsd_calls = 0;
   srvrun_offer_wt_streams(&cfg, &c);
   CHECK(g_srsd_calls == 0);
   CHECK(c.l.wt_streams[0].offered == 0);
@@ -3317,8 +3339,8 @@ static void test_srvrun_wt_uni_stream_data_delivered_on_offer(void) {
   c.l.wt_uni_streams[0].stream_id = 2;
   c.l.wt_uni_streams[0].offered   = 0;
   c.l.wt_uni_streams[0].buf[0]    = 'u';
-  c.l.wt_uni_streams[0].len       = 1;
-  g_srsd_calls                    = 0;
+  sr_wt_uni_slot_set_frontier(&c.l.wt_uni_streams[0], 1);
+  g_srsd_calls = 0;
   srvrun_offer_wt_uni_streams(&cfg, &c);
   CHECK(c.l.wt_uni_streams[0].offered == 1);
   CHECK(g_srsd_calls == 1);
@@ -6880,6 +6902,77 @@ static void test_srvrun_wt_open_bidi_allocates_ids_and_holds_view(void) {
   CHECK(c->wtsend[0].stream_credit == (1u << 24));
 }
 
+/* SERVER-INITIATED BIDI RECEIVE (RFC 9000 2.1 / draft-ietf-webtrans-http3-15
+ * 4.3): once wired_server_wt_open_bidi has opened a stream, the client's
+ * reply on that SAME id (no signal prefix -- the server already knows which
+ * session owns it) must be received and delivered to the app callback, not
+ * silently dropped. Proves the srvrun_wt_preclaim_bidi_recv wiring: open_bidi
+ * pre-claims wt_streams[] for the id it just allocated, so the reply's
+ * STREAM frame (id 1, RFC 9000 2.1 server-initiated bidi) lands there even
+ * though dispatch.c never saw a leading signal varint for it. */
+static void test_srvrun_wt_open_bidi_reply_received(void) {
+  struct lp_fix   f;
+  quic_obuf       ob = {0};
+  u8              obuf[1024], out[1024], frm[64], spkt[1024];
+  usz             slen;
+  static const u8 pay[]   = {0x41, 0x04, 'x'};
+  static const u8 reply[] = {'p', 'o', 'n', 'g'};
+  srvrun_conn*    c;
+  i64             id;
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  c  = sr_wtsend_fixture(&f, &ob);
+  id = wired_server_wt_open_bidi(&c->wt, quic_span_of(pay, sizeof pay));
+  CHECK(id == 1);
+  /* the receive slot was pre-claimed at open time, sig_len 0 (no signal). */
+  {
+    int i = wired_srvloop_wt_slot_find(&c->l, (u64)id);
+    CHECK(i >= 0 && c->l.wt_streams[i].sig_len == 0);
+    CHECK(c->l.wt_streams[i].offered == 1);
+  }
+  /* the client's reply arrives on stream id 1 with no signal prefix. */
+  {
+    quic_stream_frame sf = {(u64)id, 0, sizeof reply, reply, 1};
+    usz               fl = quic_frame_put_stream(frm, sizeof frm, &sf);
+    quic_obuf         sob;
+    CHECK(fl != 0);
+    slen = client_seal_onertt_pn(&f, 3, frm, fl, spkt, sizeof spkt);
+    sob  = (quic_obuf){out, sizeof out, 0};
+    wired_srvloop_step(
+        &(wired_srvloop_conn){&c->l, &c->s}, quic_mspan_of(spkt, slen), &sob);
+  }
+  g_srsd_calls = 0;
+  {
+    srvrun_cfg cfg = {
+        -1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        sr_stream_data_handler,
+        0,
+        0,
+        &g_srvrun_env,
+        0,
+        0,
+        0,
+        0,
+        0};
+    srvrun_offer_wt_streams(&cfg, c);
+  }
+  CHECK(g_srsd_calls == 1);
+  CHECK(g_srsd_last_stream_id == (u64)id);
+  CHECK(g_srsd_last_len == sizeof reply);
+  CHECK(g_srsd_last_fin == 1);
+  for (usz i = 0; i < sizeof reply; i++) CHECK(g_srsd_last_buf[i] == reply[i]);
+}
+
 /* wired_server_wt_stream_reply arms the caller-named client bidi stream with
  * the payload verbatim (no signal prefix -- the client opened the stream, so
  * the prefix already went the other way), credit seeded from the peer's
@@ -7461,6 +7554,7 @@ void test_srvrun(void) {
   test_srvrun_wt_avail_captured_from_wire();
   test_srvrun_wt_open_uni_streams_payload_on_wire();
   test_srvrun_wt_open_bidi_allocates_ids_and_holds_view();
+  test_srvrun_wt_open_bidi_reply_received();
   test_srvrun_wt_stream_reply_arms_given_stream_verbatim();
   test_srvrun_wt_open_unknown_session_rejected();
   test_srvrun_wt_open_slot_exhaustion_and_reuse();
