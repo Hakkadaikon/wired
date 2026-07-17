@@ -87,11 +87,21 @@ static usz line_namref(quic_span fs, quic_mspan scr, rline* L) {
   return c;
 }
 
-/* RFC 9204 4.5.6: a Literal With Literal Name -> name in the first scratch
- * half, value in the second (disjoint, since both are written in one call). */
+/* Field names are short (RFC 9110 5.1's token grammar, the longest ones this
+ * codebase decodes -- e.g. "wt-available-protocols" -- run well under this);
+ * capping the name's share leaves the rest of scr for the value, which can
+ * run much longer (e.g. a multi-entry subprotocol offer list). */
+#define LITNAME_NAME_CAP 64
+
+static usz litname_split(usz scr_n) {
+  return scr_n > LITNAME_NAME_CAP ? LITNAME_NAME_CAP : scr_n / 2;
+}
+
+/* RFC 9204 4.5.6: a Literal With Literal Name -> name in the first (capped)
+ * scratch share, value in the rest (disjoint, both written in one call). */
 static usz line_litname(quic_span fs, quic_mspan scr, rline* L) {
   int                 never = 0;
-  usz                 half  = scr.n / 2;
+  usz                 half  = litname_split(scr.n);
   quic_qpack_fieldbuf fb    = {
       quic_obuf_of(scr.p, half), quic_obuf_of(scr.p + half, scr.n - half)};
   usz c = quic_qpack_literal_name_decode(fs, &never, &fb);

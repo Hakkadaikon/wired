@@ -198,6 +198,43 @@ static void test_reqdrive_origin_header(void) {
   }
 }
 
+/* RFC 9204 4.5.6: a Literal Field Line With Literal Name whose VALUE runs
+ * much longer than its (short) name -- e.g. a multi-entry subprotocol offer
+ * list -- decodes intact even when the caller's scratch buffer is modest.
+ * line_litname's scratch split must not hand the name half as much room as
+ * the value: an even scr.n/2 split leaves too little for a value like this
+ * one once the name's own (small) share is subtracted, exactly what a real
+ * Extended CONNECT's wt-available-protocols header looks like on the wire. */
+static void test_reqdrive_long_value_header(void) {
+  static const char* const long_value =
+      "sacred-riverboat first-lighthouse quiet-orchard second-avenue "
+      "third-canyon fourth-meadow"; /* 88 octets */
+  /* scratch=160: an even split gives the value half only 80 bytes (< the
+   * 88-byte value, so an unfixed 50/50 split fails this); capping the name's
+   * share at 64 leaves 96 for the value, which fits. */
+  u8                   fs[192], req[384], scratch[160];
+  usz                  off;
+  quic_obuf            req_ob = {req, sizeof req, 0};
+  wired_h3reqdrive_req r;
+  quic_qpack_prefix    pfx = {0, 0, 0};
+  quic_qpack_field     f   = {
+      quic_span_of((const u8*)"origin", 6),
+      quic_span_of((const u8*)long_value, cstr(long_value))};
+  off = quic_qpack_prefix_encode(fs, sizeof fs, &pfx);
+  off += quic_qpack_indexed_encode(
+      quic_mspan_of(fs + off, sizeof fs - off), 17, 1); /* :method GET */
+  off += quic_qpack_literal_name_encode(
+      quic_mspan_of(fs + off, sizeof fs - off), 0, &f);
+  {
+    quic_h3conn_req_in req_in = {quic_span_of(fs, off), quic_span_of(0, 0)};
+    CHECK(quic_h3conn_send_request(0, &req_in, &req_ob));
+  }
+  CHECK(wired_h3reqdrive_recv_get(
+      quic_span_of(req, req_ob.len), quic_mspan_of(scratch, sizeof scratch),
+      &r));
+  CHECK(rd_eq(r.origin, r.origin_len, long_value, cstr(long_value)));
+}
+
 /* RFC 9114 4.1 / RFC 9204 4.5: a curl-style GET (reordered pseudo-headers,
  * mixed encodings, an extra regular header) decodes; all four pseudo-headers
  * are recovered by name regardless of order or count. */
@@ -449,6 +486,7 @@ static void test_reqdrive_dynamic_table(void) {
 void test_h3reqdrive(void) {
   test_reqdrive_priority_header();
   test_reqdrive_origin_header();
+  test_reqdrive_long_value_header();
   test_reqdrive_stream();
   test_reqdrive_post_body();
   test_reqdrive_empty_body();
