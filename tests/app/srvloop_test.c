@@ -1355,6 +1355,40 @@ static void test_srvloop_wt_window_stale_write_dropped(void) {
   CHECK(accepted == 0); /* [3,7) is entirely below base 10 -- stale */
 }
 
+/* MULTI-WINDOW (RFC 9000 2.2): a stream several times WIRED_SRVLOOP_WT_BUF_
+ * CAP long, written in small in-order chunks with a slide (mimicking
+ * srvrun.c's own deliver-then-slide sequence) after every chunk, reassembles
+ * byte-perfectly end to end -- the window recycles correctly across many
+ * cycles, not just the first one. */
+static void test_srvloop_wt_window_spans_several_windows_in_order(void) {
+  wired_srvloop_wt_window w = {0};
+  u8                      buf[WIRED_SRVLOOP_WT_BUF_CAP];
+  const usz               total = WIRED_SRVLOOP_WT_BUF_CAP * 3 + 777;
+  const usz               chunk = 137; /* an odd size, not a divisor of cap */
+  usz                     sent  = 0;
+  u64                     delivered = 0;
+  while (sent < total) {
+    usz n = total - sent < chunk ? total - sent : chunk;
+    usz rel_off, accepted;
+    u8  src[137];
+    for (usz i = 0; i < n; i++) src[i] = (u8)((sent + i) & 0xff);
+    wired_srvloop_wt_window_accept(&w, sent, n, &rel_off, &accepted);
+    CHECK(accepted == n); /* in-order: always fully accepted */
+    for (usz i = 0; i < accepted; i++) buf[rel_off + i] = src[i];
+    sent += n;
+    /* "deliver" everything the frontier now covers, then slide (mirrors
+     * srvrun_offer_and_deliver_wt_slot's own delivered_len/slide pairing). */
+    {
+      u64 frontier_abs = w.base + w.frontier;
+      for (u64 off = delivered; off < frontier_abs; off++)
+        CHECK(buf[off - w.base] == (u8)(off & 0xff));
+      delivered = frontier_abs;
+    }
+    wired_srvloop_wt_window_slide(&w, buf, sizeof buf, delivered);
+  }
+  CHECK(delivered == total);
+}
+
 /* draft-ietf-webtrans-http3-15 4.3: a WT bidi stream's application bytes,
  * split across TWO STREAM frames like curl's HEADERS/DATA split — the
  * offset-0 signal frame (0x41, 2 bytes on the wire) immediately followed by
@@ -1785,6 +1819,33 @@ static void test_srvloop_datagram_within_advertised_limit_accepted(void) {
   CHECK(f.l.rx_datagram_n == 1);
   CHECK(f.l.rx_datagrams[0].len == sizeof data);
   CHECK(f.l.datagram_violation == 0);
+}
+
+/* BOUNDARY (draft-ietf-webtrans-http3-15 SS4 / RFC 9221 3): a 998-byte
+ * datagram payload (quic-interop-runner's transfer-datagram-send case) is
+ * received WHOLE, past the old 256-byte queue-slot cap -- proves rx_datagrams
+ * was actually widened (WIRED_SRVLOOP_RX_DATAGRAM_CAP), not just the
+ * advertised-limit check relaxed. */
+static void test_srvloop_datagram_998_bytes_not_truncated(void) {
+  struct lp_fix       f;
+  u8                  payload[1100], out[1500], spkt[1500];
+  usz                 plen, slen;
+  quic_obuf           ob = {out, sizeof out, 0};
+  u8                  data[998];
+  quic_datagram_frame df = {.length = sizeof data, .data = data};
+  for (usz i = 0; i < sizeof data; i++) data[i] = (u8)(i & 0xff);
+  plen = quic_datagram_encode(quic_mspan_of(payload, sizeof payload), &df, 1);
+  lp_confirm(&f, &ob);
+  f.l.we_advertised_max_datagram = 1200; /* RFC 9221 3: server opted in */
+  slen = client_seal_onertt_pn(&f, 3, payload, plen, spkt, sizeof spkt);
+  ob   = (quic_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  CHECK(f.l.rx_datagram_n == 1);
+  CHECK(f.l.rx_datagrams[0].len == sizeof data);
+  CHECK(f.l.datagram_violation == 0);
+  for (usz i = 0; i < sizeof data; i++)
+    CHECK(f.l.rx_datagrams[0].buf[i] == data[i]);
 }
 
 /* RFC 9221 3: a DATAGRAM frame whose payload EXCEEDS the connection's own
@@ -3210,6 +3271,7 @@ void test_srvloop(void) {
   test_srvloop_wt_window_boundary_at_cap();
   test_srvloop_wt_window_slide_frees_room();
   test_srvloop_wt_window_stale_write_dropped();
+  test_srvloop_wt_window_spans_several_windows_in_order();
   test_srvloop_wt_bidi_stream_not_request();
   test_srvloop_wt_bidi_stream_reassembled();
   test_srvloop_wt_bidi_continuation_not_absorbed_into_request();
@@ -3223,6 +3285,7 @@ void test_srvloop(void) {
   test_srvloop_datagram_queued_on_step();
   test_srvloop_datagram_queue_overflow_drops_newest();
   test_srvloop_datagram_within_advertised_limit_accepted();
+  test_srvloop_datagram_998_bytes_not_truncated();
   test_srvloop_datagram_exceeding_advertised_limit_rejected();
   test_srvloop_datagram_without_advertising_rejected();
   test_srvloop_request_only_leaves_rx_datagrams_empty();
