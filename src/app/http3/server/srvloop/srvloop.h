@@ -99,8 +99,11 @@ typedef struct {
  * webtrans-http3-15 4.3) one connection can reassemble. Separate from
  * WIRED_SRVLOOP_MAX_STREAMS/wired_srvloop_stream_slot: a WT bidi stream's
  * bytes past the leading 0x41 signal are raw application data with no HTTP/3
- * HEADERS/DATA framing, so they need no req_scratch/req_wrap-shaped fields. */
-#define WIRED_SRVLOOP_MAX_WT_STREAMS 4
+ * HEADERS/DATA framing, so they need no req_scratch/req_wrap-shaped fields.
+ * 6, not 4: quic-interop-runner's WebTransport transfer tests open 5
+ * concurrent streams per session (100KB/250KB/500KB/1MB/2MB files) -- 4 slots
+ * silently dropped the 5th. */
+#define WIRED_SRVLOOP_MAX_WT_STREAMS 6
 
 /** Byte capacity of one WT bidi/uni reassembly slot's receive window (buf
  * below). Smaller than one full BDP for quic-interop-runner's simulated link
@@ -201,8 +204,9 @@ typedef struct {
  * reassemble. Separate table from wt_streams[] (bidi): a uni stream's
  * directionality is structurally different (no response half), even though
  * its post-type-byte bytes are raw application data just like a WT bidi
- * stream's post-signal bytes. */
-#define WIRED_SRVLOOP_MAX_WT_UNI_STREAMS 4
+ * stream's post-signal bytes. Same 6-not-4 sizing as WIRED_SRVLOOP_MAX_WT_
+ * STREAMS, for the same reason (5 concurrent runner transfers). */
+#define WIRED_SRVLOOP_MAX_WT_UNI_STREAMS 6
 
 /** One WebTransport uni stream's cross-datagram reassembly state (draft-ietf-
  * webtrans-http3-15 4.3). free (in_use == 0) until the stream's leading
