@@ -1,5 +1,10 @@
 # The Layers
 
+> **TL;DR** — five layers, bottom-up: **common** (byte primitives) →
+> **crypto** (pure cryptographic functions) → **transport** (QUIC itself)
+> and **tls** (keys and authentication) → **app** (HTTP/3). Each section
+> below is self-contained; read only the layer you care about.
+
 This chapter explains the five layers in terms of the problem each one solves.
 For each layer, it describes in turn what it takes on, why it is an independent layer, what it relies on below and provides above, and where the key design points lie.
 
@@ -130,6 +135,5 @@ Representative domains are HTTP/3 frames and the control stream, request and res
 
 ---
 
-**Next:** every spec implemented → [Implemented Specifications](rfcs.md) ·
-back to the data flows → [Architecture and Data Flow](overview.md) · all
-pages → [documentation index](../README.md)
+**Next:** [Implemented Specifications](rfcs.md) — every spec these layers
+implement. ([all docs](../README.md))

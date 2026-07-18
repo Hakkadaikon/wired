@@ -1,5 +1,11 @@
 # Syscalls
 
+> **At a glance** — 35 syscalls total, in six groups: UDP sockets (the wire
+> loop), file I/O (certs, logs, static files), AF_XDP setup (rings and BPF),
+> threads and processes (the multi-core drivers), signals (graceful
+> shutdown), and utilities (clock, randomness). The table below is a lookup
+> reference — you don't need to read it top to bottom.
+
 `wired` is libc-free (`-ffreestanding -nostdlib`): every kernel interaction is
 a raw x86_64 Linux syscall issued through `syscall1`/`syscall3`/`syscall4`/
 `syscall6` (`src/common/platform/sys/syscall.h`). This is the full list of
@@ -72,7 +78,5 @@ server sharing one process would be the point to revisit this.
 
 ---
 
-**Next:** the security properties enforced above these syscalls →
-[Security](security.md) · the architecture that issues them →
-[Architecture and Data Flow](arch/overview.md) · all pages →
-[documentation index](README.md)
+**Next:** [Architecture and Data Flow](arch/overview.md) — the code that
+issues these calls. ([all docs](README.md))

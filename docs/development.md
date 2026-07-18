@@ -1,5 +1,15 @@
 # Development
 
+> **The 30-second version.** Four rules govern every change:
+> **(1)** no libc — code must compile freestanding;
+> **(2)** every function's cyclomatic complexity ≤ 3;
+> **(3)** one concern = one `src/<dir>/`;
+> **(4)** all symbols share one global namespace (the tests build as a
+> single translation unit), so grep before naming.
+> Before committing, all of `just test`, `just ninja`, and
+> `lizard src --CCN 3 -w` must pass. Everything below is the detail behind
+> those four rules — only contributors need it.
+
 How to understand, navigate, and extend `wired`: the design philosophy, the
 layered architecture, the build system, the constraints every change must hold,
 and the workflow for adding a domain.
@@ -243,7 +253,5 @@ the RFC, the test-design viewpoints:
 
 ---
 
-**Next:** the architecture you are changing →
-[Architecture and Data Flow](arch/overview.md) · the security properties to
-preserve → [Security](security.md) · all pages →
-[documentation index](README.md)
+**Next:** [Architecture and Data Flow](arch/overview.md) — the structure
+you are changing. ([all docs](README.md))

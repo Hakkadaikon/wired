@@ -1,7 +1,11 @@
 # Architecture and Data Flow
 
+> **TL;DR** — the kernel only moves already-encrypted UDP bytes. Everything
+> QUIC-related — packets, keys, retransmission, HTTP/3 — happens in five
+> user-space layers inside this SDK. The rest of this page shows where the
+> boundary sits and why the layers stack the way they do.
+
 This chapter centers on how much wired does in user space and what it leaves to the kernel.
-The goal is for someone reading QUIC for the first time to grasp why each layer sits in the order it does, and why it is placed where it is.
 
 > **Prerequisites:** you only need to know that UDP delivers standalone
 > packets with no ordering or reliability guarantees, and that TLS is the
@@ -185,6 +189,5 @@ This flow from INITIAL through AUTH to CONFIRMED can be read as the process by w
 
 ---
 
-**Next:** each layer in depth → [The Layers](layers.md) · every spec
-implemented → [Implemented Specifications](rfcs.md) · all pages →
-[documentation index](../README.md)
+**Next:** [The Layers](layers.md) — each layer in depth.
+([all docs](../README.md))

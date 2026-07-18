@@ -1,5 +1,13 @@
 # Security
 
+> **At a glance** — constant-time tag and token comparison everywhere;
+> ECDSA/Ed25519/X25519 inputs validated against the known attack classes
+> (zero scalars, low-order points, non-canonical encodings); certificate
+> chains anchored, CA-bit checked, DER fully bounds-checked; QUIC
+> anti-amplification and two-level flow control enforced in the event loop;
+> no malloc, no printf, no libc anywhere. Two things are deliberately left
+> to you: certificate time/hostname checks and request-rate limiting.
+
 The security properties `wired` enforces, organized by subsystem. Each item
 states a concrete guarantee and, where useful, the RFC clause and the source
 that implements it. This is a description of what the code checks — not a threat
@@ -108,6 +116,5 @@ model or an operator hardening guide.
 
 ---
 
-**Next:** every syscall the SDK issues → [Syscalls](syscalls.md) · which
-functions are stable API → [API Stability](api-stability.md) · all pages →
-[documentation index](README.md)
+**Next:** [Syscalls](syscalls.md) — every kernel call the SDK makes.
+([all docs](README.md))

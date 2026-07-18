@@ -1,5 +1,11 @@
 # API Stability
 
+> **Rule of thumb** — if a function is in the *Stable API* table below, call
+> it freely; it either does one whole job or is a pure function with no
+> hidden ordering rules. Anything in the *Low-level* table has call-order or
+> lifetime preconditions: read its header comment before using it. When in
+> doubt, stick to the functions `docs/getting-started.md` shows.
+
 Which functions in the public headers are the stable application-facing
 surface, and which are low-level internals that happen to be reachable from
 the same headers. This is a map, not a tutorial — see
@@ -117,6 +123,5 @@ headers `wired.h` includes (plus `srvdriver.h`) uses either `wired_` or
 
 ---
 
-**Next:** how to use the stable surface → [Getting Started](getting-started.md) ·
-full signatures → [API reference](https://hakkadaikon.github.io/wired/) ·
-all pages → [documentation index](README.md)
+**Next:** [API reference](https://hakkadaikon.github.io/wired/) — full
+signatures for everything above. ([all docs](README.md))
