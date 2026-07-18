@@ -29,12 +29,14 @@ Call these without needing to know the QUIC/TLS state machine underneath.
 | `wired_server_run` | Run a complete single-process server: bind, accept, and serve requests until killed. |
 | `wired_server_run_opt` | Same, plus opt-in knobs (busy-poll, AF_XDP driver, WebTransport callbacks). `opt` must not be 0; all-default knobs make it byte-identical to `wired_server_run`. |
 | `wired_server_broadcast_datagram` | Queue a QUIC DATAGRAM to every connection with an active WebTransport session. Callable only from inside the server's own loop (i.e. from a callback); neither thread- nor signal-safe. |
+| `wired_server_wt_open_uni`, `wired_server_wt_open_bidi`, `wired_server_wt_stream_reply` | Open a server-initiated WebTransport uni/bidi stream (payload must carry the WT stream-signal prefix), or reply on a client-opened bidi stream. Same loop-context constraint as `broadcast_datagram`; the SDK holds `payload` as a view, so it must stay alive until fully acknowledged. |
 | `wired_srvrun_handler` (struct) | The callback + context pair passed to the run functions to answer requests. |
 | `wired_certreload_load`, `wired_certreload_load_or_selfsigned` | Load a cert chain + P-256 key from a PEM pair into caller-owned storage; the store must outlive the identity built from it. `_or_selfsigned` keeps the existing identity when no cert path is set, and dies with a diagnostic when a set path fails to load. |
 | `wired_udp_socket`, `wired_udp_bind`, `wired_udp_send`, `wired_udp_recv`, `wired_udp_recvfrom`, `wired_udp_close`, `wired_udp_addr` | Plain UDP socket calls, no QUIC state involved. Safe to call in any order a normal sockets program would. |
 | `wired_pem_next` | Decode one PEM block from text; repeat the call to walk a fullchain file. Self-contained, no ordering constraints beyond the cursor argument. |
 | `wired_eckey_p256_priv` | Extract a P-256 private scalar from DER (SEC1 or PKCS#8). Pure decode, no state. |
-| `wired_fio_read`, `wired_fio_append` | Whole-file read / append via raw syscalls. Pure I/O, no protocol state. |
+| `wired_fio_read`, `wired_fio_append`, `wired_fio_write_new`, `wired_fio_mkdir` | Whole-file read / append / truncate-and-replace, and directory creation, via raw syscalls. Pure I/O, no protocol state. |
+| `wired_fio_open`, `wired_fio_size`, `wired_fio_pread`, `wired_fio_close` | Chunked file access: open read-only, stat the size, read at an offset, close — how the examples stream a large static file without loading it whole. Plain fd discipline, no protocol state. |
 | `wired_header_parse`, `wired_header_build_long` | Parse/build the invariant part of a QUIC packet header. Pure codec: given bytes in, bytes or fields out. |
 | `wired_log_str`, `wired_log_ts`, `wired_fmt_u64`, `WIRED_LOG` | Optional tracing output. Stateless, side-effect-only (stderr), safe to call anywhere. |
 
