@@ -1,48 +1,30 @@
 # wired documentation
 
-Documentation is organized by what you are trying to do. Each page stands
-alone; this index is the map.
+**Start here:** [Getting Started](getting-started.md), then
+[Architecture](arch/overview.md), then whatever your task needs below.
 
-**Recommended first read:** [Getting Started](getting-started.md) →
-[Architecture and Data Flow](arch/overview.md) → whichever reference page
-your task needs. Every page ends with a "Next" pointer so you are never at a
-dead end.
+## Learn it
 
-## Learn it (first session)
+- [Getting Started](getting-started.md) — build, run, write your first server.
+- [examples/](../examples/) — four runnable servers, smallest first.
 
-1. [Getting Started](getting-started.md) — prerequisites, build and test,
-   run an example, then a minimal server of your own. Also covers choosing
-   an I/O driver, WebTransport callbacks, certificates, and observability.
-2. [examples/](../examples/) — four runnable servers, smallest first:
-   `word_list` (HTTP/3), `webtransport_echo`, `webtransport_chat`,
-   `webtransport_interop`.
+## Understand it
 
-## Understand it (architecture)
+- [Architecture](arch/overview.md) — the big picture and the data flows.
+- [The Layers](arch/layers.md) — each layer, one section at a time.
+- [Specifications](arch/rfcs.md) — every RFC the SDK implements, and why.
 
-- [Architecture and Data Flow](arch/overview.md) — the user-space/kernel
-  boundary, the five layers, and the send / receive / handshake flows.
-- [The Layers](arch/layers.md) — each layer's problem, dependencies, and key
-  design points, one section per layer.
-- [Implemented Specifications](arch/rfcs.md) — every RFC / FIPS / draft the
-  SDK implements, grouped, with why each one is needed.
+## Use it as a dependency
 
-## Use it as a dependency (reference)
+- [API Stability](api-stability.md) — which functions are safe to build on.
+- [API reference](https://hakkadaikon.github.io/wired/) — full doxygen.
+- [Syscalls](syscalls.md) — every kernel call the SDK makes.
+- [Security](security.md) — what the SDK guarantees, what it leaves to you.
 
-- [API Stability](api-stability.md) — which public functions are the stable
-  application-facing surface and which are low-level internals, plus the
-  versioning policy.
-- [API reference](https://hakkadaikon.github.io/wired/) — doxygen for the
-  public `wired.h` surface, regenerated on every push to `main`.
-- [Syscalls](syscalls.md) — the complete list of syscalls the SDK issues,
-  with why each one is needed and where it is called.
-- [Security](security.md) — the security properties the SDK enforces, by
-  subsystem, and the checks left to the caller.
+## Change it
 
-## Change it (contributing)
-
-- [Development](development.md) — the design philosophy, the build system,
-  the hard constraints every change must hold (libc-free, CCN ≤ 3, unity
-  build), and the workflow for adding a domain.
+- [Development](development.md) — the rules every change must hold, and how
+  to add code.
 
 ## Glossary
 
