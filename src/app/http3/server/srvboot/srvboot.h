@@ -76,9 +76,11 @@ typedef struct {
   quic_mspan              dgram; /**< the client's Initial datagram */
 } wired_srvboot_in;
 
-/** Most Handshake flight datagrams a bootstrap seals: 4 chunks cover a
- * 4096-byte TLS flight split at the per-datagram CRYPTO chunk size. */
-#define WIRED_SRVBOOT_FLIGHT_MAX 4
+/** Most Handshake flight datagrams a bootstrap seals: sized past
+ * quic-interop-runner's deliberately inflated 9-cert amplificationlimit
+ * chain (~10KB TLS flight, ~10 chunks at the per-datagram CRYPTO chunk
+ * size) with headroom. */
+#define WIRED_SRVBOOT_FLIGHT_MAX 12
 
 /** The sealed reply datagrams of a bootstrap. The Initial is kept separate
  * because it alone is padded to 1200 bytes (RFC 9000 14.1); a TLS flight too
