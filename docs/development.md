@@ -240,3 +240,10 @@ the RFC, the test-design viewpoints:
    sub-step helper.
 5. **Micro-commit.** ~30–50 line conventional commits with an RFC section
    reference; keep `feat(<domain>):` and `test(<domain>):` as distinct commits.
+
+---
+
+**Next:** the architecture you are changing →
+[Architecture and Data Flow](arch/overview.md) · the security properties to
+preserve → [Security](security.md) · all pages →
+[documentation index](README.md)

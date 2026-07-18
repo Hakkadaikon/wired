@@ -108,3 +108,9 @@ Because this SDK does not rely on the kernel's IP / UDP stack and in places asse
 | RFC 768 | User Datagram Protocol | https://www.rfc-editor.org/rfc/rfc768 | The UDP header format and checksum that QUIC rides on. |
 | RFC 791 | Internet Protocol | https://www.rfc-editor.org/rfc/rfc791 | The IPv4 header format that carries the UDP datagram. |
 | RFC 1071 | Computing the Internet Checksum | https://www.rfc-editor.org/rfc/rfc1071 | The checksum-computation procedure for IP and UDP. |
+
+---
+
+**Next:** how the layers implement these specs →
+[The Layers](layers.md) · security properties the implementation enforces →
+[Security](../security.md) · all pages → [documentation index](../README.md)

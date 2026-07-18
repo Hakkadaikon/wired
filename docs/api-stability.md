@@ -114,3 +114,9 @@ carries the `wired_<domain>_` prefix; everything else in the SDK core carries
 No prefix inconsistency was found: every function checked in the seventeen
 headers `wired.h` includes (plus `srvdriver.h`) uses either `wired_` or
 `quic_` as its layer prescribes.
+
+---
+
+**Next:** how to use the stable surface → [Getting Started](getting-started.md) ·
+full signatures → [API reference](https://hakkadaikon.github.io/wired/) ·
+all pages → [documentation index](README.md)

@@ -3,6 +3,12 @@
 This chapter centers on how much wired does in user space and what it leaves to the kernel.
 The goal is for someone reading QUIC for the first time to grasp why each layer sits in the order it does, and why it is placed where it is.
 
+> **Prerequisites:** you only need to know that UDP delivers standalone
+> packets with no ordering or reliability guarantees, and that TLS is the
+> protocol that negotiates encryption keys. Everything QUIC-specific is
+> explained as it appears; unfamiliar terms are in the
+> [glossary](../README.md#glossary).
+
 ## The boundary between user space and the kernel
 
 In TCP, the kernel owns retransmission, ordering, congestion control, and all of the connection state.
@@ -176,3 +182,9 @@ Once both sides' key_share values are present in ServerHello, the ECDHE shared s
 Verifying the server's certificate and signature authenticates the peer, and exchanging Finished derives the 1-RTT keys for application data.
 Finally, receiving HANDSHAKE_DONE moves the connection to CONFIRMED and the Handshake keys are discarded.
 This flow from INITIAL through AUTH to CONFIRMED can be read as the process by which the handshake itself dissolves the constraint that nothing can be encrypted without a key — by producing the keys as it goes.
+
+---
+
+**Next:** each layer in depth → [The Layers](layers.md) · every spec
+implemented → [Implemented Specifications](rfcs.md) · all pages →
+[documentation index](../README.md)
