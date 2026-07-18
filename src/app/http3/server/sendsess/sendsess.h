@@ -9,8 +9,21 @@
  * slices that must be retransmitted (RFC 9002 6: acknowledgement-driven
  * delivery). Pure bookkeeping — sealing and sending stay with the caller. */
 
-/** Slices tracked at once (in flight or awaiting requeue). */
-#define WIRED_SENDSESS_LOG 32
+/** Slices tracked at once (in flight or awaiting requeue). Sized past one
+ * full BDP for quic-interop-runner's simulated link (10Mbps/30ms RTT is
+ * ~37500 bytes, SRVRUN_CHUNK is 1100 bytes/slice -- ~35 slices) so cwnd can
+ * grow to its natural size without outrunning this log. A log that fills
+ * mid-transfer does not just refuse new sends: wired_sendsess_sent's caller
+ * (srvrun_send_stream_slice) sends the packet over the wire FIRST and only
+ * then tries to log it, so a full log means already-sent, already-ACKed-
+ * later packets vanish from in-flight accounting entirely. When the log
+ * later gains room and starts recording again, those pns are by then far
+ * behind largest_acked and trip RFC 9002 6.1.1's packet-threshold loss
+ * check the instant they're recorded -- a real quic-go interop run at the
+ * old 32-slice (35200-byte) cap showed cwnd stalling in exactly this
+ * pattern: repeated 20+-packet "loss" bursts holding cwnd at its own BDP
+ * forever, timing out the goodput measurement. */
+#define WIRED_SENDSESS_LOG 64
 
 /** One sent slice awaiting acknowledgement. */
 typedef struct {
