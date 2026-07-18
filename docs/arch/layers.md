@@ -1,3 +1,5 @@
+[Docs](../README.md) › Architecture › The Layers
+
 # The Layers
 
 > **TL;DR** — five layers, bottom-up: **common** (byte primitives) →
@@ -6,28 +8,8 @@
 > below is self-contained; read only the layer you care about.
 
 This chapter explains the five layers in terms of the problem each one solves.
-For each layer, it describes in turn what it takes on, why it is an independent layer, what it relies on below and provides above, and where the key design points lie.
-
-Dependencies between layers flow mostly in one direction, from top to bottom.
-The only exception is the integration point of QUIC and TLS, where transport and crypto refer back up to tls.
-
-```mermaid
-graph TB
-    APP[app]
-    TLS[tls]
-    TRANSPORT[transport]
-    CRYPTO[crypto]
-    COMMON[common]
-    APP --> TRANSPORT
-    APP --> COMMON
-    TLS --> CRYPTO
-    TLS --> COMMON
-    TRANSPORT --> CRYPTO
-    TRANSPORT --> COMMON
-    CRYPTO --> COMMON
-    TRANSPORT -.-> TLS
-    CRYPTO -.-> TLS
-```
+The dependency picture (downward, with the one QUIC⇄TLS exception) is in the
+[overview](overview.md#the-five-layers); this page goes layer by layer.
 
 ## common: the bottom layer shared by every layer
 

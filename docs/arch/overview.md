@@ -1,66 +1,44 @@
+[Docs](../README.md) › Architecture › Overview
+
 # Architecture and Data Flow
 
 > **TL;DR** — the kernel only moves already-encrypted UDP bytes. Everything
 > QUIC-related — packets, keys, retransmission, HTTP/3 — happens in five
-> user-space layers inside this SDK. The rest of this page shows where the
-> boundary sits and why the layers stack the way they do.
-
-This chapter centers on how much wired does in user space and what it leaves to the kernel.
-
-> **Prerequisites:** you only need to know that UDP delivers standalone
-> packets with no ordering or reliability guarantees, and that TLS is the
-> protocol that negotiates encryption keys. Everything QUIC-specific is
-> explained as it appears; unfamiliar terms are in the
-> [glossary](../README.md#glossary).
+> user-space layers inside this SDK.
 
 ## The boundary between user space and the kernel
 
 In TCP, the kernel owns retransmission, ordering, congestion control, and all of the connection state.
-The application only touches the two ends of a byte stream, so a better congestion controller or a new loss-recovery scheme cannot reach it until the kernel itself is updated.
-QUIC removed that constraint by standing on top of UDP.
-Because UDP only carries datagrams — no reliability, no ordering, no encryption — all of those concerns can be pulled into the application.
+QUIC removed that constraint by standing on top of UDP: because UDP only carries datagrams — no reliability, no ordering, no encryption — all of those concerns can be pulled into the application.
 wired pushes this to the limit and shows the kernel nothing of QUIC's semantics.
 
-What remains in the kernel is only the carriage of already-encrypted bytes.
-The place that actually issues a syscall is concentrated in a single inline-assembly function called `syscall6`; every other piece of C code reaches the kernel only through that function, the sole exceptions being three unavoidable asm trampolines (thread exit, signal return, and the `_start` entry stub) that must issue their own `syscall` instruction.
-The wire loop itself needs only a small set: raw UDP send and receive (`sendto` / `recvfrom`), preparing and waiting on a socket (`socket` / `bind` / `poll` / `fcntl` / `close`), and randomness (`getrandom`).
-Around it, the SDK reaches the kernel for a few more concerns — AF_XDP setup (`mmap` / `getsockopt` / `bpf`), worker threads (`clone` / `futex`), signal handling (`rt_sigaction`), file I/O (`openat` / `read` / `write`), and the clock (`clock_gettime`).
-The complete list, with why each syscall is needed and where it is issued, is in [docs/syscalls.md](../syscalls.md).
-What the kernel carries is an encrypted byte string; the kernel never interprets which QUIC packet or which frame those bytes are.
-
-Packet framing, encryption and header protection, the TLS handshake, loss recovery, congestion control, stream multiplexing, HTTP/3 and QPACK, X.509 verification, and every cryptographic function are all held in user space.
-The test path that merely round-trips bytes through memory (memlink, an in-memory loopback transport under `src/transport/io/socket/net/` that the test suite substitutes for a real socket) never issues a single syscall at all.
-
-```mermaid
-flowchart TB
-    subgraph US["User space (wired)"]
-        APP["app: HTTP/3 / QPACK"]
-        TLS["tls: TLS 1.3 handshake / key schedule"]
-        TRANSPORT["transport: packet protection / loss recovery / congestion control / streams"]
-        CRYPTO["crypto: AEAD / signatures / KDF / X.509"]
-        COMMON["common: varint / byte cursor / randomness / syscall wrapper"]
-        IO["io (in transport): IPv4/UDP framing / socket operations"]
-        APP --> TRANSPORT
-        TRANSPORT -.-> TLS
-        TLS --> CRYPTO
-        TRANSPORT --> CRYPTO --> COMMON
-        TRANSPORT --> IO
-        IO --> COMMON
-    end
-    subgraph K["Kernel"]
-        SC["socket / bind / sendto / recvfrom<br/>poll / fcntl / close / getrandom"]
-    end
-    IO -- "raw encrypted bytes" --> SC
+```text
+            user space (wired)
+ ┌────────────────────────────────────────────┐
+ │  app        HTTP/3 · QPACK · WebTransport  │
+ │  tls        TLS 1.3 handshake · keys       │
+ │  transport  packets · loss recovery ·      │
+ │             streams · UDP/XDP I/O          │
+ │  crypto     AEAD · signatures · X.509      │
+ │  common     varint · cursor · syscalls     │
+ └─────────────────────┬──────────────────────┘
+                       │  raw encrypted UDP bytes
+ ┌─────────────────────▼──────────────────────┐
+ │  kernel   socket · bind · sendto ·         │
+ │           recvfrom · poll · getrandom      │
+ └────────────────────────────────────────────┘
 ```
 
-A libc-free design helps with both portability and verifiability.
-Because it depends on no particular implementation of a standard library, the very fact that it compiles under `-ffreestanding -nostdlib` proves the absence of external dependencies.
-Since the dependency is closed to a single syscall-wrapper function, where the code touches the kernel can be seen at a glance, and every other line can be treated as a pure transformation.
+The place that actually issues a syscall is concentrated in a single inline-assembly function called `syscall6`; every other piece of C code reaches the kernel only through that function, the sole exceptions being three unavoidable asm trampolines (thread exit, signal return, and the `_start` entry stub).
+The wire loop needs only a small set: UDP send/receive, socket setup and `poll`, and `getrandom`.
+The complete list, with why each syscall is needed and where it is issued, is in [Syscalls](../syscalls.md).
+
+Everything else — packet framing, encryption and header protection, the TLS handshake, loss recovery, congestion control, stream multiplexing, HTTP/3 and QPACK, X.509 verification, every cryptographic function — is held in user space.
+The test path that merely round-trips bytes through memory (memlink, an in-memory loopback transport under `src/transport/io/socket/net/`) never issues a single syscall at all.
+
+This is what makes the libc-free design verifiable: compiling under `-ffreestanding -nostdlib` proves the absence of external dependencies, and with the kernel contact closed to one wrapper function, every other line can be treated as a pure transformation.
 
 ## The five layers
-
-The user-space code is divided into five layers.
-The higher a layer sits, the more abstract it is; the lower it sits, the closer it is to the foundation.
 
 | Layer | Directory | Responsibility |
 |----|------------|------|
@@ -70,122 +48,55 @@ The higher a layer sits, the more abstract it is; the lower it sits, the closer 
 | crypto | `src/crypto/` | AEAD, hashing, signatures, key derivation, X.509 parsing and verification. |
 | common | `src/common/` | varint, byte cursor, syscall wrapper, randomness, error codes. |
 
-Dependencies flow mostly in one direction, from top to bottom.
-At the integration point of QUIC and TLS, however, that one-way flow breaks.
+Dependencies point downward, with one deliberate exception at the QUIC⇄TLS
+integration point (every layer also uses common, omitted for clarity):
 
-```mermaid
-graph TB
-    APP[app]
-    TLS[tls]
-    TRANSPORT[transport]
-    CRYPTO[crypto]
-    COMMON[common]
-    APP --> TRANSPORT
-    APP --> COMMON
-    TLS --> CRYPTO
-    TLS --> COMMON
-    TRANSPORT --> CRYPTO
-    TRANSPORT --> COMMON
-    CRYPTO --> COMMON
-    TRANSPORT -.-> TLS
-    CRYPTO -.-> TLS
+```text
+  app ──► transport ──► crypto ──► common
+              ╎              ▲
+              ╎ (exception)  │
+              └╌╌╌╌► tls ────┘
 ```
 
-The dotted lines mark the exception where the layer boundary and the key boundary do not coincide.
-The QUIC handshake carries TLS messages inside CRYPTO frames, transported in QUIC packets.
-So transport refers to tls in order to drive the TLS handshake, and crypto's key derivation shares the type of the initial Initial keys with tls.
-The keys are made by tls, but the bytes those keys protect are carried by transport, and the two need each other.
-Trying to force the dependencies fully downward would split this integration unnaturally.
-Here the mutual reference is left in place as a fact of the design.
+The exception exists because the QUIC handshake carries TLS messages inside CRYPTO frames, transported in QUIC packets: transport must drive the TLS handshake, and crypto's key derivation shares the Initial-key type with tls.
+The keys are made by tls, but the bytes those keys protect are carried by transport — the two need each other, and forcing the dependency fully downward would split that integration unnaturally.
 
-common is the complete bottom layer that depends on no other layer.
-All layers share the same varint encoding and byte cursor, and to avoid symbol collisions in the single-translation-unit build described later, the shared small functions are placed here as `inline`.
+common is the complete bottom layer that depends on nothing.
+All layers share its varint encoding and byte cursor, and shared small helpers live here as `inline` to avoid symbol collisions in the single-translation-unit test build.
 
 ## Data flow
 
-We follow three representative flows.
-In each, the focus is on why the order has to be the way it is.
+Three representative flows. In each, the order is forced by a dependency, noted after the steps.
 
 ### Sending: from GET to the wire
 
-This shows the flow from an application issuing a GET to the encrypted bytes being handed to the socket.
+1. HTTP/3 compresses the request headers with QPACK and wraps the frames into QUIC STREAM frames.
+2. transport finalizes the packet header.
+3. crypto seals the payload with AEAD, using that header as the additional authenticated data (AAD).
+4. transport builds a mask from a sample of the ciphertext and applies header protection over fields like the packet number.
+5. Multiple packets are coalesced into one datagram and handed to `sendto`.
 
-```mermaid
-sequenceDiagram
-    participant App as HTTP/3
-    participant QP as QPACK
-    participant TR as transport
-    participant CR as crypto
-    participant IO as io
-    App->>QP: compress the request headers
-    QP->>App: header block
-    App->>TR: H3 frames into STREAM frames
-    TR->>TR: frame the packet (finalize the header)
-    TR->>CR: AEAD seal (AAD = header)
-    CR->>TR: ciphertext + authentication tag
-    TR->>TR: header protection (mask with ciphertext)
-    TR->>TR: coalesce multiple packets
-    TR->>IO: sendto
-```
-
-The order cannot be rearranged because the two stages of protection depend on each other's output.
-AEAD encrypts with the packet header as additional authenticated data (AAD), so it cannot seal until the header is finalized.
-Header protection samples part of the ciphertext that AEAD produced to build a mask, then covers header fields such as the packet number.
-Therefore the order — finalize the header → AEAD → header protection — cannot be swapped.
+The order cannot be rearranged: AEAD needs the finalized header (step 2 before 3), and header protection needs AEAD's ciphertext (step 3 before 4).
 
 ### Receiving: from the wire to the application
 
-Receiving traces the reverse of sending.
+1. `recvfrom` delivers one datagram; transport splits any coalesced packets.
+2. transport removes header protection, exposing the packet number.
+3. The packet number fixes the AEAD nonce; crypto decrypts.
+4. transport parses the frames and reassembles STREAM data.
+5. The reassembled bytes flow up to HTTP/3 / QPACK.
 
-```mermaid
-sequenceDiagram
-    participant IO as io
-    participant TR as transport
-    participant CR as crypto
-    participant App as HTTP/3
-    IO->>TR: recvfrom
-    TR->>TR: split coalesced packets
-    TR->>TR: remove header protection
-    TR->>CR: AEAD open (decrypt)
-    CR->>TR: plaintext frames
-    TR->>TR: parse the frames
-    TR->>TR: reassemble STREAM
-    TR->>App: to HTTP/3 / QPACK
-```
-
-Here too there is a reason to peel off header protection first.
-Header protection covers the packet number, so without removing it the packet number cannot be read.
-The packet number is the material for assembling the AEAD nonce, and without a fixed nonce decryption is impossible.
-In other words, the dependency — remove header protection → fix the packet number → AEAD decrypt — determines the order on the receiving side.
+Again the order is forced: the packet number is under header protection (step 2 before 3), and the nonce needs the packet number (step 3 before 4).
 
 ### The handshake: establishing the connection while making the keys
 
-The handshake is the process that produces the very keys used for encryption.
+1. Client sends ClientHello in an Initial packet — Initial keys are derived from the destination connection ID by a fixed public procedure, so even the first packet is structurally protected (though not secret).
+2. Server answers with ServerHello (`key_share`); the ECDHE shared secret is now fixed and both sides derive the Handshake keys.
+3. Server sends EncryptedExtensions / Certificate / CertificateVerify / Finished; the client verifies the certificate signature, authenticating the peer.
+4. Client sends Finished; both sides derive the 1-RTT keys for application data.
+5. Server sends HANDSHAKE_DONE; the connection is CONFIRMED and the Handshake keys are discarded.
 
-```mermaid
-sequenceDiagram
-    participant C as Client
-    participant S as Server
-    Note over C,S: INITIAL
-    C->>S: ClientHello (Initial keys derived from DCID)
-    S->>C: ServerHello (key_share)
-    Note over C,S: the ECDHE shared secret is fixed, deriving the Handshake keys
-    Note over C,S: AUTH
-    S->>C: EncryptedExtensions / Certificate / CertificateVerify / Finished
-    Note over C: verify the certificate signature
-    C->>S: Finished
-    Note over C,S: derive the 1-RTT (application) keys
-    Note over C,S: CONFIRMED
-    S->>C: HANDSHAKE_DONE
-```
-
-The first packet must be encrypted even though the key exchange has not yet happened.
-QUIC solves this by deriving the Initial keys through a fixed procedure from the destination connection ID (DCID) of the peer.
-The Initial keys are not secret — anyone on the path can derive them by the same procedure — but they do serve to structure the first packet and detect tampering.
-Once both sides' key_share values are present in ServerHello, the ECDHE shared secret is fixed, and only here can the secret Handshake keys be derived.
-Verifying the server's certificate and signature authenticates the peer, and exchanging Finished derives the 1-RTT keys for application data.
-Finally, receiving HANDSHAKE_DONE moves the connection to CONFIRMED and the Handshake keys are discarded.
-This flow from INITIAL through AUTH to CONFIRMED can be read as the process by which the handshake itself dissolves the constraint that nothing can be encrypted without a key — by producing the keys as it goes.
+The handshake dissolves its own bootstrap problem — nothing can be encrypted without a key — by producing the keys as it goes.
 
 ---
 

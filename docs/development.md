@@ -1,3 +1,5 @@
+[Docs](README.md) › Development
+
 # Development
 
 > **The 30-second version.** Four rules govern every change:
@@ -40,34 +42,23 @@ The codebase is five top-level groups under `src/` — `app`, `tls`, `transport`
 `src/<dir>/`. Higher layers depend on lower ones; the verification layer is
 tooling kept out of the shipped binary.
 
-```mermaid
-flowchart TB
-    subgraph APP["app — HTTP/3 & application"]
-        app["http3 (core · request · server) · qpack (qpack · qpackdyn)<br/>datagram (datagram · dgdeliver) · webtransport (capsule · errmap · session · wtwire)"]
-    end
-    subgraph TRANSPORT["transport — QUIC transport"]
-        transport["conn (cid · lifecycle · loop · pnspace) · packet (build · frame · header · protect)<br/>stream (data · flow) · recovery (congestion · detect · rtx · stats)<br/>version (version · versmgr · vndrive) · io (socket · udp · xdp)"]
-    end
-    subgraph TLS["tls — TLS 1.3"]
-        tls["handshake (core · flight · roles) · ext (tlsext · tparam · tpverify · alpnver · …)<br/>keys (schedule_drive · keyupdate · kudrive · kuswitch · ticket · …)"]
-    end
-    subgraph CRYPTO["crypto — primitives"]
-        crypto["symmetric (aead · hash) · asymmetric (bignum · ecc · rsa)<br/>kdf (hkdf · keys) · pki (cert · encoding · trust)"]
-    end
-    subgraph COMMON["common — foundation"]
-        common["bytes (span · util · varint) · diag (error)<br/>platform (sys · rng · clock · fio · qlog · …)"]
-    end
+- **app** — HTTP/3 & application: http3 (core · request · server), qpack
+  (qpack · qpackdyn), datagram (datagram · dgdeliver), webtransport
+  (capsule · errmap · session · wtwire)
+- **transport** — QUIC transport: conn (cid · lifecycle · loop · pnspace),
+  packet (build · frame · header · protect), stream (data · flow), recovery
+  (congestion · detect · rtx · stats), version (version · versmgr ·
+  vndrive), io (socket · udp · xdp)
+- **tls** — TLS 1.3: handshake (core · flight · roles), ext (tlsext ·
+  tparam · tpverify · alpnver · …), keys (schedule_drive · keyupdate ·
+  kudrive · kuswitch · ticket · …)
+- **crypto** — primitives: symmetric (aead · hash), asymmetric (bignum ·
+  ecc · rsa), kdf (hkdf · keys), pki (cert · encoding · trust)
+- **common** — foundation: bytes (span · util · varint), diag (error),
+  platform (sys · rng · clock · fio · qlog · …)
 
-    APP --> TRANSPORT
-    TRANSPORT -.-> TLS
-    TLS --> CRYPTO
-    TRANSPORT --> CRYPTO --> COMMON
-
-    subgraph VERIFY["Verification layer (not shipped)"]
-        verify["TLA+ specs (tasks/loopeng/)<br/>Lean 4 proofs (tasks/fv/)"]
-    end
-    verify -. invariants become tests .-> TRANSPORT
-```
+A separate verification layer (TLA+ specs and Lean 4 proofs in local
+`tasks/` workspaces, not shipped) feeds invariants into the tests.
 
 To find code: one concern lives in exactly one `src/<dir>/` (MECE). The
 directory name is the domain; its public API is prefixed `quic_<domain>_`. The
@@ -83,22 +74,10 @@ matches.
 (defined once in the `justfile`). Sources are auto-discovered, so adding a
 `src/**/*.c` file needs no justfile edit.
 
-```mermaid
-flowchart LR
-    src["src/**/*.c<br/>(find-discovered)"]
-
-    src --> ninja["just ninja<br/>freestanding per-file<br/>-ffreestanding -nostdlib<br/>→ build/&lt;path&gt;.o"]
-    src --> build["just build<br/>fmt + ninja + lint<br/>(one pinned-toolchain pipeline)"]
-    src --> test["just test<br/>tests/run.c unity build<br/>(all *_test.c, one TU)<br/>assertions on"]
-
-    ninja --> gate
-    test --> gate
-    ccn["lizard src --CCN 3 -w"] --> gate
-
-    gate{"three-point gate<br/>ninja · test · ccn<br/>+ object==source count"}
-    gate -->|all green| commit["git commit"]
-    gate -->|any red| stop["blocked"]
-```
+Three build modes feed one commit gate: `just ninja` (freestanding
+compile), `just test` (unity-build test run), and `lizard src --CCN 3 -w`
+(complexity) must all pass, plus the object==source count check, before any
+commit.
 
 - **`just ninja`** compiles each `.c` individually under `-ffreestanding
   -nostdlib` into a path-qualified `build/<path>.o` (regenerating
@@ -127,6 +106,28 @@ flowchart LR
   `docs/Doxyfile`) into `docs/sdk/` (gitignored). The input set is derived from
   `wired.h`'s transitive includes at run time, and `WARN_AS_ERROR` is on: a
   declaration added to a public header without a doxygen comment fails the run.
+
+<details>
+<summary>Every <code>just</code> recipe</summary>
+
+| Recipe | What it does |
+|---|---|
+| `setup` | One-time bootstrap: install Nix if absent. |
+| `nix <recipe>` | Run any recipe inside the pinned flake devShell. |
+| `build` | `fmt` + `ninja` + `lint` as one pipeline. |
+| `ninja` | Compile every `src/**/*.c` with `-ffreestanding -nostdlib` into `build/<path>.o` — the proof of libc independence. |
+| `lib` | Archive the SDK objects into `build/libwired.a` (excludes the SDK's own `_start` stub so your app supplies the entry point). |
+| `test` | Format, then build and run `build/quic_test`: `tests/run.c` is a single unity translation unit including every production `.c` and every `*_test.c`, assertions on. |
+| `ccn` | `lizard src --CCN 3 -w` — every function must hold cyclomatic complexity ≤ 3. |
+| `check` | `ccn` + `test`. |
+| `fmt` / `fmt-check` | clang-format in place / verify without writing. |
+| `lint` / `cert` | clang-tidy static analysis (CERT C secure-coding rules + bug finders / CERT C only). |
+| `fuzz-header` / `fuzz-qpack` / `fuzz-x509` | Build one libFuzzer+ASan harness (packet header, QPACK, X.509). |
+| `fuzz-ci [secs]` | Run all three harnesses for `secs` seconds each (default 120). |
+| `docs` | Regenerate the doxygen API reference into `docs/sdk/` from `wired.h`'s transitive includes. |
+| `gen-ninja` / `compdb` | Regenerate `build.ninja` / emit `compile_commands.json` for clangd. |
+
+</details>
 
 ## Hard constraints
 
@@ -173,15 +174,14 @@ catches a source that silently never got compiled — objects must equal sources
 A domain is `src/<name>/<name>.h` (types, constants, prototypes) +
 `src/<name>/<name>.c` (implementation with `static` helpers).
 
-```mermaid
-flowchart TB
-    A["create src/&lt;name&gt;/&lt;name&gt;.{h,c}"] --> B["public API = quic_&lt;name&gt;_*<br/>grep src/ to confirm unique"]
-    B --> C["test first: tests/&lt;name&gt;_test.c<br/>RFC vector golden + round-trip + malformed"]
-    C --> D["wire tests/run.c (MANUAL, 3 edits):<br/>#include production .c<br/>#include _test.c<br/>test_&lt;name&gt;() in main()"]
-    D --> E{"three-point gate"}
-    E -->|red| F["split CCN-4 fns, fix collisions"] --> E
-    E -->|green| G["micro-commit: feat then test"]
-```
+1. Create `src/<name>/<name>.{h,c}`; public API = `quic_<name>_*`, grep
+   `src/` to confirm the names are unique.
+2. Test first: `tests/<name>_test.c` with the RFC golden vector,
+   round-trip, and malformed cases.
+3. Wire `tests/run.c` — three manual edits: `#include` the production
+   `.c`, `#include` the `_test.c`, call `test_<name>()` in `main()`.
+4. Run the three-point gate. Red → split CCN-4 functions or fix
+   collisions and retry. Green → micro-commit (`feat` then `test`).
 
 The `justfile` finds `src/**/*.c` automatically, but **`tests/run.c` is
 hand-edited** — a new domain needs all three edits there or it is committed but
@@ -192,18 +192,14 @@ then run the object-count check.
 
 Decide the layer in planning, before writing code. Three layers, three jobs —
 don't mix them and don't overuse them (TLA+/Lean on trivial logic is
-over-engineering).
+over-engineering). Pick by two questions:
 
-```mermaid
-flowchart TB
-    Q1{"state transitions /<br/>concurrency / protocol<br/>lifecycle?"}
-    Q1 -->|yes| TLA["TLA+ (loop-engineering)<br/>model-check; counterexamples<br/>→ Gherkin acceptance specs"]
-    Q1 -->|no| Q2{"critical crypto /<br/>math property?"}
-    Q2 -->|yes| LEAN["Lean 4 (formal-verification)<br/>round-trip, encode==decode,<br/>input-validation soundness"]
-    Q2 -->|no| TDD["TDD<br/>test list → Red → Green → Refactor"]
-    TLA -. proven invariants .-> TDD
-    LEAN -. proven predicates .-> TDD
-```
+1. State transitions, concurrency, or a protocol lifecycle? → **TLA+**
+   (model-check; counterexamples become acceptance specs).
+2. Otherwise, a critical crypto/math property? → **Lean 4** (round-trip,
+   encode==decode, input-validation soundness).
+3. Otherwise → **TDD** (test list → Red → Green → Refactor). Invariants
+   proven in the first two layers become predicates in the TDD test list.
 
 - **State transitions / concurrency / protocol lifecycle → TLA+.** The specs
   (kept in a local `tasks/loopeng/` workspace, not shipped in the repo)
