@@ -23,8 +23,13 @@
 
 /** Capacity of a server flight buffer in octets. */
 #define WIRED_SERVER_FLIGHT_MAX 2048
-/** Capacity of the raw handshake transcript buffer in octets. */
-#define WIRED_SERVER_TRANSCRIPT_MAX 4096
+/** Capacity of the raw handshake transcript buffer in octets: ClientHello +
+ * ServerHello + the server Handshake flight, sized past
+ * quic-interop-runner's deliberately inflated 9-cert amplificationlimit
+ * chain (~10KB flight) with headroom. A truncated transcript silently
+ * desyncs srv_verify_finished's hash from the client's real one, so every
+ * client Finished fails and the server goes silent (RFC 8446 4.4.1/4.4.4). */
+#define WIRED_SERVER_TRANSCRIPT_MAX 16384
 /** Capacity of one received UDP datagram in octets. */
 #define WIRED_SERVER_DATAGRAM_MAX 1500
 
