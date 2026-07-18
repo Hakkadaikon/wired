@@ -317,20 +317,24 @@ static void test_sdrv_external_chain_wrong_key(void) {
   }
 }
 
-/* chain_count over QUIC_TLS_CERT_CHAIN_MAX fails the flight closed: nothing
- * to send, quic_sdrv_build_server_flight returns 0. */
+/* chain_count over QUIC_TLS_CERT_CHAIN_MAX(10) fails the flight closed:
+ * nothing to send, quic_sdrv_build_server_flight returns 0. 11 entries (one
+ * past the limit) alternating leaf/intermediate DER -- sdrv_take_chain's
+ * count check fires before any entry is copied, so the flight buffer never
+ * needs to actually hold 11 certificates worth of bytes. */
 static void test_sdrv_chain_overflow(void) {
   u8        cli_priv[32], cli_pub[32], srv_priv[32], srv_pub[32];
   u8        cert_priv[32];
   u8        ch[512], sh[256], flight[2048], srv_random[32];
   usz       ch_len;
   quic_sdrv s;
-  quic_span chain[5] = {
-      quic_span_of(quic_realchain_leaf_der, sizeof(quic_realchain_leaf_der)),
-      quic_span_of(quic_realchain_int_der, sizeof(quic_realchain_int_der)),
-      quic_span_of(quic_realchain_leaf_der, sizeof(quic_realchain_leaf_der)),
-      quic_span_of(quic_realchain_int_der, sizeof(quic_realchain_int_der)),
-      quic_span_of(quic_realchain_leaf_der, sizeof(quic_realchain_leaf_der))};
+  quic_span leaf =
+      quic_span_of(quic_realchain_leaf_der, sizeof(quic_realchain_leaf_der));
+  quic_span intermediate =
+      quic_span_of(quic_realchain_int_der, sizeof(quic_realchain_int_der));
+  quic_span chain[11] = {leaf, intermediate, leaf, intermediate,
+                         leaf, intermediate, leaf, intermediate,
+                         leaf, intermediate, leaf};
 
   for (usz i = 0; i < 32; i++) {
     cli_priv[i]   = (u8)(i + 1);
@@ -344,13 +348,51 @@ static void test_sdrv_chain_overflow(void) {
   CHECK(ch_len != 0);
 
   {
-    quic_sdrv_init_in    in    = {srv_priv, srv_pub, cert_priv, chain, 5, 0, 0};
+    quic_sdrv_init_in    in = {srv_priv, srv_pub, cert_priv, chain, 11, 0, 0};
     quic_obuf            sh_ob = quic_obuf_of(sh, sizeof(sh));
     quic_obuf            fl_ob = quic_obuf_of(flight, sizeof(flight));
     quic_sdrv_flight_out fo    = {&sh_ob, &fl_ob};
     quic_sdrv_init(&s, &in);
     CHECK(quic_sdrv_recv_client_hello(&s, ch, ch_len));
     CHECK(!quic_sdrv_build_server_flight(&s, srv_random, &fo));
+  }
+}
+
+/* T-004: chain_count AT QUIC_TLS_CERT_CHAIN_MAX(10, the amplificationlimit
+ * boundary minus one for the odd/even leaf-intermediate alternation) builds
+ * successfully -- exercises the SDK's own real 9-cert amplificationlimit
+ * target, one flight buffer sized for it (16KB, matching srvrun_conn's
+ * boot_hs). */
+static void test_sdrv_flight_nine_cert_chain(void) {
+  u8        cli_priv[32], cli_pub[32], srv_priv[32], srv_pub[32];
+  u8        cert_priv[32];
+  u8        ch[512], sh[256], srv_random[32];
+  static u8 flight[16384];
+  usz       ch_len;
+  quic_sdrv s;
+  quic_span leaf =
+      quic_span_of(quic_realchain_leaf_der, sizeof(quic_realchain_leaf_der));
+  quic_span chain[9] = {leaf, leaf, leaf, leaf, leaf, leaf, leaf, leaf, leaf};
+
+  for (usz i = 0; i < 32; i++) {
+    cli_priv[i]   = (u8)(i + 1);
+    srv_priv[i]   = (u8)(0x40 + i);
+    cert_priv[i]  = (u8)(0x80 + i);
+    srv_random[i] = (u8)(0xa0 + i);
+  }
+  quic_x25519_base(cli_pub, cli_priv);
+  quic_x25519_base(srv_pub, srv_priv);
+  ch_len = sdrv_test_client_hello(ch, sizeof(ch), cli_pub, srv_random);
+  CHECK(ch_len != 0);
+
+  {
+    quic_sdrv_init_in    in    = {srv_priv, srv_pub, cert_priv, chain, 9, 0, 0};
+    quic_obuf            sh_ob = quic_obuf_of(sh, sizeof(sh));
+    quic_obuf            fl_ob = quic_obuf_of(flight, sizeof(flight));
+    quic_sdrv_flight_out fo    = {&sh_ob, &fl_ob};
+    quic_sdrv_init(&s, &in);
+    CHECK(quic_sdrv_recv_client_hello(&s, ch, ch_len));
+    CHECK(quic_sdrv_build_server_flight(&s, srv_random, &fo));
   }
 }
 
@@ -786,6 +828,7 @@ void test_sdrv(void) {
   test_sdrv_external_chain();
   test_sdrv_external_chain_wrong_key();
   test_sdrv_chain_overflow();
+  test_sdrv_flight_nine_cert_chain();
 
   u8 cli_priv[32], cli_pub[32], srv_priv[32], srv_pub[32];
   u8 cert_priv[32];
