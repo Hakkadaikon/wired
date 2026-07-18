@@ -136,7 +136,12 @@ static int srvboot_flight(
     const wired_srvboot_id*   id,
     u64                       ack_pn,
     wired_srvboot_out*        out) {
-  u8                   sh[512], flight[4096];
+  /* flight sized past a real 9-cert amplificationlimit chain's Handshake
+   * flight (EncryptedExtensions + 9 CERTIFICATE entries + CertificateVerify
+   * + Finished) with headroom -- matches srvrun_conn.boot_hs, the buffer
+   * this flight is copied into for retransmission. See
+   * QUIC_TLS_CERT_CHAIN_MAX/WIRED_CERTRELOAD_CHAIN_MAX. */
+  u8                   sh[512], flight[16384];
   quic_obuf            sh_ob = quic_obuf_of(sh, sizeof sh);
   quic_obuf            fl_ob = quic_obuf_of(flight, sizeof flight);
   quic_sdrv_flight_out fo    = {&sh_ob, &fl_ob};
