@@ -94,19 +94,15 @@ clang -target x86_64-linux-gnu -ffreestanding -fno-stack-protector \
 One translation unit defines `WIRED_MAIN` before including `wired.h`; that
 emits the `memcpy`/`memset` shim a `-nostdlib` binary needs plus the `_start`
 entry stub, which recovers `argc`/`argv` from the kernel stack and calls your
-`wired_main`:
+`wired_main`. `wired.h` is the only include you need — it carries the whole
+public API:
 
 ```c
 #define WIRED_MAIN
 #include "wired.h"
-#include "app/http3/server/srvdriver/srvdriver.h" /* driver selection */
-#include "common/platform/exit/exit.h"            /* wired_die */
 
 int wired_main(int argc, char** argv);
 ```
-
-Note `srvdriver.h` (driver selection) and `exit.h` (`wired_die`) are included
-separately from `wired.h` — the examples do exactly this.
 
 ### A minimal server
 

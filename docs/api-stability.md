@@ -28,9 +28,8 @@ underlying protocol. Both kinds carry a non-`static` `wired_`/`quic_` name and
 both compile the same way, so the header alone does not tell you which is
 which. This document does.
 
-One stable entry point is NOT in `wired.h`: the driver front end lives in
-`src/app/http3/server/srvdriver/srvdriver.h`, which a caller includes
-separately.
+Everything below is reachable from the single `wired.h` include — no second
+header is needed.
 
 ## Stable API (application-facing, breaking changes avoided)
 
@@ -38,7 +37,7 @@ Call these without needing to know the QUIC/TLS state machine underneath.
 
 | Function | Role |
 |---|---|
-| `wired_srvdriver_parse`, `wired_srvdriver_run` | The recommended entry point: parse `--port`/`--workers`/`--ifindex`/`--cores`/`--pin-core` from argv and dispatch to one of the four server drivers (single-process, forked workers, AF_XDP, threads). Not pulled in by `wired.h` — include `srvdriver.h` yourself. |
+| `wired_srvdriver_parse`, `wired_srvdriver_run` | The recommended entry point: parse `--port`/`--workers`/`--ifindex`/`--cores`/`--pin-core` from argv and dispatch to one of the four server drivers (single-process, forked workers, AF_XDP, threads). |
 | `wired_server_run` | Run a complete single-process server: bind, accept, and serve requests until killed. |
 | `wired_server_run_opt` | Same, plus opt-in knobs (busy-poll, AF_XDP driver, WebTransport callbacks). `opt` must not be 0; all-default knobs make it byte-identical to `wired_server_run`. |
 | `wired_server_broadcast_datagram` | Queue a QUIC DATAGRAM to every connection with an active WebTransport session. Callable only from inside the server's own loop (i.e. from a callback); neither thread- nor signal-safe. |
