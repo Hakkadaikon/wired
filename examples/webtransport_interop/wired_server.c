@@ -1,6 +1,5 @@
 /* quic-interop-runner WebTransport server endpoint. libc-free, x86_64-linux,
- * direct syscalls, driven by the single SDK header <wired.h> plus the
- * WebTransport wire helpers (wtwire.h) and env access (envp.h).
+ * direct syscalls, driven by the single SDK header <wired.h>.
  *
  * The runner (webtransport.md) sets TESTCASE / PROTOCOLS / REQUESTS in the
  * environment and mounts /www (files to serve), /downloads (files to save)
@@ -19,9 +18,6 @@
  *   /downloads/<endpoint>/<basename>. */
 
 #define WIRED_MAIN /* this TU emits the libc memcpy/memset shim and _start */
-#include "app/webtransport/wtwire/wtwire.h"
-#include "common/platform/envp/envp.h"
-#include "common/platform/exit/exit.h"
 #include "wired.h"
 
 /* --- test-case modes ----------------------------------------------------- */

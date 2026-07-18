@@ -15,8 +15,6 @@
  * (--ifindex N --ip a.b.c.d), or thread-based fan-out (--cores a,b,c). */
 
 #define WIRED_MAIN /* this TU emits the libc memcpy/memset shim and _start */
-#include "app/http3/server/srvdriver/srvdriver.h"
-#include "common/platform/exit/exit.h"
 #include "wired.h"
 
 /* In-memory message store. POST bodies are appended (newline-separated); GET
