@@ -106,7 +106,7 @@ static int emit_hs_flight(quic_sdrv* s, quic_obuf* flight) {
 /* RFC 8446 4.1.3: build the ServerHello, fold it in, and derive secrets. */
 static int build_server_hello(quic_sdrv* s, const u8* random, quic_obuf* out) {
   quic_shbuild_in in = {
-      random, quic_span_of(s->client_sid, s->client_sid_len), 0x1301,
+      random, quic_span_of(s->client_sid, s->client_sid_len), s->cipher_suite,
       s->server_pub};
   if (!quic_shbuild_server_hello(&in, out)) return 0;
   quic_transcript_add(&s->tr, out->p, out->len);

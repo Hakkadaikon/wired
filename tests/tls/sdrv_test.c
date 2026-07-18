@@ -15,6 +15,7 @@
 #include "tls/ext/tparam/tpcheck.h"
 #include "tls/handshake/core/tls/cert.h"
 #include "tls/handshake/core/tls/certverify.h"
+#include "tls/handshake/core/tls/cipher.h"
 #include "tls/handshake/core/tls/clienthello.h"
 #include "tls/handshake/core/tls/finished.h"
 #include "tls/handshake/core/tls/handshake.h"
@@ -809,6 +810,227 @@ static void test_sdrv_keyshare_walk_accepts_exact_exts_len(void) {
   free(ch);
 }
 
+/* The message-level offset of the single cipher_suites entry that
+ * sdrv_test_client_hello builds (RFC 8446 4.1.2: legacy_version(2)
+ * random(32) session_id_len(1)=0 cipher_suites_len(2)=2 cipher_suites(2)),
+ * right after the 4-byte handshake header put_prefix begins writing at
+ * (quic_hs_begin returns 4): 4 + 2 + 32 + 1 + 2 = 41. */
+#define SDRV_TEST_CIPHER_SUITE_OFF 41
+
+/* The message-level offset of the ServerHello.cipher_suite field that
+ * shb_prefix writes (RFC 8446 4.1.3): legacy_version(2) random(32)
+ * session_id_len(1)=0 (no length-prefixed cipher_suites vector here, unlike
+ * the ClientHello -- ServerHello.cipher_suite is a single bare value), right
+ * after the 4-byte handshake header: 4 + 2 + 32 + 1 = 39 (sdrv_test_
+ * client_hello's ClientHello always has an empty legacy_session_id, so sdrv
+ * always echoes an empty session_id_echo here too). */
+#define SDRV_TEST_SH_CIPHER_SUITE_OFF 39
+
+/* Overwrite the single cipher_suites entry sdrv_test_client_hello built with
+ * suite (big-endian). */
+static void sdrv_test_set_suite(u8* ch, u16 suite) {
+  ch[SDRV_TEST_CIPHER_SUITE_OFF]     = (u8)(suite >> 8);
+  ch[SDRV_TEST_CIPHER_SUITE_OFF + 1] = (u8)suite;
+}
+
+/* Splice a second cipher_suites entry (prepended before the existing single
+ * entry) into a ClientHello built by sdrv_test_client_hello, bumping the
+ * cipher_suites length field from 2 to 4 and patching the 3-byte handshake
+ * length. Returns the new total length. Mirrors ch_with_sid's session_id
+ * splice above. */
+static usz sdrv_test_prepend_suite(
+    u8* out, const u8* ch, usz ch_len, u16 suite) {
+  usz tail = ch_len - SDRV_TEST_CIPHER_SUITE_OFF;
+  for (usz i = 0; i < SDRV_TEST_CIPHER_SUITE_OFF; i++) out[i] = ch[i];
+  out[SDRV_TEST_CIPHER_SUITE_OFF]     = (u8)(suite >> 8);
+  out[SDRV_TEST_CIPHER_SUITE_OFF + 1] = (u8)suite;
+  for (usz i = 0; i < tail; i++)
+    out[SDRV_TEST_CIPHER_SUITE_OFF + 2 + i] =
+        ch[SDRV_TEST_CIPHER_SUITE_OFF + i];
+  /* cipher_suites length field is 2 bytes before the first entry. */
+  out[SDRV_TEST_CIPHER_SUITE_OFF - 2] = 0;
+  out[SDRV_TEST_CIPHER_SUITE_OFF - 1] = 4;
+  quic_hs_finish(out, ch_len + 2);
+  return ch_len + 2;
+}
+
+/* Build a well-formed ClientHello and drive it to a built server flight;
+ * CHECKs recv_client_hello and build_server_flight both succeed. Returns the
+ * negotiated cipher_suite the caller can inspect on s, and the ServerHello
+ * bytes in sh (sh_len). */
+static void sdrv_test_negotiate(
+    quic_sdrv* s, const u8* ch, usz ch_len, u8* sh, usz sh_cap, usz* sh_len) {
+  u8                srv_priv[32], srv_pub[32], cert_priv[32], srv_random[32];
+  u8                flight[2048];
+  usz               hs_len;
+  quic_sdrv_init_in in;
+  for (usz i = 0; i < 32; i++) {
+    srv_priv[i]   = (u8)(0x40 + i);
+    cert_priv[i]  = (u8)(0x80 + i);
+    srv_random[i] = (u8)(0xa0 + i);
+  }
+  quic_x25519_base(srv_pub, srv_priv);
+  in = (quic_sdrv_init_in){srv_priv, srv_pub, cert_priv, 0, 0, 0, 0};
+  sdrv_test_drive(
+      s, &in, ch, ch_len, srv_random, sh, sh_cap, sh_len, flight,
+      sizeof(flight), &hs_len);
+}
+
+/* A single AES_128_GCM_SHA256 offer negotiates AES_128_GCM_SHA256, echoed in
+ * the ServerHello.cipher_suite field. */
+static void test_sdrv_suite_aes_only(void) {
+  u8        cli_priv[32], cli_pub[32], srv_random[32], ch[512], sh[256];
+  usz       ch_len, sh_len;
+  quic_sdrv s;
+  for (usz i = 0; i < 32; i++) {
+    cli_priv[i]   = (u8)(i + 1);
+    srv_random[i] = (u8)(0xa0 + i);
+  }
+  quic_x25519_base(cli_pub, cli_priv);
+  ch_len = sdrv_test_client_hello(ch, sizeof(ch), cli_pub, srv_random);
+  CHECK(ch_len != 0);
+  sdrv_test_set_suite(ch, QUIC_TLS_AES_128_GCM_SHA256);
+
+  sdrv_test_negotiate(&s, ch, ch_len, sh, sizeof(sh), &sh_len);
+  CHECK(s.cipher_suite == QUIC_TLS_AES_128_GCM_SHA256);
+  CHECK(
+      (u16)(sh[SDRV_TEST_SH_CIPHER_SUITE_OFF] << 8 |
+            sh[SDRV_TEST_SH_CIPHER_SUITE_OFF + 1]) ==
+      QUIC_TLS_AES_128_GCM_SHA256);
+}
+
+/* A single CHACHA20_POLY1305_SHA256 offer negotiates CHACHA20_POLY1305_
+ * SHA256 (the only overlap), echoed in the ServerHello. This is the exact
+ * shape quic-go sends when configured chacha20-only for interop. */
+static void test_sdrv_suite_chacha_only(void) {
+  u8        cli_priv[32], cli_pub[32], srv_random[32], ch[512], sh[256];
+  usz       ch_len, sh_len;
+  quic_sdrv s;
+  for (usz i = 0; i < 32; i++) {
+    cli_priv[i]   = (u8)(i + 1);
+    srv_random[i] = (u8)(0xa0 + i);
+  }
+  quic_x25519_base(cli_pub, cli_priv);
+  ch_len = sdrv_test_client_hello(ch, sizeof(ch), cli_pub, srv_random);
+  CHECK(ch_len != 0);
+  sdrv_test_set_suite(ch, QUIC_TLS_CHACHA20_POLY1305_SHA256);
+
+  sdrv_test_negotiate(&s, ch, ch_len, sh, sizeof(sh), &sh_len);
+  CHECK(s.cipher_suite == QUIC_TLS_CHACHA20_POLY1305_SHA256);
+  CHECK(
+      (u16)(sh[SDRV_TEST_SH_CIPHER_SUITE_OFF] << 8 |
+            sh[SDRV_TEST_SH_CIPHER_SUITE_OFF + 1]) ==
+      QUIC_TLS_CHACHA20_POLY1305_SHA256);
+}
+
+/* Offering both CHACHA20_POLY1305_SHA256 and AES_128_GCM_SHA256 (in that
+ * wire order) still negotiates AES_128_GCM_SHA256: RFC 8446 B.4 priority is
+ * the server's choice, independent of the client's offer order. */
+static void test_sdrv_suite_prefers_aes(void) {
+  u8        cli_priv[32], cli_pub[32], srv_random[32];
+  u8        ch[512], ch2[600], sh[256];
+  usz       ch_len, ch2_len, sh_len;
+  quic_sdrv s;
+  for (usz i = 0; i < 32; i++) {
+    cli_priv[i]   = (u8)(i + 1);
+    srv_random[i] = (u8)(0xa0 + i);
+  }
+  quic_x25519_base(cli_pub, cli_priv);
+  ch_len = sdrv_test_client_hello(ch, sizeof(ch), cli_pub, srv_random);
+  CHECK(ch_len != 0);
+  sdrv_test_set_suite(ch, QUIC_TLS_CHACHA20_POLY1305_SHA256);
+  ch2_len = sdrv_test_prepend_suite(
+      ch2, ch, ch_len, QUIC_TLS_CHACHA20_POLY1305_SHA256);
+  /* now offers [CHACHA20_POLY1305_SHA256, CHACHA20_POLY1305_SHA256]; patch
+   * the second (originally-single) entry back to AES so the offer is
+   * [CHACHA, AES] -- CHACHA first, AES second, AES must still win. */
+  sdrv_test_set_suite(
+      ch2 + 2, QUIC_TLS_AES_128_GCM_SHA256); /* shifted by the +2 splice */
+
+  sdrv_test_negotiate(&s, ch2, ch2_len, sh, sizeof(sh), &sh_len);
+  CHECK(s.cipher_suite == QUIC_TLS_AES_128_GCM_SHA256);
+}
+
+/* A suite this SDK implements neither AEAD for (AES_256_GCM_SHA384, no
+ * SHA-384 key schedule) has no overlap with [AES_128, CHACHA20] -- the
+ * handshake must fail rather than fall back to an unconfigured suite (the
+ * bug this whole feature fixes: silently keying with a suite the peer never
+ * agreed to). */
+static void test_sdrv_suite_no_overlap_fails(void) {
+  u8  cli_priv[32], cli_pub[32], srv_random[32], srv_priv[32], srv_pub[32];
+  u8  cert_priv[32], ch[512];
+  usz ch_len;
+  quic_sdrv s;
+  for (usz i = 0; i < 32; i++) {
+    cli_priv[i]   = (u8)(i + 1);
+    srv_priv[i]   = (u8)(0x40 + i);
+    cert_priv[i]  = (u8)(0x80 + i);
+    srv_random[i] = (u8)(0xa0 + i);
+  }
+  quic_x25519_base(cli_pub, cli_priv);
+  quic_x25519_base(srv_pub, srv_priv);
+  ch_len = sdrv_test_client_hello(ch, sizeof(ch), cli_pub, srv_random);
+  CHECK(ch_len != 0);
+  sdrv_test_set_suite(ch, QUIC_TLS_AES_256_GCM_SHA384);
+
+  {
+    quic_sdrv_init_in in = {srv_priv, srv_pub, cert_priv, 0, 0, 0, 0};
+    quic_sdrv_init(&s, &in);
+  }
+  CHECK(!quic_sdrv_recv_client_hello(&s, ch, ch_len));
+}
+
+/* A cipher_suites vector whose declared byte length is odd (not a whole
+ * number of 2-byte suites) is rejected outright rather than truncated or
+ * read past its real end -- built at its exact real size (sdrv_test_
+ * malloc_exact) so any overread is a real heap-buffer-overflow under
+ * AddressSanitizer, not a silently-succeeding read into stack padding. */
+static void test_sdrv_suite_malformed_vec(void) {
+  u8        cli_priv[32], cli_pub[32], srv_random[32], scratch[512], *ch;
+  usz       ch_len;
+  quic_sdrv s;
+  for (usz i = 0; i < 32; i++) {
+    cli_priv[i]   = (u8)(i + 1);
+    srv_random[i] = (u8)(0xa0 + i);
+  }
+  quic_x25519_base(cli_pub, cli_priv);
+  ch_len =
+      sdrv_test_client_hello(scratch, sizeof(scratch), cli_pub, srv_random);
+  CHECK(ch_len != 0);
+  /* cipher_suites length field (2 bytes before the entry) claims 3 bytes: odd,
+   * not a whole number of suites. */
+  scratch[SDRV_TEST_CIPHER_SUITE_OFF - 1] = 3;
+  ch = sdrv_test_malloc_exact(scratch, ch_len);
+  sdrv_test_init_any(&s);
+  CHECK(!quic_sdrv_recv_client_hello(&s, ch, ch_len));
+  free(ch);
+}
+
+/* A cipher_suites vector whose declared byte length overruns the real
+ * ClientHello body must also be rejected, not read past the buffer -- same
+ * exact-size-allocation technique as the odd-length case above. */
+static void test_sdrv_suite_vec_overruns_body(void) {
+  u8        cli_priv[32], cli_pub[32], srv_random[32], scratch[512], *ch;
+  usz       ch_len;
+  quic_sdrv s;
+  for (usz i = 0; i < 32; i++) {
+    cli_priv[i]   = (u8)(i + 1);
+    srv_random[i] = (u8)(0xa0 + i);
+  }
+  quic_x25519_base(cli_pub, cli_priv);
+  ch_len =
+      sdrv_test_client_hello(scratch, sizeof(scratch), cli_pub, srv_random);
+  CHECK(ch_len != 0);
+  /* cipher_suites length field claims 0xfffe bytes -- wildly past the real
+   * ClientHello body. */
+  scratch[SDRV_TEST_CIPHER_SUITE_OFF - 2] = 0xff;
+  scratch[SDRV_TEST_CIPHER_SUITE_OFF - 1] = 0xfe;
+  ch = sdrv_test_malloc_exact(scratch, ch_len);
+  sdrv_test_init_any(&s);
+  CHECK(!quic_sdrv_recv_client_hello(&s, ch, ch_len));
+  free(ch);
+}
+
 void test_sdrv(void) {
   test_sdrv_keyshare_walk_rejects_overclaimed_exts_len();
   test_sdrv_tp_walk_rejects_overclaimed_exts_len();
@@ -829,6 +1051,12 @@ void test_sdrv(void) {
   test_sdrv_external_chain_wrong_key();
   test_sdrv_chain_overflow();
   test_sdrv_flight_nine_cert_chain();
+  test_sdrv_suite_aes_only();
+  test_sdrv_suite_chacha_only();
+  test_sdrv_suite_prefers_aes();
+  test_sdrv_suite_no_overlap_fails();
+  test_sdrv_suite_malformed_vec();
+  test_sdrv_suite_vec_overruns_body();
 
   u8 cli_priv[32], cli_pub[32], srv_priv[32], srv_pub[32];
   u8 cert_priv[32];
