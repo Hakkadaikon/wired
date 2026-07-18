@@ -69,3 +69,10 @@ server sharing one process would be the point to revisit this.
 3. Add a row to the table above: the syscall name, number, where it is
    defined, a one-line description of what the syscall does, and why `wired`
    specifically needs it (which subsystem, which call site, what it enables).
+
+---
+
+**Next:** the security properties enforced above these syscalls →
+[Security](security.md) · the architecture that issues them →
+[Architecture and Data Flow](arch/overview.md) · all pages →
+[documentation index](README.md)

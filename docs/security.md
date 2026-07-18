@@ -105,3 +105,9 @@ model or an operator hardening guide.
   proof. No `malloc`/`free` (all buffers are fixed-size), no `printf`/`scanf`
   family, no `getenv`/`system`/`exec`, no `signal` handlers, and no libc string
   functions — each verified absent from production sources.
+
+---
+
+**Next:** every syscall the SDK issues → [Syscalls](syscalls.md) · which
+functions are stable API → [API Stability](api-stability.md) · all pages →
+[documentation index](README.md)
