@@ -34,8 +34,9 @@ model or an operator hardening guide.
 
 - ECDSA rejects `r = 0` and `s = 0` and requires both scalars in `[1, n)`,
   closing the "Psychic Signature" class (CVE-2022-21449) — `ecdsa_verify.c`.
-- ECDSA verification enforces low-S normalization (`s <= n/2`) against signature
-  malleability — `p256sign/sign.c`.
+- ECDSA signatures the SDK produces are low-S normalized (`s <= n/2`, matching
+  BoringSSL / RFC 6979 practice) — `p256sign/sign.c`. Verification accepts
+  standard high-S signatures, as RFC/FIPS verification rules require.
 - Ed25519 rejects non-canonical scalars (`S >= L`) — `ed25519_sign.c`.
 - Public keys used in signature verification are checked to lie on the curve and
   are rejected if they are the point at infinity — `ecdsa_verify.c`,
