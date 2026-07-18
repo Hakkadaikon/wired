@@ -7,6 +7,7 @@
 #include "tls/ext/salpn/negotiate.h"
 #include "tls/ext/stp/parse_tp.h"
 #include "tls/ext/tparam/tparam.h"
+#include "tls/handshake/core/tls/cipher.h"
 #include "tls/handshake/core/tls/ext_keyshare.h"
 #include "tls/handshake/core/tls/handshake.h"
 #include "tls/handshake/core/tls/tpext.h"
@@ -73,6 +74,7 @@ void quic_sdrv_init(quic_sdrv* s, const quic_sdrv_init_in* in) {
   s->limits                       = (quic_stp_limits){0, 0, 0};
   s->peer_max_datagram_frame_size = 0;
   s->alpn                         = QUIC_SALPN_NONE;
+  s->cipher_suite                 = QUIC_TLS_AES_128_GCM_SHA256;
   sdrv_copy32(s->server_priv, in->server_priv_x25519);
   sdrv_copy32(s->server_pub, in->server_pub_x25519);
   sdrv_copy32(s->p256_priv, in->sign_priv);
@@ -299,9 +301,57 @@ static void sdrv_negotiate_alpn(quic_sdrv* s, const u8* ch_msg, usz ch_len) {
   s->alpn = quic_salpn_negotiate(ext.p, ext.n);
 }
 
-int quic_sdrv_recv_client_hello(quic_sdrv* s, const u8* ch_msg, usz ch_len) {
-  if (!take_client_keyshare(ch_msg, ch_len, s->client_pub)) return 0;
-  if (!take_client_sid(s, ch_msg, ch_len)) return 0;
+/* The cipher_suites vector's declared byte length n at p (2-byte length
+ * prefix already found by the caller) is a whole number of 2-byte suites and
+ * fits within body_len. */
+static int cipher_vec_ok(usz p, usz n, usz body_len) {
+  return (n & 1u) == 0 && p + 2 + n <= body_len;
+}
+
+/* RFC 8446 4.1.2: the ClientHello cipher_suites vector (raw 2-byte pairs, no
+ * length prefix) at body offset 34+1+session_id_len. Returns 1 and sets *out
+ * on success; 0 if the ClientHello is malformed or the vector's byte length
+ * is odd (not a whole number of 2-byte suites -- rejected rather than
+ * silently truncated) or overruns body. */
+static int sdrv_ch_cipher_suites(const u8* body, usz body_len, quic_span* out) {
+  usz p = skip_vec(quic_span_of(body, body_len), 34, 1);
+  usz n;
+  if (!prefix_fits(p, 2, body_len)) return 0;
+  n = prefix_len(body, p, 2);
+  if (!cipher_vec_ok(p, n, body_len)) return 0;
+  *out = quic_span_of(body + p + 2, n);
+  return 1;
+}
+
+/* RFC 8446 B.4 / RFC 9001 9.3: negotiate the cipher suite from the
+ * ClientHello's cipher_suites (preferring AES_128_GCM_SHA256, falling back to
+ * CHACHA20_POLY1305_SHA256 -- quic_cipher_select). Returns 1 and sets
+ * s->cipher_suite on success; 0 if the ClientHello is malformed, the vector
+ * is not a whole number of suites, or none offered is supported (no
+ * AES_128/CHACHA20 overlap) -- the caller fails the handshake rather than
+ * falling back to an unconfigured suite. */
+static int sdrv_negotiate_cipher(quic_sdrv* s, const u8* body, usz body_len) {
+  quic_span suites;
+  if (!sdrv_ch_cipher_suites(body, body_len, &suites)) return 0;
+  return quic_cipher_select(suites.p, suites.n / 2, &s->cipher_suite);
+}
+
+/* The message parses as a ClientHello (sets *body) and this driver
+ * negotiates a cipher suite from it (RFC 8446 B.4 / RFC 9001 9.3) -- both
+ * must hold before the rest of quic_sdrv_recv_client_hello touches the
+ * ClientHello's body, and both are needed before take_client_keyshare/
+ * take_client_sid can run. */
+static int sdrv_ch_negotiate(
+    quic_sdrv* s, const u8* ch_msg, usz ch_len, usz* body) {
+  if (!sdrv_is_client_hello(ch_msg, ch_len, body)) return 0;
+  return sdrv_negotiate_cipher(s, ch_msg + 4, *body);
+}
+
+/* The peer-advertised fields (transport-parameter integers, ALPN) that never
+ * fail the ClientHello -- absent/malformed just leaves a default and lets
+ * the caller (server.c) fail later on its own terms (see each helper's doc).
+ * Also folds ch_msg into the transcript (RFC 8446 4.4.1). */
+static void sdrv_ch_take_optional(quic_sdrv* s, const u8* ch_msg, usz ch_len) {
   take_peer_max_datagram_frame_size(
       ch_msg, ch_len, &s->peer_max_datagram_frame_size);
   take_peer_tp_int(
@@ -317,6 +367,21 @@ int quic_sdrv_recv_client_hello(quic_sdrv* s, const u8* ch_msg, usz ch_len) {
       &s->peer_initial_max_stream_data_uni);
   sdrv_negotiate_alpn(s, ch_msg, ch_len);
   quic_transcript_add(&s->tr, ch_msg, ch_len);
+}
+
+/* Cipher suite negotiated and the client's x25519 key_share taken -- both
+ * required before quic_sdrv_recv_client_hello's remaining fields matter. */
+static int sdrv_ch_negotiate_and_keyshare(
+    quic_sdrv* s, const u8* ch_msg, usz ch_len) {
+  usz body;
+  if (!sdrv_ch_negotiate(s, ch_msg, ch_len, &body)) return 0;
+  return take_client_keyshare(ch_msg, ch_len, s->client_pub);
+}
+
+int quic_sdrv_recv_client_hello(quic_sdrv* s, const u8* ch_msg, usz ch_len) {
+  if (!sdrv_ch_negotiate_and_keyshare(s, ch_msg, ch_len)) return 0;
+  if (!take_client_sid(s, ch_msg, ch_len)) return 0;
+  sdrv_ch_take_optional(s, ch_msg, ch_len);
   return 1;
 }
 

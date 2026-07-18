@@ -76,6 +76,14 @@ typedef struct {
                            * extension. QUIC_SALPN_NONE if the client
                            * offered neither -- the caller (server.c) must
                            * fail the handshake rather than proceed. */
+  u16 cipher_suite;       /**< RFC 8446 B.4 / RFC 9001 9.3: this server's
+                           * negotiated TLS 1.3 cipher suite (AES_128_GCM_
+                           * SHA256 preferred, CHACHA20_POLY1305_SHA256
+                           * fallback), set by quic_sdrv_recv_client_hello.
+                           * Governs ServerHello.cipher_suite and the
+                           * Handshake/1-RTT key derivation and packet
+                           * protection; Initial packet protection (RFC 9001
+                           * 5.2) is unaffected and stays AES-128-GCM. */
 } quic_sdrv;
 
 /** Inputs to quic_sdrv_init.
