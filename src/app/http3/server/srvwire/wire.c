@@ -158,3 +158,27 @@ int quic_srvwire_open_handshake(
   if (!quic_hspkt_open(k, pkt, &frames)) return 0;
   return srvwire_take_crypto(frames, tls);
 }
+
+/* Same as quic_srvwire_seal_handshake, but seals under the given negotiated
+ * TLS 1.3 cipher suite (RFC 8446 B.4). Returns 0 on an unrecognized suite. */
+int quic_srvwire_seal_handshake_suite(
+    u16                         suite,
+    const quic_protect_keys*    k,
+    const quic_srvwire_seal_in* in,
+    quic_obuf*                  out) {
+  u8        frames[2048];
+  quic_obuf fb = quic_obuf_of(frames, sizeof frames);
+  if (!srvwire_emit_frames(in, &fb)) return 0;
+  quic_hspkt_desc d = {
+      in->hdr_dcid, in->scid, in->pn, quic_span_of(frames, fb.len)};
+  return quic_hspkt_build_suite(suite, k, &d, out);
+}
+
+/* Same as quic_srvwire_open_handshake, but opens under the given negotiated
+ * TLS 1.3 cipher suite (RFC 8446 B.4). Returns 0 on an unrecognized suite. */
+int quic_srvwire_open_handshake_suite(
+    u16 suite, const quic_protect_keys* k, quic_mspan pkt, quic_span* tls) {
+  quic_span frames;
+  if (!quic_hspkt_open_suite(suite, k, pkt, &frames)) return 0;
+  return srvwire_take_crypto(frames, tls);
+}

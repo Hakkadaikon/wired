@@ -42,7 +42,7 @@ int wired_srvloop_send_handshake(
   quic_protect_keys k;
   if (!wired_srvloop_seal_keys(s, QUIC_LEVEL_HANDSHAKE, &dk)) return 0;
   k = (quic_protect_keys){dk.keys, &dk.hp};
-  return quic_srvwire_seal_handshake(&k, &wi, out);
+  return quic_srvwire_seal_handshake_suite(s->sdrv.cipher_suite, &k, &wi, out);
 }
 
 /* RFC 9001 6.2: this endpoint's send-side generation (s->ku_send.cur,
@@ -78,5 +78,5 @@ int wired_srvloop_send_onertt(
   int phase = s->ku_seeded ? quic_keyphase_bit(s->ku_send.generation) : 0;
   quic_hspkt_onertt_desc d = {in->cli_scid, in->pn, in->payload, phase};
   if (!send_onertt_keys(s, &hp, &pk)) return 0;
-  return quic_hspkt_onertt_build(&pk, &d, out);
+  return quic_hspkt_onertt_build_suite(s->sdrv.cipher_suite, &pk, &d, out);
 }
