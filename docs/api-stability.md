@@ -1,10 +1,17 @@
+[Docs](README.md) › API Stability
+
 # API Stability
+
+> **Most applications need five things:** `wired_srvdriver_parse` +
+> `wired_srvdriver_run` (parse flags, serve), a `wired_srvrun_handler`
+> (your callback), and `wired_certreload_load_or_selfsigned` (real certs).
+> WebTransport apps add `wired_server_broadcast_datagram`. Everything else
+> on this page is for going further.
 
 > **Rule of thumb** — if a function is in the *Stable API* table below, call
 > it freely; it either does one whole job or is a pure function with no
 > hidden ordering rules. Anything in the *Low-level* table has call-order or
-> lifetime preconditions: read its header comment before using it. When in
-> doubt, stick to the functions `docs/getting-started.md` shows.
+> lifetime preconditions: read its header comment before using it.
 
 Which functions in the public headers are the stable application-facing
 surface, and which are low-level internals that happen to be reachable from
@@ -57,6 +64,9 @@ These are reachable from the public headers because the app-facing layer is
 built out of them, not because they are meant to be called directly by most
 users. Each has a call-order or lifetime precondition that is easy to violate.
 
+<details>
+<summary>The full low-level list</summary>
+
 | Function | Why it needs care |
 |---|---|
 | `wired_srvboot_is_initial`, `wired_srvboot_accept` | Cold-starts one connection from a raw Initial datagram. `accept` must run before any `wired_srvloop_step` call for that connection, and its `wired_srvboot_id` fields are views the caller must keep alive for the call. |
@@ -75,6 +85,8 @@ users. Each has a call-order or lifetime precondition that is easy to violate.
 | `quic_x25519`, `quic_x25519_base` | Raw Curve25519 scalar multiplication. The caller MUST reject an all-zero `quic_x25519` result (RFC 7748 6.1); skipping that check silently accepts a non-contributory (low-order) key exchange. |
 | `quic_put_bytes`, `quic_take_bytes` | Cursor-based byte copy used by codec internals. Correct only when the caller manages the cursor (`*off`) consistently across calls; no bounds memory beyond what is passed in. |
 | `quic_memcpy`, `quic_memset` | Not meant to be called by application code at all — they exist only so a freestanding (`-nostdlib`) binary that defines `WIRED_MAIN` can supply the libc-named `memcpy`/`memset` symbols the compiler emits implicitly. An implementation detail of the freestanding build, exposed because that shim has to live somewhere. |
+
+</details>
 
 ## Versioning policy
 
