@@ -61,7 +61,7 @@ The TLS 1.3 key schedule derives keys with labeled HKDF expansion, and QUIC's pa
 At this single point, the layer of pure cryptographic functions meshes with TLS key derivation.
 It is because of this contact that part of crypto (key derivation and key sets) shares the type of tls's Initial keys.
 
-Representative domains are AEAD (AES-GCM and ChaCha20-Poly1305), hashing (SHA-256 / SHA-512, HMAC), signatures (Ed25519, ECDSA P-256, RSA-PSS), key derivation (HKDF), and X.509 parsing and verification.
+Representative domains are AEAD (AES-GCM and ChaCha20-Poly1305), hashing (SHA-256 / SHA-512, HMAC), signatures (Ed25519, ECDSA P-256 / P-384, RSA-PSS), key derivation (HKDF), and X.509 parsing and verification.
 
 ## transport: lay reliable multiplexed streams over UDP
 
@@ -81,7 +81,7 @@ The key point is the two-level flow control.
 QUIC limits the receive volume of the whole connection and that of each stream separately.
 With only one of these, you cannot prevent a single stream from devouring the receive buffer of the whole connection.
 Managing the two limits — per-connection and per-stream — at the same time is the central difficulty of this layer.
-Congestion control uses NewReno and starts from an initial window of ten times the maximum datagram size (roughly 10 × 1200 bytes).
+Congestion control offers three algorithms — NewReno (the default), CUBIC, and BBR, selected per run — and starts from an initial window of ten times the maximum datagram size (roughly 10 × 1200 bytes).
 
 Representative domains are packet framing and protection, frame encoding, loss recovery and congestion control, streams and two-level flow control, the connection lifecycle, and UDP I/O.
 
