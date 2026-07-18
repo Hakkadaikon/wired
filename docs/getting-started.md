@@ -1,3 +1,5 @@
+[Docs](README.md) › Getting Started
+
 # Getting Started
 
 From nothing to a running HTTP/3 server, then to a server of your own.
@@ -71,27 +73,9 @@ a browser chat over WebTransport DATAGRAMs
 WebTransport server endpoint
 ([webtransport_interop](../examples/webtransport_interop/)).
 
-<details>
-<summary>Reference: every <code>just</code> recipe</summary>
-
-| Recipe | What it does |
-|---|---|
-| `setup` | One-time bootstrap: install Nix if absent. |
-| `nix <recipe>` | Run any recipe inside the pinned flake devShell. |
-| `build` | `fmt` + `ninja` + `lint` as one pipeline. |
-| `ninja` | Compile every `src/**/*.c` with `-ffreestanding -nostdlib` into `build/<path>.o` — the proof of libc independence. |
-| `lib` | Archive the SDK objects into `build/libwired.a` (excludes the SDK's own `_start` stub so your app supplies the entry point). |
-| `test` | Format, then build and run `build/quic_test`: `tests/run.c` is a single unity translation unit including every production `.c` and every `*_test.c`, assertions on. |
-| `ccn` | `lizard src --CCN 3 -w` — every function must hold cyclomatic complexity ≤ 3. |
-| `check` | `ccn` + `test`. |
-| `fmt` / `fmt-check` | clang-format in place / verify without writing. |
-| `lint` / `cert` | clang-tidy static analysis (CERT C secure-coding rules + bug finders / CERT C only). |
-| `fuzz-header` / `fuzz-qpack` / `fuzz-x509` | Build one libFuzzer+ASan harness (packet header, QPACK, X.509). |
-| `fuzz-ci [secs]` | Run all three harnesses for `secs` seconds each (default 120). |
-| `docs` | Regenerate the doxygen API reference into `docs/sdk/` from `wired.h`'s transitive includes. |
-| `gen-ninja` / `compdb` | Regenerate `build.ninja` / emit `compile_commands.json` for clangd. |
-
-</details>
+These four recipes (`setup`, `build`, `test`, `run`) are all this page
+needs; the full recipe list lives in
+[Development](development.md#build-system).
 
 ## Part 2: A server of your own
 
@@ -187,14 +171,6 @@ need: [I/O drivers](#choosing-an-io-driver) for more throughput,
 `wired_srvdriver_parse` selects one of four run paths from the flags. All
 four drive the same application callback — pick by how much throughput you
 need and how much setup you can afford:
-
-```mermaid
-flowchart LR
-    START(["which flags?"]) -->|none| P["single process<br/>(blocking poll)"]
-    START -->|"--workers N"| W["N forked workers<br/>(SO_REUSEPORT)"]
-    START -->|"--cores a,b,c"| T["thread fan-out<br/>(clone/futex)"]
-    START -->|"--ifindex N --ip A"| X["AF_XDP<br/>(kernel bypass)"]
-```
 
 | Driver | Select with | Extra flags | Notes |
 |---|---|---|---|
