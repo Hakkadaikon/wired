@@ -49,14 +49,6 @@ You don't need to be a protocol expert to start: the quick start above and
 the [examples](examples/) run as-is. The internals documentation is there
 for when (and if) you want to go deeper.
 
-> **First time hearing these terms?**
-> **QUIC** is the encrypted UDP-based transport protocol that HTTP/3 runs
-> on. **WebTransport** is the browser API for low-latency two-way
-> streams and datagrams, built on HTTP/3. **AF_XDP** is a Linux fast path
-> that delivers network packets to user space while bypassing most of the
-> kernel stack. **libc-free** means the code uses no C standard library at
-> all — it makes its own system calls.
-
 ## Why wired?
 
 **Zero dependencies, zero libc.** Every file compiles under
@@ -86,27 +78,6 @@ official RFC/FIPS test vectors.
 **Auditable by construction.** Every function stays below a hard complexity
 limit (CI-enforced). CERT C lint on every push, nightly fuzzing, and interop
 tests against real QUIC clients.
-
-## How it fits together
-
-Five layers, each in its own directory under `src/`, dependencies pointing
-downward (the QUIC⇄TLS integration is the one deliberate exception):
-
-```mermaid
-flowchart TB
-    APP["app — HTTP/3, QPACK, WebTransport"]
-    TLS["tls — TLS 1.3 handshake, keys"]
-    TRANSPORT["transport — packets, loss recovery,<br/>congestion control, streams, UDP/XDP I/O"]
-    CRYPTO["crypto — AEAD, signatures, KDF, X.509"]
-    COMMON["common — varint, byte cursor,<br/>syscall wrapper, randomness"]
-    APP --> TRANSPORT
-    TRANSPORT -.-> TLS
-    TLS --> CRYPTO
-    TRANSPORT --> CRYPTO --> COMMON
-```
-
-The full picture — what each layer does and why the boundaries sit where
-they do — is in [Architecture](docs/arch/overview.md).
 
 ## What the code looks like
 
@@ -153,20 +124,10 @@ for a single process, `--workers N` for forked workers on one port,
 
 ## Documentation
 
-Follow the [documentation index](docs/README.md), which orders every page by
-what you're trying to do. The short version of the reading path:
-
-1. [Getting Started](docs/getting-started.md) — build, run, and write your
-   first server (start here).
-2. [Architecture](docs/arch/overview.md) — how the stack works inside, with
-   [per-layer detail](docs/arch/layers.md) and the
-   [implemented specifications](docs/arch/rfcs.md).
-3. [API stability](docs/api-stability.md) and the
-   [API reference](https://hakkadaikon.github.io/wired/) — when you build
-   against the SDK.
-4. [Security](docs/security.md) and [Syscalls](docs/syscalls.md) — when you
-   audit it.
-5. [Development](docs/development.md) — when you change it.
+Everything lives under [docs/](docs/README.md) — one index page ordering
+every doc by task. First read:
+[Getting Started](docs/getting-started.md), then
+[Architecture](docs/arch/overview.md).
 
 ## Supported platform
 
