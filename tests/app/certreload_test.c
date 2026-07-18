@@ -109,6 +109,58 @@ static void test_certreload_loads_two_cert_chain(void) {
   crt_unlink(crt_key_path);
 }
 
+/* AMPLIFICATIONLIMIT CHAIN: quic-interop-runner's amplificationlimit case
+ * deliberately serves a 9-certificate chain (13594 bytes of PEM text) to
+ * inflate the server's Handshake flight for its RFC 9000 8.1
+ * anti-amplification check. certreload doesn't validate chain contents
+ * (that's the TLS/PKI layer's job), so 9 copies of the same valid leaf DER
+ * exercises the same boundary: WIRED_CERTRELOAD_CHAIN_MAX(10) must accept
+ * 9 entries, and the 16KB cert_pem/chain_der buffers must hold the text. */
+#define CRT_PEM_NINE                                               \
+  CRT_PEM_LEAF CRT_PEM_LEAF CRT_PEM_LEAF CRT_PEM_LEAF CRT_PEM_LEAF \
+      CRT_PEM_LEAF CRT_PEM_LEAF CRT_PEM_LEAF CRT_PEM_LEAF
+static const char crt_cert_nine_pem[]  = CRT_PEM_NINE;
+static const char crt_cert_nine_path[] = "build/certreload_cert9_test.pem";
+
+static void test_certreload_loads_nine_cert_chain(void) {
+  wired_certreload_store store;
+  wired_srvboot_id       id = {0};
+  usz                    i;
+  crt_write(
+      crt_cert_nine_path, crt_cert_nine_pem, sizeof(crt_cert_nine_pem) - 1);
+  crt_write(crt_key_path, crt_key_pem, sizeof(crt_key_pem) - 1);
+  CHECK(
+      wired_certreload_load(crt_cert_nine_path, crt_key_path, &store, &id) ==
+      1);
+  CHECK(id.chain_count == 9);
+  for (i = 0; i < 9; i++)
+    CHECK(id.chain[i].n == sizeof(quic_realchain_leaf_der));
+  crt_unlink(crt_cert_nine_path);
+  crt_unlink(crt_key_path);
+}
+
+/* CAP AT MAX: an 11-certificate cert.pem (past WIRED_CERTRELOAD_CHAIN_MAX)
+ * loads only the first 10 -- certreload_next_cert's existing n < MAX guard,
+ * confirmed against the new, larger limit. */
+#define CRT_PEM_ELEVEN CRT_PEM_NINE CRT_PEM_LEAF CRT_PEM_LEAF
+static const char crt_cert_eleven_pem[]  = CRT_PEM_ELEVEN;
+static const char crt_cert_eleven_path[] = "build/certreload_cert11_test.pem";
+
+static void test_certreload_load_chain_caps_at_max(void) {
+  wired_certreload_store store;
+  wired_srvboot_id       id = {0};
+  crt_write(
+      crt_cert_eleven_path, crt_cert_eleven_pem,
+      sizeof(crt_cert_eleven_pem) - 1);
+  crt_write(crt_key_path, crt_key_pem, sizeof(crt_key_pem) - 1);
+  CHECK(
+      wired_certreload_load(crt_cert_eleven_path, crt_key_path, &store, &id) ==
+      1);
+  CHECK(id.chain_count == WIRED_CERTRELOAD_CHAIN_MAX);
+  crt_unlink(crt_cert_eleven_path);
+  crt_unlink(crt_key_path);
+}
+
 /* MISSING CERT FILE: a nonexistent cert path fails and leaves id untouched.
  */
 static void test_certreload_missing_cert_file_fails(void) {
@@ -192,6 +244,8 @@ static void test_certreload_or_selfsigned_loads(void) {
 void test_certreload(void) {
   test_certreload_loads_single_cert();
   test_certreload_loads_two_cert_chain();
+  test_certreload_loads_nine_cert_chain();
+  test_certreload_load_chain_caps_at_max();
   test_certreload_key_with_ec_params_prefix();
   test_certreload_missing_cert_file_fails();
   test_certreload_malformed_key_fails();

@@ -97,7 +97,9 @@ int wired_certreload_load(
     const char*             key_path,
     wired_certreload_store* store,
     wired_srvboot_id*       id) {
-  u8  cert_pem[8192], key_pem[4096];
+  /* cert_pem sized past a real 9-cert amplificationlimit chain (13594
+   * bytes of PEM text) with headroom -- see WIRED_CERTRELOAD_CHAIN_MAX. */
+  u8  cert_pem[16384], key_pem[4096];
   ssz cn = certreload_read_file(cert_path, cert_pem, sizeof cert_pem);
   ssz kn = certreload_read_file(key_path, key_pem, sizeof key_pem);
   if (cn < 0 || kn < 0) return 0;
@@ -111,6 +113,20 @@ static int certreload_path_set(const char* cert_path) {
   return cert_path && cert_path[0];
 }
 
+/* Log "cert.pem: N certs\n" -- chain_count can run past a single digit
+ * (WIRED_CERTRELOAD_CHAIN_MAX=10, e.g. quic-interop-runner's 9-cert
+ * amplificationlimit chain), so this formats the count instead of the old
+ * two-value guess. */
+static void certreload_log_chain_count(usz chain_count) {
+  char buf[32];
+  usz  at = 0;
+  wired_fmt_u64(buf, &at, &(wired_fmt_u64_in){chain_count, 1});
+  buf[at] = 0;
+  wired_log_str("cert.pem: ");
+  wired_log_str(buf);
+  wired_log_str(chain_count == 1 ? " cert\n" : " certs\n");
+}
+
 /* Load or die: wired_certreload_load's own file/PEM/DER checks decide
  * failure; this only turns that failure into a diagnostic + process exit and
  * logs the chain length on success. */
@@ -121,8 +137,7 @@ static void certreload_load_or_die(
     wired_srvboot_id*       id) {
   if (!wired_certreload_load(cert_path, key_path, store, id))
     wired_die("certreload: bad cert/key file\n");
-  wired_log_str(
-      id->chain_count == 2 ? "cert.pem: 2 certs\n" : "cert.pem: 1 cert\n");
+  certreload_log_chain_count(id->chain_count);
 }
 
 void wired_certreload_load_or_selfsigned(

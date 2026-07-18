@@ -12,8 +12,12 @@
  * (`app/http3/server/srvrun`), so the parsing logic exists exactly once. */
 
 /** At most this many CERTIFICATE blocks are read from a fullchain cert.pem
- * (leaf + one intermediate; matches wired_srvboot_id.chain_count's use). */
-#define WIRED_CERTRELOAD_CHAIN_MAX 2
+ * (leaf + intermediates). Sized past quic-interop-runner's amplificationlimit
+ * case, which deliberately serves a 9-certificate chain to inflate the
+ * server's Handshake flight for its RFC 9000 8.1 anti-amplification check;
+ * matches QUIC_TLS_CERT_CHAIN_MAX (sdrv/cert.h) so a chain this loader
+ * accepts is never rejected downstream at the TLS flight-build layer. */
+#define WIRED_CERTRELOAD_CHAIN_MAX 10
 
 /** Caller-owned storage a load fills: the DER bytes of every chain
  * certificate (concatenated), spans into that buffer (leaf first), and the
@@ -21,7 +25,10 @@
  * outlive the id — keep this struct alive for as long as the identity built
  * from it is in use. */
 typedef struct {
-  u8        chain_der[8192]; /**< concatenated DER of every chain cert */
+  /** concatenated DER of every chain cert. Sized past a real 9-cert
+   * amplificationlimit chain's cert.pem (13594 bytes of PEM/base64; DER is
+   * more compact) with headroom. */
+  u8        chain_der[16384];
   quic_span chain[WIRED_CERTRELOAD_CHAIN_MAX]; /**< views into chain_der */
   u8        priv[32];                          /**< P-256 private scalar */
 } wired_certreload_store;
