@@ -468,12 +468,37 @@ static void wt_window_recompute_frontier(wired_srvloop_wt_window* win) {
       win->range_n > 0 && win->range_lo[0] == 0 ? win->range_hi[0] : 0;
 }
 
-/* Append [lo, hi) as a brand-new range, dropping the range set's smallest
- * (already least useful for advancing the frontier) entry first if the fixed
- * array is full -- see wt_window_insert's own doc for why this is an
- * acceptable fallback rather than a hard cap. */
+/* The index of the range furthest from the frontier (highest range_lo) --
+ * wt_range_evict_farthest's pick of what to sacrifice when the fixed array
+ * is full: that range is the one least likely to be the next gap the
+ * frontier needs, since every closer range sorts and coalesces first. */
+static usz wt_range_farthest(const wired_srvloop_wt_window* win) {
+  usz far = 0;
+  for (usz i = 1; i < win->range_n; i++)
+    if (win->range_lo[i] > win->range_lo[far]) far = i;
+  return far;
+}
+
+/* Drop the farthest-from-frontier range, sliding the rest down by one, to
+ * free a slot for a new incoming range. */
+static void wt_range_evict_farthest(wired_srvloop_wt_window* win) {
+  usz drop            = wt_range_farthest(win);
+  usz last            = win->range_n - 1;
+  win->range_lo[drop] = win->range_lo[last];
+  win->range_hi[drop] = win->range_hi[last];
+  win->range_n--;
+}
+
+/* Append [lo, hi) as a brand-new range, evicting the range set's farthest-
+ * from-frontier (least useful for advancing it) entry first if the fixed
+ * array is already full -- see wt_window_insert's own doc for why this is an
+ * acceptable fallback rather than a hard cap. Silently dropping the new
+ * range instead (the previous behavior) let a stream's frontier wedge
+ * forever once 8 disjoint gaps piled up: the dropped bytes never got
+ * re-recorded even on retransmission, so delivered_len/MAX_STREAM_DATA
+ * stopped advancing for that stream permanently. */
 static void wt_range_append(wired_srvloop_wt_window* win, u64 lo, u64 hi) {
-  if (win->range_n >= WIRED_SRVLOOP_WT_MAX_RANGES) return;
+  if (win->range_n >= WIRED_SRVLOOP_WT_MAX_RANGES) wt_range_evict_farthest(win);
   win->range_lo[win->range_n] = lo;
   win->range_hi[win->range_n] = hi;
   win->range_n++;
