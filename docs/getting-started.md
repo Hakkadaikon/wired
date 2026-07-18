@@ -58,11 +58,14 @@ Then, from a machine that can reach UDP 4433:
 curl --http3-only --insecure https://<host>:4433/
 ```
 
-See [examples/](../examples/) for the three samples: an HTTP/3 message-log /
+See [examples/](../examples/) for the four samples: an HTTP/3 message-log /
 static-file server ([word_list](../examples/word_list/)), a WebTransport
 building-blocks demo ([webtransport_echo](../examples/webtransport_echo/)),
-and a browser chat over WebTransport DATAGRAMs
-([webtransport_chat](../examples/webtransport_chat/)).
+a browser chat over WebTransport DATAGRAMs
+([webtransport_chat](../examples/webtransport_chat/)), and a
+[quic-interop-runner](https://github.com/quic-interop/quic-interop-runner)
+WebTransport server endpoint
+([webtransport_interop](../examples/webtransport_interop/)).
 
 ## Using the SDK in your own application
 
