@@ -20,6 +20,8 @@
 - [API reference](https://hakkadaikon.github.io/wired/) — full doxygen.
 - [Syscalls](syscalls.md) — every kernel call the SDK makes.
 - [Security](security.md) — what the SDK guarantees, what it leaves to you.
+- [Test Coverage](test-coverage.md) — how far each spec is tested, from
+  unit vectors to real-client interop, checkbox by checkbox.
 
 ## Change it
 
