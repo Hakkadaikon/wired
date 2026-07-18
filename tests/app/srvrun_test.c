@@ -1956,8 +1956,13 @@ static void test_srvrun_rtt_sample_uses_newest_hit_only(void) {
 }
 
 /* PACING GATE: before the first RTT sample sends are unpaced; with an srtt,
- * a send scheduled in the future blocks the pump and the next-send time
- * advances by the pacing interval (1.25 * pkt * srtt / cwnd). */
+ * a send scheduled in the future blocks the pump. Chosen cwnd/srtt so the
+ * theoretical interval (24ms) lands just under SRVRUN_PTO_MS(25) -- still
+ * exercises srvrun_pace_ok's future/due-now branches without tripping the
+ * poll-tick fast path this test isn't about (see T-002/T-003 for that
+ * boundary). 5*1200*400/(4*10000) = 60... too big; use cwnd=48000,
+ * srtt=400: 5*1200*400/(4*48000) = 12.5 -> 12ms (still < 25, so this now
+ * exercises the poll-tick fast path too -- next_send_ms stays due-now). */
 static void test_srvrun_pacing_gate(void) {
   srvrun_conn c  = {0};
   srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
@@ -1971,20 +1976,18 @@ static void test_srvrun_pacing_gate(void) {
   CHECK(srvrun_pace_ok(&ctx, &c) == 0);
   c.next_send_ms = 1000; /* due now */
   CHECK(srvrun_pace_ok(&ctx, &c) == 1);
-  srvrun_pace_next(&ctx, &c);
-  /* 5 * 1200 * 100 / (4 * 12000) = 12ms */
-  CHECK(c.next_send_ms == 1012);
 }
 
-/* REGRESSION: once cwnd has grown large enough that the true pacing
- * interval (5*packet_size*srtt/(4*cwnd)) rounds under 1ms, srvrun_pace_next
- * must leave next_send_ms AT now_ms (not push it 1ms into a frozen-time
- * step's future) -- otherwise a whole recv step's worth of remaining cwnd
- * room goes unused every step, capping throughput at one round-robin pass
- * per inbound datagram regardless of how much window is open. Chosen cwnd
- * (5,000,000) with srtt=30ms: 5*1200*30/(4*5000000) = 0.009ms, floors to 0
- * via integer division -- exactly the sub-ms case. */
-static void test_srvrun_pacing_no_stall_when_subms(void) {
+/* REGRESSION: once the theoretical pacing interval fits inside one
+ * poll-loop tick (SRVRUN_PTO_MS), srvrun_pace_next must leave next_send_ms
+ * AT now_ms (not push it into a frozen-time step's future) -- otherwise a
+ * whole recv step's worth of remaining cwnd room goes unused every step,
+ * capping throughput at one round-robin pass per inbound datagram
+ * regardless of how much window is open, and pinning the connection to the
+ * SRVRUN_PTO_MS poll cadence instead of its real pacing rate (the interop
+ * goodput stall). Chosen cwnd (5,000,000) with srtt=30ms:
+ * 5*1200*30/(4*5000000) = 0.009ms, well under SRVRUN_PTO_MS(25). */
+static void test_srvrun_pacing_no_stall_within_poll_tick(void) {
   srvrun_conn c  = {0};
   srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
                     0,  0, 0, 0, 0};
@@ -2000,21 +2003,142 @@ static void test_srvrun_pacing_no_stall_when_subms(void) {
   CHECK(srvrun_pace_ok(&ctx, &c) == 1); /* a 2nd round in this step may fire */
 }
 
-/* BOUNDARY: a pacing interval that lands exactly at 1ms must still advance
- * next_send_ms the normal way (the sub-ms fast path is strictly < 1ms,
- * never >=) -- chosen so 5*1200*srtt/(4*cwnd) == 1 exactly.
- * 5*1200*4000/(4*6000000) = 1.0ms. */
-static void test_srvrun_pacing_exactly_one_ms_still_advances(void) {
+/* T-002 BOUNDARY: a pacing interval exactly equal to SRVRUN_PTO_MS(25) is
+ * a real defer -- one round-robin pass this step, next one waits for the
+ * next send opportunity. 5*1200*10000/(4*24000) = 625... too big; use
+ * cwnd=6000000, srtt=4000: 5*1200*4000/(4*6000000) = 1.0 -- too small now
+ * that the fast path covers < SRVRUN_PTO_MS. Recompute for interval==25:
+ * 5*1200*srtt/(4*cwnd)=25 => cwnd = 240*srtt (cwnd=240000, srtt=4000). */
+static void test_srvrun_pace_interval_equals_poll_no_extra_round(void) {
   srvrun_conn c  = {0};
   srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
                     0,  0, 0, 0, 0};
   srvrun_state    st  = {0, 0};
   srvrun_step_ctx ctx = {&cfg, 0, &st, 1000};
   quic_cc_init(&c.cc);
-  c.cc.cwnd = 6000000;
+  c.cc.cwnd = 240000;
   c.srtt_ms = 4000;
+  CHECK(
+      quic_pacing_interval(c.srtt_ms, c.cc.cwnd, QUIC_MAX_DATAGRAM) ==
+      SRVRUN_PTO_MS);
   srvrun_pace_next(&ctx, &c);
-  CHECK(c.next_send_ms == 1001);
+  CHECK(c.next_send_ms == 1000 + SRVRUN_PTO_MS);
+}
+
+/* T-003 BOUNDARY: an interval one ms past SRVRUN_PTO_MS still defers the
+ * normal way -- the fast path is strictly < SRVRUN_PTO_MS, never >=.
+ * 5*1200*4000/(4*230000) = 26. */
+static void test_srvrun_pace_interval_over_poll_waits(void) {
+  srvrun_conn c  = {0};
+  srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                    0,  0, 0, 0, 0};
+  srvrun_state    st  = {0, 0};
+  srvrun_step_ctx ctx = {&cfg, 0, &st, 1000};
+  quic_cc_init(&c.cc);
+  c.cc.cwnd = 230000;
+  c.srtt_ms = 4000;
+  CHECK(
+      quic_pacing_interval(c.srtt_ms, c.cc.cwnd, QUIC_MAX_DATAGRAM) ==
+      SRVRUN_PTO_MS + 1);
+  srvrun_pace_next(&ctx, &c);
+  CHECK(c.next_send_ms == 1000 + SRVRUN_PTO_MS + 1);
+}
+
+/* T-001: with an interval well under SRVRUN_PTO_MS, a single
+ * srvrun_pump_sess call bursts through cwnd instead of stopping after one
+ * round -- the actual fix under test, driven through the real pump loop
+ * (not just the pacing helpers) against a confirmed connection (real 1-RTT
+ * keys, srvrun_send_slice needs them to seal a packet) with a real armed
+ * sendsess so multiple rounds have data to take. */
+static void test_srvrun_pace_bursts_within_poll_interval(void) {
+  static u8     body[8 * SRVRUN_CHUNK];
+  struct lp_fix f;
+  srvrun_conn   c;
+  quic_obuf     ob   = {0};
+  u8            obuf[1024];
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.cc.cwnd           = 5000000; /* interval well under SRVRUN_PTO_MS */
+  c.srtt_ms           = 30;
+  c.resp[0].in_use    = 1;
+  c.resp[0].stream_id = 0;
+  c.resp[0].stream_credit = sizeof body;
+  wired_sendsess_arm(&c.resp[0].sess, body, sizeof body, SRVRUN_CHUNK);
+  {
+    srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                       &g_srvrun_env, 0, 0, 0, 0, 0};
+    srvrun_state    st  = {0, &c};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 1000};
+    srvrun_pump_sess(&ctx, 0);
+  }
+  /* every chunk went out in this one call -- not capped at one round */
+  CHECK(c.resp[0].sess.q.cur == sizeof body);
+}
+
+/* T-004: srvrun_pace_within_poll_tick's fast path still applies at the old
+ * sub-ms extreme (cwnd huge enough the interval floors to 0) -- the new,
+ * wider SRVRUN_PTO_MS threshold subsumes the old one, nothing regresses. */
+static void test_srvrun_pace_subms_still_unlimited(void) {
+  srvrun_conn c = {0};
+  quic_cc_init(&c.cc);
+  c.cc.cwnd = 5000000000ULL;
+  c.srtt_ms = 30;
+  CHECK(quic_pacing_interval(c.srtt_ms, c.cc.cwnd, QUIC_MAX_DATAGRAM) == 0);
+  {
+    srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                       &g_srvrun_env, 0, 0, 0, 0, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, 0, 1000};
+    c.next_send_ms       = 1000;
+    srvrun_pace_next(&ctx, &c);
+  }
+  CHECK(c.next_send_ms == 1000);
+}
+
+/* T-006 regression: a response small enough to send in one round already
+ * (no burst opportunity) behaves identically before/after -- one round,
+ * next_send_ms untouched when the interval is sub-poll-tick. */
+static void test_srvrun_pace_small_response_unaffected(void) {
+  static u8     body[SRVRUN_CHUNK];
+  struct lp_fix f;
+  srvrun_conn   c;
+  quic_obuf     ob   = {0};
+  u8            obuf[1024];
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.cc.cwnd           = 5000000;
+  c.srtt_ms           = 30;
+  c.resp[0].in_use    = 1;
+  c.resp[0].stream_id = 0;
+  c.resp[0].stream_credit = sizeof body;
+  wired_sendsess_arm(&c.resp[0].sess, body, sizeof body, SRVRUN_CHUNK);
+  {
+    srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                       &g_srvrun_env, 0, 0, 0, 0, 0};
+    srvrun_state    st  = {0, &c};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 1000};
+    srvrun_pump_sess(&ctx, 0);
+  }
+  CHECK(c.resp[0].sess.q.cur == sizeof body);
+  /* sub-poll-tick: srvrun_pace_next never touches next_send_ms, so it
+   * stays at sr_make_confirmed_conn's zero-init, not "now". */
+  CHECK(c.next_send_ms == 0);
+}
+
+/* T-011: no in-flight-able data at all -- the burst-capable pump loop
+ * still terminates immediately instead of spinning. */
+static void test_srvrun_pace_burst_no_data_terminates(void) {
+  srvrun_conn* c = sr_test_conns();
+  quic_cc_init(&c->cc);
+  c->cc.cwnd = 5000000;
+  c->srtt_ms = 30;
+  {
+    srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                       &g_srvrun_env, 0, 0, 0, 0, 0};
+    srvrun_state    st  = {0, c};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 1000};
+    srvrun_pump_sess(&ctx, 0); /* must return, not loop forever */
+  }
+  CHECK(1); /* reaching here at all is the assertion */
 }
 
 /* POLLING DRIVER (tasks/polling-driver-plan.md Phase 2): busy_poll/
@@ -8123,8 +8247,13 @@ void test_srvrun(void) {
   test_srvrun_rtt_ewma();
   test_srvrun_rtt_sample_uses_newest_hit_only();
   test_srvrun_pacing_gate();
-  test_srvrun_pacing_no_stall_when_subms();
-  test_srvrun_pacing_exactly_one_ms_still_advances();
+  test_srvrun_pacing_no_stall_within_poll_tick();
+  test_srvrun_pace_interval_equals_poll_no_extra_round();
+  test_srvrun_pace_interval_over_poll_waits();
+  test_srvrun_pace_bursts_within_poll_interval();
+  test_srvrun_pace_subms_still_unlimited();
+  test_srvrun_pace_small_response_unaffected();
+  test_srvrun_pace_burst_no_data_terminates();
   test_srvrun_shutdown_rejects_new_initial();
   test_srvrun_shutdown_refuses_slot_claim();
   test_srvrun_owes_goaway_once();
