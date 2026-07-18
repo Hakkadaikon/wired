@@ -14,19 +14,22 @@ This page is in three parts — you can stop after any of them:
 
 ### Install the toolchain
 
-`wired` targets **x86_64-linux only**. One command installs everything
-(clang, just, lizard, doxygen — the exact versions CI uses), pinned by a
-[Nix](https://nixos.org/) flake so your build matches CI's:
+`wired` targets **x86_64-linux only**. Two ways to get the tools — pick one:
+
+**Option A (recommended): let Nix pin everything.** One command installs
+clang, just, lizard, and doxygen at the exact versions CI uses:
 
 ```sh
 just setup     # one-time: installs Nix (Determinate Systems installer) if absent
 nix develop    # enter the pinned devShell
 ```
 
-> **No Nix?** Install `clang`, `just`, and `lizard` yourself. A host
-> `clang-format`/`clang-tidy` of a different version can disagree with CI's
-> pinned one — run formatting and lint through `just nix <recipe>` when in
-> doubt.
+**Option B: your own package manager.** Install `clang`, `just`, and
+`lizard` (e.g. `apt install clang just` + `pip install lizard`). Everything
+builds and tests fine this way. The one caveat: a host `clang-format` /
+`clang-tidy` of a different version can format or lint slightly differently
+from CI — if a formatting check surprises you, run that one recipe through
+the pinned toolchain with `just nix <recipe>`.
 
 ### Build and test
 
@@ -173,6 +176,12 @@ opt-in.
 
 ## Part 3: Going further
 
+Four independent recipes. They share nothing — jump straight to the one you
+need: [I/O drivers](#choosing-an-io-driver) for more throughput,
+[WebTransport](#webtransport) for browser streams/datagrams,
+[Certificates](#certificates) for real TLS certs,
+[Observability](#observability) for debugging output.
+
 ### Choosing an I/O driver
 
 `wired_srvdriver_parse` selects one of four run paths from the flags. All
@@ -260,7 +269,5 @@ The examples map these to `--qlog-file`/`--keylog-file` flags.
 
 ---
 
-**Next:** how the stack works inside →
-[Architecture and Data Flow](arch/overview.md) · building against the SDK →
-[API Stability](api-stability.md) · all pages →
-[documentation index](README.md)
+**Next:** [Architecture and Data Flow](arch/overview.md) — how the stack
+works inside. ([all docs](README.md))
