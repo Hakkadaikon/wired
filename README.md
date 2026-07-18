@@ -9,24 +9,22 @@ even libc.**
 [![Docs](https://github.com/Hakkadaikon/wired/actions/workflows/docs.yml/badge.svg)](https://github.com/Hakkadaikon/wired/actions/workflows/docs.yml)
 [![MIT Licensed](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-Point a browser (or curl) at it and you get HTTP/3 over QUIC — the same
-protocol stack behind most of today's web — served by a single static binary
-that talks to the Linux kernel through raw syscalls and nothing else.
-
 ## Quick start
 
-Three commands to a running HTTP/3 server:
+Three commands to a running HTTP/3 server. (`just` is a command runner —
+think `make` without the Makefile quirks. The first command installs
+everything else.)
 
 ```sh
-just setup           # one-time: installs Nix if absent
+just setup           # one-time: installs the toolchain (via Nix)
 just build           # format + compile + lint
 
 cd examples/word_list
-just run             # binds 0.0.0.0:4433
+just run             # serves HTTP/3 on 0.0.0.0:4433
 ```
 
-Test it from any machine that can reach UDP port 4433 (Docker keeps you from
-needing an HTTP/3-capable curl locally):
+Test it from any machine that can reach UDP port 4433 — the Docker image
+saves you from needing an HTTP/3-capable curl locally:
 
 ```sh
 docker run --rm ymuski/curl-http3 \
@@ -61,37 +59,33 @@ for when (and if) you want to go deeper.
 
 ## Why wired?
 
-**Zero dependencies, zero libc.** Every source file compiles under
-`-ffreestanding -nostdlib` — a compiler mode with no standard library — so
-the build itself proves nothing external leaked in. The kernel is reached
-through raw syscalls only, and the binary ships its own entry point.
+**Zero dependencies, zero libc.** Every file compiles under
+`-ffreestanding -nostdlib` — no standard library at all. If something
+external leaked in, the build would fail. That *is* the proof.
 
-**The full stack in user space.** QUIC
-([RFC 9000](https://www.rfc-editor.org/rfc/rfc9000) /
+**The full stack in user space.** QUIC, TLS 1.3, HTTP/3, QPACK, and
+WebTransport are all implemented here. The kernel only ever carries
+already-encrypted UDP bytes.
+(Specs: [RFC 9000](https://www.rfc-editor.org/rfc/rfc9000) /
 [9001](https://www.rfc-editor.org/rfc/rfc9001) /
-[9002](https://www.rfc-editor.org/rfc/rfc9002)),
-TLS 1.3 ([RFC 8446](https://www.rfc-editor.org/rfc/rfc8446)),
-HTTP/3 ([RFC 9114](https://www.rfc-editor.org/rfc/rfc9114)),
-QPACK ([RFC 9204](https://www.rfc-editor.org/rfc/rfc9204)), and
-WebTransport ([draft-ietf-webtrans-http3](https://datatracker.ietf.org/doc/draft-ietf-webtrans-http3/))
-are all implemented here; the kernel only ever carries already-encrypted UDP
-bytes.
+[9002](https://www.rfc-editor.org/rfc/rfc9002) /
+[8446](https://www.rfc-editor.org/rfc/rfc8446) /
+[9114](https://www.rfc-editor.org/rfc/rfc9114) /
+[9204](https://www.rfc-editor.org/rfc/rfc9204) /
+[draft-ietf-webtrans-http3](https://datatracker.ietf.org/doc/draft-ietf-webtrans-http3/) —
+the [full list](docs/arch/rfcs.md) covers 40+ specifications.)
 
-**Four I/O drivers behind one CLI.** The same application callback runs
-single-process (`poll`), multi-process (`fork` + `SO_REUSEPORT`),
-multi-thread (raw `clone`/`futex`, no pthreads), or AF_XDP (packets polled
-from a shared ring, zero per-packet receive syscalls) — selected by a
-command-line flag, no code change.
+**Four I/O drivers behind one flag.** The same callback runs single-process
+(`poll`), forked workers, raw threads, or kernel-bypass AF_XDP. Switching
+is a command-line flag, not a code change.
 
-**Its own verified cryptography.** AES-128-GCM, ChaCha20-Poly1305, X25519,
-Ed25519, ECDSA P-256/P-384, RSA, SHA-2, HKDF — each implementation is
-checked against the official RFC/FIPS test vectors.
+**Its own verified cryptography.** AES-GCM, ChaCha20-Poly1305, X25519,
+Ed25519, ECDSA P-256/P-384, RSA, SHA-2, HKDF — each checked against the
+official RFC/FIPS test vectors.
 
-**Auditable by construction.** Every function keeps cyclomatic complexity
-≤ 3 (enforced in CI), clang-tidy CERT C rules run on every push, three
-fuzzing harnesses run nightly, and a
-[quic-interop-runner](https://github.com/quic-interop/quic-interop-runner)
-server endpoint tests against real client implementations.
+**Auditable by construction.** Every function stays below a hard complexity
+limit (CI-enforced). CERT C lint on every push, nightly fuzzing, and interop
+tests against real QUIC clients.
 
 ## How it fits together
 
@@ -114,38 +108,35 @@ flowchart TB
 The full picture — what each layer does and why the boundaries sit where
 they do — is in [Architecture](docs/arch/overview.md).
 
-## A complete server in one screen
+## What the code looks like
 
-The application side of a server is one callback plus one run call; the SDK
-owns everything else — bind, handshake, packet protection, loss recovery,
-HTTP/3, and the I/O driver selected at startup. Condensed from
-[examples/word_list](examples/word_list/wired_server.c):
+Your side of a server is **one callback**. The SDK owns everything else:
+bind, handshake, encryption, loss recovery, HTTP/3.
 
 ```c
-#define WIRED_MAIN /* emits the libc shim + _start a -nostdlib binary needs */
-#include "wired.h"
-#include "app/http3/server/srvdriver/srvdriver.h"
-#include "common/platform/exit/exit.h" /* wired_die */
-
+/* Called once per HTTP/3 request. Fill body_out, return 1. */
 static int app_on_request(
-    void* ctx, const wired_h3reqdrive_req* req,
+    void* ctx, const wired_h3reqdrive_req* req,   /* method, path, body */
     quic_obuf* body_out, const char** content_type) {
-  /* answer req (method/path/body views) by filling body_out */
+  /* ... write your response into body_out ... */
   return 1;
 }
+```
 
+Then `main` is three calls — load an identity, parse the flags, run:
+
+```c
 int wired_main(int argc, char** argv) {
-  wired_srvboot_id     id;
-  wired_srvdriver_opt  opt;
-  wired_srvrun_handler h   = {app_on_request, 0};
-  wired_srvrun_obs     obs = {0};
-
-  server_identity(&id); /* keys + self-signed cert seed, see examples/ */
-  if (!wired_srvdriver_parse(argc, argv, &opt)) wired_die("bad flags\n");
-  if (!wired_srvdriver_run(&id, h, obs, &opt)) wired_die("listen failed\n");
+  server_identity(&id);                            /* keys + certificate  */
+  wired_srvdriver_parse(argc, argv, &opt);         /* --port, --workers…  */
+  wired_srvdriver_run(&id, handler, obs, &opt);    /* serve until SIGTERM */
   return 0;
 }
 ```
+
+(Declarations and error handling trimmed for the README —
+[examples/word_list](examples/word_list/wired_server.c) is the complete,
+runnable version.)
 
 The same binary then picks its I/O driver from the command line: no flags
 for a single process, `--workers N` for forked workers on one port,
