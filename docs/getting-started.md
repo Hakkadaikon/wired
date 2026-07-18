@@ -1,32 +1,75 @@
 # Getting Started
 
-How to build `wired`, run its tests and examples, and use the SDK in your own
-application.
+From nothing to a running HTTP/3 server, then to a server of your own.
 
-## Prerequisites
+This page is in three parts — you can stop after any of them:
 
-`wired` targets **x86_64-linux only**. The toolchain (clang, just, lizard,
-doxygen — the exact versions CI checks against) is pinned by a Nix flake:
+| Part | What you get | Time |
+|---|---|---|
+| [1. First five minutes](#part-1-first-five-minutes) | The example server running, answering real HTTP/3 requests | ~5 min |
+| [2. A server of your own](#part-2-a-server-of-your-own) | Your own binary linked against the SDK | ~15 min |
+| [3. Going further](#part-3-going-further) | I/O drivers, WebTransport, certificates, observability | as needed |
+
+## Part 1: First five minutes
+
+### Install the toolchain
+
+`wired` targets **x86_64-linux only**. One command installs everything
+(clang, just, lizard, doxygen — the exact versions CI uses), pinned by a
+[Nix](https://nixos.org/) flake so your build matches CI's:
 
 ```sh
 just setup     # one-time: installs Nix (Determinate Systems installer) if absent
 nix develop    # enter the pinned devShell
 ```
 
-Without Nix, install `clang`, `just`, and `lizard` yourself. Note that a
-host `clang-format`/`clang-tidy` of a different version can disagree with
-CI's pinned one; run formatting and lint through `just nix <recipe>` when in
-doubt.
+> **No Nix?** Install `clang`, `just`, and `lizard` yourself. A host
+> `clang-format`/`clang-tidy` of a different version can disagree with CI's
+> pinned one — run formatting and lint through `just nix <recipe>` when in
+> doubt.
 
-## Build and test
+### Build and test
 
 ```sh
-just build     # fmt + freestanding compile (ninja) + clang-tidy lint
-just test      # build and run the hosted unity-build test suite
-just check     # ccn + test (run before committing)
+just build     # format + compile + lint
+just test      # run the whole test suite
 ```
 
-The full recipe list:
+Both should end green. (`just check` is the pre-commit combination:
+complexity gate + tests.)
+
+### Run the example server
+
+```sh
+cd examples/word_list
+just run       # builds the SDK + the sample, binds 0.0.0.0:4433
+```
+
+Then, from a machine that can reach UDP port 4433:
+
+```sh
+curl --http3-only --insecure https://<host>:4433/
+```
+
+If your local curl lacks HTTP/3 support, use the Docker one:
+
+```sh
+docker run --rm ymuski/curl-http3 \
+    curl --http3-only --insecure -v https://<host>:4433/
+```
+
+**Checkpoint** — you have a working HTTP/3 server. The other samples run the
+same way; see [examples/](../examples/) for all four: an HTTP/3 message-log /
+static-file server ([word_list](../examples/word_list/)), a WebTransport
+building-blocks demo ([webtransport_echo](../examples/webtransport_echo/)),
+a browser chat over WebTransport DATAGRAMs
+([webtransport_chat](../examples/webtransport_chat/)), and a
+[quic-interop-runner](https://github.com/quic-interop/quic-interop-runner)
+WebTransport server endpoint
+([webtransport_interop](../examples/webtransport_interop/)).
+
+<details>
+<summary>Reference: every <code>just</code> recipe</summary>
 
 | Recipe | What it does |
 |---|---|
@@ -45,29 +88,11 @@ The full recipe list:
 | `docs` | Regenerate the doxygen API reference into `docs/sdk/` from `wired.h`'s transitive includes. |
 | `gen-ninja` / `compdb` | Regenerate `build.ninja` / emit `compile_commands.json` for clangd. |
 
-## Run an example
+</details>
 
-```sh
-cd examples/word_list
-just run       # builds the SDK + the sample, binds 0.0.0.0:4433
-```
+## Part 2: A server of your own
 
-Then, from a machine that can reach UDP 4433:
-
-```sh
-curl --http3-only --insecure https://<host>:4433/
-```
-
-See [examples/](../examples/) for the four samples: an HTTP/3 message-log /
-static-file server ([word_list](../examples/word_list/)), a WebTransport
-building-blocks demo ([webtransport_echo](../examples/webtransport_echo/)),
-a browser chat over WebTransport DATAGRAMs
-([webtransport_chat](../examples/webtransport_chat/)), and a
-[quic-interop-runner](https://github.com/quic-interop/quic-interop-runner)
-WebTransport server endpoint
-([webtransport_interop](../examples/webtransport_interop/)).
-
-## Using the SDK in your own application
+### Link against the SDK
 
 Build the static library, then compile your application freestanding against
 `src/` as the include root and link `build/libwired.a`:
@@ -143,10 +168,24 @@ A caller that does not want CLI parsing can skip `wired_srvdriver_parse` and
 call `wired_server_run(port, &id, h, obs)` (single-process, blocking `poll`)
 directly.
 
-## Choosing an I/O driver
+**Checkpoint** — you have your own HTTP/3 server binary. Everything below is
+opt-in.
+
+## Part 3: Going further
+
+### Choosing an I/O driver
 
 `wired_srvdriver_parse` selects one of four run paths from the flags. All
-four drive the same application callback.
+four drive the same application callback — pick by how much throughput you
+need and how much setup you can afford:
+
+```mermaid
+flowchart LR
+    START(["which flags?"]) -->|none| P["single process<br/>(blocking poll)"]
+    START -->|"--workers N"| W["N forked workers<br/>(SO_REUSEPORT)"]
+    START -->|"--cores a,b,c"| T["thread fan-out<br/>(clone/futex)"]
+    START -->|"--ifindex N --ip A"| X["AF_XDP<br/>(kernel bypass)"]
+```
 
 | Driver | Select with | Extra flags | Notes |
 |---|---|---|---|
@@ -165,12 +204,13 @@ has its own pinning flag) and only the single-process driver applies it. `--core
 and, for AF_XDP, the port the BPF redirect filter matches — one value, so
 they cannot drift apart.
 
-AF_XDP caveats: the NIC must have as many RX queues as `--cores` entries
-(`ethtool -l`); `--skb-mode` (generic XDP) works on drivers without native
-XDP support, but some virtualized NICs (e.g. `virtio_net`) do not deliver
-AF_XDP TX in generic mode — prefer the plain UDP driver there.
+> **AF_XDP caveats:** the NIC must have as many RX queues as `--cores`
+> entries (`ethtool -l`); `--skb-mode` (generic XDP) works on drivers
+> without native XDP support, but some virtualized NICs (e.g. `virtio_net`)
+> do not deliver AF_XDP TX in generic mode — prefer the plain UDP driver
+> there.
 
-## WebTransport
+### WebTransport
 
 The server loop delivers WebTransport events through optional callbacks on
 `wired_srvrun_opt` (reachable as `opt.run` on the driver options):
@@ -185,7 +225,7 @@ the `wired_wt_session*` it belongs to. `wired_server_broadcast_datagram(data)`
 fans one DATAGRAM out to every active session — the whole chat relay in
 `examples/webtransport_chat` is that one call.
 
-## Certificates
+### Certificates
 
 By default the server builds a **self-signed ECDSA P-256** certificate at
 startup from `id.cert_seed`. To serve a CA-issued chain instead:
@@ -205,7 +245,7 @@ Passing the same paths in `wired_srvrun_obs.cert_path`/`.key_path` also
 enables **SIGHUP hot reload**: the PEM pair is re-read and the identity
 updated in place; connections already past their handshake are undisturbed.
 
-## Observability
+### Observability
 
 `wired_srvrun_obs` carries optional debug outputs, each `0` to disable:
 
@@ -217,3 +257,10 @@ updated in place; connections already past their handshake are undisturbed.
   `1` = CUBIC, `2` = BBR.
 
 The examples map these to `--qlog-file`/`--keylog-file` flags.
+
+---
+
+**Next:** how the stack works inside →
+[Architecture and Data Flow](arch/overview.md) · building against the SDK →
+[API Stability](api-stability.md) · all pages →
+[documentation index](README.md)
