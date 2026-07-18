@@ -119,5 +119,5 @@ Because this SDK does not rely on the kernel's IP / UDP stack and in places asse
 
 ---
 
-**Next:** [Security](../security.md) — what the implementation guarantees.
-([all docs](../README.md))
+**Next:** [Test Coverage](../test-coverage.md) — how far each of these
+specs is tested. ([all docs](../README.md))
