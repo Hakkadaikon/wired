@@ -12,3 +12,7 @@
 /fuzz/oom-*
 tasks/
 /docs/sdk/
+
+# locally generated demo TLS material (examples/webtransport_chat)
+examples/*/public/cert.pem
+examples/*/public/key.pem
