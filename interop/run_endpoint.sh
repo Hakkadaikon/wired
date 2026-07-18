@@ -11,14 +11,20 @@ if [ "$ROLE" != "server" ]; then
   exit 127
 fi
 
-# http3 (ALPN h3) plus handshake/transfer (ALPN hq-interop, HTTP/0.9 over
-# QUIC -- see hq09.h and the runner's quic.md "Unless noted otherwise, test
-# cases use HTTP/0.9"). The server negotiates whichever ALPN the client
-# offers (quic_salpn_negotiate, h3 preferred); every other test case needs
-# functionality this server does not implement (Retry, session resumption,
-# 0-RTT, connection migration, ...).
+# http3 (ALPN h3) plus the HTTP/0.9 (hq-interop, see hq09.h) cases that need
+# no per-testcase server mode: the plain transfers, the loss/corruption/
+# latency scenarios (the server just has to survive them), chacha20 (cipher
+# negotiated per the client's offer), keyupdate (server follows the
+# client-initiated update), amplificationlimit (verifies the server's own
+# anti-amplification gate), and the two throughput measurements. Still
+# refused: cases needing a dedicated server mode that is not wired up yet --
+# retry, resumption, zerortt, v2, rebind-*, connectionmigration, ipv6, ecn.
 case "$TESTCASE" in
   http3 | handshake | transfer) ;;
+  longrtt | multiplexing | chacha20 | keyupdate) ;;
+  blackhole | handshakeloss | transferloss) ;;
+  handshakecorruption | transfercorruption | amplificationlimit) ;;
+  goodput | crosstraffic) ;;
   *)
     echo "unsupported test case: $TESTCASE" >&2
     exit 127
