@@ -1,5 +1,11 @@
 # Implemented Specifications and Why They Matter
 
+> **At a glance** — seven groups: the QUIC core (4 RFCs), QUIC extensions
+> (7), TLS and PKI (9), cryptographic primitives (11), HTTP/3 and QPACK (5),
+> WebTransport (3), and the IP/UDP foundations (3). Each group's intro says
+> why the group exists; each table row says why that one spec is needed.
+> Use it as a lookup, not a reading list.
+
 QUIC is not complete in a single RFC.
 Only when several standards are stacked together — the transport core itself, TLS 1.3 for encryption, the cryptographic primitives beneath it, HTTP/3 spoken above it, and even the IP and UDP that form the foundation — does one connection come together.
 Here the implemented specifications are divided into seven groups, showing why each group is needed and what each specification is for.
@@ -111,6 +117,5 @@ Because this SDK does not rely on the kernel's IP / UDP stack and in places asse
 
 ---
 
-**Next:** how the layers implement these specs →
-[The Layers](layers.md) · security properties the implementation enforces →
-[Security](../security.md) · all pages → [documentation index](../README.md)
+**Next:** [Security](../security.md) — what the implementation guarantees.
+([all docs](../README.md))
