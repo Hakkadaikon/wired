@@ -31,7 +31,7 @@ typedef enum {
  * wired_srvdriver_parse from argv (or by hand for a caller that skips CLI
  * parsing). */
 typedef struct {
-  wired_srvdriver_kind kind;
+  wired_srvdriver_kind kind;    /**< which of the four run paths to take */
   u16                  port;    /**< --port (default 4433); the single source of
                                  * truth for the UDP port both wired_srvdriver_run
                                  * binds/serves on AND (XDP only) the BPF redirect

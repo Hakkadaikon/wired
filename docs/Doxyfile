@@ -15,6 +15,10 @@ EXTRACT_ALL            = NO
 EXTRACT_STATIC         = YES
 WARN_IF_UNDOCUMENTED   = YES
 WARN_AS_ERROR          = YES
+ENABLE_PREPROCESSING   = YES
+MACRO_EXPANSION        = YES
+EXPAND_ONLY_PREDEF     = YES
+PREDEFINED             = "__attribute__(x)="
 HAVE_DOT               = NO
 STRIP_FROM_PATH        = src
 FULL_PATH_NAMES        = YES
