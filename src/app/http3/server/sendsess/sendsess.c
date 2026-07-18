@@ -119,10 +119,28 @@ static int sendsess_lost_by_time(
   return srtt_us && quic_loss_by_time(when, srtt_us, srtt_us);
 }
 
-/* RFC 9002 6.1: an in-flight entry is lost once EITHER criterion fires. */
+/* RFC 9002 6.1: "A packet is declared lost if it meets all of the following
+ * conditions: The packet is unacknowledged, in flight, and was sent prior
+ * to an acknowledged packet. [...] The acknowledgment indicates that a
+ * packet sent later was delivered" -- a packet can only be DECLARED lost
+ * once some packet sent AFTER it has already been acknowledged; e->pn <
+ * largest_acked is that prerequisite, required before EITHER the packet or
+ * time threshold below applies. Without it, a burst of packets sent in one
+ * step (their sent_ms all equal) trips the time threshold the moment
+ * elapsed time alone exceeds 9/8*RTT, even though none of them are
+ * actually behind an ACK yet -- observed against a real quic-go client:
+ * 20-30 packets "lost" at once, every ~10s, holding cwnd at its own BDP
+ * forever (RFC 9002 6.1.2's own text ties the time threshold to the same
+ * "sent prior to an acknowledged packet" premise as 6.1.1, it does not
+ * stand alone). */
+static int sendsess_lost_eligible(
+    const wired_sent_slice* e, u64 largest_acked) {
+  return e->inflight && e->pn < largest_acked;
+}
+
 static int sendsess_lost(
     const wired_sent_slice* e, u64 largest_acked, u64 now_ms, u64 srtt_us) {
-  if (!e->inflight) return 0;
+  if (!sendsess_lost_eligible(e, largest_acked)) return 0;
   return sendsess_lost_by_packet(e, largest_acked) ||
          sendsess_lost_by_time(e, now_ms, srtt_us);
 }
