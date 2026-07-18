@@ -38,6 +38,12 @@ typedef struct {
   u8 server_ap_secret[QUIC_HKDF_PRK]; /**< server_application_traffic_secret_0,
                                        * retained for the same reason on the
                                        * send side (RFC 9001 6.2) */
+  u16 suite; /**< negotiated TLS 1.3 cipher suite (RFC 8446 B.4) for the
+              * Handshake/1-RTT levels this schedule derives; set by
+              * quic_keysched_init to AES_128_GCM_SHA256 and overridable via
+              * quic_keysched_set_suite before advance_handshake. Initial
+              * packet protection (RFC 9001 5.2) is unaffected -- it derives
+              * separately and is always AES-128-GCM. */
 } quic_keysched;
 
 /**
@@ -46,6 +52,17 @@ typedef struct {
  * @param st schedule state to initialize
  */
 void quic_keysched_init(quic_keysched* st);
+
+/**
+ * Override the cipher suite advance_handshake/advance_master derive
+ * Handshake/1-RTT keys for (RFC 8446 B.4). Call before advance_handshake;
+ * quic_keysched_init already set the AES_128_GCM_SHA256 default, so callers
+ * that never negotiate ChaCha20 need not call this at all.
+ *
+ * @param st    schedule state to configure
+ * @param suite negotiated TLS 1.3 cipher suite code point
+ */
+void quic_keysched_set_suite(quic_keysched* st, u16 suite);
 
 /**
  * ServerHello received: derive Handshake Secret from the ECDHE shared secret

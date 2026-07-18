@@ -35,9 +35,17 @@ typedef struct {
 } quic_handshake_keys_in;
 
 /* From the handshake secret and the handshake transcript, derive one side's
- * (is_server) handshake-level QUIC packet protection keys. */
+ * (is_server) handshake-level QUIC packet protection keys (AES_128_GCM_
+ * SHA256; equivalent to quic_tls_handshake_keys_suite with suite =
+ * QUIC_TLS_AES_128_GCM_SHA256). */
 void quic_tls_handshake_keys(
     const quic_handshake_keys_in* in, quic_initial_keys* out);
+
+/* Same as quic_tls_handshake_keys, but sizes the derived key/hp for the given
+ * negotiated TLS 1.3 cipher suite (RFC 8446 B.4; AES_128_GCM_SHA256 key=16/
+ * hp=16, CHACHA20_POLY1305_SHA256 key=32/hp=32 -- RFC 9001 5.1/5.4.3). */
+void quic_tls_handshake_keys_suite(
+    const quic_handshake_keys_in* in, u16 suite, quic_initial_keys* out);
 
 /* RFC 9001 4.6 / RFC 8446 7.1: 0-RTT (early data) packet protection keys.
  * From a pre-shared key, derive client_early_traffic_secret over the
