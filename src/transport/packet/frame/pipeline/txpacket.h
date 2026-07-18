@@ -19,8 +19,17 @@ typedef struct {
 } quic_tx_desc;
 
 /* Build header + protect_seal into out. Returns the protected length, or 0
- * on overflow. */
+ * on overflow (AES-128-GCM; equivalent to quic_tx_packet_suite with suite =
+ * QUIC_TLS_AES_128_GCM_SHA256). */
 usz quic_tx_packet(
     const quic_protect_keys* k, const quic_tx_desc* d, quic_mspan out);
+
+/* Same as quic_tx_packet, but seals under the given negotiated TLS 1.3
+ * cipher suite (RFC 8446 B.4). Returns 0 on an unrecognized suite. */
+usz quic_tx_packet_suite(
+    u16                      suite,
+    const quic_protect_keys* k,
+    const quic_tx_desc*      d,
+    quic_mspan               out);
 
 #endif

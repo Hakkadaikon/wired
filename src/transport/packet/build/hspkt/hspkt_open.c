@@ -13,3 +13,13 @@ int quic_hspkt_open(
   quic_vpn_desc d = {pkt, h.pn_off, h.length};
   return quic_vpn_open(k, &d, payload);
 }
+
+/* Same as quic_hspkt_open, but opens under the given negotiated TLS 1.3
+ * cipher suite (RFC 8446 B.4). Returns 0 on an unrecognized suite. */
+int quic_hspkt_open_suite(
+    u16 suite, const quic_protect_keys* k, quic_mspan pkt, quic_span* payload) {
+  quic_lhdr h;
+  if (!quic_lhdr_parse(quic_span_of(pkt.p, pkt.n), 0, &h)) return 0;
+  quic_vpn_desc d = {pkt, h.pn_off, h.length};
+  return quic_vpn_open_suite(suite, k, &d, payload);
+}
