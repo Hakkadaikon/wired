@@ -13,6 +13,7 @@
 #include "crypto/kdf/keys/keyset.h"
 #include "test.h"
 #include "tls/ext/tparam/tparam.h"
+#include "tls/handshake/core/tls/cipher.h"
 #include "tls/handshake/core/tls/clienthello.h"
 #include "tls/handshake/core/tls/finished.h"
 #include "tls/handshake/core/tls/handshake.h"
@@ -24,6 +25,7 @@
 #include "tls/keys/schedule_drive/keyschedule.h"
 #include "tls/keys/ticket/ticket.h"
 #include "transport/io/udp/udploop/rxloop.h"
+#include "transport/packet/build/hspkt/hspkt_build.h"
 #include "transport/packet/build/hspkt/hspkt_open.h"
 #include "transport/packet/build/hspkt/onertt.h"
 #include "transport/packet/frame/frame/ack.h"
@@ -106,6 +108,23 @@ static void lp_make_client_hello(struct lp_fix* f) {
       &(quic_clienthello_in){
           f->srv_random, cli_pub, quic_span_of(0, 0), quic_span_of(tp, tp_len)},
       &(quic_obuf){f->ch, sizeof(f->ch), 0});
+}
+
+/* Message-level offset of the single cipher_suites entry quic_tls_client_
+ * hello builds (RFC 8446 4.1.2): identical layout to sdrv_test.c's ClientHello
+ * (both go through the same put_prefix), so cipher_suite sits at
+ * header(4) + version(2) + random(32) + session_id_len(1) + cipher_suites_
+ * len(2) = 41. */
+#define LP_CH_CIPHER_SUITE_OFF 41
+
+/* Same as lp_make_client_hello, but offers only CHACHA20_POLY1305_SHA256
+ * (RFC 8446 B.4) -- the exact shape a chacha20-only quic-go interop client
+ * sends, so wired_server_recv_initial negotiates ChaCha20 through the real
+ * cipher_select path rather than a test-only shortcut. */
+static void lp_make_client_hello_chacha(struct lp_fix* f) {
+  lp_make_client_hello(f);
+  f->ch[LP_CH_CIPHER_SUITE_OFF] = (u8)(QUIC_TLS_CHACHA20_POLY1305_SHA256 >> 8);
+  f->ch[LP_CH_CIPHER_SUITE_OFF + 1] = (u8)QUIC_TLS_CHACHA20_POLY1305_SHA256;
 }
 
 /* Bring the server to FLIGHT_SENT (Handshake keys derived) and init the loop.
@@ -247,6 +266,180 @@ static void test_srvloop_send_initial_roundtrip(void) {
     CHECK(quic_srvwire_open_initial(&oin, quic_mspan_of(pkt, ob.len), &tls));
   }
   CHECK(tls.n == f.sh_len); /* PADDING after CRYPTO is ignored on open */
+}
+
+/* A chacha20-only ClientHello negotiates CHACHA20_POLY1305_SHA256 (RFC 8446
+ * B.4), and the server's Handshake and 1-RTT sends are actually sealed with
+ * it -- not silently kept on AES. The client-side open (independent of the
+ * server's own seal call, using the peer-direction keys and the suite-aware
+ * primitives directly) recovers the exact plaintext, proving ChaCha20-
+ * Poly1305 packet protection (RFC 9001 5.3) round-trips end to end. Initial
+ * protection is untouched (still AES, RFC 9001 5.2, exercised unchanged by
+ * test_srvloop_send_initial_roundtrip above). */
+static void test_srvloop_seal_chacha_roundtrip(void) {
+  struct lp_fix f;
+  u8            hpkt[2048], opkt[1024];
+  quic_obuf     hob = {hpkt, sizeof hpkt, 0}, oob = {opkt, sizeof opkt, 0};
+  lp_make_client_hello_chacha(&f);
+  lp_drive_to_flight(&f);
+  CHECK(f.s.sdrv.cipher_suite == QUIC_TLS_CHACHA20_POLY1305_SHA256);
+
+  /* Handshake: server seals its flight with SERVER_HS; the client opens it
+   * with the peer-direction CLIENT_HS... no, the client OPENS a server-
+   * sealed packet with SERVER_HS (the peer direction from the client's
+   * point of view) -- fetch it straight from the schedule the way the other
+   * roundtrip tests in this file do. */
+  {
+    const quic_initial_keys* shs;
+    quic_aes128              hp;
+    quic_span                tls = {0, 0};
+    wired_srvloop_send_in    in  = {
+        quic_span_of(g_cli_scid, 6), 0, -1,
+        quic_span_of(f.flight, f.flight_len), 0};
+    CHECK(wired_srvloop_send_handshake(&f.s, &in, &hob));
+    CHECK(quic_keysched_get(&f.s.sched, QUIC_KS_SERVER_HS, &shs) == 1);
+    quic_aes128_init(&hp, shs->hp);
+    {
+      quic_protect_keys pk = {shs, &hp};
+      CHECK(
+          quic_srvwire_open_handshake_suite(
+              QUIC_TLS_CHACHA20_POLY1305_SHA256, &pk,
+              quic_mspan_of(hpkt, hob.len), &tls) == 1);
+      CHECK(tls.n == f.flight_len);
+      for (usz i = 0; i < tls.n; i++) CHECK(tls.p[i] == f.flight[i]);
+    }
+  }
+
+  /* 1-RTT: reach confirmed (installs SERVER_AP), then the server's
+   * confirmation send is opened with SERVER_AP the same way. */
+  {
+    const quic_initial_keys* sap;
+    const quic_initial_keys* chs;
+    quic_aes128              hp;
+    quic_span                pl = {0, 0};
+    u8                       cpkt[1024];
+    usz                      clen;
+    lp_make_client_finished(&f);
+    /* client_seal_handshake is AES-fixed; this connection negotiated
+     * ChaCha20, so seal the client Finished with it directly instead. */
+    CHECK(quic_keysched_get(&f.s.sched, QUIC_KS_CLIENT_HS, &chs) == 1);
+    {
+      quic_protect_keys    cpk = {chs, 0};
+      quic_srvwire_seal_in cin = {
+          quic_span_of((const u8*)0, 0),
+          quic_span_of(f.s.sdrv.iscid, f.s.sdrv.iscid_len),
+          quic_span_of(g_cli_scid, 6),
+          0,
+          -1,
+          quic_span_of(f.cli_fin, f.cli_fin_len),
+          0};
+      quic_obuf cob = {cpkt, sizeof cpkt, 0};
+      CHECK(
+          quic_srvwire_seal_handshake_suite(
+              QUIC_TLS_CHACHA20_POLY1305_SHA256, &cpk, &cin, &cob) == 1);
+      clen = cob.len;
+    }
+    CHECK(
+        wired_srvloop_step(
+            &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(cpkt, clen),
+            &oob) == 1);
+    CHECK(wired_server_is_confirmed(&f.s) == 1);
+    CHECK(quic_keysched_get(&f.s.sched, QUIC_KS_SERVER_AP, &sap) == 1);
+    quic_aes128_init(&hp, sap->hp);
+    {
+      /* oob coalesces a long-header Handshake ACK ahead of the 1-RTT
+       * packet (RFC 9000 12.2) -- split it the way the client would. */
+      const u8*    pkts[4];
+      usz          offs[4], lens[4];
+      quic_pktlist plist = {pkts, offs, lens, 4};
+      usz          np = quic_udploop_split(quic_span_of(opkt, oob.len), &plist);
+      CHECK(np == 2);
+      {
+        quic_protect_keys           pk = {sap, &hp};
+        quic_hspkt_onertt_open_desc d  = {
+            quic_mspan_of(opkt + offs[1], lens[1]), 6, 0};
+        CHECK(
+            quic_hspkt_onertt_open_suite(
+                QUIC_TLS_CHACHA20_POLY1305_SHA256, &pk, &d, &pl) == 1);
+      }
+      CHECK(pl.n > 0);
+    }
+  }
+}
+
+/* The server also OPENS ChaCha20-Poly1305 packets from the client (T-006's
+ * inverse direction): a client-sealed Handshake Finished under CLIENT_HS
+ * ChaCha20 keys reaches the server and confirms the handshake, and a
+ * client-sealed 1-RTT request under CLIENT_AP ChaCha20 keys is received and
+ * dispatched -- proving wired_srvloop_recv actually uses the negotiated
+ * suite on the receive path, not just on send. */
+static void test_srvloop_open_chacha(void) {
+  struct lp_fix f;
+  u8            cpkt[1024], opkt[1024], reqb[512], rpkt[1024];
+  quic_obuf     oob = {opkt, sizeof opkt, 0}, rob = {reqb, sizeof reqb, 0};
+  usz           clen, rlen, slen;
+  lp_make_client_hello_chacha(&f);
+  lp_drive_to_flight(&f);
+  CHECK(f.s.sdrv.cipher_suite == QUIC_TLS_CHACHA20_POLY1305_SHA256);
+
+  /* Handshake open: the client's Finished, sealed under CLIENT_HS ChaCha20
+   * keys straight from the schedule (mirrors client_seal_handshake, but
+   * suite-aware), must open and confirm the server. */
+  {
+    const quic_initial_keys* chs;
+    lp_make_client_finished(&f);
+    CHECK(quic_keysched_get(&f.s.sched, QUIC_KS_CLIENT_HS, &chs) == 1);
+    {
+      quic_protect_keys    pk = {chs, 0};
+      quic_srvwire_seal_in in = {
+          quic_span_of((const u8*)0, 0),
+          quic_span_of(f.s.sdrv.iscid, f.s.sdrv.iscid_len),
+          quic_span_of(g_cli_scid, 6),
+          0,
+          -1,
+          quic_span_of(f.cli_fin, f.cli_fin_len),
+          0};
+      quic_obuf cob = {cpkt, sizeof cpkt, 0};
+      CHECK(
+          quic_srvwire_seal_handshake_suite(
+              QUIC_TLS_CHACHA20_POLY1305_SHA256, &pk, &in, &cob) == 1);
+      clen = cob.len;
+    }
+  }
+  CHECK(
+      wired_srvloop_step(
+          &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(cpkt, clen), &oob) ==
+      1);
+  CHECK(wired_server_is_confirmed(&f.s) == 1);
+
+  /* 1-RTT open: a client GET sealed under CLIENT_AP ChaCha20 keys must be
+   * received and produce a 200. */
+  {
+    const quic_initial_keys* cap;
+    wired_h3reqdrive_send_in in = {
+        quic_span_of((const u8*)"GET", 3), quic_span_of((const u8*)"/", 1),
+        quic_span_of((const u8*)"h", 1), quic_span_of(0, 0)};
+    CHECK(wired_h3reqdrive_send_method(0, &in, &rob));
+    rlen = rob.len;
+    CHECK(quic_keysched_get(&f.s.sched, QUIC_KS_CLIENT_AP, &cap) == 1);
+    {
+      quic_protect_keys      pk = {cap, 0};
+      quic_hspkt_onertt_desc d  = {
+          quic_span_of(f.s.sdrv.iscid, f.s.sdrv.iscid_len), 1,
+          quic_span_of(reqb, rlen), 0};
+      quic_obuf rb = {rpkt, sizeof rpkt, 0};
+      CHECK(
+          quic_hspkt_onertt_build_suite(
+              QUIC_TLS_CHACHA20_POLY1305_SHA256, &pk, &d, &rb) == 1);
+      slen = rb.len;
+    }
+  }
+  oob = (quic_obuf){opkt, sizeof opkt, 0};
+  CHECK(
+      wired_srvloop_step(
+          &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(rpkt, slen), &oob) ==
+      1);
+  CHECK(f.l.got_request == 1);
 }
 
 /* DIRECTION SAFETY: a server-sealed Handshake packet (SERVER_HS) opens with the
@@ -3236,6 +3429,8 @@ static void test_srvloop_recv_follows_repeated_key_updates_across_generations(
 }
 
 void test_srvloop(void) {
+  test_srvloop_seal_chacha_roundtrip();
+  test_srvloop_open_chacha();
   test_srvloop_handler_body_echoed();
   test_srvloop_close_frame_detected();
   test_srvloop_hq09_recv_get_produces_request();
