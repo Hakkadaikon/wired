@@ -7,9 +7,6 @@
  * its CLI parsing are delegated wholesale to app/http3/server/srvdriver. */
 
 #define WIRED_MAIN /* this TU emits the libc memcpy/memset shim */
-#include "app/http3/server/srvdriver/srvdriver.h"
-#include "common/platform/clock/clock.h"
-#include "common/platform/exit/exit.h"
 #include "wired.h"
 
 /* --- WebTransport chat: fan received datagrams out to every session ------ */

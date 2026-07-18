@@ -17,13 +17,6 @@
 #define WIRED_MAIN /* this TU emits the libc memcpy/memset shim */
 #include "wired.h"
 
-/* WebTransport building blocks: not part of the wired.h umbrella yet (no
- * receive path wires them), so pulled in directly for the self-test only. */
-#include "app/webtransport/capsule/wtcapsule/wtcapsule.h"
-#include "app/webtransport/errmap/errmap/errmap.h"
-#include "app/webtransport/session/session/session.h"
-#include "common/platform/exit/exit.h"
-
 /* --- WebTransport building-blocks self-test (startup only, logged) ------- */
 
 /* wired_die with msg unless ok. */
