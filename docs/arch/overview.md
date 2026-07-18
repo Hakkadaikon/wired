@@ -29,8 +29,11 @@ flowchart TB
         TRANSPORT["transport: packet protection / loss recovery / congestion control / streams"]
         CRYPTO["crypto: AEAD / signatures / KDF / X.509"]
         COMMON["common: varint / byte cursor / randomness / syscall wrapper"]
-        IO["io: IPv4/UDP framing / socket operations"]
-        APP --> TLS --> TRANSPORT --> CRYPTO --> COMMON
+        IO["io (in transport): IPv4/UDP framing / socket operations"]
+        APP --> TRANSPORT
+        TRANSPORT -.-> TLS
+        TLS --> CRYPTO
+        TRANSPORT --> CRYPTO --> COMMON
         TRANSPORT --> IO
         IO --> COMMON
     end
