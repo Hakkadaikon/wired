@@ -21,7 +21,7 @@ fi
 # retry, resumption, zerortt, v2, rebind-*, connectionmigration, ipv6, ecn.
 case "$TESTCASE" in
   http3 | handshake | transfer) ;;
-  longrtt | multiplexing | chacha20 | keyupdate) ;;
+  longrtt | multiplexing | chacha20 | keyupdate | multiconnect) ;;
   blackhole | handshakeloss | transferloss) ;;
   handshakecorruption | transfercorruption | amplificationlimit) ;;
   goodput | crosstraffic) ;;
