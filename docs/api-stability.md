@@ -20,7 +20,7 @@ the same headers. This is a map, not a tutorial — see
 
 ## Why the line matters
 
-`src/wired.h` is a single include that pulls in seventeen headers. Some of
+`src/wired.h` is a single include that pulls in every public header. Some of
 those expose one top-level entry point meant to be called once; others expose
 an internal state machine's individual steps, callable in the wrong order or
 with a dangling buffer if the caller does not already understand the
@@ -128,9 +128,8 @@ carries the `wired_<domain>_` prefix; everything else in the SDK core carries
   which carry `wired_` consistently with the rule's intent. Same gap
   category: the list is stale, the prefixes are not.
 
-No prefix inconsistency was found: every function checked in the seventeen
-headers `wired.h` includes (plus `srvdriver.h`) uses either `wired_` or
-`quic_` as its layer prescribes.
+No prefix inconsistency was found: every function checked in the headers
+`wired.h` includes uses either `wired_` or `quic_` as its layer prescribes.
 
 ---
 
