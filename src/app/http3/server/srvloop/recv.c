@@ -84,8 +84,9 @@ static int onertt_try(
 static void onertt_rotate_send(wired_server* s) {
   quic_initial_keys send_next;
   u8                send_next_secret[QUIC_HKDF_PRK];
-  quic_kuswitch_next_keys(s->ku_send_secret, &send_next, send_next_secret);
-  quic_memcpy(send_next.hp, s->ku_send.cur.hp, QUIC_INITIAL_HP);
+  quic_kuswitch_next_keys_suite(
+      s->sdrv.cipher_suite, s->ku_send_secret, &send_next, send_next_secret);
+  quic_memcpy(send_next.hp, s->ku_send.cur.hp, QUIC_AEAD_KEY_MAX);
   quic_kuswitch_rotate(&s->ku_send, &send_next);
   quic_memcpy(s->ku_send_secret, send_next_secret, QUIC_HKDF_PRK);
 }
@@ -126,9 +127,10 @@ static int onertt_try_next_gen(
     wired_srvloop_recv_out*      out) {
   quic_initial_keys next;
   u8                next_secret[QUIC_HKDF_PRK];
-  quic_kuswitch_next_keys(s->ku_secret, &next, next_secret);
+  quic_kuswitch_next_keys_suite(
+      s->sdrv.cipher_suite, s->ku_secret, &next, next_secret);
   /* RFC 9001 6.1: hp is unchanged across an update. */
-  quic_memcpy(next.hp, s->ku.cur.hp, QUIC_INITIAL_HP);
+  quic_memcpy(next.hp, s->ku.cur.hp, QUIC_AEAD_KEY_MAX);
   if (!onertt_try(s, in, &next, save, out)) return 0;
   onertt_rotate_to(s, &next, next_secret);
   return 1;
