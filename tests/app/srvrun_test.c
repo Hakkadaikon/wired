@@ -1551,6 +1551,56 @@ static void test_srvrun_hystart_ends_slow_start(void) {
   c->up = 0;
 }
 
+/* REGRESSION: HyStart's round boundary is "the next pn to be sent"
+ * (srvrun_hystart_ack's own doc), read from the connection-wide c->l.tx_pn --
+ * a single counter shared by every round-robin resp[] slot (srvrun_pump_
+ * round). When several slots are sending concurrently, tx_pn races far
+ * ahead of any one slot's own send progress, so a round boundary armed by
+ * slot A's first ACKed packet is very likely already past by the time slot
+ * B's packets (sent moments earlier under the SAME round-robin pass) get
+ * ACKed and sampled -- collapsing what should be one steady-RTT round into
+ * several tiny ones. With constant zero-jitter RTT this must never end slow
+ * start: eta's minimum is 4ms (HYSTART_MIN_ETA), so curr_round_min can only
+ * equal (not exceed) last_round_min when RTT never changes, and hystart_due
+ * requires a strict >=. Drive two slots interleaved, tx_pn racing ahead of
+ * each slot's own packets, all at the same fixed RTT. */
+static void test_srvrun_hystart_round_boundary_survives_interleaving(void) {
+  srvrun_conn* c = &g_srvrun_state.conns[3];
+  *c             = (srvrun_conn){0};
+  quic_cc_init(&c->cc);
+  quic_hystart_init(&c->hs);
+  c->up = 1;
+  wired_sendsess_arm(&c->resp[0].sess, g_srvrun_respstore[3][0], 16000, 100);
+  wired_sendsess_arm(&c->resp[1].sess, g_srvrun_respstore[3][1], 16000, 100);
+  {
+    wired_sendq_slice sl;
+    usz               round;
+    u64               pn = 0;
+    /* 4 rounds of "slot 0 sends 2, slot 1 sends 2, tx_pn now 4 ahead of
+     * either slot's own 2 packets" then both slots' packets ACKed at a
+     * constant RTT of 40ms -- 16 samples total, RTT never rises. */
+    for (round = 0; round < 4; round++) {
+      u64 pn0 = pn;
+      CHECK(wired_sendsess_take(&c->resp[0].sess, &sl) == 1);
+      CHECK(wired_sendsess_sent(&c->resp[0].sess, &sl, pn++, 0) == 1);
+      CHECK(wired_sendsess_take(&c->resp[0].sess, &sl) == 1);
+      CHECK(wired_sendsess_sent(&c->resp[0].sess, &sl, pn++, 0) == 1);
+      u64 pn1 = pn;
+      CHECK(wired_sendsess_take(&c->resp[1].sess, &sl) == 1);
+      CHECK(wired_sendsess_sent(&c->resp[1].sess, &sl, pn++, 0) == 1);
+      CHECK(wired_sendsess_take(&c->resp[1].sess, &sl) == 1);
+      CHECK(wired_sendsess_sent(&c->resp[1].sess, &sl, pn++, 0) == 1);
+      c->l.tx_pn = pn; /* production: sending advanced the next pn */
+      srvrun_hystart_ack(c, pn0, 0, 40);
+      srvrun_hystart_ack(c, pn0 + 1, 0, 40);
+      srvrun_hystart_ack(c, pn1, 0, 40);
+      srvrun_hystart_ack(c, pn1 + 1, 0, 40);
+    }
+  }
+  CHECK(c->cc.ssthresh == ~(u64)0); /* slow start must still be running */
+  c->up = 0;
+}
+
 /* RTT EWMA (RFC 9002 5.3 shape): first sample seeds srtt, later ones blend
  * 7/8 old + 1/8 new. */
 static void test_srvrun_rtt_ewma(void) {
@@ -1626,6 +1676,47 @@ static void test_srvrun_pacing_gate(void) {
   srvrun_pace_next(&ctx, &c);
   /* 5 * 1200 * 100 / (4 * 12000) = 12ms */
   CHECK(c.next_send_ms == 1012);
+}
+
+/* REGRESSION: once cwnd has grown large enough that the true pacing
+ * interval (5*packet_size*srtt/(4*cwnd)) rounds under 1ms, srvrun_pace_next
+ * must leave next_send_ms AT now_ms (not push it 1ms into a frozen-time
+ * step's future) -- otherwise a whole recv step's worth of remaining cwnd
+ * room goes unused every step, capping throughput at one round-robin pass
+ * per inbound datagram regardless of how much window is open. Chosen cwnd
+ * (5,000,000) with srtt=30ms: 5*1200*30/(4*5000000) = 0.009ms, floors to 0
+ * via integer division -- exactly the sub-ms case. */
+static void test_srvrun_pacing_no_stall_when_subms(void) {
+  srvrun_conn c  = {0};
+  srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                    0,  0, 0, 0, 0};
+  srvrun_state    st  = {0, 0};
+  srvrun_step_ctx ctx = {&cfg, 0, &st, 1000};
+  quic_cc_init(&c.cc);
+  c.cc.cwnd      = 5000000;
+  c.srtt_ms      = 30;
+  c.next_send_ms = 1000;
+  CHECK(srvrun_pace_ok(&ctx, &c) == 1);
+  srvrun_pace_next(&ctx, &c);
+  CHECK(c.next_send_ms == 1000);        /* still due now, same frozen step */
+  CHECK(srvrun_pace_ok(&ctx, &c) == 1); /* a 2nd round in this step may fire */
+}
+
+/* BOUNDARY: a pacing interval that lands exactly at 1ms must still advance
+ * next_send_ms the normal way (the sub-ms fast path is strictly < 1ms,
+ * never >=) -- chosen so 5*1200*srtt/(4*cwnd) == 1 exactly.
+ * 5*1200*4000/(4*6000000) = 1.0ms. */
+static void test_srvrun_pacing_exactly_one_ms_still_advances(void) {
+  srvrun_conn c  = {0};
+  srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                    0,  0, 0, 0, 0};
+  srvrun_state    st  = {0, 0};
+  srvrun_step_ctx ctx = {&cfg, 0, &st, 1000};
+  quic_cc_init(&c.cc);
+  c.cc.cwnd = 6000000;
+  c.srtt_ms = 4000;
+  srvrun_pace_next(&ctx, &c);
+  CHECK(c.next_send_ms == 1001);
 }
 
 /* POLLING DRIVER (tasks/polling-driver-plan.md Phase 2): busy_poll/
@@ -7717,9 +7808,12 @@ void test_srvrun(void) {
   test_srvrun_parallel_responses_three_streams();
   test_srvrun_cc_algo_selected();
   test_srvrun_hystart_ends_slow_start();
+  test_srvrun_hystart_round_boundary_survives_interleaving();
   test_srvrun_rtt_ewma();
   test_srvrun_rtt_sample_uses_newest_hit_only();
   test_srvrun_pacing_gate();
+  test_srvrun_pacing_no_stall_when_subms();
+  test_srvrun_pacing_exactly_one_ms_still_advances();
   test_srvrun_shutdown_rejects_new_initial();
   test_srvrun_shutdown_refuses_slot_claim();
   test_srvrun_owes_goaway_once();
