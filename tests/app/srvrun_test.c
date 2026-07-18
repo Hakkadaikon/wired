@@ -668,6 +668,304 @@ static void test_srvrun_initial_retransmit_resends_cached_flight(void) {
   CHECK(st.conns[0].boot_dgram_count == first_boot_dgram_count);
 }
 
+/* @file
+ * RFC 9000 8.1 anti-amplification limit on the boot flight send path
+ * (srvrun_boot_send_hs_gated/srvrun_boot_send/srvrun_boot_budget). Drives
+ * the gate helpers directly against a hand-built srvrun_conn/boot_hs so
+ * these tests don't need a real 9-certificate chain to inflate a flight
+ * past the 3x budget -- a handful of small fake datagram lengths is enough
+ * to exercise the same boundary. */
+
+static srvrun_cfg sr_antiamp_cfg(wired_srvboot_id* id) {
+  srvrun_cfg cfg = {-1, id, 0, 0, 0, 0, 0, 0,
+                    0,  0,  0, 0, 0, 0, 0, &g_srvrun_env,
+                    0,  0,  0, 0, 0};
+  return cfg;
+}
+
+/* A boot flight of 4 datagrams, 1000 bytes each (4000 total), none sent
+ * yet. c->boot_hs holds 4000 arbitrary bytes (their content is irrelevant --
+ * srvrun_send only ever looks at the span's length once cfg->fd is -1). */
+static void sr_antiamp_seed_flight(srvrun_conn* c) {
+  quic_memset(c, 0, sizeof *c);
+  for (usz i = 0; i < 4; i++) c->boot_dgram_len[i] = 1000;
+  c->boot_dgram_count = 4;
+  c->boot_dgram_sent  = 0;
+}
+
+/* T-001/T-004: exactly the first round from the real amplificationlimit
+ * trace -- 1280 bytes received buys a 3840-byte budget, which fits 3 of the
+ * 4 1000-byte datagrams (3000 <= 3840 < 4000) and holds the 4th back. */
+static void test_srvrun_boot_antiamp_first_round_caps_at_3x(void) {
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32];
+  srvrun_conn      c;
+  sr_make_id(&id, priv, pub, seed, rnd);
+  sr_antiamp_seed_flight(&c);
+  c.boot_rx_bytes = 1280;
+  {
+    srvrun_cfg cfg = sr_antiamp_cfg(&id);
+    srvrun_test_reset_send_count();
+    srvrun_boot_send_hs_gated(&cfg, &c, 0);
+  }
+  CHECK(c.boot_dgram_sent == 3);
+  CHECK(c.boot_tx_bytes == 3000);
+  CHECK(srvrun_test_send_count() == 3);
+}
+
+/* T-002: the unsent 4th datagram's length never entered boot_tx_bytes. */
+static void test_srvrun_boot_antiamp_unsent_tail_not_counted(void) {
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32];
+  srvrun_conn      c;
+  sr_make_id(&id, priv, pub, seed, rnd);
+  sr_antiamp_seed_flight(&c);
+  c.boot_rx_bytes = 1280;
+  {
+    srvrun_cfg cfg = sr_antiamp_cfg(&id);
+    srvrun_boot_send_hs_gated(&cfg, &c, 0);
+  }
+  CHECK(c.boot_tx_bytes < 4000);
+  CHECK(c.boot_dgram_sent < c.boot_dgram_count);
+}
+
+/* T-003: a second round with more received bytes (the client's Initial
+ * retransmit) releases the held-back datagram -- mirrors the real trace's
+ * two-Initial sequence (1280, then another 1280 -> budget 7680). */
+static void test_srvrun_boot_antiamp_second_round_releases_more(void) {
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32];
+  srvrun_conn      c;
+  sr_make_id(&id, priv, pub, seed, rnd);
+  sr_antiamp_seed_flight(&c);
+  c.boot_rx_bytes = 1280;
+  {
+    srvrun_cfg cfg = sr_antiamp_cfg(&id);
+    srvrun_boot_send_hs_gated(&cfg, &c, 0);
+    CHECK(c.boot_dgram_sent == 3);
+    c.boot_rx_bytes += 1280; /* client's retransmitted Initial arrives */
+    srvrun_boot_send_hs_gated(&cfg, &c, 0);
+  }
+  CHECK(c.boot_dgram_sent == 4);
+  CHECK(c.boot_tx_bytes == 4000);
+}
+
+/* T-005: want == budget+1 blocks -- a 3841-byte want against a 3840 budget
+ * sends nothing (one 3841-byte datagram, budget from 1280 received). */
+static void test_srvrun_boot_antiamp_budget_off_by_one_blocks(void) {
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32];
+  srvrun_conn      c;
+  sr_make_id(&id, priv, pub, seed, rnd);
+  quic_memset(&c, 0, sizeof c);
+  c.boot_dgram_len[0] = 3841;
+  c.boot_dgram_count  = 1;
+  c.boot_rx_bytes     = 1280;
+  {
+    srvrun_cfg cfg = sr_antiamp_cfg(&id);
+    srvrun_boot_send_hs_gated(&cfg, &c, 0);
+  }
+  CHECK(c.boot_dgram_sent == 0);
+  CHECK(c.boot_tx_bytes == 0);
+}
+
+/* T-004 boundary complement: want == budget exactly (3840) sends. */
+static void test_srvrun_boot_antiamp_budget_exact_fit_sends(void) {
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32];
+  srvrun_conn      c;
+  sr_make_id(&id, priv, pub, seed, rnd);
+  quic_memset(&c, 0, sizeof c);
+  c.boot_dgram_len[0] = 3840;
+  c.boot_dgram_count  = 1;
+  c.boot_rx_bytes     = 1280;
+  {
+    srvrun_cfg cfg = sr_antiamp_cfg(&id);
+    srvrun_boot_send_hs_gated(&cfg, &c, 0);
+  }
+  CHECK(c.boot_dgram_sent == 1);
+  CHECK(c.boot_tx_bytes == 3840);
+}
+
+/* T-006: received == 0 (budget == 0) sends nothing at all. */
+static void test_srvrun_boot_antiamp_zero_budget_sends_nothing(void) {
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32];
+  srvrun_conn      c;
+  sr_make_id(&id, priv, pub, seed, rnd);
+  sr_antiamp_seed_flight(&c);
+  c.boot_rx_bytes = 0;
+  {
+    srvrun_cfg cfg = sr_antiamp_cfg(&id);
+    srvrun_boot_send_hs_gated(&cfg, &c, 0);
+  }
+  CHECK(c.boot_dgram_sent == 0);
+  CHECK(c.boot_tx_bytes == 0);
+}
+
+/* T-007: once confirmed, the limit is lifted -- all 4 go out in one pass
+ * even though 4000 > 3*1280=3840 would otherwise block the 4th. */
+static void test_srvrun_boot_antiamp_confirmed_bypasses_limit(void) {
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32];
+  srvrun_conn      c;
+  sr_make_id(&id, priv, pub, seed, rnd);
+  sr_antiamp_seed_flight(&c);
+  c.boot_rx_bytes = 1280;
+  {
+    srvrun_cfg cfg = sr_antiamp_cfg(&id);
+    srvrun_boot_send_hs_gated(&cfg, &c, 1 /* confirmed */);
+  }
+  CHECK(c.boot_dgram_sent == 4);
+  CHECK(c.boot_tx_bytes == 4000);
+}
+
+/* T-011 regression: a small (single-datagram) flight -- the common case,
+ * e.g. a self-signed cert -- always fits the first round's budget and
+ * sends in one pass, same as before this gate existed. */
+static void test_srvrun_boot_antiamp_small_flight_sends_in_one_round(void) {
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32];
+  srvrun_conn      c;
+  sr_make_id(&id, priv, pub, seed, rnd);
+  quic_memset(&c, 0, sizeof c);
+  c.boot_dgram_len[0] = 300;
+  c.boot_dgram_count  = 1;
+  c.boot_rx_bytes     = 1280;
+  {
+    srvrun_cfg cfg = sr_antiamp_cfg(&id);
+    srvrun_boot_send_hs_gated(&cfg, &c, 0);
+  }
+  CHECK(c.boot_dgram_sent == 1);
+  CHECK(c.boot_tx_bytes == 300);
+}
+
+/* T-014: srvrun_boot_send (used for the Initial too, not just Handshake
+ * datagrams) also folds into boot_tx_bytes -- Initial + Handshake share one
+ * budget. */
+static void test_srvrun_boot_antiamp_sent_includes_initial_and_handshake(void) {
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32], ini[1200] = {0};
+  srvrun_conn      c;
+  sr_make_id(&id, priv, pub, seed, rnd);
+  quic_memset(&c, 0, sizeof c);
+  c.boot_rx_bytes = 1280;
+  {
+    srvrun_cfg cfg = sr_antiamp_cfg(&id);
+    srvrun_boot_send(&cfg, &c, quic_span_of(ini, sizeof ini), "test\n");
+  }
+  CHECK(c.boot_tx_bytes == 1200);
+}
+
+/* T-010: a slot with boot datagrams held back by the antiamp gate never
+ * spins or crashes while the client stays silent -- it just sits until the
+ * existing idle sweep (RFC 9000 10.1) reclaims it like any other stalled
+ * slot (srvrun_slot_busy already covers c->up regardless of the pending
+ * tail). Also confirms repeated release attempts against an unchanged
+ * budget are idempotent (no partial/garbage sends). */
+static void test_srvrun_boot_antiamp_client_silent_no_crash(void) {
+  quic_conntable   table[QUIC_CONNTABLE_CAP];
+  srvrun_state     st = {table, sr_test_conns()};
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32];
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  sr_make_id(&id, priv, pub, seed, rnd);
+  sr_antiamp_seed_flight(&st.conns[0]);
+  st.conns[0].up            = 1;
+  st.conns[0].boot_rx_bytes = 1280;
+  st.conns[0].last_ms       = 1000;
+  {
+    srvrun_cfg      cfg = sr_antiamp_cfg(&id);
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 1000};
+    srvrun_boot_send_hs_gated(ctx.cfg, &st.conns[0], 0);
+    CHECK(
+        st.conns[0].boot_dgram_sent == 3); /* held back at 3/4, same as T-001 */
+    /* another release attempt with no new budget changes nothing */
+    srvrun_boot_send_hs_gated(ctx.cfg, &st.conns[0], 0);
+    CHECK(st.conns[0].boot_dgram_sent == 3);
+    CHECK(st.conns[0].boot_tx_bytes == 3000);
+  }
+  /* the client never sends anything else -- eventually the idle sweep
+   * reclaims the slot like any other stalled connection */
+  srvrun_sweep_idle(&g_srvrun_env, &st, 1000 + WIRED_SRVRUN_IDLE_MS);
+  CHECK(st.conns[0].up == 0);
+  CHECK(st.conns[0].boot_dgram_sent == 0);
+}
+
+/* T-013: boot_rx_bytes counts every physically received byte on the slot,
+ * even a datagram that fails to parse/decrypt as anything useful -- RFC
+ * 9000 8.1 counts what arrived, not what was understood. Sends a real boot
+ * Initial (to claim the slot and record boot_rx_bytes's starting point),
+ * then a short-header datagram addressed to that slot's own SCID (so
+ * srvrun_route resolves it to the same slot) but with undecryptable 1-RTT
+ * garbage after the header, and checks boot_rx_bytes grew by exactly its
+ * length even though nothing in it opens. */
+static void test_srvrun_conn_rx_bytes_counts_malformed_datagram(void) {
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32], dg[1500];
+  u8               garbage[37];
+  quic_conntable   table[QUIC_CONNTABLE_CAP];
+  quic_sockaddr_in peer = {0};
+  srvrun_state     st   = {table, g_srvrun_state.conns};
+  usz total             = sr_build_client_initial(dg, sizeof dg, g_sr_odcid, 8);
+  u64 rx_after_boot;
+  usz i;
+  sr_make_id(&id, priv, pub, seed, rnd);
+  {
+    srvrun_cfg cfg = {-1, &id,           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                      0,  &g_srvrun_env, 0, 0, 0, 0, 0};
+    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0};
+    quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+    srvrun_serve(&ctx, quic_mspan_of(dg, total));
+    CHECK(st.conns[0].up == 1);
+    rx_after_boot = st.conns[0].boot_rx_bytes;
+    /* short header (0x40), this slot's own SCID as DCID, then garbage */
+    garbage[0] = 0x40;
+    for (i = 0; i < id.scid_len; i++) garbage[1 + i] = st.conns[0].scid[i];
+    for (; 1 + i < sizeof garbage; i++) garbage[1 + i] = (u8)(0xaa + i);
+    srvrun_serve(&ctx, quic_mspan_of(garbage, sizeof garbage));
+  }
+  CHECK(st.conns[0].boot_rx_bytes == rx_after_boot + sizeof garbage);
+}
+
+/* T-008: srvrun_resend_boot_flight (the client-Initial-retransmit path)
+ * respects the same antiamp budget as the first round -- a flight too big
+ * for one round still only releases what the accumulated boot_rx_bytes
+ * allows, it does not resend the cached flight unconditionally. */
+static void test_srvrun_resend_boot_flight_respects_antiamp_budget(void) {
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32];
+  srvrun_conn      c;
+  sr_make_id(&id, priv, pub, seed, rnd);
+  sr_antiamp_seed_flight(&c);
+  c.boot_rx_bytes = 1280; /* first round already spent, budget 3840 */
+  {
+    srvrun_cfg      cfg = sr_antiamp_cfg(&id);
+    srvrun_step_ctx ctx = {&cfg, 0, 0, 0};
+    srvrun_boot_send_hs_gated(&cfg, &c, 0);
+    CHECK(c.boot_dgram_sent == 3);
+    srvrun_resend_boot_flight(&ctx, &c); /* no new rx_bytes -- still capped */
+  }
+  CHECK(c.boot_dgram_sent == 3);
+  CHECK(c.boot_tx_bytes == 3000);
+}
+
+/* T-015: srvrun_free_slot zeroes the antiamp accounting so a slot reused
+ * for a fresh boot doesn't inherit a stale budget from the connection it
+ * replaces. */
+static void test_srvrun_free_slot_resets_antiamp_state(void) {
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_state   st = {table, sr_test_conns()};
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  st.conns[0].boot_rx_bytes   = 5000;
+  st.conns[0].boot_tx_bytes   = 4000;
+  st.conns[0].boot_dgram_sent = 3;
+  srvrun_free_slot(&g_srvrun_env, &st, 0);
+  CHECK(st.conns[0].boot_rx_bytes == 0);
+  CHECK(st.conns[0].boot_tx_bytes == 0);
+  CHECK(st.conns[0].boot_dgram_sent == 0);
+}
+
 /* Append a minimal well-formed (undecryptable) Handshake long-header packet
  * at off: byte0 0xE0, version 1, the given DCID, no SCID, a 5-byte body.
  * Returns the new datagram length. */
@@ -7785,6 +8083,19 @@ void test_srvrun(void) {
   test_srvrun_issue_cid_xdp_negative_core_id_no_embed();
   test_srvrun_issue_cid_xdp_embeds_core_id();
   test_srvrun_initial_retransmit_resends_cached_flight();
+  test_srvrun_boot_antiamp_first_round_caps_at_3x();
+  test_srvrun_boot_antiamp_unsent_tail_not_counted();
+  test_srvrun_boot_antiamp_second_round_releases_more();
+  test_srvrun_boot_antiamp_budget_off_by_one_blocks();
+  test_srvrun_boot_antiamp_budget_exact_fit_sends();
+  test_srvrun_boot_antiamp_zero_budget_sends_nothing();
+  test_srvrun_boot_antiamp_confirmed_bypasses_limit();
+  test_srvrun_boot_antiamp_small_flight_sends_in_one_round();
+  test_srvrun_boot_antiamp_sent_includes_initial_and_handshake();
+  test_srvrun_boot_antiamp_client_silent_no_crash();
+  test_srvrun_conn_rx_bytes_counts_malformed_datagram();
+  test_srvrun_resend_boot_flight_respects_antiamp_budget();
+  test_srvrun_free_slot_resets_antiamp_state();
   test_srvrun_coalesced_handshake_not_boot_retransmit();
   test_srvrun_split_ch_boots_across_datagrams();
   test_srvrun_stalled_boot_swept();
