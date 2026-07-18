@@ -30,7 +30,8 @@ static int recv_handshake(
   wired_srvloop_dirkeys dk;
   if (!wired_srvloop_open_keys(s, QUIC_LEVEL_HANDSHAKE, &dk)) return 0;
   quic_protect_keys pk = {dk.keys, &dk.hp};
-  return quic_hspkt_open(&pk, in->dgram, &out->payload);
+  return quic_hspkt_open_suite(
+      s->sdrv.cipher_suite, &pk, in->dgram, &out->payload);
 }
 
 /* quic_hspkt_onertt_open mutates byte0 and the pn bytes in place (header
@@ -71,7 +72,8 @@ static int onertt_try(
     quic_hspkt_onertt_open_desc d  = {
         in->dgram, s->sdrv.iscid_len, in->largest_pn};
     onertt_restore(in->dgram, s->sdrv.iscid_len, save);
-    return quic_hspkt_onertt_open(&pk, &d, &out->payload);
+    return quic_hspkt_onertt_open_suite(
+        s->sdrv.cipher_suite, &pk, &d, &out->payload);
   }
 }
 

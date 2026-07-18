@@ -47,7 +47,8 @@ static int emit_handshake_ack(const wired_srvloop_conn* c, quic_obuf* out) {
       quic_span_of(c->l->cli_scid, c->l->cli_scid_len),
       quic_span_of(c->s->sdrv.iscid, c->s->sdrv.iscid_len), c->l->hs_tx_pn++,
       quic_span_of(frames, fl)};
-  return quic_hspkt_build(&pk, &d, out); /* out->len 0 unless built */
+  /* out->len 0 unless built */
+  return quic_hspkt_build_suite(c->s->sdrv.cipher_suite, &pk, &d, out);
 }
 
 /* RFC 9114 6.2.1: wrap the control-stream type + SETTINGS in a STREAM frame on

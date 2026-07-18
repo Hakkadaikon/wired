@@ -77,9 +77,22 @@ int quic_srvwire_open_initial(
 int quic_srvwire_seal_handshake(
     const quic_protect_keys* k, const quic_srvwire_seal_in* in, quic_obuf* out);
 
+/* Same as quic_srvwire_seal_handshake, but seals under the given negotiated
+ * TLS 1.3 cipher suite (RFC 8446 B.4). Returns 0 on an unrecognized suite. */
+int quic_srvwire_seal_handshake_suite(
+    u16                         suite,
+    const quic_protect_keys*    k,
+    const quic_srvwire_seal_in* in,
+    quic_obuf*                  out);
+
 /* RFC 9001 5: open a Handshake packet sealed by quic_srvwire_seal_handshake.
  * Returns 1, or 0 on authentication failure or short input. */
 int quic_srvwire_open_handshake(
     const quic_protect_keys* k, quic_mspan pkt, quic_span* tls);
+
+/* Same as quic_srvwire_open_handshake, but opens under the given negotiated
+ * TLS 1.3 cipher suite (RFC 8446 B.4). Returns 0 on an unrecognized suite. */
+int quic_srvwire_open_handshake_suite(
+    u16 suite, const quic_protect_keys* k, quic_mspan pkt, quic_span* tls);
 
 #endif
