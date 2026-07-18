@@ -28,9 +28,12 @@ typedef struct {
 int quic_tls_cert_parse(
     quic_span buf, quic_span* context, quic_tls_cert_entry* first);
 
-/** Longest certificate_list this SDK walks (leaf + up to 3 issuers — public
- * web chains are 2-3 entries). */
-#define QUIC_TLS_CERT_CHAIN_MAX 4
+/** Longest certificate_list this SDK walks (leaf + up to 9 issuers — public
+ * web chains are typically 2-3 entries, but quic-interop-runner's
+ * amplificationlimit case deliberately serves a 9-certificate chain to
+ * inflate the server's Handshake flight for its RFC 9000 8.1
+ * anti-amplification check; matches WIRED_CERTRELOAD_CHAIN_MAX). */
+#define QUIC_TLS_CERT_CHAIN_MAX 10
 
 /** Destination for quic_tls_cert_chain: entries[0..cap-1] and the count
  * actually written. */
