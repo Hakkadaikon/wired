@@ -130,6 +130,47 @@ static void test_sendsess_time_threshold_declares_lost_alone(void) {
   CHECK(wired_sendsess_inflight(&s) == 0);
 }
 
+/* REGRESSION (RFC 9002 6.1): "A packet is declared lost if ... it was sent
+ * prior to an acknowledged packet. [...] The acknowledgment indicates that
+ * a packet sent later was delivered" -- the time threshold in 6.1.2 is
+ * subordinate to this premise, not an independent trigger. pn 4 has NOT
+ * been superseded by any later-sent, now-acked packet (largest_acked stays
+ * at its pre-arm value of 0, i.e. no ack ever named a pn > 4), so even a
+ * huge elapsed time must NOT declare it lost -- only "it's been sitting
+ * around a while" with nothing newer proven delivered. A real burst-send
+ * scenario hit exactly this: several packets sent in the same step (same
+ * sent_ms) got declared lost the instant elapsed time alone crossed
+ * 9/8*RTT, with nothing after them ever acknowledged yet. */
+static void test_sendsess_time_threshold_requires_later_ack(void) {
+  u8                bytes[20];
+  wired_sendsess    s;
+  wired_sendq_slice sl;
+  wired_sendsess_arm(&s, bytes, 20, 10);
+  CHECK(wired_sendsess_take(&s, &sl) == 1);
+  CHECK(wired_sendsess_sent(&s, &sl, 4, 0) == 1); /* pn 4 sent at t=0ms */
+  /* no ack at all yet: largest_acked passed in is 0, e->pn(4) >= 0 */
+  CHECK(wired_sendsess_detect_lost(&s, 0, 100000, 1000, 0, 0) == 0);
+  CHECK(wired_sendsess_inflight(&s) == 1);
+}
+
+/* REGRESSION (RFC 9002 6.1.1's own "sent prior to an acknowledged packet"
+ * premise): largest_acked == pn (nothing sent AFTER pn has been
+ * acknowledged, an ack for pn itself doesn't count) must not declare pn
+ * lost via the packet threshold, however large kPacketThreshold's own
+ * arithmetic might otherwise read on unsigned wraparound. Explicit
+ * boundary check for sendsess_lost_eligible's pn < largest_acked cut. */
+static void test_sendsess_packet_threshold_requires_later_ack(void) {
+  u8                bytes[20];
+  wired_sendsess    s;
+  wired_sendq_slice sl;
+  wired_sendsess_arm(&s, bytes, 20, 10);
+  CHECK(wired_sendsess_take(&s, &sl) == 1);
+  CHECK(wired_sendsess_sent(&s, &sl, 4, 0) == 1);
+  /* largest_acked == pn: not "sent prior to an acknowledged packet" */
+  CHECK(wired_sendsess_detect_lost(&s, 4, 0, 0, 0, 0) == 0);
+  CHECK(wired_sendsess_inflight(&s) == 1);
+}
+
 /* srtt_us == 0 (no RTT sample yet) must not spuriously satisfy the time
  * threshold -- quic_loss_by_time's elapsed>=threshold could otherwise fire
  * on any elapsed time with threshold computed from a zero RTT. Same setup
@@ -301,6 +342,63 @@ static void test_sendsess_stream_offset_explicit_each_round(void) {
   CHECK(wired_sendsess_stream_offset(&s, &sl) == 110);
 }
 
+/* BOUNDARY: once the log holds WIRED_SENDSESS_LOG in-flight entries, one
+ * more wired_sendsess_sent must fail (0) and leave in-flight unchanged --
+ * the exact condition srvrun_send_stream_slice hits when cwnd outgrows the
+ * log (see WIRED_SENDSESS_LOG's own doc comment for why a full log silently
+ * drops already-wire-sent packets from tracking rather than refusing to
+ * send them). */
+static void test_sendsess_log_full_rejects_one_more(void) {
+  u8                bytes[(WIRED_SENDSESS_LOG + 1) * 10];
+  wired_sendsess    s;
+  wired_sendq_slice sl;
+  usz               i;
+  wired_sendsess_arm(&s, bytes, sizeof bytes, 10);
+  for (i = 0; i < WIRED_SENDSESS_LOG; i++) {
+    CHECK(wired_sendsess_take(&s, &sl) == 1);
+    CHECK(wired_sendsess_sent(&s, &sl, i, 0) == 1);
+  }
+  CHECK(wired_sendsess_inflight(&s) == WIRED_SENDSESS_LOG);
+  CHECK(wired_sendsess_take(&s, &sl) == 1); /* queue still has more to take */
+  CHECK(
+      wired_sendsess_sent(&s, &sl, WIRED_SENDSESS_LOG, 0) == 0); /* log full */
+  CHECK(wired_sendsess_inflight(&s) == WIRED_SENDSESS_LOG);      /* unchanged */
+}
+
+/* T-002: the log's real capacity is exactly WIRED_SENDSESS_LOG -- every one
+ * of those slots is fillable (regression guard against the constant and
+ * the array bound silently drifting apart). */
+static void test_sendsess_log_capacity_matches_constant(void) {
+  u8                bytes[WIRED_SENDSESS_LOG * 10];
+  wired_sendsess    s;
+  wired_sendq_slice sl;
+  usz               i;
+  wired_sendsess_arm(&s, bytes, sizeof bytes, 10);
+  for (i = 0; i < WIRED_SENDSESS_LOG; i++) {
+    CHECK(wired_sendsess_take(&s, &sl) == 1);
+    CHECK(wired_sendsess_sent(&s, &sl, i, 0) == 1);
+  }
+  CHECK(wired_sendsess_inflight(&s) == WIRED_SENDSESS_LOG);
+}
+
+/* T-003: past the OLD 32-slice cap (the goodput interop regression's exact
+ * trigger point), in-flight bytes must keep accumulating instead of silently
+ * losing track of newly sent slices -- proves the log now has headroom past
+ * where the bug used to bite. 35 slices * 10 bytes = 350, comfortably past
+ * the old 32-entry ceiling. */
+static void test_sendsess_inflight_bytes_survive_past_old_cap(void) {
+  u8                bytes[350];
+  wired_sendsess    s;
+  wired_sendq_slice sl;
+  usz               i;
+  wired_sendsess_arm(&s, bytes, sizeof bytes, 10);
+  for (i = 0; i < 35; i++) {
+    CHECK(wired_sendsess_take(&s, &sl) == 1);
+    CHECK(wired_sendsess_sent(&s, &sl, i, 0) == 1);
+  }
+  CHECK(wired_sendsess_inflight_bytes(&s) == 350);
+}
+
 void test_sendsess(void) {
   test_sendsess_take_and_track();
   test_sendsess_ack_consumes();
@@ -308,6 +406,8 @@ void test_sendsess(void) {
   test_sendsess_requeue_first();
   test_sendsess_threshold_declares_lost();
   test_sendsess_time_threshold_declares_lost_alone();
+  test_sendsess_time_threshold_requires_later_ack();
+  test_sendsess_packet_threshold_requires_later_ack();
   test_sendsess_time_threshold_skipped_without_rtt_sample();
   test_sendsess_oldest_sent_ms();
   test_sendsess_pto_probes_oldest();
@@ -317,4 +417,7 @@ void test_sendsess(void) {
   test_sendsess_stream_offset_defaults_to_zero();
   test_sendsess_stream_offset_after_base_set();
   test_sendsess_stream_offset_explicit_each_round();
+  test_sendsess_log_full_rejects_one_more();
+  test_sendsess_log_capacity_matches_constant();
+  test_sendsess_inflight_bytes_survive_past_old_cap();
 }
