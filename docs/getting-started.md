@@ -150,10 +150,10 @@ four drive the same application callback.
 
 | Driver | Select with | Extra flags | Notes |
 |---|---|---|---|
-| Single-process (default) | no flag | `--pin-core N` | Blocking `poll(2)` loop; simplest. |
-| Multi-process fork | `--workers N` | `--pin-cores 1` | N `fork`ed workers sharing the port via `SO_REUSEPORT`; a supervisor re-forks a dead worker. `0` = CPU count. |
-| Multi-thread | `--cores a,b,c` | `--control-core N` | `clone(2)`/`futex(2)` fan-out (no pthreads); worker *i* pins to `cores[i]`. |
-| AF_XDP | `--ifindex N` | `--queue N --ip a.b.c.d --skb-mode` | Packets polled from a shared UMEM ring, zero per-packet syscalls on receive. Root and kernel ≥ 5.9 (`BPF_LINK_CREATE` for XDP) required. |
+| Single-process (default) | no flag | `--pin-core N` | Blocking `poll(2)` loop; simplest. `--pin-core` pins the process to CPU N. |
+| Multi-process fork | `--workers N` | `--pin-cores 1` | N `fork`ed workers sharing the port via `SO_REUSEPORT`; a supervisor re-forks a dead worker. `0` = CPU count. `--pin-cores 1` pins worker *i* to CPU *i*. |
+| Multi-thread | `--cores a,b,c` | `--control-core N` | `clone(2)`/`futex(2)` fan-out (no pthreads); worker *i* pins to `cores[i]`. `--control-core` pins the control thread to CPU N. |
+| AF_XDP | `--ifindex N --ip a.b.c.d` (both required) | `--queue N --skb-mode` | Packets polled from a shared UMEM ring, zero per-packet syscalls on receive. Root and kernel ≥ 5.9 (`BPF_LINK_CREATE` for XDP) required. |
 
 Rules enforced by the parser: `--workers` cannot combine with `--cores` or
 `--ifindex`; `--pin-core` is rejected alongside `--workers`/`--cores` (each
@@ -213,6 +213,7 @@ updated in place; connections already past their handshake are undisturbed.
   JSON-SEQ framed.
 - `keylog_path` — NSS key log (`SSLKEYLOGFILE` format), for decrypting a
   capture in Wireshark.
-- `cc_algo` — congestion-control algorithm (`0` = NewReno, the default).
+- `cc_algo` — congestion-control algorithm: `0` = NewReno (the default),
+  `1` = CUBIC, `2` = BBR.
 
 The examples map these to `--qlog-file`/`--keylog-file` flags.

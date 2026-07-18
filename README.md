@@ -19,8 +19,8 @@ x86_64-linux, featuring:
   pthreads), and AF_XDP (packets polled from a shared UMEM ring, zero
   per-packet receive syscalls)
 - **its own verified cryptography** — AES-128-GCM, ChaCha20-Poly1305, X25519,
-  Ed25519, ECDSA P-256, RSA, SHA-2, HKDF — each checked against its published
-  RFC/FIPS vectors
+  Ed25519, ECDSA P-256/P-384, RSA, SHA-2, HKDF — each checked against its
+  published RFC/FIPS vectors
 - **auditable by construction** — every function holds cyclomatic complexity
   ≤ 3 (lizard-enforced in CI), clang-tidy CERT C rules on every push, three
   libFuzzer harnesses run nightly, and a
@@ -85,7 +85,7 @@ int wired_main(int argc, char** argv) {
 
 The same binary then picks its I/O driver from the command line: no flags
 for a single process, `--workers N` for forked workers on one port,
-`--cores a,b,c` for a thread fan-out, `--ifindex N` for AF_XDP.
+`--cores a,b,c` for a thread fan-out, `--ifindex N --ip a.b.c.d` for AF_XDP.
 
 ## Examples
 
