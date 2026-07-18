@@ -12,14 +12,14 @@ Because UDP only carries datagrams — no reliability, no ordering, no encryptio
 wired pushes this to the limit and shows the kernel nothing of QUIC's semantics.
 
 What remains in the kernel is only the carriage of already-encrypted bytes.
-The place that actually issues a syscall is concentrated in a single inline-assembly function called `syscall6`, and every other piece of code reaches the kernel only through that function.
+The place that actually issues a syscall is concentrated in a single inline-assembly function called `syscall6`; every other piece of C code reaches the kernel only through that function, the sole exceptions being three unavoidable asm trampolines (thread exit, signal return, and the `_start` entry stub) that must issue their own `syscall` instruction.
 The wire loop itself needs only a small set: raw UDP send and receive (`sendto` / `recvfrom`), preparing and waiting on a socket (`socket` / `bind` / `poll` / `fcntl` / `close`), and randomness (`getrandom`).
 Around it, the SDK reaches the kernel for a few more concerns — AF_XDP setup (`mmap` / `getsockopt` / `bpf`), worker threads (`clone` / `futex`), signal handling (`rt_sigaction`), file I/O (`openat` / `read` / `write`), and the clock (`clock_gettime`).
 The complete list, with why each syscall is needed and where it is issued, is in [docs/syscalls.md](../syscalls.md).
 What the kernel carries is an encrypted byte string; the kernel never interprets which QUIC packet or which frame those bytes are.
 
 Packet framing, encryption and header protection, the TLS handshake, loss recovery, congestion control, stream multiplexing, HTTP/3 and QPACK, X.509 verification, and every cryptographic function are all held in user space.
-The test path that merely round-trips bytes through memory (the memlink described later) never issues a single syscall at all.
+The test path that merely round-trips bytes through memory (memlink, an in-memory loopback transport under `src/transport/io/socket/net/` that the test suite substitutes for a real socket) never issues a single syscall at all.
 
 ```mermaid
 flowchart TB

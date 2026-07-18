@@ -9,10 +9,11 @@ and the workflow for adding a domain.
 `wired` is a QUIC + HTTP/3 stack built under three self-imposed disciplines:
 
 - **libc-free, freestanding.** Every production source compiles under
-  `-ffreestanding -nostdlib`. The only thing `src/` may include is
-  `sys/syscall.h` (direct x86_64-linux syscalls) and `util/*` (a handful of
-  inline primitives). No `<stdio.h>`, no `<string.h>`, no CRT. The compile
-  itself is the proof of independence.
+  `-ffreestanding -nostdlib`. Below the domain layer, the only foundations a
+  `src/` file may rest on are the repo's own syscall wrapper
+  (`src/common/platform/sys/syscall.h` — not the libc `<sys/syscall.h>`) and
+  the `util/*` inline primitives. No `<stdio.h>`, no `<string.h>`, no CRT.
+  The compile itself is the proof of independence.
 - **Low complexity by construction.** Every function has cyclomatic complexity
   ≤ 3 (lizard-enforced). This is not a style preference: it forces small
   functions, table-driven dispatch, and predicate helpers, which keeps each
@@ -32,7 +33,7 @@ tooling kept out of the shipped binary.
 ```mermaid
 flowchart TB
     subgraph APP["app — HTTP/3 & application"]
-        app["http3 (core · request · server) · qpack (qpack · qpackdyn)<br/>datagram (datagram · dgdeliver) · webtransport (capsule · errmap · session)"]
+        app["http3 (core · request · server) · qpack (qpack · qpackdyn)<br/>datagram (datagram · dgdeliver) · webtransport (capsule · errmap · session · wtwire)"]
     end
     subgraph TRANSPORT["transport — QUIC transport"]
         transport["conn (cid · lifecycle · loop · pnspace) · packet (build · frame · header · protect)<br/>stream (data · flow) · recovery (congestion · detect · rtx · stats)<br/>version (version · versmgr · vndrive) · io (socket · udp · xdp)"]
@@ -47,7 +48,10 @@ flowchart TB
         common["bytes (span · util · varint) · diag (error)<br/>platform (sys · rng · clock · fio · qlog · …)"]
     end
 
-    APP --> TRANSPORT --> TLS --> CRYPTO --> COMMON
+    APP --> TRANSPORT
+    TRANSPORT -.-> TLS
+    TLS --> CRYPTO
+    TRANSPORT --> CRYPTO --> COMMON
 
     subgraph VERIFY["Verification layer (not shipped)"]
         verify["TLA+ specs (tasks/loopeng/)<br/>Lean 4 proofs (tasks/fv/)"]
@@ -191,14 +195,15 @@ flowchart TB
     LEAN -. proven predicates .-> TDD
 ```
 
-- **State transitions / concurrency / protocol lifecycle → TLA+.** The specs in
-  `tasks/loopeng/` exhaustively explore stream / connection / handshake /
-  PN-space / close-and-draining / key-update / path / version-negotiation /
+- **State transitions / concurrency / protocol lifecycle → TLA+.** The specs
+  (kept in a local `tasks/loopeng/` workspace, not shipped in the repo)
+  exhaustively explore stream / connection / handshake / PN-space /
+  close-and-draining / key-update / path / version-negotiation /
   Retry-reconnection / HTTP/3-control state, with zero surviving mutants.
   Counterexamples become acceptance specs.
-- **Critical crypto / math → Lean 4.** The proofs in `tasks/fv/` establish
-  varint, packet-number, AEAD, cwnd, RTT, and the Ed25519 signature equation
-  with no `sorry`.
+- **Critical crypto / math → Lean 4.** The proofs (a local `tasks/fv/`
+  workspace, likewise unshipped) establish varint, packet-number, AEAD, cwnd,
+  RTT, and the Ed25519 signature equation with no `sorry`.
 - **Everything else → TDD.** Test list first → Red (confirm it fails) → minimal
   Green → Refactor.
 
