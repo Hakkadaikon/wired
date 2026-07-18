@@ -1,6 +1,7 @@
 #include "tls/keys/schedule_drive/keyschedule.h"
 
 #include "tls/handshake/core/tls/appkeys.h"
+#include "tls/handshake/core/tls/cipher.h"
 #include "tls/handshake/core/tls/master.h"
 #include "tls/handshake/core/tls/schedule.h"
 
@@ -25,7 +26,14 @@ static void save_server_ap_secret(
   quic_tls_derive_secret(&dsi, st->server_ap_secret);
 }
 
-void quic_keysched_init(quic_keysched* st) { st->stage = 0; }
+void quic_keysched_init(quic_keysched* st) {
+  st->stage = 0;
+  st->suite = QUIC_TLS_AES_128_GCM_SHA256;
+}
+
+void quic_keysched_set_suite(quic_keysched* st, u16 suite) {
+  st->suite = suite;
+}
 
 /* RFC 8446 7.1: ECDHE shared secret is exactly 32 bytes (X25519 / P-256). */
 static int ecdhe_ok(int stage, usz ecdhe_len) {
@@ -41,9 +49,9 @@ int quic_keysched_advance_handshake(
   in.hs_secret  = hs;
   in.transcript = transcript;
   in.is_server  = 0;
-  quic_tls_handshake_keys(&in, &st->keys[QUIC_KS_CLIENT_HS]);
+  quic_tls_handshake_keys_suite(&in, st->suite, &st->keys[QUIC_KS_CLIENT_HS]);
   in.is_server = 1;
-  quic_tls_handshake_keys(&in, &st->keys[QUIC_KS_SERVER_HS]);
+  quic_tls_handshake_keys_suite(&in, st->suite, &st->keys[QUIC_KS_SERVER_HS]);
   quic_tls_master_secret(hs, st->master);
   st->stage = 1;
   return 1;
@@ -56,10 +64,10 @@ int quic_keysched_advance_master(
   in.master     = st->master;
   in.transcript = quic_span_of(transcript, transcript_len);
   in.is_server  = 0;
-  quic_tls_app_keys(&in, &st->keys[QUIC_KS_CLIENT_AP]);
+  quic_tls_app_keys_suite(&in, st->suite, &st->keys[QUIC_KS_CLIENT_AP]);
   save_client_ap_secret(st, transcript, transcript_len);
   in.is_server = 1;
-  quic_tls_app_keys(&in, &st->keys[QUIC_KS_SERVER_AP]);
+  quic_tls_app_keys_suite(&in, st->suite, &st->keys[QUIC_KS_SERVER_AP]);
   save_server_ap_secret(st, transcript, transcript_len);
   st->stage = 2;
   return 1;

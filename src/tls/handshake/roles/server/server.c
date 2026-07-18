@@ -92,6 +92,7 @@ int wired_server_recv_initial(wired_server* s, const u8* ch_msg, usz ch_len) {
  * low-order client key gives an all-zero secret; reject it. */
 static int srv_derive_hs(wired_server* s, u8 ecdhe[QUIC_X25519_LEN]) {
   if (!quic_x25519(ecdhe, s->server_priv, s->sdrv.client_pub)) return 0;
+  quic_keysched_set_suite(&s->sched, s->sdrv.cipher_suite);
   return quic_keysched_advance_handshake(
       &s->sched, quic_span_of(ecdhe, QUIC_X25519_LEN),
       quic_span_of(s->tr, s->tr_through_sh));
