@@ -26,6 +26,7 @@
 #include "common/platform/rng/cidgen.h"
 #include "common/platform/thread/thread.h"
 #include "tls/keys/kuswitch/twogen.h"
+#include "transport/conn/cid/path/antiamp.h"
 #include "transport/conn/lifecycle/conntable/conntable.h"
 #include "transport/io/socket/io/udp.h"
 #include "transport/io/socket/poll/wait.h"
@@ -288,9 +289,26 @@ typedef struct {
    * is true (srvrun_reinit_ok then stops routing retransmits here at all). */
   u8  boot_ini[1500];
   usz boot_ini_len;
-  u8  boot_hs[4096];
+  /** Sized past a real 9-cert amplificationlimit chain's Handshake flight
+   * (EncryptedExtensions + 9 CERTIFICATE entries + CertificateVerify +
+   * Finished) with headroom -- see QUIC_TLS_CERT_CHAIN_MAX/
+   * WIRED_CERTRELOAD_CHAIN_MAX. */
+  u8  boot_hs[16384];
   usz boot_dgram_len[WIRED_SRVBOOT_FLIGHT_MAX];
   usz boot_dgram_count;
+  /** RFC 9000 8.1: how many of boot_dgram_len[0..boot_dgram_count) have
+   * actually been sent so far -- the rest stay held back by the
+   * anti-amplification gate (srvrun_boot_send_gated) until more bytes
+   * arrive from the client. Meaningless (and unused) once
+   * wired_server_is_confirmed, when the path is validated and the limit no
+   * longer applies. */
+  usz boot_dgram_sent;
+  /** RFC 9000 8.1 antiamp budget inputs for this slot, tracked only through
+   * boot (path validation): bytes physically received from this peer
+   * (srvrun_serve_slot, every datagram regardless of whether it parses) and
+   * bytes sent to it (srvrun_send, Initial + Handshake flight combined). */
+  u64 boot_rx_bytes;
+  u64 boot_tx_bytes;
   /** Server-initiated WebTransport stream sends in flight on this
    * connection (wired_server_wt_open_uni/open_bidi/stream_reply), pumped/
    * ACKed/probed alongside resp[] under the same connection-wide gates. */
@@ -548,29 +566,68 @@ static void srvrun_send(
   }
 }
 
-/* Send each sealed Handshake flight datagram in order (a flight split per
- * RFC 9000 19.6 arrives as dgram_count slices of the flight buffer). */
-static void srvrun_send_flight_dgrams(
-    const srvrun_cfg*  cfg,
-    const srvrun_conn* c,
-    const u8*          hs,
-    const usz*         dgram_len,
-    usz                dgram_count) {
-  usz off = 0;
-  for (usz i = 0; i < dgram_count; i++) {
-    srvrun_send(
-        cfg, c, quic_span_of(hs + off, dgram_len[i]),
-        "server Handshake flight sent\n");
-    off += dgram_len[i];
-  }
+/* RFC 9000 8.1: this slot's remaining antiamp budget before path validation.
+ * Once wired_server_is_confirmed the path is validated and the limit no
+ * longer applies -- callers must check that first (this alone would just
+ * report the frozen boot_rx/tx_bytes snapshot forever). */
+static u64 srvrun_boot_budget(const srvrun_conn* c) {
+  return quic_antiamp_budget(c->boot_rx_bytes, c->boot_tx_bytes);
 }
 
-static void srvrun_send_flight(
-    const srvrun_cfg*        cfg,
-    const srvrun_conn*       c,
-    const u8*                hs,
-    const wired_srvboot_out* out) {
-  srvrun_send_flight_dgrams(cfg, c, hs, out->dgram_len, out->dgram_count);
+/* Send one datagram through the boot-phase antiamp gate, bumping
+ * boot_tx_bytes (T-014: Initial and Handshake both count). The antiamp
+ * budget check itself lives in the callers (srvrun_boot_gate_blocks) -- this
+ * just sends and accounts, so a caller that already decided (e.g. because
+ * the path is confirmed, T-007) never gets silently overruled here. */
+static void srvrun_boot_send(
+    const srvrun_cfg* cfg, srvrun_conn* c, quic_span pkt, const char* what) {
+  srvrun_send(cfg, c, pkt, what);
+  c->boot_tx_bytes += pkt.n;
+}
+
+/* T-007: the antiamp gate applies only until the path is validated. */
+static int srvrun_boot_gate_blocks(
+    const srvrun_conn* c, int confirmed, usz want) {
+  return !confirmed && want > srvrun_boot_budget(c);
+}
+
+/* Send/resend the boot Initial through the same antiamp gate as the
+ * Handshake flight (T-014: one decision point covers both). The very first
+ * Initial always fits in practice (it never exceeds the client's own
+ * first-Initial-derived budget, RFC 9000 14.1's 1200-byte floor); this stays
+ * gated anyway so srvrun_boot_send has exactly one caller-side check to
+ * reason about, not a special case for whoever calls it first. */
+static void srvrun_boot_send_initial(
+    const srvrun_cfg* cfg, srvrun_conn* c, const char* what) {
+  int confirmed = wired_server_is_confirmed(&c->s);
+  if (!srvrun_boot_gate_blocks(c, confirmed, c->boot_ini_len))
+    srvrun_boot_send(cfg, c, quic_span_of(c->boot_ini, c->boot_ini_len), what);
+}
+
+/* Offset into boot_hs where the first not-yet-sent datagram starts. */
+static usz srvrun_boot_sent_off(const srvrun_conn* c) {
+  usz off = 0;
+  for (usz i = 0; i < c->boot_dgram_sent; i++) off += c->boot_dgram_len[i];
+  return off;
+}
+
+/* RFC 9000 8.1: send boot_dgram_len[boot_dgram_sent..dgram_count) in order,
+ * stopping at the first one that would exceed the antiamp budget -- the
+ * rest stays held for a later round once more client bytes arrive
+ * (T-001/T-002/T-003/T-004/T-005/T-006). Once the path is validated
+ * (confirmed) the limit is lifted and everything remaining goes out in one
+ * pass (T-007). */
+static void srvrun_boot_send_hs_gated(
+    const srvrun_cfg* cfg, srvrun_conn* c, int confirmed) {
+  usz off = srvrun_boot_sent_off(c);
+  while (c->boot_dgram_sent < c->boot_dgram_count) {
+    quic_span pkt =
+        quic_span_of(c->boot_hs + off, c->boot_dgram_len[c->boot_dgram_sent]);
+    if (srvrun_boot_gate_blocks(c, confirmed, pkt.n)) return;
+    srvrun_boot_send(cfg, c, pkt, "server Handshake flight sent\n");
+    off += pkt.n;
+    c->boot_dgram_sent++;
+  }
 }
 
 /* Build this slot's own wired_srvboot_id: every field from cfg->id except
@@ -630,10 +687,9 @@ static int srvrun_boot_finish(
   for (usz i = 0; i < out.dgram_count; i++)
     c->boot_dgram_len[i] = out.dgram_len[i];
   c->boot_dgram_count = out.dgram_count;
-  srvrun_send(
-      ctx->cfg, c, quic_span_of(c->boot_ini, c->boot_ini_len),
-      "server Initial sent\n");
-  srvrun_send_flight(ctx->cfg, c, c->boot_hs, &out);
+  c->boot_dgram_sent  = 0;
+  srvrun_boot_send_initial(ctx->cfg, c, "server Initial sent\n");
+  srvrun_boot_send_hs_gated(ctx->cfg, c, wired_server_is_confirmed(&c->s));
   wired_srvboot_acc_reset(&c->boot); /* the reassembly buffer is spent */
   return 1;
 }
@@ -2193,6 +2249,13 @@ static void srvrun_free_slot(wired_srvrun_env* env, srvrun_state* st, int i) {
   quic_conntable_remove(st->table, QUIC_CONNTABLE_CAP, i);
   c->up = 0;
   wired_srvboot_acc_reset(&c->boot);
+  /* RFC 9000 8.1 antiamp state is per-attempt -- a slot reused for a fresh
+   * boot must not inherit a stale budget from the connection it replaces
+   * (T-015). srvrun_boot_finish re-seeds boot_dgram_count/sent on the next
+   * accept; this covers the window before that. */
+  c->boot_rx_bytes   = 0;
+  c->boot_tx_bytes   = 0;
+  c->boot_dgram_sent = 0;
 }
 
 /* Advertised max_idle_timeout in ms — keep in sync with the value
@@ -3659,11 +3722,11 @@ static void srvrun_cold_start(
  * decrypt and get silently dropped. */
 static void srvrun_resend_boot_flight(
     const srvrun_step_ctx* ctx, srvrun_conn* c) {
-  srvrun_send(
-      ctx->cfg, c, quic_span_of(c->boot_ini, c->boot_ini_len),
-      "server Initial resent\n");
-  srvrun_send_flight_dgrams(
-      ctx->cfg, c, c->boot_hs, c->boot_dgram_len, c->boot_dgram_count);
+  srvrun_boot_send_initial(ctx->cfg, c, "server Initial resent\n");
+  /* T-003/T-008: only the still-unsent tail goes out here -- the client's
+   * extra datagram already grew boot_rx_bytes (srvrun_serve_slot), so this
+   * call's antiamp budget picks up wherever the last round left off. */
+  srvrun_boot_send_hs_gated(ctx->cfg, c, wired_server_is_confirmed(&c->s));
 }
 
 /* dg is a fresh cold-start Initial (srvrun_cold_start) or a retransmit of
@@ -3683,12 +3746,36 @@ static int srvrun_serve_boot(
   return 0;
 }
 
+/* c is up, unconfirmed, and still has boot datagrams the antiamp gate held
+ * back -- the condition srvrun_boot_release_pending gates its send on. */
+static int srvrun_boot_has_pending_tail(const srvrun_conn* c) {
+  if (!c->up || wired_server_is_confirmed(&c->s)) return 0;
+  return c->boot_dgram_sent < c->boot_dgram_count;
+}
+
+/* RFC 9000 8.1: a slot with boot datagrams still held back by the antiamp
+ * gate gets another release attempt on EVERY datagram it receives before
+ * confirmation -- not just an all-Initial retransmit (srvrun_is_boot_
+ * retransmit's narrower trigger). The real amplificationlimit trace shows
+ * the client ACKing Handshake packets it already has (not resending its
+ * Initial) while waiting for the still-held-back tail; without this, that
+ * growing boot_rx_bytes budget never gets spent and the tail sits forever. */
+static void srvrun_boot_release_pending(
+    const srvrun_step_ctx* ctx, srvrun_conn* c) {
+  if (srvrun_boot_has_pending_tail(c))
+    srvrun_boot_send_hs_gated(ctx->cfg, c, 0);
+}
+
 static void srvrun_serve_slot(
     const srvrun_step_ctx* ctx, int slot, quic_mspan dg) {
   srvrun_conn* c = &ctx->st->conns[slot];
   c->last_ms     = ctx->now_ms; /* RFC 9000 10.1: activity resets idle age */
+  /* RFC 9000 8.1: every physically received byte counts toward this path's
+   * antiamp budget, whether or not dg turns out to parse (T-013). */
+  c->boot_rx_bytes += dg.n;
   if (srvrun_serve_boot(ctx, slot, dg)) return;
   if (c->up) srvrun_step_and_reap(ctx, slot, dg);
+  srvrun_boot_release_pending(ctx, c);
 }
 
 /* dg's DCID as a span into dg, or a 0-length span if dg is too short to carry
