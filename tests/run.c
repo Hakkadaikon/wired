@@ -1385,6 +1385,8 @@ int main(void) {
   test_rebuild();
   test_collect();
   test_kuswitch_derive();
+  test_kuswitch_derive_suite_chacha20_full_key();
+  test_kuswitch_derive_suite_aes_matches_plain();
   test_kuswitch_phasebit();
   test_hspto();
   test_hspto_arm();
