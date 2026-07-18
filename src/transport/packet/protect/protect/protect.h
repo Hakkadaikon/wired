@@ -35,9 +35,19 @@ typedef struct {
 } quic_protect_seal_io;
 
 /* Write header + ciphertext + tag into io->out, apply header protection in
- * place, and return the total protected length, or 0 if it does not fit. */
+ * place, and return the total protected length, or 0 if it does not fit
+ * (AES-128-GCM; equivalent to quic_protect_seal_suite with suite =
+ * QUIC_TLS_AES_128_GCM_SHA256). */
 usz quic_protect_seal(
     const quic_protect_keys* k, const quic_protect_seal_io* io);
+
+/* Same as quic_protect_seal, but seals under the given negotiated TLS 1.3
+ * cipher suite (RFC 8446 B.4: AES_128_GCM_SHA256 or CHACHA20_POLY1305_
+ * SHA256). k->hp is ignored for a ChaCha20 suite -- header protection
+ * instead uses k->keys->hp's raw bytes directly (RFC 9001 5.4.3). Returns 0
+ * on an unrecognized suite. */
+usz quic_protect_seal_suite(
+    u16 suite, const quic_protect_keys* k, const quic_protect_seal_io* io);
 
 /* Reverse of quic_protect_seal on a protected packet held in pkt (modified
  * in place), with the header occupying hdr_len bytes and the packet number
@@ -53,8 +63,14 @@ typedef struct {
 
 /* Removes header protection in place, then verifies and decrypts the payload
  * into pkt's payload region. Returns the plaintext length, or 0 if
- * authentication fails. */
+ * authentication fails (AES-128-GCM; equivalent to quic_protect_open_suite
+ * with suite = QUIC_TLS_AES_128_GCM_SHA256). */
 usz quic_protect_open(
     const quic_protect_keys* k, const quic_protect_open_io* io);
+
+/* Same as quic_protect_open, but opens under the given negotiated TLS 1.3
+ * cipher suite (RFC 8446 B.4). Returns 0 on an unrecognized suite. */
+usz quic_protect_open_suite(
+    u16 suite, const quic_protect_keys* k, const quic_protect_open_io* io);
 
 #endif

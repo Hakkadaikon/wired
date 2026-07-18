@@ -23,8 +23,17 @@ typedef struct {
 } quic_hspkt_onertt_desc;
 
 /* Build one protected 1-RTT packet into out; length to out->len.
- * Returns 1 on success, 0 on overflow. */
+ * Returns 1 on success, 0 on overflow (AES-128-GCM; equivalent to
+ * quic_hspkt_onertt_build_suite with suite = QUIC_TLS_AES_128_GCM_SHA256). */
 int quic_hspkt_onertt_build(
+    const quic_protect_keys*      k,
+    const quic_hspkt_onertt_desc* d,
+    quic_obuf*                    out);
+
+/* Same as quic_hspkt_onertt_build, but seals under the given negotiated TLS
+ * 1.3 cipher suite (RFC 8446 B.4). Returns 0 on an unrecognized suite. */
+int quic_hspkt_onertt_build_suite(
+    u16                           suite,
     const quic_protect_keys*      k,
     const quic_hspkt_onertt_desc* d,
     quic_obuf*                    out);
@@ -40,8 +49,17 @@ typedef struct {
 } quic_hspkt_onertt_open_desc;
 
 /* On success *payload views the plaintext within pkt. Returns 1 on success,
- * 0 on authentication failure or short input. */
+ * 0 on authentication failure or short input (AES-128-GCM; equivalent to
+ * quic_hspkt_onertt_open_suite with suite = QUIC_TLS_AES_128_GCM_SHA256). */
 int quic_hspkt_onertt_open(
+    const quic_protect_keys*           k,
+    const quic_hspkt_onertt_open_desc* d,
+    quic_span*                         payload);
+
+/* Same as quic_hspkt_onertt_open, but opens under the given negotiated TLS
+ * 1.3 cipher suite (RFC 8446 B.4). Returns 0 on an unrecognized suite. */
+int quic_hspkt_onertt_open_suite(
+    u16                                suite,
     const quic_protect_keys*           k,
     const quic_hspkt_onertt_open_desc* d,
     quic_span*                         payload);

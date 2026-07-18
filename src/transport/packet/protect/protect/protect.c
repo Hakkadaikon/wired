@@ -1,7 +1,10 @@
 #include "transport/packet/protect/protect/protect.h"
 
 #include "crypto/symmetric/aead/gcm/gcm.h"
+#include "tls/handshake/core/tls/aead_params.h"
 #include "transport/packet/protect/hp/hp.h"
+#include "transport/packet/protect/protect_suite/aead_suite.h"
+#include "transport/packet/protect/protect_suite/hp_suite.h"
 
 void quic_protect_nonce(
     const u8 iv[QUIC_INITIAL_IV], u64 pn, u8 nonce[QUIC_INITIAL_IV]) {
@@ -62,4 +65,63 @@ usz quic_protect_open(
           pkt + io->hdr_len))
     return 0;
   return ct_len;
+}
+
+static void protect_copy_hdr(u8* out, quic_span hdr) {
+  for (usz i = 0; i < hdr.n; i++) out[i] = hdr.p[i];
+}
+
+/* Copy the header into io->out and seal the payload after it under `suite`,
+ * returning the total length (header + ciphertext + tag) or 0 on
+ * overflow/unknown suite. */
+static usz seal_into_suite(
+    u16 suite, const quic_initial_keys* keys, const quic_protect_seal_io* io) {
+  u8* out  = io->out.p;
+  usz need = io->hdr.n + io->payload.n + quic_aead_tag_len(suite);
+  quic_aead_suite_op op;
+  if (need > io->out.n) return 0;
+  protect_copy_hdr(out, io->hdr);
+  /* quic_aead_suite_seal derives the nonce itself (iv XOR pn); op.iv is the
+   * raw key IV, not a precomputed nonce (RFC 9001 5.3). */
+  op = (quic_aead_suite_op){suite, keys->key, keys->iv, io->pn, io->hdr};
+  return quic_aead_suite_seal(&op, io->payload, out + io->hdr.n) ? need : 0;
+}
+
+/* Apply header protection under `suite` (AES-ECB or ChaCha20, RFC 9001
+ * 5.4.1/5.4.3) using keys->hp's raw bytes. Returns 0 on an unrecognized
+ * suite. */
+static int protect_header_suite(
+    u16 suite, const u8* hp_key, u8* pkt, quic_mspan pn) {
+  u8             mask[5];
+  quic_hp_fields f = {pkt, pn.p, pn.n, QUIC_HP_LONG_MASK};
+  if (!quic_hp_suite_mask(suite, hp_key, pn.p + 4, mask)) return 0;
+  quic_hp_apply(mask, &f);
+  return 1;
+}
+
+usz quic_protect_seal_suite(
+    u16 suite, const quic_protect_keys* k, const quic_protect_seal_io* io) {
+  usz total = seal_into_suite(suite, k->keys, io);
+  if (total == 0) return 0;
+  if (!protect_header_suite(
+          suite, k->keys->hp, io->out.p,
+          quic_mspan_of(io->out.p + io->pn_off, io->pn_len)))
+    return 0;
+  return total;
+}
+
+usz quic_protect_open_suite(
+    u16 suite, const quic_protect_keys* k, const quic_protect_open_io* io) {
+  u8* pkt    = io->pkt.p;
+  usz ct_len = io->pkt.n - io->hdr_len - quic_aead_tag_len(suite);
+  quic_aead_suite_op op;
+  if (!protect_header_suite(
+          suite, k->keys->hp, pkt, quic_mspan_of(pkt + io->pn_off, io->pn_len)))
+    return 0;
+  /* quic_aead_suite_open derives the nonce itself (iv XOR pn); op.iv is the
+   * raw key IV, not a precomputed nonce (RFC 9001 5.3). */
+  op = (quic_aead_suite_op){
+      suite, k->keys->key, k->keys->iv, io->pn, {pkt, io->hdr_len}};
+  return quic_aead_suite_open(
+      &op, quic_span_of(pkt + io->hdr_len, ct_len), pkt + io->hdr_len);
 }
