@@ -3253,30 +3253,32 @@ static int srvrun_pace_ok(const srvrun_step_ctx* ctx, const srvrun_conn* c) {
   return !c->srtt_ms || ctx->now_ms >= c->next_send_ms;
 }
 
-/* 1 if NewReno's pacing interval rounds to sub-millisecond (RFC 9002 7.7
- * intends smoothing bursts, not capping throughput): once cwnd is large
- * enough that 5*packet_size*srtt/(4*cwnd) is under 1ms, quic_cc_pacing_ms's
- * own quic_u64_max(ms,1) floor turns "no gap needed" into "wait 1ms" --
- * harmless alone, but srvrun_serve_batch freezes ctx->now_ms for the whole
- * batch, so that floored 1ms pushes next_send_ms past every remaining
- * srvrun_pace_ok check in the same step. The connection's one round-robin
- * pump loop (srvrun_pump_sess) then caps at exactly one round per step
- * regardless of how much cwnd room is left, and the next step waits on the
- * next inbound datagram (poll's SRVRUN_PTO_MS=25 floor absent one) --
- * observed pinning "response slice sent" to a ~25-30ms cadence against a
- * real quic-go client even with cwnd grown past 4MB and zero loss, an
- * effective throughput far under the link's real capacity (interop
- * goodput timing out at 60s). BBR is unaffected (separate pacing path). */
-static int srvrun_pace_subms(const srvrun_conn* c) {
+/* 1 if NewReno's pacing interval is under one poll-loop tick (RFC 9002 7.7
+ * intends smoothing bursts, not capping throughput): srvrun has no timer-
+ * driven send loop -- srvrun_pump_sess only ever runs from srvrun_sess_
+ * on_step (a received datagram) or srvrun_pto_slot (the SRVRUN_PTO_MS=25ms
+ * poll tick), so a real send opportunity is at best SRVRUN_PTO_MS away.
+ * Deferring a send to next_send_ms when the theoretical gap is already
+ * shorter than that just pins the whole connection to the poll cadence
+ * instead of the pacing rate -- observed pinning "response slice sent" to
+ * a ~25-30ms cadence against a real quic-go client even with cwnd grown
+ * past 4MB and zero loss, an effective throughput far under the link's real
+ * capacity (interop goodput timing out at 60s). Once the interval grows
+ * past SRVRUN_PTO_MS, deferring is real: a later poll tick or the next ACK
+ * will still be there to pick the send back up, and pacing spreads it
+ * genuinely (T-001/T-002/T-003). BBR is unaffected (separate pacing
+ * path). */
+static int srvrun_pace_within_poll_tick(const srvrun_conn* c) {
   return c->cc.algo != QUIC_CC_ALGO_BBR &&
-         quic_pacing_interval(c->srtt_ms, c->cc.cwnd, QUIC_MAX_DATAGRAM) == 0;
+         quic_pacing_interval(c->srtt_ms, c->cc.cwnd, QUIC_MAX_DATAGRAM) <
+             SRVRUN_PTO_MS;
 }
 
 /* Schedule the next paced send (RFC 9002 7.7: ~1.25x cwnd/srtt rate) --
- * a no-op (send stays due now) while the real interval is sub-millisecond,
- * see srvrun_pace_subms. */
+ * a no-op (send stays due now) while the real interval already fits inside
+ * one poll tick, see srvrun_pace_within_poll_tick. */
 static void srvrun_pace_next(const srvrun_step_ctx* ctx, srvrun_conn* c) {
-  if (srvrun_pace_subms(c)) return;
+  if (srvrun_pace_within_poll_tick(c)) return;
   c->next_send_ms =
       ctx->now_ms + quic_cc_pacing_ms(&c->cc, c->srtt_ms, QUIC_MAX_DATAGRAM);
 }
