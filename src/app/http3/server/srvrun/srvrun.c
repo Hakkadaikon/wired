@@ -357,7 +357,16 @@ typedef struct {
  * tracked (srvrun does not parse the client's max_ack_delay yet -- YAGNI
  * until a deployment needs a non-default value). */
 #define SRVRUN_MAX_ACK_DELAY_US 25000
-#define SRVRUN_PTO_MAX 5
+/* Consecutive PTO probes (RFC 9002 6.2's exponential backoff) with no
+ * intervening ACK before this SDK gives up on the connection. 5 proved too
+ * short against a real network outage: quic-interop-runner's blackhole case
+ * (a 2s link cutoff, --off=2s) exhausted all 5 probes and tore the
+ * connection down well before the link came back, even though the peer
+ * (quic-go) itself keeps probing past 20s before giving up. 10 roughly
+ * doubles the backoff's total span, giving a short real-world outage room
+ * to recover without changing anything about how a probe is sent or
+ * accounted (RFC 9002 doesn't mandate a specific budget). */
+#define SRVRUN_PTO_MAX 10
 
 /* Receive batch: srvrun drains up to this many datagrams per recvmmsg call.
  * ponytail: 16 x 2048B storage (32KB) per env; raise if a profile ever shows
@@ -3192,6 +3201,39 @@ static int srvrun_pump_round(const srvrun_step_ctx* ctx, srvrun_conn* c) {
   return sent;
 }
 
+/* 1 if any resp[] slot has a PTO probe queued. */
+static int srvrun_any_resp_requeued(const srvrun_conn* c) {
+  for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++)
+    if (srvrun_has_requeued(&c->resp[i].sess)) return 1;
+  return 0;
+}
+
+/* 1 if any WT send slot has a PTO probe queued. */
+static int srvrun_any_wtsend_requeued(const srvrun_conn* c) {
+  for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++)
+    if (srvrun_has_requeued(&c->wtsend[i].sess)) return 1;
+  return 0;
+}
+
+/* 1 if any resp[]/wtsend slot has a PTO probe queued (srvrun_has_requeued)
+ * -- the round-level trigger for bypassing the pacing gate below. */
+static int srvrun_any_requeued(const srvrun_conn* c) {
+  return srvrun_any_resp_requeued(c) || srvrun_any_wtsend_requeued(c);
+}
+
+/* RFC 9002 7.5: a PTO probe must not be blocked by the congestion
+ * controller, and that includes pacing (RFC 9002 7.7) -- not just cwnd. A
+ * probe was already exempted from cwnd (srvrun_pump_gate_ok), but the
+ * pacing check ahead of it in srvrun_pump_round_gated still gated on
+ * c->srtt_ms/next_send_ms, so an RTT spike (a real blackhole off-period's
+ * delayed ACK) could push next_send_ms far into the future and silently
+ * swallow the one send that would recover the connection -- observed live:
+ * a real interop blackhole run stalls mid-transfer and never resumes once
+ * the link comes back. */
+static int srvrun_pace_or_probe_ok(const srvrun_step_ctx* ctx, const srvrun_conn* c) {
+  return srvrun_pace_ok(ctx, c) || srvrun_any_requeued(c);
+}
+
 /* One pacing-gated round-robin pass: the whole pass (up to SRVRUN_RESP_SLOTS
  * slices, one per slot) counts as a single paced send, so pacing limits how
  * often a PASS may run, not how often each SLOT within it may run -- pacing
@@ -3199,7 +3241,7 @@ static int srvrun_pump_round(const srvrun_step_ctx* ctx, srvrun_conn* c) {
  * slot 0's first slice push next_send_ms a full ms into the future before
  * slots 4/8 ever got a turn in the same step, starving them completely). */
 static int srvrun_pump_round_gated(const srvrun_step_ctx* ctx, srvrun_conn* c) {
-  if (!srvrun_pace_ok(ctx, c)) return 0;
+  if (!srvrun_pace_or_probe_ok(ctx, c)) return 0;
   int sent = srvrun_pump_round(ctx, c);
   if (sent) srvrun_pace_next(ctx, c);
   return sent;
