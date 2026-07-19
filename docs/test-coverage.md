@@ -5,8 +5,8 @@
 > **At a glance** — all 42 implemented specs are exercised by the unit
 > suite (460+ test files, every commit); 19 of them are additionally pinned
 > to official/golden vectors; three wire-facing parsers are fuzzed nightly;
-> and interop against real independent clients has proven 11 of 22 QUIC
-> testcases (vs quic-go), with a 12th functionally correct but short of a
+> and interop against real independent clients has proven 12 of 22 QUIC
+> testcases (vs quic-go), with a 13th functionally correct but short of a
 > runner timeout, and 4 of 7 WebTransport testcases (vs webtransport-go).
 > This page lists exactly what has and hasn't been demonstrated, per spec.
 > Results as of 2026-07.
@@ -64,7 +64,8 @@ Legend:
 - [ ] `retry` — not yet run (dedicated server mode not wired up)
 - [ ] `resumption` — not yet run (dedicated server mode not wired up)
 - [ ] `zerortt` — not yet run (dedicated server mode not wired up)
-- [ ] `ecn` — not yet run (socket cmsg path not wired up)
+- [x] `ecn` — RFC 9000 §13.4 ECT(0) marking on send, IP_TOS cmsg reading on
+  receive, and cumulative ECN counts reported in 1-RTT ACKs
 - [ ] `ipv6` — not yet run (server is IPv4-only)
 - [ ] `v2` — not yet run (dedicated server mode not wired up)
 - [ ] `rebind-port` / `rebind-addr` — the server follows a confirmed
@@ -319,10 +320,17 @@ runs used kernel UDP sockets, so they are unit-tested but not interop-proven.
   a protocol violation by this server -- see the QUIC testcase notes
   above). `connectionmigration` would reuse the same machinery but is
   likely to hit the same tooling limitation; not yet attempted.
+- `ecn` now passes: ECT(0) send marking, an IP_TOS cmsg read on receive
+  (with defenses against MSG_CTRUNC, a malformed/overflowing cmsg_len, and
+  an unrelated cmsg ahead of IP_TOS), and cumulative ECN counts in 1-RTT
+  ACKs. Reacting to a peer-reported CE increase (as opposed to counting
+  what this server itself received) is wired at the congestion-control
+  layer but not yet connected to ACK decoding -- out of scope for what the
+  runner's check requires.
 - Five testcases (`retry`, `resumption`, `zerortt`, `v2`,
   `connectionmigration`) need a dedicated server mode this SDK does not
-  wire up yet; `ecn` needs a socket cmsg path; `ipv6` needs IPv6 socket
-  support. None of these have been attempted.
+  wire up yet; `ipv6` needs IPv6 socket support. None of these have been
+  attempted.
 - The three WebTransport `*-send` interop cases have never passed; the
   QUIC layer has been verified blameless via qlog, and the investigation
   is parked at the client's send scheduling.
