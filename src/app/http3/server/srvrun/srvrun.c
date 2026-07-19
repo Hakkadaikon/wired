@@ -3975,9 +3975,17 @@ static void srvrun_cold_start(
 static void srvrun_resend_boot_flight(
     const srvrun_step_ctx* ctx, srvrun_conn* c) {
   srvrun_boot_send_initial(ctx->cfg, c, "server Initial resent\n");
-  /* T-003/T-008: only the still-unsent tail goes out here -- the client's
-   * extra datagram already grew boot_rx_bytes (srvrun_serve_slot), so this
-   * call's antiamp budget picks up wherever the last round left off. */
+  /* RFC 9002 6.2: a resend means the client is still waiting -- any part
+   * of the Handshake flight already sent once may be sitting in a dropped
+   * datagram, so replay the whole flight, not just the still-unsent tail.
+   * Rewinding boot_dgram_sent (tx/rx byte counters untouched) keeps the
+   * antiamp gate honest: srvrun_boot_send_hs_gated still stops at the
+   * budget, and the client's own datagram that triggered this resend
+   * already grew boot_rx_bytes (srvrun_serve_slot). Without the rewind a
+   * single lost Handshake datagram deadlocked the whole handshake: the
+   * client held the ServerHello and retransmitted its Initial forever,
+   * answered only by verbatim Initial replays. */
+  c->boot_dgram_sent = 0;
   srvrun_boot_send_hs_gated(ctx->cfg, c, wired_server_is_confirmed(&c->s));
   /* boot PTO T-009: the client itself just proved it's reachable (this is
    * its own retransmit reaching us) -- push the boot PTO deadline out so the

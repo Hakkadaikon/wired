@@ -947,8 +947,12 @@ static void test_srvrun_conn_rx_bytes_counts_malformed_datagram(void) {
 
 /* T-008: srvrun_resend_boot_flight (the client-Initial-retransmit path)
  * respects the same antiamp budget as the first round -- a flight too big
- * for one round still only releases what the accumulated boot_rx_bytes
- * allows, it does not resend the cached flight unconditionally. */
+ * for one round still only sends what the accumulated boot_rx_bytes
+ * allows, it does not resend the cached flight unconditionally. The
+ * resend replays from the flight's start (a retransmit means any earlier
+ * datagram may be lost), so with the budget already spent nothing more
+ * goes out at all: tx_bytes is unchanged and the replay cursor sits at 0
+ * until new client bytes grow the budget. */
 static void test_srvrun_resend_boot_flight_respects_antiamp_budget(void) {
   wired_srvboot_id id;
   u8               priv[32], pub[32], seed[32], rnd[32];
@@ -963,7 +967,7 @@ static void test_srvrun_resend_boot_flight_respects_antiamp_budget(void) {
     CHECK(c.boot_dgram_sent == 3);
     srvrun_resend_boot_flight(&ctx, &c); /* no new rx_bytes -- still capped */
   }
-  CHECK(c.boot_dgram_sent == 3);
+  CHECK(c.boot_dgram_sent == 0); /* rewound, and the budget blocked all */
   CHECK(c.boot_tx_bytes == 3000);
 }
 
@@ -7897,6 +7901,36 @@ static void test_srvrun_boot_pto_no_double_send_after_client_retransmit(void) {
   CHECK(st.conns[0].boot_pto_count == 0);
 }
 
+/* HS-FLIGHT LOSS RECOVERY (RFC 9002 6.2 applied to the boot flight): a
+ * resend triggered after the WHOLE Handshake flight already went out once
+ * must replay that flight too, not just the Initial -- the "only the
+ * still-unsent tail" antiamp bookkeeping otherwise turns one lost
+ * Handshake datagram into a permanent deadlock (the client holds the
+ * ServerHello, keeps retransmitting its Initial, and the server answers
+ * every one with a verbatim Initial replay and nothing else, observed
+ * live against quic-go under the interop runner's 30% loss profile). */
+static void test_srvrun_boot_resend_replays_lost_hs_flight(void) {
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32];
+  srvrun_conn      c;
+  sr_make_id(&id, priv, pub, seed, rnd);
+  sr_antiamp_seed_flight(&c);
+  c.up              = 1;
+  c.boot_ini_len    = 100;
+  c.boot_rx_bytes   = 100000; /* antiamp budget is not the constraint here */
+  c.boot_dgram_sent = 4;      /* the whole hs flight already went out once */
+  c.boot_tx_bytes   = 4100;
+  {
+    srvrun_cfg      cfg = sr_antiamp_cfg(&id);
+    srvrun_state    st  = {0, &c};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 1025, 0};
+    srvrun_test_reset_send_count();
+    srvrun_resend_boot_flight(&ctx, &c);
+  }
+  CHECK(srvrun_test_send_count() == 5); /* Initial + all 4 hs datagrams */
+  CHECK(c.boot_dgram_sent == 4);        /* fully re-sent, none withheld */
+}
+
 /* BOOT RTT SEED (RFC 9002 6.2.2): at the confirm transition the handshake
  * has already measured the path once -- the client's confirming flight
  * answers the boot flight last sent at boot_pto_sent_ms. That sample seeds
@@ -9390,6 +9424,7 @@ void test_srvrun(void) {
   test_srvrun_boot_pto_noop_without_sent_flight();
   test_srvrun_boot_pto_noop_when_not_up();
   test_srvrun_boot_pto_no_double_send_after_client_retransmit();
+  test_srvrun_boot_resend_replays_lost_hs_flight();
   test_srvrun_boot_rtt_seeded_at_confirm();
   test_srvrun_boot_rtt_no_seed_off_edge();
   test_srvrun_boot_rtt_no_overwrite();
