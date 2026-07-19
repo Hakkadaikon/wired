@@ -3963,10 +3963,36 @@ static void srvrun_step_and_reap(
  * (re)opens the connection, any other datagram steps the live loop. */
 /* Drive one cold-start feeding: a pending boot keeps its claim (and its
  * accumulator) for the next datagram; success or failure settles the slot. */
+/* RFC 9000 13.2.1 while the ClientHello is still incomplete: ack the
+ * Initial packets that did arrive, so a client whose missing piece keeps
+ * getting dropped hears the server is alive instead of dying on its own
+ * handshake idle timer. That ack is the slot's first packet, which makes
+ * the client switch its DCID to our scid (RFC 9000 7.2) -- rekey the
+ * routing entry and admit the new DCID into the accumulator before the
+ * switched retransmits arrive. The antiamp gate still bounds the send. */
+static void srvrun_boot_partial_ack(const srvrun_step_ctx* ctx, int slot) {
+  u8           out[1400];
+  srvrun_conn* c    = &ctx->st->conns[slot];
+  quic_span    scid = quic_span_of(c->scid, ctx->cfg->id->scid_len);
+  usz          n = wired_srvboot_partial_ack(&c->boot, scid, out, sizeof out);
+  if (n == 0) return;
+  if (srvrun_boot_gate_blocks(c, 0, n)) return;
+  quic_conntable_rekey(
+      ctx->st->table, QUIC_CONNTABLE_CAP, slot, c->scid,
+      ctx->cfg->id->scid_len);
+  wired_srvboot_acc_allow(&c->boot, scid);
+  srvrun_boot_send(
+      ctx->cfg, c, quic_span_of(out, n), "partial ClientHello acked\n");
+}
+
 static void srvrun_cold_start(
     const srvrun_step_ctx* ctx, int slot, quic_mspan dg) {
   int r = srvrun_on_initial(ctx, &ctx->st->conns[slot], dg);
-  if (r != SRVRUN_BOOT_PENDING) srvrun_open_done(ctx, slot, r);
+  if (r != SRVRUN_BOOT_PENDING) {
+    srvrun_open_done(ctx, slot, r);
+    return;
+  }
+  srvrun_boot_partial_ack(ctx, slot);
 }
 
 /* RFC 9000 13.3: resend c's cached accept flight verbatim -- same Initial,
