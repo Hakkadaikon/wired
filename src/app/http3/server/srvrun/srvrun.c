@@ -3463,6 +3463,31 @@ static void srvrun_rtt_note(srvrun_conn* c, u64 sample_ms) {
   quic_rtt_sample(&c->rtt, sample_ms * 1000, 0);
 }
 
+/* 1 if confirmation landed on the datagram just processed: c was still
+ * awaiting confirm before it (was_booting) and is confirmed now. */
+static int srvrun_confirm_edge(const srvrun_conn* c, int was_booting) {
+  return was_booting && wired_server_is_confirmed(&c->s);
+}
+
+/* 1 while no RTT sample exists yet and a boot send timestamp is there to
+ * measure against. */
+static int srvrun_boot_rtt_unseeded(const srvrun_conn* c) {
+  return !c->srtt_ms && c->boot_pto_sent_ms != 0;
+}
+
+/* RFC 9002 6.2.2: before the first 1-RTT ACK the PTO deadline falls back to
+ * the kInitialRtt-based ~1s default -- but the handshake itself already
+ * measured the path once: the client's confirming flight answers the boot
+ * flight last sent at boot_pto_sent_ms. Seed both estimators with that one
+ * sample at the confirm transition, so a first post-confirm loss probes on
+ * the real path RTT instead of waiting out the ~1s floor (the dominant
+ * cost per connection under the interop runner's handshakeloss profile). */
+static void srvrun_seed_boot_rtt(srvrun_conn* c, int was_booting, u64 now_ms) {
+  if (!srvrun_confirm_edge(c, was_booting)) return;
+  if (!srvrun_boot_rtt_unseeded(c)) return;
+  srvrun_rtt_note(c, now_ms - c->boot_pto_sent_ms);
+}
+
 /* 1 when pacing allows a send now: unpaced until the first RTT sample. */
 static int srvrun_pace_ok(const srvrun_step_ctx* ctx, const srvrun_conn* c) {
   return !c->srtt_ms || ctx->now_ms >= c->next_send_ms;
@@ -4153,8 +4178,9 @@ static void srvrun_rebind_peer(const srvrun_step_ctx* ctx, srvrun_conn* c) {
 
 static void srvrun_serve_slot(
     const srvrun_step_ctx* ctx, int slot, quic_mspan dg) {
-  srvrun_conn* c = &ctx->st->conns[slot];
-  c->last_ms     = ctx->now_ms; /* RFC 9000 10.1: activity resets idle age */
+  srvrun_conn* c       = &ctx->st->conns[slot];
+  int          booting = srvrun_awaiting_confirm(c);
+  c->last_ms = ctx->now_ms; /* RFC 9000 10.1: activity resets idle age */
   /* RFC 9000 8.1: every physically received byte counts toward this path's
    * antiamp budget, whether or not dg turns out to parse (T-013). */
   c->boot_rx_bytes += dg.n;
@@ -4163,7 +4189,11 @@ static void srvrun_serve_slot(
    * same "every physically received byte/datagram counts" rule as
    * boot_rx_bytes above. */
   wired_srvloop_ecn_note(&c->l, ctx->ecn);
-  if (srvrun_serve_boot(ctx, slot, dg)) return;
+  int consumed = srvrun_serve_boot(ctx, slot, dg);
+  /* confirm may have landed inside serve_boot: seed the RTT estimators
+   * from the boot flight's round trip either way (no-op off the edge). */
+  srvrun_seed_boot_rtt(c, booting, ctx->now_ms);
+  if (consumed) return;
   if (c->up) {
     srvrun_rebind_peer(ctx, c);
     srvrun_step_and_reap(ctx, slot, dg);
