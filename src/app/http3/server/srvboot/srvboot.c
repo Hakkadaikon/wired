@@ -261,7 +261,7 @@ usz wired_srvboot_partial_ack(
       quic_span_of(0, 0),
       0};
   if (!srvboot_acc_ackable(a)) return 0;
-  if (!quic_srvwire_seal_initial_frames(&wi, &ob)) return 0;
+  if (!quic_srvwire_seal_initial_frames_lean(&wi, &ob)) return 0;
   a->ack_pn++;
   return ob.len;
 }
