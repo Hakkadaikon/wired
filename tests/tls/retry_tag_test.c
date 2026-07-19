@@ -72,8 +72,25 @@ static void test_retry_tag_boundaries(void) {
           quic_span_of(odcid, 20), quic_span_of(full, sizeof(full))) == 1);
 }
 
+/* RFC 9001 A.4: the official Retry vector. ODCID 8394c8f03e515708; the
+ * Retry packet ff000000 0100 08f0 67a5 502a 4262 b574 6f6b 656e carries
+ * token "token" and must produce exactly the appendix's integrity tag. */
+static void test_retry_tag_rfc9001_a4_vector(void) {
+  const u8 odcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
+  const u8 retry[]  = {0xff, 0x00, 0x00, 0x00, 0x01, 0x00, 0x08, 0xf0, 0x67,
+                       0xa5, 0x50, 0x2a, 0x42, 0x62, 0xb5, 0x74, 0x6f, 0x6b,
+                       0x65, 0x6e};
+  const u8 want[16] = {0x04, 0xa2, 0x65, 0xba, 0x2e, 0xff, 0x4d, 0x82,
+                       0x90, 0x58, 0xfb, 0x3f, 0x0f, 0x24, 0x96, 0xba};
+  u8       tag[QUIC_RETRY_TAG];
+  quic_retry_tag(
+      quic_span_of(odcid, 8), quic_span_of(retry, sizeof retry), tag);
+  for (usz i = 0; i < 16; i++) CHECK(tag[i] == want[i]);
+}
+
 void test_retry_tag(void) {
   test_retry_tag_roundtrip();
   test_retry_tag_deterministic();
   test_retry_tag_boundaries();
+  test_retry_tag_rfc9001_a4_vector();
 }
