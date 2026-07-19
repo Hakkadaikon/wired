@@ -2803,17 +2803,21 @@ static void test_srvrun_pace_probe_bypass_still_respects_log_gate(void) {
     }
   }
   CHECK(wired_sendsess_pto_fire(&c.resp[0].sess, SRVRUN_PTO_MAX) == 1);
-  CHECK(c.resp[0].sess.requeue_n == 1);
+  CHECK(c.resp[0].sess.requeue_n == 2); /* RFC 9002 6.2.4: two probe slices */
   {
     srvrun_cfg      cfg = {-1, 0, 0, 0, 0, 0, 0, 0,
                            0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
                            0,  0, 0, 0, 0};
     srvrun_state    st  = {0, &c};
     srvrun_step_ctx ctx = {&cfg, 0, &st, 1000, 0};
+    /* one probe slice per round-robin pass; the second pass's pacing gate
+     * is bypassed again by the still-pending probe. */
+    CHECK(srvrun_pump_round_gated(&ctx, &c) == 1);
+    CHECK(c.resp[0].sess.requeue_n == 1);
     CHECK(srvrun_pump_round_gated(&ctx, &c) == 1);
   }
-  CHECK(c.resp[0].sess.requeue_n == 0); /* the probe's own slot always has
-                                         * room -- pto_fire freed it */
+  CHECK(c.resp[0].sess.requeue_n == 0); /* the probe's own slots always have
+                                         * room -- pto_fire freed them */
 }
 
 /* T-004 boundary: requeue_n transitions from 0 (gated) to 1 (bypassed) the
@@ -7893,6 +7897,66 @@ static void test_srvrun_boot_pto_no_double_send_after_client_retransmit(void) {
   CHECK(st.conns[0].boot_pto_count == 0);
 }
 
+/* BOOT RTT SEED (RFC 9002 6.2.2): at the confirm transition the handshake
+ * has already measured the path once -- the client's confirming flight
+ * answers the boot flight last sent at boot_pto_sent_ms. That sample seeds
+ * both RTT estimators so the first post-confirm loss probes on a real RTT
+ * instead of the ~1s kInitialRtt fallback. */
+static void test_srvrun_boot_rtt_seeded_at_confirm(void) {
+  srvrun_conn c;
+  sr_make_boot_conn(&c, 1000);
+  c.s.phase = WIRED_SERVER_HS_CONFIRMED; /* confirm landed this datagram */
+  srvrun_seed_boot_rtt(&c, 1, 1030);
+  CHECK(c.srtt_ms == 30);
+  CHECK(c.rtt.smoothed_rtt == 30000); /* first sample seeds directly (us) */
+}
+
+/* Off the confirm edge nothing is seeded: neither a datagram that arrives
+ * while still unconfirmed, nor one on a connection that was already
+ * confirmed before the datagram (was_booting == 0). */
+static void test_srvrun_boot_rtt_no_seed_off_edge(void) {
+  srvrun_conn c;
+  sr_make_boot_conn(&c, 1000);
+  srvrun_seed_boot_rtt(&c, 1, 1030); /* still unconfirmed */
+  CHECK(c.srtt_ms == 0);
+  c.s.phase = WIRED_SERVER_HS_CONFIRMED;
+  srvrun_seed_boot_rtt(&c, 0, 1030); /* confirmed before this datagram */
+  CHECK(c.srtt_ms == 0);
+}
+
+/* An estimator that already has a sample is not overwritten by the seed. */
+static void test_srvrun_boot_rtt_no_overwrite(void) {
+  srvrun_conn c;
+  sr_make_boot_conn(&c, 1000);
+  c.s.phase = WIRED_SERVER_HS_CONFIRMED;
+  c.srtt_ms = 50;
+  srvrun_seed_boot_rtt(&c, 1, 1030);
+  CHECK(c.srtt_ms == 50);
+}
+
+/* No boot flight was ever sent (boot_pto_sent_ms == 0): nothing to measure
+ * against, so nothing is seeded. */
+static void test_srvrun_boot_rtt_no_seed_without_sent(void) {
+  srvrun_conn c;
+  sr_make_boot_conn(&c, 0);
+  c.s.phase = WIRED_SERVER_HS_CONFIRMED;
+  srvrun_seed_boot_rtt(&c, 1, 1030);
+  CHECK(c.srtt_ms == 0);
+}
+
+/* The point of the seed: the first post-confirm PTO deadline shrinks from
+ * the kInitialRtt-based ~1s floor down to the measured path's scale. */
+static void test_srvrun_boot_rtt_seed_shrinks_pto_deadline(void) {
+  srvrun_conn c;
+  sr_make_boot_conn(&c, 1000);
+  u64 before = srvrun_pto_deadline_ms(&c, 0);
+  c.s.phase  = WIRED_SERVER_HS_CONFIRMED;
+  srvrun_seed_boot_rtt(&c, 1, 1030);
+  CHECK(before >= 1000); /* the kInitialRtt fallback really was ~1s */
+  CHECK(srvrun_pto_deadline_ms(&c, 0) < before);
+  CHECK(srvrun_pto_deadline_ms(&c, 0) < 200);
+}
+
 /* RFC 9002 7.5's "MUST NOT be blocked by the congestion controller" covers
  * pacing (7.7) too, not just cwnd -- a queued probe goes out even with the
  * pacing deadline far in the future (srvrun_pace_or_probe_ok). An earlier
@@ -9326,6 +9390,11 @@ void test_srvrun(void) {
   test_srvrun_boot_pto_noop_without_sent_flight();
   test_srvrun_boot_pto_noop_when_not_up();
   test_srvrun_boot_pto_no_double_send_after_client_retransmit();
+  test_srvrun_boot_rtt_seeded_at_confirm();
+  test_srvrun_boot_rtt_no_seed_off_edge();
+  test_srvrun_boot_rtt_no_overwrite();
+  test_srvrun_boot_rtt_no_seed_without_sent();
+  test_srvrun_boot_rtt_seed_shrinks_pto_deadline();
   test_srvrun_pto_probe_bypasses_pacing_too();
   test_srvrun_slot_release_grants_one_more_stream();
   test_srvrun_stream_limit_never_decreases();
