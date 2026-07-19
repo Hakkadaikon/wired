@@ -10,6 +10,8 @@
 #include "app/webtransport/wtwire/wtwire.h"
 #include "common/bytes/util/bytes.h"
 #include "test.h"
+#include "transport/packet/frame/frame/connctl.h"
+#include "transport/packet/frame/frame/dispatch.h"
 #include "transport/packet/frame/frame/frame.h"
 #include "transport/packet/frame/frame/stream_ctl.h"
 
@@ -79,6 +81,21 @@ static int sr_find_goaway_id(const u8* pl, usz pll, u64* id) {
   usz               n = quic_frame_get_stream(pl, pll, &sf);
   if (n == 0 || sf.stream_id != SRVRUN_CTRL_STREAM) return 0;
   return quic_h3_goaway_get(sf.data, (usz)sf.length, id) > 0;
+}
+
+/* Find a PATH_CHALLENGE frame (RFC 9000 19.17) in an opened payload, copying
+ * its 8-byte data into data_out. Returns 1 if one was found. */
+static int sr_find_path_challenge(const u8* pl, usz pll, u8 data_out[8]) {
+  quic_framewalk      it;
+  quic_framewalk_item fr;
+  quic_framewalk_init(&it, pl, pll);
+  while (quic_framewalk_next(&it, &fr)) {
+    if (quic_frame_classify(fr.type) != QUIC_FK_PATH_CHALLENGE) continue;
+    if (quic_path_decode(
+            fr.start, fr.remaining, QUIC_FRAME_PATH_CHALLENGE, data_out))
+      return 1;
+  }
+  return 0;
 }
 
 /* BASELINE: no shutdown requested -> a fresh Initial is accepted as usual
@@ -1477,6 +1494,290 @@ static void test_srvrun_rebind_subsequent_send_targets_new_peer(void) {
   }
   CHECK(st.conns[0].peer.port_be == rebound.port_be);
   CHECK(st.conns[0].peer.addr_be == rebound.addr_be);
+}
+
+/* T-001: a rebind arms this connection's migrate state machine
+ * (detect -> challenge) and records a nonzero 8-byte challenge. */
+static void test_srvrun_path_challenge_generated_on_rebind(void) {
+  struct lp_fix    f;
+  srvrun_conn      c;
+  quic_obuf        ob = {0};
+  u8               obuf[1024], sh[8] = {0x40, 1, 2, 3, 4, 5, 6, 7};
+  quic_conntable   table[QUIC_CONNTABLE_CAP];
+  quic_sockaddr_in old_peer = {0}, new_peer = {0};
+  srvrun_state     st          = {table, &c};
+  int              any_nonzero = 0;
+  ob                           = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  wired_udp_addr(&old_peer, 4433, (const u8[4]){127, 0, 0, 1});
+  wired_udp_addr(&new_peer, 9999, (const u8[4]){127, 0, 0, 1});
+  c.peer = old_peer;
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  {
+    srvrun_cfg      cfg = {-1, 0, 0, 0, 0, 0, 0, 0,
+                           0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                           0,  0, 0, 0, 0};
+    srvrun_step_ctx ctx = {&cfg, &new_peer, &st, 0};
+    srvrun_serve_slot(&ctx, 0, quic_mspan_of(sh, sizeof sh));
+  }
+  CHECK(c.migrate.detected == 1);
+  CHECK(c.migrate.challenged == 1);
+  CHECK(c.migrate.validated == 0);
+  for (usz i = 0; i < QUIC_PATH_DATA; i++)
+    if (c.path_challenge_data[i]) any_nonzero = 1;
+  CHECK(any_nonzero == 1);
+}
+
+/* T-002: the challenge srvrun_rebind_peer armed is exactly the one a
+ * PATH_CHALLENGE frame sealed for this connection carries -- proving the
+ * stored challenge and the wire frame agree, not just that some state flag
+ * flipped. */
+static void test_srvrun_path_challenge_sent_to_new_peer(void) {
+  struct lp_fix    f;
+  srvrun_conn      c;
+  quic_obuf        ob = {0};
+  u8               obuf[1024], sh[8] = {0x40, 1, 2, 3, 4, 5, 6, 7};
+  u8               out[256];
+  quic_conntable   table[QUIC_CONNTABLE_CAP];
+  quic_sockaddr_in old_peer = {0}, new_peer = {0};
+  srvrun_state     st = {table, &c};
+  const u8*        pl;
+  usz              pll;
+  u8               wire_data[QUIC_PATH_DATA];
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  wired_udp_addr(&old_peer, 4433, (const u8[4]){127, 0, 0, 1});
+  wired_udp_addr(&new_peer, 9999, (const u8[4]){127, 0, 0, 1});
+  c.peer = old_peer;
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  {
+    srvrun_cfg      cfg = {-1, 0, 0, 0, 0, 0, 0, 0,
+                           0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                           0,  0, 0, 0, 0};
+    srvrun_step_ctx ctx = {&cfg, &new_peer, &st, 0};
+    srvrun_serve_slot(&ctx, 0, quic_mspan_of(sh, sizeof sh));
+  }
+  CHECK(c.peer.port_be == new_peer.port_be); /* challenge targets new path */
+  {
+    /* Re-seal a PATH_CHALLENGE with the connection's own recorded challenge
+     * data (a distinct 1-RTT packet, since c.l.tx_pn already advanced past
+     * the one srvrun_rebind_peer itself sent) and confirm it opens under the
+     * client's key with the SAME 8 bytes stored in c.path_challenge_data --
+     * this is what a real client would receive as the challenge to answer. */
+    quic_obuf gob = {out, sizeof out, 0};
+    CHECK(srvrun_seal_path_challenge(&c, c.path_challenge_data, &gob) == 1);
+    CHECK(client_open_onertt(&f, out, gob.len, &pl, &pll) == 1);
+  }
+  CHECK(sr_find_path_challenge(pl, pll, wire_data) == 1);
+  CHECK(quic_ct_diff8(wire_data, c.path_challenge_data) == 0);
+}
+
+/* Fixed 127.0.0.1:4433 / 127.0.0.1:9999 pair shared by every path-response
+ * test below -- the actual addresses never matter, only that they differ. */
+static void sr_path_test_peers(
+    quic_sockaddr_in* old_peer, quic_sockaddr_in* new_peer) {
+  wired_udp_addr(old_peer, 4433, (const u8[4]){127, 0, 0, 1});
+  wired_udp_addr(new_peer, 9999, (const u8[4]){127, 0, 0, 1});
+}
+
+/* Confirm c, then rebind it from old_peer to new_peer via srvrun_serve_slot
+ * -- arms migrate (T-001) and leaves c->path_challenge_data set. st/table
+ * must outlive any further srvrun_serve_slot calls the caller makes. */
+static void sr_confirm_and_rebind(
+    srvrun_conn*      c,
+    struct lp_fix*    f,
+    quic_conntable*   table,
+    srvrun_state*     st,
+    quic_sockaddr_in* new_peer) {
+  quic_obuf        ob = {0};
+  u8               obuf[1024], sh[8] = {0x40, 1, 2, 3, 4, 5, 6, 7};
+  quic_sockaddr_in old_peer = {0};
+  ob                        = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(c, f, &ob);
+  sr_path_test_peers(&old_peer, new_peer);
+  c->peer = old_peer;
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  {
+    srvrun_cfg      cfg = {-1, 0, 0, 0, 0, 0, 0, 0,
+                           0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                           0,  0, 0, 0, 0};
+    srvrun_step_ctx ctx = {&cfg, new_peer, st, 0};
+    srvrun_serve_slot(&ctx, 0, quic_mspan_of(sh, sizeof sh));
+  }
+}
+
+/* Deliver a client PATH_RESPONSE frame carrying resp_data to slot 0 of st as
+ * a fresh sealed 1-RTT step from peer. */
+static void sr_send_path_response(
+    struct lp_fix*          f,
+    srvrun_state*           st,
+    const quic_sockaddr_in* peer,
+    const u8                resp_data[QUIC_PATH_DATA]) {
+  u8         fr[16], spkt[1024];
+  usz        fl, slen;
+  srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                    0,  0, 0, 0, 0};
+  fl = quic_path_encode(fr, sizeof fr, QUIC_FRAME_PATH_RESPONSE, resp_data);
+  CHECK(fl > 0);
+  slen = client_seal_onertt(f, fr, fl, spkt, sizeof spkt);
+  {
+    srvrun_step_ctx ctx = {&cfg, peer, st, 0};
+    srvrun_serve_slot(&ctx, 0, quic_mspan_of(spkt, slen));
+  }
+}
+
+/* T-003: a PATH_RESPONSE matching the outstanding challenge validates the
+ * path (quic_migrate_validate succeeds, migrate.validated set). */
+static void test_srvrun_path_response_matching_validates(void) {
+  struct lp_fix    f;
+  srvrun_conn      c;
+  quic_conntable   table[QUIC_CONNTABLE_CAP];
+  quic_sockaddr_in new_peer;
+  srvrun_state     st = {table, &c};
+  sr_confirm_and_rebind(&c, &f, table, &st, &new_peer);
+  CHECK(c.migrate.validated == 0);
+  sr_send_path_response(&f, &st, &new_peer, c.path_challenge_data);
+  CHECK(c.migrate.validated == 1);
+}
+
+/* T-004/T-008: a PATH_RESPONSE differing in even 1 of the 8 bytes from the
+ * outstanding challenge does not validate -- exercises quic_ct_diff8 (used by
+ * srvrun_apply_path_response) taking its nonzero branch. */
+static void test_srvrun_path_response_mismatch_does_not_validate(void) {
+  struct lp_fix    f;
+  srvrun_conn      c;
+  quic_conntable   table[QUIC_CONNTABLE_CAP];
+  quic_sockaddr_in new_peer;
+  u8               wrong[QUIC_PATH_DATA];
+  srvrun_state     st = {table, &c};
+  sr_confirm_and_rebind(&c, &f, table, &st, &new_peer);
+  for (usz i = 0; i < QUIC_PATH_DATA; i++)
+    wrong[i] = (u8)(c.path_challenge_data[i] ^ 0xff);
+  wrong[0] ^= 0x01; /* T-004: differs by at least one bit even if XOR above
+                     * happened to reproduce the original by coincidence */
+  sr_send_path_response(&f, &st, &new_peer, wrong);
+  CHECK(c.migrate.validated == 0);
+}
+
+/* T-005: a connection that never had a PATH_CHALLENGE outstanding
+ * (migrate.challenged == 0) ignores any PATH_RESPONSE -- no rebind ever ran,
+ * so path_challenge_data is untouched all-zero and migrate stays untouched
+ * too. */
+static void test_srvrun_path_response_without_challenge_is_noop(void) {
+  struct lp_fix    f;
+  srvrun_conn      c;
+  quic_obuf        ob = {0};
+  u8               obuf[1024];
+  quic_conntable   table[QUIC_CONNTABLE_CAP];
+  quic_sockaddr_in peer                      = {0};
+  srvrun_state     st                        = {table, &c};
+  u8               resp_data[QUIC_PATH_DATA] = {1, 2, 3, 4, 5, 6, 7, 8};
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  wired_udp_addr(&peer, 4433, (const u8[4]){127, 0, 0, 1});
+  c.peer = peer;
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  CHECK(c.migrate.challenged == 0);
+  sr_send_path_response(&f, &st, &peer, resp_data);
+  CHECK(c.migrate.challenged == 0);
+  CHECK(c.migrate.validated == 0);
+}
+
+/* T-006: a second rebind before the first PATH_RESPONSE arrives re-arms the
+ * challenge (a new value); the PATH_RESPONSE matching the FIRST (now stale)
+ * challenge no longer validates, only the second one does. */
+static void test_srvrun_path_challenge_rearmed_on_second_rebind(void) {
+  struct lp_fix    f;
+  srvrun_conn      c;
+  quic_obuf        ob = {0};
+  u8               obuf[1024], sh[8] = {0x40, 1, 2, 3, 4, 5, 6, 7};
+  quic_conntable   table[QUIC_CONNTABLE_CAP];
+  quic_sockaddr_in old_peer = {0}, mid_peer = {0}, final_peer = {0};
+  srvrun_state     st = {table, &c};
+  u8               first_challenge[QUIC_PATH_DATA];
+  srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                    0,  0, 0, 0, 0};
+  ob             = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  wired_udp_addr(&old_peer, 4433, (const u8[4]){127, 0, 0, 1});
+  wired_udp_addr(&mid_peer, 5555, (const u8[4]){127, 0, 0, 1});
+  wired_udp_addr(&final_peer, 9999, (const u8[4]){127, 0, 0, 1});
+  c.peer = old_peer;
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  {
+    srvrun_step_ctx ctx = {&cfg, &mid_peer, &st, 0};
+    srvrun_serve_slot(&ctx, 0, quic_mspan_of(sh, sizeof sh)); /* rebind #1 */
+  }
+  for (usz i = 0; i < QUIC_PATH_DATA; i++)
+    first_challenge[i] = c.path_challenge_data[i];
+  {
+    srvrun_step_ctx ctx = {&cfg, &final_peer, &st, 0};
+    srvrun_serve_slot(&ctx, 0, quic_mspan_of(sh, sizeof sh)); /* rebind #2 */
+  }
+  CHECK(quic_ct_diff8(first_challenge, c.path_challenge_data) != 0);
+  sr_send_path_response(&f, &st, &final_peer, first_challenge);
+  CHECK(c.migrate.validated == 0); /* stale challenge does not validate */
+  sr_send_path_response(&f, &st, &final_peer, c.path_challenge_data);
+  CHECK(c.migrate.validated == 1); /* current challenge does */
+}
+
+/* T-007: boot-stage connections never arm a PATH_CHALLENGE even though their
+ * source address changed -- srvrun_rebind_peer's existing boot exclusion
+ * (srvrun_awaiting_confirm) short-circuits before srvrun_arm_path_challenge
+ * is ever reached. */
+static void test_srvrun_path_challenge_noop_during_boot(void) {
+  quic_conntable   table[QUIC_CONNTABLE_CAP];
+  srvrun_state     st        = {table, g_srvrun_state.conns};
+  quic_sockaddr_in boot_peer = {0}, other_peer = {0};
+  u8               sh[8] = {0x40, 1, 2, 3, 4, 5, 6, 7};
+  srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                    0,  0, 0, 0, 0};
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  wired_udp_addr(&boot_peer, 4433, (const u8[4]){127, 0, 0, 1});
+  wired_udp_addr(&other_peer, 9999, (const u8[4]){127, 0, 0, 2});
+  st.conns[0]      = (srvrun_conn){0};
+  st.conns[0].up   = 1; /* up, not yet confirmed: srvrun_awaiting_confirm */
+  st.conns[0].peer = boot_peer;
+  {
+    srvrun_step_ctx ctx = {&cfg, &other_peer, &st, 0};
+    srvrun_serve_slot(&ctx, 0, quic_mspan_of(sh, sizeof sh));
+  }
+  CHECK(st.conns[0].migrate.challenged == 0);
+  CHECK(st.conns[0].migrate.detected == 0);
+}
+
+/* T-015: an RNG failure during challenge generation sends no PATH_CHALLENGE
+ * and never arms migrate.challenged (srvrun_gen_path_challenge's forced-fail
+ * test hook stands in for a real getrandom(2) failure). */
+static void test_srvrun_path_challenge_rng_failure_sends_nothing(void) {
+  struct lp_fix    f;
+  srvrun_conn      c;
+  quic_obuf        ob = {0};
+  u8               obuf[1024], sh[8] = {0x40, 1, 2, 3, 4, 5, 6, 7};
+  quic_conntable   table[QUIC_CONNTABLE_CAP];
+  quic_sockaddr_in old_peer = {0}, new_peer = {0};
+  srvrun_state     st = {table, &c};
+  usz              send_before;
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  sr_path_test_peers(&old_peer, &new_peer);
+  c.peer = old_peer;
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  send_before = srvrun_test_send_count();
+  srvrun_test_force_challenge_rng_fail(1);
+  {
+    srvrun_cfg      cfg = {-1, 0, 0, 0, 0, 0, 0, 0,
+                           0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                           0,  0, 0, 0, 0};
+    srvrun_step_ctx ctx = {&cfg, &new_peer, &st, 0};
+    srvrun_serve_slot(&ctx, 0, quic_mspan_of(sh, sizeof sh));
+  }
+  srvrun_test_force_challenge_rng_fail(0);
+  CHECK(c.migrate.challenged == 0);
+  CHECK(c.migrate.detected == 0);
+  CHECK(srvrun_test_send_count() == send_before); /* c->peer still rebinds --
+    only the challenge send itself is skipped */
+  CHECK(c.peer.port_be == new_peer.port_be);
 }
 
 /* Serve one sealed 1-RTT datagram carrying `pl` to a fresh confirmed slot 0,
@@ -9060,6 +9361,14 @@ void test_srvrun(void) {
   test_srvrun_rebind_noop_during_boot();
   test_srvrun_rebind_noop_on_unused_slot();
   test_srvrun_rebind_subsequent_send_targets_new_peer();
+  test_srvrun_path_challenge_generated_on_rebind();
+  test_srvrun_path_challenge_sent_to_new_peer();
+  test_srvrun_path_response_matching_validates();
+  test_srvrun_path_response_mismatch_does_not_validate();
+  test_srvrun_path_response_without_challenge_is_noop();
+  test_srvrun_path_challenge_rearmed_on_second_rebind();
+  test_srvrun_path_challenge_noop_during_boot();
+  test_srvrun_path_challenge_rng_failure_sends_nothing();
   test_srvrun_qlog_records_received();
   test_srvrun_qlog_no_dup_record();
   test_srvrun_qlog_recv_no_path_writes_nothing();
