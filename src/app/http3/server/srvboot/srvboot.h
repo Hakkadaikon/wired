@@ -144,6 +144,18 @@ typedef struct {
   usz opened;       /**< Initial packets successfully opened so far — 0 means
                        nothing authenticated yet and the attempt is
                        abandonable without loss */
+  /** Next server Initial packet number for a partial-ClientHello ACK
+   * (wired_srvboot_partial_ack). Starts at 2: the accept flight's own
+   * server Initial is pn 1, and reusing it would make the peer drop the
+   * flight as a duplicate. */
+  u64 ack_pn;
+  /** An additional DCID admitted alongside the bound one
+   * (wired_srvboot_acc_allow): the server's own scid, which the client
+   * switches to after the first server packet (RFC 9000 7.2). The Initial
+   * keys stay the bound ODCID's either way (RFC 9001 5.2). */
+  u8 alt_dcid[WIRED_MAX_CID_LEN];
+  /** Length of alt_dcid; 0 while none is allowed. */
+  u8 alt_dcid_len;
 } wired_srvboot_acc;
 
 /** Empty the accumulator for a fresh connection attempt.
@@ -160,6 +172,29 @@ void wired_srvboot_acc_reset(wired_srvboot_acc* a);
  *   and was absorbed, 0 if it was refused (not an Initial, unparseable, a
  *   foreign DCID, or nothing in it opened under the bound keys). */
 int wired_srvboot_acc_feed(wired_srvboot_acc* a, quic_mspan dg);
+
+/** Admit dcid alongside the bound one: after the server's first packet the
+ * client switches its DCID to the server's scid (RFC 9000 7.2), and its
+ * remaining ClientHello pieces arrive under that new DCID. Keys stay the
+ * bound ODCID's (RFC 9001 5.2).
+ * @param a the accumulator
+ * @param dcid the additional DCID to admit (the server's own scid) */
+void wired_srvboot_acc_allow(wired_srvboot_acc* a, quic_span dcid);
+
+/** Seal an ACK-only server Initial acknowledging the highest Initial opened
+ * so far (RFC 9000 13.2.1) — sent while the ClientHello is still
+ * incomplete, so a client whose missing piece keeps getting dropped still
+ * hears the server is alive instead of timing out. No-op before anything
+ * authenticated (nothing may be reflected to an unproven address,
+ * RFC 9000 8.1).
+ * @param a the accumulator (its ack_pn advances on success)
+ * @param scid the server's own connection id for the header
+ * @param out receives the sealed datagram
+ * @param cap bytes available at out
+ * @return bytes written, or 0 when nothing was opened yet or sealing
+ *   failed. */
+usz wired_srvboot_partial_ack(
+    wired_srvboot_acc* a, quic_span scid, u8* out, usz cap);
 
 /** @param a the accumulator
  * @return 1 once the buffered CRYPTO prefix folds a complete ClientHello. */
