@@ -17,16 +17,17 @@ fi
 # negotiated per the client's offer), keyupdate (server follows the
 # client-initiated update), amplificationlimit (verifies the server's own
 # anti-amplification gate), rebind-port/rebind-addr (the server always
-# follows a confirmed connection's peer address), and the two throughput
-# measurements. Still refused: cases needing a dedicated server mode that is
-# not wired up yet -- retry, resumption, zerortt, v2, connectionmigration,
-# ipv6, ecn.
+# follows a confirmed connection's peer address), ecn (the server marks
+# ECT(0) on send and reports received ECN counts in its 1-RTT ACKs), and the
+# two throughput measurements. Still refused: cases needing a dedicated
+# server mode that is not wired up yet -- retry, resumption, zerortt, v2,
+# connectionmigration, ipv6.
 case "$TESTCASE" in
   http3 | handshake | transfer) ;;
   longrtt | multiplexing | chacha20 | keyupdate | multiconnect) ;;
   blackhole | handshakeloss | transferloss) ;;
   handshakecorruption | transfercorruption | amplificationlimit) ;;
-  rebind-port | rebind-addr) ;;
+  rebind-port | rebind-addr | ecn) ;;
   goodput | crosstraffic) ;;
   *)
     echo "unsupported test case: $TESTCASE" >&2
