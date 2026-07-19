@@ -3981,6 +3981,31 @@ static void srvrun_boot_release_pending(
     srvrun_boot_send_hs_gated(ctx->cfg, c, 0);
 }
 
+/* 1 if ctx->peer's address differs from c->peer's -- the trigger for the
+ * naive rebind-tracking below. Split out so the caller's branch count stays
+ * low (the &&/|| that would otherwise inline here each cost lizard +1). */
+static int srvrun_peer_changed(
+    const srvrun_step_ctx* ctx, const srvrun_conn* c) {
+  return ctx->peer->port_be != c->peer.port_be ||
+         ctx->peer->addr_be != c->peer.addr_be;
+}
+
+/* RFC 9000 9 (naive subset, quic-interop-runner's rebind-port/rebind-addr):
+ * once a connection is past the boot/handshake window, follow its source
+ * address if a datagram arrives from a different one -- a NAT re-mapping a
+ * client's port, or the client switching networks, must not orphan the
+ * connection's reply path. Deliberately NOT full RFC 9000 9 path validation:
+ * there is no PATH_CHALLENGE/PATH_RESPONSE round trip before the switch, so
+ * a spoofed datagram carrying a known DCID from a forged source address can
+ * hijack the reply path exactly as a legitimate rebind would. Restricted to
+ * confirmed connections (srvrun_awaiting_confirm excluded) to at least keep
+ * this blind trust out of the pre-confirm window, where it would also widen
+ * the antiamp/DoS surface this server otherwise guards (RFC 9000 8.1). */
+static void srvrun_rebind_peer(const srvrun_step_ctx* ctx, srvrun_conn* c) {
+  if (srvrun_awaiting_confirm(c)) return;
+  if (srvrun_peer_changed(ctx, c)) c->peer = *ctx->peer;
+}
+
 static void srvrun_serve_slot(
     const srvrun_step_ctx* ctx, int slot, quic_mspan dg) {
   srvrun_conn* c = &ctx->st->conns[slot];
@@ -3989,7 +4014,10 @@ static void srvrun_serve_slot(
    * antiamp budget, whether or not dg turns out to parse (T-013). */
   c->boot_rx_bytes += dg.n;
   if (srvrun_serve_boot(ctx, slot, dg)) return;
-  if (c->up) srvrun_step_and_reap(ctx, slot, dg);
+  if (c->up) {
+    srvrun_rebind_peer(ctx, c);
+    srvrun_step_and_reap(ctx, slot, dg);
+  }
   srvrun_boot_release_pending(ctx, c);
 }
 
