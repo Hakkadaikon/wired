@@ -7,7 +7,6 @@
 /* RFC 9000 18.2 integer-valued parameters the server advertises; the two
  * tunable slots hold their defaults and are overridden per build. */
 #define STP_DEFAULT_MAX_DATA 1048576
-#define STP_DEFAULT_MAX_STREAMS_BIDI 100
 static const struct {
   u64 id, val;
 } int_params[] = {
@@ -67,7 +66,7 @@ static int put_tunables(quic_obuf* out, const quic_stp_limits* lim) {
              lim_or(lim->max_data, STP_DEFAULT_MAX_DATA)) &
          put_int(
              out, QUIC_TP_INITIAL_MAX_STREAMS_BIDI,
-             lim_or(lim->max_streams_bidi, STP_DEFAULT_MAX_STREAMS_BIDI)) &
+             lim_or(lim->max_streams_bidi, QUIC_STP_DEFAULT_MAX_STREAMS_BIDI)) &
          put_int_opt(
              out, QUIC_TP_MAX_DATAGRAM_FRAME_SIZE,
              lim->max_datagram_frame_size);
