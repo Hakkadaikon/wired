@@ -1282,6 +1282,203 @@ static void test_srvrun_serve_slot_touches_last_ms(void) {
   CHECK(st.conns[2].last_ms == 12345);
 }
 
+/* NAT REBIND -- PORT ONLY (RFC 9000 9, naive subset, no PATH_CHALLENGE): a
+ * confirmed connection that receives a datagram from a source differing only
+ * in port has its reply target (c->peer) updated to the new port. */
+static void test_srvrun_rebind_updates_peer_port(void) {
+  struct lp_fix    f;
+  srvrun_conn      c;
+  quic_obuf        ob = {0};
+  u8               obuf[1024], sh[8] = {0x40, 1, 2, 3, 4, 5, 6, 7};
+  quic_conntable   table[QUIC_CONNTABLE_CAP];
+  quic_sockaddr_in old_peer = {0}, new_peer = {0};
+  srvrun_state     st = {table, &c};
+  ob                  = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  wired_udp_addr(&old_peer, 4433, (const u8[4]){127, 0, 0, 1});
+  wired_udp_addr(&new_peer, 9999, (const u8[4]){127, 0, 0, 1});
+  c.peer = old_peer;
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  {
+    srvrun_cfg      cfg = {-1, 0, 0, 0, 0, 0, 0, 0,
+                           0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                           0,  0, 0, 0, 0};
+    srvrun_step_ctx ctx = {&cfg, &new_peer, &st, 0};
+    srvrun_serve_slot(&ctx, 0, quic_mspan_of(sh, sizeof sh));
+  }
+  CHECK(c.peer.port_be == new_peer.port_be);
+  CHECK(c.peer.addr_be == new_peer.addr_be);
+}
+
+/* NAT REBIND -- ADDRESS (RFC 9000 9, naive subset): a confirmed connection
+ * that receives a datagram from a source differing only in IP address has
+ * c->peer's address updated to the new one (network switch, not just a NAT
+ * port re-map). */
+static void test_srvrun_rebind_updates_peer_addr(void) {
+  struct lp_fix    f;
+  srvrun_conn      c;
+  quic_obuf        ob = {0};
+  u8               obuf[1024], sh[8] = {0x40, 1, 2, 3, 4, 5, 6, 7};
+  quic_conntable   table[QUIC_CONNTABLE_CAP];
+  quic_sockaddr_in old_peer = {0}, new_peer = {0};
+  srvrun_state     st = {table, &c};
+  ob                  = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  wired_udp_addr(&old_peer, 4433, (const u8[4]){127, 0, 0, 1});
+  wired_udp_addr(&new_peer, 4433, (const u8[4]){10, 0, 0, 2});
+  c.peer = old_peer;
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  {
+    srvrun_cfg      cfg = {-1, 0, 0, 0, 0, 0, 0, 0,
+                           0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                           0,  0, 0, 0, 0};
+    srvrun_step_ctx ctx = {&cfg, &new_peer, &st, 0};
+    srvrun_serve_slot(&ctx, 0, quic_mspan_of(sh, sizeof sh));
+  }
+  CHECK(c.peer.port_be == new_peer.port_be);
+  CHECK(c.peer.addr_be == new_peer.addr_be);
+}
+
+/* BOUNDARY (T-004): the ordinary case, no source-address change, leaves
+ * c->peer untouched (no spurious write when nothing actually rebound). */
+static void test_srvrun_rebind_noop_when_address_unchanged(void) {
+  struct lp_fix    f;
+  srvrun_conn      c;
+  quic_obuf        ob = {0};
+  u8               obuf[1024], sh[8] = {0x40, 1, 2, 3, 4, 5, 6, 7};
+  quic_conntable   table[QUIC_CONNTABLE_CAP];
+  quic_sockaddr_in peer = {0};
+  srvrun_state     st   = {table, &c};
+  ob                    = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  wired_udp_addr(&peer, 4433, (const u8[4]){127, 0, 0, 1});
+  c.peer = peer;
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  {
+    srvrun_cfg      cfg = {-1, 0, 0, 0, 0, 0, 0, 0,
+                           0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                           0,  0, 0, 0, 0};
+    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0};
+    srvrun_serve_slot(&ctx, 0, quic_mspan_of(sh, sizeof sh));
+  }
+  CHECK(c.peer.port_be == peer.port_be);
+  CHECK(c.peer.addr_be == peer.addr_be);
+}
+
+/* PARTITION (T-005): rebind-port and rebind-addr are independent projections
+ * of the same change -- a port-only change updates only port_be (addr_be
+ * unaffected). Complements T-001/T-002, which each check only their own axis
+ * moved; this checks the OTHER axis did NOT move. */
+static void test_srvrun_rebind_port_and_addr_independent(void) {
+  struct lp_fix    f;
+  srvrun_conn      c;
+  quic_obuf        ob = {0};
+  u8               obuf[1024], sh[8] = {0x40, 1, 2, 3, 4, 5, 6, 7};
+  quic_conntable   table[QUIC_CONNTABLE_CAP];
+  quic_sockaddr_in base = {0}, port_only = {0};
+  srvrun_state     st = {table, &c};
+  ob                  = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  wired_udp_addr(&base, 4433, (const u8[4]){127, 0, 0, 1});
+  wired_udp_addr(&port_only, 5555, (const u8[4]){127, 0, 0, 1});
+  c.peer = base;
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  {
+    srvrun_cfg      cfg = {-1, 0, 0, 0, 0, 0, 0, 0,
+                           0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                           0,  0, 0, 0, 0};
+    srvrun_step_ctx ctx = {&cfg, &port_only, &st, 0};
+    srvrun_serve_slot(&ctx, 0, quic_mspan_of(sh, sizeof sh));
+  }
+  CHECK(c.peer.port_be == port_only.port_be); /* moved */
+  CHECK(c.peer.addr_be == base.addr_be);      /* untouched */
+}
+
+/* UNWANTED (T-006): boot-stage connections (srvrun_awaiting_confirm true)
+ * are excluded from address-follow -- widening the pre-confirm trust surface
+ * would also widen the antiamp/DoS surface (RFC 9000 8.1). c->peer stays at
+ * whatever srvrun_open_slot recorded even though this datagram arrives from
+ * a different source. */
+static void test_srvrun_rebind_noop_during_boot(void) {
+  quic_conntable   table[QUIC_CONNTABLE_CAP];
+  srvrun_state     st        = {table, g_srvrun_state.conns};
+  quic_sockaddr_in boot_peer = {0}, other_peer = {0};
+  u8               sh[8] = {0x40, 1, 2, 3, 4, 5, 6, 7}; /* not Initial */
+  srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                    0,  0, 0, 0, 0};
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  wired_udp_addr(&boot_peer, 4433, (const u8[4]){127, 0, 0, 1});
+  wired_udp_addr(&other_peer, 9999, (const u8[4]){127, 0, 0, 2});
+  st.conns[0]      = (srvrun_conn){0};
+  st.conns[0].up   = 1; /* up, not yet confirmed: srvrun_awaiting_confirm */
+  st.conns[0].peer = boot_peer;
+  {
+    srvrun_step_ctx ctx = {&cfg, &other_peer, &st, 0};
+    srvrun_serve_slot(&ctx, 0, quic_mspan_of(sh, sizeof sh));
+  }
+  CHECK(st.conns[0].peer.port_be == boot_peer.port_be);
+  CHECK(st.conns[0].peer.addr_be == boot_peer.addr_be);
+}
+
+/* UNWANTED (T-007): a slot that is not up (unused/freed) is left alone --
+ * srvrun_serve_slot's c->up gate means the address-follow code never even
+ * runs (mirrors the existing test_srvrun_serve_slot_touches_last_ms
+ * baseline: last_ms/boot_rx_bytes bookkeeping still proceeds). */
+static void test_srvrun_rebind_noop_on_unused_slot(void) {
+  quic_conntable   table[QUIC_CONNTABLE_CAP];
+  srvrun_state     st    = {table, g_srvrun_state.conns};
+  quic_sockaddr_in peer  = {0};
+  u8               sh[8] = {0x40, 1, 2, 3, 4, 5, 6, 7};
+  srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                    0,  0, 0, 0, 0};
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  wired_udp_addr(&peer, 9999, (const u8[4]){127, 0, 0, 2});
+  st.conns[3] = (srvrun_conn){0}; /* up == 0: unused slot */
+  {
+    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0};
+    srvrun_serve_slot(&ctx, 3, quic_mspan_of(sh, sizeof sh));
+  }
+  CHECK(st.conns[3].up == 0);
+  CHECK(st.conns[3].peer.port_be == 0);
+  CHECK(st.conns[3].peer.addr_be == 0);
+}
+
+/* INTEGRATION (T-003): the address-follow in srvrun_serve_slot actually
+ * reaches the real routing entry point (srvrun_serve, which resolves the
+ * slot by DCID rather than being handed a slot index directly) -- proving
+ * the rebind isn't an artifact of calling srvrun_serve_slot in isolation. A
+ * confirmed connection served once from `from` (recording c->peer = from)
+ * and again from a different source address ends up with c->peer set to
+ * that second address. */
+static void test_srvrun_rebind_subsequent_send_targets_new_peer(void) {
+  struct lp_fix    f;
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32];
+  u8               obuf[1024], spkt[1024];
+  quic_conntable   table[QUIC_CONNTABLE_CAP];
+  quic_sockaddr_in from, rebound;
+  srvrun_state     st      = {table, g_srvrun_state.conns};
+  quic_obuf        ob      = {obuf, sizeof obuf, 0};
+  u8               ping[1] = {0x01};
+  usz              slen;
+  sr_make_id(&id, priv, pub, seed, rnd);
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  sr_make_confirmed_conn(&st.conns[0], &f, &ob);
+  wired_udp_addr(&from, 4433, (const u8[4]){127, 0, 0, 1});
+  st.conns[0].peer = from;
+  wired_udp_addr(&rebound, 4433, (const u8[4]){127, 0, 0, 2});
+  CHECK(quic_conntable_insert(table, QUIC_CONNTABLE_CAP, g_cli_scid, 6) == 0);
+  slen = client_seal_onertt(&f, ping, sizeof ping, spkt, sizeof spkt);
+  {
+    srvrun_cfg cfg = {-1, &id,           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                      0,  &g_srvrun_env, 0, 0, 0, 0, 0};
+    srvrun_step_ctx ctx = {&cfg, &rebound, &st, 0};
+    srvrun_serve(&ctx, quic_mspan_of(spkt, slen));
+  }
+  CHECK(st.conns[0].peer.port_be == rebound.port_be);
+  CHECK(st.conns[0].peer.addr_be == rebound.addr_be);
+}
+
 /* Serve one sealed 1-RTT datagram carrying `pl` to a fresh confirmed slot 0,
  * with qlog_path (or 0). The lp fixture seals under the client 1-RTT key at
  * PN 0. Repeats the serve `times` times against the same slot. */
@@ -8856,6 +9053,13 @@ void test_srvrun(void) {
   test_srvrun_idle_sweep_evicts_expired();
   test_srvrun_idle_sweep_releases_bigbuf_row();
   test_srvrun_serve_slot_touches_last_ms();
+  test_srvrun_rebind_updates_peer_port();
+  test_srvrun_rebind_updates_peer_addr();
+  test_srvrun_rebind_noop_when_address_unchanged();
+  test_srvrun_rebind_port_and_addr_independent();
+  test_srvrun_rebind_noop_during_boot();
+  test_srvrun_rebind_noop_on_unused_slot();
+  test_srvrun_rebind_subsequent_send_targets_new_peer();
   test_srvrun_qlog_records_received();
   test_srvrun_qlog_no_dup_record();
   test_srvrun_qlog_recv_no_path_writes_nothing();
