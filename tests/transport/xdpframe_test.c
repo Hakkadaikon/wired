@@ -20,10 +20,6 @@ static const u8 xdpft_golden[60] = {
 
 static u16 xdpft_ntoh16(u16 v) { return (u16)((v >> 8) | (v << 8)); }
 
-static u32 xdpft_ntoh32(u32 v) {
-  return (v >> 24) | ((v >> 8) & 0xff00u) | ((v << 8) & 0xff0000u) | (v << 24);
-}
-
 static int xdpft_mac_eq(const u8* a, const u8* b) {
   for (usz i = 0; i < 6; i++)
     if (a[i] != b[i]) return 0;
@@ -34,16 +30,16 @@ static int xdpft_mac_eq(const u8* a, const u8* b) {
  * the payload view. */
 static void test_xdpframe_rx_golden(void) {
   quic_xdpframe_rx rx;
-  quic_sockaddr_in want_src, want_dst;
+  quic_sockaddr    want_src, want_dst;
   wired_udp_addr(&want_src, 5555, (const u8[]){10, 7, 0, 2});
   wired_udp_addr(&want_dst, 4433, (const u8[]){10, 7, 0, 1});
   CHECK(quic_xdpframe_parse(quic_span_of(xdpft_golden, 60), &rx) == 1);
   CHECK(rx.src.family == want_src.family);
   CHECK(rx.src.port_be == want_src.port_be);
-  CHECK(rx.src.addr_be == want_src.addr_be);
+  CHECK(quic_ct_diffn(rx.src.addr, want_src.addr, 16) == 0);
   CHECK(xdpft_mac_eq(rx.peer_mac, xdpft_golden + 6));
   CHECK(xdpft_mac_eq(rx.our_mac, xdpft_golden));
-  CHECK(rx.our_ip_be == want_dst.addr_be);
+  CHECK(rx.our_ip == wired_udp_addr4_be(&want_dst));
   CHECK(rx.dport == 4433);
   CHECK(rx.payload == xdpft_golden + QUIC_XDPFRAME_HDRS);
   CHECK(rx.payload_len == 2 && rx.payload[0] == 'h' && rx.payload[1] == 'i');
@@ -105,7 +101,7 @@ static void test_xdpframe_tx_roundtrip(void) {
 static void test_xdpframe_reflect(void) {
   quic_xdpframe_rx rx, rr;
   quic_xdpframe_tx m;
-  quic_sockaddr_in want_src, want_peer;
+  quic_sockaddr    want_src, want_peer;
   u8               buf[64];
   const u8         pl[2] = {'y', 'o'};
   CHECK(quic_xdpframe_parse(quic_span_of(xdpft_golden, 60), &rx) == 1);
@@ -113,8 +109,8 @@ static void test_xdpframe_reflect(void) {
   for (usz i = 0; i < 6; i++) m.src_mac[i] = rx.our_mac[i];
   m.udp.ports.sport = rx.dport;
   m.udp.ports.dport = xdpft_ntoh16(rx.src.port_be);
-  m.udp.addrs.src   = xdpft_ntoh32(rx.our_ip_be);
-  m.udp.addrs.dst   = xdpft_ntoh32(rx.src.addr_be);
+  m.udp.addrs.src   = rx.our_ip;
+  m.udp.addrs.dst   = wired_udp_addr4_be(&rx.src);
   usz n             = quic_xdpframe_build(
       quic_mspan_of(buf, sizeof(buf)), &m, quic_span_of(pl, 2));
   CHECK(n == QUIC_XDPFRAME_HDRS + 2);
@@ -122,8 +118,8 @@ static void test_xdpframe_reflect(void) {
   wired_udp_addr(&want_src, 4433, (const u8[]){10, 7, 0, 1});
   wired_udp_addr(&want_peer, 5555, (const u8[]){10, 7, 0, 2});
   CHECK(rr.src.port_be == want_src.port_be);
-  CHECK(rr.src.addr_be == want_src.addr_be);
-  CHECK(rr.dport == 5555 && rr.our_ip_be == want_peer.addr_be);
+  CHECK(quic_ct_diffn(rr.src.addr, want_src.addr, 16) == 0);
+  CHECK(rr.dport == 5555 && rr.our_ip == wired_udp_addr4_be(&want_peer));
   CHECK(xdpft_mac_eq(rr.peer_mac, rx.our_mac));
   CHECK(xdpft_mac_eq(rr.our_mac, rx.peer_mac));
   CHECK(rr.payload_len == 2 && rr.payload[0] == 'y');

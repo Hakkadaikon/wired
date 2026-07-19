@@ -20,13 +20,13 @@
  * who sent it, and the addressing needed to reflect a reply. */
 typedef struct {
   /** peer ip+port in kernel sockaddr_in form (big-endian port and address) */
-  quic_sockaddr_in src;
+  quic_sockaddr src;
   /** the frame's eth source MAC (the peer's) */
   u8 peer_mac[6];
   /** the frame's eth destination MAC (ours) */
   u8 our_mac[6];
-  /** ip destination address in network byte order */
-  u32 our_ip_be;
+  /** ip destination address as a host-order u32 (wired_udp_addr4_be) */
+  u32 our_ip;
   /** udp destination port in host order */
   u16 dport;
   /** first byte of the UDP payload (a view into the parsed frame) */

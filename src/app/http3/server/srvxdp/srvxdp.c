@@ -19,9 +19,9 @@
 static void srvxdp_init_state(wired_srvxdp* x, const wired_srvxdp_cfg* cfg) {
   *x            = (wired_srvxdp){0};
   x->bpf.map_fd = x->bpf.prog_fd = x->bpf.link_fd = -1;
-  /* ip_be holds the address as network-order BYTES (same shape as
-   * quic_sockaddr_in.addr_be), so tx_meta's get_be32 round-trips it; a
-   * host-order u32 here byte-reverses the reply's source IP on the wire. */
+  /* ip_be holds the address as network-order BYTES, so tx_meta's
+   * get_be32 round-trips it; a host-order u32 here byte-reverses the
+   * reply's source IP on the wire. */
   quic_memcpy((u8*)&x->ip_be, cfg->ip, 4);
   x->port = cfg->port;
   quic_xdpmac_init(&x->macs);
@@ -78,7 +78,7 @@ static u32 srvxdp_reap_comp(wired_srvxdp* x) {
 /* Learn the peer's MAC (and, the first time, our own) from one parsed RX
  * frame. */
 static void srvxdp_learn(wired_srvxdp* x, const quic_xdpframe_rx* rx) {
-  quic_xdpmac_learn(&x->macs, rx->src.addr_be, rx->peer_mac);
+  quic_xdpmac_learn(&x->macs, wired_udp_addr4_be(&rx->src), rx->peer_mac);
   if (!x->have_mac) {
     for (usz i = 0; i < 6; i++) x->our_mac[i] = rx->our_mac[i];
     x->have_mac = 1;
@@ -151,16 +151,16 @@ static i64 srvxdp_txpool_get(wired_srvxdp* x) {
 /* Fill in m's addressing: peer_mac/our_mac plus the ports and addresses
  * quic_xdpframe_build needs, all in host order. */
 static void srvxdp_tx_meta(
-    wired_srvxdp*           x,
-    const quic_sockaddr_in* dst,
-    const u8                peer_mac[6],
-    quic_xdpframe_tx*       m) {
+    wired_srvxdp*        x,
+    const quic_sockaddr* dst,
+    const u8             peer_mac[6],
+    quic_xdpframe_tx*    m) {
   for (usz i = 0; i < 6; i++) m->dst_mac[i] = peer_mac[i];
   for (usz i = 0; i < 6; i++) m->src_mac[i] = x->our_mac[i];
   m->udp.ports.sport = x->port;
   m->udp.ports.dport = quic_get_be16((const u8*)&dst->port_be);
   m->udp.addrs.src   = quic_get_be32((const u8*)&x->ip_be);
-  m->udp.addrs.dst   = quic_get_be32((const u8*)&dst->addr_be);
+  m->udp.addrs.dst   = wired_udp_addr4_be(dst);
 }
 
 /* Submit one TX-pool frame (addr, n bytes already built) to the tx ring and
@@ -183,13 +183,14 @@ static i64 srvxdp_tx_submit(wired_srvxdp* x, i64 addr, usz n) {
 }
 
 i64 wired_srvxdp_send(
-    wired_srvxdp* x, const quic_sockaddr_in* dst, quic_span pkt) {
+    wired_srvxdp* x, const quic_sockaddr* dst, quic_span pkt) {
   u8               peer_mac[6];
   quic_xdpframe_tx m;
   i64              addr;
   usz              n;
 
-  if (!quic_xdpmac_lookup(&x->macs, dst->addr_be, peer_mac)) return 0;
+  if (!quic_xdpmac_lookup(&x->macs, wired_udp_addr4_be(dst), peer_mac))
+    return 0;
   addr = srvxdp_txpool_get(x);
   if (addr < 0) return 0;
 
