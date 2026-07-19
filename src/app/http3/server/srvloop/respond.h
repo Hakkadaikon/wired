@@ -15,4 +15,11 @@
 int wired_srvloop_produce(
     const wired_srvloop_conn* conn, int got_request, quic_obuf* out);
 
+/* RFC 9000 19.20: replay the confirmation (SETTINGS + session ticket +
+ * HANDSHAKE_DONE) captured at its one-time emit, re-sealed under a fresh pn
+ * -- the recovery when the single confirmation datagram was lost and the
+ * client keeps probing its Finished. Returns 1 and sets out->len, or 0 when
+ * no confirmation was emitted (or cached) yet. */
+int wired_srvloop_reconfirm(const wired_srvloop_conn* conn, quic_obuf* out);
+
 #endif

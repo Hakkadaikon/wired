@@ -4,6 +4,7 @@
 #include "app/http3/server/h3srv/respond.h"
 #include "app/http3/server/srvloop/keys.h"
 #include "app/http3/server/srvloop/send.h"
+#include "common/bytes/util/bytes.h"
 #include "tls/handshake/core/tls/newsessionticket.h"
 #include "transport/conn/loop/connrunner/level.h"
 #include "transport/packet/build/hspkt/hspkt_build.h"
@@ -102,6 +103,15 @@ static int confirm_head(wired_srvloop* l, quic_obuf* out) {
   return append_ticket_frame(out);
 }
 
+/* Capture the confirmation frames for a later replay
+ * (wired_srvloop_reconfirm); an oversized payload simply leaves the cache
+ * empty (no replay available) rather than truncating. */
+static void confirm_cache_store(wired_srvloop* l, const u8* p, usz n) {
+  if (n > sizeof l->confirm_frames) return;
+  quic_memcpy(l->confirm_frames, p, n);
+  l->confirm_frames_len = (u16)n;
+}
+
 /* The 1-RTT payload sent at confirmation: confirm_head, then HANDSHAKE_DONE
  * (RFC 9000 19.20) last — callers rely on HANDSHAKE_DONE being the trailing
  * frame. */
@@ -113,6 +123,7 @@ static int confirm_payload(const wired_srvloop_conn* c, quic_obuf* out) {
   ob = quic_obuf_of(out->p + a, out->cap - a);
   if (!wired_server_handshake_done(c->s, &ob)) return 0;
   out->len = a + ob.len;
+  confirm_cache_store(c->l, out->p, out->len);
   return 1;
 }
 
@@ -353,4 +364,13 @@ int wired_srvloop_produce(
   if (confirm_pending(conn->l))
     return emit_confirm_then_maybe_200(conn, got_request, out);
   return produce_confirmed(conn, got_request, out);
+}
+
+int wired_srvloop_reconfirm(const wired_srvloop_conn* conn, quic_obuf* out) {
+  wired_srvloop* l = conn->l;
+  if (!l->hs_done_sent || l->confirm_frames_len == 0) return 0;
+  wired_srvloop_send_in sin = {
+      quic_span_of(l->cli_scid, l->cli_scid_len), l->tx_pn++, -1,
+      quic_span_of(l->confirm_frames, l->confirm_frames_len), 0};
+  return wired_srvloop_send_onertt(conn->s, &sin, out);
 }
