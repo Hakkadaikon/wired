@@ -9,6 +9,11 @@
  * (RFC 9000 7.3); initial_scid is the server's source connection id. On
  * success writes the TLV sequence and sets out->len; returns 1. Returns 0 if
  * it does not fit. */
+/** Built-in initial_max_streams_bidi default (a zero quic_stp_limits field
+ * falls back to this) -- exposed so callers that track the advertised limit
+ * across a connection's life (RFC 9000 4.6/19.11 MAX_STREAMS re-grants) know
+ * the true starting value without duplicating the constant. */
+#define QUIC_STP_DEFAULT_MAX_STREAMS_BIDI 100
 /** RFC 9000 18.2: the operator-tunable integer limits this server
  * advertises; a zero field falls back to the built-in default. */
 typedef struct {
