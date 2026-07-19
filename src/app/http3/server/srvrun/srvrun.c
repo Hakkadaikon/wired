@@ -4004,17 +4004,18 @@ static void srvrun_cold_start(
 static void srvrun_resend_boot_flight(
     const srvrun_step_ctx* ctx, srvrun_conn* c) {
   srvrun_boot_send_initial(ctx->cfg, c, "server Initial resent\n");
-  /* RFC 9002 6.2: a resend means the client is still waiting -- any part
-   * of the Handshake flight already sent once may be sitting in a dropped
-   * datagram, so replay the whole flight, not just the still-unsent tail.
-   * Rewinding boot_dgram_sent (tx/rx byte counters untouched) keeps the
-   * antiamp gate honest: srvrun_boot_send_hs_gated still stops at the
-   * budget, and the client's own datagram that triggered this resend
-   * already grew boot_rx_bytes (srvrun_serve_slot). Without the rewind a
-   * single lost Handshake datagram deadlocked the whole handshake: the
-   * client held the ServerHello and retransmitted its Initial forever,
-   * answered only by verbatim Initial replays. */
-  c->boot_dgram_sent = 0;
+  /* RFC 9002 6.2: a resend means the client is still waiting. Once the
+   * WHOLE flight has gone out, any of its datagrams may be sitting in a
+   * dropped packet, so rewind and replay from the start (without this a
+   * single lost Handshake datagram deadlocked the handshake: the client
+   * held the ServerHello and retransmitted its Initial forever, answered
+   * only by verbatim Initial replays). While a tail is still withheld by
+   * the antiamp budget, though, keep continuing FROM the tail -- an
+   * unconditional rewind burned each budget grant re-sending datagrams
+   * the client already had, and the amplificationlimit flight's tail
+   * never went out at all (observed live: the client dropped the same
+   * Handshake datagram 0 as a duplicate until its idle timeout). */
+  if (c->boot_dgram_sent == c->boot_dgram_count) c->boot_dgram_sent = 0;
   srvrun_boot_send_hs_gated(ctx->cfg, c, wired_server_is_confirmed(&c->s));
   /* boot PTO T-009: the client itself just proved it's reachable (this is
    * its own retransmit reaching us) -- push the boot PTO deadline out so the

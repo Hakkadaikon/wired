@@ -948,11 +948,12 @@ static void test_srvrun_conn_rx_bytes_counts_malformed_datagram(void) {
 /* T-008: srvrun_resend_boot_flight (the client-Initial-retransmit path)
  * respects the same antiamp budget as the first round -- a flight too big
  * for one round still only sends what the accumulated boot_rx_bytes
- * allows, it does not resend the cached flight unconditionally. The
- * resend replays from the flight's start (a retransmit means any earlier
- * datagram may be lost), so with the budget already spent nothing more
- * goes out at all: tx_bytes is unchanged and the replay cursor sits at 0
- * until new client bytes grow the budget. */
+ * allows, it does not resend the cached flight unconditionally. And with
+ * a tail still withheld, the resend must keep CONTINUING from the tail,
+ * not rewind: a rewind here re-spent every budget grant on datagrams the
+ * client already had, so the amplificationlimit flight's tail never went
+ * out at all (observed live -- the client dropped the same Handshake
+ * datagram 0 as a duplicate until its idle timeout). */
 static void test_srvrun_resend_boot_flight_respects_antiamp_budget(void) {
   wired_srvboot_id id;
   u8               priv[32], pub[32], seed[32], rnd[32];
@@ -966,9 +967,15 @@ static void test_srvrun_resend_boot_flight_respects_antiamp_budget(void) {
     srvrun_boot_send_hs_gated(&cfg, &c, 0);
     CHECK(c.boot_dgram_sent == 3);
     srvrun_resend_boot_flight(&ctx, &c); /* no new rx_bytes -- still capped */
+    CHECK(c.boot_dgram_sent == 3);       /* no rewind while the tail is owed */
+    CHECK(c.boot_tx_bytes == 3000);
+    /* the client's next datagram grows the budget: the resend releases
+     * exactly the withheld tail, not the whole flight over again */
+    c.boot_rx_bytes += 1280;
+    srvrun_resend_boot_flight(&ctx, &c);
+    CHECK(c.boot_dgram_sent == 4);
+    CHECK(c.boot_tx_bytes == 4000);
   }
-  CHECK(c.boot_dgram_sent == 0); /* rewound, and the budget blocked all */
-  CHECK(c.boot_tx_bytes == 3000);
 }
 
 /* T-015: srvrun_free_slot zeroes the antiamp accounting so a slot reused
