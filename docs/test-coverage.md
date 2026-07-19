@@ -6,8 +6,9 @@
 > suite (460+ test files, every commit); 19 of them are additionally pinned
 > to official/golden vectors; three wire-facing parsers are fuzzed nightly;
 > and interop against real independent clients has proven 12 of 22 QUIC
-> testcases (vs quic-go), with a 13th functionally correct but short of a
-> runner timeout, and 4 of 7 WebTransport testcases (vs webtransport-go).
+> testcases plus both measurements (vs quic-go), with a 13th testcase
+> functionally correct but short of a runner timeout, and 4 of 7
+> WebTransport testcases (vs webtransport-go).
 > This page lists exactly what has and hasn't been demonstrated, per spec.
 > Results as of 2026-07.
 
@@ -81,7 +82,9 @@ Legend:
 - [ ] `connectionmigration` — not yet run; would reuse the same
   PATH_CHALLENGE/PATH_RESPONSE machinery as rebind-port/rebind-addr but is
   likely to hit the same tooling-chain limitation
-- [ ] `crosstraffic` (measurement) — not yet run
+- [x] `crosstraffic` (measurement) — 25 MB alongside a competing TCP cubic
+  flow, 3269 (± 157) kbps across 5 runs, well above the 180 s completion
+  bar
 
 ### WebTransport testcases (server: wired · client: webtransport-go)
 
@@ -289,8 +292,8 @@ runs used kernel UDP sockets, so they are unit-tested but not interop-proven.
 
 ## Honest summary of the gaps
 
-- 10 of 22 QUIC interop testcases (plus one of two measurements) have not
-  passed yet; only quic-go and webtransport-go have been used as peers.
+- 10 of 22 QUIC interop testcases have not passed yet (both measurements
+  have); only quic-go and webtransport-go have been used as peers.
 - Two testcases remain open under a narrower root cause than first
   suspected: `handshakeloss` / `handshakecorruption` both show most of
   50 sequential handshakes failing to complete under a 30% loss rate.
