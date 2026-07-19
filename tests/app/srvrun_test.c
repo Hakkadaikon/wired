@@ -7193,6 +7193,163 @@ static void test_srvrun_pto_probe_bypasses_pacing_too(void) {
   }
 }
 
+/* @file
+ * RFC 9000 4.6/19.11: MAX_STREAMS re-grant, one raise per released srvloop
+ * receive slot, keeping the advertised bidi stream limit in lockstep with
+ * WIRED_SRVLOOP_MAX_STREAMS instead of promising room the fixed-size slot
+ * table cannot back (the multiplexing interop stall this fixes: a real
+ * quic-go client exhausts the initial 100-stream limit and blocks forever
+ * because the server never raises it). */
+
+/* T-002/T-003: releasing a request stream's receive slot (srvrun_resp_reap,
+ * once its session goes idle and it isn't streaming) raises the advertised
+ * limit by exactly one past the transport-parameter default. */
+static void test_srvrun_slot_release_grants_one_more_stream(void) {
+  static u8     body[SRVRUN_CHUNK];
+  struct lp_fix f;
+  srvrun_conn   c;
+  quic_obuf     ob = {0};
+  u8            obuf[1024];
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.cc.cwnd           = 1u << 20;
+  c.resp[0].in_use    = 1;
+  c.resp[0].stream_id = 0;
+  wired_sendsess_arm(&c.resp[0].sess, body, sizeof body, SRVRUN_CHUNK);
+  {
+    srvrun_cfg      cfg = {-1, 0, 0, 0, 0, 0, 0, 0,
+                           0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                           0,  0, 0, 0, 0};
+    srvrun_state    st  = {0, &c};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_pump_sess(&ctx, 0);
+    /* deliver the whole session's ACK so srvrun_resp_reap sees it idle */
+    wired_sendsess_ack(&c.resp[0].sess, 0, ~(u64)0);
+    CHECK(c.stream_limit_advertised == 0); /* nothing granted yet */
+    srvrun_reap_resps(&ctx, &c, 0);
+    CHECK(c.resp[0].in_use == 0); /* slot released */
+    CHECK(c.stream_limit_advertised == QUIC_STP_DEFAULT_MAX_STREAMS_BIDI + 1);
+  }
+}
+
+/* T-004: the advertised limit only ever grows -- a second release raises it
+ * one more from where it already stood, never resets or drops. */
+static void test_srvrun_stream_limit_never_decreases(void) {
+  static u8     body0[SRVRUN_CHUNK];
+  static u8     body1[SRVRUN_CHUNK];
+  struct lp_fix f;
+  srvrun_conn   c;
+  quic_obuf     ob = {0};
+  u8            obuf[1024];
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.cc.cwnd            = 1u << 20;
+  c.resp[0].in_use     = 1;
+  c.resp[0].stream_id  = 0;
+  c.resp[1].in_use     = 1;
+  c.resp[1].stream_id  = 4;
+  wired_sendsess_arm(&c.resp[0].sess, body0, sizeof body0, SRVRUN_CHUNK);
+  wired_sendsess_arm(&c.resp[1].sess, body1, sizeof body1, SRVRUN_CHUNK);
+  {
+    srvrun_cfg      cfg = {-1, 0, 0, 0, 0, 0, 0, 0,
+                           0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                           0,  0, 0, 0, 0};
+    srvrun_state    st  = {0, &c};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_pump_sess(&ctx, 0);
+    wired_sendsess_ack(&c.resp[0].sess, 0, ~(u64)0);
+    srvrun_reap_resps(&ctx, &c, 0);
+    CHECK(c.stream_limit_advertised == QUIC_STP_DEFAULT_MAX_STREAMS_BIDI + 1);
+    wired_sendsess_ack(&c.resp[1].sess, 0, ~(u64)0);
+    srvrun_reap_resps(&ctx, &c, 0);
+    CHECK(c.stream_limit_advertised == QUIC_STP_DEFAULT_MAX_STREAMS_BIDI + 2);
+  }
+}
+
+/* T-002/T-006: a STREAMS_BLOCKED sighting re-sends the limit already in
+ * force -- never a peer-claimed value (the frame's own limit field is never
+ * even latched, gather_streams_blocked only sets the flag). Needs a
+ * confirmed connection (real 1-RTT keys) so the resend actually seals and
+ * the send-count assertion below can tell "resent" from "silently
+ * dropped". */
+static void test_srvrun_streams_blocked_reannounces_current_limit(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  quic_obuf     ob = {0};
+  u8            obuf[1024];
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.stream_limit_advertised      = 150;
+  c.l.streams_blocked_seen_flag  = 1;
+  {
+    srvrun_cfg      cfg = {-1, 0, 0, 0, 0, 0, 0, 0,
+                           0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                           0,  0, 0, 0, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, 0, 0};
+    srvrun_test_reset_send_count();
+    srvrun_reannounce_stream_limit(ctx.cfg, &c, srvrun_stream_limit_base(&ctx));
+  }
+  CHECK(srvrun_test_send_count() == 1); /* actually resent, not skipped */
+  CHECK(c.stream_limit_advertised == 150); /* repeated, not recomputed */
+  CHECK(c.l.streams_blocked_seen_flag == 0); /* consumed */
+}
+
+/* T-011: a connection where no request stream has ever been released yet
+ * (fresh, stream_limit_advertised still 0) does not misfire a MAX_STREAMS
+ * re-grant on a STREAMS_BLOCKED sighting -- it falls back to the same
+ * transport-parameter default already advertised, not some other value.
+ * Needs a confirmed connection (real 1-RTT keys) so the send actually seals
+ * and stream_limit_advertised gets recorded -- an unconfirmed c's send
+ * silently fails to seal (mirrors every other real-send test's setup). */
+static void test_srvrun_streams_blocked_before_any_release_uses_base(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  quic_obuf     ob = {0};
+  u8            obuf[1024];
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.l.streams_blocked_seen_flag = 1;
+  {
+    srvrun_cfg      cfg = {-1, 0, 0, 0, 0, 0, 0, 0,
+                           0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                           0,  0, 0, 0, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, 0, 0};
+    srvrun_reannounce_stream_limit(ctx.cfg, &c, srvrun_stream_limit_base(&ctx));
+  }
+  CHECK(c.stream_limit_advertised == QUIC_STP_DEFAULT_MAX_STREAMS_BIDI);
+}
+
+/* T-007/T-008 regression: a small case (one stream opened and closed) grants
+ * exactly the expected +1 and nothing more -- no runaway re-grants from a
+ * single release, and the flag-based STREAMS_BLOCKED gate stays untouched
+ * when no STREAMS_BLOCKED was ever seen. */
+static void test_srvrun_stream_limit_small_case_single_grant(void) {
+  static u8     body[SRVRUN_CHUNK];
+  struct lp_fix f;
+  srvrun_conn   c;
+  quic_obuf     ob = {0};
+  u8            obuf[1024];
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.cc.cwnd           = 1u << 20;
+  c.resp[0].in_use    = 1;
+  c.resp[0].stream_id = 0;
+  wired_sendsess_arm(&c.resp[0].sess, body, sizeof body, SRVRUN_CHUNK);
+  {
+    srvrun_cfg      cfg = {-1, 0, 0, 0, 0, 0, 0, 0,
+                           0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                           0,  0, 0, 0, 0};
+    srvrun_state    st  = {0, &c};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_pump_sess(&ctx, 0);
+    wired_sendsess_ack(&c.resp[0].sess, 0, ~(u64)0);
+    srvrun_reap_resps(&ctx, &c, 0);
+    srvrun_reannounce_stream_limit(ctx.cfg, &c, srvrun_stream_limit_base(&ctx));
+  }
+  CHECK(c.l.streams_blocked_seen_flag == 0);
+  CHECK(c.stream_limit_advertised == QUIC_STP_DEFAULT_MAX_STREAMS_BIDI + 1);
+}
+
 /* END-TO-END REGRESSION for the real interop stall: two slots share a cwnd
  * pinned so tight neither slot alone has room for a fresh chunk. Slot 0's
  * one in-flight slice PTOs -- without RFC 9002 7.5's cwnd bypass, this
@@ -8422,6 +8579,11 @@ void test_srvrun(void) {
   test_srvrun_pto_requeue_frees_inflight_bytes_before_resend();
   test_srvrun_pto_noop_when_nothing_inflight();
   test_srvrun_pto_probe_bypasses_pacing_too();
+  test_srvrun_slot_release_grants_one_more_stream();
+  test_srvrun_stream_limit_never_decreases();
+  test_srvrun_streams_blocked_reannounces_current_limit();
+  test_srvrun_streams_blocked_before_any_release_uses_base();
+  test_srvrun_stream_limit_small_case_single_grant();
   test_srvrun_pto_resend_breaks_cwnd_deadlock();
   test_srvrun_recv_max_data_then_send_unblocks();
   test_srvrun_max_stream_data_unknown_stream_is_noop();
