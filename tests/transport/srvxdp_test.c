@@ -128,8 +128,7 @@ static void test_srvxdp_rx_conservation(void) {
 
 /* Learn dst's MAC by feeding one RX frame from it (golden vector's peer:
  * 10.7.0.2, mac 02:07:00:00:00:02), then return the sockaddr for it. */
-static void sxt_learn_peer(
-    sxt_world* w, wired_srvxdp* x, quic_sockaddr_in* dst) {
+static void sxt_learn_peer(sxt_world* w, wired_srvxdp* x, quic_sockaddr* dst) {
   u8            payload_buf[64];
   quic_mmsg_buf bufs[4];
   bufs[0].buf = quic_mspan_of(payload_buf, sizeof payload_buf);
@@ -143,7 +142,7 @@ static void sxt_learn_peer(
 static void test_srvxdp_send_basic(void) {
   sxt_world        w;
   wired_srvxdp     x;
-  quic_sockaddr_in dst;
+  quic_sockaddr    dst;
   const u8         pl[3] = {0xc0, 0xff, 0xee};
   u32              idx;
   quic_xdp_desc*   d;
@@ -159,7 +158,7 @@ static void test_srvxdp_send_basic(void) {
   /* the frame's source must be our identity, byte-exact on the wire:
    * 10.7.0.1:4433 (a reversed source IP passed every earlier check) */
   {
-    const u8* sip = (const u8*)&rx.src.addr_be;
+    const u8* sip = rx.src.addr + 12;
     CHECK(sip[0] == 10 && sip[1] == 7 && sip[2] == 0 && sip[3] == 1);
     CHECK(quic_get_be16((const u8*)&rx.src.port_be) == 4433);
   }
@@ -169,13 +168,13 @@ static void test_srvxdp_send_basic(void) {
  * txpool, observable as a successful send after the pool would otherwise
  * be one short. */
 static void test_srvxdp_completion_reap(void) {
-  sxt_world        w;
-  wired_srvxdp     x;
-  quic_sockaddr_in dst;
-  const u8         pl[1] = {1};
-  u32              tx_idx, comp_idx;
-  quic_xdp_desc*   txd;
-  i64              got;
+  sxt_world      w;
+  wired_srvxdp   x;
+  quic_sockaddr  dst;
+  const u8       pl[1] = {1};
+  u32            tx_idx, comp_idx;
+  quic_xdp_desc* txd;
+  i64            got;
   sxt_init(&w, &x);
   sxt_learn_peer(&w, &x, &dst);
 
@@ -196,10 +195,10 @@ static void test_srvxdp_completion_reap(void) {
 
 /* 5: txpool exhaustion without any completion: the 65th send drops. */
 static void test_srvxdp_txpool_exhaustion(void) {
-  sxt_world        w;
-  wired_srvxdp     x;
-  quic_sockaddr_in dst;
-  const u8         pl[1] = {7};
+  sxt_world     w;
+  wired_srvxdp  x;
+  quic_sockaddr dst;
+  const u8      pl[1] = {7};
   sxt_init(&w, &x);
   sxt_learn_peer(&w, &x, &dst);
 
@@ -210,11 +209,11 @@ static void test_srvxdp_txpool_exhaustion(void) {
 
 /* 6: send() to an unlearned destination drops without touching tx. */
 static void test_srvxdp_mac_miss(void) {
-  sxt_world        w;
-  wired_srvxdp     x;
-  quic_sockaddr_in dst;
-  const u8         pl[1] = {9};
-  u32              idx;
+  sxt_world     w;
+  wired_srvxdp  x;
+  quic_sockaddr dst;
+  const u8      pl[1] = {9};
+  u32           idx;
   sxt_init(&w, &x);
   wired_udp_addr(&dst, 4433, (const u8[]){10, 9, 9, 9});
 

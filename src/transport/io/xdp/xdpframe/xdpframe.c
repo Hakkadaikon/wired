@@ -30,12 +30,12 @@ static int xdpf_ip_len_ok(const u8* ip, usz rem) {
 /* Decode the UDP header into out. The checksums are not verified here on
  * purpose — see quic_xdpframe_parse in the header. */
 static int xdpf_udp(const u8* ip, quic_xdpframe_rx* out) {
-  const u8*        udp = ip + QUIC_IPV4_HDR;
-  quic_sockaddr_in dst;
+  const u8*     udp = ip + QUIC_IPV4_HDR;
+  quic_sockaddr dst;
   if (quic_get_be16(udp + 4) != quic_get_be16(ip + 2) - QUIC_IPV4_HDR) return 0;
   wired_udp_addr(&out->src, quic_get_be16(udp), ip + 12);
   wired_udp_addr(&dst, 0, ip + 16);
-  out->our_ip_be   = dst.addr_be;
+  out->our_ip      = wired_udp_addr4_be(&dst);
   out->dport       = quic_get_be16(udp + 2);
   out->payload     = udp + QUIC_UDP_HDR;
   out->payload_len = (usz)quic_get_be16(udp + 4) - QUIC_UDP_HDR;

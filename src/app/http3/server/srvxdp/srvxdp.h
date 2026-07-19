@@ -95,8 +95,7 @@ i64 wired_srvxdp_rx_burst(wired_srvxdp* x, quic_mmsg_buf* bufs, usz nbufs);
  * @param dst destination address
  * @param pkt the QUIC datagram to send
  * @return 1 sent, 0 dropped */
-i64 wired_srvxdp_send(
-    wired_srvxdp* x, const quic_sockaddr_in* dst, quic_span pkt);
+i64 wired_srvxdp_send(wired_srvxdp* x, const quic_sockaddr* dst, quic_span pkt);
 
 /** Tear down x: close the owned BPF link/prog/map fds (skipped when x was
  * opened against a shared wired_srvxdpbpf, which the caller owns), then
