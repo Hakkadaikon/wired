@@ -3726,6 +3726,17 @@ static int srvrun_has_outbound(const srvrun_conn* c) {
   return c->up && (srvrun_any_send_active(c) || c->dg_pending);
 }
 
+/* 1 if c has a boot flight outstanding, awaiting confirm -- true regardless
+ * of resp[]/wtsend[] activity (none is possible before confirm anyway).
+ * srvrun_boot_pto_slot only ever runs from the same poll-timeout tick this
+ * gates below, so without counting it here, a boot-only connection makes
+ * srvrun_may_block_unbounded block in recvmmsg forever and the boot PTO
+ * timer never gets a chance to fire (RFC 9002 6.2, handshakeloss/
+ * handshakecorruption interop). */
+static int srvrun_has_boot_outbound(const srvrun_conn* c) {
+  return srvrun_awaiting_confirm(c) && c->boot_ini_len != 0;
+}
+
 /* RFC 9002 6.2: this connection's current PTO duration in ms, scaled by
  * 2^pto_count backoff. Before any RTT sample exists, fall back to the RFC
  * 9002 6.2.2 kInitialRtt-based default (quic_rtt_init seeds exactly that),
@@ -4171,12 +4182,20 @@ static void srvrun_serve_batch(
  * as SIGTERM's shutdown flag): a reload lands before the batch is served, so
  * a fresh Initial arriving right after a reload already sees the new
  * identity. */
-/* Wait for input: block in recvmmsg unless a response is awaiting ACKs, in
- * which case poll with the probe tick so silence still makes progress.
+/* 1 if c needs the poll-timeout tick to keep making progress: a response
+ * awaiting ACKs/a queued DATAGRAM (srvrun_has_outbound), or a boot flight
+ * awaiting confirm (srvrun_has_boot_outbound). */
+static int srvrun_slot_waiting(const srvrun_conn* c) {
+  return srvrun_has_outbound(c) || srvrun_has_boot_outbound(c);
+}
+
+/* Wait for input: block in recvmmsg unless some slot needs the poll-timeout
+ * tick (srvrun_slot_waiting), in which case poll with the probe tick so
+ * silence still makes progress.
  * @return 1 to receive, 0 when the tick expired instead. */
 static int srvrun_any_waiting(const srvrun_state* st) {
   for (usz i = 0; i < QUIC_CONNTABLE_CAP; i++)
-    if (srvrun_has_outbound(&st->conns[i])) return 1;
+    if (srvrun_slot_waiting(&st->conns[i])) return 1;
   return 0;
 }
 
