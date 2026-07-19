@@ -55,7 +55,11 @@ Legend:
   the advertised limit climbs from 100 to 2000+ as requests complete, 98%
   of 1999 requested files finish), but the runner's fixed 60 s timeout for
   this case is not met; a pure throughput gap, not a functional one
-- [ ] `handshakeloss` — most handshakes fail to complete under loss
+- [ ] `handshakeloss` — most handshakes fail to complete under a 30% loss
+  rate; the server's handshake flight now retransmits on its own timer
+  (previously it only replayed on a client-triggered retransmit), but
+  that did not move the pass rate -- the actual bottleneck is
+  post-handshake retransmission speed under this test's loss rate
 - [ ] `handshakecorruption` — same, under corruption
 - [ ] `retry` — not yet run (dedicated server mode not wired up)
 - [ ] `resumption` — not yet run (dedicated server mode not wired up)
@@ -107,10 +111,14 @@ is exactly what this tier exists for.
 **RFC 9002 — Loss Detection and Congestion Control**
 - [x] Unit — 28 test files: RTT estimation, packet/time-threshold loss,
   PTO backoff, retransmission selection, in-flight accounting
-- [x] Interop — `transferloss` / `transfercorruption` green vs quic-go
-  (spec publishes no official vectors); `handshakeloss` /
-  `handshakecorruption` (loss during the handshake, not steady-state
-  transfer) and `blackhole` (extended full outage) still fail
+- [x] Interop — `transferloss` / `transfercorruption` / `blackhole` green
+  vs quic-go (spec publishes no official vectors); `handshakeloss` /
+  `handshakecorruption` (loss/corruption during the handshake, not
+  steady-state transfer) still fail -- the server now retransmits its
+  own handshake flight on a timer (previously it only replayed on a
+  client-triggered retransmit), but the pass rate did not improve; the
+  actual bottleneck turned out to be post-handshake retransmission speed
+  under the test's 30% loss rate, a separate gap
 
 **RFC 8999 — Version-Independent Properties**
 - [x] Unit — invariant header parsing, Version Negotiation packets
@@ -273,13 +281,17 @@ runs used kernel UDP sockets, so they are unit-tested but not interop-proven.
 
 - 10 of 22 QUIC interop testcases (plus one of two measurements) have not
   passed yet; only quic-go and webtransport-go have been used as peers.
-- Two testcases fail on a shared root cause under investigation: a
-  server-side stall recovering from loss during the handshake specifically
-  (as opposed to steady-state transfer, which `transferloss` covers and
-  passes). `handshakeloss` / `handshakecorruption` both show most
-  handshakes failing to complete. `blackhole` (2 s full outage, a
-  steady-state stall) was found to share a root cause with the
-  `goodput` throughput stall below and now passes.
+- Two testcases remain open under a narrower root cause than first
+  suspected: `handshakeloss` / `handshakecorruption` both show most of
+  50 sequential handshakes failing to complete under a 30% loss rate.
+  The server's own handshake flight had no timer-driven retransmit (it
+  only replayed on a client-triggered retransmit) and now does, but the
+  pass rate did not move -- comparing before/after showed the actual
+  bottleneck is downstream of the handshake: post-confirm retransmission
+  converges too slowly under that loss rate for the interop client's own
+  idle timeout, a distinct gap from the outage recovery `blackhole`
+  covers (2 s full outage, steady state) and which now passes, sharing
+  its root cause with the `goodput` throughput stall below.
 - `multiplexing` is functionally correct (verified live: the server
   raises its advertised stream limit as requests complete, and 98% of
   1999 concurrently requested files finish) but misses the interop
