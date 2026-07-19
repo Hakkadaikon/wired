@@ -17,21 +17,25 @@
 #include "app/webtransport/session/session/session.h"
 #include "app/webtransport/wtwire/wtwire.h"
 #include "common/bytes/util/bytes.h"
+#include "common/bytes/util/ct.h"
 #include "common/bytes/util/num.h"
 #include "common/diag/error/error.h"
 #include "common/platform/clock/mono.h"
 #include "common/platform/debug/debug.h"
 #include "common/platform/qlog/qlog.h"
 #include "common/platform/qlog/qlogevent.h"
+#include "common/platform/rng/challenge.h"
 #include "common/platform/rng/cidgen.h"
 #include "common/platform/thread/thread.h"
 #include "tls/ext/stp/server_tp.h"
 #include "tls/keys/kuswitch/twogen.h"
+#include "transport/conn/cid/migrate/migrate.h"
 #include "transport/conn/cid/path/antiamp.h"
 #include "transport/conn/lifecycle/conntable/conntable.h"
 #include "transport/io/socket/io/udp.h"
 #include "transport/io/socket/poll/wait.h"
 #include "transport/io/udp/udploop/rxloop.h"
+#include "transport/packet/frame/frame/connctl.h"
 #include "transport/packet/frame/frame/flowctl.h"
 #include "transport/packet/frame/frame/frame.h"
 #include "transport/packet/frame/frame/ncid_worker.h"
@@ -357,6 +361,21 @@ typedef struct {
    * fixed-size slot table cannot back -- an advertisement MUST NOT decrease
    * (RFC 9000 4.6), so this only ever grows. */
   u64 stream_limit_advertised;
+  /** RFC 9000 8.2/9: this connection's ONE path-validation state machine
+   * (quic_migrate), tracking the naive rebind-follow in srvrun_rebind_peer
+   * through detect -> challenge -> validate. One instance, not one per path:
+   * this SDK tracks only the single most-recently-seen path (see
+   * path_challenge_data's doc) -- multiple concurrent paths (RFC 9000 9.3.1)
+   * are out of scope (T-014, see srvrun_rebind_peer's own doc for the full
+   * list of what this slice deliberately does not implement). */
+  quic_migrate migrate;
+  /** RFC 9000 8.2.2: the 8-byte PATH_CHALLENGE data last sent for the path
+   * currently being validated, valid only while migrate.challenged and not
+   * yet migrate.validated. Re-armed (overwritten) on every new rebind
+   * detected before the prior challenge validates -- srvrun_rebind_peer only
+   * ever tracks the single latest path, so an in-flight PATH_RESPONSE for a
+   * since-superseded challenge simply fails to compare equal (T-006). */
+  u8 path_challenge_data[QUIC_PATH_DATA];
 } srvrun_conn;
 
 /* Response storage, one row per (connection slot, response slot): 64-byte
@@ -1348,6 +1367,32 @@ static u64 srvrun_wt_uni_delivered_total(const srvrun_conn* c) {
 
 static u64 srvrun_wt_rx_delivered_total(const srvrun_conn* c) {
   return srvrun_wt_bidi_delivered_total(c) + srvrun_wt_uni_delivered_total(c);
+}
+
+/* Seal one PATH_CHALLENGE frame (RFC 9000 8.2.2/19.17) as its own 1-RTT
+ * packet, mirroring srvrun_seal_max_data for a different single-frame
+ * payload. Sent to c->peer -- the caller (srvrun_rebind_peer) has already
+ * updated c->peer to the new path this challenges, RFC 9000 8.2.1. */
+static int srvrun_seal_path_challenge(
+    srvrun_conn* c, const u8 data[QUIC_PATH_DATA], quic_obuf* out) {
+  u8                    pl[24];
+  quic_obuf             plb = quic_obuf_of(pl, sizeof pl);
+  wired_srvloop_send_in sin;
+  usz pln = quic_path_encode(plb.p, plb.cap, QUIC_FRAME_PATH_CHALLENGE, data);
+  if (!pln) return 0;
+  plb.len = pln;
+  sin     = (wired_srvloop_send_in){
+      quic_span_of(c->l.cli_scid, c->l.cli_scid_len), c->l.tx_pn++, -1,
+      quic_span_of(pl, pln), 0};
+  return wired_srvloop_send_onertt(&c->s, &sin, out);
+}
+
+static void srvrun_send_path_challenge(
+    const srvrun_cfg* cfg, srvrun_conn* c, const u8 data[QUIC_PATH_DATA]) {
+  u8        out[128];
+  quic_obuf ob = quic_obuf_of(out, sizeof out);
+  if (!srvrun_seal_path_challenge(c, data, &ob)) return;
+  srvrun_send(cfg, c, quic_span_of(out, ob.len), "PATH_CHALLENGE sent\n");
 }
 
 /* Seal one MAX_DATA frame (RFC 9000 19.9) as its own 1-RTT packet and send
@@ -3188,6 +3233,38 @@ static void srvrun_stream_credit_raise(u64* credit, u64 value) {
   if (value > *credit) *credit = value;
 }
 
+/* 1 if this step's gathered PATH_RESPONSE (srvloop's gather_path_response)
+ * is worth comparing at all: a connection that never issued a PATH_CHALLENGE
+ * (migrate.challenged == 0) cannot have a real one to match against (T-005)
+ * -- quic_migrate_validate itself already refuses without challenged, but
+ * checking here first avoids running the (cheap, but still pointless)
+ * compare and lets srvrun_apply_path_response's own CCN stay at the gate. */
+static int srvrun_path_response_pending(const srvrun_conn* c) {
+  return c->l.path_response_seen_flag && c->migrate.challenged;
+}
+
+/* 1 if this step's gathered PATH_RESPONSE data (T-008, quic_ct_diff8
+ * constant-time compare) matches the challenge c last sent -- split out so
+ * srvrun_apply_path_response's own CCN stays at the gate (the compound
+ * pending && diff==0 that would otherwise inline here each cost +1). */
+static int srvrun_path_response_matches(const srvrun_conn* c) {
+  if (!srvrun_path_response_pending(c)) return 0;
+  return quic_ct_diff8(c->l.path_response_data, c->path_challenge_data) == 0;
+}
+
+/* RFC 9000 8.2.2: apply this step's gathered PATH_RESPONSE (if any) against
+ * the challenge this connection last sent (c->path_challenge_data). A match
+ * validates the path (quic_migrate_validate); a mismatch (T-004) or an
+ * unchallenged connection (T-005) leaves migrate untouched. Always consumes
+ * the step's latch, same convention as srvrun_apply_conn_credit_update. See
+ * srvrun_rebind_peer's T-016 comment for why the response's own source
+ * address is deliberately never checked here. */
+static void srvrun_apply_path_response(srvrun_conn* c) {
+  if (!c->l.path_response_seen_flag) return;
+  if (srvrun_path_response_matches(c)) quic_migrate_validate(&c->migrate);
+  c->l.path_response_seen_flag = 0;
+}
+
 /* w is claimed and sending on stream_id. */
 static int srvrun_wtsend_matches(const srvrun_wtsend* w, u64 stream_id) {
   return w->in_use && w->stream_id == stream_id;
@@ -3677,6 +3754,7 @@ static void srvrun_sess_on_step(const srvrun_step_ctx* ctx, int slot) {
   quic_cc_bbr_tick(&c->cc, srvrun_inflight_bytes_all(c), ctx->now_ms);
   srvrun_apply_conn_credit_update(c);
   srvrun_apply_stream_credit_update(c);
+  srvrun_apply_path_response(c);
   srvrun_reap_resps(ctx, c, slot);
   srvrun_reap_wtsends(c);
   srvrun_reannounce_stream_limit(ctx->cfg, c, srvrun_stream_limit_base(ctx));
@@ -3990,20 +4068,81 @@ static int srvrun_peer_changed(
          ctx->peer->addr_be != c->peer.addr_be;
 }
 
+/* T-015: test-only override forcing quic_challenge_generate to behave as if
+ * the RNG failed, the same override-flag shape as srvrun_test_set_shutdown
+ * above -- getrandom(2) failing is not practically triggerable from a test,
+ * so this is the seam. Always reset to 0 after the owning test (see
+ * srvrun_test_set_shutdown's own callers for the convention). */
+static int                          g_srvrun_path_challenge_force_fail;
+__attribute__((unused)) static void srvrun_test_force_challenge_rng_fail(
+    int v) {
+  g_srvrun_path_challenge_force_fail = v;
+}
+
+/* RFC 9000 8.2.2: generate this rebind's 8-byte PATH_CHALLENGE data. Returns
+ * 0 (and writes nothing meaningful to data) on RNG failure, so the caller
+ * never arms/sends an unpredictable-in-name-only (actually zero or stale)
+ * challenge (T-015). */
+static int srvrun_gen_path_challenge(u8 data[QUIC_PATH_DATA]) {
+  if (g_srvrun_path_challenge_force_fail) return 0;
+  return quic_challenge_generate(data);
+}
+
+/* RFC 9000 8.2/9.3: a rebind just detected by srvrun_rebind_peer arms this
+ * connection's migrate state machine and sends a PATH_CHALLENGE to the new
+ * peer -- c->peer must already be updated to ctx->peer before this runs (the
+ * challenge has to reach the path being validated). A generation failure
+ * (T-015) leaves migrate un-challenged and sends nothing: challenged==0 means
+ * a later PATH_RESPONSE cannot spuriously validate (quic_migrate_validate's
+ * own precondition), matching "no challenge was ever actually issued". */
+static void srvrun_arm_path_challenge(const srvrun_cfg* cfg, srvrun_conn* c) {
+  u8 data[QUIC_PATH_DATA];
+  if (!srvrun_gen_path_challenge(data)) return;
+  c->migrate.handshake_confirmed = 1; /* only reachable post-confirm */
+  quic_migrate_detect(&c->migrate);
+  quic_migrate_challenge(&c->migrate);
+  quic_memcpy(c->path_challenge_data, data, QUIC_PATH_DATA);
+  srvrun_send_path_challenge(cfg, c, data);
+}
+
 /* RFC 9000 9 (naive subset, quic-interop-runner's rebind-port/rebind-addr):
  * once a connection is past the boot/handshake window, follow its source
  * address if a datagram arrives from a different one -- a NAT re-mapping a
  * client's port, or the client switching networks, must not orphan the
- * connection's reply path. Deliberately NOT full RFC 9000 9 path validation:
- * there is no PATH_CHALLENGE/PATH_RESPONSE round trip before the switch, so
- * a spoofed datagram carrying a known DCID from a forged source address can
- * hijack the reply path exactly as a legitimate rebind would. Restricted to
- * confirmed connections (srvrun_awaiting_confirm excluded) to at least keep
- * this blind trust out of the pre-confirm window, where it would also widen
- * the antiamp/DoS surface this server otherwise guards (RFC 9000 8.1). */
+ * connection's reply path. c->peer is updated the moment the change is seen
+ * (still NOT gated on path validation, see below), and a PATH_CHALLENGE
+ * (RFC 9000 8.2) is issued to the new path so quic-interop-runner's rebind-
+ * port/rebind-addr judge (which checks for a PATH_CHALLENGE on the first
+ * server packet sent to the new path) is satisfied.
+ *
+ * T-014 (deliberately out of scope for this slice): RFC 9000 9.4's
+ * congestion-control/RTT reset on a confirmed migration, 8.2.1's send-volume
+ * limit on a not-yet-validated path, actually switching to a new connection
+ * ID (quic_migrate_confirm is never called here), and tracking more than one
+ * path at once (srvrun_conn holds a single quic_migrate + a single 8-byte
+ * challenge, see their own doc comments) are all left undone -- this is
+ * still the naive subset, now with a real PATH_CHALLENGE/PATH_RESPONSE round
+ * trip layered on top rather than full RFC 9000 9 path validation.
+ *
+ * T-016 (deliberate scope decision, documented rather than fixed): a
+ * PATH_RESPONSE's own source address is never checked against the path it is
+ * validating (see srvrun_apply_path_response below) -- only its 8-byte data
+ * is compared. This does not weaken the pre-existing hole one line up: c->
+ * peer is *already* updated (and PATH_CHALLENGE already sent to the forged
+ * address) the instant a spoofed source address arrives with a known DCID,
+ * before any response round trip occurs at all, because this SDK's receive
+ * routing is DCID-based, not address-based, by design (srvrun_find_slot).
+ * Adding a source-address check on the PATH_RESPONSE side would not close
+ * that hole -- an attacker able to forge the rebind in the first place can
+ * equally forge (or simply relay) a matching PATH_RESPONSE from the same
+ * spoofed address. The real fix is RFC 9000 9.5-style per-path validation
+ * gating c->peer's update on success, not a response-side address check;
+ * that is a separate task from this one (naive-rebind-plus-challenge). */
 static void srvrun_rebind_peer(const srvrun_step_ctx* ctx, srvrun_conn* c) {
   if (srvrun_awaiting_confirm(c)) return;
-  if (srvrun_peer_changed(ctx, c)) c->peer = *ctx->peer;
+  if (!srvrun_peer_changed(ctx, c)) return;
+  c->peer = *ctx->peer;
+  srvrun_arm_path_challenge(ctx->cfg, c);
 }
 
 static void srvrun_serve_slot(
