@@ -25,6 +25,7 @@
 #include "common/platform/qlog/qlogevent.h"
 #include "common/platform/rng/cidgen.h"
 #include "common/platform/thread/thread.h"
+#include "tls/ext/stp/server_tp.h"
 #include "tls/keys/kuswitch/twogen.h"
 #include "transport/conn/cid/path/antiamp.h"
 #include "transport/conn/lifecycle/conntable/conntable.h"
@@ -34,6 +35,7 @@
 #include "transport/packet/frame/frame/flowctl.h"
 #include "transport/packet/frame/frame/frame.h"
 #include "transport/packet/frame/frame/ncid_worker.h"
+#include "transport/stream/data/maxstreams/maxstreams.h"
 #include "transport/packet/frame/frame/stream_ctl.h"
 #include "transport/packet/header/dcidresolve/dcidresolve.h"
 #include "transport/packet/header/packet/header.h"
@@ -330,6 +332,15 @@ typedef struct {
    * peer's own MAX_DATA to us) -- flow control is per-direction (RFC
    * 9000 4.1). */
   u64 rx_max_data_advertised;
+  /** RFC 9000 4.6/19.11: the bidi stream limit last advertised to the peer
+   * via MAX_STREAMS (0 before any raise past the server's own initial
+   * transport parameter, STP_DEFAULT_MAX_STREAMS_BIDI). Raised by one every
+   * time a client request stream's srvloop slot is released (srvrun_resp_
+   * reap), keeping the advertised limit in lockstep with actual receive
+   * capacity (WIRED_SRVLOOP_MAX_STREAMS) instead of promising room the
+   * fixed-size slot table cannot back -- an advertisement MUST NOT decrease
+   * (RFC 9000 4.6), so this only ever grows. */
+  u64 stream_limit_advertised;
 } srvrun_conn;
 
 /* Response storage, one row per (connection slot, response slot): 64-byte
@@ -1339,6 +1350,61 @@ static void srvrun_send_max_data(
   quic_obuf ob = quic_obuf_of(out, sizeof out);
   if (!srvrun_seal_max_data(c, value, &ob)) return;
   srvrun_send(cfg, c, quic_span_of(out, ob.len), "WT MAX_DATA sent\n");
+}
+
+/* Seal one MAX_STREAMS(bidi) frame (RFC 9000 19.11) as its own 1-RTT packet
+ * and send it. */
+static int srvrun_seal_max_streams(srvrun_conn* c, u64 value, quic_obuf* out) {
+  u8                    pl[24];
+  quic_obuf             plb = quic_obuf_of(pl, sizeof pl);
+  wired_srvloop_send_in sin;
+  if (!quic_maxstreams_frame(0, value, &plb)) return 0;
+  sin = (wired_srvloop_send_in){
+      quic_span_of(c->l.cli_scid, c->l.cli_scid_len), c->l.tx_pn++, -1,
+      quic_span_of(pl, plb.len), 0};
+  return wired_srvloop_send_onertt(&c->s, &sin, out);
+}
+
+static void srvrun_send_max_streams(
+    const srvrun_cfg* cfg, srvrun_conn* c, u64 value) {
+  u8        out[128];
+  quic_obuf ob = quic_obuf_of(out, sizeof out);
+  if (!srvrun_seal_max_streams(c, value, &ob)) return;
+  srvrun_send(cfg, c, quic_span_of(out, ob.len), "MAX_STREAMS sent\n");
+  c->stream_limit_advertised = value;
+}
+
+/* RFC 9000 4.6/19.11: raise the advertised bidi stream limit by one to
+ * match the receive-side capacity a just-released srvloop slot (srvrun_
+ * resp_reap) freed up -- keeps "limit advertised to the client" in
+ * lockstep with "requests this SDK can actually reassemble at once"
+ * (WIRED_SRVLOOP_MAX_STREAMS) instead of promising room the fixed-size
+ * slot table cannot back. base is the limit already in force (the
+ * connection's transport-parameter default the first time this fires,
+ * srvrun_conn.stream_limit_advertised after that). Keeping this invariant
+ * (one raise per release) means the currently-advertised limit is always
+ * derivable, so a later STREAMS_BLOCKED (srvrun_reannounce_stream_limit)
+ * never needs to compute anything new -- it just repeats this same value. */
+static void srvrun_grant_one_more_stream(
+    const srvrun_cfg* cfg, srvrun_conn* c, u64 base) {
+  u64 current = c->stream_limit_advertised ? c->stream_limit_advertised : base;
+  srvrun_send_max_streams(cfg, c, current + 1);
+}
+
+/* RFC 9000 4.6: "An endpoint that receives a STREAMS_BLOCKED frame SHOULD
+ * send a MAX_STREAMS frame if it is willing to increase the limit." This
+ * SDK's limit only ever advances in lockstep with real receive capacity
+ * (srvrun_grant_one_more_stream, called on every slot release), so there is
+ * nothing new to compute here -- just resend the limit already in force
+ * (or the transport-parameter default if nothing has been granted yet) in
+ * case the peer's own copy of it was lost. Never trusts the peer's own
+ * claimed limit in the STREAMS_BLOCKED frame (T-006: the value itself is
+ * not even latched, see wired_srvloop.streams_blocked_seen_flag's doc). */
+static void srvrun_reannounce_stream_limit(
+    const srvrun_cfg* cfg, srvrun_conn* c, u64 base) {
+  if (!c->l.streams_blocked_seen_flag) return;
+  c->l.streams_blocked_seen_flag = 0;
+  srvrun_send_max_streams(cfg, c, c->stream_limit_advertised ? c->stream_limit_advertised : base);
 }
 
 /* 1 if any WT bidi or uni slot is currently in use -- srvrun_grant_conn_
@@ -3538,6 +3604,16 @@ static int srvrun_resp_not_yet_idle(srvrun_resp* r) {
   return !r->in_use || !wired_sendsess_done(&r->sess);
 }
 
+/* This connection's transport-parameter bidi stream limit (the value
+ * srvrun_grant_one_more_stream raises from the first time it fires) -- 0
+ * (unset), including when the test harness's own cfg carries no id at all,
+ * falls back to the same built-in default the transport parameter itself
+ * uses (quic_stp_build_server_lim, server_tp.c). */
+static u64 srvrun_stream_limit_base(const srvrun_step_ctx* ctx) {
+  u64 configured = ctx->cfg->id ? ctx->cfg->id->max_streams_bidi : 0;
+  return configured ? configured : QUIC_STP_DEFAULT_MAX_STREAMS_BIDI;
+}
+
 static void srvrun_resp_reap(
     const srvrun_step_ctx* ctx, srvrun_conn* c, int slot, srvrun_resp* r) {
   if (srvrun_resp_not_yet_idle(r)) return;
@@ -3548,6 +3624,7 @@ static void srvrun_resp_reap(
   wired_srvloop_slot_release(&c->l, r->stream_id);
   srvrun_resp_release_bigbuf(ctx->cfg->env, r);
   r->in_use = 0;
+  srvrun_grant_one_more_stream(ctx->cfg, c, srvrun_stream_limit_base(ctx));
 }
 
 static void srvrun_reap_resps(
@@ -3578,6 +3655,7 @@ static void srvrun_sess_on_step(const srvrun_step_ctx* ctx, int slot) {
   srvrun_apply_stream_credit_update(c);
   srvrun_reap_resps(ctx, c, slot);
   srvrun_reap_wtsends(c);
+  srvrun_reannounce_stream_limit(ctx->cfg, c, srvrun_stream_limit_base(ctx));
   srvrun_start_done_resps(ctx, slot);
   srvrun_pump_sess(ctx, slot);
   srvrun_pump_datagram(ctx, c);
