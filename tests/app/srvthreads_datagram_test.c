@@ -124,14 +124,14 @@ static void sdt_server_thread(void* argp) {
  * for: a peer that only ever sees the server's bytes on the wire. */
 
 struct sdt_client {
-  quic_client      c;
-  i64              fd;
-  quic_sockaddr_in srv;
-  u8               priv[32], pub[32];
-  u8  ch[512]; /* our own raw ClientHello, saved for the transcript */
-  usz ch_len;
-  u8  chsh[900]; /* CH||SH, growing to CH||SH||EE below */
-  usz chsh_len;
+  quic_client   c;
+  i64           fd;
+  quic_sockaddr srv;
+  u8            priv[32], pub[32];
+  u8            ch[512]; /* our own raw ClientHello, saved for the transcript */
+  usz           ch_len;
+  u8            chsh[900]; /* CH||SH, growing to CH||SH||EE below */
+  usz           chsh_len;
 };
 
 /* RFC 9221 3: advertise max_datagram_frame_size in our own ClientHello's
@@ -195,8 +195,8 @@ static void sdt_client_init(struct sdt_client* cx) {
 /* Wait for one reply datagram into buf; on arrival, records its length via
  * *out_len and returns 1. */
 static int sdt_recv_one(i64 fd, u8* buf, usz cap, usz* out_len) {
-  quic_sockaddr_in from;
-  i64              r = wired_udp_recvfrom(fd, quic_mspan_of(buf, cap), &from);
+  quic_sockaddr from;
+  i64           r = wired_udp_recvfrom(fd, quic_mspan_of(buf, cap), &from);
   if (r <= 0) return 0;
   *out_len = (usz)r;
   return 1;
@@ -577,12 +577,12 @@ static int sdt_slice_has_hs_done(struct sdt_client* cx, const u8* p, usz n) {
 }
 
 static int sdt_try_recv_hs_done(struct sdt_client* cx) {
-  u8               pkt[1500];
-  quic_sockaddr_in from;
-  const u8*        pkts[8];
-  usz              offs[8], lens[8];
-  quic_pktlist     plist = {pkts, offs, lens, 8};
-  usz              n, i;
+  u8            pkt[1500];
+  quic_sockaddr from;
+  const u8*     pkts[8];
+  usz           offs[8], lens[8];
+  quic_pktlist  plist = {pkts, offs, lens, 8};
+  usz           n, i;
   i64 r = wired_udp_recvfrom(cx->fd, quic_mspan_of(pkt, sizeof pkt), &from);
   if (r <= 0) return 0;
   n = quic_udploop_split(quic_span_of(pkt, (usz)r), &plist);
@@ -759,10 +759,10 @@ static int sdt_stream0_has_2xx(const u8* pl, usz pll) {
 /* One receive attempt while waiting for the CONNECT's 2xx: 1 if this
  * datagram was the 1-RTT reply and it carried the 2xx, 0 to keep waiting. */
 static int sdt_try_recv_2xx(struct sdt_client* cx) {
-  u8               pkt[1500];
-  quic_sockaddr_in from;
-  const u8*        pl;
-  usz              pll;
+  u8            pkt[1500];
+  quic_sockaddr from;
+  const u8*     pl;
+  usz           pll;
   i64 r = wired_udp_recvfrom(cx->fd, quic_mspan_of(pkt, sizeof pkt), &from);
   if (!sdt_recv_is_onertt(r, pkt)) return 0;
   if (!sdt_open_onertt(cx, pkt, (usz)r, &pl, &pll)) return 0;
@@ -879,8 +879,8 @@ static int sdt_onertt_is_our_echo(
 
 static int sdt_try_recv_echo(
     struct sdt_client* cx, const u8* payload, usz plen) {
-  u8               pkt[1500];
-  quic_sockaddr_in from;
+  u8            pkt[1500];
+  quic_sockaddr from;
   i64 r = wired_udp_recvfrom(cx->fd, quic_mspan_of(pkt, sizeof pkt), &from);
   if (r <= 0) return -1; /* nothing queued this round */
   return sdt_onertt_is_our_echo(cx, r, pkt, payload, plen);

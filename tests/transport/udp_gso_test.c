@@ -23,7 +23,7 @@ static void test_gso_cmsg_build(void) {
 
 /* A bound server socket and a client socket, both on 127.0.0.1. Returns 1 with
  * the fds, or 0 (benign skip) if the sandbox forbids sockets. */
-static int gso_open_sockets(i64* sfd, i64* cfd, quic_sockaddr_in* srv) {
+static int gso_open_sockets(i64* sfd, i64* cfd, quic_sockaddr* srv) {
   *sfd = wired_udp_socket();
   if (*sfd < 0) return 0;
   wired_udp_addr(srv, 4436, (const u8[4]){127, 0, 0, 1});
@@ -53,9 +53,9 @@ static int gso_recv_count(i64 sfd) {
 /* wired_udp_send_batch (the always-available fallback path) delivers each
  * segment as its own datagram: 3 segments in, 3 datagrams received. */
 static void test_send_batch_delivers_segments(void) {
-  i64              sfd, cfd;
-  quic_sockaddr_in srv;
-  u8               payload[30]; /* 3 segments of 10 bytes */
+  i64           sfd, cfd;
+  quic_sockaddr srv;
+  u8            payload[30]; /* 3 segments of 10 bytes */
   for (usz i = 0; i < sizeof payload; i++) payload[i] = (u8)i;
   if (!gso_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
   CHECK(
@@ -70,9 +70,9 @@ static void test_send_batch_delivers_segments(void) {
 /* wired_udp_send_gso (real UDP_SEGMENT path) delivers the same total bytes
  * across >=1 datagram(s) on a kernel that supports UDP_SEGMENT (>= 4.18). */
 static void test_send_gso_delivers_total_bytes(void) {
-  i64              sfd, cfd;
-  quic_sockaddr_in srv;
-  u8               payload[30];
+  i64           sfd, cfd;
+  quic_sockaddr srv;
+  u8            payload[30];
   for (usz i = 0; i < sizeof payload; i++) payload[i] = (u8)i;
   if (!gso_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
   wired_udp_gso_enable(cfd, 10);
@@ -90,8 +90,8 @@ static void test_send_gso_delivers_total_bytes(void) {
  * SO_REUSEPORT the second bind would fail with EADDRINUSE. Benign skip when
  * the sandbox forbids sockets, same pattern as gso_open_sockets above. */
 static void test_reuseport_enable_allows_shared_bind(void) {
-  i64              fd1, fd2;
-  quic_sockaddr_in addr;
+  i64           fd1, fd2;
+  quic_sockaddr addr;
   fd1 = wired_udp_socket();
   if (fd1 < 0) return; /* sandbox: skip */
   fd2 = wired_udp_socket();
@@ -119,10 +119,10 @@ static void test_reuseport_enable_allows_shared_bind(void) {
 /* wired_udp_recvmmsg_nowait on a socket with nothing queued returns
  * immediately (negative errno), never blocks. */
 static void test_recvmmsg_nowait_returns_immediately_when_empty(void) {
-  i64              sfd, cfd;
-  quic_sockaddr_in srv;
-  u8               rx[64];
-  quic_mmsg_buf    bufs[1] = {{quic_mspan_of(rx, sizeof rx), {0}, 0, 0}};
+  i64           sfd, cfd;
+  quic_sockaddr srv;
+  u8            rx[64];
+  quic_mmsg_buf bufs[1] = {{quic_mspan_of(rx, sizeof rx), {0}, 0, 0}};
   if (!gso_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
   CHECK(wired_udp_recvmmsg_nowait(sfd, bufs, 1) < 0);
   wired_udp_close(cfd);
@@ -132,11 +132,11 @@ static void test_recvmmsg_nowait_returns_immediately_when_empty(void) {
 /* wired_udp_recvmmsg_nowait after a real send delivers the datagram, same as
  * the blocking wired_udp_recvmmsg would once data is queued. */
 static void test_recvmmsg_nowait_delivers_queued_datagram(void) {
-  i64              sfd, cfd;
-  quic_sockaddr_in srv;
-  u8               rx[64];
-  quic_mmsg_buf    bufs[1]    = {{quic_mspan_of(rx, sizeof rx), {0}, 0, 0}};
-  const u8         payload[5] = {1, 2, 3, 4, 5};
+  i64           sfd, cfd;
+  quic_sockaddr srv;
+  u8            rx[64];
+  quic_mmsg_buf bufs[1]    = {{quic_mspan_of(rx, sizeof rx), {0}, 0, 0}};
+  const u8      payload[5] = {1, 2, 3, 4, 5};
   if (!gso_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
   CHECK(
       wired_udp_send(cfd, &srv, quic_span_of(payload, sizeof payload)) ==
@@ -188,7 +188,7 @@ static void test_incoming_cpu_set_does_not_crash(void) {
 /* Same as gso_open_sockets but on a distinct port (4438) and with IP_RECVTOS
  * enabled on the server socket, so ECN tests do not collide with the fixed-
  * port 4436/4437 socket pairs above. */
-static int ecn_open_sockets(i64* sfd, i64* cfd, quic_sockaddr_in* srv) {
+static int ecn_open_sockets(i64* sfd, i64* cfd, quic_sockaddr* srv) {
   *sfd = wired_udp_socket();
   if (*sfd < 0) return 0;
   wired_udp_addr(srv, 4438, (const u8[4]){127, 0, 0, 1});
@@ -210,11 +210,11 @@ static int ecn_open_sockets(i64* sfd, i64* cfd, quic_sockaddr_in* srv) {
  * IP_RECVTOS + wired_udp_recvmmsg's cmsg read (T-002's path), since this SDK
  * has no getsockopt to read IP_TOS back directly. */
 static void test_udp_ect0_enable_sets_tos(void) {
-  i64              sfd, cfd;
-  quic_sockaddr_in srv;
-  u8               rx[64];
-  quic_mmsg_buf    bufs[1]    = {{quic_mspan_of(rx, sizeof rx), {0}, 0, 0}};
-  const u8         payload[3] = {1, 2, 3};
+  i64           sfd, cfd;
+  quic_sockaddr srv;
+  u8            rx[64];
+  quic_mmsg_buf bufs[1]    = {{quic_mspan_of(rx, sizeof rx), {0}, 0, 0}};
+  const u8      payload[3] = {1, 2, 3};
   if (!ecn_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
   CHECK(wired_udp_ect0_enable(cfd) == 0);
   CHECK(
@@ -230,11 +230,11 @@ static void test_udp_ect0_enable_sets_tos(void) {
  * (0) -- no cmsg is attached for an unmarked packet, and cmsg_read_ip_tos's
  * absent-cmsg fallback must not fabricate a nonzero ECN reading. */
 static void test_udp_recvmmsg_no_cmsg_defaults_to_zero_e2e(void) {
-  i64              sfd, cfd;
-  quic_sockaddr_in srv;
-  u8               rx[64];
-  quic_mmsg_buf    bufs[1]    = {{quic_mspan_of(rx, sizeof rx), {0}, 0, 0}};
-  const u8         payload[3] = {9, 9, 9};
+  i64           sfd, cfd;
+  quic_sockaddr srv;
+  u8            rx[64];
+  quic_mmsg_buf bufs[1]    = {{quic_mspan_of(rx, sizeof rx), {0}, 0, 0}};
+  const u8      payload[3] = {9, 9, 9};
   if (!ecn_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
   CHECK(
       wired_udp_send(cfd, &srv, quic_span_of(payload, sizeof payload)) ==
@@ -249,10 +249,10 @@ static void test_udp_recvmmsg_no_cmsg_defaults_to_zero_e2e(void) {
  * ECN bits into each slot individually (no cross-slot bleed from a shared
  * cmsg scratch buffer). */
 static void test_udp_recvmmsg_batch_ecn_per_slot(void) {
-  i64              sfd, cfd;
-  quic_sockaddr_in srv;
-  u8               rx0[64], rx1[64], rx2[64];
-  quic_mmsg_buf    bufs[3] = {
+  i64           sfd, cfd;
+  quic_sockaddr srv;
+  u8            rx0[64], rx1[64], rx2[64];
+  quic_mmsg_buf bufs[3] = {
       {quic_mspan_of(rx0, sizeof rx0), {0}, 0, 0},
       {quic_mspan_of(rx1, sizeof rx1), {0}, 0, 0},
       {quic_mspan_of(rx2, sizeof rx2), {0}, 0, 0}};

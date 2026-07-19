@@ -29,11 +29,11 @@ enum {
 };
 
 typedef struct {
-  i64              fd; /* UDP socket; <0 until init succeeds */
-  quic_sockaddr_in peer;
-  quic_tlsdriver   tls;
-  quic_fullhs      hs;
-  int              phase;       /* QUIC_CLIENT_HS_* */
+  i64            fd; /* UDP socket; <0 until init succeeds */
+  quic_sockaddr  peer;
+  quic_tlsdriver tls;
+  quic_fullhs    hs;
+  int            phase;         /* QUIC_CLIENT_HS_* */
   u8        sh_transcript[512]; /* ClientHello..ServerHello bytes for fullhs */
   usz       sh_len;
   u8        my_priv[QUIC_ECDHE_LEN];

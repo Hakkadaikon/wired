@@ -187,7 +187,7 @@ static int lb_open_onertt(
 
 /* A bound server socket and a client socket, both on 127.0.0.1. Returns 1 with
  * the fds, or 0 (benign skip) if the sandbox forbids sockets. */
-static int lb_open_sockets(i64* sfd, i64* cfd, quic_sockaddr_in* srv) {
+static int lb_open_sockets(i64* sfd, i64* cfd, quic_sockaddr* srv) {
   *sfd = wired_udp_socket();
   if (*sfd < 0) return 0;
   wired_udp_addr(srv, 4435, (const u8[4]){127, 0, 0, 1});
@@ -206,16 +206,16 @@ static int lb_open_sockets(i64* sfd, i64* cfd, quic_sockaddr_in* srv) {
 /* Ship `pkt` from client to server and run one srvloop_step on what arrives.
  * Returns the step result; *out_len holds the sealed reply length. */
 static int lb_wire_step(
-    struct lb_fix*          f,
-    i64                     cfd,
-    i64                     sfd,
-    const quic_sockaddr_in* srv,
-    const u8*               pkt,
-    usz                     n,
-    quic_obuf*              out) {
-  quic_sockaddr_in from;
-  u8               rx[1500];
-  i64              r;
+    struct lb_fix*       f,
+    i64                  cfd,
+    i64                  sfd,
+    const quic_sockaddr* srv,
+    const u8*            pkt,
+    usz                  n,
+    quic_obuf*           out) {
+  quic_sockaddr from;
+  u8            rx[1500];
+  i64           r;
   CHECK(wired_udp_send(cfd, srv, quic_span_of(pkt, n)) == (i64)n);
   r = wired_udp_recvfrom(sfd, quic_mspan_of(rx, sizeof rx), &from);
   CHECK(r == (i64)n);
@@ -226,11 +226,11 @@ static int lb_wire_step(
 /* (1) Loopback: the client's real protected Initial reaches a bound server
  * socket, padded to 1200 (RFC 9000 14.1). */
 static void test_loopback_initial_datagram(void) {
-  quic_client      c;
-  quic_sockaddr_in srv, from;
-  u8               priv[32], pub[32], pkt[1500], dg[1500];
-  usz              total = 0;
-  i64              sfd, n;
+  quic_client   c;
+  quic_sockaddr srv, from;
+  u8            priv[32], pub[32], pkt[1500], dg[1500];
+  usz           total = 0;
+  i64           sfd, n;
 
   sfd = wired_udp_socket();
   if (sfd < 0) return; /* sandbox: no sockets */
@@ -271,14 +271,14 @@ static void test_loopback_initial_datagram(void) {
  * real UDP socket; wired_srvloop_step opens them off the wire, confirms, and
  * seals a HANDSHAKE_DONE and a 200 the peer opens with SERVER_AP. */
 static void test_loopback_wire_confirm_and_get(void) {
-  struct lb_fix    f;
-  quic_sockaddr_in srv;
-  i64              sfd, cfd;
-  u8               cpkt[1300], out[1300], get[512];
-  usz              clen, glen;
-  quic_obuf        ob = {out, sizeof out, 0};
-  const u8*        pl;
-  usz              pll;
+  struct lb_fix f;
+  quic_sockaddr srv;
+  i64           sfd, cfd;
+  u8            cpkt[1300], out[1300], get[512];
+  usz           clen, glen;
+  quic_obuf     ob = {out, sizeof out, 0};
+  const u8*     pl;
+  usz           pll;
 
   if (!lb_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: benign skip */
 

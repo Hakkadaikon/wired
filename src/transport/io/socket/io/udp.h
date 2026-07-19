@@ -5,28 +5,48 @@
 #include "common/platform/sys/syscall.h"
 
 /** @file
- * UDP over IPv4 via direct x86_64 syscalls. No libc. */
+ * UDP via direct x86_64 syscalls, dual-stack (one AF_INET6 socket serves
+ * IPv6 natively and IPv4 as v4-mapped addresses). No libc. */
 
 /** AF_INET address family constant. */
 #define WIRED_AF_INET 2
+/** AF_INET6 address family constant. */
+#define WIRED_AF_INET6 10
 /** SOCK_DGRAM socket type constant. */
 #define WIRED_SOCK_DGRAM 2
 
-/** A sockaddr_in laid out for the kernel (big-endian port and address). */
+/** A sockaddr_in6 laid out for the kernel (big-endian port; a 16-byte
+ * address that is either native IPv6 or an IPv4-mapped ::ffff:a.b.c.d).
+ * Every socket this SDK opens is AF_INET6 with IPV6_V6ONLY off, so this one
+ * shape addresses both families. */
 typedef struct {
-  u16 family;  /**< WIRED_AF_INET */
-  u16 port_be; /**< network byte order */
-  u32 addr_be; /**< network byte order */
-  u8  zero[8]; /**< padding, zeroed */
-} quic_sockaddr_in;
+  u16 family;   /**< WIRED_AF_INET6 */
+  u16 port_be;  /**< network byte order */
+  u32 flowinfo; /**< sin6_flowinfo, zeroed */
+  u8  addr[16]; /**< native IPv6, or v4-mapped ::ffff:a.b.c.d */
+  u32 scope_id; /**< sin6_scope_id, zeroed */
+} quic_sockaddr;
 
-/** Build a sockaddr_in from host-order port and IPv4 octets[0..3] = a.b.c.d.
+/** Build an address from host-order port and IPv4 octets[0..3] = a.b.c.d,
+ * as the v4-mapped ::ffff:a.b.c.d — or, when the octets are all zero, the
+ * unspecified :: (the dual-stack bind-any address; a mapped 0.0.0.0 would
+ * bind IPv4-only).
  * @param sa receives the kernel-ready address
  * @param port UDP port in host byte order
  * @param octets IPv4 address octets a.b.c.d */
-void wired_udp_addr(quic_sockaddr_in* sa, u16 port, const u8 octets[4]);
+void wired_udp_addr(quic_sockaddr* sa, u16 port, const u8 octets[4]);
 
-/** Create a UDP socket.
+/** Read a v4-mapped (or any) address's IPv4 bytes as a big-endian u32 —
+ * the accessor the IPv4-only paths (AF_XDP framing, MAC learning) use.
+ * @param sa the address to read
+ * @return addr[12..15] as a big-endian u32 */
+static inline u32 wired_udp_addr4_be(const quic_sockaddr* sa) {
+  return ((u32)sa->addr[12] << 24) | ((u32)sa->addr[13] << 16) |
+         ((u32)sa->addr[14] << 8) | sa->addr[15];
+}
+
+/** Create a dual-stack UDP socket: AF_INET6 with IPV6_V6ONLY disabled, so
+ * IPv4 peers arrive as v4-mapped addresses on the same fd.
  * @return the fd, or a negative errno on failure. */
 i64 wired_udp_socket(void);
 
@@ -35,14 +55,14 @@ i64 wired_udp_socket(void);
  * @param fd the socket fd
  * @param sa the local address to bind
  * @return 0 on success or a negative errno. */
-i64 wired_udp_bind(i64 fd, const quic_sockaddr_in* sa);
+i64 wired_udp_bind(i64 fd, const quic_sockaddr* sa);
 
 /** Send buf to sa.
  * @param fd the socket fd
  * @param sa the destination address
  * @param buf the datagram to send
  * @return bytes sent or a negative errno. */
-i64 wired_udp_send(i64 fd, const quic_sockaddr_in* sa, quic_span buf);
+i64 wired_udp_send(i64 fd, const quic_sockaddr* sa, quic_span buf);
 
 /** Receive up to buf.n bytes into buf.p.
  * @param fd the socket fd
@@ -56,7 +76,7 @@ i64 wired_udp_recv(i64 fd, quic_mspan buf);
  * @param buf destination buffer
  * @param src receives the datagram's source address
  * @return bytes read or a negative errno. */
-i64 wired_udp_recvfrom(i64 fd, quic_mspan buf, quic_sockaddr_in* src);
+i64 wired_udp_recvfrom(i64 fd, quic_mspan buf, quic_sockaddr* src);
 
 /** Close fd. Takes ownership of fd: after this call fd is invalid regardless
  * of the return value, and the caller must not use or close it again.
@@ -92,7 +112,7 @@ void wired_udp_gso_cmsg_build(u8 out[WIRED_GSO_CMSG_SPACE], u16 segsize);
  * @return total bytes sent, or a negative errno (e.g. the caller should fall
  *   back to wired_udp_send_batch when fd has no UDP_SEGMENT support). */
 i64 wired_udp_send_gso(
-    i64 fd, const quic_sockaddr_in* sa, quic_span buf, u16 segsize);
+    i64 fd, const quic_sockaddr* sa, quic_span buf, u16 segsize);
 
 /** Send count back-to-back segsize-byte segments to sa via one sendto() call
  * per segment (no GSO). The last segment may be shorter (total = buf.n). The
@@ -103,14 +123,14 @@ i64 wired_udp_send_gso(
  * @param segsize per-segment byte size (last segment may be shorter)
  * @return total bytes sent, or a negative errno on the first failure. */
 i64 wired_udp_send_batch(
-    i64 fd, const quic_sockaddr_in* sa, quic_span buf, u16 segsize);
+    i64 fd, const quic_sockaddr* sa, quic_span buf, u16 segsize);
 
 /** One slot of a recvmmsg() batch: caller-owned receive buffer and source
  * address, filled in by wired_udp_recvmmsg on return. */
 typedef struct {
-  quic_mspan       buf; /**< in: destination buffer; unused bytes untouched */
-  quic_sockaddr_in src; /**< out: datagram's source address */
-  u32              len; /**< out: bytes received into buf.p */
+  quic_mspan    buf; /**< in: destination buffer; unused bytes untouched */
+  quic_sockaddr src; /**< out: datagram's source address */
+  u32           len; /**< out: bytes received into buf.p */
   /** out: RFC 3168 ECN codepoint of the received IP header (0 = Not-ECT,
    * 1 = ECT(1), 2 = ECT(0), 3 = CE), read from the IP_TOS cmsg when
    * IP_RECVTOS is enabled on the socket (wired_udp_ect0_enable does not

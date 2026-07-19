@@ -2,7 +2,7 @@
 
 /* A bound server socket and a client socket, both on 127.0.0.1. Returns 1 with
  * the fds, or 0 (benign skip) if the sandbox forbids sockets. */
-static int rmmsg_open_sockets(i64* sfd, i64* cfd, quic_sockaddr_in* srv) {
+static int rmmsg_open_sockets(i64* sfd, i64* cfd, quic_sockaddr* srv) {
   *sfd = wired_udp_socket();
   if (*sfd < 0) return 0;
   wired_udp_addr(srv, 4437, (const u8[4]){127, 0, 0, 1});
@@ -21,7 +21,7 @@ static int rmmsg_open_sockets(i64* sfd, i64* cfd, quic_sockaddr_in* srv) {
 /* Send count single-byte-tagged datagrams from cfd to srv, each payload
  * len bytes filled with the datagram index. */
 static void rmmsg_send_n(
-    i64 cfd, const quic_sockaddr_in* srv, int count, usz len) {
+    i64 cfd, const quic_sockaddr* srv, int count, usz len) {
   for (int i = 0; i < count; i++) {
     u8 payload[32];
     for (usz j = 0; j < len; j++) payload[j] = (u8)i;
@@ -34,10 +34,10 @@ static void rmmsg_send_n(
  * than were sent is fine — MSG_WAITFORONE returns the queued ones; see
  * test_recvmmsg_returns_partial_batch.) */
 static void test_recvmmsg_receives_batch(void) {
-  i64              sfd, cfd;
-  quic_sockaddr_in srv;
-  quic_mmsg_buf    bufs[3];
-  u8               storage[3][16];
+  i64           sfd, cfd;
+  quic_sockaddr srv;
+  quic_mmsg_buf bufs[3];
+  u8            storage[3][16];
   if (!rmmsg_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
   rmmsg_send_n(cfd, &srv, 3, 8);
   for (usz i = 0; i < 3; i++) bufs[i].buf = quic_mspan_of(storage[i], 16);
@@ -62,10 +62,10 @@ static void test_recvmmsg_receives_batch(void) {
  * blocking, and a 4th recvfrom would hang waiting for a datagram that was
  * never sent. */
 static void test_recvmmsg_fallback_receives_batch(void) {
-  i64              sfd, cfd;
-  quic_sockaddr_in srv;
-  quic_mmsg_buf    bufs[3];
-  u8               storage[3][16];
+  i64           sfd, cfd;
+  quic_sockaddr srv;
+  quic_mmsg_buf bufs[3];
+  u8            storage[3][16];
   if (!rmmsg_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
   rmmsg_send_n(cfd, &srv, 3, 8);
   for (usz i = 0; i < 3; i++) bufs[i].buf = quic_mspan_of(storage[i], 16);
@@ -83,10 +83,10 @@ static void test_recvmmsg_fallback_receives_batch(void) {
  * (first recvfrom is empty/error, e.g. EAGAIN on a would-block socket, or the
  * bind-less benign-skip path never sent anything). */
 static void test_recvmmsg_fallback_empty_returns_zero(void) {
-  i64              sfd, cfd;
-  quic_sockaddr_in srv;
-  quic_mmsg_buf    bufs[2];
-  u8               storage[2][16];
+  i64           sfd, cfd;
+  quic_sockaddr srv;
+  quic_mmsg_buf bufs[2];
+  u8            storage[2][16];
   if (!rmmsg_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
   for (usz i = 0; i < 2; i++) bufs[i].buf = quic_mspan_of(storage[i], 16);
   /* Nothing sent to sfd: recvfrom would block forever on a blocking socket,
@@ -102,10 +102,10 @@ static void test_recvmmsg_fallback_empty_returns_zero(void) {
  * If this regresses the call hangs here, which is the only observable
  * failure mode of the flag. */
 static void test_recvmmsg_returns_partial_batch(void) {
-  i64              sfd, cfd;
-  quic_sockaddr_in srv;
-  quic_mmsg_buf    bufs[8];
-  u8               storage[8][16];
+  i64           sfd, cfd;
+  quic_sockaddr srv;
+  quic_mmsg_buf bufs[8];
+  u8            storage[8][16];
   if (!rmmsg_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
   rmmsg_send_n(cfd, &srv, 3, 8);
   for (usz i = 0; i < 8; i++) bufs[i].buf = quic_mspan_of(storage[i], 16);

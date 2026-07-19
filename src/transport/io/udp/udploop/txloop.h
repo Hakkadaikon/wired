@@ -19,8 +19,8 @@ usz quic_udploop_pack(const quic_pktsrc* src, quic_obuf* out);
 
 /* A destination socket: an open fd and the peer to send to. */
 typedef struct {
-  i64                     fd;
-  const quic_sockaddr_in* peer;
+  i64                  fd;
+  const quic_sockaddr* peer;
 } quic_udpdst;
 
 /* Pack the packets and send them as one datagram to dst. Returns the bytes

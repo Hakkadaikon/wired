@@ -4,8 +4,8 @@
 #include "transport/io/socket/io/udp.h"
 
 int quic_udp_transport_open(quic_udp_transport* t, u16 local_port) {
-  quic_sockaddr_in sa;
-  i64              fd = wired_udp_socket();
+  quic_sockaddr sa;
+  i64           fd = wired_udp_socket();
   if (fd < 0) return (int)fd;
   wired_udp_addr(&sa, local_port, (const u8[4]){0, 0, 0, 0});
   i64 r = wired_udp_bind(fd, &sa);
@@ -22,8 +22,8 @@ int quic_udp_transport_connect(
 }
 
 int quic_udp_transport_send(quic_udp_transport* t, const u8* buf, usz len) {
-  quic_sockaddr_in sa;
-  u8               o[4];
+  quic_sockaddr sa;
+  u8            o[4];
   quic_addr_to_octets(t->peer_addr, o);
   wired_udp_addr(&sa, t->peer_port, o);
   return wired_udp_send(t->fd, &sa, quic_span_of(buf, len)) >= 0 ? 1 : 0;

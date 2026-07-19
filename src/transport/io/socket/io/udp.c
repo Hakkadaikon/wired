@@ -17,32 +17,55 @@
  * IP_TOS cmsg to every received datagram carrying the packet's ECN bits. */
 #define WIRED_IP_RECVTOS 13
 
-/* Host-to-network for 16- and 32-bit values (x86_64 is little-endian). */
+/* Host-to-network for 16-bit values (x86_64 is little-endian). */
 static u16 hton16(u16 v) { return (u16)((v >> 8) | (v << 8)); }
 
-static u32 hton32(u32 v) {
-  return ((v >> 24) & 0xff) | ((v >> 8) & 0xff00) | ((v << 8) & 0xff0000) |
-         ((v << 24) & 0xff000000);
+/* 1 if octets is 0.0.0.0 (branch-free: the bind-any request). */
+static int udp_octets_zero(const u8 octets[4]) {
+  return (octets[0] | octets[1] | octets[2] | octets[3]) == 0;
 }
 
-void wired_udp_addr(quic_sockaddr_in* sa, u16 port, const u8 octets[4]) {
-  u32 addr = ((u32)octets[0] << 24) | ((u32)octets[1] << 16) |
-             ((u32)octets[2] << 8) | octets[3];
-  for (usz i = 0; i < 8; i++) sa->zero[i] = 0;
-  sa->family  = WIRED_AF_INET;
-  sa->port_be = hton16(port);
-  sa->addr_be = hton32(addr);
+/* Write the v4-mapped ::ffff:a.b.c.d suffix into a zeroed 16-byte addr. */
+static void udp_addr_map4(u8 addr[16], const u8 octets[4]) {
+  addr[10] = 0xff;
+  addr[11] = 0xff;
+  for (usz i = 0; i < 4; i++) addr[12 + i] = octets[i];
 }
+
+void wired_udp_addr(quic_sockaddr* sa, u16 port, const u8 octets[4]) {
+  for (usz i = 0; i < 16; i++) sa->addr[i] = 0;
+  sa->family   = WIRED_AF_INET6;
+  sa->port_be  = hton16(port);
+  sa->flowinfo = 0;
+  sa->scope_id = 0;
+  /* all-zero octets ask for the dual-stack any-address :: -- a mapped
+   * ::ffff:0.0.0.0 would bind the socket IPv4-only (see udp.h). */
+  if (!udp_octets_zero(octets)) udp_addr_map4(sa->addr, octets);
+}
+
+/* IPPROTO_IPV6 setsockopt level constant (Linux uapi in.h). */
+#define WIRED_IPPROTO_IPV6 41
+/* IPV6_V6ONLY setsockopt name (Linux uapi in6.h). */
+#define WIRED_IPV6_V6ONLY 26
 
 i64 wired_udp_socket(void) {
-  return syscall3(SYS_socket, WIRED_AF_INET, WIRED_SOCK_DGRAM, 0);
+  int v6only = 0;
+  i64 fd     = syscall3(SYS_socket, WIRED_AF_INET6, WIRED_SOCK_DGRAM, 0);
+  if (fd < 0) return fd;
+  /* dual stack: v4 peers arrive v4-mapped on the same fd. Linux defaults
+   * IPV6_V6ONLY to 0 already; setting it explicitly pins the behavior
+   * against a flipped net.ipv6.bindv6only sysctl. */
+  syscall6(
+      SYS_setsockopt, fd, WIRED_IPPROTO_IPV6, WIRED_IPV6_V6ONLY, (i64)&v6only,
+      sizeof(v6only), 0);
+  return fd;
 }
 
-i64 wired_udp_bind(i64 fd, const quic_sockaddr_in* sa) {
+i64 wired_udp_bind(i64 fd, const quic_sockaddr* sa) {
   return syscall3(SYS_bind, fd, sa, sizeof(*sa));
 }
 
-i64 wired_udp_send(i64 fd, const quic_sockaddr_in* sa, quic_span buf) {
+i64 wired_udp_send(i64 fd, const quic_sockaddr* sa, quic_span buf) {
   return syscall6(
       SYS_sendto, fd, (i64)buf.p, (i64)buf.n, 0, (i64)sa, sizeof(*sa));
 }
@@ -51,7 +74,7 @@ i64 wired_udp_recv(i64 fd, quic_mspan buf) {
   return syscall6(SYS_recvfrom, fd, (i64)buf.p, (i64)buf.n, 0, 0, 0);
 }
 
-i64 wired_udp_recvfrom(i64 fd, quic_mspan buf, quic_sockaddr_in* src) {
+i64 wired_udp_recvfrom(i64 fd, quic_mspan buf, quic_sockaddr* src) {
   /* addrlen is in/out: pass the buffer size, kernel writes the actual length.
    */
   u32 addrlen = sizeof(*src);
@@ -104,8 +127,20 @@ i64 wired_udp_gso_enable(i64 fd, u16 segsize) {
  * low 2 bits (the upper 6 bits, DSCP, are left 0). */
 #define WIRED_ECT0_TOS 2
 
+/* IPV6_TCLASS setsockopt/cmsg name (Linux uapi in6.h): the IPv6 traffic
+ * class byte, ECN in the low 2 bits like the v4 TOS. */
+#define WIRED_IPV6_TCLASS 67
+/* IPV6_RECVTCLASS setsockopt name (Linux uapi in6.h). */
+#define WIRED_IPV6_RECVTCLASS 66
+
 i64 wired_udp_ect0_enable(i64 fd) {
   int val = WIRED_ECT0_TOS;
+  /* dual stack: IP_TOS marks the v4-mapped sends, IPV6_TCLASS the native
+   * v6 ones; the v6 option is best-effort (its failure never voids the
+   * still-working v4 marking). */
+  syscall6(
+      SYS_setsockopt, fd, WIRED_IPPROTO_IPV6, WIRED_IPV6_TCLASS, (i64)&val,
+      sizeof(val), 0);
   return syscall6(
       SYS_setsockopt, fd, WIRED_IPPROTO_IP, WIRED_IP_TOS, (i64)&val,
       sizeof(val), 0);
@@ -113,13 +148,17 @@ i64 wired_udp_ect0_enable(i64 fd) {
 
 i64 wired_udp_recvtos_enable(i64 fd) {
   int val = 1;
+  /* same dual-stack pairing as wired_udp_ect0_enable above. */
+  syscall6(
+      SYS_setsockopt, fd, WIRED_IPPROTO_IPV6, WIRED_IPV6_RECVTCLASS, (i64)&val,
+      sizeof(val), 0);
   return syscall6(
       SYS_setsockopt, fd, WIRED_IPPROTO_IP, WIRED_IP_RECVTOS, (i64)&val,
       sizeof(val), 0);
 }
 
 i64 wired_udp_send_gso(
-    i64 fd, const quic_sockaddr_in* sa, quic_span buf, u16 segsize) {
+    i64 fd, const quic_sockaddr* sa, quic_span buf, u16 segsize) {
   u8          cmsg[WIRED_GSO_CMSG_SPACE];
   quic_iovec  iov = {buf.p, buf.n};
   quic_msghdr msg = {0};
@@ -140,7 +179,7 @@ static usz gso_batch_seglen(usz remaining, u16 segsize) {
 }
 
 i64 wired_udp_send_batch(
-    i64 fd, const quic_sockaddr_in* sa, quic_span buf, u16 segsize) {
+    i64 fd, const quic_sockaddr* sa, quic_span buf, u16 segsize) {
   usz off  = 0;
   i64 sent = 0;
   while (off < buf.n) {
@@ -182,10 +221,22 @@ static int cmsg_entry_in_bounds(const u8* control, u64 controllen, u64 off) {
 
 /* 1 if the in-bounds entry at off is IP_TOS/IPPROTO_IP; *tos receives its
  * one-byte low-order ECN codepoint (RFC 3168) on success. */
+/* 1 if (level, type) names an ECN-carrying byte: the v4 IP_TOS or the v6
+ * IPV6_TCLASS (a dual-stack socket delivers whichever family the datagram
+ * actually arrived under). */
+static int cmsg_is_ip_tos_pair(i32 level, i32 type) {
+  return level == WIRED_IPPROTO_IP && type == WIRED_IP_TOS;
+}
+
+static int cmsg_type_carries_ecn(i32 level, i32 type) {
+  if (cmsg_is_ip_tos_pair(level, type)) return 1;
+  return level == WIRED_IPPROTO_IPV6 && type == WIRED_IPV6_TCLASS;
+}
+
 static int cmsg_entry_is_ip_tos(const u8* control, u64 off, u8* tos) {
   i32 level = *(const i32*)(control + off + 8);
   i32 type  = *(const i32*)(control + off + 12);
-  if (level != WIRED_IPPROTO_IP || type != WIRED_IP_TOS) return 0;
+  if (!cmsg_type_carries_ecn(level, type)) return 0;
   *tos = control[off + WIRED_CMSG_HDR_LEN] & 0x03;
   return 1;
 }
@@ -272,9 +323,9 @@ static void recvmmsg_read_ecn(
     quic_mmsg_buf* bufs, const quic_mmsghdr* slots, i64 r) {
   for (i64 i = 0; i < r; i++) {
     const quic_msghdr* h = &slots[i].msg_hdr;
-    bufs[i].ecn          = (h->msg_flags & WIRED_MSG_CTRUNC)
-                               ? 0
-                               : cmsg_read_ip_tos(h->msg_control, h->msg_controllen);
+    bufs[i].ecn = (h->msg_flags & WIRED_MSG_CTRUNC)
+                      ? 0
+                      : cmsg_read_ip_tos(h->msg_control, h->msg_controllen);
   }
 }
 
