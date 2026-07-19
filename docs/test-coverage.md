@@ -67,10 +67,14 @@ Legend:
 - [ ] `ecn` — not yet run (socket cmsg path not wired up)
 - [ ] `ipv6` — not yet run (server is IPv4-only)
 - [ ] `v2` — not yet run (dedicated server mode not wired up)
-- [ ] `rebind-port` / `rebind-addr` — not yet run (dedicated server mode
-  not wired up)
-- [ ] `connectionmigration` — not yet run (dedicated server mode not
-  wired up)
+- [ ] `rebind-port` / `rebind-addr` — the server now follows a confirmed
+  connection's peer address across a rebind (verified live: it correctly
+  replies to a client seen from 4 different addresses on one connection),
+  but the runner's check additionally requires a PATH_CHALLENGE on the
+  first packet sent on the new path (RFC 9000 9.3), which this naive
+  address-follow deliberately does not send
+- [ ] `connectionmigration` — not yet run; needs the same PATH_CHALLENGE/
+  PATH_RESPONSE round trip as rebind-port/rebind-addr above
 - [ ] `crosstraffic` (measurement) — not yet run
 
 ### WebTransport testcases (server: wired · client: webtransport-go)
@@ -301,10 +305,16 @@ runs used kernel UDP sockets, so they are unit-tested but not interop-proven.
   slower than it should under normal, loss-free conditions, and a PTO
   probe getting blocked by pacing during a real outage) was found and
   fixed this cycle -- `goodput` and `blackhole` now pass.
-- Seven testcases (`retry`, `resumption`, `zerortt`, `v2`, `rebind-port`,
-  `rebind-addr`, `connectionmigration`) need a dedicated server mode this
-  SDK does not wire up yet; `ecn` needs a socket cmsg path; `ipv6` needs
-  IPv6 socket support. None of these have been attempted.
+- `rebind-port` / `rebind-addr` got a first attempt: the server follows a
+  confirmed connection's peer address across a rebind now, and that half
+  works live, but the runner also requires a PATH_CHALLENGE on the new
+  path's first packet (RFC 9000 9.3) that this naive follow deliberately
+  skips, so both still fail. `connectionmigration` needs the same
+  PATH_CHALLENGE/PATH_RESPONSE round trip and has not been attempted.
+- Five testcases (`retry`, `resumption`, `zerortt`, `v2`,
+  `connectionmigration`) need a dedicated server mode this SDK does not
+  wire up yet; `ecn` needs a socket cmsg path; `ipv6` needs IPv6 socket
+  support. None of these have been attempted.
 - The three WebTransport `*-send` interop cases have never passed; the
   QUIC layer has been verified blameless via qlog, and the investigation
   is parked at the client's send scheduling.
