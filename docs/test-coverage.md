@@ -67,14 +67,19 @@ Legend:
 - [ ] `ecn` — not yet run (socket cmsg path not wired up)
 - [ ] `ipv6` — not yet run (server is IPv4-only)
 - [ ] `v2` — not yet run (dedicated server mode not wired up)
-- [ ] `rebind-port` / `rebind-addr` — the server now follows a confirmed
-  connection's peer address across a rebind (verified live: it correctly
-  replies to a client seen from 4 different addresses on one connection),
-  but the runner's check additionally requires a PATH_CHALLENGE on the
-  first packet sent on the new path (RFC 9000 9.3), which this naive
-  address-follow deliberately does not send
-- [ ] `connectionmigration` — not yet run; needs the same PATH_CHALLENGE/
-  PATH_RESPONSE round trip as rebind-port/rebind-addr above
+- [ ] `rebind-port` / `rebind-addr` — the server follows a confirmed
+  connection's peer address across a rebind and sends a PATH_CHALLENGE on
+  the new path, validating a matching PATH_RESPONSE (RFC 9000 8.2/9.3).
+  Manually decrypting the capture confirms the PATH_CHALLENGE is correctly
+  the new path's first packet, but the runner's own analysis tooling
+  (pyshark/tshark) cannot decrypt that same packet -- a short header
+  carries no DCID length, and wireshark only learns it by having already
+  seen an Initial/Handshake on that UDP conversation, which a rebind's
+  fresh source port never provides. Believed to be a tooling-chain
+  limitation rather than a protocol bug in this server
+- [ ] `connectionmigration` — not yet run; would reuse the same
+  PATH_CHALLENGE/PATH_RESPONSE machinery as rebind-port/rebind-addr but is
+  likely to hit the same tooling-chain limitation
 - [ ] `crosstraffic` (measurement) — not yet run
 
 ### WebTransport testcases (server: wired · client: webtransport-go)
@@ -305,12 +310,15 @@ runs used kernel UDP sockets, so they are unit-tested but not interop-proven.
   slower than it should under normal, loss-free conditions, and a PTO
   probe getting blocked by pacing during a real outage) was found and
   fixed this cycle -- `goodput` and `blackhole` now pass.
-- `rebind-port` / `rebind-addr` got a first attempt: the server follows a
-  confirmed connection's peer address across a rebind now, and that half
-  works live, but the runner also requires a PATH_CHALLENGE on the new
-  path's first packet (RFC 9000 9.3) that this naive follow deliberately
-  skips, so both still fail. `connectionmigration` needs the same
-  PATH_CHALLENGE/PATH_RESPONSE round trip and has not been attempted.
+- `rebind-port` / `rebind-addr` now implement the full RFC 9000 8.2/9.3
+  PATH_CHALLENGE/PATH_RESPONSE round trip, and manually decrypting the
+  capture confirms the server correctly sends a PATH_CHALLENGE as the new
+  path's first packet. Both testcases still fail because the runner's own
+  analysis tooling cannot decrypt that specific packet (a wireshark
+  limitation around DCID-length inference on a fresh UDP conversation, not
+  a protocol violation by this server -- see the QUIC testcase notes
+  above). `connectionmigration` would reuse the same machinery but is
+  likely to hit the same tooling limitation; not yet attempted.
 - Five testcases (`retry`, `resumption`, `zerortt`, `v2`,
   `connectionmigration`) need a dedicated server mode this SDK does not
   wire up yet; `ecn` needs a socket cmsg path; `ipv6` needs IPv6 socket
