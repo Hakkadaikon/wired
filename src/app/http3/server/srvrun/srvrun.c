@@ -35,7 +35,6 @@
 #include "transport/packet/frame/frame/flowctl.h"
 #include "transport/packet/frame/frame/frame.h"
 #include "transport/packet/frame/frame/ncid_worker.h"
-#include "transport/stream/data/maxstreams/maxstreams.h"
 #include "transport/packet/frame/frame/stream_ctl.h"
 #include "transport/packet/header/dcidresolve/dcidresolve.h"
 #include "transport/packet/header/packet/header.h"
@@ -45,6 +44,7 @@
 #include "transport/recovery/detect/recovery/pto.h"
 #include "transport/recovery/detect/recovery/rtt.h"
 #include "transport/stream/data/appdata/stream_send.h"
+#include "transport/stream/data/maxstreams/maxstreams.h"
 
 /* The server's fixed run context: the bound socket and the application's
  * identity + request handler. `id` points at the caller's identity struct
@@ -311,6 +311,22 @@ typedef struct {
    * bytes sent to it (srvrun_send, Initial + Handshake flight combined). */
   u64 boot_rx_bytes;
   u64 boot_tx_bytes;
+  /** RFC 9002 6.2: monotonic ms this slot's boot flight (Initial +
+   * Handshake) was last sent -- the first send in srvrun_boot_finish, or any
+   * resend (srvrun_resend_boot_flight, or the timer-driven boot PTO itself,
+   * srvrun_boot_pto_slot). Drives the boot-stage PTO deadline the same way
+   * wired_sendsess's own sent_ms drives srvrun_sess_pto_due, but boot has no
+   * wired_sendsess of its own (the flight is a raw cached byte span, not a
+   * slice log) so this one timestamp stands in for it. Meaningless before
+   * boot_ini_len is first set. */
+  u64 boot_pto_sent_ms;
+  /** RFC 9002 6.2: consecutive boot-stage probe count, the boot-flight
+   * counterpart to wired_sendsess.pto_count -- scales srvrun_pto_deadline_ms'
+   * backoff and, at SRVRUN_PTO_MAX, tears the slot down the same way
+   * srvrun_pto_slot's budget exhaustion does. Reset to 0 whenever the boot
+   * flight is (re)sent for a reason other than this timer (a fresh accept or
+   * a client-triggered retransmit both prove the peer is still reachable). */
+  int boot_pto_count;
   /** Server-initiated WebTransport stream sends in flight on this
    * connection (wired_server_wt_open_uni/open_bidi/stream_reply), pumped/
    * ACKed/probed alongside resp[] under the same connection-wide gates. */
@@ -711,6 +727,12 @@ static int srvrun_boot_finish(
   srvrun_boot_send_initial(ctx->cfg, c, "server Initial sent\n");
   srvrun_boot_send_hs_gated(ctx->cfg, c, wired_server_is_confirmed(&c->s));
   wired_srvboot_acc_reset(&c->boot); /* the reassembly buffer is spent */
+  /* RFC 9002 6.2: the accept flight just went out -- start this slot's boot
+   * PTO clock fresh (T-009: any real send, not just the timer's own probe,
+   * pushes the next deadline out so the two re-send paths never double
+   * fire). */
+  c->boot_pto_sent_ms = ctx->now_ms;
+  c->boot_pto_count   = 0;
   return 1;
 }
 
@@ -1404,7 +1426,8 @@ static void srvrun_reannounce_stream_limit(
     const srvrun_cfg* cfg, srvrun_conn* c, u64 base) {
   if (!c->l.streams_blocked_seen_flag) return;
   c->l.streams_blocked_seen_flag = 0;
-  srvrun_send_max_streams(cfg, c, c->stream_limit_advertised ? c->stream_limit_advertised : base);
+  srvrun_send_max_streams(
+      cfg, c, c->stream_limit_advertised ? c->stream_limit_advertised : base);
 }
 
 /* 1 if any WT bidi or uni slot is currently in use -- srvrun_grant_conn_
@@ -3296,7 +3319,8 @@ static int srvrun_any_requeued(const srvrun_conn* c) {
  * swallow the one send that would recover the connection -- observed live:
  * a real interop blackhole run stalls mid-transfer and never resumes once
  * the link comes back. */
-static int srvrun_pace_or_probe_ok(const srvrun_step_ctx* ctx, const srvrun_conn* c) {
+static int srvrun_pace_or_probe_ok(
+    const srvrun_step_ctx* ctx, const srvrun_conn* c) {
   return srvrun_pace_ok(ctx, c) || srvrun_any_requeued(c);
 }
 
@@ -3801,20 +3825,6 @@ static void srvrun_dg_slot(const srvrun_step_ctx* ctx, int slot) {
   if (c->up) srvrun_pump_datagram(ctx, c);
 }
 
-/* One slot's tick work on a poll timeout: PTO probe/teardown, then flush any
- * queued broadcast DATAGRAM -- split out so the loop below stays flat. */
-static void srvrun_tick_slot(const srvrun_step_ctx* ctx, int slot) {
-  srvrun_pto_slot(ctx, slot);
-  srvrun_dg_slot(ctx, slot);
-}
-
-/* A poll timeout with responses or broadcast DATAGRAMs in flight: fire the
- * probe/flush pass over every waiting slot. */
-static void srvrun_fire_ptos(const srvrun_cfg* cfg, srvrun_state* st) {
-  srvrun_step_ctx ctx = {cfg, 0, st, quic_clock_mono_ms()};
-  for (usz i = 0; i < QUIC_CONNTABLE_CAP; i++) srvrun_tick_slot(&ctx, (int)i);
-}
-
 /* One live step; a peer CONNECTION_CLOSE observed by the loop frees the slot
  * afterward (RFC 9000 10.2.2: the connection is done, its state discarded). */
 static void srvrun_step_and_reap(
@@ -3849,6 +3859,78 @@ static void srvrun_resend_boot_flight(
    * extra datagram already grew boot_rx_bytes (srvrun_serve_slot), so this
    * call's antiamp budget picks up wherever the last round left off. */
   srvrun_boot_send_hs_gated(ctx->cfg, c, wired_server_is_confirmed(&c->s));
+  /* boot PTO T-009: the client itself just proved it's reachable (this is
+   * its own retransmit reaching us) -- push the boot PTO deadline out so the
+   * timer-driven probe below does not also fire for the same round. */
+  c->boot_pto_sent_ms = ctx->now_ms;
+  c->boot_pto_count   = 0;
+}
+
+/* T-007/T-008: c is in the boot PTO's window at all -- up (accepted) but not
+ * yet confirmed (srvrun_awaiting_confirm), and has actually sent a flight to
+ * probe (boot_ini_len == 0 means nothing was ever cached, e.g. a slot still
+ * mid-ClientHello-reassembly or a slot that failed to boot). */
+static int srvrun_boot_pto_waiting(const srvrun_conn* c) {
+  return srvrun_awaiting_confirm(c) && c->boot_ini_len != 0;
+}
+
+/* RFC 9002 6.2: 1 once c is in the boot PTO's window AND now_ms has crossed
+ * its deadline (scaled by boot_pto_count's backoff, same formula
+ * srvrun_sess_pto_due uses for an in-flight response, applied to the boot
+ * flight's own single sent timestamp instead of a wired_sendsess log). */
+static int srvrun_boot_pto_due(const srvrun_conn* c, u64 now_ms) {
+  if (!srvrun_boot_pto_waiting(c)) return 0;
+  return now_ms >=
+         c->boot_pto_sent_ms + srvrun_pto_deadline_ms(c, c->boot_pto_count);
+}
+
+/* Resend the boot flight for a fired probe and restore its post-resend probe
+ * count: srvrun_resend_boot_flight itself resets boot_pto_count to 0 (T-009:
+ * any real send re-arms the deadline), which would erase this probe's own
+ * budget spend -- put it back to `fired` right after so consecutive timer
+ * probes keep climbing instead of resetting every single one. */
+static void srvrun_boot_pto_resend(
+    const srvrun_step_ctx* ctx, srvrun_conn* c, int fired) {
+  srvrun_resend_boot_flight(ctx, c);
+  c->boot_pto_count = fired;
+}
+
+/* RFC 9002 6.2 boot-stage PTO: while awaiting confirm with a flight already
+ * sent, resend the cached boot_ini/boot_hs verbatim once the deadline
+ * elapses -- quic-interop-runner's handshakeloss/handshakecorruption drop the
+ * server's first flight often enough that waiting on a client-triggered
+ * retransmit alone (srvrun_resend_boot_flight) leaves the handshake to time
+ * out. Tears the slot down once the probe budget is spent, the same policy
+ * srvrun_pto_slot applies to an in-flight response (SRVRUN_PTO_MAX shared:
+ * boot and post-confirm PTO are never both active for the same slot, RFC
+ * 9002 6.2's budget is a per-connection policy either way). */
+static void srvrun_boot_pto_slot(const srvrun_step_ctx* ctx, int slot) {
+  srvrun_conn* c     = &ctx->st->conns[slot];
+  int          fired = c->boot_pto_count + 1;
+  if (!srvrun_boot_pto_due(c, ctx->now_ms)) return;
+  if (fired >= SRVRUN_PTO_MAX) {
+    srvrun_free_slot(ctx->cfg->env, ctx->st, slot);
+    return;
+  }
+  srvrun_boot_pto_resend(ctx, c, fired);
+}
+
+/* One slot's tick work on a poll timeout: post-confirm PTO probe/teardown,
+ * boot-stage PTO probe/teardown (mutually exclusive -- srvrun_sess_waiting
+ * requires c->up with no in-flight send session possible before confirm, and
+ * srvrun_boot_pto_waiting requires !confirmed), then flush any queued
+ * broadcast DATAGRAM -- split out so the loop below stays flat. */
+static void srvrun_tick_slot(const srvrun_step_ctx* ctx, int slot) {
+  srvrun_pto_slot(ctx, slot);
+  srvrun_boot_pto_slot(ctx, slot);
+  srvrun_dg_slot(ctx, slot);
+}
+
+/* A poll timeout with responses or broadcast DATAGRAMs in flight: fire the
+ * probe/flush pass over every waiting slot. */
+static void srvrun_fire_ptos(const srvrun_cfg* cfg, srvrun_state* st) {
+  srvrun_step_ctx ctx = {cfg, 0, st, quic_clock_mono_ms()};
+  for (usz i = 0; i < QUIC_CONNTABLE_CAP; i++) srvrun_tick_slot(&ctx, (int)i);
 }
 
 /* dg is a fresh cold-start Initial (srvrun_cold_start) or a retransmit of
