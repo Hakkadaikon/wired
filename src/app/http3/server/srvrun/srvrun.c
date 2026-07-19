@@ -512,6 +512,12 @@ typedef struct {
   const quic_sockaddr_in* peer;
   srvrun_state*           st;
   u64                     now_ms; /**< monotonic ms this step started at */
+  /** RFC 9000 13.4 / RFC 9002 19.3.2: the ECN codepoint (RFC 3168, 0..3) this
+   * datagram's UDP layer read off its IP_TOS cmsg (quic_mmsg_buf.ecn in
+   * udp.h), carried through so srvrun_serve_slot can hand it to the routed
+   * slot's wired_srvloop_ecn_note. 0 (Not-ECT) for any caller that does not
+   * set it explicitly. */
+  u8 ecn;
 } srvrun_step_ctx;
 
 /* qlog packet_sent (pn/time are not tracked at this layer, so both are logged
@@ -4018,7 +4024,7 @@ static void srvrun_tick_slot(const srvrun_step_ctx* ctx, int slot) {
 /* A poll timeout with responses or broadcast DATAGRAMs in flight: fire the
  * probe/flush pass over every waiting slot. */
 static void srvrun_fire_ptos(const srvrun_cfg* cfg, srvrun_state* st) {
-  srvrun_step_ctx ctx = {cfg, 0, st, quic_clock_mono_ms()};
+  srvrun_step_ctx ctx = {cfg, 0, st, quic_clock_mono_ms(), 0};
   for (usz i = 0; i < QUIC_CONNTABLE_CAP; i++) srvrun_tick_slot(&ctx, (int)i);
 }
 
@@ -4152,6 +4158,11 @@ static void srvrun_serve_slot(
   /* RFC 9000 8.1: every physically received byte counts toward this path's
    * antiamp budget, whether or not dg turns out to parse (T-013). */
   c->boot_rx_bytes += dg.n;
+  /* RFC 9000 13.4 / RFC 9002 19.3.2: every datagram's ECN codepoint counts
+   * toward this connection's cumulative total, whether or not it parses --
+   * same "every physically received byte/datagram counts" rule as
+   * boot_rx_bytes above. */
+  wired_srvloop_ecn_note(&c->l, ctx->ecn);
   if (srvrun_serve_boot(ctx, slot, dg)) return;
   if (c->up) {
     srvrun_rebind_peer(ctx, c);
@@ -4312,6 +4323,11 @@ static i64 srvrun_listen(u16 port, const wired_srvrun_opt* opt) {
    * core-pinning-plan.md PIN-004). A single-worker run does not need it, so a
    * failure here is not fatal -- fall through to bind unconditionally. */
   wired_udp_reuseport_enable(fd);
+  /* RFC 9000 13.4 / RFC 9002 19.3.2: best-effort like reuseport above -- ECT(0)
+   * marking on send and IP_TOS cmsg on receive are an optimization an ECN-
+   * unaware kernel/NIC simply won't provide, never a bind blocker. */
+  wired_udp_ect0_enable(fd);
+  wired_udp_recvtos_enable(fd);
   srvrun_maybe_busy_poll(fd, opt->so_busy_poll_us);
   srvrun_maybe_prefer_busy_poll(fd, opt);
   srvrun_maybe_busy_poll_budget(fd, opt);
@@ -4338,7 +4354,7 @@ static void srvrun_serve_batch(
   u64 now = quic_clock_mono_ms();
   srvrun_sweep_idle(cfg->env, st, now); /* lazy: swept on each arrival */
   for (i64 i = 0; i < n; i++) {
-    srvrun_step_ctx ctx = {cfg, &bufs[i].src, st, now};
+    srvrun_step_ctx ctx = {cfg, &bufs[i].src, st, now, bufs[i].ecn};
     srvrun_serve(&ctx, quic_mspan_of(bufs[i].buf.p, bufs[i].len));
   }
 }
