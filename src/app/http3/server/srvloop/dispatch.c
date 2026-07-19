@@ -717,6 +717,24 @@ static void gather_one_max_data(wired_srvloop* l, quic_span frame) {
   l->max_data_seen_flag = 1;
 }
 
+/* RFC 9000 19.14: scan this payload for a bidi STREAMS_BLOCKED frame,
+ * mirroring gather_max_data's shape. Only the frame's presence matters
+ * (srvrun.c computes the re-grant from its own slot state, not the peer's
+ * claimed limit -- see streams_blocked_seen_flag's doc), so this just sets
+ * the flag rather than decoding a value. Returns 1 if one was seen. */
+static int gather_streams_blocked(wired_srvloop* l, const u8* payload, usz len) {
+  quic_framewalk      it;
+  quic_framewalk_item fr;
+  int                 seen = 0;
+  quic_framewalk_init(&it, payload, len);
+  while (quic_framewalk_next(&it, &fr)) {
+    if (quic_frame_classify(fr.type) != QUIC_FK_STREAMS_BLOCKED) continue;
+    seen                        = 1;
+    l->streams_blocked_seen_flag = 1;
+  }
+  return seen;
+}
+
 /* RFC 9000 19.9: scan this payload for MAX_DATA frames, mirroring
  * gather_stream_closes' shape for a different frame kind. Returns 1 if any
  * was seen. */
@@ -1049,11 +1067,12 @@ static int dispatch_gather_closes(
  * mirroring dispatch_gather_closes for the flow-control frame kinds. */
 static int dispatch_gather_flowctl(
     const wired_srvloop_dispatch_ctx* ctx, quic_span payload) {
-  int got_max_data, got_max_stream_data;
+  int got_max_data, got_max_stream_data, got_streams_blocked;
   if (!ctx->l) return 0;
   got_max_data        = gather_max_data(ctx->l, payload.p, payload.n);
   got_max_stream_data = gather_max_stream_data(ctx->l, payload.p, payload.n);
-  return got_max_data | got_max_stream_data;
+  got_streams_blocked = gather_streams_blocked(ctx->l, payload.p, payload.n);
+  return got_max_data | got_max_stream_data | got_streams_blocked;
 }
 
 /* RFC 9000 12.4 / 2.1, RFC 9114 6.2: a payload may lead with PADDING/ACK before
