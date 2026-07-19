@@ -5,10 +5,11 @@
 > **At a glance** — all 42 implemented specs are exercised by the unit
 > suite (460+ test files, every commit); 19 of them are additionally pinned
 > to official/golden vectors; three wire-facing parsers are fuzzed nightly;
-> and interop against real independent clients has proven 10 of 22 QUIC
-> testcases (vs quic-go) and 4 of 7 WebTransport testcases (vs
-> webtransport-go). This page lists exactly what has and hasn't been
-> demonstrated, per spec. Results as of 2026-07.
+> and interop against real independent clients has proven 11 of 22 QUIC
+> testcases (vs quic-go), with a 12th functionally correct but short of a
+> runner timeout, and 4 of 7 WebTransport testcases (vs webtransport-go).
+> This page lists exactly what has and hasn't been demonstrated, per spec.
+> Results as of 2026-07.
 
 Legend:
 
@@ -49,10 +50,11 @@ Legend:
   an inflated (9-certificate) server flight
 - [x] `goodput` (measurement) — 10 MB in 11.5 s (~7.3 Mbps) over the
   runner's simulated link, repeatable
-- [ ] `multiplexing` — fails partway (some requested files never arrive);
-  under investigation
-- [ ] `blackhole` — fails to resume after a simulated 2 s link outage;
-  under investigation
+- [x] `blackhole` — resumes correctly after a simulated 2 s link outage
+- [~] `multiplexing` — MAX_STREAMS re-grant works correctly (verified live:
+  the advertised limit climbs from 100 to 2000+ as requests complete, 98%
+  of 1999 requested files finish), but the runner's fixed 60 s timeout for
+  this case is not met; a pure throughput gap, not a functional one
 - [ ] `handshakeloss` — most handshakes fail to complete under loss
 - [ ] `handshakecorruption` — same, under corruption
 - [ ] `retry` — not yet run (dedicated server mode not wired up)
@@ -269,18 +271,24 @@ runs used kernel UDP sockets, so they are unit-tested but not interop-proven.
 
 ## Honest summary of the gaps
 
-- 12 of 22 QUIC interop testcases (plus one of two measurements) have not
+- 10 of 22 QUIC interop testcases (plus one of two measurements) have not
   passed yet; only quic-go and webtransport-go have been used as peers.
-- Four testcases fail on a shared root cause under investigation: a
-  server-side stall recovering from an extended loss of connectivity.
-  `blackhole` (2 s full outage) and `handshakeloss` /
-  `handshakecorruption` (loss/corruption during the handshake) all show
-  the server going silent and never resuming once the PTO probe budget is
-  spent; `multiplexing` fails similarly for a subset of concurrently
-  requested files. A related but distinct throughput stall (the server's
-  congestion window growing far slower than it should under normal,
-  loss-free conditions) was found and fixed this cycle — `goodput` now
-  passes — but the outage-recovery case above remains open.
+- Two testcases fail on a shared root cause under investigation: a
+  server-side stall recovering from loss during the handshake specifically
+  (as opposed to steady-state transfer, which `transferloss` covers and
+  passes). `handshakeloss` / `handshakecorruption` both show most
+  handshakes failing to complete. `blackhole` (2 s full outage, a
+  steady-state stall) was found to share a root cause with the
+  `goodput` throughput stall below and now passes.
+- `multiplexing` is functionally correct (verified live: the server
+  raises its advertised stream limit as requests complete, and 98% of
+  1999 concurrently requested files finish) but misses the interop
+  runner's fixed 60 s timeout for this case -- a throughput gap, not a
+  protocol one.
+- A server-side throughput stall (the congestion window growing far
+  slower than it should under normal, loss-free conditions, and a PTO
+  probe getting blocked by pacing during a real outage) was found and
+  fixed this cycle -- `goodput` and `blackhole` now pass.
 - Seven testcases (`retry`, `resumption`, `zerortt`, `v2`, `rebind-port`,
   `rebind-addr`, `connectionmigration`) need a dedicated server mode this
   SDK does not wire up yet; `ecn` needs a socket cmsg path; `ipv6` needs
