@@ -7914,10 +7914,12 @@ static usz sr_seal_ch_half(
 }
 
 /* PARTIAL-CLIENTHELLO ACK WIRING (RFC 9000 13.2.1): a half ClientHello
- * cold-starts a pending slot; the server acks what it opened (so the
- * client's handshake idle timer survives) and rekeys the routing entry to
- * its own scid, because that ack makes the client switch DCIDs (RFC 9000
- * 7.2) for everything it sends next. */
+ * cold-starts a pending slot and the server acks what it opened (so the
+ * client's handshake idle timer survives). The routing entry deliberately
+ * stays keyed on the ODCID -- pre-switch retransmits still arrive under it
+ * -- while the client's post-switch DCID (our scid, RFC 9000 7.2) routes
+ * to the same pending slot via the boot-scid fallback, never a competing
+ * fresh claim. */
 static void test_srvrun_partial_ch_acked_and_rekeyed(void) {
   wired_srvboot_id id;
   u8               priv[32], pub[32], seed[32], rnd[32];
@@ -7942,13 +7944,18 @@ static void test_srvrun_partial_ch_acked_and_rekeyed(void) {
     quic_conntable_init(table, QUIC_CONNTABLE_CAP);
     srvrun_test_reset_send_count();
     srvrun_serve(&ctx, quic_mspan_of(dg, nd));
+    CHECK(st.conns[0].up == 0);          /* still pending */
+    CHECK(st.conns[0].boot.opened == 1); /* the half was absorbed */
+    CHECK(srvrun_test_send_count() > 0); /* ...and acked */
+    /* pre-switch retransmits still route: the entry keeps the ODCID */
+    CHECK(quic_conntable_find(table, QUIC_CONNTABLE_CAP, g_sr_odcid, 8) == 0);
+    /* the client's post-switch DCID (our scid) reaches the SAME pending
+     * slot via the boot-scid fallback, never a competing fresh claim */
+    CHECK(
+        srvrun_route(
+            &ctx, quic_span_of(st.conns[0].scid, id.scid_len),
+            quic_mspan_of(dg, nd)) == 0);
   }
-  CHECK(st.conns[0].up == 0);          /* still pending */
-  CHECK(st.conns[0].boot.opened == 1); /* the half was absorbed */
-  CHECK(srvrun_test_send_count() > 0); /* ...and acked */
-  CHECK(
-      quic_conntable_find(
-          table, QUIC_CONNTABLE_CAP, st.conns[0].scid, id.scid_len) == 0);
 }
 
 /* HS-FLIGHT LOSS RECOVERY (RFC 9002 6.2 applied to the boot flight): a
