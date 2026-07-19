@@ -771,6 +771,69 @@ static void test_bootacc_coalesced_initials(void) {
   CHECK(a.largest_pn == 1);
 }
 
+/* PARTIAL-CLIENTHELLO ACK (RFC 9000 13.2.1): while the ClientHello is
+ * still incomplete the server may not send its flight, but it must still
+ * acknowledge the Initial packets it did open -- otherwise a client whose
+ * missing half keeps getting dropped hears nothing at all and gives up on
+ * its own 5s handshake idle timer (observed live under the interop
+ * runner's 30% bursty loss). The ack's own pn starts at 2 and climbs, so
+ * it never collides with the accept flight's server Initial pn 1. */
+static void test_srvboot_partial_ack_builds_and_advances_pn(void) {
+  quic_client       c;
+  u8                ch[2048], dg1[1400], out[1400];
+  wired_srvboot_acc a;
+  usz               n = sb_build_raw_ch(&c, ch, sizeof ch);
+  usz n1 = sb_seal_ch_chunk(dg1, sizeof dg1, quic_span_of(ch, 60), 0, 7);
+  (void)n;
+  wired_srvboot_acc_reset(&a);
+  CHECK(wired_srvboot_acc_feed(&a, quic_mspan_of(dg1, n1)) == 1);
+  CHECK(wired_srvboot_acc_complete(&a) == 0);
+  CHECK(a.ack_pn == 2);
+  CHECK(
+      wired_srvboot_partial_ack(&a, quic_span_of(g_scid, 6), out, sizeof out) >
+      0);
+  CHECK(a.ack_pn == 3);
+  CHECK(
+      wired_srvboot_partial_ack(&a, quic_span_of(g_scid, 6), out, sizeof out) >
+      0);
+  CHECK(a.ack_pn == 4);
+}
+
+/* Nothing authenticated yet: no ack may be reflected (an unauthenticated
+ * source address must not draw amplified traffic, RFC 9000 8.1). */
+static void test_srvboot_partial_ack_needs_opened_packet(void) {
+  wired_srvboot_acc a;
+  u8                out[1400];
+  wired_srvboot_acc_reset(&a);
+  CHECK(
+      wired_srvboot_partial_ack(&a, quic_span_of(g_scid, 6), out, sizeof out) ==
+      0);
+}
+
+/* RFC 9000 7.2: the client switches its DCID to the server's scid upon the
+ * first server packet -- after a partial ack that is the very next
+ * datagram. wired_srvboot_acc_allow admits that new DCID into the bound
+ * accumulator (keys stay the ODCID's); before the allow it is rejected as
+ * foreign. */
+static void test_srvboot_acc_allows_switched_dcid(void) {
+  quic_client       c;
+  u8                ch[2048], dg1[1400], dga[1400];
+  u8                alt[6] = {9, 9, 9, 9, 9, 9};
+  wired_srvboot_acc a;
+  usz               n = sb_build_raw_ch(&c, ch, sizeof ch);
+  usz n1 = sb_seal_ch_chunk(dg1, sizeof dg1, quic_span_of(ch, 60), 0, 0);
+  quic_initpkt_desc d = {
+      quic_span_of(alt, 6), quic_span_of(alt, 6), quic_span_of(ch + 60, n - 60),
+      1, 60};
+  quic_obuf o = quic_obuf_of(dga, sizeof dga);
+  CHECK(quic_initpkt_build(&d, &o) == 1);
+  wired_srvboot_acc_reset(&a);
+  CHECK(wired_srvboot_acc_feed(&a, quic_mspan_of(dg1, n1)) == 1);
+  CHECK(srvboot_acc_admit(&a, quic_mspan_of(dga, o.len)) == 0);
+  wired_srvboot_acc_allow(&a, quic_span_of(alt, 6));
+  CHECK(srvboot_acc_admit(&a, quic_mspan_of(dga, o.len)) == 1);
+}
+
 /* An authenticated ClientHello the server cannot serve (its key_share
  * carries only a hybrid group, no standalone x25519) draws an Initial
  * CONNECTION_CLOSE with the TLS handshake_failure code, acknowledging the
@@ -1032,6 +1095,9 @@ void test_h3_loopback(void) {
   test_bootacc_pn_monotone_ack_max();
   test_bootacc_overflow_chunk_ignored();
   test_bootacc_coalesced_initials();
+  test_srvboot_partial_ack_builds_and_advances_pn();
+  test_srvboot_partial_ack_needs_opened_packet();
+  test_srvboot_acc_allows_switched_dcid();
   test_srvboot_refusal_closes_unservable();
   test_srvboot_split_flight_datagrams();
   test_srvboot_split_flight_reassembled();

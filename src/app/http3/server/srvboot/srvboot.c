@@ -164,6 +164,10 @@ void wired_srvboot_acc_reset(wired_srvboot_acc* a) {
   a->largest_pn = 0;
   a->any        = 0;
   a->opened     = 0;
+  /* the accept flight's server Initial is pn 1 (srvboot_flight); partial
+   * acks climb from 2 so the peer never mistakes the flight for a dup */
+  a->ack_pn       = 2;
+  a->alt_dcid_len = 0;
 }
 
 /* Accumulated byte difference between two ids of the same length. */
@@ -173,12 +177,28 @@ static u8 srvboot_cid_diff(const u8* x, const u8* y, u8 len) {
   return diff;
 }
 
-/* 1 if dg's DCID equals the accumulator's bound one (its Initial keys). */
+/* 1 if the len-byte id x equals the ylen-byte id y. */
+static int srvboot_cid_match(const u8* x, u8 len, const u8* y, u8 ylen) {
+  if (len != ylen) return 0;
+  return srvboot_cid_diff(x, y, len) == 0;
+}
+
+/* 1 if h's DCID equals the allowed alternate; never matches while none is
+ * allowed (a zero-length DCID must not alias the unset state). */
+static int srvboot_acc_alt_match(
+    const wired_srvboot_acc* a, const wired_header* h) {
+  return a->alt_dcid_len != 0 &&
+         srvboot_cid_match(h->dcid, h->dcid_len, a->alt_dcid, a->alt_dcid_len);
+}
+
+/* 1 if dg's DCID equals the accumulator's bound one (its Initial keys) or
+ * the allowed alternate (the server's own scid the client switched to,
+ * wired_srvboot_acc_allow). */
 static int srvboot_acc_same_dcid(const wired_srvboot_acc* a, quic_mspan dg) {
   wired_header h;
   if (!wired_header_parse(dg.p, dg.n, &h)) return 0;
-  if (h.dcid_len != a->hdr.dcid_len) return 0;
-  return srvboot_cid_diff(h.dcid, a->hdr.dcid, h.dcid_len) == 0;
+  return srvboot_cid_match(h.dcid, h.dcid_len, a->hdr.dcid, a->hdr.dcid_len) ||
+         srvboot_acc_alt_match(a, &h);
 }
 
 /* Bind the accumulator to its first datagram's header. */
@@ -211,6 +231,40 @@ static int srvboot_acc_take(wired_srvboot_acc* a, quic_mspan pkt) {
 
 /* Coalesced packets per boot datagram (RFC 9000 12.2). */
 #define SRVBOOT_ACC_PKTS 4
+
+/* 1 if n is a usable connection-id length (nonzero, within the cap). */
+static int srvboot_cid_len_ok(usz n) {
+  return n != 0 && n <= WIRED_MAX_CID_LEN;
+}
+
+void wired_srvboot_acc_allow(wired_srvboot_acc* a, quic_span dcid) {
+  if (!srvboot_cid_len_ok(dcid.n)) return;
+  for (usz i = 0; i < dcid.n; i++) a->alt_dcid[i] = dcid.p[i];
+  a->alt_dcid_len = (u8)dcid.n;
+}
+
+/* 1 once a has authenticated at least one Initial (something real to ack,
+ * and a source address proven able to receive, RFC 9000 8.1). */
+static int srvboot_acc_ackable(const wired_srvboot_acc* a) {
+  return a->any && a->opened != 0;
+}
+
+usz wired_srvboot_partial_ack(
+    wired_srvboot_acc* a, quic_span scid, u8* out, usz cap) {
+  quic_obuf            ob = quic_obuf_of(out, cap);
+  quic_srvwire_seal_in wi = {
+      quic_span_of(a->hdr.dcid, a->hdr.dcid_len),
+      quic_span_of(a->hdr.scid, a->hdr.scid_len),
+      scid,
+      a->ack_pn,
+      (i64)a->largest_pn,
+      quic_span_of(0, 0),
+      0};
+  if (!srvboot_acc_ackable(a)) return 0;
+  if (!quic_srvwire_seal_initial_frames(&wi, &ob)) return 0;
+  a->ack_pn++;
+  return ob.len;
+}
 
 int wired_srvboot_acc_feed(wired_srvboot_acc* a, quic_mspan dg) {
   const u8*    pkts[SRVBOOT_ACC_PKTS];
