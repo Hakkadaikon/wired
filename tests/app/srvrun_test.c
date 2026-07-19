@@ -127,7 +127,7 @@ static void test_srvrun_shutdown_refuses_slot_claim(void) {
   srvrun_state    st      = {table, 0};
   u8              dcid[8] = {1, 2, 3, 4, 5, 6, 7, 8};
   quic_conntable_init(table, QUIC_CONNTABLE_CAP);
-  ctx = (srvrun_step_ctx){0, 0, &st, 0};
+  ctx = (srvrun_step_ctx){0, 0, &st, 0, 0};
   srvrun_test_set_shutdown(1);
   CHECK(srvrun_claim_slot(&ctx, quic_span_of(dcid, 8), 1) == -1);
   srvrun_test_set_shutdown(0);
@@ -524,7 +524,7 @@ static void test_srvrun_accept_rekeys_to_slot_scid(void) {
   {
     srvrun_cfg cfg = {-1, &id,           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                       0,  &g_srvrun_env, 0, 0, 0, 0, 0};
-    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0, 0};
     quic_conntable_init(table, QUIC_CONNTABLE_CAP);
     srvrun_serve(&ctx, quic_mspan_of(dg, total));
   }
@@ -562,7 +562,7 @@ static void test_srvrun_open_slot_xdp_embeds_core_id(void) {
         0,
         0,
         0};
-    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0, 0};
     quic_conntable_init(table, QUIC_CONNTABLE_CAP);
     srvrun_serve(&ctx, quic_mspan_of(dg, total));
   }
@@ -589,7 +589,7 @@ static void test_srvrun_open_slot_xdp_embeds_core_id_zero(void) {
         0,
         0,
         0};
-    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0, 0};
     quic_conntable_init(table, QUIC_CONNTABLE_CAP);
     srvrun_serve(&ctx, quic_mspan_of(dg, total));
   }
@@ -652,7 +652,7 @@ static void test_srvrun_initial_retransmit_resends_cached_flight(void) {
   {
     srvrun_cfg cfg = {-1, &id,           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                       0,  &g_srvrun_env, 0, 0, 0, 0, 0};
-    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0, 0};
     quic_conntable_init(table, QUIC_CONNTABLE_CAP);
     srvrun_test_reset_send_count();
     srvrun_serve(&ctx, quic_mspan_of(dg, total));
@@ -893,7 +893,7 @@ static void test_srvrun_boot_antiamp_client_silent_no_crash(void) {
   st.conns[0].last_ms       = 1000;
   {
     srvrun_cfg      cfg = sr_antiamp_cfg(&id);
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 1000};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 1000, 0};
     srvrun_boot_send_hs_gated(ctx.cfg, &st.conns[0], 0);
     CHECK(
         st.conns[0].boot_dgram_sent == 3); /* held back at 3/4, same as T-001 */
@@ -931,7 +931,7 @@ static void test_srvrun_conn_rx_bytes_counts_malformed_datagram(void) {
   {
     srvrun_cfg cfg = {-1, &id,           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                       0,  &g_srvrun_env, 0, 0, 0, 0, 0};
-    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0, 0};
     quic_conntable_init(table, QUIC_CONNTABLE_CAP);
     srvrun_serve(&ctx, quic_mspan_of(dg, total));
     CHECK(st.conns[0].up == 1);
@@ -958,7 +958,7 @@ static void test_srvrun_resend_boot_flight_respects_antiamp_budget(void) {
   c.boot_rx_bytes = 1280; /* first round already spent, budget 3840 */
   {
     srvrun_cfg      cfg = sr_antiamp_cfg(&id);
-    srvrun_step_ctx ctx = {&cfg, 0, 0, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, 0, 0, 0};
     srvrun_boot_send_hs_gated(&cfg, &c, 0);
     CHECK(c.boot_dgram_sent == 3);
     srvrun_resend_boot_flight(&ctx, &c); /* no new rx_bytes -- still capped */
@@ -1020,7 +1020,7 @@ static void test_srvrun_coalesced_handshake_not_boot_retransmit(void) {
   {
     srvrun_cfg cfg = {-1, &id,           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                       0,  &g_srvrun_env, 0, 0, 0, 0, 0};
-    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0, 0};
     quic_conntable_init(table, QUIC_CONNTABLE_CAP);
     srvrun_test_reset_send_count();
     srvrun_serve(&ctx, quic_mspan_of(dg, total));
@@ -1077,7 +1077,7 @@ static void test_srvrun_split_ch_boots_across_datagrams(void) {
   {
     srvrun_cfg cfg = {-1, &id,           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                       0,  &g_srvrun_env, 0, 0, 0, 0, 0};
-    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0, 0};
     quic_conntable_init(table, QUIC_CONNTABLE_CAP);
     st.conns[0].up       = 0;
     st.conns[0].boot.any = 0;
@@ -1111,7 +1111,7 @@ static void test_srvrun_stalled_boot_swept(void) {
   {
     srvrun_cfg cfg = {-1, &id,           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                       0,  &g_srvrun_env, 0, 0, 0, 0, 0};
-    srvrun_step_ctx ctx = {&cfg, &peer, &st, 1000};
+    srvrun_step_ctx ctx = {&cfg, &peer, &st, 1000, 0};
     quic_conntable_init(table, QUIC_CONNTABLE_CAP);
     st.conns[0].up       = 0;
     st.conns[0].boot.any = 0;
@@ -1146,7 +1146,7 @@ static void test_srvrun_alien_version_claims_no_slot(void) {
   {
     srvrun_cfg cfg = {-1, &id,           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                       0,  &g_srvrun_env, 0, 0, 0, 0, 0};
-    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0, 0};
     quic_conntable_init(table, QUIC_CONNTABLE_CAP);
     st.conns[0].up = 0;
     srvrun_serve(&ctx, quic_mspan_of(dg, sizeof dg));
@@ -1168,7 +1168,7 @@ static void test_srvrun_failed_accept_unclaims(void) {
   {
     srvrun_cfg cfg = {-1, &id,           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                       0,  &g_srvrun_env, 0, 0, 0, 0, 0};
-    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0, 0};
     quic_conntable_init(table, QUIC_CONNTABLE_CAP);
     srvrun_serve(&ctx, quic_mspan_of(junk, sizeof junk));
   }
@@ -1206,7 +1206,7 @@ static void test_srvrun_peer_close_frees_slot(void) {
   {
     srvrun_cfg      cfg = {-1, &id, 0, 0, srvrunt_qlog_path, 0, 0, 0, 0, 0, 0,
                            0,  0,   0, 0, &g_srvrun_env,     0, 0, 0, 0, 0};
-    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0, 0};
     srvrun_serve(&ctx, quic_mspan_of(spkt, slen));
     /* slot freed: up cleared, DCID no longer routes */
     CHECK(st.conns[0].up == 0);
@@ -1291,12 +1291,29 @@ static void test_srvrun_serve_slot_touches_last_ms(void) {
   u8               sh[8] = {0x40, 1, 2, 3, 4, 5, 6, 7}; /* short header */
   srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
                     0,  0, 0, 0, 0};
-  srvrun_step_ctx ctx = {&cfg, &peer, &st, 12345};
+  srvrun_step_ctx ctx = {&cfg, &peer, &st, 12345, 0};
   quic_conntable_init(table, QUIC_CONNTABLE_CAP);
   st.conns[2].up      = 0;
   st.conns[2].last_ms = 0;
   srvrun_serve_slot(&ctx, 2, quic_mspan_of(sh, sizeof sh));
   CHECK(st.conns[2].last_ms == 12345);
+}
+
+/* RFC 9000 13.4 / RFC 9002 19.3.2: a datagram's ECN codepoint (carried on
+ * srvrun_step_ctx.ecn, RFC 3168 codepoint 2 = ECT(0)) reaches the routed
+ * slot's wired_srvloop cumulative counter via wired_srvloop_ecn_note. */
+static void test_srvrun_serve_slot_notes_ecn(void) {
+  quic_conntable   table[QUIC_CONNTABLE_CAP];
+  srvrun_state     st    = {table, g_srvrun_state.conns};
+  quic_sockaddr_in peer  = {0};
+  u8               sh[8] = {0x40, 1, 2, 3, 4, 5, 6, 7}; /* short header */
+  srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                    0,  0, 0, 0, 0};
+  srvrun_step_ctx ctx = {&cfg, &peer, &st, 0, 2}; /* ecn=2: ECT(0) */
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  st.conns[2] = (srvrun_conn){0};
+  srvrun_serve_slot(&ctx, 2, quic_mspan_of(sh, sizeof sh));
+  CHECK(st.conns[2].l.ecn_ect0 == 1);
 }
 
 /* NAT REBIND -- PORT ONLY (RFC 9000 9, naive subset, no PATH_CHALLENGE): a
@@ -1320,7 +1337,7 @@ static void test_srvrun_rebind_updates_peer_port(void) {
     srvrun_cfg      cfg = {-1, 0, 0, 0, 0, 0, 0, 0,
                            0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
                            0,  0, 0, 0, 0};
-    srvrun_step_ctx ctx = {&cfg, &new_peer, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, &new_peer, &st, 0, 0};
     srvrun_serve_slot(&ctx, 0, quic_mspan_of(sh, sizeof sh));
   }
   CHECK(c.peer.port_be == new_peer.port_be);
@@ -1349,7 +1366,7 @@ static void test_srvrun_rebind_updates_peer_addr(void) {
     srvrun_cfg      cfg = {-1, 0, 0, 0, 0, 0, 0, 0,
                            0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
                            0,  0, 0, 0, 0};
-    srvrun_step_ctx ctx = {&cfg, &new_peer, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, &new_peer, &st, 0, 0};
     srvrun_serve_slot(&ctx, 0, quic_mspan_of(sh, sizeof sh));
   }
   CHECK(c.peer.port_be == new_peer.port_be);
@@ -1375,7 +1392,7 @@ static void test_srvrun_rebind_noop_when_address_unchanged(void) {
     srvrun_cfg      cfg = {-1, 0, 0, 0, 0, 0, 0, 0,
                            0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
                            0,  0, 0, 0, 0};
-    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0, 0};
     srvrun_serve_slot(&ctx, 0, quic_mspan_of(sh, sizeof sh));
   }
   CHECK(c.peer.port_be == peer.port_be);
@@ -1404,7 +1421,7 @@ static void test_srvrun_rebind_port_and_addr_independent(void) {
     srvrun_cfg      cfg = {-1, 0, 0, 0, 0, 0, 0, 0,
                            0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
                            0,  0, 0, 0, 0};
-    srvrun_step_ctx ctx = {&cfg, &port_only, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, &port_only, &st, 0, 0};
     srvrun_serve_slot(&ctx, 0, quic_mspan_of(sh, sizeof sh));
   }
   CHECK(c.peer.port_be == port_only.port_be); /* moved */
@@ -1430,7 +1447,7 @@ static void test_srvrun_rebind_noop_during_boot(void) {
   st.conns[0].up   = 1; /* up, not yet confirmed: srvrun_awaiting_confirm */
   st.conns[0].peer = boot_peer;
   {
-    srvrun_step_ctx ctx = {&cfg, &other_peer, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, &other_peer, &st, 0, 0};
     srvrun_serve_slot(&ctx, 0, quic_mspan_of(sh, sizeof sh));
   }
   CHECK(st.conns[0].peer.port_be == boot_peer.port_be);
@@ -1452,7 +1469,7 @@ static void test_srvrun_rebind_noop_on_unused_slot(void) {
   wired_udp_addr(&peer, 9999, (const u8[4]){127, 0, 0, 2});
   st.conns[3] = (srvrun_conn){0}; /* up == 0: unused slot */
   {
-    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0, 0};
     srvrun_serve_slot(&ctx, 3, quic_mspan_of(sh, sizeof sh));
   }
   CHECK(st.conns[3].up == 0);
@@ -1489,7 +1506,7 @@ static void test_srvrun_rebind_subsequent_send_targets_new_peer(void) {
   {
     srvrun_cfg cfg = {-1, &id,           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                       0,  &g_srvrun_env, 0, 0, 0, 0, 0};
-    srvrun_step_ctx ctx = {&cfg, &rebound, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, &rebound, &st, 0, 0};
     srvrun_serve(&ctx, quic_mspan_of(spkt, slen));
   }
   CHECK(st.conns[0].peer.port_be == rebound.port_be);
@@ -1517,7 +1534,7 @@ static void test_srvrun_path_challenge_generated_on_rebind(void) {
     srvrun_cfg      cfg = {-1, 0, 0, 0, 0, 0, 0, 0,
                            0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
                            0,  0, 0, 0, 0};
-    srvrun_step_ctx ctx = {&cfg, &new_peer, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, &new_peer, &st, 0, 0};
     srvrun_serve_slot(&ctx, 0, quic_mspan_of(sh, sizeof sh));
   }
   CHECK(c.migrate.detected == 1);
@@ -1554,7 +1571,7 @@ static void test_srvrun_path_challenge_sent_to_new_peer(void) {
     srvrun_cfg      cfg = {-1, 0, 0, 0, 0, 0, 0, 0,
                            0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
                            0,  0, 0, 0, 0};
-    srvrun_step_ctx ctx = {&cfg, &new_peer, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, &new_peer, &st, 0, 0};
     srvrun_serve_slot(&ctx, 0, quic_mspan_of(sh, sizeof sh));
   }
   CHECK(c.peer.port_be == new_peer.port_be); /* challenge targets new path */
@@ -1601,7 +1618,7 @@ static void sr_confirm_and_rebind(
     srvrun_cfg      cfg = {-1, 0, 0, 0, 0, 0, 0, 0,
                            0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
                            0,  0, 0, 0, 0};
-    srvrun_step_ctx ctx = {&cfg, new_peer, st, 0};
+    srvrun_step_ctx ctx = {&cfg, new_peer, st, 0, 0};
     srvrun_serve_slot(&ctx, 0, quic_mspan_of(sh, sizeof sh));
   }
 }
@@ -1621,7 +1638,7 @@ static void sr_send_path_response(
   CHECK(fl > 0);
   slen = client_seal_onertt(f, fr, fl, spkt, sizeof spkt);
   {
-    srvrun_step_ctx ctx = {&cfg, peer, st, 0};
+    srvrun_step_ctx ctx = {&cfg, peer, st, 0, 0};
     srvrun_serve_slot(&ctx, 0, quic_mspan_of(spkt, slen));
   }
 }
@@ -1705,13 +1722,13 @@ static void test_srvrun_path_challenge_rearmed_on_second_rebind(void) {
   c.peer = old_peer;
   quic_conntable_init(table, QUIC_CONNTABLE_CAP);
   {
-    srvrun_step_ctx ctx = {&cfg, &mid_peer, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, &mid_peer, &st, 0, 0};
     srvrun_serve_slot(&ctx, 0, quic_mspan_of(sh, sizeof sh)); /* rebind #1 */
   }
   for (usz i = 0; i < QUIC_PATH_DATA; i++)
     first_challenge[i] = c.path_challenge_data[i];
   {
-    srvrun_step_ctx ctx = {&cfg, &final_peer, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, &final_peer, &st, 0, 0};
     srvrun_serve_slot(&ctx, 0, quic_mspan_of(sh, sizeof sh)); /* rebind #2 */
   }
   CHECK(quic_ct_diff8(first_challenge, c.path_challenge_data) != 0);
@@ -1739,7 +1756,7 @@ static void test_srvrun_path_challenge_noop_during_boot(void) {
   st.conns[0].up   = 1; /* up, not yet confirmed: srvrun_awaiting_confirm */
   st.conns[0].peer = boot_peer;
   {
-    srvrun_step_ctx ctx = {&cfg, &other_peer, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, &other_peer, &st, 0, 0};
     srvrun_serve_slot(&ctx, 0, quic_mspan_of(sh, sizeof sh));
   }
   CHECK(st.conns[0].migrate.challenged == 0);
@@ -1769,7 +1786,7 @@ static void test_srvrun_path_challenge_rng_failure_sends_nothing(void) {
     srvrun_cfg      cfg = {-1, 0, 0, 0, 0, 0, 0, 0,
                            0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
                            0,  0, 0, 0, 0};
-    srvrun_step_ctx ctx = {&cfg, &new_peer, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, &new_peer, &st, 0, 0};
     srvrun_serve_slot(&ctx, 0, quic_mspan_of(sh, sizeof sh));
   }
   srvrun_test_force_challenge_rng_fail(0);
@@ -1802,7 +1819,7 @@ static void sr_serve_onertt(
   {
     srvrun_cfg      cfg = {-1, &id, 0, 0, qlog_path,     0, 0, 0, 0, 0, 0,
                            0,  0,   0, 0, &g_srvrun_env, 0, 0, 0, 0, 0};
-    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0, 0};
     for (int i = 0; i < times; i++)
       srvrun_serve(&ctx, quic_mspan_of(spkt, slen));
   }
@@ -1857,7 +1874,7 @@ static void test_srvrun_qlog_skips_undecryptable(void) {
   {
     srvrun_cfg      cfg = {-1, &id, 0, 0, srvrunt_qlog_path, 0, 0, 0, 0, 0, 0,
                            0,  0,   0, 0, &g_srvrun_env,     0, 0, 0, 0, 0};
-    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0, 0};
     srvrun_serve(&ctx, quic_mspan_of(junk, sizeof junk));
   }
   CHECK(sr_qlog_count("packet_received") == 0);
@@ -1877,7 +1894,7 @@ static void test_srvrun_qlog_records_initial(void) {
   {
     srvrun_cfg      cfg = {-1, &id, 0, 0, srvrunt_qlog_path, 0, 0, 0, 0, 0, 0,
                            0,  0,   0, 0, &g_srvrun_env,     0, 0, 0, 0, 0};
-    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0, 0};
     quic_conntable_init(table, QUIC_CONNTABLE_CAP);
     srvrun_serve(&ctx, quic_mspan_of(dg, total));
   }
@@ -1900,7 +1917,7 @@ static void test_srvrun_qlog_skips_failed_accept(void) {
   {
     srvrun_cfg      cfg = {-1, &id, 0, 0, srvrunt_qlog_path, 0, 0, 0, 0, 0, 0,
                            0,  0,   0, 0, &g_srvrun_env,     0, 0, 0, 0, 0};
-    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0, 0};
     quic_conntable_init(table, QUIC_CONNTABLE_CAP);
     srvrun_serve(&ctx, quic_mspan_of(junk, sizeof junk));
   }
@@ -2188,7 +2205,7 @@ static void test_srvrun_parallel_responses_three_streams(void) {
         0,
         0,
         0};
-    srvrun_step_ctx ctx = {&cfg, &srv, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, &srv, &st, 0, 0};
     srvrun_serve(&ctx, quic_mspan_of(spkt, slen));
   }
   /* every request completed in the same step: three resp[] slots claimed. */
@@ -2265,7 +2282,7 @@ static void test_srvrun_takeover_streams_large_body(void) {
   {
     srvrun_cfg cfg = {cfd, &id, sr_body_handler, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                       0,   0,   &g_srvrun_env,   0, 0, 0, 0, 0};
-    srvrun_step_ctx ctx = {&cfg, &srv, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, &srv, &st, 0, 0};
     srvrun_serve(&ctx, quic_mspan_of(spkt, slen));
   }
   /* 3 datagrams queued: the takeover response's 3 slices. The loop's own
@@ -2306,7 +2323,7 @@ static void test_srvrun_cc_algo_selected(void) {
     srvrun_cfg cfg = {
         -1, &id,           0, 0, 0, 0, 0, 0, QUIC_CC_ALGO_CUBIC, 0, 0, 0, 0, 0,
         0,  &g_srvrun_env, 0, 0, 0, 0, 0};
-    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0, 0};
     quic_conntable_init(table, QUIC_CONNTABLE_CAP);
     srvrun_serve(&ctx, quic_mspan_of(dg, total));
   }
@@ -2466,7 +2483,7 @@ static void test_srvrun_pacing_gate(void) {
   srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
                     0,  0, 0, 0, 0};
   srvrun_state    st  = {0, 0};
-  srvrun_step_ctx ctx = {&cfg, 0, &st, 1000};
+  srvrun_step_ctx ctx = {&cfg, 0, &st, 1000, 0};
   quic_cc_init(&c.cc);                  /* cwnd 12000 */
   CHECK(srvrun_pace_ok(&ctx, &c) == 1); /* srtt 0: unpaced */
   c.srtt_ms      = 100;
@@ -2490,7 +2507,7 @@ static void test_srvrun_pacing_no_stall_within_poll_tick(void) {
   srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
                     0,  0, 0, 0, 0};
   srvrun_state    st  = {0, 0};
-  srvrun_step_ctx ctx = {&cfg, 0, &st, 1000};
+  srvrun_step_ctx ctx = {&cfg, 0, &st, 1000, 0};
   quic_cc_init(&c.cc);
   c.cc.cwnd      = 5000000;
   c.srtt_ms      = 30;
@@ -2512,7 +2529,7 @@ static void test_srvrun_pace_interval_equals_poll_no_extra_round(void) {
   srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
                     0,  0, 0, 0, 0};
   srvrun_state    st  = {0, 0};
-  srvrun_step_ctx ctx = {&cfg, 0, &st, 1000};
+  srvrun_step_ctx ctx = {&cfg, 0, &st, 1000, 0};
   quic_cc_init(&c.cc);
   c.cc.cwnd = 240000;
   c.srtt_ms = 4000;
@@ -2531,7 +2548,7 @@ static void test_srvrun_pace_interval_over_poll_waits(void) {
   srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
                     0,  0, 0, 0, 0};
   srvrun_state    st  = {0, 0};
-  srvrun_step_ctx ctx = {&cfg, 0, &st, 1000};
+  srvrun_step_ctx ctx = {&cfg, 0, &st, 1000, 0};
   quic_cc_init(&c.cc);
   c.cc.cwnd = 230000;
   c.srtt_ms = 4000;
@@ -2567,7 +2584,7 @@ static void test_srvrun_pace_bursts_within_poll_interval(void) {
                            0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
                            0,  0, 0, 0, 0};
     srvrun_state    st  = {0, &c};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 1000};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 1000, 0};
     srvrun_pump_sess(&ctx, 0);
   }
   /* every chunk went out in this one call -- not capped at one round */
@@ -2587,7 +2604,7 @@ static void test_srvrun_pace_subms_still_unlimited(void) {
     srvrun_cfg      cfg = {-1, 0, 0, 0, 0, 0, 0, 0,
                            0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
                            0,  0, 0, 0, 0};
-    srvrun_step_ctx ctx = {&cfg, 0, 0, 1000};
+    srvrun_step_ctx ctx = {&cfg, 0, 0, 1000, 0};
     c.next_send_ms      = 1000;
     srvrun_pace_next(&ctx, &c);
   }
@@ -2616,7 +2633,7 @@ static void test_srvrun_pace_small_response_unaffected(void) {
                            0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
                            0,  0, 0, 0, 0};
     srvrun_state    st  = {0, &c};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 1000};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 1000, 0};
     srvrun_pump_sess(&ctx, 0);
   }
   CHECK(c.resp[0].sess.q.cur == sizeof body);
@@ -2637,7 +2654,7 @@ static void test_srvrun_pace_burst_no_data_terminates(void) {
                            0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
                            0,  0, 0, 0, 0};
     srvrun_state    st  = {0, c};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 1000};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 1000, 0};
     srvrun_pump_sess(&ctx, 0); /* must return, not loop forever */
   }
   CHECK(1); /* reaching here at all is the assertion */
@@ -2684,7 +2701,7 @@ static void test_srvrun_pace_probe_bypasses_pacing_gate(void) {
                            0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
                            0,  0, 0, 0, 0};
     srvrun_state    st  = {0, &c};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 1000};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 1000, 0};
     CHECK(srvrun_pump_round_gated(&ctx, &c) == 1);
   }
   CHECK(c.resp[0].sess.requeue_n == 0); /* the probe actually went out */
@@ -2713,7 +2730,7 @@ static void test_srvrun_pace_no_probe_still_gated(void) {
                            0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
                            0,  0, 0, 0, 0};
     srvrun_state    st  = {0, &c};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 1000};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 1000, 0};
     CHECK(srvrun_pump_round_gated(&ctx, &c) == 0);
   }
   CHECK(c.resp[0].sess.q.cur == 0); /* nothing sent, still gated */
@@ -2748,7 +2765,7 @@ static void test_srvrun_pace_mixed_probe_and_new_data_round(void) {
                            0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
                            0,  0, 0, 0, 0};
     srvrun_state    st  = {0, &c};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 1000};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 1000, 0};
     CHECK(srvrun_pump_round_gated(&ctx, &c) == 1);
   }
   CHECK(c.resp[0].sess.requeue_n == 0);           /* probe sent */
@@ -2792,7 +2809,7 @@ static void test_srvrun_pace_probe_bypass_still_respects_log_gate(void) {
                            0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
                            0,  0, 0, 0, 0};
     srvrun_state    st  = {0, &c};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 1000};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 1000, 0};
     CHECK(srvrun_pump_round_gated(&ctx, &c) == 1);
   }
   CHECK(c.resp[0].sess.requeue_n == 0); /* the probe's own slot always has
@@ -2816,7 +2833,7 @@ static void test_srvrun_pace_probe_bypass_activates_on_requeue(void) {
     srvrun_cfg      cfg = {-1, 0, 0, 0, 0, 0, 0, 0,
                            0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
                            0,  0, 0, 0, 0};
-    srvrun_step_ctx ctx = {&cfg, 0, 0, 1000};
+    srvrun_step_ctx ctx = {&cfg, 0, 0, 1000, 0};
     CHECK(c.resp[0].sess.requeue_n == 0);
     CHECK(srvrun_pace_or_probe_ok(&ctx, &c) == 0); /* gated: no probe yet */
     c.resp[0].in_use        = 1;
@@ -2850,7 +2867,7 @@ static void test_srvrun_pace_probe_round_still_schedules_next(void) {
                            0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
                            0,  0, 0, 0, 0};
     srvrun_state    st  = {0, &c};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 1000};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 1000, 0};
     CHECK(srvrun_pump_round_gated(&ctx, &c) == 1);
   }
   /* pacing was rescheduled from now (1000) by the real interval
@@ -2871,7 +2888,7 @@ static void test_srvrun_pace_within_poll_tick_unaffected_by_probe_change(void) {
     srvrun_cfg      cfg = {-1, 0, 0, 0, 0, 0, 0, 0,
                            0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
                            0,  0, 0, 0, 0};
-    srvrun_step_ctx ctx = {&cfg, 0, 0, 1000};
+    srvrun_step_ctx ctx = {&cfg, 0, 0, 1000, 0};
     CHECK(srvrun_pace_or_probe_ok(&ctx, &c) == 1); /* srtt_ms path, unpaced */
     c.next_send_ms = 1000;
     srvrun_pace_next(&ctx, &c);
@@ -3101,7 +3118,7 @@ static void test_srvrun_normal_request_unaffected_by_wt_branch(void) {
     srvrun_cfg      cfg = {-1, 0, sr_wt_handler, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                            0,  0, &g_srvrun_env, 0, 0, 0, 0, 0};
     srvrun_state    st  = {table, conns};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
     srvrun_start_resp(&ctx, 0);
   }
   CHECK(g_sr_wt_handler_calls == 1);
@@ -3294,7 +3311,7 @@ static void test_srvrun_wt_connect_establishes_session(void) {
     srvrun_cfg      cfg = {-1, 0, sr_wt_handler, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                            0,  0, &g_srvrun_env, 0, 0, 0, 0, 0};
     srvrun_state    st  = {table, conns};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
     srvrun_start_resp(&ctx, 0);
   }
   CHECK(g_sr_wt_handler_calls == 0);
@@ -3327,7 +3344,7 @@ static void test_srvrun_wt_connect_webtransport_token(void) {
     srvrun_cfg      cfg = {-1, 0, sr_wt_handler, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                            0,  0, &g_srvrun_env, 0, 0, 0, 0, 0};
     srvrun_state    st  = {table, conns};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
     srvrun_start_resp(&ctx, 0);
   }
   CHECK(g_sr_wt_handler_calls == 0);
@@ -3354,7 +3371,7 @@ static void test_srvrun_plain_connect_no_protocol_no_wt_session(void) {
     srvrun_cfg      cfg = {-1, 0, sr_wt_handler, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                            0,  0, &g_srvrun_env, 0, 0, 0, 0, 0};
     srvrun_state    st  = {table, conns};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
     srvrun_start_resp(&ctx, 0);
   }
   CHECK(conns[0].wt_active == 0);
@@ -3381,7 +3398,7 @@ static void test_srvrun_wt_connect_missing_scheme_no_session(void) {
     srvrun_cfg      cfg = {-1, 0, sr_wt_handler, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                            0,  0, &g_srvrun_env, 0, 0, 0, 0, 0};
     srvrun_state    st  = {table, conns};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
     srvrun_start_resp(&ctx, 0);
   }
   CHECK(conns[0].wt_active == 0);
@@ -3407,7 +3424,7 @@ static void test_srvrun_wt_connect_missing_path_no_session(void) {
     srvrun_cfg      cfg = {-1, 0, sr_wt_handler, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                            0,  0, &g_srvrun_env, 0, 0, 0, 0, 0};
     srvrun_state    st  = {table, conns};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
     srvrun_start_resp(&ctx, 0);
   }
   CHECK(conns[0].wt_active == 0);
@@ -3433,7 +3450,7 @@ static void test_srvrun_wt_connect_missing_authority_no_session(void) {
     srvrun_cfg      cfg = {-1, 0, sr_wt_handler, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                            0,  0, &g_srvrun_env, 0, 0, 0, 0, 0};
     srvrun_state    st  = {table, conns};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
     srvrun_start_resp(&ctx, 0);
   }
   CHECK(conns[0].wt_active == 0);
@@ -3460,7 +3477,7 @@ static void test_srvrun_wt_connect_origin_ok_establishes(void) {
                            0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
                            0,  0, 0, 0, 0};
     srvrun_state    st  = {table, conns};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
     srvrun_start_resp(&ctx, 0);
   }
   CHECK(conns[0].wt_active == 1);
@@ -3488,7 +3505,7 @@ static void test_srvrun_wt_connect_origin_malformed_403(void) {
                            0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
                            0,  0, 0, 0, 0};
     srvrun_state    st  = {table, conns};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
     srvrun_start_resp(&ctx, 0);
   }
   CHECK(conns[0].wt_active == 0);
@@ -3518,7 +3535,7 @@ static void test_srvrun_second_wt_connect_rejected_429(void) {
     srvrun_cfg      cfg = {-1, 0, sr_wt_handler, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                            0,  0, &g_srvrun_env, 0, 0, 0, 0, 0};
     srvrun_state    st  = {table, conns};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
     srvrun_start_resp(&ctx, 0);
   }
   CHECK(conns[0].wt_active == 1);
@@ -3530,7 +3547,7 @@ static void test_srvrun_second_wt_connect_rejected_429(void) {
     srvrun_cfg      cfg = {-1, 0, sr_wt_handler, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                            0,  0, &g_srvrun_env, 0, 0, 0, 0, 0};
     srvrun_state    st  = {table, conns};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
     srvrun_start_resp(&ctx, 0);
   }
   CHECK(g_sr_wt_handler_calls == 0);
@@ -3571,7 +3588,7 @@ static void test_srvrun_second_wt_connect_sends_reset_stream(void) {
     srvrun_cfg      cfg = {-1, 0, sr_wt_handler, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                            0,  0, &g_srvrun_env, 0, 0, 0, 0, 0};
     srvrun_state    st  = {table, conns};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
     srvrun_start_resp(&ctx, 0);
   }
   conns[0].resp[0].in_use = 0; /* pretend the first 2xx finished sending */
@@ -3581,7 +3598,7 @@ static void test_srvrun_second_wt_connect_sends_reset_stream(void) {
     srvrun_cfg      cfg = {-1, 0, sr_wt_handler, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                            0,  0, &g_srvrun_env, 0, 0, 0, 0, 0};
     srvrun_state    st  = {table, conns};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
     srvrun_start_resp(&ctx, 0);
   }
   CHECK(
@@ -3620,7 +3637,7 @@ static void test_srvrun_wt_connect_client_bidi_id_establishes_session(void) {
     srvrun_cfg      cfg = {-1, 0, sr_wt_handler, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                            0,  0, &g_srvrun_env, 0, 0, 0, 0, 0};
     srvrun_state    st  = {table, conns};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
     srvrun_start_resp(&ctx, 0);
   }
   CHECK(conns[0].wt_active == 1);
@@ -3661,7 +3678,7 @@ static void test_srvrun_wt_connect_non_client_bidi_id_rejected(void) {
     srvrun_cfg      cfg = {-1, 0, sr_wt_handler, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                            0,  0, &g_srvrun_env, 0, 0, 0, 0, 0};
     srvrun_state    st  = {table, conns};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
     srvrun_start_resp(&ctx, 0);
   }
   CHECK(conns[0].wt_active == 0);
@@ -3784,7 +3801,7 @@ static void test_srvrun_first_wt_connect_no_reset_stream(void) {
     srvrun_cfg      cfg = {-1, 0, sr_wt_handler, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                            0,  0, &g_srvrun_env, 0, 0, 0, 0, 0};
     srvrun_state    st  = {table, conns};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
     srvrun_start_resp(&ctx, 0);
   }
   CHECK(conns[0].wt_active == 1);
@@ -3819,7 +3836,7 @@ static void test_srvrun_idle_sweep_closes_wt_session(void) {
                            0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
                            0,  0, 0, 0, 0};
     srvrun_state    st  = {table, conns};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
     srvrun_start_resp(&ctx, 0);
   }
   CHECK(conns[0].wt_active == 1);
@@ -3856,7 +3873,7 @@ static void test_srvrun_connect_stream_reset_closes_wt_session(void) {
                            0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
                            0,  0, 0, 0, 0};
     srvrun_state    st  = {table, conns};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
     srvrun_start_resp(&ctx, 0);
   }
   CHECK(conns[0].wt_active == 1);
@@ -3886,7 +3903,7 @@ static void test_srvrun_other_stream_reset_does_not_close_wt_session(void) {
                            0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
                            0,  0, 0, 0, 0};
     srvrun_state    st  = {table, conns};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
     srvrun_start_resp(&ctx, 0);
   }
   CHECK(conns[0].wt_active == 1);
@@ -3915,7 +3932,7 @@ static void test_srvrun_no_stream_close_leaves_wt_session(void) {
                            0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
                            0,  0, 0, 0, 0};
     srvrun_state    st  = {table, conns};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
     srvrun_start_resp(&ctx, 0);
   }
   CHECK(conns[0].wt_active == 1);
@@ -4124,7 +4141,7 @@ static void sr_establish_wt(
                            0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
                            0,  0, 0, 0, 0};
     srvrun_state    st  = {table, conns};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
     srvrun_start_resp(&ctx, 0);
   }
 }
@@ -4289,7 +4306,7 @@ static void test_srvrun_oversized_datagram_latches_violation_on_step(void) {
   srvrun_conn   c = {0};
   srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
                     0,  0, 0, 0, 0};
-  srvrun_step_ctx     ctx = {&cfg, 0, 0, 0};
+  srvrun_step_ctx     ctx = {&cfg, 0, 0, 0, 0};
   u8                  data[200];
   quic_datagram_frame df = {.length = sizeof data, .data = data};
   for (usz i = 0; i < sizeof data; i++) data[i] = (u8)i;
@@ -4674,7 +4691,7 @@ static void test_srvrun_wt_full_session_lifecycle_on_wire(void) {
         0,
         0};
     srvrun_state    st  = {table, conns};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
     srvrun_start_resp(&ctx, 0);
   }
   CHECK(conns[0].wt_active == 1);
@@ -4710,7 +4727,7 @@ static void test_srvrun_wt_full_session_lifecycle_on_wire(void) {
         0,
         0};
     srvrun_state    st  = {table, conns};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
     g_srsd_calls        = 0;
     wtl                 = lp_wt_bidi_stream(wt, sizeof wt, 8);
     slen = client_seal_onertt_pn(&f, 3, wt, wtl, spkt, sizeof spkt);
@@ -4770,7 +4787,7 @@ static void test_srvrun_wt_full_session_lifecycle_on_wire(void) {
                              0,
                              0};
       srvrun_state    st  = {table, conns};
-      srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+      srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
       slen = client_seal_onertt_pn(&f, 4, dgpl, dgpll, spkt, sizeof spkt);
       g_srdg_calls = 0;
       srvrun_on_step(&ctx, &conns[0], quic_mspan_of(spkt, slen));
@@ -4792,7 +4809,7 @@ static void test_srvrun_wt_full_session_lifecycle_on_wire(void) {
                              0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
                              0,  0, 0, 0, 0};
     srvrun_state    st    = {table, conns};
-    srvrun_step_ctx ctx   = {&cfg, 0, &st, 0};
+    srvrun_step_ctx ctx   = {&cfg, 0, &st, 0, 0};
     slen = client_seal_onertt_pn(&f, 5, rspl, rspll, spkt, sizeof spkt);
     srvrun_on_step(&ctx, &conns[0], quic_mspan_of(spkt, slen));
   }
@@ -4820,7 +4837,7 @@ static void test_srvrun_wt_accept_second_session_below_limit(void) {
                            0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
                            0,  0, 0, 0, 0};
     srvrun_state    st  = {table, conns};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
     srvrun_start_resp(&ctx, 0);
   }
   CHECK(conns[0].wt_active == 1);
@@ -4832,7 +4849,7 @@ static void test_srvrun_wt_accept_second_session_below_limit(void) {
                            0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
                            0,  0, 0, 0, 0};
     srvrun_state    st  = {table, conns};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
     srvrun_start_resp(&ctx, 0);
   }
   CHECK(conns[0].wt_active == 1); /* the first session, still established */
@@ -4862,7 +4879,7 @@ static void test_srvrun_wt_reject_at_session_limit(void) {
     srvrun_cfg      cfg = {-1, 0, sr_wt_handler, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                            0,  0, &g_srvrun_env, 0, 0, 0, 0, 0};
     srvrun_state    st  = {table, conns};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
     srvrun_start_resp(&ctx, 0);
   }
   conns[0].resp[0].in_use = 0;
@@ -4871,7 +4888,7 @@ static void test_srvrun_wt_reject_at_session_limit(void) {
     srvrun_cfg      cfg = {-1, 0, sr_wt_handler, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                            0,  0, &g_srvrun_env, 0, 0, 0, 0, 0};
     srvrun_state    st  = {table, conns};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
     srvrun_start_resp(&ctx, 0);
   }
   CHECK(conns[0].wt_active == 1 && conns[0].wt1_active == 1); /* both full */
@@ -4881,7 +4898,7 @@ static void test_srvrun_wt_reject_at_session_limit(void) {
     srvrun_cfg      cfg = {-1, 0, sr_wt_handler, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                            0,  0, &g_srvrun_env, 0, 0, 0, 0, 0};
     srvrun_state    st  = {table, conns};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
     srvrun_start_resp(&ctx, 0);
   }
   CHECK(g_sr_wt_handler_calls == 0);
@@ -4911,7 +4928,7 @@ static void test_srvrun_wt_accept_records_path(void) {
                            0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
                            0,  0, 0, 0, 0};
     srvrun_state    st  = {table, conns};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
     srvrun_start_resp(&ctx, 0);
   }
   CHECK(conns[0].wt_active == 1);
@@ -4941,7 +4958,7 @@ static void test_srvrun_wt_distinct_paths_coexist(void) {
                            0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
                            0,  0, 0, 0, 0};
     srvrun_state    st  = {table, conns};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
     srvrun_start_resp(&ctx, 0);
   }
   conns[0].resp[0].in_use = 0;
@@ -4953,7 +4970,7 @@ static void test_srvrun_wt_distinct_paths_coexist(void) {
                            0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
                            0,  0, 0, 0, 0};
     srvrun_state    st  = {table, conns};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
     srvrun_start_resp(&ctx, 0);
   }
   CHECK(conns[0].wt_path_len[0] == sizeof path_a - 1);
@@ -5049,7 +5066,7 @@ static void test_srvrun_wt_close_one_session_leaves_others_untouched(void) {
                            0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
                            0,  0, 0, 0, 0};
     srvrun_state    st  = {table, conns};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
     srvrun_start_resp(&ctx, 0);
   }
   conns[0].resp[0].in_use = 0;
@@ -5059,7 +5076,7 @@ static void test_srvrun_wt_close_one_session_leaves_others_untouched(void) {
                            0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
                            0,  0, 0, 0, 0};
     srvrun_state    st  = {table, conns};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
     srvrun_start_resp(&ctx, 0);
   }
   CHECK(conns[0].wt.state == WIRED_WT_ESTABLISHED);
@@ -5107,7 +5124,7 @@ static void test_srvrun_wt_close_frees_slot_for_new_accept(void) {
                            0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
                            0,  0, 0, 0, 0};
     srvrun_state    st  = {table, conns};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
     srvrun_start_resp(&ctx, 0);
   }
   conns[0].resp[0].in_use = 0;
@@ -5117,7 +5134,7 @@ static void test_srvrun_wt_close_frees_slot_for_new_accept(void) {
                            0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
                            0,  0, 0, 0, 0};
     srvrun_state    st  = {table, conns};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
     srvrun_start_resp(&ctx, 0);
   }
   CHECK(srvrun_wt_free_slot(&conns[0]) == -1); /* both slots occupied */
@@ -5133,7 +5150,7 @@ static void test_srvrun_wt_close_frees_slot_for_new_accept(void) {
                            0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
                            0,  0, 0, 0, 0};
     srvrun_state    st  = {table, conns};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
     srvrun_start_resp(&ctx, 0);
   }
   CHECK(conns[0].wt.state == WIRED_WT_ESTABLISHED); /* reused slot 0 */
@@ -5158,7 +5175,7 @@ static void test_srvrun_wt_free_slot_closes_all_open_sessions(void) {
                            0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
                            0,  0, 0, 0, 0};
     srvrun_state    st  = {table, conns};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
     srvrun_start_resp(&ctx, 0);
   }
   conns[0].resp[0].in_use = 0;
@@ -5168,7 +5185,7 @@ static void test_srvrun_wt_free_slot_closes_all_open_sessions(void) {
                            0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
                            0,  0, 0, 0, 0};
     srvrun_state    st  = {table, conns};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
     srvrun_start_resp(&ctx, 0);
   }
   CHECK(conns[0].wt.state == WIRED_WT_ESTABLISHED);
@@ -5202,7 +5219,7 @@ static void test_srvrun_wt_connect_stream_close_closes_only_that_session(void) {
                            0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
                            0,  0, 0, 0, 0};
     srvrun_state    st  = {table, conns};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
     srvrun_start_resp(&ctx, 0);
   }
   conns[0].resp[0].in_use = 0;
@@ -5212,7 +5229,7 @@ static void test_srvrun_wt_connect_stream_close_closes_only_that_session(void) {
                            0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
                            0,  0, 0, 0, 0};
     srvrun_state    st  = {table, conns};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
     srvrun_start_resp(&ctx, 0);
   }
   /* close session 1's own CONNECT stream (id 8), not session 0's */
@@ -5242,7 +5259,7 @@ static void test_srvrun_wt_all_slots_cycle_through_open_and_close(void) {
                            0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
                            0,  0, 0, 0, 0};
     srvrun_state    st  = {table, conns};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
     srvrun_start_resp(&ctx, 0);
   }
   conns[0].resp[0].in_use = 0;
@@ -5252,7 +5269,7 @@ static void test_srvrun_wt_all_slots_cycle_through_open_and_close(void) {
                            0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
                            0,  0, 0, 0, 0};
     srvrun_state    st  = {table, conns};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
     srvrun_start_resp(&ctx, 0);
   }
   CHECK(srvrun_wt_free_slot(&conns[0]) == -1); /* at the limit */
@@ -5456,7 +5473,7 @@ static void test_srvrun_broadcast_datagram_reaches_two_real_clients(void) {
                            0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
                            0,  0, 0, 0, 0};
     srvrun_state    st  = {g_srvrun_table, g_srvrun_state.conns};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
     srvrun_start_resp(&ctx, 0);
     ctx.st = &st;
     srvrun_start_resp(&ctx, 1);
@@ -5489,7 +5506,7 @@ static void test_srvrun_broadcast_datagram_reaches_two_real_clients(void) {
                                0,
                                0};
     srvrun_state        st  = {g_srvrun_table, g_srvrun_state.conns};
-    srvrun_step_ctx     ctx = {&cfg, 0, &st, 0};
+    srvrun_step_ctx     ctx = {&cfg, 0, &st, 0, 0};
     u8                  dgpl[64];
     usz                 dgpll;
     quic_datagram_frame in = {sizeof sr_dg_payload, sr_dg_payload};
@@ -5550,7 +5567,7 @@ static void test_srvrun_broadcast_datagram_flushes_on_poll_tick_alone(void) {
                            0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
                            0,  0, 0, 0, 0};
     srvrun_state    st  = {g_srvrun_table, g_srvrun_state.conns};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
     srvrun_start_resp(&ctx, 0);
   }
   CHECK(g_srvrun_state.conns[0].wt_active == 1);
@@ -5616,7 +5633,7 @@ static void test_srvrun_bigbuf_pool_serves_large_body(void) {
         -1, 0, sr_bigbuf_body_handler, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         0,  0, &g_srvrun_env,          0, 0, 0, 0, 0};
     srvrun_state    st  = {0, &c};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
     srvrun_start_resp(&ctx, 0);
   }
   /* claimed a pool row, not the fixed 16KB row */
@@ -5669,7 +5686,7 @@ static void test_srvrun_bigbuf_pool_exhausted_falls_back_to_fixed_row(void) {
         -1, 0, sr_bigbuf_body_handler, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         0,  0, &g_srvrun_env,          0, 0, 0, 0, 0};
     srvrun_state    st  = {0, &c};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
     srvrun_start_resp(&ctx, 0);
   }
   CHECK(c.resp[0].in_use == 1);
@@ -5817,7 +5834,7 @@ static void test_srvrun_streaming_bigbuf_exhausted_falls_back_to_fixed_row(
         -1, 0, sr_stream_body_handler, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         0,  0, &g_srvrun_env,          0, 0, 0, 0, 0};
     srvrun_state    st  = {0, &c};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
     srvrun_start_resp(&ctx, 0);
     CHECK(c.resp[0].bigbuf_row == -1); /* fell back, pool was full */
     CHECK(c.resp[0].sess.q.len == fixed_cap);
@@ -5856,7 +5873,7 @@ static void test_srvrun_streaming_mid_round_read_error_truncates(void) {
         -1, 0, sr_stream_body_handler, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         0,  0, &g_srvrun_env,          0, 0, 0, 0, 0};
     srvrun_state    st  = {0, &c};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
     srvrun_start_resp(&ctx, 0);
     CHECK(c.resp[0].sess.q.len == 100); /* round 0 succeeded normally */
     sr_drive_round_to_done(&ctx, &c);
@@ -5896,7 +5913,7 @@ static void test_srvrun_streaming_file_shrinks_completes_with_actual_bytes(
         -1, 0, sr_stream_body_handler, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         0,  0, &g_srvrun_env,          0, 0, 0, 0, 0};
     srvrun_state    st  = {0, &c};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
     srvrun_start_resp(&ctx, 0);
     CHECK(c.resp[0].sess.q.len == 100); /* round 0: unaffected by the later
                                             shrink */
@@ -5937,7 +5954,7 @@ static void test_srvrun_streaming_round_fin_suppressed_until_final(void) {
         -1, 0, sr_stream_body_handler, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         0,  0, &g_srvrun_env,          0, 0, 0, 0, 0};
     srvrun_state    st  = {0, &c};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
     srvrun_start_resp(&ctx, 0);
     /* round 0: fills exactly its own 100-byte buffer -- wired_sendq_next's
      * raw fin is 1 here (end of THIS round's queue), but the wire-level fin
@@ -5982,7 +5999,7 @@ static void test_srvrun_streaming_next_round_armed_after_done(void) {
         -1, 0, sr_stream_body_handler, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         0,  0, &g_srvrun_env,          0, 0, 0, 0, 0};
     srvrun_state    st  = {0, &c};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
     srvrun_start_resp(&ctx, 0);
     CHECK(c.resp[0].sess.q.len == 100); /* round 0: capped, not the full 300 */
     CHECK(c.resp[0].streaming == 1);
@@ -6014,7 +6031,7 @@ static void test_srvrun_streaming_final_round_releases_slot(void) {
         -1, 0, sr_stream_body_handler, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         0,  0, &g_srvrun_env,          0, 0, 0, 0, 0};
     srvrun_state    st  = {0, &c};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
     srvrun_start_resp(&ctx, 0);
     sr_drive_round_to_done(&ctx, &c); /* round 0: 100 of 150 */
     srvrun_reap_resps(&ctx, &c, 0);   /* -> round 1 armed: 50 remaining */
@@ -6052,7 +6069,7 @@ static void test_srvrun_streaming_stream_offset_accumulates_across_rounds(
         -1, 0, sr_stream_body_handler, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         0,  0, &g_srvrun_env,          0, 0, 0, 0, 0};
     srvrun_state    st  = {0, &c};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
     srvrun_resp*    r   = &c.resp[0];
     srvrun_start_resp(&ctx, 0);
     while (r->in_use) {
@@ -6102,8 +6119,8 @@ static void test_srvrun_streaming_concurrent_requests_do_not_corrupt_each_other(
         0,  0, &g_srvrun_env,          0, 0, 0, 0, 0};
     srvrun_state    sta  = {0, &ca};
     srvrun_state    stb  = {0, &cb};
-    srvrun_step_ctx ctxa = {&cfg, 0, &sta, 0};
-    srvrun_step_ctx ctxb = {&cfg, 0, &stb, 0};
+    srvrun_step_ctx ctxa = {&cfg, 0, &sta, 0, 0};
+    srvrun_step_ctx ctxb = {&cfg, 0, &stb, 0, 0};
     srvrun_start_resp(&ctxa, 0);
     srvrun_start_resp(&ctxb, 0);
     CHECK(ca.resp[0].sess.q.len == 100);
@@ -6173,7 +6190,7 @@ static void test_srvrun_streaming_later_round_uses_own_stream_not_sibling(
         0,
         0};
     srvrun_state    st  = {0, &c};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
     /* stream 0 ("A"): round 0 only, still streaming (100 of 200 sent). */
     sr_set_req(&c, 0, 0, 0);
     c.l.req.path     = path_a;
@@ -6226,7 +6243,7 @@ static void test_srvrun_streaming_h3_prefix_receives_total_size_not_round_len(
         -1, 0, sr_stream_body_handler, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         0,  0, &g_srvrun_env,          0, 0, 0, 0, 0};
     srvrun_state    st  = {0, &c};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
     srvrun_start_resp(&ctx, 0);
   }
   CHECK(quic_h3resp_prefix(200, 0, 300, &preb) == 1);
@@ -6257,7 +6274,7 @@ static void test_srvrun_streaming_body_exactly_row_cap_single_round(void) {
         -1, 0, sr_stream_body_handler, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         0,  0, &g_srvrun_env,          0, 0, 0, 0, 0};
     srvrun_state    st  = {0, &c};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
     srvrun_start_resp(&ctx, 0);
   }
   CHECK(c.resp[0].sess.q.len == cap);
@@ -6291,7 +6308,7 @@ static void test_srvrun_streaming_body_row_cap_plus_one_streams(void) {
         -1, 0, sr_stream_body_handler, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         0,  0, &g_srvrun_env,          0, 0, 0, 0, 0};
     srvrun_state    st  = {0, &c};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
     srvrun_start_resp(&ctx, 0);
     CHECK(c.resp[0].bigbuf_row >= 0); /* body exceeds the fixed row */
     CHECK(
@@ -6335,7 +6352,7 @@ static void test_srvrun_streaming_last_round_not_shrunk_to_fixed(void) {
         -1, 0, sr_stream_body_handler, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         0,  0, &g_srvrun_env,          0, 0, 0, 0, 0};
     srvrun_state    st  = {0, &c};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
     srvrun_start_resp(&ctx, 0);
     CHECK(c.resp[0].bigbuf_row >= 0);
     row0 = c.resp[0].bigbuf_row;
@@ -6375,7 +6392,7 @@ static void test_srvrun_streaming_rearm_respects_existing_send_gates(void) {
         -1, 0, sr_stream_body_handler, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         0,  0, &g_srvrun_env,          0, 0, 0, 0, 0};
     srvrun_state    st  = {0, &c};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
     srvrun_start_resp(&ctx, 0);
     sr_drive_round_to_done(&ctx, &c);
     c.cc.cwnd = 0;                  /* pin cwnd to 0 before round 1 arms */
@@ -6407,7 +6424,7 @@ static void test_srvrun_hq09_resp_has_no_h3_framing(void) {
     srvrun_cfg cfg = {-1, 0, sr_tiny_body_handler, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                       0,  0, &g_srvrun_env,        0, 0, 0, 0, 0};
     srvrun_state    st  = {0, &c};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
     srvrun_start_resp(&ctx, 0);
   }
   CHECK(c.resp[0].in_use == 1);
@@ -6454,7 +6471,7 @@ static void test_srvrun_hq09_missing_file_arms_empty_body(void) {
         -1, 0, sr_empty_body_handler, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         0,  0, &g_srvrun_env,         0, 0, 0, 0, 0};
     srvrun_state    st  = {0, &c};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
     srvrun_start_resp(&ctx, 0);
   }
   CHECK(c.resp[0].in_use == 1);
@@ -6498,7 +6515,7 @@ static void test_srvrun_onertt_get_is_acked_via_srvrun_on_step(void) {
   {
     srvrun_cfg cfg = {cfd,           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                       &g_srvrun_env, 0, 0, 0, 0, 0};
-    srvrun_step_ctx ctx = {&cfg, &srv, 0, WIRED_SRVLOOP_MAX_ACK_DELAY_MS};
+    srvrun_step_ctx ctx = {&cfg, &srv, 0, WIRED_SRVLOOP_MAX_ACK_DELAY_MS, 0};
     srvrun_on_step(&ctx, &c, quic_mspan_of(spkt, slen));
   }
   {
@@ -6537,14 +6554,14 @@ static void test_srvrun_multi_range_ack_via_srvrun_on_step(void) {
   {
     srvrun_cfg cfg = {cfd,           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                       &g_srvrun_env, 0, 0, 0, 0, 0};
-    srvrun_step_ctx ctx = {&cfg, &srv, 0, 0};
+    srvrun_step_ctx ctx = {&cfg, &srv, 0, 0, 0};
     slen = client_seal_onertt_pn(&f, 7, ping, 1, spkt, sizeof spkt);
     srvrun_on_step(&ctx, &c, quic_mspan_of(spkt, slen));
   }
   {
     srvrun_cfg cfg = {cfd,           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                       &g_srvrun_env, 0, 0, 0, 0, 0};
-    srvrun_step_ctx ctx = {&cfg, &srv, 0, WIRED_SRVLOOP_MAX_ACK_DELAY_MS};
+    srvrun_step_ctx ctx = {&cfg, &srv, 0, WIRED_SRVLOOP_MAX_ACK_DELAY_MS, 0};
     slen = client_seal_onertt_pn(&f, 9, ping, 1, spkt, sizeof spkt);
     srvrun_on_step(&ctx, &c, quic_mspan_of(spkt, slen));
   }
@@ -6585,7 +6602,7 @@ static void test_srvrun_ack_timer_shares_now_ms_with_pto(void) {
     srvrun_cfg      cfg     = {-1, 0, 0, 0, 0, 0, 0, 0,
                                0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
                                0,  0, 0, 0, 0};
-    srvrun_step_ctx ctx     = {&cfg, 0, 0, now_ms};
+    srvrun_step_ctx ctx     = {&cfg, 0, 0, now_ms, 0};
     u8              ping[1] = {0x01}, spkt[1024];
     usz slen = client_seal_onertt_pn(&f, 11, ping, 1, spkt, sizeof spkt);
     srvrun_on_step(&ctx, &c, quic_mspan_of(spkt, slen));
@@ -6611,7 +6628,7 @@ static void test_srvrun_fifth_sequential_get_reuses_freed_slot(void) {
     srvrun_cfg cfg = {-1, 0, sr_tiny_body_handler, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                       0,  0, &g_srvrun_env,        0, 0, 0, 0, 0};
     srvrun_state    st  = {0, &c};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
     for (u64 i = 0; i < SRVRUN_RESP_SLOTS + 1; i++) {
       u64 stream_id = i * 4; /* client-initiated bidi stream ids: 0,4,8,... */
       u64 pn0       = c.l.tx_pn;
@@ -6659,7 +6676,7 @@ static void test_srvrun_pto_budget_exhausted_tears_down_connection(void) {
   {
     srvrun_cfg cfg = {-1, 0, sr_tiny_body_handler, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                       0,  0, &g_srvrun_env,        0, 0, 0, 0, 0};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, now};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, now, 0};
     sr_set_req(&st.conns[0], 0, 0, 0);
     srvrun_start_resp(&ctx, 0);
     srvrun_pump_sess(&ctx, 0); /* one slice in flight, never acked, sent
@@ -6671,13 +6688,13 @@ static void test_srvrun_pto_budget_exhausted_tears_down_connection(void) {
      * 333000 + 666000 + 25000 = 1024000us == 1024ms, doubling per probe. */
     now = 1025;
     for (int i = 0; i < SRVRUN_PTO_MAX; i++) {
-      srvrun_step_ctx tick = {&cfg, 0, &st, now};
+      srvrun_step_ctx tick = {&cfg, 0, &st, now, 0};
       srvrun_pto_slot(&tick, 0);
       CHECK(st.conns[0].up == 1);
       now += 1024u << (i + 1); /* each probe doubles the backoff (2^count) */
     }
     {
-      srvrun_step_ctx tick = {&cfg, 0, &st, now};
+      srvrun_step_ctx tick = {&cfg, 0, &st, now, 0};
       srvrun_pto_slot(&tick, 0); /* budget spent: tears the connection down */
       CHECK(st.conns[0].up == 0);
     }
@@ -6708,7 +6725,7 @@ static void test_srvrun_pto_not_due_within_rtt_window(void) {
   {
     srvrun_cfg cfg = {-1, 0, sr_tiny_body_handler, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                       0,  0, &g_srvrun_env,        0, 0, 0, 0, 0};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
     /* seed a real 15ms RTT sample (this link's actual delay), same as the
      * interop scenario's simple-p2p --delay=15ms. */
     srvrun_rtt_note(&st.conns[0], 15);
@@ -6721,14 +6738,14 @@ static void test_srvrun_pto_not_due_within_rtt_window(void) {
     CHECK(deadline_ms > 0);
     /* well within the window: no probe, budget untouched */
     {
-      srvrun_step_ctx tick = {&cfg, 0, &st, sent_at + deadline_ms / 2};
+      srvrun_step_ctx tick = {&cfg, 0, &st, sent_at + deadline_ms / 2, 0};
       srvrun_pto_slot(&tick, 0);
       CHECK(st.conns[0].resp[0].sess.pto_count == 0);
       CHECK(st.conns[0].up == 1);
     }
     /* past the deadline: now it fires */
     {
-      srvrun_step_ctx tick = {&cfg, 0, &st, sent_at + deadline_ms + 1};
+      srvrun_step_ctx tick = {&cfg, 0, &st, sent_at + deadline_ms + 1, 0};
       srvrun_pto_slot(&tick, 0);
       CHECK(st.conns[0].resp[0].sess.pto_count == 1);
     }
@@ -6753,7 +6770,7 @@ static u64 sr_rotate_ku(srvrun_step_ctx* ctx, srvrun_conn* c, u64 now_ms) {
   }
   slen = client_seal_onertt_pn_gen(&c->s, 7, 1, get, glen, spkt, sizeof spkt);
   {
-    srvrun_step_ctx tick = {ctx->cfg, 0, ctx->st, now_ms};
+    srvrun_step_ctx tick = {ctx->cfg, 0, ctx->st, now_ms, 0};
     srvrun_on_step(&tick, c, quic_mspan_of(spkt, slen));
   }
   return now_ms;
@@ -6777,14 +6794,14 @@ static void test_srvrun_ku_old_keys_retained_within_3pto_window(void) {
   {
     srvrun_cfg cfg = {-1, 0, sr_tiny_body_handler, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                       0,  0, &g_srvrun_env,        0, 0, 0, 0, 0};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
     srvrun_rtt_note(&st.conns[0], 15);
     rotated_at = sr_rotate_ku(&ctx, &st.conns[0], 0);
     CHECK(st.conns[0].s.ku.generation == 1);
     CHECK(st.conns[0].s.ku.have_old == 1);
     floor_ms = 3u * srvrun_pto_deadline_ms(&st.conns[0], 0);
     {
-      srvrun_step_ctx tick = {&cfg, 0, &st, rotated_at + floor_ms - 1};
+      srvrun_step_ctx tick = {&cfg, 0, &st, rotated_at + floor_ms - 1, 0};
       srvrun_sess_on_step(&tick, 0);
       CHECK(st.conns[0].s.ku.have_old == 1);
     }
@@ -6809,12 +6826,12 @@ static void test_srvrun_ku_old_keys_discarded_after_3pto_window(void) {
   {
     srvrun_cfg cfg = {-1, 0, sr_tiny_body_handler, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                       0,  0, &g_srvrun_env,        0, 0, 0, 0, 0};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
     srvrun_rtt_note(&st.conns[0], 15);
     rotated_at = sr_rotate_ku(&ctx, &st.conns[0], 0);
     floor_ms   = 3u * srvrun_pto_deadline_ms(&st.conns[0], 0);
     {
-      srvrun_step_ctx tick = {&cfg, 0, &st, rotated_at + floor_ms};
+      srvrun_step_ctx tick = {&cfg, 0, &st, rotated_at + floor_ms, 0};
       srvrun_sess_on_step(&tick, 0);
       CHECK(st.conns[0].s.ku.have_old == 0);
     }
@@ -6848,7 +6865,7 @@ static void test_srvrun_recv_max_data_then_send_unblocks(void) {
                            0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
                            0,  0, 0, 0, 0};
     srvrun_state    st  = {0, &c};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 1};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 1, 0};
     srvrun_pump_sess(&ctx, 0);
     CHECK(c.resp[0].sess.q.cur == 0); /* still blocked before MAX_DATA */
     fl = quic_max_data_encode(fr, sizeof fr, &md);
@@ -6878,7 +6895,7 @@ static void test_srvrun_conn_credit_ignores_lower_max_data(void) {
                               0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
                               0,  0, 0, 0, 0};
     srvrun_state    st     = {0, &c};
-    srvrun_step_ctx ctx    = {&cfg, 0, &st, 1};
+    srvrun_step_ctx ctx    = {&cfg, 0, &st, 1, 0};
     fl                     = quic_max_data_encode(fr, sizeof fr, &md);
     CHECK(fl > 0);
     slen = client_seal_onertt(&f, fr, fl, spkt, sizeof spkt);
@@ -6906,7 +6923,7 @@ static void test_srvrun_stream_credit_ignores_lower_max_stream_data(void) {
                               0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
                               0,  0, 0, 0, 0};
     srvrun_state    st     = {0, &c};
-    srvrun_step_ctx ctx    = {&cfg, 0, &st, 1};
+    srvrun_step_ctx ctx    = {&cfg, 0, &st, 1, 0};
     fl                     = quic_max_stream_data_encode(fr, sizeof fr, &msd);
     CHECK(fl > 0);
     slen = client_seal_onertt(&f, fr, fl, spkt, sizeof spkt);
@@ -6934,7 +6951,7 @@ static void test_srvrun_max_stream_data_unknown_stream_is_noop(void) {
                            0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
                            0,  0, 0, 0, 0};
     srvrun_state    st  = {0, &c};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 1};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 1, 0};
     before_slot0_credit = c.resp[0].stream_credit;
     fl                  = quic_max_stream_data_encode(fr, sizeof fr, &msd);
     CHECK(fl > 0);
@@ -6971,7 +6988,7 @@ static void test_srvrun_pto_resend_does_not_double_count_credit(void) {
                            0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
                            0,  0, 0, 0, 0};
     srvrun_state    st  = {0, &c};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
     srvrun_pump_sess(&ctx, 0);
     CHECK(c.resp[0].sess.q.cur == SRVRUN_CHUNK); /* the only chunk, sent */
     CHECK(wired_sendsess_pto_fire(&c.resp[0].sess, SRVRUN_PTO_MAX));
@@ -7006,7 +7023,7 @@ static void test_srvrun_conn_credit_exhausted_blocks_send(void) {
                            0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
                            0,  0, 0, 0, 0};
     srvrun_state    st  = {0, &c};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 1};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 1, 0};
     srvrun_pump_sess(&ctx, 0);
     CHECK(c.resp[0].sess.q.cur == 0);
     CHECK(wired_sendsess_inflight(&c.resp[0].sess) == 0);
@@ -7041,7 +7058,7 @@ static void test_srvrun_stream_credit_exhausted_blocks_only_that_slot(void) {
                            0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
                            0,  0, 0, 0, 0};
     srvrun_state    st  = {0, &c};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 1};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 1, 0};
     srvrun_pump_sess(&ctx, 0);
     CHECK(c.resp[0].sess.q.cur == 0); /* blocked */
     CHECK(c.resp[1].sess.q.cur > 0);  /* unaffected */
@@ -7078,7 +7095,7 @@ static void test_srvrun_conn_credit_sums_across_slots(void) {
                            0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
                            0,  0, 0, 0, 0};
     srvrun_state    st  = {0, &c};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 1};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 1, 0};
     srvrun_pump_sess(&ctx, 0);
     /* slot 0 (round-robin's first) takes the one available chunk; slot 1
      * finds the connection-wide ceiling already spent */
@@ -7109,7 +7126,7 @@ static void test_srvrun_send_credit_boundary_exact_fit_allowed(void) {
                            0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
                            0,  0, 0, 0, 0};
     srvrun_state    st  = {0, &c};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 1};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 1, 0};
     srvrun_pump_sess(&ctx, 0);
     CHECK(c.resp[0].sess.q.cur == SRVRUN_CHUNK);
   }
@@ -7140,7 +7157,7 @@ static void test_srvrun_pump_stops_at_log_capacity(void) {
                            0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
                            0,  0, 0, 0, 0};
     srvrun_state    st  = {0, &c};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 1};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 1, 0};
     srvrun_pump_sess(&ctx, 0);
     CHECK(wired_sendsess_inflight(&c.resp[0].sess) == WIRED_SENDSESS_LOG);
     /* the take that cannot be logged must not have happened */
@@ -7194,7 +7211,7 @@ static void test_srvrun_sibling_ack_does_not_lose_other_slot(void) {
                            0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
                            0,  0, 0, 0, 0};
     srvrun_state    st  = {0, &c};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 1};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 1, 0};
     /* slot 0 sends all 8 slices first (fresh pns pn0_a..pn0_a+7), then
      * slot 1 arms and sends its own 4 slices with the next fresh pns --
      * slot 1's pns are all numerically past every pn slot 0 ever used, so
@@ -7238,7 +7255,7 @@ static void test_srvrun_loss_and_retransmit_across_two_responses(void) {
                            0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
                            0,  0, 0, 0, 0};
     srvrun_state    st  = {0, &c};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 1};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 1, 0};
     /* slot 0 fills its log first (pns pn0_a..pn0_a+31), then slot 1 arms
      * and fills its own log with fresh pns right after. */
     srvrun_pump_sess(&ctx, 0);
@@ -7340,7 +7357,7 @@ static void test_srvrun_pump_round_robins_across_slots(void) {
                            0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
                            0,  0, 0, 0, 0};
     srvrun_state    st  = {0, &c};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 1};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 1, 0};
     srvrun_pump_sess(&ctx, 0);
     /* cwnd allows exactly 3 chunks total: a round-robin pump spends them one
      * per slot. A drain-then-next pump would instead spend all 3 on slot 0
@@ -7386,7 +7403,7 @@ static void test_srvrun_pacing_floor_does_not_starve_round(void) {
                            0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
                            0,  0, 0, 0, 0};
     srvrun_state    st  = {0, &c};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 1};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 1, 0};
     srvrun_pump_sess(&ctx, 0);
     /* one pacing-gated pass must still reach every slot, not just slot 0. */
     CHECK(wired_sendsess_inflight(&c.resp[0].sess) == 1);
@@ -7423,7 +7440,7 @@ static void test_srvrun_pto_probe_bypasses_cwnd(void) {
                            0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
                            0,  0, 0, 0, 0};
     srvrun_state    st  = {0, &c};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
     /* drive each slot to exactly one in-flight slice, one round at a time,
      * before cwnd gets tightened below (a wide-open cwnd here would drain
      * each slot's whole log via srvrun_pump_sess's inner loop instead). */
@@ -7471,7 +7488,7 @@ static void test_srvrun_new_send_still_blocked_by_cwnd(void) {
                            0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
                            0,  0, 0, 0, 0};
     srvrun_state    st  = {0, &c};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
     CHECK(c.resp[0].sess.requeue_n == 0); /* nothing queued: not a probe */
     srvrun_pump_sess(&ctx, 0);
     CHECK(wired_sendsess_inflight(&c.resp[0].sess) == 0);
@@ -7506,7 +7523,7 @@ static void test_srvrun_pto_probe_drains_multiple_requeued_slices(void) {
                            0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
                            0,  0, 0, 0, 0};
     srvrun_state    st  = {0, &c};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
     srvrun_pump_sess(&ctx, 0); /* slot 0's log fills (32), slot 1 sends 1 */
     CHECK(wired_sendsess_inflight(&c.resp[0].sess) == WIRED_SENDSESS_LOG);
     /* ACK only the tail: every earlier slice trips the packet-loss
@@ -7553,7 +7570,7 @@ static void test_srvrun_pto_probe_still_respects_log_capacity(void) {
                            0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
                            0,  0, 0, 0, 0};
     srvrun_state    st  = {0, &c};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
     srvrun_pump_sess(&ctx, 0); /* log fills to capacity, 4 slices unsent */
     CHECK(wired_sendsess_inflight(&c.resp[0].sess) == WIRED_SENDSESS_LOG);
     CHECK(c.resp[0].sess.q.cur == (usz)WIRED_SENDSESS_LOG * SRVRUN_CHUNK);
@@ -7586,7 +7603,7 @@ static void test_srvrun_pto_bypass_does_not_leak_to_sibling_new_sends(void) {
                            0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
                            0,  0, 0, 0, 0};
     srvrun_state    st  = {0, &c};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
     c.cc.cwnd           = 1u << 20;
     srvrun_pump_sess(&ctx, 0); /* slot 0 sends its one slice */
     CHECK(c.resp[0].sess.q.cur == SRVRUN_CHUNK);
@@ -7630,7 +7647,7 @@ static void test_srvrun_pto_requeue_frees_inflight_bytes_before_resend(void) {
                            0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
                            0,  0, 0, 0, 0};
     srvrun_state    st  = {0, &c};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
     srvrun_pump_sess(&ctx, 0);
     CHECK(srvrun_inflight_bytes_all(&c) == SRVRUN_CHUNK);
     CHECK(wired_sendsess_pto_fire(&c.resp[0].sess, SRVRUN_PTO_MAX));
@@ -7713,7 +7730,7 @@ static void test_srvrun_boot_pto_resends_after_deadline(void) {
   quic_conntable  table[QUIC_CONNTABLE_CAP];
   srvrun_state    st  = {table, sr_test_conns()};
   srvrun_cfg      cfg = sr_boot_pto_cfg();
-  srvrun_step_ctx ctx = {&cfg, 0, &st, 1025};
+  srvrun_step_ctx ctx = {&cfg, 0, &st, 1025, 0};
   quic_conntable_init(table, QUIC_CONNTABLE_CAP);
   sr_make_boot_conn(&st.conns[0], 0);
   srvrun_test_reset_send_count();
@@ -7729,7 +7746,8 @@ static void test_srvrun_boot_pto_no_resend_before_deadline(void) {
   quic_conntable  table[QUIC_CONNTABLE_CAP];
   srvrun_state    st  = {table, sr_test_conns()};
   srvrun_cfg      cfg = sr_boot_pto_cfg();
-  srvrun_step_ctx ctx = {&cfg, 0, &st, 500}; /* well under the 1024ms floor */
+  srvrun_step_ctx ctx = {
+      &cfg, 0, &st, 500, 0}; /* well under the 1024ms floor */
   quic_conntable_init(table, QUIC_CONNTABLE_CAP);
   sr_make_boot_conn(&st.conns[0], 0);
   srvrun_test_reset_send_count();
@@ -7744,7 +7762,7 @@ static void test_srvrun_boot_pto_stops_after_confirm(void) {
   quic_conntable  table[QUIC_CONNTABLE_CAP];
   srvrun_state    st  = {table, sr_test_conns()};
   srvrun_cfg      cfg = sr_boot_pto_cfg();
-  srvrun_step_ctx ctx = {&cfg, 0, &st, 1025};
+  srvrun_step_ctx ctx = {&cfg, 0, &st, 1025, 0};
   quic_conntable_init(table, QUIC_CONNTABLE_CAP);
   sr_make_boot_conn(&st.conns[0], 0);
   st.conns[0].s.phase = WIRED_SERVER_HS_CONFIRMED;
@@ -7761,7 +7779,7 @@ static void test_srvrun_boot_pto_confirm_race_stops_immediately(void) {
   quic_conntable  table[QUIC_CONNTABLE_CAP];
   srvrun_state    st  = {table, sr_test_conns()};
   srvrun_cfg      cfg = sr_boot_pto_cfg();
-  srvrun_step_ctx ctx = {&cfg, 0, &st, 1025};
+  srvrun_step_ctx ctx = {&cfg, 0, &st, 1025, 0};
   quic_conntable_init(table, QUIC_CONNTABLE_CAP);
   sr_make_boot_conn(&st.conns[0], 0);
   /* one real probe first, to prove the timer was live at all */
@@ -7788,13 +7806,13 @@ static void test_srvrun_boot_pto_budget_exhausted_frees_slot(void) {
   quic_conntable_init(table, QUIC_CONNTABLE_CAP);
   sr_make_boot_conn(&st.conns[0], 0);
   for (int i = 0; i < SRVRUN_PTO_MAX - 1; i++) {
-    srvrun_step_ctx tick = {&cfg, 0, &st, now};
+    srvrun_step_ctx tick = {&cfg, 0, &st, now, 0};
     srvrun_boot_pto_slot(&tick, 0);
     CHECK(st.conns[0].up == 1);
     now += 1024u << (i + 1);
   }
   {
-    srvrun_step_ctx tick = {&cfg, 0, &st, now};
+    srvrun_step_ctx tick = {&cfg, 0, &st, now, 0};
     srvrun_boot_pto_slot(&tick, 0); /* budget spent: tears the slot down */
     CHECK(st.conns[0].up == 0);
   }
@@ -7810,7 +7828,7 @@ static void test_srvrun_boot_pto_budget_not_yet_exhausted_keeps_slot(void) {
   quic_conntable_init(table, QUIC_CONNTABLE_CAP);
   sr_make_boot_conn(&st.conns[0], 0);
   for (int i = 0; i < SRVRUN_PTO_MAX - 1; i++) {
-    srvrun_step_ctx tick = {&cfg, 0, &st, now};
+    srvrun_step_ctx tick = {&cfg, 0, &st, now, 0};
     srvrun_test_reset_send_count();
     srvrun_boot_pto_slot(&tick, 0);
     CHECK(srvrun_test_send_count() > 0);
@@ -7827,7 +7845,7 @@ static void test_srvrun_boot_pto_noop_without_sent_flight(void) {
   quic_conntable  table[QUIC_CONNTABLE_CAP];
   srvrun_state    st  = {table, sr_test_conns()};
   srvrun_cfg      cfg = sr_boot_pto_cfg();
-  srvrun_step_ctx ctx = {&cfg, 0, &st, 1000000};
+  srvrun_step_ctx ctx = {&cfg, 0, &st, 1000000, 0};
   quic_conntable_init(table, QUIC_CONNTABLE_CAP);
   sr_make_boot_conn(&st.conns[0], 0);
   st.conns[0].boot_ini_len = 0;
@@ -7844,7 +7862,7 @@ static void test_srvrun_boot_pto_noop_when_not_up(void) {
   quic_conntable  table[QUIC_CONNTABLE_CAP];
   srvrun_state    st  = {table, sr_test_conns()};
   srvrun_cfg      cfg = sr_boot_pto_cfg();
-  srvrun_step_ctx ctx = {&cfg, 0, &st, 1000000};
+  srvrun_step_ctx ctx = {&cfg, 0, &st, 1000000, 0};
   quic_conntable_init(table, QUIC_CONNTABLE_CAP);
   sr_make_boot_conn(&st.conns[0], 0);
   st.conns[0].up = 0;
@@ -7862,7 +7880,7 @@ static void test_srvrun_boot_pto_no_double_send_after_client_retransmit(void) {
   quic_conntable  table[QUIC_CONNTABLE_CAP];
   srvrun_state    st  = {table, sr_test_conns()};
   srvrun_cfg      cfg = sr_boot_pto_cfg();
-  srvrun_step_ctx ctx = {&cfg, 0, &st, 1025};
+  srvrun_step_ctx ctx = {&cfg, 0, &st, 1025, 0};
   quic_conntable_init(table, QUIC_CONNTABLE_CAP);
   sr_make_boot_conn(&st.conns[0], 0);
   /* the client's own Initial retransmit arrives first this round */
@@ -7901,7 +7919,7 @@ static void test_srvrun_pto_probe_bypasses_pacing_too(void) {
                            0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
                            0,  0, 0, 0, 0};
     srvrun_state    st  = {0, &c};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
     srvrun_pump_sess(&ctx, 0);
     CHECK(wired_sendsess_pto_fire(&c.resp[0].sess, SRVRUN_PTO_MAX));
     CHECK(c.resp[0].sess.requeue_n == 1);
@@ -7942,7 +7960,7 @@ static void test_srvrun_slot_release_grants_one_more_stream(void) {
                            0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
                            0,  0, 0, 0, 0};
     srvrun_state    st  = {0, &c};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
     srvrun_pump_sess(&ctx, 0);
     /* deliver the whole session's ACK so srvrun_resp_reap sees it idle */
     wired_sendsess_ack(&c.resp[0].sess, 0, ~(u64)0);
@@ -7976,7 +7994,7 @@ static void test_srvrun_stream_limit_never_decreases(void) {
                            0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
                            0,  0, 0, 0, 0};
     srvrun_state    st  = {0, &c};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
     srvrun_pump_sess(&ctx, 0);
     wired_sendsess_ack(&c.resp[0].sess, 0, ~(u64)0);
     srvrun_reap_resps(&ctx, &c, 0);
@@ -8006,7 +8024,7 @@ static void test_srvrun_streams_blocked_reannounces_current_limit(void) {
     srvrun_cfg      cfg = {-1, 0, 0, 0, 0, 0, 0, 0,
                            0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
                            0,  0, 0, 0, 0};
-    srvrun_step_ctx ctx = {&cfg, 0, 0, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, 0, 0, 0};
     srvrun_test_reset_send_count();
     srvrun_reannounce_stream_limit(ctx.cfg, &c, srvrun_stream_limit_base(&ctx));
   }
@@ -8034,7 +8052,7 @@ static void test_srvrun_streams_blocked_before_any_release_uses_base(void) {
     srvrun_cfg      cfg = {-1, 0, 0, 0, 0, 0, 0, 0,
                            0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
                            0,  0, 0, 0, 0};
-    srvrun_step_ctx ctx = {&cfg, 0, 0, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, 0, 0, 0};
     srvrun_reannounce_stream_limit(ctx.cfg, &c, srvrun_stream_limit_base(&ctx));
   }
   CHECK(c.stream_limit_advertised == QUIC_STP_DEFAULT_MAX_STREAMS_BIDI);
@@ -8061,7 +8079,7 @@ static void test_srvrun_stream_limit_small_case_single_grant(void) {
                            0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
                            0,  0, 0, 0, 0};
     srvrun_state    st  = {0, &c};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
     srvrun_pump_sess(&ctx, 0);
     wired_sendsess_ack(&c.resp[0].sess, 0, ~(u64)0);
     srvrun_reap_resps(&ctx, &c, 0);
@@ -8099,7 +8117,7 @@ static void test_srvrun_pto_resend_breaks_cwnd_deadlock(void) {
                            0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
                            0,  0, 0, 0, 0};
     srvrun_state    st  = {0, &c};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
     c.cc.cwnd           = 2 * SRVRUN_CHUNK; /* exactly enough for one each */
     srvrun_pump_sess(&ctx, 0);
     CHECK(wired_sendsess_inflight(&c.resp[0].sess) == 1);
@@ -8152,7 +8170,7 @@ static void srn_wt_start(
                          0,  0, 0,         0,          0, 0, 0, &g_srvrun_env,
                          0,  0, protocols, on_session, 0};
   srvrun_state    st  = {table, conns};
-  srvrun_step_ctx ctx = {&cfg, 0, &st, 0};
+  srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
   srvrun_start_resp(&ctx, 0);
 }
 
@@ -8501,7 +8519,7 @@ static void test_srvrun_wt_open_uni_streams_payload_on_wire(void) {
     srvrun_cfg   cfg = {cfd,           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                         &g_srvrun_env, 0, 0, 0, 0, 0};
     srvrun_state st  = {g_srvrun_table, g_srvrun_state.conns};
-    srvrun_step_ctx ctx = {&cfg, &srv, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, &srv, &st, 0, 0};
     srvrun_pump_sess(&ctx, 0);
   }
   {
@@ -8687,7 +8705,7 @@ static void test_srvrun_wt_open_slot_exhaustion_and_reuse(void) {
                            0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
                            0,  0, 0, 0, 0};
     srvrun_state    st  = {g_srvrun_table, g_srvrun_state.conns};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 1};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 1, 0};
     srvrun_pump_sess(&ctx, 0);
     srvrun_feed_ack_range(&cfg, c, 0, c->l.tx_pn, 1); /* covers every pn */
   }
@@ -8718,7 +8736,7 @@ static void test_srvrun_wt_open_uni_respects_stream_credit(void) {
                                   0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
                                   0,  0, 0, 0, 0};
     srvrun_state           st  = {g_srvrun_table, g_srvrun_state.conns};
-    srvrun_step_ctx        ctx = {&cfg, 0, &st, 1};
+    srvrun_step_ctx        ctx = {&cfg, 0, &st, 1, 0};
     u8                     fr[32], spkt[1024];
     usz                    fl, slen;
     quic_stream_data_frame msd = {7, SRVRUN_CHUNK * 10};
@@ -8759,7 +8777,7 @@ static void test_srvrun_wt_send_conn_credit_shared_with_resp(void) {
                            0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
                            0,  0, 0, 0, 0};
     srvrun_state    st  = {g_srvrun_table, g_srvrun_state.conns};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 1};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 1, 0};
     srvrun_pump_sess(&ctx, 0);
   }
   CHECK(c->wtsend[0].sess.q.cur == SRVRUN_CHUNK);
@@ -8783,7 +8801,7 @@ static void test_srvrun_wt_send_pto_requeues_unacked_slice(void) {
                            0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
                            0,  0, 0, 0, 0};
     srvrun_state    st  = {g_srvrun_table, g_srvrun_state.conns};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 1};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 1, 0};
     srvrun_pump_sess(&ctx, 0);
   }
   CHECK(wired_sendsess_inflight(&c->wtsend[0].sess) == 1);
@@ -8811,7 +8829,7 @@ static void test_srvrun_wt_open_two_megabyte_payload_fully_acked(void) {
                            0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
                            0,  0, 0, 0, 0};
     srvrun_state    st  = {g_srvrun_table, g_srvrun_state.conns};
-    srvrun_step_ctx ctx = {&cfg, 0, &st, 1};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 1, 0};
     for (int round = 0;
          round < 100 && c->wtsend[0].sess.q.cur < sizeof sr_wtsend_big;
          round++) {
@@ -8858,7 +8876,7 @@ static void test_srvrun_wt_open_five_parallel_streams_unmixed(void) {
     srvrun_cfg   cfg = {cfd,           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                         &g_srvrun_env, 0, 0, 0, 0, 0};
     srvrun_state st  = {g_srvrun_table, g_srvrun_state.conns};
-    srvrun_step_ctx ctx = {&cfg, &srv, &st, 0};
+    srvrun_step_ctx ctx = {&cfg, &srv, &st, 0, 0};
     srvrun_pump_sess(&ctx, 0);
   }
   /* 5 streams x 3 slices (2500 bytes at 1100/chunk) = 15 datagrams */
@@ -9354,6 +9372,7 @@ void test_srvrun(void) {
   test_srvrun_idle_sweep_evicts_expired();
   test_srvrun_idle_sweep_releases_bigbuf_row();
   test_srvrun_serve_slot_touches_last_ms();
+  test_srvrun_serve_slot_notes_ecn();
   test_srvrun_rebind_updates_peer_port();
   test_srvrun_rebind_updates_peer_addr();
   test_srvrun_rebind_noop_when_address_unchanged();
