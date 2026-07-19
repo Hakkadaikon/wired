@@ -683,12 +683,18 @@ static void check_acks_pn(const u8* pl, usz pll, u64 pn) {
 
 /* Locate and decode the ACK frame in a 1-RTT payload, for tests that need to
  * inspect the full range set (not just ranges[0], unlike check_acks_pn). */
+/* Either ACK frame type (RFC 9000 19.3): 0x02 (no ECN counts) or 0x03 (with
+ * them, RFC 9000 19.3.2) -- callers that don't care which decode either. */
+static int is_ack_type(u64 type) {
+  return type == QUIC_FRAME_ACK || type == QUIC_FRAME_ACK_ECN;
+}
+
 static int find_ack_frame(const u8* pl, usz pll, quic_ack_frame* out) {
   quic_framewalk      it;
   quic_framewalk_item fr;
   quic_framewalk_init(&it, pl, pll);
   while (quic_framewalk_next(&it, &fr))
-    if (fr.type == QUIC_FRAME_ACK)
+    if (is_ack_type(fr.type))
       return quic_ack_decode(fr.start, fr.remaining, out) > 0;
   return 0;
 }
@@ -2745,8 +2751,11 @@ static void test_srvloop_ack_delay_field_encodes_actual_delay(void) {
   }
 }
 
-/* T-025: ACKs this server sends never carry ECN counts -- ECN marking
- * detection is out of scope, so has_ecn stays 0 on every encoded frame. */
+/* T-025 / T-008: an ACK carries no ECN counts (has_ecn stays 0, type 0x02)
+ * while this connection has never counted a marked datagram
+ * (wired_srvloop_ecn_note not yet called, or only ever called with Not-ECT)
+ * -- the pre-existing non-ECN wire format is unaffected by ECN support
+ * existing at all. */
 static void test_srvloop_ack_ecn_always_disabled(void) {
   struct lp_fix  f;
   quic_obuf      ob;
@@ -2771,6 +2780,65 @@ static void test_srvloop_ack_ecn_always_disabled(void) {
     CHECK(find_ack_frame(pl, pll, &a) == 1);
   }
   CHECK(a.has_ecn == 0);
+}
+
+/* T-006: wired_srvloop_ecn_note advances the matching cumulative counter for
+ * each RFC 3168 codepoint (0 Not-ECT, 1 ECT(1), 2 ECT(0), 3 CE) and leaves
+ * the other two untouched; repeated calls accumulate rather than overwrite
+ * (RFC 9000 19.3.2's counts are running totals across the connection). */
+static void test_srvloop_ecn_counts_accumulate_on_receive(void) {
+  struct lp_fix f;
+  quic_obuf     ob;
+  u8            out[1024];
+  ob = (quic_obuf){out, sizeof out, 0};
+  lp_confirm(&f, &ob);
+  CHECK(f.l.ecn_ect0 == 0 && f.l.ecn_ect1 == 0 && f.l.ecn_ce == 0);
+  wired_srvloop_ecn_note(&f.l, 0); /* Not-ECT: no-op */
+  CHECK(f.l.ecn_ect0 == 0 && f.l.ecn_ect1 == 0 && f.l.ecn_ce == 0);
+  wired_srvloop_ecn_note(&f.l, 2); /* ECT(0) */
+  wired_srvloop_ecn_note(&f.l, 2); /* ECT(0) again: accumulates to 2 */
+  wired_srvloop_ecn_note(&f.l, 1); /* ECT(1) */
+  wired_srvloop_ecn_note(&f.l, 3); /* CE */
+  CHECK(f.l.ecn_ect0 == 2);
+  CHECK(f.l.ecn_ect1 == 1);
+  CHECK(f.l.ecn_ce == 1);
+}
+
+/* T-007: once the cumulative ECN counters are nonzero, the 1-RTT ACK this
+ * connection sends carries them (has_ecn=1, type 0x03), with each field
+ * matching the counter it mirrors. */
+static void test_srvloop_ack_includes_ecn_counts_when_nonzero(void) {
+  struct lp_fix  f;
+  quic_obuf      ob;
+  u8             out[1024], ping[1] = {0x01}, spkt[1024];
+  usz            slen;
+  quic_ack_frame a;
+  ob = (quic_obuf){out, sizeof out, 0};
+  lp_confirm(&f, &ob);
+  wired_srvloop_ecn_note(&f.l, 2); /* ECT(0) */
+  wired_srvloop_ecn_note(&f.l, 3); /* CE */
+  slen = client_seal_onertt_pn(&f, 7, ping, 1, spkt, sizeof spkt);
+  ob   = (quic_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  /* Same two-step shape as test_srvloop_ack_ecn_always_disabled: the delay
+   * window must elapse and a second eliciting packet arrive before
+   * emit_ack_only actually has an ACK due to send (RFC 9000 13.2.1). */
+  f.l.now_ms += WIRED_SRVLOOP_MAX_ACK_DELAY_MS;
+  slen = client_seal_onertt_pn(&f, 8, ping, 1, spkt, sizeof spkt);
+  ob   = (quic_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  {
+    const u8* pl;
+    usz       pll;
+    CHECK(client_open_onertt(&f, out, ob.len, &pl, &pll) == 1);
+    CHECK(find_ack_frame(pl, pll, &a) == 1);
+  }
+  CHECK(a.has_ecn == 1);
+  CHECK(a.ect0 == 1);
+  CHECK(a.ect1 == 0);
+  CHECK(a.ce == 1);
 }
 
 /* T-004/T-005: a lone ack-eliciting packet is not due for an ACK until
@@ -3447,6 +3515,8 @@ void test_srvloop(void) {
   test_srvloop_ack_nothing_pending_no_ack_frame_emitted();
   test_srvloop_ack_delay_field_encodes_actual_delay();
   test_srvloop_ack_ecn_always_disabled();
+  test_srvloop_ecn_counts_accumulate_on_receive();
+  test_srvloop_ack_includes_ecn_counts_when_nonzero();
   test_srvloop_ack_eliciting_records_pn_and_pending();
   test_srvloop_ack_non_eliciting_not_recorded();
   test_srvloop_ack_delay_window_boundary();

@@ -122,7 +122,7 @@ static void test_recvmmsg_nowait_returns_immediately_when_empty(void) {
   i64              sfd, cfd;
   quic_sockaddr_in srv;
   u8               rx[64];
-  quic_mmsg_buf    bufs[1] = {{quic_mspan_of(rx, sizeof rx), {0}, 0}};
+  quic_mmsg_buf    bufs[1] = {{quic_mspan_of(rx, sizeof rx), {0}, 0, 0}};
   if (!gso_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
   CHECK(wired_udp_recvmmsg_nowait(sfd, bufs, 1) < 0);
   wired_udp_close(cfd);
@@ -135,7 +135,7 @@ static void test_recvmmsg_nowait_delivers_queued_datagram(void) {
   i64              sfd, cfd;
   quic_sockaddr_in srv;
   u8               rx[64];
-  quic_mmsg_buf    bufs[1]    = {{quic_mspan_of(rx, sizeof rx), {0}, 0}};
+  quic_mmsg_buf    bufs[1]    = {{quic_mspan_of(rx, sizeof rx), {0}, 0, 0}};
   const u8         payload[5] = {1, 2, 3, 4, 5};
   if (!gso_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
   CHECK(
@@ -185,6 +185,100 @@ static void test_incoming_cpu_set_does_not_crash(void) {
   CHECK(1);
 }
 
+/* Same as gso_open_sockets but on a distinct port (4438) and with IP_RECVTOS
+ * enabled on the server socket, so ECN tests do not collide with the fixed-
+ * port 4436/4437 socket pairs above. */
+static int ecn_open_sockets(i64* sfd, i64* cfd, quic_sockaddr_in* srv) {
+  *sfd = wired_udp_socket();
+  if (*sfd < 0) return 0;
+  wired_udp_addr(srv, 4438, (const u8[4]){127, 0, 0, 1});
+  if (wired_udp_bind(*sfd, srv) < 0) {
+    wired_udp_close(*sfd);
+    return 0;
+  }
+  wired_udp_recvtos_enable(*sfd);
+  *cfd = wired_udp_socket();
+  if (*cfd < 0) {
+    wired_udp_close(*sfd);
+    return 0;
+  }
+  return 1;
+}
+
+/* T-001: wired_udp_ect0_enable on the sending socket marks every packet it
+ * sends ECT(0) (RFC 9000 13.4.1) -- observed on the receiving end via
+ * IP_RECVTOS + wired_udp_recvmmsg's cmsg read (T-002's path), since this SDK
+ * has no getsockopt to read IP_TOS back directly. */
+static void test_udp_ect0_enable_sets_tos(void) {
+  i64              sfd, cfd;
+  quic_sockaddr_in srv;
+  u8               rx[64];
+  quic_mmsg_buf    bufs[1]    = {{quic_mspan_of(rx, sizeof rx), {0}, 0, 0}};
+  const u8         payload[3] = {1, 2, 3};
+  if (!ecn_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
+  CHECK(wired_udp_ect0_enable(cfd) == 0);
+  CHECK(
+      wired_udp_send(cfd, &srv, quic_span_of(payload, sizeof payload)) ==
+      (i64)sizeof payload);
+  CHECK(wired_udp_recvmmsg(sfd, bufs, 1) == 1);
+  CHECK(bufs[0].ecn == 2); /* ECT(0) */
+  wired_udp_close(cfd);
+  wired_udp_close(sfd);
+}
+
+/* T-005: a sender that never called wired_udp_ect0_enable delivers Not-ECT
+ * (0) -- no cmsg is attached for an unmarked packet, and cmsg_read_ip_tos's
+ * absent-cmsg fallback must not fabricate a nonzero ECN reading. */
+static void test_udp_recvmmsg_no_cmsg_defaults_to_zero_e2e(void) {
+  i64              sfd, cfd;
+  quic_sockaddr_in srv;
+  u8               rx[64];
+  quic_mmsg_buf    bufs[1]    = {{quic_mspan_of(rx, sizeof rx), {0}, 0, 0}};
+  const u8         payload[3] = {9, 9, 9};
+  if (!ecn_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
+  CHECK(
+      wired_udp_send(cfd, &srv, quic_span_of(payload, sizeof payload)) ==
+      (i64)sizeof payload);
+  CHECK(wired_udp_recvmmsg(sfd, bufs, 1) == 1);
+  CHECK(bufs[0].ecn == 0);
+  wired_udp_close(cfd);
+  wired_udp_close(sfd);
+}
+
+/* T-004: a batch of 3 ECT(0)-marked datagrams in one recvmmsg() call reads
+ * ECN bits into each slot individually (no cross-slot bleed from a shared
+ * cmsg scratch buffer). */
+static void test_udp_recvmmsg_batch_ecn_per_slot(void) {
+  i64              sfd, cfd;
+  quic_sockaddr_in srv;
+  u8               rx0[64], rx1[64], rx2[64];
+  quic_mmsg_buf    bufs[3] = {
+      {quic_mspan_of(rx0, sizeof rx0), {0}, 0, 0},
+      {quic_mspan_of(rx1, sizeof rx1), {0}, 0, 0},
+      {quic_mspan_of(rx2, sizeof rx2), {0}, 0, 0}};
+  const u8 payload[3] = {1, 2, 3};
+  int      n, i;
+  if (!ecn_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
+  CHECK(wired_udp_ect0_enable(cfd) == 0);
+  for (i = 0; i < 3; i++)
+    CHECK(
+        wired_udp_send(cfd, &srv, quic_span_of(payload, sizeof payload)) ==
+        (i64)sizeof payload);
+  n = (int)wired_udp_recvmmsg(sfd, bufs, 3);
+  CHECK(n == 3);
+  for (i = 0; i < n; i++) CHECK(bufs[i].ecn == 2); /* ECT(0), every slot */
+  wired_udp_close(cfd);
+  wired_udp_close(sfd);
+}
+
+/* T-018: a setsockopt failure (invalid fd) propagates its negative errno
+ * unchanged, rather than being swallowed -- no fallback path is implemented
+ * (see wired_udp_ect0_enable's doc for why that is out of scope here). */
+static void test_udp_ect0_enable_propagates_setsockopt_failure(void) {
+  CHECK(wired_udp_ect0_enable(-1) < 0);
+  CHECK(wired_udp_recvtos_enable(-1) < 0);
+}
+
 void test_udp_gso(void) {
   test_gso_cmsg_build();
   test_send_batch_delivers_segments();
@@ -196,4 +290,8 @@ void test_udp_gso(void) {
   test_prefer_busy_poll_enable_does_not_crash();
   test_busy_poll_budget_set_does_not_crash();
   test_incoming_cpu_set_does_not_crash();
+  test_udp_ect0_enable_sets_tos();
+  test_udp_recvmmsg_no_cmsg_defaults_to_zero_e2e();
+  test_udp_recvmmsg_batch_ecn_per_slot();
+  test_udp_ect0_enable_propagates_setsockopt_failure();
 }
