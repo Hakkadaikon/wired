@@ -451,6 +451,17 @@ typedef struct {
                                 * step; not reset across steps by this loop
                                 * itself, same convention as max_data_seen_
                                 * flag and streams_blocked_seen_flag. */
+  /** RFC 9000 13.4 / RFC 9002 19.3.2: this connection's cumulative count of
+   * received datagrams marked ECT(0)/ECT(1)/CE (RFC 3168), monotonically
+   * increasing across the connection's whole lifetime -- an ACK frame reports
+   * this running total, not one step's delta (see app_ack_encode_ranges in
+   * respond.c). Advanced by wired_srvloop_ecn_note, called once per received
+   * datagram with the ECN codepoint the UDP layer read from its IP_TOS cmsg
+   * (quic_mmsg_buf.ecn in udp.h). 0 for all three until any ECN-marked
+   * datagram arrives. */
+  u64 ecn_ect0;
+  u64 ecn_ect1;
+  u64 ecn_ce;
 } wired_srvloop;
 
 /** Register the app response-body builder; pass 0 to clear (body-less 200).
@@ -601,5 +612,17 @@ typedef struct {
  *   (or the input was dropped). */
 int wired_srvloop_step(
     const wired_srvloop_conn* conn, quic_mspan dgram, quic_obuf* out);
+
+/** RFC 9000 13.4 / RFC 9002 19.3.2: add one received datagram's ECN codepoint
+ * (RFC 3168: 0 Not-ECT, 1 ECT(1), 2 ECT(0), 3 CE, matching quic_mmsg_buf.ecn
+ * in udp.h) to l's cumulative counts, which app_ack_encode_ranges (respond.c)
+ * later reports in the connection's 1-RTT ACK frames. The caller driving the
+ * UDP receive loop (e.g. srvrun.c) calls this once per received datagram,
+ * ahead of or alongside wired_srvloop_step -- the two are independent calls
+ * since wired_srvloop_step's dgram argument carries no ECN information itself.
+ * A Not-ECT (0) codepoint is a no-op: it advances none of the three counters.
+ * @param l the loop whose cumulative counts to advance
+ * @param ecn the received datagram's ECN codepoint (0..3) */
+void wired_srvloop_ecn_note(wired_srvloop* l, u8 ecn);
 
 #endif
