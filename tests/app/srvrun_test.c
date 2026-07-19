@@ -2054,19 +2054,20 @@ static void test_srvrun_pace_bursts_within_poll_interval(void) {
   static u8     body[8 * SRVRUN_CHUNK];
   struct lp_fix f;
   srvrun_conn   c;
-  quic_obuf     ob   = {0};
+  quic_obuf     ob = {0};
   u8            obuf[1024];
   ob = (quic_obuf){obuf, sizeof obuf, 0};
   sr_make_confirmed_conn(&c, &f, &ob);
-  c.cc.cwnd           = 5000000; /* interval well under SRVRUN_PTO_MS */
-  c.srtt_ms           = 30;
-  c.resp[0].in_use    = 1;
-  c.resp[0].stream_id = 0;
+  c.cc.cwnd               = 5000000; /* interval well under SRVRUN_PTO_MS */
+  c.srtt_ms               = 30;
+  c.resp[0].in_use        = 1;
+  c.resp[0].stream_id     = 0;
   c.resp[0].stream_credit = sizeof body;
   wired_sendsess_arm(&c.resp[0].sess, body, sizeof body, SRVRUN_CHUNK);
   {
-    srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                       &g_srvrun_env, 0, 0, 0, 0, 0};
+    srvrun_cfg      cfg = {-1, 0, 0, 0, 0, 0, 0, 0,
+                           0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                           0,  0, 0, 0, 0};
     srvrun_state    st  = {0, &c};
     srvrun_step_ctx ctx = {&cfg, 0, &st, 1000};
     srvrun_pump_sess(&ctx, 0);
@@ -2085,10 +2086,11 @@ static void test_srvrun_pace_subms_still_unlimited(void) {
   c.srtt_ms = 30;
   CHECK(quic_pacing_interval(c.srtt_ms, c.cc.cwnd, QUIC_MAX_DATAGRAM) == 0);
   {
-    srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                       &g_srvrun_env, 0, 0, 0, 0, 0};
+    srvrun_cfg      cfg = {-1, 0, 0, 0, 0, 0, 0, 0,
+                           0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                           0,  0, 0, 0, 0};
     srvrun_step_ctx ctx = {&cfg, 0, 0, 1000};
-    c.next_send_ms       = 1000;
+    c.next_send_ms      = 1000;
     srvrun_pace_next(&ctx, &c);
   }
   CHECK(c.next_send_ms == 1000);
@@ -2101,19 +2103,20 @@ static void test_srvrun_pace_small_response_unaffected(void) {
   static u8     body[SRVRUN_CHUNK];
   struct lp_fix f;
   srvrun_conn   c;
-  quic_obuf     ob   = {0};
+  quic_obuf     ob = {0};
   u8            obuf[1024];
   ob = (quic_obuf){obuf, sizeof obuf, 0};
   sr_make_confirmed_conn(&c, &f, &ob);
-  c.cc.cwnd           = 5000000;
-  c.srtt_ms           = 30;
-  c.resp[0].in_use    = 1;
-  c.resp[0].stream_id = 0;
+  c.cc.cwnd               = 5000000;
+  c.srtt_ms               = 30;
+  c.resp[0].in_use        = 1;
+  c.resp[0].stream_id     = 0;
   c.resp[0].stream_credit = sizeof body;
   wired_sendsess_arm(&c.resp[0].sess, body, sizeof body, SRVRUN_CHUNK);
   {
-    srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                       &g_srvrun_env, 0, 0, 0, 0, 0};
+    srvrun_cfg      cfg = {-1, 0, 0, 0, 0, 0, 0, 0,
+                           0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                           0,  0, 0, 0, 0};
     srvrun_state    st  = {0, &c};
     srvrun_step_ctx ctx = {&cfg, 0, &st, 1000};
     srvrun_pump_sess(&ctx, 0);
@@ -2132,8 +2135,9 @@ static void test_srvrun_pace_burst_no_data_terminates(void) {
   c->cc.cwnd = 5000000;
   c->srtt_ms = 30;
   {
-    srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                       &g_srvrun_env, 0, 0, 0, 0, 0};
+    srvrun_cfg      cfg = {-1, 0, 0, 0, 0, 0, 0, 0,
+                           0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                           0,  0, 0, 0, 0};
     srvrun_state    st  = {0, c};
     srvrun_step_ctx ctx = {&cfg, 0, &st, 1000};
     srvrun_pump_sess(&ctx, 0); /* must return, not loop forever */
@@ -2170,16 +2174,17 @@ static void test_srvrun_pace_probe_bypasses_pacing_gate(void) {
   u8            obuf[1024];
   ob = (quic_obuf){obuf, sizeof obuf, 0};
   sr_make_confirmed_conn(&c, &f, &ob);
-  c.srtt_ms                = 30;
-  c.next_send_ms           = 1000000; /* far future: pacing alone would block */
-  c.resp[0].in_use         = 1;
-  c.resp[0].stream_id      = 0;
-  c.resp[0].stream_credit  = sizeof body;
+  c.srtt_ms               = 30;
+  c.next_send_ms          = 1000000; /* far future: pacing alone would block */
+  c.resp[0].in_use        = 1;
+  c.resp[0].stream_id     = 0;
+  c.resp[0].stream_credit = sizeof body;
   sr_pace_arm_and_fire_pto(&c.resp[0].sess, body, sizeof body);
   CHECK(c.resp[0].sess.requeue_n == 1);
   {
-    srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                       &g_srvrun_env, 0, 0, 0, 0, 0};
+    srvrun_cfg      cfg = {-1, 0, 0, 0, 0, 0, 0, 0,
+                           0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                           0,  0, 0, 0, 0};
     srvrun_state    st  = {0, &c};
     srvrun_step_ctx ctx = {&cfg, 0, &st, 1000};
     CHECK(srvrun_pump_round_gated(&ctx, &c) == 1);
@@ -2206,8 +2211,9 @@ static void test_srvrun_pace_no_probe_still_gated(void) {
   wired_sendsess_arm(&c.resp[0].sess, body, sizeof body, SRVRUN_CHUNK);
   CHECK(c.resp[0].sess.requeue_n == 0);
   {
-    srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                       &g_srvrun_env, 0, 0, 0, 0, 0};
+    srvrun_cfg      cfg = {-1, 0, 0, 0, 0, 0, 0, 0,
+                           0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                           0,  0, 0, 0, 0};
     srvrun_state    st  = {0, &c};
     srvrun_step_ctx ctx = {&cfg, 0, &st, 1000};
     CHECK(srvrun_pump_round_gated(&ctx, &c) == 0);
@@ -2229,24 +2235,25 @@ static void test_srvrun_pace_mixed_probe_and_new_data_round(void) {
   u8            obuf[1024];
   ob = (quic_obuf){obuf, sizeof obuf, 0};
   sr_make_confirmed_conn(&c, &f, &ob);
-  c.srtt_ms                = 30;
-  c.next_send_ms           = 1000000;
-  c.resp[0].in_use         = 1;
-  c.resp[0].stream_id      = 0;
-  c.resp[0].stream_credit  = sizeof probe_body;
+  c.srtt_ms               = 30;
+  c.next_send_ms          = 1000000;
+  c.resp[0].in_use        = 1;
+  c.resp[0].stream_id     = 0;
+  c.resp[0].stream_credit = sizeof probe_body;
   sr_pace_arm_and_fire_pto(&c.resp[0].sess, probe_body, sizeof probe_body);
   c.resp[1].in_use        = 1;
   c.resp[1].stream_id     = 4;
   c.resp[1].stream_credit = sizeof new_body;
   wired_sendsess_arm(&c.resp[1].sess, new_body, sizeof new_body, SRVRUN_CHUNK);
   {
-    srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                       &g_srvrun_env, 0, 0, 0, 0, 0};
+    srvrun_cfg      cfg = {-1, 0, 0, 0, 0, 0, 0, 0,
+                           0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                           0,  0, 0, 0, 0};
     srvrun_state    st  = {0, &c};
     srvrun_step_ctx ctx = {&cfg, 0, &st, 1000};
     CHECK(srvrun_pump_round_gated(&ctx, &c) == 1);
   }
-  CHECK(c.resp[0].sess.requeue_n == 0);       /* probe sent */
+  CHECK(c.resp[0].sess.requeue_n == 0);           /* probe sent */
   CHECK(c.resp[1].sess.q.cur == sizeof new_body); /* sibling's new data too */
 }
 
@@ -2283,14 +2290,15 @@ static void test_srvrun_pace_probe_bypass_still_respects_log_gate(void) {
   CHECK(wired_sendsess_pto_fire(&c.resp[0].sess, SRVRUN_PTO_MAX) == 1);
   CHECK(c.resp[0].sess.requeue_n == 1);
   {
-    srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                       &g_srvrun_env, 0, 0, 0, 0, 0};
+    srvrun_cfg      cfg = {-1, 0, 0, 0, 0, 0, 0, 0,
+                           0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                           0,  0, 0, 0, 0};
     srvrun_state    st  = {0, &c};
     srvrun_step_ctx ctx = {&cfg, 0, &st, 1000};
     CHECK(srvrun_pump_round_gated(&ctx, &c) == 1);
   }
   CHECK(c.resp[0].sess.requeue_n == 0); /* the probe's own slot always has
-                                          * room -- pto_fire freed it */
+                                         * room -- pto_fire freed it */
 }
 
 /* T-004 boundary: requeue_n transitions from 0 (gated) to 1 (bypassed) the
@@ -2307,8 +2315,9 @@ static void test_srvrun_pace_probe_bypass_activates_on_requeue(void) {
   c.srtt_ms      = 30;
   c.next_send_ms = 1000000;
   {
-    srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                       &g_srvrun_env, 0, 0, 0, 0, 0};
+    srvrun_cfg      cfg = {-1, 0, 0, 0, 0, 0, 0, 0,
+                           0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                           0,  0, 0, 0, 0};
     srvrun_step_ctx ctx = {&cfg, 0, 0, 1000};
     CHECK(c.resp[0].sess.requeue_n == 0);
     CHECK(srvrun_pace_or_probe_ok(&ctx, &c) == 0); /* gated: no probe yet */
@@ -2331,16 +2340,17 @@ static void test_srvrun_pace_probe_round_still_schedules_next(void) {
   u8            obuf[1024];
   ob = (quic_obuf){obuf, sizeof obuf, 0};
   sr_make_confirmed_conn(&c, &f, &ob);
-  c.cc.cwnd                = 12000; /* interval well past SRVRUN_PTO_MS */
-  c.srtt_ms                = 4000;
-  c.next_send_ms           = 1000000;
-  c.resp[0].in_use         = 1;
-  c.resp[0].stream_id      = 0;
-  c.resp[0].stream_credit  = sizeof body;
+  c.cc.cwnd               = 12000; /* interval well past SRVRUN_PTO_MS */
+  c.srtt_ms               = 4000;
+  c.next_send_ms          = 1000000;
+  c.resp[0].in_use        = 1;
+  c.resp[0].stream_id     = 0;
+  c.resp[0].stream_credit = sizeof body;
   sr_pace_arm_and_fire_pto(&c.resp[0].sess, body, sizeof body);
   {
-    srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                       &g_srvrun_env, 0, 0, 0, 0, 0};
+    srvrun_cfg      cfg = {-1, 0, 0, 0, 0, 0, 0, 0,
+                           0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                           0,  0, 0, 0, 0};
     srvrun_state    st  = {0, &c};
     srvrun_step_ctx ctx = {&cfg, 0, &st, 1000};
     CHECK(srvrun_pump_round_gated(&ctx, &c) == 1);
@@ -2360,8 +2370,9 @@ static void test_srvrun_pace_within_poll_tick_unaffected_by_probe_change(void) {
   c.cc.cwnd = 5000000;
   c.srtt_ms = 30;
   {
-    srvrun_cfg      cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                           &g_srvrun_env, 0, 0, 0, 0, 0};
+    srvrun_cfg      cfg = {-1, 0, 0, 0, 0, 0, 0, 0,
+                           0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                           0,  0, 0, 0, 0};
     srvrun_step_ctx ctx = {&cfg, 0, 0, 1000};
     CHECK(srvrun_pace_or_probe_ok(&ctx, &c) == 1); /* srtt_ms path, unpaced */
     c.next_send_ms = 1000;
@@ -7154,6 +7165,218 @@ static void test_srvrun_pto_noop_when_nothing_inflight(void) {
   }
 }
 
+/* @file
+ * RFC 9002 6.2 boot-stage PTO (srvrun_boot_pto_slot): a server-initiated,
+ * timer-driven resend of the cached accept flight (boot_ini/boot_hs) while a
+ * connection is up but not yet confirmed. Distinct from the existing
+ * receive-triggered srvrun_resend_boot_flight (a client Initial retransmit
+ * arriving), which the interop handshakeloss/handshakecorruption cases can
+ * never trigger when the *server's* flight -- not the client's -- is the one
+ * dropped or corrupted; nothing then ever arrives to trigger a resend.
+ *
+ * A minimal boot-stage srvrun_conn: up (accepted) but never confirmed
+ * (quic_memset leaves c->s.phase at WIRED_SERVER_HS_INITIAL, and
+ * wired_server_is_confirmed only ever checks phase == HS_CONFIRMED, so no
+ * real TLS handshake needs driving here -- same minimalism as this file's
+ * existing sr_antiamp_seed_flight). boot_ini_len is a dummy nonzero length;
+ * its bytes' content is irrelevant to srvrun_boot_pto_slot, which only ever
+ * forwards the cached span's length to srvrun_send (cfg->fd == -1 skips the
+ * real socket write). */
+static void sr_make_boot_conn(srvrun_conn* c, u64 sent_ms) {
+  quic_memset(c, 0, sizeof *c);
+  c->up               = 1;
+  c->boot_ini_len     = 100;
+  c->boot_pto_sent_ms = sent_ms;
+  /* RFC 9000 8.1: past the antiamp gate so a resend's srvrun_boot_send_
+   * initial call actually goes out -- the same 1280-received-bytes budget
+   * this file's sr_antiamp_seed_flight-based tests already use, generous
+   * enough for the 100-byte dummy flight above. */
+  c->boot_rx_bytes = 1280;
+  /* RFC 9002 6.2.2: without this, srvrun_pto_deadline_ms sees an all-zero
+   * quic_rtt (no kInitialRtt seed) and floors the deadline near 0, firing
+   * immediately regardless of now_ms -- same seeding sr_make_confirmed_conn
+   * does for the post-confirm PTO tests. */
+  quic_rtt_init(&c->rtt);
+}
+
+static srvrun_cfg sr_boot_pto_cfg(void) {
+  srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                    0,  0, 0, 0, 0};
+  return cfg;
+}
+
+/* T-001: past the boot PTO deadline (srvrun_pto_deadline_ms's own
+ * kInitialRtt-based default, same constant test_srvrun_pto_budget_exhausted_
+ * tears_down_connection derives: 1024ms before any RTT sample), the cached
+ * flight is resent -- proven by srvrun_test_send_count rising, the same
+ * proof test_srvrun_initial_retransmit_resends_cached_flight uses for the
+ * receive-triggered path. */
+static void test_srvrun_boot_pto_resends_after_deadline(void) {
+  quic_conntable  table[QUIC_CONNTABLE_CAP];
+  srvrun_state    st  = {table, sr_test_conns()};
+  srvrun_cfg      cfg = sr_boot_pto_cfg();
+  srvrun_step_ctx ctx = {&cfg, 0, &st, 1025};
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  sr_make_boot_conn(&st.conns[0], 0);
+  srvrun_test_reset_send_count();
+  srvrun_boot_pto_slot(&ctx, 0);
+  CHECK(srvrun_test_send_count() > 0);
+  CHECK(st.conns[0].up == 1);
+  CHECK(st.conns[0].boot_pto_count == 1);
+}
+
+/* T-002: well before the deadline, no resend happens and the probe count
+ * stays untouched -- the boundary complement to T-001. */
+static void test_srvrun_boot_pto_no_resend_before_deadline(void) {
+  quic_conntable  table[QUIC_CONNTABLE_CAP];
+  srvrun_state    st  = {table, sr_test_conns()};
+  srvrun_cfg      cfg = sr_boot_pto_cfg();
+  srvrun_step_ctx ctx = {&cfg, 0, &st, 500}; /* well under the 1024ms floor */
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  sr_make_boot_conn(&st.conns[0], 0);
+  srvrun_test_reset_send_count();
+  srvrun_boot_pto_slot(&ctx, 0);
+  CHECK(srvrun_test_send_count() == 0);
+  CHECK(st.conns[0].boot_pto_count == 0);
+}
+
+/* T-003: once confirmed, the boot PTO timer never fires again, regardless of
+ * how far past the old boot deadline now_ms sits. */
+static void test_srvrun_boot_pto_stops_after_confirm(void) {
+  quic_conntable  table[QUIC_CONNTABLE_CAP];
+  srvrun_state    st  = {table, sr_test_conns()};
+  srvrun_cfg      cfg = sr_boot_pto_cfg();
+  srvrun_step_ctx ctx = {&cfg, 0, &st, 1025};
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  sr_make_boot_conn(&st.conns[0], 0);
+  st.conns[0].s.phase = WIRED_SERVER_HS_CONFIRMED;
+  srvrun_test_reset_send_count();
+  srvrun_boot_pto_slot(&ctx, 0);
+  CHECK(srvrun_test_send_count() == 0);
+  CHECK(st.conns[0].boot_pto_count == 0);
+}
+
+/* T-004: confirm landing in the same instant a boot PTO tick would otherwise
+ * have fired -- the confirm check runs first (srvrun_boot_pto_waiting), so
+ * the race resolves to "stopped", never a stray extra resend. */
+static void test_srvrun_boot_pto_confirm_race_stops_immediately(void) {
+  quic_conntable  table[QUIC_CONNTABLE_CAP];
+  srvrun_state    st  = {table, sr_test_conns()};
+  srvrun_cfg      cfg = sr_boot_pto_cfg();
+  srvrun_step_ctx ctx = {&cfg, 0, &st, 1025};
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  sr_make_boot_conn(&st.conns[0], 0);
+  /* one real probe first, to prove the timer was live at all */
+  srvrun_test_reset_send_count();
+  srvrun_boot_pto_slot(&ctx, 0);
+  CHECK(srvrun_test_send_count() > 0);
+  /* confirm lands right as the next tick would be due again */
+  st.conns[0].s.phase = WIRED_SERVER_HS_CONFIRMED;
+  srvrun_test_reset_send_count();
+  srvrun_boot_pto_slot(&ctx, 0);
+  CHECK(srvrun_test_send_count() == 0);
+}
+
+/* T-005: SRVRUN_PTO_MAX consecutive boot PTO fires with no confirm ever
+ * landing tears the connection slot down, mirroring test_srvrun_pto_budget_
+ * exhausted_tears_down_connection's policy for the post-confirm path. Each
+ * successive deadline doubles (RFC 9002 6.2 exponential backoff, the same
+ * kInitialRtt-derived 1024ms base). */
+static void test_srvrun_boot_pto_budget_exhausted_frees_slot(void) {
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_state   st  = {table, sr_test_conns()};
+  srvrun_cfg     cfg = sr_boot_pto_cfg();
+  u64            now = 1025;
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  sr_make_boot_conn(&st.conns[0], 0);
+  for (int i = 0; i < SRVRUN_PTO_MAX - 1; i++) {
+    srvrun_step_ctx tick = {&cfg, 0, &st, now};
+    srvrun_boot_pto_slot(&tick, 0);
+    CHECK(st.conns[0].up == 1);
+    now += 1024u << (i + 1);
+  }
+  {
+    srvrun_step_ctx tick = {&cfg, 0, &st, now};
+    srvrun_boot_pto_slot(&tick, 0); /* budget spent: tears the slot down */
+    CHECK(st.conns[0].up == 0);
+  }
+}
+
+/* T-006: one probe short of the budget, the slot survives and keeps
+ * resending -- the boundary complement to T-005. */
+static void test_srvrun_boot_pto_budget_not_yet_exhausted_keeps_slot(void) {
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_state   st  = {table, sr_test_conns()};
+  srvrun_cfg     cfg = sr_boot_pto_cfg();
+  u64            now = 1025;
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  sr_make_boot_conn(&st.conns[0], 0);
+  for (int i = 0; i < SRVRUN_PTO_MAX - 1; i++) {
+    srvrun_step_ctx tick = {&cfg, 0, &st, now};
+    srvrun_test_reset_send_count();
+    srvrun_boot_pto_slot(&tick, 0);
+    CHECK(srvrun_test_send_count() > 0);
+    CHECK(st.conns[0].up == 1);
+    now += 1024u << (i + 1);
+  }
+  CHECK(st.conns[0].boot_pto_count == SRVRUN_PTO_MAX - 1);
+}
+
+/* T-007: a slot with no boot flight ever cached (boot_ini_len == 0 -- still
+ * mid-ClientHello-reassembly, or a boot that failed) is a no-op: no send, no
+ * probe count, no teardown, regardless of how far now_ms has advanced. */
+static void test_srvrun_boot_pto_noop_without_sent_flight(void) {
+  quic_conntable  table[QUIC_CONNTABLE_CAP];
+  srvrun_state    st  = {table, sr_test_conns()};
+  srvrun_cfg      cfg = sr_boot_pto_cfg();
+  srvrun_step_ctx ctx = {&cfg, 0, &st, 1000000};
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  sr_make_boot_conn(&st.conns[0], 0);
+  st.conns[0].boot_ini_len = 0;
+  srvrun_test_reset_send_count();
+  srvrun_boot_pto_slot(&ctx, 0);
+  CHECK(srvrun_test_send_count() == 0);
+  CHECK(st.conns[0].up == 1);
+  CHECK(st.conns[0].boot_pto_count == 0);
+}
+
+/* T-008: a slot that is not up at all (never accepted, or already freed) is
+ * a no-op -- srvrun_awaiting_confirm requires c->up. */
+static void test_srvrun_boot_pto_noop_when_not_up(void) {
+  quic_conntable  table[QUIC_CONNTABLE_CAP];
+  srvrun_state    st  = {table, sr_test_conns()};
+  srvrun_cfg      cfg = sr_boot_pto_cfg();
+  srvrun_step_ctx ctx = {&cfg, 0, &st, 1000000};
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  sr_make_boot_conn(&st.conns[0], 0);
+  st.conns[0].up = 0;
+  srvrun_test_reset_send_count();
+  srvrun_boot_pto_slot(&ctx, 0);
+  CHECK(srvrun_test_send_count() == 0);
+  CHECK(st.conns[0].boot_pto_count == 0);
+}
+
+/* T-009: a client-triggered retransmit (srvrun_resend_boot_flight) landing
+ * in the same round as a would-be boot PTO deadline re-arms the deadline --
+ * the immediately following srvrun_boot_pto_slot call must NOT also fire, or
+ * the same flight would go out twice for one round. */
+static void test_srvrun_boot_pto_no_double_send_after_client_retransmit(void) {
+  quic_conntable  table[QUIC_CONNTABLE_CAP];
+  srvrun_state    st  = {table, sr_test_conns()};
+  srvrun_cfg      cfg = sr_boot_pto_cfg();
+  srvrun_step_ctx ctx = {&cfg, 0, &st, 1025};
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  sr_make_boot_conn(&st.conns[0], 0);
+  /* the client's own Initial retransmit arrives first this round */
+  srvrun_resend_boot_flight(&ctx, &st.conns[0]);
+  CHECK(st.conns[0].boot_pto_count == 0);
+  /* the timer-driven boot PTO evaluates right after, same now_ms */
+  srvrun_test_reset_send_count();
+  srvrun_boot_pto_slot(&ctx, 0);
+  CHECK(srvrun_test_send_count() == 0);
+  CHECK(st.conns[0].boot_pto_count == 0);
+}
+
 /* RFC 9002 7.5's "MUST NOT be blocked by the congestion controller" covers
  * pacing (7.7) too, not just cwnd -- a queued probe goes out even with the
  * pacing deadline far in the future (srvrun_pace_or_probe_ok). An earlier
@@ -7243,11 +7466,11 @@ static void test_srvrun_stream_limit_never_decreases(void) {
   u8            obuf[1024];
   ob = (quic_obuf){obuf, sizeof obuf, 0};
   sr_make_confirmed_conn(&c, &f, &ob);
-  c.cc.cwnd            = 1u << 20;
-  c.resp[0].in_use     = 1;
-  c.resp[0].stream_id  = 0;
-  c.resp[1].in_use     = 1;
-  c.resp[1].stream_id  = 4;
+  c.cc.cwnd           = 1u << 20;
+  c.resp[0].in_use    = 1;
+  c.resp[0].stream_id = 0;
+  c.resp[1].in_use    = 1;
+  c.resp[1].stream_id = 4;
   wired_sendsess_arm(&c.resp[0].sess, body0, sizeof body0, SRVRUN_CHUNK);
   wired_sendsess_arm(&c.resp[1].sess, body1, sizeof body1, SRVRUN_CHUNK);
   {
@@ -7279,8 +7502,8 @@ static void test_srvrun_streams_blocked_reannounces_current_limit(void) {
   u8            obuf[1024];
   ob = (quic_obuf){obuf, sizeof obuf, 0};
   sr_make_confirmed_conn(&c, &f, &ob);
-  c.stream_limit_advertised      = 150;
-  c.l.streams_blocked_seen_flag  = 1;
+  c.stream_limit_advertised     = 150;
+  c.l.streams_blocked_seen_flag = 1;
   {
     srvrun_cfg      cfg = {-1, 0, 0, 0, 0, 0, 0, 0,
                            0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
@@ -7289,8 +7512,8 @@ static void test_srvrun_streams_blocked_reannounces_current_limit(void) {
     srvrun_test_reset_send_count();
     srvrun_reannounce_stream_limit(ctx.cfg, &c, srvrun_stream_limit_base(&ctx));
   }
-  CHECK(srvrun_test_send_count() == 1); /* actually resent, not skipped */
-  CHECK(c.stream_limit_advertised == 150); /* repeated, not recomputed */
+  CHECK(srvrun_test_send_count() == 1);      /* actually resent, not skipped */
+  CHECK(c.stream_limit_advertised == 150);   /* repeated, not recomputed */
   CHECK(c.l.streams_blocked_seen_flag == 0); /* consumed */
 }
 
@@ -8578,6 +8801,15 @@ void test_srvrun(void) {
   test_srvrun_pto_bypass_does_not_leak_to_sibling_new_sends();
   test_srvrun_pto_requeue_frees_inflight_bytes_before_resend();
   test_srvrun_pto_noop_when_nothing_inflight();
+  test_srvrun_boot_pto_resends_after_deadline();
+  test_srvrun_boot_pto_no_resend_before_deadline();
+  test_srvrun_boot_pto_stops_after_confirm();
+  test_srvrun_boot_pto_confirm_race_stops_immediately();
+  test_srvrun_boot_pto_budget_exhausted_frees_slot();
+  test_srvrun_boot_pto_budget_not_yet_exhausted_keeps_slot();
+  test_srvrun_boot_pto_noop_without_sent_flight();
+  test_srvrun_boot_pto_noop_when_not_up();
+  test_srvrun_boot_pto_no_double_send_after_client_retransmit();
   test_srvrun_pto_probe_bypasses_pacing_too();
   test_srvrun_slot_release_grants_one_more_stream();
   test_srvrun_stream_limit_never_decreases();
