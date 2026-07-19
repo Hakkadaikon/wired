@@ -6,9 +6,10 @@
 > suite (460+ test files, every commit); 19 of them are additionally pinned
 > to official/golden vectors; three wire-facing parsers are fuzzed nightly;
 > and interop against real independent clients has proven 12 of 22 QUIC
-> testcases plus both measurements (vs quic-go), with a 13th testcase
-> functionally correct but short of a runner timeout, and 4 of 7
-> WebTransport testcases (vs webtransport-go).
+> testcases plus both measurements (vs quic-go), with two more
+> functionally correct but unverdictable (one short of a fixed runner
+> timeout, one refused by the peer client), and 4 of 7 WebTransport
+> testcases (vs webtransport-go).
 > This page lists exactly what has and hasn't been demonstrated, per spec.
 > Results as of 2026-07.
 
@@ -56,17 +57,26 @@ Legend:
   the advertised limit climbs from 100 to 2000+ as requests complete, 98%
   of 1999 requested files finish), but the runner's fixed 60 s timeout for
   this case is not met; a pure throughput gap, not a functional one
-- [ ] `handshakeloss` — most handshakes fail to complete under a 30% loss
-  rate; the server's handshake flight now retransmits on its own timer
-  (previously it only replayed on a client-triggered retransmit), but
-  that did not move the pass rate -- the actual bottleneck is
-  post-handshake retransmission speed under this test's loss rate
-- [ ] `handshakecorruption` — same, under corruption
+- [x] `handshakeloss` — all 50 handshakes complete under a 30% bursty loss
+  rate. Three server-side gaps had to close: a boot-flight resend only
+  replayed the still-unsent tail (one lost Handshake datagram deadlocked
+  the handshake), the one-time confirmation packet (SETTINGS + ticket +
+  HANDSHAKE_DONE) was never retransmitted when lost, and a
+  still-incomplete split ClientHello was never acknowledged, starving the
+  client's 5 s handshake idle timer
+- [x] `handshakecorruption` — same scenario under corruption; passes with
+  the same fixes
 - [ ] `retry` — not yet run (dedicated server mode not wired up)
 - [ ] `resumption` — not yet run (dedicated server mode not wired up)
 - [ ] `zerortt` — not yet run (dedicated server mode not wired up)
-- [x] `ecn` — RFC 9000 §13.4 ECT(0) marking on send, IP_TOS cmsg reading on
-  receive, and cumulative ECN counts reported in 1-RTT ACKs
+- [~] `ecn` — RFC 9000 §13.4 ECT(0) marking on send, IP_TOS cmsg reading on
+  receive, and cumulative ECN counts reported in 1-RTT ACKs are all
+  implemented and unit-tested, but the runner marks the case `?`: the
+  quic-go interop client itself declares `unsupported test case: ecn`
+  (verified against both the 2026-07-11 and 2026-07-18 client images), so
+  no end-to-end verdict is possible with this peer. An earlier note here
+  recorded the case as passing; no run log substantiates that, and the
+  entry is corrected to honest `[~]`
 - [ ] `ipv6` — not yet run (server is IPv4-only)
 - [ ] `v2` — not yet run (dedicated server mode not wired up)
 - [ ] `rebind-port` / `rebind-addr` — the server follows a confirmed
@@ -292,19 +302,20 @@ runs used kernel UDP sockets, so they are unit-tested but not interop-proven.
 
 ## Honest summary of the gaps
 
-- 10 of 22 QUIC interop testcases have not passed yet (both measurements
+- 8 of 22 QUIC interop testcases have not passed yet (both measurements
   have); only quic-go and webtransport-go have been used as peers.
-- Two testcases remain open under a narrower root cause than first
-  suspected: `handshakeloss` / `handshakecorruption` both show most of
-  50 sequential handshakes failing to complete under a 30% loss rate.
-  The server's own handshake flight had no timer-driven retransmit (it
-  only replayed on a client-triggered retransmit) and now does, but the
-  pass rate did not move -- comparing before/after showed the actual
-  bottleneck is downstream of the handshake: post-confirm retransmission
-  converges too slowly under that loss rate for the interop client's own
-  idle timeout, a distinct gap from the outage recovery `blackhole`
-  covers (2 s full outage, steady state) and which now passes, sharing
-  its root cause with the `goodput` throughput stall below.
+- `handshakeloss` / `handshakecorruption` now pass all 50 handshakes.
+  Getting there surfaced three distinct loss-recovery gaps, each fixed
+  and regression-pinned: a boot-flight resend replayed only the
+  still-unsent tail of the Handshake flight (one lost Handshake datagram
+  deadlocked the handshake); the one-time confirmation packet (SETTINGS +
+  session ticket + HANDSHAKE_DONE) was never retransmitted when its one
+  datagram was lost; and a split ClientHello still missing a piece was
+  never acknowledged at all, so the client's own 5 s handshake idle
+  timer expired before its retransmits could deliver the missing half.
+- `ecn` cannot get an end-to-end verdict from the current peer: the
+  quic-go interop client itself refuses the testcase (see the entry
+  above), so the implementation remains unit-tested only.
 - `multiplexing` is functionally correct (verified live: the server
   raises its advertised stream limit as requests complete, and 98% of
   1999 concurrently requested files finish) but misses the interop
