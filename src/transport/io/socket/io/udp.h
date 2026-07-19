@@ -111,6 +111,14 @@ typedef struct {
   quic_mspan       buf; /**< in: destination buffer; unused bytes untouched */
   quic_sockaddr_in src; /**< out: datagram's source address */
   u32              len; /**< out: bytes received into buf.p */
+  /** out: RFC 3168 ECN codepoint of the received IP header (0 = Not-ECT,
+   * 1 = ECT(1), 2 = ECT(0), 3 = CE), read from the IP_TOS cmsg when
+   * IP_RECVTOS is enabled on the socket (wired_udp_ect0_enable does not
+   * itself enable it -- see its doc). 0 when no cmsg was present, the cmsg
+   * was truncated (MSG_CTRUNC), or the receive path (e.g.
+   * wired_udp_recvmmsg_fallback) has no cmsg support at all -- always the
+   * safe "not ECN-marked" reading, never a false ECT/CE count. */
+  u8 ecn;
 } quic_mmsg_buf;
 
 /** Receive up to count datagrams in one recvmmsg() syscall (Linux GRO-style
@@ -137,6 +145,31 @@ i64 wired_udp_recvmmsg(i64 fd, quic_mmsg_buf* bufs, usz count);
  * @param count number of slots in bufs
  * @return number of datagrams received (0..count). */
 i64 wired_udp_recvmmsg_fallback(i64 fd, quic_mmsg_buf* bufs, usz count);
+
+/** Enable ECT(0) marking (RFC 3168, RFC 9000 13.4.1) on every packet fd sends:
+ * sets the IPv4 TOS byte's low 2 bits to 0b10 via IP_TOS (Linux uapi in.h).
+ * RFC 9000 13.4.1 recommends ECT(0) as the default codepoint; this SDK never
+ * sends ECT(1) (see udp.c's cmsg reader, which still accepts ECT(1) on
+ * receive for a peer that does).
+ * ponytail: no fallback path on setsockopt failure -- the error propagates
+ * to the caller as-is (T-018). quic-interop-runner's execution environment
+ * (Linux container, IPv4 UDP) has IP_TOS/IP_RECVTOS available unconditionally,
+ * so a degraded-but-functional non-ECN send path is out of this SDK's scope;
+ * add one if a real deployment target ever lacks IP_TOS.
+ * @param fd the socket fd
+ * @return 0 on success, or a negative errno. */
+i64 wired_udp_ect0_enable(i64 fd);
+
+/** Enable IP_RECVTOS on fd (Linux uapi in.h) so wired_udp_recvmmsg/
+ * wired_udp_recvmmsg_nowait attach each received datagram's ECN codepoint
+ * into quic_mmsg_buf.ecn via an IP_TOS cmsg. Independent of
+ * wired_udp_ect0_enable: a socket may receive ECN reports without marking
+ * its own outgoing packets, or vice versa.
+ * ponytail: no fallback on failure, same scope note as wired_udp_ect0_enable
+ * (T-018).
+ * @param fd the socket fd
+ * @return 0 on success, or a negative errno. */
+i64 wired_udp_recvtos_enable(i64 fd);
 
 /** Enable SO_REUSEPORT on fd so multiple sockets (e.g. one per worker
  * process) can bind the same port; the kernel shards incoming datagrams
