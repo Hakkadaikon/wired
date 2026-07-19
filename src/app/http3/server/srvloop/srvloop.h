@@ -6,6 +6,7 @@
 #include "common/bytes/span/span.h"
 #include "tls/handshake/roles/server/server.h"
 #include "transport/conn/pnspace/pnspaces/recv_spaces.h"
+#include "transport/packet/frame/frame/connctl.h"
 #include "transport/recovery/detect/recovery/ackpolicy.h"
 
 /** @file
@@ -439,6 +440,17 @@ typedef struct {
    * across steps by this loop itself, same convention as max_data_seen_
    * flag: this step's observation only. */
   int streams_blocked_seen_flag;
+  /** RFC 9000 8.2.2/19.18: the 8-byte data of a PATH_RESPONSE frame seen in
+   * any 1-RTT payload opened this step (gather_path_response in dispatch.c),
+   * valid only when path_response_seen_flag is set. This loop has no notion
+   * of path validation (that lives in srvrun_conn.migrate, srvrun.c) -- it
+   * only latches the raw bytes, mirroring max_data_seen's split of
+   * responsibility (gather here, interpret in the caller). */
+  u8  path_response_data[QUIC_PATH_DATA];
+  int path_response_seen_flag; /**< 1 once path_response_data was set this
+                                * step; not reset across steps by this loop
+                                * itself, same convention as max_data_seen_
+                                * flag and streams_blocked_seen_flag. */
 } wired_srvloop;
 
 /** Register the app response-body builder; pass 0 to clear (body-less 200).
