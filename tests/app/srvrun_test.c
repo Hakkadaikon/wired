@@ -2141,6 +2141,235 @@ static void test_srvrun_pace_burst_no_data_terminates(void) {
   CHECK(1); /* reaching here at all is the assertion */
 }
 
+/* @file
+ * RFC 9002 7.5: "Probe packets MUST NOT be blocked by the congestion
+ * controller" applies to pacing too, not just cwnd -- an RTT spike (a real
+ * blackhole off-period's delayed ACK) can push next_send_ms far into the
+ * future and silently swallow the one send (the PTO probe) that would
+ * recover the connection. */
+
+/* Arm sess with one chunk, take+send it (now in-flight), then fire its PTO
+ * so the slice moves to requeue -- the shared setup every probe-pacing test
+ * below needs. */
+static void sr_pace_arm_and_fire_pto(wired_sendsess* sess, u8* body, usz n) {
+  wired_sendq_slice sl;
+  wired_sendsess_arm(sess, body, n, SRVRUN_CHUNK);
+  CHECK(wired_sendsess_take(sess, &sl) == 1);
+  CHECK(wired_sendsess_sent(sess, &sl, 0, 0) == 1);
+  CHECK(wired_sendsess_pto_fire(sess, SRVRUN_PTO_MAX) == 1);
+}
+
+/* T-001: a queued PTO probe sends even though next_send_ms is far in the
+ * future (the RTT-spike scenario) -- srvrun_pump_round_gated must not gate
+ * it on pacing. */
+static void test_srvrun_pace_probe_bypasses_pacing_gate(void) {
+  static u8     body[SRVRUN_CHUNK];
+  struct lp_fix f;
+  srvrun_conn   c;
+  quic_obuf     ob = {0};
+  u8            obuf[1024];
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.srtt_ms                = 30;
+  c.next_send_ms           = 1000000; /* far future: pacing alone would block */
+  c.resp[0].in_use         = 1;
+  c.resp[0].stream_id      = 0;
+  c.resp[0].stream_credit  = sizeof body;
+  sr_pace_arm_and_fire_pto(&c.resp[0].sess, body, sizeof body);
+  CHECK(c.resp[0].sess.requeue_n == 1);
+  {
+    srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                       &g_srvrun_env, 0, 0, 0, 0, 0};
+    srvrun_state    st  = {0, &c};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 1000};
+    CHECK(srvrun_pump_round_gated(&ctx, &c) == 1);
+  }
+  CHECK(c.resp[0].sess.requeue_n == 0); /* the probe actually went out */
+}
+
+/* T-002/T-006/T-011: with no probe queued (ordinary new-data send), a
+ * far-future next_send_ms still blocks the round the normal way --
+ * regression for the existing pacing behavior. */
+static void test_srvrun_pace_no_probe_still_gated(void) {
+  static u8     body[SRVRUN_CHUNK];
+  struct lp_fix f;
+  srvrun_conn   c;
+  quic_obuf     ob = {0};
+  u8            obuf[1024];
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.srtt_ms               = 30;
+  c.next_send_ms          = 1000000;
+  c.resp[0].in_use        = 1;
+  c.resp[0].stream_id     = 0;
+  c.resp[0].stream_credit = sizeof body;
+  wired_sendsess_arm(&c.resp[0].sess, body, sizeof body, SRVRUN_CHUNK);
+  CHECK(c.resp[0].sess.requeue_n == 0);
+  {
+    srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                       &g_srvrun_env, 0, 0, 0, 0, 0};
+    srvrun_state    st  = {0, &c};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 1000};
+    CHECK(srvrun_pump_round_gated(&ctx, &c) == 0);
+  }
+  CHECK(c.resp[0].sess.q.cur == 0); /* nothing sent, still gated */
+}
+
+/* T-005: one slot holds a probe, a sibling slot has fresh sendq data --
+ * the round-level bypass (srvrun_any_requeued) lets the WHOLE round through,
+ * so the sibling's new data goes out in the same pass as the probe (the
+ * existing "one paced send per whole pass" design, T-005's documented
+ * consequence). */
+static void test_srvrun_pace_mixed_probe_and_new_data_round(void) {
+  static u8     probe_body[SRVRUN_CHUNK];
+  static u8     new_body[SRVRUN_CHUNK];
+  struct lp_fix f;
+  srvrun_conn   c;
+  quic_obuf     ob = {0};
+  u8            obuf[1024];
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.srtt_ms                = 30;
+  c.next_send_ms           = 1000000;
+  c.resp[0].in_use         = 1;
+  c.resp[0].stream_id      = 0;
+  c.resp[0].stream_credit  = sizeof probe_body;
+  sr_pace_arm_and_fire_pto(&c.resp[0].sess, probe_body, sizeof probe_body);
+  c.resp[1].in_use        = 1;
+  c.resp[1].stream_id     = 4;
+  c.resp[1].stream_credit = sizeof new_body;
+  wired_sendsess_arm(&c.resp[1].sess, new_body, sizeof new_body, SRVRUN_CHUNK);
+  {
+    srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                       &g_srvrun_env, 0, 0, 0, 0, 0};
+    srvrun_state    st  = {0, &c};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 1000};
+    CHECK(srvrun_pump_round_gated(&ctx, &c) == 1);
+  }
+  CHECK(c.resp[0].sess.requeue_n == 0);       /* probe sent */
+  CHECK(c.resp[1].sess.q.cur == sizeof new_body); /* sibling's new data too */
+}
+
+/* T-003: a probe still goes through the log gate (srvrun_sess_log_room)
+ * even though it bypasses pacing -- wired_sendsess_pto_fire always frees
+ * the log entry it moves to requeue (sendsess_requeue clears that entry's
+ * inflight flag), so a queued probe's own log gate can never actually fail
+ * (documented as a deliberate invariant, not dead code, at srvrun_pump_
+ * gate_ok's definition). This confirms the probe-pacing bypass added here
+ * doesn't skip that gate: even with the log otherwise completely full
+ * (every other entry still in flight), the probe -- and only the probe --
+ * still sends. */
+static void test_srvrun_pace_probe_bypass_still_respects_log_gate(void) {
+  static u8     body[WIRED_SENDSESS_LOG * SRVRUN_CHUNK];
+  struct lp_fix f;
+  srvrun_conn   c;
+  quic_obuf     ob = {0};
+  u8            obuf[1024];
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.srtt_ms               = 30;
+  c.next_send_ms          = 1000000;
+  c.resp[0].in_use        = 1;
+  c.resp[0].stream_id     = 0;
+  c.resp[0].stream_credit = sizeof body;
+  wired_sendsess_arm(&c.resp[0].sess, body, sizeof body, SRVRUN_CHUNK);
+  {
+    wired_sendq_slice sl;
+    for (usz i = 0; i < WIRED_SENDSESS_LOG; i++) {
+      CHECK(wired_sendsess_take(&c.resp[0].sess, &sl) == 1);
+      CHECK(wired_sendsess_sent(&c.resp[0].sess, &sl, i, 0) == 1);
+    }
+  }
+  CHECK(wired_sendsess_pto_fire(&c.resp[0].sess, SRVRUN_PTO_MAX) == 1);
+  CHECK(c.resp[0].sess.requeue_n == 1);
+  {
+    srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                       &g_srvrun_env, 0, 0, 0, 0, 0};
+    srvrun_state    st  = {0, &c};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 1000};
+    CHECK(srvrun_pump_round_gated(&ctx, &c) == 1);
+  }
+  CHECK(c.resp[0].sess.requeue_n == 0); /* the probe's own slot always has
+                                          * room -- pto_fire freed it */
+}
+
+/* T-004 boundary: requeue_n transitions from 0 (gated) to 1 (bypassed) the
+ * instant a PTO fires -- same connection, same pacing state, only the
+ * requeue count changes. */
+static void test_srvrun_pace_probe_bypass_activates_on_requeue(void) {
+  static u8     body[SRVRUN_CHUNK];
+  struct lp_fix f;
+  srvrun_conn   c;
+  quic_obuf     ob = {0};
+  u8            obuf[1024];
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.srtt_ms      = 30;
+  c.next_send_ms = 1000000;
+  {
+    srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                       &g_srvrun_env, 0, 0, 0, 0, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, 0, 1000};
+    CHECK(c.resp[0].sess.requeue_n == 0);
+    CHECK(srvrun_pace_or_probe_ok(&ctx, &c) == 0); /* gated: no probe yet */
+    c.resp[0].in_use        = 1;
+    c.resp[0].stream_id     = 0;
+    c.resp[0].stream_credit = sizeof body;
+    sr_pace_arm_and_fire_pto(&c.resp[0].sess, body, sizeof body);
+    CHECK(srvrun_pace_or_probe_ok(&ctx, &c) == 1); /* bypassed: probe queued */
+  }
+}
+
+/* T-007: a probe round that actually sends still schedules next_send_ms the
+ * normal way afterward -- srvrun_pace_next isn't skipped just because the
+ * round happened to be probe-triggered. */
+static void test_srvrun_pace_probe_round_still_schedules_next(void) {
+  static u8     body[SRVRUN_CHUNK];
+  struct lp_fix f;
+  srvrun_conn   c;
+  quic_obuf     ob = {0};
+  u8            obuf[1024];
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.cc.cwnd                = 12000; /* interval well past SRVRUN_PTO_MS */
+  c.srtt_ms                = 4000;
+  c.next_send_ms           = 1000000;
+  c.resp[0].in_use         = 1;
+  c.resp[0].stream_id      = 0;
+  c.resp[0].stream_credit  = sizeof body;
+  sr_pace_arm_and_fire_pto(&c.resp[0].sess, body, sizeof body);
+  {
+    srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                       &g_srvrun_env, 0, 0, 0, 0, 0};
+    srvrun_state    st  = {0, &c};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 1000};
+    CHECK(srvrun_pump_round_gated(&ctx, &c) == 1);
+  }
+  /* pacing was rescheduled from now (1000) by the real interval
+   * (5*1200*4000/(4*12000) = 500ms), not left at the stale far-future value
+   * the probe bypassed */
+  CHECK(c.next_send_ms == 1500);
+}
+
+/* T-008 regression: srvrun_pace_within_poll_tick's own fast path (no probe
+ * involved) is unaffected by the probe-bypass addition -- a sub-poll-tick
+ * interval still lets a plain new-data round through without any probe. */
+static void test_srvrun_pace_within_poll_tick_unaffected_by_probe_change(void) {
+  srvrun_conn c = {0};
+  quic_cc_init(&c.cc);
+  c.cc.cwnd = 5000000;
+  c.srtt_ms = 30;
+  {
+    srvrun_cfg      cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                           &g_srvrun_env, 0, 0, 0, 0, 0};
+    srvrun_step_ctx ctx = {&cfg, 0, 0, 1000};
+    CHECK(srvrun_pace_or_probe_ok(&ctx, &c) == 1); /* srtt_ms path, unpaced */
+    c.next_send_ms = 1000;
+    srvrun_pace_next(&ctx, &c);
+    CHECK(c.next_send_ms == 1000); /* still sub-poll-tick, unchanged */
+  }
+}
+
 /* POLLING DRIVER (tasks/polling-driver-plan.md Phase 2): busy_poll/
  * so_busy_poll_us opt-in knobs, threaded through srvrun_cfg as its 10th
  * (trailing) field so every existing 9-field positional initializer above
@@ -6925,11 +7154,16 @@ static void test_srvrun_pto_noop_when_nothing_inflight(void) {
   }
 }
 
-/* RFC 9002 only exempts PTO probes from the congestion controller (7.5);
- * pacing (7.7) is a separate mechanism this change must not also bypass.
- * A queued probe still has to wait for srvrun_pace_ok like any other send
- * in the same round-robin pass. */
-static void test_srvrun_pto_probe_still_gated_by_pacing(void) {
+/* RFC 9002 7.5's "MUST NOT be blocked by the congestion controller" covers
+ * pacing (7.7) too, not just cwnd -- a queued probe goes out even with the
+ * pacing deadline far in the future (srvrun_pace_or_probe_ok). An earlier
+ * version of this SDK exempted PTO probes from cwnd but still gated them on
+ * pacing; that was itself found to stall a real blackhole interop run (an
+ * RTT spike from a link outage pushes next_send_ms far out, silently
+ * swallowing the one send that would recover the connection) and was
+ * corrected -- see test_srvrun_pace_probe_bypasses_pacing_gate for the
+ * dedicated coverage of that fix. */
+static void test_srvrun_pto_probe_bypasses_pacing_too(void) {
   static u8     body[SRVRUN_CHUNK];
   struct lp_fix f;
   srvrun_conn   c;
@@ -6950,13 +7184,12 @@ static void test_srvrun_pto_probe_still_gated_by_pacing(void) {
     srvrun_pump_sess(&ctx, 0);
     CHECK(wired_sendsess_pto_fire(&c.resp[0].sess, SRVRUN_PTO_MAX));
     CHECK(c.resp[0].sess.requeue_n == 1);
-    /* an RTT sample exists and the pacing deadline is far in the future:
-     * srvrun_pace_ok must say no, so the queued probe stays queued despite
-     * cwnd being wide open. */
+    /* an RTT sample exists and the pacing deadline is far in the future --
+     * the queued probe still goes out despite it. */
     c.srtt_ms      = 40;
     c.next_send_ms = ctx.now_ms + 1000;
     srvrun_pump_sess(&ctx, 0);
-    CHECK(c.resp[0].sess.requeue_n == 1); /* pacing still blocked it */
+    CHECK(c.resp[0].sess.requeue_n == 0); /* pacing did not block it */
   }
 }
 
@@ -8188,7 +8421,7 @@ void test_srvrun(void) {
   test_srvrun_pto_bypass_does_not_leak_to_sibling_new_sends();
   test_srvrun_pto_requeue_frees_inflight_bytes_before_resend();
   test_srvrun_pto_noop_when_nothing_inflight();
-  test_srvrun_pto_probe_still_gated_by_pacing();
+  test_srvrun_pto_probe_bypasses_pacing_too();
   test_srvrun_pto_resend_breaks_cwnd_deadlock();
   test_srvrun_recv_max_data_then_send_unblocks();
   test_srvrun_max_stream_data_unknown_stream_is_noop();
@@ -8254,6 +8487,13 @@ void test_srvrun(void) {
   test_srvrun_pace_subms_still_unlimited();
   test_srvrun_pace_small_response_unaffected();
   test_srvrun_pace_burst_no_data_terminates();
+  test_srvrun_pace_probe_bypasses_pacing_gate();
+  test_srvrun_pace_no_probe_still_gated();
+  test_srvrun_pace_mixed_probe_and_new_data_round();
+  test_srvrun_pace_probe_bypass_still_respects_log_gate();
+  test_srvrun_pace_probe_bypass_activates_on_requeue();
+  test_srvrun_pace_probe_round_still_schedules_next();
+  test_srvrun_pace_within_poll_tick_unaffected_by_probe_change();
   test_srvrun_shutdown_rejects_new_initial();
   test_srvrun_shutdown_refuses_slot_claim();
   test_srvrun_owes_goaway_once();
