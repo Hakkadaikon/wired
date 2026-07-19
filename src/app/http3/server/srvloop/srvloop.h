@@ -431,6 +431,14 @@ typedef struct {
   u64 wt_released_watermark;
   /** Same as wt_released_watermark, for the separate wt_uni_streams table. */
   u64 wt_uni_released_watermark;
+  /** RFC 9000 19.14: 1 once a client bidi STREAMS_BLOCKED frame was seen in
+   * any 1-RTT payload opened this step (gather_streams_blocked in
+   * dispatch.c) -- the peer's own reported limit value is not latched
+   * (srvrun.c computes the re-grant from its own receive-side slot state,
+   * RFC 9000 4.6/19.11, rather than trusting the peer's claim). Not reset
+   * across steps by this loop itself, same convention as max_data_seen_
+   * flag: this step's observation only. */
+  int streams_blocked_seen_flag;
 } wired_srvloop;
 
 /** Register the app response-body builder; pass 0 to clear (body-less 200).
