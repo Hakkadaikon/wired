@@ -11,7 +11,7 @@
 
 /* A bound (non-listening-peer) socket, used as the recv side. Returns 1 with
  * the fd, or 0 (benign skip) if the sandbox forbids sockets. */
-static int sp_open_socket(i64* sfd, quic_sockaddr_in* srv) {
+static int sp_open_socket(i64* sfd, quic_sockaddr* srv) {
   *sfd = wired_udp_socket();
   if (*sfd < 0) return 0;
   wired_udp_addr(srv, 4438, (const u8[4]){127, 0, 0, 1});
@@ -29,10 +29,10 @@ static int sp_open_socket(i64* sfd, quic_sockaddr_in* srv) {
  * blocks/hangs across repeated calls — the non-blocking contract holds, not
  * just once. */
 static void test_srvpoll_spin_step_empty_never_blocks(void) {
-  i64              sfd;
-  quic_sockaddr_in srv;
-  quic_mmsg_buf    bufs[2];
-  u8               storage[2][16];
+  i64           sfd;
+  quic_sockaddr srv;
+  quic_mmsg_buf bufs[2];
+  u8            storage[2][16];
   if (!sp_open_socket(&sfd, &srv)) return; /* sandbox: skip */
   for (usz i = 0; i < 2; i++) bufs[i].buf = quic_mspan_of(storage[i], 16);
   for (int i = 0; i < 1000; i++) {
@@ -46,10 +46,10 @@ static void test_srvpoll_spin_step_empty_never_blocks(void) {
  * same positive count wired_udp_recvmmsg_nowait itself would have returned
  * (the pause-on-empty behavior must not suppress or alter a real result). */
 static void test_srvpoll_spin_step_data_returns_count_unchanged(void) {
-  i64              sfd, cfd;
-  quic_sockaddr_in srv;
-  quic_mmsg_buf    bufs[2];
-  u8               storage[2][16];
+  i64           sfd, cfd;
+  quic_sockaddr srv;
+  quic_mmsg_buf bufs[2];
+  u8            storage[2][16];
   if (!sp_open_socket(&sfd, &srv)) return; /* sandbox: skip */
   cfd = wired_udp_socket();
   if (cfd < 0) {
@@ -75,7 +75,7 @@ static void test_srvpoll_spin_step_data_returns_count_unchanged(void) {
 /* TEST 3: consecutive empty spins grow the backoff counter. */
 static void test_srvpoll_backoff_grows_on_consecutive_empty(void) {
   i64                   sfd;
-  quic_sockaddr_in      srv;
+  quic_sockaddr         srv;
   quic_mmsg_buf         bufs[2];
   u8                    storage[2][16];
   wired_srvpoll_backoff bo = {0};
@@ -93,7 +93,7 @@ static void test_srvpoll_backoff_grows_on_consecutive_empty(void) {
  * no leftover backoff carries into a burst. */
 static void test_srvpoll_backoff_resets_on_data(void) {
   i64                   sfd, cfd;
-  quic_sockaddr_in      srv;
+  quic_sockaddr         srv;
   quic_mmsg_buf         bufs[2];
   u8                    storage[2][16];
   wired_srvpoll_backoff bo = {0};
@@ -118,7 +118,7 @@ static void test_srvpoll_backoff_resets_on_data(void) {
  * consecutive empty spins. */
 static void test_srvpoll_backoff_caps_at_maximum(void) {
   i64                   sfd;
-  quic_sockaddr_in      srv;
+  quic_sockaddr         srv;
   quic_mmsg_buf         bufs[2];
   u8                    storage[2][16];
   wired_srvpoll_backoff bo = {0};

@@ -2,7 +2,7 @@
 
 /* No real socket: recvfrom on a bad fd must fail without touching src. */
 static void test_recvfrom_badfd(void) {
-  quic_sockaddr_in src;
+  quic_sockaddr src;
   wired_udp_addr(
       &src, 443,
       (const u8[4]){9, 9, 9, 9}); /* sentinel the kernel must not need */
@@ -11,8 +11,8 @@ static void test_recvfrom_badfd(void) {
   /* EBADF (-9) on Linux; any negative errno is acceptable. */
   CHECK(r < 0);
   /* Failed recvfrom leaves the sentinel intact. */
-  CHECK(src.family == WIRED_AF_INET);
-  CHECK(src.addr_be == 0x09090909);
+  CHECK(src.family == WIRED_AF_INET6);
+  CHECK(wired_udp_addr4_be(&src) == 0x09090909);
 }
 
 /* close wrapper links and rejects a bad fd with a negative errno. */

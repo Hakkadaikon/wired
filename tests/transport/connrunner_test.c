@@ -37,7 +37,7 @@ static void arm(quic_connio* io) {
 static const u8 g_dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
 
 static void mk_runner(quic_connrunner* r, int is_server) {
-  quic_sockaddr_in        peer = {0};
+  quic_sockaddr           peer = {0};
   quic_connrunner_init_in in   = {
       -1, &peer, QUIC_LEVEL_INITIAL, 1u << 20, 64, is_server, 0xc3, 1u << 20};
   quic_connrunner_init(r, quic_span_of(g_dcid, 8), &in);

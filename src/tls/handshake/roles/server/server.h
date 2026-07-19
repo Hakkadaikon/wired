@@ -45,7 +45,7 @@ enum {
  * wired_server_init. */
 typedef struct {
   i64               fd;    /**< UDP socket; <0 until a socket is opened */
-  quic_sockaddr_in  peer;  /**< the client's UDP address (set by pump) */
+  quic_sockaddr     peer;  /**< the client's UDP address (set by pump) */
   quic_sdrv         sdrv;  /**< server-side TLS handshake driver */
   quic_keysched     sched; /**< RFC 8446 7.1 order-driven key schedule */
   quic_keyset       keys;  /**< per-protection-level QUIC key sets */

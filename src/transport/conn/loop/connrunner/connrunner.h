@@ -20,11 +20,11 @@
   1500 /* RFC 9000 14: a conservative datagram bound */
 
 typedef struct {
-  i64              fd;
-  quic_sockaddr_in peer;
-  quic_evloop      loop; /* the deciding state machine */
-  quic_connio      io;   /* the real crypto / frame dispatch */
-  quic_rtxbytes    rtx;  /* RFC 9002 13.3: real frame bytes kept for resend */
+  i64           fd;
+  quic_sockaddr peer;
+  quic_evloop   loop; /* the deciding state machine */
+  quic_connio   io;   /* the real crypto / frame dispatch */
+  quic_rtxbytes rtx;  /* RFC 9002 13.3: real frame bytes kept for resend */
   quic_sentmeta sent; /* RFC 9002 A.1: real sent-packet metadata + in-flight */
   u64           rtx_pn; /* lost pn captured pre-step, for the resend's bytes */
   int           rtx_held; /* 1 if a lost pn is captured for this send */
@@ -45,14 +45,14 @@ typedef struct {
 
 /* Everything quic_connrunner_init needs besides the runner and the DCID. */
 typedef struct {
-  i64                     fd;
-  const quic_sockaddr_in* peer;
-  int                     level;
-  u64                     cwnd;
-  usz                     send_len;
-  int                     is_server;
-  u8                      byte0;
-  u64                     initial_max_data;
+  i64                  fd;
+  const quic_sockaddr* peer;
+  int                  level;
+  u64                  cwnd;
+  usz                  send_len;
+  int                  is_server;
+  u8                   byte0;
+  u64                  initial_max_data;
 } quic_connrunner_init_in;
 
 /* Bind the runner to fd and peer; init the loop at `level` (cwnd open,
