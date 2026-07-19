@@ -785,13 +785,17 @@ static void test_srvboot_partial_ack_builds_and_advances_pn(void) {
   usz               n = sb_build_raw_ch(&c, ch, sizeof ch);
   usz n1 = sb_seal_ch_chunk(dg1, sizeof dg1, quic_span_of(ch, 60), 0, 7);
   (void)n;
+  usz an;
   wired_srvboot_acc_reset(&a);
   CHECK(wired_srvboot_acc_feed(&a, quic_mspan_of(dg1, n1)) == 1);
   CHECK(wired_srvboot_acc_complete(&a) == 0);
   CHECK(a.ack_pn == 2);
-  CHECK(
-      wired_srvboot_partial_ack(&a, quic_span_of(g_scid, 6), out, sizeof out) >
-      0);
+  an = wired_srvboot_partial_ack(&a, quic_span_of(g_scid, 6), out, sizeof out);
+  CHECK(an > 0);
+  /* not ack-eliciting, so no 1200-byte floor (RFC 9000 14.1) -- and a
+   * padded ack burned ~25x more RFC 9000 8.1 budget, starving the
+   * amplificationlimit flight's withheld tail */
+  CHECK(an < 200);
   CHECK(a.ack_pn == 3);
   CHECK(
       wired_srvboot_partial_ack(&a, quic_span_of(g_scid, 6), out, sizeof out) >

@@ -77,15 +77,13 @@ static void pad_initial_frames(quic_obuf* frames, usz floor) {
  * derived from in->dcid), with in->hdr_dcid as the header's Destination
  * Connection ID (RFC 9000 7.2: the client's SCID, never the key-derivation
  * DCID -- the peer discards a reply addressed to a CID it does not own). */
-static int srvwire_initial_tx(
+static int srvwire_initial_tx_lean(
     const quic_srvwire_seal_in* in, quic_obuf* fb, quic_obuf* out) {
   quic_initial_keys ck, sk;
   quic_aes128       hp;
   usz               total;
   quic_initpkt_derive(in->dcid, &ck, &sk);
   quic_aes128_init(&hp, sk.hp);
-  pad_initial_frames(
-      fb, init_payload_floor((u8)in->hdr_dcid.n, (u8)in->scid.n));
   quic_protect_keys k = {&sk, &hp};
   quic_tx_desc      t = {
       0xc3,
@@ -99,6 +97,15 @@ static int srvwire_initial_tx(
   if (total == 0) return 0;
   out->len = total;
   return 1;
+}
+
+/* Pad to the 1200-byte floor, then seal (the path every CRYPTO-carrying
+ * server Initial takes). */
+static int srvwire_initial_tx(
+    const quic_srvwire_seal_in* in, quic_obuf* fb, quic_obuf* out) {
+  pad_initial_frames(
+      fb, init_payload_floor((u8)in->hdr_dcid.n, (u8)in->scid.n));
+  return srvwire_initial_tx_lean(in, fb, out);
 }
 
 /* RFC 9001 5.2 */
@@ -119,6 +126,15 @@ int quic_srvwire_seal_initial_frames(
   if (!quic_put_bytes(quic_mspan_of(fb.p, fb.cap), &fb.len, in->tls)) return 0;
   if (!append_ack(&fb, in->ack_pn)) return 0;
   return srvwire_initial_tx(in, &fb, out);
+}
+
+int quic_srvwire_seal_initial_frames_lean(
+    const quic_srvwire_seal_in* in, quic_obuf* out) {
+  u8        frames[64];
+  quic_obuf fb = quic_obuf_of(frames, sizeof frames);
+  if (!quic_put_bytes(quic_mspan_of(fb.p, fb.cap), &fb.len, in->tls)) return 0;
+  if (!append_ack(&fb, in->ack_pn)) return 0;
+  return srvwire_initial_tx_lean(in, &fb, out);
 }
 
 /* RFC 9001 5.2 */

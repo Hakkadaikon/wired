@@ -56,6 +56,15 @@ int quic_srvwire_seal_initial(const quic_srvwire_seal_in* in, quic_obuf* out);
 int quic_srvwire_seal_initial_frames(
     const quic_srvwire_seal_in* in, quic_obuf* out);
 
+/* Same as quic_srvwire_seal_initial_frames but WITHOUT the 1200-byte PADDING
+ * floor. Only for packets that are not ack-eliciting (e.g. an ACK-only
+ * Initial): RFC 9000 14.1's expansion rule does not apply to those, and the
+ * small datagram matters -- it spends ~25x less of the RFC 9000 8.1 antiamp
+ * budget than a padded one (a padded partial-ClientHello ack starved the
+ * amplificationlimit flight's tail by exactly its padding). */
+int quic_srvwire_seal_initial_frames_lean(
+    const quic_srvwire_seal_in* in, quic_obuf* out);
+
 /* The client's original DCID (Initial keys are derived from it) and the
  * packet number the caller expects (currently unused, reserved). */
 typedef struct {
