@@ -5,7 +5,7 @@
 > **At a glance** — all 42 implemented specs are exercised by the unit
 > suite (460+ test files, every commit); 19 of them are additionally pinned
 > to official/golden vectors; three wire-facing parsers are fuzzed nightly;
-> and interop against real independent clients has proven 12 of 22 QUIC
+> and interop against real independent clients has proven 13 of 22 QUIC
 > testcases plus both measurements (vs quic-go), with two more
 > functionally correct but unverdictable (one short of a fixed runner
 > timeout, one refused by the peer client), and 4 of 7 WebTransport
@@ -77,7 +77,9 @@ Legend:
   no end-to-end verdict is possible with this peer. An earlier note here
   recorded the case as passing; no run log substantiates that, and the
   entry is corrected to honest `[~]`
-- [ ] `ipv6` — not yet run (server is IPv4-only)
+- [x] `ipv6` — transfer over native IPv6; the socket layer is dual-stack
+  (one AF_INET6 socket, IPV6_V6ONLY off, IPv4 peers v4-mapped), so every
+  other case still runs over IPv4 unchanged
 - [ ] `v2` — not yet run (dedicated server mode not wired up)
 - [ ] `rebind-port` / `rebind-addr` — the server follows a confirmed
   connection's peer address across a rebind and sends a PATH_CHALLENGE on
@@ -134,14 +136,11 @@ is exactly what this tier exists for.
 **RFC 9002 — Loss Detection and Congestion Control**
 - [x] Unit — 28 test files: RTT estimation, packet/time-threshold loss,
   PTO backoff, retransmission selection, in-flight accounting
-- [x] Interop — `transferloss` / `transfercorruption` / `blackhole` green
-  vs quic-go (spec publishes no official vectors); `handshakeloss` /
-  `handshakecorruption` (loss/corruption during the handshake, not
-  steady-state transfer) still fail -- the server now retransmits its
-  own handshake flight on a timer (previously it only replayed on a
-  client-triggered retransmit), but the pass rate did not improve; the
-  actual bottleneck turned out to be post-handshake retransmission speed
-  under the test's 30% loss rate, a separate gap
+- [x] Interop — `transferloss` / `transfercorruption` / `blackhole` /
+  `handshakeloss` / `handshakecorruption` green vs quic-go (the spec
+  publishes no official vectors); the handshake-phase pair took three
+  loss-recovery fixes (whole-flight boot resend, confirmation replay,
+  partial-ClientHello acknowledgment -- see the interop entries above)
 
 **RFC 8999 — Version-Independent Properties**
 - [x] Unit — invariant header parsing, Version Negotiation packets
@@ -302,7 +301,7 @@ runs used kernel UDP sockets, so they are unit-tested but not interop-proven.
 
 ## Honest summary of the gaps
 
-- 8 of 22 QUIC interop testcases have not passed yet (both measurements
+- 7 of 22 QUIC interop testcases have not passed yet (both measurements
   have); only quic-go and webtransport-go have been used as peers.
 - `handshakeloss` / `handshakecorruption` now pass all 50 handshakes.
   Getting there surfaced three distinct loss-recovery gaps, each fixed
