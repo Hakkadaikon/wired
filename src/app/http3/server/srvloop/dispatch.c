@@ -11,6 +11,7 @@
 #include "app/http3/server/srvloop/srvloop.h"
 #include "common/bytes/util/bytes.h"
 #include "common/bytes/varint/varint.h"
+#include "transport/packet/frame/frame/connctl.h"
 #include "transport/packet/frame/frame/dispatch.h"
 #include "transport/packet/frame/frame/flowctl.h"
 #include "transport/packet/frame/frame/frame.h"
@@ -722,15 +723,47 @@ static void gather_one_max_data(wired_srvloop* l, quic_span frame) {
  * (srvrun.c computes the re-grant from its own slot state, not the peer's
  * claimed limit -- see streams_blocked_seen_flag's doc), so this just sets
  * the flag rather than decoding a value. Returns 1 if one was seen. */
-static int gather_streams_blocked(wired_srvloop* l, const u8* payload, usz len) {
+static int gather_streams_blocked(
+    wired_srvloop* l, const u8* payload, usz len) {
   quic_framewalk      it;
   quic_framewalk_item fr;
   int                 seen = 0;
   quic_framewalk_init(&it, payload, len);
   while (quic_framewalk_next(&it, &fr)) {
     if (quic_frame_classify(fr.type) != QUIC_FK_STREAMS_BLOCKED) continue;
-    seen                        = 1;
+    seen                         = 1;
     l->streams_blocked_seen_flag = 1;
+  }
+  return seen;
+}
+
+/* Decode one PATH_RESPONSE frame into l's latch, mirroring
+ * gather_one_max_data's split (loop body pulled out to keep the scanning
+ * loop's own CCN at the gate). A malformed/truncated frame is silently
+ * skipped, same policy as gather_one_max_data's decode failure. */
+static void gather_one_path_response(wired_srvloop* l, quic_span frame) {
+  if (!quic_path_decode(
+          frame.p, frame.n, QUIC_FRAME_PATH_RESPONSE, l->path_response_data))
+    return;
+  l->path_response_seen_flag = 1;
+}
+
+/* RFC 9000 8.2.2/19.18: scan this payload for a PATH_RESPONSE frame,
+ * mirroring gather_max_data's shape (latch presence + one fixed-size value,
+ * no running-high-water-mark comparison needed). A payload carrying more
+ * than one PATH_RESPONSE this step is not expected in practice (this server
+ * only ever has one challenge outstanding, srvrun_conn.migrate), so only the
+ * last one seen is kept -- exactly gather_one_max_data's own
+ * last-in-step-among-several convention for a single-slot latch. */
+static int gather_path_response(wired_srvloop* l, const u8* payload, usz len) {
+  quic_framewalk      it;
+  quic_framewalk_item fr;
+  int                 seen = 0;
+  quic_framewalk_init(&it, payload, len);
+  while (quic_framewalk_next(&it, &fr)) {
+    if (quic_frame_classify(fr.type) != QUIC_FK_PATH_RESPONSE) continue;
+    seen = 1;
+    gather_one_path_response(l, quic_span_of(fr.start, fr.remaining));
   }
   return seen;
 }
@@ -1067,12 +1100,14 @@ static int dispatch_gather_closes(
  * mirroring dispatch_gather_closes for the flow-control frame kinds. */
 static int dispatch_gather_flowctl(
     const wired_srvloop_dispatch_ctx* ctx, quic_span payload) {
-  int got_max_data, got_max_stream_data, got_streams_blocked;
+  int got_max_data, got_max_stream_data, got_streams_blocked, got_path_resp;
   if (!ctx->l) return 0;
   got_max_data        = gather_max_data(ctx->l, payload.p, payload.n);
   got_max_stream_data = gather_max_stream_data(ctx->l, payload.p, payload.n);
   got_streams_blocked = gather_streams_blocked(ctx->l, payload.p, payload.n);
-  return got_max_data | got_max_stream_data | got_streams_blocked;
+  got_path_resp       = gather_path_response(ctx->l, payload.p, payload.n);
+  return got_max_data | got_max_stream_data | got_streams_blocked |
+         got_path_resp;
 }
 
 /* RFC 9000 12.4 / 2.1, RFC 9114 6.2: a payload may lead with PADDING/ACK before
