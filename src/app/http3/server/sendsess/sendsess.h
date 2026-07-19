@@ -130,8 +130,9 @@ usz wired_sendsess_detect_lost(
     u64*            lost_pns,
     usz             cap);
 
-/** Fire one probe timeout (RFC 9002 6.2): requeue the oldest in-flight
- * slice so it retransmits with a fresh packet number and count the probe.
+/** Fire one probe timeout (RFC 9002 6.2): requeue the two oldest in-flight
+ * slices (6.2.4 allows up to two probe datagrams) so they retransmit with
+ * fresh packet numbers, and count the probe once.
  * Any ACK resets the count (wired_sendsess_ack).
  * @param s the session
  * @param max probes allowed since the last ACK

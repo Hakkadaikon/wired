@@ -212,9 +212,11 @@ static void test_sendsess_oldest_sent_ms(void) {
   CHECK(wired_sendsess_oldest_sent_ms(&s, &out) == 0);
 }
 
-/* A PTO probe requeues the oldest in-flight slice (smallest pn) so it goes
- * out again with a fresh packet number; younger packets stay in flight. */
-static void test_sendsess_pto_probes_oldest(void) {
+/* A PTO probe requeues the two oldest in-flight slices (smallest pns, RFC
+ * 9002 6.2.4: a sender may send up to two probe datagrams) so a lost tail
+ * recovers in parallel; younger packets stay in flight and the probe budget
+ * is spent once per fire, not once per slice. */
+static void test_sendsess_pto_probes_two_oldest(void) {
   u8                bytes[30];
   wired_sendsess    s;
   wired_sendq_slice sl;
@@ -224,10 +226,44 @@ static void test_sendsess_pto_probes_oldest(void) {
     CHECK(wired_sendsess_sent(&s, &sl, pn + 7, 0) == 1);
   }
   CHECK(wired_sendsess_pto_fire(&s, 5) == 1);
-  CHECK(s.requeue_n == 1);
-  CHECK(s.requeue[0].offset == 0); /* pn 7 carried offset 0: the oldest */
-  CHECK(wired_sendsess_inflight(&s) == 2);
+  CHECK(s.requeue_n == 2);
+  CHECK(s.requeue[0].offset == 0);  /* pn 7 carried offset 0: the oldest */
+  CHECK(s.requeue[1].offset == 10); /* pn 8: the second-oldest */
+  CHECK(wired_sendsess_inflight(&s) == 1);
   CHECK(s.pto_count == 1);
+}
+
+/* With exactly one slice in flight the probe requeues just that one and
+ * still succeeds -- the two-datagram allowance is a cap, not a demand. */
+static void test_sendsess_pto_single_inflight_probes_one(void) {
+  u8                bytes[10];
+  wired_sendsess    s;
+  wired_sendq_slice sl;
+  wired_sendsess_arm(&s, bytes, 10, 10);
+  wired_sendsess_take(&s, &sl);
+  wired_sendsess_sent(&s, &sl, 0, 0);
+  CHECK(wired_sendsess_pto_fire(&s, 5) == 1);
+  CHECK(s.requeue_n == 1);
+  CHECK(wired_sendsess_inflight(&s) == 0);
+  CHECK(s.pto_count == 1);
+}
+
+/* A requeue array with one free entry takes the oldest slice only; the
+ * second-oldest is dropped by the full array and simply stays in flight
+ * (no corruption, a later fire or loss pass picks it up again). */
+static void test_sendsess_pto_requeue_full_drops_second(void) {
+  u8                bytes[20];
+  wired_sendsess    s;
+  wired_sendq_slice sl;
+  wired_sendsess_arm(&s, bytes, 20, 10);
+  wired_sendsess_take(&s, &sl);
+  wired_sendsess_sent(&s, &sl, 0, 0);
+  wired_sendsess_take(&s, &sl);
+  wired_sendsess_sent(&s, &sl, 1, 0);
+  s.requeue_n = WIRED_SENDSESS_LOG - 1; /* one slot left */
+  CHECK(wired_sendsess_pto_fire(&s, 5) == 1);
+  CHECK(s.requeue_n == WIRED_SENDSESS_LOG);
+  CHECK(wired_sendsess_inflight(&s) == 1); /* the second stayed in flight */
 }
 
 /* An arriving ACK resets the PTO backoff counter. */
@@ -241,9 +277,13 @@ static void test_sendsess_pto_resets_on_ack(void) {
   wired_sendsess_take(&s, &sl);
   wired_sendsess_sent(&s, &sl, 1, 0);
   CHECK(wired_sendsess_pto_fire(&s, 5) == 1);
-  CHECK(wired_sendsess_pto_fire(&s, 5) == 1);
+  wired_sendsess_take(&s, &sl); /* re-send both requeued probe slices... */
+  wired_sendsess_sent(&s, &sl, 2, 0);
+  wired_sendsess_take(&s, &sl);
+  wired_sendsess_sent(&s, &sl, 3, 0);
+  CHECK(wired_sendsess_pto_fire(&s, 5) == 1); /* ...so this probes again */
   CHECK(s.pto_count == 2);
-  wired_sendsess_ack(&s, 0, 0);
+  wired_sendsess_ack(&s, 2, 2);
   CHECK(s.pto_count == 0);
 }
 
@@ -410,7 +450,9 @@ void test_sendsess(void) {
   test_sendsess_packet_threshold_requires_later_ack();
   test_sendsess_time_threshold_skipped_without_rtt_sample();
   test_sendsess_oldest_sent_ms();
-  test_sendsess_pto_probes_oldest();
+  test_sendsess_pto_probes_two_oldest();
+  test_sendsess_pto_single_inflight_probes_one();
+  test_sendsess_pto_requeue_full_drops_second();
   test_sendsess_pto_resets_on_ack();
   test_sendsess_pto_exhaustion_fails();
   test_sendsess_peek_ack_bytes();
