@@ -10,6 +10,7 @@
 #include "app/http3/server/sendsess/sendsess.h"
 #include "app/http3/server/sigterm/sigterm.h"
 #include "app/http3/server/srvbigbuf/srvbigbuf.h"
+#include "app/http3/server/srvloop/respond.h"
 #include "app/http3/server/srvloop/send.h"
 #include "app/http3/server/srvpoll/srvpoll.h"
 #include "app/http3/server/srvxdp/srvxdp.h"
@@ -4184,6 +4185,34 @@ static void srvrun_rebind_peer(const srvrun_step_ctx* ctx, srvrun_conn* c) {
   srvrun_arm_path_challenge(ctx->cfg, c);
 }
 
+/* 1 if dg leads with a long-header Handshake packet (first byte 0b1110xxxx,
+ * RFC 9000 17.2) -- readable without any keys. */
+static int srvrun_leads_handshake(quic_mspan dg) {
+  return dg.n != 0 && (dg.p[0] & 0xf0) == 0xe0;
+}
+
+/* RFC 9000 19.20: a confirmed connection receiving a Handshake-space probe
+ * means the client never got the one-time confirmation datagram (it would
+ * have dropped its Handshake keys otherwise) -- replay the cached
+ * confirmation so HANDSHAKE_DONE still reaches it. Without this, one lost
+ * confirmation datagram left the client PTO-retransmitting its Finished
+ * until its own idle timeout (observed live under the interop runner's 30%
+ * loss profile). */
+static void srvrun_reconfirm(const srvrun_step_ctx* ctx, srvrun_conn* c) {
+  u8                 out[512];
+  quic_obuf          ob   = quic_obuf_of(out, sizeof out);
+  wired_srvloop_conn conn = {&c->l, &c->s};
+  if (!wired_srvloop_reconfirm(&conn, &ob)) return;
+  srvrun_send(ctx->cfg, c, quic_span_of(ob.p, ob.len), "confirmation resent\n");
+}
+
+static void srvrun_reconfirm_on_hs_probe(
+    const srvrun_step_ctx* ctx, srvrun_conn* c, quic_mspan dg) {
+  if (!wired_server_is_confirmed(&c->s)) return;
+  if (!srvrun_leads_handshake(dg)) return;
+  srvrun_reconfirm(ctx, c);
+}
+
 static void srvrun_serve_slot(
     const srvrun_step_ctx* ctx, int slot, quic_mspan dg) {
   srvrun_conn* c       = &ctx->st->conns[slot];
@@ -4204,6 +4233,7 @@ static void srvrun_serve_slot(
   if (consumed) return;
   if (c->up) {
     srvrun_rebind_peer(ctx, c);
+    srvrun_reconfirm_on_hs_probe(ctx, c, dg);
     srvrun_step_and_reap(ctx, slot, dg);
   }
   srvrun_boot_release_pending(ctx, c);
