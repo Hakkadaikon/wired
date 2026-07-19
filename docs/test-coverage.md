@@ -5,10 +5,10 @@
 > **At a glance** — all 42 implemented specs are exercised by the unit
 > suite (460+ test files, every commit); 19 of them are additionally pinned
 > to official/golden vectors; three wire-facing parsers are fuzzed nightly;
-> and interop against real independent clients has proven the QUIC
-> `handshake` / `transfer` / `http3` testcases (vs quic-go) and 4 of 7
-> WebTransport testcases (vs webtransport-go). This page lists exactly what
-> has and hasn't been demonstrated, per spec. Results as of 2026-07.
+> and interop against real independent clients has proven 10 of 22 QUIC
+> testcases (vs quic-go) and 4 of 7 WebTransport testcases (vs
+> webtransport-go). This page lists exactly what has and hasn't been
+> demonstrated, per spec. Results as of 2026-07.
 
 Legend:
 
@@ -39,25 +39,33 @@ Legend:
 - [x] `handshake` — connection establishment
 - [x] `transfer` — file download over streams
 - [x] `http3` — parallel HTTP/3 GETs (3 streams, 500 KB bodies)
-- [ ] `longrtt` — not yet run
-- [ ] `chacha20` — not yet run
-- [ ] `multiplexing` — not yet run
-- [ ] `retry` — not yet run
-- [ ] `resumption` — not yet run
-- [ ] `zerortt` — not yet run
-- [ ] `blackhole` — not yet run
-- [ ] `keyupdate` — not yet run
-- [ ] `ecn` — not yet run
-- [ ] `amplificationlimit` — not yet run
-- [ ] `handshakeloss` — not yet run
-- [ ] `transferloss` — not yet run
-- [ ] `handshakecorruption` — not yet run
-- [ ] `transfercorruption` — not yet run
-- [ ] `ipv6` — not yet run
-- [ ] `v2` — not yet run
-- [ ] `rebind-port` / `rebind-addr` — not yet run
-- [ ] `connectionmigration` — not yet run
-- [ ] `goodput` / `crosstraffic` (measurements) — not yet run
+- [x] `longrtt` — high-latency link
+- [x] `chacha20` — TLS_CHACHA20_POLY1305_SHA256 negotiation end to end,
+  including a mid-transfer Key Update under that suite
+- [x] `keyupdate` — RFC 9001 §6 key update, both directions
+- [x] `transferloss` — file transfer under packet loss
+- [x] `transfercorruption` — file transfer under packet corruption
+- [x] `amplificationlimit` — RFC 9000 §8.1 anti-amplification enforced on
+  an inflated (9-certificate) server flight
+- [x] `goodput` (measurement) — 10 MB in 11.5 s (~7.3 Mbps) over the
+  runner's simulated link, repeatable
+- [ ] `multiplexing` — fails partway (some requested files never arrive);
+  under investigation
+- [ ] `blackhole` — fails to resume after a simulated 2 s link outage;
+  under investigation
+- [ ] `handshakeloss` — most handshakes fail to complete under loss
+- [ ] `handshakecorruption` — same, under corruption
+- [ ] `retry` — not yet run (dedicated server mode not wired up)
+- [ ] `resumption` — not yet run (dedicated server mode not wired up)
+- [ ] `zerortt` — not yet run (dedicated server mode not wired up)
+- [ ] `ecn` — not yet run (socket cmsg path not wired up)
+- [ ] `ipv6` — not yet run (server is IPv4-only)
+- [ ] `v2` — not yet run (dedicated server mode not wired up)
+- [ ] `rebind-port` / `rebind-addr` — not yet run (dedicated server mode
+  not wired up)
+- [ ] `connectionmigration` — not yet run (dedicated server mode not
+  wired up)
+- [ ] `crosstraffic` (measurement) — not yet run
 
 ### WebTransport testcases (server: wired · client: webtransport-go)
 
@@ -97,9 +105,10 @@ is exactly what this tier exists for.
 **RFC 9002 — Loss Detection and Congestion Control**
 - [x] Unit — 28 test files: RTT estimation, packet/time-threshold loss,
   PTO backoff, retransmission selection, in-flight accounting
-- [~] Interop — exercised under the simulated 10 Mbps / 30 ms link in every
-  transfer, but the loss-specific testcases (`transferloss` etc.) have not
-  been run (spec publishes no official vectors)
+- [x] Interop — `transferloss` / `transfercorruption` green vs quic-go
+  (spec publishes no official vectors); `handshakeloss` /
+  `handshakecorruption` (loss during the handshake, not steady-state
+  transfer) and `blackhole` (extended full outage) still fail
 
 **RFC 8999 — Version-Independent Properties**
 - [x] Unit — invariant header parsing, Version Negotiation packets
@@ -260,13 +269,25 @@ runs used kernel UDP sockets, so they are unit-tested but not interop-proven.
 
 ## Honest summary of the gaps
 
-- 19 of 22 QUIC interop testcases (plus both measurements) have not been
-  attempted yet; only quic-go and webtransport-go have been used as peers.
+- 12 of 22 QUIC interop testcases (plus one of two measurements) have not
+  passed yet; only quic-go and webtransport-go have been used as peers.
+- Four testcases fail on a shared root cause under investigation: a
+  server-side stall recovering from an extended loss of connectivity.
+  `blackhole` (2 s full outage) and `handshakeloss` /
+  `handshakecorruption` (loss/corruption during the handshake) all show
+  the server going silent and never resuming once the PTO probe budget is
+  spent; `multiplexing` fails similarly for a subset of concurrently
+  requested files. A related but distinct throughput stall (the server's
+  congestion window growing far slower than it should under normal,
+  loss-free conditions) was found and fixed this cycle — `goodput` now
+  passes — but the outage-recovery case above remains open.
+- Seven testcases (`retry`, `resumption`, `zerortt`, `v2`, `rebind-port`,
+  `rebind-addr`, `connectionmigration`) need a dedicated server mode this
+  SDK does not wire up yet; `ecn` needs a socket cmsg path; `ipv6` needs
+  IPv6 socket support. None of these have been attempted.
 - The three WebTransport `*-send` interop cases have never passed; the
   QUIC layer has been verified blameless via qlog, and the investigation
   is parked at the client's send scheduling.
-- Loss/corruption behavior (RFC 9002 edge paths) is unit-tested but has no
-  interop demonstration.
 - Ed25519 and RSA certificate paths, priorities (RFC 9218), version 2
   (RFC 9369), and QUIC-bit greasing (RFC 9287) are fully unit-tested but
   have never been exercised against a real peer.
