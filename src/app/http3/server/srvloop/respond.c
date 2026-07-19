@@ -123,13 +123,34 @@ static int app_ack_due(const wired_srvloop* l) {
       &l->app_ack_policy, l->now_ms, WIRED_SRVLOOP_MAX_ACK_DELAY_MS);
 }
 
+/* 1 if l has ever counted an ECT(0)/ECT(1)/CE datagram. Split out of
+ * app_ack_set_ecn so its && chain doesn't push that function's CCN past the
+ * gate (ccn-and-complexity.md: each && is its own branch). */
+static int app_ack_ecn_any_seen(const wired_srvloop* l) {
+  return l->ecn_ect0 != 0 || l->ecn_ect1 != 0 || l->ecn_ce != 0;
+}
+
+/* RFC 9000 19.3.2: attach l's cumulative ECN counts to f (type 0x03) when at
+ * least one of ECT(0)/ECT(1)/CE has ever been seen on this connection; leaves
+ * f as a plain type-0x02 ACK (has_ecn stays 0) when all three are still zero
+ * -- the pre-existing non-ECN wire format for a connection/path that never
+ * reported an ECN-marked datagram. */
+static void app_ack_set_ecn(const wired_srvloop* l, quic_ack_frame* f) {
+  if (!app_ack_ecn_any_seen(l)) return;
+  f->has_ecn = 1;
+  f->ect0    = l->ecn_ect0;
+  f->ect1    = l->ecn_ect1;
+  f->ce      = l->ecn_ce;
+}
+
 /* RFC 9000 19.3: encode a full multi-range ACK frame from the App pn
  * space's received-pn window (quic_pnspaces_recv, RFC 9000 12.3/13.2.1),
  * with an ack_delay reflecting how long the oldest unacked eliciting packet
- * has waited (quic_ack_delay_encode, RFC 9000 19.3/13.2.5). Returns the
- * encoded length, 0 if the window is empty or encoding fails (e.g. the
- * range count would overflow QUIC_ACK_MAX_RANGES -- caller then sends no
- * ACK this round rather than a corrupt one). */
+ * has waited (quic_ack_delay_encode, RFC 9000 19.3/13.2.5), and this
+ * connection's cumulative ECN counts (RFC 9000 19.3.2, app_ack_set_ecn).
+ * Returns the encoded length, 0 if the window is empty or encoding fails
+ * (e.g. the range count would overflow QUIC_ACK_MAX_RANGES -- caller then
+ * sends no ACK this round rather than a corrupt one). */
 static usz app_ack_encode_ranges(wired_srvloop* l, u8* buf, usz cap) {
   u64            raw[2 * QUIC_ACK_MAX_RANGES + 1];
   u64            largest;
@@ -143,6 +164,7 @@ static usz app_ack_encode_ranges(wired_srvloop* l, u8* buf, usz cap) {
   f.ack_delay = quic_ack_delay_encode(
       (l->now_ms - l->app_ack_policy.since_tick) * 1000,
       QUIC_ACK_DELAY_EXPONENT_DEFAULT);
+  app_ack_set_ecn(l, &f);
   return quic_ack_encode(buf, cap, &f);
 }
 

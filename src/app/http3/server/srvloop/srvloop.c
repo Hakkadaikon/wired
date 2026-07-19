@@ -107,6 +107,19 @@ int wired_srvloop_init(wired_srvloop* l, const u8* cli_scid, u8 cli_scid_len) {
   l->max_stream_data_n          = 0;
   l->wt_released_watermark      = 0;
   l->wt_uni_released_watermark  = 0;
+  /* max_data_seen_flag/streams_blocked_seen_flag/path_response_seen_flag are
+   * "not reset across steps by this loop itself" (see their own doc in
+   * srvloop.h) -- but that convention only holds once a step has actually run
+   * and left a real 0/1 in them; init is where they get their FIRST defined
+   * value, or a caller that builds a wired_srvloop by struct-copy from an
+   * uninitialized local (as tests do) inherits whatever garbage bit pattern
+   * was on the stack, e.g. reading streams_blocked_seen_flag as nonzero and
+   * spuriously sending an unrequested MAX_STREAMS. */
+  l->streams_blocked_seen_flag = 0;
+  l->path_response_seen_flag   = 0;
+  l->ecn_ect0                  = 0;
+  l->ecn_ect1                  = 0;
+  l->ecn_ce                    = 0;
   quic_pnspaces_recv_init(&l->ack_recv);
   quic_ackpolicy_init(&l->app_ack_policy);
   quic_ackpolicy_init(&l->hs_ack_policy);
@@ -121,6 +134,25 @@ void wired_srvloop_set_handler(
     wired_srvloop* l, wired_srvloop_handler cb, void* ctx) {
   l->on_request = cb;
   l->req_ctx    = ctx;
+}
+
+/* RFC 3168 ECN codepoints (matching quic_mmsg_buf.ecn): 0 Not-ECT, 1 ECT(1),
+ * 2 ECT(0), 3 CE. Indexes ecn_counter_for below. */
+#define WIRED_ECN_ECT1 1
+#define WIRED_ECN_ECT0 2
+#define WIRED_ECN_CE 3
+
+/* The cumulative counter ecn (an RFC 3168 codepoint 0..3) advances, or 0 for
+ * Not-ECT (nothing to count). Table-dispatched so wired_srvloop_ecn_note
+ * stays a single branch regardless of how many codepoints are countable. */
+static u64* ecn_counter_for(wired_srvloop* l, u8 ecn) {
+  u64* table[4] = {0, &l->ecn_ect1, &l->ecn_ect0, &l->ecn_ce};
+  return ecn < 4 ? table[ecn] : (u64*)0;
+}
+
+void wired_srvloop_ecn_note(wired_srvloop* l, u8 ecn) {
+  u64* counter = ecn_counter_for(l, ecn);
+  if (counter) (*counter)++;
 }
 
 /* The largest 1-RTT packet number received so far (0 before any), the baseline
