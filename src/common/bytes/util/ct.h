@@ -19,4 +19,12 @@ static inline u8 quic_ct_diff32(const u8 a[32], const u8 b[32]) {
   return d;
 }
 
+/* Constant-time 8-byte compare (RFC 9000 8.2.2: PATH_RESPONSE data must be
+ * compared without timing leakage). 0 if equal. */
+static inline u8 quic_ct_diff8(const u8 a[8], const u8 b[8]) {
+  u8 d = 0;
+  for (usz i = 0; i < 8; i++) d |= a[i] ^ b[i];
+  return d;
+}
+
 #endif
