@@ -3977,9 +3977,11 @@ static void srvrun_boot_partial_ack(const srvrun_step_ctx* ctx, int slot) {
   usz          n = wired_srvboot_partial_ack(&c->boot, scid, out, sizeof out);
   if (n == 0) return;
   if (srvrun_boot_gate_blocks(c, 0, n)) return;
-  quic_conntable_rekey(
-      ctx->st->table, QUIC_CONNTABLE_CAP, slot, c->scid,
-      ctx->cfg->id->scid_len);
+  /* The routing entry stays keyed on the ODCID: pre-switch retransmits
+   * still arrive under it, and rekeying here let them claim a COMPETING
+   * slot whose flight carried a different initial_source_connection_id
+   * (observed live: quic-go closed with TRANSPORT_PARAMETER_ERROR).
+   * Post-switch datagrams route via srvrun_find_boot_scid instead. */
   wired_srvboot_acc_allow(&c->boot, scid);
   srvrun_boot_send(
       ctx->cfg, c, quic_span_of(out, n), "partial ClientHello acked\n");
@@ -4360,11 +4362,40 @@ static int srvrun_vneg(const srvrun_step_ctx* ctx, quic_mspan dg) {
   return 1;
 }
 
-/* The slot dg routes to: an existing DCID match, else a fresh claim (only
- * for a new Initial); -1 when neither. */
+/* 1 while slot i is a claimed boot that has absorbed something but is not
+ * up yet -- the only state whose scid a switched client DCID may name. */
+static int srvrun_boot_pending(const srvrun_conn* c) {
+  return !c->up && c->boot.any;
+}
+
+/* 1 if slot i is a still-pending boot whose own scid equals dcid. */
+static int srvrun_boot_scid_match(
+    const srvrun_step_ctx* ctx, usz i, quic_span dcid) {
+  const srvrun_conn* c = &ctx->st->conns[i];
+  if (!srvrun_boot_pending(c)) return 0;
+  if (dcid.n != ctx->cfg->id->scid_len) return 0;
+  return quic_ct_diffn(c->scid, dcid.p, dcid.n) == 0;
+}
+
+/* The pending boot slot whose own scid is dcid, or -1: after a
+ * partial-ClientHello ack the client switches its DCID to that scid
+ * (RFC 9000 7.2) while the routing entry still keys the ODCID -- without
+ * this, the switched retransmits claimed a competing slot with a
+ * different initial_source_connection_id. */
+static int srvrun_find_boot_scid(const srvrun_step_ctx* ctx, quic_span dcid) {
+  for (usz i = 0; i < QUIC_CONNTABLE_CAP; i++)
+    if (srvrun_boot_scid_match(ctx, i, dcid)) return (int)i;
+  return -1;
+}
+
+/* The slot dg routes to: an existing DCID match, a pending boot the client
+ * switched its DCID onto, else a fresh claim (only for a new Initial); -1
+ * when none. */
 static int srvrun_route(
     const srvrun_step_ctx* ctx, quic_span dcid, quic_mspan dg) {
   int slot = srvrun_find_slot(ctx, dcid);
+  if (slot >= 0) return slot;
+  slot = srvrun_find_boot_scid(ctx, dcid);
   if (slot >= 0) return slot;
   return srvrun_open_slot(ctx, dcid, wired_srvboot_is_initial(dg.p, dg.n));
 }

@@ -27,4 +27,12 @@ static inline u8 quic_ct_diff8(const u8 a[8], const u8 b[8]) {
   return d;
 }
 
+/* Constant-time n-byte compare (e.g. variable-length connection ids). 0 if
+ * equal. */
+static inline u8 quic_ct_diffn(const u8* a, const u8* b, usz n) {
+  u8 d = 0;
+  for (usz i = 0; i < n; i++) d |= a[i] ^ b[i];
+  return d;
+}
+
 #endif
