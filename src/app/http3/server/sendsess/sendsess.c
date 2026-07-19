@@ -196,12 +196,25 @@ int wired_sendsess_oldest_sent_ms(const wired_sendsess* s, u64* out) {
   return 1;
 }
 
-int wired_sendsess_pto_fire(wired_sendsess* s, int max) {
+/* Requeue the oldest in-flight slice; 1 if one existed. A full requeue
+ * array drops the slice (sendsess_requeue's own cap) and it simply stays
+ * in flight for a later pass. */
+static int sendsess_requeue_oldest(wired_sendsess* s) {
   int i = sendsess_oldest(s);
-  if (i < 0) return 1;
+  if (i < 0) return 0;
+  sendsess_requeue(s, (usz)i);
+  return 1;
+}
+
+int wired_sendsess_pto_fire(wired_sendsess* s, int max) {
+  if (sendsess_oldest(s) < 0) return 1;
   if (s->pto_count >= max) return 0;
   s->pto_count++;
-  sendsess_requeue(s, (usz)i);
+  /* RFC 9002 6.2.4: a PTO probe may carry up to two datagrams -- requeue
+   * the two oldest slices so a fully lost tail recovers in parallel
+   * instead of one slice per backoff round. */
+  sendsess_requeue_oldest(s);
+  sendsess_requeue_oldest(s);
   return 1;
 }
 
