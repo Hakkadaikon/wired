@@ -204,15 +204,15 @@ typedef struct {
 #define SRVRUN_WT_SEND_SLOTS 6
 
 typedef struct {
-  wired_server     s;
-  wired_srvloop    l;
-  int              up;
-  quic_sockaddr_in peer;
-  u8               scid[WIRED_MAX_CID_LEN];
-  int              goaway_sent; /**< 1 once graceful-shutdown GOAWAY sent */
-  u64              last_ms;     /**< monotonic ms of the last routed datagram */
-  srvrun_resp      resp[SRVRUN_RESP_SLOTS]; /**< in-flight responses, one per
-                                                answered request stream */
+  wired_server  s;
+  wired_srvloop l;
+  int           up;
+  quic_sockaddr peer;
+  u8            scid[WIRED_MAX_CID_LEN];
+  int           goaway_sent; /**< 1 once graceful-shutdown GOAWAY sent */
+  u64           last_ms;     /**< monotonic ms of the last routed datagram */
+  srvrun_resp   resp[SRVRUN_RESP_SLOTS]; /**< in-flight responses, one per
+                                             answered request stream */
   quic_cc      cc;      /**< congestion window gating every resp[]'s pump */
   quic_hystart hs;      /**< slow-start exit detector (RFC 9406) */
   u64          srtt_ms; /**< smoothed RTT of this connection's acks (pacing) */
@@ -509,10 +509,10 @@ typedef struct {
  * arrived from, and the mutable server state. Folded into one parameter so
  * srvrun_send/on_initial/on_step/serve stay <=3 args. */
 typedef struct {
-  const srvrun_cfg*       cfg;
-  const quic_sockaddr_in* peer;
-  srvrun_state*           st;
-  u64                     now_ms; /**< monotonic ms this step started at */
+  const srvrun_cfg*    cfg;
+  const quic_sockaddr* peer;
+  srvrun_state*        st;
+  u64                  now_ms; /**< monotonic ms this step started at */
   /** RFC 9000 13.4 / RFC 9002 19.3.2: the ECN codepoint (RFC 3168, 0..3) this
    * datagram's UDP layer read off its IP_TOS cmsg (quic_mmsg_buf.ecn in
    * udp.h), carried through so srvrun_serve_slot can hand it to the routed
@@ -607,7 +607,7 @@ __attribute__((unused)) static usz srvrun_test_send_count(void) {
  * (tasks/xdp-driver-plan.md). Both srvrun_send and the direct Version
  * Negotiation send route through this. */
 static void srvrun_tx(
-    const srvrun_cfg* cfg, const quic_sockaddr_in* sa, quic_span pkt) {
+    const srvrun_cfg* cfg, const quic_sockaddr* sa, quic_span pkt) {
   if (cfg->xdp)
     wired_srvxdp_send(cfg->xdp, sa, pkt);
   else
@@ -4133,7 +4133,7 @@ static void srvrun_boot_release_pending(
 static int srvrun_peer_changed(
     const srvrun_step_ctx* ctx, const srvrun_conn* c) {
   return ctx->peer->port_be != c->peer.port_be ||
-         ctx->peer->addr_be != c->peer.addr_be;
+         quic_ct_diffn(ctx->peer->addr, c->peer.addr, 16) != 0;
 }
 
 /* T-015: test-only override forcing quic_challenge_generate to behave as if
@@ -4441,8 +4441,8 @@ static void srvrun_maybe_incoming_cpu(i64 fd, const wired_srvrun_opt* opt) {
 
 /* Bind a UDP socket on port. Returns the fd, or <0 on failure. */
 static i64 srvrun_listen(u16 port, const wired_srvrun_opt* opt) {
-  quic_sockaddr_in sa;
-  i64              fd = wired_udp_socket();
+  quic_sockaddr sa;
+  i64           fd = wired_udp_socket();
   if (fd < 0) return fd;
   /* Best-effort: lets multiple srvworkers children share one port (tasks/
    * core-pinning-plan.md PIN-004). A single-worker run does not need it, so a

@@ -517,7 +517,7 @@ static void test_srvrun_accept_rekeys_to_slot_scid(void) {
   wired_srvboot_id id;
   u8               priv[32], pub[32], seed[32], rnd[32], dg[1500];
   quic_conntable   table[QUIC_CONNTABLE_CAP];
-  quic_sockaddr_in peer = {0};
+  quic_sockaddr    peer = {0};
   srvrun_state     st   = {table, g_srvrun_state.conns};
   usz total             = sr_build_client_initial(dg, sizeof dg, g_sr_odcid, 8);
   sr_make_id(&id, priv, pub, seed, rnd);
@@ -547,7 +547,7 @@ static void test_srvrun_open_slot_xdp_embeds_core_id(void) {
   wired_srvboot_id id;
   u8               priv[32], pub[32], seed[32], rnd[32], dg[1500];
   quic_conntable   table[QUIC_CONNTABLE_CAP];
-  quic_sockaddr_in peer = {0};
+  quic_sockaddr    peer = {0};
   srvrun_state     st   = {table, g_srvrun_state.conns};
   usz          total    = sr_build_client_initial(dg, sizeof dg, g_sr_odcid, 8);
   wired_srvxdp fake_xdp; /* never dereferenced by srvrun_open_slot itself --
@@ -575,7 +575,7 @@ static void test_srvrun_open_slot_xdp_embeds_core_id_zero(void) {
   wired_srvboot_id id;
   u8               priv[32], pub[32], seed[32], rnd[32], dg[1500];
   quic_conntable   table[QUIC_CONNTABLE_CAP];
-  quic_sockaddr_in peer = {0};
+  quic_sockaddr    peer = {0};
   srvrun_state     st   = {table, g_srvrun_state.conns};
   usz          total    = sr_build_client_initial(dg, sizeof dg, g_sr_odcid, 8);
   wired_srvxdp fake_xdp;
@@ -643,7 +643,7 @@ static void test_srvrun_initial_retransmit_resends_cached_flight(void) {
   wired_srvboot_id id;
   u8               priv[32], pub[32], seed[32], rnd[32], dg[1500];
   quic_conntable   table[QUIC_CONNTABLE_CAP];
-  quic_sockaddr_in peer = {0};
+  quic_sockaddr    peer = {0};
   srvrun_state     st   = {table, g_srvrun_state.conns};
   usz total             = sr_build_client_initial(dg, sizeof dg, g_sr_odcid, 8);
   u8  first_scid[WIRED_MAX_CID_LEN];
@@ -922,7 +922,7 @@ static void test_srvrun_conn_rx_bytes_counts_malformed_datagram(void) {
   u8               priv[32], pub[32], seed[32], rnd[32], dg[1500];
   u8               garbage[37];
   quic_conntable   table[QUIC_CONNTABLE_CAP];
-  quic_sockaddr_in peer = {0};
+  quic_sockaddr    peer = {0};
   srvrun_state     st   = {table, g_srvrun_state.conns};
   usz total             = sr_build_client_initial(dg, sizeof dg, g_sr_odcid, 8);
   u64 rx_after_boot;
@@ -1016,7 +1016,7 @@ static void test_srvrun_coalesced_handshake_not_boot_retransmit(void) {
   wired_srvboot_id id;
   u8               priv[32], pub[32], seed[32], rnd[32], dg[1500], dg2[1500];
   quic_conntable   table[QUIC_CONNTABLE_CAP];
-  quic_sockaddr_in peer = {0};
+  quic_sockaddr    peer = {0};
   srvrun_state     st   = {table, g_srvrun_state.conns};
   usz total             = sr_build_client_initial(dg, sizeof dg, g_sr_odcid, 8);
   usz n2, send_count_after_boot;
@@ -1071,7 +1071,7 @@ static void test_srvrun_split_ch_boots_across_datagrams(void) {
   u8               priv[32], pub[32], seed[32], rnd[32];
   u8               ch[512], dg1[1400], dg2[1400];
   quic_conntable   table[QUIC_CONNTABLE_CAP];
-  quic_sockaddr_in peer = {0};
+  quic_sockaddr    peer = {0};
   srvrun_state     st   = {table, g_srvrun_state.conns};
   usz              n    = sr_raw_ch(&c, ch, sizeof ch);
   usz n1 = sr_seal_chunk(dg1, sizeof dg1, quic_span_of(ch, 60), 0, 0);
@@ -1104,7 +1104,7 @@ static void test_srvrun_stalled_boot_swept(void) {
   u8               priv[32], pub[32], seed[32], rnd[32];
   u8               ch[512], dg1[1400], dg2[1400], d1[1400], d2[1400];
   quic_conntable   table[QUIC_CONNTABLE_CAP];
-  quic_sockaddr_in peer = {0};
+  quic_sockaddr    peer = {0};
   srvrun_state     st   = {table, g_srvrun_state.conns};
   usz              n    = sr_raw_ch(&c, ch, sizeof ch);
   usz n1 = sr_seal_chunk(dg1, sizeof dg1, quic_span_of(ch, 60), 0, 0);
@@ -1139,7 +1139,7 @@ static void test_srvrun_alien_version_claims_no_slot(void) {
   u8               priv[32], pub[32], seed[32], rnd[32];
   u8               dg[1200] = {0};
   quic_conntable   table[QUIC_CONNTABLE_CAP];
-  quic_sockaddr_in peer = {0};
+  quic_sockaddr    peer = {0};
   srvrun_state     st   = {table, g_srvrun_state.conns};
   dg[0]                 = 0xd3;
   dg[4]                 = 0xcf; /* alien version */
@@ -1166,7 +1166,7 @@ static void test_srvrun_failed_accept_unclaims(void) {
   u8               priv[32], pub[32], seed[32], rnd[32];
   u8               junk[64] = {0xc3, 0, 0, 0, 1, 8, 1, 2, 3, 4, 5, 6, 7, 8, 0};
   quic_conntable   table[QUIC_CONNTABLE_CAP];
-  quic_sockaddr_in peer = {0};
+  quic_sockaddr    peer = {0};
   srvrun_state     st   = {table, g_srvrun_state.conns};
   sr_make_id(&id, priv, pub, seed, rnd);
   {
@@ -1193,7 +1193,7 @@ static void test_srvrun_peer_close_frees_slot(void) {
   u8                    priv[32], pub[32], seed[32], rnd[32];
   u8                    obuf[1024], cc[32], spkt[1024];
   quic_conntable        table[QUIC_CONNTABLE_CAP];
-  quic_sockaddr_in      peer = {0};
+  quic_sockaddr         peer = {0};
   srvrun_state          st   = {table, g_srvrun_state.conns};
   quic_obuf             ob   = {obuf, sizeof obuf, 0};
   quic_conn_close_frame ccf  = {0, 0, 0, 0, 0};
@@ -1289,10 +1289,10 @@ static void test_srvrun_idle_sweep_releases_bigbuf_row(void) {
 /* ACTIVITY REFRESH (RFC 9000 10.1): every datagram routed to a slot stamps
  * its last-activity time, so a served connection never counts as idle. */
 static void test_srvrun_serve_slot_touches_last_ms(void) {
-  quic_conntable   table[QUIC_CONNTABLE_CAP];
-  srvrun_state     st    = {table, g_srvrun_state.conns};
-  quic_sockaddr_in peer  = {0};
-  u8               sh[8] = {0x40, 1, 2, 3, 4, 5, 6, 7}; /* short header */
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_state   st    = {table, g_srvrun_state.conns};
+  quic_sockaddr  peer  = {0};
+  u8             sh[8] = {0x40, 1, 2, 3, 4, 5, 6, 7}; /* short header */
   srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
                     0,  0, 0, 0, 0};
   srvrun_step_ctx ctx = {&cfg, &peer, &st, 12345, 0};
@@ -1307,10 +1307,10 @@ static void test_srvrun_serve_slot_touches_last_ms(void) {
  * srvrun_step_ctx.ecn, RFC 3168 codepoint 2 = ECT(0)) reaches the routed
  * slot's wired_srvloop cumulative counter via wired_srvloop_ecn_note. */
 static void test_srvrun_serve_slot_notes_ecn(void) {
-  quic_conntable   table[QUIC_CONNTABLE_CAP];
-  srvrun_state     st    = {table, g_srvrun_state.conns};
-  quic_sockaddr_in peer  = {0};
-  u8               sh[8] = {0x40, 1, 2, 3, 4, 5, 6, 7}; /* short header */
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_state   st    = {table, g_srvrun_state.conns};
+  quic_sockaddr  peer  = {0};
+  u8             sh[8] = {0x40, 1, 2, 3, 4, 5, 6, 7}; /* short header */
   srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
                     0,  0, 0, 0, 0};
   srvrun_step_ctx ctx = {&cfg, &peer, &st, 0, 2}; /* ecn=2: ECT(0) */
@@ -1320,18 +1320,39 @@ static void test_srvrun_serve_slot_notes_ecn(void) {
   CHECK(st.conns[2].l.ecn_ect0 == 1);
 }
 
+/* PEER COMPARISON (RFC 9000 9): a rebind is detected on any differing byte
+ * of the full 16-byte (v4-mapped or native v6) address, or the port --
+ * first, last, and middle byte positions all count, not just the mapped v4
+ * tail a u32 compare once covered. */
+static void test_srvrun_peer_changed_compares_full_v6(void) {
+  srvrun_conn     c   = {0};
+  quic_sockaddr   p   = {0};
+  srvrun_step_ctx ctx = {0, &p, 0, 0, 0};
+  wired_udp_addr(&c.peer, 443, (const u8[4]){10, 0, 0, 1});
+  p = c.peer;
+  CHECK(srvrun_peer_changed(&ctx, &c) == 0);
+  p.port_be = (u16)(p.port_be ^ 1);
+  CHECK(srvrun_peer_changed(&ctx, &c) == 1);
+  p = c.peer;
+  p.addr[15] ^= 1; /* last byte: the mapped v4 host part */
+  CHECK(srvrun_peer_changed(&ctx, &c) == 1);
+  p = c.peer;
+  p.addr[0] ^= 1; /* first byte: only a full-width compare sees it */
+  CHECK(srvrun_peer_changed(&ctx, &c) == 1);
+}
+
 /* NAT REBIND -- PORT ONLY (RFC 9000 9, naive subset, no PATH_CHALLENGE): a
  * confirmed connection that receives a datagram from a source differing only
  * in port has its reply target (c->peer) updated to the new port. */
 static void test_srvrun_rebind_updates_peer_port(void) {
-  struct lp_fix    f;
-  srvrun_conn      c;
-  quic_obuf        ob = {0};
-  u8               obuf[1024], sh[8] = {0x40, 1, 2, 3, 4, 5, 6, 7};
-  quic_conntable   table[QUIC_CONNTABLE_CAP];
-  quic_sockaddr_in old_peer = {0}, new_peer = {0};
-  srvrun_state     st = {table, &c};
-  ob                  = (quic_obuf){obuf, sizeof obuf, 0};
+  struct lp_fix  f;
+  srvrun_conn    c;
+  quic_obuf      ob = {0};
+  u8             obuf[1024], sh[8] = {0x40, 1, 2, 3, 4, 5, 6, 7};
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  quic_sockaddr  old_peer = {0}, new_peer = {0};
+  srvrun_state   st = {table, &c};
+  ob                = (quic_obuf){obuf, sizeof obuf, 0};
   sr_make_confirmed_conn(&c, &f, &ob);
   wired_udp_addr(&old_peer, 4433, (const u8[4]){127, 0, 0, 1});
   wired_udp_addr(&new_peer, 9999, (const u8[4]){127, 0, 0, 1});
@@ -1345,7 +1366,7 @@ static void test_srvrun_rebind_updates_peer_port(void) {
     srvrun_serve_slot(&ctx, 0, quic_mspan_of(sh, sizeof sh));
   }
   CHECK(c.peer.port_be == new_peer.port_be);
-  CHECK(c.peer.addr_be == new_peer.addr_be);
+  CHECK(quic_ct_diffn(c.peer.addr, new_peer.addr, 16) == 0);
 }
 
 /* NAT REBIND -- ADDRESS (RFC 9000 9, naive subset): a confirmed connection
@@ -1353,14 +1374,14 @@ static void test_srvrun_rebind_updates_peer_port(void) {
  * c->peer's address updated to the new one (network switch, not just a NAT
  * port re-map). */
 static void test_srvrun_rebind_updates_peer_addr(void) {
-  struct lp_fix    f;
-  srvrun_conn      c;
-  quic_obuf        ob = {0};
-  u8               obuf[1024], sh[8] = {0x40, 1, 2, 3, 4, 5, 6, 7};
-  quic_conntable   table[QUIC_CONNTABLE_CAP];
-  quic_sockaddr_in old_peer = {0}, new_peer = {0};
-  srvrun_state     st = {table, &c};
-  ob                  = (quic_obuf){obuf, sizeof obuf, 0};
+  struct lp_fix  f;
+  srvrun_conn    c;
+  quic_obuf      ob = {0};
+  u8             obuf[1024], sh[8] = {0x40, 1, 2, 3, 4, 5, 6, 7};
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  quic_sockaddr  old_peer = {0}, new_peer = {0};
+  srvrun_state   st = {table, &c};
+  ob                = (quic_obuf){obuf, sizeof obuf, 0};
   sr_make_confirmed_conn(&c, &f, &ob);
   wired_udp_addr(&old_peer, 4433, (const u8[4]){127, 0, 0, 1});
   wired_udp_addr(&new_peer, 4433, (const u8[4]){10, 0, 0, 2});
@@ -1374,20 +1395,20 @@ static void test_srvrun_rebind_updates_peer_addr(void) {
     srvrun_serve_slot(&ctx, 0, quic_mspan_of(sh, sizeof sh));
   }
   CHECK(c.peer.port_be == new_peer.port_be);
-  CHECK(c.peer.addr_be == new_peer.addr_be);
+  CHECK(quic_ct_diffn(c.peer.addr, new_peer.addr, 16) == 0);
 }
 
 /* BOUNDARY (T-004): the ordinary case, no source-address change, leaves
  * c->peer untouched (no spurious write when nothing actually rebound). */
 static void test_srvrun_rebind_noop_when_address_unchanged(void) {
-  struct lp_fix    f;
-  srvrun_conn      c;
-  quic_obuf        ob = {0};
-  u8               obuf[1024], sh[8] = {0x40, 1, 2, 3, 4, 5, 6, 7};
-  quic_conntable   table[QUIC_CONNTABLE_CAP];
-  quic_sockaddr_in peer = {0};
-  srvrun_state     st   = {table, &c};
-  ob                    = (quic_obuf){obuf, sizeof obuf, 0};
+  struct lp_fix  f;
+  srvrun_conn    c;
+  quic_obuf      ob = {0};
+  u8             obuf[1024], sh[8] = {0x40, 1, 2, 3, 4, 5, 6, 7};
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  quic_sockaddr  peer = {0};
+  srvrun_state   st   = {table, &c};
+  ob                  = (quic_obuf){obuf, sizeof obuf, 0};
   sr_make_confirmed_conn(&c, &f, &ob);
   wired_udp_addr(&peer, 4433, (const u8[4]){127, 0, 0, 1});
   c.peer = peer;
@@ -1400,22 +1421,22 @@ static void test_srvrun_rebind_noop_when_address_unchanged(void) {
     srvrun_serve_slot(&ctx, 0, quic_mspan_of(sh, sizeof sh));
   }
   CHECK(c.peer.port_be == peer.port_be);
-  CHECK(c.peer.addr_be == peer.addr_be);
+  CHECK(quic_ct_diffn(c.peer.addr, peer.addr, 16) == 0);
 }
 
 /* PARTITION (T-005): rebind-port and rebind-addr are independent projections
- * of the same change -- a port-only change updates only port_be (addr_be
+ * of the same change -- a port-only change updates only port_be (the addr
  * unaffected). Complements T-001/T-002, which each check only their own axis
  * moved; this checks the OTHER axis did NOT move. */
 static void test_srvrun_rebind_port_and_addr_independent(void) {
-  struct lp_fix    f;
-  srvrun_conn      c;
-  quic_obuf        ob = {0};
-  u8               obuf[1024], sh[8] = {0x40, 1, 2, 3, 4, 5, 6, 7};
-  quic_conntable   table[QUIC_CONNTABLE_CAP];
-  quic_sockaddr_in base = {0}, port_only = {0};
-  srvrun_state     st = {table, &c};
-  ob                  = (quic_obuf){obuf, sizeof obuf, 0};
+  struct lp_fix  f;
+  srvrun_conn    c;
+  quic_obuf      ob = {0};
+  u8             obuf[1024], sh[8] = {0x40, 1, 2, 3, 4, 5, 6, 7};
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  quic_sockaddr  base = {0}, port_only = {0};
+  srvrun_state   st = {table, &c};
+  ob                = (quic_obuf){obuf, sizeof obuf, 0};
   sr_make_confirmed_conn(&c, &f, &ob);
   wired_udp_addr(&base, 4433, (const u8[4]){127, 0, 0, 1});
   wired_udp_addr(&port_only, 5555, (const u8[4]){127, 0, 0, 1});
@@ -1428,8 +1449,8 @@ static void test_srvrun_rebind_port_and_addr_independent(void) {
     srvrun_step_ctx ctx = {&cfg, &port_only, &st, 0, 0};
     srvrun_serve_slot(&ctx, 0, quic_mspan_of(sh, sizeof sh));
   }
-  CHECK(c.peer.port_be == port_only.port_be); /* moved */
-  CHECK(c.peer.addr_be == base.addr_be);      /* untouched */
+  CHECK(c.peer.port_be == port_only.port_be);            /* moved */
+  CHECK(quic_ct_diffn(c.peer.addr, base.addr, 16) == 0); /* untouched */
 }
 
 /* UNWANTED (T-006): boot-stage connections (srvrun_awaiting_confirm true)
@@ -1438,10 +1459,10 @@ static void test_srvrun_rebind_port_and_addr_independent(void) {
  * whatever srvrun_open_slot recorded even though this datagram arrives from
  * a different source. */
 static void test_srvrun_rebind_noop_during_boot(void) {
-  quic_conntable   table[QUIC_CONNTABLE_CAP];
-  srvrun_state     st        = {table, g_srvrun_state.conns};
-  quic_sockaddr_in boot_peer = {0}, other_peer = {0};
-  u8               sh[8] = {0x40, 1, 2, 3, 4, 5, 6, 7}; /* not Initial */
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_state   st        = {table, g_srvrun_state.conns};
+  quic_sockaddr  boot_peer = {0}, other_peer = {0};
+  u8             sh[8] = {0x40, 1, 2, 3, 4, 5, 6, 7}; /* not Initial */
   srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
                     0,  0, 0, 0, 0};
   quic_conntable_init(table, QUIC_CONNTABLE_CAP);
@@ -1455,7 +1476,7 @@ static void test_srvrun_rebind_noop_during_boot(void) {
     srvrun_serve_slot(&ctx, 0, quic_mspan_of(sh, sizeof sh));
   }
   CHECK(st.conns[0].peer.port_be == boot_peer.port_be);
-  CHECK(st.conns[0].peer.addr_be == boot_peer.addr_be);
+  CHECK(quic_ct_diffn(st.conns[0].peer.addr, boot_peer.addr, 16) == 0);
 }
 
 /* UNWANTED (T-007): a slot that is not up (unused/freed) is left alone --
@@ -1463,10 +1484,10 @@ static void test_srvrun_rebind_noop_during_boot(void) {
  * runs (mirrors the existing test_srvrun_serve_slot_touches_last_ms
  * baseline: last_ms/boot_rx_bytes bookkeeping still proceeds). */
 static void test_srvrun_rebind_noop_on_unused_slot(void) {
-  quic_conntable   table[QUIC_CONNTABLE_CAP];
-  srvrun_state     st    = {table, g_srvrun_state.conns};
-  quic_sockaddr_in peer  = {0};
-  u8               sh[8] = {0x40, 1, 2, 3, 4, 5, 6, 7};
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_state   st    = {table, g_srvrun_state.conns};
+  quic_sockaddr  peer  = {0};
+  u8             sh[8] = {0x40, 1, 2, 3, 4, 5, 6, 7};
   srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
                     0,  0, 0, 0, 0};
   quic_conntable_init(table, QUIC_CONNTABLE_CAP);
@@ -1478,7 +1499,7 @@ static void test_srvrun_rebind_noop_on_unused_slot(void) {
   }
   CHECK(st.conns[3].up == 0);
   CHECK(st.conns[3].peer.port_be == 0);
-  CHECK(st.conns[3].peer.addr_be == 0);
+  CHECK(wired_udp_addr4_be(&st.conns[3].peer) == 0);
 }
 
 /* INTEGRATION (T-003): the address-follow in srvrun_serve_slot actually
@@ -1494,7 +1515,7 @@ static void test_srvrun_rebind_subsequent_send_targets_new_peer(void) {
   u8               priv[32], pub[32], seed[32], rnd[32];
   u8               obuf[1024], spkt[1024];
   quic_conntable   table[QUIC_CONNTABLE_CAP];
-  quic_sockaddr_in from, rebound;
+  quic_sockaddr    from, rebound;
   srvrun_state     st      = {table, g_srvrun_state.conns};
   quic_obuf        ob      = {obuf, sizeof obuf, 0};
   u8               ping[1] = {0x01};
@@ -1514,21 +1535,21 @@ static void test_srvrun_rebind_subsequent_send_targets_new_peer(void) {
     srvrun_serve(&ctx, quic_mspan_of(spkt, slen));
   }
   CHECK(st.conns[0].peer.port_be == rebound.port_be);
-  CHECK(st.conns[0].peer.addr_be == rebound.addr_be);
+  CHECK(quic_ct_diffn(st.conns[0].peer.addr, rebound.addr, 16) == 0);
 }
 
 /* T-001: a rebind arms this connection's migrate state machine
  * (detect -> challenge) and records a nonzero 8-byte challenge. */
 static void test_srvrun_path_challenge_generated_on_rebind(void) {
-  struct lp_fix    f;
-  srvrun_conn      c;
-  quic_obuf        ob = {0};
-  u8               obuf[1024], sh[8] = {0x40, 1, 2, 3, 4, 5, 6, 7};
-  quic_conntable   table[QUIC_CONNTABLE_CAP];
-  quic_sockaddr_in old_peer = {0}, new_peer = {0};
-  srvrun_state     st          = {table, &c};
-  int              any_nonzero = 0;
-  ob                           = (quic_obuf){obuf, sizeof obuf, 0};
+  struct lp_fix  f;
+  srvrun_conn    c;
+  quic_obuf      ob = {0};
+  u8             obuf[1024], sh[8] = {0x40, 1, 2, 3, 4, 5, 6, 7};
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  quic_sockaddr  old_peer = {0}, new_peer = {0};
+  srvrun_state   st          = {table, &c};
+  int            any_nonzero = 0;
+  ob                         = (quic_obuf){obuf, sizeof obuf, 0};
   sr_make_confirmed_conn(&c, &f, &ob);
   wired_udp_addr(&old_peer, 4433, (const u8[4]){127, 0, 0, 1});
   wired_udp_addr(&new_peer, 9999, (const u8[4]){127, 0, 0, 1});
@@ -1554,17 +1575,17 @@ static void test_srvrun_path_challenge_generated_on_rebind(void) {
  * stored challenge and the wire frame agree, not just that some state flag
  * flipped. */
 static void test_srvrun_path_challenge_sent_to_new_peer(void) {
-  struct lp_fix    f;
-  srvrun_conn      c;
-  quic_obuf        ob = {0};
-  u8               obuf[1024], sh[8] = {0x40, 1, 2, 3, 4, 5, 6, 7};
-  u8               out[256];
-  quic_conntable   table[QUIC_CONNTABLE_CAP];
-  quic_sockaddr_in old_peer = {0}, new_peer = {0};
-  srvrun_state     st = {table, &c};
-  const u8*        pl;
-  usz              pll;
-  u8               wire_data[QUIC_PATH_DATA];
+  struct lp_fix  f;
+  srvrun_conn    c;
+  quic_obuf      ob = {0};
+  u8             obuf[1024], sh[8] = {0x40, 1, 2, 3, 4, 5, 6, 7};
+  u8             out[256];
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  quic_sockaddr  old_peer = {0}, new_peer = {0};
+  srvrun_state   st = {table, &c};
+  const u8*      pl;
+  usz            pll;
+  u8             wire_data[QUIC_PATH_DATA];
   ob = (quic_obuf){obuf, sizeof obuf, 0};
   sr_make_confirmed_conn(&c, &f, &ob);
   wired_udp_addr(&old_peer, 4433, (const u8[4]){127, 0, 0, 1});
@@ -1596,7 +1617,7 @@ static void test_srvrun_path_challenge_sent_to_new_peer(void) {
 /* Fixed 127.0.0.1:4433 / 127.0.0.1:9999 pair shared by every path-response
  * test below -- the actual addresses never matter, only that they differ. */
 static void sr_path_test_peers(
-    quic_sockaddr_in* old_peer, quic_sockaddr_in* new_peer) {
+    quic_sockaddr* old_peer, quic_sockaddr* new_peer) {
   wired_udp_addr(old_peer, 4433, (const u8[4]){127, 0, 0, 1});
   wired_udp_addr(new_peer, 9999, (const u8[4]){127, 0, 0, 1});
 }
@@ -1605,15 +1626,15 @@ static void sr_path_test_peers(
  * -- arms migrate (T-001) and leaves c->path_challenge_data set. st/table
  * must outlive any further srvrun_serve_slot calls the caller makes. */
 static void sr_confirm_and_rebind(
-    srvrun_conn*      c,
-    struct lp_fix*    f,
-    quic_conntable*   table,
-    srvrun_state*     st,
-    quic_sockaddr_in* new_peer) {
-  quic_obuf        ob = {0};
-  u8               obuf[1024], sh[8] = {0x40, 1, 2, 3, 4, 5, 6, 7};
-  quic_sockaddr_in old_peer = {0};
-  ob                        = (quic_obuf){obuf, sizeof obuf, 0};
+    srvrun_conn*    c,
+    struct lp_fix*  f,
+    quic_conntable* table,
+    srvrun_state*   st,
+    quic_sockaddr*  new_peer) {
+  quic_obuf     ob = {0};
+  u8            obuf[1024], sh[8] = {0x40, 1, 2, 3, 4, 5, 6, 7};
+  quic_sockaddr old_peer = {0};
+  ob                     = (quic_obuf){obuf, sizeof obuf, 0};
   sr_make_confirmed_conn(c, f, &ob);
   sr_path_test_peers(&old_peer, new_peer);
   c->peer = old_peer;
@@ -1630,10 +1651,10 @@ static void sr_confirm_and_rebind(
 /* Deliver a client PATH_RESPONSE frame carrying resp_data to slot 0 of st as
  * a fresh sealed 1-RTT step from peer. */
 static void sr_send_path_response(
-    struct lp_fix*          f,
-    srvrun_state*           st,
-    const quic_sockaddr_in* peer,
-    const u8                resp_data[QUIC_PATH_DATA]) {
+    struct lp_fix*       f,
+    srvrun_state*        st,
+    const quic_sockaddr* peer,
+    const u8             resp_data[QUIC_PATH_DATA]) {
   u8         fr[16], spkt[1024];
   usz        fl, slen;
   srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
@@ -1650,11 +1671,11 @@ static void sr_send_path_response(
 /* T-003: a PATH_RESPONSE matching the outstanding challenge validates the
  * path (quic_migrate_validate succeeds, migrate.validated set). */
 static void test_srvrun_path_response_matching_validates(void) {
-  struct lp_fix    f;
-  srvrun_conn      c;
-  quic_conntable   table[QUIC_CONNTABLE_CAP];
-  quic_sockaddr_in new_peer;
-  srvrun_state     st = {table, &c};
+  struct lp_fix  f;
+  srvrun_conn    c;
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  quic_sockaddr  new_peer;
+  srvrun_state   st = {table, &c};
   sr_confirm_and_rebind(&c, &f, table, &st, &new_peer);
   CHECK(c.migrate.validated == 0);
   sr_send_path_response(&f, &st, &new_peer, c.path_challenge_data);
@@ -1665,12 +1686,12 @@ static void test_srvrun_path_response_matching_validates(void) {
  * outstanding challenge does not validate -- exercises quic_ct_diff8 (used by
  * srvrun_apply_path_response) taking its nonzero branch. */
 static void test_srvrun_path_response_mismatch_does_not_validate(void) {
-  struct lp_fix    f;
-  srvrun_conn      c;
-  quic_conntable   table[QUIC_CONNTABLE_CAP];
-  quic_sockaddr_in new_peer;
-  u8               wrong[QUIC_PATH_DATA];
-  srvrun_state     st = {table, &c};
+  struct lp_fix  f;
+  srvrun_conn    c;
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  quic_sockaddr  new_peer;
+  u8             wrong[QUIC_PATH_DATA];
+  srvrun_state   st = {table, &c};
   sr_confirm_and_rebind(&c, &f, table, &st, &new_peer);
   for (usz i = 0; i < QUIC_PATH_DATA; i++)
     wrong[i] = (u8)(c.path_challenge_data[i] ^ 0xff);
@@ -1685,15 +1706,15 @@ static void test_srvrun_path_response_mismatch_does_not_validate(void) {
  * so path_challenge_data is untouched all-zero and migrate stays untouched
  * too. */
 static void test_srvrun_path_response_without_challenge_is_noop(void) {
-  struct lp_fix    f;
-  srvrun_conn      c;
-  quic_obuf        ob = {0};
-  u8               obuf[1024];
-  quic_conntable   table[QUIC_CONNTABLE_CAP];
-  quic_sockaddr_in peer                      = {0};
-  srvrun_state     st                        = {table, &c};
-  u8               resp_data[QUIC_PATH_DATA] = {1, 2, 3, 4, 5, 6, 7, 8};
-  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  struct lp_fix  f;
+  srvrun_conn    c;
+  quic_obuf      ob = {0};
+  u8             obuf[1024];
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  quic_sockaddr  peer                      = {0};
+  srvrun_state   st                        = {table, &c};
+  u8             resp_data[QUIC_PATH_DATA] = {1, 2, 3, 4, 5, 6, 7, 8};
+  ob                                       = (quic_obuf){obuf, sizeof obuf, 0};
   sr_make_confirmed_conn(&c, &f, &ob);
   wired_udp_addr(&peer, 4433, (const u8[4]){127, 0, 0, 1});
   c.peer = peer;
@@ -1708,14 +1729,14 @@ static void test_srvrun_path_response_without_challenge_is_noop(void) {
  * challenge (a new value); the PATH_RESPONSE matching the FIRST (now stale)
  * challenge no longer validates, only the second one does. */
 static void test_srvrun_path_challenge_rearmed_on_second_rebind(void) {
-  struct lp_fix    f;
-  srvrun_conn      c;
-  quic_obuf        ob = {0};
-  u8               obuf[1024], sh[8] = {0x40, 1, 2, 3, 4, 5, 6, 7};
-  quic_conntable   table[QUIC_CONNTABLE_CAP];
-  quic_sockaddr_in old_peer = {0}, mid_peer = {0}, final_peer = {0};
-  srvrun_state     st = {table, &c};
-  u8               first_challenge[QUIC_PATH_DATA];
+  struct lp_fix  f;
+  srvrun_conn    c;
+  quic_obuf      ob = {0};
+  u8             obuf[1024], sh[8] = {0x40, 1, 2, 3, 4, 5, 6, 7};
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  quic_sockaddr  old_peer = {0}, mid_peer = {0}, final_peer = {0};
+  srvrun_state   st = {table, &c};
+  u8             first_challenge[QUIC_PATH_DATA];
   srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
                     0,  0, 0, 0, 0};
   ob             = (quic_obuf){obuf, sizeof obuf, 0};
@@ -1747,10 +1768,10 @@ static void test_srvrun_path_challenge_rearmed_on_second_rebind(void) {
  * (srvrun_awaiting_confirm) short-circuits before srvrun_arm_path_challenge
  * is ever reached. */
 static void test_srvrun_path_challenge_noop_during_boot(void) {
-  quic_conntable   table[QUIC_CONNTABLE_CAP];
-  srvrun_state     st        = {table, g_srvrun_state.conns};
-  quic_sockaddr_in boot_peer = {0}, other_peer = {0};
-  u8               sh[8] = {0x40, 1, 2, 3, 4, 5, 6, 7};
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_state   st        = {table, g_srvrun_state.conns};
+  quic_sockaddr  boot_peer = {0}, other_peer = {0};
+  u8             sh[8] = {0x40, 1, 2, 3, 4, 5, 6, 7};
   srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
                     0,  0, 0, 0, 0};
   quic_conntable_init(table, QUIC_CONNTABLE_CAP);
@@ -1771,14 +1792,14 @@ static void test_srvrun_path_challenge_noop_during_boot(void) {
  * and never arms migrate.challenged (srvrun_gen_path_challenge's forced-fail
  * test hook stands in for a real getrandom(2) failure). */
 static void test_srvrun_path_challenge_rng_failure_sends_nothing(void) {
-  struct lp_fix    f;
-  srvrun_conn      c;
-  quic_obuf        ob = {0};
-  u8               obuf[1024], sh[8] = {0x40, 1, 2, 3, 4, 5, 6, 7};
-  quic_conntable   table[QUIC_CONNTABLE_CAP];
-  quic_sockaddr_in old_peer = {0}, new_peer = {0};
-  srvrun_state     st = {table, &c};
-  usz              send_before;
+  struct lp_fix  f;
+  srvrun_conn    c;
+  quic_obuf      ob = {0};
+  u8             obuf[1024], sh[8] = {0x40, 1, 2, 3, 4, 5, 6, 7};
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  quic_sockaddr  old_peer = {0}, new_peer = {0};
+  srvrun_state   st = {table, &c};
+  usz            send_before;
   ob = (quic_obuf){obuf, sizeof obuf, 0};
   sr_make_confirmed_conn(&c, &f, &ob);
   sr_path_test_peers(&old_peer, &new_peer);
@@ -1811,7 +1832,7 @@ static void sr_serve_onertt(
   u8               priv[32], pub[32], seed[32], rnd[32];
   u8               obuf[1024], spkt[1024];
   quic_conntable   table[QUIC_CONNTABLE_CAP];
-  quic_sockaddr_in peer = {0};
+  quic_sockaddr    peer = {0};
   srvrun_state     st   = {table, g_srvrun_state.conns};
   quic_obuf        ob   = {obuf, sizeof obuf, 0};
   usz              slen;
@@ -1867,7 +1888,7 @@ static void test_srvrun_qlog_skips_undecryptable(void) {
   u8               obuf[1024];
   u8               junk[32] = {0x40, 'C', 'L', 'I', 'S', 'C', 'I', 9, 9, 9};
   quic_conntable   table[QUIC_CONNTABLE_CAP];
-  quic_sockaddr_in peer = {0};
+  quic_sockaddr    peer = {0};
   srvrun_state     st   = {table, g_srvrun_state.conns};
   quic_obuf        ob   = {obuf, sizeof obuf, 0};
   sr_make_id(&id, priv, pub, seed, rnd);
@@ -1890,7 +1911,7 @@ static void test_srvrun_qlog_records_initial(void) {
   wired_srvboot_id id;
   u8               priv[32], pub[32], seed[32], rnd[32], dg[1500];
   quic_conntable   table[QUIC_CONNTABLE_CAP];
-  quic_sockaddr_in peer = {0};
+  quic_sockaddr    peer = {0};
   srvrun_state     st   = {table, g_srvrun_state.conns};
   usz total             = sr_build_client_initial(dg, sizeof dg, g_sr_odcid, 8);
   sr_make_id(&id, priv, pub, seed, rnd);
@@ -1914,7 +1935,7 @@ static void test_srvrun_qlog_skips_failed_accept(void) {
   u8               priv[32], pub[32], seed[32], rnd[32];
   u8               junk[64] = {0xc3, 0, 0, 0, 1, 8, 1, 2, 3, 4, 5, 6, 7, 8, 0};
   quic_conntable   table[QUIC_CONNTABLE_CAP];
-  quic_sockaddr_in peer = {0};
+  quic_sockaddr    peer = {0};
   srvrun_state     st   = {table, g_srvrun_state.conns};
   sr_make_id(&id, priv, pub, seed, rnd);
   srvrunt_qlog_unlink();
@@ -1945,10 +1966,10 @@ static void test_srvrun_batch_serves_each(void) {
   bufs[0].buf = quic_mspan_of(dgs[0], sizeof dgs[0]);
   bufs[0].len =
       (u32)sr_build_client_initial(dgs[0], sizeof dgs[0], g_sr_odcid, 8);
-  bufs[0].src = (quic_sockaddr_in){0};
+  bufs[0].src = (quic_sockaddr){0};
   bufs[1].buf = quic_mspan_of(dgs[1], sizeof dgs[1]);
   bufs[1].len = (u32)sr_build_client_initial(dgs[1], sizeof dgs[1], odcid2, 8);
-  bufs[1].src = (quic_sockaddr_in){0};
+  bufs[1].src = (quic_sockaddr){0};
   bufs[0].src.port_be = 0x1111; /* two distinct peers */
   bufs[1].src.port_be = 0x2222;
   {
@@ -2030,7 +2051,7 @@ static int sr_tiny_body_handler(
 }
 
 /* Local socket pair on its own port (4439; the recvmmsg tests own 4437). */
-static int sr_open_sockets(i64* sfd, i64* cfd, quic_sockaddr_in* srv) {
+static int sr_open_sockets(i64* sfd, i64* cfd, quic_sockaddr* srv) {
   *sfd = wired_udp_socket();
   if (*sfd < 0) return 0;
   wired_udp_addr(srv, 4439, (const u8[4]){127, 0, 0, 1});
@@ -2156,7 +2177,7 @@ static void test_srvrun_parallel_responses_three_streams(void) {
   quic_conntable           table[QUIC_CONNTABLE_CAP];
   srvrun_state             st = {table, g_srvrun_state.conns};
   quic_obuf                ob = {obuf, sizeof obuf, 0};
-  quic_sockaddr_in         srv, from;
+  quic_sockaddr            srv, from;
   i64                      sfd, cfd;
   usz                      off, slen;
   if (!sr_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
@@ -2262,7 +2283,7 @@ static void test_srvrun_takeover_streams_large_body(void) {
   quic_conntable   table[QUIC_CONNTABLE_CAP];
   srvrun_state     st = {table, g_srvrun_state.conns};
   quic_obuf        ob = {obuf, sizeof obuf, 0};
-  quic_sockaddr_in srv, from;
+  quic_sockaddr    srv, from;
   i64              sfd, cfd;
   usz              glen, slen, high = 0;
   int              fin = 0;
@@ -2319,7 +2340,7 @@ static void test_srvrun_cc_algo_selected(void) {
   wired_srvboot_id id;
   u8               priv[32], pub[32], seed[32], rnd[32], dg[1500];
   quic_conntable   table[QUIC_CONNTABLE_CAP];
-  quic_sockaddr_in peer = {0};
+  quic_sockaddr    peer = {0};
   srvrun_state     st   = {table, g_srvrun_state.conns};
   usz total             = sr_build_client_initial(dg, sizeof dg, g_sr_odcid, 8);
   sr_make_id(&id, priv, pub, seed, rnd);
@@ -2951,14 +2972,14 @@ static void test_srvrun_busy_poll_on_never_blocks_wait(void) {
  * (tasks/polling-driver-plan.md test-design item 4/5's srvrun-level
  * counterpart). */
 static void test_srvrun_busy_poll_step_never_blocks(void) {
-  i64              fd = wired_udp_socket();
-  quic_sockaddr_in sa;
-  quic_mmsg_buf    bufs[2];
-  static u8        storage[2][256];
-  srvrun_state     st = {0, 0};
-  quic_conntable   table[QUIC_CONNTABLE_CAP];
-  srvrun_conn*     conns = sr_test_conns();
-  srvrun_cfg       cfg;
+  i64            fd = wired_udp_socket();
+  quic_sockaddr  sa;
+  quic_mmsg_buf  bufs[2];
+  static u8      storage[2][256];
+  srvrun_state   st = {0, 0};
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_conn*   conns = sr_test_conns();
+  srvrun_cfg     cfg;
   CHECK(fd >= 0);
   wired_udp_addr(&sa, 4491, (const u8[4]){127, 0, 0, 1});
   CHECK(wired_udp_bind(fd, &sa) >= 0);
@@ -6497,15 +6518,15 @@ static void test_srvrun_hq09_missing_file_arms_empty_body(void) {
  * already share) and checking the sealed reply's ACK frame covers the
  * received pn. Benign skip when the sandbox forbids sockets. */
 static void test_srvrun_onertt_get_is_acked_via_srvrun_on_step(void) {
-  struct lp_fix    f;
-  srvrun_conn      c  = {0};
-  quic_obuf        ob = {0};
-  u8               obuf[1024], get[512], spkt[1024];
-  quic_sockaddr_in srv, from;
-  i64              sfd, cfd;
-  usz              glen, slen;
-  const u8*        pl;
-  usz              pll;
+  struct lp_fix f;
+  srvrun_conn   c  = {0};
+  quic_obuf     ob = {0};
+  u8            obuf[1024], get[512], spkt[1024];
+  quic_sockaddr srv, from;
+  i64           sfd, cfd;
+  usz           glen, slen;
+  const u8*     pl;
+  usz           pll;
   if (!sr_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
   ob = (quic_obuf){obuf, sizeof obuf, 0};
   sr_make_confirmed_conn(&c, &f, &ob);
@@ -6543,13 +6564,13 @@ static void test_srvrun_onertt_get_is_acked_via_srvrun_on_step(void) {
  * srvrun's real-socket path that test_srvloop_ack_single_gap_two_ranges
  * proves directly against wired_srvloop_step. */
 static void test_srvrun_multi_range_ack_via_srvrun_on_step(void) {
-  struct lp_fix    f;
-  srvrun_conn      c  = {0};
-  quic_obuf        ob = {0};
-  u8               obuf[1024], ping[1] = {0x01}, spkt[1024];
-  quic_sockaddr_in srv, from;
-  i64              sfd, cfd;
-  usz              slen;
+  struct lp_fix f;
+  srvrun_conn   c  = {0};
+  quic_obuf     ob = {0};
+  u8            obuf[1024], ping[1] = {0x01}, spkt[1024];
+  quic_sockaddr srv, from;
+  i64           sfd, cfd;
+  usz           slen;
   if (!sr_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
   ob = (quic_obuf){obuf, sizeof obuf, 0};
   sr_make_confirmed_conn(&c, &f, &ob);
@@ -7927,7 +7948,7 @@ static void test_srvrun_partial_ch_acked_and_rekeyed(void) {
   quic_client      c;
   u8               cpriv[32], cpub[32];
   quic_conntable   table[QUIC_CONNTABLE_CAP];
-  quic_sockaddr_in peer = {0};
+  quic_sockaddr    peer = {0};
   srvrun_state     st   = {table, sr_test_conns()};
   usz              n, nd;
   for (usz i = 0; i < 32; i++) cpriv[i] = (u8)(11 + i);
@@ -8142,14 +8163,14 @@ static void test_srvrun_reconfirm_idempotent_bytes(void) {
  * one signal that the client still lacks HANDSHAKE_DONE. A short-header
  * datagram triggers nothing. */
 static void test_srvrun_serve_slot_reconfirms_on_handshake_probe(void) {
-  struct lp_fix    f;
-  quic_conntable   table[QUIC_CONNTABLE_CAP];
-  srvrun_state     st   = {table, sr_test_conns()};
-  quic_sockaddr_in peer = {0};
-  quic_obuf        ob   = {0};
-  u8               obuf[1024];
-  u8               hs[40] = {0xe0, 1, 2, 3}; /* Handshake-type long header */
-  u8               sh[40] = {0x40, 1, 2, 3}; /* short header */
+  struct lp_fix  f;
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_state   st   = {table, sr_test_conns()};
+  quic_sockaddr  peer = {0};
+  quic_obuf      ob   = {0};
+  u8             obuf[1024];
+  u8             hs[40] = {0xe0, 1, 2, 3}; /* Handshake-type long header */
+  u8             sh[40] = {0x40, 1, 2, 3}; /* short header */
   srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
                     0,  0, 0, 0, 0};
   srvrun_step_ctx ctx = {&cfg, &peer, &st, 5, 0};
@@ -8770,15 +8791,15 @@ static void sr_wtsend_ack_all_inflight(
 static const u8 sr_wtsend_hello[] = {0x54, 0x04, 'h', 'i'};
 
 static void test_srvrun_wt_open_uni_streams_payload_on_wire(void) {
-  struct lp_fix    f;
-  quic_obuf        ob = {0};
-  u8               obuf[1024];
-  u8               asm_buf[64] = {0};
-  quic_sockaddr_in srv, from;
-  i64              sfd, cfd, id;
-  usz              high = 0;
-  int              fin  = 0;
-  srvrun_conn*     c;
+  struct lp_fix f;
+  quic_obuf     ob = {0};
+  u8            obuf[1024];
+  u8            asm_buf[64] = {0};
+  quic_sockaddr srv, from;
+  i64           sfd, cfd, id;
+  usz           high = 0;
+  int           fin  = 0;
+  srvrun_conn*  c;
   if (!sr_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
   ob      = (quic_obuf){obuf, sizeof obuf, 0};
   c       = sr_wtsend_fixture(&f, &ob);
@@ -9125,7 +9146,7 @@ static void test_srvrun_wt_open_five_parallel_streams_unmixed(void) {
   quic_obuf        ob = {0};
   u8               obuf[1024];
   sr_stream_bucket buckets[5] = {0};
-  quic_sockaddr_in srv, from;
+  quic_sockaddr    srv, from;
   i64              sfd, cfd;
   srvrun_conn*     c;
   if (!sr_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
@@ -9655,6 +9676,7 @@ void test_srvrun(void) {
   test_srvrun_idle_sweep_releases_bigbuf_row();
   test_srvrun_serve_slot_touches_last_ms();
   test_srvrun_serve_slot_notes_ecn();
+  test_srvrun_peer_changed_compares_full_v6();
   test_srvrun_rebind_updates_peer_port();
   test_srvrun_rebind_updates_peer_addr();
   test_srvrun_rebind_noop_when_address_unchanged();
