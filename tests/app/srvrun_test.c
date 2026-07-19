@@ -7901,6 +7901,56 @@ static void test_srvrun_boot_pto_no_double_send_after_client_retransmit(void) {
   CHECK(st.conns[0].boot_pto_count == 0);
 }
 
+/* Seal one raw-ClientHello chunk as its own protected Initial datagram --
+ * the shape a split (post-quantum-sized) ClientHello arrives in. */
+static usz sr_seal_ch_half(
+    u8* dg, usz cap, const u8* odcid, u8 odcid_len, quic_span chunk, u64 off) {
+  quic_initpkt_desc d = {
+      quic_span_of(odcid, odcid_len), quic_span_of(g_cli_scid, 6), chunk, 0,
+      off};
+  quic_obuf o = quic_obuf_of(dg, cap);
+  CHECK(quic_initpkt_build(&d, &o) == 1);
+  return o.len;
+}
+
+/* PARTIAL-CLIENTHELLO ACK WIRING (RFC 9000 13.2.1): a half ClientHello
+ * cold-starts a pending slot; the server acks what it opened (so the
+ * client's handshake idle timer survives) and rekeys the routing entry to
+ * its own scid, because that ack makes the client switch DCIDs (RFC 9000
+ * 7.2) for everything it sends next. */
+static void test_srvrun_partial_ch_acked_and_rekeyed(void) {
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32];
+  u8               ch[2048], dg[1400];
+  quic_client      c;
+  u8               cpriv[32], cpub[32];
+  quic_conntable   table[QUIC_CONNTABLE_CAP];
+  quic_sockaddr_in peer = {0};
+  srvrun_state     st   = {table, sr_test_conns()};
+  usz              n, nd;
+  for (usz i = 0; i < 32; i++) cpriv[i] = (u8)(11 + i);
+  quic_x25519_base(cpub, cpriv);
+  quic_tlsdriver_init(&c.tls, cpriv, cpub, 0);
+  n = quic_tlsdriver_raw_client_hello(&c.tls, ch, sizeof ch);
+  CHECK(n > 100);
+  nd = sr_seal_ch_half(dg, sizeof dg, g_sr_odcid, 8, quic_span_of(ch, 60), 0);
+  sr_make_id(&id, priv, pub, seed, rnd);
+  {
+    srvrun_cfg cfg = {-1, &id,           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                      0,  &g_srvrun_env, 0, 0, 0, 0, 0};
+    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0, 0};
+    quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+    srvrun_test_reset_send_count();
+    srvrun_serve(&ctx, quic_mspan_of(dg, nd));
+  }
+  CHECK(st.conns[0].up == 0);          /* still pending */
+  CHECK(st.conns[0].boot.opened == 1); /* the half was absorbed */
+  CHECK(srvrun_test_send_count() > 0); /* ...and acked */
+  CHECK(
+      quic_conntable_find(
+          table, QUIC_CONNTABLE_CAP, st.conns[0].scid, id.scid_len) == 0);
+}
+
 /* HS-FLIGHT LOSS RECOVERY (RFC 9002 6.2 applied to the boot flight): a
  * resend triggered after the WHOLE Handshake flight already went out once
  * must replay that flight too, not just the Initial -- the "only the
@@ -9540,6 +9590,7 @@ void test_srvrun(void) {
   test_srvrun_boot_pto_noop_without_sent_flight();
   test_srvrun_boot_pto_noop_when_not_up();
   test_srvrun_boot_pto_no_double_send_after_client_retransmit();
+  test_srvrun_partial_ch_acked_and_rekeyed();
   test_srvrun_boot_resend_replays_lost_hs_flight();
   test_srvrun_boot_rtt_seeded_at_confirm();
   test_srvrun_boot_rtt_no_seed_off_edge();
