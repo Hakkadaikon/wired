@@ -7991,6 +7991,122 @@ static void test_srvrun_boot_rtt_seed_shrinks_pto_deadline(void) {
   CHECK(srvrun_pto_deadline_ms(&c, 0) < 200);
 }
 
+/* 1 if the opened 1-RTT payload carries a HANDSHAKE_DONE frame. */
+static int sr_has_handshake_done(const u8* pl, usz pll) {
+  quic_framewalk      it;
+  quic_framewalk_item fr;
+  quic_framewalk_init(&it, pl, pll);
+  while (quic_framewalk_next(&it, &fr))
+    if (fr.type == QUIC_FRAME_HANDSHAKE_DONE) return 1;
+  return 0;
+}
+
+/* CONFIRMATION LOSS RECOVERY (RFC 9000 19.20: HANDSHAKE_DONE is sent until
+ * acknowledged): the confirmation packet (SETTINGS + session ticket +
+ * HANDSHAKE_DONE) goes out exactly once, so when that one datagram is
+ * dropped the client keeps PTO-retransmitting its Finished forever while
+ * the server answers nothing (observed live under the interop runner's 30%
+ * loss profile). wired_srvloop_reconfirm re-seals the cached confirmation
+ * frames under a fresh pn so the client can still learn the handshake
+ * confirmed. */
+static void test_srvrun_reconfirm_resends_handshake_done(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  quic_obuf     ob = {0};
+  u8            obuf[1024], out[1024];
+  const u8*     pl;
+  usz           pll;
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  /* the fixture's real confirm emit already primed the replay cache */
+  CHECK(c.l.confirm_frames_len != 0);
+  {
+    wired_srvloop_conn conn = {&c.l, &c.s};
+    quic_obuf          ob1  = {out, sizeof out, 0};
+    CHECK(wired_srvloop_reconfirm(&conn, &ob1) == 1);
+    CHECK(client_open_onertt(&f, out, ob1.len, &pl, &pll) == 1);
+  }
+  CHECK(sr_has_handshake_done(pl, pll) == 1);
+}
+
+/* Before the confirmation was ever emitted (flag or cache still clear)
+ * there is nothing to replay. */
+static void test_srvrun_reconfirm_needs_prior_confirm(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  quic_obuf     ob = {0};
+  u8            obuf[1024], out[256];
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  {
+    wired_srvloop_conn conn = {&c.l, &c.s};
+    quic_obuf          ob1  = {out, sizeof out, 0};
+    c.l.confirm_frames_len  = 0; /* as if the emit never cached */
+    CHECK(wired_srvloop_reconfirm(&conn, &ob1) == 0);
+    CHECK(ob1.len == 0);
+    c.l.confirm_frames_len = 100;
+    c.l.hs_done_sent       = 0; /* as if never emitted at all */
+    CHECK(wired_srvloop_reconfirm(&conn, &ob1) == 0);
+  }
+}
+
+/* Two replays decrypt to byte-identical frame payloads: the session
+ * ticket's sealing nonce is random per build, so replaying MUST come from
+ * the cache, or each copy would put different bytes at the same CRYPTO
+ * offset (RFC 9000 2.2: same offset, same bytes). */
+static void test_srvrun_reconfirm_idempotent_bytes(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  quic_obuf     ob = {0};
+  u8            obuf[1024], out[1024];
+  u8            first[1024];
+  const u8*     pl;
+  usz           pll, first_len;
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  {
+    wired_srvloop_conn conn = {&c.l, &c.s};
+    quic_obuf          ob1  = {out, sizeof out, 0};
+    CHECK(wired_srvloop_reconfirm(&conn, &ob1) == 1);
+    CHECK(client_open_onertt(&f, out, ob1.len, &pl, &pll) == 1);
+    first_len = pll;
+    for (usz i = 0; i < pll; i++) first[i] = pl[i];
+    ob1 = (quic_obuf){out, sizeof out, 0};
+    CHECK(wired_srvloop_reconfirm(&conn, &ob1) == 1);
+    CHECK(client_open_onertt(&f, out, ob1.len, &pl, &pll) == 1);
+  }
+  CHECK(pll == first_len);
+  for (usz i = 0; i < pll; i++) CHECK(pl[i] == first[i]);
+}
+
+/* WIRING (srvrun_serve_slot): a confirmed connection that receives a
+ * datagram leading with a long-header Handshake packet (first byte 0xEx,
+ * readable without keys) replays the confirmation -- that arrival is the
+ * one signal that the client still lacks HANDSHAKE_DONE. A short-header
+ * datagram triggers nothing. */
+static void test_srvrun_serve_slot_reconfirms_on_handshake_probe(void) {
+  struct lp_fix    f;
+  quic_conntable   table[QUIC_CONNTABLE_CAP];
+  srvrun_state     st   = {table, sr_test_conns()};
+  quic_sockaddr_in peer = {0};
+  quic_obuf        ob   = {0};
+  u8               obuf[1024];
+  u8               hs[40] = {0xe0, 1, 2, 3}; /* Handshake-type long header */
+  u8               sh[40] = {0x40, 1, 2, 3}; /* short header */
+  srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                    0,  0, 0, 0, 0};
+  srvrun_step_ctx ctx = {&cfg, &peer, &st, 5, 0};
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&st.conns[2], &f, &ob);
+  CHECK(st.conns[2].l.confirm_frames_len != 0); /* cache primed at confirm */
+  srvrun_test_reset_send_count();
+  srvrun_serve_slot(&ctx, 2, quic_mspan_of(sh, sizeof sh));
+  CHECK(srvrun_test_send_count() == 0); /* short header: no replay */
+  srvrun_serve_slot(&ctx, 2, quic_mspan_of(hs, sizeof hs));
+  CHECK(srvrun_test_send_count() > 0); /* Handshake probe: replayed */
+}
+
 /* RFC 9002 7.5's "MUST NOT be blocked by the congestion controller" covers
  * pacing (7.7) too, not just cwnd -- a queued probe goes out even with the
  * pacing deadline far in the future (srvrun_pace_or_probe_ok). An earlier
@@ -9430,6 +9546,10 @@ void test_srvrun(void) {
   test_srvrun_boot_rtt_no_overwrite();
   test_srvrun_boot_rtt_no_seed_without_sent();
   test_srvrun_boot_rtt_seed_shrinks_pto_deadline();
+  test_srvrun_reconfirm_resends_handshake_done();
+  test_srvrun_reconfirm_needs_prior_confirm();
+  test_srvrun_reconfirm_idempotent_bytes();
+  test_srvrun_serve_slot_reconfirms_on_handshake_probe();
   test_srvrun_pto_probe_bypasses_pacing_too();
   test_srvrun_slot_release_grants_one_more_stream();
   test_srvrun_stream_limit_never_decreases();
