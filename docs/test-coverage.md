@@ -77,8 +77,16 @@ Legend:
   derivation input (the Retry's own SCID) and that recovered original DCID
   are tracked as two distinct fields end to end so the TP advert is never
   mixed up with the key-derivation input
-- [ ] `resumption` — not yet run (dedicated server mode not wired up)
-- [ ] `zerortt` — not yet run (dedicated server mode not wired up)
+- [ ] `resumption` — not yet run. The PSK-carrying ClientHello codec
+  (`pre_shared_key` extension parse), the PSK binder compute/verify, the
+  PSK-branch key schedule (early_secret), and ticket seal/open all exist
+  as separately unit-tested leaf modules, but none of them is called from
+  the real ClientHello receive path or the server flight builder yet --
+  a resumption attempt today falls straight through to a full handshake,
+  untouched
+- [ ] `zerortt` — not yet run, same reason as `resumption`. 0-RTT key
+  derivation and the replay-rejection policy (`zerortt_policy.c`) both
+  exist and are unit-tested but have no caller in the real receive path
 - [~] `ecn` — RFC 9000 §13.4 ECT(0) marking on send, IP_TOS cmsg reading on
   receive, and cumulative ECN counts reported in 1-RTT ACKs are all
   implemented and unit-tested, but the runner marks the case `?`: the
@@ -194,6 +202,15 @@ is exactly what this tier exists for.
 - [x] Vectors — golden handshake fixtures with a real Ed25519 leaf
   (`fullhs_golden.h`), RSA CertificateVerify transcript
 - [x] Interop — every green case completes a real TLS 1.3 handshake
+- [~] §4.2.11.2 PSK binder — compute/verify (`quic_tls_binder_compute`/
+  `quic_tls_binder_verify`) is implemented and unit-tested (round-trip,
+  flipped-binder-byte reject, tampered-transcript reject, wrong-PSK reject,
+  and an independent cross-check of the binder_key derivation against the
+  RFC 5869-pinned HKDF primitives), resumption PSKs only ("res binder"; no
+  external-PSK source exists in this SDK). Not yet wired into the real
+  ClientHello receive path (`sdrv.c`) or the session-resumption handshake,
+  so no PSK-carrying ClientHello is inspected/accepted today -- see the
+  `resumption`/`zerortt` entries below
 
 **RFC 5280 — X.509 / PKI**
 - [x] Unit — 17 test files: DER parsing, path validation, CA-bit and
