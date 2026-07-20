@@ -5,7 +5,7 @@
 > **At a glance** — all 42 implemented specs are exercised by the unit
 > suite (460+ test files, every commit); 19 of them are additionally pinned
 > to official/golden vectors; three wire-facing parsers are fuzzed nightly;
-> and interop against real independent clients has proven 13 of 22 QUIC
+> and interop against real independent clients has proven 14 of 22 QUIC
 > testcases plus both measurements (vs quic-go), with two more
 > functionally correct but unverdictable (one short of a fixed runner
 > timeout, one refused by the peer client), and 4 of 7 WebTransport
@@ -66,7 +66,17 @@ Legend:
   client's 5 s handshake idle timer
 - [x] `handshakecorruption` — same scenario under corruption; passes with
   the same fixes
-- [ ] `retry` — not yet run (dedicated server mode not wired up)
+- [x] `retry` — RFC 9000 §8.1.2 forced address validation: a `--force-retry`
+  server mode sends a Retry for every token-less Initial, verifies the
+  presented token's HMAC (RFC 9000 §8.1.1) and address binding before
+  accepting, and drops datagrams carrying an invalid one. The Retry
+  Integrity Tag is pinned to the RFC 9001 Appendix A.4 vector. The
+  wire token carries its embedded original DCID in the clear
+  (`odcid_len || odcid || HMAC-SHA256`) so the server can statelessly
+  recover it for `original_destination_connection_id`; the Initial-key
+  derivation input (the Retry's own SCID) and that recovered original DCID
+  are tracked as two distinct fields end to end so the TP advert is never
+  mixed up with the key-derivation input
 - [ ] `resumption` — not yet run (dedicated server mode not wired up)
 - [ ] `zerortt` — not yet run (dedicated server mode not wired up)
 - [~] `ecn` — RFC 9000 §13.4 ECT(0) marking on send, IP_TOS cmsg reading on
@@ -340,10 +350,10 @@ runs used kernel UDP sockets, so they are unit-tested but not interop-proven.
   what this server itself received) is wired at the congestion-control
   layer but not yet connected to ACK decoding -- out of scope for what the
   runner's check requires.
-- Five testcases (`retry`, `resumption`, `zerortt`, `v2`,
-  `connectionmigration`) need a dedicated server mode this SDK does not
-  wire up yet; `ipv6` needs IPv6 socket support. None of these have been
-  attempted.
+- Four testcases (`resumption`, `zerortt`, `v2`, `connectionmigration`) need
+  a dedicated server mode this SDK does not wire up yet; none of these have
+  been attempted. `retry` and `ipv6` (IPv6 socket support) are both done,
+  see their own entries above.
 - The three WebTransport `*-send` interop cases have never passed; the
   QUIC layer has been verified blameless via qlog, and the investigation
   is parked at the client's send scheduling.
