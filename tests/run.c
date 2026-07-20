@@ -935,6 +935,7 @@
 #include "app/h3srv_test.c"
 #include "app/srvwire_test.c"
 #include "app/srvloop_test.c"
+#include "app/srvboot_version_test.c"
 #include "app/priupdate_test.c"
 #include "app/sendq_test.c"
 #include "app/sendsess_test.c"
@@ -1430,6 +1431,7 @@ int main(void) {
   test_h3srv();
   test_srvwire();
   test_srvloop();
+  test_srvboot_version();
   test_priupdate();
   test_sendq();
   test_sendsess();
