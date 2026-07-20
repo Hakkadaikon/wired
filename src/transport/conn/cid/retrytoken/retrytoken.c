@@ -36,3 +36,36 @@ int quic_retrytoken_verify(
   quic_retrytoken_make(key, in, want);
   return quic_ct_diff32(want, token) == 0;
 }
+
+usz quic_retrytoken_wire_make(
+    const u8  key[QUIC_RETRYTOKEN_KEY],
+    quic_span addr,
+    quic_span odcid,
+    u8        token[QUIC_RETRYTOKEN_WIRE_MAX]) {
+  quic_retrytoken_in in = {addr, odcid};
+  if (odcid.n > 20) return 0;
+  token[0] = (u8)odcid.n;
+  copy_bytes(token + 1, odcid.p, odcid.n);
+  quic_retrytoken_make(key, &in, token + 1 + odcid.n);
+  return 1 + odcid.n + QUIC_RETRYTOKEN_LEN;
+}
+
+/* 1 if the framing holds: odcid_len within the CID cap and the token long
+ * enough to carry it plus the HMAC. */
+static int retrytoken_wire_framed(quic_span token) {
+  if (token.n < 1 + QUIC_RETRYTOKEN_LEN) return 0;
+  if (token.p[0] > 20) return 0;
+  return token.n == (usz)1 + token.p[0] + QUIC_RETRYTOKEN_LEN;
+}
+
+int quic_retrytoken_wire_verify(
+    const u8   key[QUIC_RETRYTOKEN_KEY],
+    quic_span  addr,
+    quic_span  token,
+    quic_span* odcid) {
+  quic_retrytoken_in in;
+  if (!retrytoken_wire_framed(token)) return 0;
+  *odcid = quic_span_of(token.p + 1, token.p[0]);
+  in     = (quic_retrytoken_in){addr, *odcid};
+  return quic_retrytoken_verify(key, &in, token.p + 1 + token.p[0]);
+}
