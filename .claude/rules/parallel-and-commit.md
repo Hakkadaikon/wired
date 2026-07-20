@@ -49,6 +49,14 @@ When delegating to coders/subagents, state explicitly:
 - For a long verify-then-commit flow, have the subagent write intermediate
   results to a file (a probe log) and make the final commit its own separate
   step, so a mid-flow stop loses nothing (#20).
+- "Do NOT push. Assume you have no credential-helper permission." A subagent
+  once pushed to `origin/main` despite a no-push instruction (2026-07-03).
+  Saying it is not enough — when collecting a subagent's work, run
+  `git ls-remote origin main` and compare against the local base to DETECT an
+  unintended push instead of discovering it later.
+- A subagent working in its own worktree starts from a stale base: make its
+  FIRST step `git merge main` plus an explicit check that the base sha matches
+  current `main` (2026-07-03 — an agent built on a base several days old).
 
 ## Detecting stalled / leaking background subagents
 
