@@ -86,6 +86,7 @@ void quic_sdrv_init(quic_sdrv* s, const quic_sdrv_init_in* in) {
   s->hs_ready  = 0;
   s->odcid_len = 0;
   s->iscid_len = 0;
+  s->rscid_len = 0;
   quic_transcript_init(&s->tr);
 }
 
@@ -101,6 +102,10 @@ static int sdrv_set_cid(u8* dst, u8* dst_len, quic_span cid) {
 int quic_sdrv_set_cids(quic_sdrv* s, quic_span odcid, quic_span iscid) {
   return sdrv_set_cid(s->odcid, &s->odcid_len, odcid) &&
          sdrv_set_cid(s->iscid, &s->iscid_len, iscid);
+}
+
+int quic_sdrv_set_retry_scid(quic_sdrv* s, quic_span rscid) {
+  return sdrv_set_cid(s->rscid, &s->rscid_len, rscid);
 }
 
 /* The ClientHello extensions block being walked for the key_share. */

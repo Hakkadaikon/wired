@@ -41,6 +41,10 @@ typedef struct {
   u8              odcid_len; /**< bytes used in odcid (0..20) */
   u8              iscid[20]; /**< RFC 9000 7.3 server SCID */
   u8              iscid_len; /**< bytes used in iscid (0..20) */
+  u8              rscid[20]; /**< RFC 9000 7.3 retry_source_connection_id --
+                              * the Retry packet's SCID, advertised only when
+                              * a Retry preceded this handshake */
+  u8              rscid_len; /**< bytes used in rscid; 0 = no Retry */
   quic_stp_limits limits;    /**< advertised tunable limits (0 = defaults) */
   u64 peer_max_datagram_frame_size; /**< peer's max_datagram_frame_size
                                      * (0x20, RFC 9221 3) from the ClientHello
@@ -129,6 +133,14 @@ void quic_sdrv_init(quic_sdrv* s, const quic_sdrv_init_in* in);
  * @param iscid the server's source connection id
  * @return 1 on success, 0 if either length exceeds 20. */
 int quic_sdrv_set_cids(quic_sdrv* s, quic_span odcid, quic_span iscid);
+
+/** Record the Retry packet's SCID for the retry_source_connection_id
+ * transport parameter (RFC 9000 7.3) -- only after a Retry actually
+ * happened; never call it on the direct-accept path.
+ * @param s the server driver
+ * @param rscid the Retry's source connection id (at most 20 bytes)
+ * @return 1 on success, 0 when rscid exceeds 20 bytes */
+int quic_sdrv_set_retry_scid(quic_sdrv* s, quic_span rscid);
 
 /** RFC 8446 4.4.1: fold the ClientHello into the transcript and take the
  * client's x25519 key_share.
