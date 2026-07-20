@@ -105,10 +105,79 @@ static void test_keyschedule_matches_oneshot(void) {
   CHECK(keys_differ(c_hs, c_ap));
 }
 
+/* R-39/RFC 8446 7.1 PSK branch: quic_keysched_advance_handshake_psk installs
+ * the same Handshake-level keys and Master Secret as an independent
+ * quic_tls_handshake_secret_psk + quic_tls_handshake_keys/quic_tls_master_
+ * secret computation over the same psk/ecdhe/transcript. */
+static void test_keyschedule_psk_matches_oneshot(void) {
+  u8 psk[32], ecdhe[32], tr[] = "ClientHello(psk)||ServerHello";
+  fill(psk, 32, 7);
+  fill(ecdhe, 32, 3);
+  quic_keysched            st;
+  const quic_initial_keys *c_hs, *s_hs;
+  quic_keysched_init(&st);
+  CHECK(
+      quic_keysched_advance_handshake_psk(
+          &st, quic_span_of(psk, 32), quic_span_of(ecdhe, 32),
+          quic_span_of(tr, sizeof(tr))) == 1);
+  quic_keysched_get(&st, QUIC_KS_CLIENT_HS, &c_hs);
+  quic_keysched_get(&st, QUIC_KS_SERVER_HS, &s_hs);
+
+  u8                hs[32], master[32];
+  quic_initial_keys ref;
+  quic_tls_handshake_secret_psk(psk, ecdhe, hs);
+  quic_tls_handshake_keys(
+      &(quic_handshake_keys_in){hs, quic_span_of(tr, sizeof(tr)), 0}, &ref);
+  for (usz i = 0; i < QUIC_INITIAL_KEY; i++) CHECK(c_hs->key[i] == ref.key[i]);
+  quic_tls_handshake_keys(
+      &(quic_handshake_keys_in){hs, quic_span_of(tr, sizeof(tr)), 1}, &ref);
+  for (usz i = 0; i < QUIC_INITIAL_KEY; i++) CHECK(s_hs->key[i] == ref.key[i]);
+  quic_tls_master_secret(hs, master);
+  for (usz i = 0; i < 32; i++) CHECK(st.master[i] == master[i]);
+}
+
+/* Same psk/ecdhe/transcript, PSK vs plain branch: the derived Handshake keys
+ * differ -- the PSK is actually mixed into the Early Secret (RFC 8446 7.1),
+ * not silently ignored. */
+static void test_keyschedule_psk_differs_from_plain(void) {
+  u8 psk[32], ecdhe[32], tr[] = "same-transcript";
+  fill(psk, 32, 11);
+  fill(ecdhe, 32, 13);
+  quic_keysched            st_psk, st_plain;
+  const quic_initial_keys *psk_hs, *plain_hs;
+  quic_keysched_init(&st_psk);
+  quic_keysched_init(&st_plain);
+  quic_keysched_advance_handshake_psk(
+      &st_psk, quic_span_of(psk, 32), quic_span_of(ecdhe, 32),
+      quic_span_of(tr, sizeof(tr)));
+  quic_keysched_advance_handshake(
+      &st_plain, quic_span_of(ecdhe, 32), quic_span_of(tr, sizeof(tr)));
+  quic_keysched_get(&st_psk, QUIC_KS_SERVER_HS, &psk_hs);
+  quic_keysched_get(&st_plain, QUIC_KS_SERVER_HS, &plain_hs);
+  CHECK(keys_differ(psk_hs, plain_hs));
+}
+
+/* A wrong-length ECDHE secret is rejected on the PSK branch too. */
+static void test_keyschedule_psk_bad_ecdhe(void) {
+  u8 psk[32], ecdhe[32], tr[] = "tr";
+  fill(psk, 32, 2);
+  fill(ecdhe, 32, 9);
+  quic_keysched st;
+  quic_keysched_init(&st);
+  CHECK(
+      quic_keysched_advance_handshake_psk(
+          &st, quic_span_of(psk, 32), quic_span_of(ecdhe, 31),
+          quic_span_of(tr, sizeof(tr))) == 0);
+  CHECK(st.stage == 0);
+}
+
 void test_keyschedule(void) {
   test_keyschedule_order();
   test_keyschedule_skip_rejected();
   test_keyschedule_double_handshake();
   test_keyschedule_bad_ecdhe();
   test_keyschedule_matches_oneshot();
+  test_keyschedule_psk_matches_oneshot();
+  test_keyschedule_psk_differs_from_plain();
+  test_keyschedule_psk_bad_ecdhe();
 }
