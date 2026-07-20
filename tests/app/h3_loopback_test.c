@@ -21,6 +21,7 @@
 #include "transport/packet/build/hspkt/hspkt_open.h"
 #include "transport/packet/build/hspkt/onertt.h"
 #include "transport/packet/frame/frame/frame.h"
+#include "transport/version/version/version.h"
 
 /* RFC 9001 4 / 5 / 5.1, RFC 9000 17.2, RFC 9114 4.1: real-AEAD-wire loopback.
  * A genuine server orchestrator (wired_server) is driven to FLIGHT_SENT, then a
@@ -537,19 +538,27 @@ static void test_srvboot_acks_actual_initial_pn(void) {
   CHECK(out.client_pn == 2);
 }
 
+/* v is one of p's listed supported versions. */
+static int vneg_lists(const quic_vneg_packet* p, u32 v) {
+  for (usz i = 0; i < p->count; i++)
+    if (quic_get_be32(p->versions + 4 * i) == v) return 1;
+  return 0;
+}
+
 /* An unknown-version long-header datagram of answerable size draws a Version
- * Negotiation packet with the connection ids swapped and v1 as the only
- * offered version (RFC 9000 5.2.2 / RFC 8999 6). */
+ * Negotiation packet with the connection ids swapped and this server's
+ * supported versions -- v1 and v2 (RFC 9368 5) -- offered (RFC 9000 5.2.2 /
+ * RFC 8999 6). */
 static void test_srvboot_vneg_responds_to_alien_version(void) {
   u8               dg[1200] = {0};
   u8               vn[64];
   usz              n;
   quic_vneg_packet p;
-  dg[0] = 0xd3; /* long header, v2 Initial type bits 01 */
-  dg[1] = 0x6b;
-  dg[2] = 0x33;
-  dg[3] = 0x43;
-  dg[4] = 0xcf; /* QUIC v2 version number */
+  dg[0] = 0xd3; /* long header, some alien version's type bits */
+  dg[1] = 0x0a;
+  dg[2] = 0x0a;
+  dg[3] = 0x0a;
+  dg[4] = 0x0a; /* GREASE-shaped version, never supported (RFC 8999 6) */
   dg[5] = 8;    /* DCID */
   for (usz i = 0; i < 8; i++) dg[6 + i] = (u8)(0x11 * (i + 1));
   dg[14] = 5; /* SCID */
@@ -561,8 +570,27 @@ static void test_srvboot_vneg_responds_to_alien_version(void) {
   CHECK(p.dcid[0] == 0xa0 && p.dcid[4] == 0xa4);
   CHECK(p.scid_len == 8); /* response SCID = received DCID */
   CHECK(p.scid[0] == 0x11 && p.scid[7] == 0x88);
-  CHECK(p.count == 1);
-  CHECK(quic_get_be32(p.versions) == 1);
+  CHECK(p.count == 2);
+  CHECK(vneg_lists(&p, 1));
+  CHECK(vneg_lists(&p, QUIC_VERSION_2));
+}
+
+/* A QUIC v2 Initial (RFC 9369) is a version this server now speaks
+ * directly -- it must NOT draw a Version Negotiation packet (RFC 9368 2: no
+ * VN round trip for an already-supported compatible version). */
+static void test_srvboot_vneg_not_owed_for_v2(void) {
+  u8 dg[1200] = {0};
+  dg[0]       = 0xd3; /* long header, v2 Initial type bits 01 */
+  dg[1]       = 0x6b;
+  dg[2]       = 0x33;
+  dg[3]       = 0x43;
+  dg[4]       = 0xcf; /* QUIC v2 version number */
+  dg[5]       = 8;
+  for (usz i = 0; i < 8; i++) dg[6 + i] = (u8)(0x11 * (i + 1));
+  dg[14] = 5;
+  for (usz i = 0; i < 5; i++) dg[15 + i] = (u8)(0xa0 + i);
+  u8 vn[64];
+  CHECK(wired_srvboot_vneg(quic_span_of(dg, sizeof dg), vn, sizeof vn) == 0);
 }
 
 /* No Version Negotiation for: an under-1200 datagram (amplification guard),
@@ -1095,6 +1123,7 @@ void test_h3_loopback(void) {
   test_srvboot_rejects_non_initial();
   test_srvboot_acks_actual_initial_pn();
   test_srvboot_vneg_responds_to_alien_version();
+  test_srvboot_vneg_not_owed_for_v2();
   test_srvboot_vneg_guards();
   test_bootacc_split_two_datagrams();
   test_bootacc_out_of_order();
