@@ -1031,6 +1031,67 @@ static void test_sdrv_suite_vec_overruns_body(void) {
   free(ch);
 }
 
+/* RFC 9000 7.3 / RFC 9001 5.2, post-Retry accept: original_destination_
+ * connection_id in the EncryptedExtensions transport parameters must carry
+ * the true first Initial's DCID (token-recovered), NOT the Initial-key
+ * derivation input (the Retry's own SCID) -- quic_sdrv_set_cids_retried
+ * keeps the two separate (sdrv.h), and emit_ee must advertise the former
+ * (s->tp_odcid) while s->odcid stays the latter for key derivation. */
+static void test_sdrv_retry_advertises_true_odcid_not_key_derivation_dcid(
+    void) {
+  static const u8 retry_scid[]  = {0x11, 0x22, 0x33, 0x44};
+  static const u8 server_scid[] = {0xaa, 0xbb, 0xcc};
+  static const u8 true_odcid[]  = {0x83, 0x94, 0xc8, 0xf0,
+                                   0x3e, 0x51, 0x57, 0x08};
+  u8              cli_pub[32], srv_random[32], ch[512], sh[256], flight[2048];
+  usz             ch_len, hs_len, p = 0;
+  const u8*       ee;
+  usz             eel;
+  quic_span       tp, cid;
+  quic_stp_out    cido = {0, &cid};
+  quic_sdrv       s;
+
+  sdrv_dgram_test_setup(&s, cli_pub, srv_random);
+  CHECK(quic_sdrv_set_cids_retried(
+      &s, quic_span_of(retry_scid, sizeof(retry_scid)),
+      quic_span_of(server_scid, sizeof(server_scid)),
+      quic_span_of(true_odcid, sizeof(true_odcid))));
+
+  /* odcid (key derivation) is the Retry's SCID; tp_odcid (TP advert) is the
+   * true original -- the two must not collapse into one field. */
+  CHECK(s.odcid_len == sizeof(retry_scid));
+  CHECK(quic_tparam_cid_match(
+      quic_span_of(s.odcid, s.odcid_len),
+      quic_span_of(retry_scid, sizeof(retry_scid))));
+  CHECK(s.tp_odcid_len == sizeof(true_odcid));
+  CHECK(quic_tparam_cid_match(
+      quic_span_of(s.tp_odcid, s.tp_odcid_len),
+      quic_span_of(true_odcid, sizeof(true_odcid))));
+
+  ch_len = sdrv_test_client_hello(ch, sizeof(ch), cli_pub, srv_random);
+  CHECK(ch_len != 0);
+  CHECK(quic_sdrv_recv_client_hello(&s, ch, ch_len));
+  {
+    quic_obuf            sh_ob = quic_obuf_of(sh, sizeof(sh));
+    quic_obuf            fl_ob = quic_obuf_of(flight, sizeof(flight));
+    quic_sdrv_flight_out fo    = {&sh_ob, &fl_ob};
+    CHECK(quic_sdrv_build_server_flight(&s, srv_random, &fo));
+    hs_len = fl_ob.len;
+  }
+  CHECK(next_hs(flight, hs_len, &p, &ee, &eel));
+  CHECK(quic_tpext_decode(quic_span_of(ee + 15, eel - 15), &tp) != 0);
+
+  /* the wire TP is the true ODCID, never the Retry SCID used for keys. */
+  CHECK(
+      quic_stp_parse(tp, QUIC_TP_ORIGINAL_DESTINATION_CONNECTION_ID, &cido) ==
+      1);
+  CHECK(
+      cid.n == sizeof(true_odcid) &&
+      quic_tparam_cid_match(cid, quic_span_of(true_odcid, sizeof(true_odcid))));
+  CHECK(!quic_tparam_cid_match(
+      cid, quic_span_of(retry_scid, sizeof(retry_scid))));
+}
+
 void test_sdrv(void) {
   test_sdrv_keyshare_walk_rejects_overclaimed_exts_len();
   test_sdrv_tp_walk_rejects_overclaimed_exts_len();
@@ -1057,6 +1118,7 @@ void test_sdrv(void) {
   test_sdrv_suite_no_overlap_fails();
   test_sdrv_suite_malformed_vec();
   test_sdrv_suite_vec_overruns_body();
+  test_sdrv_retry_advertises_true_odcid_not_key_derivation_dcid();
 
   u8 cli_priv[32], cli_pub[32], srv_priv[32], srv_pub[32];
   u8 cert_priv[32];
