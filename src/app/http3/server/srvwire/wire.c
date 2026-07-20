@@ -11,6 +11,7 @@
 #include "transport/packet/frame/frame/frame.h"
 #include "transport/packet/frame/pipeline/rxpacket.h"
 #include "transport/packet/frame/pipeline/txpacket.h"
+#include "transport/version/version/v2types.h"
 
 /* Recover the TLS flight from a packet's CRYPTO frame bytes (RFC 9000 19.6).
  * The CRYPTO frame is emitted first (any ACK frame follows it), so the type
@@ -72,48 +73,79 @@ static void pad_initial_frames(quic_obuf* frames, usz floor) {
   for (; frames->len < fill; frames->len++) frames->p[frames->len] = 0x00;
 }
 
+/* RFC 9000 17.2 byte0 for a long-header Initial under `version`: long form +
+ * fixed bit + the version's own Initial type bits (RFC 9000 17.2 for v1,
+ * RFC 9369 3.2 for v2 -- quic_lhdr_byte0_pnlen overwrites the low pn_len
+ * bits regardless). 0 for a version this SDK cannot encode type bits for. */
+static u8 srvwire_initial_byte0(u32 version) {
+  int wire = version == QUIC_VERSION_2 ? quic_v2_packet_type(QUIC_LT_INITIAL)
+                                       : quic_v1_packet_type(QUIC_LT_INITIAL);
+  return wire < 0 ? 0 : (u8)(0xC0 | (wire << 4));
+}
+
 /* Pad the built frames to the Initial floor and seal them as one server
- * Initial packet under the server-direction Initial keys (RFC 9001 5.2,
- * derived from in->dcid), with in->hdr_dcid as the header's Destination
- * Connection ID (RFC 9000 7.2: the client's SCID, never the key-derivation
- * DCID -- the peer discards a reply addressed to a CID it does not own). */
-static int srvwire_initial_tx_lean(
-    const quic_srvwire_seal_in* in, quic_obuf* fb, quic_obuf* out) {
+ * Initial packet under the server-direction Initial keys for `version`
+ * (RFC 9001 5.2 / RFC 9369 3.3.1, derived from in->dcid), with in->hdr_dcid
+ * as the header's Destination Connection ID (RFC 9000 7.2: the client's
+ * SCID, never the key-derivation DCID -- the peer discards a reply
+ * addressed to a CID it does not own). */
+static int srvwire_initial_tx_lean_ver(
+    u32                         version,
+    const quic_srvwire_seal_in* in,
+    quic_obuf*                  fb,
+    quic_obuf*                  out) {
   quic_initial_keys ck, sk;
   quic_aes128       hp;
   usz               total;
-  quic_initpkt_derive(in->dcid, &ck, &sk);
+  u8                byte0 = srvwire_initial_byte0(version);
+  if (byte0 == 0) return 0;
+  quic_initpkt_derive_ver(in->dcid, version, &ck, &sk);
   quic_aes128_init(&hp, sk.hp);
   quic_protect_keys k = {&sk, &hp};
   quic_tx_desc      t = {
-      0xc3,
+      byte0,
       in->hdr_dcid,
       in->scid,
       1,
       quic_span_of((const u8*)0, 0),
       in->pn,
-      quic_span_of(fb->p, fb->len)};
+      quic_span_of(fb->p, fb->len),
+      version};
   total = quic_tx_packet(&k, &t, quic_mspan_of(out->p, out->cap));
   if (total == 0) return 0;
   out->len = total;
   return 1;
 }
 
-/* Pad to the 1200-byte floor, then seal (the path every CRYPTO-carrying
- * server Initial takes). */
-static int srvwire_initial_tx(
+static int srvwire_initial_tx_lean(
     const quic_srvwire_seal_in* in, quic_obuf* fb, quic_obuf* out) {
+  return srvwire_initial_tx_lean_ver(QUIC_VERSION_1, in, fb, out);
+}
+
+/* Pad to the 1200-byte floor, then seal under `version` (the path every
+ * CRYPTO-carrying server Initial takes). */
+static int srvwire_initial_tx_ver(
+    u32                         version,
+    const quic_srvwire_seal_in* in,
+    quic_obuf*                  fb,
+    quic_obuf*                  out) {
   pad_initial_frames(
       fb, init_payload_floor((u8)in->hdr_dcid.n, (u8)in->scid.n));
-  return srvwire_initial_tx_lean(in, fb, out);
+  return srvwire_initial_tx_lean_ver(version, in, fb, out);
+}
+
+/* RFC 9001 5.2 / RFC 9369 3.3.1 */
+int quic_srvwire_seal_initial_ver(
+    u32 version, const quic_srvwire_seal_in* in, quic_obuf* out) {
+  u8        frames[1200]; /* RFC 9000 14.1: room to PADDING to 1200 */
+  quic_obuf fb = quic_obuf_of(frames, sizeof frames);
+  if (!srvwire_emit_frames(in, &fb)) return 0;
+  return srvwire_initial_tx_ver(version, in, &fb, out);
 }
 
 /* RFC 9001 5.2 */
 int quic_srvwire_seal_initial(const quic_srvwire_seal_in* in, quic_obuf* out) {
-  u8        frames[1200]; /* RFC 9000 14.1: room to PADDING to 1200 */
-  quic_obuf fb = quic_obuf_of(frames, sizeof frames);
-  if (!srvwire_emit_frames(in, &fb)) return 0;
-  return srvwire_initial_tx(in, &fb, out);
+  return quic_srvwire_seal_initial_ver(QUIC_VERSION_1, in, out);
 }
 
 /* RFC 9000 17.2.2: seal pre-built frames (in->tls holds raw frame bytes,
@@ -125,7 +157,7 @@ int quic_srvwire_seal_initial_frames(
   quic_obuf fb = quic_obuf_of(frames, sizeof frames);
   if (!quic_put_bytes(quic_mspan_of(fb.p, fb.cap), &fb.len, in->tls)) return 0;
   if (!append_ack(&fb, in->ack_pn)) return 0;
-  return srvwire_initial_tx(in, &fb, out);
+  return srvwire_initial_tx_ver(QUIC_VERSION_1, in, &fb, out);
 }
 
 int quic_srvwire_seal_initial_frames_lean(

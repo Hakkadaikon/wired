@@ -12,8 +12,11 @@
  * possibly zero-length). Writing the odcid into the header instead makes the
  * client discard the reply unread (RFC 9000 5.1) and PTO-retransmit its
  * Initial until it idles out. */
-int wired_srvloop_send_initial(
-    const wired_server* s, const wired_srvloop_send_in* in, quic_obuf* out) {
+int wired_srvloop_send_initial_ver(
+    u32                          version,
+    const wired_server*          s,
+    const wired_srvloop_send_in* in,
+    quic_obuf*                   out) {
   quic_srvwire_seal_in wi = {
       quic_span_of(s->sdrv.odcid, s->sdrv.odcid_len),
       in->cli_scid,
@@ -22,7 +25,12 @@ int wired_srvloop_send_initial(
       in->ack_pn,
       in->payload,
       0};
-  return quic_srvwire_seal_initial(&wi, out);
+  return quic_srvwire_seal_initial_ver(version, &wi, out);
+}
+
+int wired_srvloop_send_initial(
+    const wired_server* s, const wired_srvloop_send_in* in, quic_obuf* out) {
+  return wired_srvloop_send_initial_ver(QUIC_VERSION_1, s, in, out);
 }
 
 /* RFC 9001 5 / 5.1: Handshake flight sealed with the own-direction SERVER_HS,

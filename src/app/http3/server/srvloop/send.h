@@ -41,6 +41,17 @@ typedef struct {
 int wired_srvloop_send_initial(
     const wired_server* s, const wired_srvloop_send_in* in, quic_obuf* out);
 
+/** Same as wired_srvloop_send_initial, but the Initial keys, the header's
+ * Version field, and byte0's type bits all follow `version` (RFC 9369
+ * 3.2/3.3.1) -- what accepting a client that already arrived speaking v2
+ * replies with (RFC 9368 2: same version the peer used, no VN round trip).
+ * @return 1 with out->len set, 0 on overflow or an unencodable version. */
+int wired_srvloop_send_initial_ver(
+    u32                          version,
+    const wired_server*          s,
+    const wired_srvloop_send_in* in,
+    quic_obuf*                   out);
+
 /** Seal a Handshake TLS flight under SERVER_HS. When in->ack_pn >= 0 the
  * flight acknowledges that received Handshake-space packet number (RFC 9000
  * 13.2.1).
