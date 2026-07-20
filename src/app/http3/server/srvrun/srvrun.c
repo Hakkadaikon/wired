@@ -17,6 +17,7 @@
 #include "app/webtransport/errmap/errmap/errmap.h"
 #include "app/webtransport/session/session/session.h"
 #include "app/webtransport/wtwire/wtwire.h"
+#include "common/bytes/util/be.h"
 #include "common/bytes/util/bytes.h"
 #include "common/bytes/util/ct.h"
 #include "common/bytes/util/num.h"
@@ -46,6 +47,7 @@
 #include "transport/packet/header/dcidresolve/dcidresolve.h"
 #include "transport/packet/header/lhdr/lhdr_parse.h"
 #include "transport/packet/header/packet/header.h"
+#include "transport/packet/header/packet/ptype.h"
 #include "transport/packet/header/packet/retry.h"
 #include "transport/recovery/congestion/cc/cc.h"
 #include "transport/recovery/congestion/cc/hystart.h"
@@ -2336,15 +2338,20 @@ static int srvrun_awaiting_confirm(const srvrun_conn* c) {
   return c->up && !wired_server_is_confirmed(&c->s);
 }
 
-/* 1 if b0 wears a long header of the Initial type (RFC 9000 17.2.2). */
-static int srvrun_pkt_is_initial(u8 b0) {
-  return (b0 & 0x80) != 0 && (b0 & 0x30) == 0;
+/* 1 if the packet at dg.p[off] wears a long header of the Initial type
+ * (RFC 9000 17.2.2 for v1, RFC 9369 3.2 for v2 -- the type-bit layout is
+ * version-dependent, so this reads the packet's own Version field rather
+ * than assuming v1's). */
+static int srvrun_pkt_is_initial(quic_mspan dg, usz off) {
+  if (off + 5 > dg.n) return 0;
+  return quic_packet_long_type(dg.p[off], quic_get_be32(dg.p + off + 1)) ==
+         QUIC_PT_INITIAL;
 }
 
 /* 1 if every packet at offs[0..n) within dg is an Initial. */
 static int srvrun_pkts_all_initial(quic_mspan dg, const usz* offs, usz n) {
   for (usz i = 0; i < n; i++)
-    if (!srvrun_pkt_is_initial(dg.p[offs[i]])) return 0;
+    if (!srvrun_pkt_is_initial(dg, offs[i])) return 0;
   return 1;
 }
 
