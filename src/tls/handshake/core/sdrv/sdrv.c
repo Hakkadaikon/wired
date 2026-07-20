@@ -6,7 +6,9 @@
 #include "tls/ext/salpn/ch_ext.h"
 #include "tls/ext/salpn/negotiate.h"
 #include "tls/ext/stp/parse_tp.h"
+#include "tls/ext/tlsext/preshared.h"
 #include "tls/ext/tparam/tparam.h"
+#include "tls/handshake/core/tls/binder.h"
 #include "tls/handshake/core/tls/cipher.h"
 #include "tls/handshake/core/tls/ext_keyshare.h"
 #include "tls/handshake/core/tls/handshake.h"
@@ -70,6 +72,14 @@ static void sdrv_copy_san_ipv4(quic_sdrv* s, const u8* san_ipv4) {
   for (usz i = 0; i < 4; i++) s->san_ipv4[i] = san_ipv4 ? san_ipv4[i] : 0;
 }
 
+/* Copy in->ticket_key (QUIC_TICKET_KEY_LEN bytes) into s and record whether
+ * resumption is enabled, or zero it and disable when in->ticket_key is 0. */
+static void sdrv_copy_ticket_key(quic_sdrv* s, const u8* ticket_key) {
+  s->has_ticket_key = ticket_key != 0;
+  for (usz i = 0; i < QUIC_TICKET_KEY_LEN; i++)
+    s->ticket_key[i] = ticket_key ? ticket_key[i] : 0;
+}
+
 void quic_sdrv_init(quic_sdrv* s, const quic_sdrv_init_in* in) {
   s->limits                       = (quic_stp_limits){0, 0, 0};
   s->peer_max_datagram_frame_size = 0;
@@ -79,6 +89,7 @@ void quic_sdrv_init(quic_sdrv* s, const quic_sdrv_init_in* in) {
   sdrv_copy32(s->server_pub, in->server_pub_x25519);
   sdrv_copy32(s->p256_priv, in->sign_priv);
   sdrv_copy_san_ipv4(s, in->san_ipv4);
+  sdrv_copy_ticket_key(s, in->ticket_key);
   if (sdrv_use_chain(in))
     sdrv_take_chain(s, in);
   else
@@ -88,6 +99,7 @@ void quic_sdrv_init(quic_sdrv* s, const quic_sdrv_init_in* in) {
   s->iscid_len    = 0;
   s->tp_odcid_len = 0;
   s->rscid_len    = 0;
+  s->psk_accepted = 0;
   quic_transcript_init(&s->tr);
 }
 
@@ -218,26 +230,28 @@ static int take_client_keyshare(const u8* ch, usz ch_len, u8 pub[32]) {
   return sdrv_ch_walk(ch + 4, start, end, pub);
 }
 
-/* One extension at *q: -1 overrun, 1 quic_transport_parameters (0x39) found
- * (*ext set to its full TLV, header included, for quic_tpext_decode), 0
- * skip; *q advances. */
-static int sdrv_ch_tp_one(const sdrv_ch_block* blk, usz* q, quic_span* ext) {
+/* One extension at *q: -1 overrun, 1 if it names want_type (*ext set to its
+ * full TLV, header included), 0 skip; *q advances. */
+static int sdrv_ch_ext_one(
+    const sdrv_ch_block* blk, usz* q, unsigned want_type, quic_span* ext) {
   unsigned type;
   usz      dlen, start = *q;
   if (!sdrv_ch_hdr(blk, q, &type, &dlen)) return -1;
-  if (type != QUIC_TPEXT_TYPE) return 0;
+  if (type != want_type) return 0;
   *ext = quic_span_of(blk->b + start, 4 + dlen);
   return 1;
 }
 
-/* Walk the same extension list as sdrv_ch_walk (RFC 9001 8.2 quic_transport_
- * parameters, extension_type 0x39), independently of the key_share scan --
- * a second small dedicated walk rather than folding two unrelated searches
- * into one function, to keep CCN low. */
-static int sdrv_ch_find_tp(const u8* b, usz q, usz end, quic_span* tp) {
+/* Walk the same extension list as sdrv_ch_walk for one extension_type,
+ * independently of the key_share scan -- a small dedicated walk rather than
+ * folding unrelated searches into one function, to keep CCN low. Shared by
+ * the quic_transport_parameters (RFC 9001 8.2, 0x39) and pre_shared_key
+ * (RFC 8446 4.2.11, 0x0029) lookups below. */
+static int sdrv_ch_find_ext(
+    const u8* b, usz q, usz end, unsigned want_type, quic_span* ext) {
   sdrv_ch_block blk = {b, end};
   int           r   = 0;
-  while (r == 0 && q + 4 <= end) r = sdrv_ch_tp_one(&blk, &q, tp);
+  while (r == 0 && q + 4 <= end) r = sdrv_ch_ext_one(&blk, &q, want_type, ext);
   return r == 1;
 }
 
@@ -249,7 +263,17 @@ static int find_client_tp_ext(const u8* ch, usz ch_len, quic_span* ext) {
   usz body, start, end;
   if (!sdrv_is_client_hello(ch, ch_len, &body)) return 0;
   if (!sdrv_ch_exts_span(ch + 4, body, &start, &end)) return 0;
-  return sdrv_ch_find_tp(ch + 4, start, end, ext);
+  return sdrv_ch_find_ext(ch + 4, start, end, QUIC_TPEXT_TYPE, ext);
+}
+
+/* RFC 8446 4.2.11: locate the pre_shared_key extension (0x0029) TLV, header
+ * included, if the ClientHello carries one. */
+#define QUIC_SDRV_PSK_EXT_TYPE 0x0029
+static int find_client_psk_ext(const u8* ch, usz ch_len, quic_span* ext) {
+  usz body, start, end;
+  if (!sdrv_is_client_hello(ch, ch_len, &body)) return 0;
+  if (!sdrv_ch_exts_span(ch + 4, body, &start, &end)) return 0;
+  return sdrv_ch_find_ext(ch + 4, start, end, QUIC_SDRV_PSK_EXT_TYPE, ext);
 }
 
 /* RFC 9221 3: extract the peer's advertised max_datagram_frame_size from the
@@ -383,6 +407,102 @@ static void sdrv_ch_take_optional(quic_sdrv* s, const u8* ch_msg, usz ch_len) {
   quic_transcript_add(&s->tr, ch_msg, ch_len);
 }
 
+/* RFC 8446 4.2.11.2: the PskBinderEntry is computed over the ClientHello
+ * bytes up to and including the pre_shared_key identities list, EXCLUDING
+ * the binders list itself. psk_ext is the pre_shared_key TLV located within
+ * ch_msg (header included, as returned by find_client_psk_ext); id_len is
+ * the single offered identity's length. Relative to the TLV start (psk_ext.p,
+ * header included): the 4-byte extension header is followed by
+ * identities_len(2) then one PskIdentity(2+id_len+4) -- 4+2+(2+id_len+4) =
+ * 12+id_len bytes -- and the binders_len field starts right there (RFC 8446
+ * 4.2.11's OfferedPsks: identities<7..>, binders<33..>). So the absolute cut
+ * is psk_ext.p - ch_msg + 12 + id_len. */
+static quic_span sdrv_psk_truncate(
+    const u8* ch_msg, quic_span psk_ext, usz id_len) {
+  usz cut = (usz)(psk_ext.p - ch_msg) + 12 + id_len;
+  return quic_span_of(ch_msg, cut);
+}
+
+/* Open the presented ticket (off->identity, the sealed quic_ticket bytes)
+ * under s->ticket_key. Returns 1 and fills *t on success, 0 on any failure
+ * (wrong key, malformed, tampered) -- the caller degrades to a full
+ * handshake rather than treating this as an error (RFC 8446 4.2.11 MAY). */
+static int sdrv_psk_open_ticket(
+    const quic_sdrv* s, const quic_tlsext_psk_offer* off, quic_ticket* t) {
+  quic_span sealed = quic_span_of(off->identity, off->id_len);
+  return quic_ticket_open(sealed, s->ticket_key, t);
+}
+
+/* The opened ticket's binder verifies against the truncated ClientHello.
+ * RFC 8446 4.2.11.2: a mismatch here is the hard-abort case, never a
+ * fallback -- the caller must propagate 0 all the way out of
+ * quic_sdrv_recv_client_hello. */
+static int sdrv_psk_binder_ok(
+    const quic_ticket*           t,
+    const u8*                    ch_msg,
+    quic_span                    psk_ext,
+    const quic_tlsext_psk_offer* off) {
+  quic_span truncated = sdrv_psk_truncate(ch_msg, psk_ext, off->id_len);
+  return quic_tls_binder_verify(t->secret, truncated, off->binder);
+}
+
+/* A ticket opened under s->ticket_key: try the binder next. On a verified
+ * binder, records psk_accepted/psk_secret and returns 1; on a mismatch
+ * returns 0 (hard abort, see sdrv_psk_binder_ok's doc). */
+static int sdrv_psk_accept_opened(
+    quic_sdrv*                   s,
+    const quic_ticket*           t,
+    const u8*                    ch_msg,
+    quic_span                    psk_ext,
+    const quic_tlsext_psk_offer* off) {
+  if (!sdrv_psk_binder_ok(t, ch_msg, psk_ext, off)) return 0;
+  s->psk_accepted = 1;
+  for (usz i = 0; i < QUIC_TICKET_SECRET_LEN; i++)
+    s->psk_secret[i] = t->secret[i];
+  return 1;
+}
+
+/* A parsed pre_shared_key offer: open its ticket and, only if it opened, run
+ * the binder check. A ticket that fails to open is the graceful-degrade
+ * case (returns 1, psk_accepted left 0); a ticket that opens but whose
+ * binder fails to verify is the hard-abort case (returns 0). */
+static int sdrv_psk_try_offer(
+    quic_sdrv*                   s,
+    const u8*                    ch_msg,
+    quic_span                    psk_ext,
+    const quic_tlsext_psk_offer* off) {
+  quic_ticket t;
+  if (!sdrv_psk_open_ticket(s, off, &t)) return 1;
+  return sdrv_psk_accept_opened(s, &t, ch_msg, psk_ext, off);
+}
+
+/* Locate and parse a pre_shared_key offer in the ClientHello, if resumption
+ * is enabled and one is present. Returns 1 and fills *psk_ext and *off only
+ * when both are found and well-formed; 0 otherwise (disabled, absent, or
+ * malformed extension -- all "nothing to try", not an error). */
+static int sdrv_find_psk_offer(
+    const quic_sdrv*       s,
+    const u8*              ch_msg,
+    usz                    ch_len,
+    quic_span*             psk_ext,
+    quic_tlsext_psk_offer* off) {
+  if (!s->has_ticket_key) return 0;
+  if (!find_client_psk_ext(ch_msg, ch_len, psk_ext)) return 0;
+  return quic_tlsext_pre_shared_key_parse(psk_ext->p, psk_ext->n, off);
+}
+
+/* RFC 8446 4.2.11: if resumption is enabled and the ClientHello carries a
+ * well-formed pre_shared_key extension, try to accept it (see
+ * quic_sdrv_recv_client_hello's doc for the full absent/open-fail/binder-
+ * fail state table). Absent/disabled/malformed: no-op success, matching
+ * today's full-handshake behavior exactly. */
+static int sdrv_ch_take_psk(quic_sdrv* s, const u8* ch_msg, usz ch_len) {
+  quic_span             psk_ext;
+  quic_tlsext_psk_offer off;
+  if (!sdrv_find_psk_offer(s, ch_msg, ch_len, &psk_ext, &off)) return 1;
+  return sdrv_psk_try_offer(s, ch_msg, psk_ext, &off);
+}
+
 /* Cipher suite negotiated and the client's x25519 key_share taken -- both
  * required before quic_sdrv_recv_client_hello's remaining fields matter. */
 static int sdrv_ch_negotiate_and_keyshare(
@@ -392,9 +512,16 @@ static int sdrv_ch_negotiate_and_keyshare(
   return take_client_keyshare(ch_msg, ch_len, s->client_pub);
 }
 
-int quic_sdrv_recv_client_hello(quic_sdrv* s, const u8* ch_msg, usz ch_len) {
+/* Negotiated, key_share taken, and legacy_session_id recorded -- the
+ * required-field half of quic_sdrv_recv_client_hello. */
+static int sdrv_ch_required_fields(quic_sdrv* s, const u8* ch_msg, usz ch_len) {
   if (!sdrv_ch_negotiate_and_keyshare(s, ch_msg, ch_len)) return 0;
-  if (!take_client_sid(s, ch_msg, ch_len)) return 0;
+  return take_client_sid(s, ch_msg, ch_len);
+}
+
+int quic_sdrv_recv_client_hello(quic_sdrv* s, const u8* ch_msg, usz ch_len) {
+  if (!sdrv_ch_required_fields(s, ch_msg, ch_len)) return 0;
+  if (!sdrv_ch_take_psk(s, ch_msg, ch_len)) return 0;
   sdrv_ch_take_optional(s, ch_msg, ch_len);
   return 1;
 }
