@@ -147,7 +147,10 @@ static int srvdriver_load_kind(
  * srvdriver_load_threads points opt->threads.xdp at opt->xdp itself; copying
  * a self-referential struct by value would leave that pointer dangling at
  * the copy's own address instead of the caller's. */
-int wired_srvdriver_parse(int argc, char** argv, wired_srvdriver_opt* opt) {
+/* --port/--kind/--pin-core resolved and validated; opt->run still at the
+ * loader's own default. */
+static int srvdriver_parse_head(
+    int argc, char** argv, wired_srvdriver_opt* opt) {
   int has_workers = wired_cliargs_int(argc, argv, "--workers", -1) >= 0;
   int has_xdp     = wired_cliargs_int(argc, argv, "--ifindex", -1) >= 0;
   int has_cores   = wired_cliargs_str(argc, argv, "--cores", 0) != 0;
@@ -155,8 +158,15 @@ int wired_srvdriver_parse(int argc, char** argv, wired_srvdriver_opt* opt) {
   *opt      = (wired_srvdriver_opt){0};
   opt->port = (u16)wired_cliargs_int(argc, argv, "--port", 4433);
   opt->kind = srvdriver_select(has_workers, has_xdp, has_cores);
-  if (!srvdriver_load_pin_core(argc, argv, opt->kind, &opt->pin_core)) return 0;
-  return srvdriver_load_kind(argc, argv, opt);
+  return srvdriver_load_pin_core(argc, argv, opt->kind, &opt->pin_core);
+}
+
+int wired_srvdriver_parse(int argc, char** argv, wired_srvdriver_opt* opt) {
+  if (!srvdriver_parse_head(argc, argv, opt)) return 0;
+  if (!srvdriver_load_kind(argc, argv, opt)) return 0;
+  /* after load_kind: the loaders rebuild opt->run from scratch. */
+  opt->run.force_retry = wired_cliargs_flag(argc, argv, "--force-retry");
+  return 1;
 }
 
 static int srvdriver_run_plain(
