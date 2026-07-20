@@ -2,11 +2,18 @@
 
 #include "transport/packet/header/lhdr/lhdr_build.h"
 #include "transport/packet/header/packet/header.h"
+#include "transport/version/version/version.h"
 
 /* RFC 9000 17.2: assemble a complete long header (Initial 17.2.2 with Token, or
  * Handshake 17.2.4 without), then protect. pn_len is fixed at 4 (byte0's low
  * bits are forced to agree). */
 #define QUIC_TX_PN_LEN 4u
+
+/* d->version 0 is every pre-existing positional quic_tx_desc initializer
+ * (written before this field existed) -- treat it as the QUIC v1 they all
+ * meant, never as the wire value 0 (RFC 8999 6.1 reserves that for Version
+ * Negotiation, which this builder never emits). */
+static u32 tx_version_or_v1(u32 v) { return v ? v : QUIC_VERSION_1; }
 
 /* Assemble the long header into hdr/ho and fill io with the seal_io for the
  * result -- shared by quic_tx_packet and quic_tx_packet_suite. Returns 1 on
@@ -19,8 +26,10 @@ static int tx_build_hdr(
     quic_protect_seal_io* io) {
   usz            len_off = 0;
   quic_obuf      ho      = quic_obuf_of(hdr, hdr_cap);
-  quic_lhdr_desc h       = {d->byte0,      1,        d->dcid,     d->scid,
-                            d->is_initial, d->token, d->frames.n, d->pn,
+  quic_lhdr_desc h       = {d->byte0,      tx_version_or_v1(d->version),
+                            d->dcid,       d->scid,
+                            d->is_initial, d->token,
+                            d->frames.n,   d->pn,
                             QUIC_TX_PN_LEN};
   if (quic_lhdr_build(&h, &ho, &len_off) == 0) return 0;
   *io = (quic_protect_seal_io){
