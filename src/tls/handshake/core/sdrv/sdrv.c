@@ -433,6 +433,18 @@ static int sdrv_psk_open_ticket(
   return quic_ticket_open(sealed, s->ticket_key, t);
 }
 
+/* RFC 8446 4.6.1: "The PSK associated with the ticket is computed as...
+ * HKDF-Expand-Label(resumption_master_secret, "resumption", ticket_nonce,
+ * Hash.length)" -- t->secret (quic_ticket's field) holds the resumption_
+ * master_secret this ticket was sealed with (RFC 8446 7.1's Derive-Secret
+ * output), not the PSK itself; this SDK issues every ticket with an empty
+ * ticket_nonce (see newsessionticket.h), so Context is the empty span. */
+static void sdrv_psk_from_ticket_secret(
+    const u8 res_master_secret[QUIC_TICKET_SECRET_LEN], u8 psk_out[32]) {
+  quic_hkdf_label l = {"resumption", 10, {0, 0}};
+  quic_hkdf_expand_label(res_master_secret, &l, quic_mspan_of(psk_out, 32));
+}
+
 /* The opened ticket's binder verifies against the truncated ClientHello.
  * RFC 8446 4.2.11.2: a mismatch here is the hard-abort case, never a
  * fallback -- the caller must propagate 0 all the way out of
@@ -443,7 +455,9 @@ static int sdrv_psk_binder_ok(
     quic_span                    psk_ext,
     const quic_tlsext_psk_offer* off) {
   quic_span truncated = sdrv_psk_truncate(ch_msg, psk_ext, off->id_len);
-  return quic_tls_binder_verify(t->secret, truncated, off->binder);
+  u8        psk[32];
+  sdrv_psk_from_ticket_secret(t->secret, psk);
+  return quic_tls_binder_verify(psk, truncated, off->binder);
 }
 
 /* A ticket opened under s->ticket_key: try the binder next. On a verified
@@ -457,8 +471,10 @@ static int sdrv_psk_accept_opened(
     const quic_tlsext_psk_offer* off) {
   if (!sdrv_psk_binder_ok(t, ch_msg, psk_ext, off)) return 0;
   s->psk_accepted = 1;
-  for (usz i = 0; i < QUIC_TICKET_SECRET_LEN; i++)
-    s->psk_secret[i] = t->secret[i];
+  /* s->psk_secret feeds RFC 8446 7.1's Early Secret = HKDF-Extract(0, PSK)
+   * -- the actual PSK (see sdrv_psk_from_ticket_secret's doc), not the raw
+   * ticket-stored resumption_master_secret. */
+  sdrv_psk_from_ticket_secret(t->secret, s->psk_secret);
   return 1;
 }
 
