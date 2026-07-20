@@ -25,6 +25,15 @@ void quic_tls_derive_secret(
 /* Handshake Secret = HKDF-Extract(derived-from-early, ECDHE shared secret). */
 void quic_tls_handshake_secret(const u8 ecdhe[32], u8 out[QUIC_HKDF_PRK]);
 
+/* RFC 8446 7.1, PSK (resumption) branch: Early Secret = HKDF-Extract(0, PSK)
+ * instead of HKDF-Extract(0, 0), then the same
+ * Derive-Secret(Early, "derived", "") -> HKDF-Extract(derived, ECDHE) chain
+ * as quic_tls_handshake_secret. This SDK always has an ECDHE share (no
+ * PSK-only / 0-RTT-without-DHE mode), so only the Early Secret input
+ * changes. */
+void quic_tls_handshake_secret_psk(
+    const u8 psk[QUIC_HKDF_PRK], const u8 ecdhe[32], u8 out[QUIC_HKDF_PRK]);
+
 /* quic_tls_handshake_keys inputs: hs_secret is the Handshake Secret,
  * transcript the handshake bytes hashed for the traffic secret, is_server
  * selects the "s hs traffic"/"c hs traffic" label. */

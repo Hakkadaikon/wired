@@ -45,23 +45,43 @@ static quic_derive_secret_in derive_in(
   return in;
 }
 
+/* RFC 8446 7.1: Handshake Secret = HKDF-Extract(Derive-Secret(early,
+ * "derived", ""), ECDHE), given an already-computed Early Secret. Shared by
+ * the no-PSK (Early = HKDF-Extract(0,0)) and PSK-resumption (Early =
+ * HKDF-Extract(0, PSK)) branches below -- only the Early Secret input
+ * differs between them. */
+static void handshake_secret_from_early(
+    const u8 early[QUIC_HKDF_PRK], const u8 ecdhe[32], u8 out[QUIC_HKDF_PRK]) {
+  u8 zero[QUIC_HKDF_PRK] = {0};
+  u8 derived[QUIC_HKDF_PRK];
+  /* derived = Derive-Secret(Early, "derived", "") -- empty transcript. */
+  quic_derive_secret_in in =
+      derive_in(early, (ascii_label){"derived", 7}, quic_span_of(zero, 0));
+  quic_tls_derive_secret(&in, derived);
+  /* Handshake Secret = HKDF-Extract(derived, ECDHE). */
+  quic_hkdf_extract(
+      quic_span_of(derived, QUIC_HKDF_PRK), quic_span_of(ecdhe, 32), out);
+}
+
 void quic_tls_handshake_secret(const u8 ecdhe[32], u8 out[QUIC_HKDF_PRK]) {
   u8 zero[QUIC_HKDF_PRK] = {0};
   u8 early[QUIC_HKDF_PRK];
-  u8 derived[QUIC_HKDF_PRK];
   /* Early Secret = HKDF-Extract(0, 0). */
   quic_hkdf_extract(
       quic_span_of(zero, QUIC_HKDF_PRK), quic_span_of(zero, QUIC_HKDF_PRK),
       early);
-  /* derived = Derive-Secret(Early, "derived", "") -- empty transcript. */
-  {
-    quic_derive_secret_in in =
-        derive_in(early, (ascii_label){"derived", 7}, quic_span_of(zero, 0));
-    quic_tls_derive_secret(&in, derived);
-  }
-  /* Handshake Secret = HKDF-Extract(derived, ECDHE). */
+  handshake_secret_from_early(early, ecdhe, out);
+}
+
+void quic_tls_handshake_secret_psk(
+    const u8 psk[QUIC_HKDF_PRK], const u8 ecdhe[32], u8 out[QUIC_HKDF_PRK]) {
+  u8 zero[QUIC_HKDF_PRK] = {0};
+  u8 early[QUIC_HKDF_PRK];
+  /* Early Secret = HKDF-Extract(0, PSK). */
   quic_hkdf_extract(
-      quic_span_of(derived, QUIC_HKDF_PRK), quic_span_of(ecdhe, 32), out);
+      quic_span_of(zero, QUIC_HKDF_PRK), quic_span_of(psk, QUIC_HKDF_PRK),
+      early);
+  handshake_secret_from_early(early, ecdhe, out);
 }
 
 /* Expand one packet-protection field (RFC 9001 5.1 labels) from a secret. */
