@@ -13,7 +13,7 @@ static void test_shbuild_wire(void) {
     random[i] = (u8)(0x20 + i);
     pub[i]    = (u8)(0x80 + i);
   }
-  in = (quic_shbuild_in){random, quic_span_of(sid, 4), 0x1301, pub};
+  in = (quic_shbuild_in){random, quic_span_of(sid, 4), 0x1301, pub, 0};
   CHECK(quic_shbuild_server_hello(&in, &ob) == 1);
   CHECK(out[0] == 0x02);                   /* msg_type ServerHello */
   CHECK(out[4] == 0x03 && out[5] == 0x03); /* legacy_version */
@@ -31,7 +31,7 @@ static void test_shbuild_roundtrip(void) {
     random[i] = (u8)i;
     pub[i]    = (u8)(0x40 + i);
   }
-  in = (quic_shbuild_in){random, quic_span_of((void*)0, 0), 0x1303, pub};
+  in = (quic_shbuild_in){random, quic_span_of((void*)0, 0), 0x1303, pub, 0};
   CHECK(quic_shbuild_server_hello(&in, &ob) == 1);
   CHECK(quic_tls_parse_server_hello(quic_span_of(out, ob.len), got, &sh) == 1);
   CHECK(sh.cipher == 0x1303);
@@ -42,7 +42,7 @@ static void test_shbuild_roundtrip(void) {
 /* A capacity too small for the message yields 0 and no output length. */
 static void test_shbuild_overflow(void) {
   u8              random[32] = {0}, pub[32] = {0}, out[16];
-  quic_shbuild_in in = {random, quic_span_of((void*)0, 0), 0x1301, pub};
+  quic_shbuild_in in = {random, quic_span_of((void*)0, 0), 0x1301, pub, 0};
   quic_obuf       ob = quic_obuf_of(out, sizeof(out));
   CHECK(quic_shbuild_server_hello(&in, &ob) == 0);
 }

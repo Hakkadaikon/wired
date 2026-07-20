@@ -22,7 +22,7 @@ static void test_hrr_detect_false(void) {
     random[i] = (u8)i;
     pub[i]    = (u8)(0x40 + i);
   }
-  in = (quic_shbuild_in){random, quic_span_of((void*)0, 0), 0x1301, pub};
+  in = (quic_shbuild_in){random, quic_span_of((void*)0, 0), 0x1301, pub, 0};
   CHECK(quic_shbuild_server_hello(&in, &ob) == 1);
   CHECK(quic_hrr_is_hello_retry(out, ob.len) == 0);
 }
