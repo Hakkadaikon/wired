@@ -12,6 +12,7 @@
 #include "realchain_golden.h"
 #include "test.h"
 #include "tls/ext/stp/parse_tp.h"
+#include "tls/ext/tlsext/earlydata.h"
 #include "tls/ext/tlsext/preshared.h"
 #include "tls/ext/tparam/tparam.h"
 #include "tls/ext/tparam/tpcheck.h"
@@ -1131,6 +1132,38 @@ static usz sdrv_test_append_psk(
   return ch_len + eob.len;
 }
 
+/* RFC 8446 4.2.10/4.2.11: append the empty early_data extension (0x002a)
+ * followed by a pre_shared_key extension (single identity, single binder) --
+ * pre_shared_key MUST stay the last extension (4.2.11), so early_data goes
+ * first. Same offset accounting as sdrv_test_append_psk; *psk_ext_off is set
+ * to the pre_shared_key TLV's own offset (after early_data), matching what
+ * sdrv_test_psk_truncate_len expects. */
+static usz sdrv_test_append_early_data_then_psk(
+    u8*                       out,
+    usz                       out_cap,
+    const u8*                 ch,
+    usz                       ch_len,
+    const quic_tlsext_psk_in* psk,
+    usz*                      psk_ext_off) {
+  usz       exts_len_off = 45;
+  usz       old_exts_len;
+  u8        ed[4];
+  usz       ed_len;
+  u8        scratch[128];
+  quic_obuf eob = quic_obuf_of(scratch, sizeof(scratch));
+  if (!quic_tlsext_early_data_ch(ed, sizeof(ed), &ed_len)) return 0;
+  if (!quic_tlsext_pre_shared_key(psk, &eob)) return 0;
+  if (ch_len + ed_len + eob.len > out_cap) return 0;
+  for (usz i = 0; i < ch_len; i++) out[i] = ch[i];
+  old_exts_len = (usz)out[exts_len_off] << 8 | out[exts_len_off + 1];
+  for (usz i = 0; i < ed_len; i++) out[ch_len + i] = ed[i];
+  *psk_ext_off = ch_len + ed_len;
+  for (usz i = 0; i < eob.len; i++) out[ch_len + ed_len + i] = scratch[i];
+  quic_put_be16(out + exts_len_off, (u16)(old_exts_len + ed_len + eob.len));
+  quic_hs_finish(out, ch_len + ed_len + eob.len);
+  return ch_len + ed_len + eob.len;
+}
+
 /* RFC 8446 4.2.11.2: the truncation point (right before the binders_len
  * field), independently derived from the wire layout for tests -- see
  * sdrv_psk_truncate's doc in sdrv.c for the byte accounting. */
@@ -1273,6 +1306,160 @@ static void test_sdrv_psk_valid_ticket_and_binder_accepted(void) {
   fl_ob = quic_obuf_of(flight, sizeof(flight));
   fo    = (quic_sdrv_flight_out){&sh_ob, &fl_ob};
   CHECK(quic_sdrv_build_server_flight(&s, f.srv_random, &fo));
+}
+
+/* Build a ClientHello carrying early_data + pre_shared_key (a real binder
+ * over the correct truncation), returning the accepted-PSK setup shared by
+ * the 0-RTT accept/replay tests below. */
+static usz sdrv_test_0rtt_ch(
+    sdrv_psk_fixture* f, u8* ch2, usz ch2_cap, usz* psk_ext_off) {
+  usz ch2_len;
+  u8  binder[QUIC_HKDF_PRK];
+  usz trunc_len;
+  {
+    u8                 zero_binder[QUIC_HKDF_PRK] = {0};
+    quic_tlsext_psk_in psk                        = {
+        quic_span_of(f->sealed, sizeof(f->sealed)), 0,
+        quic_span_of(zero_binder, sizeof(zero_binder))};
+    ch2_len = sdrv_test_append_early_data_then_psk(
+        ch2, ch2_cap, f->ch, f->ch_len, &psk, psk_ext_off);
+    if (ch2_len == 0) return 0;
+  }
+  trunc_len = sdrv_test_psk_truncate_len(*psk_ext_off, sizeof(f->sealed));
+  quic_tls_binder_compute(f->psk, quic_span_of(ch2, trunc_len), binder);
+  {
+    quic_tlsext_psk_in psk = {
+        quic_span_of(f->sealed, sizeof(f->sealed)), 0,
+        quic_span_of(binder, sizeof(binder))};
+    ch2_len = sdrv_test_append_early_data_then_psk(
+        ch2, ch2_cap, f->ch, f->ch_len, &psk, psk_ext_off);
+  }
+  return ch2_len;
+}
+
+/* R-41: a ClientHello offering both pre_shared_key (accepted, first use) and
+ * early_data derives 0-RTT keys matching an independent quic_tls_early_keys
+ * computation over the same PSK/ClientHello bytes -- the exact material a
+ * peer's own 0-RTT sender would derive (RFC 8446 4.2.10 / RFC 9001 4.6.1). */
+static void test_sdrv_early_data_accepted_derives_keys(void) {
+  sdrv_psk_fixture  f;
+  quic_sdrv         s;
+  u8                srv_priv[32], srv_pub[32], cert_priv[32];
+  u8                ch2[700];
+  usz               ch2_len, psk_ext_off;
+  quic_initial_keys want, got;
+  sdrv_psk_fixture_init(&f);
+  for (usz i = 0; i < 32; i++) {
+    srv_priv[i]  = (u8)(0x40 + i);
+    cert_priv[i] = (u8)(0x80 + i);
+  }
+  quic_x25519_base(srv_pub, srv_priv);
+  ch2_len = sdrv_test_0rtt_ch(&f, ch2, sizeof(ch2), &psk_ext_off);
+  CHECK(ch2_len != 0);
+
+  {
+    quic_sdrv_init_in in = {srv_priv, srv_pub, cert_priv, 0,
+                            0,        0,       0,         f.ticket_key};
+    quic_sdrv_init(&s, &in);
+  }
+  CHECK(quic_sdrv_recv_client_hello(&s, ch2, ch2_len));
+  CHECK(s.psk_accepted == 1);
+  CHECK(s.early_data_accepted == 1);
+  quic_tls_early_keys(f.psk, ch2, ch2_len, &want);
+  CHECK(quic_sdrv_early_keys(&s, &got) == 1);
+  for (usz i = 0; i < QUIC_INITIAL_KEY; i++) CHECK(got.key[i] == want.key[i]);
+  for (usz i = 0; i < QUIC_INITIAL_IV; i++) CHECK(got.iv[i] == want.iv[i]);
+  for (usz i = 0; i < QUIC_INITIAL_HP; i++) CHECK(got.hp[i] == want.hp[i]);
+}
+
+/* R-41: pre_shared_key accepted but no early_data extension -- ordinary PSK
+ * resumption without 0-RTT, early_data_accepted stays 0 and no keys are
+ * available. */
+static void test_sdrv_psk_without_early_data_no_0rtt(void) {
+  sdrv_psk_fixture  f;
+  quic_sdrv         s;
+  u8                srv_priv[32], srv_pub[32], cert_priv[32];
+  u8                ch2[700];
+  u8                binder[QUIC_HKDF_PRK];
+  usz               ch2_len, psk_ext_off, trunc_len;
+  quic_initial_keys got;
+  sdrv_psk_fixture_init(&f);
+  for (usz i = 0; i < 32; i++) {
+    srv_priv[i]  = (u8)(0x40 + i);
+    cert_priv[i] = (u8)(0x80 + i);
+  }
+  quic_x25519_base(srv_pub, srv_priv);
+  {
+    u8                 zero_binder[QUIC_HKDF_PRK] = {0};
+    quic_tlsext_psk_in psk                        = {
+        quic_span_of(f.sealed, sizeof(f.sealed)), 0,
+        quic_span_of(zero_binder, sizeof(zero_binder))};
+    ch2_len = sdrv_test_append_psk(
+        ch2, sizeof(ch2), f.ch, f.ch_len, &psk, &psk_ext_off);
+    CHECK(ch2_len != 0);
+  }
+  trunc_len = sdrv_test_psk_truncate_len(psk_ext_off, sizeof(f.sealed));
+  quic_tls_binder_compute(f.psk, quic_span_of(ch2, trunc_len), binder);
+  {
+    quic_tlsext_psk_in psk = {
+        quic_span_of(f.sealed, sizeof(f.sealed)), 0,
+        quic_span_of(binder, sizeof(binder))};
+    ch2_len = sdrv_test_append_psk(
+        ch2, sizeof(ch2), f.ch, f.ch_len, &psk, &psk_ext_off);
+    CHECK(ch2_len != 0);
+  }
+  {
+    quic_sdrv_init_in in = {srv_priv, srv_pub, cert_priv, 0,
+                            0,        0,       0,         f.ticket_key};
+    quic_sdrv_init(&s, &in);
+  }
+  CHECK(quic_sdrv_recv_client_hello(&s, ch2, ch2_len));
+  CHECK(s.psk_accepted == 1);
+  CHECK(s.early_data_accepted == 0);
+  CHECK(quic_sdrv_early_keys(&s, &got) == 0);
+}
+
+/* R-42: presenting the SAME ticket's pre_shared_key+early_data a second time
+ * (a replayed 0-RTT ClientHello, e.g. a retransmission-turned-duplicate
+ * attempt) is refused for 0-RTT on its second use even though the PSK/binder
+ * are still valid -- RFC 8446 8.1 single-use ticket enforcement. PSK-only
+ * (non-0-RTT) resumption still proceeds; only early_data is rejected. */
+static void test_sdrv_early_data_replay_rejected(void) {
+  sdrv_psk_fixture f;
+  quic_sdrv        s1, s2;
+  u8               srv_priv[32], srv_pub[32], cert_priv[32];
+  u8               ch2[700];
+  usz              ch2_len, psk_ext_off;
+  sdrv_psk_fixture_init(&f);
+  for (usz i = 0; i < 32; i++) {
+    srv_priv[i]  = (u8)(0x40 + i);
+    cert_priv[i] = (u8)(0x80 + i);
+  }
+  quic_x25519_base(srv_pub, srv_priv);
+  ch2_len = sdrv_test_0rtt_ch(&f, ch2, sizeof(ch2), &psk_ext_off);
+  CHECK(ch2_len != 0);
+
+  {
+    quic_sdrv_init_in in = {srv_priv, srv_pub, cert_priv, 0,
+                            0,        0,       0,         f.ticket_key};
+    quic_sdrv_init(&s1, &in);
+  }
+  CHECK(quic_sdrv_recv_client_hello(&s1, ch2, ch2_len));
+  CHECK(s1.psk_accepted == 1);
+  CHECK(s1.early_data_accepted == 1);
+
+  /* The identical ClientHello bytes (same sealed ticket identity) presented
+   * again on a fresh driver instance -- the tracker is process-wide, not
+   * per-connection, so this simulates a second connection attempt replaying
+   * the same 0-RTT flight. */
+  {
+    quic_sdrv_init_in in = {srv_priv, srv_pub, cert_priv, 0,
+                            0,        0,       0,         f.ticket_key};
+    quic_sdrv_init(&s2, &in);
+  }
+  CHECK(quic_sdrv_recv_client_hello(&s2, ch2, ch2_len));
+  CHECK(s2.psk_accepted == 1);        /* PSK/1-RTT resumption still allowed */
+  CHECK(s2.early_data_accepted == 0); /* 0-RTT itself is refused */
 }
 
 /* R-35: a garbage/wrong-key identity fails to open as a ticket -- graceful
@@ -1429,6 +1616,9 @@ void test_sdrv(void) {
   test_sdrv_psk_ticket_open_fails_falls_back();
   test_sdrv_psk_binder_mismatch_aborts();
   test_sdrv_psk_tampered_transcript_aborts();
+  test_sdrv_early_data_accepted_derives_keys();
+  test_sdrv_psk_without_early_data_no_0rtt();
+  test_sdrv_early_data_replay_rejected();
 
   u8 cli_priv[32], cli_pub[32], srv_priv[32], srv_pub[32];
   u8 cert_priv[32];

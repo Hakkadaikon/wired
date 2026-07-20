@@ -12,7 +12,10 @@
 #include "tls/handshake/core/tls/cipher.h"
 #include "tls/handshake/core/tls/ext_keyshare.h"
 #include "tls/handshake/core/tls/handshake.h"
+#include "tls/handshake/core/tls/schedule.h"
 #include "tls/handshake/core/tls/tpext.h"
+#include "transport/conn/loop/manage/zerortt_policy.h"
+#include "transport/conn/loop/manage/zerortt_seen.h"
 
 /* RFC 8446 4 / RFC 9001 4: drive the server handshake flight. */
 
@@ -94,12 +97,13 @@ void quic_sdrv_init(quic_sdrv* s, const quic_sdrv_init_in* in) {
     sdrv_take_chain(s, in);
   else
     sdrv_build_cert(s, in->now_secs);
-  s->hs_ready     = 0;
-  s->odcid_len    = 0;
-  s->iscid_len    = 0;
-  s->tp_odcid_len = 0;
-  s->rscid_len    = 0;
-  s->psk_accepted = 0;
+  s->hs_ready            = 0;
+  s->odcid_len           = 0;
+  s->iscid_len           = 0;
+  s->tp_odcid_len        = 0;
+  s->rscid_len           = 0;
+  s->psk_accepted        = 0;
+  s->early_data_accepted = 0;
   quic_transcript_init(&s->tr);
 }
 
@@ -460,13 +464,69 @@ static int sdrv_psk_binder_ok(
   return quic_tls_binder_verify(psk, truncated, off->binder);
 }
 
+/* RFC 8446 4.2.10: locate the early_data extension (0x002a) TLV, header
+ * included, if the ClientHello carries one (the body is empty in this
+ * direction -- presence alone is the signal). */
+#define QUIC_SDRV_EARLY_DATA_EXT_TYPE 0x002a
+static int find_client_early_data_ext(
+    const u8* ch, usz ch_len, quic_span* ext) {
+  usz body, start, end;
+  if (!sdrv_is_client_hello(ch, ch_len, &body)) return 0;
+  if (!sdrv_ch_exts_span(ch + 4, body, &start, &end)) return 0;
+  return sdrv_ch_find_ext(
+      ch + 4, start, end, QUIC_SDRV_EARLY_DATA_EXT_TYPE, ext);
+}
+
+/* RFC 8446 8.1 / RFC 9001 9.2: single-use ticket enforcement, shared by
+ * every quic_sdrv instance in this process (0-RTT replay must be caught
+ * across connections, not just within one). Reused verbatim across tests in
+ * this binary: a ticket identity is process-unique sealed-ciphertext bytes
+ * (a fresh random nonce per quic_ticket_seal call), so unrelated tests never
+ * collide on it. */
+static quic_zerortt_seen g_sdrv_zerortt_seen;
+static int               g_sdrv_zerortt_seen_init_done;
+
+static quic_zerortt_seen* sdrv_zerortt_seen(void) {
+  if (!g_sdrv_zerortt_seen_init_done) {
+    quic_zerortt_seen_init(&g_sdrv_zerortt_seen);
+    g_sdrv_zerortt_seen_init_done = 1;
+  }
+  return &g_sdrv_zerortt_seen;
+}
+
+/* RFC 8446 4.2.10 / RFC 9001 4.6.1: the ClientHello asked for 0-RTT (an
+ * early_data extension is present) and its ticket is on its first use
+ * (RFC 8446 8.1) -- the two conditions quic_zerortt_replay_ok's policy_safe/
+ * ticket_first_use collapse to here (server-side accept has no per-request
+ * idempotency signal yet, so policy_safe is early_data's mere presence). */
+static int sdrv_early_data_wanted(
+    const u8* ch_msg, usz ch_len, const quic_tlsext_psk_offer* off) {
+  quic_span ed_ext;
+  int       first_use;
+  if (!find_client_early_data_ext(ch_msg, ch_len, &ed_ext)) return 0;
+  first_use = quic_zerortt_seen_check(
+      sdrv_zerortt_seen(), quic_span_of(off->identity, off->id_len));
+  return quic_zerortt_replay_ok(1, first_use);
+}
+
+/* RFC 8446 4.2.10 / RFC 9001 4.6.1: derive and cache the 0-RTT key/iv/hp
+ * (client_early_traffic_secret) over the accepted PSK and the raw
+ * ClientHello bytes -- the same inputs a peer's own 0-RTT sender used. */
+static void sdrv_take_early_keys(quic_sdrv* s, const u8* ch_msg, usz ch_len) {
+  quic_tls_early_keys(s->psk_secret, ch_msg, ch_len, &s->early_keys);
+  s->early_data_accepted = 1;
+}
+
 /* A ticket opened under s->ticket_key: try the binder next. On a verified
- * binder, records psk_accepted/psk_secret and returns 1; on a mismatch
- * returns 0 (hard abort, see sdrv_psk_binder_ok's doc). */
+ * binder, records psk_accepted/psk_secret, derives 0-RTT keys when the
+ * ClientHello asked for them and the ticket is not a replay, and returns 1;
+ * on a binder mismatch returns 0 (hard abort, see sdrv_psk_binder_ok's doc).
+ */
 static int sdrv_psk_accept_opened(
     quic_sdrv*                   s,
     const quic_ticket*           t,
     const u8*                    ch_msg,
+    usz                          ch_len,
     quic_span                    psk_ext,
     const quic_tlsext_psk_offer* off) {
   if (!sdrv_psk_binder_ok(t, ch_msg, psk_ext, off)) return 0;
@@ -475,6 +535,8 @@ static int sdrv_psk_accept_opened(
    * -- the actual PSK (see sdrv_psk_from_ticket_secret's doc), not the raw
    * ticket-stored resumption_master_secret. */
   sdrv_psk_from_ticket_secret(t->secret, s->psk_secret);
+  if (sdrv_early_data_wanted(ch_msg, ch_len, off))
+    sdrv_take_early_keys(s, ch_msg, ch_len);
   return 1;
 }
 
@@ -485,11 +547,12 @@ static int sdrv_psk_accept_opened(
 static int sdrv_psk_try_offer(
     quic_sdrv*                   s,
     const u8*                    ch_msg,
+    usz                          ch_len,
     quic_span                    psk_ext,
     const quic_tlsext_psk_offer* off) {
   quic_ticket t;
   if (!sdrv_psk_open_ticket(s, off, &t)) return 1;
-  return sdrv_psk_accept_opened(s, &t, ch_msg, psk_ext, off);
+  return sdrv_psk_accept_opened(s, &t, ch_msg, ch_len, psk_ext, off);
 }
 
 /* Locate and parse a pre_shared_key offer in the ClientHello, if resumption
@@ -516,7 +579,7 @@ static int sdrv_ch_take_psk(quic_sdrv* s, const u8* ch_msg, usz ch_len) {
   quic_span             psk_ext;
   quic_tlsext_psk_offer off;
   if (!sdrv_find_psk_offer(s, ch_msg, ch_len, &psk_ext, &off)) return 1;
-  return sdrv_psk_try_offer(s, ch_msg, psk_ext, &off);
+  return sdrv_psk_try_offer(s, ch_msg, ch_len, psk_ext, &off);
 }
 
 /* Cipher suite negotiated and the client's x25519 key_share taken -- both
@@ -545,5 +608,11 @@ int quic_sdrv_recv_client_hello(quic_sdrv* s, const u8* ch_msg, usz ch_len) {
 int quic_sdrv_handshake_secret(const quic_sdrv* s, const u8** secret) {
   if (!s->hs_ready) return 0;
   *secret = s->hs_secret;
+  return 1;
+}
+
+int quic_sdrv_early_keys(const quic_sdrv* s, quic_initial_keys* out) {
+  if (!s->early_data_accepted) return 0;
+  *out = s->early_keys;
   return 1;
 }
