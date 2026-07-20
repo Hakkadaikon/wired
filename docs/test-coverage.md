@@ -39,104 +39,43 @@ Legend:
 
 ### QUIC testcases (server: wired · client: quic-go)
 
-- [x] `handshake` — connection establishment
-- [x] `transfer` — file download over streams
-- [x] `http3` — parallel HTTP/3 GETs (3 streams, 500 KB bodies)
-- [x] `longrtt` — high-latency link
-- [x] `chacha20` — TLS_CHACHA20_POLY1305_SHA256 negotiation end to end,
-  including a mid-transfer Key Update under that suite
-- [x] `keyupdate` — RFC 9001 §6 key update, both directions
-- [x] `transferloss` — file transfer under packet loss
-- [x] `transfercorruption` — file transfer under packet corruption
-- [x] `amplificationlimit` — RFC 9000 §8.1 anti-amplification enforced on
-  an inflated (9-certificate) server flight
-- [x] `goodput` (measurement) — 10 MB in 11.5 s (~7.3 Mbps) over the
-  runner's simulated link, repeatable
-- [x] `blackhole` — resumes correctly after a simulated 2 s link outage
-- [~] `multiplexing` — MAX_STREAMS re-grant works correctly (verified live:
-  the advertised limit climbs from 100 to 2000+ as requests complete, 98%
-  of 1999 requested files finish), but the runner's fixed 60 s timeout for
-  this case is not met; a pure throughput gap, not a functional one
-- [x] `handshakeloss` — all 50 handshakes complete under a 30% bursty loss
-  rate. Three server-side gaps had to close: a boot-flight resend only
-  replayed the still-unsent tail (one lost Handshake datagram deadlocked
-  the handshake), the one-time confirmation packet (SETTINGS + ticket +
-  HANDSHAKE_DONE) was never retransmitted when lost, and a
-  still-incomplete split ClientHello was never acknowledged, starving the
-  client's 5 s handshake idle timer
-- [x] `handshakecorruption` — same scenario under corruption; passes with
-  the same fixes
-- [x] `retry` — RFC 9000 §8.1.2 forced address validation: a `--force-retry`
-  server mode sends a Retry for every token-less Initial, verifies the
-  presented token's HMAC (RFC 9000 §8.1.1) and address binding before
-  accepting, and drops datagrams carrying an invalid one. The Retry
-  Integrity Tag is pinned to the RFC 9001 Appendix A.4 vector. The
-  wire token carries its embedded original DCID in the clear
-  (`odcid_len || odcid || HMAC-SHA256`) so the server can statelessly
-  recover it for `original_destination_connection_id`; the Initial-key
-  derivation input (the Retry's own SCID) and that recovered original DCID
-  are tracked as two distinct fields end to end so the TP advert is never
-  mixed up with the key-derivation input
-- [ ] `resumption` — not yet run. The PSK-carrying ClientHello codec
-  (`pre_shared_key` extension parse), the PSK binder compute/verify, the
-  PSK-branch key schedule (early_secret), and ticket seal/open all exist
-  as separately unit-tested leaf modules, but none of them is called from
-  the real ClientHello receive path or the server flight builder yet --
-  a resumption attempt today falls straight through to a full handshake,
-  untouched
-- [ ] `zerortt` — not yet run, same reason as `resumption`. 0-RTT key
-  derivation and the replay-rejection policy (`zerortt_policy.c`) both
-  exist and are unit-tested but have no caller in the real receive path
-- [~] `ecn` — RFC 9000 §13.4 ECT(0) marking on send, IP_TOS cmsg reading on
-  receive, and cumulative ECN counts reported in 1-RTT ACKs are all
-  implemented and unit-tested, but the runner marks the case `?`: the
-  quic-go interop client itself declares `unsupported test case: ecn`
-  (verified against both the 2026-07-11 and 2026-07-18 client images), so
-  no end-to-end verdict is possible with this peer. An earlier note here
-  recorded the case as passing; no run log substantiates that, and the
-  entry is corrected to honest `[~]`
-- [x] `ipv6` — transfer over native IPv6; the socket layer is dual-stack
-  (one AF_INET6 socket, IPV6_V6ONLY off, IPv4 peers v4-mapped), so every
-  other case still runs over IPv4 unchanged
-- [~] `v2` — implemented and unit-proven end to end (key derivation,
-  long-header type bits, and the Version Negotiation accept list are all
-  version-parameterized; a v2-framed Initial carrying a real ClientHello is
-  accepted and answered in v2), but no E2E verdict is possible: the
-  quic-go interop client itself declares `unsupported test case: v2` (exit
-  127), same pattern as `ecn`. This server never actively switches a
-  connection's version -- it replies in whichever version the client's own
-  Initial arrived in (RFC 9368 2), rather than implementing the "server
-  actively switches a v1-started connection to v2" behavior the runner's
-  own TestCaseV2 check describes; whether that difference would matter for
-  a client that actually exercises this case is unverified without one
-- [ ] `rebind-port` / `rebind-addr` — the server follows a confirmed
-  connection's peer address across a rebind and sends a PATH_CHALLENGE on
-  the new path, validating a matching PATH_RESPONSE (RFC 9000 8.2/9.3).
-  Manually decrypting the capture confirms the PATH_CHALLENGE is correctly
-  the new path's first packet, but the runner's own analysis tooling
-  (pyshark/tshark) cannot decrypt that same packet -- a short header
-  carries no DCID length, and wireshark only learns it by having already
-  seen an Initial/Handshake on that UDP conversation, which a rebind's
-  fresh source port never provides. Believed to be a tooling-chain
-  limitation rather than a protocol bug in this server
-- [ ] `connectionmigration` — not yet run; would reuse the same
-  PATH_CHALLENGE/PATH_RESPONSE machinery as rebind-port/rebind-addr but is
-  likely to hit the same tooling-chain limitation
-- [x] `crosstraffic` (measurement) — 25 MB alongside a competing TCP cubic
-  flow, 3269 (± 157) kbps across 5 runs, well above the 180 s completion
-  bar
+| Testcase | Implemented | Remark |
+|---|---|---|
+| `handshake` | [x] | connection establishment |
+| `transfer` | [x] | file download over streams |
+| `http3` | [x] | parallel HTTP/3 GETs (3 streams, 500 KB bodies) |
+| `longrtt` | [x] | high-latency link |
+| `chacha20` | [x] | TLS_CHACHA20_POLY1305_SHA256 negotiation end to end, including a mid-transfer Key Update under that suite |
+| `keyupdate` | [x] | RFC 9001 §6 key update, both directions |
+| `transferloss` | [x] | file transfer under packet loss |
+| `transfercorruption` | [x] | file transfer under packet corruption |
+| `amplificationlimit` | [x] | RFC 9000 §8.1 anti-amplification enforced on an inflated (9-certificate) server flight |
+| `goodput` (measurement) | [x] | 10 MB in 11.5 s (~7.3 Mbps) over the runner's simulated link, repeatable |
+| `blackhole` | [x] | resumes correctly after a simulated 2 s link outage |
+| `multiplexing` | [~] | MAX_STREAMS re-grant works correctly (verified live: the advertised limit climbs from 100 to 2000+ as requests complete, 98% of 1999 requested files finish), but the runner's fixed 60 s timeout for this case is not met; a pure throughput gap, not a functional one |
+| `handshakeloss` | [x] | all 50 handshakes complete under a 30% bursty loss rate. Three server-side gaps had to close: a boot-flight resend only replayed the still-unsent tail (one lost Handshake datagram deadlocked the handshake), the one-time confirmation packet (SETTINGS + ticket + HANDSHAKE_DONE) was never retransmitted when lost, and a still-incomplete split ClientHello was never acknowledged, starving the client's 5 s handshake idle timer |
+| `handshakecorruption` | [x] | same scenario under corruption; passes with the same fixes |
+| `retry` | [x] | RFC 9000 §8.1.2 forced address validation: a `--force-retry` server mode sends a Retry for every token-less Initial, verifies the presented token's HMAC (RFC 9000 §8.1.1) and address binding before accepting, and drops datagrams carrying an invalid one. The Retry Integrity Tag is pinned to the RFC 9001 Appendix A.4 vector. The wire token carries its embedded original DCID in the clear (`odcid_len \|\| odcid \|\| HMAC-SHA256`) so the server can statelessly recover it for `original_destination_connection_id`; the Initial-key derivation input (the Retry's own SCID) and that recovered original DCID are tracked as two distinct fields end to end so the TP advert is never mixed up with the key-derivation input |
+| `resumption` | [ ] | not yet run. The PSK-carrying ClientHello codec (`pre_shared_key` extension parse), the PSK binder compute/verify, the PSK-branch key schedule (early_secret), and ticket seal/open all exist as separately unit-tested leaf modules, but none of them is called from the real ClientHello receive path or the server flight builder yet -- a resumption attempt today falls straight through to a full handshake, untouched |
+| `zerortt` | [ ] | not yet run, same reason as `resumption`. 0-RTT key derivation and the replay-rejection policy (`zerortt_policy.c`) both exist and are unit-tested but have no caller in the real receive path |
+| `ecn` | [~] | RFC 9000 §13.4 ECT(0) marking on send, IP_TOS cmsg reading on receive, and cumulative ECN counts reported in 1-RTT ACKs are all implemented and unit-tested, but the runner marks the case `?`: the quic-go interop client itself declares `unsupported test case: ecn` (verified against both the 2026-07-11 and 2026-07-18 client images), so no end-to-end verdict is possible with this peer. An earlier note here recorded the case as passing; no run log substantiates that, and the entry is corrected to honest `[~]` |
+| `ipv6` | [x] | transfer over native IPv6; the socket layer is dual-stack (one AF_INET6 socket, IPV6_V6ONLY off, IPv4 peers v4-mapped), so every other case still runs over IPv4 unchanged |
+| `v2` | [~] | implemented and unit-proven end to end (key derivation, long-header type bits, and the Version Negotiation accept list are all version-parameterized; a v2-framed Initial carrying a real ClientHello is accepted and answered in v2), but no E2E verdict is possible: the quic-go interop client itself declares `unsupported test case: v2` (exit 127), same pattern as `ecn`. This server never actively switches a connection's version -- it replies in whichever version the client's own Initial arrived in (RFC 9368 2), rather than implementing the "server actively switches a v1-started connection to v2" behavior the runner's own TestCaseV2 check describes; whether that difference would matter for a client that actually exercises this case is unverified without one. Post-v2 regression run (handshake/transfer/http3/retry/ipv6) stayed all-green, confirming no impact on the v1 path |
+| `rebind-port` / `rebind-addr` | [ ] | the server follows a confirmed connection's peer address across a rebind and sends a PATH_CHALLENGE on the new path, validating a matching PATH_RESPONSE (RFC 9000 8.2/9.3). Manually decrypting the capture confirms the PATH_CHALLENGE is correctly the new path's first packet, but the runner's own analysis tooling (pyshark/tshark) cannot decrypt that same packet -- a short header carries no DCID length, and wireshark only learns it by having already seen an Initial/Handshake on that UDP conversation, which a rebind's fresh source port never provides. Believed to be a tooling-chain limitation rather than a protocol bug in this server |
+| `connectionmigration` | [~] | run, but unverdictable for a different reason than rebind-port/addr: the server side works (the file transfer completes) and reuses the same PATH_CHALLENGE/PATH_RESPONSE machinery, but the quic-go client never actually triggers a path change for this testcase (runner log: "Server saw only a single path in use") -- a client limitation, not the tooling-chain decryption issue above |
+| `crosstraffic` (measurement) | [x] | 25 MB alongside a competing TCP cubic flow, 3269 (± 157) kbps across 5 runs, well above the 180 s completion bar |
 
 ### WebTransport testcases (server: wired · client: webtransport-go)
 
-- [x] `handshake` — Extended CONNECT session establishment
-- [x] `transfer-unidirectional-receive` — server pushes files on uni streams
-- [x] `transfer-bidirectional-receive` — server replies on bidi streams
-- [x] `transfer-datagram-receive` — server pushes over DATAGRAMs
-- [ ] `transfer-unidirectional-send` — client upload stalls partway
-  (QUIC-level flow control and ACKs verified correct on both sides via
-  qlog; the client stops writing mid-transfer — under investigation)
-- [ ] `transfer-bidirectional-send` — same stall
-- [ ] `transfer-datagram-send` — same stall
+| Testcase | Implemented | Remark |
+|---|---|---|
+| `handshake` | [x] | Extended CONNECT session establishment |
+| `transfer-unidirectional-receive` | [x] | server pushes files on uni streams |
+| `transfer-bidirectional-receive` | [x] | server replies on bidi streams |
+| `transfer-datagram-receive` | [x] | server pushes over DATAGRAMs |
+| `transfer-unidirectional-send` | [ ] | client upload stalls partway (QUIC-level flow control and ACKs verified correct on both sides via qlog; the client stops writing mid-transfer — under investigation) |
+| `transfer-bidirectional-send` | [ ] | same stall |
+| `transfer-datagram-send` | [ ] | same stall |
 
 Two real interop bugs were found and fixed by these runs (a QPACK literal
 field-line buffer split and a WebTransport stream-signal length bug), which
