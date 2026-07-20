@@ -104,26 +104,28 @@ static int emit_finished(quic_sdrv* s, quic_obuf* flight) {
   return emit_msg(s, quic_span_of(msg, mob.len), flight);
 }
 
-/* RFC 8446 4.3.1 + 4.4.2: EncryptedExtensions then Certificate. */
-static int emit_ee_cert(quic_sdrv* s, quic_obuf* flight) {
-  return emit_ee(s, flight) && emit_cert(s, flight);
+/* RFC 8446 4.4.2 + 4.4.3 + 4.4.4: the full-handshake tail -- Certificate,
+ * CertificateVerify, then Finished. */
+static int emit_cert_cv_fin(quic_sdrv* s, quic_obuf* flight) {
+  return emit_cert(s, flight) && emit_certverify(s, flight) &&
+         emit_finished(s, flight);
 }
 
-/* RFC 8446 4.4.3 + 4.4.4: CertificateVerify then Finished. */
-static int emit_cv_fin(quic_sdrv* s, quic_obuf* flight) {
-  return emit_certverify(s, flight) && emit_finished(s, flight);
-}
-
-/* RFC 8446 4.4: the handshake flight after ServerHello, in order. */
+/* RFC 8446 4.4: the handshake flight after ServerHello, in order. When
+ * resuming via PSK, Certificate and CertificateVerify are both omitted (the
+ * peer's identity was already proven when the PSK was issued) -- only
+ * EncryptedExtensions then Finished are sent. */
 static int emit_hs_flight(quic_sdrv* s, quic_obuf* flight) {
-  return emit_ee_cert(s, flight) && emit_cv_fin(s, flight);
+  if (!emit_ee(s, flight)) return 0;
+  return s->psk_accepted ? emit_finished(s, flight)
+                         : emit_cert_cv_fin(s, flight);
 }
 
 /* RFC 8446 4.1.3: build the ServerHello, fold it in, and derive secrets. */
 static int build_server_hello(quic_sdrv* s, const u8* random, quic_obuf* out) {
   quic_shbuild_in in = {
       random, quic_span_of(s->client_sid, s->client_sid_len), s->cipher_suite,
-      s->server_pub};
+      s->server_pub, s->psk_accepted};
   if (!quic_shbuild_server_hello(&in, out)) return 0;
   quic_transcript_add(&s->tr, out->p, out->len);
   if (!derive_secret(s)) return 0;
