@@ -98,7 +98,17 @@ Legend:
 - [x] `ipv6` — transfer over native IPv6; the socket layer is dual-stack
   (one AF_INET6 socket, IPV6_V6ONLY off, IPv4 peers v4-mapped), so every
   other case still runs over IPv4 unchanged
-- [ ] `v2` — not yet run (dedicated server mode not wired up)
+- [~] `v2` — implemented and unit-proven end to end (key derivation,
+  long-header type bits, and the Version Negotiation accept list are all
+  version-parameterized; a v2-framed Initial carrying a real ClientHello is
+  accepted and answered in v2), but no E2E verdict is possible: the
+  quic-go interop client itself declares `unsupported test case: v2` (exit
+  127), same pattern as `ecn`. This server never actively switches a
+  connection's version -- it replies in whichever version the client's own
+  Initial arrived in (RFC 9368 2), rather than implementing the "server
+  actively switches a v1-started connection to v2" behavior the runner's
+  own TestCaseV2 check describes; whether that difference would matter for
+  a client that actually exercises this case is unverified without one
 - [ ] `rebind-port` / `rebind-addr` — the server follows a confirmed
   connection's peer address across a rebind and sends a PATH_CHALLENGE on
   the new path, validating a matching PATH_RESPONSE (RFC 9000 8.2/9.3).
@@ -178,13 +188,24 @@ is exactly what this tier exists for.
 - [ ] Interop — no runner testcase exists for it
 
 **RFC 9368 — Compatible Version Negotiation**
-- [x] Unit — version_information TP, selection rules, downgrade defense
-- [ ] Interop — `v2` testcase not yet run
+- [x] Unit — the server-relevant slice: a v2-framed Initial is accepted and
+  answered in v2 without a VN round trip (RFC 9368 2), and the Version
+  Negotiation accept list now offers both v1 and v2. This server never
+  actively switches a connection's version mid-flight (see the `v2`
+  interop entry above for the scope decision behind that)
+- [~] Interop — `v2` testcase run, but unverdictable (quic-go client
+  declares it unsupported); see the `v2` entry under "Interop results"
+  above
 
 **RFC 9369 — QUIC Version 2**
-- [x] Unit — v2 packet types, v2 salts/labels, v1↔v2 switching
-- [x] Vectors — §3.3.3 v2 Retry key/nonce and v2 initial salts
-- [ ] Interop — `v2` testcase not yet run
+- [x] Unit — v2 packet types, v2 salts/labels, v1↔v2 switching, and (new)
+  version-parameterized Initial key derivation/packet building/opening
+  reaching the real server accept path (not just isolated helpers)
+- [x] Vectors — §3.3.3 v2 Retry key/nonce and v2 initial salts (§3.3.1);
+  the full §Appendix A Initial key (key/iv/hp) vector is not yet pinned --
+  round-trip build/open plus the salt vector stand in for now
+- [~] Interop — `v2` testcase run, but unverdictable (quic-go client
+  declares it unsupported)
 
 **RFC 9308 / RFC 9312 — Applicability / Manageability (informational)**
 - [~] Unit — guidance documents; the implementable slices (0-RTT policy,
@@ -358,8 +379,11 @@ runs used kernel UDP sockets, so they are unit-tested but not interop-proven.
   analysis tooling cannot decrypt that specific packet (a wireshark
   limitation around DCID-length inference on a fresh UDP conversation, not
   a protocol violation by this server -- see the QUIC testcase notes
-  above). `connectionmigration` would reuse the same machinery but is
-  likely to hit the same tooling limitation; not yet attempted.
+  above). `connectionmigration` reuses the same machinery and was run: the
+  server side works (the file transfer completes), but the quic-go client
+  never actually triggers a path change for this testcase either (runner
+  log: "Server saw only a single path in use"), so it's unverdictable for
+  an unrelated reason (a client limitation, not the tooling issue above).
 - `ecn` now passes: ECT(0) send marking, an IP_TOS cmsg read on receive
   (with defenses against MSG_CTRUNC, a malformed/overflowing cmsg_len, and
   an unrelated cmsg ahead of IP_TOS), and cumulative ECN counts in 1-RTT
@@ -367,10 +391,12 @@ runs used kernel UDP sockets, so they are unit-tested but not interop-proven.
   what this server itself received) is wired at the congestion-control
   layer but not yet connected to ACK decoding -- out of scope for what the
   runner's check requires.
-- Four testcases (`resumption`, `zerortt`, `v2`, `connectionmigration`) need
-  a dedicated server mode this SDK does not wire up yet; none of these have
-  been attempted. `retry` and `ipv6` (IPv6 socket support) are both done,
-  see their own entries above.
+- `v2` is implemented and unit-proven (see its own entry above) but also
+  unverdictable -- the quic-go client declares the testcase unsupported,
+  same failure mode as `ecn`.
+- Two testcases (`resumption`, `zerortt`) still need a dedicated server
+  mode this SDK does not wire up yet; neither has been attempted. `retry`,
+  `ipv6`, and `v2` are all implemented, see their own entries above.
 - The three WebTransport `*-send` interop cases have never passed; the
   QUIC layer has been verified blameless via qlog, and the investigation
   is parked at the client's send scheduling.
