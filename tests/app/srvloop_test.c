@@ -31,6 +31,7 @@
 #include "transport/packet/frame/frame/ack.h"
 #include "transport/packet/frame/frame/frame.h"
 #include "transport/packet/frame/pipeline/framewalk.h"
+#include "transport/packet/frame/pipeline/txpacket.h"
 #include "transport/stream/data/appdata/stream_send.h"
 
 /* RFC 9001 4 / 5 / 5.1, RFC 9000 17.2: the server real-wire loop. The server
@@ -3496,7 +3497,94 @@ static void test_srvloop_recv_follows_repeated_key_updates_across_generations(
   CHECK(f.s.ku.generation == 2);
 }
 
+/* R-41: a 0-RTT packet (long header, type bits 0x1 -- RFC 9000 17.2.3)
+ * sealed under the driver's own derived early keys opens through
+ * wired_srvloop_recv, reporting QUIC_LEVEL_ONERTT (RFC 9000 12.3: 0-RTT and
+ * 1-RTT share the App packet number space) and recovering the original
+ * payload. */
+static void test_srvloop_recv_zerortt_opens_with_early_keys(void) {
+  wired_server           s;
+  u8                     srv_priv[32], srv_pub[32], cert_seed[32];
+  u8                     psk[32], ch[64];
+  u8                     payload[8] = {1, 2, 3, 4, 5, 6, 7, 8};
+  u8                     pkt[256];
+  quic_obuf              ob = quic_obuf_of(pkt, sizeof(pkt));
+  quic_aes128            hp;
+  wired_srvloop_recv_in  ri;
+  wired_srvloop_recv_out ro;
+  for (usz i = 0; i < 32; i++) {
+    srv_priv[i]  = (u8)(0x40 + i);
+    cert_seed[i] = (u8)(0x80 + i);
+    psk[i]       = (u8)(0xc0 + i);
+  }
+  for (usz i = 0; i < sizeof(ch); i++) ch[i] = (u8)i;
+  quic_x25519_base(srv_pub, srv_priv);
+  {
+    wired_server_init_in sin = {srv_priv, srv_pub, cert_seed, 0, 0, 0, 0, 0};
+    wired_server_init(&s, &sin);
+  }
+  /* White-box: derive early keys exactly as quic_sdrv_recv_client_hello
+   * would on an accepted 0-RTT ClientHello, without driving a full
+   * handshake (that path is already covered by tests/tls/sdrv_test.c). */
+  quic_tls_early_keys(psk, ch, sizeof(ch), &s.sdrv.early_keys);
+  s.sdrv.early_data_accepted = 1;
+
+  quic_aes128_init(&hp, s.sdrv.early_keys.hp);
+  /* RFC 9000 17.2.3: build the 0-RTT long header directly (byte0 = form
+   * 0x80 | fixed 0x40 | type 0x1 (0-RTT) << 4 | pn_len-1) via the raw
+   * quic_tx_packet_suite primitive -- quic_hspkt_build hardcodes byte0 to
+   * Handshake's type bits, and byte0 is covered by the AEAD's AAD, so the
+   * type must be set before sealing, not patched into the output after. */
+  {
+    quic_protect_keys pk = {&s.sdrv.early_keys, &hp};
+    quic_tx_desc      d  = {
+        0xd3,
+        quic_span_of(g_cli_scid, 6),
+        quic_span_of(g_cli_scid, 6),
+        0,
+        quic_span_of(0, 0),
+        0,
+        quic_span_of(payload, sizeof(payload)),
+        0};
+    ob.len = quic_tx_packet_suite(
+        s.sdrv.cipher_suite, &pk, &d, quic_mspan_of(pkt, sizeof(pkt)));
+    CHECK(ob.len != 0);
+  }
+
+  ri = (wired_srvloop_recv_in){quic_mspan_of(pkt, ob.len), 0};
+  CHECK(wired_srvloop_recv(&s, &ri, &ro) == 1);
+  CHECK(ro.level == QUIC_LEVEL_ONERTT);
+  CHECK(ro.payload.n == sizeof(payload));
+  for (usz i = 0; i < sizeof(payload); i++)
+    CHECK(ro.payload.p[i] == payload[i]);
+}
+
+/* Without early_data_accepted (no 0-RTT keys derived), the same 0-RTT-typed
+ * packet is refused rather than mistakenly opened/crashing. */
+static void test_srvloop_recv_zerortt_refused_without_early_keys(void) {
+  wired_server           s;
+  u8                     srv_priv[32], srv_pub[32], cert_seed[32];
+  u8                     pkt[64] = {0xd3, 0,   0,   0,   1,    6, 'C', 'L',
+                                    'I',  'S', 'C', 'I', 0x40, 0, 0,   0};
+  wired_srvloop_recv_in  ri;
+  wired_srvloop_recv_out ro;
+  for (usz i = 0; i < 32; i++) {
+    srv_priv[i]  = (u8)(0x40 + i);
+    cert_seed[i] = (u8)(0x80 + i);
+  }
+  quic_x25519_base(srv_pub, srv_priv);
+  {
+    wired_server_init_in sin = {srv_priv, srv_pub, cert_seed, 0, 0, 0, 0, 0};
+    wired_server_init(&s, &sin);
+  }
+  CHECK(s.sdrv.early_data_accepted == 0);
+  ri = (wired_srvloop_recv_in){quic_mspan_of(pkt, sizeof(pkt)), 0};
+  CHECK(wired_srvloop_recv(&s, &ri, &ro) == 0);
+}
+
 void test_srvloop(void) {
+  test_srvloop_recv_zerortt_opens_with_early_keys();
+  test_srvloop_recv_zerortt_refused_without_early_keys();
   test_srvloop_seal_chacha_roundtrip();
   test_srvloop_open_chacha();
   test_srvloop_handler_body_echoed();
