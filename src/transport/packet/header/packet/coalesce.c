@@ -1,7 +1,9 @@
 #include "transport/packet/header/packet/coalesce.h"
 
 #include "common/bytes/span/span.h"
+#include "common/bytes/util/be.h"
 #include "common/bytes/varint/varint.h"
+#include "transport/packet/header/packet/ptype.h"
 
 void quic_coalesce_begin(quic_coalesce_iter* it, const u8* dgram, usz total) {
   it->dgram = dgram;
@@ -16,9 +18,16 @@ static int skip_cid(const u8* buf, usz n, usz* p) {
   return *p <= n;
 }
 
-/* Long-header types that carry a token before the Length field (Initial). */
-static int has_token(u8 byte0) {
-  return ((byte0 >> 4) & 0x3) == 0x0; /* WIRED_LP_INITIAL */
+/* Long-header types that carry a token before the Length field (Initial,
+ * RFC 9000 17.2.2). The type-bit layout is version-dependent (RFC 9369 3.2
+ * for v2), so this reads the packet's own Version field (byte0[1..4])
+ * rather than assuming v1's mapping -- a v2 Initial's wire bits (01) are
+ * v1's 0-RTT bits, and treating it as tokenless mis-locates every field
+ * that follows. buf must hold at least 5 bytes (checked by the caller,
+ * skip_long_prefix, before this is read). */
+static int has_token(const u8* buf) {
+  u32 version = quic_get_be32(buf + 1);
+  return quic_packet_long_type(buf[0], version) == QUIC_PT_INITIAL;
 }
 
 /* Skip the Initial token (a varint length plus that many bytes). */
@@ -36,13 +45,24 @@ static int skip_long_prefix(const u8* buf, usz n, usz* p) {
   return skip_cid(buf, n, p);
 }
 
+/* 1 if buf has at least 5 bytes left from *p (byte0 + 4-byte version --
+ * what has_token needs to read the packet's own version field). */
+static int has_prefix_room(quic_span buf, usz p) { return buf.n - p >= 5; }
+
+/* Skip the token (Initial only, identified from the packet's own bytes at
+ * pkt_start before the prefix advanced *p past them) or nothing. */
+static int skip_optional_token(quic_span buf, const u8* pkt_start, usz* p) {
+  if (!has_token(pkt_start)) return 1;
+  return skip_token(buf.p, buf.n, p);
+}
+
 /* Advance *p past the prefix and, for an Initial packet, the token. The
  * packet starts at buf.p[*p] == the header's byte0 on entry. */
 static int skip_to_length(quic_span buf, usz* p) {
-  u8 byte0 = buf.p[*p];
+  const u8* pkt_start = buf.p + *p;
+  if (!has_prefix_room(buf, *p)) return 0;
   if (!skip_long_prefix(buf.p, buf.n, p)) return 0;
-  if (!has_token(byte0)) return 1;
-  return skip_token(buf.p, buf.n, p);
+  return skip_optional_token(buf, pkt_start, p);
 }
 
 /* Read the Length varint at *p and bound the packet [off, *p+Length);
