@@ -76,7 +76,8 @@ usz quic_connio_send(
       level_is_initial(in->level),
       none,
       quic_connio_tx_next(io, in->level),
-      in->frames};
+      in->frames,
+      0 /* QUIC v1 */};
   n = quic_tx_packet(&k, &t, quic_mspan_of(out->p, out->cap));
   if (n) {
     quic_pnspaces_next_pn(&io->tx, in->level); /* advance only on success */
