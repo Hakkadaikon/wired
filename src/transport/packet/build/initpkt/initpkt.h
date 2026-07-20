@@ -17,7 +17,15 @@ typedef struct {
 } quic_initpkt_desc;
 
 /* Writes the protected packet into out (length to out->len). Returns 1 on
- * success, 0 on overflow. */
+ * success, 0 on overflow. Equivalent to quic_initpkt_build_ver(d,
+ * QUIC_VERSION_1, out). */
 int quic_initpkt_build(const quic_initpkt_desc* d, quic_obuf* out);
+
+/* Same as quic_initpkt_build, but the Initial keys, the header's Version
+ * field, and byte0's type bits all follow `version` (RFC 9369 3.2/3.3.1)
+ * instead of assuming QUIC v1. Returns 0 on overflow or an unencodable
+ * version. */
+int quic_initpkt_build_ver(
+    u32 version, const quic_initpkt_desc* d, quic_obuf* out);
 
 #endif
