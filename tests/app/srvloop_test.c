@@ -3582,9 +3582,58 @@ static void test_srvloop_recv_zerortt_refused_without_early_keys(void) {
   CHECK(wired_srvloop_recv(&s, &ri, &ro) == 0);
 }
 
+/* REGRESSION: a 0-RTT packet keeps a long header (RFC 9000 17.2.3), unlike
+ * the short-header 1-RTT packets note_app_rx's pn offset used to assume
+ * unconditionally (byte0 + iscid_len) -- reading a long header that way lands
+ * mid-payload and recovers a garbage pn (observed live against quic-go:
+ * ACKed pn 59471 for a 0-RTT packet actually numbered 1, PROTOCOL_VIOLATION
+ * "received ACK for an unsent packet"). Drive a real 0-RTT packet through
+ * wired_srvloop_step (not just wired_srvloop_recv, R-41's own coverage) and
+ * check the App pn space (RFC 9000 12.3, shared with 1-RTT) recorded the
+ * 0-RTT packet's own real pn -- confirmation has not happened yet at this
+ * point in a genuine 0-RTT handshake, so the ACK itself does not go out
+ * until later; app_rx_pn is the durable record an eventual ACK is built
+ * from (step_note_ack_owed). */
+static void test_srvloop_step_zerortt_records_real_pn(void) {
+  struct lp_fix f;
+  u8            psk[32], out[1024], pkt[256];
+  quic_obuf     ob = {out, sizeof out, 0};
+  quic_aes128   hp;
+  const u8      payload[1] = {0x01}; /* RFC 9000 19.2: a bare PING frame,
+                                      * ack-eliciting and self-contained */
+  usz slen;
+  lp_make_client_hello(&f);
+  lp_drive_to_flight(&f);
+  for (usz i = 0; i < 32; i++) psk[i] = (u8)(0xc0 + i);
+  /* White-box, same as test_srvloop_recv_zerortt_opens_with_early_keys. */
+  quic_tls_early_keys(psk, f.ch, f.ch_len, &f.s.sdrv.early_keys);
+  f.s.sdrv.early_data_accepted = 1;
+  quic_aes128_init(&hp, f.s.sdrv.early_keys.hp);
+  {
+    quic_protect_keys pk = {&f.s.sdrv.early_keys, &hp};
+    quic_tx_desc      d  = {
+        0xd3,
+        quic_span_of(g_cli_scid, 6),
+        quic_span_of(g_cli_scid, 6),
+        0, /* is_initial: 0-RTT carries no Token field, RFC 9000 17.2.3 */
+        quic_span_of(0, 0),
+        3, /* pn 3: nonzero, distinct from every other space's pn */
+        quic_span_of(payload, sizeof(payload)),
+        0};
+    slen = quic_tx_packet_suite(
+        f.s.sdrv.cipher_suite, &pk, &d, quic_mspan_of(pkt, sizeof(pkt)));
+    CHECK(slen != 0);
+  }
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(pkt, slen), &ob);
+  CHECK(f.l.app_rx_seen == 1);
+  CHECK(f.l.app_rx_pn == 3);
+}
+
 void test_srvloop(void) {
   test_srvloop_recv_zerortt_opens_with_early_keys();
   test_srvloop_recv_zerortt_refused_without_early_keys();
+  test_srvloop_step_zerortt_records_real_pn();
   test_srvloop_seal_chacha_roundtrip();
   test_srvloop_open_chacha();
   test_srvloop_handler_body_echoed();
