@@ -40,12 +40,13 @@ static int ecdhe_ok(int stage, usz ecdhe_len) {
   return stage == 0 && ecdhe_len == 32;
 }
 
-int quic_keysched_advance_handshake(
-    quic_keysched* st, quic_span ecdhe, quic_span transcript) {
-  u8                     hs[QUIC_HKDF_PRK];
+/* RFC 8446 7.1: given an already-derived Handshake Secret hs, install both
+ * directions' Handshake-level traffic keys and the Master Secret they all
+ * derive from -- shared by the plain and PSK-resumption entry points below,
+ * which differ only in how hs itself was computed. */
+static void install_handshake_secret(
+    quic_keysched* st, const u8 hs[QUIC_HKDF_PRK], quic_span transcript) {
   quic_handshake_keys_in in;
-  if (!ecdhe_ok(st->stage, ecdhe.n)) return 0;
-  quic_tls_handshake_secret(ecdhe.p, hs);
   in.hs_secret  = hs;
   in.transcript = transcript;
   in.is_server  = 0;
@@ -54,6 +55,23 @@ int quic_keysched_advance_handshake(
   quic_tls_handshake_keys_suite(&in, st->suite, &st->keys[QUIC_KS_SERVER_HS]);
   quic_tls_master_secret(hs, st->master);
   st->stage = 1;
+}
+
+int quic_keysched_advance_handshake(
+    quic_keysched* st, quic_span ecdhe, quic_span transcript) {
+  u8 hs[QUIC_HKDF_PRK];
+  if (!ecdhe_ok(st->stage, ecdhe.n)) return 0;
+  quic_tls_handshake_secret(ecdhe.p, hs);
+  install_handshake_secret(st, hs, transcript);
+  return 1;
+}
+
+int quic_keysched_advance_handshake_psk(
+    quic_keysched* st, quic_span psk, quic_span ecdhe, quic_span transcript) {
+  u8 hs[QUIC_HKDF_PRK];
+  if (!ecdhe_ok(st->stage, ecdhe.n)) return 0;
+  quic_tls_handshake_secret_psk(psk.p, ecdhe.p, hs);
+  install_handshake_secret(st, hs, transcript);
   return 1;
 }
 

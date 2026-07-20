@@ -78,6 +78,24 @@ int quic_keysched_advance_handshake(
     quic_keysched* st, quic_span ecdhe, quic_span transcript);
 
 /**
+ * Same as quic_keysched_advance_handshake, but for a PSK-resumption
+ * handshake (RFC 8446 7.1's key schedule diagram): Handshake Secret is
+ * derived from Early Secret = HKDF-Extract(0, PSK) instead of
+ * HKDF-Extract(0, 0), matching quic_tls_handshake_secret_psk. ECDHE is still
+ * mixed in either way -- this SDK never runs PSK-only (no (EC)DHE).
+ *
+ * @param st         schedule state (must be in the init stage)
+ * @param psk        the accepted ticket's resumption secret (QUIC_HKDF_PRK
+ *                   bytes)
+ * @param ecdhe      ECDHE shared secret
+ * @param transcript raw transcript bytes (ClientHello..ServerHello), hashed
+ *                   internally
+ * @return 1 on success, 0 if the stage is not init (order violation).
+ */
+int quic_keysched_advance_handshake_psk(
+    quic_keysched* st, quic_span psk, quic_span ecdhe, quic_span transcript);
+
+/**
  * Finished processed: derive Master Secret and the application traffic keys.
  *
  * @param st             schedule state (must be in the handshake stage)
