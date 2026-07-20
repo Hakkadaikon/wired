@@ -77,6 +77,22 @@ reused-DCID mismatch each passed loopback yet broke a real peer.
   the loop-engineering extraction pass to the interop requirements too).
 - A test where one side is pinned to an RFC vector or a captured real-peer trace
   closes the loophole; two free sides that agree do not.
+- **Completion condition**: any feature that touches the wire format stays `[ ]`
+  (or `[~]`) in the ledger until such a pinned test exists. Loopback-green alone
+  never flips it to `[x]` — three loopback-green wire bugs shipped before this
+  rule existed (#28/#33).
+
+## Reading the interop-runner's verdict
+
+- Record PASS only when BOTH hold: the result row shows `✓` (check the letter
+  code in parentheses — `?(E)` means UNSUPPORTED, not pass), AND the matching
+  `logs_*/` directory for that run actually exists. An `?(E)` was once misread
+  as a pass and recorded in two ledgers with no run log behind it (2026-07-20).
+- Know the client's capabilities before blaming the server: the quic-go client
+  does not support the ecn testcase (ngtcp2/picoquic do).
+- Read the runner's own check logic (`testcases_quic.py` conditions) BEFORE
+  implementing against a testcase — rebind-port took two implementation rounds
+  that reading the checker first would have made one.
 
 ## Debugging an encrypted protocol against a real peer
 
@@ -96,6 +112,21 @@ which message or frame actually failed (#30). Use two instruments together:
 - Rule out suspects by reading code against the RFC, one at a time, before
   reaching for a live trace: each "innocent" narrows the cause, and the live
   trace is the last resort, not the first (#14).
+- **Cross-examine both ends before declaring a cause.** One side's log alone
+  misleads: a server log was once read as "handshake failed, auto-retrying"
+  when the client had simply been run four times by hand (2026-07-03). State a
+  failure narrative only after your log and the peer's log agree on it.
+
+## Test buffers must match production buffers
+
+A test using `out[4096]` against production's `out[1500]` hid a 1750-byte
+overflow: the unity suite stayed green while the real server broke. Any test
+that exercises a size/boundary path uses the PRODUCTION buffer size — share the
+constant (one `#define` both sides include), don't re-type the number. And when
+a fixed-capacity buffer is widened, write the sizing rationale next to the
+constant (max cert-chain length, BDP, ...): 10+ capacity bumps in this history
+were reactive guesses, one of which SIGSEGV'd CI and was reverted within 7
+minutes (#widen 07-19).
 
 ## A non-deterministic hang is usually undefined behavior
 
