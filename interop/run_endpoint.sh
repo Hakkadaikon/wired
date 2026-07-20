@@ -16,13 +16,15 @@ fi
 # latency scenarios (the server just has to survive them), chacha20 (cipher
 # negotiated per the client's offer), keyupdate (server follows the
 # client-initiated update), amplificationlimit (verifies the server's own
-# anti-amplification gate), rebind-port/rebind-addr (the server always
-# follows a confirmed connection's peer address), ecn (the server marks
-# ECT(0) on send and reports received ECN counts in its 1-RTT ACKs), ipv6
-# (the socket is dual-stack AF_INET6), retry (RFC 9000 8.1.2 forced address
-# validation via --force-retry), and the two throughput measurements. Still
-# refused: cases needing a dedicated server mode that is not wired up yet --
-# resumption, zerortt, v2, connectionmigration.
+# anti-amplification gate), rebind-port/rebind-addr/connectionmigration
+# (the server always follows a confirmed connection's peer address and
+# drives the same PATH_CHALLENGE/PATH_RESPONSE round trip regardless of
+# why the path changed), ecn (the server marks ECT(0) on send and reports
+# received ECN counts in its 1-RTT ACKs), ipv6 (the socket is dual-stack
+# AF_INET6), retry (RFC 9000 8.1.2 forced address validation via
+# --force-retry), and the two throughput measurements. Still refused:
+# cases needing a dedicated server mode that is not wired up yet --
+# resumption, zerortt, v2.
 RETRY=""
 [ "$TESTCASE" = "retry" ] && RETRY="--force-retry"
 
@@ -31,7 +33,7 @@ case "$TESTCASE" in
   longrtt | multiplexing | chacha20 | keyupdate | multiconnect) ;;
   blackhole | handshakeloss | transferloss) ;;
   handshakecorruption | transfercorruption | amplificationlimit) ;;
-  rebind-port | rebind-addr | ecn | ipv6) ;;
+  rebind-port | rebind-addr | connectionmigration | ecn | ipv6) ;;
   goodput | crosstraffic) ;;
   *)
     echo "unsupported test case: $TESTCASE" >&2
