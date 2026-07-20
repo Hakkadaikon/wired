@@ -47,6 +47,28 @@ static void test_initial_v2_differs_from_v1(void) {
   CHECK(!keq(v2.key, "1f369613dd76d5467730efcbe3b1a22d", 16));
 }
 
+/* RFC 9369 Appendix A: same DCID as RFC 9001 A.1, v2 salt/labels. Values
+ * independently re-derived by hand (HKDF-Extract(v2 salt, dcid) -> "client
+ * in"/"quicv2 key,iv,hp") before pinning, per this repo's rule against
+ * trusting a single fetched golden value unchecked. */
+static void test_initial_v2_client(void) {
+  const u8          dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
+  quic_initial_keys k;
+  quic_initial_derive(quic_span_of(dcid, 8), 0, QUIC_VERSION_2, &k);
+  CHECK(keq(k.key, "8b1a0bc121284290a29e0971b5cd045d", 16));
+  CHECK(keq(k.iv, "91f73e2351d8fa91660e909f", 12));
+  CHECK(keq(k.hp, "45b95e15235d6f45a6b19cbcb0294ba9", 16));
+}
+
+static void test_initial_v2_server(void) {
+  const u8          dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
+  quic_initial_keys k;
+  quic_initial_derive(quic_span_of(dcid, 8), 1, QUIC_VERSION_2, &k);
+  CHECK(keq(k.key, "82db637861d55e1d011f19ea71d5d2a7", 16));
+  CHECK(keq(k.iv, "dd13c276499c0249d3310652", 12));
+  CHECK(keq(k.hp, "edf6d05c83121201b436e16877593c3a", 16));
+}
+
 /* v2's derivation must thread the pinned v2 Initial salt (v2keys_test.c's
  * V2_GOLDEN, RFC 9369 3.3.1) through HKDF-Extract: reproduce
  * client_initial_secret by hand from quic_version_initial_salt(
@@ -76,6 +98,8 @@ static void test_initial_v2_uses_pinned_salt(void) {
 void test_initial(void) {
   test_initial_client();
   test_initial_server();
+  test_initial_v2_client();
+  test_initial_v2_server();
   test_initial_v2_differs_from_v1();
   test_initial_v2_uses_pinned_salt();
 }
