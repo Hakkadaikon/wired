@@ -7,6 +7,7 @@
 #include "tls/ext/stp/server_tp.h"
 #include "tls/handshake/core/tls/cert.h"
 #include "tls/handshake/core/tls/transcript.h"
+#include "tls/keys/ticket/ticket.h"
 
 /** @file
  * RFC 8446 4 / RFC 9001 4: server-side handshake driver. Receives the client
@@ -29,11 +30,23 @@ typedef struct {
                                              * certificate_list, leaf first
                                              * (caller-owned views in
                                              * external-chain mode) */
-  usz cert_count;               /**< 0 = nothing to send (flight build fails) */
-  u8  client_pub[32];           /**< RFC 8446 4.2.8 client key_share */
-  u8  client_sid[32];           /**< RFC 8446 4.1.2 legacy_session_id */
-  u8  client_sid_len;           /**< 0..32 */
-  u8  hs_secret[QUIC_HKDF_PRK]; /**< RFC 8446 7.1 Handshake Secret */
+  usz cert_count;     /**< 0 = nothing to send (flight build fails) */
+  u8  client_pub[32]; /**< RFC 8446 4.2.8 client key_share */
+  u8  client_sid[32]; /**< RFC 8446 4.1.2 legacy_session_id */
+  u8  client_sid_len; /**< 0..32 */
+  /** RFC 8446 4.6.1: this server's session-ticket encryption key, or
+   * has_ticket_key 0 to disable resumption entirely (pre_shared_key is then
+   * never inspected). Set once at quic_sdrv_init from
+   * quic_sdrv_init_in.ticket_key. */
+  u8  ticket_key[QUIC_TICKET_KEY_LEN];
+  int has_ticket_key;
+  /** RFC 8446 4.2.11/4.2.11.2: set by quic_sdrv_recv_client_hello when the
+   * ClientHello's pre_shared_key ticket opened under ticket_key and its
+   * binder verified. psk_secret (the opened ticket's resumption secret) is
+   * only meaningful when this is 1. */
+  int psk_accepted;
+  u8  psk_secret[QUIC_TICKET_SECRET_LEN];
+  u8  hs_secret[QUIC_HKDF_PRK];    /**< RFC 8446 7.1 Handshake Secret */
   u8  s_hs_traffic[QUIC_HKDF_PRK]; /**< RFC 8446 7.1 server hs traffic secret */
   int hs_ready;                    /**< hs_secret derived */
   quic_transcript tr;              /**< RFC 8446 4.4.1 Transcript-Hash */
@@ -125,6 +138,10 @@ typedef struct {
    * self-signed mode (ignored when an external chain is given). 0 to keep
    * the fixed 2020-2030 window (tests only). */
   u64 now_secs;
+  /** RFC 8446 4.6.1: this server's session-ticket encryption key
+   * (QUIC_TICKET_KEY_LEN bytes), or 0 to disable session resumption --
+   * quic_sdrv_recv_client_hello then never inspects pre_shared_key. */
+  const u8* ticket_key;
 } quic_sdrv_init_in;
 
 /** Hold the server key material. If in->chain is NULL/empty, build the
@@ -165,10 +182,25 @@ int quic_sdrv_set_retry_scid(quic_sdrv* s, quic_span rscid);
 
 /** RFC 8446 4.4.1: fold the ClientHello into the transcript and take the
  * client's x25519 key_share.
+ *
+ * RFC 8446 4.2.11/4.2.11.2 session resumption, only when has_ticket_key: if
+ * the ClientHello carries no pre_shared_key extension, behavior is exactly
+ * the full-handshake path above (psk_accepted stays 0). If it does, this
+ * opens the offered ticket (its identity bytes) under ticket_key; a ticket
+ * that fails to open (wrong key, malformed, tampered) is a silent MAY-
+ * degrade to a full handshake (psk_accepted stays 0, no error). A ticket
+ * that opens has its PSK binder verified against the resumption secret and
+ * the truncated ClientHello; a binder mismatch instead makes this whole call
+ * fail (0) -- RFC 8446 4.2.11.2 MUST abort the handshake, never fall back
+ * silently. On a verified binder, psk_accepted is set to 1 and psk_secret
+ * holds the opened ticket's resumption secret, for
+ * quic_sdrv_build_server_flight's key schedule.
  * @param s driver state
  * @param ch_msg the ClientHello handshake message bytes
  * @param ch_len length of ch_msg in bytes
- * @return 1 on success, 0 if the key_share is absent or malformed. */
+ * @return 1 on success (with or without an accepted PSK), 0 if the
+ *   ClientHello itself is malformed/unsupported, or a presented PSK binder
+ *   fails verification. */
 int quic_sdrv_recv_client_hello(quic_sdrv* s, const u8* ch_msg, usz ch_len);
 
 /** Destination for quic_sdrv_build_server_flight: sh receives the
