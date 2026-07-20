@@ -27,9 +27,10 @@ static usz srv_tr_add(wired_server* s, const u8* msg, usz len) {
 }
 
 void wired_server_init(wired_server* s, const wired_server_init_in* in) {
-  quic_sdrv_init_in din = {
-      in->server_priv_x25519, in->server_pub_x25519, in->cert_seed, in->chain,
-      in->chain_count,        in->san_ipv4,          in->now_secs,  0};
+  quic_sdrv_init_in din = {in->server_priv_x25519, in->server_pub_x25519,
+                           in->cert_seed,          in->chain,
+                           in->chain_count,        in->san_ipv4,
+                           in->now_secs,           in->ticket_key};
   srv_copy32(s->server_priv, in->server_priv_x25519);
   quic_sdrv_init(&s->sdrv, &din);
   quic_keysched_init(&s->sched);
@@ -86,6 +87,23 @@ int wired_server_recv_initial(wired_server* s, const u8* ch_msg, usz ch_len) {
   return 1;
 }
 
+/* RFC 8446 7.1: the same PSK-vs-plain Handshake Secret branch
+ * sdrv_flight.c's sdrv_derive_handshake_secret already establishes for
+ * sdrv's own flight -- here for the connection's real packet-protection key
+ * schedule, over the identical ecdhe (s->server_priv/s->sdrv.client_pub, the
+ * same x25519 output derive_secret computes internally) and the identical
+ * transcript-through-ServerHello, so both Handshake Secret computations
+ * agree byte-for-byte whenever a PSK was accepted. */
+static int srv_advance_handshake(wired_server* s, u8 ecdhe[QUIC_X25519_LEN]) {
+  quic_span ecdhe_span = quic_span_of(ecdhe, QUIC_X25519_LEN);
+  quic_span tr_span    = quic_span_of(s->tr, s->tr_through_sh);
+  if (s->sdrv.psk_accepted)
+    return quic_keysched_advance_handshake_psk(
+        &s->sched, quic_span_of(s->sdrv.psk_secret, QUIC_HKDF_PRK), ecdhe_span,
+        tr_span);
+  return quic_keysched_advance_handshake(&s->sched, ecdhe_span, tr_span);
+}
+
 /* RFC 8446 7.1: derive the Handshake key set over the transcript through
  * ServerHello and install the Handshake-level keys. */
 /* ECDHE shared secret then advance to the handshake secret. RFC 7748 6.1: a
@@ -93,9 +111,7 @@ int wired_server_recv_initial(wired_server* s, const u8* ch_msg, usz ch_len) {
 static int srv_derive_hs(wired_server* s, u8 ecdhe[QUIC_X25519_LEN]) {
   if (!quic_x25519(ecdhe, s->server_priv, s->sdrv.client_pub)) return 0;
   quic_keysched_set_suite(&s->sched, s->sdrv.cipher_suite);
-  return quic_keysched_advance_handshake(
-      &s->sched, quic_span_of(ecdhe, QUIC_X25519_LEN),
-      quic_span_of(s->tr, s->tr_through_sh));
+  return srv_advance_handshake(s, ecdhe);
 }
 
 static int srv_install_hs_keys(wired_server* s) {

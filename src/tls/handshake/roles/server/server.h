@@ -94,6 +94,10 @@ typedef struct {
    * to sdrv's self-signed certificate builder. 0 to keep the fixed
    * 2020-2030 window (tests only). */
   u64 now_secs;
+  /** RFC 8446 4.6.1: this server's session-ticket encryption key
+   * (QUIC_TICKET_KEY_LEN bytes), or 0 to disable session resumption --
+   * threaded straight to quic_sdrv_init_in.ticket_key, see its doc. */
+  const u8* ticket_key;
 } wired_server_init_in;
 
 /** Initialize the orchestrator with the server key material. No socket is
