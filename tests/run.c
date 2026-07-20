@@ -320,6 +320,7 @@
 #include "transport/stream/data/stream/stream_limit.c"
 #include "transport/stream/data/stream/stream_role.c"
 #include "tls/handshake/core/tls/appkeys.c"
+#include "tls/handshake/core/tls/binder.c"
 #include "tls/handshake/core/tls/cert.c"
 #include "tls/handshake/core/tls/encext_check.c"
 #include "tls/handshake/core/tls/finished.c"
@@ -557,6 +558,7 @@
 #include "transport/availfilter_test.c"
 #include "app/base_test.c"
 #include "app/bidi_test.c"
+#include "tls/binder_test.c"
 #include "tls/bitset_test.c"
 #include "transport/ccloss_test.c"
 #include "transport/ccphase_test.c"
@@ -1021,6 +1023,7 @@ int main(void) {
   test_availfilter();
   test_base();
   test_bidi();
+  test_binder();
   test_bitset();
   test_ccloss();
   test_ccphase();
