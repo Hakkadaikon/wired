@@ -74,6 +74,14 @@ typedef struct {
  * @return 1 if dg is a long-header Initial datagram, 0 otherwise */
 int wired_srvboot_is_initial(const u8* dg, usz len);
 
+/** RFC 9000 17.2.3: 1 if dg is a long-header 0-RTT datagram. Read before any
+ * key exists to open it with -- only the type bits are needed, same scope
+ * as wired_srvboot_is_initial's own byte0-vs-version read.
+ * @param dg the datagram bytes as received from the socket
+ * @param len length of dg in octets
+ * @return 1 if dg is a long-header 0-RTT datagram, 0 otherwise */
+int wired_srvboot_is_zerortt(const u8* dg, usz len);
+
 /** The server orchestrator and its HTTP/3 loop, freshly cold-started by
  * wired_srvboot_accept and driven together thereafter (wired_srvloop_step
  * takes the same pair). */
@@ -142,6 +150,15 @@ int wired_srvboot_accept(
  * @return bytes written, or 0 when no response is owed. */
 usz wired_srvboot_vneg(quic_span dg, u8* out, usz cap);
 
+/** Datagrams a boot's accumulator holds verbatim while waiting for 0-RTT keys
+ * (wired_srvboot_acc.zerortt_dg): comfortably past a real quic-go 0-RTT
+ * burst (26 single-packet datagrams observed live). */
+#define WIRED_SRVBOOT_ZERORTT_MAX 32
+/** Byte capacity of one buffered 0-RTT datagram: past RFC 9000 14.1's
+ * 1200-byte Initial floor and a real Ethernet MTU's ~1500-byte payload, the
+ * range every 0-RTT datagram observed live falls within. */
+#define WIRED_SRVBOOT_ZERORTT_DG_MAX 1500
+
 /** One nascent connection's ClientHello reassembly across Initial datagrams:
  * a ClientHello too big for one Initial (a post-quantum hybrid key share
  * pushes it near 1.7KB) arrives as CRYPTO chunks spread over several packets
@@ -170,6 +187,21 @@ typedef struct {
   u8 alt_dcid[WIRED_MAX_CID_LEN];
   /** Length of alt_dcid; 0 while none is allowed. */
   u8 alt_dcid_len;
+  /** RFC 9001 4.6.1: 0-RTT datagrams arrive interleaved with the Initials
+   * this accumulator is reassembling the ClientHello from, but their own
+   * packet-protection keys (quic_sdrv_early_keys) do not exist until the
+   * ClientHello is complete and the server has accepted the PSK -- so each
+   * whole raw 0-RTT datagram is held here verbatim and only opened once
+   * wired_srvboot_accept_acc succeeds (RFC 9000 12.2: never split a
+   * datagram's own coalesced packets apart, replay each one exactly as
+   * received). WIRED_SRVBOOT_ZERORTT_MAX holds interop-observed bursts (a
+   * real quic-go 0-RTT run sent 26 single-packet datagrams); a datagram
+   * beyond the cap is simply dropped (its stream data is resent by the
+   * client's own retransmission once 0-RTT keys never confirm it, or is
+   * covered once the client re-sends over 1-RTT). */
+  u8  zerortt_dg[WIRED_SRVBOOT_ZERORTT_MAX][WIRED_SRVBOOT_ZERORTT_DG_MAX];
+  usz zerortt_len[WIRED_SRVBOOT_ZERORTT_MAX];
+  usz zerortt_n;
 } wired_srvboot_acc;
 
 /** Empty the accumulator for a fresh connection attempt.
@@ -179,13 +211,29 @@ void wired_srvboot_acc_reset(wired_srvboot_acc* a);
 /** Absorb one Initial datagram: every coalesced Initial packet in it is
  * opened with the bound ODCID's keys and its CRYPTO chunks land at their
  * stream offsets (duplicates and any arrival order are fine). The first
- * datagram binds the accumulator; later ones must repeat its DCID.
+ * datagram binds the accumulator; later ones must repeat its DCID. RFC 9001
+ * 4.6.1: a datagram whose leading packet is 0-RTT instead (no Initial keys
+ * exist to open it with yet) is held verbatim in a's zerortt_dg buffer
+ * rather than refused, for wired_srvboot_acc_zerortt_take to open once
+ * wired_srvboot_accept_acc succeeds.
  * @param a the accumulator
  * @param dg the received datagram (opened in place)
  * @return 1 if at least one Initial packet in the datagram authenticated
- *   and was absorbed, 0 if it was refused (not an Initial, unparseable, a
- *   foreign DCID, or nothing in it opened under the bound keys). */
+ *   and was absorbed, or the datagram was buffered as 0-RTT; 0 if it was
+ *   refused outright (unparseable, a foreign DCID, or nothing in it opened
+ *   under the bound keys). */
 int wired_srvboot_acc_feed(wired_srvboot_acc* a, quic_mspan dg);
+
+/** @param a the accumulator
+ * @return the number of whole 0-RTT datagrams buffered in a
+ *   (wired_srvboot_acc_zerortt_take indexes 0..this). */
+usz wired_srvboot_acc_zerortt_count(const wired_srvboot_acc* a);
+
+/** The i'th buffered 0-RTT datagram, verbatim as received.
+ * @param a the accumulator
+ * @param i index, 0 <= i < wired_srvboot_acc_zerortt_count(a)
+ * @return the datagram's bytes as a view into a's own storage. */
+quic_span wired_srvboot_acc_zerortt_take(const wired_srvboot_acc* a, usz i);
 
 /** Admit dcid alongside the bound one: after the server's first packet the
  * client switches its DCID to the server's scid (RFC 9000 7.2), and its
