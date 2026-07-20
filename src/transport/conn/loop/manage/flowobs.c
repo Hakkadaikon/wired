@@ -9,5 +9,6 @@ int quic_manage_is_vneg(u8 byte0, u32 version) {
 
 int quic_manage_is_flow_start(u8 byte0, u32 version) {
   if (version == 0) return 0; /* Version Negotiation, not a start */
-  return quic_packet_long_type(byte0) == QUIC_PT_INITIAL; /* RFC 9312 3.3 */
+  return quic_packet_long_type(byte0, version) ==
+         QUIC_PT_INITIAL; /* RFC 9312 3.3 */
 }

@@ -5,6 +5,6 @@ void quic_initpkt_derive(
     quic_span          dcid,
     quic_initial_keys* client_keys,
     quic_initial_keys* server_keys) {
-  quic_initial_derive(dcid, 0, client_keys);
-  quic_initial_derive(dcid, 1, server_keys);
+  quic_initial_derive(dcid, 0, QUIC_VERSION_1, client_keys);
+  quic_initial_derive(dcid, 1, QUIC_VERSION_1, server_keys);
 }

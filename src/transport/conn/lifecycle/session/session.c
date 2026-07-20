@@ -7,6 +7,7 @@
 #include "transport/io/socket/net/udp4.h"
 #include "transport/packet/frame/frame/frame.h"
 #include "transport/packet/protect/protect/protect.h"
+#include "transport/version/version/version.h"
 
 #define QUIC_SESSION_CA 0x0a000001u
 #define QUIC_SESSION_SA 0x0a000002u
@@ -61,7 +62,7 @@ static void fill_header(u8 hdr[18], u8 byte0, const u8 dcid[8], u8 pn_low) {
 void quic_session_init(quic_session* s, const quic_session_init_in* in) {
   quic_endpoint_init(&s->ep, in->priv, in->dcid);
   quic_conn_init(&s->conn);
-  quic_initial_derive(quic_span_of(in->dcid, 8), 0, &s->ikeys);
+  quic_initial_derive(quic_span_of(in->dcid, 8), 0, QUIC_VERSION_1, &s->ikeys);
   quic_aes128_init(&s->ihp, s->ikeys.hp);
   s->link      = in->link;
   s->is_server = in->is_server;

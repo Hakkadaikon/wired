@@ -2,11 +2,15 @@
 
 #include "crypto/kdf/keys/keyset.h"
 #include "transport/packet/header/packet/ptype.h"
+#include "transport/version/version/version.h"
 
 /* RFC 9000 17.2: a long-header Initial or Handshake type maps to its keyset
- * level; 0-RTT and Retry are not driven by this loop. */
+ * level; 0-RTT and Retry are not driven by this loop. This loop runs before
+ * a connection's negotiated version is otherwise known here, so it reads
+ * type bits as v1 (QUIC_VERSION_1); v2 packet-level classification is out of
+ * scope until v2 connections are accepted. */
 static int long_level(u8 byte0, int* level) {
-  int t = quic_packet_long_type(byte0);
+  int t = quic_packet_long_type(byte0, QUIC_VERSION_1);
   if (t == QUIC_PT_INITIAL) {
     *level = QUIC_LEVEL_INITIAL;
     return 1;
