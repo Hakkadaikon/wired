@@ -676,6 +676,91 @@ static void test_bootacc_split_two_datagrams(void) {
   CHECK(iob.len >= 1200);
 }
 
+/* RFC 9000 17.2.3: build a minimal 0-RTT long-header datagram's leading
+ * bytes (byte0 | version | zero-length DCID | zero-length SCID | ...) -- the
+ * accumulator only inspects byte0+version to route a datagram to the 0-RTT
+ * buffer (wired_srvboot_acc_feed), so the rest of the bytes are an arbitrary
+ * fingerprint the test checks comes back unchanged. */
+static usz sb_build_zerortt_dg(u8* dg, usz cap, u8 fingerprint) {
+  usz n = 0;
+  CHECK(cap >= 8);
+  dg[n++] = 0xd1; /* long | fixed | type 0-RTT (01) | pn_len-1 = 0 */
+  dg[n++] = 0;
+  dg[n++] = 0;
+  dg[n++] = 0;
+  dg[n++] = 1; /* version 1 */
+  dg[n++] = 0; /* DCID len 0 */
+  dg[n++] = 0; /* SCID len 0 */
+  dg[n++] = fingerprint;
+  return n;
+}
+
+/* RFC 9001 4.6.1: a 0-RTT datagram arriving before this boot's Initial
+ * keys/ClientHello even exist is buffered rather than refused, and comes
+ * back out verbatim once the boot needs to replay it. */
+static void test_bootacc_zerortt_buffered_verbatim(void) {
+  u8                dg0[8], dg1[8];
+  usz               n0, n1;
+  wired_srvboot_acc a;
+  n0 = sb_build_zerortt_dg(dg0, sizeof dg0, 0xaa);
+  n1 = sb_build_zerortt_dg(dg1, sizeof dg1, 0xbb);
+  wired_srvboot_acc_reset(&a);
+  CHECK(wired_srvboot_acc_zerortt_count(&a) == 0);
+  CHECK(wired_srvboot_acc_feed(&a, quic_mspan_of(dg0, n0)) == 1);
+  CHECK(wired_srvboot_acc_feed(&a, quic_mspan_of(dg1, n1)) == 1);
+  CHECK(wired_srvboot_acc_zerortt_count(&a) == 2);
+  {
+    quic_span t0 = wired_srvboot_acc_zerortt_take(&a, 0);
+    quic_span t1 = wired_srvboot_acc_zerortt_take(&a, 1);
+    CHECK(t0.n == n0 && t0.p[7] == 0xaa);
+    CHECK(t1.n == n1 && t1.p[7] == 0xbb);
+  }
+  /* An unreassembled 0-RTT-only accumulator never reports a complete
+   * ClientHello -- 0-RTT datagrams do not feed the CRYPTO reassembly. */
+  CHECK(wired_srvboot_acc_complete(&a) == 0);
+  /* Out of range yields an empty span rather than reading past zerortt_n. */
+  CHECK(wired_srvboot_acc_zerortt_take(&a, 2).n == 0);
+}
+
+/* wired_srvboot_acc_reset (spent after a successful boot, or a fresh
+ * connection attempt claiming a reused slot) empties the 0-RTT buffer too --
+ * otherwise a stale datagram from a prior attempt on this slot would be
+ * replayed into the new connection. */
+static void test_bootacc_zerortt_cleared_on_reset(void) {
+  u8                dg0[8];
+  usz               n0 = sb_build_zerortt_dg(dg0, sizeof dg0, 0xcc);
+  wired_srvboot_acc a;
+  wired_srvboot_acc_reset(&a);
+  CHECK(wired_srvboot_acc_feed(&a, quic_mspan_of(dg0, n0)) == 1);
+  CHECK(wired_srvboot_acc_zerortt_count(&a) == 1);
+  wired_srvboot_acc_reset(&a);
+  CHECK(wired_srvboot_acc_zerortt_count(&a) == 0);
+}
+
+/* A 0-RTT datagram interleaved with the Initial datagrams a ClientHello is
+ * reassembled from does not disturb that reassembly -- 0-RTT and Initial
+ * absorption are independent (RFC 9000 12.2/RFC 9001 4.6.1: 0-RTT may
+ * legitimately arrive ahead of, behind, or between Initial pieces). */
+static void test_bootacc_zerortt_interleaved_with_initial(void) {
+  quic_client       c;
+  u8                ch[2048], dg1[1400], dg2[1400], dgz[8];
+  usz               nz;
+  wired_srvboot_acc a;
+  usz               n = sb_build_raw_ch(&c, ch, sizeof ch);
+  usz n1 = sb_seal_ch_chunk(dg1, sizeof dg1, quic_span_of(ch, 60), 0, 0);
+  usz n2 =
+      sb_seal_ch_chunk(dg2, sizeof dg2, quic_span_of(ch + 60, n - 60), 60, 1);
+  nz = sb_build_zerortt_dg(dgz, sizeof dgz, 0xee);
+  wired_srvboot_acc_reset(&a);
+  CHECK(wired_srvboot_acc_feed(&a, quic_mspan_of(dg1, n1)) == 1);
+  CHECK(wired_srvboot_acc_feed(&a, quic_mspan_of(dgz, nz)) == 1);
+  CHECK(wired_srvboot_acc_complete(&a) == 0);
+  CHECK(wired_srvboot_acc_feed(&a, quic_mspan_of(dg2, n2)) == 1);
+  CHECK(wired_srvboot_acc_complete(&a) == 1);
+  CHECK(wired_srvboot_acc_zerortt_count(&a) == 1);
+  CHECK(wired_srvboot_acc_zerortt_take(&a, 0).p[7] == 0xee);
+}
+
 /* Chunks arriving in reverse order still complete the ClientHello: each is
  * buffered at its offset and only the contiguous prefix decides. */
 static void test_bootacc_out_of_order(void) {
@@ -1128,6 +1213,9 @@ void test_h3_loopback(void) {
   test_srvboot_vneg_not_owed_for_v2();
   test_srvboot_vneg_guards();
   test_bootacc_split_two_datagrams();
+  test_bootacc_zerortt_buffered_verbatim();
+  test_bootacc_zerortt_cleared_on_reset();
+  test_bootacc_zerortt_interleaved_with_initial();
   test_bootacc_out_of_order();
   test_bootacc_foreign_dcid_ignored();
   test_bootacc_duplicate_idempotent();

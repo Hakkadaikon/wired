@@ -233,6 +233,7 @@ void wired_srvboot_acc_reset(wired_srvboot_acc* a) {
    * acks climb from 2 so the peer never mistakes the flight for a dup */
   a->ack_pn       = 2;
   a->alt_dcid_len = 0;
+  a->zerortt_n    = 0;
 }
 
 /* Accumulated byte difference between two ids of the same length. */
@@ -331,7 +332,32 @@ usz wired_srvboot_partial_ack(
   return ob.len;
 }
 
-int wired_srvboot_acc_feed(wired_srvboot_acc* a, quic_mspan dg) {
+int wired_srvboot_is_zerortt(const u8* dg, usz len) {
+  if (!srvboot_is_initial_sized(dg, len)) return 0;
+  return quic_packet_long_type(dg[0], quic_get_be32(dg + 1)) == QUIC_PT_0RTT;
+}
+
+/* 1 if a has room for one more buffered 0-RTT datagram of dg's size --
+ * overflow past WIRED_SRVBOOT_ZERORTT_MAX or WIRED_SRVBOOT_ZERORTT_DG_MAX is
+ * silently dropped (the client's own PTO resends it over 1-RTT once 0-RTT is
+ * never confirmed, RFC 9000 13.3). */
+static int srvboot_zerortt_fits(const wired_srvboot_acc* a, quic_mspan dg) {
+  return a->zerortt_n < WIRED_SRVBOOT_ZERORTT_MAX &&
+         dg.n <= WIRED_SRVBOOT_ZERORTT_DG_MAX;
+}
+
+/* RFC 9001 4.6.1: hold dg verbatim for wired_srvboot_acc_zerortt_take once
+ * this boot's 0-RTT keys exist. */
+static void srvboot_zerortt_buffer(wired_srvboot_acc* a, quic_mspan dg) {
+  if (!srvboot_zerortt_fits(a, dg)) return;
+  for (usz i = 0; i < dg.n; i++) a->zerortt_dg[a->zerortt_n][i] = dg.p[i];
+  a->zerortt_len[a->zerortt_n] = dg.n;
+  a->zerortt_n++;
+}
+
+/* Absorb every coalesced Initial packet in dg into a. Split out of
+ * wired_srvboot_acc_feed so its own 0-RTT/Initial dispatch stays <=3. */
+static int srvboot_acc_feed_initial(wired_srvboot_acc* a, quic_mspan dg) {
   const u8*    pkts[SRVBOOT_ACC_PKTS];
   usz          offs[SRVBOOT_ACC_PKTS], lens[SRVBOOT_ACC_PKTS], n, got = 0;
   quic_pktlist pl = {pkts, offs, lens, SRVBOOT_ACC_PKTS};
@@ -340,6 +366,23 @@ int wired_srvboot_acc_feed(wired_srvboot_acc* a, quic_mspan dg) {
   for (usz i = 0; i < n; i++)
     got += (usz)srvboot_acc_take(a, quic_mspan_of(dg.p + offs[i], lens[i]));
   return got != 0;
+}
+
+int wired_srvboot_acc_feed(wired_srvboot_acc* a, quic_mspan dg) {
+  if (wired_srvboot_is_zerortt(dg.p, dg.n)) {
+    srvboot_zerortt_buffer(a, dg);
+    return 1;
+  }
+  return srvboot_acc_feed_initial(a, dg);
+}
+
+usz wired_srvboot_acc_zerortt_count(const wired_srvboot_acc* a) {
+  return a->zerortt_n;
+}
+
+quic_span wired_srvboot_acc_zerortt_take(const wired_srvboot_acc* a, usz i) {
+  if (i >= a->zerortt_n) return quic_span_of(0, 0);
+  return quic_span_of(a->zerortt_dg[i], a->zerortt_len[i]);
 }
 
 int wired_srvboot_acc_complete(const wired_srvboot_acc* a) {
