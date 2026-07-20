@@ -8,6 +8,8 @@
 #include "transport/packet/build/hspkt/hspkt_open.h"
 #include "transport/packet/build/hspkt/onertt.h"
 #include "transport/packet/build/initpkt/initopen.h"
+#include "transport/packet/header/packet/ptype.h"
+#include "transport/version/version/version.h"
 
 /* RFC 9001 5.1: open a received Initial under the keys derived from the
  * client's original DCID; the raw frame payload is returned (the dispatcher
@@ -165,12 +167,54 @@ static int recv_at_level(
   return open_at[out->level](s, in, out);
 }
 
+/* RFC 9000 17.2.3 / RFC 9001 4.6.1: a 0-RTT packet is a long header with no
+ * Token field, exactly like Handshake -- quic_hspkt_open_suite already
+ * handles that framing. Only tried when this connection actually accepted
+ * 0-RTT (quic_sdrv_early_keys). RFC 9000 12.3: 0-RTT and 1-RTT share the App
+ * packet number space, so a successfully opened 0-RTT packet is reported as
+ * QUIC_LEVEL_ONERTT -- every downstream consumer (ACK bookkeeping, frame
+ * dispatch) already handles that level unmodified. */
+static int recv_zerortt(
+    wired_server* s, const wired_srvloop_recv_in* in, quic_span* payload) {
+  quic_initial_keys keys;
+  quic_aes128       hp;
+  if (!quic_sdrv_early_keys(&s->sdrv, &keys)) return 0;
+  quic_aes128_init(&hp, keys.hp);
+  {
+    quic_protect_keys pk = {&keys, &hp};
+    return quic_hspkt_open_suite(s->sdrv.cipher_suite, &pk, in->dgram, payload);
+  }
+}
+
+/* 1 if byte0 wears a v1 0-RTT long header (RFC 9000 17.2.3) -- read before
+ * header protection removal, so only the form/type bits are trustworthy
+ * yet. v1-only, matching quic_connrunner_packet_level's own scope (this
+ * loop runs before a connection's negotiated version is otherwise known
+ * here); v2 0-RTT is out of scope until v2 connections are accepted at this
+ * layer. */
+static int recv_is_zerortt(u8 byte0) {
+  return quic_packet_long_type(byte0, QUIC_VERSION_1) == QUIC_PT_0RTT;
+}
+
+/* byte0 already known non-empty; picks the 0-RTT path or the normal
+ * Initial/Handshake/1-RTT level dispatch. Split out of wired_srvloop_recv to
+ * keep its own branch count at the gate. */
+static int recv_dispatch(
+    wired_server*                s,
+    const wired_srvloop_recv_in* in,
+    wired_srvloop_recv_out*      out) {
+  if (recv_is_zerortt(in->dgram.p[0])) {
+    out->level = QUIC_LEVEL_ONERTT;
+    return recv_zerortt(s, in, &out->payload);
+  }
+  if (!quic_connrunner_packet_level(in->dgram.p[0], &out->level)) return 0;
+  return recv_at_level(s, in, out);
+}
+
 int wired_srvloop_recv(
     wired_server*                s,
     const wired_srvloop_recv_in* in,
     wired_srvloop_recv_out*      out) {
-  if (in->dgram.n == 0 ||
-      !quic_connrunner_packet_level(in->dgram.p[0], &out->level))
-    return 0;
-  return recv_at_level(s, in, out);
+  if (in->dgram.n == 0) return 0;
+  return recv_dispatch(s, in, out);
 }
