@@ -4841,7 +4841,13 @@ static srvrun_cfg srvrun_build_cfg(
 usz wired_srvrun_env_size(void) { return sizeof(wired_srvrun_env); }
 
 void wired_srvrun_env_init(wired_srvrun_env* env) {
-  *env = (wired_srvrun_env){0};
+  /* NOT `*env = (wired_srvrun_env){0}`: some compilers materialize that
+   * compound literal as a stack temporary before copying it in, and this
+   * struct is now well past a normal 8MB stack limit (QUIC_CONNTABLE_CAP
+   * srvrun_conn's worth of wired_server/quic_sdrv each) -- that pattern
+   * segfaulted on overflow the moment sdrv grew past the threshold. memset
+   * writes directly into *env, no intermediate stack copy. */
+  quic_memset(env, 0, sizeof(*env));
   wired_srvbigbuf_init(
       &env->bigbuf, &env->bigbuf_rows[0][0], WIRED_SRVBIGBUF_ROW_CAP);
 }
