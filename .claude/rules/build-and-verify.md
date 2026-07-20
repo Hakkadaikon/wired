@@ -64,6 +64,19 @@ error that has nothing to do with the repo. When this happens:
     inline trailing form when adding one new struct member near existing
     ones — the trailing form's column alignment is what disagreed across
     clang-format versions last time.
+  - When joining a doc comment onto one line, avoid landing on exactly 80
+    columns — that boundary case re-broke fmt-check across versions. Keep the
+    joined line at 79 columns or less.
+- Before committing any diff produced by `just fmt` / `clang-format -i`, run
+  `clang-format --version` and compare it against the flake pin. A host 18.x
+  once "formatted" the tree by UNDOING the pinned layout and CI rejected every
+  file; the fastest recovery from that state is reverting to the last CI-green
+  commit, not hand-fixing forward.
+- Batch-format ONLY `*.c`/`*.h`: filter the file list by extension before
+  passing it to `xargs clang-format -i`. A batch run once caught
+  `run_endpoint.sh` and rewrote it as C — and the three-point gate never
+  inspects `.sh`, so 4 commits shipped before anyone noticed. Any time a shell
+  script was touched in a formatting pass, run `sh -n <file>` immediately.
 - `just docs` (doxygen) has no `-ffreestanding`/libc constraint, so it is far
   more likely to run with a bare host `doxygen` than the clang-format/clang-tidy
   jobs are. Try it directly before assuming it needs `nix develop`.
@@ -114,6 +127,11 @@ fi
   for the truthy text AND the tool's own exit, as shown above.
 - Chaining gate and commit with `;` (`just check; git commit`) — `;` ignores
   the failure of the gate (#7). Use `&&` / `if`, never `;`.
+- The same trap applies to git operations, not just the gate:
+  `git merge --ff-only | tail -2 && <next step>` continues on a FAILED merge
+  because the pipe's exit is `tail`'s (this exact line bit us on 2026-07-03).
+  Never pipe any command whose failure must stop the flow into
+  `tail`/`head`/`grep` before `&&`.
 - Running the whole `just ccn` while parallel coders have half-written files in
   `src/` — lizard walks all of `src/` and a coder's in-progress `retry.c` (CCN 6)
   fails YOUR green diff (#5). During parallel work, measure only your own file
@@ -136,6 +154,15 @@ After any wiring change, verify nothing was dropped from the build:
   basenames and would overwrite each other, silently breaking the count and
   hiding wiring gaps (#15). If you make a count a gate, first guarantee the
   counting method cannot collapse on collisions.
+
+## Uninitialized memory: check it before it hangs you
+
+Freestanding code gets no implicit zeroing, and 7 fixes (including a
+non-deterministic `just test` hang from an uninitialized accumulator, #35) were
+made only AFTER the symptom hit. Don't wait for the symptom: after wiring a new
+domain, run the test binary once under valgrind `--track-origins=yes`. Any
+non-deterministic hang or "sometimes passes" is treated as uninitialized/UB
+first, concurrency second.
 
 ## libc independence is proven by the freestanding build
 
