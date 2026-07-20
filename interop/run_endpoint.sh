@@ -28,9 +28,13 @@ fi
 # a NewSessionTicket on every confirmed connection and, given one back in a
 # later ClientHello's pre_shared_key, opens it and derives the Handshake/
 # 1-RTT keys through the PSK-branch key schedule -- no extra CLI flag, the
-# demo server's fixed ticket_key is always set), and the two throughput
-# measurements. Still refused: zerortt (0-RTT early data, a separate mode
-# not wired up yet).
+# demo server's fixed ticket_key is always set), zerortt (RFC 8446 4.2.10 /
+# RFC 9001 4.6.1: every issued ticket also advertises early_data, and when a
+# later ClientHello offers pre_shared_key + early_data together on a
+# ticket's first use, the server derives 0-RTT keys and opens the 0-RTT
+# packet; single-use replay of the same ticket's 0-RTT is refused, falling
+# back to ordinary 1-RTT PSK resumption -- also no extra CLI flag), and the
+# two throughput measurements.
 RETRY=""
 [ "$TESTCASE" = "retry" ] && RETRY="--force-retry"
 
@@ -40,7 +44,7 @@ case "$TESTCASE" in
   blackhole | handshakeloss | transferloss) ;;
   handshakecorruption | transfercorruption | amplificationlimit) ;;
   rebind-port | rebind-addr | connectionmigration | ecn | ipv6 | v2) ;;
-  goodput | crosstraffic | resumption) ;;
+  goodput | crosstraffic | resumption | zerortt) ;;
   *)
     echo "unsupported test case: $TESTCASE" >&2
     exit 127

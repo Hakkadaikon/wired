@@ -255,6 +255,7 @@
 #include "transport/conn/loop/manage/observable.c"
 #include "transport/conn/loop/manage/rttobs.c"
 #include "transport/conn/loop/manage/zerortt_policy.c"
+#include "transport/conn/loop/manage/zerortt_seen.c"
 #include "transport/conn/cid/migrate/migrate.c"
 #include "transport/io/socket/net/checksum.c"
 #include "transport/io/socket/net/eth.c"
@@ -692,6 +693,7 @@
 #include "transport/vneg_test.c"
 #include "tls/zerortt_params_test.c"
 #include "transport/zerortt_policy_test.c"
+#include "transport/zerortt_seen_test.c"
 #include "tls/zerortt_reject_test.c"
 #include "app/priority_test.c"
 #include "transport/keepalive_test.c"
@@ -1159,6 +1161,7 @@ int main(void) {
   test_vneg();
   test_zerortt_params();
   test_zerortt_policy();
+  test_zerortt_seen();
   test_zerortt_reject();
   test_priority();
   test_keepalive();
