@@ -65,10 +65,12 @@ typedef int (*wired_srvloop_handler)(
     u64*                        total_size);
 
 /** RFC 9000 2.2: how many client bidi (request) streams one connection can
- * reassemble concurrently. Small and fixed: this is not meant to support
- * hundreds of concurrent streams, just the original single request stream
- * (id 0) plus near-term room for a handful of WebTransport bidi/uni streams. */
-#define WIRED_SRVLOOP_MAX_STREAMS 4
+ * reassemble concurrently. 40, not a handful: quic-interop-runner's zerortt
+ * testcase (TestCaseZeroRTT.NUM_FILES) opens 40 concurrent request streams
+ * in a single 0-RTT/1-RTT burst -- a client that fires them all up front
+ * (quic-go does) never retries a stream this SDK's own slot table dropped,
+ * so anything short of 40 silently loses requests past the cap forever. */
+#define WIRED_SRVLOOP_MAX_STREAMS 40
 
 /** One request stream's cross-datagram reassembly state — everything the
  * original single-stream wired_srvloop held, now per stream id. free (in_use
