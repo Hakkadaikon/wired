@@ -80,16 +80,25 @@ static const u8 g_ticket_key[QUIC_TICKET_KEY_LEN] = {
 
 const u8* wired_srvloop_ticket_key(void) { return g_ticket_key; }
 
-/* RFC 8446 4.6.1: seal a fresh session ticket (fixed 2h lifetime; this SDK has
- * no clock, so issued_at is left 0 and resumption checks lifetime, not age)
- * and append it as a CRYPTO frame (RFC 9000 19.6) to a 1-RTT payload. */
-static int append_ticket_frame(quic_obuf* out) {
+/* RFC 8446 4.6.1: encode a fresh NewSessionTicket message (fixed 2h
+ * lifetime; this SDK has no clock, so issued_at is left 0 and resumption
+ * checks lifetime, not age) carrying s's real resumption_master_secret
+ * (RFC 8446 7.1). wired_server_resumption_secret only succeeds once
+ * confirmed, which every caller here always is. Returns the encoded
+ * message length in msg, or 0 on failure. */
+static usz build_ticket_message(const wired_server* s, u8* msg, usz msg_cap) {
+  quic_ticket t = {{0}, 0, 7200};
+  if (!wired_server_resumption_secret(s, t.secret)) return 0;
+  return quic_tls_new_session_ticket_encode(msg, msg_cap, &t, g_ticket_key);
+}
+
+/* Seal a fresh session ticket and append it as a CRYPTO frame
+ * (RFC 9000 19.6) to a 1-RTT payload. */
+static int append_ticket_frame(const wired_server* s, quic_obuf* out) {
   u8                msg[64 + QUIC_TICKET_SEALED_LEN];
-  quic_ticket       t = {{0}, 0, 7200};
   quic_crypto_frame cf;
-  usz               mlen =
-      quic_tls_new_session_ticket_encode(msg, sizeof msg, &t, g_ticket_key);
-  usz written;
+  usz               written;
+  usz               mlen = build_ticket_message(s, msg, sizeof msg);
   if (mlen == 0) return 0;
   cf      = (quic_crypto_frame){0, mlen, msg};
   written = quic_frame_put_crypto(out->p + out->len, out->cap - out->len, &cf);
@@ -100,9 +109,10 @@ static int append_ticket_frame(quic_obuf* out) {
 
 /* SETTINGS (RFC 9114 6.2.1) followed by a session ticket (RFC 8446 4.6.1),
  * the head of the confirmation payload. */
-static int confirm_head(wired_srvloop* l, quic_obuf* out) {
+static int confirm_head(
+    const wired_server* s, wired_srvloop* l, quic_obuf* out) {
   if (!build_settings_frame(l, out)) return 0;
-  return append_ticket_frame(out);
+  return append_ticket_frame(s, out);
 }
 
 /* Capture the confirmation frames for a later replay
@@ -120,7 +130,7 @@ static void confirm_cache_store(wired_srvloop* l, const u8* p, usz n) {
 static int confirm_payload(const wired_srvloop_conn* c, quic_obuf* out) {
   quic_obuf ob = quic_obuf_of(out->p, out->cap);
   usz       a;
-  if (!confirm_head(c->l, &ob)) return 0;
+  if (!confirm_head(c->s, c->l, &ob)) return 0;
   a  = ob.len;
   ob = quic_obuf_of(out->p + a, out->cap - a);
   if (!wired_server_handshake_done(c->s, &ob)) return 0;
