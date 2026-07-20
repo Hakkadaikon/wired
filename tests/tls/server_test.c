@@ -350,9 +350,19 @@ static void test_server_keylog_path_writes_line(void) {
  * tests/tls/sdrv_test.c's PSK fixtures). A resumption ClientHello carries a
  * pre_shared_key identifying a ticket sealed under the same ticket_key the
  * server was initialized with, with a correctly computed binder. */
+/* RFC 8446 4.6.1: mirrors sdrv.c's sdrv_psk_from_ticket_secret -- the PSK a
+ * ticket offers is HKDF-Expand-Label(resumption_master_secret,
+ * "resumption", ticket_nonce, 32), empty ticket_nonce. */
+static void srvt_psk_from_res_master(
+    const u8 res_master_secret[QUIC_TICKET_SECRET_LEN], u8 psk_out[32]) {
+  quic_hkdf_label l = {"resumption", 10, {0, 0}};
+  quic_hkdf_expand_label(res_master_secret, &l, quic_mspan_of(psk_out, 32));
+}
+
 typedef struct {
   u8 ticket_key[QUIC_TICKET_KEY_LEN];
-  u8 secret[QUIC_TICKET_SECRET_LEN];
+  u8 secret[QUIC_TICKET_SECRET_LEN]; /* resumption_master_secret */
+  u8 psk[32];                        /* HKDF-Expand-Label(secret, ...) */
   u8 sealed[QUIC_TICKET_SEALED_LEN];
 } srvt_psk_fixture;
 
@@ -364,6 +374,7 @@ static void srvt_psk_fixture_init(srvt_psk_fixture* f) {
     f->secret[i] = (u8)(0x60 + i);
     t.secret[i]  = f->secret[i];
   }
+  srvt_psk_from_res_master(f->secret, f->psk);
   quic_ticket_seal(&t, f->ticket_key, f->sealed);
 }
 
@@ -420,7 +431,7 @@ static void make_psk_client_hello(
     CHECK(*ch2_len != 0);
   }
   trunc_len = srvt_psk_truncate_len(psk_ext_off, sizeof(pf->sealed));
-  quic_tls_binder_compute(pf->secret, quic_span_of(ch2, trunc_len), binder);
+  quic_tls_binder_compute(pf->psk, quic_span_of(ch2, trunc_len), binder);
   {
     quic_tlsext_psk_in psk = {
         quic_span_of(pf->sealed, sizeof(pf->sealed)), 0,
@@ -475,7 +486,7 @@ static void make_client_finished_psk(
   {
     u8 shared[32];
     quic_x25519(shared, f->cli_priv, f->sh_pub);
-    quic_tls_handshake_secret_psk(pf->secret, shared, hs);
+    quic_tls_handshake_secret_psk(pf->psk, shared, hs);
   }
   quic_transcript_init(&tr);
   quic_transcript_add(&tr, f->ch, f->ch_len);
@@ -505,7 +516,7 @@ static void client_ap_keys_psk(
   u8  shared[32], hs[32], master[32], tr[3072];
   usz tlen;
   quic_x25519(shared, f->cli_priv, f->sh_pub);
-  quic_tls_handshake_secret_psk(pf->secret, shared, hs);
+  quic_tls_handshake_secret_psk(pf->psk, shared, hs);
   quic_tls_master_secret(hs, master);
   tlen = client_transcript(f, tr);
   quic_tls_app_keys(
@@ -537,7 +548,7 @@ static void test_server_psk_accepted_keys_match_client(void) {
   /* sdrv's own Handshake Secret (sdrv_flight.c's PSK branch) equals an
    * independent recomputation from the same ECDHE and the ticket secret. */
   quic_x25519(shared, f.cli_priv, f.sh_pub);
-  quic_tls_handshake_secret_psk(pf.secret, shared, want_hs);
+  quic_tls_handshake_secret_psk(pf.psk, shared, want_hs);
   CHECK(quic_sdrv_handshake_secret(&f.s.sdrv, &sdrv_hs) == 1);
   for (usz i = 0; i < 32; i++) CHECK(sdrv_hs[i] == want_hs[i]);
 
