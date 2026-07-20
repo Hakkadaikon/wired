@@ -20,6 +20,13 @@ Legend:
   that spec by name / no dedicated interop case)
 - `[ ]` — not demonstrated yet
 
+The same 3-state meaning appears in two renderings on this page, because
+GitHub-flavored Markdown does not render `[x]`-style checkbox syntax inside a
+table cell (only in a top-level bullet list). This legend itself uses the
+bullet form. Every table below (all of them, on this page) instead uses a
+checkmark: `✅` (= `[x]`, done), `🟡` (= `[~]`, partial / exercised
+indirectly), `—` (= `[ ]`, not demonstrated yet).
+
 ## The four evidence tiers
 
 1. **Unit tests** — `tests/` (unity build, assertions on) runs on every
@@ -41,41 +48,41 @@ Legend:
 
 | Testcase | Implemented | Remark |
 |---|---|---|
-| `handshake` | [x] | connection establishment |
-| `transfer` | [x] | file download over streams |
-| `http3` | [x] | parallel HTTP/3 GETs (3 streams, 500 KB bodies) |
-| `longrtt` | [x] | high-latency link |
-| `chacha20` | [x] | TLS_CHACHA20_POLY1305_SHA256 negotiation end to end, including a mid-transfer Key Update under that suite |
-| `keyupdate` | [x] | RFC 9001 §6 key update, both directions |
-| `transferloss` | [x] | file transfer under packet loss |
-| `transfercorruption` | [x] | file transfer under packet corruption |
-| `amplificationlimit` | [x] | RFC 9000 §8.1 anti-amplification enforced on an inflated (9-certificate) server flight |
-| `goodput` (measurement) | [x] | 10 MB in 11.5 s (~7.3 Mbps) over the runner's simulated link, repeatable |
-| `blackhole` | [x] | resumes correctly after a simulated 2 s link outage |
-| `multiplexing` | [~] | MAX_STREAMS re-grant works correctly (verified live: the advertised limit climbs from 100 to 2000+ as requests complete, 98% of 1999 requested files finish), but the runner's fixed 60 s timeout for this case is not met; a pure throughput gap, not a functional one |
-| `handshakeloss` | [x] | all 50 handshakes complete under a 30% bursty loss rate. Three server-side gaps had to close: a boot-flight resend only replayed the still-unsent tail (one lost Handshake datagram deadlocked the handshake), the one-time confirmation packet (SETTINGS + ticket + HANDSHAKE_DONE) was never retransmitted when lost, and a still-incomplete split ClientHello was never acknowledged, starving the client's 5 s handshake idle timer |
-| `handshakecorruption` | [x] | same scenario under corruption; passes with the same fixes |
-| `retry` | [x] | RFC 9000 §8.1.2 forced address validation: a `--force-retry` server mode sends a Retry for every token-less Initial, verifies the presented token's HMAC (RFC 9000 §8.1.1) and address binding before accepting, and drops datagrams carrying an invalid one. The Retry Integrity Tag is pinned to the RFC 9001 Appendix A.4 vector. The wire token carries its embedded original DCID in the clear (`odcid_len \|\| odcid \|\| HMAC-SHA256`) so the server can statelessly recover it for `original_destination_connection_id`; the Initial-key derivation input (the Retry's own SCID) and that recovered original DCID are tracked as two distinct fields end to end so the TP advert is never mixed up with the key-derivation input |
-| `resumption` | [ ] | not yet run. The PSK-carrying ClientHello codec (`pre_shared_key` extension parse), the PSK binder compute/verify, the PSK-branch key schedule (early_secret), and ticket seal/open all exist as separately unit-tested leaf modules, but none of them is called from the real ClientHello receive path or the server flight builder yet -- a resumption attempt today falls straight through to a full handshake, untouched |
-| `zerortt` | [ ] | not yet run, same reason as `resumption`. 0-RTT key derivation and the replay-rejection policy (`zerortt_policy.c`) both exist and are unit-tested but have no caller in the real receive path |
-| `ecn` | [~] | RFC 9000 §13.4 ECT(0) marking on send, IP_TOS cmsg reading on receive, and cumulative ECN counts reported in 1-RTT ACKs are all implemented and unit-tested, but the runner marks the case `?`: the quic-go interop client itself declares `unsupported test case: ecn` (verified against both the 2026-07-11 and 2026-07-18 client images), so no end-to-end verdict is possible with this peer. An earlier note here recorded the case as passing; no run log substantiates that, and the entry is corrected to honest `[~]` |
-| `ipv6` | [x] | transfer over native IPv6; the socket layer is dual-stack (one AF_INET6 socket, IPV6_V6ONLY off, IPv4 peers v4-mapped), so every other case still runs over IPv4 unchanged |
-| `v2` | [~] | implemented and unit-proven end to end (key derivation, long-header type bits, and the Version Negotiation accept list are all version-parameterized; a v2-framed Initial carrying a real ClientHello is accepted and answered in v2), but no E2E verdict is possible: the quic-go interop client itself declares `unsupported test case: v2` (exit 127), same pattern as `ecn`. This server never actively switches a connection's version -- it replies in whichever version the client's own Initial arrived in (RFC 9368 2), rather than implementing the "server actively switches a v1-started connection to v2" behavior the runner's own TestCaseV2 check describes; whether that difference would matter for a client that actually exercises this case is unverified without one. Post-v2 regression run (handshake/transfer/http3/retry/ipv6) stayed all-green, confirming no impact on the v1 path |
-| `rebind-port` / `rebind-addr` | [ ] | the server follows a confirmed connection's peer address across a rebind and sends a PATH_CHALLENGE on the new path, validating a matching PATH_RESPONSE (RFC 9000 8.2/9.3). Manually decrypting the capture confirms the PATH_CHALLENGE is correctly the new path's first packet, but the runner's own analysis tooling (pyshark/tshark) cannot decrypt that same packet -- a short header carries no DCID length, and wireshark only learns it by having already seen an Initial/Handshake on that UDP conversation, which a rebind's fresh source port never provides. Believed to be a tooling-chain limitation rather than a protocol bug in this server |
-| `connectionmigration` | [~] | run, but unverdictable for a different reason than rebind-port/addr: the server side works (the file transfer completes) and reuses the same PATH_CHALLENGE/PATH_RESPONSE machinery, but the quic-go client never actually triggers a path change for this testcase (runner log: "Server saw only a single path in use") -- a client limitation, not the tooling-chain decryption issue above |
-| `crosstraffic` (measurement) | [x] | 25 MB alongside a competing TCP cubic flow, 3269 (± 157) kbps across 5 runs, well above the 180 s completion bar |
+| `handshake` | ✅ | connection establishment |
+| `transfer` | ✅ | file download over streams |
+| `http3` | ✅ | parallel HTTP/3 GETs (3 streams, 500 KB bodies) |
+| `longrtt` | ✅ | high-latency link |
+| `chacha20` | ✅ | TLS_CHACHA20_POLY1305_SHA256 negotiation end to end, including a mid-transfer Key Update under that suite |
+| `keyupdate` | ✅ | RFC 9001 §6 key update, both directions |
+| `transferloss` | ✅ | file transfer under packet loss |
+| `transfercorruption` | ✅ | file transfer under packet corruption |
+| `amplificationlimit` | ✅ | RFC 9000 §8.1 anti-amplification enforced on an inflated (9-certificate) server flight |
+| `goodput` (measurement) | ✅ | 10 MB in 11.5 s (~7.3 Mbps) over the runner's simulated link, repeatable |
+| `blackhole` | ✅ | resumes correctly after a simulated 2 s link outage |
+| `multiplexing` | 🟡 | MAX_STREAMS re-grant works correctly (verified live: the advertised limit climbs from 100 to 2000+ as requests complete, 98% of 1999 requested files finish), but the runner's fixed 60 s timeout for this case is not met; a pure throughput gap, not a functional one |
+| `handshakeloss` | ✅ | all 50 handshakes complete under a 30% bursty loss rate. Three server-side gaps had to close: a boot-flight resend only replayed the still-unsent tail (one lost Handshake datagram deadlocked the handshake), the one-time confirmation packet (SETTINGS + ticket + HANDSHAKE_DONE) was never retransmitted when lost, and a still-incomplete split ClientHello was never acknowledged, starving the client's 5 s handshake idle timer |
+| `handshakecorruption` | ✅ | same scenario under corruption; passes with the same fixes |
+| `retry` | ✅ | RFC 9000 §8.1.2 forced address validation: a `--force-retry` server mode sends a Retry for every token-less Initial, verifies the presented token's HMAC (RFC 9000 §8.1.1) and address binding before accepting, and drops datagrams carrying an invalid one. The Retry Integrity Tag is pinned to the RFC 9001 Appendix A.4 vector. The wire token carries its embedded original DCID in the clear (`odcid_len \|\| odcid \|\| HMAC-SHA256`) so the server can statelessly recover it for `original_destination_connection_id`; the Initial-key derivation input (the Retry's own SCID) and that recovered original DCID are tracked as two distinct fields end to end so the TP advert is never mixed up with the key-derivation input |
+| `resumption` | — | not yet run. The PSK-carrying ClientHello codec (`pre_shared_key` extension parse), the PSK binder compute/verify, the PSK-branch key schedule (early_secret), and ticket seal/open all exist as separately unit-tested leaf modules, but none of them is called from the real ClientHello receive path or the server flight builder yet -- a resumption attempt today falls straight through to a full handshake, untouched |
+| `zerortt` | — | not yet run, same reason as `resumption`. 0-RTT key derivation and the replay-rejection policy (`zerortt_policy.c`) both exist and are unit-tested but have no caller in the real receive path |
+| `ecn` | 🟡 | RFC 9000 §13.4 ECT(0) marking on send, IP_TOS cmsg reading on receive, and cumulative ECN counts reported in 1-RTT ACKs are all implemented and unit-tested, but the runner marks the case `?`: the quic-go interop client itself declares `unsupported test case: ecn` (verified against both the 2026-07-11 and 2026-07-18 client images), so no end-to-end verdict is possible with this peer. An earlier note here recorded the case as passing; no run log substantiates that, and the entry is corrected to honest 🟡 |
+| `ipv6` | ✅ | transfer over native IPv6; the socket layer is dual-stack (one AF_INET6 socket, IPV6_V6ONLY off, IPv4 peers v4-mapped), so every other case still runs over IPv4 unchanged |
+| `v2` | 🟡 | implemented and unit-proven end to end (key derivation, long-header type bits, and the Version Negotiation accept list are all version-parameterized; a v2-framed Initial carrying a real ClientHello is accepted and answered in v2), but no E2E verdict is possible: the quic-go interop client itself declares `unsupported test case: v2` (exit 127), same pattern as `ecn`. This server never actively switches a connection's version -- it replies in whichever version the client's own Initial arrived in (RFC 9368 2), rather than implementing the "server actively switches a v1-started connection to v2" behavior the runner's own TestCaseV2 check describes; whether that difference would matter for a client that actually exercises this case is unverified without one. Post-v2 regression run (handshake/transfer/http3/retry/ipv6) stayed all-green, confirming no impact on the v1 path |
+| `rebind-port` / `rebind-addr` | — | the server follows a confirmed connection's peer address across a rebind and sends a PATH_CHALLENGE on the new path, validating a matching PATH_RESPONSE (RFC 9000 8.2/9.3). Manually decrypting the capture confirms the PATH_CHALLENGE is correctly the new path's first packet, but the runner's own analysis tooling (pyshark/tshark) cannot decrypt that same packet -- a short header carries no DCID length, and wireshark only learns it by having already seen an Initial/Handshake on that UDP conversation, which a rebind's fresh source port never provides. Believed to be a tooling-chain limitation rather than a protocol bug in this server |
+| `connectionmigration` | 🟡 | run, but unverdictable for a different reason than rebind-port/addr: the server side works (the file transfer completes) and reuses the same PATH_CHALLENGE/PATH_RESPONSE machinery, but the quic-go client never actually triggers a path change for this testcase (runner log: "Server saw only a single path in use") -- a client limitation, not the tooling-chain decryption issue above |
+| `crosstraffic` (measurement) | ✅ | 25 MB alongside a competing TCP cubic flow, 3269 (± 157) kbps across 5 runs, well above the 180 s completion bar |
 
 ### WebTransport testcases (server: wired · client: webtransport-go)
 
 | Testcase | Implemented | Remark |
 |---|---|---|
-| `handshake` | [x] | Extended CONNECT session establishment |
-| `transfer-unidirectional-receive` | [x] | server pushes files on uni streams |
-| `transfer-bidirectional-receive` | [x] | server replies on bidi streams |
-| `transfer-datagram-receive` | [x] | server pushes over DATAGRAMs |
-| `transfer-unidirectional-send` | [ ] | client upload stalls partway (QUIC-level flow control and ACKs verified correct on both sides via qlog; the client stops writing mid-transfer — under investigation) |
-| `transfer-bidirectional-send` | [ ] | same stall |
-| `transfer-datagram-send` | [ ] | same stall |
+| `handshake` | ✅ | Extended CONNECT session establishment |
+| `transfer-unidirectional-receive` | ✅ | server pushes files on uni streams |
+| `transfer-bidirectional-receive` | ✅ | server replies on bidi streams |
+| `transfer-datagram-receive` | ✅ | server pushes over DATAGRAMs |
+| `transfer-unidirectional-send` | — | client upload stalls partway (QUIC-level flow control and ACKs verified correct on both sides via qlog; the client stops writing mid-transfer — under investigation) |
+| `transfer-bidirectional-send` | — | same stall |
+| `transfer-datagram-send` | — | same stall |
 
 Two real interop bugs were found and fixed by these runs (a QPACK literal
 field-line buffer split and a WebTransport stream-signal length bug), which
@@ -83,208 +90,61 @@ is exactly what this tier exists for.
 
 ## Per-spec status
 
-### QUIC core
+Grouping headers appear as divider rows (bold text spanning the row) so the
+original QUIC core / QUIC extensions / TLS and PKI / Cryptographic
+primitives / HTTP/3 and QPACK / WebTransport / IP-UDP foundations structure
+is still visible without splitting the table.
 
-**RFC 9000 — QUIC Transport**
-- [x] Unit — 77 test files: varint/header/frame codecs, stream and
-  connection state machines, flow control, full loopback handshake
-- [x] Vectors — Appendix A varint sample encodings (`varint_test.c`)
-- [x] Fuzzing — invariant header parser + coalesced-datagram splitter
-  (`fuzz/fuzz_header.c`)
-- [x] Interop — `handshake` / `transfer` / `http3` green vs quic-go
-
-**RFC 9001 — Using TLS to Secure QUIC**
-- [x] Unit — 61 test files: key derivation, packet & header protection
-  (AES and ChaCha), key update, Retry integrity tag
-- [x] Vectors — Appendix A Initial secrets (DCID `8394c8f03e515708`) and
-  §5.8 Retry key/nonce match exactly (`initial_test.c`)
-- [x] Interop — every green interop case crosses this on the wire
-
-**RFC 9002 — Loss Detection and Congestion Control**
-- [x] Unit — 28 test files: RTT estimation, packet/time-threshold loss,
-  PTO backoff, retransmission selection, in-flight accounting
-- [x] Interop — `transferloss` / `transfercorruption` / `blackhole` /
-  `handshakeloss` / `handshakecorruption` green vs quic-go (the spec
-  publishes no official vectors); the handshake-phase pair took three
-  loss-recovery fixes (whole-flight boot resend, confirmation replay,
-  partial-ClientHello acknowledgment -- see the interop entries above)
-
-**RFC 8999 — Version-Independent Properties**
-- [x] Unit — invariant header parsing, Version Negotiation packets
-- [x] Fuzzing — shared with the RFC 9000 header harness
-- [x] Interop — long/short header interop implied by every green case
-
-### QUIC extensions
-
-**RFC 9221 — Unreliable Datagram Extension**
-- [x] Unit — 12 test files: DATAGRAM frame codec, transport parameter,
-  delivery/violation checks
-- [x] Interop — `transfer-datagram-receive` green (WebTransport rides
-  QUIC DATAGRAMs)
-
-**RFC 9287 — Greasing the QUIC Bit**
-- [x] Unit — grease TP, bit randomization, reset-bit handling
-- [ ] Interop — no runner testcase exists for it
-
-**RFC 9368 — Compatible Version Negotiation**
-- [x] Unit — the server-relevant slice: a v2-framed Initial is accepted and
-  answered in v2 without a VN round trip (RFC 9368 2), and the Version
-  Negotiation accept list now offers both v1 and v2. This server never
-  actively switches a connection's version mid-flight (see the `v2`
-  interop entry above for the scope decision behind that)
-- [~] Interop — `v2` testcase run, but unverdictable (quic-go client
-  declares it unsupported); see the `v2` entry under "Interop results"
-  above
-
-**RFC 9369 — QUIC Version 2**
-- [x] Unit — v2 packet types, v2 salts/labels, v1↔v2 switching, and (new)
-  version-parameterized Initial key derivation/packet building/opening
-  reaching the real server accept path (not just isolated helpers)
-- [x] Vectors — §3.3.3 v2 Retry key/nonce and v2 initial salts (§3.3.1);
-  the full §Appendix A Initial key (key/iv/hp) vector is not yet pinned --
-  round-trip build/open plus the salt vector stand in for now
-- [~] Interop — `v2` testcase run, but unverdictable (quic-go client
-  declares it unsupported)
-
-**RFC 9308 / RFC 9312 — Applicability / Manageability (informational)**
-- [~] Unit — guidance documents; the implementable slices (0-RTT policy,
-  keep-alive, spin-bit observation) have dedicated tests via their modules
-
-**RFC 8899 — Packetization Layer PMTU Discovery**
-- [~] Unit — the DPLPMTUD probe/ack/ceiling state machine is tested
-  (`pmtu_test.c`), without citing the RFC by number
-
-### TLS and PKI
-
-**RFC 8446 — TLS 1.3**
-- [x] Unit — 35 test files: handshake state machine, transcript hash, key
-  schedule, message build/parse, CertificateVerify
-- [x] Vectors — golden handshake fixtures with a real Ed25519 leaf
-  (`fullhs_golden.h`), RSA CertificateVerify transcript
-- [x] Interop — every green case completes a real TLS 1.3 handshake
-- [~] §4.2.11.2 PSK binder — compute/verify (`quic_tls_binder_compute`/
-  `quic_tls_binder_verify`) is implemented and unit-tested (round-trip,
-  flipped-binder-byte reject, tampered-transcript reject, wrong-PSK reject,
-  and an independent cross-check of the binder_key derivation against the
-  RFC 5869-pinned HKDF primitives), resumption PSKs only ("res binder"; no
-  external-PSK source exists in this SDK). Not yet wired into the real
-  ClientHello receive path (`sdrv.c`) or the session-resumption handshake,
-  so no PSK-carrying ClientHello is inspected/accepted today -- see the
-  `resumption`/`zerortt` entries below
-
-**RFC 5280 — X.509 / PKI**
-- [x] Unit — 17 test files: DER parsing, path validation, CA-bit and
-  validity checks, malformed rejection
-- [x] Vectors — real OpenSSL-generated chains as golden fixtures
-  (P-256, P-384, RSA chains)
-- [x] Fuzzing — certificate parser + TBS field extractor (`fuzz/fuzz_x509.c`)
-- [x] Interop — the runner's CA-issued chain is served and accepted
-
-**RFC 5480 / RFC 5758 — EC public keys & signature OIDs in certificates**
-- [x] Unit — EC SubjectPublicKeyInfo and ecdsa-with-SHA256 OID handling
-  (5758 via `sigalg_test.c`, uncited)
-- [~] Interop — exercised whenever the interop chain's P-256 key is parsed
-
-**RFC 8410 — Ed25519/X25519 algorithm identifiers**
-- [x] Unit — Ed25519 SPKI and self-signed certificate encoding
-- [ ] Interop — interop runs used ECDSA certs, not Ed25519
-
-**RFC 6066 — TLS extensions (SNI)**
-- [x] Unit — SNI codec and TLS-driver handling
-- [~] Interop — clients send SNI in every green run; no dedicated case
-
-**RFC 6125 — service identity verification**
-- [x] Unit — SAN/hostname matching and rejection (the API is
-  caller-invoked; see [Security](security.md))
-
-**RFC 7301 — ALPN**
-- [x] Unit — negotiation and EncryptedExtensions build
-- [x] Interop — `h3` negotiated in every green case
-
-**RFC 8017 — PKCS #1 (RSA)**
-- [x] Unit — v1.5 verify, RSA-PSS/MGF1, known-answer constants
-- [ ] Interop — interop runs used ECDSA certs, not RSA
-
-### Cryptographic primitives
-
-All primitives are pure functions verified against published vectors; they
-are also exercised implicitly inside every loopback and interop handshake.
-
-- [x] **RFC 8439** ChaCha20-Poly1305 — A.1 / §2.5.2 vectors, AEAD seal-open
-- [x] **RFC 7748** X25519 — §5.2 vectors 1 & 2; also live in every interop
-  key exchange
-- [x] **RFC 8032** Ed25519 — §7.1 vectors plus tampered-signature rejection
-- [x] **RFC 6979** deterministic ECDSA — A.2.5 P-256/SHA-256 vector; live
-  in every interop CertificateVerify
-- [x] **RFC 5869** HKDF — Appendix A.1 vector; live in every handshake
-- [x] **FIPS 197** AES — Appendix B/C.1 known-answer tests
-- [x] **SP 800-38D** GCM — NIST test case 4 (with AAD), tag-mismatch
-  rejection; live in every interop packet
-- [x] **FIPS 186-4** ECDSA P-256 — sign/verify via the 6979 vectors and
-  golden chains
-- [x] **FIPS 180-4** SHA-2 — NIST sample vectors (SHA-256/384)
-- [x] **FIPS 198-1** HMAC — RFC 4231 HMAC-SHA-256 vectors
-  (`hmac_test.c`, cited by the companion RFC rather than FIPS number)
-- [~] **RFC 6090** EC arithmetic — P-256 field ops tested with hex known
-  answers, without citing the RFC by number
-
-### HTTP/3 and QPACK
-
-**RFC 9114 — HTTP/3**
-- [x] Unit — 28 test files: frame/settings/request-response codecs,
-  control stream, server request loop, malformed rejection (spec defines
-  no official vectors)
-- [x] Interop — `http3` green vs quic-go; the WebTransport cases ride it
-
-**RFC 9110 — HTTP semantics**
-- [x] Unit — method/status handling at the server-loop level
-- [~] Interop — exercised by every HTTP/3 request in green runs
-
-**RFC 9204 — QPACK**
-- [x] Unit — 23 test files: static & dynamic tables, prefix/integer/
-  literal encodings, instruction decode
-- [x] Vectors — spec-derived static-table and field-line examples
-- [x] Fuzzing — indexed field-line decoder with a live dynamic table
-  (`fuzz/fuzz_qpack.c`)
-- [x] Interop — every green HTTP/3 exchange decodes real quic-go QPACK
-
-**RFC 7541 — HPACK (Huffman/integers reused by QPACK)**
-- [x] Unit — Huffman and integer-prefix round-trips against the RFC's own
-  examples
-- [x] Interop — exercised by every interop header block
-
-**RFC 9218 — Extensible priorities**
-- [x] Unit — priority field parsing, PRIORITY_UPDATE handling
-- [ ] Interop — no green case exercises priorities
-
-### WebTransport
-
-**draft-ietf-webtrans-http3 (draft-15)**
-- [x] Unit — 17 test files: session state machine, stream signals,
-  capsules, error-code mapping, multi-session management
-- [x] Interop — `handshake` + all three `*-receive` cases green vs
-  webtransport-go; the three `*-send` cases still fail (see above)
-
-**RFC 9220 — Extended CONNECT in HTTP/3**
-- [x] Unit — `:protocol` pseudo-header, SETTINGS_ENABLE_CONNECT_PROTOCOL
-- [x] Interop — every WebTransport session establishment crosses it
-
-**RFC 9297 — HTTP Datagrams and Capsules**
-- [x] Unit — datagram/capsule envelope codecs
-- [x] Interop — `transfer-datagram-receive` green
-
-### IP/UDP foundations
-
-These headers are built by wired itself only on the AF_XDP path; the interop
-runs used kernel UDP sockets, so they are unit-tested but not interop-proven.
-
-- [x] **RFC 1071** internet checksum — the RFC's own worked example
-  (`net_test.c`)
-- [~] **RFC 768** UDP header — build + checksum corrupt-reject tested,
-  without citing the RFC by number
-- [~] **RFC 791** IPv4 header — same, in the same test file
-- [ ] Interop over wired's own IPv4/UDP framing (AF_XDP) — not yet run
-  against a real client
+| No. | Unit | Vectors | Fuzzing | Interop | Remark |
+|---|---|---|---|---|---|
+| **QUIC core** | | | | | |
+| RFC 9000 — QUIC Transport | ✅ | ✅ | ✅ | ✅ | **Unit:** 77 test files: varint/header/frame codecs, stream and connection state machines, flow control, full loopback handshake<br>**Vectors:** Appendix A varint sample encodings (`varint_test.c`)<br>**Fuzzing:** invariant header parser + coalesced-datagram splitter (`fuzz/fuzz_header.c`)<br>**Interop:** `handshake` / `transfer` / `http3` green vs quic-go |
+| RFC 9001 — Using TLS to Secure QUIC | ✅ | ✅ | — | ✅ | **Unit:** 61 test files: key derivation, packet & header protection (AES and ChaCha), key update, Retry integrity tag<br>**Vectors:** Appendix A Initial secrets (DCID `8394c8f03e515708`) and §5.8 Retry key/nonce match exactly (`initial_test.c`)<br>**Interop:** every green interop case crosses this on the wire |
+| RFC 9002 — Loss Detection and Congestion Control | ✅ | — | — | ✅ | **Unit:** 28 test files: RTT estimation, packet/time-threshold loss, PTO backoff, retransmission selection, in-flight accounting<br>**Interop:** `transferloss` / `transfercorruption` / `blackhole` / `handshakeloss` / `handshakecorruption` green vs quic-go (the spec publishes no official vectors); the handshake-phase pair took three loss-recovery fixes (whole-flight boot resend, confirmation replay, partial-ClientHello acknowledgment -- see the interop entries above) |
+| RFC 8999 — Version-Independent Properties | ✅ | — | ✅ | ✅ | **Unit:** invariant header parsing, Version Negotiation packets<br>**Fuzzing:** shared with the RFC 9000 header harness<br>**Interop:** long/short header interop implied by every green case |
+| **QUIC extensions** | | | | | |
+| RFC 9221 — Unreliable Datagram Extension | ✅ | — | — | ✅ | **Unit:** 12 test files: DATAGRAM frame codec, transport parameter, delivery/violation checks<br>**Interop:** `transfer-datagram-receive` green (WebTransport rides QUIC DATAGRAMs) |
+| RFC 9287 — Greasing the QUIC Bit | ✅ | — | — | — | **Unit:** grease TP, bit randomization, reset-bit handling<br>**Interop:** no runner testcase exists for it |
+| RFC 9368 — Compatible Version Negotiation | ✅ | — | — | 🟡 | **Unit:** the server-relevant slice: a v2-framed Initial is accepted and answered in v2 without a VN round trip (RFC 9368 2), and the Version Negotiation accept list now offers both v1 and v2. This server never actively switches a connection's version mid-flight (see the `v2` interop entry above for the scope decision behind that)<br>**Interop:** `v2` testcase run, but unverdictable (quic-go client declares it unsupported); see the `v2` entry under "Interop results" above |
+| RFC 9369 — QUIC Version 2 | ✅ | ✅ | — | 🟡 | **Unit:** v2 packet types, v2 salts/labels, v1↔v2 switching, and (new) version-parameterized Initial key derivation/packet building/opening reaching the real server accept path (not just isolated helpers)<br>**Vectors:** §3.3.3 v2 Retry key/nonce and v2 initial salts (§3.3.1); the full §Appendix A Initial key (key/iv/hp) vector is not yet pinned -- round-trip build/open plus the salt vector stand in for now<br>**Interop:** `v2` testcase run, but unverdictable (quic-go client declares it unsupported) |
+| RFC 9308 / RFC 9312 — Applicability / Manageability (informational) | 🟡 | — | — | — | **Unit:** guidance documents; the implementable slices (0-RTT policy, keep-alive, spin-bit observation) have dedicated tests via their modules |
+| RFC 8899 — Packetization Layer PMTU Discovery | 🟡 | — | — | — | **Unit:** the DPLPMTUD probe/ack/ceiling state machine is tested (`pmtu_test.c`), without citing the RFC by number |
+| **TLS and PKI** | | | | | |
+| RFC 8446 — TLS 1.3 | ✅ | ✅ | — | ✅ | **Unit:** 35 test files: handshake state machine, transcript hash, key schedule, message build/parse, CertificateVerify<br>**Vectors:** golden handshake fixtures with a real Ed25519 leaf (`fullhs_golden.h`), RSA CertificateVerify transcript<br>**Interop:** every green case completes a real TLS 1.3 handshake<br>**Additional (§4.2.11.2 PSK binder):** compute/verify (`quic_tls_binder_compute`/`quic_tls_binder_verify`) is implemented and unit-tested (round-trip, flipped-binder-byte reject, tampered-transcript reject, wrong-PSK reject, and an independent cross-check of the binder_key derivation against the RFC 5869-pinned HKDF primitives), resumption PSKs only ("res binder"; no external-PSK source exists in this SDK). Not yet wired into the real ClientHello receive path (`sdrv.c`) or the session-resumption handshake, so no PSK-carrying ClientHello is inspected/accepted today -- see the `resumption`/`zerortt` entries below (status: 🟡) |
+| RFC 5280 — X.509 / PKI | ✅ | ✅ | ✅ | ✅ | **Unit:** 17 test files: DER parsing, path validation, CA-bit and validity checks, malformed rejection<br>**Vectors:** real OpenSSL-generated chains as golden fixtures (P-256, P-384, RSA chains)<br>**Fuzzing:** certificate parser + TBS field extractor (`fuzz/fuzz_x509.c`)<br>**Interop:** the runner's CA-issued chain is served and accepted |
+| RFC 5480 / RFC 5758 — EC public keys & signature OIDs in certificates | ✅ | — | — | 🟡 | **Unit:** EC SubjectPublicKeyInfo and ecdsa-with-SHA256 OID handling (5758 via `sigalg_test.c`, uncited)<br>**Interop:** exercised whenever the interop chain's P-256 key is parsed |
+| RFC 8410 — Ed25519/X25519 algorithm identifiers | ✅ | — | — | — | **Unit:** Ed25519 SPKI and self-signed certificate encoding<br>**Interop:** interop runs used ECDSA certs, not Ed25519 |
+| RFC 6066 — TLS extensions (SNI) | ✅ | — | — | 🟡 | **Unit:** SNI codec and TLS-driver handling<br>**Interop:** clients send SNI in every green run; no dedicated case |
+| RFC 6125 — service identity verification | ✅ | — | — | — | **Unit:** SAN/hostname matching and rejection (the API is caller-invoked; see [Security](security.md)) |
+| RFC 7301 — ALPN | ✅ | — | — | ✅ | **Unit:** negotiation and EncryptedExtensions build<br>**Interop:** `h3` negotiated in every green case |
+| RFC 8017 — PKCS #1 (RSA) | ✅ | — | — | — | **Unit:** v1.5 verify, RSA-PSS/MGF1, known-answer constants<br>**Interop:** interop runs used ECDSA certs, not RSA |
+| **Cryptographic primitives** | | | | | |
+| RFC 8439 — ChaCha20-Poly1305 | ✅ | ✅ | — | — | All primitives in this group are pure functions verified against published vectors; they are also exercised implicitly inside every loopback and interop handshake.<br>A.1 / §2.5.2 vectors, AEAD seal-open |
+| RFC 7748 — X25519 | ✅ | ✅ | — | — | §5.2 vectors 1 & 2; also live in every interop key exchange |
+| RFC 8032 — Ed25519 | ✅ | ✅ | — | — | §7.1 vectors plus tampered-signature rejection |
+| RFC 6979 — deterministic ECDSA | ✅ | ✅ | — | — | A.2.5 P-256/SHA-256 vector; live in every interop CertificateVerify |
+| RFC 5869 — HKDF | ✅ | ✅ | — | — | Appendix A.1 vector; live in every handshake |
+| FIPS 197 — AES | ✅ | ✅ | — | — | Appendix B/C.1 known-answer tests |
+| SP 800-38D — GCM | ✅ | ✅ | — | — | NIST test case 4 (with AAD), tag-mismatch rejection; live in every interop packet |
+| FIPS 186-4 — ECDSA P-256 | ✅ | ✅ | — | — | sign/verify via the 6979 vectors and golden chains |
+| FIPS 180-4 — SHA-2 | ✅ | ✅ | — | — | NIST sample vectors (SHA-256/384) |
+| FIPS 198-1 — HMAC | ✅ | ✅ | — | — | RFC 4231 HMAC-SHA-256 vectors (`hmac_test.c`, cited by the companion RFC rather than FIPS number) |
+| RFC 6090 — EC arithmetic | 🟡 | — | — | — | P-256 field ops tested with hex known answers, without citing the RFC by number |
+| **HTTP/3 and QPACK** | | | | | |
+| RFC 9114 — HTTP/3 | ✅ | — | — | ✅ | **Unit:** 28 test files: frame/settings/request-response codecs, control stream, server request loop, malformed rejection (spec defines no official vectors)<br>**Interop:** `http3` green vs quic-go; the WebTransport cases ride it |
+| RFC 9110 — HTTP semantics | ✅ | — | — | 🟡 | **Unit:** method/status handling at the server-loop level<br>**Interop:** exercised by every HTTP/3 request in green runs |
+| RFC 9204 — QPACK | ✅ | ✅ | ✅ | ✅ | **Unit:** 23 test files: static & dynamic tables, prefix/integer/literal encodings, instruction decode<br>**Vectors:** spec-derived static-table and field-line examples<br>**Fuzzing:** indexed field-line decoder with a live dynamic table (`fuzz/fuzz_qpack.c`)<br>**Interop:** every green HTTP/3 exchange decodes real quic-go QPACK |
+| RFC 7541 — HPACK (Huffman/integers reused by QPACK) | ✅ | — | — | ✅ | **Unit:** Huffman and integer-prefix round-trips against the RFC's own examples<br>**Interop:** exercised by every interop header block |
+| RFC 9218 — Extensible priorities | ✅ | — | — | — | **Unit:** priority field parsing, PRIORITY_UPDATE handling<br>**Interop:** no green case exercises priorities |
+| **WebTransport** | | | | | |
+| draft-ietf-webtrans-http3 (draft-15) | ✅ | — | — | ✅ | **Unit:** 17 test files: session state machine, stream signals, capsules, error-code mapping, multi-session management<br>**Interop:** `handshake` + all three `*-receive` cases green vs webtransport-go; the three `*-send` cases still fail (see above) |
+| RFC 9220 — Extended CONNECT in HTTP/3 | ✅ | — | — | ✅ | **Unit:** `:protocol` pseudo-header, SETTINGS_ENABLE_CONNECT_PROTOCOL<br>**Interop:** every WebTransport session establishment crosses it |
+| RFC 9297 — HTTP Datagrams and Capsules | ✅ | — | — | ✅ | **Unit:** datagram/capsule envelope codecs<br>**Interop:** `transfer-datagram-receive` green |
+| **IP/UDP foundations** | | | | | |
+| RFC 1071 — internet checksum | ✅ | — | — | — | These headers are built by wired itself only on the AF_XDP path; the interop runs used kernel UDP sockets, so they are unit-tested but not interop-proven.<br>the RFC's own worked example (`net_test.c`) |
+| RFC 768 — UDP header | 🟡 | — | — | — | build + checksum corrupt-reject tested, without citing the RFC by number |
+| RFC 791 — IPv4 header | 🟡 | — | — | — | same, in the same test file |
+| IP/UDP foundations (combined) | | | | — | Interop over wired's own IPv4/UDP framing (AF_XDP) — not yet run against a real client |
 
 ## Honest summary of the gaps
 
