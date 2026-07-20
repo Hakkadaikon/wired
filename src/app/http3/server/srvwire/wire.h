@@ -48,6 +48,15 @@ typedef struct {
  * set, or 0 on overflow. */
 int quic_srvwire_seal_initial(const quic_srvwire_seal_in* in, quic_obuf* out);
 
+/* Same as quic_srvwire_seal_initial, but the Initial keys, the header's
+ * Version field, and byte0's long-header type bits all follow `version`
+ * (RFC 9369 3.2/3.3.1) instead of assuming QUIC v1 -- what a server accepting
+ * a client that already arrived speaking v2 replies with (RFC 9368 2:
+ * responding in the version the peer used, no separate switch). Unknown
+ * versions fail closed (0 written). */
+int quic_srvwire_seal_initial_ver(
+    u32 version, const quic_srvwire_seal_in* in, quic_obuf* out);
+
 /* Seal pre-built frame bytes (in->tls holds raw frames, e.g. a
  * CONNECTION_CLOSE refusing the connection) into a padded server Initial
  * without CRYPTO wrapping, plus the usual trailing ACK when ack_pn >= 0
