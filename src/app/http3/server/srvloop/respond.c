@@ -86,10 +86,17 @@ const u8* wired_srvloop_ticket_key(void) { return g_ticket_key; }
  * (RFC 8446 7.1). wired_server_resumption_secret only succeeds once
  * confirmed, which every caller here always is. Returns the encoded
  * message length in msg, or 0 on failure. */
+/* RFC 9001 4.6.1: a QUIC server that supports 0-RTT always advertises
+ * 0xffffffff here -- QUIC bounds 0-RTT via transport parameters, not this
+ * TLS field, so every ticket this server issues offers 0-RTT eligibility
+ * (RFC 8446 4.2.10). */
+#define WIRED_SRVLOOP_MAX_EARLY_DATA_SIZE 0xffffffff
+
 static usz build_ticket_message(const wired_server* s, u8* msg, usz msg_cap) {
   quic_ticket t = {{0}, 0, 7200};
   if (!wired_server_resumption_secret(s, t.secret)) return 0;
-  return quic_tls_new_session_ticket_encode(msg, msg_cap, &t, g_ticket_key);
+  return quic_tls_new_session_ticket_encode(
+      msg, msg_cap, &t, g_ticket_key, WIRED_SRVLOOP_MAX_EARLY_DATA_SIZE);
 }
 
 /* Seal a fresh session ticket and append it as a CRYPTO frame

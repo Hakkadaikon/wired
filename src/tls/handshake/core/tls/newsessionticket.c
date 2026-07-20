@@ -1,30 +1,51 @@
 #include "tls/handshake/core/tls/newsessionticket.h"
 
 #include "common/bytes/util/be.h"
+#include "tls/ext/tlsext/earlydata.h"
 #include "tls/handshake/core/tls/handshake.h"
 
-/* body: ticket_lifetime(4) ticket_age_add(4) ticket_nonce_len(1)=0
- * ticket_len(2) ticket(sealed) extensions_len(2)=0 */
-#define QUIC_NST_BODY_LEN (4 + 4 + 1 + 2 + QUIC_TICKET_SEALED_LEN + 2)
+/* fixed prefix: ticket_lifetime(4) ticket_age_add(4) ticket_nonce_len(1)=0
+ * ticket_len(2) ticket(sealed) -- extensions_len(2) plus any extensions
+ * follow (put_nst_exts below). */
+#define QUIC_NST_PREFIX_LEN (4 + 4 + 1 + 2 + QUIC_TICKET_SEALED_LEN)
 
-static void put_nst_body(u8* body, const quic_ticket* t, const u8* sealed) {
+static void put_nst_prefix(u8* body, const quic_ticket* t, const u8* sealed) {
   usz i;
   quic_put_be32(body, t->lifetime_secs);
   quic_put_be32(body + 4, 0); /* ticket_age_add, ponytail: see header */
   body[8] = 0;                /* ticket_nonce_len */
   quic_put_be16(body + 9, QUIC_TICKET_SEALED_LEN);
   for (i = 0; i < QUIC_TICKET_SEALED_LEN; i++) body[11 + i] = sealed[i];
-  quic_put_be16(body + 11 + QUIC_TICKET_SEALED_LEN, 0); /* extensions_len */
+}
+
+/* RFC 8446 4.2.10: extensions_len(2) followed by early_data(4+4) when
+ * max_early_data_size is nonzero, or extensions_len(2)=0 alone otherwise.
+ * Returns the bytes written (2 or 10). */
+static usz put_nst_exts(u8* p, usz cap, u32 max_early_data_size) {
+  quic_obuf eob;
+  if (max_early_data_size == 0 || cap < 10) {
+    quic_put_be16(p, 0);
+    return 2;
+  }
+  eob = quic_obuf_of(p + 2, cap - 2);
+  quic_tlsext_early_data_nst(max_early_data_size, &eob);
+  quic_put_be16(p, (u16)eob.len);
+  return 2 + eob.len;
 }
 
 usz quic_tls_new_session_ticket_encode(
-    u8* out, usz cap, const quic_ticket* t, const u8 key[QUIC_TICKET_KEY_LEN]) {
+    u8*                out,
+    usz                cap,
+    const quic_ticket* t,
+    const u8           key[QUIC_TICKET_KEY_LEN],
+    u32                max_early_data_size) {
   u8  sealed[QUIC_TICKET_SEALED_LEN];
   usz off = quic_hs_begin(out, cap, QUIC_HS_NEW_SESSION_TICKET);
-  if (off == 0 || cap - off < QUIC_NST_BODY_LEN) return 0;
+  if (off == 0 || cap - off < QUIC_NST_PREFIX_LEN + 2) return 0;
   quic_ticket_seal(t, key, sealed);
-  put_nst_body(out + off, t, sealed);
-  off += QUIC_NST_BODY_LEN;
+  put_nst_prefix(out + off, t, sealed);
+  off += QUIC_NST_PREFIX_LEN;
+  off += put_nst_exts(out + off, cap - off, max_early_data_size);
   quic_hs_finish(out, off);
   return off;
 }
