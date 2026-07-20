@@ -253,7 +253,16 @@ int wired_server_is_confirmed(const wired_server* s) {
 }
 
 /* RFC 8446 7.1: resumption_master_secret = Derive-Secret(Master Secret,
- * "res master", ClientHello..client Finished). */
+ * "res master", ClientHello...client Finished) -- the transcript spans all
+ * handshake messages through the CLIENT's Finished, not the server's.
+ * Confirmed against Go's crypto/tls (quic-go's TLS stack): sendClientFinished
+ * calls c.resumptionSecret = hs.masterSecret.ResumptionMasterSecret(
+ * hs.transcript) immediately after writing the client Finished into
+ * hs.transcript, so a real peer's RMS is over the full flight including its
+ * own Finished (tr_through_client_fin). This server only ever issues a
+ * ticket post-confirmation (wired_server_is_confirmed), by which point
+ * tr_through_client_fin is always set -- see wired_server_resumption_secret.
+ */
 static void srv_resumption_master_secret(const wired_server* s, u8 out[32]) {
   quic_derive_secret_in in;
   in.secret   = s->sched.master;
