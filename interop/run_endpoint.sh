@@ -22,9 +22,11 @@ fi
 # why the path changed), ecn (the server marks ECT(0) on send and reports
 # received ECN counts in its 1-RTT ACKs), ipv6 (the socket is dual-stack
 # AF_INET6), retry (RFC 9000 8.1.2 forced address validation via
-# --force-retry), and the two throughput measurements. Still refused:
-# cases needing a dedicated server mode that is not wired up yet --
-# resumption, zerortt, v2.
+# --force-retry), v2 (RFC 9369/9368: the server accepts and replies to a v2
+# Initial directly, in v2 -- no active version switching, no separate VN
+# round trip), and the two throughput measurements. Still refused: cases
+# needing a dedicated server mode that is not wired up yet -- resumption,
+# zerortt.
 RETRY=""
 [ "$TESTCASE" = "retry" ] && RETRY="--force-retry"
 
@@ -33,7 +35,7 @@ case "$TESTCASE" in
   longrtt | multiplexing | chacha20 | keyupdate | multiconnect) ;;
   blackhole | handshakeloss | transferloss) ;;
   handshakecorruption | transfercorruption | amplificationlimit) ;;
-  rebind-port | rebind-addr | connectionmigration | ecn | ipv6) ;;
+  rebind-port | rebind-addr | connectionmigration | ecn | ipv6 | v2) ;;
   goodput | crosstraffic) ;;
   *)
     echo "unsupported test case: $TESTCASE" >&2
