@@ -47,10 +47,29 @@ static int shb_key_share(u8* buf, usz cap, usz* off, const u8 pub[32]) {
   return 1;
 }
 
-/* Append both extensions; returns the body end offset, or 0 on overflow. */
-static usz shb_exts(u8* buf, usz cap, usz off, const u8 pub[32]) {
+/* RFC 8446 4.2.11 ServerHello pre_shared_key: ext_data is just
+ * selected_identity (2 bytes). This SDK only ever accepts a single offered
+ * identity, so the index is always 0. type(2) ext_len(2)=2
+ * selected_identity(2)=0. */
+#define QUIC_EXT_PRE_SHARED_KEY 0x0029
+static int shb_psk(u8* buf, usz cap, usz* off) {
+  u8        ext[6];
+  quic_obuf out = {buf, cap, *off};
+  quic_put_be16(ext, QUIC_EXT_PRE_SHARED_KEY);
+  quic_put_be16(ext + 2, 2);
+  quic_put_be16(ext + 4, 0);
+  if (!quic_tls_ext_append(&out, quic_span_of(ext, 6))) return 0;
+  *off = out.len;
+  return 1;
+}
+
+/* Append the extensions; returns the body end offset, or 0 on overflow. RFC
+ * 8446 4.2.11: pre_shared_key MUST be the last extension when present. */
+static usz shb_exts(
+    u8* buf, usz cap, usz off, const u8 pub[32], int psk_accepted) {
   int ok = shb_versions(buf, cap, &off);
   ok &= shb_key_share(buf, cap, &off, pub);
+  ok &= !psk_accepted || shb_psk(buf, cap, &off);
   return ok ? off : 0;
 }
 
@@ -75,7 +94,9 @@ int quic_shbuild_server_hello(const quic_shbuild_in* in, quic_obuf* out) {
   off         = shb_prefix(out->p, off, in);
   block_start = off;
   end         = shb_finish(
-      out->p, shb_exts(out->p, out->cap, off + 2, in->server_pub), block_start);
+      out->p,
+      shb_exts(out->p, out->cap, off + 2, in->server_pub, in->psk_accepted),
+      block_start);
   if (end == 0) return 0;
   out->len = end;
   return 1;
