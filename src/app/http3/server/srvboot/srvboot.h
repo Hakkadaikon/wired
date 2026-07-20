@@ -60,6 +60,11 @@ typedef struct {
   const u8* retry_odcid;
   /** Bytes at retry_odcid; 0 = no Retry preceded this accept. */
   u8 retry_odcid_len;
+  /** RFC 8446 4.6.1: this server's session-ticket encryption key
+   * (QUIC_TICKET_KEY_LEN bytes, tls/keys/ticket/ticket.h), or 0 to disable
+   * session resumption -- threaded straight to
+   * wired_server_init_in.ticket_key, see its doc. */
+  const u8* ticket_key;
 } wired_srvboot_id;
 
 /** RFC 9000 17.2: 1 if dg is a long-header Initial datagram (a Handshake or
