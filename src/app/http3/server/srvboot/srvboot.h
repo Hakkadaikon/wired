@@ -52,6 +52,14 @@ typedef struct {
    * 14 days and will fail serverCertificateHashes validation in a browser).
    * Ignored when chain_count > 0. */
   u64 now_secs;
+  /** RFC 9000 7.3 after a Retry: the true original DCID (recovered from the
+   * validated Retry token) to advertise as
+   * original_destination_connection_id; when set, the accepted Initial's own
+   * header DCID (the Retry's SCID) is advertised as
+   * retry_source_connection_id. 0/0 on the normal no-Retry path. */
+  const u8* retry_odcid;
+  /** Bytes at retry_odcid; 0 = no Retry preceded this accept. */
+  u8 retry_odcid_len;
 } wired_srvboot_id;
 
 /** RFC 9000 17.2: 1 if dg is a long-header Initial datagram (a Handshake or

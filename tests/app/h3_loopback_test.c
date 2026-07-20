@@ -352,6 +352,8 @@ static void sb_make_id(
   id->max_datagram_frame_size = 0;
   id->san_ipv4                = 0;
   id->now_secs                = 0;
+  id->retry_odcid             = 0;
+  id->retry_odcid_len         = 0;
 }
 
 /* wired_srvboot_accept cold-starts a server from a real client Initial
@@ -921,6 +923,8 @@ static void sb_make_chain_id(
   id->max_datagram_frame_size = 0;
   id->san_ipv4                = 0;
   id->now_secs                = 0;
+  id->retry_odcid             = 0;
+  id->retry_odcid_len         = 0;
 }
 
 /* A bootstrapped server with the realchain identity plus everything the
