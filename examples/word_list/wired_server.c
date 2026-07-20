@@ -260,6 +260,10 @@ static void server_identity(wired_srvboot_id* id, server_keys* k) {
   id->max_datagram_frame_size = 65535;
   id->san_ipv4                = 0;
   id->now_secs                = 0;
+  /* RFC 8446 4.6.1: the same fixed key append_ticket_frame (respond.c)
+   * already seals NewSessionTickets under -- resumption is symmetric, so
+   * opening a presented ticket needs no separate key. */
+  id->ticket_key = wired_srvloop_ticket_key();
 }
 
 /* Optional drop-in certificate: cert.pem (fullchain, leaf first, at most 2
