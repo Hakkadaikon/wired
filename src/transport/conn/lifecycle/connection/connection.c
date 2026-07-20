@@ -28,9 +28,10 @@ int quic_connection_send(quic_connection* c, int level, quic_span frames) {
   quic_aes128_init(&hp, k->hp);
   quic_protect_keys pk   = {k, &hp};
   quic_span         none = quic_span_of((const u8*)0, 0);
-  quic_tx_desc      t    = {
-      CONN_BYTE0, quic_span_of(c->dcid, CONN_DCID_LEN), none, 1, none, CONN_PN,
-      frames};
+  quic_tx_desc      t    = {CONN_BYTE0, quic_span_of(c->dcid, CONN_DCID_LEN),
+                            none,       1,
+                            none,       CONN_PN,
+                            frames,     0 /* QUIC v1 */};
   n = quic_tx_packet(&pk, &t, quic_mspan_of(out, sizeof(out)));
   if (n == 0) return 0;
   return quic_memlink_send(c->link, out, n);

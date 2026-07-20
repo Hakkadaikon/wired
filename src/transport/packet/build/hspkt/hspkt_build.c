@@ -9,8 +9,8 @@
 /* RFC 9000 17.2.4: the long header shared by quic_hspkt_build and
  * quic_hspkt_build_suite. */
 static quic_tx_desc hspkt_tx_desc(const quic_hspkt_desc* d) {
-  return (quic_tx_desc){QUIC_HSPKT_BYTE0,   d->dcid, d->scid,   0,
-                        quic_span_of(0, 0), d->pn,   d->payload};
+  return (quic_tx_desc){QUIC_HSPKT_BYTE0,   d->dcid, d->scid,    0,
+                        quic_span_of(0, 0), d->pn,   d->payload, 0 /* v1 */};
 }
 
 /* RFC 9000 17.2.4: emit a complete Handshake long header carrying the SCID and

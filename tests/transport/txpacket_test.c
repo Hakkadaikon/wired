@@ -16,7 +16,7 @@ static usz t_tx(
     usz                      cap) {
   quic_protect_keys k    = {ik, hp};
   quic_span         none = quic_span_of((const u8*)0, 0);
-  quic_tx_desc      d    = {0xc3, dcid, none, 1, none, pn, frames};
+  quic_tx_desc      d    = {0xc3, dcid, none, 1, none, pn, frames, 0};
   return quic_tx_packet(&k, &d, quic_mspan_of(pkt, cap));
 }
 

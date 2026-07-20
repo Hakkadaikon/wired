@@ -38,8 +38,8 @@ static void test_rxpacket_payload_view(void) {
   u8                pkt[256];
   quic_protect_keys k    = {&ik, &hp};
   quic_span         none = quic_span_of((const u8*)0, 0);
-  quic_tx_desc      td   = {0xc3, quic_span_of(dcid, 8),   none, 1, none,
-                            5,    quic_span_of(frames, fl)};
+  quic_tx_desc      td   = {0xc3, quic_span_of(dcid, 8),    none, 1, none,
+                            5,    quic_span_of(frames, fl), 0};
   usz n = quic_tx_packet(&k, &td, quic_mspan_of(pkt, sizeof(pkt)));
   CHECK(n != 0);
 
@@ -70,8 +70,8 @@ static usz build_pkt(quic_initial_keys* ik, quic_aes128* hp, u8* pkt, usz cap) {
   fl += quic_frame_put_simple(frames + fl, sizeof(frames), QUIC_FRAME_PING);
   quic_protect_keys k    = {ik, hp};
   quic_span         none = quic_span_of((const u8*)0, 0);
-  quic_tx_desc      td   = {0xc3, quic_span_of(dcid, 8),   none, 1, none,
-                            5,    quic_span_of(frames, fl)};
+  quic_tx_desc      td   = {0xc3, quic_span_of(dcid, 8),    none, 1, none,
+                            5,    quic_span_of(frames, fl), 0};
   return quic_tx_packet(&k, &td, quic_mspan_of(pkt, cap));
 }
 
