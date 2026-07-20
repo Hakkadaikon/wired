@@ -6,6 +6,7 @@
 #include "tls/ext/salpn/negotiate.h"
 #include "tls/ext/stp/server_tp.h"
 #include "tls/handshake/core/tls/cert.h"
+#include "tls/handshake/core/tls/initial.h"
 #include "tls/handshake/core/tls/transcript.h"
 #include "tls/keys/ticket/ticket.h"
 
@@ -46,6 +47,17 @@ typedef struct {
    * only meaningful when this is 1. */
   int psk_accepted;
   u8  psk_secret[QUIC_TICKET_SECRET_LEN];
+  /** RFC 8446 4.2.10 / RFC 9001 4.6.1/9.2: set by
+   * quic_sdrv_recv_client_hello when the ClientHello carries early_data
+   * (0x002a) alongside an accepted pre_shared_key AND the presented ticket
+   * is on its first use (RFC 8446 8.1 single-use enforcement,
+   * quic_zerortt_seen_check). A replayed ticket's early_data is refused
+   * (this stays 0) even though psk_accepted may still be 1 -- 0-RTT alone is
+   * rejected, ordinary PSK/1-RTT resumption still proceeds. */
+  int early_data_accepted;
+  /** RFC 8446 4.2.10 / RFC 9001 4.6.1: the 0-RTT packet-protection keys,
+   * meaningful only when early_data_accepted is 1. */
+  quic_initial_keys early_keys;
   u8  hs_secret[QUIC_HKDF_PRK];    /**< RFC 8446 7.1 Handshake Secret */
   u8  s_hs_traffic[QUIC_HKDF_PRK]; /**< RFC 8446 7.1 server hs traffic secret */
   int hs_ready;                    /**< hs_secret derived */
@@ -226,5 +238,14 @@ int quic_sdrv_build_server_flight(
  * @param secret receives a pointer to the internal Handshake Secret
  * @return 1 if build_server_flight has run, 0 otherwise. */
 int quic_sdrv_handshake_secret(const quic_sdrv* s, const u8** secret);
+
+/** RFC 8446 4.2.10 / RFC 9001 4.6.1: the 0-RTT packet-protection keys
+ * (client_early_traffic_secret's key/iv/hp), derived by
+ * quic_sdrv_recv_client_hello over the accepted PSK and the raw ClientHello
+ * bytes when early_data_accepted is 1.
+ * @param s driver state (quic_sdrv_recv_client_hello must have run)
+ * @param out receives the 0-RTT key/iv/hp
+ * @return 1 if early_data_accepted, 0 otherwise (out untouched). */
+int quic_sdrv_early_keys(const quic_sdrv* s, quic_initial_keys* out);
 
 #endif
