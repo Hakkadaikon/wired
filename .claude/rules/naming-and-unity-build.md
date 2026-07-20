@@ -31,6 +31,14 @@ not surface until link/wiring time, never in a coder's isolated `$TMPDIR` build.
   SHA-512 constants/macros and `test_path` (#3/#12). The moment you write the
   same small helper a second time, STOP and hoist it to `util/*.h` as `inline`.
 
+## "Missing behavior" is usually an unwired part — grep before you build
+
+In this MECE codebase, "the processing doesn't exist" is frequently "the right
+part exists but nothing calls it" (a decoder never reached, an ACK generator
+never invoked — successes #15). Before implementing anything, `grep -rn` for
+the concept in `src/`; if the part exists, close the gap with one wire, not a
+reimplementation.
+
 ## Use util/ inline helpers — do not re-roll
 
 `src/util/` already provides the shared primitives. Use them; never write a new
