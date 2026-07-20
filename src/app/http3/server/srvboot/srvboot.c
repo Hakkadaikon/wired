@@ -65,9 +65,9 @@ static int srvboot_init(
     const wired_srvboot_conn* conn,
     const wired_srvboot_id*   id,
     const wired_header*       h) {
-  wired_server_init_in in = {id->priv,    id->pub,         id->cert_seed,
-                             id->chain,   id->chain_count, id->san_ipv4,
-                             id->now_secs};
+  wired_server_init_in in = {id->priv,     id->pub,         id->cert_seed,
+                             id->chain,    id->chain_count, id->san_ipv4,
+                             id->now_secs, id->ticket_key};
   wired_server_init(conn->s, &in);
   wired_server_set_limits(
       conn->s, id->max_data, id->max_streams_bidi, id->max_datagram_frame_size);
