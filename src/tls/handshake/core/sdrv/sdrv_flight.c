@@ -22,13 +22,26 @@ static int emit_msg(quic_sdrv* s, quic_span msg, quic_obuf* flight) {
   return 1;
 }
 
+/* RFC 8446 7.1: Handshake Secret from the ECDHE shared secret, taking the
+ * PSK-resumption branch (Early Secret = HKDF-Extract(0, PSK)) when
+ * quic_sdrv_recv_client_hello accepted a pre_shared_key, the plain branch
+ * (Early Secret = HKDF-Extract(0, 0)) otherwise -- this SDK always mixes in
+ * ECDHE either way (RFC 8446 7.1's key schedule diagram: PSK affects only
+ * the Early Secret input, never removes the (EC)DHE stage). */
+static void sdrv_derive_handshake_secret(quic_sdrv* s, const u8 ecdhe[32]) {
+  if (s->psk_accepted)
+    quic_tls_handshake_secret_psk(s->psk_secret, ecdhe, s->hs_secret);
+  else
+    quic_tls_handshake_secret(ecdhe, s->hs_secret);
+}
+
 /* RFC 8446 7.1: ECDHE shared secret, Handshake Secret, and the server
  * handshake traffic secret over the transcript through ServerHello (the
  * Finished's finished_key). Called right after ServerHello is folded in. */
 static int derive_secret(quic_sdrv* s) {
   u8 ecdhe[QUIC_X25519_LEN], th[QUIC_SHA256_DIGEST];
   if (!quic_x25519(ecdhe, s->server_priv, s->client_pub)) return 0;
-  quic_tls_handshake_secret(ecdhe, s->hs_secret);
+  sdrv_derive_handshake_secret(s, ecdhe);
   quic_transcript_hash(&s->tr, th);
   quic_hkdf_label l = {"s hs traffic", 12, {th, QUIC_SHA256_DIGEST}};
   quic_hkdf_expand_label(
