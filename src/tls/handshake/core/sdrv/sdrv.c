@@ -83,10 +83,11 @@ void quic_sdrv_init(quic_sdrv* s, const quic_sdrv_init_in* in) {
     sdrv_take_chain(s, in);
   else
     sdrv_build_cert(s, in->now_secs);
-  s->hs_ready  = 0;
-  s->odcid_len = 0;
-  s->iscid_len = 0;
-  s->rscid_len = 0;
+  s->hs_ready     = 0;
+  s->odcid_len    = 0;
+  s->iscid_len    = 0;
+  s->tp_odcid_len = 0;
+  s->rscid_len    = 0;
   quic_transcript_init(&s->tr);
 }
 
@@ -101,7 +102,15 @@ static int sdrv_set_cid(u8* dst, u8* dst_len, quic_span cid) {
 
 int quic_sdrv_set_cids(quic_sdrv* s, quic_span odcid, quic_span iscid) {
   return sdrv_set_cid(s->odcid, &s->odcid_len, odcid) &&
-         sdrv_set_cid(s->iscid, &s->iscid_len, iscid);
+         sdrv_set_cid(s->iscid, &s->iscid_len, iscid) &&
+         sdrv_set_cid(s->tp_odcid, &s->tp_odcid_len, odcid);
+}
+
+int quic_sdrv_set_cids_retried(
+    quic_sdrv* s, quic_span odcid, quic_span iscid, quic_span true_odcid) {
+  return sdrv_set_cid(s->odcid, &s->odcid_len, odcid) &&
+         sdrv_set_cid(s->iscid, &s->iscid_len, iscid) &&
+         sdrv_set_cid(s->tp_odcid, &s->tp_odcid_len, true_odcid);
 }
 
 int quic_sdrv_set_retry_scid(quic_sdrv* s, quic_span rscid) {
