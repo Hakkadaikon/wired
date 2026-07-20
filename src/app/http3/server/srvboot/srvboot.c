@@ -27,6 +27,25 @@ int wired_srvboot_is_initial(const u8* dg, usz len) {
 /* Init the server and its loop. The client's DCID (this Initial's DCID) is the
  * ODCID for Initial keys (RFC 9001 5.2); the client's SCID is the DCID the
  * server writes back and the loop is seeded with (RFC 9000 17.2 / 5.1). */
+/* The ODCID the transport parameters advertise: after a Retry it is the
+ * token-recovered original (RFC 9000 7.3), else this Initial's own DCID. */
+static quic_span srvboot_tp_odcid(
+    const wired_srvboot_id* id, const wired_header* h) {
+  if (id->retry_odcid_len)
+    return quic_span_of(id->retry_odcid, id->retry_odcid_len);
+  return quic_span_of(h->dcid, h->dcid_len);
+}
+
+/* After a Retry, this Initial's header DCID is the Retry's SCID and must be
+ * advertised back as retry_source_connection_id (RFC 9000 7.3). */
+static void srvboot_note_retry_scid(
+    const wired_srvboot_conn* conn,
+    const wired_srvboot_id*   id,
+    const wired_header*       h) {
+  if (!id->retry_odcid_len) return;
+  quic_sdrv_set_retry_scid(&conn->s->sdrv, quic_span_of(h->dcid, h->dcid_len));
+}
+
 static int srvboot_init(
     const wired_srvboot_conn* conn,
     const wired_srvboot_id*   id,
@@ -38,9 +57,10 @@ static int srvboot_init(
   wired_server_set_limits(
       conn->s, id->max_data, id->max_streams_bidi, id->max_datagram_frame_size);
   if (!wired_server_set_cids(
-          conn->s, quic_span_of(h->dcid, h->dcid_len),
+          conn->s, srvboot_tp_odcid(id, h),
           quic_span_of(id->scid, id->scid_len)))
     return 0;
+  srvboot_note_retry_scid(conn, id, h);
   return wired_srvloop_init(conn->l, h->scid, h->scid_len);
 }
 
