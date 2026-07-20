@@ -29,9 +29,11 @@
 #include "common/platform/rng/cidgen.h"
 #include "common/platform/thread/thread.h"
 #include "tls/ext/stp/server_tp.h"
+#include "tls/handshake/core/tls/retry_tag.h"
 #include "tls/keys/kuswitch/twogen.h"
 #include "transport/conn/cid/migrate/migrate.h"
 #include "transport/conn/cid/path/antiamp.h"
+#include "transport/conn/cid/retrytoken/retrytoken.h"
 #include "transport/conn/lifecycle/conntable/conntable.h"
 #include "transport/io/socket/io/udp.h"
 #include "transport/io/socket/poll/wait.h"
@@ -42,7 +44,9 @@
 #include "transport/packet/frame/frame/ncid_worker.h"
 #include "transport/packet/frame/frame/stream_ctl.h"
 #include "transport/packet/header/dcidresolve/dcidresolve.h"
+#include "transport/packet/header/lhdr/lhdr_parse.h"
 #include "transport/packet/header/packet/header.h"
+#include "transport/packet/header/packet/retry.h"
 #include "transport/recovery/congestion/cc/cc.h"
 #include "transport/recovery/congestion/cc/hystart.h"
 #include "transport/recovery/congestion/cc/pacing.h"
@@ -104,6 +108,8 @@ typedef struct {
   /** Session-established notification, 0 to disable. */
   wired_wt_on_session wt_on_session;
   void*               wt_session_ctx; /**< opaque ctx for wt_on_session */
+  /** RFC 9000 8.1.2 forced address validation, see wired_srvrun_opt. */
+  int force_retry;
 } srvrun_cfg;
 
 /* One live connection's mutable state: the orchestrator, the HTTP/3 loop,
@@ -332,6 +338,14 @@ typedef struct {
    * flight is (re)sent for a reason other than this timer (a fresh accept or
    * a client-triggered retransmit both prove the peer is still reachable). */
   int boot_pto_count;
+  /** RFC 9000 7.3 after a Retry (force_retry mode): the true original DCID
+   * recovered from the client's validated Retry token, advertised as
+   * original_destination_connection_id while the post-Retry Initial's own
+   * header DCID (the Retry's SCID) becomes retry_source_connection_id.
+   * Length 0 on the normal no-Retry path. */
+  u8 retry_odcid[WIRED_MAX_CID_LEN];
+  /** Bytes used in retry_odcid; 0 = no Retry happened on this slot. */
+  u8 retry_odcid_len;
   /** Server-initiated WebTransport stream sends in flight on this
    * connection (wired_server_wt_open_uni/open_bidi/stream_reply), pumped/
    * ACKed/probed alongside resp[] under the same connection-wide gates. */
@@ -700,6 +714,8 @@ static wired_srvboot_id srvrun_slot_id(
     const wired_srvboot_id* base, const srvrun_conn* c) {
   wired_srvboot_id id = *base;
   id.scid             = c->scid;
+  id.retry_odcid      = c->retry_odcid;
+  id.retry_odcid_len  = c->retry_odcid_len;
   return id;
 }
 
@@ -4352,6 +4368,102 @@ static int srvrun_open_slot(
  * fresh slot only for an unrecognized DCID on a new Initial, RFC 9000 5.1/7)
  * and serve it there. Silently drops a datagram that matches no slot and
  * cannot claim or initialize a new one. */
+/* RFC 9000 8.1.2 forced address validation (the interop retry testcase):
+ * a fixed process-lifetime HMAC key for Retry tokens.
+ * ponytail: fixed key, no rotation -- same policy as the session-ticket key
+ * (respond.c); a real deployment rotates both. */
+static const u8 g_srvrun_retry_key[QUIC_RETRYTOKEN_KEY] = {
+    0x77, 0x69, 0x72, 0x65, 0x64, 0x2d, 0x72, 0x74, 0x72, 0x79, 0x2d,
+    0x6b, 0x65, 0x79, 0x2d, 0x30, 0x77, 0x69, 0x72, 0x65, 0x64, 0x2d,
+    0x72, 0x74, 0x72, 0x79, 0x2d, 0x6b, 0x65, 0x79, 0x2d, 0x31};
+
+/* Seal DCID=h->scid/SCID=scid/token into pkt with a garbage tag; the caller
+ * patches the real RFC 9001 5.8 tag in afterward. Returns bytes written, or
+ * 0 on overflow. */
+static usz srvrun_retry_pkt_build(
+    const quic_lhdr* h, const u8 scid[8], quic_span token, u8* pkt, usz cap) {
+  quic_retry_desc d = {1, h->scid, quic_span_of(scid, 8), token, pkt};
+  return quic_retry_build(pkt, cap, &d);
+}
+
+/* scid + wire token for the Retry answering h, or 0 tn on RNG/overflow
+ * failure. */
+static void srvrun_retry_prep(
+    const srvrun_step_ctx* ctx,
+    const quic_lhdr*       h,
+    u8                     scid[8],
+    u8                     token[QUIC_RETRYTOKEN_WIRE_MAX],
+    usz*                   tn) {
+  *tn = 0;
+  if (!quic_cid_generate(scid, 8)) return;
+  *tn = quic_retrytoken_wire_make(
+      g_srvrun_retry_key,
+      quic_span_of((const u8*)ctx->peer, sizeof(*ctx->peer)), h->dcid, token);
+}
+
+/* Assemble the Retry with its real integrity tag and send it: pkt already
+ * carries a garbage tag (srvrun_retry_pkt_build); patch in the RFC 9001 5.8
+ * tag computed over everything before it. */
+static void srvrun_retry_finish(
+    const srvrun_step_ctx* ctx, const quic_lhdr* h, u8* pkt, usz n) {
+  quic_retry_tag(
+      h->dcid, quic_span_of(pkt, n - QUIC_RETRY_TAG_LEN),
+      pkt + n - QUIC_RETRY_TAG_LEN);
+  srvrun_tx(ctx->cfg, ctx->peer, quic_span_of(pkt, n));
+}
+
+/* Build and send the stateless Retry answering h (an Initial without a
+ * token): DCID = the client's SCID (RFC 9000 7.2), a fresh random SCID the
+ * client will derive its next Initial keys from (RFC 9001 5.2), the wire
+ * token binding the peer address to h's DCID (the true ODCID), and the
+ * RFC 9001 5.8 integrity tag patched over the assembled packet. */
+static void srvrun_send_retry(const srvrun_step_ctx* ctx, const quic_lhdr* h) {
+  u8  scid[8], token[QUIC_RETRYTOKEN_WIRE_MAX], pkt[128];
+  usz tn, n;
+  srvrun_retry_prep(ctx, h, scid, token, &tn);
+  if (tn == 0) return;
+  n = srvrun_retry_pkt_build(h, scid, quic_span_of(token, tn), pkt, sizeof pkt);
+  if (n == 0) return;
+  srvrun_retry_finish(ctx, h, pkt, n);
+}
+
+/* Verify a presented token against the peer address; on success *odcid is
+ * the embedded original DCID (a view into dg's token bytes). */
+static int srvrun_retry_token_ok(
+    const srvrun_step_ctx* ctx, quic_span token, quic_span* odcid) {
+  return quic_retrytoken_wire_verify(
+      g_srvrun_retry_key,
+      quic_span_of((const u8*)ctx->peer, sizeof(*ctx->peer)), token, odcid);
+}
+
+/* h carries a token: consumed either way -- valid recovers *odcid and lets
+ * the caller continue serving (0), invalid drops the datagram (1). */
+static int srvrun_retry_gate_tokened(
+    const srvrun_step_ctx* ctx, const quic_lhdr* h, quic_span* odcid) {
+  return !srvrun_retry_token_ok(ctx, h->token, odcid);
+}
+
+/* dg is already known to be a fresh Initial the force_retry gate applies to
+ * (srvrun_retry_applies): a valid token continues serving (0, *odcid set),
+ * anything else is consumed here -- a malformed header, no token (a Retry
+ * goes out), or an invalid token (dropped). */
+static int srvrun_retry_gate(
+    const srvrun_step_ctx* ctx, quic_mspan dg, quic_span* odcid) {
+  quic_lhdr h;
+  if (!quic_lhdr_parse(quic_span_of(dg.p, dg.n), 1, &h)) return 1;
+  if (h.token.n != 0) return srvrun_retry_gate_tokened(ctx, &h, odcid);
+  srvrun_send_retry(ctx, &h);
+  return 1;
+}
+
+/* Stash the token-recovered ODCID on the freshly claimed slot so the accept
+ * path advertises it (srvrun_slot_id -> srvboot_tp_odcid). */
+static void srvrun_note_retry_odcid(srvrun_conn* c, quic_span odcid) {
+  if (odcid.n == 0 || odcid.n > WIRED_MAX_CID_LEN) return;
+  quic_memcpy(c->retry_odcid, odcid.p, odcid.n);
+  c->retry_odcid_len = (u8)odcid.n;
+}
+
 /* Answer an unsupported-version datagram with Version Negotiation, straight
  * to the sender — no connection slot is involved (RFC 9000 5.2.2). Returns 1
  * when the datagram was consumed this way. */
@@ -4401,12 +4513,53 @@ static int srvrun_route(
   return srvrun_open_slot(ctx, dcid, wired_srvboot_is_initial(dg.p, dg.n));
 }
 
-static void srvrun_serve(const srvrun_step_ctx* ctx, quic_mspan dg) {
-  int slot;
-  if (srvrun_vneg(ctx, dg)) return;
-  slot = srvrun_route(ctx, srvrun_dcid(dg, ctx->cfg->id->scid_len), dg);
+/* 1 if force_retry is on and dg is a fresh Initial (the gate's precondition
+ * before any slot lookup). */
+static int srvrun_retry_wanted(const srvrun_step_ctx* ctx, quic_mspan dg) {
+  return ctx->cfg->force_retry && wired_srvboot_is_initial(dg.p, dg.n);
+}
+
+/* The retry gate applies only to an Initial whose DCID matches no live
+ * slot: a claimed slot's own retransmits already passed validation once,
+ * and a post-Retry Initial routes by the token path instead. */
+static int srvrun_retry_applies(
+    const srvrun_step_ctx* ctx, quic_span dcid, quic_mspan dg) {
+  if (!srvrun_retry_wanted(ctx, dg)) return 0;
+  if (srvrun_find_slot(ctx, dcid) >= 0) return 0;
+  return srvrun_find_boot_scid(ctx, dcid) < 0;
+}
+
+/* 1 if the force_retry gate consumed dg (a Retry went out, or an invalid
+ * token was dropped) -- the caller stops here either way. */
+static int srvrun_retry_consumed(
+    const srvrun_step_ctx* ctx,
+    quic_span              dcid,
+    quic_mspan             dg,
+    quic_span*             odcid) {
+  if (!srvrun_retry_applies(ctx, dcid, dg)) return 0;
+  return srvrun_retry_gate(ctx, dg, odcid);
+}
+
+/* Route dg to its slot and serve it there, threading a retry-recovered
+ * ODCID (if any) onto the freshly claimed slot before the accept path
+ * reads it (srvrun_slot_id -> srvboot_tp_odcid). */
+static void srvrun_route_and_serve(
+    const srvrun_step_ctx* ctx,
+    quic_span              dcid,
+    quic_mspan             dg,
+    quic_span              odcid) {
+  int slot = srvrun_route(ctx, dcid, dg);
   if (slot < 0) return;
+  if (odcid.n) srvrun_note_retry_odcid(&ctx->st->conns[slot], odcid);
   srvrun_serve_slot(ctx, slot, dg);
+}
+
+static void srvrun_serve(const srvrun_step_ctx* ctx, quic_mspan dg) {
+  quic_span dcid  = srvrun_dcid(dg, ctx->cfg->id->scid_len);
+  quic_span odcid = {0, 0};
+  if (srvrun_vneg(ctx, dg)) return;
+  if (srvrun_retry_consumed(ctx, dcid, dg, &odcid)) return;
+  srvrun_route_and_serve(ctx, dcid, dg, odcid);
 }
 
 /* so_busy_poll_us > 0 enables SO_BUSY_POLL on fd (tasks/polling-driver-
@@ -4681,7 +4834,8 @@ static srvrun_cfg srvrun_build_cfg(
       opt->core_id,
       opt->wt_protocols,
       opt->wt_on_session,
-      opt->wt_session_ctx};
+      opt->wt_session_ctx,
+      opt->force_retry};
 }
 
 usz wired_srvrun_env_size(void) { return sizeof(wired_srvrun_env); }
@@ -4728,6 +4882,6 @@ int wired_server_run(
     wired_srvrun_handler h,
     wired_srvrun_obs     obs) {
   static const wired_srvrun_opt default_opt = {0,  0, 0, 0,  0, 0, 0, 0,
-                                               -1, 0, 0, -1, 0, 0, 0};
+                                               -1, 0, 0, -1, 0, 0, 0, 0};
   return wired_server_run_opt(port, id, h, obs, &default_opt);
 }

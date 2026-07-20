@@ -176,6 +176,11 @@ typedef struct {
    * none was negotiated). */
   wired_wt_on_session wt_on_session;
   void*               wt_session_ctx; /**< opaque ctx passed to wt_on_session */
+  /** RFC 9000 8.1.2: 1 = answer every tokenless Initial with a stateless
+   * Retry and only accept Initials presenting a valid Retry token (the
+   * quic-interop-runner retry testcase's server mode). 0 (the default) =
+   * accept directly, never send Retry. */
+  int force_retry;
 } wired_srvrun_opt;
 
 /** Same as wired_server_run, plus opt-in polling-driver behavior. `opt` must
