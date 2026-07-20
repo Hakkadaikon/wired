@@ -24,9 +24,13 @@ fi
 # AF_INET6), retry (RFC 9000 8.1.2 forced address validation via
 # --force-retry), v2 (RFC 9369/9368: the server accepts and replies to a v2
 # Initial directly, in v2 -- no active version switching, no separate VN
-# round trip), and the two throughput measurements. Still refused: cases
-# needing a dedicated server mode that is not wired up yet -- resumption,
-# zerortt.
+# round trip), resumption (RFC 8446 4.2.11 PSK resumption: the server issues
+# a NewSessionTicket on every confirmed connection and, given one back in a
+# later ClientHello's pre_shared_key, opens it and derives the Handshake/
+# 1-RTT keys through the PSK-branch key schedule -- no extra CLI flag, the
+# demo server's fixed ticket_key is always set), and the two throughput
+# measurements. Still refused: zerortt (0-RTT early data, a separate mode
+# not wired up yet).
 RETRY=""
 [ "$TESTCASE" = "retry" ] && RETRY="--force-retry"
 
@@ -36,7 +40,7 @@ case "$TESTCASE" in
   blackhole | handshakeloss | transferloss) ;;
   handshakecorruption | transfercorruption | amplificationlimit) ;;
   rebind-port | rebind-addr | connectionmigration | ecn | ipv6 | v2) ;;
-  goodput | crosstraffic) ;;
+  goodput | crosstraffic | resumption) ;;
   *)
     echo "unsupported test case: $TESTCASE" >&2
     exit 127
