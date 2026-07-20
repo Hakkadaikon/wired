@@ -555,8 +555,11 @@ static void test_srvrun_open_slot_xdp_embeds_core_id(void) {
   quic_sockaddr    peer = {0};
   srvrun_state     st   = {table, g_srvrun_state.conns};
   usz          total    = sr_build_client_initial(dg, sizeof dg, g_sr_odcid, 8);
-  wired_srvxdp fake_xdp; /* never dereferenced by srvrun_open_slot itself --
-                          * only its non-0-ness (xdp mode on) is read */
+  wired_srvxdp fake_xdp = {0}; /* zeroed: srvrun_serve's boot flight actually
+                                * reaches wired_srvxdp_send on this path, so
+                                * an uninitialized txpool.nfree is read as a
+                                * garbage free-list index, not just its
+                                * non-0-ness */
   sr_make_id(&id, priv, pub, seed, rnd);
   {
     srvrun_cfg cfg = {
@@ -583,7 +586,9 @@ static void test_srvrun_open_slot_xdp_embeds_core_id_zero(void) {
   quic_sockaddr    peer = {0};
   srvrun_state     st   = {table, g_srvrun_state.conns};
   usz          total    = sr_build_client_initial(dg, sizeof dg, g_sr_odcid, 8);
-  wired_srvxdp fake_xdp;
+  wired_srvxdp fake_xdp = {0}; /* zeroed, same reason as the sibling test
+                                * above -- this path also reaches
+                                * wired_srvxdp_send */
   sr_make_id(&id, priv, pub, seed, rnd);
   {
     srvrun_cfg cfg = {
