@@ -212,9 +212,11 @@ static void srv_seed_kuswitch(wired_server* s) {
 }
 
 static int srv_complete(wired_server* s, const u8* msg, usz len) {
-  (void)msg;
-  (void)len;
   if (!quic_srvfin_complete(&s->fin, s->tr, s->tr_through_flight)) return 0;
+  /* RFC 8446 4.6.1/7.1: resumption_master_secret needs the transcript
+   * through the verified client Finished, not just through the server's
+   * own Finished -- fold it in now that it has actually verified. */
+  s->tr_through_client_fin = srv_tr_add(s, msg, len);
   srv_seed_kuswitch(s);
   s->phase = WIRED_SERVER_HS_CONFIRMED;
   return 1;
@@ -248,4 +250,20 @@ int wired_server_handshake_done(wired_server* s, quic_obuf* out) {
 
 int wired_server_is_confirmed(const wired_server* s) {
   return s->phase == WIRED_SERVER_HS_CONFIRMED;
+}
+
+/* RFC 8446 7.1: resumption_master_secret = Derive-Secret(Master Secret,
+ * "res master", ClientHello..client Finished). */
+static void srv_resumption_master_secret(const wired_server* s, u8 out[32]) {
+  quic_derive_secret_in in;
+  in.secret   = s->sched.master;
+  in.label    = quic_span_of((const u8*)"res master", 10);
+  in.messages = quic_span_of(s->tr, s->tr_through_client_fin);
+  quic_tls_derive_secret(&in, out);
+}
+
+int wired_server_resumption_secret(const wired_server* s, u8 out[32]) {
+  if (!wired_server_is_confirmed(s)) return 0;
+  srv_resumption_master_secret(s, out);
+  return 1;
 }

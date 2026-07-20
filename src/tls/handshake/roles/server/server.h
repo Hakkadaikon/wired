@@ -55,10 +55,15 @@ typedef struct {
   int               hs_done_sent; /**< HANDSHAKE_DONE emitted (at most once) */
   u8  server_priv[32]; /**< RFC 7748 x25519 private (owns the ECDHE) */
   u8  tr[WIRED_SERVER_TRANSCRIPT_MAX]; /**< raw handshake transcript bytes */
-  usz tr_len;              /**< bytes through the latest folded message */
-  usz tr_through_sh;       /**< transcript length through ServerHello */
-  usz tr_through_flight;   /**< transcript length through server Finished */
-  u8  client_random[32];   /**< ClientHello.random (RFC 8446 4.1.2), recorded by
+  usz tr_len;                /**< bytes through the latest folded message */
+  usz tr_through_sh;         /**< transcript length through ServerHello */
+  usz tr_through_flight;     /**< transcript length through server Finished */
+  usz tr_through_client_fin; /**< RFC 8446 4.6.1/7.1: transcript length
+                              * through the verified client Finished --
+                              * ClientHello..client Finished, exactly what
+                              * resumption_master_secret is derived over.
+                              * 0 until WIRED_SERVER_HS_CONFIRMED. */
+  u8 client_random[32];    /**< ClientHello.random (RFC 8446 4.1.2), recorded by
                             * wired_server_recv_initial for keylog lines */
   const char* keylog_path; /**< NSS key log file path, or 0 to disable */
   quic_kuswitch_state ku;  /**< RFC 9001 6: CLIENT_AP (peer-driven, recv-side)
@@ -182,6 +187,18 @@ int wired_server_handshake_done(wired_server* s, quic_obuf* out);
  * @return 1 once the client Finished verified and the handshake is
  *   confirmed. */
 int wired_server_is_confirmed(const wired_server* s);
+
+/** RFC 8446 4.6.1/7.1: resumption_master_secret = Derive-Secret(Master
+ * Secret, "res master", ClientHello..client Finished) -- the secret a
+ * NewSessionTicket must actually carry (RFC 8446 4.6.1: "The ticket itself
+ * is an opaque label... the PSK associated with the ticket is computed as...
+ * resumption_master_secret"). Only meaningful once wired_server_is_
+ * confirmed (the client Finished must have verified first); returns 0
+ * (leaving out untouched) before that.
+ * @param s the confirmed orchestrator to derive from
+ * @param out receives the 32-byte resumption_master_secret
+ * @return 1 on success, 0 if s is not yet confirmed. */
+int wired_server_resumption_secret(const wired_server* s, u8 out[32]);
 
 /** Open a UDP socket bound to port and wait for the ClientHello.
  * @param s the orchestrator that will own the socket
