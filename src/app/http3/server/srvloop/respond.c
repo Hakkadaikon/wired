@@ -78,6 +78,8 @@ static const u8 g_ticket_key[QUIC_TICKET_KEY_LEN] = {
     0x65, 0x79, 0x2d, 0x30, 0x30, 0x77, 0x69, 0x72, 0x65, 0x64, 0x2d,
     0x74, 0x6b, 0x74, 0x2d, 0x6b, 0x65, 0x79, 0x2d, 0x30, 0x31};
 
+const u8* wired_srvloop_ticket_key(void) { return g_ticket_key; }
+
 /* RFC 8446 4.6.1: seal a fresh session ticket (fixed 2h lifetime; this SDK has
  * no clock, so issued_at is left 0 and resumption checks lifetime, not age)
  * and append it as a CRYPTO frame (RFC 9000 19.6) to a 1-RTT payload. */

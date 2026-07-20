@@ -13,6 +13,7 @@
 #include "app/http3/server/mimetype/mimetype.h"
 #include "app/http3/server/srvboot/srvboot.h"
 #include "app/http3/server/srvdriver/srvdriver.h"
+#include "app/http3/server/srvloop/respond.h"
 #include "app/http3/server/srvloop/send.h"
 #include "app/http3/server/srvloop/srvloop.h"
 #include "app/http3/server/srvrun/srvrun.h"
