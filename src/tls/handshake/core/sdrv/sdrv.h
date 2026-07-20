@@ -37,11 +37,22 @@ typedef struct {
   u8  s_hs_traffic[QUIC_HKDF_PRK]; /**< RFC 8446 7.1 server hs traffic secret */
   int hs_ready;                    /**< hs_secret derived */
   quic_transcript tr;              /**< RFC 8446 4.4.1 Transcript-Hash */
-  u8              odcid[20]; /**< RFC 9000 7.3 client first Initial DCID */
-  u8              odcid_len; /**< bytes used in odcid (0..20) */
-  u8              iscid[20]; /**< RFC 9000 7.3 server SCID */
-  u8              iscid_len; /**< bytes used in iscid (0..20) */
-  u8              rscid[20]; /**< RFC 9000 7.3 retry_source_connection_id --
+  /** RFC 9001 5.2 Initial-key derivation input: the DCID of the Initial
+   * packet actually being processed right now. After a Retry this is the
+   * Retry's own SCID (the client's second Initial is keyed off it), never
+   * the original DCID -- mixing the two here breaks decryption of every
+   * post-Retry Initial. */
+  u8 odcid[20];
+  u8 odcid_len; /**< bytes used in odcid (0..20) */
+  u8 iscid[20]; /**< RFC 9000 7.3 server SCID */
+  u8 iscid_len; /**< bytes used in iscid (0..20) */
+  /** RFC 9000 7.3 original_destination_connection_id transport parameter
+   * value: the true first Initial's DCID. Equal to odcid on the direct
+   * accept path; after a Retry it is the token-recovered original while
+   * odcid above has already moved on to the Retry's SCID. */
+  u8 tp_odcid[20];
+  u8 tp_odcid_len;           /**< bytes used in tp_odcid (0..20) */
+  u8 rscid[20];              /**< RFC 9000 7.3 retry_source_connection_id --
                               * the Retry packet's SCID, advertised only when
                               * a Retry preceded this handshake */
   u8              rscid_len; /**< bytes used in rscid; 0 = no Retry */
@@ -133,6 +144,16 @@ void quic_sdrv_init(quic_sdrv* s, const quic_sdrv_init_in* in);
  * @param iscid the server's source connection id
  * @return 1 on success, 0 if either length exceeds 20. */
 int quic_sdrv_set_cids(quic_sdrv* s, quic_span odcid, quic_span iscid);
+
+/** RFC 9000 7.3, post-Retry accept: odcid is the Initial-key derivation
+ * input (the Retry's own SCID -- the client's second Initial is keyed off
+ * it, RFC 9001 5.2), iscid the server's own source connection id as usual,
+ * and true_odcid the ORIGINAL first Initial's DCID recovered from the
+ * Retry token -- advertised as original_destination_connection_id instead
+ * of odcid, which has already moved on.
+ * @return 1 on success, 0 if any length exceeds 20. */
+int quic_sdrv_set_cids_retried(
+    quic_sdrv* s, quic_span odcid, quic_span iscid, quic_span true_odcid);
 
 /** Record the Retry packet's SCID for the retry_source_connection_id
  * transport parameter (RFC 9000 7.3) -- only after a Retry actually
