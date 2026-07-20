@@ -3,6 +3,7 @@
 #include <stdlib.h> /* malloc/free: hosted test build only, see test.h */
 
 #include "app/datagram/datagram/datagram.h"
+#include "common/bytes/util/be.h"
 #include "crypto/pki/encoding/x509/ec_pubkey.h"
 #include "crypto/pki/encoding/x509/spki.h"
 #include "crypto/pki/encoding/x509/x509.h"
@@ -11,8 +12,10 @@
 #include "realchain_golden.h"
 #include "test.h"
 #include "tls/ext/stp/parse_tp.h"
+#include "tls/ext/tlsext/preshared.h"
 #include "tls/ext/tparam/tparam.h"
 #include "tls/ext/tparam/tpcheck.h"
+#include "tls/handshake/core/tls/binder.h"
 #include "tls/handshake/core/tls/cert.h"
 #include "tls/handshake/core/tls/certverify.h"
 #include "tls/handshake/core/tls/cipher.h"
@@ -23,6 +26,7 @@
 #include "tls/handshake/core/tls/serverhello.h"
 #include "tls/handshake/core/tls/tpext.h"
 #include "tls/handshake/core/tls/x25519.h"
+#include "tls/keys/ticket/ticket.h"
 
 /* RFC 8446 4 / RFC 9001 4: a client emits a ClientHello, the server driver
  * builds the real server flight, and the client reaches the same ECDHE shared
@@ -87,7 +91,7 @@ static void test_sdrv_session_id_echo(void) {
   ch2_len = ch_with_sid(ch2, ch, ch_len, sid);
 
   {
-    quic_sdrv_init_in din = {srv_priv, srv_pub, cert_priv, 0, 0, 0, 0};
+    quic_sdrv_init_in din = {srv_priv, srv_pub, cert_priv, 0, 0, 0, 0, 0};
     quic_sdrv_init(&s, &din);
   }
   CHECK(quic_sdrv_recv_client_hello(&s, ch2, ch2_len));
@@ -105,7 +109,7 @@ static void test_sdrv_session_id_echo(void) {
 
   /* TLS 1.3 native ClientHello (empty session_id) still works: echo len 0. */
   {
-    quic_sdrv_init_in din = {srv_priv, srv_pub, cert_priv, 0, 0, 0, 0};
+    quic_sdrv_init_in din = {srv_priv, srv_pub, cert_priv, 0, 0, 0, 0, 0};
     quic_sdrv_init(&s, &din);
   }
   CHECK(quic_sdrv_recv_client_hello(&s, ch, ch_len));
@@ -182,7 +186,7 @@ static void test_sdrv_external_chain(void) {
 
   {
     quic_sdrv_init_in in = {
-        srv_priv, srv_pub, quic_realchain_leaf_priv, chain, 2, 0, 0};
+        srv_priv, srv_pub, quic_realchain_leaf_priv, chain, 2, 0, 0, 0};
     sdrv_test_drive(
         &s, &in, ch, ch_len, srv_random, sh, sizeof(sh), &sh_len, flight,
         sizeof(flight), &hs_len);
@@ -284,7 +288,7 @@ static void test_sdrv_external_chain_wrong_key(void) {
   CHECK(ch_len != 0);
 
   {
-    quic_sdrv_init_in in = {srv_priv, srv_pub, wrong_priv, chain, 2, 0, 0};
+    quic_sdrv_init_in in = {srv_priv, srv_pub, wrong_priv, chain, 2, 0, 0, 0};
     sdrv_test_drive(
         &s, &in, ch, ch_len, srv_random, sh, sizeof(sh), &sh_len, flight,
         sizeof(flight), &hs_len);
@@ -349,10 +353,10 @@ static void test_sdrv_chain_overflow(void) {
   CHECK(ch_len != 0);
 
   {
-    quic_sdrv_init_in    in = {srv_priv, srv_pub, cert_priv, chain, 11, 0, 0};
-    quic_obuf            sh_ob = quic_obuf_of(sh, sizeof(sh));
-    quic_obuf            fl_ob = quic_obuf_of(flight, sizeof(flight));
-    quic_sdrv_flight_out fo    = {&sh_ob, &fl_ob};
+    quic_sdrv_init_in in = {srv_priv, srv_pub, cert_priv, chain, 11, 0, 0, 0};
+    quic_obuf         sh_ob = quic_obuf_of(sh, sizeof(sh));
+    quic_obuf         fl_ob = quic_obuf_of(flight, sizeof(flight));
+    quic_sdrv_flight_out fo = {&sh_ob, &fl_ob};
     quic_sdrv_init(&s, &in);
     CHECK(quic_sdrv_recv_client_hello(&s, ch, ch_len));
     CHECK(!quic_sdrv_build_server_flight(&s, srv_random, &fo));
@@ -387,7 +391,7 @@ static void test_sdrv_flight_nine_cert_chain(void) {
   CHECK(ch_len != 0);
 
   {
-    quic_sdrv_init_in    in    = {srv_priv, srv_pub, cert_priv, chain, 9, 0, 0};
+    quic_sdrv_init_in    in = {srv_priv, srv_pub, cert_priv, chain, 9, 0, 0, 0};
     quic_obuf            sh_ob = quic_obuf_of(sh, sizeof(sh));
     quic_obuf            fl_ob = quic_obuf_of(flight, sizeof(flight));
     quic_sdrv_flight_out fo    = {&sh_ob, &fl_ob};
@@ -421,7 +425,7 @@ static void sdrv_dgram_test_setup(
   quic_x25519_base(cli_pub, cli_priv);
   quic_x25519_base(srv_pub, srv_priv);
   {
-    quic_sdrv_init_in din = {srv_priv, srv_pub, cert_priv, 0, 0, 0, 0};
+    quic_sdrv_init_in din = {srv_priv, srv_pub, cert_priv, 0, 0, 0, 0, 0};
     quic_sdrv_init(s, &din);
   }
 }
@@ -673,7 +677,7 @@ static void sdrv_test_init_any(quic_sdrv* s) {
   }
   quic_x25519_base(srv_pub, srv_priv);
   {
-    quic_sdrv_init_in din = {srv_priv, srv_pub, cert_priv, 0, 0, 0, 0};
+    quic_sdrv_init_in din = {srv_priv, srv_pub, cert_priv, 0, 0, 0, 0, 0};
     quic_sdrv_init(s, &din);
   }
 }
@@ -870,7 +874,7 @@ static void sdrv_test_negotiate(
     srv_random[i] = (u8)(0xa0 + i);
   }
   quic_x25519_base(srv_pub, srv_priv);
-  in = (quic_sdrv_init_in){srv_priv, srv_pub, cert_priv, 0, 0, 0, 0};
+  in = (quic_sdrv_init_in){srv_priv, srv_pub, cert_priv, 0, 0, 0, 0, 0};
   sdrv_test_drive(
       s, &in, ch, ch_len, srv_random, sh, sh_cap, sh_len, flight,
       sizeof(flight), &hs_len);
@@ -974,7 +978,7 @@ static void test_sdrv_suite_no_overlap_fails(void) {
   sdrv_test_set_suite(ch, QUIC_TLS_AES_256_GCM_SHA384);
 
   {
-    quic_sdrv_init_in in = {srv_priv, srv_pub, cert_priv, 0, 0, 0, 0};
+    quic_sdrv_init_in in = {srv_priv, srv_pub, cert_priv, 0, 0, 0, 0, 0};
     quic_sdrv_init(&s, &in);
   }
   CHECK(!quic_sdrv_recv_client_hello(&s, ch, ch_len));
@@ -1092,6 +1096,293 @@ static void test_sdrv_retry_advertises_true_odcid_not_key_derivation_dcid(
       cid, quic_span_of(retry_scid, sizeof(retry_scid))));
 }
 
+/* RFC 8446 4.2.11: append a pre_shared_key extension (single identity, single
+ * binder) to the tail of a ClientHello previously built by
+ * sdrv_test_client_hello (which has a fixed extensions layout: no session_id,
+ * one cipher suite -- see put_prefix), and patch both the extensions-length
+ * field and the handshake-message length. pre_shared_key MUST be the last
+ * extension, so this is a pure append, no splice. Returns the new total
+ * length, or 0 if out is too small. Also sets *psk_ext_off to the
+ * extension's own TLV offset within out (header included) -- tests need this
+ * to independently recompute the binder truncation point. */
+static usz sdrv_test_append_psk(
+    u8*                       out,
+    usz                       out_cap,
+    const u8*                 ch,
+    usz                       ch_len,
+    const quic_tlsext_psk_in* psk,
+    usz*                      psk_ext_off) {
+  /* Extensions-length field sits right after the fixed prefix: header(4) +
+   * legacy_version+random(34) + session_id_len(1)=0 + cipher_suites(2+2) +
+   * compression_methods(1+1) = 45, matching put_prefix's `off + 41` (body
+   * offset 41) plus the 4-byte handshake header. */
+  usz       exts_len_off = 45;
+  usz       old_exts_len;
+  u8        scratch[128];
+  quic_obuf eob = quic_obuf_of(scratch, sizeof(scratch));
+  if (!quic_tlsext_pre_shared_key(psk, &eob)) return 0;
+  if (ch_len + eob.len > out_cap) return 0;
+  for (usz i = 0; i < ch_len; i++) out[i] = ch[i];
+  old_exts_len = (usz)out[exts_len_off] << 8 | out[exts_len_off + 1];
+  *psk_ext_off = ch_len;
+  for (usz i = 0; i < eob.len; i++) out[ch_len + i] = scratch[i];
+  quic_put_be16(out + exts_len_off, (u16)(old_exts_len + eob.len));
+  quic_hs_finish(out, ch_len + eob.len);
+  return ch_len + eob.len;
+}
+
+/* RFC 8446 4.2.11.2: the truncation point (right before the binders_len
+ * field), independently derived from the wire layout for tests -- see
+ * sdrv_psk_truncate's doc in sdrv.c for the byte accounting. */
+static usz sdrv_test_psk_truncate_len(usz psk_ext_off, usz id_len) {
+  return psk_ext_off + 12 + id_len;
+}
+
+/* A resumption PSK setup shared by the accept/fallback/abort tests: an sdrv
+ * with a fixed ticket_key, a plain ClientHello, and a sealed ticket whose
+ * secret is known to the test. */
+typedef struct {
+  u8  ticket_key[QUIC_TICKET_KEY_LEN];
+  u8  secret[QUIC_TICKET_SECRET_LEN];
+  u8  sealed[QUIC_TICKET_SEALED_LEN];
+  u8  ch[600];
+  usz ch_len;
+  u8  cli_pub[32], srv_random[32];
+} sdrv_psk_fixture;
+
+static void sdrv_psk_fixture_init(sdrv_psk_fixture* f) {
+  u8          cli_priv[32];
+  quic_ticket t = {{0}, 0, 7200};
+  for (usz i = 0; i < 32; i++) {
+    f->ticket_key[i] = (u8)(0xc0 + i);
+    cli_priv[i]      = (u8)(i + 1);
+    f->srv_random[i] = (u8)(0xa0 + i);
+  }
+  for (usz i = 0; i < QUIC_TICKET_SECRET_LEN; i++) {
+    f->secret[i] = (u8)(0x50 + i);
+    t.secret[i]  = f->secret[i];
+  }
+  quic_x25519_base(f->cli_pub, cli_priv);
+  quic_ticket_seal(&t, f->ticket_key, f->sealed);
+  f->ch_len =
+      sdrv_test_client_hello(f->ch, sizeof(f->ch), f->cli_pub, f->srv_random);
+  CHECK(f->ch_len != 0);
+}
+
+/* R-34: a ClientHello with no pre_shared_key extension is completely
+ * unaffected by resumption support being enabled -- same acceptance, same
+ * psk_accepted (0), same flight-buildable outcome as with resumption
+ * disabled. This is the regression guard: sdrv_ch_take_psk must be a true
+ * no-op on this path. */
+static void test_sdrv_psk_absent_leaves_full_handshake_unchanged(void) {
+  sdrv_psk_fixture     f;
+  quic_sdrv            s;
+  u8                   srv_priv[32], srv_pub[32], cert_priv[32];
+  u8                   sh[256], flight[2048];
+  quic_obuf            sh_ob, fl_ob;
+  quic_sdrv_flight_out fo;
+  sdrv_psk_fixture_init(&f);
+  for (usz i = 0; i < 32; i++) {
+    srv_priv[i]  = (u8)(0x40 + i);
+    cert_priv[i] = (u8)(0x80 + i);
+  }
+  quic_x25519_base(srv_pub, srv_priv);
+  {
+    quic_sdrv_init_in in = {srv_priv, srv_pub, cert_priv, 0,
+                            0,        0,       0,         f.ticket_key};
+    quic_sdrv_init(&s, &in);
+  }
+  CHECK(quic_sdrv_recv_client_hello(&s, f.ch, f.ch_len));
+  CHECK(s.psk_accepted == 0);
+  sh_ob = quic_obuf_of(sh, sizeof(sh));
+  fl_ob = quic_obuf_of(flight, sizeof(flight));
+  fo    = (quic_sdrv_flight_out){&sh_ob, &fl_ob};
+  CHECK(quic_sdrv_build_server_flight(&s, f.srv_random, &fo));
+}
+
+/* R-35/R-38: a valid ticket with a correctly computed binder is accepted --
+ * psk_accepted set, psk_secret recorded, and the flight still builds (the
+ * PSK-branch key schedule in sdrv_flight.c's derive_secret runs end to end).
+ */
+static void test_sdrv_psk_valid_ticket_and_binder_accepted(void) {
+  sdrv_psk_fixture     f;
+  quic_sdrv            s;
+  u8                   srv_priv[32], srv_pub[32], cert_priv[32];
+  u8                   ch2[700];
+  u8                   binder[QUIC_HKDF_PRK];
+  usz                  ch2_len, psk_ext_off, trunc_len;
+  u8                   sh[256], flight[2048];
+  quic_obuf            sh_ob, fl_ob;
+  quic_sdrv_flight_out fo;
+  sdrv_psk_fixture_init(&f);
+  for (usz i = 0; i < 32; i++) {
+    srv_priv[i]  = (u8)(0x40 + i);
+    cert_priv[i] = (u8)(0x80 + i);
+  }
+  quic_x25519_base(srv_pub, srv_priv);
+
+  /* Placeholder binder first, to learn the extension's own offset and the
+   * truncation length -- pre_shared_key's wire size does not depend on the
+   * binder's content, only its length (fixed at QUIC_HKDF_PRK here), so the
+   * offsets computed from this placeholder pass are exactly the ones the
+   * real binder (computed below) will also occupy. */
+  {
+    u8                 zero_binder[QUIC_HKDF_PRK] = {0};
+    quic_tlsext_psk_in psk                        = {
+        quic_span_of(f.sealed, sizeof(f.sealed)), 0,
+        quic_span_of(zero_binder, sizeof(zero_binder))};
+    ch2_len = sdrv_test_append_psk(
+        ch2, sizeof(ch2), f.ch, f.ch_len, &psk, &psk_ext_off);
+    CHECK(ch2_len != 0);
+  }
+  trunc_len = sdrv_test_psk_truncate_len(psk_ext_off, sizeof(f.sealed));
+  quic_tls_binder_compute(f.secret, quic_span_of(ch2, trunc_len), binder);
+  {
+    quic_tlsext_psk_in psk = {
+        quic_span_of(f.sealed, sizeof(f.sealed)), 0,
+        quic_span_of(binder, sizeof(binder))};
+    ch2_len = sdrv_test_append_psk(
+        ch2, sizeof(ch2), f.ch, f.ch_len, &psk, &psk_ext_off);
+    CHECK(ch2_len != 0);
+  }
+
+  {
+    quic_sdrv_init_in in = {srv_priv, srv_pub, cert_priv, 0,
+                            0,        0,       0,         f.ticket_key};
+    quic_sdrv_init(&s, &in);
+  }
+  CHECK(quic_sdrv_recv_client_hello(&s, ch2, ch2_len));
+  CHECK(s.psk_accepted == 1);
+  for (usz i = 0; i < QUIC_TICKET_SECRET_LEN; i++)
+    CHECK(s.psk_secret[i] == f.secret[i]);
+  sh_ob = quic_obuf_of(sh, sizeof(sh));
+  fl_ob = quic_obuf_of(flight, sizeof(flight));
+  fo    = (quic_sdrv_flight_out){&sh_ob, &fl_ob};
+  CHECK(quic_sdrv_build_server_flight(&s, f.srv_random, &fo));
+}
+
+/* R-35: a garbage/wrong-key identity fails to open as a ticket -- graceful
+ * fallback to a full handshake (RFC 8446 4.2.11 MAY), never a hard failure.
+ * The binder bytes are irrelevant here since the ticket never opens. */
+static void test_sdrv_psk_ticket_open_fails_falls_back(void) {
+  sdrv_psk_fixture f;
+  quic_sdrv        s;
+  u8               srv_priv[32], srv_pub[32], cert_priv[32];
+  u8               ch2[700];
+  u8               garbage[QUIC_TICKET_SEALED_LEN];
+  u8               binder[QUIC_HKDF_PRK] = {0};
+  usz              ch2_len, psk_ext_off;
+  sdrv_psk_fixture_init(&f);
+  for (usz i = 0; i < 32; i++) {
+    srv_priv[i]  = (u8)(0x40 + i);
+    cert_priv[i] = (u8)(0x80 + i);
+  }
+  quic_x25519_base(srv_pub, srv_priv);
+  for (usz i = 0; i < sizeof(garbage); i++) garbage[i] = (u8)(0xee ^ i);
+
+  {
+    quic_tlsext_psk_in psk = {
+        quic_span_of(garbage, sizeof(garbage)), 0,
+        quic_span_of(binder, sizeof(binder))};
+    ch2_len = sdrv_test_append_psk(
+        ch2, sizeof(ch2), f.ch, f.ch_len, &psk, &psk_ext_off);
+    CHECK(ch2_len != 0);
+  }
+  {
+    quic_sdrv_init_in in = {srv_priv, srv_pub, cert_priv, 0,
+                            0,        0,       0,         f.ticket_key};
+    quic_sdrv_init(&s, &in);
+  }
+  CHECK(quic_sdrv_recv_client_hello(&s, ch2, ch2_len));
+  CHECK(s.psk_accepted == 0);
+}
+
+/* R-35/4.2.11.2: a ticket that opens but whose binder does not match MUST
+ * abort the handshake -- quic_sdrv_recv_client_hello must return 0, not fall
+ * back to a full handshake as if nothing had been offered. */
+static void test_sdrv_psk_binder_mismatch_aborts(void) {
+  sdrv_psk_fixture f;
+  quic_sdrv        s;
+  u8               srv_priv[32], srv_pub[32], cert_priv[32];
+  u8               ch2[700];
+  u8               wrong_binder[QUIC_HKDF_PRK];
+  usz              ch2_len, psk_ext_off;
+  sdrv_psk_fixture_init(&f);
+  for (usz i = 0; i < 32; i++) {
+    srv_priv[i]  = (u8)(0x40 + i);
+    cert_priv[i] = (u8)(0x80 + i);
+  }
+  quic_x25519_base(srv_pub, srv_priv);
+  for (usz i = 0; i < sizeof(wrong_binder); i++)
+    wrong_binder[i] = (u8)(0x11 + i);
+
+  {
+    quic_tlsext_psk_in psk = {
+        quic_span_of(f.sealed, sizeof(f.sealed)), 0,
+        quic_span_of(wrong_binder, sizeof(wrong_binder))};
+    ch2_len = sdrv_test_append_psk(
+        ch2, sizeof(ch2), f.ch, f.ch_len, &psk, &psk_ext_off);
+    CHECK(ch2_len != 0);
+  }
+  {
+    quic_sdrv_init_in in = {srv_priv, srv_pub, cert_priv, 0,
+                            0,        0,       0,         f.ticket_key};
+    quic_sdrv_init(&s, &in);
+  }
+  CHECK(!quic_sdrv_recv_client_hello(&s, ch2, ch2_len));
+}
+
+/* R-35/4.2.11.2: a correctly computed binder, but the transcript is tampered
+ * (one byte of ClientHello.random flipped) between binder computation and
+ * verification -- this exercises binder.c's own tamper detection through the
+ * real wire-parsing path (sdrv_psk_truncate's slice), not just binder.c's
+ * isolated unit tests. Must abort exactly like an outright wrong binder. */
+static void test_sdrv_psk_tampered_transcript_aborts(void) {
+  sdrv_psk_fixture f;
+  quic_sdrv        s;
+  u8               srv_priv[32], srv_pub[32], cert_priv[32];
+  u8               ch2[700];
+  u8               binder[QUIC_HKDF_PRK];
+  usz              ch2_len, psk_ext_off, trunc_len;
+  sdrv_psk_fixture_init(&f);
+  for (usz i = 0; i < 32; i++) {
+    srv_priv[i]  = (u8)(0x40 + i);
+    cert_priv[i] = (u8)(0x80 + i);
+  }
+  quic_x25519_base(srv_pub, srv_priv);
+
+  {
+    u8                 zero_binder[QUIC_HKDF_PRK] = {0};
+    quic_tlsext_psk_in psk                        = {
+        quic_span_of(f.sealed, sizeof(f.sealed)), 0,
+        quic_span_of(zero_binder, sizeof(zero_binder))};
+    ch2_len = sdrv_test_append_psk(
+        ch2, sizeof(ch2), f.ch, f.ch_len, &psk, &psk_ext_off);
+    CHECK(ch2_len != 0);
+  }
+  trunc_len = sdrv_test_psk_truncate_len(psk_ext_off, sizeof(f.sealed));
+  quic_tls_binder_compute(f.secret, quic_span_of(ch2, trunc_len), binder);
+  {
+    quic_tlsext_psk_in psk = {
+        quic_span_of(f.sealed, sizeof(f.sealed)), 0,
+        quic_span_of(binder, sizeof(binder))};
+    ch2_len = sdrv_test_append_psk(
+        ch2, sizeof(ch2), f.ch, f.ch_len, &psk, &psk_ext_off);
+    CHECK(ch2_len != 0);
+  }
+  /* Flip a byte inside ClientHello.random (offset 4+2), well before the
+   * pre_shared_key extension, after the binder was already computed over
+   * the untampered bytes. */
+  ch2[6] ^= 0x01;
+
+  {
+    quic_sdrv_init_in in = {srv_priv, srv_pub, cert_priv, 0,
+                            0,        0,       0,         f.ticket_key};
+    quic_sdrv_init(&s, &in);
+  }
+  CHECK(!quic_sdrv_recv_client_hello(&s, ch2, ch2_len));
+}
+
 void test_sdrv(void) {
   test_sdrv_keyshare_walk_rejects_overclaimed_exts_len();
   test_sdrv_tp_walk_rejects_overclaimed_exts_len();
@@ -1119,6 +1410,11 @@ void test_sdrv(void) {
   test_sdrv_suite_malformed_vec();
   test_sdrv_suite_vec_overruns_body();
   test_sdrv_retry_advertises_true_odcid_not_key_derivation_dcid();
+  test_sdrv_psk_absent_leaves_full_handshake_unchanged();
+  test_sdrv_psk_valid_ticket_and_binder_accepted();
+  test_sdrv_psk_ticket_open_fails_falls_back();
+  test_sdrv_psk_binder_mismatch_aborts();
+  test_sdrv_psk_tampered_transcript_aborts();
 
   u8 cli_priv[32], cli_pub[32], srv_priv[32], srv_pub[32];
   u8 cert_priv[32];
@@ -1155,7 +1451,7 @@ void test_sdrv(void) {
 
   /* server: drive the flight (the driver builds its own P-256 cert). */
   {
-    quic_sdrv_init_in din = {srv_priv, srv_pub, cert_priv, 0, 0, 0, 0};
+    quic_sdrv_init_in din = {srv_priv, srv_pub, cert_priv, 0, 0, 0, 0, 0};
     quic_sdrv_init(&s, &din);
   }
   CHECK(quic_sdrv_recv_client_hello(&s, ch, ch_len));
@@ -1243,7 +1539,7 @@ void test_sdrv(void) {
     quic_sdrv       s2;
 
     {
-      quic_sdrv_init_in din = {srv_priv, srv_pub, cert_priv, 0, 0, 0, 0};
+      quic_sdrv_init_in din = {srv_priv, srv_pub, cert_priv, 0, 0, 0, 0, 0};
       quic_sdrv_init(&s2, &din);
     }
     CHECK(quic_sdrv_set_cids(
