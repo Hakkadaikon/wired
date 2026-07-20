@@ -90,6 +90,9 @@ static void sdt_make_id(
   id->max_datagram_frame_size = 65535; /* DATAGRAM delivery, RFC 9221 3 */
   id->san_ipv4                = 0;
   id->now_secs                = 0;
+  id->retry_odcid             = 0;
+  id->retry_odcid_len         = 0;
+  id->ticket_key              = 0;
 }
 
 /* draft-ietf-webtrans-http3-15 SS4: relay every received DATAGRAM to every
