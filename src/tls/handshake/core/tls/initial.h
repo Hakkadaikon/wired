@@ -3,6 +3,7 @@
 
 #include "common/bytes/span/span.h"
 #include "crypto/kdf/hkdf/hkdf.h"
+#include "transport/version/version/version.h"
 
 /** @file
  * RFC 9001 5.2: Initial packet protection keys derived from the client's
@@ -31,10 +32,16 @@ typedef struct {
 } quic_initial_keys;
 
 /** Derive the client (is_server=0) or server (is_server=1) Initial keys from
- * the Destination Connection ID of the client's first Initial packet.
+ * the Destination Connection ID of the client's first Initial packet, using
+ * the Initial salt and HKDF-Expand-Label prefix for `version` (RFC 9001 5.2
+ * for v1, RFC 9369 3.3.1 for v2). An unknown version falls back to the v1
+ * salt/prefix (RFC 9000 17.2 invariants still apply before a version is
+ * negotiated).
  * @param dcid the Destination Connection ID of the client's first Initial
  * @param is_server 1 for the server keys, 0 for the client keys
+ * @param version the QUIC version whose salt/label prefix to use
  * @param out receives the derived keys */
-void quic_initial_derive(quic_span dcid, int is_server, quic_initial_keys* out);
+void quic_initial_derive(
+    quic_span dcid, int is_server, u32 version, quic_initial_keys* out);
 
 #endif
