@@ -98,7 +98,7 @@ static void test_endpoint_handshake(void) {
 
   quic_initial_keys cik; /* client Initial keys (both sides derive) */
   quic_aes128       chp;
-  quic_initial_derive(quic_span_of(dcid, 8), 0, &cik);
+  quic_initial_derive(quic_span_of(dcid, 8), 0, QUIC_VERSION_1, &cik);
   quic_aes128_init(&chp, cik.hp);
 
   quic_memlink link;

@@ -38,7 +38,7 @@ static void test_txpacket_roundtrip(void) {
   const u8          dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
   quic_initial_keys ik;
   quic_aes128       hp;
-  quic_initial_derive(quic_span_of(dcid, 8), 0, &ik);
+  quic_initial_derive(quic_span_of(dcid, 8), 0, QUIC_VERSION_1, &ik);
   quic_aes128_init(&hp, ik.hp);
 
   u8  ping[1];
@@ -62,7 +62,7 @@ static void test_txpacket_tamper(void) {
   const u8          dcid[4] = {1, 2, 3, 4};
   quic_initial_keys ik;
   quic_aes128       hp;
-  quic_initial_derive(quic_span_of(dcid, 4), 0, &ik);
+  quic_initial_derive(quic_span_of(dcid, 4), 0, QUIC_VERSION_1, &ik);
   quic_aes128_init(&hp, ik.hp);
 
   u8  ping[1] = {QUIC_FRAME_PING};
