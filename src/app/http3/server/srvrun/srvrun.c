@@ -738,8 +738,40 @@ static int srvrun_refuse(const srvrun_step_ctx* ctx, const srvrun_conn* c) {
   return 0;
 }
 
+/* Forward-declared: srvrun_boot_flush_zerortt (below) drives each buffered
+ * 0-RTT datagram through the exact same pair of real-wire steps every later
+ * live datagram takes -- srvrun_on_step (open/dispatch) then
+ * srvrun_sess_on_step (starts the response for whatever request that step's
+ * dispatch completed, mirrors srvrun_step_and_reap) -- both defined further
+ * down this file once the response-pumping helpers they depend on exist. */
+static void srvrun_on_step(
+    const srvrun_step_ctx* ctx, srvrun_conn* c, quic_mspan dg);
+static void srvrun_sess_on_step(const srvrun_step_ctx* ctx, int slot);
+
+/* RFC 9001 4.6.1: dg's boot accumulator held every 0-RTT datagram that
+ * arrived before this boot's early keys existed (wired_srvboot_acc_feed) --
+ * now that quic_sdrv_early_keys is available (or the PSK/early data was
+ * rejected, in which case wired_srvloop_recv's recv_zerortt simply fails
+ * open and each step is a no-op), replay them through the exact same
+ * real-wire step pair a later live 0-RTT/1-RTT datagram takes (RFC 9000
+ * 12.3: 0-RTT opens into the shared App pn space) -- srvrun_sess_on_step is
+ * what actually starts a response for a request wired_srvloop_dispatch
+ * completed (srvrun_step_and_reap's own pairing); without it a 0-RTT-carried
+ * request opens and ACKs but never gets answered. A peer CONNECTION_CLOSE
+ * seen mid-replay (vanishingly unlikely this early) stops the replay rather
+ * than stepping a freed slot. */
+static void srvrun_boot_flush_zerortt(
+    const srvrun_step_ctx* ctx, srvrun_conn* c, int slot) {
+  usz n = wired_srvboot_acc_zerortt_count(&c->boot);
+  for (usz i = 0; i < n && !c->l.peer_closed; i++) {
+    quic_span dg = wired_srvboot_acc_zerortt_take(&c->boot, i);
+    srvrun_on_step(ctx, c, quic_mspan_of((u8*)dg.p, dg.n));
+    srvrun_sess_on_step(ctx, slot);
+  }
+}
+
 static int srvrun_boot_finish(
-    const srvrun_step_ctx* ctx, srvrun_conn* c, quic_mspan dg) {
+    const srvrun_step_ctx* ctx, int slot, srvrun_conn* c, quic_mspan dg) {
   quic_obuf          iob  = quic_obuf_of(c->boot_ini, sizeof c->boot_ini);
   quic_obuf          hob  = quic_obuf_of(c->boot_hs, sizeof c->boot_hs);
   wired_srvboot_conn conn = {&c->s, &c->l};
@@ -770,6 +802,8 @@ static int srvrun_boot_finish(
   c->boot_dgram_sent  = 0;
   srvrun_boot_send_initial(ctx->cfg, c, "server Initial sent\n");
   srvrun_boot_send_hs_gated(ctx->cfg, c, wired_server_is_confirmed(&c->s));
+  /* before reset: replay buffered 0-RTT */
+  srvrun_boot_flush_zerortt(ctx, c, slot);
   wired_srvboot_acc_reset(&c->boot); /* the reassembly buffer is spent */
   /* RFC 9002 6.2: the accept flight just went out -- start this slot's boot
    * PTO clock fresh (T-009: any real send, not just the timer's own probe,
@@ -804,10 +838,10 @@ static int srvrun_boot_salvage(const srvrun_conn* c) {
 }
 
 static int srvrun_on_initial(
-    const srvrun_step_ctx* ctx, srvrun_conn* c, quic_mspan dg) {
+    const srvrun_step_ctx* ctx, int slot, srvrun_conn* c, quic_mspan dg) {
   if (!srvrun_boot_feed(c, dg)) return srvrun_boot_salvage(c);
   if (!wired_srvboot_acc_complete(&c->boot)) return SRVRUN_BOOT_PENDING;
-  return srvrun_boot_finish(ctx, c, dg);
+  return srvrun_boot_finish(ctx, slot, c, dg);
 }
 
 /* RFC 9114 4.1.1/8.1, draft-ietf-quic-reliable-stream-reset: a server aborts
@@ -3454,6 +3488,18 @@ static int srvrun_pump_round_gated(const srvrun_step_ctx* ctx, srvrun_conn* c) {
  * packet threshold, not because they were actually lost). */
 static void srvrun_pump_sess(const srvrun_step_ctx* ctx, int slot) {
   srvrun_conn* c = &ctx->st->conns[slot];
+  /* RFC 9001 4.1.2 / RFC 9000 12.3: 1-RTT packet-protection keys (the SDK's
+   * own send_onertt_keys fallback, srvloop/send.c) do not exist until the
+   * server's own Finished-inclusive transcript confirms
+   * (quic_keysched_advance_master, srvfin/complete.c) -- a response started
+   * from a 0-RTT-carried request (srvrun_boot_flush_zerortt, or the live
+   * 0-RTT path before the client's Finished lands) can be CLAIMED and armed
+   * before that point, but sending its slices this early always fails
+   * closed at the key layer. Deferring the whole pump until confirmed costs
+   * nothing: the next post-confirm step (the client's own Finished, which
+   * confirms) drains every slot's already-armed sendq exactly as if it had
+   * started then. */
+  if (!wired_server_is_confirmed(&c->s)) return;
   while (srvrun_pump_round_gated(ctx, c)) {
   }
 }
@@ -4012,7 +4058,7 @@ static void srvrun_boot_partial_ack(const srvrun_step_ctx* ctx, int slot) {
 
 static void srvrun_cold_start(
     const srvrun_step_ctx* ctx, int slot, quic_mspan dg) {
-  int r = srvrun_on_initial(ctx, &ctx->st->conns[slot], dg);
+  int r = srvrun_on_initial(ctx, slot, &ctx->st->conns[slot], dg);
   if (r != SRVRUN_BOOT_PENDING) {
     srvrun_open_done(ctx, slot, r);
     return;
@@ -4114,9 +4160,24 @@ static void srvrun_fire_ptos(const srvrun_cfg* cfg, srvrun_state* st) {
   for (usz i = 0; i < QUIC_CONNTABLE_CAP; i++) srvrun_tick_slot(&ctx, (int)i);
 }
 
-/* dg is a fresh cold-start Initial (srvrun_cold_start) or a retransmit of
- * one already accepted but not yet confirmed (srvrun_resend_boot_flight),
- * dispatched to whichever applies. Returns 1 if either handled dg. */
+/* RFC 9001 4.6.1: dg is a 0-RTT datagram arriving on a slot still mid-boot
+ * (not up yet) -- this boot's early keys do not exist yet to open it with,
+ * so it goes straight into the boot accumulator's own 0-RTT buffer
+ * (wired_srvboot_acc_feed's own dispatch) for srvrun_boot_flush_zerortt to
+ * replay once the accumulator's Initial reassembly completes and keys are
+ * derived. A slot already up (c->up) instead takes the live 1-RTT/0-RTT
+ * step path (srvrun_step_and_reap), which opens directly with the
+ * connection's now-installed keys. */
+static int srvrun_boot_zerortt(srvrun_conn* c, quic_mspan dg) {
+  if (c->up || !wired_srvboot_is_zerortt(dg.p, dg.n)) return 0;
+  wired_srvboot_acc_feed(&c->boot, dg);
+  return 1;
+}
+
+/* dg is a fresh cold-start Initial (srvrun_cold_start), a retransmit of one
+ * already accepted but not yet confirmed (srvrun_resend_boot_flight), or a
+ * 0-RTT datagram arriving ahead of this boot's keys (srvrun_boot_zerortt) --
+ * dispatched to whichever applies. Returns 1 if any handled dg. */
 static int srvrun_serve_boot(
     const srvrun_step_ctx* ctx, int slot, quic_mspan dg) {
   srvrun_conn* c = &ctx->st->conns[slot];
@@ -4128,7 +4189,7 @@ static int srvrun_serve_boot(
     srvrun_resend_boot_flight(ctx, c);
     return 1;
   }
-  return 0;
+  return srvrun_boot_zerortt(c, dg);
 }
 
 /* c is up, unconfirmed, and still has boot datagrams the antiamp gate held
