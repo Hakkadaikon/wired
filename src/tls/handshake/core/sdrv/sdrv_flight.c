@@ -66,7 +66,7 @@ static int emit_ee(quic_sdrv* s, quic_obuf* flight) {
           quic_span_of(s->rscid, s->rscid_len), &s->limits, &tob))
     return 0;
   if (!quic_eebuild_encrypted_extensions(
-          s->alpn, quic_span_of(tp, tob.len), &mob))
+          s->alpn, quic_span_of(tp, tob.len), s->early_data_accepted, &mob))
     return 0;
   return emit_msg(s, quic_span_of(msg, mob.len), flight);
 }
