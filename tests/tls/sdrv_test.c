@@ -1138,12 +1138,26 @@ static usz sdrv_test_psk_truncate_len(usz psk_ext_off, usz id_len) {
   return psk_ext_off + 12 + id_len;
 }
 
+/* RFC 8446 4.6.1: the PSK a ticket actually offers is derived from the
+ * resumption_master_secret this SDK stores in quic_ticket.secret --
+ * HKDF-Expand-Label(res_master_secret, "resumption", ticket_nonce, 32),
+ * empty ticket_nonce (see newsessionticket.h/sdrv.c's sdrv_psk_from_ticket_
+ * secret). Test-side mirror so fixtures compute a binder over the same PSK
+ * sdrv.c will derive when it opens the ticket. */
+static void sdrv_test_psk_from_res_master(
+    const u8 res_master_secret[QUIC_TICKET_SECRET_LEN], u8 psk_out[32]) {
+  quic_hkdf_label l = {"resumption", 10, {0, 0}};
+  quic_hkdf_expand_label(res_master_secret, &l, quic_mspan_of(psk_out, 32));
+}
+
 /* A resumption PSK setup shared by the accept/fallback/abort tests: an sdrv
  * with a fixed ticket_key, a plain ClientHello, and a sealed ticket whose
- * secret is known to the test. */
+ * resumption_master_secret (secret) and the PSK actually derived from it
+ * (psk) are both known to the test. */
 typedef struct {
   u8  ticket_key[QUIC_TICKET_KEY_LEN];
-  u8  secret[QUIC_TICKET_SECRET_LEN];
+  u8  secret[QUIC_TICKET_SECRET_LEN]; /* resumption_master_secret */
+  u8  psk[32];                        /* HKDF-Expand-Label(secret, ...) */
   u8  sealed[QUIC_TICKET_SEALED_LEN];
   u8  ch[600];
   usz ch_len;
@@ -1162,6 +1176,7 @@ static void sdrv_psk_fixture_init(sdrv_psk_fixture* f) {
     f->secret[i] = (u8)(0x50 + i);
     t.secret[i]  = f->secret[i];
   }
+  sdrv_test_psk_from_res_master(f->secret, f->psk);
   quic_x25519_base(f->cli_pub, cli_priv);
   quic_ticket_seal(&t, f->ticket_key, f->sealed);
   f->ch_len =
@@ -1236,7 +1251,7 @@ static void test_sdrv_psk_valid_ticket_and_binder_accepted(void) {
     CHECK(ch2_len != 0);
   }
   trunc_len = sdrv_test_psk_truncate_len(psk_ext_off, sizeof(f.sealed));
-  quic_tls_binder_compute(f.secret, quic_span_of(ch2, trunc_len), binder);
+  quic_tls_binder_compute(f.psk, quic_span_of(ch2, trunc_len), binder);
   {
     quic_tlsext_psk_in psk = {
         quic_span_of(f.sealed, sizeof(f.sealed)), 0,
@@ -1253,8 +1268,7 @@ static void test_sdrv_psk_valid_ticket_and_binder_accepted(void) {
   }
   CHECK(quic_sdrv_recv_client_hello(&s, ch2, ch2_len));
   CHECK(s.psk_accepted == 1);
-  for (usz i = 0; i < QUIC_TICKET_SECRET_LEN; i++)
-    CHECK(s.psk_secret[i] == f.secret[i]);
+  for (usz i = 0; i < 32; i++) CHECK(s.psk_secret[i] == f.psk[i]);
   sh_ob = quic_obuf_of(sh, sizeof(sh));
   fl_ob = quic_obuf_of(flight, sizeof(flight));
   fo    = (quic_sdrv_flight_out){&sh_ob, &fl_ob};
@@ -1361,7 +1375,7 @@ static void test_sdrv_psk_tampered_transcript_aborts(void) {
     CHECK(ch2_len != 0);
   }
   trunc_len = sdrv_test_psk_truncate_len(psk_ext_off, sizeof(f.sealed));
-  quic_tls_binder_compute(f.secret, quic_span_of(ch2, trunc_len), binder);
+  quic_tls_binder_compute(f.psk, quic_span_of(ch2, trunc_len), binder);
   {
     quic_tlsext_psk_in psk = {
         quic_span_of(f.sealed, sizeof(f.sealed)), 0,
