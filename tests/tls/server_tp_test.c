@@ -63,6 +63,31 @@ static void test_server_tp_ids_and_values(void) {
   CHECK(parse_int(tp, QUIC_TP_INITIAL_MAX_STREAMS_UNI, &v) && v == 100);
 }
 
+/* RFC 9000 7.3: after a Retry, retry_source_connection_id carries the
+ * Retry's SCID; without one the parameter is absent entirely (a peer that
+ * saw no Retry treats an unexpected one as TRANSPORT_PARAMETER_ERROR). */
+static void test_server_tp_retry_scid(void) {
+  u8           buf[256];
+  quic_span    b;
+  quic_stp_out bo     = {0, &b};
+  const u8     rsc[6] = {9, 8, 7, 6, 5, 4};
+  quic_obuf    ob     = quic_obuf_of(buf, sizeof buf);
+  quic_span    od     = quic_span_of(odcid, sizeof odcid);
+  quic_span    sc     = quic_span_of(scid, sizeof scid);
+  CHECK(quic_stp_build_server_ret(od, sc, quic_span_of(rsc, 6), 0, &ob) == 1);
+  {
+    quic_span tp = quic_span_of(buf, ob.len);
+    CHECK(quic_stp_parse(tp, QUIC_TP_RETRY_SOURCE_CONNECTION_ID, &bo) == 1);
+    CHECK(b.n == 6 && quic_tparam_cid_match(b, quic_span_of(rsc, 6)));
+  }
+  ob.len = 0;
+  CHECK(quic_stp_build_server_ret(od, sc, quic_span_of(0, 0), 0, &ob) == 1);
+  CHECK(
+      quic_stp_parse(
+          quic_span_of(buf, ob.len), QUIC_TP_RETRY_SOURCE_CONNECTION_ID, &bo) ==
+      0);
+}
+
 static void test_server_tp_no_room(void) {
   u8 buf[8];
   CHECK(stp_build(buf, sizeof(buf)) == 0);
@@ -194,6 +219,7 @@ void test_server_tp(void) {
   test_server_tp_reset_stream_at_empty();
   test_server_tp_reset_stream_at_does_not_disturb_others();
   test_server_tp_ids_and_values();
+  test_server_tp_retry_scid();
   test_server_tp_no_room();
   test_server_tp_parse_absent();
   test_client_tp_extract();

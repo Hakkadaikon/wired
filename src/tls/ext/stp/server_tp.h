@@ -30,6 +30,17 @@ int quic_stp_build_server(
 
 /* As quic_stp_build_server, with the tunable limits overriding defaults
  * (lim = 0 keeps every default). */
+/* Same as quic_stp_build_server_lim plus retry_source_connection_id
+ * (RFC 9000 7.3): emitted only when rscid is non-empty (a Retry actually
+ * preceded the handshake -- the peer treats an unexpected one as a
+ * TRANSPORT_PARAMETER_ERROR). */
+int quic_stp_build_server_ret(
+    quic_span              original_dcid,
+    quic_span              initial_scid,
+    quic_span              rscid,
+    const quic_stp_limits* lim,
+    quic_obuf*             out);
+
 int quic_stp_build_server_lim(
     quic_span              original_dcid,
     quic_span              initial_scid,
