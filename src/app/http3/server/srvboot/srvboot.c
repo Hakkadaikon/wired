@@ -12,15 +12,28 @@
 #include "transport/packet/header/lhdr/lhdr_parse.h"
 #include "transport/packet/header/packet/header.h"
 #include "transport/packet/header/packet/pnum.h"
+#include "transport/packet/header/packet/ptype.h"
 #include "transport/packet/header/packet/vneg.h"
+#include "transport/version/version/compat.h"
+#include "transport/version/versmgr/avail.h"
 
-/* RFC 9000 17.2: byte0 has the long-header bit set and Initial type bits 00. */
-static int srvboot_is_long_initial(u8 byte0) {
-  return (byte0 & 0x80) != 0 && (byte0 & 0x30) == 0;
+/* RFC 9000 17.2 (v1) / RFC 9369 3.2 (v2): byte0 wears a long-header Initial
+ * under `version`. The type-bit layout is version-dependent (v2's Initial
+ * bits are a rotation of v1's), so this always needs the packet's own
+ * Version field alongside byte0, never byte0 alone. */
+static int srvboot_is_long_initial(u8 byte0, u32 version) {
+  return quic_packet_long_type(byte0, version) == QUIC_PT_INITIAL;
+}
+
+/* 1 if dg has room for a long header prefix (byte0 + 4-byte version) and
+ * wears the long-header form bit. */
+static int srvboot_is_initial_sized(const u8* dg, usz len) {
+  return len >= 6 && (dg[0] & 0x80) != 0;
 }
 
 int wired_srvboot_is_initial(const u8* dg, usz len) {
-  if (len < 6 || !srvboot_is_long_initial(dg[0])) return 0;
+  if (!srvboot_is_initial_sized(dg, len)) return 0;
+  if (!srvboot_is_long_initial(dg[0], quic_get_be32(dg + 1))) return 0;
   return len >= (usz)6 + dg[5];
 }
 
@@ -89,6 +102,9 @@ typedef struct {
   const wired_srvboot_id* id;
   u64                     ack_pn;   /**< client Initial pn the flight ACKs */
   quic_span               cli_scid; /**< reply DCID (RFC 9000 7.2) */
+  u32 version; /**< the accepted Initial's own version (RFC 9368 2: the
+                * server replies in the version the client used, no VN
+                * round trip) */
 } srvboot_server;
 
 /* RFC 9000 19.6 / 14.1: TLS bytes per Handshake flight datagram. 1100 keeps
@@ -144,32 +160,63 @@ static int srvboot_seal_flight(
     const srvboot_flight_bytes* fb,
     wired_srvboot_out*          out) {
   wired_srvloop_send_in in0 = {sv->cli_scid, 1, (i64)sv->ack_pn, fb->sh, 0};
-  if (!wired_srvloop_send_initial(sv->s, &in0, out->initial)) return 0;
+  if (!wired_srvloop_send_initial_ver(sv->version, sv->s, &in0, out->initial))
+    return 0;
   return srvboot_seal_hs_flight(sv, fb->flight, out);
 }
 
-/* Build the server flight from the folded ClientHello and seal it. */
+/* Build the server flight from the folded ClientHello and seal it, replying
+ * in `version` -- the accepted Initial's own version (RFC 9368 2 / property
+ * 2: this server never switches away from the version the client's first
+ * flight used, so the reply is trivially compatible with it, verified
+ * defensively via quic_version_compatible rather than assumed). */
+/* flight sized past a real 9-cert amplificationlimit chain's Handshake
+ * flight (EncryptedExtensions + 9 CERTIFICATE entries + CertificateVerify +
+ * Finished) with headroom -- matches srvrun_conn.boot_hs, the buffer this
+ * flight is copied into for retransmission. See
+ * QUIC_TLS_CERT_CHAIN_MAX/WIRED_CERTRELOAD_CHAIN_MAX. */
+#define SRVBOOT_SH_MAX 512
+#define SRVBOOT_HS_FLIGHT_MAX 16384
+
+/* Build the TLS server flight (ServerHello + Handshake messages) into fb's
+ * backing buffers, replying in `version` -- gated on version's RFC 9368 2 /
+ * property 2 self-compatibility (this server only ever replies in the
+ * version the client's own Initial used, never a different "switched-to"
+ * one, so the check is defensive rather than a real branch point). Returns
+ * 1, or 0 if version is unknown, the driver fails, or a buffer is too
+ * small. */
+static int srvboot_build_flight_bytes(
+    const wired_srvboot_conn* conn,
+    const wired_srvboot_id*   id,
+    u32                       version,
+    u8*                       sh,
+    u8*                       flight,
+    srvboot_flight_bytes*     fb) {
+  quic_obuf            sh_ob = quic_obuf_of(sh, SRVBOOT_SH_MAX);
+  quic_obuf            fl_ob = quic_obuf_of(flight, SRVBOOT_HS_FLIGHT_MAX);
+  quic_sdrv_flight_out fo    = {&sh_ob, &fl_ob};
+  if (!quic_version_compatible(version, version)) return 0;
+  if (!wired_server_build_flight(conn->s, id->random, &fo)) return 0;
+  *fb = (srvboot_flight_bytes){
+      quic_span_of(sh, sh_ob.len), quic_span_of(flight, fl_ob.len)};
+  return 1;
+}
+
+/* Build the server flight from the folded ClientHello and seal it, replying
+ * in `version` -- the accepted Initial's own version (RFC 9368 2: no VN
+ * round trip, so the server just answers in the version that arrived). */
 static int srvboot_flight(
     const wired_srvboot_conn* conn,
     const wired_srvboot_id*   id,
+    u32                       version,
     u64                       ack_pn,
     wired_srvboot_out*        out) {
-  /* flight sized past a real 9-cert amplificationlimit chain's Handshake
-   * flight (EncryptedExtensions + 9 CERTIFICATE entries + CertificateVerify
-   * + Finished) with headroom -- matches srvrun_conn.boot_hs, the buffer
-   * this flight is copied into for retransmission. See
-   * QUIC_TLS_CERT_CHAIN_MAX/WIRED_CERTRELOAD_CHAIN_MAX. */
-  u8                   sh[512], flight[16384];
-  quic_obuf            sh_ob = quic_obuf_of(sh, sizeof sh);
-  quic_obuf            fl_ob = quic_obuf_of(flight, sizeof flight);
-  quic_sdrv_flight_out fo    = {&sh_ob, &fl_ob};
+  u8                   sh[SRVBOOT_SH_MAX], flight[SRVBOOT_HS_FLIGHT_MAX];
   srvboot_flight_bytes fb;
   srvboot_server       sv = {
       conn->s, id, ack_pn,
-      quic_span_of(conn->l->cli_scid, conn->l->cli_scid_len)};
-  if (!wired_server_build_flight(conn->s, id->random, &fo)) return 0;
-  fb = (srvboot_flight_bytes){
-      quic_span_of(sh, sh_ob.len), quic_span_of(flight, fl_ob.len)};
+      quic_span_of(conn->l->cli_scid, conn->l->cli_scid_len), version};
+  if (!srvboot_build_flight_bytes(conn, id, version, sh, flight, &fb)) return 0;
   if (!srvboot_seal_flight(&sv, &fb, out)) return 0;
   /* RFC 9000 12.3: later Handshake sends continue after the flight's packet
    * numbers 0..dgram_count-1. */
@@ -239,8 +286,8 @@ static int srvboot_acc_admit(wired_srvboot_acc* a, quic_mspan dg) {
 static int srvboot_acc_take(wired_srvboot_acc* a, quic_mspan pkt) {
   quic_span payload;
   quic_span odcid = quic_span_of(a->hdr.dcid, a->hdr.dcid_len);
-  if (!srvboot_is_long_initial(pkt.p[0])) return 0;
-  if (!quic_initpkt_open(odcid, pkt, &payload)) return 0;
+  if (!srvboot_is_long_initial(pkt.p[0], a->hdr.version)) return 0;
+  if (!quic_initpkt_open_ver(odcid, a->hdr.version, pkt, &payload)) return 0;
   quic_crecv_collect(&a->cr, payload.p, payload.n);
   a->largest_pn = quic_u64_max(a->largest_pn, srvboot_initial_pn(pkt));
   a->opened++;
@@ -319,7 +366,7 @@ int wired_srvboot_accept_acc(
   if (!wired_srvboot_acc_complete(a)) return 0;
   if (!srvboot_acc_start(conn, id, a)) return 0;
   out->client_pn = a->largest_pn;
-  return srvboot_flight(conn, id, a->largest_pn, out);
+  return srvboot_flight(conn, id, a->hdr.version, a->largest_pn, out);
 }
 
 usz wired_srvboot_refusal(
@@ -357,9 +404,14 @@ static int srvboot_vn_sized(quic_span dg) {
   return dg.n >= 1200 && (dg.p[0] & 0x80) != 0;
 }
 
-/* 1 if v is neither a Version Negotiation packet's 0 (RFC 9000 6.1) nor the
- * one version this server speaks. */
-static int srvboot_vn_alien(u32 v) { return v != 0 && v != 1; }
+/* 1 if v is neither a Version Negotiation packet's 0 (RFC 9000 6.1) nor a
+ * version this server speaks (RFC 9368 5 supported set: v1, v2). */
+static int srvboot_vn_alien(u32 v) {
+  quic_vers_set s;
+  if (v == 0) return 0;
+  quic_vers_init(&s);
+  return !quic_vers_supports(&s, v);
+}
 
 /* 1 if dg is a long-header datagram of an unsupported version. */
 static int srvboot_vn_owed(quic_span dg) {
@@ -367,13 +419,14 @@ static int srvboot_vn_owed(quic_span dg) {
 }
 
 usz wired_srvboot_vneg(quic_span dg, u8* out, usz cap) {
-  static const u32 versions[1] = {1};
-  wired_header     h;
-  quic_vneg_desc   d;
+  quic_vers_set  s;
+  wired_header   h;
+  quic_vneg_desc d;
   if (!srvboot_vn_owed(dg)) return 0;
   if (!wired_header_parse(dg.p, dg.n, &h)) return 0;
+  quic_vers_init(&s);
   d = (quic_vneg_desc){
       quic_span_of(h.dcid, h.dcid_len), quic_span_of(h.scid, h.scid_len),
-      versions, 1};
+      s.versions, s.n};
   return quic_vneg_respond(out, cap, &d);
 }

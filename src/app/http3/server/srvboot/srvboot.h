@@ -125,10 +125,11 @@ int wired_srvboot_accept(
     wired_srvboot_out*        out);
 
 /** Answer a long-header datagram of an unsupported version with a Version
- * Negotiation packet offering v1, connection ids swapped (RFC 9000 5.2.2 /
- * RFC 8999 6). No response for: a datagram under 1200 bytes (amplification
- * guard, RFC 9000 6), version 0 (never answer a Version Negotiation packet
- * with another, RFC 9000 6.1), a supported version, a short header, or an
+ * Negotiation packet offering this server's supported versions -- v2 then v1
+ * (RFC 9368 5), connection ids swapped (RFC 9000 5.2.2 / RFC 8999 6). No
+ * response for: a datagram under 1200 bytes (amplification guard, RFC 9000
+ * 6), version 0 (never answer a Version Negotiation packet with another,
+ * RFC 9000 6.1), a supported version (v1 or v2), a short header, or an
  * unparseable header.
  * @param dg the received datagram
  * @param out receives the Version Negotiation packet
