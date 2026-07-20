@@ -38,15 +38,17 @@ static int derive_secret(quic_sdrv* s) {
 }
 
 /* RFC 8446 4.3.1 / RFC 9001 8.1-8.2: EncryptedExtensions carrying ALPN "h3"
- * and the server transport parameters, advertising the ODCID (client first
- * Initial DCID) and ISCID (server SCID) recorded via quic_sdrv_set_cids
+ * and the server transport parameters, advertising the true first-Initial
+ * ODCID (tp_odcid -- equal to the key-derivation odcid on the direct-accept
+ * path, the token-recovered original after a Retry) and ISCID (server
+ * SCID) recorded via quic_sdrv_set_cids/quic_sdrv_set_cids_retried
  * (RFC 9000 7.3). */
 static int emit_ee(quic_sdrv* s, quic_obuf* flight) {
   u8        tp[256], msg[1024];
   quic_obuf tob = quic_obuf_of(tp, sizeof(tp));
   quic_obuf mob = quic_obuf_of(msg, sizeof(msg));
   if (!quic_stp_build_server_ret(
-          quic_span_of(s->odcid, s->odcid_len),
+          quic_span_of(s->tp_odcid, s->tp_odcid_len),
           quic_span_of(s->iscid, s->iscid_len),
           quic_span_of(s->rscid, s->rscid_len), &s->limits, &tob))
     return 0;
