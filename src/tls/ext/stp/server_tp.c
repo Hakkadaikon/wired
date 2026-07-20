@@ -81,9 +81,18 @@ static int put_reset_stream_at(quic_obuf* out) {
   return put_blob(out, QUIC_TP_RESET_STREAM_AT, quic_span_of(0, 0));
 }
 
-int quic_stp_build_server_lim(
+/* retry_source_connection_id only when a Retry actually happened -- an
+ * unexpected one is a TRANSPORT_PARAMETER_ERROR at the peer (RFC 9000 7.3).
+ */
+static int put_rscid(quic_obuf* out, quic_span rscid) {
+  if (rscid.n == 0) return 1;
+  return put_blob(out, QUIC_TP_RETRY_SOURCE_CONNECTION_ID, rscid);
+}
+
+int quic_stp_build_server_ret(
     quic_span              original_dcid,
     quic_span              initial_scid,
+    quic_span              rscid,
     const quic_stp_limits* lim,
     quic_obuf*             out) {
   int ok;
@@ -91,8 +100,18 @@ int quic_stp_build_server_lim(
   ok =
       put_blob(out, QUIC_TP_ORIGINAL_DESTINATION_CONNECTION_ID, original_dcid) &
       put_int_params(out) & put_tunables(out, lim) & put_reset_stream_at(out) &
+      put_rscid(out, rscid) &
       put_blob(out, QUIC_TP_INITIAL_SOURCE_CONNECTION_ID, initial_scid);
   return ok;
+}
+
+int quic_stp_build_server_lim(
+    quic_span              original_dcid,
+    quic_span              initial_scid,
+    const quic_stp_limits* lim,
+    quic_obuf*             out) {
+  return quic_stp_build_server_ret(
+      original_dcid, initial_scid, quic_span_of(0, 0), lim, out);
 }
 
 int quic_stp_build_server(
