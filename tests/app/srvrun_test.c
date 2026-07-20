@@ -7433,9 +7433,15 @@ static void test_srvrun_pump_round_robins_across_slots(void) {
  * slots 4/8 before they ever got a turn in the same step, so a real 3-way
  * parallel GET left two of the three streams completely unserved. */
 static void test_srvrun_pacing_floor_does_not_starve_round(void) {
-  static u8     body0[4 * SRVRUN_CHUNK];
-  static u8     body1[4 * SRVRUN_CHUNK];
-  static u8     body2[4 * SRVRUN_CHUNK];
+  /* exactly one chunk per slot: the fast-pacing path (interval floors under
+   * SRVRUN_PTO_MS) keeps srvrun_pump_sess's while loop running additional
+   * rounds as long as cwnd and the sendq allow, so a body long enough for a
+   * second round would make every slot's inflight count depend on how many
+   * rounds ran, not on whether round-robin fairness held within the first
+   * one -- pin the body to what one round can drain. */
+  static u8     body0[SRVRUN_CHUNK];
+  static u8     body1[SRVRUN_CHUNK];
+  static u8     body2[SRVRUN_CHUNK];
   struct lp_fix f;
   srvrun_conn   c;
   quic_obuf     ob = {0};
