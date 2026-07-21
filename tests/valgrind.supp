@@ -1,0 +1,22 @@
+# Valgrind's bpf() checker validates the FULL union bpf_attr layout for the
+# command, ignoring the size argument. This SDK passes truncated attr structs
+# (e.g. BPF_MAP_CREATE's first 5 fields, 20 bytes) with the matching size --
+# the kernel only reads that many bytes, so bytes past the struct (flagged as
+# attr->map_ifindex / attr->map_name) never reach it. ABI-correct; suppress
+# the false positive rather than padding every attr to a kernel-version-
+# dependent size. Matched by param name with any call stack: optimized builds
+# inline quic_xdpbpf_map_create into its callers, so function frames are not
+# a stable anchor.
+{
+   # the param name valgrind uses really has no closing paren (upstream quirk)
+   bpf-short-attr-map-ifindex
+   Memcheck:Param
+   bpf(attr->map_ifindex
+   obj:*
+}
+{
+   bpf-short-attr-map-name
+   Memcheck:Param
+   bpf(attr->map_name)
+   obj:*
+}
