@@ -1986,6 +1986,8 @@ static void test_srvrun_batch_serves_each(void) {
   bufs[1].src = (quic_sockaddr){0};
   bufs[0].src.port_be = 0x1111; /* two distinct peers */
   bufs[1].src.port_be = 0x2222;
+  bufs[0].ecn         = 0; /* hand-built input: recvmmsg would fill this */
+  bufs[1].ecn         = 0;
   {
     srvrun_cfg cfg = {-1, &id,           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                       0,  &g_srvrun_env, 0, 0, 0, 0, 0, 0};
