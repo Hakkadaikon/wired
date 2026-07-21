@@ -41,8 +41,7 @@ void test_kuswitch_derive(void) {
  * fixed 16-byte AES key quic_kuswitch_next_keys derives -- a Key Update on a
  * ChaCha20-negotiated connection needs the _suite entry point so the tail
  * 16 bytes aren't left stale (every post-update packet would otherwise fail
- * to open, observed live against a real quic-go chacha20 interop client
- * that stalls at PTO after its first Key Update). */
+ * to open). */
 void test_kuswitch_derive_suite_chacha20_full_key(void) {
   u8 cur[32];
   for (usz i = 0; i < 32; i++) cur[i] = (u8)i;

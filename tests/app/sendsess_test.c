@@ -130,17 +130,14 @@ static void test_sendsess_time_threshold_declares_lost_alone(void) {
   CHECK(wired_sendsess_inflight(&s) == 0);
 }
 
-/* REGRESSION (RFC 9002 6.1): "A packet is declared lost if ... it was sent
- * prior to an acknowledged packet. [...] The acknowledgment indicates that
- * a packet sent later was delivered" -- the time threshold in 6.1.2 is
- * subordinate to this premise, not an independent trigger. pn 4 has NOT
- * been superseded by any later-sent, now-acked packet (largest_acked stays
- * at its pre-arm value of 0, i.e. no ack ever named a pn > 4), so even a
- * huge elapsed time must NOT declare it lost -- only "it's been sitting
- * around a while" with nothing newer proven delivered. A real burst-send
- * scenario hit exactly this: several packets sent in the same step (same
- * sent_ms) got declared lost the instant elapsed time alone crossed
- * 9/8*RTT, with nothing after them ever acknowledged yet. */
+/* RFC 9002 6.1: "A packet is declared lost if ... it was sent prior to an
+ * acknowledged packet. [...] The acknowledgment indicates that a packet
+ * sent later was delivered" -- the time threshold in 6.1.2 is subordinate
+ * to this premise, not an independent trigger. pn 4 has NOT been superseded
+ * by any later-sent, now-acked packet (largest_acked stays at its pre-arm
+ * value of 0, i.e. no ack ever named a pn > 4), so even a huge elapsed time
+ * must NOT declare it lost -- only "it's been sitting around a while" with
+ * nothing newer proven delivered. */
 static void test_sendsess_time_threshold_requires_later_ack(void) {
   u8                bytes[20];
   wired_sendsess    s;
@@ -345,8 +342,7 @@ static void test_sendsess_stream_offset_defaults_to_zero(void) {
 /* wired_sendsess_set_base_offset shifts every subsequent slice's absolute
  * stream offset by the given amount, without touching the slice's own
  * (round-local) offset -- this is how a re-armed round N+1 continues the
- * QUIC stream's absolute byte numbering instead of restarting at 0
- * (T-018: streaming rounds must not rewind the stream offset). */
+ * QUIC stream's absolute byte numbering instead of restarting at 0. */
 static void test_sendsess_stream_offset_after_base_set(void) {
   u8                bytes[20];
   wired_sendsess    s;
@@ -364,8 +360,8 @@ static void test_sendsess_stream_offset_after_base_set(void) {
 /* Re-arming for the next round resets active/log/requeue state AND the base
  * offset back to 0 (a fresh arm always starts a session from scratch) -- a
  * streaming round driver must call set_base_offset again after every arm
- * with the cumulative bytes sent so far (T-019: no accidental double count
- * or silent reset losing the accumulated offset). */
+ * with the cumulative bytes sent so far -- no accidental double count
+ * or silent reset losing the accumulated offset. */
 static void test_sendsess_stream_offset_explicit_each_round(void) {
   u8                bytes[10];
   wired_sendsess    s;
@@ -405,7 +401,7 @@ static void test_sendsess_log_full_rejects_one_more(void) {
   CHECK(wired_sendsess_inflight(&s) == WIRED_SENDSESS_LOG);      /* unchanged */
 }
 
-/* T-002: the log's real capacity is exactly WIRED_SENDSESS_LOG -- every one
+/* The log's real capacity is exactly WIRED_SENDSESS_LOG -- every one
  * of those slots is fillable (regression guard against the constant and
  * the array bound silently drifting apart). */
 static void test_sendsess_log_capacity_matches_constant(void) {
@@ -421,11 +417,9 @@ static void test_sendsess_log_capacity_matches_constant(void) {
   CHECK(wired_sendsess_inflight(&s) == WIRED_SENDSESS_LOG);
 }
 
-/* T-003: past the OLD 32-slice cap (the goodput interop regression's exact
- * trigger point), in-flight bytes must keep accumulating instead of silently
- * losing track of newly sent slices -- proves the log now has headroom past
- * where the bug used to bite. 35 slices * 10 bytes = 350, comfortably past
- * the old 32-entry ceiling. */
+/* Past the log's old 32-slice cap, in-flight bytes must keep accumulating
+ * instead of silently losing track of newly sent slices. 35 slices * 10
+ * bytes = 350, comfortably past the old 32-entry ceiling. */
 static void test_sendsess_inflight_bytes_survive_past_old_cap(void) {
   u8                bytes[350];
   wired_sendsess    s;

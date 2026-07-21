@@ -140,8 +140,7 @@ static void test_certreload_loads_nine_cert_chain(void) {
 }
 
 /* CAP AT MAX: an 11-certificate cert.pem (past WIRED_CERTRELOAD_CHAIN_MAX)
- * loads only the first 10 -- certreload_next_cert's existing n < MAX guard,
- * confirmed against the new, larger limit. */
+ * loads only the first 10, via certreload_next_cert's n < MAX guard. */
 #define CRT_PEM_ELEVEN CRT_PEM_NINE CRT_PEM_LEAF CRT_PEM_LEAF
 static const char crt_cert_eleven_pem[]  = CRT_PEM_ELEVEN;
 static const char crt_cert_eleven_path[] = "build/certreload_cert11_test.pem";

@@ -125,7 +125,7 @@ static usz fc_cert_msg(
 static const u8* fc_realchain[2]     = {0, 0}; /* set in test entry */
 static usz       fc_realchain_len[2] = {0, 0};
 
-/* T-006: after recv_cert the caller's buffer may die; the recorded cert must
+/* After recv_cert the caller's buffer may die; the recorded cert must
  * live in the transcript, so a freshly signed CertificateVerify (over that
  * recorded copy) still verifies. */
 static void test_fullhs_chain_stale_buffer(void) {
@@ -150,7 +150,7 @@ static void test_fullhs_chain_stale_buffer(void) {
           &cl, quic_span_of(cv, cv_len), QUIC_TLS_SCHEME_ED25519) == 1);
 }
 
-/* T-007: a [leaf, intermediate] message is fully retained: both certs are
+/* A [leaf, intermediate] message is fully retained: both certs are
  * viewable from the transcript and byte-equal to the wire DER. */
 static void test_fullhs_chain_retained(void) {
   quic_tlsdriver cltls, svtls;
@@ -170,7 +170,7 @@ static void test_fullhs_chain_retained(void) {
   CHECK(cl.peer_cert == cl.tr + cl.cert_off[0]);
 }
 
-/* T-008: with the right root in the store, [leaf, int] is accepted (the
+/* With the right root in the store, [leaf, int] is accepted (the
  * public-web shape: the root itself is not on the wire). */
 static void test_fullhs_castore_ok(void) {
   quic_tlsdriver     cltls, svtls;
@@ -191,7 +191,7 @@ static void test_fullhs_castore_ok(void) {
   CHECK(quic_fullhs_recv_cert(&cl, msg, n) == 1);
 }
 
-/* T-009: a store without the chain's root rejects the Certificate, and the
+/* A store without the chain's root rejects the Certificate, and the
  * auth gate stays shut for a validly signed CV and a correctly signed
  * Finished. */
 static void test_fullhs_castore_wrong_root(void) {
@@ -239,7 +239,7 @@ static void test_fullhs_castore_wrong_root(void) {
   CHECK(quic_fullhs_is_complete(&cl) == 0);
 }
 
-/* T-010: a wire chain in the wrong order ([int, leaf]) breaks the links. */
+/* A wire chain in the wrong order ([int, leaf]) breaks the links. */
 static void test_fullhs_castore_swapped(void) {
   quic_tlsdriver     cltls, svtls;
   quic_fullhs        cl;

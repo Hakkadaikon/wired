@@ -60,7 +60,7 @@ static void test_udp_socket_dualstack(void) {
   wired_udp_close(fd);
 }
 
-/* T-016: cmsg_len 0 must not be treated as a valid entry (would otherwise
+/* cmsg_len 0 must not be treated as a valid entry (would otherwise
  * infinite-loop or read past the header) -- falls back to Not-ECT (0). */
 static void test_udp_recvmmsg_malformed_cmsg_len_no_oob_read(void) {
   u8 control[WIRED_GSO_CMSG_SPACE] = {0};
@@ -68,7 +68,7 @@ static void test_udp_recvmmsg_malformed_cmsg_len_no_oob_read(void) {
   CHECK(cmsg_read_ip_tos(control, sizeof control) == 0);
 }
 
-/* T-016 (variant): a cmsg_len claiming more bytes than the buffer holds must
+/* Variant: a cmsg_len claiming more bytes than the buffer holds must
  * not be trusted either -- same OOB-read defense, the overflowing-length
  * half of the boundary. */
 static void test_udp_recvmmsg_cmsg_len_overflow_no_oob_read(void) {
@@ -77,7 +77,7 @@ static void test_udp_recvmmsg_cmsg_len_overflow_no_oob_read(void) {
   CHECK(cmsg_read_ip_tos(control, sizeof control) == 0);
 }
 
-/* T-017: an unrelated cmsg entry (arbitrary level/type) ahead of IP_TOS must
+/* An unrelated cmsg entry (arbitrary level/type) ahead of IP_TOS must
  * be skipped, not mistaken for it or treated as a parse failure. */
 static void test_udp_recvmmsg_skips_unrelated_cmsg_to_find_ip_tos(void) {
   u8 control[2 * WIRED_GSO_CMSG_SPACE] = {0};
@@ -106,7 +106,7 @@ static void test_udp_cmsg_ecn_ipv6_tclass(void) {
   CHECK(cmsg_read_ip_tos(control, sizeof control) == 3);
 }
 
-/* T-003: an IP_TOS cmsg whose payload byte is Not-ECT (0x00) reads back 0. */
+/* An IP_TOS cmsg whose payload byte is Not-ECT (0x00) reads back 0. */
 static void test_udp_recvmmsg_not_ect_reads_as_zero(void) {
   u8 control[WIRED_GSO_CMSG_SPACE] = {0};
   *(u64*)(control + 0)             = 16 + 1;
@@ -116,13 +116,13 @@ static void test_udp_recvmmsg_not_ect_reads_as_zero(void) {
   CHECK(cmsg_read_ip_tos(control, sizeof control) == 0);
 }
 
-/* T-005 / T-015: no cmsg at all (controllen 0, as when IP_RECVTOS is off or
- * MSG_CTRUNC truncated the buffer to nothing) falls back to Not-ECT (0). */
+/* No cmsg at all (controllen 0, as when IP_RECVTOS is off or MSG_CTRUNC
+ * truncated the buffer to nothing) falls back to Not-ECT (0). */
 static void test_udp_recvmmsg_no_cmsg_defaults_to_zero(void) {
   CHECK(cmsg_read_ip_tos((const u8*)0, 0) == 0);
 }
 
-/* T-011: cmsg_read_ip_tos's IP_TOS entry offsets (cmsg_len@0, cmsg_level@8,
+/* cmsg_read_ip_tos's IP_TOS entry offsets (cmsg_len@0, cmsg_level@8,
  * cmsg_type@12, payload@16) match wired_udp_gso_cmsg_build's manual Linux
  * cmsghdr layout for UDP_SEGMENT -- the same ABI convention read here that
  * that function writes there. */
@@ -136,7 +136,7 @@ static void test_udp_recvmmsg_cmsg_layout_matches_kernel_abi(void) {
   CHECK(cmsg_read_ip_tos(control, sizeof control) == 3);
 }
 
-/* T-015: MSG_CTRUNC set on a slot's msg_flags means the cmsg buffer must not
+/* MSG_CTRUNC set on a slot's msg_flags means the cmsg buffer must not
  * be trusted, even though it holds a well-formed-looking IP_TOS entry --
  * recvmmsg_read_ecn falls back to Not-ECT (0) rather than reading it. */
 static void test_udp_recvmmsg_msg_ctruncated_falls_back_to_zero(void) {
