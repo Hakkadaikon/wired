@@ -114,7 +114,7 @@ static void log_cert_fingerprint(const wired_srvboot_id* id) {
   static wired_server  s; /* throwaway, sized in KB: keep it off the stack */
   wired_server_init_in in = {id->priv,    id->pub,         id->cert_seed,
                              id->chain,   id->chain_count, id->san_ipv4,
-                             id->now_secs};
+                             id->now_secs, 0};
   u8                   digest[32];
   char                 line[32 + 32 * 3 + 2];
   usz                  n = 0;
