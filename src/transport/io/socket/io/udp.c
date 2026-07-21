@@ -195,7 +195,7 @@ i64 wired_udp_send_batch(
 /* Byte capacity of the recvmmsg() cmsg buffer allocated per slot: room for one
  * IP_TOS cmsg (CMSG_SPACE(sizeof(int)) = 24, same layout family as
  * WIRED_GSO_CMSG_SPACE) plus WIRED_CMSG_SLACK bytes so an unrelated cmsg
- * ahead of IP_TOS (T-017) is not itself truncated by MSG_CTRUNC. */
+ * ahead of IP_TOS is not itself truncated by MSG_CTRUNC. */
 #define WIRED_CMSG_SLACK 32
 #define WIRED_RECV_CMSG_CAP (WIRED_GSO_CMSG_SPACE + WIRED_CMSG_SLACK)
 
@@ -207,20 +207,18 @@ static u64 cmsg_align(u64 n) { return (n + 7) & ~(u64)7; }
 
 /* 1 if [off, off + WIRED_CMSG_HDR_LEN) is a well-formed cmsg header inside
  * [0, controllen): cmsg_len is read only after this passes, so a malformed
- * or truncated header (T-016, T-015 MSG_CTRUNC) never drives an out-of-
- * bounds read of the length field or the payload it claims to have. */
+ * or truncated header never drives an out-of-bounds read of the length
+ * field or the payload it claims to have. */
 static int cmsg_entry_in_bounds(const u8* control, u64 controllen, u64 off) {
   u64 cmsg_len;
   if (off + WIRED_CMSG_HDR_LEN > controllen) return 0;
   cmsg_len = *(const u64*)(control + off);
   /* cmsg_len must cover at least its own header and fit inside the buffer
-   * the kernel actually wrote (T-016: 0 or an overflowing length is not a
-   * valid entry, not "no ECN reported"). */
+   * the kernel actually wrote: 0 or an overflowing length is not a valid
+   * entry, not "no ECN reported". */
   return cmsg_len >= WIRED_CMSG_HDR_LEN && off + cmsg_len <= controllen;
 }
 
-/* 1 if the in-bounds entry at off is IP_TOS/IPPROTO_IP; *tos receives its
- * one-byte low-order ECN codepoint (RFC 3168) on success. */
 /* 1 if (level, type) names an ECN-carrying byte: the v4 IP_TOS or the v6
  * IPV6_TCLASS (a dual-stack socket delivers whichever family the datagram
  * actually arrived under). */
@@ -241,11 +239,11 @@ static int cmsg_entry_is_ip_tos(const u8* control, u64 off, u8* tos) {
   return 1;
 }
 
-/* Walk the cmsg buffer the kernel filled (IP_RECVTOS, T-002) looking for an
- * IP_TOS entry, skipping any unrelated ones ahead of it (T-017). Returns the
- * ECN codepoint (0..3) found, or 0 (Not-ECT) when absent/truncated/malformed
- * (T-003, T-005, T-015, T-016) -- 0 is always the safe fallback since it
- * never falsely inflates the ECT/CE accumulators. */
+/* Walk the cmsg buffer the kernel filled (IP_RECVTOS) looking for an IP_TOS
+ * entry, skipping any unrelated ones ahead of it. Returns the ECN codepoint
+ * (0..3) found, or 0 (Not-ECT) when absent/truncated/malformed -- 0 is
+ * always the safe fallback since it never falsely inflates the ECT/CE
+ * accumulators. */
 static u8 cmsg_read_ip_tos(const u8* control, u64 controllen) {
   u64 off = 0;
   u8  tos;
@@ -274,11 +272,10 @@ typedef struct {
 /* Point one iovec+msghdr+mmsghdr slot at bufs[i].buf so the kernel writes
  * directly into the caller's storage; src doubles as msg_name. cmsgbuf is a
  * caller-owned WIRED_RECV_CMSG_CAP-byte scratch slot for the kernel to fill
- * with the IP_TOS ancillary message (T-002, RFC 3168 ECN bits) when
- * IP_RECVTOS is enabled on fd; a socket without it enabled simply gets
- * msg_controllen back as 0 (T-005). Zeroes the whole slot first so no
- * uninitialized stack bytes (e.g. msg_control/msg_controllen) ever reach the
- * recvmmsg(2) syscall. */
+ * with the IP_TOS ancillary message (RFC 3168 ECN bits) when IP_RECVTOS is
+ * enabled on fd; a socket without it enabled simply gets msg_controllen
+ * back as 0. Zeroes the whole slot first so no uninitialized stack bytes
+ * (e.g. msg_control/msg_controllen) ever reach the recvmmsg(2) syscall. */
 static void recvmmsg_fill_slot(
     quic_mmsghdr* slot, quic_iovec* iov, quic_mmsg_buf* b, u8* cmsgbuf) {
   *slot                        = (quic_mmsghdr){0};
@@ -293,8 +290,8 @@ static void recvmmsg_fill_slot(
 }
 
 /* Fill every slot the syscall will read from. cmsgbufs is WIRED_RECVMMSG_MAX
- * slots of WIRED_RECV_CMSG_CAP bytes each, one per bufs[i] (T-004: distinct
- * scratch per slot, so batched ECN bits never cross-contaminate). */
+ * slots of WIRED_RECV_CMSG_CAP bytes each, one per bufs[i]: distinct scratch
+ * per slot, so batched ECN bits never cross-contaminate. */
 static void recvmmsg_fill_all(
     quic_mmsghdr*  slots,
     quic_iovec*    iovs,
@@ -313,12 +310,12 @@ static void recvmmsg_read_lens(
 
 /* MSG_CTRUNC (linux/socket.h): the kernel truncated the ancillary (cmsg)
  * data because msg_controllen was too small -- a partially-written cmsg
- * buffer must not be trusted (T-015), so this slot falls back to Not-ECT (0)
- * the same as cmsg_read_ip_tos's other malformed-input paths. */
+ * buffer must not be trusted, so this slot falls back to Not-ECT (0) the
+ * same as cmsg_read_ip_tos's other malformed-input paths. */
 #define WIRED_MSG_CTRUNC 0x20
 
-/* Read each received slot's ECN bits (T-002/T-006) from the cmsg buffer the
- * kernel filled, honoring MSG_CTRUNC (T-015). */
+/* Read each received slot's ECN bits from the cmsg buffer the kernel
+ * filled, honoring MSG_CTRUNC. */
 static void recvmmsg_read_ecn(
     quic_mmsg_buf* bufs, const quic_mmsghdr* slots, i64 r) {
   for (i64 i = 0; i < r; i++) {
@@ -357,7 +354,7 @@ i64 wired_udp_recvmmsg_fallback(i64 fd, quic_mmsg_buf* bufs, usz count) {
     if (r <= 0) break;
     bufs[n].len = (u32)r;
     /* wired_udp_recvfrom carries no cmsg (recvfrom(2) has none): Not-ECT (0)
-     * is the safe fallback, same as an absent IP_TOS cmsg (T-005). */
+     * is the safe fallback, same as an absent IP_TOS cmsg. */
     bufs[n].ecn = 0;
     n += 1;
   }
