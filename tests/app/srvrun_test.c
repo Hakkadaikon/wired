@@ -645,7 +645,7 @@ static void test_srvrun_issue_cid_xdp_embeds_core_id(void) {
  * same client Initial arriving again (its first reply lost or delayed) must
  * resend the cached accept flight, not run a fresh boot -- a fresh boot
  * would regenerate the slot's SCID and its keys, which is what left Chrome
- * unable to complete a handshake (tasks/interop-gap.md). This test proves
+ * unable to complete a handshake. This test proves
  * the slot's identity is untouched by the retransmit: same SCID, same
  * cached flight bytes, still not confirmed. */
 static void test_srvrun_initial_retransmit_resends_cached_flight(void) {
@@ -2940,10 +2940,10 @@ static void test_srvrun_pace_within_poll_tick_unaffected_by_probe_change(void) {
   }
 }
 
-/* POLLING DRIVER (tasks/polling-driver-plan.md Phase 2): busy_poll/
- * so_busy_poll_us opt-in knobs, threaded through srvrun_cfg as its 10th
- * (trailing) field so every existing 9-field positional initializer above
- * keeps compiling unchanged with busy_poll defaulting to 0. */
+/* POLLING DRIVER: busy_poll/so_busy_poll_us opt-in knobs, threaded through
+ * srvrun_cfg as its 10th (trailing) field so every existing 9-field
+ * positional initializer above keeps compiling unchanged with busy_poll
+ * defaulting to 0. */
 
 /* REGRESSION: busy_poll=0 (the zero-value default, same as every srvrun_cfg
  * literal above) takes the existing blocking-poll branch in
@@ -2983,9 +2983,8 @@ static void test_srvrun_busy_poll_on_never_blocks_wait(void) {
 
 /* busy_poll=1: the recv step itself (srvrun_step, via srvrun_recv) never
  * blocks on an empty real socket -- a fixed number of calls all return
- * promptly instead of hanging, the bounded proxy for "no indefinite block"
- * (tasks/polling-driver-plan.md test-design item 4/5's srvrun-level
- * counterpart). */
+ * promptly instead of hanging, the bounded proxy for "no indefinite
+ * block". */
 static void test_srvrun_busy_poll_step_never_blocks(void) {
   i64            fd = wired_udp_socket();
   quic_sockaddr  sa;
@@ -3074,8 +3073,8 @@ static void test_srvrun_so_busy_poll_zero_still_binds(void) {
   wired_udp_close(fd);
 }
 
-/* WEBTRANSPORT EXTENDED CONNECT (tasks/webtransport-plan.md Phase 7a):
- * srvrun_start_resp establishes a wired_wt_session for a well-formed
+/* WEBTRANSPORT EXTENDED CONNECT: srvrun_start_resp establishes a
+ * wired_wt_session for a well-formed
  * Extended CONNECT (:protocol=webtransport-h3) instead of calling the app
  * handler. Counts invocations to prove the handler path was skipped. */
 static int g_sr_wt_handler_calls = 0;
@@ -3110,9 +3109,9 @@ static const u8 sr_wt_origin_ok[]      = "https://example.test";
  * request -- srvrun_start_resp only reads these mirror fields, so no real
  * wire round-trip is needed to drive it. connect_method/with_protocol pick
  * from the fixed literals above (no libc strlen available in this SDK).
- * :scheme/:path are always set to well-formed values here (WT-B-003/004's
- * required Extended CONNECT shape); tests that need them missing clear the
- * field directly after calling this. */
+ * :scheme/:path are always set to well-formed values here (the required
+ * Extended CONNECT shape); tests that need them missing clear the field
+ * directly after calling this. */
 static void sr_set_req(
     srvrun_conn* c, int connect_method, int with_protocol, u64 stream_id) {
   if (connect_method) {
@@ -3248,7 +3247,7 @@ static void test_srvrun_wt_bidi_stream_offered_to_session(void) {
   CHECK(c.l.tx_pn == tx_pn_before); /* no RESET_STREAM sealed */
 }
 
-/* WT-C-009 (buffer-full rejection): fill every WIRED_WT_MAX_BUFFERED_STREAMS
+/* Buffer-full rejection: fill every WIRED_WT_MAX_BUFFERED_STREAMS
  * slot of an UNESTABLISHED session directly via wired_wt_session_offer_stream
  * (the same buffering path test_srvrun_wt_uni_stream_offered_to_session
  * exercises for one slot), so the session's own buffer is at capacity before
@@ -3257,7 +3256,7 @@ static void test_srvrun_wt_bidi_stream_offered_to_session(void) {
  * srvrun_offer_wt_slot must reject the stream on the wire with
  * WT_BUFFERED_STREAM_REJECTED (0x3994bd84) mapped through
  * quic_wterrmap_to_http3 (draft-ietf-webtrans-http3-15 8.2) -- NOT the
- * H3_REQUEST_REJECTED the WT-C-010 busy-reset path carries, since this is an
+ * H3_REQUEST_REJECTED the busy-reset path carries, since this is an
  * application-level WT error code, not an HTTP/3-level one. The expected
  * wire value (0x52e4df8fc205) is hand-derived: first=0x52e4a40fa8db,
  * n=0x3994bd84 (966049156), h = first + n + floor(n/0x1e) = first +
@@ -3298,9 +3297,8 @@ static void test_srvrun_wt_bidi_stream_buffer_full_sends_reset(void) {
   CHECK(rn != 0);
   CHECK(rs.stream_id == 999);
   CHECK(rs.error_code == 0x52e4df8fc205ULL);
-  /* WT-F-007: RESET_STREAM_AT (not a plain RESET_STREAM), both size fields
-   * 0 -- this stream never carried any application bytes to guarantee
-   * delivery of. */
+  /* RESET_STREAM_AT (not a plain RESET_STREAM), both size fields 0 -- this
+   * stream never carried any application bytes to guarantee delivery of. */
   CHECK(rs.final_size == 0);
   CHECK(rs.reliable_size == 0);
   sn = quic_stop_sending_decode(pl + rn, pll - rn, &ss);
@@ -3422,9 +3420,9 @@ static void test_srvrun_plain_connect_no_protocol_no_wt_session(void) {
   CHECK(g_sr_wt_handler_calls == 1); /* falls through to the normal handler */
 }
 
-/* WT-B-003/004: a well-formed Extended CONNECT missing :scheme is not
- * recognized as one -- no session, falls to the normal handler path (today's
- * only defined behavior for a malformed CONNECT-shaped request). */
+/* A well-formed Extended CONNECT missing :scheme is not recognized as one --
+ * no session, falls to the normal handler path (the defined behavior for a
+ * malformed CONNECT-shaped request). */
 static void test_srvrun_wt_connect_missing_scheme_no_session(void) {
   struct lp_fix  f;
   quic_conntable table[QUIC_CONNTABLE_CAP];
@@ -3449,8 +3447,8 @@ static void test_srvrun_wt_connect_missing_scheme_no_session(void) {
   CHECK(g_sr_wt_handler_calls == 1);
 }
 
-/* WT-B-003/004: a well-formed Extended CONNECT missing :path is likewise not
- * recognized -- same fallthrough as the missing-:scheme case above. */
+/* A well-formed Extended CONNECT missing :path is likewise not recognized --
+ * same fallthrough as the missing-:scheme case above. */
 static void test_srvrun_wt_connect_missing_path_no_session(void) {
   struct lp_fix  f;
   quic_conntable table[QUIC_CONNTABLE_CAP];
@@ -3475,8 +3473,8 @@ static void test_srvrun_wt_connect_missing_path_no_session(void) {
   CHECK(g_sr_wt_handler_calls == 1);
 }
 
-/* WT-B-003/004: a well-formed Extended CONNECT missing :authority is likewise
- * not recognized -- same fallthrough. */
+/* A well-formed Extended CONNECT missing :authority is likewise not
+ * recognized -- same fallthrough. */
 static void test_srvrun_wt_connect_missing_authority_no_session(void) {
   struct lp_fix  f;
   quic_conntable table[QUIC_CONNTABLE_CAP];
@@ -3501,9 +3499,8 @@ static void test_srvrun_wt_connect_missing_authority_no_session(void) {
   CHECK(g_sr_wt_handler_calls == 1);
 }
 
-/* WT-B-005/007/008: a well-formed, non-empty Origin still establishes the
- * session normally (positive case -- presence alone is not a rejection
- * reason). */
+/* A well-formed, non-empty Origin still establishes the session normally
+ * (positive case -- presence alone is not a rejection reason). */
 static void test_srvrun_wt_connect_origin_ok_establishes(void) {
   struct lp_fix  f;
   quic_conntable table[QUIC_CONNTABLE_CAP];
@@ -3529,9 +3526,9 @@ static void test_srvrun_wt_connect_origin_ok_establishes(void) {
   CHECK(conns[0].resp[0].sess.active == 1);
 }
 
-/* WT-B-005/007/008: a present but malformed (empty-value) Origin gets a
- * 403-equivalent response instead of establishing a session -- no
- * wired_wt_session is created, but a response is still armed (the 403). */
+/* A present but malformed (empty-value) Origin gets a 403-equivalent
+ * response instead of establishing a session -- no wired_wt_session is
+ * created, but a response is still armed (the 403). */
 static void test_srvrun_wt_connect_origin_malformed_403(void) {
   struct lp_fix  f;
   quic_conntable table[QUIC_CONNTABLE_CAP];
@@ -3557,9 +3554,9 @@ static void test_srvrun_wt_connect_origin_malformed_403(void) {
   CHECK(conns[0].resp[0].sess.active == 1); /* the 403 was still armed */
 }
 
-/* WT-C-010/011: a second Extended CONNECT arriving on a connection that
- * already has an active WT session is rejected (429) instead of silently
- * overwriting the existing session. The critical assertion is the last one:
+/* A second Extended CONNECT arriving on a connection that already has an
+ * active WT session is rejected (429) instead of silently overwriting the
+ * existing session. The critical assertion is the last one:
  * without the c->wt_active guard in srvrun_dispatch_wt, srvrun_start_wt would
  * unconditionally re-init c->wt, resetting it from ESTABLISHED back to
  * UNESTABLISHED -- this test fails on that regression and passes with the
@@ -3602,8 +3599,8 @@ static void test_srvrun_second_wt_connect_rejected_429(void) {
   CHECK(conns[0].wt.connect_stream_id == 4);      /* still the first id */
 }
 
-/* RFC 9114 4.1.1/8.1: rejecting a second Extended CONNECT (WT-C-010/011)
- * SHOULD also abort the rejected request's stream with H3_REQUEST_REJECTED,
+/* RFC 9114 4.1.1/8.1: rejecting a second Extended CONNECT SHOULD also abort
+ * the rejected request's stream with H3_REQUEST_REJECTED,
  * independent of the 429 status the request also gets. Drives the same
  * rejection path as test_srvrun_second_wt_connect_rejected_429 above, then
  * seals the RESET_STREAM+STOP_SENDING pair for the SAME rejected stream
@@ -3663,9 +3660,9 @@ static void test_srvrun_second_wt_connect_sends_reset_stream(void) {
   CHECK(rn + sn == pll); /* nothing else in the packet */
 }
 
-/* WT-C-006/007 regression: stream id 8 (& 3 == 0) is a client-initiated bidi
- * id, same shape as the existing establishes_session test's id 4 -- confirms
- * the new validation does not reject a well-formed id. */
+/* Stream id 8 (& 3 == 0) is a client-initiated bidi id, same shape as the
+ * existing establishes_session test's id 4 -- confirms the validation does
+ * not reject a well-formed id. */
 static void test_srvrun_wt_connect_client_bidi_id_establishes_session(void) {
   struct lp_fix  f;
   quic_conntable table[QUIC_CONNTABLE_CAP];
@@ -3689,7 +3686,7 @@ static void test_srvrun_wt_connect_client_bidi_id_establishes_session(void) {
   CHECK(conns[0].wt.connect_stream_id == 8);
 }
 
-/* WT-C-006/007: this SDK's live receive path only ever surfaces a client-bidi
+/* This SDK's live receive path only ever surfaces a client-bidi
  * req_stream_id (it comes from the same reassembly path that only tracks
  * request streams), so a non-client-bidi id can never reach srvrun_start_resp
  * today -- this is a defensive check exercised by driving srvrun_start_resp
@@ -3743,10 +3740,8 @@ static void test_srvrun_wt_connect_non_client_bidi_id_rejected(void) {
 /* RFC 9000 10.2.3: srvrun_seal_app_close builds a correctly-encoded
  * application-level (is_app=1, type 0x1d) CONNECTION_CLOSE -- distinct from
  * wired_srvboot_refusal/quic_flowviol_close_frame's is_app=0 (type 0x1c)
- * transport-level variant. A dormant primitive (tasks/webtransport-plan.md
- * WT-C-005 second half): no live caller yet, this test is its only current
- * exercise, matching srvrun_send_wt_busy_reset's own one-round-dormant
- * precedent before WT-C-009 later found its first caller. */
+ * transport-level variant. A dormant primitive: no live caller yet, this
+ * test is its only current exercise. */
 static void test_srvrun_seal_app_close_is_application_level(void) {
   struct lp_fix         f;
   quic_obuf             ob;
@@ -3856,15 +3851,14 @@ static void test_srvrun_first_wt_connect_no_reset_stream(void) {
   CHECK(conns[0].l.tx_pn == tx_pn_before);
 }
 
-/* WT-F-001/002/003 (approximation): tearing down the connection tears down
- * its WebTransport session too. srvrun_free_slot is the one hook common to
- * every teardown path (peer close, boot failure, idle sweep); this drives it
- * via the idle sweep, the cheapest of the three to set up in a unit test.
- * This is NOT the spec-accurate trigger (the real rule is the CONNECT
- * stream's own FIN/RESET, independent of whether the rest of the connection
- * survives) -- see the comment on srvrun_free_slot and
- * tasks/wt-pin-poll-progress.md for why that finer-grained signal does not
- * exist yet. */
+/* Approximation: tearing down the connection tears down its WebTransport
+ * session too. srvrun_free_slot is the one hook common to every teardown
+ * path (peer close, boot failure, idle sweep); this drives it via the idle
+ * sweep, the cheapest of the three to set up in a unit test. This is NOT
+ * the spec-accurate trigger (the real rule is the CONNECT stream's own
+ * FIN/RESET, independent of whether the rest of the connection survives)
+ * -- see the comment on srvrun_free_slot for why that finer-grained signal
+ * does not exist yet. */
 static void test_srvrun_idle_sweep_closes_wt_session(void) {
   quic_conntable table[QUIC_CONNTABLE_CAP];
   srvrun_conn*   conns = sr_test_conns();
@@ -3895,13 +3889,13 @@ static void test_srvrun_idle_sweep_closes_wt_session(void) {
   CHECK(conns[0].up == 0);
 }
 
-/* draft-ietf-webtrans-http3-15 SS4.4 / WT-F-001/002/003: the CONNECT stream
- * closing (dispatch.c's gather_stream_closes latching closed_stream_id) ends
- * the WT session immediately, independent of whole-connection teardown -- the
- * fourth trigger the TLA+ model (tasks/loopeng/webtransport/) found the
- * existing three (peer CONNECTION_CLOSE / idle timeout / accept failure, all
- * srvrun_free_slot) missing. The connection itself stays up (conns[0].up is
- * never touched by srvrun_on_step for this), only the session closes. */
+/* draft-ietf-webtrans-http3-15 SS4.4: the CONNECT stream closing (dispatch.c's
+ * gather_stream_closes latching closed_stream_id) ends the WT session
+ * immediately, independent of whole-connection teardown -- the fourth
+ * trigger, missing from the existing three (peer CONNECTION_CLOSE / idle
+ * timeout / accept failure, all srvrun_free_slot). The connection itself
+ * stays up (conns[0].up is never touched by srvrun_on_step for this), only
+ * the session closes. */
 static void test_srvrun_connect_stream_reset_closes_wt_session(void) {
   quic_conntable table[QUIC_CONNTABLE_CAP];
   srvrun_conn*   conns = sr_test_conns();
@@ -4043,7 +4037,7 @@ static void test_srvrun_datagram_round_trip_on_wire(void) {
     CHECK(df.data[i] == sr_dg_payload[i]);
 }
 
-/* WT-A-005 / RFC 9297 2.1: a QUIC DATAGRAM must never be queued before this
+/* RFC 9297 2.1: a QUIC DATAGRAM must never be queued before this
  * endpoint's own SETTINGS_H3_DATAGRAM has been sent (SETTINGS are never
  * acked in HTTP/3, so "sent" is the enforceable half of the ordering).
  * sr_make_confirmed_conn drives a real confirmation, which sends SETTINGS
@@ -4153,8 +4147,8 @@ static void test_srvrun_datagram_second_queue_overwrites_first(void) {
     CHECK(c.dg_pending_buf[i] == sr_dg_second[i]);
 }
 
-/* WEBTRANSPORT DATAGRAM RECEIVE (tasks/webtransport-plan.md Phase 7b Slice 2):
- * srvrun_drain_rx_datagrams delivers every queued RFC 9221 DATAGRAM to the
+/* WEBTRANSPORT DATAGRAM RECEIVE: srvrun_drain_rx_datagrams delivers every
+ * queued RFC 9221 DATAGRAM to the
  * registered app callback exactly once, in arrival order, then empties the
  * queue. g_srdg_calls/g_srdg_last_len/g_srdg_last_buf record what the
  * callback observed (this repo's existing g_sr_wt_handler_calls counter
@@ -4330,7 +4324,7 @@ static void test_srvrun_seal_transport_close_is_transport_level(void) {
   CHECK(ccf.error_code == QUIC_ERR_PROTOCOL_VIOLATION);
 }
 
-/* RFC 9221 3 / WT-A-007/008: a DATAGRAM frame whose payload exceeds this
+/* RFC 9221 3: a DATAGRAM frame whose payload exceeds this
  * connection's own advertised max_datagram_frame_size, driven through the
  * real srvrun_on_step (not just wired_srvloop_step in isolation), latches
  * l.datagram_violation and does NOT queue the oversized frame -- proving the
@@ -6751,12 +6745,12 @@ static void test_srvrun_pto_budget_exhausted_tears_down_connection(void) {
 /* REGRESSION (interop http3, 500KB body over a 15ms-RTT link): once a real
  * RTT sample is in, a slice that is merely slow -- still well inside its
  * own RTT-derived PTO window -- must NOT be probed just because a poll
- * tick landed after it. The old SRVRUN_PTO_MS=300 fixed-interval design
- * fired here unconditionally, resending in-flight data that was never lost
- * and stalling the transfer (see tasks/todo.md this session's investigation).
- * A tick at a small multiple of a 15ms RTT (well under the ~50-60ms PTO a
- * 15ms/7.5ms-rttvar sample implies) must leave the slice untouched; only a
- * tick that has actually crossed the deadline may probe it. */
+ * tick landed after it. A fixed-interval PTO design would fire here
+ * unconditionally, resending in-flight data that was never lost and
+ * stalling the transfer. A tick at a small multiple of a 15ms RTT (well
+ * under the ~50-60ms PTO a 15ms/7.5ms-rttvar sample implies) must leave the
+ * slice untouched; only a tick that has actually crossed the deadline may
+ * probe it. */
 static void test_srvrun_pto_not_due_within_rtt_window(void) {
   struct lp_fix  f;
   quic_conntable table[QUIC_CONNTABLE_CAP];
