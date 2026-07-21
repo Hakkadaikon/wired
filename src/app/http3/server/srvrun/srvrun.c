@@ -383,7 +383,7 @@ typedef struct {
    * through detect -> challenge -> validate. One instance, not one per path:
    * this SDK tracks only the single most-recently-seen path (see
    * path_challenge_data's doc) -- multiple concurrent paths (RFC 9000 9.3.1)
-   * are out of scope (T-014, see srvrun_rebind_peer's own doc for the full
+   * are out of scope (see srvrun_rebind_peer's own doc for the full
    * list of what this slice deliberately does not implement). */
   quic_migrate migrate;
   /** RFC 9000 8.2.2: the 8-byte PATH_CHALLENGE data last sent for the path
@@ -391,7 +391,7 @@ typedef struct {
    * yet migrate.validated. Re-armed (overwritten) on every new rebind
    * detected before the prior challenge validates -- srvrun_rebind_peer only
    * ever tracks the single latest path, so an in-flight PATH_RESPONSE for a
-   * since-superseded challenge simply fails to compare equal (T-006). */
+   * since-superseded challenge simply fails to compare equal. */
   u8 path_challenge_data[QUIC_PATH_DATA];
 } srvrun_conn;
 
@@ -653,24 +653,24 @@ static u64 srvrun_boot_budget(const srvrun_conn* c) {
 }
 
 /* Send one datagram through the boot-phase antiamp gate, bumping
- * boot_tx_bytes (T-014: Initial and Handshake both count). The antiamp
+ * boot_tx_bytes (Initial and Handshake both count). The antiamp
  * budget check itself lives in the callers (srvrun_boot_gate_blocks) -- this
  * just sends and accounts, so a caller that already decided (e.g. because
- * the path is confirmed, T-007) never gets silently overruled here. */
+ * the path is confirmed) never gets silently overruled here. */
 static void srvrun_boot_send(
     const srvrun_cfg* cfg, srvrun_conn* c, quic_span pkt, const char* what) {
   srvrun_send(cfg, c, pkt, what);
   c->boot_tx_bytes += pkt.n;
 }
 
-/* T-007: the antiamp gate applies only until the path is validated. */
+/* The antiamp gate applies only until the path is validated. */
 static int srvrun_boot_gate_blocks(
     const srvrun_conn* c, int confirmed, usz want) {
   return !confirmed && want > srvrun_boot_budget(c);
 }
 
 /* Send/resend the boot Initial through the same antiamp gate as the
- * Handshake flight (T-014: one decision point covers both). The very first
+ * Handshake flight (one decision point covers both). The very first
  * Initial always fits in practice (it never exceeds the client's own
  * first-Initial-derived budget, RFC 9000 14.1's 1200-byte floor); this stays
  * gated anyway so srvrun_boot_send has exactly one caller-side check to
@@ -691,10 +691,9 @@ static usz srvrun_boot_sent_off(const srvrun_conn* c) {
 
 /* RFC 9000 8.1: send boot_dgram_len[boot_dgram_sent..dgram_count) in order,
  * stopping at the first one that would exceed the antiamp budget -- the
- * rest stays held for a later round once more client bytes arrive
- * (T-001/T-002/T-003/T-004/T-005/T-006). Once the path is validated
- * (confirmed) the limit is lifted and everything remaining goes out in one
- * pass (T-007). */
+ * rest stays held for a later round once more client bytes arrive.
+ * Once the path is validated (confirmed) the limit is lifted and everything
+ * remaining goes out in one pass. */
 static void srvrun_boot_send_hs_gated(
     const srvrun_cfg* cfg, srvrun_conn* c, int confirmed) {
   usz off = srvrun_boot_sent_off(c);
@@ -786,8 +785,8 @@ static int srvrun_boot_finish(
   /* RFC 9221 3: this connection's own advertised max_datagram_frame_size,
    * threaded to dispatch.c's DATAGRAM-gathering size check (see
    * wired_srvloop.we_advertised_max_datagram's doc). Same sid/base value
-   * quic_stp_build_server_lim already sends in the transport parameters
-   * (WT-A-006) — sid is this slot's own copy of cfg->id, built above. */
+   * quic_stp_build_server_lim already sends in the transport parameters --
+   * sid is this slot's own copy of cfg->id, built above. */
   c->l.we_advertised_max_datagram = sid.max_datagram_frame_size;
   /* RFC 9000 18.2/19.9: seed this connection's send credit from the peer's
    * ClientHello TP now that quic_sdrv_recv_client_hello has run (inside
@@ -805,7 +804,7 @@ static int srvrun_boot_finish(
   srvrun_boot_flush_zerortt(ctx, c, slot);
   wired_srvboot_acc_reset(&c->boot); /* the reassembly buffer is spent */
   /* RFC 9002 6.2: the accept flight just went out -- start this slot's boot
-   * PTO clock fresh (T-009: any real send, not just the timer's own probe,
+   * PTO clock fresh (any real send, not just the timer's own probe,
    * pushes the next deadline out so the two re-send paths never double
    * fire). */
   c->boot_pto_sent_ms = ctx->now_ms;
@@ -849,8 +848,8 @@ static int srvrun_on_initial(
  * RESET_STREAM with STOP_SENDING for H3_REQUEST_CANCELLED, but parameterized
  * over the error code so callers can carry either an HTTP/3-level code (e.g.
  * H3_REQUEST_REJECTED) or a WebTransport application code already mapped
- * through quic_wterrmap_to_http3. RESET_STREAM_AT (not a plain RESET_STREAM,
- * WT-F-007) since a WT session's stream aborts are draft-ietf-webtrans-
+ * through quic_wterrmap_to_http3. RESET_STREAM_AT (not a plain RESET_STREAM)
+ * since a WT session's stream aborts are draft-ietf-webtrans-
  * http3-15's own preference for reliable delivery up to a point; every
  * current caller aborts a stream that never carried any application bytes
  * (a buffer-full/busy/bad-id rejection at association time), so final_size
@@ -923,9 +922,9 @@ static int srvrun_seal_app_close(
 /* Seal and send an application-level CONNECTION_CLOSE as its own 1-RTT
  * packet.
  * ponytail: no live caller yet (the violation-detection trigger is a
- * separate follow-up, tasks/webtransport-plan.md WT-C-005 second half) -- only
- * tests/run.c calls this today, so it needs the attribute to avoid
- * -Wunused-function under -Werror in the freestanding build. */
+ * separate follow-up) -- only tests/run.c calls this today, so it needs the
+ * attribute to avoid -Wunused-function under -Werror in the freestanding
+ * build. */
 __attribute__((unused)) static void srvrun_send_app_close(
     const srvrun_cfg* cfg, srvrun_conn* c, u64 error_code, quic_span reason) {
   u8        out[128];
@@ -1523,7 +1522,7 @@ static void srvrun_grant_one_more_stream(
  * nothing new to compute here -- just resend the limit already in force
  * (or the transport-parameter default if nothing has been granted yet) in
  * case the peer's own copy of it was lost. Never trusts the peer's own
- * claimed limit in the STREAMS_BLOCKED frame (T-006: the value itself is
+ * claimed limit in the STREAMS_BLOCKED frame (the value itself is
  * not even latched, see wired_srvloop.streams_blocked_seen_flag's doc). */
 static void srvrun_reannounce_stream_limit(
     const srvrun_cfg* cfg, srvrun_conn* c, u64 base) {
@@ -1688,7 +1687,7 @@ static void srvrun_on_step(
   wired_srvloop_conn conn = {&c->l, &c->s};
   srvrun_rxmark      mark = srvrun_rx_mark(&c->l);
   int                produced;
-  c->l.now_ms = ctx->now_ms; /* T-024: share srvrun's own PTO/RTT clock with
+  c->l.now_ms = ctx->now_ms; /* share srvrun's own PTO/RTT clock with
                               * quic_ackpolicy's delayed-ACK timer, not a
                               * second one. */
   produced = wired_srvloop_step(&conn, dg, &ob);
@@ -1779,13 +1778,12 @@ static int srvrun_owes_goaway(const srvrun_conn* c) {
  * srvrun-internal for now rather than a wired_wt_session API: the
  * pending-datagram slot lives on srvrun_conn (not wired_wt_session), since
  * QUIC DATAGRAM sending is generic transport, not WebTransport-specific.
- * A future WT-specific wrapper (e.g. wired_wt_send_datagram, sketched in
- * tasks/webtransport-plan.md but not yet declared anywhere) can call this
+ * A future WT-specific wrapper (e.g. wired_wt_send_datagram) can call this
  * once srvrun exposes a stable per-connection handle to WT sessions; adding
  * that bridge now would be speculative (no second caller yet), and no
- * production code decides to send a datagram yet either (that needs the
- * app-facing callback hook from the plan's API sketch, also not built) --
- * hence still test-only, same situation as srvrun_test_set_shutdown above.
+ * production code decides to send a datagram yet either (that needs an
+ * app-facing callback hook, also not built) -- hence still test-only, same
+ * situation as srvrun_test_set_shutdown above.
  *
  * Queuing itself is bounded only by the local dg_pending_buf capacity, same
  * as other frame types in this file (SRVRUN_CHUNK et al.); the peer's
@@ -1879,8 +1877,8 @@ static void srvrun_broadcast_to_all(srvrun_state* st, quic_span data) {
       srvrun_queue_datagram(&st->conns[i], data);
 }
 
-/* Phase E (tasks/loopeng/srvinbox-mesh): multi-worker broadcast fan-out. One
- * registry entry per srvthreads worker, keyed by the registering thread's
+/* Multi-worker broadcast fan-out. One registry entry per srvthreads
+ * worker, keyed by the registering thread's
  * own tid (wired_thread_tid) -- srvrun.c never touches srvthreads' or
  * srvinbox's internals beyond wired_srvinbox_ring itself (the include in
  * srvrun.h), keeping the dependency direction srvrun -> srvinbox only. A
@@ -1952,8 +1950,7 @@ static void srvrun_bcast_mesh_push(int my_slot, int my_index, quic_span data) {
 /* Single-process fallback path: the calling thread is not registered (no
  * srvthreads worker ever called wired_srvrun_broadcast_register), so this is
  * either wired_server_run(_opt) or the one-and-only wired_srvrun_serve_env
- * instance -- both drive the single process-wide g_srvrun_env, byte-identical
- * to before Phase E. */
+ * instance -- both drive the single process-wide g_srvrun_env. */
 static int srvrun_broadcast_direct(quic_span data) {
   srvrun_broadcast_to_all(
       &(srvrun_state){g_srvrun_table, g_srvrun_state.conns}, data);
@@ -1965,7 +1962,7 @@ static int srvrun_broadcast_direct(quic_span data) {
  * plain g_srvrun_env-based fan-out would completely miss, since srvthreads
  * gives every worker its own mmap'd env instead of the single global one.
  * With 2+ workers also push into every OTHER registered worker's inbox row
- * (Phase E mesh) so their own next step delivers it to their own sessions. */
+ * so their own next step delivers it to their own sessions. */
 static int srvrun_broadcast_registered(int slot, quic_span data) {
   srvrun_bcast_entry* e = &g_srvrun_bcast[slot];
   srvrun_broadcast_to_all(&(srvrun_state){e->env->table, e->env->conns}, data);
@@ -2421,14 +2418,13 @@ static void srvrun_resp_release_bigbuf(wired_srvrun_env* env, srvrun_resp* r);
  *
  * ponytail: connection teardown (peer CONNECTION_CLOSE, boot failure, or
  * idle sweep -- the 3 call sites below) is treated as WebTransport session
- * termination (tasks/webtransport-plan.md WT-F-001/002/003). This is a
- * deliberate approximation, not the spec-accurate trigger: the real rule
- * cares about the CONNECT stream's own FIN/RESET independent of whether the
- * rest of the connection stays alive, and there is no mechanism yet to
- * detect a per-stream RESET_STREAM on just that stream (this session's
- * investigation, see tasks/wt-pin-poll-progress.md). Revisit once
- * stream-level RESET_STREAM dispatch reaches srvrun/srvloop. */
-/* Release every resp[] slot's bigbuf pool row (T-015): a streaming response
+ * termination. This is a deliberate approximation, not the spec-accurate
+ * trigger: the real rule cares about the CONNECT stream's own FIN/RESET
+ * independent of whether the rest of the connection stays alive, and there
+ * is no mechanism yet to detect a per-stream RESET_STREAM on just that
+ * stream. Revisit once stream-level RESET_STREAM dispatch reaches
+ * srvrun/srvloop. */
+/* Release every resp[] slot's bigbuf pool row: a streaming response
  * mid-flight when its connection tears down (idle timeout, boot failure,
  * CONNECTION_CLOSE) would otherwise leave its claimed row permanently
  * marked in_use -- srvrun_open_slot only zeroes the conn struct on reuse, it
@@ -2456,8 +2452,8 @@ static void srvrun_free_slot(wired_srvrun_env* env, srvrun_state* st, int i) {
   c->up = 0;
   wired_srvboot_acc_reset(&c->boot);
   /* RFC 9000 8.1 antiamp state is per-attempt -- a slot reused for a fresh
-   * boot must not inherit a stale budget from the connection it replaces
-   * (T-015). srvrun_boot_finish re-seeds boot_dgram_count/sent on the next
+   * boot must not inherit a stale budget from the connection it replaces.
+   * srvrun_boot_finish re-seeds boot_dgram_count/sent on the next
    * accept; this covers the window before that. */
   c->boot_rx_bytes   = 0;
   c->boot_tx_bytes   = 0;
@@ -2574,17 +2570,17 @@ static int wt_ext_fields_present(const wired_h3reqdrive_req* r) {
   return r->scheme != 0 && r->authority != 0 && r->path != 0;
 }
 
-/* r's request line is CONNECT with :scheme/:authority/:path all present
- * (WT-B-003/004): the Extended CONNECT shape, checked before :protocol. */
+/* r's request line is CONNECT with :scheme/:authority/:path all present:
+ * the Extended CONNECT shape, checked before :protocol. */
 static int wt_ext_connect_shape_ok(const wired_h3reqdrive_req* r) {
   if (!wt_method_is_connect(r)) return 0;
   return wt_ext_fields_present(r);
 }
 
 /* r is a well-formed Extended CONNECT (RFC 9220 3) for WebTransport:
- * :method=CONNECT, :scheme/:authority/:path all present (WT-B-003/004),
- * :protocol negotiated (settings always advertised, Step 1 above) and a
- * WebTransport token (see wt_protocol_is_webtransport). */
+ * :method=CONNECT, :scheme/:authority/:path all present, :protocol
+ * negotiated (settings always advertised, Step 1 above) and a WebTransport
+ * token (see wt_protocol_is_webtransport). */
 static int srvrun_is_wt_connect(const wired_h3reqdrive_req* r) {
   if (!wt_ext_connect_shape_ok(r)) return 0;
   if (!wt_protocol_is_webtransport(r)) return 0;
@@ -2595,8 +2591,8 @@ static int srvrun_is_wt_connect(const wired_h3reqdrive_req* r) {
  * must be a non-empty value for the server to validate; this SDK has no
  * origin-allowlist configuration surface yet (YAGNI -- no in-tree consumer
  * needs one), so "well-formed and non-empty" is the whole check today.
- * Absent Origin is not itself a rejection reason (WT-B-005: only applies to
- * browser clients, which this SDK cannot detect server-side). */
+ * Absent Origin is not itself a rejection reason: it only applies to
+ * browser clients, which this SDK cannot detect server-side. */
 static int wt_origin_ok(const wired_h3reqdrive_req* r) {
   if (!r->origin) return 1; /* absent: not a browser client, or none sent */
   return r->origin_len != 0;
@@ -2650,8 +2646,8 @@ static usz srvrun_resp_index(const srvrun_conn* c, const srvrun_resp* r) {
  * uses for a normal 200, minus the app handler: this is protocol-level
  * WebTransport response building (draft-ietf-webtrans-http3-15 SS3.2), not
  * an application response. Used for both the 2xx that establishes a session
- * (extra = the wt-protocol header when a subprotocol was negotiated,
- * SS3.4) and the 403 that rejects one (WT-B-005/007/008, extra = 0). The
+ * (extra = the wt-protocol header when a subprotocol was negotiated, SS3.4)
+ * and the 403 that rejects one (extra = 0). The
  * response is bodyless, so it is written at the row's start rather than
  * right-aligned into the body path's SRVRUN_RESP_HDR_ROOM prefix area. */
 static void srvrun_start_wt_status(
@@ -2806,8 +2802,8 @@ static void srvrun_start_wt(
   srvrun_wt_notify(cfg, c, sidx, quic_span_of(p.tok, p.tok_len));
 }
 
-/* Reject this Extended CONNECT with 403 (WT-B-005/007/008: a present but
- * malformed Origin) without establishing a session. */
+/* Reject this Extended CONNECT with 403 (a present but malformed Origin)
+ * without establishing a session. */
 static void srvrun_reject_wt(
     wired_srvrun_env* env, int slot, srvrun_conn* c, srvrun_resp* r) {
   srvrun_start_wt_status(env, slot, c, r, 403, 0);
@@ -2875,7 +2871,7 @@ static u8* srvrun_resp_shrink_to_fixed(
  * the H3 prefix build/shrink-to-fixed dance that assumes a framed
  * response. Every round (streaming or not) takes this same path: hq-interop
  * never frames, so there is no first-round-only prefix to skip on later
- * rounds (T-010). */
+ * rounds. */
 static void srvrun_arm_hq09_resp(
     srvrun_resp* r, u8* st, const quic_obuf* body) {
   wired_sendsess_arm(
@@ -2884,7 +2880,7 @@ static void srvrun_arm_hq09_resp(
 
 /* RFC 9114 4.1: frame the handler's body as HEADERS+DATA (quic_h3resp_prefix)
  * ahead of it, then arm over prefix+body. total_len is the DATA frame's
- * declared length (T-012/T-021: the full streaming response's total size,
+ * declared length (the full streaming response's total size,
  * not just this round's body -- HTTP/3 commits to one length upfront and
  * every later round's bytes are additional payload of that same frame, so
  * only round 0 ever calls this). Split out of srvrun_start_app_resp so
@@ -2914,9 +2910,9 @@ static void srvrun_arm_h3_resp_framed(
 
 /* RFC 9114 4.1: a streaming response's round 1+ is unframed body bytes
  * continuing the DATA frame round 0 already declared -- no HEADERS/DATA
- * prefix, unlike round 0's srvrun_arm_h3_resp_framed (T-011/T-013: the
- * bigbuf-to-fixed shrink is also skipped here, since a shrink would discard
- * the storage row round 0's bytes may still be in flight from). */
+ * prefix, unlike round 0's srvrun_arm_h3_resp_framed (the bigbuf-to-fixed
+ * shrink is also skipped here, since a shrink would discard the storage row
+ * round 0's bytes may still be in flight from). */
 static void srvrun_arm_h3_resp_round(
     srvrun_resp* r, u8* st, const quic_obuf* body) {
   wired_sendsess_arm(
@@ -2924,7 +2920,7 @@ static void srvrun_arm_h3_resp_round(
 }
 
 /* RFC 9114 4.1: frame+arm round 0, or arm a later round's unframed
- * continuation -- whichever this call is (T-011). */
+ * continuation -- whichever this call is. */
 static void srvrun_arm_h3_resp(
     const srvrun_step_ctx* ctx,
     srvrun_conn*           c,
@@ -2969,7 +2965,7 @@ static void srvrun_copy_stream_req(
   r->stream_req.body_len   = 0;
 }
 
-/* Prime r's streaming state after round 0 (T-004/T-006): stays 0 for an
+/* Prime r's streaming state after round 0: stays 0 for an
  * ordinary single-round response. */
 static void srvrun_prime_streaming(
     srvrun_resp* r, const wired_h3reqdrive_req* req, int more, usz round_len) {
@@ -2981,8 +2977,8 @@ static void srvrun_prime_streaming(
 }
 
 /* Arm r's round-0 body over st, hq-interop-raw or H3-framed depending on
- * what this connection negotiated (T-010/T-011), and prime the streaming
- * state (T-004/T-006) when the handler asked for another round. */
+ * what this connection negotiated, and prime the streaming
+ * state when the handler asked for another round. */
 static void srvrun_arm_round0(
     const srvrun_step_ctx* ctx,
     srvrun_conn*           c,
@@ -3029,9 +3025,9 @@ static void srvrun_start_app_resp(
   srvrun_arm_round0(ctx, c, slot, r, st, &body, ct, more, total_size);
 }
 
-/* Reject this Extended CONNECT with 429 (WT-C-010/011: a new Extended CONNECT
- * arriving while every session slot is already occupied, SRVRUN_MAX_WT_
- * SESSIONS reached) without disturbing any existing session -- srvrun_start_wt
+/* Reject this Extended CONNECT with 429 (a new Extended CONNECT arriving
+ * while every session slot is already occupied, SRVRUN_MAX_WT_SESSIONS
+ * reached) without disturbing any existing session -- srvrun_start_wt
  * only ever claims a FREE slot (srvrun_wt_free_slot), so an existing
  * ESTABLISHED session's own slot is never re-initialized by this path. Also
  * aborts the rejected stream with H3_REQUEST_REJECTED (RFC 9114 4.1.1/8.1),
@@ -3052,8 +3048,8 @@ static int srvrun_stream_id_is_client_bidi(u64 stream_id) {
   return (stream_id & 0x03) == 0;
 }
 
-/* draft-ietf-webtrans-http3-15 SS3.2/SS4 (WT-C-006/007): the WT session id is
- * the CONNECT stream's own id, so it must be a client-initiated bidi stream
+/* draft-ietf-webtrans-http3-15 SS3.2/SS4: the WT session id is the CONNECT
+ * stream's own id, so it must be a client-initiated bidi stream
  * id (RFC 9000 2.1) or the session would be keyed by an id that cannot
  * possibly be the client's request stream. RFC 9114 8.1 lists H3_ID_ERROR for
  * exactly this "stream id used incorrectly" case; it is a stream-level abort
@@ -3066,8 +3062,8 @@ static void srvrun_reject_wt_bad_id(
 }
 
 /* Body of srvrun_dispatch_wt once Origin has passed and no session is
- * already active: reject a non-client-bidi session id (WT-C-006/007) or
- * establish the session. Split out so srvrun_dispatch_wt itself stays at one
+ * already active: reject a non-client-bidi session id or establish the
+ * session. Split out so srvrun_dispatch_wt itself stays at one
  * gate (CCN). */
 static void srvrun_dispatch_wt_free_slot(
     const srvrun_cfg* cfg, srvrun_conn* c, int slot, srvrun_resp* r) {
@@ -3079,11 +3075,10 @@ static void srvrun_dispatch_wt_free_slot(
 }
 
 /* A well-formed Extended CONNECT for WebTransport either establishes a
- * session (Origin absent, or present and well-formed, and no session already
- * active on this connection -- WT-C-010/011), or is rejected: 403 for a
- * malformed Origin (WT-B-005/007/008), 429 if a session is already active,
- * or H3_ID_ERROR if the CONNECT stream's own id is not a client-initiated
- * bidi stream id (WT-C-006/007). */
+ * session (Origin absent, or present and well-formed, and no session
+ * already active on this connection), or is rejected: 403 for a malformed
+ * Origin, 429 if a session is already active, or H3_ID_ERROR if the
+ * CONNECT stream's own id is not a client-initiated bidi stream id. */
 static void srvrun_dispatch_wt(
     const srvrun_cfg* cfg, srvrun_conn* c, int slot, srvrun_resp* r) {
   if (!wt_origin_ok(&c->l.req)) {
@@ -3098,8 +3093,7 @@ static void srvrun_dispatch_wt(
 }
 
 /* Build the decoded request's response into a freshly claimed resp[] slot
- * and arm its session over the whole stream. Guard 1 (TLA+ resp-multiplex,
- * tasks/loopeng/resp-multiplex/summary.md): a request stream that already
+ * and arm its session over the whole stream. A request stream that already
  * has an in-flight response is dropped rather than claiming a second slot
  * for it (its existing response keeps flowing); a request with no free slot
  * anywhere is also dropped (bounded, same policy as the old single-response-
@@ -3298,15 +3292,15 @@ static void srvrun_stream_credit_raise(u64* credit, u64 value) {
 
 /* 1 if this step's gathered PATH_RESPONSE (srvloop's gather_path_response)
  * is worth comparing at all: a connection that never issued a PATH_CHALLENGE
- * (migrate.challenged == 0) cannot have a real one to match against (T-005)
- * -- quic_migrate_validate itself already refuses without challenged, but
+ * (migrate.challenged == 0) cannot have a real one to match against --
+ * quic_migrate_validate itself already refuses without challenged, but
  * checking here first avoids running the (cheap, but still pointless)
  * compare and lets srvrun_apply_path_response's own CCN stay at the gate. */
 static int srvrun_path_response_pending(const srvrun_conn* c) {
   return c->l.path_response_seen_flag && c->migrate.challenged;
 }
 
-/* 1 if this step's gathered PATH_RESPONSE data (T-008, quic_ct_diff8
+/* 1 if this step's gathered PATH_RESPONSE data (quic_ct_diff8
  * constant-time compare) matches the challenge c last sent -- split out so
  * srvrun_apply_path_response's own CCN stays at the gate (the compound
  * pending && diff==0 that would otherwise inline here each cost +1). */
@@ -3317,10 +3311,10 @@ static int srvrun_path_response_matches(const srvrun_conn* c) {
 
 /* RFC 9000 8.2.2: apply this step's gathered PATH_RESPONSE (if any) against
  * the challenge this connection last sent (c->path_challenge_data). A match
- * validates the path (quic_migrate_validate); a mismatch (T-004) or an
- * unchallenged connection (T-005) leaves migrate untouched. Always consumes
- * the step's latch, same convention as srvrun_apply_conn_credit_update. See
- * srvrun_rebind_peer's T-016 comment for why the response's own source
+ * validates the path (quic_migrate_validate); a mismatch or an unchallenged
+ * connection leaves migrate untouched. Always consumes the step's latch,
+ * same convention as srvrun_apply_conn_credit_update. See
+ * srvrun_rebind_peer's doc comment for why the response's own source
  * address is deliberately never checked here. */
 static void srvrun_apply_path_response(srvrun_conn* c) {
   if (!c->l.path_response_seen_flag) return;
@@ -3575,8 +3569,7 @@ static int srvrun_pace_ok(const srvrun_step_ctx* ctx, const srvrun_conn* c) {
  * capacity (interop goodput timing out at 60s). Once the interval grows
  * past SRVRUN_PTO_MS, deferring is real: a later poll tick or the next ACK
  * will still be there to pick the send back up, and pacing spreads it
- * genuinely (T-001/T-002/T-003). BBR is unaffected (separate pacing
- * path). */
+ * genuinely. BBR is unaffected (separate pacing path). */
 static int srvrun_pace_within_poll_tick(const srvrun_conn* c) {
   return c->cc.algo != QUIC_CC_ALGO_BBR &&
          quic_pacing_interval(c->srtt_ms, c->cc.cwnd, QUIC_MAX_DATAGRAM) <
@@ -3631,17 +3624,15 @@ static void srvrun_hystart_range(
 
 /* Credit one ACK range against r's log to the congestion controller before
  * consuming it (RFC 9002 7.3.2: growth per acked bytes; the newest send
- * time among the hits drives recovery exit). Guard 5 (TLA+ resp-multiplex):
- * a range is broadcast to every resp[] slot, and wired_sendsess_ack only
- * clears the log entries that hit ITS OWN log (sendsess.c) -- but it also
- * unconditionally raises largest_acked to the range's hi, even when hi
- * belongs to another slot's pn (pn is a single monotonic per-connection
- * space, so a broadcast range routinely names pns this slot never sent).
- * That falsely advances this slot's packet-loss threshold (RFC 9002
- * 6.1.1) and requeues in-flight slices that were never actually lost --
- * observed against a real quic-go client on a 500KB body: offsets past
- * ~90KB were re-sent from ~55KB after an ACK for a sibling stream's pns.
- * Only forward the range when it actually hits something in r's own log. */
+ * time among the hits drives recovery exit). A range is broadcast to every
+ * resp[] slot, and wired_sendsess_ack only clears the log entries that hit
+ * ITS OWN log (sendsess.c) -- but it also unconditionally raises
+ * largest_acked to the range's hi, even when hi belongs to another slot's
+ * pn (pn is a single monotonic per-connection space, so a broadcast range
+ * routinely names pns this slot never sent). That falsely advances this
+ * slot's packet-loss threshold (RFC 9002 6.1.1) and requeues in-flight
+ * slices that were never actually lost. Only forward the range when it
+ * actually hits something in r's own log. */
 static void srvrun_cc_range(
     srvrun_conn* c, wired_sendsess* sess, u64 lo, u64 hi, u64 now_ms) {
   u64 newest = 0;
@@ -3768,7 +3759,7 @@ static void srvrun_resp_release_bigbuf(wired_srvrun_env* env, srvrun_resp* r) {
 }
 
 /* Run r's next streaming round: call the handler at the cumulative offset
- * already delivered, then re-arm over the fresh round's bytes (T-004/T-006).
+ * already delivered, then re-arm over the fresh round's bytes.
  * hq-interop never frames a length so it always continues; H3 already wrote
  * its DATA frame's total length in round 0 (stream_h3_framed), so its later
  * rounds are just more of that frame's payload (srvrun_arm_h3_resp_round via
@@ -3794,13 +3785,13 @@ static void srvrun_resp_next_round(
 }
 
 /* Once r's session goes idle (wired_sendsess_done: every slice sent and
- * acked), either advance a streaming response to its next round (T-004) or
+ * acked), either advance a streaming response to its next round or
  * free r's slot and the matching srvloop receive-side slot -- HTTP/3 never
  * reuses a stream id, so without releasing the receive slot too,
  * WIRED_SRVLOOP_MAX_STREAMS sequential requests on distinct streams would
- * permanently exhaust it (guard: TLA+ resp-multiplex I4). A body that
- * borrowed a wired_srvbigbuf row returns it to the pool here too (T-005:
- * only once streaming is actually done, not between rounds). */
+ * permanently exhaust it. A body that borrowed a wired_srvbigbuf row returns
+ * it to the pool here too (only once streaming is actually done, not
+ * between rounds). */
 static int srvrun_resp_not_yet_idle(srvrun_resp* r) {
   return !r->in_use || !wired_sendsess_done(&r->sess);
 }
@@ -4085,14 +4076,14 @@ static void srvrun_resend_boot_flight(
    * Handshake datagram 0 as a duplicate until its idle timeout). */
   if (c->boot_dgram_sent == c->boot_dgram_count) c->boot_dgram_sent = 0;
   srvrun_boot_send_hs_gated(ctx->cfg, c, wired_server_is_confirmed(&c->s));
-  /* boot PTO T-009: the client itself just proved it's reachable (this is
+  /* boot PTO: the client itself just proved it's reachable (this is
    * its own retransmit reaching us) -- push the boot PTO deadline out so the
    * timer-driven probe below does not also fire for the same round. */
   c->boot_pto_sent_ms = ctx->now_ms;
   c->boot_pto_count   = 0;
 }
 
-/* T-007/T-008: c is in the boot PTO's window at all -- up (accepted) but not
+/* c is in the boot PTO's window at all -- up (accepted) but not
  * yet confirmed (srvrun_awaiting_confirm), and has actually sent a flight to
  * probe (boot_ini_len == 0 means nothing was ever cached, e.g. a slot still
  * mid-ClientHello-reassembly or a slot that failed to boot). */
@@ -4111,8 +4102,8 @@ static int srvrun_boot_pto_due(const srvrun_conn* c, u64 now_ms) {
 }
 
 /* Resend the boot flight for a fired probe and restore its post-resend probe
- * count: srvrun_resend_boot_flight itself resets boot_pto_count to 0 (T-009:
- * any real send re-arms the deadline), which would erase this probe's own
+ * count: srvrun_resend_boot_flight itself resets boot_pto_count to 0 (any
+ * real send re-arms the deadline), which would erase this probe's own
  * budget spend -- put it back to `fired` right after so consecutive timer
  * probes keep climbing instead of resetting every single one. */
 static void srvrun_boot_pto_resend(
@@ -4220,7 +4211,7 @@ static int srvrun_peer_changed(
          quic_ct_diffn(ctx->peer->addr, c->peer.addr, 16) != 0;
 }
 
-/* T-015: test-only override forcing quic_challenge_generate to behave as if
+/* Test-only override forcing quic_challenge_generate to behave as if
  * the RNG failed, the same override-flag shape as srvrun_test_set_shutdown
  * above -- getrandom(2) failing is not practically triggerable from a test,
  * so this is the seam. Always reset to 0 after the owning test (see
@@ -4234,7 +4225,7 @@ __attribute__((unused)) static void srvrun_test_force_challenge_rng_fail(
 /* RFC 9000 8.2.2: generate this rebind's 8-byte PATH_CHALLENGE data. Returns
  * 0 (and writes nothing meaningful to data) on RNG failure, so the caller
  * never arms/sends an unpredictable-in-name-only (actually zero or stale)
- * challenge (T-015). */
+ * challenge. */
 static int srvrun_gen_path_challenge(u8 data[QUIC_PATH_DATA]) {
   if (g_srvrun_path_challenge_force_fail) return 0;
   return quic_challenge_generate(data);
@@ -4244,7 +4235,7 @@ static int srvrun_gen_path_challenge(u8 data[QUIC_PATH_DATA]) {
  * connection's migrate state machine and sends a PATH_CHALLENGE to the new
  * peer -- c->peer must already be updated to ctx->peer before this runs (the
  * challenge has to reach the path being validated). A generation failure
- * (T-015) leaves migrate un-challenged and sends nothing: challenged==0 means
+ * leaves migrate un-challenged and sends nothing: challenged==0 means
  * a later PATH_RESPONSE cannot spuriously validate (quic_migrate_validate's
  * own precondition), matching "no challenge was ever actually issued". */
 static void srvrun_arm_path_challenge(const srvrun_cfg* cfg, srvrun_conn* c) {
@@ -4267,7 +4258,7 @@ static void srvrun_arm_path_challenge(const srvrun_cfg* cfg, srvrun_conn* c) {
  * port/rebind-addr judge (which checks for a PATH_CHALLENGE on the first
  * server packet sent to the new path) is satisfied.
  *
- * T-014 (deliberately out of scope for this slice): RFC 9000 9.4's
+ * Deliberately out of scope for this slice: RFC 9000 9.4's
  * congestion-control/RTT reset on a confirmed migration, 8.2.1's send-volume
  * limit on a not-yet-validated path, actually switching to a new connection
  * ID (quic_migrate_confirm is never called here), and tracking more than one
@@ -4276,7 +4267,7 @@ static void srvrun_arm_path_challenge(const srvrun_cfg* cfg, srvrun_conn* c) {
  * still the naive subset, now with a real PATH_CHALLENGE/PATH_RESPONSE round
  * trip layered on top rather than full RFC 9000 9 path validation.
  *
- * T-016 (deliberate scope decision, documented rather than fixed): a
+ * Deliberate scope decision, documented rather than fixed: a
  * PATH_RESPONSE's own source address is never checked against the path it is
  * validating (see srvrun_apply_path_response below) -- only its 8-byte data
  * is compared. This does not weaken the pre-existing hole one line up: c->
@@ -4331,7 +4322,7 @@ static void srvrun_serve_slot(
   int          booting = srvrun_awaiting_confirm(c);
   c->last_ms = ctx->now_ms; /* RFC 9000 10.1: activity resets idle age */
   /* RFC 9000 8.1: every physically received byte counts toward this path's
-   * antiamp budget, whether or not dg turns out to parse (T-013). */
+   * antiamp budget, whether or not dg turns out to parse. */
   c->boot_rx_bytes += dg.n;
   /* RFC 9000 13.4 / RFC 9002 19.3.2: every datagram's ECN codepoint counts
    * toward this connection's cumulative total, whether or not it parses --
@@ -4803,7 +4794,7 @@ static void srvrun_step(
     const srvrun_cfg* cfg, srvrun_state* st, quic_mmsg_buf* bufs, usz nbufs) {
   i64 r;
   srvrun_reload_if_requested(cfg, cfg->env);
-  srvrun_bcast_drain_self(st); /* Phase E: other workers' broadcasts */
+  srvrun_bcast_drain_self(st); /* other workers' broadcasts */
   srvrun_polling_ptos(cfg, st);
   if (!srvrun_wait_input(cfg, st)) {
     srvrun_fire_ptos(cfg, st);
