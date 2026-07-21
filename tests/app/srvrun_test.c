@@ -21,11 +21,9 @@
  * (WIRED_SRVLOOP_WT_BUF_CAP) this repo wants sized for real throughput, not
  * a stack (or per-test BSS) budget -- one static QUIC_CONNTABLE_CAP-sized
  * array shared by every test costs the same BSS regardless of how many test
- * functions reuse it; 46 independent statics (this file's original fix,
- * cbe1f44) each paid the full array's cost again, and once the window grew
- * past a few KB that summed to a multi-gigabyte BSS the loader could not
- * even map (a real crash this exact way, found immediately after widening
- * the window in a later commit). */
+ * functions reuse it; independent per-test statics each pay the full array's
+ * cost again, and once the window grows past a few KB that sums to a
+ * multi-gigabyte BSS the loader cannot even map. */
 static srvrun_conn g_test_conns[QUIC_CONNTABLE_CAP];
 
 /* Zero the shared conns[] and hand back a pointer to it, mirroring what each
@@ -721,7 +719,7 @@ static void sr_antiamp_seed_flight(srvrun_conn* c) {
   c->boot_dgram_sent  = 0;
 }
 
-/* T-001/T-004: exactly the first round from the real amplificationlimit
+/* Exactly the first round from the real amplificationlimit
  * trace -- 1280 bytes received buys a 3840-byte budget, which fits 3 of the
  * 4 1000-byte datagrams (3000 <= 3840 < 4000) and holds the 4th back. */
 static void test_srvrun_boot_antiamp_first_round_caps_at_3x(void) {
@@ -741,7 +739,7 @@ static void test_srvrun_boot_antiamp_first_round_caps_at_3x(void) {
   CHECK(srvrun_test_send_count() == 3);
 }
 
-/* T-002: the unsent 4th datagram's length never entered boot_tx_bytes. */
+/* The unsent 4th datagram's length never entered boot_tx_bytes. */
 static void test_srvrun_boot_antiamp_unsent_tail_not_counted(void) {
   wired_srvboot_id id;
   u8               priv[32], pub[32], seed[32], rnd[32];
@@ -757,7 +755,7 @@ static void test_srvrun_boot_antiamp_unsent_tail_not_counted(void) {
   CHECK(c.boot_dgram_sent < c.boot_dgram_count);
 }
 
-/* T-003: a second round with more received bytes (the client's Initial
+/* A second round with more received bytes (the client's Initial
  * retransmit) releases the held-back datagram -- mirrors the real trace's
  * two-Initial sequence (1280, then another 1280 -> budget 7680). */
 static void test_srvrun_boot_antiamp_second_round_releases_more(void) {
@@ -778,7 +776,7 @@ static void test_srvrun_boot_antiamp_second_round_releases_more(void) {
   CHECK(c.boot_tx_bytes == 4000);
 }
 
-/* T-005: want == budget+1 blocks -- a 3841-byte want against a 3840 budget
+/* want == budget+1 blocks -- a 3841-byte want against a 3840 budget
  * sends nothing (one 3841-byte datagram, budget from 1280 received). */
 static void test_srvrun_boot_antiamp_budget_off_by_one_blocks(void) {
   wired_srvboot_id id;
@@ -797,7 +795,7 @@ static void test_srvrun_boot_antiamp_budget_off_by_one_blocks(void) {
   CHECK(c.boot_tx_bytes == 0);
 }
 
-/* T-004 boundary complement: want == budget exactly (3840) sends. */
+/* Boundary complement: want == budget exactly (3840) sends. */
 static void test_srvrun_boot_antiamp_budget_exact_fit_sends(void) {
   wired_srvboot_id id;
   u8               priv[32], pub[32], seed[32], rnd[32];
@@ -815,7 +813,7 @@ static void test_srvrun_boot_antiamp_budget_exact_fit_sends(void) {
   CHECK(c.boot_tx_bytes == 3840);
 }
 
-/* T-006: received == 0 (budget == 0) sends nothing at all. */
+/* received == 0 (budget == 0) sends nothing at all. */
 static void test_srvrun_boot_antiamp_zero_budget_sends_nothing(void) {
   wired_srvboot_id id;
   u8               priv[32], pub[32], seed[32], rnd[32];
@@ -831,7 +829,7 @@ static void test_srvrun_boot_antiamp_zero_budget_sends_nothing(void) {
   CHECK(c.boot_tx_bytes == 0);
 }
 
-/* T-007: once confirmed, the limit is lifted -- all 4 go out in one pass
+/* Once confirmed, the limit is lifted -- all 4 go out in one pass
  * even though 4000 > 3*1280=3840 would otherwise block the 4th. */
 static void test_srvrun_boot_antiamp_confirmed_bypasses_limit(void) {
   wired_srvboot_id id;
@@ -848,7 +846,7 @@ static void test_srvrun_boot_antiamp_confirmed_bypasses_limit(void) {
   CHECK(c.boot_tx_bytes == 4000);
 }
 
-/* T-011 regression: a small (single-datagram) flight -- the common case,
+/* A small (single-datagram) flight -- the common case,
  * e.g. a self-signed cert -- always fits the first round's budget and
  * sends in one pass, same as before this gate existed. */
 static void test_srvrun_boot_antiamp_small_flight_sends_in_one_round(void) {
@@ -868,7 +866,7 @@ static void test_srvrun_boot_antiamp_small_flight_sends_in_one_round(void) {
   CHECK(c.boot_tx_bytes == 300);
 }
 
-/* T-014: srvrun_boot_send (used for the Initial too, not just Handshake
+/* srvrun_boot_send (used for the Initial too, not just Handshake
  * datagrams) also folds into boot_tx_bytes -- Initial + Handshake share one
  * budget. */
 static void test_srvrun_boot_antiamp_sent_includes_initial_and_handshake(void) {
@@ -885,7 +883,7 @@ static void test_srvrun_boot_antiamp_sent_includes_initial_and_handshake(void) {
   CHECK(c.boot_tx_bytes == 1200);
 }
 
-/* T-010: a slot with boot datagrams held back by the antiamp gate never
+/* A slot with boot datagrams held back by the antiamp gate never
  * spins or crashes while the client stays silent -- it just sits until the
  * existing idle sweep (RFC 9000 10.1) reclaims it like any other stalled
  * slot (srvrun_slot_busy already covers c->up regardless of the pending
@@ -907,7 +905,8 @@ static void test_srvrun_boot_antiamp_client_silent_no_crash(void) {
     srvrun_step_ctx ctx = {&cfg, 0, &st, 1000, 0};
     srvrun_boot_send_hs_gated(ctx.cfg, &st.conns[0], 0);
     CHECK(
-        st.conns[0].boot_dgram_sent == 3); /* held back at 3/4, same as T-001 */
+        st.conns[0].boot_dgram_sent ==
+        3); /* held back at 3/4, first-round budget */
     /* another release attempt with no new budget changes nothing */
     srvrun_boot_send_hs_gated(ctx.cfg, &st.conns[0], 0);
     CHECK(st.conns[0].boot_dgram_sent == 3);
@@ -920,7 +919,7 @@ static void test_srvrun_boot_antiamp_client_silent_no_crash(void) {
   CHECK(st.conns[0].boot_dgram_sent == 0);
 }
 
-/* T-013: boot_rx_bytes counts every physically received byte on the slot,
+/* boot_rx_bytes counts every physically received byte on the slot,
  * even a datagram that fails to parse/decrypt as anything useful -- RFC
  * 9000 8.1 counts what arrived, not what was understood. Sends a real boot
  * Initial (to claim the slot and record boot_rx_bytes's starting point),
@@ -956,15 +955,13 @@ static void test_srvrun_conn_rx_bytes_counts_malformed_datagram(void) {
   CHECK(st.conns[0].boot_rx_bytes == rx_after_boot + sizeof garbage);
 }
 
-/* T-008: srvrun_resend_boot_flight (the client-Initial-retransmit path)
+/* srvrun_resend_boot_flight (the client-Initial-retransmit path)
  * respects the same antiamp budget as the first round -- a flight too big
  * for one round still only sends what the accumulated boot_rx_bytes
  * allows, it does not resend the cached flight unconditionally. And with
  * a tail still withheld, the resend must keep CONTINUING from the tail,
- * not rewind: a rewind here re-spent every budget grant on datagrams the
- * client already had, so the amplificationlimit flight's tail never went
- * out at all (observed live -- the client dropped the same Handshake
- * datagram 0 as a duplicate until its idle timeout). */
+ * not rewind: a rewind here re-spends every budget grant on datagrams the
+ * client already had, so the flight's tail never goes out at all. */
 static void test_srvrun_resend_boot_flight_respects_antiamp_budget(void) {
   wired_srvboot_id id;
   u8               priv[32], pub[32], seed[32], rnd[32];
@@ -989,7 +986,7 @@ static void test_srvrun_resend_boot_flight_respects_antiamp_budget(void) {
   }
 }
 
-/* T-015: srvrun_free_slot zeroes the antiamp accounting so a slot reused
+/* srvrun_free_slot zeroes the antiamp accounting so a slot reused
  * for a fresh boot doesn't inherit a stale budget from the connection it
  * replaces. */
 static void test_srvrun_free_slot_resets_antiamp_state(void) {
@@ -1028,8 +1025,8 @@ static usz sr_append_handshake_pkt(u8* dg, usz off, const u8* dcid, u8 n) {
  * That datagram is NOT a bare Initial retransmit: swallowing it to resend
  * the cached boot flight would discard the Finished, leave the handshake
  * unconfirmed forever, and stall the connection right after it reports
- * connected (observed live with curl). It must fall through to the step
- * path, so no cached-flight resend fires. */
+ * connected. It must fall through to the step path, so no cached-flight
+ * resend fires. */
 static void test_srvrun_coalesced_handshake_not_boot_retransmit(void) {
   wired_srvboot_id id;
   u8               priv[32], pub[32], seed[32], rnd[32], dg[1500], dg2[1500];
@@ -1268,7 +1265,7 @@ static void test_srvrun_idle_sweep_evicts_expired(void) {
   CHECK(quic_conntable_insert(table, QUIC_CONNTABLE_CAP, k1, 4) == 0);
 }
 
-/* T-015: a connection torn down (here, idle sweep) mid-streaming-response
+/* A connection torn down (here, idle sweep) mid-streaming-response
  * releases its resp[] slots' claimed bigbuf pool rows -- otherwise
  * wired_srvbigbuf's own in_use[] bookkeeping never learns the row is free
  * (srvrun_open_slot only zeroes the conn struct on reuse, it never touches
@@ -1416,7 +1413,7 @@ static void test_srvrun_rebind_updates_peer_addr(void) {
   CHECK(quic_ct_diffn(c.peer.addr, new_peer.addr, 16) == 0);
 }
 
-/* BOUNDARY (T-004): the ordinary case, no source-address change, leaves
+/* BOUNDARY: the ordinary case, no source-address change, leaves
  * c->peer untouched (no spurious write when nothing actually rebound). */
 static void test_srvrun_rebind_noop_when_address_unchanged(void) {
   struct lp_fix  f;
@@ -1442,10 +1439,9 @@ static void test_srvrun_rebind_noop_when_address_unchanged(void) {
   CHECK(quic_ct_diffn(c.peer.addr, peer.addr, 16) == 0);
 }
 
-/* PARTITION (T-005): rebind-port and rebind-addr are independent projections
+/* PARTITION: rebind-port and rebind-addr are independent projections
  * of the same change -- a port-only change updates only port_be (the addr
- * unaffected). Complements T-001/T-002, which each check only their own axis
- * moved; this checks the OTHER axis did NOT move. */
+ * unaffected). This checks the OTHER axis did NOT move. */
 static void test_srvrun_rebind_port_and_addr_independent(void) {
   struct lp_fix  f;
   srvrun_conn    c;
@@ -1471,7 +1467,7 @@ static void test_srvrun_rebind_port_and_addr_independent(void) {
   CHECK(quic_ct_diffn(c.peer.addr, base.addr, 16) == 0); /* untouched */
 }
 
-/* UNWANTED (T-006): boot-stage connections (srvrun_awaiting_confirm true)
+/* UNWANTED: boot-stage connections (srvrun_awaiting_confirm true)
  * are excluded from address-follow -- widening the pre-confirm trust surface
  * would also widen the antiamp/DoS surface (RFC 9000 8.1). c->peer stays at
  * whatever srvrun_open_slot recorded even though this datagram arrives from
@@ -1497,7 +1493,7 @@ static void test_srvrun_rebind_noop_during_boot(void) {
   CHECK(quic_ct_diffn(st.conns[0].peer.addr, boot_peer.addr, 16) == 0);
 }
 
-/* UNWANTED (T-007): a slot that is not up (unused/freed) is left alone --
+/* UNWANTED: a slot that is not up (unused/freed) is left alone --
  * srvrun_serve_slot's c->up gate means the address-follow code never even
  * runs (mirrors the existing test_srvrun_serve_slot_touches_last_ms
  * baseline: last_ms/boot_rx_bytes bookkeeping still proceeds). */
@@ -1520,7 +1516,7 @@ static void test_srvrun_rebind_noop_on_unused_slot(void) {
   CHECK(wired_udp_addr4_be(&st.conns[3].peer) == 0);
 }
 
-/* INTEGRATION (T-003): the address-follow in srvrun_serve_slot actually
+/* INTEGRATION: the address-follow in srvrun_serve_slot actually
  * reaches the real routing entry point (srvrun_serve, which resolves the
  * slot by DCID rather than being handed a slot index directly) -- proving
  * the rebind isn't an artifact of calling srvrun_serve_slot in isolation. A
@@ -1556,7 +1552,7 @@ static void test_srvrun_rebind_subsequent_send_targets_new_peer(void) {
   CHECK(quic_ct_diffn(st.conns[0].peer.addr, rebound.addr, 16) == 0);
 }
 
-/* T-001: a rebind arms this connection's migrate state machine
+/* A rebind arms this connection's migrate state machine
  * (detect -> challenge) and records a nonzero 8-byte challenge. */
 static void test_srvrun_path_challenge_generated_on_rebind(void) {
   struct lp_fix  f;
@@ -1588,7 +1584,7 @@ static void test_srvrun_path_challenge_generated_on_rebind(void) {
   CHECK(any_nonzero == 1);
 }
 
-/* T-002: the challenge srvrun_rebind_peer armed is exactly the one a
+/* The challenge srvrun_rebind_peer armed is exactly the one a
  * PATH_CHALLENGE frame sealed for this connection carries -- proving the
  * stored challenge and the wire frame agree, not just that some state flag
  * flipped. */
@@ -1641,7 +1637,7 @@ static void sr_path_test_peers(
 }
 
 /* Confirm c, then rebind it from old_peer to new_peer via srvrun_serve_slot
- * -- arms migrate (T-001) and leaves c->path_challenge_data set. st/table
+ * -- arms migrate and leaves c->path_challenge_data set. st/table
  * must outlive any further srvrun_serve_slot calls the caller makes. */
 static void sr_confirm_and_rebind(
     srvrun_conn*    c,
@@ -1686,7 +1682,7 @@ static void sr_send_path_response(
   }
 }
 
-/* T-003: a PATH_RESPONSE matching the outstanding challenge validates the
+/* A PATH_RESPONSE matching the outstanding challenge validates the
  * path (quic_migrate_validate succeeds, migrate.validated set). */
 static void test_srvrun_path_response_matching_validates(void) {
   struct lp_fix  f;
@@ -1700,7 +1696,7 @@ static void test_srvrun_path_response_matching_validates(void) {
   CHECK(c.migrate.validated == 1);
 }
 
-/* T-004/T-008: a PATH_RESPONSE differing in even 1 of the 8 bytes from the
+/* A PATH_RESPONSE differing in even 1 of the 8 bytes from the
  * outstanding challenge does not validate -- exercises quic_ct_diff8 (used by
  * srvrun_apply_path_response) taking its nonzero branch. */
 static void test_srvrun_path_response_mismatch_does_not_validate(void) {
@@ -1713,13 +1709,13 @@ static void test_srvrun_path_response_mismatch_does_not_validate(void) {
   sr_confirm_and_rebind(&c, &f, table, &st, &new_peer);
   for (usz i = 0; i < QUIC_PATH_DATA; i++)
     wrong[i] = (u8)(c.path_challenge_data[i] ^ 0xff);
-  wrong[0] ^= 0x01; /* T-004: differs by at least one bit even if XOR above
+  wrong[0] ^= 0x01; /* differs by at least one bit even if XOR above
                      * happened to reproduce the original by coincidence */
   sr_send_path_response(&f, &st, &new_peer, wrong);
   CHECK(c.migrate.validated == 0);
 }
 
-/* T-005: a connection that never had a PATH_CHALLENGE outstanding
+/* A connection that never had a PATH_CHALLENGE outstanding
  * (migrate.challenged == 0) ignores any PATH_RESPONSE -- no rebind ever ran,
  * so path_challenge_data is untouched all-zero and migrate stays untouched
  * too. */
@@ -1743,7 +1739,7 @@ static void test_srvrun_path_response_without_challenge_is_noop(void) {
   CHECK(c.migrate.validated == 0);
 }
 
-/* T-006: a second rebind before the first PATH_RESPONSE arrives re-arms the
+/* A second rebind before the first PATH_RESPONSE arrives re-arms the
  * challenge (a new value); the PATH_RESPONSE matching the FIRST (now stale)
  * challenge no longer validates, only the second one does. */
 static void test_srvrun_path_challenge_rearmed_on_second_rebind(void) {
@@ -1781,7 +1777,7 @@ static void test_srvrun_path_challenge_rearmed_on_second_rebind(void) {
   CHECK(c.migrate.validated == 1); /* current challenge does */
 }
 
-/* T-007: boot-stage connections never arm a PATH_CHALLENGE even though their
+/* Boot-stage connections never arm a PATH_CHALLENGE even though their
  * source address changed -- srvrun_rebind_peer's existing boot exclusion
  * (srvrun_awaiting_confirm) short-circuits before srvrun_arm_path_challenge
  * is ever reached. */
@@ -1806,7 +1802,7 @@ static void test_srvrun_path_challenge_noop_during_boot(void) {
   CHECK(st.conns[0].migrate.detected == 0);
 }
 
-/* T-015: an RNG failure during challenge generation sends no PATH_CHALLENGE
+/* An RNG failure during challenge generation sends no PATH_CHALLENGE
  * and never arms migrate.challenged (srvrun_gen_path_challenge's forced-fail
  * test hook stands in for a real getrandom(2) failure). */
 static void test_srvrun_path_challenge_rng_failure_sends_nothing(void) {
@@ -2518,7 +2514,7 @@ static void test_srvrun_rtt_sample_uses_newest_hit_only(void) {
  * a send scheduled in the future blocks the pump. Chosen cwnd/srtt so the
  * theoretical interval (24ms) lands just under SRVRUN_PTO_MS(25) -- still
  * exercises srvrun_pace_ok's future/due-now branches without tripping the
- * poll-tick fast path this test isn't about (see T-002/T-003 for that
+ * poll-tick fast path (see the BOUNDARY tests below for that
  * boundary). 5*1200*400/(4*10000) = 60... too big; use cwnd=48000,
  * srtt=400: 5*1200*400/(4*48000) = 12.5 -> 12ms (still < 25, so this now
  * exercises the poll-tick fast path too -- next_send_ms stays due-now). */
@@ -2562,7 +2558,7 @@ static void test_srvrun_pacing_no_stall_within_poll_tick(void) {
   CHECK(srvrun_pace_ok(&ctx, &c) == 1); /* a 2nd round in this step may fire */
 }
 
-/* T-002 BOUNDARY: a pacing interval exactly equal to SRVRUN_PTO_MS(25) is
+/* BOUNDARY: a pacing interval exactly equal to SRVRUN_PTO_MS(25) is
  * a real defer -- one round-robin pass this step, next one waits for the
  * next send opportunity. 5*1200*10000/(4*24000) = 625... too big; use
  * cwnd=6000000, srtt=4000: 5*1200*4000/(4*6000000) = 1.0 -- too small now
@@ -2584,7 +2580,7 @@ static void test_srvrun_pace_interval_equals_poll_no_extra_round(void) {
   CHECK(c.next_send_ms == 1000 + SRVRUN_PTO_MS);
 }
 
-/* T-003 BOUNDARY: an interval one ms past SRVRUN_PTO_MS still defers the
+/* BOUNDARY: an interval one ms past SRVRUN_PTO_MS still defers the
  * normal way -- the fast path is strictly < SRVRUN_PTO_MS, never >=.
  * 5*1200*4000/(4*230000) = 26. */
 static void test_srvrun_pace_interval_over_poll_waits(void) {
@@ -2603,7 +2599,7 @@ static void test_srvrun_pace_interval_over_poll_waits(void) {
   CHECK(c.next_send_ms == 1000 + SRVRUN_PTO_MS + 1);
 }
 
-/* T-001: with an interval well under SRVRUN_PTO_MS, a single
+/* With an interval well under SRVRUN_PTO_MS, a single
  * srvrun_pump_sess call bursts through cwnd instead of stopping after one
  * round -- the actual fix under test, driven through the real pump loop
  * (not just the pacing helpers) against a confirmed connection (real 1-RTT
@@ -2635,7 +2631,7 @@ static void test_srvrun_pace_bursts_within_poll_interval(void) {
   CHECK(c.resp[0].sess.q.cur == sizeof body);
 }
 
-/* T-004: srvrun_pace_within_poll_tick's fast path still applies at the old
+/* srvrun_pace_within_poll_tick's fast path still applies at the old
  * sub-ms extreme (cwnd huge enough the interval floors to 0) -- the new,
  * wider SRVRUN_PTO_MS threshold subsumes the old one, nothing regresses. */
 static void test_srvrun_pace_subms_still_unlimited(void) {
@@ -2655,7 +2651,7 @@ static void test_srvrun_pace_subms_still_unlimited(void) {
   CHECK(c.next_send_ms == 1000);
 }
 
-/* T-006 regression: a response small enough to send in one round already
+/* A response small enough to send in one round already
  * (no burst opportunity) behaves identically before/after -- one round,
  * next_send_ms untouched when the interval is sub-poll-tick. */
 static void test_srvrun_pace_small_response_unaffected(void) {
@@ -2686,7 +2682,7 @@ static void test_srvrun_pace_small_response_unaffected(void) {
   CHECK(c.next_send_ms == 0);
 }
 
-/* T-011: no in-flight-able data at all -- the burst-capable pump loop
+/* No in-flight-able data at all -- the burst-capable pump loop
  * still terminates immediately instead of spinning. */
 static void test_srvrun_pace_burst_no_data_terminates(void) {
   srvrun_conn* c = sr_test_conns();
@@ -2722,7 +2718,7 @@ static void sr_pace_arm_and_fire_pto(wired_sendsess* sess, u8* body, usz n) {
   CHECK(wired_sendsess_pto_fire(sess, SRVRUN_PTO_MAX) == 1);
 }
 
-/* T-001: a queued PTO probe sends even though next_send_ms is far in the
+/* A queued PTO probe sends even though next_send_ms is far in the
  * future (the RTT-spike scenario) -- srvrun_pump_round_gated must not gate
  * it on pacing. */
 static void test_srvrun_pace_probe_bypasses_pacing_gate(void) {
@@ -2751,7 +2747,7 @@ static void test_srvrun_pace_probe_bypasses_pacing_gate(void) {
   CHECK(c.resp[0].sess.requeue_n == 0); /* the probe actually went out */
 }
 
-/* T-002/T-006/T-011: with no probe queued (ordinary new-data send), a
+/* With no probe queued (ordinary new-data send), a
  * far-future next_send_ms still blocks the round the normal way --
  * regression for the existing pacing behavior. */
 static void test_srvrun_pace_no_probe_still_gated(void) {
@@ -2780,10 +2776,10 @@ static void test_srvrun_pace_no_probe_still_gated(void) {
   CHECK(c.resp[0].sess.q.cur == 0); /* nothing sent, still gated */
 }
 
-/* T-005: one slot holds a probe, a sibling slot has fresh sendq data --
+/* One slot holds a probe, a sibling slot has fresh sendq data --
  * the round-level bypass (srvrun_any_requeued) lets the WHOLE round through,
  * so the sibling's new data goes out in the same pass as the probe (the
- * existing "one paced send per whole pass" design, T-005's documented
+ * existing "one paced send per whole pass" design's documented
  * consequence). */
 static void test_srvrun_pace_mixed_probe_and_new_data_round(void) {
   static u8     probe_body[SRVRUN_CHUNK];
@@ -2816,7 +2812,7 @@ static void test_srvrun_pace_mixed_probe_and_new_data_round(void) {
   CHECK(c.resp[1].sess.q.cur == sizeof new_body); /* sibling's new data too */
 }
 
-/* T-003: a probe still goes through the log gate (srvrun_sess_log_room)
+/* A probe still goes through the log gate (srvrun_sess_log_room)
  * even though it bypasses pacing -- wired_sendsess_pto_fire always frees
  * the log entry it moves to requeue (sendsess_requeue clears that entry's
  * inflight flag), so a queued probe's own log gate can never actually fail
@@ -2864,7 +2860,7 @@ static void test_srvrun_pace_probe_bypass_still_respects_log_gate(void) {
                                          * room -- pto_fire freed them */
 }
 
-/* T-004 boundary: requeue_n transitions from 0 (gated) to 1 (bypassed) the
+/* Boundary: requeue_n transitions from 0 (gated) to 1 (bypassed) the
  * instant a PTO fires -- same connection, same pacing state, only the
  * requeue count changes. */
 static void test_srvrun_pace_probe_bypass_activates_on_requeue(void) {
@@ -2892,7 +2888,7 @@ static void test_srvrun_pace_probe_bypass_activates_on_requeue(void) {
   }
 }
 
-/* T-007: a probe round that actually sends still schedules next_send_ms the
+/* A probe round that actually sends still schedules next_send_ms the
  * normal way afterward -- srvrun_pace_next isn't skipped just because the
  * round happened to be probe-triggered. */
 static void test_srvrun_pace_probe_round_still_schedules_next(void) {
@@ -2924,7 +2920,7 @@ static void test_srvrun_pace_probe_round_still_schedules_next(void) {
   CHECK(c.next_send_ms == 1500);
 }
 
-/* T-008 regression: srvrun_pace_within_poll_tick's own fast path (no probe
+/* srvrun_pace_within_poll_tick's own fast path (no probe
  * involved) is unaffected by the probe-bypass addition -- a sub-poll-tick
  * interval still lets a plain new-data round through without any probe. */
 static void test_srvrun_pace_within_poll_tick_unaffected_by_probe_change(void) {
@@ -5756,18 +5752,18 @@ static void test_srvrun_bigbuf_pool_exhausted_falls_back_to_fixed_row(void) {
 /* Streaming test handler: serves a fixed-size counting pattern
  * (sr_stream_total_len bytes total), writing at most sr_stream_round_cap
  * bytes per call starting at offset, requesting another round whenever
- * bytes remain past this round (T-004/T-006/T-010/T-011/T-012/T-018). Globals
+ * bytes remain past this round. Globals
  * because wired_srvloop_handler's ctx param is already used by other tests'
  * fixtures in this file; reset both before each streaming test. */
 static u64 sr_stream_total_len;
 static usz sr_stream_round_cap;
-/* T-008: a round starting at exactly this offset simulates the underlying
+/* A round starting at exactly this offset simulates the underlying
  * source failing mid-stream (e.g. a read(2) error past round 0) -- the
  * handler declines (returns 0) instead of writing a body. UINT64_MAX (never
  * a real offset) disables the simulation; reset before/after any test that
  * sets it so it doesn't leak into later streaming tests. */
 static u64 sr_stream_fail_at_offset = (u64)-1;
-/* T-009: total_len as the underlying source (a shrinking file) actually
+/* total_len as the underlying source (a shrinking file) actually
  * reports once a round is already in flight -- smaller than
  * sr_stream_total_len, which is what round 0 already promised via
  * *total_size. UINT64_MAX disables the simulation (source never shrinks). */
@@ -5801,8 +5797,7 @@ static int sr_stream_body_handler(
   return 1;
 }
 
-/* T-023 (found via real quic-go interop, not in the original ledger):
- * streaming test handler keyed by the REQUEST'S OWN PATH (its first byte),
+/* Streaming test handler keyed by the REQUEST'S OWN PATH (its first byte),
  * not a shared global -- proves each stream's later rounds still see ITS
  * OWN request, not whichever stream's request happened to complete most
  * recently on the connection (the bug: c->l.req is a per-connection mirror
@@ -5859,7 +5854,7 @@ static void sr_drive_round_to_done(srvrun_step_ctx* ctx, srvrun_conn* c) {
   sr_drive_resp_round_to_done(ctx, c, 0);
 }
 
-/* T-007: with the bigbuf pool exhausted, a streaming handler's response
+/* With the bigbuf pool exhausted, a streaming handler's response
  * still falls back to the fixed row instead of stalling or corrupting
  * state -- srvrun_resp_storage_cap hands it WIRED_SRVRUN_RESP_MAX's smaller
  * cap, so a total_size bigger than that still streams (multiple rounds),
@@ -5906,7 +5901,7 @@ static void test_srvrun_streaming_bigbuf_exhausted_falls_back_to_fixed_row(
     wired_srvbigbuf_release(&g_srvrun_env.bigbuf, held[i]);
 }
 
-/* T-008: a round-1+ handler failure (simulating a mid-stream read error)
+/* A round-1+ handler failure (simulating a mid-stream read error)
  * truncates the response at what was already sent -- srvrun_resp_next_round
  * treats a declined round like an empty final round (body->len forced to 0
  * by srvrun_call_handler, more left 0), not a retry loop or a stall. The
@@ -5944,7 +5939,7 @@ static void test_srvrun_streaming_mid_round_read_error_truncates(void) {
   sr_stream_fail_at_offset = (u64)-1; /* don't leak into later tests */
 }
 
-/* T-009: the source shrinking between round 0 (which already promised
+/* The source shrinking between round 0 (which already promised
  * sr_stream_total_len via *total_size) and round 1 completes with the
  * bytes actually available instead of hanging waiting for bytes that will
  * never come -- the handler's own *more logic (offset + n < actual_total)
@@ -5985,9 +5980,8 @@ static void test_srvrun_streaming_file_shrinks_completes_with_actual_bytes(
   sr_stream_shrinks_to = (u64)-1; /* don't leak into later tests */
 }
 
-/* T-022 (found via real quic-go interop, not in the original ledger): round
- * 0's own sendq marks fin at the end of ITS buffer (wired_sendq_next has no
- * notion of "more rounds coming"), so srvrun_slice_fin must suppress that
+/* Round 0's own sendq marks fin at the end of ITS buffer (wired_sendq_next has
+ * no notion of "more rounds coming"), so srvrun_slice_fin must suppress that
  * fin for every round while r->streaming is still 1 -- otherwise the peer
  * sees the QUIC stream close after round 0's bytes and never asks for (or
  * even waits for) the rest, exactly what broke against a real client:
@@ -6035,7 +6029,7 @@ static void test_srvrun_streaming_round_fin_suppressed_until_final(void) {
   }
 }
 
-/* T-004/T-006: a streaming response's first round arms only up to
+/* A streaming response's first round arms only up to
  * sr_stream_round_cap bytes (not the whole sr_stream_total_len), and once
  * that round's slices are all acked, srvrun_resp_reap re-invokes the handler
  * and re-arms the next round instead of releasing the slot. */
@@ -6068,7 +6062,7 @@ static void test_srvrun_streaming_next_round_armed_after_done(void) {
   }
 }
 
-/* T-005: once the handler stops asking for another round (the final round
+/* Once the handler stops asking for another round (the final round
  * lands exactly on sr_stream_total_len), srvrun_resp_reap releases the
  * slot like any ordinary single-round response. */
 static void test_srvrun_streaming_final_round_releases_slot(void) {
@@ -6100,7 +6094,7 @@ static void test_srvrun_streaming_final_round_releases_slot(void) {
   }
 }
 
-/* T-018/T-019: across rounds, the QUIC STREAM frame's absolute offset keeps
+/* Across rounds, the QUIC STREAM frame's absolute offset keeps
  * counting up from the prior round's cumulative bytes sent, rather than
  * rewinding to 0 -- proven by re-deriving the exact byte sequence a real
  * peer would reassemble from the wire across two rounds and checking it
@@ -6148,7 +6142,7 @@ static void test_srvrun_streaming_stream_offset_accumulates_across_rounds(
   for (usz i = 0; i < 300; i++) CHECK(asm_buf[i] == (u8)(i & 0xff));
 }
 
-/* T-020: two connections streaming concurrently each claim their own bigbuf
+/* Two connections streaming concurrently each claim their own bigbuf
  * pool row (or fall back independently) without one's rounds corrupting the
  * other's -- each connection's resp[0] is driven through several rounds
  * interleaved with the other's, and each must reassemble its own untouched
@@ -6199,8 +6193,7 @@ static void test_srvrun_streaming_concurrent_requests_do_not_corrupt_each_other(
   }
 }
 
-/* T-023 (found via real quic-go interop, not in the original ledger): TWO
- * streams on the SAME connection streaming in parallel -- the shape that
+/* TWO streams on the SAME connection streaming in parallel -- the shape that
  * actually broke against quic-go (3 parallel GETs, each raising the other's
  * completion of c->l.req between rounds). Stream 0 requests path "A", is
  * driven through round 0 only; THEN stream 4's request ("B") starts and
@@ -6277,7 +6270,7 @@ static void test_srvrun_streaming_later_round_uses_own_stream_not_sibling(
   }
 }
 
-/* T-021: an H3 (not hq-interop) streaming response's round-0 DATA frame
+/* An H3 (not hq-interop) streaming response's round-0 DATA frame
  * declares sr_stream_total_len (the full body), not just round 0's 100-byte
  * slice -- quic_h3resp_prefix's body_len argument must have been the total,
  * provable by decoding the prefix bytes at the front of the armed session
@@ -6308,7 +6301,7 @@ static void test_srvrun_streaming_h3_prefix_receives_total_size_not_round_len(
   CHECK(c.resp[0].sess.q.len == preb.len + 100); /* prefix + round 0's body */
 }
 
-/* T-002: a body whose total size lands exactly on the fixed respstore row's
+/* A body whose total size lands exactly on the fixed respstore row's
  * capacity (WIRED_SRVRUN_RESP_MAX - HDR_ROOM) fits in a single round -- the
  * handler is asked for round_cap far bigger than that so it's never the
  * limiting factor, and the round-0 body length must equal the fixed row's
@@ -6340,7 +6333,7 @@ static void test_srvrun_streaming_body_exactly_row_cap_single_round(void) {
   CHECK(c.resp[0].bigbuf_row == -1); /* the fixed row, not the pool */
 }
 
-/* T-003: total size one byte past the bigbuf pool row's own capacity (the
+/* Total size one byte past the bigbuf pool row's own capacity (the
  * largest single-round buffer this server has) crosses into a second round
  * -- round 0 fills the pool row's cap exactly and asks for a second round
  * carrying the last byte. */
@@ -6380,12 +6373,12 @@ static void test_srvrun_streaming_body_row_cap_plus_one_streams(void) {
   wired_srvbigbuf_release(&g_srvrun_env.bigbuf, c.resp[0].bigbuf_row);
 }
 
-/* T-013: a streaming response's bigbuf pool row survives across rounds --
+/* A streaming response's bigbuf pool row survives across rounds --
  * srvrun_resp_shrink_to_fixed's "small enough after all, copy to the fixed
  * row and release the pool row" optimization must NOT fire on a streaming
  * round (it would discard the pool row a still-in-flight earlier round's
- * bytes point into). Round 0 already claims a pool row (T-003's test above
- * proves that); this test drives a further round and checks the SAME pool
+ * bytes point into). Round 0 already claims a pool row (proved by the test
+ * above); this test drives a further round and checks the SAME pool
  * row index survives (never shrunk to the fixed row mid-stream). */
 static void test_srvrun_streaming_last_round_not_shrunk_to_fixed(void) {
   struct lp_fix f;
@@ -6425,7 +6418,7 @@ static void test_srvrun_streaming_last_round_not_shrunk_to_fixed(void) {
   wired_srvbigbuf_release(&g_srvrun_env.bigbuf, c.resp[0].bigbuf_row);
 }
 
-/* T-014: a streaming response's next round is armed via srvrun_resp_reap,
+/* A streaming response's next round is armed via srvrun_resp_reap,
  * which runs inside srvrun_sess_on_step's normal step loop -- the same one
  * that gates every new send on cwnd (srvrun_pump_sess/srvrun_can_send_new).
  * With cwnd pinned to 0, srvrun_reap_resps must still ADVANCE the round
@@ -6463,7 +6456,7 @@ static void test_srvrun_streaming_rearm_respects_existing_send_gates(void) {
   }
 }
 
-/* T-013: hq-interop (see hq09.h) responses carry no HEADERS/DATA framing --
+/* hq-interop (see hq09.h) responses carry no HEADERS/DATA framing --
  * the armed session length equals the handler's body length exactly (a
  * bare 1-byte body arms to exactly 1 byte, not "1 byte + H3 prefix
  * overhead"). Verifies srvrun_arm_hq09_resp's raw-bytes path specifically
@@ -6511,7 +6504,7 @@ static int sr_empty_body_handler(
   return 1;
 }
 
-/* T-013 (hq-interop, see hq09.h): a body-less response still arms cleanly
+/* hq-interop (see hq09.h): a body-less response still arms cleanly
  * (empty body, FIN on the only -- zero-length -- slice) rather than
  * failing or leaving the session unarmed; the peer sees the stream open
  * and immediately close, not a stall. */
@@ -6537,12 +6530,12 @@ static void test_srvrun_hq09_missing_file_arms_empty_body(void) {
   CHECK(wired_sendsess_done(&c.resp[0].sess) == 1); /* nothing to send */
 }
 
-/* T-019/T-024: srvrun's own receive path (srvrun_serve/srvrun_on_step)
- * shares its wired_srvloop's new multi-range delayed-ACK state exactly like
+/* srvrun's own receive path (srvrun_serve/srvrun_on_step)
+ * shares its wired_srvloop's multi-range delayed-ACK state exactly like
  * srvloop's own direct wired_srvloop_step callers do -- proven here over a
  * real loopback socket (so the sealed reply is read back exactly as the
  * wire would deliver it) by driving a GET through srvrun_serve at
- * now_ms >= WIRED_SRVLOOP_MAX_ACK_DELAY_MS (T-024: srvrun's own
+ * now_ms >= WIRED_SRVLOOP_MAX_ACK_DELAY_MS (srvrun's own
  * srvrun_step_ctx.now_ms is quic_ackpolicy's clock, the same one PTO/RTT
  * already share) and checking the sealed reply's ACK frame covers the
  * received pn. Benign skip when the sandbox forbids sockets. */
@@ -6587,7 +6580,7 @@ static void test_srvrun_onertt_get_is_acked_via_srvrun_on_step(void) {
   wired_udp_close(sfd);
 }
 
-/* T-019 (multi-range): srvrun_on_step's shared ACK state is not merely a
+/* Multi-range: srvrun_on_step's shared ACK state is not merely a
  * single-pn passthrough -- two datagrams with a gap between their pns (7,
  * then 9, skipping 8) drive the exact same two-range gap-encoding through
  * srvrun's real-socket path that test_srvloop_ack_single_gap_two_ranges
@@ -6640,7 +6633,7 @@ static void test_srvrun_multi_range_ack_via_srvrun_on_step(void) {
   wired_udp_close(sfd);
 }
 
-/* T-024 (direct): srvrun_on_step writes its ctx->now_ms straight into
+/* Direct: srvrun_on_step writes its ctx->now_ms straight into
  * c->l.now_ms every step -- the exact field quic_ackpolicy_should_ack reads
  * for the delayed-ACK timer (srvloop.c's app_ack_due) -- proving there is
  * one shared clock, not a second independent one for the ACK timer.
@@ -6710,15 +6703,11 @@ static void test_srvrun_fifth_sequential_get_reuses_freed_slot(void) {
  * SRVRUN_PTO_MAX consecutive probes with no intervening ACK must leave the
  * connection up (each probe just requeues the oldest in-flight slice); the
  * next one exhausts the budget and srvrun_pto_slot tears the connection
- * slot down (c->up -> 0), matching TLA+ resp-multiplex's connection-wide
- * PTO-budget guard. Each probe only actually fires once the RTT-derived PTO
- * deadline (srvrun_pto_deadline_ms) has elapsed (RFC 9002 6.2) -- a call
- * before the deadline is a no-op that doesn't consume budget, which is
- * exactly the bug this test's own history caught (SRVRUN_PTO_MS used to be
- * a fixed 300ms fired on every poll tick regardless of RTT, resending
- * merely-slow packets on any faster link). Advances now_ms past each
- * doubling-backoff deadline explicitly rather than assuming a fixed probe
- * interval. */
+ * slot down (c->up -> 0). Each probe only actually fires once the
+ * RTT-derived PTO deadline (srvrun_pto_deadline_ms) has elapsed (RFC 9002
+ * 6.2) -- a call before the deadline is a no-op that doesn't consume budget.
+ * Advances now_ms past each doubling-backoff deadline explicitly rather
+ * than assuming a fixed probe interval. */
 static void test_srvrun_pto_budget_exhausted_tears_down_connection(void) {
   struct lp_fix  f;
   quic_conntable table[QUIC_CONNTABLE_CAP];
@@ -6834,7 +6823,7 @@ static u64 sr_rotate_ku(srvrun_step_ctx* ctx, srvrun_conn* c, u64 now_ms) {
   return now_ms;
 }
 
-/* T-009: within the 3x-PTO retention floor after a confirmed rotation, the
+/* Within the 3x-PTO retention floor after a confirmed rotation, the
  * retained old generation must still be there (RFC 9001 6.5 "SHOULD retain
  * old read keys for no more than three times the PTO"). */
 static void test_srvrun_ku_old_keys_retained_within_3pto_window(void) {
@@ -6866,9 +6855,9 @@ static void test_srvrun_ku_old_keys_retained_within_3pto_window(void) {
   }
 }
 
-/* T-010: once the 3x-PTO floor has fully elapsed, the retained old
+/* Once the 3x-PTO floor has fully elapsed, the retained old
  * generation is discarded (RFC 9001 6.5's upper bound; boundary: one ms
- * short still retains, per T-009 above). */
+ * short still retains, per the test above). */
 static void test_srvrun_ku_old_keys_discarded_after_3pto_window(void) {
   struct lp_fix  f;
   quic_conntable table[QUIC_CONNTABLE_CAP];
@@ -6896,7 +6885,7 @@ static void test_srvrun_ku_old_keys_discarded_after_3pto_window(void) {
   }
 }
 
-/* T-010: end-to-end -- a real MAX_DATA frame, driven through srvrun_on_step
+/* End-to-end -- a real MAX_DATA frame, driven through srvrun_on_step
  * (the real receive path, not field injection), raises the connection's
  * send credit; a subsequent srvrun_sess_on_step (the real per-step apply +
  * pump path) then actually sends a slice that was blocked before the frame
@@ -6936,7 +6925,7 @@ static void test_srvrun_recv_max_data_then_send_unblocks(void) {
   }
 }
 
-/* T-006: RFC 9000 4.1 "MUST NOT reduce" -- a MAX_DATA lower than the
+/* RFC 9000 4.1 "MUST NOT reduce" -- a MAX_DATA lower than the
  * connection's already-running credit is a no-op; the higher value stays. */
 static void test_srvrun_conn_credit_ignores_lower_max_data(void) {
   struct lp_fix   f;
@@ -6963,7 +6952,7 @@ static void test_srvrun_conn_credit_ignores_lower_max_data(void) {
   }
 }
 
-/* T-008: same "MUST NOT reduce" rule at the per-stream level. */
+/* Same "MUST NOT reduce" rule at the per-stream level. */
 static void test_srvrun_stream_credit_ignores_lower_max_stream_data(void) {
   struct lp_fix          f;
   srvrun_conn            c;
@@ -6991,7 +6980,7 @@ static void test_srvrun_stream_credit_ignores_lower_max_stream_data(void) {
   }
 }
 
-/* T-009: a MAX_STREAM_DATA naming a stream_id with no in-use resp[] slot
+/* A MAX_STREAM_DATA naming a stream_id with no in-use resp[] slot
  * (never claimed, or already reaped) is a no-op -- srvrun_apply_stream_
  * credit_update must not crash or touch an unrelated slot. */
 static void test_srvrun_max_stream_data_unknown_stream_is_noop(void) {
@@ -7020,7 +7009,7 @@ static void test_srvrun_max_stream_data_unknown_stream_is_noop(void) {
   }
 }
 
-/* T-015: a PTO-driven resend (the requeued slice, not a new take) must not
+/* A PTO-driven resend (the requeued slice, not a new take) must not
  * double-count against the send credit -- q.cur already reflects that
  * offset range as consumed from the first send, and a resend reuses the
  * same range rather than taking a fresh one. With credit sized for exactly
@@ -7059,7 +7048,7 @@ static void test_srvrun_pto_resend_does_not_double_count_credit(void) {
   }
 }
 
-/* T-011: RFC 9000 4.1 -- a connection-level send credit smaller than one
+/* RFC 9000 4.1 -- a connection-level send credit smaller than one
  * chunk blocks new sends even with cwnd/log wide open. srvrun_can_send_new
  * must gate on it independent of the other two gates. */
 static void test_srvrun_conn_credit_exhausted_blocks_send(void) {
@@ -7088,7 +7077,7 @@ static void test_srvrun_conn_credit_exhausted_blocks_send(void) {
   }
 }
 
-/* T-012: a stream-level send credit smaller than one chunk blocks new sends
+/* A stream-level send credit smaller than one chunk blocks new sends
  * on THAT slot only -- a sibling slot with its own room keeps sending
  * (RFC 9000 4.1's stream-level credit is per-stream, independent of the
  * connection-level one and of other streams'). */
@@ -7123,7 +7112,7 @@ static void test_srvrun_stream_credit_exhausted_blocks_only_that_slot(void) {
   }
 }
 
-/* T-013: the connection-level credit is ONE ceiling shared by every resp[]
+/* The connection-level credit is ONE ceiling shared by every resp[]
  * slot (RFC 9000 4.1: max_data covers all streams combined) -- consumption
  * must sum across slots the same way cwnd's srvrun_inflight_bytes_all does,
  * not gate each slot against the full credit independently (which would
@@ -7162,7 +7151,7 @@ static void test_srvrun_conn_credit_sums_across_slots(void) {
   }
 }
 
-/* T-014: the boundary itself -- a credit exactly equal to what one chunk
+/* The boundary itself -- a credit exactly equal to what one chunk
  * would consume still allows that send (the gate is `consumed + chunk <=
  * credit`, so equality passes). */
 static void test_srvrun_send_credit_boundary_exact_fit_allowed(void) {
@@ -7784,7 +7773,7 @@ static srvrun_cfg sr_boot_pto_cfg(void) {
   return cfg;
 }
 
-/* T-001: past the boot PTO deadline (srvrun_pto_deadline_ms's own
+/* Past the boot PTO deadline (srvrun_pto_deadline_ms's own
  * kInitialRtt-based default, same constant test_srvrun_pto_budget_exhausted_
  * tears_down_connection derives: 1024ms before any RTT sample), the cached
  * flight is resent -- proven by srvrun_test_send_count rising, the same
@@ -7804,8 +7793,8 @@ static void test_srvrun_boot_pto_resends_after_deadline(void) {
   CHECK(st.conns[0].boot_pto_count == 1);
 }
 
-/* T-002: well before the deadline, no resend happens and the probe count
- * stays untouched -- the boundary complement to T-001. */
+/* Well before the deadline, no resend happens and the probe count
+ * stays untouched -- the boundary complement to the test above. */
 static void test_srvrun_boot_pto_no_resend_before_deadline(void) {
   quic_conntable  table[QUIC_CONNTABLE_CAP];
   srvrun_state    st  = {table, sr_test_conns()};
@@ -7820,7 +7809,7 @@ static void test_srvrun_boot_pto_no_resend_before_deadline(void) {
   CHECK(st.conns[0].boot_pto_count == 0);
 }
 
-/* T-003: once confirmed, the boot PTO timer never fires again, regardless of
+/* Once confirmed, the boot PTO timer never fires again, regardless of
  * how far past the old boot deadline now_ms sits. */
 static void test_srvrun_boot_pto_stops_after_confirm(void) {
   quic_conntable  table[QUIC_CONNTABLE_CAP];
@@ -7836,7 +7825,7 @@ static void test_srvrun_boot_pto_stops_after_confirm(void) {
   CHECK(st.conns[0].boot_pto_count == 0);
 }
 
-/* T-004: confirm landing in the same instant a boot PTO tick would otherwise
+/* Confirm landing in the same instant a boot PTO tick would otherwise
  * have fired -- the confirm check runs first (srvrun_boot_pto_waiting), so
  * the race resolves to "stopped", never a stray extra resend. */
 static void test_srvrun_boot_pto_confirm_race_stops_immediately(void) {
@@ -7857,7 +7846,7 @@ static void test_srvrun_boot_pto_confirm_race_stops_immediately(void) {
   CHECK(srvrun_test_send_count() == 0);
 }
 
-/* T-005: SRVRUN_PTO_MAX consecutive boot PTO fires with no confirm ever
+/* SRVRUN_PTO_MAX consecutive boot PTO fires with no confirm ever
  * landing tears the connection slot down, mirroring test_srvrun_pto_budget_
  * exhausted_tears_down_connection's policy for the post-confirm path. Each
  * successive deadline doubles (RFC 9002 6.2 exponential backoff, the same
@@ -7882,8 +7871,8 @@ static void test_srvrun_boot_pto_budget_exhausted_frees_slot(void) {
   }
 }
 
-/* T-006: one probe short of the budget, the slot survives and keeps
- * resending -- the boundary complement to T-005. */
+/* One probe short of the budget, the slot survives and keeps
+ * resending -- the boundary complement to the test above. */
 static void test_srvrun_boot_pto_budget_not_yet_exhausted_keeps_slot(void) {
   quic_conntable table[QUIC_CONNTABLE_CAP];
   srvrun_state   st  = {table, sr_test_conns()};
@@ -7902,7 +7891,7 @@ static void test_srvrun_boot_pto_budget_not_yet_exhausted_keeps_slot(void) {
   CHECK(st.conns[0].boot_pto_count == SRVRUN_PTO_MAX - 1);
 }
 
-/* T-007: a slot with no boot flight ever cached (boot_ini_len == 0 -- still
+/* A slot with no boot flight ever cached (boot_ini_len == 0 -- still
  * mid-ClientHello-reassembly, or a boot that failed) is a no-op: no send, no
  * probe count, no teardown, regardless of how far now_ms has advanced. */
 static void test_srvrun_boot_pto_noop_without_sent_flight(void) {
@@ -7920,7 +7909,7 @@ static void test_srvrun_boot_pto_noop_without_sent_flight(void) {
   CHECK(st.conns[0].boot_pto_count == 0);
 }
 
-/* T-008: a slot that is not up at all (never accepted, or already freed) is
+/* A slot that is not up at all (never accepted, or already freed) is
  * a no-op -- srvrun_awaiting_confirm requires c->up. */
 static void test_srvrun_boot_pto_noop_when_not_up(void) {
   quic_conntable  table[QUIC_CONNTABLE_CAP];
@@ -7936,7 +7925,7 @@ static void test_srvrun_boot_pto_noop_when_not_up(void) {
   CHECK(st.conns[0].boot_pto_count == 0);
 }
 
-/* T-009: a client-triggered retransmit (srvrun_resend_boot_flight) landing
+/* A client-triggered retransmit (srvrun_resend_boot_flight) landing
  * in the same round as a would-be boot PTO deadline re-arms the deadline --
  * the immediately following srvrun_boot_pto_slot call must NOT also fire, or
  * the same flight would go out twice for one round. */
@@ -8118,10 +8107,9 @@ static int sr_has_handshake_done(const u8* pl, usz pll) {
  * acknowledged): the confirmation packet (SETTINGS + session ticket +
  * HANDSHAKE_DONE) goes out exactly once, so when that one datagram is
  * dropped the client keeps PTO-retransmitting its Finished forever while
- * the server answers nothing (observed live under the interop runner's 30%
- * loss profile). wired_srvloop_reconfirm re-seals the cached confirmation
- * frames under a fresh pn so the client can still learn the handshake
- * confirmed. */
+ * the server answers nothing. wired_srvloop_reconfirm re-seals the cached
+ * confirmation frames under a fresh pn so the client can still learn the
+ * handshake confirmed. */
 static void test_srvrun_reconfirm_resends_handshake_done(void) {
   struct lp_fix f;
   srvrun_conn   c;
@@ -8267,7 +8255,7 @@ static void test_srvrun_pto_probe_bypasses_pacing_too(void) {
  * quic-go client exhausts the initial 100-stream limit and blocks forever
  * because the server never raises it). */
 
-/* T-002/T-003: releasing a request stream's receive slot (srvrun_resp_reap,
+/* Releasing a request stream's receive slot (srvrun_resp_reap,
  * once its session goes idle and it isn't streaming) raises the advertised
  * limit by exactly one past the transport-parameter default. */
 static void test_srvrun_slot_release_grants_one_more_stream(void) {
@@ -8298,7 +8286,7 @@ static void test_srvrun_slot_release_grants_one_more_stream(void) {
   }
 }
 
-/* T-004: the advertised limit only ever grows -- a second release raises it
+/* The advertised limit only ever grows -- a second release raises it
  * one more from where it already stood, never resets or drops. */
 static void test_srvrun_stream_limit_never_decreases(void) {
   static u8     body0[SRVRUN_CHUNK];
@@ -8332,7 +8320,7 @@ static void test_srvrun_stream_limit_never_decreases(void) {
   }
 }
 
-/* T-002/T-006: a STREAMS_BLOCKED sighting re-sends the limit already in
+/* A STREAMS_BLOCKED sighting re-sends the limit already in
  * force -- never a peer-claimed value (the frame's own limit field is never
  * even latched, gather_streams_blocked only sets the flag). Needs a
  * confirmed connection (real 1-RTT keys) so the resend actually seals and
@@ -8360,7 +8348,7 @@ static void test_srvrun_streams_blocked_reannounces_current_limit(void) {
   CHECK(c.l.streams_blocked_seen_flag == 0); /* consumed */
 }
 
-/* T-011: a connection where no request stream has ever been released yet
+/* A connection where no request stream has ever been released yet
  * (fresh, stream_limit_advertised still 0) does not misfire a MAX_STREAMS
  * re-grant on a STREAMS_BLOCKED sighting -- it falls back to the same
  * transport-parameter default already advertised, not some other value.
@@ -8385,7 +8373,7 @@ static void test_srvrun_streams_blocked_before_any_release_uses_base(void) {
   CHECK(c.stream_limit_advertised == QUIC_STP_DEFAULT_MAX_STREAMS_BIDI);
 }
 
-/* T-007/T-008 regression: a small case (one stream opened and closed) grants
+/* A small case (one stream opened and closed) grants
  * exactly the expected +1 and nothing more -- no runaway re-grants from a
  * single release, and the flag-based STREAMS_BLOCKED gate stays untouched
  * when no STREAMS_BLOCKED was ever seen. */
@@ -9463,12 +9451,11 @@ static void test_srvrun_wt_credit_advances_with_delivery(void) {
  * the bug this guards against summed delivered_len across every slot but
  * then added only ONE buffer's worth on top (wt_slot_credit_ceiling, meant
  * for a single stream's own ceiling, applied to the connection total by
- * mistake). With N slots open, undercounting starved every slot past the
+ * mistake). With N slots open, undercounting starves every slot past the
  * first back down to the shared ceiling the moment their combined MAX_
- * STREAM_DATA advertisements outran it (found via a real webtransport-go
- * interop run: streams stalled hard past a few hundred KB combined once 3+
- * were active). Three slots (2 bidi, 1 uni) each 100 bytes delivered: the
- * ceiling must be 300 + 3*WIRED_SRVLOOP_WT_BUF_CAP, not 300 + 1*CAP. */
+ * STREAM_DATA advertisements outrun it. Three slots (2 bidi, 1 uni) each 100
+ * bytes delivered: the ceiling must be 300 + 3*WIRED_SRVLOOP_WT_BUF_CAP, not
+ * 300 + 1*CAP. */
 static void test_srvrun_wt_credit_conn_ceiling_scales_with_slot_count(void) {
   struct lp_fix f;
   quic_obuf     ob = {0};
