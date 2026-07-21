@@ -172,7 +172,7 @@ i64 wired_udp_recvmmsg_fallback(i64 fd, quic_mmsg_buf* bufs, usz count);
  * sends ECT(1) (see udp.c's cmsg reader, which still accepts ECT(1) on
  * receive for a peer that does).
  * ponytail: no fallback path on setsockopt failure -- the error propagates
- * to the caller as-is (T-018). quic-interop-runner's execution environment
+ * to the caller as-is. quic-interop-runner's execution environment
  * (Linux container, IPv4 UDP) has IP_TOS/IP_RECVTOS available unconditionally,
  * so a degraded-but-functional non-ECN send path is out of this SDK's scope;
  * add one if a real deployment target ever lacks IP_TOS.
@@ -185,8 +185,7 @@ i64 wired_udp_ect0_enable(i64 fd);
  * into quic_mmsg_buf.ecn via an IP_TOS cmsg. Independent of
  * wired_udp_ect0_enable: a socket may receive ECN reports without marking
  * its own outgoing packets, or vice versa.
- * ponytail: no fallback on failure, same scope note as wired_udp_ect0_enable
- * (T-018).
+ * ponytail: no fallback on failure, same scope note as wired_udp_ect0_enable.
  * @param fd the socket fd
  * @return 0 on success, or a negative errno. */
 i64 wired_udp_recvtos_enable(i64 fd);
