@@ -4,9 +4,9 @@
 #include "test.h"
 
 /* @file
- * tasks/webtransport-plan.md Phase 6 coder F -- WebTransport-specific
- * capsule types (WT_CLOSE_SESSION 0x2843, WT_DRAIN_SESSION 0x78ae) layered
- * on the generic RFC 9297 Capsule Protocol codec.
+ * WebTransport-specific capsule types (WT_CLOSE_SESSION 0x2843,
+ * WT_DRAIN_SESSION 0x78ae) layered on the generic RFC 9297 Capsule Protocol
+ * codec.
  */
 
 /* TEST 1: WT_CLOSE_SESSION round-trip with a nonzero error code and a short
@@ -132,11 +132,10 @@ static void test_wtcapsule_sequential_drain_then_close(void) {
   CHECK(at == out.len);
 }
 
-/* TEST 8: WT-E-010 pin -- the HTTP/3 WebTransport mapping defines no
- * per-stream flow-control capsule (a hypothetical WT_MAX_STREAM_DATA /
+/* TEST 8: the HTTP/3 WebTransport mapping defines no per-stream
+ * flow-control capsule (a hypothetical WT_MAX_STREAM_DATA /
  * WT_STREAM_DATA_BLOCKED, as opposed to the legitimately-deferred
- * per-SESSION WT_MAX_DATA family at 0x190B4D3D etc. -- see
- * tasks/webtransport-plan.md WT-E-004..009 vs WT-E-010). There is no wire
+ * per-SESSION WT_MAX_DATA family at 0x190B4D3D etc.). There is no wire
  * codepoint to construct for a type this SDK will never emit or receive, so
  * this test instead pins the two facts that ARE checkable:
  *
@@ -146,8 +145,7 @@ static void test_wtcapsule_sequential_drain_then_close(void) {
  *    stand-in "some other capsule type" probe, since no per-stream
  *    codepoint is defined anywhere to construct one from.
  * 2. wtcapsule.h declares exactly four functions (encode/decode close,
- *    encode/decode drain) -- confirmed by the grep in this task's report,
- *    not expressible as a runtime assertion in C.
+ *    encode/decode drain), not expressible as a runtime assertion in C.
  */
 static void test_wtcapsule_no_per_stream_flow_control_capsule(void) {
   u8        buf[32];
@@ -157,8 +155,8 @@ static void test_wtcapsule_no_per_stream_flow_control_capsule(void) {
   quic_span msg_out;
   u8        value[4] = {1, 2, 3, 4};
 
-  /* 0x190B4D3D is WT_MAX_DATA (per-SESSION, deferred per WT-E-004..009) --
-   * used only as "a capsule type wtcapsule does not own" probe. */
+  /* 0x190B4D3D is WT_MAX_DATA (per-SESSION, legitimately deferred) -- used
+   * only as "a capsule type wtcapsule does not own" probe. */
   CHECK(quic_capsule_encode(
       &out, 0x190B4D3DULL, quic_span_of(value, sizeof value)));
   CHECK(!quic_wtcapsule_decode_close(

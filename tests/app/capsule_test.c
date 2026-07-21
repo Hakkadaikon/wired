@@ -3,9 +3,9 @@
 #include "test.h"
 
 /* @file
- * tasks/webtransport-plan.md Phase 2 coder A -- RFC 9297 SS3.2 Capsule
- * Protocol codec tests. Generic type+length+value envelope round-trip;
- * no WebTransport-specific capsule types (that is a later domain).
+ * RFC 9297 SS3.2 Capsule Protocol codec tests. Generic type+length+value
+ * envelope round-trip; no WebTransport-specific capsule types (that is a
+ * later domain).
  */
 
 /* TEST 1: round-trip a small type (RFC 9297 base DATAGRAM capsule type 0x00)

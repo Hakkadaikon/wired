@@ -1749,9 +1749,9 @@ void test_sdrv(void) {
     CHECK(quic_sdrv_set_cids(
         &s2, quic_span_of(client_dcid, sizeof(client_dcid)),
         quic_span_of(server_scid, sizeof(server_scid))));
-    /* WT-A-006: opting in to DATAGRAM support (RFC 9221 3) makes the real
-     * server flight advertise a non-zero max_datagram_frame_size, not just
-     * the isolated codec. */
+    /* Opting in to DATAGRAM support (RFC 9221 3) makes the real server
+     * flight advertise a non-zero max_datagram_frame_size, not just the
+     * isolated codec. */
     s2.limits.max_datagram_frame_size = 65535;
     ch_len                            = quic_tls_client_hello(
         &(quic_clienthello_in){
@@ -1782,7 +1782,7 @@ void test_sdrv(void) {
         quic_tparam_cid_match(
             cid, quic_span_of(server_scid, sizeof(server_scid))));
 
-    /* WT-A-006: the real flight's transport parameters carry the opted-in
+    /* The real flight's transport parameters carry the opted-in
      * max_datagram_frame_size (0x20), not zero/absent. */
     {
       u64          dgram_size = 0;
