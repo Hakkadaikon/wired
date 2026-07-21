@@ -8,7 +8,7 @@
 #define DEFAULT_MAX_FIELD_SECTION_SIZE 0x4000 /* 16 KiB */
 #define DEFAULT_QPACK_MAX_TABLE_CAP 0
 #define DEFAULT_QPACK_BLOCKED_STREAMS 0
-/* RFC 9220 3: srvrun's request path now validates :protocol
+/* RFC 9220 3: srvrun's request path validates :protocol
  * (quic_h3_connect_protocol_ok, wired via srvrun_is_wt_connect) before
  * establishing a WebTransport session, so it is safe to advertise. */
 #define DEFAULT_ENABLE_CONNECT_PROTOCOL 1

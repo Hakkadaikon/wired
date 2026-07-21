@@ -24,9 +24,7 @@ __attribute__((naked)) static void sigterm_restorer(void) {
 }
 
 /* RFC-agnostic Unix convention: SIGHUP's signal number on Linux (all
- * architectures) — not in common/platform/sys/syscall.h because that file is
- * shared with unrelated in-flight work; SIGTERM's constant living there
- * predates this rule and is left as-is. */
+ * architectures). */
 #define WIRED_SIGHUP 1
 
 /* Shared registration: both SIGTERM and SIGHUP are handled by the same

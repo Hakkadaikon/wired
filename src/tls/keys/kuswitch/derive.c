@@ -6,7 +6,7 @@
 /* RFC 9001 6.1: key and iv re-derived from next_secret at key_len bytes; hp
  * stays as-is across a key update (shared by both entry points below). */
 static void kuswitch_derive_key_iv(
-    const u8 next_secret[QUIC_HKDF_PRK],
+    const u8           next_secret[QUIC_HKDF_PRK],
     quic_initial_keys* next_keys,
     usz                key_len) {
   quic_hkdf_label lk = {"quic key", 8, {0, 0}};

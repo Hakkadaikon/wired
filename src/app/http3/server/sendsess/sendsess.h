@@ -19,10 +19,7 @@
  * later packets vanish from in-flight accounting entirely. When the log
  * later gains room and starts recording again, those pns are by then far
  * behind largest_acked and trip RFC 9002 6.1.1's packet-threshold loss
- * check the instant they're recorded -- a real quic-go interop run at the
- * old 32-slice (35200-byte) cap showed cwnd stalling in exactly this
- * pattern: repeated 20+-packet "loss" bursts holding cwnd at its own BDP
- * forever, timing out the goodput measurement. */
+ * check the instant they're recorded, stalling cwnd growth. */
 #define WIRED_SENDSESS_LOG 64
 
 /** One sent slice awaiting acknowledgement. */

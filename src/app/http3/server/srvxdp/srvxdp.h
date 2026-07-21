@@ -11,11 +11,11 @@
 /** @file
  * AF_XDP driver integration for the HTTP/3 server: opens one AF_XDP socket
  * plus its BPF redirect filter, and drives the resulting rings with the
- * app-facing quic_mmsg_buf shape (see tests/xdp-driver-plan.md). Delegates
- * every actual mechanism to its lower-layer domain (xsksetup for the
- * syscall plumbing, xdpbpf for the filter program, xdpframe for the wire
- * codec, xdpmac for the reflect cache, xskumem for the TX frame pool): this
- * file is only the driving glue between them. */
+ * app-facing quic_mmsg_buf shape. Delegates every actual mechanism to its
+ * lower-layer domain (xsksetup for the syscall plumbing, xdpbpf for the
+ * filter program, xdpframe for the wire codec, xdpmac for the reflect cache,
+ * xskumem for the TX frame pool): this file is only the driving glue
+ * between them. */
 
 /** Caller-supplied configuration for one AF_XDP-backed server socket. */
 typedef struct {
