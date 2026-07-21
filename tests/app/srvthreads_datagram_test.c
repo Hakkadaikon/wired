@@ -1015,8 +1015,11 @@ static void test_srvthreads_datagram_self_echo(void) {
  * (WIRED_SRVLOOP_WT_BUF_CAP: 12 slots * QUIC_CONNTABLE_CAP=64 conns) --
  * that call cannot be used in a static array bound, so this constant must
  * track it by hand (see srvinbox_test.c's g_sib_env_storage sizing note for
- * the crash this exact gap caused). 96 MiB leaves headroom. */
-static u8 g_sdt_env_storage[96u * 1024u * 1024u];
+ * the crash this exact gap caused). Measured ~112 MiB after the WT receive
+ * windows grew to WIRED_SRVLOOP_WT_BUF_CAP=48K; 128 MiB leaves headroom.
+ * The undersize guard below turns the next lag of this constant into a
+ * printed FAIL instead of a silent memset SEGV. */
+static u8 g_sdt_env_storage[128u * 1024u * 1024u];
 
 /* A connection slot with an active WebTransport session and its own SETTINGS
  * already sent (srvrun_queue_datagram's own gate, RFC 9297 2.1) -- the state
@@ -1048,6 +1051,7 @@ static void test_srvthreads_broadcast_misses_caller_owned_env(void) {
    * conns} construction. */
   st = (srvrun_state){env->table, env->conns};
   CHECK(sizeof g_sdt_env_storage >= wired_srvrun_env_size());
+  if (sizeof g_sdt_env_storage < wired_srvrun_env_size()) return;
   wired_srvrun_env_init(env);
   c = &st.conns[0];
   sdt_mark_wt_active(c);

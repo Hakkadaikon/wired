@@ -167,10 +167,11 @@ static void sib_mark_wt_active(srvrun_conn* c) {
  * not stack: wired_srvrun_env now runs well past tens of MiB (every
  * connection's WT bidi+uni slots carry a real-throughput-sized receive
  * window -- WIRED_SRVLOOP_WT_BUF_CAP slots * QUIC_CONNTABLE_CAP conns). The
- * CHECK below only records a failure, it does not stop the buffer from
- * being used undersized if this constant falls behind the struct's real
- * size, so 96 MiB is kept as headroom above the current requirement. */
-static u8 g_sib_env_storage[96u * 1024u * 1024u];
+ * CHECK below only records a failure, so each user also guards with an
+ * early return: an undersized buffer must print a FAIL, not memset past
+ * the array and SEGV with the output still buffered. Measured ~112 MiB
+ * after the WT receive windows grew to 48K; 128 MiB keeps headroom. */
+static u8 g_sib_env_storage[128u * 1024u * 1024u];
 
 /* Broadcast registry, single-worker (n_total==1): registering hands
  * wired_server_broadcast_datagram this thread's OWN env, so a WT-active
@@ -182,6 +183,7 @@ static void test_srvinbox_registry_single_worker_reaches_own_env(void) {
   wired_srvinbox_ring row[1];
   srvrun_conn*        c;
   CHECK(sizeof g_sib_env_storage >= wired_srvrun_env_size());
+  if (sizeof g_sib_env_storage < wired_srvrun_env_size()) return;
   wired_srvrun_env_init(env);
   wired_srvinbox_ring_init(&row[0]);
   c = &env->conns[0];
@@ -236,9 +238,9 @@ static void sib_mesh_worker_b_fn(void* argp) {
 }
 
 /* Sized like g_sib_env_storage above (see its own note): must track
- * wired_srvrun_env's real size by hand, which now runs well past 16 MiB. */
-static u8 g_sib_mesh_env_a[96u * 1024u * 1024u];
-static u8 g_sib_mesh_env_b[96u * 1024u * 1024u];
+ * wired_srvrun_env's real size by hand (~112 MiB measured). */
+static u8 g_sib_mesh_env_a[128u * 1024u * 1024u];
+static u8 g_sib_mesh_env_b[128u * 1024u * 1024u];
 
 static void test_srvinbox_registry_two_worker_mesh_delivers(void) {
   wired_srvrun_env*   env_a = (wired_srvrun_env*)(void*)g_sib_mesh_env_a;
@@ -255,6 +257,7 @@ static void test_srvinbox_registry_two_worker_mesh_delivers(void) {
 
   CHECK(sizeof g_sib_mesh_env_a >= wired_srvrun_env_size());
   CHECK(sizeof g_sib_mesh_env_b >= wired_srvrun_env_size());
+  if (sizeof g_sib_mesh_env_a < wired_srvrun_env_size()) return;
   wired_srvrun_env_init(env_a);
   wired_srvrun_env_init(env_b);
   conn_a = &env_a->conns[0];
