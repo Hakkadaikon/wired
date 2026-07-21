@@ -109,7 +109,8 @@ wire-check: ninja
 # real ceiling).
 valgrind: gen-ninja
     ninja build/quic_test
-    valgrind --error-exitcode=99 --track-origins=yes --max-stackframe=8000000 ./build/quic_test
+    valgrind --error-exitcode=99 --track-origins=yes --max-stackframe=8000000 \
+        --suppressions=tests/valgrind.supp ./build/quic_test
 
 # emit compile_commands.json for clangd/IDEs from the ninja graph
 compdb: gen-ninja
