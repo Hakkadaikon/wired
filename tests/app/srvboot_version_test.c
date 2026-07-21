@@ -11,7 +11,7 @@
 #include "transport/version/version/version.h"
 
 /* @file
- * R-30 (RFC 9368 Compatible Version Negotiation, server side): this SDK's
+ * RFC 9368 Compatible Version Negotiation, server side: this SDK's
  * server never actively switches a connection's version -- it only ever
  * replies in whichever version the client's own Initial arrived in (RFC
  * 9368 2: no separate VN round trip when the arriving version is already
@@ -154,9 +154,8 @@ static void vneg_dg_init(u32 unsupported_version) {
   vneg_dg[6] = 0; /* SCID len 0 */
 }
 
-/* The server's Version Negotiation packet must list BOTH versions it now
- * accepts directly (v1 and v2, RFC 9368 5) -- before R-30 this hardcoded a
- * single-entry v1-only list. */
+/* The server's Version Negotiation packet must list BOTH versions it
+ * accepts directly (v1 and v2, RFC 9368 5). */
 static void test_vneg_lists_v1_and_v2(void) {
   u8  out[64];
   int saw_v1 = 0, saw_v2 = 0;

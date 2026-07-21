@@ -47,10 +47,7 @@ static void test_initial_v2_differs_from_v1(void) {
   CHECK(!keq(v2.key, "1f369613dd76d5467730efcbe3b1a22d", 16));
 }
 
-/* RFC 9369 Appendix A: same DCID as RFC 9001 A.1, v2 salt/labels. Values
- * independently re-derived by hand (HKDF-Extract(v2 salt, dcid) -> "client
- * in"/"quicv2 key,iv,hp") before pinning, per this repo's rule against
- * trusting a single fetched golden value unchecked. */
+/* RFC 9369 Appendix A: same DCID as RFC 9001 A.1, v2 salt/labels. */
 static void test_initial_v2_client(void) {
   const u8          dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
   quic_initial_keys k;
@@ -70,13 +67,11 @@ static void test_initial_v2_server(void) {
 }
 
 /* v2's derivation must thread the pinned v2 Initial salt (v2keys_test.c's
- * V2_GOLDEN, RFC 9369 3.3.1) through HKDF-Extract: reproduce
- * client_initial_secret by hand from quic_version_initial_salt(
- * QUIC_VERSION_2, ...) plus the "client in" / "quicv2 key" labels, and
- * confirm it reproduces quic_initial_derive's key. This closes the "salt
- * one-source-of-truth" gap (R-25): if initial.c ever drifted back to a
- * locally hard-coded salt, this test would catch it even without a full
- * RFC 9369 Appendix A golden vector (that full pin is R-26). */
+ * V2_GOLDEN, RFC 9369 3.3.1) through HKDF-Extract, not a locally
+ * hard-coded copy: reproduce client_initial_secret by hand from
+ * quic_version_initial_salt(QUIC_VERSION_2, ...) plus the "client in" /
+ * "quicv2 key" labels, and confirm it reproduces quic_initial_derive's
+ * key. */
 static void test_initial_v2_uses_pinned_salt(void) {
   const u8*         salt;
   usz               salt_len;

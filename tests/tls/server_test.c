@@ -345,7 +345,7 @@ static void test_server_keylog_path_writes_line(void) {
   srvt_keylog_unlink();
 }
 
-/* R-39: PSK-resumption round trip through the connection-level key schedule
+/* PSK-resumption round trip through the connection-level key schedule
  * (keyschedule.c/server.c), not just sdrv's own flight (already covered by
  * tests/tls/sdrv_test.c's PSK fixtures). A resumption ClientHello carries a
  * pre_shared_key identifying a ticket sealed under the same ticket_key the
@@ -523,7 +523,7 @@ static void client_ap_keys_psk(
       &(quic_app_keys_in){master, quic_span_of(tr, tlen), is_server}, out);
 }
 
-/* R-39: a PSK-accepted connection's Handshake Secret (recomputed the RFC
+/* A PSK-accepted connection's Handshake Secret (recomputed the RFC
  * 8446 7.1 PSK way from the accepted ticket's secret + the real ECDHE) must
  * equal BOTH sdrv's own internal Handshake Secret (used to build sdrv's
  * flight, sdrv_flight.c's derive_secret) AND, downstream, the connection's
@@ -601,7 +601,7 @@ static int srvt_keys_differ(
   return d;
 }
 
-/* R-39 regression guard: a PSK-accepted connection's application keys
+/* Regression guard: a PSK-accepted connection's application keys
  * genuinely differ from what a plain (non-PSK) derivation over the same
  * ECDHE/transcript would produce -- proves the PSK secret is actually mixed
  * into the key schedule, not silently ignored. */
@@ -622,14 +622,13 @@ static void test_server_psk_keys_differ_from_plain(void) {
   CHECK(srvt_keys_differ(got, &plain));
 }
 
-/* R-39 regression guard: a connection with NO pre_shared_key offered takes
- * the exact same plain path as before this change -- byte-identical
- * Handshake/AP keys to a non-PSK client's own derivation, proving
- * server.c's srv_advance_handshake branch is a true no-op when
- * psk_accepted stays 0. This is test_server_ap_keys_match_client (already
- * above) exercised again after the branch was introduced; kept as its own
- * named case so a future regression here reads as a resumption failure,
- * not a generic AP-keys failure. */
+/* Regression guard: a connection with NO pre_shared_key offered takes the
+ * plain path -- byte-identical Handshake/AP keys to a non-PSK client's own
+ * derivation, proving server.c's srv_advance_handshake branch is a true
+ * no-op when psk_accepted stays 0. Duplicates
+ * test_server_ap_keys_match_client under its own name so a future
+ * regression here reads as a resumption failure, not a generic AP-keys
+ * failure. */
 static void test_server_no_psk_regression_unchanged(void) {
   test_server_ap_keys_match_client();
 }
