@@ -115,8 +115,8 @@ int wired_server_run(
     wired_srvrun_handler h,
     wired_srvrun_obs     obs);
 
-/** Opt-in polling-driver knobs (tasks/polling-driver-plan.md), both off (0)
- * by default so wired_server_run's behavior is unchanged. */
+/** Opt-in polling-driver knobs, both off (0) by default so
+ * wired_server_run's behavior is unchanged. */
 typedef struct {
   int busy_poll; /**< 1: MSG_DONTWAIT spin loop instead of blocking poll(2) */
   int so_busy_poll_us; /**< >0: also enable SO_BUSY_POLL (microseconds).
@@ -139,13 +139,13 @@ typedef struct {
                               * to have kernel effect, see srvrun.c's guard). */
   int so_busy_poll_budget;   /**< > 0: also enable SO_BUSY_POLL_BUDGET with this
                               * packet budget; 0 = disabled (default). */
-  /** tasks/core-pinning-plan.md PIN-007, SET direction only. -1 = disabled
-   * (the default) -- a dedicated sentinel, not 0, because CPU 0 is itself a
-   * valid target and there is no natural "0 means off" value here (unlike
-   * so_busy_poll_us/so_busy_poll_budget, where 0 already means "no budget").
-   * >= 0: also enable SO_INCOMING_CPU with this CPU number. */
+  /** SET direction only. -1 = disabled (the default) -- a dedicated
+   * sentinel, not 0, because CPU 0 is itself a valid target and there is no
+   * natural "0 means off" value here (unlike so_busy_poll_us/
+   * so_busy_poll_budget, where 0 already means "no budget"). >= 0: also
+   * enable SO_INCOMING_CPU with this CPU number. */
   int incoming_cpu;
-  /** tasks/xdp-driver-plan.md: 0 (the default) = unchanged UDP socket path;
+  /** 0 (the default) = unchanged UDP socket path;
    * non-0 = an already-open AF_XDP driver (wired_srvxdp_open), routing recv
    * and send through it instead. The UDP socket from `port` is still bound
    * (port reservation + PASS-frame absorption via the BPF filter's

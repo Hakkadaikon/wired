@@ -619,9 +619,9 @@ __attribute__((unused)) static usz srvrun_test_send_count(void) {
   return g_srvrun_send_count;
 }
 
-/* The one TX seam: AF_XDP when cfg->xdp is set, the UDP socket otherwise
- * (tasks/xdp-driver-plan.md). Both srvrun_send and the direct Version
- * Negotiation send route through this. */
+/* The one TX seam: AF_XDP when cfg->xdp is set, the UDP socket otherwise.
+ * Both srvrun_send and the direct Version Negotiation send route through
+ * this. */
 static void srvrun_tx(
     const srvrun_cfg* cfg, const quic_sockaddr* sa, quic_span pkt) {
   if (cfg->xdp)
@@ -4620,16 +4620,14 @@ static void srvrun_serve(const srvrun_step_ctx* ctx, quic_mspan dg) {
   srvrun_route_and_serve(ctx, dcid, dg, odcid);
 }
 
-/* so_busy_poll_us > 0 enables SO_BUSY_POLL on fd (tasks/polling-driver-
- * plan.md POLL-003a); best-effort like SO_REUSEPORT, a no-op when <= 0 or
- * unsupported by the kernel/driver. */
+/* so_busy_poll_us > 0 enables SO_BUSY_POLL on fd; best-effort like
+ * SO_REUSEPORT, a no-op when <= 0 or unsupported by the kernel/driver. */
 static void srvrun_maybe_busy_poll(i64 fd, int so_busy_poll_us) {
   if (so_busy_poll_us > 0) wired_udp_busy_poll_enable(fd, so_busy_poll_us);
 }
 
 /* SO_PREFER_BUSY_POLL only has kernel effect when SO_BUSY_POLL is also
- * enabled (tasks/polling-driver-plan.md POLL-003b); hoisted so the caller's
- * `if` stays a single condition (CCN). */
+ * enabled; hoisted so the caller's `if` stays a single condition (CCN). */
 static int srvrun_prefer_busy_poll_wanted(const wired_srvrun_opt* opt) {
   return opt->so_busy_poll_us > 0 && opt->so_prefer_busy_poll;
 }
@@ -4656,9 +4654,9 @@ static i64 srvrun_listen(u16 port, const wired_srvrun_opt* opt) {
   quic_sockaddr sa;
   i64           fd = wired_udp_socket();
   if (fd < 0) return fd;
-  /* Best-effort: lets multiple srvworkers children share one port (tasks/
-   * core-pinning-plan.md PIN-004). A single-worker run does not need it, so a
-   * failure here is not fatal -- fall through to bind unconditionally. */
+  /* Best-effort: lets multiple srvworkers children share one port. A
+   * single-worker run does not need it, so a failure here is not fatal --
+   * fall through to bind unconditionally. */
   wired_udp_reuseport_enable(fd);
   /* RFC 9000 13.4 / RFC 9002 19.3.2: best-effort like reuseport above -- ECT(0)
    * marking on send and IP_TOS cmsg on receive are an optimization an ECN-
@@ -4720,7 +4718,7 @@ static int srvrun_any_waiting(const srvrun_state* st) {
 }
 
 /* Non-blocking receive path: the busy_poll spin loop and the AF_XDP driver
- * both drain without ever waiting in poll(2) (tasks/xdp-driver-plan.md). */
+ * both drain without ever waiting in poll(2). */
 static int srvrun_polling(const srvrun_cfg* cfg) {
   return cfg->busy_poll || cfg->xdp != 0;
 }
@@ -4751,10 +4749,9 @@ static void srvrun_polling_ptos(const srvrun_cfg* cfg, srvrun_state* st) {
 }
 
 /* busy_poll=1 or xdp!=0: the blocking poll(2) itself is replaced by a non-
- * blocking return (tasks/polling-driver-plan.md — the srvrun_any_waiting
- * branch above is kept as-is; only this leaf call changes). The actual non-
- * blocking receive happens at the recv step (srvrun_recv), so there is
- * nothing left to wait for here. */
+ * blocking return (the srvrun_any_waiting branch above is kept as-is; only
+ * this leaf call changes). The actual non-blocking receive happens at the
+ * recv step (srvrun_recv), so there is nothing left to wait for here. */
 /* 1 if nothing requires a bounded wait: no response is awaiting ACKs, and
  * this instance owns SIGTERM/SIGHUP so an unbounded blocking recv can still
  * be interrupted. A srvthreads worker keeps SIGTERM/SIGHUP blocked for its
