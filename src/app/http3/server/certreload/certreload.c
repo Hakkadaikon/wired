@@ -115,8 +115,7 @@ static int certreload_path_set(const char* cert_path) {
 
 /* Log "cert.pem: N certs\n" -- chain_count can run past a single digit
  * (WIRED_CERTRELOAD_CHAIN_MAX=10, e.g. quic-interop-runner's 9-cert
- * amplificationlimit chain), so this formats the count instead of the old
- * two-value guess. */
+ * amplificationlimit chain), so this formats the count in full. */
 static void certreload_log_chain_count(usz chain_count) {
   char buf[32];
   usz  at = 0;

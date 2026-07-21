@@ -128,11 +128,9 @@ static int sendsess_lost_by_time(
  * time threshold below applies. Without it, a burst of packets sent in one
  * step (their sent_ms all equal) trips the time threshold the moment
  * elapsed time alone exceeds 9/8*RTT, even though none of them are
- * actually behind an ACK yet -- observed against a real quic-go client:
- * 20-30 packets "lost" at once, every ~10s, holding cwnd at its own BDP
- * forever (RFC 9002 6.1.2's own text ties the time threshold to the same
- * "sent prior to an acknowledged packet" premise as 6.1.1, it does not
- * stand alone). */
+ * actually behind an ACK yet (RFC 9002 6.1.2's own text ties the time
+ * threshold to the same "sent prior to an acknowledged packet" premise as
+ * 6.1.1, it does not stand alone). */
 static int sendsess_lost_eligible(
     const wired_sent_slice* e, u64 largest_acked) {
   return e->inflight && e->pn < largest_acked;

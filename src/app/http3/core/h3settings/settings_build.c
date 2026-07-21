@@ -14,9 +14,8 @@
  * peers key WebTransport support on. */
 #define QUIC_H3_SETTINGS_WT_MAX_SESSIONS 0xc671706a
 /* draft-ietf-webtrans-http3-02 SETTINGS_ENABLE_WEBTRANSPORT (quiche's
- * SETTINGS_WEBTRANS_DRAFT00). Chrome 149 negotiates WebTransport only when
- * this draft-02 pair is present (verified live: advertising the draft-07
- * identifier alone still fails its SupportsWebTransport() check), so both
+ * SETTINGS_WEBTRANS_DRAFT00). Chrome negotiates WebTransport only when this
+ * draft-02 pair is present in addition to the draft-07 identifier, so both
  * generations are advertised together. */
 #define QUIC_H3_SETTINGS_WT_DRAFT02 0x2b603742
 /* draft-ietf-webtrans-http3-15 3.1 SETTINGS_WT_ENABLED. webtransport-go's
