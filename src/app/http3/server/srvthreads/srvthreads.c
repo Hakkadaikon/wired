@@ -8,10 +8,8 @@
 #include "common/platform/sys/syscall.h"
 #include "common/platform/thread/thread.h"
 
-/* Phase D (tasks/loopeng/srvthreads-lifecycle/summary.md): control thread +
- * N worker threads, modeled and TLC-checked before this was written. The
- * six constraints from that summary are cited by section number at each
- * enforcement point below. */
+/* One control thread supervises N worker threads: the control thread owns
+ * signal installation and shutdown, workers own serving. */
 
 /* mmap/munmap flags, same values as thread.c (Linux x86_64
  * <asm-generic/mman-common.h>): PROT_READ|PROT_WRITE, MAP_PRIVATE|
@@ -22,9 +20,9 @@
 /* FUTEX_WAIT, Linux <linux/futex.h>. */
 #define SRVTHREADS_FUTEX_WAIT 0
 
-/* Control's timed wait granularity: summary.md S5, "must be a timeout-armed
- * futex", not the exact value -- liveness does not depend on this number,
- * only on it being finite. */
+/* Control's timed wait granularity must be a timeout-armed futex, not any
+ * particular value -- liveness does not depend on this number, only on it
+ * being finite. */
 #define SRVTHREADS_WAIT_MS 1000
 
 /* Everything one worker thread needs, laid out in the caller's stack frame
@@ -74,8 +72,8 @@ static void srvthreads_arm_xdp_run(srvthreads_worker_arg* a, wired_srvxdp* x) {
 /* XDP mode: open this worker's queue (queue_id == worker index) against the
  * shared per-interface BPF object, serve through it, then close it -- x is
  * a stack local (not heap, not the caller's frame) because it must not
- * outlive this one worker thread. A failed open leaves the worker idle
- * (summary.md's setup-failure contract: nothing this thread can retry). */
+ * outlive this one worker thread. A failed open leaves the worker idle --
+ * nothing this thread can retry once setup fails. */
 static void srvthreads_worker_serve_xdp(srvthreads_worker_arg* a) {
   wired_srvxdp     x;
   wired_srvxdp_cfg cfg = *a->xdp_cfg;
@@ -89,10 +87,9 @@ static void srvthreads_worker_serve_xdp(srvthreads_worker_arg* a) {
   wired_srvxdp_close(&x);
 }
 
-/* Real worker body: pin, then dispatch to the UDP or AF_XDP serve path
- * (summary.md S1: the loop-head shutdown poll lives inside
- * wired_srvrun_serve_env/srvrun_loop already, so one of these calls is the
- * worker's entire steady-state body). */
+/* Real worker body: pin, then dispatch to the UDP or AF_XDP serve path --
+ * the loop-head shutdown poll lives inside wired_srvrun_serve_env/srvrun_loop
+ * already, so one of these calls is the worker's entire steady-state body. */
 static void srvthreads_worker_main(void* argp) {
   srvthreads_worker_arg* a = (srvthreads_worker_arg*)argp;
   wired_srvpin_bind_self(a->index);
@@ -136,8 +133,8 @@ static wired_srvrun_env* srvthreads_env_at(u8* base, int i) {
   return (wired_srvrun_env*)(base + (usz)i * wired_srvrun_env_size());
 }
 
-/* mmap an N*N broadcast inbox mesh in one shot (Phase E): mesh[i] is worker
- * i's own receive row, fed by every worker j's wired_srvinbox_push into
+/* mmap an N*N broadcast inbox mesh in one shot: mesh[i] is worker i's own
+ * receive row, fed by every worker j's wired_srvinbox_push into
  * mesh[i][j]. Sized off n_cores like srvthreads_alloc_envs, so it stays
  * proportional instead of a fixed WIRED_SRVTHREADS_MAX*MAX allocation. */
 static wired_srvinbox_ring* srvthreads_alloc_mesh(int n_cores) {
@@ -163,11 +160,10 @@ static wired_srvinbox_ring* srvthreads_row_at(
 }
 
 /* Fill one worker's argument block: per-worker env pointer/index/core-scoped
- * xdp cfg, plus a deep-enough copy of id (summary.md's "each worker gets its
- * own copy" requirement -- SIGHUP reload writes id->chain/chain_count/
- * cert_seed in place, and every worker must see only its own copy). run's
- * no_signal_handlers is forced to 1: only the control thread installs
- * SIGTERM/SIGHUP (constraint 4). */
+ * xdp cfg, plus a deep-enough copy of id -- SIGHUP reload writes
+ * id->chain/chain_count/cert_seed in place, and every worker must see only
+ * its own copy. run's no_signal_handlers is forced to 1: only the control
+ * thread installs SIGTERM/SIGHUP. */
 static void srvthreads_fill_arg(
     srvthreads_worker_arg*      a,
     int                         i,
@@ -212,11 +208,11 @@ static void srvthreads_join_all(wired_thread* threads, int n) {
   for (int i = 0; i < n; i++) wired_thread_join(&threads[i]);
 }
 
-/* Control's timed wait for the shared shutdown word (constraint 5): loop a
- * FUTEX_WAIT with a fixed relative timeout until the word reads non-zero.
- * A spurious wake (EAGAIN because the word changed between the load and the
- * syscall, EINTR, or the timeout itself) all fall through to re-check the
- * word, matching the summary's "timeout is the liveness floor" argument. */
+/* Control's timed wait for the shared shutdown word: loop a FUTEX_WAIT with
+ * a fixed relative timeout until the word reads non-zero. A spurious wake
+ * (EAGAIN because the word changed between the load and the syscall, EINTR,
+ * or the timeout itself) all fall through to re-check the word -- the
+ * timeout is the liveness floor, not the trigger. */
 static void srvthreads_wait_shutdown(int* word) {
   quic_timespec ts = {
       SRVTHREADS_WAIT_MS / 1000, (SRVTHREADS_WAIT_MS % 1000) * 1000000};
@@ -237,19 +233,19 @@ static void srvthreads_close_bpf(
   if (xdp) wired_srvxdpbpf_close(bpf);
 }
 
-/* SIGTERM/SIGHUP handler installed by the control thread only (constraint
- * 4): async-signal-safe like srvrun.c's own handler, a single RELEASE
- * store into the process-wide shutdown word every worker's srvrun_loop
- * already polls once per iteration. */
+/* SIGTERM/SIGHUP handler installed by the control thread only:
+ * async-signal-safe like srvrun.c's own handler, a single RELEASE store into
+ * the process-wide shutdown word every worker's srvrun_loop already polls
+ * once per iteration. */
 static void srvthreads_sigterm_handler(int sig) {
   (void)sig;
   __atomic_store_n(wired_srvrun_shutdown_word(), 1, __ATOMIC_RELEASE);
 }
 
 /* Block SIGTERM/SIGHUP, spawn every worker (inheriting the mask), then
- * unblock and install the handler (constraint 4: block -> spawn ->
- * unblock+install, so a signal arriving during spawn is pending and
- * delivered right after unblock). Already-started threads on a spawn
+ * unblock and install the handler: block -> spawn -> unblock+install, so a
+ * signal arriving during spawn is pending and delivered right after
+ * unblock. Already-started threads on a spawn
  * failure are the caller's problem to join/cleanup (n stays the loop bound
  * either way, since a fixed-size table was pre-zeroed). */
 static void srvthreads_start_workers(
