@@ -368,9 +368,9 @@ static void test_srvloop_seal_chacha_roundtrip(void) {
   }
 }
 
-/* The server also OPENS ChaCha20-Poly1305 packets from the client (T-006's
- * inverse direction): a client-sealed Handshake Finished under CLIENT_HS
- * ChaCha20 keys reaches the server and confirms the handshake, and a
+/* The server also OPENS ChaCha20-Poly1305 packets from the client: a
+ * client-sealed Handshake Finished under CLIENT_HS ChaCha20 keys reaches the
+ * server and confirms the handshake, and a
  * client-sealed 1-RTT request under CLIENT_AP ChaCha20 keys is received and
  * dispatched -- proving wired_srvloop_recv actually uses the negotiated
  * suite on the receive path, not just on send. */
@@ -764,10 +764,10 @@ static int client_open_handshake(
   return 1;
 }
 
-/* REGRESSION (appconnect stall): a client Finished at a non-zero Handshake PN
- * must be acknowledged at that PN. The server previously ACKed a fixed PN 0, so
- * a Finished at any other PN went unacknowledged and the client PTO-
- * retransmitted it for ~4s (RFC 9000 13.2.1). */
+/* A client Finished at a non-zero Handshake PN must be acknowledged at that
+ * PN -- acking a fixed PN 0 instead would leave a Finished at any other PN
+ * unacknowledged, forcing the client to PTO-retransmit it (RFC 9000
+ * 13.2.1). */
 static void test_srvloop_handshake_ack_tracks_pn(void) {
   struct lp_fix f;
   u8            cpkt[1024], out[1024];
@@ -872,9 +872,8 @@ static usz lp_build_headers_stream(
  * stream stays open for the whole session -- there is NO FIN after its
  * HEADERS (the stream IS the session). The request must therefore be decoded
  * as soon as its complete HEADERS frame is buffered; gating the decode on
- * FIN starves every browser CONNECT forever (observed live: Chrome's CONNECT
- * went unanswered while the server ACKed and idled out). A non-CONNECT
- * request without FIN must still wait: its body may follow. */
+ * FIN would starve every browser CONNECT forever. A non-CONNECT request
+ * without FIN must still wait: its body may follow. */
 static void test_srvloop_connect_drives_without_fin(void) {
   struct lp_fix        f;
   u8                   scratch[512], stream[512];
@@ -1074,12 +1073,11 @@ static void test_srvloop_padding_before_stream(void) {
   CHECK(ob.len > 0);
 }
 
-/* COALESCED RECEIVE (RFC 9000 12.2): curl/quiche coalesce the client Finished
- * Handshake packet behind a leading packet (an Initial ACK or a PADDING-only
- * Handshake) in one datagram. A leading Handshake carrying only PADDING does
- * not confirm; the step must walk past it to the second slice's genuine
- * Finished and reach confirmed — proving the loop no longer drops non-first
- * slices. */
+/* RFC 9000 12.2: curl/quiche coalesce the client Finished Handshake packet
+ * behind a leading packet (an Initial ACK or a PADDING-only Handshake) in
+ * one datagram. A leading Handshake carrying only PADDING does not confirm;
+ * the step must walk past it to the second slice's genuine Finished and
+ * reach confirmed, not drop non-first slices. */
 static void test_srvloop_coalesced_finished_behind_leading(void) {
   struct lp_fix f;
   u8            lead[256], rest[512], dg[1024], out[1024];
@@ -1405,7 +1403,7 @@ static void test_srvloop_wt_bidi_stream_not_request(void) {
     CHECK(f.l.streams[i].in_use == 0);
 }
 
-/* T-012/T-014/T-015: hq-interop (see hq09.h) end to end -- a single client
+/* hq-interop (see hq09.h) end to end -- a single client
  * bidi STREAM frame carrying "GET <path>\r\n" with FIN set, on a
  * connection whose ALPN negotiation is forced to QUIC_SALPN_HQ (the
  * negotiation itself is covered independently by tests/tls/negotiate_test.c
@@ -1422,8 +1420,7 @@ static void test_srvloop_hq09_recv_get_produces_request(void) {
   f.s.sdrv.alpn     = QUIC_SALPN_HQ;
   f.l.resp_external = 1; /* real deployments always set this (srvrun.c);
                           * srvloop's own response_frame (unset case) never
-                          * negotiates hq-interop and is not this task's
-                          * scope. */
+                          * negotiates hq-interop. */
   {
     static const u8   line[] = "GET /file1.txt\r\n";
     quic_stream_frame sf     = {0, 0, sizeof(line) - 1, line, 1};
@@ -1641,18 +1638,16 @@ static int lp_streams_slot_claims(const wired_srvloop* l, u64 stream_id) {
   return 0;
 }
 
-/* REGRESSION (draft-ietf-webtrans-http3-15 4.3): a WT bidi stream's
- * post-signal CONTINUATION frame (offset>0) must be excluded from the
- * request-reassembly path exactly like its own offset-0 signal frame is --
- * sf_is_request must consult wt_frame_relevant (l->wt_streams[] membership),
- * not just the current frame's own offset. Before this was fixed, the
- * offset>0 frame's id-based classification alone made it look like a fresh
- * request stream: step_slot_for/wired_srvloop_payload_stream_id claimed a
- * streams[] slot for stream 4 and gather_request copied its bytes into that
- * slot's req_buf, alongside (not instead of) the correct wt_streams[]
- * landing. This reuses test_srvloop_wt_bidi_stream_reassembled's exact wire
- * shape and asserts the ADDITIONAL invariant that test didn't check: no
- * streams[] slot ever exists for stream 4. */
+/* draft-ietf-webtrans-http3-15 4.3: a WT bidi stream's post-signal
+ * CONTINUATION frame (offset>0) must be excluded from the request-reassembly
+ * path exactly like its own offset-0 signal frame is -- sf_is_request must
+ * consult wt_frame_relevant (l->wt_streams[] membership), not just the
+ * current frame's own offset, or the offset>0 frame's id-based
+ * classification alone would make it look like a fresh request stream and
+ * claim a streams[] slot for it. This reuses
+ * test_srvloop_wt_bidi_stream_reassembled's exact wire shape and asserts the
+ * ADDITIONAL invariant that test didn't check: no streams[] slot ever exists
+ * for stream 4. */
 static void test_srvloop_wt_bidi_continuation_not_absorbed_into_request(void) {
   struct lp_fix f;
   u8            f0[64], f1[64], out[1024], spkt[1024];
@@ -1856,14 +1851,13 @@ static void test_srvloop_wt_uni_stream_reassembled(void) {
   }
 }
 
-/* REGRESSION: existing control (0x00)/QPACK (0x02/0x03) uni streams, now
- * newly CLASSIFIED (offset-0 type peeked) for the first time by this slice's
- * gather_uni_stream, still behave EXACTLY as before -- accepted (no crash,
- * no got_request), and critically no wt_uni_streams[] slot is claimed for any
- * of them (only a 0x54-typed stream ever claims one). Driven through the live
- * wired_srvloop_step path (ctx->l set), unlike the pre-existing direct-
- * dispatch test_srvloop_dispatch_uni_streams_not_request, so the classifier
- * added in THIS slice is actually exercised. */
+/* Control (0x00)/QPACK (0x02/0x03) uni streams, classified (offset-0 type
+ * peeked) by gather_uni_stream, are accepted (no crash, no got_request), and
+ * critically no wt_uni_streams[] slot is claimed for any of them (only a
+ * 0x54-typed stream ever claims one). Driven through the live
+ * wired_srvloop_step path (ctx->l set), unlike the direct-dispatch
+ * test_srvloop_dispatch_uni_streams_not_request, so the classifier itself is
+ * exercised. */
 static void test_srvloop_uni_control_qpack_still_ignored(void) {
   struct lp_fix f;
   u8            payload[256], out[1024], spkt[1024];
@@ -2392,7 +2386,7 @@ static void test_srvloop_close_frame_detected(void) {
   CHECK(srvloop_has_close(quic_span_of(ping, 1)) == 0);
 }
 
-/* T-002: an ack-eliciting 1-RTT packet (here, a PING frame) records its pn
+/* An ack-eliciting 1-RTT packet (here, a PING frame) records its pn
  * into the App packet-number-space's receive window and marks an ACK owed
  * (quic_ackpolicy pending). */
 static void test_srvloop_ack_eliciting_records_pn_and_pending(void) {
@@ -2410,7 +2404,7 @@ static void test_srvloop_ack_eliciting_records_pn_and_pending(void) {
   CHECK(f.l.app_ack_policy.pending == 1);
 }
 
-/* T-003: a non-ack-eliciting 1-RTT packet (ACK-only) does not record its pn
+/* A non-ack-eliciting 1-RTT packet (ACK-only) does not record its pn
  * into the receive window and does not raise the ACK-owed pending count --
  * receiving only ACKs is never itself a reason to ACK. */
 static void test_srvloop_ack_non_eliciting_not_recorded(void) {
@@ -2431,7 +2425,7 @@ static void test_srvloop_ack_non_eliciting_not_recorded(void) {
   CHECK(f.l.app_ack_policy.pending == 0);
 }
 
-/* T-001: with nothing ever received on the App pn space, no ACK is owed
+/* With nothing ever received on the App pn space, no ACK is owed
  * (quic_ackpolicy starts at pending == 0) -- a fresh connection's very
  * first step (the Handshake confirm alone, no 1-RTT packet yet) must not
  * synthesize an App-space ACK out of nothing. */
@@ -2447,7 +2441,7 @@ static void test_srvloop_ack_no_eliciting_no_ack(void) {
       0);
 }
 
-/* T-009: a single lost packet between two received ones (pn 7 then pn 9,
+/* A single lost packet between two received ones (pn 7 then pn 9,
  * skipping 8) yields a two-range ACK -- the gap in quic_recvpn's window
  * surfaces as a second (Gap, Length) pair in the encoded frame (RFC 9000
  * 19.3). Forcing the delay window open (now_ms advanced past since_tick)
@@ -2480,8 +2474,8 @@ static void test_srvloop_ack_single_gap_two_ranges(void) {
   CHECK(a.ranges[1].hi == 7 && a.ranges[1].lo == 7);
 }
 
-/* T-014: reordered arrival (pn 9 before pn 7, the opposite wire order from
- * T-009 above) still yields the same two ranges -- quic_recvpn's bitmap is
+/* Reordered arrival (pn 9 before pn 7, the opposite wire order from the
+ * previous test) still yields the same two ranges -- quic_recvpn's bitmap is
  * order-independent. */
 static void test_srvloop_ack_reordered_pns_still_correct(void) {
   struct lp_fix  f;
@@ -2511,7 +2505,7 @@ static void test_srvloop_ack_reordered_pns_still_correct(void) {
   CHECK(a.ranges[1].hi == 7 && a.ranges[1].lo == 7);
 }
 
-/* T-012: receiving the same pn twice (retransmit/duplicate delivery) must not
+/* Receiving the same pn twice (retransmit/duplicate delivery) must not
  * double-count the pending ACK counter -- quic_recvpn_seen already reflects
  * the pn as seen, so the second arrival is a duplicate the receive path
  * should recognize before crediting another pending increment. */
@@ -2537,7 +2531,7 @@ static void test_srvloop_ack_duplicate_pn_not_double_counted(void) {
   CHECK(quic_recvpn_seen(&f.l.ack_recv.r[QUIC_PNS_APP], 7) == 1);
 }
 
-/* T-013: a pn older than the QUIC_RECVPN_WINDOW (64 packets behind the
+/* A pn older than the QUIC_RECVPN_WINDOW (64 packets behind the
  * current largest) is outside quic_recvpn's tracked bitmap -- receiving one
  * again must not fabricate a new ACK-owed signal. */
 static void test_srvloop_ack_stale_pn_outside_window_ignored(void) {
@@ -2560,7 +2554,7 @@ static void test_srvloop_ack_stale_pn_outside_window_ignored(void) {
   CHECK(quic_recvpn_seen(&f.l.ack_recv.r[QUIC_PNS_APP], 1) == 0);
 }
 
-/* T-015: the receive window boundary (a pn exactly QUIC_RECVPN_WINDOW behind
+/* The receive window boundary (a pn exactly QUIC_RECVPN_WINDOW behind
  * the current largest) is still tracked -- the boundary itself belongs to
  * the window, only pns strictly older fall outside it. */
 static void test_srvloop_ack_recvpn_window_boundary(void) {
@@ -2583,7 +2577,7 @@ static void test_srvloop_ack_recvpn_window_boundary(void) {
   CHECK(quic_recvpn_seen(&f.l.ack_recv.r[QUIC_PNS_APP], 1) == 1);
 }
 
-/* T-016: a large forward jump in pn (heavy loss, then one packet arriving far
+/* A large forward jump in pn (heavy loss, then one packet arriving far
  * ahead) must not corrupt quic_recvpn's sliding bitmap -- the new pn becomes
  * the largest and is acked as its own single-packet range. */
 static void test_srvloop_ack_large_pn_jump_handled_by_existing_recvpn(void) {
@@ -2612,7 +2606,7 @@ static void test_srvloop_ack_large_pn_jump_handled_by_existing_recvpn(void) {
   CHECK(a.ranges[0].hi == 100000 && a.ranges[0].lo == 100000);
 }
 
-/* T-010: exactly QUIC_ACK_MAX_RANGES (32) single-packet ranges, all within
+/* Exactly QUIC_ACK_MAX_RANGES (32) single-packet ranges, all within
  * quic_recvpn's QUIC_RECVPN_WINDOW (64) -- receiving pn 1, 3, 5, ..., 63 (32
  * odd packet numbers, every even one missing) yields 32 independent ranges,
  * proving the window comfortably reaches the range-count ceiling without
@@ -2648,12 +2642,12 @@ static void test_srvloop_ack_ranges_within_window_all_included(void) {
   CHECK(a.ranges[QUIC_ACK_MAX_RANGES - 1].hi == 1);
 }
 
-/* T-011 (integration): one more single-packet range than
- * QUIC_ACK_MAX_RANGES (33, all within the 64-pn recvpn window) must not
- * corrupt srvloop -- app_ack_encode_ranges (respond.c, called directly here
- * exactly like T-020/T-021 above) falls back to appending nothing rather
- * than a truncated/overflowing ACK frame; it is emit_ack_only's caller that
- * then has nothing to send, not an encoder crash or garbage frame. */
+/* One more single-packet range than QUIC_ACK_MAX_RANGES (33, all within the
+ * 64-pn recvpn window) must not corrupt srvloop -- app_ack_encode_ranges
+ * (respond.c, called directly here as in the tests above) falls back to
+ * appending nothing rather than a truncated/overflowing ACK frame; it is
+ * emit_ack_only's caller that then has nothing to send, not an encoder
+ * crash or garbage frame. */
 static void test_srvloop_ack_encode_overflow_falls_back_safely(void) {
   struct lp_fix f;
   quic_obuf     ob;
@@ -2681,7 +2675,7 @@ static void test_srvloop_ack_encode_overflow_falls_back_safely(void) {
   }
 }
 
-/* T-018: the App and Handshake pn spaces are independent (RFC 9000 12.3) --
+/* The App and Handshake pn spaces are independent (RFC 9000 12.3) --
  * an App-space packet does not perturb the Handshake ACK's tracked pn, and
  * vice versa (proven here by confirming the Handshake ACK still reflects the
  * Finished's own pn after an unrelated App-space packet arrives). */
@@ -2702,7 +2696,7 @@ static void test_srvloop_ack_pn_spaces_independent(void) {
   CHECK(quic_recvpn_seen(&f.l.ack_recv.r[QUIC_PNS_HANDSHAKE], 7) == 0);
 }
 
-/* T-020: with nothing pending on the App pn space and no request decoded,
+/* With nothing pending on the App pn space and no request decoded,
  * the post-confirmation reply carries no ACK frame at all -- an unnecessary
  * bare-ACK packet is never sent (RFC 9000 13.2.1's "nothing to acknowledge"
  * case). Uses a second confirmed step with no new packet to observe: the
@@ -2726,7 +2720,7 @@ static void test_srvloop_ack_nothing_pending_no_ack_frame_emitted(void) {
   }
 }
 
-/* T-021: the ACK frame's ack_delay field reflects the actual elapsed time
+/* The ACK frame's ack_delay field reflects the actual elapsed time
  * since the oldest unacked eliciting packet arrived (RFC 9000 19.3),
  * encoded via quic_ack_delay_encode -- not left at a fixed 0 regardless of
  * how long the server waited. */
@@ -2752,7 +2746,7 @@ static void test_srvloop_ack_delay_field_encodes_actual_delay(void) {
   }
 }
 
-/* T-025 / T-008: an ACK carries no ECN counts (has_ecn stays 0, type 0x02)
+/* An ACK carries no ECN counts (has_ecn stays 0, type 0x02)
  * while this connection has never counted a marked datagram
  * (wired_srvloop_ecn_note not yet called, or only ever called with Not-ECT)
  * -- the pre-existing non-ECN wire format is unaffected by ECN support
@@ -2783,7 +2777,7 @@ static void test_srvloop_ack_ecn_always_disabled(void) {
   CHECK(a.has_ecn == 0);
 }
 
-/* T-006: wired_srvloop_ecn_note advances the matching cumulative counter for
+/* wired_srvloop_ecn_note advances the matching cumulative counter for
  * each RFC 3168 codepoint (0 Not-ECT, 1 ECT(1), 2 ECT(0), 3 CE) and leaves
  * the other two untouched; repeated calls accumulate rather than overwrite
  * (RFC 9000 19.3.2's counts are running totals across the connection). */
@@ -2805,7 +2799,7 @@ static void test_srvloop_ecn_counts_accumulate_on_receive(void) {
   CHECK(f.l.ecn_ce == 1);
 }
 
-/* T-007: once the cumulative ECN counters are nonzero, the 1-RTT ACK this
+/* Once the cumulative ECN counters are nonzero, the 1-RTT ACK this
  * connection sends carries them (has_ecn=1, type 0x03), with each field
  * matching the counter it mirrors. */
 static void test_srvloop_ack_includes_ecn_counts_when_nonzero(void) {
@@ -2842,7 +2836,7 @@ static void test_srvloop_ack_includes_ecn_counts_when_nonzero(void) {
   CHECK(a.ce == 1);
 }
 
-/* T-004/T-005: a lone ack-eliciting packet is not due for an ACK until
+/* A lone ack-eliciting packet is not due for an ACK until
  * WIRED_SRVLOOP_MAX_ACK_DELAY_MS elapses (RFC 9000 13.2.1's delay window),
  * but becomes due at exactly that many ms. */
 static void test_srvloop_ack_delay_window_boundary(void) {
@@ -2859,15 +2853,15 @@ static void test_srvloop_ack_delay_window_boundary(void) {
   CHECK(
       quic_ackpolicy_should_ack(
           &f.l.app_ack_policy, f.l.app_ack_policy.since_tick,
-          WIRED_SRVLOOP_MAX_ACK_DELAY_MS) == 0); /* T-004: not yet due */
+          WIRED_SRVLOOP_MAX_ACK_DELAY_MS) == 0); /* not yet due */
   CHECK(
       quic_ackpolicy_should_ack(
           &f.l.app_ack_policy,
           f.l.app_ack_policy.since_tick + WIRED_SRVLOOP_MAX_ACK_DELAY_MS,
-          WIRED_SRVLOOP_MAX_ACK_DELAY_MS) == 1); /* T-005: exactly due */
+          WIRED_SRVLOOP_MAX_ACK_DELAY_MS) == 1); /* exactly due */
 }
 
-/* T-006 (RFC 9000 13.2.2): a second ack-eliciting packet arriving while the
+/* RFC 9000 13.2.2: a second ack-eliciting packet arriving while the
  * first is still unacked forces an immediate ACK, even at elapsed time 0
  * (well within the delay window) -- proven by quic_ackpolicy_should_ack
  * itself (a direct, non-destructive check of the 2-pending case), since
@@ -2889,7 +2883,7 @@ static void test_srvloop_ack_second_eliciting_forces_immediate(void) {
       1); /* second pending: due immediately, delay window irrelevant */
 }
 
-/* T-007: once app_ack_append actually encodes and sends an ACK, pending is
+/* Once app_ack_append actually encodes and sends an ACK, pending is
  * cleared (quic_ackpolicy_on_ack_sent) so the next due-check starts fresh
  * rather than staying stuck at "due" forever. */
 static void test_srvloop_ack_sent_clears_pending_state(void) {
@@ -2910,7 +2904,7 @@ static void test_srvloop_ack_sent_clears_pending_state(void) {
   /* GET decoded or not, confirm_pending is already false (post-confirm), so
    * produce_confirmed's emit_ack_only/emit_response always piggybacks via
    * app_ack_append (unconditional) -- proven directly here without a second
-   * wired_srvloop_step, since app_ack_append is what this task added. */
+   * wired_srvloop_step. */
   {
     u8  buf[288];
     usz n = app_ack_append(&f.l, buf, sizeof buf);
@@ -2986,12 +2980,11 @@ static void test_srvloop_gather_max_stream_data_raises_credit(void) {
   CHECK(f.l.max_stream_data_value[0] == 300000);
 }
 
-/* T-020: a single step coalescing MAX_STREAM_DATA frames for several
+/* A single step coalescing MAX_STREAM_DATA frames for several
  * distinct streams (e.g. 3 parallel large downloads each raised at once)
- * latches every one of them, not just the last -- the bug a single-slot
- * latch caused against a real quic-go client (parallel transfers stalling
- * at their initial credit once one stream's raise silently dropped
- * another's). */
+ * latches every one of them, not just the last -- a single-slot latch would
+ * stall parallel transfers at their initial credit once one stream's raise
+ * silently dropped another's. */
 static void test_srvloop_gather_max_stream_data_keeps_every_distinct_stream(
     void) {
   struct lp_fix          f;
@@ -3214,9 +3207,9 @@ static usz client_seal_onertt_pn_gen(
   return total;
 }
 
-/* T-001: same phase as current generation -- ordinary decrypt, no rotation.
- * This is exactly test_srvloop_onertt_get_is_acked's path; kept as its own
- * name so the key-update ledger's T-001 has a directly traceable test. */
+/* Same phase as current generation -- ordinary decrypt, no rotation. This is
+ * exactly test_srvloop_onertt_get_is_acked's path; kept as its own named
+ * test for key-update coverage. */
 static void test_srvloop_recv_same_phase_uses_current_keys(void) {
   struct lp_fix f;
   u8            out[1024], get[512], spkt[1024];
@@ -3246,7 +3239,7 @@ static void test_srvloop_recv_same_phase_uses_current_keys(void) {
   CHECK(f.s.ku.generation == 0); /* no rotation on a same-phase packet */
 }
 
-/* T-002/T-003: a packet sealed under generation 1 (the peer's Key Update)
+/* A packet sealed under generation 1 (the peer's Key Update)
  * decrypts as a probe against the derived next generation, and ONLY a
  * successful decrypt confirms it -- ku.generation must advance to 1. */
 static void test_srvloop_recv_new_phase_derives_next_keys(void) {
@@ -3274,7 +3267,7 @@ static void test_srvloop_recv_new_phase_derives_next_keys(void) {
   CHECK(f.s.ku.have_old == 1);   /* generation 0 retained as old */
 }
 
-/* T-007/T-018: RFC 9001 "MUST update its send keys to the corresponding key
+/* RFC 9001 "MUST update its send keys to the corresponding key
  * phase in response" -- once a peer update is confirmed (generation 1), the
  * server's OWN 1-RTT replies must be sealed under generation 1 too, not the
  * fixed generation-0 SERVER_AP. Verified two ways: (a) the schedule's fixed
@@ -3344,13 +3337,12 @@ static void test_srvloop_send_keys_follow_peer_update_before_ack(void) {
   check_acks_pn(pl, pll, 7);
 }
 
-/* T-004: a packet whose AEAD tag does not verify under ANY retained/derivable
+/* A packet whose AEAD tag does not verify under ANY retained/derivable
  * generation (current, old, or the one-step-ahead probe) must fail closed --
  * wired_srvloop_step reports no progress, and ku.generation is untouched.
- * Covers both an ordinary corrupted packet and (per the key-update ledger's
- * KEY_UPDATE_ERROR entry) a "two generations ahead" phase bit, which this
- * SDK does not distinguish from ordinary corruption: both fail the same
- * one-step-ahead probe's AEAD check. */
+ * Covers both an ordinary corrupted packet and a "two generations ahead"
+ * phase bit, which this SDK does not distinguish from ordinary corruption:
+ * both fail the same one-step-ahead probe's AEAD check. */
 static void test_srvloop_recv_failed_decrypt_does_not_advance_generation(void) {
   struct lp_fix f;
   u8            out[1024], get[512], spkt[1024];
@@ -3380,7 +3372,7 @@ static void test_srvloop_recv_failed_decrypt_does_not_advance_generation(void) {
   CHECK(f.s.ku.have_old == 0);
 }
 
-/* T-005: after a confirmed update (generation 1), a reordered packet still
+/* After a confirmed update (generation 1), a reordered packet still
  * sealed under generation 0 (the retained old keys) must still decrypt --
  * RFC 9001 6's retention window exists exactly for this reordering case. */
 static void test_srvloop_recv_reordered_packet_uses_old_keys(void) {
@@ -3418,7 +3410,7 @@ static void test_srvloop_recv_reordered_packet_uses_old_keys(void) {
   CHECK(f.s.ku.generation == 1); /* an old-generation hit never rotates */
 }
 
-/* T-011: before generation 0 is seeded (srvfin's confirm has not run yet),
+/* Before generation 0 is seeded (srvfin's confirm has not run yet),
  * a 1-RTT packet must fail closed structurally (recv_onertt's ku_seeded
  * check), not merely because s->ku.cur happens to hold garbage that fails
  * AEAD. Drives the server only to FLIGHT_SENT (Handshake keys installed,
@@ -3440,7 +3432,7 @@ test_srvloop_recv_onertt_before_keys_ready_short_circuits_before_ku_logic(
           &out) == 0);
 }
 
-/* T-006: generation 0 (before any update) has no old key at all -- a probe
+/* Generation 0 (before any update) has no old key at all -- a probe
  * against a bogus "prior" generation must fail closed, not crash on a
  * have_old==0 read. */
 static void
@@ -3454,11 +3446,11 @@ test_srvloop_recv_no_old_keys_before_first_update_rejects_stale_phase(void) {
   CHECK(f.s.ku.have_old == 0);
 }
 
-/* T-008: peer-driven updates repeat -- a second update (generation 2) must
+/* Peer-driven updates repeat -- a second update (generation 2) must
  * be followed just as reliably as the first, proving the recv path does not
- * special-case "only the first update ever rotates" (the constraint this
- * session's srvrun-key-update-recv.md ledger found in the reference
- * connrunner implementation and deliberately did not carry over). */
+ * special-case "only the first update ever rotates" (a constraint found in
+ * a reference connrunner implementation and deliberately not carried over
+ * here). */
 static void test_srvloop_recv_follows_repeated_key_updates_across_generations(
     void) {
   struct lp_fix f;
