@@ -103,9 +103,13 @@ wire-check: ninja
 # uninitialized read (e.g. the ec_mul accumulator); valgrind
 # --track-origins names the culprit in one run. Slow -- run after wiring a
 # new domain or on any "sometimes passes" symptom, not on every commit.
+# --max-stackframe: test_srvrun legitimately carries a ~3.9MB stack frame;
+# below this bound valgrind assumes a stack switch and floods tens of
+# thousands of false Invalid read/write reports (the 8MB ulimit is the
+# real ceiling).
 valgrind: gen-ninja
     ninja build/quic_test
-    valgrind --error-exitcode=99 --track-origins=yes ./build/quic_test
+    valgrind --error-exitcode=99 --track-origins=yes --max-stackframe=8000000 ./build/quic_test
 
 # emit compile_commands.json for clangd/IDEs from the ninja graph
 compdb: gen-ninja
