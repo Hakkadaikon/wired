@@ -6,19 +6,18 @@
 #include "app/http3/server/srvxdp/srvxdp.h"
 
 /** @file
- * Thread-based worker fan-out over the single-process wired_srvrun_serve_env
- * (Phase D of tasks/core-pinning-plan.md): one control thread spawns N
- * worker threads sharing the process's address space (unlike srvworkers'
- * fork fan-out), each running its own wired_srvrun_env instance. The
- * control thread blocks on a timed futex wait for the shared shutdown word
- * (wired_srvrun_shutdown_word), then joins every worker before releasing
- * shared resources (the BPF objects, the mmap'd env storage).
+ * Thread-based worker fan-out over the single-process wired_srvrun_serve_env:
+ * one control thread spawns N worker threads sharing the process's address
+ * space (unlike srvworkers' fork fan-out), each running its own
+ * wired_srvrun_env instance. The control thread blocks on a timed futex wait
+ * for the shared shutdown word (wired_srvrun_shutdown_word), then joins
+ * every worker before releasing shared resources (the BPF objects, the
+ * mmap'd env storage).
  *
- * Lifecycle (modeled and checked in TLA+ before this was written): the
- * control thread blocks SIGTERM/SIGHUP, spawns all N workers (which inherit
- * the mask), unblocks and installs the handlers, waits for shutdown, then
- * joins every worker and cleans up. A signal arriving during the blocked
- * window is delivered, pending, once unblocked. */
+ * Lifecycle: the control thread blocks SIGTERM/SIGHUP, spawns all N workers
+ * (which inherit the mask), unblocks and installs the handlers, waits for
+ * shutdown, then joins every worker and cleans up. A signal arriving during
+ * the blocked window is delivered, pending, once unblocked. */
 
 /** Max worker threads this domain supports (fixed-size cores[] table). */
 #define WIRED_SRVTHREADS_MAX 16u

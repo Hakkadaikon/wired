@@ -3,9 +3,9 @@
 #include "app/http3/server/srvpin/srvpin.h"
 #include "common/platform/sys/syscall.h"
 
-/* tasks/core-pinning-plan.md THR-004/005/008: fork(57) over clone (no
- * trampoline asm needed, crash isolation, plain wait4(61) reaping),
- * exit_group(231) uniformly even though each worker is single-threaded. */
+/* fork(57) over clone (no trampoline asm needed, crash isolation, plain
+ * wait4(61) reaping), exit_group(231) uniformly even though each worker is
+ * single-threaded. */
 
 /** worker_index -> pid table, 0 = slot unused (pid 0 cannot occur here: fork
  * never returns 0 to the parent). */
@@ -37,10 +37,10 @@ typedef void (*srvworkers_child_fn)(
     wired_srvrun_obs     obs,
     int                  worker_index);
 
-/* tasks/core-pinning-plan.md PIN-007: hint the kernel to steer this worker's
- * incoming packets toward the same CPU it is pinned to (worker_index),
- * reducing cache-line bouncing between the RSS/RPS-selected CPU and the
- * process actually handling the socket. SET direction only. */
+/* Hint the kernel to steer this worker's incoming packets toward the same
+ * CPU it is pinned to (worker_index), reducing cache-line bouncing between
+ * the RSS/RPS-selected CPU and the process actually handling the socket. SET
+ * direction only. */
 static void srvworkers_run_real(
     u16                  port,
     wired_srvboot_id*    id,

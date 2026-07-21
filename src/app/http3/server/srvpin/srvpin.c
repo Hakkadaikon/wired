@@ -7,13 +7,13 @@
  * simple (man 2 sched_getaffinity: the kernel writes up to cpusetsize bytes
  * and returns the number of bytes actually written). */
 #define WIRED_SRVPIN_MASK_BYTES 128
-/* PIN-002: CPUs 0-63 fit in one 8-byte unsigned long; sched_setaffinity only
- * needs that much for this SDK's target machines. */
+/* CPUs 0-63 fit in one 8-byte unsigned long; sched_setaffinity only needs
+ * that much for this SDK's target machines. */
 #define WIRED_SRVPIN_SETMASK_BYTES 8
 
-/* Count set bits across n bytes (PIN-003: popcount over the affinity mask
- * rather than parsing /sys). Split out so the two nested loops don't push the
- * caller over CCN 3. */
+/* Count set bits across n bytes (popcount over the affinity mask rather than
+ * parsing /sys). Split out so the two nested loops don't push the caller
+ * over CCN 3. */
 static int srvpin_popcount_bytes(const u8* p, usz n) {
   int cnt = 0;
   for (usz i = 0; i < n; i++)

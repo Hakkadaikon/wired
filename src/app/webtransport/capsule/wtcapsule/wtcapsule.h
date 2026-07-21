@@ -24,10 +24,10 @@
  * all -- they exist only in the sibling HTTP/2-based WebTransport mapping,
  * which this SDK does not implement. Per-stream flow control on HTTP/3 is
  * instead covered natively by QUIC's own MAX_STREAM_DATA frame at the
- * transport layer (already implemented outside this file). See
- * tasks/webtransport-plan.md WT-E-010. The two functions above
- * (encode/decode close, encode/decode drain) are, by design, the entire
- * WT capsule API surface -- there is no third capsule type to add here.
+ * transport layer (already implemented outside this file). The two
+ * functions above (encode/decode close, encode/decode drain) are, by
+ * design, the entire WT capsule API surface -- there is no third capsule
+ * type to add here.
  */
 
 /** Maximum WT_CLOSE_SESSION application error message length, in bytes
