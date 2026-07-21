@@ -364,7 +364,7 @@ static void test_sdrv_chain_overflow(void) {
   }
 }
 
-/* T-004: chain_count AT QUIC_TLS_CERT_CHAIN_MAX(10, the amplificationlimit
+/* chain_count AT QUIC_TLS_CERT_CHAIN_MAX(10, the amplificationlimit
  * boundary minus one for the odd/even leaf-intermediate alternation) builds
  * successfully -- exercises the SDK's own real 9-cert amplificationlimit
  * target, one flight buffer sized for it (16KB, matching srvrun_conn's
