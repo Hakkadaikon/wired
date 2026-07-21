@@ -5,10 +5,10 @@
 #include "test.h"
 
 /* @file
- * Phase E (tasks/loopeng/srvinbox-mesh): the SPSC inbox ring itself
- * (push/pop round-trip, drop-on-full, wrap-around, a real 1P1C thread
- * stress) and srvrun.c's broadcast registry wiring (single-worker fallback
- * untouched, a real 2-worker mesh delivering across threads). */
+ * Covers the SPSC inbox ring itself (push/pop round-trip, drop-on-full,
+ * wrap-around, a real 1P1C thread stress) and srvrun.c's broadcast registry
+ * wiring (single-worker fallback untouched, a real 2-worker mesh delivering
+ * across threads). */
 
 static const u8 sib_msg_a[] = {1, 2, 3};
 static const u8 sib_msg_b[] = {4, 5, 6, 7};
@@ -88,8 +88,7 @@ static void test_srvinbox_pop_undersized_dst_leaves_slot(void) {
 
 /* Real 1P1C thread stress: a producer thread pushes as fast as it can, a
  * consumer thread pops as fast as it can; after both join, sent - dropped
- * must equal received (tasks/loopeng/srvinbox-mesh S-011 PrefixDelivery, no
- * loss except drop, no duplication). */
+ * must equal received (no loss except drop, no duplication). */
 #define SIB_STRESS_N 20000
 
 typedef struct {
@@ -165,23 +164,19 @@ static void sib_mark_wt_active(srvrun_conn* c) {
 /* wired_srvrun_env is opaque outside srvrun.c's own TU; this file is unity-
  * built into that same TU, so its full definition (and srvrun_conn's) is
  * visible here too, same precedent as srvthreads_datagram_test.c. Static,
- * not stack: grew to ~9 MiB once respstore became per-(conn,stream) and the
- * srvbigbuf pool was added (see srvthreads_datagram_test.c's own note), then
- * past 45 MiB once every connection's WT bidi+uni slots got a real-
- * throughput-sized receive window (WIRED_SRVLOOP_WT_BUF_CAP: 12 slots *
- * QUIC_CONNTABLE_CAP=64 conns). The CHECK below only records a failure, it
- * does not stop the buffer from being used undersized -- a real crash
- * happened exactly this way (SIGSEGV inside a memset past the end of this
- * array) when the window grew and this size did not follow. 96 MiB storage
- * for headroom. */
+ * not stack: wired_srvrun_env now runs well past tens of MiB (every
+ * connection's WT bidi+uni slots carry a real-throughput-sized receive
+ * window -- WIRED_SRVLOOP_WT_BUF_CAP slots * QUIC_CONNTABLE_CAP conns). The
+ * CHECK below only records a failure, it does not stop the buffer from
+ * being used undersized if this constant falls behind the struct's real
+ * size, so 96 MiB is kept as headroom above the current requirement. */
 static u8 g_sib_env_storage[96u * 1024u * 1024u];
 
 /* Broadcast registry, single-worker (n_total==1): registering hands
  * wired_server_broadcast_datagram this thread's OWN env, so a WT-active
- * connection living in it is reached -- the fix for the reported bug (a
- * lone --cores 0 worker's own broadcast used to vanish, since the un-
- * registered fallback path only ever reads the unused process-global
- * g_srvrun_env). Regression pin for srvrun.c's srvrun_broadcast_registered. */
+ * connection living in it is reached, instead of the unused process-global
+ * g_srvrun_env that the unregistered fallback path would read. Regression
+ * pin for srvrun.c's srvrun_broadcast_registered. */
 static void test_srvinbox_registry_single_worker_reaches_own_env(void) {
   wired_srvrun_env*   env = (wired_srvrun_env*)(void*)g_sib_env_storage;
   wired_srvinbox_ring row[1];

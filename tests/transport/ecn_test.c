@@ -25,7 +25,7 @@ static void test_ecn_ce_increased(void) {
   CHECK(quic_ecn_ce_increased(4, 3) == 0);
 }
 
-/* T-009: RFC 9002 7.1.2 -- a CE increase is handled as if a packet loss had
+/* RFC 9002 7.1.2 -- a CE increase is handled as if a packet loss had
  * been detected, so cwnd halves (quic_cc_on_loss's own reduction) and
  * in_recovery is entered exactly as an ordinary loss would do. */
 static void test_ecn_on_ce_increase_triggers_congestion_event(void) {
@@ -37,7 +37,7 @@ static void test_ecn_on_ce_increase_triggers_congestion_event(void) {
   CHECK(c.cwnd < cwnd_before);
 }
 
-/* T-009 (boundary): a CE count that did not increase (unchanged or, per
+/* Boundary: a CE count that did not increase (unchanged or, per
  * quic_ecn_counts_valid's own contract, never decreasing) triggers no
  * congestion event -- cwnd and in_recovery are left untouched. */
 static void test_ecn_on_ce_increase_noop_when_unchanged(void) {
@@ -49,7 +49,7 @@ static void test_ecn_on_ce_increase_noop_when_unchanged(void) {
   CHECK(c.cwnd == cwnd_before);
 }
 
-/* T-010: RFC 9002 7.1.2 -- ECN counts reported in a received ACK that have
+/* RFC 9002 7.1.2 -- ECN counts reported in a received ACK that have
  * regressed (CE or ECT(0) lower than previously observed) must not be
  * applied; quic_ecn_counts_valid is the gate a caller checks before trusting
  * a new counts snapshot enough to feed it to quic_ecn_on_ce_increase at all,

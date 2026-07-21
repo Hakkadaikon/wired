@@ -157,9 +157,9 @@ static void test_busy_poll_enable_does_not_crash(void) {
   CHECK(1);
 }
 
-/* Same testability bar as test_busy_poll_enable_does_not_crash above (tasks/
- * polling-driver-plan.md POLL-003b): call the real setsockopt on a real
- * socket, confirm it does not crash. Not verifying kernel-side effect. */
+/* Same testability bar as test_busy_poll_enable_does_not_crash above: call
+ * the real setsockopt on a real socket, confirm it does not crash. Not
+ * verifying kernel-side effect. */
 static void test_prefer_busy_poll_enable_does_not_crash(void) {
   i64 fd = wired_udp_socket();
   if (fd < 0) return; /* sandbox: skip */
@@ -176,7 +176,7 @@ static void test_busy_poll_budget_set_does_not_crash(void) {
   CHECK(1);
 }
 
-/* tasks/core-pinning-plan.md PIN-007, SET direction only. */
+/* SET direction only. */
 static void test_incoming_cpu_set_does_not_crash(void) {
   i64 fd = wired_udp_socket();
   if (fd < 0) return; /* sandbox: skip */
@@ -205,10 +205,10 @@ static int ecn_open_sockets(i64* sfd, i64* cfd, quic_sockaddr* srv) {
   return 1;
 }
 
-/* T-001: wired_udp_ect0_enable on the sending socket marks every packet it
+/* wired_udp_ect0_enable on the sending socket marks every packet it
  * sends ECT(0) (RFC 9000 13.4.1) -- observed on the receiving end via
- * IP_RECVTOS + wired_udp_recvmmsg's cmsg read (T-002's path), since this SDK
- * has no getsockopt to read IP_TOS back directly. */
+ * IP_RECVTOS + wired_udp_recvmmsg's cmsg read, since this SDK has no
+ * getsockopt to read IP_TOS back directly. */
 static void test_udp_ect0_enable_sets_tos(void) {
   i64           sfd, cfd;
   quic_sockaddr srv;
@@ -226,7 +226,7 @@ static void test_udp_ect0_enable_sets_tos(void) {
   wired_udp_close(sfd);
 }
 
-/* T-005: a sender that never called wired_udp_ect0_enable delivers Not-ECT
+/* A sender that never called wired_udp_ect0_enable delivers Not-ECT
  * (0) -- no cmsg is attached for an unmarked packet, and cmsg_read_ip_tos's
  * absent-cmsg fallback must not fabricate a nonzero ECN reading. */
 static void test_udp_recvmmsg_no_cmsg_defaults_to_zero_e2e(void) {
@@ -245,7 +245,7 @@ static void test_udp_recvmmsg_no_cmsg_defaults_to_zero_e2e(void) {
   wired_udp_close(sfd);
 }
 
-/* T-004: a batch of 3 ECT(0)-marked datagrams in one recvmmsg() call reads
+/* A batch of 3 ECT(0)-marked datagrams in one recvmmsg() call reads
  * ECN bits into each slot individually (no cross-slot bleed from a shared
  * cmsg scratch buffer). */
 static void test_udp_recvmmsg_batch_ecn_per_slot(void) {
@@ -271,7 +271,7 @@ static void test_udp_recvmmsg_batch_ecn_per_slot(void) {
   wired_udp_close(sfd);
 }
 
-/* T-018: a setsockopt failure (invalid fd) propagates its negative errno
+/* A setsockopt failure (invalid fd) propagates its negative errno
  * unchanged, rather than being swallowed -- no fallback path is implemented
  * (see wired_udp_ect0_enable's doc for why that is out of scope here). */
 static void test_udp_ect0_enable_propagates_setsockopt_failure(void) {

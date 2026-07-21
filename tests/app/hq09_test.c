@@ -2,7 +2,7 @@
 
 #include "test.h"
 
-/* T-009: a well-formed "GET <path>\r\n" line yields <path> exactly. */
+/* A well-formed "GET <path>\r\n" line yields <path> exactly. */
 static void test_hq09_parse_get_request_extracts_path(void) {
   static const u8 line[] = "GET /file1.txt\r\n";
   quic_span       path;
@@ -11,7 +11,7 @@ static void test_hq09_parse_get_request_extracts_path(void) {
   CHECK(path.p[0] == '/' && path.p[1] == 'f' && path.p[9] == 't');
 }
 
-/* T-010: a line ending in bare "\n" (no "\r") is tolerated the same way,
+/* A line ending in bare "\n" (no "\r") is tolerated the same way,
  * matching the reference server's TrimRight("\r\n") which strips either
  * character independently. */
 static void test_hq09_parse_get_request_tolerates_lf_only(void) {
@@ -31,7 +31,7 @@ static void test_hq09_parse_get_request_tolerates_no_newline(void) {
   CHECK(path.n == 10);
 }
 
-/* T-011: neither a non-GET method nor a path missing its leading "/" is
+/* Neither a non-GET method nor a path missing its leading "/" is
  * accepted. */
 static void test_hq09_parse_get_request_rejects_non_get_or_no_slash(void) {
   static const u8 not_get[]   = "PUT /file1.txt\r\n";

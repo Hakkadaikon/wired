@@ -3,8 +3,7 @@
 #include "test.h"
 
 /* @file
- * Phase D lifecycle tests (tasks/loopeng/srvthreads-lifecycle/summary.md):
- * exercise wired_srvthreads_run's control/worker lifecycle with a
+ * Exercises wired_srvthreads_run's control/worker lifecycle with a
  * substituted worker body (srvthreads_test_set_worker_fn, same seam as
  * srvworkers_test.c's g_srvworkers_child_fn) so no real socket/AF_XDP queue
  * is ever opened and the run is bounded -- a test worker just observes the
@@ -20,8 +19,8 @@ static int g_seen_count;
  * is directly visible here, no lookalike struct needed), then spin on the
  * shared shutdown word (same word wired_srvthreads_run's control thread
  * waits on) until it reads non-zero, and return -- exercising the same
- * "loop-head shutdown poll" contract summary.md requires of a real worker,
- * without binding a socket. */
+ * loop-head shutdown poll a real worker must implement, without binding a
+ * socket. */
 static void srvthreads_test_worker(void* argp) {
   int index = ((srvthreads_worker_arg*)argp)->index;
   __atomic_fetch_or(&g_seen_index_mask, 1 << index, __ATOMIC_RELAXED);
@@ -39,10 +38,10 @@ static void srvthreads_test_request_shutdown(void* argp) {
   __atomic_store_n(wired_srvrun_shutdown_word(), 1, __ATOMIC_RELEASE);
 }
 
-/* TEST: N=2 test workers spawn, the shutdown word flips, wired_srvthreads_run
- * joins both and returns 1 -- constraints 1/3/5/6 (loop-head poll, full
- * join before cleanup, timed futex wait, monotonic word) exercised
- * end-to-end without any real socket. */
+/* N=2 test workers spawn, the shutdown word flips, wired_srvthreads_run
+ * joins both and returns 1 -- the loop-head poll, full join before cleanup,
+ * timed futex wait, and monotonic word are exercised end-to-end without
+ * any real socket. */
 static void test_srvthreads_run_joins_all_workers_on_shutdown(void) {
   wired_thread         requester;
   wired_srvthreads_opt opt = {0};
