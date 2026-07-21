@@ -39,12 +39,20 @@ dbgsrcs=$(printf '%s\n' "$srcs" | grep -v '^src/common/platform/sys/sys\.c$' \
     echo "  deps = gcc"
     echo "  description = CC \$out"
     echo
+    echo "# -MD also here: these compile ONE .c that #includes hundreds of"
+    echo "# sources (unity build / fuzz harness). Without a depfile ninja sees"
+    echo "# only that one .c, so edits to any included file leave the old"
+    echo "# binary in place and 'just test' reports a stale green."
     echo "rule cc_hosted_bin"
-    echo "  command = \$cc \$testflags \$in -o \$out"
+    echo "  command = \$cc \$testflags -MD -MF \$out.d \$in -o \$out"
+    echo "  depfile = \$out.d"
+    echo "  deps = gcc"
     echo "  description = CC \$out"
     echo
     echo "rule cc_fuzz_bin"
-    echo "  command = \$cc \$fuzzflags \$in -o \$out"
+    echo "  command = \$cc \$fuzzflags -MD -MF \$out.d \$in -o \$out"
+    echo "  depfile = \$out.d"
+    echo "  deps = gcc"
     echo "  description = CC \$out"
     echo
     echo "rule cc_freestanding_bin"
