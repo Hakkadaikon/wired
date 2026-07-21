@@ -1217,7 +1217,7 @@ static void sdrv_psk_fixture_init(sdrv_psk_fixture* f) {
   CHECK(f->ch_len != 0);
 }
 
-/* R-34: a ClientHello with no pre_shared_key extension is completely
+/* A ClientHello with no pre_shared_key extension is completely
  * unaffected by resumption support being enabled -- same acceptance, same
  * psk_accepted (0), same flight-buildable outcome as with resumption
  * disabled. This is the regression guard: sdrv_ch_take_psk must be a true
@@ -1248,7 +1248,7 @@ static void test_sdrv_psk_absent_leaves_full_handshake_unchanged(void) {
   CHECK(quic_sdrv_build_server_flight(&s, f.srv_random, &fo));
 }
 
-/* R-35/R-38: a valid ticket with a correctly computed binder is accepted --
+/* A valid ticket with a correctly computed binder is accepted --
  * psk_accepted set, psk_secret recorded, and the flight still builds (the
  * PSK-branch key schedule in sdrv_flight.c's derive_secret runs end to end).
  */
@@ -1337,7 +1337,7 @@ static usz sdrv_test_0rtt_ch(
   return ch2_len;
 }
 
-/* R-41: a ClientHello offering both pre_shared_key (accepted, first use) and
+/* A ClientHello offering both pre_shared_key (accepted, first use) and
  * early_data derives 0-RTT keys matching an independent quic_tls_early_keys
  * computation over the same PSK/ClientHello bytes -- the exact material a
  * peer's own 0-RTT sender would derive (RFC 8446 4.2.10 / RFC 9001 4.6.1). */
@@ -1372,7 +1372,7 @@ static void test_sdrv_early_data_accepted_derives_keys(void) {
   for (usz i = 0; i < QUIC_INITIAL_HP; i++) CHECK(got.hp[i] == want.hp[i]);
 }
 
-/* R-41: pre_shared_key accepted but no early_data extension -- ordinary PSK
+/* pre_shared_key accepted but no early_data extension -- ordinary PSK
  * resumption without 0-RTT, early_data_accepted stays 0 and no keys are
  * available. */
 static void test_sdrv_psk_without_early_data_no_0rtt(void) {
@@ -1419,7 +1419,7 @@ static void test_sdrv_psk_without_early_data_no_0rtt(void) {
   CHECK(quic_sdrv_early_keys(&s, &got) == 0);
 }
 
-/* R-42: presenting the SAME ticket's pre_shared_key+early_data a second time
+/* Presenting the SAME ticket's pre_shared_key+early_data a second time
  * (a replayed 0-RTT ClientHello, e.g. a retransmission-turned-duplicate
  * attempt) is refused for 0-RTT on its second use even though the PSK/binder
  * are still valid -- RFC 8446 8.1 single-use ticket enforcement. PSK-only
@@ -1462,7 +1462,7 @@ static void test_sdrv_early_data_replay_rejected(void) {
   CHECK(s2.early_data_accepted == 0); /* 0-RTT itself is refused */
 }
 
-/* R-35: a garbage/wrong-key identity fails to open as a ticket -- graceful
+/* A garbage/wrong-key identity fails to open as a ticket -- graceful
  * fallback to a full handshake (RFC 8446 4.2.11 MAY), never a hard failure.
  * The binder bytes are irrelevant here since the ticket never opens. */
 static void test_sdrv_psk_ticket_open_fails_falls_back(void) {
@@ -1498,7 +1498,7 @@ static void test_sdrv_psk_ticket_open_fails_falls_back(void) {
   CHECK(s.psk_accepted == 0);
 }
 
-/* R-35/4.2.11.2: a ticket that opens but whose binder does not match MUST
+/* RFC 8446 4.2.11.2: a ticket that opens but whose binder does not match MUST
  * abort the handshake -- quic_sdrv_recv_client_hello must return 0, not fall
  * back to a full handshake as if nothing had been offered. */
 static void test_sdrv_psk_binder_mismatch_aborts(void) {
@@ -1533,10 +1533,10 @@ static void test_sdrv_psk_binder_mismatch_aborts(void) {
   CHECK(!quic_sdrv_recv_client_hello(&s, ch2, ch2_len));
 }
 
-/* R-35/4.2.11.2: a correctly computed binder, but the transcript is tampered
- * (one byte of ClientHello.random flipped) between binder computation and
- * verification -- this exercises binder.c's own tamper detection through the
- * real wire-parsing path (sdrv_psk_truncate's slice), not just binder.c's
+/* RFC 8446 4.2.11.2: a correctly computed binder, but the transcript is
+ * tampered (one byte of ClientHello.random flipped) between binder computation
+ * and verification -- this exercises binder.c's own tamper detection through
+ * the real wire-parsing path (sdrv_psk_truncate's slice), not just binder.c's
  * isolated unit tests. Must abort exactly like an outright wrong binder. */
 static void test_sdrv_psk_tampered_transcript_aborts(void) {
   sdrv_psk_fixture f;

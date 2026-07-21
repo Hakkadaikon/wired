@@ -105,7 +105,7 @@ static void test_keyschedule_matches_oneshot(void) {
   CHECK(keys_differ(c_hs, c_ap));
 }
 
-/* R-39/RFC 8446 7.1 PSK branch: quic_keysched_advance_handshake_psk installs
+/* RFC 8446 7.1 PSK branch: quic_keysched_advance_handshake_psk installs
  * the same Handshake-level keys and Master Secret as an independent
  * quic_tls_handshake_secret_psk + quic_tls_handshake_keys/quic_tls_master_
  * secret computation over the same psk/ecdhe/transcript. */

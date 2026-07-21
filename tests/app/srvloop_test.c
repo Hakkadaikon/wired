@@ -3497,7 +3497,7 @@ static void test_srvloop_recv_follows_repeated_key_updates_across_generations(
   CHECK(f.s.ku.generation == 2);
 }
 
-/* R-41: a 0-RTT packet (long header, type bits 0x1 -- RFC 9000 17.2.3)
+/* A 0-RTT packet (long header, type bits 0x1 -- RFC 9000 17.2.3)
  * sealed under the driver's own derived early keys opens through
  * wired_srvloop_recv, reporting QUIC_LEVEL_ONERTT (RFC 9000 12.3: 0-RTT and
  * 1-RTT share the App packet number space) and recovering the original
@@ -3582,18 +3582,14 @@ static void test_srvloop_recv_zerortt_refused_without_early_keys(void) {
   CHECK(wired_srvloop_recv(&s, &ri, &ro) == 0);
 }
 
-/* REGRESSION: a 0-RTT packet keeps a long header (RFC 9000 17.2.3), unlike
- * the short-header 1-RTT packets note_app_rx's pn offset used to assume
- * unconditionally (byte0 + iscid_len) -- reading a long header that way lands
- * mid-payload and recovers a garbage pn (observed live against quic-go:
- * ACKed pn 59471 for a 0-RTT packet actually numbered 1, PROTOCOL_VIOLATION
- * "received ACK for an unsent packet"). Drive a real 0-RTT packet through
- * wired_srvloop_step (not just wired_srvloop_recv, R-41's own coverage) and
- * check the App pn space (RFC 9000 12.3, shared with 1-RTT) recorded the
- * 0-RTT packet's own real pn -- confirmation has not happened yet at this
- * point in a genuine 0-RTT handshake, so the ACK itself does not go out
- * until later; app_rx_pn is the durable record an eventual ACK is built
- * from (step_note_ack_owed). */
+/* A 0-RTT packet keeps a long header (RFC 9000 17.2.3), unlike the
+ * short-header 1-RTT packets note_app_rx's short-header pn offset (byte0 +
+ * iscid_len) assumes. Drive a real 0-RTT packet through wired_srvloop_step
+ * (not just wired_srvloop_recv) and check the App pn space (RFC 9000 12.3,
+ * shared with 1-RTT) recorded the 0-RTT packet's own real pn --
+ * confirmation has not happened yet at this point in a genuine 0-RTT
+ * handshake, so the ACK itself does not go out until later; app_rx_pn is
+ * the durable record an eventual ACK is built from (step_note_ack_owed). */
 static void test_srvloop_step_zerortt_records_real_pn(void) {
   struct lp_fix f;
   u8            psk[32], out[1024], pkt[256];
