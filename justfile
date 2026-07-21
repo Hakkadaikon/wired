@@ -75,6 +75,38 @@ test: fmt gen-ninja
 ccn:
     lizard src --CCN 3 -w
 
+# wiring integrity: every src/**/*.c must be #include'd once in tests/run.c
+# (the unity TU) and compile to exactly one path-qualified build/<path>.o.
+# A mismatch means a source is committed but never built or tested -- the
+# failure mode that once shipped 48 unwired files as a stale green. Run
+# after any wiring change; part of the pre-commit gate.
+wire-check: ninja
+    #!/usr/bin/env sh
+    set -eu
+    tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
+    find src -name '*.c' | sed 's|^src/||' | sort > "$tmp/src"
+    grep '^#include ".*\.c"' tests/run.c | grep -v '_test\.c"' \
+        | sed 's/^#include "//; s/"$//' | sort > "$tmp/inc"
+    nsrc=$(wc -l < "$tmp/src"); nobj=$(find build -name '*.o' | wc -l)
+    echo "src .c: $nsrc / freestanding .o: $nobj"
+    [ "$nsrc" -eq "$nobj" ] || { echo "WIRING MISMATCH: a source compiles to no object" >&2; exit 1; }
+    # unity build: every src .c included once, except sys.c (its only symbol
+    # is the SDK's own _start; the hosted binary uses libc's startup).
+    miss=$(comm -23 "$tmp/src" "$tmp/inc")
+    [ "$miss" = "common/platform/sys/sys.c" ] || { echo "WIRING MISMATCH: not in run.c:"; echo "$miss"; exit 1; } >&2
+    gone=$(comm -13 "$tmp/src" "$tmp/inc")
+    [ -z "$gone" ] || { echo "WIRING MISMATCH: run.c includes deleted sources:"; echo "$gone"; exit 1; } >&2
+    echo "wiring OK ($nsrc sources, sys.c excluded from the unity TU by design)"
+
+# run the unity test binary under valgrind. Freestanding code has no
+# implicit zeroing, and every nondeterministic hang so far was an
+# uninitialized read (e.g. the ec_mul accumulator); valgrind
+# --track-origins names the culprit in one run. Slow -- run after wiring a
+# new domain or on any "sometimes passes" symptom, not on every commit.
+valgrind: gen-ninja
+    ninja build/quic_test
+    valgrind --error-exitcode=99 --track-origins=yes ./build/quic_test
+
 # emit compile_commands.json for clangd/IDEs from the ninja graph
 compdb: gen-ninja
     ninja -t compdb > compile_commands.json
