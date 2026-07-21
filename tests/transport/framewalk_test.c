@@ -99,8 +99,7 @@ static void test_framewalk_datagram_no_len_consumes_rest(void) {
 /* RFC 9000 19.4/19.5, draft-ietf-quic-reliable-stream-reset: RESET_STREAM,
  * STOP_SENDING, and RESET_STREAM_AT must each be measured (not treated as
  * unmeasurable), so a payload coalescing one of them with a following frame
- * lets the walk continue instead of stopping — this was the RESET_STREAM/
- * STOP_SENDING gap WT-F-007 depended on closing. */
+ * lets the walk continue instead of stopping. */
 static void test_framewalk_reset_stream_then_ping(void) {
   u8                      buf[64];
   usz                     n  = 0;

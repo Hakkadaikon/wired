@@ -2,8 +2,8 @@
 
 #include "test.h"
 
-/* tasks/polling-driver-plan.md test designs 1, 2, 5. wired_srvpoll_spin_step
- * calls wired_udp_recvmmsg_nowait once and, when the result is "no data"
+/* wired_srvpoll_spin_step calls wired_udp_recvmmsg_nowait once and, when the
+ * result is "no data"
  * (0 or a negative errno), issues a single PAUSE instruction -- the return
  * value itself is never transformed or dropped (verified with the same
  * real-socket pattern as tests/transport/udp_recvmmsg_test.c: with nothing

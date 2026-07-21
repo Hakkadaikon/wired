@@ -4,8 +4,8 @@
 #include "test.h"
 
 /* @file
- * tasks/core-pinning-plan.md Phase 2 tests. srvworkers_slot_for_pid is a pure
- * lookup, tested directly with no syscalls. The fork/wait4 bookkeeping is
+ * srvworkers_slot_for_pid is a pure lookup, tested directly with no
+ * syscalls. The fork/wait4 bookkeeping is
  * tested with REAL fork()/wait4() (confirmed available in this sandbox), but
  * the child body is substituted via srvworkers_test_set_child_fn so a test
  * child returns immediately instead of calling the real wired_server_run
@@ -114,8 +114,8 @@ static void test_srvworkers_resolve_count_passthrough(void) {
 }
 
 /* Test child body that proves worker_index really reaches the child body
- * (tasks/core-pinning-plan.md PIN-007 wiring, srvworkers_child_start ->
- * g_srvworkers_child_fn): exits with worker_index as its exit status, which
+ * (srvworkers_child_start -> g_srvworkers_child_fn): exits with worker_index
+ * as its exit status, which
  * the parent's wait4 status can decode without any new IPC machinery. */
 static void sw_child_echo_index(
     u16                  port,

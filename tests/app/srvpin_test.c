@@ -4,10 +4,9 @@
 #include "test.h"
 
 /* @file
- * tasks/core-pinning-plan.md test designs 1-4. sched_setaffinity/
- * sched_getaffinity are raw syscalls against the real kernel, so the test
- * verifies by issuing the same syscalls directly (no reimplementation of
- * srvpin.c).
+ * sched_setaffinity/sched_getaffinity are raw syscalls against the real
+ * kernel, so the test verifies by issuing the same syscalls directly (no
+ * reimplementation of srvpin.c).
  */
 
 /* Raw sched_getaffinity into a 128-byte buffer (mirrors srvpin.c's own

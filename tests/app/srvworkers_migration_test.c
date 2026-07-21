@@ -2,14 +2,13 @@
 #include "transport/packet/frame/frame/ncid_worker.h"
 
 /* @file
- * tasks/core-pinning-plan.md test 12: a named acceptance test that
- * DOCUMENTS the known QUIC-migration/SO_REUSEPORT routing gap (PIN-005),
- * using the already-merged CID worker-index codec (quic_ncid_worker_encode/
- * decode) to demonstrate it concretely. This does NOT implement any
- * migration-handling logic -- that is explicitly out of scope (eBPF CID
- * steering, PIN-006). It is a regression anchor: if the CID encoding is
- * accidentally broken, or accidentally "fixed" in a way inconsistent with
- * the plan's decision to punt on migration, this test catches it.
+ * A named acceptance test that DOCUMENTS the known QUIC-migration/
+ * SO_REUSEPORT routing gap, using the CID worker-index codec
+ * (quic_ncid_worker_encode/decode) to demonstrate it concretely. This does
+ * NOT implement any migration-handling logic -- that is explicitly out of
+ * scope (eBPF CID steering). It is a regression anchor: if the CID encoding
+ * is accidentally broken, or accidentally "fixed" in a way inconsistent with
+ * the decision to punt on migration, this test catches it.
  *
  * The "naive kernel-hash-based router" below is a MOCK of what a
  * SO_REUSEPORT 4-tuple hash conceptually does -- this SDK does not
@@ -42,7 +41,7 @@ static void test_migration_cid_bits_survive_unchanged(void) {
  * tuple computes worker 3 -- a real SO_REUSEPORT re-hash would steer the
  * migrated packet to a DIFFERENT worker than the one holding the
  * connection state. This disagreement is the documented, out-of-scope
- * limitation (PIN-005), not a bug in either mechanism individually. */
+ * limitation, not a bug in either mechanism individually. */
 static void test_migration_naive_hash_disagrees_with_cid(void) {
   u8  cid[8]        = {0};
   u32 original_ip   = 0x0A000003; /* 10.0.0.3 */
