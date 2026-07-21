@@ -184,8 +184,9 @@ static void test_server_flight_before_ch(void) {
   quic_sdrv_flight_out fo    = {&sh_ob, &fl_ob};
   wired_server_init_in sin;
   for (usz i = 0; i < 32; i++) {
-    srv_priv[i] = (u8)(0x40 + i);
-    rnd[i]      = (u8)i;
+    srv_priv[i]  = (u8)(0x40 + i);
+    cert_seed[i] = (u8)(0x80 + i);
+    rnd[i]       = (u8)i;
   }
   quic_x25519_base(srv_pub, srv_priv);
   sin = (wired_server_init_in){srv_priv, srv_pub, cert_seed, 0, 0, 0, 0, 0};
@@ -206,7 +207,10 @@ static void test_server_fin_before_flight(void) {
   {
     u8                   srv_priv[32], srv_pub[32], cert_seed[32];
     wired_server_init_in sin;
-    for (usz i = 0; i < 32; i++) srv_priv[i] = (u8)(0x40 + i);
+    for (usz i = 0; i < 32; i++) {
+      srv_priv[i]  = (u8)(0x40 + i);
+      cert_seed[i] = (u8)(0x80 + i);
+    }
     quic_x25519_base(srv_pub, srv_priv);
     sin = (wired_server_init_in){srv_priv, srv_pub, cert_seed, 0, 0, 0, 0, 0};
     wired_server_init(&f.s, &sin);
@@ -464,6 +468,14 @@ static void drive_psk_to_flight(
   CHECK(wired_server_build_flight(&f->s, f->srv_random, &fo) == 1);
   f->sh_len     = sh_ob.len;
   f->flight_len = fl_ob.len;
+  /* Fill f->sh_pub from the real ServerHello: the PSK key-match tests read
+   * it directly (without going through make_client_finished_psk, which is
+   * where the plain flow first parses it). */
+  {
+    quic_serverhello_out shp;
+    CHECK(quic_tls_parse_server_hello(
+        quic_span_of(f->sh, f->sh_len), f->sh_pub, &shp));
+  }
   /* client_transcript/make_client_finished below must hash the PSK
    * ClientHello actually folded into the server's transcript, not the
    * plain f->ch make_psk_client_hello started from. */
