@@ -37,18 +37,32 @@ typedef void (*srvworkers_child_fn)(
     wired_srvrun_obs     obs,
     int                  worker_index);
 
-/* Hint the kernel to steer this worker's incoming packets toward the same
- * CPU it is pinned to (worker_index), reducing cache-line bouncing between
- * the RSS/RPS-selected CPU and the process actually handling the socket. SET
- * direction only. */
+/* The base run options every child derives from -- written once by
+ * srvworkers_fork_all (before any fork, so children inherit it through the
+ * fork'd address space) from wired_srvworkers_opt.run. A process-global
+ * rather than a child-fn parameter so the test-substitution seam
+ * (srvworkers_child_fn) keeps its signature. */
+static wired_srvrun_opt g_srvworkers_run_base;
+
+/* This child's run options: the app-set base, with the per-worker fields the
+ * fork model owns layered on top -- incoming_cpu hints the kernel to steer
+ * this worker's packets toward the CPU it is pinned to (worker_index), and
+ * core_id stays -1 (never AF_XDP in fork mode). */
+static wired_srvrun_opt srvworkers_child_opt(int worker_index) {
+  wired_srvrun_opt opt = g_srvworkers_run_base;
+  opt.incoming_cpu     = worker_index;
+  opt.xdp              = 0;
+  opt.core_id          = -1;
+  return opt;
+}
+
 static void srvworkers_run_real(
     u16                  port,
     wired_srvboot_id*    id,
     wired_srvrun_handler h,
     wired_srvrun_obs     obs,
     int                  worker_index) {
-  wired_srvrun_opt opt = {0, 0, 0,  0, 0, 0, 0, 0, worker_index,
-                          0, 0, -1, 0, 0, 0, 0};
+  wired_srvrun_opt opt = srvworkers_child_opt(worker_index);
   wired_server_run_opt(port, id, h, obs, &opt);
 }
 
@@ -108,7 +122,8 @@ static int srvworkers_fork_all(
     wired_srvrun_handler        h,
     wired_srvrun_obs            obs,
     const wired_srvworkers_opt* opt) {
-  t->n = opt->workers;
+  g_srvworkers_run_base = opt->run; /* pre-fork: children inherit it */
+  t->n                  = opt->workers;
   for (int i = 0; i < t->n; i++) {
     int r = srvworkers_fork_one(t, i, port, id, h, obs, opt->pin_cores);
     if (r < 0) return r;

@@ -48,7 +48,7 @@ static void sw_child_noop(
  * both pids in the table. */
 static void test_srvworkers_fork_all_starts_two_children(void) {
   srvworkers_table     t   = {0};
-  wired_srvworkers_opt opt = {2, 0};
+  wired_srvworkers_opt opt = {2, 0, {0}};
   wired_srvboot_id     id  = {0};
   wired_srvrun_handler h   = {0};
   wired_srvrun_obs     obs = {0};
@@ -72,7 +72,7 @@ static void test_srvworkers_fork_all_starts_two_children(void) {
  * contract without an infinite supervisor loop. */
 static void test_srvworkers_supervise_once_restarts_same_slot(void) {
   srvworkers_table     t   = {0};
-  wired_srvworkers_opt opt = {1, 0};
+  wired_srvworkers_opt opt = {1, 0, {0}};
   wired_srvboot_id     id  = {0};
   wired_srvrun_handler h   = {0};
   wired_srvrun_obs     obs = {0};
@@ -136,7 +136,7 @@ static void sw_child_echo_index(
  * WEXITSTATUS: low byte of status, shifted right 8). */
 static void test_srvworkers_child_start_passes_worker_index(void) {
   srvworkers_table     t   = {0};
-  wired_srvworkers_opt opt = {2, 0};
+  wired_srvworkers_opt opt = {2, 0, {0}};
   wired_srvboot_id     id  = {0};
   wired_srvrun_handler h   = {0};
   wired_srvrun_obs     obs = {0};
@@ -152,6 +152,54 @@ static void test_srvworkers_child_start_passes_worker_index(void) {
   srvworkers_test_set_child_fn(0);
 }
 
+/* App-facing run options handed to the driver (opt.run) must reach every
+ * forked child's server loop. They did not: the child rebuilt its run from a
+ * zeroed literal, so wt_on_datagram/busy_poll/force_retry set by the app
+ * were silently dropped in --workers mode (same disease the --cores driver
+ * had). fork_all must seed the pre-fork base every child derives from. */
+static void sw_marker_dg_cb(void* ctx, wired_wt_session* s, quic_span d) {
+  (void)ctx;
+  (void)s;
+  (void)d;
+}
+
+static void test_srvworkers_fork_all_seeds_child_run_base(void) {
+  srvworkers_table     t   = {0};
+  wired_srvworkers_opt opt = {1, 0, {0}};
+  wired_srvboot_id     id  = {0};
+  wired_srvrun_handler h   = {0};
+  wired_srvrun_obs     obs = {0};
+  i64                  status;
+
+  opt.run.wt_on_datagram = sw_marker_dg_cb;
+  opt.run.busy_poll      = 1;
+  g_srvworkers_run_base  = (wired_srvrun_opt){0};
+
+  srvworkers_test_set_child_fn(sw_child_noop);
+  CHECK(srvworkers_fork_all(&t, 0, &id, h, obs, &opt) == 0);
+  CHECK(g_srvworkers_run_base.wt_on_datagram == sw_marker_dg_cb);
+  CHECK(g_srvworkers_run_base.busy_poll == 1);
+  syscall4(SYS_wait4, t.pid[0], &status, 0, 0);
+  srvworkers_test_set_child_fn(0);
+  g_srvworkers_run_base = (wired_srvrun_opt){0};
+}
+
+/* The child's own run = the base, with the per-worker fork-model fields
+ * layered on top: incoming_cpu is the worker index, xdp/core_id stay off. */
+static void test_srvworkers_child_opt_layers_worker_fields(void) {
+  wired_srvrun_opt o;
+  g_srvworkers_run_base                = (wired_srvrun_opt){0};
+  g_srvworkers_run_base.wt_on_datagram = sw_marker_dg_cb;
+  g_srvworkers_run_base.busy_poll      = 1;
+  o                                    = srvworkers_child_opt(3);
+  CHECK(o.wt_on_datagram == sw_marker_dg_cb);
+  CHECK(o.busy_poll == 1);
+  CHECK(o.incoming_cpu == 3);
+  CHECK(o.xdp == 0);
+  CHECK(o.core_id == -1);
+  g_srvworkers_run_base = (wired_srvrun_opt){0};
+}
+
 void test_srvworkers(void) {
   test_srvworkers_slot_for_pid_finds_match();
   test_srvworkers_slot_for_pid_empty_table();
@@ -161,4 +209,6 @@ void test_srvworkers(void) {
   test_srvworkers_resolve_count_clamps_to_max();
   test_srvworkers_resolve_count_passthrough();
   test_srvworkers_child_start_passes_worker_index();
+  test_srvworkers_fork_all_seeds_child_run_base();
+  test_srvworkers_child_opt_layers_worker_fields();
 }

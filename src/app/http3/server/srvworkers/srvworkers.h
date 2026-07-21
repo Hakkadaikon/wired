@@ -22,6 +22,11 @@
 typedef struct {
   int workers;   /**< 0 = auto (wired_srvpin_cpu_count()) */
   int pin_cores; /**< 1 = pin worker i to CPU i, 0 = no pinning */
+  /** Base run options every forked child serves with (app callbacks,
+   * busy-poll knobs, force_retry ...). Per-worker fields the fork model owns
+   * (incoming_cpu = the worker's index) are overridden per child; everything
+   * else passes through unchanged. Zeroed = the historical defaults. */
+  wired_srvrun_opt run;
 } wired_srvworkers_opt;
 
 /** Upper bound on concurrent workers (matches the CPU pin range srvpin
