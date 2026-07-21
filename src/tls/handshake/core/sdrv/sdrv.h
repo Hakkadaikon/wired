@@ -39,14 +39,16 @@ typedef struct {
    * has_ticket_key 0 to disable resumption entirely (pre_shared_key is then
    * never inspected). Set once at quic_sdrv_init from
    * quic_sdrv_init_in.ticket_key. */
-  u8  ticket_key[QUIC_TICKET_KEY_LEN];
+  u8 ticket_key[QUIC_TICKET_KEY_LEN];
+  /** 1 when ticket_key above is set; 0 disables resumption. */
   int has_ticket_key;
   /** RFC 8446 4.2.11/4.2.11.2: set by quic_sdrv_recv_client_hello when the
    * ClientHello's pre_shared_key ticket opened under ticket_key and its
    * binder verified. psk_secret (the opened ticket's resumption secret) is
    * only meaningful when this is 1. */
   int psk_accepted;
-  u8  psk_secret[QUIC_TICKET_SECRET_LEN];
+  /** The opened ticket's resumption secret; meaningful when psk_accepted. */
+  u8 psk_secret[QUIC_TICKET_SECRET_LEN];
   /** RFC 8446 4.2.10 / RFC 9001 4.6.1/9.2: set by
    * quic_sdrv_recv_client_hello when the ClientHello carries early_data
    * (0x002a) alongside an accepted pre_shared_key AND the presented ticket

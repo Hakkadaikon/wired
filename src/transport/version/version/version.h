@@ -17,16 +17,17 @@ int quic_version_is_reserved(u32 version);
 #define QUIC_TP_VERSION_INFORMATION 0x11
 #define QUIC_VI_MAX_AVAILABLE 16
 
+/** A decoded version_information transport parameter (RFC 9368 3). */
 typedef struct {
-  u32 chosen;
-  usz n_available;
-  u32 available[QUIC_VI_MAX_AVAILABLE]; /* in preference order (client) */
+  u32 chosen;                           /**< Chosen Version */
+  usz n_available;                      /**< entries used in available[] */
+  u32 available[QUIC_VI_MAX_AVAILABLE]; /**< in preference order (client) */
 } quic_version_info;
 
-/* A read-only view of a version-number list (offered, supported, etc). */
+/** A read-only view of a version-number list (offered, supported, etc). */
 typedef struct {
-  const u32* list;
-  usz        n;
+  const u32* list; /**< first version number */
+  usz        n;    /**< number of entries at list */
 } quic_verlist;
 
 static inline quic_verlist quic_verlist_of(const u32* list, usz n) {

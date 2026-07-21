@@ -18,10 +18,11 @@
 #define QUIC_TICKET_SEALED_LEN \
   (QUIC_TICKET_NONCE_LEN + QUIC_TICKET_PLAIN_LEN + QUIC_TICKET_TAG_LEN)
 
+/** One resumption ticket's plaintext contents (RFC 8446 4.6.1). */
 typedef struct {
-  u8  secret[QUIC_TICKET_SECRET_LEN]; /* resumption master secret */
-  u64 issued_at;                      /* server clock at issuance */
-  u32 lifetime_secs;                  /* ticket_lifetime (RFC 8446 4.6.1) */
+  u8  secret[QUIC_TICKET_SECRET_LEN]; /**< resumption master secret */
+  u64 issued_at;                      /**< server clock at issuance */
+  u32 lifetime_secs;                  /**< ticket_lifetime (RFC 8446 4.6.1) */
 } quic_ticket;
 
 /* Seal a ticket under the server's fixed key: out receives

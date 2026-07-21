@@ -194,13 +194,14 @@ typedef struct {
    * whole raw 0-RTT datagram is held here verbatim and only opened once
    * wired_srvboot_accept_acc succeeds (RFC 9000 12.2: never split a
    * datagram's own coalesced packets apart, replay each one exactly as
-   * received). WIRED_SRVBOOT_ZERORTT_MAX holds interop-observed bursts (a
-   * real quic-go 0-RTT run sent 26 single-packet datagrams); a datagram
-   * beyond the cap is simply dropped (its stream data is resent by the
-   * client's own retransmission once 0-RTT keys never confirm it, or is
-   * covered once the client re-sends over 1-RTT). */
-  u8  zerortt_dg[WIRED_SRVBOOT_ZERORTT_MAX][WIRED_SRVBOOT_ZERORTT_DG_MAX];
+   * received). A datagram beyond WIRED_SRVBOOT_ZERORTT_MAX is simply dropped
+   * (its stream data is resent by the client's own retransmission once
+   * 0-RTT keys never confirm it, or is covered once the client re-sends
+   * over 1-RTT). */
+  u8 zerortt_dg[WIRED_SRVBOOT_ZERORTT_MAX][WIRED_SRVBOOT_ZERORTT_DG_MAX];
+  /** Byte length of each held 0-RTT datagram in zerortt_dg. */
   usz zerortt_len[WIRED_SRVBOOT_ZERORTT_MAX];
+  /** Number of 0-RTT datagrams currently held. */
   usz zerortt_n;
 } wired_srvboot_acc;
 
