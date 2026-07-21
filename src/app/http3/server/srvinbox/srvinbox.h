@@ -4,7 +4,7 @@
 #include "common/platform/sys/syscall.h"
 
 /** @file
- * SPSC ring for worker-to-worker broadcast handoff (Phase E). One ring
+ * SPSC ring for worker-to-worker broadcast handoff. One ring
  * carries best-effort datagram-sized messages from exactly one producer
  * worker to exactly one consumer worker; an N-worker mesh is N*N of these
  * (srvrun.c's broadcast registry owns the mesh, this file only owns one

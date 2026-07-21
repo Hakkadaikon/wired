@@ -623,8 +623,8 @@ static int gather_rx_datagrams(wired_srvloop* l, const u8* payload, usz len) {
 /* RFC 9000 19.4: extract the stream id RESET_STREAM (0x04) closed, 0 if frame
  * is not a RESET_STREAM or fails to decode. draft-ietf-quic-reliable-stream-
  * reset's RESET_STREAM_AT (0x24) is deliberately excluded here: it declares a
- * RELIABLE size and is not itself the close signal this loop tracks (WT-F-007
- * scope, srvrun.c does not yet emit it so there is no live peer path to test
+ * RELIABLE size and is not itself the close signal this loop tracks
+ * (srvrun.c does not yet emit it so there is no live peer path to test
  * against). */
 static int reset_stream_id(u64 type, quic_span frame, u64* stream_id_out) {
   quic_reset_stream_frame f;

@@ -3,8 +3,7 @@
 
 /** @file
  * CPU affinity / core pinning (Linux x86_64, direct sched_setaffinity(2)/
- * sched_getaffinity(2) syscalls, no libc). See tasks/core-pinning-plan.md
- * PIN-001..003. */
+ * sched_getaffinity(2) syscalls, no libc). */
 
 /** Count of CPUs currently allowed for this process (sched_getaffinity(2)).
  * @return the count (>= 1 on any real system), or a negative value

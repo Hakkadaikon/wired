@@ -3,11 +3,10 @@
 
 #include "common/platform/sys/syscall.h"
 
-/* Soft-affinity hint for multi-worker sharding (core-pinning plan PIN-005):
- * pack a worker index into the leading bits of cid[0] so a NAT-rebind or
- * kernel 4-tuple re-hash still has a chance of steering back to the worker
- * that issued the CID. This does not implement steering or migration —
- * pure bit-packing only. */
+/* Soft-affinity hint for multi-worker sharding: pack a worker index into the
+ * leading bits of cid[0] so a NAT-rebind or kernel 4-tuple re-hash still has
+ * a chance of steering back to the worker that issued the CID. This does not
+ * implement steering or migration — pure bit-packing only. */
 
 /* Encode worker_idx into the leading `bits` bits of cid[0] (most-significant
  * bit first within that byte). `bits` must be in [1,8]. Bytes beyond the

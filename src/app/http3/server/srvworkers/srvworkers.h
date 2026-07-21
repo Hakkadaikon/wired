@@ -5,11 +5,10 @@
 #include "app/http3/server/srvrun/srvrun.h"
 
 /** @file
- * Multi-process worker fan-out over the single-process wired_server_run
- * (tasks/core-pinning-plan.md Phase 2 / THR-004..008): fork N shared-nothing
- * child processes, each optionally pinned to one CPU, each running its own
- * copy of the existing server loop unmodified. The parent becomes a
- * supervisor that restarts any worker that dies.
+ * Multi-process worker fan-out over the single-process wired_server_run:
+ * fork N shared-nothing child processes, each optionally pinned to one CPU,
+ * each running its own copy of the existing server loop unmodified. The
+ * parent becomes a supervisor that restarts any worker that dies.
  *
  * ponytail: for N workers to actually share one UDP port, the socket
  * wired_server_run binds must have SO_REUSEPORT enabled before bind — that
