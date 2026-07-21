@@ -72,6 +72,29 @@ static void test_srvthreads_run_joins_all_workers_on_shutdown(void) {
   __atomic_store_n(wired_srvrun_shutdown_word(), 0, __ATOMIC_RELEASE);
 }
 
+/* --cores 5,9 must pin worker 0 to CPU 5 and worker 1 to CPU 9. It did not:
+ * the parsed cores[] list was written and never read, every worker pinned to
+ * its own array index (CPU 0..n-1) instead. The mesh/queue index stays i;
+ * only the pin target comes from cores[i]. */
+static void test_srvthreads_fill_arg_maps_cores_to_pin_target(void) {
+  wired_srvthreads_opt  opt = {0};
+  srvthreads_worker_arg a;
+  __builtin_memset(&a, 0, sizeof a); /* deterministic pre-fill state */
+  wired_srvboot_id     id = {0};
+  wired_srvrun_handler h  = {0};
+  wired_srvrun_obs     obs;
+  u8                   envs[1]; /* address arithmetic only, never written */
+  wired_srvinbox_ring  mesh[4];
+
+  obs          = (wired_srvrun_obs){0};
+  opt.n_cores  = 2;
+  opt.cores[0] = 5;
+  opt.cores[1] = 9;
+  srvthreads_fill_arg(&a, 1, envs, mesh, 2, 4433, &id, h, obs, &opt, 0);
+  CHECK(a.index == 1); /* mesh row/column and XDP queue id stay the index */
+  CHECK(a.core == 9);  /* the CPU to pin to comes from cores[i] */
+}
+
 /* TEST: srvthreads_alloc_envs reserves exactly n_cores * env_size() bytes --
  * proven indirectly via srvthreads_env_at's stride (each worker's env
  * pointer is base + i*env_size(), and the two pointers used by a real N=2
@@ -178,6 +201,7 @@ static void test_srvthreads_non_xdp_mode_uses_plain_cid_generation(void) {
 
 void test_srvthreads(void) {
   test_srvthreads_run_joins_all_workers_on_shutdown();
+  test_srvthreads_fill_arg_maps_cores_to_pin_target();
   test_srvthreads_env_at_strides_by_env_size();
   test_srvthreads_parse_cores_single();
   test_srvthreads_parse_cores_multi();

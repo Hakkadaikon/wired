@@ -31,7 +31,10 @@
  * been joined, so the frame is guaranteed live for the whole worker
  * lifetime. */
 typedef struct {
-  int                     index;     /**< worker index == cores[]/queue_id */
+  int index;                         /**< worker index: mesh row/column and
+                                      * XDP queue id (0..n_total-1) */
+  int core;                          /**< CPU to pin this worker to
+                                      * (opt->cores[index]) */
   int                     n_total;   /**< worker count (broadcast registry) */
   wired_srvinbox_ring*    inbox_row; /**< this worker's N-ring receive row */
   wired_srvrun_env*       env;
@@ -87,12 +90,15 @@ static void srvthreads_worker_serve_xdp(srvthreads_worker_arg* a) {
   wired_srvxdp_close(&x);
 }
 
-/* Real worker body: pin, then dispatch to the UDP or AF_XDP serve path --
- * the loop-head shutdown poll lives inside wired_srvrun_serve_env/srvrun_loop
- * already, so one of these calls is the worker's entire steady-state body. */
+/* Real worker body: pin to this worker's --cores entry (a->core, NOT the
+ * mesh/queue index -- the parsed list was once written and never read, so
+ * "--cores 1,2,3" silently pinned to CPUs 0..2), then dispatch to the UDP or
+ * AF_XDP serve path -- the loop-head shutdown poll lives inside
+ * wired_srvrun_serve_env/srvrun_loop already, so one of these calls is the
+ * worker's entire steady-state body. */
 static void srvthreads_worker_main(void* argp) {
   srvthreads_worker_arg* a = (srvthreads_worker_arg*)argp;
-  wired_srvpin_bind_self(a->index);
+  wired_srvpin_bind_self(a->core);
   if (a->xdp_cfg)
     srvthreads_worker_serve_xdp(a);
   else
@@ -177,6 +183,7 @@ static void srvthreads_fill_arg(
     const wired_srvthreads_opt* opt,
     wired_srvxdpbpf*            bpf) {
   a->index                  = i;
+  a->core                   = opt->cores[i];
   a->n_total                = n;
   a->inbox_row              = srvthreads_row_at(mesh, i, n);
   a->env                    = srvthreads_env_at(envs, i);
