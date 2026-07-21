@@ -262,19 +262,18 @@ int* wired_srvrun_shutdown_word(void);
  * @param data payload to broadcast; must fit the per-connection DATAGRAM cap
  * @return 1 if queued for every active WT session, 0 if data exceeds the cap
  *
- * Threaded fan-out (Phase E, tasks/loopeng/srvinbox-mesh): a caller running
- * inside a srvthreads worker (registered via wired_srvrun_broadcast_register)
- * is fanned out into ITS OWN registered env -- srvthreads gives every worker
- * its own connection table, so the single process-wide g_srvrun_env this
- * function used to always target is empty/unused for every registered
- * worker and would silently reach no one. With 2 or more workers registered,
+ * Threaded fan-out: a caller running inside a srvthreads worker (registered
+ * via wired_srvrun_broadcast_register) is fanned out into ITS OWN
+ * registered env -- srvthreads gives every worker its own connection
+ * table, so the single process-wide g_srvrun_env would be empty/unused for
+ * a registered worker and reach no one. With 2 or more workers registered,
  * the payload is also pushed into every OTHER registered worker's inbox row
  * (wired_srvinbox_push) so each one's own wired_srvrun_serve_env loop
  * delivers it to its own WT sessions on a later step (srvrun.c drains the
  * calling worker's inbox row once per step). An unregistered caller (the
  * default, single-process wired_server_run(_opt) or a lone
- * wired_srvrun_serve_env instance) is unchanged: the direct fan-out targets
- * the single g_srvrun_env as before Phase E. */
+ * wired_srvrun_serve_env instance) fans out directly to the single
+ * g_srvrun_env. */
 int wired_server_broadcast_datagram(quic_span data);
 
 /** Open a new server-initiated unidirectional stream on s's connection (RFC
