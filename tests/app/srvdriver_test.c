@@ -127,6 +127,63 @@ static void test_srvdriver_parse_cores_malformed(void) {
   CHECK(wired_srvdriver_parse(3, argv, &opt) == 0);
 }
 
+/* App-facing run options set on opt.run AFTER wired_srvdriver_parse (the
+ * documented pattern every example uses: parse, then opt.run.wt_on_datagram
+ * = cb) must reach the worker threads of the --cores driver. They did not:
+ * the threads loader rebuilt its own run from zero at parse time, so a
+ * WebTransport chat server run with --cores silently dropped every received
+ * datagram (callback 0 = deliver-nowhere consume). */
+static wired_wt_on_datagram g_sd_seen_dg_cb;
+static void*                g_sd_seen_dg_ctx;
+
+static void sd_marker_dg_cb(void* ctx, wired_wt_session* s, quic_span d) {
+  (void)ctx;
+  (void)s;
+  (void)d;
+}
+
+static void sd_run_recorder_worker(void* argp) {
+  srvthreads_worker_arg* a = (srvthreads_worker_arg*)argp;
+  g_sd_seen_dg_cb          = a->run.wt_on_datagram;
+  g_sd_seen_dg_ctx         = a->run.wt_datagram_ctx;
+  while (__atomic_load_n(wired_srvrun_shutdown_word(), __ATOMIC_ACQUIRE) == 0);
+}
+
+static void sd_request_shutdown(void* argp) {
+  (void)argp;
+  for (volatile int i = 0; i < 200000; i++);
+  __atomic_store_n(wired_srvrun_shutdown_word(), 1, __ATOMIC_RELEASE);
+}
+
+static void test_srvdriver_threads_propagates_run_opts(void) {
+  char*                argv[] = {"prog", "--cores", "0", "--port", "14461"};
+  wired_srvdriver_opt  opt    = {0};
+  wired_srvboot_id     id     = {0};
+  wired_srvrun_handler h      = {0};
+  wired_srvrun_obs     obs    = {0};
+  wired_thread         requester;
+  int                  ctx_probe;
+
+  CHECK(wired_srvdriver_parse(5, argv, &opt) == 1);
+  opt.run.wt_on_datagram  = sd_marker_dg_cb;
+  opt.run.wt_datagram_ctx = &ctx_probe;
+
+  __atomic_store_n(wired_srvrun_shutdown_word(), 0, __ATOMIC_RELEASE);
+  g_sd_seen_dg_cb  = 0;
+  g_sd_seen_dg_ctx = 0;
+  srvthreads_test_set_worker_fn(sd_run_recorder_worker);
+  wired_thread_start(&requester, sd_request_shutdown, 0);
+
+  CHECK(wired_srvdriver_run(&id, h, obs, &opt) == 1);
+
+  wired_thread_join(&requester);
+  srvthreads_test_set_worker_fn(0);
+  __atomic_store_n(wired_srvrun_shutdown_word(), 0, __ATOMIC_RELEASE);
+
+  CHECK(g_sd_seen_dg_cb == sd_marker_dg_cb);
+  CHECK(g_sd_seen_dg_ctx == &ctx_probe);
+}
+
 void test_srvdriver(void) {
   test_srvdriver_parse_default_is_plain();
   test_srvdriver_parse_port();
@@ -140,4 +197,5 @@ void test_srvdriver(void) {
   test_srvdriver_parse_pin_core_cores_conflict();
   test_srvdriver_parse_pin_core_alone();
   test_srvdriver_parse_cores_malformed();
+  test_srvdriver_threads_propagates_run_opts();
 }
