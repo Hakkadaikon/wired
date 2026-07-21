@@ -472,7 +472,9 @@ typedef struct {
    * (quic_mmsg_buf.ecn in udp.h). 0 for all three until any ECN-marked
    * datagram arrives. */
   u64 ecn_ect0;
+  /** ECT(1) running total (same lifecycle as ecn_ect0's doc above). */
   u64 ecn_ect1;
+  /** CE running total (same lifecycle as ecn_ect0's doc above). */
   u64 ecn_ce;
 } wired_srvloop;
 

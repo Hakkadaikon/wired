@@ -13,10 +13,12 @@
 
 #define QUIC_PATH_DATA 8 /* PATH_CHALLENGE/RESPONSE payload length */
 
-/* NEW_TOKEN (19.7): a token length and a view into the token (not copied).
+/** NEW_TOKEN (19.7): a token length and a view into the token (not copied).
  * length 0 is permitted. */
 typedef struct {
-  u64       length;
+  /** Token length in bytes (0 is permitted). */
+  u64 length;
+  /** View into the token bytes; not copied, the buffer must outlive uses. */
   const u8* token;
 } quic_new_token_frame;
 

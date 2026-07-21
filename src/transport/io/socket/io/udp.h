@@ -16,19 +16,19 @@
 #define WIRED_SOCK_DGRAM 2
 
 /** A sockaddr_in6 laid out for the kernel (big-endian port; a 16-byte
- * address that is either native IPv6 or an IPv4-mapped ::ffff:a.b.c.d).
+ * address that is either native IPv6 or an IPv4-mapped \::ffff:a.b.c.d).
  * Every socket this SDK opens is AF_INET6 with IPV6_V6ONLY off, so this one
  * shape addresses both families. */
 typedef struct {
   u16 family;   /**< WIRED_AF_INET6 */
   u16 port_be;  /**< network byte order */
   u32 flowinfo; /**< sin6_flowinfo, zeroed */
-  u8  addr[16]; /**< native IPv6, or v4-mapped ::ffff:a.b.c.d */
+  u8  addr[16]; /**< native IPv6, or v4-mapped \::ffff:a.b.c.d */
   u32 scope_id; /**< sin6_scope_id, zeroed */
 } quic_sockaddr;
 
 /** Build an address from host-order port and IPv4 octets[0..3] = a.b.c.d,
- * as the v4-mapped ::ffff:a.b.c.d — or, when the octets are all zero, the
+ * as the v4-mapped \::ffff:a.b.c.d — or, when the octets are all zero, the
  * unspecified :: (the dual-stack bind-any address; a mapped 0.0.0.0 would
  * bind IPv4-only).
  * @param sa receives the kernel-ready address
