@@ -58,15 +58,15 @@ static int srvdriver_load_workers(
   return 1;
 }
 
-/* threads.cores/n_cores/control_core/run, independent of --ifindex. */
+/* threads.cores/n_cores/control_core, independent of --ifindex. threads.run
+ * is NOT built here: srvdriver_run_threads copies opt->run at run time so
+ * app-set run options survive (see its doc). */
 static int srvdriver_load_threads_cores(
     int argc, char** argv, wired_srvthreads_opt* threads) {
   const char* cores_str = wired_cliargs_str(argc, argv, "--cores", "");
   if (!wired_srvthreads_parse_cores(cores_str, threads)) return 0;
   threads->control_core =
       (int)wired_cliargs_int(argc, argv, "--control-core", -1);
-  threads->run              = (wired_srvrun_opt){0};
-  threads->run.incoming_cpu = -1;
   return 1;
 }
 
@@ -147,24 +147,28 @@ static int srvdriver_load_kind(
  * srvdriver_load_threads points opt->threads.xdp at opt->xdp itself; copying
  * a self-referential struct by value would leave that pointer dangling at
  * the copy's own address instead of the caller's. */
-/* --port/--kind/--pin-core resolved and validated; opt->run still at the
- * loader's own default. */
+/* --port/--kind/--pin-core resolved and validated; opt->run at its -1
+ * sentinels, ready for post-parse app overrides. */
 static int srvdriver_parse_head(
     int argc, char** argv, wired_srvdriver_opt* opt) {
   int has_workers = wired_cliargs_int(argc, argv, "--workers", -1) >= 0;
   int has_xdp     = wired_cliargs_int(argc, argv, "--ifindex", -1) >= 0;
   int has_cores   = wired_cliargs_str(argc, argv, "--cores", 0) != 0;
   if (srvdriver_conflict(has_workers, has_xdp, has_cores)) return 0;
-  *opt      = (wired_srvdriver_opt){0};
-  opt->port = (u16)wired_cliargs_int(argc, argv, "--port", 4433);
-  opt->kind = srvdriver_select(has_workers, has_xdp, has_cores);
+  *opt = (wired_srvdriver_opt){0};
+  /* run's -1 sentinels (CPU 0 / core 0 are valid targets, so 0 cannot mean
+   * "off"): set here once so every driver kind starts from the documented
+   * defaults, whichever fields the app then overrides post-parse. */
+  opt->run.incoming_cpu = -1;
+  opt->run.core_id      = -1;
+  opt->port             = (u16)wired_cliargs_int(argc, argv, "--port", 4433);
+  opt->kind             = srvdriver_select(has_workers, has_xdp, has_cores);
   return srvdriver_load_pin_core(argc, argv, opt->kind, &opt->pin_core);
 }
 
 int wired_srvdriver_parse(int argc, char** argv, wired_srvdriver_opt* opt) {
   if (!srvdriver_parse_head(argc, argv, opt)) return 0;
   if (!srvdriver_load_kind(argc, argv, opt)) return 0;
-  /* after load_kind: the loaders rebuild opt->run from scratch. */
   opt->run.force_retry = wired_cliargs_flag(argc, argv, "--force-retry");
   return 1;
 }
@@ -179,13 +183,16 @@ static int srvdriver_run_plain(
   return wired_server_run_opt(opt->port, id, h, obs, &opt->run);
 }
 
+/* opt->run copied at run time, same rule as srvdriver_run_threads/_xdp. */
 static int srvdriver_run_workers(
     wired_srvboot_id*          id,
     wired_srvrun_handler       h,
     wired_srvrun_obs           obs,
     const wired_srvdriver_opt* opt) {
-  wired_srvrun_obs wobs = {0, 0, obs.cert_path, obs.key_path, obs.cc_algo};
-  return wired_srvworkers_run(opt->port, id, h, wobs, &opt->workers) >= 0;
+  wired_srvrun_obs     wobs = {0, 0, obs.cert_path, obs.key_path, obs.cc_algo};
+  wired_srvworkers_opt w    = opt->workers;
+  w.run                     = opt->run;
+  return wired_srvworkers_run(opt->port, id, h, wobs, &w) >= 0;
 }
 
 static int srvdriver_run_xdp(
@@ -205,12 +212,19 @@ static int srvdriver_run_xdp(
   return ok;
 }
 
+/* opt->run is copied in at RUN time, not parse time (same rule as
+ * srvdriver_run_xdp's `run = opt->run`): every example sets its app-facing
+ * run options (wt_on_datagram etc.) on opt.run AFTER wired_srvdriver_parse,
+ * and a parse-time copy would hand every worker a stale zeroed run -- a
+ * --cores chat server dropped every received datagram exactly this way. */
 static int srvdriver_run_threads(
     wired_srvboot_id*          id,
     wired_srvrun_handler       h,
     wired_srvrun_obs           obs,
     const wired_srvdriver_opt* opt) {
-  return wired_srvthreads_run(opt->port, id, h, obs, &opt->threads);
+  wired_srvthreads_opt t = opt->threads;
+  t.run                  = opt->run;
+  return wired_srvthreads_run(opt->port, id, h, obs, &t);
 }
 
 typedef int (*srvdriver_run_fn)(
