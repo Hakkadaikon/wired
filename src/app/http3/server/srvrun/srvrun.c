@@ -802,7 +802,6 @@ static int srvrun_boot_finish(
   c->boot_dgram_sent  = 0;
   srvrun_boot_send_initial(ctx->cfg, c, "server Initial sent\n");
   srvrun_boot_send_hs_gated(ctx->cfg, c, wired_server_is_confirmed(&c->s));
-  /* before reset: replay buffered 0-RTT */
   srvrun_boot_flush_zerortt(ctx, c, slot);
   wired_srvboot_acc_reset(&c->boot); /* the reassembly buffer is spent */
   /* RFC 9002 6.2: the accept flight just went out -- start this slot's boot

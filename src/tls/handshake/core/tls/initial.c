@@ -56,17 +56,11 @@ static quic_span initial_salt(u32 version) {
   return quic_span_of(salt, len);
 }
 
-/* Note: RFC 9001 5.2's "client in"/"server in" labels take no "quic "
- * prefix (unlike the "quic key"/"quic iv"/"quic hp" labels of 5.1) -- this
- * is confirmed by test_initial_client/test_initial_server's golden vectors.
- * RFC 9369 3.3.1 is explicit only about the Initial salt and about the
- * prefix used for the packet-protection-key labels; whether it also
- * reprefixes "client in"/"server in" to "quicv2 client in" is not
- * independently confirmed by a vector this SDK has pinned, so this SDK
- * keeps them unprefixed for both versions (the conservative choice that
- * changes nothing for v1, and preserves the one part of RFC 9369 3.3.1 that
- * is pinned by v2keys_test.c -- the salt). Revisit against an RFC 9369
- * Appendix A vector when R-26 pins the full v2 Initial key golden values. */
+/* RFC 9001 5.2 / RFC 9369 3.3.1: "client in"/"server in" take no "quic "
+ * (or "quicv2 ") prefix, unlike the "quic key"/"quic iv"/"quic hp"
+ * packet-protection-key labels of 5.1 -- confirmed for both versions by
+ * initial_test.c's golden vectors (RFC 9001 Appendix A.1 for v1, RFC 9369
+ * Appendix A for v2). */
 static quic_span side_label(u8* buf, int is_server) {
   const char* suffix = is_server ? "server in" : "client in";
   usz         n      = quic_cstr_len(suffix);
