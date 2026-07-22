@@ -16,3 +16,7 @@ tasks/
 # locally generated demo TLS material (examples/webtransport_chat)
 examples/*/public/cert.pem
 examples/*/public/key.pem
+
+# pip-downloaded interop test deps, editor tooling cache
+/*.whl
+/.cache/
