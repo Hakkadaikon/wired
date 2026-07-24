@@ -10,6 +10,7 @@
 #include "app/http3/server/hq09/hq09.h"
 #include "app/http3/server/srvloop/priority_ctrl.h"
 #include "app/http3/server/srvloop/srvloop.h"
+#include "app/qpack/qpackdyn/enc_stream.h"
 #include "common/bytes/util/bytes.h"
 #include "common/bytes/varint/varint.h"
 #include "transport/packet/frame/frame/connctl.h"
@@ -458,6 +459,32 @@ static void uni_stream_type_note_qpack(wired_srvloop* l, quic_span data) {
     l->qpack_stream_violation = err;
 }
 
+/* RFC 9204 4.3.1 (9204-020/9204-032/9204-033): if data's leading type varint
+ * is the QPACK encoder stream, apply a Set Dynamic Table Capacity instruction
+ * (if any) at its head to l->h3.qdyn. Other encoder-stream instructions
+ * (Insert.../Duplicate) are left unconsumed -- see enc_stream.h's own doc for
+ * why -- so this deliberately only tries the one instruction this SDK
+ * decodes. A capacity exceeding the server's own advertised limit latches
+ * l->qpack_stream_violation, mirroring uni_stream_type_note_qpack's shape. */
+/* Apply a Set Dynamic Table Capacity instruction (if any) at the head of
+ * rest to l, latching a rejection. Split out of uni_stream_type_apply_qpack_
+ * capacity so its own branch count stays at the CCN gate. */
+static void apply_qpack_capacity_rest(wired_srvloop* l, quic_span rest) {
+  u16 err = 0;
+  quic_qdyn_enc_apply_capacity(
+      rest, &l->h3.qdyn, l->h3.qpack_max_table_capacity, &err);
+  if (err) l->qpack_stream_violation = err;
+}
+
+static void uni_stream_type_apply_qpack_capacity(
+    wired_srvloop* l, quic_span data) {
+  u64 v;
+  usz off = 0;
+  if (!quic_varint_take(data, &off, &v)) return;
+  if (v != QUIC_H3_STREAM_QPACK_ENCODER) return;
+  apply_qpack_capacity_rest(l, quic_span_of(data.p + off, data.n - off));
+}
+
 /* draft-ietf-webtrans-http3-15 4.3: 1 if this uni stream's very first bytes
  * (an offset-0 STREAM frame's data) decode as the WT uni stream type varint
  * (0x54, RFC 9114 6.2/RFC 9220). Unlike a WT bidi stream's signal byte, a uni
@@ -567,6 +594,7 @@ static void gather_wt_uni_land(wired_srvloop* l, const quic_stream_frame* sf) {
 static void gather_wt_uni_classify(wired_srvloop* l, quic_span data) {
   uni_stream_type_accepted(data);
   uni_stream_type_note_qpack(l, data);
+  uni_stream_type_apply_qpack_capacity(l, data);
 }
 
 static void gather_wt_uni_frame(wired_srvloop* l, const quic_stream_frame* sf) {
