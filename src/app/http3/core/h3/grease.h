@@ -12,4 +12,11 @@
  * 0x1f*N + 0x21 pattern applies to H3 frame/stream/setting/error spaces. */
 int quic_h3_is_reserved(u64 value);
 
+/* Compute the Nth reserved (grease) point: 0x1f*n + 0x21. The inverse of
+ * quic_h3_is_reserved -- feeding it any n always yields a value it accepts.
+ * Shared by every space that sends a grease value on the wire (e.g. a
+ * SETTINGS identifier, 9114-064; an error code, 9114-077), each picking its
+ * own n (typically from a random byte) and calling this once. */
+u64 quic_h3_grease_value(u64 n);
+
 #endif
