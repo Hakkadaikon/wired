@@ -1,6 +1,7 @@
 #include "crypto/pki/encoding/eckey/eckey.h"
 
 #include "common/bytes/util/bytes.h"
+#include "crypto/pki/cert/selfcert/derenc.h"
 #include "crypto/pki/encoding/asn1/der.h"
 #include "crypto/pki/encoding/asn1/derseq.h"
 #include "crypto/pki/encoding/asn1/derval.h"
@@ -57,4 +58,103 @@ int wired_eckey_p256_priv(quic_span key_der, u8 out[32]) {
   u64         v;
   if (!eckey_open(key_der, &c, &v)) return 0;
   return eckey_dispatch(&c, v, out);
+}
+
+/* RFC 8410 3. id-Ed25519 = 1.3.101.112. */
+static const u8 eckey_oid_ed25519[] = {0x2b, 0x65, 0x70};
+
+/* RFC 5280 4.1.1.2 / RFC 8410 7. privateKeyAlgorithm SEQUENCE{ id-Ed25519 }
+ * (no parameters). Returns the encoded length, 0 on overflow. */
+static usz eckey_build_ed25519_alg(quic_obuf* out) {
+  u8        oid[8];
+  quic_obuf o = quic_obuf_of(oid, sizeof(oid));
+  if (!quic_selfcert_der_tlv(
+          QUIC_DER_OID,
+          quic_span_of(eckey_oid_ed25519, sizeof(eckey_oid_ed25519)), &o))
+    return 0;
+  if (!quic_selfcert_der_tlv(QUIC_DER_SEQUENCE, quic_span_of(oid, o.len), out))
+    return 0;
+  return out->len;
+}
+
+/* RFC 8410 7. privateKey OCTET STRING wrapping CurvePrivateKey
+ * OCTET STRING(seed). Returns the encoded length, 0 on overflow. */
+static usz eckey_build_ed25519_privkey(const u8 seed[32], quic_obuf* out) {
+  u8        inner[34];
+  quic_obuf io = quic_obuf_of(inner, sizeof(inner));
+  if (!quic_selfcert_der_tlv(
+          QUIC_DER_OCTET_STRING, quic_span_of(seed, 32), &io))
+    return 0;
+  if (!quic_selfcert_der_tlv(
+          QUIC_DER_OCTET_STRING, quic_span_of(inner, io.len), out))
+    return 0;
+  return out->len;
+}
+
+/* RFC 5958 2 / RFC 8410 7. version INTEGER 0. */
+static const u8 eckey_version0[] = {0x02, 0x01, 0x00};
+
+/* True if every part was encoded (non-zero length, or version's fixed
+ * length). */
+static int eckey_parts_ok(const quic_span* p) { return p[1].n && p[2].n; }
+
+/* Concatenate version/alg/privateKey and wrap in the OneAsymmetricKey
+ * SEQUENCE. */
+static int eckey_assemble(const quic_span* parts, quic_obuf* out) {
+  u8  body[64];
+  usz off = 0;
+  int ok  = 1;
+  for (usz i = 0; i < 3; i++)
+    ok &= quic_put_bytes(
+        quic_mspan_of(body, sizeof(body)), &off,
+        quic_span_of(parts[i].p, parts[i].n));
+  if (!ok) return 0;
+  return quic_selfcert_der_tlv(QUIC_DER_SEQUENCE, quic_span_of(body, off), out);
+}
+
+int wired_eckey_ed25519_pkcs8_encode(const u8 seed[32], quic_obuf* out) {
+  u8        alg[16], pk[40];
+  quic_obuf ao      = quic_obuf_of(alg, sizeof(alg));
+  quic_obuf po      = quic_obuf_of(pk, sizeof(pk));
+  usz       an      = eckey_build_ed25519_alg(&ao);
+  usz       pn      = eckey_build_ed25519_privkey(seed, &po);
+  quic_span parts[] = {
+      {eckey_version0, sizeof(eckey_version0)}, {alg, an}, {pk, pn}};
+  if (!eckey_parts_ok(parts)) return 0;
+  return eckey_assemble(parts, out);
+}
+
+/* RFC 8410 7. The inner CurvePrivateKey OCTET STRING value: exactly the
+ * 32-byte key. */
+static int eckey_curve25519_scalar(quic_span inner, u8 out[32]) {
+  if (inner.n != 32) return 0;
+  quic_memcpy(out, inner.p, 32);
+  return 1;
+}
+
+/* RFC 8410 7. OneAsymmetricKey's privateKey field: an OCTET STRING wrapping
+ * the CurvePrivateKey OCTET STRING. */
+static int eckey_curve25519_privkey(quic_derseq* c, u8 out[32]) {
+  quic_span   outer, inner;
+  quic_derseq ic;
+  if (!quic_derseq_next_tagged(c, QUIC_DER_OCTET_STRING, &outer)) return 0;
+  quic_derseq_init(&ic, outer);
+  if (!quic_derseq_next_tagged(&ic, QUIC_DER_OCTET_STRING, &inner)) return 0;
+  return eckey_curve25519_scalar(inner, out);
+}
+
+/* RFC 5958 2 / RFC 8410 7. Open the OneAsymmetricKey SEQUENCE, requiring
+ * version 0, and position c past privateKeyAlgorithm. */
+static int eckey_curve25519_open(quic_span key_der, quic_derseq* c) {
+  quic_span alg;
+  u64       v;
+  if (!eckey_open(key_der, c, &v)) return 0;
+  if (v != 0) return 0;
+  return quic_derseq_next_tagged(c, QUIC_DER_SEQUENCE, &alg);
+}
+
+int wired_eckey_curve25519_priv(quic_span key_der, u8 out[32]) {
+  quic_derseq c;
+  if (!eckey_curve25519_open(key_der, &c)) return 0;
+  return eckey_curve25519_privkey(&c, out);
 }
