@@ -67,3 +67,8 @@ int quic_qpack_dyn_insert(quic_qpack_dyn* t, const quic_qpack_field* f) {
   store_entry(t, f);
   return 1;
 }
+
+/* RFC 9204 4.3.1 */
+int quic_qpack_capacity_within_limit(u64 capacity, u64 max_table_capacity) {
+  return capacity <= max_table_capacity;
+}

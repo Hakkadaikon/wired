@@ -39,4 +39,11 @@ int quic_qpack_dyn_insert(quic_qpack_dyn* t, const quic_qpack_field* f);
 /* RFC 9204 3.2.1. Current total size in bytes. */
 usz quic_qpack_dyn_size(const quic_qpack_dyn* t);
 
+/* RFC 9204 4.3.1. A received Set Dynamic Table Capacity instruction's value is
+ * valid only up to the limit the server advertised in
+ * SETTINGS_QPACK_MAX_TABLE_CAPACITY. Returns 1 if capacity is within that
+ * limit, 0 if it exceeds it -- the caller treats 0 as a connection error of
+ * type QPACK_ENCODER_STREAM_ERROR. */
+int quic_qpack_capacity_within_limit(u64 capacity, u64 max_table_capacity);
+
 #endif

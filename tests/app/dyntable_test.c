@@ -48,8 +48,25 @@ static void test_too_big_rejected(void) {
   CHECK(t.count == 0);
 }
 
+/* RFC 9204 4.3.1: a Set Dynamic Table Capacity at or below the advertised
+ * SETTINGS_QPACK_MAX_TABLE_CAPACITY limit is valid. */
+static void test_capacity_within_limit_accepted(void) {
+  CHECK(quic_qpack_capacity_within_limit(0, 0));
+  CHECK(quic_qpack_capacity_within_limit(100, 100));
+  CHECK(quic_qpack_capacity_within_limit(50, 100));
+}
+
+/* RFC 9204 4.3.1: a capacity exceeding the limit is rejected -- the caller
+ * treats it as a connection error of type QPACK_ENCODER_STREAM_ERROR. */
+static void test_capacity_over_limit_rejected(void) {
+  CHECK(!quic_qpack_capacity_within_limit(101, 100));
+  CHECK(!quic_qpack_capacity_within_limit(1, 0));
+}
+
 void test_dyntable(void) {
   test_insert_size();
   test_evict_on_overflow();
   test_too_big_rejected();
+  test_capacity_within_limit_accepted();
+  test_capacity_over_limit_rejected();
 }
