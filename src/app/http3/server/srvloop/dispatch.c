@@ -1110,18 +1110,39 @@ static void route_note_done(wired_srvloop* l, int i) {
   if (l->done_n < WIRED_SRVLOOP_MAX_STREAMS) l->done_slots[l->done_n++] = (u8)i;
 }
 
+/* Append slot i to frame_unexpected_slots (RFC 9114 7.2.5/7.2.8, 9114-067/
+ * 9114-073) -- split out of route_note_incomplete so its own reject-vs-
+ * incomplete branch stays a single extra check there. */
+static void route_note_frame_unexpected(wired_srvloop* l, int i) {
+  if (l->frame_unexpected_n < WIRED_SRVLOOP_MAX_STREAMS)
+    l->frame_unexpected_slots[l->frame_unexpected_n++] = (u8)i;
+}
+
+/* Mark slot i incomplete and append it to incomplete_slots -- the actual
+ * H3_REQUEST_INCOMPLETE bookkeeping, split out of route_note_incomplete so
+ * its own reject-vs-incomplete branch stays a single extra check there. */
+static void route_note_incomplete_append(wired_srvloop* l, int i) {
+  l->streams[i].req_incomplete = 1;
+  if (l->incomplete_n < WIRED_SRVLOOP_MAX_STREAMS)
+    l->incomplete_slots[l->incomplete_n++] = (u8)i;
+}
+
 /* RFC 9114 4.1: slot i's request stream reached FIN without decoding into a
  * request -- append it to incomplete_slots (the H3_REQUEST_INCOMPLETE
- * counterpart of route_note_done) for whichever layer aborts it. A CONNECT
- * completed by connect_headers_complete rather than FIN is never incomplete
- * (it deliberately never gets a FIN, see request_complete's doc), so this is
+ * counterpart of route_note_done) for whichever layer aborts it, UNLESS the
+ * decode failed because the stream carried a frame this endpoint must reject
+ * outright (req.frame_unexpected, 9114-067/9114-073), which takes the
+ * H3_FRAME_UNEXPECTED list instead. A CONNECT completed by
+ * connect_headers_complete rather than FIN is never incomplete (it
+ * deliberately never gets a FIN, see request_complete's doc), so this is
  * gated on the stream's own FIN latch, not just "decode failed". */
 static void route_note_incomplete(wired_srvloop* l, int i) {
   wired_srvloop_stream_slot* slot = &l->streams[i];
   if (!slot->req_fin) return;
-  slot->req_incomplete = 1;
-  if (l->incomplete_n < WIRED_SRVLOOP_MAX_STREAMS)
-    l->incomplete_slots[l->incomplete_n++] = (u8)i;
+  if (slot->req.frame_unexpected)
+    route_note_frame_unexpected(l, i);
+  else
+    route_note_incomplete_append(l, i);
 }
 
 /* RFC 9114 4.1 vs hq-interop (see hq09.h): dispatch slot i's just-completed
