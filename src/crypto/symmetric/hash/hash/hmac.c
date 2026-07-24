@@ -60,3 +60,51 @@ void quic_hmac_sha256_truncated(
   quic_hmac_sha256(key, msg, full);
   quic_memcpy(out, full, n);
 }
+
+/* Copy a short key (<= block) into the zero-filled 128-byte block. */
+static void short_key384(quic_span key, u8 kb[QUIC_SHA512_BLOCK]) {
+  for (usz i = 0; i < QUIC_SHA512_BLOCK; i++) kb[i] = 0;
+  for (usz i = 0; i < key.n; i++) kb[i] = key.p[i];
+}
+
+/* Normalize the key into a 128-byte block: hash it if too long, else
+ * zero-pad. (RFC 2104 step 1-3, block size per FIPS 180-4 5.3.4.) */
+static void key_block384(quic_span key, u8 kb[QUIC_SHA512_BLOCK]) {
+  if (key.n > QUIC_SHA512_BLOCK) {
+    for (usz i = 0; i < QUIC_SHA512_BLOCK; i++) kb[i] = 0;
+    quic_sha384(key.p, key.n, kb);
+  } else {
+    short_key384(key, kb);
+  }
+}
+
+/* XOR each block byte with pad and feed it into the hash. */
+static void feed_pad384(
+    quic_sha512_ctx* s, const u8 kb[QUIC_SHA512_BLOCK], u8 pad) {
+  u8 b[QUIC_SHA512_BLOCK];
+  for (usz i = 0; i < QUIC_SHA512_BLOCK; i++) b[i] = kb[i] ^ pad;
+  quic_sha512_update(s, b, QUIC_SHA512_BLOCK);
+}
+
+/* inner = H((K^ipad) || msg) */
+static void inner_hash384(
+    const u8 kb[QUIC_SHA512_BLOCK], quic_span msg, u8 out[QUIC_SHA384_DIGEST]) {
+  quic_sha512_ctx s;
+  quic_sha384_init(&s);
+  feed_pad384(&s, kb, 0x36);
+  quic_sha512_update(&s, msg.p, msg.n);
+  quic_sha384_final(&s, out);
+}
+
+void quic_hmac_sha384(
+    quic_span key, quic_span msg, u8 out[QUIC_SHA384_DIGEST]) {
+  u8              kb[QUIC_SHA512_BLOCK];
+  u8              inner[QUIC_SHA384_DIGEST];
+  quic_sha512_ctx s;
+  key_block384(key, kb);
+  inner_hash384(kb, msg, inner);
+  quic_sha384_init(&s);
+  feed_pad384(&s, kb, 0x5c); /* outer: K^opad */
+  quic_sha512_update(&s, inner, QUIC_SHA384_DIGEST);
+  quic_sha384_final(&s, out);
+}
