@@ -18,6 +18,7 @@
 #define QUIC_EXT_SUPPORTED_VERSIONS 43
 #define QUIC_EXT_KEY_SHARE 51
 #define QUIC_GROUP_X25519 0x001d
+#define QUIC_GROUP_SECP256R1 0x0017
 
 /* Write a handshake message header (type + 24-bit length) at out; returns
  * the offset where the body should start (4). The caller fills the body then
