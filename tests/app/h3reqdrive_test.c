@@ -2,9 +2,11 @@
 #include "app/http3/core/h3conn/request.h"
 #include "app/http3/core/h3conn/response.h"
 #include "app/http3/request/h3reqdrive/request_drive.h"
+#include "app/qpack/qpack/base.h"
 #include "app/qpack/qpack/dynfind.h"
 #include "app/qpack/qpack/dyntable.h"
 #include "app/qpack/qpack/fieldline.h"
+#include "app/qpack/qpack/insertcount.h"
 #include "app/qpack/qpack/literal.h"
 #include "app/qpack/qpack/prefix.h"
 #include "app/qpack/qpackdyn/field_decode.h"
@@ -790,6 +792,97 @@ static void test_reqdrive_dynamic_table(void) {
   CHECK(rd_eq(d.value.p, d.value.n, "ex.com", 6));
 }
 
+/* RFC 9114 4.3.1 / RFC 9204 4.5.2 / 4.5.1.2: a full request field section
+ * whose :authority is an Indexed Field Line dynamic-table reference (T=0)
+ * decodes end to end through wired_h3reqdrive_recv_get_dyn -- the section
+ * prefix's Required Insert Count/Base are resolved and validated
+ * (9204-046), and the reference itself is resolved against the connection's
+ * dynamic table (9204-048's Indexed form; :method/:scheme/:path stay
+ * static-table indexed/literal as in curl_field_section). */
+static void test_reqdrive_recv_get_dyn_resolves_indexed(void) {
+  quic_qpack_dyn   t;
+  quic_qpack_field f = {
+      quic_span_of((const u8*)":authority", 10),
+      quic_span_of((const u8*)"ex.com", 6)};
+  quic_qpack_match     m;
+  u8                   fs[64], req[256], scratch[128];
+  usz                  off, req_len = 0;
+  u64                  base, rel, ric, encoded;
+  quic_qpack_prefix    pfx;
+  wired_h3reqdrive_req r;
+  quic_obuf            req_ob = {req, sizeof req, 0};
+
+  quic_qpack_dyn_init(&t, 4096);
+  CHECK(quic_qpack_dyn_insert(&t, &f));
+  base = t.dropped + t.count;
+  CHECK(quic_qpack_dyn_find(&t, &f, &m));
+  rel = base - m.abs_index - 1;
+  ric = base; /* RFC 9204 2.1.2: RIC covers every referenced entry */
+
+  encoded = quic_qpack_ric_encode(ric, 4096 / 32);
+  pfx     = (quic_qpack_prefix){encoded, 0, 0}; /* Sign=0, Base = RIC */
+  off     = quic_qpack_prefix_encode(fs, sizeof fs, &pfx);
+  off += quic_qpack_indexed_encode(
+      quic_mspan_of(fs + off, sizeof fs - off), 17, 1); /* :method GET */
+  {
+    quic_mspan mb = quic_mspan_of(fs + off, sizeof fs - off);
+    off += quic_qpack_indexed_encode(mb, rel, 0); /* :authority, dynamic */
+  }
+  put_litname(fs, &off, ":scheme", "https");
+  put_litname(fs, &off, ":path", "/");
+  {
+    quic_h3conn_req_in req_in = {quic_span_of(fs, off), quic_span_of(0, 0)};
+    CHECK(quic_h3conn_send_request(0, &req_in, &req_ob));
+  }
+  req_len = req_ob.len;
+  CHECK(wired_h3reqdrive_recv_get_dyn(
+      quic_span_of(req, req_len), quic_mspan_of(scratch, sizeof scratch), &t,
+      &r));
+  CHECK(rd_eq(r.authority, r.authority_len, "ex.com", 6));
+  CHECK(rd_eq(r.path, r.path_len, "/", 1));
+}
+
+/* RFC 9204 4.5.1.2 (9204-046): Sign=1 with RIC <= DeltaBase names a negative
+ * Base, which must be rejected outright -- even though every field line in
+ * the section is otherwise well-formed static-table content. */
+static void test_reqdrive_recv_get_dyn_invalid_base_rejected(void) {
+  u8                   fs[64], req[256], scratch[128];
+  usz                  off;
+  quic_qpack_prefix    pfx = {0, 1, 0}; /* RIC=0, Sign=1, DeltaBase=0 */
+  wired_h3reqdrive_req r;
+  quic_obuf            req_ob = {req, sizeof req, 0};
+  off                         = quic_qpack_prefix_encode(fs, sizeof fs, &pfx);
+  off += quic_qpack_indexed_encode(
+      quic_mspan_of(fs + off, sizeof fs - off), 17, 1); /* :method GET */
+  put_litname(fs, &off, ":scheme", "https");
+  put_litname(fs, &off, ":authority", "h");
+  put_litname(fs, &off, ":path", "/");
+  {
+    quic_h3conn_req_in req_in = {quic_span_of(fs, off), quic_span_of(0, 0)};
+    CHECK(quic_h3conn_send_request(0, &req_in, &req_ob));
+  }
+  CHECK(!wired_h3reqdrive_recv_get_dyn(
+      quic_span_of(req, req_ob.len), quic_mspan_of(scratch, sizeof scratch), 0,
+      &r));
+}
+
+/* wired_h3reqdrive_recv_get_dyn with dyn=0 behaves exactly like
+ * wired_h3reqdrive_recv_get (static-table-only request, curl_field_section's
+ * own shape) -- the convenience wrapper's whole contract. */
+static void test_reqdrive_recv_get_dyn_null_table_matches_static_only(void) {
+  u8                   fs[64], req[256], scratch[128];
+  usz                  fs_len = curl_field_section(fs), req_len = 0;
+  wired_h3reqdrive_req r;
+  quic_obuf            req_ob = {req, sizeof req, 0};
+  quic_h3conn_req_in   req_in = {quic_span_of(fs, fs_len), quic_span_of(0, 0)};
+  CHECK(quic_h3conn_send_request(0, &req_in, &req_ob));
+  req_len = req_ob.len;
+  CHECK(wired_h3reqdrive_recv_get_dyn(
+      quic_span_of(req, req_len), quic_mspan_of(scratch, sizeof scratch), 0,
+      &r));
+  CHECK(rd_eq(r.authority, r.authority_len, "curl.test", 9));
+}
+
 void test_h3reqdrive(void) {
   test_reqdrive_priority_header();
   test_reqdrive_origin_header();
@@ -812,6 +905,9 @@ void test_h3reqdrive(void) {
   test_reqdrive_no_trailer_ok();
   test_reqdrive_response_status();
   test_reqdrive_dynamic_table();
+  test_reqdrive_recv_get_dyn_resolves_indexed();
+  test_reqdrive_recv_get_dyn_invalid_base_rejected();
+  test_reqdrive_recv_get_dyn_null_table_matches_static_only();
   test_reqdrive_rejects_crlf_in_name();
   test_reqdrive_rejects_nul_in_value();
   test_reqdrive_rejects_transfer_encoding();

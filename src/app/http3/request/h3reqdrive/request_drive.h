@@ -2,6 +2,7 @@
 #define WIRED_H3REQDRIVE_REQUEST_DRIVE_H
 
 #include "app/http3/core/h3/priority.h"
+#include "app/qpack/qpack/dyntable.h"
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
 
@@ -101,6 +102,20 @@ typedef struct {
  * @return 1 on success, 0 on a malformed frame or field section. */
 int wired_h3reqdrive_recv_get(
     quic_span stream_data, quic_mspan scratch, wired_h3reqdrive_req* r);
+
+/** Same as wired_h3reqdrive_recv_get, but also resolves dynamic-table
+ * references (RFC 9204 4.5.2/4.5.3 Indexed Field Line / Indexed Field Line
+ * with Post-Base Index) against dyn -- the connection's QPACK dynamic table
+ * (0 behaves exactly like wired_h3reqdrive_recv_get: every dynamic reference
+ * then simply fails to resolve).
+ * @param dyn the connection's dynamic table, or 0 if none is tracked
+ * @return 1 on success, 0 on a malformed frame, field section, or an
+ *   unresolvable/invalid dynamic-table reference (RFC 9204 4.5.1.2). */
+int wired_h3reqdrive_recv_get_dyn(
+    quic_span             stream_data,
+    quic_mspan            scratch,
+    const quic_qpack_dyn* dyn,
+    wired_h3reqdrive_req* r);
 
 /** RFC 9114 4.3: check that a request stream's trailer section (if any)
  * carries no pseudo-header field -- a pseudo-header is only valid in the
