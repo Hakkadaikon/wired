@@ -1,6 +1,7 @@
 #include "app/webtransport/capsule/wtcapsule/wtcapsule.h"
 
 #include "app/http3/core/capsule/capsule.h"
+#include "app/webtransport/session/session/session.h"
 #include "test.h"
 
 /* @file
@@ -280,6 +281,41 @@ static void test_wtcapsule_max_streams_decode_trailing_bytes_rejected(void) {
   CHECK(at == 0);
 }
 
+/* TEST 16: draft-ietf-webtrans-http3-15 SS5.1 (WTH3-053): "If flow control
+ * is not enabled, an endpoint shall ignore receipt of any flow control
+ * capsules." No caller in src/ currently decodes a WT_MAX_STREAMS/
+ * WT_MAX_DATA capsule off the wire (see WTH3-058/060/062's own gap notes),
+ * so there is no live receive path yet where "ignore" is a decision an
+ * endpoint makes -- decode success or failure is orthogonal to whether the
+ * decoded value gets applied. What IS live is wired_wt_session's own
+ * flow-control state (session.h SS5.3/5.4): a session that has never had
+ * wired_wt_session_set_max_streams/set_max_data applied to it behaves
+ * exactly as WTH3-053 prescribes for "flow control not enabled" --
+ * opening streams and sending data stay unconditionally allowed. This
+ * pins that a decoded-but-not-yet-applied capsule value (the shape any
+ * future receive-path wiring would produce before calling
+ * wired_wt_session_set_max_streams) has zero effect on the session until
+ * a caller chooses to apply it -- i.e. "decode, then don't apply" IS the
+ * ignore rule once the future receive path exists. */
+static void test_wtcapsule_max_streams_decoded_value_ignored_until_applied(
+    void) {
+  u8               buf[16];
+  quic_obuf        out = quic_obuf_of(buf, sizeof buf);
+  usz              at  = 0;
+  u64              n_out;
+  wired_wt_session s;
+
+  wired_wt_session_init(&s, 4);
+  CHECK(quic_wtcapsule_encode_max_streams(&out, 1, 5));
+  CHECK(quic_wtcapsule_decode_max_streams(
+      quic_span_of(buf, out.len), &at, 1, &n_out));
+  CHECK(n_out == 5);
+  /* Decoded successfully, but never applied to s (the "ignore" choice) --
+   * the session's flow control stays unenabled, so it keeps allowing. */
+  CHECK(wired_wt_session_stream_open_allowed(&s, 1) == 1);
+  CHECK(wired_wt_session_stream_open_allowed(&s, 0) == 1);
+}
+
 void test_wtcapsule(void) {
   test_wtcapsule_close_roundtrip();
   test_wtcapsule_close_roundtrip_empty_message();
@@ -296,4 +332,5 @@ void test_wtcapsule(void) {
   test_wtcapsule_data_blocked_roundtrip();
   test_wtcapsule_max_data_decode_empty_body_rejected();
   test_wtcapsule_max_streams_decode_trailing_bytes_rejected();
+  test_wtcapsule_max_streams_decoded_value_ignored_until_applied();
 }
