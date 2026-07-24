@@ -37,4 +37,14 @@ int quic_qpack_ric_min_ok(u64 ric, int has_dynamic_ref, u64 max_abs_ref);
  * invalid. */
 int quic_qpack_incr_valid(u64 known_received, u64 increment, u64 total_inserts);
 
+/* RFC 9204 4.4.1. A Section Acknowledgment instruction refers to a stream
+ * ID; the encoder tracks, per stream, how many of its own encoded field
+ * sections with a non-zero Required Insert Count on that stream remain
+ * unacknowledged (pending_acks). Receiving a Section Acknowledgment when
+ * pending_acks is already 0 means every such field section on that stream
+ * has already been acknowledged, which MUST be treated by the encoder as a
+ * connection error of type QPACK_DECODER_STREAM_ERROR. Returns 1 if valid
+ * (pending_acks > 0), 0 if invalid. */
+int quic_qpack_section_ack_valid(u64 pending_acks);
+
 #endif

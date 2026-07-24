@@ -63,10 +63,70 @@ static void test_capacity_over_limit_rejected(void) {
   CHECK(!quic_qpack_capacity_within_limit(1, 0));
 }
 
+/* RFC 9204 3.2.2: "Whenever the dynamic table capacity is reduced ...
+ * entries are evicted from the end of the dynamic table until the size of
+ * the dynamic table is less than or equal to the new table capacity." Two
+ * 34-byte entries (68 bytes) reduced to a 40-byte capacity must evict the
+ * oldest one, leaving the table at or below 40. */
+static void test_set_capacity_reduction_evicts(void) {
+  quic_qpack_dyn   t;
+  quic_qpack_field a = dt_field("a", 1, "1", 1);
+  quic_qpack_field b = dt_field("b", 1, "2", 1);
+  quic_qpack_dyn_init(&t, 4096);
+  CHECK(quic_qpack_dyn_insert(&t, &a) == 1);
+  CHECK(quic_qpack_dyn_insert(&t, &b) == 1);
+  CHECK(quic_qpack_dyn_size(&t) == 68);
+  quic_qpack_dyn_set_capacity(&t, 40);
+  CHECK(quic_qpack_dyn_size(&t) == 34); /* "a" evicted, "b" survives */
+  CHECK(t.count == 1);
+  CHECK(t.dropped == 1);
+  CHECK(t.capacity == 40);
+}
+
+/* RFC 9204 3.2.2: "This mechanism can be used to completely clear entries
+ * from the dynamic table by setting a capacity of 0." */
+static void test_set_capacity_zero_clears_table(void) {
+  quic_qpack_dyn   t;
+  quic_qpack_field a = dt_field("a", 1, "1", 1);
+  quic_qpack_field b = dt_field("b", 1, "2", 1);
+  quic_qpack_dyn_init(&t, 4096);
+  CHECK(quic_qpack_dyn_insert(&t, &a) == 1);
+  CHECK(quic_qpack_dyn_insert(&t, &b) == 1);
+  quic_qpack_dyn_set_capacity(&t, 0);
+  CHECK(quic_qpack_dyn_size(&t) == 0);
+  CHECK(t.count == 0);
+  CHECK(t.dropped == 2);
+  CHECK(t.capacity == 0);
+}
+
+/* Raising the capacity never evicts (make_room's over_capacity check stays
+ * false): shrink to 34 (evicting "b", leaving only "a"), then raise back to
+ * 4096 -- "a" must survive the raise untouched, and inserting "b" again
+ * (which the shrunk capacity had no room for) now succeeds. */
+static void test_set_capacity_raise_does_not_evict(void) {
+  quic_qpack_dyn   t;
+  quic_qpack_field a = dt_field("a", 1, "1", 1);
+  quic_qpack_field b = dt_field("b", 1, "2", 1);
+  quic_qpack_dyn_init(&t, 4096);
+  CHECK(quic_qpack_dyn_insert(&t, &a) == 1);
+  CHECK(quic_qpack_dyn_insert(&t, &b) == 1);
+  quic_qpack_dyn_set_capacity(&t, 34);
+  CHECK(quic_qpack_dyn_size(&t) == 34); /* "a" evicted, "b" survives */
+  CHECK(t.dropped == 1);
+  quic_qpack_dyn_set_capacity(&t, 4096); /* raise: must not evict "b" */
+  CHECK(quic_qpack_dyn_size(&t) == 34);
+  CHECK(t.dropped == 1);
+  CHECK(quic_qpack_dyn_insert(&t, &a) == 1); /* now fits alongside "b" */
+  CHECK(quic_qpack_dyn_size(&t) == 68);
+}
+
 void test_dyntable(void) {
   test_insert_size();
   test_evict_on_overflow();
   test_too_big_rejected();
   test_capacity_within_limit_accepted();
   test_capacity_over_limit_rejected();
+  test_set_capacity_reduction_evicts();
+  test_set_capacity_zero_clears_table();
+  test_set_capacity_raise_does_not_evict();
 }

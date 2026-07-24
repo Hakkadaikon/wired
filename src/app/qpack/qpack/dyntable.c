@@ -68,6 +68,17 @@ int quic_qpack_dyn_insert(quic_qpack_dyn* t, const quic_qpack_field* f) {
   return 1;
 }
 
+/* RFC 9204 3.2.2: "Whenever the dynamic table capacity is reduced ...
+ * entries are evicted from the end of the dynamic table until the size of
+ * the dynamic table is less than or equal to the new table capacity." A
+ * raise never evicts (make_room's own over_capacity(t, 0) check is
+ * size > capacity, so a raised capacity is never "over" and the loop is a
+ * no-op) -- both directions share this one path. */
+void quic_qpack_dyn_set_capacity(quic_qpack_dyn* t, usz new_capacity) {
+  t->capacity = new_capacity;
+  make_room(t, 0);
+}
+
 /* RFC 9204 4.3.1 */
 int quic_qpack_capacity_within_limit(u64 capacity, u64 max_table_capacity) {
   return capacity <= max_table_capacity;
