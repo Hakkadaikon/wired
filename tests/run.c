@@ -389,6 +389,11 @@
 #include "transport/recovery/detect/ackgen/ackrange.c"
 #include "transport/recovery/detect/ackgen/ackrangeconv.c"
 #include "transport/recovery/detect/ackgen/ackfreq.c"
+#include "crypto/pki/encoding/x509/certpolicies.c"
+#include "crypto/pki/encoding/x509/dirstring.c"
+#include "crypto/pki/encoding/x509/nameconstraints.c"
+#include "crypto/pki/encoding/x509/policyconstraints.c"
+#include "crypto/pki/encoding/x509/policytree.c"
 #include "crypto/pki/trust/castore/castore.c"
 #include "crypto/pki/trust/castore/chainverify.c"
 #include "crypto/pki/trust/castore/pathvalidate.c"
@@ -507,6 +512,7 @@
 #include "app/http3/server/certreload/certreload.c"
 #include "app/http3/server/hq09/hq09.c"
 #include "app/http3/server/srvinbox/srvinbox.c"
+#include "app/http3/core/h3prio/h3prio.c"
 #include "app/http3/server/srvrun/srvrun.c"
 #include "app/http3/server/staticfile/staticfile.c"
 #include "app/http3/server/mimetype/mimetype.c"
@@ -776,6 +782,11 @@
 #include "crypto/p256_point_test.c"
 #include "crypto/ecdsa_verify_test.c"
 #include "crypto/x509_test.c"
+#include "crypto/certpolicies_test.c"
+#include "crypto/dirstring_test.c"
+#include "crypto/nameconstraints_test.c"
+#include "crypto/policyconstraints_test.c"
+#include "crypto/policytree_test.c"
 #include "crypto/keyid_test.c"
 #include "crypto/keyusage_test.c"
 #include "crypto/eku_test.c"
@@ -1017,6 +1028,7 @@
 #include "app/dgpriority_test.c"
 #include "crypto/ed25519_field_test.c"
 #include "tls/v2ku_appendix_test.c"
+#include "app/h3prio_test.c"
 // clang-format on
 
 int main(void) {
@@ -1267,6 +1279,11 @@ int main(void) {
   test_p256_ecdhe();
   test_ecdsa_verify();
   test_x509();
+  test_certpolicies();
+  test_dirstring();
+  test_nameconstraints();
+  test_policyconstraints();
+  test_policytree();
   test_keyid();
   test_keyusage();
   test_eku();
@@ -1537,5 +1554,6 @@ int main(void) {
   test_dgpriority();
   test_ed25519_field();
   test_v2ku_appendix();
+  test_h3prio();
   return TEST_REPORT();
 }
