@@ -58,11 +58,43 @@ static int xdpft_rejects(usz n, usz off, u8 val) {
 static void test_xdpframe_rx_rejects(void) {
   CHECK(xdpft_rejects(QUIC_XDPFRAME_HDRS - 1, 0, 0x02)); /* short */
   CHECK(xdpft_rejects(60, 13, 0x06));                    /* ethertype ARP */
-  CHECK(xdpft_rejects(60, 14, 0x46));                    /* IHL != 5 */
-  CHECK(xdpft_rejects(60, 20, 0x20));                    /* MF fragment bit */
-  CHECK(xdpft_rejects(60, 23, 6));                       /* protocol TCP */
+  /* IHL=6 (options present) but total length (30) is unchanged, so it no
+   * longer covers the now-24-byte IP header + 8-byte UDP header (32):
+   * rejected for the length mismatch, not merely for IHL != 5 (RFC 791
+   * 3.1/3.2: a technically larger-but-consistent IHL is accepted --
+   * test_xdpframe_rx_accepts_ihl_with_consistent_options below). */
+  CHECK(xdpft_rejects(60, 14, 0x46));
+  CHECK(xdpft_rejects(60, 14, 0x44)); /* IHL=4, below the RFC 791 minimum */
+  CHECK(xdpft_rejects(60, 20, 0x20)); /* MF fragment bit */
+  CHECK(xdpft_rejects(60, 23, 6));    /* protocol TCP */
   CHECK(xdpft_rejects(60, 39, 0x0b)); /* udp len != ip total - 20 */
   CHECK(xdpft_rejects(60, 16, 0x01)); /* ip total beyond the frame */
+}
+
+/* RFC 791 3.1/3.2: liberal in what is accepted -- an IHL larger than the
+ * minimum 5 (IP options present) is not itself a reason to reject a
+ * datagram whose Total Length is otherwise self-consistent; the parser
+ * skips the options and finds UDP right after them. */
+static const u8 xdpft_options[64] = {
+    0x02, 0x07, 0x00, 0x00, 0x00, 0x01, /* eth dst (our mac) */
+    0x02, 0x07, 0x00, 0x00, 0x00, 0x02, /* eth src (peer mac) */
+    0x08, 0x00,                         /* ethertype IPv4 */
+    0x46, 0x00, 0x00, 0x22,             /* ip: v4 IHL=6, total 34 */
+    0x00, 0x00, 0x00, 0x00,             /* id, flags/frag = 0 */
+    0x40, 0x11, 0x00, 0x00,             /* ttl, proto UDP, cksum 0 */
+    10,   7,    0,    2,                /* ip src 10.7.0.2 */
+    10,   7,    0,    1,                /* ip dst 10.7.0.1 */
+    1,    1,    1,    1,                /* 4 bytes of IP options (NOP) */
+    0x15, 0xb3, 0x11, 0x51,             /* udp sport 5555, dport 4433 */
+    0x00, 0x0a, 0x00, 0x00,             /* udp len 10, cksum 0 */
+    'h',  'i',                          /* payload */
+    0,    0,    0,    0,    0,    0,    0, 0, 0, 0, 0, 0}; /* eth padding */
+
+static void test_xdpframe_rx_accepts_ihl_with_consistent_options(void) {
+  quic_xdpframe_rx rx;
+  CHECK(quic_xdpframe_parse(quic_span_of(xdpft_options, 64), &rx) == 1);
+  CHECK(rx.dport == 4433);
+  CHECK(rx.payload_len == 2 && rx.payload[0] == 'h' && rx.payload[1] == 'i');
 }
 
 /* A built frame satisfies the independent net/ verifiers and carries the
@@ -128,6 +160,7 @@ static void test_xdpframe_reflect(void) {
 void test_xdpframe(void) {
   test_xdpframe_rx_golden();
   test_xdpframe_rx_rejects();
+  test_xdpframe_rx_accepts_ihl_with_consistent_options();
   test_xdpframe_tx_roundtrip();
   test_xdpframe_reflect();
 }
