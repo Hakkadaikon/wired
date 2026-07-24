@@ -5,6 +5,10 @@
 
 /* RFC 5280 4.1.2.1. version is [0] EXPLICIT, optional and default v1. */
 #define X509_VERSION_TAG 0xa0
+/* RFC 5280 4.1. issuerUniqueID is [1] IMPLICIT, subjectUniqueID is [2]
+ * IMPLICIT; both optional (v2/v3 only). */
+#define X509_ISSUER_UID_TAG 0xa1
+#define X509_SUBJECT_UID_TAG 0xa2
 /* RFC 5280 4.1.2.9. extensions is [3] EXPLICIT. */
 #define X509_EXTENSIONS_TAG 0xa3
 /* RFC 5280 4.1. tbs elements before extensions (version excluded):
@@ -68,11 +72,15 @@ int quic_x509_parse(quic_span cert, quic_x509* out) {
   return quic_der_seq(cert, &seq) && take_fields(seq, out);
 }
 
-/* Drop the optional version element, leaving the cursor before serialNumber. */
-static int skip_version(quic_derseq* c) {
+/* Drop one optional IMPLICIT/EXPLICIT-tagged context element if the cursor
+ * currently sits on it, else leave the cursor untouched. Used for version
+ * [0], issuerUniqueID [1], and subjectUniqueID [2], all of which are
+ * DER-optional and so must be probed by tag rather than counted as fixed
+ * positions. */
+static int skip_tagged_if_present(quic_derseq* c, u8 want_tag) {
   quic_span val;
-  if (c->off < c->len && c->p[c->off] == X509_VERSION_TAG)
-    return quic_derseq_next_tagged(c, X509_VERSION_TAG, &val);
+  if (c->off < c->len && c->p[c->off] == want_tag)
+    return quic_derseq_next_tagged(c, want_tag, &val);
   return 1;
 }
 
@@ -80,12 +88,21 @@ int quic_x509_tbs_cursor(quic_span tbs, quic_derseq* c) {
   quic_span v;
   if (!quic_der_seq(tbs, &v)) return 0;
   quic_derseq_init(c, v);
-  return skip_version(c);
+  return skip_tagged_if_present(c, X509_VERSION_TAG);
+}
+
+/* RFC 5280 4.1. Drop issuerUniqueID [1] and subjectUniqueID [2] if either is
+ * present; a v1 tbs (neither present) leaves the cursor untouched. */
+static int skip_unique_ids(quic_derseq* c) {
+  if (!skip_tagged_if_present(c, X509_ISSUER_UID_TAG)) return 0;
+  return skip_tagged_if_present(c, X509_SUBJECT_UID_TAG);
 }
 
 /* Position the cursor before the extensions [3] element. */
 static int at_extensions(quic_span tbs, quic_derseq* c) {
-  return quic_x509_tbs_cursor(tbs, c) && quic_derseq_skip(c, X509_EXT_SKIP);
+  if (!quic_x509_tbs_cursor(tbs, c)) return 0;
+  if (!quic_derseq_skip(c, X509_EXT_SKIP)) return 0;
+  return skip_unique_ids(c);
 }
 
 /* RFC 5280 4.1.2.9. Reach the extensions SEQUENCE value inside [3]. */
@@ -160,19 +177,22 @@ int quic_x509_find_ext(quic_span tbs, quic_span oid, quic_span* val) {
 
 /* RFC 5280 4.2. extnIDs this SDK understands the semantics of. Any other
  * critical extension must reject the certificate (4.2 "MUST reject"). */
-static const u8 oid_bc_[]  = {0x55, 0x1d, 0x13}; /* 2.5.29.19 basicConstraints */
+static const u8 oid_bc_[] = {0x55, 0x1d, 0x13}; /* 2.5.29.19 basicConstraints */
 static const u8 oid_san_[] = {0x55, 0x1d, 0x11}; /* 2.5.29.17 subjectAltName */
 static const u8 oid_ku_[]  = {0x55, 0x1d, 0x0f}; /* 2.5.29.15 keyUsage */
 static const u8 oid_eku_[] = {0x55, 0x1d, 0x25}; /* 2.5.29.37 extKeyUsage */
+static const u8 oid_nc_[]  = {0x55, 0x1d, 0x1e}; /* 2.5.29.30 nameConstraints */
+static const u8 oid_pc_[]  = {0x55, 0x1d, 0x24}; /* 2.5.29.36 policyConstr. */
+static const u8 oid_iap_[] = {0x55, 0x1d, 0x36}; /* 2.5.29.54 inhibitAnyPol. */
+static const u8 oid_cp_[]  = {0x55, 0x1d, 0x20}; /* 2.5.29.32 certPolicies */
 
 static const quic_span known_ext_oids[] = {
-    {oid_bc_, sizeof(oid_bc_)},
-    {oid_san_, sizeof(oid_san_)},
-    {oid_ku_, sizeof(oid_ku_)},
-    {oid_eku_, sizeof(oid_eku_)},
+    {oid_bc_, sizeof(oid_bc_)},   {oid_san_, sizeof(oid_san_)},
+    {oid_ku_, sizeof(oid_ku_)},   {oid_eku_, sizeof(oid_eku_)},
+    {oid_nc_, sizeof(oid_nc_)},   {oid_pc_, sizeof(oid_pc_)},
+    {oid_iap_, sizeof(oid_iap_)}, {oid_cp_, sizeof(oid_cp_)},
 };
-#define KNOWN_EXT_OID_COUNT \
-  (sizeof(known_ext_oids) / sizeof(known_ext_oids[0]))
+#define KNOWN_EXT_OID_COUNT (sizeof(known_ext_oids) / sizeof(known_ext_oids[0]))
 
 /* extnID of one Extension. */
 static int ext_id(quic_span e, quic_span* id) {
