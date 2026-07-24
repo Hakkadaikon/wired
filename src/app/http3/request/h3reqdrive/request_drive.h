@@ -88,6 +88,15 @@ typedef struct {
    * otherwise -- the condition the server's 100 (Continue) interim response
    * path gates on. */
   int expect_continue;
+  /** RFC 9114 7.2.5/7.2.8 (9114-067/9114-073): 1 if the request stream carried
+   * a frame this endpoint must reject outright before HEADERS was reached --
+   * PUSH_PROMISE (a server-to-client frame this server-only SDK never sends,
+   * so any received instance is unexpected) or an HTTP/2-only reserved type
+   * (0x02/0x06/0x08/0x09). Set by find_headers (request_parse.c) via
+   * quic_h3_frame_recv_ok; the caller aborts the stream with
+   * H3_FRAME_UNEXPECTED instead of the H3_REQUEST_INCOMPLETE an ordinary
+   * decode failure gets. */
+  int frame_unexpected;
 } wired_h3reqdrive_req;
 
 /** RFC 9114 4.1, RFC 9204 4.5: decode a STREAM frame carrying a request:

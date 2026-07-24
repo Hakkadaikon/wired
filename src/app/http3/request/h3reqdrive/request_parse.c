@@ -1,20 +1,46 @@
 #include "app/http3/request/h3reqdrive/request_parse.h"
 
 #include "app/http3/core/h3/frame.h"
+#include "app/http3/core/h3/frame_permit.h"
 #include "transport/packet/frame/frame/frame.h"
+
+/* RFC 9114 7.2.5/7.2.8 (9114-067/9114-073): the frame at off decoded to f is
+ * one this endpoint must never accept at all -- PUSH_PROMISE (this SDK is
+ * server-only and never sends one) or an HTTP/2-only reserved type. Split out
+ * of find_headers's loop so the reject latch (r->frame_unexpected) stays a
+ * single extra branch there. */
+static int find_headers_frame_ok(
+    const quic_h3_frame* f, wired_h3reqdrive_req* r) {
+  if (quic_h3_frame_recv_ok(f->type)) return 1;
+  r->frame_unexpected = 1;
+  return 0;
+}
+
+/* One find_headers step: decode the frame at *off into *f and advance *off
+ * past it. Returns 1 to keep walking (a skipped frame this endpoint accepts),
+ * 0 to stop -- either HEADERS was reached, the stream ran out, or the frame
+ * must be rejected (r->frame_unexpected set by find_headers_frame_ok). */
+static int find_headers_step(
+    quic_span h3, usz* off, quic_h3_frame* f, wired_h3reqdrive_req* r) {
+  usz used = quic_h3_frame_get(quic_span_of(h3.p + *off, h3.n - *off), f);
+  if (!used) return 0;
+  if (!find_headers_frame_ok(f, r)) return 0;
+  *off += used;
+  return f->type != QUIC_H3_FRAME_HEADERS;
+}
 
 /* RFC 9114 9 / 7.2.8: walk the request stream's HTTP/3 frames, skipping any
  * unknown/reserved frame (e.g. the GREASE frame curl/quiche send), until the
  * HEADERS frame is found; view its field-section payload in place. Returns 1
- * if a HEADERS frame is reached, 0 if the stream ends or is truncated. */
-static int find_headers(quic_span h3, quic_span* fs, usz* end) {
+ * if a HEADERS frame is reached, 0 if the stream ends, is truncated, or
+ * carries a frame type this endpoint must reject (r->frame_unexpected set). */
+static int find_headers(
+    quic_span h3, quic_span* fs, usz* end, wired_h3reqdrive_req* r) {
   quic_h3_frame f   = {0};
   usz           off = 0;
-  while (f.type != QUIC_H3_FRAME_HEADERS) {
-    usz used = quic_h3_frame_get(quic_span_of(h3.p + off, h3.n - off), &f);
-    if (!used) return 0;
-    off += used;
+  while (find_headers_step(h3, &off, &f, r)) {
   }
+  if (f.type != QUIC_H3_FRAME_HEADERS) return 0;
   *fs  = quic_span_of(f.payload, (usz)f.payload_len);
   *end = off;
   return 1;
@@ -56,7 +82,7 @@ int wired_h3reqdrive_request_sections(
   quic_span         h3;
   if (!quic_frame_get_stream(stream_data.p, stream_data.n, &f)) return 0;
   h3 = quic_span_of(f.data, (usz)f.length);
-  if (!find_headers(h3, fs, &end)) return 0;
+  if (!find_headers(h3, fs, &end, r)) return 0;
   return find_body(h3, end, r);
 }
 
@@ -114,11 +140,19 @@ static int trailer_headers_at(quic_span h3, usz off, quic_span* trailer_fs) {
 
 int wired_h3reqdrive_request_trailer(
     quic_span stream_data, quic_span* trailer_fs) {
-  quic_stream_frame f;
-  quic_span         h3, fs;
-  usz               end = 0;
+  quic_stream_frame    f;
+  quic_span            h3, fs;
+  usz                  end     = 0;
+  wired_h3reqdrive_req discard = {0}; /* trailer lookup runs after the
+                                       * leading HEADERS was already
+                                       * accepted once by the caller's own
+                                       * wired_h3reqdrive_request_sections
+                                       * call -- this walk repeats it only
+                                       * to find the trailer's offset, so
+                                       * find_headers' reject latch has
+                                       * nowhere useful to report to here. */
   if (!quic_frame_get_stream(stream_data.p, stream_data.n, &f)) return 0;
   h3 = quic_span_of(f.data, (usz)f.length);
-  if (!find_headers(h3, &fs, &end)) return 0;
+  if (!find_headers(h3, &fs, &end, &discard)) return 0;
   return trailer_headers_at(h3, body_end_off(h3, end), trailer_fs);
 }
