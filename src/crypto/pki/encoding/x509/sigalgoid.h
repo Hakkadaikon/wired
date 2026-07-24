@@ -5,14 +5,16 @@
 #include "common/platform/sys/syscall.h"
 
 /* RFC 5280 4.1.1.2. The signature-algorithm allowlist: OID -> issuer key
- * kind + digest. Unknown OIDs (md5/sha1/sha224 legacies, RSA-PSS cert
- * signatures) fail the lookup, so they are rejected by construction. */
+ * kind + digest. Unknown OIDs (md5/sha1/sha224WithRSAEncryption legacies,
+ * RSA-PSS cert signatures) fail the lookup, so they are rejected by
+ * construction. */
 
 enum { QUIC_X509_SIG_ECDSA = 1, QUIC_X509_SIG_RSA_PKCS1 = 2 };
 enum {
   QUIC_X509_HASH_SHA256 = 1,
   QUIC_X509_HASH_SHA384 = 2,
-  QUIC_X509_HASH_SHA512 = 3
+  QUIC_X509_HASH_SHA512 = 3,
+  QUIC_X509_HASH_SHA224 = 4
 };
 
 typedef struct {
