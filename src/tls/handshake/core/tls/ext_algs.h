@@ -23,4 +23,12 @@ usz quic_tls_ext_supported_groups(u8* buf, usz cap);
  * rsa_pss_rsae_sha256 and ed25519. Returns bytes written, or 0 if no room. */
 usz quic_tls_ext_sig_algs(u8* buf, usz cap);
 
+/* RFC 8446 4.4.3 / 4.2.3: does the ClientHello's signature_algorithms
+ * extension (buf, header included, n readable) name `scheme`? Used by the
+ * server to pick the CertificateVerify SignatureScheme it is about to sign
+ * with from what the client actually offered, rather than assuming a fixed
+ * one. Returns 1 if present, 0 if absent, malformed, or scheme is not in the
+ * list. */
+int quic_tls_ext_sig_algs_has(const u8* buf, usz n, u16 scheme);
+
 #endif
