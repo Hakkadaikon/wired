@@ -1,6 +1,8 @@
 #include "app/http3/server/srvrun/srvrun.h"
 
+#include "app/http3/core/h3/errclass.h"
 #include "app/http3/core/h3/frame.h"
+#include "app/http3/core/h3/grease.h"
 #include "app/http3/core/h3conn/request.h"
 #include "app/http3/core/h3conn/response.h"
 #include "app/http3/request/h3reqdrive/request_drive.h"
@@ -285,6 +287,35 @@ static void test_srvrun_close_drained_dispatch(void) {
   srvrun_test_reset_send_count();
   srvrun_close_drained(&cfg, &st);
   CHECK(srvrun_test_send_count() == 1);
+}
+
+/* RFC 9114 8.1 / 9114-077: srvrun_close_grease_id (called by
+ * srvrun_close_drained ahead of every H3_NO_ERROR close) either declines to
+ * grease (0, a failed RNG read or the coin flip landing on "don't") or
+ * returns a value quic_h3_is_reserved accepts -- never an arbitrary other
+ * code. Exercises the real getrandom syscall (no mock exists for it in this
+ * SDK, see rng.c), so the assertion is on the invariant, not a specific
+ * value -- same style as srvrun_close_drained_dispatch's count-only check for
+ * a path with no sent-bytes capture. */
+static void test_srvrun_close_grease_id_zero_or_reserved(void) {
+  u64 g = srvrun_close_grease_id();
+  CHECK(g == 0 || quic_h3_is_reserved(g));
+}
+
+/* RFC 9114 8.1 / 9114-077: quic_h3_error_send_value, the function
+ * srvrun_close_drained wires srvrun_close_grease_id's result through, only
+ * ever substitutes for QUIC_H3_NO_ERROR -- any other code passes through
+ * unchanged even when a (nonsensical here, but exercising the guard) grease
+ * id is supplied. */
+static void test_srvrun_close_drained_error_value_wiring(void) {
+  CHECK(quic_h3_error_send_value(QUIC_H3_NO_ERROR, 0) == QUIC_H3_NO_ERROR);
+  CHECK(
+      quic_h3_error_send_value(QUIC_H3_NO_ERROR, quic_h3_grease_value(5)) ==
+      quic_h3_grease_value(5));
+  CHECK(
+      quic_h3_error_send_value(
+          QUIC_H3_GENERAL_PROTOCOL_ERROR, quic_h3_grease_value(5)) ==
+      QUIC_H3_GENERAL_PROTOCOL_ERROR);
 }
 
 #define SYS_unlinkat 263
@@ -11449,6 +11480,8 @@ void test_srvrun(void) {
   test_srvrun_all_drained_false_when_one_up();
   test_srvrun_close_drained_seals_h3_no_error();
   test_srvrun_close_drained_dispatch();
+  test_srvrun_close_grease_id_zero_or_reserved();
+  test_srvrun_close_drained_error_value_wiring();
   test_srvrun_send_no_qlog_path_writes_nothing();
   test_srvrun_send_qlog_path_writes_packet_sent();
   test_srvrun_send_empty_pkt_no_qlog_record();
