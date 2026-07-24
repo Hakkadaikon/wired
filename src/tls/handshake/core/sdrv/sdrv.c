@@ -682,6 +682,28 @@ static int sdrv_ch_require_tp_ext(quic_sdrv* s, const u8* ch_msg, usz ch_len) {
   return 0;
 }
 
+/* The ClientHello's TP TLV sequence (extension_data past its 4-byte header),
+ * or an empty span if the extension is absent or its own framing is
+ * malformed -- either case is "nothing to check here", left to the
+ * individual takers elsewhere to degrade gracefully. */
+static quic_span sdrv_tp_seq(const u8* ch_msg, usz ch_len) {
+  quic_span ext, tp = quic_span_of(0, 0);
+  if (!find_client_tp_ext(ch_msg, ch_len, &ext)) return tp;
+  quic_tpext_decode(ext, &tp);
+  return tp;
+}
+
+/* RFC 9000 7.4: a transport parameter id MUST NOT appear more than once. A
+ * repeat is a TRANSPORT_PARAMETER_ERROR (0x08), checked once the extension
+ * itself is confirmed present (sdrv_ch_require_tp_ext) and before any
+ * individual parameter is read out of it. */
+static int sdrv_ch_reject_dup_tp(quic_sdrv* s, const u8* ch_msg, usz ch_len) {
+  quic_span tp = sdrv_tp_seq(ch_msg, ch_len);
+  if (tp.n == 0 || quic_tparam_no_duplicates(tp)) return 1;
+  s->last_error = QUIC_ERR_TRANSPORT_PARAMETER_ERROR;
+  return 0;
+}
+
 /* The extension gate passed and the required fields were taken -- the rest
  * of quic_sdrv_recv_client_hello (split out to keep its CCN low). */
 static int sdrv_ch_after_gate(quic_sdrv* s, const u8* ch_msg, usz ch_len) {
@@ -695,6 +717,7 @@ int quic_sdrv_recv_client_hello(quic_sdrv* s, const u8* ch_msg, usz ch_len) {
   s->last_error = 0;
   s->hrr_needed = 0;
   if (!sdrv_ch_require_tp_ext(s, ch_msg, ch_len)) return 0;
+  if (!sdrv_ch_reject_dup_tp(s, ch_msg, ch_len)) return 0;
   return sdrv_ch_after_gate(s, ch_msg, ch_len);
 }
 

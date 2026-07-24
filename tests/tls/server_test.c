@@ -39,8 +39,7 @@ struct srv_fix {
 
 /* Build a ClientHello with a real x25519 key_share into f. */
 static void make_client_hello(struct srv_fix* f) {
-  static const u8 tp[1] = {0};
-  u8              cli_pub[32];
+  u8 cli_pub[32];
   for (usz i = 0; i < 32; i++) {
     f->cli_priv[i]   = (u8)(i + 1);
     f->srv_random[i] = (u8)(0xa0 + i);
@@ -48,8 +47,7 @@ static void make_client_hello(struct srv_fix* f) {
   quic_x25519_base(cli_pub, f->cli_priv);
   f->ch_len = quic_tls_client_hello(
       &(quic_clienthello_in){
-          f->srv_random, cli_pub, quic_span_of(0, 0),
-          quic_span_of(tp, sizeof(tp))},
+          f->srv_random, cli_pub, quic_span_of(0, 0), quic_span_of(0, 0)},
       &(quic_obuf){f->ch, sizeof(f->ch), 0});
 }
 
