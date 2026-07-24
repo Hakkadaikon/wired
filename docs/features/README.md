@@ -19,7 +19,7 @@ Interop results (the only tier that proves wire compatibility with an
 independent implementation) are tracked separately: see
 **[Interop Results](../interop.md)**.
 
-**Total: 952/1246 requirements tested (76%), 207 indirect, 87 untested.**
+**Total: 964/1244 requirements tested (77%), 210 indirect, 70 untested.**
 
 ## QUIC core
 
@@ -34,10 +34,10 @@ independent implementation) are tracked separately: see
 
 | Spec | Tested | Indirect | Untested |
 |---|---|---|---|
-| [RFC 9221 — Unreliable Datagram Extension](rfc9221.md) | 22/27 | 2 | 3 |
+| [RFC 9221 — Unreliable Datagram Extension](rfc9221.md) | 23/27 | 4 | 0 |
 | [RFC 9287 — Greasing the QUIC Bit](rfc9287.md) | 6/9 | 3 | 0 |
-| [RFC 9368 — Compatible Version Negotiation](rfc9368.md) | 17/21 | 3 | 1 |
-| [RFC 9369 — QUIC Version 2](rfc9369.md) | 18/25 | 4 | 3 |
+| [RFC 9368 — Compatible Version Negotiation](rfc9368.md) | 18/21 | 3 | 0 |
+| [RFC 9369 — QUIC Version 2](rfc9369.md) | 21/25 | 4 | 0 |
 | [RFC 9308 — Applicability (informational)](rfc9308.md) | 2/4 | 1 | 1 |
 | [RFC 9312 — Manageability (informational)](rfc9312.md) | 2/4 | 1 | 1 |
 | [RFC 8899 — DPLPMTUD](rfc8899.md) | 17/31 | 7 | 7 |
@@ -62,15 +62,15 @@ independent implementation) are tracked separately: see
 |---|---|---|---|
 | [RFC 8439 — ChaCha20-Poly1305](rfc8439.md) | 17/21 | 4 | 0 |
 | [RFC 7748 — X25519](rfc7748.md) | 13/15 | 2 | 0 |
-| [RFC 8032 — Ed25519](rfc8032.md) | 14/17 | 0 | 3 |
-| [RFC 6979 — Deterministic ECDSA](rfc6979.md) | 17/21 | 3 | 1 |
+| [RFC 8032 — Ed25519](rfc8032.md) | 16/17 | 0 | 1 |
+| [RFC 6979 — Deterministic ECDSA](rfc6979.md) | 18/21 | 3 | 0 |
 | [RFC 5869 — HKDF](rfc5869.md) | 7/8 | 1 | 0 |
 | [RFC 6090 — EC arithmetic](rfc6090.md) | 20/22 | 2 | 0 |
-| [FIPS 197 — AES](fips197.md) | 7/19 | 4 | 8 |
+| [FIPS 197 — AES](fips197.md) | 8/19 | 4 | 7 |
 | [SP 800-38D — GCM](sp800-38d.md) | 14/25 | 5 | 6 |
 | [FIPS 186-4 — ECDSA / DSS](fips186-4.md) | 16/23 | 3 | 4 |
-| [FIPS 180-4 — SHA-2](fips180-4.md) | 23/25 | 1 | 1 |
-| [FIPS 198-1 — HMAC](fips198-1.md) | 7/8 | 0 | 1 |
+| [FIPS 180-4 — SHA-2](fips180-4.md) | 23/25 | 2 | 0 |
+| [FIPS 198-1 — HMAC](fips198-1.md) | 8/8 | 0 | 0 |
 
 ## HTTP/3 and QPACK
 
@@ -94,8 +94,8 @@ independent implementation) are tracked separately: see
 
 | Spec | Tested | Indirect | Untested |
 |---|---|---|---|
-| [RFC 768 — UDP](rfc768.md) | 3/6 | 1 | 2 |
-| [RFC 791 — IPv4](rfc791.md) | 5/10 | 2 | 3 |
+| [RFC 768 — UDP](rfc768.md) | 4/5 | 1 | 0 |
+| [RFC 791 — IPv4](rfc791.md) | 6/9 | 2 | 1 |
 | [RFC 1071 — Internet checksum](rfc1071.md) | 4/5 | 1 | 0 |
 
 ---

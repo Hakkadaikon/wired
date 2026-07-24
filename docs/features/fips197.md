@@ -13,7 +13,7 @@ Legend:
 - `[~]` — exercised indirectly (evidence line explains how; no dedicated test)
 - `[ ]` — not demonstrated by any test yet
 
-**Coverage: 7/19 tested, 4 indirect, 8 untested.**
+**Coverage: 8/19 tested, 4 indirect, 7 untested.**
 
 ## §3 Notation and Conventions
 
@@ -36,9 +36,10 @@ Legend:
     small constants is built from repeated `XTIME`. No dedicated GF(2^8)
     multiplication unit test exists; it is only exercised through the full
     `CIPHER()` known-answer tests.
-- [ ] F197-003 (§4.3) The implementation shall multiply a word by the fixed
+- [x] F197-003 (§4.3) The implementation shall multiply a word by the fixed
   matrix [{02},{01},{01},{03}] (forward) using GF(2^8) multiplication and
   XOR, as the mathematical basis of MIXCOLUMNS().
+  - test: `tests/crypto/aes_test.c` — `test_aes_mix_columns_matrix`
 
 ## §5.1 CIPHER()
 
