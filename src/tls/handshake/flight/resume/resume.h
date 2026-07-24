@@ -13,6 +13,9 @@
 
 #define QUIC_RESUME_TICKET_MAX 512
 
+/* RFC 1035 3.1: a full domain name is at most 255 octets. */
+#define QUIC_RESUME_SNI_MAX 255
+
 typedef struct {
   u8  ticket[QUIC_RESUME_TICKET_MAX];
   usz ticket_len;
@@ -22,6 +25,10 @@ typedef struct {
   int have_ticket;
   u8  psk[32];  /* RFC 8446 4.6.1: the resumption PSK captured with it */
   int have_psk; /* 1 when psk holds a value */
+  /** RFC 6066 3: the server_name the original session was established
+   * under, or sni_len 0 when none was offered. */
+  u8  sni[QUIC_RESUME_SNI_MAX];
+  usz sni_len;
 } quic_resume;
 
 /* The transport parameters and ticket metadata to remember alongside a
@@ -31,6 +38,10 @@ typedef struct {
   u32       lifetime;  /* ticket_lifetime, seconds */
   u64       max_data;  /* RFC 9000 7.4.1: remembered initial_max_data */
   const u8* psk;       /* 32-byte resumption PSK, or 0 when unknown */
+  /** RFC 6066 3: the server_name this session was established under (a view
+   * kept alive only for the call), or n 0 when none was offered. Longer than
+   * QUIC_RESUME_SNI_MAX is truncated to it. */
+  quic_span sni;
 } quic_resume_store_in;
 
 /* Store a ticket and the transport parameters to remember for 0-RTT.
@@ -61,6 +72,15 @@ int quic_resume_valid(const quic_resume* r, u64 now);
  * permissive than those remembered, so 0-RTT data stays within limits.
  * RFC 9001 4.6 / RFC 9000 7.4.1. */
 int quic_resume_tp_compatible(u64 remembered_max_data, u64 new_max_data);
+
+/* RFC 6066 3: the server_name offered on a resumption attempt is compatible
+ * with the one the session was established under -- an empty new_sni (the
+ * extension omitted this time) is always compatible, otherwise it must equal
+ * the remembered server_name exactly (RFC 6125 6.4.1 ASCII case-insensitive
+ * comparison, matching quic_x509_san_matches's DNS-ID rule). A stored
+ * session with no remembered server_name (r->sni_len 0) is compatible with
+ * any new_sni. Returns 1 compatible, 0 otherwise. */
+int quic_resume_sni_compatible(const quic_resume* r, quic_span new_sni);
 
 /* Returns 1 when 0-RTT may be attempted: ticket valid and transport
  * parameters compatible. RFC 9001 4.6. */
