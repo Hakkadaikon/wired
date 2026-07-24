@@ -27,6 +27,7 @@ static void streams_reset(wired_srvloop* l) {
     l->streams[i].req_len   = 0;
     l->streams[i].req_fin   = 0;
     l->streams[i].req_done  = 0;
+    quic_h3_priority_init(&l->streams[i].priority);
   }
 }
 
@@ -75,6 +76,12 @@ static void wt_uni_streams_reset(wired_srvloop* l) {
   l->wt_uni_released_watermark = 0;
 }
 
+/* RFC 9218 10 / 9218-010: mark every buffered PRIORITY_UPDATE slot free. */
+static void pending_priority_reset(wired_srvloop* l) {
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_PENDING_PRIORITY; i++)
+    l->pending_priority[i].in_use = 0;
+}
+
 int wired_srvloop_init(wired_srvloop* l, const u8* cli_scid, u8 cli_scid_len) {
   if (cli_scid_len > 20) return 0;
   l->h3.settings_sent = 0;
@@ -120,6 +127,7 @@ int wired_srvloop_init(wired_srvloop* l, const u8* cli_scid, u8 cli_scid_len) {
   l->ecn_ect0                  = 0;
   l->ecn_ect1                  = 0;
   l->ecn_ce                    = 0;
+  l->priupdate_violation       = 0;
   quic_pnspaces_recv_init(&l->ack_recv);
   quic_ackpolicy_init(&l->app_ack_policy);
   quic_ackpolicy_init(&l->hs_ack_policy);
@@ -127,6 +135,9 @@ int wired_srvloop_init(wired_srvloop* l, const u8* cli_scid, u8 cli_scid_len) {
   streams_reset(l);
   wt_streams_reset(l);
   wt_uni_streams_reset(l);
+  pending_priority_reset(l);
+  l->ctrl.len    = 0;
+  l->ctrl.parsed = 0;
   return 1;
 }
 
@@ -241,6 +252,31 @@ static int stream_slot_find(const wired_srvloop* l, u64 stream_id) {
   return -1;
 }
 
+/* 1 if pending_priority[] slot i is buffered for stream_id. */
+static int pending_priority_matches(
+    const wired_srvloop* l, usz i, u64 stream_id) {
+  return l->pending_priority[i].in_use &&
+         l->pending_priority[i].stream_id == stream_id;
+}
+
+/* RFC 9218 10 / 9218-010: the pending_priority[] slot index buffered for
+ * stream_id, or -1 if none is waiting. */
+static int pending_priority_find(const wired_srvloop* l, u64 stream_id) {
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_PENDING_PRIORITY; i++)
+    if (pending_priority_matches(l, i, stream_id)) return (int)i;
+  return -1;
+}
+
+/* RFC 9218 10 / 9218-010: a stream just claimed at slot i adopts any priority
+ * that was buffered for its id ahead of it opening, consuming that pending
+ * entry; a stream with nothing buffered keeps its RFC 9218 4.1 default. */
+static void pending_priority_consume(wired_srvloop* l, usz i) {
+  int p = pending_priority_find(l, l->streams[i].stream_id);
+  if (p < 0) return;
+  l->streams[i].priority        = l->pending_priority[p].priority;
+  l->pending_priority[p].in_use = 0;
+}
+
 /* Claim and reset a free slot for stream_id.
  * @return the slot index, or -1 if the table is full. */
 static int stream_slot_claim(wired_srvloop* l, u64 stream_id) {
@@ -251,6 +287,8 @@ static int stream_slot_claim(wired_srvloop* l, u64 stream_id) {
     l->streams[i].req_len   = 0;
     l->streams[i].req_fin   = 0;
     l->streams[i].req_done  = 0;
+    quic_h3_priority_init(&l->streams[i].priority);
+    pending_priority_consume(l, i);
     return (int)i;
   }
   return -1;
@@ -282,6 +320,39 @@ void wired_srvloop_slot_release(wired_srvloop* l, u64 stream_id) {
   l->streams[i].req_len   = 0;
   l->streams[i].req_fin   = 0;
   l->streams[i].req_done  = 0;
+  quic_h3_priority_init(&l->streams[i].priority);
+}
+
+/* The first free pending_priority[] slot, or -1 if the table is full. */
+static int pending_priority_free_slot(const wired_srvloop* l) {
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_PENDING_PRIORITY; i++)
+    if (!l->pending_priority[i].in_use) return (int)i;
+  return -1;
+}
+
+/* RFC 9218 10 / 9218-010: buffer priority for stream_id in a free
+ * pending_priority[] slot, overwriting stream_id's own existing entry if it
+ * already has one (only the newest update for a not-yet-open stream
+ * matters). A full table with no existing entry for stream_id drops the
+ * update, same truncate-on-overflow policy family as this file's other fixed
+ * tables. */
+static void pending_priority_set(
+    wired_srvloop* l, u64 stream_id, const quic_h3_priority* p) {
+  int i = pending_priority_find(l, stream_id);
+  if (i < 0) i = pending_priority_free_slot(l);
+  if (i < 0) return;
+  l->pending_priority[i].in_use    = 1;
+  l->pending_priority[i].stream_id = stream_id;
+  l->pending_priority[i].priority  = *p;
+}
+
+void wired_srvloop_priority_apply(
+    wired_srvloop* l, u64 stream_id, const quic_h3_priority* p) {
+  int i = stream_slot_find(l, stream_id);
+  if (i >= 0)
+    l->streams[i].priority = *p;
+  else
+    pending_priority_set(l, stream_id, p);
 }
 
 /* 1 if wt slot is claimed and reassembling stream_id. */
