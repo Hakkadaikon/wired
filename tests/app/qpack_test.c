@@ -26,6 +26,27 @@ static void test_qpack_integer_roundtrip(void) {
   }
 }
 
+/* RFC 9204 4.1.1 (9204-023): the format must carry integers up to and
+ * including 62 bits (the same ceiling QUIC's own varint uses) -- round-trip
+ * at the boundary itself (2^62 - 1) and one below it, across a couple of
+ * prefix widths so the boundary is not an artifact of one particular
+ * prefix_bits choice. */
+static void test_qpack_integer_62bit_boundary(void) {
+  u64 cases[]         = {((u64)1 << 62) - 2, ((u64)1 << 62) - 1};
+  u8  prefix_widths[] = {5, 7};
+  for (usz p = 0; p < sizeof(prefix_widths) / sizeof(prefix_widths[0]); p++) {
+    quic_qpack_pfx pfx = {prefix_widths[p], 0};
+    for (usz i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+      u8  buf[16];
+      u64 v;
+      usz w =
+          quic_qpack_int_encode(quic_mspan_of(buf, sizeof(buf)), pfx, cases[i]);
+      usz r = quic_qpack_int_decode(quic_span_of(buf, w), pfx.bits, &v);
+      CHECK(w != 0 && r == w && v == cases[i]);
+    }
+  }
+}
+
 /* A raw string literal round-trips; truncation is rejected. */
 static void test_qpack_string(void) {
   const u8  s[] = {'h', 'e', 'l', 'l', 'o'};
@@ -54,6 +75,7 @@ static void test_qpack_static_table(void) {
 void test_qpack(void) {
   test_qpack_integer_vector();
   test_qpack_integer_roundtrip();
+  test_qpack_integer_62bit_boundary();
   test_qpack_string();
   test_qpack_static_table();
 }

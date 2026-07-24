@@ -3,6 +3,7 @@
 #include "app/datagram/dgdeliver/dg_send.h"
 #include "app/http3/core/h3/connect.h"
 #include "app/http3/core/h3/frame.h"
+#include "app/http3/core/h3/method.h"
 #include "app/http3/core/h3conn/establish.h"
 #include "app/http3/core/sfield/sfield.h"
 #include "app/http3/request/h3resp/resp_build.h"
@@ -930,6 +931,57 @@ static void srvrun_send_app_close(
   quic_obuf ob = quic_obuf_of(out, sizeof out);
   if (!srvrun_seal_app_close(c, error_code, reason, &ob)) return;
   srvrun_send(cfg, c, quic_span_of(out, ob.len), "app CONNECTION_CLOSE sent\n");
+}
+
+/* RFC 9110 10.1.1: build a bare "100 Continue" HEADERS frame (no DATA, RFC
+ * 9114 4.1) wrapped in a STREAM frame at absolute offset 0 of the request
+ * stream -- an interim response, so unlike the final response it is not
+ * ACK-tracked by wired_sendsess: losing it costs nothing (RFC 9110 10.1.1
+ * lets a client proceed after its own timeout regardless), matching
+ * srvrun_seal_app_close's own fire-and-forget idiom for single-packet sends.
+ * *h3_len receives the HEADERS frame's own byte length (the request stream's
+ * new base offset the final response must continue from). Returns 1 with
+ * plb->len set, 0 on overflow. */
+static int srvrun_continue_payload(u64 stream_id, quic_obuf* plb, usz* h3_len) {
+  u8                h3[16];
+  quic_obuf         h3b = quic_obuf_of(h3, sizeof h3);
+  quic_stream_frame f;
+  if (!quic_h3resp_prefix(100, 0, 0, &h3b)) return 0;
+  f       = (quic_stream_frame){stream_id, 0, h3b.len, h3, 0};
+  *h3_len = h3b.len;
+  return quic_appdata_stream_frame(&f, plb) != 0;
+}
+
+/* Seal the 100-continue payload above into out as its own 1-RTT packet.
+ * *h3_len receives the HEADERS frame's byte length (see
+ * srvrun_continue_payload). Returns 1 with out->len set, 0 if nothing was
+ * built/sealed. */
+static int srvrun_seal_continue(
+    srvrun_conn* c, u64 stream_id, quic_obuf* out, usz* h3_len) {
+  u8                    pl[64];
+  quic_obuf             plb = quic_obuf_of(pl, sizeof pl);
+  wired_srvloop_send_in sin;
+  if (!srvrun_continue_payload(stream_id, &plb, h3_len)) return 0;
+  sin = (wired_srvloop_send_in){
+      quic_span_of(c->l.cli_scid, c->l.cli_scid_len), c->l.tx_pn++, -1,
+      quic_span_of(pl, plb.len), 0};
+  return wired_srvloop_send_onertt(&c->s, &sin, out);
+}
+
+/* Send RFC 9110 10.1.1's "100 Continue" interim response for stream_id, an
+ * informational HEADERS frame issued before the final response -- srvrun's
+ * one caller (srvrun_start_app_resp) uses the returned byte length as the
+ * final response's wired_sendsess_set_base_offset so it continues the same
+ * QUIC stream right after this frame rather than overlapping it. Returns 0
+ * (no base offset shift) if sealing failed or cfg has no socket to send on. */
+static usz srvrun_send_continue(
+    const srvrun_cfg* cfg, srvrun_conn* c, u64 stream_id) {
+  u8        out[128];
+  quic_obuf ob     = quic_obuf_of(out, sizeof out);
+  usz       h3_len = 0;
+  if (!srvrun_seal_continue(c, stream_id, &ob, &h3_len)) return 0;
+  srvrun_send(cfg, c, quic_span_of(out, ob.len), "100 Continue sent\n");
+  return h3_len;
 }
 
 /* RFC 9000 10.2.3: a transport-level CONNECTION_CLOSE (type 0x1c, is_app=0)
@@ -3016,19 +3068,35 @@ static void srvrun_copy_stream_req(
 }
 
 /* Prime r's streaming state after round 0: stays 0 for an
- * ordinary single-round response. */
+ * ordinary single-round response. base_shift is round 0's own base offset
+ * (0, or a preceding 100-continue HEADERS frame's byte length, RFC 9110
+ * 10.1.1) that round 1's own offset must keep counting up from. */
 static void srvrun_prime_streaming(
-    srvrun_resp* r, const wired_h3reqdrive_req* req, int more, usz round_len) {
+    srvrun_resp*                r,
+    const wired_h3reqdrive_req* req,
+    int                         more,
+    usz                         round_len,
+    u64                         base_shift) {
   r->streaming = more != 0;
   if (!more) return;
-  wired_sendsess_set_base_offset(&r->sess, 0);
-  r->stream_off = round_len;
+  wired_sendsess_set_base_offset(&r->sess, base_shift);
+  r->stream_off = base_shift + round_len;
   srvrun_copy_stream_req(r, req);
 }
 
 /* Arm r's round-0 body over st, hq-interop-raw or H3-framed depending on
- * what this connection negotiated, and prime the streaming
- * state when the handler asked for another round. */
+ * what this connection negotiated, and prime the streaming state when the
+ * handler asked for another round. base_shift shifts round 0's own STREAM
+ * frame offset past a preceding 100-continue interim response (0 for the
+ * ordinary case, see srvrun_send_continue). */
+/* round 0's DATA frame length: the streaming total when the handler asked
+ * for more rounds, else just this (only) round's own body. Split out so
+ * srvrun_arm_round0's own branch count stays at the CCN gate. */
+static u64 srvrun_round0_total_len(int more, u64 total_size, usz body_len) {
+  if (more) return total_size;
+  return body_len;
+}
+
 static void srvrun_arm_round0(
     const srvrun_step_ctx* ctx,
     srvrun_conn*           c,
@@ -3038,13 +3106,15 @@ static void srvrun_arm_round0(
     const quic_obuf*       body,
     const char*            ct,
     int                    more,
-    u64                    total_size) {
-  u64 total_len = more ? total_size : body->len;
+    u64                    total_size,
+    u64                    base_shift) {
+  u64 total_len = srvrun_round0_total_len(more, total_size, body->len);
   if (c->s.sdrv.alpn == QUIC_SALPN_HQ)
     srvrun_arm_hq09_resp(r, st, body);
   else
     srvrun_arm_h3_resp(ctx, c, slot, r, st, body, ct, total_len);
-  srvrun_prime_streaming(r, &c->l.req, more, body->len);
+  wired_sendsess_set_base_offset(&r->sess, base_shift);
+  srvrun_prime_streaming(r, &c->l.req, more, body->len, base_shift);
 }
 
 /* Run the app handler's round 0 into body/ct/more/total_size (out params). */
@@ -3056,6 +3126,18 @@ static void srvrun_call_round0(
     int*                   more,
     u64*                   total_size) {
   srvrun_call_handler(ctx, &c->l.req, 0, body, ct, more, total_size);
+}
+
+/* RFC 9110 10.1.1: send the 100-continue interim ahead of round 0 when the
+ * request asked for it (c->l.req.expect_continue), returning the base offset
+ * shift srvrun_arm_round0 must apply so the final response's STREAM frame
+ * continues the same QUIC stream right after it. 0 (no interim, no shift)
+ * when the request did not ask, or c has no confirmed 1-RTT key yet to seal
+ * one with (srvrun_send_continue's underlying seal simply fails and this
+ * still returns 0 -- the final response then starts at offset 0 as usual). */
+static u64 srvrun_maybe_send_continue(const srvrun_cfg* cfg, srvrun_conn* c) {
+  if (!c->l.req.expect_continue) return 0;
+  return srvrun_send_continue(cfg, c, c->l.req_stream_id);
 }
 
 /* Body of srvrun_start_resp for a normal (non-WT) request: run the app
@@ -3070,9 +3152,11 @@ static void srvrun_start_app_resp(
   const char* ct         = 0;
   int         more       = 0;
   u64         total_size = 0;
+  u64         base_shift = srvrun_maybe_send_continue(ctx->cfg, c);
   r->stream_h3_framed    = 0;
   srvrun_call_round0(ctx, c, &body, &ct, &more, &total_size);
-  srvrun_arm_round0(ctx, c, slot, r, st, &body, ct, more, total_size);
+  srvrun_arm_round0(
+      ctx, c, slot, r, st, &body, ct, more, total_size, base_shift);
 }
 
 /* Reject this Extended CONNECT with 429 (a new Extended CONNECT arriving
@@ -3142,6 +3226,33 @@ static void srvrun_dispatch_wt(
   srvrun_dispatch_wt_free_slot(cfg, c, slot, r);
 }
 
+/* RFC 9110 9.1 (9110-017/9110-018): the status this request's method earns
+ * before it ever reaches the application handler -- 0 once it passes both
+ * gates, 501 for a method this server does not even recognize, 405 for one
+ * it recognizes but does not allow through (see method.h's doc for the
+ * allow set). Checked ahead of the WT Extended CONNECT dispatch in
+ * srvrun_start_resp so a malformed/unsupported method never reaches either
+ * path. */
+static u16 srvrun_method_status(const wired_h3reqdrive_req* r) {
+  quic_span method = quic_span_of(r->method, r->method_len);
+  if (!quic_h3_method_is_known(method)) return 501;
+  if (!quic_h3_method_is_allowed(method)) return 405;
+  return 0;
+}
+
+/* Seal the bare status-only response srvrun_method_status asked for into r's
+ * own storage row, reusing srvrun_start_wt_status's low-level prefix+arm
+ * primitive (it is protocol-level response building, not WT-specific despite
+ * the name). */
+static void srvrun_start_method_status(
+    wired_srvrun_env* env,
+    int               slot,
+    srvrun_conn*      c,
+    srvrun_resp*      r,
+    u16               status) {
+  srvrun_start_wt_status(env, slot, c, r, status, 0);
+}
+
 /* Build the decoded request's response into a freshly claimed resp[] slot
  * and arm its session over the whole stream. A request stream that already
  * has an in-flight response is dropped rather than claiming a second slot
@@ -3157,15 +3268,29 @@ static srvrun_resp* srvrun_start_resp_claim(srvrun_conn* c) {
   return srvrun_resp_claim(c, c->l.req_stream_id);
 }
 
-static void srvrun_start_resp(const srvrun_step_ctx* ctx, int slot) {
-  srvrun_conn* c = &ctx->st->conns[slot];
-  srvrun_resp* r = srvrun_start_resp_claim(c);
-  if (!r) return;
+/* Route a claimed slot to WT dispatch, a method-status response (501/405),
+ * or the application handler -- split out of srvrun_start_resp so its own
+ * `!r` guard stays a single branch at the CCN gate. */
+static void srvrun_dispatch_resp(
+    const srvrun_step_ctx* ctx, srvrun_conn* c, int slot, srvrun_resp* r) {
+  u16 method_status;
   if (srvrun_is_wt_connect(&c->l.req)) {
     srvrun_dispatch_wt(ctx->cfg, c, slot, r);
     return;
   }
+  method_status = srvrun_method_status(&c->l.req);
+  if (method_status) {
+    srvrun_start_method_status(ctx->cfg->env, slot, c, r, method_status);
+    return;
+  }
   srvrun_start_app_resp(ctx, c, slot, r);
+}
+
+static void srvrun_start_resp(const srvrun_step_ctx* ctx, int slot) {
+  srvrun_conn* c = &ctx->st->conns[slot];
+  srvrun_resp* r = srvrun_start_resp_claim(c);
+  if (!r) return;
+  srvrun_dispatch_resp(ctx, c, slot, r);
 }
 
 /* draft-ietf-webtrans-http3 4 / RFC 9114 4.1: a normal response ends its
@@ -4923,6 +5048,18 @@ static void srvrun_rx_init(wired_srvrun_env* env, quic_mmsg_buf* bufs) {
     bufs[i].buf = quic_mspan_of(env->rxstorage[i], sizeof env->rxstorage[i]);
 }
 
+/* RFC 9114 5.2: once the drain grace period ends, any connection still up
+ * (the peer never finished on its own) is closed by the server with an
+ * application-level CONNECTION_CLOSE carrying H3_NO_ERROR -- the graceful
+ * shutdown's own completion, distinct from GOAWAY (which merely announces
+ * the intent to stop accepting new requests on it). */
+static void srvrun_close_drained(const srvrun_cfg* cfg, srvrun_state* st) {
+  for (usz i = 0; i < QUIC_CONNTABLE_CAP; i++)
+    if (st->conns[i].up)
+      srvrun_send_app_close(
+          cfg, &st->conns[i], QUIC_H3_NO_ERROR, quic_span_of(0, 0));
+}
+
 /* Receive datagrams until told to stop: normal service while no shutdown has
  * been requested; once requested, send GOAWAY to every live connection once
  * and drain for a bounded grace period (RFC 9114 5.2) before returning. */
@@ -4936,6 +5073,7 @@ static void srvrun_loop(const srvrun_cfg* cfg) {
     srvrun_step(cfg, &st, bufs, SRVRUN_RX_BATCH);
   srvrun_goaway_all(cfg, &st);
   while (!srvrun_drain_tick(cfg, &st, bufs, tick)) tick++;
+  srvrun_close_drained(cfg, &st);
 }
 
 /* Arm SIGHUP only when a cert path was given (cfg.cert_path unset means

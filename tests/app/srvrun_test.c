@@ -48,10 +48,18 @@ static srvrun_conn* sr_test_conns(void) {
 static void sr_make_confirmed_conn(
     srvrun_conn* c, struct lp_fix* f, quic_obuf* ob) {
   lp_confirm(f, ob);
-  *c    = (srvrun_conn){0};
-  c->s  = f->s;
-  c->l  = f->l;
-  c->up = 1;
+  *c   = (srvrun_conn){0};
+  c->s = f->s;
+  c->l = f->l;
+  /* f->l.req is never written by lp_confirm's handshake-only flow (no
+   * request has been decoded yet), so it carries struct lp_fix f's
+   * uninitialized stack contents -- production code never reads req before
+   * wired_h3reqdrive_recv_get has zero-initialized it (request_drive.c), but
+   * this fixture hands req straight to srvrun_start_resp, so it must be
+   * zeroed here explicitly before any test's own sr_set_req/direct field
+   * writes populate the parts it cares about. */
+  c->l.req = (wired_h3reqdrive_req){0};
+  c->up    = 1;
   quic_cc_init(&c->cc);
   quic_rtt_init(&c->rtt);
   /* RFC 9000 18.2/19.9: this test drives srvrun_conn directly (not through
@@ -214,6 +222,56 @@ static void test_srvrun_all_drained_false_when_one_up(void) {
   conns[3].up          = 1;
   st                   = (srvrun_state){table, conns};
   CHECK(srvrun_all_drained(&st) == 0);
+}
+
+/* RFC 9114 5.2 (9114-040): srvrun_close_drained seals an application-level
+ * CONNECTION_CLOSE carrying H3_NO_ERROR for a connection still up -- the
+ * graceful shutdown's own completion signal, distinct from GOAWAY. Checked
+ * via the underlying seal primitive (mirrors
+ * test_srvrun_seal_app_close_is_application_level), since srvrun_send itself
+ * only exposes a count, not the sealed bytes, without a real socket. */
+static void test_srvrun_close_drained_seals_h3_no_error(void) {
+  struct lp_fix         f;
+  srvrun_conn           c;
+  quic_obuf             ob;
+  u8                    obuf[1024];
+  u8                    pkt[256];
+  quic_obuf             pktb = quic_obuf_of(pkt, sizeof pkt);
+  const u8*             pl;
+  usz                   pll;
+  quic_conn_close_frame ccf;
+  usz                   rn;
+  c  = (srvrun_conn){0};
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  CHECK(
+      srvrun_seal_app_close(&c, QUIC_H3_NO_ERROR, quic_span_of(0, 0), &pktb) ==
+      1);
+  CHECK(client_open_onertt(&f, pktb.p, pktb.len, &pl, &pll) == 1);
+  rn = quic_frame_get_conn_close(pl, pll, &ccf);
+  CHECK(rn != 0 && rn == pll);
+  CHECK(ccf.is_app == 1);
+  CHECK(ccf.error_code == QUIC_H3_NO_ERROR);
+}
+
+/* DISPATCH: srvrun_close_drained sends exactly one CONNECTION_CLOSE per slot
+ * still up, and none for a slot that never came up. */
+static void test_srvrun_close_drained_dispatch(void) {
+  struct lp_fix  f;
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_conn*   conns = sr_test_conns();
+  quic_obuf      ob;
+  u8             obuf[1024];
+  srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                    0,  0, 0, 0, 0, 0};
+  srvrun_state st;
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&conns[0], &f, &ob);
+  st = (srvrun_state){table, conns};
+  srvrun_test_reset_send_count();
+  srvrun_close_drained(&cfg, &st);
+  CHECK(srvrun_test_send_count() == 1);
 }
 
 #define SYS_unlinkat 263
@@ -9981,6 +10039,8 @@ void test_srvrun(void) {
   test_srvrun_unconfirmed_owes_nothing();
   test_srvrun_all_drained_true_when_all_down();
   test_srvrun_all_drained_false_when_one_up();
+  test_srvrun_close_drained_seals_h3_no_error();
+  test_srvrun_close_drained_dispatch();
   test_srvrun_send_no_qlog_path_writes_nothing();
   test_srvrun_send_qlog_path_writes_packet_sent();
   test_srvrun_send_empty_pkt_no_qlog_record();
