@@ -111,10 +111,33 @@ static int links_ok(const quic_span* certs, usz n) {
   return 1;
 }
 
-/* The leaf's purpose, extension hygiene, and every adjacent link verify. */
+/* RFC 5280 6.1: certs[i] does not byte-equal any earlier certificate in the
+ * path. */
+static int cert_seen_before(const quic_span* certs, usz i) {
+  for (usz j = 0; j < i; j++)
+    if (quic_x509_dn_equal(certs[i], certs[j])) return 1;
+  return 0;
+}
+
+/* No certificate in the path appears more than once. */
+static int no_duplicate_certs(const quic_span* certs, usz n_certs) {
+  for (usz i = 0; i < n_certs; i++)
+    if (cert_seen_before(certs, i)) return 0;
+  return 1;
+}
+
+/* Every certificate is hygienic: no unknown-critical extension, and it does
+ * not repeat an earlier certificate in the path. */
+static int certs_hygienic(const quic_span* certs, usz n_certs) {
+  if (!no_unknown_critical(certs, n_certs)) return 0;
+  return no_duplicate_certs(certs, n_certs);
+}
+
+/* The leaf's purpose, per-certificate hygiene, and every adjacent link
+ * verify. */
 static int path_ok(const quic_span* certs, usz n_certs) {
   if (!leaf_allows_server_auth(certs[0])) return 0;
-  if (!no_unknown_critical(certs, n_certs)) return 0;
+  if (!certs_hygienic(certs, n_certs)) return 0;
   return links_ok(certs, n_certs);
 }
 

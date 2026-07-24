@@ -103,6 +103,28 @@ static void test_pathlen_zero_sub_ca_fails(void) {
   CHECK(quic_castore_validate_chain(&s, certs, 4) == 0);
 }
 
+/* RFC 5280 6.1: the same certificate must not appear more than once in the
+ * path. [root, root] would otherwise validate: root is self-signed (its
+ * issuer equals its subject) and is a registered anchor, so without a
+ * duplicate check the repeated root would both link to itself and anchor. */
+static void test_duplicate_cert_fails(void) {
+  quic_castore s;
+  quic_span    certs[2] = {
+      PV_SPAN(quic_castore_root_der), PV_SPAN(quic_castore_root_der)};
+  store_with_root(&s);
+  CHECK(quic_castore_validate_chain(&s, certs, 2) == 0);
+}
+
+/* The duplicate appears at the tail of a longer, otherwise-valid path. */
+static void test_duplicate_cert_at_tail_fails(void) {
+  quic_castore s;
+  quic_span    certs[3] = {
+      PV_SPAN(quic_castore_leaf_der), PV_SPAN(quic_castore_root_der),
+      PV_SPAN(quic_castore_root_der)};
+  store_with_root(&s);
+  CHECK(quic_castore_validate_chain(&s, certs, 3) == 0);
+}
+
 void test_pathvalidate(void) {
   test_valid_chain();
   test_lone_root_chain();
@@ -112,4 +134,6 @@ void test_pathvalidate(void) {
   test_non_ca_intermediate_fails();
   test_pathlen_zero_direct_leaf_ok();
   test_pathlen_zero_sub_ca_fails();
+  test_duplicate_cert_fails();
+  test_duplicate_cert_at_tail_fails();
 }

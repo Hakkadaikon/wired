@@ -67,6 +67,13 @@ static const u8 x509t_tbs_no_ext[] = {0x30, 0x0c, X509T_DUMMY6};
 #define X509T_EXT_UNKNOWN_DEFAULT \
   0x30, 0x07, 0x06, 0x03, 0x55, 0x1d, 0x63, 0x04, 0x00
 
+/* id-ce-certificatePolicies = 2.5.29.32, critical TRUE. This SDK has no
+ * logic to interpret policy OIDs (RFC 5280 4.2.1.4), so a critical instance
+ * must be rejected the same way any unrecognized critical extension is
+ * (4.2.1.4 "unable to interpret ... MUST reject"). */
+#define X509T_EXT_CERT_POLICIES_CRIT \
+  0x30, 0x0a, 0x06, 0x03, 0x55, 0x1d, 0x20, 0x01, 0x01, 0xff, 0x04, 0x00
+
 /* tbs = dummy6 ++ [3] { SEQUENCE { one Extension } }. */
 static const u8 x509t_tbs_bc_crit[] = {0x30, 0x1c, X509T_DUMMY6,     0xa3, 0x0e,
                                        0x30, 0x0c, X509T_EXT_BC_CRIT};
@@ -83,6 +90,10 @@ static const u8 x509t_tbs_unknown_default[] = {
     0x0b, 0x30, 0x09,         X509T_EXT_UNKNOWN_DEFAULT};
 
 /* tbs = dummy6 ++ [3] { SEQUENCE { known-critical, unknown-critical } }. */
+static const u8 x509t_tbs_cert_policies_crit[] = {
+    0x30, 0x1c, X509T_DUMMY6, 0xa3,
+    0x0e, 0x30, 0x0c,         X509T_EXT_CERT_POLICIES_CRIT};
+
 static const u8 x509t_tbs_mixed[] = {
     0x30,
     0x28,
@@ -131,6 +142,17 @@ static void test_unknown_critical_default_false(void) {
           x509t_tbs_unknown_default, sizeof(x509t_tbs_unknown_default))) == 0);
 }
 
+/* RFC 5280 4.2.1.4: a critical certificate policies extension cannot be
+ * interpreted by this SDK (no policyOID semantics), so it is rejected via
+ * the same unknown-critical path as any other unrecognized critical
+ * extension. */
+static void test_critical_certificate_policies_rejects(void) {
+  CHECK(
+      quic_x509_has_unknown_critical(quic_span_of(
+          x509t_tbs_cert_policies_crit,
+          sizeof(x509t_tbs_cert_policies_crit))) == 1);
+}
+
 /* One known-critical and one unknown-critical extension: rejected because of
  * the second. */
 static void test_unknown_critical_mixed_rejects(void) {
@@ -149,5 +171,6 @@ void test_x509(void) {
   test_unknown_critical_rejects();
   test_unknown_noncritical_ok();
   test_unknown_critical_default_false();
+  test_critical_certificate_policies_rejects();
   test_unknown_critical_mixed_rejects();
 }
