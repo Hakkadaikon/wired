@@ -18,6 +18,16 @@ static void test_ipv4_checksum(void) {
   CHECK(quic_ipv4_check(hdr) == 0);
 }
 
+/* RFC 791 §3.1: IHL counts the header in 32-bit words; the minimum legal
+ * header (no options) is 5 words = 20 bytes, encoded in the low nibble. */
+static void test_ipv4_ihl_min5(void) {
+  u8 hdr[QUIC_IPV4_HDR];
+  quic_ipv4_build(
+      hdr, &(quic_ipv4_head){20, 0x7f000001, 0x7f000002, QUIC_IP_PROTO_UDP});
+  CHECK((hdr[0] & 0x0f) == 5);
+  CHECK((hdr[0] & 0x0f) * 4 == QUIC_IPV4_HDR);
+}
+
 /* A built UDP datagram verifies under its pseudo-header; tamper breaks it. */
 static void test_udp_checksum(void) {
   u8             dg[64];
@@ -30,6 +40,38 @@ static void test_udp_checksum(void) {
   CHECK(quic_udp4_check(quic_span_of(dg, n), addrs) == 1);
   dg[QUIC_UDP_HDR + 1] ^= 0x10;
   CHECK(quic_udp4_check(quic_span_of(dg, n), addrs) == 0);
+}
+
+/* RFC 768: if the computed checksum folds to zero, the field transmitted is
+ * all-ones (0xffff) instead, since an all-zero field means "no checksum". */
+static void test_udp_checksum_zero_result_becomes_all_ones(void) {
+  u8             dg[QUIC_UDP_HDR];
+  quic_ipv4addrs addrs = {0x7f000001, 0x7f000002};
+  /* sport=0, dport=0x01db, no payload: chosen so the pseudo-header + header
+   * sum folds to 0xffff, i.e. the complement (checksum) would be 0x0000. */
+  quic_udp4meta meta = {{0x0000, 0x01db}, addrs};
+  quic_obuf     ob   = quic_obuf_of(dg, sizeof(dg));
+  usz           n    = quic_udp4_build(&ob, &meta, quic_span_of(dg, 0));
+  CHECK(n == QUIC_UDP_HDR);
+  CHECK(dg[6] == 0xff && dg[7] == 0xff);
+  CHECK(quic_udp4_check(quic_span_of(dg, n), addrs) == 1);
+}
+
+/* RFC 768: an all-zero checksum field means the sender generated no
+ * checksum; the receiver must accept the datagram without verifying it. */
+static void test_udp_checksum_zero_field_accepted_unchecked(void) {
+  u8             dg[QUIC_UDP_HDR + 4];
+  const u8       pl[]    = {0xde, 0xad, 0xbe, 0xef};
+  quic_ipv4addrs addrs   = {0x7f000001, 0x7f000002};
+  quic_udpports  ports   = {0x1234, 0x4321};
+  u16            udp_len = QUIC_UDP_HDR + 4;
+  quic_put_be16(dg, ports.sport);
+  quic_put_be16(dg + 2, ports.dport);
+  quic_put_be16(dg + 4, udp_len);
+  dg[6] = 0;
+  dg[7] = 0; /* sender opted out of the checksum */
+  for (usz i = 0; i < 4; i++) dg[QUIC_UDP_HDR + i] = pl[i];
+  CHECK(quic_udp4_check(quic_span_of(dg, udp_len), addrs) == 1);
 }
 
 /* The in-memory link carries datagrams FIFO with no syscalls. */
@@ -73,7 +115,10 @@ static void test_net_datagram_over_link(void) {
 void test_net(void) {
   test_checksum_rfc1071();
   test_ipv4_checksum();
+  test_ipv4_ihl_min5();
   test_udp_checksum();
+  test_udp_checksum_zero_result_becomes_all_ones();
+  test_udp_checksum_zero_field_accepted_unchecked();
   test_memlink_fifo();
   test_net_datagram_over_link();
 }
