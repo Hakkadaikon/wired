@@ -6,10 +6,14 @@
 #include "app/http3/core/h3conn/request.h"
 #include "app/http3/request/h3reqdrive/request_parse.h"
 #include "app/http3/request/h3reqenc/request_headers.h"
+#include "app/qpack/qpack/base.h"
+#include "app/qpack/qpack/error.h"
 #include "app/qpack/qpack/fieldline.h"
+#include "app/qpack/qpack/insertcount.h"
 #include "app/qpack/qpack/literal.h"
 #include "app/qpack/qpack/prefix.h"
 #include "app/qpack/qpack/static_table.h"
+#include "app/qpack/qpackdyn/field_decode.h"
 #include "common/bytes/util/bytes.h"
 
 /* RFC 9114 4.1 / 4.3.1, RFC 9204 4.5 */
@@ -50,26 +54,28 @@ static usz cstr_len(const char* s) {
   return i;
 }
 
-/* Borrow the static entry's name/value into L (both NUL-terminated strings). */
-static void borrow_static(const char* name, const char* value, rline* L) {
-  L->name         = (const u8*)name;
-  L->name_len     = cstr_len(name);
-  L->value        = (const u8*)value;
-  L->value_len    = cstr_len(value);
+/* Borrow a dynamic-table field's name/value view into L (RFC 9204 3.2.4). */
+static void borrow_dynamic(const quic_qpack_field* f, rline* L) {
+  L->name         = f->name.p;
+  L->name_len     = f->name.n;
+  L->value        = f->value.p;
+  L->value_len    = f->value.n;
   L->scratch_used = 0;
 }
 
-/* RFC 9204 4.5.2: an Indexed Field Line -> the static entry's name and value.
- */
-static usz line_indexed(quic_span fs, quic_mspan scr, rline* L) {
-  u64         index     = 0;
-  int         is_static = 0;
-  const char *name = 0, *value = 0;
-  usz         c = quic_qpack_indexed_decode(fs, &index, &is_static);
-  (void)scr;
-  if (!c || !quic_qpack_static_get((usz)index, &name, &value)) return 0;
-  borrow_static(name, value, L);
-  return c;
+/* RFC 9204 4.5.2 / 4.5.3: an Indexed Field Line or Indexed Field Line with
+ * Post-Base Index -> the referenced entry's name and value, dynamic-table
+ * (T=0, or the post-Base form, always dynamic) references resolved against
+ * dyn->table when set; a caller with no dynamic table (dyn->table == 0, e.g.
+ * no encoder stream has been seen yet) simply cannot resolve one, matching
+ * this decoder's prior static-table-only behavior. */
+static usz line_indexed(quic_span fs, const quic_qdyn_src* dyn, rline* L) {
+  quic_qpack_field f;
+  usz              consumed;
+  quic_qdyn_src    src = {dyn->table, dyn->base, fs};
+  if (!quic_qdyn_decode_field(&src, &f, &consumed)) return 0;
+  borrow_dynamic(&f, L);
+  return consumed;
 }
 
 /* RFC 9204 4.5.4: a Literal With Name Reference -> static name, copied value.
@@ -115,9 +121,13 @@ static usz line_litname(quic_span fs, quic_mspan scr, rline* L) {
   return c;
 }
 
-/* RFC 9204 4.5: decode one field line of any of the three forms. */
-static usz decode_line(quic_span fs, quic_mspan scr, rline* L) {
-  usz c = line_indexed(fs, scr, L);
+/* RFC 9204 4.5: decode one field line of any of the four forms this decoder
+ * supports (Indexed/Post-Base Indexed via dyn, Literal With Name Reference
+ * and Literal With Literal Name are static-table/copied-value only -- see
+ * line_namref/line_litname's own docs). */
+static usz decode_line(
+    quic_span fs, quic_mspan scr, const quic_qdyn_src* dyn, rline* L) {
+  usz c = line_indexed(fs, dyn, L);
   if (c) return c;
   c = line_namref(fs, scr, L);
   if (c) return c;
@@ -242,12 +252,17 @@ static void classify_line(const rline* L, wired_h3reqdrive_req* r) {
 
 /* Cursor state shared by the field-line walkers below: the field section and
  * scratch buffer being walked, an offset into the section and how much
- * scratch has been consumed so far. */
+ * scratch has been consumed so far, plus the dynamic-table context (RFC 9204
+ * 4.5.2/4.5.3) Indexed Field Lines resolve dynamic-table references against
+ * -- dyn.table == 0 (no encoder stream seen yet) makes every dynamic
+ * reference unresolvable, matching this decoder's prior static-only
+ * behavior. */
 typedef struct {
-  quic_span  fs;
-  quic_mspan scr;
-  usz        off;
-  usz        used;
+  quic_span     fs;
+  quic_mspan    scr;
+  usz           off;
+  usz           used;
+  quic_qdyn_src dyn;
 } rd_cursor;
 
 /* RFC 9114 10.3, RFC 9110 5.5: neither half of a recovered field line may
@@ -276,10 +291,11 @@ static int line_ok(const rline* L) {
 /* Decode one line at cur->off into r, advancing cur. Returns 1 ok, 0 on a
  * malformed line (decode failure or a forbidden CR/LF/NUL octet). */
 static int step_line(rd_cursor* cur, wired_h3reqdrive_req* r) {
-  rline L;
-  usz   c = decode_line(
-      quic_span_of(cur->fs.p + cur->off, cur->fs.n - cur->off),
-      quic_mspan_of(cur->scr.p + cur->used, cur->scr.n - cur->used), &L);
+  rline     L;
+  quic_span rest = quic_span_of(cur->fs.p + cur->off, cur->fs.n - cur->off);
+  usz       c    = decode_line(
+      rest, quic_mspan_of(cur->scr.p + cur->used, cur->scr.n - cur->used),
+      &cur->dyn, &L);
   if (!c || !line_ok(&L)) return 0;
   classify_line(&L, r);
   cur->off += c;
@@ -295,11 +311,62 @@ static int scan_lines(rd_cursor* cur, wired_h3reqdrive_req* r) {
   return 1;
 }
 
+/* RFC 9204 4.5.1.2 (9204-046): resolve the section prefix's Required Insert
+ * Count and Base, rejecting a Sign=1 prefix whose Base would be negative
+ * (quic_qpack_base_valid). Returns bytes consumed by the prefix with *base
+ * filled, 0 if the section prefix is malformed or names an invalid Base.
+ * dyn is the table this section's dynamic references (if any) resolve
+ * against; 0 (no encoder stream seen yet) still resolves a Base of 0
+ * correctly since ric is 0 in that case (RFC 9204 4.5.1.1's EncodedInsertCount
+ * 0 always decodes to RIC 0). */
+/* The Required Insert Count context a section prefix's EncodedInsertCount
+ * resolves against: dyn's own insertion count, or the empty-table default
+ * (0) when dyn is 0 (no encoder stream seen yet). Split out of prefix_base
+ * so its own branch count stays at the CCN gate. */
+/* RFC 9204 3.2.2: MaxEntries is the dynamic table's capacity divided by 32. */
+#define QPACK_DYN_ENTRY_SIZE_OVERHEAD 32
+
+static quic_qpack_ric_ctx dyn_ric_ctx(const quic_qpack_dyn* dyn) {
+  quic_qpack_ric_ctx ctx = {0, 0};
+  if (!dyn) return ctx;
+  ctx.max_entries   = dyn->capacity / QPACK_DYN_ENTRY_SIZE_OVERHEAD;
+  ctx.total_inserts = dyn->dropped + dyn->count;
+  return ctx;
+}
+
+/* Resolve p's Required Insert Count and validate the Base it implies. Returns
+ * 1 with *base filled, 0 if the EncodedInsertCount is invalid or the Base it
+ * yields would be negative. Split out of prefix_base so its own branch count
+ * stays at the CCN gate. */
+static int prefix_resolve_base(
+    const quic_qpack_prefix* p, const quic_qpack_dyn* dyn, u64* base) {
+  quic_qpack_ric_ctx ctx = dyn_ric_ctx(dyn);
+  u64                ric;
+  if (!quic_qpack_ric_decode(p->required_insert_count, &ctx, &ric)) return 0;
+  if (!quic_qpack_base_valid(ric, p->sign, p->delta_base)) return 0;
+  *base = quic_qpack_base(ric, p->sign, p->delta_base);
+  return 1;
+}
+
+static usz prefix_base(quic_span fs, const quic_qpack_dyn* dyn, u64* base) {
+  quic_qpack_prefix p;
+  usz               off = quic_qpack_prefix_decode(fs.p, fs.n, &p);
+  if (!off) return 0;
+  return prefix_resolve_base(&p, dyn, base) ? off : 0;
+}
+
 /* RFC 9114 4.3.1: walk every field line after the section prefix in any order
- * or count, recovering the request pseudo-headers into r by name. */
-static int decode_lines(quic_span fs, quic_mspan scr, wired_h3reqdrive_req* r) {
-  rd_cursor cur = {fs, scr, 0, 0};
-  cur.off       = quic_qpack_prefix_decode(fs.p, fs.n, &(quic_qpack_prefix){0});
+ * or count, recovering the request pseudo-headers into r by name. dyn is the
+ * connection's dynamic table (0 if none has been observed yet -- every
+ * dynamic-table field-line reference then simply fails to resolve, see
+ * line_indexed's own doc). */
+static int decode_lines(
+    quic_span             fs,
+    quic_mspan            scr,
+    const quic_qpack_dyn* dyn,
+    wired_h3reqdrive_req* r) {
+  rd_cursor cur = {fs, scr, 0, 0, {dyn, 0, fs}};
+  cur.off       = prefix_base(fs, dyn, &cur.dyn.base);
   if (!cur.off) return 0;
   return scan_lines(&cur, r);
 }
@@ -313,14 +380,24 @@ static int path_present_and_empty(const wired_h3reqdrive_req* r) {
 }
 
 /* RFC 9114 4.1, RFC 9204 4.5 */
-int wired_h3reqdrive_recv_get(
-    quic_span stream_data, quic_mspan scratch, wired_h3reqdrive_req* r) {
+int wired_h3reqdrive_recv_get_dyn(
+    quic_span             stream_data,
+    quic_mspan            scratch,
+    const quic_qpack_dyn* dyn,
+    wired_h3reqdrive_req* r) {
   quic_span fs = quic_span_of(0, 0);
   *r           = (wired_h3reqdrive_req){0};
   quic_h3_priority_init(&r->priority);
   if (!wired_h3reqdrive_request_sections(stream_data, &fs, r)) return 0;
-  if (!decode_lines(fs, scratch, r)) return 0;
+  if (!decode_lines(fs, scratch, dyn, r)) return 0;
   return !path_present_and_empty(r);
+}
+
+/* RFC 9114 4.1, RFC 9204 4.5: static-table-only convenience wrapper (no
+ * dynamic table observed / not tracked by this caller). */
+int wired_h3reqdrive_recv_get(
+    quic_span stream_data, quic_mspan scratch, wired_h3reqdrive_req* r) {
+  return wired_h3reqdrive_recv_get_dyn(stream_data, scratch, 0, r);
 }
 
 /* 1 if the decoded line is well-formed AND carries no pseudo-header name
@@ -337,7 +414,8 @@ static int trailer_step_line(rd_cursor* cur) {
   rline L;
   usz   c = decode_line(
       quic_span_of(cur->fs.p + cur->off, cur->fs.n - cur->off),
-      quic_mspan_of(cur->scr.p + cur->used, cur->scr.n - cur->used), &L);
+      quic_mspan_of(cur->scr.p + cur->used, cur->scr.n - cur->used), &cur->dyn,
+      &L);
   if (!c) return 0;
   if (!trailer_line_ok(&L)) return 0;
   cur->off += c;
@@ -368,8 +446,11 @@ int wired_h3reqdrive_trailer_ok(quic_span stream_data, quic_mspan scratch) {
   cur.off = quic_qpack_prefix_decode(
       trailer_fs.p, trailer_fs.n, &(quic_qpack_prefix){0});
   if (!cur.off) return 0;
-  cur.fs   = trailer_fs;
-  cur.scr  = scratch;
-  cur.used = 0;
+  cur.fs        = trailer_fs;
+  cur.scr       = scratch;
+  cur.used      = 0;
+  cur.dyn.table = 0;
+  cur.dyn.base  = 0;
+  cur.dyn.fs    = trailer_fs;
   return trailer_scan_lines(&cur);
 }
