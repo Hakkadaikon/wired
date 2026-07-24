@@ -19,15 +19,15 @@ Interop results (the only tier that proves wire compatibility with an
 independent implementation) are tracked separately: see
 **[Interop Results](../interop.md)**.
 
-**Total: 891/1246 requirements tested (71%), 162 indirect, 193 untested.**
+**Total: 896/1246 requirements tested (72%), 171 indirect, 179 untested.**
 
 ## QUIC core
 
 | Spec | Tested | Indirect | Untested |
 |---|---|---|---|
-| [RFC 9000 — QUIC Transport](rfc9000.md) | 145/190 | 22 | 23 |
-| [RFC 9001 — Using TLS to Secure QUIC](rfc9001.md) | 50/68 | 8 | 10 |
-| [RFC 9002 — Loss Detection and Congestion Control](rfc9002.md) | 51/67 | 8 | 8 |
+| [RFC 9000 — QUIC Transport](rfc9000.md) | 147/190 | 31 | 12 |
+| [RFC 9001 — Using TLS to Secure QUIC](rfc9001.md) | 51/68 | 8 | 9 |
+| [RFC 9002 — Loss Detection and Congestion Control](rfc9002.md) | 53/67 | 8 | 6 |
 | [RFC 8999 — Version-Independent Properties](rfc8999.md) | 12/15 | 3 | 0 |
 
 ## QUIC extensions
