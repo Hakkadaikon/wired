@@ -1,5 +1,6 @@
 #include "tls/handshake/core/tlsdriver/tlsdriver.h"
 
+#include "common/diag/error/codes.h"
 #include "test.h"
 #include "tls/handshake/core/tls/handshake.h"
 #include "tls/handshake/core/tls/x25519.h"
@@ -106,7 +107,29 @@ static void test_tlsdriver_rejects_garbage(void) {
   CHECK(quic_tlsdriver_handshake_secret_ready(&d) == 0);
 }
 
+/* RFC 9000 7.5: CRYPTO data that overflows the reassembly buffer fails
+ * quic_tlsdriver_recv_crypto and records CRYPTO_BUFFER_EXCEEDED, so the
+ * caller can close the connection with that error code. */
+static void test_tlsdriver_crypto_overflow_reports_error_code(void) {
+  u8             priv[32] = {7}, pub[32];
+  quic_tlsdriver d;
+  quic_x25519_base(pub, priv);
+  quic_tlsdriver_init(&d, priv, pub, 1);
+
+  u8 msg[QUIC_REASM_CAP + 8];
+  for (usz i = 0; i < sizeof(msg); i++) msg[i] = 1;
+  u8                         frame[QUIC_REASM_CAP + 64];
+  quic_obuf                  ob  = quic_obuf_of(frame, sizeof(frame));
+  quic_crypto_stream_emit_in ein = {0, 512};
+  CHECK(
+      quic_crypto_stream_emit(quic_span_of(msg, sizeof(msg)), &ein, &ob) == 1);
+
+  CHECK(quic_tlsdriver_recv_crypto(&d, frame, ob.len) == 0);
+  CHECK(quic_tlsdriver_last_error(&d) == QUIC_EC_CRYPTO_BUFFER_EXCEEDED);
+}
+
 void test_tlsdriver(void) {
   test_tlsdriver_real_ecdhe_agree();
   test_tlsdriver_rejects_garbage();
+  test_tlsdriver_crypto_overflow_reports_error_code();
 }
