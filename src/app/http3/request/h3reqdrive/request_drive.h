@@ -75,6 +75,18 @@ typedef struct {
    * does not fit is dropped (treated as absent). */
   u8  wt_avail[256];
   usz wt_avail_len; /**< wt-available-protocols length in octets, 0 if absent */
+  /** RFC 9114 4.2.1: multiple `cookie` field lines, reassembled with the
+   * "; " delimiter into a single value (as if the peer had sent one
+   * HTTP/1.1-style Cookie header) before the application ever sees it. A
+   * reassembled value that does not fit is truncated to what fits. */
+  u8  cookie[512];
+  usz cookie_len; /**< cookie length in octets, 0 if absent */
+  /** RFC 9110 10.1.1: 1 if a regular `expect` field carried exactly
+   * "100-continue" (case-sensitive; every real sender spells it lowercase,
+   * matching RFC 9114 4.2's field-name-lowercase requirement's spirit), 0
+   * otherwise -- the condition the server's 100 (Continue) interim response
+   * path gates on. */
+  int expect_continue;
 } wired_h3reqdrive_req;
 
 /** RFC 9114 4.1, RFC 9204 4.5: decode a STREAM frame carrying a request:
@@ -89,5 +101,15 @@ typedef struct {
  * @return 1 on success, 0 on a malformed frame or field section. */
 int wired_h3reqdrive_recv_get(
     quic_span stream_data, quic_mspan scratch, wired_h3reqdrive_req* r);
+
+/** RFC 9114 4.3: check that a request stream's trailer section (if any)
+ * carries no pseudo-header field -- a pseudo-header is only valid in the
+ * leading field section. Vacuously ok when there is no trailer.
+ * @param stream_data the STREAM frame payload carrying the request
+ * @param scratch caller-supplied scratch backing the trailer's literal
+ *   values during the walk (discarded once this call returns)
+ * @return 1 if there is no trailer or it is free of pseudo-headers, 0 if the
+ *   trailer is malformed or carries a pseudo-header. */
+int wired_h3reqdrive_trailer_ok(quic_span stream_data, quic_mspan scratch);
 
 #endif

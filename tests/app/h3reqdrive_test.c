@@ -107,6 +107,55 @@ static void put_litname(u8* fs, usz* off, const char* name, const char* value) {
   *off += quic_qpack_literal_name_encode(quic_mspan_of(fs + *off, 64), 0, &f);
 }
 
+/* RFC 9114 4.3.1: an empty :path for an "http"/"https" request is malformed,
+ * even though the same field-line forms decode a non-empty :path fine. */
+static void test_reqdrive_empty_path_rejected(void) {
+  u8                   fs[96], req[256], scratch[128];
+  usz                  off;
+  quic_obuf            req_ob = {req, sizeof req, 0};
+  wired_h3reqdrive_req r;
+  quic_qpack_prefix    pfx = {0, 0, 0};
+  off                      = quic_qpack_prefix_encode(fs, 64, &pfx);
+  off += quic_qpack_indexed_encode(
+      quic_mspan_of(fs + off, 64), 17, 1); /* :method GET */
+  put_litname(fs, &off, ":scheme", "https");
+  put_litname(fs, &off, ":authority", "h");
+  put_litname(fs, &off, ":path", ""); /* empty :path */
+  {
+    quic_h3conn_req_in req_in = {quic_span_of(fs, off), quic_span_of(0, 0)};
+    CHECK(quic_h3conn_send_request(0, &req_in, &req_ob));
+  }
+  CHECK(!wired_h3reqdrive_recv_get(
+      quic_span_of(req, req_ob.len), quic_mspan_of(scratch, sizeof scratch),
+      &r));
+}
+
+/* Regression: a normal non-empty :path still decodes fine (curl_field_section
+ * already exercises this via every other test; this pins the boundary case
+ * of the SHORTEST valid path, one octet, right next to the empty-path
+ * rejection above). */
+static void test_reqdrive_one_char_path_ok(void) {
+  u8                   fs[96], req[256], scratch[128];
+  usz                  off;
+  quic_obuf            req_ob = {req, sizeof req, 0};
+  wired_h3reqdrive_req r;
+  quic_qpack_prefix    pfx = {0, 0, 0};
+  off                      = quic_qpack_prefix_encode(fs, 64, &pfx);
+  off += quic_qpack_indexed_encode(
+      quic_mspan_of(fs + off, 64), 17, 1); /* :method GET */
+  put_litname(fs, &off, ":scheme", "https");
+  put_litname(fs, &off, ":authority", "h");
+  put_litname(fs, &off, ":path", "/");
+  {
+    quic_h3conn_req_in req_in = {quic_span_of(fs, off), quic_span_of(0, 0)};
+    CHECK(quic_h3conn_send_request(0, &req_in, &req_ob));
+  }
+  CHECK(wired_h3reqdrive_recv_get(
+      quic_span_of(req, req_ob.len), quic_mspan_of(scratch, sizeof scratch),
+      &r));
+  CHECK(rd_eq(r.path, r.path_len, "/", 1));
+}
+
 /* RFC 9114 4.3.1 / RFC 9204 4.5: build a curl/quiche-style request field
  * section: pseudo-headers in :method,:authority,:scheme,:path order using a
  * mix of indexed, name-reference and literal-name forms, plus a regular
@@ -284,6 +333,148 @@ static void test_reqdrive_rejects_nul_in_value(void) {
   CHECK(!wired_h3reqdrive_recv_get(
       quic_span_of(req, req_ob.len), quic_mspan_of(scratch, sizeof scratch),
       &r));
+}
+
+/* RFC 9114 4.1: a message carrying a Transfer-Encoding field is malformed --
+ * HTTP/2 and HTTP/3 have no meaning for it (only Content-Length is valid). */
+static void test_reqdrive_rejects_transfer_encoding(void) {
+  u8                   fs[96], req[256], scratch[128];
+  usz                  off;
+  quic_obuf            req_ob = {req, sizeof req, 0};
+  wired_h3reqdrive_req r;
+  quic_qpack_prefix    pfx = {0, 0, 0};
+  off                      = quic_qpack_prefix_encode(fs, sizeof fs, &pfx);
+  off += quic_qpack_indexed_encode(
+      quic_mspan_of(fs + off, sizeof fs - off), 17, 1); /* :method GET */
+  put_litname(fs, &off, "transfer-encoding", "chunked");
+  {
+    quic_h3conn_req_in req_in = {quic_span_of(fs, off), quic_span_of(0, 0)};
+    CHECK(quic_h3conn_send_request(0, &req_in, &req_ob));
+  }
+  CHECK(!wired_h3reqdrive_recv_get(
+      quic_span_of(req, req_ob.len), quic_mspan_of(scratch, sizeof scratch),
+      &r));
+}
+
+/* RFC 9114 4.2: a connection-specific field carried over from HTTP/1.1
+ * (Connection here) makes the request malformed. */
+static void test_reqdrive_rejects_connection_specific(void) {
+  u8                   fs[96], req[256], scratch[128];
+  usz                  off;
+  quic_obuf            req_ob = {req, sizeof req, 0};
+  wired_h3reqdrive_req r;
+  quic_qpack_prefix    pfx = {0, 0, 0};
+  off                      = quic_qpack_prefix_encode(fs, sizeof fs, &pfx);
+  off += quic_qpack_indexed_encode(
+      quic_mspan_of(fs + off, sizeof fs - off), 17, 1); /* :method GET */
+  put_litname(fs, &off, "connection", "keep-alive");
+  {
+    quic_h3conn_req_in req_in = {quic_span_of(fs, off), quic_span_of(0, 0)};
+    CHECK(quic_h3conn_send_request(0, &req_in, &req_ob));
+  }
+  CHECK(!wired_h3reqdrive_recv_get(
+      quic_span_of(req, req_ob.len), quic_mspan_of(scratch, sizeof scratch),
+      &r));
+}
+
+/* RFC 9114 4.2: a TE field carrying a value other than "trailers" is
+ * malformed; "trailers" itself is accepted. */
+static void test_reqdrive_te_value(void) {
+  u8                   fs[96], req[256], scratch[128];
+  usz                  off;
+  quic_obuf            req_ob = {req, sizeof req, 0};
+  wired_h3reqdrive_req r;
+  quic_qpack_prefix    pfx = {0, 0, 0};
+  off                      = quic_qpack_prefix_encode(fs, sizeof fs, &pfx);
+  off += quic_qpack_indexed_encode(
+      quic_mspan_of(fs + off, sizeof fs - off), 17, 1); /* :method GET */
+  put_litname(fs, &off, "te", "gzip");
+  {
+    quic_h3conn_req_in req_in = {quic_span_of(fs, off), quic_span_of(0, 0)};
+    CHECK(quic_h3conn_send_request(0, &req_in, &req_ob));
+  }
+  CHECK(!wired_h3reqdrive_recv_get(
+      quic_span_of(req, req_ob.len), quic_mspan_of(scratch, sizeof scratch),
+      &r));
+  {
+    u8        fs2[96], req2[256];
+    usz       off2 = quic_qpack_prefix_encode(fs2, sizeof fs2, &pfx);
+    quic_obuf ob2  = {req2, sizeof req2, 0};
+    off2 += quic_qpack_indexed_encode(
+        quic_mspan_of(fs2 + off2, sizeof fs2 - off2), 17, 1); /* :method GET */
+    put_litname(fs2, &off2, "te", "trailers");
+    {
+      quic_h3conn_req_in req_in = {quic_span_of(fs2, off2), quic_span_of(0, 0)};
+      CHECK(quic_h3conn_send_request(0, &req_in, &ob2));
+    }
+    CHECK(wired_h3reqdrive_recv_get(
+        quic_span_of(req2, ob2.len), quic_mspan_of(scratch, sizeof scratch),
+        &r));
+  }
+}
+
+/* RFC 9114 4.2.1: a single `cookie` field line lands on r.cookie verbatim. */
+static void test_reqdrive_single_cookie(void) {
+  u8                   fs[96], req[256], scratch[128];
+  usz                  off;
+  quic_obuf            req_ob = {req, sizeof req, 0};
+  wired_h3reqdrive_req r;
+  quic_qpack_prefix    pfx = {0, 0, 0};
+  off                      = quic_qpack_prefix_encode(fs, sizeof fs, &pfx);
+  off += quic_qpack_indexed_encode(
+      quic_mspan_of(fs + off, sizeof fs - off), 17, 1); /* :method GET */
+  put_litname(fs, &off, "cookie", "a=1");
+  {
+    quic_h3conn_req_in req_in = {quic_span_of(fs, off), quic_span_of(0, 0)};
+    CHECK(quic_h3conn_send_request(0, &req_in, &req_ob));
+  }
+  CHECK(wired_h3reqdrive_recv_get(
+      quic_span_of(req, req_ob.len), quic_mspan_of(scratch, sizeof scratch),
+      &r));
+  CHECK(rd_eq(r.cookie, r.cookie_len, "a=1", 3));
+}
+
+/* RFC 9114 4.2.1: multiple `cookie` field lines in a decompressed field
+ * section are reassembled with the "; " delimiter into one value, as if the
+ * peer had sent a single HTTP/1.1-style Cookie header. */
+static void test_reqdrive_multi_cookie_joined(void) {
+  u8                   fs[128], req[256], scratch[128];
+  usz                  off;
+  quic_obuf            req_ob = {req, sizeof req, 0};
+  wired_h3reqdrive_req r;
+  quic_qpack_prefix    pfx = {0, 0, 0};
+  off                      = quic_qpack_prefix_encode(fs, sizeof fs, &pfx);
+  off += quic_qpack_indexed_encode(
+      quic_mspan_of(fs + off, sizeof fs - off), 17, 1); /* :method GET */
+  put_litname(fs, &off, "cookie", "a=1");
+  put_litname(fs, &off, "cookie", "b=2");
+  put_litname(fs, &off, "cookie", "c=3");
+  {
+    quic_h3conn_req_in req_in = {quic_span_of(fs, off), quic_span_of(0, 0)};
+    CHECK(quic_h3conn_send_request(0, &req_in, &req_ob));
+  }
+  CHECK(wired_h3reqdrive_recv_get(
+      quic_span_of(req, req_ob.len), quic_mspan_of(scratch, sizeof scratch),
+      &r));
+  CHECK(rd_eq(r.cookie, r.cookie_len, "a=1; b=2; c=3", 13));
+}
+
+/* RFC 9114 4.2.1: a request without any cookie field leaves r.cookie_len 0
+ * (absent, not an empty joined string). */
+static void test_reqdrive_no_cookie(void) {
+  u8                   fs[64], req[256], scratch[128];
+  usz                  fs_len = curl_field_section(fs);
+  quic_obuf            req_ob = {req, sizeof req, 0};
+  wired_h3reqdrive_req r;
+
+  {
+    quic_h3conn_req_in req_in = {quic_span_of(fs, fs_len), quic_span_of(0, 0)};
+    CHECK(quic_h3conn_send_request(0, &req_in, &req_ob));
+  }
+  CHECK(wired_h3reqdrive_recv_get(
+      quic_span_of(req, req_ob.len), quic_mspan_of(scratch, sizeof scratch),
+      &r));
+  CHECK(r.cookie_len == 0);
 }
 
 /* RFC 9114 4.1 / RFC 9204 4.5: a curl-style GET (reordered pseudo-headers,
@@ -510,6 +701,71 @@ static void test_reqdrive_response_status(void) {
 /* RFC 9204 4.5.2: a request value carried as a dynamic-table reference
  * round-trips: insert :authority into the dynamic table, encode the indexed
  * dynamic line, then decode it back to the same (name, value). */
+/* Build a trailer field section (QPACK prefix + one literal-name field line
+ * name/value) into fs, returning its length. */
+static usz trailer_field_section(u8* fs, const char* name, const char* value) {
+  quic_qpack_prefix pfx = {0, 0, 0};
+  usz               off = quic_qpack_prefix_encode(fs, 64, &pfx);
+  put_litname(fs, &off, name, value);
+  return off;
+}
+
+/* Build a complete request STREAM frame: leading HEADERS (curl_field_section)
+ * + one DATA frame ("hi") + a trailer HEADERS frame carrying one (name,value)
+ * field line, into req. Returns the STREAM frame's total length. */
+static usz build_request_with_trailer(
+    u8* req, usz cap, const char* trailer_name, const char* trailer_value) {
+  u8        fs[64], tfs[64], h3[256];
+  usz       fs_len  = curl_field_section(fs);
+  usz       tfs_len = trailer_field_section(tfs, trailer_name, trailer_value);
+  usz       h3_len = 0, req_len = 0;
+  const u8  body[] = {'h', 'i'};
+  quic_obuf hob    = {h3, sizeof h3, 0};
+  h3_len =
+      quic_h3_frame_put(&hob, QUIC_H3_FRAME_HEADERS, quic_span_of(fs, fs_len));
+  hob = (quic_obuf){h3 + h3_len, sizeof(h3) - h3_len, 0};
+  h3_len += quic_h3_frame_put(
+      &hob, QUIC_H3_FRAME_DATA, quic_span_of(body, sizeof body));
+  hob = (quic_obuf){h3 + h3_len, sizeof(h3) - h3_len, 0};
+  h3_len += quic_h3_frame_put(
+      &hob, QUIC_H3_FRAME_HEADERS, quic_span_of(tfs, tfs_len));
+  CHECK(appdata_frame_flat(0, 0, h3, h3_len, 1, req, cap, &req_len));
+  return req_len;
+}
+
+/* RFC 9114 4.3: a pseudo-header field in the trailer section is malformed,
+ * even though the exact same name is valid in the leading field section. */
+static void test_reqdrive_trailer_pseudoheader_rejected(void) {
+  u8  req[256], scratch[128];
+  usz req_len = build_request_with_trailer(req, sizeof req, ":status", "200");
+  CHECK(!wired_h3reqdrive_trailer_ok(
+      quic_span_of(req, req_len), quic_mspan_of(scratch, sizeof scratch)));
+}
+
+/* A trailer section with only regular fields is accepted. */
+static void test_reqdrive_trailer_regular_ok(void) {
+  u8  req[256], scratch[128];
+  usz req_len =
+      build_request_with_trailer(req, sizeof req, "x-checksum", "abc123");
+  CHECK(wired_h3reqdrive_trailer_ok(
+      quic_span_of(req, req_len), quic_mspan_of(scratch, sizeof scratch)));
+}
+
+/* A request with no trailer section at all is vacuously ok. */
+static void test_reqdrive_no_trailer_ok(void) {
+  u8                   fs[64], req[256], scratch[128];
+  usz                  fs_len = curl_field_section(fs), req_len = 0;
+  wired_h3reqdrive_req r;
+  quic_obuf            req_ob = {req, sizeof req, 0};
+  quic_h3conn_req_in   req_in = {quic_span_of(fs, fs_len), quic_span_of(0, 0)};
+  CHECK(quic_h3conn_send_request(0, &req_in, &req_ob));
+  req_len = req_ob.len;
+  CHECK(wired_h3reqdrive_recv_get(
+      quic_span_of(req, req_len), quic_mspan_of(scratch, sizeof scratch), &r));
+  CHECK(wired_h3reqdrive_trailer_ok(
+      quic_span_of(req, req_len), quic_mspan_of(scratch, sizeof scratch)));
+}
+
 static void test_reqdrive_dynamic_table(void) {
   quic_qpack_dyn   t;
   u8               fs[8];
@@ -549,8 +805,19 @@ void test_h3reqdrive(void) {
   test_reqdrive_two_greases();
   test_reqdrive_grease_only();
   test_reqdrive_onertt();
+  test_reqdrive_empty_path_rejected();
+  test_reqdrive_one_char_path_ok();
+  test_reqdrive_trailer_pseudoheader_rejected();
+  test_reqdrive_trailer_regular_ok();
+  test_reqdrive_no_trailer_ok();
   test_reqdrive_response_status();
   test_reqdrive_dynamic_table();
   test_reqdrive_rejects_crlf_in_name();
   test_reqdrive_rejects_nul_in_value();
+  test_reqdrive_rejects_transfer_encoding();
+  test_reqdrive_rejects_connection_specific();
+  test_reqdrive_te_value();
+  test_reqdrive_single_cookie();
+  test_reqdrive_multi_cookie_joined();
+  test_reqdrive_no_cookie();
 }

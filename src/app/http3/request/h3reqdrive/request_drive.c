@@ -167,13 +167,55 @@ static void take_wt_avail(const rline* L, wired_h3reqdrive_req* r) {
   r->wt_avail_len = L->value_len;
 }
 
+/* RFC 9114 4.2.1: reassemble multiple `cookie` field lines into a single
+ * value joined by "; ", as if the peer had sent one HTTP/1.1-style Cookie
+ * header. Isolated from wired_h3reqdrive_req's other field-capture helpers
+ * (see take_origin/take_wt_avail) since it is the only one that must fold
+ * several field lines into one slot instead of taking the latest. */
+static usz cookie_sep_len(const wired_h3reqdrive_req* r) {
+  return r->cookie_len ? 2 : 0;
+}
+
+static void cookie_join(wired_h3reqdrive_req* r, const u8* value, usz vlen) {
+  usz sep = cookie_sep_len(r);
+  usz cap = sizeof r->cookie - r->cookie_len;
+  if (sep + vlen > cap) return;
+  quic_memcpy(r->cookie + r->cookie_len, "; ", sep);
+  quic_memcpy(r->cookie + r->cookie_len + sep, value, vlen);
+  r->cookie_len += sep + vlen;
+}
+
+static void take_cookie(const rline* L, wired_h3reqdrive_req* r) {
+  if (line_name_is(L, "cookie")) cookie_join(r, L->value, L->value_len);
+}
+
+/* RFC 9110 10.1.1: a regular `expect` field carrying exactly "100-continue"
+ * requests a 100 (Continue) interim response before the client sends the
+ * message body. Mirrors line_name_is's own diff-accumulation shape (a single
+ * loop, no per-byte branch) to stay at one branch total. */
+static int value_is_100_continue(const rline* L) {
+  static const u8 want[] = "100-continue";
+  usz             n      = sizeof want - 1;
+  u8              diff   = (u8)(L->value_len != n);
+  for (usz i = 0; i < n && i < L->value_len; i++) diff |= L->value[i] ^ want[i];
+  return diff == 0;
+}
+
+static void take_expect(const rline* L, wired_h3reqdrive_req* r) {
+  if (line_name_is(L, "expect") && value_is_100_continue(L))
+    r->expect_continue = 1;
+}
+
 /* A regular (non-pseudo-header) field: at most priority (RFC 9218 5), origin
- * (WebTransport draft SS3.6) and wt-available-protocols (WebTransport draft
- * SS3.4) are captured; anything else is ignored (RFC 9114 4.3.1). */
+ * (WebTransport draft SS3.6), wt-available-protocols (WebTransport draft
+ * SS3.4), cookie (RFC 9114 4.2.1, reassembled) and expect (RFC 9110 10.1.1)
+ * are captured; anything else is ignored (RFC 9114 4.3.1). */
 static void classify_regular(const rline* L, wired_h3reqdrive_req* r) {
   take_priority(L, r);
   take_origin(L, r);
   take_wt_avail(L, r);
+  take_cookie(L, r);
+  take_expect(L, r);
 }
 
 /* Store one recovered line into r if it is a request pseudo-header; regular
@@ -216,6 +258,21 @@ static int line_bytes_ok(const rline* L) {
          quic_h3_header_bytes_ok(L->value, L->value_len);
 }
 
+/* RFC 9114 4.1 / 4.2: request-smuggling defenses that key off the field
+ * name -- Transfer-Encoding and the HTTP/1.1 connection-specific fields
+ * (Connection, Keep-Alive, Proxy-Connection, Upgrade) are always malformed,
+ * and a TE field's value must be exactly "trailers". */
+static int line_smuggling_ok(const rline* L) {
+  if (quic_h3_header_name_forbidden(L->name, L->name_len)) return 0;
+  if (!line_name_is(L, "te")) return 1;
+  return quic_h3_header_te_ok(L->value, L->value_len);
+}
+
+/* Decode failure or any malformed-line check on the recovered line. */
+static int line_ok(const rline* L) {
+  return line_bytes_ok(L) && line_smuggling_ok(L);
+}
+
 /* Decode one line at cur->off into r, advancing cur. Returns 1 ok, 0 on a
  * malformed line (decode failure or a forbidden CR/LF/NUL octet). */
 static int step_line(rd_cursor* cur, wired_h3reqdrive_req* r) {
@@ -223,7 +280,7 @@ static int step_line(rd_cursor* cur, wired_h3reqdrive_req* r) {
   usz   c = decode_line(
       quic_span_of(cur->fs.p + cur->off, cur->fs.n - cur->off),
       quic_mspan_of(cur->scr.p + cur->used, cur->scr.n - cur->used), &L);
-  if (!c || !line_bytes_ok(&L)) return 0;
+  if (!c || !line_ok(&L)) return 0;
   classify_line(&L, r);
   cur->off += c;
   cur->used += L.scratch_used;
@@ -247,6 +304,14 @@ static int decode_lines(quic_span fs, quic_mspan scr, wired_h3reqdrive_req* r) {
   return scan_lines(&cur, r);
 }
 
+/* RFC 9114 4.3.1: a :path pseudo-header that was present (r->path != 0, so
+ * CONNECT's legitimate omission is unaffected) but empty is malformed --
+ * "*" (OPTIONS' asterisk-form, RFC 9114 4.3.1/9114-027) is one octet and
+ * never trips this. */
+static int path_present_and_empty(const wired_h3reqdrive_req* r) {
+  return r->path != 0 && r->path_len == 0;
+}
+
 /* RFC 9114 4.1, RFC 9204 4.5 */
 int wired_h3reqdrive_recv_get(
     quic_span stream_data, quic_mspan scratch, wired_h3reqdrive_req* r) {
@@ -255,5 +320,56 @@ int wired_h3reqdrive_recv_get(
   quic_h3_priority_init(&r->priority);
   if (!wired_h3reqdrive_request_sections(stream_data, &fs, r)) return 0;
   if (!decode_lines(fs, scratch, r)) return 0;
+  return !path_present_and_empty(r);
+}
+
+/* 1 if the decoded line is well-formed AND carries no pseudo-header name
+ * (RFC 9114 4.3: a trailer section has none at all -- unlike a leading field
+ * section, where only ORDER after a regular field is the violation). Values
+ * are discarded (a trailer's regular fields are unused by this SDK); only
+ * the name classification and scratch bookkeeping matter here. */
+static int trailer_line_ok(const rline* L) {
+  return line_ok(L) &&
+         quic_h3_ph_classify(L->name, L->name_len) == QUIC_H3_PH_NONE;
+}
+
+static int trailer_step_line(rd_cursor* cur) {
+  rline L;
+  usz   c = decode_line(
+      quic_span_of(cur->fs.p + cur->off, cur->fs.n - cur->off),
+      quic_mspan_of(cur->scr.p + cur->used, cur->scr.n - cur->used), &L);
+  if (!c) return 0;
+  if (!trailer_line_ok(&L)) return 0;
+  cur->off += c;
+  cur->used += L.scratch_used;
   return 1;
+}
+
+/* Walk every trailer field line, rejecting the section at the first
+ * pseudo-header or malformed line. */
+static int trailer_scan_lines(rd_cursor* cur) {
+  while (cur->off < cur->fs.n)
+    if (!trailer_step_line(cur)) return 0;
+  return 1;
+}
+
+/* RFC 9114 4.3: a trailer section (if any) must carry no pseudo-header
+ * fields. wired_h3reqdrive_request_trailer reports "no trailer present" as
+ * 0, which this treats as vacuously ok -- most requests have no trailer.
+ * @param stream_data the STREAM frame payload carrying the request
+ * @param scratch caller-supplied scratch backing the trailer's literal
+ *   values during the walk (discarded once this call returns)
+ * @return 1 if there is no trailer, or the trailer has no pseudo-header and
+ *   no malformed line; 0 if the trailer is malformed or carries one. */
+int wired_h3reqdrive_trailer_ok(quic_span stream_data, quic_mspan scratch) {
+  quic_span trailer_fs = quic_span_of(0, 0);
+  rd_cursor cur;
+  if (!wired_h3reqdrive_request_trailer(stream_data, &trailer_fs)) return 1;
+  cur.off = quic_qpack_prefix_decode(
+      trailer_fs.p, trailer_fs.n, &(quic_qpack_prefix){0});
+  if (!cur.off) return 0;
+  cur.fs   = trailer_fs;
+  cur.scr  = scratch;
+  cur.used = 0;
+  return trailer_scan_lines(&cur);
 }
