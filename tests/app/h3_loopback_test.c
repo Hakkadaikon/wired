@@ -985,7 +985,7 @@ static void test_srvboot_refusal_closes_unservable(void) {
   CHECK(wired_srvboot_acc_feed(&a, quic_mspan_of(dg, nd)) == 1);
   CHECK(wired_srvboot_acc_complete(&a) == 1);
   CHECK(sb_accept_acc(&a, &out) == 0); /* unservable key share */
-  nr = wired_srvboot_refusal(&a, quic_span_of(g_scid, 6), ref, sizeof ref);
+  nr = wired_srvboot_refusal(&a, quic_span_of(g_scid, 6), 0, ref, sizeof ref);
   CHECK(nr >= 1200); /* a padded server Initial datagram */
   {
     quic_initial_keys ck, sk;
@@ -1001,6 +1001,85 @@ static void test_srvboot_refusal_closes_unservable(void) {
      * frame type 0, empty reason */
     CHECK(frames.p[0] == 0x1c);
     CHECK(frames.p[1] == 0x41 && frames.p[2] == 0x28);
+    CHECK(frames.p[3] == 0x00 && frames.p[4] == 0x00);
+  }
+}
+
+/* Offset of the ClientHello's 2-byte extensions-block length field: 4-byte
+ * handshake header + 41-byte legacy_version/random/session_id/cipher_suites/
+ * compression prefix (put_prefix in clienthello.c), matching sdrv_test.c's
+ * own SDRV_TEST_EXTS_LEN_OFF -- sb_build_raw_ch's ClientHello has the same
+ * fixed-size prefix and no SNI. */
+#define SDRV_H3_EXTS_LEN_OFF 45
+
+/* Strip the trailing quic_transport_parameters extension (RFC 9001 8.2, type
+ * 0x0039) off a ClientHello built by sb_build_raw_ch: quic_tlsdriver_raw_
+ * client_hello always offers a fixed 1-byte TP payload (tlsdriver.c's own
+ * static tp[1]), and append_exts (clienthello.c) always appends it last, so
+ * its whole TLV (header(4)+1 = 5 bytes) is always the final 5 bytes of ch --
+ * same shape as sdrv_test.c's sdrv_test_strip_tp_ext, ported here since that
+ * helper is file-static to sdrv_test.c. */
+#define SDRV_H3_TP_BODY_LEN 1
+static usz sb_strip_tp_ext(u8* ch, usz ch_len) {
+  usz cut      = 4 + SDRV_H3_TP_BODY_LEN;
+  usz nlen     = ch_len - cut;
+  usz type_off = nlen;
+  u16 exts_len;
+  CHECK(ch[type_off] == 0 && ch[type_off + 1] == 0x39);
+  exts_len                     = (u16)(((usz)ch[SDRV_H3_EXTS_LEN_OFF] << 8 |
+                                        ch[SDRV_H3_EXTS_LEN_OFF + 1]) -
+                                       cut);
+  ch[SDRV_H3_EXTS_LEN_OFF]     = (u8)(exts_len >> 8);
+  ch[SDRV_H3_EXTS_LEN_OFF + 1] = (u8)exts_len;
+  quic_hs_finish(ch, nlen);
+  return nlen;
+}
+
+/* RFC 9001 8.2: a ClientHello missing quic_transport_parameters is rejected
+ * by quic_sdrv_recv_client_hello with the missing_extension CRYPTO_ERROR
+ * (0x016d) recorded in sdrv.last_error -- wired_srvboot_refusal must carry
+ * that exact code into the wire CONNECTION_CLOSE instead of the generic
+ * handshake_failure fallback, so the peer sees the real cause. */
+static void test_srvboot_refusal_reports_missing_tp_ext(void) {
+  quic_client        c;
+  u8                 ch[512], dg[1400], ref[1500];
+  u8                 ini[1500], hs[1500];
+  quic_obuf          iob = {ini, sizeof ini, 0};
+  quic_obuf          hob = {hs, sizeof hs, 0};
+  wired_srvboot_out  out = {&iob, &hob, {0}, 0, 0};
+  wired_srvboot_acc  a;
+  wired_server       s;
+  wired_srvloop      l;
+  wired_srvboot_id   id;
+  u8                 priv[32], pub[32], seed[32], rnd[32];
+  wired_srvboot_conn conn = {&s, &l};
+  usz                n    = sb_build_raw_ch(&c, ch, sizeof ch);
+  usz                nd, nr;
+  n  = sb_strip_tp_ext(ch, n);
+  nd = sb_seal_ch_chunk(dg, sizeof dg, quic_span_of(ch, n), 0, 5);
+  wired_srvboot_acc_reset(&a);
+  CHECK(wired_srvboot_acc_feed(&a, quic_mspan_of(dg, nd)) == 1);
+  CHECK(wired_srvboot_acc_complete(&a) == 1);
+  sb_make_id(&id, priv, pub, seed, rnd);
+  CHECK(wired_srvboot_accept_acc(&conn, &id, &a, &out) == 0);
+  CHECK(quic_sdrv_last_error(&s.sdrv) == 0x016d);
+  nr = wired_srvboot_refusal(
+      &a, quic_span_of(g_scid, 6), quic_sdrv_last_error(&s.sdrv), ref,
+      sizeof ref);
+  CHECK(nr >= 1200);
+  {
+    quic_initial_keys ck, sk;
+    quic_aes128       hp;
+    quic_span         frames;
+    quic_protect_keys k;
+    quic_rx_desc      d = {quic_mspan_of(ref, nr), 1};
+    quic_initpkt_derive(quic_span_of(g_scid, 6), &ck, &sk);
+    quic_aes128_init(&hp, sk.hp);
+    k = (quic_protect_keys){&sk, &hp};
+    CHECK(quic_rx_packet(&k, &d, &frames) == 1);
+    /* CONNECTION_CLOSE (transport): type 1c, code 0x016d (varint 41 6d) */
+    CHECK(frames.p[0] == 0x1c);
+    CHECK(frames.p[1] == 0x41 && frames.p[2] == 0x6d);
     CHECK(frames.p[3] == 0x00 && frames.p[4] == 0x00);
   }
 }
@@ -1226,6 +1305,7 @@ void test_h3_loopback(void) {
   test_srvboot_partial_ack_needs_opened_packet();
   test_srvboot_acc_allows_switched_dcid();
   test_srvboot_refusal_closes_unservable();
+  test_srvboot_refusal_reports_missing_tp_ext();
   test_srvboot_split_flight_datagrams();
   test_srvboot_split_flight_reassembled();
   test_srvboot_split_flight_out_of_order();

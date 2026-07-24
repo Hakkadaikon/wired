@@ -106,6 +106,26 @@ static int ext_id_is(quic_span e, quic_span oid) {
   return quic_der_oid_equal(id, oid);
 }
 
+/* X.690 8.2. BOOLEAN universal tag. */
+#define X509_TAG_BOOLEAN 0x01
+
+/* X.690 11.1. A DER BOOLEAN encoding TRUE (single non-zero octet). */
+static int is_true_boolean(u8 tag, quic_span v) {
+  return tag == X509_TAG_BOOLEAN && v.n == 1 && v.p[0] != 0x00;
+}
+
+/* RFC 5280 4.1.2.9. critical of one Extension: the element right after
+ * extnID when it is a BOOLEAN, else the X.690 DEFAULT FALSE. */
+static int ext_critical(quic_span e) {
+  quic_derseq f;
+  u8          tag;
+  quic_span   id, v;
+  quic_derseq_init(&f, e);
+  if (!quic_derseq_next_tagged(&f, QUIC_DER_OID, &id)) return 0;
+  if (!quic_derseq_next(&f, &tag, &v)) return 0;
+  return is_true_boolean(tag, v);
+}
+
 /* RFC 5280 4.1.2.9. The extnValue OCTET STRING of one Extension (its last
  * element, after extnID and the optional critical BOOLEAN). */
 static int ext_value(quic_span e, quic_span* val) {
@@ -136,4 +156,59 @@ int quic_x509_find_ext(quic_span tbs, quic_span oid, quic_span* val) {
   quic_span ext;
   if (!reach_extensions(tbs, &ext)) return 0;
   return find_in_extensions(ext, oid, val);
+}
+
+/* RFC 5280 4.2. extnIDs this SDK understands the semantics of. Any other
+ * critical extension must reject the certificate (4.2 "MUST reject"). */
+static const u8 oid_bc_[]  = {0x55, 0x1d, 0x13}; /* 2.5.29.19 basicConstraints */
+static const u8 oid_san_[] = {0x55, 0x1d, 0x11}; /* 2.5.29.17 subjectAltName */
+static const u8 oid_ku_[]  = {0x55, 0x1d, 0x0f}; /* 2.5.29.15 keyUsage */
+static const u8 oid_eku_[] = {0x55, 0x1d, 0x25}; /* 2.5.29.37 extKeyUsage */
+
+static const quic_span known_ext_oids[] = {
+    {oid_bc_, sizeof(oid_bc_)},
+    {oid_san_, sizeof(oid_san_)},
+    {oid_ku_, sizeof(oid_ku_)},
+    {oid_eku_, sizeof(oid_eku_)},
+};
+#define KNOWN_EXT_OID_COUNT \
+  (sizeof(known_ext_oids) / sizeof(known_ext_oids[0]))
+
+/* extnID of one Extension. */
+static int ext_id(quic_span e, quic_span* id) {
+  quic_derseq f;
+  quic_derseq_init(&f, e);
+  return quic_derseq_next_tagged(&f, QUIC_DER_OID, id);
+}
+
+/* 1 if id matches one of the known extension OIDs. */
+static int id_is_known(quic_span id) {
+  for (usz i = 0; i < KNOWN_EXT_OID_COUNT; i++)
+    if (quic_der_oid_equal(id, known_ext_oids[i])) return 1;
+  return 0;
+}
+
+/* RFC 5280 4.2. One Extension rejects iff it is critical and unrecognized. */
+static int ext_is_unknown_critical(quic_span e) {
+  quic_span id;
+  if (!ext_id(e, &id)) return 1;
+  if (!ext_critical(e)) return 0;
+  return !id_is_known(id);
+}
+
+/* Scan the extensions SEQUENCE for any unknown-critical Extension. */
+static int scan_unknown_critical(quic_span ext) {
+  quic_derseq exts;
+  u8          tag;
+  quic_span   e;
+  quic_derseq_init(&exts, ext);
+  while (quic_derseq_next(&exts, &tag, &e))
+    if (ext_is_unknown_critical(e)) return 1;
+  return 0;
+}
+
+int quic_x509_has_unknown_critical(quic_span tbs) {
+  quic_span ext;
+  if (!reach_extensions(tbs, &ext)) return 0;
+  return scan_unknown_critical(ext);
 }

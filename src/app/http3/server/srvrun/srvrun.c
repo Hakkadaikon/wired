@@ -730,8 +730,10 @@ static wired_srvboot_id srvrun_slot_id(
  * its handshake timeout. Always reports the boot failed. */
 static int srvrun_refuse(const srvrun_step_ctx* ctx, const srvrun_conn* c) {
   u8  pkt[1500];
-  usz n = wired_srvboot_refusal(
-      &c->boot, quic_span_of(c->scid, ctx->cfg->id->scid_len), pkt, sizeof pkt);
+  u64 err = quic_sdrv_last_error(&c->s.sdrv);
+  usz n   = wired_srvboot_refusal(
+      &c->boot, quic_span_of(c->scid, ctx->cfg->id->scid_len), err, pkt,
+      sizeof pkt);
   WIRED_LOG("srvboot accept failed\n");
   if (n) srvrun_send(ctx->cfg, c, quic_span_of(pkt, n), "boot refused\n");
   return 0;
