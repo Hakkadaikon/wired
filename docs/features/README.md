@@ -19,7 +19,7 @@ Interop results (the only tier that proves wire compatibility with an
 independent implementation) are tracked separately: see
 **[Interop Results](../interop.md)**.
 
-**Total: 987/1230 requirements tested (80%), 228 indirect, 15 untested.**
+**Total: 987/1230 requirements tested (80%), 229 indirect, 14 untested.**
 
 ## QUIC core
 
@@ -62,7 +62,7 @@ independent implementation) are tracked separately: see
 |---|---|---|---|
 | [RFC 8439 — ChaCha20-Poly1305](rfc8439.md) | 17/21 | 4 | 0 |
 | [RFC 7748 — X25519](rfc7748.md) | 13/15 | 2 | 0 |
-| [RFC 8032 — Ed25519](rfc8032.md) | 16/17 | 0 | 1 |
+| [RFC 8032 — Ed25519](rfc8032.md) | 16/17 | 1 | 0 |
 | [RFC 6979 — Deterministic ECDSA](rfc6979.md) | 18/21 | 3 | 0 |
 | [RFC 5869 — HKDF](rfc5869.md) | 7/8 | 1 | 0 |
 | [RFC 6090 — EC arithmetic](rfc6090.md) | 20/22 | 2 | 0 |
