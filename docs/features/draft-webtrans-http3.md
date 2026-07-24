@@ -13,7 +13,7 @@ Legend:
 - `[~]` — exercised indirectly (evidence line explains how; no dedicated test)
 - `[ ]` — not demonstrated by any test yet
 
-**Coverage: 44/68 tested, 3 indirect, 21 untested.**
+**Coverage: 46/68 tested, 10 indirect, 12 untested.**
 
 ## §3.1 Establishing a WebTransport-Capable HTTP/3 Connection
 
@@ -53,13 +53,15 @@ Legend:
 - [x] WTH3-006 (§3.1) The server shall send an empty reset_stream_at
   transport parameter to enable the RESET_STREAM_AT extension.
   - test: `tests/tls/server_tp_test.c` — `test_server_tp_reset_stream_at_empty`
-- [ ] WTH3-007 (§3.1) If the server receives SETTINGS or transport
+- [~] WTH3-007 (§3.1) If the server receives SETTINGS or transport
   parameters that do not have correct values for every required
   WebTransport setting/parameter, then the server shall treat all
   established and newly incoming WebTransport sessions as malformed.
-  - gap: no cross-check exists between the peer's received SETTINGS/
-    transport-parameter values and WebTransport session validity; sessions
-    are established purely from the Extended CONNECT request shape.
+  - test: `tests/app/srvrun_test.c` —
+    `test_srvrun_wt_connect_after_client_settings_establishes`
+  - evidence: `srvrun_wt_tp_ok` rejects a newly incoming CONNECT when the
+    peer never advertised `max_datagram_frame_size`; only newly incoming
+    sessions are gated, not already-established ones.
 - [x] WTH3-008 (§3.1) For draft versions of WebTransport, the server shall
   advertise SETTINGS_WT_ENABLED using the draft-specific codepoint(s) so
   the peer can identify the supported version(s).
@@ -67,13 +69,13 @@ Legend:
     `test_h3settings_build_h3_datagram_and_wt_enabled`
   - evidence: the built SETTINGS carry both the draft-02 (0x2b603742) and
     draft-15 (0x2c7cf000) codepoints in the same frame.
-- [ ] WTH3-009 (§3.1) For draft versions of WebTransport, the server shall
+- [x] WTH3-009 (§3.1) For draft versions of WebTransport, the server shall
   not process any incoming WebTransport requests until the client's
   SETTINGS have been received.
-  - gap: `srvrun_is_wt_connect`'s CONNECT-path check does not gate on
-    whether the client's own SETTINGS frame has already arrived; a CONNECT
-    request is processed whenever its STREAM frame is reassembled,
-    independent of client-SETTINGS receipt order.
+  - test: `tests/app/srvrun_test.c` —
+    `test_srvrun_wt_connect_before_client_settings_rejected`
+  - test: `tests/app/srvrun_test.c` —
+    `test_srvrun_wt_connect_after_client_settings_establishes`
 
 ## §3.2 Creating a New Session
 
@@ -307,12 +309,12 @@ Legend:
 
 ## §4.6 Buffering Incoming Streams and Datagrams
 
-- [ ] WTH3-042 (§4.6) The client shall wait for receipt of the server's
+- [~] WTH3-042 (§4.6) The client shall wait for receipt of the server's
   SETTINGS frame before establishing any WebTransport sessions.
-  - gap: client-side behavior in principle, but the server-side
-    counterpart (WTH3-009, not processing incoming WT requests until the
-    client's own SETTINGS have been received) is also unimplemented,
-    which is the server-observable half of this requirement.
+  - evidence: client-side behavior in principle; the server-observable
+    counterpart is WTH3-009 (server does not process incoming WT requests
+    until the client's own SETTINGS have arrived), now implemented and
+    tested there.
 - [x] WTH3-043 (§4.6) WebTransport endpoints should buffer streams and
   datagrams until they can be associated with an established session.
   - test: `tests/app/wt_session_test.c` —
@@ -414,16 +416,23 @@ Legend:
 
 ## §5.3 Limiting the Number of Streams Within a Session
 
-- [ ] WTH3-056 (§5.3) The WT_MAX_STREAMS capsule shall establish a limit
+- [~] WTH3-056 (§5.3) The WT_MAX_STREAMS capsule shall establish a limit
   on the number of streams within a WebTransport session, with separate
   types for unidirectional and bidirectional streams.
-  - gap: no WT_MAX_STREAMS capsule codec exists; `wtcapsule.h` implements
-    only WT_CLOSE_SESSION and WT_DRAIN_SESSION.
-- [ ] WTH3-057 (§5.3) An endpoint shall not open more streams than
+  - test: `tests/app/wtcapsule_test.c` —
+    `test_wtcapsule_max_streams_bidi_roundtrip`
+  - test: `tests/app/wt_session_test.c` —
+    `test_flow_control_max_streams_bidi_enforced`
+  - gap: `quic_wtcapsule_{encode,decode}_max_streams` and
+    `wired_wt_session_set_max_streams` exist and are tested, but no
+    receive-capsule loop in `srvrun.c` calls them yet.
+- [~] WTH3-057 (§5.3) An endpoint shall not open more streams than
   permitted by the current stream limit set by its peer.
-  - gap: no session-level (as opposed to QUIC-connection-level) stream
-    count limit exists; only the fixed `WIRED_SRVLOOP_MAX_WT_STREAMS`
-    slot-table capacity bounds concurrently reassembling streams.
+  - test: `tests/app/wt_session_test.c` —
+    `test_flow_control_max_streams_bidi_enforced`
+  - gap: `wired_wt_session_stream_open_allowed`/`_note_stream_opened` exist
+    and are tested, but no stream-open call site in `srvrun.c` consults
+    them yet.
 - [ ] WTH3-058 (§5.3) If an endpoint receives an incoming stream for a
   session that would exceed the advertised Maximum Streams value, then
   the endpoint shall close the WebTransport session with a
@@ -431,24 +440,31 @@ Legend:
   - gap: no Maximum-Streams tracking or WT_FLOW_CONTROL_ERROR trigger
     site exists for this case; `QUIC_WTERR_FLOW_CONTROL_ERROR` is defined
     but dormant (see `errmap.h`'s own doc comment).
-- [ ] WTH3-059 (§5.3) The WT_STREAMS_BLOCKED capsule can be sent to
+- [~] WTH3-059 (§5.3) The WT_STREAMS_BLOCKED capsule can be sent to
   indicate that an endpoint was unable to create a stream due to the
   session-level stream limit.
-  - gap: no WT_STREAMS_BLOCKED capsule codec exists.
+  - test: `tests/app/wtcapsule_test.c` —
+    `test_wtcapsule_streams_blocked_roundtrip`
+  - gap: codec exists and is tested; no send-site triggers it yet.
 
 ## §5.4 Data Limits
 
-- [ ] WTH3-060 (§5.4) The WT_MAX_DATA capsule shall establish a limit on
+- [~] WTH3-060 (§5.4) The WT_MAX_DATA capsule shall establish a limit on
   the amount of data that can be sent within a WebTransport session.
-  - gap: no WT_MAX_DATA capsule codec exists.
+  - test: `tests/app/wtcapsule_test.c` — `test_wtcapsule_max_data_roundtrip`
+  - test: `tests/app/wt_session_test.c` — `test_flow_control_max_data_enforced`
+  - gap: codec and session-level tracking exist and are tested, but no
+    receive-capsule loop calls them yet.
 - [ ] WTH3-061 (§5.4) If an endpoint receives Stream Body data in excess
   of the WT_MAX_DATA limit, then the endpoint shall close the
   WebTransport session with a WT_FLOW_CONTROL_ERROR error code.
-  - gap: same root cause as WTH3-060; no session-level data-limit
-    tracking exists.
-- [ ] WTH3-062 (§5.4) The WT_DATA_BLOCKED capsule can be sent to indicate
+  - gap: same root cause as WTH3-060; no receive-side wiring to trigger
+    the close exists yet.
+- [~] WTH3-062 (§5.4) The WT_DATA_BLOCKED capsule can be sent to indicate
   that an endpoint was unable to send data due to a WT_MAX_DATA limit.
-  - gap: no WT_DATA_BLOCKED capsule codec exists.
+  - test: `tests/app/wtcapsule_test.c` —
+    `test_wtcapsule_data_blocked_roundtrip`
+  - gap: codec exists and is tested; no send-site triggers it yet.
 - [x] WTH3-063 (§5.4) Per-stream data limits are provided by QUIC natively
   (WT_MAX_STREAM_DATA and WT_STREAM_DATA_BLOCKED capsules are prohibited
   and must not be used).
@@ -465,15 +481,21 @@ Legend:
   - test: `tests/app/wt_session_test.c` — `test_close_from_established`
   - test: `tests/app/srvrun_test.c` —
     `test_srvrun_connect_stream_reset_closes_wt_session`
-- [ ] WTH3-065 (§6) Upon learning that a session has been terminated, the
+- [x] WTH3-065 (§6) Upon learning that a session has been terminated, the
   endpoint shall reset the send side and abort reading on the receive
   side of all streams associated with the session using the
   WT_SESSION_GONE error code, and shall not send any new datagrams or
   open any new streams.
-  - gap: `wired_wt_session_close` transitions session state but does not
-    itself walk and reset/abort the session's own open streams with
-    WT_SESSION_GONE; `QUIC_WTERR_SESSION_GONE` is defined and round-trip
-    tested but dormant (per `errmap.h`'s own doc comment).
+  - test: `tests/app/srvrun_test.c` —
+    `test_srvrun_connect_stream_reset_resets_owned_wt_bidi_stream`
+  - test: `tests/app/srvrun_test.c` —
+    `test_srvrun_connect_stream_reset_resets_owned_wt_uni_stream`
+  - test: `tests/app/srvrun_test.c` —
+    `test_srvrun_connect_stream_reset_leaves_other_sessions_streams`
+  - evidence: `srvrun_reset_wt_streams_for_session` resets every WT bidi/uni
+    stream the closing session owns (tracked via `wt_session_slot`) with
+    WT_SESSION_GONE when its CONNECT stream closes; datagram send/receive
+    are separately gated on session state (9297-007/008).
 - [x] WTH3-066 (§6) To terminate a session with a detailed error message,
   an application may provide such a message in a WT_CLOSE_SESSION
   (0x2843) capsule carrying a 32-bit Application Error Code and an error
