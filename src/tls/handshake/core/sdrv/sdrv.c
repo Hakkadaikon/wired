@@ -28,6 +28,8 @@
 #include "tls/handshake/core/tls/tpext.h"
 #include "transport/conn/loop/manage/zerortt_policy.h"
 #include "transport/conn/loop/manage/zerortt_seen.h"
+#include "transport/version/version/verinfo.h"
+#include "transport/version/version/version.h"
 
 /* RFC 8446 4 / RFC 9001 4: drive the server handshake flight. */
 
@@ -751,6 +753,32 @@ static int sdrv_ch_reject_dup_tp(quic_sdrv* s, const u8* ch_msg, usz ch_len) {
   return 0;
 }
 
+/* The value bytes of a version_information TP in the ClientHello's TP
+ * sequence, if present. Returns 1 and sets *bytes on a match, 0 if the TP
+ * sequence is empty or carries no such parameter ("absent", not an error --
+ * see sdrv_ch_check_version_information's doc). */
+static int find_version_information(
+    const u8* ch_msg, usz ch_len, quic_span* bytes) {
+  quic_span    tp    = sdrv_tp_seq(ch_msg, ch_len);
+  quic_stp_out out_v = {0, bytes};
+  if (tp.n == 0) return 0;
+  return quic_stp_parse(tp, QUIC_TP_VERSION_INFORMATION, &out_v);
+}
+
+/* RFC 9368 4: an endpoint that receives a version_information transport
+ * parameter it cannot parse MUST close the connection with a
+ * TRANSPORT_PARAMETER_ERROR. Absent is fine (compatible version negotiation
+ * is optional); present-but-malformed value bytes are not. */
+static int sdrv_ch_check_version_information(
+    quic_sdrv* s, const u8* ch_msg, usz ch_len) {
+  quic_span                bytes;
+  quic_version_information vi;
+  if (!find_version_information(ch_msg, ch_len, &bytes)) return 1;
+  if (quic_verinfo_decode(bytes.p, bytes.n, &vi) == bytes.n) return 1;
+  s->last_error = QUIC_ERR_TRANSPORT_PARAMETER_ERROR;
+  return 0;
+}
+
 /* The ClientHello's extensions block as a quic_span (TLV bytes only, no
  * outer length field), or a 0-length span if the ClientHello is malformed --
  * "nothing to check" is left to each guard below to handle on its own terms.
@@ -900,10 +928,15 @@ static int sdrv_ch_after_gate(quic_sdrv* s, const u8* ch_msg, usz ch_len) {
  * so quic_sdrv_recv_client_hello's own CCN stays flat as gates are added. */
 typedef int (*sdrv_ch_gate)(quic_sdrv*, const u8*, usz);
 static const sdrv_ch_gate SDRV_CH_GATES[] = {
-    sdrv_ch_require_tp_ext,    sdrv_ch_reject_dup_tp,
-    sdrv_ch_reject_dup_ext,    sdrv_ch_reject_illegal_ext,
-    sdrv_ch_require_version,   sdrv_ch_require_algs,
-    sdrv_ch_require_psk_modes, sdrv_ch_require_psk_last,
+    sdrv_ch_require_tp_ext,
+    sdrv_ch_reject_dup_tp,
+    sdrv_ch_check_version_information,
+    sdrv_ch_reject_dup_ext,
+    sdrv_ch_reject_illegal_ext,
+    sdrv_ch_require_version,
+    sdrv_ch_require_algs,
+    sdrv_ch_require_psk_modes,
+    sdrv_ch_require_psk_last,
 };
 #define SDRV_CH_GATE_COUNT (sizeof(SDRV_CH_GATES) / sizeof(SDRV_CH_GATES[0]))
 

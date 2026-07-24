@@ -18,6 +18,7 @@
 #include "tls/ext/tlsext/preshared.h"
 #include "tls/ext/tlsext/pskmodes.h"
 #include "tls/ext/tparam/tparam.h"
+#include "tls/ext/tparam/tpblob.h"
 #include "tls/ext/tparam/tpcheck.h"
 #include "tls/handshake/core/tls/binder.h"
 #include "tls/handshake/core/tls/cert.h"
@@ -31,6 +32,8 @@
 #include "tls/handshake/core/tls/tpext.h"
 #include "tls/handshake/core/tls/x25519.h"
 #include "tls/keys/ticket/ticket.h"
+#include "transport/version/version/verinfo.h"
+#include "transport/version/version/version.h"
 
 /* RFC 8446 4 / RFC 9001 4: a client emits a ClientHello, the server driver
  * builds the real server flight, and the client reaches the same ECDHE shared
@@ -759,6 +762,53 @@ static void test_sdrv_recv_client_hello_dup_tp_rejected(void) {
     CHECK(w != 0);
     tp_len += w;
   }
+  sdrv_dgram_test_setup(&s, cli_pub, srv_random);
+  ch_len = sdrv_test_client_hello_tp(
+      ch, sizeof(ch), cli_pub, srv_random, quic_span_of(tpbuf, tp_len));
+  CHECK(ch_len != 0);
+  CHECK(!quic_sdrv_recv_client_hello(&s, ch, ch_len));
+  CHECK(quic_sdrv_last_error(&s) == QUIC_ERR_TRANSPORT_PARAMETER_ERROR);
+}
+
+/* RFC 9368 4: a well-formed version_information transport parameter (RFC
+ * 9368 3 wire format: Chosen Version + Available Versions, each 4 bytes) is
+ * accepted like any other unrecognized-but-valid parameter. */
+static void test_sdrv_recv_client_hello_version_information_ok(void) {
+  u8                       cli_pub[32], srv_random[32];
+  u8                       vibuf[16], tpbuf[32], ch[512];
+  quic_obuf                tob = quic_obuf_of(tpbuf, sizeof(tpbuf));
+  usz                      tp_len, ch_len, vi_len;
+  quic_sdrv                s;
+  quic_version_information vi = {QUIC_VERSION_1, 1, {QUIC_VERSION_1}};
+  vi_len                      = quic_verinfo_encode(vibuf, sizeof(vibuf), &vi);
+  CHECK(vi_len != 0);
+  tp_len = quic_tparam_put_blob(
+      &tob, QUIC_TP_VERSION_INFORMATION, quic_span_of(vibuf, vi_len));
+  CHECK(tp_len != 0);
+  sdrv_dgram_test_setup(&s, cli_pub, srv_random);
+  ch_len = sdrv_test_client_hello_tp(
+      ch, sizeof(ch), cli_pub, srv_random, quic_span_of(tpbuf, tp_len));
+  CHECK(ch_len != 0);
+  CHECK(quic_sdrv_recv_client_hello(&s, ch, ch_len));
+  CHECK(quic_sdrv_last_error(&s) == 0);
+}
+
+/* RFC 9368 4: a version_information transport parameter whose value bytes
+ * fail to parse (here: a length that is not a multiple of 4, so it can never
+ * hold a whole Chosen Version + Available Versions list) MUST close the
+ * connection with a TRANSPORT_PARAMETER_ERROR (0x08), not be silently
+ * ignored like an absent one. */
+static void test_sdrv_recv_client_hello_version_information_malformed_rejected(
+    void) {
+  u8        cli_pub[32], srv_random[32];
+  u8        vibuf[3] = {0, 0, 1};
+  u8        tpbuf[32], ch[512];
+  quic_obuf tob = quic_obuf_of(tpbuf, sizeof(tpbuf));
+  usz       tp_len, ch_len;
+  quic_sdrv s;
+  tp_len = quic_tparam_put_blob(
+      &tob, QUIC_TP_VERSION_INFORMATION, quic_span_of(vibuf, sizeof(vibuf)));
+  CHECK(tp_len != 0);
   sdrv_dgram_test_setup(&s, cli_pub, srv_random);
   ch_len = sdrv_test_client_hello_tp(
       ch, sizeof(ch), cli_pub, srv_random, quic_span_of(tpbuf, tp_len));
@@ -2032,6 +2082,8 @@ void test_sdrv(void) {
   test_sdrv_recv_client_hello_tp_ext_present_ok();
   test_sdrv_recv_client_hello_missing_tp_ext_rejected();
   test_sdrv_recv_client_hello_dup_tp_rejected();
+  test_sdrv_recv_client_hello_version_information_ok();
+  test_sdrv_recv_client_hello_version_information_malformed_rejected();
   test_sdrv_recv_client_hello_no_supported_versions_rejected();
   test_sdrv_recv_client_hello_non_tls13_version_rejected();
   test_sdrv_recv_client_hello_no_sig_algs_rejected();
