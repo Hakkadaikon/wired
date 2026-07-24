@@ -39,8 +39,49 @@ static void test_sigalg_mismatch(void) {
       0);
 }
 
+/* RFC 5758 2. AlgorithmIdentifier VALUE bytes (SEQUENCE header stripped) for
+ * ecdsa-with-SHA256, with the parameters field absent vs. present as NULL.
+ * "MUST accept both NULL and absent parameters as legal and equivalent" --
+ * quic_tbscert_sigalg_oid reads only the first (OID) element of sig_alg, so
+ * it takes the same OID from either encoding without inspecting parameters. */
+static const u8 sao_body_absent[]   = {0x06, 0x08, 0x2a, 0x86, 0x48,
+                                       0xce, 0x3d, 0x04, 0x03, 0x02};
+static const u8 sao_body_withnull[] = {0x06, 0x08, 0x2a, 0x86, 0x48, 0xce,
+                                       0x3d, 0x04, 0x03, 0x02, 0x05, 0x00};
+
+/* Every other quic_tbscert field is unused by quic_tbscert_sigalg_oid. */
+static void sigalg_oid_of(quic_span sig_alg_body, quic_span* oid) {
+  quic_tbscert t = {0};
+  t.sig_alg      = sig_alg_body;
+  CHECK(quic_tbscert_sigalg_oid(&t, oid) == 1);
+}
+
+/* RFC 5758 2. Absent parameters is a legal encoding. */
+static void test_sigalg_params_absent_ok(void) {
+  quic_span oid;
+  sigalg_oid_of(quic_span_of(sao_body_absent, sizeof(sao_body_absent)), &oid);
+  CHECK(
+      quic_der_oid_equal(
+          oid, quic_span_of(
+                   quic_oid_ecdsa_sha256, sizeof(quic_oid_ecdsa_sha256))) == 1);
+}
+
+/* RFC 5758 2. A NULL parameters field is an equivalent legal encoding,
+ * yielding the identical OID. */
+static void test_sigalg_params_null_ok(void) {
+  quic_span oid;
+  sigalg_oid_of(
+      quic_span_of(sao_body_withnull, sizeof(sao_body_withnull)), &oid);
+  CHECK(
+      quic_der_oid_equal(
+          oid, quic_span_of(
+                   quic_oid_ecdsa_sha256, sizeof(quic_oid_ecdsa_sha256))) == 1);
+}
+
 void test_sigalg(void) {
   test_sigalg_oid();
   test_sigalg_matches();
   test_sigalg_mismatch();
+  test_sigalg_params_absent_ok();
+  test_sigalg_params_null_ok();
 }
