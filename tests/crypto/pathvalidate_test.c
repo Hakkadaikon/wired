@@ -1,6 +1,7 @@
 #include "crypto/pki/trust/castore/pathvalidate.h"
 
 #include "castore_golden.h"
+#include "castore_ku_golden.h"
 #include "crypto/pki/trust/castore/castore.h"
 #include "test.h"
 
@@ -125,6 +126,72 @@ static void test_duplicate_cert_at_tail_fails(void) {
   CHECK(quic_castore_validate_chain(&s, certs, 3) == 0);
 }
 
+static void store_with_ku_root(quic_castore* s) {
+  quic_castore_init(s, pv_roots, 4);
+  CHECK(quic_castore_add(s, PV_SPAN(quic_castore_ku_root_der)) == 1);
+}
+
+/* RFC 8410 5: an end-entity id-Ed25519 cert whose keyUsage asserts only
+ * keyAgreement (neither digitalSignature nor nonRepudiation) must be
+ * rejected as a leaf. */
+static void test_ed_leaf_keyusage_rejects(void) {
+  quic_castore s;
+  quic_span    certs[2] = {
+      PV_SPAN(quic_castore_ku_ed_leaf_reject_der),
+      PV_SPAN(quic_castore_ku_root_der)};
+  store_with_ku_root(&s);
+  CHECK(quic_castore_validate_chain(&s, certs, 2) == 0);
+}
+
+/* The same shape with digitalSignature set (and extKeyUsage serverAuth)
+ * validates: the ECDSA root can verify the Ed25519 leaf's ecdsa-with-SHA256
+ * outer signature regardless of the leaf's own SPKI algorithm. */
+static void test_ed_leaf_keyusage_accepts(void) {
+  quic_castore s;
+  quic_span    certs[2] = {
+      PV_SPAN(quic_castore_ku_ed_leaf_ok_der),
+      PV_SPAN(quic_castore_ku_root_der)};
+  store_with_ku_root(&s);
+  CHECK(quic_castore_validate_chain(&s, certs, 2) == 1);
+}
+
+/* RFC 8410 5: an id-X25519 cert whose keyUsage is present without
+ * keyAgreement must be rejected. */
+static void test_x25519_leaf_keyusage_rejects(void) {
+  quic_castore s;
+  quic_span    certs[2] = {
+      PV_SPAN(quic_castore_ku_x25519_leaf_reject_der),
+      PV_SPAN(quic_castore_ku_root_der)};
+  store_with_ku_root(&s);
+  CHECK(quic_castore_validate_chain(&s, certs, 2) == 0);
+}
+
+/* An id-X25519 leaf with keyAgreement set, and no extKeyUsage restriction,
+ * validates. */
+static void test_x25519_leaf_keyusage_accepts(void) {
+  quic_castore s;
+  quic_span    certs[2] = {
+      PV_SPAN(quic_castore_ku_x25519_leaf_ok_der),
+      PV_SPAN(quic_castore_ku_root_der)};
+  store_with_ku_root(&s);
+  CHECK(quic_castore_validate_chain(&s, certs, 2) == 1);
+}
+
+/* RFC 8410 5: an issuer whose SPKI is id-Ed25519 and whose keyUsage is
+ * present but asserts none of the admissible CA bits (digitalSignature,
+ * nonRepudiation, keyCertSign, cRLSign) must be rejected as an issuer. The
+ * rejection fires in parent_may_issue before signature verification (this
+ * SDK's chainverify has no Ed25519 signature support), so any well-formed
+ * leaf span exercises the path. */
+static void test_ed_ca_keyusage_rejects(void) {
+  quic_castore s;
+  quic_span    certs[2] = {
+      PV_SPAN(quic_castore_ku_ed_leaf_ok_der),
+      PV_SPAN(quic_castore_ku_ed_mid_reject_der)};
+  store_with_ku_root(&s);
+  CHECK(quic_castore_validate_chain(&s, certs, 2) == 0);
+}
+
 void test_pathvalidate(void) {
   test_valid_chain();
   test_lone_root_chain();
@@ -136,4 +203,9 @@ void test_pathvalidate(void) {
   test_pathlen_zero_sub_ca_fails();
   test_duplicate_cert_fails();
   test_duplicate_cert_at_tail_fails();
+  test_ed_leaf_keyusage_rejects();
+  test_ed_leaf_keyusage_accepts();
+  test_x25519_leaf_keyusage_rejects();
+  test_x25519_leaf_keyusage_accepts();
+  test_ed_ca_keyusage_rejects();
 }

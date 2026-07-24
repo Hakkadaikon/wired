@@ -4,6 +4,7 @@
 #include "crypto/pki/encoding/x509/chain.h"
 #include "crypto/pki/encoding/x509/eku.h"
 #include "crypto/pki/encoding/x509/keyusage.h"
+#include "crypto/pki/encoding/x509/spki.h"
 #include "crypto/pki/encoding/x509/x509.h"
 #include "crypto/pki/trust/castore/chainverify.h"
 
@@ -65,11 +66,65 @@ static int cert_can_issue(quic_span cert) {
   return quic_x509_can_sign_certs(c.tbs);
 }
 
+/* View cert's tbs and its SPKI algorithm OID. */
+static int cert_spki_oid(quic_span cert, quic_span* tbs, quic_span* oid) {
+  quic_x509 c;
+  quic_span key;
+  if (!quic_x509_parse(cert, &c)) return 0;
+  if (!quic_x509_public_key(c.tbs, oid, &key)) return 0;
+  *tbs = c.tbs;
+  return 1;
+}
+
+/* RFC 8410 3. oid is id-X25519 or id-X448. */
+static int is_x25519_family(quic_span oid) {
+  return quic_x509_is_x25519(oid) || quic_x509_is_x448(oid);
+}
+
+/* RFC 8410 3. oid is id-Ed25519 or id-Ed448. */
+static int is_ed_family(quic_span oid) {
+  return quic_x509_is_ed25519(oid) || quic_x509_is_ed448(oid);
+}
+
+/* RFC 8410 5. If tbs's SPKI is id-X25519/id-X448, keyUsage (if present) must
+ * assert keyAgreement. Any other algorithm is unconstrained by this check. */
+static int x25519_family_ok(quic_span tbs, quic_span oid) {
+  if (!is_x25519_family(oid)) return 1;
+  return quic_x509_keyagreement_ok(tbs);
+}
+
+/* RFC 8410 5. If tbs's SPKI is id-Ed25519/id-Ed448, keyUsage (if present)
+ * must admit the role-appropriate bits: leaf sign bits for an end-entity
+ * cert, the wider CA bit set for an issuer. Any other algorithm is
+ * unconstrained by this check. */
+static int ed_family_ok(quic_span tbs, quic_span oid, int is_ca) {
+  if (!is_ed_family(oid)) return 1;
+  if (is_ca) return quic_x509_ed_ca_ok(tbs);
+  return quic_x509_ed_leaf_sig_ok(tbs);
+}
+
+/* RFC 8410 5. cert's SPKI-specific keyUsage constraint, if its algorithm is
+ * id-X25519/X448/Ed25519/Ed448; unconstrained for any other algorithm
+ * (RFC 5280's keyCertSign/EKU checks cover those separately). */
+static int cert_spki_ku_ok(quic_span cert, int is_ca) {
+  quic_span tbs, oid;
+  if (!cert_spki_oid(cert, &tbs, &oid)) return 0;
+  if (!x25519_family_ok(tbs, oid)) return 0;
+  return ed_family_ok(tbs, oid, is_ca);
+}
+
+/* RFC 5280 6.1.4/RFC 8410 5. parent is a CA permitted to sign certificates
+ * with an admissible SPKI-specific keyUsage. */
+static int parent_may_issue(quic_span parent) {
+  if (!cert_can_issue(parent)) return 0;
+  return cert_spki_ku_ok(parent, 1);
+}
+
 /* RFC 5280 6.1.3/6.1.4. One link: name binding, the parent may issue certs,
  * and the parent signs the child. */
 static int link_ok(quic_span child, quic_span parent) {
   if (!names_chain(child, parent)) return 0;
-  if (!cert_can_issue(parent)) return 0;
+  if (!parent_may_issue(parent)) return 0;
   return quic_castore_verify_signed_by(child, parent);
 }
 
@@ -133,10 +188,16 @@ static int certs_hygienic(const quic_span* certs, usz n_certs) {
   return no_duplicate_certs(certs, n_certs);
 }
 
+/* The leaf's purpose (EKU + RFC 8410 SPKI-specific keyUsage). */
+static int leaf_purpose_ok(quic_span leaf) {
+  if (!leaf_allows_server_auth(leaf)) return 0;
+  return cert_spki_ku_ok(leaf, 0);
+}
+
 /* The leaf's purpose, per-certificate hygiene, and every adjacent link
  * verify. */
 static int path_ok(const quic_span* certs, usz n_certs) {
-  if (!leaf_allows_server_auth(certs[0])) return 0;
+  if (!leaf_purpose_ok(certs[0])) return 0;
   if (!certs_hygienic(certs, n_certs)) return 0;
   return links_ok(certs, n_certs);
 }
