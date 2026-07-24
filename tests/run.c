@@ -496,6 +496,7 @@
 #include "tls/handshake/roles/server/serverio.c"
 #include "app/http3/server/h3srv/control.c"
 #include "app/http3/server/h3srv/peer.c"
+#include "app/http3/server/h3srv/state.c"
 #include "app/http3/server/h3srv/respond.c"
 #include "app/http3/server/h3srv/priupdate.c"
 #include "app/http3/server/srvwire/wire.c"
