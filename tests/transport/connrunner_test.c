@@ -8,6 +8,7 @@
 #include "transport/conn/loop/connrunner/recv.h"
 #include "transport/conn/loop/connrunner/send.h"
 #include "transport/packet/frame/frame/ack.h"
+#include "transport/packet/frame/frame/connctl.h"
 #include "transport/packet/frame/frame/frame.h"
 
 /* RFC 9000 17.2 / 17.3: byte0 -> protection level. Long-header Initial and
@@ -210,6 +211,60 @@ static void test_advance_closed_idle(void) {
   usz out = quic_connrunner_advance(&r, 0, quic_mspan_of((u8*)0, 0));
   CHECK(out == 0);
   CHECK(r.loop.next_pn == 0);
+}
+
+/* Install a 1-RTT key on io and fast-forward its send-level gate to
+ * Handshake, so the next send may promote straight to 1-RTT (RFC 9001
+ * 4.1.4/4.9) -- same shape as connio_test.c's own connrunner_arm_onertt. */
+static void connrunner_arm_onertt(quic_connio* io) {
+  quic_initial_keys k = {0};
+  io->loop.validated  = 1;
+  quic_keyset_install(&io->loop.keys, QUIC_LEVEL_INITIAL, &k);
+  quic_keyset_install(&io->loop.keys, QUIC_LEVEL_HANDSHAKE, &k);
+  quic_keyset_install(&io->loop.keys, QUIC_LEVEL_ONERTT, &k);
+  io->loop.send_level         = QUIC_LEVEL_HANDSHAKE;
+  io->loop.handshake_complete = 1;
+}
+
+/* RFC 9000 19.20 via 12.4: a server connrunner that receives HANDSHAKE_DONE
+ * (forbidden on a server's receive side) must answer with a transport
+ * CONNECTION_CLOSE(PROTOCOL_VIOLATION) on its very next advance, even though
+ * the loop itself has nothing else queued to send -- quic_connio_recv latches
+ * io.disp.violation and quic_connrunner_advance must wire
+ * quic_connio_close_on_violation into its own send path to act on it
+ * (RFC 9000 10.2), not just leave the flag set. */
+static void test_advance_closes_on_violation(void) {
+  quic_connio     cl;
+  quic_connrunner r;
+  mk_runner(&r, 1); /* server */
+  quic_connio_init_in cin = {0, 0x43, 1u << 20};
+  quic_connio_init(&cl, quic_span_of(g_dcid, 8), &cin);
+  connrunner_arm_onertt(&cl);
+  connrunner_arm_onertt(&r.io);
+
+  u8  frame[1] = {0};
+  usz fl       = quic_handshake_done_encode(frame, sizeof frame);
+  CHECK(fl != 0);
+  u8  pkt[256];
+  usz n;
+  {
+    quic_connio_send_in sin = {QUIC_LEVEL_ONERTT, quic_span_of(frame, fl)};
+    quic_obuf           ob  = quic_obuf_of(pkt, sizeof pkt);
+    n                       = quic_connio_send(&cl, &sin, &ob);
+  }
+  CHECK(n != 0);
+
+  {
+    usz out = quic_connrunner_advance(&r, 0, quic_mspan_of(pkt, n));
+    CHECK(out != 0); /* a CONNECTION_CLOSE was sealed, not silence */
+    CHECK(r.io.disp.violation == 0); /* the flag fired and was cleared */
+
+    /* the client's own connio opens it and sees a real transport close */
+    CHECK(
+        quic_connio_recv(&cl, QUIC_LEVEL_ONERTT, quic_mspan_of(r.txbuf, out)) ==
+        1);
+    CHECK(cl.disp.close == 1);
+  }
 }
 
 /* Seal an ACK whose Largest Acknowledged is `largest` from the peer connio. */
@@ -580,6 +635,7 @@ void test_connrunner(void) {
   test_retransmit_real_bytes();
   test_advance_roundtrip();
   test_advance_closed_idle();
+  test_advance_closes_on_violation();
   test_sentmeta_inflight_tracking();
   test_sentmeta_loss_feeds_rtx();
   test_connrunner_keyupdate();

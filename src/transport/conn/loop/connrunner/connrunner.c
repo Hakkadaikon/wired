@@ -24,6 +24,19 @@ void quic_connrunner_init(
   quic_connrunner_reconnect_init(r);
 }
 
+/* RFC 9000 19.7/19.20 via connio.h: a violation flagged while dispatching the
+ * just-processed datagram (e.g. a server dispatching NEW_TOKEN, RFC 9000
+ * 19.7) outranks the loop's own send choice -- if flush_sends already sent
+ * nothing this step, seal the CONNECTION_CLOSE into r->txbuf instead so a
+ * protocol violation is never silently dropped for lack of anything else to
+ * send. */
+static usz advance_close_on_violation(quic_connrunner* r, usz out) {
+  quic_obuf ob;
+  if (out) return out;
+  ob = quic_obuf_of(r->txbuf, sizeof(r->txbuf));
+  return quic_connio_close_on_violation(&r->io, &ob);
+}
+
 /* RFC 9000 12: the fixed-order core of one iteration, with the datagram already
  * in hand (or empty). Drain receives, step the loop (timers + one send
  * decision), then seal whatever the loop chose -- recv before step before send.
@@ -40,6 +53,7 @@ usz quic_connrunner_advance(quic_connrunner* r, u64 now, quic_mspan dgram) {
   sent_before = r->loop.next_pn;
   quic_evloop_step(&r->loop, now);
   out = quic_connrunner_flush_sends(r, sent_before, kind);
+  out = advance_close_on_violation(r, out);
   {
     quic_connrunner_sent_in sin = {now, kind, out};
     quic_connrunner_track_sent(r, &sin); /* RFC 9002 A.1: in-flight */
