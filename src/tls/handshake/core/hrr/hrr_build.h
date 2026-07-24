@@ -18,4 +18,12 @@ extern const u8 quic_hrr_random[32];
  * returns 0 if it does not fit. */
 int quic_hrr_build(u16 selected_group, quic_span cookie, quic_obuf* out);
 
+/* RFC 8446 4.4.1: after a HelloRetryRequest, ClientHello1 is replaced in the
+ * transcript by a synthetic "message_hash" message: msg_type 254, a 3-byte
+ * length equal to ch1_hash_len, and the raw bytes of Hash(ClientHello1).
+ * Writes 4 + ch1_hash_len bytes to out (cap must be at least that) and
+ * returns the length written, or 0 if it does not fit. */
+usz quic_hrr_message_hash(
+    const u8* ch1_hash, usz ch1_hash_len, u8* out, usz cap);
+
 #endif

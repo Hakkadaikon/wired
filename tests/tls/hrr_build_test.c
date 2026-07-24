@@ -80,9 +80,36 @@ static void test_hrr_build_overflow(void) {
   CHECK(quic_hrr_build(QUIC_GROUP_X25519, quic_span_of(0, 0), &ob) == 0);
 }
 
+/* RFC 8446 4.4.1: message_hash is msg_type 254, the usual 4-byte handshake
+ * header, and the raw hash bytes as its body -- same framing quic_hs_parse
+ * expects. */
+static void test_hrr_message_hash_shape(void) {
+  u8  hash[32], out[64];
+  u8  type;
+  usz body_len, n;
+  for (int i = 0; i < 32; i++) hash[i] = (u8)i;
+  n = quic_hrr_message_hash(hash, 32, out, sizeof(out));
+  CHECK(n == 36);
+  CHECK(quic_hs_parse(quic_span_of(out, n), &type, &body_len) == 4);
+  CHECK(type == 254);
+  CHECK(body_len == 32);
+  for (int i = 0; i < 32; i++) CHECK(out[4 + i] == hash[i]);
+}
+
+/* Too small a buffer for the header or the hash body is rejected. */
+static void test_hrr_message_hash_overflow(void) {
+  u8  hash[32], out[10];
+  usz n;
+  for (int i = 0; i < 32; i++) hash[i] = (u8)i;
+  n = quic_hrr_message_hash(hash, 32, out, sizeof(out));
+  CHECK(n == 0);
+}
+
 void test_hrr_build(void) {
   test_hrr_random_sentinel();
   test_hrr_build_no_cookie();
   test_hrr_build_cookie();
   test_hrr_build_overflow();
+  test_hrr_message_hash_shape();
+  test_hrr_message_hash_overflow();
 }

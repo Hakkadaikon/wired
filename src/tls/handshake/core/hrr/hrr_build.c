@@ -102,3 +102,22 @@ int quic_hrr_build(u16 selected_group, quic_span cookie, quic_obuf* out) {
   out->len = end;
   return 1;
 }
+
+/* RFC 8446 4.4.1: msg_type 254, same 4-byte handshake header framing
+ * (quic_hs_begin/quic_hs_finish) as every other handshake message, body is
+ * the raw hash bytes of ClientHello1. */
+#define QUIC_HS_MESSAGE_HASH 254
+
+/* off (a quic_hs_begin result) plus n more bytes still fits within cap. */
+static int hrr_mh_fits(usz off, usz n, usz cap) {
+  return off != 0 && off + n <= cap;
+}
+
+usz quic_hrr_message_hash(
+    const u8* ch1_hash, usz ch1_hash_len, u8* out, usz cap) {
+  usz off = quic_hs_begin(out, cap, QUIC_HS_MESSAGE_HASH);
+  if (!hrr_mh_fits(off, ch1_hash_len, cap)) return 0;
+  for (usz i = 0; i < ch1_hash_len; i++) out[off + i] = ch1_hash[i];
+  quic_hs_finish(out, off + ch1_hash_len);
+  return off + ch1_hash_len;
+}
