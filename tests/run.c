@@ -550,6 +550,7 @@
 #include "crypto/hkdf_test.c"
 #include "crypto/aes_test.c"
 #include "crypto/gcm_test.c"
+#include "crypto/gcm256_test.c"
 #include "crypto/chacha20_test.c"
 #include "crypto/poly1305_test.c"
 #include "crypto/aead_test.c"
@@ -1047,6 +1048,7 @@ int main(void) {
   test_hkdf();
   test_aes();
   test_gcm();
+  test_gcm256();
   test_chacha20();
   test_poly1305();
   test_aead();
