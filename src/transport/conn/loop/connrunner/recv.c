@@ -1,13 +1,28 @@
 #include "transport/conn/loop/connrunner/recv.h"
 
+#include "common/bytes/util/ct.h"
 #include "crypto/kdf/keys/keyset.h"
 #include "transport/conn/loop/connrunner/keyupdate.h"
 #include "transport/conn/loop/connrunner/level.h"
 #include "transport/conn/loop/connrunner/reconnect.h"
 #include "transport/io/udp/udploop/rxloop.h"
+#include "transport/packet/header/dcidresolve/dcidresolve.h"
 #include "transport/recovery/rtx/sentmeta/on_ack.h"
 
 #define QUIC_CONNRUNNER_MAXPKTS 8 /* coalesced packets per datagram */
+
+/* RFC 9000 12.2: a coalesced packet whose Destination Connection ID differs
+ * from the connection's own is ignored (not just this packet dropped as
+ * malformed -- the datagram's other, matching packets still process). A
+ * packet too short to carry the DCID length it claims (dcid_len < 0) is
+ * rejected the same way a real mismatch would be. */
+static int dcid_matches(const quic_connrunner* r, quic_mspan pkt) {
+  int       dcid_len = quic_dcidresolve_len(pkt, r->io.dcid_len);
+  quic_span dcid;
+  if (dcid_len < 0 || (u8)dcid_len != r->io.dcid_len) return 0;
+  dcid = quic_dcidresolve_dcid(pkt, dcid_len);
+  return quic_ct_diffn(dcid.p, r->io.dcid, r->io.dcid_len) == 0;
+}
 
 /* RFC 9001 6.3: for a 1-RTT short-header packet, drive the read-key generation
  * off its Key Phase bit; -1 means the generation it names has no key, so the
@@ -22,6 +37,13 @@ static int phase_admits(quic_connrunner* r, u8 byte0, int level) {
 static int recv_level(quic_connrunner* r, u8 byte0, int* level) {
   return quic_connrunner_packet_level(byte0, level) &&
          phase_admits(r, byte0, *level);
+}
+
+/* RFC 9000 12.2 then 9001 6.3: a packet admitted at all only once its DCID
+ * names this connection (a mismatched coalesced packet is ignored, not just
+ * dropped as malformed). */
+static int recv_level_and_dcid(quic_connrunner* r, quic_mspan pkt, int* level) {
+  return recv_level(r, pkt.p[0], level) && dcid_matches(r, pkt);
 }
 
 /* The protection level and packet slice open_one opens. */
@@ -47,7 +69,7 @@ static int open_one(quic_connrunner* r, const recv_open_in* in, int* elicited) {
 static int recv_one(quic_connrunner* r, quic_mspan pkt, int* elicited) {
   recv_open_in in = {0, pkt};
   if (quic_connrunner_recv_reconnect(r, pkt.p, pkt.n)) return 0;
-  if (!recv_level(r, pkt.p[0], &in.level)) return 0;
+  if (!recv_level_and_dcid(r, pkt, &in.level)) return 0;
   return open_one(r, &in, elicited);
 }
 

@@ -86,6 +86,41 @@ static void test_process_datagram_owes_ack(void) {
   CHECK(r.loop.next_pn == 1);  /* an ACK packet went out */
 }
 
+/* RFC 9000 12.2: a coalesced/received packet whose Destination Connection ID
+ * differs from the connection's own is ignored, not processed under the
+ * wrong connection's state. Flipping one byte of the sealed long-header
+ * packet's DCID (offset 6, after byte0+version+dcid_len) makes an otherwise
+ * valid packet unaccepted. */
+static void test_process_datagram_dcid_mismatch_ignored(void) {
+  quic_connio         cl;
+  quic_connrunner     r;
+  quic_connio_init_in cin = {0, 0xc3, 1u << 20};
+  quic_connio_init(&cl, quic_span_of(g_dcid, 8), &cin);
+  arm(&cl);
+  mk_runner(&r, 1);
+
+  u8                frames[64];
+  quic_stream_frame sf = {
+      .stream_id = 4,
+      .offset    = 0,
+      .length    = 5,
+      .data      = (const u8*)"hello",
+      .fin       = 1};
+  usz fl = quic_frame_put_stream(frames, sizeof(frames), &sf);
+  u8  pkt[256];
+  usz n;
+  {
+    quic_connio_send_in sin = {QUIC_LEVEL_INITIAL, quic_span_of(frames, fl)};
+    quic_obuf           ob  = quic_obuf_of(pkt, sizeof(pkt));
+    n                       = quic_connio_send(&cl, &sin, &ob);
+  }
+  CHECK(n != 0);
+  pkt[6] ^= 0xff; /* corrupt the first DCID byte (long header, offset 6) */
+
+  CHECK(quic_connrunner_process_datagram(&r, quic_mspan_of(pkt, n)) == 0);
+  CHECK(r.loop.rx_n == 0); /* never reached dispatch */
+}
+
 /* A non-ack-eliciting datagram (none accepted) owes no ACK. */
 static void test_unparseable_owes_nothing(void) {
   quic_connrunner r;
@@ -711,6 +746,7 @@ static void test_connrunner_vn(void) {
 void test_connrunner(void) {
   test_packet_level();
   test_process_datagram_owes_ack();
+  test_process_datagram_dcid_mismatch_ignored();
   test_unparseable_owes_nothing();
   test_flush_sends_ack();
   test_flush_sends_retransmit();
