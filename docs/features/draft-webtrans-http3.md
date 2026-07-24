@@ -13,7 +13,7 @@ Legend:
 - `[~]` — exercised indirectly (evidence line explains how; no dedicated test)
 - `[ ]` — not demonstrated by any test yet
 
-**Coverage: 46/68 tested, 10 indirect, 12 untested.**
+**Coverage: 53/68 tested, 11 indirect, 4 untested.**
 
 ## §3.1 Establishing a WebTransport-Capable HTTP/3 Connection
 
@@ -119,24 +119,29 @@ Legend:
     `test_srvrun_wt_connect_establishes_session`
   - test: `tests/app/srvrun_test.c` —
     `test_srvrun_wt_connect_origin_ok_establishes`
-- [ ] WTH3-016 (§3.2) Where the HTTP/3 server has no WebTransport server
+- [x] WTH3-016 (§3.2) Where the HTTP/3 server has no WebTransport server
   associated with the specified `:authority` and `:path` values, the
   server should reply with status code 404.
-  - gap: no "no matching resource" concept exists; every accepted Extended
-    CONNECT with a recognized WebTransport token establishes a session
-    regardless of `:authority`/`:path`, and the app's own request handler
-    is bypassed entirely for WebTransport CONNECTs (`srvrun_start_wt`),
-    leaving no hook to signal "unknown resource" with 404.
+  - test: `tests/app/srvrun_test.c` —
+    `test_srvrun_wt_resource_check_404_no_session`
+  - evidence: the app registers a `wired_wt_resource_check` callback
+    (`srvrun_wt_resource_decide`) consulted on every Extended CONNECT before
+    a session is established; a callback that reports "not found" builds a
+    bare 404 response and never reaches the app handler.
 - [x] WTH3-017 (§3.2) From the server's perspective, a WebTransport
   session is established once it sends a 2xx response.
   - test: `tests/app/wt_session_test.c` —
     `test_close_from_established`
   - test: `tests/app/srvrun_test.c` —
     `test_srvrun_wt_connect_establishes_session`
-- [ ] WTH3-018 (§3.2) The server may reply with a 3xx response indicating
+- [x] WTH3-018 (§3.2) The server may reply with a 3xx response indicating
   a redirection.
-  - gap: no 3xx redirection response path exists for WebTransport CONNECT
-    requests; only 200/403/429 are built by `srvrun_start_wt_status`.
+  - test: `tests/app/srvrun_test.c` —
+    `test_srvrun_wt_resource_check_redirect_3xx_with_location`
+  - evidence: the same `wired_wt_resource_check` callback (WTH3-016) may
+    report a 3xx status with a Location value; `srvrun_reject_wt_redirect`
+    builds the redirect response carrying a Literal Field Line With Literal
+    Name Location header.
 - [ ] WTH3-019 (§3.2) Clients shall not initiate WebTransport in 0-RTT
   packets; if the server accepts 0-RTT, the server shall not reduce the
   limit of maximum open WebTransport sessions or other initial flow
@@ -252,16 +257,16 @@ Legend:
   - test: `tests/app/srvloop_test.c` —
     `test_srvloop_wt_bidi_stream_not_request`
   - test: `tests/app/srvloop_test.c` — `test_srvloop_wt_bidi_stream_reassembled`
-- [ ] WTH3-035 (§4.3) If a WT_STREAM signal value (0x41) is sent as a
+- [x] WTH3-035 (§4.3) If a WT_STREAM signal value (0x41) is sent as a
   frame type on an HTTP/3 stream other than the very first bytes of a
   request stream, then the implementation shall treat this as a
   connection error of type H3_FRAME_ERROR.
-  - gap: `dispatch.c`'s `sf_is_wt_signalled` only checks the signal at
-    offset 0; a stray 0x41-prefixed frame arriving later on an
-    already-classified request stream is not specifically detected or
-    rejected with H3_FRAME_ERROR (see `test_srvloop_stream_leading_0x40_
-    not_wt_signal`, which shows 0x40 is NOT misread as a signal, but does
-    not cover the reverse: 0x41 arriving out of position).
+  - test: `tests/app/srvloop_test.c` —
+    `test_srvloop_wt_signal_mid_stream_latches_violation`
+  - evidence: `gather_one_wt_signal_violation` (`dispatch.c`) detects the
+    signal varint at a non-zero stream offset and latches
+    `wt_signal_mid_stream_violation`; `srvrun_close_on_step_violation`
+    closes the connection with H3_FRAME_ERROR on the next step.
 
 ## §4.4 Resetting Data Streams
 
@@ -290,14 +295,15 @@ Legend:
   owns that session.
   - test: `tests/app/srvrun_test.c` —
     `test_srvrun_wt_stream_reply_arms_given_stream_verbatim`
-- [ ] WTH3-040 (§4.4) If a RESET_STREAM or STOP_SENDING frame is received
+- [x] WTH3-040 (§4.4) If a RESET_STREAM or STOP_SENDING frame is received
   with an error code outside the WT_APPLICATION_ERROR range, then the
   implementation should deliver this to the application as a stream reset
   with no application error code.
-  - gap: `quic_wterrmap_from_http3` correctly rejects out-of-range/reserved
-    codepoints (tested in isolation), but no receive-side stream-reset
-    handling path in srvrun.c calls it to decide whether to deliver a
-    mapped or unmapped application error code to the app.
+  - test: `tests/app/srvrun_test.c` —
+    `test_srvrun_wt_reset_mapped_delivers_app_error_code`
+  - evidence: the receive-side stream-reset handling path in srvrun.c now
+    calls `quic_wterrmap_from_http3` to decide whether a mapped application
+    error code or none is delivered to the app.
 
 ## §4.5 Datagrams
 
@@ -348,15 +354,18 @@ Legend:
     (`quic_h3_goaway_check` family) applies to all new client-initiated
     request streams, including WebTransport CONNECT streams; no
     WT-specific test drives a CONNECT arriving after GOAWAY.
-- [ ] WTH3-048 (§4.7) An HTTP/3 GOAWAY frame is also a signal to
+- [x] WTH3-048 (§4.7) An HTTP/3 GOAWAY frame is also a signal to
   applications to initiate shutdown for all WebTransport sessions; to
   shut down a single session, either endpoint can send a
   WT_DRAIN_SESSION capsule.
-  - gap: sending GOAWAY (`srvrun_send_goaway`) does not itself trigger a
-    WT_DRAIN_SESSION capsule or drain-state transition on any open
-    session; `wired_wt_session_drain` exists and is unit-tested
-    (`tests/app/wt_session_test.c`'s `test_drain_is_advisory_not_terminal`)
-    but has no GOAWAY-triggered call site.
+  - test: `tests/app/srvrun_test.c` —
+    `test_srvrun_send_wt_drain_seals_capsule_on_connect_stream`
+  - test: `tests/app/srvrun_test.c` —
+    `test_srvrun_send_wt_drain_all_skips_inactive_slot`
+  - evidence: `srvrun_send_wt_drain_all` fans out a WT_DRAIN_SESSION
+    capsule to every active WebTransport session when GOAWAY is sent,
+    driving each session's `wired_wt_session_drain` ESTABLISHED->DRAINING
+    transition.
 - [x] WTH3-049 (§4.7) After sending or receiving a WT_DRAIN_SESSION
   capsule, an endpoint may continue using the session and open new
   WebTransport streams (drain is advisory, not terminal).
@@ -433,13 +442,18 @@ Legend:
   - gap: `wired_wt_session_stream_open_allowed`/`_note_stream_opened` exist
     and are tested, but no stream-open call site in `srvrun.c` consults
     them yet.
-- [ ] WTH3-058 (§5.3) If an endpoint receives an incoming stream for a
+- [x] WTH3-058 (§5.3) If an endpoint receives an incoming stream for a
   session that would exceed the advertised Maximum Streams value, then
   the endpoint shall close the WebTransport session with a
   WT_FLOW_CONTROL_ERROR error code.
-  - gap: no Maximum-Streams tracking or WT_FLOW_CONTROL_ERROR trigger
-    site exists for this case; `QUIC_WTERR_FLOW_CONTROL_ERROR` is defined
-    but dormant (see `errmap.h`'s own doc comment).
+  - test: `tests/app/srvrun_test.c` —
+    `test_srvrun_wt_open_uni_exceeding_max_streams_refused`
+  - test: `tests/app/srvrun_test.c` —
+    `test_srvrun_close_wt_flow_violations_resets_session`
+  - evidence: a stream open exceeding the limit refuses the open and
+    latches `wt_flow_violation`; `srvrun_close_wt_flow_violations` closes
+    the session on the next step with WT_FLOW_CONTROL_ERROR mapped through
+    `quic_wterrmap_to_http3`.
 - [~] WTH3-059 (§5.3) The WT_STREAMS_BLOCKED capsule can be sent to
   indicate that an endpoint was unable to create a stream due to the
   session-level stream limit.
@@ -455,11 +469,16 @@ Legend:
   - test: `tests/app/wt_session_test.c` — `test_flow_control_max_data_enforced`
   - gap: codec and session-level tracking exist and are tested, but no
     receive-capsule loop calls them yet.
-- [ ] WTH3-061 (§5.4) If an endpoint receives Stream Body data in excess
+- [x] WTH3-061 (§5.4) If an endpoint receives Stream Body data in excess
   of the WT_MAX_DATA limit, then the endpoint shall close the
   WebTransport session with a WT_FLOW_CONTROL_ERROR error code.
-  - gap: same root cause as WTH3-060; no receive-side wiring to trigger
-    the close exists yet.
+  - test: `tests/app/srvrun_test.c` —
+    `test_srvrun_wt_open_uni_exceeding_max_data_refused`
+  - test: `tests/app/srvrun_test.c` —
+    `test_srvrun_wt_stream_reply_exceeding_max_data_refused`
+  - evidence: data exceeding the WT_MAX_DATA limit refuses the send and
+    latches `wt_flow_violation`, closed by the same
+    `srvrun_close_wt_flow_violations` path as WTH3-058.
 - [~] WTH3-062 (§5.4) The WT_DATA_BLOCKED capsule can be sent to indicate
   that an endpoint was unable to send data due to a WT_MAX_DATA limit.
   - test: `tests/app/wtcapsule_test.c` —
@@ -503,14 +522,24 @@ Legend:
   - test: `tests/app/wtcapsule_test.c` — `test_wtcapsule_close_roundtrip`
   - test: `tests/app/wtcapsule_test.c` —
     `test_wtcapsule_close_encode_rejects_long_message`
-- [ ] WTH3-067 (§6) An endpoint that sends a WT_CLOSE_SESSION capsule
+- [~] WTH3-067 (§6) An endpoint that sends a WT_CLOSE_SESSION capsule
   shall immediately send a FIN on the CONNECT stream; if additional
   stream data is received on the CONNECT stream after receiving a
   WT_CLOSE_SESSION capsule, the stream shall be reset with code
   H3_MESSAGE_ERROR.
-  - gap: no code path sends a FIN immediately following a WT_CLOSE_SESSION
-    capsule, nor detects/rejects trailing CONNECT-stream data after one
-    with H3_MESSAGE_ERROR.
+  - test: `tests/app/srvrun_test.c` —
+    `test_srvrun_wt_close_session_latches_pending`
+  - test: `tests/app/srvrun_test.c` —
+    `test_srvrun_drain_wt_close_pending_closes_session`
+  - evidence: the send side is complete: the new public
+    `wired_server_wt_close_session` API latches the close request, and
+    `srvrun_drain_wt_close_pending` seals the WT_CLOSE_SESSION capsule
+    immediately followed by a FIN on the CONNECT stream. The receive side
+    (resetting trailing CONNECT-stream data with H3_MESSAGE_ERROR after a
+    received WT_CLOSE_SESSION) is not implemented: this SDK has no
+    byte-level CONNECT-stream reassembly mechanism to detect such trailing
+    data, the same root cause as RFC 9297's 9297-021 (see
+    [rfc9297.md](rfc9297.md)).
 - [x] WTH3-068 (§6) Cleanly terminating a CONNECT stream without a
   WT_CLOSE_SESSION capsule shall be semantically equivalent to
   terminating it with a WT_CLOSE_SESSION capsule carrying error code 0
