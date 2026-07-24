@@ -88,6 +88,13 @@ static void test_vpn_tamper(void) {
   u64           length = 2 + sizeof(payload) + 16;
   quic_vpn_desc vd     = {quic_mspan_of(pkt, total), 16, length};
   CHECK(quic_vpn_open(&k, &vd, &out) == 0);
+  /* RFC 9001 9.5: header protection removal, packet number recovery, and
+   * packet protection removal are applied together -- an AEAD tag failure
+   * does not skip header/pn unmasking. byte0's low bits (pn_len) and the pn
+   * bytes were unmasked before the AEAD open ran and failed, so they read
+   * back exactly as vpn_open left them regardless of the AEAD outcome. */
+  CHECK(pkt[0] == 0xc1);
+  CHECK(pkt[16] == 0x12 && pkt[17] == 0x34);
 }
 
 /* A pn_len=4 packet sealed by the existing protect path opens via vpn_open. */
