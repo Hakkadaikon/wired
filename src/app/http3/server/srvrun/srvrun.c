@@ -38,6 +38,7 @@
 #include "transport/conn/cid/path/antiamp.h"
 #include "transport/conn/cid/retrytoken/retrytoken.h"
 #include "transport/conn/lifecycle/conntable/conntable.h"
+#include "transport/conn/loop/manage/middlebox.h"
 #include "transport/io/socket/io/udp.h"
 #include "transport/io/socket/poll/wait.h"
 #include "transport/io/udp/udploop/rxloop.h"
@@ -49,6 +50,7 @@
 #include "transport/packet/header/dcidresolve/dcidresolve.h"
 #include "transport/packet/header/lhdr/lhdr_parse.h"
 #include "transport/packet/header/packet/header.h"
+#include "transport/packet/header/packet/pad.h"
 #include "transport/packet/header/packet/ptype.h"
 #include "transport/packet/header/packet/retry.h"
 #include "transport/recovery/congestion/cc/cc.h"
@@ -1593,12 +1595,29 @@ static int srvrun_seal_path_challenge(
   return wired_srvloop_send_onertt(&c->s, &sin, out);
 }
 
+/* RFC 9000 8.2.1: an endpoint MUST expand datagrams that contain a
+ * PATH_CHALLENGE frame to at least the smallest allowed maximum datagram
+ * size (1200 bytes), so a path that only tolerates smaller datagrams cannot
+ * be used before the amplification limit is even relevant. */
+static int pad_challenge_fits(usz len, usz need, usz cap) {
+  return need != 0 && len + need <= cap;
+}
+
+static usz srvrun_pad_path_challenge(u8* out, usz len, usz cap) {
+  usz need = quic_pad_needed(len);
+  if (!pad_challenge_fits(len, need, cap)) return len;
+  for (usz i = 0; i < need; i++) out[len + i] = 0; /* PADDING frame (0x00) */
+  return len + need;
+}
+
 static void srvrun_send_path_challenge(
     const srvrun_cfg* cfg, srvrun_conn* c, const u8 data[QUIC_PATH_DATA]) {
-  u8        out[128];
+  u8        out[QUIC_MIN_INITIAL_DATAGRAM];
   quic_obuf ob = quic_obuf_of(out, sizeof out);
+  usz       n;
   if (!srvrun_seal_path_challenge(c, data, &ob)) return;
-  srvrun_send(cfg, c, quic_span_of(out, ob.len), "PATH_CHALLENGE sent\n");
+  n = srvrun_pad_path_challenge(out, ob.len, sizeof out);
+  srvrun_send(cfg, c, quic_span_of(out, n), "PATH_CHALLENGE sent\n");
 }
 
 /* Seal one MAX_DATA frame (RFC 9000 19.9) as its own 1-RTT packet and send
@@ -4981,12 +5000,29 @@ static void srvrun_route_and_serve(
   srvrun_serve_slot(ctx, slot, dg);
 }
 
-static void srvrun_serve(const srvrun_step_ctx* ctx, quic_mspan dg) {
+/* RFC 9000 14.1/14: a datagram carrying an Initial packet below the
+ * 1200-byte floor violates the size constraint and is discarded outright --
+ * never treated as a connection error, since a malicious or misbehaving
+ * middlebox (not the peer) is the more likely cause (RFC 9000 14). */
+static int srvrun_size_violation(quic_mspan dg) {
+  return wired_srvboot_is_initial(dg.p, dg.n) &&
+         !quic_middlebox_initial_ok(dg.n);
+}
+
+/* dg past the size-violation gate: version-negotiate, consume a retry, or
+ * route it to its slot. Split from srvrun_serve so neither carries more than
+ * one guard beyond its own entry check (CCN). */
+static void srvrun_serve_sized(const srvrun_step_ctx* ctx, quic_mspan dg) {
   quic_span dcid  = srvrun_dcid(dg, ctx->cfg->id->scid_len);
   quic_span odcid = {0, 0};
   if (srvrun_vneg(ctx, dg)) return;
   if (srvrun_retry_consumed(ctx, dcid, dg, &odcid)) return;
   srvrun_route_and_serve(ctx, dcid, dg, odcid);
+}
+
+static void srvrun_serve(const srvrun_step_ctx* ctx, quic_mspan dg) {
+  if (srvrun_size_violation(dg)) return;
+  srvrun_serve_sized(ctx, dg);
 }
 
 /* so_busy_poll_us > 0 enables SO_BUSY_POLL on fd; best-effort like
