@@ -21,6 +21,20 @@ static void test_rebuild_crypto_retransmittable(void) {
   CHECK(ob.len == sizeof crypto);
 }
 
+/* RFC 9000 13.3: HANDSHAKE_DONE (0x1e) is ack-eliciting and carries no
+ * per-frame state of its own, so it rides the same generic retransmission
+ * path as STREAM/CRYPTO -- rebuilt verbatim into a fresh packet when its
+ * carrying packet is declared lost, with no HANDSHAKE_DONE-specific code. */
+static void test_rebuild_handshake_done_retransmittable(void) {
+  const u8  hs_done[] = {0x1e};
+  u8        out[32];
+  quic_obuf ob = quic_obuf_of(out, sizeof out);
+
+  CHECK(quic_rtxbytes_retransmittable(hs_done, sizeof hs_done) == 1);
+  CHECK(quic_rtxbytes_rebuild(quic_span_of(hs_done, sizeof hs_done), &ob) == 1);
+  CHECK(ob.len == sizeof hs_done && out[0] == 0x1e);
+}
+
 static void test_rebuild_ack_skipped(void) {
   const u8  ack[] = {0x02, 0x00, 0x00, 0x00};
   u8        out[32];
@@ -53,6 +67,7 @@ static void test_rebuild_no_room(void) {
 void test_rebuild(void) {
   test_rebuild_stream_retransmittable();
   test_rebuild_crypto_retransmittable();
+  test_rebuild_handshake_done_retransmittable();
   test_rebuild_ack_skipped();
   test_rebuild_padding_skipped();
   test_rebuild_no_room();
