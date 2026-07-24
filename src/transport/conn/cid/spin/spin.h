@@ -21,4 +21,15 @@ int quic_spin_get(u8 byte0);
 /* Set or clear the spin bit in a short-header first byte. */
 u8 quic_spin_set(u8 byte0, int spin);
 
+/* RFC 9000 17.4: an endpoint SHOULD disable its participation in the spin
+ * bit for a random selection of about 1 in 16 connections, sending 0 on
+ * every packet for those, so on-path observers cannot rely solely on the
+ * spin bit for RTT measurement. `rand_byte` is one uniformly random byte
+ * (e.g. from quic_rng_bytes); 1/16 of its values select disablement. */
+int quic_spin_disabled(u8 rand_byte);
+
+/* Like quic_spin_outgoing, but sends 0 unconditionally when `disabled` (the
+ * connection's own quic_spin_disabled draw) is set. */
+int quic_spin_outgoing_ex(int is_server, int peer_spin, int disabled);
+
 #endif
