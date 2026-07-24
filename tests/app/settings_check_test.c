@@ -24,8 +24,24 @@ static void test_settings_unknown(void) {
   CHECK(quic_h3_setting_allowed(0xffffffffffffffffUL) == 1);
 }
 
+/* RFC 9297 2.1.1 / 9297-012: "The value of the SETTINGS_H3_DATAGRAM setting
+ * MUST be either 0 or 1. ... If ... received with a value that is neither 0
+ * nor 1, the receiver MUST terminate the connection with error
+ * H3_SETTINGS_ERROR." A setting id other than SETTINGS_H3_DATAGRAM (0x33) is
+ * out of scope for this check -- any value is fine regardless. */
+static void test_settings_h3_datagram_value_ok(void) {
+  CHECK(quic_h3_setting_h3_datagram_value_ok(0x33, 0) == 1);
+  CHECK(quic_h3_setting_h3_datagram_value_ok(0x33, 1) == 1);
+  CHECK(quic_h3_setting_h3_datagram_value_ok(0x33, 2) == 0);
+  CHECK(quic_h3_setting_h3_datagram_value_ok(0x33, 0xffffffffffffffffUL) == 0);
+  /* a different id is not this setting at all -- any value passes */
+  CHECK(quic_h3_setting_h3_datagram_value_ok(0x06, 2) == 1);
+  CHECK(quic_h3_setting_h3_datagram_value_ok(0x08, 0xffffffffffffffffUL) == 1);
+}
+
 void test_settings_check(void) {
   test_settings_reserved();
   test_settings_allowed();
   test_settings_unknown();
+  test_settings_h3_datagram_value_ok();
 }

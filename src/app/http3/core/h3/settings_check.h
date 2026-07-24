@@ -17,4 +17,21 @@
  * for a reserved HTTP/2 identifier (H3_SETTINGS_ERROR), 1 otherwise. */
 int quic_h3_setting_allowed(u64 id);
 
+/* RFC 9297 2.1.1, id 0x33. Kept local to this check rather than shared with
+ * h3settings/settings_build.c's own identical #define: that file builds the
+ * setting, this one validates a received one, and the two never include each
+ * other's headers. */
+#define QUIC_H3_SETTING_H3_DATAGRAM 0x33
+
+/* RFC 9297 2.1.1 / 9297-012: the SETTINGS_H3_DATAGRAM value MUST be 0 or 1;
+ * any other value received MUST terminate the connection with
+ * H3_SETTINGS_ERROR. A setting id other than SETTINGS_H3_DATAGRAM is out of
+ * scope for this check and always passes. Returns 0 only for id ==
+ * SETTINGS_H3_DATAGRAM with value > 1.
+ * @param id    the received SETTINGS identifier
+ * @param value the received SETTINGS value
+ * @return 1 if allowed, 0 if this is SETTINGS_H3_DATAGRAM with an out-of-
+ *   range value (H3_SETTINGS_ERROR) */
+int quic_h3_setting_h3_datagram_value_ok(u64 id, u64 value);
+
 #endif
