@@ -30,6 +30,7 @@
 #include "transport/packet/build/hspkt/onertt.h"
 #include "transport/packet/frame/frame/ack.h"
 #include "transport/packet/frame/frame/frame.h"
+#include "transport/packet/frame/frame/stream_ctl.h"
 #include "transport/packet/frame/pipeline/framewalk.h"
 #include "transport/packet/frame/pipeline/txpacket.h"
 #include "transport/stream/data/appdata/stream_send.h"
@@ -1287,6 +1288,74 @@ static void test_srvloop_two_requests_complete_same_step(void) {
   CHECK(f.l.req_stream_id == 4);
 }
 
+/* RFC 9114 4.1: a request stream that reaches FIN with no HEADERS frame at
+ * all (never mind a complete one) cannot produce a request -- it must be
+ * flagged incomplete (H3_REQUEST_INCOMPLETE), not silently dropped. */
+static void test_srvloop_fin_no_headers_marks_incomplete(void) {
+  struct lp_fix f;
+  u8            out[1024], frm[64], spkt[1024];
+  usz           flen, slen;
+  quic_obuf     ob = {out, sizeof out, 0};
+  lp_confirm(&f, &ob);
+  CHECK(appdata_frame_flat(0, 0, (const u8*)"", 0, 1, frm, sizeof frm, &flen));
+  slen = client_seal_onertt_pn(&f, 7, frm, flen, spkt, sizeof spkt);
+  ob   = (quic_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  CHECK(f.l.done_n == 0);
+  CHECK(f.l.incomplete_n == 1);
+  CHECK(f.l.incomplete_slots[0] == 0);
+  CHECK(f.l.streams[0].stream_id == 0);
+}
+
+/* RFC 9114 4.1: a request stream FIN-ed with a truncated HEADERS frame
+ * (the frame's own declared length exceeds what actually arrived) is the
+ * same violation as no HEADERS at all -- also incomplete, not a silent
+ * drop. */
+static void test_srvloop_fin_truncated_headers_marks_incomplete(void) {
+  struct lp_fix f;
+  u8            hp[256], dp[256], frm[64], spkt[1024], out[1024];
+  usz           hl, dl, flen, slen;
+  quic_obuf     ob = {out, sizeof out, 0};
+  lp_confirm(&f, &ob);
+  lp_split_post_frames(hp, sizeof hp, &hl, dp, sizeof dp, &dl);
+  /* Re-frame only the leading half of the HEADERS stream bytes, but with
+   * FIN set -- the peer closed the stream before the HEADERS frame (never
+   * mind any body) finished arriving. */
+  CHECK(appdata_frame_flat(0, 0, hp, hl / 2, 1, frm, sizeof frm, &flen));
+  slen = client_seal_onertt_pn(&f, 7, frm, flen, spkt, sizeof spkt);
+  ob   = (quic_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  CHECK(f.l.done_n == 0);
+  CHECK(f.l.incomplete_n == 1);
+}
+
+/* Regression: a normally-completed GET never marks its slot incomplete. */
+static void test_srvloop_complete_get_not_marked_incomplete(void) {
+  struct lp_fix f;
+  u8            out[1024], get[512], spkt[1024];
+  usz           glen, slen;
+  quic_obuf     ob = {out, sizeof out, 0};
+  lp_confirm(&f, &ob);
+  {
+    quic_obuf gob = {get, sizeof get, 0};
+    CHECK(wired_h3reqdrive_send_get(
+        0,
+        &(wired_h3reqdrive_get_in){
+            quic_span_of((const u8*)"/", 1), quic_span_of((const u8*)"h", 1)},
+        &gob));
+    glen = gob.len;
+  }
+  slen = client_seal_onertt_pn(&f, 7, get, glen, spkt, sizeof spkt);
+  ob   = (quic_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  CHECK(f.l.done_n == 1);
+  CHECK(f.l.incomplete_n == 0);
+  CHECK(f.l.streams[0].req_incomplete == 0);
+}
+
 /* TWO INDEPENDENT REQUEST STREAMS (RFC 9000 2.2, the property a single fixed
  * request slot could not have): stream 0's and stream 4's POSTs are each
  * split into HEADERS/DATA and interleaved across datagrams — stream 0's
@@ -1897,6 +1966,32 @@ static void test_srvloop_uni_unrecognized_type_no_crash(void) {
   CHECK(f.l.got_request == 0);
   CHECK(f.l.peer_closed == 0);
   CHECK(wired_srvloop_wt_uni_slot_find(&f.l, 2) < 0);
+}
+
+/* RFC 9114 6.2 (9114-047): a unidirectional stream RESET before its leading
+ * type varint has ever been received (no STREAM frame preceded the
+ * RESET_STREAM) must be tolerated -- no crash, no request surfaced, no slot
+ * claimed in wt_uni_streams[] (there was never a type byte to claim one
+ * with). The generic RESET_STREAM handling (gather_stream_closes) is the
+ * mechanism that already absorbs this: it only latches closed_stream_id,
+ * independent of whether the stream's purpose was ever classified. */
+static void test_srvloop_uni_reset_before_type_no_crash(void) {
+  struct lp_fix           f;
+  u8                      payload[64], out[1024], spkt[1024];
+  usz                     off = 0, slen;
+  quic_obuf               ob  = {out, sizeof out, 0};
+  quic_reset_stream_frame rs  = {2, 0x100, 0};
+  off = quic_reset_stream_encode(payload, sizeof payload, &rs);
+  lp_confirm(&f, &ob);
+  slen = client_seal_onertt_pn(&f, 3, payload, off, spkt, sizeof spkt);
+  ob   = (quic_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  CHECK(f.l.got_request == 0);
+  CHECK(f.l.peer_closed == 0);
+  CHECK(wired_srvloop_wt_uni_slot_find(&f.l, 2) < 0);
+  CHECK(f.l.closed_stream_seen == 1);
+  CHECK(f.l.closed_stream_id == 2);
 }
 
 /* REGRESSION: a WT uni stream arriving on a connection with no active
@@ -3662,6 +3757,9 @@ void test_srvloop(void) {
   test_srvloop_dispatch_split_across_datagrams();
   test_srvloop_two_streams_reassemble_independently();
   test_srvloop_two_requests_complete_same_step();
+  test_srvloop_fin_no_headers_marks_incomplete();
+  test_srvloop_fin_truncated_headers_marks_incomplete();
+  test_srvloop_complete_get_not_marked_incomplete();
   test_srvloop_wt_window_starts_empty();
   test_srvloop_wt_window_in_order_advances_frontier();
   test_srvloop_wt_window_gap_then_fill_advances_frontier();
@@ -3678,6 +3776,7 @@ void test_srvloop(void) {
   test_srvloop_wt_uni_stream_reassembled();
   test_srvloop_uni_control_qpack_still_ignored();
   test_srvloop_uni_unrecognized_type_no_crash();
+  test_srvloop_uni_reset_before_type_no_crash();
   test_srvloop_wt_uni_stream_without_session_no_crash();
   test_srvloop_datagram_queued_on_step();
   test_srvloop_datagram_queue_overflow_drops_newest();

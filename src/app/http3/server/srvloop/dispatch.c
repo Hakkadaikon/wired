@@ -981,6 +981,20 @@ static void route_note_done(wired_srvloop* l, int i) {
   if (l->done_n < WIRED_SRVLOOP_MAX_STREAMS) l->done_slots[l->done_n++] = (u8)i;
 }
 
+/* RFC 9114 4.1: slot i's request stream reached FIN without decoding into a
+ * request -- append it to incomplete_slots (the H3_REQUEST_INCOMPLETE
+ * counterpart of route_note_done) for whichever layer aborts it. A CONNECT
+ * completed by connect_headers_complete rather than FIN is never incomplete
+ * (it deliberately never gets a FIN, see request_complete's doc), so this is
+ * gated on the stream's own FIN latch, not just "decode failed". */
+static void route_note_incomplete(wired_srvloop* l, int i) {
+  wired_srvloop_stream_slot* slot = &l->streams[i];
+  if (!slot->req_fin) return;
+  slot->req_incomplete = 1;
+  if (l->incomplete_n < WIRED_SRVLOOP_MAX_STREAMS)
+    l->incomplete_slots[l->incomplete_n++] = (u8)i;
+}
+
 /* RFC 9114 4.1 vs hq-interop (see hq09.h): dispatch slot i's just-completed
  * request through whichever decoder this connection negotiated -- QPACK/
  * HEADERS for h3, a bare "GET <path>\r\n" line for hq-interop. Split out so
@@ -1010,7 +1024,10 @@ static void route_complete_slot(
       quic_mspan_of(slot->req_wrap, sizeof slot->req_wrap), &got, &slot->req};
   if (!request_complete(&acc, &sin)) return;
   route_dispatch_complete(ctx, &acc, &sin);
-  if (got) route_note_done(ctx->l, i);
+  if (got)
+    route_note_done(ctx->l, i);
+  else
+    route_note_incomplete(ctx->l, i);
 }
 
 /* Run completion over every slot this payload touched. */

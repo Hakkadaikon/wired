@@ -93,6 +93,12 @@ typedef struct {
   usz req_len;       /**< highest offset+len written into req_buf */
   u8  req_fin;       /**< 1 once a request-stream FIN was seen */
   int req_done;      /**< 1 once this request was decoded/answered */
+  /** RFC 9114 4.1: 1 once this stream's FIN arrived without enough of the
+   * request to decode (e.g. a truncated HEADERS frame) -- req_done is also
+   * set in this case (decode is attempted at most once), but no request was
+   * produced. Distinguishes "answered" from "must be aborted with
+   * H3_REQUEST_INCOMPLETE" for whichever layer reaps this slot. */
+  int req_incomplete;
   /** backing store for req's path/body views once decoded (see
    * drive_complete in dispatch.c); must outlive the decode call, so it lives
    * here rather than a stack local that dies on return */
@@ -402,7 +408,15 @@ typedef struct {
    * wired_srvloop_step; each entry indexes streams[], whose slot holds its
    * own decoded req (views valid until that slot's next request begins). */
   u8  done_slots[WIRED_SRVLOOP_MAX_STREAMS];
-  usz done_n;        /**< entries valid in done_slots this step */
+  usz done_n; /**< entries valid in done_slots this step */
+  /** RFC 9114 4.1: every slot whose request stream terminated (FIN) THIS step
+   * WITHOUT producing a request (streams[i].req_incomplete) -- the
+   * H3_REQUEST_INCOMPLETE counterpart of done_slots above. A slot never
+   * appears in both lists: request_complete decodes at most once, so a
+   * completion is either a request (done_slots) or an incomplete stream
+   * (incomplete_slots). Reset at the start of every wired_srvloop_step. */
+  u8  incomplete_slots[WIRED_SRVLOOP_MAX_STREAMS];
+  usz incomplete_n;  /**< entries valid in incomplete_slots this step */
   int peer_closed;   /**< 1 once a peer CONNECTION_CLOSE frame was seen */
   int resp_external; /**< 1: the caller answers requests, not the loop */
   /** ACK ranges (RFC 9000 19.3) seen in payloads opened this step, reset at
