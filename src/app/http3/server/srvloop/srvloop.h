@@ -1,6 +1,7 @@
 #ifndef WIRED_SRVLOOP_SRVLOOP_H
 #define WIRED_SRVLOOP_SRVLOOP_H
 
+#include "app/http3/core/h3/priority.h"
 #include "app/http3/request/h3reqdrive/request_drive.h"
 #include "app/http3/server/h3srv/state.h"
 #include "common/bytes/span/span.h"
@@ -96,7 +97,49 @@ typedef struct {
    * drive_complete in dispatch.c); must outlive the decode call, so it lives
    * here rather than a stack local that dies on return */
   u8 req_wrap[2080];
+  /** RFC 9218 4.1/7.1: this stream's current response priority, applied by a
+   * PRIORITY_UPDATE frame on the peer's control stream (see
+   * wired_srvloop_priority_apply) and defaulted (u=3, i=0) whenever the slot
+   * is (re)claimed -- a request that never receives a PRIORITY_UPDATE keeps
+   * whatever the Priority request header field set (RFC 9218 5), unaffected
+   * by this field. */
+  quic_h3_priority priority;
 } wired_srvloop_stream_slot;
+
+/** RFC 9218 7.1 / 10: how many PRIORITY_UPDATE frames naming a not-yet-open
+ * request stream one connection buffers (9218-010) until that stream is
+ * claimed. Small and fixed: a client reprioritizing a stream ahead of
+ * opening it is a corner case, not a bulk pattern, so this need not track
+ * WIRED_SRVLOOP_MAX_STREAMS' own sizing. */
+#define WIRED_SRVLOOP_MAX_PENDING_PRIORITY 8
+
+/** One buffered PRIORITY_UPDATE naming a request stream this connection has
+ * not opened yet (RFC 9218 10 / 9218-010). in_use == 0 marks a free slot. */
+typedef struct {
+  int              in_use;
+  u64              stream_id; /**< the not-yet-open request stream id */
+  quic_h3_priority priority;  /**< the priority to apply once it opens */
+} wired_srvloop_pending_priority;
+
+/** Byte capacity of the peer control stream's reassembly buffer (RFC 9114
+ * 6.2.1, RFC 9218 7.1). Holds the stream's bytes AFTER the leading 0x00 type
+ * varint -- SETTINGS plus any number of PRIORITY_UPDATE frames comfortably
+ * fit; a real peer's control stream is a handful of small frames, not a bulk
+ * transfer, so this need not match a WT stream's throughput-sized window. */
+#define WIRED_SRVLOOP_CTRL_BUF_CAP 512
+
+/** The peer's control stream, reassembled across datagrams (RFC 9000 2.2)
+ * past its leading type varint, so its HTTP/3 frames (SETTINGS, GOAWAY,
+ * PRIORITY_UPDATE, ...) can be walked once fully buffered up to `parsed`.
+ * Offset-indexed like wired_srvloop_stream_slot's req_buf: a frame spanning
+ * more than one STREAM frame (curl splits SETTINGS from a later
+ * PRIORITY_UPDATE) still lands contiguously.
+ * ponytail: overflow past buf is truncated, same policy as req_buf. */
+typedef struct {
+  u8  buf[WIRED_SRVLOOP_CTRL_BUF_CAP]; /**< offset-indexed control bytes */
+  usz len;    /**< highest offset+len written into buf */
+  usz parsed; /**< bytes already walked as complete HTTP/3 frames */
+} wired_srvloop_ctrl_stream;
 
 /** RFC 9000 2.2: how many concurrent WebTransport bidi streams (draft-ietf-
  * webtrans-http3-15 4.3) one connection can reassemble. Separate from
@@ -476,6 +519,24 @@ typedef struct {
   u64 ecn_ect1;
   /** CE running total (same lifecycle as ecn_ect0's doc above). */
   u64 ecn_ce;
+  /** RFC 9218 10 / 9218-010: PRIORITY_UPDATE frames naming a request stream
+   * not yet open, buffered until wired_srvloop_slot_for claims that stream id
+   * (see wired_srvloop_priority_apply). Not reset across steps by this loop
+   * itself -- a pending entry lives until its stream opens or the table is
+   * re-armed by wired_srvloop_init. */
+  wired_srvloop_pending_priority
+      pending_priority[WIRED_SRVLOOP_MAX_PENDING_PRIORITY];
+  /** RFC 9114 6.2.1: the peer's single control stream, reassembled so its
+   * frames (SETTINGS/GOAWAY/PRIORITY_UPDATE) can be walked once complete --
+   * see wired_srvloop_ctrl_stream's own doc. Not reset across steps by this
+   * loop itself (mirrors the streams[] reassembly convention). */
+  wired_srvloop_ctrl_stream ctrl;
+  /** RFC 9218 7.1 / RFC 9114 8.1: the H3 connection error code of the most
+   * recent rejected PRIORITY_UPDATE this step (H3_FRAME_UNEXPECTED /
+   * H3_ID_ERROR), 0 when none was rejected. Mirrors datagram_violation's
+   * shape: dispatch.c only latches it, the caller driving the loop decides
+   * how to close the connection over it. */
+  u16 priupdate_violation;
 } wired_srvloop;
 
 /** Register the app response-body builder; pass 0 to clear (body-less 200).
@@ -502,6 +563,19 @@ int wired_srvloop_init(wired_srvloop* l, const u8* cli_scid, u8 cli_scid_len);
  * @return the slot index, or -1 when the table is full (the stream's frames
  *   are dropped, same as the old fixed capacity of one). */
 int wired_srvloop_slot_for(wired_srvloop* l, u64 stream_id);
+
+/** RFC 9218 7.1 / 10: apply a validated PRIORITY_UPDATE (request variant) to
+ * stream_id -- directly into its streams[] slot if already open, else
+ * buffered in pending_priority[] until wired_srvloop_slot_for later claims
+ * that stream id (9218-010). A stream id that is neither open nor buffered
+ * anywhere is simply added to (or overwrites its own entry in)
+ * pending_priority[]; a full pending table drops the update, same
+ * truncate-on-overflow policy family as this file's other fixed tables.
+ * @param l the loop to apply into
+ * @param stream_id the client bidi request stream id the update names
+ * @param p the priority to apply (already decoded/validated by the caller) */
+void wired_srvloop_priority_apply(
+    wired_srvloop* l, u64 stream_id, const quic_h3_priority* p);
 
 /** RFC 9000 2.2: free the streams[] slot reassembling stream_id, once its
  * response has been fully sent and acknowledged -- called by the response

@@ -8,6 +8,7 @@
 #include "app/http3/server/h3srv/peer.h"
 #include "app/http3/server/h3srv/respond.h"
 #include "app/http3/server/hq09/hq09.h"
+#include "app/http3/server/srvloop/priority_ctrl.h"
 #include "app/http3/server/srvloop/srvloop.h"
 #include "common/bytes/util/bytes.h"
 #include "common/bytes/varint/varint.h"
@@ -546,6 +547,38 @@ static int gather_uni_stream(wired_srvloop* l, const u8* payload, usz len) {
   quic_framewalk_init(&it, payload, len);
   while (quic_framewalk_next(&it, &fr))
     seen |= gather_uni_frame(l, fr.type, quic_span_of(fr.start, fr.remaining));
+  return seen;
+}
+
+/* RFC 9218 7.1 / 10, RFC 9114 6.2.1: reassemble every client uni STREAM frame
+ * belonging to the peer's control stream into l->ctrl and apply any newly
+ * complete PRIORITY_UPDATE frame (wired_srvloop_ctrl_gather), mirroring
+ * gather_uni_stream's own walk shape. Returns 1 if any control-stream frame
+ * was seen this payload. */
+static int gather_ctrl_priupdate(wired_srvloop* l, const u8* payload, usz len) {
+  quic_framewalk      it;
+  quic_framewalk_item fr;
+  int                 seen = 0;
+  quic_framewalk_init(&it, payload, len);
+  while (quic_framewalk_next(&it, &fr))
+    seen |= wired_srvloop_ctrl_gather(
+        l, fr.type, quic_span_of(fr.start, fr.remaining));
+  return seen;
+}
+
+/* RFC 9218 7.1 / 9218-013: scan every client bidi (request) STREAM frame this
+ * payload carries for a PRIORITY_UPDATE frame, latching l->priupdate_
+ * violation on one (wired_srvloop_req_priupdate_gather), mirroring
+ * gather_ctrl_priupdate's own walk shape. Returns 1 if any request-stream
+ * frame was seen this payload. */
+static int gather_req_priupdate(wired_srvloop* l, const u8* payload, usz len) {
+  quic_framewalk      it;
+  quic_framewalk_item fr;
+  int                 seen = 0;
+  quic_framewalk_init(&it, payload, len);
+  while (quic_framewalk_next(&it, &fr))
+    seen |= wired_srvloop_req_priupdate_gather(
+        l, fr.type, quic_span_of(fr.start, fr.remaining));
   return seen;
 }
 
@@ -1110,6 +1143,25 @@ static int dispatch_gather_flowctl(
          got_path_resp;
 }
 
+/* RFC 9218 7.1 / 10: 1 if ctx has a loop to reassemble the peer's control
+ * stream into (ctx->l != 0) and this payload carried any of its frames,
+ * mirroring dispatch_gather_uni for the PRIORITY_UPDATE-applying walk. */
+static int dispatch_gather_ctrl_priupdate(
+    const wired_srvloop_dispatch_ctx* ctx, quic_span payload) {
+  if (!ctx->l) return 0;
+  return gather_ctrl_priupdate(ctx->l, payload.p, payload.n);
+}
+
+/* RFC 9218 7.1 / 9218-013: 1 if ctx has a loop to latch a PRIORITY_UPDATE
+ * violation into (ctx->l != 0) and this payload carried a request-stream
+ * frame, mirroring dispatch_gather_ctrl_priupdate for the request-side scan.
+ */
+static int dispatch_gather_req_priupdate(
+    const wired_srvloop_dispatch_ctx* ctx, quic_span payload) {
+  if (!ctx->l) return 0;
+  return gather_req_priupdate(ctx->l, payload.p, payload.n);
+}
+
 /* RFC 9000 12.4 / 2.1, RFC 9114 6.2: a payload may lead with PADDING/ACK before
  * its CRYPTO or STREAM frame (curl/quiche do this). A client bidi STREAM drives
  * HTTP/3; unidirectional STREAMs are accepted but ignored; anything else is
@@ -1119,17 +1171,20 @@ static int dispatch_gather_flowctl(
  * uni stream (control/QPACK/WebTransport, same draft/RFC 9114 6.2), or a
  * DATAGRAM frame (RFC 9221 5) — all three are gathered independently before
  * either path below, since a coalesced payload may carry any combination. */
-/* Gather this payload's WT bidi, uni, DATAGRAM, and stream-close frames (each
- * independent of the others, see wired_srvloop_dispatch's doc); 1 if any kind
- * was present. */
+/* Gather this payload's WT bidi, uni, DATAGRAM, stream-close, and
+ * PRIORITY_UPDATE-relevant frames (each independent of the others, see
+ * wired_srvloop_dispatch's doc); 1 if any kind was present. */
 static int dispatch_gather_side_channels(
     const wired_srvloop_dispatch_ctx* ctx, quic_span payload) {
-  int got_wt      = dispatch_gather_wt(ctx, payload);
-  int got_uni     = dispatch_gather_uni(ctx, payload);
-  int got_dg      = dispatch_gather_datagrams(ctx, payload);
-  int got_closes  = dispatch_gather_closes(ctx, payload);
-  int got_flowctl = dispatch_gather_flowctl(ctx, payload);
-  return got_wt | got_uni | got_dg | got_closes | got_flowctl;
+  int got_wt       = dispatch_gather_wt(ctx, payload);
+  int got_uni      = dispatch_gather_uni(ctx, payload);
+  int got_dg       = dispatch_gather_datagrams(ctx, payload);
+  int got_closes   = dispatch_gather_closes(ctx, payload);
+  int got_flowctl  = dispatch_gather_flowctl(ctx, payload);
+  int got_ctrl_pri = dispatch_gather_ctrl_priupdate(ctx, payload);
+  int got_req_pri  = dispatch_gather_req_priupdate(ctx, payload);
+  return got_wt | got_uni | got_dg | got_closes | got_flowctl | got_ctrl_pri |
+         got_req_pri;
 }
 
 int wired_srvloop_dispatch(
