@@ -217,6 +217,34 @@ static void test_srvloop_ctrl_first_frame_not_settings_missing(void) {
   CHECK(l.peer_ctrl.error == QUIC_H3_ERR_MISSING_SETTINGS);
 }
 
+/* RFC 9218 10: wired_srvloop_priority_of reads back an open stream's current
+ * priority (the same value a scheduler would order sends by) without
+ * allocating anything. */
+static void test_srvloop_priority_of_open_stream(void) {
+  wired_srvloop    l;
+  quic_h3_priority p;
+
+  CHECK(wired_srvloop_init(
+      &l, g_priupdate_cli_scid, sizeof g_priupdate_cli_scid));
+  CHECK(wired_srvloop_slot_for(&l, 4) >= 0);
+  wired_srvloop_priority_apply(
+      &l, 4, &(quic_h3_priority){2, 1}); /* u=2, incremental */
+
+  CHECK(wired_srvloop_priority_of(&l, 4, &p) == 1);
+  CHECK(p.urgency == 2);
+  CHECK(p.incremental == 1);
+}
+
+/* A stream id with no open streams[] slot has nothing to read. */
+static void test_srvloop_priority_of_unopened_stream(void) {
+  wired_srvloop    l;
+  quic_h3_priority p;
+
+  CHECK(wired_srvloop_init(
+      &l, g_priupdate_cli_scid, sizeof g_priupdate_cli_scid));
+  CHECK(wired_srvloop_priority_of(&l, 4, &p) == 0);
+}
+
 void test_srvloop_priupdate(void) {
   test_srvloop_priupdate_applies_to_open_stream();
   test_srvloop_priupdate_buffers_for_unopened_stream();
@@ -224,4 +252,6 @@ void test_srvloop_priupdate(void) {
   test_srvloop_priupdate_bad_id_error();
   test_srvloop_ctrl_settings_latches_peer_ctrl();
   test_srvloop_ctrl_first_frame_not_settings_missing();
+  test_srvloop_priority_of_open_stream();
+  test_srvloop_priority_of_unopened_stream();
 }

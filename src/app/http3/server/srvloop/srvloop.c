@@ -364,6 +364,18 @@ void wired_srvloop_priority_apply(
     pending_priority_set(l, stream_id, p);
 }
 
+/* RFC 9218 10: a response scheduler (srvrun.c) needs stream_id's current
+ * priority to order its send passes, without itself claiming/allocating a
+ * streams[] slot (that stays wired_srvloop_slot_for's job, called only from
+ * the receive path) -- this is the read-only counterpart. */
+int wired_srvloop_priority_of(
+    const wired_srvloop* l, u64 stream_id, quic_h3_priority* out) {
+  int i = stream_slot_find(l, stream_id);
+  if (i < 0) return 0;
+  *out = l->streams[i].priority;
+  return 1;
+}
+
 /* 1 if wt slot is claimed and reassembling stream_id. */
 static int wt_slot_matches(
     const wired_srvloop_wt_stream_slot* slot, u64 stream_id) {
