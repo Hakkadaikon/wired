@@ -12,27 +12,45 @@ static int xdpf_eth(quic_span frame, quic_xdpframe_rx* out) {
   return eh.ethertype == QUIC_ETH_TYPE_IPV4;
 }
 
-/* IHL=5 fixed header, protocol UDP, and not a fragment (MF and the 13-bit
- * fragment offset both zero). */
+/* RFC 791 3.1/3.2: IHL is the header length in 32-bit words, minimum 5; a
+ * sender is conservative (this SDK always builds IHL=5, see
+ * quic_ipv4_build) but a receiver is liberal and does not reject a technically
+ * valid larger IHL (options present) it merely does not interpret -- only
+ * version 4 with IHL below the minimum is malformed. */
+static usz ip_hlen(const u8* ip) { return (usz)(ip[0] & 0x0f) * 4; }
+
+/* Version 4 and IHL no smaller than the RFC 791 minimum of 5 words. */
+static int xdpf_ver_ihl_ok(const u8* ip) {
+  return (ip[0] & 0xf0) == 0x40 && (ip[0] & 0x0f) >= 5;
+}
+
+/* Not a fragment: MF and the 13-bit fragment offset both zero. */
+static int xdpf_unfragmented(const u8* ip) {
+  return (quic_get_be16(ip + 6) & 0x3fffu) == 0;
+}
+
+/* Version 4, IHL >= 5 words, protocol UDP, and not a fragment. */
 static int xdpf_ip_ok(const u8* ip) {
-  return ip[0] == 0x45 && ip[9] == QUIC_IP_PROTO_UDP &&
-         (quic_get_be16(ip + 6) & 0x3fffu) == 0;
+  return xdpf_ver_ihl_ok(ip) && ip[9] == QUIC_IP_PROTO_UDP &&
+         xdpf_unfragmented(ip);
 }
 
-/* The IP total length covers at least the IP+UDP headers and fits within
- * the rem bytes from ip to the frame end; anything past it is ethernet
- * minimum-frame padding and is ignored. */
-static int xdpf_ip_len_ok(const u8* ip, usz rem) {
+/* The IP total length covers at least the (possibly option-extended) IP
+ * header plus a UDP header and fits within the rem bytes from ip to the
+ * frame end; anything past it is ethernet minimum-frame padding and is
+ * ignored. */
+static int xdpf_ip_len_ok(const u8* ip, usz hlen, usz rem) {
   u16 total = quic_get_be16(ip + 2);
-  return total >= QUIC_IPV4_HDR + QUIC_UDP_HDR && (usz)total <= rem;
+  return total >= hlen + QUIC_UDP_HDR && (usz)total <= rem;
 }
 
-/* Decode the UDP header into out. The checksums are not verified here on
- * purpose — see quic_xdpframe_parse in the header. */
-static int xdpf_udp(const u8* ip, quic_xdpframe_rx* out) {
-  const u8*     udp = ip + QUIC_IPV4_HDR;
+/* Decode the UDP header (starting hlen bytes into ip, past any IP options)
+ * into out. The checksums are not verified here on purpose — see
+ * quic_xdpframe_parse in the header. */
+static int xdpf_udp(const u8* ip, usz hlen, quic_xdpframe_rx* out) {
+  const u8*     udp = ip + hlen;
   quic_sockaddr dst;
-  if (quic_get_be16(udp + 4) != quic_get_be16(ip + 2) - QUIC_IPV4_HDR) return 0;
+  if (quic_get_be16(udp + 4) != quic_get_be16(ip + 2) - hlen) return 0;
   wired_udp_addr(&out->src, quic_get_be16(udp), ip + 12);
   wired_udp_addr(&dst, 0, ip + 16);
   out->our_ip      = wired_udp_addr4_be(&dst);
@@ -44,8 +62,9 @@ static int xdpf_udp(const u8* ip, quic_xdpframe_rx* out) {
 
 /* Validate and decode the IPv4 + UDP part starting at ip (rem bytes). */
 static int xdpf_ip(const u8* ip, usz rem, quic_xdpframe_rx* out) {
-  if (!xdpf_ip_ok(ip) || !xdpf_ip_len_ok(ip, rem)) return 0;
-  return xdpf_udp(ip, out);
+  usz hlen = ip_hlen(ip);
+  if (!xdpf_ip_ok(ip) || !xdpf_ip_len_ok(ip, hlen, rem)) return 0;
+  return xdpf_udp(ip, hlen, out);
 }
 
 int quic_xdpframe_parse(quic_span frame, quic_xdpframe_rx* out) {
