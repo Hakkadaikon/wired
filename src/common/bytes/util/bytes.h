@@ -95,4 +95,31 @@ static inline usz quic_cstr_len(const char* s) {
   return n;
 }
 
+/**
+ * ASCII lowercase of one octet (A-Z -> a-z, everything else unchanged).
+ *
+ * @param c input octet
+ * @return lowercased octet
+ */
+static inline u8 quic_ascii_lower(u8 c) {
+  return (c >= 'A' && c <= 'Z') ? (u8)(c | 0x20) : c;
+}
+
+/**
+ * RFC 6125 6.4.1: ASCII case-insensitive equality of two DNS-name-shaped byte
+ * spans (host names, SNI values). Non-ASCII bytes compare bytewise (no
+ * folding applied outside A-Z).
+ *
+ * @param a first span
+ * @param b second span
+ * @return 1 if equal length and equal after ASCII case-folding, 0 otherwise.
+ */
+static inline int quic_ascii_dns_eq(quic_span a, quic_span b) {
+  usz diff = 0;
+  if (a.n != b.n) return 0;
+  for (usz i = 0; i < a.n; i++)
+    diff |= (usz)(quic_ascii_lower(a.p[i]) ^ quic_ascii_lower(b.p[i]));
+  return diff == 0;
+}
+
 #endif

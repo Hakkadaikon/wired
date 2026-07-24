@@ -30,6 +30,12 @@
 #define QUIC_EC_CRYPTO_LO 0x0100
 #define QUIC_EC_CRYPTO_HI 0x01ff
 
+/* RFC 6066 3 / RFC 8446 B.2. TLS alert sent (or that would be sent) when a
+ * server does not recognize the server_name offered in the ClientHello's
+ * server_name extension. Pass to quic_err_crypto() to build the matching
+ * CRYPTO_ERROR code. */
+#define QUIC_TLS_ALERT_UNRECOGNIZED_NAME 112
+
 /* GREASE reserved values have the form 31*N+27 (RFC 9000 18.1). */
 #define QUIC_EC_GREASE_MOD 31
 #define QUIC_EC_GREASE_REM 27

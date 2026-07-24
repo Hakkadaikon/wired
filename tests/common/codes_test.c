@@ -33,8 +33,18 @@ static void test_codes_app(void) {
       quic_error_is_app(QUIC_EC_PROTOCOL_VIOLATION));
 }
 
+/* RFC 6066 3 / RFC 8446 B.2: unrecognized_name is alert 112, so the built
+ * CRYPTO_ERROR is 0x0100 | 112 and falls inside the standard CRYPTO range. */
+static void test_codes_unrecognized_name(void) {
+  u64 code = quic_err_crypto(QUIC_TLS_ALERT_UNRECOGNIZED_NAME);
+  CHECK(QUIC_TLS_ALERT_UNRECOGNIZED_NAME == 112);
+  CHECK(code == 0x0170);
+  CHECK(quic_error_is_standard(code) == 1);
+}
+
 void test_codes(void) {
   test_codes_standard();
   test_codes_grease();
   test_codes_app();
+  test_codes_unrecognized_name();
 }
