@@ -12,6 +12,9 @@
 /** pseudorandom key length */
 #define QUIC_HKDF_PRK QUIC_SHA256_DIGEST
 
+/** pseudorandom key length for the SHA-384 instantiation */
+#define QUIC_HKDF_PRK_384 QUIC_SHA384_DIGEST
+
 /**
  * HkdfLabel inputs (RFC 8446 7.1): the label (without the "tls13 " prefix)
  * and the context (may be empty: {0, 0}).
@@ -55,5 +58,42 @@ int quic_hkdf_expand(
  */
 int quic_hkdf_expand_label(
     const u8 prk[QUIC_HKDF_PRK], const quic_hkdf_label* l, quic_mspan okm);
+
+/**
+ * prk = HKDF-Extract(salt, ikm) instantiated with HMAC-SHA-384
+ * (RFC 5869 2.2, TLS_AES_256_GCM_SHA384).
+ *
+ * @param salt optional salt (may be empty)
+ * @param ikm  input keying material
+ * @param prk  receives the 48-byte pseudorandom key
+ */
+void quic_hkdf_extract_384(
+    quic_span salt, quic_span ikm, u8 prk[QUIC_HKDF_PRK_384]);
+
+/**
+ * okm = HKDF-Expand(prk, info, okm.n) instantiated with HMAC-SHA-384
+ * (RFC 5869 2.3).
+ *
+ * okm.n must be <= 255*48.
+ *
+ * @param prk  48-byte pseudorandom key from quic_hkdf_extract_384()
+ * @param info context/application-specific info (may be empty)
+ * @param okm  receives exactly okm.n bytes of output keying material
+ * @return 1 on success, 0 if the length is out of range.
+ */
+int quic_hkdf_expand_384(
+    const u8 prk[QUIC_HKDF_PRK_384], quic_span info, quic_mspan okm);
+
+/**
+ * okm = HKDF-Expand-Label(prk, label, context, okm.n) with the "tls13 "
+ * prefix, instantiated with HMAC-SHA-384 (RFC 8446 7.1, RFC 9001 5.1).
+ *
+ * @param prk 48-byte pseudorandom key
+ * @param l   label and context inputs (see quic_hkdf_label)
+ * @param okm receives exactly okm.n bytes of output keying material
+ * @return 1 on success, 0 if the label/context/length do not fit.
+ */
+int quic_hkdf_expand_label_384(
+    const u8 prk[QUIC_HKDF_PRK_384], const quic_hkdf_label* l, quic_mspan okm);
 
 #endif
