@@ -3,10 +3,12 @@
 
 #include "common/bytes/span/span.h"
 #include "crypto/symmetric/hash/hash/sha256.h"
+#include "crypto/symmetric/hash/hash/sha384.h"
 
 /**
  * @file
- * FIPS 198-1 HMAC-SHA-256. Output is a 32-byte MAC.
+ * FIPS 198-1 HMAC-SHA-256 and HMAC-SHA-384. Outputs are 32-byte and 48-byte
+ * MACs respectively.
  */
 
 /**
@@ -30,5 +32,14 @@ void quic_hmac_sha256(quic_span key, quic_span msg, u8 out[QUIC_SHA256_DIGEST]);
  */
 void quic_hmac_sha256_truncated(
     quic_span key, quic_span msg, u8* out, usz out_len);
+
+/**
+ * Compute HMAC-SHA-384(key, msg) (RFC 2104, FIPS 180-4 SHA-384).
+ *
+ * @param key MAC key (any length; keys longer than one block are hashed)
+ * @param msg message to authenticate
+ * @param out receives the 48-byte MAC
+ */
+void quic_hmac_sha384(quic_span key, quic_span msg, u8 out[QUIC_SHA384_DIGEST]);
 
 #endif
