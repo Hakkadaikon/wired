@@ -64,8 +64,37 @@ static void test_aes_mix_columns_matrix(void) {
   for (usz i = 0; i < 4; i++) check_mix_one(cases[i].in, cases[i].want);
 }
 
+static int bytes16_differ(const u8 a[16], const u8 b[16]) {
+  int differs = 0;
+  for (usz i = 0; i < 16; i++) differs |= (a[i] != b[i]);
+  return differs;
+}
+
+/* FIPS 197 6.2: the implementation shall impose no restriction on an
+ * appropriately generated key beyond its length. quic_aes128_init has no
+ * key-validation branch (aes.c schedules every byte unconditionally), so
+ * degenerate 16-byte keys (all-zero, all-0xff) that a "weak key" check
+ * might reject are accepted and encrypt without error. */
+static void test_aes_no_key_restriction_beyond_length(void) {
+  u8 zero_key[16] = {0}, ff_key[16], in[16] = {0}, out_zero[16], out_ff[16];
+  quic_aes128 a_zero, a_ff;
+  for (usz i = 0; i < 16; i++) ff_key[i] = 0xff;
+
+  quic_aes128_init(&a_zero, zero_key);
+  quic_aes128_encrypt(&a_zero, in, out_zero);
+  quic_aes128_init(&a_ff, ff_key);
+  quic_aes128_encrypt(&a_ff, in, out_ff);
+
+  /* Both degenerate keys produced *some* ciphertext (no crash/rejection),
+   * and distinct keys still yield distinct ciphertext for the same
+   * plaintext, i.e. the key was actually used rather than short-circuited
+   * by a validation check. */
+  CHECK(bytes16_differ(out_zero, out_ff));
+}
+
 void test_aes(void) {
   test_aes_fips197();
   test_aes_appendix_c();
   test_aes_mix_columns_matrix();
+  test_aes_no_key_restriction_beyond_length();
 }
