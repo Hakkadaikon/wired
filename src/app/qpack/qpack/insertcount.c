@@ -57,3 +57,6 @@ int quic_qpack_incr_valid(
     u64 known_received, u64 increment, u64 total_inserts) {
   return increment != 0 && known_received + increment <= total_inserts;
 }
+
+/* RFC 9204 4.4.1 */
+int quic_qpack_section_ack_valid(u64 pending_acks) { return pending_acks > 0; }

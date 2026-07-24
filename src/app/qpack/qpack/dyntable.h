@@ -39,6 +39,13 @@ int quic_qpack_dyn_insert(quic_qpack_dyn* t, const quic_qpack_field* f);
 /* RFC 9204 3.2.1. Current total size in bytes. */
 usz quic_qpack_dyn_size(const quic_qpack_dyn* t);
 
+/* RFC 9204 3.2.2. Apply a new dynamic table capacity from a received Set
+ * Dynamic Table Capacity instruction (Section 4.3.1) once it has already
+ * passed quic_qpack_capacity_within_limit: evicts entries from the end of
+ * the table until its size is at most new_capacity (a no-op if the
+ * capacity is being raised, or set to 0 to clear the table entirely). */
+void quic_qpack_dyn_set_capacity(quic_qpack_dyn* t, usz new_capacity);
+
 /* RFC 9204 4.3.1. A received Set Dynamic Table Capacity instruction's value is
  * valid only up to the limit the server advertised in
  * SETTINGS_QPACK_MAX_TABLE_CAPACITY. Returns 1 if capacity is within that

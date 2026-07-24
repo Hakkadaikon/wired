@@ -93,6 +93,23 @@ static void test_qpack_incr_exact_boundary_accepted(void) {
   CHECK(quic_qpack_incr_valid(0, 3, 3));
 }
 
+/* RFC 9204 4.4.1: a Section Acknowledgment is valid exactly while the
+ * stream it names has at least one unacknowledged field section (non-zero
+ * Required Insert Count) outstanding. */
+static void test_qpack_section_ack_pending_accepted(void) {
+  CHECK(quic_qpack_section_ack_valid(1));
+  CHECK(quic_qpack_section_ack_valid(5));
+}
+
+/* RFC 9204 4.4.1: "If an encoder receives a Section Acknowledgment
+ * instruction referring to a stream on which every encoded field section
+ * with a non-zero Required Insert Count has already been acknowledged,
+ * this MUST be treated as a connection error of type
+ * QPACK_DECODER_STREAM_ERROR." pending_acks == 0 is exactly that state. */
+static void test_qpack_section_ack_none_pending_rejected(void) {
+  CHECK(!quic_qpack_section_ack_valid(0));
+}
+
 void test_insertcount(void) {
   test_qpack_ric_zero();
   test_qpack_ric_example();
@@ -106,4 +123,6 @@ void test_insertcount(void) {
   test_qpack_incr_golden();
   test_qpack_incr_overshoot_rejected();
   test_qpack_incr_exact_boundary_accepted();
+  test_qpack_section_ack_pending_accepted();
+  test_qpack_section_ack_none_pending_rejected();
 }
