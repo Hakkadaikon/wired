@@ -274,6 +274,48 @@ static void test_handshake_progress_reaches_confirmed(void) {
   CHECK(cl.pto_armed == 0);
 }
 
+/* RFC 9001 6.6: auth_fail_count starts at 0 and aead_limit is unset. */
+static void test_auth_fail_starts_clear(void) {
+  quic_connloop c;
+  quic_connloop_init(&c, 1);
+  CHECK(c.auth_fail_count == 0);
+  CHECK(c.aead_limit == 0);
+}
+
+/* Below the integrity limit, recording a failure counts it but never sets
+ * aead_limit. */
+static void test_auth_fail_below_limit_no_flag(void) {
+  quic_connloop c;
+  quic_connloop_init(&c, 1);
+  quic_connloop_on_auth_fail(&c, 0);
+  CHECK(c.auth_fail_count == 1);
+  CHECK(c.aead_limit == 0);
+}
+
+/* Reaching the AES-GCM integrity limit (2^52) sets aead_limit; seeded
+ * directly at limit-1 so the test need not loop 2^52 times. */
+static void test_auth_fail_reaches_limit_aesgcm(void) {
+  quic_connloop c;
+  quic_connloop_init(&c, 1);
+  c.auth_fail_count = QUIC_AEAD_INTEGRITY_LIMIT_AESGCM - 1;
+  quic_connloop_on_auth_fail(&c, 0);
+  CHECK(c.auth_fail_count == QUIC_AEAD_INTEGRITY_LIMIT_AESGCM);
+  CHECK(c.aead_limit == 1);
+  /* idempotent: a further failure past the limit keeps the flag set */
+  quic_connloop_on_auth_fail(&c, 0);
+  CHECK(c.aead_limit == 1);
+}
+
+/* The ChaCha20-Poly1305 integrity limit (2^36) is reached far earlier than
+ * the AES-GCM one, confirming is_chacha selects the right table entry. */
+static void test_auth_fail_reaches_limit_chacha(void) {
+  quic_connloop c;
+  quic_connloop_init(&c, 1);
+  c.auth_fail_count = QUIC_AEAD_INTEGRITY_LIMIT_CHACHA - 1;
+  quic_connloop_on_auth_fail(&c, 1);
+  CHECK(c.aead_limit == 1);
+}
+
 void test_connloop(void) {
   test_send_level_never_regresses();
   test_no_app_data_before_handshake_complete();
@@ -287,4 +329,8 @@ void test_connloop(void) {
   test_closing_sends_no_app_data();
   test_no_recv_at_discarded_level();
   test_handshake_progress_reaches_confirmed();
+  test_auth_fail_starts_clear();
+  test_auth_fail_below_limit_no_flag();
+  test_auth_fail_reaches_limit_aesgcm();
+  test_auth_fail_reaches_limit_chacha();
 }

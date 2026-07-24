@@ -33,6 +33,9 @@ typedef struct {
   int          pto_armed;  /* RFC 9002 6.2: PTO timer armed */
   u64          recv_bytes; /* RFC 9000 8.1: bytes received on this path */
   u64          sent_bytes; /* RFC 9000 8.1: bytes sent on this path */
+  u64 auth_fail_count;     /* RFC 9001 6.6: packets that failed AEAD auth */
+  int aead_limit; /* 1 once auth_fail_count reached the integrity limit --
+                   * caller must close with AEAD_LIMIT_REACHED */
 } quic_connloop;
 
 /* Initialize an active connection with an empty keyset and no bytes counted.
@@ -69,6 +72,14 @@ int quic_connloop_on_send(quic_connloop* c, const quic_connloop_send_in* in);
  * received, or path validation completed). Lifts the anti-amplification limit
  * so subsequent sends are no longer capped at 3x the bytes received. */
 void quic_connloop_validate(quic_connloop* c);
+
+/* RFC 9001 6.6: record one packet that failed AEAD authentication. Increments
+ * auth_fail_count and, once it reaches the integrity limit for the AEAD in
+ * use (is_chacha selects AEAD_CHACHA20_POLY1305's 2^36, else the AES-GCM
+ * variants' shared 2^52), sets aead_limit so the caller closes the
+ * connection with AEAD_LIMIT_REACHED. Idempotent past the limit: further
+ * failures keep aead_limit set. */
+void quic_connloop_on_auth_fail(quic_connloop* c, int is_chacha);
 
 /* Everything quic_connloop_on_ack needs besides the loop. */
 typedef struct {
