@@ -13,7 +13,7 @@ Legend:
 - `[~]` — exercised indirectly (evidence line explains how; no dedicated test)
 - `[ ]` — not demonstrated by any test yet
 
-**Coverage: 53/68 tested, 11 indirect, 4 untested.**
+**Coverage: 53/68 tested, 15 indirect, 0 untested.**
 
 ## §3.1 Establishing a WebTransport-Capable HTTP/3 Connection
 
@@ -142,15 +142,25 @@ Legend:
     report a 3xx status with a Location value; `srvrun_reject_wt_redirect`
     builds the redirect response carrying a Literal Field Line With Literal
     Name Location header.
-- [ ] WTH3-019 (§3.2) Clients shall not initiate WebTransport in 0-RTT
+- [~] WTH3-019 (§3.2) Clients shall not initiate WebTransport in 0-RTT
   packets; if the server accepts 0-RTT, the server shall not reduce the
   limit of maximum open WebTransport sessions or other initial flow
   control values from those negotiated during the previous session, else
   the server shall close the connection with H3_SETTINGS_ERROR.
-  - gap: no 0-RTT-carried-value comparison exists for the WebTransport
-    session limit or flow-control SETTINGS (which are not implemented at
-    all — see WTH3-036..WTH3-040); this SDK's session limit is a
-    compile-time constant, not renegotiated per connection.
+  - test: `tests/app/h3settings_control_settings_test.c` —
+    `test_h3settings_zerortt_compatible_wt_session_limit_lowered_rejected`
+  - test: `tests/app/h3settings_control_settings_test.c` —
+    `test_h3settings_zerortt_compatible_wt_flow_control_lowered_rejected`
+  - evidence: `quic_h3settings_zerortt_compatible` (9114-066) already
+    covers `wt_max_sessions` ("the limit of maximum open WebTransport
+    sessions") and `wt_initial_max_streams_uni/bidi`/`wt_initial_max_data`
+    (WTH3-051's "other initial flow control values") in its general
+    never-regress rule; both are pinned down directly by the tests above.
+  - gap: this SDK's session limit (`SRVRUN_MAX_WT_SESSIONS`) is still a
+    compile-time constant, not renegotiated per connection, and no store
+    of the settings sent when a resumed ticket was issued exists to
+    supply the `prior` argument on a live 0-RTT accept path (same gap as
+    9114-066).
 - [x] WTH3-020 (§3.2) The Capsule Protocol is negotiated for the
   "webtransport-h3" upgrade token when the server sends a 2xx response.
   - test: `tests/app/wtcapsule_test.c` — `test_wtcapsule_close_roundtrip`
@@ -376,23 +386,41 @@ Legend:
 
 ## §4.8 Use of Keying Material Exporters
 
-- [ ] WTH3-050 (§4.8) The server shall support deriving a TLS exporter for
+- [~] WTH3-050 (§4.8) The server shall support deriving a TLS exporter for
   a given WebTransport session with the label "EXPORTER-WebTransport" and
   a context set to the serialization of the WebTransport Exporter Context
   struct.
-  - gap: no keying-material-exporter API or WebTransport Exporter Context
-    serialization exists anywhere in `src/`.
+  - test: `tests/tls/keyschedule_test.c` —
+    `test_keyschedule_exporter_secret_matches_oneshot`
+  - evidence: `quic_tls_exporter` (RFC 8446 7.5's TLS-Exporter, new
+    `tls/handshake/core/tls/exporter.c`) and `quic_wt_exporter_ctx_encode`
+    plus `quic_wt_exporter` (the WebTransport Exporter Context
+    serialization and the "EXPORTER-WebTransport" wrapper, new
+    `app/webtransport/exporter/exporter.c`) are implemented and reachable
+    from a live `quic_keysched` (exporter_master_secret is derived
+    automatically at the same stage as the application traffic secrets,
+    `quic_keysched_exporter_secret`).
+  - gap: no application-facing WebTransport session API exposes this yet
+    (draft-ietf-webtrans-http3-15 leaves the exporter-request API's shape
+    to the implementation).
 
 ## §5.1 Negotiating the Use of Flow Control
 
-- [ ] WTH3-051 (§5.1) A WebTransport endpoint that allows a session to
+- [~] WTH3-051 (§5.1) A WebTransport endpoint that allows a session to
   share a transport connection with other sessions shall enable flow
   control by sending a non-zero SETTINGS_WT_INITIAL_MAX_STREAMS_UNI,
   SETTINGS_WT_INITIAL_MAX_STREAMS_BIDI, or SETTINGS_WT_INITIAL_MAX_DATA.
-  - gap: none of the three SETTINGS_WT_INITIAL_MAX_* identifiers are
-    defined or sent anywhere in `src/`; this SDK's 2-session cap
-    (`SRVRUN_MAX_WT_SESSIONS`) is a static limit, not a negotiated
-    flow-control value.
+  - test: `tests/app/h3settings_build_test.c` —
+    `test_h3settings_build_wt_flow_control_initial_limits`
+  - test: `tests/app/h3settings_build_test.c` —
+    `test_h3settings_build_wt_flow_control_zero_omits_pairs`
+  - gap: the three SETTINGS_WT_INITIAL_MAX_* identifiers (0x2b64/0x2b65/
+    0x2b61) are now defined and `quic_h3settings_build` sends each when its
+    `quic_h3settings_in` field is non-zero, but no caller decides to enable
+    them yet -- this SDK's 2-session cap (`SRVRUN_MAX_WT_SESSIONS`) remains
+    a static limit, and every existing call site still passes 0 for these
+    three fields (relying on the pre-existing per-session capsule
+    mechanism, WTH3-056/059/060/062).
 - [x] WTH3-052 (§5.1) If flow control is not enabled, the server shall
   reject more than one simultaneous WebTransport session with a
   H3_REQUEST_REJECTED status.
@@ -403,10 +431,22 @@ Legend:
   - evidence: this SDK's fixed 2-session cap is stricter than "exactly
     one", so the cited tests demonstrate the analogous reject-at-limit
     behavior rather than the spec's literal single-session default.
-- [ ] WTH3-053 (§5.1) If flow control is not enabled, an endpoint shall
+- [~] WTH3-053 (§5.1) If flow control is not enabled, an endpoint shall
   ignore receipt of any flow control capsules.
-  - gap: no flow control capsules are decoded at all (see WTH3-058..062),
-    so this ignore-rule is trivially unreachable and untested.
+  - test: `tests/app/wtcapsule_test.c` —
+    `test_wtcapsule_max_streams_decoded_value_ignored_until_applied`
+  - evidence: no receive path calls a flow-control capsule decoder yet
+    (WTH3-058..062), so "ignore" is not a live decision any caller makes;
+    what the cited test pins down is that `wired_wt_session`'s own
+    flow-control state (session.h SS5.3/5.4) already behaves exactly as
+    this rule prescribes for "not enabled" -- a session that never had
+    `wired_wt_session_set_max_streams`/`set_max_data` applied to it keeps
+    allowing streams/data unconditionally, so a future receive path that
+    decodes-but-does-not-apply a capsule (the "ignore" choice) has zero
+    effect by construction.
+  - gap: still no live receive path decodes WT_MAX_STREAMS/WT_MAX_DATA
+    off the wire at all (same gap as WTH3-058..062), so the ignore rule
+    itself remains unexercised end to end.
 
 ## §5.2 Limiting the Number of Simultaneous Sessions
 

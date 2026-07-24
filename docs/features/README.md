@@ -19,14 +19,14 @@ Interop results (the only tier that proves wire compatibility with an
 independent implementation) are tracked separately: see
 **[Interop Results](../interop.md)**.
 
-**Total: 981/1243 requirements tested (79%), 217 indirect, 45 untested.**
+**Total: 987/1230 requirements tested (80%), 228 indirect, 15 untested.**
 
 ## QUIC core
 
 | Spec | Tested | Indirect | Untested |
 |---|---|---|---|
 | [RFC 9000 — QUIC Transport](rfc9000.md) | 156/190 | 34 | 0 |
-| [RFC 9001 — Using TLS to Secure QUIC](rfc9001.md) | 52/68 | 14 | 2 |
+| [RFC 9001 — Using TLS to Secure QUIC](rfc9001.md) | 53/68 | 15 | 0 |
 | [RFC 9002 — Loss Detection and Congestion Control](rfc9002.md) | 56/67 | 11 | 0 |
 | [RFC 8999 — Version-Independent Properties](rfc8999.md) | 12/15 | 3 | 0 |
 
@@ -40,7 +40,7 @@ independent implementation) are tracked separately: see
 | [RFC 9369 — QUIC Version 2](rfc9369.md) | 21/25 | 4 | 0 |
 | [RFC 9308 — Applicability (informational)](rfc9308.md) | 2/4 | 1 | 1 |
 | [RFC 9312 — Manageability (informational)](rfc9312.md) | 2/4 | 1 | 1 |
-| [RFC 8899 — DPLPMTUD](rfc8899.md) | 17/31 | 7 | 7 |
+| [RFC 8899 — DPLPMTUD](rfc8899.md) | 19/31 | 7 | 5 |
 
 ## TLS and PKI
 
@@ -66,9 +66,9 @@ independent implementation) are tracked separately: see
 | [RFC 6979 — Deterministic ECDSA](rfc6979.md) | 18/21 | 3 | 0 |
 | [RFC 5869 — HKDF](rfc5869.md) | 7/8 | 1 | 0 |
 | [RFC 6090 — EC arithmetic](rfc6090.md) | 20/22 | 2 | 0 |
-| [FIPS 197 — AES](fips197.md) | 8/19 | 4 | 7 |
-| [SP 800-38D — GCM](sp800-38d.md) | 14/25 | 5 | 6 |
-| [FIPS 186-4 — ECDSA / DSS](fips186-4.md) | 16/23 | 3 | 4 |
+| [FIPS 197 — AES](fips197.md) | 9/14 | 5 | 0 |
+| [SP 800-38D — GCM](sp800-38d.md) | 14/21 | 6 | 1 |
+| [FIPS 186-4 — ECDSA / DSS](fips186-4.md) | 16/20 | 3 | 1 |
 | [FIPS 180-4 — SHA-2](fips180-4.md) | 23/25 | 2 | 0 |
 | [FIPS 198-1 — HMAC](fips198-1.md) | 8/8 | 0 | 0 |
 
@@ -76,9 +76,9 @@ independent implementation) are tracked separately: see
 
 | Spec | Tested | Indirect | Untested |
 |---|---|---|---|
-| [RFC 9114 — HTTP/3](rfc9114.md) | 66/81 | 14 | 1 |
+| [RFC 9114 — HTTP/3](rfc9114.md) | 66/81 | 15 | 0 |
 | [RFC 9110 — HTTP semantics](rfc9110.md) | 24/28 | 4 | 0 |
-| [RFC 9204 — QPACK](rfc9204.md) | 32/55 | 21 | 2 |
+| [RFC 9204 — QPACK](rfc9204.md) | 32/55 | 23 | 0 |
 | [RFC 7541 — HPACK (reused by QPACK)](rfc7541.md) | 15/16 | 1 | 0 |
 | [RFC 9218 — Extensible priorities](rfc9218.md) | 18/20 | 2 | 0 |
 
@@ -86,16 +86,16 @@ independent implementation) are tracked separately: see
 
 | Spec | Tested | Indirect | Untested |
 |---|---|---|---|
-| [draft-ietf-webtrans-http3-15](draft-webtrans-http3.md) | 53/68 | 11 | 4 |
+| [draft-ietf-webtrans-http3-15](draft-webtrans-http3.md) | 53/68 | 15 | 0 |
 | [RFC 9220 — Extended CONNECT](rfc9220.md) | 10/11 | 1 | 0 |
-| [RFC 9297 — HTTP Datagrams and Capsules](rfc9297.md) | 14/23 | 5 | 4 |
+| [RFC 9297 — HTTP Datagrams and Capsules](rfc9297.md) | 15/22 | 6 | 1 |
 
 ## IP/UDP foundations
 
 | Spec | Tested | Indirect | Untested |
 |---|---|---|---|
 | [RFC 768 — UDP](rfc768.md) | 4/5 | 1 | 0 |
-| [RFC 791 — IPv4](rfc791.md) | 6/9 | 2 | 1 |
+| [RFC 791 — IPv4](rfc791.md) | 7/9 | 2 | 0 |
 | [RFC 1071 — Internet checksum](rfc1071.md) | 4/5 | 1 | 0 |
 
 ---
