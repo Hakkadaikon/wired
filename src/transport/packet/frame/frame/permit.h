@@ -18,6 +18,12 @@ typedef enum {
 /* Whether a frame of this kind is permitted in the given packet type. */
 int quic_frame_permitted(quic_frame_kind kind, quic_packet_type pkt);
 
+/* RFC 9000 19.7/19.20: NEW_TOKEN and HANDSHAKE_DONE are sent only by a
+ * server; a server receiving one of these is a protocol violation. This SDK
+ * is server-only, so every frame reaches this check from the server's
+ * receive direction. */
+int quic_frame_server_recv_forbidden(quic_frame_kind kind);
+
 /* Whether a frame type value is a reserved/GREASE type to be ignored
  * (RFC 9000 12.4 / RFC 9287-style extension points: types of the form
  * 0x1f * N + 0x21). Such frames carry no semantics and must be tolerated. */

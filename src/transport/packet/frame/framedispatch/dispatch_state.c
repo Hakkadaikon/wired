@@ -5,6 +5,7 @@
 #include "transport/packet/frame/frame/dispatch.h"
 #include "transport/packet/frame/frame/flowctl.h"
 #include "transport/packet/frame/frame/frame.h"
+#include "transport/packet/frame/frame/permit.h"
 #include "transport/recovery/rtx/sentpkt/ack_process.h"
 
 /* RFC 9000 19.8: feed a STREAM frame's bytes into the read buffer. */
@@ -87,10 +88,20 @@ int quic_framedispatch_ack_eliciting(u64 frame_type) {
   return quic_frame_ack_eliciting(quic_frame_classify(frame_type));
 }
 
+/* The registered handler for kind, or 0 if it has no table row. */
+static handler handler_for(quic_frame_kind k) {
+  return (k < sizeof handlers / sizeof handlers[0]) ? handlers[k] : 0;
+}
+
 int quic_framedispatch_handle(
     quic_framedispatch_state* st, u64 frame_type, quic_span frame) {
   quic_frame_kind k = quic_frame_classify(frame_type);
-  handler h = (k < sizeof handlers / sizeof handlers[0]) ? handlers[k] : 0;
+  handler         h;
+  if (quic_frame_server_recv_forbidden(k)) {
+    st->violation = 1;
+    return 0;
+  }
+  h = handler_for(k);
   if (h == 0) return 0;
   st->ack_eliciting |= (u8)quic_frame_ack_eliciting(k);
   return h(st, frame.p, frame.n);
