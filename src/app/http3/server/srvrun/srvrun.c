@@ -16,6 +16,7 @@
 #include "app/http3/server/srvpoll/srvpoll.h"
 #include "app/http3/server/srvwire/wire.h"
 #include "app/http3/server/srvxdp/srvxdp.h"
+#include "app/webtransport/capsule/wtcapsule/wtcapsule.h"
 #include "app/webtransport/errmap/errmap/errmap.h"
 #include "app/webtransport/session/session/session.h"
 #include "app/webtransport/wtwire/wtwire.h"
@@ -116,6 +117,13 @@ typedef struct {
   void*               wt_session_ctx; /**< opaque ctx for wt_on_session */
   /** RFC 9000 8.1.2 forced address validation, see wired_srvrun_opt. */
   int force_retry;
+  /** WT resource lookup, 0 to disable, see wired_srvrun_opt. */
+  wired_wt_resource_check wt_resource_check;
+  void*                   wt_resource_ctx; /**< opaque ctx for
+                                            * wt_resource_check */
+  /** WT stream-reset delivery, 0 to disable, see wired_srvrun_opt. */
+  wired_wt_on_stream_reset wt_on_stream_reset;
+  void* wt_stream_reset_ctx; /**< opaque ctx for wt_on_stream_reset */
 } srvrun_cfg;
 
 /* One live connection's mutable state: the orchestrator, the HTTP/3 loop,
@@ -290,6 +298,42 @@ typedef struct {
    * inactive. */
   u8  wt_path[SRVRUN_MAX_WT_SESSIONS][SRVRUN_WT_PATH_CAP];
   usz wt_path_len[SRVRUN_MAX_WT_SESSIONS];
+  /** draft-ietf-webtrans-http3-15 SS5.3/5.4/8.2 (WTH3-058/WTH3-061): 1 once
+   * this slot's session has exceeded a peer-advertised WT_MAX_STREAMS/WT_MAX_
+   * DATA limit (wired_server_wt_open_uni/_bidi/_stream_reply, checked against
+   * wired_wt_session_stream_open_allowed/data_send_allowed) and must be
+   * closed with WT_FLOW_CONTROL_ERROR. Latched rather than closed on the
+   * spot: those entry points are called from app callbacks with no srvrun_cfg
+   * in hand to seal the RESET_STREAM_AT/STOP_SENDING wire bytes with, so the
+   * actual close (srvrun_close_wt_flow_violations) runs on the next
+   * srvrun_on_step, which does have one -- mirrors closed_stream_seen's own
+   * latch-in-a-callback/consume-at-step-time shape (wired_srvloop.h). */
+  int wt_flow_violation[SRVRUN_MAX_WT_SESSIONS];
+  /** draft-ietf-webtrans-http3-15 SS4.2/SS4.7 (WTH3-048/WTH3-067): the
+   * CONNECT stream's own absolute QUIC stream offset (RFC 9000 19.8) just
+   * past the last byte srvrun_start_wt/srvrun_send_wt_capsule has sealed onto
+   * it -- captured once at the establishing 2xx (srvrun_start_wt, the HEADERS
+   * frame's own byte length) and advanced by every later WT_DRAIN_SESSION/
+   * WT_CLOSE_SESSION capsule append, since the response's own resp[] sendsess
+   * is freed once its 2xx is fully ACKed (srvrun_resp_reap) and cannot be
+   * appended to directly -- a later append instead seals a fresh 1-RTT packet
+   * at THIS offset (srvrun_send_wt_capsule), so the two writers' bytes
+   * concatenate correctly on the wire without either overlapping or leaving a
+   * gap. */
+  u64 wt_connect_sent_len[SRVRUN_MAX_WT_SESSIONS];
+  /** draft-ietf-webtrans-http3-15 SS4.2/SS4.4/8.2 (WTH3-067): a
+   * wired_server_wt_close_session call for this slot is pending -- latched
+   * (not sent inline) for the same no-srvrun_cfg-in-a-callback reason as
+   * wt_flow_violation, drained on the next srvrun_on_step
+   * (srvrun_drain_wt_close_pending): send WT_CLOSE_SESSION (wt_close_code/
+   * wt_close_msg/wt_close_msg_len) with FIN on the CONNECT stream, then reset
+   * every OTHER WT stream this session owns with WT_SESSION_GONE (the
+   * CONNECT stream itself was just cleanly FIN'd, not reset) and close the
+   * session. */
+  int wt_close_pending[SRVRUN_MAX_WT_SESSIONS];
+  u32 wt_close_code[SRVRUN_MAX_WT_SESSIONS];
+  u8  wt_close_msg[SRVRUN_MAX_WT_SESSIONS][QUIC_WTCAPSULE_CLOSE_MESSAGE_MAX];
+  usz wt_close_msg_len[SRVRUN_MAX_WT_SESSIONS];
   /** One pending outbound QUIC DATAGRAM (RFC 9221 5), queued by
    * srvrun_wt_send_datagram and drained by srvrun_send_pending_datagram on
    * the next step. ponytail: single-slot, not a queue — a second send
@@ -1809,8 +1853,16 @@ static u64 srvrun_wt_session_gone_code(void) {
   return quic_wterrmap_to_http3(QUIC_WTERR_SESSION_GONE);
 }
 
+/* draft-ietf-webtrans-http3-15 SS5.3/5.4/8.2: WT_FLOW_CONTROL_ERROR, mapped
+ * the same way as srvrun_wt_session_gone_code -- the application error code a
+ * session closing for exceeding its peer-advertised WT_MAX_STREAMS/WT_MAX_
+ * DATA limit is reset/stopped with (srvrun_close_flow_violated_slot). */
+static u64 srvrun_wt_flow_control_code(void) {
+  return quic_wterrmap_to_http3(QUIC_WTERR_FLOW_CONTROL_ERROR);
+}
+
 /* draft-ietf-webtrans-http3-15 SS4.4: reset one still-`in_use` WT bidi stream
- * that session_slot owned with WT_SESSION_GONE (RESET_STREAM_AT + STOP_
+ * that session_slot owned with err_code (RESET_STREAM_AT + STOP_
  * SENDING, srvrun_send_wt_busy_reset -- same pair shape draft-ietf-webtrans-
  * http3-15 8.2 uses for every other WT stream-level error this SDK sends)
  * and free its slot, so a session's teardown never leaves its own streams
@@ -1820,10 +1872,10 @@ static void srvrun_reset_wt_bidi_if_owned(
     const srvrun_cfg*             cfg,
     srvrun_conn*                  c,
     wired_srvloop_wt_stream_slot* slot,
-    int                           session_slot) {
+    int                           session_slot,
+    u64                           err_code) {
   if (!slot->in_use || slot->wt_session_slot != session_slot) return;
-  srvrun_send_wt_busy_reset(
-      cfg, c, slot->stream_id, srvrun_wt_session_gone_code());
+  srvrun_send_wt_busy_reset(cfg, c, slot->stream_id, err_code);
   slot->in_use = 0;
 }
 
@@ -1832,40 +1884,250 @@ static void srvrun_reset_wt_uni_if_owned(
     const srvrun_cfg*                 cfg,
     srvrun_conn*                      c,
     wired_srvloop_wt_uni_stream_slot* slot,
-    int                               session_slot) {
+    int                               session_slot,
+    u64                               err_code) {
   if (!slot->in_use || slot->wt_session_slot != session_slot) return;
-  srvrun_send_wt_busy_reset(
-      cfg, c, slot->stream_id, srvrun_wt_session_gone_code());
+  srvrun_send_wt_busy_reset(cfg, c, slot->stream_id, err_code);
   slot->in_use = 0;
 }
 
+/* draft-ietf-webtrans-http3-15 SS4.2/SS4.7 (WTH3-048): seal capsule_bytes as
+ * a STREAM frame on session slot sidx's own CONNECT stream, continuing from
+ * wt_connect_sent_len[sidx] (the offset doc explains why a fresh one-shot
+ * seal is used here rather than resp[]/wtsend[]'s pump), and advance that
+ * offset past it. Fire-and-forget, same as srvrun_send_goaway itself: both
+ * WT_DRAIN_SESSION (advisory, session.h) and GOAWAY are non-critical
+ * notifications this SDK does not retransmit on loss. fin sets the STREAM
+ * frame's own FIN bit (WT_CLOSE_SESSION's own send, WTH3-067, sets it; every
+ * other capsule here does not). Returns 1 with out->len set, 0 on overflow or
+ * no 1-RTT key. */
+static int srvrun_send_wt_capsule(
+    const srvrun_cfg* cfg,
+    srvrun_conn*      c,
+    int               sidx,
+    quic_span         capsule_bytes,
+    u8                fin,
+    quic_obuf*        out) {
+  /* +32: STREAM frame header room (type + stream id + offset + length
+   * varints, RFC 9000 19.8) ahead of capsule_bytes -- sized to fit the
+   * largest capsule this file sends, WT_CLOSE_SESSION's own worst case
+   * (QUIC_WTCAPSULE_CLOSE_MESSAGE_MAX, srvrun_send_wt_close's own body[]). */
+  u8                    pl[32 + 16 + 4 + QUIC_WTCAPSULE_CLOSE_MESSAGE_MAX];
+  quic_obuf             plb = quic_obuf_of(pl, sizeof pl);
+  wired_srvloop_send_in sin;
+  quic_stream_frame     f = {
+      srvrun_wt_slot(c, sidx)->connect_stream_id, c->wt_connect_sent_len[sidx],
+      capsule_bytes.n, capsule_bytes.p, fin};
+  if (!quic_appdata_stream_frame(&f, &plb)) return 0;
+  sin = (wired_srvloop_send_in){
+      quic_span_of(c->l.cli_scid, c->l.cli_scid_len), c->l.tx_pn++, -1,
+      quic_span_of(pl, plb.len), 0};
+  if (!wired_srvloop_send_onertt(&c->s, &sin, out)) return 0;
+  srvrun_send(cfg, c, quic_span_of(out->p, out->len), "WT capsule sent\n");
+  c->wt_connect_sent_len[sidx] += capsule_bytes.n;
+  return 1;
+}
+
 /* draft-ietf-webtrans-http3-15 SS4.4/8.2: a session closing must not leave
- * any of ITS OWN WT bidi/uni streams open -- reset every one with
- * WT_SESSION_GONE. wt_session_slot (set at offer time, srvrun_offer_wt_slot/
- * _uni_slot) is what tells these apart from a sibling session's own streams
- * when SRVRUN_MAX_WT_SESSIONS > 1 sessions are open at once on the same
+ * any of ITS OWN WT bidi/uni streams open -- reset every one with err_code.
+ * wt_session_slot (set at offer time, srvrun_offer_wt_slot/_uni_slot) is what
+ * tells these apart from a sibling session's own streams when
+ * SRVRUN_MAX_WT_SESSIONS > 1 sessions are open at once on the same
  * connection. */
 static void srvrun_reset_wt_streams_for_session(
-    const srvrun_cfg* cfg, srvrun_conn* c, int session_slot) {
+    const srvrun_cfg* cfg, srvrun_conn* c, int session_slot, u64 err_code) {
   for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_STREAMS; i++)
-    srvrun_reset_wt_bidi_if_owned(cfg, c, &c->l.wt_streams[i], session_slot);
+    srvrun_reset_wt_bidi_if_owned(
+        cfg, c, &c->l.wt_streams[i], session_slot, err_code);
   for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_UNI_STREAMS; i++)
-    srvrun_reset_wt_uni_if_owned(cfg, c, &c->l.wt_uni_streams[i], session_slot);
+    srvrun_reset_wt_uni_if_owned(
+        cfg, c, &c->l.wt_uni_streams[i], session_slot, err_code);
+}
+
+/* Common body of "close WT session slot sidx, resetting every stream it owns
+ * with err_code and freeing the slot" -- shared by srvrun_close_wt_on_stream_
+ * close (WT_SESSION_GONE, triggered by the CONNECT stream itself closing),
+ * srvrun_close_flow_violated_slot (WT_FLOW_CONTROL_ERROR, triggered by a
+ * WT_MAX_STREAMS/WT_MAX_DATA violation, WTH3-058/WTH3-061), and
+ * srvrun_send_wt_close (WT_CLOSE_SESSION, WTH3-067). Split out so no caller
+ * repeats the free-slot bookkeeping. */
+static void srvrun_close_wt_session_slot(
+    const srvrun_cfg* cfg, srvrun_conn* c, int sidx, u64 err_code) {
+  wired_wt_session_close(srvrun_wt_slot(c, sidx));
+  srvrun_reset_wt_streams_for_session(cfg, c, sidx, err_code);
+  /* Closing frees the slot -- a later Extended CONNECT may reuse it
+   * (srvrun_wt_free_slot's own check is the active flag, not session state,
+   * since WIRED_WT_UNESTABLISHED's enum value 0 is indistinguishable from
+   * "never initialized" by state alone). */
+  *srvrun_wt_active_slot(c, sidx) = 0;
 }
 
 static void srvrun_close_wt_on_stream_close(
     const srvrun_cfg* cfg, srvrun_conn* c) {
   int sidx = wt_connect_stream_slot(c);
-  if (sidx >= 0) {
-    wired_wt_session_close(srvrun_wt_slot(c, sidx));
-    srvrun_reset_wt_streams_for_session(cfg, c, sidx);
-    /* Closing frees the slot -- a later Extended CONNECT may reuse it
-     * (srvrun_wt_free_slot's own check is the active flag, not session state,
-     * since WIRED_WT_UNESTABLISHED's enum value 0 is indistinguishable from
-     * "never initialized" by state alone). */
-    *srvrun_wt_active_slot(c, sidx) = 0;
-  }
+  if (sidx >= 0)
+    srvrun_close_wt_session_slot(cfg, c, sidx, srvrun_wt_session_gone_code());
   c->l.closed_stream_seen = 0;
+}
+
+/* draft-ietf-webtrans-http3-15 SS4.2/SS4.4/8.2 (WTH3-067): drain a
+ * wired_server_wt_close_session call latched at slot sidx (wt_close_pending's
+ * own doc) -- send the WT_CLOSE_SESSION capsule with FIN on the CONNECT
+ * stream, then reset every OTHER WT stream this session owns with WT_SESSION_
+ * GONE (srvrun_close_wt_session_slot, which never touches the CONNECT stream
+ * itself) and close the session. A capsule-encode failure (message too long
+ * -- cannot happen, wired_server_wt_close_session already truncated it to
+ * QUIC_WTCAPSULE_CLOSE_MESSAGE_MAX -- or out overflow) still closes the
+ * session: a peer that never received the capsule finds out via the CONNECT
+ * stream's own FIN/reset either way, and leaving the session open forever on
+ * a local encode failure would be worse. */
+static void srvrun_send_wt_close(
+    const srvrun_cfg* cfg, srvrun_conn* c, int sidx, quic_obuf* out) {
+  /* +4: WT_CLOSE_SESSION's fixed 32-bit Application Error Code field
+   * (wtcapsule.h). +16: worst-case Capsule Type + Capsule Length varint
+   * overhead (RFC 9000 SS16: a varint is at most 8 bytes each,
+   * quic_capsule_encode's own envelope) ahead of the 4-byte code and message
+   * quic_wtcapsule_encode_close writes into this same buffer. */
+  u8        body[16 + 4 + QUIC_WTCAPSULE_CLOSE_MESSAGE_MAX];
+  quic_obuf bob = quic_obuf_of(body, sizeof body);
+  if (quic_wtcapsule_encode_close(
+          &bob, c->wt_close_code[sidx],
+          quic_span_of(c->wt_close_msg[sidx], c->wt_close_msg_len[sidx])))
+    srvrun_send_wt_capsule(cfg, c, sidx, quic_span_of(body, bob.len), 1, out);
+  srvrun_close_wt_session_slot(cfg, c, sidx, srvrun_wt_session_gone_code());
+}
+
+static void srvrun_drain_wt_close_one(
+    const srvrun_cfg* cfg, srvrun_conn* c, int i, quic_obuf* out) {
+  if (!c->wt_close_pending[i]) return;
+  c->wt_close_pending[i] = 0;
+  if (srvrun_wt_is_active(c, i)) srvrun_send_wt_close(cfg, c, i, out);
+}
+
+/* Drain every session slot's pending wired_server_wt_close_session
+ * (wt_close_pending, latched from an app callback), same per-step shape as
+ * srvrun_close_wt_flow_violations. */
+static void srvrun_drain_wt_close_pending(
+    const srvrun_cfg* cfg, srvrun_conn* c) {
+  u8 out[1500]; /* worst case: WT_CLOSE_SESSION's 1024-byte message
+                 * cap (srvrun_send_wt_close's own body[] doc) */
+  quic_obuf ob = quic_obuf_of(out, sizeof out);
+  for (int i = 0; i < SRVRUN_MAX_WT_SESSIONS; i++)
+    srvrun_drain_wt_close_one(cfg, c, i, &ob);
+}
+
+/* 1 if slot is in-use and its stream id is this step's latched
+ * wt_reset_stream_id -- the same "is this the reset target" test
+ * wt_reset_bidi_session/wt_reset_uni_session each apply to their own table,
+ * pulled into one predicate so neither loop's own `if` carries the `||`
+ * (CCN). */
+static int wt_reset_bidi_matches(
+    const wired_srvloop_wt_stream_slot* slot, u64 reset_stream_id) {
+  return slot->in_use && slot->stream_id == reset_stream_id;
+}
+
+/* Same as wt_reset_bidi_matches, for one WT uni stream slot. */
+static int wt_reset_uni_matches(
+    const wired_srvloop_wt_uni_stream_slot* slot, u64 reset_stream_id) {
+  return slot->in_use && slot->stream_id == reset_stream_id;
+}
+
+/* This step's wt_reset_stream_id/gather_one_wt_reset latch (dispatch.c)
+ * belongs to session slot sidx's own WT bidi stream: free that ONE stream
+ * slot (WTH3-036: a reset ends the stream, not its session) and return the
+ * session slot it belonged to, or -1 if it names no in-use bidi slot at all
+ * -- split out of wt_reset_session_slot so its own branch count stays at
+ * the CCN gate. */
+static int wt_reset_bidi_session(srvrun_conn* c) {
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_STREAMS; i++) {
+    wired_srvloop_wt_stream_slot* slot = &c->l.wt_streams[i];
+    if (!wt_reset_bidi_matches(slot, c->l.wt_reset_stream_id)) continue;
+    slot->in_use = 0;
+    return slot->wt_session_slot;
+  }
+  return -1;
+}
+
+/* Same as wt_reset_bidi_session, over the uni table. */
+static int wt_reset_uni_session(srvrun_conn* c) {
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_UNI_STREAMS; i++) {
+    wired_srvloop_wt_uni_stream_slot* slot = &c->l.wt_uni_streams[i];
+    if (!wt_reset_uni_matches(slot, c->l.wt_reset_stream_id)) continue;
+    slot->in_use = 0;
+    return slot->wt_session_slot;
+  }
+  return -1;
+}
+
+/* draft-ietf-webtrans-http3-15 4.4 (WTH3-039/WTH3-040): the session slot
+ * this step's latched RESET_STREAM/STOP_SENDING belongs to -- the bidi
+ * table first, then the uni table (the two id spaces are disjoint, RFC
+ * 9000 2.1, so at most one ever matches), or -1 if the stream id names
+ * neither a live WT bidi nor uni slot on this connection at all (e.g. a
+ * plain HTTP/3 request stream's own reset, out of WebTransport's scope). */
+static int wt_reset_session_slot(srvrun_conn* c) {
+  int sidx = wt_reset_bidi_session(c);
+  if (sidx >= 0) return sidx;
+  return wt_reset_uni_session(c);
+}
+
+/* draft-ietf-webtrans-http3-15 4.4 (WTH3-040): "If a RESET_STREAM or
+ * STOP_SENDING frame is received with an error code outside the
+ * WT_APPLICATION_ERROR range, then the implementation should deliver this
+ * to the application as a stream reset with no application error code."
+ * quic_wterrmap_from_http3 (errmap.h) recovers the WebTransport application
+ * error code when the wire code falls inside that range; mapped is left 0
+ * (app_error_code meaningless) otherwise -- this is the SDK-side half of
+ * WTH3-040, deciding what to hand the app; wired_wt_on_stream_reset's own
+ * doc covers the same split from the app's point of view. */
+static void srvrun_deliver_wt_reset(
+    const srvrun_cfg* cfg, srvrun_conn* c, int sidx) {
+  u32 app_code = 0;
+  int mapped   = quic_wterrmap_from_http3(c->l.wt_reset_error_code, &app_code);
+  if (!cfg->wt_on_stream_reset) return;
+  cfg->wt_on_stream_reset(
+      cfg->wt_stream_reset_ctx, srvrun_wt_slot(c, sidx),
+      c->l.wt_reset_stream_id, mapped, app_code);
+}
+
+/* draft-ietf-webtrans-http3-15 4.4 (WTH3-039/WTH3-040): once a step's
+ * gather_one_wt_reset (dispatch.c) latched a RESET_STREAM/STOP_SENDING on a
+ * stream id that resolves to one of THIS connection's own live WT bidi/uni
+ * slots, deliver it to the app (srvrun_deliver_wt_reset) and free that one
+ * stream's slot -- narrower than srvrun_close_wt_session_slot, which tears
+ * down a whole SESSION; this tears down only the ONE stream the peer reset,
+ * leaving the rest of its session untouched (WTH3-036: a reset is a per-
+ * stream event, not a session-ending one). c->l.wt_reset_seen is consumed
+ * every step regardless of whether it matched, mirroring closed_stream_
+ * seen's own per-step latch-and-clear shape (wt_connect_stream_slot's doc). */
+static void srvrun_deliver_wt_reset_if_owned(
+    const srvrun_cfg* cfg, srvrun_conn* c) {
+  int sidx;
+  if (!c->l.wt_reset_seen) return;
+  sidx = wt_reset_session_slot(c);
+  if (sidx >= 0) srvrun_deliver_wt_reset(cfg, c, sidx);
+  c->l.wt_reset_seen = 0;
+}
+
+/* draft-ietf-webtrans-http3-15 SS5.3/SS5.4/8.2 (WTH3-058/WTH3-061): close one
+ * session slot that wt_open_flow_ok/wt_reply_flow_ok latched
+ * (wt_flow_violation[i]) for exceeding a peer-advertised WT_MAX_STREAMS/
+ * WT_MAX_DATA limit, resetting every WT stream it owns with WT_FLOW_CONTROL_
+ * ERROR (srvrun_close_wt_session_slot) -- run every step so a violation
+ * latched from an app callback between steps is always closed on the very
+ * next one, mirroring srvrun_close_wt_on_stream_close's own per-step shape. */
+static void srvrun_close_flow_violated_slot(
+    const srvrun_cfg* cfg, srvrun_conn* c, int i) {
+  if (!c->wt_flow_violation[i]) return;
+  c->wt_flow_violation[i] = 0;
+  if (srvrun_wt_is_active(c, i))
+    srvrun_close_wt_session_slot(cfg, c, i, srvrun_wt_flow_control_code());
+}
+
+static void srvrun_close_wt_flow_violations(
+    const srvrun_cfg* cfg, srvrun_conn* c) {
+  for (int i = 0; i < SRVRUN_MAX_WT_SESSIONS; i++)
+    srvrun_close_flow_violated_slot(cfg, c, i);
 }
 
 /* RFC 9221 3: this step's DATAGRAM gathering (dispatch.c) latched a violation
@@ -1877,6 +2139,44 @@ static void srvrun_close_on_datagram_violation(
   srvrun_send_transport_close(
       cfg, c, QUIC_ERR_PROTOCOL_VIOLATION,
       quic_span_of(reason, sizeof reason - 1));
+}
+
+/* draft-ietf-webtrans-http3-15 4.3: this step's WT bidi gathering
+ * (dispatch.c's gather_one_wt_signal_violation) latched the WT_STREAM signal
+ * (0x41) arriving as a STREAM frame's own leading bytes at a non-zero stream
+ * offset -- "Receiving this frame type in any other circumstances MUST be
+ * treated as a connection error of type H3_FRAME_ERROR." An H3-level error
+ * on an HTTP/3 connection is an application-level CONNECTION_CLOSE (RFC 9114
+ * 8.1), the same shape srvrun_close_on_bad_qsid already uses for a different
+ * H3-level violation -- NOT srvrun_close_on_datagram_violation's transport-
+ * level PROTOCOL_VIOLATION, which is RFC 9221's own (different-layer) rule. */
+static void srvrun_close_on_wt_signal_violation(
+    const srvrun_cfg* cfg, srvrun_conn* c) {
+  static const u8 reason[] = "WT_STREAM signal outside stream's leading bytes";
+  srvrun_send_app_close(
+      cfg, c, QUIC_H3_FRAME_ERROR, quic_span_of(reason, sizeof reason - 1));
+}
+
+/* 1 if this step's own gathering (dispatch.c) latched a connection-ending
+ * violation and closed c over it -- datagram_violation (RFC 9221 3) or
+ * wt_signal_mid_stream_violation (draft-ietf-webtrans-http3-15 4.3), checked
+ * and cleared together so srvrun_on_step itself carries only one guard for
+ * both (CCN). Datagram is checked first only because it was the original,
+ * single violation; a step latching both simply chooses the datagram close
+ * (RFC 9000 10.2: any CONNECTION_CLOSE ends the connection, so it does not
+ * matter which of two same-step violations sends it). */
+static int srvrun_close_on_step_violation(
+    const srvrun_cfg* cfg, srvrun_conn* c) {
+  if (c->l.datagram_violation) {
+    srvrun_close_on_datagram_violation(cfg, c);
+    return 1;
+  }
+  if (c->l.wt_signal_mid_stream_violation) {
+    c->l.wt_signal_mid_stream_violation = 0;
+    srvrun_close_on_wt_signal_violation(cfg, c);
+    return 1;
+  }
+  return 0;
 }
 
 /* Send this step's sealed reply, if any and if the connection is not
@@ -1897,9 +2197,10 @@ static void srvrun_ku_note_rotation(srvrun_conn* c, u64 now_ms) {
 }
 
 /* A later datagram on a live slot: one real-wire step, send any sealed
- * reply — unless this step's own DATAGRAM gathering found an RFC 9221 3
- * violation, in which case the connection closes itself instead (see
- * srvrun_close_on_datagram_violation), or the step observed a peer
+ * reply — unless this step's own gathering found a connection-ending
+ * violation (RFC 9221 3 DATAGRAM, or draft-ietf-webtrans-http3-15 4.3's
+ * mid-stream WT_STREAM signal), in which case the connection closes itself
+ * instead (srvrun_close_on_step_violation), or the step observed a peer
  * CONNECTION_CLOSE (srvrun_send_step_reply's own gate). */
 static void srvrun_on_step(
     const srvrun_step_ctx* ctx, srvrun_conn* c, quic_mspan dg) {
@@ -1919,10 +2220,10 @@ static void srvrun_on_step(
   srvrun_grant_wt_credit(ctx->cfg, c);
   srvrun_drain_rx_datagrams(ctx->cfg, c);
   srvrun_close_wt_on_stream_close(ctx->cfg, c);
-  if (c->l.datagram_violation) {
-    srvrun_close_on_datagram_violation(ctx->cfg, c);
-    return;
-  }
+  srvrun_deliver_wt_reset_if_owned(ctx->cfg, c);
+  srvrun_close_wt_flow_violations(ctx->cfg, c);
+  srvrun_drain_wt_close_pending(ctx->cfg, c);
+  if (srvrun_close_on_step_violation(ctx->cfg, c)) return;
   srvrun_send_step_reply(ctx->cfg, c, produced, quic_span_of(out, ob.len));
 }
 
@@ -1984,6 +2285,30 @@ static int srvrun_send_goaway(
   srvrun_send(cfg, c, quic_span_of(out->p, out->len), "GOAWAY sent\n");
   c->goaway_sent = 1;
   return 1;
+}
+
+/* draft-ietf-webtrans-http3-15 SS4.2 (WTH3-048): send session slot sidx's own
+ * WT_DRAIN_SESSION capsule (empty body, wired_wt_session_drain's own
+ * advisory-only doc) and apply the matching local state transition. A no-op
+ * if the session was not ESTABLISHED (wired_wt_session_drain's own 0 return,
+ * e.g. already draining/closed) -- nothing to drain twice. */
+static void srvrun_send_wt_drain(
+    const srvrun_cfg* cfg, srvrun_conn* c, int sidx, quic_obuf* out) {
+  u8        body[8];
+  quic_obuf bob = quic_obuf_of(body, sizeof body);
+  if (!wired_wt_session_drain(srvrun_wt_slot(c, sidx))) return;
+  if (!quic_wtcapsule_encode_drain(&bob)) return;
+  srvrun_send_wt_capsule(cfg, c, sidx, quic_span_of(body, bob.len), 0, out);
+}
+
+/* Fan WT_DRAIN_SESSION out to every active WT session slot on c -- run right
+ * after c's own GOAWAY (srvrun_send_goaway), the trigger draft-ietf-webtrans-
+ * http3-15 SS4.7 ties this capsule to ("a server sends WT_DRAIN_SESSION [...]
+ * when [...] the connection is going away, for example, [...] GOAWAY"). */
+static void srvrun_send_wt_drain_all(
+    const srvrun_cfg* cfg, srvrun_conn* c, quic_obuf* out) {
+  for (int i = 0; i < SRVRUN_MAX_WT_SESSIONS; i++)
+    if (srvrun_wt_is_active(c, i)) srvrun_send_wt_drain(cfg, c, i, out);
 }
 
 /* GOAWAY is owed to c once: the connection is up, confirmed (a 1-RTT key
@@ -2260,6 +2585,16 @@ static int srvrun_conn_owns_session(srvrun_conn* c, wired_wt_session* s) {
   return 0;
 }
 
+/* s's own slot index on c (0 or 1), or -1 if c does not own s -- the index
+ * form of wt_slot_holds_session's search, needed wherever a caller must name
+ * WHICH slot (wt_flow_violation[sidx], srvrun_reset_wt_streams_for_session's
+ * own session_slot param) rather than just whether c owns s at all. */
+static int srvrun_conn_session_slot(srvrun_conn* c, wired_wt_session* s) {
+  for (int i = 0; i < SRVRUN_MAX_WT_SESSIONS; i++)
+    if (wt_slot_holds_session(c, i, s)) return i;
+  return -1;
+}
+
 static int conn_is_session_owner(srvrun_conn* c, wired_wt_session* s) {
   return c->up && srvrun_conn_owns_session(c, s);
 }
@@ -2321,12 +2656,56 @@ static i64 srvrun_wtsend_arm_id(srvrun_wtsend* w, u64 id, quic_span payload) {
   return (i64)id;
 }
 
+/* 1 iff opening one more stream of the given direction AND sending
+ * payload.n bytes of Stream Body on it both stay within the session's
+ * own limits (wired_wt_session_stream_open_allowed/data_send_allowed,
+ * session.h). Folded into one predicate so every caller's own branch count
+ * stays at the CCN gate. */
+static int wt_flow_allows_open(
+    const wired_wt_session* s, int bidi, quic_span payload) {
+  return wired_wt_session_stream_open_allowed(s, bidi) &&
+         wired_wt_session_data_send_allowed(s, payload.n);
+}
+
+/* s's own slot index on c, or -1 for a not-yet-resolved connection (c == 0)
+ * as well as an unowned session -- lets every wt_open_flow_ok caller pass
+ * srvrun_session_conn's possibly-null result straight through without its
+ * own null guard. */
+static int wt_session_slot_or_absent(srvrun_conn* c, wired_wt_session* s) {
+  return c ? srvrun_conn_session_slot(c, s) : -1;
+}
+
+/* draft-ietf-webtrans-http3-15 SS5.3/SS5.4/8.2 (WTH3-058/WTH3-061): 1 iff
+ * sidx names a real slot (c is live and owns s) AND opening one more stream
+ * of the given direction with payload.n bytes of Stream Body stays within
+ * whichever peer-advertised WT_MAX_STREAMS/WT_MAX_DATA limits are currently
+ * in force (wt_flow_allows_open -- a limit of 0 means "no capsule received
+ * yet", which both predicates already treat as "allowed", so a session that
+ * never opted into flow control is never gated here). On a limit violation,
+ * c's session slot sidx is latched for closing with WT_FLOW_CONTROL_ERROR on
+ * the next srvrun_on_step (wt_flow_violation's own doc) instead of opening
+ * the stream. @param sidx wt_session_slot_or_absent's result */
+static int wt_open_flow_ok(
+    srvrun_conn*      c,
+    int               sidx,
+    wired_wt_session* s,
+    int               bidi,
+    quic_span         payload) {
+  if (sidx < 0) return 0;
+  if (wt_flow_allows_open(s, bidi, payload)) return 1;
+  c->wt_flow_violation[sidx] = 1;
+  return 0;
+}
+
 i64 wired_server_wt_open_uni(wired_wt_session* s, quic_span payload) {
-  srvrun_conn*   c = srvrun_session_conn(s);
+  srvrun_conn*   c    = srvrun_session_conn(s);
+  int            sidx = wt_session_slot_or_absent(c, s);
   srvrun_wtsend* w;
-  if (!c) return -1;
+  if (!wt_open_flow_ok(c, sidx, s, 0, payload)) return -1;
   w = srvrun_wtsend_claim(c, c->s.sdrv.peer_initial_max_stream_data_uni);
   if (!w) return -1;
+  wired_wt_session_note_stream_opened(s, 0);
+  wired_wt_session_note_data_sent(s, payload.n);
   return srvrun_wtsend_arm_id(w, srvrun_next_uni_id(c), payload);
 }
 
@@ -2348,27 +2727,45 @@ static void srvrun_wt_preclaim_bidi_recv(
 }
 
 i64 wired_server_wt_open_bidi(wired_wt_session* s, quic_span payload) {
-  srvrun_conn*   c = srvrun_session_conn(s);
+  srvrun_conn*   c    = srvrun_session_conn(s);
+  int            sidx = wt_session_slot_or_absent(c, s);
   srvrun_wtsend* w;
   u64            id;
-  if (!c) return -1;
+  if (!wt_open_flow_ok(c, sidx, s, 1, payload)) return -1;
   w = srvrun_wtsend_claim(
       c, c->s.sdrv.peer_initial_max_stream_data_bidi_remote);
   if (!w) return -1;
+  wired_wt_session_note_stream_opened(s, 1);
+  wired_wt_session_note_data_sent(s, payload.n);
   id = srvrun_next_bidi_id(c);
   srvrun_wt_preclaim_bidi_recv(c, s, id);
   return srvrun_wtsend_arm_id(w, id, payload);
 }
 
+/* draft-ietf-webtrans-http3-15 SS5.4/8.2 (WTH3-061): same WT_MAX_DATA gate as
+ * wt_open_flow_ok, minus the stream-count half -- a reply on an already-open
+ * client-initiated stream opens no new stream, so only wired_wt_session_data_
+ * send_allowed applies. On a violation, c's session slot sidx is latched the
+ * same way wt_open_flow_ok does. */
+static int wt_reply_flow_ok(
+    srvrun_conn* c, int sidx, wired_wt_session* s, usz len) {
+  if (sidx < 0) return 0;
+  if (wired_wt_session_data_send_allowed(s, len)) return 1;
+  c->wt_flow_violation[sidx] = 1;
+  return 0;
+}
+
 int wired_server_wt_stream_reply(
     wired_wt_session* s, u64 stream_id, quic_span payload) {
-  srvrun_conn*   c = srvrun_session_conn(s);
+  srvrun_conn*   c    = srvrun_session_conn(s);
+  int            sidx = wt_session_slot_or_absent(c, s);
   srvrun_wtsend* w;
-  if (!c) return 0;
+  if (!wt_reply_flow_ok(c, sidx, s, payload.n)) return 0;
   /* RFC 9000 18.2: the peer's bidi_local TP governs what we may send on a
    * stream the peer itself initiated -- same seed resp[] claiming uses. */
   w = srvrun_wtsend_claim(c, c->s.sdrv.peer_initial_max_stream_data_bidi_local);
   if (!w) return 0;
+  wired_wt_session_note_data_sent(s, payload.n);
   srvrun_wtsend_arm_id(w, stream_id, payload);
   return 1;
 }
@@ -2422,6 +2819,29 @@ int wired_server_wt_send_datagram_to(wired_wt_session* s, quic_span payload) {
   return srvrun_dgring_push(env, slot, s->connect_stream_id, payload);
 }
 
+/* Copy message into c's own wt_close_msg[sidx] scratch, capped at
+ * QUIC_WTCAPSULE_CLOSE_MESSAGE_MAX (quic_wtcapsule_encode_close's own limit,
+ * wtcapsule.h) -- a longer message is truncated rather than rejected, same
+ * ponytail policy as this file's other fixed-capacity copies (e.g. wt_path).
+ */
+static void srvrun_wt_close_record_message(
+    srvrun_conn* c, int sidx, quic_span message) {
+  usz n = quic_u64_min(message.n, QUIC_WTCAPSULE_CLOSE_MESSAGE_MAX);
+  quic_memcpy(c->wt_close_msg[sidx], message.p, n);
+  c->wt_close_msg_len[sidx] = n;
+}
+
+int wired_server_wt_close_session(
+    wired_wt_session* s, u32 app_error_code, quic_span message) {
+  srvrun_conn* c    = srvrun_session_conn(s);
+  int          sidx = wt_session_slot_or_absent(c, s);
+  if (sidx < 0) return 0;
+  c->wt_close_code[sidx] = app_error_code;
+  srvrun_wt_close_record_message(c, sidx, message);
+  c->wt_close_pending[sidx] = 1;
+  return 1;
+}
+
 /* Seal and send one ring entry to its target connection; a connection gone
  * down since queue time is skipped, and a frame the peer's advertised
  * max_datagram_frame_size rejects is dropped (RFC 9221 1: DATAGRAM delivery
@@ -2450,12 +2870,21 @@ static void srvrun_dgring_drain(const srvrun_cfg* cfg, srvrun_state* st) {
 /* Send GOAWAY to every live connection that still owes one (RFC 9114 5.2), the
  * first step of graceful shutdown. Connections not yet confirmed simply have
  * no 1-RTT key to receive it and are left to time out normally. */
+/* GOAWAY plus this connection's own WT_DRAIN_SESSION fan-out
+ * (srvrun_send_wt_drain_all, WTH3-048) -- split out of srvrun_goaway_all so
+ * its own loop stays at the CCN gate. */
+static void srvrun_goaway_one(
+    const srvrun_cfg* cfg, srvrun_conn* c, quic_obuf* ob) {
+  if (!srvrun_send_goaway(cfg, c, ob)) return;
+  srvrun_send_wt_drain_all(cfg, c, ob);
+}
+
 static void srvrun_goaway_all(const srvrun_cfg* cfg, srvrun_state* st) {
   u8        out[256];
   quic_obuf ob = quic_obuf_of(out, sizeof out);
   for (usz i = 0; i < QUIC_CONNTABLE_CAP; i++)
     if (srvrun_owes_goaway(&st->conns[i]))
-      srvrun_send_goaway(cfg, &st->conns[i], &ob);
+      srvrun_goaway_one(cfg, &st->conns[i], &ob);
 }
 
 /* 1 once every slot has drained (gone down) or never came up — the condition
@@ -2815,6 +3244,27 @@ static int srvrun_is_wt_connect(const wired_h3reqdrive_req* r) {
   return quic_h3_connect_protocol_ok(r, 1);
 }
 
+/* RFC 9220 3: "If a server advertises support for Extended CONNECT but
+ * receives an Extended CONNECT request with a :protocol value that is
+ * unknown or is not supported, the server SHOULD respond ... with a 501
+ * (Not Implemented) status code." r is exactly that case: the Extended
+ * CONNECT shape (:method=CONNECT, :scheme/:authority/:path all present) with
+ * a :protocol field present that names something other than a recognized
+ * WebTransport token. srvrun_is_wt_connect already rejects this same r (its
+ * wt_protocol_is_webtransport check fails), so without this check r would
+ * fall through to srvrun_method_status/srvrun_start_app_resp and be treated
+ * as an ordinary CONNECT request -- wrong, since RFC 9220's 501 applies the
+ * moment :protocol names something this server does not support, before any
+ * plain-CONNECT handling. A CONNECT with no :protocol at all (plain CONNECT,
+ * RFC 9114 4.4) is unaffected: r->protocol is 0 there, so this returns 0 and
+ * the normal method-status/app-handler path still runs. */
+static int srvrun_is_wt_connect_unsupported_protocol(
+    const wired_h3reqdrive_req* r) {
+  if (!wt_ext_connect_shape_ok(r)) return 0;
+  if (!r->protocol) return 0;
+  return !wt_protocol_is_webtransport(r);
+}
+
 /* WebTransport draft-ietf-webtrans-http3-15 SS3.6: when Origin is present it
  * must be a non-empty value for the server to validate; this SDK has no
  * origin-allowlist configuration surface yet (YAGNI -- no in-tree consumer
@@ -2889,6 +3339,66 @@ static void srvrun_start_wt_status(
   quic_obuf pob = quic_obuf_of(st, WIRED_SRVRUN_RESP_MAX);
   if (!quic_h3resp_prefix_field(status, 0, 0, extra, &pob)) return;
   wired_sendsess_arm(&r->sess, st, pob.len, SRVRUN_CHUNK);
+}
+
+/* draft-ietf-webtrans-http3-15 SS3.2 (WTH3-018): "The server may reply with
+ * a 3xx response, indicating a redirection (Section 15.4 of [HTTP])." RFC
+ * 9110 15.4 ties every 3xx redirect status to a Location response header
+ * field naming the target; encoded here as one Literal Field Line With
+ * Literal Name (RFC 9204 4.5.6), the same mechanism srvrun_start_wt's own
+ * wt-protocol header already uses via srvrun_start_wt_status's extra param. */
+static void srvrun_reject_wt_redirect(
+    wired_srvrun_env* env,
+    int               slot,
+    srvrun_conn*      c,
+    srvrun_resp*      r,
+    u16               status,
+    quic_span         location) {
+  static const u8  name[] = {'l', 'o', 'c', 'a', 't', 'i', 'o', 'n'};
+  quic_qpack_field f      = {quic_span_of(name, sizeof name), location};
+  srvrun_start_wt_status(env, slot, c, r, status, &f);
+}
+
+/* draft-ietf-webtrans-http3-15 SS3.2: run the app's registered resource
+ * check (if any) for this Extended CONNECT's :authority/:path, filling
+ * *out. A callback that leaves *out's status at 0 (its caller-zeroed
+ * default) accepts the resource -- same as no callback registered at all
+ * (cfg->wt_resource_check == 0), which never runs the callback and leaves
+ * *out zeroed by this function's own memset-equivalent init. */
+static void srvrun_wt_resource_decide(
+    const srvrun_cfg*           cfg,
+    const srvrun_conn*          c,
+    wired_wt_resource_decision* out) {
+  *out = (wired_wt_resource_decision){0, 0, 0};
+  if (!cfg->wt_resource_check) return;
+  cfg->wt_resource_check(
+      cfg->wt_resource_ctx,
+      quic_span_of(c->l.req.authority, c->l.req.authority_len),
+      quic_span_of(c->l.req.path, c->l.req.path_len), out);
+}
+
+/* 1 if status is in the 3xx range (RFC 9110 15.4), the only range
+ * wired_wt_resource_decision.location applies to. */
+static int wt_status_is_3xx(u16 status) {
+  return status >= 300 && status < 400;
+}
+
+/* Seal the app's non-zero resource-check verdict: a 3xx carries the
+ * decision's Location value, anything else (404, or an app-chosen status
+ * such as 403) is sent bare -- split out of srvrun_dispatch_wt_resource so
+ * its own branch count stays at the CCN gate. */
+static void srvrun_start_wt_resource_status(
+    wired_srvrun_env*                 env,
+    int                               slot,
+    srvrun_conn*                      c,
+    srvrun_resp*                      r,
+    const wired_wt_resource_decision* d) {
+  if (wt_status_is_3xx(d->status)) {
+    srvrun_reject_wt_redirect(
+        env, slot, c, r, d->status, quic_span_of(d->location, d->location_len));
+    return;
+  }
+  srvrun_start_wt_status(env, slot, c, r, d->status, 0);
 }
 
 /* Record this Extended CONNECT's own :path value into session slot sidx:
@@ -3027,6 +3537,9 @@ static void srvrun_start_wt(
   (*srvrun_wt_active_slot(c, sidx)) = 1;
   srvrun_wt_record_path(c, sidx);
   srvrun_start_wt_status(cfg->env, slot, c, r, 200, p.sfv_len ? &f : 0);
+  /* wt_connect_sent_len's own doc: the 2xx HEADERS frame's byte length is
+   * where a later capsule append (srvrun_send_wt_capsule) must continue. */
+  c->wt_connect_sent_len[sidx] = r->sess.q.len;
   srvrun_wt_notify(cfg, c, sidx, quic_span_of(p.tok, p.tok_len));
 }
 
@@ -3352,6 +3865,26 @@ static void srvrun_dispatch_wt(
   srvrun_dispatch_wt_free_slot(cfg, c, slot, r);
 }
 
+/* draft-ietf-webtrans-http3-15 SS3.2 (WTH3-016/WTH3-018): the app's resource
+ * check runs before Origin verification (the RFC lists it first: "the HTTP/3
+ * server can check if it has a WebTransport server associated with the
+ * specified :authority and :path values ... When the request contains the
+ * Origin header, the WebTransport server MUST verify" second) -- a status of
+ * 0 (accept, including the no-callback-registered default) falls through to
+ * srvrun_dispatch_wt unchanged; any other status seals and sends the app's
+ * verdict verbatim instead. Split out of srvrun_dispatch_wt_gated so its own
+ * branch count stays at the CCN gate. */
+static void srvrun_dispatch_wt_resource(
+    const srvrun_cfg* cfg, srvrun_conn* c, int slot, srvrun_resp* r) {
+  wired_wt_resource_decision d;
+  srvrun_wt_resource_decide(cfg, c, &d);
+  if (d.status) {
+    srvrun_start_wt_resource_status(cfg->env, slot, c, r, &d);
+    return;
+  }
+  srvrun_dispatch_wt(cfg, c, slot, r);
+}
+
 /* draft-ietf-webtrans-http3-15 SS3.1 (WTH3-009/042): "for draft versions of
  * WebTransport, the server shall not process any incoming WebTransport
  * requests until the client's SETTINGS have been received." c->l.peer_ctrl
@@ -3390,7 +3923,7 @@ static void srvrun_dispatch_wt_gated(
     srvrun_reject_wt(cfg->env, slot, c, r);
     return;
   }
-  srvrun_dispatch_wt(cfg, c, slot, r);
+  srvrun_dispatch_wt_resource(cfg, c, slot, r);
 }
 
 /* RFC 9110 9.1 (9110-017/9110-018): the status this request's method earns
@@ -3435,19 +3968,31 @@ static srvrun_resp* srvrun_start_resp_claim(srvrun_conn* c) {
   return srvrun_resp_claim(c, c->l.req_stream_id);
 }
 
-/* Route a claimed slot to WT dispatch, a method-status response (501/405),
- * or the application handler -- split out of srvrun_start_resp so its own
- * `!r` guard stays a single branch at the CCN gate. */
+/* RFC 9110 9.1 / RFC 9220 3: the status a non-WT request earns before it
+ * reaches the app handler -- srvrun_method_status's own 501/405, or 501 for
+ * an Extended CONNECT naming an unsupported :protocol
+ * (srvrun_is_wt_connect_unsupported_protocol, checked first since that
+ * predicate only matches a shape srvrun_method_status would otherwise wave
+ * through as a plain CONNECT). 0 once neither applies. Split out of
+ * srvrun_dispatch_resp so its own branch count stays at the CCN gate. */
+static u16 srvrun_non_wt_status(const wired_h3reqdrive_req* r) {
+  if (srvrun_is_wt_connect_unsupported_protocol(r)) return 501;
+  return srvrun_method_status(r);
+}
+
+/* Route a claimed slot to WT dispatch, a method/protocol-status response
+ * (501/405), or the application handler -- split out of srvrun_start_resp so
+ * its own `!r` guard stays a single branch at the CCN gate. */
 static void srvrun_dispatch_resp(
     const srvrun_step_ctx* ctx, srvrun_conn* c, int slot, srvrun_resp* r) {
-  u16 method_status;
+  u16 status;
   if (srvrun_is_wt_connect(&c->l.req)) {
     srvrun_dispatch_wt_gated(ctx->cfg, c, slot, r);
     return;
   }
-  method_status = srvrun_method_status(&c->l.req);
-  if (method_status) {
-    srvrun_start_method_status(ctx->cfg->env, slot, c, r, method_status);
+  status = srvrun_non_wt_status(&c->l.req);
+  if (status) {
+    srvrun_start_method_status(ctx->cfg->env, slot, c, r, status);
     return;
   }
   srvrun_start_app_resp(ctx, c, slot, r);
@@ -5313,7 +5858,11 @@ static srvrun_cfg srvrun_build_cfg(
       opt->wt_protocols,
       opt->wt_on_session,
       opt->wt_session_ctx,
-      opt->force_retry};
+      opt->force_retry,
+      opt->wt_resource_check,
+      opt->wt_resource_ctx,
+      opt->wt_on_stream_reset,
+      opt->wt_stream_reset_ctx};
 }
 
 usz wired_srvrun_env_size(void) { return sizeof(wired_srvrun_env); }
@@ -5365,7 +5914,7 @@ int wired_server_run(
     wired_srvboot_id*    id,
     wired_srvrun_handler h,
     wired_srvrun_obs     obs) {
-  static const wired_srvrun_opt default_opt = {0,  0, 0, 0,  0, 0, 0, 0,
-                                               -1, 0, 0, -1, 0, 0, 0, 0};
+  static const wired_srvrun_opt default_opt = {0, 0,  0, 0, 0, 0, 0, 0, -1, 0,
+                                               0, -1, 0, 0, 0, 0, 0, 0, 0,  0};
   return wired_server_run_opt(port, id, h, obs, &default_opt);
 }

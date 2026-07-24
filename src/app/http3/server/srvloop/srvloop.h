@@ -568,6 +568,33 @@ typedef struct {
    * shape: dispatch.c only latches it, the caller driving the loop decides
    * how to close the connection over it. */
   u16 priupdate_violation;
+  /** draft-ietf-webtrans-http3-15 4.3: 1 once a STREAM frame this step
+   * carried the WT_STREAM signal varint (0x41) as its own leading bytes at
+   * a NON-zero stream offset -- "Endpoints MUST NOT send WT_STREAM as a
+   * frame type on HTTP/3 streams other than the very first bytes of a
+   * request stream. Receiving this frame type in any other circumstances
+   * MUST be treated as a connection error of type H3_FRAME_ERROR." Mirrors
+   * datagram_violation's shape: dispatch.c only latches it, the caller
+   * driving the loop (srvrun.c) closes the connection over it. Not reset
+   * across steps by this loop itself, same convention as max_data_seen_flag
+   * (the caller consumes and clears it every step). */
+  int wt_signal_mid_stream_violation;
+  /** draft-ietf-webtrans-http3-15 4.4 (WTH3-040): the stream id and wire
+   * error code of a RESET_STREAM/STOP_SENDING this step latched on a client
+   * bidi (request/WT) stream id, valid only when wt_reset_seen is set --
+   * mirrors closed_stream_id's own shape (last one wins if more than one
+   * arrives this step) but ALSO records the error code, which
+   * closed_stream_id's own gather (gather_stream_closes, for the CONNECT-
+   * stream-close case) does not need and therefore does not latch. This
+   * loop has no notion of which stream id is a WT data stream vs. a plain
+   * request stream, nor of the WT_APPLICATION_ERROR mapping -- the caller
+   * (srvrun.c) resolves both. wt_reset_is_stop is 1 for a STOP_SENDING, 0
+   * for a RESET_STREAM (both matter equally here; distinguished only so a
+   * caller that needs it can tell them apart). */
+  u64 wt_reset_stream_id;
+  u64 wt_reset_error_code;
+  int wt_reset_is_stop;
+  int wt_reset_seen; /**< 1 once the three fields above were set this step */
 } wired_srvloop;
 
 /** Register the app response-body builder; pass 0 to clear (body-less 200).
