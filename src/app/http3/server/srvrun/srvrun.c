@@ -4720,6 +4720,28 @@ static void srvrun_abort_incomplete_reqs(const srvrun_step_ctx* ctx, int slot) {
     srvrun_abort_incomplete_req(ctx, slot, c->l.incomplete_slots[i]);
 }
 
+/* RFC 9114 7.2.5/7.2.8 (9114-067/9114-073): a request stream carried
+ * PUSH_PROMISE or an HTTP/2-only reserved frame type -- srvloop's dispatch
+ * (route_note_frame_unexpected) already detected it and latched the slot in
+ * frame_unexpected_slots this step; abort it with H3_FRAME_UNEXPECTED, same
+ * RESET_STREAM_AT + STOP_SENDING pair as srvrun_abort_incomplete_req. */
+static void srvrun_abort_frame_unexpected_req(
+    const srvrun_step_ctx* ctx, int slot, u8 unexpected_i) {
+  srvrun_conn* c  = &ctx->st->conns[slot];
+  u64          id = c->l.streams[unexpected_i].stream_id;
+  srvrun_send_wt_busy_reset(ctx->cfg, c, id, QUIC_H3_FRAME_UNEXPECTED);
+}
+
+/* Abort every request stream rejected outright this step, same fan-out as
+ * srvrun_abort_incomplete_reqs. */
+static void srvrun_abort_frame_unexpected_reqs(
+    const srvrun_step_ctx* ctx, int slot) {
+  srvrun_conn* c = &ctx->st->conns[slot];
+  for (usz i = 0; i < c->l.frame_unexpected_n; i++)
+    srvrun_abort_frame_unexpected_req(
+        ctx, slot, c->l.frame_unexpected_slots[i]);
+}
+
 /* Return r's borrowed wired_srvbigbuf row to the pool, if it holds one. */
 static void srvrun_resp_release_bigbuf(wired_srvrun_env* env, srvrun_resp* r) {
   if (r->bigbuf_row >= 0) wired_srvbigbuf_release(&env->bigbuf, r->bigbuf_row);
@@ -4817,6 +4839,7 @@ static void srvrun_sess_on_step(const srvrun_step_ctx* ctx, int slot) {
   srvrun_reap_wtsends(c);
   srvrun_reannounce_stream_limit(ctx->cfg, c, srvrun_stream_limit_base(ctx));
   srvrun_abort_incomplete_reqs(ctx, slot);
+  srvrun_abort_frame_unexpected_reqs(ctx, slot);
   srvrun_start_done_resps(ctx, slot);
   srvrun_pump_sess(ctx, slot);
   srvrun_pump_datagram(ctx, c);
