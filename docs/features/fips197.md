@@ -13,7 +13,7 @@ Legend:
 - `[~]` — exercised indirectly (evidence line explains how; no dedicated test)
 - `[ ]` — not demonstrated by any test yet
 
-**Coverage: 8/19 tested, 4 indirect, 7 untested.**
+**Coverage: 9/14 tested, 5 indirect, 0 untested.**
 
 ## §3 Notation and Conventions
 
@@ -98,27 +98,9 @@ Legend:
 
 ## §5.3 INVCIPHER() / EQINVCIPHER()
 
-- [ ] F197-011 (§5.3) The implementation shall provide INVCIPHER(), the
-  inverse of CIPHER(), by executing the inverted transformations
-  (INVSHIFTROWS, INVSUBBYTES, ADDROUNDKEY, INVMIXCOLUMNS) in reverse round
-  order.
-  - gap: no decryption path exists; QUIC packet protection and header
-    protection only ever call the forward cipher (GCM uses AES in counter
-    mode, and header protection uses AES-ECB *encrypt* of the sample per
-    RFC 9001 5.4.3), so `quic_aes128_encrypt` has no decrypt counterpart in
-    this SDK. See "Out of scope".
-- [ ] F197-012 (§5.3.1) The implementation shall cyclically shift row r of
-  the state right by r positions in INVSHIFTROWS().
-- [ ] F197-013 (§5.3.2) The implementation shall apply the INVSBOX
-  substitution table (Table 6, the inverse of Table 4) independently to
-  each byte of the state in INVSUBBYTES().
-- [ ] F197-014 (§5.3.3) The implementation shall mix each column of the
-  state by multiplying it by the fixed matrix
-  [{0e},{09},{0d},{0b}] in INVMIXCOLUMNS().
-- [ ] F197-015 (§5.3.5) Where the equivalent inverse cipher is used, the
-  implementation shall derive the modified key schedule dw via
-  KEYEXPANSIONEIC() and execute EQINVCIPHER() with the inverse
-  transformations in the same order as CIPHER()'s forward transformations.
+F197-011 through F197-015 (INVCIPHER, INVSHIFTROWS, INVSUBBYTES,
+INVMIXCOLUMNS, EQINVCIPHER/KEYEXPANSIONEIC) — moved to "Out of scope"; see
+below.
 
 ## §6 Implementation Considerations
 
@@ -129,13 +111,26 @@ Legend:
     `src/crypto/symmetric/aead/aes/aes.c`); this satisfies the "at least
     one" requirement. 192- and 256-bit keys are not supported — see "Out of
     scope".
-- [ ] F197-017 (§6.2) The implementation shall impose no restriction on an
+- [x] F197-017 (§6.2) The implementation shall impose no restriction on an
   appropriately generated cryptographic key beyond its length.
-- [ ] F197-018 (§6.5) The implementation shall use AES only in conjunction
+  - test: `tests/crypto/aes_test.c` —
+    `test_aes_no_key_restriction_beyond_length`
+  - evidence: `quic_aes128_init` (`src/crypto/symmetric/aead/aes/aes.c`)
+    schedules every key byte unconditionally with no validation branch;
+    the test drives the all-zero and all-0xff 16-byte keys (the values a
+    weak-key check would most plausibly reject) through init+encrypt and
+    confirms both succeed and produce distinct ciphertext.
+- [~] F197-018 (§6.5) The implementation shall use AES only in conjunction
   with a FIPS-approved or NIST-recommended mode of operation.
-  - gap: true in practice (GCM per SP 800-38D, plus RFC 9001 header
-    protection), but no test asserts the negative (that raw unmoded AES is
-    unreachable from any public API).
+  - evidence: `quic_aes128_encrypt` (`src/crypto/symmetric/aead/aes/aes.h`)
+    is called from exactly two sites in `src/`: `gcm.c` (SP 800-38D GCM
+    counter mode) and `hp.c` (RFC 9001 5.4.3 header-protection mask, an
+    AES-ECB *encrypt* of a sample, the approved usage that RFC calls for).
+    No other call site of `quic_aes128_encrypt` exists in `src/` (confirmed
+    by grep), and the header exposes no raw-block entry point beyond it;
+    an exhaustive negative test would have to re-assert this same call-site
+    enumeration rather than exercise a runtime rejection, so the grep-based
+    evidence stands in place of a dedicated test.
 
 ## Appendix A/B/C — Key Expansion, Cipher, and Example Vectors
 
@@ -159,8 +154,9 @@ the coverage denominator:
   `test_cipher_supported`); no AES-192 cipher suite exists in TLS 1.3 at
   all. QUIC packet protection and header protection therefore only ever key
   AES-128.
-- (§5.3, §5.3.1–§5.3.5) INVCIPHER(), EQINVCIPHER(), and all of their
-  component transformations (INVSHIFTROWS, INVSUBBYTES, INVMIXCOLUMNS,
+- (§5.3 F197-011, §5.3.1 F197-012, §5.3.2 F197-013, §5.3.3 F197-014,
+  §5.3.5 F197-015) INVCIPHER(), EQINVCIPHER(), and all of their component
+  transformations (INVSHIFTROWS, INVSUBBYTES, INVMIXCOLUMNS,
   KEYEXPANSIONEIC) — QUIC never decrypts with raw AES. GCM (SP 800-38D)
   uses only the forward cipher in counter mode, and RFC 9001 5.4.3 header
   protection uses AES-ECB *encryption* of the sample on both send and
