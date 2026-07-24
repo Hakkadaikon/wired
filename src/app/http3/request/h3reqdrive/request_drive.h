@@ -108,7 +108,11 @@ int wired_h3reqdrive_recv_get(
  * with Post-Base Index) against dyn -- the connection's QPACK dynamic table
  * (0 behaves exactly like wired_h3reqdrive_recv_get: every dynamic reference
  * then simply fails to resolve).
+ * @param stream_data the STREAM frame payload carrying the request
+ * @param scratch caller-supplied buffer backing r's literal values; the
+ *   caller keeps it alive while r is in use
  * @param dyn the connection's dynamic table, or 0 if none is tracked
+ * @param r receives the recovered pseudo-headers and body view
  * @return 1 on success, 0 on a malformed frame, field section, or an
  *   unresolvable/invalid dynamic-table reference (RFC 9204 4.5.1.2). */
 int wired_h3reqdrive_recv_get_dyn(
