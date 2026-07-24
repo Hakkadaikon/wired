@@ -44,9 +44,38 @@ static void test_qpack_ric_roundtrip(void) {
   }
 }
 
+/* RFC 9204 2.1.2 / 2.2.1: with no dynamic table reference the expected
+ * minimum RIC is 0; a section carrying RIC 0 is accepted. */
+static void test_qpack_ric_min_no_dynamic_ref(void) {
+  CHECK(quic_qpack_ric_min_ok(0, 0, 0));
+}
+
+/* RFC 9204 2.1.2: with a dynamic reference, the lowest valid RIC is one more
+ * than the largest referenced absolute index; a RIC below that is rejected. */
+static void test_qpack_ric_min_below_expected_rejected(void) {
+  CHECK(!quic_qpack_ric_min_ok(3, 1, 3)); /* expected 4, got 3 */
+  CHECK(!quic_qpack_ric_min_ok(0, 1, 0)); /* expected 1, got 0 */
+}
+
+/* RFC 9204 2.2.1: a RIC exactly equal to the expected minimum is accepted. */
+static void test_qpack_ric_min_exact_accepted(void) {
+  CHECK(quic_qpack_ric_min_ok(4, 1, 3));
+  CHECK(quic_qpack_ric_min_ok(1, 1, 0));
+}
+
+/* RFC 9204 2.2.1: a RIC larger than expected is not the MUST-reject case
+ * covered here (the spec only permits, does not require, rejecting it). */
+static void test_qpack_ric_min_above_expected_accepted(void) {
+  CHECK(quic_qpack_ric_min_ok(9, 1, 3));
+}
+
 void test_insertcount(void) {
   test_qpack_ric_zero();
   test_qpack_ric_example();
   test_qpack_ric_invalid();
   test_qpack_ric_roundtrip();
+  test_qpack_ric_min_no_dynamic_ref();
+  test_qpack_ric_min_below_expected_rejected();
+  test_qpack_ric_min_exact_accepted();
+  test_qpack_ric_min_above_expected_accepted();
 }

@@ -20,4 +20,12 @@ typedef struct {
  * Insert Count to *ric. Returns 1 on success, 0 if the encoding is invalid. */
 int quic_qpack_ric_decode(u64 encoded, const quic_qpack_ric_ctx* c, u64* ric);
 
+/* RFC 9204 2.1.2 / 2.2.1. The lowest Required Insert Count with which a field
+ * section could be decoded is 0 if it makes no dynamic table references, or
+ * one larger than the largest absolute index of any such reference
+ * (max_abs_ref, ignored when has_dynamic_ref is 0). Returns 1 if ric is at
+ * least that expected minimum, 0 if ric is smaller than expected -- the
+ * caller treats 0 as a connection error of type QPACK_DECOMPRESSION_FAILED. */
+int quic_qpack_ric_min_ok(u64 ric, int has_dynamic_ref, u64 max_abs_ref);
+
 #endif

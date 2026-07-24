@@ -42,3 +42,11 @@ int quic_qpack_ric_decode(u64 encoded, const quic_qpack_ric_ctx* c, u64* ric) {
   }
   return ric_resolve(encoded, c, ric);
 }
+
+/* RFC 9204 2.1.2 / 2.2.1: a RIC below the lowest value that could decode the
+ * section MUST be rejected; a larger one is merely permitted to be rejected,
+ * not required, so equal-or-above is accepted here. */
+int quic_qpack_ric_min_ok(u64 ric, int has_dynamic_ref, u64 max_abs_ref) {
+  u64 expected = has_dynamic_ref ? max_abs_ref + 1 : 0;
+  return ric >= expected;
+}
