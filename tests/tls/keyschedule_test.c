@@ -157,6 +157,30 @@ static void test_keyschedule_psk_differs_from_plain(void) {
   CHECK(keys_differ(psk_hs, plain_hs));
 }
 
+/* RFC 8446 7.1: exporter_master_secret becomes available at the same stage
+ * (2) as the application traffic secrets, and matches an independent
+ * quic_tls_exporter_master_secret computation over the same master secret
+ * and transcript. */
+static void test_keyschedule_exporter_secret_matches_oneshot(void) {
+  u8 ecdhe[32], tr[] = "ClientHello||ServerHello||Finished";
+  fill(ecdhe, 32, 4);
+  quic_keysched st;
+  const u8*     exp;
+  quic_keysched_init(&st);
+  CHECK(quic_keysched_exporter_secret(&st, &exp) == 0); /* not yet reached */
+  quic_keysched_advance_handshake(
+      &st, quic_span_of(ecdhe, 32), quic_span_of(tr, sizeof(tr)));
+  CHECK(quic_keysched_exporter_secret(&st, &exp) == 0); /* still stage 1 */
+  quic_keysched_advance_master(&st, tr, sizeof(tr));
+  CHECK(quic_keysched_exporter_secret(&st, &exp) == 1);
+
+  u8 hs[32], master[32], ref[32];
+  quic_tls_handshake_secret(ecdhe, hs);
+  quic_tls_master_secret(hs, master);
+  quic_tls_exporter_master_secret(master, tr, sizeof(tr), ref);
+  for (usz i = 0; i < 32; i++) CHECK(exp[i] == ref[i]);
+}
+
 /* A wrong-length ECDHE secret is rejected on the PSK branch too. */
 static void test_keyschedule_psk_bad_ecdhe(void) {
   u8 psk[32], ecdhe[32], tr[] = "tr";
@@ -177,6 +201,7 @@ void test_keyschedule(void) {
   test_keyschedule_double_handshake();
   test_keyschedule_bad_ecdhe();
   test_keyschedule_matches_oneshot();
+  test_keyschedule_exporter_secret_matches_oneshot();
   test_keyschedule_psk_matches_oneshot();
   test_keyschedule_psk_differs_from_plain();
   test_keyschedule_psk_bad_ecdhe();
