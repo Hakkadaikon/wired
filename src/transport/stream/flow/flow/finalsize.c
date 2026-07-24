@@ -32,3 +32,16 @@ int quic_finalsize_set(quic_finalsize* f, u64 size) {
   f->known      = 1;
   return 1;
 }
+
+void quic_dual_finalsize_init(quic_dual_finalsize* d) {
+  quic_finalsize_init(&d->send);
+  quic_finalsize_init(&d->recv);
+}
+
+int quic_dual_finalsize_reset_send(quic_dual_finalsize* d, u64 size) {
+  return quic_finalsize_set(&d->send, size);
+}
+
+int quic_dual_finalsize_reset_recv(quic_dual_finalsize* d, u64 size) {
+  return quic_finalsize_set(&d->recv, size);
+}
