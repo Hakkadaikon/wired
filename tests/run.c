@@ -91,6 +91,8 @@
 #include "crypto/pki/encoding/x509/validity.c"
 #include "crypto/pki/encoding/x509/spki.c"
 #include "crypto/pki/encoding/x509/x509.c"
+#include "crypto/pki/encoding/x509/keyusage.c"
+#include "crypto/pki/encoding/x509/eku.c"
 #include "crypto/asymmetric/ecc/p256/ecdsa_verify.c"
 #include "crypto/asymmetric/ecc/p256/p256_point.c"
 #include "crypto/asymmetric/ecc/p256/p256_field.c"
@@ -751,6 +753,8 @@
 #include "crypto/p256_point_test.c"
 #include "crypto/ecdsa_verify_test.c"
 #include "crypto/x509_test.c"
+#include "crypto/keyusage_test.c"
+#include "crypto/eku_test.c"
 #include "crypto/spki_test.c"
 #include "crypto/validity_test.c"
 #include "tls/ext_keyshare_test.c"
@@ -1220,6 +1224,8 @@ int main(void) {
   test_p256_ecdhe();
   test_ecdsa_verify();
   test_x509();
+  test_keyusage();
+  test_eku();
   test_spki();
   test_validity();
   test_ext_keyshare();
