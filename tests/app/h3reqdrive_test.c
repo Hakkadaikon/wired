@@ -512,6 +512,69 @@ static usz put_grease_frame(u8* buf, usz cap) {
       &ob, 0x1f * 0x4000 + 0x21, quic_span_of(g, sizeof g));
 }
 
+/* RFC 9114 7.2.5/7.2.8 (9114-067): a PUSH_PROMISE frame -- a server-to-client
+ * frame this server-only SDK never sends, so any instance it receives is
+ * unexpected. Returns bytes written. */
+static usz put_push_promise_frame(u8* buf, usz cap) {
+  const u8  pp[] = {0, 0, 0, 0}; /* push id + a placeholder field section */
+  quic_obuf ob   = {buf, cap, 0};
+  return quic_h3_frame_put(
+      &ob, QUIC_H3_FRAME_PUSH_PROMISE, quic_span_of(pp, sizeof pp));
+}
+
+/* RFC 9114 7.2.8 (9114-073): an HTTP/2-only reserved frame type (0x02, 0x06,
+ * 0x08, or 0x09) -- HTTP/3 defines no use for these at all, unlike a true gap
+ * (unknown/GREASE), which is permitted everywhere. Returns bytes written. */
+static usz put_http2_reserved_frame(u8* buf, usz cap, u64 type) {
+  const u8  b[] = {'x'};
+  quic_obuf ob  = {buf, cap, 0};
+  return quic_h3_frame_put(&ob, type, quic_span_of(b, sizeof b));
+}
+
+/* RFC 9114 7.2.5/7.2.8 (9114-067): a request stream carrying a PUSH_PROMISE
+ * before HEADERS must be rejected outright (r.frame_unexpected set), not
+ * merely skipped like an unknown/GREASE frame. */
+static void test_reqdrive_push_promise_rejected(void) {
+  u8                   fs[64], h3[256], req[256], scratch[128];
+  usz                  fs_len = curl_field_section(fs), h3_len = 0, req_len = 0;
+  wired_h3reqdrive_req r = {0};
+  quic_obuf            hob;
+
+  h3_len = put_push_promise_frame(h3, sizeof(h3));
+  hob    = (quic_obuf){h3 + h3_len, sizeof(h3) - h3_len, 0};
+  h3_len +=
+      quic_h3_frame_put(&hob, QUIC_H3_FRAME_HEADERS, quic_span_of(fs, fs_len));
+  CHECK(appdata_frame_flat(0, 0, h3, h3_len, 1, req, sizeof(req), &req_len));
+  CHECK(
+      wired_h3reqdrive_recv_get(
+          quic_span_of(req, req_len), quic_mspan_of(scratch, sizeof scratch),
+          &r) == 0);
+  CHECK(r.frame_unexpected == 1);
+}
+
+/* RFC 9114 7.2.8 (9114-073): each HTTP/2-only reserved type on a request
+ * stream before HEADERS must be rejected outright, same as PUSH_PROMISE. */
+static void test_reqdrive_http2_reserved_rejected(void) {
+  static const u64 reserved[] = {0x02, 0x06, 0x08, 0x09};
+  for (usz i = 0; i < sizeof reserved / sizeof reserved[0]; i++) {
+    u8  fs[64], h3[256], req[256], scratch[128];
+    usz fs_len = curl_field_section(fs), h3_len = 0, req_len = 0;
+    wired_h3reqdrive_req r = {0};
+    quic_obuf            hob;
+
+    h3_len = put_http2_reserved_frame(h3, sizeof(h3), reserved[i]);
+    hob    = (quic_obuf){h3 + h3_len, sizeof(h3) - h3_len, 0};
+    h3_len += quic_h3_frame_put(
+        &hob, QUIC_H3_FRAME_HEADERS, quic_span_of(fs, fs_len));
+    CHECK(appdata_frame_flat(0, 0, h3, h3_len, 1, req, sizeof(req), &req_len));
+    CHECK(
+        wired_h3reqdrive_recv_get(
+            quic_span_of(req, req_len), quic_mspan_of(scratch, sizeof scratch),
+            &r) == 0);
+    CHECK(r.frame_unexpected == 1);
+  }
+}
+
 /* RFC 9114 9 / 7.2.8: a request stream that begins with a GREASE frame before
  * the HEADERS frame (exactly what curl/quiche send) must skip the unknown
  * frame and still recover all four request pseudo-headers from the HEADERS. */
@@ -916,4 +979,6 @@ void test_h3reqdrive(void) {
   test_reqdrive_single_cookie();
   test_reqdrive_multi_cookie_joined();
   test_reqdrive_no_cookie();
+  test_reqdrive_push_promise_rejected();
+  test_reqdrive_http2_reserved_rejected();
 }
