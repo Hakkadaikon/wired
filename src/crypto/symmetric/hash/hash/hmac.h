@@ -18,4 +18,17 @@
  */
 void quic_hmac_sha256(quic_span key, quic_span msg, u8 out[QUIC_SHA256_DIGEST]);
 
+/**
+ * Compute HMAC-SHA-256(key, msg) truncated to its leftmost out_len bytes
+ * (FIPS 198-1 5, "Truncation of HMAC Output": MAC = leftmost Tlen bytes of
+ * HMAC(K, text)).
+ *
+ * @param key     MAC key (any length; keys longer than one block are hashed)
+ * @param msg     message to authenticate
+ * @param out     receives the truncated MAC
+ * @param out_len number of leftmost bytes to keep (0..QUIC_SHA256_DIGEST)
+ */
+void quic_hmac_sha256_truncated(
+    quic_span key, quic_span msg, u8* out, usz out_len);
+
 #endif
