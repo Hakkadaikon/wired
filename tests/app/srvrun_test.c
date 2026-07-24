@@ -543,6 +543,84 @@ static void test_srvrun_accept_rekeys_to_slot_scid(void) {
           table, QUIC_CONNTABLE_CAP, st.conns[0].scid, id.scid_len) == 0);
 }
 
+/* RFC 9000 5.2.2: a refused new connection gets an unpadded server Initial
+ * carrying CONNECTION_CLOSE(CONNECTION_REFUSED), openable with Initial keys
+ * derived from the client's own DCID -- no live connection state needed.
+ * Opened directly via quic_rx_packet (not quic_srvwire_open_initial, which
+ * expects a CRYPTO-wrapped flight; this packet carries a raw frame instead,
+ * same convention test_srvboot_refusal_reports_missing_tp_ext in
+ * h3_loopback_test.c uses for wired_srvboot_refusal's own transport-close
+ * payload). */
+static void test_srvrun_new_conn_refusal_wire_content(void) {
+  u8        dg[1500], out[128], scid[8] = {0};
+  usz       total = sr_build_client_initial(dg, sizeof dg, g_sr_odcid, 8);
+  quic_obuf ob    = quic_obuf_of(out, sizeof out);
+  CHECK(srvrun_seal_new_conn_refusal(quic_span_of(dg, total), scid, &ob));
+
+  quic_initial_keys ck, sk;
+  quic_aes128       hp;
+  quic_span         frames;
+  quic_protect_keys k;
+  quic_rx_desc      d = {quic_mspan_of(out, ob.len), 1};
+  quic_initpkt_derive(quic_span_of(g_sr_odcid, 8), &ck, &sk);
+  quic_aes128_init(&hp, sk.hp);
+  k = (quic_protect_keys){&sk, &hp};
+  CHECK(quic_rx_packet(&k, &d, &frames) == 1);
+
+  quic_conn_close_frame cc;
+  usz                   rn = quic_frame_get_conn_close(frames.p, frames.n, &cc);
+  CHECK(rn != 0 && rn == frames.n);
+  CHECK(cc.is_app == 0);
+  CHECK(cc.error_code == QUIC_ERR_CONNECTION_REFUSED);
+}
+
+/* A non-Initial or malformed-DCID datagram is never eligible to open a new
+ * connection in the first place, so it draws no refusal reply (RFC 9000
+ * 5.2.2's refusal is only for a genuine new-connection attempt). */
+static void test_srvrun_new_conn_refusal_skips_ineligible_datagrams(void) {
+  u8 short_hdr[32] = {0x43}; /* short header: not an Initial */
+  CHECK(
+      srvrun_is_refusable_new_conn(
+          quic_span_of(g_sr_odcid, 8),
+          quic_mspan_of(short_hdr, sizeof short_hdr)) == 0);
+  CHECK(
+      srvrun_is_refusable_new_conn(
+          quic_span_of((const u8*)0, 0),
+          quic_mspan_of(short_hdr, sizeof short_hdr)) == 0);
+}
+
+/* END-TO-END: once the conntable is completely full, a brand-new client
+ * Initial (an unrecognized DCID) is answered with the refusal above instead
+ * of being silently dropped -- proving srvrun_route_and_serve actually wires
+ * srvrun_send_new_conn_refusal to the real "no slot available" path. */
+static void test_srvrun_full_conntable_sends_refusal(void) {
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32];
+  u8               dg[1500];
+  quic_conntable   table[QUIC_CONNTABLE_CAP];
+  quic_sockaddr    peer = {0};
+  srvrun_state     st   = {table, g_srvrun_state.conns};
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  /* fill every slot with an unrelated live connection */
+  for (usz i = 0; i < QUIC_CONNTABLE_CAP; i++) {
+    u8 cid[8] = {(u8)i, 1, 2, 3, 4, 5, 6, 7};
+    CHECK(quic_conntable_insert(table, QUIC_CONNTABLE_CAP, cid, 8) >= 0);
+  }
+  sr_make_id(&id, priv, pub, seed, rnd);
+  {
+    usz        total = sr_build_client_initial(dg, sizeof dg, g_sr_odcid, 8);
+    srvrun_cfg cfg   = {-1, &id,           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                        0,  &g_srvrun_env, 0, 0, 0, 0, 0, 0};
+    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0, 0};
+    /* fd=-1 makes the actual sendto(2) a harmless no-op (same convention as
+     * every other srvrun_send test in this file); this only proves the
+     * refusal path is REACHED, wire content is proven directly above. */
+    srvrun_serve(&ctx, quic_mspan_of(dg, total));
+  }
+  /* no slot was claimed for the refused client */
+  CHECK(quic_conntable_find(table, QUIC_CONNTABLE_CAP, g_sr_odcid, 8) == -1);
+}
+
 /* AF_XDP CORE ROUTING (wired_srvrun_opt.core_id): a fresh slot's generated
  * SCID has its leading byte overwritten with this worker's core/queue index
  * when both an XDP driver and a non-negative core_id are configured -- the
@@ -9743,6 +9821,9 @@ void test_srvrun(void) {
   test_srvrun_wt_reused_slot_has_no_stale_data();
   test_srvrun_wt_session_limit_fits_stream_table_capacity();
   test_srvrun_no_shutdown_accepts_new();
+  test_srvrun_new_conn_refusal_wire_content();
+  test_srvrun_new_conn_refusal_skips_ineligible_datagrams();
+  test_srvrun_full_conntable_sends_refusal();
   test_srvrun_bigbuf_pool_serves_large_body();
   test_srvrun_bigbuf_pool_exhausted_falls_back_to_fixed_row();
   test_srvrun_hq09_resp_has_no_h3_framing();

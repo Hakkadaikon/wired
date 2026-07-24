@@ -13,6 +13,7 @@
 #include "app/http3/server/srvloop/respond.h"
 #include "app/http3/server/srvloop/send.h"
 #include "app/http3/server/srvpoll/srvpoll.h"
+#include "app/http3/server/srvwire/wire.h"
 #include "app/http3/server/srvxdp/srvxdp.h"
 #include "app/webtransport/errmap/errmap/errmap.h"
 #include "app/webtransport/session/session/session.h"
@@ -3572,7 +3573,9 @@ static void srvrun_qlog_lost(const srvrun_cfg* cfg, const u64* pns, usz n) {
  * ms-only EWMA pacing already relies on, unchanged. */
 static void srvrun_rtt_note(srvrun_conn* c, u64 sample_ms) {
   c->srtt_ms = c->srtt_ms ? (7 * c->srtt_ms + sample_ms) / 8 : sample_ms;
-  quic_rtt_sample(&c->rtt, sample_ms * 1000, 0);
+  quic_rtt_sample(
+      &c->rtt, sample_ms * 1000, 0, SRVRUN_MAX_ACK_DELAY_US,
+      wired_server_is_confirmed(&c->s));
 }
 
 /* 1 if confirmation landed on the datagram just processed: c was still
@@ -4620,6 +4623,50 @@ static int srvrun_route(
   return srvrun_open_slot(ctx, dcid, wired_srvboot_is_initial(dg.p, dg.n));
 }
 
+/* RFC 9000 5.2.2: whether a datagram that matched no slot and could not
+ * claim a fresh one is a genuine new-connection attempt being turned away
+ * (graceful shutdown or a full conntable) rather than something that was
+ * never eligible to open one in the first place (a malformed/absent DCID or
+ * a non-Initial packet) -- only the former deserves a refusal reply. */
+static int srvrun_is_refusable_new_conn(quic_span dcid, quic_mspan dg) {
+  return dcid.p != 0 && wired_srvboot_is_initial(dg.p, dg.n);
+}
+
+/* RFC 9000 5.2.2/19.19: build a transport CONNECTION_CLOSE(CONNECTION_REFUSED)
+ * as an unpadded server Initial addressed to the client's own DCID/SCID, using
+ * Initial keys derived from dcid (no live connection or session state is
+ * needed -- Initial keys come from the DCID alone, RFC 9001 5.2). Returns 1
+ * with out->len set, 0 on a malformed header or overflow. */
+static int srvrun_seal_new_conn_refusal(
+    quic_span dg, const u8 scid[8], quic_obuf* out) {
+  quic_lhdr             h;
+  u8                    fr[8];
+  usz                   fn;
+  quic_conn_close_frame cc = {0, QUIC_ERR_CONNECTION_REFUSED, 0, 0, 0};
+  quic_srvwire_seal_in  wi;
+  if (!quic_lhdr_parse(dg, 1, &h)) return 0;
+  fn = quic_frame_put_conn_close(fr, sizeof fr, &cc);
+  if (!fn) return 0;
+  wi = (quic_srvwire_seal_in){
+      h.dcid, h.scid, quic_span_of(scid, 8), 0, -1, quic_span_of(fr, fn), 0};
+  return quic_srvwire_seal_initial_frames_lean(&wi, out);
+}
+
+/* Seal and send the refusal above, addressed to ctx->peer. A server-chosen
+ * SCID of zero length is fine (RFC 9000 7.2 allows an empty CID); this
+ * connection ends immediately after, so no routing table entry is needed
+ * for it. */
+static void srvrun_send_new_conn_refusal(
+    const srvrun_step_ctx* ctx, quic_span dcid, quic_mspan dg) {
+  u8        out[128];
+  u8        scid[8] = {0};
+  quic_obuf ob      = quic_obuf_of(out, sizeof out);
+  if (!srvrun_is_refusable_new_conn(dcid, dg)) return;
+  if (!srvrun_seal_new_conn_refusal(quic_span_of(dg.p, dg.n), scid, &ob))
+    return;
+  srvrun_tx(ctx->cfg, ctx->peer, quic_span_of(out, ob.len));
+}
+
 /* 1 if force_retry is on and dg is a fresh Initial (the gate's precondition
  * before any slot lookup). */
 static int srvrun_retry_wanted(const srvrun_step_ctx* ctx, quic_mspan dg) {
@@ -4656,7 +4703,7 @@ static void srvrun_route_and_serve(
     quic_mspan             dg,
     quic_span              odcid) {
   int slot = srvrun_route(ctx, dcid, dg);
-  if (slot < 0) return;
+  if (slot < 0) return srvrun_send_new_conn_refusal(ctx, dcid, dg);
   if (odcid.n) srvrun_note_retry_odcid(&ctx->st->conns[slot], odcid);
   srvrun_serve_slot(ctx, slot, dg);
 }
