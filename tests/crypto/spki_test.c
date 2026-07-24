@@ -37,8 +37,47 @@ static void test_spki_short_tbs(void) {
   CHECK(quic_x509_public_key(quic_span_of(tbs, sizeof(tbs)), &oid, &key) == 0);
 }
 
+/* RFC 8410 3. id-X25519 = 1.3.101.110, id-X448 = 1.3.101.111,
+ * id-Ed25519 = 1.3.101.112, id-Ed448 = 1.3.101.113: the OID arc 1.3.101.x
+ * DER-encodes as 0x2b, 0x65, x (both arcs < 128, so each is one octet; the
+ * first two arcs 1,3 collapse to 40*1+3 = 43 = 0x2b per X.690 8.19.4). */
+static const u8 oid_x25519_bytes[]  = {0x2b, 0x65, 0x6e};
+static const u8 oid_x448_bytes[]    = {0x2b, 0x65, 0x6f};
+static const u8 oid_ed25519_bytes[] = {0x2b, 0x65, 0x70};
+static const u8 oid_ed448_bytes[]   = {0x2b, 0x65, 0x71};
+
+static void test_spki_is_x25519(void) {
+  quic_span oid = quic_span_of(oid_x25519_bytes, sizeof(oid_x25519_bytes));
+  CHECK(quic_x509_is_x25519(oid) == 1);
+  CHECK(quic_x509_is_x448(oid) == 0);
+  CHECK(quic_x509_is_ed25519(oid) == 0);
+  CHECK(quic_x509_is_ed448(oid) == 0);
+}
+
+static void test_spki_is_x448(void) {
+  quic_span oid = quic_span_of(oid_x448_bytes, sizeof(oid_x448_bytes));
+  CHECK(quic_x509_is_x448(oid) == 1);
+  CHECK(quic_x509_is_x25519(oid) == 0);
+}
+
+static void test_spki_is_ed25519(void) {
+  quic_span oid = quic_span_of(oid_ed25519_bytes, sizeof(oid_ed25519_bytes));
+  CHECK(quic_x509_is_ed25519(oid) == 1);
+  CHECK(quic_x509_is_ed448(oid) == 0);
+}
+
+static void test_spki_is_ed448(void) {
+  quic_span oid = quic_span_of(oid_ed448_bytes, sizeof(oid_ed448_bytes));
+  CHECK(quic_x509_is_ed448(oid) == 1);
+  CHECK(quic_x509_is_ed25519(oid) == 0);
+}
+
 void test_spki(void) {
   test_spki_golden();
   test_spki_truncated();
   test_spki_short_tbs();
+  test_spki_is_x25519();
+  test_spki_is_x448();
+  test_spki_is_ed25519();
+  test_spki_is_ed448();
 }

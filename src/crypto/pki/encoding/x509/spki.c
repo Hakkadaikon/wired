@@ -18,6 +18,14 @@ static const u8 oid_rsa[] = {0x2a, 0x86, 0x48, 0x86, 0xf7,
 static const u8 oid_p256[] = {0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07};
 /* secp384r1 = 1.3.132.0.34 */
 static const u8 oid_p384[] = {0x2b, 0x81, 0x04, 0x00, 0x22};
+/* RFC 8410 3. id-X25519 = 1.3.101.110. */
+static const u8 oid_x25519[] = {0x2b, 0x65, 0x6e};
+/* RFC 8410 3. id-X448 = 1.3.101.111. */
+static const u8 oid_x448[] = {0x2b, 0x65, 0x6f};
+/* RFC 8410 3. id-Ed25519 = 1.3.101.112. */
+static const u8 spki_oid_ed25519[] = {0x2b, 0x65, 0x70};
+/* RFC 8410 3. id-Ed448 = 1.3.101.113. */
+static const u8 oid_ed448[] = {0x2b, 0x65, 0x71};
 
 int quic_x509_is_ec(quic_span alg_oid) {
   return quic_der_oid_equal(alg_oid, quic_span_of(oid_ec, sizeof(oid_ec)));
@@ -25,6 +33,25 @@ int quic_x509_is_ec(quic_span alg_oid) {
 
 int quic_x509_is_rsa(quic_span alg_oid) {
   return quic_der_oid_equal(alg_oid, quic_span_of(oid_rsa, sizeof(oid_rsa)));
+}
+
+int quic_x509_is_x25519(quic_span alg_oid) {
+  return quic_der_oid_equal(
+      alg_oid, quic_span_of(oid_x25519, sizeof(oid_x25519)));
+}
+
+int quic_x509_is_x448(quic_span alg_oid) {
+  return quic_der_oid_equal(alg_oid, quic_span_of(oid_x448, sizeof(oid_x448)));
+}
+
+int quic_x509_is_ed25519(quic_span alg_oid) {
+  return quic_der_oid_equal(
+      alg_oid, quic_span_of(spki_oid_ed25519, sizeof(spki_oid_ed25519)));
+}
+
+int quic_x509_is_ed448(quic_span alg_oid) {
+  return quic_der_oid_equal(
+      alg_oid, quic_span_of(oid_ed448, sizeof(oid_ed448)));
 }
 
 int quic_x509_is_p256(quic_span oid) {

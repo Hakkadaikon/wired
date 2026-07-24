@@ -14,6 +14,17 @@ int quic_x509_public_key(quic_span tbs, quic_span* alg_oid, quic_span* key);
 int quic_x509_is_ec(quic_span alg_oid);
 int quic_x509_is_rsa(quic_span alg_oid);
 
+/* RFC 8410 3. 1 if the OID is id-X25519 (1.3.101.110) / id-X448
+ * (1.3.101.111) / id-Ed25519 (1.3.101.112) / id-Ed448 (1.3.101.113). This
+ * SDK implements Ed25519 signing/verification only; X25519, X448, and Ed448
+ * are recognized (so callers can distinguish "unsupported known algorithm"
+ * from "malformed/unknown OID") but have no key-agreement or signature
+ * implementation behind them. */
+int quic_x509_is_x25519(quic_span alg_oid);
+int quic_x509_is_x448(quic_span alg_oid);
+int quic_x509_is_ed25519(quic_span alg_oid);
+int quic_x509_is_ed448(quic_span alg_oid);
+
 /* SEC1 / RFC 5480. View the namedCurve OID (the AlgorithmIdentifier
  * parameters of an id-ecPublicKey SPKI). Returns 1 ok, 0 on malformed input
  * or a non-EC key. */
