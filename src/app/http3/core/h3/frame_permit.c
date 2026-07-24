@@ -33,3 +33,19 @@ static int permit_mask(u64 frame_type) {
 int quic_h3_frame_on_stream(u64 frame_type, int stream_kind) {
   return (permit_mask(frame_type) >> stream_kind) & 1;
 }
+
+/* RFC 9114 7.2.8: HTTP/2-only frame types reserved so an HTTP/2 extension
+ * cannot collide with an HTTP/3 one -- HTTP/3 never defines a use for them,
+ * so unlike a true gap in permit_tab (unknown/grease, permitted everywhere)
+ * receiving one at all is a connection error of type H3_FRAME_UNEXPECTED. */
+static int is_http2_only_reserved(u64 frame_type) {
+  static const u64 reserved[] = {0x02, 0x06, 0x08, 0x09};
+  for (usz i = 0; i < sizeof reserved / sizeof reserved[0]; i++)
+    if (frame_type == reserved[i]) return 1;
+  return 0;
+}
+
+int quic_h3_frame_recv_ok(u64 frame_type) {
+  if (frame_type == QUIC_H3_FRAME_PUSH_PROMISE) return 0;
+  return !is_http2_only_reserved(frame_type);
+}
