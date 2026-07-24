@@ -33,7 +33,39 @@ static void test_aes_appendix_c(void) {
   for (usz i = 0; i < 16; i++) CHECK(out[i] == want[i]);
 }
 
+/* FIPS 197 Appendix B: MixColumns multiplies each state column by the fixed
+ * matrix [[02,03,01,01],[01,02,03,01],[01,01,02,03],[03,01,01,02]] over
+ * GF(2^8). These four (input column, output column) pairs are the Round 1
+ * MixColumns step of Appendix B, re-derived by hand from the SubBytes and
+ * ShiftRows output ("d4bf5d30 e0b452ae b84111f1 1e2798e5", the state after
+ * Round 1 AddRoundKey+SubBytes+ShiftRows) via the matrix definition above:
+ * out[0] = 02*a0 ^ 03*a1 ^ a2 ^ a3, out[1] = a0 ^ 02*a1 ^ 03*a2 ^ a3,
+ * out[2] = a0 ^ a1 ^ 02*a2 ^ 03*a3, out[3] = 03*a0 ^ a1 ^ a2 ^ 02*a3.
+ * mix_one (aes.c) is static; this test file is unified into the same
+ * translation unit after aes.c in tests/run.c, so it is directly callable. */
+/* Run mix_one on one column and check it against the expected output. */
+static void check_mix_one(const u8 in[4], const u8 want[4]) {
+  u8 col[4];
+  for (usz j = 0; j < 4; j++) col[j] = in[j];
+  mix_one(col);
+  for (usz j = 0; j < 4; j++) CHECK(col[j] == want[j]);
+}
+
+static void test_aes_mix_columns_matrix(void) {
+  struct {
+    u8 in[4];
+    u8 want[4];
+  } cases[4] = {
+      {{0xd4, 0xbf, 0x5d, 0x30}, {0x04, 0x66, 0x81, 0xe5}},
+      {{0xe0, 0xb4, 0x52, 0xae}, {0xe0, 0xcb, 0x19, 0x9a}},
+      {{0xb8, 0x41, 0x11, 0xf1}, {0x48, 0xf8, 0xd3, 0x7a}},
+      {{0x1e, 0x27, 0x98, 0xe5}, {0x28, 0x06, 0x26, 0x4c}},
+  };
+  for (usz i = 0; i < 4; i++) check_mix_one(cases[i].in, cases[i].want);
+}
+
 void test_aes(void) {
   test_aes_fips197();
   test_aes_appendix_c();
+  test_aes_mix_columns_matrix();
 }
