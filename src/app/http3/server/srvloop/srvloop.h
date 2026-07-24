@@ -635,6 +635,18 @@ int wired_srvloop_slot_for(wired_srvloop* l, u64 stream_id);
 void wired_srvloop_priority_apply(
     wired_srvloop* l, u64 stream_id, const quic_h3_priority* p);
 
+/** RFC 9218 10: read stream_id's current priority (its RFC 9218 4.1 default
+ * until any PRIORITY_UPDATE or Priority header field changed it) without
+ * allocating a streams[] slot -- the counterpart read used by a response
+ * scheduler (srvrun.c) ordering its send passes, as opposed to
+ * wired_srvloop_slot_for's claim-or-allocate used by the receive path.
+ * @param l the loop whose streams[] table to search
+ * @param stream_id the client bidi request stream id
+ * @param out receives the priority, valid only when 1 is returned
+ * @return 1 if stream_id has an open streams[] slot, 0 otherwise. */
+int wired_srvloop_priority_of(
+    const wired_srvloop* l, u64 stream_id, quic_h3_priority* out);
+
 /** RFC 9000 2.2: free the streams[] slot reassembling stream_id, once its
  * response has been fully sent and acknowledged -- called by the response
  * driver (srvrun.c) so a stream id's slot becomes reusable for a later

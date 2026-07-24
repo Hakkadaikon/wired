@@ -5,6 +5,7 @@
 #include "app/http3/core/h3/frame.h"
 #include "app/http3/core/h3/method.h"
 #include "app/http3/core/h3conn/establish.h"
+#include "app/http3/core/h3prio/h3prio.h"
 #include "app/http3/core/sfield/sfield.h"
 #include "app/http3/request/h3resp/resp_build.h"
 #include "app/http3/server/certreload/certreload.h"
@@ -4294,7 +4295,10 @@ static int srvrun_pump_one_wt(
       ctx, c, &w->sess, w->stream_id, &sl, (u8)sl.fin);
 }
 
-/* The WT-send half of one round-robin pass (one slice per slot, in order). */
+/* The WT-send half of one round-robin pass (one slice per slot, in order).
+ * RFC 9218 has no urgency signal for WebTransport streams (Extended CONNECT
+ * carries no Priority parameters of its own), so this half keeps its
+ * pre-existing arrival-order pass unchanged. */
 static int srvrun_pump_wt_round(const srvrun_step_ctx* ctx, srvrun_conn* c) {
   int sent = 0;
   for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++)
@@ -4302,13 +4306,50 @@ static int srvrun_pump_wt_round(const srvrun_step_ctx* ctx, srvrun_conn* c) {
   return sent;
 }
 
+/* resp[] slot i's current RFC 9218 priority, read from the receive-side
+ * streams[] table (wired_srvloop_priority_of) rather than stored on
+ * srvrun_resp itself -- streams[] is the one place a PRIORITY_UPDATE lands
+ * (priority_ctrl.c), so reading it here keeps a single source of truth
+ * instead of a second copy that could drift. An in_use resp[] slot with no
+ * matching streams[] slot (already released, e.g. mid-teardown) reads as
+ * the RFC 9218 4.1 default -- it still sends, just without a live urgency
+ * signal, matching the pre-scheduling behavior for that edge case. */
+static quic_h3prio_candidate srvrun_resp_candidate(
+    const srvrun_conn* c, usz i) {
+  quic_h3prio_candidate cand = {
+      QUIC_H3_URGENCY_DEFAULT, 0, c->resp[i].stream_id, c->resp[i].in_use};
+  quic_h3_priority p;
+  if (c->resp[i].in_use &&
+      wired_srvloop_priority_of(&c->l, c->resp[i].stream_id, &p)) {
+    cand.urgency     = p.urgency;
+    cand.incremental = p.incremental;
+  }
+  return cand;
+}
+
+/* RFC 9218 10: one pacing-unrelated pass over resp[] in priority order
+ * (ascending urgency, ascending stream id within a tie -- see
+ * quic_h3prio_order's own doc for why this ordering also covers
+ * incremental bandwidth sharing and same-urgency starvation avoidance
+ * without extra machinery: every slot still gets exactly one slice per
+ * pass, only the visiting order within a pass changed). */
+static int srvrun_pump_resp_round(const srvrun_step_ctx* ctx, srvrun_conn* c) {
+  quic_h3prio_candidate cand[SRVRUN_RESP_SLOTS];
+  usz                   order[SRVRUN_RESP_SLOTS];
+  int                   sent = 0;
+  for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++)
+    cand[i] = srvrun_resp_candidate(c, i);
+  quic_h3prio_order(cand, SRVRUN_RESP_SLOTS, order);
+  for (usz k = 0; k < SRVRUN_RESP_SLOTS; k++)
+    sent |= srvrun_pump_one(ctx, c, &c->resp[order[k]]);
+  return sent;
+}
+
 /* One round-robin pass: try exactly one slice from every in-use wtsend and
- * resp[] slot, in order. @return 1 if any slot actually sent one. */
+ * resp[] slot. @return 1 if any slot actually sent one. */
 static int srvrun_pump_round(const srvrun_step_ctx* ctx, srvrun_conn* c) {
   int sent = srvrun_pump_wt_round(ctx, c);
-  for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++)
-    sent |= srvrun_pump_one(ctx, c, &c->resp[i]);
-  return sent;
+  return sent | srvrun_pump_resp_round(ctx, c);
 }
 
 /* 1 if any resp[] slot has a PTO probe queued. */
