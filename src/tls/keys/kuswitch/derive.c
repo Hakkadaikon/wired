@@ -26,6 +26,17 @@ void quic_kuswitch_next_keys(
   kuswitch_derive_key_iv(next_secret, next_keys, QUIC_INITIAL_KEY);
 }
 
+void quic_kuswitch_next_keys_v(
+    u32                version,
+    const u8           current_secret[QUIC_HKDF_PRK],
+    quic_initial_keys* next_keys,
+    u8                 next_secret[QUIC_HKDF_PRK]) {
+  /* RFC 9369 3.3.2: secret_<n+1> = HKDF-Expand-Label(secret_<n>, "quicv2 ku")
+   * for v2, "quic ku" for v1 (RFC 9001 6.1). */
+  quic_ku_next_secret_v(version, current_secret, next_secret);
+  kuswitch_derive_key_iv(next_secret, next_keys, QUIC_INITIAL_KEY);
+}
+
 void quic_kuswitch_next_keys_suite(
     u16                suite,
     const u8           current_secret[QUIC_HKDF_PRK],
