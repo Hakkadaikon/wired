@@ -28,4 +28,11 @@ int quic_x509_ed_leaf_sig_ok(quic_span tbs);
  * cRLSign set. 0 if keyUsage is present with none of those, or malformed. */
 int quic_x509_ed_ca_ok(quic_span tbs);
 
+/* RFC 5480 3. 1 if a cert whose SubjectPublicKeyInfo is id-ecDH/id-ecMQV has
+ * an admissible keyUsage: absent (unconstrained), or present with
+ * keyAgreement set and none of digitalSignature, nonRepudiation,
+ * keyEncipherment, keyCertSign, cRLSign set. 0 if keyUsage is present
+ * without keyAgreement, or with any of the forbidden bits, or malformed. */
+int quic_x509_ecdh_keyusage_ok(quic_span tbs);
+
 #endif
