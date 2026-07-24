@@ -132,6 +132,23 @@ typedef struct {
    * when the quic_transport_parameters extension (0x39) is absent. 0 when
    * the last call succeeded. */
   u64 last_error;
+  /** RFC 8446 4.1.4: set by quic_sdrv_recv_client_hello when the
+   * ClientHello carried no x25519 key_share, meaning a HelloRetryRequest
+   * must be sent (quic_sdrv_build_hrr) instead of the normal server flight.
+   * Cleared once quic_sdrv_build_hrr has produced the HRR. */
+  int hrr_needed;
+  /** 1 once quic_sdrv_build_hrr has emitted a HelloRetryRequest for this
+   * connection; the next quic_sdrv_recv_client_hello call is then the
+   * post-HRR second ClientHello and must offer the same cipher_suite (RFC
+   * 8446 4.1.2) and gets its transcript message_hash-transformed (4.4.1). */
+  int hrr_sent;
+  /** The cipher_suite negotiated from ClientHello1, recorded when hrr_sent
+   * becomes 1 so ClientHello2 can be checked against it. */
+  u16 hrr_cipher_suite;
+  /** RFC 8446 4.4.1: SHA-256(ClientHello1), computed when hrr_needed is set
+   * so quic_sdrv_build_hrr can fold the message_hash synthetic message into
+   * the transcript without keeping ClientHello1's raw bytes around. */
+  u8 ch1_hash[32];
 } quic_sdrv;
 
 /** Inputs to quic_sdrv_init.
@@ -229,6 +246,25 @@ int quic_sdrv_set_retry_scid(quic_sdrv* s, quic_span rscid);
  *   quic_transport_parameters extension, or a presented PSK binder fails
  *   verification. */
 int quic_sdrv_recv_client_hello(quic_sdrv* s, const u8* ch_msg, usz ch_len);
+
+/** RFC 8446 4.1.4: 1 when the last quic_sdrv_recv_client_hello call found no
+ * x25519 key_share and a HelloRetryRequest must be sent before anything
+ * else -- the caller must call quic_sdrv_build_hrr instead of proceeding to
+ * quic_sdrv_build_server_flight.
+ * @param s driver state
+ * @return 1 if a HelloRetryRequest is pending, 0 otherwise. */
+int quic_sdrv_hrr_pending(const quic_sdrv* s);
+
+/** RFC 8446 4.1.4 / 4.4.1: build the HelloRetryRequest (requesting x25519,
+ * this driver's only supported group) into out, fold it into the
+ * transcript, and arm ClientHello2 handling: quic_sdrv_recv_client_hello.
+ * Must only be called when quic_sdrv_hrr_pending is 1 (right after the
+ * ClientHello1 that triggered it, before anything else touches the
+ * transcript).
+ * @param s driver state
+ * @param out receives the HelloRetryRequest message bytes
+ * @return 1 on success, 0 if out is too small. */
+int quic_sdrv_build_hrr(quic_sdrv* s, quic_obuf* out);
 
 /** RFC 9001 8.2 / RFC 9000 20.1: the CRYPTO_ERROR recorded by the last
  * quic_sdrv_recv_client_hello call, or 0 if it succeeded.

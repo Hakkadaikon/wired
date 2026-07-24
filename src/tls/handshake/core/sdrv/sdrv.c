@@ -2,19 +2,23 @@
 
 #include "app/datagram/datagram/datagram.h"
 #include "common/diag/error/error.h"
+#include "common/platform/clock/clock.h"
 #include "crypto/asymmetric/ecc/p256/p256_point.h"
 #include "crypto/pki/cert/p256cert/p256cert.h"
+#include "crypto/symmetric/hash/hash/sha256.h"
 #include "tls/ext/salpn/ch_ext.h"
 #include "tls/ext/salpn/negotiate.h"
 #include "tls/ext/stp/parse_tp.h"
 #include "tls/ext/tlsext/preshared.h"
 #include "tls/ext/tparam/tparam.h"
+#include "tls/handshake/core/hrr/hrr_build.h"
 #include "tls/handshake/core/tls/binder.h"
 #include "tls/handshake/core/tls/cipher.h"
 #include "tls/handshake/core/tls/encext_check.h"
 #include "tls/handshake/core/tls/ext_keyshare.h"
 #include "tls/handshake/core/tls/handshake.h"
 #include "tls/handshake/core/tls/schedule.h"
+#include "tls/handshake/core/tls/ticketfreshness.h"
 #include "tls/handshake/core/tls/tpext.h"
 #include "transport/conn/loop/manage/zerortt_policy.h"
 #include "transport/conn/loop/manage/zerortt_seen.h"
@@ -107,6 +111,10 @@ void quic_sdrv_init(quic_sdrv* s, const quic_sdrv_init_in* in) {
   s->psk_accepted        = 0;
   s->early_data_accepted = 0;
   s->last_error          = 0;
+  s->hrr_needed          = 0;
+  s->hrr_sent            = 0;
+  s->hrr_cipher_suite    = 0;
+  for (usz i = 0; i < 32; i++) s->ch1_hash[i] = 0;
   quic_transcript_init(&s->tr);
 }
 
@@ -505,19 +513,32 @@ static quic_zerortt_seen* sdrv_zerortt_seen(void) {
   return &g_sdrv_zerortt_seen;
 }
 
-/* RFC 8446 4.2.10 / RFC 9001 4.6.1: the ClientHello asked for 0-RTT (an
- * early_data extension is present) and its ticket is on its first use
- * (RFC 8446 8.1) -- the two conditions quic_zerortt_replay_ok's policy_safe/
- * ticket_first_use collapse to here (server-side accept has no per-request
- * idempotency signal yet, so policy_safe is early_data's mere presence). */
-static int sdrv_early_data_wanted(
-    const u8* ch_msg, usz ch_len, const quic_tlsext_psk_offer* off) {
-  quic_span ed_ext;
-  int       first_use;
-  if (!find_client_early_data_ext(ch_msg, ch_len, &ed_ext)) return 0;
-  first_use = quic_zerortt_seen_check(
+/* RFC 8446 4.2.11.1 / 8.3: the ticket is on its first use (RFC 8446 8.1) and
+ * the client's claimed ticket age is still fresh relative to the server's
+ * own record of issuance (quic_ticket_freshness_ok) -- the two conditions
+ * quic_zerortt_replay_ok's ticket_first_use argument and the freshness gate
+ * this SDK adds on top of it. A stale/manipulated age is treated exactly
+ * like a policy-unsafe request: 0-RTT is declined, the handshake itself
+ * proceeds as 1-RTT (RFC 8446 4.2.10). */
+static int sdrv_early_data_eligible(
+    const quic_ticket* t, const quic_tlsext_psk_offer* off) {
+  int first_use = quic_zerortt_seen_check(
       sdrv_zerortt_seen(), quic_span_of(off->identity, off->id_len));
-  return quic_zerortt_replay_ok(1, first_use);
+  if (!quic_zerortt_replay_ok(1, first_use)) return 0;
+  return quic_ticket_freshness_ok(t, off->ticket_age, quic_clock_epoch_secs());
+}
+
+/* RFC 8446 4.2.10: the ClientHello asked for 0-RTT (an early_data extension
+ * is present) and the presented ticket is eligible (see
+ * sdrv_early_data_eligible's doc). */
+static int sdrv_early_data_wanted(
+    const u8*                    ch_msg,
+    usz                          ch_len,
+    const quic_ticket*           t,
+    const quic_tlsext_psk_offer* off) {
+  quic_span ed_ext;
+  if (!find_client_early_data_ext(ch_msg, ch_len, &ed_ext)) return 0;
+  return sdrv_early_data_eligible(t, off);
 }
 
 /* RFC 8446 4.2.10 / RFC 9001 4.6.1: derive and cache the 0-RTT key/iv/hp
@@ -546,7 +567,7 @@ static int sdrv_psk_accept_opened(
    * -- the actual PSK (see sdrv_psk_from_ticket_secret's doc), not the raw
    * ticket-stored resumption_master_secret. */
   sdrv_psk_from_ticket_secret(t->secret, s->psk_secret);
-  if (sdrv_early_data_wanted(ch_msg, ch_len, off))
+  if (sdrv_early_data_wanted(ch_msg, ch_len, t, off))
     sdrv_take_early_keys(s, ch_msg, ch_len);
   return 1;
 }
@@ -593,13 +614,54 @@ static int sdrv_ch_take_psk(quic_sdrv* s, const u8* ch_msg, usz ch_len) {
   return sdrv_psk_try_offer(s, ch_msg, ch_len, psk_ext, &off);
 }
 
-/* Cipher suite negotiated and the client's x25519 key_share taken -- both
- * required before quic_sdrv_recv_client_hello's remaining fields matter. */
-static int sdrv_ch_negotiate_and_keyshare(
+/* RFC 8446 4.1.4: this driver supports only x25519 (see take_client_keyshare),
+ * so "no x25519 key_share offered" is exactly the "need a HelloRetryRequest"
+ * condition. Records the negotiated cipher_suite and Hash(ClientHello1) for
+ * quic_sdrv_build_hrr/the post-HRR ClientHello2 check, and marks hrr_needed.
+ */
+static void sdrv_ch_arm_hrr(quic_sdrv* s, const u8* ch_msg, usz ch_len) {
+  s->hrr_needed       = 1;
+  s->hrr_cipher_suite = s->cipher_suite;
+  quic_sha256(ch_msg, ch_len, s->ch1_hash);
+}
+
+/* RFC 8446 4.1.2: after a HelloRetryRequest, ClientHello2 MUST renegotiate
+ * to the same cipher_suite ClientHello1 got (the client is retrying with a
+ * key_share, not renegotiating algorithms). Only meaningful when
+ * s->hrr_sent; sets s->last_error and returns 0 on a mismatch. */
+static int sdrv_ch_retry_cipher_ok(quic_sdrv* s) {
+  if (!s->hrr_sent || s->cipher_suite == s->hrr_cipher_suite) return 1;
+  s->last_error = quic_err_crypto(47); /* illegal_parameter */
+  return 0;
+}
+
+/* Cipher suite negotiated and (on the post-HRR ClientHello2) checked against
+ * ClientHello1's. Returns 1 to keep processing, 0 on a real rejection. */
+static int sdrv_ch_negotiate_cipher_gate(
     quic_sdrv* s, const u8* ch_msg, usz ch_len) {
   usz body;
   if (!sdrv_ch_negotiate(s, ch_msg, ch_len, &body)) return 0;
-  return take_client_keyshare(ch_msg, ch_len, s->client_pub);
+  return sdrv_ch_retry_cipher_ok(s);
+}
+
+/* The client's x25519 key_share taken directly, or (its absence) recorded
+ * as "HRR needed" instead of an outright rejection. Returns 1 if the caller
+ * should keep processing this ClientHello as a normal (non-HRR) one, 0 if
+ * HRR was armed instead (quic_sdrv_hrr_pending is now 1, not an error). */
+static int sdrv_ch_keyshare_or_arm_hrr(
+    quic_sdrv* s, const u8* ch_msg, usz ch_len) {
+  if (take_client_keyshare(ch_msg, ch_len, s->client_pub)) return 1;
+  sdrv_ch_arm_hrr(s, ch_msg, ch_len);
+  return 0;
+}
+
+/* Cipher suite negotiated (and, on the post-HRR ClientHello2, checked
+ * against ClientHello1's); the client's x25519 key_share taken, or its
+ * absence armed as an HRR instead of an outright rejection. */
+static int sdrv_ch_negotiate_and_keyshare(
+    quic_sdrv* s, const u8* ch_msg, usz ch_len) {
+  if (!sdrv_ch_negotiate_cipher_gate(s, ch_msg, ch_len)) return 0;
+  return sdrv_ch_keyshare_or_arm_hrr(s, ch_msg, ch_len);
 }
 
 /* Negotiated, key_share taken, and legacy_session_id recorded -- the
@@ -623,7 +685,7 @@ static int sdrv_ch_require_tp_ext(quic_sdrv* s, const u8* ch_msg, usz ch_len) {
 /* The extension gate passed and the required fields were taken -- the rest
  * of quic_sdrv_recv_client_hello (split out to keep its CCN low). */
 static int sdrv_ch_after_gate(quic_sdrv* s, const u8* ch_msg, usz ch_len) {
-  if (!sdrv_ch_required_fields(s, ch_msg, ch_len)) return 0;
+  if (!sdrv_ch_required_fields(s, ch_msg, ch_len)) return s->hrr_needed;
   if (!sdrv_ch_take_psk(s, ch_msg, ch_len)) return 0;
   sdrv_ch_take_optional(s, ch_msg, ch_len);
   return 1;
@@ -631,8 +693,33 @@ static int sdrv_ch_after_gate(quic_sdrv* s, const u8* ch_msg, usz ch_len) {
 
 int quic_sdrv_recv_client_hello(quic_sdrv* s, const u8* ch_msg, usz ch_len) {
   s->last_error = 0;
+  s->hrr_needed = 0;
   if (!sdrv_ch_require_tp_ext(s, ch_msg, ch_len)) return 0;
   return sdrv_ch_after_gate(s, ch_msg, ch_len);
+}
+
+int quic_sdrv_hrr_pending(const quic_sdrv* s) { return s->hrr_needed; }
+
+/* RFC 8446 4.4.1: replace ClientHello1 in the transcript with the synthetic
+ * message_hash message (msg_type 254, body Hash(ClientHello1)) built over
+ * s->ch1_hash, then fold in the just-built HRR bytes -- the transcript is
+ * reset first since ClientHello1 was never folded in (sdrv_ch_arm_hrr only
+ * hashed it, see its doc). */
+static void sdrv_hrr_reset_transcript(
+    quic_sdrv* s, const u8* hrr, usz hrr_len) {
+  u8  mh[4 + 32];
+  usz mh_len = quic_hrr_message_hash(s->ch1_hash, 32, mh, sizeof(mh));
+  quic_transcript_init(&s->tr);
+  quic_transcript_add(&s->tr, mh, mh_len);
+  quic_transcript_add(&s->tr, hrr, hrr_len);
+}
+
+int quic_sdrv_build_hrr(quic_sdrv* s, quic_obuf* out) {
+  if (!quic_hrr_build(QUIC_GROUP_X25519, quic_span_of(0, 0), out)) return 0;
+  sdrv_hrr_reset_transcript(s, out->p, out->len);
+  s->hrr_sent   = 1;
+  s->hrr_needed = 0;
+  return 1;
 }
 
 u64 quic_sdrv_last_error(const quic_sdrv* s) { return s->last_error; }
