@@ -2,7 +2,9 @@
 
 #include "app/datagram/dgdeliver/dg_send.h"
 #include "app/http3/core/h3/connect.h"
+#include "app/http3/core/h3/errclass.h"
 #include "app/http3/core/h3/frame.h"
+#include "app/http3/core/h3/grease.h"
 #include "app/http3/core/h3/method.h"
 #include "app/http3/core/h3conn/establish.h"
 #include "app/http3/core/h3prio/h3prio.h"
@@ -32,6 +34,7 @@
 #include "common/platform/qlog/qlogevent.h"
 #include "common/platform/rng/challenge.h"
 #include "common/platform/rng/cidgen.h"
+#include "common/platform/rng/rng.h"
 #include "common/platform/thread/thread.h"
 #include "tls/ext/stp/server_tp.h"
 #include "tls/handshake/core/tls/retry_tag.h"
@@ -5879,16 +5882,33 @@ static void srvrun_rx_init(wired_srvrun_env* env, quic_mmsg_buf* bufs) {
     bufs[i].buf = quic_mspan_of(env->rxstorage[i], sizeof env->rxstorage[i]);
 }
 
+/* RFC 9114 8.1 / 9114-077: when about to close with H3_NO_ERROR, occasionally
+ * substitute a reserved (grease) error code instead, so a peer's handling of
+ * an unrecognized-but-valid code (9114-075: treated as equivalent to
+ * H3_NO_ERROR) gets exercised on the wire -- same one-random-byte shape as
+ * control_settings_grease_id (control_settings.c), applied to the error-code
+ * space instead of the SETTINGS-identifier space. A failed RNG read skips
+ * greasing, same fallback. */
+static u64 srvrun_close_grease_id(void) {
+  u8 b;
+  if (!quic_rng_bytes(&b, 1)) return 0;
+  if (b & 1) return 0;
+  return quic_h3_grease_value(b);
+}
+
 /* RFC 9114 5.2: once the drain grace period ends, any connection still up
  * (the peer never finished on its own) is closed by the server with an
  * application-level CONNECTION_CLOSE carrying H3_NO_ERROR -- the graceful
  * shutdown's own completion, distinct from GOAWAY (which merely announces
- * the intent to stop accepting new requests on it). */
+ * the intent to stop accepting new requests on it). quic_h3_error_send_value
+ * substitutes an occasional grease code per connection (9114-077, above). */
 static void srvrun_close_drained(const srvrun_cfg* cfg, srvrun_state* st) {
   for (usz i = 0; i < QUIC_CONNTABLE_CAP; i++)
     if (st->conns[i].up)
       srvrun_send_app_close(
-          cfg, &st->conns[i], QUIC_H3_NO_ERROR, quic_span_of(0, 0));
+          cfg, &st->conns[i],
+          quic_h3_error_send_value(QUIC_H3_NO_ERROR, srvrun_close_grease_id()),
+          quic_span_of(0, 0));
 }
 
 /* Receive datagrams until told to stop: normal service while no shutdown has
