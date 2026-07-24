@@ -332,6 +332,7 @@
 #include "tls/handshake/core/tls/hsdone.c"
 #include "tls/handshake/core/tls/initial.c"
 #include "tls/handshake/core/tls/newsessionticket.c"
+#include "tls/handshake/core/tls/ticketfreshness.c"
 #include "tls/handshake/core/tls/keydiscard.c"
 #include "tls/handshake/core/tls/master.c"
 #include "tls/handshake/core/tls/msgassembly.c"
@@ -426,6 +427,7 @@
 #include "transport/conn/loop/connrunner/send.c"
 #include "transport/conn/loop/connrunner/keyupdate.c"
 #include "transport/conn/loop/connrunner/reconnect.c"
+#include "transport/conn/loop/connrunner/pmtudrive.c"
 #include "transport/conn/loop/connrunner/connrunner.c"
 #include "app/http3/core/h3conn/establish.c"
 #include "app/http3/core/h3conn/request.c"
@@ -484,9 +486,11 @@
 #include "app/http3/server/h3srv/control.c"
 #include "app/http3/server/h3srv/peer.c"
 #include "app/http3/server/h3srv/respond.c"
+#include "app/http3/server/h3srv/priupdate.c"
 #include "app/http3/server/srvwire/wire.c"
 #include "app/http3/server/srvloop/keys.c"
 #include "app/http3/server/srvloop/recv.c"
+#include "app/http3/server/srvloop/priority_ctrl.c"
 #include "app/http3/server/srvloop/dispatch.c"
 #include "app/http3/server/srvloop/send.c"
 #include "app/http3/server/srvloop/respond.c"
@@ -708,6 +712,7 @@
 #include "tls/ticketversion_test.c"
 #include "tls/ticket_test.c"
 #include "tls/newsessionticket_test.c"
+#include "tls/ticketfreshness_test.c"
 #include "app/zerortt_dgram_test.c"
 #include "transport/session_test.c"
 #include "crypto/der_test.c"
@@ -843,6 +848,7 @@
 #include "tls/sflight_certverify_build_test.c"
 #include "tls/sflight_finished_build_test.c"
 #include "tls/sdrv_test.c"
+#include "tls/sdrv_hrr_test.c"
 #include "crypto/selfcert_test.c"
 #include "transport/hspkt_build_test.c"
 #include "transport/onertt_test.c"
@@ -896,6 +902,7 @@
 #include "transport/v2switch_test.c"
 #include "transport/versdowngrade_test.c"
 #include "transport/evloop_test.c"
+#include "transport/pmtudrive_test.c"
 #include "transport/connrunner_test.c"
 #include "app/h3conn_establish_test.c"
 #include "app/h3conn_roundtrip_test.c"
@@ -941,8 +948,10 @@
 #include "transport/crecv_message_test.c"
 #include "tls/server_test.c"
 #include "app/h3srv_test.c"
+#include "app/h3srv_priupdate_test.c"
 #include "app/srvwire_test.c"
 #include "app/srvloop_test.c"
+#include "app/srvloop_priupdate_test.c"
 #include "app/srvboot_version_test.c"
 #include "app/priupdate_test.c"
 #include "app/sendq_test.c"
@@ -1179,6 +1188,7 @@ int main(void) {
   test_ticketversion();
   test_ticket();
   test_newsessionticket();
+  test_ticketfreshness();
   test_zerortt_dgram();
   test_session();
   test_der();
@@ -1314,6 +1324,7 @@ int main(void) {
   test_sflight_certverify_build();
   test_sflight_finished_build();
   test_sdrv();
+  test_sdrv_hrr();
   test_selfcert();
   test_hspkt_build();
   test_onertt();
@@ -1392,6 +1403,7 @@ int main(void) {
   test_v2switch();
   test_versdowngrade();
   test_evloop();
+  test_pmtudrive();
   test_connrunner();
   test_h3conn_establish();
   test_h3conn_roundtrip();
@@ -1441,8 +1453,10 @@ int main(void) {
   test_crecv_message();
   test_server();
   test_h3srv();
+  test_h3srv_priupdate();
   test_srvwire();
   test_srvloop();
+  test_srvloop_priupdate();
   test_srvboot_version();
   test_priupdate();
   test_sendq();
