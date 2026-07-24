@@ -568,6 +568,13 @@ typedef struct {
    * shape: dispatch.c only latches it, the caller driving the loop decides
    * how to close the connection over it. */
   u16 priupdate_violation;
+  /** RFC 9204 4.2 (9204-028): the H3 connection error code of a second QPACK
+   * encoder or decoder unidirectional stream seen this step
+   * (H3_STREAM_CREATION_ERROR), 0 when none was rejected. Mirrors
+   * priupdate_violation's shape: dispatch.c only latches it via
+   * wired_h3srv_on_peer_qpack, the caller driving the loop decides how to
+   * close the connection over it. */
+  u16 qpack_stream_violation;
   /** draft-ietf-webtrans-http3-15 4.3: 1 once a STREAM frame this step
    * carried the WT_STREAM signal varint (0x41) as its own leading bytes at
    * a NON-zero stream offset -- "Endpoints MUST NOT send WT_STREAM as a

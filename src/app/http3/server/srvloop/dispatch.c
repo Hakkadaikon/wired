@@ -443,6 +443,21 @@ static int uni_stream_type_accepted(quic_span data) {
   return wired_h3srv_accept_uni(v);
 }
 
+/* RFC 9204 4.2 (9204-028): if the leading type varint decodes to the QPACK
+ * encoder or decoder stream type, record it on l's peer_qpack_* flags
+ * (wired_h3srv_on_peer_qpack) -- a second instance of either type latches
+ * l->qpack_stream_violation for the caller driving the loop to close the
+ * connection over (H3_STREAM_CREATION_ERROR). Any other (or undecodable)
+ * type is a no-op, matching uni_stream_type_accepted's own read-only peek. */
+static void uni_stream_type_note_qpack(wired_srvloop* l, quic_span data) {
+  u64 v;
+  usz off = 0;
+  u16 err;
+  if (!quic_varint_take(data, &off, &v)) return;
+  if (!wired_h3srv_on_peer_qpack(&l->h3, v, &err))
+    l->qpack_stream_violation = err;
+}
+
 /* draft-ietf-webtrans-http3-15 4.3: 1 if this uni stream's very first bytes
  * (an offset-0 STREAM frame's data) decode as the WT uni stream type varint
  * (0x54, RFC 9114 6.2/RFC 9220). Unlike a WT bidi stream's signal byte, a uni
@@ -544,15 +559,19 @@ static void gather_wt_uni_land(wired_srvloop* l, const quic_stream_frame* sf) {
  * has_stream/feed_or_accept's existing "STREAM frame present -> accepted,
  * content ignored" behavior already covers it unchanged, so this adds
  * classification without altering that path's outcome. */
+/* Classify this uni stream's offset-0 leading type varint: a read-only peek
+ * (wired_h3srv_accept_uni, its result unused here on purpose -- see
+ * gather_wt_uni_frame's own doc) plus recording a QPACK encoder/decoder type
+ * on l->h3.peer_qpack_* (RFC 9204 4.2, 9204-028). Split out of gather_wt_uni_
+ * frame so its own branch count stays at the CCN gate. */
+static void gather_wt_uni_classify(wired_srvloop* l, quic_span data) {
+  uni_stream_type_accepted(data);
+  uni_stream_type_note_qpack(l, data);
+}
+
 static void gather_wt_uni_frame(wired_srvloop* l, const quic_stream_frame* sf) {
   quic_span data = quic_span_of(sf->data, (usz)sf->length);
-  /* Classification-only peek (read-only, advances nothing): confirms this
-   * offset-0 type is one wired_h3srv_accept_uni recognizes at all (control/
-   * QPACK/WebTransport). The return value itself is unused here on purpose —
-   * a recognized-but-non-WT type takes no further action in THIS function
-   * either way, matching the pre-existing has_stream/feed_or_accept
-   * accepted-and-ignored behavior for those types byte-for-byte. */
-  if (sf->offset == 0) uni_stream_type_accepted(data);
+  if (sf->offset == 0) gather_wt_uni_classify(l, data);
   if (!wt_uni_frame_relevant(l, sf)) return;
   gather_wt_uni_land(l, sf);
 }

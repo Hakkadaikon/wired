@@ -129,6 +129,7 @@ int wired_srvloop_init(wired_srvloop* l, const u8* cli_scid, u8 cli_scid_len) {
   l->ecn_ect1                       = 0;
   l->ecn_ce                         = 0;
   l->priupdate_violation            = 0;
+  l->qpack_stream_violation         = 0;
   l->wt_signal_mid_stream_violation = 0;
   l->wt_reset_stream_id             = 0;
   l->wt_reset_error_code            = 0;
