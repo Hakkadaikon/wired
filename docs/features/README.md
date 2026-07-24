@@ -19,15 +19,15 @@ Interop results (the only tier that proves wire compatibility with an
 independent implementation) are tracked separately: see
 **[Interop Results](../interop.md)**.
 
-**Total: 919/1246 requirements tested (74%), 190 indirect, 137 untested.**
+**Total: 952/1246 requirements tested (76%), 207 indirect, 87 untested.**
 
 ## QUIC core
 
 | Spec | Tested | Indirect | Untested |
 |---|---|---|---|
-| [RFC 9000 — QUIC Transport](rfc9000.md) | 150/190 | 28 | 12 |
-| [RFC 9001 — Using TLS to Secure QUIC](rfc9001.md) | 51/68 | 8 | 9 |
-| [RFC 9002 — Loss Detection and Congestion Control](rfc9002.md) | 53/67 | 8 | 6 |
+| [RFC 9000 — QUIC Transport](rfc9000.md) | 156/190 | 34 | 0 |
+| [RFC 9001 — Using TLS to Secure QUIC](rfc9001.md) | 52/68 | 14 | 2 |
+| [RFC 9002 — Loss Detection and Congestion Control](rfc9002.md) | 56/67 | 11 | 0 |
 | [RFC 8999 — Version-Independent Properties](rfc8999.md) | 12/15 | 3 | 0 |
 
 ## QUIC extensions
@@ -46,13 +46,13 @@ independent implementation) are tracked separately: see
 
 | Spec | Tested | Indirect | Untested |
 |---|---|---|---|
-| [RFC 8446 — TLS 1.3](rfc8446.md) | 76/105 | 18 | 11 |
+| [RFC 8446 — TLS 1.3](rfc8446.md) | 85/105 | 18 | 2 |
 | [RFC 5280 — X.509 / PKI](rfc5280.md) | 31/44 | 6 | 7 |
-| [RFC 5480 — EC public keys in certificates](rfc5480.md) | 13/20 | 1 | 6 |
-| [RFC 5758 — ECDSA / SHA-2 signature OIDs](rfc5758.md) | 8/12 | 1 | 3 |
-| [RFC 8410 — Ed25519/X25519 algorithm identifiers](rfc8410.md) | 10/16 | 4 | 2 |
-| [RFC 6066 — TLS extensions (SNI)](rfc6066.md) | 7/13 | 3 | 3 |
-| [RFC 6125 — Service identity verification](rfc6125.md) | 6/11 | 1 | 4 |
+| [RFC 5480 — EC public keys in certificates](rfc5480.md) | 18/20 | 2 | 0 |
+| [RFC 5758 — ECDSA / SHA-2 signature OIDs](rfc5758.md) | 8/12 | 2 | 2 |
+| [RFC 8410 — Ed25519/X25519 algorithm identifiers](rfc8410.md) | 14/16 | 2 | 0 |
+| [RFC 6066 — TLS extensions (SNI)](rfc6066.md) | 9/13 | 4 | 0 |
+| [RFC 6125 — Service identity verification](rfc6125.md) | 9/11 | 2 | 0 |
 | [RFC 7301 — ALPN](rfc7301.md) | 13/14 | 1 | 0 |
 | [RFC 8017 — PKCS #1 (RSA)](rfc8017.md) | 19/22 | 3 | 0 |
 
