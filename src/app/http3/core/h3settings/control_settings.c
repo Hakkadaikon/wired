@@ -66,3 +66,7 @@ int quic_h3settings_control_stream(
   *out_len = pre + ob.len;
   return 1;
 }
+
+int quic_h3settings_h3_datagram_monotonic_ok(u64 prior_value, u64 new_value) {
+  return new_value >= prior_value;
+}
