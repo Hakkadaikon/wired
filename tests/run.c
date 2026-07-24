@@ -520,6 +520,14 @@
 #include "app/webtransport/errmap/errmap/errmap.c"
 #include "app/webtransport/capsule/wtcapsule/wtcapsule.c"
 #include "app/webtransport/wtwire/wtwire.c"
+#include "tls/ext/salpn/idna.c"
+#include "tls/ext/salpn/sni_check.c"
+#include "tls/handshake/core/tls/chguard.c"
+#include "tls/handshake/core/tls/cryptolevel.c"
+#include "tls/handshake/core/tls/keyupdate_reject.c"
+#include "tls/keys/keyupdate/pncheck.c"
+#include "transport/conn/loop/pending1rtt/pending1rtt.c"
+#include "transport/packet/build/pktbuild/paddingelicit.c"
 #include "common/varint_test.c"
 #include "transport/header_test.c"
 #include "transport/dcidresolve_test.c"
@@ -998,6 +1006,13 @@
 #include "transport/xdpframe_test.c"
 #include "transport/srvxdpbpf_test.c"
 #include "transport/srvxdp_test.c"
+#include "tls/idna_test.c"
+#include "tls/sni_check_test.c"
+#include "tls/cryptolevel_test.c"
+#include "tls/keyupdate_reject_test.c"
+#include "tls/pncheck_test.c"
+#include "transport/pending1rtt_test.c"
+#include "transport/paddingelicit_test.c"
 // clang-format on
 
 int main(void) {
@@ -1508,5 +1523,12 @@ int main(void) {
   test_xdpframe();
   test_srvxdpbpf();
   test_srvxdp();
+  test_idna();
+  test_sni_check();
+  test_cryptolevel();
+  test_keyupdate_reject();
+  test_pncheck();
+  test_pending1rtt();
+  test_paddingelicit();
   return TEST_REPORT();
 }
