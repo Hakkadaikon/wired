@@ -98,3 +98,87 @@ void test_h3settings_h3_datagram_monotonic_ok(void) {
   CHECK(quic_h3settings_h3_datagram_monotonic_ok(0, 1) == 1); /* raised */
   CHECK(quic_h3settings_h3_datagram_monotonic_ok(1, 0) == 0); /* lowered */
 }
+
+/* RFC 9114 7.2.4.2 / 9114-066: identical settings are trivially compatible
+ * (a client complying with prior cannot be violated by an identical
+ * current). */
+void test_h3settings_zerortt_compatible_identical_ok(void) {
+  quic_h3settings_in s = {0x4000, 100, 4, 1, 1, 1, 0, 0, 0, 0};
+  CHECK(quic_h3settings_zerortt_compatible(&s, &s) == 1);
+}
+
+/* Raising any single one of the six compatibility-relevant fields (all
+ * except grease_id, which the client is required to ignore regardless of
+ * value, RFC 9114 7.2.8) stays compatible. */
+void test_h3settings_zerortt_compatible_raised_fields_ok(void) {
+  quic_h3settings_in prior    = {0x4000, 100, 4, 1, 1, 1, 0, 0, 0, 0};
+  quic_h3settings_in raised[] = {
+      {0x8000, 100, 4, 1, 1, 1, 0, 0, 0, 0},
+      {0x4000, 200, 4, 1, 1, 1, 0, 0, 0, 0},
+      {0x4000, 100, 8, 1, 1, 1, 0, 0, 0, 0},
+      {0x4000, 100, 4, 1, 1, 1, 0, 0, 0, 0},
+      {0x4000, 100, 4, 1, 1, 2, 0, 0, 0, 0},
+  };
+  for (usz i = 0; i < sizeof raised / sizeof raised[0]; i++)
+    CHECK(quic_h3settings_zerortt_compatible(&prior, &raised[i]) == 1);
+}
+
+/* draft-ietf-webtrans-http3-15/RFC 9297: withdrawing enable_h3_datagram
+ * (1 -> 0) after the client relied on it MUST NOT be treated as
+ * compatible -- this is the 9114-066 case the RFC text calls out by name
+ * ("its SETTINGS frame MUST NOT reduce any limits"). */
+void test_h3settings_zerortt_compatible_extension_withdrawn_rejected(void) {
+  quic_h3settings_in prior   = {0x4000, 100, 4, 1, 1, 1, 0, 0, 0, 0};
+  quic_h3settings_in current = {0x4000, 100, 4, 1, 0, 1, 0, 0, 0, 0};
+  CHECK(quic_h3settings_zerortt_compatible(&prior, &current) == 0);
+}
+
+/* Lowering any single one of the three core limits (max_field_section_size,
+ * qpack_max_table_capacity, qpack_blocked_streams) is incompatible. */
+void test_h3settings_zerortt_compatible_lowered_core_limit_rejected(void) {
+  quic_h3settings_in prior     = {0x4000, 100, 4, 1, 1, 1, 0, 0, 0, 0};
+  quic_h3settings_in lowered[] = {
+      {0x2000, 100, 4, 1, 1, 1, 0, 0, 0, 0},
+      {0x4000, 50, 4, 1, 1, 1, 0, 0, 0, 0},
+      {0x4000, 100, 2, 1, 1, 1, 0, 0, 0, 0},
+  };
+  for (usz i = 0; i < sizeof lowered / sizeof lowered[0]; i++)
+    CHECK(quic_h3settings_zerortt_compatible(&prior, &lowered[i]) == 0);
+}
+
+/* draft-ietf-webtrans-http3-15 3.2 (WTH3-019): "if the server accepts
+ * 0-RTT, the server shall not reduce the limit of maximum open
+ * WebTransport sessions or other initial flow control values from those
+ * negotiated during the previous session." wt_max_sessions is exactly
+ * "the limit of maximum open WebTransport sessions"; wt_initial_max_
+ * streams_uni/bidi and wt_initial_max_data are exactly the "other initial
+ * flow control values" (draft 5.5's SETTINGS_WT_INITIAL_MAX_*) -- all
+ * four already participate in quic_h3settings_zerortt_compatible's
+ * general never-regress rule, so lowering any one of them alone is
+ * rejected the same way the core/extension fields are above. */
+void test_h3settings_zerortt_compatible_wt_session_limit_lowered_rejected(
+    void) {
+  quic_h3settings_in prior = {
+      .max_field_section_size = 0x4000,
+      .qpack_blocked_streams  = 100,
+      .wt_max_sessions        = 4};
+  quic_h3settings_in current = prior;
+  current.wt_max_sessions    = 1;
+  CHECK(quic_h3settings_zerortt_compatible(&prior, &current) == 0);
+}
+
+void test_h3settings_zerortt_compatible_wt_flow_control_lowered_rejected(void) {
+  quic_h3settings_in prior = {
+      .max_field_section_size      = 0x4000,
+      .qpack_blocked_streams       = 100,
+      .wt_initial_max_streams_uni  = 8,
+      .wt_initial_max_streams_bidi = 8,
+      .wt_initial_max_data         = 1 << 20};
+  quic_h3settings_in bidi_lowered          = prior;
+  bidi_lowered.wt_initial_max_streams_bidi = 1;
+  CHECK(quic_h3settings_zerortt_compatible(&prior, &bidi_lowered) == 0);
+
+  quic_h3settings_in data_lowered  = prior;
+  data_lowered.wt_initial_max_data = 1;
+  CHECK(quic_h3settings_zerortt_compatible(&prior, &data_lowered) == 0);
+}

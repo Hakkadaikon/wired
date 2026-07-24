@@ -3,7 +3,7 @@
 /* RFC 9114 7.2.4: SETTINGS frame wire structure and round-trip. */
 void test_h3settings_build(void) {
   u8                 buf[32];
-  quic_h3settings_in in = {0x4000, 0, 100, 0, 0, 0, 0};
+  quic_h3settings_in in = {0x4000, 0, 100, 0, 0, 0, 0, 0, 0, 0};
   quic_obuf          ob = {buf, sizeof buf, 0};
   CHECK(quic_h3settings_build(&in, &ob) == 1);
   usz n = ob.len;
@@ -33,7 +33,7 @@ void test_h3settings_build(void) {
  * PROTOCOL (0x08)=1 as a 4th pair; omitted (0) keeps the 3-pair wire form. */
 void test_h3settings_build_connect_protocol(void) {
   u8                 buf[32];
-  quic_h3settings_in in = {0x4000, 0, 100, 1, 0, 0, 0};
+  quic_h3settings_in in = {0x4000, 0, 100, 1, 0, 0, 0, 0, 0, 0};
   quic_obuf          ob = {buf, sizeof buf, 0};
   CHECK(quic_h3settings_build(&in, &ob) == 1);
 
@@ -54,7 +54,7 @@ void test_h3settings_build_connect_protocol(void) {
  * ERR_METHOD_NOT_SUPPORTED. */
 void test_h3settings_build_h3_datagram_and_wt_enabled(void) {
   u8                 buf[48];
-  quic_h3settings_in in = {0x4000, 0, 100, 0, 1, 5, 0};
+  quic_h3settings_in in = {0x4000, 0, 100, 0, 1, 5, 0, 0, 0, 0};
   quic_obuf          ob = {buf, sizeof buf, 0};
   CHECK(quic_h3settings_build(&in, &ob) == 1);
 
@@ -74,7 +74,7 @@ void test_h3settings_build_h3_datagram_and_wt_enabled(void) {
  * pre-existing behavior exercised by test_h3settings_build. */
 void test_h3settings_build_h3_datagram_and_wt_disabled(void) {
   u8                 buf[32];
-  quic_h3settings_in in = {0x4000, 0, 100, 0, 0, 0, 0};
+  quic_h3settings_in in = {0x4000, 0, 100, 0, 0, 0, 0, 0, 0, 0};
   quic_obuf          ob = {buf, sizeof buf, 0};
   CHECK(quic_h3settings_build(&in, &ob) == 1);
 
@@ -88,7 +88,7 @@ void test_h3settings_build_h3_datagram_and_wt_disabled(void) {
  * disturbs nothing already built on this function. */
 void test_h3settings_build_grease_zero_omits_pair(void) {
   u8                 buf[32];
-  quic_h3settings_in in = {0x4000, 0, 100, 0, 0, 0, 0};
+  quic_h3settings_in in = {0x4000, 0, 100, 0, 0, 0, 0, 0, 0, 0};
   quic_obuf          ob = {buf, sizeof buf, 0};
   CHECK(quic_h3settings_build(&in, &ob) == 1);
 
@@ -103,7 +103,7 @@ void test_h3settings_build_grease_zero_omits_pair(void) {
 void test_h3settings_build_grease_nonzero_appends_pair(void) {
   u8                 buf[32];
   u64                gid = quic_h3_grease_value(9);
-  quic_h3settings_in in  = {0x4000, 0, 100, 0, 0, 0, gid};
+  quic_h3settings_in in  = {0x4000, 0, 100, 0, 0, 0, gid, 0, 0, 0};
   quic_obuf          ob  = {buf, sizeof buf, 0};
   CHECK(quic_h3settings_build(&in, &ob) == 1);
 
@@ -112,4 +112,41 @@ void test_h3settings_build_grease_nonzero_appends_pair(void) {
   CHECK(sr == ob.len && s.n == 4);
   CHECK(s.pairs[3].id == gid && s.pairs[3].value == 0);
   CHECK(quic_h3_is_reserved(s.pairs[3].id) == 1);
+}
+
+/* draft-ietf-webtrans-http3-15 5.5.1/5.5.2/5.5.3 (WTH3-051): each of the
+ * three WT flow-control initial-limit fields appends its own SETTINGS pair
+ * when non-zero, with the exact identifiers the draft registers
+ * (0x2b64/0x2b65/0x2b61), round-tripped through the existing decoder. */
+void test_h3settings_build_wt_flow_control_initial_limits(void) {
+  u8                 buf[64];
+  quic_h3settings_in in = {
+      .max_field_section_size      = 0x4000,
+      .qpack_blocked_streams       = 100,
+      .wt_initial_max_streams_uni  = 3,
+      .wt_initial_max_streams_bidi = 7,
+      .wt_initial_max_data         = 65536};
+  quic_obuf ob = {buf, sizeof buf, 0};
+  CHECK(quic_h3settings_build(&in, &ob) == 1);
+
+  quic_h3_settings s;
+  usz              sr = quic_h3_settings_get(buf, ob.len, &s);
+  CHECK(sr == ob.len && s.n == 6);
+  CHECK(s.pairs[3].id == 0x2b64 && s.pairs[3].value == 3);
+  CHECK(s.pairs[4].id == 0x2b65 && s.pairs[4].value == 7);
+  CHECK(s.pairs[5].id == 0x2b61 && s.pairs[5].value == 65536);
+}
+
+/* All three WT flow-control fields at 0 (the default) keep the 3-pair wire
+ * form -- adding the fields disturbs nothing already built on this
+ * function. */
+void test_h3settings_build_wt_flow_control_zero_omits_pairs(void) {
+  u8                 buf[32];
+  quic_h3settings_in in = {0x4000, 0, 100, 0, 0, 0, 0, 0, 0, 0};
+  quic_obuf          ob = {buf, sizeof buf, 0};
+  CHECK(quic_h3settings_build(&in, &ob) == 1);
+
+  quic_h3_settings s;
+  usz              sr = quic_h3_settings_get(buf, ob.len, &s);
+  CHECK(sr == ob.len && s.n == 3);
 }

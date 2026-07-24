@@ -25,6 +25,26 @@ typedef struct {
                     probabilistic decision of whether/which to send belongs
                     to the caller, not this builder (0 = the pre-existing
                     deterministic behavior every caller keeps by default). */
+  u64 wt_initial_max_streams_uni;  /* draft-ietf-webtrans-http3-15 5.5.1:
+                                       non-zero appends the 0x2b64
+                                       SETTINGS_WT_INITIAL_MAX_STREAMS_UNI
+                                       pair carrying this value -- the
+                                       initial WT_MAX_STREAMS(uni) limit,
+                                       same semantics as
+                                       wired_wt_session_set_max_streams's
+                                       bidi=0 case (session.h). */
+  u64 wt_initial_max_streams_bidi; /* draft-ietf-webtrans-http3-15 5.5.2:
+                                       non-zero appends the 0x2b65
+                                       SETTINGS_WT_INITIAL_MAX_STREAMS_BIDI
+                                       pair, the bidi counterpart of
+                                       wt_initial_max_streams_uni. */
+  u64 wt_initial_max_data;         /* draft-ietf-webtrans-http3-15 5.5.3:
+                                       non-zero appends the 0x2b61
+                                       SETTINGS_WT_INITIAL_MAX_DATA pair --
+                                       the initial WT_MAX_DATA limit, same
+                                       semantics as
+                                       wired_wt_session_set_max_data
+                                       (session.h). */
 } quic_h3settings_in;
 
 /* RFC 9114 7.2.4: build a SETTINGS frame carrying the three common settings

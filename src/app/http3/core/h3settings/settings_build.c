@@ -24,6 +24,14 @@
  * three generations go out together. */
 #define QUIC_H3_SETTINGS_WT_ENABLED 0x2c7cf000
 
+/* draft-ietf-webtrans-http3-15 5.5.1/5.5.2/5.5.3: initial WT flow-control
+ * limits, the SETTINGS-carried alternative to sending a WT_MAX_STREAMS(uni),
+ * WT_MAX_STREAMS(bidi), or WT_MAX_DATA capsule on every session
+ * individually. */
+#define QUIC_H3_SETTINGS_WT_INITIAL_MAX_STREAMS_UNI 0x2b64
+#define QUIC_H3_SETTINGS_WT_INITIAL_MAX_STREAMS_BIDI 0x2b65
+#define QUIC_H3_SETTINGS_WT_INITIAL_MAX_DATA 0x2b61
+
 /* RFC 9220 3: append SETTINGS_ENABLE_CONNECT_PROTOCOL when requested. */
 static void append_connect_protocol(
     const quic_h3settings_in* in, quic_h3_settings* s) {
@@ -59,6 +67,35 @@ static void append_wt_max_sessions(
   s->n++;
 }
 
+/* draft-ietf-webtrans-http3-15 5.5.1: append SETTINGS_WT_INITIAL_MAX_STREAMS_
+ * UNI when requested. */
+static void append_wt_initial_max_streams_uni(
+    const quic_h3settings_in* in, quic_h3_settings* s) {
+  if (!in->wt_initial_max_streams_uni) return;
+  s->pairs[s->n].id    = QUIC_H3_SETTINGS_WT_INITIAL_MAX_STREAMS_UNI;
+  s->pairs[s->n].value = in->wt_initial_max_streams_uni;
+  s->n++;
+}
+
+/* draft-ietf-webtrans-http3-15 5.5.2: bidi counterpart of the above. */
+static void append_wt_initial_max_streams_bidi(
+    const quic_h3settings_in* in, quic_h3_settings* s) {
+  if (!in->wt_initial_max_streams_bidi) return;
+  s->pairs[s->n].id    = QUIC_H3_SETTINGS_WT_INITIAL_MAX_STREAMS_BIDI;
+  s->pairs[s->n].value = in->wt_initial_max_streams_bidi;
+  s->n++;
+}
+
+/* draft-ietf-webtrans-http3-15 5.5.3: append SETTINGS_WT_INITIAL_MAX_DATA
+ * when requested. */
+static void append_wt_initial_max_data(
+    const quic_h3settings_in* in, quic_h3_settings* s) {
+  if (!in->wt_initial_max_data) return;
+  s->pairs[s->n].id    = QUIC_H3_SETTINGS_WT_INITIAL_MAX_DATA;
+  s->pairs[s->n].value = in->wt_initial_max_data;
+  s->n++;
+}
+
 /* RFC 9114 7.2.4.1 / 9114-064: append a caller-chosen reserved (grease)
  * SETTINGS identifier when in->grease_id is non-zero -- the probabilistic
  * decision of WHETHER and WHICH identifier to send lives in the caller
@@ -84,6 +121,9 @@ int quic_h3settings_build(const quic_h3settings_in* in, quic_obuf* out) {
   append_connect_protocol(in, &s);
   append_h3_datagram(in, &s);
   append_wt_max_sessions(in, &s);
+  append_wt_initial_max_streams_uni(in, &s);
+  append_wt_initial_max_streams_bidi(in, &s);
+  append_wt_initial_max_data(in, &s);
   append_grease(in, &s);
 
   usz w = quic_h3_settings_put(out->p, out->cap, &s);
