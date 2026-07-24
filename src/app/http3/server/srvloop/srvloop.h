@@ -427,9 +427,18 @@ typedef struct {
    * completion is either a request (done_slots) or an incomplete stream
    * (incomplete_slots). Reset at the start of every wired_srvloop_step. */
   u8  incomplete_slots[WIRED_SRVLOOP_MAX_STREAMS];
-  usz incomplete_n;  /**< entries valid in incomplete_slots this step */
-  int peer_closed;   /**< 1 once a peer CONNECTION_CLOSE frame was seen */
-  int resp_external; /**< 1: the caller answers requests, not the loop */
+  usz incomplete_n; /**< entries valid in incomplete_slots this step */
+  /** RFC 9114 7.2.5/7.2.8 (9114-067/9114-073): every slot whose request stream
+   * carried a PUSH_PROMISE or HTTP/2-only reserved frame type this step
+   * (streams[i].req.frame_unexpected) -- the H3_FRAME_UNEXPECTED counterpart
+   * of incomplete_slots above. A slot never appears in both lists: the
+   * decoder rejects the frame before FIN/completion accounting runs, so this
+   * takes priority. Reset at the start of every wired_srvloop_step. */
+  u8  frame_unexpected_slots[WIRED_SRVLOOP_MAX_STREAMS];
+  usz frame_unexpected_n; /**< entries valid in frame_unexpected_slots this
+                              step */
+  int peer_closed;        /**< 1 once a peer CONNECTION_CLOSE frame was seen */
+  int resp_external;      /**< 1: the caller answers requests, not the loop */
   /** ACK ranges (RFC 9000 19.3) seen in payloads opened this step, reset at
    * the start of every wired_srvloop_step; overflow past the cap is dropped.
    * 32 matches quic_ack_decode's own max range count (ack.h), so a single

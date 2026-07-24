@@ -901,6 +901,21 @@ static void rearm_incomplete(wired_srvloop* l) {
   }
 }
 
+/* Same re-arm as rearm_incomplete, for slots that finished rejected outright
+ * (RFC 9114 7.2.5/7.2.8, 9114-067/9114-073) instead of merely incomplete --
+ * also clears req.frame_unexpected (via the same *req = {0} that clearing
+ * req_len/req_fin/req_done leaves implicit on this SDK's other rearms is NOT
+ * enough here, since frame_unexpected lives in req itself, not the slot). */
+static void rearm_frame_unexpected(wired_srvloop* l) {
+  for (usz i = 0; i < l->frame_unexpected_n; i++) {
+    wired_srvloop_stream_slot* slot = &l->streams[l->frame_unexpected_slots[i]];
+    slot->req_len                   = 0;
+    slot->req_fin                   = 0;
+    slot->req_done                  = 0;
+    slot->req                       = (wired_h3reqdrive_req){0};
+  }
+}
+
 /* RFC 9000 12.2: a received datagram may coalesce several QUIC packets (e.g. an
  * Initial/ACK ahead of the Handshake carrying the client Finished). Split it
  * and process every slice before building one reply for the whole datagram. */
@@ -910,10 +925,11 @@ int wired_srvloop_step(
   usz          offs[WIRED_SRVLOOP_MAXPKTS], lens[WIRED_SRVLOOP_MAXPKTS], n, i;
   int          answer;
   int          r;
-  quic_pktlist plist    = {pkts, offs, lens, WIRED_SRVLOOP_MAXPKTS};
-  conn->l->ack_n        = 0;
-  conn->l->done_n       = 0;
-  conn->l->incomplete_n = 0;
+  quic_pktlist plist          = {pkts, offs, lens, WIRED_SRVLOOP_MAXPKTS};
+  conn->l->ack_n              = 0;
+  conn->l->done_n             = 0;
+  conn->l->incomplete_n       = 0;
+  conn->l->frame_unexpected_n = 0;
   n = quic_udploop_split(quic_span_of(dgram.p, dgram.n), &plist);
   for (i = 0; i < n; i++)
     step_one(conn, quic_mspan_of(dgram.p + offs[i], lens[i]));
@@ -923,5 +939,6 @@ int wired_srvloop_step(
   r      = wired_srvloop_produce(conn, answer, out);
   rearm_reqacc(conn->l);
   rearm_incomplete(conn->l);
+  rearm_frame_unexpected(conn->l);
   return r;
 }
