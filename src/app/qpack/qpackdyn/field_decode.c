@@ -24,13 +24,50 @@ static int resolve_dynamic(
   return quic_qpack_dyn_get(s->table, abs, out);
 }
 
-int quic_qdyn_decode_field(
+/* RFC 9204 4.5.3 / 3.2.6. Resolve a dynamic post-Base index against the Base
+ * into a borrowed live entry. Returns 1 ok, 0 if no live entry resolves. */
+static int resolve_postbase(
+    const quic_qdyn_src* s, u64 postbase, quic_qpack_field* out) {
+  u64 abs = quic_qpack_postbase_to_abs(s->base, postbase);
+  return quic_qpack_dyn_get(s->table, abs, out);
+}
+
+/* Try an Indexed Field Line (RFC 9204 4.5.2). Returns 1 with *out and
+ * *consumed filled, 0 if the pattern does not match or the reference does
+ * not resolve. */
+static int try_indexed(
     const quic_qdyn_src* src, quic_qpack_field* out, usz* consumed) {
   u64 index;
   int is_static;
   usz used = quic_qpack_indexed_decode(src->fs, &index, &is_static);
   if (used == 0) return 0;
   *consumed = used;
-  if (is_static) return resolve_static(index, out);
-  return resolve_dynamic(src, index, out);
+  return is_static ? resolve_static(index, out)
+                   : resolve_dynamic(src, index, out);
+}
+
+/* Try an Indexed Field Line with Post-Base Index (RFC 9204 4.5.3). Returns 1
+ * with *out and *consumed filled, 0 if the pattern does not match or the
+ * reference does not resolve. */
+static int try_postbase(
+    const quic_qdyn_src* src, quic_qpack_field* out, usz* consumed) {
+  u64 postbase;
+  usz used = quic_qpack_indexed_postbase_decode(src->fs, &postbase);
+  if (used == 0) return 0;
+  *consumed = used;
+  return resolve_postbase(src, postbase, out);
+}
+
+int quic_qdyn_decode_field(
+    const quic_qdyn_src* src, quic_qpack_field* out, usz* consumed) {
+  if (try_indexed(src, out, consumed)) return 1;
+  return try_postbase(src, out, consumed);
+}
+
+int quic_qdyn_resolve_postbase_name(
+    const quic_qdyn_src* src, u64 postbase, quic_span* name) {
+  quic_qpack_field f;
+  if (!resolve_postbase(src, postbase, &f)) return 0;
+  *name = f.name;
+  return 1;
 }

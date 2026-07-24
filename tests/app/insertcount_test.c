@@ -69,6 +69,30 @@ static void test_qpack_ric_min_above_expected_accepted(void) {
   CHECK(quic_qpack_ric_min_ok(9, 1, 3));
 }
 
+/* RFC 9204 4.4.3: an Increment of zero is always invalid, regardless of the
+ * current Known Received Count or how many inserts the encoder has sent. */
+static void test_qpack_incr_zero_rejected(void) {
+  CHECK(!quic_qpack_incr_valid(0, 0, 5));
+  CHECK(!quic_qpack_incr_valid(2, 0, 5));
+}
+
+/* RFC 9204 Appendix B.3: Known Received Count 2, Increment 1, and the encoder
+ * has sent 3 insertions -- the increment exactly catches up and is valid. */
+static void test_qpack_incr_golden(void) {
+  CHECK(quic_qpack_incr_valid(2, 1, 3));
+}
+
+/* RFC 9204 4.4.3: an Increment that would raise the Known Received Count
+ * beyond total_inserts (what the encoder actually sent) is invalid. */
+static void test_qpack_incr_overshoot_rejected(void) {
+  CHECK(!quic_qpack_incr_valid(2, 2, 3)); /* would reach 4, only 3 sent */
+}
+
+/* An increment landing exactly on total_inserts is the accepted boundary. */
+static void test_qpack_incr_exact_boundary_accepted(void) {
+  CHECK(quic_qpack_incr_valid(0, 3, 3));
+}
+
 void test_insertcount(void) {
   test_qpack_ric_zero();
   test_qpack_ric_example();
@@ -78,4 +102,8 @@ void test_insertcount(void) {
   test_qpack_ric_min_below_expected_rejected();
   test_qpack_ric_min_exact_accepted();
   test_qpack_ric_min_above_expected_accepted();
+  test_qpack_incr_zero_rejected();
+  test_qpack_incr_golden();
+  test_qpack_incr_overshoot_rejected();
+  test_qpack_incr_exact_boundary_accepted();
 }

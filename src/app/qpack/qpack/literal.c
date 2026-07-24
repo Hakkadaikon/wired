@@ -134,3 +134,37 @@ usz quic_qpack_literal_name_decode(
   off = litname_name_decode(buf, flag(buf.p[0], QPACK_LITNAME_H), &out->name);
   return decode_value(buf, off, &out->value);
 }
+
+/* RFC 9204 4.5.5 first-byte bits: the '0000' fixed pattern above the N flag
+ * and the 3-bit prefix. */
+#define QPACK_POSTBASEREF_MASK 0xf0
+#define QPACK_POSTBASEREF_PATTERN 0x00
+#define QPACK_POSTBASEREF_N 0x08
+
+/* High bits of the post-Base name-reference first byte for the given flags. */
+static u8 postbaseref_prefix(const quic_qpack_postbaseref* r) {
+  return QPACK_POSTBASEREF_PATTERN | bit(r->never, QPACK_POSTBASEREF_N);
+}
+
+usz quic_qpack_literal_postbase_encode(
+    quic_mspan buf, const quic_qpack_postbaseref* r, quic_span value) {
+  quic_qpack_pfx pfx = {3, postbaseref_prefix(r)};
+  usz            off = quic_qpack_int_encode(buf, pfx, r->index);
+  return encode_value(buf, off, value);
+}
+
+/* RFC 9204 4.5.5: top four bits 0000 mark a post-Base name-reference field
+ * line. */
+static int is_postbaseref(quic_span buf) {
+  return buf.n != 0 &&
+         (buf.p[0] & QPACK_POSTBASEREF_MASK) == QPACK_POSTBASEREF_PATTERN;
+}
+
+usz quic_qpack_literal_postbase_decode(
+    quic_span buf, quic_qpack_postbaseref* r, quic_obuf* val) {
+  usz off;
+  if (!is_postbaseref(buf)) return 0;
+  r->never = flag(buf.p[0], QPACK_POSTBASEREF_N);
+  off      = quic_qpack_int_decode(buf, 3, &r->index);
+  return decode_value(buf, off, val);
+}

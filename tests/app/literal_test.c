@@ -99,6 +99,52 @@ static void test_literal_name_reject(void) {
   CHECK(quic_qpack_literal_name_decode(quic_span_of(&wrong, 1), &nv, &fb) == 0);
 }
 
+/* RFC 9204 4.5.5: N=0, index=0 (0000 0 000=0x00), value "x" (0x01 0x78). */
+static void test_literal_postbase_golden(void) {
+  const u8               v[] = {'x'};
+  u8                     buf[8];
+  quic_qpack_postbaseref er = {0, 0};
+  usz                    w  = quic_qpack_literal_postbase_encode(
+      quic_mspan_of(buf, sizeof(buf)), &er, quic_span_of(v, 1));
+  CHECK(w == 3 && buf[0] == 0x00 && buf[1] == 0x01 && buf[2] == 0x78);
+
+  quic_qpack_postbaseref dr;
+  u8                     out[8];
+  quic_obuf              ob = quic_obuf_of(out, sizeof(out));
+  usz r = quic_qpack_literal_postbase_decode(quic_span_of(buf, w), &dr, &ob);
+  CHECK(r == w && dr.index == 0 && dr.never == 0);
+  CHECK(ob.len == 1 && out[0] == 'x');
+}
+
+/* The never-indexed flag and a non-zero post-Base index round-trip. */
+static void test_literal_postbase_flags(void) {
+  const u8               v[] = {'a', 'b'};
+  u8                     buf[8];
+  quic_qpack_postbaseref er = {3, 1};
+  usz                    w  = quic_qpack_literal_postbase_encode(
+      quic_mspan_of(buf, sizeof(buf)), &er, quic_span_of(v, 2));
+  /* 0000Niii: N=1, index=3 -> 0000 1011 = 0x0B. */
+  CHECK(w != 0 && buf[0] == 0x0B);
+
+  quic_qpack_postbaseref dr;
+  u8                     out[8];
+  quic_obuf              ob = quic_obuf_of(out, sizeof(out));
+  usz r = quic_qpack_literal_postbase_decode(quic_span_of(buf, w), &dr, &ob);
+  CHECK(r == w && dr.index == 3 && dr.never == 1);
+  CHECK(ob.len == 2 && out[0] == 'a' && out[1] == 'b');
+}
+
+/* A first byte outside the 0000xxxx pattern is not a post-Base name
+ * reference. */
+static void test_literal_postbase_reject(void) {
+  u8                     bad = 0x80; /* Indexed Field Line */
+  quic_qpack_postbaseref dr;
+  u8                     out[8];
+  quic_obuf              ob = quic_obuf_of(out, sizeof(out));
+  CHECK(
+      quic_qpack_literal_postbase_decode(quic_span_of(&bad, 1), &dr, &ob) == 0);
+}
+
 void test_literal(void) {
   test_literal_namref_golden();
   test_literal_namref_flags();
@@ -106,4 +152,7 @@ void test_literal(void) {
   test_literal_name_golden();
   test_literal_name_prefix_boundary();
   test_literal_name_reject();
+  test_literal_postbase_golden();
+  test_literal_postbase_flags();
+  test_literal_postbase_reject();
 }
