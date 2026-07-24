@@ -53,6 +53,10 @@
 #define QUIC_H3_CONNECT_ERROR 0x010f
 #define QUIC_H3_VERSION_FALLBACK 0x0110
 
+/* RFC 9297 2.1: an HTTP/3 connection error for a malformed or out-of-range
+ * HTTP Datagram Quarter Stream ID. */
+#define QUIC_H3_DATAGRAM_ERROR 0x33
+
 /* RFC 9114 7.2.4.1 SETTINGS parameter. */
 #define QUIC_H3_SETTINGS_MAX_FIELD_SECTION_SIZE 0x06
 

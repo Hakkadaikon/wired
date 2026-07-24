@@ -4189,8 +4189,13 @@ static void sr_establish_wt(
 /* One real client-encoded DATAGRAM frame, driven through wired_srvloop_step
  * (the live decode path, not a hand-populated queue) and then drained --
  * proves the full encode -> wire -> decode -> callback path, not just that
- * the callback function pointer is invoked. */
-static const u8 sr_rxdg_payload[] = {0xaa, 0xbb, 0xcc};
+ * the callback function pointer is invoked. RFC 9297 2.1: prefixed with
+ * varint(quarter stream id); sr_establish_wt below establishes the session on
+ * stream id 4, so qsid = 4/4 = 1, a 1-byte varint (0x01). The callback
+ * observes only the bytes AFTER this prefix (srvrun_deliver_rx_datagram
+ * strips it before routing). */
+static const u8 sr_rxdg_payload[] = {0x01, 0xaa, 0xbb, 0xcc};
+static const u8 sr_rxdg_content[] = {0xaa, 0xbb, 0xcc};
 
 static void test_srvrun_rx_datagram_delivers_to_callback(void) {
   struct lp_fix       f;
@@ -4222,10 +4227,10 @@ static void test_srvrun_rx_datagram_delivers_to_callback(void) {
   }
   CHECK(g_srdg_calls == 1);
   CHECK(conns[0].l.rx_datagram_n == 0); /* queue drained */
-  CHECK(g_srdg_last_len == sizeof sr_rxdg_payload);
+  CHECK(g_srdg_last_len == sizeof sr_rxdg_content);
   CHECK(g_srdg_last_sess == &conns[0].wt);
-  for (usz i = 0; i < sizeof sr_rxdg_payload; i++)
-    CHECK(g_srdg_last_buf[i] == sr_rxdg_payload[i]);
+  for (usz i = 0; i < sizeof sr_rxdg_content; i++)
+    CHECK(g_srdg_last_buf[i] == sr_rxdg_content[i]);
 }
 
 /* MULTIPLE DATAGRAMS: several queued in one drain are all delivered, in
@@ -4237,9 +4242,12 @@ static void test_srvrun_rx_datagram_multiple_all_delivered(void) {
   srvrun_conn*   conns = sr_test_conns();
   usz            i;
   sr_establish_wt(conns, table, 4);
+  /* RFC 9297 2.1: each queued datagram carries its own qsid=1 (4/4) prefix
+   * (0x01) ahead of its one content byte. */
   for (i = 0; i < 3; i++) {
-    conns[0].l.rx_datagrams[i].buf[0] = (u8)('A' + i);
-    conns[0].l.rx_datagrams[i].len    = 1;
+    conns[0].l.rx_datagrams[i].buf[0] = 0x01;
+    conns[0].l.rx_datagrams[i].buf[1] = (u8)('A' + i);
+    conns[0].l.rx_datagrams[i].len    = 2;
   }
   conns[0].l.rx_datagram_n = 3;
   g_srdg_calls             = 0;
@@ -4251,7 +4259,8 @@ static void test_srvrun_rx_datagram_multiple_all_delivered(void) {
   }
   CHECK(g_srdg_calls == 3);
   CHECK(conns[0].l.rx_datagram_n == 0);
-  /* the last call observed is the last-queued datagram (arrival order) */
+  /* the last call observed is the last-queued datagram (arrival order),
+   * with its qsid prefix stripped. */
   CHECK(g_srdg_last_len == 1 && g_srdg_last_buf[0] == 'C');
 }
 
@@ -4262,9 +4271,9 @@ static void test_srvrun_rx_datagram_no_callback_still_drains(void) {
   quic_conntable table[QUIC_CONNTABLE_CAP];
   srvrun_conn*   conns = sr_test_conns();
   sr_establish_wt(conns, table, 4);
-  conns[0].l.rx_datagrams[0].buf[0] = 'Z';
-  conns[0].l.rx_datagrams[0].len    = 1;
-  conns[0].l.rx_datagram_n          = 1;
+  conns[0].l.rx_datagrams[0].buf[0] = 0x01; /* qsid=1 (4/4), valid prefix */
+  conns[0].l.rx_datagrams[0].buf[1] = 'Z';
+  conns[0].l.rx_datagrams[0].len    = 2;
   g_srdg_calls                      = 0;
   {
     srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0,
@@ -4281,9 +4290,69 @@ static void test_srvrun_rx_datagram_no_callback_still_drains(void) {
  * never invoked, mirroring srvrun_offer_wt_slot's existing
  * accepted-and-ignored fallback for a session-less connection. */
 static void test_srvrun_rx_datagram_no_session_callback_not_invoked(void) {
-  srvrun_conn c              = {0};
-  c.wt_active                = 0;
-  c.l.rx_datagrams[0].buf[0] = 'Q';
+  srvrun_conn c = {0};
+  c.wt_active   = 0;
+  c.l.rx_datagrams[0].buf[0] =
+      0x01; /* valid qsid prefix, no session claims it */
+  c.l.rx_datagrams[0].buf[1] = 'Q';
+  c.l.rx_datagram_n          = 1;
+  c.l.rx_datagrams[0].len    = 2;
+  g_srdg_calls               = 0;
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, sr_dg_handler, 0, 0, 0, 0, &g_srvrun_env,
+        0,  0, 0, 0, 0, 0};
+    srvrun_drain_rx_datagrams(&cfg, &c);
+  }
+  CHECK(g_srdg_calls == 0);
+  CHECK(c.l.rx_datagram_n == 0);
+}
+
+/* MULTI-SESSION ROUTING (RFC 9297 2.1): with two concurrent WT sessions on
+ * one connection (slot 0 identity 4, slot 1 identity 8), a datagram whose
+ * Quarter Stream ID resolves to slot 1's connect_stream_id must be routed to
+ * slot 1 -- NOT to whichever slot srvrun_wt_slot_for_new_stream would have
+ * picked (slot 0, the first active one). This is the misdelivery this change
+ * fixes: before the qsid-based lookup, every datagram landed on slot 0
+ * regardless of which session it actually named. */
+static void test_srvrun_rx_datagram_routes_by_qsid_not_first_active(void) {
+  srvrun_conn c = {0};
+  u8          qbuf[8];
+  usz         qn;
+  wired_wt_session_init(&c.wt, 4);
+  wired_wt_session_establish(&c.wt);
+  c.wt_active = 1;
+  wired_wt_session_init(&c.wt1, 8);
+  wired_wt_session_establish(&c.wt1);
+  c.wt1_active = 1;
+  /* qsid = 8/4 = 2 -> names slot 1, not slot 0. */
+  qn                         = quic_wtwire_qsid_put(qbuf, sizeof qbuf, 8);
+  c.l.rx_datagrams[0].buf[0] = qbuf[0];
+  c.l.rx_datagrams[0].buf[1] = 0xEE;
+  c.l.rx_datagrams[0].len    = qn + 1;
+  c.l.rx_datagram_n          = 1;
+  g_srdg_calls               = 0;
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, sr_dg_handler, 0, 0, 0, 0, &g_srvrun_env,
+        0,  0, 0, 0, 0, 0};
+    srvrun_drain_rx_datagrams(&cfg, &c);
+  }
+  CHECK(g_srdg_calls == 1);
+  CHECK(g_srdg_last_sess == &c.wt1); /* routed to slot 1, not slot 0 */
+  CHECK(g_srdg_last_len == 1 && g_srdg_last_buf[0] == 0xEE);
+}
+
+/* TRUNCATED QSID (RFC 9297 2.1 / 9297-006): a DATAGRAM payload too short to
+ * hold its Quarter Stream ID varint is an H3_DATAGRAM_ERROR connection close,
+ * not a delivery -- the callback must not fire. */
+static void test_srvrun_rx_datagram_short_qsid_closes_conn(void) {
+  srvrun_conn c = {0};
+  wired_wt_session_init(&c.wt, 4);
+  wired_wt_session_establish(&c.wt);
+  c.wt_active = 1;
+  /* 0x40 alone is the first byte of a 2-byte varint; the second is missing. */
+  c.l.rx_datagrams[0].buf[0] = 0x40;
   c.l.rx_datagrams[0].len    = 1;
   c.l.rx_datagram_n          = 1;
   g_srdg_calls               = 0;
@@ -4295,6 +4364,62 @@ static void test_srvrun_rx_datagram_no_session_callback_not_invoked(void) {
   }
   CHECK(g_srdg_calls == 0);
   CHECK(c.l.rx_datagram_n == 0);
+}
+
+/* OVERSIZED QSID (RFC 9297 2.1 / 9297-005): a Quarter Stream ID above
+ * 2^60-1 is rejected the same way as a truncated one -- also confirms
+ * srvrun_seal_app_close (the wire primitive srvrun_close_on_bad_qsid uses)
+ * actually encodes H3_DATAGRAM_ERROR (0x33) as an application-level (is_app)
+ * CONNECTION_CLOSE, mirroring test_srvrun_seal_transport_close_is_transport_
+ * level's proof for the transport-level sibling. */
+static void test_srvrun_rx_datagram_oversized_qsid_closes_conn(void) {
+  struct lp_fix         f;
+  quic_obuf             ob;
+  u8                    obuf[1024];
+  u8                    pkt[256];
+  quic_obuf             pktb = quic_obuf_of(pkt, sizeof pkt);
+  const u8*             pl;
+  usz                   pll;
+  quic_conn_close_frame ccf;
+  usz                   rn;
+  const u8*   reason = (const u8*)"bad HTTP Datagram Quarter Stream ID";
+  srvrun_conn c      = {0};
+  ob                 = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  CHECK(srvrun_seal_app_close(
+      &c, QUIC_H3_DATAGRAM_ERROR, quic_span_of(reason, 36), &pktb));
+  CHECK(client_open_onertt(&f, pktb.p, pktb.len, &pl, &pll) == 1);
+  rn = quic_frame_get_conn_close(pl, pll, &ccf);
+  CHECK(rn != 0 && rn == pll);
+  CHECK(ccf.is_app == 1);
+  CHECK(ccf.error_code == QUIC_H3_DATAGRAM_ERROR);
+}
+
+/* NOT-YET-ESTABLISHED SESSION (RFC 9297 2.1 / 9297-009): a datagram whose
+ * qsid names a session that has not been established yet is buffered by
+ * wired_wt_session_offer_datagram (session.h), not delivered to the app
+ * callback nor dropped -- srvrun_deliver_rx_datagram routes it there via the
+ * qsid lookup exactly like the established case, just landing in the
+ * session's own pre-establishment buffer instead of the callback. */
+static void test_srvrun_rx_datagram_buffers_before_establish(void) {
+  srvrun_conn c = {0};
+  wired_wt_session_init(&c.wt, 4); /* left UNESTABLISHED */
+  c.wt_active                = 1;
+  c.l.rx_datagrams[0].buf[0] = 0x01; /* qsid=1 (4/4) */
+  c.l.rx_datagrams[0].buf[1] = 0x7A;
+  c.l.rx_datagrams[0].len    = 2;
+  c.l.rx_datagram_n          = 1;
+  g_srdg_calls               = 0;
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, sr_dg_handler, 0, 0, 0, 0, &g_srvrun_env,
+        0,  0, 0, 0, 0, 0};
+    srvrun_drain_rx_datagrams(&cfg, &c);
+  }
+  CHECK(g_srdg_calls == 0); /* not delivered yet -- session unestablished */
+  CHECK(c.wt.datagrams[0].in_use == 1);
+  CHECK(c.wt.datagrams[0].len == 1);
+  CHECK(c.wt.datagrams[0].data[0] == 0x7A);
 }
 
 /* RFC 9000 10.2.3: srvrun_seal_transport_close builds a correctly-encoded
@@ -4810,7 +4935,20 @@ static void test_srvrun_wt_full_session_lifecycle_on_wire(void) {
     CHECK(quic_datagram_decode(pl, pll, &df) == pll);
     for (usz i = 0; i < sizeof sr_dg_payload; i++)
       CHECK(df.data[i] == sr_dg_payload[i]);
-    dgpll = quic_datagram_encode(quic_mspan_of(dgpl, sizeof dgpl), &df, 1);
+    /* Re-fed as if the CLIENT sent this back: RFC 9297 2.1 requires the
+     * client's own qsid prefix (session on stream 4 -> qsid 1, byte 0x01)
+     * ahead of the payload -- df.data itself (the server's raw outbound
+     * DATAGRAM content above) carries none, since srvrun_queue_datagram is
+     * the generic transport-level primitive, not WT-prefix-aware. */
+    {
+      u8                  wire[1 + sizeof sr_dg_payload];
+      quic_datagram_frame wdf;
+      wire[0] = 0x01;
+      for (usz i = 0; i < sizeof sr_dg_payload; i++) wire[1 + i] = df.data[i];
+      wdf.length = sizeof wire;
+      wdf.data   = wire;
+      dgpll = quic_datagram_encode(quic_mspan_of(dgpl, sizeof dgpl), &wdf, 1);
+    }
     {
       srvrun_cfg      cfg = {-1,
                              0,
@@ -5530,7 +5668,11 @@ static void test_srvrun_broadcast_datagram_reaches_two_real_clients(void) {
   CHECK(g_srvrun_state.conns[1].wt_active == 1);
 
   /* Client 0 sends a DATAGRAM; the server's wt_on_datagram callback relays
-   * it to every WT-active connection via wired_server_broadcast_datagram. */
+   * it to every WT-active connection via wired_server_broadcast_datagram.
+   * RFC 9297 2.1: on the wire it carries its own qsid prefix (session id 4
+   * -> qsid 1, one byte 0x01) ahead of sr_dg_payload; the callback observes
+   * only the bytes after that prefix (srvrun_deliver_rx_datagram strips it
+   * before routing), and relays exactly what it observed. */
   {
     srvrun_cfg          cfg = {-1,
                                0,
@@ -5558,16 +5700,22 @@ static void test_srvrun_broadcast_datagram_reaches_two_real_clients(void) {
     srvrun_step_ctx     ctx = {&cfg, 0, &st, 0, 0};
     u8                  dgpl[64];
     usz                 dgpll;
-    quic_datagram_frame in = {sizeof sr_dg_payload, sr_dg_payload};
-    dgpll = quic_datagram_encode(quic_mspan_of(dgpl, sizeof dgpl), &in, 1);
-    slen  = client_seal_onertt_pn(&f0, 3, dgpl, dgpll, spkt, sizeof spkt);
+    u8                  wire[1 + sizeof sr_dg_payload];
+    quic_datagram_frame in;
+    wire[0] = 0x01; /* qsid=1 (4/4) */
+    for (usz i = 0; i < sizeof sr_dg_payload; i++)
+      wire[1 + i] = sr_dg_payload[i];
+    in.length = sizeof wire;
+    in.data   = wire;
+    dgpll     = quic_datagram_encode(quic_mspan_of(dgpl, sizeof dgpl), &in, 1);
+    slen      = client_seal_onertt_pn(&f0, 3, dgpl, dgpll, spkt, sizeof spkt);
     srvrun_on_step(&ctx, &g_srvrun_state.conns[0], quic_mspan_of(spkt, slen));
   }
   CHECK(g_bcast_last_sess == &g_srvrun_state.conns[0].wt);
 
-  /* Both connections now have the payload queued for their next send;
-   * drain and open each on its OWN client side to prove the bytes are
-   * correct end to end, not just copied in memory. */
+  /* Both connections now have the (unprefixed) relayed payload queued for
+   * their next send; drain and open each on its OWN client side to prove the
+   * bytes are correct end to end, not just copied in memory. */
   {
     quic_obuf  sendob0 = {out0, sizeof out0, 0};
     quic_obuf  sendob1 = {out1, sizeof out1, 0};
@@ -9803,6 +9951,10 @@ void test_srvrun(void) {
   test_srvrun_rx_datagram_multiple_all_delivered();
   test_srvrun_rx_datagram_no_callback_still_drains();
   test_srvrun_rx_datagram_no_session_callback_not_invoked();
+  test_srvrun_rx_datagram_routes_by_qsid_not_first_active();
+  test_srvrun_rx_datagram_short_qsid_closes_conn();
+  test_srvrun_rx_datagram_oversized_qsid_closes_conn();
+  test_srvrun_rx_datagram_buffers_before_establish();
   test_srvrun_seal_transport_close_is_transport_level();
   test_srvrun_oversized_datagram_latches_violation_on_step();
   test_srvrun_wt_stream_data_delivered_on_offer();

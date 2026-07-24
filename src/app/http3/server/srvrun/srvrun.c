@@ -922,12 +922,8 @@ static int srvrun_seal_app_close(
 }
 
 /* Seal and send an application-level CONNECTION_CLOSE as its own 1-RTT
- * packet.
- * ponytail: no live caller yet (the violation-detection trigger is a
- * separate follow-up) -- only tests/run.c calls this today, so it needs the
- * attribute to avoid -Wunused-function under -Werror in the freestanding
- * build. */
-__attribute__((unused)) static void srvrun_send_app_close(
+ * packet (e.g. srvrun_close_on_bad_qsid's RFC 9297 2.1 H3_DATAGRAM_ERROR). */
+static void srvrun_send_app_close(
     const srvrun_cfg* cfg, srvrun_conn* c, u64 error_code, quic_span reason) {
   u8        out[128];
   quic_obuf ob = quic_obuf_of(out, sizeof out);
@@ -1226,24 +1222,75 @@ static void srvrun_offer_wt_streams(const srvrun_cfg* cfg, srvrun_conn* c) {
     srvrun_offer_and_deliver_wt_slot(cfg, c, &c->l.wt_streams[i]);
 }
 
-/* RFC 9221 5 / draft-ietf-webtrans-http3-15 SS4 (Phase 7b Slice 2): deliver one
- * queued received DATAGRAM to the app callback, if a session is active and a
- * callback is registered. wired_wt_session_offer_datagram (session.h) is
- * purely internal buffering/association bookkeeping -- it has no path to an
- * app callback itself, so wt_on_datagram is invoked here directly rather than
- * threaded through it. Still calls offer_datagram first so the session's own
- * state (buffered-vs-associated) stays consistent regardless of whether an app
- * callback is registered. */
+/* RFC 9297 2.1: close the connection with H3_DATAGRAM_ERROR because a
+ * received HTTP Datagram's Quarter Stream ID field was truncated/missing or
+ * exceeded 2^60-1 (quic_wtwire_qsid_take rejects both the same way). */
+static void srvrun_close_on_bad_qsid(const srvrun_cfg* cfg, srvrun_conn* c) {
+  static const u8 reason[] = "bad HTTP Datagram Quarter Stream ID";
+  srvrun_send_app_close(
+      cfg, c, QUIC_H3_DATAGRAM_ERROR, quic_span_of(reason, sizeof reason - 1));
+}
+
+/* RFC 9297 2.1 (9297-009): a datagram naming a not-yet-established session is
+ * buffered (wired_wt_session_offer_datagram, session.h) rather than delivered
+ * -- the app callback only fires once the session has associated it directly
+ * (established or draining), never while it merely sits in the
+ * pre-establishment buffer. Checked BEFORE offer_datagram runs, since offer_
+ * datagram's own return (1) does not distinguish "buffered" from
+ * "associated". */
+static int wt_session_delivers_directly(const wired_wt_session* s) {
+  return s->state != WIRED_WT_UNESTABLISHED;
+}
+
+/* RFC 9221 5 / draft-ietf-webtrans-http3-15 SS4 (Phase 7b Slice 2): route one
+ * queued received DATAGRAM's post-prefix bytes to the session whose OWN
+ * connect_stream_id equals connect_id (srvrun_wt_slot_by_connect_id) rather
+ * than to whichever session happens to be active most recently -- with
+ * SRVRUN_MAX_WT_SESSIONS > 1 concurrent sessions, the two are not the same
+ * slot. A connect_id with no matching active session is a foreign/stale
+ * reference and is silently dropped, mirroring srvrun_offer_wt_slot's own
+ * no-active-session fallback. Still calls offer_datagram unconditionally so
+ * the session's own state (buffered-vs-associated) stays consistent
+ * regardless of whether an app callback is registered; the callback itself
+ * only fires when wt_session_delivers_directly says the datagram was
+ * associated, not merely buffered (9297-009). Split out of srvrun_deliver_rx_
+ * datagram so its own branch count stays at the CCN gate. */
+static int srvrun_dg_should_deliver(
+    const srvrun_cfg* cfg, const wired_wt_session* s) {
+  return wt_session_delivers_directly(s) && cfg->wt_on_datagram != 0;
+}
+
+static void srvrun_route_rx_datagram(
+    const srvrun_cfg* cfg, srvrun_conn* c, u64 connect_id, quic_span data) {
+  int               sidx = srvrun_wt_slot_by_connect_id(c, connect_id);
+  wired_wt_session* s;
+  if (sidx < 0) return;
+  s = srvrun_wt_slot(c, sidx);
+  {
+    int deliver = srvrun_dg_should_deliver(cfg, s);
+    wired_wt_session_offer_datagram(s, data);
+    if (deliver) cfg->wt_on_datagram(cfg->wt_datagram_ctx, s, data);
+  }
+}
+
+/* RFC 9297 2.1: the payload is prefixed with varint(quarter stream id) --
+ * decode that prefix, rejecting a short/oversized field with
+ * H3_DATAGRAM_ERROR (srvrun_close_on_bad_qsid, same failure signal
+ * quic_wtwire_qsid_take gives both cases), then hand the derived stream id
+ * and the remaining bytes to srvrun_route_rx_datagram. */
 static void srvrun_deliver_rx_datagram(
     const srvrun_cfg*                cfg,
     srvrun_conn*                     c,
     const wired_srvloop_rx_datagram* dg) {
-  quic_span data = quic_span_of(dg->buf, dg->len);
-  int       sidx = srvrun_wt_slot_for_new_stream(c);
-  if (sidx < 0) return;
-  wired_wt_session_offer_datagram(srvrun_wt_slot(c, sidx), data);
-  if (cfg->wt_on_datagram)
-    cfg->wt_on_datagram(cfg->wt_datagram_ctx, srvrun_wt_slot(c, sidx), data);
+  quic_span raw = quic_span_of(dg->buf, dg->len);
+  u64       connect_id;
+  usz       prefix = quic_wtwire_qsid_take(raw, &connect_id);
+  if (!prefix) {
+    srvrun_close_on_bad_qsid(cfg, c);
+    return;
+  }
+  srvrun_route_rx_datagram(
+      cfg, c, connect_id, quic_span_of(dg->buf + prefix, dg->len - prefix));
 }
 
 /* RFC 9221 5 (Phase 7b Slice 2): drain every DATAGRAM this step's
@@ -4665,6 +4712,11 @@ static i64 srvrun_listen(u16 port, const wired_srvrun_opt* opt) {
    * unaware kernel/NIC simply won't provide, never a bind blocker. */
   wired_udp_ect0_enable(fd);
   wired_udp_recvtos_enable(fd);
+  /* RFC 8899 4.5: this connection runs its own DPLPMTUD search (quic_pmtu via
+   * connrunner's probe drive), so the kernel's own PMTU enforcement/caching
+   * must be suspended for this socket's flows -- best-effort like the ECN
+   * options above, never a bind blocker. */
+  wired_udp_pmtu_probe_enable(fd);
   srvrun_maybe_busy_poll(fd, opt->so_busy_poll_us);
   srvrun_maybe_prefer_busy_poll(fd, opt);
   srvrun_maybe_busy_poll_budget(fd, opt);

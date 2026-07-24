@@ -38,9 +38,12 @@ usz quic_wtwire_signal_put(u8* buf, usz cap, int bidi, u64 session_id);
 usz quic_wtwire_qsid_put(u8* buf, usz cap, u64 session_id);
 
 /** Read the quarter-stream-ID varint at the head of a datagram.
+ * RFC 9297 SS2.1: a Quarter Stream ID above 2^60-1 does not map to any legal
+ * QUIC stream ID (session_id = qsid * 4 would exceed the 2^62-1 stream ID
+ * space) and is a decode failure, same as a truncated varint.
  * @param dg         the datagram payload
  * @param session_id set to quarter stream ID * 4 on success
- * @return bytes consumed, or 0 if the varint is truncated/missing
+ * @return bytes consumed, or 0 if the varint is truncated/missing/too large
  */
 usz quic_wtwire_qsid_take(quic_span dg, u64* session_id);
 

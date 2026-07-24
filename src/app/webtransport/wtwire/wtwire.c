@@ -22,10 +22,16 @@ usz quic_wtwire_qsid_put(u8* buf, usz cap, u64 session_id) {
   return off;
 }
 
+/* RFC 9297 2.1: the largest Quarter Stream ID that still maps to a legal
+ * QUIC stream ID (2^62-1 is the max stream ID, and (2^62-1)/4 floors to
+ * 2^60-1). */
+#define WTWIRE_QSID_MAX (((u64)1 << 60) - 1)
+
 usz quic_wtwire_qsid_take(quic_span dg, u64* session_id) {
   usz off = 0;
   u64 qsid;
   if (!quic_varint_take(dg, &off, &qsid)) return 0;
+  if (qsid > WTWIRE_QSID_MAX) return 0;
   *session_id = qsid * 4;
   return off;
 }
