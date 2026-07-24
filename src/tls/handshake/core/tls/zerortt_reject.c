@@ -10,3 +10,8 @@ void quic_zerortt_on_reject(int* retransmit_needed, int* discard_keys) {
 int quic_zerortt_accepted(int server_accepted) {
   return server_accepted ? 1 : 0;
 }
+
+/* RFC 9001 4.9.3 */
+int quic_zerortt_should_discard(u64 first_1rtt_recv, u64 now, u64 pto) {
+  return now >= first_1rtt_recv + 3 * pto;
+}
