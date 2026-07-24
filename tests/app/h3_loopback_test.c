@@ -720,6 +720,30 @@ static void test_bootacc_zerortt_buffered_verbatim(void) {
   CHECK(wired_srvboot_acc_zerortt_take(&a, 2).n == 0);
 }
 
+/* RFC 9000 5.2.2: a 0-RTT datagram that cannot be buffered (accumulator
+ * already holding WIRED_SRVBOOT_ZERORTT_MAX datagrams) is silently dropped
+ * rather than evicting an older one or growing past the fixed capacity. */
+static void test_bootacc_zerortt_overflow_dropped(void) {
+  u8                dg[8];
+  usz               n;
+  wired_srvboot_acc a;
+  wired_srvboot_acc_reset(&a);
+  for (usz i = 0; i < WIRED_SRVBOOT_ZERORTT_MAX; i++) {
+    n = sb_build_zerortt_dg(dg, sizeof dg, (u8)i);
+    CHECK(wired_srvboot_acc_feed(&a, quic_mspan_of(dg, n)) == 1);
+  }
+  CHECK(wired_srvboot_acc_zerortt_count(&a) == WIRED_SRVBOOT_ZERORTT_MAX);
+  /* one more: still "fed" (not malformed) but silently dropped, not stored */
+  n = sb_build_zerortt_dg(dg, sizeof dg, 0xff);
+  CHECK(wired_srvboot_acc_feed(&a, quic_mspan_of(dg, n)) == 1);
+  CHECK(wired_srvboot_acc_zerortt_count(&a) == WIRED_SRVBOOT_ZERORTT_MAX);
+  /* the stored set is unchanged -- the last accepted one is still index
+   * MAX-1's original fingerprint, not the overflowing 0xff */
+  CHECK(
+      wired_srvboot_acc_zerortt_take(&a, WIRED_SRVBOOT_ZERORTT_MAX - 1).p[7] ==
+      (u8)(WIRED_SRVBOOT_ZERORTT_MAX - 1));
+}
+
 /* wired_srvboot_acc_reset (spent after a successful boot, or a fresh
  * connection attempt claiming a reused slot) empties the 0-RTT buffer too --
  * otherwise a stale datagram from a prior attempt on this slot would be
@@ -1291,6 +1315,7 @@ void test_h3_loopback(void) {
   test_srvboot_vneg_guards();
   test_bootacc_split_two_datagrams();
   test_bootacc_zerortt_buffered_verbatim();
+  test_bootacc_zerortt_overflow_dropped();
   test_bootacc_zerortt_cleared_on_reset();
   test_bootacc_zerortt_interleaved_with_initial();
   test_bootacc_out_of_order();
