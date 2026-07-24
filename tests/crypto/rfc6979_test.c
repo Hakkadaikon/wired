@@ -25,4 +25,31 @@ static void test_rfc6979_sample_k(void) {
   for (usz i = 0; i < 32; i++) CHECK(k[i] == want[i]);
 }
 
-void test_rfc6979(void) { test_rfc6979_sample_k(); }
+/* Group order n (FIPS 186-4 D.1.2.3), big-endian 32 bytes, cross-checked by
+ * hand against quic_p256_n's little-endian limbs the same way as
+ * ecdsa_verify_test.c's P256_N. */
+static const char* R6979_N =
+    "ffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551";
+static const char* R6979_NM1 =
+    "ffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632550";
+
+/* RFC 6979 3.2 step h.3: the candidate k is accepted only if 1 <= k < q
+ * (here q == quic_p256_n); anything outside that range must be re-derived.
+ * ps_k_in_range is the guard the generation loop retries on; exercise its
+ * boundaries directly since forcing HMAC to emit an out-of-range candidate
+ * is not practical to construct. */
+static void test_rfc6979_k_in_range_boundaries(void) {
+  u8 zero[32] = {0}, n[32], nm1[32], one[32] = {0};
+  one[31] = 1;
+  r6979_hb32(R6979_N, n);
+  r6979_hb32(R6979_NM1, nm1);
+  CHECK(ps_k_in_range(zero) == 0); /* k == 0: below range */
+  CHECK(ps_k_in_range(n) == 0);    /* k == n: at/above range */
+  CHECK(ps_k_in_range(one) == 1);  /* k == 1: bottom of range, in */
+  CHECK(ps_k_in_range(nm1) == 1);  /* k == n-1: top of range, in */
+}
+
+void test_rfc6979(void) {
+  test_rfc6979_sample_k();
+  test_rfc6979_k_in_range_boundaries();
+}
