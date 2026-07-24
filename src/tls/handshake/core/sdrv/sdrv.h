@@ -126,6 +126,12 @@ typedef struct {
                            * Handshake/1-RTT key derivation and packet
                            * protection; Initial packet protection (RFC 9001
                            * 5.2) is unaffected and stays AES-128-GCM. */
+  /** RFC 9001 8.2: the CRYPTO_ERROR (0x0100 | TLS alert) recorded when
+   * quic_sdrv_recv_client_hello rejects the ClientHello -- currently only
+   * set to missing_extension (RFC 8446 B.2: alert 109 = 0x6d, so 0x016d)
+   * when the quic_transport_parameters extension (0x39) is absent. 0 when
+   * the last call succeeded. */
+  u64 last_error;
 } quic_sdrv;
 
 /** Inputs to quic_sdrv_init.
@@ -212,10 +218,23 @@ int quic_sdrv_set_retry_scid(quic_sdrv* s, quic_span rscid);
  * @param s driver state
  * @param ch_msg the ClientHello handshake message bytes
  * @param ch_len length of ch_msg in bytes
+ * RFC 9001 8.2: a ClientHello missing the quic_transport_parameters
+ * extension (0x39) is rejected before any other field is taken; s->last_error
+ * is set to the missing_extension CRYPTO_ERROR (0x016d) in that case.
+ * @param s driver state
+ * @param ch_msg the ClientHello handshake message bytes
+ * @param ch_len length of ch_msg in bytes
  * @return 1 on success (with or without an accepted PSK), 0 if the
- *   ClientHello itself is malformed/unsupported, or a presented PSK binder
- *   fails verification. */
+ *   ClientHello itself is malformed/unsupported, lacks the
+ *   quic_transport_parameters extension, or a presented PSK binder fails
+ *   verification. */
 int quic_sdrv_recv_client_hello(quic_sdrv* s, const u8* ch_msg, usz ch_len);
+
+/** RFC 9001 8.2 / RFC 9000 20.1: the CRYPTO_ERROR recorded by the last
+ * quic_sdrv_recv_client_hello call, or 0 if it succeeded.
+ * @param s driver state
+ * @return the CRYPTO_ERROR code (0x0100 | TLS alert), or 0. */
+u64 quic_sdrv_last_error(const quic_sdrv* s);
 
 /** Destination for quic_sdrv_build_server_flight: sh receives the
  * ServerHello, hs the EncryptedExtensions || Certificate ||

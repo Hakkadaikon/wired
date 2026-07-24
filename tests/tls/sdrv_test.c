@@ -667,6 +667,54 @@ test_sdrv_recv_client_hello_no_server_initiated_stream_credit_stays_zero(void) {
 #define SDRV_TEST_KEYSHARE_TYPE_OFF 74
 #define SDRV_TEST_TP_TYPE_OFF 125
 
+/* transport_parameters is the last extension sdrv_test_client_hello[_tp]
+ * appends (see SDRV_TEST_TP_TYPE_OFF's doc), so its TLV is always the final
+ * header(4)+tp_len bytes of ch. Strip it -- extension_type(2)+extension_data
+ * length(2)+tp_len -- and patch the extensions-length field and the
+ * handshake length to match, producing a real ClientHello that carries no
+ * quic_transport_parameters extension at all (RFC 9001 8.2). */
+static usz sdrv_test_strip_tp_ext(u8* ch, usz ch_len, usz tp_len) {
+  usz cut                        = 4 + tp_len;
+  usz nlen                       = ch_len - cut;
+  u16 exts_len                   = (u16)(((usz)ch[SDRV_TEST_EXTS_LEN_OFF] << 8 |
+                                          ch[SDRV_TEST_EXTS_LEN_OFF + 1]) -
+                                         cut);
+  ch[SDRV_TEST_EXTS_LEN_OFF]     = (u8)(exts_len >> 8);
+  ch[SDRV_TEST_EXTS_LEN_OFF + 1] = (u8)exts_len;
+  quic_hs_finish(ch, nlen);
+  return nlen;
+}
+
+/* RFC 9001 8.2: a ClientHello with the quic_transport_parameters extension
+ * present is accepted and records no error. */
+static void test_sdrv_recv_client_hello_tp_ext_present_ok(void) {
+  u8        cli_pub[32], srv_random[32];
+  u8        ch[512];
+  usz       ch_len;
+  quic_sdrv s;
+  sdrv_dgram_test_setup(&s, cli_pub, srv_random);
+  ch_len = sdrv_test_client_hello(ch, sizeof(ch), cli_pub, srv_random);
+  CHECK(ch_len != 0);
+  CHECK(quic_sdrv_recv_client_hello(&s, ch, ch_len));
+  CHECK(quic_sdrv_last_error(&s) == 0);
+}
+
+/* RFC 9001 8.2: an endpoint MUST close the connection with a
+ * missing_extension (RFC 8446 B.2 alert 109, so CRYPTO_ERROR 0x016d) error
+ * when the ClientHello carries no quic_transport_parameters extension. */
+static void test_sdrv_recv_client_hello_missing_tp_ext_rejected(void) {
+  u8        cli_pub[32], srv_random[32];
+  u8        ch[512];
+  usz       ch_len;
+  quic_sdrv s;
+  sdrv_dgram_test_setup(&s, cli_pub, srv_random);
+  ch_len = sdrv_test_client_hello(ch, sizeof(ch), cli_pub, srv_random);
+  CHECK(ch_len != 0);
+  ch_len = sdrv_test_strip_tp_ext(ch, ch_len, 1);
+  CHECK(!quic_sdrv_recv_client_hello(&s, ch, ch_len));
+  CHECK(quic_sdrv_last_error(&s) == 0x016d);
+}
+
 /* A driver initialized with an arbitrary-but-fixed key set, enough to drive
  * quic_sdrv_recv_client_hello in the malformed-input tests below (they never
  * reach build_server_flight, so the exact key values don't matter). */
@@ -1592,6 +1640,8 @@ void test_sdrv(void) {
   test_sdrv_recv_client_hello_stores_peer_max_datagram_frame_size();
   test_sdrv_recv_client_hello_no_max_datagram_param_stays_zero();
   test_sdrv_recv_client_hello_no_tp_ext_stays_zero();
+  test_sdrv_recv_client_hello_tp_ext_present_ok();
+  test_sdrv_recv_client_hello_missing_tp_ext_rejected();
   test_sdrv_recv_client_hello_stores_peer_initial_max_data();
   test_sdrv_recv_client_hello_no_initial_max_data_stays_zero();
   test_sdrv_recv_client_hello_stores_peer_initial_max_stream_data_bidi_local();
