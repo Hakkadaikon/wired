@@ -235,6 +235,57 @@ static void test_reqdrive_long_value_header(void) {
   CHECK(rd_eq(r.origin, r.origin_len, long_value, cstr(long_value)));
 }
 
+/* RFC 9114 10.3 / RFC 9110 5.5: a field NAME containing a forbidden octet
+ * (CR here) makes the whole request malformed -- recv_get must reject the
+ * request rather than hand the smuggled-newline name to the application. */
+static void test_reqdrive_rejects_crlf_in_name(void) {
+  u8                   fs[96], req[256], scratch[128];
+  usz                  off;
+  quic_obuf            req_ob = {req, sizeof req, 0};
+  wired_h3reqdrive_req r;
+  quic_qpack_prefix    pfx = {0, 0, 0};
+  off                      = quic_qpack_prefix_encode(fs, sizeof fs, &pfx);
+  off += quic_qpack_indexed_encode(
+      quic_mspan_of(fs + off, sizeof fs - off), 17, 1); /* :method GET */
+  put_litname(fs, &off, "x-evil\r", "1");
+  {
+    quic_h3conn_req_in req_in = {quic_span_of(fs, off), quic_span_of(0, 0)};
+    CHECK(quic_h3conn_send_request(0, &req_in, &req_ob));
+  }
+  CHECK(!wired_h3reqdrive_recv_get(
+      quic_span_of(req, req_ob.len), quic_mspan_of(scratch, sizeof scratch),
+      &r));
+}
+
+/* RFC 9114 10.3 / RFC 9110 5.5: a field VALUE containing a forbidden octet
+ * (NUL here) makes the whole request malformed -- same rejection as the
+ * name-side case above, exercised on the other half of the field line. The
+ * NUL sits mid-buffer (not via a NUL-terminated C string) so it is actually
+ * carried on the wire rather than truncating the value early. */
+static void test_reqdrive_rejects_nul_in_value(void) {
+  static const u8      evil_value[] = {'e', 'v', 'i', 'l', 0x00, 'x'};
+  u8                   fs[96], req[256], scratch[128];
+  usz                  off;
+  quic_obuf            req_ob = {req, sizeof req, 0};
+  wired_h3reqdrive_req r;
+  quic_qpack_prefix    pfx = {0, 0, 0};
+  quic_qpack_field     f   = {
+      quic_span_of((const u8*)"origin", 6),
+      quic_span_of(evil_value, sizeof evil_value)};
+  off = quic_qpack_prefix_encode(fs, sizeof fs, &pfx);
+  off += quic_qpack_indexed_encode(
+      quic_mspan_of(fs + off, sizeof fs - off), 17, 1); /* :method GET */
+  off += quic_qpack_literal_name_encode(
+      quic_mspan_of(fs + off, sizeof fs - off), 0, &f);
+  {
+    quic_h3conn_req_in req_in = {quic_span_of(fs, off), quic_span_of(0, 0)};
+    CHECK(quic_h3conn_send_request(0, &req_in, &req_ob));
+  }
+  CHECK(!wired_h3reqdrive_recv_get(
+      quic_span_of(req, req_ob.len), quic_mspan_of(scratch, sizeof scratch),
+      &r));
+}
+
 /* RFC 9114 4.1 / RFC 9204 4.5: a curl-style GET (reordered pseudo-headers,
  * mixed encodings, an extra regular header) decodes; all four pseudo-headers
  * are recovered by name regardless of order or count. */
@@ -500,4 +551,6 @@ void test_h3reqdrive(void) {
   test_reqdrive_onertt();
   test_reqdrive_response_status();
   test_reqdrive_dynamic_table();
+  test_reqdrive_rejects_crlf_in_name();
+  test_reqdrive_rejects_nul_in_value();
 }

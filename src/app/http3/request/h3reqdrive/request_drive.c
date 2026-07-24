@@ -1,5 +1,6 @@
 #include "app/http3/request/h3reqdrive/request_drive.h"
 
+#include "app/http3/core/h3/headercase.h"
 #include "app/http3/core/h3/priupdate.h"
 #include "app/http3/core/h3/pseudoheader.h"
 #include "app/http3/core/h3conn/request.h"
@@ -207,14 +208,22 @@ typedef struct {
   usz        used;
 } rd_cursor;
 
+/* RFC 9114 10.3, RFC 9110 5.5: neither half of a recovered field line may
+ * carry a CR, LF or NUL octet -- such a line is malformed regardless of how
+ * it was encoded. */
+static int line_bytes_ok(const rline* L) {
+  return quic_h3_header_bytes_ok(L->name, L->name_len) &&
+         quic_h3_header_bytes_ok(L->value, L->value_len);
+}
+
 /* Decode one line at cur->off into r, advancing cur. Returns 1 ok, 0 on a
- * malformed line. */
+ * malformed line (decode failure or a forbidden CR/LF/NUL octet). */
 static int step_line(rd_cursor* cur, wired_h3reqdrive_req* r) {
   rline L;
   usz   c = decode_line(
       quic_span_of(cur->fs.p + cur->off, cur->fs.n - cur->off),
       quic_mspan_of(cur->scr.p + cur->used, cur->scr.n - cur->used), &L);
-  if (!c) return 0;
+  if (!c || !line_bytes_ok(&L)) return 0;
   classify_line(&L, r);
   cur->off += c;
   cur->used += L.scratch_used;
