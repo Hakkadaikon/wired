@@ -44,7 +44,7 @@ static int append_self(quic_obuf* out, ext_enc enc) {
  * signature_algorithms, key_share. */
 static int append_core(quic_obuf* out, const u8 pub[32]) {
   u8  ks[42];
-  usz kw = quic_tls_ext_key_share(ks, sizeof(ks), pub);
+  usz kw = quic_tls_ext_key_share(ks, sizeof(ks), QUIC_GROUP_X25519, pub, 32);
   int ok = append_self(out, quic_tls_ext_supported_versions);
   ok &= append_self(out, quic_tls_ext_supported_groups);
   ok &= append_self(out, quic_tls_ext_sig_algs);

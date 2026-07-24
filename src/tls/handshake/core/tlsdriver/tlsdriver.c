@@ -91,9 +91,17 @@ static usz ch_prefix(const u8* b, usz n) {
 /* Read the x25519 key_share from a ClientHello extension's data: the
  * client_shares(2) length precedes a single KeyShareEntry, so skip it and
  * reuse the single-entry parser. Returns 1 on success. */
+static int ch_keyshare_is_x25519(u16 group, usz pub_len) {
+  return group == QUIC_GROUP_X25519 && pub_len == 32;
+}
+
 static int ch_keyshare(const u8* d, usz dlen, u8 pub[32]) {
+  u16 group;
+  usz pub_len;
   if (dlen < 2) return 0;
-  return quic_tls_ext_key_share_parse(d + 2, dlen - 2, pub);
+  if (!quic_tls_ext_key_share_parse(d + 2, dlen - 2, &group, pub, &pub_len, 32))
+    return 0;
+  return ch_keyshare_is_x25519(group, pub_len);
 }
 
 /* The ClientHello extensions block being walked for the key_share. */

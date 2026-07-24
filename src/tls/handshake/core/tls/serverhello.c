@@ -30,9 +30,17 @@ typedef struct {
 } sh_fields;
 
 /* Dispatch one extension (type t, data d) into fields. */
+static int sh_ext_keyshare_ok(quic_span d, u8* pub) {
+  u16 group;
+  usz pub_len;
+  if (!quic_tls_ext_key_share_parse(d.p, d.n, &group, pub, &pub_len, 32))
+    return 0;
+  return group == QUIC_GROUP_X25519 && pub_len == 32;
+}
+
 static void sh_ext(unsigned t, quic_span d, sh_fields* f) {
   if (t == QUIC_EXT_KEY_SHARE)
-    f->have_ks = quic_tls_ext_key_share_parse(d.p, d.n, f->pub);
+    f->have_ks = sh_ext_keyshare_ok(d, f->pub);
   else if (t == QUIC_EXT_SUPPORTED_VERSIONS)
     take_version(d, f->version);
 }
