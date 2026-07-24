@@ -19,7 +19,7 @@ Interop results (the only tier that proves wire compatibility with an
 independent implementation) are tracked separately: see
 **[Interop Results](../interop.md)**.
 
-**Total: 902/1246 requirements tested (72%), 168 indirect, 176 untested.**
+**Total: 914/1246 requirements tested (73%), 180 indirect, 152 untested.**
 
 ## QUIC core
 
@@ -76,9 +76,9 @@ independent implementation) are tracked separately: see
 
 | Spec | Tested | Indirect | Untested |
 |---|---|---|---|
-| [RFC 9114 — HTTP/3](rfc9114.md) | 57/81 | 9 | 15 |
-| [RFC 9110 — HTTP semantics](rfc9110.md) | 22/28 | 3 | 3 |
-| [RFC 9204 — QPACK](rfc9204.md) | 31/55 | 12 | 12 |
+| [RFC 9114 — HTTP/3](rfc9114.md) | 66/81 | 14 | 1 |
+| [RFC 9110 — HTTP semantics](rfc9110.md) | 24/28 | 4 | 0 |
+| [RFC 9204 — QPACK](rfc9204.md) | 32/55 | 18 | 5 |
 | [RFC 7541 — HPACK (reused by QPACK)](rfc7541.md) | 15/16 | 1 | 0 |
 | [RFC 9218 — Extensible priorities](rfc9218.md) | 13/21 | 2 | 6 |
 
