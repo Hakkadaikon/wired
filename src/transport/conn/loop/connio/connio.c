@@ -1,7 +1,9 @@
 #include "transport/conn/loop/connio/connio.h"
 
+#include "common/diag/error/error.h"
 #include "crypto/kdf/keys/keyset.h"
 #include "crypto/symmetric/aead/aes/aes.h"
+#include "transport/packet/frame/frame/frame.h"
 #include "transport/packet/frame/pipeline/framewalk.h"
 #include "transport/packet/frame/pipeline/rxpacket.h"
 #include "transport/packet/frame/pipeline/txpacket.h"
@@ -140,4 +142,24 @@ int quic_connio_recv(quic_connio* io, int level, quic_mspan datagram) {
   quic_rx_desc      d = {datagram, level_is_initial(level)};
   if (!quic_rx_packet(&k, &d, &frames)) return 0;
   return recv_accept(io, level, frames);
+}
+
+/* RFC 9000 19.19: encode a transport CONNECTION_CLOSE(PROTOCOL_VIOLATION)
+ * frame into buf. Returns bytes written, or 0 on overflow. */
+static usz violation_close_frame(u8* buf, usz cap) {
+  quic_conn_close_frame cc = {
+      0, QUIC_ERR_PROTOCOL_VIOLATION, 0, 0, (const u8*)0};
+  return quic_frame_put_conn_close(buf, cap, &cc);
+}
+
+usz quic_connio_close_on_violation(quic_connio* io, quic_obuf* out) {
+  u8                  frame[16];
+  usz                 fl;
+  quic_connio_send_in sin;
+  if (!io->disp.violation) return 0;
+  io->disp.violation = 0;
+  fl                 = violation_close_frame(frame, sizeof frame);
+  if (!fl) return 0;
+  sin = (quic_connio_send_in){QUIC_LEVEL_ONERTT, quic_span_of(frame, fl)};
+  return quic_connio_send(io, &sin, out);
 }
