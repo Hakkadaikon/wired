@@ -139,6 +139,41 @@ static void test_x25519_rfc_dh_alice_bob(void) {
   for (usz i = 0; i < 32; i++) CHECK(kb[i] == want_k[i]);
 }
 
+/* RFC 7748 5 decodeScalar25519: k_list[0] &= 248, k_list[31] &= 127,
+ * k_list[31] |= 64. All-0xff input isolates each rule: the low 3 bits of
+ * byte 0 must clear, bit 255 (0x80) of byte 31 must clear, bit 254 (0x40)
+ * of byte 31 must be forced set, and every other byte must pass through
+ * unmodified. clamp() is static in x25519.c, reachable here because the
+ * unity build includes x25519.c before this file. */
+static void test_x25519_clamp_rfc7748(void) {
+  u8 in[32], out[32];
+  for (usz i = 0; i < 32; i++) in[i] = 0xff;
+  clamp(out, in);
+  CHECK((out[0] & 0x07) == 0);  /* low 3 bits cleared */
+  CHECK(out[0] == 0xf8);        /* only the low 3 bits changed */
+  CHECK((out[31] & 0x80) == 0); /* bit 255 cleared */
+  CHECK((out[31] & 0x40) != 0); /* bit 254 forced set */
+  CHECK(out[31] == 0x7f);       /* 0xff & 127 | 64 */
+  for (usz i = 1; i < 31; i++) CHECK(out[i] == 0xff); /* untouched bytes */
+}
+
+/* All-zero input: the forced bit 254 is the only bit that must turn on. */
+static void test_x25519_clamp_zero_forces_bit254(void) {
+  u8 in[32] = {0}, out[32];
+  clamp(out, in);
+  for (usz i = 0; i < 31; i++) CHECK(out[i] == 0);
+  CHECK(out[31] == 0x40);
+}
+
+/* clamp() writes to out without mutating its scalar input (in != out). */
+static void test_x25519_clamp_does_not_mutate_input(void) {
+  u8 in[32], out[32], want[32];
+  for (usz i = 0; i < 32; i++) in[i] = (u8)(i * 7 + 1);
+  for (usz i = 0; i < 32; i++) want[i] = in[i];
+  clamp(out, in);
+  for (usz i = 0; i < 32; i++) CHECK(in[i] == want[i]);
+}
+
 void test_x25519(void) {
   test_x25519_rfc_v1();
   test_x25519_rfc_v2();
@@ -148,4 +183,7 @@ void test_x25519(void) {
   test_x25519_rfc_iterate_1();
   test_x25519_rfc_iterate_1000();
   test_x25519_rfc_dh_alice_bob();
+  test_x25519_clamp_rfc7748();
+  test_x25519_clamp_zero_forces_bit254();
+  test_x25519_clamp_does_not_mutate_input();
 }
