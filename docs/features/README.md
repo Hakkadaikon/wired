@@ -19,7 +19,7 @@ Interop results (the only tier that proves wire compatibility with an
 independent implementation) are tracked separately: see
 **[Interop Results](../interop.md)**.
 
-**Total: 879/1246 requirements tested (71%), 157 indirect, 210 untested.**
+**Total: 891/1246 requirements tested (71%), 162 indirect, 193 untested.**
 
 ## QUIC core
 
@@ -50,7 +50,7 @@ independent implementation) are tracked separately: see
 | [RFC 5280 — X.509 / PKI](rfc5280.md) | 28/44 | 6 | 10 |
 | [RFC 5480 — EC public keys in certificates](rfc5480.md) | 13/20 | 1 | 6 |
 | [RFC 5758 — ECDSA / SHA-2 signature OIDs](rfc5758.md) | 8/12 | 1 | 3 |
-| [RFC 8410 — Ed25519/X25519 algorithm identifiers](rfc8410.md) | 7/16 | 1 | 8 |
+| [RFC 8410 — Ed25519/X25519 algorithm identifiers](rfc8410.md) | 10/16 | 4 | 2 |
 | [RFC 6066 — TLS extensions (SNI)](rfc6066.md) | 7/13 | 3 | 3 |
 | [RFC 6125 — Service identity verification](rfc6125.md) | 6/11 | 1 | 4 |
 | [RFC 7301 — ALPN](rfc7301.md) | 13/14 | 1 | 0 |
@@ -61,11 +61,11 @@ independent implementation) are tracked separately: see
 | Spec | Tested | Indirect | Untested |
 |---|---|---|---|
 | [RFC 8439 — ChaCha20-Poly1305](rfc8439.md) | 17/21 | 4 | 0 |
-| [RFC 7748 — X25519](rfc7748.md) | 11/15 | 1 | 3 |
-| [RFC 8032 — Ed25519](rfc8032.md) | 13/17 | 0 | 4 |
-| [RFC 6979 — Deterministic ECDSA](rfc6979.md) | 16/21 | 2 | 3 |
-| [RFC 5869 — HKDF](rfc5869.md) | 4/8 | 1 | 3 |
-| [RFC 6090 — EC arithmetic](rfc6090.md) | 18/22 | 2 | 2 |
+| [RFC 7748 — X25519](rfc7748.md) | 13/15 | 2 | 0 |
+| [RFC 8032 — Ed25519](rfc8032.md) | 14/17 | 0 | 3 |
+| [RFC 6979 — Deterministic ECDSA](rfc6979.md) | 17/21 | 3 | 1 |
+| [RFC 5869 — HKDF](rfc5869.md) | 7/8 | 1 | 0 |
+| [RFC 6090 — EC arithmetic](rfc6090.md) | 20/22 | 2 | 0 |
 | [FIPS 197 — AES](fips197.md) | 7/19 | 4 | 8 |
 | [SP 800-38D — GCM](sp800-38d.md) | 14/25 | 5 | 6 |
 | [FIPS 186-4 — ECDSA / DSS](fips186-4.md) | 16/23 | 3 | 4 |
