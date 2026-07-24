@@ -169,6 +169,44 @@ static void test_pto_probe_under_antiamp(void) {
   CHECK(c.next_pn == pn); /* probe blocked by anti-amp */
 }
 
+/* RFC 9002 6.2.2.1: a datagram received while blocked by anti-amplification
+ * resets the PTO timer; a deadline already in the past then fires on the
+ * SAME step, immediately sending the probe (9002-038) instead of waiting for
+ * a stale future deadline. The receive is also ack-eliciting, so the same
+ * step additionally carries the owed ACK (RFC 9000 13.2.1) as a second send
+ * -- both are independent, correct sends within one iteration. */
+static void test_recv_under_antiamp_resets_and_fires_pto(void) {
+  quic_evloop c;
+  mk(&c);
+  c.gate.validated       = 0;
+  c.gate.recv_bytes      = 0; /* no budget yet */
+  c.gate.sent_bytes      = 0;
+  c.bytes_in_flight      = 10;
+  c.gate.sent.e[0].used  = 1;
+  c.gate.sent.e[0].state = QUIC_SP_INFLIGHT;
+  c.pto.armed            = 1;
+  c.pto.deadline         = 1000000; /* far future: would not fire on its own */
+  quic_evloop_on_receive(&c, 1);    /* the datagram that unblocks anti-amp */
+  u64 pn = c.next_pn;
+  quic_evloop_step(&c, 5);
+  CHECK(c.pto.armed == 0);    /* fired (and disarmed) this same step */
+  CHECK(c.next_pn == pn + 2); /* the PTO probe, then the owed-ACK send */
+}
+
+/* No datagram received: a validated path's far-future PTO deadline is left
+ * alone (regression -- the reset only applies to the anti-amp-blocked,
+ * receive-triggered case). */
+static void test_pto_deadline_untouched_without_recv(void) {
+  quic_evloop c;
+  mk(&c);
+  c.gate.validated = 0;
+  c.pto.armed      = 1;
+  c.pto.deadline   = 1000000;
+  quic_evloop_step(&c, 5); /* no queued receive */
+  CHECK(c.pto.armed == 1);
+  CHECK(c.pto.deadline == 1000000);
+}
+
 /* RFC 9002 6 / A.1: a retransmission is sent under a fresh packet number and
  * tracked in flight; numbers are never reused. */
 static void test_retransmit_new_pn_tracked(void) {
@@ -287,6 +325,51 @@ static void test_pending_rtx_eventually_drained(void) {
   CHECK(c.rtx_n == 0);
 }
 
+/* RFC 9002 6.2.2: discarding Initial/Handshake keys resets the PTO and loss
+ * detection timers (9002-036) and the level is no longer usable. */
+static void test_discard_keys_resets_pto_and_loss_timers(void) {
+  quic_evloop c;
+  mk(&c);
+  c.pto.armed     = 1;
+  c.pto.deadline  = 5;
+  c.loss.armed    = 1;
+  c.loss.deadline = 5;
+  quic_evloop_discard_keys(&c, QUIC_LEVEL_INITIAL);
+  CHECK(c.pto.armed == 0);
+  CHECK(c.loss.armed == 0);
+  {
+    const quic_initial_keys* out = 0;
+    CHECK(quic_keyset_for_level(&c.gate.keys, QUIC_LEVEL_INITIAL, &out) == 0);
+  }
+}
+
+/* Discarding keys is idempotent: firing on an already-disarmed loop leaves
+ * both timers disarmed, not toggled back on. */
+static void test_discard_keys_idempotent(void) {
+  quic_evloop c;
+  mk(&c);
+  quic_evloop_discard_keys(&c, QUIC_LEVEL_INITIAL);
+  quic_evloop_discard_keys(&c, QUIC_LEVEL_INITIAL);
+  CHECK(c.pto.armed == 0);
+  CHECK(c.loss.armed == 0);
+}
+
+/* RFC 9002 6.4: discarding keys removes all recovery state for packets sent
+ * under them and removes them from the count of bytes in flight (9002-043)
+ * -- they can never be acknowledged once the keys are gone. */
+static void test_discard_keys_clears_sent_and_inflight_bytes(void) {
+  quic_evloop c;
+  mk(&c);
+  c.bytes_in_flight      = 1200;
+  c.gate.sent.e[0].used  = 1;
+  c.gate.sent.e[0].state = QUIC_SP_INFLIGHT;
+  c.gate.sent.e[0].pn    = 7;
+  CHECK(quic_sentpkt_count(&c.gate.sent) == 1);
+  quic_evloop_discard_keys(&c, QUIC_LEVEL_INITIAL);
+  CHECK(c.bytes_in_flight == 0);
+  CHECK(quic_sentpkt_count(&c.gate.sent) == 0);
+}
+
 void test_evloop(void) {
   test_iteration_order_receive_before_send();
   test_ack_owed_then_cleared();
@@ -298,6 +381,8 @@ void test_evloop(void) {
   test_send_needs_both_gates();
   test_antiamp_nonnegative();
   test_pto_probe_under_antiamp();
+  test_recv_under_antiamp_resets_and_fires_pto();
+  test_pto_deadline_untouched_without_recv();
   test_retransmit_new_pn_tracked();
   test_retransmit_preempts_new_data();
   test_key_update_after_confirmed_only();
@@ -306,4 +391,7 @@ void test_evloop(void) {
   test_closed_does_nothing();
   test_pending_ack_eventually_sent();
   test_pending_rtx_eventually_drained();
+  test_discard_keys_resets_pto_and_loss_timers();
+  test_discard_keys_idempotent();
+  test_discard_keys_clears_sent_and_inflight_bytes();
 }

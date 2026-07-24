@@ -1,5 +1,6 @@
 #include "transport/conn/loop/evloop/evloop.h"
 
+#include "crypto/kdf/keys/discard_driver.h"
 #include "tls/keys/keyupdate/initiate.h"
 #include "tls/keys/keyupdate/oldkey.h"
 #include "transport/io/udp/udploop/antiamp_gate.h"
@@ -35,9 +36,22 @@ static void drain_one(quic_evloop* c, const quic_evloop_rx* r) {
   if (r->ack_eliciting) c->ack_owed = 1;
 }
 
+/* RFC 9002 6.2.2.1: a datagram received while blocked by the anti-
+ * amplification limit resets the PTO timer to now, so a deadline already in
+ * the past fires on this same step's timer phase instead of waiting for a
+ * stale future deadline that packets-sent-on-PTO would otherwise never
+ * reach (9002-038). Validated paths are not amplification-limited, so this
+ * is a no-op once validated. */
+static void pto_reset_on_recv(quic_evloop* c, u64 now) {
+  if (c->gate.validated) return;
+  c->pto.armed    = 1;
+  c->pto.deadline = now;
+}
+
 /* Phase 1: process every queued receive, then clear the queue. */
-static void phase_receive(quic_evloop* c) {
+static void phase_receive(quic_evloop* c, u64 now) {
   usz i;
+  if (c->rx_n > 0) pto_reset_on_recv(c, now);
   for (i = 0; i < c->rx_n; i++) drain_one(c, &c->rx[i]);
   c->rx_n = 0;
 }
@@ -139,7 +153,7 @@ static void phase_send(quic_evloop* c) {
 
 void quic_evloop_step(quic_evloop* c, u64 now) {
   if (c->gate.phase == QUIC_CONNLOOP_CLOSED) return;
-  phase_receive(c);
+  phase_receive(c, now);
   phase_timers(c, now);
   phase_send(c);
 }
@@ -170,4 +184,12 @@ int quic_evloop_old_key_retained(const quic_evloop* c, u64 now) {
 
 void quic_evloop_close(quic_evloop* c, int peer_closed) {
   quic_connloop_close(&c->gate, peer_closed);
+}
+
+void quic_evloop_discard_keys(quic_evloop* c, int level) {
+  quic_keyset_discard(&c->gate.keys, level);
+  c->pto.armed       = 0;
+  c->loss.armed      = 0;
+  c->bytes_in_flight = 0;
+  quic_sentpkt_init(&c->gate.sent);
 }
