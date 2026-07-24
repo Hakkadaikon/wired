@@ -227,6 +227,7 @@
 #include "app/http3/core/h3/grease.c"
 #include "app/http3/core/h3/h3dgram.c"
 #include "app/http3/core/h3/headercase.c"
+#include "app/http3/core/h3/method.c"
 #include "app/http3/core/h3/pseudoheader.c"
 #include "app/http3/core/h3/pushid.c"
 #include "app/http3/core/h3/qpack_settings.c"
@@ -624,6 +625,7 @@
 #include "app/h3grease_test.c"
 #include "app/h3stream_type_test.c"
 #include "app/headercase_test.c"
+#include "app/h3method_test.c"
 #include "transport/hp_chacha_test.c"
 #include "transport/hpapply_test.c"
 #include "transport/hpsample_test.c"
@@ -1103,6 +1105,7 @@ int main(void) {
   test_h3grease();
   test_h3stream_type();
   test_headercase();
+  test_h3method();
   test_hp_chacha();
   test_hpapply();
   test_hpsample();
