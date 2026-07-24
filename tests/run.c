@@ -528,6 +528,7 @@
 #include "tls/keys/keyupdate/pncheck.c"
 #include "transport/conn/loop/pending1rtt/pending1rtt.c"
 #include "transport/packet/build/pktbuild/paddingelicit.c"
+#include "app/datagram/dgpriority/dgpriority.c"
 #include "common/varint_test.c"
 #include "transport/header_test.c"
 #include "transport/dcidresolve_test.c"
@@ -1013,6 +1014,9 @@
 #include "tls/pncheck_test.c"
 #include "transport/pending1rtt_test.c"
 #include "transport/paddingelicit_test.c"
+#include "app/dgpriority_test.c"
+#include "crypto/ed25519_field_test.c"
+#include "tls/v2ku_appendix_test.c"
 // clang-format on
 
 int main(void) {
@@ -1530,5 +1534,8 @@ int main(void) {
   test_pncheck();
   test_pending1rtt();
   test_paddingelicit();
+  test_dgpriority();
+  test_ed25519_field();
+  test_v2ku_appendix();
   return TEST_REPORT();
 }
