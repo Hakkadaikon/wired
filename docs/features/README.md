@@ -19,13 +19,13 @@ Interop results (the only tier that proves wire compatibility with an
 independent implementation) are tracked separately: see
 **[Interop Results](../interop.md)**.
 
-**Total: 896/1246 requirements tested (72%), 171 indirect, 179 untested.**
+**Total: 902/1246 requirements tested (72%), 168 indirect, 176 untested.**
 
 ## QUIC core
 
 | Spec | Tested | Indirect | Untested |
 |---|---|---|---|
-| [RFC 9000 — QUIC Transport](rfc9000.md) | 147/190 | 31 | 12 |
+| [RFC 9000 — QUIC Transport](rfc9000.md) | 150/190 | 28 | 12 |
 | [RFC 9001 — Using TLS to Secure QUIC](rfc9001.md) | 51/68 | 8 | 9 |
 | [RFC 9002 — Loss Detection and Congestion Control](rfc9002.md) | 53/67 | 8 | 6 |
 | [RFC 8999 — Version-Independent Properties](rfc8999.md) | 12/15 | 3 | 0 |
@@ -47,7 +47,7 @@ independent implementation) are tracked separately: see
 | Spec | Tested | Indirect | Untested |
 |---|---|---|---|
 | [RFC 8446 — TLS 1.3](rfc8446.md) | 76/105 | 18 | 11 |
-| [RFC 5280 — X.509 / PKI](rfc5280.md) | 28/44 | 6 | 10 |
+| [RFC 5280 — X.509 / PKI](rfc5280.md) | 31/44 | 6 | 7 |
 | [RFC 5480 — EC public keys in certificates](rfc5480.md) | 13/20 | 1 | 6 |
 | [RFC 5758 — ECDSA / SHA-2 signature OIDs](rfc5758.md) | 8/12 | 1 | 3 |
 | [RFC 8410 — Ed25519/X25519 algorithm identifiers](rfc8410.md) | 10/16 | 4 | 2 |
