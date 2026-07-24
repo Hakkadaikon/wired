@@ -159,6 +159,20 @@ static void carry_pass(fe r) {
   r[0] += c * 19;
 }
 
+/* Final carry chain for fe_tobytes: unlike carry_pass, the top limb's
+ * overflow is dropped (truncation mod 2^255), not folded back with *19. At
+ * this point r is already < 2^255 + 19 (q has subtracted at most one p), so
+ * the top carry is 0 or the deliberate q-induced wrap that must vanish here
+ * rather than re-entering the r[0] += 19*carry identity a second time. */
+static void carry_pass_final(fe r) {
+  u64 c = 0;
+  for (usz i = 0; i < 5; i++) {
+    r[i] += c;
+    c = r[i] >> 51;
+    r[i] &= MASK51;
+  }
+}
+
 /* Fully reduce h mod p and store 32 little-endian bytes. */
 static void fe_tobytes(u8* s, const fe h) {
   fe  r;
@@ -169,7 +183,7 @@ static void fe_tobytes(u8* s, const fe h) {
   q = (r[0] + 19) >> 51;
   for (usz i = 1; i < 5; i++) q = (r[i] + q) >> 51;
   r[0] += 19 * q;
-  carry_pass(r);
+  carry_pass_final(r);
   store_reduced(s, r);
 }
 
@@ -346,12 +360,34 @@ static void decode_uv(fe u, fe v, const fe y) {
   fe_add(v, v, one);
 }
 
-int quic_ed_ge_decode(ge* p, const u8 in[32]) {
-  fe  u, v;
-  int x_0 = in[31] >> 7;
+/* 1 if the 255-bit y read from in (sign bit already excluded) is < p, i.e.
+ * the encoding is the canonical one for this field element (RFC 8032 5.1.3
+ * step 1: "If the resulting value is >= p, decoding fails"). Compares the
+ * fully reduced encoding of y against the as-received bytes; they differ
+ * only when y's raw value was in [p, 2^255). */
+static int y_is_canonical(const fe y, const u8 in[32]) {
+  u8 canon[32];
+  u8 diff = 0;
+  fe_tobytes(canon, y);
+  for (usz i = 0; i < 31; i++) diff |= canon[i] ^ in[i];
+  diff |= canon[31] ^ (in[31] & 0x7f);
+  return diff == 0;
+}
+
+/* Decode y and recover x (RFC 8032 5.1.3 steps 1-3). Returns 1 and leaves x_0
+ * in *x_0_out on success; 0 if y is non-canonical or no square root exists. */
+static int decode_xy(ge* p, const u8 in[32], int* x_0_out) {
+  fe u, v;
+  *x_0_out = in[31] >> 7;
   fe_frombytes(p->Y, in);
+  if (!y_is_canonical(p->Y, in)) return 0;
   decode_uv(u, v, p->Y);
-  if (!recover_x(p->X, u, v)) return 0;
+  return recover_x(p->X, u, v);
+}
+
+int quic_ed_ge_decode(ge* p, const u8 in[32]) {
+  int x_0;
+  if (!decode_xy(p, in, &x_0)) return 0;
   if (decode_sign_fails(p->X, x_0)) return 0;
   apply_sign(p->X, x_0);
   fe_1(p->Z);
