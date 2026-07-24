@@ -8,4 +8,10 @@
  * Returns 1 if name (len bytes) contains no uppercase A-Z, 0 otherwise. */
 int quic_h3_header_name_ok(const u8* name, usz len);
 
+/* RFC 9114 10.3, RFC 9110 5.5. A field name or value that contains CR
+ * (0x0d), LF (0x0a) or NUL (0x00) MUST be treated as malformed
+ * (H3_MESSAGE_ERROR); such octets are unusable for request smuggling once
+ * rejected outright. Returns 1 if buf (len bytes) contains none of them. */
+int quic_h3_header_bytes_ok(const u8* buf, usz len);
+
 #endif
