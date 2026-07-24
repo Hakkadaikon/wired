@@ -4087,6 +4087,44 @@ static void test_srvrun_second_wt_connect_sends_reset_stream(void) {
   CHECK(rn + sn == pll); /* nothing else in the packet */
 }
 
+/* RFC 9114 4.1.1: a request stream that ended (FIN) without ever producing a
+ * complete request -- srvloop's dispatch (route_note_incomplete) latches the
+ * slot in incomplete_slots, and srvrun_sess_on_step must abort it on the
+ * wire with H3_REQUEST_INCOMPLETE, the same RESET_STREAM_AT + STOP_SENDING
+ * pair srvrun_reject_wt_busy already sends for other stream-level errors.
+ * Drives srvrun_abort_incomplete_reqs directly (same translation unit),
+ * mirroring test_srvrun_second_wt_connect_sends_reset_stream's decode-back
+ * verification style. */
+static void test_srvrun_incomplete_request_stream_sends_reset(void) {
+  struct lp_fix  f;
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_conn*   conns = sr_test_conns();
+  quic_obuf      ob;
+  u8             obuf[1024];
+  u64            tx_pn_before;
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  sr_make_confirmed_conn(&conns[0], &f, &ob);
+  conns[0].l.streams[0].stream_id = 12;
+  conns[0].l.incomplete_slots[0]  = 0;
+  conns[0].l.incomplete_n         = 1;
+  tx_pn_before                    = conns[0].l.tx_pn;
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
+        0,  0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_state    st  = {table, conns};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
+    srvrun_abort_incomplete_reqs(&ctx, 0);
+  }
+  /* a RESET_STREAM_AT + STOP_SENDING pair was sealed and sent, advancing the
+   * 1-RTT packet number -- same observable test_srvrun_wt_uni_stream_
+   * buffer_full_sends_reset uses (srvrun_send_wt_busy_reset's own seal
+   * path is exercised directly by the WT tests above, which decode it back
+   * off the wire; this test only needs to confirm THIS caller reaches it). */
+  CHECK(conns[0].l.tx_pn != tx_pn_before);
+}
+
 /* Stream id 8 (& 3 == 0) is a client-initiated bidi id, same shape as the
  * existing establishes_session test's id 4 -- confirms the validation does
  * not reject a well-formed id. */
@@ -11537,4 +11575,5 @@ void test_srvrun(void) {
   test_srvrun_wt_credit_no_op_without_any_wt_slot();
   test_srvrun_wt_slot_released_after_fin_and_reclaimed();
   test_srvrun_wt_released_id_not_reclaimed();
+  test_srvrun_incomplete_request_stream_sends_reset();
 }
