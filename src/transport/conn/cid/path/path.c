@@ -2,17 +2,19 @@
 
 void quic_path_init(quic_path* p) {
   for (usz i = 0; i < QUIC_PATH_COUNT; i++) {
-    p->paths[i].challenge      = 0;
-    p->paths[i].bytes_sent     = 0;
-    p->paths[i].bytes_received = 0;
-    p->paths[i].validated      = 0;
-    p->paths[i].confirmed      = 0;
+    p->paths[i].challenge         = 0;
+    p->paths[i].challenge_sent_at = 0;
+    p->paths[i].bytes_sent        = 0;
+    p->paths[i].bytes_received    = 0;
+    p->paths[i].validated         = 0;
+    p->paths[i].confirmed         = 0;
   }
   p->active = 0;
 }
 
-void quic_path_send_challenge(quic_path* p, usz path, u64 value) {
-  p->paths[path].challenge = value;
+void quic_path_send_challenge(quic_path* p, usz path, u64 value, u64 now) {
+  p->paths[path].challenge         = value;
+  p->paths[path].challenge_sent_at = now;
 }
 
 /* A response validates only when a challenge was outstanding and matches. */
@@ -43,4 +45,17 @@ int quic_path_confirm(quic_path* p, usz path) {
   p->paths[path].confirmed = 1;
   p->active                = path;
   return 1;
+}
+
+int quic_path_abandon_due(const quic_path* p, usz path, u64 now, u64 pto) {
+  const quic_path_state* s = &p->paths[path];
+  if (s->challenge == 0 || s->validated) return 0;
+  return now - s->challenge_sent_at >= 3 * pto;
+}
+
+void quic_path_revert(quic_path* p, usz path) {
+  quic_path_state* s = &p->paths[path];
+  if (s->challenge == 0) return; /* nothing outstanding to abandon */
+  s->challenge         = 0;
+  s->challenge_sent_at = 0;
 }
