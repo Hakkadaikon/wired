@@ -1,6 +1,7 @@
 #include "tls/handshake/core/sdrv/sdrv.h"
 
 #include "app/datagram/datagram/datagram.h"
+#include "common/diag/error/error.h"
 #include "crypto/asymmetric/ecc/p256/p256_point.h"
 #include "crypto/pki/cert/p256cert/p256cert.h"
 #include "tls/ext/salpn/ch_ext.h"
@@ -10,6 +11,7 @@
 #include "tls/ext/tparam/tparam.h"
 #include "tls/handshake/core/tls/binder.h"
 #include "tls/handshake/core/tls/cipher.h"
+#include "tls/handshake/core/tls/encext_check.h"
 #include "tls/handshake/core/tls/ext_keyshare.h"
 #include "tls/handshake/core/tls/handshake.h"
 #include "tls/handshake/core/tls/schedule.h"
@@ -104,6 +106,7 @@ void quic_sdrv_init(quic_sdrv* s, const quic_sdrv_init_in* in) {
   s->rscid_len           = 0;
   s->psk_accepted        = 0;
   s->early_data_accepted = 0;
+  s->last_error          = 0;
   quic_transcript_init(&s->tr);
 }
 
@@ -161,12 +164,20 @@ static int sdrv_ch_hdr(
 /* One extension at *q: -1 overrun, 1 key_share taken, 0 skip; *q advances.
  * RFC 8446 4.2.8: the ClientHello key_share lists several KeyShareEntry, so
  * scan the list for x25519 rather than assuming it is the first entry. */
+static int sdrv_ch_keyshare_scan(const u8* d, usz dlen, u8 pub[32]) {
+  usz pub_len;
+  if (!quic_tls_ext_key_share_scan(
+          d, dlen, QUIC_GROUP_X25519, pub, &pub_len, 32))
+    return 0;
+  return pub_len == 32;
+}
+
 static int sdrv_ch_one(const sdrv_ch_block* blk, usz* q, u8 pub[32]) {
   unsigned type;
   usz      dlen, start = *q;
   if (!sdrv_ch_hdr(blk, q, &type, &dlen)) return -1;
   return (type == QUIC_EXT_KEY_SHARE)
-             ? quic_tls_ext_key_share_scan(blk->b + start + 4, dlen, pub)
+             ? sdrv_ch_keyshare_scan(blk->b + start + 4, dlen, pub)
              : 0;
 }
 
@@ -598,12 +609,33 @@ static int sdrv_ch_required_fields(quic_sdrv* s, const u8* ch_msg, usz ch_len) {
   return take_client_sid(s, ch_msg, ch_len);
 }
 
-int quic_sdrv_recv_client_hello(quic_sdrv* s, const u8* ch_msg, usz ch_len) {
+/* RFC 9001 8.2: MUST close with missing_extension (RFC 8446 B.2 alert 109)
+ * when the ClientHello carries no quic_transport_parameters extension. Sets
+ * s->last_error and returns 0 on that rejection, 1 otherwise. */
+static int sdrv_ch_require_tp_ext(quic_sdrv* s, const u8* ch_msg, usz ch_len) {
+  quic_span ext;
+  int       found = find_client_tp_ext(ch_msg, ch_len, &ext);
+  if (quic_encext_required_ok(found)) return 1;
+  s->last_error = quic_err_crypto(109);
+  return 0;
+}
+
+/* The extension gate passed and the required fields were taken -- the rest
+ * of quic_sdrv_recv_client_hello (split out to keep its CCN low). */
+static int sdrv_ch_after_gate(quic_sdrv* s, const u8* ch_msg, usz ch_len) {
   if (!sdrv_ch_required_fields(s, ch_msg, ch_len)) return 0;
   if (!sdrv_ch_take_psk(s, ch_msg, ch_len)) return 0;
   sdrv_ch_take_optional(s, ch_msg, ch_len);
   return 1;
 }
+
+int quic_sdrv_recv_client_hello(quic_sdrv* s, const u8* ch_msg, usz ch_len) {
+  s->last_error = 0;
+  if (!sdrv_ch_require_tp_ext(s, ch_msg, ch_len)) return 0;
+  return sdrv_ch_after_gate(s, ch_msg, ch_len);
+}
+
+u64 quic_sdrv_last_error(const quic_sdrv* s) { return s->last_error; }
 
 int quic_sdrv_handshake_secret(const quic_sdrv* s, const u8** secret) {
   if (!s->hs_ready) return 0;
