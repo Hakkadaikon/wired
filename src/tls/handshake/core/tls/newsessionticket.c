@@ -10,6 +10,16 @@
  * follow (put_nst_exts below). */
 #define QUIC_NST_PREFIX_LEN (4 + 4 + 1 + 2 + QUIC_TICKET_SEALED_LEN)
 
+/* RFC 8446 4.6.1: "Servers MUST NOT use any value greater than 604800
+ * seconds (7 days)." Clamp rather than reject -- an over-long caller value
+ * degrades to the RFC's own ceiling instead of failing the whole ticket. */
+#define QUIC_NST_MAX_LIFETIME_SECS 604800
+
+static u32 nst_clamp_lifetime(u32 lifetime_secs) {
+  return lifetime_secs > QUIC_NST_MAX_LIFETIME_SECS ? QUIC_NST_MAX_LIFETIME_SECS
+                                                    : lifetime_secs;
+}
+
 /* RFC 8446 4.6.1: ticket_age_add MUST be a fresh random value per ticket, so
  * an observer cannot correlate ticket_age across issuances. */
 static u32 nst_random_age_add(void) {
@@ -53,9 +63,10 @@ usz quic_tls_new_session_ticket_encode(
   quic_ticket sealed_t = *t;
   usz         off      = quic_hs_begin(out, cap, QUIC_HS_NEW_SESSION_TICKET);
   if (off == 0 || cap - off < QUIC_NST_PREFIX_LEN + 2) return 0;
-  sealed_t.age_add = nst_random_age_add();
+  sealed_t.lifetime_secs = nst_clamp_lifetime(t->lifetime_secs);
+  sealed_t.age_add       = nst_random_age_add();
   quic_ticket_seal(&sealed_t, key, sealed);
-  put_nst_prefix(out + off, t, sealed_t.age_add, sealed);
+  put_nst_prefix(out + off, &sealed_t, sealed_t.age_add, sealed);
   off += QUIC_NST_PREFIX_LEN;
   off += put_nst_exts(out + off, cap - off, max_early_data_size);
   quic_hs_finish(out, off);

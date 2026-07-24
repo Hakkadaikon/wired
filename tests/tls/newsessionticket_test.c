@@ -128,6 +128,43 @@ static void test_nst_age_add_random(void) {
   CHECK(nst_wire_age_add(out1) != nst_wire_age_add(out2));
 }
 
+/* RFC 8446 4.6.1 / 8446-079: "Servers MUST NOT use any value greater than
+ * 604800 seconds (7 days)." A ticket built with a longer lifetime_secs is
+ * clamped to 604800 on the wire, not passed through verbatim. */
+static void test_nst_lifetime_clamped_to_7days(void) {
+  u8          key[QUIC_TICKET_KEY_LEN];
+  quic_ticket t = nst_sample_ticket();
+  u8          out[256];
+  usz         n;
+  quic_span   sealed;
+  quic_ticket opened;
+  t.lifetime_secs = 604800 + 12345;
+  fill_nst_key(key, 0x99);
+  n = quic_tls_new_session_ticket_encode(out, sizeof out, &t, key, 0);
+  CHECK(n > 0);
+  CHECK(quic_tls_new_session_ticket_parse(quic_span_of(out, n), &sealed) == 1);
+  CHECK(quic_ticket_open(sealed, key, &opened) == 1);
+  CHECK(opened.lifetime_secs == 604800);
+}
+
+/* A lifetime already within the 7-day bound passes through unchanged --
+ * the clamp must not shorten a compliant ticket. */
+static void test_nst_lifetime_within_bound_unchanged(void) {
+  u8          key[QUIC_TICKET_KEY_LEN];
+  quic_ticket t = nst_sample_ticket();
+  u8          out[256];
+  usz         n;
+  quic_span   sealed;
+  quic_ticket opened;
+  t.lifetime_secs = 3600;
+  fill_nst_key(key, 0xaa);
+  n = quic_tls_new_session_ticket_encode(out, sizeof out, &t, key, 0);
+  CHECK(n > 0);
+  CHECK(quic_tls_new_session_ticket_parse(quic_span_of(out, n), &sealed) == 1);
+  CHECK(quic_ticket_open(sealed, key, &opened) == 1);
+  CHECK(opened.lifetime_secs == 3600);
+}
+
 /* A truncated message (shorter than its own header claims) is rejected. */
 static void test_nst_parse_truncated(void) {
   u8          key[QUIC_TICKET_KEY_LEN];
@@ -150,4 +187,6 @@ void test_newsessionticket(void) {
   test_nst_early_data_ext();
   test_nst_no_early_data_ext();
   test_nst_age_add_random();
+  test_nst_lifetime_clamped_to_7days();
+  test_nst_lifetime_within_bound_unchanged();
 }
