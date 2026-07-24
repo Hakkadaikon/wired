@@ -9662,6 +9662,46 @@ static void test_srvrun_wt_resource_check_redirect_3xx_with_location(void) {
   }
 }
 
+/* RFC 9297 SS3.2 (9297-019): a message using the Capsule Protocol shall not
+ * carry Content-Length, Content-Type, or Transfer-Encoding fields.
+ * srvrun_start_wt_status is the ONLY builder used for WebTransport's bare
+ * 2xx/3xx/4xx status responses (session-establishing 2xx, the redirect
+ * tested above, and rejections); it calls quic_h3resp_prefix_field with a
+ * NULL content_type and no body, so put_status_and_ct never emits a
+ * content-type field line and prefix_data_hdr never emits a DATA frame
+ * (hence no Content-Length/Transfer-Encoding source either) -- the
+ * exclusion holds by construction, not by a runtime check. Pin it down by
+ * confirming none of the three forbidden field names appear on the wire of
+ * a real session-establishing 2xx. */
+static void test_srvrun_wt_status_excludes_capsule_forbidden_headers(void) {
+  struct lp_fix  f;
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_conn*   conns = sr_test_conns();
+  quic_obuf      ob;
+  u8             obuf[1024];
+  ob                    = (quic_obuf){obuf, sizeof obuf, 0};
+  g_sr_wt_handler_calls = 0;
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  sr_make_confirmed_conn(&conns[0], &f, &ob);
+  sr_set_req(&conns[0], 1, 1, 4);
+  {
+    srvrun_cfg      cfg = {-1, 0, sr_wt_handler, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                           0,  0, &g_srvrun_env, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_state    st  = {table, conns};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
+    srvrun_start_resp(&ctx, 0);
+  }
+  CHECK(conns[0].wt_active == 1);
+  CHECK(conns[0].resp[0].sess.active == 1);
+  {
+    const u8* wire = g_srvrun_respstore[0][0];
+    usz       n    = conns[0].resp[0].sess.q.len;
+    CHECK(!srn_wt_contains(wire, n, "content-length"));
+    CHECK(!srn_wt_contains(wire, n, "content-type"));
+    CHECK(!srn_wt_contains(wire, n, "transfer-encoding"));
+  }
+}
+
 /* Set the synthetic request's wt-available-protocols offer (the raw sf-list
  * value, exactly what h3reqdrive's capture copies). */
 static void srn_wt_set_avail(srvrun_conn* c, const char* offer) {
@@ -11402,6 +11442,7 @@ void test_srvrun(void) {
   test_srvrun_wt_resource_check_404_no_session();
   test_srvrun_wt_resource_check_accept_establishes_session();
   test_srvrun_wt_resource_check_redirect_3xx_with_location();
+  test_srvrun_wt_status_excludes_capsule_forbidden_headers();
   test_srvrun_wt_connect_origin_ok_establishes();
   test_srvrun_wt_connect_origin_malformed_403();
   test_srvrun_second_wt_connect_rejected_429();

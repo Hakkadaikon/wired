@@ -2771,17 +2771,31 @@ int wired_server_wt_stream_reply(
   return 1;
 }
 
+/* RFC 9297 2 (9297-001): "HTTP Datagrams MUST only be sent with an
+ * association to an HTTP request that explicitly supports them." The only
+ * request type this SDK associates HTTP Datagrams with is a WebTransport
+ * CONNECT (draft-ietf-webtrans-http3-15 SS4.2/SS4.3): wired_server_wt_
+ * send_datagram_to's own parameter type (wired_wt_session*) already makes
+ * that request-type association a compile-time constraint -- a GET/POST
+ * response (srvrun_resp) has no wired_wt_session to pass, so no caller can
+ * even attempt to send an HTTP Datagram for a request type that does not
+ * support them. This predicate names that gate explicitly (rather than
+ * leaving it implicit in the parameter type alone) and adds the one runtime
+ * half the type system cannot express: the session's own state must have
+ * actually reached ESTABLISHED/DRAINING (the server sent its 2xx, so the
+ * association is live), not merely UNESTABLISHED/CLOSED. */
+static int srvrun_wt_datagram_request_type_ok(const wired_wt_session* s) {
+  return wt_session_send_side_open(s);
+}
+
 /* slot names a live connection whose own SETTINGS have been sent (RFC 9297
- * 2.1's ordering rule, same gate as srvrun_queue_datagram), AND s is a
- * session whose corresponding stream currently has its send side open
- * (wt_session_send_side_open, RFC 9297 2.1 / 9297-007) -- ESTABLISHED or
- * DRAINING only, which also satisfies 9297-001's "explicitly supports HTTP
- * Datagrams" requirement (draft-ietf-webtrans-http3-15 SS4.2/SS4.3 makes that
- * association explicit at the server's own 2xx). */
+ * 2.1's ordering rule, same gate as srvrun_queue_datagram), AND s passes
+ * the RFC 9297 2 / 9297-001 request-type gate above (which also folds in
+ * 9297-007's send-side-open check, ESTABLISHED or DRAINING only). */
 static int srvrun_dgring_target_ok(
     const wired_srvrun_env* env, int slot, const wired_wt_session* s) {
   return slot >= 0 && env->conns[slot].l.h3.settings_sent &&
-         wt_session_send_side_open(s);
+         srvrun_wt_datagram_request_type_ok(s);
 }
 
 /* The next free ring entry (FIFO tail), or 0 when the ring is full. */
