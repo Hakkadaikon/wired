@@ -412,10 +412,25 @@ int wired_srvboot_accept_acc(
   return srvboot_flight(conn, id, a->hdr.version, a->largest_pn, out);
 }
 
+/* RFC 9001 4.8: 0x128 (TLS handshake_failure) when the caller has no more
+ * specific quic_sdrv_last_error cause on hand. */
+#define SRVBOOT_REFUSAL_DEFAULT_ERROR 0x128
+
+/* error_code, or the generic fallback when the caller had no specific
+ * cause (0). */
+static u64 srvboot_refusal_error(u64 error_code) {
+  if (error_code) return error_code;
+  return SRVBOOT_REFUSAL_DEFAULT_ERROR;
+}
+
 usz wired_srvboot_refusal(
-    const wired_srvboot_acc* a, quic_span scid, u8* out, usz cap) {
+    const wired_srvboot_acc* a,
+    quic_span                scid,
+    u64                      error_code,
+    u8*                      out,
+    usz                      cap) {
   u8                    fr[8];
-  quic_conn_close_frame f  = {0, 0x128, 0, 0, 0}; /* TLS handshake_failure */
+  quic_conn_close_frame f  = {0, srvboot_refusal_error(error_code), 0, 0, 0};
   usz                   fn = quic_frame_put_conn_close(fr, sizeof fr, &f);
   quic_obuf             ob = quic_obuf_of(out, cap);
   quic_srvwire_seal_in  wi = {

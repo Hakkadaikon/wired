@@ -27,4 +27,11 @@ int quic_x509_tbs_cursor(quic_span tbs, quic_derseq* c);
  * value, 0 if absent or malformed. */
 int quic_x509_find_ext(quic_span tbs, quic_span oid, quic_span* val);
 
+/* RFC 5280 4.2. 1 if any extension in tbs is marked critical (TRUE) and its
+ * extnID is not one this SDK understands (basicConstraints, subjectAltName,
+ * keyUsage, extKeyUsage); 0 if every critical extension is known, or there
+ * are no extensions at all. RFC 5280 4.2 CAs/applications MUST reject a
+ * certificate carrying an unrecognized critical extension. */
+int quic_x509_has_unknown_critical(quic_span tbs);
+
 #endif
