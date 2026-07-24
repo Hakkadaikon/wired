@@ -60,6 +60,22 @@ static void test_udp_socket_dualstack(void) {
   wired_udp_close(fd);
 }
 
+/* RFC 8899 4.5/3.2: enabling the DPLPMTUD probe socket option sets
+ * IP_MTU_DISCOVER=IP_PMTUDISC_DO, which the kernel reads back unchanged. */
+static void test_udp_pmtu_probe_enable_sets_pmtudisc_do(void) {
+  int val = 0;
+  u64 len = sizeof(val);
+  i64 fd  = wired_udp_socket();
+  if (fd < 0) return;
+  CHECK(wired_udp_pmtu_probe_enable(fd) == 0);
+  CHECK(
+      syscall6(
+          UDPT_SYS_GETSOCKOPT, fd, WIRED_IPPROTO_IP, WIRED_IP_MTU_DISCOVER,
+          (i64)&val, (i64)&len, 0) == 0);
+  CHECK(val == WIRED_IP_PMTUDISC_DO);
+  wired_udp_close(fd);
+}
+
 /* cmsg_len 0 must not be treated as a valid entry (would otherwise
  * infinite-loop or read past the header) -- falls back to Not-ECT (0). */
 static void test_udp_recvmmsg_malformed_cmsg_len_no_oob_read(void) {
@@ -161,6 +177,7 @@ void test_udp(void) {
   test_udp_addr4_be_roundtrip();
   test_udp_hton();
   test_udp_socket_dualstack();
+  test_udp_pmtu_probe_enable_sets_pmtudisc_do();
   test_udp_cmsg_ecn_ipv6_tclass();
   test_udp_recvmmsg_malformed_cmsg_len_no_oob_read();
   test_udp_recvmmsg_cmsg_len_overflow_no_oob_read();

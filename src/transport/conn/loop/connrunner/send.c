@@ -127,13 +127,19 @@ static int take_lost(const quic_connrunner* r, usz n) {
   return n > 0 && !r->rtx_held;
 }
 
-void quic_connrunner_track_loss(quic_connrunner* r, u64 now) {
-  u64 lost[QUIC_SENTMETA_CAP];
-  usz n = 0;
+void quic_connrunner_track_loss_ex(
+    quic_connrunner* r, u64 now, u64* lost, usz* n) {
+  *n = 0;
   if (!r->io.disp.has_ack)
     return; /* largest_acked is only valid after an ACK */
   quic_sentmeta_loss_in in = {
       r->io.disp.largest_acked, now, QUIC_CONNRUNNER_NO_RTT_DELAY};
-  quic_sentmeta_detect_loss(&r->sent, &in, (quic_sentmeta_u64out){lost, &n});
-  if (take_lost(r, n)) r->rtx_pn = lost[0], r->rtx_held = 1;
+  quic_sentmeta_detect_loss(&r->sent, &in, (quic_sentmeta_u64out){lost, n});
+  if (take_lost(r, *n)) r->rtx_pn = lost[0], r->rtx_held = 1;
+}
+
+void quic_connrunner_track_loss(quic_connrunner* r, u64 now) {
+  u64 lost[QUIC_SENTMETA_CAP];
+  usz n;
+  quic_connrunner_track_loss_ex(r, now, lost, &n);
 }

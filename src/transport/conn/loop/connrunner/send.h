@@ -45,4 +45,11 @@ void quic_connrunner_track_sent(
  * pn into rtx_pn/rtx_held so flush_sends resends its real bytes. */
 void quic_connrunner_track_loss(quic_connrunner* r, u64 now);
 
+/* Same detection pass as quic_connrunner_track_loss, but also returns the
+ * full lost-pn set into lost[0..*n) (capacity QUIC_SENTMETA_CAP) for a caller
+ * that needs to recognize a specific pn among them (e.g. RFC 8899 DPLPMTUD's
+ * outstanding probe) rather than just the oldest one. */
+void quic_connrunner_track_loss_ex(
+    quic_connrunner* r, u64 now, u64* lost, usz* n);
+
 #endif
