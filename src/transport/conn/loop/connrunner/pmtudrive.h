@@ -20,8 +20,11 @@ void quic_connrunner_pmtu_init(quic_connrunner* r);
  * it via connio at the current level. Returns the sealed datagram length
  * into out, or 0 if the search is done, a probe is already outstanding, or
  * the candidate does not fit `out`. Records the packet number the probe was
- * sent under so the ack/loss paths can recognize it. */
-usz quic_connrunner_pmtu_build_probe(quic_connrunner* r, quic_obuf* out);
+ * sent under so the ack/loss paths can recognize it. `now` starts the RFC
+ * 8899 5.1.1 PROBE_TIMER for the probe just sent, and -- when Search
+ * Complete's PMTU_RAISE_TIMER has fired -- resumes the search first. */
+usz quic_connrunner_pmtu_build_probe(
+    quic_connrunner* r, quic_obuf* out, u64 now);
 
 /* RFC 8899 3.3: if `pn` is the outstanding probe's packet number, tell the
  * search it was delivered (raises validated/MPS, resets PROBE_COUNT). */
@@ -42,7 +45,9 @@ void quic_connrunner_pmtu_track_sent(quic_connrunner* r, u64 now, usz len);
  * this iteration, reconcile the outstanding probe against what they found --
  * acked if its pn is at or below the just-processed largest_acked, lost if it
  * appears in `lost[0..n)` (the array quic_connrunner_track_loss's detection
- * pass produced this round). */
-void quic_connrunner_pmtu_reconcile(quic_connrunner* r, const u64* lost, usz n);
+ * pass produced this round) or if the RFC 8899 5.1.1 PROBE_TIMER has expired
+ * unacked as of `now`. */
+void quic_connrunner_pmtu_reconcile(
+    quic_connrunner* r, const u64* lost, usz n, u64 now);
 
 #endif

@@ -65,19 +65,19 @@ static void advance_pmtu_reconcile(quic_connrunner* r, u64 now) {
   u64 lost[QUIC_SENTMETA_CAP];
   usz n;
   quic_connrunner_track_loss_ex(r, now, lost, &n);
-  quic_connrunner_pmtu_reconcile(r, lost, n);
+  quic_connrunner_pmtu_reconcile(r, lost, n, now);
 }
 
 /* RFC 8899 3.2/5.1: once the handshake is confirmed and nothing else was
  * chosen to send this iteration, opportunistically send one PLPMTU probe as
  * its own datagram -- a probe must exceed the normal PLPMTU, so it is never
  * coalesced with a regular packet built to send_len. */
-static usz advance_pmtu_probe(quic_connrunner* r, usz out) {
+static usz advance_pmtu_probe(quic_connrunner* r, usz out, u64 now) {
   usz sealed;
   if (out || !r->loop.gate.handshake_confirmed) return out;
   {
     quic_obuf ob = quic_obuf_of(r->txbuf, sizeof(r->txbuf));
-    sealed       = quic_connrunner_pmtu_build_probe(r, &ob);
+    sealed       = quic_connrunner_pmtu_build_probe(r, &ob, now);
   }
   return sealed;
 }
@@ -105,7 +105,7 @@ usz quic_connrunner_advance(quic_connrunner* r, u64 now, quic_mspan dgram) {
     quic_connrunner_sent_in sin = {now, kind, out};
     quic_connrunner_track_sent(r, &sin); /* RFC 9002 A.1: in-flight */
   }
-  out = advance_pmtu_probe(r, out);
+  out = advance_pmtu_probe(r, out, now);
   quic_connrunner_pmtu_track_sent(r, now, out); /* RFC 9002 6.1 visibility */
   return out;
 }
