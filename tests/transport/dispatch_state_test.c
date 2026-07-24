@@ -4,6 +4,7 @@
 #include "transport/packet/frame/frame/connctl.h"
 #include "transport/packet/frame/frame/flowctl.h"
 #include "transport/packet/frame/frame/frame.h"
+#include "transport/packet/frame/frame/stream_ctl.h"
 
 /* Wire one frame into buf via its encoder, returning the byte count. */
 
@@ -15,13 +16,15 @@ static void ds_init(
   quic_stream_read_init(s);
   quic_sentpkt_init(t);
   quic_flow_credit_init(c, 0);
-  st->stream        = s;
-  st->sent          = t;
-  st->credit        = c;
-  st->ack_eliciting = 0;
-  st->close         = 0;
-  st->has_datagram  = 0;
-  st->violation     = 0;
+  st->stream            = s;
+  st->sent              = t;
+  st->credit            = c;
+  st->ack_eliciting     = 0;
+  st->close             = 0;
+  st->has_datagram      = 0;
+  st->violation         = 0;
+  st->stop_sending_owed = 0;
+  st->has_reset_stream  = 0;
 }
 
 /* STREAM frame delivers bytes the application can pull back. */
@@ -219,6 +222,46 @@ static void test_dispatch_ack_eliciting_predicate(void) {
   CHECK(quic_framedispatch_ack_eliciting(QUIC_FRAME_MAX_DATA) == 1);
 }
 
+/* RFC 9000 3.5: STOP_SENDING makes the receiving endpoint owe an automatic
+ * RESET_STREAM echoing the same stream ID and error code. */
+static void test_dispatch_stop_sending_owes_reset(void) {
+  quic_framedispatch_state st;
+  quic_stream_read         s;
+  quic_sentpkt             t;
+  quic_flow_credit         c;
+  ds_init(&st, &s, &t, &c);
+  quic_stop_sending_frame f = {.stream_id = 9, .error_code = 0x42};
+  u8                      buf[16];
+  usz                     n = quic_stop_sending_encode(buf, sizeof buf, &f);
+  CHECK(
+      quic_framedispatch_handle(
+          &st, QUIC_FRAME_STOP_SENDING, quic_span_of(buf, n)) == 1);
+  CHECK(st.stop_sending_owed == 1);
+  CHECK(st.stop_sending_stream_id == 9);
+  CHECK(st.stop_sending_error_code == 0x42);
+  CHECK(st.ack_eliciting == 1);
+}
+
+/* RFC 9000 19.4: RESET_STREAM is decoded and its stream ID/error code
+ * exposed on state. */
+static void test_dispatch_reset_stream(void) {
+  quic_framedispatch_state st;
+  quic_stream_read         s;
+  quic_sentpkt             t;
+  quic_flow_credit         c;
+  ds_init(&st, &s, &t, &c);
+  quic_reset_stream_frame f = {
+      .stream_id = 3, .error_code = 0x9, .final_size = 100};
+  u8  buf[32];
+  usz n = quic_reset_stream_encode(buf, sizeof buf, &f);
+  CHECK(
+      quic_framedispatch_handle(
+          &st, QUIC_FRAME_RESET_STREAM, quic_span_of(buf, n)) == 1);
+  CHECK(st.has_reset_stream == 1);
+  CHECK(st.reset_stream_stream_id == 3);
+  CHECK(st.reset_stream_error_code == 0x9);
+}
+
 void test_dispatch_state(void) {
   test_dispatch_stream();
   test_dispatch_ack();
@@ -233,4 +276,6 @@ void test_dispatch_state(void) {
   test_dispatch_handshake_done_violation();
   test_dispatch_no_violation_on_normal_frame();
   test_dispatch_ack_eliciting_predicate();
+  test_dispatch_stop_sending_owes_reset();
+  test_dispatch_reset_stream();
 }

@@ -6,6 +6,7 @@
 #include "transport/packet/frame/frame/flowctl.h"
 #include "transport/packet/frame/frame/frame.h"
 #include "transport/packet/frame/frame/permit.h"
+#include "transport/packet/frame/frame/stream_ctl.h"
 #include "transport/recovery/rtx/sentpkt/ack_process.h"
 
 /* RFC 9000 19.8: feed a STREAM frame's bytes into the read buffer. */
@@ -74,14 +75,45 @@ static int on_noop(quic_framedispatch_state* st, const u8* frame, usz len) {
   return 1;
 }
 
+/* RFC 9000 3.5: record that an automatic RESET_STREAM is owed, copying the
+ * stream ID and error code verbatim from the STOP_SENDING frame. The actual
+ * send is the caller's job (same shape as on_datagram above). */
+static int on_stop_sending(
+    quic_framedispatch_state* st, const u8* frame, usz len) {
+  quic_stop_sending_frame f;
+  if (quic_stop_sending_decode(frame, len, &f) == 0) return 0;
+  st->stop_sending_owed       = 1;
+  st->stop_sending_stream_id  = f.stream_id;
+  st->stop_sending_error_code = f.error_code;
+  return 1;
+}
+
+/* RFC 9000 19.4: record a received RESET_STREAM's terminated stream ID and
+ * error code; further state-machine effects belong to a different layer
+ * (RFC 9000 3.2's receiving-part transition), out of scope here. */
+static int on_reset_stream(
+    quic_framedispatch_state* st, const u8* frame, usz len) {
+  quic_reset_stream_frame f;
+  if (quic_reset_stream_decode(frame, len, &f) == 0) return 0;
+  st->has_reset_stream        = 1;
+  st->reset_stream_stream_id  = f.stream_id;
+  st->reset_stream_error_code = f.error_code;
+  return 1;
+}
+
 typedef int (*handler)(quic_framedispatch_state*, const u8*, usz);
 
 /* RFC 9000 12.4: one handler per frame kind, indexed by quic_frame_kind. */
 static const handler handlers[] = {
-    [QUIC_FK_PADDING] = on_noop,      [QUIC_FK_PING] = on_noop,
-    [QUIC_FK_ACK] = on_ack,           [QUIC_FK_STREAM] = on_stream,
-    [QUIC_FK_MAX_DATA] = on_max_data, [QUIC_FK_CONNECTION_CLOSE] = on_close,
-    [QUIC_FK_DATAGRAM] = on_datagram,
+    [QUIC_FK_PADDING]          = on_noop,
+    [QUIC_FK_PING]             = on_noop,
+    [QUIC_FK_ACK]              = on_ack,
+    [QUIC_FK_STREAM]           = on_stream,
+    [QUIC_FK_MAX_DATA]         = on_max_data,
+    [QUIC_FK_CONNECTION_CLOSE] = on_close,
+    [QUIC_FK_DATAGRAM]         = on_datagram,
+    [QUIC_FK_STOP_SENDING]     = on_stop_sending,
+    [QUIC_FK_RESET_STREAM]     = on_reset_stream,
 };
 
 int quic_framedispatch_ack_eliciting(u64 frame_type) {

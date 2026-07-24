@@ -25,6 +25,19 @@ typedef struct {
   u8 violation; /* set when a server-recv-forbidden frame arrived (RFC 9000
                  * 19.7/19.20) -- the caller must close with
                  * PROTOCOL_VIOLATION. */
+  /** RFC 9000 3.5: set when a STOP_SENDING frame arrived; the caller owes an
+   * automatic RESET_STREAM on stop_sending_stream_id carrying
+   * stop_sending_error_code (copied verbatim from the frame). Only the most
+   * recent one is kept, same shape as has_datagram/datagram above. */
+  u8  stop_sending_owed;
+  u64 stop_sending_stream_id;
+  u64 stop_sending_error_code;
+  /** RFC 9000 19.4: set when a RESET_STREAM frame arrived; the terminated
+   * stream ID and error code it carried (only the most recent one is kept,
+   * same shape as has_datagram/datagram above). */
+  u8  has_reset_stream;
+  u64 reset_stream_stream_id;
+  u64 reset_stream_error_code;
 } quic_framedispatch_state;
 
 /* Dispatch one frame by type. frame starts at the type varint and covers the
