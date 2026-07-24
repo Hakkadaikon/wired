@@ -348,6 +348,40 @@ static int gather_wt_frame(wired_srvloop* l, u64 type, quic_span frame) {
   return 1;
 }
 
+/* draft-ietf-webtrans-http3-15 4.3: "Endpoints MUST NOT send WT_STREAM as a
+ * frame type on HTTP/3 streams other than the very first bytes of a request
+ * stream. Receiving this frame type in any other circumstances MUST be
+ * treated as a connection error of type H3_FRAME_ERROR." sf's own leading
+ * bytes decoding as the WT_STREAM signal at offset 0 is legitimate
+ * (is_wt_stream_signal/sf_is_wt_signalled, checked and consumed elsewhere);
+ * this is the SAME decode applied to a frame that is NOT at offset 0 -- the
+ * one shape the RFC forbids outright. */
+static int is_wt_signal_mid_stream(const quic_stream_frame* sf) {
+  return sf->offset != 0 &&
+         is_wt_stream_signal(quic_span_of(sf->data, (usz)sf->length));
+}
+
+/* 1 if the walked frame at `frame` is a client-bidi-id-shaped STREAM frame
+ * (client_bidi_stream_of, the id space request/WT streams share) whose own
+ * data decodes as the WT_STREAM signal at a non-zero offset
+ * (is_wt_signal_mid_stream) -- latches l->wt_signal_mid_stream_violation,
+ * mirroring gather_one_stream_close's latch-only shape. Scanned independent
+ * of whether the same stream id was ALSO claimed as WT bidi traffic earlier
+ * in this payload or an earlier step: draft-ietf-webtrans-http3-15 4.3 draws
+ * no exception for an already-classified stream, and a legitimate WT bidi
+ * continuation frame never itself re-decodes as the signal varint (the
+ * signal is stripped from the stream's data by wt_frame_skip, never
+ * repeated), so a real WT stream's own application bytes cannot spuriously
+ * trigger this. */
+static int gather_one_wt_signal_violation(
+    wired_srvloop* l, u64 type, quic_span frame) {
+  quic_stream_frame sf;
+  if (!client_bidi_stream_of(type, frame, &sf)) return 0;
+  if (!is_wt_signal_mid_stream(&sf)) return 0;
+  l->wt_signal_mid_stream_violation = 1;
+  return 1;
+}
+
 /* RFC 9000 2.1: land one server-initiated bidi stream's reply frame into its
  * pre-claimed wt_streams[] slot (wired_server_wt_open_bidi's own
  * wired_srvloop_wt_slot_claim_local call, srvrun.c). Unlike a client-signalled
@@ -386,6 +420,8 @@ static int gather_wt_stream(wired_srvloop* l, const u8* payload, usz len) {
     seen |= gather_server_bidi_frame(
         l, fr.type, quic_span_of(fr.start, fr.remaining));
     seen |= gather_wt_frame(l, fr.type, quic_span_of(fr.start, fr.remaining));
+    seen |= gather_one_wt_signal_violation(
+        l, fr.type, quic_span_of(fr.start, fr.remaining));
   }
   return seen;
 }
@@ -681,6 +717,51 @@ static int stop_sending_id(u64 type, quic_span frame, u64* stream_id_out) {
   return 1;
 }
 
+/* RFC 9000 19.4: 1 if frame is a RESET_STREAM, its stream_id/error_code
+ * decoded into *out. Split out of gather_one_wt_reset to keep its own branch
+ * count at the CCN gate. */
+static int wt_reset_frame(
+    u64 type, quic_span frame, quic_reset_stream_frame* out) {
+  if (quic_frame_classify(type) != QUIC_FK_RESET_STREAM) return 0;
+  return quic_reset_stream_decode(frame.p, frame.n, out);
+}
+
+/* RFC 9000 19.5: 1 if frame is a STOP_SENDING, its stream_id/error_code
+ * decoded into *out. Mirrors wt_reset_frame for the other close-shaped
+ * frame kind. */
+static int wt_stop_frame(
+    u64 type, quic_span frame, quic_stop_sending_frame* out) {
+  if (quic_frame_classify(type) != QUIC_FK_STOP_SENDING) return 0;
+  return quic_stop_sending_decode(frame.p, frame.n, out);
+}
+
+/* draft-ietf-webtrans-http3-15 4.4 (WTH3-040): if the walked frame at
+ * `frame` is a RESET_STREAM or STOP_SENDING, latch its (stream_id,
+ * error_code) into l->wt_reset_*, mirroring gather_one_stream_close's own
+ * latch-only shape but ALSO keeping the wire error code
+ * (reset_stream_id/stop_sending_id both discard it, since the CONNECT-
+ * stream-close case they serve never needed it). l has no notion of which
+ * stream id belongs to a WT session -- the caller (srvrun.c) resolves that
+ * and decides whether/how to map the code through quic_wterrmap_from_http3.
+ * Only the last one seen this step survives if more than one arrives, same
+ * convention as closed_stream_id. */
+static void gather_one_wt_reset(wired_srvloop* l, u64 type, quic_span frame) {
+  quic_reset_stream_frame rs;
+  quic_stop_sending_frame ss;
+  if (wt_reset_frame(type, frame, &rs)) {
+    l->wt_reset_stream_id  = rs.stream_id;
+    l->wt_reset_error_code = rs.error_code;
+    l->wt_reset_is_stop    = 0;
+    l->wt_reset_seen       = 1;
+    return;
+  }
+  if (!wt_stop_frame(type, frame, &ss)) return;
+  l->wt_reset_stream_id  = ss.stream_id;
+  l->wt_reset_error_code = ss.error_code;
+  l->wt_reset_is_stop    = 1;
+  l->wt_reset_seen       = 1;
+}
+
 /* RFC 9000 19.8: 1 if frame is a client bidi STREAM frame with FIN set,
  * *stream_id_out set to its id — a client-initiated bidi stream (e.g. a
  * WebTransport CONNECT stream, draft-ietf-webtrans-http3-15 SS4.4) ending its
@@ -885,6 +966,7 @@ static int gather_stream_closes(wired_srvloop* l, const u8* payload, usz len) {
   while (quic_framewalk_next(&it, &fr)) {
     if (is_close_shaped(quic_frame_classify(fr.type), fr.type)) seen = 1;
     gather_one_stream_close(l, fr.type, quic_span_of(fr.start, fr.remaining));
+    gather_one_wt_reset(l, fr.type, quic_span_of(fr.start, fr.remaining));
   }
   return seen;
 }

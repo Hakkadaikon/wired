@@ -5,6 +5,7 @@
 #include "app/http3/server/srvinbox/srvinbox.h"
 #include "app/http3/server/srvloop/srvloop.h"
 #include "app/http3/server/srvxdp/srvxdp.h"
+#include "app/webtransport/capsule/wtcapsule/wtcapsule.h"
 #include "app/webtransport/session/session/session.h"
 
 /** @file
@@ -42,6 +43,28 @@ typedef void (*wired_wt_on_datagram)(
 typedef void (*wired_wt_on_stream_data)(
     void* app_ctx, wired_wt_session* s, u64 stream_id, quic_span data, int fin);
 
+/** draft-ietf-webtrans-http3-15 4.4 (WTH3-040): app-facing delivery of a
+ * RESET_STREAM/STOP_SENDING received on one of session s's own WT bidi/uni
+ * streams. "If a RESET_STREAM or STOP_SENDING frame is received with an
+ * error code outside the WT_APPLICATION_ERROR range, then the implementation
+ * should deliver this to the application as a stream reset with no
+ * application error code" -- mapped is 1 when the wire error code fell
+ * inside the WT_APPLICATION_ERROR range (quic_wterrmap_from_http3 accepted
+ * it) and app_error_code is the recovered WebTransport application error
+ * code, or mapped is 0 (app_error_code left at 0, not itself meaningful) for
+ * a wire code outside that range or on a reserved codepoint.
+ * @param app_ctx opaque context registered alongside this callback
+ * @param s the session the stream is associated with
+ * @param stream_id the WT bidi/uni stream id the reset arrived on
+ * @param mapped 1 if app_error_code is a recovered WT application error code
+ * @param app_error_code the recovered code, valid only when mapped is 1 */
+typedef void (*wired_wt_on_stream_reset)(
+    void*             app_ctx,
+    wired_wt_session* s,
+    u64               stream_id,
+    int               mapped,
+    u32               app_error_code);
+
 /** WebTransport subprotocol negotiation (draft-ietf-webtrans-http3-15 SS3.4):
  * app-facing notification that a WebTransport session was established (its
  * 2xx accept response has been built). path and protocol are views into
@@ -53,6 +76,38 @@ typedef void (*wired_wt_on_stream_data)(
  *   sf-string encoding); empty when no subprotocol was negotiated */
 typedef void (*wired_wt_on_session)(
     void* app_ctx, wired_wt_session* s, quic_span path, quic_span protocol);
+
+/** draft-ietf-webtrans-http3-15 SS3.2 (WTH3-016/WTH3-018): the app's verdict
+ * for one Extended CONNECT's :authority/:path, filled in by a registered
+ * wired_wt_resource_check before the session is established.
+ * status == 0 (the caller-zeroed default) means "resource recognized,
+ * proceed to the normal Origin-check/session-establish path" -- a callback
+ * that leaves every field at its zeroed default therefore accepts every
+ * resource, matching the pre-callback behavior. A non-zero status short-
+ * circuits establishment and is sent verbatim instead: 404 for "no
+ * WebTransport server at this :authority/:path" (WTH3-016), or a 3xx to
+ * redirect (WTH3-018), in which case location/location_len name the
+ * Location response header's value (ignored for any other status). */
+typedef struct {
+  u16       status;       /**< 0 = accept; else the status to send instead */
+  const u8* location;     /**< Location header value, only for a 3xx status */
+  usz       location_len; /**< bytes at location */
+} wired_wt_resource_decision;
+
+/** draft-ietf-webtrans-http3-15 SS3.2: app-facing resource lookup for one
+ * Extended CONNECT, called before Origin verification/session establishment.
+ * authority/path are views into per-call scratch, not valid past the call.
+ * out is caller-zeroed before the call (a callback that never touches it
+ * accepts the resource, see wired_wt_resource_decision's own doc).
+ * @param app_ctx opaque context registered alongside this callback
+ * @param authority the Extended CONNECT's :authority value
+ * @param path the Extended CONNECT's :path value
+ * @param out the verdict to fill in */
+typedef void (*wired_wt_resource_check)(
+    void*                       app_ctx,
+    quic_span                   authority,
+    quic_span                   path,
+    wired_wt_resource_decision* out);
 
 /** The application's request responder: the callback and its opaque context,
  * registered on the loop as a pair (wired_srvloop_set_handler takes the same
@@ -181,6 +236,19 @@ typedef struct {
    * quic-interop-runner retry testcase's server mode). 0 (the default) =
    * accept directly, never send Retry. */
   int force_retry;
+  /** draft-ietf-webtrans-http3-15 SS3.2: app-facing :authority/:path
+   * resource lookup, 0 to disable (the default) -- with 0, every recognized
+   * WebTransport Extended CONNECT proceeds straight to Origin verification/
+   * session establishment, exactly the pre-callback behavior (WTH3-016's
+   * 404 and WTH3-018's 3xx are both opt-in through this callback). */
+  wired_wt_resource_check wt_resource_check;
+  void* wt_resource_ctx; /**< opaque ctx passed to wt_resource_check */
+  /** draft-ietf-webtrans-http3-15 4.4 (WTH3-040): app-facing WT stream-reset
+   * delivery, 0 to disable (the default) -- a 0 callback makes a received
+   * RESET_STREAM/STOP_SENDING on a WT bidi/uni stream a no-op consume (the
+   * stream's slot is still torn down, nothing is delivered). */
+  wired_wt_on_stream_reset wt_on_stream_reset;
+  void* wt_stream_reset_ctx; /**< opaque ctx passed to wt_on_stream_reset */
 } wired_srvrun_opt;
 
 /** Same as wired_server_run, plus opt-in polling-driver behavior. `opt` must
@@ -328,6 +396,24 @@ int wired_server_wt_stream_reply(
  *   endpoint's SETTINGS have not been sent yet (RFC 9297 2.1), the ring is
  *   full, or the prefixed payload exceeds a ring slot */
 int wired_server_wt_send_datagram_to(wired_wt_session* s, quic_span payload);
+
+/** draft-ietf-webtrans-http3-15 SS4.2/SS4.4/8.2 (WTH3-067): close s's
+ * WebTransport session: send a WT_CLOSE_SESSION capsule (app_error_code,
+ * message) followed immediately by FIN on the session's own CONNECT stream,
+ * then reset every other WT stream the session owns with WT_SESSION_GONE and
+ * transition the session to closed. Queued (not sent inline) for delivery on
+ * one of the loop's next steps, the same deferred shape as wired_server_wt_
+ * send_datagram_to; a second call before the first drains overwrites the
+ * pending one (last-writer-wins, same policy as this SDK's other single-slot
+ * WT queues). Callable only from inside the server's own loop (a callback).
+ * @param s the session to close
+ * @param app_error_code the WebTransport application error code to report
+ * @param message UTF-8 reason, message.n <= QUIC_WTCAPSULE_CLOSE_MESSAGE_MAX
+ *   (copied at call time, so it need not outlive the call); a longer message
+ *   is truncated to the cap
+ * @return 1 queued, 0 when s resolves to no live connection */
+int wired_server_wt_close_session(
+    wired_wt_session* s, u32 app_error_code, quic_span message);
 
 /** Register the calling thread as srvthreads worker `index` of `n_total`,
  * with its own N-ring inbox row (inbox_row[j] receives broadcasts sent by

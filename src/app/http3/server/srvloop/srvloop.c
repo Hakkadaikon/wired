@@ -123,12 +123,17 @@ int wired_srvloop_init(wired_srvloop* l, const u8* cli_scid, u8 cli_scid_len) {
    * uninitialized local (as tests do) inherits whatever garbage bit pattern
    * was on the stack, e.g. reading streams_blocked_seen_flag as nonzero and
    * spuriously sending an unrequested MAX_STREAMS. */
-  l->streams_blocked_seen_flag = 0;
-  l->path_response_seen_flag   = 0;
-  l->ecn_ect0                  = 0;
-  l->ecn_ect1                  = 0;
-  l->ecn_ce                    = 0;
-  l->priupdate_violation       = 0;
+  l->streams_blocked_seen_flag      = 0;
+  l->path_response_seen_flag        = 0;
+  l->ecn_ect0                       = 0;
+  l->ecn_ect1                       = 0;
+  l->ecn_ce                         = 0;
+  l->priupdate_violation            = 0;
+  l->wt_signal_mid_stream_violation = 0;
+  l->wt_reset_stream_id             = 0;
+  l->wt_reset_error_code            = 0;
+  l->wt_reset_is_stop               = 0;
+  l->wt_reset_seen                  = 0;
   quic_pnspaces_recv_init(&l->ack_recv);
   quic_ackpolicy_init(&l->app_ack_policy);
   quic_ackpolicy_init(&l->hs_ack_policy);
