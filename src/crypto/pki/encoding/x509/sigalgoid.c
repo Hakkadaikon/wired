@@ -3,10 +3,14 @@
 #include "crypto/pki/encoding/asn1/derval.h"
 
 /* RFC 5758 3.2 / RFC 8017 A.2.4 signature OIDs (DER value bytes). */
+static const u8 sao_ecdsa_sha224[] = {0x2a, 0x86, 0x48, 0xce,
+                                      0x3d, 0x04, 0x03, 0x01};
 static const u8 sao_ecdsa_sha256[] = {0x2a, 0x86, 0x48, 0xce,
                                       0x3d, 0x04, 0x03, 0x02};
 static const u8 sao_ecdsa_sha384[] = {0x2a, 0x86, 0x48, 0xce,
                                       0x3d, 0x04, 0x03, 0x03};
+static const u8 sao_ecdsa_sha512[] = {0x2a, 0x86, 0x48, 0xce,
+                                      0x3d, 0x04, 0x03, 0x04};
 static const u8 sao_rsa_sha256[]   = {0x2a, 0x86, 0x48, 0x86, 0xf7,
                                       0x0d, 0x01, 0x01, 0x0b};
 static const u8 sao_rsa_sha384[]   = {0x2a, 0x86, 0x48, 0x86, 0xf7,
@@ -19,12 +23,18 @@ static const struct {
   usz              oid_len;
   quic_x509_sigalg alg;
 } sao_table[] = {
+    {sao_ecdsa_sha224,
+     sizeof(sao_ecdsa_sha224),
+     {QUIC_X509_SIG_ECDSA, QUIC_X509_HASH_SHA224}},
     {sao_ecdsa_sha256,
      sizeof(sao_ecdsa_sha256),
      {QUIC_X509_SIG_ECDSA, QUIC_X509_HASH_SHA256}},
     {sao_ecdsa_sha384,
      sizeof(sao_ecdsa_sha384),
      {QUIC_X509_SIG_ECDSA, QUIC_X509_HASH_SHA384}},
+    {sao_ecdsa_sha512,
+     sizeof(sao_ecdsa_sha512),
+     {QUIC_X509_SIG_ECDSA, QUIC_X509_HASH_SHA512}},
     {sao_rsa_sha256,
      sizeof(sao_rsa_sha256),
      {QUIC_X509_SIG_RSA_PKCS1, QUIC_X509_HASH_SHA256}},

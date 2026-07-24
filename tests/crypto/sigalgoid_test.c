@@ -10,16 +10,20 @@ static int sao_is(const u8* oid, usz n, u8 key, u8 hash) {
 
 /* Every allowlisted OID resolves to its key kind and digest. */
 static void test_sigalgoid_listed(void) {
+  static const u8 ec224[] = {0x2a, 0x86, 0x48, 0xce, 0x3d, 0x04, 0x03, 0x01};
   static const u8 ec256[] = {0x2a, 0x86, 0x48, 0xce, 0x3d, 0x04, 0x03, 0x02};
   static const u8 ec384[] = {0x2a, 0x86, 0x48, 0xce, 0x3d, 0x04, 0x03, 0x03};
+  static const u8 ec512[] = {0x2a, 0x86, 0x48, 0xce, 0x3d, 0x04, 0x03, 0x04};
   static const u8 r256[]  = {0x2a, 0x86, 0x48, 0x86, 0xf7,
                              0x0d, 0x01, 0x01, 0x0b};
   static const u8 r384[]  = {0x2a, 0x86, 0x48, 0x86, 0xf7,
                              0x0d, 0x01, 0x01, 0x0c};
   static const u8 r512[]  = {0x2a, 0x86, 0x48, 0x86, 0xf7,
                              0x0d, 0x01, 0x01, 0x0d};
+  CHECK(sao_is(ec224, 8, QUIC_X509_SIG_ECDSA, QUIC_X509_HASH_SHA224));
   CHECK(sao_is(ec256, 8, QUIC_X509_SIG_ECDSA, QUIC_X509_HASH_SHA256));
   CHECK(sao_is(ec384, 8, QUIC_X509_SIG_ECDSA, QUIC_X509_HASH_SHA384));
+  CHECK(sao_is(ec512, 8, QUIC_X509_SIG_ECDSA, QUIC_X509_HASH_SHA512));
   CHECK(sao_is(r256, 9, QUIC_X509_SIG_RSA_PKCS1, QUIC_X509_HASH_SHA256));
   CHECK(sao_is(r384, 9, QUIC_X509_SIG_RSA_PKCS1, QUIC_X509_HASH_SHA384));
   CHECK(sao_is(r512, 9, QUIC_X509_SIG_RSA_PKCS1, QUIC_X509_HASH_SHA512));
