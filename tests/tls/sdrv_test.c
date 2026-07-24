@@ -4,6 +4,7 @@
 
 #include "app/datagram/datagram/datagram.h"
 #include "common/bytes/util/be.h"
+#include "common/platform/clock/clock.h"
 #include "crypto/pki/encoding/x509/ec_pubkey.h"
 #include "crypto/pki/encoding/x509/spki.h"
 #include "crypto/pki/encoding/x509/x509.h"
@@ -1247,7 +1248,12 @@ typedef struct {
 
 static void sdrv_psk_fixture_init(sdrv_psk_fixture* f) {
   u8          cli_priv[32];
-  quic_ticket t = {{0}, 0, 7200};
+  quic_ticket t = {{0}, 0, 7200, 0};
+  /* RFC 8446 4.2.11.1: issued "now" and the PSK offer's ticket_age claims 0ms
+   * elapsed (set where the offer is built) -- freshness holds trivially so
+   * these fixtures exercise 0-RTT accept/reject on their own axis, not on
+   * ticket age. */
+  t.issued_at = quic_clock_epoch_secs();
   for (usz i = 0; i < 32; i++) {
     f->ticket_key[i] = (u8)(0xc0 + i);
     cli_priv[i]      = (u8)(i + 1);

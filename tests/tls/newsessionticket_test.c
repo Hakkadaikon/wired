@@ -9,7 +9,15 @@ static quic_ticket nst_sample_ticket(void) {
   for (usz i = 0; i < QUIC_TICKET_SECRET_LEN; i++) t.secret[i] = (u8)(i + 1);
   t.issued_at     = 1720000000ULL;
   t.lifetime_secs = 7200;
+  t.age_add       = 0; /* overwritten by quic_tls_new_session_ticket_encode */
   return t;
+}
+
+/* be32 read of the wire ticket_age_add field, right after the handshake
+ * header(4) and ticket_lifetime(4). */
+static u32 nst_wire_age_add(const u8* out) {
+  const u8* p = out + 4 + 4;
+  return (u32)p[0] << 24 | (u32)p[1] << 16 | (u32)p[2] << 8 | p[3];
 }
 
 /* The encoded message starts with the NewSessionTicket handshake type and a
@@ -96,9 +104,28 @@ static void test_nst_roundtrip(void) {
   CHECK(opened.issued_at == t.issued_at);
   for (usz i = 0; i < QUIC_TICKET_SECRET_LEN; i++)
     CHECK(opened.secret[i] == t.secret[i]);
+  /* RFC 8446 4.6.1: the wire ticket_age_add and the value sealed inside the
+   * ticket (recovered here via quic_ticket_open) are the same random draw,
+   * so the server can later reverse obfuscated_ticket_age using only the
+   * opened ticket -- see nst_wire_age_add's doc. */
+  CHECK(opened.age_add == nst_wire_age_add(out));
 
   fill_nst_key(wrong_key, 0x44);
   CHECK(quic_ticket_open(sealed, wrong_key, &opened) == 0);
+}
+
+/* RFC 8446 4.6.1 / 8446-080: ticket_age_add MUST be a fresh random value per
+ * ticket -- two tickets issued back to back must not share it (a collision
+ * is statistically negligible for a 32-bit random draw, so a single mismatch
+ * proves randomness without flaking). */
+static void test_nst_age_add_random(void) {
+  u8          key[QUIC_TICKET_KEY_LEN];
+  quic_ticket t = nst_sample_ticket();
+  u8          out1[256], out2[256];
+  fill_nst_key(key, 0x88);
+  CHECK(quic_tls_new_session_ticket_encode(out1, sizeof out1, &t, key, 0) > 0);
+  CHECK(quic_tls_new_session_ticket_encode(out2, sizeof out2, &t, key, 0) > 0);
+  CHECK(nst_wire_age_add(out1) != nst_wire_age_add(out2));
 }
 
 /* A truncated message (shorter than its own header claims) is rejected. */
@@ -122,4 +149,5 @@ void test_newsessionticket(void) {
   test_nst_parse_truncated();
   test_nst_early_data_ext();
   test_nst_no_early_data_ext();
+  test_nst_age_add_random();
 }
