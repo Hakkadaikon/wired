@@ -60,8 +60,30 @@ static void test_ed25519_sign_test3(void) {
       "c18ff9b538d16f290ae67f760984dc6594a7c15e9716ed28dc027beceea1ec40a");
 }
 
+/* RFC 8032 L, the Ed25519 group order, little-endian 32 bytes (5.1):
+ * L = 2^252 + 27742317777372353535851937790883648493. Cross-checked by hand
+ * against ed25519_sign.c's ORDER_L limb-by-limb (bytes 0-15 match the low
+ * summand's little-endian encoding, byte 31 == 0x10 from the 2^252 term). */
+static const char* ORDER_L_HEX =
+    "edd3f55c1a631258d69cf7a2def9de1400000000000000000000000000000010";
+
+/* RFC 8032 5.1.7 step 3 / verify: S is decoded as a scalar and MUST satisfy
+ * 0 <= S < L; otherwise the signature is rejected outright, before any group
+ * arithmetic. Boundary: S == L is one past the top of the valid range. */
+static void test_ed25519_verify_s_eq_l_rejected(void) {
+  u8 sd[32], pk[32], sig[64];
+  sgn_hexbytes(
+      "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60", sd,
+      32);
+  quic_ed25519_keypair(sd, pk);
+  quic_ed25519_sign(sd, (const u8*)"", 0, sig);
+  sgn_hexbytes(ORDER_L_HEX, sig + 32, 32); /* overwrite S with L itself */
+  CHECK(quic_ed25519_verify(sig, (const u8*)"", 0, pk) == 0);
+}
+
 void test_ed25519_sign(void) {
   test_ed25519_sign_test1();
   test_ed25519_sign_test2();
   test_ed25519_sign_test3();
+  test_ed25519_verify_s_eq_l_rejected();
 }

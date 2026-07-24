@@ -60,9 +60,37 @@ static void test_ecdsa_zero_r(void) {
   CHECK(quic_ecdsa_p256_verify(qx, qy, r, s, h) == 0);
 }
 
+/* Group order n (FIPS 186-4 D.1.2.3 / RFC 6090), big-endian 32 bytes:
+ * ffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551.
+ * Cross-checked against quic_p256_n's little-endian limbs
+ * (f3b9cac2fc632551, bce6faada7179e84, ffffffffffffffff, ffffffff00000000)
+ * by hand: limb i occupies bytes [32-8*(i+1), 32-8*i) big-endian. */
+static const char* P256_N =
+    "ffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551";
+
+/* RFC 6090 / FIPS 186-4 6.4.2: a signature component >= n is out of the
+ * valid range [1, n-1] and MUST be rejected, even with an otherwise-valid
+ * counterpart and hash. */
+static void test_ecdsa_s_ge_n(void) {
+  u8 qx[32], qy[32], r[32], s[32], h[32];
+  load_vec(qx, qy, r, s, h);
+  ecdsa_hb32(P256_N, s); /* s == n, one past the top of the valid range */
+  CHECK(quic_ecdsa_p256_verify(qx, qy, r, s, h) == 0);
+}
+
+/* Same boundary on r: r == n must also reject. */
+static void test_ecdsa_r_ge_n(void) {
+  u8 qx[32], qy[32], r[32], s[32], h[32];
+  load_vec(qx, qy, r, s, h);
+  ecdsa_hb32(P256_N, r);
+  CHECK(quic_ecdsa_p256_verify(qx, qy, r, s, h) == 0);
+}
+
 void test_ecdsa_verify(void) {
   test_ecdsa_valid();
   test_ecdsa_bad_hash();
   test_ecdsa_bad_sig();
   test_ecdsa_zero_r();
+  test_ecdsa_s_ge_n();
+  test_ecdsa_r_ge_n();
 }
