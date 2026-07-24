@@ -28,12 +28,36 @@ static void ps_low_s(p256_fe s) {
   if (quic_fp_lt(ns, s)) quic_fp_set(s, ns);
 }
 
+/* Context threaded through the RFC 6979 candidate callback: the digest and
+ * private key needed to recompute r, s for each candidate k. */
+typedef struct {
+  const u8* hash;
+  const u8* priv;
+} ps_ctx;
+
+/* RFC 6979 Section 3.4 / FIPS 186-4 6.3: a candidate k is suitable only if it
+ * yields both r != 0 and s != 0; otherwise the generation loop must draw a
+ * new k. Recomputes r, s as a side effect so the caller can reuse them. */
+static int ps_k_suitable(const u8 kb[32], void* vctx) {
+  ps_ctx* c = (ps_ctx*)vctx;
+  p256_fe rv, sv, e, eh, d, rd, sum;
+  if (!ps_compute_r(rv, kb)) return 0;
+  quic_fp_from_be(eh, c->hash);
+  quic_fp_reduce(e, eh, quic_p256_n);
+  quic_fp_from_be(d, c->priv);
+  quic_fp_mul(rd, (quic_fpab){rv, d}, quic_p256_n);
+  quic_fp_add(sum, (quic_fpab){e, rd}, quic_p256_n);
+  ps_compute_s(sv, kb, sum);
+  return !quic_fp_is_zero(sv);
+}
+
 int quic_p256sign_sign(
     const u8 priv[32], const u8 hash[32], u8 r[32], u8 s[32]) {
   u8      kb[32];
   p256_fe rv, sv, e, eh, d, rd, sum;
-  quic_p256sign_k(priv, hash, kb);
-  if (!ps_compute_r(rv, kb)) return 0;
+  ps_ctx  ctx = {hash, priv};
+  quic_p256sign_k_retry(priv, hash, kb, ps_k_suitable, &ctx);
+  ps_compute_r(rv, kb);
   quic_fp_from_be(eh, hash);
   quic_fp_reduce(e, eh, quic_p256_n);
   quic_fp_from_be(d, priv);
@@ -41,7 +65,6 @@ int quic_p256sign_sign(
   quic_fp_add(sum, (quic_fpab){e, rd}, quic_p256_n);
   ps_compute_s(sv, kb, sum);
   ps_low_s(sv);
-  if (quic_fp_is_zero(sv)) return 0;
   quic_fp_to_be(r, rv);
   quic_fp_to_be(s, sv);
   return 1;
