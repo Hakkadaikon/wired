@@ -34,19 +34,38 @@ static void put_udp(u8* out, quic_udpports ports, quic_span payload) {
   for (usz i = 0; i < payload.n; i++) out[QUIC_UDP_HDR + i] = payload.p[i];
 }
 
+/* RFC 768 "Fields": a checksum that computes to zero is transmitted as all
+ * ones, because an all-zero field is reserved to mean "no checksum sent". */
+static u16 udp_cksum_field(u16 folded) {
+  return folded == 0 ? 0xffffu : folded;
+}
+
 usz quic_udp4_build(
     quic_obuf* out, const quic_udp4meta* meta, quic_span payload) {
   u16 udp_len = (u16)(QUIC_UDP_HDR + payload.n);
   u32 sum;
+  u16 folded;
   if ((usz)udp_len > out->cap) return 0;
   put_udp(out->p, meta->ports, payload);
-  sum = pseudo_sum(0, meta->addrs, udp_len);
-  put_be16(out->p + 6, quic_cksum_fold(quic_cksum_accum(sum, out->p, udp_len)));
+  sum    = pseudo_sum(0, meta->addrs, udp_len);
+  folded = quic_cksum_fold(quic_cksum_accum(sum, out->p, udp_len));
+  put_be16(out->p + 6, udp_cksum_field(folded));
   out->len = udp_len;
   return udp_len;
 }
 
+/* RFC 768 "Fields": an all-zero checksum field means the sender generated
+ * no checksum, for debugging or a higher-level protocol that doesn't care. */
+static int udp_cksum_absent(const u8* dgram) {
+  return dgram[6] == 0 && dgram[7] == 0;
+}
+
+/* An all-zero checksum field is accepted unverified (see udp_cksum_absent);
+ * otherwise the pseudo-header sum over the datagram must fold to zero. */
 int quic_udp4_check(quic_span dgram, quic_ipv4addrs addrs) {
-  u32 sum = pseudo_sum(0, addrs, (u16)dgram.n);
+  u32 sum;
+  if (dgram.n < QUIC_UDP_HDR) return 0;
+  if (udp_cksum_absent(dgram.p)) return 1;
+  sum = pseudo_sum(0, addrs, (u16)dgram.n);
   return quic_cksum_fold(quic_cksum_accum(sum, dgram.p, dgram.n)) == 0;
 }
