@@ -1,6 +1,7 @@
 #include "transport/conn/loop/connrunner/connrunner.h"
 
 #include "test.h"
+#include "tls/keys/keyupdate/aeadintegrity.h"
 #include "tls/keys/keyupdate/keyphase.h"
 #include "transport/conn/loop/connrunner/keyupdate.h"
 #include "transport/conn/loop/connrunner/level.h"
@@ -10,6 +11,7 @@
 #include "transport/packet/frame/frame/ack.h"
 #include "transport/packet/frame/frame/connctl.h"
 #include "transport/packet/frame/frame/frame.h"
+#include "transport/packet/frame/frame/stream_ctl.h"
 
 /* RFC 9000 17.2 / 17.3: byte0 -> protection level. Long-header Initial and
  * Handshake map to their keyset levels; a short header is 1-RTT; 0-RTT and
@@ -264,6 +266,86 @@ static void test_advance_closes_on_violation(void) {
         quic_connio_recv(&cl, QUIC_LEVEL_ONERTT, quic_mspan_of(r.txbuf, out)) ==
         1);
     CHECK(cl.disp.close == 1);
+  }
+}
+
+/* RFC 9001 6.6: same shape as test_advance_closes_on_violation, but for the
+ * AEAD integrity limit -- quic_connrunner_advance must wire
+ * quic_connio_close_on_aead_limit into its own send path too, not just
+ * close_on_violation, so a server whose auth_fail_count has reached the
+ * AES-GCM limit answers with CONNECTION_CLOSE(AEAD_LIMIT_REACHED) on its very
+ * next advance even with nothing else queued to send. */
+static void test_advance_closes_on_aead_limit(void) {
+  quic_connio     cl;
+  quic_connrunner r;
+  mk_runner(&r, 1); /* server */
+  quic_connio_init_in cin = {0, 0x43, 1u << 20};
+  quic_connio_init(&cl, quic_span_of(g_dcid, 8), &cin);
+  connrunner_arm_onertt(&cl);
+  connrunner_arm_onertt(&r.io);
+  r.io.loop.auth_fail_count = QUIC_AEAD_INTEGRITY_LIMIT_AESGCM - 1;
+
+  u8  frame[1] = {0x01}; /* PING, ack-eliciting */
+  u8  pkt[256];
+  usz pn;
+  {
+    quic_connio_send_in sin = {QUIC_LEVEL_ONERTT, quic_span_of(frame, 1)};
+    quic_obuf           ob  = quic_obuf_of(pkt, sizeof pkt);
+    pn                      = quic_connio_send(&cl, &sin, &ob);
+  }
+  CHECK(pn != 0);
+  pkt[pn - 1] ^= 0xff; /* tamper the AEAD tag so recv fails auth */
+
+  {
+    usz out = quic_connrunner_advance(&r, 0, quic_mspan_of(pkt, pn));
+    CHECK(out != 0); /* a CONNECTION_CLOSE was sealed, not silence */
+    CHECK(r.io.loop.aead_limit == 0); /* the flag fired and was cleared */
+
+    CHECK(
+        quic_connio_recv(&cl, QUIC_LEVEL_ONERTT, quic_mspan_of(r.txbuf, out)) ==
+        1);
+    CHECK(cl.disp.close == 1);
+  }
+}
+
+/* RFC 9000 3.5: same shape as test_advance_closes_on_violation, but for
+ * STOP_SENDING -- quic_connrunner_advance must wire
+ * quic_connio_send_stop_sending_reset into its own send path too, so a
+ * server that received STOP_SENDING answers with the obligated RESET_STREAM
+ * on its very next advance even with nothing else queued to send. */
+static void test_advance_sends_stop_sending_reset(void) {
+  quic_connio     cl;
+  quic_connrunner r;
+  mk_runner(&r, 1); /* server */
+  quic_connio_init_in cin = {0, 0x43, 1u << 20};
+  quic_connio_init(&cl, quic_span_of(g_dcid, 8), &cin);
+  connrunner_arm_onertt(&cl);
+  connrunner_arm_onertt(&r.io);
+
+  quic_stop_sending_frame ssf = {.stream_id = 5, .error_code = 0x77};
+  u8                      frame[16];
+  usz fl = quic_stop_sending_encode(frame, sizeof frame, &ssf);
+  CHECK(fl != 0);
+  u8  pkt[256];
+  usz pn;
+  {
+    quic_connio_send_in sin = {QUIC_LEVEL_ONERTT, quic_span_of(frame, fl)};
+    quic_obuf           ob  = quic_obuf_of(pkt, sizeof pkt);
+    pn                      = quic_connio_send(&cl, &sin, &ob);
+  }
+  CHECK(pn != 0);
+
+  {
+    usz out = quic_connrunner_advance(&r, 0, quic_mspan_of(pkt, pn));
+    CHECK(out != 0); /* a RESET_STREAM was sealed, not silence */
+    CHECK(r.io.disp.stop_sending_owed == 0); /* the flag fired and cleared */
+
+    CHECK(
+        quic_connio_recv(&cl, QUIC_LEVEL_ONERTT, quic_mspan_of(r.txbuf, out)) ==
+        1);
+    CHECK(
+        cl.disp.reset_stream_stream_id == 5 &&
+        cl.disp.reset_stream_error_code == 0x77);
   }
 }
 
@@ -636,6 +718,8 @@ void test_connrunner(void) {
   test_advance_roundtrip();
   test_advance_closed_idle();
   test_advance_closes_on_violation();
+  test_advance_closes_on_aead_limit();
+  test_advance_sends_stop_sending_reset();
   test_sentmeta_inflight_tracking();
   test_sentmeta_loss_feeds_rtx();
   test_connrunner_keyupdate();

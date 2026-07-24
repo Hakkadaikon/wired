@@ -39,6 +39,26 @@ static usz advance_close_on_violation(quic_connrunner* r, usz out) {
   return quic_connio_close_on_violation(&r->io, &ob);
 }
 
+/* RFC 9001 6.6: same pattern as advance_close_on_violation, for the AEAD
+ * integrity limit latched by quic_connio_recv's decrypt-failure path -- only
+ * runs when nothing else was already chosen to send this step. */
+static usz advance_close_on_aead_limit(quic_connrunner* r, usz out) {
+  quic_obuf ob;
+  if (out) return out;
+  ob = quic_obuf_of(r->txbuf, sizeof(r->txbuf));
+  return quic_connio_close_on_aead_limit(&r->io, &ob);
+}
+
+/* RFC 9000 3.5: same pattern as advance_close_on_violation, for the
+ * RESET_STREAM a STOP_SENDING obligates -- only runs when nothing else was
+ * already chosen to send this step. */
+static usz advance_stop_sending_reset(quic_connrunner* r, usz out) {
+  quic_obuf ob;
+  if (out) return out;
+  ob = quic_obuf_of(r->txbuf, sizeof(r->txbuf));
+  return quic_connio_send_stop_sending_reset(&r->io, &ob);
+}
+
 /* RFC 8899: reconcile the outstanding probe against this round's ack/loss
  * results, mirroring quic_connrunner_track_acks/track_loss's own detection. */
 static void advance_pmtu_reconcile(quic_connrunner* r, u64 now) {
@@ -79,6 +99,8 @@ usz quic_connrunner_advance(quic_connrunner* r, u64 now, quic_mspan dgram) {
   quic_evloop_step(&r->loop, now);
   out = quic_connrunner_flush_sends(r, sent_before, kind);
   out = advance_close_on_violation(r, out);
+  out = advance_close_on_aead_limit(r, out);
+  out = advance_stop_sending_reset(r, out);
   {
     quic_connrunner_sent_in sin = {now, kind, out};
     quic_connrunner_track_sent(r, &sin); /* RFC 9002 A.1: in-flight */
