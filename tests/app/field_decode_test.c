@@ -108,9 +108,68 @@ static void test_dynamic_miss(void) {
   CHECK(quic_qdyn_decode_field(&src, &d, &consumed) == 0);
 }
 
+/* RFC 9204 4.5.3 / 3.2.6: a post-Base indexed field line resolves through
+ * quic_qdyn_decode_field alongside the plain-indexed forms. */
+static void test_postbase_field_decode(void) {
+  quic_qpack_dyn   t;
+  u8               fs[2]    = {0x10, 0x00}; /* 0001iiii, post-Base index 0 */
+  usz              consumed = 0;
+  quic_qpack_field d;
+  quic_qpack_field f = fd_field("x-a", "1");
+  quic_qpack_dyn_init(&t, 256);
+  CHECK(quic_qpack_dyn_insert(&t, &f));
+  /* Base=0 (as if the section prefix declared Base before this insert),
+   * post-Base index 0 -> absolute index 0, the entry just inserted. */
+  quic_qdyn_src src = {&t, 0, quic_span_of(fs, 1)};
+  CHECK(quic_qdyn_decode_field(&src, &d, &consumed));
+  CHECK(consumed == 1);
+  CHECK(eq(d.name, "x-a", 3) && eq(d.value, "1", 1));
+}
+
+/* A post-Base index past the live window resolves to no entry. */
+static void test_postbase_field_miss(void) {
+  quic_qpack_dyn   t;
+  u8               fs[2]    = {0x11, 0x00}; /* post-Base index 1 */
+  usz              consumed = 0;
+  quic_qpack_field d;
+  quic_qpack_dyn_init(&t, 256);
+  quic_qdyn_src src = {&t, 0, quic_span_of(fs, 1)};
+  CHECK(quic_qdyn_decode_field(&src, &d, &consumed) == 0);
+}
+
+/* RFC 9204 4.5.5 / 3.2.6: the name-only resolver used by a post-Base name
+ * reference literal (the value comes from the literal, not the table). */
+static void test_postbase_name_resolve(void) {
+  quic_qpack_dyn   t;
+  quic_qpack_field f = fd_field("x-b", "two");
+  quic_span        name;
+  quic_qpack_dyn_init(&t, 256);
+  CHECK(quic_qpack_dyn_insert(&t, &f));
+  {
+    quic_qdyn_src src = {&t, 0, quic_span_of(0, 0)};
+    CHECK(quic_qdyn_resolve_postbase_name(&src, 0, &name));
+    CHECK(eq(name, "x-b", 3));
+  }
+}
+
+/* A post-Base index past the live window resolves to no name. */
+static void test_postbase_name_miss(void) {
+  quic_qpack_dyn t;
+  quic_span      name;
+  quic_qpack_dyn_init(&t, 256);
+  {
+    quic_qdyn_src src = {&t, 0, quic_span_of(0, 0)};
+    CHECK(quic_qdyn_resolve_postbase_name(&src, 0, &name) == 0);
+  }
+}
+
 void test_qpackdyn_field_decode(void) {
   test_dynamic_roundtrip();
   test_static_reference();
   test_non_indexed_reject();
   test_dynamic_miss();
+  test_postbase_field_decode();
+  test_postbase_field_miss();
+  test_postbase_name_resolve();
+  test_postbase_name_miss();
 }

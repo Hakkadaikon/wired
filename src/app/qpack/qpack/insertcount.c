@@ -50,3 +50,10 @@ int quic_qpack_ric_min_ok(u64 ric, int has_dynamic_ref, u64 max_abs_ref) {
   u64 expected = has_dynamic_ref ? max_abs_ref + 1 : 0;
   return ric >= expected;
 }
+
+/* RFC 9204 4.4.3: a zero Increment, or one that would move the Known
+ * Received Count past what the encoder has actually sent, is invalid. */
+int quic_qpack_incr_valid(
+    u64 known_received, u64 increment, u64 total_inserts) {
+  return increment != 0 && known_received + increment <= total_inserts;
+}

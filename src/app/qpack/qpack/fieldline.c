@@ -26,3 +26,23 @@ usz quic_qpack_indexed_decode(quic_span buf, u64* index, int* is_static) {
   *is_static = (buf.p[0] & QPACK_STATIC) ? 1 : 0;
   return quic_qpack_int_decode(buf, 6, index);
 }
+
+/* RFC 9204 4.5.3: the '0001' 4-bit fixed pattern above a 4-bit prefix. */
+#define QPACK_POSTBASE_PATTERN 0x10
+#define QPACK_POSTBASE_MASK 0xf0
+
+usz quic_qpack_indexed_postbase_encode(quic_mspan buf, u64 postbase) {
+  quic_qpack_pfx pfx = {4, QPACK_POSTBASE_PATTERN};
+  return quic_qpack_int_encode(buf, pfx, postbase);
+}
+
+/* RFC 9204 4.5.3: top four bits 0001 mark a post-Base indexed field line. */
+static int is_postbase_indexed(quic_span buf) {
+  return buf.n != 0 &&
+         (buf.p[0] & QPACK_POSTBASE_MASK) == QPACK_POSTBASE_PATTERN;
+}
+
+usz quic_qpack_indexed_postbase_decode(quic_span buf, u64* postbase) {
+  if (!is_postbase_indexed(buf)) return 0;
+  return quic_qpack_int_decode(buf, 4, postbase);
+}

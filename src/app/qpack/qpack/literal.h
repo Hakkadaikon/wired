@@ -39,4 +39,26 @@ usz quic_qpack_literal_name_encode(
 usz quic_qpack_literal_name_decode(
     quic_span buf, int* never, quic_qpack_fieldbuf* out);
 
+/* RFC 9204 4.5.5. Literal Field Line With Post-Base Name Reference: pattern
+ * 0000Niii, N=never-indexed, a 3-bit prefixed post-Base index into the
+ * dynamic table (an entry inserted after the section's Base), then a value
+ * string literal. Always dynamic-table; there is no static-table form. */
+
+/* A post-Base name reference: the post-Base index plus the N flag bit. */
+typedef struct {
+  u64 index;
+  int never; /* N */
+} quic_qpack_postbaseref;
+
+/* Encode a post-Base name-reference field line: *r plus the value. Returns
+ * bytes written, or 0 if it does not fit. */
+usz quic_qpack_literal_postbase_encode(
+    quic_mspan buf, const quic_qpack_postbaseref* r, quic_span value);
+
+/* Decode a post-Base name-reference field line into *r and the value (into
+ * val, length to val->len). Returns bytes consumed, or 0 on a non-matching
+ * pattern, truncation, or value overflow. */
+usz quic_qpack_literal_postbase_decode(
+    quic_span buf, quic_qpack_postbaseref* r, quic_obuf* val);
+
 #endif

@@ -28,4 +28,13 @@ int quic_qpack_ric_decode(u64 encoded, const quic_qpack_ric_ctx* c, u64* ric);
  * caller treats 0 as a connection error of type QPACK_DECOMPRESSION_FAILED. */
 int quic_qpack_ric_min_ok(u64 ric, int has_dynamic_ref, u64 max_abs_ref);
 
+/* RFC 9204 4.4.3. An Insert Count Increment instruction received on the
+ * decoder stream is invalid, and MUST be treated by the encoder as a
+ * connection error of type QPACK_DECODER_STREAM_ERROR, if increment is zero
+ * or if applying it would raise the Known Received Count (Section 2.1.4)
+ * beyond total_inserts, the number of dynamic table insertions and
+ * duplications the encoder has actually sent. Returns 1 if valid, 0 if
+ * invalid. */
+int quic_qpack_incr_valid(u64 known_received, u64 increment, u64 total_inserts);
+
 #endif
