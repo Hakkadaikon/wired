@@ -26,4 +26,30 @@ void quic_sreset_token(
 int quic_sreset_detect(
     const u8* dgram, usz len, const u8 token[QUIC_SRESET_TOKEN]);
 
+/* Smallest packet that can carry a token: 5 bytes of header room (enough to
+ * look like a short header, RFC 9000 10.3) plus the 16-byte token. */
+#define QUIC_SRESET_MIN (5 + QUIC_SRESET_TOKEN)
+
+/* RFC 9000 10.3: the size to send for a stateless reset triggered by a
+ * received packet of `trigger_len` bytes. An endpoint SHOULD NOT send a
+ * reset that is three or more times the size of the triggering packet (to
+ * avoid being used for amplification), and MUST be at least
+ * QUIC_SRESET_MIN bytes to look like a valid short header. */
+usz quic_sreset_size(usz trigger_len);
+
+/* Build a stateless reset packet for `cid` into `out` (capacity `out_cap`).
+ * Size is quic_sreset_size(trigger_len), clamped to out_cap. The leading
+ * bytes are random (via `rand_fill`, e.g. quic_rng_bytes) and the trailing
+ * 16 bytes are the token derived from `key`+`cid`. Writes the packet length
+ * to *out_len. Returns 1 on success, 0 if out_cap is below the minimum. */
+int quic_sreset_build(
+    const u8  key[QUIC_SRESET_KEY],
+    const u8* cid,
+    usz       cid_len,
+    usz       trigger_len,
+    int (*rand_fill)(u8* buf, usz len),
+    u8*  out,
+    usz  out_cap,
+    usz* out_len);
+
 #endif

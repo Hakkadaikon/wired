@@ -11,3 +11,9 @@ u8 quic_spin_set(u8 byte0, int spin) {
   u8 cleared = byte0 & (u8)~QUIC_SPIN_BIT;
   return spin ? (cleared | QUIC_SPIN_BIT) : cleared;
 }
+
+int quic_spin_disabled(u8 rand_byte) { return (rand_byte % 16) == 0; }
+
+int quic_spin_outgoing_ex(int is_server, int peer_spin, int disabled) {
+  return disabled ? 0 : quic_spin_outgoing(is_server, peer_spin);
+}

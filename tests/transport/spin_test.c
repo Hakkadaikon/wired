@@ -26,8 +26,28 @@ static void test_spin_cycle(void) {
   CHECK(client_out == 1 && server_out == 1 && next == 0); /* back to start */
 }
 
+/* quic_spin_outgoing_ex matches quic_spin_outgoing when not disabled, and
+ * always sends 0 when disabled. */
+static void test_spin_outgoing_ex(void) {
+  CHECK(quic_spin_outgoing_ex(1, 0, 0) == quic_spin_outgoing(1, 0));
+  CHECK(quic_spin_outgoing_ex(1, 1, 0) == quic_spin_outgoing(1, 1));
+  CHECK(quic_spin_outgoing_ex(0, 0, 0) == quic_spin_outgoing(0, 0));
+  CHECK(quic_spin_outgoing_ex(1, 1, 1) == 0); /* disabled: always 0 */
+  CHECK(quic_spin_outgoing_ex(0, 1, 1) == 0); /* disabled: always 0 */
+}
+
+/* Exactly 1/16 of the byte value space selects disablement. */
+static void test_spin_disabled_selects_one_in_16(void) {
+  int count = 0;
+  for (int v = 0; v < 256; v++)
+    if (quic_spin_disabled((u8)v)) count++;
+  CHECK(count == 16); /* 256/16 */
+}
+
 void test_spin(void) {
   test_spin_roles();
   test_spin_byte();
   test_spin_cycle();
+  test_spin_outgoing_ex();
+  test_spin_disabled_selects_one_in_16();
 }
