@@ -19,7 +19,7 @@ Interop results (the only tier that proves wire compatibility with an
 independent implementation) are tracked separately: see
 **[Interop Results](../interop.md)**.
 
-**Total: 861/1246 requirements tested (69%), 156 indirect, 229 untested.**
+**Total: 877/1246 requirements tested (70%), 157 indirect, 212 untested.**
 
 ## QUIC core
 
@@ -40,13 +40,13 @@ independent implementation) are tracked separately: see
 | [RFC 9369 — QUIC Version 2](rfc9369.md) | 18/25 | 4 | 3 |
 | [RFC 9308 — Applicability (informational)](rfc9308.md) | 2/4 | 1 | 1 |
 | [RFC 9312 — Manageability (informational)](rfc9312.md) | 2/4 | 1 | 1 |
-| [RFC 8899 — DPLPMTUD](rfc8899.md) | 12/31 | 7 | 12 |
+| [RFC 8899 — DPLPMTUD](rfc8899.md) | 17/31 | 7 | 7 |
 
 ## TLS and PKI
 
 | Spec | Tested | Indirect | Untested |
 |---|---|---|---|
-| [RFC 8446 — TLS 1.3](rfc8446.md) | 70/105 | 18 | 17 |
+| [RFC 8446 — TLS 1.3](rfc8446.md) | 76/105 | 18 | 11 |
 | [RFC 5280 — X.509 / PKI](rfc5280.md) | 28/44 | 6 | 10 |
 | [RFC 5480 — EC public keys in certificates](rfc5480.md) | 13/20 | 1 | 6 |
 | [RFC 5758 — ECDSA / SHA-2 signature OIDs](rfc5758.md) | 6/12 | 1 | 5 |
@@ -80,7 +80,7 @@ independent implementation) are tracked separately: see
 | [RFC 9110 — HTTP semantics](rfc9110.md) | 22/28 | 3 | 3 |
 | [RFC 9204 — QPACK](rfc9204.md) | 31/55 | 12 | 12 |
 | [RFC 7541 — HPACK (reused by QPACK)](rfc7541.md) | 15/16 | 1 | 0 |
-| [RFC 9218 — Extensible priorities](rfc9218.md) | 11/21 | 1 | 9 |
+| [RFC 9218 — Extensible priorities](rfc9218.md) | 13/21 | 2 | 6 |
 
 ## WebTransport
 
@@ -88,7 +88,7 @@ independent implementation) are tracked separately: see
 |---|---|---|---|
 | [draft-ietf-webtrans-http3-15](draft-webtrans-http3.md) | 44/68 | 3 | 21 |
 | [RFC 9220 — Extended CONNECT](rfc9220.md) | 9/11 | 1 | 1 |
-| [RFC 9297 — HTTP Datagrams and Capsules](rfc9297.md) | 8/23 | 2 | 13 |
+| [RFC 9297 — HTTP Datagrams and Capsules](rfc9297.md) | 11/23 | 2 | 10 |
 
 ## IP/UDP foundations
 
