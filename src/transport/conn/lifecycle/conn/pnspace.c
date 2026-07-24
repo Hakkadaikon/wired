@@ -10,3 +10,7 @@ u64 quic_pnspace_next(quic_pnspace* s, quic_pns_space space) {
   s->next[space] += 1; /* strictly monotonic: no reuse, no regress */
   return pn;
 }
+
+int quic_pnspace_exhausted(const quic_pnspace* s, quic_pns_space space) {
+  return s->next[space] > QUIC_PN_LIMIT;
+}

@@ -76,4 +76,20 @@ u64 quic_connio_rx_next(const quic_connio* io, int level);
  * violation was pending or the seal failed (out too small / no 1-RTT key). */
 usz quic_connio_close_on_violation(quic_connio* io, quic_obuf* out);
 
+/* RFC 9001 6.6: if a received packet's AEAD authentication failures have
+ * reached the integrity limit (tracked in loop.auth_fail_count via
+ * quic_connloop_on_auth_fail, one call per failed quic_connio_recv), seal a
+ * transport CONNECTION_CLOSE carrying AEAD_LIMIT_REACHED as a 1-RTT packet
+ * into out and clear the pending flag. Returns the sealed length, or 0 if
+ * the limit was not reached or the seal failed (out too small / no 1-RTT
+ * key). */
+usz quic_connio_close_on_aead_limit(quic_connio* io, quic_obuf* out);
+
+/* RFC 9000 3.5: if the last dispatched frame set disp.stop_sending_owed (a
+ * STOP_SENDING arrived), seal a RESET_STREAM echoing its stream ID and error
+ * code verbatim as a 1-RTT packet into out and clear the flag. final_size is
+ * 0 (the send side has not tracked any bytes as sent on this path). Returns
+ * the sealed length, or 0 if none was owed or the seal failed. */
+usz quic_connio_send_stop_sending_reset(quic_connio* io, quic_obuf* out);
+
 #endif
