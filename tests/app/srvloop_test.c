@@ -3008,6 +3008,33 @@ static void test_srvloop_ack_sent_clears_pending_state(void) {
   CHECK(f.l.app_ack_policy.pending == 0);
 }
 
+/* RFC 9002 7.7: "packets containing only ACK frames SHOULD therefore not be
+ * paced." wired_srvloop carries no pacing state at all (no srtt_ms/
+ * next_send_ms field, unlike srvrun_conn's data-send path), so
+ * wired_srvloop_produce's bare-ACK reply (emit_ack_only, reached here via
+ * got_request=0 post-confirmation) is never gated on one -- proven directly:
+ * a due ACK is produced unconditionally on the very next call. */
+static void test_srvloop_produce_ack_only_ignores_pacing(void) {
+  struct lp_fix f;
+  quic_obuf     ob;
+  u8            out[1024], ping[1] = {0x01}, spkt[1024];
+  usz           slen;
+  ob = (quic_obuf){out, sizeof out, 0};
+  lp_confirm(&f, &ob);
+  slen = client_seal_onertt_pn(&f, 7, ping, 1, spkt, sizeof spkt);
+  ob   = (quic_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  CHECK(f.l.app_ack_policy.pending == 1);       /* the ping owes an ACK */
+  f.l.now_ms += WIRED_SRVLOOP_MAX_ACK_DELAY_MS; /* delay window elapses */
+  {
+    quic_obuf ob2 = {out, sizeof out, 0};
+    int r = wired_srvloop_produce(&(wired_srvloop_conn){&f.l, &f.s}, 0, &ob2);
+    CHECK(r == 1); /* bare-ACK packet produced -- no pacing gate */
+    CHECK(ob2.len > 0);
+  }
+}
+
 /* RFC 9000 19.9: a MAX_DATA frame in a 1-RTT payload latches its value onto
  * max_data_seen -- the connection-level send credit ceiling the caller
  * (srvrun.c) may now raise its own running credit to. */
@@ -3742,6 +3769,7 @@ void test_srvloop(void) {
   test_srvloop_ack_delay_window_boundary();
   test_srvloop_ack_second_eliciting_forces_immediate();
   test_srvloop_ack_sent_clears_pending_state();
+  test_srvloop_produce_ack_only_ignores_pacing();
   test_srvloop_gather_max_data_raises_credit();
   test_srvloop_gather_max_data_keeps_running_high();
   test_srvloop_gather_max_stream_data_raises_credit();
