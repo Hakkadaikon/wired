@@ -3,7 +3,7 @@
 static void test_stats_rtt_get(void) {
   quic_rtt r;
   quic_rtt_init(&r);
-  quic_rtt_sample(&r, 100000, 0);
+  quic_rtt_sample(&r, 100000, 0, 0, 0);
   quic_stats_rtt out;
   quic_stats_rtt_get(&r, &out);
   CHECK(out.smoothed_rtt == r.smoothed_rtt);

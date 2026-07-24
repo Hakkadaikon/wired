@@ -22,6 +22,16 @@ static u64 adjust(const quic_rtt* r, u64 latest, u64 ack_delay) {
   return (latest >= r->min_rtt + ack_delay) ? latest - ack_delay : latest;
 }
 
+/* RFC 9002 5.3: before handshake confirmation the peer's max_ack_delay is
+ * not yet trustworthy, so ack_delay is used unclamped (9002-015). After
+ * confirmation, the lesser of ack_delay and max_ack_delay is used, clamping
+ * an over-large reported delay (9002-016). */
+static u64 clamp_ack_delay(
+    u64 ack_delay, u64 max_ack_delay, int handshake_confirmed) {
+  return handshake_confirmed ? quic_u64_min(ack_delay, max_ack_delay)
+                             : ack_delay;
+}
+
 /* Subsequent samples: EWMA with 1/8 and 1/4 weights (RFC 9002 5.3). */
 static void next_sample(quic_rtt* r, u64 latest, u64 ack_delay) {
   u64 adjusted    = adjust(r, latest, ack_delay);
@@ -31,11 +41,17 @@ static void next_sample(quic_rtt* r, u64 latest, u64 ack_delay) {
   r->smoothed_rtt = (7 * r->smoothed_rtt + adjusted) / 8;
 }
 
-void quic_rtt_sample(quic_rtt* r, u64 latest_rtt, u64 ack_delay) {
+void quic_rtt_sample(
+    quic_rtt* r,
+    u64       latest_rtt,
+    u64       ack_delay,
+    u64       max_ack_delay,
+    int       handshake_confirmed) {
+  u64 clamped = clamp_ack_delay(ack_delay, max_ack_delay, handshake_confirmed);
   if (!r->have_sample)
     first_sample(r, latest_rtt);
   else
-    next_sample(r, latest_rtt, ack_delay);
+    next_sample(r, latest_rtt, clamped);
 }
 
 u64 quic_rtt_pto(const quic_rtt* r, u64 max_ack_delay) {
