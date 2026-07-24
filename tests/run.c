@@ -244,6 +244,7 @@
 #include "transport/io/socket/io/retransmit.c"
 #include "transport/io/socket/io/udp.c"
 #include "tls/keys/keyupdate/aeadlimit.c"
+#include "tls/keys/keyupdate/aeadintegrity.c"
 #include "tls/keys/keyupdate/initiate.c"
 #include "tls/keys/keyupdate/keyphase.c"
 #include "tls/keys/keyupdate/keyupdate.c"
@@ -316,6 +317,7 @@
 #include "transport/conn/pnspace/recvpn/recvpn.c"
 #include "transport/conn/cid/retrytoken/retrytoken.c"
 #include "transport/conn/cid/retrytoken/tokentype.c"
+#include "transport/conn/cid/retrytoken/newtoken.c"
 #include "transport/conn/cid/spin/spin.c"
 #include "transport/conn/cid/sreset/sreset.c"
 #include "transport/stream/data/stream/bidi.c"
@@ -323,6 +325,7 @@
 #include "transport/stream/data/stream/stream_id.c"
 #include "transport/stream/data/stream/stream_limit.c"
 #include "transport/stream/data/stream/stream_role.c"
+#include "transport/stream/data/stream/streamstate.c"
 #include "tls/handshake/core/tls/appkeys.c"
 #include "tls/handshake/core/tls/binder.c"
 #include "tls/handshake/core/tls/cert.c"
@@ -561,6 +564,7 @@
 #include "transport/ackdelay_test.c"
 #include "transport/ackpolicy_test.c"
 #include "tls/aeadlimit_test.c"
+#include "tls/aeadintegrity_test.c"
 #include "transport/antiamp_test.c"
 #include "tls/appkeys_test.c"
 #include "transport/availfilter_test.c"
@@ -672,6 +676,7 @@
 #include "tls/retry_tag_test.c"
 #include "tls/retry_tag_v2_test.c"
 #include "transport/retrytoken_test.c"
+#include "transport/newtoken_test.c"
 #include "transport/rttinit_test.c"
 #include "transport/rttobs_test.c"
 #include "transport/rttsample_test.c"
@@ -687,6 +692,7 @@
 #include "transport/stream_id_test.c"
 #include "transport/stream_limit_test.c"
 #include "transport/stream_role_test.c"
+#include "transport/streamstate_test.c"
 #include "transport/streams_test.c"
 #include "transport/tokentype_test.c"
 #include "tls/tpblob_test.c"
@@ -1036,6 +1042,7 @@ int main(void) {
   test_ackdelay();
   test_ackpolicy();
   test_aeadlimit();
+  test_aeadintegrity();
   test_antiamp();
   test_appkeys();
   test_availfilter();
@@ -1148,6 +1155,7 @@ int main(void) {
   test_retry_tag();
   test_retry_tag_v2();
   test_retrytoken();
+  test_newtoken();
   test_rttinit();
   test_rttobs();
   test_rttsample();
@@ -1163,6 +1171,7 @@ int main(void) {
   test_stream_id();
   test_stream_limit();
   test_stream_role();
+  test_streamstate();
   test_streams();
   test_tokentype();
   test_tpblob();
