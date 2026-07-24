@@ -59,7 +59,18 @@ static void sr_make_confirmed_conn(
    * zeroed here explicitly before any test's own sr_set_req/direct field
    * writes populate the parts it cares about. */
   c->l.req = (wired_h3reqdrive_req){0};
-  c->up    = 1;
+  /* WTH3-009/042: every existing test built through this fixture predates
+   * the client-SETTINGS-ordering gate and never simulates the client's
+   * control stream at all, so default it to "already seen" -- a test that
+   * specifically wants to exercise the gate overrides this back to 0. */
+  c->l.peer_ctrl.settings_seen = 1;
+  /* WTH3-007: every existing test built through this fixture predates the
+   * WT-required-transport-parameter cross-check and never advertises
+   * max_datagram_frame_size in its ClientHello TP, so default it to a
+   * WT-legal nonzero value here -- a test that specifically wants to
+   * exercise the gate overrides this back to 0. */
+  c->s.sdrv.peer_max_datagram_frame_size = 1500;
+  c->up                                  = 1;
   quic_cc_init(&c->cc);
   quic_rtt_init(&c->rtt);
   /* RFC 9000 18.2/19.9: this test drives srvrun_conn directly (not through
@@ -3501,6 +3512,62 @@ static void test_srvrun_wt_connect_establishes_session(void) {
   CHECK(conns[0].resp[0].sess.active == 1); /* the bare 2xx was armed */
 }
 
+/* WTH3-009/042 (draft-ietf-webtrans-http3-15 SS3.1): the server shall not
+ * process any incoming WebTransport request until the client's own SETTINGS
+ * has been received. An otherwise well-formed Extended CONNECT arriving
+ * before that is rejected (no session established) rather than falling
+ * through to the app handler either. */
+static void test_srvrun_wt_connect_before_client_settings_rejected(void) {
+  struct lp_fix  f;
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_conn*   conns = sr_test_conns();
+  quic_obuf      ob;
+  u8             obuf[1024];
+  ob                    = (quic_obuf){obuf, sizeof obuf, 0};
+  g_sr_wt_handler_calls = 0;
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  sr_make_confirmed_conn(&conns[0], &f, &ob);
+  conns[0].l.peer_ctrl.settings_seen = 0; /* client SETTINGS not yet seen */
+  sr_set_req(&conns[0], 1, 1, 4);
+  {
+    srvrun_cfg      cfg = {-1, 0, sr_wt_handler, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                           0,  0, &g_srvrun_env, 0, 0, 0, 0, 0, 0};
+    srvrun_state    st  = {table, conns};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
+    srvrun_start_resp(&ctx, 0);
+  }
+  CHECK(g_sr_wt_handler_calls == 0); /* never falls through to the app either */
+  CHECK(conns[0].wt_active == 0);
+  CHECK(conns[0].resp[0].sess.active == 1); /* a bare status WAS sealed */
+}
+
+/* Same request, but with the client's SETTINGS already observed (the normal
+ * case every other WT test in this file defaults to via
+ * sr_make_confirmed_conn) -- establishes the session as before, proving the
+ * new gate does not regress the ordinary path. */
+static void test_srvrun_wt_connect_after_client_settings_establishes(void) {
+  struct lp_fix  f;
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_conn*   conns = sr_test_conns();
+  quic_obuf      ob;
+  u8             obuf[1024];
+  ob                    = (quic_obuf){obuf, sizeof obuf, 0};
+  g_sr_wt_handler_calls = 0;
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  sr_make_confirmed_conn(&conns[0], &f, &ob);
+  conns[0].l.peer_ctrl.settings_seen = 1; /* client SETTINGS already seen */
+  sr_set_req(&conns[0], 1, 1, 4);
+  {
+    srvrun_cfg      cfg = {-1, 0, sr_wt_handler, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                           0,  0, &g_srvrun_env, 0, 0, 0, 0, 0, 0};
+    srvrun_state    st  = {table, conns};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
+    srvrun_start_resp(&ctx, 0);
+  }
+  CHECK(conns[0].wt_active == 1);
+  CHECK(conns[0].wt.state == WIRED_WT_ESTABLISHED);
+}
+
 /* Chrome (a draft-07-generation implementation) sends
  * :protocol=webtransport -- the token every deployed browser uses -- not
  * draft-15's webtransport-h3. Both tokens must establish a session, or no
@@ -4056,9 +4123,172 @@ static void test_srvrun_connect_stream_reset_closes_wt_session(void) {
   CHECK(conns[0].wt.connect_stream_id == 4);
   conns[0].l.closed_stream_id   = 4; /* the CONNECT stream's own id */
   conns[0].l.closed_stream_seen = 1;
-  srvrun_close_wt_on_stream_close(&conns[0]);
+  {
+    srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0,
+                      0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                      0,  0, 0, 0, 0, 0};
+    srvrun_close_wt_on_stream_close(&cfg, &conns[0]);
+  }
   CHECK(conns[0].wt.state == WIRED_WT_CLOSED);
   CHECK(conns[0].l.closed_stream_seen == 0); /* consumed every step */
+}
+
+/* draft-ietf-webtrans-http3-15 SS4.4/8.2 (WTH3-065): a session's own CONNECT
+ * stream closing must reset every WT bidi stream that session owns with
+ * WT_SESSION_GONE (0x170d7b68), RESET_STREAM_AT + STOP_SENDING, mapped
+ * through quic_wterrmap_to_http3 -- the expected wire value (0x52e4bbe1db93)
+ * is hand-derived: first=0x52e4a40fa8db, n=0x170d7b68 (388605800),
+ * h = first + n + floor(n/0x1e) = first + 388605800 + 12953526 =
+ * 0x52e4bbe1db93. The reset stream's slot is also freed (in_use == 0) so a
+ * later reused stream id is never mistaken for the dead one. */
+static void test_srvrun_connect_stream_reset_resets_owned_wt_bidi_stream(void) {
+  struct lp_fix              f;
+  quic_conntable             table[QUIC_CONNTABLE_CAP];
+  srvrun_conn*               conns = sr_test_conns();
+  quic_obuf                  ob;
+  u8                         obuf[1024];
+  u8                         pkt[256];
+  quic_obuf                  pktb = quic_obuf_of(pkt, sizeof pkt);
+  const u8*                  pl;
+  usz                        pll;
+  quic_reset_stream_at_frame rs;
+  quic_stop_sending_frame    ss;
+  usz                        rn, sn;
+  srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                    0,  0, 0, 0, 0, 0};
+  ob             = (quic_obuf){obuf, sizeof obuf, 0};
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  sr_make_confirmed_conn(&conns[0], &f, &ob);
+  sr_set_req(&conns[0], 1, 1, 4);
+  {
+    srvrun_state    st  = {table, conns};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
+    srvrun_start_resp(&ctx, 0);
+  }
+  /* a WT bidi stream already associated with this (the only) session */
+  conns[0].l.wt_streams[0].in_use          = 1;
+  conns[0].l.wt_streams[0].stream_id       = 8;
+  conns[0].l.wt_streams[0].offered         = 1;
+  conns[0].l.wt_streams[0].wt_session_slot = 0;
+  conns[0].l.closed_stream_id              = 4; /* the CONNECT stream's id */
+  conns[0].l.closed_stream_seen            = 1;
+  srvrun_close_wt_on_stream_close(&cfg, &conns[0]);
+  CHECK(conns[0].wt.state == WIRED_WT_CLOSED);
+  CHECK(conns[0].l.wt_streams[0].in_use == 0); /* the stream slot is freed */
+  CHECK(srvrun_seal_wt_busy_reset(&conns[0], 8, 0x52e4bbe1db93ULL, &pktb) == 1);
+  CHECK(client_open_onertt(&f, pktb.p, pktb.len, &pl, &pll) == 1);
+  rn = quic_reset_stream_at_decode(pl, pll, &rs);
+  CHECK(rn != 0);
+  CHECK(rs.stream_id == 8);
+  CHECK(rs.error_code == 0x52e4bbe1db93ULL);
+  sn = quic_stop_sending_decode(pl + rn, pll - rn, &ss);
+  CHECK(sn != 0);
+  CHECK(ss.stream_id == 8);
+  CHECK(ss.error_code == 0x52e4bbe1db93ULL);
+}
+
+/* Mirrors the bidi test above for a WT uni stream: closing the session it was
+ * offered to resets it with WT_SESSION_GONE and frees its slot too. */
+static void test_srvrun_connect_stream_reset_resets_owned_wt_uni_stream(void) {
+  struct lp_fix  f;
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_conn*   conns = sr_test_conns();
+  quic_obuf      ob;
+  u8             obuf[1024];
+  srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                    0,  0, 0, 0, 0, 0};
+  ob             = (quic_obuf){obuf, sizeof obuf, 0};
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  sr_make_confirmed_conn(&conns[0], &f, &ob);
+  sr_set_req(&conns[0], 1, 1, 4);
+  {
+    srvrun_state    st  = {table, conns};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
+    srvrun_start_resp(&ctx, 0);
+  }
+  conns[0].l.wt_uni_streams[0].in_use          = 1;
+  conns[0].l.wt_uni_streams[0].stream_id       = 10;
+  conns[0].l.wt_uni_streams[0].offered         = 1;
+  conns[0].l.wt_uni_streams[0].wt_session_slot = 0;
+  conns[0].l.closed_stream_id                  = 4;
+  conns[0].l.closed_stream_seen                = 1;
+  srvrun_close_wt_on_stream_close(&cfg, &conns[0]);
+  CHECK(conns[0].wt.state == WIRED_WT_CLOSED);
+  CHECK(conns[0].l.wt_uni_streams[0].in_use == 0);
+}
+
+/* BOUNDARY (multi-session): closing session 0 must reset only the streams
+ * wt_session_slot marks as ITS OWN -- a stream offered to session 1
+ * (wt_session_slot == 1) must survive session 0's close untouched. */
+static void test_srvrun_connect_stream_reset_leaves_other_sessions_streams(
+    void) {
+  struct lp_fix  f;
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_conn*   conns = sr_test_conns();
+  quic_obuf      ob;
+  u8             obuf[1024];
+  srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                    0,  0, 0, 0, 0, 0};
+  ob             = (quic_obuf){obuf, sizeof obuf, 0};
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  sr_make_confirmed_conn(&conns[0], &f, &ob);
+  sr_set_req(&conns[0], 1, 1, 4);
+  {
+    srvrun_state    st  = {table, conns};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
+    srvrun_start_resp(&ctx, 0);
+  }
+  conns[0].resp[0].in_use = 0;
+  sr_set_req(&conns[0], 1, 1, 8);
+  {
+    srvrun_state    st  = {table, conns};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
+    srvrun_start_resp(&ctx, 0);
+  }
+  /* stream 8 belongs to session slot 1 (connect_stream_id 8, wt1) */
+  conns[0].l.wt_streams[0].in_use          = 1;
+  conns[0].l.wt_streams[0].stream_id       = 20;
+  conns[0].l.wt_streams[0].offered         = 1;
+  conns[0].l.wt_streams[0].wt_session_slot = 1;
+  /* close session 0 (CONNECT stream id 4) only */
+  conns[0].l.closed_stream_id   = 4;
+  conns[0].l.closed_stream_seen = 1;
+  srvrun_close_wt_on_stream_close(&cfg, &conns[0]);
+  CHECK(conns[0].wt.state == WIRED_WT_CLOSED);
+  CHECK(conns[0].wt1.state == WIRED_WT_ESTABLISHED); /* untouched */
+  CHECK(conns[0].l.wt_streams[0].in_use == 1); /* session 1's stream survives */
+}
+
+/* REGRESSION: a wt_streams slot that was never offered (wt_session_slot still
+ * -1, its claim-time default) is left untouched by a session close -- only
+ * streams actually associated with a session get reset. */
+static void test_srvrun_connect_stream_reset_leaves_unoffered_stream_untouched(
+    void) {
+  struct lp_fix  f;
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  srvrun_conn*   conns = sr_test_conns();
+  quic_obuf      ob;
+  u8             obuf[1024];
+  srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                    0,  0, 0, 0, 0, 0};
+  ob             = (quic_obuf){obuf, sizeof obuf, 0};
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  sr_make_confirmed_conn(&conns[0], &f, &ob);
+  sr_set_req(&conns[0], 1, 1, 4);
+  {
+    srvrun_state    st  = {table, conns};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
+    srvrun_start_resp(&ctx, 0);
+  }
+  conns[0].l.wt_streams[0].in_use          = 1;
+  conns[0].l.wt_streams[0].stream_id       = 30;
+  conns[0].l.wt_streams[0].offered         = 0; /* never offered yet */
+  conns[0].l.wt_streams[0].wt_session_slot = -1;
+  conns[0].l.closed_stream_id              = 4;
+  conns[0].l.closed_stream_seen            = 1;
+  srvrun_close_wt_on_stream_close(&cfg, &conns[0]);
+  CHECK(conns[0].wt.state == WIRED_WT_CLOSED);
+  CHECK(conns[0].l.wt_streams[0].in_use == 1); /* left alone */
 }
 
 /* BOUNDARY: a close on a DIFFERENT stream id (e.g. a WT bidi/uni data stream,
@@ -4085,7 +4315,12 @@ static void test_srvrun_other_stream_reset_does_not_close_wt_session(void) {
   CHECK(conns[0].wt_active == 1);
   conns[0].l.closed_stream_id   = 8; /* a different (WT bidi) stream id */
   conns[0].l.closed_stream_seen = 1;
-  srvrun_close_wt_on_stream_close(&conns[0]);
+  {
+    srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0,
+                      0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                      0,  0, 0, 0, 0, 0};
+    srvrun_close_wt_on_stream_close(&cfg, &conns[0]);
+  }
   CHECK(conns[0].wt.state == WIRED_WT_ESTABLISHED);
   CHECK(conns[0].wt_active == 1);
   CHECK(conns[0].l.closed_stream_seen == 0); /* still consumed every step */
@@ -4112,7 +4347,12 @@ static void test_srvrun_no_stream_close_leaves_wt_session(void) {
     srvrun_start_resp(&ctx, 0);
   }
   CHECK(conns[0].wt_active == 1);
-  srvrun_close_wt_on_stream_close(&conns[0]);
+  {
+    srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0,
+                      0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                      0,  0, 0, 0, 0, 0};
+    srvrun_close_wt_on_stream_close(&cfg, &conns[0]);
+  }
   CHECK(conns[0].wt.state == WIRED_WT_ESTABLISHED);
   CHECK(conns[0].wt_active == 1);
 }
@@ -4207,6 +4447,10 @@ static void test_srvrun_datagram_rejected_when_peer_unadvertised(void) {
   u8            obuf[1600];
   ob = (quic_obuf){obuf, sizeof obuf, 0};
   sr_make_confirmed_conn(&c, &f, &ob);
+  /* WTH3-007: sr_make_confirmed_conn now defaults this to a WT-legal nonzero
+   * value (see its own doc); this test's whole point is the unadvertised (0)
+   * case, so override it back. */
+  c.s.sdrv.peer_max_datagram_frame_size = 0;
   CHECK(c.s.sdrv.peer_max_datagram_frame_size == 0);
   CHECK(
       srvrun_queue_datagram(
@@ -4311,6 +4555,12 @@ static void sr_dg_handler(void* app_ctx, wired_wt_session* s, quic_span data) {
 static void sr_establish_wt(
     srvrun_conn* conns, quic_conntable* table, u64 sid) {
   quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  /* WTH3-009/042 and WTH3-007: this helper establishes a session directly
+   * (some callers skip sr_make_confirmed_conn's own defaults), so satisfy
+   * both the client-SETTINGS-seen gate and the required-transport-parameter
+   * cross-check here too. */
+  conns[0].l.peer_ctrl.settings_seen           = 1;
+  conns[0].s.sdrv.peer_max_datagram_frame_size = 1500;
   sr_set_req(&conns[0], 1, 1, sid);
   {
     srvrun_cfg      cfg = {-1, 0, 0, 0, 0, 0, 0, 0,
@@ -4421,10 +4671,11 @@ static void test_srvrun_rx_datagram_no_callback_still_drains(void) {
   CHECK(conns[0].l.rx_datagram_n == 0);
 }
 
-/* REGRESSION: a connection with no active WT session (wt_active == 0) --
- * queued datagrams still get drained (queue empties) but the callback is
- * never invoked, mirroring srvrun_offer_wt_slot's existing
- * accepted-and-ignored fallback for a session-less connection. */
+/* REGRESSION (RFC 9297 2 / 9297-002): a connection with no active WT session
+ * (wt_active == 0) -- queued datagrams still get drained (queue empties), the
+ * app callback is never invoked (this SDK has no other HTTP Datagram
+ * semantics to deliver to), and the named request stream is aborted with
+ * H3_DATAGRAM_ERROR rather than the datagram being silently dropped. */
 static void test_srvrun_rx_datagram_no_session_callback_not_invoked(void) {
   srvrun_conn c = {0};
   c.wt_active   = 0;
@@ -4438,10 +4689,61 @@ static void test_srvrun_rx_datagram_no_session_callback_not_invoked(void) {
     srvrun_cfg cfg = {
         -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, sr_dg_handler, 0, 0, 0, 0, &g_srvrun_env,
         0,  0, 0, 0, 0, 0};
+    srvrun_test_reset_send_count();
     srvrun_drain_rx_datagrams(&cfg, &c);
+    CHECK(srvrun_test_send_count() == 0); /* no live keys to seal with yet */
   }
   CHECK(g_srdg_calls == 0);
   CHECK(c.l.rx_datagram_n == 0);
+}
+
+/* RFC 9297 2 (9297-002): the wire-byte proof that an unmapped Quarter Stream
+ * ID aborts its named request stream with H3_DATAGRAM_ERROR (0x33) -- a
+ * RESET_STREAM_AT + STOP_SENDING pair on the request stream id (connect_id,
+ * already *4 by quic_wtwire_qsid_take), NOT a connection close. Uses a
+ * confirmed connection (real 1-RTT keys) so the sealed packet can actually be
+ * opened and decoded, mirroring test_srvrun_wt_bidi_stream_buffer_full_sends_
+ * reset's own direct-seal-and-decode style for the sibling rejection path. */
+static void test_srvrun_rx_datagram_unknown_semantics_aborts_stream(void) {
+  struct lp_fix              f;
+  quic_obuf                  ob;
+  u8                         obuf[1024];
+  u8                         pkt[256];
+  quic_obuf                  pktb = quic_obuf_of(pkt, sizeof pkt);
+  const u8*                  pl;
+  usz                        pll;
+  quic_reset_stream_at_frame rs;
+  quic_stop_sending_frame    ss;
+  usz                        rn, sn;
+  srvrun_conn                c = {0};
+  ob                           = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  /* wt_active left 0 -- no session claims stream id 8 (qsid 2). */
+  c.l.rx_datagrams[0].buf[0] = 0x02; /* qsid=2 -> stream id 8 */
+  c.l.rx_datagrams[0].buf[1] = 0xEE;
+  c.l.rx_datagrams[0].len    = 2;
+  c.l.rx_datagram_n          = 1;
+  g_srdg_calls               = 0;
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, sr_dg_handler, 0, 0, 0, 0, &g_srvrun_env,
+        0,  0, 0, 0, 0, 0};
+    srvrun_test_reset_send_count();
+    srvrun_drain_rx_datagrams(&cfg, &c);
+    CHECK(srvrun_test_send_count() == 1);
+  }
+  CHECK(g_srdg_calls == 0);
+  CHECK(srvrun_seal_wt_busy_reset(&c, 8, QUIC_H3_DATAGRAM_ERROR, &pktb) == 1);
+  CHECK(client_open_onertt(&f, pktb.p, pktb.len, &pl, &pll) == 1);
+  rn = quic_reset_stream_at_decode(pl, pll, &rs);
+  CHECK(rn != 0);
+  CHECK(rs.stream_id == 8);
+  CHECK(rs.error_code == QUIC_H3_DATAGRAM_ERROR);
+  sn = quic_stop_sending_decode(pl + rn, pll - rn, &ss);
+  CHECK(sn != 0);
+  CHECK(ss.stream_id == 8);
+  CHECK(ss.error_code == QUIC_H3_DATAGRAM_ERROR);
+  CHECK(rn + sn == pll);
 }
 
 /* MULTI-SESSION ROUTING (RFC 9297 2.1): with two concurrent WT sessions on
@@ -4556,6 +4858,38 @@ static void test_srvrun_rx_datagram_buffers_before_establish(void) {
   CHECK(c.wt.datagrams[0].in_use == 1);
   CHECK(c.wt.datagrams[0].len == 1);
   CHECK(c.wt.datagrams[0].data[0] == 0x7A);
+}
+
+/* RECEIVE-SIDE CLOSED (RFC 9297 2.1 / 9297-008): "If a datagram is received
+ * after the corresponding stream's receive side is closed, the received
+ * datagrams MUST be silently dropped." A WT session's CONNECT stream closes
+ * both directions at once (session.h's wired_wt_session_close doc), so a
+ * CLOSED session's slot remains routable by qsid (wt_active is never reset
+ * to 0, srvrun_wt_slot_by_connect_id still finds it) but must not buffer the
+ * datagram, must not invoke the app callback, and must not abort/close
+ * anything either -- a silent drop, distinct from both the buffered
+ * (unestablished) and unknown-semantics (unmapped qsid) cases above. */
+static void test_srvrun_rx_datagram_dropped_after_receive_side_closed(void) {
+  srvrun_conn c = {0};
+  wired_wt_session_init(&c.wt, 4);
+  wired_wt_session_establish(&c.wt);
+  CHECK(wired_wt_session_close(&c.wt) == 1); /* established -> closed */
+  c.wt_active                = 1;
+  c.l.rx_datagrams[0].buf[0] = 0x01; /* qsid=1 (4/4), names the closed slot */
+  c.l.rx_datagrams[0].buf[1] = 0x7A;
+  c.l.rx_datagrams[0].len    = 2;
+  c.l.rx_datagram_n          = 1;
+  g_srdg_calls               = 0;
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, sr_dg_handler, 0, 0, 0, 0, &g_srvrun_env,
+        0,  0, 0, 0, 0, 0};
+    srvrun_test_reset_send_count();
+    srvrun_drain_rx_datagrams(&cfg, &c);
+    CHECK(srvrun_test_send_count() == 0); /* silent -- no abort/close sent */
+  }
+  CHECK(g_srdg_calls == 0);
+  CHECK(c.wt.datagrams[0].in_use == 0); /* not buffered either */
 }
 
 /* RFC 9000 10.2.3: srvrun_seal_transport_close builds a correctly-encoded
@@ -5406,7 +5740,12 @@ static void test_srvrun_wt_close_one_session_leaves_others_untouched(void) {
   /* close only session 0's own CONNECT stream (id 4) */
   conns[0].l.closed_stream_id   = 4;
   conns[0].l.closed_stream_seen = 1;
-  srvrun_close_wt_on_stream_close(&conns[0]);
+  {
+    srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0,
+                      0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                      0,  0, 0, 0, 0, 0};
+    srvrun_close_wt_on_stream_close(&cfg, &conns[0]);
+  }
   CHECK(conns[0].wt.state == WIRED_WT_CLOSED);
   CHECK(conns[0].wt1.state == WIRED_WT_ESTABLISHED); /* untouched */
   CHECK(conns[0].wt1.connect_stream_id == 8);        /* untouched */
@@ -5463,7 +5802,12 @@ static void test_srvrun_wt_close_frees_slot_for_new_accept(void) {
   /* close session 0 (CONNECT stream id 4) */
   conns[0].l.closed_stream_id   = 4;
   conns[0].l.closed_stream_seen = 1;
-  srvrun_close_wt_on_stream_close(&conns[0]);
+  {
+    srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0,
+                      0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                      0,  0, 0, 0, 0, 0};
+    srvrun_close_wt_on_stream_close(&cfg, &conns[0]);
+  }
   CHECK(srvrun_wt_free_slot(&conns[0]) == 0); /* slot 0 is free again */
   conns[0].resp[0].in_use = 0;
   sr_set_req(&conns[0], 1, 1, 12); /* a third Extended CONNECT now fits */
@@ -5557,7 +5901,12 @@ static void test_srvrun_wt_connect_stream_close_closes_only_that_session(void) {
   /* close session 1's own CONNECT stream (id 8), not session 0's */
   conns[0].l.closed_stream_id   = 8;
   conns[0].l.closed_stream_seen = 1;
-  srvrun_close_wt_on_stream_close(&conns[0]);
+  {
+    srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0,
+                      0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                      0,  0, 0, 0, 0, 0};
+    srvrun_close_wt_on_stream_close(&cfg, &conns[0]);
+  }
   CHECK(conns[0].wt.state == WIRED_WT_ESTABLISHED); /* untouched */
   CHECK(conns[0].wt1.state == WIRED_WT_CLOSED);
   CHECK(conns[0].l.closed_stream_seen == 0); /* consumed every step */
@@ -5598,12 +5947,22 @@ static void test_srvrun_wt_all_slots_cycle_through_open_and_close(void) {
   /* close slot 1's session (id 8) FIRST, out of open order */
   conns[0].l.closed_stream_id   = 8;
   conns[0].l.closed_stream_seen = 1;
-  srvrun_close_wt_on_stream_close(&conns[0]);
+  {
+    srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0,
+                      0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                      0,  0, 0, 0, 0, 0};
+    srvrun_close_wt_on_stream_close(&cfg, &conns[0]);
+  }
   CHECK(srvrun_wt_free_slot(&conns[0]) == 1); /* exactly slot 1 freed */
   /* now close slot 0's session (id 4) too */
   conns[0].l.closed_stream_id   = 4;
   conns[0].l.closed_stream_seen = 1;
-  srvrun_close_wt_on_stream_close(&conns[0]);
+  {
+    srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0,
+                      0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                      0,  0, 0, 0, 0, 0};
+    srvrun_close_wt_on_stream_close(&cfg, &conns[0]);
+  }
   CHECK(srvrun_wt_free_slot(&conns[0]) == 0); /* both free, first-fit is 0 */
   CHECK(conns[0].wt_active == 0 && conns[0].wt1_active == 0);
 }
@@ -5662,7 +6021,12 @@ static void test_srvrun_wt_reused_slot_has_no_stale_data(void) {
   CHECK(c.wt.streams[0].in_use == 1);
   c.l.closed_stream_id   = 4;
   c.l.closed_stream_seen = 1;
-  srvrun_close_wt_on_stream_close(&c);
+  {
+    srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0,
+                      0,  0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                      0,  0, 0, 0, 0, 0};
+    srvrun_close_wt_on_stream_close(&cfg, &c);
+  }
   CHECK(srvrun_wt_free_slot(&c) == 0); /* slot 0 is free again */
   /* a new session reuses slot 0 with a different CONNECT stream id */
   wired_wt_session_init(&c.wt, 20);
@@ -9566,6 +9930,48 @@ static void test_srvrun_wt_send_datagram_to_requires_settings_sent(void) {
   CHECK(g_srvrun_env.dgring_n == 0);
 }
 
+/* RFC 9297 2 (9297-001): "HTTP Datagrams MUST only be sent with an
+ * association to an HTTP request that explicitly supports them." A
+ * WebTransport session's request only becomes such an association once the
+ * server's own 2xx has been sent (draft-ietf-webtrans-http3-15 SS4.2/SS4.3);
+ * before that, the CONNECT stream has not yet declared itself to support
+ * HTTP Datagrams. sr_wtsend_fixture establishes the session by default, so
+ * this test explicitly resets it to WIRED_WT_UNESTABLISHED to prove the send
+ * is refused rather than queued. */
+static void test_srvrun_wt_send_datagram_to_requires_established(void) {
+  struct lp_fix f;
+  quic_obuf     ob = {0};
+  u8            obuf[1024];
+  srvrun_conn*  c;
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  c  = sr_wtsend_fixture(&f, &ob);
+  wired_wt_session_init(&c->wt, 4); /* back to WIRED_WT_UNESTABLISHED */
+  CHECK(
+      wired_server_wt_send_datagram_to(
+          &c->wt, quic_span_of(sr_dg_payload, sizeof sr_dg_payload)) == 0);
+  CHECK(g_srvrun_env.dgring_n == 0);
+}
+
+/* RFC 9297 2.1 (9297-007): "HTTP/3 Datagrams MUST NOT be sent unless the
+ * corresponding stream's send side is open." Once the session's CONNECT
+ * stream has closed (WIRED_WT_CLOSED -- FIN/RESET either direction, or
+ * WT_CLOSE_SESSION, session.h), the server's own send side of that stream is
+ * no longer open, so a send addressed to it must be refused rather than
+ * queued, the same as the pre-establishment case above. */
+static void test_srvrun_wt_send_datagram_to_requires_send_side_open(void) {
+  struct lp_fix f;
+  quic_obuf     ob = {0};
+  u8            obuf[1024];
+  srvrun_conn*  c;
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  c  = sr_wtsend_fixture(&f, &ob);
+  CHECK(wired_wt_session_close(&c->wt) == 1); /* established -> closed */
+  CHECK(
+      wired_server_wt_send_datagram_to(
+          &c->wt, quic_span_of(sr_dg_payload, sizeof sr_dg_payload)) == 0);
+  CHECK(g_srvrun_env.dgring_n == 0);
+}
+
 /* BURST: 200 datagrams queued back-to-back inside one step all fit the ring
  * and every one of them goes out on the drain -- none dropped, none
  * overwritten (the ring exists exactly so a burst is not last-writer-wins). */
@@ -10061,6 +10467,8 @@ void test_srvrun(void) {
   test_srvrun_wt_uni_stream_buffer_full_sends_reset();
   test_srvrun_normal_request_unaffected_by_wt_branch();
   test_srvrun_wt_connect_establishes_session();
+  test_srvrun_wt_connect_before_client_settings_rejected();
+  test_srvrun_wt_connect_after_client_settings_establishes();
   test_srvrun_wt_connect_webtransport_token();
   test_srvrun_plain_connect_no_protocol_no_wt_session();
   test_srvrun_wt_connect_missing_scheme_no_session();
@@ -10077,6 +10485,10 @@ void test_srvrun(void) {
   test_srvrun_send_app_close_does_not_crash();
   test_srvrun_first_wt_connect_no_reset_stream();
   test_srvrun_connect_stream_reset_closes_wt_session();
+  test_srvrun_connect_stream_reset_resets_owned_wt_bidi_stream();
+  test_srvrun_connect_stream_reset_resets_owned_wt_uni_stream();
+  test_srvrun_connect_stream_reset_leaves_other_sessions_streams();
+  test_srvrun_connect_stream_reset_leaves_unoffered_stream_untouched();
   test_srvrun_other_stream_reset_does_not_close_wt_session();
   test_srvrun_no_stream_close_leaves_wt_session();
   test_srvrun_idle_sweep_closes_wt_session();
@@ -10092,10 +10504,12 @@ void test_srvrun(void) {
   test_srvrun_rx_datagram_multiple_all_delivered();
   test_srvrun_rx_datagram_no_callback_still_drains();
   test_srvrun_rx_datagram_no_session_callback_not_invoked();
+  test_srvrun_rx_datagram_unknown_semantics_aborts_stream();
   test_srvrun_rx_datagram_routes_by_qsid_not_first_active();
   test_srvrun_rx_datagram_short_qsid_closes_conn();
   test_srvrun_rx_datagram_oversized_qsid_closes_conn();
   test_srvrun_rx_datagram_buffers_before_establish();
+  test_srvrun_rx_datagram_dropped_after_receive_side_closed();
   test_srvrun_seal_transport_close_is_transport_level();
   test_srvrun_oversized_datagram_latches_violation_on_step();
   test_srvrun_wt_stream_data_delivered_on_offer();
@@ -10126,6 +10540,8 @@ void test_srvrun(void) {
   test_srvrun_wt_open_five_parallel_streams_unmixed();
   test_srvrun_wt_send_datagram_to_prefixes_qsid();
   test_srvrun_wt_send_datagram_to_requires_settings_sent();
+  test_srvrun_wt_send_datagram_to_requires_established();
+  test_srvrun_wt_send_datagram_to_requires_send_side_open();
   test_srvrun_wt_datagram_ring_drains_200_queued();
   test_srvrun_wt_datagram_ring_full_rejects_then_recovers();
   test_srvrun_wt_max_stream_data_wire_shape();

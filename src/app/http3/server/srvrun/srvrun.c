@@ -1126,7 +1126,8 @@ static void srvrun_offer_wt_slot(
     slot->in_use = 0;
     return;
   }
-  slot->offered = 1;
+  slot->offered         = 1;
+  slot->wt_session_slot = sidx;
 }
 
 /* A reassembled-but-not-yet-associated slot: in_use (claimed by a WT-bidi
@@ -1295,35 +1296,80 @@ static int wt_session_delivers_directly(const wired_wt_session* s) {
   return s->state != WIRED_WT_UNESTABLISHED;
 }
 
+/* RFC 9297 2.1 (9297-007): "HTTP/3 Datagrams MUST NOT be sent unless the
+ * corresponding stream's send side is open." A WT session's CONNECT stream
+ * (its identity, session.h) has the server's send side open exactly while
+ * the session is ESTABLISHED or DRAINING -- not yet (UNESTABLISHED, no 2xx
+ * sent, also 9297-001's own gate) and not anymore (CLOSED: the CONNECT
+ * stream itself closed, session.h's wired_wt_session_close doc). */
+static int wt_session_send_side_open(const wired_wt_session* s) {
+  return s->state == WIRED_WT_ESTABLISHED || s->state == WIRED_WT_DRAINING;
+}
+
 /* RFC 9221 5 / draft-ietf-webtrans-http3-15 SS4 (Phase 7b Slice 2): route one
  * queued received DATAGRAM's post-prefix bytes to the session whose OWN
  * connect_stream_id equals connect_id (srvrun_wt_slot_by_connect_id) rather
  * than to whichever session happens to be active most recently -- with
  * SRVRUN_MAX_WT_SESSIONS > 1 concurrent sessions, the two are not the same
- * slot. A connect_id with no matching active session is a foreign/stale
- * reference and is silently dropped, mirroring srvrun_offer_wt_slot's own
- * no-active-session fallback. Still calls offer_datagram unconditionally so
- * the session's own state (buffered-vs-associated) stays consistent
- * regardless of whether an app callback is registered; the callback itself
- * only fires when wt_session_delivers_directly says the datagram was
- * associated, not merely buffered (9297-009). Split out of srvrun_deliver_rx_
- * datagram so its own branch count stays at the CCN gate. */
+ * slot. Still calls offer_datagram unconditionally so the session's own state
+ * (buffered-vs-associated) stays consistent regardless of whether an app
+ * callback is registered; the callback itself only fires when wt_session_
+ * delivers_directly says the datagram was associated, not merely buffered
+ * (9297-009). Split out of srvrun_deliver_rx_datagram so its own branch count
+ * stays at the CCN gate. */
 static int srvrun_dg_should_deliver(
     const srvrun_cfg* cfg, const wired_wt_session* s) {
   return wt_session_delivers_directly(s) && cfg->wt_on_datagram != 0;
+}
+
+/* RFC 9297 2 (9297-002): "If an HTTP Datagram is received and it is
+ * associated with a request that has no known semantics for HTTP Datagrams,
+ * the receiver MUST terminate the request. If HTTP/3 is in use, the request
+ * stream MUST be aborted with H3_DATAGRAM_ERROR (0x33)." A connect_id with no
+ * matching active WT session slot names exactly such a request -- this SDK's
+ * only HTTP Datagram semantics are WebTransport's, so a Quarter Stream ID
+ * that does not resolve to a live WebTransport session is a request this
+ * server never assigned any HTTP Datagram meaning to. connect_id doubles as
+ * the request stream id (quic_wtwire_qsid_take already multiplies the parsed
+ * quarter back by 4), so it is aborted directly with the same RESET_STREAM_AT
+ * + STOP_SENDING pair srvrun_reject_wt_slot uses for a different rejection
+ * reason. */
+static void srvrun_abort_unknown_dg_request(
+    const srvrun_cfg* cfg, srvrun_conn* c, u64 connect_id) {
+  srvrun_send_wt_busy_reset(cfg, c, connect_id, QUIC_H3_DATAGRAM_ERROR);
+}
+
+/* RFC 9297 2.1 (9297-008): "If a datagram is received after the
+ * corresponding stream's receive side is closed, the received datagrams MUST
+ * be silently dropped." A WT session's CONNECT stream closes both directions
+ * at once (session.h's wired_wt_session_close doc), so WIRED_WT_CLOSED is
+ * exactly "receive side closed" here. */
+static int wt_session_receive_side_closed(const wired_wt_session* s) {
+  return s->state == WIRED_WT_CLOSED;
+}
+
+/* The known-session half of srvrun_route_rx_datagram, split out so the
+ * dispatcher itself stays at the CCN gate: s is a session a live slot
+ * resolved to (never NULL), already past the unknown-semantics and
+ * receive-side-closed checks. */
+static void srvrun_deliver_to_known_session(
+    const srvrun_cfg* cfg, wired_wt_session* s, quic_span data) {
+  int deliver = srvrun_dg_should_deliver(cfg, s);
+  wired_wt_session_offer_datagram(s, data);
+  if (deliver) cfg->wt_on_datagram(cfg->wt_datagram_ctx, s, data);
 }
 
 static void srvrun_route_rx_datagram(
     const srvrun_cfg* cfg, srvrun_conn* c, u64 connect_id, quic_span data) {
   int               sidx = srvrun_wt_slot_by_connect_id(c, connect_id);
   wired_wt_session* s;
-  if (sidx < 0) return;
-  s = srvrun_wt_slot(c, sidx);
-  {
-    int deliver = srvrun_dg_should_deliver(cfg, s);
-    wired_wt_session_offer_datagram(s, data);
-    if (deliver) cfg->wt_on_datagram(cfg->wt_datagram_ctx, s, data);
+  if (sidx < 0) {
+    srvrun_abort_unknown_dg_request(cfg, c, connect_id);
+    return;
   }
+  s = srvrun_wt_slot(c, sidx);
+  if (wt_session_receive_side_closed(s)) return;
+  srvrun_deliver_to_known_session(cfg, s, data);
 }
 
 /* RFC 9297 2.1: the payload is prefixed with varint(quarter stream id) --
@@ -1375,7 +1421,8 @@ static void srvrun_offer_wt_uni_slot(
     slot->in_use = 0;
     return;
   }
-  slot->offered = 1;
+  slot->offered         = 1;
+  slot->wt_session_slot = sidx;
 }
 
 /* A reassembled-but-not-yet-associated uni slot, mirroring wt_slot_needs_offer
@@ -1736,10 +1783,63 @@ static int wt_connect_stream_slot(const srvrun_conn* c) {
   return srvrun_wt_slot_by_connect_id(c, c->l.closed_stream_id);
 }
 
-static void srvrun_close_wt_on_stream_close(srvrun_conn* c) {
+/* draft-ietf-webtrans-http3-15 8.2: WT_SESSION_GONE, mapped through the
+ * HTTP/3-level error-code range (errmap.h), the application error code every
+ * stream a closing session still owns is reset/stopped with below. */
+static u64 srvrun_wt_session_gone_code(void) {
+  return quic_wterrmap_to_http3(QUIC_WTERR_SESSION_GONE);
+}
+
+/* draft-ietf-webtrans-http3-15 SS4.4: reset one still-`in_use` WT bidi stream
+ * that session_slot owned with WT_SESSION_GONE (RESET_STREAM_AT + STOP_
+ * SENDING, srvrun_send_wt_busy_reset -- same pair shape draft-ietf-webtrans-
+ * http3-15 8.2 uses for every other WT stream-level error this SDK sends)
+ * and free its slot, so a session's teardown never leaves its own streams
+ * readable/writable past the session's own lifetime. A no-op for a stream
+ * this session never owned (wt_session_slot mismatch) or one already free. */
+static void srvrun_reset_wt_bidi_if_owned(
+    const srvrun_cfg*             cfg,
+    srvrun_conn*                  c,
+    wired_srvloop_wt_stream_slot* slot,
+    int                           session_slot) {
+  if (!slot->in_use || slot->wt_session_slot != session_slot) return;
+  srvrun_send_wt_busy_reset(
+      cfg, c, slot->stream_id, srvrun_wt_session_gone_code());
+  slot->in_use = 0;
+}
+
+/* Same as srvrun_reset_wt_bidi_if_owned, for one WT uni stream slot. */
+static void srvrun_reset_wt_uni_if_owned(
+    const srvrun_cfg*                 cfg,
+    srvrun_conn*                      c,
+    wired_srvloop_wt_uni_stream_slot* slot,
+    int                               session_slot) {
+  if (!slot->in_use || slot->wt_session_slot != session_slot) return;
+  srvrun_send_wt_busy_reset(
+      cfg, c, slot->stream_id, srvrun_wt_session_gone_code());
+  slot->in_use = 0;
+}
+
+/* draft-ietf-webtrans-http3-15 SS4.4/8.2: a session closing must not leave
+ * any of ITS OWN WT bidi/uni streams open -- reset every one with
+ * WT_SESSION_GONE. wt_session_slot (set at offer time, srvrun_offer_wt_slot/
+ * _uni_slot) is what tells these apart from a sibling session's own streams
+ * when SRVRUN_MAX_WT_SESSIONS > 1 sessions are open at once on the same
+ * connection. */
+static void srvrun_reset_wt_streams_for_session(
+    const srvrun_cfg* cfg, srvrun_conn* c, int session_slot) {
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_STREAMS; i++)
+    srvrun_reset_wt_bidi_if_owned(cfg, c, &c->l.wt_streams[i], session_slot);
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_UNI_STREAMS; i++)
+    srvrun_reset_wt_uni_if_owned(cfg, c, &c->l.wt_uni_streams[i], session_slot);
+}
+
+static void srvrun_close_wt_on_stream_close(
+    const srvrun_cfg* cfg, srvrun_conn* c) {
   int sidx = wt_connect_stream_slot(c);
   if (sidx >= 0) {
     wired_wt_session_close(srvrun_wt_slot(c, sidx));
+    srvrun_reset_wt_streams_for_session(cfg, c, sidx);
     /* Closing frees the slot -- a later Extended CONNECT may reuse it
      * (srvrun_wt_free_slot's own check is the active flag, not session state,
      * since WIRED_WT_UNESTABLISHED's enum value 0 is indistinguishable from
@@ -1799,7 +1899,7 @@ static void srvrun_on_step(
   srvrun_offer_wt_uni_streams(ctx->cfg, c);
   srvrun_grant_wt_credit(ctx->cfg, c);
   srvrun_drain_rx_datagrams(ctx->cfg, c);
-  srvrun_close_wt_on_stream_close(c);
+  srvrun_close_wt_on_stream_close(ctx->cfg, c);
   if (c->l.datagram_violation) {
     srvrun_close_on_datagram_violation(ctx->cfg, c);
     return;
@@ -2255,9 +2355,16 @@ int wired_server_wt_stream_reply(
 }
 
 /* slot names a live connection whose own SETTINGS have been sent (RFC 9297
- * 2.1's ordering rule, same gate as srvrun_queue_datagram). */
-static int srvrun_dgring_target_ok(const wired_srvrun_env* env, int slot) {
-  return slot >= 0 && env->conns[slot].l.h3.settings_sent;
+ * 2.1's ordering rule, same gate as srvrun_queue_datagram), AND s is a
+ * session whose corresponding stream currently has its send side open
+ * (wt_session_send_side_open, RFC 9297 2.1 / 9297-007) -- ESTABLISHED or
+ * DRAINING only, which also satisfies 9297-001's "explicitly supports HTTP
+ * Datagrams" requirement (draft-ietf-webtrans-http3-15 SS4.2/SS4.3 makes that
+ * association explicit at the server's own 2xx). */
+static int srvrun_dgring_target_ok(
+    const wired_srvrun_env* env, int slot, const wired_wt_session* s) {
+  return slot >= 0 && env->conns[slot].l.h3.settings_sent &&
+         wt_session_send_side_open(s);
 }
 
 /* The next free ring entry (FIFO tail), or 0 when the ring is full. */
@@ -2292,7 +2399,7 @@ int wired_server_wt_send_datagram_to(wired_wt_session* s, quic_span payload) {
   wired_srvrun_env* env;
   int               slot;
   srvrun_session_conn_env(s, &env, &slot);
-  if (!srvrun_dgring_target_ok(env, slot)) return 0;
+  if (!srvrun_dgring_target_ok(env, slot, s)) return 0;
   return srvrun_dgring_push(env, slot, s->connect_stream_id, payload);
 }
 
@@ -3226,6 +3333,47 @@ static void srvrun_dispatch_wt(
   srvrun_dispatch_wt_free_slot(cfg, c, slot, r);
 }
 
+/* draft-ietf-webtrans-http3-15 SS3.1 (WTH3-009/042): "for draft versions of
+ * WebTransport, the server shall not process any incoming WebTransport
+ * requests until the client's SETTINGS have been received." c->l.peer_ctrl
+ * (priority_ctrl.c's ctrl_note_generic) latches settings_seen the moment the
+ * client's control-stream SETTINGS frame is actually walked -- 0 here means
+ * either no control stream has been reassembled yet, or one has but its
+ * SETTINGS has not yet arrived. */
+static int srvrun_wt_settings_ready(const srvrun_conn* c) {
+  return c->l.peer_ctrl.settings_seen != 0;
+}
+
+/* draft-ietf-webtrans-http3-15 SS3.1 (WTH3-007): "If the server receives ...
+ * transport parameters that do not have correct values for every required
+ * WebTransport ... parameter, then the server shall treat ... newly incoming
+ * WebTransport sessions as malformed." RFC 9297 2.1.1 requires a peer that
+ * wants HTTP Datagrams (which every WebTransport session rides on, SS4.5) to
+ * advertise a non-zero max_datagram_frame_size transport parameter (0 is
+ * this repo's existing "not advertised" sentinel, c->s.sdrv's own doc) -- a
+ * WT CONNECT from a peer that never advertised it is exactly this "incorrect
+ * value for a required parameter" case, so newly incoming sessions are
+ * rejected rather than established malformed. */
+static int srvrun_wt_tp_ok(const srvrun_conn* c) {
+  return c->s.sdrv.peer_max_datagram_frame_size != 0;
+}
+
+/* srvrun_dispatch_wt gated on the client's own SETTINGS having arrived first
+ * (WTH3-009/042) and its transport parameters carrying every value
+ * WebTransport requires (WTH3-007) -- split out so srvrun_dispatch_resp's
+ * own dispatch decision stays a single branch (CCN). A CONNECT failing
+ * either gate is rejected the same way a malformed Origin is (403), since
+ * draft-ietf-webtrans-http3-15 does not name a specific status for either
+ * case. */
+static void srvrun_dispatch_wt_gated(
+    const srvrun_cfg* cfg, srvrun_conn* c, int slot, srvrun_resp* r) {
+  if (!srvrun_wt_settings_ready(c) || !srvrun_wt_tp_ok(c)) {
+    srvrun_reject_wt(cfg->env, slot, c, r);
+    return;
+  }
+  srvrun_dispatch_wt(cfg, c, slot, r);
+}
+
 /* RFC 9110 9.1 (9110-017/9110-018): the status this request's method earns
  * before it ever reaches the application handler -- 0 once it passes both
  * gates, 501 for a method this server does not even recognize, 405 for one
@@ -3275,7 +3423,7 @@ static void srvrun_dispatch_resp(
     const srvrun_step_ctx* ctx, srvrun_conn* c, int slot, srvrun_resp* r) {
   u16 method_status;
   if (srvrun_is_wt_connect(&c->l.req)) {
-    srvrun_dispatch_wt(ctx->cfg, c, slot, r);
+    srvrun_dispatch_wt_gated(ctx->cfg, c, slot, r);
     return;
   }
   method_status = srvrun_method_status(&c->l.req);

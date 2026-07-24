@@ -152,9 +152,76 @@ static void test_srvloop_priupdate_bad_id_error(void) {
   }
 }
 
+/* Encode {0x00 control-type varint}{SETTINGS frame} into out; returns the
+ * combined length (RFC 9114 6.2.1/7.2.4). Mirrors priupdate_ctrl_payload's
+ * shape for the other control-stream frame this file's gather now tracks
+ * (WTH3-009/042). */
+static usz settings_ctrl_payload(u8* out, usz cap) {
+  u8        sf[8];
+  quic_obuf sob = quic_obuf_of(sf, sizeof sf);
+  usz       i;
+  if (cap < 1) return 0;
+  if (!quic_h3_frame_put(
+          &sob, QUIC_H3_FRAME_SETTINGS, quic_span_of((const u8*)"", 0)))
+    return 0;
+  if (cap < 1 + sob.len) return 0;
+  out[0] = 0x00;
+  for (i = 0; i < sob.len; i++) out[1 + i] = sf[i];
+  return 1 + sob.len;
+}
+
+/* draft-ietf-webtrans-http3-15 SS3.1 (WTH3-009/042): the client's SETTINGS
+ * frame, walked off its own control stream, latches
+ * l.peer_ctrl.settings_seen -- the signal srvrun.c's WebTransport dispatch
+ * gates newly incoming CONNECTs on. */
+static void test_srvloop_ctrl_settings_latches_peer_ctrl(void) {
+  wired_srvloop l;
+  u8            payload[16], frame[32];
+  usz           plen, flen;
+
+  CHECK(wired_srvloop_init(
+      &l, g_priupdate_cli_scid, sizeof g_priupdate_cli_scid));
+  CHECK(l.peer_ctrl.settings_seen == 0);
+
+  plen = settings_ctrl_payload(payload, sizeof payload);
+  CHECK(plen > 0);
+  flen = priupdate_stream_frame(
+      frame, sizeof frame, CTRL_STREAM_ID, 0, payload, plen, 0);
+  CHECK(flen > 0);
+  priupdate_dispatch(&l, frame, flen);
+
+  CHECK(l.peer_ctrl.settings_seen == 1);
+  CHECK(l.peer_ctrl.error == QUIC_H3_ERR_NONE);
+}
+
+/* RFC 9114 7.2.4: a control stream whose first frame is something other than
+ * SETTINGS (here, a PRIORITY_UPDATE) latches MISSING_SETTINGS and never sets
+ * settings_seen -- the ordering violation is distinguishable from "SETTINGS
+ * simply has not arrived yet". */
+static void test_srvloop_ctrl_first_frame_not_settings_missing(void) {
+  wired_srvloop l;
+  u8            payload[64], frame[96];
+  usz           plen, flen;
+
+  CHECK(wired_srvloop_init(
+      &l, g_priupdate_cli_scid, sizeof g_priupdate_cli_scid));
+
+  plen = priupdate_ctrl_payload(payload, sizeof payload, 4, 0, "u=1", 3);
+  CHECK(plen > 0);
+  flen = priupdate_stream_frame(
+      frame, sizeof frame, CTRL_STREAM_ID, 0, payload, plen, 0);
+  CHECK(flen > 0);
+  priupdate_dispatch(&l, frame, flen);
+
+  CHECK(l.peer_ctrl.settings_seen == 0);
+  CHECK(l.peer_ctrl.error == QUIC_H3_ERR_MISSING_SETTINGS);
+}
+
 void test_srvloop_priupdate(void) {
   test_srvloop_priupdate_applies_to_open_stream();
   test_srvloop_priupdate_buffers_for_unopened_stream();
   test_srvloop_priupdate_on_request_stream_unexpected();
   test_srvloop_priupdate_bad_id_error();
+  test_srvloop_ctrl_settings_latches_peer_ctrl();
+  test_srvloop_ctrl_first_frame_not_settings_missing();
 }
