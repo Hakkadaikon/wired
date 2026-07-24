@@ -85,11 +85,8 @@ static void pending_priority_reset(wired_srvloop* l) {
 
 int wired_srvloop_init(wired_srvloop* l, const u8* cli_scid, u8 cli_scid_len) {
   if (cli_scid_len > 20) return 0;
-  l->h3.settings_sent = 0;
-  l->h3.peer_control  = 0;
-  l->h3.peer_settings = 0;
-  l->h3.request_seen  = 0;
-  l->cli_scid_len     = cli_scid_len;
+  wired_h3srv_state_init(&l->h3, 0);
+  l->cli_scid_len = cli_scid_len;
   for (usz i = 0; i < cli_scid_len; i++) l->cli_scid[i] = cli_scid[i];
   l->tx_pn                      = 0;
   l->hs_tx_pn                   = 0;
