@@ -19,7 +19,7 @@ Interop results (the only tier that proves wire compatibility with an
 independent implementation) are tracked separately: see
 **[Interop Results](../interop.md)**.
 
-**Total: 987/1230 requirements tested (80%), 230 indirect, 13 untested.**
+**Total: 989/1230 requirements tested (80%), 228 indirect, 13 untested.**
 
 ## QUIC core
 
@@ -51,7 +51,7 @@ independent implementation) are tracked separately: see
 | [RFC 5480 — EC public keys in certificates](rfc5480.md) | 18/20 | 2 | 0 |
 | [RFC 5758 — ECDSA / SHA-2 signature OIDs](rfc5758.md) | 8/12 | 2 | 2 |
 | [RFC 8410 — Ed25519/X25519 algorithm identifiers](rfc8410.md) | 14/16 | 2 | 0 |
-| [RFC 6066 — TLS extensions (SNI)](rfc6066.md) | 9/13 | 4 | 0 |
+| [RFC 6066 — TLS extensions (SNI)](rfc6066.md) | 11/13 | 2 | 0 |
 | [RFC 6125 — Service identity verification](rfc6125.md) | 9/11 | 2 | 0 |
 | [RFC 7301 — ALPN](rfc7301.md) | 13/14 | 1 | 0 |
 | [RFC 8017 — PKCS #1 (RSA)](rfc8017.md) | 19/22 | 3 | 0 |
