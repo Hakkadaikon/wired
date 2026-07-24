@@ -40,11 +40,14 @@ void quic_tlsdriver_set_sni(quic_tlsdriver* d, const u8* sni, usz sni_len) {
 
 usz quic_tlsdriver_raw_client_hello(quic_tlsdriver* d, u8* out, usz cap) {
   static const u8 random[32] = {0};
-  static const u8 tp[1]      = {0};
+  /* RFC 9000 18: an empty transport parameters TLV sequence (0 bytes) is a
+   * well-formed "no parameters advertised" -- unlike a stray 1-byte payload,
+   * which reads as a malformed single-byte id varint to any TLV-sequence
+   * walk (e.g. the RFC 9000 7.4 duplicate-id scan a real server runs). */
   return quic_tls_client_hello(
       &(quic_clienthello_in){
           random, d->my_pub, quic_span_of(d->sni, d->sni_len),
-          quic_span_of(tp, sizeof(tp))},
+          quic_span_of(0, 0)},
       &(quic_obuf){out, cap, 0});
 }
 

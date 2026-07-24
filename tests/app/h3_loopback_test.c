@@ -61,8 +61,7 @@ struct lb_fix {
 };
 
 static void lb_make_client_hello(struct lb_fix* f) {
-  static const u8 tp[1] = {0};
-  u8              cli_pub[32];
+  u8 cli_pub[32];
   for (usz i = 0; i < 32; i++) {
     f->cli_priv[i]   = (u8)(i + 1);
     f->srv_random[i] = (u8)(0xa0 + i);
@@ -70,8 +69,7 @@ static void lb_make_client_hello(struct lb_fix* f) {
   quic_x25519_base(cli_pub, f->cli_priv);
   f->ch_len = quic_tls_client_hello(
       &(quic_clienthello_in){
-          f->srv_random, cli_pub, quic_span_of(0, 0),
-          quic_span_of(tp, sizeof(tp))},
+          f->srv_random, cli_pub, quic_span_of(0, 0), quic_span_of(0, 0)},
       &(quic_obuf){f->ch, sizeof(f->ch), 0});
 }
 
@@ -1014,12 +1012,12 @@ static void test_srvboot_refusal_closes_unservable(void) {
 
 /* Strip the trailing quic_transport_parameters extension (RFC 9001 8.2, type
  * 0x0039) off a ClientHello built by sb_build_raw_ch: quic_tlsdriver_raw_
- * client_hello always offers a fixed 1-byte TP payload (tlsdriver.c's own
- * static tp[1]), and append_exts (clienthello.c) always appends it last, so
- * its whole TLV (header(4)+1 = 5 bytes) is always the final 5 bytes of ch --
- * same shape as sdrv_test.c's sdrv_test_strip_tp_ext, ported here since that
- * helper is file-static to sdrv_test.c. */
-#define SDRV_H3_TP_BODY_LEN 1
+ * client_hello always offers an empty TP payload (tlsdriver.c), and
+ * append_exts (clienthello.c) always appends it last, so its whole TLV
+ * (header(4)+0 = 4 bytes) is always the final 4 bytes of ch -- same shape as
+ * sdrv_test.c's sdrv_test_strip_tp_ext, ported here since that helper is
+ * file-static to sdrv_test.c. */
+#define SDRV_H3_TP_BODY_LEN 0
 static usz sb_strip_tp_ext(u8* ch, usz ch_len) {
   usz cut      = 4 + SDRV_H3_TP_BODY_LEN;
   usz nlen     = ch_len - cut;

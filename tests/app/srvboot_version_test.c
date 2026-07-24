@@ -203,8 +203,7 @@ struct sbv_fix {
  * wired_server_recv_initial to accept it and build a flight, mirroring
  * h3_loopback_test.c's lb_make_client_hello. */
 static usz sbv_make_client_hello(u8* ch, usz cap) {
-  static const u8 tp[1] = {0};
-  u8              cli_priv[32], cli_pub[32], srv_random[32];
+  u8 cli_priv[32], cli_pub[32], srv_random[32];
   for (usz i = 0; i < 32; i++) {
     cli_priv[i]   = (u8)(i + 1);
     srv_random[i] = (u8)(0xa0 + i);
@@ -213,7 +212,7 @@ static usz sbv_make_client_hello(u8* ch, usz cap) {
   quic_obuf ob = quic_obuf_of(ch, cap);
   return quic_tls_client_hello(
       &(quic_clienthello_in){
-          srv_random, cli_pub, quic_span_of(0, 0), quic_span_of(tp, 1)},
+          srv_random, cli_pub, quic_span_of(0, 0), quic_span_of(0, 0)},
       &ob);
 }
 

@@ -4,6 +4,7 @@
 
 #include "app/datagram/datagram/datagram.h"
 #include "common/bytes/util/be.h"
+#include "common/diag/error/error.h"
 #include "common/platform/clock/clock.h"
 #include "crypto/pki/encoding/x509/ec_pubkey.h"
 #include "crypto/pki/encoding/x509/spki.h"
@@ -81,14 +82,10 @@ static void test_sdrv_session_id_echo(void) {
   quic_x25519_base(cli_pub, cli_priv);
   quic_x25519_base(srv_pub, srv_priv);
 
-  {
-    static const u8 tp[1] = {0};
-    ch_len                = quic_tls_client_hello(
-        &(quic_clienthello_in){
-            srv_random, cli_pub, quic_span_of(0, 0),
-            quic_span_of(tp, sizeof(tp))},
-        &(quic_obuf){ch, sizeof(ch), 0});
-  }
+  ch_len = quic_tls_client_hello(
+      &(quic_clienthello_in){
+          srv_random, cli_pub, quic_span_of(0, 0), quic_span_of(0, 0)},
+      &(quic_obuf){ch, sizeof(ch), 0});
   CHECK(ch_len != 0);
   ch2_len = ch_with_sid(ch2, ch, ch_len, sid);
 
@@ -124,13 +121,16 @@ static void test_sdrv_session_id_echo(void) {
   CHECK(sh[38] == 0);
 }
 
-/* Build a ClientHello with a real x25519 key_share, sized for the caller. */
+/* Build a ClientHello with a real x25519 key_share, sized for the caller. An
+ * empty transport parameters TLV sequence (0 bytes) is a well-formed "no
+ * parameters advertised" -- unlike a stray 1-byte payload, which reads as a
+ * malformed single-byte id varint to any TLV-sequence walk (RFC 9000 18/7.4).
+ */
 static usz sdrv_test_client_hello(
     u8* ch, usz ch_cap, const u8* cli_pub, const u8* srv_random) {
-  static const u8 tp[1] = {0};
   return quic_tls_client_hello(
       &(quic_clienthello_in){
-          srv_random, cli_pub, quic_span_of(0, 0), quic_span_of(tp, 1)},
+          srv_random, cli_pub, quic_span_of(0, 0), quic_span_of(0, 0)},
       &(quic_obuf){ch, ch_cap, 0});
 }
 
@@ -711,9 +711,35 @@ static void test_sdrv_recv_client_hello_missing_tp_ext_rejected(void) {
   sdrv_dgram_test_setup(&s, cli_pub, srv_random);
   ch_len = sdrv_test_client_hello(ch, sizeof(ch), cli_pub, srv_random);
   CHECK(ch_len != 0);
-  ch_len = sdrv_test_strip_tp_ext(ch, ch_len, 1);
+  ch_len = sdrv_test_strip_tp_ext(ch, ch_len, 0);
   CHECK(!quic_sdrv_recv_client_hello(&s, ch, ch_len));
   CHECK(quic_sdrv_last_error(&s) == 0x016d);
+}
+
+/* RFC 9000 7.4: a transport parameter id repeated in the ClientHello's
+ * quic_transport_parameters extension MUST be rejected with
+ * TRANSPORT_PARAMETER_ERROR (0x08). */
+static void test_sdrv_recv_client_hello_dup_tp_rejected(void) {
+  u8        cli_pub[32], srv_random[32];
+  u8        tpbuf[32], ch[512];
+  quic_obuf tob = quic_obuf_of(tpbuf, sizeof(tpbuf));
+  usz       tp_len;
+  usz       ch_len;
+  quic_sdrv s;
+  tp_len = quic_tparam_put_int(&tob, QUIC_TP_MAX_IDLE_TIMEOUT, 30000);
+  CHECK(tp_len != 0);
+  {
+    quic_obuf tail = quic_obuf_of(tpbuf + tp_len, sizeof(tpbuf) - tp_len);
+    usz       w    = quic_tparam_put_int(&tail, QUIC_TP_MAX_IDLE_TIMEOUT, 1000);
+    CHECK(w != 0);
+    tp_len += w;
+  }
+  sdrv_dgram_test_setup(&s, cli_pub, srv_random);
+  ch_len = sdrv_test_client_hello_tp(
+      ch, sizeof(ch), cli_pub, srv_random, quic_span_of(tpbuf, tp_len));
+  CHECK(ch_len != 0);
+  CHECK(!quic_sdrv_recv_client_hello(&s, ch, ch_len));
+  CHECK(quic_sdrv_last_error(&s) == QUIC_ERR_TRANSPORT_PARAMETER_ERROR);
 }
 
 /* A driver initialized with an arbitrary-but-fixed key set, enough to drive
@@ -1648,6 +1674,7 @@ void test_sdrv(void) {
   test_sdrv_recv_client_hello_no_tp_ext_stays_zero();
   test_sdrv_recv_client_hello_tp_ext_present_ok();
   test_sdrv_recv_client_hello_missing_tp_ext_rejected();
+  test_sdrv_recv_client_hello_dup_tp_rejected();
   test_sdrv_recv_client_hello_stores_peer_initial_max_data();
   test_sdrv_recv_client_hello_no_initial_max_data_stays_zero();
   test_sdrv_recv_client_hello_stores_peer_initial_max_stream_data_bidi_local();
@@ -1699,14 +1726,10 @@ void test_sdrv(void) {
   quic_x25519_base(srv_pub, srv_priv);
 
   /* client: emit a ClientHello carrying its x25519 key_share. */
-  {
-    static const u8 tp[1] = {0};
-    ch_len                = quic_tls_client_hello(
-        &(quic_clienthello_in){
-            srv_random, cli_pub, quic_span_of(0, 0),
-            quic_span_of(tp, sizeof(tp))},
-        &(quic_obuf){ch, sizeof(ch), 0});
-  }
+  ch_len = quic_tls_client_hello(
+      &(quic_clienthello_in){
+          srv_random, cli_pub, quic_span_of(0, 0), quic_span_of(0, 0)},
+      &(quic_obuf){ch, sizeof(ch), 0});
   CHECK(ch_len != 0);
 
   /* server: drive the flight (the driver builds its own P-256 cert). */
@@ -1811,8 +1834,7 @@ void test_sdrv(void) {
     s2.limits.max_datagram_frame_size = 65535;
     ch_len                            = quic_tls_client_hello(
         &(quic_clienthello_in){
-            srv_random, cli_pub, quic_span_of(0, 0),
-            quic_span_of((const u8*)"\0", 1)},
+            srv_random, cli_pub, quic_span_of(0, 0), quic_span_of(0, 0)},
         &(quic_obuf){ch2, sizeof(ch2), 0});
     CHECK(quic_sdrv_recv_client_hello(&s2, ch2, ch_len));
     {

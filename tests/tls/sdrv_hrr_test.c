@@ -26,10 +26,9 @@
 
 static usz sdrv_hrr_build_ch(
     u8* ch, usz cap, const u8* cli_pub, const u8* srv_random) {
-  static const u8 tp[1] = {0};
   return quic_tls_client_hello(
       &(quic_clienthello_in){
-          srv_random, cli_pub, quic_span_of(0, 0), quic_span_of(tp, 1)},
+          srv_random, cli_pub, quic_span_of(0, 0), quic_span_of(0, 0)},
       &(quic_obuf){ch, cap, 0});
 }
 
