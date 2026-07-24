@@ -119,9 +119,28 @@ static void test_clienthello_roundtrip(void) {
   for (usz i = 0; i < ch_len; i++) CHECK(got[i] == ch[i]);
 }
 
+/* RFC 9000 7.5: data that overflows the reassembly buffer is reported as
+ * CRYPTO_BUFFER_EXCEEDED, not silently as a generic failure. */
+static void test_recv_overflow_reports_error_code(void) {
+  quic_crypto_rx rx;
+  quic_crypto_stream_rx_init(&rx);
+  u8  byte = 1;
+  u64 ec   = 0;
+  /* one byte at the last offset of the reassembly buffer: fits. */
+  CHECK(
+      quic_crypto_stream_recv_ec(
+          &rx, QUIC_REASM_CAP - 1, quic_span_of(&byte, 1), &ec) == 1);
+  /* one byte past the buffer: overflow. */
+  CHECK(
+      quic_crypto_stream_recv_ec(
+          &rx, QUIC_REASM_CAP, quic_span_of(&byte, 1), &ec) == 0);
+  CHECK(ec == QUIC_EC_CRYPTO_BUFFER_EXCEEDED);
+}
+
 void test_crypto_stream(void) {
   test_emit_splits();
   test_recv_reorder_dup();
   test_ecdhe_symmetric();
   test_clienthello_roundtrip();
+  test_recv_overflow_reports_error_code();
 }

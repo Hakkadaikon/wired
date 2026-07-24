@@ -46,6 +46,10 @@ typedef struct {
    * empty and its ClientHello-only transcript is already correct. */
   u8  transcript_ch[512];
   usz transcript_ch_len;
+  /** RFC 9000 7.5: the transport error code from the most recent
+   * quic_tlsdriver_recv_crypto failure (e.g. CRYPTO_BUFFER_EXCEEDED), 0 if
+   * the last call succeeded or none has been made. */
+  u64 last_error;
 } quic_tlsdriver;
 
 /* Hold the x25519 key pair and initialize the order machine, key schedule,
@@ -83,5 +87,9 @@ int quic_tlsdriver_shared_secret(const quic_tlsdriver* d, const u8** shared);
 
 /* 1 once the handshake secret has been derived. */
 int quic_tlsdriver_handshake_secret_ready(const quic_tlsdriver* d);
+
+/* RFC 9000 7.5: the transport error code from the most recent
+ * quic_tlsdriver_recv_crypto failure, 0 if none. */
+u64 quic_tlsdriver_last_error(const quic_tlsdriver* d);
 
 #endif

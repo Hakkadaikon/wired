@@ -30,6 +30,7 @@ void quic_tlsdriver_init(
   d->sni               = 0;
   d->sni_len           = 0;
   d->transcript_ch_len = 0;
+  d->last_error        = 0;
 }
 
 void quic_tlsdriver_set_sni(quic_tlsdriver* d, const u8* sni, usz sni_len) {
@@ -227,14 +228,15 @@ static int derive_handshake(quic_tlsdriver* d, const u8* msg, usz n) {
 
 /* Parse one CRYPTO frame at p and feed its payload into the reassembler;
  * advance *p past it. Returns 1 on success, 0 on a bad frame or buffer
- * overflow. */
+ * overflow (RFC 9000 7.5: d->last_error is set to CRYPTO_BUFFER_EXCEEDED in
+ * the latter case). */
 static int feed_one(quic_tlsdriver* d, quic_span frame, usz* p) {
   quic_crypto_frame f;
   usz used = quic_frame_get_crypto(frame.p + *p, frame.n - *p, &f);
   if (used == 0) return 0;
   *p += used;
-  return quic_crypto_stream_recv(
-      &d->rx, f.offset, quic_span_of(f.data, (usz)f.length));
+  return quic_crypto_stream_recv_ec(
+      &d->rx, f.offset, quic_span_of(f.data, (usz)f.length), &d->last_error);
 }
 
 /* Feed every CRYPTO frame packed in frame. Returns 1 if all parsed. */
@@ -269,3 +271,5 @@ int quic_tlsdriver_shared_secret(const quic_tlsdriver* d, const u8** shared) {
 int quic_tlsdriver_handshake_secret_ready(const quic_tlsdriver* d) {
   return d->hs_ready;
 }
+
+u64 quic_tlsdriver_last_error(const quic_tlsdriver* d) { return d->last_error; }
