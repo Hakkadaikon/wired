@@ -3,6 +3,7 @@
 
 #include "common/bytes/span/span.h"
 #include "tls/keys/kuswitch/twogen.h"
+#include "transport/conn/cid/pmtu/pmtu.h"
 #include "transport/conn/cid/retrydrive/reconnect.h"
 #include "transport/conn/loop/connio/connio.h"
 #include "transport/conn/loop/evloop/evloop.h"
@@ -39,8 +40,12 @@ typedef struct {
   quic_retrydrive_state retry;
   u32 sent_version;   /* RFC 9000 6.2: version of the client's Initial */
   int vn_retry_count; /* RFC 9000 6.2: VN reconnects so far (<=1) */
-  u8  rxbuf[QUIC_CONNRUNNER_BUF];
-  u8  txbuf[QUIC_CONNRUNNER_BUF];
+  /* RFC 8899 DPLPMTUD: the PLPMTU search and its one outstanding probe. */
+  quic_pmtu pmtu;
+  u64       pmtu_probe_pn;   /* pn the outstanding probe was sent under */
+  int       pmtu_probe_held; /* 1 while a probe is outstanding */
+  u8        rxbuf[QUIC_CONNRUNNER_BUF];
+  u8        txbuf[QUIC_CONNRUNNER_BUF];
 } quic_connrunner;
 
 /* Everything quic_connrunner_init needs besides the runner and the DCID. */

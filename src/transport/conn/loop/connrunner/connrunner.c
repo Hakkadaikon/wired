@@ -1,6 +1,7 @@
 #include "transport/conn/loop/connrunner/connrunner.h"
 
 #include "transport/conn/loop/connrunner/keyupdate.h"
+#include "transport/conn/loop/connrunner/pmtudrive.h"
 #include "transport/conn/loop/connrunner/reconnect.h"
 #include "transport/conn/loop/connrunner/recv.h"
 #include "transport/conn/loop/connrunner/send.h"
@@ -22,6 +23,7 @@ void quic_connrunner_init(
   quic_connio_init(&r->io, dcid, &cin);
   quic_connrunner_keyupdate_init(r);
   quic_connrunner_reconnect_init(r);
+  quic_connrunner_pmtu_init(r);
 }
 
 /* RFC 9000 19.7/19.20 via connio.h: a violation flagged while dispatching the
@@ -37,6 +39,29 @@ static usz advance_close_on_violation(quic_connrunner* r, usz out) {
   return quic_connio_close_on_violation(&r->io, &ob);
 }
 
+/* RFC 8899: reconcile the outstanding probe against this round's ack/loss
+ * results, mirroring quic_connrunner_track_acks/track_loss's own detection. */
+static void advance_pmtu_reconcile(quic_connrunner* r, u64 now) {
+  u64 lost[QUIC_SENTMETA_CAP];
+  usz n;
+  quic_connrunner_track_loss_ex(r, now, lost, &n);
+  quic_connrunner_pmtu_reconcile(r, lost, n);
+}
+
+/* RFC 8899 3.2/5.1: once the handshake is confirmed and nothing else was
+ * chosen to send this iteration, opportunistically send one PLPMTU probe as
+ * its own datagram -- a probe must exceed the normal PLPMTU, so it is never
+ * coalesced with a regular packet built to send_len. */
+static usz advance_pmtu_probe(quic_connrunner* r, usz out) {
+  usz sealed;
+  if (out || !r->loop.gate.handshake_confirmed) return out;
+  {
+    quic_obuf ob = quic_obuf_of(r->txbuf, sizeof(r->txbuf));
+    sealed       = quic_connrunner_pmtu_build_probe(r, &ob);
+  }
+  return sealed;
+}
+
 /* RFC 9000 12: the fixed-order core of one iteration, with the datagram already
  * in hand (or empty). Drain receives, step the loop (timers + one send
  * decision), then seal whatever the loop chose -- recv before step before send.
@@ -49,7 +74,7 @@ usz quic_connrunner_advance(quic_connrunner* r, u64 now, quic_mspan dgram) {
   quic_connrunner_track_acks(r);          /* RFC 9002 A.2.2: drop acked bytes */
   kind = quic_connrunner_pending_kind(r); /* before step clears it */
   quic_connrunner_capture_rtx(r);         /* lost pn before step drains it */
-  quic_connrunner_track_loss(r, now);     /* RFC 9002 6.1: real lost pn */
+  advance_pmtu_reconcile(r, now);         /* RFC 8899: probe ack/loss */
   sent_before = r->loop.next_pn;
   quic_evloop_step(&r->loop, now);
   out = quic_connrunner_flush_sends(r, sent_before, kind);
@@ -58,6 +83,8 @@ usz quic_connrunner_advance(quic_connrunner* r, u64 now, quic_mspan dgram) {
     quic_connrunner_sent_in sin = {now, kind, out};
     quic_connrunner_track_sent(r, &sin); /* RFC 9002 A.1: in-flight */
   }
+  out = advance_pmtu_probe(r, out);
+  quic_connrunner_pmtu_track_sent(r, now, out); /* RFC 9002 6.1 visibility */
   return out;
 }
 

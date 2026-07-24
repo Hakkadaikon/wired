@@ -146,6 +146,22 @@ i64 wired_udp_ect0_enable(i64 fd) {
       sizeof(val), 0);
 }
 
+/* IP_MTU_DISCOVER setsockopt name (Linux uapi in.h). */
+#define WIRED_IP_MTU_DISCOVER 10
+/* IP_PMTUDISC_DO (Linux uapi in.h): always set the IPv4 DF bit and never let
+ * the kernel fragment or hide path MTU changes -- required so a DPLPMTUD
+ * probe's fate (delivered vs. dropped) reflects the real path, and RFC 8899
+ * 4.5's suspension of network-layer PMTU enforcement for flows running their
+ * own PLPMTUD. */
+#define WIRED_IP_PMTUDISC_DO 2
+
+i64 wired_udp_pmtu_probe_enable(i64 fd) {
+  int val = WIRED_IP_PMTUDISC_DO;
+  return syscall6(
+      SYS_setsockopt, fd, WIRED_IPPROTO_IP, WIRED_IP_MTU_DISCOVER, (i64)&val,
+      sizeof(val), 0);
+}
+
 i64 wired_udp_recvtos_enable(i64 fd) {
   int val = 1;
   /* same dual-stack pairing as wired_udp_ect0_enable above. */
