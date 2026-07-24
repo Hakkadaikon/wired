@@ -269,6 +269,16 @@ int quic_sdrv_recv_client_hello(quic_sdrv* s, const u8* ch_msg, usz ch_len);
  * @return the last checked SNI outcome. */
 quic_salpn_sni_outcome quic_sdrv_sni_outcome(const quic_sdrv* s);
 
+/** RFC 6066 3: opt-in enforcement of the last checked SNI outcome. A
+ * QUIC_SALPN_SNI_MISMATCH sets s->last_error to
+ * quic_err_crypto(QUIC_TLS_ALERT_UNRECOGNIZED_NAME) and fails; MATCH and
+ * ABSENT are no-ops. Call right after a successful
+ * quic_sdrv_recv_client_hello when the caller wants unrecognized_name
+ * enforced instead of RFC 6066 3's silent-continue default.
+ * @param s driver state
+ * @return 1 to continue, 0 if the caller must reject the handshake. */
+int quic_sdrv_enforce_sni(quic_sdrv* s);
+
 /** RFC 8446 4.1.4: 1 when the last quic_sdrv_recv_client_hello call found no
  * x25519 key_share and a HelloRetryRequest must be sent before anything
  * else -- the caller must call quic_sdrv_build_hrr instead of proceeding to

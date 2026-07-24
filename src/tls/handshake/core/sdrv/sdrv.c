@@ -1,6 +1,7 @@
 #include "tls/handshake/core/sdrv/sdrv.h"
 
 #include "app/datagram/datagram/datagram.h"
+#include "common/diag/error/codes.h"
 #include "common/diag/error/error.h"
 #include "common/platform/clock/clock.h"
 #include "crypto/asymmetric/ecc/p256/p256_point.h"
@@ -955,6 +956,12 @@ int quic_sdrv_recv_client_hello(quic_sdrv* s, const u8* ch_msg, usz ch_len) {
 
 quic_salpn_sni_outcome quic_sdrv_sni_outcome(const quic_sdrv* s) {
   return s->sni_outcome;
+}
+
+int quic_sdrv_enforce_sni(quic_sdrv* s) {
+  if (s->sni_outcome != QUIC_SALPN_SNI_MISMATCH) return 1;
+  s->last_error = quic_err_crypto(QUIC_TLS_ALERT_UNRECOGNIZED_NAME);
+  return 0;
 }
 
 int quic_sdrv_hrr_pending(const quic_sdrv* s) { return s->hrr_needed; }

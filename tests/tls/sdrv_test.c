@@ -2071,6 +2071,60 @@ static void test_sdrv_sni_mismatch(void) {
       quic_span_of(host, sizeof(host) - 1), QUIC_SALPN_SNI_MISMATCH);
 }
 
+/* RFC 6066 3: quic_sdrv_enforce_sni is the opt-in a caller uses to turn a
+ * QUIC_SALPN_SNI_MISMATCH into an actual rejection (recv_client_hello itself
+ * never fails on a mismatch, see sdrv_check_sni's doc). */
+static void sdrv_test_enforce_sni(
+    quic_span sni, quic_salpn_sni_outcome outcome, int want_ok) {
+  u8        cli_priv[32], cli_pub[32], srv_priv[32], srv_pub[32], cert_priv[32];
+  u8        ch[512], srv_random[32];
+  usz       ch_len;
+  quic_sdrv s;
+  for (usz i = 0; i < 32; i++) {
+    cli_priv[i]   = (u8)(i + 1);
+    srv_priv[i]   = (u8)(0x40 + i);
+    cert_priv[i]  = (u8)(0x80 + i);
+    srv_random[i] = (u8)(0xa0 + i);
+  }
+  quic_x25519_base(cli_pub, cli_priv);
+  quic_x25519_base(srv_pub, srv_priv);
+  ch_len = quic_tls_client_hello(
+      &(quic_clienthello_in){srv_random, cli_pub, sni, quic_span_of(0, 0)},
+      &(quic_obuf){ch, sizeof(ch), 0});
+  CHECK(ch_len != 0);
+  {
+    quic_sdrv_init_in din = {srv_priv, srv_pub, cert_priv, 0, 0, 0, 0, 0};
+    quic_sdrv_init(&s, &din);
+  }
+  CHECK(quic_sdrv_recv_client_hello(&s, ch, ch_len));
+  CHECK(quic_sdrv_sni_outcome(&s) == outcome);
+  CHECK(quic_sdrv_enforce_sni(&s) == want_ok);
+  if (!want_ok)
+    CHECK(
+        quic_sdrv_last_error(&s) ==
+        quic_err_crypto(QUIC_TLS_ALERT_UNRECOGNIZED_NAME));
+}
+
+/* A mismatch fails enforce_sni and records unrecognized_name. */
+static void test_sdrv_enforce_sni_mismatch_rejects(void) {
+  const u8 host[] = "unrelated.example";
+  sdrv_test_enforce_sni(
+      quic_span_of(host, sizeof(host) - 1), QUIC_SALPN_SNI_MISMATCH, 0);
+}
+
+/* A match is a no-op: enforce_sni succeeds, last_error stays 0. */
+static void test_sdrv_enforce_sni_match_ok(void) {
+  const u8 host[] = "localhost";
+  sdrv_test_enforce_sni(
+      quic_span_of(host, sizeof(host) - 1), QUIC_SALPN_SNI_MATCH, 1);
+}
+
+/* RFC 6066 3: no server_name offered is not a mismatch -- enforce_sni is a
+ * no-op. */
+static void test_sdrv_enforce_sni_absent_ok(void) {
+  sdrv_test_enforce_sni(quic_span_of(0, 0), QUIC_SALPN_SNI_ABSENT, 1);
+}
+
 void test_sdrv(void) {
   test_sdrv_keyshare_walk_rejects_overclaimed_exts_len();
   test_sdrv_tp_walk_rejects_overclaimed_exts_len();
@@ -2124,6 +2178,9 @@ void test_sdrv(void) {
   test_sdrv_sni_absent();
   test_sdrv_sni_match();
   test_sdrv_sni_mismatch();
+  test_sdrv_enforce_sni_mismatch_rejects();
+  test_sdrv_enforce_sni_match_ok();
+  test_sdrv_enforce_sni_absent_ok();
 
   u8 cli_priv[32], cli_pub[32], srv_priv[32], srv_pub[32];
   u8 cert_priv[32];
