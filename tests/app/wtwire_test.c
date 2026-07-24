@@ -91,6 +91,25 @@ static void test_wtwire_qsid_take_malformed(void) {
   CHECK(quic_wtwire_qsid_take(quic_span_of(&two, 1), &sid) == 0);
 }
 
+/* TEST 5b: qsid_take rejects a QSID above 2^60-1 (RFC 9297 2.1); accepts the
+ * boundary value itself. */
+static void test_wtwire_qsid_take_range(void) {
+  u8  buf[16];
+  usz n;
+  u64 sid;
+
+  /* 2^60-1: the largest legal QSID. */
+  n = quic_wtwire_qsid_put(buf, sizeof buf, (((u64)1 << 60) - 1) * 4);
+  CHECK(n != 0);
+  CHECK(quic_wtwire_qsid_take(quic_span_of(buf, n), &sid) == n);
+  CHECK(sid == (((u64)1 << 60) - 1) * 4);
+
+  /* 2^60: one past the legal range -> rejected. */
+  n = quic_wtwire_qsid_put(buf, sizeof buf, ((u64)1 << 60) * 4);
+  CHECK(n != 0);
+  CHECK(quic_wtwire_qsid_take(quic_span_of(buf, n), &sid) == 0);
+}
+
 static int span_is(quic_span s, const char* str, usz n) {
   if (s.n != n) return 0;
   for (usz i = 0; i < n; i++)
@@ -209,6 +228,7 @@ void test_wtwire(void) {
   test_wtwire_qsid_put();
   test_wtwire_qsid_roundtrip();
   test_wtwire_qsid_take_malformed();
+  test_wtwire_qsid_take_range();
   test_wtwire_get_parse_ok();
   test_wtwire_get_parse_reject();
   test_wtwire_get_put_roundtrip();

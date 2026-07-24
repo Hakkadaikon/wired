@@ -816,10 +816,20 @@ static int sdt_build_datagram_pkt(
   return quic_hspkt_onertt_build(&pk, &d, out);
 }
 
+/* RFC 9297 2.1: prefix payload with varint(quarter stream id) before sealing
+ * -- our Extended CONNECT is on stream 0 (sdt_seal_stream0), so qsid = 0/4 =
+ * 0, a single 0x00 byte. srvrun_deliver_rx_datagram (srvrun.c) strips this
+ * prefix before routing/delivering to the app callback, so the echoed-back
+ * bytes (wired_server_broadcast_datagram relays what the callback saw) carry
+ * no prefix -- sdt_payload_has_our_datagram below matches payload unprefixed,
+ * unchanged. */
 static int sdt_send_datagram(struct sdt_client* cx, const u8* payload, usz n) {
-  u8        frame[300], pkt[512];
+  u8        frame[300], pkt[512], wire[300];
   quic_obuf ob = quic_obuf_of(pkt, sizeof pkt);
-  if (!sdt_build_datagram_pkt(cx, payload, n, frame, sizeof frame, &ob))
+  if (n + 1 > sizeof wire) return 0;
+  wire[0] = 0x00;
+  for (usz i = 0; i < n; i++) wire[1 + i] = payload[i];
+  if (!sdt_build_datagram_pkt(cx, wire, n + 1, frame, sizeof frame, &ob))
     return 0;
   return wired_udp_send(cx->fd, &cx->srv, quic_span_of(pkt, ob.len)) ==
          (i64)ob.len;
