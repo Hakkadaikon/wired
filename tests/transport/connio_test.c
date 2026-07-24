@@ -4,6 +4,7 @@
 #include "test.h"
 #include "transport/packet/frame/frame/connctl.h"
 #include "transport/packet/frame/frame/frame.h"
+#include "transport/packet/frame/frame/stream_ctl.h"
 
 /* Test-only convenience over the connio_init_in param object. */
 static void mk_connio(
@@ -235,6 +236,123 @@ static void test_connio_close_on_violation_wire_content(void) {
   CHECK(cl.disp.close == 1);
 }
 
+/* RFC 9001 5.5/6.6: a packet that fails AEAD authentication is discarded and
+ * counted (quic_connio_recv returns 0, loop.auth_fail_count advances by
+ * exactly one) -- proving the count wiring runs on the real decrypt-failure
+ * path, not just via direct field pokes. */
+static void test_connio_recv_failure_counts_auth_fail(void) {
+  const u8    dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
+  quic_connio cl, sv;
+  mk_connio(&cl, 0, 0x43, dcid, 8, 1u << 20);
+  mk_connio(&sv, 1, 0x43, dcid, 8, 1u << 20);
+  arm_onertt(&cl);
+  arm_onertt(&sv);
+
+  u8  frame[1] = {0x01}; /* PING */
+  u8  pkt[256];
+  usz pn = send_at(&cl, QUIC_LEVEL_ONERTT, frame, 1, pkt, sizeof(pkt));
+  CHECK(pn != 0);
+  pkt[pn - 1] ^= 0xff; /* tamper the AEAD tag's last byte */
+
+  CHECK(sv.loop.auth_fail_count == 0);
+  CHECK(quic_connio_recv(&sv, QUIC_LEVEL_ONERTT, quic_mspan_of(pkt, pn)) == 0);
+  CHECK(sv.loop.auth_fail_count == 1);
+  CHECK(sv.loop.aead_limit == 0); /* nowhere near the 2^52 limit yet */
+}
+
+/* RFC 9001 6.6: once auth_fail_count reaches the AES-GCM integrity limit,
+ * quic_connio_close_on_aead_limit seals a real CONNECTION_CLOSE carrying
+ * AEAD_LIMIT_REACHED (0x0f) and clears the pending flag so it fires once. The
+ * counter is seeded at limit-1 (a real 2^52-iteration loop is infeasible in
+ * a test); quic_connloop_on_auth_fail itself is exercised directly above. */
+static void test_connio_close_on_aead_limit_wire_content(void) {
+  const u8    dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
+  quic_connio cl, sv;
+  mk_connio(&cl, 0, 0x43, dcid, 8, 1u << 20);
+  mk_connio(&sv, 1, 0x43, dcid, 8, 1u << 20);
+  arm_onertt(&cl);
+  arm_onertt(&sv);
+
+  sv.loop.auth_fail_count = QUIC_AEAD_INTEGRITY_LIMIT_AESGCM - 1;
+  u8  frame[1]            = {0x01};
+  u8  pkt[256];
+  usz pn = send_at(&cl, QUIC_LEVEL_ONERTT, frame, 1, pkt, sizeof(pkt));
+  pkt[pn - 1] ^= 0xff;
+  CHECK(quic_connio_recv(&sv, QUIC_LEVEL_ONERTT, quic_mspan_of(pkt, pn)) == 0);
+  CHECK(sv.loop.aead_limit == 1);
+
+  u8        close_pkt[256];
+  quic_obuf ob = quic_obuf_of(close_pkt, sizeof close_pkt);
+  CHECK(quic_connio_close_on_aead_limit(&sv, &ob) != 0);
+  CHECK(sv.loop.aead_limit == 0); /* fires once */
+
+  /* client opens the sealed CLOSE and decodes AEAD_LIMIT_REACHED */
+  CHECK(
+      quic_connio_recv(
+          &cl, QUIC_LEVEL_ONERTT, quic_mspan_of(close_pkt, ob.len)) == 1);
+  CHECK(cl.disp.close == 1);
+
+  /* nothing fires a second time */
+  quic_obuf ob2 = quic_obuf_of(close_pkt, sizeof close_pkt);
+  CHECK(quic_connio_close_on_aead_limit(&sv, &ob2) == 0);
+}
+
+/* RFC 9000 12.3: once a space's next packet number would exceed 2^62-1, the
+ * sender must stop sending in that space silently (no CONNECTION_CLOSE);
+ * quic_connio_send simply reports failure like any other gated-out send. */
+static void test_connio_send_blocked_at_pn_exhaustion(void) {
+  const u8    dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
+  quic_connio io;
+  mk_connio(&io, 0, 0xc3, dcid, 8, 1u << 20);
+  arm_two_levels(&io);
+  io.tx.pn.next[QUIC_PNS_INITIAL] = QUIC_PN_LIMIT + 1; /* already exhausted */
+
+  u8 frames[8] = {0x01}; /* a PING frame */
+  u8 pkt[256];
+  CHECK(send_at(&io, QUIC_LEVEL_INITIAL, frames, 1, pkt, sizeof(pkt)) == 0);
+}
+
+/* RFC 9000 3.5: a STOP_SENDING the server receives is answered with a
+ * RESET_STREAM echoing the same stream ID and error code verbatim. */
+static void test_connio_stop_sending_auto_reset(void) {
+  const u8    dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
+  quic_connio cl, sv;
+  mk_connio(&cl, 0, 0x43, dcid, 8, 1u << 20);
+  mk_connio(&sv, 1, 0x43, dcid, 8, 1u << 20);
+  arm_onertt(&cl);
+  arm_onertt(&sv);
+
+  quic_stop_sending_frame ssf = {.stream_id = 5, .error_code = 0x77};
+  u8                      frame[16];
+  usz fl = quic_stop_sending_encode(frame, sizeof frame, &ssf);
+  CHECK(fl != 0);
+
+  u8  pkt[256];
+  usz pn = send_at(&cl, QUIC_LEVEL_ONERTT, frame, fl, pkt, sizeof(pkt));
+  CHECK(pn != 0);
+  CHECK(quic_connio_recv(&sv, QUIC_LEVEL_ONERTT, quic_mspan_of(pkt, pn)) == 1);
+  CHECK(sv.disp.stop_sending_owed == 1);
+
+  u8        reset_pkt[256];
+  quic_obuf ob = quic_obuf_of(reset_pkt, sizeof reset_pkt);
+  usz       n  = quic_connio_send_stop_sending_reset(&sv, &ob);
+  CHECK(n != 0);
+  CHECK(sv.disp.stop_sending_owed == 0); /* fires once */
+
+  /* nothing fires a second time */
+  quic_obuf ob2 = quic_obuf_of(reset_pkt, sizeof reset_pkt);
+  CHECK(quic_connio_send_stop_sending_reset(&sv, &ob2) == 0);
+
+  /* decrypt on the client side and confirm the wire content: same stream ID
+   * and error code as the STOP_SENDING that triggered it. */
+  CHECK(
+      quic_connio_recv(&cl, QUIC_LEVEL_ONERTT, quic_mspan_of(reset_pkt, n)) ==
+      1);
+  CHECK(
+      cl.disp.reset_stream_stream_id == 5 &&
+      cl.disp.reset_stream_error_code == 0x77);
+}
+
 void test_connio(void) {
   test_connio_seal_open_roundtrip();
   test_connio_gated_without_key();
@@ -243,4 +361,8 @@ void test_connio(void) {
   test_connio_recv_per_space();
   test_connio_close_on_violation_handshake_done();
   test_connio_close_on_violation_wire_content();
+  test_connio_recv_failure_counts_auth_fail();
+  test_connio_close_on_aead_limit_wire_content();
+  test_connio_send_blocked_at_pn_exhaustion();
+  test_connio_stop_sending_auto_reset();
 }

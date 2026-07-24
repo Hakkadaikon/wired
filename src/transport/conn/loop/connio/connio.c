@@ -4,6 +4,7 @@
 #include "crypto/kdf/keys/keyset.h"
 #include "crypto/symmetric/aead/aes/aes.h"
 #include "transport/packet/frame/frame/frame.h"
+#include "transport/packet/frame/frame/stream_ctl.h"
 #include "transport/packet/frame/pipeline/framewalk.h"
 #include "transport/packet/frame/pipeline/rxpacket.h"
 #include "transport/packet/frame/pipeline/txpacket.h"
@@ -24,16 +25,18 @@ void quic_connio_init(
   quic_connloop_init(&io->loop, in->is_server);
   quic_stream_read_init(&io->stream);
   quic_flow_credit_init(&io->credit, in->initial_max_data);
-  io->disp.stream        = &io->stream;
-  io->disp.sent          = &io->loop.sent;
-  io->disp.credit        = &io->credit;
-  io->disp.ack_eliciting = 0;
-  io->disp.close         = 0;
-  io->disp.has_ack       = 0;
-  io->disp.has_datagram  = 0;
-  io->disp.violation     = 0;
-  io->byte0              = in->byte0;
-  io->dcid_len           = (u8)dcid.n;
+  io->disp.stream            = &io->stream;
+  io->disp.sent              = &io->loop.sent;
+  io->disp.credit            = &io->credit;
+  io->disp.ack_eliciting     = 0;
+  io->disp.close             = 0;
+  io->disp.has_ack           = 0;
+  io->disp.has_datagram      = 0;
+  io->disp.violation         = 0;
+  io->disp.stop_sending_owed = 0;
+  io->disp.has_reset_stream  = 0;
+  io->byte0                  = in->byte0;
+  io->dcid_len               = (u8)dcid.n;
   quic_pnspaces_init(&io->tx);
   for (i = 0; i < QUIC_PNS_COUNT; i++) io->rx_pn[i] = 0;
   for (i = 0; i < dcid.n; i++) io->dcid[i] = dcid.p[i];
@@ -49,6 +52,14 @@ u64 quic_connio_rx_next(const quic_connio* io, int level) {
   return io->rx_pn[level];
 }
 
+/* RFC 9000 12.3: once a space has issued its highest legal packet number
+ * (2^62-1), the sender must stop sending in it -- silently, without a
+ * CONNECTION_CLOSE. Checked ahead of the other send gates so an exhausted
+ * space never reaches quic_connloop_on_send. */
+static int pn_space_ready(const quic_connio* io, int level) {
+  return !quic_pnspaces_exhausted(&io->tx, level);
+}
+
 /* RFC 9001 4: a level may send only once its keys are installed and the
  * connloop gate (level monotonicity, anti-amp, phase) admits the packet. */
 static int send_ready(
@@ -60,6 +71,7 @@ static int send_ready(
    * RFC 9000 12.3: gate with the SELECTED space's own next packet number. */
   quic_connloop_send_in sin = {
       in->level, 1, quic_connio_tx_next(io, in->level), in->frames.n};
+  if (!pn_space_ready(io, in->level)) return 0;
   return quic_connloop_on_send(&io->loop, &sin) &&
          quic_keyset_for_level(&io->loop.keys, in->level, keys);
 }
@@ -140,7 +152,11 @@ int quic_connio_recv(quic_connio* io, int level, quic_mspan datagram) {
   quic_aes128_init(&hp, keys->hp);
   quic_protect_keys k = {keys, &hp};
   quic_rx_desc      d = {datagram, level_is_initial(level)};
-  if (!quic_rx_packet(&k, &d, &frames)) return 0;
+  if (!quic_rx_packet(&k, &d, &frames)) {
+    /* RFC 9001 6.6: this layer only ever runs AES-128-GCM (is_chacha=0). */
+    quic_connloop_on_auth_fail(&io->loop, 0);
+    return 0;
+  }
   return recv_accept(io, level, frames);
 }
 
@@ -159,6 +175,51 @@ usz quic_connio_close_on_violation(quic_connio* io, quic_obuf* out) {
   if (!io->disp.violation) return 0;
   io->disp.violation = 0;
   fl                 = violation_close_frame(frame, sizeof frame);
+  if (!fl) return 0;
+  sin = (quic_connio_send_in){QUIC_LEVEL_ONERTT, quic_span_of(frame, fl)};
+  return quic_connio_send(io, &sin, out);
+}
+
+/* RFC 9000 19.19: encode a transport CONNECTION_CLOSE(AEAD_LIMIT_REACHED)
+ * frame into buf. Returns bytes written, or 0 on overflow. */
+static usz aead_limit_close_frame(u8* buf, usz cap) {
+  quic_conn_close_frame cc = {
+      0, QUIC_ERR_AEAD_LIMIT_REACHED, 0, 0, (const u8*)0};
+  return quic_frame_put_conn_close(buf, cap, &cc);
+}
+
+/* RFC 9001 6.6: if the AEAD integrity limit was reached (recorded by
+ * quic_connloop_on_auth_fail), seal a transport CONNECTION_CLOSE carrying
+ * AEAD_LIMIT_REACHED as a 1-RTT packet into out and clear the flag. Returns
+ * the sealed length, or 0 if the limit was not reached or the seal failed. */
+usz quic_connio_close_on_aead_limit(quic_connio* io, quic_obuf* out) {
+  u8                  frame[16];
+  usz                 fl;
+  quic_connio_send_in sin;
+  if (!io->loop.aead_limit) return 0;
+  io->loop.aead_limit = 0;
+  fl                  = aead_limit_close_frame(frame, sizeof frame);
+  if (!fl) return 0;
+  sin = (quic_connio_send_in){QUIC_LEVEL_ONERTT, quic_span_of(frame, fl)};
+  return quic_connio_send(io, &sin, out);
+}
+
+/* RFC 9000 3.5/19.4: encode a RESET_STREAM echoing a STOP_SENDING's stream
+ * ID and error code verbatim. Returns bytes written, or 0 on overflow. */
+static usz stop_sending_reset_frame(
+    u8* buf, usz cap, const quic_framedispatch_state* d) {
+  quic_reset_stream_frame f = {
+      d->stop_sending_stream_id, d->stop_sending_error_code, 0};
+  return quic_reset_stream_encode(buf, cap, &f);
+}
+
+usz quic_connio_send_stop_sending_reset(quic_connio* io, quic_obuf* out) {
+  u8                  frame[32];
+  usz                 fl;
+  quic_connio_send_in sin;
+  if (!io->disp.stop_sending_owed) return 0;
+  io->disp.stop_sending_owed = 0;
+  fl = stop_sending_reset_frame(frame, sizeof frame, &io->disp);
   if (!fl) return 0;
   sin = (quic_connio_send_in){QUIC_LEVEL_ONERTT, quic_span_of(frame, fl)};
   return quic_connio_send(io, &sin, out);

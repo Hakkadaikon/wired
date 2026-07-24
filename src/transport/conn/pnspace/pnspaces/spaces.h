@@ -18,4 +18,9 @@ void quic_pnspaces_init(quic_pnspaces* s);
  * returns the current value and advances that space only. */
 u64 quic_pnspaces_next_pn(quic_pnspaces* s, int space);
 
+/* RFC 9000 12.3: 1 once `space` has issued its highest legal packet number
+ * (2^62-1); the caller must stop sending in it, silently (no
+ * CONNECTION_CLOSE). */
+int quic_pnspaces_exhausted(const quic_pnspaces* s, int space);
+
 #endif
