@@ -81,6 +81,27 @@ static void test_rtt_sample_uses_ack_delay_after_confirm_when_smaller(void) {
   CHECK(r.smoothed_rtt == (7 * 100000 + 140000) / 8);
 }
 
+/* RFC 9002 5.2: once persistent congestion is established, min_rtt is reset
+ * to the newest RTT sample (9002-011), even when that sample is larger than
+ * the current min_rtt -- unlike quic_rtt_sample's ordinary lesser-of update. */
+static void test_rtt_on_persistent_sets_min_rtt_to_latest(void) {
+  quic_rtt r;
+  quic_rtt_init(&r);
+  quic_rtt_sample(&r, 50000, 0, 0, 0); /* seed: min_rtt=50000 */
+  quic_rtt_on_persistent(&r, 200000);  /* path RTT increased */
+  CHECK(r.min_rtt == 200000);
+}
+
+/* A smaller newest sample also wins outright: quic_rtt_on_persistent always
+ * assigns, never takes the lesser-of. */
+static void test_rtt_on_persistent_overrides_smaller_min(void) {
+  quic_rtt r;
+  quic_rtt_init(&r);
+  quic_rtt_sample(&r, 50000, 0, 0, 0);
+  quic_rtt_on_persistent(&r, 10000);
+  CHECK(r.min_rtt == 10000);
+}
+
 void test_rtt(void) {
   test_rtt_first_sample();
   test_rtt_constant_stays();
@@ -89,4 +110,6 @@ void test_rtt(void) {
   test_rtt_sample_ignores_max_ack_delay_before_confirm();
   test_rtt_sample_clamps_ack_delay_after_confirm();
   test_rtt_sample_uses_ack_delay_after_confirm_when_smaller();
+  test_rtt_on_persistent_sets_min_rtt_to_latest();
+  test_rtt_on_persistent_overrides_smaller_min();
 }

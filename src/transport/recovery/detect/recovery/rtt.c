@@ -58,3 +58,9 @@ u64 quic_rtt_pto(const quic_rtt* r, u64 max_ack_delay) {
   u64 var = quic_u64_max(4 * r->rttvar, QUIC_RTT_GRANULARITY);
   return r->smoothed_rtt + var + max_ack_delay;
 }
+
+/* RFC 9002 5.2: min_rtt is reset to the newest sample once persistent
+ * congestion is established. */
+void quic_rtt_on_persistent(quic_rtt* r, u64 latest_rtt) {
+  r->min_rtt = latest_rtt;
+}
