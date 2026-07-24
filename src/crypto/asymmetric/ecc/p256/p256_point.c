@@ -284,12 +284,6 @@ static void jac_add_step(jac* acc, const jac* base) {
     jac_add(acc, &t);
 }
 
-/* One scalar-bit step: acc = 2*acc, then += base if bit set. */
-static void ec_mul_step(jac* acc, const u8 k[32], const jac* base, usz bit) {
-  jac_double(acc, acc);
-  if ((k[bit / 8] >> (7 - (bit & 7))) & 1) jac_add_step(acc, base);
-}
-
 /* Convert Jacobian back to affine: x = X/Z^2, y = Y/Z^3. */
 static void jac_to_affine(ec_point* r, const jac* j) {
   p256_fe zi, zi2, zi3;
@@ -305,11 +299,89 @@ static void jac_to_affine(ec_point* r, const jac* j) {
   r->inf = 0;
 }
 
+/* --- constant-time scalar multiply (Montgomery ladder) ------------------
+ * RFC 6090 style two-accumulator ladder (side-channel countermeasure: see
+ * p256_ladder_step below). Replaces the earlier add-if-bit-set double-and-add,
+ * whose `if (bit) jac_add_step(...)` made execution time/cache pattern
+ * correlate with the scalar's bits directly. */
+
+/* Constant-time conditional move of one field element: r <- a if mask is
+ * all-ones, unchanged if mask is 0. XOR-mask pattern, mirrors x25519.c's
+ * fe_cswap (RFC 7748 5). CCN 1 (loop only, no branch). */
+static void fp_cmov(p256_fe r, const p256_fe a, u64 mask) {
+  for (usz i = 0; i < 4; i++) r[i] ^= mask & (r[i] ^ a[i]);
+}
+
+/* Conditional move of a whole Jacobian point (X, Y, Z). CCN 1. */
+static void jac_cmov(jac* r, const jac* a, u64 mask) {
+  fp_cmov(r->X, a->X, mask);
+  fp_cmov(r->Y, a->Y, mask);
+  fp_cmov(r->Z, a->Z, mask);
+}
+
+/* Constant-time swap of two Jacobian points when mask is all-ones. CCN 1. */
+static void jac_cswap(jac* a, jac* b, u64 mask) {
+  jac t = *a;
+  jac_cmov(&t, b, mask);
+  jac_cmov(b, a, mask);
+  *a = t;
+}
+
+/* 1 if either operand is infinity, with r set to the other one (or infinity,
+ * if both are). Split out so jac_add_full stays CCN <= 2. */
+static int add_full_infinity(jac* r, const jac* a, const jac* b) {
+  if (jac_is_inf(a)) {
+    *r = *b;
+    return 1;
+  }
+  if (jac_is_inf(b)) {
+    *r = *a;
+    return 1;
+  }
+  return 0;
+}
+
+/* r = a + b, either operand (not just acc) may be infinity: jac_add_step
+ * only special-cases its first argument (acc) and assumes its second
+ * (base) is finite, but the ladder's r0 starts at infinity and can land on
+ * either side of the sum, so both must be covered here first. */
+static void jac_add_full(jac* r, const jac* a, const jac* b) {
+  if (add_full_infinity(r, a, b)) return;
+  *r = *a;
+  jac_add_step(r, b);
+}
+
+/* One Montgomery-ladder step (RFC 6090-style two-accumulator ladder,
+ * mirrors x25519.c's ladder_step/fe_cswap control pattern): unconditionally
+ * computes r0+r1 and 2*r0, leaving the "doubled" half in r0 and the "added"
+ * half in r1. The caller cswaps r0/r1 around this call (see quic_ec_mul
+ * below) so which accumulator ends up representing 2*acc vs acc+base never
+ * depends on an explicit `if (bit)`. The if-statements inside
+ * jac_add_step/jac_double are not scalar-bit branches: they fire only on
+ * the point's own algebraic state (the fixed initial r0==infinity step, or
+ * an exact same-point coincidence), identical in shape on every call
+ * regardless of which bit is 1 or 0. */
+static void p256_ladder_step(jac* r0, jac* r1) {
+  jac t;
+  jac_add_full(&t, r0, r1); /* t = r0 + r1 */
+  jac_double(r0, r0);       /* r0 = 2*r0   */
+  *r1 = t;
+}
+
+/* r = k * p, constant-time: no branch keys off a scalar bit directly (see
+ * p256_ladder_step). k big-endian 32 bytes. */
 void quic_ec_mul(ec_point* r, const u8 k[32], const ec_point* p) {
-  jac acc = {{0}, {0}, {0}}; /* infinity: Z==0, and X,Y defined so the first
-                              * jac_double(acc,acc) never reads uninit (UB) */
-  jac base;
-  jac_from_affine(&base, p);
-  for (usz bit = 0; bit < 256; bit++) ec_mul_step(&acc, k, &base, bit);
-  jac_to_affine(r, &acc);
+  jac r0 = {{0}, {0}, {0}}; /* infinity */
+  jac r1;
+  u64 swap = 0;
+  jac_from_affine(&r1, p);
+  for (usz i = 0; i < 256; i++) {
+    u64 bit = (k[i / 8] >> (7 - (i & 7))) & 1; /* MSB-first, big-endian */
+    swap ^= bit;
+    jac_cswap(&r0, &r1, (u64)0 - swap);
+    swap = bit;
+    p256_ladder_step(&r0, &r1);
+  }
+  jac_cswap(&r0, &r1, (u64)0 - swap);
+  jac_to_affine(r, &r0);
 }
