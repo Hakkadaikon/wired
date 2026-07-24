@@ -1,6 +1,7 @@
 #ifndef QUIC_H3SETTINGS_CONTROL_SETTINGS_H
 #define QUIC_H3SETTINGS_CONTROL_SETTINGS_H
 
+#include "app/http3/core/h3settings/settings_build.h"
 #include "common/platform/sys/syscall.h"
 
 /* RFC 9114 6.2.1 / 7.2.4: the opening bytes of an HTTP/3 control stream:
@@ -29,5 +30,27 @@ int quic_h3settings_control_stream(
  * @return 1 if new_value >= prior_value (ok to send), 0 if it would regress
  *   (H3_SETTINGS_ERROR territory on the client's own validation side) */
 int quic_h3settings_h3_datagram_monotonic_ok(u64 prior_value, u64 new_value);
+
+/* RFC 9114 7.2.4.2 (9114-066): "If the server cannot determine that the
+ * settings remembered by a client are compatible with its current
+ * settings, it MUST NOT accept 0-RTT data. Remembered settings are
+ * compatible if a client complying with those settings would not violate
+ * the server's current settings." Every settings value this SDK sends
+ * (settings_build.h's quic_h3settings_in, minus grease_id -- a
+ * per-connection random reserved identifier the client is required to
+ * ignore regardless of value, RFC 9114 7.2.8) is a limit that only gets
+ * MORE permissive as it grows (a higher table capacity, more blocked
+ * streams, a larger field section, or datagram/CONNECT-protocol/WebTransport
+ * support switched on rather than off); a client complying with `prior`
+ * cannot be violated by `current` as long as every one of those fields in
+ * `current` is at least as permissive as in `prior`.
+ * @param prior   the settings sent on the connection that issued the
+ *   resumed ticket (what the client remembers and complies with)
+ * @param current the settings this connection is about to send while
+ *   accepting 0-RTT
+ * @return 1 if compatible (safe to accept 0-RTT), 0 if not (the caller
+ *   MUST NOT accept 0-RTT data) */
+int quic_h3settings_zerortt_compatible(
+    const quic_h3settings_in* prior, const quic_h3settings_in* current);
 
 #endif

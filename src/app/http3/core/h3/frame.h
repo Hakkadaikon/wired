@@ -60,11 +60,13 @@
 /* RFC 9114 7.2.4.1 SETTINGS parameter. */
 #define QUIC_H3_SETTINGS_MAX_FIELD_SECTION_SIZE 0x06
 
-/* 8 defined pairs this SDK ever builds (MAX_FIELD_SECTION_SIZE, QPACK's two,
- * ENABLE_CONNECT_PROTOCOL, H3_DATAGRAM, WebTransport's three) plus one slot
- * for an optional grease identifier (RFC 9114 7.2.4.1 / 9114-064,
+/* 11 defined pairs this SDK ever builds (MAX_FIELD_SECTION_SIZE, QPACK's
+ * two, ENABLE_CONNECT_PROTOCOL, H3_DATAGRAM, WebTransport session-negotiation
+ * three, WebTransport flow-control three -- draft-ietf-webtrans-http3-15
+ * 5.5's SETTINGS_WT_INITIAL_MAX_STREAMS_UNI/BIDI/MAX_DATA) plus one slot for
+ * an optional grease identifier (RFC 9114 7.2.4.1 / 9114-064,
  * quic_h3settings_build's append_grease). */
-#define QUIC_H3_SETTINGS_MAX 9
+#define QUIC_H3_SETTINGS_MAX 12
 
 typedef struct {
   usz n;
