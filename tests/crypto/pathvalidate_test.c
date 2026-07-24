@@ -2,6 +2,9 @@
 
 #include "castore_golden.h"
 #include "castore_ku_golden.h"
+#include "castore_nc_golden.h"
+#include "castore_pc_golden.h"
+#include "castore_selfissued_golden.h"
 #include "crypto/pki/trust/castore/castore.h"
 #include "test.h"
 
@@ -192,6 +195,85 @@ static void test_ed_ca_keyusage_rejects(void) {
   CHECK(quic_castore_validate_chain(&s, certs, 2) == 0);
 }
 
+static void store_with_si_root(quic_castore* s) {
+  quic_castore_init(s, pv_roots, 4);
+  CHECK(quic_castore_add(s, PV_SPAN(quic_castore_si_root_der)) == 1);
+}
+
+/* RFC 5280 6.1.4 (h)/(l): a self-issued intermediate does not consume
+ * pathLenConstraint. mid asserts pathlen:0; mid2 is a self-issued reissue of
+ * mid (same subject/issuer DN "CN=Test Mid CA", a key-rollover certificate)
+ * sitting strictly between leaf and mid. [leaf, mid2, mid, root] must
+ * validate: the only non-self-issued intermediate below mid is none (mid2 is
+ * excluded), so mid's pathlen:0 is satisfied. */
+static void test_self_issued_excluded_from_pathlen(void) {
+  quic_castore s;
+  quic_span    certs[4] = {
+      PV_SPAN(quic_castore_si_leaf_der), PV_SPAN(quic_castore_si_mid2_der),
+      PV_SPAN(quic_castore_si_mid_der), PV_SPAN(quic_castore_si_root_der)};
+  store_with_si_root(&s);
+  CHECK(quic_castore_validate_chain(&s, certs, 4) == 1);
+}
+
+static void store_with_nc_root(quic_castore* s) {
+  quic_castore_init(s, pv_roots, 4);
+  CHECK(quic_castore_add(s, PV_SPAN(quic_castore_nc_root_der)) == 1);
+}
+
+/* RFC 5280 4.2.1.10/6.1.4 (g): root's critical nameConstraints permits only
+ * directoryName O=Good Org; a leaf whose subject falls within that subtree
+ * validates. */
+static void test_name_constraints_permitted_subject_ok(void) {
+  quic_castore s;
+  quic_span    certs[2] = {
+      PV_SPAN(quic_castore_nc_leaf_ok_der), PV_SPAN(quic_castore_nc_root_der)};
+  store_with_nc_root(&s);
+  CHECK(quic_castore_validate_chain(&s, certs, 2) == 1);
+}
+
+/* Same root, a leaf whose subject (O=Bad Org) falls outside every permitted
+ * subtree must be rejected (RFC 5280 6.1.4 (g)(1)), even though its
+ * signature, EKU, and every other check pass -- OpenSSL's own `verify`
+ * rejects this exact pair with "permitted subtree violation". */
+static void test_name_constraints_excluded_subject_rejects(void) {
+  quic_castore s;
+  quic_span    certs[2] = {
+      PV_SPAN(quic_castore_nc_leaf_bad_der), PV_SPAN(quic_castore_nc_root_der)};
+  store_with_nc_root(&s);
+  CHECK(quic_castore_validate_chain(&s, certs, 2) == 0);
+}
+
+static void store_with_pc_root(quic_castore* s) {
+  quic_castore_init(s, pv_roots, 4);
+  CHECK(quic_castore_add(s, PV_SPAN(quic_castore_pc_root_der)) == 1);
+}
+
+/* RFC 5280 6.1.4 (i)/6.1.5 (g): mid2 asserts requireExplicitPolicy:0 and its
+ * own certificatePolicies=policy_x; leaf3 asserts the same policy_x, so the
+ * valid_policy_tree approximation's intersection stays non-empty and the
+ * wrap-up condition (explicit_policy==0 requires a non-empty tree) is
+ * satisfied. */
+static void test_require_explicit_policy_matching_policy_ok(void) {
+  quic_castore s;
+  quic_span    certs[3] = {
+      PV_SPAN(quic_castore_pc_leaf3_der), PV_SPAN(quic_castore_pc_mid2_der),
+      PV_SPAN(quic_castore_pc_root_der)};
+  store_with_pc_root(&s);
+  CHECK(quic_castore_validate_chain(&s, certs, 3) == 1);
+}
+
+/* Same mid2 (requireExplicitPolicy:0, policy_x), but leaf4 asserts a
+ * disjoint policy_y: the tree intersects to empty, so the wrap-up condition
+ * fails and the path must be rejected. */
+static void test_require_explicit_policy_disjoint_policy_rejects(void) {
+  quic_castore s;
+  quic_span    certs[3] = {
+      PV_SPAN(quic_castore_pc_leaf4_der), PV_SPAN(quic_castore_pc_mid2_der),
+      PV_SPAN(quic_castore_pc_root_der)};
+  store_with_pc_root(&s);
+  CHECK(quic_castore_validate_chain(&s, certs, 3) == 0);
+}
+
 void test_pathvalidate(void) {
   test_valid_chain();
   test_lone_root_chain();
@@ -208,4 +290,9 @@ void test_pathvalidate(void) {
   test_x25519_leaf_keyusage_rejects();
   test_x25519_leaf_keyusage_accepts();
   test_ed_ca_keyusage_rejects();
+  test_self_issued_excluded_from_pathlen();
+  test_name_constraints_permitted_subject_ok();
+  test_name_constraints_excluded_subject_rejects();
+  test_require_explicit_policy_matching_policy_ok();
+  test_require_explicit_policy_disjoint_policy_rejects();
 }

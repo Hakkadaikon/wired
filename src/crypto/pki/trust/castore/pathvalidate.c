@@ -4,6 +4,9 @@
 #include "crypto/pki/encoding/x509/chain.h"
 #include "crypto/pki/encoding/x509/eku.h"
 #include "crypto/pki/encoding/x509/keyusage.h"
+#include "crypto/pki/encoding/x509/nameconstraints.h"
+#include "crypto/pki/encoding/x509/policyconstraints.h"
+#include "crypto/pki/encoding/x509/policytree.h"
 #include "crypto/pki/encoding/x509/spki.h"
 #include "crypto/pki/encoding/x509/x509.h"
 #include "crypto/pki/trust/castore/chainverify.h"
@@ -39,6 +42,16 @@ static int names_chain(quic_span child, quic_span parent) {
   quic_span iss, subj;
   if (!cert_issuer(child, &iss)) return 0;
   if (!cert_subject(parent, &subj)) return 0;
+  return quic_x509_dn_equal(iss, subj);
+}
+
+/* RFC 5280 6.1: "a certificate is self-issued if the DNs that appear in the
+ * subject and issuer fields are identical". Malformed Name fields are not
+ * self-issued (fails open into being counted, the strict side). */
+static int cert_self_issued(quic_span cert) {
+  quic_span iss, subj;
+  if (!cert_issuer(cert, &iss)) return 0;
+  if (!cert_subject(cert, &subj)) return 0;
   return quic_x509_dn_equal(iss, subj);
 }
 
@@ -153,10 +166,24 @@ static int cert_pathlen_ok(quic_span cert, usz below) {
   return quic_x509_pathlen_allows(c.tbs, below);
 }
 
-/* One step: the link verifies and the issuer certs[i+1] admits the i
- * intermediates (certs[1..i]) between it and the leaf. */
+/* RFC 5280 6.1.4 (h)/(l): "If the certificate was not self-issued, verify
+ * that max_path_length is greater than zero and decrement max_path_length by
+ * 1" -- a self-issued intermediate (e.g. a CA's own re-issued/rollover
+ * certificate) does not consume path length. certs[1..i] are the
+ * intermediates strictly between the leaf and issuer certs[i+1]; count only
+ * those that are not self-issued. */
+static usz non_self_issued_below(const quic_span* certs, usz i) {
+  usz below = 0;
+  for (usz j = 1; j <= i; j++)
+    if (!cert_self_issued(certs[j])) below++;
+  return below;
+}
+
+/* One step: the link verifies and the issuer certs[i+1] admits the
+ * non-self-issued intermediates between it and the leaf. */
 static int step_ok(const quic_span* certs, usz i) {
-  return link_ok(certs[i], certs[i + 1]) && cert_pathlen_ok(certs[i + 1], i);
+  if (!link_ok(certs[i], certs[i + 1])) return 0;
+  return cert_pathlen_ok(certs[i + 1], non_self_issued_below(certs, i));
 }
 
 /* Every adjacent leaf-to-tail link binds and verifies. */
@@ -164,6 +191,141 @@ static int links_ok(const quic_span* certs, usz n) {
   for (usz i = 0; i + 1 < n; i++)
     if (!step_ok(certs, i)) return 0;
   return 1;
+}
+
+/* RFC 5280 6.1.4 (g): child's subject Name must fall within issuer's
+ * nameConstraints (directoryName form; see nameconstraints.h for the exact
+ * matching rule and scope). */
+static int subject_admitted(quic_span issuer, quic_span child) {
+  quic_span subj;
+  quic_x509 c;
+  if (!cert_subject(child, &subj)) return 0;
+  if (!quic_x509_parse(issuer, &c)) return 0;
+  return quic_x509_name_constraints_permit(c.tbs, subj);
+}
+
+/* RFC 5280 6.1.4 (g): issuer certs[j]'s nameConstraints applies to every
+ * certificate below it in the path (nearer the leaf): certs[0..j). */
+static int issuer_constrains_below(const quic_span* certs, usz j) {
+  for (usz k = 0; k < j; k++)
+    if (!subject_admitted(certs[j], certs[k])) return 0;
+  return 1;
+}
+
+/* Every issuer certificate's nameConstraints (if any) admits every
+ * certificate below it in the path. certs[0] (the leaf) issues nothing, so
+ * j starts at 1; certs[n_certs-1] (the trust anchor) DOES participate up to
+ * and including n_certs-1, unlike policy_processing_ok's walk -- a trust
+ * anchor's own nameConstraints are conventionally enforced against every
+ * certificate it (directly or transitively) issued, matching common
+ * implementations (verified against OpenSSL 3.0.13 `verify`, which reports
+ * "permitted subtree violation" for a leaf outside the trust anchor's own
+ * nameConstraints). RFC 5280 6.1's certificate-policies bookkeeping, by
+ * contrast, treats the trust anchor purely as the source of the initial
+ * state (6.1.2), not as a numbered "certificate i" to fold in. */
+static int name_constraints_chain_ok(const quic_span* certs, usz n_certs) {
+  for (usz j = 1; j < n_certs; j++)
+    if (!issuer_constrains_below(certs, j)) return 0;
+  return 1;
+}
+
+/* Lower *counter to v if v is smaller (a SkipCerts constraint only ever
+ * tightens, RFC 5280 6.1.4 (i)/(j)); no-op if v carries
+ * QUIC_X509_SKIPCERTS_NONE (the "absent" sentinel, larger than any real
+ * path length). */
+static void skipcerts_lower(u64* counter, u64 v) {
+  if (v < *counter) *counter = v;
+}
+
+/* RFC 5280 6.1.4 (i)(1): PolicyConstraints.requireExplicitPolicy, if
+ * present, lowers *explicit_policy to its value. Rejects (0) on a malformed
+ * policyConstraints extension. */
+static int apply_require_explicit(quic_span tbs, u64* explicit_policy) {
+  u64 v = quic_x509_require_explicit_policy(tbs);
+  if (v == QUIC_X509_SKIPCERTS_MALFORMED) return 0;
+  skipcerts_lower(explicit_policy, v);
+  return 1;
+}
+
+/* RFC 5280 6.1.4 (j): InhibitAnyPolicy, if present, lowers *inhibit_any to
+ * its value. Rejects (0) on a malformed extension. */
+static int apply_inhibit_any(quic_span tbs, u64* inhibit_any) {
+  u64 v = quic_x509_inhibit_any_policy(tbs);
+  if (v == QUIC_X509_SKIPCERTS_MALFORMED) return 0;
+  skipcerts_lower(inhibit_any, v);
+  return 1;
+}
+
+/* Decrement *counter by 1 unless it is already at its floor 0. */
+static void skipcerts_decrement(u64* counter) {
+  if (*counter != 0) (*counter)--;
+}
+
+/* RFC 5280 6.1.4 (h)/(l): a non-self-issued certificate consumes one unit of
+ * both counters (policy_mapping's counter is not modeled, this SDK does not
+ * implement policyMappings). */
+static void decrement_if_not_self_issued(
+    quic_span cert, u64* explicit_policy, u64* inhibit_any) {
+  if (cert_self_issued(cert)) return;
+  skipcerts_decrement(explicit_policy);
+  skipcerts_decrement(inhibit_any);
+}
+
+/* RFC 5280 6.1.4 (i)/(j): a certificate's own policyConstraints and
+ * inhibitAnyPolicy extensions, applied to the running counters. */
+static int policy_step_constraints(
+    quic_span tbs, u64* explicit_policy, u64* inhibit_any) {
+  if (!apply_require_explicit(tbs, explicit_policy)) return 0;
+  return apply_inhibit_any(tbs, inhibit_any);
+}
+
+/* RFC 5280 6.1.3 (d) / 6.1.4 (h)-(j), one certificate's contribution in path
+ * order from the trust anchor's issued certificate towards the leaf: fold
+ * its certificatePolicies into the tree, apply its own
+ * policyConstraints/inhibitAnyPolicy (6.1.4 (i)/(j) read a cert's own
+ * constraints before that cert's position decrements the counters, matching
+ * the RFC's per-certificate step order), then decrement for a
+ * non-self-issued hop. */
+static int policy_step(
+    quic_span              cert,
+    quic_x509_policy_tree* tree,
+    u64*                   explicit_policy,
+    u64*                   inhibit_any) {
+  quic_x509 c;
+  if (!quic_x509_parse(cert, &c)) return 0;
+  quic_x509_policy_tree_fold(tree, c.tbs, *inhibit_any == 0);
+  if (!policy_step_constraints(c.tbs, explicit_policy, inhibit_any)) return 0;
+  decrement_if_not_self_issued(cert, explicit_policy, inhibit_any);
+  return 1;
+}
+
+/* RFC 5280 6.1.5 (g): if requireExplicitPolicy ever reached 0, the final
+ * valid_policy_tree must be non-empty. inhibit_any's effect (anyPolicy
+ * ignored once its counter is 0) is already realized by policy_step folding
+ * anyPolicy from certificatePolicies as this SDK does not special-case
+ * anyPolicy recognition separately from the tree fold; recording the
+ * counter here keeps its RFC-mandated bookkeeping visible even though this
+ * SDK's caller (server-certificate verification with no explicit policy
+ * request) never queries it beyond the tree-non-empty check. */
+static int policy_wrapup_ok(
+    u64 explicit_policy, const quic_x509_policy_tree* tree) {
+  if (explicit_policy != 0) return 1;
+  return quic_x509_policy_tree_nonempty(tree);
+}
+
+/* RFC 5280 6.1.3(d)/6.1.4(h)-(j)/6.1.5(g): process every certificate in path
+ * order from the trust anchor's issued certificate (certs[n_certs-1] is the
+ * anchor and is not itself walked, matching links_ok's iteration -- 6.1
+ * numbers the anchor's issued certificate as certificate 1) down to the leaf
+ * (certs[0]), then check the wrap-up condition. */
+static int policy_processing_ok(const quic_span* certs, usz n_certs) {
+  quic_x509_policy_tree tree;
+  u64                   explicit_policy = QUIC_X509_SKIPCERTS_NONE;
+  u64                   inhibit_any     = QUIC_X509_SKIPCERTS_NONE;
+  quic_x509_policy_tree_init(&tree);
+  for (usz i = n_certs - 1; i-- > 0;)
+    if (!policy_step(certs[i], &tree, &explicit_policy, &inhibit_any)) return 0;
+  return policy_wrapup_ok(explicit_policy, &tree);
 }
 
 /* RFC 5280 6.1: certs[i] does not byte-equal any earlier certificate in the
@@ -194,12 +356,30 @@ static int leaf_purpose_ok(quic_span leaf) {
   return cert_spki_ku_ok(leaf, 0);
 }
 
-/* The leaf's purpose, per-certificate hygiene, and every adjacent link
- * verify. */
-static int path_ok(const quic_span* certs, usz n_certs) {
+/* RFC 5280 6.1.4 (g)-(j): name constraints and the certificatePolicies/
+ * policyConstraints/inhibitAnyPolicy bookkeeping. */
+static int policy_and_names_ok(const quic_span* certs, usz n_certs) {
+  if (!name_constraints_chain_ok(certs, n_certs)) return 0;
+  return policy_processing_ok(certs, n_certs);
+}
+
+/* The leaf's purpose and per-certificate hygiene. */
+static int path_head_ok(const quic_span* certs, usz n_certs) {
   if (!leaf_purpose_ok(certs[0])) return 0;
-  if (!certs_hygienic(certs, n_certs)) return 0;
-  return links_ok(certs, n_certs);
+  return certs_hygienic(certs, n_certs);
+}
+
+/* Every adjacent link, and the path-wide name/policy constraints. */
+static int path_body_ok(const quic_span* certs, usz n_certs) {
+  if (!links_ok(certs, n_certs)) return 0;
+  return policy_and_names_ok(certs, n_certs);
+}
+
+/* The leaf's purpose, per-certificate hygiene, every adjacent link, and the
+ * path-wide name/policy constraints all verify. */
+static int path_ok(const quic_span* certs, usz n_certs) {
+  if (!path_head_ok(certs, n_certs)) return 0;
+  return path_body_ok(certs, n_certs);
 }
 
 int quic_castore_validate_chain(
