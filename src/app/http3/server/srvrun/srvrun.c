@@ -4697,6 +4697,29 @@ static void srvrun_start_done_resps(const srvrun_step_ctx* ctx, int slot) {
     srvrun_start_done_resp(ctx, slot, c->l.done_slots[i]);
 }
 
+/* RFC 9114 4.1.1: "if the request stream ends without enough of the HTTP
+ * message to provide a complete response, the server SHOULD abort its
+ * response stream with the error code H3_REQUEST_INCOMPLETE" -- srvloop's
+ * dispatch (route_note_incomplete) already detected the case and latched the
+ * slot index in incomplete_slots this step; abort it here with the same
+ * RESET_STREAM_AT + STOP_SENDING pair srvrun_reject_wt_busy uses, just
+ * keyed by the stream's own id instead of req_stream_id. */
+static void srvrun_abort_incomplete_req(
+    const srvrun_step_ctx* ctx, int slot, u8 incomplete_i) {
+  srvrun_conn* c  = &ctx->st->conns[slot];
+  u64          id = c->l.streams[incomplete_i].stream_id;
+  srvrun_send_wt_busy_reset(ctx->cfg, c, id, QUIC_H3_REQUEST_INCOMPLETE);
+}
+
+/* Abort every request stream that ended incomplete this step (RFC 9000 2.2:
+ * a datagram may close several streams at once, same fan-out as
+ * srvrun_start_done_resps). */
+static void srvrun_abort_incomplete_reqs(const srvrun_step_ctx* ctx, int slot) {
+  srvrun_conn* c = &ctx->st->conns[slot];
+  for (usz i = 0; i < c->l.incomplete_n; i++)
+    srvrun_abort_incomplete_req(ctx, slot, c->l.incomplete_slots[i]);
+}
+
 /* Return r's borrowed wired_srvbigbuf row to the pool, if it holds one. */
 static void srvrun_resp_release_bigbuf(wired_srvrun_env* env, srvrun_resp* r) {
   if (r->bigbuf_row >= 0) wired_srvbigbuf_release(&env->bigbuf, r->bigbuf_row);
@@ -4793,6 +4816,7 @@ static void srvrun_sess_on_step(const srvrun_step_ctx* ctx, int slot) {
   srvrun_reap_resps(ctx, c, slot);
   srvrun_reap_wtsends(c);
   srvrun_reannounce_stream_limit(ctx->cfg, c, srvrun_stream_limit_base(ctx));
+  srvrun_abort_incomplete_reqs(ctx, slot);
   srvrun_start_done_resps(ctx, slot);
   srvrun_pump_sess(ctx, slot);
   srvrun_pump_datagram(ctx, c);
