@@ -69,4 +69,11 @@ u64 quic_connio_tx_next(const quic_connio* io, int level);
 /* The next expected inbound packet number for `level`'s own space. */
 u64 quic_connio_rx_next(const quic_connio* io, int level);
 
+/* RFC 9000 19.7/19.20 via 12.4: if the last dispatched frame set
+ * disp.violation (a server received NEW_TOKEN or HANDSHAKE_DONE), seal a
+ * transport CONNECTION_CLOSE carrying PROTOCOL_VIOLATION as a 1-RTT packet
+ * into out and clear the flag. Returns the sealed length, or 0 if no
+ * violation was pending or the seal failed (out too small / no 1-RTT key). */
+usz quic_connio_close_on_violation(quic_connio* io, quic_obuf* out);
+
 #endif

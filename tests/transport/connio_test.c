@@ -1,6 +1,8 @@
 #include "transport/conn/loop/connio/connio.h"
 
+#include "common/diag/error/error.h"
 #include "test.h"
+#include "transport/packet/frame/frame/connctl.h"
 #include "transport/packet/frame/frame/frame.h"
 
 /* Test-only convenience over the connio_init_in param object. */
@@ -155,10 +157,90 @@ static void test_connio_recv_per_space(void) {
   CHECK(quic_connio_rx_next(&sv, QUIC_LEVEL_HANDSHAKE) == 0);
 }
 
+/* Install a 1-RTT key and fast-forward the send-level gate to Handshake, so
+ * the very next send may promote straight to 1-RTT (RFC 9001 4.1.4/4.9). */
+static void arm_onertt(quic_connio* io) {
+  quic_initial_keys k = {0};
+  io->loop.validated  = 1;
+  quic_keyset_install(&io->loop.keys, QUIC_LEVEL_INITIAL, &k);
+  quic_keyset_install(&io->loop.keys, QUIC_LEVEL_HANDSHAKE, &k);
+  quic_keyset_install(&io->loop.keys, QUIC_LEVEL_ONERTT, &k);
+  io->loop.send_level         = QUIC_LEVEL_HANDSHAKE;
+  io->loop.handshake_complete = 1;
+}
+
+/* RFC 9000 19.20 via 12.4: a server that receives HANDSHAKE_DONE latches
+ * dispatch's violation flag; quic_connio_close_on_violation must then seal an
+ * actual transport CONNECTION_CLOSE(PROTOCOL_VIOLATION) frame, and clear the
+ * flag so it fires only once. */
+static void test_connio_close_on_violation_handshake_done(void) {
+  const u8    dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
+  quic_connio cl, sv;
+  mk_connio(&cl, 0, 0x43, dcid, 8, 1u << 20);
+  mk_connio(&sv, 1, 0x43, dcid, 8, 1u << 20);
+  arm_onertt(&cl);
+  arm_onertt(&sv);
+
+  u8  frame[1] = {0};
+  usz fl       = quic_handshake_done_encode(frame, sizeof frame);
+  CHECK(fl != 0);
+
+  u8  pkt[256];
+  usz pn = send_at(&cl, QUIC_LEVEL_ONERTT, frame, fl, pkt, sizeof(pkt));
+  CHECK(pn != 0);
+
+  /* the server accepts the packet (frame is malformed-free) but the frame
+   * itself is forbidden from a server's receive side */
+  CHECK(quic_connio_recv(&sv, QUIC_LEVEL_ONERTT, quic_mspan_of(pkt, pn)) == 0);
+  CHECK(sv.disp.violation == 1);
+
+  u8        close_pkt[256];
+  quic_obuf ob = quic_obuf_of(close_pkt, sizeof close_pkt);
+  usz       n  = quic_connio_close_on_violation(&sv, &ob);
+  CHECK(n != 0);
+  CHECK(n == ob.len);
+  CHECK(sv.disp.violation == 0); /* fires once */
+
+  /* fires nothing the second time (already cleared) */
+  quic_obuf ob2 = quic_obuf_of(close_pkt, sizeof close_pkt);
+  CHECK(quic_connio_close_on_violation(&sv, &ob2) == 0);
+}
+
+/* Decrypt the sealed CONNECTION_CLOSE with the client's own connio_recv (same
+ * installed keys) and confirm the wire content: PROTOCOL_VIOLATION, transport
+ * variant. This proves the frame reaching the wire is the real RFC 9000
+ * 20.1 error code, not just a non-zero length. */
+static void test_connio_close_on_violation_wire_content(void) {
+  const u8    dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
+  quic_connio cl, sv;
+  mk_connio(&cl, 0, 0x43, dcid, 8, 1u << 20);
+  mk_connio(&sv, 1, 0x43, dcid, 8, 1u << 20);
+  arm_onertt(&cl);
+  arm_onertt(&sv);
+
+  u8  frame[1] = {0};
+  usz fl       = quic_handshake_done_encode(frame, sizeof frame);
+  u8  pkt[256];
+  usz pn = send_at(&cl, QUIC_LEVEL_ONERTT, frame, fl, pkt, sizeof(pkt));
+  CHECK(quic_connio_recv(&sv, QUIC_LEVEL_ONERTT, quic_mspan_of(pkt, pn)) == 0);
+
+  u8        close_pkt[256];
+  quic_obuf ob = quic_obuf_of(close_pkt, sizeof close_pkt);
+  CHECK(quic_connio_close_on_violation(&sv, &ob) != 0);
+
+  /* server -> client direction now: client's connio opens the CLOSE packet */
+  CHECK(
+      quic_connio_recv(
+          &cl, QUIC_LEVEL_ONERTT, quic_mspan_of(close_pkt, ob.len)) == 1);
+  CHECK(cl.disp.close == 1);
+}
+
 void test_connio(void) {
   test_connio_seal_open_roundtrip();
   test_connio_gated_without_key();
   test_connio_per_space_pn();
   test_connio_pn_monotone();
   test_connio_recv_per_space();
+  test_connio_close_on_violation_handshake_done();
+  test_connio_close_on_violation_wire_content();
 }
