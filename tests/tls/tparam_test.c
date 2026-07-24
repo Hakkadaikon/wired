@@ -50,8 +50,34 @@ static void test_tparam_max_datagram_frame_size(void) {
   }
 }
 
+/* RFC 9000 7.4: a transport parameter appearing more than once is a
+ * TRANSPORT_PARAMETER_ERROR. */
+static void test_tparam_no_duplicates(void) {
+  u8        buf[64];
+  quic_obuf ob = quic_obuf_of(buf, sizeof(buf));
+  usz       w1 = quic_tparam_put_int(&ob, QUIC_TP_MAX_IDLE_TIMEOUT, 30000);
+  CHECK(quic_tparam_no_duplicates(quic_span_of(buf, w1)) == 1);
+
+  quic_obuf ob2 = quic_obuf_of(buf + w1, sizeof(buf) - w1);
+  usz       w2  = quic_tparam_put_int(&ob2, QUIC_TP_INITIAL_MAX_DATA, 1000);
+  CHECK(quic_tparam_no_duplicates(quic_span_of(buf, w1 + w2)) == 1);
+
+  /* same id again: duplicate */
+  quic_obuf ob3 = quic_obuf_of(buf + w1 + w2, sizeof(buf) - w1 - w2);
+  usz       w3  = quic_tparam_put_int(&ob3, QUIC_TP_MAX_IDLE_TIMEOUT, 1);
+  CHECK(quic_tparam_no_duplicates(quic_span_of(buf, w1 + w2 + w3)) == 0);
+}
+
+/* Malformed TLV input (undecodable) is treated as failure, not "no dup". */
+static void test_tparam_no_duplicates_malformed(void) {
+  u8 buf[2] = {0x40, 0xff}; /* 2-byte varint id header but truncated */
+  CHECK(quic_tparam_no_duplicates(quic_span_of(buf, sizeof(buf))) == 0);
+}
+
 void test_tparam(void) {
   test_tparam_roundtrip();
   test_tparam_truncated();
   test_tparam_max_datagram_frame_size();
+  test_tparam_no_duplicates();
+  test_tparam_no_duplicates_malformed();
 }
