@@ -78,9 +78,18 @@ static void srv_record_client_random(
   srv_copy32(s->client_random, ch_msg + SRV_CH_RANDOM_OFF);
 }
 
+/* Accept the ClientHello into sdrv and, RFC 6066 3, enforce unrecognized_name
+ * on an SNI mismatch instead of sdrv's default silent-continue. Split out of
+ * wired_server_recv_initial to keep its own CCN flat. */
+static int srv_accept_client_hello(
+    wired_server* s, const u8* ch_msg, usz ch_len) {
+  if (!quic_sdrv_recv_client_hello(&s->sdrv, ch_msg, ch_len)) return 0;
+  return quic_sdrv_enforce_sni(&s->sdrv);
+}
+
 int wired_server_recv_initial(wired_server* s, const u8* ch_msg, usz ch_len) {
   if (s->phase != WIRED_SERVER_HS_INITIAL) return 0;
-  if (!quic_sdrv_recv_client_hello(&s->sdrv, ch_msg, ch_len)) return 0;
+  if (!srv_accept_client_hello(s, ch_msg, ch_len)) return 0;
   srv_record_client_random(s, ch_msg, ch_len);
   srv_tr_add(s, ch_msg, ch_len);
   s->phase = WIRED_SERVER_HS_CH_RECVD;
