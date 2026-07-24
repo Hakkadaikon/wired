@@ -23,7 +23,8 @@ int quic_ec_on_curve(const ec_point* p);
 void quic_ec_add(ec_point* r, const ec_point* p, const ec_point* q);
 void quic_ec_double(ec_point* r, const ec_point* p);
 
-/* r = k * p, k big-endian 32 bytes, via double-and-add. */
+/* r = k * p, k big-endian 32 bytes. Constant-time Montgomery ladder (see
+ * p256_point.c): no branch keys off a scalar bit directly. */
 void quic_ec_mul(ec_point* r, const u8 k[32], const ec_point* p);
 
 #endif
