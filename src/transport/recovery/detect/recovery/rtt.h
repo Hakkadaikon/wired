@@ -31,4 +31,9 @@ void quic_rtt_sample(
 /* PTO = smoothed_rtt + max(4*rttvar, granularity) + max_ack_delay. */
 u64 quic_rtt_pto(const quic_rtt* r, u64 max_ack_delay);
 
+/* RFC 9002 5.2: once persistent congestion is established, set min_rtt to
+ * the newest RTT sample. Avoids repeatedly declaring persistent congestion
+ * when the path RTT has genuinely increased (9002-011). */
+void quic_rtt_on_persistent(quic_rtt* r, u64 latest_rtt);
+
 #endif
