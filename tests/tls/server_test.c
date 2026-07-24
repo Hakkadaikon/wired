@@ -2,6 +2,7 @@
 
 #include "test.h"
 #include "tls/ext/tlsext/preshared.h"
+#include "tls/ext/tlsext/pskmodes.h"
 #include "tls/handshake/core/tls/appkeys.h"
 #include "tls/handshake/core/tls/binder.h"
 #include "tls/handshake/core/tls/clienthello.h"
@@ -380,10 +381,13 @@ static void srvt_psk_fixture_init(srvt_psk_fixture* f) {
   quic_ticket_seal(&t, f->ticket_key, f->sealed);
 }
 
-/* Append a pre_shared_key extension (single identity/binder) to a ClientHello
- * previously built by make_client_hello (same fixed extensions layout as
- * sdrv_test.c's sdrv_test_append_psk: no session_id, one cipher suite). Sets
- * *psk_ext_off to the extension's own TLV offset (header included). */
+/* Append psk_key_exchange_modes then a pre_shared_key extension (single
+ * identity/binder) to a ClientHello previously built by make_client_hello
+ * (same fixed extensions layout as sdrv_test.c's sdrv_test_append_psk: no
+ * session_id, one cipher suite). RFC 8446 4.2.9: pre_shared_key requires a
+ * qualifying psk_key_exchange_modes, so that goes first, keeping
+ * pre_shared_key the last extension (4.2.11). Sets *psk_ext_off to
+ * pre_shared_key's own TLV offset (header included). */
 static usz srvt_psk_append(
     u8*                       out,
     usz                       out_cap,
@@ -393,17 +397,20 @@ static usz srvt_psk_append(
     usz*                      psk_ext_off) {
   usz       exts_len_off = 45; /* see sdrv_test.c's sdrv_test_append_psk */
   usz       old_exts_len;
-  u8        scratch[128];
+  u8        modes[8], scratch[128];
+  usz       modes_len;
   quic_obuf eob = quic_obuf_of(scratch, sizeof(scratch));
+  if (!quic_tlsext_psk_modes(modes, sizeof(modes), &modes_len)) return 0;
   if (!quic_tlsext_pre_shared_key(psk, &eob)) return 0;
-  if (ch_len + eob.len > out_cap) return 0;
+  if (ch_len + modes_len + eob.len > out_cap) return 0;
   for (usz i = 0; i < ch_len; i++) out[i] = ch[i];
   old_exts_len = (usz)out[exts_len_off] << 8 | out[exts_len_off + 1];
-  *psk_ext_off = ch_len;
-  for (usz i = 0; i < eob.len; i++) out[ch_len + i] = scratch[i];
-  quic_put_be16(out + exts_len_off, (u16)(old_exts_len + eob.len));
-  quic_hs_finish(out, ch_len + eob.len);
-  return ch_len + eob.len;
+  for (usz i = 0; i < modes_len; i++) out[ch_len + i] = modes[i];
+  *psk_ext_off = ch_len + modes_len;
+  for (usz i = 0; i < eob.len; i++) out[ch_len + modes_len + i] = scratch[i];
+  quic_put_be16(out + exts_len_off, (u16)(old_exts_len + modes_len + eob.len));
+  quic_hs_finish(out, ch_len + modes_len + eob.len);
+  return ch_len + modes_len + eob.len;
 }
 
 /* RFC 8446 4.2.11.2 truncation point, see sdrv.c's sdrv_psk_truncate. */

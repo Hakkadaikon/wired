@@ -5,17 +5,23 @@
 #include "common/platform/clock/clock.h"
 #include "crypto/asymmetric/ecc/p256/p256_point.h"
 #include "crypto/pki/cert/p256cert/p256cert.h"
+#include "crypto/pki/encoding/x509/x509.h"
 #include "crypto/symmetric/hash/hash/sha256.h"
 #include "tls/ext/salpn/ch_ext.h"
 #include "tls/ext/salpn/negotiate.h"
+#include "tls/ext/salpn/sni_check.h"
 #include "tls/ext/stp/parse_tp.h"
 #include "tls/ext/tlsext/preshared.h"
+#include "tls/ext/tlsext/pskmodes.h"
 #include "tls/ext/tparam/tparam.h"
 #include "tls/handshake/core/hrr/hrr_build.h"
 #include "tls/handshake/core/tls/binder.h"
+#include "tls/handshake/core/tls/chguard.h"
 #include "tls/handshake/core/tls/cipher.h"
 #include "tls/handshake/core/tls/encext_check.h"
+#include "tls/handshake/core/tls/ext_algs.h"
 #include "tls/handshake/core/tls/ext_keyshare.h"
+#include "tls/handshake/core/tls/ext_versions.h"
 #include "tls/handshake/core/tls/handshake.h"
 #include "tls/handshake/core/tls/schedule.h"
 #include "tls/handshake/core/tls/ticketfreshness.h"
@@ -114,6 +120,7 @@ void quic_sdrv_init(quic_sdrv* s, const quic_sdrv_init_in* in) {
   s->hrr_needed          = 0;
   s->hrr_sent            = 0;
   s->hrr_cipher_suite    = 0;
+  s->sni_outcome         = QUIC_SALPN_SNI_ABSENT;
   for (usz i = 0; i < 32; i++) s->ch1_hash[i] = 0;
   quic_transcript_init(&s->tr);
 }
@@ -299,6 +306,19 @@ static int find_client_psk_ext(const u8* ch, usz ch_len, quic_span* ext) {
   return sdrv_ch_find_ext(ch + 4, start, end, QUIC_SDRV_PSK_EXT_TYPE, ext);
 }
 
+/* Locate any extension_type in the ClientHello by its raw code point (the
+ * general form of find_client_tp_ext/find_client_psk_ext above, for guards
+ * that check several unrelated extension types). Returns 1 and sets *ext
+ * (header included) on success, 0 if the ClientHello is malformed or the
+ * type is absent. */
+static int find_client_ext(
+    const u8* ch, usz ch_len, unsigned want_type, quic_span* ext) {
+  usz body, start, end;
+  if (!sdrv_is_client_hello(ch, ch_len, &body)) return 0;
+  if (!sdrv_ch_exts_span(ch + 4, body, &start, &end)) return 0;
+  return sdrv_ch_find_ext(ch + 4, start, end, want_type, ext);
+}
+
 /* RFC 9221 3: extract the peer's advertised max_datagram_frame_size from the
  * ClientHello's transport parameters, if present. Leaves *out at 0 (absent /
  * unsupported) when the extension or the specific parameter is missing --
@@ -335,14 +355,26 @@ static int sdrv_sid_fits(const u8* ch_msg, usz ch_len) {
          ch_len >= 4 + 35 + (usz)ch_msg[4 + 34];
 }
 
-/* RFC 8446 4.1.2: copy the ClientHello legacy_session_id (opaque<0..32> at
- * body offset 34) into the driver so ServerHello can echo it (4.1.3). Returns 1
- * on success, 0 if the field overruns ch_msg or exceeds 32 bytes. */
+/* RFC 9001 8.4: QUIC runs TLS 1.3 over QUIC framing rather than TLS
+ * record framing, so a compliant client's ClientHello always carries an
+ * empty legacy_session_id; a non-empty one is a connection error of type
+ * PROTOCOL_VIOLATION. Sets s->last_error and returns 0 on that rejection. */
+static int sdrv_reject_nonempty_sid(quic_sdrv* s, u8 len) {
+  if (len == 0) return 1;
+  s->last_error = QUIC_ERR_PROTOCOL_VIOLATION;
+  return 0;
+}
+
+/* RFC 8446 4.1.2 / RFC 9001 8.4: a compliant ClientHello's legacy_session_id
+ * is always empty (rejected otherwise by sdrv_reject_nonempty_sid), so there
+ * is never a nonzero length to copy -- client_sid stays at its init-time
+ * empty state and only the length is recorded. Returns 1 on success, 0 if
+ * the field overruns ch_msg, exceeds 32 bytes, or is non-empty. */
 static int take_client_sid(quic_sdrv* s, const u8* ch_msg, usz ch_len) {
   u8 len;
   if (!sdrv_sid_fits(ch_msg, ch_len)) return 0;
   len = ch_msg[4 + 34];
-  for (u8 i = 0; i < len; i++) s->client_sid[i] = ch_msg[4 + 35 + i];
+  if (!sdrv_reject_nonempty_sid(s, len)) return 0;
   s->client_sid_len = len;
   return 1;
 }
@@ -360,6 +392,20 @@ static void sdrv_negotiate_alpn(quic_sdrv* s, const u8* ch_msg, usz ch_len) {
           quic_span_of(ch_msg, ch_len), QUIC_SALPN_EXT_TYPE, &ext))
     return;
   s->alpn = quic_salpn_negotiate(ext.p, ext.n);
+}
+
+/* RFC 6066 3: check the ClientHello's server_name against this driver's own
+ * leaf certificate (s->certs[0], present once quic_sdrv_init has built or
+ * taken a chain). Leaves s->sni_outcome at QUIC_SALPN_SNI_ABSENT (its
+ * quic_sdrv_init default) when there is no certificate yet to check
+ * against. Never itself rejects the ClientHello: RFC 6066 3 makes both
+ * sending unrecognized_name and silently continuing valid server behavior
+ * on a mismatch; the caller (server.c) decides using s->sni_outcome. */
+static void sdrv_check_sni(quic_sdrv* s, const u8* ch_msg, usz ch_len) {
+  quic_x509 leaf;
+  if (s->cert_count == 0) return;
+  if (!quic_x509_parse(s->certs[0], &leaf)) return;
+  s->sni_outcome = quic_salpn_sni_check(ch_msg, ch_len, leaf.tbs);
 }
 
 /* The cipher_suites vector's declared byte length n at p (2-byte length
@@ -427,6 +473,7 @@ static void sdrv_ch_take_optional(quic_sdrv* s, const u8* ch_msg, usz ch_len) {
       ch_msg, ch_len, QUIC_TP_INITIAL_MAX_STREAM_DATA_UNI,
       &s->peer_initial_max_stream_data_uni);
   sdrv_negotiate_alpn(s, ch_msg, ch_len);
+  sdrv_check_sni(s, ch_msg, ch_len);
   quic_transcript_add(&s->tr, ch_msg, ch_len);
 }
 
@@ -704,21 +751,177 @@ static int sdrv_ch_reject_dup_tp(quic_sdrv* s, const u8* ch_msg, usz ch_len) {
   return 0;
 }
 
+/* The ClientHello's extensions block as a quic_span (TLV bytes only, no
+ * outer length field), or a 0-length span if the ClientHello is malformed --
+ * "nothing to check" is left to each guard below to handle on its own terms.
+ */
+static quic_span sdrv_ch_exts(const u8* ch_msg, usz ch_len) {
+  usz body, start, end;
+  if (!sdrv_is_client_hello(ch_msg, ch_len, &body)) return quic_span_of(0, 0);
+  if (!sdrv_ch_exts_span(ch_msg + 4, body, &start, &end))
+    return quic_span_of(0, 0);
+  return quic_span_of(ch_msg + 4 + start, end - start);
+}
+
+/* RFC 8446 4.2: reject a ClientHello carrying more than one extension of the
+ * same type. Sets s->last_error (illegal_parameter, alert 47) and returns 0
+ * on a repeat; 1 otherwise (including a malformed extensions block, left for
+ * the other gates to reject on their own terms). */
+static int sdrv_ch_reject_dup_ext(quic_sdrv* s, const u8* ch_msg, usz ch_len) {
+  quic_span exts = sdrv_ch_exts(ch_msg, ch_len);
+  if (exts.n == 0 || quic_chguard_no_dup_ext(exts)) return 1;
+  s->last_error = quic_err_crypto(47);
+  return 0;
+}
+
+/* RFC 8446 4.2: reject a known extension_type this SDK recognizes elsewhere
+ * that RFC 8446 does not specify for ClientHello (see
+ * quic_chguard_ch_legal_exts's doc -- oid_filters is the sole such type).
+ * Sets s->last_error (illegal_parameter, alert 47) and returns 0 on a
+ * violation; 1 otherwise (including a malformed extensions block, left for
+ * the other gates to reject on their own terms). */
+static int sdrv_ch_reject_illegal_ext(
+    quic_sdrv* s, const u8* ch_msg, usz ch_len) {
+  quic_span exts = sdrv_ch_exts(ch_msg, ch_len);
+  if (exts.n == 0 || quic_chguard_ch_legal_exts(exts)) return 1;
+  s->last_error = quic_err_crypto(47);
+  return 0;
+}
+
+/* RFC 8446 4.1.2/4.2.1: the client's offered protocol version is decided
+ * solely from supported_versions (legacy_version and any unknown version
+ * entries are ignored); TLS 1.3 must be among the offered versions. Sets
+ * s->last_error (protocol_version, alert 70) and returns 0 if absent or
+ * TLS 1.3 is not offered. */
+static int sdrv_ch_require_version(quic_sdrv* s, const u8* ch_msg, usz ch_len) {
+  quic_span ext;
+  int       found =
+      find_client_ext(ch_msg, ch_len, QUIC_EXT_SUPPORTED_VERSIONS, &ext);
+  if (found && quic_tls_ext_versions_has_tls13(ext.p, ext.n)) return 1;
+  s->last_error = quic_err_crypto(70);
+  return 0;
+}
+
+/* RFC 8446 9.2: a ClientHello establishing a certificate-authenticated
+ * connection MUST carry both signature_algorithms and supported_groups.
+ * Sets s->last_error (missing_extension, alert 109) and returns 0 if either
+ * is absent. */
+static int sdrv_ch_require_algs(quic_sdrv* s, const u8* ch_msg, usz ch_len) {
+  quic_span sig_ext, grp_ext;
+  int       has_sig =
+      find_client_ext(ch_msg, ch_len, QUIC_EXT_SIGNATURE_ALGORITHMS, &sig_ext);
+  int has_grp =
+      find_client_ext(ch_msg, ch_len, QUIC_EXT_SUPPORTED_GROUPS, &grp_ext);
+  if (quic_chguard_require_algs(has_sig, has_grp)) return 1;
+  s->last_error = quic_err_crypto(109);
+  return 0;
+}
+
+/* RFC 8446 4.2.9/4.2.11: pre_shared_key MUST NOT be offered without a
+ * qualifying psk_key_exchange_modes (psk_dhe_ke). Sets s->last_error
+ * (missing_extension, alert 109) and returns 0 on a violation. */
+static int sdrv_ch_require_psk_modes(
+    quic_sdrv* s, const u8* ch_msg, usz ch_len) {
+  quic_span psk_ext, modes_ext;
+  int       has_psk = find_client_psk_ext(ch_msg, ch_len, &psk_ext);
+  int       modes_dhe_ke =
+      find_client_ext(ch_msg, ch_len, QUIC_TLSEXT_T_PSK_MODES, &modes_ext) &&
+      quic_tlsext_psk_modes_parse(modes_ext.p, modes_ext.n);
+  if (quic_chguard_psk_modes_ok(has_psk, modes_dhe_ke)) return 1;
+  s->last_error = quic_err_crypto(109);
+  return 0;
+}
+
+/* RFC 8446 4.2.11: pre_shared_key MUST be the last extension. Sets
+ * s->last_error (illegal_parameter, alert 47) and returns 0 on a violation;
+ * 1 when pre_shared_key is absent or is indeed the last extension. */
+/* The ClientHello's pre_shared_key TLV (header included), or a 0-length span
+ * if absent -- quic_chguard_psk_last treats that as "nothing to check". */
+static quic_span sdrv_ch_psk_ext_or_empty(const u8* ch_msg, usz ch_len) {
+  quic_span psk_ext;
+  if (find_client_psk_ext(ch_msg, ch_len, &psk_ext)) return psk_ext;
+  return quic_span_of(0, 0);
+}
+
+static int sdrv_ch_require_psk_last(
+    quic_sdrv* s, const u8* ch_msg, usz ch_len) {
+  quic_span exts    = sdrv_ch_exts(ch_msg, ch_len);
+  quic_span psk_ext = sdrv_ch_psk_ext_or_empty(ch_msg, ch_len);
+  if (exts.n == 0) return 1;
+  if (quic_chguard_psk_last(exts, psk_ext)) return 1;
+  s->last_error = quic_err_crypto(47);
+  return 0;
+}
+
+/* RFC 8446 4.4.3/4.2.3: when this handshake will authenticate with a
+ * certificate (no PSK accepted -- RFC 8446 4.2.11's PSK-only path omits
+ * Certificate/CertificateVerify entirely, see emit_hs_flight in
+ * sdrv_flight.c), the server's only CertificateVerify scheme
+ * (ecdsa_secp256r1_sha256, matching the P-256 certificate quic_sdrv always
+ * signs/presents -- emit_certverify) must be one the client actually offered
+ * in signature_algorithms. Sets s->last_error (handshake_failure, alert 40)
+ * and returns 0 if the client's list excludes it. */
+/* The client's signature_algorithms names QUIC_SIG_ECDSA_SECP256R1_SHA256 --
+ * the sub-check of sdrv_ch_require_scheme_offered split out to keep its own
+ * CCN flat. */
+static int sdrv_ch_offers_p256_scheme(const u8* ch_msg, usz ch_len) {
+  quic_span ext;
+  if (!find_client_ext(ch_msg, ch_len, QUIC_EXT_SIGNATURE_ALGORITHMS, &ext))
+    return 0;
+  return quic_tls_ext_sig_algs_has(
+      ext.p, ext.n, QUIC_SIG_ECDSA_SECP256R1_SHA256);
+}
+
+static int sdrv_ch_require_scheme_offered(
+    quic_sdrv* s, const u8* ch_msg, usz ch_len) {
+  if (s->psk_accepted || sdrv_ch_offers_p256_scheme(ch_msg, ch_len)) return 1;
+  s->last_error = quic_err_crypto(40);
+  return 0;
+}
+
+/* Negotiated, key_share taken, and PSK/scheme both settled -- the rest of
+ * quic_sdrv_recv_client_hello (split out to keep its CCN low). */
+static int sdrv_ch_after_required(quic_sdrv* s, const u8* ch_msg, usz ch_len) {
+  if (!sdrv_ch_take_psk(s, ch_msg, ch_len)) return 0;
+  if (!sdrv_ch_require_scheme_offered(s, ch_msg, ch_len)) return 0;
+  sdrv_ch_take_optional(s, ch_msg, ch_len);
+  return 1;
+}
+
 /* The extension gate passed and the required fields were taken -- the rest
  * of quic_sdrv_recv_client_hello (split out to keep its CCN low). */
 static int sdrv_ch_after_gate(quic_sdrv* s, const u8* ch_msg, usz ch_len) {
   if (!sdrv_ch_required_fields(s, ch_msg, ch_len)) return s->hrr_needed;
-  if (!sdrv_ch_take_psk(s, ch_msg, ch_len)) return 0;
-  sdrv_ch_take_optional(s, ch_msg, ch_len);
+  return sdrv_ch_after_required(s, ch_msg, ch_len);
+}
+
+/* One pre-condition check run before any field is taken from the
+ * ClientHello; each sets s->last_error and returns 0 to reject. Table-driven
+ * so quic_sdrv_recv_client_hello's own CCN stays flat as gates are added. */
+typedef int (*sdrv_ch_gate)(quic_sdrv*, const u8*, usz);
+static const sdrv_ch_gate SDRV_CH_GATES[] = {
+    sdrv_ch_require_tp_ext,    sdrv_ch_reject_dup_tp,
+    sdrv_ch_reject_dup_ext,    sdrv_ch_reject_illegal_ext,
+    sdrv_ch_require_version,   sdrv_ch_require_algs,
+    sdrv_ch_require_psk_modes, sdrv_ch_require_psk_last,
+};
+#define SDRV_CH_GATE_COUNT (sizeof(SDRV_CH_GATES) / sizeof(SDRV_CH_GATES[0]))
+
+static int sdrv_ch_run_gates(quic_sdrv* s, const u8* ch_msg, usz ch_len) {
+  for (usz i = 0; i < SDRV_CH_GATE_COUNT; i++)
+    if (!SDRV_CH_GATES[i](s, ch_msg, ch_len)) return 0;
   return 1;
 }
 
 int quic_sdrv_recv_client_hello(quic_sdrv* s, const u8* ch_msg, usz ch_len) {
   s->last_error = 0;
   s->hrr_needed = 0;
-  if (!sdrv_ch_require_tp_ext(s, ch_msg, ch_len)) return 0;
-  if (!sdrv_ch_reject_dup_tp(s, ch_msg, ch_len)) return 0;
+  if (!sdrv_ch_run_gates(s, ch_msg, ch_len)) return 0;
   return sdrv_ch_after_gate(s, ch_msg, ch_len);
+}
+
+quic_salpn_sni_outcome quic_sdrv_sni_outcome(const quic_sdrv* s) {
+  return s->sni_outcome;
 }
 
 int quic_sdrv_hrr_pending(const quic_sdrv* s) { return s->hrr_needed; }

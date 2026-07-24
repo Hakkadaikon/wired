@@ -16,6 +16,7 @@
 #include "tls/ext/stp/parse_tp.h"
 #include "tls/ext/tlsext/earlydata.h"
 #include "tls/ext/tlsext/preshared.h"
+#include "tls/ext/tlsext/pskmodes.h"
 #include "tls/ext/tparam/tparam.h"
 #include "tls/ext/tparam/tpcheck.h"
 #include "tls/handshake/core/tls/binder.h"
@@ -64,11 +65,52 @@ static usz ch_with_sid(u8* out, const u8* ch, usz ch_len, const u8 sid[32]) {
 }
 
 /* RFC 8446 4.1.3: the server echoes the client's legacy_session_id in the
- * ServerHello (legacy_session_id_echo). BoringSSL (curl/quiche) MUST-rejects a
- * mismatch with illegal_parameter, so a 32-byte session_id must round-trip. */
+ * ServerHello (legacy_session_id_echo). A compliant QUIC ClientHello's
+ * legacy_session_id is always empty (RFC 9001 8.4), so the only in-spec
+ * round-trip is echoing an empty one back. */
 static void test_sdrv_session_id_echo(void) {
   u8        cli_priv[32], cli_pub[32], srv_priv[32], srv_pub[32], cert_priv[32];
-  u8        ch[512], ch2[600], sh[256], flight[2048], srv_random[32], sid[32];
+  u8        ch[512], sh[256], flight[2048], srv_random[32];
+  usz       ch_len;
+  quic_sdrv s;
+
+  for (usz i = 0; i < 32; i++) {
+    cli_priv[i]   = (u8)(i + 1);
+    srv_priv[i]   = (u8)(0x40 + i);
+    cert_priv[i]  = (u8)(0x80 + i);
+    srv_random[i] = (u8)(0xa0 + i);
+  }
+  quic_x25519_base(cli_pub, cli_priv);
+  quic_x25519_base(srv_pub, srv_priv);
+
+  ch_len = quic_tls_client_hello(
+      &(quic_clienthello_in){
+          srv_random, cli_pub, quic_span_of(0, 0), quic_span_of(0, 0)},
+      &(quic_obuf){ch, sizeof(ch), 0});
+  CHECK(ch_len != 0);
+
+  /* TLS 1.3 native ClientHello (empty session_id) works: echo len 0. */
+  {
+    quic_sdrv_init_in din = {srv_priv, srv_pub, cert_priv, 0, 0, 0, 0, 0};
+    quic_sdrv_init(&s, &din);
+  }
+  CHECK(quic_sdrv_recv_client_hello(&s, ch, ch_len));
+  {
+    quic_obuf            sh_ob = quic_obuf_of(sh, sizeof(sh));
+    quic_obuf            fl_ob = quic_obuf_of(flight, sizeof(flight));
+    quic_sdrv_flight_out fo    = {&sh_ob, &fl_ob};
+    CHECK(quic_sdrv_build_server_flight(&s, srv_random, &fo));
+  }
+  /* ServerHello legacy_session_id_echo sits at body offset 34: len byte then
+   * the bytes. Header(4) + version(2) + random(32) = 38, len at sh[38]. */
+  CHECK(sh[38] == 0);
+}
+
+/* RFC 9001 8.4: a ClientHello carrying a non-empty legacy_session_id is a
+ * connection error of type PROTOCOL_VIOLATION. */
+static void test_sdrv_nonempty_session_id_rejected(void) {
+  u8        cli_priv[32], cli_pub[32], srv_priv[32], srv_pub[32], cert_priv[32];
+  u8        ch[512], ch2[600], srv_random[32], sid[32];
   usz       ch_len, ch2_len;
   quic_sdrv s;
 
@@ -93,32 +135,8 @@ static void test_sdrv_session_id_echo(void) {
     quic_sdrv_init_in din = {srv_priv, srv_pub, cert_priv, 0, 0, 0, 0, 0};
     quic_sdrv_init(&s, &din);
   }
-  CHECK(quic_sdrv_recv_client_hello(&s, ch2, ch2_len));
-  {
-    quic_obuf            sh_ob = quic_obuf_of(sh, sizeof(sh));
-    quic_obuf            fl_ob = quic_obuf_of(flight, sizeof(flight));
-    quic_sdrv_flight_out fo    = {&sh_ob, &fl_ob};
-    CHECK(quic_sdrv_build_server_flight(&s, srv_random, &fo));
-  }
-
-  /* ServerHello legacy_session_id_echo sits at body offset 34: len byte then
-   * the bytes. Header(4) + version(2) + random(32) = 38, len at sh[38]. */
-  CHECK(sh[38] == 32);
-  for (usz i = 0; i < 32; i++) CHECK(sh[39 + i] == sid[i]);
-
-  /* TLS 1.3 native ClientHello (empty session_id) still works: echo len 0. */
-  {
-    quic_sdrv_init_in din = {srv_priv, srv_pub, cert_priv, 0, 0, 0, 0, 0};
-    quic_sdrv_init(&s, &din);
-  }
-  CHECK(quic_sdrv_recv_client_hello(&s, ch, ch_len));
-  {
-    quic_obuf            sh_ob = quic_obuf_of(sh, sizeof(sh));
-    quic_obuf            fl_ob = quic_obuf_of(flight, sizeof(flight));
-    quic_sdrv_flight_out fo    = {&sh_ob, &fl_ob};
-    CHECK(quic_sdrv_build_server_flight(&s, srv_random, &fo));
-  }
-  CHECK(sh[38] == 0);
+  CHECK(!quic_sdrv_recv_client_hello(&s, ch2, ch2_len));
+  CHECK(quic_sdrv_last_error(&s) == QUIC_ERR_PROTOCOL_VIOLATION);
 }
 
 /* Build a ClientHello with a real x25519 key_share, sized for the caller. An
@@ -668,6 +686,13 @@ test_sdrv_recv_client_hello_no_server_initiated_stream_credit_stays_zero(void) {
 #define SDRV_TEST_KEYSHARE_TYPE_OFF 74
 #define SDRV_TEST_TP_TYPE_OFF 125
 
+/* sig_algs's own TLV sits at ch offset 62 (see SDRV_TEST_VERSIONS_TYPE_OFF's
+ * doc for the running-offset derivation). Its first 2-byte SignatureScheme
+ * entry (always ecdsa_secp256r1_sha256, quic_tls_ext_sig_algs's first write)
+ * is right past the 4-byte extension header + 2-byte list-length field, at
+ * 62 + 6 = 68. */
+#define SDRV_TEST_SIG_ALGS_FIRST_SCHEME_OFF 68
+
 /* transport_parameters is the last extension sdrv_test_client_hello[_tp]
  * appends (see SDRV_TEST_TP_TYPE_OFF's doc), so its TLV is always the final
  * header(4)+tp_len bytes of ch. Strip it -- extension_type(2)+extension_data
@@ -779,6 +804,158 @@ static u8* sdrv_test_malloc_exact(const u8* src, usz n) {
 static void sdrv_test_blot_ext_type(u8* ch, usz off) {
   ch[off]     = 0xba;
   ch[off + 1] = 0xad;
+}
+
+/* supported_versions, supported_groups, and sig_algs extension_type fields
+ * within a ClientHello built by sdrv_test_client_hello (see
+ * SDRV_TEST_KEYSHARE_TYPE_OFF's doc for the running-offset derivation: 45 is
+ * the extensions-length field, so 45+2=47 is supported_versions's own
+ * header; its TLV is 7 bytes (quic_tls_ext_supported_versions), so 47+7=54
+ * is supported_groups's header; its TLV is 8 bytes
+ * (quic_tls_ext_supported_groups), so 54+8=62 is sig_algs's header; its TLV
+ * is 12 bytes (quic_tls_ext_sig_algs), so 62+12=74 matches
+ * SDRV_TEST_KEYSHARE_TYPE_OFF exactly). */
+#define SDRV_TEST_VERSIONS_TYPE_OFF 47
+#define SDRV_TEST_GROUPS_TYPE_OFF 54
+#define SDRV_TEST_SIG_ALGS_TYPE_OFF 62
+
+/* RFC 8446 4.1.2/4.2.1 / 8446-029: the offered protocol version is decided
+ * solely from supported_versions; blotting its extension_type out (so the
+ * server sees no supported_versions at all) must be rejected, never fall
+ * back to legacy_version's 0x0303 wire value. */
+static void test_sdrv_recv_client_hello_no_supported_versions_rejected(void) {
+  u8        cli_pub[32], srv_random[32];
+  u8        ch[512];
+  usz       ch_len;
+  quic_sdrv s;
+  sdrv_dgram_test_setup(&s, cli_pub, srv_random);
+  ch_len = sdrv_test_client_hello(ch, sizeof(ch), cli_pub, srv_random);
+  CHECK(ch_len != 0);
+  sdrv_test_blot_ext_type(ch, SDRV_TEST_VERSIONS_TYPE_OFF);
+  CHECK(!quic_sdrv_recv_client_hello(&s, ch, ch_len));
+  CHECK(quic_sdrv_last_error(&s) == 0x0146); /* protocol_version, alert 70 */
+}
+
+/* RFC 8446 4.2.1: an offered version list naming only versions other than
+ * TLS 1.3 (unknown values ignored, never treated as a match) must be
+ * rejected the same way as an absent extension. */
+static void test_sdrv_recv_client_hello_non_tls13_version_rejected(void) {
+  u8        cli_pub[32], srv_random[32];
+  u8        ch[512];
+  usz       ch_len;
+  quic_sdrv s;
+  sdrv_dgram_test_setup(&s, cli_pub, srv_random);
+  ch_len = sdrv_test_client_hello(ch, sizeof(ch), cli_pub, srv_random);
+  CHECK(ch_len != 0);
+  /* The single listed version sits right after type(2)+ext_len(2)+
+   * list_len(1) = offset+5; overwrite 0x0304 (TLS 1.3) with 0x0303
+   * (TLS 1.2, RFC 8446's own registry -- an unknown/older value). */
+  ch[SDRV_TEST_VERSIONS_TYPE_OFF + 5] = 0x03;
+  ch[SDRV_TEST_VERSIONS_TYPE_OFF + 6] = 0x03;
+  CHECK(!quic_sdrv_recv_client_hello(&s, ch, ch_len));
+  CHECK(quic_sdrv_last_error(&s) == 0x0146);
+}
+
+/* RFC 8446 9.2 / 8446-030 / 8446-104: a ClientHello with no
+ * signature_algorithms extension at all must be rejected with
+ * missing_extension (alert 109), matching the existing quic_transport_
+ * parameters requirement's error code. */
+static void test_sdrv_recv_client_hello_no_sig_algs_rejected(void) {
+  u8        cli_pub[32], srv_random[32];
+  u8        ch[512];
+  usz       ch_len;
+  quic_sdrv s;
+  sdrv_dgram_test_setup(&s, cli_pub, srv_random);
+  ch_len = sdrv_test_client_hello(ch, sizeof(ch), cli_pub, srv_random);
+  CHECK(ch_len != 0);
+  sdrv_test_blot_ext_type(ch, SDRV_TEST_SIG_ALGS_TYPE_OFF);
+  CHECK(!quic_sdrv_recv_client_hello(&s, ch, ch_len));
+  CHECK(quic_sdrv_last_error(&s) == 0x016d); /* missing_extension */
+}
+
+/* RFC 8446 9.2 / 8446-104: a ClientHello with no supported_groups extension
+ * must likewise be rejected with missing_extension. */
+static void test_sdrv_recv_client_hello_no_supported_groups_rejected(void) {
+  u8        cli_pub[32], srv_random[32];
+  u8        ch[512];
+  usz       ch_len;
+  quic_sdrv s;
+  sdrv_dgram_test_setup(&s, cli_pub, srv_random);
+  ch_len = sdrv_test_client_hello(ch, sizeof(ch), cli_pub, srv_random);
+  CHECK(ch_len != 0);
+  sdrv_test_blot_ext_type(ch, SDRV_TEST_GROUPS_TYPE_OFF);
+  CHECK(!quic_sdrv_recv_client_hello(&s, ch, ch_len));
+  CHECK(quic_sdrv_last_error(&s) == 0x016d);
+}
+
+/* RFC 8446 4.4.3 / 8446-031: the server's only CertificateVerify scheme
+ * (ecdsa_secp256r1_sha256) must be one the client actually offered; a
+ * ClientHello whose signature_algorithms excludes it is rejected with
+ * handshake_failure (alert 40), never silently signed anyway. */
+static void test_sdrv_recv_client_hello_scheme_not_offered_rejected(void) {
+  u8        cli_pub[32], srv_random[32];
+  u8        ch[512];
+  usz       ch_len;
+  quic_sdrv s;
+  sdrv_dgram_test_setup(&s, cli_pub, srv_random);
+  ch_len = sdrv_test_client_hello(ch, sizeof(ch), cli_pub, srv_random);
+  CHECK(ch_len != 0);
+  /* Overwrite the first (ecdsa_secp256r1_sha256) entry with rsa_pkcs1_sha256
+   * (0x0401, RFC 8446's own registry) -- still a real registered scheme, so
+   * this exercises "offered but not this one", not a malformed list. */
+  ch[SDRV_TEST_SIG_ALGS_FIRST_SCHEME_OFF]     = 0x04;
+  ch[SDRV_TEST_SIG_ALGS_FIRST_SCHEME_OFF + 1] = 0x01;
+  CHECK(!quic_sdrv_recv_client_hello(&s, ch, ch_len));
+  CHECK(quic_sdrv_last_error(&s) == 0x0128); /* handshake_failure, alert 40 */
+}
+
+/* RFC 8446 4.2: a ClientHello carrying two supported_groups extensions (same
+ * extension_type twice) must be rejected with illegal_parameter (alert 47).
+ */
+static void test_sdrv_recv_client_hello_dup_ext_rejected(void) {
+  u8        cli_pub[32], srv_random[32];
+  u8        ch[600];
+  usz       ch_len, exts_len;
+  quic_sdrv s;
+  u8        dup[8];
+  usz       dup_len;
+  sdrv_dgram_test_setup(&s, cli_pub, srv_random);
+  ch_len = sdrv_test_client_hello(ch, sizeof(ch), cli_pub, srv_random);
+  CHECK(ch_len != 0);
+  dup_len = quic_tls_ext_supported_groups(dup, sizeof(dup));
+  CHECK(dup_len != 0);
+  exts_len =
+      (usz)ch[SDRV_TEST_EXTS_LEN_OFF] << 8 | ch[SDRV_TEST_EXTS_LEN_OFF + 1];
+  for (usz i = 0; i < dup_len; i++) ch[ch_len + i] = dup[i];
+  quic_put_be16(ch + SDRV_TEST_EXTS_LEN_OFF, (u16)(exts_len + dup_len));
+  quic_hs_finish(ch, ch_len + dup_len);
+  ch_len += dup_len;
+  CHECK(!quic_sdrv_recv_client_hello(&s, ch, ch_len));
+  CHECK(quic_sdrv_last_error(&s) == 0x012f); /* illegal_parameter */
+}
+
+/* RFC 8446 4.2 / 8446-027: a known extension_type that RFC 8446 does not
+ * specify for ClientHello (oid_filters, 48 -- CertificateRequest only) must
+ * be rejected with illegal_parameter (alert 47) if it appears in one. */
+static void test_sdrv_recv_client_hello_oid_filters_rejected(void) {
+  u8        cli_pub[32], srv_random[32];
+  u8        ch[600];
+  usz       ch_len, exts_len;
+  quic_sdrv s;
+  u8        oid_filters_ext[6] = {0x00, 0x30, 0x00, 0x02, 0xab, 0xcd};
+  sdrv_dgram_test_setup(&s, cli_pub, srv_random);
+  ch_len = sdrv_test_client_hello(ch, sizeof(ch), cli_pub, srv_random);
+  CHECK(ch_len != 0);
+  exts_len =
+      (usz)ch[SDRV_TEST_EXTS_LEN_OFF] << 8 | ch[SDRV_TEST_EXTS_LEN_OFF + 1];
+  for (usz i = 0; i < sizeof(oid_filters_ext); i++)
+    ch[ch_len + i] = oid_filters_ext[i];
+  quic_put_be16(
+      ch + SDRV_TEST_EXTS_LEN_OFF, (u16)(exts_len + sizeof(oid_filters_ext)));
+  quic_hs_finish(ch, ch_len + sizeof(oid_filters_ext));
+  ch_len += sizeof(oid_filters_ext);
+  CHECK(!quic_sdrv_recv_client_hello(&s, ch, ch_len));
+  CHECK(quic_sdrv_last_error(&s) == 0x012f); /* illegal_parameter */
 }
 
 /* A ClientHello whose self-reported extensions length claims far more bytes
@@ -1176,11 +1353,13 @@ static void test_sdrv_retry_advertises_true_odcid_not_key_derivation_dcid(
  * binder) to the tail of a ClientHello previously built by
  * sdrv_test_client_hello (which has a fixed extensions layout: no session_id,
  * one cipher suite -- see put_prefix), and patch both the extensions-length
- * field and the handshake-message length. pre_shared_key MUST be the last
- * extension, so this is a pure append, no splice. Returns the new total
+ * field and the handshake-message length. RFC 8446 4.2.9: pre_shared_key
+ * requires a qualifying psk_key_exchange_modes, so that extension is written
+ * first, immediately followed by pre_shared_key so pre_shared_key stays the
+ * last extension (4.2.11) -- a pure append, no splice. Returns the new total
  * length, or 0 if out is too small. Also sets *psk_ext_off to the
- * extension's own TLV offset within out (header included) -- tests need this
- * to independently recompute the binder truncation point. */
+ * pre_shared_key TLV's own offset within out (header included) -- tests need
+ * this to independently recompute the binder truncation point. */
 static usz sdrv_test_append_psk(
     u8*                       out,
     usz                       out_cap,
@@ -1194,24 +1373,28 @@ static usz sdrv_test_append_psk(
    * offset 41) plus the 4-byte handshake header. */
   usz       exts_len_off = 45;
   usz       old_exts_len;
-  u8        scratch[128];
+  u8        modes[8], scratch[128];
+  usz       modes_len;
   quic_obuf eob = quic_obuf_of(scratch, sizeof(scratch));
+  if (!quic_tlsext_psk_modes(modes, sizeof(modes), &modes_len)) return 0;
   if (!quic_tlsext_pre_shared_key(psk, &eob)) return 0;
-  if (ch_len + eob.len > out_cap) return 0;
+  if (ch_len + modes_len + eob.len > out_cap) return 0;
   for (usz i = 0; i < ch_len; i++) out[i] = ch[i];
   old_exts_len = (usz)out[exts_len_off] << 8 | out[exts_len_off + 1];
-  *psk_ext_off = ch_len;
-  for (usz i = 0; i < eob.len; i++) out[ch_len + i] = scratch[i];
-  quic_put_be16(out + exts_len_off, (u16)(old_exts_len + eob.len));
-  quic_hs_finish(out, ch_len + eob.len);
-  return ch_len + eob.len;
+  for (usz i = 0; i < modes_len; i++) out[ch_len + i] = modes[i];
+  *psk_ext_off = ch_len + modes_len;
+  for (usz i = 0; i < eob.len; i++) out[ch_len + modes_len + i] = scratch[i];
+  quic_put_be16(out + exts_len_off, (u16)(old_exts_len + modes_len + eob.len));
+  quic_hs_finish(out, ch_len + modes_len + eob.len);
+  return ch_len + modes_len + eob.len;
 }
 
-/* RFC 8446 4.2.10/4.2.11: append the empty early_data extension (0x002a)
- * followed by a pre_shared_key extension (single identity, single binder) --
- * pre_shared_key MUST stay the last extension (4.2.11), so early_data goes
- * first. Same offset accounting as sdrv_test_append_psk; *psk_ext_off is set
- * to the pre_shared_key TLV's own offset (after early_data), matching what
+/* RFC 8446 4.2.10/4.2.11: append the empty early_data extension (0x002a) and
+ * psk_key_exchange_modes (4.2.9, required by pre_shared_key) followed by a
+ * pre_shared_key extension (single identity, single binder) -- pre_shared_key
+ * MUST stay the last extension (4.2.11), so the other two go first. Same
+ * offset accounting as sdrv_test_append_psk; *psk_ext_off is set to the
+ * pre_shared_key TLV's own offset (after early_data+modes), matching what
  * sdrv_test_psk_truncate_len expects. */
 static usz sdrv_test_append_early_data_then_psk(
     u8*                       out,
@@ -1222,21 +1405,27 @@ static usz sdrv_test_append_early_data_then_psk(
     usz*                      psk_ext_off) {
   usz       exts_len_off = 45;
   usz       old_exts_len;
-  u8        ed[4];
-  usz       ed_len;
+  u8        ed[4], modes[8];
+  usz       ed_len, modes_len;
   u8        scratch[128];
-  quic_obuf eob = quic_obuf_of(scratch, sizeof(scratch));
+  quic_obuf eob  = quic_obuf_of(scratch, sizeof(scratch));
+  usz       head = ch_len;
   if (!quic_tlsext_early_data_ch(ed, sizeof(ed), &ed_len)) return 0;
+  if (!quic_tlsext_psk_modes(modes, sizeof(modes), &modes_len)) return 0;
   if (!quic_tlsext_pre_shared_key(psk, &eob)) return 0;
-  if (ch_len + ed_len + eob.len > out_cap) return 0;
+  if (ch_len + ed_len + modes_len + eob.len > out_cap) return 0;
   for (usz i = 0; i < ch_len; i++) out[i] = ch[i];
   old_exts_len = (usz)out[exts_len_off] << 8 | out[exts_len_off + 1];
-  for (usz i = 0; i < ed_len; i++) out[ch_len + i] = ed[i];
-  *psk_ext_off = ch_len + ed_len;
-  for (usz i = 0; i < eob.len; i++) out[ch_len + ed_len + i] = scratch[i];
-  quic_put_be16(out + exts_len_off, (u16)(old_exts_len + ed_len + eob.len));
-  quic_hs_finish(out, ch_len + ed_len + eob.len);
-  return ch_len + ed_len + eob.len;
+  for (usz i = 0; i < ed_len; i++) out[head + i] = ed[i];
+  head += ed_len;
+  for (usz i = 0; i < modes_len; i++) out[head + i] = modes[i];
+  head += modes_len;
+  *psk_ext_off = head;
+  for (usz i = 0; i < eob.len; i++) out[head + i] = scratch[i];
+  quic_put_be16(
+      out + exts_len_off, (u16)(old_exts_len + ed_len + modes_len + eob.len));
+  quic_hs_finish(out, head + eob.len);
+  return head + eob.len;
 }
 
 /* RFC 8446 4.2.11.2: the truncation point (right before the binders_len
@@ -1386,6 +1575,125 @@ static void test_sdrv_psk_valid_ticket_and_binder_accepted(void) {
   fl_ob = quic_obuf_of(flight, sizeof(flight));
   fo    = (quic_sdrv_flight_out){&sh_ob, &fl_ob};
   CHECK(quic_sdrv_build_server_flight(&s, f.srv_random, &fo));
+}
+
+/* RFC 8446 4.2.9/4.2.11 / 8446-040: pre_shared_key offered WITHOUT a
+ * psk_key_exchange_modes extension must be rejected with missing_extension
+ * (alert 109) -- append pre_shared_key directly (bypassing
+ * sdrv_test_append_psk's psk_key_exchange_modes prefix) to build exactly
+ * that ClientHello. */
+static usz sdrv_test_append_psk_no_modes(
+    u8*                       out,
+    usz                       out_cap,
+    const u8*                 ch,
+    usz                       ch_len,
+    const quic_tlsext_psk_in* psk) {
+  usz       exts_len_off = SDRV_TEST_EXTS_LEN_OFF;
+  usz       old_exts_len;
+  u8        scratch[128];
+  quic_obuf eob = quic_obuf_of(scratch, sizeof(scratch));
+  if (!quic_tlsext_pre_shared_key(psk, &eob)) return 0;
+  if (ch_len + eob.len > out_cap) return 0;
+  for (usz i = 0; i < ch_len; i++) out[i] = ch[i];
+  old_exts_len = (usz)out[exts_len_off] << 8 | out[exts_len_off + 1];
+  for (usz i = 0; i < eob.len; i++) out[ch_len + i] = scratch[i];
+  quic_put_be16(out + exts_len_off, (u16)(old_exts_len + eob.len));
+  quic_hs_finish(out, ch_len + eob.len);
+  return ch_len + eob.len;
+}
+
+static void test_sdrv_psk_without_modes_rejected(void) {
+  sdrv_psk_fixture   f;
+  quic_sdrv          s;
+  u8                 srv_priv[32], srv_pub[32], cert_priv[32];
+  u8                 ch2[700];
+  u8                 binder[QUIC_HKDF_PRK] = {0};
+  usz                ch2_len;
+  quic_tlsext_psk_in psk;
+  sdrv_psk_fixture_init(&f);
+  for (usz i = 0; i < 32; i++) {
+    srv_priv[i]  = (u8)(0x40 + i);
+    cert_priv[i] = (u8)(0x80 + i);
+  }
+  quic_x25519_base(srv_pub, srv_priv);
+  psk = (quic_tlsext_psk_in){
+      quic_span_of(f.sealed, sizeof(f.sealed)), 0,
+      quic_span_of(binder, sizeof(binder))};
+  ch2_len =
+      sdrv_test_append_psk_no_modes(ch2, sizeof(ch2), f.ch, f.ch_len, &psk);
+  CHECK(ch2_len != 0);
+  {
+    quic_sdrv_init_in in = {srv_priv, srv_pub, cert_priv, 0,
+                            0,        0,       0,         f.ticket_key};
+    quic_sdrv_init(&s, &in);
+  }
+  CHECK(!quic_sdrv_recv_client_hello(&s, ch2, ch2_len));
+  CHECK(quic_sdrv_last_error(&s) == 0x016d); /* missing_extension */
+}
+
+/* RFC 8446 4.2.11 / 8446-052: pre_shared_key MUST be the last extension --
+ * a ClientHello with a real extension (ALPN, re-appended) AFTER
+ * pre_shared_key must be rejected with illegal_parameter (alert 47), even
+ * though the offer itself (binder, psk_key_exchange_modes) is otherwise
+ * well-formed. */
+static void test_sdrv_psk_not_last_rejected(void) {
+  sdrv_psk_fixture f;
+  quic_sdrv        s;
+  u8               srv_priv[32], srv_pub[32], cert_priv[32];
+  u8               ch2[700];
+  u8               binder[QUIC_HKDF_PRK];
+  usz              ch2_len, psk_ext_off, trunc_len;
+  u8               trailer[16];
+  usz              trailer_len;
+  usz              exts_len;
+  sdrv_psk_fixture_init(&f);
+  for (usz i = 0; i < 32; i++) {
+    srv_priv[i]  = (u8)(0x40 + i);
+    cert_priv[i] = (u8)(0x80 + i);
+  }
+  quic_x25519_base(srv_pub, srv_priv);
+  {
+    u8                 zero_binder[QUIC_HKDF_PRK] = {0};
+    quic_tlsext_psk_in psk                        = {
+        quic_span_of(f.sealed, sizeof(f.sealed)), 0,
+        quic_span_of(zero_binder, sizeof(zero_binder))};
+    ch2_len = sdrv_test_append_psk(
+        ch2, sizeof(ch2), f.ch, f.ch_len, &psk, &psk_ext_off);
+    CHECK(ch2_len != 0);
+  }
+  trunc_len = sdrv_test_psk_truncate_len(psk_ext_off, sizeof(f.sealed));
+  quic_tls_binder_compute(f.psk, quic_span_of(ch2, trunc_len), binder);
+  {
+    quic_tlsext_psk_in psk = {
+        quic_span_of(f.sealed, sizeof(f.sealed)), 0,
+        quic_span_of(binder, sizeof(binder))};
+    ch2_len = sdrv_test_append_psk(
+        ch2, sizeof(ch2), f.ch, f.ch_len, &psk, &psk_ext_off);
+    CHECK(ch2_len != 0);
+  }
+  /* Append a second, real cookie-shaped extension (RFC 8446 4.2.2, type 44)
+   * after pre_shared_key -- any real TLV after it violates 4.2.11. */
+  trailer[0]  = 0x00;
+  trailer[1]  = 0x2c; /* extension_type: cookie */
+  trailer[2]  = 0x00;
+  trailer[3]  = 0x02; /* ext_data length */
+  trailer[4]  = 0xab;
+  trailer[5]  = 0xcd;
+  trailer_len = 6;
+  exts_len =
+      (usz)ch2[SDRV_TEST_EXTS_LEN_OFF] << 8 | ch2[SDRV_TEST_EXTS_LEN_OFF + 1];
+  for (usz i = 0; i < trailer_len; i++) ch2[ch2_len + i] = trailer[i];
+  quic_put_be16(ch2 + SDRV_TEST_EXTS_LEN_OFF, (u16)(exts_len + trailer_len));
+  quic_hs_finish(ch2, ch2_len + trailer_len);
+  ch2_len += trailer_len;
+
+  {
+    quic_sdrv_init_in in = {srv_priv, srv_pub, cert_priv, 0,
+                            0,        0,       0,         f.ticket_key};
+    quic_sdrv_init(&s, &in);
+  }
+  CHECK(!quic_sdrv_recv_client_hello(&s, ch2, ch2_len));
+  CHECK(quic_sdrv_last_error(&s) == 0x012f); /* illegal_parameter */
 }
 
 /* Build a ClientHello carrying early_data + pre_shared_key (a real binder
@@ -1664,6 +1972,55 @@ static void test_sdrv_psk_tampered_transcript_aborts(void) {
   CHECK(!quic_sdrv_recv_client_hello(&s, ch2, ch2_len));
 }
 
+/* RFC 6066 3: quic_sdrv_recv_client_hello checks a ClientHello's server_name
+ * against the driver's own certificate. In self-signed mode the generated
+ * certificate's dNSName SAN is "localhost" (quic_p256cert_tbs). */
+static void sdrv_test_sni_outcome(quic_span sni, quic_salpn_sni_outcome want) {
+  u8        cli_priv[32], cli_pub[32], srv_priv[32], srv_pub[32], cert_priv[32];
+  u8        ch[512], srv_random[32];
+  usz       ch_len;
+  quic_sdrv s;
+  for (usz i = 0; i < 32; i++) {
+    cli_priv[i]   = (u8)(i + 1);
+    srv_priv[i]   = (u8)(0x40 + i);
+    cert_priv[i]  = (u8)(0x80 + i);
+    srv_random[i] = (u8)(0xa0 + i);
+  }
+  quic_x25519_base(cli_pub, cli_priv);
+  quic_x25519_base(srv_pub, srv_priv);
+  ch_len = quic_tls_client_hello(
+      &(quic_clienthello_in){srv_random, cli_pub, sni, quic_span_of(0, 0)},
+      &(quic_obuf){ch, sizeof(ch), 0});
+  CHECK(ch_len != 0);
+  {
+    quic_sdrv_init_in din = {srv_priv, srv_pub, cert_priv, 0, 0, 0, 0, 0};
+    quic_sdrv_init(&s, &din);
+  }
+  CHECK(quic_sdrv_recv_client_hello(&s, ch, ch_len));
+  CHECK(quic_sdrv_sni_outcome(&s) == want);
+}
+
+/* No server_name offered -> ABSENT. */
+static void test_sdrv_sni_absent(void) {
+  sdrv_test_sni_outcome(quic_span_of(0, 0), QUIC_SALPN_SNI_ABSENT);
+}
+
+/* server_name matches the self-signed certificate's "localhost" SAN. */
+static void test_sdrv_sni_match(void) {
+  const u8 host[] = "localhost";
+  sdrv_test_sni_outcome(
+      quic_span_of(host, sizeof(host) - 1), QUIC_SALPN_SNI_MATCH);
+}
+
+/* server_name names a host the certificate does not cover. RFC 6066 3: this
+ * SDK's policy is to continue the handshake regardless (recv_client_hello
+ * still succeeds); the mismatch is only recorded for the caller to act on. */
+static void test_sdrv_sni_mismatch(void) {
+  const u8 host[] = "unrelated.example";
+  sdrv_test_sni_outcome(
+      quic_span_of(host, sizeof(host) - 1), QUIC_SALPN_SNI_MISMATCH);
+}
+
 void test_sdrv(void) {
   test_sdrv_keyshare_walk_rejects_overclaimed_exts_len();
   test_sdrv_tp_walk_rejects_overclaimed_exts_len();
@@ -1675,6 +2032,13 @@ void test_sdrv(void) {
   test_sdrv_recv_client_hello_tp_ext_present_ok();
   test_sdrv_recv_client_hello_missing_tp_ext_rejected();
   test_sdrv_recv_client_hello_dup_tp_rejected();
+  test_sdrv_recv_client_hello_no_supported_versions_rejected();
+  test_sdrv_recv_client_hello_non_tls13_version_rejected();
+  test_sdrv_recv_client_hello_no_sig_algs_rejected();
+  test_sdrv_recv_client_hello_no_supported_groups_rejected();
+  test_sdrv_recv_client_hello_scheme_not_offered_rejected();
+  test_sdrv_recv_client_hello_dup_ext_rejected();
+  test_sdrv_recv_client_hello_oid_filters_rejected();
   test_sdrv_recv_client_hello_stores_peer_initial_max_data();
   test_sdrv_recv_client_hello_no_initial_max_data_stays_zero();
   test_sdrv_recv_client_hello_stores_peer_initial_max_stream_data_bidi_local();
@@ -1683,6 +2047,7 @@ void test_sdrv(void) {
   test_sdrv_recv_client_hello_stores_peer_initial_max_stream_data_uni();
   test_sdrv_recv_client_hello_no_server_initiated_stream_credit_stays_zero();
   test_sdrv_session_id_echo();
+  test_sdrv_nonempty_session_id_rejected();
   test_sdrv_external_chain();
   test_sdrv_external_chain_wrong_key();
   test_sdrv_chain_overflow();
@@ -1696,12 +2061,17 @@ void test_sdrv(void) {
   test_sdrv_retry_advertises_true_odcid_not_key_derivation_dcid();
   test_sdrv_psk_absent_leaves_full_handshake_unchanged();
   test_sdrv_psk_valid_ticket_and_binder_accepted();
+  test_sdrv_psk_without_modes_rejected();
+  test_sdrv_psk_not_last_rejected();
   test_sdrv_psk_ticket_open_fails_falls_back();
   test_sdrv_psk_binder_mismatch_aborts();
   test_sdrv_psk_tampered_transcript_aborts();
   test_sdrv_early_data_accepted_derives_keys();
   test_sdrv_psk_without_early_data_no_0rtt();
   test_sdrv_early_data_replay_rejected();
+  test_sdrv_sni_absent();
+  test_sdrv_sni_match();
+  test_sdrv_sni_mismatch();
 
   u8 cli_priv[32], cli_pub[32], srv_priv[32], srv_pub[32];
   u8 cert_priv[32];

@@ -4,6 +4,7 @@
 #include "common/bytes/span/span.h"
 #include "crypto/kdf/hkdf/hkdf.h"
 #include "tls/ext/salpn/negotiate.h"
+#include "tls/ext/salpn/sni_check.h"
 #include "tls/ext/stp/server_tp.h"
 #include "tls/handshake/core/tls/cert.h"
 #include "tls/handshake/core/tls/initial.h"
@@ -149,6 +150,15 @@ typedef struct {
    * so quic_sdrv_build_hrr can fold the message_hash synthetic message into
    * the transcript without keeping ClientHello1's raw bytes around. */
   u8 ch1_hash[32];
+  /** RFC 6066 3: the ClientHello's server_name extension checked against
+   * this driver's own certificate (quic_salpn_sni_check), set by
+   * quic_sdrv_recv_client_hello. QUIC_SALPN_SNI_ABSENT when the client sent
+   * no server_name (or it was malformed); this SDK's policy is to continue
+   * the handshake in every case (RFC 6066 3 leaves both a mismatch alert and
+   * silently continuing as valid server behavior) -- the field is exposed so
+   * a caller (server.c) MAY choose to send unrecognized_name
+   * (QUIC_TLS_ALERT_UNRECOGNIZED_NAME) on QUIC_SALPN_SNI_MISMATCH instead. */
+  quic_salpn_sni_outcome sni_outcome;
 } quic_sdrv;
 
 /** Inputs to quic_sdrv_init.
@@ -246,6 +256,18 @@ int quic_sdrv_set_retry_scid(quic_sdrv* s, quic_span rscid);
  *   quic_transport_parameters extension, or a presented PSK binder fails
  *   verification. */
 int quic_sdrv_recv_client_hello(quic_sdrv* s, const u8* ch_msg, usz ch_len);
+
+/** RFC 6066 3: the outcome of checking the last ClientHello's server_name
+ * against this driver's own certificate (set by quic_sdrv_recv_client_hello
+ * via quic_salpn_sni_check). QUIC_SALPN_SNI_ABSENT if the client sent no
+ * server_name (or it was malformed) or no certificate was available yet to
+ * check against. A QUIC_SALPN_SNI_MISMATCH never fails the handshake on its
+ * own (RFC 6066 3 permits continuing); a caller that wants to enforce
+ * unrecognized_name checks this and closes with
+ * quic_err_crypto(QUIC_TLS_ALERT_UNRECOGNIZED_NAME) itself.
+ * @param s driver state
+ * @return the last checked SNI outcome. */
+quic_salpn_sni_outcome quic_sdrv_sni_outcome(const quic_sdrv* s);
 
 /** RFC 8446 4.1.4: 1 when the last quic_sdrv_recv_client_hello call found no
  * x25519 key_share and a HelloRetryRequest must be sent before anything

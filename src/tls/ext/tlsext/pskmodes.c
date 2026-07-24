@@ -2,8 +2,6 @@
 
 #include "common/bytes/util/be.h"
 
-#define QUIC_TLSEXT_T_PSK_MODES 0x002d
-
 /* RFC 8446 4.2.9: type(2) + ext_data len(2) + list len(1) + 1 mode = 6. */
 int quic_tlsext_psk_modes(u8* out, usz cap, usz* out_len) {
   if (cap < 6) return 0;
