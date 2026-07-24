@@ -1,5 +1,7 @@
 #include "crypto/symmetric/hash/hash/hmac.h"
 
+#include "common/bytes/util/bytes.h"
+
 /* Copy a short key (<= block) into the zero-filled block. */
 static void short_key(quic_span key, u8 kb[QUIC_SHA256_BLOCK]) {
   for (usz i = 0; i < QUIC_SHA256_BLOCK; i++) kb[i] = 0;
@@ -46,4 +48,15 @@ void quic_hmac_sha256(
   feed_pad(&s, kb, 0x5c); /* outer: K^opad */
   quic_sha256_update(&s, inner, QUIC_SHA256_DIGEST);
   quic_sha256_final(&s, out);
+}
+
+/* FIPS 198-1 5, "Truncation of HMAC Output": MAC = leftmost Tlen bytes of
+ * HMAC(K, text). Clamp out_len so a caller error cannot read past the
+ * 32-byte digest computed on the stack. */
+void quic_hmac_sha256_truncated(
+    quic_span key, quic_span msg, u8* out, usz out_len) {
+  u8  full[QUIC_SHA256_DIGEST];
+  usz n = out_len < QUIC_SHA256_DIGEST ? out_len : QUIC_SHA256_DIGEST;
+  quic_hmac_sha256(key, msg, full);
+  quic_memcpy(out, full, n);
 }
