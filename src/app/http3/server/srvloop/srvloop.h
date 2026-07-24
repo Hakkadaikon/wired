@@ -1,6 +1,7 @@
 #ifndef WIRED_SRVLOOP_SRVLOOP_H
 #define WIRED_SRVLOOP_SRVLOOP_H
 
+#include "app/http3/core/h3/control.h"
 #include "app/http3/core/h3/priority.h"
 #include "app/http3/request/h3reqdrive/request_drive.h"
 #include "app/http3/server/h3srv/state.h"
@@ -236,6 +237,13 @@ typedef struct {
    * here rather than re-derived so the association happens exactly once per
    * stream regardless of how many steps its data arrives across. */
   int offered;
+  /** The session slot index (srvrun.c's wt/wt1, see SRVRUN_MAX_WT_SESSIONS)
+   * this stream was offered to, valid only once offered is set; -1 while
+   * unoffered. Recorded so a session's own close (srvrun_close_wt_on_stream_
+   * close) can find exactly the streams it owns among possibly several open
+   * sessions on the same connection, rather than every wt_streams[] entry
+   * regardless of which session claimed it. */
+  int wt_session_slot;
   /** how much of the stream (in win.base + win.frontier terms, i.e. an
    * absolute offset) the caller driving the loop (srvrun.c) has already
    * delivered to an app-facing stream-data callback; the loop itself never
@@ -287,6 +295,9 @@ typedef struct {
   /** 1 once wired_wt_session_offer_stream has been called for this slot's
    * stream_id, mirroring wired_srvloop_wt_stream_slot's offered field. */
   int offered;
+  /** The session slot index this stream was offered to, mirroring
+   * wired_srvloop_wt_stream_slot's wt_session_slot field (see its doc). */
+  int wt_session_slot;
   /** how much of the stream (absolute offset) has already been delivered to
    * an app-facing stream-data callback, mirroring wired_srvloop_wt_stream_
    * slot's delivered_len field (see its doc for the ownership split). */
@@ -545,6 +556,12 @@ typedef struct {
    * see wired_srvloop_ctrl_stream's own doc. Not reset across steps by this
    * loop itself (mirrors the streams[] reassembly convention). */
   wired_srvloop_ctrl_stream ctrl;
+  /** RFC 9114 7.2.4 / draft-ietf-webtrans-http3-15 SS3.1 (WTH3-009/042): the
+   * client control stream's own SETTINGS-ordering state, latched as each
+   * control-stream frame is walked (priority_ctrl.c's ctrl_note_generic) --
+   * peer_ctrl.settings_seen is 1 once the client's SETTINGS has actually
+   * arrived, gating WebTransport CONNECT dispatch (srvrun.c) until it has. */
+  quic_h3_control peer_ctrl;
   /** RFC 9218 7.1 / RFC 9114 8.1: the H3 connection error code of the most
    * recent rejected PRIORITY_UPDATE this step (H3_FRAME_UNEXPECTED /
    * H3_ID_ERROR), 0 when none was rejected. Mirrors datagram_violation's

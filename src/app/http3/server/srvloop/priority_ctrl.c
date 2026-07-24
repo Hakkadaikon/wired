@@ -1,5 +1,6 @@
 #include "app/http3/server/srvloop/priority_ctrl.h"
 
+#include "app/http3/core/h3/control.h"
 #include "app/http3/core/h3/frame.h"
 #include "app/http3/core/h3/priupdate.h"
 #include "app/http3/core/h3/stream_type.h"
@@ -92,18 +93,35 @@ static void ctrl_apply_priupdate(wired_srvloop* l, const quic_h3_priupdate* f) {
   wired_srvloop_priority_apply(l, f->element_id, &p);
 }
 
+/* RFC 9114 7.2.4: latch one control-stream frame's SETTINGS-ordering state
+ * into l->peer_ctrl -- whether the client's SETTINGS has been seen yet
+ * (WTH3-009/042: WebTransport dispatch gates newly incoming requests on
+ * this). Every control-stream frame updates this, not just SETTINGS, since a
+ * MISSING_SETTINGS violation requires seeing that the FIRST frame was
+ * something else -- including a PRIORITY_UPDATE, which is why ctrl_walk_one
+ * below calls this from both branches, not only its generic-frame
+ * fallback. */
+static void ctrl_note_frame(wired_srvloop* l, int is_settings) {
+  quic_h3_control_frame(&l->peer_ctrl, is_settings);
+}
+
 /* Decode the H3 frame at l->ctrl.buf[l->ctrl.parsed..len) and act on it if it
  * is a PRIORITY_UPDATE (either variant); any other frame type is walked past
- * unexamined. Returns bytes consumed, or 0 if the next frame is not yet
- * fully buffered (the caller stops walking until more bytes arrive). */
+ * unexamined. Either way, its type also latches SETTINGS-ordering state
+ * (ctrl_note_frame). Returns bytes consumed, or 0 if the next frame is not
+ * yet fully buffered (the caller stops walking until more bytes arrive). */
 static usz ctrl_walk_one(wired_srvloop* l, quic_span avail) {
-  quic_h3_priupdate f = {0};
-  usz               n = quic_h3_priupdate_get(avail, &f);
+  quic_h3_priupdate f  = {0};
+  quic_h3_frame     gf = {0};
+  usz               n  = quic_h3_priupdate_get(avail, &f);
   if (n) {
     ctrl_apply_priupdate(l, &f);
+    ctrl_note_frame(l, 0); /* PRIORITY_UPDATE is never SETTINGS */
     return n;
   }
-  return quic_h3_frame_get(avail, &(quic_h3_frame){0});
+  n = quic_h3_frame_get(avail, &gf);
+  if (n) ctrl_note_frame(l, gf.type == QUIC_H3_FRAME_SETTINGS);
+  return n;
 }
 
 /* RFC 9114 7.2: walk every complete HTTP/3 frame newly available in l->ctrl

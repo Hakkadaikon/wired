@@ -684,15 +684,26 @@ static usz sdt_build_connect(u8* out, usz cap) {
   return hob.len;
 }
 
-/* Seal payload as a STREAM(0, offset 0, fin=0) 1-RTT packet under CLIENT_AP
- * (mirrors srvloop_test.c's client_seal_onertt shape, but keyed from our own
- * independently-derived schedule instead of peeking at wired_server's). */
-static usz sdt_seal_stream0(
-    struct sdt_client* cx, const u8* payload, usz plen, u8* out, usz cap) {
+/* Seal payload as a STREAM(stream_id, offset 0, fin=0) 1-RTT packet under
+ * CLIENT_AP, at packet number pn (mirrors srvloop_test.c's client_seal_onertt
+ * shape, but keyed from our own independently-derived schedule instead of
+ * peeking at wired_server's). Generalized over stream_id/pn so the same
+ * helper seals both our Extended CONNECT (stream 0) and our own client
+ * control stream's SETTINGS (stream 2, RFC 9114 6.2.1) -- each needs its own
+ * packet number (RFC 9000 12.3: strictly increasing per space). */
+static usz sdt_seal_stream(
+    struct sdt_client* cx,
+    u64                stream_id,
+    u64                pn,
+    const u8*          payload,
+    usz                plen,
+    u8*                out,
+    usz                cap) {
   const quic_initial_keys* k;
   quic_aes128              hp;
   quic_appdata_tx          tx = {
-      quic_span_of(g_sdt_cli_scid, 6), 0, 0, quic_span_of(payload, plen), 0};
+      quic_span_of(g_sdt_cli_scid, 6), pn, stream_id,
+      quic_span_of(payload, plen), 0};
   quic_obuf ob = quic_obuf_of(out, cap);
   if (!quic_keysched_get(&cx->c.tls.ks, QUIC_KS_CLIENT_AP, &k)) return 0;
   quic_aes128_init(&hp, k->hp);
@@ -703,13 +714,39 @@ static usz sdt_seal_stream0(
   return ob.len;
 }
 
+/* draft-ietf-webtrans-http3-15 3.1 (WTH3-009/042): the server must not
+ * process an incoming WebTransport CONNECT until our own SETTINGS has
+ * arrived, so a real client's control stream must open and send it first.
+ * Client uni stream id 2 (RFC 9000 2.1 low bits 10), leading 0x00 control
+ * type varint (RFC 9114 6.2.1) then an (empty) SETTINGS frame -- this test
+ * only needs the ordering signal, not any particular SETTINGS value. Sent at
+ * packet number 0, ahead of the CONNECT's own pn 1. */
+static int sdt_send_client_settings(struct sdt_client* cx) {
+  u8        stream_bytes[9], settings_frame[8], pkt[256];
+  quic_obuf fob = quic_obuf_of(settings_frame, sizeof settings_frame);
+  usz       plen, flen;
+  if (!quic_h3_frame_put(
+          &fob, QUIC_H3_FRAME_SETTINGS, quic_span_of((const u8*)"", 0)))
+    return 0;
+  stream_bytes[0] = 0x00; /* control stream type varint */
+  flen            = 1;
+  for (usz i = 0; i < fob.len; i++) stream_bytes[flen + i] = settings_frame[i];
+  flen += fob.len;
+  plen = sdt_seal_stream(cx, 2, 0, stream_bytes, flen, pkt, sizeof pkt);
+  if (plen == 0) return 0;
+  return wired_udp_send(cx->fd, &cx->srv, quic_span_of(pkt, plen)) == (i64)plen;
+}
+
 /* Send the Extended CONNECT stream frame over the wire. */
 static int sdt_send_connect(struct sdt_client* cx) {
   u8  frame[512], pkt[512];
   usz flen = sdt_build_connect(frame, sizeof frame);
   usz plen;
   if (flen == 0) return 0;
-  plen = sdt_seal_stream0(cx, frame, flen, pkt, sizeof pkt);
+  if (!sdt_send_client_settings(cx)) return 0;
+  /* pn 2: pn 0 is the SETTINGS packet above, pn 1 is reserved for the
+   * DATAGRAM echo stage's own fixed pn (sdt_build_datagram_pkt). */
+  plen = sdt_seal_stream(cx, 0, 2, frame, flen, pkt, sizeof pkt);
   if (plen == 0) return 0;
   return wired_udp_send(cx->fd, &cx->srv, quic_span_of(pkt, plen)) == (i64)plen;
 }
