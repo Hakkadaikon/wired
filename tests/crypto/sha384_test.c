@@ -59,7 +59,30 @@ static void test_sha384_pad_boundary(void) {
   CHECK(s384_eq(got, want_112));
 }
 
+/* FIPS 180-4 5.3.4: "SHA-384 ... truncating the final hash value ... to its
+ * leftmost 384 bits". quic_sha384_final (sha384.c) is exactly this: run the
+ * shared SHA-512 compression to a 64-byte digest, then keep the leftmost 48
+ * bytes. Verify that generalization directly: running quic_sha512_final (the
+ * untruncated 64-byte finisher) on a context seeded by quic_sha384_init must
+ * produce a digest whose first 48 bytes equal quic_sha384's output, and whose
+ * last 16 bytes are simply discarded, not folded in some other way. */
+static void test_sha384_is_sha512_truncation(void) {
+  static const u8 msg[] = "abc";
+  u8              d384[48];
+  u8              d512_from_384_state[QUIC_SHA512_DIGEST];
+  quic_sha512_ctx s;
+
+  quic_sha384(msg, 3, d384);
+
+  quic_sha384_init(&s);
+  quic_sha512_update(&s, msg, 3);
+  quic_sha512_final(&s, d512_from_384_state);
+
+  for (usz i = 0; i < 48; i++) CHECK(d512_from_384_state[i] == d384[i]);
+}
+
 void test_sha384(void) {
   test_sha384_vectors();
   test_sha384_pad_boundary();
+  test_sha384_is_sha512_truncation();
 }
