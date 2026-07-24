@@ -28,6 +28,8 @@ void quic_connio_init(
   io->disp.ack_eliciting = 0;
   io->disp.close         = 0;
   io->disp.has_ack       = 0;
+  io->disp.has_datagram  = 0;
+  io->disp.violation     = 0;
   io->byte0              = in->byte0;
   io->dcid_len           = (u8)dcid.n;
   quic_pnspaces_init(&io->tx);

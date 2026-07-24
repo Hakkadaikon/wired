@@ -1,6 +1,7 @@
 #include "app/datagram/datagram/datagram.h"
 #include "test.h"
 #include "transport/packet/frame/frame/ack.h"
+#include "transport/packet/frame/frame/connctl.h"
 #include "transport/packet/frame/frame/flowctl.h"
 #include "transport/packet/frame/frame/frame.h"
 
@@ -20,6 +21,7 @@ static void ds_init(
   st->ack_eliciting = 0;
   st->close         = 0;
   st->has_datagram  = 0;
+  st->violation     = 0;
 }
 
 /* STREAM frame delivers bytes the application can pull back. */
@@ -161,6 +163,50 @@ static void test_dispatch_unknown(void) {
   CHECK(quic_framedispatch_handle(&st, 0x7f, quic_span_of(buf, 1)) == 0);
 }
 
+/* RFC 9000 19.7: a server receiving NEW_TOKEN is a protocol violation. */
+static void test_dispatch_new_token_violation(void) {
+  quic_framedispatch_state st;
+  quic_stream_read         s;
+  quic_sentpkt             t;
+  quic_flow_credit         c;
+  ds_init(&st, &s, &t, &c);
+  quic_new_token_frame f = {4, (const u8*)"tokn"};
+  u8                   buf[16];
+  usz                  n = quic_new_token_encode(buf, sizeof buf, &f);
+  CHECK(
+      quic_framedispatch_handle(
+          &st, QUIC_FRAME_NEW_TOKEN, quic_span_of(buf, n)) == 0);
+  CHECK(st.violation == 1);
+}
+
+/* RFC 9000 19.20: a server receiving HANDSHAKE_DONE is a protocol
+ * violation. */
+static void test_dispatch_handshake_done_violation(void) {
+  quic_framedispatch_state st;
+  quic_stream_read         s;
+  quic_sentpkt             t;
+  quic_flow_credit         c;
+  ds_init(&st, &s, &t, &c);
+  u8  buf[1];
+  usz n = quic_handshake_done_encode(buf, sizeof buf);
+  CHECK(
+      quic_framedispatch_handle(
+          &st, QUIC_FRAME_HANDSHAKE_DONE, quic_span_of(buf, n)) == 0);
+  CHECK(st.violation == 1);
+}
+
+/* A frame a server may legitimately receive leaves violation unset. */
+static void test_dispatch_no_violation_on_normal_frame(void) {
+  quic_framedispatch_state st;
+  quic_stream_read         s;
+  quic_sentpkt             t;
+  quic_flow_credit         c;
+  ds_init(&st, &s, &t, &c);
+  u8 buf[1] = {QUIC_FRAME_PING};
+  CHECK(quic_framedispatch_handle(&st, buf[0], quic_span_of(buf, 1)) == 1);
+  CHECK(st.violation == 0);
+}
+
 /* Standalone ack-eliciting predicate (RFC 9000 13.2.1). */
 static void test_dispatch_ack_eliciting_predicate(void) {
   CHECK(quic_framedispatch_ack_eliciting(QUIC_FRAME_PADDING) == 0);
@@ -183,5 +229,8 @@ void test_dispatch_state(void) {
   test_dispatch_datagram();
   test_dispatch_datagram_malformed();
   test_dispatch_unknown();
+  test_dispatch_new_token_violation();
+  test_dispatch_handshake_done_violation();
+  test_dispatch_no_violation_on_normal_frame();
   test_dispatch_ack_eliciting_predicate();
 }

@@ -32,7 +32,18 @@ static void test_permit_grease(void) {
   CHECK(quic_frame_is_grease(0x08) == 0);        /* a real frame (STREAM) */
 }
 
+/* RFC 9000 19.7/19.20: NEW_TOKEN and HANDSHAKE_DONE are server-send-only;
+ * a server receiving either is a protocol violation. Everything else a
+ * server may legitimately receive (spot-checked with PING and STREAM). */
+static void test_permit_server_recv_only(void) {
+  CHECK(quic_frame_server_recv_forbidden(QUIC_FK_NEW_TOKEN) == 1);
+  CHECK(quic_frame_server_recv_forbidden(QUIC_FK_HANDSHAKE_DONE) == 1);
+  CHECK(quic_frame_server_recv_forbidden(QUIC_FK_PING) == 0);
+  CHECK(quic_frame_server_recv_forbidden(QUIC_FK_STREAM) == 0);
+}
+
 void test_permit(void) {
   test_permit_matrix();
   test_permit_grease();
+  test_permit_server_recv_only();
 }

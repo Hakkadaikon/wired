@@ -22,6 +22,9 @@ typedef struct {
                            * a future higher layer (e.g. WebTransport
                            * session) still needs to drain this per frame -
                            * only the most recent one is kept here. */
+  u8 violation; /* set when a server-recv-forbidden frame arrived (RFC 9000
+                 * 19.7/19.20) -- the caller must close with
+                 * PROTOCOL_VIOLATION. */
 } quic_framedispatch_state;
 
 /* Dispatch one frame by type. frame starts at the type varint and covers the
