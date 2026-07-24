@@ -9,6 +9,7 @@ static const u8 oid_ku[] = {0x55, 0x1d, 0x0f};
 /* RFC 5280 4.2.1.3. KeyUsage bit positions, numbered MSB-first from bit0. */
 #define KEYUSAGE_BIT_DIGITALSIGNATURE 0
 #define KEYUSAGE_BIT_NONREPUDIATION 1
+#define KEYUSAGE_BIT_KEYENCIPHERMENT 2
 #define KEYUSAGE_BIT_KEYAGREEMENT 4
 #define KEYUSAGE_BIT_KEYCERTSIGN 5
 #define KEYUSAGE_BIT_CRLSIGN 6
@@ -90,4 +91,25 @@ int quic_x509_ed_ca_ok(quic_span tbs) {
   return ku_bit_set_4(
       bits, KEYUSAGE_BIT_DIGITALSIGNATURE, KEYUSAGE_BIT_NONREPUDIATION,
       KEYUSAGE_BIT_KEYCERTSIGN, KEYUSAGE_BIT_CRLSIGN);
+}
+
+/* 1 if any of digitalSignature, nonRepudiation, keyEncipherment,
+ * keyCertSign, cRLSign is set (RFC 5480 3's forbidden set for id-ecDH/
+ * id-ecMQV, split from ku_bit_set_4 to keep each helper's CCN low). */
+static int ku_bit_set_5(quic_span v, usz a, usz b, usz c, usz d, usz e) {
+  return ku_bit_set_4(v, a, b, c, d) || ku_bit_set(v, e);
+}
+
+/* RFC 5480 3. id-ecDH/id-ecMQV SubjectPublicKeyInfo: keyUsage, if present,
+ * MUST assert keyAgreement and MUST NOT assert digitalSignature,
+ * nonRepudiation, keyEncipherment, keyCertSign, or cRLSign. Absent keyUsage
+ * is unconstrained (RFC 5280 default). */
+int quic_x509_ecdh_keyusage_ok(quic_span tbs) {
+  quic_span bits;
+  if (!ku_locate(tbs, &bits)) return 1;
+  if (!ku_bit_set(bits, KEYUSAGE_BIT_KEYAGREEMENT)) return 0;
+  return !ku_bit_set_5(
+      bits, KEYUSAGE_BIT_DIGITALSIGNATURE, KEYUSAGE_BIT_NONREPUDIATION,
+      KEYUSAGE_BIT_KEYENCIPHERMENT, KEYUSAGE_BIT_KEYCERTSIGN,
+      KEYUSAGE_BIT_CRLSIGN);
 }

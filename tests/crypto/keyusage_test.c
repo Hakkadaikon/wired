@@ -24,6 +24,15 @@ static const u8 kut_tbs_all_low6[]     = {KUT_TBS(0xfc)}; /* bit0..5 all set */
 static const u8 kut_tbs_keyagreement[] = {KUT_TBS(0x08)}; /* bit4 set only */
 static const u8 kut_tbs_nonrepud[]     = {KUT_TBS(0x40)}; /* bit1 set only */
 static const u8 kut_tbs_crlsign[]      = {KUT_TBS(0x02)}; /* bit6 set only */
+/* keyAgreement (bit4) + encipherOnly (bit7): RFC 5480 3's admissible id-ecDH
+ * combination. */
+static const u8 kut_tbs_ecdh_agree_encipher[] = {KUT_TBS(0x09)};
+/* keyAgreement (bit4) + digitalSignature (bit0): RFC 5480 3 forbids
+ * digitalSignature alongside id-ecDH/id-ecMQV's keyAgreement. */
+static const u8 kut_tbs_ecdh_agree_digitalsig[] = {KUT_TBS(0x88)};
+/* keyAgreement (bit4) + keyCertSign (bit5): RFC 5480 3 forbids keyCertSign
+ * alongside id-ecDH/id-ecMQV's keyAgreement. */
+static const u8 kut_tbs_ecdh_agree_certsign[] = {KUT_TBS(0x0c)};
 
 /* RFC 5280 4.2.1.3: keyUsage absent is unconstrained, so signing is
  * permitted by default. */
@@ -136,6 +145,53 @@ static void test_ed_ca_none_admissible(void) {
           kut_tbs_keyagreement, sizeof(kut_tbs_keyagreement))) == 0);
 }
 
+/* RFC 5480 3: keyUsage absent is unconstrained, so an id-ecDH/id-ecMQV cert
+ * is admissible by default. */
+static void test_ecdh_keyusage_no_extension(void) {
+  CHECK(
+      quic_x509_ecdh_keyusage_ok(
+          quic_span_of(kut_tbs_no_ext, sizeof(kut_tbs_no_ext))) == 1);
+}
+
+/* keyAgreement (bit4) alone: permitted. */
+static void test_ecdh_keyusage_agreement_alone(void) {
+  CHECK(
+      quic_x509_ecdh_keyusage_ok(quic_span_of(
+          kut_tbs_keyagreement, sizeof(kut_tbs_keyagreement))) == 1);
+}
+
+/* keyAgreement + encipherOnly: the RFC 5480 3 MAY combination, permitted. */
+static void test_ecdh_keyusage_agreement_encipheronly(void) {
+  CHECK(
+      quic_x509_ecdh_keyusage_ok(quic_span_of(
+          kut_tbs_ecdh_agree_encipher, sizeof(kut_tbs_ecdh_agree_encipher))) ==
+      1);
+}
+
+/* keyAgreement absent (only digitalSignature set): rejected. */
+static void test_ecdh_keyusage_no_agreement(void) {
+  CHECK(
+      quic_x509_ecdh_keyusage_ok(
+          quic_span_of(kut_tbs_digitalsig, sizeof(kut_tbs_digitalsig))) == 0);
+}
+
+/* keyAgreement + digitalSignature: RFC 5480 3 MUST NOT combination,
+ * rejected even though keyAgreement itself is set. */
+static void test_ecdh_keyusage_forbidden_digitalsig(void) {
+  CHECK(
+      quic_x509_ecdh_keyusage_ok(quic_span_of(
+          kut_tbs_ecdh_agree_digitalsig,
+          sizeof(kut_tbs_ecdh_agree_digitalsig))) == 0);
+}
+
+/* keyAgreement + keyCertSign: RFC 5480 3 MUST NOT combination, rejected. */
+static void test_ecdh_keyusage_forbidden_certsign(void) {
+  CHECK(
+      quic_x509_ecdh_keyusage_ok(quic_span_of(
+          kut_tbs_ecdh_agree_certsign, sizeof(kut_tbs_ecdh_agree_certsign))) ==
+      0);
+}
+
 void test_keyusage(void) {
   test_can_sign_no_extension();
   test_can_sign_certsign_set();
@@ -152,4 +208,10 @@ void test_keyusage(void) {
   test_ed_ca_keycertsign();
   test_ed_ca_crlsign();
   test_ed_ca_none_admissible();
+  test_ecdh_keyusage_no_extension();
+  test_ecdh_keyusage_agreement_alone();
+  test_ecdh_keyusage_agreement_encipheronly();
+  test_ecdh_keyusage_no_agreement();
+  test_ecdh_keyusage_forbidden_digitalsig();
+  test_ecdh_keyusage_forbidden_certsign();
 }

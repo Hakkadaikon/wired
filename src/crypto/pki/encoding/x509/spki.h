@@ -34,4 +34,17 @@ int quic_x509_ec_curve(quic_span tbs, quic_span* curve_oid);
 int quic_x509_is_p256(quic_span oid);
 int quic_x509_is_p384(quic_span oid);
 
+/* RFC 5480 2.1.2. 1 if the SubjectPublicKeyInfo algorithm OID is the
+ * restricted id-ecDH (1.3.132.1.12) / id-ecMQV (1.3.132.1.13) key-agreement
+ * identifier (as opposed to the unrestricted id-ecPublicKey). */
+int quic_x509_is_ecdh(quic_span alg_oid);
+int quic_x509_is_ecmqv(quic_span alg_oid);
+
+/* RFC 5480 2.1.2. 1 if tbs's SubjectPublicKeyInfo algorithm is not
+ * id-ecDH/id-ecMQV, or it is and a well-formed ECParameters namedCurve is
+ * present (mandatory for those two algorithms). 0 if the algorithm is
+ * id-ecDH/id-ecMQV but ECParameters is absent/malformed, or tbs is
+ * malformed. */
+int quic_x509_ec_restricted_params_ok(quic_span tbs);
+
 #endif

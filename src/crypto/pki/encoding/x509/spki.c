@@ -26,6 +26,11 @@ static const u8 oid_x448[] = {0x2b, 0x65, 0x6f};
 static const u8 spki_oid_ed25519[] = {0x2b, 0x65, 0x70};
 /* RFC 8410 3. id-Ed448 = 1.3.101.113. */
 static const u8 oid_ed448[] = {0x2b, 0x65, 0x71};
+/* RFC 5480 2.1.2. id-ecDH = 1.3.132.1.12 (iso(1) identified-organization(3)
+ * certicom(132) schemes(1) ecdh(12)). */
+static const u8 oid_ecdh[] = {0x2b, 0x81, 0x04, 0x01, 0x0c};
+/* RFC 5480 2.1.2. id-ecMQV = 1.3.132.1.13 (... schemes(1) ecmqv(13)). */
+static const u8 oid_ecmqv[] = {0x2b, 0x81, 0x04, 0x01, 0x0d};
 
 int quic_x509_is_ec(quic_span alg_oid) {
   return quic_der_oid_equal(alg_oid, quic_span_of(oid_ec, sizeof(oid_ec)));
@@ -60,6 +65,17 @@ int quic_x509_is_p256(quic_span oid) {
 
 int quic_x509_is_p384(quic_span oid) {
   return quic_der_oid_equal(oid, quic_span_of(oid_p384, sizeof(oid_p384)));
+}
+
+/* RFC 5480 2.1.2. 1 if the SubjectPublicKeyInfo algorithm OID is the
+ * restricted id-ecDH / id-ecMQV key-agreement identifier. */
+int quic_x509_is_ecdh(quic_span alg_oid) {
+  return quic_der_oid_equal(alg_oid, quic_span_of(oid_ecdh, sizeof(oid_ecdh)));
+}
+
+int quic_x509_is_ecmqv(quic_span alg_oid) {
+  return quic_der_oid_equal(
+      alg_oid, quic_span_of(oid_ecmqv, sizeof(oid_ecmqv)));
 }
 
 /* RFC 5280 4.1.1.2. The algorithm OID inside an AlgorithmIdentifier. */
@@ -114,4 +130,23 @@ int quic_x509_ec_curve(quic_span tbs, quic_span* curve_oid) {
   quic_span alg;
   if (!reach_alg(tbs, &alg)) return 0;
   return alg_named_curve(alg, curve_oid);
+}
+
+/* 1 if alg_oid is the restricted id-ecDH or id-ecMQV identifier (RFC 5480
+ * 2.1.2), the two algorithms for which ECParameters is mandatory. */
+static int is_ec_restricted(quic_span alg_oid) {
+  return quic_x509_is_ecdh(alg_oid) || quic_x509_is_ecmqv(alg_oid);
+}
+
+/* RFC 5480 2.1.2: "the parameters are always ECParameters and they MUST
+ * always be present" for id-ecDH / id-ecMQV. 1 if tbs's SubjectPublicKeyInfo
+ * algorithm is not id-ecDH/id-ecMQV (requirement doesn't apply), or it is
+ * and a well-formed ECParameters namedCurve is present. 0 if the algorithm
+ * is id-ecDH/id-ecMQV but ECParameters is absent/malformed, or tbs itself is
+ * malformed. */
+int quic_x509_ec_restricted_params_ok(quic_span tbs) {
+  quic_span alg_oid, key, curve_oid;
+  if (!quic_x509_public_key(tbs, &alg_oid, &key)) return 0;
+  if (!is_ec_restricted(alg_oid)) return 1;
+  return quic_x509_ec_curve(tbs, &curve_oid);
 }
