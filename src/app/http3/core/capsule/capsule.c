@@ -67,3 +67,7 @@ int quic_capsule_decode(quic_span data, usz* at, u64* type, quic_span* value) {
   *at    = value_start + len;
   return 1;
 }
+
+int quic_capsule_fin_truncated(quic_span data, usz at, int fin) {
+  return fin && data.n > at;
+}
