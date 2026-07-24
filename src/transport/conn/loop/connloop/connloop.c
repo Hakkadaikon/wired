@@ -1,6 +1,7 @@
 #include "transport/conn/loop/connloop/connloop.h"
 
 #include "crypto/kdf/keys/promote.h"
+#include "tls/keys/keyupdate/aeadintegrity.h"
 #include "transport/io/udp/udploop/antiamp_gate.h"
 #include "transport/recovery/rtx/sentpkt/ack_process.h"
 
@@ -19,6 +20,8 @@ void quic_connloop_init(quic_connloop* c, int is_server) {
   c->pto_armed           = 0;
   c->recv_bytes          = 0;
   c->sent_bytes          = 0;
+  c->auth_fail_count     = 0;
+  c->aead_limit          = 0;
 }
 
 /* RFC 9001 4: the level's key is installed (not discarded). */
@@ -80,6 +83,12 @@ int quic_connloop_on_send(quic_connloop* c, const quic_connloop_send_in* in) {
 
 void quic_connloop_validate(quic_connloop* c) {
   c->validated = 1; /* RFC 9000 8.1: anti-amplification limit lifted */
+}
+
+void quic_connloop_on_auth_fail(quic_connloop* c, int is_chacha) {
+  c->auth_fail_count++;
+  if (quic_aead_integrity_exceeded(c->auth_fail_count, is_chacha))
+    c->aead_limit = 1; /* RFC 9001 6.6: caller must close(AEAD_LIMIT_REACHED) */
 }
 
 usz quic_connloop_on_ack(quic_connloop* c, const quic_connloop_ack_in* in) {
