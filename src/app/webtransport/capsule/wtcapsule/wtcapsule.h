@@ -5,12 +5,12 @@
 #include "common/platform/sys/syscall.h"
 
 /** @file
- * draft-ietf-webtrans-http3-15 SS4.2: the two WebTransport-specific capsule
- * types layered on top of the generic RFC 9297 Capsule Protocol codec
- * (app/http3/core/capsule/capsule.h). This is the wire-format layer only --
- * it does not call into the session state machine (session/session.h)
- * itself; a caller decodes a capsule here and then drives the session
- * transition (e.g. wired_wt_session_drain) as a separate step.
+ * draft-ietf-webtrans-http3-15 SS4.2/SS5.6: the WebTransport-specific
+ * capsule types layered on top of the generic RFC 9297 Capsule Protocol
+ * codec (app/http3/core/capsule/capsule.h). This is the wire-format layer
+ * only -- it does not call into the session state machine (session/
+ * session.h) itself; a caller decodes a capsule here and then drives the
+ * session transition (e.g. wired_wt_session_drain) as a separate step.
  *
  * WT_CLOSE_SESSION (type 0x2843):
  *   Application Error Code (32)
@@ -18,16 +18,21 @@
  *
  * WT_DRAIN_SESSION (type 0x78ae): empty body (Length=0), purely a signal.
  *
+ * Session-level flow-control capsules (SS5.6), each body a single varint:
+ *   WT_MAX_STREAMS      (0x190B4D3F bidi, 0x190B4D40 uni): Maximum Streams
+ *   WT_STREAMS_BLOCKED  (0x190B4D43 bidi, 0x190B4D44 uni): Maximum Streams
+ *   WT_MAX_DATA         (0x190B4D3D):                      Maximum Data
+ *   WT_DATA_BLOCKED     (0x190B4D41):                      Maximum Data
+ *
  * Per-stream flow-control capsules (e.g. a hypothetical WT_MAX_STREAM_DATA /
  * WT_STREAM_DATA_BLOCKED) are intentionally NOT declared here and never will
  * be: the HTTP/3 WebTransport mapping (this draft) does not define them at
  * all -- they exist only in the sibling HTTP/2-based WebTransport mapping,
  * which this SDK does not implement. Per-stream flow control on HTTP/3 is
  * instead covered natively by QUIC's own MAX_STREAM_DATA frame at the
- * transport layer (already implemented outside this file). The two
- * functions above (encode/decode close, encode/decode drain) are, by
- * design, the entire WT capsule API surface -- there is no third capsule
- * type to add here.
+ * transport layer (already implemented outside this file). Do not confuse
+ * this with the SESSION-level WT_MAX_DATA/WT_MAX_STREAMS family declared
+ * above, which the draft does define and this file implements.
  */
 
 /** Maximum WT_CLOSE_SESSION application error message length, in bytes
@@ -88,5 +93,91 @@ int quic_wtcapsule_decode_close(
  * @return 1 if a WT_DRAIN_SESSION capsule was present and consumed, 0 otherwise
  */
 int quic_wtcapsule_decode_drain(quic_span data, usz* at);
+
+/** Encode a WT_MAX_STREAMS capsule (draft-ietf-webtrans-http3-15 SS5.6.2)
+ * into out: type 0x190B4D3F for bidi, 0x190B4D40 for uni, body a single
+ * varint (Maximum Streams).
+ * @param out           destination buffer view
+ * @param bidi          nonzero for the bidirectional type, 0 for uni
+ * @param max_streams   cumulative stream limit (<= 2^60 per the draft; not
+ *                       independently validated here, wire-range only)
+ * @return 1 on success, 0 if it doesn't fit in out or max_streams is out of
+ *   varint range
+ */
+int quic_wtcapsule_encode_max_streams(
+    quic_obuf* out, int bidi, u64 max_streams);
+
+/** Attempt to decode the capsule at *at within data as a WT_MAX_STREAMS
+ * capsule of the given direction. Same "wrong type/incomplete, don't
+ * consume" contract as quic_wtcapsule_decode_close.
+ * @param data        the buffer to decode from
+ * @param at          in/out cursor offset within data
+ * @param bidi        nonzero to match the bidi type, 0 to match uni
+ * @param max_streams set to the decoded Maximum Streams value on success
+ * @return 1 on success, 0 otherwise
+ */
+int quic_wtcapsule_decode_max_streams(
+    quic_span data, usz* at, int bidi, u64* max_streams);
+
+/** Encode a WT_STREAMS_BLOCKED capsule (SS5.6.3) into out: type 0x190B4D43
+ * for bidi, 0x190B4D44 for uni, body a single varint (Maximum Streams).
+ * @param out         destination buffer view
+ * @param bidi        nonzero for the bidirectional type, 0 for uni
+ * @param max_streams the stream limit in effect when blocking occurred
+ * @return 1 on success, 0 if it doesn't fit in out or max_streams is out of
+ *   varint range
+ */
+int quic_wtcapsule_encode_streams_blocked(
+    quic_obuf* out, int bidi, u64 max_streams);
+
+/** Attempt to decode the capsule at *at within data as a WT_STREAMS_BLOCKED
+ * capsule of the given direction. Same contract as
+ * quic_wtcapsule_decode_max_streams.
+ * @param data        the buffer to decode from
+ * @param at          in/out cursor offset within data
+ * @param bidi        nonzero to match the bidi type, 0 to match uni
+ * @param max_streams set to the decoded Maximum Streams value on success
+ * @return 1 on success, 0 otherwise
+ */
+int quic_wtcapsule_decode_streams_blocked(
+    quic_span data, usz* at, int bidi, u64* max_streams);
+
+/** Encode a WT_MAX_DATA capsule (SS5.6.4, type 0x190B4D3D) into out: body a
+ * single varint (Maximum Data, in bytes).
+ * @param out      destination buffer view
+ * @param max_data cumulative session-level data limit
+ * @return 1 on success, 0 if it doesn't fit in out or max_data is out of
+ *   varint range
+ */
+int quic_wtcapsule_encode_max_data(quic_obuf* out, u64 max_data);
+
+/** Attempt to decode the capsule at *at within data as a WT_MAX_DATA
+ * capsule. Same "wrong type/incomplete, don't consume" contract as
+ * quic_wtcapsule_decode_close.
+ * @param data     the buffer to decode from
+ * @param at       in/out cursor offset within data
+ * @param max_data set to the decoded Maximum Data value on success
+ * @return 1 on success, 0 otherwise
+ */
+int quic_wtcapsule_decode_max_data(quic_span data, usz* at, u64* max_data);
+
+/** Encode a WT_DATA_BLOCKED capsule (SS5.6.5, type 0x190B4D41) into out:
+ * body a single varint (Maximum Data, the limit in effect when blocking
+ * occurred).
+ * @param out      destination buffer view
+ * @param max_data the session-level data limit in effect when blocked
+ * @return 1 on success, 0 if it doesn't fit in out or max_data is out of
+ *   varint range
+ */
+int quic_wtcapsule_encode_data_blocked(quic_obuf* out, u64 max_data);
+
+/** Attempt to decode the capsule at *at within data as a WT_DATA_BLOCKED
+ * capsule. Same contract as quic_wtcapsule_decode_max_data.
+ * @param data     the buffer to decode from
+ * @param at       in/out cursor offset within data
+ * @param max_data set to the decoded Maximum Data value on success
+ * @return 1 on success, 0 otherwise
+ */
+int quic_wtcapsule_decode_data_blocked(quic_span data, usz* at, u64* max_data);
 
 #endif

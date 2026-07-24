@@ -33,6 +33,12 @@ void wired_wt_session_init(wired_wt_session* s, u64 connect_stream_id) {
     stream_slot_clear(&s->streams[i]);
   for (usz i = 0; i < WIRED_WT_MAX_BUFFERED_DATAGRAMS; i++)
     datagram_slot_clear(&s->datagrams[i]);
+  s->max_streams_bidi    = 0;
+  s->max_streams_uni     = 0;
+  s->opened_streams_bidi = 0;
+  s->opened_streams_uni  = 0;
+  s->max_data            = 0;
+  s->sent_data           = 0;
 }
 
 int wired_wt_session_establish(wired_wt_session* s) {
@@ -97,4 +103,53 @@ int wired_wt_session_offer_datagram(wired_wt_session* s, quic_span data) {
   if (!slot) return 0;
   datagram_slot_fill(slot, data);
   return 1;
+}
+
+/* Reads the bidi or uni WT_MAX_STREAMS limit, so every direction-aware
+ * stream-limit function shares one branch instead of repeating the
+ * bidi ? ... : ... choice (keeps each caller at CCN<=3). */
+static u64 stream_limit_get(const wired_wt_session* s, int bidi) {
+  return bidi ? s->max_streams_bidi : s->max_streams_uni;
+}
+
+/* Same read for the cumulative opened-stream counter. */
+static u64 stream_opened_get(const wired_wt_session* s, int bidi) {
+  return bidi ? s->opened_streams_bidi : s->opened_streams_uni;
+}
+
+int wired_wt_session_set_max_streams(
+    wired_wt_session* s, int bidi, u64 max_streams) {
+  if (max_streams < stream_limit_get(s, bidi)) return 0;
+  if (bidi)
+    s->max_streams_bidi = max_streams;
+  else
+    s->max_streams_uni = max_streams;
+  return 1;
+}
+
+int wired_wt_session_stream_open_allowed(const wired_wt_session* s, int bidi) {
+  u64 limit  = stream_limit_get(s, bidi);
+  u64 opened = stream_opened_get(s, bidi);
+  return limit == 0 || opened < limit;
+}
+
+void wired_wt_session_note_stream_opened(wired_wt_session* s, int bidi) {
+  if (bidi)
+    s->opened_streams_bidi += 1;
+  else
+    s->opened_streams_uni += 1;
+}
+
+int wired_wt_session_set_max_data(wired_wt_session* s, u64 max_data) {
+  if (max_data < s->max_data) return 0;
+  s->max_data = max_data;
+  return 1;
+}
+
+int wired_wt_session_data_send_allowed(const wired_wt_session* s, usz len) {
+  return s->max_data == 0 || s->sent_data + len <= s->max_data;
+}
+
+void wired_wt_session_note_data_sent(wired_wt_session* s, usz len) {
+  s->sent_data += len;
 }

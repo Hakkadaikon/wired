@@ -134,19 +134,14 @@ static void test_wtcapsule_sequential_drain_then_close(void) {
 
 /* TEST 8: the HTTP/3 WebTransport mapping defines no per-stream
  * flow-control capsule (a hypothetical WT_MAX_STREAM_DATA /
- * WT_STREAM_DATA_BLOCKED, as opposed to the legitimately-deferred
- * per-SESSION WT_MAX_DATA family at 0x190B4D3D etc.). There is no wire
- * codepoint to construct for a type this SDK will never emit or receive, so
- * this test instead pins the two facts that ARE checkable:
- *
- * 1. wtcapsule.h's decode functions reject ANY capsule type outside its own
- *    {WT_CLOSE_SESSION, WT_DRAIN_SESSION} set without advancing *at -- shown
- *    here using the per-SESSION WT_MAX_DATA codepoint (0x190B4D3D) as a
- *    stand-in "some other capsule type" probe, since no per-stream
- *    codepoint is defined anywhere to construct one from.
- * 2. wtcapsule.h declares exactly four functions (encode/decode close,
- *    encode/decode drain), not expressible as a runtime assertion in C.
- */
+ * WT_STREAM_DATA_BLOCKED, as opposed to the per-SESSION WT_MAX_DATA family
+ * at 0x190B4D3D etc., which wtcapsule.h does implement -- see
+ * quic_wtcapsule_decode_max_data). There is no wire codepoint to construct
+ * for a per-stream type this SDK will never emit or receive, so this test
+ * instead pins: decode_close/decode_drain reject ANY capsule type outside
+ * their own two types without advancing *at, shown here using the
+ * per-SESSION WT_MAX_DATA codepoint (0x190B4D3D) as a stand-in "some other
+ * capsule type" probe. */
 static void test_wtcapsule_no_per_stream_flow_control_capsule(void) {
   u8        buf[32];
   quic_obuf out = quic_obuf_of(buf, sizeof buf);
@@ -155,14 +150,133 @@ static void test_wtcapsule_no_per_stream_flow_control_capsule(void) {
   quic_span msg_out;
   u8        value[4] = {1, 2, 3, 4};
 
-  /* 0x190B4D3D is WT_MAX_DATA (per-SESSION, legitimately deferred) -- used
-   * only as "a capsule type wtcapsule does not own" probe. */
+  /* 0x190B4D3D is WT_MAX_DATA, owned by decode_max_data, not decode_close
+   * or decode_drain -- used here only as "a type those two don't own"
+   * probe. */
   CHECK(quic_capsule_encode(
       &out, 0x190B4D3DULL, quic_span_of(value, sizeof value)));
   CHECK(!quic_wtcapsule_decode_close(
       quic_span_of(buf, out.len), &at, &code_out, &msg_out));
   CHECK(at == 0);
   CHECK(!quic_wtcapsule_decode_drain(quic_span_of(buf, out.len), &at));
+  CHECK(at == 0);
+}
+
+/* TEST 9: WT_MAX_STREAMS bidi round-trip; the bidi type (0x190B4D3F) does
+ * not decode as the uni variant. */
+static void test_wtcapsule_max_streams_bidi_roundtrip(void) {
+  u8        buf[16];
+  quic_obuf out = quic_obuf_of(buf, sizeof buf);
+  usz       at  = 0;
+  u64       n_out;
+
+  CHECK(quic_wtcapsule_encode_max_streams(&out, 1, 42));
+  CHECK(!quic_wtcapsule_decode_max_streams(
+      quic_span_of(buf, out.len), &at, 0, &n_out));
+  CHECK(at == 0);
+  CHECK(quic_wtcapsule_decode_max_streams(
+      quic_span_of(buf, out.len), &at, 1, &n_out));
+  CHECK(n_out == 42);
+  CHECK(at == out.len);
+}
+
+/* TEST 10: WT_MAX_STREAMS uni round-trip (distinct type 0x190B4D40). */
+static void test_wtcapsule_max_streams_uni_roundtrip(void) {
+  u8        buf[16];
+  quic_obuf out = quic_obuf_of(buf, sizeof buf);
+  usz       at  = 0;
+  u64       n_out;
+
+  CHECK(quic_wtcapsule_encode_max_streams(&out, 0, 7));
+  CHECK(quic_wtcapsule_decode_max_streams(
+      quic_span_of(buf, out.len), &at, 0, &n_out));
+  CHECK(n_out == 7);
+  CHECK(at == out.len);
+}
+
+/* TEST 11: WT_STREAMS_BLOCKED bidi/uni round-trip, same direction-typed
+ * shape as WT_MAX_STREAMS. */
+static void test_wtcapsule_streams_blocked_roundtrip(void) {
+  u8        buf[16];
+  quic_obuf out = quic_obuf_of(buf, sizeof buf);
+  usz       at  = 0;
+  u64       n_out;
+
+  CHECK(quic_wtcapsule_encode_streams_blocked(&out, 1, 3));
+  CHECK(quic_wtcapsule_decode_streams_blocked(
+      quic_span_of(buf, out.len), &at, 1, &n_out));
+  CHECK(n_out == 3);
+  CHECK(at == out.len);
+
+  out.len = 0;
+  at      = 0;
+  CHECK(quic_wtcapsule_encode_streams_blocked(&out, 0, 9));
+  CHECK(quic_wtcapsule_decode_streams_blocked(
+      quic_span_of(buf, out.len), &at, 0, &n_out));
+  CHECK(n_out == 9);
+  CHECK(at == out.len);
+}
+
+/* TEST 12: WT_MAX_DATA round-trip (single type, 0x190B4D3D). */
+static void test_wtcapsule_max_data_roundtrip(void) {
+  u8        buf[16];
+  quic_obuf out = quic_obuf_of(buf, sizeof buf);
+  usz       at  = 0;
+  u64       n_out;
+
+  CHECK(quic_wtcapsule_encode_max_data(&out, 65536));
+  CHECK(
+      quic_wtcapsule_decode_max_data(quic_span_of(buf, out.len), &at, &n_out));
+  CHECK(n_out == 65536);
+  CHECK(at == out.len);
+}
+
+/* TEST 13: WT_DATA_BLOCKED round-trip (single type, 0x190B4D41); also
+ * confirms it does not cross-decode as WT_MAX_DATA. */
+static void test_wtcapsule_data_blocked_roundtrip(void) {
+  u8        buf[16];
+  quic_obuf out = quic_obuf_of(buf, sizeof buf);
+  usz       at  = 0;
+  u64       n_out;
+
+  CHECK(quic_wtcapsule_encode_data_blocked(&out, 1024));
+  CHECK(
+      !quic_wtcapsule_decode_max_data(quic_span_of(buf, out.len), &at, &n_out));
+  CHECK(at == 0);
+  CHECK(quic_wtcapsule_decode_data_blocked(
+      quic_span_of(buf, out.len), &at, &n_out));
+  CHECK(n_out == 1024);
+  CHECK(at == out.len);
+}
+
+/* TEST 14: malformed flow-control capsule -- correctly typed WT_MAX_DATA
+ * but an empty body (no varint to read) is rejected without advancing. */
+static void test_wtcapsule_max_data_decode_empty_body_rejected(void) {
+  u8        buf[16];
+  quic_obuf out = quic_obuf_of(buf, sizeof buf);
+  usz       at  = 0;
+  u64       n_out;
+
+  CHECK(quic_capsule_encode(&out, 0x190B4D3DULL, quic_span_of(0, 0)));
+  CHECK(
+      !quic_wtcapsule_decode_max_data(quic_span_of(buf, out.len), &at, &n_out));
+  CHECK(at == 0);
+}
+
+/* TEST 15: malformed flow-control capsule -- correctly typed WT_MAX_STREAMS
+ * (bidi) but trailing bytes after the varint are rejected without
+ * advancing. */
+static void test_wtcapsule_max_streams_decode_trailing_bytes_rejected(void) {
+  u8        buf[16];
+  quic_obuf out     = quic_obuf_of(buf, sizeof buf);
+  u8        body[2] = {5, 0xAA};
+  usz       at      = 0;
+  u64       n_out;
+
+  CHECK(quic_capsule_encode(
+      &out, 0x190B4D3FULL, quic_span_of(body, sizeof body)));
+  CHECK(!quic_wtcapsule_decode_max_streams(
+      quic_span_of(buf, out.len), &at, 1, &n_out));
   CHECK(at == 0);
 }
 
@@ -175,4 +289,11 @@ void test_wtcapsule(void) {
   test_wtcapsule_close_decode_body_too_short();
   test_wtcapsule_sequential_drain_then_close();
   test_wtcapsule_no_per_stream_flow_control_capsule();
+  test_wtcapsule_max_streams_bidi_roundtrip();
+  test_wtcapsule_max_streams_uni_roundtrip();
+  test_wtcapsule_streams_blocked_roundtrip();
+  test_wtcapsule_max_data_roundtrip();
+  test_wtcapsule_data_blocked_roundtrip();
+  test_wtcapsule_max_data_decode_empty_body_rejected();
+  test_wtcapsule_max_streams_decode_trailing_bytes_rejected();
 }

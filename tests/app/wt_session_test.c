@@ -117,6 +117,95 @@ static void test_established_new_stream_associates_directly(void) {
     CHECK(s.streams[i].in_use == 0);
 }
 
+/* A freshly-initialized session has no WT_MAX_STREAMS/WT_MAX_DATA limit
+ * recorded yet, so opening a stream or sending data is always allowed
+ * (flow control is opt-in per SS5.1). */
+static void test_flow_control_unset_limit_always_allows(void) {
+  wired_wt_session s;
+  wired_wt_session_init(&s, 4);
+  CHECK(wired_wt_session_stream_open_allowed(&s, 1) == 1);
+  CHECK(wired_wt_session_stream_open_allowed(&s, 0) == 1);
+  CHECK(wired_wt_session_data_send_allowed(&s, 1000000) == 1);
+}
+
+/* Setting WT_MAX_STREAMS(bidi) to 2 allows opening exactly 2 bidi streams,
+ * then rejects the 3rd -- WTH3-057/058. The uni limit is independent and
+ * stays unset (still unconditionally allowed). */
+static void test_flow_control_max_streams_bidi_enforced(void) {
+  wired_wt_session s;
+  wired_wt_session_init(&s, 4);
+  CHECK(wired_wt_session_set_max_streams(&s, 1, 2) == 1);
+
+  CHECK(wired_wt_session_stream_open_allowed(&s, 1) == 1);
+  wired_wt_session_note_stream_opened(&s, 1);
+  CHECK(wired_wt_session_stream_open_allowed(&s, 1) == 1);
+  wired_wt_session_note_stream_opened(&s, 1);
+  CHECK(wired_wt_session_stream_open_allowed(&s, 1) == 0);
+
+  CHECK(wired_wt_session_stream_open_allowed(&s, 0) == 1);
+}
+
+/* The uni limit is tracked separately from bidi. */
+static void test_flow_control_max_streams_uni_enforced(void) {
+  wired_wt_session s;
+  wired_wt_session_init(&s, 4);
+  CHECK(wired_wt_session_set_max_streams(&s, 0, 1) == 1);
+  CHECK(wired_wt_session_stream_open_allowed(&s, 0) == 1);
+  wired_wt_session_note_stream_opened(&s, 0);
+  CHECK(wired_wt_session_stream_open_allowed(&s, 0) == 0);
+  CHECK(wired_wt_session_stream_open_allowed(&s, 1) == 1);
+}
+
+/* WT_MAX_STREAMS values are cumulative and delivered in order: a value
+ * lower than one already recorded must be rejected by the setter (the
+ * caller is then responsible for closing the session with
+ * WT_FLOW_CONTROL_ERROR) and must not overwrite the stored limit. */
+static void test_flow_control_max_streams_decreasing_rejected(void) {
+  wired_wt_session s;
+  wired_wt_session_init(&s, 4);
+  CHECK(wired_wt_session_set_max_streams(&s, 1, 5) == 1);
+  CHECK(wired_wt_session_set_max_streams(&s, 1, 3) == 0);
+  /* still enforces the higher, previously-recorded limit */
+  for (u64 i = 0; i < 5; i++) {
+    CHECK(wired_wt_session_stream_open_allowed(&s, 1) == 1);
+    wired_wt_session_note_stream_opened(&s, 1);
+  }
+  CHECK(wired_wt_session_stream_open_allowed(&s, 1) == 0);
+}
+
+/* Re-sending the same WT_MAX_STREAMS value is not a decrease -- accepted. */
+static void test_flow_control_max_streams_equal_value_accepted(void) {
+  wired_wt_session s;
+  wired_wt_session_init(&s, 4);
+  CHECK(wired_wt_session_set_max_streams(&s, 1, 5) == 1);
+  CHECK(wired_wt_session_set_max_streams(&s, 1, 5) == 1);
+}
+
+/* WT_MAX_DATA enforcement: exactly at the limit is allowed, one byte over is
+ * not -- WTH3-060/061. */
+static void test_flow_control_max_data_enforced(void) {
+  wired_wt_session s;
+  wired_wt_session_init(&s, 4);
+  CHECK(wired_wt_session_set_max_data(&s, 100) == 1);
+  CHECK(wired_wt_session_data_send_allowed(&s, 100) == 1);
+  wired_wt_session_note_data_sent(&s, 60);
+  CHECK(wired_wt_session_data_send_allowed(&s, 40) == 1);
+  CHECK(wired_wt_session_data_send_allowed(&s, 41) == 0);
+  wired_wt_session_note_data_sent(&s, 40);
+  CHECK(wired_wt_session_data_send_allowed(&s, 1) == 0);
+}
+
+/* WT_MAX_DATA values are also cumulative/in-order: a decrease is rejected
+ * and does not overwrite the stored limit. */
+static void test_flow_control_max_data_decreasing_rejected(void) {
+  wired_wt_session s;
+  wired_wt_session_init(&s, 4);
+  CHECK(wired_wt_session_set_max_data(&s, 1000) == 1);
+  CHECK(wired_wt_session_set_max_data(&s, 500) == 0);
+  CHECK(wired_wt_session_data_send_allowed(&s, 1000) == 1);
+  CHECK(wired_wt_session_data_send_allowed(&s, 1001) == 0);
+}
+
 void test_wt_session(void) {
   test_stream_buffered_then_established();
   test_datagram_buffered_then_established();
@@ -127,4 +216,11 @@ void test_wt_session(void) {
   test_drain_is_advisory_not_terminal();
   test_closed_is_absorbing();
   test_established_new_stream_associates_directly();
+  test_flow_control_unset_limit_always_allows();
+  test_flow_control_max_streams_bidi_enforced();
+  test_flow_control_max_streams_uni_enforced();
+  test_flow_control_max_streams_decreasing_rejected();
+  test_flow_control_max_streams_equal_value_accepted();
+  test_flow_control_max_data_enforced();
+  test_flow_control_max_data_decreasing_rejected();
 }

@@ -15,6 +15,16 @@
  * draining is advisory only (SS4.2 WT_DRAIN_SESSION): it does not terminate
  * the session, and a draining session can still close via either of the two
  * closing triggers (the CONNECT stream ending, or WT_CLOSE_SESSION).
+ *
+ * SS5.3/SS5.4 session-level flow control: a session also tracks the
+ * cumulative stream-open counts and sent-data byte count against the limits
+ * most recently advertised by the peer via WT_MAX_STREAMS/WT_MAX_DATA
+ * capsules (see app/webtransport/capsule/wtcapsule/wtcapsule.h for the wire
+ * codec). A limit of 0 means "no WT_MAX_STREAMS/WT_MAX_DATA capsule has
+ * been received yet from the peer" -- since flow control is opt-in
+ * (SS5.1), a limit of 0 does not itself forbid opening a stream or sending
+ * data; the caller decides whether flow control is enabled for this
+ * session before consulting these checks.
  */
 
 /** Session lifecycle state (draft-ietf-webtrans-http3-15 SS4). */
@@ -78,6 +88,20 @@ typedef struct {
                                                       datagram buffer, same
                                                       persist-and-repurpose
                                                       design as streams */
+  u64 max_streams_bidi;    /**< most recent WT_MAX_STREAMS (bidi) value from the
+                               peer; 0 = none received yet (SS5.3) */
+  u64 max_streams_uni;     /**< most recent WT_MAX_STREAMS (uni) value from the
+                               peer; 0 = none received yet (SS5.3) */
+  u64 opened_streams_bidi; /**< cumulative count of bidi streams opened over
+                               the session's lifetime, including closed ones
+                               (SS5.3) */
+  u64 opened_streams_uni;  /**< cumulative count of uni streams opened over
+                               the session's lifetime, including closed ones
+                               (SS5.3) */
+  u64 max_data;  /**< most recent WT_MAX_DATA value from the peer; 0 = none
+                     received yet (SS5.4) */
+  u64 sent_data; /**< cumulative Stream Body bytes sent on the session so far
+                     (SS5.4) */
 } wired_wt_session;
 
 /** Reset s to WIRED_WT_UNESTABLISHED, empty of any buffered stream/datagram,
@@ -131,5 +155,66 @@ int wired_wt_session_offer_stream(wired_wt_session* s, u64 stream_id);
  * @param data the datagram payload
  * @return 1 if buffered or accepted, 0 if dropped */
 int wired_wt_session_offer_datagram(wired_wt_session* s, quic_span data);
+
+/** Record a WT_MAX_STREAMS value just received from the peer
+ * (draft-ietf-webtrans-http3-15 SS5.3). WT_MAX_STREAMS capsules are
+ * delivered in order on the session's connect stream, and Maximum Streams
+ * is cumulative, so a value lower than one already recorded is a protocol
+ * violation the caller MUST close the session for (WT_FLOW_CONTROL_ERROR)
+ * -- this function detects that case and leaves the stored limit
+ * unchanged rather than applying it.
+ * @param s           the session to update
+ * @param bidi        nonzero for the bidirectional limit, 0 for uni
+ * @param max_streams the newly received cumulative stream limit
+ * @return 1 if applied, 0 if max_streams < the currently stored limit
+ *   (caller must close the session with WT_FLOW_CONTROL_ERROR) */
+int wired_wt_session_set_max_streams(
+    wired_wt_session* s, int bidi, u64 max_streams);
+
+/** 1 iff opening one more stream of the given direction stays within the
+ * peer's most recently advertised WT_MAX_STREAMS limit
+ * (draft-ietf-webtrans-http3-15 SS5.3). A limit of 0 (none received yet)
+ * always allows opening -- flow control is opt-in (SS5.1); the caller
+ * decides whether to consult this at all for a session that never enabled
+ * flow control. On 0, the caller MUST close the session with
+ * WT_FLOW_CONTROL_ERROR rather than open the stream.
+ * @param s    the session to check
+ * @param bidi nonzero to check the bidirectional limit, 0 for uni
+ * @return 1 if allowed, 0 if it would exceed the limit */
+int wired_wt_session_stream_open_allowed(const wired_wt_session* s, int bidi);
+
+/** Record that one more stream of the given direction was opened, advancing
+ * the session's cumulative opened-stream count (SS5.3: the count includes
+ * streams that have since closed). Does not itself check
+ * wired_wt_session_stream_open_allowed -- callers check first, then note.
+ * @param s    the session to update
+ * @param bidi nonzero for a bidirectional stream, 0 for uni */
+void wired_wt_session_note_stream_opened(wired_wt_session* s, int bidi);
+
+/** Record a WT_MAX_DATA value just received from the peer
+ * (draft-ietf-webtrans-http3-15 SS5.4). Same in-order/cumulative/monotonic
+ * contract as wired_wt_session_set_max_streams.
+ * @param s        the session to update
+ * @param max_data the newly received cumulative session data limit
+ * @return 1 if applied, 0 if max_data < the currently stored limit (caller
+ *   must close the session with WT_FLOW_CONTROL_ERROR) */
+int wired_wt_session_set_max_data(wired_wt_session* s, u64 max_data);
+
+/** 1 iff sending `len` more Stream Body bytes stays within the peer's most
+ * recently advertised WT_MAX_DATA limit (SS5.4). A limit of 0 (none
+ * received yet) always allows sending, for the same opt-in-flow-control
+ * reason as wired_wt_session_stream_open_allowed. On 0, the caller MUST
+ * close the session with WT_FLOW_CONTROL_ERROR rather than send the data.
+ * @param s   the session to check
+ * @param len additional Stream Body bytes about to be sent
+ * @return 1 if allowed, 0 if it would exceed the limit */
+int wired_wt_session_data_send_allowed(const wired_wt_session* s, usz len);
+
+/** Record that `len` more Stream Body bytes were sent, advancing the
+ * session's cumulative sent-data count. Does not itself check
+ * wired_wt_session_data_send_allowed -- callers check first, then note.
+ * @param s   the session to update
+ * @param len additional Stream Body bytes just sent */
+void wired_wt_session_note_data_sent(wired_wt_session* s, usz len);
 
 #endif
