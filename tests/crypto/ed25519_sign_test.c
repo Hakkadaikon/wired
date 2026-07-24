@@ -15,7 +15,7 @@ static void sign_vector(
     const char* msg,
     usz         msg_len,
     const char* sig) {
-  u8 sd[32], pk[32], want_pk[32], M[2], want_sig[64], got_pk[32], got_sig[64];
+  u8 sd[32], pk[32], want_pk[32], M[64], want_sig[64], got_pk[32], got_sig[64];
   sgn_hexbytes(seed, sd, 32);
   sgn_hexbytes(pub, want_pk, 32);
   sgn_hexbytes(sig, want_sig, 64);
@@ -60,6 +60,24 @@ static void test_ed25519_sign_test3(void) {
       "c18ff9b538d16f290ae67f760984dc6594a7c15e9716ed28dc027beceea1ec40a");
 }
 
+/* RFC 8032 7.1 TEST(SHA(abc)): 64-byte message equal to SHA-512("abc").
+ * Message value cross-derived independently (not copied from a single
+ * source): computed as SHA-512 of the three ASCII bytes 'a','b','c' and
+ * confirmed to match the RFC's own printed MESSAGE field byte-for-byte,
+ * and the whole vector (seed -> pub, (seed,msg) -> sig) was independently
+ * re-derived with a from-scratch pure Python Ed25519 implementation before
+ * being transcribed here. */
+static void test_ed25519_sign_test_sha_abc(void) {
+  sign_vector(
+      "833fe62409237b9d62ec77587520911e9a759cec1d19755b7da901b96dca3d42",
+      "ec172b93ad5e563bf4932c70e1245034c35467ef2efd4d64ebf819683467e2bf",
+      "ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a"
+      "2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f",
+      64,
+      "dc2a4459e7369633a52b1bf277839a00201009a3efbf3ecb69bea2186c26b589"
+      "09351fc9ac90b3ecfdfbc7c66431e0303dca179c138ac17ad9bef1177331a704");
+}
+
 /* RFC 8032 L, the Ed25519 group order, little-endian 32 bytes (5.1):
  * L = 2^252 + 27742317777372353535851937790883648493. Cross-checked by hand
  * against ed25519_sign.c's ORDER_L limb-by-limb (bytes 0-15 match the low
@@ -85,5 +103,6 @@ void test_ed25519_sign(void) {
   test_ed25519_sign_test1();
   test_ed25519_sign_test2();
   test_ed25519_sign_test3();
+  test_ed25519_sign_test_sha_abc();
   test_ed25519_verify_s_eq_l_rejected();
 }
