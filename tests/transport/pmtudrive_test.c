@@ -27,7 +27,7 @@ static void test_pmtudrive_build_probe_ping_plus_padding(void) {
   pd_mk_runner(&r);
   u8        pkt[QUIC_PMTU_MAX + 64];
   quic_obuf ob  = quic_obuf_of(pkt, sizeof(pkt));
-  usz       out = quic_connrunner_pmtu_build_probe(&r, &ob);
+  usz       out = quic_connrunner_pmtu_build_probe(&r, &ob, 0);
   CHECK(out != 0);
   CHECK(r.pmtu.probe == QUIC_PMTU_BASE + QUIC_PMTU_STEP);
   CHECK(r.pmtu_probe_held == 1);
@@ -40,9 +40,9 @@ static void test_pmtudrive_build_probe_single_outstanding(void) {
   pd_mk_runner(&r);
   u8        pkt[QUIC_PMTU_MAX + 64];
   quic_obuf ob1 = quic_obuf_of(pkt, sizeof(pkt));
-  CHECK(quic_connrunner_pmtu_build_probe(&r, &ob1) != 0);
+  CHECK(quic_connrunner_pmtu_build_probe(&r, &ob1, 0) != 0);
   quic_obuf ob2 = quic_obuf_of(pkt, sizeof(pkt));
-  CHECK(quic_connrunner_pmtu_build_probe(&r, &ob2) == 0);
+  CHECK(quic_connrunner_pmtu_build_probe(&r, &ob2, 0) == 0);
 }
 
 /* RFC 8899 3.3: an ack of the outstanding probe's pn raises validated/MPS and
@@ -52,7 +52,7 @@ static void test_pmtudrive_on_ack_confirms_matching_pn(void) {
   pd_mk_runner(&r);
   u8        pkt[QUIC_PMTU_MAX + 64];
   quic_obuf ob = quic_obuf_of(pkt, sizeof(pkt));
-  CHECK(quic_connrunner_pmtu_build_probe(&r, &ob) != 0);
+  CHECK(quic_connrunner_pmtu_build_probe(&r, &ob, 0) != 0);
   u64 pn = r.pmtu_probe_pn;
 
   quic_connrunner_pmtu_on_ack(&r, pn);
@@ -66,7 +66,7 @@ static void test_pmtudrive_on_ack_ignores_other_pn(void) {
   pd_mk_runner(&r);
   u8        pkt[QUIC_PMTU_MAX + 64];
   quic_obuf ob = quic_obuf_of(pkt, sizeof(pkt));
-  CHECK(quic_connrunner_pmtu_build_probe(&r, &ob) != 0);
+  CHECK(quic_connrunner_pmtu_build_probe(&r, &ob, 0) != 0);
 
   quic_connrunner_pmtu_on_ack(&r, r.pmtu_probe_pn + 1);
   CHECK(r.pmtu.validated == QUIC_PMTU_BASE); /* unchanged */
@@ -80,7 +80,7 @@ static void test_pmtudrive_on_loss_matches_pn(void) {
   pd_mk_runner(&r);
   u8        pkt[QUIC_PMTU_MAX + 64];
   quic_obuf ob = quic_obuf_of(pkt, sizeof(pkt));
-  CHECK(quic_connrunner_pmtu_build_probe(&r, &ob) != 0);
+  CHECK(quic_connrunner_pmtu_build_probe(&r, &ob, 0) != 0);
   u64 pn = r.pmtu_probe_pn;
 
   quic_connrunner_pmtu_on_loss(&r, pn);
@@ -95,7 +95,7 @@ static void test_pmtudrive_track_sent_registers_in_sentmeta(void) {
   pd_mk_runner(&r);
   u8        pkt[QUIC_PMTU_MAX + 64];
   quic_obuf ob  = quic_obuf_of(pkt, sizeof(pkt));
-  usz       out = quic_connrunner_pmtu_build_probe(&r, &ob);
+  usz       out = quic_connrunner_pmtu_build_probe(&r, &ob, 0);
   CHECK(out != 0);
 
   quic_connrunner_pmtu_track_sent(&r, 1, out);
@@ -118,11 +118,11 @@ static void test_pmtudrive_reconcile_acks(void) {
   pd_mk_runner(&r);
   u8        pkt[QUIC_PMTU_MAX + 64];
   quic_obuf ob = quic_obuf_of(pkt, sizeof(pkt));
-  CHECK(quic_connrunner_pmtu_build_probe(&r, &ob) != 0);
+  CHECK(quic_connrunner_pmtu_build_probe(&r, &ob, 0) != 0);
   r.io.disp.has_ack       = 1;
   r.io.disp.largest_acked = r.pmtu_probe_pn;
 
-  quic_connrunner_pmtu_reconcile(&r, (const u64*)0, 0);
+  quic_connrunner_pmtu_reconcile(&r, (const u64*)0, 0, 0);
   CHECK(r.pmtu.validated == QUIC_PMTU_BASE + QUIC_PMTU_STEP);
   CHECK(r.pmtu_probe_held == 0);
 }
@@ -134,10 +134,10 @@ static void test_pmtudrive_reconcile_losses(void) {
   pd_mk_runner(&r);
   u8        pkt[QUIC_PMTU_MAX + 64];
   quic_obuf ob = quic_obuf_of(pkt, sizeof(pkt));
-  CHECK(quic_connrunner_pmtu_build_probe(&r, &ob) != 0);
+  CHECK(quic_connrunner_pmtu_build_probe(&r, &ob, 0) != 0);
   u64 lost[1] = {r.pmtu_probe_pn};
 
-  quic_connrunner_pmtu_reconcile(&r, lost, 1);
+  quic_connrunner_pmtu_reconcile(&r, lost, 1, 0);
   CHECK(r.pmtu.ceiling == QUIC_PMTU_BASE + QUIC_PMTU_STEP);
   CHECK(r.pmtu_probe_held == 0);
 }
@@ -149,9 +149,39 @@ static void test_pmtudrive_reconcile_leaves_unresolved_outstanding(void) {
   pd_mk_runner(&r);
   u8        pkt[QUIC_PMTU_MAX + 64];
   quic_obuf ob = quic_obuf_of(pkt, sizeof(pkt));
-  CHECK(quic_connrunner_pmtu_build_probe(&r, &ob) != 0);
+  CHECK(quic_connrunner_pmtu_build_probe(&r, &ob, 0) != 0);
 
-  quic_connrunner_pmtu_reconcile(&r, (const u64*)0, 0);
+  quic_connrunner_pmtu_reconcile(&r, (const u64*)0, 0, 0);
+  CHECK(r.pmtu_probe_held == 1);
+}
+
+/* RFC 8899 5.1.1: reconcile treats an outstanding probe as lost once the
+ * PROBE_TIMER has expired unacked, even with no loss detection input. */
+static void test_pmtudrive_reconcile_probe_timer_expiry(void) {
+  quic_connrunner r;
+  pd_mk_runner(&r);
+  u8        pkt[QUIC_PMTU_MAX + 64];
+  quic_obuf ob = quic_obuf_of(pkt, sizeof(pkt));
+  CHECK(quic_connrunner_pmtu_build_probe(&r, &ob, 1000) != 0);
+
+  quic_connrunner_pmtu_reconcile(
+      &r, (const u64*)0, 0, 1000 + QUIC_PMTU_PROBE_TIMER_US);
+  CHECK(r.pmtu.ceiling == QUIC_PMTU_BASE + QUIC_PMTU_STEP);
+  CHECK(r.pmtu_probe_held == 0);
+}
+
+/* Before the PROBE_TIMER expires, reconcile leaves an unresolved probe
+ * outstanding (same as test_pmtudrive_reconcile_leaves_unresolved_outstanding,
+ * but pinning the boundary just under the timer). */
+static void test_pmtudrive_reconcile_probe_timer_not_yet_due(void) {
+  quic_connrunner r;
+  pd_mk_runner(&r);
+  u8        pkt[QUIC_PMTU_MAX + 64];
+  quic_obuf ob = quic_obuf_of(pkt, sizeof(pkt));
+  CHECK(quic_connrunner_pmtu_build_probe(&r, &ob, 1000) != 0);
+
+  quic_connrunner_pmtu_reconcile(
+      &r, (const u64*)0, 0, 1000 + QUIC_PMTU_PROBE_TIMER_US - 1);
   CHECK(r.pmtu_probe_held == 1);
 }
 
@@ -181,6 +211,35 @@ static void test_pmtudrive_advance_no_probe_before_confirm(void) {
   CHECK(r.pmtu_probe_held == 0);
 }
 
+/* RFC 8899 5.2: once Search Complete is reached and the PMTU_RAISE_TIMER
+ * (600s) elapses, the next build_probe call resumes the search instead of
+ * staying concluded forever. */
+static void test_pmtudrive_build_probe_resumes_after_raise_timer(void) {
+  quic_connrunner r;
+  pd_mk_runner(&r);
+  u8        pkt[QUIC_PMTU_MAX + 64];
+  quic_obuf ob1   = quic_obuf_of(pkt, sizeof(pkt));
+  usz       first = quic_connrunner_pmtu_build_probe(&r, &ob1, 0);
+  CHECK(first != 0);
+  quic_connrunner_pmtu_on_loss(&r, r.pmtu_probe_pn); /* caps the ceiling */
+  CHECK(r.pmtu.searching == 1); /* not concluded yet -- next_probe not rerun */
+
+  /* The candidate is now above the just-capped ceiling, so this build_probe
+   * call's own quic_pmtu_next_probe concludes the search (searching -> 0)
+   * before the PMTU_RAISE_TIMER has had any chance to fire (now=0 still). */
+  quic_obuf ob2 = quic_obuf_of(pkt, sizeof(pkt));
+  CHECK(quic_connrunner_pmtu_build_probe(&r, &ob2, 0) == 0);
+  CHECK(r.pmtu.searching == 0);
+
+  /* Once QUIC_PMTU_RAISE_TIMER_US has elapsed since that conclusion, the
+   * next build_probe call resumes the search and finds a new candidate. */
+  quic_obuf ob3 = quic_obuf_of(pkt, sizeof(pkt));
+  CHECK(
+      quic_connrunner_pmtu_build_probe(&r, &ob3, QUIC_PMTU_RAISE_TIMER_US) !=
+      0);
+  CHECK(r.pmtu.searching == 1);
+}
+
 void test_pmtudrive(void) {
   test_pmtudrive_build_probe_ping_plus_padding();
   test_pmtudrive_build_probe_single_outstanding();
@@ -192,6 +251,9 @@ void test_pmtudrive(void) {
   test_pmtudrive_reconcile_acks();
   test_pmtudrive_reconcile_losses();
   test_pmtudrive_reconcile_leaves_unresolved_outstanding();
+  test_pmtudrive_reconcile_probe_timer_expiry();
+  test_pmtudrive_reconcile_probe_timer_not_yet_due();
   test_pmtudrive_advance_sends_probe_when_idle();
   test_pmtudrive_advance_no_probe_before_confirm();
+  test_pmtudrive_build_probe_resumes_after_raise_timer();
 }

@@ -23,10 +23,14 @@ static usz build_ping_padding(u8* buf, usz cap, usz size) {
 
 /* The next candidate size to probe, or 0 if none: only one probe may be
  * outstanding at a time (RFC 8899 5.1.3 PROBED_SIZE is a single value), so a
- * fresh one is not started while one is still unresolved. */
-static usz next_probe_size(quic_connrunner* r) {
+ * fresh one is not started while one is still unresolved. RFC 8899 5.2: once
+ * the PMTU_RAISE_TIMER fires after Search Complete, resume the search first
+ * so a larger candidate becomes available again. */
+static usz next_probe_size(quic_connrunner* r, u64 now) {
   if (r->pmtu_probe_held) return 0;
-  return quic_pmtu_next_probe(&r->pmtu);
+  if (quic_pmtu_raise_timer_due(&r->pmtu, now))
+    quic_pmtu_resume_search(&r->pmtu);
+  return quic_pmtu_next_probe(&r->pmtu, now);
 }
 
 /* Seal a PING+PADDING frame of `fl` bytes at the loop's level, recording the
@@ -40,9 +44,10 @@ static usz seal_probe(quic_connrunner* r, quic_span frame, quic_obuf* out) {
   return sealed;
 }
 
-usz quic_connrunner_pmtu_build_probe(quic_connrunner* r, quic_obuf* out) {
+usz quic_connrunner_pmtu_build_probe(
+    quic_connrunner* r, quic_obuf* out, u64 now) {
   u8  frame[QUIC_PMTU_MAX];
-  usz size = next_probe_size(r);
+  usz size = next_probe_size(r, now);
   usz fl;
   if (!size) return 0;
   fl = build_ping_padding(frame, sizeof(frame), size);
@@ -90,17 +95,20 @@ static int probe_was_acked(const quic_connrunner* r) {
   return r->io.disp.has_ack && r->pmtu_probe_pn <= r->io.disp.largest_acked;
 }
 
-/* Reconcile as lost if pn is among this round's lost pns; a no-op if a probe
- * was already reconciled as acked above (on_ack cleared pmtu_probe_held, so
+/* Reconcile as lost if pn is among this round's lost pns or the RFC 8899
+ * 5.1.1 PROBE_TIMER has expired unacked; a no-op if a probe was already
+ * reconciled as acked above (on_ack cleared pmtu_probe_held, so
  * quic_connrunner_pmtu_on_loss's own outstanding check discards this). */
-static void reconcile_loss(quic_connrunner* r, u64 pn, const u64* lost, usz n) {
-  if (pn_in_lost(lost, n, pn)) quic_connrunner_pmtu_on_loss(r, pn);
+static void reconcile_loss(
+    quic_connrunner* r, u64 pn, const u64* lost, usz n, u64 now) {
+  int expired = quic_pmtu_probe_timer_due(&r->pmtu, now);
+  if (pn_in_lost(lost, n, pn) || expired) quic_connrunner_pmtu_on_loss(r, pn);
 }
 
 void quic_connrunner_pmtu_reconcile(
-    quic_connrunner* r, const u64* lost, usz n) {
+    quic_connrunner* r, const u64* lost, usz n, u64 now) {
   u64 pn = r->pmtu_probe_pn;
   if (!r->pmtu_probe_held) return;
   if (probe_was_acked(r)) return quic_connrunner_pmtu_on_ack(r, pn);
-  reconcile_loss(r, pn, lost, n);
+  reconcile_loss(r, pn, lost, n, now);
 }
