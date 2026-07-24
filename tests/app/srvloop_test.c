@@ -1947,6 +1947,29 @@ static void test_srvloop_uni_control_qpack_still_ignored(void) {
   CHECK(wired_srvloop_wt_uni_slot_find(&f.l, 10) < 0);
   for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_UNI_STREAMS; i++)
     CHECK(f.l.wt_uni_streams[i].in_use == 0);
+  CHECK(f.l.qpack_stream_violation == 0);
+  CHECK(f.l.h3.peer_qpack_encoder == 1);
+  CHECK(f.l.h3.peer_qpack_decoder == 1);
+}
+
+/* RFC 9204 4.2 (9204-028): a second QPACK encoder stream on the same
+ * connection latches l->qpack_stream_violation (H3_STREAM_CREATION_ERROR),
+ * driven through the live wired_srvloop_step path so the classifier itself
+ * (uni_stream_type_note_qpack) is exercised, not just wired_h3srv_on_peer_
+ * qpack's own unit test. */
+static void test_srvloop_second_qpack_encoder_stream_violation(void) {
+  struct lp_fix f;
+  u8            payload[256], out[1024], spkt[1024];
+  usz           off = 0, slen;
+  quic_obuf     ob  = {out, sizeof out, 0};
+  off += lp_uni_stream(payload + off, sizeof payload - off, 2, 0x02);
+  off += lp_uni_stream(payload + off, sizeof payload - off, 6, 0x02);
+  lp_confirm(&f, &ob);
+  slen = client_seal_onertt_pn(&f, 3, payload, off, spkt, sizeof spkt);
+  ob   = (quic_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  CHECK(f.l.qpack_stream_violation == QUIC_H3_STREAM_CREATION_ERROR);
 }
 
 /* An unrecognized uni stream type (neither control/QPACK/WebTransport) does
@@ -3852,6 +3875,7 @@ void test_srvloop(void) {
   test_srvloop_wt_stream_without_session_no_crash();
   test_srvloop_wt_uni_stream_reassembled();
   test_srvloop_uni_control_qpack_still_ignored();
+  test_srvloop_second_qpack_encoder_stream_violation();
   test_srvloop_uni_unrecognized_type_no_crash();
   test_srvloop_uni_reset_before_type_no_crash();
   test_srvloop_wt_uni_stream_without_session_no_crash();
