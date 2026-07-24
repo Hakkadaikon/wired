@@ -11,3 +11,7 @@ int quic_h3_push_set_max(quic_h3_push_state* s, u64 max) {
 int quic_h3_push_allowed(const quic_h3_push_state* s, u64 id) {
   return id < s->max;
 }
+
+int quic_h3_push_cancel_ok(const quic_h3_push_state* s, u64 id) {
+  return quic_h3_push_allowed(s, id);
+}

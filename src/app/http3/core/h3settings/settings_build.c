@@ -59,6 +59,18 @@ static void append_wt_max_sessions(
   s->n++;
 }
 
+/* RFC 9114 7.2.4.1 / 9114-064: append a caller-chosen reserved (grease)
+ * SETTINGS identifier when in->grease_id is non-zero -- the probabilistic
+ * decision of WHETHER and WHICH identifier to send lives in the caller
+ * (quic_h3settings_control_stream), keeping this function itself
+ * deterministic and easy to test byte-for-byte. */
+static void append_grease(const quic_h3settings_in* in, quic_h3_settings* s) {
+  if (!in->grease_id) return;
+  s->pairs[s->n].id    = in->grease_id;
+  s->pairs[s->n].value = 0;
+  s->n++;
+}
+
 /* RFC 9114 7.2.4 */
 int quic_h3settings_build(const quic_h3settings_in* in, quic_obuf* out) {
   quic_h3_settings s;
@@ -72,6 +84,7 @@ int quic_h3settings_build(const quic_h3settings_in* in, quic_obuf* out) {
   append_connect_protocol(in, &s);
   append_h3_datagram(in, &s);
   append_wt_max_sessions(in, &s);
+  append_grease(in, &s);
 
   usz w = quic_h3_settings_put(out->p, out->cap, &s);
   if (w == 0) return 0;

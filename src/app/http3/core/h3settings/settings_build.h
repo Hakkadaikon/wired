@@ -19,6 +19,12 @@ typedef struct {
                                    SETTINGS_WEBTRANSPORT_MAX_SESSIONS pair
                                    carrying this value -- the identifier
                                    browsers key WebTransport support on */
+  u64 grease_id; /* RFC 9114 7.2.4.1 / 9114-064: non-zero appends this
+                    reserved (grease, 0x1f*N + 0x21 form, see
+                    quic_h3_grease_value) identifier with value 0. The
+                    probabilistic decision of whether/which to send belongs
+                    to the caller, not this builder (0 = the pre-existing
+                    deterministic behavior every caller keeps by default). */
 } quic_h3settings_in;
 
 /* RFC 9114 7.2.4: build a SETTINGS frame carrying the three common settings

@@ -3,7 +3,7 @@
 /* RFC 9114 7.2.4: SETTINGS frame wire structure and round-trip. */
 void test_h3settings_build(void) {
   u8                 buf[32];
-  quic_h3settings_in in = {0x4000, 0, 100, 0, 0, 0};
+  quic_h3settings_in in = {0x4000, 0, 100, 0, 0, 0, 0};
   quic_obuf          ob = {buf, sizeof buf, 0};
   CHECK(quic_h3settings_build(&in, &ob) == 1);
   usz n = ob.len;
@@ -33,7 +33,7 @@ void test_h3settings_build(void) {
  * PROTOCOL (0x08)=1 as a 4th pair; omitted (0) keeps the 3-pair wire form. */
 void test_h3settings_build_connect_protocol(void) {
   u8                 buf[32];
-  quic_h3settings_in in = {0x4000, 0, 100, 1, 0, 0};
+  quic_h3settings_in in = {0x4000, 0, 100, 1, 0, 0, 0};
   quic_obuf          ob = {buf, sizeof buf, 0};
   CHECK(quic_h3settings_build(&in, &ob) == 1);
 
@@ -54,7 +54,7 @@ void test_h3settings_build_connect_protocol(void) {
  * ERR_METHOD_NOT_SUPPORTED. */
 void test_h3settings_build_h3_datagram_and_wt_enabled(void) {
   u8                 buf[48];
-  quic_h3settings_in in = {0x4000, 0, 100, 0, 1, 5};
+  quic_h3settings_in in = {0x4000, 0, 100, 0, 1, 5, 0};
   quic_obuf          ob = {buf, sizeof buf, 0};
   CHECK(quic_h3settings_build(&in, &ob) == 1);
 
@@ -74,11 +74,42 @@ void test_h3settings_build_h3_datagram_and_wt_enabled(void) {
  * pre-existing behavior exercised by test_h3settings_build. */
 void test_h3settings_build_h3_datagram_and_wt_disabled(void) {
   u8                 buf[32];
-  quic_h3settings_in in = {0x4000, 0, 100, 0, 0, 0};
+  quic_h3settings_in in = {0x4000, 0, 100, 0, 0, 0, 0};
   quic_obuf          ob = {buf, sizeof buf, 0};
   CHECK(quic_h3settings_build(&in, &ob) == 1);
 
   quic_h3_settings s;
   usz              sr = quic_h3_settings_get(buf, ob.len, &s);
   CHECK(sr == ob.len && s.n == 3);
+}
+
+/* RFC 9114 7.2.4.1 / 9114-064: grease_id == 0 (the default, every existing
+ * caller above) keeps the exact pre-grease wire form -- adding the field
+ * disturbs nothing already built on this function. */
+void test_h3settings_build_grease_zero_omits_pair(void) {
+  u8                 buf[32];
+  quic_h3settings_in in = {0x4000, 0, 100, 0, 0, 0, 0};
+  quic_obuf          ob = {buf, sizeof buf, 0};
+  CHECK(quic_h3settings_build(&in, &ob) == 1);
+
+  quic_h3_settings s;
+  usz              sr = quic_h3_settings_get(buf, ob.len, &s);
+  CHECK(sr == ob.len && s.n == 3);
+}
+
+/* A non-zero grease_id appends a 4th pair carrying exactly that identifier
+ * with value 0, deterministically (the builder itself never rolls dice --
+ * see control_settings.c for where the probability lives). */
+void test_h3settings_build_grease_nonzero_appends_pair(void) {
+  u8                 buf[32];
+  u64                gid = quic_h3_grease_value(9);
+  quic_h3settings_in in  = {0x4000, 0, 100, 0, 0, 0, gid};
+  quic_obuf          ob  = {buf, sizeof buf, 0};
+  CHECK(quic_h3settings_build(&in, &ob) == 1);
+
+  quic_h3_settings s;
+  usz              sr = quic_h3_settings_get(buf, ob.len, &s);
+  CHECK(sr == ob.len && s.n == 4);
+  CHECK(s.pairs[3].id == gid && s.pairs[3].value == 0);
+  CHECK(quic_h3_is_reserved(s.pairs[3].id) == 1);
 }
