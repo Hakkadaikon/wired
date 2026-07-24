@@ -1,5 +1,7 @@
 #include "tls/handshake/roles/server/server.h"
 
+#include "common/diag/error/codes.h"
+#include "common/diag/error/error.h"
 #include "test.h"
 #include "tls/ext/tlsext/preshared.h"
 #include "tls/ext/tlsext/pskmodes.h"
@@ -38,8 +40,9 @@ struct srv_fix {
   usz          cli_fin_len;
 };
 
-/* Build a ClientHello with a real x25519 key_share into f. */
-static void make_client_hello(struct srv_fix* f) {
+/* Build a ClientHello with a real x25519 key_share and the given server_name
+ * (sni.n 0 to omit) into f. */
+static void make_client_hello_sni(struct srv_fix* f, quic_span sni) {
   u8 cli_pub[32];
   for (usz i = 0; i < 32; i++) {
     f->cli_priv[i]   = (u8)(i + 1);
@@ -47,9 +50,13 @@ static void make_client_hello(struct srv_fix* f) {
   }
   quic_x25519_base(cli_pub, f->cli_priv);
   f->ch_len = quic_tls_client_hello(
-      &(quic_clienthello_in){
-          f->srv_random, cli_pub, quic_span_of(0, 0), quic_span_of(0, 0)},
+      &(quic_clienthello_in){f->srv_random, cli_pub, sni, quic_span_of(0, 0)},
       &(quic_obuf){f->ch, sizeof(f->ch), 0});
+}
+
+/* Build a ClientHello with a real x25519 key_share into f. */
+static void make_client_hello(struct srv_fix* f) {
+  make_client_hello_sni(f, quic_span_of(0, 0));
 }
 
 /* Bring the server to FLIGHT_SENT and capture the flight bytes. */
@@ -284,6 +291,57 @@ static void test_server_ap_keys_match_client(void) {
   CHECK(wired_server_is_confirmed(&f.s) == 1);
   check_dir_matches(&f, QUIC_KS_SERVER_AP, 1);
   check_dir_matches(&f, QUIC_KS_CLIENT_AP, 0);
+}
+
+/* Init a server driver with the same fixed self-signed key material
+ * drive_to_flight uses (cert SAN "localhost"), without driving a ClientHello
+ * through it. */
+static void init_plain_server(wired_server* s) {
+  u8                   srv_priv[32], srv_pub[32], cert_seed[32];
+  wired_server_init_in sin;
+  for (usz i = 0; i < 32; i++) {
+    srv_priv[i]  = (u8)(0x40 + i);
+    cert_seed[i] = (u8)(0x80 + i);
+  }
+  quic_x25519_base(srv_pub, srv_priv);
+  sin = (wired_server_init_in){srv_priv, srv_pub, cert_seed, 0, 0, 0, 0, 0};
+  wired_server_init(s, &sin);
+}
+
+/* RFC 6066 3: a ClientHello naming a host the certificate does not cover is
+ * rejected by wired_server_recv_initial, with last_error carrying
+ * unrecognized_name -- the wiring server.c's doc says a caller MAY add. */
+static void test_server_sni_mismatch_rejected(void) {
+  struct srv_fix f;
+  const u8       host[] = "unrelated.example";
+  make_client_hello_sni(&f, quic_span_of(host, sizeof(host) - 1));
+  init_plain_server(&f.s);
+  CHECK(wired_server_recv_initial(&f.s, f.ch, f.ch_len) == 0);
+  CHECK(f.s.phase == WIRED_SERVER_HS_INITIAL);
+  CHECK(
+      quic_sdrv_last_error(&f.s.sdrv) ==
+      quic_err_crypto(QUIC_TLS_ALERT_UNRECOGNIZED_NAME));
+}
+
+/* A server_name matching the self-signed cert's "localhost" SAN is accepted
+ * (regression: enforce_sni must not reject a genuine match). */
+static void test_server_sni_match_accepted(void) {
+  struct srv_fix f;
+  const u8       host[] = "localhost";
+  make_client_hello_sni(&f, quic_span_of(host, sizeof(host) - 1));
+  init_plain_server(&f.s);
+  CHECK(wired_server_recv_initial(&f.s, f.ch, f.ch_len) == 1);
+  CHECK(f.s.phase == WIRED_SERVER_HS_CH_RECVD);
+}
+
+/* No server_name offered is accepted (regression: RFC 6066 3 absent is not a
+ * mismatch). */
+static void test_server_sni_absent_accepted(void) {
+  struct srv_fix f;
+  make_client_hello(&f);
+  init_plain_server(&f.s);
+  CHECK(wired_server_recv_initial(&f.s, f.ch, f.ch_len) == 1);
+  CHECK(f.s.phase == WIRED_SERVER_HS_CH_RECVD);
 }
 
 /* ClientHello.random (RFC 8446 4.1.2) is recorded verbatim off ch_msg. */
@@ -662,4 +720,7 @@ void test_server(void) {
   test_server_psk_accepted_keys_match_client();
   test_server_psk_keys_differ_from_plain();
   test_server_no_psk_regression_unchanged();
+  test_server_sni_mismatch_rejected();
+  test_server_sni_match_accepted();
+  test_server_sni_absent_accepted();
 }
