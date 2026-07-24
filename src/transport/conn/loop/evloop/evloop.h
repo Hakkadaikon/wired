@@ -88,4 +88,13 @@ int quic_evloop_old_key_retained(const quic_evloop* c, u64 now);
 /* RFC 9000 10.2: begin closing. Once left, the active phase never returns. */
 void quic_evloop_close(quic_evloop* c, int peer_closed);
 
+/* RFC 9002 6.2.2 / 6.4: when Initial or Handshake keys are discarded, the PTO
+ * and loss detection timers MUST be reset (9002-036), all recovery state for
+ * packets sent under those keys MUST be discarded, and they MUST be removed
+ * from the count of bytes in flight (9002-043) -- once keys are gone those
+ * packets can never be acknowledged. This loop tracks exactly one packet
+ * number space, so discarding `level`'s keys clears its entire sent-packet
+ * table and zeroes bytes_in_flight unconditionally. */
+void quic_evloop_discard_keys(quic_evloop* c, int level);
+
 #endif

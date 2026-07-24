@@ -53,8 +53,31 @@ static void test_loss_none(void) {
   CHECK(t.e[0].state == QUIC_SP_INFLIGHT);
 }
 
+/* RFC 9002 7.4: an endpoint MUST NOT ignore the loss of a packet sent after
+ * the earliest acknowledged packet in the space (9002-059). Here pn 10 was
+ * sent well after the earliest acknowledged packet (pn 1, implied by
+ * largest_acked's ack range starting there) yet still crosses the packet
+ * threshold against a later largest_acked (13) -- quic_loss_detect has no
+ * undecryptable-packet exemption at all, so it is still declared lost, not
+ * skipped. */
+static void test_loss_not_ignored_after_earliest_acked(void) {
+  quic_sentpkt t;
+  quic_sentpkt_init(&t);
+  quic_sentpkt_on_send(
+      &t, &(quic_sentpkt_out){10, 100, 1, 1}); /* sent after pn 1's ack */
+  u64 lost[4];
+  usz n = 0;
+  /* now==sent, large loss_delay: isolate the packet-threshold path. */
+  quic_loss_detect(
+      &t, &(quic_loss_params){13, 100, 5000}, (quic_u64out){lost, &n});
+  CHECK(n == 1);
+  CHECK(lost[0] == 10);
+  CHECK(t.e[0].state == QUIC_SP_LOST);
+}
+
 void test_loss_detect(void) {
   test_loss_packet_threshold();
   test_loss_time_threshold();
   test_loss_none();
+  test_loss_not_ignored_after_earliest_acked();
 }
