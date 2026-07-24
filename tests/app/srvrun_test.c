@@ -612,6 +612,30 @@ static void test_srvrun_accept_rekeys_to_slot_scid(void) {
           table, QUIC_CONNTABLE_CAP, st.conns[0].scid, id.scid_len) == 0);
 }
 
+/* RFC 9000 14/14.1: a datagram carrying an Initial packet below the
+ * 1200-byte floor is a size-constraint violation -- discarded outright, no
+ * slot claimed and no connection error raised (nothing to close, since no
+ * connection was ever opened for it). */
+static void test_srvrun_size_violation_discards_no_slot(void) {
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32], dg[1500];
+  quic_conntable   table[QUIC_CONNTABLE_CAP];
+  quic_sockaddr    peer = {0};
+  srvrun_state     st   = {table, sr_test_conns()};
+  usz total             = sr_build_client_initial(dg, sizeof dg, g_sr_odcid, 8);
+  sr_make_id(&id, priv, pub, seed, rnd);
+  CHECK(total >= 1200); /* the real Initial pads to the RFC 9000 14.1 floor */
+  {
+    srvrun_cfg cfg = {-1, &id,           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                      0,  &g_srvrun_env, 0, 0, 0, 0, 0, 0};
+    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0, 0};
+    quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+    srvrun_serve(&ctx, quic_mspan_of(dg, 1199)); /* below the 1200 floor */
+  }
+  CHECK(st.conns[0].up == 0); /* no slot claimed */
+  CHECK(quic_conntable_find(table, QUIC_CONNTABLE_CAP, g_sr_odcid, 8) == -1);
+}
+
 /* RFC 9000 5.2.2: a refused new connection gets an unpadded server Initial
  * carrying CONNECTION_CLOSE(CONNECTION_REFUSED), openable with Initial keys
  * derived from the client's own DCID -- no live connection state needed.
@@ -1981,6 +2005,31 @@ static void test_srvrun_path_challenge_rng_failure_sends_nothing(void) {
   CHECK(srvrun_test_send_count() == send_before); /* c->peer still rebinds --
     only the challenge send itself is skipped */
   CHECK(c.peer.port_be == new_peer.port_be);
+}
+
+/* RFC 9000 8.2.1: a datagram carrying a PATH_CHALLENGE must be expanded to
+ * at least 1200 bytes, so a path that drops larger datagrams cannot be used
+ * to validate at a smaller effective MTU. */
+static void test_srvrun_pad_path_challenge_expands_to_1200(void) {
+  u8 out[QUIC_MIN_INITIAL_DATAGRAM];
+  for (usz i = 0; i < sizeof out; i++) out[i] = 0xaa;
+  CHECK(srvrun_pad_path_challenge(out, 40, sizeof out) == 1200);
+  CHECK(out[39] == 0xaa); /* sealed packet bytes untouched */
+  CHECK(out[40] == 0);    /* padding starts right after */
+  CHECK(out[1199] == 0);  /* padding fills to the cap */
+}
+
+/* Already >= 1200: left unchanged (no padding needed). */
+static void test_srvrun_pad_path_challenge_noop_when_already_big(void) {
+  u8 out[1300];
+  CHECK(srvrun_pad_path_challenge(out, 1200, sizeof out) == 1200);
+  CHECK(srvrun_pad_path_challenge(out, 1250, sizeof out) == 1250);
+}
+
+/* cap too small to reach 1200: left unchanged rather than overflowing. */
+static void test_srvrun_pad_path_challenge_noop_when_cap_too_small(void) {
+  u8 out[100];
+  CHECK(srvrun_pad_path_challenge(out, 40, sizeof out) == 40);
 }
 
 /* Serve one sealed 1-RTT datagram carrying `pl` to a fresh confirmed slot 0,
@@ -10360,6 +10409,7 @@ void test_srvrun(void) {
   test_srvrun_send_credit_boundary_exact_fit_allowed();
   test_srvrun_pump_stops_at_log_capacity();
   test_srvrun_accept_rekeys_to_slot_scid();
+  test_srvrun_size_violation_discards_no_slot();
   test_srvrun_open_slot_xdp_embeds_core_id();
   test_srvrun_open_slot_xdp_embeds_core_id_zero();
   test_srvrun_open_slot_non_xdp_no_core_id_embedding();
@@ -10399,6 +10449,9 @@ void test_srvrun(void) {
   test_srvrun_rebind_subsequent_send_targets_new_peer();
   test_srvrun_path_challenge_generated_on_rebind();
   test_srvrun_path_challenge_sent_to_new_peer();
+  test_srvrun_pad_path_challenge_expands_to_1200();
+  test_srvrun_pad_path_challenge_noop_when_already_big();
+  test_srvrun_pad_path_challenge_noop_when_cap_too_small();
   test_srvrun_path_response_matching_validates();
   test_srvrun_path_response_mismatch_does_not_validate();
   test_srvrun_path_response_without_challenge_is_noop();
