@@ -92,9 +92,50 @@ static void test_aes_no_key_restriction_beyond_length(void) {
   CHECK(bytes16_differ(out_zero, out_ff));
 }
 
+/* aes256_hb32 parses a 64-char hex string into 32 bytes. */
+static void aes256_hb32(const char* hex, u8 out[32]) {
+  for (usz i = 0; i < 32; i++) {
+    u8 hi = hex[i * 2], lo = hex[i * 2 + 1];
+    out[i] = (u8)(((hi <= '9' ? hi - '0' : hi - 'a' + 10) << 4) |
+                  (lo <= '9' ? lo - '0' : lo - 'a' + 10));
+  }
+}
+
+/* FIPS 197 Appendix C.3: AES-256 known-answer test. Recomputed
+ * independently with Python's cryptography library (AES256-ECB) before
+ * being baked in here; it matches the value below. */
+static void test_aes256_appendix_c3(void) {
+  u8          key[32], in[16], out[16], want[16];
+  quic_aes256 a;
+  aes256_hb32(
+      "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f", key);
+  hb("00112233445566778899aabbccddeeff", in);
+  hb("8ea2b7ca516745bfeafc49904b496089", want);
+  quic_aes256_init(&a, key);
+  quic_aes256_encrypt(&a, in, out);
+  for (usz i = 0; i < 16; i++) CHECK(out[i] == want[i]);
+}
+
+/* FIPS 197 6.2: no restriction on an appropriately generated key beyond its
+ * length; degenerate 256-bit keys still produce distinct ciphertext. */
+static void test_aes256_no_key_restriction_beyond_length(void) {
+  u8 zero_key[32] = {0}, ff_key[32], in[16] = {0}, out_zero[16], out_ff[16];
+  quic_aes256 a_zero, a_ff;
+  for (usz i = 0; i < 32; i++) ff_key[i] = 0xff;
+
+  quic_aes256_init(&a_zero, zero_key);
+  quic_aes256_encrypt(&a_zero, in, out_zero);
+  quic_aes256_init(&a_ff, ff_key);
+  quic_aes256_encrypt(&a_ff, in, out_ff);
+
+  CHECK(bytes16_differ(out_zero, out_ff));
+}
+
 void test_aes(void) {
   test_aes_fips197();
   test_aes_appendix_c();
   test_aes_mix_columns_matrix();
   test_aes_no_key_restriction_beyond_length();
+  test_aes256_appendix_c3();
+  test_aes256_no_key_restriction_beyond_length();
 }

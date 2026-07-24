@@ -22,4 +22,21 @@ void quic_aes128_init(quic_aes128* a, const u8 key[QUIC_AES_BLOCK]);
 void quic_aes128_encrypt(
     const quic_aes128* a, const u8 in[QUIC_AES_BLOCK], u8 out[QUIC_AES_BLOCK]);
 
+/* FIPS 197 AES-256. 128-bit block, 256-bit key, 14 rounds. */
+
+#define QUIC_AES256_KEY 32
+#define QUIC_AES256_ROUNDS 14
+#define QUIC_AES256_RK_WORDS 60 /* 4*(rounds+1) round-key words */
+
+typedef struct {
+  u32 rk[QUIC_AES256_RK_WORDS];
+} quic_aes256;
+
+/* Expand a 32-byte key into the round-key schedule. */
+void quic_aes256_init(quic_aes256* a, const u8 key[QUIC_AES256_KEY]);
+
+/* Encrypt one 16-byte block in place semantics: out = AES(key, in). */
+void quic_aes256_encrypt(
+    const quic_aes256* a, const u8 in[QUIC_AES_BLOCK], u8 out[QUIC_AES_BLOCK]);
+
 #endif
