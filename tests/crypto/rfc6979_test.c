@@ -49,7 +49,39 @@ static void test_rfc6979_k_in_range_boundaries(void) {
   CHECK(ps_k_in_range(nm1) == 1);  /* k == n-1: top of range, in */
 }
 
+/* RFC 6979 Section 3.4: an in-range candidate that the caller rejects (e.g.
+ * because it would yield r == 0) must not be accepted; generation must loop
+ * to a further candidate instead. Drive quic_p256sign_k_retry with a stub
+ * "ok" that rejects the first two candidates and accepts the third, and
+ * confirm the result differs from the unconditional quic_p256sign_k (which
+ * stops at the first in-range candidate) yet is still itself in range. */
+typedef struct {
+  int calls;
+} r6979_reject_ctx;
+
+static int r6979_reject_first_two(const u8 cand[32], void* vctx) {
+  (void)cand;
+  r6979_reject_ctx* c = (r6979_reject_ctx*)vctx;
+  c->calls++;
+  return c->calls > 2;
+}
+
+static void test_rfc6979_retry_skips_rejected_candidates(void) {
+  u8               priv[32], h[32], k0[32], kr[32];
+  r6979_reject_ctx ctx = {0};
+  r6979_hb32(R6979_X, priv);
+  quic_sha256((const u8*)"sample", 6, h);
+  quic_p256sign_k(priv, h, k0);
+  quic_p256sign_k_retry(priv, h, kr, r6979_reject_first_two, &ctx);
+  CHECK(ctx.calls == 3);    /* rejected twice, accepted on the 3rd draw */
+  CHECK(ps_k_in_range(kr)); /* the accepted candidate is still in range */
+  int differs = 0;
+  for (usz i = 0; i < 32; i++) differs |= (k0[i] != kr[i]);
+  CHECK(differs != 0); /* retried past the first candidate k0 would use */
+}
+
 void test_rfc6979(void) {
   test_rfc6979_sample_k();
   test_rfc6979_k_in_range_boundaries();
+  test_rfc6979_retry_skips_rejected_candidates();
 }

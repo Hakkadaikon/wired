@@ -48,28 +48,54 @@ static int ps_k_in_range(const u8 cand[32]) {
   return !quic_fp_is_zero(c) && quic_fp_lt(c, quic_p256_n);
 }
 
-/* RFC 6979 step h: T = HMAC(K, V); on reject, K=HMAC(K,V||0x00); V=HMAC(K,V).
- */
-static void ps_gen_candidate(u8 k[32], u8 v[32], u8 out[32]) {
+/* RFC 6979 step h.3: on reject, K = HMAC_K(V||0x00); V = HMAC_K(V). */
+static void ps_advance(u8 k[32], u8 v[32]) {
+  u8 msg[33];
+  p256sign_copy(msg, v, 32);
+  msg[32] = 0x00;
+  quic_hmac_sha256(quic_span_of(k, 32), quic_span_of(msg, 33), k);
+  quic_hmac_sha256(quic_span_of(k, 32), quic_span_of(v, 32), v);
+}
+
+/* 1 if v is both in [1,n-1] and accepted by the caller's suitability check
+ * (RFC 6979 Section 3.2 step h.3 / Section 3.4). */
+static int ps_accept(const u8 v[32], quic_p256sign_k_ok ok, void* ctx) {
+  if (!ps_k_in_range(v)) return 0;
+  return ok(v, ctx);
+}
+
+/* RFC 6979 step h: T = HMAC(K, V); loop via ps_advance until ps_accept. */
+static void ps_gen_candidate(
+    u8 k[32], u8 v[32], u8 out[32], quic_p256sign_k_ok ok, void* ctx) {
   for (;;) {
     quic_hmac_sha256(quic_span_of(k, 32), quic_span_of(v, 32), v);
-    if (ps_k_in_range(v)) break;
-    u8 z = 0x00;
-    u8 msg[33];
-    p256sign_copy(msg, v, 32);
-    msg[32] = z;
-    quic_hmac_sha256(quic_span_of(k, 32), quic_span_of(msg, 33), k);
-    quic_hmac_sha256(quic_span_of(k, 32), quic_span_of(v, 32), v);
+    if (ps_accept(v, ok, ctx)) break;
+    ps_advance(k, v);
   }
   p256sign_copy(out, v, 32);
 }
 
-void quic_p256sign_k(const u8 priv[32], const u8 hash[32], u8 out[32]) {
+static int ps_always_ok(const u8 cand[32], void* ctx) {
+  (void)cand;
+  (void)ctx;
+  return 1;
+}
+
+void quic_p256sign_k_retry(
+    const u8           priv[32],
+    const u8           hash[32],
+    u8                 out[32],
+    quic_p256sign_k_ok ok,
+    void*              ctx) {
   u8 k[32], v[32], hred[32];
   p256sign_set(k, 0x00, 32);
   p256sign_set(v, 0x01, 32);
   ps_hash_mod_n(hash, hred);
   ps_mix(k, v, 0x00, priv, hred);
   ps_mix(k, v, 0x01, priv, hred);
-  ps_gen_candidate(k, v, out);
+  ps_gen_candidate(k, v, out, ok, ctx);
+}
+
+void quic_p256sign_k(const u8 priv[32], const u8 hash[32], u8 out[32]) {
+  quic_p256sign_k_retry(priv, hash, out, ps_always_ok, 0);
 }
