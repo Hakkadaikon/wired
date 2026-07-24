@@ -38,4 +38,14 @@ typedef struct {
  * has_param are 0/1 flags. */
 int quic_tparam_check_retry_scid(const quic_tparam_retry_scid_in* in);
 
+/* RFC 9000 18.2: validate the value of a received integer-valued transport
+ * parameter against its per-parameter range. Returns 1 if value is within
+ * range (or id carries no range constraint), 0 if it is invalid -- the
+ * caller closes with TRANSPORT_PARAMETER_ERROR:
+ *   - max_udp_payload_size (0x03): values below 1200 are invalid.
+ *   - ack_delay_exponent (0x0a): values above 20 are invalid.
+ *   - max_ack_delay (0x0b): values of 2^14 or greater are invalid.
+ *   - active_connection_id_limit (0x0e): must be at least 2. */
+int quic_tparam_range_ok(u64 id, u64 value);
+
 #endif
