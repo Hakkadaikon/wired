@@ -10,6 +10,8 @@
 #include "app/http3/server/srvloop/recv.h"
 #include "app/http3/server/srvloop/send.h"
 #include "app/http3/server/srvwire/wire.h"
+#include "app/qpack/qpack/error.h"
+#include "app/qpack/qpack/instruction.h"
 #include "crypto/kdf/keys/keyset.h"
 #include "test.h"
 #include "tls/ext/tparam/tparam.h"
@@ -1106,6 +1108,21 @@ static usz lp_uni_stream(u8* out, usz cap, u64 stream_id, u8 lead) {
   return quic_frame_put_stream(out, cap, &sf);
 }
 
+/* Build a STREAM frame on stream_id opening a QPACK encoder stream (RFC 9204
+ * 4.2, type 0x02) whose bytes carry one Set Dynamic Table Capacity
+ * instruction (RFC 9204 4.3.1). */
+static usz lp_qpack_encoder_set_capacity(
+    u8* out, usz cap, u64 stream_id, u64 capacity) {
+  u8         body[8];
+  quic_mspan mb = quic_mspan_of(body + 1, sizeof body - 1);
+  usz        n =
+      quic_qpack_enc_instr_encode(mb, QUIC_QPACK_ENC_SET_CAPACITY, capacity);
+  quic_stream_frame sf;
+  body[0] = QUIC_H3_STREAM_QPACK_ENCODER;
+  sf      = (quic_stream_frame){stream_id, 0, 1 + n, body, 0};
+  return quic_frame_put_stream(out, cap, &sf);
+}
+
 /* STREAM ID CLASSIFICATION (RFC 9000 2.1, RFC 9114 6.2): a 1-RTT payload that
  * carries only unidirectional STREAM frames (curl's control/encoder/decoder,
  * ids 2 and 6) must be accepted without being mistaken for a request — no
@@ -1970,6 +1987,46 @@ static void test_srvloop_second_qpack_encoder_stream_violation(void) {
   wired_srvloop_step(
       &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
   CHECK(f.l.qpack_stream_violation == QUIC_H3_STREAM_CREATION_ERROR);
+}
+
+/* RFC 9204 4.3.1 (9204-020/9204-033): a Set Dynamic Table Capacity
+ * instruction received on the QPACK encoder stream, within the server's own
+ * advertised limit, is applied to l->h3.qdyn -- driven through the live
+ * wired_srvloop_step path so dispatch.c's own wiring (not just enc_stream.c's
+ * unit test) is exercised. */
+static void test_srvloop_qpack_encoder_set_capacity_applied(void) {
+  struct lp_fix f;
+  u8            payload[64], out[1024], spkt[1024];
+  usz           off, slen;
+  quic_obuf     ob = {out, sizeof out, 0};
+  off = lp_qpack_encoder_set_capacity(payload, sizeof payload, 2, 10);
+  lp_confirm(&f, &ob);
+  f.l.h3.qpack_max_table_capacity = 100;
+  slen = client_seal_onertt_pn(&f, 3, payload, off, spkt, sizeof spkt);
+  ob   = (quic_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  CHECK(f.l.h3.qdyn.capacity == 10);
+  CHECK(f.l.qpack_stream_violation == 0);
+}
+
+/* RFC 9204 5 / 9204-032: a Set Dynamic Table Capacity exceeding the server's
+ * own advertised limit latches qpack_stream_violation and leaves the table
+ * untouched, driven through the live step path. */
+static void test_srvloop_qpack_encoder_set_capacity_over_limit(void) {
+  struct lp_fix f;
+  u8            payload[64], out[1024], spkt[1024];
+  usz           off, slen;
+  quic_obuf     ob = {out, sizeof out, 0};
+  off = lp_qpack_encoder_set_capacity(payload, sizeof payload, 2, 50);
+  lp_confirm(&f, &ob);
+  f.l.h3.qpack_max_table_capacity = 10;
+  slen = client_seal_onertt_pn(&f, 3, payload, off, spkt, sizeof spkt);
+  ob   = (quic_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  CHECK(f.l.h3.qdyn.capacity == 0);
+  CHECK(f.l.qpack_stream_violation == QUIC_QPACK_ENCODER_STREAM_ERROR);
 }
 
 /* An unrecognized uni stream type (neither control/QPACK/WebTransport) does
@@ -3876,6 +3933,8 @@ void test_srvloop(void) {
   test_srvloop_wt_uni_stream_reassembled();
   test_srvloop_uni_control_qpack_still_ignored();
   test_srvloop_second_qpack_encoder_stream_violation();
+  test_srvloop_qpack_encoder_set_capacity_applied();
+  test_srvloop_qpack_encoder_set_capacity_over_limit();
   test_srvloop_uni_unrecognized_type_no_crash();
   test_srvloop_uni_reset_before_type_no_crash();
   test_srvloop_wt_uni_stream_without_session_no_crash();
