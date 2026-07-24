@@ -38,6 +38,14 @@ typedef struct {
   u8 server_ap_secret[QUIC_HKDF_PRK]; /**< server_application_traffic_secret_0,
                                        * retained for the same reason on the
                                        * send side (RFC 9001 6.2) */
+  u8 exporter_secret[QUIC_HKDF_PRK];  /**< exporter_master_secret (RFC 8446
+                                       * 7.1/7.5), derived alongside the
+                                       * application traffic secrets on
+                                       * reaching stage 2 so
+                                       * quic_tls_exporter can compute
+                                       * TLS-Exporter values (e.g.
+                                       * EXPORTER-WebTransport) once the
+                                       * handshake completes */
   u16 suite; /**< negotiated TLS 1.3 cipher suite (RFC 8446 B.4) for the
               * Handshake/1-RTT levels this schedule derives; set by
               * quic_keysched_init to AES_128_GCM_SHA256 and overridable via
@@ -140,5 +148,17 @@ int quic_keysched_client_ap_secret(const quic_keysched* st, const u8** out);
  * @return 1 if derived, 0 otherwise.
  */
 int quic_keysched_server_ap_secret(const quic_keysched* st, const u8** out);
+
+/**
+ * The retained exporter_master_secret (RFC 8446 7.1/7.5), valid once
+ * stage 2 is reached (same guard as quic_keysched_get with
+ * QUIC_KS_CLIENT_AP). Feed *out into quic_tls_exporter (exporter.h) to
+ * compute a TLS-Exporter value.
+ *
+ * @param st  schedule state to query
+ * @param out receives a pointer to the QUIC_HKDF_PRK-byte secret
+ * @return 1 if derived, 0 otherwise.
+ */
+int quic_keysched_exporter_secret(const quic_keysched* st, const u8** out);
 
 #endif

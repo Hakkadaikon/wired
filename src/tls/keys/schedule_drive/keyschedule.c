@@ -2,6 +2,7 @@
 
 #include "tls/handshake/core/tls/appkeys.h"
 #include "tls/handshake/core/tls/cipher.h"
+#include "tls/handshake/core/tls/exporter.h"
 #include "tls/handshake/core/tls/master.h"
 #include "tls/handshake/core/tls/schedule.h"
 
@@ -87,6 +88,8 @@ int quic_keysched_advance_master(
   in.is_server = 1;
   quic_tls_app_keys_suite(&in, st->suite, &st->keys[QUIC_KS_SERVER_AP]);
   save_server_ap_secret(st, transcript, transcript_len);
+  quic_tls_exporter_master_secret(
+      st->master, transcript, transcript_len, st->exporter_secret);
   st->stage = 2;
   return 1;
 }
@@ -112,5 +115,11 @@ int quic_keysched_client_ap_secret(const quic_keysched* st, const u8** out) {
 int quic_keysched_server_ap_secret(const quic_keysched* st, const u8** out) {
   if (st->stage < 2) return 0;
   *out = st->server_ap_secret;
+  return 1;
+}
+
+int quic_keysched_exporter_secret(const quic_keysched* st, const u8** out) {
+  if (st->stage < 2) return 0;
+  *out = st->exporter_secret;
   return 1;
 }
