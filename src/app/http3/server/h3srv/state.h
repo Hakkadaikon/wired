@@ -10,10 +10,14 @@
 
 /** HTTP/3 server response-layer state after the 1-RTT handshake. */
 typedef struct {
-  u8 settings_sent; /**< local control opened and SETTINGS emitted first */
-  u8 peer_control;  /**< 1 once a peer control stream has been seen */
-  u8 peer_settings; /**< peer SETTINGS-first recorded */
-  u8 request_seen;  /**< a request HEADERS has been decoded */
+  u8 settings_sent;      /**< local control opened and SETTINGS emitted first */
+  u8 peer_control;       /**< 1 once a peer control stream has been seen */
+  u8 peer_settings;      /**< peer SETTINGS-first recorded */
+  u8 request_seen;       /**< a request HEADERS has been decoded */
+  u8 peer_qpack_encoder; /**< 1 once a peer QPACK encoder stream has been seen
+                          */
+  u8 peer_qpack_decoder; /**< 1 once a peer QPACK decoder stream has been seen
+                          */
 } wired_h3srv_state;
 
 #endif

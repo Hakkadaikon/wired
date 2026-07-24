@@ -100,6 +100,54 @@ static void test_h3srv_accept_uni_webtransport(void) {
   CHECK(!wired_h3srv_accept_uni(0x99));
 }
 
+/* RFC 9204 4.2: the first QPACK encoder and the first QPACK decoder stream
+ * are each accepted independently, no error. */
+static void test_h3srv_peer_qpack_first_ok(void) {
+  wired_h3srv_state st  = {0};
+  u16               err = 0xffff;
+
+  CHECK(wired_h3srv_on_peer_qpack(&st, QUIC_H3_STREAM_QPACK_ENCODER, &err));
+  CHECK(err == 0);
+  CHECK(st.peer_qpack_encoder);
+
+  CHECK(wired_h3srv_on_peer_qpack(&st, QUIC_H3_STREAM_QPACK_DECODER, &err));
+  CHECK(err == 0);
+  CHECK(st.peer_qpack_decoder);
+}
+
+/* RFC 9204 4.2: a second encoder stream is H3_STREAM_CREATION_ERROR. */
+static void test_h3srv_peer_second_qpack_encoder(void) {
+  wired_h3srv_state st  = {0};
+  u16               err = 0;
+
+  CHECK(wired_h3srv_on_peer_qpack(&st, QUIC_H3_STREAM_QPACK_ENCODER, &err));
+  CHECK(!wired_h3srv_on_peer_qpack(&st, QUIC_H3_STREAM_QPACK_ENCODER, &err));
+  CHECK(err == QUIC_H3_STREAM_CREATION_ERROR);
+}
+
+/* RFC 9204 4.2: a second decoder stream is H3_STREAM_CREATION_ERROR,
+ * independent of the encoder stream's state. */
+static void test_h3srv_peer_second_qpack_decoder(void) {
+  wired_h3srv_state st  = {0};
+  u16               err = 0;
+
+  CHECK(wired_h3srv_on_peer_qpack(&st, QUIC_H3_STREAM_QPACK_DECODER, &err));
+  CHECK(!wired_h3srv_on_peer_qpack(&st, QUIC_H3_STREAM_QPACK_DECODER, &err));
+  CHECK(err == QUIC_H3_STREAM_CREATION_ERROR);
+}
+
+/* Any non-QPACK stream type (e.g. control) is a no-op: accepted, no error,
+ * and neither peer_qpack_* flag is touched. */
+static void test_h3srv_peer_qpack_ignores_other_types(void) {
+  wired_h3srv_state st  = {0};
+  u16               err = 0xffff;
+
+  CHECK(wired_h3srv_on_peer_qpack(&st, QUIC_H3_STREAM_CONTROL, &err));
+  CHECK(err == 0);
+  CHECK(!st.peer_qpack_encoder);
+  CHECK(!st.peer_qpack_decoder);
+}
+
 /* RFC 9114 4.1: a GET request HEADERS is decoded, marking request_seen, and
  * the :path / :authority are recovered. */
 static void test_h3srv_request_decode(void) {
@@ -287,6 +335,10 @@ void test_h3srv(void) {
   test_h3srv_peer_second_control_creation();
   test_h3srv_accept_uni_streams();
   test_h3srv_accept_uni_webtransport();
+  test_h3srv_peer_qpack_first_ok();
+  test_h3srv_peer_second_qpack_encoder();
+  test_h3srv_peer_second_qpack_decoder();
+  test_h3srv_peer_qpack_ignores_other_types();
   test_h3srv_request_decode();
   test_h3srv_request_answered();
   test_h3srv_head_no_body();

@@ -47,6 +47,29 @@ int wired_h3srv_on_peer_control(
   return 1;
 }
 
+/* The peer_qpack_* flag st owns for stream_type, or 0 if stream_type is not a
+ * QPACK stream type. */
+static u8* qpack_flag_for(wired_h3srv_state* st, u64 stream_type) {
+  if (stream_type == QUIC_H3_STREAM_QPACK_ENCODER)
+    return &st->peer_qpack_encoder;
+  if (stream_type == QUIC_H3_STREAM_QPACK_DECODER)
+    return &st->peer_qpack_decoder;
+  return 0;
+}
+
+int wired_h3srv_on_peer_qpack(
+    wired_h3srv_state* st, u64 stream_type, u16* err) {
+  u8* flag = qpack_flag_for(st, stream_type);
+  *err     = 0;
+  if (!flag) return 1;
+  if (*flag) {
+    *err = QUIC_H3_STREAM_CREATION_ERROR;
+    return 0;
+  }
+  *flag = 1;
+  return 1;
+}
+
 /* Accepted uni stream type classifiers, scanned until one matches. */
 static int (*const accept_uni_checks[])(u64) = {
     quic_h3_stream_type_is_control,
