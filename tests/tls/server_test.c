@@ -371,7 +371,7 @@ typedef struct {
 } srvt_psk_fixture;
 
 static void srvt_psk_fixture_init(srvt_psk_fixture* f) {
-  quic_ticket t = {{0}, 0, 7200};
+  quic_ticket t = {{0}, 0, 7200, 0};
   for (usz i = 0; i < QUIC_TICKET_KEY_LEN; i++)
     f->ticket_key[i] = (u8)(0xd0 + i);
   for (usz i = 0; i < QUIC_TICKET_SECRET_LEN; i++) {

@@ -14,7 +14,7 @@
 /* Sealed-ticket framing: nonce || ciphertext || tag. */
 #define QUIC_TICKET_NONCE_LEN 12
 #define QUIC_TICKET_TAG_LEN 16
-#define QUIC_TICKET_PLAIN_LEN (QUIC_TICKET_SECRET_LEN + 8 + 4)
+#define QUIC_TICKET_PLAIN_LEN (QUIC_TICKET_SECRET_LEN + 8 + 4 + 4)
 #define QUIC_TICKET_SEALED_LEN \
   (QUIC_TICKET_NONCE_LEN + QUIC_TICKET_PLAIN_LEN + QUIC_TICKET_TAG_LEN)
 
@@ -23,6 +23,7 @@ typedef struct {
   u8  secret[QUIC_TICKET_SECRET_LEN]; /**< resumption master secret */
   u64 issued_at;                      /**< server clock at issuance */
   u32 lifetime_secs;                  /**< ticket_lifetime (RFC 8446 4.6.1) */
+  u32 age_add; /**< ticket_age_add (RFC 8446 4.6.1), random per ticket */
 } quic_ticket;
 
 /* Seal a ticket under the server's fixed key: out receives

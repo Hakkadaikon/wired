@@ -5,13 +5,14 @@
 #include "crypto/symmetric/aead/chacha/aead.h"
 
 /* Serialize quic_ticket into the fixed plaintext layout: secret ||
- * issued_at(be64) || lifetime_secs(be32). */
+ * issued_at(be64) || lifetime_secs(be32) || age_add(be32). */
 static void ticket_encode(const quic_ticket* t, u8 out[QUIC_TICKET_PLAIN_LEN]) {
   usz i;
   for (i = 0; i < QUIC_TICKET_SECRET_LEN; i++) out[i] = t->secret[i];
   u8* ts = out + QUIC_TICKET_SECRET_LEN;
   quic_put_be64(ts, t->issued_at);
   quic_put_be32(ts + 8, t->lifetime_secs);
+  quic_put_be32(ts + 12, t->age_add);
 }
 
 static void ticket_decode(const u8 in[QUIC_TICKET_PLAIN_LEN], quic_ticket* t) {
@@ -20,6 +21,7 @@ static void ticket_decode(const u8 in[QUIC_TICKET_PLAIN_LEN], quic_ticket* t) {
   const u8* ts     = in + QUIC_TICKET_SECRET_LEN;
   t->issued_at     = quic_get_be64(ts);
   t->lifetime_secs = quic_get_be32(ts + 8);
+  t->age_add       = quic_get_be32(ts + 12);
 }
 
 void quic_ticket_seal(

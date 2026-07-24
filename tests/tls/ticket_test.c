@@ -9,6 +9,7 @@ static quic_ticket sample_ticket(void) {
   for (usz i = 0; i < QUIC_TICKET_SECRET_LEN; i++) t.secret[i] = (u8)i;
   t.issued_at     = 1700000000ULL;
   t.lifetime_secs = 86400;
+  t.age_add       = 0x12345678;
   return t;
 }
 
@@ -26,6 +27,7 @@ static void test_ticket_roundtrip(void) {
   CHECK(ok == 1);
   CHECK(out.issued_at == in.issued_at);
   CHECK(out.lifetime_secs == in.lifetime_secs);
+  CHECK(out.age_add == in.age_add);
   for (usz i = 0; i < QUIC_TICKET_SECRET_LEN; i++)
     CHECK(out.secret[i] == in.secret[i]);
 }

@@ -1,6 +1,7 @@
 #include "tls/handshake/core/tls/newsessionticket.h"
 
 #include "common/bytes/util/be.h"
+#include "common/platform/rng/rng.h"
 #include "tls/ext/tlsext/earlydata.h"
 #include "tls/handshake/core/tls/handshake.h"
 
@@ -9,11 +10,20 @@
  * follow (put_nst_exts below). */
 #define QUIC_NST_PREFIX_LEN (4 + 4 + 1 + 2 + QUIC_TICKET_SEALED_LEN)
 
-static void put_nst_prefix(u8* body, const quic_ticket* t, const u8* sealed) {
+/* RFC 8446 4.6.1: ticket_age_add MUST be a fresh random value per ticket, so
+ * an observer cannot correlate ticket_age across issuances. */
+static u32 nst_random_age_add(void) {
+  u8 b[4];
+  quic_rng_bytes(b, 4);
+  return quic_get_be32(b);
+}
+
+static void put_nst_prefix(
+    u8* body, const quic_ticket* t, u32 age_add, const u8* sealed) {
   usz i;
   quic_put_be32(body, t->lifetime_secs);
-  quic_put_be32(body + 4, 0); /* ticket_age_add, ponytail: see header */
-  body[8] = 0;                /* ticket_nonce_len */
+  quic_put_be32(body + 4, age_add);
+  body[8] = 0; /* ticket_nonce_len */
   quic_put_be16(body + 9, QUIC_TICKET_SEALED_LEN);
   for (i = 0; i < QUIC_TICKET_SEALED_LEN; i++) body[11 + i] = sealed[i];
 }
@@ -39,11 +49,13 @@ usz quic_tls_new_session_ticket_encode(
     const quic_ticket* t,
     const u8           key[QUIC_TICKET_KEY_LEN],
     u32                max_early_data_size) {
-  u8  sealed[QUIC_TICKET_SEALED_LEN];
-  usz off = quic_hs_begin(out, cap, QUIC_HS_NEW_SESSION_TICKET);
+  u8          sealed[QUIC_TICKET_SEALED_LEN];
+  quic_ticket sealed_t = *t;
+  usz         off      = quic_hs_begin(out, cap, QUIC_HS_NEW_SESSION_TICKET);
   if (off == 0 || cap - off < QUIC_NST_PREFIX_LEN + 2) return 0;
-  quic_ticket_seal(t, key, sealed);
-  put_nst_prefix(out + off, t, sealed);
+  sealed_t.age_add = nst_random_age_add();
+  quic_ticket_seal(&sealed_t, key, sealed);
+  put_nst_prefix(out + off, t, sealed_t.age_add, sealed);
   off += QUIC_NST_PREFIX_LEN;
   off += put_nst_exts(out + off, cap - off, max_early_data_size);
   quic_hs_finish(out, off);
