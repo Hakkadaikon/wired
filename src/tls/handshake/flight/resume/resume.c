@@ -2,6 +2,7 @@
 
 #include "common/bytes/util/be.h"
 #include "common/bytes/util/bytes.h"
+#include "common/bytes/util/num.h"
 
 /* RFC 8446 4.6.1 */
 /* Copy the captured resumption PSK, when the caller has one. */
@@ -9,6 +10,13 @@ static void resume_take_psk(quic_resume* r, const u8* psk) {
   r->have_psk = psk != 0;
   if (!psk) return;
   for (usz i = 0; i < 32; i++) r->psk[i] = psk[i];
+}
+
+/* RFC 6066 3: remember the server_name this session was established under,
+ * truncated to QUIC_RESUME_SNI_MAX (RFC 1035 3.1's 255-octet name bound). */
+static void resume_take_sni(quic_resume* r, quic_span sni) {
+  r->sni_len = quic_u64_min(sni.n, QUIC_RESUME_SNI_MAX);
+  for (usz i = 0; i < r->sni_len; i++) r->sni[i] = sni.p[i];
 }
 
 int quic_resume_store(
@@ -23,6 +31,7 @@ int quic_resume_store(
   r->max_data    = in->max_data;
   r->have_ticket = 1;
   resume_take_psk(r, in->psk);
+  resume_take_sni(r, in->sni);
   return 1;
 }
 
@@ -34,6 +43,13 @@ int quic_resume_valid(const quic_resume* r, u64 now) {
 /* RFC 9001 4.6 / RFC 9000 7.4.1 */
 int quic_resume_tp_compatible(u64 remembered_max_data, u64 new_max_data) {
   return remembered_max_data <= new_max_data;
+}
+
+/* RFC 6066 3: an omitted server_name on resumption, or no remembered one, is
+ * always compatible; otherwise the two names must match exactly. */
+int quic_resume_sni_compatible(const quic_resume* r, quic_span new_sni) {
+  if (new_sni.n == 0 || r->sni_len == 0) return 1;
+  return quic_ascii_dns_eq(quic_span_of(r->sni, r->sni_len), new_sni);
 }
 
 /* RFC 9001 4.6 */

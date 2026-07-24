@@ -15,7 +15,8 @@ static void test_resume_session_roundtrip(void) {
   CHECK(
       quic_resume_store(
           &r, quic_span_of(tk, 4),
-          &(quic_resume_store_in){100, 50, 1000, psk}) == 1);
+          &(quic_resume_store_in){100, 50, 1000, psk, quic_span_of(0, 0)}) ==
+      1);
   n = quic_resume_session(&r, blob, sizeof blob);
   CHECK(n > 0);
   CHECK(quic_resume_set_session(&back, quic_span_of(blob, n)) == 1);
@@ -44,7 +45,8 @@ static void test_resume_early_keys_from_session(void) {
   for (usz i = 0; i < 32; i++) psk[i] = (u8)(3 * i + 1);
   CHECK(
       quic_resume_store(
-          &r, quic_span_of(tk, 4), &(quic_resume_store_in){1, 2, 3, psk}) == 1);
+          &r, quic_span_of(tk, 4),
+          &(quic_resume_store_in){1, 2, 3, psk, quic_span_of(0, 0)}) == 1);
   quic_tls_early_keys(psk, ch, sizeof ch, &want);
   CHECK(quic_resume_early_keys(&r, ch, sizeof ch, &got) == 1);
   for (usz i = 0; i < sizeof want.key; i++) CHECK(got.key[i] == want.key[i]);
@@ -54,9 +56,56 @@ static void test_resume_early_keys_from_session(void) {
   }
 }
 
+/* RFC 6066 3: resumption server_name compatibility -- an omitted new name,
+ * or a session that never remembered one, is always compatible; a present
+ * new name must equal the remembered one (case-insensitively, RFC 6125
+ * 6.4.1); a mismatched present name is not. */
+static void test_resume_sni_compatible(void) {
+  quic_resume r      = {0};
+  u8          tk[2]  = {1, 2};
+  const u8    host[] = "Example.COM";
+  CHECK(
+      quic_resume_store(
+          &r, quic_span_of(tk, 2),
+          &(quic_resume_store_in){
+              1, 2, 3, 0, quic_span_of(host, sizeof(host) - 1)}) == 1);
+  CHECK(r.sni_len == sizeof(host) - 1);
+  /* omitted this time -> compatible regardless */
+  CHECK(quic_resume_sni_compatible(&r, quic_span_of(0, 0)) == 1);
+  /* same name, different case -> compatible */
+  {
+    const u8 same[] = "example.com";
+    CHECK(
+        quic_resume_sni_compatible(&r, quic_span_of(same, sizeof(same) - 1)) ==
+        1);
+  }
+  /* different name -> not compatible */
+  {
+    const u8 other[] = "other.example";
+    CHECK(
+        quic_resume_sni_compatible(
+            &r, quic_span_of(other, sizeof(other) - 1)) == 0);
+  }
+  /* a session that never remembered a server_name accepts any new one */
+  {
+    quic_resume nosni  = {0};
+    u8          tk2[2] = {3, 4};
+    const u8    any[]  = "anything.example";
+    CHECK(
+        quic_resume_store(
+            &nosni, quic_span_of(tk2, 2),
+            &(quic_resume_store_in){1, 2, 3, 0, quic_span_of(0, 0)}) == 1);
+    CHECK(nosni.sni_len == 0);
+    CHECK(
+        quic_resume_sni_compatible(
+            &nosni, quic_span_of(any, sizeof(any) - 1)) == 1);
+  }
+}
+
 void test_resume(void) {
   test_resume_session_roundtrip();
   test_resume_early_keys_from_session();
+  test_resume_sni_compatible();
   quic_resume r     = {0};
   u8          tk[4] = {1, 2, 3, 4};
 
@@ -64,7 +113,7 @@ void test_resume(void) {
   CHECK(
       quic_resume_store(
           &r, quic_span_of(tk, sizeof tk),
-          &(quic_resume_store_in){100, 50, 1000, 0}) == 1);
+          &(quic_resume_store_in){100, 50, 1000, 0, quic_span_of(0, 0)}) == 1);
   CHECK(r.have_ticket == 1);
   CHECK(r.ticket_len == 4);
   CHECK(r.ticket[0] == 1 && r.ticket[3] == 4);
@@ -101,6 +150,6 @@ void test_resume(void) {
   CHECK(
       quic_resume_store(
           &r2, quic_span_of(big, sizeof big),
-          &(quic_resume_store_in){0, 10, 0, 0}) == 0);
+          &(quic_resume_store_in){0, 10, 0, 0, quic_span_of(0, 0)}) == 0);
   CHECK(r2.have_ticket == 0);
 }
