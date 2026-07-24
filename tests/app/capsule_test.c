@@ -175,6 +175,58 @@ static void test_capsule_different_types_same_value_bytes(void) {
   CHECK(type1 != type2);
 }
 
+/* TEST 9 (RFC 9297 3.3 / 9297-021): "If the receive side of a stream
+ * carrying Capsules is terminated cleanly and the last Capsule on the
+ * stream was truncated, then the server shall treat this as a malformed or
+ * incomplete message." at is the cursor left by the last successful
+ * quic_capsule_decode; leftover bytes at data.n - at with fin set is exactly
+ * this case. */
+static void test_capsule_fin_truncated_reports_malformed(void) {
+  u8        buf[16];
+  quic_obuf out    = quic_obuf_of(buf, sizeof buf);
+  u8        val[5] = {1, 2, 3, 4, 5};
+  usz       at     = 0;
+
+  CHECK(quic_capsule_encode(&out, 0x01, quic_span_of(val, sizeof val)));
+  /* Deliver only the header plus 2 of the 5 value bytes, then FIN. */
+  CHECK(quic_capsule_fin_truncated(quic_span_of(buf, out.len - 3), at, 1));
+}
+
+/* TEST 10: the same leftover bytes WITHOUT fin yet is benign -- "wait for
+ * more data", per quic_capsule_decode's own doc. */
+static void test_capsule_no_fin_truncated_is_not_malformed(void) {
+  u8        buf[16];
+  quic_obuf out    = quic_obuf_of(buf, sizeof buf);
+  u8        val[5] = {1, 2, 3, 4, 5};
+  usz       at     = 0;
+
+  CHECK(quic_capsule_encode(&out, 0x01, quic_span_of(val, sizeof val)));
+  CHECK(!quic_capsule_fin_truncated(quic_span_of(buf, out.len - 3), at, 0));
+}
+
+/* TEST 11: a clean FIN exactly at a capsule boundary (no leftover bytes) is
+ * NOT malformed -- the ordinary end-of-message case. */
+static void test_capsule_fin_at_boundary_is_not_malformed(void) {
+  u8        buf[16];
+  quic_obuf out    = quic_obuf_of(buf, sizeof buf);
+  u8        val[5] = {1, 2, 3, 4, 5};
+  usz       at     = 0;
+  u64       type_out;
+  quic_span value_out;
+
+  CHECK(quic_capsule_encode(&out, 0x01, quic_span_of(val, sizeof val)));
+  CHECK(quic_capsule_decode(
+      quic_span_of(buf, out.len), &at, &type_out, &value_out));
+  CHECK(at == out.len);
+  CHECK(!quic_capsule_fin_truncated(quic_span_of(buf, out.len), at, 1));
+}
+
+/* TEST 12: an empty stream (FIN immediately, no bytes at all) is not
+ * malformed -- there is no truncated capsule, just nothing sent. */
+static void test_capsule_fin_empty_stream_is_not_malformed(void) {
+  CHECK(!quic_capsule_fin_truncated(quic_span_of(0, 0), 0, 1));
+}
+
 void test_capsule(void) {
   test_capsule_roundtrip_small_type();
   test_capsule_roundtrip_large_types();
@@ -184,4 +236,8 @@ void test_capsule(void) {
   test_capsule_encode_too_small_leaves_out_unmodified();
   test_capsule_decode_multiple_back_to_back();
   test_capsule_different_types_same_value_bytes();
+  test_capsule_fin_truncated_reports_malformed();
+  test_capsule_no_fin_truncated_is_not_malformed();
+  test_capsule_fin_at_boundary_is_not_malformed();
+  test_capsule_fin_empty_stream_is_not_malformed();
 }

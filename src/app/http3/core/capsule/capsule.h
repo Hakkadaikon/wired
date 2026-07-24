@@ -54,4 +54,21 @@ int quic_capsule_encode(quic_obuf* out, u64 type, quic_span value);
  */
 int quic_capsule_decode(quic_span data, usz* at, u64* type, quic_span* value);
 
+/** RFC 9297 SS3.3 (9297-021): "If the receive side of a stream carrying
+ * Capsules is terminated cleanly and the last Capsule on the stream was
+ * truncated, then [it] shall [be treated] as a malformed or incomplete
+ * message." at is the cursor quic_capsule_decode last left after its final
+ * successful decode (or 0 if none yet); any bytes of data beyond at are an
+ * attempted-but-incomplete next capsule. Whether that is an error depends
+ * entirely on fin: with more data still expected it is benign (still
+ * assembling), but once the receive side has closed cleanly, leftover
+ * undecoded bytes can never be completed and the message is malformed.
+ * @param data the full buffer reassembled so far
+ * @param at   the cursor after the last successful quic_capsule_decode
+ * @param fin  nonzero if the stream's receive side has now closed cleanly
+ * @return 1 if this is a FIN-terminated truncated capsule (malformed), 0
+ *   otherwise (either not FIN yet, or no leftover bytes at all)
+ */
+int quic_capsule_fin_truncated(quic_span data, usz at, int fin);
+
 #endif
