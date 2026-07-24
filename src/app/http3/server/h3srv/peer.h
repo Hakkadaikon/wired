@@ -20,4 +20,12 @@ int wired_h3srv_on_peer_control(
  * these recognised types (no connection error), 0 otherwise. */
 int wired_h3srv_accept_uni(u64 stream_type);
 
+/* RFC 9204 4.2. Record a peer QPACK encoder/decoder unidirectional stream.
+ * Returns 1 and marks the corresponding peer_qpack_* flag on the first
+ * instance of either stream type. On a second instance of the SAME type,
+ * returns 0 and sets *err to H3_STREAM_CREATION_ERROR. Any other stream_type
+ * (not the QPACK encoder or decoder type) is a no-op that returns 1 with
+ * *err left 0. */
+int wired_h3srv_on_peer_qpack(wired_h3srv_state* st, u64 stream_type, u16* err);
+
 #endif
