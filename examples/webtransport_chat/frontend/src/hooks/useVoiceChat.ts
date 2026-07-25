@@ -170,13 +170,16 @@ export function useVoiceChat() {
         // The server broadcast echoes our own datagrams back; the local copy
         // was already added on send.
         if (!ownSenderKeysRef.current.has(key)) {
-          store.addMessage({ senderId: key, text: decoded.frame.text });
+          store.addMessage({ senderId: key, text: decoded.frame.text, at: Date.now(), own: false });
+          store.addPeer(key);
         }
         return;
       }
       // Voice self-echo is filtered inside the jitter buffer, which remembers
       // every own sender id across reconnects.
-      knownSendersRef.current.add(senderIdKey(decoded.frame.senderId));
+      const voiceKey = senderIdKey(decoded.frame.senderId);
+      if (!ownSenderKeysRef.current.has(voiceKey)) store.addPeer(voiceKey);
+      knownSendersRef.current.add(voiceKey);
       receivePipelineRef.current?.handleDatagram(bytes);
     },
     [store],
@@ -227,6 +230,7 @@ export function useVoiceChat() {
       const certHash = parseCertHash(certHashHex);
       setFatalError(null);
       setMicError(null);
+      store.clearPeers();
       store.setConnectionState("connecting");
 
       const audioCtx = new AudioContext();
@@ -304,7 +308,7 @@ export function useVoiceChat() {
       }
       try {
         await sendDatagram(transport, encoded.bytes);
-        store.addMessage({ senderId: senderIdKey(senderId), text });
+        store.addMessage({ senderId: senderIdKey(senderId), text, at: Date.now(), own: true });
       } catch {
         setFatalError("message could not be sent");
       }
