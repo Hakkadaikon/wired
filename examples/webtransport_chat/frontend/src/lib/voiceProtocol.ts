@@ -1,6 +1,7 @@
 // Datagram protocol codec for the WebTransport voice+chat multiplex.
 // Wire layout:
-//   chat:  0x01 | senderId(4) | text payload (JSON, utf-8)
+//   chat:  0x01 | senderId(4) | JSON of {"name": string, "text": string} (utf-8)
+//          (legacy: a bare JSON string is accepted on decode as name-less text)
 //   voice: 0x02 | senderId(4) | seq(2, big-endian u16) | opus payload (opaque bytes)
 
 const CHANNEL_CHAT = 0x01;
@@ -14,6 +15,7 @@ const U16_SPACE = 0x10000;
 export type ChatFrame = {
   channel: "chat";
   senderId: Uint8Array;
+  name: string;
   text: string;
 };
 
@@ -30,19 +32,39 @@ export type DecodeResult =
   | { ok: true; frame: Frame }
   | { ok: false; error: string };
 
+function parseChatPayload(payload: unknown): { name: string; text: string } | null {
+  if (typeof payload === "string") {
+    return { name: "", text: payload }; // legacy bare-string form
+  }
+  if (
+    typeof payload === "object" &&
+    payload !== null &&
+    typeof (payload as { name: unknown }).name === "string" &&
+    typeof (payload as { text: unknown }).text === "string"
+  ) {
+    const { name, text } = payload as { name: string; text: string };
+    return { name, text };
+  }
+  return null;
+}
+
 function decodeChat(bytes: Uint8Array): DecodeResult {
   if (bytes.length < CHAT_HEADER_LEN) {
     return { ok: false, error: "chat datagram shorter than header" };
   }
   const senderId = bytes.slice(1, CHAT_HEADER_LEN);
   const jsonBytes = bytes.slice(CHAT_HEADER_LEN);
-  let text: string;
+  let payload: unknown;
   try {
-    text = JSON.parse(new TextDecoder().decode(jsonBytes));
+    payload = JSON.parse(new TextDecoder().decode(jsonBytes));
   } catch {
     return { ok: false, error: "malformed chat JSON payload" };
   }
-  return { ok: true, frame: { channel: "chat", senderId, text } };
+  const parsed = parseChatPayload(payload);
+  if (parsed === null) {
+    return { ok: false, error: "malformed chat JSON payload" };
+  }
+  return { ok: true, frame: { channel: "chat", senderId, ...parsed } };
 }
 
 function decodeVoice(bytes: Uint8Array): DecodeResult {
@@ -87,9 +109,10 @@ function assembleFrame(header: number[], payload: Uint8Array): EncodeResult {
 
 export function encodeChatFrame(
   senderId: Uint8Array,
+  name: string,
   text: string,
 ): EncodeResult {
-  const payload = new TextEncoder().encode(JSON.stringify(text));
+  const payload = new TextEncoder().encode(JSON.stringify({ name, text }));
   return assembleFrame([CHANNEL_CHAT, ...senderId], payload);
 }
 

@@ -40,14 +40,20 @@ describe("channelCodec", () => {
   );
 });
 
+const chatBytes = (json: string) =>
+  new Uint8Array([0x01, 1, 2, 3, 4, ...new TextEncoder().encode(json)]);
+
 describe("chatFrameCodec", () => {
-  it("round-trips encode/decode for arbitrary sender id and text payload", () => {
+  it("round-trips encode/decode for arbitrary sender id, name and text", () => {
     fc.assert(
       fc.property(
         fc.uint8Array({ minLength: 4, maxLength: 4 }),
-        fc.string(),
-        (id, text) => {
-          const encoded = encodeChatFrame(id, text);
+        // Bounded so the worst-case JSON escape (6 bytes/char) stays under
+        // MAX_DATAGRAM_SIZE; the size limit itself has its own test.
+        fc.string({ maxLength: 30 }),
+        fc.string({ maxLength: 120 }),
+        (id, name, text) => {
+          const encoded = encodeChatFrame(id, name, text);
           expect(encoded.ok).toBe(true);
           if (!encoded.ok) return;
           const decoded = decodeFrame(encoded.bytes);
@@ -56,6 +62,7 @@ describe("chatFrameCodec", () => {
             expect(Array.from(decoded.frame.senderId)).toEqual(
               Array.from(id),
             );
+            expect(decoded.frame.name).toBe(name);
             expect(decoded.frame.text).toBe(text);
           }
         },
@@ -63,15 +70,38 @@ describe("chatFrameCodec", () => {
     );
   });
 
-  it("round-trips a 0-byte text payload", () => {
-    const encoded = encodeChatFrame(senderId(1), "");
+  it("round-trips empty name and empty text", () => {
+    const encoded = encodeChatFrame(senderId(1), "", "");
     expect(encoded.ok).toBe(true);
     if (!encoded.ok) return;
     const decoded = decodeFrame(encoded.bytes);
     expect(decoded.ok).toBe(true);
     if (decoded.ok && decoded.frame.channel === "chat") {
+      expect(decoded.frame.name).toBe("");
       expect(decoded.frame.text).toBe("");
     }
+  });
+
+  it("accepts the legacy bare-string payload as name-less text", () => {
+    const decoded = decodeFrame(chatBytes('"hello"'));
+    expect(decoded.ok).toBe(true);
+    if (decoded.ok && decoded.frame.channel === "chat") {
+      expect(decoded.frame.name).toBe("");
+      expect(decoded.frame.text).toBe("hello");
+    }
+  });
+
+  it.each([
+    ["number", "42"],
+    ["array", '["a","b"]'],
+    ["null", "null"],
+    ["missing text", '{"name":"a"}'],
+    ["missing name", '{"text":"a"}'],
+    ["non-string name", '{"name":1,"text":"a"}'],
+    ["non-string text", '{"name":"a","text":1}'],
+  ])("rejects a %s payload as a decode error", (_label, json) => {
+    const result = decodeFrame(chatBytes(json));
+    expect(result.ok).toBe(false);
   });
 
   it("surfaces malformed JSON payload as a decode error, not an uncaught exception", () => {
