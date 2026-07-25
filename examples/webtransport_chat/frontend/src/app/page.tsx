@@ -85,6 +85,7 @@ function Chip({ label, color }: { label: string; color?: string }) {
 
 function PeerChips() {
   const peers = useVoiceChatStore((s) => s.peers);
+  const peerNames = useVoiceChatStore((s) => s.peerNames);
   return (
     <Row alignItems="center" gap="2xs" wrapChildren style={{ padding: "var(--lk-size-2xs) 0" }}>
       <Text fontClass="caption" color="onsurfacevariant">
@@ -92,7 +93,7 @@ function PeerChips() {
       </Text>
       <Chip label="You" />
       {peers.map((p) => (
-        <Chip key={p} label={guestLabel(p)} color={senderColor(p)} />
+        <Chip key={p} label={peerNames[p] || guestLabel(p)} color={senderColor(p)} />
       ))}
       {peers.length === 0 && (
         <Text fontClass="caption" color="outline">
@@ -103,8 +104,10 @@ function PeerChips() {
   );
 }
 
-function MessageBubble({ m }: { m: ChatMessage }) {
+function MessageBubble({ m, onRetry }: { m: ChatMessage; onRetry: (id: number) => void }) {
+  const peerName = useVoiceChatStore((s) => s.peerNames[m.senderId]);
   const time = new Date(m.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const label = m.own ? "You" : peerName || guestLabel(m.senderId);
   return (
     <div
       style={{
@@ -130,19 +133,33 @@ function MessageBubble({ m }: { m: ChatMessage }) {
               color: m.own ? "var(--lk-onprimarycontainer)" : senderColor(m.senderId),
             }}
           >
-            {m.own ? "You" : guestLabel(m.senderId)}
+            {label}
           </span>
           <span className="capline" style={{ opacity: 0.7 }}>
             {time}
           </span>
         </div>
         <Text fontClass="body">{m.text}</Text>
+        {m.failed && (
+          <div style={{ display: "flex", gap: "0.6em", alignItems: "center", marginTop: "0.3em" }}>
+            <span className="caption" style={{ color: "var(--lk-error)" }}>
+              Not sent
+            </span>
+            <Button
+              label="Retry"
+              color="error"
+              variant="outline"
+              size="sm"
+              onClick={() => onRetry(m.id)}
+            />
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
-function MessageList() {
+function MessageList({ onRetry }: { onRetry: (id: number) => void }) {
   const messages = useVoiceChatStore((s) => s.messages);
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -158,8 +175,8 @@ function MessageList() {
           No messages yet
         </Text>
       )}
-      {messages.map((m, i) => (
-        <MessageBubble key={i} m={m} />
+      {messages.map((m) => (
+        <MessageBubble key={m.id} m={m} onRetry={onRetry} />
       ))}
     </div>
   );
@@ -212,6 +229,10 @@ function JoinScreen({
   setUrl,
   certHash,
   setCertHash,
+  name,
+  setName,
+  micOff,
+  setMicOff,
   connecting,
   onJoin,
 }: {
@@ -219,6 +240,10 @@ function JoinScreen({
   setUrl: (v: string) => void;
   certHash: string;
   setCertHash: (v: string) => void;
+  name: string;
+  setName: (v: string) => void;
+  micOff: boolean;
+  setMicOff: (v: boolean) => void;
   connecting: boolean;
   onJoin: () => void;
 }) {
@@ -247,6 +272,24 @@ function JoinScreen({
                 Copy it from the server&apos;s startup log. Leave empty for a CA-signed certificate.
               </Text>
             </div>
+            <TextInput
+              name="Display name"
+              endIcon="user"
+              placeholder="Optional"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
+            <label
+              className="caption"
+              style={{ display: "flex", alignItems: "center", gap: "0.5em", cursor: "pointer" }}
+            >
+              <input
+                type="checkbox"
+                checked={micOff}
+                onChange={(e) => setMicOff(e.target.checked)}
+              />
+              Join with mic off
+            </label>
             <Button
               label={connecting ? "Connecting…" : "Join"}
               color="primary"
@@ -263,8 +306,11 @@ function JoinScreen({
 export default function Home() {
   const [url, setUrl] = useState(DEFAULT_URL);
   const [certHash, setCertHash] = useState("");
+  const [name, setName] = useState("");
+  const [micOff, setMicOff] = useState(false);
   const [joined, setJoined] = useState(false);
-  const { connect, sendChat, toggleMute, fatalError, micError } = useVoiceChat();
+  const { connect, sendChat, retryMessage, toggleMute, fatalError, micError, stats } =
+    useVoiceChat();
   const connectionState = useVoiceChatStore((s) => s.connectionState);
   const reconnecting = useVoiceChatStore((s) => s.reconnecting);
 
@@ -306,6 +352,11 @@ export default function Home() {
       >
         <Text fontClass="title3">WebTransport Chat</Text>
         <Row alignItems="center" gap="xs">
+          {joined && stats && (
+            <Text fontClass="caption" color="onsurfacevariant">
+              {`RTT ${Math.round(stats.rttMs)} ms · loss ${stats.lossPct.toFixed(1)}%`}
+            </Text>
+          )}
           {joined && <StatusBadge />}
           {joined && <MicToggle onToggleMute={toggleMute} />}
         </Row>
@@ -335,7 +386,7 @@ export default function Home() {
 
       {joined ? (
         <>
-          <MessageList />
+          <MessageList onRetry={retryMessage} />
           <ChatInputRow onSend={sendChat} disabled={connectionState !== "established"} />
         </>
       ) : (
@@ -344,8 +395,17 @@ export default function Home() {
           setUrl={setUrl}
           certHash={certHash}
           setCertHash={setCertHash}
+          name={name}
+          setName={setName}
+          micOff={micOff}
+          setMicOff={setMicOff}
           connecting={connecting}
-          onJoin={() => void connect(url, certHash)}
+          onJoin={() => {
+            const s = useVoiceChatStore.getState();
+            s.setDisplayName(name.trim());
+            if (micOff) s.setMuted(true);
+            void connect(url, certHash);
+          }}
         />
       )}
     </main>
