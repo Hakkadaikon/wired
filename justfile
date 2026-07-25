@@ -78,6 +78,7 @@ test: fmt gen-ninja
 cov: fmt
     #!/usr/bin/env sh
     set -eu
+    mkdir -p build
     clang {{testflags}} -fprofile-instr-generate -fcoverage-mapping \
         tests/run.c -o build/quic_test_cov
     LLVM_PROFILE_FILE=build/quic_test.profraw ./build/quic_test_cov
