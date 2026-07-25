@@ -9,7 +9,7 @@
 
 #define QUIC_CHAPOLY_TAG 16
 
-/* One AEAD invocation's fixed inputs: key, nonce, and AAD. */
+/** One AEAD invocation's fixed inputs: key, nonce, and AAD. */
 typedef struct {
   const u8* key;   /* QUIC_CHACHA_KEY bytes */
   const u8* nonce; /* QUIC_CHACHA_NONCE bytes */

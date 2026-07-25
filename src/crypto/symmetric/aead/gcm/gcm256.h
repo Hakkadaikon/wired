@@ -10,7 +10,7 @@
  * (gcm.h) but keyed with the 256-bit block cipher used by
  * TLS_AES_256_GCM_SHA384 (RFC 8446 Appendix B.4, 0x1302). */
 
-/* One AEAD invocation's fixed inputs: key schedule, nonce, and AAD. */
+/** One AEAD invocation's fixed inputs: key schedule, nonce, and AAD. */
 typedef struct {
   const quic_aes256* aes;
   const u8*          nonce; /* QUIC_GCM_NONCE bytes */

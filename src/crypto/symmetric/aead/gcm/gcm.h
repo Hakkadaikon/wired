@@ -10,7 +10,7 @@
 #define QUIC_GCM_NONCE 12
 #define QUIC_GCM_TAG 16
 
-/* One AEAD invocation's fixed inputs: key schedule, nonce, and AAD. */
+/** One AEAD invocation's fixed inputs: key schedule, nonce, and AAD. */
 typedef struct {
   const quic_aes128* aes;
   const u8*          nonce; /* QUIC_GCM_NONCE bytes */

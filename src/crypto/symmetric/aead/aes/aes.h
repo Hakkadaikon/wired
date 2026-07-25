@@ -11,6 +11,7 @@
 #define QUIC_AES_ROUNDS 10
 #define QUIC_AES_RK_WORDS 44 /* 4*(rounds+1) round-key words */
 
+/** Expanded AES-128 round-key schedule. */
 typedef struct {
   u32 rk[QUIC_AES_RK_WORDS];
 } quic_aes128;
@@ -28,6 +29,7 @@ void quic_aes128_encrypt(
 #define QUIC_AES256_ROUNDS 14
 #define QUIC_AES256_RK_WORDS 60 /* 4*(rounds+1) round-key words */
 
+/** Expanded AES-256 round-key schedule. */
 typedef struct {
   u32 rk[QUIC_AES256_RK_WORDS];
 } quic_aes256;
