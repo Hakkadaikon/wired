@@ -16,6 +16,14 @@ run: build
 run-xdp: build
     sudo ./wired_server --ifindex $IFINDEX --ip $IP --san-ipv4 $IP --skb-mode
 
+# Production build of the voice chat frontend (frontend/, Next.js + pnpm).
+build-frontend:
+    cd frontend && pnpm install --frozen-lockfile && pnpm build
+
+# Run the voice chat frontend's dev server (http://localhost:3000/).
+dev-frontend:
+    cd frontend && pnpm install --frozen-lockfile && pnpm dev
+
 # Serve the frontend for local development (http://localhost:8000/).
 # localhost is a secure context, so WebTransport works over plain HTTP here.
 serve-frontend:
