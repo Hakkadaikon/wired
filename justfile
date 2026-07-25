@@ -150,11 +150,15 @@ fuzz-x509: gen-ninja
 
 # run every fuzz harness for secs wall-clock seconds each (default 120), for
 # CI: a bounded regression sweep, not an open-ended fuzzing campaign. Exits
-# non-zero on any crash/leak (libFuzzer's own exit code).
+# non-zero on any crash/leak (libFuzzer's own exit code). Each run reads
+# fuzz/corpus/<target>/ as seeds and writes any new coverage-increasing
+# input back into it (libFuzzer's own corpus-directory behavior) -- the
+# nightly Fuzz workflow commits whatever accumulates there, so each run
+# starts from the last run's discoveries instead of an empty corpus.
 fuzz-ci secs="120":
-    just fuzz-header && ./fuzz/fuzz_header -max_total_time={{secs}} -artifact_prefix=fuzz/
-    just fuzz-qpack && ./fuzz/fuzz_qpack -max_total_time={{secs}} -artifact_prefix=fuzz/
-    just fuzz-x509 && ./fuzz/fuzz_x509 -max_total_time={{secs}} -artifact_prefix=fuzz/
+    just fuzz-header && ./fuzz/fuzz_header -max_total_time={{secs}} -artifact_prefix=fuzz/ fuzz/corpus/fuzz_header
+    just fuzz-qpack && ./fuzz/fuzz_qpack -max_total_time={{secs}} -artifact_prefix=fuzz/ fuzz/corpus/fuzz_qpack
+    just fuzz-x509 && ./fuzz/fuzz_x509 -max_total_time={{secs}} -artifact_prefix=fuzz/ fuzz/corpus/fuzz_x509
 
 # per-PR gate: each harness builds and survives exactly 1 run (libFuzzer
 # -runs=1, no time budget) -- catches a broken/uncompilable harness or an
