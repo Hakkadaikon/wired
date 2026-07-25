@@ -9,6 +9,7 @@
 
 #define QUIC_BN_LIMBS 64
 
+/** Fixed 4096-bit unsigned big integer, 64 little-endian u64 limbs. */
 typedef struct {
   u64 v[QUIC_BN_LIMBS];
 } quic_bn;

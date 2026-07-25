@@ -11,6 +11,8 @@
 
 typedef quic_span quic_castore_entry; /* one root certificate DER view */
 
+/** A trust store: caller-owned root array, its capacity, and the count
+ * currently registered. */
 typedef struct {
   quic_castore_entry* roots; /* caller-owned array of cap entries */
   usz                 cap;

@@ -4,7 +4,7 @@
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
 
-/* An ECDSA P-256 signing key: the private scalar and its affine public key,
+/** An ECDSA P-256 signing key: the private scalar and its affine public key,
  * each 32 bytes, caller-owned. san_ipv4, if non-0, is a 4-byte IPv4 address
  * (network byte order) added to the certificate's Subject Alternative Name
  * alongside the fixed dNSName=localhost entry (RFC 5280 4.2.1.6 iPAddress) --

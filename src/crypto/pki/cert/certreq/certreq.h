@@ -10,7 +10,7 @@
  * followed by an extensions block; signature_algorithms (0x000d) is required.
  * Optional in QUIC, so this is the minimal empty-context encoder/decoder. */
 
-/* Parsed CertificateRequest: views into the message buffer. */
+/** Parsed CertificateRequest: views into the message buffer. */
 typedef struct {
   quic_span ctx;      /* certificate_request_context */
   quic_span sig_algs; /* signature_algorithms scheme list */

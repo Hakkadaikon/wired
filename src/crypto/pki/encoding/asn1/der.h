@@ -16,7 +16,7 @@
 #define QUIC_DER_SEQUENCE 0x30
 #define QUIC_DER_SET 0x31
 
-/* One decoded TLV: its tag, a view of its value, and the octets it consumed
+/** One decoded TLV: its tag, a view of its value, and the octets it consumed
  * (header + value) from the input. */
 typedef struct {
   u8        tag;

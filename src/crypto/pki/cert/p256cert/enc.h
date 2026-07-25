@@ -5,7 +5,7 @@
 #include "common/bytes/util/bytes.h"
 #include "crypto/pki/cert/selfcert/derenc.h"
 
-/* X.690 append cursor shared by the P-256 cert encoders. Inline so spki.c and
+/** X.690 append cursor shared by the P-256 cert encoders. Inline so spki.c and
  * tbs.c share one definition under the unity build (no duplicate static). */
 typedef struct {
   u8* buf;

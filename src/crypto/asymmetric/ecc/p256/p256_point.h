@@ -3,7 +3,7 @@
 
 #include "crypto/asymmetric/ecc/p256/p256_field.h"
 
-/* FIPS 186-4 D.1.2.3 P-256 curve y^2 = x^3 - 3x + b over GF(p).
+/** FIPS 186-4 D.1.2.3 P-256 curve y^2 = x^3 - 3x + b over GF(p).
  * Affine points; the point at infinity is flagged separately. */
 
 typedef struct {

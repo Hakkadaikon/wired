@@ -5,7 +5,7 @@
 #include "common/platform/sys/syscall.h"
 #include "crypto/pki/encoding/x509/certpolicies.h"
 
-/* RFC 5280 6.1.2/6.1.3(d)/6.1.5(g). A flattened approximation of
+/** RFC 5280 6.1.2/6.1.3(d)/6.1.5(g). A flattened approximation of
  * valid_policy_tree, adequate for this SDK's single use (server-certificate
  * validation with user-initial-policy-set = {anyPolicy}, so nothing ever
  * needs to test "is policy P in the tree" for a caller-supplied P -- only

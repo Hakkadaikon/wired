@@ -17,6 +17,7 @@ enum {
   QUIC_X509_HASH_SHA224 = 4
 };
 
+/** A resolved signatureAlgorithm: issuer key kind and digest kind. */
 typedef struct {
   u8 key_kind;  /* QUIC_X509_SIG_* */
   u8 hash_kind; /* QUIC_X509_HASH_* */
