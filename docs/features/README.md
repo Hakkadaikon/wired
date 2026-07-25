@@ -19,7 +19,7 @@ Interop results (the only tier that proves wire compatibility with an
 independent implementation) are tracked separately: see
 **[Interop Results](../interop.md)**.
 
-**Total: 1001/1227 requirements tested (82%), 224 indirect, 2 untested.**
+**Total: 1002/1227 requirements tested (82%), 225 indirect, 0 untested.**
 
 ## QUIC core
 
@@ -40,7 +40,7 @@ independent implementation) are tracked separately: see
 | [RFC 9369 — QUIC Version 2](rfc9369.md) | 21/25 | 4 | 0 |
 | [RFC 9308 — Applicability (informational)](rfc9308.md) | 2/4 | 1 | 1 |
 | [RFC 9312 — Manageability (informational)](rfc9312.md) | 2/4 | 1 | 1 |
-| [RFC 8899 — DPLPMTUD](rfc8899.md) | 20/31 | 9 | 2 |
+| [RFC 8899 — DPLPMTUD](rfc8899.md) | 21/31 | 10 | 0 |
 
 ## TLS and PKI
 
