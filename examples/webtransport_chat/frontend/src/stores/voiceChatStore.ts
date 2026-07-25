@@ -32,6 +32,7 @@ export type VoiceChatState = {
   setPeerName: (key: string, name: string) => void;
   addPeer: (key: string) => void;
   clearPeers: () => void;
+  clearMessages: () => void;
 };
 
 let nextMessageId = 1;
@@ -64,4 +65,5 @@ export const useVoiceChatStore = create<VoiceChatState>((set) => ({
   addPeer: (key) =>
     set((s) => (s.peers.includes(key) ? s : { peers: [...s.peers, key] })),
   clearPeers: () => set({ peers: [] }),
+  clearMessages: () => set({ messages: [] }),
 }));

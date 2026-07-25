@@ -102,6 +102,14 @@ describe("voiceChatStore", () => {
     expect(useVoiceChatStore.getState().peers).toEqual([]);
   });
 
+  it("clears messages", () => {
+    useVoiceChatStore
+      .getState()
+      .addMessage({ senderId: "ab", name: "", text: "hi", at: 1, own: true });
+    useVoiceChatStore.getState().clearMessages();
+    expect(useVoiceChatStore.getState().messages).toEqual([]);
+  });
+
   it("toggles mute state", () => {
     useVoiceChatStore.getState().setMuted(true);
     expect(useVoiceChatStore.getState().muted).toBe(true);
