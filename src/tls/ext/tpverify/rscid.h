@@ -4,6 +4,7 @@
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
 
+/** Inputs for the retry_source_connection_id consistency check. */
 typedef struct {
   int       retry_occurred;
   quic_span retry_scid;

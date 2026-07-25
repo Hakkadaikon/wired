@@ -26,6 +26,7 @@ int quic_tparam_check_initial_scid(quic_span got, quic_span observed);
 /* original_destination_connection_id must equal the DCID the client sent. */
 int quic_tparam_check_original_dcid(quic_span got, quic_span sent_dcid);
 
+/** Inputs for the retry_source_connection_id presence/match check. */
 typedef struct {
   int       did_retry;
   int       has_param;

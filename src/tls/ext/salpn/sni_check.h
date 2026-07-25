@@ -7,6 +7,8 @@
 /* RFC 6066 3: server-side check of the ClientHello's server_name extension
  * against this server's own certificate identity. */
 
+/** Classification of a ClientHello's server_name against this server's
+ * certificate identity. */
 typedef enum {
   QUIC_SALPN_SNI_ABSENT = 0, /**< no server_name extension offered, or it was
                               * present but malformed (RFC 6066 3: a server

@@ -12,6 +12,7 @@
  * RFC 8446 4.2.11: pre_shared_key MUST be the last extension in the
  * ClientHello, because the binders are computed over the preceding bytes. */
 
+/** A single PSK identity + binder to encode into pre_shared_key. */
 typedef struct {
   quic_span identity;
   u32       ticket_age;
@@ -22,7 +23,7 @@ typedef struct {
  * total). Sets out->len. Returns 1, or 0 if it does not fit. */
 int quic_tlsext_pre_shared_key(const quic_tlsext_psk_in* in, quic_obuf* out);
 
-/* Located fields of a parsed single-entry pre_shared_key. The pointers alias
+/** Located fields of a parsed single-entry pre_shared_key. The pointers alias
  * the input buffer. */
 typedef struct {
   const u8* identity;

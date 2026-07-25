@@ -4,7 +4,7 @@
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
 
-/* On a match: *bytes points at the raw value (within tp), and *value holds
+/** On a match: *bytes points at the raw value (within tp), and *value holds
  * the value decoded as a varint (0 if it is not a single varint). Either
  * pointer may be NULL. */
 typedef struct {

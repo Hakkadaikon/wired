@@ -10,7 +10,7 @@
  * with no_application_protocol. RFC 9368 / RFC 9000 7.4: a protocol selected
  * under one version stays valid across a compatible version change. */
 
-/* Known application protocols carried over QUIC. */
+/** Known application protocols carried over QUIC. */
 typedef enum {
   QUIC_ALPNVER_PROTO_NONE = 0, /* unknown / not a QUIC application protocol */
   QUIC_ALPNVER_PROTO_H3   = 1  /* HTTP/3, ALPN "h3" (RFC 9114) */
