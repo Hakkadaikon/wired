@@ -106,6 +106,7 @@ function ErrorBanner({ message }: { message: string | null }) {
 
 export default function Home() {
   const [url, setUrl] = useState(DEFAULT_URL);
+  const [certHash, setCertHash] = useState("");
   const { connect, sendChat, toggleMute, fatalError, micError } = useVoiceChat();
   const connectionState = useVoiceChatStore((s) => s.connectionState);
   const joined = connectionState === "established" || connectionState === "disconnected";
@@ -131,7 +132,14 @@ export default function Home() {
               value={url}
               onChange={(e) => setUrl(e.target.value)}
             />
-            <Button label="通話に参加" color="primary" onClick={() => connect(url)} />
+            <TextInput
+              name="cert-hash"
+              labelPosition="on-input"
+              placeholder="証明書ハッシュ (SHA-256、サーバー起動ログの値)"
+              value={certHash}
+              onChange={(e) => setCertHash(e.target.value)}
+            />
+            <Button label="通話に参加" color="primary" onClick={() => connect(url, certHash)} />
           </Row>
         </Card>
       )}
