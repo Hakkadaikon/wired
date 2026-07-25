@@ -10,7 +10,7 @@ import TextInput from "@/components/text-input";
 import { useVoiceChat } from "@/hooks/useVoiceChat";
 import { useVoiceChatStore } from "@/stores/voiceChatStore";
 
-const DEFAULT_URL = "https://localhost:4433/webtransport";
+const DEFAULT_URL = "https://localhost:4433/";
 
 const STATUS_LABEL: Record<string, string> = {
   connecting: "接続中",
