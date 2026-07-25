@@ -1,8 +1,15 @@
 name: Coverage
 
+# Scheduled, not per-push/PR: `just cov` recompiles the whole unity build a
+# second time (instrumented), so running it on every micro-commit would
+# roughly double CI time for no benefit -- coverage doesn't meaningfully
+# shift commit-to-commit. Daily is enough to catch a badge going stale.
+# workflow_dispatch lets you trigger it on demand (e.g. right after a change
+# you want reflected sooner).
 on:
-  push:
-  pull_request:
+  schedule:
+    - cron: "0 18 * * *" # 03:00 JST
+  workflow_dispatch:
 
 jobs:
   coverage:
