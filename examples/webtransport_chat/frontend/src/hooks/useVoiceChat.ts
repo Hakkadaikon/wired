@@ -14,6 +14,7 @@ import { createAudioContextGate } from "@/lib/audioContextGate";
 import { createReconnectFlow } from "@/lib/reconnectFlow";
 import { registerPageLifecycleCleanup } from "@/lib/pageLifecycle";
 import { decodeFrame, generateSenderId } from "@/lib/voiceProtocol";
+import { parseCertHash } from "@/lib/certHash";
 import { JitterBufferManager } from "@/lib/jitterBuffer";
 import { senderIdKey } from "@/lib/voiceReceivePipeline";
 import { useVoiceChatStore } from "@/stores/voiceChatStore";
@@ -45,8 +46,14 @@ type TransportHandle = {
   close: () => void;
 };
 
-function makeTransportHandle(url: string): TransportHandle {
-  const raw = new WebTransport(url);
+function makeTransportHandle(url: string, certHash: Uint8Array | null): TransportHandle {
+  // The server's self-signed certificate fails normal CA validation, so pin
+  // it via serverCertificateHashes when a fingerprint was provided.
+  const raw = certHash
+    ? new WebTransport(url, {
+        serverCertificateHashes: [{ algorithm: "sha-256", value: certHash as BufferSource }],
+      })
+    : new WebTransport(url);
   return {
     raw,
     ready: raw.ready,
@@ -152,7 +159,8 @@ export function useVoiceChat() {
   );
 
   const connect = useCallback(
-    async (url: string) => {
+    async (url: string, certHashHex: string) => {
+      const certHash = parseCertHash(certHashHex);
       setFatalError(null);
       setMicError(null);
       store.setConnectionState("connecting");
@@ -166,7 +174,7 @@ export function useVoiceChat() {
       const senderId = generateSenderId();
       senderIdRef.current = senderIdKey(senderId);
 
-      const client = new WebTransportClient<TransportHandle>(() => makeTransportHandle(url), {
+      const client = new WebTransportClient<TransportHandle>(() => makeTransportHandle(url, certHash), {
         onError: () => setFatalError("could not establish the connection"),
         onDisconnect: () => {
           store.setConnectionState("disconnected");
@@ -176,7 +184,7 @@ export function useVoiceChat() {
       });
 
       const reconnectFlow = createReconnectFlow<TransportHandle, void>({
-        makeTransport: () => makeTransportHandle(url),
+        makeTransport: () => makeTransportHandle(url, certHash),
         openBidiStream: async () => {
           const handle = client.transport;
           if (!handle) return;
