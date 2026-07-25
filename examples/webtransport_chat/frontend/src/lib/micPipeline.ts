@@ -97,7 +97,9 @@ export async function startMicPipeline(
       deps.onEncodeError?.(err);
     },
   });
-  encoder.configure({ codec: "opus" });
+  // sampleRate/numberOfChannels are required members of AudioEncoderConfig;
+  // Opus is defined at 48 kHz, mono keeps the datagrams small.
+  encoder.configure({ codec: "opus", sampleRate: 48000, numberOfChannels: 1 });
 
   const pipeline: MicPipeline = {
     stopped: false,
@@ -110,6 +112,9 @@ export async function startMicPipeline(
   readLoop(processor.readable.getReader(), (frame) => {
     if (pipeline.stopped) return;
     encoder.encode(frame);
+    // AudioData frames come from a finite browser-owned pool; capture stalls
+    // if they are not released after use.
+    (frame as { close?: () => void }).close?.();
   });
 
   return pipeline;
