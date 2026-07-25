@@ -309,7 +309,7 @@ export default function Home() {
   const [name, setName] = useState("");
   const [micOff, setMicOff] = useState(false);
   const [joined, setJoined] = useState(false);
-  const { connect, sendChat, retryMessage, toggleMute, fatalError, micError, stats } =
+  const { connect, sendChat, retryMessage, toggleMute, leave, fatalError, micError, stats } =
     useVoiceChat();
   const connectionState = useVoiceChatStore((s) => s.connectionState);
   const reconnecting = useVoiceChatStore((s) => s.reconnecting);
@@ -359,6 +359,19 @@ export default function Home() {
           )}
           {joined && <StatusBadge />}
           {joined && <MicToggle onToggleMute={toggleMute} />}
+          {joined && (
+            <Button
+              label="Leave"
+              startIcon="log-out"
+              color="surface"
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                leave();
+                setJoined(false);
+              }}
+            />
+          )}
         </Row>
       </header>
 

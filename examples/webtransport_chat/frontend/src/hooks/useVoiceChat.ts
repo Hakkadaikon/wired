@@ -153,6 +153,7 @@ export function useVoiceChat() {
   const ownSenderKeysRef = useRef<Set<string>>(new Set());
   const senderIdRef = useRef<Uint8Array | null>(null);
   const drainStartedRef = useRef(false);
+  const leavingRef = useRef(false);
   const statsIntervalRef = useRef<number | null>(null);
 
   const startStatsPolling = useCallback((transport: WebTransport) => {
@@ -285,8 +286,12 @@ export function useVoiceChat() {
         JITTER_BUFFER_CAPACITY,
       );
 
+      leavingRef.current = false;
       let flow: ReconnectFlow | null = null;
       const onDisconnected = () => {
+        // A deliberate leave closes the transport too -- don't fight it with
+        // a reconnect.
+        if (leavingRef.current) return;
         store.setConnectionState("disconnected");
         store.setReconnecting(true);
         void flow
@@ -367,9 +372,32 @@ export function useVoiceChat() {
     [store, sendChat],
   );
 
+  // Tear the session down and return the store to its pre-join state; the
+  // page switches back to the join screen on its own connectionState watch.
+  const leave = useCallback(() => {
+    leavingRef.current = true;
+    micRef.current?.stop();
+    micRef.current = null;
+    transportRef.current?.close();
+    transportRef.current = null;
+    receivePipelineRef.current = null;
+    knownSendersRef.current.clear();
+    if (statsIntervalRef.current !== null) {
+      window.clearInterval(statsIntervalRef.current);
+      statsIntervalRef.current = null;
+    }
+    setStats(null);
+    setFatalError(null);
+    setMicError(null);
+    store.setReconnecting(false);
+    store.setConnectionState("disconnected");
+    store.clearPeers();
+    store.clearMessages();
+  }, [store]);
+
   const toggleMute = useCallback(() => {
     store.setMuted(!store.muted);
   }, [store]);
 
-  return { connect, sendChat, retryMessage, toggleMute, fatalError, micError, stats };
+  return { connect, sendChat, retryMessage, toggleMute, leave, fatalError, micError, stats };
 }
