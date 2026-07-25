@@ -9,7 +9,7 @@ describe("voiceChatStore", () => {
   it("starts disconnected, unmuted, with no messages", () => {
     const s = useVoiceChatStore.getState();
     expect(s.connectionState).toBe("connecting");
-    expect(s.muted).toBe(true);
+    expect(s.muted).toBe(false);
     expect(s.messages).toEqual([]);
     expect(s.reconnecting).toBe(false);
   });
