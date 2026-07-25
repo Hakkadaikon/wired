@@ -28,6 +28,8 @@ enum {
   QUIC_CLIENT_HS_CONFIRMED
 };
 
+/** RFC 9000 5/7: a UDP-socket-backed QUIC client driving the TLS 1.3
+ * handshake to confirmation, plus the peer address and handshake state. */
 typedef struct {
   i64            fd; /* UDP socket; <0 until init succeeds */
   quic_sockaddr  peer;
@@ -44,6 +46,8 @@ typedef struct {
   const quic_castore* castore; /* NULL skips chain validation */
 } quic_client;
 
+/** Everything quic_client_init needs besides the client: the server address
+ * to connect to and the SNI host name to offer. */
 typedef struct {
   const u8* server_ip; /* 4-byte IPv4 octets */
   u16       port;

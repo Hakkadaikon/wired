@@ -9,7 +9,7 @@
 #define QUIC_TLS_SCHEME_ECDSA_P256 0x0403
 #define QUIC_TLS_SCHEME_ED25519 0x0807
 
-/* RFC 8446 4.4.3: a CertificateVerify to authenticate. cert is the
+/** RFC 8446 4.4.3: a CertificateVerify to authenticate. cert is the
  * end-entity certificate (DER), sig its signature, transcript_hash the
  * handshake transcript hash the signature covers. */
 typedef struct {

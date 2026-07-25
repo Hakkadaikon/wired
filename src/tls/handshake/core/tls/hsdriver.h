@@ -24,6 +24,8 @@
 #define QUIC_HSD_PROT_HANDSHAKE 1
 #define QUIC_HSD_PROT_1RTT 2
 
+/** TLS 1.3 handshake state machine: role, flight progress, protection level
+ * reached, and completion/confirmation flags. */
 typedef struct {
   int is_server;
   u8  recv_count; /* messages accepted so far, indexes the flight order */

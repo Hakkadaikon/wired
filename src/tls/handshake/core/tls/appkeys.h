@@ -5,7 +5,7 @@
 #include "crypto/kdf/hkdf/hkdf.h"
 #include "tls/handshake/core/tls/initial.h"
 
-/* quic_tls_app_keys inputs: master is the Master Secret, transcript the
+/** quic_tls_app_keys inputs: master is the Master Secret, transcript the
  * handshake bytes hashed for the traffic secret, is_server selects the
  * "s ap traffic"/"c ap traffic" label. */
 typedef struct {

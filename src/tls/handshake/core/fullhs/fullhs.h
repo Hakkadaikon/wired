@@ -12,7 +12,7 @@
  * the rest of the flight fits. */
 #define QUIC_FULLHS_TRANSCRIPT_MAX 8192
 
-/* RFC 8446 4.4 / RFC 9001 4.1: full handshake driver. Picks up where the
+/** RFC 8446 4.4 / RFC 9001 4.1: full handshake driver. Picks up where the
  * tlsdriver leaves off (handshake secret derived over ClientHello..ServerHello)
  * and drives the rest of the flight to completion and confirmation:
  *   Certificate -> CertificateVerify -> Finished -> handshake complete

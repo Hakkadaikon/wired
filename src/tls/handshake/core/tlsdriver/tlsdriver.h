@@ -24,6 +24,10 @@
 
 #define QUIC_TLSDRIVER_CRYPTO_MAX 64
 
+/** The real-TLS handshake driver's state: CRYPTO reassembly, the handshake
+ * order machine, key schedule and installed keys, our ECDHE key pair and the
+ * derived shared secret, the negotiated group, SNI, and the ClientHello
+ * transcript needed to derive the handshake secret. */
 typedef struct {
   quic_crypto_rx rx;   /* CRYPTO frame reassembly */
   quic_hsdriver  hs;   /* handshake message order machine */

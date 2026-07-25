@@ -20,7 +20,7 @@
  * with the client-direction Initial keys and opens the server Initial with the
  * server-direction Initial keys (quic_srvwire_open_initial). */
 
-/* dcid/scid are connection ids; pn is the packet number. */
+/** dcid/scid are connection ids; pn is the packet number. */
 typedef struct {
   quic_span dcid;
   quic_span scid;
@@ -33,7 +33,7 @@ typedef struct {
 int quic_client_build_initial_wire(
     quic_client* c, const quic_clientwire_hdr_in* hdr, quic_obuf* out);
 
-/* dcid identifies the Initial keys; pkt is opened in place (header protection
+/** dcid identifies the Initial keys; pkt is opened in place (header protection
  * removal); pn is the expected packet number. */
 typedef struct {
   quic_span  dcid;
@@ -48,7 +48,7 @@ typedef struct {
 int quic_client_open_initial_wire(
     const quic_clientwire_open_in* in, quic_span* tls);
 
-/* hdr identifies dcid/scid/pn; tls is the flight payload to seal. */
+/** hdr identifies dcid/scid/pn; tls is the flight payload to seal. */
 typedef struct {
   quic_clientwire_hdr_in hdr;
   quic_span              tls;
@@ -73,7 +73,7 @@ int quic_client_open_handshake_wire(
 int quic_client_send_appdata_wire(
     quic_client* c, const quic_appdata_tx* in, quic_obuf* out);
 
-/* The received packet bytes (opened in place) and our own SCID it must route
+/** The received packet bytes (opened in place) and our own SCID it must route
  * to (RFC 9000 5.1). */
 typedef struct {
   quic_mspan pkt;

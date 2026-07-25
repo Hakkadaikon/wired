@@ -8,7 +8,7 @@
 /* RFC 8446 7.1 key schedule (the handshake portion QUIC needs) plus the
  * QUIC packet-protection keys (RFC 9001 5.1) for the handshake level. */
 
-/* Derive-Secret(secret, label, messages) inputs: label is the ASCII label
+/** Derive-Secret(secret, label, messages) inputs: label is the ASCII label
  * bytes (no "tls13 " prefix, that is added by hkdf), messages the transcript
  * bytes to hash. */
 typedef struct {
@@ -34,7 +34,7 @@ void quic_tls_handshake_secret(const u8 ecdhe[32], u8 out[QUIC_HKDF_PRK]);
 void quic_tls_handshake_secret_psk(
     const u8 psk[QUIC_HKDF_PRK], const u8 ecdhe[32], u8 out[QUIC_HKDF_PRK]);
 
-/* quic_tls_handshake_keys inputs: hs_secret is the Handshake Secret,
+/** quic_tls_handshake_keys inputs: hs_secret is the Handshake Secret,
  * transcript the handshake bytes hashed for the traffic secret, is_server
  * selects the "s hs traffic"/"c hs traffic" label. */
 typedef struct {
