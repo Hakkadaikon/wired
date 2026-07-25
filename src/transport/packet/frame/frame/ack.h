@@ -12,11 +12,14 @@
 #define QUIC_FRAME_ACK_ECN 0x03
 #define QUIC_ACK_MAX_RANGES 32
 
+/** One inclusive acknowledged packet-number range [hi, lo]. */
 typedef struct {
   u64 hi; /* highest packet number in this range */
   u64 lo; /* lowest packet number in this range */
 } quic_ack_range;
 
+/** A decoded/to-encode ACK frame: ack delay, its ranges, and the optional
+ * ECN counts (RFC 9000 19.3). */
 typedef struct {
   u64 ack_delay;
   usz n_ranges;

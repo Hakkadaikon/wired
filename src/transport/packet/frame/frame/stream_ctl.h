@@ -3,7 +3,7 @@
 
 #include "common/platform/sys/syscall.h"
 
-/* RFC 9000 19.4/19.5 stream control frames. RESET_STREAM abruptly terminates
+/** RFC 9000 19.4/19.5 stream control frames. RESET_STREAM abruptly terminates
  * the sending part of a stream; STOP_SENDING requests the peer to stop. */
 
 #define QUIC_FRAME_RESET_STREAM 0x04
@@ -21,7 +21,7 @@ typedef struct {
   u64 error_code; /* Application Protocol Error Code */
 } quic_stop_sending_frame;
 
-/* draft-ietf-quic-reliable-stream-reset: RESET_STREAM_AT. Same first three
+/** draft-ietf-quic-reliable-stream-reset: RESET_STREAM_AT. Same first three
  * fields as RESET_STREAM plus a trailing reliable_size. */
 typedef struct {
   u64 stream_id;

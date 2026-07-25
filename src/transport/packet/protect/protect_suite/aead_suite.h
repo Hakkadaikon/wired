@@ -8,7 +8,7 @@
  * AES-128-GCM, ChaCha suites (0x1303) use ChaCha20-Poly1305. key is 16
  * bytes for AES, 32 for ChaCha; iv is 12 bytes either way. */
 
-/* Protection inputs shared by seal and open: the cipher suite, AEAD key/iv,
+/** Protection inputs shared by seal and open: the cipher suite, AEAD key/iv,
  * the packet number (for the nonce), and the header bytes used as AAD.
  * Build one on the stack per packet and pass it by pointer. */
 typedef struct {

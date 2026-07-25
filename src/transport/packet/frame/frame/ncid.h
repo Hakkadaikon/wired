@@ -3,7 +3,7 @@
 
 #include "common/platform/sys/syscall.h"
 
-/* RFC 9000 19.15 NEW_CONNECTION_ID: issues a new connection ID with a
+/** RFC 9000 19.15 NEW_CONNECTION_ID: issues a new connection ID with a
  * stateless reset token. */
 
 #define QUIC_FRAME_NEW_CID 0x18

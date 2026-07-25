@@ -6,7 +6,7 @@
 /* RFC 9000 17.2.4 / RFC 9001 5: build one AEAD-protected Handshake packet.
  * The Handshake long header carries no token (unlike Initial). */
 
-/* One Handshake packet to build: CIDs, packet number, and the payload
+/** One Handshake packet to build: CIDs, packet number, and the payload
  * (typically a CRYPTO frame). */
 typedef struct {
   quic_span dcid;

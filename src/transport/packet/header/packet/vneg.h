@@ -4,7 +4,7 @@
 #include "common/bytes/span/span.h"
 #include "transport/packet/header/packet/header.h"
 
-/* RFC 8999 6 / RFC 9000 17.2.1 Version Negotiation packet. The supported
+/** RFC 8999 6 / RFC 9000 17.2.1 Version Negotiation packet. The supported
  * version list is a view: on parse, versions points into the source buffer
  * (each version is 4 big-endian bytes there); count is the number of them. */
 typedef struct {
@@ -16,7 +16,7 @@ typedef struct {
   usz       count;
 } quic_vneg_packet;
 
-/* What a Version Negotiation packet carries: both CIDs and the supported
+/** What a Version Negotiation packet carries: both CIDs and the supported
  * version list (count entries). */
 typedef struct {
   quic_span  dcid;

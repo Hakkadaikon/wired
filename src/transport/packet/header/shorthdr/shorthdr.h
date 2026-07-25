@@ -10,7 +10,7 @@
  * spin and key_phase are treated as 0/1; pn_len must be 1..4. */
 u8 quic_shorthdr_byte0(int spin, int key_phase, u8 pn_len);
 
-/* One short header: DCID (written without a length prefix), the spin and
+/** One short header: DCID (written without a length prefix), the spin and
  * key-phase bits, and the packet number as pn_len big-endian bytes. */
 typedef struct {
   int       spin;

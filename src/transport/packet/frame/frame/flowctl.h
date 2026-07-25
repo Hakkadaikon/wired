@@ -14,19 +14,20 @@
 #define QUIC_FRAME_STREAMS_BLOCKED_BIDI 0x16
 #define QUIC_FRAME_STREAMS_BLOCKED_UNI 0x17
 
-/* MAX_DATA (19.9) / DATA_BLOCKED (19.12): one varint. */
+/** MAX_DATA (19.9) / DATA_BLOCKED (19.12): one varint. */
 typedef struct {
   u64 value;
 } quic_data_frame;
 
-/* MAX_STREAM_DATA (19.10) / STREAM_DATA_BLOCKED (19.13): two varints. */
+/** MAX_STREAM_DATA (19.10) / STREAM_DATA_BLOCKED (19.13): two varints. */
 typedef struct {
   u64 stream_id;
   u64 value;
 } quic_stream_data_frame;
 
-/* MAX_STREAMS (19.11) / STREAMS_BLOCKED (19.14): one varint plus a direction
- * carried in the frame type's least significant bit (0 bidi, 1 uni). */
+/** MAX_STREAMS (19.11) / STREAMS_BLOCKED (19.14): one varint plus a
+ * direction carried in the frame type's least significant bit (0 bidi, 1
+ * uni). */
 typedef struct {
   u64 max_streams;
   int uni; /* 0 bidi, 1 uni */

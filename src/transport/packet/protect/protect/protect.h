@@ -9,7 +9,7 @@
  * packets: build the AEAD nonce from iv XOR packet number, seal the payload
  * with the header as AAD, then apply header protection over the sample. */
 
-/* AEAD keys plus the expanded header-protection cipher for one packet-number
+/** AEAD keys plus the expanded header-protection cipher for one packet-number
  * space. keys.key/iv are the AEAD key/iv; hp is expanded from keys.hp. */
 typedef struct {
   const quic_initial_keys* keys;
@@ -21,7 +21,7 @@ typedef struct {
 void quic_protect_nonce(
     const u8 iv[QUIC_INITIAL_IV], u64 pn, u8 nonce[QUIC_INITIAL_IV]);
 
-/* One Initial packet to protect. hdr is the unprotected header ending with
+/** One Initial packet to protect. hdr is the unprotected header ending with
  * the packet number; pn_off is the packet number's offset within hdr and
  * pn_len its encoded length (1..4). pn is the full packet number (for the
  * nonce), payload the plaintext frames, out the destination buffer. */
@@ -49,7 +49,7 @@ usz quic_protect_seal(
 usz quic_protect_seal_suite(
     u16 suite, const quic_protect_keys* k, const quic_protect_seal_io* io);
 
-/* Reverse of quic_protect_seal on a protected packet held in pkt (modified
+/** Reverse of quic_protect_seal on a protected packet held in pkt (modified
  * in place), with the header occupying hdr_len bytes and the packet number
  * at pn_off (pn_len bytes). pn is the full packet number (recovered by the
  * caller). */

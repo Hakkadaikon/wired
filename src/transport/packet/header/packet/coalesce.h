@@ -3,7 +3,7 @@
 
 #include "common/platform/sys/syscall.h"
 
-/* RFC 9000 12.2: several QUIC packets may be coalesced into one UDP
+/** RFC 9000 12.2: several QUIC packets may be coalesced into one UDP
  * datagram. Long-header packets carry a Length field that bounds them;
  * a short-header packet has no length and so must be the last in the
  * datagram. Splitting walks the datagram packet by packet. */
@@ -13,7 +13,7 @@ typedef struct {
   usz       len;  /* its length in bytes */
 } quic_coalesced;
 
-/* Cursor over a datagram's coalesced packets. */
+/** Cursor over a datagram's coalesced packets. */
 typedef struct {
   const u8* dgram;
   usz       total;

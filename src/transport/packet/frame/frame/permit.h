@@ -3,7 +3,7 @@
 
 #include "transport/packet/frame/frame/dispatch.h"
 
-/* RFC 9000 12.4 Table 3: which packet types each frame may appear in. The
+/** RFC 9000 12.4 Table 3: which packet types each frame may appear in. The
  * four packet types are Initial, Handshake, 0-RTT, and 1-RTT (the "IH01"
  * columns). A frame in a packet type that does not permit it is a protocol
  * violation. */
