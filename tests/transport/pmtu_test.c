@@ -191,6 +191,27 @@ static void test_pmtu_resume_search_clears_bounds(void) {
   CHECK(quic_pmtu_next_probe(&p, 0) != 0); /* searching again */
 }
 
+/* RFC 8899 3.7: raising the PLPMTU (and so the MPS, RFC 8899 4.4) must never
+ * itself grow the congestion window measured in bytes -- cwnd growth is
+ * governed only by RFC 9002 7's ack-driven algorithm. quic_cc structurally
+ * cannot read quic_pmtu (cc.h includes only bbr.h), so this pins that a probe
+ * ack that raises validated/MPS leaves an independently-held quic_cc's cwnd
+ * byte-for-byte unchanged. */
+static void test_pmtu_ack_does_not_grow_cc_cwnd(void) {
+  quic_pmtu p;
+  quic_cc   c;
+  quic_pmtu_init(&p);
+  quic_cc_init(&c);
+  u64 cwnd_before = c.cwnd;
+  u64 mps_before  = quic_pmtu_mps(&p);
+
+  usz probe = quic_pmtu_next_probe(&p, 0);
+  quic_pmtu_on_ack(&p, probe);
+
+  CHECK(quic_pmtu_mps(&p) > mps_before); /* PLPMTU/MPS did rise */
+  CHECK(c.cwnd == cwnd_before);          /* cwnd did not */
+}
+
 void test_pmtu(void) {
   test_pmtu_grow();
   test_pmtu_loss_caps();
@@ -207,4 +228,5 @@ void test_pmtu(void) {
   test_pmtu_raise_timer_not_due_while_searching();
   test_pmtu_raise_timer_due_after_elapsed();
   test_pmtu_resume_search_clears_bounds();
+  test_pmtu_ack_does_not_grow_cc_cwnd();
 }
