@@ -35,7 +35,9 @@ export function createVoiceReceivePipeline(
     output: (frame) => deps.enqueuePlayback(frame),
     error: (err) => deps.onDecodeError?.(err),
   });
-  decoder.configure({ codec: "opus" });
+  // sampleRate/numberOfChannels are required members of AudioDecoderConfig;
+  // Opus is defined at 48 kHz and the mic pipeline encodes mono.
+  decoder.configure({ codec: "opus", sampleRate: 48000, numberOfChannels: 1 });
 
   return {
     handleDatagram: (bytes) => {

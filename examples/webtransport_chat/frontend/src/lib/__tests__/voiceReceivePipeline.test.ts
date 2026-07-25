@@ -12,6 +12,7 @@ const PEER = new Uint8Array([1, 2, 3, 4]);
 function fakeDecoder(behavior: "ok" | "error" = "ok") {
   let outputCb: ((frame: unknown) => void) | null = null;
   let errorCb: ((err: unknown) => void) | null = null;
+  const configureCalls: unknown[] = [];
   const ctor = vi.fn(function (this: unknown, init: {
     output: (f: unknown) => void;
     error: (e: unknown) => void;
@@ -19,17 +20,34 @@ function fakeDecoder(behavior: "ok" | "error" = "ok") {
     outputCb = init.output;
     errorCb = init.error;
     return {
-      configure: vi.fn(),
+      configure: vi.fn((config: unknown) => {
+        configureCalls.push(config);
+      }),
       decode: vi.fn(() => {
         if (behavior === "error") errorCb?.(new Error("bad opus"));
         else outputCb?.({ decoded: true });
       }),
     };
   });
-  return { ctor };
+  return { ctor, configureCalls };
 }
 
 describe("voiceReceivePipeline", () => {
+  it("configures the decoder with the Opus parameters the browser requires", () => {
+    const jb = new JitterBufferManager(senderIdKey(OWN), 8);
+    const decoder = fakeDecoder();
+    createVoiceReceivePipeline({
+      jitterBuffer: jb,
+      AudioDecoderCtor: decoder.ctor as never,
+      enqueuePlayback: vi.fn(),
+    });
+    expect(decoder.configureCalls[0]).toEqual({
+      codec: "opus",
+      sampleRate: 48000,
+      numberOfChannels: 1,
+    });
+  });
+
   it("decodes a received voice datagram through jitter buffer, AudioDecoder and the Web Audio playback queue", () => {
     const jb = new JitterBufferManager(senderIdKey(OWN), 8);
     const decoder = fakeDecoder();

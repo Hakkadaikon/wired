@@ -43,6 +43,7 @@ function fakeEncoder(behavior: "ok" | "error" = "ok") {
   let outputCb: ((chunk: unknown) => void) | null = null;
   let errorCb: ((err: unknown) => void) | null = null;
   const encodeCalls: unknown[] = [];
+  const configureCalls: unknown[] = [];
   const ctor = vi.fn(function (this: unknown, init: {
     output: (c: unknown) => void;
     error: (e: unknown) => void;
@@ -50,7 +51,9 @@ function fakeEncoder(behavior: "ok" | "error" = "ok") {
     outputCb = init.output;
     errorCb = init.error;
     return {
-      configure: vi.fn(),
+      configure: vi.fn((config: unknown) => {
+        configureCalls.push(config);
+      }),
       encode: vi.fn((frame: unknown) => {
         encodeCalls.push(frame);
         if (behavior === "error") {
@@ -64,10 +67,43 @@ function fakeEncoder(behavior: "ok" | "error" = "ok") {
       }),
     };
   });
-  return { ctor, encodeCalls };
+  return { ctor, encodeCalls, configureCalls };
 }
 
 describe("micPipeline", () => {
+  it("configures the encoder with the Opus parameters the browser requires", async () => {
+    const encoder = fakeEncoder();
+    await startMicPipeline({
+      getUserMedia: fakeGetUserMedia({ stop: vi.fn() }),
+      makeProcessor: () => fakeProcessor(),
+      AudioEncoderCtor: encoder.ctor as never,
+      sendDatagram: vi.fn(),
+      isMuted: () => false,
+    });
+    expect(encoder.configureCalls[0]).toEqual({
+      codec: "opus",
+      sampleRate: 48000,
+      numberOfChannels: 1,
+    });
+  });
+
+  it("closes each captured frame after handing it to the encoder", async () => {
+    const encoder = fakeEncoder();
+    const processor = fakeProcessor();
+    await startMicPipeline({
+      getUserMedia: fakeGetUserMedia({ stop: vi.fn() }),
+      makeProcessor: () => processor,
+      AudioEncoderCtor: encoder.ctor as never,
+      sendDatagram: vi.fn(),
+      isMuted: () => false,
+    });
+    const frame = { close: vi.fn() };
+    processor.emit(frame);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(encoder.encodeCalls).toContain(frame);
+    expect(frame.close).toHaveBeenCalledTimes(1);
+  });
+
   it("starts getUserMedia -> MediaStreamTrackProcessor -> AudioEncoder pipeline on mic on", async () => {
     const track: Track = { stop: vi.fn() };
     const getUserMedia = fakeGetUserMedia(track);
