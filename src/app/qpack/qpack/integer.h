@@ -9,7 +9,7 @@
  * values set every prefix bit and continue in 7-bit groups with a continuation
  * bit in the MSB of each trailing byte. */
 
-/* The first byte's layout: the prefix length and the fixed high bits (e.g. a
+/** The first byte's layout: the prefix length and the fixed high bits (e.g. a
  * representation pattern) ORed above it. */
 typedef struct {
   u8 bits;    /* prefix length in bits */

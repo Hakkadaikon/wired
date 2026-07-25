@@ -3,7 +3,7 @@
 
 #include "common/bytes/span/span.h"
 
-/* How a DATAGRAM frame is framed and bounded. with_length picks type 0x31
+/** How a DATAGRAM frame is framed and bounded. with_length picks type 0x31
  * (explicit length) over 0x30 (data to packet end); max_frame_size is the
  * peer's max_datagram_frame_size transport parameter. */
 typedef struct {

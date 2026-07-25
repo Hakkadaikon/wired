@@ -12,20 +12,24 @@
 #define QUIC_QPACK_DYN_MAX_NAME 256
 #define QUIC_QPACK_DYN_MAX_VALUE 1024
 
+/** RFC 9204 3.2. One inserted (name, value) pair stored in the dynamic
+ * table, with its byte lengths. */
 typedef struct {
-  u8  name[QUIC_QPACK_DYN_MAX_NAME];
-  u8  value[QUIC_QPACK_DYN_MAX_VALUE];
-  usz name_len;
-  usz value_len;
+  u8  name[QUIC_QPACK_DYN_MAX_NAME];   /**< entry name bytes */
+  u8  value[QUIC_QPACK_DYN_MAX_VALUE]; /**< entry value bytes */
+  usz name_len;                        /**< bytes used in name */
+  usz value_len;                       /**< bytes used in value */
 } quic_qpack_dyn_entry;
 
+/** RFC 9204 3.2. A QPACK dynamic table instance: the entry ring, its live
+ * range, and the byte-size accounting eviction and capacity changes use. */
 typedef struct {
-  quic_qpack_dyn_entry ring[QUIC_QPACK_DYN_MAX_ENTRIES];
-  usz                  head;     /* physical slot of the oldest live entry */
-  usz                  count;    /* number of live entries */
-  u64                  dropped;  /* absolute index of the oldest live entry */
-  usz                  size;     /* sum of entry sizes (RFC 9204 3.2.1) */
-  usz                  capacity; /* maximum allowed size in bytes */
+  quic_qpack_dyn_entry ring[QUIC_QPACK_DYN_MAX_ENTRIES]; /**< entry storage */
+  usz                  head;     /**< physical slot of the oldest live entry */
+  usz                  count;    /**< number of live entries */
+  u64                  dropped;  /**< absolute index of the oldest live entry */
+  usz                  size;     /**< sum of entry sizes (RFC 9204 3.2.1) */
+  usz                  capacity; /**< maximum allowed size in bytes */
 } quic_qpack_dyn;
 
 /* RFC 9204 3.2. Initialise an empty table with the given byte capacity. */

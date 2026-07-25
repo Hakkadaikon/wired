@@ -14,6 +14,7 @@
 /* max_datagram_frame_size transport parameter (RFC 9221 3). */
 #define QUIC_TP_MAX_DATAGRAM_FRAME_SIZE 0x20
 
+/** RFC 9221: a decoded DATAGRAM frame view (data borrowed in place). */
 typedef struct {
   u64       length; /* data length */
   const u8* data;   /* view into the packet buffer */
