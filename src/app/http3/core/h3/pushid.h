@@ -7,6 +7,7 @@
  * maximum the client granted via MAX_PUSH_ID. The maximum starts at zero and
  * MAX_PUSH_ID may only raise it; a frame that would lower it is an error. */
 
+/** RFC 9114 4.6: the client's granted Push ID range for this connection. */
 typedef struct {
   u64 max; /* one past the greatest Push ID the client permits */
 } quic_h3_push_state;

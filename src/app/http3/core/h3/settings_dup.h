@@ -9,6 +9,8 @@
 
 #define QUIC_H3_SETTINGS_SEEN_MAX 16
 
+/** RFC 9114 7.2.4: the set of SETTINGS identifiers already seen on this
+ * frame, for duplicate detection. */
 typedef struct {
   usz n;
   u64 ids[QUIC_H3_SETTINGS_SEEN_MAX];

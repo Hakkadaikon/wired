@@ -4,7 +4,7 @@
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
 
-/* The common HTTP/3 + QPACK settings values to encode. */
+/** The common HTTP/3 + QPACK settings values to encode. */
 typedef struct {
   u64 max_field_section_size;
   u64 qpack_max_table_capacity;

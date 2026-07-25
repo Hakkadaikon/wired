@@ -4,8 +4,8 @@
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
 
-/* The QPACK-encoded field section and optional body of an outbound request.
- */
+/** The QPACK-encoded field section and optional body of an outbound
+ * request. */
 typedef struct {
   quic_span qpack_headers;
   quic_span body;

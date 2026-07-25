@@ -6,6 +6,8 @@
 /* RFC 9114 5.2: successive GOAWAY ids MUST be non-increasing; an increase is
  * H3_ID_ERROR. */
 
+/** RFC 9114 5.2: tracks the last accepted GOAWAY id to enforce
+ * non-increasing ids. */
 typedef struct {
   u8  seen; /* a prior GOAWAY id was recorded */
   u64 last; /* the most recent (lowest accepted) GOAWAY id */
