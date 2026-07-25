@@ -71,6 +71,22 @@ ninja: gen-ninja
 test: fmt gen-ninja
     ninja build/quic_test && build/quic_test
 
+# line coverage of the hosted unity test (LLVM source-based coverage).
+# Separate binary from `test` -- instrumentation must never leak into the
+# gate build, so this recompiles tests/run.c on its own with
+# -fprofile-instr-generate -fcoverage-mapping rather than reusing quic_test.
+cov: fmt
+    #!/usr/bin/env sh
+    set -eu
+    clang {{testflags}} -fprofile-instr-generate -fcoverage-mapping \
+        tests/run.c -o build/quic_test_cov
+    LLVM_PROFILE_FILE=build/quic_test.profraw ./build/quic_test_cov
+    llvm-profdata merge -sparse build/quic_test.profraw -o build/quic_test.profdata
+    llvm-cov export build/quic_test_cov -instr-profile=build/quic_test.profdata \
+        -ignore-filename-regex='tests/' -format=lcov > build/lcov.info
+    llvm-cov report build/quic_test_cov -instr-profile=build/quic_test.profdata \
+        -ignore-filename-regex='tests/'
+
 # cyclomatic complexity gate: CCN must be <= 3
 ccn:
     lizard src --CCN 3 -w
