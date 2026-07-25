@@ -7,7 +7,7 @@ import { nextSeq } from "./jitterBuffer";
 
 export type MicPipelineDeps = {
   getUserMedia: (constraints: {
-    audio: boolean;
+    audio: boolean | { echoCancellation: boolean; noiseSuppression: boolean; autoGainControl: boolean };
   }) => Promise<{ getAudioTracks: () => { stop: () => void }[] }>;
   makeProcessor: (track: unknown) => {
     readable: {
@@ -73,7 +73,11 @@ export async function startMicPipeline(
 ): Promise<MicPipeline> {
   let media: { getAudioTracks: () => { stop: () => void }[] };
   try {
-    media = await deps.getUserMedia({ audio: true });
+    // Explicit processing constraints: acoustic feedback (speaker -> mic)
+    // is the default failure mode when two participants share one room.
+    media = await deps.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+    });
   } catch (err) {
     deps.onError?.(err);
     throw err;
