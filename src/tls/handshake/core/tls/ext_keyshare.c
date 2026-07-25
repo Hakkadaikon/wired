@@ -13,6 +13,8 @@ static usz group_key_len(u16 group) {
   return 0;
 }
 
+usz quic_tls_ext_key_share_len(u16 group) { return group_key_len(group); }
+
 usz quic_tls_ext_key_share(
     u8* buf, usz cap, u16 group, const u8* pub, usz pub_len) {
   usz entry = 4 + pub_len;   /* group(2) ke_len(2) key */

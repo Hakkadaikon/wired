@@ -10,6 +10,13 @@
  * RFC 7748) and secp256r1 (65-byte SEC1 uncompressed key, RFC 8446 4.2.8.2 /
  * SEC1 2.3.3). */
 
+/* RFC 8446 4.2.7: the fixed key length for a NamedGroup (32 for x25519, 65
+ * for secp256r1), or 0 for an unrecognised group. The single source of truth
+ * for this table -- callers that need a group's key length (e.g. building a
+ * key_share before an encode/decode call) use this instead of duplicating
+ * it. */
+usz quic_tls_ext_key_share_len(u16 group);
+
 /* Encode the full ClientHello/ServerHello key_share extension for a single
  * KeyShareEntry: ext_type(2) ext_len(2) shares_len(2) group(2) ke_len(2)
  * pub[pub_len]. pub_len must match group (32 for x25519, 65 for
