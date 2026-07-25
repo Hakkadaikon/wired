@@ -8,6 +8,8 @@
  * PTO has passed since the prior update completed (preventing back-to-back
  * updates that would exhaust the peer's retained keys). */
 
+/** Inputs to quic_keyupdate_may_initiate: whether the handshake is confirmed,
+ * the time of the last update, the current time, and the PTO. */
 typedef struct {
   int handshake_confirmed;
   u64 last_update;

@@ -8,6 +8,8 @@
  * generations are retained at once, and a new update may not begin until
  * the previous one is acknowledged. */
 
+/** RFC 9001 6: 1-RTT key update state -- the current send key generation,
+ * the lowest still-retained generation, and whether an update is pending. */
 typedef struct {
   u64 gen;      /* current send key generation */
   u64 lowest;   /* lowest retained generation (gen-1 or gen) */
