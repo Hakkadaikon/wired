@@ -6,7 +6,7 @@
 #include "transport/stream/flow/flow/credit.h"
 #include "transport/stream/flow/flow/stream_read.h"
 
-/* RFC 9000 12.4: after a payload is walked into frames, each frame is
+/** RFC 9000 12.4: after a payload is walked into frames, each frame is
  * dispatched by type to the subsystem that owns its effect. This bundles the
  * per-connection receive state those handlers touch. */
 typedef struct {

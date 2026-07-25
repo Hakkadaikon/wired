@@ -6,7 +6,7 @@
 /* RFC 9001 5.4.1: remove header protection on a long-header Initial whose
  * packet-number length is unknown until byte0 is unmasked, then AEAD-open. */
 
-/* One received packet to open in place.
+/** One received packet to open in place.
  *   pkt    : the received packet buffer (modified in place).
  *   pn_off : offset of the (still protected) packet number field.
  *   length : the Length field value = packet number + payload + tag bytes,

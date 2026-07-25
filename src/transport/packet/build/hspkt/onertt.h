@@ -8,8 +8,8 @@
  * Connection ID, and a 4-byte packet number. Sealed and header-protected with
  * the 1-RTT keys. */
 
-/* One 1-RTT packet to build: DCID, packet number, plaintext payload, and the
- * Key Phase bit (RFC 9001 6) this packet's protection keys belong to --
+/** One 1-RTT packet to build: DCID, packet number, plaintext payload, and
+ * the Key Phase bit (RFC 9001 6) this packet's protection keys belong to --
  * defaults to 0 for every caller that never rotates (position-initialized
  * literals omitting it get 0, generation 0's phase, matching k's keys
  * before any update). A caller that DOES rotate (srvloop/send.c) must pass
@@ -38,7 +38,7 @@ int quic_hspkt_onertt_build_suite(
     const quic_hspkt_onertt_desc* d,
     quic_obuf*                    out);
 
-/* One received 1-RTT packet to open in place. largest_pn is the largest
+/** One received 1-RTT packet to open in place. largest_pn is the largest
  * packet number already received in the 1-RTT space (0 before any), used to
  * recover the full packet number from its truncated form (RFC 9000 A.3) so
  * the AEAD nonce matches the sender's. */

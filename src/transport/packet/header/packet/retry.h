@@ -6,7 +6,7 @@
 
 #define QUIC_RETRY_TAG_LEN 16
 
-/* RFC 9000 17.2.5 Retry packet. token is a view into the parsed buffer on
+/** RFC 9000 17.2.5 Retry packet. token is a view into the parsed buffer on
  * parse, or the caller's buffer on build. tag is the 16-byte Retry Integrity
  * Tag (computed by the tls domain; this codec only places/extracts it). */
 typedef struct {
@@ -20,7 +20,7 @@ typedef struct {
   u8        tag[QUIC_RETRY_TAG_LEN];
 } quic_retry_packet;
 
-/* Everything a Retry packet carries: version, CIDs, token, 16-byte tag. */
+/** Everything a Retry packet carries: version, CIDs, token, 16-byte tag. */
 typedef struct {
   u32       version;
   quic_span dcid;

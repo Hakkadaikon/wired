@@ -3,7 +3,7 @@
 
 #include "common/bytes/span/span.h"
 
-/* RFC 9000 17.2: assemble a complete long header up to (not including) the
+/** RFC 9000 17.2: assemble a complete long header up to (not including) the
  * packet payload. Covers Initial (17.2.2) and Handshake (17.2.4): byte0,
  * 4-byte version, length-prefixed DCID and SCID, an Initial-only Token
  * Length(varint)+Token, the Length(varint), and the truncated packet number.

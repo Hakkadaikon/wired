@@ -3,11 +3,11 @@
 
 #include "transport/packet/protect/protect/protect.h"
 
-/* RFC 9001 5: unprotect one inbound long-header packet built by quic_tx_packet.
- * Parses the complete RFC 9000 17.2 header to locate the packet number and
- * Length, removes header protection (recovering the packet-number length), and
- * AEAD-opens the payload in place. is_initial selects whether a Token field is
- * present. */
+/** RFC 9001 5: unprotect one inbound long-header packet built by
+ * quic_tx_packet. Parses the complete RFC 9000 17.2 header to locate the packet
+ * number and Length, removes header protection (recovering the packet-number
+ * length), and AEAD-opens the payload in place. is_initial selects whether a
+ * Token field is present. */
 typedef struct {
   quic_mspan pkt;
   int        is_initial;

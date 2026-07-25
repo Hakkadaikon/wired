@@ -10,7 +10,7 @@
  * pkt[0 .. pn_off+pn_len) and the packet number sits at pn_off (pn_len bytes);
  * HP samples 16 bytes at pn_off+4 (RFC 9001 5.4.2). */
 
-/* Suite + key material. key/iv are the AEAD key/iv (key is 16 bytes for AES,
+/** Suite + key material. key/iv are the AEAD key/iv (key is 16 bytes for AES,
  * 32 for ChaCha; iv is 12), hp_key is the header-protection key. */
 typedef struct {
   u16       suite;
@@ -19,7 +19,7 @@ typedef struct {
   const u8* hp_key;
 } quic_protectcs_keys;
 
-/* One in-place seal: pkt holds the header followed by payload_len plaintext
+/** One in-place seal: pkt holds the header followed by payload_len plaintext
  * bytes; the packet number (pn, encoded in pn_len bytes) sits at pn_off. */
 typedef struct {
   u8* pkt;
@@ -37,7 +37,7 @@ int quic_protectcs_seal(
     const quic_protectcs_seal_io* io,
     usz*                          out_len);
 
-/* One in-place open: pkt holds a protected packet with the packet number at
+/** One in-place open: pkt holds a protected packet with the packet number at
  * pn_off. */
 typedef struct {
   quic_mspan pkt;

@@ -9,9 +9,9 @@
  * in this space), then AEAD-open the payload in place with the full pn in the
  * nonce. */
 
-/* One protected packet to open in place. hdr_len is the header length
- * (through the packet number); bits_mask selects long (0x0f) or short (0x1f)
- * byte0 masking. */
+/** One protected packet to open in place. hdr_len is the header length
+ * (through the packet number); bits_mask selects long (0x0f) or short
+ * (0x1f) byte0 masking. */
 typedef struct {
   quic_mspan pkt;
   usz        hdr_len;

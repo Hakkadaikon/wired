@@ -7,6 +7,7 @@
  * the type into a frame kind and reports whether it is ack-eliciting
  * (anything other than ACK, PADDING, CONNECTION_CLOSE — RFC 9000 1.2). */
 
+/** The classified kind of a QUIC frame (RFC 9000 12.4), by type. */
 typedef enum {
   QUIC_FK_UNKNOWN = 0,
   QUIC_FK_PADDING,

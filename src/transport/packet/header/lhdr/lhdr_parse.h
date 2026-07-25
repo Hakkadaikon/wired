@@ -9,7 +9,7 @@
  * field (remaining = PN + payload + AEAD tag). pn_len comes from byte 0 only
  * after HP removal, via quic_lhdr_pn_len below. */
 
-/* Parsed long header fields. dcid/scid/token view into the packet (token.p
+/** Parsed long header fields. dcid/scid/token view into the packet (token.p
  * is NULL when empty). */
 typedef struct {
   quic_span dcid;

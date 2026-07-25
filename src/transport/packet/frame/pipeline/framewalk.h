@@ -3,7 +3,7 @@
 
 #include "common/platform/sys/syscall.h"
 
-/* RFC 9000 12.4: walk a decrypted payload frame by frame. Each frame begins
+/** RFC 9000 12.4: walk a decrypted payload frame by frame. Each frame begins
  * with its type as a varint; the walker reports the type and advances past the
  * whole frame. Frame lengths are measured with the existing frame decoders, so
  * only the frame kinds with a decoder (PADDING, PING, ACK, CRYPTO, STREAM,
@@ -17,7 +17,7 @@ typedef struct {
 
 void quic_framewalk_init(quic_framewalk* it, const u8* frames, usz len);
 
-/* One yielded frame: its type varint, where it starts, and the bytes left
+/** One yielded frame: its type varint, where it starts, and the bytes left
  * from this frame onward (including it). */
 typedef struct {
   u64       type;

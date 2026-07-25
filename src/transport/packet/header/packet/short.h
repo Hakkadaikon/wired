@@ -3,7 +3,7 @@
 
 #include "common/bytes/span/span.h"
 
-/* RFC 9000 17.3. Build a short header (1-RTT) packet header.
+/** RFC 9000 17.3. Build a short header (1-RTT) packet header.
  * byte0 = 0x40 (fixed bit) | spin<<5 | key_phase<<2 | (pn_len-1),
  * then DCID (no length prefix) and the packet number in pn_len big-endian
  * bytes. spin and key_phase are treated as 0/1. pn_len must be 1..4. */

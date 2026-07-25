@@ -3,10 +3,10 @@
 
 #include "common/bytes/span/span.h"
 
-/* RFC 9001 5.2 / RFC 9000 17.2.2: build one AEAD-protected client Initial
+/** RFC 9001 5.2 / RFC 9000 17.2.2: build one AEAD-protected client Initial
  * packet. The CRYPTO payload (a ClientHello) is carried in a CRYPTO frame,
- * padded to the 1200-byte datagram minimum, and sealed with the client Initial
- * keys derived from dcid. */
+ * padded to the 1200-byte datagram minimum, and sealed with the client
+ * Initial keys derived from dcid. */
 typedef struct {
   quic_span dcid;
   quic_span scid;

@@ -18,14 +18,14 @@
 #define QUIC_STREAM_LEN 0x02
 #define QUIC_STREAM_OFF 0x04
 
-/* A CRYPTO frame: offset + a view into the data (not copied). */
+/** A CRYPTO frame: offset + a view into the data (not copied). */
 typedef struct {
   u64       offset;
   u64       length;
   const u8* data;
 } quic_crypto_frame;
 
-/* A STREAM frame (RFC 9000 19.8): stream id, optional offset, a view into
+/** A STREAM frame (RFC 9000 19.8): stream id, optional offset, a view into
  * the data, and the FIN flag. */
 typedef struct {
   u64       stream_id;
@@ -47,8 +47,9 @@ usz quic_frame_put_crypto(u8* buf, usz cap, const quic_crypto_frame* f);
  * Fills *f (data points into buf) and returns bytes consumed, or 0. */
 usz quic_frame_get_crypto(const u8* buf, usz n, quic_crypto_frame* f);
 
-/* A CONNECTION_CLOSE frame (RFC 9000 19.19). frame_type is meaningful only
- * for the transport variant (0x1c); the application variant (0x1d) omits it. */
+/** A CONNECTION_CLOSE frame (RFC 9000 19.19). frame_type is meaningful only
+ * for the transport variant (0x1c); the application variant (0x1d) omits
+ * it. */
 typedef struct {
   u8        is_app; /* 0 -> transport (0x1c), 1 -> application (0x1d) */
   u64       error_code;
