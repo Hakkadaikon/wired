@@ -4906,6 +4906,12 @@ static void test_srvrun_datagram_round_trip_on_wire(void) {
   ob = (quic_obuf){obuf, sizeof obuf, 0};
   sr_make_confirmed_conn(&c, &f, &ob);
   c.s.sdrv.peer_max_datagram_frame_size = 65535;
+  /* The pending slot drains per active WT session (RFC 9297 2.1: the wire
+   * bytes carry that session's qsid prefix), so give the connection one
+   * established session on stream 4 -> qsid 1, one 0x01 byte. */
+  c.wt_active            = 1;
+  c.wt.state             = WIRED_WT_ESTABLISHED;
+  c.wt.connect_stream_id = 4;
   CHECK(
       srvrun_queue_datagram(
           &c, quic_span_of(sr_dg_payload, sizeof sr_dg_payload)) == 1);
@@ -4920,9 +4926,10 @@ static void test_srvrun_datagram_round_trip_on_wire(void) {
   }
   CHECK(c.dg_pending == 0); /* drained */
   CHECK(quic_datagram_decode(pl, pll, &df) == pll);
-  CHECK(df.length == sizeof sr_dg_payload);
+  CHECK(df.length == 1 + sizeof sr_dg_payload);
+  CHECK(df.data[0] == 0x01); /* qsid prefix (4/4) */
   for (usz i = 0; i < sizeof sr_dg_payload; i++)
-    CHECK(df.data[i] == sr_dg_payload[i]);
+    CHECK(df.data[1 + i] == sr_dg_payload[i]);
 }
 
 /* RFC 9297 2.1: a QUIC DATAGRAM must never be queued before this
@@ -4962,6 +4969,11 @@ static void test_srvrun_datagram_rejected_when_peer_unadvertised(void) {
    * case, so override it back. */
   c.s.sdrv.peer_max_datagram_frame_size = 0;
   CHECK(c.s.sdrv.peer_max_datagram_frame_size == 0);
+  /* An active session, so the drain actually attempts the send (the pending
+   * slot drains per active WT session). */
+  c.wt_active            = 1;
+  c.wt.state             = WIRED_WT_ESTABLISHED;
+  c.wt.connect_stream_id = 4;
   CHECK(
       srvrun_queue_datagram(
           &c, quic_span_of(sr_dg_payload, sizeof sr_dg_payload)) == 1);
@@ -4987,6 +4999,9 @@ static void test_srvrun_datagram_rejected_over_peer_limit(void) {
   sr_make_confirmed_conn(&c, &f, &ob);
   c.s.sdrv.peer_max_datagram_frame_size =
       3; /* smaller than the encoded frame */
+  c.wt_active            = 1;
+  c.wt.state             = WIRED_WT_ESTABLISHED;
+  c.wt.connect_stream_id = 4;
   CHECK(
       srvrun_queue_datagram(
           &c, quic_span_of(sr_dg_payload, sizeof sr_dg_payload)) == 1);
@@ -5994,20 +6009,20 @@ static void test_srvrun_wt_full_session_lifecycle_on_wire(void) {
       CHECK(client_open_onertt(&f, sendob.p, sendob.len, &pl, &pll) == 1);
     }
     CHECK(quic_datagram_decode(pl, pll, &df) == pll);
+    /* RFC 9297 2.1: the outbound wire bytes carry the target session's qsid
+     * prefix (session on stream 4 -> qsid 1, byte 0x01) ahead of the queued
+     * payload. */
+    CHECK(df.length == 1 + sizeof sr_dg_payload);
+    CHECK(df.data[0] == 0x01);
     for (usz i = 0; i < sizeof sr_dg_payload; i++)
-      CHECK(df.data[i] == sr_dg_payload[i]);
-    /* Re-fed as if the CLIENT sent this back: RFC 9297 2.1 requires the
-     * client's own qsid prefix (session on stream 4 -> qsid 1, byte 0x01)
-     * ahead of the payload -- df.data itself (the server's raw outbound
-     * DATAGRAM content above) carries none, since srvrun_queue_datagram is
-     * the generic transport-level primitive, not WT-prefix-aware. */
+      CHECK(df.data[1 + i] == sr_dg_payload[i]);
+    /* Re-fed as if the CLIENT sent this back: the client's own datagram to
+     * the server carries the same qsid prefix, so the wire bytes can be
+     * reused verbatim. */
     {
-      u8                  wire[1 + sizeof sr_dg_payload];
       quic_datagram_frame wdf;
-      wire[0] = 0x01;
-      for (usz i = 0; i < sizeof sr_dg_payload; i++) wire[1 + i] = df.data[i];
-      wdf.length = sizeof wire;
-      wdf.data   = wire;
+      wdf.length = df.length;
+      wdf.data   = df.data;
       dgpll = quic_datagram_encode(quic_mspan_of(dgpl, sizeof dgpl), &wdf, 1);
     }
     {
@@ -6812,9 +6827,13 @@ static void test_srvrun_broadcast_datagram_reaches_two_real_clients(void) {
   }
   CHECK(g_bcast_last_sess == &g_srvrun_state.conns[0].wt);
 
-  /* Both connections now have the (unprefixed) relayed payload queued for
-   * their next send; drain and open each on its OWN client side to prove the
-   * bytes are correct end to end, not just copied in memory. */
+  /* Both connections now have the relayed payload queued for their next
+   * send; drain and open each on its OWN client side to prove the bytes are
+   * correct end to end, not just copied in memory. RFC 9297 2.1: the wire
+   * bytes carry the target session's own qsid prefix (session id 4 -> qsid
+   * 1, one byte 0x01) ahead of the bare relayed payload -- a peer decodes
+   * that prefix to associate the datagram with its session, so an
+   * unprefixed send would be silently dropped. */
   {
     quic_obuf  sendob0 = {out0, sizeof out0, 0};
     quic_obuf  sendob1 = {out1, sizeof out1, 0};
@@ -6829,12 +6848,16 @@ static void test_srvrun_broadcast_datagram_reaches_two_real_clients(void) {
             &cfg, &g_srvrun_state.conns[1], &sendob1) == 1);
     CHECK(client_open_onertt(&f0, sendob0.p, sendob0.len, &pl, &pll) == 1);
     CHECK(quic_datagram_decode(pl, pll, &df) == pll);
+    CHECK(df.length == 1 + sizeof sr_dg_payload);
+    CHECK(df.data[0] == 0x01);
     for (usz i = 0; i < sizeof sr_dg_payload; i++)
-      CHECK(df.data[i] == sr_dg_payload[i]);
+      CHECK(df.data[1 + i] == sr_dg_payload[i]);
     CHECK(client_open_onertt(&f1, sendob1.p, sendob1.len, &pl, &pll) == 1);
     CHECK(quic_datagram_decode(pl, pll, &df) == pll);
+    CHECK(df.length == 1 + sizeof sr_dg_payload);
+    CHECK(df.data[0] == 0x01);
     for (usz i = 0; i < sizeof sr_dg_payload; i++)
-      CHECK(df.data[i] == sr_dg_payload[i]);
+      CHECK(df.data[1 + i] == sr_dg_payload[i]);
   }
 }
 

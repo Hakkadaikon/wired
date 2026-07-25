@@ -856,10 +856,10 @@ static int sdt_build_datagram_pkt(
 /* RFC 9297 2.1: prefix payload with varint(quarter stream id) before sealing
  * -- our Extended CONNECT is on stream 0 (sdt_seal_stream0), so qsid = 0/4 =
  * 0, a single 0x00 byte. srvrun_deliver_rx_datagram (srvrun.c) strips this
- * prefix before routing/delivering to the app callback, so the echoed-back
- * bytes (wired_server_broadcast_datagram relays what the callback saw) carry
- * no prefix -- sdt_payload_has_our_datagram below matches payload unprefixed,
- * unchanged. */
+ * prefix before routing/delivering to the app callback, and the send path
+ * (srvrun_send_pending_datagram) re-applies the target session's own prefix
+ * on the wire -- so the echoed-back bytes carry qsid 0x00 again, which
+ * sdt_payload_has_our_datagram below accounts for. */
 static int sdt_send_datagram(struct sdt_client* cx, const u8* payload, usz n) {
   u8        frame[300], pkt[512], wire[300];
   quic_obuf ob = quic_obuf_of(pkt, sizeof pkt);
@@ -901,13 +901,19 @@ static int sdt_datagram_matches(
   return sdt_bytes_eq(df.data, want, want_len);
 }
 
+/* RFC 9297 2.1: the echoed wire datagram carries the session's qsid prefix
+ * (stream 0 -> one 0x00 byte) ahead of the relayed payload. */
 static int sdt_payload_has_our_datagram(
     const u8* pl, usz pll, const u8* want, usz want_len) {
+  u8                  prefixed[300];
   quic_framewalk      it;
   quic_framewalk_item fr;
+  if (want_len + 1 > sizeof prefixed) return 0;
+  prefixed[0] = 0x00;
+  for (usz i = 0; i < want_len; i++) prefixed[1 + i] = want[i];
   quic_framewalk_init(&it, pl, pll);
   while (quic_framewalk_next(&it, &fr))
-    if (sdt_datagram_matches(&fr, want, want_len)) return 1;
+    if (sdt_datagram_matches(&fr, prefixed, want_len + 1)) return 1;
   return 0;
 }
 
