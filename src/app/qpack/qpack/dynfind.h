@@ -3,7 +3,7 @@
 
 #include "app/qpack/qpack/dyntable.h"
 
-/* A search hit: the entry's absolute index and whether the value matched. */
+/** A search hit: the entry's absolute index and whether the value matched. */
 typedef struct {
   u64 abs_index;
   int value_matched; /* 1 = name+value, 0 = name only */

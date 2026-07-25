@@ -3,7 +3,7 @@
 
 #include "app/qpack/qpack/dyntable.h"
 
-/* The context an Indexed Field Line is decoded against: the dynamic table,
+/** The context an Indexed Field Line is decoded against: the dynamic table,
  * the section's Base, and the field-section bytes from the current position. */
 typedef struct {
   const quic_qpack_dyn* table;

@@ -30,7 +30,7 @@ int quic_dgpriority_valid(u8 u);
  * "higher" either way -- the caller picks its own tie-break (e.g. FIFO). */
 int quic_dgpriority_higher(u8 urg_a, u8 urg_b);
 
-/* One DATAGRAM send candidate: the payload to send and its urgency. */
+/** One DATAGRAM send candidate: the payload to send and its urgency. */
 typedef struct {
   quic_span data;
   u8        urgency;

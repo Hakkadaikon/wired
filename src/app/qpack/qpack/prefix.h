@@ -3,7 +3,7 @@
 
 #include "common/platform/sys/syscall.h"
 
-/* RFC 9204 4.5.1. The Encoded Field Section Prefix: an 8-bit-prefix Required
+/** RFC 9204 4.5.1. The Encoded Field Section Prefix: an 8-bit-prefix Required
  * Insert Count followed by a Sign bit (S) and a 7-bit-prefix Delta Base.
  *
  * Required Insert Count is transmitted in the encoded form of 4.5.1.1; with an

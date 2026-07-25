@@ -10,7 +10,7 @@
 /* Encode a Required Insert Count. Returns the EncodedInsertCount. */
 u64 quic_qpack_ric_encode(u64 ric, u64 max_entries);
 
-/* The decoder-side table state an EncodedInsertCount is resolved against. */
+/** The decoder-side table state an EncodedInsertCount is resolved against. */
 typedef struct {
   u64 max_entries;
   u64 total_inserts;

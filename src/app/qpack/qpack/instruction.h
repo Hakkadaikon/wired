@@ -8,7 +8,7 @@
  * the leading prefixed-integer field of each instruction are encoded/decoded.
  * String fields (e.g. the name/value of an insert) are not handled. */
 
-/* Encoder-stream instruction kinds (RFC 9204 4.3), by leading bit pattern. */
+/** Encoder-stream instruction kinds (RFC 9204 4.3), by leading bit pattern. */
 typedef enum {
   QUIC_QPACK_ENC_SET_CAPACITY,    /* 4.3.1  001xxxxx, 5-bit Capacity */
   QUIC_QPACK_ENC_INSERT_NAME_REF, /* 4.3.2  1Txxxxxx, 6-bit Name Index */
@@ -16,7 +16,7 @@ typedef enum {
   QUIC_QPACK_ENC_DUPLICATE,       /* 4.3.4  000xxxxx, 5-bit Index */
 } quic_qpack_enc_kind;
 
-/* Decoder-stream instruction kinds (RFC 9204 4.4), by leading bit pattern. */
+/** Decoder-stream instruction kinds (RFC 9204 4.4), by leading bit pattern. */
 typedef enum {
   QUIC_QPACK_DEC_SECTION_ACK,   /* 4.4.1  1xxxxxxx, 7-bit Stream ID */
   QUIC_QPACK_DEC_STREAM_CANCEL, /* 4.4.2  01xxxxxx, 6-bit Stream ID */

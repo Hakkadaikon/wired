@@ -10,7 +10,7 @@
  * and that many name octets, then a value string literal. The encoder emits
  * raw (H=0) names; the decoder accepts H=0 (raw) and H=1 (Huffman) names. */
 
-/* A name reference: the table index plus the T and N flag bits. */
+/** A name reference: the table index plus the T and N flag bits. */
 typedef struct {
   u64 index;
   int is_static; /* T */
@@ -44,7 +44,7 @@ usz quic_qpack_literal_name_decode(
  * dynamic table (an entry inserted after the section's Base), then a value
  * string literal. Always dynamic-table; there is no static-table form. */
 
-/* A post-Base name reference: the post-Base index plus the N flag bit. */
+/** A post-Base name reference: the post-Base index plus the N flag bit. */
 typedef struct {
   u64 index;
   int never; /* N */
