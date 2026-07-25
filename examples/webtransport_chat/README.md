@@ -71,22 +71,21 @@ instead of migrating.
 
 The frontend is a separate static site — WebTransport does not require it to
 be served by the same process, only from the same-origin browser tab that
-opens the `WebTransport` connection to `https://localhost:4433/`. Any static
-file server works; ES module `import` requires HTTP(S), not `file://`:
+opens the `WebTransport` connection to `https://localhost:4433/`. `just
+serve-frontend` builds and serves the voice chat frontend (`frontend/`); the
+legacy `public/` site has no recipe but any static file server works (ES
+module `import` requires HTTP(S), not `file://`).
+
+`serve-frontend` serves over TLS because opening the page from another
+machine (e.g. the server runs on a VPS) requires it: a non-localhost
+`http://` page is not a secure context, so the browser disables the
+WebTransport API entirely. Put a `cert.pem`/`key.pem` pair in
+`examples/webtransport_chat/` (self-signed is fine; accept the browser
+warning once):
 
 ```sh
 cd examples/webtransport_chat
-just serve-frontend       # http://localhost:8000/ (local development)
-```
-
-To open the frontend from another machine (e.g. the server runs on a VPS),
-plain HTTP is not enough: a non-localhost `http://` page is not a secure
-context, so the browser disables the WebTransport API entirely. Serve it
-over TLS instead — put a `cert.pem`/`key.pem` pair in `public/` (self-signed
-is fine; accept the browser warning once):
-
-```sh
-just serve-frontend-tls   # https://<host>:8443/
+just serve-frontend       # builds frontend/out and serves https://<host>:8443/
 ```
 
 ### Connect from Chrome
@@ -97,8 +96,9 @@ opting in via `serverCertificateHashes` — this is what the frontend's
 
 1. Copy the `cert sha-256 fingerprint: ...` value from the server's startup
    log (colons are fine, the frontend strips them).
-2. Open `http://localhost:8000/` (the frontend, not the WebTransport server
-   itself — no HTTPS needed for a plain static file server).
+2. Open the frontend page (`https://localhost:8443/` with `just
+   serve-frontend`, or `http://localhost:3000/` with `just dev-frontend`) —
+   the frontend, not the WebTransport server itself.
 3. Paste the fingerprint into the "Certificate hash (SHA-256)" field, confirm
    the server URL (`https://localhost:4433/` by default), click "Connect".
 4. Enter a name and message, hit "Send". Open the page in a second tab (or
@@ -155,6 +155,11 @@ cd examples/webtransport_chat/frontend
 pnpm install
 pnpm dev          # http://localhost:3000/
 ```
+
+For a production build served over TLS (required when the page is opened
+from another machine), use `just serve-frontend` from
+`examples/webtransport_chat/` instead — see
+[Serve the frontend](#serve-the-frontend).
 
 Start the server (`just run`), copy the `cert sha-256 fingerprint: ...`
 value from its startup log into the page's certificate-hash field (colons
