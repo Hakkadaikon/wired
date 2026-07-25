@@ -90,9 +90,30 @@ static void test_p256sign_verify_rejects_zero(void) {
   CHECK(quic_ecdsa_p256_verify(qx, qy, r, zero, h) == 0);
 }
 
+/* n (P-256 group order), big-endian. s == n or s > n-1 must be rejected. */
+static const char* PS_N =
+    "ffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551";
+static const char* PS_N_PLUS_1 =
+    "ffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632552";
+
+/* Verifier rejects s == n and s > n (upper bound of [1, n-1], FIPS 186-4
+ * 6.4.2). PS_R/PS_QX/PS_QY/h reused so only the out-of-range s is new. */
+static void test_p256sign_verify_rejects_s_out_of_range(void) {
+  u8 qx[32], qy[32], h[32], r[32], s_n[32], s_np1[32];
+  psign_hb32(PS_QX, qx);
+  psign_hb32(PS_QY, qy);
+  psign_hb32(PS_R, r);
+  psign_hb32(PS_N, s_n);
+  psign_hb32(PS_N_PLUS_1, s_np1);
+  quic_sha256((const u8*)"sample", 6, h);
+  CHECK(quic_ecdsa_p256_verify(qx, qy, r, s_n, h) == 0);
+  CHECK(quic_ecdsa_p256_verify(qx, qy, r, s_np1, h) == 0);
+}
+
 void test_p256sign(void) {
   test_p256sign_known_vector();
   test_p256sign_ps_roundtrip();
   test_p256sign_low_s();
   test_p256sign_verify_rejects_zero();
+  test_p256sign_verify_rejects_s_out_of_range();
 }
