@@ -65,6 +65,53 @@ function makeTransportHandle(url: string, certHash: Uint8Array | null): Transpor
   };
 }
 
+// voiceReceivePipeline hands the decoder raw Opus payloads; the real
+// AudioDecoder wants EncodedAudioChunk, so wrap each payload here with a
+// running timestamp (one 20 ms Opus frame per chunk).
+const OPUS_FRAME_US = 20_000;
+class OpusChunkDecoder {
+  private dec: AudioDecoder;
+  private ts = 0;
+  constructor(init: { output: (frame: unknown) => void; error: (err: unknown) => void }) {
+    this.dec = new AudioDecoder(init as never);
+  }
+  configure(config: unknown) {
+    this.dec.configure(config as never);
+  }
+  decode(payload: Uint8Array) {
+    this.dec.decode(
+      new EncodedAudioChunk({
+        type: "key",
+        timestamp: this.ts,
+        data: payload as BufferSource,
+      }),
+    );
+    this.ts += OPUS_FRAME_US;
+  }
+}
+
+// Renders decoded AudioData seamlessly: each frame becomes an AudioBuffer
+// scheduled right after the previous one on a running playhead.
+function makePlaybackSink(ctx: AudioContext): (frame: unknown) => void {
+  let playhead = 0;
+  return (frame) => {
+    const audio = frame as AudioData;
+    const buf = ctx.createBuffer(audio.numberOfChannels, audio.numberOfFrames, audio.sampleRate);
+    for (let ch = 0; ch < audio.numberOfChannels; ch++) {
+      const data = new Float32Array(audio.numberOfFrames);
+      audio.copyTo(data, { planeIndex: ch, format: "f32-planar" });
+      buf.copyToChannel(data, ch);
+    }
+    audio.close();
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    src.connect(ctx.destination);
+    playhead = Math.max(playhead, ctx.currentTime);
+    src.start(playhead);
+    playhead += buf.duration;
+  };
+}
+
 async function sendDatagram(transport: WebTransport, bytes: Uint8Array): Promise<void> {
   const writer = transport.datagrams.writable.getWriter();
   try {
@@ -150,7 +197,7 @@ export function useVoiceChat() {
 
       receivePipelineRef.current = createVoiceReceivePipeline({
         jitterBuffer,
-        AudioDecoderCtor: AudioDecoder as never,
+        AudioDecoderCtor: OpusChunkDecoder as never,
         enqueuePlayback: (frame) => audioGate.enqueue(frame),
       });
       readDatagrams(transport, handleDatagram).catch(() => {});
@@ -165,6 +212,7 @@ export function useVoiceChat() {
         isMuted: () => useVoiceChatStore.getState().muted,
         senderId,
         onError: () => setMicError("microphone permission was denied"),
+        onEncodeError: () => setMicError("microphone audio could not be encoded"),
       })
         .then((mic) => {
           micRef.current = mic;
@@ -181,9 +229,13 @@ export function useVoiceChat() {
       setMicError(null);
       store.setConnectionState("connecting");
 
+      const audioCtx = new AudioContext();
       const audioGate = createAudioContextGate(
-        () => new AudioContext() as unknown as { state: "suspended" | "running" | "closed"; resume: () => Promise<void> },
-        { onResumeFailed: () => setMicError("audio playback permission was blocked by the browser") },
+        () => audioCtx as unknown as { state: "suspended" | "running" | "closed"; resume: () => Promise<void> },
+        {
+          onResumeFailed: () => setMicError("audio playback permission was blocked by the browser"),
+          play: makePlaybackSink(audioCtx),
+        },
       );
       audioGateRef.current = audioGate;
       await audioGate.resumeFromUserGesture();
