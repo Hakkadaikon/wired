@@ -40,7 +40,13 @@ function makeSendGate(send: (bytes: Uint8Array) => void | Promise<void>) {
   let pending: Uint8Array | null = null;
   const pump = async (bytes: Uint8Array) => {
     inFlight = true;
-    await send(bytes);
+    try {
+      // A rejected send drops this frame only (DATAGRAM delivery is
+      // best-effort); the gate must stay usable for the next frame.
+      await send(bytes);
+    } catch {
+      /* frame dropped */
+    }
     inFlight = false;
     if (pending) {
       const next = pending;
