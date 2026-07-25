@@ -33,9 +33,12 @@ typedef struct {
   u8             my_priv[QUIC_ECDHE_LEN];
   u8             my_pub[QUIC_ECDHE_LEN];
   u8             shared[QUIC_ECDHE_LEN];
-  int            hs_ready; /* 1 once the handshake secret is derived */
-  const u8*      sni;      /* ClientHello server_name, view (caller-owned) */
-  usz            sni_len;  /* 0 omits the SNI extension */
+  /* RFC 8446 4.2.7 NamedGroup negotiated for this handshake's key_share;
+   * QUIC_GROUP_X25519 unless quic_tlsdriver_set_group selects otherwise. */
+  u16       group;
+  int       hs_ready; /* 1 once the handshake secret is derived */
+  const u8* sni;      /* ClientHello server_name, view (caller-owned) */
+  usz       sni_len;  /* 0 omits the SNI extension */
   /** RFC 8446 4.4.1: the handshake-secret transcript hash is over every
    * handshake message seen so far, not just the most recent one -- a client
    * derives its handshake keys from ClientHello||ServerHello, a server from
@@ -64,6 +67,14 @@ void quic_tlsdriver_init(
  * the caller keeps it alive until the ClientHello is built. Never calling
  * this (or sni_len 0) omits the extension. */
 void quic_tlsdriver_set_sni(quic_tlsdriver* d, const u8* sni, usz sni_len);
+
+/* RFC 8446 4.2.7: select the NamedGroup for this handshake's key_share
+ * (QUIC_GROUP_X25519 or QUIC_GROUP_SECP256R1). quic_tlsdriver_init defaults
+ * to QUIC_GROUP_X25519; call this right after init, before building or
+ * receiving any handshake message, to use secp256r1 instead. my_priv/my_pub
+ * passed to init must already hold the matching key pair (32-byte x25519
+ * scalar/point, or 32-byte P-256 scalar + 65-byte SEC1 uncompressed point). */
+void quic_tlsdriver_set_group(quic_tlsdriver* d, u16 group);
 
 /* Build the raw ClientHello bytes (zero random, our key_share, the configured
  * SNI) into out (cap bytes). Returns the length, 0 if it does not fit. */

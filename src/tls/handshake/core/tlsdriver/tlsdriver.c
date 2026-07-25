@@ -16,16 +16,23 @@ void quic_tlsdriver_init(
     const u8        my_pub[QUIC_ECDHE_LEN],
     int             is_server) {
   usz i;
-  for (i = 0; i < QUIC_ECDHE_LEN; i++) {
+  /* RFC 7748 x25519's key pair is 32 bytes each way, and that is the
+   * contract every existing caller passes -- only copy that much here.
+   * Copying QUIC_ECDHE_LEN (65, sized for P-256's wider public key) would
+   * read past a caller's 32-byte array. A P-256 handshake sets group via
+   * quic_tlsdriver_set_group and writes its own (32-byte priv, 65-byte SEC1
+   * pub) pair into d->my_priv/d->my_pub directly afterward. */
+  for (i = 0; i < 32; i++) {
     d->my_priv[i] = my_priv[i];
     d->my_pub[i]  = my_pub[i];
-    d->shared[i]  = 0;
   }
+  for (i = 0; i < QUIC_ECDHE_LEN; i++) d->shared[i] = 0;
   quic_crypto_stream_rx_init(&d->rx);
   quic_hsdriver_init(&d->hs, is_server);
   quic_keysched_init(&d->ks);
   quic_keyset_init(&d->keys);
   d->is_server         = is_server;
+  d->group             = QUIC_GROUP_X25519;
   d->hs_ready          = 0;
   d->sni               = 0;
   d->sni_len           = 0;
@@ -38,16 +45,20 @@ void quic_tlsdriver_set_sni(quic_tlsdriver* d, const u8* sni, usz sni_len) {
   d->sni_len = sni_len;
 }
 
+void quic_tlsdriver_set_group(quic_tlsdriver* d, u16 group) {
+  d->group = group;
+}
+
 usz quic_tlsdriver_raw_client_hello(quic_tlsdriver* d, u8* out, usz cap) {
   static const u8 random[32] = {0};
   /* RFC 9000 18: an empty transport parameters TLV sequence (0 bytes) is a
    * well-formed "no parameters advertised" -- unlike a stray 1-byte payload,
    * which reads as a malformed single-byte id varint to any TLV-sequence
    * walk (e.g. the RFC 9000 7.4 duplicate-id scan a real server runs). */
-  return quic_tls_client_hello(
-      &(quic_clienthello_in){
+  return quic_tls_client_hello_group(
+      &(quic_clienthello_group_in){
           random, d->my_pub, quic_span_of(d->sni, d->sni_len),
-          quic_span_of(0, 0)},
+          quic_span_of(0, 0), d->group, quic_tls_ext_key_share_len(d->group)},
       &(quic_obuf){out, cap, 0});
 }
 
@@ -92,43 +103,32 @@ static usz ch_prefix(const u8* b, usz n) {
   return within(p, 2, n);    /* room for the extensions length */
 }
 
-/* Read the x25519 key_share from a ClientHello extension's data: the
- * client_shares(2) length precedes a single KeyShareEntry, so skip it and
- * reuse the single-entry parser. Returns 1 on success. */
-static int ch_keyshare_is_x25519(u16 group, usz pub_len) {
-  return group == QUIC_GROUP_X25519 && pub_len == 32;
-}
-
-static int ch_keyshare(const u8* d, usz dlen, u8 pub[32]) {
-  u16 group;
-  usz pub_len;
-  if (dlen < 2) return 0;
-  if (!quic_tls_ext_key_share_parse(d + 2, dlen - 2, &group, pub, &pub_len, 32))
-    return 0;
-  return ch_keyshare_is_x25519(group, pub_len);
-}
-
 /* The ClientHello extensions block being walked for the key_share. */
 typedef struct {
   const u8* b;
   usz       end;
 } ch_block;
 
-/* One extension at *q: -1 overrun, 1 key_share found (pub set), 0 skip. */
-static int ch_one(const ch_block* blk, usz* q, u8 pub[32]) {
+/* One extension at *q: -1 overrun, 1 key_share found (want_group's key
+ * copied into pub), 0 skip. RFC 8446 4.2.8: the key_share extension's data
+ * is client_shares<2> then a KeyShareEntry list; scan it for want_group. */
+static int ch_one(const ch_block* blk, usz* q, u16 want_group, u8 pub[65]) {
   unsigned t    = (unsigned)blk->b[*q] << 8 | blk->b[*q + 1];
   usz      dlen = (usz)blk->b[*q + 2] << 8 | blk->b[*q + 3];
+  usz      pub_len;
   if (*q + 4 + dlen > blk->end) return -1;
   *q += 4 + dlen;
-  return (t == QUIC_EXT_KEY_SHARE) ? ch_keyshare(blk->b + *q - dlen, dlen, pub)
-                                   : 0;
+  if (t != QUIC_EXT_KEY_SHARE) return 0;
+  return quic_tls_ext_key_share_scan(
+      blk->b + *q - dlen, dlen, want_group, pub, &pub_len, 65);
 }
 
-/* Walk the ClientHello extensions block [q,end) for the key_share. */
-static int ch_walk(const u8* b, usz q, usz end, u8 pub[32]) {
+/* Walk the ClientHello extensions block [q,end) for want_group's key_share.
+ */
+static int ch_walk(const u8* b, usz q, usz end, u16 want_group, u8 pub[65]) {
   ch_block blk = {b, end};
   int      r   = 0;
-  while (r == 0 && q + 4 <= end) r = ch_one(&blk, &q, pub);
+  while (r == 0 && q + 4 <= end) r = ch_one(&blk, &q, want_group, pub);
   return r == 1;
 }
 
@@ -139,24 +139,29 @@ static int is_client_hello(const u8* buf, usz n, usz* body_len) {
          type == QUIC_HS_CLIENT_HELLO;
 }
 
-/* Extract the client's x25519 key_share from a ClientHello message (buf, n,
- * including the 4-byte handshake header). Returns 1 on success. */
-static int parse_client_hello_keyshare(const u8* buf, usz n, u8 pub[32]) {
+/* Extract the client's want_group key_share from a ClientHello message (buf,
+ * n, including the 4-byte handshake header). Returns 1 on success. */
+static int parse_client_hello_keyshare(
+    const u8* buf, usz n, u16 want_group, u8 pub[65]) {
   usz body, exts, blen;
   if (!is_client_hello(buf, n, &body)) return 0;
   exts = ch_prefix(buf + 4, body);
   if (exts == 0) return 0;
   blen = (usz)buf[4 + exts] << 8 | buf[5 + exts];
-  return ch_walk(buf + 4, exts + 2, exts + 2 + blen, pub);
+  return ch_walk(buf + 4, exts + 2, exts + 2 + blen, want_group, pub);
 }
 
 /* Take the peer's key_share: ServerHello on the client, ClientHello on the
  * server. Returns 1 on success. */
 static int peer_keyshare(
-    const quic_tlsdriver* d, const u8* msg, usz n, u8 pub[32]) {
+    const quic_tlsdriver* d, const u8* msg, usz n, u8 pub[65]) {
   quic_serverhello_out sh;
-  if (d->is_server) return parse_client_hello_keyshare(msg, n, pub);
-  return quic_tls_parse_server_hello(quic_span_of(msg, n), pub, &sh);
+  u16                  got_group;
+  if (d->is_server) return parse_client_hello_keyshare(msg, n, d->group, pub);
+  if (!quic_tls_parse_server_hello_group(
+          quic_span_of(msg, n), pub, &got_group, &sh))
+    return 0;
+  return got_group == d->group;
 }
 
 /* Install the derived client-handshake keys at the Handshake level. */
@@ -192,12 +197,16 @@ static int derive_handshake_secret(
     const u8        peer_pub[QUIC_ECDHE_LEN]) {
   u8  transcript[1024];
   usz tn;
-  if (!quic_crypto_stream_ecdhe(d->my_priv, peer_pub, d->shared)) return 0;
+  if (!quic_crypto_stream_ecdhe_group(
+          d->group, d->my_priv, peer_pub, d->shared))
+    return 0;
   tn = build_transcript(d, msg, n, transcript, sizeof transcript);
   if (tn == 0) return 0;
+  /* RFC 8446 7.4.2: every supported group's ECDH output is a 32-byte shared
+   * secret regardless of key_share width (P-256's is X(shared), not the
+   * 65-byte SEC1 point) -- feed exactly that many bytes to the schedule. */
   return quic_keysched_advance_handshake(
-      &d->ks, quic_span_of(d->shared, QUIC_ECDHE_LEN),
-      quic_span_of(transcript, tn));
+      &d->ks, quic_span_of(d->shared, 32), quic_span_of(transcript, tn));
 }
 
 /* RFC 8446 4.4.1: the server side has no ClientHello of its own emission to
