@@ -2420,16 +2420,53 @@ static int srvrun_send_datagram_now(
   return 1;
 }
 
+/* RFC 9297 2.1: on the wire every HTTP Datagram carries the quarter-stream-
+ * id prefix of the session it belongs to. The pending slot stores the bare
+ * payload (one slot serves every session on the connection), so the prefix
+ * is applied here, per target session, at send time -- the exact mirror of
+ * srvrun_deliver_rx_datagram stripping it on receive. A real browser peer
+ * decodes the first payload byte as that prefix and silently drops the
+ * datagram when it names no session it knows. */
+static int srvrun_send_dg_prefixed(
+    const srvrun_cfg*       cfg,
+    srvrun_conn*            c,
+    const wired_wt_session* s,
+    quic_span               payload,
+    quic_obuf*              out) {
+  u8  buf[8 + sizeof c->dg_pending_buf];
+  usz qn = quic_wtwire_qsid_put(buf, sizeof buf, s->connect_stream_id);
+  if (!qn) return 0;
+  quic_memcpy(buf + qn, payload.p, payload.n);
+  out->len = 0;
+  return srvrun_send_datagram_now(
+      cfg, c, quic_span_of(buf, qn + payload.n), out);
+}
+
+/* One session slot's share of srvrun_send_pending_datagram: an inactive or
+ * send-side-closed slot is skipped (1 -- best-effort, mirroring
+ * srvrun_broadcast_to_all), an eligible one reports its send result. */
+static int srvrun_send_pending_dg_slot(
+    const srvrun_cfg* cfg, srvrun_conn* c, int i, quic_obuf* out) {
+  wired_wt_session* s;
+  if (!srvrun_wt_is_active(c, i)) return 1;
+  s = srvrun_wt_slot(c, i);
+  if (!wt_session_send_side_open(s)) return 1;
+  return srvrun_send_dg_prefixed(
+      cfg, c, s, quic_span_of(c->dg_pending_buf, c->dg_pending_len), out);
+}
+
 /* Seal c's one pending broadcast DATAGRAM (srvrun_queue_datagram's single
- * last-writer-wins slot); clears c->dg_pending on success, keeps it pending
- * on failure so a later step may retry against a raised peer limit. */
+ * last-writer-wins slot) once per active WT session, each with its own
+ * session's qsid prefix; clears c->dg_pending when every eligible session
+ * was sent to, keeps it pending on failure so a later step may retry
+ * against a raised peer limit. */
 static int srvrun_send_pending_datagram(
     const srvrun_cfg* cfg, srvrun_conn* c, quic_obuf* out) {
-  if (!srvrun_send_datagram_now(
-          cfg, c, quic_span_of(c->dg_pending_buf, c->dg_pending_len), out))
-    return 0;
-  c->dg_pending = 0;
-  return 1;
+  int ok = 1;
+  for (int i = 0; i < SRVRUN_MAX_WT_SESSIONS; i++)
+    ok &= srvrun_send_pending_dg_slot(cfg, c, i, out);
+  if (ok) c->dg_pending = 0;
+  return ok;
 }
 
 /* 1 if c has any active WT session (any slot), regardless of which one. */
