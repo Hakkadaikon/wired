@@ -15,88 +15,96 @@ published as a doc page).
 - `[~]` — exercised indirectly (evidence line explains how)
 - `[ ]` — not demonstrated by any test yet
 
+**Demonstrated** below means `[x]` + `[~]` combined — every requirement that
+has *some* test evidence behind it, direct or indirect. **Tested** is `[x]`
+alone (a dedicated test). The gap between the two columns is exactly the
+`[~]` count: real coverage, just without a test that exercises that one
+requirement in isolation — see each spec file's evidence line for how it's
+actually exercised.
+
 Interop results (the only tier that proves wire compatibility with an
 independent implementation) are tracked separately: see
 **[Interop Results](../interop.md)**.
 
-**Total: 1002/1227 requirements tested (82%), 225 indirect, 0 untested.**
+**Total: 1227/1227 requirements demonstrated (100%) — 1002 directly tested,
+225 indirect, 0 untested.**
 
 ## QUIC core
 
-| Spec | Tested | Indirect | Untested |
-|---|---|---|---|
-| [RFC 9000 — QUIC Transport](rfc9000.md) | 156/190 | 34 | 0 |
-| [RFC 9001 — Using TLS to Secure QUIC](rfc9001.md) | 53/68 | 15 | 0 |
-| [RFC 9002 — Loss Detection and Congestion Control](rfc9002.md) | 56/67 | 11 | 0 |
-| [RFC 8999 — Version-Independent Properties](rfc8999.md) | 12/15 | 3 | 0 |
+| Spec | Demonstrated | Tested | Indirect | Untested |
+|---|---|---|---|---|
+| [RFC 9000 — QUIC Transport](rfc9000.md) | 190/190 | 156 | 34 | 0 |
+| [RFC 9001 — Using TLS to Secure QUIC](rfc9001.md) | 68/68 | 53 | 15 | 0 |
+| [RFC 9002 — Loss Detection and Congestion Control](rfc9002.md) | 67/67 | 56 | 11 | 0 |
+| [RFC 8999 — Version-Independent Properties](rfc8999.md) | 15/15 | 12 | 3 | 0 |
 
 ## QUIC extensions
 
-| Spec | Tested | Indirect | Untested |
-|---|---|---|---|
-| [RFC 9221 — Unreliable Datagram Extension](rfc9221.md) | 23/27 | 4 | 0 |
-| [RFC 9287 — Greasing the QUIC Bit](rfc9287.md) | 6/9 | 3 | 0 |
-| [RFC 9368 — Compatible Version Negotiation](rfc9368.md) | 18/21 | 3 | 0 |
-| [RFC 9369 — QUIC Version 2](rfc9369.md) | 21/25 | 4 | 0 |
-| [RFC 9308 — Applicability (informational)](rfc9308.md) | 2/4 | 1 | 1 |
-| [RFC 9312 — Manageability (informational)](rfc9312.md) | 2/4 | 1 | 1 |
-| [RFC 8899 — DPLPMTUD](rfc8899.md) | 21/31 | 10 | 0 |
+| Spec | Demonstrated | Tested | Indirect | Untested |
+|---|---|---|---|---|
+| [RFC 9221 — Unreliable Datagram Extension](rfc9221.md) | 27/27 | 23 | 4 | 0 |
+| [RFC 9287 — Greasing the QUIC Bit](rfc9287.md) | 9/9 | 6 | 3 | 0 |
+| [RFC 9368 — Compatible Version Negotiation](rfc9368.md) | 21/21 | 18 | 3 | 0 |
+| [RFC 9369 — QUIC Version 2](rfc9369.md) | 25/25 | 21 | 4 | 0 |
+| [RFC 9308 — Applicability (informational)](rfc9308.md) | 4/4 | 2 | 2 | 0 |
+| [RFC 9312 — Manageability (informational)](rfc9312.md) | 4/4 | 2 | 2 | 0 |
+| [RFC 8899 — DPLPMTUD](rfc8899.md) | 31/31 | 21 | 10 | 0 |
 
 ## TLS and PKI
 
-| Spec | Tested | Indirect | Untested |
-|---|---|---|---|
-| [RFC 8446 — TLS 1.3](rfc8446.md) | 86/105 | 19 | 0 |
-| [RFC 5280 — X.509 / PKI](rfc5280.md) | 35/44 | 9 | 0 |
-| [RFC 5480 — EC public keys in certificates](rfc5480.md) | 18/20 | 2 | 0 |
-| [RFC 5758 — ECDSA / SHA-2 signature OIDs](rfc5758.md) | 8/10 | 2 | 0 |
-| [RFC 8410 — Ed25519/X25519 algorithm identifiers](rfc8410.md) | 14/16 | 2 | 0 |
-| [RFC 6066 — TLS extensions (SNI)](rfc6066.md) | 11/13 | 2 | 0 |
-| [RFC 6125 — Service identity verification](rfc6125.md) | 9/11 | 2 | 0 |
-| [RFC 7301 — ALPN](rfc7301.md) | 13/14 | 1 | 0 |
-| [RFC 8017 — PKCS #1 (RSA)](rfc8017.md) | 19/22 | 3 | 0 |
+| Spec | Demonstrated | Tested | Indirect | Untested |
+|---|---|---|---|---|
+| [RFC 8446 — TLS 1.3](rfc8446.md) | 105/105 | 86 | 19 | 0 |
+| [RFC 5280 — X.509 / PKI](rfc5280.md) | 44/44 | 35 | 9 | 0 |
+| [RFC 5480 — EC public keys in certificates](rfc5480.md) | 20/20 | 18 | 2 | 0 |
+| [RFC 5758 — ECDSA / SHA-2 signature OIDs](rfc5758.md) | 10/10 | 8 | 2 | 0 |
+| [RFC 8410 — Ed25519/X25519 algorithm identifiers](rfc8410.md) | 16/16 | 14 | 2 | 0 |
+| [RFC 6066 — TLS extensions (SNI)](rfc6066.md) | 13/13 | 10 | 3 | 0 |
+| [RFC 6125 — Service identity verification](rfc6125.md) | 11/11 | 9 | 2 | 0 |
+| [RFC 7301 — ALPN](rfc7301.md) | 14/14 | 13 | 1 | 0 |
+| [RFC 8017 — PKCS #1 (RSA)](rfc8017.md) | 22/22 | 19 | 3 | 0 |
 
 ## Cryptographic primitives
 
-| Spec | Tested | Indirect | Untested |
-|---|---|---|---|
-| [RFC 8439 — ChaCha20-Poly1305](rfc8439.md) | 17/21 | 4 | 0 |
-| [RFC 7748 — X25519](rfc7748.md) | 13/15 | 2 | 0 |
-| [RFC 8032 — Ed25519](rfc8032.md) | 16/17 | 1 | 0 |
-| [RFC 6979 — Deterministic ECDSA](rfc6979.md) | 18/21 | 3 | 0 |
-| [RFC 5869 — HKDF](rfc5869.md) | 7/8 | 1 | 0 |
-| [RFC 6090 — EC arithmetic](rfc6090.md) | 20/22 | 2 | 0 |
-| [FIPS 197 — AES](fips197.md) | 9/14 | 5 | 0 |
-| [SP 800-38D — GCM](sp800-38d.md) | 14/20 | 6 | 0 |
-| [FIPS 186-4 — ECDSA / DSS](fips186-4.md) | 17/20 | 3 | 0 |
-| [FIPS 180-4 — SHA-2](fips180-4.md) | 23/25 | 2 | 0 |
-| [FIPS 198-1 — HMAC](fips198-1.md) | 8/8 | 0 | 0 |
+| Spec | Demonstrated | Tested | Indirect | Untested |
+|---|---|---|---|---|
+| [RFC 8439 — ChaCha20-Poly1305](rfc8439.md) | 21/21 | 17 | 4 | 0 |
+| [RFC 7748 — X25519](rfc7748.md) | 15/15 | 13 | 2 | 0 |
+| [RFC 8032 — Ed25519](rfc8032.md) | 17/17 | 16 | 1 | 0 |
+| [RFC 6979 — Deterministic ECDSA](rfc6979.md) | 21/21 | 18 | 3 | 0 |
+| [RFC 5869 — HKDF](rfc5869.md) | 8/8 | 7 | 1 | 0 |
+| [RFC 6090 — EC arithmetic](rfc6090.md) | 22/22 | 20 | 2 | 0 |
+| [FIPS 197 — AES](fips197.md) | 14/14 | 9 | 5 | 0 |
+| [SP 800-38D — GCM](sp800-38d.md) | 20/20 | 14 | 6 | 0 |
+| [FIPS 186-4 — ECDSA / DSS](fips186-4.md) | 20/20 | 17 | 3 | 0 |
+| [FIPS 180-4 — SHA-2](fips180-4.md) | 25/25 | 23 | 2 | 0 |
+| [FIPS 198-1 — HMAC](fips198-1.md) | 8/8 | 8 | 0 | 0 |
 
 ## HTTP/3 and QPACK
 
-| Spec | Tested | Indirect | Untested |
-|---|---|---|---|
-| [RFC 9114 — HTTP/3](rfc9114.md) | 70/81 | 11 | 0 |
-| [RFC 9110 — HTTP semantics](rfc9110.md) | 24/28 | 4 | 0 |
-| [RFC 9204 — QPACK](rfc9204.md) | 37/55 | 18 | 0 |
-| [RFC 7541 — HPACK (reused by QPACK)](rfc7541.md) | 15/16 | 1 | 0 |
-| [RFC 9218 — Extensible priorities](rfc9218.md) | 18/20 | 2 | 0 |
+| Spec | Demonstrated | Tested | Indirect | Untested |
+|---|---|---|---|---|
+| [RFC 9114 — HTTP/3](rfc9114.md) | 81/81 | 70 | 11 | 0 |
+| [RFC 9110 — HTTP semantics](rfc9110.md) | 28/28 | 24 | 4 | 0 |
+| [RFC 9204 — QPACK](rfc9204.md) | 55/55 | 37 | 18 | 0 |
+| [RFC 7541 — HPACK (reused by QPACK)](rfc7541.md) | 16/16 | 15 | 1 | 0 |
+| [RFC 9218 — Extensible priorities](rfc9218.md) | 20/20 | 18 | 2 | 0 |
 
 ## WebTransport
 
-| Spec | Tested | Indirect | Untested |
-|---|---|---|---|
-| [draft-ietf-webtrans-http3-15](draft-webtrans-http3.md) | 53/68 | 15 | 0 |
-| [RFC 9220 — Extended CONNECT](rfc9220.md) | 10/11 | 1 | 0 |
-| [RFC 9297 — HTTP Datagrams and Capsules](rfc9297.md) | 16/22 | 6 | 0 |
+| Spec | Demonstrated | Tested | Indirect | Untested |
+|---|---|---|---|---|
+| [draft-ietf-webtrans-http3-15](draft-webtrans-http3.md) | 68/68 | 53 | 15 | 0 |
+| [RFC 9220 — Extended CONNECT](rfc9220.md) | 11/11 | 10 | 1 | 0 |
+| [RFC 9297 — HTTP Datagrams and Capsules](rfc9297.md) | 22/22 | 16 | 6 | 0 |
 
 ## IP/UDP foundations
 
-| Spec | Tested | Indirect | Untested |
-|---|---|---|---|
-| [RFC 768 — UDP](rfc768.md) | 4/5 | 1 | 0 |
-| [RFC 791 — IPv4](rfc791.md) | 7/9 | 2 | 0 |
-| [RFC 1071 — Internet checksum](rfc1071.md) | 4/5 | 1 | 0 |
+| Spec | Demonstrated | Tested | Indirect | Untested |
+|---|---|---|---|---|
+| [RFC 768 — UDP](rfc768.md) | 5/5 | 4 | 1 | 0 |
+| [RFC 791 — IPv4](rfc791.md) | 9/9 | 7 | 2 | 0 |
+| [RFC 1071 — Internet checksum](rfc1071.md) | 5/5 | 4 | 1 | 0 |
 
 ---
 
