@@ -48,7 +48,7 @@ jobs:
 
       - name: run handshake / transfer / http3 test cases
         working-directory: runner
-        run: ./.venv/bin/python run.py -s wired -c quic-go -t handshake,transfer,http3
+        run: ./.venv/bin/python run.py --debug -s wired -c quic-go -t handshake,transfer,http3
 
       - name: upload runner logs
         if: always()
