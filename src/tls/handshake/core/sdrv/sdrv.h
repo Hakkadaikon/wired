@@ -19,11 +19,20 @@
 
 /** Server-side handshake driver state. */
 typedef struct {
-  u8 server_priv[32]; /**< RFC 7748 x25519 private */
-  u8 server_pub[32];  /**< RFC 7748 x25519 public */
-  u8 p256_priv[32];   /**< RFC 5480 ECDSA P-256 signing scalar; also the
-                       * TBS signer for a self-built certificate */
-  u8 cert_buf[512];   /**< self-signed P-256 cert DER (owned) */
+  u8 server_priv[32]; /**< ECDHE private scalar (RFC 7748 x25519 or the
+                       * P-256 SEC1 scalar, per group below); always 32
+                       * bytes for either supported group. */
+  u8 server_pub[65];  /**< ECDHE public key_share: 32-byte RFC 7748 x25519,
+                       * or 65-byte SEC1 uncompressed P-256 (RFC 8446
+                       * 4.2.8.2), per group below. */
+  /** RFC 8446 4.2.7 NamedGroup negotiated for the ECDHE key_share
+   * (QUIC_GROUP_X25519 or QUIC_GROUP_SECP256R1); QUIC_GROUP_X25519 unless
+   * quic_sdrv_set_group selects otherwise. Governs how server_priv/
+   * server_pub/client_pub are interpreted. */
+  u16 group;
+  u8  p256_priv[32]; /**< RFC 5480 ECDSA P-256 signing scalar; also the
+                      * TBS signer for a self-built certificate */
+  u8 cert_buf[512];  /**< self-signed P-256 cert DER (owned) */
   /** RFC 5280 4.2.1.6: see wired_srvboot_id.san_ipv4's doc. All-zero (the
    * zero-initialized default) means omit -- 0.0.0.0 is never a real peer, so
    * this needs no separate "is it set" flag. */
@@ -33,7 +42,7 @@ typedef struct {
                                              * (caller-owned views in
                                              * external-chain mode) */
   usz cert_count;     /**< 0 = nothing to send (flight build fails) */
-  u8  client_pub[32]; /**< RFC 8446 4.2.8 client key_share */
+  u8  client_pub[65]; /**< RFC 8446 4.2.8 client key_share, group above */
   u8  client_sid[32]; /**< RFC 8446 4.1.2 legacy_session_id */
   u8  client_sid_len; /**< 0..32 */
   /** RFC 8446 4.6.1: this server's session-ticket encryption key, or
@@ -208,6 +217,16 @@ void quic_sdrv_init(quic_sdrv* s, const quic_sdrv_init_in* in);
  * @param iscid the server's source connection id
  * @return 1 on success, 0 if either length exceeds 20. */
 int quic_sdrv_set_cids(quic_sdrv* s, quic_span odcid, quic_span iscid);
+
+/** RFC 8446 4.2.7: select the NamedGroup for the ECDHE key_share
+ * (QUIC_GROUP_X25519 or QUIC_GROUP_SECP256R1). quic_sdrv_init defaults to
+ * QUIC_GROUP_X25519; call this right after init, before receiving any
+ * ClientHello, to use secp256r1 instead. server_priv/server_pub must already
+ * hold the matching key pair (32-byte P-256 scalar + 65-byte SEC1
+ * uncompressed public, in place of the x25519 pair quic_sdrv_init took).
+ * @param s driver state
+ * @param group the NamedGroup to require/advertise. */
+void quic_sdrv_set_group(quic_sdrv* s, u16 group);
 
 /** RFC 9000 7.3, post-Retry accept: odcid is the Initial-key derivation
  * input (the Retry's own SCID -- the client's second Initial is keyed off
