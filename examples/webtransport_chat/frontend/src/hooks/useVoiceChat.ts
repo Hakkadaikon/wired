@@ -24,6 +24,11 @@ import { useVoiceChatStore } from "@/stores/voiceChatStore";
 
 const JITTER_BUFFER_CAPACITY = 8;
 const DRAIN_INTERVAL_MS = 20;
+const STATS_INTERVAL_MS = 2000;
+
+// WebTransport.getStats() is not yet in every browser's TS lib; probe for it.
+type TransportStats = { smoothedRtt?: number; packetsLost?: number; packetsSent?: number };
+type ConnectionStats = { rttMs: number; lossPct: number };
 
 type ProcessorLike = {
   readable: { getReader: () => { read: () => Promise<{ value: unknown; done: boolean }> } };
@@ -137,6 +142,7 @@ export function useVoiceChat() {
   const store = useVoiceChatStore();
   const [fatalError, setFatalError] = useState<string | null>(null);
   const [micError, setMicError] = useState<string | null>(null);
+  const [stats, setStats] = useState<ConnectionStats | null>(null);
 
   const transportRef = useRef<WebTransport | null>(null);
   const micRef = useRef<MicPipeline | null>(null);
@@ -147,6 +153,27 @@ export function useVoiceChat() {
   const ownSenderKeysRef = useRef<Set<string>>(new Set());
   const senderIdRef = useRef<Uint8Array | null>(null);
   const drainStartedRef = useRef(false);
+  const statsIntervalRef = useRef<number | null>(null);
+
+  const startStatsPolling = useCallback((transport: WebTransport) => {
+    if (statsIntervalRef.current !== null) window.clearInterval(statsIntervalRef.current);
+    statsIntervalRef.current = null;
+    const maybe = transport as WebTransport & { getStats?: () => Promise<TransportStats> };
+    if (typeof maybe.getStats !== "function") return;
+    const getStats = maybe.getStats.bind(transport);
+    statsIntervalRef.current = window.setInterval(() => {
+      getStats()
+        .then((s) => {
+          const sent = Number(s.packetsSent ?? 0);
+          const lost = Number(s.packetsLost ?? 0);
+          setStats({
+            rttMs: Number(s.smoothedRtt ?? 0),
+            lossPct: sent > 0 ? (lost / sent) * 100 : 0,
+          });
+        })
+        .catch(() => {});
+    }, STATS_INTERVAL_MS);
+  }, []);
 
   const startDrainLoop = useCallback(() => {
     if (drainStartedRef.current) return;
@@ -170,7 +197,14 @@ export function useVoiceChat() {
         // The server broadcast echoes our own datagrams back; the local copy
         // was already added on send.
         if (!ownSenderKeysRef.current.has(key)) {
-          store.addMessage({ senderId: key, text: decoded.frame.text, at: Date.now(), own: false });
+          store.setPeerName(key, decoded.frame.name);
+          store.addMessage({
+            senderId: key,
+            name: decoded.frame.name,
+            text: decoded.frame.text,
+            at: Date.now(),
+            own: false,
+          });
           store.addPeer(key);
         }
         return;
@@ -193,6 +227,7 @@ export function useVoiceChat() {
       transportRef.current = transport;
       senderIdRef.current = senderId;
       ownSenderKeysRef.current.add(senderIdKey(senderId));
+      startStatsPolling(transport);
 
       const audioGate = audioGateRef.current;
       const jitterBuffer = jitterBufferRef.current;
@@ -222,7 +257,7 @@ export function useVoiceChat() {
         })
         .catch(() => {});
     },
-    [handleDatagram, startDrainLoop],
+    [handleDatagram, startDrainLoop, startStatsPolling],
   );
 
   const connect = useCallback(
@@ -275,7 +310,10 @@ export function useVoiceChat() {
       const client = new WebTransportClient<TransportHandle>(
         () => makeTransportHandle(url, certHash),
         {
-          onError: () => setFatalError("could not establish the connection"),
+          onError: () =>
+            setFatalError(
+              "could not establish the connection — check that the certificate hash matches the server's current startup log",
+            ),
           onDisconnect: onDisconnected,
         },
       );
@@ -301,24 +339,37 @@ export function useVoiceChat() {
       const senderId = senderIdRef.current;
       const transport = transportRef.current;
       if (!senderId || !transport) return;
-      const encoded = encodeChatFrame(senderId, text);
+      const name = useVoiceChatStore.getState().displayName;
+      // A failed send shows up as a retryable message row, not a fatal banner.
+      const message = { senderId: senderIdKey(senderId), name, text, at: Date.now(), own: true };
+      const encoded = encodeChatFrame(senderId, name, text);
       if (!encoded.ok) {
-        setFatalError("message could not be sent");
+        store.addMessage({ ...message, failed: true });
         return;
       }
       try {
         await sendDatagram(transport, encoded.bytes);
-        store.addMessage({ senderId: senderIdKey(senderId), text, at: Date.now(), own: true });
+        store.addMessage(message);
       } catch {
-        setFatalError("message could not be sent");
+        store.addMessage({ ...message, failed: true });
       }
     },
     [store],
+  );
+
+  const retryMessage = useCallback(
+    (id: number) => {
+      const m = useVoiceChatStore.getState().messages.find((x) => x.id === id);
+      if (!m?.failed) return;
+      store.removeMessage(id);
+      void sendChat(m.text);
+    },
+    [store, sendChat],
   );
 
   const toggleMute = useCallback(() => {
     store.setMuted(!store.muted);
   }, [store]);
 
-  return { connect, sendChat, toggleMute, fatalError, micError };
+  return { connect, sendChat, retryMessage, toggleMute, fatalError, micError, stats };
 }
