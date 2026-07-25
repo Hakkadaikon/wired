@@ -1372,6 +1372,32 @@ static int srvrun_dg_should_deliver(
   return wt_session_delivers_directly(s) && cfg->wt_on_datagram != 0;
 }
 
+/* Same transport-parameter-or-default computation as srvrun_stream_limit_base,
+ * but from cfg alone (this call site has no srvrun_step_ctx). */
+static u64 srvrun_dg_stream_limit_base(const srvrun_cfg* cfg) {
+  u64 configured = cfg->id ? cfg->id->max_streams_bidi : 0;
+  return configured ? configured : QUIC_STP_DEFAULT_MAX_STREAMS_BIDI;
+}
+
+/* RFC 9297 2.1 (9297-010): the client-initiated bidi stream limit last
+ * advertised via MAX_STREAMS, falling back to the transport-parameter
+ * default before any raise -- same base-or-advertised pattern as
+ * srvrun_grant_one_more_stream. */
+static u64 srvrun_dg_stream_limit(const srvrun_cfg* cfg, const srvrun_conn* c) {
+  u64 base = srvrun_dg_stream_limit_base(cfg);
+  return c->stream_limit_advertised ? c->stream_limit_advertised : base;
+}
+
+/* RFC 9297 2.1 (9297-010): connect_id names a client-initiated bidi stream
+ * (RFC 9000 2.1, id = 4*n) beyond the limit this connection has advertised
+ * -- such a stream can never legally be opened by the client, so a
+ * datagram naming it is distinguished from the ordinary "no session yet"
+ * case below. */
+static int srvrun_dg_id_exceeds_limit(
+    const srvrun_cfg* cfg, const srvrun_conn* c, u64 connect_id) {
+  return connect_id / 4 >= srvrun_dg_stream_limit(cfg, c);
+}
+
 /* RFC 9297 2 (9297-002): "If an HTTP Datagram is received and it is
  * associated with a request that has no known semantics for HTTP Datagrams,
  * the receiver MUST terminate the request. If HTTP/3 is in use, the request
@@ -1383,10 +1409,16 @@ static int srvrun_dg_should_deliver(
  * the request stream id (quic_wtwire_qsid_take already multiplies the parsed
  * quarter back by 4), so it is aborted directly with the same RESET_STREAM_AT
  * + STOP_SENDING pair srvrun_reject_wt_slot uses for a different rejection
- * reason. */
+ * reason -- UNLESS connect_id names a stream beyond the advertised
+ * MAX_STREAMS limit (9297-010), which RFC 9297 2.1 calls out as its own
+ * H3_ID_ERROR case since such a stream could never have been created at
+ * all. */
 static void srvrun_abort_unknown_dg_request(
     const srvrun_cfg* cfg, srvrun_conn* c, u64 connect_id) {
-  srvrun_send_wt_busy_reset(cfg, c, connect_id, QUIC_H3_DATAGRAM_ERROR);
+  u64 err = srvrun_dg_id_exceeds_limit(cfg, c, connect_id)
+                ? QUIC_H3_ID_ERROR
+                : QUIC_H3_DATAGRAM_ERROR;
+  srvrun_send_wt_busy_reset(cfg, c, connect_id, err);
 }
 
 /* RFC 9297 2.1 (9297-008): "If a datagram is received after the

@@ -5256,6 +5256,59 @@ static void test_srvrun_rx_datagram_unknown_semantics_aborts_stream(void) {
   CHECK(rn + sn == pll);
 }
 
+/* RFC 9297 2.1 (9297-010): a Quarter Stream ID whose *4 stream id is beyond
+ * the connection's advertised MAX_STREAMS limit (default 100, no session ever
+ * granted here) is aborted with H3_ID_ERROR rather than the ordinary
+ * H3_DATAGRAM_ERROR test_srvrun_rx_datagram_unknown_semantics_aborts_stream
+ * exercises just above -- such a stream could never have been created by the
+ * client at all, so it gets its own RFC 9297 2.1 error code. qsid=100 -> id
+ * 400, and 400/4 == 100 >= the default limit. */
+static void test_srvrun_rx_datagram_beyond_stream_limit_h3_id_error(void) {
+  struct lp_fix              f;
+  quic_obuf                  ob;
+  u8                         obuf[1024];
+  u8                         pkt[256];
+  quic_obuf                  pktb = quic_obuf_of(pkt, sizeof pkt);
+  const u8*                  pl;
+  usz                        pll;
+  quic_reset_stream_at_frame rs;
+  quic_stop_sending_frame    ss;
+  usz                        rn, sn;
+  u8                         qbuf[8];
+  usz                        qn;
+  srvrun_conn                c = {0};
+  ob                           = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  /* wt_active left 0 -- no session claims stream id 400 either way. */
+  qn                         = quic_wtwire_qsid_put(qbuf, sizeof qbuf, 400);
+  c.l.rx_datagrams[0].buf[0] = qbuf[0];
+  c.l.rx_datagrams[0].buf[1] = qbuf[1];
+  c.l.rx_datagrams[0].buf[2] = 0xEE;
+  c.l.rx_datagrams[0].len    = qn + 1;
+  c.l.rx_datagram_n          = 1;
+  g_srdg_calls               = 0;
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, sr_dg_handler, 0, 0, 0, 0, &g_srvrun_env,
+        0,  0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_test_reset_send_count();
+    srvrun_drain_rx_datagrams(&cfg, &c);
+    CHECK(srvrun_test_send_count() == 1);
+  }
+  CHECK(g_srdg_calls == 0);
+  CHECK(srvrun_seal_wt_busy_reset(&c, 400, QUIC_H3_ID_ERROR, &pktb) == 1);
+  CHECK(client_open_onertt(&f, pktb.p, pktb.len, &pl, &pll) == 1);
+  rn = quic_reset_stream_at_decode(pl, pll, &rs);
+  CHECK(rn != 0);
+  CHECK(rs.stream_id == 400);
+  CHECK(rs.error_code == QUIC_H3_ID_ERROR);
+  sn = quic_stop_sending_decode(pl + rn, pll - rn, &ss);
+  CHECK(sn != 0);
+  CHECK(ss.stream_id == 400);
+  CHECK(ss.error_code == QUIC_H3_ID_ERROR);
+  CHECK(rn + sn == pll);
+}
+
 /* MULTI-SESSION ROUTING (RFC 9297 2.1): with two concurrent WT sessions on
  * one connection (slot 0 identity 4, slot 1 identity 8), a datagram whose
  * Quarter Stream ID resolves to slot 1's connect_stream_id must be routed to
@@ -11548,6 +11601,7 @@ void test_srvrun(void) {
   test_srvrun_rx_datagram_no_callback_still_drains();
   test_srvrun_rx_datagram_no_session_callback_not_invoked();
   test_srvrun_rx_datagram_unknown_semantics_aborts_stream();
+  test_srvrun_rx_datagram_beyond_stream_limit_h3_id_error();
   test_srvrun_rx_datagram_routes_by_qsid_not_first_active();
   test_srvrun_rx_datagram_short_qsid_closes_conn();
   test_srvrun_rx_datagram_oversized_qsid_closes_conn();
