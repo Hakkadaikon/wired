@@ -66,7 +66,11 @@ jobs:
 
       - name: run handshake / transfer / http3 test cases
         working-directory: runner
-        run: ./.venv/bin/python run.py -s wired -c quic-go -t handshake,transfer,http3
+        # --log-dir pins the output path: without it run.py timestamps its
+        # own logs_<ISO8601>/ directory (confirmed via a real run: "Saving
+        # logs to logs_2026-07-25T09:39:08."), which the fixed path below
+        # would never match -- the artifact upload silently found nothing.
+        run: ./.venv/bin/python run.py -s wired -c quic-go -t handshake,transfer,http3 --log-dir logs
 
       - name: upload runner logs
         if: always()
