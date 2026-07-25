@@ -79,9 +79,9 @@ module `import` requires HTTP(S), not `file://`).
 `serve-frontend` serves over TLS because opening the page from another
 machine (e.g. the server runs on a VPS) requires it: a non-localhost
 `http://` page is not a secure context, so the browser disables the
-WebTransport API entirely. Put a `cert.pem`/`key.pem` pair in
-`examples/webtransport_chat/` (self-signed is fine; accept the browser
-warning once):
+WebTransport API entirely. It generates a self-signed `cert.pem`/`key.pem`
+pair in `examples/webtransport_chat/` on first run (accept the browser
+warning once); replace the pair with your own to use a real certificate:
 
 ```sh
 cd examples/webtransport_chat
