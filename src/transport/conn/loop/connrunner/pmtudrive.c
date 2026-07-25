@@ -2,12 +2,17 @@
 
 #include "common/bytes/util/bytes.h"
 #include "transport/packet/frame/frame/frame.h"
+#include "transport/recovery/detect/recovery/rtt.h"
 #include "transport/recovery/rtx/sentmeta/record.h"
 
 void quic_connrunner_pmtu_init(quic_connrunner* r) {
   quic_pmtu_init(&r->pmtu);
   r->pmtu_probe_pn   = 0;
   r->pmtu_probe_held = 0;
+  /* RFC 8899 3.7: pushed QUIC_RTT_INITIAL_US into the past (wrapping is fine
+   * -- u64 arithmetic) so the very first probe, whatever `now` is, is never
+   * held back by the min-interval gate below. */
+  r->pmtu_last_probe_sent_at = (u64)0 - QUIC_RTT_INITIAL_US;
 }
 
 /* RFC 8899 3.2/5: a PING frame (1 byte, ack-eliciting) followed by PADDING
@@ -21,6 +26,28 @@ static usz build_ping_padding(u8* buf, usz cap, usz size) {
   return size;
 }
 
+/* RFC 8899 3.7: probe transmission bypasses the congestion controller, so
+ * this is the only pacing a probe gets -- at least one RTT must separate a
+ * new probe send from the previous one. No live RTT sample is wired into
+ * this loop yet (send.c: QUIC_CONNRUNNER_NO_RTT_DELAY), so
+ * QUIC_RTT_INITIAL_US (RFC 9002's own kInitialRtt floor) stands in as the
+ * minimum interval. Only gates an actual send, not the search state machine
+ * itself (quic_pmtu_next_probe still runs to conclude a finished search). */
+static int within_min_probe_interval(const quic_connrunner* r, u64 now) {
+  return now - r->pmtu_last_probe_sent_at < QUIC_RTT_INITIAL_US;
+}
+
+/* A found candidate is held back if it would violate the min interval above;
+ * 0 (search concluded/no candidate) passes through unchanged either way. A
+ * held-back candidate leaves quic_pmtu's own probe/probe_sent_at set, but
+ * that is inert here: every connrunner consumer of them is gated on
+ * pmtu_probe_held, which stays 0 until a probe is actually sealed (below),
+ * and the next call recomputes the candidate fresh from validated/ceiling. */
+static usz gate_min_interval(const quic_connrunner* r, u64 now, usz size) {
+  if (!size) return 0;
+  return within_min_probe_interval(r, now) ? 0 : size;
+}
+
 /* The next candidate size to probe, or 0 if none: only one probe may be
  * outstanding at a time (RFC 8899 5.1.3 PROBED_SIZE is a single value), so a
  * fresh one is not started while one is still unresolved. RFC 8899 5.2: once
@@ -30,17 +57,20 @@ static usz next_probe_size(quic_connrunner* r, u64 now) {
   if (r->pmtu_probe_held) return 0;
   if (quic_pmtu_raise_timer_due(&r->pmtu, now))
     quic_pmtu_resume_search(&r->pmtu);
-  return quic_pmtu_next_probe(&r->pmtu, now);
+  return gate_min_interval(r, now, quic_pmtu_next_probe(&r->pmtu, now));
 }
 
 /* Seal a PING+PADDING frame of `fl` bytes at the loop's level, recording the
- * pn it was sent under for the ack/loss paths to recognize. */
-static usz seal_probe(quic_connrunner* r, quic_span frame, quic_obuf* out) {
+ * pn it was sent under for the ack/loss paths to recognize, and `now` as the
+ * min-interval clock (RFC 8899 3.7) that survives ack/loss resolution. */
+static usz seal_probe(
+    quic_connrunner* r, quic_span frame, quic_obuf* out, u64 now) {
   usz                 sealed;
   quic_connio_send_in sin = {r->loop.level, frame};
   r->pmtu_probe_pn        = quic_connio_tx_next(&r->io, r->loop.level);
   sealed                  = quic_connio_send(&r->io, &sin, out);
   r->pmtu_probe_held      = sealed != 0;
+  if (sealed) r->pmtu_last_probe_sent_at = now;
   return sealed;
 }
 
@@ -52,7 +82,7 @@ usz quic_connrunner_pmtu_build_probe(
   if (!size) return 0;
   fl = build_ping_padding(frame, sizeof(frame), size);
   if (!fl) return 0;
-  return seal_probe(r, quic_span_of(frame, fl), out);
+  return seal_probe(r, quic_span_of(frame, fl), out, now);
 }
 
 /* pn is the outstanding probe's, and still is one (guards a stray call after
