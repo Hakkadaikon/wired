@@ -15,7 +15,7 @@
  *   QUIC_LEVEL_ONERTT     SERVER_AP     CLIENT_AP
  */
 
-/* The directional key material a seal/open needs: the AEAD keys and the
+/** The directional key material a seal/open needs: the AEAD keys and the
  * header-protection cipher derived from them. */
 typedef struct {
   const quic_initial_keys* keys;

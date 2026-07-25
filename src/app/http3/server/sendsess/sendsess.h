@@ -30,6 +30,7 @@ typedef struct {
   u64               sent_ms;  /**< monotonic send time (congestion input) */
 } wired_sent_slice;
 
+/** One in-flight multi-packet response session (see @file above). */
 typedef struct {
   wired_sendq       q;      /**< unsent tail of the response stream */
   int               active; /**< 1 while a response is being delivered */

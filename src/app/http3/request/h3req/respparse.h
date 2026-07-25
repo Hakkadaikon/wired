@@ -4,7 +4,7 @@
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
 
-/* RFC 9114 4.1. The response stream's HEADERS field section and (optional)
+/** RFC 9114 4.1. The response stream's HEADERS field section and (optional)
  * DATA body, both viewed in place (no copy). An absent body has body.n == 0. */
 typedef struct {
   quic_span headers;

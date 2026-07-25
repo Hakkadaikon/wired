@@ -4,7 +4,7 @@
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
 
-/* The request pseudo-header values (:method, :scheme, :authority, :path) to
+/** The request pseudo-header values (:method, :scheme, :authority, :path) to
  * encode as a field section, plus RFC 9220 3's Extended CONNECT :protocol. An
  * empty (zero-length) protocol span omits the :protocol field line, matching
  * how the other fields already indicate absence in this encoder (an empty

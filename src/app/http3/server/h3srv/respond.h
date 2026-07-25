@@ -7,7 +7,7 @@
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
 
-/* The request STREAM frame bytes to decode and the caller's decode scratch
+/** The request STREAM frame bytes to decode and the caller's decode scratch
  * buffer (view-only fields of the decoded request borrow into it). */
 typedef struct {
   quic_span  stream_data;
@@ -22,7 +22,7 @@ int wired_h3srv_on_request(
     const wired_h3srv_req_in* in,
     wired_h3reqdrive_req*     req);
 
-/* The request stream to reply on and the response to build. */
+/** The request stream to reply on and the response to build. */
 typedef struct {
   u64              stream_id;
   quic_h3conn_resp resp;
@@ -36,7 +36,7 @@ typedef struct {
 int wired_h3srv_build_response(
     const wired_h3srv_state* st, const wired_h3srv_send_in* in, quic_obuf* out);
 
-/* The request method (used only to detect HEAD) and the response to send. */
+/** The request method (used only to detect HEAD) and the response to send. */
 typedef struct {
   quic_span           method;
   wired_h3srv_send_in send;
