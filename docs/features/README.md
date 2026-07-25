@@ -19,7 +19,7 @@ Interop results (the only tier that proves wire compatibility with an
 independent implementation) are tracked separately: see
 **[Interop Results](../interop.md)**.
 
-**Total: 999/1230 requirements tested (81%), 219 indirect, 12 untested.**
+**Total: 1001/1227 requirements tested (82%), 224 indirect, 2 untested.**
 
 ## QUIC core
 
@@ -40,7 +40,7 @@ independent implementation) are tracked separately: see
 | [RFC 9369 — QUIC Version 2](rfc9369.md) | 21/25 | 4 | 0 |
 | [RFC 9308 — Applicability (informational)](rfc9308.md) | 2/4 | 1 | 1 |
 | [RFC 9312 — Manageability (informational)](rfc9312.md) | 2/4 | 1 | 1 |
-| [RFC 8899 — DPLPMTUD](rfc8899.md) | 19/31 | 7 | 5 |
+| [RFC 8899 — DPLPMTUD](rfc8899.md) | 20/31 | 9 | 2 |
 
 ## TLS and PKI
 
@@ -49,7 +49,7 @@ independent implementation) are tracked separately: see
 | [RFC 8446 — TLS 1.3](rfc8446.md) | 86/105 | 19 | 0 |
 | [RFC 5280 — X.509 / PKI](rfc5280.md) | 35/44 | 9 | 0 |
 | [RFC 5480 — EC public keys in certificates](rfc5480.md) | 18/20 | 2 | 0 |
-| [RFC 5758 — ECDSA / SHA-2 signature OIDs](rfc5758.md) | 8/12 | 2 | 2 |
+| [RFC 5758 — ECDSA / SHA-2 signature OIDs](rfc5758.md) | 8/10 | 2 | 0 |
 | [RFC 8410 — Ed25519/X25519 algorithm identifiers](rfc8410.md) | 14/16 | 2 | 0 |
 | [RFC 6066 — TLS extensions (SNI)](rfc6066.md) | 11/13 | 2 | 0 |
 | [RFC 6125 — Service identity verification](rfc6125.md) | 9/11 | 2 | 0 |
@@ -67,8 +67,8 @@ independent implementation) are tracked separately: see
 | [RFC 5869 — HKDF](rfc5869.md) | 7/8 | 1 | 0 |
 | [RFC 6090 — EC arithmetic](rfc6090.md) | 20/22 | 2 | 0 |
 | [FIPS 197 — AES](fips197.md) | 9/14 | 5 | 0 |
-| [SP 800-38D — GCM](sp800-38d.md) | 14/21 | 6 | 1 |
-| [FIPS 186-4 — ECDSA / DSS](fips186-4.md) | 16/20 | 3 | 1 |
+| [SP 800-38D — GCM](sp800-38d.md) | 14/20 | 6 | 0 |
+| [FIPS 186-4 — ECDSA / DSS](fips186-4.md) | 17/20 | 3 | 0 |
 | [FIPS 180-4 — SHA-2](fips180-4.md) | 23/25 | 2 | 0 |
 | [FIPS 198-1 — HMAC](fips198-1.md) | 8/8 | 0 | 0 |
 
@@ -88,7 +88,7 @@ independent implementation) are tracked separately: see
 |---|---|---|---|
 | [draft-ietf-webtrans-http3-15](draft-webtrans-http3.md) | 53/68 | 15 | 0 |
 | [RFC 9220 — Extended CONNECT](rfc9220.md) | 10/11 | 1 | 0 |
-| [RFC 9297 — HTTP Datagrams and Capsules](rfc9297.md) | 15/22 | 6 | 1 |
+| [RFC 9297 — HTTP Datagrams and Capsules](rfc9297.md) | 16/22 | 6 | 0 |
 
 ## IP/UDP foundations
 
