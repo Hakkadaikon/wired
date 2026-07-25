@@ -27,9 +27,11 @@ dev-frontend:
 # Build the voice chat frontend's static export and serve it over TLS
 # (https://<host>:8443/). TLS because a non-localhost http:// page is not a
 # secure context and the browser disables the WebTransport API entirely.
-# Needs cert.pem and key.pem in this directory (self-signed is fine; accept
-# the browser warning once).
+# Uses cert.pem/key.pem from this directory, generating a self-signed pair
+# on first run (accept the browser warning once).
 serve-frontend: build-frontend
+    [ -f cert.pem ] || openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 \
+        -keyout key.pem -out cert.pem -days 365 -nodes -subj "/CN=localhost"
     python3 -c "\
     import functools, http.server, ssl; \
     handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory='frontend/out'); \
