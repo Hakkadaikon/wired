@@ -104,6 +104,31 @@ describe("micPipeline", () => {
     expect(frame.close).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps sending after a datagram send rejects", async () => {
+    const encoder = fakeEncoder();
+    const processor = fakeProcessor();
+    const sent: Uint8Array[] = [];
+    let failNext = true;
+    await startMicPipeline({
+      getUserMedia: fakeGetUserMedia({ stop: vi.fn() }),
+      makeProcessor: () => processor,
+      AudioEncoderCtor: encoder.ctor as never,
+      sendDatagram: async (bytes) => {
+        if (failNext) {
+          failNext = false;
+          throw new Error("transport is closing");
+        }
+        sent.push(bytes);
+      },
+      isMuted: () => false,
+    });
+    processor.emit({ close: vi.fn() }); // this send rejects
+    await new Promise((r) => setTimeout(r, 0));
+    processor.emit({ close: vi.fn() }); // this one must still go out
+    await new Promise((r) => setTimeout(r, 0));
+    expect(sent.length).toBe(1);
+  });
+
   it("starts getUserMedia -> MediaStreamTrackProcessor -> AudioEncoder pipeline on mic on", async () => {
     const track: Track = { stop: vi.fn() };
     const getUserMedia = fakeGetUserMedia(track);
