@@ -2,8 +2,9 @@
 
 A minimal, real chat app over WebTransport: a libc-free HTTP/3 server
 (`wired_server.c`) broadcasts every received QUIC DATAGRAM to every
-connected client, and a framework-free JavaScript frontend
-(`public/`) sends/receives them from the browser.
+connected client, and two frontends send/receive them from the browser —
+a framework-free JavaScript text chat (`public/`) and a Next.js voice +
+text chat (`frontend/`, see [Voice chat frontend](#voice-chat-frontend-frontend)).
 
 ## What this demonstrates
 
@@ -139,6 +140,64 @@ Each frontend layer's own file has more detail in a header comment. Tests
 live in `public/tests/*.test.js`, driven by a self-written minimal assertion
 runner (`public/tests/testRunner.js` — no framework, no bundler, no npm
 dependency, per this repo's `examples/` convention of staying dependency-free).
+
+## Voice chat frontend (`frontend/`)
+
+`frontend/` is a second, richer frontend for the same server: group voice
+chat plus text chat, built with Next.js (App Router) + TypeScript, LiftKit
+components, and Zustand (layout and commands in `frontend/README.md`). The
+server needs no extra configuration — it stays a dumb datagram relay.
+
+### Run
+
+```sh
+cd examples/webtransport_chat/frontend
+pnpm install
+pnpm dev          # http://localhost:3000/
+```
+
+Start the server (`just run`), copy the `cert sha-256 fingerprint: ...`
+value from its startup log into the page's certificate-hash field (colons
+are fine), confirm the URL (`https://localhost:4433/`), and click
+"通話に参加" (join). That click is also the user gesture that satisfies the
+browser's autoplay policy — the `AudioContext` is resumed from it, so audio
+playback works without any further prompt. The fingerprint is passed to
+`WebTransport` as `serverCertificateHashes`; the same
+[constraints](#servercertificatehashes-constraints-read-before-debugging-a-connect-failure)
+apply, including re-copying the value after every server restart. Open the
+page in a second Chrome tab (grant the microphone prompt in both) and talk.
+
+### How the voice path works
+
+Chat and voice share the server's single DATAGRAM broadcast channel,
+multiplexed by a leading byte (`src/lib/voiceProtocol.ts`):
+
+```
+chat:  0x01 | senderId(4) | JSON text
+voice: 0x02 | senderId(4) | seq(2)   | Opus frame
+```
+
+- **Send**: `getUserMedia` → `MediaStreamTrackProcessor` → `AudioEncoder`
+  (Opus, ~20 ms frames) → one datagram per frame. The server's ring
+  broadcast (`wired_server_broadcast_datagram_ring`) absorbs the bursty
+  frame rate; plain chat keeps the single-slot broadcast.
+- **Receive**: datagram → decode → per-sender jitter buffer (reorders
+  out-of-order arrivals, drops duplicates and stale frames) →
+  `AudioDecoder` → Web Audio playback queue.
+- **Self-echo prevention**: the server echoes every broadcast back to its
+  sender, so the receive side filters the client's own sender ids — the
+  jitter buffer remembers every id the client has ever used, which keeps
+  the filter correct across reconnects (each reconnect generates a fresh
+  sender id).
+- **Reconnect**: on disconnect the client retries with capped exponential
+  backoff (5 attempts), discarding buffered audio and rebinding the mic and
+  receive pipelines to the new transport.
+
+### Browser requirements
+
+Chromium-based browsers only (Chrome/Edge): the page needs WebTransport,
+WebCodecs (`AudioEncoder`/`AudioDecoder`), and `MediaStreamTrackProcessor`
+together. Firefox and Safari currently lack at least one of these.
 
 ## Options
 
