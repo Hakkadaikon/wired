@@ -26,7 +26,7 @@ typedef struct {
 
 void quic_sentmeta_init(quic_sentmeta* m);
 
-/* A packet to record as sent. */
+/** A packet to record as sent. */
 typedef struct {
   u64 pn;
   u64 time_sent;

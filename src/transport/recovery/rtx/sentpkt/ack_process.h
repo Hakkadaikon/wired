@@ -3,7 +3,7 @@
 
 #include "transport/recovery/rtx/sentpkt/sentpkt.h"
 
-/* The acknowledged set from a received ACK: ack_largest plus the ACK ranges
+/** The acknowledged set from a received ACK: ack_largest plus the ACK ranges
  * below it, encoded as alternating (gap, range_length) pairs (RFC 9000
  * 19.3). */
 typedef struct {

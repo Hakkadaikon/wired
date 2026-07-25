@@ -8,13 +8,13 @@
 
 #define QUIC_HSPTO_GRANULARITY 1000 /* kGranularity = 1ms */
 
-/* RTT inputs to the PTO computation. */
+/** RTT inputs to the PTO computation. */
 typedef struct {
   u64 srtt;
   u64 rttvar;
 } quic_hspto_rtt;
 
-/* Remaining inputs: backoff, granularity, and the handshake-confirmed ack
+/** Remaining inputs: backoff, granularity, and the handshake-confirmed ack
  * delay term. */
 typedef struct {
   u32 pto_count;

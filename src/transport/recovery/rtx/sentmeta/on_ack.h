@@ -3,7 +3,7 @@
 
 #include "transport/recovery/rtx/sentmeta/record.h"
 
-/* An acked packet's RTT-relevant fields. */
+/** An acked packet's RTT-relevant fields. */
 typedef struct {
   u64 rtt_sample_time_sent;
   int was_ack_eliciting;

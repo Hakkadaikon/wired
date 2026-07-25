@@ -10,11 +10,13 @@
 #define QUIC_MEMLINK_SLOTS 16
 #define QUIC_MEMLINK_MTU 1500
 
+/** One queued datagram's bytes and length. */
 typedef struct {
   u8  data[QUIC_MEMLINK_MTU];
   usz len;
 } quic_memlink_dgram;
 
+/** A fixed-capacity FIFO of datagrams, carrying packets in user memory. */
 typedef struct {
   quic_memlink_dgram slots[QUIC_MEMLINK_SLOTS];
   usz                head, tail, count;

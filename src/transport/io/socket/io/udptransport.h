@@ -6,6 +6,8 @@
 /* A real-socket datagram transport. Mirrors the memlink send/recv contract so
  * a session can run over either an in-process link or a kernel UDP socket. */
 
+/** A real-socket datagram transport: an open fd and the current peer
+ * address/port. */
 typedef struct {
   i64 fd;
   u32 peer_addr; /* big-endian (network order) */

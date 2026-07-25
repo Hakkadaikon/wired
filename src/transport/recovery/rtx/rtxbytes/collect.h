@@ -10,7 +10,7 @@
  * concatenating them into out for transmission in a new packet. pns not held
  * by the store are skipped. */
 
-/* A read-only view of lost packet numbers. */
+/** A read-only view of lost packet numbers. */
 typedef struct {
   const u64* pns;
   usz        n;

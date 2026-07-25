@@ -5,7 +5,7 @@
 #include "common/platform/sys/syscall.h"
 #include "transport/io/socket/io/udp.h"
 
-/* n_pkts packets taken back-to-back from pkts, with lengths in pkt_lens. */
+/** n_pkts packets taken back-to-back from pkts, with lengths in pkt_lens. */
 typedef struct {
   const u8*  pkts;
   const usz* pkt_lens;
@@ -17,7 +17,7 @@ typedef struct {
  * (also out->len), or 0 if the concatenation would exceed out->cap. */
 usz quic_udploop_pack(const quic_pktsrc* src, quic_obuf* out);
 
-/* A destination socket: an open fd and the peer to send to. */
+/** A destination socket: an open fd and the peer to send to. */
 typedef struct {
   i64                  fd;
   const quic_sockaddr* peer;

@@ -3,7 +3,7 @@
 
 #include "transport/recovery/rtx/sentpkt/sentpkt.h"
 
-/* Inputs to one loss-detection pass. Times are in us. */
+/** Inputs to one loss-detection pass. Times are in us. */
 typedef struct {
   u64 largest_acked;
   u64 now;

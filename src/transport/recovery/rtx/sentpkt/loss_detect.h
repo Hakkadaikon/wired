@@ -6,7 +6,7 @@
 /* RFC 9002 6.1: packet- and time-threshold loss detection. */
 #define QUIC_SENTPKT_PACKET_THRESHOLD 3 /* kPacketThreshold */
 
-/* Inputs to one loss-detection pass. */
+/** Inputs to one loss-detection pass. */
 typedef struct {
   u64 largest_acked;
   u64 now;

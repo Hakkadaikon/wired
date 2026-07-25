@@ -5,7 +5,7 @@
  * The timer is armed on in-flight ack-eliciting data even while the peer
  * address is unvalidated and sending is anti-amplification limited. */
 
-/* Inputs to the PTO arming decision. */
+/** Inputs to the PTO arming decision. */
 typedef struct {
   int initial_inflight;
   int handshake_inflight;

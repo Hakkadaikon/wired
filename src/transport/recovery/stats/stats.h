@@ -6,7 +6,7 @@
 #include "transport/recovery/detect/recovery/rtt.h"
 #include "transport/recovery/detect/recovery/sent.h"
 
-/* Read-only external view of RTT estimation (RFC 9002 5). No latest_rtt:
+/** Read-only external view of RTT estimation (RFC 9002 5). No latest_rtt:
  * quic_rtt does not retain the last raw sample, only the smoothed state. */
 typedef struct {
   u64 smoothed_rtt;
@@ -14,14 +14,14 @@ typedef struct {
   u64 rttvar;
 } quic_stats_rtt;
 
-/* Read-only external view of congestion control state (RFC 9002 7). */
+/** Read-only external view of congestion control state (RFC 9002 7). */
 typedef struct {
   u64 cwnd;
   u64 ssthresh;
   int in_recovery;
 } quic_stats_cc;
 
-/* Read-only external view of sent-packet tracking (RFC 9002 A). lost is the
+/** Read-only external view of sent-packet tracking (RFC 9002 A). lost is the
  * count of tracked slots currently in QUIC_PKT_LOST state. */
 typedef struct {
   u64 bytes_in_flight;

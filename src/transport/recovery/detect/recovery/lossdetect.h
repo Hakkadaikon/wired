@@ -13,7 +13,7 @@
 /* True when pn is kPacketThreshold or more below largest_acked. */
 int quic_loss_by_packet(u64 largest_acked, u64 pn);
 
-/* The elapsed-time inputs: the current clock and when the packet was sent. */
+/** The elapsed-time inputs: the current clock and when the packet was sent. */
 typedef struct {
   u64 now;
   u64 sent_time;

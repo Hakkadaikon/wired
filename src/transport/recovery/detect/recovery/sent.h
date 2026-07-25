@@ -28,7 +28,7 @@ typedef struct {
 
 void quic_sent_init(quic_sent* s);
 
-/* A packet to record as sent. */
+/** A packet to record as sent. */
 typedef struct {
   u64 pn;
   u64 size;

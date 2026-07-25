@@ -11,6 +11,7 @@
  * conservative — a spurious exit only costs earlier congestion avoidance);
  * add CSS when real traces show premature exits. */
 
+/** Per-round RTT tracking state for the HyStart++ rise detector. */
 typedef struct {
   u64 last_round_min; /* previous round's min RTT (~0 before round 2) */
   u64 curr_round_min; /* running min of the current round (~0 when empty) */

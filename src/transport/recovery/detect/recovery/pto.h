@@ -12,7 +12,7 @@
 /* 2^count, clamped at 2^QUIC_PTO_BACKOFF_MAX. */
 u64 quic_pto_backoff(u32 count);
 
-/* RTT inputs to the PTO computation. */
+/** RTT inputs to the PTO computation. */
 typedef struct {
   u64 srtt;
   u64 rttvar;

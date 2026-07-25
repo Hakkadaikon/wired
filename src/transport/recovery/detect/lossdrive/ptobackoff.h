@@ -4,7 +4,7 @@
 #include "common/platform/sys/syscall.h"
 #include "transport/recovery/detect/recovery/pto.h"
 
-/* Non-RTT inputs to the PTO computation. */
+/** Non-RTT inputs to the PTO computation. */
 typedef struct {
   u64 max_ack_delay;
   u32 pto_count;
