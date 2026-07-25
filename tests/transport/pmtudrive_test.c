@@ -33,6 +33,16 @@ static void test_pmtudrive_build_probe_ping_plus_padding(void) {
   CHECK(r.pmtu_probe_held == 1);
 }
 
+/* RFC 8899 3.4/5: the probe's plaintext content is PING followed only by
+ * PADDING, never a frame carrying retransmittable user data (STREAM etc). */
+static void test_pmtudrive_probe_frame_is_ping_plus_padding_only(void) {
+  u8  buf[64];
+  usz n = build_ping_padding(buf, sizeof(buf), 32);
+  CHECK(n == 32);
+  CHECK(buf[0] == QUIC_FRAME_PING);
+  for (usz i = 1; i < n; i++) CHECK(buf[i] == QUIC_FRAME_PADDING);
+}
+
 /* Only one probe outstanding at a time (RFC 8899 5.1.3 PROBED_SIZE): a
  * second build while one is unresolved does nothing. */
 static void test_pmtudrive_build_probe_single_outstanding(void) {
@@ -242,6 +252,7 @@ static void test_pmtudrive_build_probe_resumes_after_raise_timer(void) {
 
 void test_pmtudrive(void) {
   test_pmtudrive_build_probe_ping_plus_padding();
+  test_pmtudrive_probe_frame_is_ping_plus_padding_only();
   test_pmtudrive_build_probe_single_outstanding();
   test_pmtudrive_on_ack_confirms_matching_pn();
   test_pmtudrive_on_ack_ignores_other_pn();
