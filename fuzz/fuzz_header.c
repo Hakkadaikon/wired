@@ -6,8 +6,10 @@
 #include <stdint.h>
 
 #include "common/bytes/varint/varint.c"
-#include "transport/packet/header/packet/header.c"
 #include "transport/packet/header/packet/coalesce.c"
+#include "transport/packet/header/packet/header.c"
+#include "transport/packet/header/packet/ptype.c"
+#include "transport/version/version/v2types.c"
 
 int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
   const u8 *buf = (const u8 *)data;
