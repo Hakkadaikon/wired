@@ -9,6 +9,8 @@
  * trailers before the leading HEADERS, a third HEADERS, or DATA after the
  * trailer -- is an H3_FRAME_UNEXPECTED violation. */
 
+/** RFC 9114 4.1: a request/response stream's expected frame-ordering state.
+ */
 typedef enum {
   QUIC_H3_REQ_START = 0, /* nothing received; expecting leading HEADERS */
   QUIC_H3_REQ_HEADERS,   /* leading HEADERS seen; DATA or trailer may follow */

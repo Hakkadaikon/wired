@@ -13,6 +13,7 @@
 #define QUIC_H3_FRAME_PRIORITY_UPDATE 0x0F0700
 #define QUIC_H3_FRAME_PRIORITY_UPDATE_PUSH 0x0F0701
 
+/** RFC 9218 7: a decoded PRIORITY_UPDATE frame. */
 typedef struct {
   int       push;       /**< 0: request variant, 1: push variant */
   u64       element_id; /**< prioritized element (stream or push) id */

@@ -8,6 +8,8 @@
  * else H3_MISSING_SETTINGS. SETTINGS appears exactly once per control stream.
  */
 
+/** RFC 9114 7.2.4: whether the required first-frame SETTINGS has been
+ * accepted on this control stream. */
 typedef struct {
   u8 settings_done; /* the (single) SETTINGS frame was accepted */
 } quic_h3_settings_state;

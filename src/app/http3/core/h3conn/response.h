@@ -4,7 +4,7 @@
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
 
-/* RFC 9114 4.1. An HTTP/3 response: the :status, its DATA body (viewed in
+/** RFC 9114 4.1. An HTTP/3 response: the :status, its DATA body (viewed in
  * place, body.n == 0 when absent), and an optional content-type (0 to omit
  * the field line). Doubles as the encode input and the decode output; decode
  * never populates content_type (left 0). content_type is appended last so

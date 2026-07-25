@@ -9,6 +9,8 @@
  * monotonically non-increasing and forbid new requests at or above the
  * limit. Any violation latches a connection error (terminal). */
 
+/** RFC 9114 6.2.1/7.2.4/5.2: control-stream/SETTINGS/GOAWAY connection
+ * error latched by this module (NONE means no violation yet). */
 typedef enum {
   QUIC_H3_ERR_NONE = 0,
   QUIC_H3_ERR_STREAM_CREATION,  /* 2nd control stream */
@@ -18,12 +20,15 @@ typedef enum {
   QUIC_H3_ERR_ID                /* GOAWAY id increased */
 } quic_h3_error;
 
+/** RFC 9114 6.2.1/7.2.4/5.2: this connection's control-stream state —
+ * whether it is open, whether SETTINGS was its first frame, the latest
+ * GOAWAY id, and any latched connection error. */
 typedef struct {
-  u8  control_open;  /* a control stream is open */
-  u8  settings_seen; /* SETTINGS was the first control frame */
-  u8  goaway_seen;
-  u64 goaway_limit;    /* highest request id still accepted is below this */
-  quic_h3_error error; /* latched; nonzero means the connection failed */
+  u8  control_open;    /**< a control stream is open */
+  u8  settings_seen;   /**< SETTINGS was the first control frame */
+  u8  goaway_seen;     /**< a GOAWAY has been received */
+  u64 goaway_limit;    /**< highest request id still accepted is below this */
+  quic_h3_error error; /**< latched; nonzero means the connection failed */
 } quic_h3_control;
 
 void quic_h3_control_init(quic_h3_control* c);

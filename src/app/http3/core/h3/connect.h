@@ -4,7 +4,7 @@
 #include "app/http3/request/h3reqdrive/request_drive.h"
 #include "common/platform/sys/syscall.h"
 
-/* Pseudo-header presence flags a CONNECT request is checked against. */
+/** Pseudo-header presence flags a CONNECT request is checked against. */
 typedef struct {
   int has_method_connect;
   int has_authority;
@@ -38,6 +38,8 @@ int quic_h3_connect_established(u16 status);
  * validated request reaches VALIDATED; a 2xx response moves it once to
  * ESTABLISHED, a >=3xx response to FAILED; relay is permitted only from
  * ESTABLISHED; a close is terminal and never returns to RELAY. */
+/** RFC 9114 4.4 / RFC 9110 9.3.6: forward-only CONNECT tunnel lifecycle
+ * state (REQ -> VALIDATED -> ESTABLISHED -> RELAY, or FAILED/CLOSED). */
 typedef enum {
   QUIC_H3_TUNNEL_REQ = 0,
   QUIC_H3_TUNNEL_VALIDATED,

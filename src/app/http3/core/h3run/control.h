@@ -6,6 +6,7 @@
 /* RFC 9114 6.2.1: each endpoint opens exactly one control stream, prefixed by
  * the stream type 0x00. A second control stream is H3_STREAM_CREATION_ERROR. */
 
+/** RFC 9114 6.2.1: count of control streams seen, to catch a second one. */
 typedef struct {
   u8 count; /* control streams seen on this connection */
 } quic_h3_control_state;

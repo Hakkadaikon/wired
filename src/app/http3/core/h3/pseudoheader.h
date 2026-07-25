@@ -10,6 +10,7 @@
  * pseudo-header after a regular field, repeats a pseudo-header, carries an
  * unknown pseudo-header, or omits a required one is malformed. */
 
+/** RFC 9114 4.3.1: which pseudo-header (or none/unknown) a field name is. */
 typedef enum {
   QUIC_H3_PH_NONE = 0, /* a regular (non-pseudo) field */
   QUIC_H3_PH_METHOD,
@@ -26,7 +27,7 @@ typedef enum {
  * unrecognised ':'-prefixed name. */
 quic_h3_ph_kind quic_h3_ph_classify(const u8* name, usz len);
 
-/* Accumulates the pseudo-headers of one field section, in receipt order. */
+/** Accumulates the pseudo-headers of one field section, in receipt order. */
 typedef struct {
   u8 seen;        /* bitmask of QUIC_H3_PH_* kinds that appeared */
   u8 saw_regular; /* a regular field has been seen */

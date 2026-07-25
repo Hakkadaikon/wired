@@ -68,6 +68,8 @@
  * quic_h3settings_build's append_grease). */
 #define QUIC_H3_SETTINGS_MAX 12
 
+/** RFC 9114 7.2.4: a SETTINGS frame's payload, as decoded (Identifier,
+ * Value) pairs. */
 typedef struct {
   usz n;
   struct {
@@ -76,7 +78,7 @@ typedef struct {
   } pairs[QUIC_H3_SETTINGS_MAX];
 } quic_h3_settings;
 
-/* RFC 9114 7.2 decoded frame head + payload view (payload borrowed in
+/** RFC 9114 7.2 decoded frame head + payload view (payload borrowed in
  * place, no copy). */
 typedef struct {
   u64       type;
