@@ -9,7 +9,7 @@
 #define QUIC_CHACHA_NONCE 12
 #define QUIC_CHACHA_BLOCK 64
 
-/* Stream position: key, nonce, and the starting block counter. */
+/** Stream position: key, nonce, and the starting block counter. */
 typedef struct {
   const u8* key;   /* QUIC_CHACHA_KEY bytes */
   const u8* nonce; /* QUIC_CHACHA_NONCE bytes */
