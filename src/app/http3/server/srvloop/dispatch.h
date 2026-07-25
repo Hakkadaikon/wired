@@ -7,7 +7,7 @@
 #include "common/bytes/span/span.h"
 #include "tls/handshake/roles/server/server.h"
 
-/* RFC 9000 2.2: the request stream (id 0) reassembled across datagrams. Each
+/** RFC 9000 2.2: the request stream (id 0) reassembled across datagrams. Each
  * received request STREAM frame's data is written at its offset into buf (cap);
  * len tracks the high-water mark, fin latches the stream FIN, done latches that
  * the completed request was already decoded so it is answered only once. */
@@ -19,7 +19,7 @@ typedef struct {
   int* done;
 } wired_srvloop_reqacc;
 
-/* Remaining arguments of wired_srvloop_dispatch beyond s/h3/acc: the opened
+/** Remaining arguments of wired_srvloop_dispatch beyond s/h3/acc: the opened
  * payload, the request-decode scratch buffer, the re-wrap buffer req's
  * path/body views end up pointing into (must outlive the dispatch call, so
  * it is caller-owned rather than a dispatch-local), and the completed-request
@@ -32,7 +32,7 @@ typedef struct {
   wired_h3reqdrive_req* req;
 } wired_srvloop_dispatch_in;
 
-/* The server orchestrator, its HTTP/3 state and the cross-datagram request
+/** The server orchestrator, its HTTP/3 state and the cross-datagram request
  * accumulator dispatch reads/writes together. Folded into one parameter so
  * wired_srvloop_dispatch stays <=3 args. l is the owning loop, whose
  * wt_streams[] table draft-ietf-webtrans-http3-15 4.3 WT bidi traffic and

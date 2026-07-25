@@ -4,7 +4,7 @@
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
 
-/* The :path and :authority values shared by enc_get/enc_method. */
+/** The :path and :authority values shared by enc_get/enc_method. */
 typedef struct {
   quic_span path;
   quic_span authority;

@@ -8,6 +8,7 @@
  * Anything else -- a leading DATA, a third HEADERS, DATA after the trailer --
  * is an H3_FRAME_UNEXPECTED ordering violation. */
 
+/** RFC 9114 4.1: a request stream's expected frame-ordering state. */
 typedef enum {
   QUIC_H3REQ_ORDER_START = 0, /* expecting the leading HEADERS */
   QUIC_H3REQ_ORDER_HEADERS,   /* leading HEADERS seen */

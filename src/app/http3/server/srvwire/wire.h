@@ -14,7 +14,7 @@
  * frames, not CRYPTO, and quic_hspkt_onertt_build/open already take raw
  * payload, so no 1-RTT wrapper lives here. */
 
-/* Remaining arguments of quic_srvwire_seal_initial/seal_handshake beyond the
+/** Remaining arguments of quic_srvwire_seal_initial/seal_handshake beyond the
  * key material and out: the connection ids, packet number, the client packet
  * to acknowledge (< 0 for none), the TLS flight to wrap in CRYPTO, and the
  * CRYPTO stream offset of the flight's first byte (RFC 9000 19.6; 0 for an
@@ -74,7 +74,7 @@ int quic_srvwire_seal_initial_frames(
 int quic_srvwire_seal_initial_frames_lean(
     const quic_srvwire_seal_in* in, quic_obuf* out);
 
-/* The client's original DCID (Initial keys are derived from it) and the
+/** The client's original DCID (Initial keys are derived from it) and the
  * packet number the caller expects (currently unused, reserved). */
 typedef struct {
   quic_span dcid;

@@ -123,7 +123,7 @@ typedef struct {
 /** One buffered PRIORITY_UPDATE naming a request stream this connection has
  * not opened yet (RFC 9218 10 / 9218-010). in_use == 0 marks a free slot. */
 typedef struct {
-  int              in_use;
+  int              in_use;    /**< 0 marks a free slot */
   u64              stream_id; /**< the not-yet-open request stream id */
   quic_h3_priority priority;  /**< the priority to apply once it opens */
 } wired_srvloop_pending_priority;
@@ -607,9 +607,9 @@ typedef struct {
    * (srvrun.c) resolves both. wt_reset_is_stop is 1 for a STOP_SENDING, 0
    * for a RESET_STREAM (both matter equally here; distinguished only so a
    * caller that needs it can tell them apart). */
-  u64 wt_reset_stream_id;
-  u64 wt_reset_error_code;
-  int wt_reset_is_stop;
+  u64 wt_reset_stream_id;  /**< stream id the RESET_STREAM/STOP_SENDING named */
+  u64 wt_reset_error_code; /**< its wire error code */
+  int wt_reset_is_stop;    /**< 1 for STOP_SENDING, 0 for RESET_STREAM */
   int wt_reset_seen; /**< 1 once the three fields above were set this step */
 } wired_srvloop;
 
