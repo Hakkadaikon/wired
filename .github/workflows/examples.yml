@@ -1,0 +1,52 @@
+name: Examples
+
+# Build every sample under examples/ against the SDK static library and
+# confirm each binary actually starts and binds its UDP port -- catching a
+# broken example (stale API, missing symbol, immediate crash) that the
+# core CI (src/ + tests/ only) can't see. Not an interop check: see
+# interop.yml for wire-level handshake/transfer/http3 verification and
+# interop/README.md for the webtransport_interop protocol runner.
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-and-boot:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        example:
+          - word_list
+          - webtransport_echo
+          - webtransport_chat
+          - webtransport_interop
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: DeterminateSystems/nix-installer-action@main
+
+      - name: build
+        run: nix develop -c sh -c 'just gen-ninja && ninja examples/${{ matrix.example }}/wired_server'
+
+      - name: boot smoke test (starts, binds :4433, still alive after 2s)
+        # webtransport_interop is a quic-interop-runner-only endpoint: it
+        # requires TESTCASE in the environment and defaults to port 443
+        # (root-only; unreachable for this non-root runner), by design --
+        # see interop/README.md for its real (protocol-runner) verification
+        # path. TESTCASE/--port here only get it far enough to prove the
+        # binary itself starts and binds.
+        run: |
+          extra_args=""
+          if [ "${{ matrix.example }}" = "webtransport_interop" ]; then
+            export TESTCASE=handshake
+            extra_args="--port 4433"
+          fi
+          ./examples/${{ matrix.example }}/wired_server $extra_args &
+          pid=$!
+          sleep 2
+          if ! kill -0 "$pid" 2>/dev/null; then
+            echo "::error::${{ matrix.example }}/wired_server exited within 2s"
+            exit 1
+          fi
+          ss -uln | grep -q ':4433 ' || { echo "::error::${{ matrix.example }}/wired_server did not bind :4433"; exit 1; }
+          kill "$pid"
