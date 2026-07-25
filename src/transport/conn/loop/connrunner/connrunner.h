@@ -47,8 +47,12 @@ typedef struct {
   quic_pmtu pmtu;
   u64       pmtu_probe_pn;   /* pn the outstanding probe was sent under */
   int       pmtu_probe_held; /* 1 while a probe is outstanding */
-  u8        rxbuf[QUIC_CONNRUNNER_BUF];
-  u8        txbuf[QUIC_CONNRUNNER_BUF];
+  /* RFC 8899 3.7: when the most recent probe was sent, kept across
+   * ack/loss resolution (unlike quic_pmtu's own probe_sent_at, which those
+   * clear) so the next probe can be held back to at least one RTT later. */
+  u64 pmtu_last_probe_sent_at;
+  u8  rxbuf[QUIC_CONNRUNNER_BUF];
+  u8  txbuf[QUIC_CONNRUNNER_BUF];
 } quic_connrunner;
 
 /** Everything quic_connrunner_init needs besides the runner and the DCID. */
