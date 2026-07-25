@@ -30,3 +30,6 @@ jobs:
 
       - name: lint (clang-tidy, CERT C + bug finders)
         run: nix develop -c just lint
+
+      - name: fuzz smoke (each harness builds and survives 1 run)
+        run: nix develop -c just fuzz-smoke
