@@ -6,7 +6,7 @@
 
 /* RFC 8446 4.1.3: parse a ServerHello handshake message. */
 
-/* Output of quic_tls_parse_server_hello: the negotiated cipher_suite and the
+/** Output of quic_tls_parse_server_hello: the negotiated cipher_suite and the
  * selected TLS version (from supported_versions). */
 typedef struct {
   u16 cipher;

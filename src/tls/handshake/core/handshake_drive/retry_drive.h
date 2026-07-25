@@ -8,7 +8,7 @@
  * Integrity Tag (RFC 9001 5.8) against the original DCID, extract the token,
  * and adopt the Retry's SCID as the new DCID for the next Initial. */
 
-/* Destination for quic_retry_process: the extracted token (via the obuf) and
+/** Destination for quic_retry_process: the extracted token (via the obuf) and
  * the Retry's SCID (the new DCID), new_dcid capped at WIRED_MAX_CID_LEN by
  * the caller. */
 typedef struct {

@@ -16,6 +16,8 @@
 /* RFC 1035 3.1: a full domain name is at most 255 octets. */
 #define QUIC_RESUME_SNI_MAX 255
 
+/** RFC 8446 4.6.1: a stored session ticket plus the resumption PSK and
+ * transport-parameter/SNI metadata needed to attempt 0-RTT on it later. */
 typedef struct {
   u8  ticket[QUIC_RESUME_TICKET_MAX];
   usz ticket_len;
@@ -31,7 +33,7 @@ typedef struct {
   usz sni_len;
 } quic_resume;
 
-/* The transport parameters and ticket metadata to remember alongside a
+/** The transport parameters and ticket metadata to remember alongside a
  * stored ticket, besides the ticket bytes themselves. */
 typedef struct {
   u64       issued_at; /* RFC 8446 4.6.1 ticket issuance time */

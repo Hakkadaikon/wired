@@ -261,9 +261,7 @@ int quic_sdrv_set_retry_scid(quic_sdrv* s, quic_span rscid);
  * silently. On a verified binder, psk_accepted is set to 1 and psk_secret
  * holds the opened ticket's resumption secret, for
  * quic_sdrv_build_server_flight's key schedule.
- * @param s driver state
- * @param ch_msg the ClientHello handshake message bytes
- * @param ch_len length of ch_msg in bytes
+ *
  * RFC 9001 8.2: a ClientHello missing the quic_transport_parameters
  * extension (0x39) is rejected before any other field is taken; s->last_error
  * is set to the missing_extension CRYPTO_ERROR (0x016d) in that case.
