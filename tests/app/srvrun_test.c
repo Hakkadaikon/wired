@@ -11112,6 +11112,126 @@ static void test_srvrun_wt_datagram_ring_full_rejects_then_recovers(void) {
   CHECK(g_srvrun_env.dgring_n == 1);
 }
 
+/* BROADCAST RING: two ring broadcasts inside one step queue BOTH payloads
+ * for every active WT session -- one ring entry per (session, payload) with
+ * that session's own qsid prefix (RFC 9297 2.1), nothing overwritten. This
+ * is the property the single-slot wired_server_broadcast_datagram cannot
+ * provide (there a second broadcast in the same step overwrites the first,
+ * last-writer-wins). */
+static void test_srvrun_broadcast_datagram_ring_queues_burst_per_session(void) {
+  struct lp_fix f;
+  quic_obuf     ob = {0};
+  u8            obuf[1024];
+  u8            pay_a[3] = {0xa1, 0xa2, 0xa3};
+  u8            pay_b[3] = {0xb1, 0xb2, 0xb3};
+  srvrun_conn*  c;
+  srvrun_conn*  c1;
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  c  = sr_wtsend_fixture(&f, &ob);
+  CHECK(c->wt.connect_stream_id == 4);
+  c1                     = &g_srvrun_state.conns[1];
+  c1->up                 = 1;
+  c1->l.h3.settings_sent = 1;
+  wired_wt_session_init(&c1->wt, 8);
+  wired_wt_session_establish(&c1->wt);
+  c1->wt_active = 1;
+  CHECK(
+      wired_server_broadcast_datagram_ring(quic_span_of(pay_a, sizeof pay_a)) ==
+      1);
+  CHECK(g_srvrun_env.dgring_n == 2);
+  CHECK(
+      wired_server_broadcast_datagram_ring(quic_span_of(pay_b, sizeof pay_b)) ==
+      1);
+  CHECK(g_srvrun_env.dgring_n == 4);
+  {
+    /* Entry layout: [conn0 A][conn1 A][conn0 B][conn1 B]. conn0's CONNECT
+     * id 4 -> qsid varint 0x01, conn1's CONNECT id 8 -> 0x02. */
+    const srvrun_dgring_entry* e = g_srvrun_env.dgring;
+    CHECK(e[0].conn_slot == 0 && e[0].len == 4 && e[0].buf[0] == 0x01);
+    CHECK(e[1].conn_slot == 1 && e[1].len == 4 && e[1].buf[0] == 0x02);
+    CHECK(e[2].conn_slot == 0 && e[2].len == 4 && e[2].buf[0] == 0x01);
+    CHECK(e[3].conn_slot == 1 && e[3].len == 4 && e[3].buf[0] == 0x02);
+    for (usz i = 0; i < sizeof pay_a; i++) {
+      CHECK(e[0].buf[1 + i] == pay_a[i]);
+      CHECK(e[1].buf[1 + i] == pay_a[i]);
+      CHECK(e[2].buf[1 + i] == pay_b[i]);
+      CHECK(e[3].buf[1 + i] == pay_b[i]);
+    }
+  }
+}
+
+/* BROADCAST RING, DELIVERY: both same-step ring broadcasts actually go out
+ * on the next step's drain -- two sealed DATAGRAM sends, ring empty
+ * afterwards. */
+static void test_srvrun_broadcast_datagram_ring_drains_both_next_step(void) {
+  struct lp_fix f;
+  quic_obuf     ob = {0};
+  u8            obuf[1024];
+  u8            pay_a[1] = {0xa1};
+  u8            pay_b[1] = {0xb1};
+  srvrun_conn*  c;
+  ob                                     = (quic_obuf){obuf, sizeof obuf, 0};
+  c                                      = sr_wtsend_fixture(&f, &ob);
+  c->s.sdrv.peer_max_datagram_frame_size = 65535;
+  CHECK(
+      wired_server_broadcast_datagram_ring(quic_span_of(pay_a, sizeof pay_a)) ==
+      1);
+  CHECK(
+      wired_server_broadcast_datagram_ring(quic_span_of(pay_b, sizeof pay_b)) ==
+      1);
+  CHECK(g_srvrun_env.dgring_n == 2);
+  {
+    srvrun_cfg   cfg = sr_wt_send_cfg();
+    srvrun_state st  = {g_srvrun_table, g_srvrun_state.conns};
+    srvrun_test_reset_send_count();
+    srvrun_dgring_drain(&cfg, &st);
+    CHECK(srvrun_test_send_count() == 2);
+  }
+  CHECK(g_srvrun_env.dgring_n == 0);
+}
+
+/* BROADCAST RING, TARGET GATES: a still-UNESTABLISHED session (RFC 9297 2:
+ * no live association yet), an established session whose own SETTINGS have
+ * not been sent (RFC 9297 2.1), a connection without an active WT slot, and
+ * a slot that was never a live connection are all skipped -- nothing queued,
+ * and skipping is not a failure (1 returned), mirroring the single-slot
+ * broadcast's own skip behavior. */
+static void test_srvrun_broadcast_datagram_ring_skips_ineligible(void) {
+  u8 pay[1] = {0x5a};
+  sr_reset_global_table();
+  g_srvrun_env.dgring_head                   = 0;
+  g_srvrun_env.dgring_n                      = 0;
+  g_srvrun_state.conns[0].up                 = 1;
+  g_srvrun_state.conns[0].l.h3.settings_sent = 1;
+  wired_wt_session_init(&g_srvrun_state.conns[0].wt, 4); /* UNESTABLISHED */
+  g_srvrun_state.conns[0].wt_active          = 1;
+  g_srvrun_state.conns[1].up                 = 1;
+  g_srvrun_state.conns[1].l.h3.settings_sent = 1; /* no active WT slot */
+  g_srvrun_state.conns[2].up                 = 1;
+  wired_wt_session_init(&g_srvrun_state.conns[2].wt, 4);
+  wired_wt_session_establish(&g_srvrun_state.conns[2].wt);
+  g_srvrun_state.conns[2].wt_active = 1; /* SETTINGS not sent */
+  CHECK(wired_server_broadcast_datagram_ring(quic_span_of(pay, 1)) == 1);
+  CHECK(g_srvrun_env.dgring_n == 0);
+}
+
+/* BROADCAST RING, BOUNDARY: with one target session, the SRVRUN_DGRING_CAP-th
+ * same-step broadcast still queues and the next one reports failure (0) --
+ * refused, not overwritten (RFC 9221 1: DATAGRAM delivery is best-effort, so
+ * the caller may retry after a drain). */
+static void test_srvrun_broadcast_datagram_ring_full_reports_failure(void) {
+  struct lp_fix f;
+  quic_obuf     ob = {0};
+  u8            obuf[1024];
+  u8            pay[1] = {0x77};
+  ob                   = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_wtsend_fixture(&f, &ob);
+  for (int i = 0; i < SRVRUN_DGRING_CAP; i++)
+    CHECK(wired_server_broadcast_datagram_ring(quic_span_of(pay, 1)) == 1);
+  CHECK(wired_server_broadcast_datagram_ring(quic_span_of(pay, 1)) == 0);
+  CHECK(g_srvrun_env.dgring_n == SRVRUN_DGRING_CAP);
+}
+
 /* RECEIVE-SIDE FLOW CONTROL (RFC 9000 4.1/19.9/19.10): srvrun_seal_max_
  * stream_data encodes a MAX_STREAM_DATA the client can decode, naming the
  * right stream and value. */
@@ -11655,6 +11775,10 @@ void test_srvrun(void) {
   test_srvrun_wt_send_datagram_to_requires_send_side_open();
   test_srvrun_wt_datagram_ring_drains_200_queued();
   test_srvrun_wt_datagram_ring_full_rejects_then_recovers();
+  test_srvrun_broadcast_datagram_ring_queues_burst_per_session();
+  test_srvrun_broadcast_datagram_ring_drains_both_next_step();
+  test_srvrun_broadcast_datagram_ring_skips_ineligible();
+  test_srvrun_broadcast_datagram_ring_full_reports_failure();
   test_srvrun_wt_max_stream_data_wire_shape();
   test_srvrun_wt_max_data_wire_shape();
   test_srvrun_wt_credit_advances_with_delivery();

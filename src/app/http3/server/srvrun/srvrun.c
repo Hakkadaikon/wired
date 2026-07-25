@@ -2869,6 +2869,48 @@ int wired_server_wt_send_datagram_to(wired_wt_session* s, quic_span payload) {
   return srvrun_dgring_push(env, slot, s->connect_stream_id, payload);
 }
 
+/* Connection slot cslot's session slot i is an eligible ring-broadcast
+ * target: the connection is up, the slot holds a session, and it passes the
+ * same RFC 9297 gates a session-addressed send applies (SETTINGS sent,
+ * association established, CONNECT send side open --
+ * srvrun_dgring_target_ok). */
+static int srvrun_bcast_ring_target(wired_srvrun_env* env, int cslot, int i) {
+  srvrun_conn* c = &env->conns[cslot];
+  return c->up && srvrun_wt_is_active(c, i) &&
+         srvrun_dgring_target_ok(env, cslot, srvrun_wt_slot(c, i));
+}
+
+/* Queue data for one (connection, session) pair: an ineligible pair is
+ * skipped (1 -- not a failure, mirroring srvrun_broadcast_to_all's own
+ * best-effort skip), an eligible one that cannot be queued (ring full, or
+ * the qsid-prefixed payload exceeds a ring slot) reports 0. */
+static int srvrun_bcast_ring_sess(
+    wired_srvrun_env* env, int cslot, int i, quic_span data) {
+  if (!srvrun_bcast_ring_target(env, cslot, i)) return 1;
+  return srvrun_dgring_push(
+      env, cslot, srvrun_wt_slot(&env->conns[cslot], i)->connect_stream_id,
+      data);
+}
+
+/* All of one connection's session slots, ANDing per-target success -- split
+ * out of wired_server_broadcast_datagram_ring so each loop stays at the CCN
+ * gate. */
+static int srvrun_bcast_ring_conn(
+    wired_srvrun_env* env, int cslot, quic_span data) {
+  int ok = 1;
+  for (int i = 0; i < SRVRUN_MAX_WT_SESSIONS; i++)
+    ok &= srvrun_bcast_ring_sess(env, cslot, i, data);
+  return ok;
+}
+
+int wired_server_broadcast_datagram_ring(quic_span data) {
+  wired_srvrun_env* env = srvrun_caller_env();
+  int               ok  = 1;
+  for (usz i = 0; i < QUIC_CONNTABLE_CAP; i++)
+    ok &= srvrun_bcast_ring_conn(env, (int)i, data);
+  return ok;
+}
+
 /* Copy message into c's own wt_close_msg[sidx] scratch, capped at
  * QUIC_WTCAPSULE_CLOSE_MESSAGE_MAX (quic_wtcapsule_encode_close's own limit,
  * wtcapsule.h) -- a longer message is truncated rather than rejected, same

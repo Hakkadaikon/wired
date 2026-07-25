@@ -344,6 +344,35 @@ int* wired_srvrun_shutdown_word(void);
  * g_srvrun_env. */
 int wired_server_broadcast_datagram(quic_span data);
 
+/** Queue one HTTP Datagram (RFC 9297) to EVERY active WebTransport session
+ * in the caller's server loop -- the burst-safe sibling of
+ * wired_server_broadcast_datagram. Where that API holds one pending payload
+ * per connection (a second broadcast in the same loop step overwrites the
+ * first, last-writer-wins), this one queues each target into the same
+ * bounded ring wired_server_wt_send_datagram_to uses, so several broadcasts
+ * inside one step -- an audio burst, say -- are all delivered on the loop's
+ * next step, none overwritten. Each target session's own quarter-stream-id
+ * varint (RFC 9297 2.1) is prefixed at queue time and the payload is copied,
+ * so it need not outlive the call. A session is a target only when its
+ * connection is up, this endpoint's SETTINGS have been sent (RFC 9297 2.1),
+ * and the session's CONNECT stream send side is still open (RFC 9297 2) --
+ * the same gates wired_server_wt_send_datagram_to applies. Frames exceeding
+ * the peer's advertised max_datagram_frame_size are dropped at send time
+ * (RFC 9221 3). Callable only from inside the server's own loop (a
+ * callback), same contract as wired_server_broadcast_datagram.
+ *
+ * Single-process only: unlike wired_server_broadcast_datagram, this API does
+ * not push into the srvthreads inbox mesh -- a registered worker reaches its
+ * OWN env's sessions only. Reaching other workers' sessions burst-safely
+ * would also need the inbox drain path to queue into the ring (it currently
+ * feeds the single-slot queue), not built yet.
+ * @param data the HTTP Datagram payload (qsid prefix NOT included); each
+ *   target's prefixed copy must fit a ring slot
+ * @return 1 if every target session was queued (including when there is no
+ *   target at all), 0 when the ring filled up or the prefixed payload
+ *   exceeds a ring slot for some target */
+int wired_server_broadcast_datagram_ring(quic_span data);
+
 /** Open a new server-initiated unidirectional stream on s's connection (RFC
  * 9000 2.1: id 3 mod 4) and send the whole payload on it, closing with FIN
  * on the final slice. payload must already carry the WebTransport stream
