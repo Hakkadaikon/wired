@@ -860,6 +860,7 @@
 #include "tls/cert_chain_test.c"
 #include "tls/fullhs_chain_test.c"
 #include "tls/tlsdriver_sni_test.c"
+#include "tls/tlsdriver_p256_test.c"
 #include "tls/client_test.c"
 #include "transport/idledrive_test.c"
 #include "transport/idlenego_test.c"
@@ -1359,6 +1360,7 @@ int main(void) {
   test_cert_chain();
   test_fullhs_chain();
   test_tlsdriver_sni();
+  test_tlsdriver_p256();
   test_client();
   test_idledrive();
   test_idlenego();
