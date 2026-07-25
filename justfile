@@ -156,6 +156,15 @@ fuzz-ci secs="120":
     just fuzz-qpack && ./fuzz/fuzz_qpack -max_total_time={{secs}} -artifact_prefix=fuzz/
     just fuzz-x509 && ./fuzz/fuzz_x509 -max_total_time={{secs}} -artifact_prefix=fuzz/
 
+# per-PR gate: each harness builds and survives exactly 1 run (libFuzzer
+# -runs=1, no time budget) -- catches a broken/uncompilable harness or an
+# instant crash on every push, complementing fuzz-ci's nightly bounded
+# search (a real regression sweep needs minutes, not a per-commit gate).
+fuzz-smoke:
+    just fuzz-header && ./fuzz/fuzz_header -runs=1 -artifact_prefix=fuzz/
+    just fuzz-qpack && ./fuzz/fuzz_qpack -runs=1 -artifact_prefix=fuzz/
+    just fuzz-x509 && ./fuzz/fuzz_x509 -runs=1 -artifact_prefix=fuzz/
+
 # format all sources in place (clang-format, .clang-format config).
 # Reroutes itself through the flake devShell when run outside one: a host
 # clang-format of another version reflows differently and CI's fmt-check
