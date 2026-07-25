@@ -4,7 +4,7 @@
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
 
-/* RFC 5280 4.1.2. TBSCertificate ::= SEQUENCE {
+/** RFC 5280 4.1.2. TBSCertificate ::= SEQUENCE {
  *   version [0] EXPLICIT INTEGER DEFAULT v1, serialNumber INTEGER,
  *   signature AlgorithmIdentifier, issuer Name, validity Validity,
  *   subject Name, subjectPublicKeyInfo, ... extensions [3] EXPLICIT }.

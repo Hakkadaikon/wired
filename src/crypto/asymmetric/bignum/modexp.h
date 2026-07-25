@@ -3,7 +3,7 @@
 
 #include "crypto/asymmetric/bignum/bignum.h"
 
-/* Exponent and modulus of a modular exponentiation. */
+/** Exponent and modulus of a modular exponentiation. */
 typedef struct {
   const quic_bn* exp;
   const quic_bn* mod;

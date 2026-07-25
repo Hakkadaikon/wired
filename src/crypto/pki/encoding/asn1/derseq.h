@@ -6,6 +6,8 @@
 
 /* X.690 8.9. Cursor over the elements inside a SEQUENCE value. */
 
+/** Cursor state: p is the SEQUENCE value's start, off the current read
+ * position, len its total byte length. */
 typedef struct {
   const u8* p;
   usz       off;

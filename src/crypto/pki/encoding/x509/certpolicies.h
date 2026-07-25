@@ -10,7 +10,7 @@
  * the count, but real-world certificates list at most a handful). */
 #define QUIC_X509_CERT_POLICY_MAX 8
 
-/* A fixed-capacity set of policy OID views into a certificate's tbs buffer
+/** A fixed-capacity set of policy OID views into a certificate's tbs buffer
  * (no copying, no allocation). */
 typedef struct {
   quic_span oid[QUIC_X509_CERT_POLICY_MAX];

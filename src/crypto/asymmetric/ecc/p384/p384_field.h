@@ -14,7 +14,7 @@ typedef u64 p384_fe[6];
 extern const p384_fe quic_p384_p;
 extern const p384_fe quic_p384_n;
 
-/* Montgomery parameters for one odd modulus m (R = 2^384). */
+/** Montgomery parameters for one odd modulus m (R = 2^384). */
 typedef struct {
   p384_fe m;
   p384_fe rr;

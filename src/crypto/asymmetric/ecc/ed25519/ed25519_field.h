@@ -8,9 +8,10 @@
  * Field GF(2^255-19) as five 51-bit limbs; group points in extended
  * homogeneous coordinates (RFC 8032 5.1). Not a public API. */
 
+/** GF(2^255-19) field element as five 51-bit limbs. */
 typedef u64 quic_ed_fe[5];
 
-/* Extended homogeneous coordinates (X, Y, Z, T) (RFC 8032 5.1.4). */
+/** Extended homogeneous coordinates (X, Y, Z, T) (RFC 8032 5.1.4). */
 typedef struct {
   quic_ed_fe X, Y, Z, T;
 } quic_ed_ge;

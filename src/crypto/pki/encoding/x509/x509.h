@@ -5,7 +5,7 @@
 #include "common/platform/sys/syscall.h"
 #include "crypto/pki/encoding/asn1/derseq.h"
 
-/* RFC 5280 4.1. Certificate ::= SEQUENCE {
+/** RFC 5280 4.1. Certificate ::= SEQUENCE {
  *   tbsCertificate, signatureAlgorithm, signatureValue }.
  * Views point into the caller's buffer; nothing is copied. */
 typedef struct {

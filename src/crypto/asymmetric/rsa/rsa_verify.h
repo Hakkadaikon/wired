@@ -3,7 +3,7 @@
 
 #include "common/bytes/span/span.h"
 
-/* RSA public key: modulus n and exponent e, both big-endian. */
+/** RSA public key: modulus n and exponent e, both big-endian. */
 typedef struct {
   quic_span n;
   quic_span e;
