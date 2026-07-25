@@ -15,7 +15,7 @@
 /* Whether a MAX_STREAMS value is within the legal range (<= 2^60). */
 int quic_stream_max_streams_ok(u64 max_streams);
 
-/* One of the four stream types (RFC 9000 2.1). */
+/** One of the four stream types (RFC 9000 2.1). */
 typedef struct {
   int is_server;
   int is_uni;

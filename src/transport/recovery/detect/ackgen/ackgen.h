@@ -9,7 +9,7 @@
  * the caller's tracked counters (a monotonic tick unit shared with
  * max_ack_delay). */
 
-/* ack_eliciting_received: the packet just received elicits an ack.
+/** ack_eliciting_received: the packet just received elicits an ack.
  * ack_already_pending: an earlier ack-eliciting packet is still unacked (a
  * second one forces immediate ack). since_last_ack: ticks elapsed since the
  * oldest unacked ack-eliciting packet. */

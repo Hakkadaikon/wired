@@ -10,7 +10,7 @@
  * length. pkts[i] points at pkt_offsets[i] within buf; the return value is
  * the count. */
 
-/* Output slots for a split: pkts[i]/pkt_offsets[i]/pkt_lens[i] for i <
+/** Output slots for a split: pkts[i]/pkt_offsets[i]/pkt_lens[i] for i <
  * max_pkts, capacity max_pkts. */
 typedef struct {
   const u8** pkts;

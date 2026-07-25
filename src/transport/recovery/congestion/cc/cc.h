@@ -15,6 +15,9 @@
 #define QUIC_CC_ALGO_CUBIC 1
 #define QUIC_CC_ALGO_BBR 2
 
+/** RFC 9002 7 congestion controller state: cwnd/ssthresh plus per-algorithm
+ * fields for NewReno recovery tracking, CUBIC's epoch/window, and BBR's
+ * phase machine and round accounting. */
 typedef struct {
   u64      cwnd;
   u64      ssthresh;

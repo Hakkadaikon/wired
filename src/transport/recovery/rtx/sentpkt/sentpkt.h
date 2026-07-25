@@ -25,7 +25,7 @@ typedef struct {
 
 void quic_sentpkt_init(quic_sentpkt* t);
 
-/* A packet to record as sent. */
+/** A packet to record as sent. */
 typedef struct {
   u64 pn;
   u64 time;
@@ -39,7 +39,7 @@ int quic_sentpkt_on_send(quic_sentpkt* t, const quic_sentpkt_out* pkt);
 /* Number of in-use slots (recorded, not yet reclaimed). */
 usz quic_sentpkt_count(const quic_sentpkt* t);
 
-/* An output slice for accumulated u64s (e.g. newly-acked packet numbers):
+/** An output slice for accumulated u64s (e.g. newly-acked packet numbers):
  * out[0..*n) is filled in, *n starts at the caller's count and is advanced. */
 typedef struct {
   u64* out;

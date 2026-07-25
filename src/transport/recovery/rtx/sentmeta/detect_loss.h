@@ -6,14 +6,14 @@
 /* RFC 9002 6.1: packet threshold (kPacketThreshold). */
 #define QUIC_SENTMETA_PACKET_THRESHOLD 3
 
-/* Inputs to one loss-detection pass. */
+/** Inputs to one loss-detection pass. */
 typedef struct {
   u64 largest_acked;
   u64 now;
   u64 loss_delay;
 } quic_sentmeta_loss_in;
 
-/* An output slice for accumulated lost PNs: out[0..*n) is filled, *n starts
+/** An output slice for accumulated lost PNs: out[0..*n) is filled, *n starts
  * at the caller's count and is advanced. Must hold QUIC_SENTMETA_CAP. */
 typedef struct {
   u64* out;

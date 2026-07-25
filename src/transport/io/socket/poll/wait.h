@@ -5,7 +5,7 @@
 
 #define QUIC_POLLIN 0x001 /* POLLIN: data to read */
 
-/* struct pollfd as the kernel expects it (events/revents are short). */
+/** struct pollfd as the kernel expects it (events/revents are short). */
 typedef struct {
   i32 fd;
   u16 events;

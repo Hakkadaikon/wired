@@ -7,7 +7,7 @@
 /* RFC 9002 7.1.2: ECN counts must increase monotonically; a CE increase
  * signals congestion. Counts are cumulative per-path. */
 
-/* Cumulative ECN counts (CE and ECT(0)) at one point in time. */
+/** Cumulative ECN counts (CE and ECT(0)) at one point in time. */
 typedef struct {
   u64 ce;
   u64 ect0;

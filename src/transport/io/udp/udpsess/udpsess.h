@@ -15,6 +15,8 @@
 
 #define QUIC_UDPSESS_PATHS 2
 
+/** One migration path: its peer address/port and the DCID used on it
+ * (RFC 9000 9). */
 typedef struct {
   u32       peer_addr; /* big-endian (network order); 0 = unset */
   u16       peer_port; /* host order */
@@ -22,6 +24,8 @@ typedef struct {
   u8        dcid_len;
 } quic_udpsess_path;
 
+/** A connection migration session: the underlying transport plus each
+ * known path and which one is currently active. */
 typedef struct {
   quic_udp_transport* t;
   quic_udpsess_path   paths[QUIC_UDPSESS_PATHS];
@@ -32,7 +36,7 @@ typedef struct {
  * the transport's current peer and the given DCID. */
 void quic_udpsess_init(quic_udpsess* s, quic_udp_transport* t, quic_span dcid);
 
-/* A candidate peer address: big-endian addr, host-order port. */
+/** A candidate peer address: big-endian addr, host-order port. */
 typedef struct {
   u32 addr;
   u16 port;

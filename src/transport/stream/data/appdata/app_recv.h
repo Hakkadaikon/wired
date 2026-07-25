@@ -4,7 +4,7 @@
 #include "transport/packet/frame/frame/frame.h"
 #include "transport/packet/protect/protect/protect.h"
 
-/* One received 1-RTT packet: the bytes (opened in place) and the connection's
+/** One received 1-RTT packet: the bytes (opened in place) and the connection's
  * short-header DCID length. */
 typedef struct {
   quic_mspan pkt;

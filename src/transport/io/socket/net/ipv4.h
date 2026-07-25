@@ -8,8 +8,8 @@
 #define QUIC_IPV4_HDR 20
 #define QUIC_IP_PROTO_UDP 17
 
-/* Total length (header + payload), addresses (host order), and protocol for
- * a 20-byte IPv4 header. */
+/** Total length (header + payload), addresses (host order), and protocol
+ * for a 20-byte IPv4 header. */
 typedef struct {
   u16 total_len;
   u32 src;

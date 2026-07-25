@@ -3,7 +3,7 @@
 
 #include "common/platform/sys/syscall.h"
 
-/* Path validation state for the RFC 9000 8.1 amplification limit. */
+/** Path validation state for the RFC 9000 8.1 amplification limit. */
 typedef struct {
   u64 received_bytes;
   u64 sent_bytes;

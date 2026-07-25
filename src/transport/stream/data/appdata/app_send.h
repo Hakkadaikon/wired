@@ -3,7 +3,7 @@
 
 #include "transport/packet/protect/protect/protect.h"
 
-/* One outgoing 1-RTT STREAM payload: the short-header DCID, the packet
+/** One outgoing 1-RTT STREAM payload: the short-header DCID, the packet
  * number, and the stream data to frame. */
 typedef struct {
   quic_span dcid;

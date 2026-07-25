@@ -9,19 +9,19 @@
 
 #define QUIC_UDP_HDR 8
 
-/* IPv4 addresses (host order) needed for the pseudo-header checksum. */
+/** IPv4 addresses (host order) needed for the pseudo-header checksum. */
 typedef struct {
   u32 src;
   u32 dst;
 } quic_ipv4addrs;
 
-/* Source and destination UDP ports (host order). */
+/** Source and destination UDP ports (host order). */
 typedef struct {
   u16 sport;
   u16 dport;
 } quic_udpports;
 
-/* Ports and addresses (both host order) for one UDP/IPv4 datagram. */
+/** Ports and addresses (both host order) for one UDP/IPv4 datagram. */
 typedef struct {
   quic_udpports  ports;
   quic_ipv4addrs addrs;
