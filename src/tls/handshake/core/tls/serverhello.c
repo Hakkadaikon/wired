@@ -22,25 +22,38 @@ static void take_version(quic_span d, u16* version) {
   if (d.n == 2) *version = (u16)d.p[0] << 8 | d.p[1];
 }
 
-/* Where a walked extension writes its findings. */
+/* Where a walked extension writes its findings. pub_cap is the caller's
+ * actual buffer size (32 for the frozen x25519-only entry point, 65 for the
+ * either-group one) -- ext_keyshare_parse enforces it before writing a
+ * single byte, so a secp256r1 reply can never overrun a 32-byte pub on the
+ * x25519-only path (its klen=65 > pub_cap=32 rejects the entry outright). */
 typedef struct {
   u8*  pub;
   u16* version;
+  u16  group;
+  usz  pub_cap;
   int  have_ks;
+  int  x25519_only;
 } sh_fields;
 
-/* Dispatch one extension (type t, data d) into fields. */
-static int sh_ext_keyshare_ok(quic_span d, u8* pub) {
-  u16 group;
-  usz pub_len;
-  if (!quic_tls_ext_key_share_parse(d.p, d.n, &group, pub, &pub_len, 32))
-    return 0;
+/* The frozen x25519-only contract: reject anything but x25519/32 bytes. */
+static int sh_is_x25519(u16 group, usz pub_len) {
   return group == QUIC_GROUP_X25519 && pub_len == 32;
+}
+
+/* Dispatch one extension (type t, data d) into fields. */
+static int sh_ext_keyshare_ok(quic_span d, sh_fields* f) {
+  usz pub_len;
+  if (!quic_tls_ext_key_share_parse(
+          d.p, d.n, &f->group, f->pub, &pub_len, f->pub_cap))
+    return 0;
+  /* ext_keyshare_parse already checked pub_len against the group */
+  return !f->x25519_only || sh_is_x25519(f->group, pub_len);
 }
 
 static void sh_ext(unsigned t, quic_span d, sh_fields* f) {
   if (t == QUIC_EXT_KEY_SHARE)
-    f->have_ks = sh_ext_keyshare_ok(d, f->pub);
+    f->have_ks = sh_ext_keyshare_ok(d, f);
   else if (t == QUIC_EXT_SUPPORTED_VERSIONS)
     take_version(d, f->version);
 }
@@ -85,13 +98,28 @@ static int sh_locate(quic_span b, u16* cipher, quic_span* block) {
   return sh_prefix(b, cipher, &exts) && sh_block(b, exts, block);
 }
 
-int quic_tls_parse_server_hello(
-    quic_span buf, u8 server_pub[32], quic_serverhello_out* out) {
+/* Shared body for both entry points: locate the extensions block and walk
+ * it into *f (pub/version/pub_cap/x25519_only already set by the caller). */
+static int sh_parse(quic_span buf, quic_serverhello_out* out, sh_fields* f) {
   usz       body_len;
   quic_span block;
-  sh_fields f = {server_pub, &out->version, 0};
+  f->version = &out->version;
   if (!is_server_hello(buf, &body_len)) return 0;
   if (!sh_locate(quic_span_of(buf.p + 4, body_len), &out->cipher, &block))
     return 0;
-  return sh_walk(block, &f);
+  return sh_walk(block, f);
+}
+
+int quic_tls_parse_server_hello(
+    quic_span buf, u8 server_pub[32], quic_serverhello_out* out) {
+  sh_fields f = {server_pub, 0, 0, 32, 0, 1};
+  return sh_parse(buf, out, &f);
+}
+
+int quic_tls_parse_server_hello_group(
+    quic_span buf, u8 server_pub[65], u16* group, quic_serverhello_out* out) {
+  sh_fields f = {server_pub, 0, 0, 65, 0, 0};
+  if (!sh_parse(buf, out, &f)) return 0;
+  *group = f.group;
+  return 1;
 }
