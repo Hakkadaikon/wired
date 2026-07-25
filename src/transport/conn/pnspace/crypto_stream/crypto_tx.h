@@ -8,7 +8,8 @@
  * Bytes longer than max_frame are split across consecutive CRYPTO frames at
  * increasing offsets starting from base_offset. */
 
-/* Everything quic_crypto_stream_emit needs besides tls_bytes and the output. */
+/** Everything quic_crypto_stream_emit needs besides tls_bytes and the
+ * output. */
 typedef struct {
   u64 base_offset;
   usz max_frame;

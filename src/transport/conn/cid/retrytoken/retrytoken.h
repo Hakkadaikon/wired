@@ -12,7 +12,7 @@
 #define QUIC_RETRYTOKEN_LEN 32 /* HMAC-SHA256 output */
 #define QUIC_RETRYTOKEN_KEY 32
 
-/* The client address and original DCID bound into a Retry token. */
+/** The client address and original DCID bound into a Retry token. */
 typedef struct {
   quic_span addr;
   quic_span odcid;

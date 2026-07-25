@@ -9,6 +9,7 @@
  * the connection moves one-way to CLOSING, DRAINING, or CLOSED and never
  * reopens. CLOSED is a stable terminal. */
 
+/** RFC 9000 10: the close-lifecycle phase (open phases collapsed to OPEN). */
 typedef enum {
   QUIC_LIFE_OPEN = 0,
   QUIC_LIFE_CLOSING,
@@ -16,6 +17,7 @@ typedef enum {
   QUIC_LIFE_CLOSED
 } quic_life_phase;
 
+/** The close-lifecycle phase plus its idle and close timers. */
 typedef struct {
   quic_life_phase phase;
   u64             idle_ticks; /* counts up while open; fires at idle_max */

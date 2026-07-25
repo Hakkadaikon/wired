@@ -11,6 +11,7 @@
 
 #define QUIC_PATH_COUNT 2
 
+/** Per-path validation and anti-amplification state (RFC 9000 8.2/9). */
 typedef struct {
   u64 challenge;         /* outstanding PATH_CHALLENGE payload; 0 = none sent */
   u64 challenge_sent_at; /* clock reading when challenge was sent */
@@ -20,6 +21,7 @@ typedef struct {
   u8  confirmed;
 } quic_path_state;
 
+/** The set of tracked paths and which one is currently active. */
 typedef struct {
   quic_path_state paths[QUIC_PATH_COUNT];
   usz             active; /* index of the active path */

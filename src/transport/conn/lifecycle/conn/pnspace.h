@@ -3,7 +3,7 @@
 
 #include "common/platform/sys/syscall.h"
 
-/* RFC 9000 12.3: three independent packet number spaces. Each tracks its own
+/** RFC 9000 12.3: three independent packet number spaces. Each tracks its own
  * next packet number and is incremented separately; numbers never cross
  * spaces. */
 typedef enum {

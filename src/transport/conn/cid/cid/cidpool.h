@@ -3,7 +3,7 @@
 
 #include "common/platform/sys/syscall.h"
 
-/* Connection ID issuance/retirement bookkeeping (RFC 9000 5.1.1, 5.1.2).
+/** Connection ID issuance/retirement bookkeeping (RFC 9000 5.1.1, 5.1.2).
  *
  * We track only sequence numbers, not the CID bytes: issued sequence numbers
  * form a contiguous range [retire_lo, next_seq). Everything below retire_lo

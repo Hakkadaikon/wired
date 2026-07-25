@@ -14,12 +14,14 @@
                                 */
 #define QUIC_SRESETDRIVE_CAP 8 /* concurrent CIDs tracked per peer */
 
+/** One connection ID's remembered Stateless Reset Token (RFC 9000 10.3). */
 typedef struct {
   u8 cid[QUIC_SRESETDRIVE_MAX_CID];
   u8 cid_len;
   u8 token[QUIC_SRESETDRIVE_TOKEN];
 } quic_sresetdrive_entry;
 
+/** The set of CID-to-token entries tracked for one peer. */
 typedef struct {
   quic_sresetdrive_entry e[QUIC_SRESETDRIVE_CAP];
   usz                    count;

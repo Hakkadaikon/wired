@@ -6,6 +6,8 @@
 /* RFC 9000 10.2: what a connection may put on the wire depends on its phase.
  * Open phases may send application data; closing may send ONLY a
  * CONNECTION_CLOSE; draining and closed send nothing at all. */
+/** What quic_life_send_kind permits sending in the connection's current
+ * lifecycle phase. */
 typedef enum {
   QUIC_SEND_NONE = 0, /* nothing may be sent */
   QUIC_SEND_CC,       /* only a CONNECTION_CLOSE may be sent */

@@ -21,6 +21,8 @@
  * unbounded queue an attacker could use to exhaust memory. */
 #define QUIC_PENDING1RTT_CAP 4
 
+/** Fixed-capacity FIFO of stored raw datagrams awaiting handshake
+ * completion. */
 typedef struct {
   u8  buf[QUIC_PENDING1RTT_CAP][QUIC_PENDING1RTT_MAX_LEN];
   usz len[QUIC_PENDING1RTT_CAP];

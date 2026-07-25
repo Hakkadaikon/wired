@@ -16,6 +16,8 @@
 
 #define QUIC_ZERORTT_SEEN_CAP 4096
 
+/** Fixed-capacity ring of seen 0-RTT ticket identity digests, for
+ * single-use enforcement (RFC 8446 8.1 / RFC 9001 9.2). */
 typedef struct {
   u8  digest[QUIC_ZERORTT_SEEN_CAP][32]; /* SHA-256 of each seen identity */
   usz next;                              /* ring write cursor */

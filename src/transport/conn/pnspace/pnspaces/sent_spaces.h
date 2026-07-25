@@ -9,6 +9,8 @@
 /* RFC 9000 13: each packet number space tracks its own sent packets and is
  * acknowledged independently; an ACK in one space never touches another. */
 
+/** Per packet-number-space sent-packet tracking (RFC 9000 13): one
+ * quic_sentpkt table per space, acknowledged independently. */
 typedef struct {
   quic_sentpkt t[QUIC_PNS_COUNT];
 } quic_pnspaces_sent;
@@ -20,7 +22,7 @@ void quic_pnspaces_sent_init(quic_pnspaces_sent* s);
 int quic_pnspaces_on_send(
     quic_pnspaces_sent* s, int space, const quic_sentpkt_out* pkt);
 
-/* The space an ACK applies to, plus its ranges (RFC 9000 19.3). */
+/** The space an ACK applies to, plus its ranges (RFC 9000 19.3). */
 typedef struct {
   int         space;
   quic_ackset ackset;

@@ -9,6 +9,9 @@
  * migration switches to an unused connection ID (retiring the old one) and
  * resets congestion control and RTT; a port-only change keeps them. */
 
+/** RFC 9000 9: connection migration state -- the path-validation progress
+ * (detected/challenged/validated/confirmed), the current connection ID, and
+ * whether congestion control was reset for a full (non-port-only) migration. */
 typedef struct {
   int handshake_confirmed;
   int detected;

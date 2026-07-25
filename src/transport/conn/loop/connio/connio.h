@@ -18,6 +18,9 @@
  * connio is the wiring between that decision and the protect/dispatch layers.
  */
 
+/** RFC 9001 5: connection I/O state -- the gating loop, receive sinks, the
+ * dispatch view, our DCID/header byte, and per-space send/receive packet
+ * numbers. */
 typedef struct {
   quic_connloop            loop;   /* state + gating (owns the keyset) */
   quic_stream_read         stream; /* STREAM data sink */
@@ -30,7 +33,7 @@ typedef struct {
   u64           rx_pn[QUIC_PNS_COUNT]; /* per-space next expected inbound PN */
 } quic_connio;
 
-/* The header parameters for a fresh connio, besides its DCID. */
+/** The header parameters for a fresh connio, besides its DCID. */
 typedef struct {
   int is_server;
   u8  byte0;
@@ -49,7 +52,7 @@ void quic_connio_init(
  * failed. `datagram` is modified in place (header protection / AEAD). */
 int quic_connio_recv(quic_connio* io, int level, quic_mspan datagram);
 
-/* The protection level and frame bytes to seal into a packet. */
+/** The protection level and frame bytes to seal into a packet. */
 typedef struct {
   int       level;
   quic_span frames;

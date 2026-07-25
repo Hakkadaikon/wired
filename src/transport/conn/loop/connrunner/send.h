@@ -25,7 +25,7 @@ void quic_connrunner_capture_rtx(quic_connrunner* r);
  * Returns the sealed datagram length, or 0 if nothing was sent. */
 usz quic_connrunner_flush_sends(quic_connrunner* r, u64 sent_before, int kind);
 
-/* Everything quic_connrunner_track_sent needs besides the runner. */
+/** Everything quic_connrunner_track_sent needs besides the runner. */
 typedef struct {
   u64 now;
   int kind;

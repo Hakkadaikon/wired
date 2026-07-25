@@ -4,7 +4,7 @@
 #include "common/bytes/span/span.h"
 #include "common/platform/sys/syscall.h"
 
-/* RFC 9000 7.2/7.3: drives the Initial Connection ID exchange.
+/** RFC 9000 7.2/7.3: drives the Initial Connection ID exchange.
  *
  * A client's first Initial carries a random Destination CID (it does not yet
  * know the server's real CID) and its own Source CID. The server records that

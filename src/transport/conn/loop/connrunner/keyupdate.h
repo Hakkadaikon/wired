@@ -19,7 +19,7 @@ void quic_connrunner_keyupdate_init(quic_connrunner* r);
  * the handshake is confirmed a phase change does not select the next gen. */
 int quic_connrunner_recv_keygen(quic_connrunner* r, u8 byte0);
 
-/* Everything quic_connrunner_maybe_initiate_ku needs besides the runner. */
+/** Everything quic_connrunner_maybe_initiate_ku needs besides the runner. */
 typedef struct {
   u64 now;
   u64 threshold;
