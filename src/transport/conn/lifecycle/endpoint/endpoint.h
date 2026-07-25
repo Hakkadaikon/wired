@@ -11,6 +11,8 @@
  * layer that ties together x25519, the TLS key schedule, the packet
  * protection pipeline, and the userspace IP/UDP stack. */
 
+/** A QUIC endpoint's X25519 key pair, connection ID, and handshake-level
+ * packet protection keys once the ECDHE agreement completes. */
 typedef struct {
   u8                priv[32];     /* X25519 private key */
   u8                pub[32];      /* X25519 public key */
@@ -23,7 +25,7 @@ typedef struct {
  * the public key. */
 void quic_endpoint_init(quic_endpoint* e, const u8 priv[32], const u8 dcid[8]);
 
-/* The peer-side inputs to the key agreement: its X25519 public key (32
+/** The peer-side inputs to the key agreement: its X25519 public key (32
  * bytes), the handshake transcript, and the direction the derived keys are
  * for. */
 typedef struct {

@@ -28,6 +28,8 @@
  *   quic_session_recv_stream(&cli, &got);             // reads and decrypts it
  */
 
+/** A usable QUIC session: endpoint key material, connection phase, Initial/
+ * handshake protection state, and the in-memory link it drives over. */
 typedef struct {
   quic_endpoint     ep;    /* key material and ECDHE */
   quic_conn         conn;  /* phase + per-space packet numbers */
@@ -47,7 +49,7 @@ typedef struct {
   u8 rxbuf[1200];
 } quic_session;
 
-/* Everything quic_session_init needs besides the session. */
+/** Everything quic_session_init needs besides the session. */
 typedef struct {
   const u8*     priv; /* [32] */
   const u8*     dcid; /* [8] */
@@ -74,7 +76,7 @@ int quic_session_accept(quic_session* s);
 int quic_session_finish(
     quic_session* client, quic_session* server, quic_span transcript);
 
-/* One outgoing STREAM message: the stream, its payload, and the FIN bit. */
+/** One outgoing STREAM message: the stream, its payload, and the FIN bit. */
 typedef struct {
   u64       stream_id;
   quic_span data;

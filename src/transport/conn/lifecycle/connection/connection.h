@@ -12,6 +12,8 @@
  * in-memory link, the connection ID, and the role, so a caller can push one
  * protected packet and pull one back without touching the protection
  * pipeline directly. */
+/** RFC 9000 12 / RFC 9001 4: a connection's keyset, phase/packet-number-space
+ * machine, link, connection ID and role, plus its receive scratch buffer. */
 typedef struct {
   quic_keyset   keys;
   quic_conn     conn;
@@ -26,7 +28,7 @@ typedef struct {
   u8 rxbuf[QUIC_MEMLINK_MTU];
 } quic_connection;
 
-/* Everything quic_connection_init needs besides the connection. */
+/** Everything quic_connection_init needs besides the connection. */
 typedef struct {
   const u8*     dcid; /* [8] */
   quic_memlink* link;

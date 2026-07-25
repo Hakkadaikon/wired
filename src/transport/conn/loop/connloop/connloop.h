@@ -21,6 +21,9 @@ enum {
   QUIC_CONNLOOP_CLOSED
 };
 
+/** The send/receive loop's state: per-level keyset, sent-packet tracking,
+ * monotonic send level, handshake/validation flags, lifecycle phase, PTO
+ * arming, and byte/auth-failure accounting. */
 typedef struct {
   quic_keyset  keys;
   quic_sentpkt sent;
@@ -51,7 +54,7 @@ void quic_connloop_init(quic_connloop* c, int is_server);
  * phase). */
 int quic_connloop_on_recv(quic_connloop* c, int level, usz len);
 
-/* Everything quic_connloop_on_send needs besides the loop. */
+/** Everything quic_connloop_on_send needs besides the loop. */
 typedef struct {
   int level;
   int ack_eliciting;
@@ -81,7 +84,7 @@ void quic_connloop_validate(quic_connloop* c);
  * failures keep aead_limit set. */
 void quic_connloop_on_auth_fail(quic_connloop* c, int is_chacha);
 
-/* Everything quic_connloop_on_ack needs besides the loop. */
+/** Everything quic_connloop_on_ack needs besides the loop. */
 typedef struct {
   u64        ack_largest;
   const u64* ack_ranges;
@@ -94,7 +97,7 @@ typedef struct {
  * Returns the number of packets newly acknowledged. */
 usz quic_connloop_on_ack(quic_connloop* c, const quic_connloop_ack_in* in);
 
-/* Everything quic_connloop_on_pto needs besides the loop. */
+/** Everything quic_connloop_on_pto needs besides the loop. */
 typedef struct {
   int level;
   u64 pn;

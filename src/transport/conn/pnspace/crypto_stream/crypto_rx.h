@@ -7,6 +7,8 @@
  * overlapping into the contiguous TLS byte stream, delivering only the prefix
  * from offset 0. */
 
+/** RFC 9000 19.6 / 7.5: reassembly state for one CRYPTO stream, tracking how
+ * much of the contiguous prefix has already been read out. */
 typedef struct {
   quic_reasm reasm;
   u64        read_upto; /* bytes already handed out via read */

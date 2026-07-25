@@ -4,7 +4,7 @@
 #include "common/bytes/span/span.h"
 #include "transport/packet/header/packet/header.h"
 
-/* RFC 9000 17.2.5: reconnection state after a client accepts a Retry. Holds
+/** RFC 9000 17.2.5: reconnection state after a client accepts a Retry. Holds
  * the token to put in every subsequent Initial, the new DCID (the Retry's
  * SCID), and key_rederive: the Initial keys must be re-derived because the
  * Initial secret is salted with the DCID (RFC 9001 5.2). */

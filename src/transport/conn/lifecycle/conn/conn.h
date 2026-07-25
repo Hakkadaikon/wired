@@ -3,7 +3,7 @@
 
 #include "common/platform/sys/syscall.h"
 
-/* RFC 9000 handshake phase + connection lifecycle. Forward-only through the
+/** RFC 9000 handshake phase + connection lifecycle. Forward-only through the
  * open phases; any open phase may move to closing/draining, both -> closed. */
 typedef enum {
   QUIC_PHASE_INITIAL = 0,
@@ -14,6 +14,7 @@ typedef enum {
   QUIC_PHASE_CLOSED
 } quic_phase;
 
+/** Events that drive quic_conn_step's phase transitions. */
 typedef enum {
   QUIC_CONN_EV_HS_PROGRESS,  /* Initial -> Handshake */
   QUIC_CONN_EV_HS_CONFIRMED, /* Handshake -> Confirmed */
@@ -22,7 +23,7 @@ typedef enum {
   QUIC_CONN_EV_CLOSED        /* Closing/Draining -> Closed */
 } quic_conn_event;
 
-/* RFC 9000 12.3: three independent packet number spaces. */
+/** RFC 9000 12.3: three independent packet number spaces. */
 typedef enum {
   QUIC_PN_INITIAL = 0,
   QUIC_PN_HANDSHAKE,
@@ -30,7 +31,7 @@ typedef enum {
   QUIC_PN_SPACE_COUNT
 } quic_pn_space;
 
-/* A connection's phase plus the next packet number per space. Each space's
+/** A connection's phase plus the next packet number per space. Each space's
  * counter is strictly monotonic (next = last + 1), which by construction
  * forbids reuse and non-monotonic packet numbers. */
 typedef struct {

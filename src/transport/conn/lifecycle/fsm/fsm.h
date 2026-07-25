@@ -7,11 +7,12 @@
  * connection state machines. A transition is legal iff some row names the
  * current (from, event) pair; applying it moves the state to that row's to. */
 
+/** One legal transition: from state `from` on event `ev`, move to `to`. */
 typedef struct {
   u8 from, ev, to;
 } quic_fsm_row;
 
-/* A transition table: rows[0..count). */
+/** A transition table: rows[0..count). */
 typedef struct {
   const quic_fsm_row* rows;
   usz                 count;

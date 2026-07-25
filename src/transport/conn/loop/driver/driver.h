@@ -17,6 +17,8 @@
 #define QUIC_DRIVER_DGRAM_CAP 256
 #define QUIC_DRIVER_FLIGHT_MAX 7
 
+/** The connection driver: ties the handshake order machine, key schedule,
+ * and connio transport together and runs them to completion. */
 typedef struct {
   quic_connio   io; /* real seal/open transport + connloop gate */
   quic_hsdriver hs; /* handshake message order machine */

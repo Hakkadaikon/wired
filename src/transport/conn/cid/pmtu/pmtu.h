@@ -31,6 +31,9 @@
  * number) plus the 16-byte AEAD authentication tag (RFC 9001 5.3). */
 #define QUIC_PMTU_OVERHEAD 41
 
+/** RFC 8899 DPLPMTUD search state: the validated/probe/ceiling/lost sizes,
+ * whether a search is in progress, and the probe-loss and timer bookkeeping
+ * that drives it. */
 typedef struct {
   usz validated;     /* largest packet size confirmed to traverse the path */
   usz probe;         /* size of the probe currently outstanding (0 if none) */

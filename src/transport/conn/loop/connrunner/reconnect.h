@@ -17,7 +17,7 @@
 /* Reset the Retry and VN reconnect state for a fresh connection attempt. */
 void quic_connrunner_reconnect_init(quic_connrunner* r);
 
-/* One received Retry: the Integrity Tag verdict, its SCID and its token. */
+/** One received Retry: the Integrity Tag verdict, its SCID and its token. */
 typedef struct {
   int       tag_valid; /* Retry Integrity Tag result */
   quic_span scid;      /* Retry SCID */
@@ -40,8 +40,8 @@ int quic_connrunner_retry_rederive(quic_connrunner* r);
 void quic_connrunner_initial_token(
     const quic_connrunner* r, const u8** token, usz* len);
 
-/* One Version Negotiation packet: the server's offered list and the client's
- * supported list in preference order. */
+/** One Version Negotiation packet: the server's offered list and the
+ * client's supported list in preference order. */
 typedef struct {
   quic_verlist offered;
   quic_verlist supported;

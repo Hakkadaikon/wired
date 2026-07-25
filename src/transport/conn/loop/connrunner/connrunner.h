@@ -20,6 +20,9 @@
 #define QUIC_CONNRUNNER_BUF \
   1500 /* RFC 9000 14: a conservative datagram bound */
 
+/** The top-level connection runner: binds the evloop state machine to a
+ * real socket and real cryptography, and drives one send/receive iteration.
+ */
 typedef struct {
   i64           fd;
   quic_sockaddr peer;
@@ -48,7 +51,7 @@ typedef struct {
   u8        txbuf[QUIC_CONNRUNNER_BUF];
 } quic_connrunner;
 
-/* Everything quic_connrunner_init needs besides the runner and the DCID. */
+/** Everything quic_connrunner_init needs besides the runner and the DCID. */
 typedef struct {
   i64                  fd;
   const quic_sockaddr* peer;

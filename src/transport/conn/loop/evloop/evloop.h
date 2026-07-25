@@ -14,20 +14,26 @@
 
 #define QUIC_EVLOOP_QCAP 64
 
+/** One queued receive: whether it owes an ACK (RFC 9000 13.2.1). */
 typedef struct {
   int ack_eliciting; /* RFC 9000 13.2.1: receiving this owes an ACK */
 } quic_evloop_rx;
 
+/** One packet queued for retransmission: its original packet number and
+ * size. */
 typedef struct {
   u64 pn;  /* original packet number of the lost packet */
   usz len; /* its size, to re-send under a fresh number */
 } quic_evloop_rtx;
 
+/** A single deadline-armed timer. */
 typedef struct {
   int armed;
   u64 deadline; /* fires once now >= deadline */
 } quic_evloop_timer;
 
+/** The steady-state event loop state for one connection: gating, queues,
+ * timers, congestion window, and key-update tracking. */
 typedef struct {
   quic_connloop gate; /* RFC 9000 12.2: send/recv/ack/pto/close gating */
 
@@ -55,7 +61,7 @@ typedef struct {
   u64 pto_period;      /* RFC 9001 6.1: 3*PTO retention is measured against */
 } quic_evloop;
 
-/* Everything quic_evloop_init needs besides the loop itself. */
+/** Everything quic_evloop_init needs besides the loop itself. */
 typedef struct {
   int level;
   u64 cwnd;

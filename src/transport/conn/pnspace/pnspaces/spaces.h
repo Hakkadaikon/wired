@@ -8,6 +8,8 @@
  * 0 and advancing without affecting the others. Thin wrapper over quic_pnspace
  * giving the pnspaces-facing send-side API. */
 
+/** Send-side wrapper over quic_pnspace: the three independent packet
+ * number spaces (RFC 9000 12.3). */
 typedef struct {
   quic_pnspace pn;
 } quic_pnspaces;
