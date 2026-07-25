@@ -21,7 +21,7 @@ export type VoiceChatState = {
 export const useVoiceChatStore = create<VoiceChatState>((set) => ({
   connectionState: "connecting",
   reconnecting: false,
-  muted: true,
+  muted: false,
   messages: [],
   setConnectionState: (connectionState) => set({ connectionState }),
   setReconnecting: (reconnecting) => set({ reconnecting }),
