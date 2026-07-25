@@ -103,6 +103,7 @@ void quic_sdrv_init(quic_sdrv* s, const quic_sdrv_init_in* in) {
   s->peer_max_datagram_frame_size = 0;
   s->alpn                         = QUIC_SALPN_NONE;
   s->cipher_suite                 = QUIC_TLS_AES_128_GCM_SHA256;
+  s->group                        = QUIC_GROUP_X25519;
   sdrv_copy32(s->server_priv, in->server_priv_x25519);
   sdrv_copy32(s->server_pub, in->server_pub_x25519);
   sdrv_copy32(s->p256_priv, in->sign_priv);
@@ -136,6 +137,8 @@ static int sdrv_set_cid(u8* dst, u8* dst_len, quic_span cid) {
   *dst_len = (u8)cid.n;
   return 1;
 }
+
+void quic_sdrv_set_group(quic_sdrv* s, u16 group) { s->group = group; }
 
 int quic_sdrv_set_cids(quic_sdrv* s, quic_span odcid, quic_span iscid) {
   return sdrv_set_cid(s->odcid, &s->odcid_len, odcid) &&
@@ -179,30 +182,31 @@ static int sdrv_ch_hdr(
   return 1;
 }
 
-/* One extension at *q: -1 overrun, 1 key_share taken, 0 skip; *q advances.
- * RFC 8446 4.2.8: the ClientHello key_share lists several KeyShareEntry, so
- * scan the list for x25519 rather than assuming it is the first entry. */
-static int sdrv_ch_keyshare_scan(const u8* d, usz dlen, u8 pub[32]) {
+/* One extension at *q: -1 overrun, 1 want_group's key_share taken, 0 skip;
+ * *q advances. RFC 8446 4.2.8: the ClientHello key_share lists several
+ * KeyShareEntry, so scan the list for want_group rather than assuming it is
+ * the first entry. */
+static int sdrv_ch_keyshare_scan(
+    const u8* d, usz dlen, u16 want_group, u8 pub[65]) {
   usz pub_len;
-  if (!quic_tls_ext_key_share_scan(
-          d, dlen, QUIC_GROUP_X25519, pub, &pub_len, 32))
-    return 0;
-  return pub_len == 32;
+  return quic_tls_ext_key_share_scan(d, dlen, want_group, pub, &pub_len, 65);
 }
 
-static int sdrv_ch_one(const sdrv_ch_block* blk, usz* q, u8 pub[32]) {
+static int sdrv_ch_one(
+    const sdrv_ch_block* blk, usz* q, u16 want_group, u8 pub[65]) {
   unsigned type;
   usz      dlen, start = *q;
   if (!sdrv_ch_hdr(blk, q, &type, &dlen)) return -1;
   return (type == QUIC_EXT_KEY_SHARE)
-             ? sdrv_ch_keyshare_scan(blk->b + start + 4, dlen, pub)
+             ? sdrv_ch_keyshare_scan(blk->b + start + 4, dlen, want_group, pub)
              : 0;
 }
 
-static int sdrv_ch_walk(const u8* b, usz q, usz end, u8 pub[32]) {
+static int sdrv_ch_walk(
+    const u8* b, usz q, usz end, u16 want_group, u8 pub[65]) {
   sdrv_ch_block blk = {b, end};
   int           r   = 0;
-  while (r == 0 && q + 4 <= end) r = sdrv_ch_one(&blk, &q, pub);
+  while (r == 0 && q + 4 <= end) r = sdrv_ch_one(&blk, &q, want_group, pub);
   return r == 1;
 }
 
@@ -255,12 +259,14 @@ static int sdrv_ch_exts_span(const u8* b, usz body, usz* start, usz* end) {
   return *end <= body;
 }
 
-/* Take the client x25519 key_share from a ClientHello (header included). */
-static int take_client_keyshare(const u8* ch, usz ch_len, u8 pub[32]) {
+/* Take the client's want_group key_share from a ClientHello (header
+ * included). */
+static int take_client_keyshare(
+    const u8* ch, usz ch_len, u16 want_group, u8 pub[65]) {
   usz body, start, end;
   if (!sdrv_is_client_hello(ch, ch_len, &body)) return 0;
   if (!sdrv_ch_exts_span(ch + 4, body, &start, &end)) return 0;
-  return sdrv_ch_walk(ch + 4, start, end, pub);
+  return sdrv_ch_walk(ch + 4, start, end, want_group, pub);
 }
 
 /* One extension at *q: -1 overrun, 1 if it names want_type (*ext set to its
@@ -700,7 +706,7 @@ static int sdrv_ch_negotiate_cipher_gate(
  * HRR was armed instead (quic_sdrv_hrr_pending is now 1, not an error). */
 static int sdrv_ch_keyshare_or_arm_hrr(
     quic_sdrv* s, const u8* ch_msg, usz ch_len) {
-  if (take_client_keyshare(ch_msg, ch_len, s->client_pub)) return 1;
+  if (take_client_keyshare(ch_msg, ch_len, s->group, s->client_pub)) return 1;
   sdrv_ch_arm_hrr(s, ch_msg, ch_len);
   return 0;
 }
@@ -981,7 +987,7 @@ static void sdrv_hrr_reset_transcript(
 }
 
 int quic_sdrv_build_hrr(quic_sdrv* s, quic_obuf* out) {
-  if (!quic_hrr_build(QUIC_GROUP_X25519, quic_span_of(0, 0), out)) return 0;
+  if (!quic_hrr_build(s->group, quic_span_of(0, 0), out)) return 0;
   sdrv_hrr_reset_transcript(s, out->p, out->len);
   s->hrr_sent   = 1;
   s->hrr_needed = 0;

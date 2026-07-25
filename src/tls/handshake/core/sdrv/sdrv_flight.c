@@ -1,6 +1,7 @@
 #include "crypto/asymmetric/ecc/cvecdsa/cvecdsa.h"
 #include "tls/ext/stp/server_tp.h"
 #include "tls/handshake/core/sdrv/sdrv.h"
+#include "tls/handshake/core/tls/ext_keyshare.h"
 #include "tls/handshake/core/tls/handshake.h"
 #include "tls/handshake/core/tls/schedule.h"
 #include "tls/handshake/core/tls/x25519.h"
@@ -8,6 +9,7 @@
 #include "tls/handshake/roles/sflight/certmsg.h"
 #include "tls/handshake/roles/sflight/finished_build.h"
 #include "tls/handshake/roles/shbuild/shbuild.h"
+#include "transport/conn/pnspace/crypto_stream/ecdhe.h"
 
 /* RFC 8446 4 / RFC 9001 4: build the server handshake flight after ClientHello.
  */
@@ -35,12 +37,21 @@ static void sdrv_derive_handshake_secret(quic_sdrv* s, const u8 ecdhe[32]) {
     quic_tls_handshake_secret(ecdhe, s->hs_secret);
 }
 
+/* RFC 8446 7.4.2: the ECDHE shared secret over the negotiated group
+ * (x25519 or secp256r1, RFC 8446 4.2.7), dispatched via
+ * quic_crypto_stream_ecdhe_group so this driver never re-implements the
+ * per-group ECDH switch (ecdhe.c's ecdh_dispatch equivalent). */
+static int sdrv_ecdhe(const quic_sdrv* s, u8 ecdhe[QUIC_ECDHE_LEN]) {
+  return quic_crypto_stream_ecdhe_group(
+      s->group, s->server_priv, s->client_pub, ecdhe);
+}
+
 /* RFC 8446 7.1: ECDHE shared secret, Handshake Secret, and the server
  * handshake traffic secret over the transcript through ServerHello (the
  * Finished's finished_key). Called right after ServerHello is folded in. */
 static int derive_secret(quic_sdrv* s) {
-  u8 ecdhe[QUIC_X25519_LEN], th[QUIC_SHA256_DIGEST];
-  if (!quic_x25519(ecdhe, s->server_priv, s->client_pub)) return 0;
+  u8 ecdhe[QUIC_ECDHE_LEN], th[QUIC_SHA256_DIGEST];
+  if (!sdrv_ecdhe(s, ecdhe)) return 0;
   sdrv_derive_handshake_secret(s, ecdhe);
   quic_transcript_hash(&s->tr, th);
   quic_hkdf_label l = {"s hs traffic", 12, {th, QUIC_SHA256_DIGEST}};
@@ -122,11 +133,17 @@ static int emit_hs_flight(quic_sdrv* s, quic_obuf* flight) {
 }
 
 /* RFC 8446 4.1.3: build the ServerHello, fold it in, and derive secrets. */
-static int build_server_hello(quic_sdrv* s, const u8* random, quic_obuf* out) {
-  quic_shbuild_in in = {
-      random, quic_span_of(s->client_sid, s->client_sid_len), s->cipher_suite,
-      s->server_pub, s->psk_accepted};
-  if (!quic_shbuild_server_hello(&in, out)) return 0;
+static int sdrv_build_server_hello(
+    quic_sdrv* s, const u8* random, quic_obuf* out) {
+  quic_shbuild_group_in in = {
+      random,
+      quic_span_of(s->client_sid, s->client_sid_len),
+      s->cipher_suite,
+      s->server_pub,
+      s->psk_accepted,
+      s->group,
+      quic_tls_ext_key_share_len(s->group)};
+  if (!quic_shbuild_server_hello_group(&in, out)) return 0;
   quic_transcript_add(&s->tr, out->p, out->len);
   if (!derive_secret(s)) return 0;
   return 1;
@@ -135,6 +152,6 @@ static int build_server_hello(quic_sdrv* s, const u8* random, quic_obuf* out) {
 int quic_sdrv_build_server_flight(
     quic_sdrv* s, const u8* server_random, const quic_sdrv_flight_out* out) {
   out->hs->len = 0;
-  if (!build_server_hello(s, server_random, out->sh)) return 0;
+  if (!sdrv_build_server_hello(s, server_random, out->sh)) return 0;
   return emit_hs_flight(s, out->hs);
 }
