@@ -41,10 +41,11 @@ static int append_self(quic_obuf* out, ext_enc enc) {
 }
 
 /* The mandatory extensions: supported_versions, supported_groups,
- * signature_algorithms, key_share. */
-static int append_core(quic_obuf* out, const u8 pub[32]) {
-  u8  ks[42];
-  usz kw = quic_tls_ext_key_share(ks, sizeof(ks), QUIC_GROUP_X25519, pub, 32);
+ * signature_algorithms, key_share. ks[75] fits the widest supported group
+ * (secp256r1: 4 + 2 + 4 + 65). */
+static int append_core(quic_obuf* out, const u8* pub, u16 group, usz pub_len) {
+  u8  ks[75];
+  usz kw = quic_tls_ext_key_share(ks, sizeof(ks), group, pub, pub_len);
   int ok = append_self(out, quic_tls_ext_supported_versions);
   ok &= append_self(out, quic_tls_ext_supported_groups);
   ok &= append_self(out, quic_tls_ext_sig_algs);
@@ -83,12 +84,14 @@ static int append_tp(quic_obuf* out, quic_span tp) {
 typedef struct {
   quic_span sni;
   quic_span tp;
+  u16       group;
+  usz       pub_len;
 } clienthello_exts_in;
 
 /* Append every extension and return the body end offset, or 0 on overflow. */
 static usz append_exts(
-    quic_obuf* out, const u8 pub[32], const clienthello_exts_in* in) {
-  int ok = append_core(out, pub);
+    quic_obuf* out, const u8* pub, const clienthello_exts_in* in) {
+  int ok = append_core(out, pub, in->group, in->pub_len);
   ok &= append_sni(out, in->sni);
   ok &= append_alpn(out);
   ok &= append_tp(out, in->tp);
@@ -104,15 +107,31 @@ static usz ch_finish(u8* buf, usz off, usz block_start) {
   return end;
 }
 
-usz quic_tls_client_hello(const quic_clienthello_in* in, quic_obuf* out) {
+/* Shared body for both entry points: build the ClientHello for random/pub
+ * and the extension set in exts. */
+static usz build_client_hello(
+    const u8*                  random,
+    const u8*                  pub,
+    const clienthello_exts_in* exts,
+    quic_obuf*                 out) {
   usz off = quic_hs_begin(out->p, out->cap, QUIC_HS_CLIENT_HELLO);
   usz block_start;
-  clienthello_exts_in exts = {in->sni, in->tp};
   if (off == 0 || off + 41 + 2 > out->cap)
     return 0; /* header + prefix + ext_len */
-  off         = put_prefix(out->p, off, in->random);
+  off         = put_prefix(out->p, off, random);
   block_start = off;
   out->len    = off + 2;
-  off         = append_exts(out, in->pub, &exts);
+  off         = append_exts(out, pub, exts);
   return ch_finish(out->p, off, block_start);
+}
+
+usz quic_tls_client_hello(const quic_clienthello_in* in, quic_obuf* out) {
+  clienthello_exts_in exts = {in->sni, in->tp, QUIC_GROUP_X25519, 32};
+  return build_client_hello(in->random, in->pub, &exts, out);
+}
+
+usz quic_tls_client_hello_group(
+    const quic_clienthello_group_in* in, quic_obuf* out) {
+  clienthello_exts_in exts = {in->sni, in->tp, in->group, in->pub_len};
+  return build_client_hello(in->random, in->pub, &exts, out);
 }
