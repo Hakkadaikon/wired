@@ -44,6 +44,12 @@ a {
   text-decoration: none;
 }
 
+/* Keyboard focus visibility: a clear ring, without affecting mouse focus. */
+:focus-visible {
+  outline: 2px solid var(--lk-primary);
+  outline-offset: 2px;
+}
+
 @media (prefers-color-scheme: dark) {
   html {
     color-scheme: dark;
