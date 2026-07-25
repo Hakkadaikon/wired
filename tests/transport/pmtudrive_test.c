@@ -2,6 +2,7 @@
 
 #include "test.h"
 #include "transport/packet/frame/frame/frame.h"
+#include "transport/recovery/detect/recovery/rtt.h"
 
 static const u8 g_pd_dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
 
@@ -250,6 +251,46 @@ static void test_pmtudrive_build_probe_resumes_after_raise_timer(void) {
   CHECK(r.pmtu.searching == 1);
 }
 
+/* RFC 8899 3.7: a fresh probe must not follow the previous one by less than
+ * one RTT, even though probe transmission bypasses the congestion controller.
+ * Right after an ack resolves the outstanding probe, an immediate re-attempt
+ * (elapsed < 1 RTT) yields no candidate. */
+static void test_pmtudrive_next_probe_blocked_within_min_interval(void) {
+  quic_connrunner r;
+  pd_mk_runner(&r);
+  u8        pkt[QUIC_PMTU_MAX + 64];
+  quic_obuf ob1 = quic_obuf_of(pkt, sizeof(pkt));
+  CHECK(quic_connrunner_pmtu_build_probe(&r, &ob1, 1000) != 0);
+  u64 pn = r.pmtu_probe_pn;
+
+  quic_connrunner_pmtu_on_ack(&r, pn);
+
+  quic_obuf ob2 = quic_obuf_of(pkt, sizeof(pkt));
+  usz       out = quic_connrunner_pmtu_build_probe(
+      &r, &ob2, 1000 + QUIC_RTT_INITIAL_US - 1);
+  CHECK(out == 0);
+  CHECK(r.pmtu_probe_held == 0);
+}
+
+/* Counterpart: once at least one RTT has elapsed since the previous probe was
+ * sent, the next probe is allowed. */
+static void test_pmtudrive_next_probe_allowed_after_min_interval(void) {
+  quic_connrunner r;
+  pd_mk_runner(&r);
+  u8        pkt[QUIC_PMTU_MAX + 64];
+  quic_obuf ob1 = quic_obuf_of(pkt, sizeof(pkt));
+  CHECK(quic_connrunner_pmtu_build_probe(&r, &ob1, 1000) != 0);
+  u64 pn = r.pmtu_probe_pn;
+
+  quic_connrunner_pmtu_on_ack(&r, pn);
+
+  quic_obuf ob2 = quic_obuf_of(pkt, sizeof(pkt));
+  usz       out =
+      quic_connrunner_pmtu_build_probe(&r, &ob2, 1000 + QUIC_RTT_INITIAL_US);
+  CHECK(out != 0);
+  CHECK(r.pmtu_probe_held == 1);
+}
+
 void test_pmtudrive(void) {
   test_pmtudrive_build_probe_ping_plus_padding();
   test_pmtudrive_probe_frame_is_ping_plus_padding_only();
@@ -267,4 +308,6 @@ void test_pmtudrive(void) {
   test_pmtudrive_advance_sends_probe_when_idle();
   test_pmtudrive_advance_no_probe_before_confirm();
   test_pmtudrive_build_probe_resumes_after_raise_timer();
+  test_pmtudrive_next_probe_blocked_within_min_interval();
+  test_pmtudrive_next_probe_allowed_after_min_interval();
 }
