@@ -17,6 +17,19 @@ jobs:
       - name: run fuzz harnesses (120s each, bounded regression sweep)
         run: nix develop -c just fuzz-ci 120
 
+      # fuzz-ci passes fuzz/corpus/<target>/ as libFuzzer's corpus dir, so
+      # any coverage-increasing input found this run lands there already.
+      # Uploaded as an artifact rather than auto-committed (no CI-driven
+      # push to main) -- pull interesting finds into fuzz/corpus/ by hand
+      # from this artifact when they're worth keeping.
+      - name: upload corpus (new inputs found this run, if any)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-corpus
+          path: fuzz/corpus/
+          if-no-files-found: ignore
+
       - name: upload crash artifacts
         if: failure()
         uses: actions/upload-artifact@v4
