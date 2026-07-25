@@ -24,19 +24,16 @@ build-frontend:
 dev-frontend:
     cd frontend && pnpm install --frozen-lockfile && pnpm dev
 
-# Serve the frontend for local development (http://localhost:8000/).
-# localhost is a secure context, so WebTransport works over plain HTTP here.
-serve-frontend:
-    cd public && python3 -m http.server 8000
-
-# Serve the frontend over TLS (https://<host>:8443/) for access from another
-# machine: a non-localhost http:// page is not a secure context and the
-# browser disables the WebTransport API entirely. Needs public/cert.pem and
-# public/key.pem (self-signed is fine; accept the browser warning once).
-serve-frontend-tls:
-    cd public && python3 -c "\
-    import http.server, ssl; \
-    srv = http.server.HTTPServer(('0.0.0.0', 8443), http.server.SimpleHTTPRequestHandler); \
+# Build the voice chat frontend's static export and serve it over TLS
+# (https://<host>:8443/). TLS because a non-localhost http:// page is not a
+# secure context and the browser disables the WebTransport API entirely.
+# Needs cert.pem and key.pem in this directory (self-signed is fine; accept
+# the browser warning once).
+serve-frontend: build-frontend
+    python3 -c "\
+    import functools, http.server, ssl; \
+    handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory='frontend/out'); \
+    srv = http.server.HTTPServer(('0.0.0.0', 8443), handler); \
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER); \
     ctx.load_cert_chain('cert.pem', 'key.pem'); \
     srv.socket = ctx.wrap_socket(srv.socket, server_side=True); \
