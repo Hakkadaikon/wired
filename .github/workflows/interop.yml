@@ -11,6 +11,24 @@ jobs:
 
       - uses: DeterminateSystems/nix-installer-action@main
 
+      # ubuntu-latest ships Docker Engine 28.0.x; quic-network-simulator's
+      # compose file uses the network `interface_name` option, which needs
+      # 28.1+ (confirmed via a --debug run: "interface_name requires Docker
+      # Engine v28.1 or later", not a wired-side compliance failure).
+      - name: upgrade Docker Engine to 28.1+
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ca-certificates curl
+          sudo install -m 0755 -d /etc/apt/keyrings
+          sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+          sudo chmod a+r /etc/apt/keyrings/docker.asc
+          . /etc/os-release
+          echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $VERSION_CODENAME stable" \
+            | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+          sudo apt-get update
+          sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+          docker version
+
       - name: install tshark (runner needs Wireshark 4.5+ for trace analysis)
         run: |
           sudo apt-get update
@@ -48,7 +66,7 @@ jobs:
 
       - name: run handshake / transfer / http3 test cases
         working-directory: runner
-        run: ./.venv/bin/python run.py --debug -s wired -c quic-go -t handshake,transfer,http3
+        run: ./.venv/bin/python run.py -s wired -c quic-go -t handshake,transfer,http3
 
       - name: upload runner logs
         if: always()
