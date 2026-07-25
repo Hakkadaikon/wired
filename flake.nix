@@ -16,6 +16,8 @@
         packages = [
           pkgs.llvmPackages_latest.clang-tools
           pkgs.llvmPackages_latest.clang
+          # llvm ships llvm-profdata/llvm-cov (source-based coverage, `just cov`)
+          pkgs.llvmPackages_latest.llvm
           pkgs.just
           pkgs.python3Packages.lizard # a python tool; no top-level attr
           pkgs.doxygen
