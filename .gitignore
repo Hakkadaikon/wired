@@ -1,4 +1,6 @@
 /build/
+/examples/webtransport_chat/cert.pem
+/examples/webtransport_chat/key.pem
 /build.ninja
 /.ninja_log
 /.ninja_deps
