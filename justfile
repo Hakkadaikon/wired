@@ -148,6 +148,12 @@ fuzz-qpack: gen-ninja
 fuzz-x509: gen-ninja
     ninja fuzz/fuzz_x509
 
+# build the libFuzzer harness for post-handshake connection I/O (coalesced
+# datagrams through connio_recv's open+frame-dispatch path, keys pre-installed
+# so no real handshake runs; hosted, ASan+libFuzzer; src/ untouched).
+fuzz-onertt: gen-ninja
+    ninja fuzz/fuzz_onertt
+
 # run every fuzz harness for secs wall-clock seconds each (default 120), for
 # CI: a bounded regression sweep, not an open-ended fuzzing campaign. Exits
 # non-zero on any crash/leak (libFuzzer's own exit code). Each run reads
@@ -159,6 +165,7 @@ fuzz-ci secs="120":
     just fuzz-header && ./fuzz/fuzz_header -max_total_time={{secs}} -artifact_prefix=fuzz/ fuzz/corpus/fuzz_header
     just fuzz-qpack && ./fuzz/fuzz_qpack -max_total_time={{secs}} -artifact_prefix=fuzz/ fuzz/corpus/fuzz_qpack
     just fuzz-x509 && ./fuzz/fuzz_x509 -max_total_time={{secs}} -artifact_prefix=fuzz/ fuzz/corpus/fuzz_x509
+    just fuzz-onertt && ./fuzz/fuzz_onertt -max_total_time={{secs}} -artifact_prefix=fuzz/ fuzz/corpus/fuzz_onertt
 
 # per-PR gate: each harness builds and survives exactly 1 run (libFuzzer
 # -runs=1, no time budget) -- catches a broken/uncompilable harness or an
@@ -168,6 +175,7 @@ fuzz-smoke:
     just fuzz-header && ./fuzz/fuzz_header -runs=1 -artifact_prefix=fuzz/
     just fuzz-qpack && ./fuzz/fuzz_qpack -runs=1 -artifact_prefix=fuzz/
     just fuzz-x509 && ./fuzz/fuzz_x509 -runs=1 -artifact_prefix=fuzz/
+    just fuzz-onertt && ./fuzz/fuzz_onertt -runs=1 -artifact_prefix=fuzz/
 
 # format all sources in place (clang-format, .clang-format config).
 # Reroutes itself through the flake devShell when run outside one: a host
