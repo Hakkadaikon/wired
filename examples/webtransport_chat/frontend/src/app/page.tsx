@@ -13,15 +13,15 @@ import { useVoiceChatStore } from "@/stores/voiceChatStore";
 const DEFAULT_URL = "https://localhost:4433/";
 
 const STATUS_LABEL: Record<string, string> = {
-  connecting: "接続中",
-  established: "接続済み",
-  disconnected: "切断",
+  connecting: "Connecting",
+  established: "Connected",
+  disconnected: "Disconnected",
 };
 
 function StatusBadge() {
   const connectionState = useVoiceChatStore((s) => s.connectionState);
   const reconnecting = useVoiceChatStore((s) => s.reconnecting);
-  const label = reconnecting ? "再接続中" : STATUS_LABEL[connectionState];
+  const label = reconnecting ? "Reconnecting" : STATUS_LABEL[connectionState];
   const color = connectionState === "established" && !reconnecting ? "success" : "warning";
   return (
     <Row alignItems="center" gap="2xs">
@@ -45,11 +45,11 @@ function ChatPanel({ onSend }: { onSend: (text: string) => void }) {
   return (
     <Card scaleFactor="body" isScrollable>
       <Row alignItems="stretch" gap="xs" style={{ flexDirection: "column" }}>
-        <Text fontClass="title3">チャット</Text>
+        <Text fontClass="title3">Chat</Text>
         <div style={{ maxHeight: "16em", overflowY: "auto" }}>
           {messages.length === 0 && (
             <Text fontClass="caption" color="outline">
-              まだメッセージはありません
+              No messages yet
             </Text>
           )}
           {messages.map((m, i) => (
@@ -64,14 +64,14 @@ function ChatPanel({ onSend }: { onSend: (text: string) => void }) {
         <Row alignItems="center" gap="2xs">
           <TextInput
             name="chat-message"
-            placeholder="メッセージを入力"
+            placeholder="Type a message"
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter") submit();
             }}
           />
-          <Button label="送信" onClick={submit} size="md" />
+          <Button label="Send" onClick={submit} size="md" />
         </Row>
       </Row>
     </Card>
@@ -83,7 +83,7 @@ function VoiceControls({ onToggleMute }: { onToggleMute: () => void }) {
   return (
     <Row alignItems="center" gap="xs">
       <Button
-        label={muted ? "マイクをオンにする" : "マイクをオフにする"}
+        label={muted ? "Turn mic on" : "Turn mic off"}
         startIcon={muted ? "mic-off" : "mic"}
         color={muted ? "surface" : "primary"}
         variant={muted ? "outline" : "fill"}
@@ -114,7 +114,7 @@ export default function Home() {
   return (
     <main style={{ maxWidth: "40em", margin: "0 auto", padding: "var(--lk-size-lg)" }}>
       <Row alignItems="center" justifyContent="space-between" gap="sm">
-        <Text fontClass="title2">WebTransport チャット</Text>
+        <Text fontClass="title2">WebTransport Chat</Text>
         {joined && <StatusBadge />}
       </Row>
 
@@ -135,11 +135,11 @@ export default function Home() {
             <TextInput
               name="cert-hash"
               labelPosition="on-input"
-              placeholder="証明書ハッシュ (SHA-256、サーバー起動ログの値)"
+              placeholder="Certificate hash (SHA-256, from the server startup log)"
               value={certHash}
               onChange={(e) => setCertHash(e.target.value)}
             />
-            <Button label="通話に参加" color="primary" onClick={() => connect(url, certHash)} />
+            <Button label="Join call" color="primary" onClick={() => connect(url, certHash)} />
           </Row>
         </Card>
       )}

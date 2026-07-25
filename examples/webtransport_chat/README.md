@@ -164,7 +164,7 @@ from another machine), use `just serve-frontend` from
 Start the server (`just run`), copy the `cert sha-256 fingerprint: ...`
 value from its startup log into the page's certificate-hash field (colons
 are fine), confirm the URL (`https://localhost:4433/`), and click
-"通話に参加" (join). That click is also the user gesture that satisfies the
+"Join call". That click is also the user gesture that satisfies the
 browser's autoplay policy — the `AudioContext` is resumed from it, so audio
 playback works without any further prompt. The fingerprint is passed to
 `WebTransport` as `serverCertificateHashes`; the same
