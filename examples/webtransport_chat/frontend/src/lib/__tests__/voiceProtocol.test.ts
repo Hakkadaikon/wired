@@ -3,6 +3,7 @@ import fc from "fast-check";
 import {
   decodeFrame,
   encodeChatFrame,
+  encodePresenceFrame,
   encodeVoiceFrame,
   generateSenderId,
 } from "../voiceProtocol";
@@ -195,6 +196,46 @@ describe("voiceFrameCodec", () => {
     const bigPayload = new Uint8Array(2000);
     const encoded = encodeVoiceFrame(senderId(1), 0, bigPayload);
     expect(encoded.ok).toBe(false);
+  });
+});
+
+describe("presenceFrameCodec", () => {
+  it("round-trips join and leave with the sender's name", () => {
+    for (const kind of ["join", "leave"] as const) {
+      const encoded = encodePresenceFrame(senderId(7), kind, "alice");
+      expect(encoded.ok).toBe(true);
+      if (!encoded.ok) return;
+      const decoded = decodeFrame(encoded.bytes);
+      expect(decoded).toEqual({
+        ok: true,
+        frame: {
+          channel: "presence",
+          senderId: senderId(7),
+          kind,
+          name: "alice",
+        },
+      });
+    }
+  });
+
+  it("round-trips an empty name", () => {
+    const encoded = encodePresenceFrame(senderId(1), "join", "");
+    expect(encoded.ok).toBe(true);
+    if (!encoded.ok) return;
+    const decoded = decodeFrame(encoded.bytes);
+    expect(decoded.ok && decoded.frame.channel === "presence" && decoded.frame.name).toBe("");
+  });
+
+  it("rejects a malformed presence payload", () => {
+    for (const bad of ['"x"', '{"kind":"nope","name":"a"}', '{"kind":"join"}', "[1]"]) {
+      const payload = new TextEncoder().encode(bad);
+      const bytes = new Uint8Array([0x03, 9, 9, 9, 9, ...payload]);
+      expect(decodeFrame(bytes).ok).toBe(false);
+    }
+  });
+
+  it("rejects a presence datagram shorter than its header", () => {
+    expect(decodeFrame(new Uint8Array([0x03, 1, 2])).ok).toBe(false);
   });
 });
 
