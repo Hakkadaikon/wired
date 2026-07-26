@@ -2,38 +2,32 @@
  * syscalls, driven by the single SDK header <wired.h>.
  *
  * The chat logic fans out every received WebTransport DATAGRAM, unmodified,
- * to every active WT session (srvrun.h). The frontend multiplexes chat and
- * voice on one DATAGRAM channel by a leading byte (frontend/src/lib/
- * voiceProtocol.ts: 0x01 chat, 0x02 voice) -- this server does not decode
- * that payload, it only reads the one leading byte to pick a broadcast
- * primitive: voice (bursty, one-per-frame) goes through the bounded ring
- * (wired_server_broadcast_datagram_ring) so back-to-back datagrams in the
- * same loop step don't overwrite each other; everything else keeps the
- * single-slot latest-wins broadcast. Driver selection (plain/workers/AF_XDP/
- * threads) and its CLI parsing are delegated wholesale to
- * app/http3/server/srvdriver. */
+ * to every active WT session (srvrun.h), through the bounded per-connection
+ * ring (wired_server_broadcast_datagram_ring). The frontend multiplexes
+ * chat, voice, and join/leave notices on one DATAGRAM channel by a leading
+ * byte (frontend/src/lib/voiceProtocol.ts: 0x01 chat, 0x02 voice, 0x03
+ * join/leave) -- this server does not decode that payload beyond the one
+ * leading byte, and every channel goes through the ring so that two or more
+ * broadcasts arriving in the same loop step (e.g. three participants typing
+ * at once) are each queued and delivered, instead of the later one
+ * overwriting the earlier in a single latest-wins slot. Driver selection
+ * (plain/workers/AF_XDP/threads) and its CLI parsing are delegated wholesale
+ * to app/http3/server/srvdriver. */
 
 #define WIRED_MAIN /* this TU emits the libc memcpy/memset shim */
 #include "wired.h"
 
 /* --- WebTransport chat: fan received datagrams out to every session ------ */
 
-/* Leading DATAGRAM byte that selects the bursty ring broadcast (must match
- * CHANNEL_VOICE in frontend/src/lib/voiceProtocol.ts). Everything else,
- * including an empty datagram, uses the single-slot broadcast. */
-#define WT_CHANNEL_VOICE 0x02
-
 /* draft-ietf-webtrans-http3-15 SS4: relay one received DATAGRAM to every
- * active WebTransport session, byte-for-byte, no interpretation beyond the
- * one leading channel byte used to pick a broadcast primitive. */
+ * active WebTransport session, byte-for-byte, no interpretation beyond
+ * picking the broadcast primitive -- every channel uses the bounded ring so
+ * a burst of same-step broadcasts is queued in full, never overwritten. */
 static void wt_on_datagram_cb(
     void* app_ctx, wired_wt_session* s, quic_span data) {
   (void)app_ctx;
   (void)s;
-  if (data.n != 0 && data.p[0] == WT_CHANNEL_VOICE)
-    wired_server_broadcast_datagram_ring(data);
-  else
-    wired_server_broadcast_datagram(data);
+  wired_server_broadcast_datagram_ring(data);
 }
 
 /* --- Plain HTTP/3 app: identical shape to examples/webtransport_echo ----- */
