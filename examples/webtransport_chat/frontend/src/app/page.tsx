@@ -309,6 +309,11 @@ function JoinScreen({
                     size="sm"
                     color={r === room ? "primary" : "surface"}
                     variant={r === room ? "fill" : "outline"}
+                    style={
+                      r === room
+                        ? undefined
+                        : { color: "var(--lk-onsurface)", borderColor: "var(--lk-onsurface)" }
+                    }
                     onClick={() => setRoom(r)}
                   />
                 ))}
