@@ -12,6 +12,7 @@ export type ChatMessage = {
   text: string;
   at: number; // epoch ms
   own: boolean; // true = sent by this client
+  kind?: "join" | "leave"; // set on presence system rows; absent = normal chat
   failed?: boolean; // own message whose send failed
 };
 
@@ -31,6 +32,7 @@ export type VoiceChatState = {
   setDisplayName: (name: string) => void;
   setPeerName: (key: string, name: string) => void;
   addPeer: (key: string) => void;
+  removePeer: (key: string) => void;
   clearPeers: () => void;
   clearMessages: () => void;
 };
@@ -64,6 +66,8 @@ export const useVoiceChatStore = create<VoiceChatState>((set) => ({
     ),
   addPeer: (key) =>
     set((s) => (s.peers.includes(key) ? s : { peers: [...s.peers, key] })),
+  removePeer: (key) =>
+    set((s) => ({ peers: s.peers.filter((p) => p !== key) })),
   clearPeers: () => set({ peers: [] }),
   clearMessages: () => set({ messages: [] }),
 }));
