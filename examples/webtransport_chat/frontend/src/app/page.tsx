@@ -108,6 +108,15 @@ function MessageBubble({ m, onRetry }: { m: ChatMessage; onRetry: (id: number) =
   const peerName = useVoiceChatStore((s) => s.peerNames[m.senderId]);
   const time = new Date(m.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   const label = m.own ? "You" : peerName || guestLabel(m.senderId);
+  if (m.kind) {
+    return (
+      <div style={{ textAlign: "center", marginBottom: "var(--lk-size-2xs)" }}>
+        <span className="caption" style={{ color: "var(--lk-onsurfacevariant)" }}>
+          {`${m.name || guestLabel(m.senderId)} ${m.kind === "join" ? "joined" : "left"} · ${time}`}
+        </span>
+      </div>
+    );
+  }
   return (
     <div
       style={{
