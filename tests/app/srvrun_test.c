@@ -11255,6 +11255,155 @@ static void test_srvrun_broadcast_datagram_ring_full_reports_failure(void) {
   CHECK(g_srvrun_env.dgring_n == SRVRUN_DGRING_CAP);
 }
 
+/* Three confirmed connections, each with one active, fully-eligible WT
+ * session at connect_stream_id 4/8/12 (qsid varint 0x01/0x02/0x03) -- the
+ * chat-room shape a three-person conversation actually has. Slot 0 is built
+ * through sr_wtsend_fixture (real handshake keys, ring reset); slots 1 and 2
+ * get their own confirmed handshake via f1/f2 so a real drain can seal and
+ * count a send for each of them too. */
+static void sr_three_wt_conns(
+    struct lp_fix* f0,
+    struct lp_fix* f1,
+    struct lp_fix* f2,
+    quic_obuf*     ob0,
+    quic_obuf*     ob1,
+    quic_obuf*     ob2) {
+  srvrun_conn* c1 = &g_srvrun_state.conns[1];
+  srvrun_conn* c2 = &g_srvrun_state.conns[2];
+  sr_wtsend_fixture(f0, ob0);
+  sr_make_confirmed_conn(c1, f1, ob1);
+  wired_wt_session_init(&c1->wt, 8);
+  wired_wt_session_establish(&c1->wt);
+  c1->wt_active = 1;
+  sr_make_confirmed_conn(c2, f2, ob2);
+  wired_wt_session_init(&c2->wt, 12);
+  wired_wt_session_establish(&c2->wt);
+  c2->wt_active = 1;
+}
+
+/* NORMAL: three connections, each with one active WT session -- two
+ * back-to-back ring broadcasts inside the same step (two distinct chat
+ * messages) both reach all three connections, nothing dropped. */
+static void
+test_srvrun_broadcast_ring_delivers_concurrent_chat_from_three_conns(void) {
+  struct lp_fix f0, f1, f2;
+  quic_obuf     ob0 = {0}, ob1 = {0}, ob2 = {0};
+  u8            obuf0[1024], obuf1[1024], obuf2[1024];
+  u8            msg_a[] = {'h', 'i'};
+  u8            msg_b[] = {'y', 'o'};
+  ob0                   = (quic_obuf){obuf0, sizeof obuf0, 0};
+  ob1                   = (quic_obuf){obuf1, sizeof obuf1, 0};
+  ob2                   = (quic_obuf){obuf2, sizeof obuf2, 0};
+  sr_three_wt_conns(&f0, &f1, &f2, &ob0, &ob1, &ob2);
+  CHECK(wired_server_broadcast_datagram_ring(quic_span_of(msg_a, 2)) == 1);
+  CHECK(wired_server_broadcast_datagram_ring(quic_span_of(msg_b, 2)) == 1);
+  CHECK(g_srvrun_env.dgring_n == 6); /* 2 messages x 3 recipients */
+  {
+    srvrun_cfg   cfg = sr_wt_send_cfg();
+    srvrun_state st  = {g_srvrun_table, g_srvrun_state.conns};
+    srvrun_test_reset_send_count();
+    srvrun_dgring_drain(&cfg, &st);
+    CHECK(srvrun_test_send_count() == 6); /* none silently lost */
+  }
+  CHECK(g_srvrun_env.dgring_n == 0);
+}
+
+/* REGRESSION: the single-slot broadcast's documented latest-wins overwrite
+ * (test_srvrun_datagram_second_queue_overwrites_first covers the API's own
+ * contract in isolation) actually loses the first of two same-step chat
+ * messages when driven the way wt_on_datagram_cb drives it -- and the ring
+ * broadcast, given the identical two-message-in-one-step scenario, loses
+ * neither. */
+static void test_srvrun_broadcast_ring_no_silent_loss_on_same_step_double_queue(
+    void) {
+  u8 msg_a[] = {1, 2, 3};
+  u8 msg_b[] = {9, 9};
+
+  /* Single-slot: second queue overwrites the first -- the bug this task
+   * fixes by moving chat/join-leave off this API. */
+  {
+    srvrun_conn c        = {0};
+    c.l.h3.settings_sent = 1;
+    c.up                 = 1;
+    c.wt_active          = 1;
+    wired_wt_session_init(&c.wt, 4);
+    wired_wt_session_establish(&c.wt);
+    CHECK(srvrun_queue_datagram(&c, quic_span_of(msg_a, sizeof msg_a)) == 1);
+    CHECK(srvrun_queue_datagram(&c, quic_span_of(msg_b, sizeof msg_b)) == 1);
+    CHECK(c.dg_pending_len == sizeof msg_b); /* msg_a is gone */
+  }
+
+  /* Ring: both survive, queued as two separate entries. */
+  {
+    struct lp_fix f;
+    quic_obuf     ob = {0};
+    u8            obuf[1024];
+    ob = (quic_obuf){obuf, sizeof obuf, 0};
+    sr_wtsend_fixture(&f, &ob);
+    CHECK(
+        wired_server_broadcast_datagram_ring(
+            quic_span_of(msg_a, sizeof msg_a)) == 1);
+    CHECK(
+        wired_server_broadcast_datagram_ring(
+            quic_span_of(msg_b, sizeof msg_b)) == 1);
+    CHECK(g_srvrun_env.dgring_n == 2);
+  }
+}
+
+/* ORDER: two same-step broadcasts must drain in the order they were sent
+ * (FIFO) for every recipient -- a chat timeline reordered would confuse
+ * every participant even if nothing were lost. */
+static void test_srvrun_broadcast_ring_preserves_fifo_order_within_one_step(
+    void) {
+  struct lp_fix f0, f1, f2;
+  quic_obuf     ob0 = {0}, ob1 = {0}, ob2 = {0};
+  u8            obuf0[1024], obuf1[1024], obuf2[1024];
+  u8            msg_a[] = {0xa1};
+  u8            msg_b[] = {0xb1};
+  ob0                   = (quic_obuf){obuf0, sizeof obuf0, 0};
+  ob1                   = (quic_obuf){obuf1, sizeof obuf1, 0};
+  ob2                   = (quic_obuf){obuf2, sizeof obuf2, 0};
+  sr_three_wt_conns(&f0, &f1, &f2, &ob0, &ob1, &ob2);
+  CHECK(wired_server_broadcast_datagram_ring(quic_span_of(msg_a, 1)) == 1);
+  CHECK(wired_server_broadcast_datagram_ring(quic_span_of(msg_b, 1)) == 1);
+  CHECK(g_srvrun_env.dgring_n == 6);
+  {
+    /* Entry layout: [c0 A][c1 A][c2 A][c0 B][c1 B][c2 B] -- every recipient's
+     * two copies keep msg_a strictly ahead of msg_b in the ring. */
+    const srvrun_dgring_entry* e = g_srvrun_env.dgring;
+    for (usz i = 0; i < 3; i++) CHECK(e[i].buf[e[i].len - 1] == msg_a[0]);
+    for (usz i = 3; i < 6; i++) CHECK(e[i].buf[e[i].len - 1] == msg_b[0]);
+  }
+}
+
+/* DISCONNECT: a connection queued as a ring-broadcast target, then torn down
+ * (up cleared) before the drain runs, has its queued copy silently dropped
+ * (srvrun_dgring_send_one's own c->up gate) -- but the other, still-live
+ * connections are unaffected. */
+static void
+test_srvrun_broadcast_ring_drops_disconnected_conn_without_blocking_others(
+    void) {
+  struct lp_fix f0, f1, f2;
+  quic_obuf     ob0 = {0}, ob1 = {0}, ob2 = {0};
+  u8            obuf0[1024], obuf1[1024], obuf2[1024];
+  u8            msg[] = {0x42};
+  ob0                 = (quic_obuf){obuf0, sizeof obuf0, 0};
+  ob1                 = (quic_obuf){obuf1, sizeof obuf1, 0};
+  ob2                 = (quic_obuf){obuf2, sizeof obuf2, 0};
+  sr_three_wt_conns(&f0, &f1, &f2, &ob0, &ob1, &ob2);
+  CHECK(wired_server_broadcast_datagram_ring(quic_span_of(msg, 1)) == 1);
+  CHECK(g_srvrun_env.dgring_n == 3);
+  g_srvrun_state.conns[1].up = 0; /* connection 1 dropped after queueing */
+  {
+    srvrun_cfg   cfg = sr_wt_send_cfg();
+    srvrun_state st  = {g_srvrun_table, g_srvrun_state.conns};
+    srvrun_test_reset_send_count();
+    srvrun_dgring_drain(&cfg, &st);
+    CHECK(srvrun_test_send_count() == 2); /* conns 0 and 2 only */
+  }
+  CHECK(g_srvrun_env.dgring_n == 0);
+}
+
 /* RECEIVE-SIDE FLOW CONTROL (RFC 9000 4.1/19.9/19.10): srvrun_seal_max_
  * stream_data encodes a MAX_STREAM_DATA the client can decode, naming the
  * right stream and value. */
@@ -11802,6 +11951,10 @@ void test_srvrun(void) {
   test_srvrun_broadcast_datagram_ring_drains_both_next_step();
   test_srvrun_broadcast_datagram_ring_skips_ineligible();
   test_srvrun_broadcast_datagram_ring_full_reports_failure();
+  test_srvrun_broadcast_ring_delivers_concurrent_chat_from_three_conns();
+  test_srvrun_broadcast_ring_no_silent_loss_on_same_step_double_queue();
+  test_srvrun_broadcast_ring_preserves_fifo_order_within_one_step();
+  test_srvrun_broadcast_ring_drops_disconnected_conn_without_blocking_others();
   test_srvrun_wt_max_stream_data_wire_shape();
   test_srvrun_wt_max_data_wire_shape();
   test_srvrun_wt_credit_advances_with_delivery();
