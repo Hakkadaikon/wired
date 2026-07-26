@@ -315,6 +315,7 @@ function JoinScreen({
                 variant="text"
                 size="sm"
                 startIcon="eraser"
+                style={{ color: "var(--lk-onsurface)" }}
                 onClick={onClearSaved}
               />
             </Row>
@@ -409,8 +410,8 @@ export default function Home() {
             <Button
               label="Leave"
               startIcon="log-out"
-              color="surface"
-              variant="outline"
+              color="error"
+              variant="fill"
               size="sm"
               onClick={() => {
                 leave();
