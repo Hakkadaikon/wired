@@ -4,6 +4,7 @@
 
 import { encodeVoiceFrame } from "./voiceProtocol";
 import { nextSeq } from "./jitterBuffer";
+import { createSendGate } from "./sendGate";
 
 export type MicPipelineDeps = {
   getUserMedia: (constraints: {
@@ -31,37 +32,6 @@ export type MicPipeline = {
   stop: () => void;
   stopped: boolean;
 };
-
-// A send in flight blocks the writer; while it is in flight, only the most
-// recently encoded frame is kept for the next send -- never a growing queue
-// of stale ones (backpressure -> latest-wins, not buffering).
-function makeSendGate(send: (bytes: Uint8Array) => void | Promise<void>) {
-  let inFlight = false;
-  let pending: Uint8Array | null = null;
-  const pump = async (bytes: Uint8Array) => {
-    inFlight = true;
-    try {
-      // A rejected send drops this frame only (DATAGRAM delivery is
-      // best-effort); the gate must stay usable for the next frame.
-      await send(bytes);
-    } catch {
-      /* frame dropped */
-    }
-    inFlight = false;
-    if (pending) {
-      const next = pending;
-      pending = null;
-      await pump(next);
-    }
-  };
-  return (bytes: Uint8Array) => {
-    if (inFlight) {
-      pending = bytes;
-      return;
-    }
-    void pump(bytes);
-  };
-}
 
 async function readLoop(
   reader: { read: () => Promise<{ value: unknown; done: boolean }> },
@@ -92,7 +62,13 @@ export async function startMicPipeline(
   const processor = deps.makeProcessor(track);
   const senderId = deps.senderId ?? new Uint8Array(4);
   let seq = 0;
-  const gatedSend = makeSendGate((bytes) => deps.sendDatagram(bytes));
+  // This gate serializes voice frames among themselves (latest-wins under
+  // backpressure, see createSendGate). deps.sendDatagram is expected to
+  // additionally be gated by the caller against the shared transport (see
+  // useVoiceChat.ts) -- voice frames share that one writer with chat/
+  // presence sends, and only the outer gate prevents a cross-channel race
+  // on the underlying stream.
+  const gatedSend = createSendGate((bytes) => deps.sendDatagram(bytes));
 
   const encoder = new deps.AudioEncoderCtor({
     output: (chunk) => {
