@@ -19,6 +19,7 @@ import { registerPageLifecycleCleanup } from "@/lib/pageLifecycle";
 import { decodeFrame, encodeChatFrame, encodePresenceFrame, generateSenderId } from "@/lib/voiceProtocol";
 import { type Room, stripRoomTag, tagWithRoom } from "@/lib/roomFilter";
 import { createSendGate } from "@/lib/sendGate";
+import { createPlaybackSink } from "@/lib/playbackSink";
 import { parseCertHash } from "@/lib/certHash";
 import { JitterBufferManager } from "@/lib/jitterBuffer";
 import { senderIdKey } from "@/lib/voiceReceivePipeline";
@@ -95,28 +96,6 @@ class OpusChunkDecoder {
     );
     this.ts += OPUS_FRAME_US;
   }
-}
-
-// Renders decoded AudioData seamlessly: each frame becomes an AudioBuffer
-// scheduled right after the previous one on a running playhead.
-function makePlaybackSink(ctx: AudioContext): (frame: unknown) => void {
-  let playhead = 0;
-  return (frame) => {
-    const audio = frame as AudioData;
-    const buf = ctx.createBuffer(audio.numberOfChannels, audio.numberOfFrames, audio.sampleRate);
-    for (let ch = 0; ch < audio.numberOfChannels; ch++) {
-      const data = new Float32Array(audio.numberOfFrames);
-      audio.copyTo(data, { planeIndex: ch, format: "f32-planar" });
-      buf.copyToChannel(data, ch);
-    }
-    audio.close();
-    const src = ctx.createBufferSource();
-    src.buffer = buf;
-    src.connect(ctx.destination);
-    playhead = Math.max(playhead, ctx.currentTime);
-    src.start(playhead);
-    playhead += buf.duration;
-  };
 }
 
 async function writeDatagram(transport: WebTransport, bytes: Uint8Array): Promise<void> {
@@ -294,7 +273,7 @@ export function useVoiceChat() {
       receivePipelineRef.current = createVoiceReceivePipeline({
         jitterBuffer,
         AudioDecoderCtor: OpusChunkDecoder as never,
-        enqueuePlayback: (frame) => audioGate.enqueue(frame),
+        enqueuePlayback: (senderKey, frame) => audioGate.enqueue(senderKey, frame),
       });
       readDatagrams(transport, handleDatagram).catch(() => {});
       startDrainLoop();
@@ -333,7 +312,7 @@ export function useVoiceChat() {
         () => audioCtx as unknown as { state: "suspended" | "running" | "closed"; resume: () => Promise<void> },
         {
           onResumeFailed: () => setMicError("audio playback permission was blocked by the browser"),
-          play: makePlaybackSink(audioCtx),
+          play: createPlaybackSink(audioCtx),
         },
       );
       audioGateRef.current = audioGate;
