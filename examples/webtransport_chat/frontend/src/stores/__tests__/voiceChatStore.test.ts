@@ -102,6 +102,22 @@ describe("voiceChatStore", () => {
     expect(useVoiceChatStore.getState().peers).toEqual([]);
   });
 
+  it("preserves a system message kind", () => {
+    useVoiceChatStore
+      .getState()
+      .addMessage({ senderId: "ab", name: "alice", text: "", at: 1, own: false, kind: "join" });
+    expect(useVoiceChatStore.getState().messages[0].kind).toBe("join");
+  });
+
+  it("removes a peer", () => {
+    useVoiceChatStore.getState().addPeer("aa");
+    useVoiceChatStore.getState().addPeer("bb");
+    useVoiceChatStore.getState().removePeer("aa");
+    expect(useVoiceChatStore.getState().peers).toEqual(["bb"]);
+    useVoiceChatStore.getState().removePeer("zz"); // unknown: no-op
+    expect(useVoiceChatStore.getState().peers).toEqual(["bb"]);
+  });
+
   it("clears messages", () => {
     useVoiceChatStore
       .getState()
