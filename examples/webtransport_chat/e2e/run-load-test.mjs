@@ -19,7 +19,11 @@ const clientCount = Number(arg("clients", "3"));
 const room = arg("room", "Fox");
 const messagesPerClient = Number(arg("messages", "5"));
 const sendIntervalMs = Number(arg("interval-ms", "800"));
-const settleMs = Number(arg("settle-ms", "4000"));
+// 15s, not a smaller "should be enough" guess: measured empirically (see
+// tasks/webtransport-chat-scaling/findings.md) that a shorter settle window
+// on this sandbox reports false loss on the LAST few messages of a run --
+// they were still in flight/rendering when grading ran, not actually lost.
+const settleMs = Number(arg("settle-ms", "15000"));
 const maxLossRate = Number(arg("max-loss-rate", "1")); // 1 = gate disabled by default
 const maxP95Ms = Number(arg("max-p95-ms", Infinity));
 
