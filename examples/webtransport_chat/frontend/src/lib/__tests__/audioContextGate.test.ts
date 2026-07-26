@@ -34,8 +34,8 @@ describe("audioContextGate", () => {
   it("retains buffered/decoded voice data instead of dropping it before resume", () => {
     const ctx = fakeAudioContext();
     const gate = createAudioContextGate(() => ctx as never);
-    gate.enqueue({ frame: 1 });
-    gate.enqueue({ frame: 2 });
+    gate.enqueue("peerA", { frame: 1 });
+    gate.enqueue("peerA", { frame: 2 });
     expect(gate.pendingCount()).toBe(2);
   });
 
@@ -43,11 +43,11 @@ describe("audioContextGate", () => {
     const ctx = fakeAudioContext();
     const play = vi.fn();
     const gate = createAudioContextGate(() => ctx as never, { play });
-    gate.enqueue({ frame: 1 });
-    gate.enqueue({ frame: 2 });
+    gate.enqueue("peerA", { frame: 1 });
+    gate.enqueue("peerA", { frame: 2 });
     expect(play).not.toHaveBeenCalled();
     await gate.resumeFromUserGesture();
-    expect(play.mock.calls.map(([f]) => f)).toEqual([{ frame: 1 }, { frame: 2 }]);
+    expect(play.mock.calls.map(([, f]) => f)).toEqual([{ frame: 1 }, { frame: 2 }]);
     expect(gate.pendingCount()).toBe(0);
   });
 
@@ -56,8 +56,8 @@ describe("audioContextGate", () => {
     const play = vi.fn();
     const gate = createAudioContextGate(() => ctx as never, { play });
     await gate.resumeFromUserGesture();
-    gate.enqueue({ frame: 3 });
-    expect(play).toHaveBeenCalledWith({ frame: 3 });
+    gate.enqueue("peerA", { frame: 3 });
+    expect(play).toHaveBeenCalledWith("peerA", { frame: 3 });
     expect(gate.pendingCount()).toBe(0);
   });
 

@@ -11,14 +11,16 @@ export type AudioContextGateOptions = {
   onResumeFailed?: (err: unknown) => void;
   // Playback sink. Frames enqueued while suspended are handed to it in
   // arrival order once resume succeeds; while running they are handed over
-  // immediately. Without it the gate only queues (as in tests).
-  play?: (frame: unknown) => void;
+  // immediately. Without it the gate only queues (as in tests). senderKey
+  // is threaded through so the sink can schedule each speaker on their own
+  // timeline (see playbackSink.ts).
+  play?: (senderKey: string, frame: unknown) => void;
 };
 
 export type AudioContextGate = {
   readonly state: string;
   resumeFromUserGesture: () => Promise<void>;
-  enqueue: (frame: unknown) => void;
+  enqueue: (senderKey: string, frame: unknown) => void;
   pendingCount: () => number;
 };
 
@@ -33,19 +35,22 @@ export function createAudioContextGate(
   options: AudioContextGateOptions = {},
 ): AudioContextGate {
   const ctx = makeContext();
-  const pending: unknown[] = [];
+  const pending: { senderKey: string; frame: unknown }[] = [];
 
   const flush = () => {
     if (!options.play) return;
-    while (pending.length > 0) options.play(pending.shift());
+    while (pending.length > 0) {
+      const { senderKey, frame } = pending.shift()!;
+      options.play(senderKey, frame);
+    }
   };
 
   return {
     get state() {
       return ctx.state;
     },
-    enqueue: (frame) => {
-      pending.push(frame);
+    enqueue: (senderKey, frame) => {
+      pending.push({ senderKey, frame });
       if (ctx.state === "running") flush();
     },
     pendingCount: () => pending.length,
