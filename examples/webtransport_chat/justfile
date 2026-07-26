@@ -41,3 +41,28 @@ serve-frontend: build-frontend
     srv.socket = ctx.wrap_socket(srv.socket, server_side=True); \
     print('https://0.0.0.0:8443/'); \
     srv.serve_forever()"
+
+# One-time: install the e2e harness's node deps and puppeteer's own Chrome
+# for Testing build, then provision the shared libraries that build is
+# missing in a minimal container (atk/cups/cairo/pango/alsa/...) via
+# `apt-get download` + `dpkg -x` (user-local, no root, no system mutation),
+# caching the resulting lib path at e2e/.chrome-libs-profile.
+e2e-setup:
+    cd e2e && npm install
+    cd e2e && npx puppeteer browsers install chrome
+    ./e2e/fetch-chrome-libs.sh
+
+# Unit tests for the load harness's own metrics math (loss rate, latency
+# percentiles) -- pure functions, no browser involved. Run before trusting
+# e2e-load's numbers after touching lib/metrics.mjs.
+e2e-test:
+    cd e2e && npm test
+
+# Multi-client chat load test: N headless-Chrome clients (each its own
+# BrowserContext), same room, exchanging chat messages, graded for message
+# loss and latency. Starts/stops its own server + static frontend; no manual
+# fingerprint copying. Run e2e-setup once first.
+# Args forward to run-load-test.mjs, e.g.:
+#   just e2e-load --clients=5 --messages=10 --max-loss-rate=0
+e2e-load *ARGS:
+    ./e2e/run.sh {{ARGS}}
