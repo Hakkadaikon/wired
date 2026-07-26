@@ -16,13 +16,22 @@ describe("joinPrefs", () => {
   });
 
   it("round-trips the join form fields", () => {
-    saveJoinPrefs({ url: "https://x:4433/", certHash: "ab:cd", name: "alice", micOff: true });
+    saveJoinPrefs({ url: "https://x:4433/", certHash: "ab:cd", name: "alice", micOff: true, room: "Owl" });
     expect(loadJoinPrefs()).toEqual({
       url: "https://x:4433/",
       certHash: "ab:cd",
       name: "alice",
       micOff: true,
+      room: "Owl",
     });
+  });
+
+  it("rejects a room outside the fixed list", () => {
+    localStorage.setItem(
+      "webtransport-chat.join",
+      JSON.stringify({ url: "u", certHash: "c", name: "n", micOff: false, room: "Dragon" }),
+    );
+    expect(loadJoinPrefs()).toBeNull();
   });
 
   it("returns null when nothing was saved", () => {
@@ -37,7 +46,7 @@ describe("joinPrefs", () => {
   });
 
   it("clears saved fields", () => {
-    saveJoinPrefs({ url: "u", certHash: "c", name: "n", micOff: false });
+    saveJoinPrefs({ url: "u", certHash: "c", name: "n", micOff: false, room: "Fox" });
     clearJoinPrefs();
     expect(loadJoinPrefs()).toBeNull();
   });
