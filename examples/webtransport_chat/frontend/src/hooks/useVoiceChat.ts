@@ -16,7 +16,7 @@ import { createVoiceReceivePipeline } from "@/lib/voiceReceivePipeline";
 import { createAudioContextGate } from "@/lib/audioContextGate";
 import { createReconnectFlow, type ReconnectFlow } from "@/lib/reconnectFlow";
 import { registerPageLifecycleCleanup } from "@/lib/pageLifecycle";
-import { decodeFrame, encodeChatFrame, generateSenderId } from "@/lib/voiceProtocol";
+import { decodeFrame, encodeChatFrame, encodePresenceFrame, generateSenderId } from "@/lib/voiceProtocol";
 import { parseCertHash } from "@/lib/certHash";
 import { JitterBufferManager } from "@/lib/jitterBuffer";
 import { senderIdKey } from "@/lib/voiceReceivePipeline";
@@ -193,6 +193,19 @@ export function useVoiceChat() {
     (bytes: Uint8Array) => {
       const decoded = decodeFrame(bytes);
       if (!decoded.ok) return;
+      if (decoded.frame.channel === "presence") {
+        const key = senderIdKey(decoded.frame.senderId);
+        if (ownSenderKeysRef.current.has(key)) return; // our own echo
+        const { kind, name } = decoded.frame;
+        if (kind === "join") {
+          store.addPeer(key);
+          store.setPeerName(key, name);
+        } else {
+          store.removePeer(key);
+        }
+        store.addMessage({ senderId: key, name, text: "", at: Date.now(), own: false, kind });
+        return;
+      }
       if (decoded.frame.channel === "chat") {
         const key = senderIdKey(decoded.frame.senderId);
         // The server broadcast echoes our own datagrams back; the local copy
@@ -220,6 +233,18 @@ export function useVoiceChat() {
     [store],
   );
 
+  // Tell the room we arrived or are leaving; best-effort (a lost announce
+  // only costs the timeline row, never the session).
+  const announcePresence = useCallback(
+    (transport: WebTransport, senderId: Uint8Array, kind: "join" | "leave") => {
+      const name = useVoiceChatStore.getState().displayName;
+      const encoded = encodePresenceFrame(senderId, kind, name);
+      if (!encoded.ok) return Promise.resolve();
+      return sendDatagram(transport, encoded.bytes).catch(() => {});
+    },
+    [],
+  );
+
   // (Re)binds every pipeline to a live transport: called on the first connect
   // and again on each successful reconnect, where transport and sender id are
   // both new.
@@ -241,6 +266,7 @@ export function useVoiceChat() {
       });
       readDatagrams(transport, handleDatagram).catch(() => {});
       startDrainLoop();
+      void announcePresence(transport, senderId, "join");
 
       micRef.current?.stop();
       startMicPipeline({
@@ -258,7 +284,7 @@ export function useVoiceChat() {
         })
         .catch(() => {});
     },
-    [handleDatagram, startDrainLoop, startStatsPolling],
+    [announcePresence, handleDatagram, startDrainLoop, startStatsPolling],
   );
 
   const connect = useCallback(
@@ -378,7 +404,14 @@ export function useVoiceChat() {
     leavingRef.current = true;
     micRef.current?.stop();
     micRef.current = null;
-    transportRef.current?.close();
+    const transport = transportRef.current;
+    const senderId = senderIdRef.current;
+    const close = () => transport?.close();
+    if (transport && senderId) {
+      announcePresence(transport, senderId, "leave").then(close, close);
+    } else {
+      close();
+    }
     transportRef.current = null;
     receivePipelineRef.current = null;
     knownSendersRef.current.clear();
@@ -393,7 +426,7 @@ export function useVoiceChat() {
     store.setConnectionState("disconnected");
     store.clearPeers();
     store.clearMessages();
-  }, [store]);
+  }, [announcePresence, store]);
 
   const toggleMute = useCallback(() => {
     store.setMuted(!store.muted);
