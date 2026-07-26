@@ -55,3 +55,10 @@ a {
     color-scheme: dark;
   }
 }
+
+/* LiftKit's button is inline-flex with no justify-content, so a button
+   stretched to full width leaves its label at the left edge; center the
+   content in every button regardless of width. */
+[data-lk-component="button"] {
+  justify-content: center;
+}
