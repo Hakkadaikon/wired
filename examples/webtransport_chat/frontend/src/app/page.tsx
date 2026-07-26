@@ -9,9 +9,11 @@ import Row from "@/components/row";
 import TextInput from "@/components/text-input";
 import { useVoiceChat } from "@/hooks/useVoiceChat";
 import { clearJoinPrefs, loadJoinPrefs, saveJoinPrefs } from "@/lib/joinPrefs";
+import { ROOMS, type Room } from "@/lib/roomFilter";
 import { useVoiceChatStore, type ChatMessage } from "@/stores/voiceChatStore";
 
 const DEFAULT_URL = "https://localhost:4433/";
+const DEFAULT_ROOM: Room = ROOMS[0];
 
 const STATUS_LABEL: Record<string, string> = {
   connecting: "Connecting",
@@ -241,6 +243,8 @@ function JoinScreen({
   setCertHash,
   name,
   setName,
+  room,
+  setRoom,
   micOff,
   setMicOff,
   connecting,
@@ -253,6 +257,8 @@ function JoinScreen({
   setCertHash: (v: string) => void;
   name: string;
   setName: (v: string) => void;
+  room: Room;
+  setRoom: (v: Room) => void;
   micOff: boolean;
   setMicOff: (v: boolean) => void;
   connecting: boolean;
@@ -291,6 +297,23 @@ function JoinScreen({
               value={name}
               onChange={(e) => setName(e.target.value)}
             />
+            <div>
+              <Text fontClass="caption" color="onsurfacevariant">
+                Room
+              </Text>
+              <Row alignItems="center" gap="2xs" style={{ marginTop: "var(--lk-size-3xs)" }}>
+                {ROOMS.map((r) => (
+                  <Button
+                    key={r}
+                    label={r}
+                    size="sm"
+                    color={r === room ? "primary" : "surface"}
+                    variant={r === room ? "fill" : "outline"}
+                    onClick={() => setRoom(r)}
+                  />
+                ))}
+              </Row>
+            </div>
             <label
               className="caption"
               style={{ display: "flex", alignItems: "center", gap: "0.5em", cursor: "pointer" }}
@@ -330,6 +353,7 @@ export default function Home() {
   const [url, setUrl] = useState(DEFAULT_URL);
   const [certHash, setCertHash] = useState("");
   const [name, setName] = useState("");
+  const [room, setRoom] = useState<Room>(DEFAULT_ROOM);
   const [micOff, setMicOff] = useState(false);
   const [joined, setJoined] = useState(false);
   const { connect, sendChat, retryMessage, toggleMute, leave, fatalError, micError, stats } =
@@ -358,6 +382,7 @@ export default function Home() {
       setUrl(saved.url);
       setCertHash(saved.certHash);
       setName(saved.name);
+      if (saved.room) setRoom(saved.room);
       setMicOff(saved.micOff);
     }, 0);
     return () => window.clearTimeout(t);
@@ -368,6 +393,7 @@ export default function Home() {
     setUrl(DEFAULT_URL);
     setCertHash("");
     setName("");
+    setRoom(DEFAULT_ROOM);
     setMicOff(false);
   };
 
@@ -397,7 +423,7 @@ export default function Home() {
           borderBottom: "1px solid var(--lk-outlinevariant)",
         }}
       >
-        <Text fontClass="title3">WebTransport Chat</Text>
+        <Text fontClass="title3">{joined ? `🐾 ${room} room` : "WebTransport Chat"}</Text>
         <Row alignItems="center" gap="xs">
           {joined && stats && (
             <Text fontClass="caption" color="onsurfacevariant">
@@ -437,7 +463,7 @@ export default function Home() {
             <Text color="onerrorcontainer" fontClass="body">
               Connection lost
             </Text>
-            <Button label="Rejoin" color="error" size="sm" onClick={() => void connect(url, certHash)} />
+            <Button label="Rejoin" color="error" size="sm" onClick={() => void connect(url, certHash, room)} />
           </Row>
         </Card>
       )}
@@ -457,15 +483,17 @@ export default function Home() {
           setCertHash={setCertHash}
           name={name}
           setName={setName}
+          room={room}
+          setRoom={setRoom}
           micOff={micOff}
           setMicOff={setMicOff}
           connecting={connecting}
           onJoin={() => {
-            saveJoinPrefs({ url, certHash, name, micOff });
+            saveJoinPrefs({ url, certHash, name, micOff, room });
             const s = useVoiceChatStore.getState();
             s.setDisplayName(name.trim());
             if (micOff) s.setMuted(true);
-            void connect(url, certHash);
+            void connect(url, certHash, room);
           }}
           onClearSaved={clearSaved}
         />

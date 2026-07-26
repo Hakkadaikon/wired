@@ -17,6 +17,7 @@ import { createAudioContextGate } from "@/lib/audioContextGate";
 import { createReconnectFlow, type ReconnectFlow } from "@/lib/reconnectFlow";
 import { registerPageLifecycleCleanup } from "@/lib/pageLifecycle";
 import { decodeFrame, encodeChatFrame, encodePresenceFrame, generateSenderId } from "@/lib/voiceProtocol";
+import { type Room, stripRoomTag, tagWithRoom } from "@/lib/roomFilter";
 import { parseCertHash } from "@/lib/certHash";
 import { JitterBufferManager } from "@/lib/jitterBuffer";
 import { senderIdKey } from "@/lib/voiceReceivePipeline";
@@ -126,6 +127,16 @@ async function sendDatagram(transport: WebTransport, bytes: Uint8Array): Promise
   }
 }
 
+// The server broadcasts to every connection with no room concept; each
+// client tags its own datagrams with its room and drops anyone else's.
+async function sendRoomDatagram(
+  transport: WebTransport,
+  room: Room,
+  bytes: Uint8Array,
+): Promise<void> {
+  return sendDatagram(transport, tagWithRoom(bytes, room));
+}
+
 async function readDatagrams(
   transport: WebTransport,
   onDatagram: (bytes: Uint8Array) => void,
@@ -152,6 +163,7 @@ export function useVoiceChat() {
   const knownSendersRef = useRef<Set<string>>(new Set());
   const ownSenderKeysRef = useRef<Set<string>>(new Set());
   const senderIdRef = useRef<Uint8Array | null>(null);
+  const roomRef = useRef<Room>("Fox");
   const drainStartedRef = useRef(false);
   const leavingRef = useRef(false);
   const statsIntervalRef = useRef<number | null>(null);
@@ -190,8 +202,10 @@ export function useVoiceChat() {
   }, []);
 
   const handleDatagram = useCallback(
-    (bytes: Uint8Array) => {
-      const decoded = decodeFrame(bytes);
+    (tagged: Uint8Array) => {
+      const stripped = stripRoomTag(tagged);
+      if (!stripped || stripped.room !== roomRef.current) return;
+      const decoded = decodeFrame(stripped.bytes);
       if (!decoded.ok) return;
       if (decoded.frame.channel === "presence") {
         const key = senderIdKey(decoded.frame.senderId);
@@ -228,7 +242,7 @@ export function useVoiceChat() {
       const voiceKey = senderIdKey(decoded.frame.senderId);
       if (!ownSenderKeysRef.current.has(voiceKey)) store.addPeer(voiceKey);
       knownSendersRef.current.add(voiceKey);
-      receivePipelineRef.current?.handleDatagram(bytes);
+      receivePipelineRef.current?.handleDatagram(stripped.bytes);
     },
     [store],
   );
@@ -240,7 +254,7 @@ export function useVoiceChat() {
       const name = useVoiceChatStore.getState().displayName;
       const encoded = encodePresenceFrame(senderId, kind, name);
       if (!encoded.ok) return Promise.resolve();
-      return sendDatagram(transport, encoded.bytes).catch(() => {});
+      return sendRoomDatagram(transport, roomRef.current, encoded.bytes).catch(() => {});
     },
     [],
   );
@@ -273,7 +287,7 @@ export function useVoiceChat() {
         getUserMedia: (c) => navigator.mediaDevices.getUserMedia(c),
         makeProcessor,
         AudioEncoderCtor: AudioEncoder as never,
-        sendDatagram: (bytes) => sendDatagram(transport, bytes),
+        sendDatagram: (bytes) => sendRoomDatagram(transport, roomRef.current, bytes),
         isMuted: () => useVoiceChatStore.getState().muted,
         senderId,
         onError: () => setMicError("microphone permission was denied"),
@@ -288,7 +302,8 @@ export function useVoiceChat() {
   );
 
   const connect = useCallback(
-    async (url: string, certHashHex: string) => {
+    async (url: string, certHashHex: string, room: Room) => {
+      roomRef.current = room;
       const certHash = parseCertHash(certHashHex);
       setFatalError(null);
       setMicError(null);
@@ -379,7 +394,7 @@ export function useVoiceChat() {
         return;
       }
       try {
-        await sendDatagram(transport, encoded.bytes);
+        await sendRoomDatagram(transport, roomRef.current, encoded.bytes);
         store.addMessage(message);
       } catch {
         store.addMessage({ ...message, failed: true });
