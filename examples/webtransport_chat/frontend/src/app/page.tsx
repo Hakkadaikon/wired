@@ -8,6 +8,7 @@ import Badge from "@/components/badge";
 import Row from "@/components/row";
 import TextInput from "@/components/text-input";
 import { useVoiceChat } from "@/hooks/useVoiceChat";
+import { clearJoinPrefs, loadJoinPrefs, saveJoinPrefs } from "@/lib/joinPrefs";
 import { useVoiceChatStore, type ChatMessage } from "@/stores/voiceChatStore";
 
 const DEFAULT_URL = "https://localhost:4433/";
@@ -244,6 +245,7 @@ function JoinScreen({
   setMicOff,
   connecting,
   onJoin,
+  onClearSaved,
 }: {
   url: string;
   setUrl: (v: string) => void;
@@ -255,6 +257,7 @@ function JoinScreen({
   setMicOff: (v: boolean) => void;
   connecting: boolean;
   onJoin: () => void;
+  onClearSaved: () => void;
 }) {
   return (
     <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -305,6 +308,16 @@ function JoinScreen({
               disabled={connecting}
               onClick={onJoin}
             />
+            <Row alignItems="center" justifyContent="center">
+              <Button
+                label="Clear saved info"
+                color="surface"
+                variant="text"
+                size="sm"
+                startIcon="eraser"
+                onClick={onClearSaved}
+              />
+            </Row>
           </Row>
         </Card>
       </div>
@@ -332,6 +345,30 @@ export default function Home() {
       }),
     [],
   );
+
+  // Restore the join form from the last visit. Deferred a tick, not in the
+  // initial state: the page is statically prerendered (no localStorage until
+  // hydration), and a synchronous setState inside the effect would both
+  // trip the react-hooks rule and risk a hydration mismatch.
+  useEffect(() => {
+    const t = window.setTimeout(() => {
+      const saved = loadJoinPrefs();
+      if (!saved) return;
+      setUrl(saved.url);
+      setCertHash(saved.certHash);
+      setName(saved.name);
+      setMicOff(saved.micOff);
+    }, 0);
+    return () => window.clearTimeout(t);
+  }, []);
+
+  const clearSaved = () => {
+    clearJoinPrefs();
+    setUrl(DEFAULT_URL);
+    setCertHash("");
+    setName("");
+    setMicOff(false);
+  };
 
   const connecting = connectionState === "connecting" && !fatalError;
   const lost = joined && connectionState === "disconnected" && !reconnecting;
@@ -423,11 +460,13 @@ export default function Home() {
           setMicOff={setMicOff}
           connecting={connecting}
           onJoin={() => {
+            saveJoinPrefs({ url, certHash, name, micOff });
             const s = useVoiceChatStore.getState();
             s.setDisplayName(name.trim());
             if (micOff) s.setMuted(true);
             void connect(url, certHash);
           }}
+          onClearSaved={clearSaved}
         />
       )}
     </main>
