@@ -18,6 +18,7 @@ import { createReconnectFlow, type ReconnectFlow } from "@/lib/reconnectFlow";
 import { registerPageLifecycleCleanup } from "@/lib/pageLifecycle";
 import { decodeFrame, encodeChatFrame, encodePresenceFrame, generateSenderId } from "@/lib/voiceProtocol";
 import { type Room, stripRoomTag, tagWithRoom } from "@/lib/roomFilter";
+import { createSendGate } from "@/lib/sendGate";
 import { parseCertHash } from "@/lib/certHash";
 import { JitterBufferManager } from "@/lib/jitterBuffer";
 import { senderIdKey } from "@/lib/voiceReceivePipeline";
@@ -118,13 +119,30 @@ function makePlaybackSink(ctx: AudioContext): (frame: unknown) => void {
   };
 }
 
-async function sendDatagram(transport: WebTransport, bytes: Uint8Array): Promise<void> {
+async function writeDatagram(transport: WebTransport, bytes: Uint8Array): Promise<void> {
   const writer = transport.datagrams.writable.getWriter();
   try {
     await writer.write(bytes);
   } finally {
     writer.releaseLock();
   }
+}
+
+// One gate per transport, shared by every send path (chat, presence,
+// voice): getWriter() throws "Cannot create writer when WritableStream is
+// locked" if a second caller grabs it while a first write() is still in
+// flight on the same stream -- chat/presence/voice are otherwise
+// independent call sites that would race this in practice (confirmed via a
+// real multi-client load run, not just in theory).
+const sendGates = new WeakMap<WebTransport, (bytes: Uint8Array) => Promise<void>>();
+
+function sendDatagram(transport: WebTransport, bytes: Uint8Array): Promise<void> {
+  let gate = sendGates.get(transport);
+  if (!gate) {
+    gate = createSendGate((b) => writeDatagram(transport, b));
+    sendGates.set(transport, gate);
+  }
+  return gate(bytes);
 }
 
 // The server broadcasts to every connection with no room concept; each
