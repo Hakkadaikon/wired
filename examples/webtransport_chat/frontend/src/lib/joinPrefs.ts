@@ -3,6 +3,8 @@
 // corrupted or missing data reads back as null so the form falls back to its
 // defaults.
 
+import { ROOMS, type Room } from "./roomFilter";
+
 const KEY = "webtransport-chat.join";
 
 export type JoinPrefs = {
@@ -10,6 +12,7 @@ export type JoinPrefs = {
   certHash: string;
   name: string;
   micOff: boolean;
+  room?: Room;
 };
 
 function isJoinPrefs(v: unknown): v is JoinPrefs {
@@ -19,7 +22,8 @@ function isJoinPrefs(v: unknown): v is JoinPrefs {
     typeof p.url === "string" &&
     typeof p.certHash === "string" &&
     typeof p.name === "string" &&
-    typeof p.micOff === "boolean"
+    typeof p.micOff === "boolean" &&
+    (p.room === undefined || (ROOMS as readonly string[]).includes(p.room as string))
   );
 }
 
