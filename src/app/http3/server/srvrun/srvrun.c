@@ -221,6 +221,18 @@ typedef struct {
   u64            stream_id;
   wired_sendsess sess;
   u64            stream_credit;
+  /** 1 while the stream is held open for more app-driven rounds
+   * (wired_server_wt_open_uni_stream/open_bidi_stream/stream_reply_open, or
+   * wired_server_wt_stream_send with fin=0): the pump suppresses the wire
+   * FIN at each round boundary (srvrun_wt_slice_fin) and the reap keeps the
+   * slot past a fully-ACKed round (srvrun_wtsend_finished) -- the same
+   * round shape as a streaming resp[] slot, minus its handler-driven
+   * refills. 0 for the one-shot opens, which close with FIN. */
+  int append_open;
+  /** RFC 9000 19.8: cumulative stream bytes armed across every round so
+   * far -- the base offset the next append round re-arms at
+   * (wired_sendsess_set_base_offset), mirroring srvrun_resp's stream_off. */
+  u64 stream_off;
 } srvrun_wtsend;
 /* Concurrent server-initiated WT stream sends per connection: comfortably
  * above SRVRUN_MAX_WT_SESSIONS' fan-out needs while keeping the per-slot
@@ -338,6 +350,16 @@ typedef struct {
   u32 wt_close_code[SRVRUN_MAX_WT_SESSIONS];
   u8  wt_close_msg[SRVRUN_MAX_WT_SESSIONS][QUIC_WTCAPSULE_CLOSE_MESSAGE_MAX];
   usz wt_close_msg_len[SRVRUN_MAX_WT_SESSIONS];
+  /** draft-ietf-webtrans-http3-15 SS4.4/8.2: a wired_server_wt_stream_reset
+   * call is pending -- latched (not sent inline) for the same
+   * no-srvrun_cfg-in-a-callback reason as wt_close_pending, drained on the
+   * next srvrun_on_step (srvrun_drain_wt_stream_reset): RESET_STREAM_AT +
+   * STOP_SENDING on wt_stream_reset_id carrying wt_stream_reset_app_code
+   * mapped through quic_wterrmap_to_http3. One slot, last-writer-wins, the
+   * same single-slot policy as wt_close_pending. */
+  int wt_stream_reset_pending;
+  u64 wt_stream_reset_id;
+  u32 wt_stream_reset_app_code;
   /** One pending outbound QUIC DATAGRAM (RFC 9221 5), queued by
    * srvrun_wt_send_datagram and drained by srvrun_send_pending_datagram on
    * the next step. ponytail: single-slot, not a queue — a second send
@@ -2052,6 +2074,22 @@ static void srvrun_drain_wt_close_pending(
     srvrun_drain_wt_close_one(cfg, c, i, &ob);
 }
 
+/* Drain a wired_server_wt_stream_reset latch (wt_stream_reset_pending's own
+ * doc): send the RESET_STREAM_AT + STOP_SENDING pair carrying the app error
+ * code mapped into HTTP/3's WebTransport range (srvrun_send_wt_busy_reset,
+ * the same abort shape every other WT stream-level error here uses,
+ * draft-ietf-webtrans-http3-15 SS4.4/8.2). The send slot was already freed
+ * at latch time (wired_server_wt_stream_reset), so only the wire bytes
+ * remain to send. */
+static void srvrun_drain_wt_stream_reset(
+    const srvrun_cfg* cfg, srvrun_conn* c) {
+  if (!c->wt_stream_reset_pending) return;
+  c->wt_stream_reset_pending = 0;
+  srvrun_send_wt_busy_reset(
+      cfg, c, c->wt_stream_reset_id,
+      quic_wterrmap_to_http3(c->wt_stream_reset_app_code));
+}
+
 /* 1 if slot is in-use and its stream id is this step's latched
  * wt_reset_stream_id -- the same "is this the reset target" test
  * wt_reset_bidi_session/wt_reset_uni_session each apply to their own table,
@@ -2259,6 +2297,7 @@ static void srvrun_on_step(
   srvrun_deliver_wt_reset_if_owned(ctx->cfg, c);
   srvrun_close_wt_flow_violations(ctx->cfg, c);
   srvrun_drain_wt_close_pending(ctx->cfg, c);
+  srvrun_drain_wt_stream_reset(ctx->cfg, c);
   if (srvrun_close_on_step_violation(ctx->cfg, c)) return;
   srvrun_send_step_reply(ctx->cfg, c, produced, quic_span_of(out, ob.len));
 }
@@ -2724,10 +2763,13 @@ static u64 srvrun_next_bidi_id(srvrun_conn* c) {
  * contract) on stream id; the pump takes it from the connection's next
  * step/tick under the shared cwnd/credit/pacing gates. */
 static i64 srvrun_wtsend_arm_id(srvrun_wtsend* w, u64 id, quic_span payload) {
-  w->stream_id = id;
+  w->stream_id  = id;
+  w->stream_off = payload.n;
   wired_sendsess_arm(&w->sess, payload.p, payload.n, SRVRUN_CHUNK);
   return (i64)id;
 }
+
+static srvrun_wtsend* srvrun_wtsend_find(srvrun_conn* c, u64 stream_id);
 
 /* 1 iff opening one more stream of the given direction AND sending
  * payload.n bytes of Stream Body on it both stay within the session's
@@ -2770,16 +2812,29 @@ static int wt_open_flow_ok(
   return 0;
 }
 
-i64 wired_server_wt_open_uni(wired_wt_session* s, quic_span payload) {
+/* Shared body of the one-shot and keep-open uni opens: flow gates, slot
+ * claim, id allocation. keep_open sets append_open (srvrun_wtsend's own
+ * doc), the only difference between the two entry points. */
+static i64 srvrun_wt_open_uni_common(
+    wired_wt_session* s, quic_span payload, int keep_open) {
   srvrun_conn*   c    = srvrun_session_conn(s);
   int            sidx = wt_session_slot_or_absent(c, s);
   srvrun_wtsend* w;
   if (!wt_open_flow_ok(c, sidx, s, 0, payload)) return -1;
   w = srvrun_wtsend_claim(c, c->s.sdrv.peer_initial_max_stream_data_uni);
   if (!w) return -1;
+  w->append_open = keep_open;
   wired_wt_session_note_stream_opened(s, 0);
   wired_wt_session_note_data_sent(s, payload.n);
   return srvrun_wtsend_arm_id(w, srvrun_next_uni_id(c), payload);
+}
+
+i64 wired_server_wt_open_uni(wired_wt_session* s, quic_span payload) {
+  return srvrun_wt_open_uni_common(s, payload, 0);
+}
+
+i64 wired_server_wt_open_uni_stream(wired_wt_session* s, quic_span payload) {
+  return srvrun_wt_open_uni_common(s, payload, 1);
 }
 
 /* RFC 9000 2.1 / draft-ietf-webtrans-http3-15 4.3: pre-register id's receive
@@ -2799,7 +2854,10 @@ static void srvrun_wt_preclaim_bidi_recv(
   wired_wt_session_offer_stream(s, id);
 }
 
-i64 wired_server_wt_open_bidi(wired_wt_session* s, quic_span payload) {
+/* Shared body of the one-shot and keep-open bidi opens -- the bidi twin of
+ * srvrun_wt_open_uni_common, plus the receive-side preclaim. */
+static i64 srvrun_wt_open_bidi_common(
+    wired_wt_session* s, quic_span payload, int keep_open) {
   srvrun_conn*   c    = srvrun_session_conn(s);
   int            sidx = wt_session_slot_or_absent(c, s);
   srvrun_wtsend* w;
@@ -2808,11 +2866,20 @@ i64 wired_server_wt_open_bidi(wired_wt_session* s, quic_span payload) {
   w = srvrun_wtsend_claim(
       c, c->s.sdrv.peer_initial_max_stream_data_bidi_remote);
   if (!w) return -1;
+  w->append_open = keep_open;
   wired_wt_session_note_stream_opened(s, 1);
   wired_wt_session_note_data_sent(s, payload.n);
   id = srvrun_next_bidi_id(c);
   srvrun_wt_preclaim_bidi_recv(c, s, id);
   return srvrun_wtsend_arm_id(w, id, payload);
+}
+
+i64 wired_server_wt_open_bidi(wired_wt_session* s, quic_span payload) {
+  return srvrun_wt_open_bidi_common(s, payload, 0);
+}
+
+i64 wired_server_wt_open_bidi_stream(wired_wt_session* s, quic_span payload) {
+  return srvrun_wt_open_bidi_common(s, payload, 1);
 }
 
 /* draft-ietf-webtrans-http3-15 SS5.4/8.2 (WTH3-061): same WT_MAX_DATA gate as
@@ -2828,8 +2895,10 @@ static int wt_reply_flow_ok(
   return 0;
 }
 
-int wired_server_wt_stream_reply(
-    wired_wt_session* s, u64 stream_id, quic_span payload) {
+/* Shared body of the one-shot and keep-open replies on a client-initiated
+ * bidi stream. */
+static int srvrun_wt_stream_reply_common(
+    wired_wt_session* s, u64 stream_id, quic_span payload, int keep_open) {
   srvrun_conn*   c    = srvrun_session_conn(s);
   int            sidx = wt_session_slot_or_absent(c, s);
   srvrun_wtsend* w;
@@ -2838,8 +2907,81 @@ int wired_server_wt_stream_reply(
    * stream the peer itself initiated -- same seed resp[] claiming uses. */
   w = srvrun_wtsend_claim(c, c->s.sdrv.peer_initial_max_stream_data_bidi_local);
   if (!w) return 0;
+  w->append_open = keep_open;
   wired_wt_session_note_data_sent(s, payload.n);
   srvrun_wtsend_arm_id(w, stream_id, payload);
+  return 1;
+}
+
+int wired_server_wt_stream_reply(
+    wired_wt_session* s, u64 stream_id, quic_span payload) {
+  return srvrun_wt_stream_reply_common(s, stream_id, payload, 0);
+}
+
+int wired_server_wt_stream_reply_open(
+    wired_wt_session* s, u64 stream_id, quic_span payload) {
+  return srvrun_wt_stream_reply_common(s, stream_id, payload, 1);
+}
+
+/* 1 iff w names a claimed slot still open for appending. */
+static int srvrun_wtsend_open_slot(const srvrun_wtsend* w) {
+  return w && w->append_open;
+}
+
+/* 1 iff a new round may be armed on w: the slot is open for appending, the
+ * round is non-empty (a FIN needs a final slice to ride on --
+ * wired_sendq_next never yields an empty slice), and the previous round is
+ * fully delivered (wired_sendsess_done, whose consumed `active` flag the
+ * success path re-arms right away; the reap deliberately skips append-open
+ * slots, so nobody else consumes it first). */
+static int srvrun_wtsend_appendable(srvrun_wtsend* w, usz len) {
+  return srvrun_wtsend_open_slot(w) && len != 0 &&
+         wired_sendsess_done(&w->sess);
+}
+
+/* Re-arm w over the next round's bytes at the stream's cumulative offset --
+ * the streaming-resp shape (srvrun_resp_next_round): arm resets the
+ * round-local sendq, set_base_offset restores the absolute RFC 9000 19.8
+ * position. fin!=0 ends the app's rounds: append_open drops, so this
+ * round's final slice carries the real wire FIN (srvrun_wt_slice_fin) and
+ * the slot reaps once fully ACKed (srvrun_wtsend_finished). */
+static void srvrun_wtsend_append_round(
+    srvrun_wtsend* w, quic_span payload, int fin) {
+  wired_sendsess_arm(&w->sess, payload.p, payload.n, SRVRUN_CHUNK);
+  wired_sendsess_set_base_offset(&w->sess, w->stream_off);
+  w->stream_off += payload.n;
+  w->append_open = fin == 0;
+}
+
+int wired_server_wt_stream_send(
+    wired_wt_session* s, u64 stream_id, quic_span payload, int fin) {
+  srvrun_conn*   c    = srvrun_session_conn(s);
+  int            sidx = wt_session_slot_or_absent(c, s);
+  srvrun_wtsend* w;
+  if (!wt_reply_flow_ok(c, sidx, s, payload.n)) return -1;
+  w = srvrun_wtsend_find(c, stream_id);
+  if (!srvrun_wtsend_appendable(w, payload.n)) return -1;
+  wired_wt_session_note_data_sent(s, payload.n);
+  srvrun_wtsend_append_round(w, payload, fin);
+  return 1;
+}
+
+/* Free the WT send slot armed on stream_id, if any: abandoning delivery
+ * (RFC 9000 19.4 RESET_STREAM) releases the app's payload view and stops
+ * the pump from sending further slices. */
+static void srvrun_wtsend_release(srvrun_conn* c, u64 stream_id) {
+  srvrun_wtsend* w = srvrun_wtsend_find(c, stream_id);
+  if (w) w->in_use = 0;
+}
+
+int wired_server_wt_stream_reset(
+    wired_wt_session* s, u64 stream_id, u32 error_code) {
+  srvrun_conn* c = srvrun_session_conn(s);
+  if (!c) return 0;
+  srvrun_wtsend_release(c, stream_id);
+  c->wt_stream_reset_id       = stream_id;
+  c->wt_stream_reset_app_code = error_code;
+  c->wt_stream_reset_pending  = 1;
   return 1;
 }
 
@@ -4411,16 +4553,25 @@ static int srvrun_pump_one(
   return srvrun_send_slice(ctx, c, r, &sl);
 }
 
-/* Send one slice from WT send slot w under the same gates. FIN is never
- * suppressed here: the final slice really is the stream's end
- * (wired_server_wt_open_uni/open_bidi/stream_reply all close with FIN). */
+/* sl->fin marks the end of THIS ROUND's buffer; while w is still open for
+ * appending (append_open) the true stream end has not been written yet, so
+ * the wire FIN is suppressed -- the wtsend twin of
+ * srvrun_slice_fin_suppressed's streaming half. A one-shot open
+ * (append_open 0) keeps its final slice's FIN: that really is the stream's
+ * end. */
+static u8 srvrun_wt_slice_fin(
+    const srvrun_wtsend* w, const wired_sendq_slice* sl) {
+  return (u8)(sl->fin && !w->append_open);
+}
+
+/* Send one slice from WT send slot w under the same gates. */
 static int srvrun_pump_one_wt(
     const srvrun_step_ctx* ctx, srvrun_conn* c, srvrun_wtsend* w) {
   wired_sendq_slice sl;
   if (!srvrun_pump_gate_ok(c, &w->sess, w->stream_credit)) return 0;
   if (!wired_sendsess_take(&w->sess, &sl)) return 0;
   return srvrun_send_stream_slice(
-      ctx, c, &w->sess, w->stream_id, &sl, (u8)sl.fin);
+      ctx, c, &w->sess, w->stream_id, &sl, srvrun_wt_slice_fin(w, &sl));
 }
 
 /* The WT-send half of one round-robin pass (one slice per slot, in order).
@@ -4928,11 +5079,15 @@ static void srvrun_reap_resps(
     srvrun_resp_reap(ctx, c, slot, &c->resp[i]);
 }
 
-/* w has delivered every byte (sent and acknowledged) -- the same
- * fully-drained guard srvrun_resp_reap applies, minus the response-only
- * streaming/bigbuf concerns a WT send never has. */
+/* w has delivered every byte (sent and acknowledged) AND the app has
+ * written the stream's end -- the same fully-drained guard srvrun_resp_reap
+ * applies, minus the response-only streaming/bigbuf concerns a WT send
+ * never has. An append-open slot is never finished: its fully-ACKed round
+ * is just the pause before the app's next wired_server_wt_stream_send
+ * (whose busy check consumes wired_sendsess_done instead), the same way a
+ * streaming resp[] slot survives its round boundary. */
 static int srvrun_wtsend_finished(srvrun_wtsend* w) {
-  return w->in_use && wired_sendsess_done(&w->sess);
+  return w->in_use && !w->append_open && wired_sendsess_done(&w->sess);
 }
 
 /* Free every fully-ACKed WT send slot; the app's payload view is released
