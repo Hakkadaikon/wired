@@ -410,6 +410,69 @@ i64 wired_server_wt_open_bidi(wired_wt_session* s, quic_span payload);
 int wired_server_wt_stream_reply(
     wired_wt_session* s, u64 stream_id, quic_span payload);
 
+/** Same as wired_server_wt_open_uni, but WITHOUT closing the stream: no FIN
+ * is sent after payload's final slice, and the stream stays open for
+ * further wired_server_wt_stream_send rounds until one carries fin=1 (or
+ * wired_server_wt_stream_reset aborts it). The same view/liveness contract
+ * as wired_server_wt_open_uni applies to payload.
+ * @param s the session whose connection the stream is opened on
+ * @param payload the first round's bytes, signal prefix included
+ * @return the allocated stream id, or negative on failure */
+i64 wired_server_wt_open_uni_stream(wired_wt_session* s, quic_span payload);
+
+/** Same as wired_server_wt_open_uni_stream, but a server-initiated
+ * bidirectional stream (RFC 9000 2.1: id 1 mod 4; signal prefix varint
+ * 0x41), its receive side pre-registered like wired_server_wt_open_bidi.
+ * @param s the session whose connection the stream is opened on
+ * @param payload the first round's bytes, signal prefix included
+ * @return the allocated stream id, or negative on failure */
+i64 wired_server_wt_open_bidi_stream(wired_wt_session* s, quic_span payload);
+
+/** Same as wired_server_wt_stream_reply, but WITHOUT closing the stream --
+ * the opening round of a reply on a client-initiated bidi stream that stays
+ * open for further wired_server_wt_stream_send rounds.
+ * @param s the session whose connection carries the stream
+ * @param stream_id the client-opened bidi stream to reply on
+ * @param payload the first round's bytes
+ * @return 1 accepted, 0 on failure */
+int wired_server_wt_stream_reply_open(
+    wired_wt_session* s, u64 stream_id, quic_span payload);
+
+/** Append one more round of bytes to a stream opened with wired_server_wt_
+ * open_uni_stream/open_bidi_stream/stream_reply_open: payload goes out at
+ * the stream's cumulative offset (RFC 9000 19.8), and fin=1 ends the stream
+ * with FIN on this round's final slice, after which the send slot frees
+ * itself once fully acknowledged (the one-shot opens' behavior). One round
+ * is in flight at a time: a call while the previous round is not yet fully
+ * acknowledged is refused, the same single-round policy as a streaming
+ * response. The wired_server_wt_open_uni view/liveness contract applies to
+ * each round's payload.
+ * @param s the session whose connection carries the stream
+ * @param stream_id a stream opened by one of the three calls above
+ * @param payload this round's bytes; must be non-empty (the FIN rides the
+ *   final slice, so a bare-FIN round has nothing to carry it)
+ * @param fin 1 to end the stream after this round, 0 to keep it open
+ * @return 1 accepted, negative when s resolves to no live connection,
+ *   stream_id names no open send slot, payload is empty, the previous
+ *   round is still in flight, or the session's WT_MAX_DATA limit would be
+ *   exceeded */
+int wired_server_wt_stream_send(
+    wired_wt_session* s, u64 stream_id, quic_span payload, int fin);
+
+/** Abort a stream opened for appending: queue a RESET_STREAM_AT +
+ * STOP_SENDING pair on stream_id carrying error_code mapped into HTTP/3's
+ * WebTransport range (draft-ietf-webtrans-http3-15 SS4.4/8.2), delivered
+ * on one of the loop's next steps -- the same deferred, single-slot,
+ * last-writer-wins shape as wired_server_wt_close_session. The stream's
+ * send slot is freed at once, releasing the app's payload view and
+ * dropping any not-yet-sent bytes (RFC 9000 19.4: delivery is abandoned).
+ * @param s the session whose connection carries the stream
+ * @param stream_id the stream to abort
+ * @param error_code the WebTransport application error code to report
+ * @return 1 queued, 0 when s resolves to no live connection */
+int wired_server_wt_stream_reset(
+    wired_wt_session* s, u64 stream_id, u32 error_code);
+
 /** Queue one HTTP Datagram (RFC 9297) to this session's peer: the SDK
  * prefixes the quarter-stream-id varint (the session's CONNECT stream id /
  * 4, RFC 9297 2.1) and sends it as a QUIC DATAGRAM (RFC 9221) on one of the
