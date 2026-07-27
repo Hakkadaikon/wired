@@ -10273,6 +10273,183 @@ static void test_srvrun_wt_open_bidi_allocates_ids_and_holds_view(void) {
   CHECK(c->wtsend[0].stream_credit == (1u << 24));
 }
 
+/* ===== FIN-less WT stream open + append + explicit finish =====
+ * Test list:
+ * - open_uni_stream sends the payload without FIN and marks the slot
+ *   append-open
+ * - stream_send while the previous round is unacked is refused (busy)
+ * - an empty append round is refused (a FIN needs a slice to ride on)
+ * - stream_send appends at the cumulative stream offset, still no FIN
+ * - stream_send with fin=1 puts FIN on the final slice, clears append_open,
+ *   and the slot reaps once fully acked
+ * - open_bidi_stream / stream_reply_open mark their slots append-open;
+ *   the one-shot open_uni stays not-append-open (regression)
+ * - stream_send on an id no slot holds is refused
+ * - stream_reset frees the slot at once, latches, and the drain sends
+ *   RESET_STREAM_AT + STOP_SENDING with the mapped error code */
+
+/* Pump slot 0 once and decode the single STREAM frame of the one packet it
+ * seals onto the wire. Returns 1 with *sf filled. */
+static int sr_wtsend_pump_recv_stream(
+    struct lp_fix*       f,
+    i64                  cfd,
+    i64                  sfd,
+    const quic_sockaddr* srv,
+    quic_stream_frame*   sf) {
+  u8            pkt[1500];
+  const u8*     pl;
+  usz           pll;
+  quic_sockaddr from;
+  i64           r;
+  srvrun_cfg    cfg = {cfd,           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                       &g_srvrun_env, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+  srvrun_state  st  = {g_srvrun_table, g_srvrun_state.conns};
+  srvrun_step_ctx ctx = {&cfg, srv, &st, 0, 0};
+  srvrun_pump_sess(&ctx, 0);
+  r = wired_udp_recvfrom(sfd, quic_mspan_of(pkt, sizeof pkt), &from);
+  if (r <= 0) return 0;
+  if (client_open_onertt(f, pkt, (usz)r, &pl, &pll) != 1) return 0;
+  return quic_frame_get_stream(pl, pll, sf) > 0;
+}
+
+static const u8 sr_wtsend_more[] = {'m', 'o', 'r'};
+static const u8 sr_wtsend_tail[] = {'e', '!'};
+
+/* WIRE: an append-open uni stream holds its FIN back at every round boundary
+ * except the fin=1 round's final slice; each round lands at the cumulative
+ * stream offset (RFC 9000 19.8) and the slot frees only after the finishing
+ * round is fully acked. */
+static void test_srvrun_wt_open_uni_stream_appends_then_finishes(void) {
+  struct lp_fix     f;
+  quic_obuf         ob = {0};
+  u8                obuf[1024];
+  quic_sockaddr     srv;
+  i64               sfd, cfd;
+  quic_stream_frame sf;
+  srvrun_conn*      c;
+  srvrun_cfg        acfg = sr_wt_send_cfg();
+  if (!sr_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
+  ob      = (quic_obuf){obuf, sizeof obuf, 0};
+  c       = sr_wtsend_fixture(&f, &ob);
+  c->peer = srv;
+  CHECK(
+      wired_server_wt_open_uni_stream(
+          &c->wt, quic_span_of(sr_wtsend_hello, sizeof sr_wtsend_hello)) == 7);
+  CHECK(c->wtsend[0].append_open == 1);
+  /* busy: round 1 is not yet acknowledged */
+  CHECK(
+      wired_server_wt_stream_send(
+          &c->wt, 7, quic_span_of(sr_wtsend_more, sizeof sr_wtsend_more), 0) ==
+      -1);
+  CHECK(sr_wtsend_pump_recv_stream(&f, cfd, sfd, &srv, &sf));
+  CHECK(sf.stream_id == 7);
+  CHECK(sf.offset == 0);
+  CHECK(sf.fin == 0); /* round end, but the stream stays open */
+  sr_wtsend_ack_all_inflight(&acfg, c, &c->wtsend[0].sess, 0);
+  /* an empty round has no slice for a FIN to ride on */
+  CHECK(wired_server_wt_stream_send(&c->wt, 7, quic_span_of(0, 0), 1) == -1);
+  CHECK(
+      wired_server_wt_stream_send(
+          &c->wt, 7, quic_span_of(sr_wtsend_more, sizeof sr_wtsend_more), 0) ==
+      1);
+  CHECK(sr_wtsend_pump_recv_stream(&f, cfd, sfd, &srv, &sf));
+  CHECK(sf.offset == sizeof sr_wtsend_hello);
+  CHECK(sf.fin == 0);
+  sr_wtsend_ack_all_inflight(&acfg, c, &c->wtsend[0].sess, 0);
+  CHECK(
+      wired_server_wt_stream_send(
+          &c->wt, 7, quic_span_of(sr_wtsend_tail, sizeof sr_wtsend_tail), 1) ==
+      1);
+  CHECK(c->wtsend[0].append_open == 0);
+  CHECK(sr_wtsend_pump_recv_stream(&f, cfd, sfd, &srv, &sf));
+  CHECK(sf.offset == sizeof sr_wtsend_hello + sizeof sr_wtsend_more);
+  CHECK(sf.fin == 1); /* the true stream end */
+  sr_wtsend_ack_all_inflight(&acfg, c, &c->wtsend[0].sess, 0);
+  srvrun_reap_wtsends(c);
+  CHECK(c->wtsend[0].in_use == 0);
+  wired_udp_close(cfd);
+  wired_udp_close(sfd);
+}
+
+/* open_bidi_stream and stream_reply_open mark their slots append-open (the
+ * FIN-holding state above); the one-shot wired_server_wt_open_uni does not
+ * (regression: its final slice still carries FIN). An id no send slot holds
+ * is refused. */
+static void test_srvrun_wt_stream_open_variants_mark_append(void) {
+  struct lp_fix   f;
+  quic_obuf       ob = {0};
+  u8              obuf[1024];
+  static const u8 pay[] = {0x41, 0x04, 'x'};
+  srvrun_conn*    c;
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  c  = sr_wtsend_fixture(&f, &ob);
+  c->s.sdrv.peer_initial_max_stream_data_bidi_local = 1u << 24;
+  CHECK(
+      wired_server_wt_open_bidi_stream(&c->wt, quic_span_of(pay, sizeof pay)) ==
+      1);
+  CHECK(c->wtsend[0].append_open == 1);
+  CHECK(c->wtsend[0].stream_credit == (1u << 24));
+  CHECK(
+      wired_server_wt_stream_reply_open(
+          &c->wt, 0, quic_span_of(pay, sizeof pay)) == 1);
+  CHECK(c->wtsend[1].stream_id == 0);
+  CHECK(c->wtsend[1].append_open == 1);
+  CHECK(
+      wired_server_wt_stream_send(
+          &c->wt, 99, quic_span_of(pay, sizeof pay), 0) == -1);
+  CHECK(wired_server_wt_open_uni(&c->wt, quic_span_of(pay, sizeof pay)) == 7);
+  CHECK(c->wtsend[2].append_open == 0);
+}
+
+/* stream_reset frees the send slot at once (the app's payload view is
+ * released, RFC 9000 19.4: delivery abandoned) and latches; the drain sends
+ * the RESET_STREAM_AT + STOP_SENDING pair with the app error code mapped
+ * into HTTP/3's WebTransport range (draft-ietf-webtrans-http3-15 8.2). */
+static void test_srvrun_wt_stream_reset_sends_reset_and_frees_slot(void) {
+  struct lp_fix f;
+  quic_obuf     ob = {0};
+  u8            obuf[1024];
+  quic_sockaddr srv, from;
+  i64           sfd, cfd;
+  srvrun_conn*  c;
+  if (!sr_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
+  ob      = (quic_obuf){obuf, sizeof obuf, 0};
+  c       = sr_wtsend_fixture(&f, &ob);
+  c->peer = srv;
+  CHECK(
+      wired_server_wt_open_uni_stream(
+          &c->wt, quic_span_of(sr_wtsend_hello, sizeof sr_wtsend_hello)) == 7);
+  CHECK(wired_server_wt_stream_reset(&c->wt, 7, 0x42) == 1);
+  CHECK(c->wtsend[0].in_use == 0);
+  CHECK(c->wt_stream_reset_pending == 1);
+  {
+    srvrun_cfg cfg = {cfd,           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                      &g_srvrun_env, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_drain_wt_stream_reset(&cfg, c);
+  }
+  CHECK(c->wt_stream_reset_pending == 0);
+  {
+    u8                         pkt[1500];
+    const u8*                  pl;
+    usz                        pll;
+    usz                        rn, sn;
+    quic_reset_stream_at_frame rs;
+    quic_stop_sending_frame    ss;
+    i64 r = wired_udp_recvfrom(sfd, quic_mspan_of(pkt, sizeof pkt), &from);
+    CHECK(r > 0);
+    CHECK(client_open_onertt(&f, pkt, (usz)r, &pl, &pll) == 1);
+    rn = quic_reset_stream_at_decode(pl, pll, &rs);
+    CHECK(rn != 0);
+    CHECK(rs.stream_id == 7);
+    CHECK(rs.error_code == quic_wterrmap_to_http3(0x42));
+    sn = quic_stop_sending_decode(pl + rn, pll - rn, &ss);
+    CHECK(sn != 0);
+    CHECK(ss.stream_id == 7);
+  }
+  wired_udp_close(cfd);
+  wired_udp_close(sfd);
+}
+
 /* ===== W-07/WTH3-058, W-10/WTH3-061: WT_MAX_STREAMS/WT_MAX_DATA flow control
  * on server-initiated stream opens (draft-ietf-webtrans-http3-15 SS5.3/5.4/
  * 8.2). wired_wt_session_stream_open_allowed/data_send_allowed (session.c)
@@ -11918,6 +12095,9 @@ void test_srvrun(void) {
   test_srvrun_wt_avail_captured_from_wire();
   test_srvrun_wt_open_uni_streams_payload_on_wire();
   test_srvrun_wt_open_bidi_allocates_ids_and_holds_view();
+  test_srvrun_wt_open_uni_stream_appends_then_finishes();
+  test_srvrun_wt_stream_open_variants_mark_append();
+  test_srvrun_wt_stream_reset_sends_reset_and_frees_slot();
   test_srvrun_wt_open_uni_within_max_streams_succeeds();
   test_srvrun_wt_open_uni_exceeding_max_streams_refused();
   test_srvrun_wt_open_bidi_exceeding_max_streams_refused();
