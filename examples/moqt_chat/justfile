@@ -1,0 +1,68 @@
+# wired MOQT chat sample. libc-free, x86_64-linux only, single-process
+# driver only (the hub keeps its peer table in one process's memory -- see
+# src/app/moqt/run/moqtrun.h).
+
+# Build the server against the SDK static library, after the SDK's own
+# fmt+ninja+lint gate. The static, freestanding binary needs no libc.
+build:
+    cd ../.. && just build && ninja examples/moqt_chat/wired_server
+
+# Build and run (binds 0.0.0.0:4433; Ctrl-C to stop). Do not pass
+# --workers/--cores/--ifindex: this hub is single-process only.
+run: build
+    ./wired_server
+
+# Production build of the moqt_chat frontend (frontend/, vite + pnpm).
+build-frontend:
+    cd frontend && pnpm install --frozen-lockfile && pnpm build
+
+# Run the moqt_chat frontend's dev server (http://localhost:5173/).
+dev-frontend:
+    cd frontend && pnpm install --frozen-lockfile && pnpm dev
+
+# Build the frontend's static output and serve it over TLS
+# (https://<host>:8443/). TLS because a non-localhost http:// page is not a
+# secure context and the browser disables the WebTransport API entirely.
+serve-frontend: build-frontend
+    [ -f cert.pem ] || openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 \
+        -keyout key.pem -out cert.pem -days 365 -nodes -subj "/CN=localhost"
+    python3 -c "\
+    import functools, http.server, ssl; \
+    handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory='frontend/dist'); \
+    srv = http.server.HTTPServer(('0.0.0.0', 8443), handler); \
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER); \
+    ctx.load_cert_chain('cert.pem', 'key.pem'); \
+    srv.socket = ctx.wrap_socket(srv.socket, server_side=True); \
+    print('https://0.0.0.0:8443/'); \
+    srv.serve_forever()"
+
+# TS codec unit tests (vitest) pinned to the shared golden vectors
+# (testvectors/moqt_golden.json).
+test-codec:
+    cd frontend && pnpm install --frozen-lockfile && pnpm test
+
+# One-time: install the e2e harness's node deps and puppeteer's own Chrome
+# for Testing build, then provision the shared libraries that build is
+# missing in a minimal container via `apt-get download` + `dpkg -x`
+# (user-local, no root, no system mutation), caching the resulting lib path
+# at e2e/.chrome-libs-profile.
+e2e-setup:
+    cd e2e && npm install
+    cd e2e && npx puppeteer browsers install chrome
+    ./e2e/fetch-chrome-libs.sh
+
+# Unit tests for the load harness's own metrics math (loss rate, latency
+# percentiles) -- pure functions, no browser involved.
+e2e-test:
+    cd e2e && npm test
+
+# Multi-client chat load test: N headless-Chrome clients (each its own
+# BrowserContext), joining the hub's single fixed room, exchanging chat
+# messages, graded for message loss and latency. N is capped at 4 (the
+# frontend's fixed candidate participant id list -- see e2e/lib/loadTest.mjs
+# for why). Starts/stops its own server + static frontend; no manual
+# fingerprint copying. Run e2e-setup once first.
+# Args forward to run-load-test.mjs, e.g.:
+#   just e2e-load --clients=4 --messages=10 --max-loss-rate=0
+e2e-load *ARGS: build build-frontend
+    ./e2e/run.sh {{ARGS}}
