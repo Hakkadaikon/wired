@@ -58,32 +58,54 @@ static int moqtrun_encode_setup(quic_mspan buf, usz* off, const void* m) {
 }
 
 /* draft 3.3: the control stream's first message is the endpoint's own
- * SETUP, no Setup Options (this subset negotiates nothing on the wire). */
-static u64 moqtrun_send_setup(wired_moqt_io* io, wired_wt_session* s) {
-  u8                buf[16];
+ * SETUP, no Setup Options (this subset negotiates nothing on the wire).
+ * io->open_bidi_stream is responsible for prefixing the WebTransport
+ * stream signal (draft-ietf-webtrans-http3-15 4.2) ahead of these bytes --
+ * this layer stays session-opaque (wired_wt_session is never dereferenced
+ * here, only passed through) so it stays testable without the QUIC/TLS
+ * stack; see moqtrun.h's io table doc. */
+static u64 moqtrun_send_setup(wired_moqt_io* io, wired_wt_session* s, u8* buf) {
   quic_moqctl_setup setup = {0};
   usz               n     = moqtrun_envelope_put(
-      quic_mspan_of(buf, sizeof buf), QUIC_MOQCTL_T_SETUP, moqtrun_encode_setup,
-      &setup);
+      quic_mspan_of(buf, WIRED_MOQTRUN_CTL_SEND_BUF), QUIC_MOQCTL_T_SETUP,
+      moqtrun_encode_setup, &setup);
   i64 sid = io->open_bidi_stream(s, quic_span_of(buf, n));
   return sid < 0 ? 0 : (u64)sid;
+}
+
+/* Initializes a freshly allocated peer slot for s and sends its SETUP,
+ * split out of wired_moqt_on_session to keep that function's own branch
+ * count at the CCN gate. */
+static void moqtrun_init_peer(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, wired_wt_session* s) {
+  p->in_use          = 1;
+  p->wt              = s;
+  p->published       = 0;
+  p->request_id_next = 1; /* hub is the server: odd, 1-origin (draft SS10.2) */
+  p->send_len        = 0;
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++) p->subs[i].active = 0;
+  quic_moqsess_init(&p->sess);
+  p->control_stream_id = moqtrun_send_setup(&hub->io, s, p->send_buf);
+  quic_moqsess_step(&p->sess, QUIC_MOQSESS_EV_SENT_SETUP);
 }
 
 void wired_moqt_on_session(
     void* app_ctx, wired_wt_session* s, quic_span path, quic_span protocol) {
   (void)path;
   (void)protocol;
-  wired_moqt_hub*     hub = (wired_moqt_hub*)app_ctx;
-  wired_moqtrun_peer* p   = moqtrun_alloc(hub);
+  wired_moqt_hub* hub = (wired_moqt_hub*)app_ctx;
+  /* srvrun's wt_on_session doc promises "fires once after [the 2xx] is
+   * built", but a duplicate Extended CONNECT can still reach the app layer
+   * (e.g. a retried/speculative one) -- draft 3.3 permits only one control
+   * stream per peer per session, so a second SETUP here would itself be the
+   * protocol violation this hub is supposed to prevent, not just redundant
+   * work. Guard by session identity: a callback for an already-tracked s is
+   * a no-op instead of allocating a second peer slot and sending SETUP
+   * twice on the same WT session. */
+  if (moqtrun_find_by_wt(hub, s)) return;
+  wired_moqtrun_peer* p = moqtrun_alloc(hub);
   if (!p) return;
-  p->in_use          = 1;
-  p->wt              = s;
-  p->published       = 0;
-  p->request_id_next = 1; /* hub is the server: odd, 1-origin (draft SS10.2) */
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++) p->subs[i].active = 0;
-  quic_moqsess_init(&p->sess);
-  p->control_stream_id = moqtrun_send_setup(&hub->io, s);
-  quic_moqsess_step(&p->sess, QUIC_MOQSESS_EV_SENT_SETUP);
+  moqtrun_init_peer(hub, p, s);
 }
 
 /* ===================== control-message handlers ===================== */
@@ -105,20 +127,56 @@ static int moqtrun_has_timeout_param(const quic_moqctl_params* params) {
   return 0;
 }
 
+/* Appends one control message's already-encoded bytes to p's per-dispatch
+ * reply queue (moqtrun.h's send_buf/send_len doc): every handler queues
+ * here instead of calling stream_send itself, so a dispatch with several
+ * replies (e.g. one SUBSCRIBE per other peer) still calls stream_send only
+ * once -- see the doc for why more than one call per dispatch loses data.
+ * Silently drops on overflow (WIRED_MOQTRUN_CTL_SEND_BUF is sized for the
+ * worst case this hub's own protocol subset can produce, so overflow never
+ * happens in practice). */
+static void moqtrun_queue_reply(wired_moqtrun_peer* p, quic_span msg) {
+  if (p->send_len + msg.n > WIRED_MOQTRUN_CTL_SEND_BUF) return;
+  quic_memcpy(p->send_buf + p->send_len, msg.p, msg.n);
+  p->send_len += msg.n;
+}
+
+/* Sends every reply queued on p's control stream, in one stream_send call.
+ * Called at both the START and the END of moqtrun_dispatch_ctl_stream (see
+ * its own doc for why one call is not enough): a queue can still hold an
+ * earlier dispatch's replies when this one begins, because
+ * wired_server_wt_stream_send refuses a new round on a keep-open bidi
+ * stream until the PREVIOUS round is fully acknowledged (srvrun.c's
+ * srvrun_wtsend_appendable) -- an ACK needs at least one more event-loop
+ * step than a single app callback ever gets, so two control messages
+ * arriving in back-to-back dispatches (e.g. PUBLISH then SUBSCRIBE) can
+ * easily straddle that boundary. On success the queue is cleared; on
+ * failure (still pending) it is left untouched so the NEXT dispatch's
+ * start-of-call flush retries it, growing with that dispatch's own new
+ * replies appended after it. A dispatch that queued nothing (send_len == 0)
+ * sends nothing -- wired_server_wt_stream_send never accepts an empty
+ * payload. */
+static void moqtrun_flush_replies(wired_moqt_io* io, wired_moqtrun_peer* p) {
+  if (p->send_len == 0) return;
+  if (io->stream_send(
+          p->wt, p->control_stream_id, quic_span_of(p->send_buf, p->send_len),
+          0) > 0)
+    p->send_len = 0;
+}
+
 static int moqtrun_encode_request_error(
     quic_mspan buf, usz* off, const void* m) {
   return quic_moqctl_request_error_encode(buf, off, m);
 }
 
-static void moqtrun_send_request_error(
-    wired_moqt_io* io, wired_wt_session* s, u64 stream_id, u64 code) {
-  u8                        buf[64];
+static void moqtrun_send_request_error(wired_moqtrun_peer* p, u64 code) {
+  u8                        msg[WIRED_MOQTRUN_CTL_MSG_MAX];
   quic_moqctl_request_error e = {0};
   e.error_code                = code;
   usz n                       = moqtrun_envelope_put(
-      quic_mspan_of(buf, sizeof buf), QUIC_MOQCTL_T_REQUEST_ERROR,
+      quic_mspan_of(msg, sizeof msg), QUIC_MOQCTL_T_REQUEST_ERROR,
       moqtrun_encode_request_error, &e);
-  io->stream_send(s, stream_id, quic_span_of(buf, n), 0);
+  moqtrun_queue_reply(p, quic_span_of(msg, n));
 }
 
 /* Copies name into p->name (Track Name = participant id), truncated to
@@ -137,19 +195,18 @@ static int moqtrun_encode_request_ok(quic_mspan buf, usz* off, const void* m) {
 
 /* draft SS10.9 PUBLISH: accept unconditionally (this subset trusts every
  * connected peer to publish its own fixed track) and reply REQUEST_OK. */
-static void moqtrun_handle_publish(
-    wired_moqt_hub* hub, wired_moqtrun_peer* p, quic_span body) {
+static void moqtrun_handle_publish(wired_moqtrun_peer* p, quic_span body) {
   usz                 off = 0;
   quic_moqctl_publish m;
   if (quic_moqctl_publish_take(body, &off, &m) != QUIC_MOQCTL_OK) return;
   p->published = 1;
   moqtrun_record_name(p, m.name.name);
-  u8                     buf[16];
+  u8                     msg[WIRED_MOQTRUN_CTL_MSG_MAX];
   quic_moqctl_request_ok ok = {0};
   usz                    n  = moqtrun_envelope_put(
-      quic_mspan_of(buf, sizeof buf), QUIC_MOQCTL_T_REQUEST_OK,
+      quic_mspan_of(msg, sizeof msg), QUIC_MOQCTL_T_REQUEST_OK,
       moqtrun_encode_request_ok, &ok);
-  hub->io.stream_send(p->wt, p->control_stream_id, quic_span_of(buf, n), 0);
+  moqtrun_queue_reply(p, quic_span_of(msg, n));
 }
 
 static int moqtrun_peer_is_published(const wired_moqtrun_peer* p) {
@@ -209,7 +266,6 @@ static int moqtrun_encode_subscribe_ok(
 /* Records slot (peer_idx, a fresh alias) against pub and replies
  * SUBSCRIBE_OK with that alias. */
 static void moqtrun_accept_subscribe(
-    wired_moqt_hub*     hub,
     wired_moqtrun_peer* p,
     wired_moqtrun_peer* pub,
     wired_moqtrun_sub*  slot,
@@ -217,13 +273,13 @@ static void moqtrun_accept_subscribe(
   slot->session_idx = peer_idx;
   slot->track_alias = moqtrun_next_alias(pub);
   slot->active      = 1;
-  u8                       buf[16];
+  u8                       msg[WIRED_MOQTRUN_CTL_MSG_MAX];
   quic_moqctl_subscribe_ok ok = {0};
   ok.track_alias              = slot->track_alias;
   usz n                       = moqtrun_envelope_put(
-      quic_mspan_of(buf, sizeof buf), QUIC_MOQCTL_T_SUBSCRIBE_OK,
+      quic_mspan_of(msg, sizeof msg), QUIC_MOQCTL_T_SUBSCRIBE_OK,
       moqtrun_encode_subscribe_ok, &ok);
-  hub->io.stream_send(p->wt, p->control_stream_id, quic_span_of(buf, n), 0);
+  moqtrun_queue_reply(p, quic_span_of(msg, n));
 }
 
 /* draft SS10.6 SUBSCRIBE: find the matching published peer and reply
@@ -237,11 +293,10 @@ static void moqtrun_route_subscribe(
   wired_moqtrun_peer* pub  = moqtrun_find_published(hub, &m->name);
   wired_moqtrun_sub*  slot = pub ? moqtrun_sub_slot(pub) : 0;
   if (!slot) {
-    moqtrun_send_request_error(
-        &hub->io, p->wt, p->control_stream_id, QUIC_MOQCTL_ERR_DOES_NOT_EXIST);
+    moqtrun_send_request_error(p, QUIC_MOQCTL_ERR_DOES_NOT_EXIST);
     return;
   }
-  moqtrun_accept_subscribe(hub, p, pub, slot, peer_idx);
+  moqtrun_accept_subscribe(p, pub, slot, peer_idx);
 }
 
 /* draft SS10.6 SUBSCRIBE: reject non-zero delivery-timeout parameters
@@ -252,17 +307,14 @@ static void moqtrun_handle_subscribe(
   quic_moqctl_subscribe m;
   if (quic_moqctl_subscribe_take(body, &off, &m) != QUIC_MOQCTL_OK) return;
   if (moqtrun_has_timeout_param(&m.params)) {
-    moqtrun_send_request_error(
-        &hub->io, p->wt, p->control_stream_id, QUIC_MOQCTL_ERR_NOT_SUPPORTED);
+    moqtrun_send_request_error(p, QUIC_MOQCTL_ERR_NOT_SUPPORTED);
     return;
   }
   moqtrun_route_subscribe(hub, p, peer_idx, &m);
 }
 
-static void moqtrun_handle_not_supported(
-    wired_moqt_hub* hub, wired_moqtrun_peer* p) {
-  moqtrun_send_request_error(
-      &hub->io, p->wt, p->control_stream_id, QUIC_MOQCTL_ERR_NOT_SUPPORTED);
+static void moqtrun_handle_not_supported(wired_moqtrun_peer* p) {
+  moqtrun_send_request_error(p, QUIC_MOQCTL_ERR_NOT_SUPPORTED);
 }
 
 /* draft 5.1: a GOAWAY arriving on a request stream (not the control
@@ -278,8 +330,9 @@ typedef void (*moqtrun_ctl_fn)(
 
 static void moqtrun_dispatch_publish(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, quic_span body) {
+  (void)hub;
   (void)peer_idx;
-  moqtrun_handle_publish(hub, p, body);
+  moqtrun_handle_publish(p, body);
 }
 
 static void moqtrun_dispatch_subscribe(
@@ -289,9 +342,10 @@ static void moqtrun_dispatch_subscribe(
 
 static void moqtrun_dispatch_not_supported(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, quic_span body) {
+  (void)hub;
   (void)peer_idx;
   (void)body;
-  moqtrun_handle_not_supported(hub, p);
+  moqtrun_handle_not_supported(p);
 }
 
 static void moqtrun_dispatch_goaway(
@@ -328,33 +382,45 @@ static moqtrun_ctl_fn moqtrun_ctl_lookup(u64 type) {
 /* Dispatches every complete control message found in data (a request
  * stream carries exactly one; the shared control stream may carry more
  * than one per call). peer_idx is passed through for handlers that need
- * to record which session a subscription belongs to. */
+ * to record which session a subscription belongs to. Every handler queues
+ * its reply (moqtrun_queue_reply) rather than sending it immediately.
+ *
+ * Flushes at BOTH ends: the leading flush retries whatever an earlier
+ * dispatch could not send yet (moqtrun_flush_replies' own doc -- a
+ * keep-open bidi stream's previous round must be acknowledged before a new
+ * one is accepted, and that can still be pending when the next dispatch
+ * starts), and the trailing flush sends this dispatch's own new replies.
+ * Two calls, never more, keeps every reply either delivered or still
+ * queued for the next try -- never dropped. */
 static void moqtrun_dispatch_ctl_stream(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, quic_span data) {
   usz off = 0;
+  moqtrun_flush_replies(&hub->io, p);
   while (off < data.n) {
     u64       type = 0;
     quic_span body = {0, 0};
     int       r    = quic_moqctl_peek_type(data, &off, &type, &body);
-    if (r != QUIC_MOQCTL_OK) return;
+    if (r != QUIC_MOQCTL_OK) break;
     moqtrun_ctl_lookup(type)(hub, p, peer_idx, body);
   }
+  moqtrun_flush_replies(&hub->io, p);
 }
 
 /* ===================== data-stream (Object) relay ===================== */
 
 /* Sends wire (a complete SUBGROUP_HEADER+Object stream, unmodified: T-146)
  * to one subscriber, whole, as exactly one fresh uni stream (T-136/T-147),
- * FIN'd once fully queued. srvrun's open_uni_stream never sends FIN
- * itself, so a bare empty stream_send(..., fin=1) closes it (see
- * moqtrun.h's io table doc). */
+ * FIN'd on its only round -- io->send_uni is the one-shot
+ * open+send+FIN primitive (a bare empty stream_send(..., fin=1) does NOT
+ * work: wired_server_wt_stream_send never accepts an empty payload, since
+ * a FIN needs a final non-empty slice to ride on). io->send_uni is
+ * responsible for the WebTransport stream signal prefix, same as
+ * moqtrun_send_setup. */
 static void moqtrun_relay_to_one(
     wired_moqt_hub* hub, const wired_moqtrun_sub* sub, quic_span wire) {
   wired_moqtrun_peer* dst = &hub->peers[sub->session_idx];
   if (!dst->in_use) return;
-  i64 sid = hub->io.open_uni_stream(dst->wt, wire);
-  if (sid < 0) return;
-  hub->io.stream_send(dst->wt, (u64)sid, quic_span_of(0, 0), 1);
+  hub->io.send_uni(dst->wt, wire);
 }
 
 static void moqtrun_relay_object(

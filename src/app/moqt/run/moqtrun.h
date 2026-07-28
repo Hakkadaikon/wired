@@ -37,13 +37,23 @@
  * harness fills it with recording stubs. */
 typedef struct {
   /** wired_server_wt_open_bidi_stream-shaped: opens a stream without FIN,
-   * returns the allocated id or negative on failure. */
+   * returns the allocated id or negative on failure -- the control stream
+   * (moqtrun_send_setup) needs this because it stays open for further
+   * rounds (SUBSCRIBE_OK/REQUEST_OK/... replies, one per call). */
   i64 (*open_bidi_stream)(wired_wt_session* s, quic_span payload);
-  /** wired_server_wt_open_uni_stream-shaped. */
-  i64 (*open_uni_stream)(wired_wt_session* s, quic_span payload);
-  /** wired_server_wt_stream_send-shaped: appends payload, fin=1 closes. */
+  /** wired_server_wt_stream_send-shaped: appends payload, fin=1 closes.
+   * wired_server_wt_stream_send never accepts an empty payload (a FIN
+   * needs a final non-empty slice to ride on -- see its doc), so this
+   * table's callers never invoke stream_send with fin=1 and an empty
+   * payload; use send_uni for a stream that closes with its only round. */
   int (*stream_send)(
       wired_wt_session* s, u64 stream_id, quic_span payload, int fin);
+  /** wired_server_wt_open_uni-shaped: opens a fresh uni stream, sends the
+   * whole payload, and closes it with FIN on the final slice -- one call,
+   * no keep-open round. Used for a relayed Object (T-136/T-147: one
+   * complete SUBGROUP_HEADER+Object per stream), which never needs a
+   * second round. */
+  i64 (*send_uni)(wired_wt_session* s, quic_span payload);
 } wired_moqt_io;
 
 /** One subscriber recorded against the hub's track: which session, and the
@@ -60,6 +70,18 @@ typedef struct {
  * not compared (M5-6: room membership is a hub-side fixed namespace). */
 #define WIRED_MOQTRUN_MAX_NAME 64
 
+/** Largest single control-message envelope this hub ever sends (SS10
+ * Type+Length+Body). */
+#define WIRED_MOQTRUN_CTL_MSG_MAX 64
+
+/** Largest total this hub ever needs to buffer for one peer within one
+ * wired_moqt_on_stream_data dispatch: the shared control stream can carry
+ * several requests per call (moqtrun_dispatch_ctl_stream's own doc), and
+ * each can produce one reply -- worst case here is one SUBSCRIBE per other
+ * connected peer, WIRED_MOQTRUN_MAX_SUBS of them. */
+#define WIRED_MOQTRUN_CTL_SEND_BUF \
+  (WIRED_MOQTRUN_CTL_MSG_MAX * WIRED_MOQTRUN_MAX_SUBS)
+
 /** One connected participant's hub-side state: its WT session, its own
  * control-stream MOQT session machine, whether it has PUBLISHed its track
  * yet, and the subscribers recorded against that track. */
@@ -73,6 +95,26 @@ typedef struct {
   usz               name_len;
   u64               request_id_next; /* next Request ID this hub will send */
   wired_moqtrun_sub subs[WIRED_MOQTRUN_MAX_SUBS];
+  /** Queue of not-yet-sent control-message reply bytes for this peer's
+   * control stream, plus how many bytes are queued (moqtrun_queue_reply
+   * appends; moqtrun_flush_replies sends the whole queue in one
+   * stream_send call and clears it only on success).
+   *
+   * wired_server_wt_stream_send holds its payload as a VIEW (srvrun.h: "the
+   * caller must keep it alive and unmoved until every byte has been
+   * acknowledged") and, on a keep-open bidi stream, REFUSES a new round
+   * until the previous one is fully acknowledged (srvrun_wtsend_appendable)
+   * -- an ACK needs at least one more event-loop step than a single app
+   * callback ever gets. That means even ONE reply per dispatch can still
+   * collide with an earlier reply's round that has not been acknowledged
+   * yet (e.g. PUBLISH's REQUEST_OK, then a SUBSCRIBE dispatch arriving
+   * before that round is ACKed) -- not just multiple replies within one
+   * dispatch. This queue survives across dispatches for exactly that
+   * reason: moqtrun_dispatch_ctl_stream flushes it both before and after
+   * handling the dispatch's own messages, so a reply that could not be
+   * sent yet is retried on the NEXT dispatch rather than lost. */
+  u8  send_buf[WIRED_MOQTRUN_CTL_SEND_BUF];
+  usz send_len;
 } wired_moqtrun_peer;
 
 /** The hub's whole state: fixed peer table plus the io table it sends
