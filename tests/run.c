@@ -539,6 +539,12 @@
 #include "transport/conn/loop/pending1rtt/pending1rtt.c"
 #include "transport/packet/build/pktbuild/paddingelicit.c"
 #include "app/datagram/dgpriority/dgpriority.c"
+#include "app/moqt/vi/moqvi.c"
+#include "app/moqt/kvp/moqkvp.c"
+#include "app/moqt/ctl/moqctl.c"
+#include "app/moqt/data/moqdata.c"
+#include "app/moqt/sess/moqsess.c"
+#include "app/moqt/run/moqtrun.c"
 #include "common/varint_test.c"
 #include "transport/header_test.c"
 #include "transport/dcidresolve_test.c"
@@ -1036,6 +1042,12 @@
 #include "crypto/ed25519_field_test.c"
 #include "tls/v2ku_appendix_test.c"
 #include "app/h3prio_test.c"
+#include "app/moqvi_test.c"
+#include "app/moqkvp_test.c"
+#include "app/moqctl_test.c"
+#include "app/moqdata_test.c"
+#include "app/moqsess_test.c"
+#include "app/moqtrun_test.c"
 // clang-format on
 
 int main(void) {
@@ -1562,6 +1574,12 @@ int main(void) {
   test_pending1rtt();
   test_paddingelicit();
   test_dgpriority();
+  test_moqvi();
+  test_moqkvp();
+  test_moqctl();
+  test_moqdata();
+  test_moqsess();
+  test_moqtrun();
   test_ed25519_field();
   test_v2ku_appendix();
   test_h3prio();
