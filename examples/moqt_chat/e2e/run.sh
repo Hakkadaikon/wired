@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# Orchestrates one load-test run: start wired_server + a static frontend
+# server, scrape the logged cert fingerprint, run run-load-test.mjs, then
+# tear both servers down -- so `just e2e-load` is a single command with no
+# manual fingerprint copy-paste. See ../justfile for the recipes that call
+# this.
+set -euo pipefail
+
+cd "$(dirname "$0")/.."   # examples/moqt_chat/
+
+SERVER_LOG="$(mktemp)"
+FRONTEND_PORT=8091   # distinct from serve-frontend's 8443 / dev-frontend's 5173
+trap 'kill "${SERVER_PID:-0}" "${FRONTEND_PID:-0}" 2>/dev/null || true; rm -f "$SERVER_LOG"' EXIT
+
+./wired_server >"$SERVER_LOG" 2>&1 &
+SERVER_PID=$!
+
+for _ in $(seq 1 50); do
+  grep -q 'cert sha-256 fingerprint:' "$SERVER_LOG" && break
+  sleep 0.1
+done
+CERT_HASH="$(grep -o 'fingerprint: .*' "$SERVER_LOG" | sed 's/fingerprint: //')"
+if [ -z "$CERT_HASH" ]; then
+  echo "server did not print a fingerprint within 5s; log:" >&2
+  cat "$SERVER_LOG" >&2
+  exit 1
+fi
+
+python3 -m http.server "$FRONTEND_PORT" --directory frontend/dist >/dev/null 2>&1 &
+FRONTEND_PID=$!
+sleep 1
+
+node e2e/run-load-test.mjs \
+  --url="http://localhost:$FRONTEND_PORT/" \
+  --cert-hash="$CERT_HASH" \
+  "$@"
