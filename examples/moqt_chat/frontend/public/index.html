@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>wired MOQT Chat</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <h1>MOQT Chat</h1>
+    <p class="subtitle">draft-ietf-moq-transport-19 over WebTransport</p>
+
+    <section id="connection-panel">
+      <label for="url">Server URL</label>
+      <input id="url" type="text" value="https://localhost:4433/" />
+
+      <label for="certHash">Certificate hash (SHA-256)</label>
+      <input
+        id="certHash"
+        type="text"
+        placeholder="Paste the SHA-256 fingerprint from the server startup log (colons OK; separate multiple hashes with commas)"
+      />
+
+      <label for="author">Participant id</label>
+      <input id="author" type="text" placeholder="user1" required />
+
+      <button id="connect" type="button">Connect</button>
+      <span id="status" class="status status-disconnected">disconnected</span>
+    </section>
+
+    <ul id="messages"></ul>
+
+    <form id="chat-form">
+      <input id="text" type="text" placeholder="Message" required />
+      <button type="submit">Send</button>
+    </form>
+
+    <script type="module" src="../src/main.ts"></script>
+  </body>
+</html>
