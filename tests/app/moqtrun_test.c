@@ -16,7 +16,7 @@
 #define MOQTRUN_TEST_MAX_PAYLOAD 256
 
 typedef struct {
-  int kind; /* 1=open_bidi_stream 2=open_uni_stream 3=stream_send */
+  int               kind; /* 1=open_bidi_stream 3=stream_send 4=send_uni */
   wired_wt_session* s;
   u64               stream_id; /* stream_send only */
   int               fin;       /* stream_send only */
@@ -52,24 +52,27 @@ static i64 moqtrun_test_open_bidi_stream(
   return sid;
 }
 
-static i64 moqtrun_test_open_uni_stream(
-    wired_wt_session* s, quic_span payload) {
-  i64 sid = g_next_stream_id++;
-  moqtrun_test_record(2, s, (u64)sid, 0, payload);
-  return sid;
-}
-
 static int moqtrun_test_stream_send(
     wired_wt_session* s, u64 stream_id, quic_span payload, int fin) {
   moqtrun_test_record(3, s, stream_id, fin, payload);
   return 1;
 }
 
+/* wired_server_wt_open_uni-shaped: one-shot open+send+FIN, the primitive
+ * moqtrun_relay_to_one uses (never open_uni_stream + a bare stream_send
+ * (fin=1) -- wired_server_wt_stream_send rejects an empty payload, so that
+ * shape can never actually close the stream in production). */
+static i64 moqtrun_test_send_uni(wired_wt_session* s, quic_span payload) {
+  i64 sid = g_next_stream_id++;
+  moqtrun_test_record(4, s, (u64)sid, 1, payload);
+  return sid;
+}
+
 static wired_moqt_io moqtrun_test_io(void) {
   wired_moqt_io io;
   io.open_bidi_stream = moqtrun_test_open_bidi_stream;
-  io.open_uni_stream  = moqtrun_test_open_uni_stream;
   io.stream_send      = moqtrun_test_stream_send;
+  io.send_uni         = moqtrun_test_send_uni;
   return io;
 }
 
@@ -114,6 +117,24 @@ static void test_moqtrun_on_session_sends_setup(void) {
           quic_span_of(c->payload, c->payload_len), &off, &type, &body) ==
       QUIC_MOQCTL_OK);
   CHECK(type == QUIC_MOQCTL_T_SETUP);
+}
+
+/* S-115 derived rule (MoqtSession.notes.md, TLA+ verified): a second
+ * control stream for an already-tracked WT session is a no-op here, not a
+ * second SETUP. srvrun's wt_on_session doc says "fires once", but nothing
+ * upstream stops a duplicate/retried Extended CONNECT from reaching this
+ * callback a second time for the same session -- draft 3.3 permits only
+ * one control stream per peer, so sending SETUP twice on one WT session
+ * would itself be the violation this hub exists to prevent. */
+static void test_moqtrun_on_session_twice_is_idempotent(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+
+  wired_moqt_on_session(&hub, SESS_A, quic_span_of(0, 0), quic_span_of(0, 0));
+  wired_moqt_on_session(&hub, SESS_A, quic_span_of(0, 0), quic_span_of(0, 0));
+
+  CHECK(moqtrun_test_count_kind(1) == 1);
 }
 
 /* ===================== 2. PUBLISH / SUBSCRIBE ===================== */
@@ -221,8 +242,11 @@ static void test_moqtrun_subscribe_without_publish_replies_error(void) {
 
 /* T-136/T-137/T-138/T-145: an Object arriving on a publisher's data stream
  * is relayed to one Established subscriber as exactly one fresh uni
- * stream (open_uni_stream), closed by a bare FIN append -- the two-step
- * shape srvrun's API requires (open_uni_stream never sends FIN itself). */
+ * stream, opened, sent, and FIN'd in a single io.send_uni call --
+ * wired_server_wt_stream_send never accepts an empty payload (a FIN needs
+ * a final non-empty slice to ride on), so a bare open_uni_stream + empty
+ * stream_send(fin=1) can never actually close the stream in production;
+ * send_uni is the primitive that does. */
 static void test_moqtrun_object_relay_to_subscriber(void) {
   moqtrun_test_reset();
   wired_moqt_hub hub;
@@ -243,14 +267,11 @@ static void test_moqtrun_object_relay_to_subscriber(void) {
           G_MOQT_DATA_SUBGROUP_STREAM_BASIC_LEN),
       0);
 
-  CHECK(moqtrun_test_count_kind(2) == 1);
-  const moqtrun_test_call* opened = moqtrun_test_last_kind(2);
-  CHECK(opened->s == SESS_B);
-  CHECK(moqtrun_test_count_kind(3) == 1);
-  const moqtrun_test_call* fin_call = moqtrun_test_last_kind(3);
-  CHECK(fin_call->stream_id == opened->stream_id);
-  CHECK(fin_call->fin == 1);
-  CHECK(fin_call->payload_len == 0);
+  CHECK(moqtrun_test_count_kind(4) == 1);
+  const moqtrun_test_call* sent = moqtrun_test_last_kind(4);
+  CHECK(sent->s == SESS_B);
+  CHECK(sent->fin == 1);
+  CHECK(moqtrun_test_count_kind(3) == 0); /* no separate FIN append */
 }
 
 /* T-146: the relayed stream's bytes equal the publisher's original bytes,
@@ -275,10 +296,10 @@ static void test_moqtrun_object_relay_preserves_bytes(void) {
           G_MOQT_DATA_SUBGROUP_STREAM_BASIC_LEN),
       0);
 
-  const moqtrun_test_call* opened = moqtrun_test_last_kind(2);
-  CHECK(opened->payload_len == G_MOQT_DATA_SUBGROUP_STREAM_BASIC_LEN);
+  const moqtrun_test_call* sent = moqtrun_test_last_kind(4);
+  CHECK(sent->payload_len == G_MOQT_DATA_SUBGROUP_STREAM_BASIC_LEN);
   for (usz i = 0; i < G_MOQT_DATA_SUBGROUP_STREAM_BASIC_LEN; i++)
-    CHECK(opened->payload[i] == g_moqt_data_subgroup_stream_basic[i]);
+    CHECK(sent->payload[i] == g_moqt_data_subgroup_stream_basic[i]);
 }
 
 /* T-136/T-147: two Established subscribers, two Objects each get their
@@ -318,15 +339,16 @@ static void test_moqtrun_object_relay_two_subscribers_two_objects(void) {
           G_MOQT_DATA_SUBGROUP_STREAM_BASIC_LEN),
       0);
 
-  /* 2 subscribers * 2 Objects = 4 fresh streams, 4 matching FINs, every
-   * open stream id used exactly once as the FIN's target (no reuse). */
-  CHECK(moqtrun_test_count_kind(2) == 4);
-  CHECK(moqtrun_test_count_kind(3) == 4);
+  /* 2 subscribers * 2 Objects = 4 fresh streams, each one send_uni call
+   * (open+send+FIN together), every allocated stream id distinct (no
+   * reuse). */
+  CHECK(moqtrun_test_count_kind(4) == 4);
+  CHECK(moqtrun_test_count_kind(3) == 0);
   for (usz i = 0; i < g_n_calls; i++) {
-    if (g_calls[i].kind != 3) continue;
+    if (g_calls[i].kind != 4) continue;
     usz matches = 0;
     for (usz j = 0; j < g_n_calls; j++)
-      if (g_calls[j].kind == 2 && g_calls[j].stream_id == g_calls[i].stream_id)
+      if (g_calls[j].kind == 4 && g_calls[j].stream_id == g_calls[i].stream_id)
         matches++;
     CHECK(matches == 1);
   }
@@ -478,6 +500,7 @@ static void test_moqtrun_padding_stream_discarded(void) {
 
 void test_moqtrun(void) {
   test_moqtrun_on_session_sends_setup();
+  test_moqtrun_on_session_twice_is_idempotent();
   test_moqtrun_publish_replies_request_ok();
   test_moqtrun_subscribe_matching_publish_replies_ok();
   test_moqtrun_subscribe_without_publish_replies_error();
