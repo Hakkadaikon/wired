@@ -988,6 +988,94 @@ static void test_moqtrun_multi_object_stream_relays_in_one_send_uni(void) {
   for (usz i = 0; i < total; i++) CHECK(sent->payload[i] == stream[i]);
 }
 
+/* The audio track's real shape: moqtVoiceClient.ts's sendOpusFrame writes
+ * the SUBGROUP_HEADER + first Object in ONE call, then appends further
+ * Objects to the SAME stream_id in LATER calls that carry no header at
+ * all. Confirms the second (header-less) call still resolves to the same
+ * track and relays -- the wired_moqtrun_track data_stream_id binding this
+ * exercises. */
+static void test_moqtrun_data_stream_continues_across_calls_without_header(
+    void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  u64 ctrl_a = moqtrun_test_publish_alice(&hub);
+  moqtrun_test_publish_alice_audio(&hub, ctrl_a);
+
+  wired_moqt_on_session(&hub, SESS_B, quic_span_of(0, 0), quic_span_of(0, 0));
+  u64 ctrl_b = moqtrun_test_last_kind(1)->stream_id;
+  u8  sub_audio[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz sub_audio_n = moqtrun_test_subscribe_audio_msg(sub_audio);
+  wired_moqt_on_stream_data(
+      &hub, SESS_B, ctrl_b, quic_span_of(sub_audio, sub_audio_n), 0);
+
+  /* First call: SUBGROUP_HEADER (audio's declared alias 2) + one Object. */
+  quic_moqdata_subhdr h = {0};
+  h.type                = 0x30;
+  u8  first[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz first_off = 0;
+  quic_moqdata_subhdr_put(quic_mspan_of(first, sizeof first), &first_off, &h);
+  first[1]           = 0x02; /* Track Alias byte: audio's declared alias */
+  u8        payload0 = 7;
+  quic_span p0       = quic_span_of(&payload0, 1);
+  quic_moqdata_obj_put(quic_mspan_of(first, sizeof first), &first_off, 0, p0);
+
+  moqtrun_test_reset();
+  wired_moqt_on_stream_data(
+      &hub, SESS_A, 999, quic_span_of(first, first_off), 0);
+  CHECK(moqtrun_test_count_kind(4) == 1); /* first call already relays */
+
+  /* Second call, SAME stream_id (999): no header, just one more Object. */
+  u8        second[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz       second_off = 0;
+  u8        payload1   = 8;
+  quic_span p1         = quic_span_of(&payload1, 1);
+  quic_moqdata_obj_put(
+      quic_mspan_of(second, sizeof second), &second_off, 1, p1);
+
+  moqtrun_test_reset();
+  wired_moqt_on_stream_data(
+      &hub, SESS_A, 999, quic_span_of(second, second_off), 0);
+
+  CHECK(moqtrun_test_count_kind(4) == 1);
+  const moqtrun_test_call* sent = moqtrun_test_last_kind(4);
+  CHECK(sent->s == SESS_B);
+  CHECK(sent->payload_len == second_off);
+  for (usz i = 0; i < second_off; i++) CHECK(sent->payload[i] == second[i]);
+}
+
+/* A header-less second call on a stream_id this hub has NOT already bound
+ * to a track (e.g. no first call ever arrived, or it arrived on a
+ * different stream_id) relays nowhere -- offset 0 is read as a bare
+ * Object, no SUBGROUP_HEADER to resolve a track from. */
+static void test_moqtrun_unbound_stream_id_relays_nowhere(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  u64 ctrl_a = moqtrun_test_publish_alice(&hub);
+  moqtrun_test_publish_alice_audio(&hub, ctrl_a);
+
+  wired_moqt_on_session(&hub, SESS_B, quic_span_of(0, 0), quic_span_of(0, 0));
+  u64 ctrl_b = moqtrun_test_last_kind(1)->stream_id;
+  u8  sub_audio[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz sub_audio_n = moqtrun_test_subscribe_audio_msg(sub_audio);
+  wired_moqt_on_stream_data(
+      &hub, SESS_B, ctrl_b, quic_span_of(sub_audio, sub_audio_n), 0);
+
+  u8        payload0 = 7;
+  quic_span p0       = quic_span_of(&payload0, 1);
+  u8        bare[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz       bare_off = 0;
+  quic_moqdata_obj_put(quic_mspan_of(bare, sizeof bare), &bare_off, 0, p0);
+
+  moqtrun_test_reset();
+  wired_moqt_on_stream_data(
+      &hub, SESS_A, 999 /* never seen before */, quic_span_of(bare, bare_off),
+      0);
+
+  CHECK(g_n_calls == 0);
+}
+
 void test_moqtrun(void) {
   test_moqtrun_on_session_sends_setup();
   test_moqtrun_on_session_twice_is_idempotent();
@@ -1016,4 +1104,6 @@ void test_moqtrun(void) {
   test_moqtrun_decode_loop_stops_at_truncation();
   test_moqtrun_decode_loop_stops_at_violation();
   test_moqtrun_multi_object_stream_relays_in_one_send_uni();
+  test_moqtrun_data_stream_continues_across_calls_without_header();
+  test_moqtrun_unbound_stream_id_relays_nowhere();
 }
