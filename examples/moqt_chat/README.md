@@ -1,22 +1,32 @@
 # MOQT chat sample
 
-A minimal chat room over Media over QUIC Transport
+A chat + voice call room over Media over QUIC Transport
 (draft-ietf-moq-transport-19): a libc-free WebTransport server
-(`wired_server.c`) relays each participant's chat messages to every other
-connected participant, using the `app/moqt/run` hub
+(`wired_server.c`) relays each participant's chat messages and Opus voice
+frames to every other connected participant, using the `app/moqt/run` hub
 (`src/app/moqt/run/moqtrun.h`) wired onto real UDP.
 
 ## What this demonstrates
 
 Unlike `examples/webtransport_chat` (which broadcasts raw QUIC DATAGRAMs and
 leaves the message framing entirely to the frontend), this sample speaks an
-actual MOQT subset on the wire: each participant PUBLISHes one
-fixed-namespace track (its own participant id) and SUBSCRIBEs to the other
-candidates in a small fixed pool (`user1`..`user4` — this subset has no
-namespace discovery, see `moqtClient.ts`'s own doc). A chat message is sent
-as one MOQT Object (SUBGROUP_HEADER + Object, `frontend/src/lib/moqtWire.ts`)
-on its own unidirectional stream; the hub relays the SUBGROUP bytes verbatim
-to every Established subscriber (`moqtrun.c`'s `moqtrun_relay_object`).
+actual MOQT subset on the wire: each participant PUBLISHes two
+fixed-namespace tracks — `<id>` for chat, `<id>/audio` for voice — and
+SUBSCRIBEs to the other candidates' matching tracks in a small fixed pool
+(`user1`..`user4` — this subset has no namespace discovery, see
+`moqtClient.ts`'s own doc). There is a single fixed room; unlike
+`webtransport_chat`'s client-side room tag, MOQT's track addressing makes a
+separate room concept unnecessary here.
+
+A chat message is sent as one MOQT Object (SUBGROUP_HEADER + Object,
+`frontend/src/lib/moqtWire.ts`) on its own unidirectional stream. Each Opus
+frame is sent the same way (`frontend/src/lib/moqtVoiceWire.ts`): one
+complete SUBGROUP_HEADER + Object per fresh uni stream, matching the hub's
+own per-call relay unit (`moqtrun.c`'s `moqtrun_relay_to_one` forwards each
+relayed chunk as its own one-shot stream) rather than a single long-lived
+stream. The hub relays the SUBGROUP bytes verbatim to every Established
+subscriber of that track (`moqtrun.c`'s `moqtrun_relay_object`); a single
+peer can PUBLISH both tracks at once (`moqtrun.h`'s per-peer track array).
 
 The wire codecs (varint/KVP/control messages/data messages) are implemented
 independently in C (`src/app/moqt/vi`/`kvp`/`ctl`/`data`) and TypeScript
@@ -45,6 +55,10 @@ anchored to the startup time), so always copy it from the **current** run.
 
 ## Run the frontend
 
+The frontend is a Next.js + React app using the LiftKit design system
+(`output: "export"`, so it ships as static files — no Node server needed to
+serve it).
+
 ```sh
 just serve-frontend   # builds frontend/ and serves it over TLS at :8443
 ```
@@ -52,12 +66,14 @@ just serve-frontend   # builds frontend/ and serves it over TLS at :8443
 A non-`localhost` HTTP page is not a secure context, so the frontend is
 served over TLS; a self-signed `cert.pem`/`key.pem` pair is generated
 automatically on first run. Open `https://<host>:8443/`, paste the server's
-cert fingerprint, pick a participant id, and connect. Open it again with a
+cert fingerprint, pick a participant id, and connect. Voice starts
+automatically once connected (mutable via the mic toggle); grant the
+browser's microphone permission prompt to send audio. Open it again with a
 different participant id (or a private window) to chat with yourself across
 two tabs.
 
 For local development with hot reload instead: `just dev-frontend` (plain
-HTTP at `:5173`, works for `localhost` since that origin is always a secure
+HTTP at `:3000`, works for `localhost` since that origin is always a secure
 context regardless of scheme).
 
 ## Multi-client e2e test
@@ -69,8 +85,10 @@ just e2e-load --clients=4 --messages=10 --max-loss-rate=0
 
 Starts the server and frontend, drives up to `MAX_CLIENTS=4` headless-Chrome
 participants (the frontend's fixed candidate id list), has each send several
-chat messages, and grades the run for message loss and latency. See
-`e2e/run.sh` and `e2e/lib/loadTest.mjs` for the harness.
+chat messages, and grades the run for message loss and latency. This grades
+chat only — sample-accurate audio content isn't checked here; voice call
+verification is manual (see above). See `e2e/run.sh` and
+`e2e/lib/loadTest.mjs` for the harness.
 
 ## Layout
 
@@ -78,8 +96,14 @@ chat messages, and grades the run for message loss and latency. See
   callbacks to `src/app/moqt/run`'s hub and adapts `wired_server_wt_*` into
   its `wired_moqt_io` send table (prefixing the WebTransport stream signal,
   draft-ietf-webtrans-http3-15 SS4.2).
-- `frontend/` — the browser client: `moqtWire.ts` (wire codecs),
-  `moqtClient.ts` (session/PUBLISH/SUBSCRIBE/relay), `domRenderer.ts` (UI).
+- `frontend/` — the Next.js + LiftKit browser client:
+  `src/lib/moqtWire.ts`/`moqtClient.ts` (chat wire codec, session/PUBLISH/
+  SUBSCRIBE/relay), `moqtVoiceWire.ts`/`moqtVoiceClient.ts` (voice Object
+  framing and the audio track's publish/subscribe), `src/lib/*Pipeline.ts` +
+  `jitterBuffer.ts`/`playbackSink.ts`/`audioContextGate.ts` (mic capture ->
+  Opus encode -> MOQT Object, and the receive-side jitter/decode/playback
+  path, ported from `examples/webtransport_chat`), `src/app/page.tsx` +
+  `src/stores/moqtChatStore.ts` + `src/hooks/useMoqtChat.ts` (UI).
 - `e2e/` — the multi-client load-test harness (ported from
   `examples/webtransport_chat/e2e`).
 - `testvectors/moqt_golden.json` — the shared C/TypeScript golden vectors.

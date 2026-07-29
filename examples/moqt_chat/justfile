@@ -17,7 +17,7 @@ run: build
 build-frontend:
     cd frontend && pnpm install --frozen-lockfile && pnpm build
 
-# Run the moqt_chat frontend's dev server (http://localhost:5173/).
+# Run the moqt_chat frontend's dev server (http://localhost:3000/).
 dev-frontend:
     cd frontend && pnpm install --frozen-lockfile && pnpm dev
 
