@@ -177,6 +177,56 @@ static u64 moqtrun_test_publish_alice(wired_moqt_hub* hub) {
   return ctrl_a;
 }
 
+/* Both g_moqt_ctl_publish_basic and g_moqt_ctl_subscribe_basic share the
+ * same layout up to the Track Name (Type+Len, Request ID, 2 Namespace
+ * fields "chat"/"room1"), so one rewrite covers both: replaces the 5-byte
+ * "alice" Track Name (offset 16) with "alice/audio" (11 bytes) and
+ * backpatches the 16-bit Message Length (offset 1-2) for the 6 extra
+ * bytes. Returns the new total length. */
+static usz moqtrun_test_rename_track_to_audio(
+    const u8* src, usz src_len, u8* dst) {
+  static const u8 suffix[] = "alice/audio";
+  usz             tail     = src_len - 22; /* bytes after "alice" (offset 22) */
+  quic_memcpy(dst, src, 16);
+  dst[16] = (u8)(sizeof suffix - 1);
+  quic_memcpy(dst + 17, suffix, sizeof suffix - 1);
+  quic_memcpy(dst + 17 + sizeof suffix - 1, src + 22, tail);
+  u16 new_body_len = (u16)(src[1] << 8 | src[2]) + 6;
+  dst[1]           = (u8)(new_body_len >> 8);
+  dst[2]           = (u8)(new_body_len & 0xFF);
+  return 17 + (sizeof suffix - 1) + tail;
+}
+
+/* Drives session A through a second PUBLISH, of the "alice/audio" track
+ * (Track Alias 1, same as g_moqt_ctl_publish_basic's -- the two tracks are
+ * distinguished by name/slot, not alias, until each track's own alias is
+ * recorded via moqtrun_track_by_alias in production; this test suite gives
+ * audio a distinct alias below to exercise that path). */
+static void moqtrun_test_publish_alice_audio(wired_moqt_hub* hub, u64 ctrl_a) {
+  u8  buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz n = moqtrun_test_rename_track_to_audio(
+      g_moqt_ctl_publish_basic, G_MOQT_CTL_PUBLISH_BASIC_LEN, buf);
+  buf[n - 2] = 0x02; /* Track Alias: 2 (distinct from chat's 1) */
+  wired_moqt_on_stream_data(hub, SESS_A, ctrl_a, quic_span_of(buf, n), 0);
+}
+
+/* Builds a SUBSCRIBE naming "alice/audio" instead of "alice". */
+static usz moqtrun_test_subscribe_audio_msg(u8* buf) {
+  return moqtrun_test_rename_track_to_audio(
+      g_moqt_ctl_subscribe_basic, G_MOQT_CTL_SUBSCRIBE_BASIC_LEN, buf);
+}
+
+/* g_moqt_data_subgroup_stream_basic with its Track Alias byte (offset 1)
+ * replaced -- lets a test address the audio track's Object stream
+ * distinctly from chat's (whose golden Track Alias is 1). */
+static usz moqtrun_test_subgroup_with_alias(u8 alias, u8* buf) {
+  quic_memcpy(
+      buf, g_moqt_data_subgroup_stream_basic,
+      G_MOQT_DATA_SUBGROUP_STREAM_BASIC_LEN);
+  buf[1] = alias;
+  return G_MOQT_DATA_SUBGROUP_STREAM_BASIC_LEN;
+}
+
 /* SUBSCRIBE naming an already-PUBLISHed track ("alice", matching
  * the golden PUBLISH's name) gets SUBSCRIBE_OK with an assigned alias. */
 static void test_moqtrun_subscribe_matching_publish_replies_ok(void) {
@@ -497,6 +547,306 @@ static void test_moqtrun_padding_stream_discarded(void) {
   CHECK(g_n_calls == 0);
 }
 
+/* ===================== 6. multi-track peer (chat + audio)
+ * ===================== */
+
+/* A peer PUBLISHes chat ("alice") then audio ("alice/audio") on two
+ * separate slots -- both get REQUEST_OK, and each is independently
+ * SUBSCRIBE-able. */
+static void test_moqtrun_peer_publishes_two_tracks(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  u64 ctrl_a = moqtrun_test_publish_alice(&hub);
+  moqtrun_test_reset();
+  moqtrun_test_publish_alice_audio(&hub, ctrl_a);
+
+  CHECK(moqtrun_test_count_kind(3) == 1);
+  const moqtrun_test_call* c   = moqtrun_test_last_kind(3);
+  usz                      off = 0;
+  u64                      type;
+  quic_span                body;
+  CHECK(
+      quic_moqctl_peek_type(
+          quic_span_of(c->payload, c->payload_len), &off, &type, &body) ==
+      QUIC_MOQCTL_OK);
+  CHECK(type == QUIC_MOQCTL_T_REQUEST_OK);
+}
+
+/* A third distinct track name (both of the peer's 2 slots already taken)
+ * gets REQUEST_ERROR instead of silently overwriting an existing track. */
+static void test_moqtrun_third_publish_gets_error(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  u64 ctrl_a = moqtrun_test_publish_alice(&hub);
+  moqtrun_test_publish_alice_audio(&hub, ctrl_a);
+
+  moqtrun_test_reset();
+  u8  buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz n = moqtrun_test_rename_track_to_audio(
+      g_moqt_ctl_publish_basic, G_MOQT_CTL_PUBLISH_BASIC_LEN, buf);
+  /* rewrite "alice/audio" (11) to "alice/video" (11) for a third name. */
+  buf[16 + 6]  = 'v';
+  buf[16 + 7]  = 'i';
+  buf[16 + 8]  = 'd';
+  buf[16 + 9]  = 'e';
+  buf[16 + 10] = 'o';
+  wired_moqt_on_stream_data(&hub, SESS_A, ctrl_a, quic_span_of(buf, n), 0);
+
+  CHECK(moqtrun_test_count_kind(3) == 1);
+  const moqtrun_test_call* c   = moqtrun_test_last_kind(3);
+  usz                      off = 0;
+  u64                      type;
+  quic_span                body;
+  CHECK(
+      quic_moqctl_peek_type(
+          quic_span_of(c->payload, c->payload_len), &off, &type, &body) ==
+      QUIC_MOQCTL_OK);
+  CHECK(type == QUIC_MOQCTL_T_REQUEST_ERROR);
+}
+
+/* Re-PUBLISHing the same track name ("alice") a second time still consumes
+ * only one slot -- confirmed by then successfully PUBLISHing "alice/audio"
+ * into the (still free) second slot. */
+static void test_moqtrun_republish_same_name_reuses_slot(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  u64 ctrl_a = moqtrun_test_publish_alice(&hub);
+  moqtrun_test_publish_alice(&hub); /* re-PUBLISH "alice" again */
+
+  moqtrun_test_reset();
+  moqtrun_test_publish_alice_audio(&hub, ctrl_a);
+
+  CHECK(moqtrun_test_count_kind(3) == 1);
+  const moqtrun_test_call* c   = moqtrun_test_last_kind(3);
+  usz                      off = 0;
+  u64                      type;
+  quic_span                body;
+  CHECK(
+      quic_moqctl_peek_type(
+          quic_span_of(c->payload, c->payload_len), &off, &type, &body) ==
+      QUIC_MOQCTL_OK);
+  CHECK(type == QUIC_MOQCTL_T_REQUEST_OK); /* not REQUEST_ERROR (slot free) */
+}
+
+/* SUBSCRIBEing the audio track gets SUBSCRIBE_OK. */
+static void test_moqtrun_subscribe_audio_track_replies_ok(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  u64 ctrl_a = moqtrun_test_publish_alice(&hub);
+  moqtrun_test_publish_alice_audio(&hub, ctrl_a);
+
+  wired_moqt_on_session(&hub, SESS_B, quic_span_of(0, 0), quic_span_of(0, 0));
+  u64 ctrl_b = moqtrun_test_last_kind(1)->stream_id;
+  u8  buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz n = moqtrun_test_subscribe_audio_msg(buf);
+  wired_moqt_on_stream_data(&hub, SESS_B, ctrl_b, quic_span_of(buf, n), 0);
+
+  const moqtrun_test_call* c   = moqtrun_test_last_kind(3);
+  usz                      off = 0;
+  u64                      type;
+  quic_span                body;
+  CHECK(
+      quic_moqctl_peek_type(
+          quic_span_of(c->payload, c->payload_len), &off, &type, &body) ==
+      QUIC_MOQCTL_OK);
+  CHECK(type == QUIC_MOQCTL_T_SUBSCRIBE_OK);
+}
+
+/* The same subscriber SUBSCRIBEing chat then audio gets a valid
+ * SUBSCRIBE_OK from each track's OWN alias sequence (each track allocates
+ * aliases independently starting from 0, so both replies legitimately
+ * name alias 0 here -- the two tracks are still routed correctly since
+ * relay keys on the publisher's Track Alias, not the hub's per-subscriber
+ * one; see moqtClient.ts's own comment on why it never reads this value). */
+static void test_moqtrun_chat_and_audio_get_different_aliases(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  u64 ctrl_a = moqtrun_test_publish_alice(&hub);
+  moqtrun_test_publish_alice_audio(&hub, ctrl_a);
+
+  wired_moqt_on_session(&hub, SESS_B, quic_span_of(0, 0), quic_span_of(0, 0));
+  u64 ctrl_b = moqtrun_test_last_kind(1)->stream_id;
+  wired_moqt_on_stream_data(
+      &hub, SESS_B, ctrl_b,
+      quic_span_of(g_moqt_ctl_subscribe_basic, G_MOQT_CTL_SUBSCRIBE_BASIC_LEN),
+      0);
+  const moqtrun_test_call* chat_reply = moqtrun_test_last_kind(3);
+  usz                      off1       = 0;
+  u64                      type1;
+  quic_span                body1;
+  quic_moqctl_peek_type(
+      quic_span_of(chat_reply->payload, chat_reply->payload_len), &off1, &type1,
+      &body1);
+  quic_moqctl_subscribe_ok chat_ok;
+  usz                      chat_off = 0;
+  quic_moqctl_subscribe_ok_take(body1, &chat_off, &chat_ok);
+
+  u8  buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz n = moqtrun_test_subscribe_audio_msg(buf);
+  wired_moqt_on_stream_data(&hub, SESS_B, ctrl_b, quic_span_of(buf, n), 0);
+  const moqtrun_test_call* audio_reply = moqtrun_test_last_kind(3);
+  usz                      off2        = 0;
+  u64                      type2;
+  quic_span                body2;
+  quic_moqctl_peek_type(
+      quic_span_of(audio_reply->payload, audio_reply->payload_len), &off2,
+      &type2, &body2);
+  quic_moqctl_subscribe_ok audio_ok;
+  usz                      audio_off = 0;
+  quic_moqctl_subscribe_ok_take(body2, &audio_off, &audio_ok);
+
+  CHECK(type1 == QUIC_MOQCTL_T_SUBSCRIBE_OK);
+  CHECK(type2 == QUIC_MOQCTL_T_SUBSCRIBE_OK);
+  /* Both tracks allocate aliases independently from 0, so this hub's
+   * per-subscriber alias legitimately collides across tracks -- routing
+   * still works because relay keys on the PUBLISHER's own Track Alias
+   * (own_alias), never on this value (see moqtClient.ts's comment). */
+  CHECK(chat_ok.track_alias == audio_ok.track_alias);
+}
+
+/* An Object on the chat track's data stream (Track Alias 1, the golden
+ * default) relays only to the chat subscriber, not the audio one. */
+static void test_moqtrun_chat_object_relays_only_to_chat_subscriber(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  u64 ctrl_a = moqtrun_test_publish_alice(&hub);
+  moqtrun_test_publish_alice_audio(&hub, ctrl_a);
+
+  wired_moqt_on_session(&hub, SESS_B, quic_span_of(0, 0), quic_span_of(0, 0));
+  u64 ctrl_b = moqtrun_test_last_kind(1)->stream_id;
+  wired_moqt_on_stream_data(
+      &hub, SESS_B, ctrl_b,
+      quic_span_of(g_moqt_ctl_subscribe_basic, G_MOQT_CTL_SUBSCRIBE_BASIC_LEN),
+      0);
+
+  wired_moqt_on_session(&hub, SESS_C, quic_span_of(0, 0), quic_span_of(0, 0));
+  u64 ctrl_c = moqtrun_test_last_kind(1)->stream_id;
+  u8  sub_audio[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz sub_audio_n = moqtrun_test_subscribe_audio_msg(sub_audio);
+  wired_moqt_on_stream_data(
+      &hub, SESS_C, ctrl_c, quic_span_of(sub_audio, sub_audio_n), 0);
+
+  moqtrun_test_reset();
+  wired_moqt_on_stream_data(
+      &hub, SESS_A, 999,
+      quic_span_of(
+          g_moqt_data_subgroup_stream_basic,
+          G_MOQT_DATA_SUBGROUP_STREAM_BASIC_LEN),
+      0);
+
+  CHECK(moqtrun_test_count_kind(4) == 1);
+  CHECK(moqtrun_test_last_kind(4)->s == SESS_B);
+}
+
+/* An Object on the audio track's data stream (a distinct Track Alias)
+ * relays only to the audio subscriber, not the chat one. */
+static void test_moqtrun_audio_object_relays_only_to_audio_subscriber(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  u64 ctrl_a = moqtrun_test_publish_alice(&hub);
+  moqtrun_test_publish_alice_audio(&hub, ctrl_a);
+
+  wired_moqt_on_session(&hub, SESS_B, quic_span_of(0, 0), quic_span_of(0, 0));
+  u64 ctrl_b = moqtrun_test_last_kind(1)->stream_id;
+  wired_moqt_on_stream_data(
+      &hub, SESS_B, ctrl_b,
+      quic_span_of(g_moqt_ctl_subscribe_basic, G_MOQT_CTL_SUBSCRIBE_BASIC_LEN),
+      0);
+
+  wired_moqt_on_session(&hub, SESS_C, quic_span_of(0, 0), quic_span_of(0, 0));
+  u64 ctrl_c = moqtrun_test_last_kind(1)->stream_id;
+  u8  sub_audio[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz sub_audio_n = moqtrun_test_subscribe_audio_msg(sub_audio);
+  wired_moqt_on_stream_data(
+      &hub, SESS_C, ctrl_c, quic_span_of(sub_audio, sub_audio_n), 0);
+
+  moqtrun_test_reset();
+  u8  audio_obj[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz audio_obj_n = moqtrun_test_subgroup_with_alias(0x02, audio_obj);
+  wired_moqt_on_stream_data(
+      &hub, SESS_A, 999, quic_span_of(audio_obj, audio_obj_n), 0);
+
+  CHECK(moqtrun_test_count_kind(4) == 1);
+  CHECK(moqtrun_test_last_kind(4)->s == SESS_C);
+}
+
+/* An Object whose Track Alias matches neither of the publisher's declared
+ * tracks (chat=1, audio=2) is relayed nowhere. */
+static void test_moqtrun_unknown_alias_object_relays_nowhere(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  u64 ctrl_a = moqtrun_test_publish_alice(&hub);
+  moqtrun_test_publish_alice_audio(&hub, ctrl_a);
+
+  wired_moqt_on_session(&hub, SESS_B, quic_span_of(0, 0), quic_span_of(0, 0));
+  u64 ctrl_b = moqtrun_test_last_kind(1)->stream_id;
+  wired_moqt_on_stream_data(
+      &hub, SESS_B, ctrl_b,
+      quic_span_of(g_moqt_ctl_subscribe_basic, G_MOQT_CTL_SUBSCRIBE_BASIC_LEN),
+      0);
+
+  moqtrun_test_reset();
+  u8  unknown_obj[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz unknown_obj_n = moqtrun_test_subgroup_with_alias(0x09, unknown_obj);
+  wired_moqt_on_stream_data(
+      &hub, SESS_A, 999, quic_span_of(unknown_obj, unknown_obj_n), 0);
+
+  CHECK(g_n_calls == 0);
+}
+
+/* Both tracks' SUBSCRIBE_OK replies fit in one dispatch's send_buf without
+ * overflow -- two SUBSCRIBEs (chat then audio) arriving back-to-back on the
+ * same control-stream call both get their reply queued and flushed. */
+static void test_moqtrun_two_subscribe_oks_one_dispatch_no_overflow(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  u64 ctrl_a = moqtrun_test_publish_alice(&hub);
+  moqtrun_test_publish_alice_audio(&hub, ctrl_a);
+
+  wired_moqt_on_session(&hub, SESS_B, quic_span_of(0, 0), quic_span_of(0, 0));
+  u64 ctrl_b = moqtrun_test_last_kind(1)->stream_id;
+
+  u8  two_subs[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz off = 0;
+  quic_memcpy(
+      two_subs, g_moqt_ctl_subscribe_basic, G_MOQT_CTL_SUBSCRIBE_BASIC_LEN);
+  off += G_MOQT_CTL_SUBSCRIBE_BASIC_LEN;
+  off += moqtrun_test_rename_track_to_audio(
+      g_moqt_ctl_subscribe_basic, G_MOQT_CTL_SUBSCRIBE_BASIC_LEN,
+      two_subs + off);
+
+  moqtrun_test_reset(); /* only observe this dispatch's own replies */
+  wired_moqt_on_stream_data(
+      &hub, SESS_B, ctrl_b, quic_span_of(two_subs, off), 0);
+
+  CHECK(moqtrun_test_count_kind(3) == 1); /* one stream_send, two replies */
+  const moqtrun_test_call* c         = moqtrun_test_last_kind(3);
+  usz                      check_off = 0;
+  u64                      t1;
+  quic_span                b1;
+  CHECK(
+      quic_moqctl_peek_type(
+          quic_span_of(c->payload, c->payload_len), &check_off, &t1, &b1) ==
+      QUIC_MOQCTL_OK);
+  CHECK(t1 == QUIC_MOQCTL_T_SUBSCRIBE_OK);
+  u64       t2;
+  quic_span b2;
+  CHECK(
+      quic_moqctl_peek_type(
+          quic_span_of(c->payload, c->payload_len), &check_off, &t2, &b2) ==
+      QUIC_MOQCTL_OK);
+  CHECK(t2 == QUIC_MOQCTL_T_SUBSCRIBE_OK);
+}
+
 void test_moqtrun(void) {
   test_moqtrun_on_session_sends_setup();
   test_moqtrun_on_session_twice_is_idempotent();
@@ -511,4 +861,13 @@ void test_moqtrun(void) {
   test_moqtrun_unknown_first_type_gets_not_supported();
   test_moqtrun_goaway_on_request_stream_produces_no_reply();
   test_moqtrun_padding_stream_discarded();
+  test_moqtrun_peer_publishes_two_tracks();
+  test_moqtrun_third_publish_gets_error();
+  test_moqtrun_republish_same_name_reuses_slot();
+  test_moqtrun_subscribe_audio_track_replies_ok();
+  test_moqtrun_chat_and_audio_get_different_aliases();
+  test_moqtrun_chat_object_relays_only_to_chat_subscriber();
+  test_moqtrun_audio_object_relays_only_to_audio_subscriber();
+  test_moqtrun_unknown_alias_object_relays_nowhere();
+  test_moqtrun_two_subscribe_oks_one_dispatch_no_overflow();
 }
