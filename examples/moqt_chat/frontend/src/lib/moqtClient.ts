@@ -52,7 +52,7 @@ export const SUBGROUP_HEADER_TYPE = 0x70n;
 // (moqtrun.h), so the client guesses room members from a small fixed
 // list and lets REQUEST_ERROR/DOES_NOT_EXIST tell it which ones are absent.
 // ponytail: raise/replace with real discovery if the room ever needs more.
-const CANDIDATE_PARTICIPANT_IDS = ["user1", "user2", "user3", "user4"];
+export const CANDIDATE_PARTICIPANT_IDS = ["user1", "user2", "user3", "user4"];
 
 export function candidateParticipantIds(localId: string): string[] {
   return CANDIDATE_PARTICIPANT_IDS.filter((id) => id !== localId);
