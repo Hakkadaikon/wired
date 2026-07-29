@@ -33,6 +33,7 @@ import {
   encodeVarint,
   hexToBytes,
   utf8ToBytes,
+  type SubgroupHeader,
 } from "./moqtWire";
 
 // draft-ietf-moq-transport-19 SS10 message type IDs used on the wire here.
@@ -68,12 +69,12 @@ export function candidateParticipantIds(localId: string): string[] {
 // room instead PUBLISHes under a deterministic alias derived from its own
 // candidate-list index, and resolves an incoming Object's sender from that
 // same fixed table rather than from SUBSCRIBE_OK.
-function ownTrackAlias(localId: string): bigint {
+export function ownTrackAlias(localId: string): bigint {
   const idx = CANDIDATE_PARTICIPANT_IDS.indexOf(localId);
   return BigInt(idx < 0 ? 0 : idx);
 }
 
-function participantForTrackAlias(trackAlias: bigint): string | undefined {
+export function participantForTrackAlias(trackAlias: bigint): string | undefined {
   return CANDIDATE_PARTICIPANT_IDS[Number(trackAlias)];
 }
 
@@ -158,6 +159,24 @@ const ROOM_NAMESPACE = [utf8ToBytes("wired"), utf8ToBytes("moqt_chat")];
 export interface MoqtChatCallbacks {
   onStatusChange(status: "connecting" | "connected" | "disconnected"): void;
   onMessage(participantId: string, text: string): void;
+  // Fires for an incoming uni stream whose SUBGROUP_HEADER's Track Alias is
+  // not this client's chat candidate-list mapping -- the audio track uses a
+  // separate alias range (moqtVoiceClient.ts's ownAudioTrackAlias) and,
+  // unlike a chat message, is not read to completion here (it is a
+  // long-lived stream the publisher keeps appending Objects to). The
+  // header is already decoded (avoids re-parsing it); firstChunkTail is
+  // whatever bytes followed the header in the SAME first chunk (often the
+  // stream's first Object, since MoqtVoiceClient.sendOpusFrame writes the
+  // header and first Object in one write() call) -- it must be handed to
+  // the caller's own incremental reader before anything further pulled
+  // from `reader`, or that Object's bytes are silently lost. reader lets
+  // the caller keep consuming the same stream from exactly where this
+  // class stopped -- no bytes are skipped or duplicated.
+  onUnknownUniStream?(
+    header: SubgroupHeader,
+    firstChunkTail: Uint8Array,
+    reader: ReadableStreamDefaultReader<Uint8Array>,
+  ): void;
 }
 
 /** Drives one chat participant's MOQT session: connects, PUBLISHes its own
@@ -210,6 +229,18 @@ export class MoqtChatClient {
     this.#callbacks.onStatusChange("connected");
   }
 
+  /** The underlying WebTransport session, once connected -- exported so
+   * moqtVoiceClient.ts can open its own long-lived uni stream for the audio
+   * track's Objects without this class re-exposing a send/receive API for
+   * every future track type. */
+  get webTransport(): WebTransport | undefined {
+    return this.#wt;
+  }
+
+  get localId(): string {
+    return this.#localId;
+  }
+
   async send(text: string): Promise<void> {
     if (!this.#wt) return;
     const wire = buildChatObjectMessage({
@@ -248,16 +279,46 @@ export class MoqtChatClient {
   }
 
   async #publishOwnTrack(): Promise<void> {
+    await this.publishTrack(utf8ToBytes(this.#localId), this.#localTrackAlias);
+  }
+
+  /** PUBLISHes a track under this room's fixed namespace -- exported for
+   * moqtVoiceClient.ts, which PUBLISHes the "<id>/audio" track over this
+   * same control stream (M1's hub tracks up to 2 tracks per peer). The
+   * reply (REQUEST_OK) is not awaited here, matching #publishOwnTrack's own
+   * existing behavior: this subset's hub accepts every PUBLISH
+   * unconditionally (moqtrun.c's own doc). */
+  async publishTrack(trackName: Uint8Array, trackAlias: bigint): Promise<void> {
     if (!this.#controlWriter) return;
     const body = encodePublish({
       requestId: 0n,
       trackNamespace: ROOM_NAMESPACE,
-      trackName: utf8ToBytes(this.#localId),
-      trackAlias: this.#localTrackAlias,
+      trackName,
+      trackAlias,
       parameters: [],
       trackProperties: [],
     });
     await this.#controlWriter.write(encodeControlFrame(MSG_TYPE_PUBLISH, body));
+  }
+
+  /** SUBSCRIBEs to a track under this room's fixed namespace -- exported
+   * for moqtVoiceClient.ts (the "<id>/audio" track). The reply is queued
+   * in #pendingSubscribes under trackNameUtf8 like any chat candidate: it
+   * only ever affects #foundParticipants (voiceStreamKey is never in
+   * CANDIDATE_PARTICIPANT_IDS, so it is inert there), and keeps this
+   * shared control stream's FIFO request/reply pairing intact -- every
+   * SUBSCRIBE sent here gets exactly one reply back, in order. */
+  async subscribeTrack(trackName: Uint8Array, trackNameUtf8: string): Promise<void> {
+    if (!this.#controlWriter) return;
+    const rid = this.#nextRequestId++;
+    const body = encodeSubscribe({
+      requestId: rid,
+      trackNamespace: ROOM_NAMESPACE,
+      trackName,
+      parameters: [],
+    });
+    this.#pendingSubscribes.push({ candidate: trackNameUtf8, sentAt: Date.now() });
+    await this.#controlWriter.write(encodeControlFrame(MSG_TYPE_SUBSCRIBE, body));
   }
 
   // Requests answered in send order (the hub replies synchronously per
@@ -397,17 +458,50 @@ export class MoqtChatClient {
     }
   }
 
+  // Reads only enough of the stream to decode its SUBGROUP_HEADER (assumed
+  // to arrive whole in the first chunk -- it is a handful of bytes, always
+  // written in one call by both buildChatObjectMessage and
+  // buildVoiceSubgroupHeader), then routes by Track Alias: a chat alias
+  // (0..N-1, this room's candidate-list range) is read to completion and
+  // parsed as one chat Object; anything else (the audio track's separate
+  // alias range, moqtVoiceClient.ts's ownAudioTrackAlias) is handed to
+  // onUnknownUniStream as a long-lived stream instead of read to EOF here.
   async #readOneUniStream(stream: ReadableStream<Uint8Array>): Promise<void> {
-    const chunks: Uint8Array[] = [];
-    for await (const chunk of stream as unknown as AsyncIterable<Uint8Array>) {
-      chunks.push(chunk);
+    const reader = stream.getReader();
+    const { value: first, done } = await reader.read();
+    if (done || !first || first.length === 0) {
+      reader.releaseLock();
+      return;
+    }
+    let header;
+    let headerLen;
+    try {
+      const decoded = decodeSubgroupHeader(first);
+      header = decoded.header;
+      headerLen = decoded.len;
+    } catch {
+      reader.releaseLock();
+      return;
+    }
+    if (header.trackAlias >= BigInt(CANDIDATE_PARTICIPANT_IDS.length)) {
+      this.#callbacks.onUnknownUniStream?.(header, first.slice(headerLen), reader);
+      return;
+    }
+    await this.#readChatObjectStream(first, reader);
+  }
+
+  async #readChatObjectStream(
+    firstChunk: Uint8Array,
+    reader: ReadableStreamDefaultReader<Uint8Array>,
+  ): Promise<void> {
+    const chunks: Uint8Array[] = [firstChunk];
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      if (value) chunks.push(value);
     }
     const wire = concatBytes(chunks);
-    if (wire.length === 0) return;
 
-    // Every uni stream the hub relays here is a SUBGROUP stream (padding/
-    // fetch/control streams never arrive this way in this subset); decode
-    // it directly and drop anything that fails to parse as one.
     let parsed;
     try {
       parsed = parseChatObjectMessage(wire);
