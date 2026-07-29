@@ -44,7 +44,9 @@ const MSG_TYPE_REQUEST_ERROR = 0x5n;
 // SUBGROUP_HEADER Type (moqdata.h QUIC_MOQDATA_MSG builder): PROPERTIES off,
 // SUBGROUP_ID_MODE 0b00, no end-of-group, DEFAULT_PRIORITY on, FIRST_OBJECT
 // on: 0x10 (base) | 0x40 (FIRST_OBJECT) | 0x20 (DEFAULT_PRIORITY) = 0x70.
-const SUBGROUP_HEADER_TYPE = 0x70n;
+// Exported for moqtVoiceWire.ts, which builds the same shape of header for
+// the audio track's long-lived stream.
+export const SUBGROUP_HEADER_TYPE = 0x70n;
 
 // Fixed candidate pool: no track-namespace discovery exists in this subset
 // (moqtrun.h), so the client guesses room members from a small fixed
