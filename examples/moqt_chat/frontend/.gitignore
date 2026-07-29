@@ -1,3 +1,13 @@
+# dependencies
 /node_modules
-/dist
+
+# next.js
+/.next/
+/out/
+
+# misc
 *.pem
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
