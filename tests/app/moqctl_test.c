@@ -9,16 +9,12 @@
  * examples/moqt_chat/testvectors/moqt_golden.json); this file never hand-
  * types a wire byte sequence for round-trip coverage.
  *
- * Ledger cross-reference (reported, not embedded in test names): common
- * envelope T-018/T-019/T-020/T-021/T-022/T-023, per-message round trips
- * T-024/T-032/T-039/T-041/T-043/T-048/T-049/T-050/T-051, Message Parameters
- * T-025..T-031, Setup Options T-033..T-037, GOAWAY T-040, REQUEST_OK T-042,
- * REQUEST_ERROR T-044/T-045/T-046/T-047, FORWARD T-052, Reason Phrase
- * T-053/T-054, Location T-055/T-056, Track Namespace/Name T-057..T-061,
- * Location Filter T-062..T-064, grease/unknown-code T-065..T-067.
+ * Coverage: common envelope, per-message round trips, Message Parameters,
+ * Setup Options, GOAWAY, REQUEST_OK, REQUEST_ERROR, FORWARD, Reason Phrase,
+ * Location, Track Namespace/Name, Location Filter, grease/unknown-code.
  */
 
-/* ===== TEST 1: common envelope round-trip (T-018/T-024) ===== */
+/* ===== TEST 1: common envelope round-trip ===== */
 
 static void test_moqctl_peek_type_setup(void) {
   usz       off = 0;
@@ -34,7 +30,7 @@ static void test_moqctl_peek_type_setup(void) {
   CHECK(off == G_MOQT_CTL_SETUP_IMPL_LEN);
 }
 
-/* TEST 2: Message Length / Body mismatch -> VIOLATION (T-020). Shrink the
+/* TEST 2: Message Length / Body mismatch -> VIOLATION. Shrink the
  * declared Length by 1 without touching the body bytes. */
 static void test_moqctl_peek_type_length_mismatch(void) {
   u8        buf[32];
@@ -53,7 +49,7 @@ static void test_moqctl_peek_type_length_mismatch(void) {
           &body) == QUIC_MOQCTL_INSUFFICIENT);
 }
 
-/* TEST 3: body cut short mid-message -> INSUFFICIENT (T-021). */
+/* TEST 3: body cut short mid-message -> INSUFFICIENT. */
 static void test_moqctl_peek_type_truncated(void) {
   usz       off = 0;
   u64       type;
@@ -66,7 +62,7 @@ static void test_moqctl_peek_type_truncated(void) {
           &off, &type, &body) == QUIC_MOQCTL_INSUFFICIENT);
 }
 
-/* TEST 4: unknown message type -> UNKNOWN_TYPE (T-022). Type 0x2 (REQUEST_
+/* TEST 4: unknown message type -> UNKNOWN_TYPE. Type 0x2 (REQUEST_
  * UPDATE) is known-but-unimplemented; 0x99 is not in the SS10 table at
  * all. */
 static void test_moqctl_peek_type_unknown(void) {
@@ -81,7 +77,7 @@ static void test_moqctl_peek_type_unknown(void) {
 }
 
 /* TEST 5: known-but-unimplemented message type is distinguished from an
- * unknown one (T-019, T-022). REQUEST_UPDATE = 0x2, zero-length body. */
+ * unknown one. REQUEST_UPDATE = 0x2, zero-length body. */
 static void test_moqctl_peek_type_known_unimplemented(void) {
   const u8  in[] = {0x02, 0x00, 0x00};
   usz       off  = 0;
@@ -93,7 +89,7 @@ static void test_moqctl_peek_type_known_unimplemented(void) {
       QUIC_MOQCTL_KNOWN_UNIMPLEMENTED);
 }
 
-/* TEST 6: message total length boundary at 2^16-1 (T-023). A Length field
+/* TEST 6: message total length boundary at 2^16-1. A Length field
  * that itself claims the max is accepted by peek_type as long as the body
  * bytes are actually present; this test only exercises the encoding of
  * the boundary value in the Length field via a minimal SUBSCRIBE_OK. */
@@ -111,7 +107,7 @@ static void test_moqctl_peek_type_max_len_field(void) {
       QUIC_MOQCTL_INSUFFICIENT);
 }
 
-/* ===== TEST 7-14: per-message round trip against golden (T-024) ===== */
+/* ===== TEST 7-14: per-message round trip against golden ===== */
 
 static void test_moqctl_setup_roundtrip(void) {
   usz               off = 0;
@@ -405,7 +401,7 @@ static void test_moqctl_goaway_roundtrip(void) {
   for (usz i = 0; i < out_len; i++) CHECK(out[i] == g_moqt_ctl_goaway_empty[i]);
 }
 
-/* ===== TEST: GOAWAY New Session URI 8192 boundary (T-040) ===== */
+/* ===== TEST: GOAWAY New Session URI 8192 boundary ===== */
 
 static void test_moqctl_goaway_uri_boundary(void) {
   u8                 buf_ok[3 + QUIC_MOQCTL_MAX_URI_LEN + 4];
@@ -445,7 +441,7 @@ static void test_moqctl_goaway_uri_boundary(void) {
   }
 }
 
-/* ===== TEST: Reason Phrase 1024 boundary (T-054) ===== */
+/* ===== TEST: Reason Phrase 1024 boundary ===== */
 
 static void test_moqctl_reason_boundary(void) {
   u8                 buf_ok[3 + QUIC_MOQCTL_MAX_REASON_LEN];
@@ -478,7 +474,7 @@ static void test_moqctl_reason_boundary(void) {
   }
 }
 
-/* ===== TEST: Location encode/compare (T-055/T-056) ===== */
+/* ===== TEST: Location encode/compare ===== */
 
 static void test_moqctl_location_roundtrip_and_order(void) {
   u8              buf[32];
@@ -502,7 +498,7 @@ static void test_moqctl_location_roundtrip_and_order(void) {
   CHECK(!quic_moqctl_loc_less(b, a));
 }
 
-/* ===== TEST: Track Namespace / Full Track Name (T-057..T-061) ===== */
+/* ===== TEST: Track Namespace / Full Track Name ===== */
 
 static void test_moqctl_ftn_decode_basic(void) {
   quic_moqctl_ftn f;
@@ -521,7 +517,7 @@ static void test_moqctl_ftn_decode_basic(void) {
   CHECK(f.name.n == 5);
 }
 
-/* T-058: Field Length 0 -> PROTOCOL_VIOLATION. */
+/* Field Length 0 -> PROTOCOL_VIOLATION. */
 static void test_moqctl_ns_field_len_zero_rejected(void) {
   quic_moqctl_ns ns;
   usz            off = 0;
@@ -534,7 +530,7 @@ static void test_moqctl_ns_field_len_zero_rejected(void) {
           &off, &ns) == QUIC_MOQCTL_VIOLATION);
 }
 
-/* T-059: 32 fields accepted, 33 rejected. */
+/* 32 fields accepted, 33 rejected. */
 static void test_moqctl_ns_fields_32_accept_33_reject(void) {
   quic_moqctl_ns ns;
   usz            off;
@@ -557,7 +553,7 @@ static void test_moqctl_ns_fields_32_accept_33_reject(void) {
           &off, &ns) == QUIC_MOQCTL_VIOLATION);
 }
 
-/* T-060: Full Track Name 4096 boundary. */
+/* Full Track Name 4096 boundary. */
 static void test_moqctl_ftn_4096_accept_4097_reject(void) {
   quic_moqctl_ftn f;
   usz             off;
@@ -577,7 +573,7 @@ static void test_moqctl_ftn_4096_accept_4097_reject(void) {
           &off, &f) == QUIC_MOQCTL_VIOLATION);
 }
 
-/* T-061: exact byte comparison, no encoding-dependent shortcuts. */
+/* Exact byte comparison, no encoding-dependent shortcuts. */
 static void test_moqctl_ftn_eq_exact_bytes(void) {
   quic_moqctl_ftn a, b;
   usz             off;
@@ -601,9 +597,9 @@ static void test_moqctl_ftn_eq_exact_bytes(void) {
   CHECK(!quic_moqctl_ftn_eq(&a, &b));
 }
 
-/* ===== TEST: Message Parameters (T-025..T-031) ===== */
+/* ===== TEST: Message Parameters ===== */
 
-/* T-025/T-026: FORWARD (uint8) round trip inside SUBSCRIBE's scope. */
+/* FORWARD (uint8) round trip inside SUBSCRIBE's scope. */
 static void test_moqctl_params_forward_roundtrip(void) {
   u8                 buf[16];
   usz                off = 0;
@@ -628,7 +624,7 @@ static void test_moqctl_params_forward_roundtrip(void) {
   CHECK(out.items[0].u8v == 0);
 }
 
-/* T-027: cumulative Parameter Type overflow -> VIOLATION. Two params whose
+/* Cumulative Parameter Type overflow -> VIOLATION. Two params whose
  * deltas sum past 2^64-1. */
 static void test_moqctl_params_type_overflow_violation(void) {
   u8                 buf[24];
@@ -651,7 +647,7 @@ static void test_moqctl_params_type_overflow_violation(void) {
   }
 }
 
-/* T-028: unknown Message Parameter Type -> VIOLATION. */
+/* Unknown Message Parameter Type -> VIOLATION. */
 static void test_moqctl_params_unknown_type_violation(void) {
   u8                 buf[8];
   usz                off = 0;
@@ -669,7 +665,7 @@ static void test_moqctl_params_unknown_type_violation(void) {
   }
 }
 
-/* T-029: duplicate Parameter Type -> VIOLATION. */
+/* Duplicate Parameter Type -> VIOLATION. */
 static void test_moqctl_params_duplicate_type_violation(void) {
   u8                 buf[16];
   usz                off = 0;
@@ -694,7 +690,7 @@ static void test_moqctl_params_duplicate_type_violation(void) {
   }
 }
 
-/* T-031: known parameter type outside its allowed message scope ->
+/* Known parameter type outside its allowed message scope ->
  * VIOLATION. FORWARD is legal in SUBSCRIBE/PUBLISH but not SUBSCRIBE_OK. */
 static void test_moqctl_params_scope_violation(void) {
   u8                 buf[8];
@@ -715,7 +711,7 @@ static void test_moqctl_params_scope_violation(void) {
   }
 }
 
-/* T-030: SUBGROUP/OBJECT_DELIVERY_TIMEOUT decode as varint, 0 = unset. */
+/* SUBGROUP/OBJECT_DELIVERY_TIMEOUT decode as varint, 0 = unset. */
 static void test_moqctl_params_delivery_timeout_decode(void) {
   u8                 buf[16];
   usz                off = 0;
@@ -737,9 +733,9 @@ static void test_moqctl_params_delivery_timeout_decode(void) {
   CHECK(out.items[0].vi == 0);
 }
 
-/* ===== TEST: SETUP Setup Options behaviors (T-033..T-037) ===== */
+/* ===== TEST: SETUP Setup Options behaviors ===== */
 
-/* T-033: unknown Setup Option (including a duplicate of it) is ignored. */
+/* Unknown Setup Option (including a duplicate of it) is ignored. */
 static void test_moqctl_setup_unknown_option_ignored(void) {
   u8                buf[16];
   usz               off = 0;
@@ -767,7 +763,7 @@ static void test_moqctl_setup_unknown_option_ignored(void) {
   CHECK(!s.has_implementation);
 }
 
-/* T-037: MOQT_IMPLEMENTATION option decode (UTF-8 name+version). Already
+/* MOQT_IMPLEMENTATION option decode (UTF-8 name+version). Already
  * covered end-to-end by test_moqctl_setup_roundtrip via the golden vector;
  * this test isolates the PATH option instead for independent coverage. */
 static void test_moqctl_setup_path_option_decode(void) {
@@ -793,7 +789,7 @@ static void test_moqctl_setup_path_option_decode(void) {
   CHECK(s.path.p[0] == '/');
 }
 
-/* ===== TEST: Location Filter (T-062..T-064) ===== */
+/* ===== TEST: Location Filter ===== */
 
 static void test_moqctl_locfilter_next_group_and_largest(void) {
   const u8              in_ng[] = {0x01};
@@ -838,7 +834,7 @@ static void test_moqctl_locfilter_abs_start_and_range_roundtrip(void) {
   CHECK(f_out.end_group_delta == 5);
 }
 
-/* T-063: End Group overflow (Start.Group + Delta > 2^64-1) -> VIOLATION. */
+/* End Group overflow (Start.Group + Delta > 2^64-1) -> VIOLATION. */
 static void test_moqctl_locfilter_end_group_overflow_violation(void) {
   u8                    buf[24];
   usz                   off = 0;
@@ -859,7 +855,7 @@ static void test_moqctl_locfilter_end_group_overflow_violation(void) {
   }
 }
 
-/* T-064: unknown Filter Type -> VIOLATION. */
+/* Unknown Filter Type -> VIOLATION. */
 static void test_moqctl_locfilter_unknown_type_violation(void) {
   const u8              in[] = {0x05};
   usz                   off  = 0;
@@ -870,7 +866,7 @@ static void test_moqctl_locfilter_unknown_type_violation(void) {
       QUIC_MOQCTL_VIOLATION);
 }
 
-/* ===== TEST: grease / unknown error code normalization (T-065..T-067) ===== */
+/* ===== TEST: grease / unknown error code normalization ===== */
 
 static void test_moqctl_grease_pattern(void) {
   CHECK(quic_moqctl_is_grease(0x9D));
@@ -896,8 +892,7 @@ static void test_moqctl_unknown_error_normalizes_to_internal(void) {
       QUIC_MOQCTL_DONE_INTERNAL_ERROR);
 }
 
-/* ===== TEST: REQUEST_ERROR Redirect only with REDIRECT code (T-044/T-045)
- * ===== */
+/* ===== TEST: REQUEST_ERROR Redirect only with REDIRECT code ===== */
 
 static void test_moqctl_request_error_redirect_roundtrip(void) {
   u8                        buf[64];

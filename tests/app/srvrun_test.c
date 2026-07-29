@@ -7935,9 +7935,9 @@ static void test_srvrun_ack_timer_shares_now_ms_with_pto(void) {
 /* SLOT REUSE: HTTP/3 never reuses a stream id, so resp[]'s SRVRUN_RESP_SLOTS
  * (4, matching the receive side's WIRED_SRVLOOP_MAX_STREAMS) must free a
  * slot once its response is fully sent and acked -- otherwise a 5th
- * sequential request permanently finds every slot busy (TLA+ resp-multiplex
- * guard I4). Drives all SRVRUN_RESP_SLOTS+1 requests one at a time, each
- * through start -> pump -> ack -> reap, on distinct stream ids. */
+ * sequential request permanently finds every slot busy. Drives all
+ * SRVRUN_RESP_SLOTS+1 requests one at a time, each through
+ * start -> pump -> ack -> reap, on distinct stream ids. */
 static void test_srvrun_fifth_sequential_get_reuses_freed_slot(void) {
   struct lp_fix f;
   srvrun_conn   c  = {0};
@@ -8495,15 +8495,15 @@ static void test_srvrun_pump_stops_at_log_capacity(void) {
 }
 
 /* LOSS + RETRANSMIT ACROSS TWO CONCURRENT RESPONSES: two resp[] slots each
- * push past WIRED_SENDSESS_LOG in-flight slices (33+, TLA+ resp-multiplex's
- * flagged test-design pitfall: the log-full gate only fires above LOG
- * capacity). slot 0 gets a clean ACK sweep; slot 1's ACK skips the middle
- * of its log, past the packet-loss threshold (RFC 9002 6.1.1), forcing a
- * requeue -- proving the loss detector, requeue, and pn-broadcast (guard 5:
- * an ACK range naming slot 0's pns is a no-op against slot 1's log and vice
- * versa, since pn is one connection-wide monotonic space) all still work
- * with two sessions live at once. Every byte of both bodies must eventually
- * reach the log/requeue/acked union -- none silently dropped (I3). */
+ * push past WIRED_SENDSESS_LOG in-flight slices (33+; the log-full gate
+ * only fires above LOG capacity). slot 0 gets a clean ACK sweep; slot 1's
+ * ACK skips the middle of its log, past the packet-loss threshold (RFC 9002
+ * 6.1.1), forcing a requeue -- proving the loss detector, requeue, and
+ * pn-broadcast (an ACK range naming slot 0's pns is a no-op against slot
+ * 1's log and vice versa, since pn is one connection-wide monotonic space)
+ * all still work with two sessions live at once. Every byte of both bodies
+ * must eventually reach the log/requeue/acked union -- none silently
+ * dropped. */
 /* CROSS-STREAM ACK MUST NOT FALSELY ADVANCE A SIBLING'S LOSS THRESHOLD:
  * an ACK range naming only slot 1's pns must leave slot 0's still-in-flight
  * slices alone -- broadcasting the range to every resp[] slot (srvrun_

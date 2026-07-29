@@ -50,7 +50,7 @@ typedef struct {
       wired_wt_session* s, u64 stream_id, quic_span payload, int fin);
   /** wired_server_wt_open_uni-shaped: opens a fresh uni stream, sends the
    * whole payload, and closes it with FIN on the final slice -- one call,
-   * no keep-open round. Used for a relayed Object (T-136/T-147: one
+   * no keep-open round. Used for a relayed Object (one
    * complete SUBGROUP_HEADER+Object per stream), which never needs a
    * second round. */
   i64 (*send_uni)(wired_wt_session* s, quic_span payload);
@@ -67,7 +67,7 @@ typedef struct {
 
 /** Fixed capacity for the copied participant id (Track Name) recorded on
  * PUBLISH, used to match a later SUBSCRIBE to the right peer. Namespace is
- * not compared (M5-6: room membership is a hub-side fixed namespace). */
+ * not compared (room membership is a hub-side fixed namespace). */
 #define WIRED_MOQTRUN_MAX_NAME 64
 
 /** Largest single control-message envelope this hub ever sends (SS10
@@ -80,7 +80,7 @@ typedef struct {
  * each can produce one reply -- worst case here is one SUBSCRIBE per other
  * connected peer, WIRED_MOQTRUN_MAX_SUBS of them. */
 #define WIRED_MOQTRUN_CTL_SEND_BUF \
-  (WIRED_MOQTRUN_CTL_MSG_MAX * WIRED_MOQTRUN_MAX_SUBS)
+  ((usz)WIRED_MOQTRUN_CTL_MSG_MAX * (usz)WIRED_MOQTRUN_MAX_SUBS)
 
 /** One connected participant's hub-side state: its WT session, its own
  * control-stream MOQT session machine, whether it has PUBLISHed its track

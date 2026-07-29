@@ -5,7 +5,7 @@
 #include "moqt_golden.h"
 #include "test.h"
 
-/* draft-ietf-moq-transport-19 hub relay (M5-6): wires the six MOQT domains
+/* draft-ietf-moq-transport-19 hub relay: wires the six MOQT domains
  * onto the WT app API. The real srvrun sends (open/append) are replaced by
  * recording stubs bound through wired_moqt_io, so this test never links the
  * QUIC/TLS stack. */
@@ -97,7 +97,7 @@ static wired_wt_session* const SESS_C = (wired_wt_session*)(usz)3;
 
 /* ===================== 1. session establishment ===================== */
 
-/* T-145 (establishment leg): a fresh WT session gets one control stream
+/* Establishment leg: a fresh WT session gets one control stream
  * opened without FIN, carrying a SETUP envelope (Type 0x2F00). */
 static void test_moqtrun_on_session_sends_setup(void) {
   moqtrun_test_reset();
@@ -119,13 +119,12 @@ static void test_moqtrun_on_session_sends_setup(void) {
   CHECK(type == QUIC_MOQCTL_T_SETUP);
 }
 
-/* S-115 derived rule (MoqtSession.notes.md, TLA+ verified): a second
- * control stream for an already-tracked WT session is a no-op here, not a
- * second SETUP. srvrun's wt_on_session doc says "fires once", but nothing
- * upstream stops a duplicate/retried Extended CONNECT from reaching this
- * callback a second time for the same session -- draft 3.3 permits only
- * one control stream per peer, so sending SETUP twice on one WT session
- * would itself be the violation this hub exists to prevent. */
+/* A second control stream for an already-tracked WT session is a no-op
+ * here, not a second SETUP. srvrun's wt_on_session doc says "fires once",
+ * but nothing upstream stops a duplicate/retried Extended CONNECT from
+ * reaching this callback a second time for the same session -- draft 3.3
+ * permits only one control stream per peer, so sending SETUP twice on one
+ * WT session would itself be the violation this hub exists to prevent. */
 static void test_moqtrun_on_session_twice_is_idempotent(void) {
   moqtrun_test_reset();
   wired_moqt_hub hub;
@@ -139,7 +138,7 @@ static void test_moqtrun_on_session_twice_is_idempotent(void) {
 
 /* ===================== 2. PUBLISH / SUBSCRIBE ===================== */
 
-/* T-145: PUBLISH is accepted and answered with REQUEST_OK on the control
+/* PUBLISH is accepted and answered with REQUEST_OK on the control
  * stream (no FIN: the control stream stays open for later messages). */
 static void test_moqtrun_publish_replies_request_ok(void) {
   moqtrun_test_reset();
@@ -178,7 +177,7 @@ static u64 moqtrun_test_publish_alice(wired_moqt_hub* hub) {
   return ctrl_a;
 }
 
-/* T-145: SUBSCRIBE naming an already-PUBLISHed track ("alice", matching
+/* SUBSCRIBE naming an already-PUBLISHed track ("alice", matching
  * the golden PUBLISH's name) gets SUBSCRIBE_OK with an assigned alias. */
 static void test_moqtrun_subscribe_matching_publish_replies_ok(void) {
   moqtrun_test_reset();
@@ -209,7 +208,7 @@ static void test_moqtrun_subscribe_matching_publish_replies_ok(void) {
   (void)ok; /* alias value itself is hub-assigned, not pinned */
 }
 
-/* T-145: SUBSCRIBE naming a track nobody has PUBLISHed yet gets
+/* SUBSCRIBE naming a track nobody has PUBLISHed yet gets
  * REQUEST_ERROR DOES_NOT_EXIST. */
 static void test_moqtrun_subscribe_without_publish_replies_error(void) {
   moqtrun_test_reset();
@@ -240,7 +239,7 @@ static void test_moqtrun_subscribe_without_publish_replies_error(void) {
 
 /* ===================== 3. Object relay ===================== */
 
-/* T-136/T-137/T-138/T-145: an Object arriving on a publisher's data stream
+/* An Object arriving on a publisher's data stream
  * is relayed to one Established subscriber as exactly one fresh uni
  * stream, opened, sent, and FIN'd in a single io.send_uni call --
  * wired_server_wt_stream_send never accepts an empty payload (a FIN needs
@@ -274,7 +273,7 @@ static void test_moqtrun_object_relay_to_subscriber(void) {
   CHECK(moqtrun_test_count_kind(3) == 0); /* no separate FIN append */
 }
 
-/* T-146: the relayed stream's bytes equal the publisher's original bytes,
+/* The relayed stream's bytes equal the publisher's original bytes,
  * unmodified (payload and framing alike). */
 static void test_moqtrun_object_relay_preserves_bytes(void) {
   moqtrun_test_reset();
@@ -302,7 +301,7 @@ static void test_moqtrun_object_relay_preserves_bytes(void) {
     CHECK(sent->payload[i] == g_moqt_data_subgroup_stream_basic[i]);
 }
 
-/* T-136/T-147: two Established subscribers, two Objects each get their
+/* Two Established subscribers, two Objects each get their
  * own fresh uni stream per subscriber -- no stream is shared across
  * Objects or subscribers, and every stream FINs (loss-free, all
  * delivered). */
@@ -356,7 +355,7 @@ static void test_moqtrun_object_relay_two_subscribers_two_objects(void) {
 
 /* ===================== 4. loss-free hub defenses ===================== */
 
-/* T-175: a SUBSCRIBE carrying a non-zero delivery-timeout parameter is
+/* A SUBSCRIBE carrying a non-zero delivery-timeout parameter is
  * rejected with REQUEST_ERROR NOT_SUPPORTED, never SUBSCRIBE_OK. */
 static void test_moqtrun_subscribe_nonzero_timeout_rejected(void) {
   moqtrun_test_reset();
@@ -403,7 +402,7 @@ static void test_moqtrun_subscribe_nonzero_timeout_rejected(void) {
   CHECK(e.error_code == QUIC_MOQCTL_ERR_NOT_SUPPORTED);
 }
 
-/* T-174: the hub's own SUBSCRIBE_OK never carries a delivery-timeout
+/* The hub's own SUBSCRIBE_OK never carries a delivery-timeout
  * parameter (Num Params == 0 in the reply this hub builds). */
 static void test_moqtrun_subscribe_ok_carries_no_timeout_param(void) {
   moqtrun_test_reset();
@@ -433,11 +432,11 @@ static void test_moqtrun_subscribe_ok_carries_no_timeout_param(void) {
 /* ===================== 5. unsupported / non-relay traffic
  * ===================== */
 
-/* M5-6 point 8: a First-type request this hub does not implement (using
+/* A First-type request this hub does not implement (using
  * GOAWAY's Type id as a stand-in "unhandled control type" since this
  * subset's ctl codec does not expose FETCH/TRACK_STATUS encoders) still
  * gets a REQUEST_ERROR NOT_SUPPORTED, not silence. GOAWAY specifically is
- * exercised separately below since it has its own T-173 semantics. */
+ * exercised separately below since it has its own mid-stream semantics. */
 static void test_moqtrun_unknown_first_type_gets_not_supported(void) {
   moqtrun_test_reset();
   wired_moqt_hub hub;
@@ -462,7 +461,7 @@ static void test_moqtrun_unknown_first_type_gets_not_supported(void) {
   CHECK(type == QUIC_MOQCTL_T_REQUEST_ERROR);
 }
 
-/* T-173: a GOAWAY on a request stream (here: the shared control stream,
+/* A GOAWAY on a request stream (here: the shared control stream,
  * standing in for "a stream other than the very first SETUP exchange") is
  * accepted without the hub emitting any close/reply traffic of its own --
  * distinguishing it from a protocol violation the session layer would
@@ -484,7 +483,7 @@ static void test_moqtrun_goaway_on_request_stream_produces_no_reply(void) {
   CHECK(g_n_calls == 0);
 }
 
-/* T-149: a padding stream's bytes are discarded -- no relay, no reply. */
+/* A padding stream's bytes are discarded -- no relay, no reply. */
 static void test_moqtrun_padding_stream_discarded(void) {
   moqtrun_test_reset();
   wired_moqt_hub hub;

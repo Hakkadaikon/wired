@@ -153,10 +153,10 @@ int quic_moqsub_terminated(const quic_moqsub* s);
  * negotiated FORWARD value (0 = never send Objects, 1 = normal gate). */
 int quic_moqsub_may_forward(const quic_moqsub* s, int forward);
 
-/** PUBLISH_DONE precondition (5.1 draft 8.9 / S-172,S-251,S-261): a
- * publisher may only send PUBLISH_DONE once every data stream it opened
- * for this subscription has been closed. Callers pass their own open-
- * stream count; this only encodes the gate, not the count itself. */
+/** PUBLISH_DONE precondition (draft 8.9): a publisher may only send
+ * PUBLISH_DONE once every data stream it opened for this subscription has
+ * been closed. Callers pass their own open-stream count; this only encodes
+ * the gate, not the count itself. */
 int quic_moqsub_may_send_publish_done(usz open_stream_count);
 
 #endif

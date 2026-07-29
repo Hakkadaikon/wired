@@ -41,7 +41,7 @@ static i64 moqt_io_open_bidi_stream(wired_wt_session* s, quic_span payload) {
  * "the caller must keep it alive and unmoved until every byte has been
  * acknowledged"), never copying it -- a stack-local buffer in this function
  * would be gone the moment the function returns, long before the SDK's pump
- * has even copied the bytes into a QUIC packet. moqtrun_relay_object (T-136)
+ * has even copied the bytes into a QUIC packet. moqtrun_relay_object
  * can call send_uni once per active subscriber inside a single dispatch, so
  * one static buffer is not enough either -- each call needs its own slot
  * that outlives it. A fixed ring, one slot per possible peer, gives every
