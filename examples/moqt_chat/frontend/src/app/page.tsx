@@ -291,6 +291,7 @@ function JoinScreen({
                         ? undefined
                         : { color: "var(--lk-onsurface)", borderColor: "var(--lk-onsurface)" }
                     }
+                    data-testid={`participant-${id}`}
                     onClick={() => setParticipantId(id)}
                   />
                 ))}
