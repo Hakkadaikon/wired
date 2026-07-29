@@ -6,9 +6,29 @@
 // component state.
 
 import { useCallback, useRef } from "react";
-import { MoqtChatClient } from "@/lib/moqtClient";
+import { MoqtChatClient, type MoqtChatCallbacks } from "@/lib/moqtClient";
 import { registerPageLifecycleCleanup } from "@/lib/pageLifecycle";
-import { useMoqtChatStore } from "@/stores/moqtChatStore";
+import { useMoqtChatStore, type MoqtChatState } from "@/stores/moqtChatStore";
+
+// Pure translation from MoqtChatClient's callbacks to store actions --
+// exported so a test can exercise it against a store instance and a fake
+// client shaped like MoqtChatClient, without touching WebTransport.
+export function moqtChatCallbacks(
+  store: Pick<MoqtChatState, "setConnectionState" | "addPeer" | "addMessage">,
+): MoqtChatCallbacks {
+  return {
+    onStatusChange: (status) => store.setConnectionState(status),
+    onMessage: (participantId, text) => {
+      store.addPeer(participantId);
+      store.addMessage({
+        senderId: participantId,
+        text,
+        at: Date.now(),
+        own: false,
+      });
+    },
+  };
+}
 
 export function useMoqtChat() {
   const store = useMoqtChatStore();
@@ -22,18 +42,7 @@ export function useMoqtChat() {
       store.clearMessages();
       store.setDisplayName(localId);
 
-      const client = new MoqtChatClient(localId, {
-        onStatusChange: (status) => store.setConnectionState(status),
-        onMessage: (participantId, text) => {
-          store.addPeer(participantId);
-          store.addMessage({
-            senderId: participantId,
-            text,
-            at: Date.now(),
-            own: false,
-          });
-        },
-      });
+      const client = new MoqtChatClient(localId, moqtChatCallbacks(store));
       clientRef.current = client;
 
       registerPageLifecycleCleanup({
