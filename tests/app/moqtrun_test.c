@@ -847,6 +847,147 @@ static void test_moqtrun_two_subscribe_oks_one_dispatch_no_overflow(void) {
   CHECK(t2 == QUIC_MOQCTL_T_SUBSCRIBE_OK);
 }
 
+/* ===================== 7. multi-Object data stream decode
+ * ===================== */
+
+/* Builds a SUBGROUP_HEADER (track_alias=1, group/subgroup 0, default
+ * priority, explicit first-object mode so subgroup_id needs no
+ * resolution) followed by n_objects Objects, each with a 1-byte payload
+ * (its own index) and Object ID == its index (id_delta 0 for the first,
+ * else 1). Returns the total bytes written. */
+static usz moqtrun_test_build_multi_object_stream(usz n_objects, u8* buf) {
+  quic_moqdata_subhdr h = {0};
+  h.type =
+      0x30; /* mode 0b00 (explicit subgroup_id=0), no props, default priority */
+  usz off = 0;
+  quic_moqdata_subhdr_put(
+      quic_mspan_of(buf, MOQTRUN_TEST_MAX_PAYLOAD), &off, &h);
+  for (usz i = 0; i < n_objects; i++) {
+    u8        payload_byte = (u8)i;
+    quic_span payload      = quic_span_of(&payload_byte, 1);
+    quic_moqdata_obj_put(
+        quic_mspan_of(buf, MOQTRUN_TEST_MAX_PAYLOAD), &off, i == 0 ? 0 : 1,
+        payload);
+  }
+  return off;
+}
+
+/* A stream with a single Object decodes the same via the loop as the
+ * former one-shot path: exactly 1 Object, *off lands at the stream's end. */
+static void test_moqtrun_decode_loop_single_object_matches_one_shot(void) {
+  u8  buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz total = moqtrun_test_build_multi_object_stream(1, buf);
+
+  usz                 off = 0;
+  quic_moqdata_subhdr hdr;
+  CHECK(
+      quic_moqdata_subhdr_take(quic_span_of(buf, total), &off, &hdr) ==
+      QUIC_MOQDATA_OK);
+  usz n = moqtrun_decode_object_loop(quic_span_of(buf, total), &off, &hdr);
+  CHECK(n == 1);
+  CHECK(off == total);
+}
+
+/* 2 and 3 concatenated Objects on one stream all decode, *off reaching the
+ * buffer's end. */
+static void test_moqtrun_decode_loop_multiple_objects(void) {
+  usz counts[2] = {2, 3};
+  for (usz c = 0; c < 2; c++) {
+    u8  buf[MOQTRUN_TEST_MAX_PAYLOAD];
+    usz total = moqtrun_test_build_multi_object_stream(counts[c], buf);
+
+    usz                 off = 0;
+    quic_moqdata_subhdr hdr;
+    CHECK(
+        quic_moqdata_subhdr_take(quic_span_of(buf, total), &off, &hdr) ==
+        QUIC_MOQDATA_OK);
+    usz n = moqtrun_decode_object_loop(quic_span_of(buf, total), &off, &hdr);
+    CHECK(n == counts[c]);
+    CHECK(off == total);
+  }
+}
+
+/* A stream truncated mid-way through its last Object decodes only the
+ * complete ones, and *off stops at the end of the last complete Object
+ * (never mid-Object). */
+static void test_moqtrun_decode_loop_stops_at_truncation(void) {
+  u8  buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz total     = moqtrun_test_build_multi_object_stream(3, buf);
+  usz truncated = total - 1; /* cuts into the 3rd Object's payload byte */
+
+  usz                 off = 0;
+  quic_moqdata_subhdr hdr;
+  CHECK(
+      quic_moqdata_subhdr_take(quic_span_of(buf, truncated), &off, &hdr) ==
+      QUIC_MOQDATA_OK);
+  usz       header_end = off;
+  quic_span data       = quic_span_of(buf, truncated);
+  usz       n          = moqtrun_decode_object_loop(data, &off, &hdr);
+  CHECK(n == 2); /* only the first 2 Objects were whole */
+  CHECK(off > header_end);
+  CHECK(off < truncated); /* stopped short of the truncated tail */
+}
+
+/* An Object whose cumulative Object ID overflows (VIOLATION, per
+ * quic_moqdata_obj_take's doc) stops the loop there -- objects decoded
+ * before it are still counted, the VIOLATION-shaped one is not. */
+static void test_moqtrun_decode_loop_stops_at_violation(void) {
+  u8                  buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  quic_moqdata_subhdr h = {0};
+  h.type                = 0x30;
+  usz off               = 0;
+  quic_moqdata_subhdr_put(quic_mspan_of(buf, sizeof buf), &off, &h);
+  u8        payload_byte = 0;
+  quic_span payload      = quic_span_of(&payload_byte, 1);
+  quic_moqdata_obj_put(quic_mspan_of(buf, sizeof buf), &off, 0, payload);
+  /* 2nd Object: id_delta = UINT64_MAX overflows Object ID accumulation. */
+  quic_moqdata_obj_put(
+      quic_mspan_of(buf, sizeof buf), &off, 0xFFFFFFFFFFFFFFFFULL, payload);
+  usz total = off;
+
+  usz                 decode_off = 0;
+  quic_moqdata_subhdr hdr;
+  CHECK(
+      quic_moqdata_subhdr_take(quic_span_of(buf, total), &decode_off, &hdr) ==
+      QUIC_MOQDATA_OK);
+  usz n =
+      moqtrun_decode_object_loop(quic_span_of(buf, total), &decode_off, &hdr);
+  CHECK(n == 1); /* the 2nd (VIOLATION) Object is not counted */
+}
+
+/* A multi-Object audio-track stream still relays whole, in exactly one
+ * send_uni call, unmodified byte-for-byte -- the loop only changes how
+ * many Objects are validated before relaying, not the relay's own
+ * transparency. */
+static void test_moqtrun_multi_object_stream_relays_in_one_send_uni(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  u64 ctrl_a = moqtrun_test_publish_alice(&hub);
+  moqtrun_test_publish_alice_audio(&hub, ctrl_a);
+
+  wired_moqt_on_session(&hub, SESS_B, quic_span_of(0, 0), quic_span_of(0, 0));
+  u64 ctrl_b = moqtrun_test_last_kind(1)->stream_id;
+  u8  sub_audio[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz sub_audio_n = moqtrun_test_subscribe_audio_msg(sub_audio);
+  wired_moqt_on_stream_data(
+      &hub, SESS_B, ctrl_b, quic_span_of(sub_audio, sub_audio_n), 0);
+
+  u8  stream[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz total = moqtrun_test_build_multi_object_stream(3, stream);
+  stream[1] = 0x02; /* Track Alias byte: audio's declared alias */
+
+  moqtrun_test_reset();
+  wired_moqt_on_stream_data(&hub, SESS_A, 999, quic_span_of(stream, total), 0);
+
+  CHECK(moqtrun_test_count_kind(4) == 1);
+  const moqtrun_test_call* sent = moqtrun_test_last_kind(4);
+  CHECK(sent->s == SESS_B);
+  CHECK(sent->fin == 1);
+  CHECK(sent->payload_len == total);
+  for (usz i = 0; i < total; i++) CHECK(sent->payload[i] == stream[i]);
+}
+
 void test_moqtrun(void) {
   test_moqtrun_on_session_sends_setup();
   test_moqtrun_on_session_twice_is_idempotent();
@@ -870,4 +1011,9 @@ void test_moqtrun(void) {
   test_moqtrun_audio_object_relays_only_to_audio_subscriber();
   test_moqtrun_unknown_alias_object_relays_nowhere();
   test_moqtrun_two_subscribe_oks_one_dispatch_no_overflow();
+  test_moqtrun_decode_loop_single_object_matches_one_shot();
+  test_moqtrun_decode_loop_multiple_objects();
+  test_moqtrun_decode_loop_stops_at_truncation();
+  test_moqtrun_decode_loop_stops_at_violation();
+  test_moqtrun_multi_object_stream_relays_in_one_send_uni();
 }
