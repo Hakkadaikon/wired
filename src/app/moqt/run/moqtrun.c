@@ -80,10 +80,10 @@ static void moqtrun_init_peer(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, wired_wt_session* s) {
   p->in_use          = 1;
   p->wt              = s;
-  p->published       = 0;
   p->request_id_next = 1; /* hub is the server: odd, 1-origin (draft SS10.2) */
   p->send_len        = 0;
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++) p->subs[i].active = 0;
+  for (usz t = 0; t < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; t++)
+    p->tracks[t].in_use = 0;
   quic_moqsess_init(&p->sess);
   p->control_stream_id = moqtrun_send_setup(&hub->io, s, p->send_buf);
   quic_moqsess_step(&p->sess, QUIC_MOQSESS_EV_SENT_SETUP);
@@ -179,38 +179,14 @@ static void moqtrun_send_request_error(wired_moqtrun_peer* p, u64 code) {
   moqtrun_queue_reply(p, quic_span_of(msg, n));
 }
 
-/* Copies name into p->name (Track Name = participant id), truncated to
- * WIRED_MOQTRUN_MAX_NAME (room ids are short; a real deployment would
- * reject an oversized one instead -- ponytail: no such input in this
- * subset's usage). */
-static void moqtrun_record_name(wired_moqtrun_peer* p, quic_span name) {
+/* Copies name into t->name (Track Name = participant id, or
+ * "<participant id>/audio"), truncated to WIRED_MOQTRUN_MAX_NAME (room ids
+ * are short; a real deployment would reject an oversized one instead --
+ * ponytail: no such input in this subset's usage). */
+static void moqtrun_record_track_name(wired_moqtrun_track* t, quic_span name) {
   usz n = name.n < WIRED_MOQTRUN_MAX_NAME ? name.n : WIRED_MOQTRUN_MAX_NAME;
-  quic_memcpy(p->name, name.p, n);
-  p->name_len = n;
-}
-
-static int moqtrun_encode_request_ok(quic_mspan buf, usz* off, const void* m) {
-  return quic_moqctl_request_ok_encode(buf, off, m);
-}
-
-/* draft SS10.9 PUBLISH: accept unconditionally (this subset trusts every
- * connected peer to publish its own fixed track) and reply REQUEST_OK. */
-static void moqtrun_handle_publish(wired_moqtrun_peer* p, quic_span body) {
-  usz                 off = 0;
-  quic_moqctl_publish m;
-  if (quic_moqctl_publish_take(body, &off, &m) != QUIC_MOQCTL_OK) return;
-  p->published = 1;
-  moqtrun_record_name(p, m.name.name);
-  u8                     msg[WIRED_MOQTRUN_CTL_MSG_MAX];
-  quic_moqctl_request_ok ok = {0};
-  usz                    n  = moqtrun_envelope_put(
-      quic_mspan_of(msg, sizeof msg), QUIC_MOQCTL_T_REQUEST_OK,
-      moqtrun_encode_request_ok, &ok);
-  moqtrun_queue_reply(p, quic_span_of(msg, n));
-}
-
-static int moqtrun_peer_is_published(const wired_moqtrun_peer* p) {
-  return p->in_use && p->published;
+  quic_memcpy(t->name, name.p, n);
+  t->name_len = n;
 }
 
 static int moqtrun_bytes_eq(const u8* a, const u8* b, usz n) {
@@ -219,40 +195,116 @@ static int moqtrun_bytes_eq(const u8* a, const u8* b, usz n) {
   return 1;
 }
 
-static int moqtrun_name_matches(const wired_moqtrun_peer* p, quic_span name) {
-  return p->name_len == name.n && moqtrun_bytes_eq(p->name, name.p, name.n);
+static int moqtrun_track_name_matches(
+    const wired_moqtrun_track* t, quic_span name) {
+  return t->in_use && t->name_len == name.n &&
+         moqtrun_bytes_eq(t->name, name.p, name.n);
 }
 
-static int moqtrun_peer_published_as(
-    const wired_moqtrun_peer* p, quic_span name) {
-  return moqtrun_peer_is_published(p) && moqtrun_name_matches(p, name);
+/* Finds p's own track slot already PUBLISHed under name, else 0. */
+static wired_moqtrun_track* moqtrun_track_slot_for_name(
+    wired_moqtrun_peer* p, quic_span name) {
+  for (usz t = 0; t < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; t++)
+    if (moqtrun_track_name_matches(&p->tracks[t], name)) return &p->tracks[t];
+  return 0;
 }
 
-/* Finds the peer whose own PUBLISHed Track Name equals the requested
- * SUBSCRIBE's Track Name (room membership keys on participant id,
- * namespace is hub-fixed and not compared). */
-static wired_moqtrun_peer* moqtrun_find_published(
+/* Finds p's first free track slot, else 0 (all
+ * WIRED_MOQTRUN_MAX_TRACKS_PER_PEER already in use). */
+static wired_moqtrun_track* moqtrun_track_free_slot(wired_moqtrun_peer* p) {
+  for (usz t = 0; t < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; t++)
+    if (!p->tracks[t].in_use) return &p->tracks[t];
+  return 0;
+}
+
+/* Returns p's slot for a PUBLISH naming name: the existing slot if this
+ * name was already PUBLISHed (re-PUBLISH reuses it, matching the prior
+ * single-track hub's overwrite behavior), else a fresh free slot, else 0
+ * when both slots are already taken by other names. */
+static wired_moqtrun_track* moqtrun_track_alloc_slot(
+    wired_moqtrun_peer* p, quic_span name) {
+  wired_moqtrun_track* existing = moqtrun_track_slot_for_name(p, name);
+  return existing ? existing : moqtrun_track_free_slot(p);
+}
+
+static int moqtrun_encode_request_ok(quic_mspan buf, usz* off, const void* m) {
+  return quic_moqctl_request_ok_encode(buf, off, m);
+}
+
+/* Clears t's subscriber slots -- only needed the first time a fresh (not
+ * re-PUBLISHed) slot is claimed. */
+static void moqtrun_track_clear_subs(wired_moqtrun_track* t) {
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++) t->subs[i].active = 0;
+}
+
+/* Claims slot t for a PUBLISH naming name/track_alias: clears subs only on
+ * a fresh (not-yet-in_use) slot, so a re-PUBLISH under the same name keeps
+ * its existing subscribers (matching the prior single-track hub's
+ * overwrite behavior). */
+static void moqtrun_track_claim(
+    wired_moqtrun_track* t, quic_span name, u64 track_alias) {
+  if (!t->in_use) moqtrun_track_clear_subs(t);
+  t->in_use    = 1;
+  t->own_alias = track_alias;
+  moqtrun_record_track_name(t, name);
+}
+
+/* draft SS10.9 PUBLISH: accept a track into a free (or matching-name) slot
+ * and reply REQUEST_OK; a third distinct track name (no free slot) gets
+ * REQUEST_ERROR instead of silently overwriting an existing track. */
+static void moqtrun_handle_publish(wired_moqtrun_peer* p, quic_span body) {
+  usz                 off = 0;
+  quic_moqctl_publish m;
+  if (quic_moqctl_publish_take(body, &off, &m) != QUIC_MOQCTL_OK) return;
+  wired_moqtrun_track* t = moqtrun_track_alloc_slot(p, m.name.name);
+  if (!t) {
+    moqtrun_send_request_error(p, QUIC_MOQCTL_ERR_NOT_SUPPORTED);
+    return;
+  }
+  moqtrun_track_claim(t, m.name.name, m.track_alias);
+  u8                     msg[WIRED_MOQTRUN_CTL_MSG_MAX];
+  quic_moqctl_request_ok ok = {0};
+  usz                    n  = moqtrun_envelope_put(
+      quic_mspan_of(msg, sizeof msg), QUIC_MOQCTL_T_REQUEST_OK,
+      moqtrun_encode_request_ok, &ok);
+  moqtrun_queue_reply(p, quic_span_of(msg, n));
+}
+
+/* p's matching track slot if p is a connected peer, else 0 -- guards the
+ * in_use check ahead of the name scan so the caller's loop body is one
+ * unconditional call. */
+static wired_moqtrun_track* moqtrun_peer_track_for_name(
+    wired_moqtrun_peer* p, quic_span name) {
+  return p->in_use ? moqtrun_track_slot_for_name(p, name) : 0;
+}
+
+/* Finds the track whose own PUBLISHed Track Name equals the requested
+ * SUBSCRIBE's Track Name (room membership keys on participant id/suffix,
+ * namespace is hub-fixed and not compared), across every connected peer. */
+static wired_moqtrun_track* moqtrun_find_published_track(
     wired_moqt_hub* hub, const quic_moqctl_ftn* name) {
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SESSIONS; i++)
-    if (moqtrun_peer_published_as(&hub->peers[i], name->name))
-      return &hub->peers[i];
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SESSIONS; i++) {
+    wired_moqtrun_track* t =
+        moqtrun_peer_track_for_name(&hub->peers[i], name->name);
+    if (t) return t;
+  }
   return 0;
 }
 
-static wired_moqtrun_sub* moqtrun_sub_slot(wired_moqtrun_peer* pub) {
+static wired_moqtrun_sub* moqtrun_sub_slot(wired_moqtrun_track* track) {
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++)
-    if (!pub->subs[i].active) return &pub->subs[i];
+    if (!track->subs[i].active) return &track->subs[i];
   return 0;
 }
 
-static u64 moqtrun_alias_floor(const wired_moqtrun_peer* pub, usz i) {
-  return pub->subs[i].active ? pub->subs[i].track_alias + 1 : 0;
+static u64 moqtrun_alias_floor(const wired_moqtrun_track* track, usz i) {
+  return track->subs[i].active ? track->subs[i].track_alias + 1 : 0;
 }
 
-static u64 moqtrun_next_alias(const wired_moqtrun_peer* pub) {
+static u64 moqtrun_next_alias(const wired_moqtrun_track* track) {
   u64 max_seen = 0;
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++) {
-    u64 floor = moqtrun_alias_floor(pub, i);
+    u64 floor = moqtrun_alias_floor(track, i);
     if (floor > max_seen) max_seen = floor;
   }
   return max_seen;
@@ -263,15 +315,15 @@ static int moqtrun_encode_subscribe_ok(
   return quic_moqctl_subscribe_ok_encode(buf, off, m);
 }
 
-/* Records slot (peer_idx, a fresh alias) against pub and replies
+/* Records slot (peer_idx, a fresh alias) against track and replies
  * SUBSCRIBE_OK with that alias. */
 static void moqtrun_accept_subscribe(
-    wired_moqtrun_peer* p,
-    wired_moqtrun_peer* pub,
-    wired_moqtrun_sub*  slot,
-    usz                 peer_idx) {
+    wired_moqtrun_peer*  p,
+    wired_moqtrun_track* track,
+    wired_moqtrun_sub*   slot,
+    usz                  peer_idx) {
   slot->session_idx = peer_idx;
-  slot->track_alias = moqtrun_next_alias(pub);
+  slot->track_alias = moqtrun_next_alias(track);
   slot->active      = 1;
   u8                       msg[WIRED_MOQTRUN_CTL_MSG_MAX];
   quic_moqctl_subscribe_ok ok = {0};
@@ -282,7 +334,7 @@ static void moqtrun_accept_subscribe(
   moqtrun_queue_reply(p, quic_span_of(msg, n));
 }
 
-/* draft SS10.6 SUBSCRIBE: find the matching published peer and reply
+/* draft SS10.6 SUBSCRIBE: find the matching published track and reply
  * SUBSCRIBE_OK with a freshly assigned Track Alias, else DOES_NOT_EXIST.
  * Caller has already rejected timeout parameters. */
 static void moqtrun_route_subscribe(
@@ -290,13 +342,13 @@ static void moqtrun_route_subscribe(
     wired_moqtrun_peer*          p,
     usz                          peer_idx,
     const quic_moqctl_subscribe* m) {
-  wired_moqtrun_peer* pub  = moqtrun_find_published(hub, &m->name);
-  wired_moqtrun_sub*  slot = pub ? moqtrun_sub_slot(pub) : 0;
+  wired_moqtrun_track* track = moqtrun_find_published_track(hub, &m->name);
+  wired_moqtrun_sub*   slot  = track ? moqtrun_sub_slot(track) : 0;
   if (!slot) {
     moqtrun_send_request_error(p, QUIC_MOQCTL_ERR_DOES_NOT_EXIST);
     return;
   }
-  moqtrun_accept_subscribe(p, pub, slot, peer_idx);
+  moqtrun_accept_subscribe(p, track, slot, peer_idx);
 }
 
 /* draft SS10.6 SUBSCRIBE: reject non-zero delivery-timeout parameters,
@@ -424,27 +476,58 @@ static void moqtrun_relay_to_one(
 }
 
 static void moqtrun_relay_object(
-    wired_moqt_hub* hub, wired_moqtrun_peer* pub, quic_span wire) {
+    wired_moqt_hub* hub, wired_moqtrun_track* track, quic_span wire) {
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++)
-    if (pub->subs[i].active) moqtrun_relay_to_one(hub, &pub->subs[i], wire);
+    if (track->subs[i].active) moqtrun_relay_to_one(hub, &track->subs[i], wire);
 }
 
 /* Decodes the SUBGROUP_HEADER + the one Object this subset always sends
  * whole in one call (1 message = 1 Object = 1 Group = 1
- * Subgroup). Returns 1 on a fully decoded Object, 0 otherwise (nothing to
- * relay -- covers INSUFFICIENT/VIOLATION alike, since a hub-internal relay
- * has no peer to report a VIOLATION to at this call site). */
-static int moqtrun_decode_one_object(quic_span data, usz* off) {
-  quic_moqdata_subhdr hdr;
-  if (quic_moqdata_subhdr_take(data, off, &hdr) != QUIC_MOQDATA_OK) return 0;
-  quic_moqdata_objseq seq = quic_moqdata_objseq_of(hdr.type);
+ * Subgroup). Returns 1 and fills *hdr on a fully decoded Object, 0
+ * otherwise (nothing to relay -- covers INSUFFICIENT/VIOLATION alike, since
+ * a hub-internal relay has no peer to report a VIOLATION to at this call
+ * site). */
+static int moqtrun_decode_one_object(
+    quic_span data, usz* off, quic_moqdata_subhdr* hdr) {
+  if (quic_moqdata_subhdr_take(data, off, hdr) != QUIC_MOQDATA_OK) return 0;
+  quic_moqdata_objseq seq = quic_moqdata_objseq_of(hdr->type);
   quic_moqdata_obj    obj;
   return quic_moqdata_obj_take(data, off, &seq, &obj) == QUIC_MOQDATA_OK;
 }
 
+static int moqtrun_track_has_alias(
+    const wired_moqtrun_track* t, u64 track_alias) {
+  return t->in_use && t->own_alias == track_alias;
+}
+
+/* Finds p's own track slot whose PUBLISH declared track_alias, else 0 --
+ * resolves an inbound SUBGROUP_HEADER's Track Alias to which of p's
+ * (chat/audio) tracks the Object belongs to. */
+static wired_moqtrun_track* moqtrun_track_by_alias(
+    wired_moqtrun_peer* p, u64 track_alias) {
+  for (usz t = 0; t < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; t++)
+    if (moqtrun_track_has_alias(&p->tracks[t], track_alias))
+      return &p->tracks[t];
+  return 0;
+}
+
+/* Decodes data's SUBGROUP_HEADER+Object and resolves it to one of p's
+ * (chat/audio) track slots, else 0 (decode failure or an unknown Track
+ * Alias -- nothing to relay). SUBGROUP_HEADER's Type byte is left
+ * unconsumed by classify (moqdata.h doc): quic_moqdata_subhdr_take
+ * re-reads it from the stream's start. */
+static wired_moqtrun_track* moqtrun_resolve_data_stream_track(
+    wired_moqtrun_peer* p, quic_span data) {
+  usz                 off = 0;
+  quic_moqdata_subhdr hdr;
+  if (!moqtrun_decode_one_object(data, &off, &hdr)) return 0;
+  return moqtrun_track_by_alias(p, hdr.track_alias);
+}
+
 /* draft 3.4/11.4.2: classify a fresh data stream and, for SUBGROUP_HEADER,
- * relay it verbatim once its Object decodes. Padding streams
- * (0x132B3E28) and any other classification are discarded here:
+ * relay it verbatim to the subscribers of the track its Track Alias names,
+ * once its Object decodes. Padding streams (0x132B3E28), any other
+ * classification, and an unknown Track Alias are discarded here:
  * classification-level session closes are the sess layer's job, driven
  * elsewhere from the same decoded quic_moqsess_event. */
 static void moqtrun_dispatch_data_stream(
@@ -453,10 +536,8 @@ static void moqtrun_dispatch_data_stream(
   int kind         = quic_moqdata_classify(data, &classify_off);
   (void)classify_off;
   if (kind != QUIC_MOQDATA_STREAM_SUBGROUP) return;
-  /* SUBGROUP_HEADER's Type byte is left unconsumed by classify (moqdata.h
-   * doc): quic_moqdata_subhdr_take re-reads it from the stream's start. */
-  usz off = 0;
-  if (moqtrun_decode_one_object(data, &off)) moqtrun_relay_object(hub, p, data);
+  wired_moqtrun_track* track = moqtrun_resolve_data_stream_track(p, data);
+  if (track) moqtrun_relay_object(hub, track, data);
 }
 
 /* ===================== public entry points ===================== */
