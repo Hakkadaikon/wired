@@ -1,0 +1,15 @@
+ignoredBuiltDependencies:
+  - sharp
+  - unrs-resolver
+overrides:
+  postcss: ">=8.5.18"
+  sharp: ">=0.35.0"
+  "brace-expansion@1": ">=1.1.12 <2"
+  "brace-expansion@2": ">=2.0.2 <3"
+# GHSA-mh99-v99m-4gvg (brace-expansion OOM DoS): fixed only in 5.0.8, never
+# backported; eslint's minimatch@3 cannot take the 5.x API (forcing it breaks
+# eslint at runtime). Dev-only surface -- eslint never ships to the page and
+# lints no attacker-controlled globs.
+auditConfig:
+  ignoreGhsas:
+    - GHSA-mh99-v99m-4gvg
