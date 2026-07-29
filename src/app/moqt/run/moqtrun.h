@@ -70,6 +70,9 @@ typedef struct {
  * not compared (room membership is a hub-side fixed namespace). */
 #define WIRED_MOQTRUN_MAX_NAME 64
 
+/** Fixed capacity: tracks one peer can PUBLISH at once (chat + audio). */
+#define WIRED_MOQTRUN_MAX_TRACKS_PER_PEER 2
+
 /** Largest single control-message envelope this hub ever sends (SS10
  * Type+Length+Body). */
 #define WIRED_MOQTRUN_CTL_MSG_MAX 64
@@ -77,24 +80,35 @@ typedef struct {
 /** Largest total this hub ever needs to buffer for one peer within one
  * wired_moqt_on_stream_data dispatch: the shared control stream can carry
  * several requests per call (moqtrun_dispatch_ctl_stream's own doc), and
- * each can produce one reply -- worst case here is one SUBSCRIBE per other
- * connected peer, WIRED_MOQTRUN_MAX_SUBS of them. */
-#define WIRED_MOQTRUN_CTL_SEND_BUF \
-  ((usz)WIRED_MOQTRUN_CTL_MSG_MAX * (usz)WIRED_MOQTRUN_MAX_SUBS)
+ * each can produce one reply -- worst case here is one SUBSCRIBE reply per
+ * other connected peer's track, WIRED_MOQTRUN_MAX_SUBS *
+ * WIRED_MOQTRUN_MAX_TRACKS_PER_PEER of them. */
+#define WIRED_MOQTRUN_CTL_SEND_BUF                                \
+  ((usz)WIRED_MOQTRUN_CTL_MSG_MAX * (usz)WIRED_MOQTRUN_MAX_SUBS * \
+   (usz)WIRED_MOQTRUN_MAX_TRACKS_PER_PEER)
 
-/** One connected participant's hub-side state: its WT session, its own
- * control-stream MOQT session machine, whether it has PUBLISHed its track
- * yet, and the subscribers recorded against that track. */
+/** One track a peer PUBLISHes (chat or audio), and the subscribers recorded
+ * against it. in_use marks the slot live; own_alias is the Track Alias this
+ * hub assigned to this slot's own PUBLISH (draft SS10.7 quic_moqsub
+ * scope). */
 typedef struct {
   int               in_use;
-  wired_wt_session* wt;
-  u64               control_stream_id;
-  quic_moqsess      sess;
-  int               published; /* this session's own track is live */
   u8                name[WIRED_MOQTRUN_MAX_NAME]; /* copied Track Name */
   usz               name_len;
-  u64               request_id_next; /* next Request ID this hub will send */
+  u64               own_alias; /* Track Alias this slot's PUBLISH declared */
   wired_moqtrun_sub subs[WIRED_MOQTRUN_MAX_SUBS];
+} wired_moqtrun_track;
+
+/** One connected participant's hub-side state: its WT session, its own
+ * control-stream MOQT session machine, and the tracks (chat/audio) it has
+ * PUBLISHed. */
+typedef struct {
+  int                 in_use;
+  wired_wt_session*   wt;
+  u64                 control_stream_id;
+  quic_moqsess        sess;
+  u64                 request_id_next; /* next Request ID this hub sends */
+  wired_moqtrun_track tracks[WIRED_MOQTRUN_MAX_TRACKS_PER_PEER];
   /** Queue of not-yet-sent control-message reply bytes for this peer's
    * control stream, plus how many bytes are queued (moqtrun_queue_reply
    * appends; moqtrun_flush_replies sends the whole queue in one
