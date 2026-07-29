@@ -27,25 +27,26 @@ async function joinClient(browser, pageUrl, certHash, participantId) {
   page.on("pageerror", (e) => errors.push(e.message));
 
   await page.goto(pageUrl);
-  await page.type("#certHash", certHash);
-  await page.type("#author", participantId);
-  await page.click("#connect");
+  await page.type('input[data-testid="certHash"]', certHash);
+  await page.click(`[data-testid="participant-${participantId}"]`);
+  await page.click('[data-testid="connect"]');
   await page.waitForFunction(
-    () => document.querySelector("#status")?.className === "status status-connected",
+    () => document.querySelector('[data-testid="status"]')?.getAttribute("data-status") === "connected",
     { timeout: JOIN_TIMEOUT_MS },
   );
 
   // Poll the message list for new (tag, seq) ids rather than instrumenting
   // the app's own code -- black-box test of what a real user would see
-  // rendered. Message format is domRenderer's "[time] author: text", so the
-  // regex only has to find the msg:tag:seq token inside the line.
+  // rendered. Each rendered message is one [data-testid="message"] div
+  // (page.tsx), so the regex only has to find the msg:tag:seq token inside
+  // its text.
   const seenIds = new Set();
   const received = [];
   const pollHandle = setInterval(async () => {
     let texts;
     try {
       texts = await page.evaluate(() =>
-        [...document.querySelectorAll("#messages li")].map((e) => e.textContent),
+        [...document.querySelectorAll('[data-testid="message"]')].map((e) => e.textContent),
       );
     } catch {
       return; // page navigating/closing: skip this tick
@@ -72,17 +73,18 @@ async function joinClient(browser, pageUrl, certHash, participantId) {
 async function sendOneMessage(client, seq) {
   const id = `msg:${client.tag}:${seq}`;
   await client.page.evaluate((text) => {
-    const input = document.querySelector("#text");
+    const input = document.querySelector('input[data-testid="text"]');
     const setter = Object.getOwnPropertyDescriptor(
       window.HTMLInputElement.prototype,
       "value",
     ).set;
     setter.call(input, text);
     input.dispatchEvent(new Event("input", { bubbles: true }));
+    // ChatComposer submits on Enter's onKeyDown (page.tsx), not a form
+    // submit event -- dispatch the keydown directly on the input so React's
+    // synthetic event handler sees it regardless of DOM focus.
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
   }, id);
-  await client.page.evaluate(() => {
-    document.querySelector("#chat-form").requestSubmit();
-  });
   return { id, senderTag: client.tag, sentAt: Date.now() };
 }
 

@@ -12,7 +12,8 @@ build:
 run: build
     ./wired_server
 
-# Production build of the moqt_chat frontend (frontend/, vite + pnpm).
+# Production build of the moqt_chat frontend (frontend/, Next.js + pnpm,
+# output: "export" -> frontend/out/).
 build-frontend:
     cd frontend && pnpm install --frozen-lockfile && pnpm build
 
@@ -28,7 +29,7 @@ serve-frontend: build-frontend
         -keyout key.pem -out cert.pem -days 365 -nodes -subj "/CN=localhost"
     python3 -c "\
     import functools, http.server, ssl; \
-    handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory='frontend/dist'); \
+    handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory='frontend/out'); \
     srv = http.server.HTTPServer(('0.0.0.0', 8443), handler); \
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER); \
     ctx.load_cert_chain('cert.pem', 'key.pem'); \

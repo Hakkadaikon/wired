@@ -35,7 +35,7 @@ if [ -z "$CERT_HASH" ]; then
   exit 1
 fi
 
-python3 -m http.server "$FRONTEND_PORT" --directory frontend/dist >/dev/null 2>&1 &
+python3 -m http.server "$FRONTEND_PORT" --directory frontend/out >/dev/null 2>&1 &
 FRONTEND_PID=$!
 sleep 1
 
