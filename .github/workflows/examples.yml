@@ -20,6 +20,7 @@ jobs:
           - webtransport_echo
           - webtransport_chat
           - webtransport_interop
+          - moqt_chat
     steps:
       - uses: actions/checkout@v4
 
