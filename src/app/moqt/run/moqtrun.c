@@ -487,12 +487,26 @@ static void moqtrun_relay_object(
  * otherwise (nothing to relay -- covers INSUFFICIENT/VIOLATION alike, since
  * a hub-internal relay has no peer to report a VIOLATION to at this call
  * site). */
-static int moqtrun_decode_one_object(
-    quic_span data, usz* off, quic_moqdata_subhdr* hdr) {
-  if (quic_moqdata_subhdr_take(data, off, hdr) != QUIC_MOQDATA_OK) return 0;
+/* Decodes every complete Object following an already-decoded
+ * SUBGROUP_HEADER (hdr, *off already past it), advancing *off past each one
+ * in turn. Stops at the first Object that does not fully decode (buffer
+ * ran out mid-Object, or a VIOLATION-shaped Object) -- *off is left at the
+ * end of the last successfully decoded Object, never mid-Object
+ * (quic_moqdata_obj_take leaves *off unchanged on any non-OK result).
+ * Returns the count of Objects decoded (0 if the very first one fails --
+ * nothing to relay). A single-Object stream decodes identically to this
+ * hub's former one-shot-Object path, this is that path's generalization to
+ * N Objects on one stream. */
+static usz moqtrun_decode_object_loop(
+    quic_span data, usz* off, const quic_moqdata_subhdr* hdr) {
   quic_moqdata_objseq seq = quic_moqdata_objseq_of(hdr->type);
-  quic_moqdata_obj    obj;
-  return quic_moqdata_obj_take(data, off, &seq, &obj) == QUIC_MOQDATA_OK;
+  usz                 n   = 0;
+  while (*off < data.n) {
+    quic_moqdata_obj obj;
+    if (quic_moqdata_obj_take(data, off, &seq, &obj) != QUIC_MOQDATA_OK) break;
+    n++;
+  }
+  return n;
 }
 
 static int moqtrun_track_has_alias(
@@ -511,16 +525,19 @@ static wired_moqtrun_track* moqtrun_track_by_alias(
   return 0;
 }
 
-/* Decodes data's SUBGROUP_HEADER+Object and resolves it to one of p's
- * (chat/audio) track slots, else 0 (decode failure or an unknown Track
- * Alias -- nothing to relay). SUBGROUP_HEADER's Type byte is left
- * unconsumed by classify (moqdata.h doc): quic_moqdata_subhdr_take
- * re-reads it from the stream's start. */
+/* Decodes data's SUBGROUP_HEADER, then every Object that follows it
+ * (moqtrun_decode_object_loop -- a single-Object stream decodes the same as
+ * the former one-shot path), and resolves the header's Track Alias to one
+ * of p's (chat/audio) track slots, else 0 (header decode failure, zero
+ * Objects decoded, or an unknown Track Alias -- nothing to relay).
+ * SUBGROUP_HEADER's Type byte is left unconsumed by classify (moqdata.h
+ * doc): quic_moqdata_subhdr_take re-reads it from the stream's start. */
 static wired_moqtrun_track* moqtrun_resolve_data_stream_track(
     wired_moqtrun_peer* p, quic_span data) {
   usz                 off = 0;
   quic_moqdata_subhdr hdr;
-  if (!moqtrun_decode_one_object(data, &off, &hdr)) return 0;
+  if (quic_moqdata_subhdr_take(data, &off, &hdr) != QUIC_MOQDATA_OK) return 0;
+  if (moqtrun_decode_object_loop(data, &off, &hdr) == 0) return 0;
   return moqtrun_track_by_alias(p, hdr.track_alias);
 }
 
