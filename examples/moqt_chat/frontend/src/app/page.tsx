@@ -51,6 +51,32 @@ function StatusBadge() {
   );
 }
 
+function MicToggle({ onToggleMute }: { onToggleMute: () => void }) {
+  const muted = useMoqtChatStore((s) => s.muted);
+  return (
+    <Button
+      label={muted ? "Mic off" : "Mic on"}
+      startIcon={muted ? "mic-off" : "mic"}
+      color={muted ? "surface" : "primary"}
+      variant={muted ? "outline" : "fill"}
+      size="sm"
+      data-testid="mic-toggle"
+      onClick={onToggleMute}
+    />
+  );
+}
+
+function ErrorBanner({ message }: { message: string | null }) {
+  if (!message) return null;
+  return (
+    <Card variant="fill" bgColor="errorcontainer" scaleFactor="body">
+      <Text color="onerrorcontainer" fontClass="body">
+        {message}
+      </Text>
+    </Card>
+  );
+}
+
 function Chip({ label, color }: { label: string; color?: string }) {
   return (
     <span
@@ -300,7 +326,7 @@ export default function Home() {
   const [certHash, setCertHash] = useState("");
   const [participantId, setParticipantId] = useState(DEFAULT_PARTICIPANT_ID);
   const [joined, setJoined] = useState(false);
-  const { connect, sendChat, leave } = useMoqtChat();
+  const { connect, sendChat, toggleMute, leave, micError } = useMoqtChat();
   const connectionState = useMoqtChatStore((s) => s.connectionState);
 
   // Switch to the chat screen once the connection is established.
@@ -363,6 +389,7 @@ export default function Home() {
         <Text fontClass="title3">{joined ? `🐾 ${participantId}` : "MOQT Chat"}</Text>
         <Row alignItems="center" gap="xs">
           {joined && <StatusBadge />}
+          {joined && <MicToggle onToggleMute={toggleMute} />}
           {joined && (
             <Button
               label="Leave"
@@ -396,6 +423,7 @@ export default function Home() {
           </Row>
         </Card>
       )}
+      <ErrorBanner message={micError} />
 
       {joined ? (
         <>
