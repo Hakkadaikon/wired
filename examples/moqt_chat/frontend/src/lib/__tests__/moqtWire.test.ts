@@ -171,9 +171,14 @@ describe("ctl", () => {
     const v = byName.get("setup_impl")!;
     const body = checkFraming(v);
     const msg = decodeSetup(body);
-    expect(msg.setupOptions).toEqual([
-      { type: 7n, raw: utf8ToBytes("wired/0") },
-    ]);
+    // toEqual on an object containing both a BigInt and a Uint8Array
+    // spuriously fails under this project's vitest+jsdom combination (the
+    // diff it prints shows no actual difference); compare fields directly.
+    expect(msg.setupOptions.length).toBe(1);
+    expect(msg.setupOptions[0].type).toBe(7n);
+    expect(bytesToHex(msg.setupOptions[0].raw!)).toBe(
+      bytesToHex(utf8ToBytes("wired/0")),
+    );
   });
 
   it("encode setup_impl", () => {
