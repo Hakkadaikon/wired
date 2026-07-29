@@ -1,12 +1,9 @@
 // Voice Object wire framing on top of moqtWire.ts's generic MOQT codec.
 //
-// Unlike chat (moqtClient.ts's buildChatObjectMessage: one uni stream per
-// message), the audio track keeps ONE long-lived uni stream open per
-// publish and appends one Object per Opus frame to it (M5's
-// MoqtVoiceClient): a single SUBGROUP_HEADER, then N Objects with
-// accumulating Object ID deltas. This module only encodes/decodes the
-// pieces of that shape; MoqtVoiceClient owns the stream lifecycle.
-//
+// Same "one message, one uni stream" shape as chat's buildChatObjectMessage
+// (moqtVoiceClient.ts's own doc explains why: the hub relays each stream
+// as its own one-shot forward regardless of how the publisher sent it, so
+// a long-lived appended-to stream cannot survive that relay unit intact).
 // Each Object's payload is `seq(u16 BE) + opus bytes` -- senderId is not
 // carried (the MOQT Track Alias already identifies the publisher; see
 // moqtClient.ts's ownTrackAlias/participantForTrackAlias).
@@ -73,6 +70,42 @@ export function encodeVoiceObjectMessage(
   ]);
 }
 
+// Object ID accumulation state threaded across successive
+// tryDecodeOneVoiceObject calls on the same stream -- mirrors
+// quic_moqdata_objseq on the hub side (moqdata.h).
+export interface VoiceObjectSeq {
+  prevObjectId: bigint;
+  isFirst: boolean;
+}
+
+export function voiceObjectSeqInit(): VoiceObjectSeq {
+  return { prevObjectId: 0n, isFirst: true };
+}
+
+/** Decodes at most one Object starting at `pos`, advancing `seq` in place
+ * on success. Returns null (seq unchanged) when `wire` does not yet hold a
+ * complete Object at `pos` -- the stream is still arriving, not malformed;
+ * decodeSubgroupObject slices its declared Payload Length past the end of
+ * `wire` without throwing in that case (short read, not a
+ * PROTOCOL_VIOLATION), so the truncation is detected here explicitly. */
+export function tryDecodeOneVoiceObject(
+  wire: Uint8Array,
+  pos: number,
+  hasProperties: boolean,
+  seq: VoiceObjectSeq,
+): { payload: VoiceObjectPayload; len: number } | null {
+  let decoded;
+  try {
+    decoded = decodeSubgroupObject(wire, pos, hasProperties, seq.prevObjectId, seq.isFirst);
+  } catch {
+    return null;
+  }
+  if (pos + decoded.len > wire.length) return null;
+  seq.prevObjectId = decoded.object.objectId;
+  seq.isFirst = false;
+  return { payload: decodeVoiceObjectPayload(decoded.object.payload), len: decoded.len };
+}
+
 /** Decodes every complete Object following a voice stream's header bytes
  * (headerLen: how many bytes of `wire` the SUBGROUP_HEADER itself took).
  * Stops at the first Object that does not fully decode (stream still
@@ -85,24 +118,12 @@ export function decodeVoiceObjectStream(
   hasProperties: boolean,
 ): VoiceObjectPayload[] {
   const out: VoiceObjectPayload[] = [];
+  const seq = voiceObjectSeqInit();
   let pos = headerLen;
-  let prevObjectId = 0n;
-  let isFirst = true;
-  while (pos < wire.length) {
-    let decoded;
-    try {
-      decoded = decodeSubgroupObject(wire, pos, hasProperties, prevObjectId, isFirst);
-    } catch {
-      break;
-    }
-    // decodeSubgroupObject slices its declared Payload Length past the end
-    // of `wire` without throwing when the stream is still arriving (short
-    // read, not a protocol violation) -- that yields a truncated payload
-    // rather than a decode error, so it must be detected here explicitly.
-    if (pos + decoded.len > wire.length) break;
-    out.push(decodeVoiceObjectPayload(decoded.object.payload));
-    prevObjectId = decoded.object.objectId;
-    isFirst = false;
+  for (;;) {
+    const decoded = tryDecodeOneVoiceObject(wire, pos, hasProperties, seq);
+    if (!decoded) break;
+    out.push(decoded.payload);
     pos += decoded.len;
   }
   return out;
