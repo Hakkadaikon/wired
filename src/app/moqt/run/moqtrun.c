@@ -5,7 +5,7 @@
 #include "app/moqt/vi/moqvi.h"
 #include "common/bytes/util/bytes.h"
 
-/* draft-ietf-moq-transport-19 hub relay (M5-6). See moqtrun.h for the
+/* draft-ietf-moq-transport-19 hub relay. See moqtrun.h for the
  * design summary; each function here stays a thin dispatch over the
  * vi/kvp/ctl/data/sess domains, never reimplementing their codecs. */
 
@@ -111,7 +111,7 @@ void wired_moqt_on_session(
 /* ===================== control-message handlers ===================== */
 
 /* draft SS10.2 Message Parameter types this hub refuses to accept/send
- * (T-174/T-175 loss-free-hub timeout defense). */
+ * (loss-free-hub timeout defense). */
 static int moqtrun_is_timeout_type(u64 t) {
   return t == QUIC_MOQCTL_PARAM_OBJECT_DELIVERY_TIMEOUT ||
          t == QUIC_MOQCTL_PARAM_SUBGROUP_DELIVERY_TIMEOUT;
@@ -229,7 +229,7 @@ static int moqtrun_peer_published_as(
 }
 
 /* Finds the peer whose own PUBLISHed Track Name equals the requested
- * SUBSCRIBE's Track Name (M5-6: room membership keys on participant id,
+ * SUBSCRIBE's Track Name (room membership keys on participant id,
  * namespace is hub-fixed and not compared). */
 static wired_moqtrun_peer* moqtrun_find_published(
     wired_moqt_hub* hub, const quic_moqctl_ftn* name) {
@@ -283,8 +283,8 @@ static void moqtrun_accept_subscribe(
 }
 
 /* draft SS10.6 SUBSCRIBE: find the matching published peer and reply
- * SUBSCRIBE_OK with a freshly assigned Track Alias, else DOES_NOT_EXIST
- * (T-145). Caller has already rejected timeout parameters (T-175). */
+ * SUBSCRIBE_OK with a freshly assigned Track Alias, else DOES_NOT_EXIST.
+ * Caller has already rejected timeout parameters. */
 static void moqtrun_route_subscribe(
     wired_moqt_hub*              hub,
     wired_moqtrun_peer*          p,
@@ -299,8 +299,8 @@ static void moqtrun_route_subscribe(
   moqtrun_accept_subscribe(p, pub, slot, peer_idx);
 }
 
-/* draft SS10.6 SUBSCRIBE: reject non-zero delivery-timeout parameters
- * (T-175), else delegate matching + response to moqtrun_route_subscribe. */
+/* draft SS10.6 SUBSCRIBE: reject non-zero delivery-timeout parameters,
+ * else delegate matching + response to moqtrun_route_subscribe. */
 static void moqtrun_handle_subscribe(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, quic_span body) {
   usz                   off = 0;
@@ -319,7 +319,7 @@ static void moqtrun_handle_not_supported(wired_moqtrun_peer* p) {
 
 /* draft 5.1: a GOAWAY arriving on a request stream (not the control
  * stream) is informational in this subset -- accepted without closing the
- * session (T-173). The 2nd-GOAWAY-on-one-stream violation is a sess-layer
+ * session. The 2nd-GOAWAY-on-one-stream violation is a sess-layer
  * concern the caller already routes through quic_moqsess_step; nothing
  * further to do here since this hub sends no GOAWAY of its own on a
  * request stream. */
@@ -359,8 +359,8 @@ static void moqtrun_dispatch_goaway(
 
 /* First-type table (draft table in ctl.h's peek_type doc): only PUBLISH and
  * SUBSCRIBE are implemented; every other First type this hub can see on a
- * fresh request stream gets NOT_SUPPORTED (M5-6 point 8). GOAWAY is not a
- * First type but may legally appear mid-stream (T-173), so it is routed
+ * fresh request stream gets NOT_SUPPORTED. GOAWAY is not a
+ * First type but may legally appear mid-stream, so it is routed
  * the same table for request-stream dispatch below. */
 static const struct {
   u64            type;
@@ -408,8 +408,8 @@ static void moqtrun_dispatch_ctl_stream(
 
 /* ===================== data-stream (Object) relay ===================== */
 
-/* Sends wire (a complete SUBGROUP_HEADER+Object stream, unmodified: T-146)
- * to one subscriber, whole, as exactly one fresh uni stream (T-136/T-147),
+/* Sends wire (a complete SUBGROUP_HEADER+Object stream, unmodified)
+ * to one subscriber, whole, as exactly one fresh uni stream,
  * FIN'd on its only round -- io->send_uni is the one-shot
  * open+send+FIN primitive (a bare empty stream_send(..., fin=1) does NOT
  * work: wired_server_wt_stream_send never accepts an empty payload, since
@@ -430,7 +430,7 @@ static void moqtrun_relay_object(
 }
 
 /* Decodes the SUBGROUP_HEADER + the one Object this subset always sends
- * whole in one call (M5-6 point 5: 1 message = 1 Object = 1 Group = 1
+ * whole in one call (1 message = 1 Object = 1 Group = 1
  * Subgroup). Returns 1 on a fully decoded Object, 0 otherwise (nothing to
  * relay -- covers INSUFFICIENT/VIOLATION alike, since a hub-internal relay
  * has no peer to report a VIOLATION to at this call site). */
@@ -444,7 +444,7 @@ static int moqtrun_decode_one_object(quic_span data, usz* off) {
 
 /* draft 3.4/11.4.2: classify a fresh data stream and, for SUBGROUP_HEADER,
  * relay it verbatim once its Object decodes. Padding streams
- * (0x132B3E28, T-149) and any other classification are discarded here:
+ * (0x132B3E28) and any other classification are discarded here:
  * classification-level session closes are the sess layer's job, driven
  * elsewhere from the same decoded quic_moqsess_event. */
 static void moqtrun_dispatch_data_stream(

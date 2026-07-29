@@ -88,8 +88,8 @@ static u32 xskt_lcg(u32* state) {
   return *state;
 }
 
-/* 6: soak test asserting the TLA+ InvOcc invariant: occupancy never
- * exceeds capacity, for either raw (unmasked) index difference. */
+/* Soak test asserting the occupancy invariant: occupancy never exceeds
+ * capacity, for either raw (unmasked) index difference. */
 static void test_xskring_soak_invariant(void) {
   u32           prod = 0, cons = 0;
   quic_xdp_desc desc[8];

@@ -47,7 +47,7 @@ const MSG_TYPE_REQUEST_ERROR = 0x5n;
 const SUBGROUP_HEADER_TYPE = 0x70n;
 
 // Fixed candidate pool: no track-namespace discovery exists in this subset
-// (moqtrun.h M5-6), so the client guesses room members from a small fixed
+// (moqtrun.h), so the client guesses room members from a small fixed
 // list and lets REQUEST_ERROR/DOES_NOT_EXIST tell it which ones are absent.
 // ponytail: raise/replace with real discovery if the room ever needs more.
 const CANDIDATE_PARTICIPANT_IDS = ["user1", "user2", "user3", "user4"];
@@ -56,7 +56,7 @@ export function candidateParticipantIds(localId: string): string[] {
   return CANDIDATE_PARTICIPANT_IDS.filter((id) => id !== localId);
 }
 
-// moqtrun.c relays a publisher's SUBGROUP bytes unmodified (T-146): the
+// moqtrun.c relays a publisher's SUBGROUP bytes unmodified: the
 // Track Alias a subscriber sees on the wire is the PUBLISHER's own alias,
 // not the alias the hub assigned that subscriber in its own SUBSCRIBE_OK
 // (draft SS10.7/SS11.1 -- Track Alias is scoped per session, so a

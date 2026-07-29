@@ -56,8 +56,8 @@ static int moqsess_on_send_goaway(quic_moqsess* s) {
   return QUIC_MOQSESS_CLOSE_NONE;
 }
 
-/* A 2nd GOAWAY on the same control stream is a protocol violation
- * (S-221); the first is recorded and leaves the session open. */
+/* A 2nd GOAWAY on the same control stream is a protocol violation; the
+ * first is recorded and leaves the session open. */
 static int moqsess_on_recv_goaway(quic_moqsess* s) {
   if (s->goaway_recv)
     return moqsess_closed(s, QUIC_MOQSESS_CLOSE_PROTOCOL_VIOLATION);
@@ -147,8 +147,8 @@ static int moqsess_sub_on_open(quic_moqsub* s) {
   return 1;
 }
 
-/* A response (OK or ERROR) answers the request exactly once (S-159/S-160).
- * A 2nd response is a session-level fault, not a local termination. */
+/* A response (OK or ERROR) answers the request exactly once. A 2nd
+ * response is a session-level fault, not a local termination. */
 static int moqsess_sub_guard_single_response(quic_moqsub* s) {
   if (s->responded) {
     s->session_fault = 1;
@@ -170,13 +170,12 @@ static int moqsess_sub_on_error(quic_moqsub* s) {
 }
 
 /* REQUEST_UPDATE only makes sense once Established, and never changes
- * state (S-154). */
+ * state. */
 static int moqsess_sub_on_update(quic_moqsub* s) {
   return s->state == QUIC_MOQSUB_ESTABLISHED;
 }
 
-/* STOP_SENDING cancels: legal from Pending(Subscriber) (S-156) or
- * Established (S-155/S-171). */
+/* STOP_SENDING cancels: legal from Pending(Subscriber) or Established. */
 static int moqsess_sub_stop_sending_legal(const quic_moqsub* s) {
   if (s->state == QUIC_MOQSUB_ESTABLISHED) return 1;
   return s->state == QUIC_MOQSUB_PENDING &&
@@ -190,8 +189,8 @@ static int moqsess_sub_on_stop_sending(quic_moqsub* s) {
 
 /* PUBLISH_DONE ends a publisher-initiated (or already established)
  * subscription. From Pending(Publisher) with no response sent yet, the
- * subscriber owes a deferred PUBLISH_OK before it FINs (S-158/S-160:
- * exactly-one-response is satisfied by that late OK, not skipped). */
+ * subscriber owes a deferred PUBLISH_OK before it FINs (exactly-one-
+ * response is satisfied by that late OK, not skipped). */
 static int moqsess_sub_publish_done_legal(const quic_moqsub* s) {
   if (s->state == QUIC_MOQSUB_ESTABLISHED) return 1;
   return s->state == QUIC_MOQSUB_PENDING &&
