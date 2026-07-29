@@ -10,7 +10,16 @@ cd "$(dirname "$0")/.."   # examples/moqt_chat/
 
 SERVER_LOG="$(mktemp)"
 FRONTEND_PORT=8091   # distinct from serve-frontend's 8443 / dev-frontend's 5173
-trap 'kill "${SERVER_PID:-0}" "${FRONTEND_PID:-0}" 2>/dev/null || true; rm -f "$SERVER_LOG"' EXIT
+# wired_server binds with SO_REUSEPORT (srvrun.c's srvrun_listen), which lets
+# the kernel accept a second bind on the same port without erroring -- but it
+# also means a NEXT run of this script that starts before this run's server
+# has actually finished exiting can have its Initial packets hashed onto the
+# still-closing old socket by the kernel's SO_REUSEPORT load balancing
+# (that socket's process is mid-SIGTERM and never answers them). `wait`ing
+# on SERVER_PID after the kill (not just sending the signal) closes that
+# window: the old socket is gone before this script's trap returns, so the
+# next run's bind is the only listener on the port.
+trap 'kill "${SERVER_PID:-0}" "${FRONTEND_PID:-0}" 2>/dev/null || true; wait "${SERVER_PID:-0}" 2>/dev/null || true; rm -f "$SERVER_LOG"' EXIT
 
 ./wired_server >"$SERVER_LOG" 2>&1 &
 SERVER_PID=$!
