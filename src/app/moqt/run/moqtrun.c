@@ -75,17 +75,22 @@ static u64 moqtrun_send_setup(wired_moqt_io* io, wired_wt_session* s, u8* buf) {
 
 /* Initializes a freshly allocated peer slot for s and sends its SETUP,
  * split out of wired_moqt_on_session to keep that function's own branch
- * count at the CCN gate. */
+ * count at the CCN gate. SETUP goes out on send_bufs[0]: that slot becomes
+ * "armed" (open_bidi_stream holds the same view/ACK contract as
+ * stream_send, per srvrun.h), so armed_idx starts at 0 and every reply
+ * queued afterward goes to the OTHER slot (moqtrun_queue_reply's doc). */
 static void moqtrun_init_peer(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, wired_wt_session* s) {
   p->in_use          = 1;
   p->wt              = s;
   p->request_id_next = 1; /* hub is the server: odd, 1-origin (draft SS10.2) */
-  p->send_len        = 0;
+  p->send_lens[0]    = 0;
+  p->send_lens[1]    = 0;
+  p->armed_idx       = 0;
   for (usz t = 0; t < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; t++)
     p->tracks[t].in_use = 0;
   quic_moqsess_init(&p->sess);
-  p->control_stream_id = moqtrun_send_setup(&hub->io, s, p->send_buf);
+  p->control_stream_id = moqtrun_send_setup(&hub->io, s, p->send_bufs[0]);
   quic_moqsess_step(&p->sess, QUIC_MOQSESS_EV_SENT_SETUP);
 }
 
@@ -128,20 +133,22 @@ static int moqtrun_has_timeout_param(const quic_moqctl_params* params) {
 }
 
 /* Appends one control message's already-encoded bytes to p's per-dispatch
- * reply queue (moqtrun.h's send_buf/send_len doc): every handler queues
- * here instead of calling stream_send itself, so a dispatch with several
- * replies (e.g. one SUBSCRIBE per other peer) still calls stream_send only
- * once -- see the doc for why more than one call per dispatch loses data.
- * Silently drops on overflow (WIRED_MOQTRUN_CTL_SEND_BUF is sized for the
- * worst case this hub's own protocol subset can produce, so overflow never
- * happens in practice). */
+ * reply queue -- moqtrun.h's send_bufs/armed_idx doc explains why this is
+ * the OTHER slot from p->armed_idx, never the armed one: every handler
+ * queues here instead of calling stream_send itself, so a dispatch with
+ * several replies (e.g. one SUBSCRIBE per other peer) still calls
+ * stream_send only once. Silently drops on overflow
+ * (WIRED_MOQTRUN_CTL_SEND_BUF is sized for the worst case this hub's own
+ * protocol subset can produce, so overflow never happens in practice). */
 static void moqtrun_queue_reply(wired_moqtrun_peer* p, quic_span msg) {
-  if (p->send_len + msg.n > WIRED_MOQTRUN_CTL_SEND_BUF) return;
-  quic_memcpy(p->send_buf + p->send_len, msg.p, msg.n);
-  p->send_len += msg.n;
+  int pending_idx = p->armed_idx ^ 1;
+  if (p->send_lens[pending_idx] + msg.n > WIRED_MOQTRUN_CTL_SEND_BUF) return;
+  quic_memcpy(
+      p->send_bufs[pending_idx] + p->send_lens[pending_idx], msg.p, msg.n);
+  p->send_lens[pending_idx] += msg.n;
 }
 
-/* Sends every reply queued on p's control stream, in one stream_send call.
+/* Sends every reply queued in p's pending slot, in one stream_send call.
  * Called at both the START and the END of moqtrun_dispatch_ctl_stream (see
  * its own doc for why one call is not enough): a queue can still hold an
  * earlier dispatch's replies when this one begins, because
@@ -150,18 +157,27 @@ static void moqtrun_queue_reply(wired_moqtrun_peer* p, quic_span msg) {
  * srvrun_wtsend_appendable) -- an ACK needs at least one more event-loop
  * step than a single app callback ever gets, so two control messages
  * arriving in back-to-back dispatches (e.g. PUBLISH then SUBSCRIBE) can
- * easily straddle that boundary. On success the queue is cleared; on
- * failure (still pending) it is left untouched so the NEXT dispatch's
- * start-of-call flush retries it, growing with that dispatch's own new
- * replies appended after it. A dispatch that queued nothing (send_len == 0)
- * sends nothing -- wired_server_wt_stream_send never accepts an empty
- * payload. */
+ * easily straddle that boundary.
+ *
+ * On success, armed_idx swaps to the slot that was just handed to
+ * stream_send (moqtrun.h's own doc on why that slot's bytes must not be
+ * touched again until ACKed) -- and appendable() only returns true once
+ * the PREVIOUS armed round is fully ACKed, so success here also proves the
+ * OLD armed slot is now safe to reuse as the next pending target (it is
+ * never handed to stream_send again). On failure (still pending) the
+ * pending slot is left untouched so the NEXT dispatch's start-of-call
+ * flush retries it, growing with that dispatch's own new replies appended
+ * after it. A dispatch that queued nothing (send_lens[pending]==0) sends
+ * nothing -- wired_server_wt_stream_send never accepts an empty payload. */
 static void moqtrun_flush_replies(wired_moqt_io* io, wired_moqtrun_peer* p) {
-  if (p->send_len == 0) return;
-  if (io->stream_send(
-          p->wt, p->control_stream_id, quic_span_of(p->send_buf, p->send_len),
-          0) > 0)
-    p->send_len = 0;
+  int pending_idx = p->armed_idx ^ 1;
+  if (p->send_lens[pending_idx] == 0) return;
+  int r = io->stream_send(
+      p->wt, p->control_stream_id,
+      quic_span_of(p->send_bufs[pending_idx], p->send_lens[pending_idx]), 0);
+  if (r <= 0) return;
+  p->send_lens[p->armed_idx] = 0; /* old armed slot: now safe to reuse */
+  p->armed_idx               = pending_idx;
 }
 
 static int moqtrun_encode_request_error(
@@ -244,8 +260,9 @@ static void moqtrun_track_clear_subs(wired_moqtrun_track* t) {
 static void moqtrun_track_claim(
     wired_moqtrun_track* t, quic_span name, u64 track_alias) {
   if (!t->in_use) moqtrun_track_clear_subs(t);
-  t->in_use    = 1;
-  t->own_alias = track_alias;
+  t->in_use             = 1;
+  t->own_alias          = track_alias;
+  t->data_stream_id_set = 0; /* a (re-)PUBLISH always opens a fresh stream */
   moqtrun_record_track_name(t, name);
 }
 
@@ -525,14 +542,35 @@ static wired_moqtrun_track* moqtrun_track_by_alias(
   return 0;
 }
 
-/* Decodes data's SUBGROUP_HEADER, then every Object that follows it
- * (moqtrun_decode_object_loop -- a single-Object stream decodes the same as
- * the former one-shot path), and resolves the header's Track Alias to one
- * of p's (chat/audio) track slots, else 0 (header decode failure, zero
- * Objects decoded, or an unknown Track Alias -- nothing to relay).
- * SUBGROUP_HEADER's Type byte is left unconsumed by classify (moqdata.h
- * doc): quic_moqdata_subhdr_take re-reads it from the stream's start. */
-static wired_moqtrun_track* moqtrun_resolve_data_stream_track(
+static int moqtrun_track_bound_to_stream(
+    const wired_moqtrun_track* track, u64 stream_id) {
+  return track->in_use && track->data_stream_id_set &&
+         track->data_stream_id == stream_id;
+}
+
+/* p's track slot already bound to stream_id by an earlier
+ * wired_moqt_on_stream_data call on this peer, else 0 -- see
+ * wired_moqtrun_track's data_stream_id doc. */
+static wired_moqtrun_track* moqtrun_track_by_stream_id(
+    wired_moqtrun_peer* p, u64 stream_id) {
+  for (usz t = 0; t < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; t++)
+    if (moqtrun_track_bound_to_stream(&p->tracks[t], stream_id))
+      return &p->tracks[t];
+  return 0;
+}
+
+/* Classifies a FRESH data stream's leading Stream Type varint and, for
+ * SUBGROUP_HEADER, decodes the header + every following Object (moqtrun_
+ * decode_object_loop), resolving the header's Track Alias to one of p's
+ * (chat/audio) track slots -- else 0 (not a SUBGROUP stream, header
+ * decode failure, zero Objects decoded, or an unknown Track Alias). On a
+ * resolved track, remembers stream_id on it so later header-less calls on
+ * the SAME stream_id skip straight to moqtrun_resolve_known_stream_track
+ * instead of misreading Object bytes as a fresh header. */
+/* SUBGROUP_HEADER + every following Object, for a stream already
+ * confirmed to classify as SUBGROUP -- split out of moqtrun_resolve_fresh_
+ * stream_track to keep that function's own branch count at the CCN gate. */
+static wired_moqtrun_track* moqtrun_decode_fresh_subgroup(
     wired_moqtrun_peer* p, quic_span data) {
   usz                 off = 0;
   quic_moqdata_subhdr hdr;
@@ -541,19 +579,55 @@ static wired_moqtrun_track* moqtrun_resolve_data_stream_track(
   return moqtrun_track_by_alias(p, hdr.track_alias);
 }
 
-/* draft 3.4/11.4.2: classify a fresh data stream and, for SUBGROUP_HEADER,
- * relay it verbatim to the subscribers of the track its Track Alias names,
- * once its Object decodes. Padding streams (0x132B3E28), any other
- * classification, and an unknown Track Alias are discarded here:
- * classification-level session closes are the sess layer's job, driven
- * elsewhere from the same decoded quic_moqsess_event. */
-static void moqtrun_dispatch_data_stream(
-    wired_moqt_hub* hub, wired_moqtrun_peer* p, quic_span data) {
+static void moqtrun_bind_track_to_stream(
+    wired_moqtrun_track* track, u64 stream_id) {
+  track->data_stream_id     = stream_id;
+  track->data_stream_id_set = 1;
+}
+
+static wired_moqtrun_track* moqtrun_resolve_fresh_stream_track(
+    wired_moqtrun_peer* p, quic_span data, u64 stream_id) {
   usz classify_off = 0;
   int kind         = quic_moqdata_classify(data, &classify_off);
-  (void)classify_off;
-  if (kind != QUIC_MOQDATA_STREAM_SUBGROUP) return;
-  wired_moqtrun_track* track = moqtrun_resolve_data_stream_track(p, data);
+  if (kind != QUIC_MOQDATA_STREAM_SUBGROUP) return 0;
+  wired_moqtrun_track* track = moqtrun_decode_fresh_subgroup(p, data);
+  if (track) moqtrun_bind_track_to_stream(track, stream_id);
+  return track;
+}
+
+/* Continues a data stream already bound to a track (moqtrun_track_by_
+ * stream_id): unlike a fresh stream, `data` here carries NO
+ * SUBGROUP_HEADER -- moqtVoiceClient.ts's sendOpusFrame writes the header
+ * only on its first call, every later call on the same long-lived stream
+ * appends bare Objects -- so decoding starts straight at offset 0. hdr.type
+ * stays 0 (never a real SUBGROUP_HEADER Type): moqtrun_decode_object_loop
+ * only reads hdr->type for its Properties bit, and every voice stream this
+ * hub relays uses SUBGROUP_HEADER_TYPE (moqtClient.ts, Properties off), so
+ * type 0's "no Properties" reading matches. Returns the track on at least
+ * one decoded Object, else 0. */
+static wired_moqtrun_track* moqtrun_resolve_known_stream_track(
+    wired_moqtrun_track* track, quic_span data) {
+  quic_moqdata_subhdr hdr = {0};
+  usz                 off = 0;
+  if (moqtrun_decode_object_loop(data, &off, &hdr) == 0) return 0;
+  return track;
+}
+
+/* draft 3.4/11.4.2: relay a data stream's Objects verbatim to the
+ * subscribers of the track its Track Alias names. A stream_id already
+ * bound to a track (wired_moqtrun_track's own doc -- the audio track's
+ * long-lived stream, appended to across many calls) skips classification
+ * and header decoding entirely; any other stream_id is treated as fresh
+ * and classified/header-decoded as usual. Padding streams (0x132B3E28),
+ * any other classification, and an unknown Track Alias are discarded
+ * here: classification-level session closes are the sess layer's job,
+ * driven elsewhere from the same decoded quic_moqsess_event. */
+static void moqtrun_dispatch_data_stream(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, u64 stream_id, quic_span data) {
+  wired_moqtrun_track* known = moqtrun_track_by_stream_id(p, stream_id);
+  wired_moqtrun_track* track =
+      known ? moqtrun_resolve_known_stream_track(known, data)
+            : moqtrun_resolve_fresh_stream_track(p, data, stream_id);
   if (track) moqtrun_relay_object(hub, track, data);
 }
 
@@ -574,5 +648,5 @@ void wired_moqt_on_stream_data(
     moqtrun_dispatch_ctl_stream(hub, p, peer_idx, data);
     return;
   }
-  moqtrun_dispatch_data_stream(hub, p, data);
+  moqtrun_dispatch_data_stream(hub, p, stream_id, data);
 }

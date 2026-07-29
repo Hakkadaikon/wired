@@ -90,13 +90,27 @@ typedef struct {
 /** One track a peer PUBLISHes (chat or audio), and the subscribers recorded
  * against it. in_use marks the slot live; own_alias is the Track Alias this
  * hub assigned to this slot's own PUBLISH (draft SS10.7 quic_moqsub
- * scope). */
+ * scope).
+ *
+ * data_stream_id/data_stream_id_set remember which QUIC stream this
+ * track's SUBGROUP_HEADER was last decoded from: unlike chat (one message
+ * = one fresh uni stream, closed immediately), the audio track keeps ONE
+ * long-lived uni stream open for a whole call and appends further Objects
+ * to it in LATER wired_moqt_on_stream_data calls that carry no header at
+ * all (moqtVoiceClient.ts's sendOpusFrame writes the header only once).
+ * wired_moqt_on_stream_data's own doc promises no cross-call reassembly,
+ * but this is not reassembly -- it is remembering which track a stream_id
+ * was already resolved to, so a later header-less call for that same
+ * stream_id can skip straight to decoding Objects instead of
+ * misinterpreting their bytes as a fresh SUBGROUP_HEADER. */
 typedef struct {
   int               in_use;
   u8                name[WIRED_MOQTRUN_MAX_NAME]; /* copied Track Name */
   usz               name_len;
   u64               own_alias; /* Track Alias this slot's PUBLISH declared */
   wired_moqtrun_sub subs[WIRED_MOQTRUN_MAX_SUBS];
+  u64               data_stream_id;
+  int               data_stream_id_set;
 } wired_moqtrun_track;
 
 /** One connected participant's hub-side state: its WT session, its own
@@ -109,26 +123,27 @@ typedef struct {
   quic_moqsess        sess;
   u64                 request_id_next; /* next Request ID this hub sends */
   wired_moqtrun_track tracks[WIRED_MOQTRUN_MAX_TRACKS_PER_PEER];
-  /** Queue of not-yet-sent control-message reply bytes for this peer's
-   * control stream, plus how many bytes are queued (moqtrun_queue_reply
-   * appends; moqtrun_flush_replies sends the whole queue in one
-   * stream_send call and clears it only on success).
-   *
-   * wired_server_wt_stream_send holds its payload as a VIEW (srvrun.h: "the
-   * caller must keep it alive and unmoved until every byte has been
-   * acknowledged") and, on a keep-open bidi stream, REFUSES a new round
-   * until the previous one is fully acknowledged (srvrun_wtsend_appendable)
-   * -- an ACK needs at least one more event-loop step than a single app
-   * callback ever gets. That means even ONE reply per dispatch can still
-   * collide with an earlier reply's round that has not been acknowledged
-   * yet (e.g. PUBLISH's REQUEST_OK, then a SUBSCRIBE dispatch arriving
-   * before that round is ACKed) -- not just multiple replies within one
-   * dispatch. This queue survives across dispatches for exactly that
-   * reason: moqtrun_dispatch_ctl_stream flushes it both before and after
-   * handling the dispatch's own messages, so a reply that could not be
-   * sent yet is retried on the NEXT dispatch rather than lost. */
-  u8  send_buf[WIRED_MOQTRUN_CTL_SEND_BUF];
-  usz send_len;
+  /** Two send_buf slots, used as an ARMED/PENDING pair rather than a single
+   * shared buffer: wired_server_wt_stream_send's payload is a VIEW
+   * (srvrun.h -- "the caller must keep it alive and unmoved until every
+   * byte has been acknowledged"), so once a stream_send call succeeds, the
+   * bytes it was given must stay untouched until that round is actually
+   * ACKed -- success only means "armed", not "delivered". A single shared
+   * buffer that gets zeroed and reused for the NEXT dispatch's replies the
+   * moment stream_send returns 1 corrupts an in-flight, not-yet-ACKed
+   * round the instant new bytes are queued into it (confirmed via a real
+   * two-track client: PUBLISH's REQUEST_OK stayed armed past its round
+   * while SUBSCRIBE replies were queued into the same buffer, splicing
+   * bytes together on the wire). send_bufs[armed_idx] holds whatever is
+   * currently in flight (or was last successfully armed) and is never
+   * written to again; moqtrun_queue_reply always appends to
+   * send_bufs[armed_idx ^ 1] (the "pending" slot); a successful flush
+   * swaps armed_idx to that slot -- the newly-armed bytes -- and the old
+   * armed slot becomes the next pending target (safe to overwrite: nothing
+   * from it was ever handed to stream_send). */
+  u8  send_bufs[2][WIRED_MOQTRUN_CTL_SEND_BUF];
+  usz send_lens[2];
+  int armed_idx;
 } wired_moqtrun_peer;
 
 /** The hub's whole state: fixed peer table plus the io table it sends
