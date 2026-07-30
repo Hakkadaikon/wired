@@ -31,20 +31,20 @@
  * been joined, so the frame is guaranteed live for the whole worker
  * lifetime. */
 typedef struct {
-  int index;                         /**< worker index: mesh row/column and
-                                      * XDP queue id (0..n_total-1) */
-  int core;                          /**< CPU to pin this worker to
-                                      * (opt->cores[index]) */
-  int                     n_total;   /**< worker count (broadcast registry) */
   wired_srvinbox_ring*    inbox_row; /**< this worker's N-ring receive row */
   wired_srvrun_env*       env;
-  u16                     port;
-  wired_srvboot_id        id; /**< per-worker copy (SIGHUP reload safety) */
-  wired_srvrun_handler    h;
-  wired_srvrun_obs        obs;
-  wired_srvrun_opt        run;     /**< no_signal_handlers forced to 1 */
   const wired_srvxdp_cfg* xdp_cfg; /**< 0 in UDP mode */
   wired_srvxdpbpf*        bpf;     /**< shared BPF, XDP mode only */
+  wired_srvrun_handler    h;
+  wired_srvrun_obs        obs;
+  wired_srvboot_id        id;    /**< per-worker copy (SIGHUP reload safety) */
+  wired_srvrun_opt        run;   /**< no_signal_handlers forced to 1 */
+  int                     index; /**< worker index: mesh row/column and
+                                  * XDP queue id (0..n_total-1) */
+  int core;                      /**< CPU to pin this worker to
+                                  * (opt->cores[index]) */
+  int n_total;                   /**< worker count (broadcast registry) */
+  u16 port;
 } srvthreads_worker_arg;
 
 typedef void (*srvthreads_worker_fn)(void* arg);
@@ -222,7 +222,7 @@ static void srvthreads_join_all(wired_thread* threads, int n) {
  * timeout is the liveness floor, not the trigger. */
 static void srvthreads_wait_shutdown(int* word) {
   quic_timespec ts = {
-      SRVTHREADS_WAIT_MS / 1000, (SRVTHREADS_WAIT_MS % 1000) * 1000000};
+      SRVTHREADS_WAIT_MS / 1000, (i64)(SRVTHREADS_WAIT_MS % 1000) * 1000000};
   while (__atomic_load_n(word, __ATOMIC_ACQUIRE) == 0)
     syscall6(SYS_futex, (i64)word, SRVTHREADS_FUTEX_WAIT, 0, (i64)&ts, 0, 0);
 }
