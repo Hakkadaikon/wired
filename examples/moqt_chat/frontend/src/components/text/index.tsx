@@ -1,5 +1,4 @@
-import { useMemo, ElementType, JSX } from "react";
-import { propsToDataAttrs } from "@/lib/utilities";
+import { ElementType, JSX } from "react";
 
 type LkSemanticTag = keyof JSX.IntrinsicElements;
 
@@ -21,9 +20,6 @@ export default function Text({
   ...restProps
 }: LkTextProps) {
   const Tag = tag as ElementType;
-
-  /**Temporarily removing the attr spreader because it's not being used */
-  // const textAttrs = useMemo(() => propsToDataAttrs(restProps, "text"), [restProps]);
 
   return (
     <Tag

@@ -8,7 +8,7 @@ import Row from "@/components/row";
 import Text from "@/components/text";
 import StateLayer from "@/components/state-layer";
 import { IconName } from "lucide-react/dynamic";
-import { useState, useEffect } from "react";
+import { useState } from "react";
 
 interface LkTextInputProps extends React.InputHTMLAttributes<HTMLInputElement> {
   labelPosition?: "default" | "on-input";
