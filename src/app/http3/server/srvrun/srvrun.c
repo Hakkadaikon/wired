@@ -3800,6 +3800,11 @@ static void srvrun_start_wt(
   srvrun_wt_proto  p;
   quic_qpack_field f;
   int              sidx = srvrun_wt_free_slot(c);
+  /* Caller (srvrun_dispatch_wt) already confirmed a free slot exists right
+   * before reaching here with nothing in between that could claim one, so
+   * this never actually fires -- guarding it anyway keeps wt_path/wt_path_len
+   * (SRVRUN_MAX_WT_SESSIONS-sized) indexed only by a value in range. */
+  if (sidx < 0) return;
   srvrun_wt_proto_pick(cfg, c, &p);
   f = (quic_qpack_field){
       quic_span_of(name, sizeof name), quic_span_of(p.sfv, p.sfv_len)};
