@@ -25,6 +25,7 @@
  * live response at all -- a caller iterating a fixed-size slot table
  * passes every slot, in_use false ones sort last so they are visited (and
  * skipped) only after every live one. */
+// NOLINTNEXTLINE(clang-analyzer-optin.performance.Padding)
 typedef struct {
   u8  urgency;     /**< RFC 9218 4.1, 0..7, lower is higher precedence */
   u8  incremental; /**< RFC 9218 4.2 */
