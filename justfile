@@ -7,10 +7,12 @@ warnflags := "-Wall -Wextra -Werror -O2"
 # QUIC_CONNTABLE_CAP, #ifndef-guarded there so this -D overrides it). Every
 # per-connection slot -- wired_srvloop, respstore, etc -- is a fixed-size
 # array sized off this, so raising it grows the binary's BSS accordingly
-# (~1.9MiB/conn at the default). Override per invocation with
-# `just --set conntable_cap 256 build`, or via the CONNTABLE_CAP env var
-# (`CONNTABLE_CAP=256 just build`).
-conntable_cap := env_var_or_default("CONNTABLE_CAP", "64")
+# (~1.9MiB/conn). Default 4 matches the moqt_chat/webtransport_chat samples'
+# own fixed candidate-participant pool (CANDIDATE_PARTICIPANT_IDS, 4 ids) --
+# raise it for a deployment that needs more concurrent connections. Override
+# per invocation with `just --set conntable_cap 256 build`, or via the
+# CONNTABLE_CAP env var (`CONNTABLE_CAP=256 just build`).
+conntable_cap := env_var_or_default("CONNTABLE_CAP", "4")
 connflags := "-DQUIC_CONNTABLE_CAP=" + conntable_cap
 # freestanding: the product constraint -- every src file must compile with no
 # libc at all. Also used (plus -DQUIC_DEBUG) for the example binaries.
