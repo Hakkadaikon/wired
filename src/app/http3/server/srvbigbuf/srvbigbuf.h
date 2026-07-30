@@ -17,7 +17,7 @@
 #define WIRED_SRVBIGBUF_ROWS 2
 
 /** Bytes per row. */
-#define WIRED_SRVBIGBUF_ROW_CAP (640 * 1024)
+#define WIRED_SRVBIGBUF_ROW_CAP ((usz)640 * 1024)
 
 /** Pool over caller-owned storage: rows points at
  * WIRED_SRVBIGBUF_ROWS * row_cap contiguous bytes. */
