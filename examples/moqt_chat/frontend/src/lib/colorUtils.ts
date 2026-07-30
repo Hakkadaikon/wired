@@ -31,22 +31,6 @@ const colorsWithOnTokens = [
   "tertiaryfixed",
 ];
 
-const colorsWithoutOnTokens = [
-  "onprimaryfixed",
-  "primaryfixeddim",
-  "onprimaryfixedvariant",
-  "onsecondaryfixed",
-  "secondaryfixeddim",
-  "onsecondaryfixedvariant",
-  "ontertiaryfixed",
-  "tertiaryfixeddim",
-  "ontertiaryfixedvariant",
-  "surfacedim",
-  "surfacebright",
-  "outline",
-  "outlinevariant",
-];
-
 export function getColorsWithoutOnTokens(): LkColor[] {
   return LkColors.filter((color) => !colorsWithOnTokens.includes(color as LkColorWithOnToken));
 }
