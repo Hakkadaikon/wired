@@ -5,7 +5,7 @@ cc := "clang"
 warnflags := "-Wall -Wextra -Werror -O2"
 # freestanding: the product constraint -- every src file must compile with no
 # libc at all. Also used (plus -DQUIC_DEBUG) for the example binaries.
-cflags := "-target x86_64-linux-gnu -ffreestanding -fno-stack-protector -fno-builtin -nostdlib -static " + warnflags + " -Isrc"
+cflags := "-target x86_64-unknown-linux-gnu -ffreestanding -fno-stack-protector -fno-builtin -nostdlib -static " + warnflags + " -Isrc"
 # hosted test: -mbranches-within-32B-boundaries because this host's Xeon
 # (Cascade Lake) has the JCC erratum; without it, test runtime swings ~40% on
 # code-placement luck, making perf comparisons between commits meaningless.
@@ -208,7 +208,7 @@ fmt-check:
 # easily-swappable-parameters fires everywhere (excluded). readability style
 # checks (6k+ hits) are intentionally left out — signal over noise.
 tidychecks := "-*,cert-*,bugprone-*,clang-analyzer-*,-bugprone-easily-swappable-parameters,-bugprone-reserved-identifier,-cert-dcl37-c,-cert-dcl51-cpp"
-tidyflags := "-target x86_64-linux-gnu -ffreestanding -nostdlib -fno-builtin -Isrc"
+tidyflags := "-target x86_64-unknown-linux-gnu -ffreestanding -nostdlib -fno-builtin -Isrc"
 
 # CERT C secure-coding checks only (JPCERT/SEI CERT C via clang-tidy cert-*).
 cert:
