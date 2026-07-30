@@ -3,13 +3,22 @@
 cc := "clang"
 # Shared warning/optimization base; the three flag sets below extend it.
 warnflags := "-Wall -Wextra -Werror -O2"
+# Max simultaneous connections one server process tracks (conntable.h's
+# QUIC_CONNTABLE_CAP, #ifndef-guarded there so this -D overrides it). Every
+# per-connection slot -- wired_srvloop, respstore, etc -- is a fixed-size
+# array sized off this, so raising it grows the binary's BSS accordingly
+# (~1.9MiB/conn at the default). Override per invocation with
+# `just --set conntable_cap 256 build`, or via the CONNTABLE_CAP env var
+# (`CONNTABLE_CAP=256 just build`).
+conntable_cap := env_var_or_default("CONNTABLE_CAP", "64")
+connflags := "-DQUIC_CONNTABLE_CAP=" + conntable_cap
 # freestanding: the product constraint -- every src file must compile with no
 # libc at all. Also used (plus -DQUIC_DEBUG) for the example binaries.
-cflags := "-target x86_64-unknown-linux-gnu -ffreestanding -fno-stack-protector -fno-builtin -nostdlib -static " + warnflags + " -Isrc"
+cflags := "-target x86_64-unknown-linux-gnu -ffreestanding -fno-stack-protector -fno-builtin -nostdlib -static " + warnflags + " " + connflags + " -Isrc"
 # hosted test: -mbranches-within-32B-boundaries because this host's Xeon
 # (Cascade Lake) has the JCC erratum; without it, test runtime swings ~40% on
 # code-placement luck, making perf comparisons between commits meaningless.
-testflags := warnflags + " -mbranches-within-32B-boundaries -Isrc -Itests"
+testflags := warnflags + " " + connflags + " -mbranches-within-32B-boundaries -Isrc -Itests"
 # fuzz: hosted with ASan+libFuzzer instrumentation.
 fuzzflags := warnflags + " -g -fsanitize=fuzzer,address -Isrc"
 
