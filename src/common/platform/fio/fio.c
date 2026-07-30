@@ -63,7 +63,7 @@ ssz wired_fio_pread(i64 fd, quic_mspan buf, u64 off) {
 }
 
 ssz wired_fio_size(const char* path) {
-  u8  st[FIO_STAT_BUF_LEN];
+  u8  st[FIO_STAT_BUF_LEN] = {0};
   i64 ret = syscall4(SYS_newfstatat, FIO_AT_FDCWD, path, st, 0);
   if (ret < 0) return (ssz)ret;
   return (ssz) * (const i64*)(st + FIO_STAT_SIZE_OFF);
