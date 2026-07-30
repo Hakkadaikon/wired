@@ -770,7 +770,7 @@ static int stop_sending_id(u64 type, quic_span frame, u64* stream_id_out) {
 static int wt_reset_frame(
     u64 type, quic_span frame, quic_reset_stream_frame* out) {
   if (quic_frame_classify(type) != QUIC_FK_RESET_STREAM) return 0;
-  return quic_reset_stream_decode(frame.p, frame.n, out);
+  return quic_reset_stream_decode(frame.p, frame.n, out) != 0;
 }
 
 /* RFC 9000 19.5: 1 if frame is a STOP_SENDING, its stream_id/error_code
@@ -779,7 +779,7 @@ static int wt_reset_frame(
 static int wt_stop_frame(
     u64 type, quic_span frame, quic_stop_sending_frame* out) {
   if (quic_frame_classify(type) != QUIC_FK_STOP_SENDING) return 0;
-  return quic_stop_sending_decode(frame.p, frame.n, out);
+  return quic_stop_sending_decode(frame.p, frame.n, out) != 0;
 }
 
 /* draft-ietf-webtrans-http3-15 4.4 (WTH3-040): if the walked frame at
