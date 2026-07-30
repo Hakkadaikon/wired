@@ -58,18 +58,23 @@ int wired_srvloop_send_handshake(
  * RFC 9001 "MUST update its send keys to the corresponding key phase in
  * response"). Falls back to the schedule's fixed generation-0 SERVER_AP only
  * if seeding kuswitch itself failed (should not happen once confirmed; a
- * missing key still fails closed). Owns hp's storage via the caller's out
- * param so the returned quic_protect_keys stays valid. */
+ * missing key still fails closed). dk's storage is owned by the caller
+ * (wired_srvloop_send_onertt's own stack frame) so the quic_initial_keys*
+ * this writes into *out stays valid past this call -- writing dk here
+ * instead of taking it as a local would leave *out pointing at a returned
+ * stack frame. */
 static int send_onertt_keys(
-    const wired_server* s, quic_aes128* hp, quic_protect_keys* out) {
-  wired_srvloop_dirkeys dk;
+    const wired_server*    s,
+    wired_srvloop_dirkeys* dk,
+    quic_aes128*           hp,
+    quic_protect_keys*     out) {
   if (s->ku_seeded) {
     quic_aes128_init(hp, s->ku_send.cur.hp);
     *out = (quic_protect_keys){&s->ku_send.cur, hp};
     return 1;
   }
-  if (!wired_srvloop_seal_keys(s, QUIC_LEVEL_ONERTT, &dk)) return 0;
-  *out = (quic_protect_keys){dk.keys, &dk.hp};
+  if (!wired_srvloop_seal_keys(s, QUIC_LEVEL_ONERTT, dk)) return 0;
+  *out = (quic_protect_keys){dk->keys, &dk->hp};
   return 1;
 }
 
@@ -81,10 +86,11 @@ static int send_onertt_keys(
  * kuswitch is seeded, matching send_onertt_keys's own fallback. */
 int wired_srvloop_send_onertt(
     const wired_server* s, const wired_srvloop_send_in* in, quic_obuf* out) {
-  quic_aes128       hp;
-  quic_protect_keys pk;
+  wired_srvloop_dirkeys dk;
+  quic_aes128           hp;
+  quic_protect_keys     pk;
   int phase = s->ku_seeded ? quic_keyphase_bit(s->ku_send.generation) : 0;
   quic_hspkt_onertt_desc d = {in->cli_scid, in->pn, in->payload, phase};
-  if (!send_onertt_keys(s, &hp, &pk)) return 0;
+  if (!send_onertt_keys(s, &dk, &hp, &pk)) return 0;
   return quic_hspkt_onertt_build_suite(s->sdrv.cipher_suite, &pk, &d, out);
 }
