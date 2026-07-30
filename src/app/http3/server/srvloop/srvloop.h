@@ -335,7 +335,13 @@ typedef struct {
 } wired_srvloop_rx_datagram;
 
 /** Per-connection state of the server wire loop, re-armed by
- * wired_srvloop_init and driven by wired_srvloop_step. */
+ * wired_srvloop_init and driven by wired_srvloop_step. Field order follows
+ * the doc grouping (related fields stay next to their shared comment)
+ * rather than the padding-optimal order clang-tidy's Padding check would
+ * prefer -- reordering ~60 densely-commented fields purely to shave
+ * padding risks silently misattributing a comment to the wrong field, for
+ * a struct that is never allocated in bulk. */
+// NOLINTNEXTLINE(clang-analyzer-optin.performance.Padding)
 typedef struct {
   wired_h3srv_state h3; /**< HTTP/3 server response-layer state */
   u8  cli_scid[20];     /**< the client's source id; DCID the server writes */
