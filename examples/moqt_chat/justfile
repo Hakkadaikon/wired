@@ -7,10 +7,35 @@
 build:
     cd ../.. && just build && ninja examples/moqt_chat/wired_server
 
-# Build and run (binds 0.0.0.0:4433; Ctrl-C to stop). Do not pass
-# --workers/--cores/--ifindex: this hub is single-process only.
-run: build
-    ./wired_server
+# Fixed name so run-bg/stop/logs can address the container without asking
+# the caller to remember an id.
+container_name := "moqt-chat"
+
+# Build the scratch image (Dockerfile's own doc: the binary is static and
+# touches no filesystem at runtime, so scratch is enough).
+image: build
+    cd ../.. && docker build -t {{container_name}} -f examples/moqt_chat/Dockerfile .
+
+# Build and run in the foreground (binds 0.0.0.0:4433/udp; Ctrl-C stops and
+# removes the container). Do not pass --workers/--cores/--ifindex: this hub
+# is single-process only.
+run: image
+    docker run --rm --name {{container_name}} -p 4433:4433/udp {{container_name}}
+
+# Same as `run`, but detached: prints the container id and returns
+# immediately. Use `just logs` to follow its cert-fingerprint/startup
+# output and `just stop` to tear it down.
+run-bg: image
+    docker run -d --rm --name {{container_name}} -p 4433:4433/udp {{container_name}}
+
+# Follow the backgrounded server's output (the self-signed cert fingerprint
+# it logs on startup -- see README's "copy from the current run" note).
+logs:
+    docker logs -f {{container_name}}
+
+# Stop (and, via --rm above, remove) the backgrounded container.
+stop:
+    docker stop {{container_name}}
 
 # Production build of the moqt_chat frontend (frontend/, Next.js + pnpm,
 # output: "export" -> frontend/out/).
