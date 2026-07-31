@@ -43,15 +43,8 @@ so the image has nothing in it besides `wired_server` itself.
 
 ```sh
 cd examples/moqt_chat
-just run       # builds the image, binds 0.0.0.0:4433/udp, Ctrl-C stops it
-just run-bg    # same, but detached; `just logs` to follow it, `just stop` to tear it down
-```
-
-Or with `docker compose` directly (after `just image` has built it once):
-
-```sh
-just image
-docker compose up -d
+just up       # builds, then binds 0.0.0.0:4433/udp in the foreground, Ctrl-C stops it
+just up-bg    # same, but detached; `docker compose logs -f` to follow it, `just down` to tear it down
 ```
 
 This hub keeps its peer table in one process's memory, so it is
@@ -122,11 +115,8 @@ verification is manual (see above). See `e2e/run.sh` and
   callbacks to `src/app/moqt/run`'s hub and adapts `wired_server_wt_*` into
   its `wired_moqt_io` send table (prefixing the WebTransport stream signal,
   draft-ietf-webtrans-http3-15 SS4.2).
-- `Dockerfile` / `docker-compose.yml` — the `scratch` image `just run`/
-  `run-bg` build and run (see "Build and run (server)" above); `docker
-  compose up` alone will also build it, but from whatever `wired_server`
-  binary is currently on disk -- run `just build` (or `just image`) first
-  to pick up source changes, same as `just run` itself does.
+- `Dockerfile` / `docker-compose.yml` — the `scratch` image `just up`/
+  `up-bg` build and run (see "Build and run (server)" above).
 - `frontend/` — the Next.js + LiftKit browser client:
   `src/lib/moqtWire.ts`/`moqtClient.ts` (chat wire codec, session/PUBLISH/
   SUBSCRIBE/relay), `moqtVoiceWire.ts`/`moqtVoiceClient.ts` (voice Object
