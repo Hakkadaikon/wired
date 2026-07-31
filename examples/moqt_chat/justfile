@@ -7,11 +7,15 @@
 build:
     cd ../.. && just build && ninja examples/moqt_chat/wired_server
 
-# Build (via docker-compose.yml's own `build:`) and run in the foreground,
-# binding 0.0.0.0:4433/udp; Ctrl-C stops it. --build picks up a binary
-# rebuilt since the image was last built (docker compose up alone reuses a
-# stale image otherwise). Do not pass --workers/--cores/--ifindex: this hub
-# is single-process only.
+# Build (via docker-compose.yml's own `build:`) and run in the foreground;
+# Ctrl-C stops it. network_mode: host, so the container listens on the
+# host's own 4433/udp directly (no NAT/port-forward -- QUIC's Path MTU
+# Discovery, IP_MTU_DISCOVER=IP_PMTUDISC_DO, was confirmed by hand to never
+# complete a handshake through Docker's default bridge + `-p` port mapping;
+# host networking sidesteps it). --build picks up a binary rebuilt since the
+# image was last built (docker compose up alone reuses a stale image
+# otherwise). Do not pass --workers/--cores/--ifindex: this hub is
+# single-process only.
 up: build
     docker compose up --build
 

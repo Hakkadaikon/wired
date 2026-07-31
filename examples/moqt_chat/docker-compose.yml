@@ -5,11 +5,23 @@
 # toolchain outside any container -- see Dockerfile), so a bare `docker
 # compose up` silently skips picking up source changes unless `just build`
 # ran first.
+#
+# network_mode: host, not a `ports:` mapping: this SDK's socket enables
+# IP_MTU_DISCOVER=IP_PMTUDISC_DO (Path MTU Discovery, DF-bit set sends --
+# src/transport/io/socket/io/udp.c), and it was confirmed by hand (a headless
+# browser join, bridge+ports vs. host networking) that the QUIC handshake
+# never completes through Docker's default bridge + iptables DNAT port
+# forward -- "Connecting..." forever, no error either side -- while it
+# connects immediately with host networking. Root cause not fully pinned
+# down (a leading theory: DNAT'd UDP flows and PMTUD's own ICMP
+# "Fragmentation Needed" round-trip are a known-rough combination in the
+# Linux bridge/conntrack stack), but host networking sidesteps it entirely.
+# The consequence: the container shares the host's network namespace
+# outright, not just the one published port.
 services:
   wired_server:
     image: moqt-chat
     build:
       context: ../..
       dockerfile: examples/moqt_chat/Dockerfile
-    ports:
-      - "4433:4433/udp"
+    network_mode: host
