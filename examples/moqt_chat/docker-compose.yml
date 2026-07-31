@@ -1,9 +1,10 @@
-# `docker compose up` alone builds this image from whatever wired_server
-# binary is currently on disk in this dir -- it does NOT build the binary
-# itself, since that needs the repo's pinned clang/ninja toolchain outside
-# any container (see Dockerfile / justfile's `image` recipe). Run `just
-# build` (or `just image`) first to pick up source changes:
-#   just build && docker compose -f examples/moqt_chat/docker-compose.yml up
+# Use `just up` / `just up-bg` / `just down` (justfile) rather than calling
+# docker compose directly: this file's `build:` only packages whatever
+# wired_server binary is already on disk into the scratch image, it does
+# NOT build the binary itself (that needs the repo's pinned clang/ninja
+# toolchain outside any container -- see Dockerfile), so a bare `docker
+# compose up` silently skips picking up source changes unless `just build`
+# ran first.
 services:
   wired_server:
     image: moqt-chat
