@@ -43,9 +43,15 @@ so the image has nothing in it besides `wired_server` itself.
 
 ```sh
 cd examples/moqt_chat
-just up       # builds, then binds 0.0.0.0:4433/udp in the foreground, Ctrl-C stops it
+just up       # builds, then runs in the foreground, Ctrl-C stops it
 just up-bg    # same, but detached; `docker compose logs -f` to follow it, `just down` to tear it down
 ```
+
+The container runs with `network_mode: host` (see `docker-compose.yml`), so
+`wired_server` listens on the host's own `4433/udp` directly rather than
+through a NAT'd port mapping — a bridge-network `-p 4433:4433/udp` setup was
+confirmed by hand to never complete the QUIC handshake (the client sits at
+"Connecting..." forever), while host networking connects immediately.
 
 This hub keeps its peer table in one process's memory, so it is
 single-process only: do not pass `--workers`/`--cores`/`--ifindex`.
