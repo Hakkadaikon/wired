@@ -29,7 +29,19 @@ export type MicPipelineDeps = {
   isMuted: () => boolean;
   onError?: (err: unknown) => void;
   onEncodeError?: (err: unknown) => void;
+  // Fires once sendVoiceFrame has failed CONSECUTIVE_SEND_FAILURE_LIMIT
+  // times in a row with no successful send in between -- a single dropped
+  // frame is normal (sendGate.ts's own doc: "a rejected send does not
+  // wedge the gate"), but a run this long means voice isn't reaching the
+  // peer at all (e.g. the server-side uni-stream slot cap, srvloop.h's
+  // WIRED_SRVLOOP_MAX_WT_UNI_STREAMS, staying saturated) and the silence
+  // deserves surfacing instead of vanishing into sendGate's own catch.
+  onSendFailing?: (err: unknown) => void;
 };
+
+// ~2s of continuous failure at one Opus frame per 20ms -- long enough that
+// it is not just an unlucky single dropped frame mid-burst.
+const CONSECUTIVE_SEND_FAILURE_LIMIT = 100;
 
 export type MicPipeline = {
   stop: () => void;
@@ -68,7 +80,19 @@ export async function startMicPipeline(
   // additionally be gated by the caller against the shared MOQT stream
   // (see moqtVoiceClient.ts) -- voice Objects share that one writer, and
   // only the outer gate prevents a race on the underlying stream.
-  const gatedSend = createSendGate((bytes) => deps.sendVoiceFrame(bytes));
+  let consecutiveFailures = 0;
+  const gatedSend = createSendGate(
+    async (bytes) => {
+      await deps.sendVoiceFrame(bytes);
+      consecutiveFailures = 0; // a later success clears an earlier bad run
+    },
+    (err) => {
+      consecutiveFailures++;
+      if (consecutiveFailures === CONSECUTIVE_SEND_FAILURE_LIMIT) {
+        deps.onSendFailing?.(err);
+      }
+    },
+  );
 
   const encoder = new deps.AudioEncoderCtor({
     output: (chunk) => {

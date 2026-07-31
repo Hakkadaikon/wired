@@ -57,6 +57,23 @@ describe("createSendGate", () => {
     expect(send).toHaveBeenCalledTimes(2);
   });
 
+  it("reports a rejected send via onSendFailed without rethrowing to the caller", async () => {
+    const err = new Error("stream locked");
+    const send = vi.fn().mockRejectedValueOnce(err);
+    const onSendFailed = vi.fn();
+    const gate = createSendGate(send, onSendFailed);
+    await expect(gate(new Uint8Array([1]))).resolves.toBeUndefined();
+    expect(onSendFailed).toHaveBeenCalledExactlyOnceWith(err);
+  });
+
+  it("does not call onSendFailed for a successful send", async () => {
+    const send = vi.fn().mockResolvedValue(undefined);
+    const onSendFailed = vi.fn();
+    const gate = createSendGate(send, onSendFailed);
+    await gate(new Uint8Array([1]));
+    expect(onSendFailed).not.toHaveBeenCalled();
+  });
+
   it("mixed callers (chat + presence + voice) never race the underlying writer", async () => {
     let locked = false;
     const send = vi.fn(async () => {

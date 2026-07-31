@@ -12,6 +12,7 @@
 // frame and the gate stays usable for the next.
 export function createSendGate(
   send: (bytes: Uint8Array) => void | Promise<void>,
+  onSendFailed?: (err: unknown) => void,
 ): (bytes: Uint8Array) => Promise<void> {
   let inFlight = false;
   let pending: { bytes: Uint8Array; resolve: () => void } | null = null;
@@ -20,8 +21,11 @@ export function createSendGate(
     inFlight = true;
     try {
       await send(bytes);
-    } catch {
-      /* frame dropped */
+    } catch (err) {
+      // Still a dropped frame, not a rethrow -- the gate must stay usable
+      // for the next send either way. onSendFailed only adds visibility
+      // (e.g. micPipeline.ts counting consecutive failures) on top of that.
+      onSendFailed?.(err);
     }
     resolve();
     inFlight = false;
