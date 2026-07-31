@@ -1,5 +1,12 @@
 name: Docs
 
+# One GitHub Pages site for the whole repo: the Doxygen API reference at
+# the root, and moqt_chat's static frontend demo under /moqt_chat/ (the
+# repo is served at https://<user>.github.io/wired/, so that subpath is
+# .../wired/moqt_chat/ -- next.config.ts's NEXT_PUBLIC_BASE_PATH below must
+# match). Both are built into one merged directory before the single
+# upload-pages-artifact step, since a Pages site can only publish one
+# artifact.
 on:
   push:
     branches: [main]
@@ -26,9 +33,34 @@ jobs:
       - name: Generate API reference
         run: nix develop -c just docs
 
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: examples/moqt_chat/frontend/package.json
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: examples/moqt_chat/frontend/pnpm-lock.yaml
+
+      - name: Build moqt_chat frontend (static export)
+        working-directory: examples/moqt_chat/frontend
+        env:
+          NEXT_PUBLIC_BASE_PATH: /wired/moqt_chat
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+
+      - name: Merge into one Pages site
+        run: |
+          mkdir -p pages-site
+          cp -r docs/sdk/. pages-site/
+          mkdir -p pages-site/moqt_chat
+          cp -r examples/moqt_chat/frontend/out/. pages-site/moqt_chat/
+
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: docs/sdk
+          path: pages-site
 
   deploy:
     needs: build
