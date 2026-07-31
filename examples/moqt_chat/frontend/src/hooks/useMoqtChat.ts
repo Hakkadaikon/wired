@@ -98,6 +98,35 @@ export function moqtChatCallbacks(
   };
 }
 
+// The two-stage connect/startVoice sequencing pulled out of connect()'s own
+// closure so it's testable without a real WebTransport: chat and voice fail
+// independently on purpose. connectChat failing (e.g. cert hash mismatch)
+// never even attempts startVoice and reports "disconnected". connectChat
+// succeeding but startVoice failing (audio track PUBLISH/SUBSCRIBE, mic
+// permission, AudioContext setup) must NOT undo that success -- an earlier
+// version awaited both under one try/catch, so a voice failure alone sent
+// the join screen back to "Connecting..." even though chat was already
+// working (see moqtClient.ts's connect(): onStatusChange("connected") has
+// already fired by the time connectChat resolves).
+export async function connectChatThenVoice(
+  connectChat: () => Promise<void>,
+  startVoice: () => Promise<void>,
+  onChatFailed: () => void,
+  onVoiceFailed: (err: unknown) => void,
+): Promise<void> {
+  try {
+    await connectChat();
+  } catch {
+    onChatFailed();
+    return;
+  }
+  try {
+    await startVoice();
+  } catch (err) {
+    onVoiceFailed(err);
+  }
+}
+
 export function useMoqtChat() {
   const store = useMoqtChatStore();
   const [micError, setMicError] = useState<string | null>(null);
@@ -171,6 +200,8 @@ export function useMoqtChat() {
         isMuted: () => useMoqtChatStore.getState().muted,
         onError: () => setMicError("microphone permission was denied"),
         onEncodeError: () => setMicError("microphone audio could not be encoded"),
+        onSendFailing: () =>
+          setMicError("voice isn't reaching other participants (connection trouble)"),
       })
         .then((mic) => {
           micRef.current = mic;
@@ -200,15 +231,15 @@ export function useMoqtChat() {
         getMicTracks: () => [],
       });
 
-      try {
-        await client.connect(url, certHashesHex);
-        await startVoice(localId, client);
-      } catch {
+      await connectChatThenVoice(
+        () => client.connect(url, certHashesHex),
+        () => startVoice(localId, client),
         // Connection failed (e.g. cert hash mismatch): fall back to
         // disconnected instead of leaving the join screen stuck on
         // "Connecting..." forever.
-        store.setConnectionState("disconnected");
-      }
+        () => store.setConnectionState("disconnected"),
+        (err) => setMicError(err instanceof Error ? err.message : "voice setup failed"),
+      );
     },
     [store, startVoice],
   );

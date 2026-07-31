@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { moqtChatCallbacks } from "../useMoqtChat";
+import { connectChatThenVoice, moqtChatCallbacks } from "../useMoqtChat";
 
 // Exercises the pure callback -> store-action translation without
 // WebTransport: a MoqtChatClient-shaped fake calls onStatusChange/onMessage
@@ -51,5 +51,45 @@ describe("moqtChatCallbacks", () => {
       "user2",
       "user3",
     ]);
+  });
+});
+
+describe("connectChatThenVoice", () => {
+  it("never attempts startVoice when connectChat rejects, and reports onChatFailed", async () => {
+    const connectChat = vi.fn().mockRejectedValue(new Error("cert hash mismatch"));
+    const startVoice = vi.fn().mockResolvedValue(undefined);
+    const onChatFailed = vi.fn();
+    const onVoiceFailed = vi.fn();
+
+    await connectChatThenVoice(connectChat, startVoice, onChatFailed, onVoiceFailed);
+
+    expect(startVoice).not.toHaveBeenCalled();
+    expect(onChatFailed).toHaveBeenCalledTimes(1);
+    expect(onVoiceFailed).not.toHaveBeenCalled();
+  });
+
+  it("does NOT call onChatFailed when startVoice rejects after connectChat succeeded -- chat stays connected", async () => {
+    const connectChat = vi.fn().mockResolvedValue(undefined);
+    const voiceErr = new Error("audio track PUBLISH failed");
+    const startVoice = vi.fn().mockRejectedValue(voiceErr);
+    const onChatFailed = vi.fn();
+    const onVoiceFailed = vi.fn();
+
+    await connectChatThenVoice(connectChat, startVoice, onChatFailed, onVoiceFailed);
+
+    expect(onChatFailed).not.toHaveBeenCalled();
+    expect(onVoiceFailed).toHaveBeenCalledExactlyOnceWith(voiceErr);
+  });
+
+  it("calls neither failure callback when both connectChat and startVoice succeed", async () => {
+    const connectChat = vi.fn().mockResolvedValue(undefined);
+    const startVoice = vi.fn().mockResolvedValue(undefined);
+    const onChatFailed = vi.fn();
+    const onVoiceFailed = vi.fn();
+
+    await connectChatThenVoice(connectChat, startVoice, onChatFailed, onVoiceFailed);
+
+    expect(onChatFailed).not.toHaveBeenCalled();
+    expect(onVoiceFailed).not.toHaveBeenCalled();
   });
 });
