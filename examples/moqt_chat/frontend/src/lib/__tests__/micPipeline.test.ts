@@ -232,6 +232,85 @@ describe("micPipeline", () => {
     expect(pipeline.stopped).toBe(false);
   });
 
+  it("keeps sendVoiceFrame failures silent below the consecutive-failure threshold", async () => {
+    const track: Track = { stop: vi.fn() };
+    const processor = fakeProcessor();
+    const encoder = fakeEncoder();
+    const onSendFailing = vi.fn();
+
+    await startMicPipeline({
+      getUserMedia: fakeGetUserMedia(track),
+      makeProcessor: () => processor,
+      AudioEncoderCtor: encoder.ctor as never,
+      sendVoiceFrame: () => {
+        throw new Error("stream is closing");
+      },
+      isMuted: () => false,
+      onSendFailing,
+    });
+
+    for (let i = 0; i < 10; i++) {
+      processor.emit({ dummy: "frame" });
+      await new Promise((r) => setTimeout(r, 0));
+    }
+
+    expect(onSendFailing).not.toHaveBeenCalled();
+  });
+
+  it("surfaces onSendFailing once sendVoiceFrame fails for a long consecutive run", async () => {
+    const track: Track = { stop: vi.fn() };
+    const processor = fakeProcessor();
+    const encoder = fakeEncoder();
+    const onSendFailing = vi.fn();
+
+    await startMicPipeline({
+      getUserMedia: fakeGetUserMedia(track),
+      makeProcessor: () => processor,
+      AudioEncoderCtor: encoder.ctor as never,
+      sendVoiceFrame: () => {
+        throw new Error("stream is closing");
+      },
+      isMuted: () => false,
+      onSendFailing,
+    });
+
+    for (let i = 0; i < 100; i++) {
+      processor.emit({ dummy: "frame" });
+      await new Promise((r) => setTimeout(r, 0));
+    }
+
+    expect(onSendFailing).toHaveBeenCalledTimes(1);
+  });
+
+  it("resets the consecutive-failure count after a successful send", async () => {
+    const track: Track = { stop: vi.fn() };
+    const processor = fakeProcessor();
+    const encoder = fakeEncoder();
+    const onSendFailing = vi.fn();
+    let callCount = 0;
+
+    await startMicPipeline({
+      getUserMedia: fakeGetUserMedia(track),
+      makeProcessor: () => processor,
+      AudioEncoderCtor: encoder.ctor as never,
+      sendVoiceFrame: () => {
+        callCount++;
+        // Every 50th call succeeds, so 100 consecutive failures never happen.
+        if (callCount % 50 === 0) return;
+        throw new Error("stream is closing");
+      },
+      isMuted: () => false,
+      onSendFailing,
+    });
+
+    for (let i = 0; i < 149; i++) {
+      processor.emit({ dummy: "frame" });
+      await new Promise((r) => setTimeout(r, 0));
+    }
+
+    expect(onSendFailing).not.toHaveBeenCalled();
+  });
+
   it("prioritizes the latest frame over queuing stale ones under backpressure", async () => {
     const track: Track = { stop: vi.fn() };
     const processor = fakeProcessor();
