@@ -76,6 +76,19 @@ For local development with hot reload instead: `just dev-frontend` (plain
 HTTP at `:3000`, works for `localhost` since that origin is always a secure
 context regardless of scheme).
 
+### Hosted on GitHub Pages
+
+This repo's [Docs workflow](../../.github/workflows/docs.yml) also publishes
+this frontend as a static demo at `https://<user>.github.io/wired/moqt_chat/`,
+alongside the SDK's Doxygen API reference at the site's root. GitHub Pages
+only serves static files, so it hosts the frontend's assets — it cannot run
+`wired_server` itself (that needs a real UDP/QUIC listener). Run the server
+somewhere reachable (a VM, a home machine with a forwarded port, ...), then
+point the hosted page's "Server URL" field at it and paste its logged cert
+fingerprint, same as running the frontend locally. The self-signed
+cert/fingerprint pair is still per-run: this hosted page is a convenient
+client, not a zero-setup public demo.
+
 ## Multi-client e2e test
 
 ```sh
