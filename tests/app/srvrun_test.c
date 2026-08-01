@@ -10371,6 +10371,86 @@ static void test_srvrun_wt_open_uni_stream_appends_then_finishes(void) {
   wired_udp_close(sfd);
 }
 
+/* WIRE: wired_server_wt_stream_fin, called while the round it must wait on
+ * is still unacknowledged, is not refused (unlike wired_server_wt_stream_
+ * send in the same situation, tested above) -- it is deferred and sent
+ * automatically once that round's ACK lands, matching a real browser's
+ * write()+close() (data first, a byte-less FIN call right after, often
+ * before the data round's own ACK). */
+static void test_srvrun_wt_stream_fin_deferred_until_round_acked(void) {
+  struct lp_fix     f;
+  quic_obuf         ob = {0};
+  u8                obuf[1024];
+  quic_sockaddr     srv;
+  i64               sfd, cfd;
+  quic_stream_frame sf;
+  srvrun_conn*      c;
+  srvrun_cfg        acfg = sr_wt_send_cfg();
+  if (!sr_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
+  ob      = (quic_obuf){obuf, sizeof obuf, 0};
+  c       = sr_wtsend_fixture(&f, &ob);
+  c->peer = srv;
+  CHECK(
+      wired_server_wt_open_uni_stream(
+          &c->wt, quic_span_of(sr_wtsend_hello, sizeof sr_wtsend_hello)) == 7);
+  /* the open round is still unacknowledged -- stream_fin is accepted
+   * (unlike stream_send, which is refused outright in this state) but
+   * cannot go out yet. */
+  CHECK(wired_server_wt_stream_fin(&c->wt, 7) == 1);
+  CHECK(c->wtsend[0].fin_requested == 1);
+  CHECK(c->wtsend[0].fin_only_pending == 0);
+  /* nothing new on the wire until the open round's own ACK: draining it
+   * still only yields the DATA round, not a synthesized FIN. */
+  CHECK(sr_wtsend_pump_recv_stream(&f, cfd, sfd, &srv, &sf));
+  CHECK(sf.offset == 0);
+  CHECK(sf.fin == 0);
+  sr_wtsend_ack_all_inflight(&acfg, c, &c->wtsend[0].sess, 0);
+  /* the deferred FIN promotes itself and goes out on the very next pump. */
+  CHECK(sr_wtsend_pump_recv_stream(&f, cfd, sfd, &srv, &sf));
+  CHECK(sf.stream_id == 7);
+  CHECK(sf.offset == sizeof sr_wtsend_hello);
+  CHECK(sf.length == 0);
+  CHECK(sf.fin == 1);
+  CHECK(c->wtsend[0].fin_requested == 0);
+  CHECK(c->wtsend[0].append_open == 0);
+  sr_wtsend_ack_all_inflight(&acfg, c, &c->wtsend[0].sess, 0);
+  srvrun_reap_wtsends(c);
+  CHECK(c->wtsend[0].in_use == 0);
+  wired_udp_close(cfd);
+  wired_udp_close(sfd);
+}
+
+/* WIRE: wired_server_wt_stream_fin called once the previous round is
+ * already fully acknowledged arms the bare-FIN round immediately (no
+ * deferral needed) -- the counterpart to the deferred case above. */
+static void test_srvrun_wt_stream_fin_immediate_when_round_already_done(void) {
+  struct lp_fix     f;
+  quic_obuf         ob = {0};
+  u8                obuf[1024];
+  quic_sockaddr     srv;
+  i64               sfd, cfd;
+  quic_stream_frame sf;
+  srvrun_conn*      c;
+  srvrun_cfg        acfg = sr_wt_send_cfg();
+  if (!sr_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
+  ob      = (quic_obuf){obuf, sizeof obuf, 0};
+  c       = sr_wtsend_fixture(&f, &ob);
+  c->peer = srv;
+  CHECK(
+      wired_server_wt_open_uni_stream(
+          &c->wt, quic_span_of(sr_wtsend_hello, sizeof sr_wtsend_hello)) == 7);
+  CHECK(sr_wtsend_pump_recv_stream(&f, cfd, sfd, &srv, &sf));
+  sr_wtsend_ack_all_inflight(&acfg, c, &c->wtsend[0].sess, 0);
+  CHECK(wired_server_wt_stream_fin(&c->wt, 7) == 1);
+  CHECK(c->wtsend[0].fin_only_pending == 1);
+  CHECK(c->wtsend[0].fin_requested == 0);
+  CHECK(sr_wtsend_pump_recv_stream(&f, cfd, sfd, &srv, &sf));
+  CHECK(sf.length == 0);
+  CHECK(sf.fin == 1);
+  wired_udp_close(cfd);
+  wired_udp_close(sfd);
+}
+
 /* open_bidi_stream and stream_reply_open mark their slots append-open (the
  * FIN-holding state above); the one-shot wired_server_wt_open_uni does not
  * (regression: its final slice still carries FIN). An id no send slot holds
@@ -12096,6 +12176,8 @@ void test_srvrun(void) {
   test_srvrun_wt_open_uni_streams_payload_on_wire();
   test_srvrun_wt_open_bidi_allocates_ids_and_holds_view();
   test_srvrun_wt_open_uni_stream_appends_then_finishes();
+  test_srvrun_wt_stream_fin_deferred_until_round_acked();
+  test_srvrun_wt_stream_fin_immediate_when_round_already_done();
   test_srvrun_wt_stream_open_variants_mark_append();
   test_srvrun_wt_stream_reset_sends_reset_and_frees_slot();
   test_srvrun_wt_open_uni_within_max_streams_succeeds();
