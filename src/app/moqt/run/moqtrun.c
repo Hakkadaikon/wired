@@ -503,6 +503,9 @@ static void moqtrun_relay_object(
  * wired_moqtrun_relay doc -- keyed by the PUBLISHER's stream id so several
  * of one track's streams can be forwarded concurrently). --- */
 
+static usz moqtrun_decode_object_loop(
+    quic_span data, usz* off, const quic_moqdata_subhdr* hdr);
+
 static int moqtrun_relay_matches(
     const wired_moqtrun_relay* r, u64 pub_stream_id) {
   return r->in_use && r->pub_stream_id == pub_stream_id;
@@ -633,17 +636,64 @@ static void moqtrun_relay_append_all(
       moqtrun_relay_append_one(hub, &track->subs[i], relay, i, wire, fin);
 }
 
-/* A later call on an already-relayed publisher stream: forward its bytes
- * to every subscriber-side stream this relay opened, and free the entry
- * once the publisher's FIN has been forwarded (the subscriber streams are
- * closed by that same round). */
+/* Saves the undelivered tail (bytes past the last complete Object) as the
+ * relay's fragment for the next delivery. A tail larger than one whole
+ * Object can never complete (WIRED_MOQTRUN_RELAY_FRAG_MAX is the largest
+ * relayable Object) -- drop it, degrading to a torn frame for this one
+ * stream rather than corrupting the relay's own state. */
+static void moqtrun_relay_save_frag(
+    wired_moqtrun_relay* relay, const u8* p, usz n) {
+  if (n > WIRED_MOQTRUN_RELAY_FRAG_MAX) {
+    relay->frag_len = 0;
+    return;
+  }
+  quic_memcpy(relay->frag, p, n);
+  relay->frag_len = n;
+}
+
+/* Object-boundary normalization (wired_moqtrun_relay's frag doc): prepends
+ * the relay's held fragment to this delivery in hub->relay_scratch, finds
+ * the last complete Object boundary, keeps the tail past it as the next
+ * fragment, and returns the whole-Objects prefix -- the only bytes safe to
+ * forward, because a forwarded round can be dropped per subscriber and a
+ * dropped round must never end mid-Object. hdr type 0 is the right decode
+ * context here for the same reason it was for the former known-stream
+ * resolver: every relayed stream's header has the Properties bit off. */
+static quic_span moqtrun_relay_normalize(
+    wired_moqt_hub* hub, wired_moqtrun_relay* relay, quic_span data) {
+  usz                 total = relay->frag_len + data.n;
+  quic_moqdata_subhdr hdr   = {0};
+  usz                 off   = 0;
+  quic_memcpy(hub->relay_scratch, relay->frag, relay->frag_len);
+  quic_memcpy(hub->relay_scratch + relay->frag_len, data.p, data.n);
+  moqtrun_decode_object_loop(
+      quic_span_of(hub->relay_scratch, total), &off, &hdr);
+  moqtrun_relay_save_frag(relay, hub->relay_scratch + off, total - off);
+  return quic_span_of(hub->relay_scratch, off);
+}
+
+/* 1 if this normalized round carries anything worth forwarding: whole
+ * Objects, or the publisher's FIN (which must reach the subscriber streams
+ * even with no bytes of its own). */
+static int moqtrun_relay_round_due(quic_span whole, int fin) {
+  return whole.n != 0 || fin;
+}
+
+/* A later call on an already-relayed publisher stream: forward its
+ * whole-Object bytes (moqtrun_relay_normalize) to every subscriber-side
+ * stream this relay opened, and free the entry once the publisher's FIN
+ * has been forwarded (the subscriber streams are closed by that same
+ * round; a fragment still held at FIN time is a torn tail with no
+ * continuation coming -- dropped). */
 static void moqtrun_relay_continue(
     wired_moqt_hub*      hub,
     wired_moqtrun_track* track,
     wired_moqtrun_relay* relay,
     quic_span            wire,
     int                  fin) {
-  moqtrun_relay_append_all(hub, track, relay, wire, fin);
+  quic_span whole = moqtrun_relay_normalize(hub, relay, wire);
+  if (moqtrun_relay_round_due(whole, fin))
+    moqtrun_relay_append_all(hub, track, relay, whole, fin);
   if (fin) relay->in_use = 0;
 }
 
@@ -700,14 +750,17 @@ static void moqtrun_relay_start(
     wired_moqt_hub*      hub,
     wired_moqtrun_track* track,
     u64                  pub_stream_id,
-    quic_span            wire) {
+    quic_span            wire,
+    usz                  whole_end) {
   wired_moqtrun_relay* relay = moqtrun_relay_alloc(track);
   if (!relay) return;
   relay->in_use        = 1;
   relay->pub_stream_id = pub_stream_id;
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++) relay->sub_stream_set[i] = 0;
+  relay->frag_len = 0;
+  moqtrun_relay_save_frag(relay, wire.p + whole_end, wire.n - whole_end);
   moqtrun_relay_save_hdr(relay, wire);
-  moqtrun_relay_open_all(hub, track, relay, wire);
+  moqtrun_relay_open_all(hub, track, relay, quic_span_of(wire.p, whole_end));
 }
 
 /* Decodes the SUBGROUP_HEADER + the one Object this subset always sends
@@ -756,13 +809,17 @@ static wired_moqtrun_track* moqtrun_track_by_alias(
 
 /* SUBGROUP_HEADER + every following Object, for a stream already
  * confirmed to classify as SUBGROUP -- split out of moqtrun_resolve_fresh_
- * stream_track to keep that function's own branch count at the CCN gate. */
+ * stream_track to keep that function's own branch count at the CCN gate.
+ * *whole_end receives the end of the last COMPLETE Object (the fresh
+ * stream's own normalization boundary, moqtrun_relay_normalize's twin for
+ * the opening delivery). */
 static wired_moqtrun_track* moqtrun_decode_fresh_subgroup(
-    wired_moqtrun_peer* p, quic_span data) {
+    wired_moqtrun_peer* p, quic_span data, usz* whole_end) {
   usz                 off = 0;
   quic_moqdata_subhdr hdr;
   if (quic_moqdata_subhdr_take(data, &off, &hdr) != QUIC_MOQDATA_OK) return 0;
   if (moqtrun_decode_object_loop(data, &off, &hdr) == 0) return 0;
+  *whole_end = off;
   return moqtrun_track_by_alias(p, hdr.track_alias);
 }
 
@@ -772,18 +829,20 @@ static wired_moqtrun_track* moqtrun_decode_fresh_subgroup(
  * slots -- else 0 (not a SUBGROUP stream, header decode failure, zero
  * Objects decoded, or an unknown Track Alias). */
 static wired_moqtrun_track* moqtrun_resolve_fresh_stream_track(
-    wired_moqtrun_peer* p, quic_span data) {
+    wired_moqtrun_peer* p, quic_span data, usz* whole_end) {
   usz classify_off = 0;
   int kind         = quic_moqdata_classify(data, &classify_off);
   if (kind != QUIC_MOQDATA_STREAM_SUBGROUP) return 0;
-  return moqtrun_decode_fresh_subgroup(p, data);
+  return moqtrun_decode_fresh_subgroup(p, data, whole_end);
 }
 
 /* A publisher stream seen for the first time: resolve its track from the
  * SUBGROUP_HEADER, then either relay it whole as one-shot streams (its FIN
- * arrived with the data -- nothing more will follow) or start a keep-open
- * relay entry for the rounds still to come (moqtrun_relay_start). Padding
- * streams, other classifications, and unknown Track Aliases are discarded:
+ * arrived with the data -- nothing more will follow, so a torn tail has no
+ * continuation either and rides along harmlessly) or start a keep-open
+ * relay entry for the rounds still to come (moqtrun_relay_start, which
+ * holds the tail back as the first fragment). Padding streams, other
+ * classifications, and unknown Track Aliases are discarded:
  * classification-level session closes are the sess layer's job. */
 static void moqtrun_dispatch_fresh_stream(
     wired_moqt_hub*     hub,
@@ -791,13 +850,15 @@ static void moqtrun_dispatch_fresh_stream(
     u64                 stream_id,
     quic_span           data,
     int                 fin) {
-  wired_moqtrun_track* track = moqtrun_resolve_fresh_stream_track(p, data);
+  usz                  whole_end = 0;
+  wired_moqtrun_track* track =
+      moqtrun_resolve_fresh_stream_track(p, data, &whole_end);
   if (!track) return;
   if (fin) {
     moqtrun_relay_object(hub, track, data);
     return;
   }
-  moqtrun_relay_start(hub, track, stream_id, data);
+  moqtrun_relay_start(hub, track, stream_id, data, whole_end);
 }
 
 /* draft 3.4/11.4.2: relay a data stream's bytes verbatim to the

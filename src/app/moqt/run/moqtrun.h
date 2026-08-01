@@ -85,6 +85,14 @@ typedef struct {
  * Publisher Priority = at most 4*9+1 = 37 bytes). */
 #define WIRED_MOQTRUN_RELAY_HDR_MAX 40
 
+/** Fixed capacity for one relay's held-back Object fragment (the bytes
+ * past the last complete Object boundary in a delivery, kept until the
+ * next delivery completes them -- wired_moqtrun_relay's frag doc). Sized
+ * to one whole Object: an Object bigger than this cannot ride the relay
+ * at all (the example server's own per-round staging buffer is the same
+ * size), so a fragment can never legitimately outgrow it. */
+#define WIRED_MOQTRUN_RELAY_FRAG_MAX 512
+
 /** One in-flight relayed publisher stream: which publisher-side stream
  * (pub_stream_id) this relay follows, and -- per subscriber slot index in
  * the owning track's subs[] -- the subscriber-side uni stream its bytes are
@@ -101,12 +109,26 @@ typedef struct {
  * long-lived stream typically opens before any peer has subscribed): a
  * late joiner's stream is opened carrying the saved header alone, so its
  * decoder sees a well-formed stream head even though it missed the
- * original opening round (moqtrun_relay_late_open). */
+ * original opening round (moqtrun_relay_late_open).
+ *
+ * frag/frag_len hold the bytes past the LAST COMPLETE Object boundary of
+ * the most recent delivery, prepended to the next one before relaying
+ * (moqtrun_relay_normalize): deliveries slice the publisher's stream at
+ * arbitrary byte positions, but a relay round that gets dropped for one
+ * subscriber (stream_send refusing while its previous round is unACKed)
+ * vanishes WHOLE from that subscriber's stream -- if the round ended
+ * mid-Object, the subscriber's decoder read the next round's bytes as the
+ * torn Object's continuation and mis-framed everything after it, forever
+ * (observed live: voice went permanently silent minutes into every call
+ * while rx bytes kept arriving). Forwarding only whole Objects makes every
+ * droppable round self-delimiting. */
 typedef struct {
   int in_use;
   u64 pub_stream_id;
   u8  hdr[WIRED_MOQTRUN_RELAY_HDR_MAX];
   usz hdr_len;
+  u8  frag[WIRED_MOQTRUN_RELAY_FRAG_MAX];
+  usz frag_len;
   u64 sub_stream_id[WIRED_MOQTRUN_MAX_SUBS];
   int sub_stream_set[WIRED_MOQTRUN_MAX_SUBS];
 } wired_moqtrun_relay;
@@ -198,6 +220,11 @@ typedef struct {
 typedef struct {
   wired_moqtrun_peer peers[WIRED_MOQTRUN_MAX_SESSIONS];
   wired_moqt_io      io;
+  /** Scratch for moqtrun_relay_normalize: one relay's held fragment
+   * prepended to one delivery (a delivery is at most srvloop's whole WT
+   * receive window). Only ever used within a single
+   * wired_moqt_on_stream_data call, so one shared buffer suffices. */
+  u8 relay_scratch[WIRED_MOQTRUN_RELAY_FRAG_MAX + WIRED_SRVLOOP_WT_BUF_CAP];
 } wired_moqt_hub;
 
 /** Zero-initialize hub and record the io table it will send through. */
