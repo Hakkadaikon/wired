@@ -128,3 +128,26 @@ export function decodeVoiceObjectStream(
   }
   return out;
 }
+
+/** Incremental counterpart to decodeVoiceObjectStream, for a long-lived
+ * stream where waiting for EOF (as the one-shot decoder does) would delay
+ * every frame until the whole call ends: drains every complete Object
+ * currently available in `buffered` (starting at `pos`, threaded across
+ * calls same as `seq` -- see VoiceObjectSeq's own doc) and returns the
+ * still-undecoded tail trimmed to offset 0, ready to have the next chunk
+ * appended. */
+export function drainVoiceObjectStream(
+  buffered: Uint8Array,
+  hasProperties: boolean,
+  seq: VoiceObjectSeq,
+  onPayload: (payload: VoiceObjectPayload) => void,
+): Uint8Array {
+  let pos = 0;
+  for (;;) {
+    const decoded = tryDecodeOneVoiceObject(buffered, pos, hasProperties, seq);
+    if (!decoded) break;
+    onPayload(decoded.payload);
+    pos += decoded.len;
+  }
+  return buffered.slice(pos);
+}
