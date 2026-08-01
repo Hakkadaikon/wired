@@ -1525,6 +1525,128 @@ static void test_moqtrun_late_subscriber_gets_late_opened_stream(void) {
   CHECK(moqtrun_test_count_kind(5) == 0);
 }
 
+/* Deliveries slice the publisher's stream at arbitrary byte positions, but
+ * every relayed round must end on an Object boundary: a round dropped for
+ * one subscriber (stream_send refusal) vanishes whole from that
+ * subscriber's stream, and a round torn mid-Object turns every later byte
+ * into mis-framed garbage (observed live as voice going permanently silent
+ * while bytes kept arriving). An Object split across two deliveries is
+ * therefore held back and forwarded ONLY once complete. */
+static void test_moqtrun_torn_object_held_until_complete(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  moqtrun_test_setup_audio_relay(&hub);
+
+  u8  first[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz first_n = moqtrun_test_subgroup_with_alias(0x02, first);
+  wired_moqt_on_stream_data(&hub, SESS_A, 999, quic_span_of(first, first_n), 0);
+
+  /* One 5-byte-payload Object, split mid-payload across two deliveries. */
+  u8  payload[5] = {1, 2, 3, 4, 5};
+  u8  obj[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz obj_n = 0;
+  quic_moqdata_obj_put(
+      quic_mspan_of(obj, sizeof obj), &obj_n, 1, quic_span_of(payload, 5));
+  usz cut = obj_n - 3; /* tear inside the payload */
+
+  moqtrun_test_reset();
+  wired_moqt_on_stream_data(&hub, SESS_A, 999, quic_span_of(obj, cut), 0);
+  CHECK(moqtrun_test_count_kind(3) == 0); /* torn: nothing forwarded */
+
+  moqtrun_test_reset();
+  wired_moqt_on_stream_data(
+      &hub, SESS_A, 999, quic_span_of(obj + cut, obj_n - cut), 0);
+  CHECK(moqtrun_test_count_kind(3) == 1); /* completed: forwarded whole */
+  const moqtrun_test_call* sent = moqtrun_test_last_kind(3);
+  CHECK(sent->payload_len == obj_n);
+  for (usz i = 0; i < obj_n; i++) CHECK(sent->payload[i] == obj[i]);
+}
+
+/* A delivery carrying [tail of Object A][all of Object B][head of Object
+ * C] forwards exactly A+B (fragment A completed by this delivery, C's head
+ * held back for the next). */
+static void test_moqtrun_normalize_forwards_only_whole_objects(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  moqtrun_test_setup_audio_relay(&hub);
+
+  u8  first[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz first_n = moqtrun_test_subgroup_with_alias(0x02, first);
+  wired_moqt_on_stream_data(&hub, SESS_A, 999, quic_span_of(first, first_n), 0);
+
+  u8  pa[3] = {0xA, 0xA, 0xA};
+  u8  pb[4] = {0xB, 0xB, 0xB, 0xB};
+  u8  pc[5] = {0xC, 0xC, 0xC, 0xC, 0xC};
+  u8  abc[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz n = 0;
+  quic_moqdata_obj_put(
+      quic_mspan_of(abc, sizeof abc), &n, 1, quic_span_of(pa, 3));
+  usz a_end = n;
+  quic_moqdata_obj_put(
+      quic_mspan_of(abc, sizeof abc), &n, 1, quic_span_of(pb, 4));
+  usz b_end = n;
+  quic_moqdata_obj_put(
+      quic_mspan_of(abc, sizeof abc), &n, 1, quic_span_of(pc, 5));
+  usz cut1 = a_end - 2; /* first delivery tears inside A */
+  usz cut2 = b_end + 3; /* second delivery ends inside C */
+
+  moqtrun_test_reset();
+  wired_moqt_on_stream_data(&hub, SESS_A, 999, quic_span_of(abc, cut1), 0);
+  CHECK(moqtrun_test_count_kind(3) == 0);
+
+  moqtrun_test_reset();
+  wired_moqt_on_stream_data(
+      &hub, SESS_A, 999, quic_span_of(abc + cut1, cut2 - cut1), 0);
+  CHECK(moqtrun_test_count_kind(3) == 1);
+  const moqtrun_test_call* sent = moqtrun_test_last_kind(3);
+  CHECK(sent->payload_len == b_end); /* A+B whole, C's head held back */
+  for (usz i = 0; i < b_end; i++) CHECK(sent->payload[i] == abc[i]);
+
+  moqtrun_test_reset();
+  wired_moqt_on_stream_data(
+      &hub, SESS_A, 999, quic_span_of(abc + cut2, n - cut2), 0);
+  CHECK(moqtrun_test_count_kind(3) == 1); /* C completes */
+  sent = moqtrun_test_last_kind(3);
+  CHECK(sent->payload_len == n - b_end);
+  for (usz i = 0; i < n - b_end; i++) CHECK(sent->payload[i] == abc[b_end + i]);
+}
+
+/* The OPENING delivery can be torn too: header + one whole Object + the
+ * head of a second. The relay stream opens carrying only the whole-Object
+ * prefix; the torn head completes on the next delivery. */
+static void test_moqtrun_fresh_delivery_tail_held_back(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  moqtrun_test_setup_audio_relay(&hub);
+
+  u8  wire[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz n = moqtrun_test_subgroup_with_alias(0x02, wire); /* header + 1 obj */
+  usz whole_end = n;
+  u8  p2[4]     = {9, 9, 9, 9};
+  quic_moqdata_obj_put(
+      quic_mspan_of(wire, sizeof wire), &n, 1, quic_span_of(p2, 4));
+  usz cut = whole_end + 2; /* tear inside the 2nd Object */
+
+  moqtrun_test_reset();
+  wired_moqt_on_stream_data(&hub, SESS_A, 999, quic_span_of(wire, cut), 0);
+  CHECK(moqtrun_test_count_kind(5) == 1);
+  const moqtrun_test_call* opened = moqtrun_test_last_kind(5);
+  CHECK(opened->payload_len == whole_end); /* torn tail not in the open */
+  for (usz i = 0; i < whole_end; i++) CHECK(opened->payload[i] == wire[i]);
+
+  moqtrun_test_reset();
+  wired_moqt_on_stream_data(
+      &hub, SESS_A, 999, quic_span_of(wire + cut, n - cut), 0);
+  CHECK(moqtrun_test_count_kind(3) == 1);
+  const moqtrun_test_call* sent = moqtrun_test_last_kind(3);
+  CHECK(sent->payload_len == n - whole_end); /* the completed 2nd Object */
+  for (usz i = 0; i < n - whole_end; i++)
+    CHECK(sent->payload[i] == wire[whole_end + i]);
+}
+
 void test_moqtrun(void) {
   test_moqtrun_on_session_sends_setup();
   test_moqtrun_on_session_twice_is_idempotent();
@@ -1564,4 +1686,7 @@ void test_moqtrun(void) {
   test_moqtrun_audio_split_data_then_bare_fin_closes();
   test_moqtrun_interleaved_chat_messages_close_independently();
   test_moqtrun_late_subscriber_gets_late_opened_stream();
+  test_moqtrun_torn_object_held_until_complete();
+  test_moqtrun_normalize_forwards_only_whole_objects();
+  test_moqtrun_fresh_delivery_tail_held_back();
 }
