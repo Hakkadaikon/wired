@@ -5,15 +5,32 @@
 #include "tls/ext/tparam/tpblob.h"
 
 /* RFC 9000 18.2 integer-valued parameters the server advertises; the two
- * tunable slots hold their defaults and are overridden per build. */
+ * tunable slots hold their defaults and are overridden per build.
+ *
+ * bidi_local and uni are 49152 = WIRED_SRVLOOP_WT_BUF_CAP (srvloop.h; not
+ * included here -- the tls layer stays below the app layer -- but pinned
+ * against it by server_tp_test.c): a receiver's advertised window is a
+ * PROMISE to buffer that many bytes past what it delivered, and these two
+ * directions land in srvloop's fixed 48 KiB WT reassembly windows.
+ * Advertising more than the window can hold let a well-behaved sender run
+ * ahead of a briefly-stalled delivery, at which point the overflow bytes
+ * were silently clipped by wired_srvloop_wt_window_accept yet their
+ * packets still ACKed -- never retransmitted, an unfillable gap, and the
+ * stream's frontier (and every later byte on it) frozen forever. On the
+ * moqt_chat voice track that froze all audio 10 s into every call; the
+ * per-stream MAX_STREAM_DATA re-grants (delivered + one window,
+ * srvrun_grant_stream_credit) keep the sender inside the window from then
+ * on, so the initial value must match them. bidi_remote keeps its historic
+ * value: it governs client-initiated request streams whose 2 KiB req_buf
+ * predates this fix (see tasks note) and interop pins the old behavior. */
 #define STP_DEFAULT_MAX_DATA 1048576
 static const struct {
   u64 id, val;
 } int_params[] = {
     {QUIC_TP_MAX_IDLE_TIMEOUT, 30000},
-    {QUIC_TP_INITIAL_MAX_STREAM_DATA_BIDI_LOCAL, 262144},
+    {QUIC_TP_INITIAL_MAX_STREAM_DATA_BIDI_LOCAL, 49152},
     {QUIC_TP_INITIAL_MAX_STREAM_DATA_BIDI_REMOTE, 262144},
-    {QUIC_TP_INITIAL_MAX_STREAM_DATA_UNI, 262144},
+    {QUIC_TP_INITIAL_MAX_STREAM_DATA_UNI, 49152},
     {QUIC_TP_INITIAL_MAX_STREAMS_UNI, 100},
 };
 
