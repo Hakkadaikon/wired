@@ -233,6 +233,24 @@ typedef struct {
    * far -- the base offset the next append round re-arms at
    * (wired_sendsess_set_base_offset), mirroring srvrun_resp's stream_off. */
   u64 stream_off;
+  /** 1 while a bare-FIN round (wired_server_wt_stream_fin) is waiting to go
+   * out: wired_sendq_next never yields a slice for a 0-byte arm (RFC 9000
+   * 19.8's FIN needs SOME slice to ride, and an empty sendq is "already
+   * done" by construction, sendq.c's wired_sendq_all_sent), so a stream
+   * that must close with no further bytes to send (its last append_open
+   * round already went out, and the caller has nothing new to append) has
+   * no slice for the wire FIN to attach to through the normal sess.q path.
+   * srvrun_pump_one_wt sends one synthetic 0-byte/fin=1 slice directly
+   * when this is set, bypassing wired_sendsess_take. */
+  int fin_only_pending;
+  /** 1 while wired_server_wt_stream_fin was called but the previous round
+   * was still in flight (wired_sendsess_done was false) -- the same
+   * single-round-at-a-time policy wired_server_wt_stream_send documents
+   * applies here too, so the FIN could not be armed immediately. Promoted
+   * to fin_only_pending (and cleared) by srvrun_pump_one_wt the moment the
+   * in-flight round finishes, so the app's FIN request is never silently
+   * dropped -- just deferred, same as a data round would be. */
+  int fin_requested;
 } srvrun_wtsend;
 /* Concurrent server-initiated WT stream sends per connection: comfortably
  * above SRVRUN_MAX_WT_SESSIONS' fan-out needs while keeping the per-slot
@@ -2742,8 +2760,11 @@ static srvrun_conn* srvrun_session_conn(wired_wt_session* s) {
 static srvrun_wtsend* srvrun_wtsend_claim(srvrun_conn* c, u64 credit) {
   for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++) {
     if (c->wtsend[i].in_use) continue;
-    c->wtsend[i].in_use        = 1;
-    c->wtsend[i].stream_credit = credit;
+    c->wtsend[i].in_use           = 1;
+    c->wtsend[i].stream_credit    = credit;
+    c->wtsend[i].fin_only_pending = 0; /* a reused slot may still carry a
+                                           stale 1 from its prior stream */
+    c->wtsend[i].fin_requested = 0;
     return &c->wtsend[i];
   }
   return 0;
@@ -2963,6 +2984,47 @@ int wired_server_wt_stream_send(
   if (!srvrun_wtsend_appendable(w, payload.n)) return -1;
   wired_wt_session_note_data_sent(s, payload.n);
   srvrun_wtsend_append_round(w, payload, fin);
+  return 1;
+}
+
+/* Arms w's sess for a bare-FIN round: no bytes, but wired_sendsess_arm is
+ * still the only place that sets sess.active -- without it,
+ * wired_sendsess_done keeps reading active=0 as "not done" forever (its own
+ * early return), so the slot would never reap even after the bare-FIN
+ * slice is ACKed. Mirrors srvrun_wtsend_append_round's arm+set_base_offset
+ * pair, just with a NULL/0 payload. */
+static void srvrun_wtsend_arm_fin_only(srvrun_wtsend* w) {
+  wired_sendsess_arm(&w->sess, 0, 0, SRVRUN_CHUNK);
+  wired_sendsess_set_base_offset(&w->sess, w->stream_off);
+}
+
+static void srvrun_wtsend_start_fin_now(srvrun_wtsend* w) {
+  srvrun_wtsend_arm_fin_only(w);
+  w->fin_only_pending = 1;
+}
+
+/* Arms the bare-FIN round right away if w's previous round has already
+ * finished (wired_sendsess_done), else defers it: fin_requested is
+ * promoted to fin_only_pending by srvrun_pump_one_wt the moment that round
+ * finishes, so a FIN requested while a data round is still in flight (the
+ * common case -- a WebTransport writer's close() often follows its last
+ * write() before that write's round has even been ACKed) is deferred, not
+ * dropped. */
+static void srvrun_wtsend_request_fin(srvrun_wtsend* w) {
+  if (wired_sendsess_done(&w->sess))
+    srvrun_wtsend_start_fin_now(w);
+  else
+    w->fin_requested = 1;
+}
+
+int wired_server_wt_stream_fin(wired_wt_session* s, u64 stream_id) {
+  srvrun_conn*   c    = srvrun_session_conn(s);
+  int            sidx = wt_session_slot_or_absent(c, s);
+  srvrun_wtsend* w;
+  if (sidx < 0) return -1;
+  w = srvrun_wtsend_find(c, stream_id);
+  if (!srvrun_wtsend_open_slot(w)) return -1;
+  srvrun_wtsend_request_fin(w);
   return 1;
 }
 
@@ -4569,14 +4631,46 @@ static u8 srvrun_wt_slice_fin(
   return (u8)(sl->fin && !w->append_open);
 }
 
-/* Send one slice from WT send slot w under the same gates. */
+/* Sends w's pending bare-FIN round (srvrun_wtsend.fin_only_pending's own
+ * doc): a synthetic 0-byte/fin=1 slice, since wired_sendsess_take never
+ * yields one for w's 0-byte arm. Clears fin_only_pending and append_open
+ * (the stream really is over now) once the slice is on the wire; the slot
+ * itself reaps later, same as any other final round, once this one's ACK
+ * lands (srvrun_wtsend_finished). */
+static int srvrun_pump_wt_fin_only(
+    const srvrun_step_ctx* ctx, srvrun_conn* c, srvrun_wtsend* w) {
+  wired_sendq_slice sl = {0, 0, 1};
+  if (!w->fin_only_pending) return 0;
+  if (!srvrun_send_stream_slice(ctx, c, &w->sess, w->stream_id, &sl, 1))
+    return 0;
+  w->fin_only_pending = 0;
+  w->append_open      = 0;
+  return 1;
+}
+
+/* Promotes a deferred wired_server_wt_stream_fin request to fin_only_pending
+ * the moment w's previous round finishes (srvrun_wtsend_request_fin's own
+ * doc on why the request could not be armed immediately). No-op once
+ * already promoted or if nothing was ever requested. */
+static void srvrun_wtsend_promote_fin_if_ready(srvrun_wtsend* w) {
+  if (!w->fin_requested) return;
+  if (!wired_sendsess_done(&w->sess)) return;
+  w->fin_requested = 0;
+  srvrun_wtsend_start_fin_now(w);
+}
+
+/* Send one slice from WT send slot w under the same gates -- or, once its
+ * own sess has nothing left to give (wired_sendsess_take), a bare-FIN
+ * round if one is pending (promoting a deferred request first). */
 static int srvrun_pump_one_wt(
     const srvrun_step_ctx* ctx, srvrun_conn* c, srvrun_wtsend* w) {
   wired_sendq_slice sl;
+  srvrun_wtsend_promote_fin_if_ready(w);
   if (!srvrun_pump_gate_ok(c, &w->sess, w->stream_credit)) return 0;
-  if (!wired_sendsess_take(&w->sess, &sl)) return 0;
-  return srvrun_send_stream_slice(
-      ctx, c, &w->sess, w->stream_id, &sl, srvrun_wt_slice_fin(w, &sl));
+  if (wired_sendsess_take(&w->sess, &sl))
+    return srvrun_send_stream_slice(
+        ctx, c, &w->sess, w->stream_id, &sl, srvrun_wt_slice_fin(w, &sl));
+  return srvrun_pump_wt_fin_only(ctx, c, w);
 }
 
 /* The WT-send half of one round-robin pass (one slice per slot, in order).
@@ -4847,14 +4941,31 @@ static void srvrun_hystart_range(
  * slot's packet-loss threshold (RFC 9002 6.1.1) and requeues in-flight
  * slices that were never actually lost. Only forward the range when it
  * actually hits something in r's own log. */
+/* 1 if [lo, hi] covers at least one of sess's own in-flight log entries,
+ * regardless of byte length -- wired_sendsess_peek_ack's own bytes==0
+ * return (a bare-FIN round's synthetic 0-byte slice, srvrun_pump_wt_fin_
+ * only) must not be mistaken for "nothing of ours was hit" the way it
+ * legitimately is for a resp[]/wtsend slot with no in-flight data at all:
+ * a 0-byte slice still needs its own wired_sendsess_ack, or its log entry
+ * never clears and the slot never reaps (wired_sendsess_done keeps seeing
+ * it as pending forever). */
+static int srvrun_cc_range_has_hit(const wired_sendsess* sess, u64 lo, u64 hi) {
+  for (usz i = 0; i < WIRED_SENDSESS_LOG; i++)
+    if (wired_sendsess_covered(&sess->log[i], lo, hi)) return 1;
+  return 0;
+}
+
 static void srvrun_cc_range(
     srvrun_conn* c, wired_sendsess* sess, u64 lo, u64 hi, u64 now_ms) {
   u64 newest = 0;
   usz bytes  = wired_sendsess_peek_ack(sess, lo, hi, &newest);
-  if (!bytes) return;
-  srvrun_rtt_note(c, now_ms - newest);
-  srvrun_hystart_range(c, sess, lo, hi, now_ms);
-  quic_cc_on_ack(&c->cc, bytes, newest, now_ms);
+  if (bytes) {
+    srvrun_rtt_note(c, now_ms - newest);
+    srvrun_hystart_range(c, sess, lo, hi, now_ms);
+    quic_cc_on_ack(&c->cc, bytes, newest, now_ms);
+  } else if (!srvrun_cc_range_has_hit(sess, lo, hi)) {
+    return;
+  }
   wired_sendsess_ack(sess, lo, hi);
 }
 

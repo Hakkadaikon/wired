@@ -459,6 +459,24 @@ int wired_server_wt_stream_reply_open(
 int wired_server_wt_stream_send(
     wired_wt_session* s, u64 stream_id, quic_span payload, int fin);
 
+/** Ends a stream opened for appending with NO further bytes: a bare FIN on
+ * an otherwise-empty final round (RFC 9000 19.8 permits a zero-length
+ * STREAM frame carrying only FIN). Use this instead of
+ * wired_server_wt_stream_send when the app has determined the stream is
+ * over but has no new bytes to send with it -- e.g. the peer's own source
+ * stream closed with no trailing data of its own on that side (a
+ * WebTransport writer's close() can arrive as its own byte-less frame,
+ * separate from the data written just before it). The send slot frees
+ * itself once this round is fully acknowledged, same as
+ * wired_server_wt_stream_send's fin=1 round.
+ * @param s the session whose connection carries the stream
+ * @param stream_id a stream opened by one of the three open_*_stream calls,
+ *   or already appended to via wired_server_wt_stream_send(fin=0)
+ * @return 1 accepted, negative when s resolves to no live connection,
+ *   stream_id names no open send slot, or the previous round is still in
+ *   flight */
+int wired_server_wt_stream_fin(wired_wt_session* s, u64 stream_id);
+
 /** Abort a stream opened for appending: queue a RESET_STREAM_AT +
  * STOP_SENDING pair on stream_id carrying error_code mapped into HTTP/3's
  * WebTransport range (draft-ietf-webtrans-http3-15 SS4.4/8.2), delivered
