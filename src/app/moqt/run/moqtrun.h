@@ -54,6 +54,21 @@ typedef struct {
    * complete SUBGROUP_HEADER+Object per stream), which never needs a
    * second round. */
   i64 (*send_uni)(wired_wt_session* s, quic_span payload);
+  /** wired_server_wt_open_uni_stream-shaped: opens a fresh uni stream
+   * WITHOUT FIN, sends payload as its first round, and keeps the stream
+   * open for further stream_send rounds -- used to start a subscriber's
+   * long-lived relay stream (the audio track's per-frame relay, unlike
+   * chat's one-shot send_uni). */
+  i64 (*open_uni_stream)(wired_wt_session* s, quic_span payload);
+  /** wired_server_wt_stream_fin-shaped: ends a stream opened via
+   * open_uni_stream/stream_send(fin=0) with no further bytes -- used when
+   * the publisher's own stream FIN arrives on a call carrying no new
+   * Object bytes of its own (moqtrun_relay_append_one's own doc: a
+   * WebTransport writer's close() can land as its own byte-less call,
+   * separate from the data written just before it, so this table's
+   * callers cannot always fold the FIN into stream_send's non-empty-
+   * payload contract). */
+  int (*stream_fin)(wired_wt_session* s, u64 stream_id);
 } wired_moqt_io;
 
 /** One subscriber recorded against the hub's track: which session, and the
@@ -64,6 +79,44 @@ typedef struct {
   u64 track_alias;
   int active; /* 1 while the subscription is Established */
 } wired_moqtrun_sub;
+
+/** Fixed capacity for a saved SUBGROUP_HEADER (draft SS11.4.2: Type +
+ * Track Alias + Group ID + optional Subgroup ID varints + optional 1-byte
+ * Publisher Priority = at most 4*9+1 = 37 bytes). */
+#define WIRED_MOQTRUN_RELAY_HDR_MAX 40
+
+/** One in-flight relayed publisher stream: which publisher-side stream
+ * (pub_stream_id) this relay follows, and -- per subscriber slot index in
+ * the owning track's subs[] -- the subscriber-side uni stream its bytes are
+ * forwarded on. Keyed by the PUBLISHER's stream id, never per-track or
+ * per-sub alone: several publisher streams can be in flight at once on one
+ * track (a real browser delivers a chat message's bytes and its FIN as two
+ * separate calls, so message N's still-open relay overlaps message N+1's
+ * data -- a single per-track/per-sub binding made N+1 append onto N's
+ * subscriber stream and N's late FIN unresolvable, wedging the
+ * subscriber's read-to-EOF forever).
+ *
+ * hdr/hdr_len keep a copy of the stream's opening SUBGROUP_HEADER bytes
+ * for subscribers that join AFTER the relay started (the audio track's one
+ * long-lived stream typically opens before any peer has subscribed): a
+ * late joiner's stream is opened carrying the saved header alone, so its
+ * decoder sees a well-formed stream head even though it missed the
+ * original opening round (moqtrun_relay_late_open). */
+typedef struct {
+  int in_use;
+  u64 pub_stream_id;
+  u8  hdr[WIRED_MOQTRUN_RELAY_HDR_MAX];
+  usz hdr_len;
+  u64 sub_stream_id[WIRED_MOQTRUN_MAX_SUBS];
+  int sub_stream_set[WIRED_MOQTRUN_MAX_SUBS];
+} wired_moqtrun_relay;
+
+/** Fixed capacity: publisher streams relayed concurrently per track. The
+ * audio track holds ONE for its whole call; chat holds one per in-flight
+ * message (open -> data rounds -> FIN, ~2 RTT) -- 4 covers a burst without
+ * meaningfully growing the peer table. A stream arriving with every slot
+ * busy is not relayed (its subscribers miss that one message). */
+#define WIRED_MOQTRUN_MAX_RELAYS 4
 
 /** Fixed capacity for the copied participant id (Track Name) recorded on
  * PUBLISH, used to match a later SUBSCRIBE to the right peer. Namespace is
@@ -92,25 +145,19 @@ typedef struct {
  * hub assigned to this slot's own PUBLISH (draft SS10.7 quic_moqsub
  * scope).
  *
- * data_stream_id/data_stream_id_set remember which QUIC stream this
- * track's SUBGROUP_HEADER was last decoded from: unlike chat (one message
- * = one fresh uni stream, closed immediately), the audio track keeps ONE
- * long-lived uni stream open for a whole call and appends further Objects
- * to it in LATER wired_moqt_on_stream_data calls that carry no header at
- * all (moqtVoiceClient.ts's sendOpusFrame writes the header only once).
- * wired_moqt_on_stream_data's own doc promises no cross-call reassembly,
- * but this is not reassembly -- it is remembering which track a stream_id
- * was already resolved to, so a later header-less call for that same
- * stream_id can skip straight to decoding Objects instead of
- * misinterpreting their bytes as a fresh SUBGROUP_HEADER. */
+ * relays[] tracks every publisher stream currently being forwarded on this
+ * track (wired_moqtrun_relay's own doc): a later wired_moqt_on_stream_data
+ * call whose stream_id matches an entry forwards its bytes straight to
+ * that entry's subscriber streams -- no SUBGROUP_HEADER re-decode (the
+ * audio track writes its header only once, on the stream's first call;
+ * later calls carry bare Objects that must not be misread as a header). */
 typedef struct {
-  int               in_use;
-  u8                name[WIRED_MOQTRUN_MAX_NAME]; /* copied Track Name */
-  usz               name_len;
-  u64               own_alias; /* Track Alias this slot's PUBLISH declared */
-  wired_moqtrun_sub subs[WIRED_MOQTRUN_MAX_SUBS];
-  u64               data_stream_id;
-  int               data_stream_id_set;
+  int                 in_use;
+  u8                  name[WIRED_MOQTRUN_MAX_NAME]; /* copied Track Name */
+  usz                 name_len;
+  u64                 own_alias; /* Track Alias this slot's PUBLISH declared */
+  wired_moqtrun_sub   subs[WIRED_MOQTRUN_MAX_SUBS];
+  wired_moqtrun_relay relays[WIRED_MOQTRUN_MAX_RELAYS];
 } wired_moqtrun_track;
 
 /** One connected participant's hub-side state: its WT session, its own

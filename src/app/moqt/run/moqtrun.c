@@ -253,16 +253,22 @@ static void moqtrun_track_clear_subs(wired_moqtrun_track* t) {
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++) t->subs[i].active = 0;
 }
 
+static void moqtrun_track_clear_relays(wired_moqtrun_track* t) {
+  for (usz r = 0; r < WIRED_MOQTRUN_MAX_RELAYS; r++) t->relays[r].in_use = 0;
+}
+
 /* Claims slot t for a PUBLISH naming name/track_alias: clears subs only on
  * a fresh (not-yet-in_use) slot, so a re-PUBLISH under the same name keeps
  * its existing subscribers (matching the prior single-track hub's
- * overwrite behavior). */
+ * overwrite behavior). Relays always clear: a (re-)PUBLISH means the
+ * publisher's old streams are gone (and freestanding memory starts
+ * unzeroed, so a fresh slot's relays hold garbage until this). */
 static void moqtrun_track_claim(
     wired_moqtrun_track* t, quic_span name, u64 track_alias) {
   if (!t->in_use) moqtrun_track_clear_subs(t);
-  t->in_use             = 1;
-  t->own_alias          = track_alias;
-  t->data_stream_id_set = 0; /* a (re-)PUBLISH always opens a fresh stream */
+  t->in_use    = 1;
+  t->own_alias = track_alias;
+  moqtrun_track_clear_relays(t);
   moqtrun_record_track_name(t, name);
 }
 
@@ -477,14 +483,9 @@ static void moqtrun_dispatch_ctl_stream(
 
 /* ===================== data-stream (Object) relay ===================== */
 
-/* Sends wire (a complete SUBGROUP_HEADER+Object stream, unmodified)
- * to one subscriber, whole, as exactly one fresh uni stream,
- * FIN'd on its only round -- io->send_uni is the one-shot
- * open+send+FIN primitive (a bare empty stream_send(..., fin=1) does NOT
- * work: wired_server_wt_stream_send never accepts an empty payload, since
- * a FIN needs a final non-empty slice to ride on). io->send_uni is
- * responsible for the WebTransport stream signal prefix, same as
- * moqtrun_send_setup. */
+/* One-shot relay of wire to one subscriber: a fresh uni stream, sent and
+ * FIN'd in a single io.send_uni call -- the whole-message-in-one-call path
+ * (a publisher stream whose data AND fin arrived together). */
 static void moqtrun_relay_to_one(
     wired_moqt_hub* hub, const wired_moqtrun_sub* sub, quic_span wire) {
   wired_moqtrun_peer* dst = &hub->peers[sub->session_idx];
@@ -496,6 +497,217 @@ static void moqtrun_relay_object(
     wired_moqt_hub* hub, wired_moqtrun_track* track, quic_span wire) {
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++)
     if (track->subs[i].active) moqtrun_relay_to_one(hub, &track->subs[i], wire);
+}
+
+/* --- relay map: one entry per in-flight publisher stream (moqtrun.h's
+ * wired_moqtrun_relay doc -- keyed by the PUBLISHER's stream id so several
+ * of one track's streams can be forwarded concurrently). --- */
+
+static int moqtrun_relay_matches(
+    const wired_moqtrun_relay* r, u64 pub_stream_id) {
+  return r->in_use && r->pub_stream_id == pub_stream_id;
+}
+
+static wired_moqtrun_relay* moqtrun_track_relay_by_stream(
+    wired_moqtrun_track* track, u64 pub_stream_id) {
+  for (usz r = 0; r < WIRED_MOQTRUN_MAX_RELAYS; r++)
+    if (moqtrun_relay_matches(&track->relays[r], pub_stream_id))
+      return &track->relays[r];
+  return 0;
+}
+
+static wired_moqtrun_relay* moqtrun_track_relay_or_null(
+    wired_moqtrun_track* track, u64 pub_stream_id) {
+  return track->in_use ? moqtrun_track_relay_by_stream(track, pub_stream_id)
+                       : 0;
+}
+
+/* Finds the relay entry (across p's tracks) already following
+ * pub_stream_id, filling *track_out with its owning track. 0 when this
+ * stream id is not being relayed (a fresh stream, or one whose relay was
+ * dropped). */
+static wired_moqtrun_relay* moqtrun_peer_relay_by_stream(
+    wired_moqtrun_peer* p, u64 pub_stream_id, wired_moqtrun_track** track_out) {
+  for (usz t = 0; t < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; t++) {
+    wired_moqtrun_relay* r =
+        moqtrun_track_relay_or_null(&p->tracks[t], pub_stream_id);
+    if (r) {
+      *track_out = &p->tracks[t];
+      return r;
+    }
+  }
+  return 0;
+}
+
+static wired_moqtrun_relay* moqtrun_relay_alloc(wired_moqtrun_track* track) {
+  for (usz r = 0; r < WIRED_MOQTRUN_MAX_RELAYS; r++)
+    if (!track->relays[r].in_use) return &track->relays[r];
+  return 0;
+}
+
+/* True when this round carries the publisher's own stream FIN with no new
+ * Object bytes of its own -- a WebTransport writer's close() can arrive as
+ * its own byte-less call, separate from the data written just before it
+ * (confirmed against a real browser: a chat message's data and its FIN
+ * landed as two distinct wired_moqt_on_stream_data calls). stream_send
+ * cannot carry this (srvrun.h: a round's payload must be non-empty), so
+ * the caller routes it to stream_fin instead. */
+static int moqtrun_is_bare_fin(quic_span wire, int fin) {
+  return wire.n == 0 && fin;
+}
+
+/* Forwards one round of publisher bytes to sub slot i's already-open relay
+ * stream: a bare FIN closes it via stream_fin (moqtrun_is_bare_fin's doc),
+ * anything else appends via stream_send with fin passed through. A
+ * stream_send rejection (previous round not yet ACKed -- srvrun.h)
+ * silently drops this one round for this subscriber: voice is
+ * loss-tolerant, and chat's rounds are paced far apart enough that in
+ * practice only voice hits it. */
+static void moqtrun_relay_forward_one(
+    wired_moqt_hub*      hub,
+    wired_wt_session*    wt,
+    wired_moqtrun_relay* relay,
+    usz                  i,
+    quic_span            wire,
+    int                  fin) {
+  if (moqtrun_is_bare_fin(wire, fin))
+    hub->io.stream_fin(wt, relay->sub_stream_id[i]);
+  else
+    hub->io.stream_send(wt, relay->sub_stream_id[i], wire, fin);
+}
+
+/* 1 iff a late open would be pointless: the round at hand already ends the
+ * stream (opening one just to close it delivers nothing), or no header was
+ * saved to open it with. */
+static int moqtrun_late_open_skip(const wired_moqtrun_relay* relay, int fin) {
+  return fin || relay->hdr_len == 0;
+}
+
+/* A subscriber that joined AFTER this relay started (its slot never
+ * opened): open its stream now, carrying the saved SUBGROUP_HEADER bytes
+ * alone -- the current round's Objects are dropped for this late joiner
+ * (voice is loss-tolerant; the next round appends normally, and the
+ * header-only first chunk is a well-formed stream head for the client's
+ * incremental decoder). */
+static void moqtrun_relay_late_open(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_peer*  dst,
+    wired_moqtrun_relay* relay,
+    usz                  i,
+    int                  fin) {
+  if (moqtrun_late_open_skip(relay, fin)) return;
+  i64 sid = hub->io.open_uni_stream(
+      dst->wt, quic_span_of(relay->hdr, relay->hdr_len));
+  if (sid < 0) return;
+  relay->sub_stream_id[i]  = (u64)sid;
+  relay->sub_stream_set[i] = 1;
+}
+
+/* One subscriber's share of a relayed round: forward to its open stream,
+ * or -- for a subscriber whose stream was never opened (it subscribed
+ * after the relay started) -- open one now (moqtrun_relay_late_open). */
+static void moqtrun_relay_append_one(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_sub*   sub,
+    wired_moqtrun_relay* relay,
+    usz                  i,
+    quic_span            wire,
+    int                  fin) {
+  wired_moqtrun_peer* dst = &hub->peers[sub->session_idx];
+  if (!dst->in_use) return;
+  if (relay->sub_stream_set[i]) {
+    moqtrun_relay_forward_one(hub, dst->wt, relay, i, wire, fin);
+    return;
+  }
+  moqtrun_relay_late_open(hub, dst, relay, i, fin);
+}
+
+static void moqtrun_relay_append_all(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_track* track,
+    wired_moqtrun_relay* relay,
+    quic_span            wire,
+    int                  fin) {
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++)
+    if (track->subs[i].active)
+      moqtrun_relay_append_one(hub, &track->subs[i], relay, i, wire, fin);
+}
+
+/* A later call on an already-relayed publisher stream: forward its bytes
+ * to every subscriber-side stream this relay opened, and free the entry
+ * once the publisher's FIN has been forwarded (the subscriber streams are
+ * closed by that same round). */
+static void moqtrun_relay_continue(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_track* track,
+    wired_moqtrun_relay* relay,
+    quic_span            wire,
+    int                  fin) {
+  moqtrun_relay_append_all(hub, track, relay, wire, fin);
+  if (fin) relay->in_use = 0;
+}
+
+/* Opens sub slot i's relay stream carrying wire as its first round and
+ * records the id for later moqtrun_relay_append_one calls. An open failure
+ * (no free send slot on that connection) leaves the slot unset: later
+ * rounds skip this subscriber (moqtrun_relay_sub_ready). */
+static void moqtrun_relay_open_one(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_sub*   sub,
+    wired_moqtrun_relay* relay,
+    usz                  i,
+    quic_span            wire) {
+  wired_moqtrun_peer* dst = &hub->peers[sub->session_idx];
+  if (!dst->in_use) return;
+  i64 sid = hub->io.open_uni_stream(dst->wt, wire);
+  if (sid < 0) return;
+  relay->sub_stream_id[i]  = (u64)sid;
+  relay->sub_stream_set[i] = 1;
+}
+
+static void moqtrun_relay_open_all(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_track* track,
+    wired_moqtrun_relay* relay,
+    quic_span            wire) {
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++)
+    if (track->subs[i].active)
+      moqtrun_relay_open_one(hub, &track->subs[i], relay, i, wire);
+}
+
+/* Saves the stream's SUBGROUP_HEADER bytes on relay for late-joining
+ * subscribers (moqtrun_relay_late_open). data starts with the header --
+ * this is only called for a stream that already classified and decoded as
+ * SUBGROUP, so a decode failure here cannot really happen; it just leaves
+ * hdr_len 0 (late joiners are then skipped rather than sent garbage). */
+static void moqtrun_relay_save_hdr(wired_moqtrun_relay* relay, quic_span data) {
+  usz                 off = 0;
+  quic_moqdata_subhdr hdr;
+  relay->hdr_len = 0;
+  if (quic_moqdata_subhdr_take(data, &off, &hdr) != QUIC_MOQDATA_OK) return;
+  if (off > WIRED_MOQTRUN_RELAY_HDR_MAX) return;
+  quic_memcpy(relay->hdr, data.p, off);
+  relay->hdr_len = off;
+}
+
+/* Starts relaying a fresh publisher stream that stays open past this call
+ * (fin=0): claims a relay entry keyed by pub_stream_id and opens one
+ * keep-open uni stream per subscriber carrying wire as the first round.
+ * Every entry busy -> this stream is not relayed at all (its subscribers
+ * miss it; WIRED_MOQTRUN_MAX_RELAYS is sized so this only happens under a
+ * burst the room's own pacing never produces). */
+static void moqtrun_relay_start(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_track* track,
+    u64                  pub_stream_id,
+    quic_span            wire) {
+  wired_moqtrun_relay* relay = moqtrun_relay_alloc(track);
+  if (!relay) return;
+  relay->in_use        = 1;
+  relay->pub_stream_id = pub_stream_id;
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++) relay->sub_stream_set[i] = 0;
+  moqtrun_relay_save_hdr(relay, wire);
+  moqtrun_relay_open_all(hub, track, relay, wire);
 }
 
 /* Decodes the SUBGROUP_HEADER + the one Object this subset always sends
@@ -542,31 +754,6 @@ static wired_moqtrun_track* moqtrun_track_by_alias(
   return 0;
 }
 
-static int moqtrun_track_bound_to_stream(
-    const wired_moqtrun_track* track, u64 stream_id) {
-  return track->in_use && track->data_stream_id_set &&
-         track->data_stream_id == stream_id;
-}
-
-/* p's track slot already bound to stream_id by an earlier
- * wired_moqt_on_stream_data call on this peer, else 0 -- see
- * wired_moqtrun_track's data_stream_id doc. */
-static wired_moqtrun_track* moqtrun_track_by_stream_id(
-    wired_moqtrun_peer* p, u64 stream_id) {
-  for (usz t = 0; t < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; t++)
-    if (moqtrun_track_bound_to_stream(&p->tracks[t], stream_id))
-      return &p->tracks[t];
-  return 0;
-}
-
-/* Classifies a FRESH data stream's leading Stream Type varint and, for
- * SUBGROUP_HEADER, decodes the header + every following Object (moqtrun_
- * decode_object_loop), resolving the header's Track Alias to one of p's
- * (chat/audio) track slots -- else 0 (not a SUBGROUP stream, header
- * decode failure, zero Objects decoded, or an unknown Track Alias). On a
- * resolved track, remembers stream_id on it so later header-less calls on
- * the SAME stream_id skip straight to moqtrun_resolve_known_stream_track
- * instead of misreading Object bytes as a fresh header. */
 /* SUBGROUP_HEADER + every following Object, for a stream already
  * confirmed to classify as SUBGROUP -- split out of moqtrun_resolve_fresh_
  * stream_track to keep that function's own branch count at the CCN gate. */
@@ -579,56 +766,60 @@ static wired_moqtrun_track* moqtrun_decode_fresh_subgroup(
   return moqtrun_track_by_alias(p, hdr.track_alias);
 }
 
-static void moqtrun_bind_track_to_stream(
-    wired_moqtrun_track* track, u64 stream_id) {
-  track->data_stream_id     = stream_id;
-  track->data_stream_id_set = 1;
-}
-
+/* Classifies a FRESH data stream's leading Stream Type varint and, for
+ * SUBGROUP_HEADER, decodes the header + every following Object,
+ * resolving the header's Track Alias to one of p's (chat/audio) track
+ * slots -- else 0 (not a SUBGROUP stream, header decode failure, zero
+ * Objects decoded, or an unknown Track Alias). */
 static wired_moqtrun_track* moqtrun_resolve_fresh_stream_track(
-    wired_moqtrun_peer* p, quic_span data, u64 stream_id) {
+    wired_moqtrun_peer* p, quic_span data) {
   usz classify_off = 0;
   int kind         = quic_moqdata_classify(data, &classify_off);
   if (kind != QUIC_MOQDATA_STREAM_SUBGROUP) return 0;
-  wired_moqtrun_track* track = moqtrun_decode_fresh_subgroup(p, data);
-  if (track) moqtrun_bind_track_to_stream(track, stream_id);
-  return track;
+  return moqtrun_decode_fresh_subgroup(p, data);
 }
 
-/* Continues a data stream already bound to a track (moqtrun_track_by_
- * stream_id): unlike a fresh stream, `data` here carries NO
- * SUBGROUP_HEADER -- moqtVoiceClient.ts's sendOpusFrame writes the header
- * only on its first call, every later call on the same long-lived stream
- * appends bare Objects -- so decoding starts straight at offset 0. hdr.type
- * stays 0 (never a real SUBGROUP_HEADER Type): moqtrun_decode_object_loop
- * only reads hdr->type for its Properties bit, and every voice stream this
- * hub relays uses SUBGROUP_HEADER_TYPE (moqtClient.ts, Properties off), so
- * type 0's "no Properties" reading matches. Returns the track on at least
- * one decoded Object, else 0. */
-static wired_moqtrun_track* moqtrun_resolve_known_stream_track(
-    wired_moqtrun_track* track, quic_span data) {
-  quic_moqdata_subhdr hdr = {0};
-  usz                 off = 0;
-  if (moqtrun_decode_object_loop(data, &off, &hdr) == 0) return 0;
-  return track;
+/* A publisher stream seen for the first time: resolve its track from the
+ * SUBGROUP_HEADER, then either relay it whole as one-shot streams (its FIN
+ * arrived with the data -- nothing more will follow) or start a keep-open
+ * relay entry for the rounds still to come (moqtrun_relay_start). Padding
+ * streams, other classifications, and unknown Track Aliases are discarded:
+ * classification-level session closes are the sess layer's job. */
+static void moqtrun_dispatch_fresh_stream(
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* p,
+    u64                 stream_id,
+    quic_span           data,
+    int                 fin) {
+  wired_moqtrun_track* track = moqtrun_resolve_fresh_stream_track(p, data);
+  if (!track) return;
+  if (fin) {
+    moqtrun_relay_object(hub, track, data);
+    return;
+  }
+  moqtrun_relay_start(hub, track, stream_id, data);
 }
 
-/* draft 3.4/11.4.2: relay a data stream's Objects verbatim to the
- * subscribers of the track its Track Alias names. A stream_id already
- * bound to a track (wired_moqtrun_track's own doc -- the audio track's
- * long-lived stream, appended to across many calls) skips classification
- * and header decoding entirely; any other stream_id is treated as fresh
- * and classified/header-decoded as usual. Padding streams (0x132B3E28),
- * any other classification, and an unknown Track Alias are discarded
- * here: classification-level session closes are the sess layer's job,
- * driven elsewhere from the same decoded quic_moqsess_event. */
+/* draft 3.4/11.4.2: relay a data stream's bytes verbatim to the
+ * subscribers of the track its Track Alias names. A stream_id already in
+ * the relay map (an earlier call on this same publisher stream) forwards
+ * straight to its recorded subscriber streams -- no re-classification, no
+ * header re-decode (later calls carry bare Objects, or nothing at all for
+ * a bare FIN). Anything else is treated as fresh. */
 static void moqtrun_dispatch_data_stream(
-    wired_moqt_hub* hub, wired_moqtrun_peer* p, u64 stream_id, quic_span data) {
-  wired_moqtrun_track* known = moqtrun_track_by_stream_id(p, stream_id);
-  wired_moqtrun_track* track =
-      known ? moqtrun_resolve_known_stream_track(known, data)
-            : moqtrun_resolve_fresh_stream_track(p, data, stream_id);
-  if (track) moqtrun_relay_object(hub, track, data);
+    wired_moqt_hub*     hub,
+    wired_moqtrun_peer* p,
+    u64                 stream_id,
+    quic_span           data,
+    int                 fin) {
+  wired_moqtrun_track* track = 0;
+  wired_moqtrun_relay* relay =
+      moqtrun_peer_relay_by_stream(p, stream_id, &track);
+  if (relay) {
+    moqtrun_relay_continue(hub, track, relay, data, fin);
+    return;
+  }
+  moqtrun_dispatch_fresh_stream(hub, p, stream_id, data, fin);
 }
 
 /* ===================== public entry points ===================== */
@@ -639,7 +830,6 @@ void wired_moqt_on_stream_data(
     u64               stream_id,
     quic_span         data,
     int               fin) {
-  (void)fin;
   wired_moqt_hub*     hub = (wired_moqt_hub*)app_ctx;
   wired_moqtrun_peer* p   = moqtrun_find_by_wt(hub, s);
   if (!p) return;
@@ -648,5 +838,5 @@ void wired_moqt_on_stream_data(
     moqtrun_dispatch_ctl_stream(hub, p, peer_idx, data);
     return;
   }
-  moqtrun_dispatch_data_stream(hub, p, stream_id, data);
+  moqtrun_dispatch_data_stream(hub, p, stream_id, data, fin);
 }
