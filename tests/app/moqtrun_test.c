@@ -16,9 +16,10 @@
 #define MOQTRUN_TEST_MAX_PAYLOAD 256
 
 typedef struct {
-  int               kind; /* 1=open_bidi_stream 3=stream_send 4=send_uni */
+  int kind; /* 1=open_bidi_stream 3=stream_send 4=send_uni
+             * 5=open_uni_stream 6=stream_fin */
   wired_wt_session* s;
-  u64               stream_id; /* stream_send only */
+  u64               stream_id; /* stream_send/stream_fin only */
   int               fin;       /* stream_send only */
   u8                payload[MOQTRUN_TEST_MAX_PAYLOAD];
   usz               payload_len;
@@ -27,10 +28,16 @@ typedef struct {
 static moqtrun_test_call g_calls[MOQTRUN_TEST_MAX_CALLS];
 static usz               g_n_calls;
 static i64               g_next_stream_id;
+/* When >0, the next N stream_send calls are recorded (so a test can still
+ * see they happened) but return 0 (rejected) -- simulates the "previous
+ * round not yet ACKed" refusal (srvrun.h's wired_server_wt_stream_send
+ * doc) without a real QUIC stack. */
+static int g_stream_send_reject_n;
 
 static void moqtrun_test_reset(void) {
-  g_n_calls        = 0;
-  g_next_stream_id = 100;
+  g_n_calls              = 0;
+  g_next_stream_id       = 100;
+  g_stream_send_reject_n = 0;
 }
 
 static void moqtrun_test_record(
@@ -55,17 +62,37 @@ static i64 moqtrun_test_open_bidi_stream(
 static int moqtrun_test_stream_send(
     wired_wt_session* s, u64 stream_id, quic_span payload, int fin) {
   moqtrun_test_record(3, s, stream_id, fin, payload);
+  if (g_stream_send_reject_n > 0) {
+    g_stream_send_reject_n--;
+    return 0;
+  }
   return 1;
 }
 
 /* wired_server_wt_open_uni-shaped: one-shot open+send+FIN, the primitive
- * moqtrun_relay_to_one uses (never open_uni_stream + a bare stream_send
- * (fin=1) -- wired_server_wt_stream_send rejects an empty payload, so that
- * shape can never actually close the stream in production). */
+ * chat's relay uses (moqtrun_relay_open_new's fin=1 branch). */
 static i64 moqtrun_test_send_uni(wired_wt_session* s, quic_span payload) {
   i64 sid = g_next_stream_id++;
   moqtrun_test_record(4, s, (u64)sid, 1, payload);
   return sid;
+}
+
+/* wired_server_wt_open_uni_stream-shaped: opens without FIN, the primitive
+ * audio's relay uses to start a subscriber's long-lived stream
+ * (moqtrun_relay_open_new's fin=0 branch). */
+static i64 moqtrun_test_open_uni_stream(
+    wired_wt_session* s, quic_span payload) {
+  i64 sid = g_next_stream_id++;
+  moqtrun_test_record(5, s, (u64)sid, 0, payload);
+  return sid;
+}
+
+/* wired_server_wt_stream_fin-shaped: ends stream_id with no further bytes
+ * -- the primitive moqtrun_relay_append_existing uses for a bare FIN
+ * (moqtrun_is_bare_fin). */
+static int moqtrun_test_stream_fin(wired_wt_session* s, u64 stream_id) {
+  moqtrun_test_record(6, s, stream_id, 1, quic_span_of(0, 0));
+  return 1;
 }
 
 static wired_moqt_io moqtrun_test_io(void) {
@@ -73,6 +100,8 @@ static wired_moqt_io moqtrun_test_io(void) {
   io.open_bidi_stream = moqtrun_test_open_bidi_stream;
   io.stream_send      = moqtrun_test_stream_send;
   io.send_uni         = moqtrun_test_send_uni;
+  io.open_uni_stream  = moqtrun_test_open_uni_stream;
+  io.stream_fin       = moqtrun_test_stream_fin;
   return io;
 }
 
@@ -314,7 +343,7 @@ static void test_moqtrun_object_relay_to_subscriber(void) {
       quic_span_of(
           g_moqt_data_subgroup_stream_basic,
           G_MOQT_DATA_SUBGROUP_STREAM_BASIC_LEN),
-      0);
+      1 /* chat: publisher's one-shot stream, FIN'd */);
 
   CHECK(moqtrun_test_count_kind(4) == 1);
   const moqtrun_test_call* sent = moqtrun_test_last_kind(4);
@@ -343,7 +372,7 @@ static void test_moqtrun_object_relay_preserves_bytes(void) {
       quic_span_of(
           g_moqt_data_subgroup_stream_basic,
           G_MOQT_DATA_SUBGROUP_STREAM_BASIC_LEN),
-      0);
+      1 /* chat: publisher's one-shot stream, FIN'd */);
 
   const moqtrun_test_call* sent = moqtrun_test_last_kind(4);
   CHECK(sent->payload_len == G_MOQT_DATA_SUBGROUP_STREAM_BASIC_LEN);
@@ -380,13 +409,13 @@ static void test_moqtrun_object_relay_two_subscribers_two_objects(void) {
       quic_span_of(
           g_moqt_data_subgroup_stream_basic,
           G_MOQT_DATA_SUBGROUP_STREAM_BASIC_LEN),
-      0);
+      1 /* chat: publisher's one-shot stream, FIN'd */);
   wired_moqt_on_stream_data(
       &hub, SESS_A, 1000,
       quic_span_of(
           g_moqt_data_subgroup_stream_basic,
           G_MOQT_DATA_SUBGROUP_STREAM_BASIC_LEN),
-      0);
+      1);
 
   /* 2 subscribers * 2 Objects = 4 fresh streams, each one send_uni call
    * (open+send+FIN together), every allocated stream id distinct (no
@@ -738,14 +767,15 @@ static void test_moqtrun_chat_object_relays_only_to_chat_subscriber(void) {
       quic_span_of(
           g_moqt_data_subgroup_stream_basic,
           G_MOQT_DATA_SUBGROUP_STREAM_BASIC_LEN),
-      0);
+      1 /* chat: publisher's one-shot stream, FIN'd */);
 
   CHECK(moqtrun_test_count_kind(4) == 1);
   CHECK(moqtrun_test_last_kind(4)->s == SESS_B);
 }
 
 /* An Object on the audio track's data stream (a distinct Track Alias)
- * relays only to the audio subscriber, not the chat one. */
+ * relays only to the audio subscriber, not the chat one. Audio opens a
+ * long-lived relay stream (kind 5), not chat's one-shot send_uni. */
 static void test_moqtrun_audio_object_relays_only_to_audio_subscriber(void) {
   moqtrun_test_reset();
   wired_moqt_hub hub;
@@ -773,8 +803,8 @@ static void test_moqtrun_audio_object_relays_only_to_audio_subscriber(void) {
   wired_moqt_on_stream_data(
       &hub, SESS_A, 999, quic_span_of(audio_obj, audio_obj_n), 0);
 
-  CHECK(moqtrun_test_count_kind(4) == 1);
-  CHECK(moqtrun_test_last_kind(4)->s == SESS_C);
+  CHECK(moqtrun_test_count_kind(5) == 1);
+  CHECK(moqtrun_test_last_kind(5)->s == SESS_C);
 }
 
 /* An Object whose Track Alias matches neither of the publisher's declared
@@ -956,9 +986,10 @@ static void test_moqtrun_decode_loop_stops_at_violation(void) {
 }
 
 /* A multi-Object audio-track stream still relays whole, in exactly one
- * send_uni call, unmodified byte-for-byte -- the loop only changes how
- * many Objects are validated before relaying, not the relay's own
- * transparency. */
+ * open_uni_stream call (audio's long-lived relay stream, opened without
+ * FIN since the publisher's own stream has not FIN'd), unmodified
+ * byte-for-byte -- the loop only changes how many Objects are validated
+ * before relaying, not the relay's own transparency. */
 static void test_moqtrun_multi_object_stream_relays_in_one_send_uni(void) {
   moqtrun_test_reset();
   wired_moqt_hub hub;
@@ -980,10 +1011,10 @@ static void test_moqtrun_multi_object_stream_relays_in_one_send_uni(void) {
   moqtrun_test_reset();
   wired_moqt_on_stream_data(&hub, SESS_A, 999, quic_span_of(stream, total), 0);
 
-  CHECK(moqtrun_test_count_kind(4) == 1);
-  const moqtrun_test_call* sent = moqtrun_test_last_kind(4);
+  CHECK(moqtrun_test_count_kind(5) == 1);
+  const moqtrun_test_call* sent = moqtrun_test_last_kind(5);
   CHECK(sent->s == SESS_B);
-  CHECK(sent->fin == 1);
+  CHECK(sent->fin == 0);
   CHECK(sent->payload_len == total);
   for (usz i = 0; i < total; i++) CHECK(sent->payload[i] == stream[i]);
 }
@@ -1023,7 +1054,8 @@ static void test_moqtrun_data_stream_continues_across_calls_without_header(
   moqtrun_test_reset();
   wired_moqt_on_stream_data(
       &hub, SESS_A, 999, quic_span_of(first, first_off), 0);
-  CHECK(moqtrun_test_count_kind(4) == 1); /* first call already relays */
+  CHECK(
+      moqtrun_test_count_kind(5) == 1); /* first call opens the relay stream */
 
   /* Second call, SAME stream_id (999): no header, just one more Object. */
   u8        second[MOQTRUN_TEST_MAX_PAYLOAD];
@@ -1037,8 +1069,8 @@ static void test_moqtrun_data_stream_continues_across_calls_without_header(
   wired_moqt_on_stream_data(
       &hub, SESS_A, 999, quic_span_of(second, second_off), 0);
 
-  CHECK(moqtrun_test_count_kind(4) == 1);
-  const moqtrun_test_call* sent = moqtrun_test_last_kind(4);
+  CHECK(moqtrun_test_count_kind(3) == 1); /* second call appends */
+  const moqtrun_test_call* sent = moqtrun_test_last_kind(3);
   CHECK(sent->s == SESS_B);
   CHECK(sent->payload_len == second_off);
   for (usz i = 0; i < second_off; i++) CHECK(sent->payload[i] == second[i]);
@@ -1076,6 +1108,423 @@ static void test_moqtrun_unbound_stream_id_relays_nowhere(void) {
   CHECK(g_n_calls == 0);
 }
 
+/* ===================== 8. audio long-lived relay stream
+ * ===================== */
+
+/* Establishes SESS_A publishing chat+audio and SESS_B subscribed to audio,
+ * returning ctrl_a (SESS_A's control stream, for further PUBLISHes/data). */
+static u64 moqtrun_test_setup_audio_relay(wired_moqt_hub* hub) {
+  u64 ctrl_a = moqtrun_test_publish_alice(hub);
+  moqtrun_test_publish_alice_audio(hub, ctrl_a);
+  wired_moqt_on_session(hub, SESS_B, quic_span_of(0, 0), quic_span_of(0, 0));
+  u64 ctrl_b = moqtrun_test_last_kind(1)->stream_id;
+  u8  sub_audio[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz sub_audio_n = moqtrun_test_subscribe_audio_msg(sub_audio);
+  wired_moqt_on_stream_data(
+      hub, SESS_B, ctrl_b, quic_span_of(sub_audio, sub_audio_n), 0);
+  return ctrl_a;
+}
+
+/* The first Object relayed on the audio track opens the subscriber's relay
+ * stream (open_uni_stream, not send_uni) without FIN; a second Object on the
+ * SAME publisher stream_id appends to that SAME stream_id via stream_send,
+ * still without FIN -- no second open_uni_stream call. */
+static void test_moqtrun_audio_first_object_opens_then_appends(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  moqtrun_test_setup_audio_relay(&hub);
+
+  moqtrun_test_reset();
+  u8  first[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz first_n = moqtrun_test_subgroup_with_alias(0x02, first);
+  wired_moqt_on_stream_data(
+      &hub, SESS_A, 999, quic_span_of(first, first_n), 0 /* fin */);
+
+  CHECK(moqtrun_test_count_kind(5) == 1); /* opened, not send_uni */
+  CHECK(moqtrun_test_count_kind(4) == 0);
+  const moqtrun_test_call* opened = moqtrun_test_last_kind(5);
+  CHECK(opened->fin == 0);
+  u64 relay_stream_id = opened->stream_id;
+
+  u8        payload1 = 9;
+  quic_span p1       = quic_span_of(&payload1, 1);
+  u8        second[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz       second_off = 0;
+  quic_moqdata_obj_put(
+      quic_mspan_of(second, sizeof second), &second_off, 1, p1);
+
+  moqtrun_test_reset();
+  wired_moqt_on_stream_data(
+      &hub, SESS_A, 999, quic_span_of(second, second_off), 0 /* fin */);
+
+  CHECK(moqtrun_test_count_kind(5) == 0); /* no second stream opened */
+  CHECK(moqtrun_test_count_kind(3) == 1);
+  const moqtrun_test_call* appended = moqtrun_test_last_kind(3);
+  CHECK(appended->stream_id == relay_stream_id);
+  CHECK(appended->fin == 0);
+}
+
+/* When the publisher's own stream FINs, the subscriber's relay stream is
+ * closed (stream_send fin=1) in the same call -- and the NEXT Object (on a
+ * fresh publisher stream_id) opens a brand new relay stream rather than
+ * appending to the closed one. */
+static void test_moqtrun_audio_publisher_fin_closes_and_reopens(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  moqtrun_test_setup_audio_relay(&hub);
+
+  u8  first[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz first_n = moqtrun_test_subgroup_with_alias(0x02, first);
+  wired_moqt_on_stream_data(
+      &hub, SESS_A, 999, quic_span_of(first, first_n), 0 /* fin */);
+
+  moqtrun_test_reset();
+  wired_moqt_on_stream_data(
+      &hub, SESS_A, 999, quic_span_of(first, first_n), 1 /* fin: close */);
+
+  CHECK(moqtrun_test_count_kind(3) == 1);
+  CHECK(moqtrun_test_last_kind(3)->fin == 1);
+  CHECK(moqtrun_test_count_kind(5) == 0);
+
+  /* A fresh publisher stream_id after the close opens a fresh relay
+   * stream, not an append to the now-closed one. */
+  moqtrun_test_reset();
+  wired_moqt_on_stream_data(
+      &hub, SESS_A, 1001, quic_span_of(first, first_n), 0 /* fin */);
+  CHECK(moqtrun_test_count_kind(5) == 1);
+  CHECK(moqtrun_test_count_kind(3) == 0);
+}
+
+/* Chat keeps its pre-existing one-shot-per-Object shape: every relayed chat
+ * Object still goes out via send_uni (fresh stream, FIN'd immediately),
+ * never open_uni_stream/stream_send -- a regression check that the audio
+ * long-lived-stream path did not change chat's relay. */
+static void test_moqtrun_chat_still_uses_send_uni_every_object(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  moqtrun_test_publish_alice(&hub);
+  wired_moqt_on_session(&hub, SESS_B, quic_span_of(0, 0), quic_span_of(0, 0));
+  u64 ctrl_b = moqtrun_test_last_kind(1)->stream_id;
+  wired_moqt_on_stream_data(
+      &hub, SESS_B, ctrl_b,
+      quic_span_of(g_moqt_ctl_subscribe_basic, G_MOQT_CTL_SUBSCRIBE_BASIC_LEN),
+      0);
+
+  moqtrun_test_reset();
+  wired_moqt_on_stream_data(
+      &hub, SESS_A, 999,
+      quic_span_of(
+          g_moqt_data_subgroup_stream_basic,
+          G_MOQT_DATA_SUBGROUP_STREAM_BASIC_LEN),
+      1 /* chat's publisher stream is always one-shot, FIN'd */);
+  wired_moqt_on_stream_data(
+      &hub, SESS_A, 1000,
+      quic_span_of(
+          g_moqt_data_subgroup_stream_basic,
+          G_MOQT_DATA_SUBGROUP_STREAM_BASIC_LEN),
+      1);
+
+  CHECK(moqtrun_test_count_kind(4) == 2);
+  CHECK(moqtrun_test_count_kind(5) == 0);
+  CHECK(moqtrun_test_count_kind(3) == 0);
+}
+
+/* A stream_send rejection (0 -- the previous round not yet ACKed) drops
+ * that one Object silently: no crash, and the relay stream stays bound for
+ * the NEXT Object, which appends normally. */
+static void test_moqtrun_stream_send_rejection_drops_frame_not_fatal(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  moqtrun_test_setup_audio_relay(&hub);
+
+  u8  first[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz first_n = moqtrun_test_subgroup_with_alias(0x02, first);
+  wired_moqt_on_stream_data(&hub, SESS_A, 999, quic_span_of(first, first_n), 0);
+  u64 relay_stream_id = moqtrun_test_last_kind(5)->stream_id;
+
+  u8        payload1 = 9;
+  quic_span p1       = quic_span_of(&payload1, 1);
+  u8        second[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz       second_off = 0;
+  quic_moqdata_obj_put(
+      quic_mspan_of(second, sizeof second), &second_off, 1, p1);
+
+  g_stream_send_reject_n = 1; /* the next stream_send call is refused */
+  wired_moqt_on_stream_data(
+      &hub, SESS_A, 999, quic_span_of(second, second_off), 0);
+  CHECK(
+      moqtrun_test_last_kind(3)->stream_id == relay_stream_id); /* attempted */
+
+  /* a 3rd Object still appends to the SAME stream, unaffected by the
+   * earlier rejection. */
+  u8        payload2 = 10;
+  quic_span p2       = quic_span_of(&payload2, 1);
+  u8        third[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz       third_off = 0;
+  quic_moqdata_obj_put(quic_mspan_of(third, sizeof third), &third_off, 1, p2);
+
+  moqtrun_test_reset();
+  wired_moqt_on_stream_data(
+      &hub, SESS_A, 999, quic_span_of(third, third_off), 0);
+  CHECK(moqtrun_test_count_kind(3) == 1);
+  CHECK(moqtrun_test_last_kind(3)->stream_id == relay_stream_id);
+  CHECK(moqtrun_test_count_kind(5) == 0); /* still no re-open */
+}
+
+/* Two subscribers to the same audio track each get their OWN relay stream
+ * (distinct stream ids, both bound independently) -- confirming per-sub,
+ * not per-track, send_stream_id state. */
+static void test_moqtrun_audio_two_subscribers_independent_streams(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  u64 ctrl_a = moqtrun_test_publish_alice(&hub);
+  moqtrun_test_publish_alice_audio(&hub, ctrl_a);
+
+  wired_moqt_on_session(&hub, SESS_B, quic_span_of(0, 0), quic_span_of(0, 0));
+  u64 ctrl_b = moqtrun_test_last_kind(1)->stream_id;
+  u8  sub_b[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz sub_b_n = moqtrun_test_subscribe_audio_msg(sub_b);
+  wired_moqt_on_stream_data(
+      &hub, SESS_B, ctrl_b, quic_span_of(sub_b, sub_b_n), 0);
+
+  wired_moqt_on_session(&hub, SESS_C, quic_span_of(0, 0), quic_span_of(0, 0));
+  u64 ctrl_c = moqtrun_test_last_kind(1)->stream_id;
+  u8  sub_c[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz sub_c_n = moqtrun_test_subscribe_audio_msg(sub_c);
+  wired_moqt_on_stream_data(
+      &hub, SESS_C, ctrl_c, quic_span_of(sub_c, sub_c_n), 0);
+
+  moqtrun_test_reset();
+  u8  first[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz first_n = moqtrun_test_subgroup_with_alias(0x02, first);
+  wired_moqt_on_stream_data(&hub, SESS_A, 999, quic_span_of(first, first_n), 0);
+
+  CHECK(moqtrun_test_count_kind(5) == 2); /* one open per subscriber */
+  u64 sid_b = 0, sid_c = 0;
+  for (usz i = 0; i < g_n_calls; i++) {
+    if (g_calls[i].kind != 5) continue;
+    if (g_calls[i].s == SESS_B) sid_b = g_calls[i].stream_id;
+    if (g_calls[i].s == SESS_C) sid_c = g_calls[i].stream_id;
+  }
+  CHECK(sid_b != 0 && sid_c != 0 && sid_b != sid_c);
+
+  u8        payload1 = 9;
+  quic_span p1       = quic_span_of(&payload1, 1);
+  u8        second[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz       second_off = 0;
+  quic_moqdata_obj_put(
+      quic_mspan_of(second, sizeof second), &second_off, 1, p1);
+
+  moqtrun_test_reset();
+  wired_moqt_on_stream_data(
+      &hub, SESS_A, 999, quic_span_of(second, second_off), 0);
+  CHECK(moqtrun_test_count_kind(3) == 2); /* each subscriber's own append */
+  for (usz i = 0; i < g_n_calls; i++) {
+    if (g_calls[i].kind != 3) continue;
+    if (g_calls[i].s == SESS_B) CHECK(g_calls[i].stream_id == sid_b);
+    if (g_calls[i].s == SESS_C) CHECK(g_calls[i].stream_id == sid_c);
+  }
+}
+
+/* A real browser's write()+close() can land as TWO separate wired_moqt_
+ * on_stream_data calls: the message bytes (fin=0), then a byte-less
+ * fin=1 call carrying only the stream's own FIN (confirmed against a real
+ * WebTransport client -- see moqtrun_is_bare_fin's doc). Even for chat
+ * (whose publisher stream is conceptually one-shot), the FIRST call's
+ * fin=0 means it cannot yet be relayed via send_uni -- it must open the
+ * subscriber's stream and wait, same as audio's first frame -- and the
+ * bare-FIN second call must close that stream via stream_fin, not
+ * stream_send (which never accepts an empty payload). */
+static void test_moqtrun_chat_split_data_then_bare_fin_relays_and_closes(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  moqtrun_test_publish_alice(&hub);
+  wired_moqt_on_session(&hub, SESS_B, quic_span_of(0, 0), quic_span_of(0, 0));
+  u64 ctrl_b = moqtrun_test_last_kind(1)->stream_id;
+  wired_moqt_on_stream_data(
+      &hub, SESS_B, ctrl_b,
+      quic_span_of(g_moqt_ctl_subscribe_basic, G_MOQT_CTL_SUBSCRIBE_BASIC_LEN),
+      0);
+
+  moqtrun_test_reset();
+  wired_moqt_on_stream_data(
+      &hub, SESS_A, 999,
+      quic_span_of(
+          g_moqt_data_subgroup_stream_basic,
+          G_MOQT_DATA_SUBGROUP_STREAM_BASIC_LEN),
+      0 /* data, no fin yet */);
+
+  CHECK(moqtrun_test_count_kind(5) == 1); /* opened, held open */
+  CHECK(moqtrun_test_count_kind(4) == 0); /* not yet a one-shot send_uni */
+  u64 relay_stream_id = moqtrun_test_last_kind(5)->stream_id;
+
+  moqtrun_test_reset();
+  wired_moqt_on_stream_data(
+      &hub, SESS_A, 999, quic_span_of(0, 0), 1 /* bare FIN, no bytes */);
+
+  CHECK(moqtrun_test_count_kind(6) == 1); /* stream_fin, not stream_send */
+  CHECK(moqtrun_test_last_kind(6)->stream_id == relay_stream_id);
+  CHECK(moqtrun_test_count_kind(3) == 0);
+}
+
+/* Same split as above, but for audio's long-lived stream mid-call: a
+ * bare-FIN call on a stream that already appended at least one Object
+ * still closes via stream_fin, not a rejected empty stream_send. */
+static void test_moqtrun_audio_split_data_then_bare_fin_closes(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  moqtrun_test_setup_audio_relay(&hub);
+
+  u8  first[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz first_n = moqtrun_test_subgroup_with_alias(0x02, first);
+  wired_moqt_on_stream_data(&hub, SESS_A, 999, quic_span_of(first, first_n), 0);
+  u64 relay_stream_id = moqtrun_test_last_kind(5)->stream_id;
+
+  moqtrun_test_reset();
+  wired_moqt_on_stream_data(&hub, SESS_A, 999, quic_span_of(0, 0), 1);
+
+  CHECK(moqtrun_test_count_kind(6) == 1);
+  CHECK(moqtrun_test_last_kind(6)->stream_id == relay_stream_id);
+  CHECK(moqtrun_test_count_kind(3) == 0);
+
+  /* The next Object (fresh publisher stream_id) opens a new relay stream,
+   * confirming the closed one was actually unbound. */
+  moqtrun_test_reset();
+  wired_moqt_on_stream_data(
+      &hub, SESS_A, 1001, quic_span_of(first, first_n), 0);
+  CHECK(moqtrun_test_count_kind(5) == 1);
+}
+
+/* Two chat messages whose publisher streams OVERLAP: msg2's data arrives
+ * before msg1's bare FIN (a real browser sends each message's data and FIN
+ * as separate calls, and cross-stream delivery order is not guaranteed --
+ * under concurrent voice traffic this interleaving happens routinely).
+ * Each message must ride its OWN relay stream, and EACH stream must be
+ * closed by its own publisher's FIN -- the pre-relay-map design bound one
+ * stream per track/sub, so msg2 got appended onto msg1's still-open relay
+ * stream and msg1's late FIN resolved to nothing, wedging the subscriber's
+ * read-to-EOF forever (observed as near-100% chat loss with voice on). */
+static void test_moqtrun_interleaved_chat_messages_close_independently(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  moqtrun_test_publish_alice(&hub);
+  wired_moqt_on_session(&hub, SESS_B, quic_span_of(0, 0), quic_span_of(0, 0));
+  u64 ctrl_b = moqtrun_test_last_kind(1)->stream_id;
+  wired_moqt_on_stream_data(
+      &hub, SESS_B, ctrl_b,
+      quic_span_of(g_moqt_ctl_subscribe_basic, G_MOQT_CTL_SUBSCRIBE_BASIC_LEN),
+      0);
+
+  moqtrun_test_reset();
+  /* msg1 data (fin=0, publisher stream 999) -> opens relay stream A. */
+  wired_moqt_on_stream_data(
+      &hub, SESS_A, 999,
+      quic_span_of(
+          g_moqt_data_subgroup_stream_basic,
+          G_MOQT_DATA_SUBGROUP_STREAM_BASIC_LEN),
+      0);
+  CHECK(moqtrun_test_count_kind(5) == 1);
+  u64 relay_a = moqtrun_test_last_kind(5)->stream_id;
+
+  /* msg2 data (fin=0, publisher stream 1003) arrives BEFORE msg1's FIN ->
+   * must open its OWN relay stream B, never append onto A. (No reset here:
+   * moqtrun_test_reset would rewind the stub's stream-id counter and hand B
+   * the same id as A, breaking the identity check below.) */
+  wired_moqt_on_stream_data(
+      &hub, SESS_A, 1003,
+      quic_span_of(
+          g_moqt_data_subgroup_stream_basic,
+          G_MOQT_DATA_SUBGROUP_STREAM_BASIC_LEN),
+      0);
+  CHECK(moqtrun_test_count_kind(5) == 2);
+  CHECK(moqtrun_test_count_kind(3) == 0); /* no append onto A */
+  u64 relay_b = moqtrun_test_last_kind(5)->stream_id;
+  CHECK(relay_b != relay_a);
+
+  /* msg1's late bare FIN (999) still closes A -- not B, not nothing. */
+  moqtrun_test_reset();
+  wired_moqt_on_stream_data(&hub, SESS_A, 999, quic_span_of(0, 0), 1);
+  CHECK(moqtrun_test_count_kind(6) == 1);
+  CHECK(moqtrun_test_last_kind(6)->stream_id == relay_a);
+
+  /* msg2's bare FIN (1003) closes B. */
+  moqtrun_test_reset();
+  wired_moqt_on_stream_data(&hub, SESS_A, 1003, quic_span_of(0, 0), 1);
+  CHECK(moqtrun_test_count_kind(6) == 1);
+  CHECK(moqtrun_test_last_kind(6)->stream_id == relay_b);
+}
+
+/* A subscriber that joins AFTER the audio publisher's long-lived stream
+ * already started (the real app's normal order: voice starts streaming the
+ * moment a client connects, before any peer has subscribed) still gets a
+ * relay stream -- opened late, carrying the saved SUBGROUP_HEADER alone,
+ * with later rounds appending normally. Without the late open, the whole
+ * call stayed silent for everyone who wasn't subscribed at the instant of
+ * the very first Opus frame (observed as decodedFrameCounts=0 in e2e). */
+static void test_moqtrun_late_subscriber_gets_late_opened_stream(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  u64 ctrl_a = moqtrun_test_publish_alice(&hub);
+  moqtrun_test_publish_alice_audio(&hub, ctrl_a);
+
+  /* First voice frame arrives with NO subscriber yet: nothing opens, but
+   * the relay entry (and its saved header) is recorded. */
+  u8  first[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz first_n = moqtrun_test_subgroup_with_alias(0x02, first);
+  moqtrun_test_reset();
+  wired_moqt_on_stream_data(&hub, SESS_A, 999, quic_span_of(first, first_n), 0);
+  CHECK(moqtrun_test_count_kind(5) == 0);
+
+  /* Now SESS_B subscribes to the audio track. */
+  wired_moqt_on_session(&hub, SESS_B, quic_span_of(0, 0), quic_span_of(0, 0));
+  u64 ctrl_b = moqtrun_test_last_kind(1)->stream_id;
+  u8  sub_audio[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz sub_audio_n = moqtrun_test_subscribe_audio_msg(sub_audio);
+  wired_moqt_on_stream_data(
+      &hub, SESS_B, ctrl_b, quic_span_of(sub_audio, sub_audio_n), 0);
+
+  /* Next frame (bare Object, same publisher stream): late-opens B's relay
+   * stream carrying the saved SUBGROUP_HEADER alone. The header here is
+   * the golden stream's first 2 bytes (Type 0x70 rewritten alias 0x02 --
+   * Group ID rides mode 0b00's explicit field within those bytes for this
+   * golden vector's small values). */
+  u8        payload1 = 9;
+  quic_span p1       = quic_span_of(&payload1, 1);
+  u8        second[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz       second_off = 0;
+  quic_moqdata_obj_put(
+      quic_mspan_of(second, sizeof second), &second_off, 1, p1);
+
+  moqtrun_test_reset();
+  wired_moqt_on_stream_data(
+      &hub, SESS_A, 999, quic_span_of(second, second_off), 0);
+  CHECK(moqtrun_test_count_kind(5) == 1); /* late open, header only */
+  const moqtrun_test_call* opened = moqtrun_test_last_kind(5);
+  CHECK(opened->s == SESS_B);
+  CHECK(opened->payload_len > 0);
+  CHECK(opened->payload_len < first_n); /* header alone, no Objects */
+  for (usz i = 0; i < opened->payload_len; i++)
+    CHECK(opened->payload[i] == first[i]); /* the stream's own header bytes */
+  u64 late_sid = opened->stream_id;
+
+  /* The round after that appends to the late-opened stream normally. */
+  moqtrun_test_reset();
+  wired_moqt_on_stream_data(
+      &hub, SESS_A, 999, quic_span_of(second, second_off), 0);
+  CHECK(moqtrun_test_count_kind(3) == 1);
+  CHECK(moqtrun_test_last_kind(3)->stream_id == late_sid);
+  CHECK(moqtrun_test_count_kind(5) == 0);
+}
+
 void test_moqtrun(void) {
   test_moqtrun_on_session_sends_setup();
   test_moqtrun_on_session_twice_is_idempotent();
@@ -1106,4 +1555,13 @@ void test_moqtrun(void) {
   test_moqtrun_multi_object_stream_relays_in_one_send_uni();
   test_moqtrun_data_stream_continues_across_calls_without_header();
   test_moqtrun_unbound_stream_id_relays_nowhere();
+  test_moqtrun_audio_first_object_opens_then_appends();
+  test_moqtrun_audio_publisher_fin_closes_and_reopens();
+  test_moqtrun_chat_still_uses_send_uni_every_object();
+  test_moqtrun_stream_send_rejection_drops_frame_not_fatal();
+  test_moqtrun_audio_two_subscribers_independent_streams();
+  test_moqtrun_chat_split_data_then_bare_fin_relays_and_closes();
+  test_moqtrun_audio_split_data_then_bare_fin_closes();
+  test_moqtrun_interleaved_chat_messages_close_independently();
+  test_moqtrun_late_subscriber_gets_late_opened_stream();
 }
