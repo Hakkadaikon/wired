@@ -40,12 +40,22 @@ export function createVoiceReceivePipeline(
   // people talk at once.
   const decoders = new Map<string, Decoder>();
 
+  // A decoder that hit a fatal error is CLOSED for good (WebCodecs: every
+  // later decode() throws InvalidStateError) -- drop it so the next drain
+  // builds a fresh one instead of throwing on every frame forever.
+  const dropDecoder = (senderKey: string) => {
+    decoders.delete(senderKey);
+  };
+
   const decoderFor = (senderKey: string): Decoder => {
     let decoder = decoders.get(senderKey);
     if (!decoder) {
       decoder = new deps.AudioDecoderCtor({
         output: (frame) => deps.enqueuePlayback(senderKey, frame),
-        error: (err) => deps.onDecodeError?.(err),
+        error: (err) => {
+          dropDecoder(senderKey);
+          deps.onDecodeError?.(err);
+        },
       });
       // sampleRate/numberOfChannels are required members of
       // AudioDecoderConfig; Opus is defined at 48 kHz and the mic pipeline
@@ -74,7 +84,18 @@ export function createVoiceReceivePipeline(
       for (const seq of seqs) {
         const payload = bySeq?.get(seq);
         bySeq?.delete(seq);
-        if (payload) decoder.decode(payload);
+        if (!payload) continue;
+        try {
+          decoder.decode(payload);
+        } catch (err) {
+          // decode() on an already-closed codec throws synchronously (the
+          // error callback races this batch); drop the decoder so the next
+          // drain recreates it, and abandon the rest of the batch -- every
+          // remaining frame would throw the same way.
+          dropDecoder(senderKey);
+          deps.onDecodeError?.(err);
+          return;
+        }
       }
     },
   };

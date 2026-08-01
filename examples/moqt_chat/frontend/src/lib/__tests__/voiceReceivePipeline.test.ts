@@ -124,4 +124,63 @@ describe("voiceReceivePipeline", () => {
     expect(() => pipeline.drainAndDecode(PEER)).not.toThrow();
     expect(enqueue).not.toHaveBeenCalled();
   });
+
+  // WebCodecs: a decoder that hit a fatal error is CLOSED for good -- every
+  // later decode() throws InvalidStateError. Both discovery paths (the async
+  // error callback, and a synchronous decode() throw racing it) must drop
+  // the decoder so the next drain builds a fresh one, instead of throwing on
+  // every frame for the rest of the call (observed as a page-error storm in
+  // the 4-client voice e2e).
+  it("recreates a sender's decoder after its error callback fired", () => {
+    const jb = new JitterBufferManager(OWN, 8);
+    const decoder = fakeDecoder("error");
+    const pipeline = createVoiceReceivePipeline({
+      jitterBuffer: jb,
+      AudioDecoderCtor: decoder.ctor as never,
+      enqueuePlayback: vi.fn(),
+      onDecodeError: vi.fn(),
+    });
+
+    pipeline.handleObjectPayload(payload(1, [1]), PEER);
+    pipeline.drainAndDecode(PEER); // error callback fires -> decoder dropped
+    pipeline.handleObjectPayload(payload(2, [2]), PEER);
+    pipeline.drainAndDecode(PEER);
+
+    expect(decoder.ctor).toHaveBeenCalledTimes(2); // rebuilt, not reused
+  });
+
+  it("survives a synchronous decode() throw and recreates the decoder on the next drain", () => {
+    const jb = new JitterBufferManager(OWN, 8);
+    let outputCb: ((frame: unknown) => void) | null = null;
+    let calls = 0;
+    const ctor = vi.fn(function (this: unknown, init: { output: (f: unknown) => void }) {
+      outputCb = init.output;
+      return {
+        configure: vi.fn(),
+        decode: vi.fn(() => {
+          calls++;
+          if (calls === 1) throw new DOMException("closed codec", "InvalidStateError");
+          outputCb?.({ decoded: true });
+        }),
+      };
+    });
+    const enqueue = vi.fn();
+    const onDecodeError = vi.fn();
+    const pipeline = createVoiceReceivePipeline({
+      jitterBuffer: jb,
+      AudioDecoderCtor: ctor as never,
+      enqueuePlayback: enqueue,
+      onDecodeError,
+    });
+
+    pipeline.handleObjectPayload(payload(1, [1]), PEER);
+    expect(() => pipeline.drainAndDecode(PEER)).not.toThrow();
+    expect(onDecodeError).toHaveBeenCalledTimes(1);
+
+    pipeline.handleObjectPayload(payload(2, [2]), PEER);
+    pipeline.drainAndDecode(PEER);
+
+    expect(ctor).toHaveBeenCalledTimes(2); // fresh decoder after the throw
+    expect(enqueue).toHaveBeenCalledWith(PEER, { decoded: true });
+  });
 });
