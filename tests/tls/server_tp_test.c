@@ -1,3 +1,4 @@
+#include "app/http3/server/srvloop/srvloop.h" /* WIRED_SRVLOOP_WT_BUF_CAP */
 #include "test.h"
 
 /* RFC 9000 18.2. The DCID/SCID the build is told to advertise. */
@@ -52,13 +53,24 @@ static void test_server_tp_ids_and_values(void) {
 
   CHECK(parse_int(tp, QUIC_TP_MAX_IDLE_TIMEOUT, &v) && v == 30000);
   CHECK(parse_int(tp, QUIC_TP_INITIAL_MAX_DATA, &v) && v == 1048576);
+  /* An advertised per-stream window is a promise to buffer that many bytes
+   * past delivery. bidi_local and uni land in srvloop's fixed WT reassembly
+   * windows, so they must never exceed WIRED_SRVLOOP_WT_BUF_CAP: a larger
+   * advertisement let a compliant sender outrun the buffer, whose overflow
+   * bytes were clipped-yet-ACKed -- an unfillable stream gap that froze
+   * delivery for good (the moqt_chat voice track died 10 s into every
+   * call this way). server_tp.c cannot include srvloop.h itself (tls layer
+   * sits below app), so this test is where the two constants are pinned
+   * together. */
   CHECK(
       parse_int(tp, QUIC_TP_INITIAL_MAX_STREAM_DATA_BIDI_LOCAL, &v) &&
-      v == 262144);
+      v == WIRED_SRVLOOP_WT_BUF_CAP);
   CHECK(
       parse_int(tp, QUIC_TP_INITIAL_MAX_STREAM_DATA_BIDI_REMOTE, &v) &&
       v == 262144);
-  CHECK(parse_int(tp, QUIC_TP_INITIAL_MAX_STREAM_DATA_UNI, &v) && v == 262144);
+  CHECK(
+      parse_int(tp, QUIC_TP_INITIAL_MAX_STREAM_DATA_UNI, &v) &&
+      v == WIRED_SRVLOOP_WT_BUF_CAP);
   CHECK(parse_int(tp, QUIC_TP_INITIAL_MAX_STREAMS_BIDI, &v) && v == 100);
   CHECK(parse_int(tp, QUIC_TP_INITIAL_MAX_STREAMS_UNI, &v) && v == 100);
 }
