@@ -34,6 +34,12 @@ const DECODE_COUNTER_INIT_SCRIPT = `
     window.__uniStreamOpenCount++;
     return realCreateUni.apply(this, args);
   };
+  // 5s-bucketed decode counts: reveals whether the receive rate holds
+  // steady over a long call or decays/stops ("voice dies after a while").
+  window.__decodeTimeline = [];
+  setInterval(() => {
+    window.__decodeTimeline.push(window.__decodedFrameCount);
+  }, 5000);
 `;
 
 async function joinVoiceClient(browser, pageUrl, certHash, participantId) {
@@ -149,13 +155,16 @@ export async function runChatVoiceLoadTest({
   const pageErrors = Object.fromEntries(clients.map((c) => [c.tag, c.errors]));
   const decodedFrameCounts = {};
   const uniStreamOpenCounts = {};
+  const decodeTimelines = {};
   for (const c of clients) {
     try {
       decodedFrameCounts[c.tag] = await c.page.evaluate(() => window.__decodedFrameCount ?? 0);
       uniStreamOpenCounts[c.tag] = await c.page.evaluate(() => window.__uniStreamOpenCount ?? 0);
+      decodeTimelines[c.tag] = await c.page.evaluate(() => window.__decodeTimeline ?? []);
     } catch {
       decodedFrameCounts[c.tag] = null;
       uniStreamOpenCounts[c.tag] = null;
+      decodeTimelines[c.tag] = null;
     }
   }
 
@@ -168,5 +177,6 @@ export async function runChatVoiceLoadTest({
     clientCount,
     decodedFrameCounts,
     uniStreamOpenCounts,
+    decodeTimelines,
   };
 }
