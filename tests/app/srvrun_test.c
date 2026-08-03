@@ -10341,13 +10341,16 @@ static void test_srvrun_wt_open_uni_stream_appends_then_finishes(void) {
       wired_server_wt_stream_send(
           &c->wt, 7, quic_span_of(sr_wtsend_more, sizeof sr_wtsend_more), 0) ==
       -1);
+  CHECK(c->stat_wtsend_busy == 1); /* the dropped round is counted */
   CHECK(sr_wtsend_pump_recv_stream(&f, cfd, sfd, &srv, &sf));
   CHECK(sf.stream_id == 7);
   CHECK(sf.offset == 0);
   CHECK(sf.fin == 0); /* round end, but the stream stays open */
   sr_wtsend_ack_all_inflight(&acfg, c, &c->wtsend[0].sess, 0);
-  /* an empty round has no slice for a FIN to ride on */
+  /* an empty round has no slice for a FIN to ride on -- a misuse
+   * rejection, NOT a busy drop, so the busy counter stays put */
   CHECK(wired_server_wt_stream_send(&c->wt, 7, quic_span_of(0, 0), 1) == -1);
+  CHECK(c->stat_wtsend_busy == 1);
   CHECK(
       wired_server_wt_stream_send(
           &c->wt, 7, quic_span_of(sr_wtsend_more, sizeof sr_wtsend_more), 0) ==
@@ -10364,11 +10367,23 @@ static void test_srvrun_wt_open_uni_stream_appends_then_finishes(void) {
   CHECK(sr_wtsend_pump_recv_stream(&f, cfd, sfd, &srv, &sf));
   CHECK(sf.offset == sizeof sr_wtsend_hello + sizeof sr_wtsend_more);
   CHECK(sf.fin == 1); /* the true stream end */
+  CHECK(c->stat_wtsend_ok == 2 && c->stat_wtsend_flow == 0);
   sr_wtsend_ack_all_inflight(&acfg, c, &c->wtsend[0].sess, 0);
   srvrun_reap_wtsends(c);
   CHECK(c->wtsend[0].in_use == 0);
   wired_udp_close(cfd);
   wired_udp_close(sfd);
+}
+
+/* recovery:metrics_updated is rate-limited to one snapshot per interval per
+ * connection: due fires, stays quiet inside the window, fires again once
+ * the window has passed. */
+static void test_srvrun_metrics_due_rate_limited(void) {
+  static srvrun_conn mc;
+  mc.metrics_emit_ms = 0;
+  CHECK(srvrun_metrics_due(&mc, 5000) == 1);
+  CHECK(srvrun_metrics_due(&mc, 5000 + SRVRUN_METRICS_INTERVAL_MS - 1) == 0);
+  CHECK(srvrun_metrics_due(&mc, 5000 + SRVRUN_METRICS_INTERVAL_MS) == 1);
 }
 
 /* WIRE: wired_server_wt_stream_fin, called while the round it must wait on
@@ -12176,6 +12191,7 @@ void test_srvrun(void) {
   test_srvrun_wt_open_uni_streams_payload_on_wire();
   test_srvrun_wt_open_bidi_allocates_ids_and_holds_view();
   test_srvrun_wt_open_uni_stream_appends_then_finishes();
+  test_srvrun_metrics_due_rate_limited();
   test_srvrun_wt_stream_fin_deferred_until_round_acked();
   test_srvrun_wt_stream_fin_immediate_when_round_already_done();
   test_srvrun_wt_stream_open_variants_mark_append();

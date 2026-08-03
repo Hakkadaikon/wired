@@ -63,6 +63,7 @@
 #include "transport/recovery/congestion/cc/pacing.h"
 #include "transport/recovery/detect/recovery/pto.h"
 #include "transport/recovery/detect/recovery/rtt.h"
+#include "transport/recovery/stats/stats.h"
 #include "transport/stream/data/appdata/stream_send.h"
 #include "transport/stream/data/maxstreams/maxstreams.h"
 
@@ -444,6 +445,16 @@ typedef struct {
    * connection (wired_server_wt_open_uni/open_bidi/stream_reply), pumped/
    * ACKed/probed alongside resp[] under the same connection-wide gates. */
   srvrun_wtsend wtsend[SRVRUN_WT_SEND_SLOTS];
+  /** Diagnostic counters for wired_server_wt_stream_send: rounds appended
+   * (ok), live rounds refused only because the previous round was still
+   * unACKed (busy -- the round the caller then drops), and rounds refused
+   * by WT session flow control (flow). Cumulative, surfaced ~1/s via the
+   * qlog recovery:metrics_updated record (srvrun_qlog_metrics). */
+  u64 stat_wtsend_ok;
+  u64 stat_wtsend_busy;
+  u64 stat_wtsend_flow;
+  /** Monotonic ms of the last recovery:metrics_updated qlog emit. */
+  u64 metrics_emit_ms;
   /** RFC 9000 2.1: how many server-initiated uni streams this connection
    * has opened past the H3 control stream (id 3), so the next uni id is
    * 7 + 4 * wt_uni_opened -- ids only ever climb, a freed send slot never
@@ -508,6 +519,10 @@ typedef struct {
  * still fires close to on time even on a fast link (RFC 9002 6.2's own PTO
  * floor is far below this). */
 #define SRVRUN_PTO_MS 25
+/* How often srvrun_qlog_metrics snapshots one connection's recovery state
+ * into the qlog (recovery:metrics_updated): frequent enough to plot a
+ * voice run's RTT/cwnd/drop counters, rare enough not to bloat the file. */
+#define SRVRUN_METRICS_INTERVAL_MS 1000
 /* RFC 9000 18.2's default when the peer's own transport parameter isn't
  * tracked (srvrun does not parse the client's max_ack_delay yet -- YAGNI
  * until a deployment needs a non-default value). */
@@ -2974,14 +2989,29 @@ static void srvrun_wtsend_append_round(
   w->append_open = fin == 0;
 }
 
+/* 1 iff this rejected append was a live round refused only because the
+ * previous round is still unACKed -- the busy case whose round the caller
+ * then drops -- as opposed to a misuse rejection (unknown/closed slot,
+ * empty round), so stat_wtsend_busy counts real drops only. */
+static int srvrun_wtsend_busy_reject(const srvrun_wtsend* w, usz len) {
+  return srvrun_wtsend_open_slot(w) && len != 0;
+}
+
 int wired_server_wt_stream_send(
     wired_wt_session* s, u64 stream_id, quic_span payload, int fin) {
   srvrun_conn*   c    = srvrun_session_conn(s);
   int            sidx = wt_session_slot_or_absent(c, s);
   srvrun_wtsend* w;
-  if (!wt_reply_flow_ok(c, sidx, s, payload.n)) return -1;
+  if (!wt_reply_flow_ok(c, sidx, s, payload.n)) {
+    c->stat_wtsend_flow++;
+    return -1;
+  }
   w = srvrun_wtsend_find(c, stream_id);
-  if (!srvrun_wtsend_appendable(w, payload.n)) return -1;
+  if (!srvrun_wtsend_appendable(w, payload.n)) {
+    c->stat_wtsend_busy += (u64)srvrun_wtsend_busy_reject(w, payload.n);
+    return -1;
+  }
+  c->stat_wtsend_ok++;
   wired_wt_session_note_data_sent(s, payload.n);
   srvrun_wtsend_append_round(w, payload, fin);
   return 1;
@@ -5213,6 +5243,64 @@ static void srvrun_reap_wtsends(srvrun_conn* c) {
     if (srvrun_wtsend_finished(&c->wtsend[i])) c->wtsend[i].in_use = 0;
 }
 
+/* Sum of receive-window overflow drops across this connection's WT stream
+ * reassembly slots (bidi + uni), for the metrics snapshot below. Counts the
+ * slots currently claimed -- a released slot's count leaves the sum. */
+static u64 srvrun_wtwin_dropped(const srvrun_conn* c) {
+  u64 total = 0;
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_STREAMS; i++)
+    total += c->l.wt_streams[i].win.dropped_bytes;
+  for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_UNI_STREAMS; i++)
+    total += c->l.wt_uni_streams[i].win.dropped_bytes;
+  return total;
+}
+
+/* Snapshot for the qlog recovery:metrics_updated record: RFC 9002 recovery
+ * state (quic_stats) plus this connection's WT diagnostic counters. */
+static void srvrun_metrics_fill(
+    const srvrun_conn* c, wired_qlogevent_metrics_in* m) {
+  quic_stats_rtt rtt;
+  quic_stats_cc  cc;
+  quic_stats_rtt_get(&c->rtt, &rtt);
+  quic_stats_cc_get(&c->cc, &cc);
+  m->smoothed_rtt    = rtt.smoothed_rtt;
+  m->cwnd            = cc.cwnd;
+  m->bytes_in_flight = srvrun_inflight_bytes_all(c);
+  m->wtsend_ok       = c->stat_wtsend_ok;
+  m->wtsend_busy     = c->stat_wtsend_busy;
+  m->wtsend_flow     = c->stat_wtsend_flow;
+  m->wtwin_drop      = srvrun_wtwin_dropped(c);
+}
+
+/* 1 once per SRVRUN_METRICS_INTERVAL_MS per connection, arming the next
+ * window as a side effect. */
+static int srvrun_metrics_due(srvrun_conn* c, u64 now_ms) {
+  if (now_ms - c->metrics_emit_ms < SRVRUN_METRICS_INTERVAL_MS) return 0;
+  c->metrics_emit_ms = now_ms;
+  return 1;
+}
+
+/* 1 iff a metrics record should be written this step: a qlog path is
+ * configured and this connection's interval has elapsed (arming the next
+ * window as a side effect). */
+static int srvrun_metrics_emit_due(const srvrun_step_ctx* ctx, srvrun_conn* c) {
+  return ctx->cfg->qlog_path && srvrun_metrics_due(c, ctx->now_ms);
+}
+
+/* qlog recovery:metrics_updated for one connection, ~1/s (time is srvrun's
+ * own monotonic now_ms, the same clock the PTO deadlines run on). No-op
+ * without a qlog path. */
+static void srvrun_qlog_metrics(const srvrun_step_ctx* ctx, srvrun_conn* c) {
+  char                       rec[256];
+  usz                        n;
+  wired_qlogevent_metrics_in m;
+  if (!srvrun_metrics_emit_due(ctx, c)) return;
+  srvrun_metrics_fill(c, &m);
+  n = wired_qlogevent_metrics(rec, sizeof rec, ctx->now_ms, &m);
+  if (n)
+    wired_qlog_append(ctx->cfg->qlog_path, quic_span_of((const u8*)rec, n));
+}
+
 static void srvrun_sess_on_step(const srvrun_step_ctx* ctx, int slot) {
   srvrun_conn* c = &ctx->st->conns[slot];
   srvrun_feed_acks(ctx, ctx->cfg, c);
@@ -5229,6 +5317,7 @@ static void srvrun_sess_on_step(const srvrun_step_ctx* ctx, int slot) {
   srvrun_pump_sess(ctx, slot);
   srvrun_pump_datagram(ctx, c);
   srvrun_ku_discard_stale(c, ctx->now_ms);
+  srvrun_qlog_metrics(ctx, c);
 }
 
 /* 1 if any resp[] slot is in use -- a connection with at least one response
