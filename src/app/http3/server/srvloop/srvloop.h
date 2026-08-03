@@ -201,6 +201,11 @@ typedef struct {
   usz range_n;  /**< number of disjoint ranges currently tracked */
   usz frontier; /**< contiguous bytes from base, i.e. ranges[0].hi when
                  * ranges[0].lo == 0, else 0 */
+  /** Cumulative bytes dropped at accept time because they landed past the
+   * granted window (receive-buffer overflow). Diagnostic only, never reset;
+   * stale below-base duplicates are NOT counted (they were already
+   * delivered, nothing was lost). */
+  u64 dropped_bytes;
 } wired_srvloop_wt_window;
 
 /** One WebTransport bidi stream's cross-datagram reassembly state (draft-
