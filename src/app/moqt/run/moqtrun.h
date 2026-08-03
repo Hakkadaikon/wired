@@ -229,6 +229,12 @@ typedef struct {
    * WIRED_MOQTRUN_RELAY_FRAG_MAX (each degrades to a torn frame on that one
    * stream -- moqtrun_relay_save_frag). Diagnostic only, never reset. */
   u64 stat_frag_drop;
+  /** Cumulative relay-round outcomes at the true loss site
+   * (moqtrun_relay_forward_one): rounds appended to a subscriber stream
+   * (sent) vs rounds dropped for one subscriber because stream_send refused
+   * them (drop -- the previous round was still unACKed). Diagnostic only. */
+  u64 stat_relay_sent;
+  u64 stat_relay_drop;
 } wired_moqt_hub;
 
 /** Zero-initialize hub and record the io table it will send through. */

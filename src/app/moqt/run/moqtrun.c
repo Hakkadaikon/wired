@@ -31,7 +31,10 @@ static wired_moqtrun_peer* moqtrun_alloc(wired_moqt_hub* hub) {
 
 void wired_moqt_init(wired_moqt_hub* hub, wired_moqt_io io) {
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_SESSIONS; i++) hub->peers[i].in_use = 0;
-  hub->io = io;
+  hub->io              = io;
+  hub->stat_frag_drop  = 0;
+  hub->stat_relay_sent = 0;
+  hub->stat_relay_drop = 0;
 }
 
 /* SS10 common envelope (Type vi64 + 16-bit Length + Body): every control
@@ -562,8 +565,8 @@ static int moqtrun_is_bare_fin(quic_span wire, int fin) {
 /* Forwards one round of publisher bytes to sub slot i's already-open relay
  * stream: a bare FIN closes it via stream_fin (moqtrun_is_bare_fin's doc),
  * anything else appends via stream_send with fin passed through. A
- * stream_send rejection (previous round not yet ACKed -- srvrun.h)
- * silently drops this one round for this subscriber: voice is
+ * stream_send rejection (previous round not yet ACKed -- srvrun.h) drops
+ * this one round for this subscriber, counted on the hub: voice is
  * loss-tolerant, and chat's rounds are paced far apart enough that in
  * practice only voice hits it. */
 static void moqtrun_relay_forward_one(
@@ -573,10 +576,14 @@ static void moqtrun_relay_forward_one(
     usz                  i,
     quic_span            wire,
     int                  fin) {
-  if (moqtrun_is_bare_fin(wire, fin))
+  if (moqtrun_is_bare_fin(wire, fin)) {
     hub->io.stream_fin(wt, relay->sub_stream_id[i]);
+    return;
+  }
+  if (hub->io.stream_send(wt, relay->sub_stream_id[i], wire, fin) == 1)
+    hub->stat_relay_sent++;
   else
-    hub->io.stream_send(wt, relay->sub_stream_id[i], wire, fin);
+    hub->stat_relay_drop++;
 }
 
 /* 1 iff a late open would be pointless: the round at hand already ends the
