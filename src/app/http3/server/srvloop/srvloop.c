@@ -690,6 +690,7 @@ void wired_srvloop_wt_window_accept(
   usz avail   = wt_window_avail_at(lo, WIRED_SRVLOOP_WT_BUF_CAP);
   *accepted_n = kept < avail ? kept : avail;
   *rel_off    = (usz)lo;
+  win->dropped_bytes += kept - *accepted_n;
   if (*accepted_n) wt_window_insert(win, lo, lo + *accepted_n);
 }
 

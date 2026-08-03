@@ -1600,6 +1600,22 @@ static void test_srvloop_wt_window_boundary_at_cap(void) {
   CHECK(accepted == 0); /* entirely beyond the window: dropped, not crashed */
 }
 
+/* OVERFLOW COUNTER: bytes truncated because they land past the granted
+ * window accumulate in dropped_bytes (cumulative diagnostic); in-window
+ * writes leave it untouched. */
+static void test_srvloop_wt_window_counts_overflow_drops(void) {
+  wired_srvloop_wt_window w = {0};
+  usz                     rel_off, accepted;
+  wired_srvloop_wt_window_accept(&w, 0, 3, &rel_off, &accepted);
+  CHECK(w.dropped_bytes == 0);
+  wired_srvloop_wt_window_accept(
+      &w, WIRED_SRVLOOP_WT_BUF_CAP - 1, 3, &rel_off, &accepted);
+  CHECK(accepted == 1 && w.dropped_bytes == 2);
+  wired_srvloop_wt_window_accept(
+      &w, WIRED_SRVLOOP_WT_BUF_CAP + 10, 5, &rel_off, &accepted);
+  CHECK(accepted == 0 && w.dropped_bytes == 7);
+}
+
 /* SLIDE: once delivered_to reaches the current frontier, sliding moves base
  * forward by the frontier and frees that much room at buf's front -- a
  * later write at the (now-freed) offset succeeds where it would have been
@@ -1635,7 +1651,8 @@ static void test_srvloop_wt_window_stale_write_dropped(void) {
   wired_srvloop_wt_window_slide(&w, buf, sizeof buf, 10);
   CHECK(w.base == 10);
   wired_srvloop_wt_window_accept(&w, 3, 4, &rel_off, &accepted);
-  CHECK(accepted == 0); /* [3,7) is entirely below base 10 -- stale */
+  CHECK(accepted == 0);        /* [3,7) is entirely below base 10 -- stale */
+  CHECK(w.dropped_bytes == 0); /* a stale dup is not an overflow drop */
 }
 
 /* MULTI-WINDOW (RFC 9000 2.2): a stream several times WIRED_SRVLOOP_WT_BUF_
@@ -3921,6 +3938,7 @@ void test_srvloop(void) {
   test_srvloop_wt_window_in_order_advances_frontier();
   test_srvloop_wt_window_gap_then_fill_advances_frontier();
   test_srvloop_wt_window_boundary_at_cap();
+  test_srvloop_wt_window_counts_overflow_drops();
   test_srvloop_wt_window_slide_frees_room();
   test_srvloop_wt_window_stale_write_dropped();
   test_srvloop_wt_window_spans_several_windows_in_order();
