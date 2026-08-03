@@ -9,6 +9,7 @@
 
 import type { JitterBufferManager } from "./jitterBuffer";
 import type { VoiceObjectPayload } from "./moqtVoiceWire";
+import { voiceTap } from "./voiceTap";
 
 type Decoder = { configure: (config: unknown) => void; decode: (chunk: unknown) => void };
 
@@ -68,6 +69,7 @@ export function createVoiceReceivePipeline(
 
   return {
     handleObjectPayload: (payload, senderKey) => {
+      voiceTap({ dir: "recv", seq: payload.seq, src: senderKey, t: performance.now() });
       deps.jitterBuffer.push(senderKey, payload.seq);
       let bySeq = payloadBySeq.get(senderKey);
       if (!bySeq) {
@@ -85,6 +87,9 @@ export function createVoiceReceivePipeline(
         const payload = bySeq?.get(seq);
         bySeq?.delete(seq);
         if (!payload) continue;
+        // The 20ms drain (useMoqtChat.ts) calls this; the seq is only in
+        // scope here, so the drain-side tap lives here rather than the hook.
+        voiceTap({ dir: "drain", seq, src: senderKey, t: performance.now() });
         try {
           decoder.decode(payload);
         } catch (err) {

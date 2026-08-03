@@ -30,6 +30,7 @@ import {
   voiceObjectSeqInit,
   type VoiceObjectPayload,
 } from "./moqtVoiceWire";
+import { voiceTap } from "./voiceTap";
 
 const AUDIO_ALIAS_OFFSET = BigInt(CANDIDATE_PARTICIPANT_IDS.length);
 
@@ -99,7 +100,11 @@ export class MoqtVoiceClient {
    * unavailable. Callers must serialize calls (micPipeline.ts's sendGate)
    * -- this method does not lock the writer itself. */
   async sendOpusFrame(payload: Uint8Array): Promise<void> {
-    const object = encodeVoiceObjectMessage(0n, { seq: this.#seq++, opus: payload });
+    const seq = this.#seq++;
+    const object = encodeVoiceObjectMessage(0n, { seq, opus: payload });
+    // & 0xffff matches the wire's own u16 wrap (encodeVoiceObjectPayload),
+    // so the receive side's tap sees the same seq value.
+    voiceTap({ dir: "send", seq: seq & 0xffff, t: performance.now() });
     if (!this.#writer) {
       const wt = this.#chat.webTransport;
       if (!wt) return;

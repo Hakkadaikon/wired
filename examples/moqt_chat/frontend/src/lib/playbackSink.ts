@@ -7,6 +7,8 @@
 // concurrent speakers overlap in playback exactly as they do in real life,
 // and each sender's own playhead still keeps their own frames back-to-back
 // and gapless.
+import { voiceTap } from "./voiceTap";
+
 export function createPlaybackSink(
   ctx: AudioContext,
 ): (senderKey: string, frame: unknown) => void {
@@ -24,6 +26,14 @@ export function createPlaybackSink(
     src.buffer = buf;
     src.connect(ctx.destination);
     const playhead = Math.max(playheads.get(senderKey) ?? 0, ctx.currentTime);
+    // seq doesn't survive decoding (AudioDecoder emits bare AudioData), so
+    // this reports only the scheduling lag time series; lag is milliseconds.
+    voiceTap({
+      dir: "play",
+      seq: -1,
+      t: performance.now(),
+      lag: (playhead - ctx.currentTime) * 1000,
+    });
     src.start(playhead);
     playheads.set(senderKey, playhead + buf.duration);
   };
