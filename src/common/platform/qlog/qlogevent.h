@@ -29,4 +29,25 @@ usz wired_qlogevent_packet_lost(char* out, usz outcap, u64 time, u64 pn);
 usz wired_qlogevent_conn_state(
     char* out, usz outcap, u64 time, const char* state);
 
+/**
+ * Input snapshot for wired_qlogevent_metrics: RFC 9002 recovery state
+ * (smoothed_rtt in microseconds, cwnd and bytes_in_flight in bytes) plus the
+ * connection's cumulative WebTransport counters — appended send rounds
+ * (wtsend_ok), rounds rejected while the previous round was still unACKed
+ * (wtsend_busy), rounds rejected by session flow control (wtsend_flow), and
+ * receive-window bytes dropped on buffer overflow (wtwin_drop).
+ */
+typedef struct {
+  u64 smoothed_rtt;
+  u64 cwnd;
+  u64 bytes_in_flight;
+  u64 wtsend_ok;
+  u64 wtsend_busy;
+  u64 wtsend_flow;
+  u64 wtwin_drop;
+} wired_qlogevent_metrics_in;
+
+usz wired_qlogevent_metrics(
+    char* out, usz outcap, u64 time, const wired_qlogevent_metrics_in* m);
+
 #endif

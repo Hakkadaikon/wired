@@ -46,14 +46,29 @@ static void test_qlogevent_conn_state(void) {
       "\"closed\"}"));
 }
 
+static void test_qlogevent_metrics(void) {
+  char                       out[256] = {0};
+  wired_qlogevent_metrics_in m        = {30000, 14720, 2400, 500, 12, 3, 7};
+  usz n = wired_qlogevent_metrics(out, sizeof out, 1234, &m);
+  CHECK(n != 0);
+  CHECK(qlogevent_streq(
+      out,
+      "{\"time\":1234,\"name\":\"recovery:metrics_updated\","
+      "\"smoothed_rtt\":30000,\"cwnd\":14720,\"bytes_in_flight\":2400,"
+      "\"wtsend_ok\":500,\"wtsend_busy\":12,\"wtsend_flow\":3,"
+      "\"wtwin_drop\":7}"));
+}
+
 /* Buffer too small for the fully-built record: rejected, no partial write
  * claimed via a nonzero return. */
 static void test_qlogevent_buffer_too_small(void) {
-  char out[8];
+  char                       out[8];
+  wired_qlogevent_metrics_in m = {0};
   CHECK(wired_qlogevent_packet_sent(out, sizeof out, 42, 7, 1200) == 0);
   CHECK(wired_qlogevent_packet_received(out, sizeof out, 100, 3, 55) == 0);
   CHECK(wired_qlogevent_packet_lost(out, sizeof out, 5, 9) == 0);
   CHECK(wired_qlogevent_conn_state(out, sizeof out, 1, "closed") == 0);
+  CHECK(wired_qlogevent_metrics(out, sizeof out, 1, &m) == 0);
 }
 
 void test_qlogevent(void) {
@@ -61,5 +76,6 @@ void test_qlogevent(void) {
   test_qlogevent_packet_received();
   test_qlogevent_packet_lost();
   test_qlogevent_conn_state();
+  test_qlogevent_metrics();
   test_qlogevent_buffer_too_small();
 }

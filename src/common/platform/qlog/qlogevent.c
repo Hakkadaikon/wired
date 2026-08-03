@@ -100,3 +100,29 @@ usz wired_qlogevent_conn_state(
   qev_put_str(&w, "\"}");
   return qev_finish(&w);
 }
+
+/* One key:value pair with a leading comma (every metrics field follows the
+ * record's opening time field, so the comma is unconditional). */
+static void qev_put_field(qev_w* w, const char* key, u64 v) {
+  qev_put_str(w, ",\"");
+  qev_put_str(w, key);
+  qev_put_str(w, "\":");
+  qev_put_u64(w, v);
+}
+
+usz wired_qlogevent_metrics(
+    char* out, usz outcap, u64 time, const wired_qlogevent_metrics_in* m) {
+  qev_w w = {out, outcap, 0};
+  qev_put_str(&w, "{\"time\":");
+  qev_put_u64(&w, time);
+  qev_put_str(&w, ",\"name\":\"recovery:metrics_updated\"");
+  qev_put_field(&w, "smoothed_rtt", m->smoothed_rtt);
+  qev_put_field(&w, "cwnd", m->cwnd);
+  qev_put_field(&w, "bytes_in_flight", m->bytes_in_flight);
+  qev_put_field(&w, "wtsend_ok", m->wtsend_ok);
+  qev_put_field(&w, "wtsend_busy", m->wtsend_busy);
+  qev_put_field(&w, "wtsend_flow", m->wtsend_flow);
+  qev_put_field(&w, "wtwin_drop", m->wtwin_drop);
+  qev_put_str(&w, "}");
+  return qev_finish(&w);
+}
