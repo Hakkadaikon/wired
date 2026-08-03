@@ -1258,6 +1258,7 @@ static void test_moqtrun_stream_send_rejection_drops_frame_not_fatal(void) {
       &hub, SESS_A, 999, quic_span_of(second, second_off), 0);
   CHECK(
       moqtrun_test_last_kind(3)->stream_id == relay_stream_id); /* attempted */
+  CHECK(hub.stat_relay_drop == 1); /* the dropped round is counted */
 
   /* a 3rd Object still appends to the SAME stream, unaffected by the
    * earlier rejection. */
@@ -1273,6 +1274,7 @@ static void test_moqtrun_stream_send_rejection_drops_frame_not_fatal(void) {
   CHECK(moqtrun_test_count_kind(3) == 1);
   CHECK(moqtrun_test_last_kind(3)->stream_id == relay_stream_id);
   CHECK(moqtrun_test_count_kind(5) == 0); /* still no re-open */
+  CHECK(hub.stat_relay_drop == 1 && hub.stat_relay_sent == 1);
 }
 
 /* Two subscribers to the same audio track each get their OWN relay stream
