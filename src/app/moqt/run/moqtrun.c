@@ -639,12 +639,13 @@ static void moqtrun_relay_append_all(
 /* Saves the undelivered tail (bytes past the last complete Object) as the
  * relay's fragment for the next delivery. A tail larger than one whole
  * Object can never complete (WIRED_MOQTRUN_RELAY_FRAG_MAX is the largest
- * relayable Object) -- drop it, degrading to a torn frame for this one
- * stream rather than corrupting the relay's own state. */
+ * relayable Object) -- drop it (counted on the hub), degrading to a torn
+ * frame for this one stream rather than corrupting the relay's own state. */
 static void moqtrun_relay_save_frag(
-    wired_moqtrun_relay* relay, const u8* p, usz n) {
+    wired_moqt_hub* hub, wired_moqtrun_relay* relay, const u8* p, usz n) {
   if (n > WIRED_MOQTRUN_RELAY_FRAG_MAX) {
     relay->frag_len = 0;
+    hub->stat_frag_drop++;
     return;
   }
   quic_memcpy(relay->frag, p, n);
@@ -668,7 +669,7 @@ static quic_span moqtrun_relay_normalize(
   quic_memcpy(hub->relay_scratch + relay->frag_len, data.p, data.n);
   moqtrun_decode_object_loop(
       quic_span_of(hub->relay_scratch, total), &off, &hdr);
-  moqtrun_relay_save_frag(relay, hub->relay_scratch + off, total - off);
+  moqtrun_relay_save_frag(hub, relay, hub->relay_scratch + off, total - off);
   return quic_span_of(hub->relay_scratch, off);
 }
 
@@ -758,7 +759,7 @@ static void moqtrun_relay_start(
   relay->pub_stream_id = pub_stream_id;
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++) relay->sub_stream_set[i] = 0;
   relay->frag_len = 0;
-  moqtrun_relay_save_frag(relay, wire.p + whole_end, wire.n - whole_end);
+  moqtrun_relay_save_frag(hub, relay, wire.p + whole_end, wire.n - whole_end);
   moqtrun_relay_save_hdr(relay, wire);
   moqtrun_relay_open_all(hub, track, relay, quic_span_of(wire.p, whole_end));
 }

@@ -1647,6 +1647,20 @@ static void test_moqtrun_fresh_delivery_tail_held_back(void) {
     CHECK(sent->payload[i] == wire[whole_end + i]);
 }
 
+/* An undeliverable tail larger than one whole relayable Object is dropped
+ * (torn frame for that stream) and counted on the hub; an in-bounds tail is
+ * saved without touching the counter. */
+static void test_moqtrun_frag_overflow_counted(void) {
+  static wired_moqt_hub hub;
+  static u8             tail[WIRED_MOQTRUN_RELAY_FRAG_MAX + 1];
+  wired_moqtrun_relay   relay = {0};
+  wired_moqt_init(&hub, moqtrun_test_io());
+  moqtrun_relay_save_frag(&hub, &relay, tail, sizeof tail);
+  CHECK(relay.frag_len == 0 && hub.stat_frag_drop == 1);
+  moqtrun_relay_save_frag(&hub, &relay, tail, 3);
+  CHECK(relay.frag_len == 3 && hub.stat_frag_drop == 1);
+}
+
 void test_moqtrun(void) {
   test_moqtrun_on_session_sends_setup();
   test_moqtrun_on_session_twice_is_idempotent();
@@ -1689,4 +1703,5 @@ void test_moqtrun(void) {
   test_moqtrun_torn_object_held_until_complete();
   test_moqtrun_normalize_forwards_only_whole_objects();
   test_moqtrun_fresh_delivery_tail_held_back();
+  test_moqtrun_frag_overflow_counted();
 }
