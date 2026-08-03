@@ -12,6 +12,7 @@
 // same black-box principle as loadTest.mjs's DOM polling for chat.
 
 import { summarizeDelivery } from "./metrics.mjs";
+import { summarizeVoiceTrace } from "./voiceMetrics.mjs";
 
 const JOIN_TIMEOUT_MS = 20000;
 export const CANDIDATE_PARTICIPANT_IDS = ["user1", "user2", "user3", "user4"];
@@ -40,6 +41,19 @@ const DECODE_COUNTER_INIT_SCRIPT = `
   setInterval(() => {
     window.__decodeTimeline.push(window.__decodedFrameCount);
   }, 5000);
+  // Per-frame trace tap: the frontend's voiceTap() calls this at send/recv/
+  // drain/play with t = performance.now(). Rebase each t onto the Date.now()
+  // epoch so timestamps from different pages are directly comparable
+  // (voiceMetrics.mjs relies on this). Capped so a long run can't grow the
+  // buffer without bound.
+  const voiceTapEpochOffset = Date.now() - performance.now();
+  window.__wiredVoiceTap = (e) => {
+    const buf = (window.__wiredVoiceTapBuf ||= []);
+    if (buf.length < 30000) {
+      e.t += voiceTapEpochOffset;
+      buf.push(e);
+    }
+  };
 `;
 
 async function joinVoiceClient(browser, pageUrl, certHash, participantId) {
@@ -156,15 +170,18 @@ export async function runChatVoiceLoadTest({
   const decodedFrameCounts = {};
   const uniStreamOpenCounts = {};
   const decodeTimelines = {};
+  const voiceTapEvents = {};
   for (const c of clients) {
     try {
       decodedFrameCounts[c.tag] = await c.page.evaluate(() => window.__decodedFrameCount ?? 0);
       uniStreamOpenCounts[c.tag] = await c.page.evaluate(() => window.__uniStreamOpenCount ?? 0);
       decodeTimelines[c.tag] = await c.page.evaluate(() => window.__decodeTimeline ?? []);
+      voiceTapEvents[c.tag] = await c.page.evaluate(() => window.__wiredVoiceTapBuf ?? []);
     } catch {
       decodedFrameCounts[c.tag] = null;
       uniStreamOpenCounts[c.tag] = null;
       decodeTimelines[c.tag] = null;
+      voiceTapEvents[c.tag] = null;
     }
   }
 
@@ -178,5 +195,9 @@ export async function runChatVoiceLoadTest({
     decodedFrameCounts,
     uniStreamOpenCounts,
     decodeTimelines,
+    // Report-only (no pass/fail gate): per-frame trace metrics plus the raw
+    // per-page event arrays they were computed from.
+    voiceTrace: summarizeVoiceTrace(voiceTapEvents),
+    voiceTapEvents,
   };
 }
