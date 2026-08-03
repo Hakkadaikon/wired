@@ -225,6 +225,10 @@ typedef struct {
    * receive window). Only ever used within a single
    * wired_moqt_on_stream_data call, so one shared buffer suffices. */
   u8 relay_scratch[WIRED_MOQTRUN_RELAY_FRAG_MAX + WIRED_SRVLOOP_WT_BUF_CAP];
+  /** Cumulative undelivered tails dropped because they exceeded
+   * WIRED_MOQTRUN_RELAY_FRAG_MAX (each degrades to a torn frame on that one
+   * stream -- moqtrun_relay_save_frag). Diagnostic only, never reset. */
+  u64 stat_frag_drop;
 } wired_moqt_hub;
 
 /** Zero-initialize hub and record the io table it will send through. */
