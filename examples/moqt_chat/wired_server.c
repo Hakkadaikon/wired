@@ -317,6 +317,40 @@ static void log_cert_fingerprint(const wired_srvboot_id* id) {
   wired_log_str(line);
 }
 
+/* --- Shutdown relay-stats log ------------------------------------------ */
+
+static usz dec_u64(char* out, u64 v) {
+  char tmp[20];
+  usz  n = 0;
+  do {
+    tmp[n++] = (char)('0' + (v % 10));
+    v /= 10;
+  } while (v);
+  for (usz i = 0; i < n; i++) out[i] = tmp[n - 1 - i];
+  return n;
+}
+
+static void append_cstr(char* line, usz* n, const char* s) {
+  for (usz i = 0; s[i]; i++) line[(*n)++] = s[i];
+}
+
+/* One line at shutdown with the hub's cumulative relay outcomes, so a
+ * measurement run can compare server-side drops against the receivers' own
+ * sequence gaps. */
+static void log_relay_stats(const wired_moqt_hub* hub) {
+  char line[128];
+  usz  n = 0;
+  append_cstr(line, &n, "moqt relay: sent=");
+  n += dec_u64(line + n, hub->stat_relay_sent);
+  append_cstr(line, &n, " dropped=");
+  n += dec_u64(line + n, hub->stat_relay_drop);
+  append_cstr(line, &n, " frag_dropped=");
+  n += dec_u64(line + n, hub->stat_frag_drop);
+  line[n++] = '\n';
+  line[n]   = 0;
+  wired_log_str(line);
+}
+
 static void load_san_ipv4(int argc, char** argv, u8 san_ipv4[4], int* have_it) {
   const char* ip_str = wired_cliargs_str(argc, argv, "--san-ipv4", 0);
   *have_it           = ip_str != 0;
@@ -353,5 +387,6 @@ __attribute__((force_align_arg_pointer, used)) int wired_main(
   opt.run.wt_stream_data_ctx = &g_hub;
 
   if (!wired_srvdriver_run(&id, h, obs, &opt)) wired_die("listen failed\n");
+  log_relay_stats(&g_hub);
   return 0;
 }
