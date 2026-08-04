@@ -209,12 +209,18 @@ typedef struct {
  * once, so the response side never needs more slots than that. */
 #define SRVRUN_RESP_SLOTS WIRED_SRVLOOP_MAX_STREAMS
 
+/* Bytes of append-round staging each WT send slot owns (roundbuf below):
+ * payloads up to this size are copied in, larger ones stay caller-owned
+ * views. 4096 = ~24 bundled 20ms voice rounds. */
+#define SRVRUN_WTSEND_BUF 4096
+
 /* One in-flight server-initiated WebTransport stream send (wired_server_wt_
  * open_uni/open_bidi/stream_reply): the same wired_sendsess bookkeeping a
  * resp[] slot carries, minus every response-only concern (respstore/bigbuf
- * storage, streaming rounds, H3 framing) -- the sendsess holds the APP's own
- * payload as a view (srvrun.h's liveness contract), so no SDK-side storage
- * row exists at all. stream_credit mirrors srvrun_resp.stream_credit (RFC
+ * storage, streaming rounds, H3 framing). A payload that fits roundbuf is
+ * copied in (the caller's storage is free the moment the call returns);
+ * only a larger payload is held as the app's own view (srvrun.h's liveness
+ * contract). stream_credit mirrors srvrun_resp.stream_credit (RFC
  * 9000 18.2/19.10), seeded from whichever peer TP matches the stream's
  * direction and raised by MAX_STREAM_DATA naming this stream. */
 typedef struct {
@@ -245,13 +251,28 @@ typedef struct {
    * when this is set, bypassing wired_sendsess_take. */
   int fin_only_pending;
   /** 1 while wired_server_wt_stream_fin was called but the previous round
-   * was still in flight (wired_sendsess_done was false) -- the same
-   * single-round-at-a-time policy wired_server_wt_stream_send documents
-   * applies here too, so the FIN could not be armed immediately. Promoted
-   * to fin_only_pending (and cleared) by srvrun_pump_one_wt the moment the
-   * in-flight round finishes, so the app's FIN request is never silently
-   * dropped -- just deferred, same as a data round would be. */
+   * was still in flight (wired_sendsess_done was false) -- the FIN could
+   * not be armed immediately. Promoted to fin_only_pending (and cleared)
+   * by srvrun_pump_one_wt the moment the in-flight round finishes, so the
+   * app's FIN request is never silently dropped -- just deferred, same as
+   * a data round would be. */
   int fin_requested;
+  /** Slot-owned staging for append rounds (and any payload that fits):
+   * wired_server_wt_stream_send copies each accepted round behind the
+   * bytes already staged and EXTENDS the live sendsess over it
+   * (wired_sendsess_extend), so rounds pipeline onto the wire without
+   * waiting for the previous round's ACK, and the caller's buffer is free
+   * the moment the call returns. The buffer recycles (fresh arm at the
+   * cumulative stream offset, srvrun_wtsend_epoch_reset) once everything
+   * staged so far is ACKed; a round that no longer fits is refused --
+   * bounded retention, the caller decides whether to drop.
+   * SRVRUN_WTSEND_BUF = ~24 bundled 20ms voice rounds (~170B each), about
+   * half a second of ACK stall absorbed at 50 rounds/s. */
+  u8 roundbuf[SRVRUN_WTSEND_BUF];
+  /** 1 while sess is armed over the app's own storage instead of roundbuf
+   * (a payload larger than SRVRUN_WTSEND_BUF: srvrun.h's keep-alive view
+   * contract applies to it); appends wait until it fully ACKs. */
+  int view_round;
 } srvrun_wtsend;
 /* Concurrent server-initiated WT stream sends per connection: comfortably
  * above SRVRUN_MAX_WT_SESSIONS' fan-out needs while keeping the per-slot
@@ -2795,13 +2816,21 @@ static u64 srvrun_next_bidi_id(srvrun_conn* c) {
   return 1 + 4 * c->wt_bidi_opened++;
 }
 
-/* Arm w over the app's payload view (no copy -- srvrun.h's liveness
- * contract) on stream id; the pump takes it from the connection's next
- * step/tick under the shared cwnd/credit/pacing gates. */
+/* Arm w over payload on stream id: a payload that fits w's own round
+ * buffer is COPIED (the caller's storage may be reused the moment this
+ * returns), a larger one is held as a view under srvrun.h's keep-alive
+ * contract. The pump takes it from the connection's next step/tick under
+ * the shared cwnd/credit/pacing gates. */
 static i64 srvrun_wtsend_arm_id(srvrun_wtsend* w, u64 id, quic_span payload) {
+  const u8* src = payload.p;
+  w->view_round = payload.n > SRVRUN_WTSEND_BUF;
+  if (!w->view_round) {
+    quic_memcpy(w->roundbuf, payload.p, payload.n);
+    src = w->roundbuf;
+  }
   w->stream_id  = id;
   w->stream_off = payload.n;
-  wired_sendsess_arm(&w->sess, payload.p, payload.n, SRVRUN_CHUNK);
+  wired_sendsess_arm(&w->sess, src, payload.n, SRVRUN_CHUNK);
   return (i64)id;
 }
 
@@ -2964,35 +2993,82 @@ static int srvrun_wtsend_open_slot(const srvrun_wtsend* w) {
   return w && w->append_open;
 }
 
-/* 1 iff a new round may be armed on w: the slot is open for appending, the
- * round is non-empty (a FIN needs a final slice to ride on --
- * wired_sendq_next never yields an empty slice), and the previous round is
- * fully delivered (wired_sendsess_done, whose consumed `active` flag the
- * success path re-arms right away; the reap deliberately skips append-open
- * slots, so nobody else consumes it first). */
-static int srvrun_wtsend_appendable(srvrun_wtsend* w, usz len) {
-  return srvrun_wtsend_open_slot(w) && len != 0 &&
-         wired_sendsess_done(&w->sess);
+/* 1 iff every byte staged in w's sendsess has been sent and ACKed -- the
+ * idempotent twin of wired_sendsess_done (which consumes the session's
+ * active flag), so the append path can test-and-recycle the epoch buffer
+ * without stealing the reap's own done() edge. */
+static int srvrun_wtsend_epoch_acked(const srvrun_wtsend* w) {
+  return wired_sendq_all_sent(&w->sess.q) && w->sess.requeue_n == 0 &&
+         wired_sendsess_inflight(&w->sess) == 0;
 }
 
-/* Re-arm w over the next round's bytes at the stream's cumulative offset --
- * the streaming-resp shape (srvrun_resp_next_round): arm resets the
- * round-local sendq, set_base_offset restores the absolute RFC 9000 19.8
- * position. fin!=0 ends the app's rounds: append_open drops, so this
- * round's final slice carries the real wire FIN (srvrun_wt_slice_fin) and
- * the slot reaps once fully ACKed (srvrun_wtsend_finished). */
-static void srvrun_wtsend_append_round(
-    srvrun_wtsend* w, quic_span payload, int fin) {
-  wired_sendsess_arm(&w->sess, payload.p, payload.n, SRVRUN_CHUNK);
+/* 1 iff w's stream is already closing: a bare FIN was requested or armed,
+ * so no further data round may be staged behind it. */
+static int srvrun_wtsend_closing(const srvrun_wtsend* w) {
+  return w->fin_requested || w->fin_only_pending;
+}
+
+/* 1 while an oversized view round is still in flight -- its bytes live in
+ * the APP's storage (srvrun.h's keep-alive contract), so nothing can be
+ * staged behind them in roundbuf until they fully ACK. */
+static int srvrun_wtsend_blocked_by_view(const srvrun_wtsend* w) {
+  return w->view_round && !srvrun_wtsend_epoch_acked(w);
+}
+
+static int srvrun_wtsend_accepting(const srvrun_wtsend* w) {
+  return !srvrun_wtsend_closing(w) && !srvrun_wtsend_blocked_by_view(w);
+}
+
+/* 1 iff a new round may be staged on w at all: the slot is open for
+ * appending, the round is non-empty (a FIN needs a final slice to ride on
+ * -- wired_sendq_next never yields an empty slice), and nothing blocks
+ * acceptance (srvrun_wtsend_accepting). Room in the epoch buffer is the
+ * one remaining condition, checked by srvrun_wtsend_stage_round itself. */
+static int srvrun_wtsend_appendable(const srvrun_wtsend* w, usz len) {
+  return srvrun_wtsend_open_slot(w) && len != 0 && srvrun_wtsend_accepting(w);
+}
+
+/* Recycle w's fully-ACKed staging: fresh arm over roundbuf at the
+ * cumulative stream offset. Safe exactly because everything staged so far
+ * is ACKed (srvrun_wtsend_epoch_acked) -- no logged or requeued slice
+ * still resolves into the old bytes. */
+static void srvrun_wtsend_epoch_reset(srvrun_wtsend* w) {
+  wired_sendsess_arm(&w->sess, w->roundbuf, 0, SRVRUN_CHUNK);
   wired_sendsess_set_base_offset(&w->sess, w->stream_off);
+  w->view_round = 0;
+}
+
+/* Stage one accepted round: copy payload behind the bytes already staged
+ * this epoch (recycling the buffer first once everything so far is ACKed)
+ * and extend the live sendsess over it -- the round starts reaching the
+ * wire on the next pump pass, WITHOUT waiting for any earlier round's ACK.
+ * 0 when the round does not fit the remaining room (bounded retention; the
+ * caller decides whether to drop). fin ends the app's rounds: append_open
+ * drops, so the stream's true last slice carries the wire FIN
+ * (srvrun_wt_slice_fin) and the slot reaps once fully ACKed. */
+static int srvrun_wtsend_stage_round(
+    srvrun_wtsend* w, quic_span payload, int fin) {
+  if (srvrun_wtsend_epoch_acked(w)) srvrun_wtsend_epoch_reset(w);
+  if (w->sess.q.len + payload.n > SRVRUN_WTSEND_BUF) return 0;
+  quic_memcpy(w->roundbuf + w->sess.q.len, payload.p, payload.n);
+  wired_sendsess_extend(&w->sess, payload.n);
   w->stream_off += payload.n;
   w->append_open = fin == 0;
+  return 1;
+}
+
+/* 1 iff the round was accepted and staged; folds the two-step check so
+ * wired_server_wt_stream_send stays inside the CCN gate. */
+static int srvrun_wtsend_accept_round(
+    srvrun_wtsend* w, quic_span payload, int fin) {
+  return srvrun_wtsend_appendable(w, payload.n) &&
+         srvrun_wtsend_stage_round(w, payload, fin);
 }
 
 /* 1 iff this rejected append was a live round refused only because the
- * previous round is still unACKed -- the busy case whose round the caller
- * then drops -- as opposed to a misuse rejection (unknown/closed slot,
- * empty round), so stat_wtsend_busy counts real drops only. */
+ * pipeline is full (epoch buffer exhausted, or an oversized view round
+ * still in flight) -- as opposed to a misuse rejection (unknown/closed
+ * slot, empty round), so stat_wtsend_busy counts real drops only. */
 static int srvrun_wtsend_busy_reject(const srvrun_wtsend* w, usz len) {
   return srvrun_wtsend_open_slot(w) && len != 0;
 }
@@ -3007,13 +3083,12 @@ int wired_server_wt_stream_send(
     return -1;
   }
   w = srvrun_wtsend_find(c, stream_id);
-  if (!srvrun_wtsend_appendable(w, payload.n)) {
+  if (!srvrun_wtsend_accept_round(w, payload, fin)) {
     c->stat_wtsend_busy += (u64)srvrun_wtsend_busy_reject(w, payload.n);
     return -1;
   }
   c->stat_wtsend_ok++;
   wired_wt_session_note_data_sent(s, payload.n);
-  srvrun_wtsend_append_round(w, payload, fin);
   return 1;
 }
 
@@ -4485,21 +4560,25 @@ static int srvrun_cwnd_has_room(const srvrun_conn* c) {
 static usz srvrun_wtsend_consumed_bytes(const srvrun_conn* c) {
   usz total = 0;
   for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++)
-    if (c->wtsend[i].in_use) total += c->wtsend[i].sess.q.cur;
+    if (c->wtsend[i].in_use)
+      total += c->wtsend[i].sess.stream_base_offset + c->wtsend[i].sess.q.cur;
   return total;
 }
 
 /* RFC 9000 4.1: sum of stream bytes already handed to wired_sendsess_take
- * (sess.q.cur, the sendq's next-unsent-offset cursor) across every resp[]
- * AND wtsend slot -- the cumulative total the connection's ONE conn_credit
- * (initial_max_data + any MAX_DATA raises) bounds. A retransmit reuses an
- * offset range already counted here, so PTO/loss resends never double-count
- * (mirrors srvrun_inflight_bytes_all's per-slot fan-out, but this quantity
- * only grows -- it is not cleared by an ACK the way in-flight bytes are). */
+ * (stream_base_offset + q.cur, the ABSOLUTE next-unsent offset -- q.cur
+ * alone restarts on every streaming re-arm / epoch recycle) across every
+ * resp[] AND wtsend slot -- the cumulative total the connection's ONE
+ * conn_credit (initial_max_data + any MAX_DATA raises) bounds. A
+ * retransmit reuses an offset range already counted here, so PTO/loss
+ * resends never double-count (mirrors srvrun_inflight_bytes_all's per-slot
+ * fan-out, but this quantity only grows -- it is not cleared by an ACK the
+ * way in-flight bytes are). */
 static usz srvrun_conn_consumed_bytes(const srvrun_conn* c) {
   usz total = srvrun_wtsend_consumed_bytes(c);
   for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++)
-    if (c->resp[i].in_use) total += c->resp[i].sess.q.cur;
+    if (c->resp[i].in_use)
+      total += c->resp[i].sess.stream_base_offset + c->resp[i].sess.q.cur;
   return total;
 }
 
@@ -4515,7 +4594,11 @@ static int srvrun_conn_credit_has_room(const srvrun_conn* c) {
  * own sendq cursor (no cross-slot fan-out needed at this level). */
 static int srvrun_sess_credit_room(
     const srvrun_conn* c, const wired_sendsess* sess, u64 credit) {
-  return srvrun_conn_credit_has_room(c) && sess->q.cur + SRVRUN_CHUNK <= credit;
+  /* stream_base_offset + q.cur is the ABSOLUTE next-unsent stream offset
+   * (RFC 9000 19.10's limit is absolute): q.cur alone restarts at 0 on
+   * every streaming re-arm / epoch recycle and would under-count. */
+  return srvrun_conn_credit_has_room(c) &&
+         sess->stream_base_offset + sess->q.cur + SRVRUN_CHUNK <= credit;
 }
 
 /* 1 when a brand-new slice (from sess's sendq, not its requeue) may go out:
@@ -4650,15 +4733,18 @@ static int srvrun_pump_one(
   return srvrun_send_slice(ctx, c, r, &sl);
 }
 
-/* sl->fin marks the end of THIS ROUND's buffer; while w is still open for
- * appending (append_open) the true stream end has not been written yet, so
- * the wire FIN is suppressed -- the wtsend twin of
- * srvrun_slice_fin_suppressed's streaming half. A one-shot open
- * (append_open 0) keeps its final slice's FIN: that really is the stream's
- * end. */
+/* The wire FIN belongs on exactly the slice that ends the stream: the
+ * slot is past its final append (append_open 0) and sl ends at the
+ * cumulative stream offset. sl->fin (end of the CURRENT epoch buffer) is
+ * deliberately ignored: rounds can be staged behind an already-logged
+ * slice (wired_sendsess_extend), so a retransmit of a stale
+ * end-of-buffer slice must not carry FIN at what is by then a mid-stream
+ * offset (RFC 9000 4.5: a final size that moves is FINAL_SIZE_ERROR). */
 static u8 srvrun_wt_slice_fin(
     const srvrun_wtsend* w, const wired_sendq_slice* sl) {
-  return (u8)(sl->fin && !w->append_open);
+  return (u8)(!w->append_open &&
+              wired_sendsess_stream_offset(&w->sess, sl) + sl->len ==
+                  w->stream_off);
 }
 
 /* Sends w's pending bare-FIN round (srvrun_wtsend.fin_only_pending's own

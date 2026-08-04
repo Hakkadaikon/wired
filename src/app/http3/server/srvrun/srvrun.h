@@ -378,9 +378,11 @@ int wired_server_broadcast_datagram_ring(quic_span data);
  * on the final slice. payload must already carry the WebTransport stream
  * signal prefix (draft-ietf-webtrans-http3-15 4.2: varint 0x54 + the CONNECT
  * stream id, quic_wtwire_signal_put) -- this SDK sends the bytes verbatim.
- * The SDK holds payload as a VIEW (no copy), so the caller must keep it
- * alive and unmoved until every byte has been acknowledged (the send slot
- * frees itself then). Delivery is congestion/flow-control gated and paced
+ * A payload up to the send slot's own staging capacity (4096 bytes) is
+ * COPIED: the caller's storage is free the moment the call returns. Only a
+ * larger payload is held as a VIEW, and then the caller must keep it alive
+ * and unmoved until every byte has been acknowledged (the send slot frees
+ * itself then). Delivery is congestion/flow-control gated and paced
  * like any response stream (RFC 9000 4.1 / RFC 9002 7). Callable only from
  * inside the server's own loop (a callback), same contract as
  * wired_server_broadcast_datagram.
@@ -442,19 +444,22 @@ int wired_server_wt_stream_reply_open(
  * open_uni_stream/open_bidi_stream/stream_reply_open: payload goes out at
  * the stream's cumulative offset (RFC 9000 19.8), and fin=1 ends the stream
  * with FIN on this round's final slice, after which the send slot frees
- * itself once fully acknowledged (the one-shot opens' behavior). One round
- * is in flight at a time: a call while the previous round is not yet fully
- * acknowledged is refused, the same single-round policy as a streaming
- * response. The wired_server_wt_open_uni view/liveness contract applies to
- * each round's payload.
+ * itself once fully acknowledged (the one-shot opens' behavior). An
+ * accepted round is COPIED into the slot's own staging (the caller's
+ * storage is free the moment the call returns) and pipelines onto the wire
+ * behind any earlier rounds still awaiting their ACKs -- rounds queue up
+ * to the slot's staging capacity (4096 bytes of not-yet-ACKed rounds), and
+ * only a round that no longer fits is refused. A stream whose OPENING
+ * payload was oversized (held as a view) refuses appends until that view
+ * fully ACKs.
  * @param s the session whose connection carries the stream
  * @param stream_id a stream opened by one of the three calls above
  * @param payload this round's bytes; must be non-empty (the FIN rides the
  *   final slice, so a bare-FIN round has nothing to carry it)
  * @param fin 1 to end the stream after this round, 0 to keep it open
  * @return 1 accepted, negative when s resolves to no live connection,
- *   stream_id names no open send slot, payload is empty, the previous
- *   round is still in flight, or the session's WT_MAX_DATA limit would be
+ *   stream_id names no open send slot, payload is empty, the staging
+ *   capacity is exhausted, or the session's WT_MAX_DATA limit would be
  *   exceeded */
 int wired_server_wt_stream_send(
     wired_wt_session* s, u64 stream_id, quic_span payload, int fin);

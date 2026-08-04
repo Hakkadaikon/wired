@@ -10255,8 +10255,9 @@ static void test_srvrun_wt_open_uni_streams_payload_on_wire(void) {
 }
 
 /* RFC 9000 2.1: server-initiated bidi ids are 1 mod 4, allocated from 1 and
- * 4 apart. The armed slot holds the app's payload as a VIEW (no copy, the
- * srvrun.h liveness contract) and its send credit is seeded from the peer's
+ * 4 apart. A payload that fits the slot's staging is COPIED into it (the
+ * caller's storage is free the moment the call returns -- srvrun.h) and
+ * the send credit is seeded from the peer's
  * initial_max_stream_data_bidi_remote (0x06). */
 static void test_srvrun_wt_open_bidi_allocates_ids_and_holds_view(void) {
   struct lp_fix   f;
@@ -10268,8 +10269,10 @@ static void test_srvrun_wt_open_bidi_allocates_ids_and_holds_view(void) {
   c  = sr_wtsend_fixture(&f, &ob);
   CHECK(wired_server_wt_open_bidi(&c->wt, quic_span_of(pay, sizeof pay)) == 1);
   CHECK(wired_server_wt_open_bidi(&c->wt, quic_span_of(pay, sizeof pay)) == 5);
-  CHECK(c->wtsend[0].sess.q.p == pay);
+  CHECK(c->wtsend[0].sess.q.p == c->wtsend[0].roundbuf);
   CHECK(c->wtsend[0].sess.q.len == sizeof pay);
+  for (usz i = 0; i < sizeof pay; i++)
+    CHECK(c->wtsend[0].roundbuf[i] == pay[i]);
   CHECK(c->wtsend[0].stream_credit == (1u << 24));
 }
 
@@ -10277,7 +10280,9 @@ static void test_srvrun_wt_open_bidi_allocates_ids_and_holds_view(void) {
  * Test list:
  * - open_uni_stream sends the payload without FIN and marks the slot
  *   append-open
- * - stream_send while the previous round is unacked is refused (busy)
+ * - stream_send while the previous round is unacked is ACCEPTED (copied
+ *   into the slot's staging) and pipelines onto the wire; only exhausting
+ *   the staging refuses (busy)
  * - an empty append round is refused (a FIN needs a slice to ride on)
  * - stream_send appends at the cumulative stream offset, still no FIN
  * - stream_send with fin=1 puts FIN on the final slice, clears append_open,
@@ -10315,10 +10320,11 @@ static int sr_wtsend_pump_recv_stream(
 static const u8 sr_wtsend_more[] = {'m', 'o', 'r'};
 static const u8 sr_wtsend_tail[] = {'e', '!'};
 
-/* WIRE: an append-open uni stream holds its FIN back at every round boundary
- * except the fin=1 round's final slice; each round lands at the cumulative
- * stream offset (RFC 9000 19.8) and the slot frees only after the finishing
- * round is fully acked. */
+/* WIRE: an append-open uni stream PIPELINES rounds -- a round staged while
+ * the previous one is still unacknowledged is accepted (copied into the
+ * slot's own staging) and goes out at the cumulative stream offset without
+ * waiting for that ACK; the FIN lands only on the fin=1 round's true final
+ * slice, and the slot frees only after everything is fully acked. */
 static void test_srvrun_wt_open_uni_stream_appends_then_finishes(void) {
   struct lp_fix     f;
   quic_obuf         ob = {0};
@@ -10327,6 +10333,7 @@ static void test_srvrun_wt_open_uni_stream_appends_then_finishes(void) {
   i64               sfd, cfd;
   quic_stream_frame sf;
   srvrun_conn*      c;
+  u8                scratch[3];
   srvrun_cfg        acfg = sr_wt_send_cfg();
   if (!sr_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
   ob      = (quic_obuf){obuf, sizeof obuf, 0};
@@ -10336,29 +10343,28 @@ static void test_srvrun_wt_open_uni_stream_appends_then_finishes(void) {
       wired_server_wt_open_uni_stream(
           &c->wt, quic_span_of(sr_wtsend_hello, sizeof sr_wtsend_hello)) == 7);
   CHECK(c->wtsend[0].append_open == 1);
-  /* busy: round 1 is not yet acknowledged */
-  CHECK(
-      wired_server_wt_stream_send(
-          &c->wt, 7, quic_span_of(sr_wtsend_more, sizeof sr_wtsend_more), 0) ==
-      -1);
-  CHECK(c->stat_wtsend_busy == 1); /* the dropped round is counted */
   CHECK(sr_wtsend_pump_recv_stream(&f, cfd, sfd, &srv, &sf));
   CHECK(sf.stream_id == 7);
   CHECK(sf.offset == 0);
   CHECK(sf.fin == 0); /* round end, but the stream stays open */
+  /* round 1 is NOT yet acknowledged: the next round is still accepted --
+   * copied into the slot's staging (scratch may be scribbled right after)
+   * -- and reaches the wire at its own offset with no ACK in between. */
+  for (usz i = 0; i < sizeof scratch; i++) scratch[i] = sr_wtsend_more[i];
+  CHECK(
+      wired_server_wt_stream_send(&c->wt, 7, quic_span_of(scratch, 3), 0) == 1);
+  for (usz i = 0; i < sizeof scratch; i++) scratch[i] = 0xee;
+  CHECK(c->stat_wtsend_busy == 0);
+  CHECK(sr_wtsend_pump_recv_stream(&f, cfd, sfd, &srv, &sf));
+  CHECK(sf.offset == sizeof sr_wtsend_hello);
+  CHECK(sf.fin == 0);
+  CHECK(sf.length == 3);
+  for (usz i = 0; i < 3; i++) CHECK(sf.data[i] == sr_wtsend_more[i]);
   sr_wtsend_ack_all_inflight(&acfg, c, &c->wtsend[0].sess, 0);
   /* an empty round has no slice for a FIN to ride on -- a misuse
    * rejection, NOT a busy drop, so the busy counter stays put */
   CHECK(wired_server_wt_stream_send(&c->wt, 7, quic_span_of(0, 0), 1) == -1);
-  CHECK(c->stat_wtsend_busy == 1);
-  CHECK(
-      wired_server_wt_stream_send(
-          &c->wt, 7, quic_span_of(sr_wtsend_more, sizeof sr_wtsend_more), 0) ==
-      1);
-  CHECK(sr_wtsend_pump_recv_stream(&f, cfd, sfd, &srv, &sf));
-  CHECK(sf.offset == sizeof sr_wtsend_hello);
-  CHECK(sf.fin == 0);
-  sr_wtsend_ack_all_inflight(&acfg, c, &c->wtsend[0].sess, 0);
+  CHECK(c->stat_wtsend_busy == 0);
   CHECK(
       wired_server_wt_stream_send(
           &c->wt, 7, quic_span_of(sr_wtsend_tail, sizeof sr_wtsend_tail), 1) ==
@@ -10371,6 +10377,50 @@ static void test_srvrun_wt_open_uni_stream_appends_then_finishes(void) {
   sr_wtsend_ack_all_inflight(&acfg, c, &c->wtsend[0].sess, 0);
   srvrun_reap_wtsends(c);
   CHECK(c->wtsend[0].in_use == 0);
+  wired_udp_close(cfd);
+  wired_udp_close(sfd);
+}
+
+/* Staging is BOUNDED: rounds queue while unacknowledged until the slot's
+ * epoch buffer is exhausted; the round that no longer fits is refused and
+ * counted as a busy drop, and room returns once the backlog ACKs. */
+static void test_srvrun_wt_stream_send_queue_bound(void) {
+  struct lp_fix f;
+  quic_obuf     ob = {0};
+  u8            obuf[1024];
+  quic_sockaddr srv;
+  i64           sfd, cfd;
+  srvrun_conn*  c;
+  static u8     big[SRVRUN_WTSEND_BUF];
+  srvrun_cfg    acfg = sr_wt_send_cfg();
+  if (!sr_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
+  ob      = (quic_obuf){obuf, sizeof obuf, 0};
+  c       = sr_wtsend_fixture(&f, &ob);
+  c->peer = srv;
+  CHECK(
+      wired_server_wt_open_uni_stream(
+          &c->wt, quic_span_of(sr_wtsend_hello, sizeof sr_wtsend_hello)) == 7);
+  /* fill the epoch buffer to the brim behind the unacked opening round */
+  CHECK(
+      wired_server_wt_stream_send(
+          &c->wt, 7,
+          quic_span_of(big, SRVRUN_WTSEND_BUF - sizeof sr_wtsend_hello),
+          0) == 1);
+  /* no room left: one more byte is refused and counted */
+  CHECK(wired_server_wt_stream_send(&c->wt, 7, quic_span_of(big, 1), 0) == -1);
+  CHECK(c->stat_wtsend_busy == 1);
+  /* drain + ack the backlog: the buffer recycles and accepts again. The
+   * staged total is exactly SRVRUN_WTSEND_BUF bytes = a KNOWN slice count;
+   * the test sockets are BLOCKING, so recv only ever follows a guaranteed
+   * send -- never "loop until empty", whose last recv would hang forever. */
+  {
+    quic_stream_frame sf;
+    usz slices = (SRVRUN_WTSEND_BUF + SRVRUN_CHUNK - 1) / SRVRUN_CHUNK;
+    for (usz i = 0; i < slices; i++)
+      CHECK(sr_wtsend_pump_recv_stream(&f, cfd, sfd, &srv, &sf));
+  }
+  sr_wtsend_ack_all_inflight(&acfg, c, &c->wtsend[0].sess, 0);
+  CHECK(wired_server_wt_stream_send(&c->wt, 7, quic_span_of(big, 1), 0) == 1);
   wired_udp_close(cfd);
   wired_udp_close(sfd);
 }
@@ -10986,7 +11036,9 @@ static void test_srvrun_wt_stream_reply_arms_given_stream_verbatim(void) {
       1);
   CHECK(c->wtsend[0].in_use == 1);
   CHECK(c->wtsend[0].stream_id == 8);
-  CHECK(c->wtsend[0].sess.q.p == pay);
+  CHECK(c->wtsend[0].sess.q.p == c->wtsend[0].roundbuf);
+  for (usz i = 0; i < sizeof pay; i++)
+    CHECK(c->wtsend[0].roundbuf[i] == pay[i]);
   CHECK(
       c->wtsend[0].stream_credit ==
       c->s.sdrv.peer_initial_max_stream_data_bidi_local);
@@ -12191,6 +12243,7 @@ void test_srvrun(void) {
   test_srvrun_wt_open_uni_streams_payload_on_wire();
   test_srvrun_wt_open_bidi_allocates_ids_and_holds_view();
   test_srvrun_wt_open_uni_stream_appends_then_finishes();
+  test_srvrun_wt_stream_send_queue_bound();
   test_srvrun_metrics_due_rate_limited();
   test_srvrun_wt_stream_fin_deferred_until_round_acked();
   test_srvrun_wt_stream_fin_immediate_when_round_already_done();
