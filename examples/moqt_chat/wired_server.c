@@ -27,7 +27,12 @@
  * to read connect_stream_id from -- srvrun.h documents this as the
  * open_bidi_stream/open_uni_stream caller's responsibility. */
 
-#define MOQT_SIG_BUF 512 /* signal prefix (<=9B) + moqtrun's envelope */
+/* Signal prefix (<=9B) + moqtrun's envelope, with room for BUNDLED rounds:
+ * a keep-open relay round refused while the previous round awaits its ACK
+ * is retained and rides out with the next round (moqt_relay_send_open_round),
+ * so one face must hold several 20ms opus frames (~170B each with envelope).
+ * 2048 absorbs ~12 frames = ~240ms of ACK stall before rounds drop. */
+#define MOQT_SIG_BUF 2048
 
 /* Decimal/string/hex line-building helpers (also used by the shutdown
  * relay-stats log below). */
@@ -130,6 +135,10 @@ typedef struct {
   u64               stream_id;
   u8                buf[2][MOQT_SIG_BUF];
   int armed; /* which buf holds the in-flight round (never write it) */
+  /* Bytes staged in buf[armed^1] that the SDK refused while the previous
+   * round awaited its ACK -- retained (not dropped) and sent ahead of the
+   * next round's payload. 0 once a round is accepted. */
+  usz pending_len;
 } moqt_relay_slot;
 static moqt_relay_slot g_relay_slots[MOQT_RELAY_SLOTS];
 
@@ -168,50 +177,78 @@ static i64 moqt_io_open_uni_stream(wired_wt_session* s, quic_span payload) {
   if (!slot) return -1;
   i64 sid = moqt_relay_slot_open(s, slot, payload);
   if (sid < 0) return -1;
-  slot->in_use    = 1;
-  slot->sess      = s;
-  slot->stream_id = (u64)sid;
-  slot->armed     = 0;
+  slot->in_use      = 1;
+  slot->sess        = s;
+  slot->stream_id   = (u64)sid;
+  slot->armed       = 0;
+  slot->pending_len = 0;
   return sid;
 }
 
-/* Where to stage this round: the slot's PENDING buffer (buf[armed^1] -- the
- * armed side may still be a live in-flight view) for a keep-open round, or
- * the one-shot ring for a FINAL (fin) round -- the slot retires with the
- * fin round (moqt_relay_finish_round), so its buffers must not carry that
- * round's view past the slot's own reuse. */
-static u8* moqt_relay_stage_buf(moqt_relay_slot* slot, int fin) {
-  return fin ? moqt_relay_ring_buf() : slot->buf[slot->armed ^ 1];
+/* Appends payload after any bytes retained in the PENDING face (buf[armed^1]
+ * -- the armed side may still be a live in-flight view, never written) and
+ * hands the whole face to wired_server_wt_stream_send. Success proves the
+ * previous armed round fully ACKed (srvrun.h's single-round policy), so
+ * armed flips to the staged side and the old armed face -- just proven
+ * released -- becomes the next staging target. A rejection (previous round
+ * not yet ACKed) RETAINS the face instead of dropping the round: those
+ * bytes ride out ahead of the next round's payload, so a busy ACK window
+ * converts to a small delay rather than a lost frame (the 20ms voice
+ * cadence guarantees a prompt retry). Only a round that would overflow the
+ * face is dropped (returns 0, counted by the hub). */
+static int moqt_relay_send_open_round(
+    wired_wt_session* s,
+    moqt_relay_slot*  slot,
+    u64               stream_id,
+    quic_span         payload) {
+  u8* stage = slot->buf[slot->armed ^ 1];
+  usz total = slot->pending_len + payload.n;
+  if (total > MOQT_SIG_BUF) return 0;
+  for (usz i = 0; i < payload.n; i++)
+    stage[slot->pending_len + i] = payload.p[i];
+  if (wired_server_wt_stream_send(
+          s, stream_id, quic_span_of(stage, total), 0) > 0) {
+    slot->armed ^= 1;
+    slot->pending_len = 0;
+    return 1;
+  }
+  slot->pending_len = total; /* retained -- delivered with the next round */
+  return 1;
 }
 
-/* Success proves the previous armed round fully ACKed (srvrun.h's
- * single-round policy), so armed flips to the staged side. fin retires the
- * slot: safe on success (the old armed view was just proven released; the
- * fin round's own view lives in the ring, not the slot), and accepted on
- * rejection too -- moqtrun has already dropped its relay entry for a fin
- * round, so the slot would only leak if kept. */
-static void moqt_relay_finish_round(moqt_relay_slot* slot, int r, int fin) {
-  if (r > 0) slot->armed ^= 1;
-  if (fin) slot->in_use = 0;
+/* FINAL (fin) round: flushes any retained bytes ahead of payload from a
+ * one-shot ring buffer (the slot retires with this round, so its own faces
+ * must not carry the view past the slot's reuse) and retires the slot
+ * whatever the SDK said -- moqtrun has already dropped its relay entry for
+ * a fin round, so the slot would only leak if kept. */
+static int moqt_relay_send_fin_round(
+    wired_wt_session* s,
+    moqt_relay_slot*  slot,
+    u64               stream_id,
+    quic_span         payload) {
+  u8* stage = moqt_relay_ring_buf();
+  u8* held  = slot->buf[slot->armed ^ 1];
+  usz total = slot->pending_len + payload.n;
+  int r     = 0;
+  if (total <= MOQT_SIG_BUF) {
+    for (usz i = 0; i < slot->pending_len; i++) stage[i] = held[i];
+    for (usz i = 0; i < payload.n; i++)
+      stage[slot->pending_len + i] = payload.p[i];
+    r = wired_server_wt_stream_send(
+        s, stream_id, quic_span_of(stage, total), 1);
+  }
+  slot->in_use = 0;
+  return r;
 }
 
-/* Stages payload (moqt_relay_stage_buf) and hands it to
- * wired_server_wt_stream_send. A rejection (previous round not yet ACKed)
- * leaves the armed side untouched -- the staged copy is simply discarded,
- * a dropped round, voice-tolerable. */
 static int moqt_relay_stage_and_send(
     wired_wt_session* s,
     moqt_relay_slot*  slot,
     u64               stream_id,
     quic_span         payload,
     int               fin) {
-  u8* stage = moqt_relay_stage_buf(slot, fin);
-  if (payload.n > MOQT_SIG_BUF) return 0;
-  for (usz i = 0; i < payload.n; i++) stage[i] = payload.p[i];
-  int r = wired_server_wt_stream_send(
-      s, stream_id, quic_span_of(stage, payload.n), fin);
-  moqt_relay_finish_round(slot, r, fin);
-  return r;
+  return fin ? moqt_relay_send_fin_round(s, slot, stream_id, payload)
+             : moqt_relay_send_open_round(s, slot, stream_id, payload);
 }
 
 /* wired_server_wt_stream_send-shaped: for a stream_id this file itself
