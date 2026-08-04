@@ -57,6 +57,16 @@ typedef struct {
 void wired_sendsess_arm(
     wired_sendsess* s, const u8* stream, usz len, usz chunk);
 
+/** Grow a session's armed stream by `added` bytes staged directly behind
+ * the bytes it was armed over (same buffer -- the caller has already
+ * written them at stream + old len). The appended bytes slice out at
+ * contiguous offsets; a session whose done already fired re-activates.
+ * In-flight and requeued slices are untouched: they keep resolving into
+ * the same (unchanged, still-alive) buffer.
+ * @param s the session
+ * @param added bytes appended behind the armed stream */
+void wired_sendsess_extend(wired_sendsess* s, usz added);
+
 /** @return slices currently in flight (sent, unacknowledged). */
 usz wired_sendsess_inflight(const wired_sendsess* s);
 

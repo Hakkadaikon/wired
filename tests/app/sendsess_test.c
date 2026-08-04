@@ -57,6 +57,43 @@ static void test_sendsess_done_only_after_all_acked(void) {
   CHECK(wired_sendsess_done(&s) == 0); /* deactivated: fires once */
 }
 
+/* Extending a live session behind the same buffer yields the appended
+ * bytes as further slices at contiguous offsets, without disturbing the
+ * already-taken prefix. */
+static void test_sendsess_extend_grows_live_session(void) {
+  u8                bytes[8];
+  wired_sendsess    s;
+  wired_sendq_slice sl;
+  wired_sendsess_arm(&s, bytes, 4, 3);
+  CHECK(wired_sendsess_take(&s, &sl) && sl.offset == 0 && sl.len == 3);
+  CHECK(wired_sendsess_take(&s, &sl) && sl.offset == 3 && sl.len == 1);
+  CHECK(wired_sendsess_take(&s, &sl) == 0);
+  wired_sendsess_extend(&s, 4);
+  CHECK(wired_sendsess_take(&s, &sl) && sl.offset == 4 && sl.len == 3);
+  CHECK(wired_sendsess_take(&s, &sl) && sl.offset == 7 && sl.len == 1);
+  CHECK(wired_sendsess_take(&s, &sl) == 0);
+}
+
+/* Extending after the session fully drained (done consumed the active
+ * flag) re-activates it: the appended bytes still deliver and done fires
+ * again only once they are acknowledged. */
+static void test_sendsess_extend_after_drained_reactivates(void) {
+  u8                bytes[6];
+  wired_sendsess    s;
+  wired_sendq_slice sl;
+  wired_sendsess_arm(&s, bytes, 2, 10);
+  wired_sendsess_take(&s, &sl);
+  wired_sendsess_sent(&s, &sl, 0, 0);
+  wired_sendsess_ack(&s, 0, 0);
+  CHECK(wired_sendsess_done(&s) == 1);
+  wired_sendsess_extend(&s, 4);
+  CHECK(wired_sendsess_done(&s) == 0); /* live again, tail unsent */
+  CHECK(wired_sendsess_take(&s, &sl) && sl.offset == 2 && sl.len == 4);
+  wired_sendsess_sent(&s, &sl, 1, 0);
+  wired_sendsess_ack(&s, 1, 1);
+  CHECK(wired_sendsess_done(&s) == 1);
+}
+
 /* A requeued (lost) slice is retransmitted before any new slice. */
 static void test_sendsess_requeue_first(void) {
   u8                bytes[30];
@@ -437,6 +474,8 @@ void test_sendsess(void) {
   test_sendsess_take_and_track();
   test_sendsess_ack_consumes();
   test_sendsess_done_only_after_all_acked();
+  test_sendsess_extend_grows_live_session();
+  test_sendsess_extend_after_drained_reactivates();
   test_sendsess_requeue_first();
   test_sendsess_threshold_declares_lost();
   test_sendsess_time_threshold_declares_lost_alone();
