@@ -39,6 +39,9 @@ QUIC + TLS 1.3 handshake against this server and received `HTTP/3 200`.
 | `--access-log PATH` | off | one line per request: `METHOD PATH STATUS BYTES` |
 | `--cert PATH` / `--key PATH` | self-signed | PEM certificate and key (below) |
 | `--qlog-file PATH` / `--keylog-file PATH` | off | qlog / TLS key log output |
+| `--cc-algo N` | `0` | congestion controller: 0 NewReno, 1 Cubic, 2 BBR |
+| `--max-data BYTES` | built-in | advertised `initial_max_data` (0 = built-in default) |
+| `--max-streams N` | built-in | advertised `initial_max_streams_bidi` (0 = built-in default) |
 | `--busy-poll 1` | off | spin the receive loop instead of blocking in `poll(2)` |
 | `--pin-core N` | unpinned | pin the single-process server to CPU N |
 | `--workers N [--pin-cores 1]` | — | N forked worker processes (`SO_REUSEPORT`) |

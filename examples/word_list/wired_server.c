@@ -308,12 +308,17 @@ int wired_main(int argc, char** argv) {
   app_selfcheck();
   load_config(&cfg, argc, argv);
   server_identity(&id, &keys);
+  /* Optional transport tuning; 0 keeps the built-in defaults (server_tp.c). */
+  id.max_data         = (u64)wired_cliargs_int(argc, argv, "--max-data", 0);
+  id.max_streams_bidi = (u64)wired_cliargs_int(argc, argv, "--max-streams", 0);
   wired_certreload_load_or_selfsigned(
       cfg.cert_path, cfg.key_path, &cert_store, &id);
   obs = (wired_srvrun_obs){
       wired_cliargs_str(argc, argv, "--qlog-file", 0),
       wired_cliargs_str(argc, argv, "--keylog-file", 0), cfg.cert_path,
-      cfg.key_path, 0};
+      cfg.key_path,
+      /* QUIC_CC_ALGO_*: 0 NewReno (default), 1 Cubic, 2 BBR */
+      (int)wired_cliargs_int(argc, argv, "--cc-algo", 0)};
   if (!wired_srvdriver_run(&id, h, obs, &cfg.driver))
     wired_die("listen failed\n");
   return 0;
