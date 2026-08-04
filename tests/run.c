@@ -481,6 +481,8 @@
 #include "tls/ext/alpnver/alpnver.c"
 #include "tls/handshake/flight/resume/resume.c"
 #include "tls/handshake/flight/earlydrive/earlydata.c"
+#include "crypto/asymmetric/ecc/p256fixed/p256fixed.c"
+#include "crypto/asymmetric/ecc/p256fixed/p256fixed_table.c"
 #include "crypto/asymmetric/ecc/p256sign/rfc6979.c"
 #include "crypto/asymmetric/ecc/p256sign/sign.c"
 #include "crypto/asymmetric/ecc/ecdsasig/der_int.c"
@@ -981,6 +983,7 @@
 #include "tls/ticketguard_test.c"
 #include "tls/earlydrive_test.c"
 #include "crypto/rfc6979_test.c"
+#include "crypto/p256fixed_test.c"
 #include "crypto/p256sign_test.c"
 #include "crypto/ecdsasig_der_int_test.c"
 #include "crypto/ecdsasig_sig_value_test.c"
@@ -1514,6 +1517,7 @@ int main(void) {
   test_ticketguard();
   test_earlydrive();
   test_rfc6979();
+  test_p256fixed();
   test_p256sign();
   test_ecdsasig_der_int();
   test_ecdsasig_sig_value();
