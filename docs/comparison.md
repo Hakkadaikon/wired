@@ -64,6 +64,17 @@ one execution form across the row.
 | ngtcp2 | 9414 (± 82) kbps [^ngtcp2-warn] | `ghcr.io/ngtcp2/ngtcp2-interop@sha256:eb9e8405…` (revision `6ce75f02`) |
 | picoquic | 9335 (± 5) kbps | `privateoctopus/picoquic@sha256:7e4110e3…` [^img-ver] |
 
+```mermaid
+xychart-beta
+    title "Goodput over the runner's simulated link (kbps, higher is better)"
+    x-axis ["wired", "quic-go", "quiche", "ngtcp2", "picoquic"]
+    y-axis "kbps" 0 --> 10000
+    bar [7318, 9541, 9439, 9414, 9335]
+```
+
+(Bars plot the means from the table above; the ± spreads are too small to
+matter at this scale and are listed in the table.)
+
 wired's lower goodput is consistent with its known throughput constraint
 (see the `multiplexing` row in [Interop Results](interop.md): functionally
 correct, but the testcase itself is not passed because the runner's 60 s
@@ -92,6 +103,34 @@ unanswered for 10 s counts as a failure and the worker moves on.
 | quiche 0.29.3 (`55886df`) | 1.8 ± 0.1 | 20,559 ± 1703 | 0.9 ± 0.0 | 3.2 ± 0.7 | 0 |
 | ngtcp2 | — (no native build attempted: multi-stage autotools chain; measured in the goodput lane only) | — | — | — | — |
 | picoquic | — (no native build attempted: multi-stage cmake chain incl. picotls; measured in the goodput lane only) | — | — | — | — |
+
+```mermaid
+xychart-beta
+    title "Loopback load throughput (req/s, higher is better)"
+    x-axis ["wired", "quic-go", "quiche"]
+    y-axis "req/s" 0 --> 22000
+    bar [2040, 12159, 20559]
+```
+
+```mermaid
+xychart-beta
+    title "TTFB p50 — fresh connection incl. handshake (ms, lower is better)"
+    x-axis ["wired", "quic-go", "quiche"]
+    y-axis "ms" 0 --> 7
+    bar [6.5, 2.3, 1.8]
+```
+
+```mermaid
+xychart-beta
+    title "Load latency p99 (ms, lower is better)"
+    x-axis ["wired", "quic-go", "quiche"]
+    y-axis "ms" 0 --> 10
+    bar [9.3, 3.8, 3.2]
+```
+
+(Bars plot the table means. wired's req/s bar carries the timeout-inflated
+variance described in [^wired-stall] — its healthy runs sit at 2.7–3.0k
+req/s; see the manifest.)
 
 Client CPU stayed below saturation in every run (max 129% of a 200% two-core
 budget), but at the 12k–20k req/s level the client works hard; read
