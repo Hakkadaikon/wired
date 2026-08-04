@@ -27,7 +27,7 @@ limitation, or a non-protocol gap) · `—` not demonstrated yet.
 | `amplificationlimit` | ✅ | RFC 9000 §8.1 anti-amplification enforced on an inflated (9-certificate) server flight |
 | `goodput` (measurement) | ✅ | 10 MB in 11.5 s (~7.3 Mbps) over the runner's simulated link, repeatable |
 | `blackhole` | ✅ | resumes correctly after a simulated 2 s link outage |
-| `multiplexing` | 🟡 | MAX_STREAMS re-grant works correctly (verified live: the advertised limit climbs from 100 to 2000+ as requests complete, 98% of 1999 requested files finish), but the runner's fixed 60 s timeout for this case is not met; a pure throughput gap, not a functional one |
+| `multiplexing` | ✅ | passes fully as of 2026-08-05. The earlier 🟡 (98% of 1999 files, 60 s timeout missed) was NOT the throughput gap it was believed to be: loss-delayed retransmissions of already-answered request streams re-claimed reassembly slots ("zombies") until the table filled and a genuinely new stream's frames were silently dropped while its packet was still ACKed — so the client never retransmitted and that request never finished. Fixed by tracking answered-and-released stream ids per connection and discarding their late duplicates (RFC 9000 §3.2), plus clamping the advertised stream limit to the table capacity so the limit and the table stay in lockstep |
 | `handshakeloss` | ✅ | all 50 handshakes complete under a 30% bursty loss rate. Three server-side gaps had to close: a boot-flight resend only replayed the still-unsent tail (one lost Handshake datagram deadlocked the handshake), the one-time confirmation packet (SETTINGS + ticket + HANDSHAKE_DONE) was never retransmitted when lost, and a still-incomplete split ClientHello was never acknowledged, starving the client's 5 s handshake idle timer |
 | `handshakecorruption` | ✅ | same scenario under corruption; passes with the same fixes |
 | `retry` | ✅ | RFC 9000 §8.1.2 forced address validation: a `--force-retry` server mode sends a Retry for every token-less Initial, verifies the presented token's HMAC (RFC 9000 §8.1.1) and address binding before accepting, and drops datagrams carrying an invalid one. The Retry Integrity Tag is pinned to the RFC 9001 Appendix A.4 vector. The wire token carries its embedded original DCID in the clear (`odcid_len \|\| odcid \|\| HMAC-SHA256`) so the server can statelessly recover it for `original_destination_connection_id`; the Initial-key derivation input (the Retry's own SCID) and that recovered original DCID are tracked as two distinct fields end to end so the TP advert is never mixed up with the key-derivation input |
@@ -58,15 +58,11 @@ is exactly what this tier exists for.
 
 ## Honest summary of the gaps
 
-- 5 of 22 QUIC interop testcases have not passed yet (both measurements
+- 4 of 22 QUIC interop testcases have not passed yet (both measurements
   have); only quic-go and webtransport-go have been used as peers.
 - `ecn` and `v2` cannot get an end-to-end verdict from the current peer:
   the quic-go interop client itself refuses both testcases, so the
   implementations remain unit-tested only.
-- `multiplexing` is functionally correct (verified live: the server raises
-  its advertised stream limit as requests complete, and 98% of 1999
-  concurrently requested files finish) but misses the interop runner's
-  fixed 60 s timeout for this case -- a throughput gap, not a protocol one.
 - `rebind-port` / `rebind-addr` implement the full RFC 9000 8.2/9.3
   PATH_CHALLENGE/PATH_RESPONSE round trip, and manually decrypting the
   capture confirms the server correctly sends a PATH_CHALLENGE as the new
