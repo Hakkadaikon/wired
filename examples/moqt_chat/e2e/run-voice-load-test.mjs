@@ -23,6 +23,10 @@ const messagesPerClient = Number(arg("messages", "10"));
 const sendIntervalMs = Number(arg("interval-ms", "800"));
 const settleMs = Number(arg("settle-ms", "15000"));
 const maxLossRate = Number(arg("max-loss-rate", "1"));
+// Voice-frame loss gate over the per-seq trace (voiceMetrics.mjs): the relay
+// retains busy rounds instead of dropping them, so steady-state voice loss
+// should be ~0; 0.1% leaves room for join/teardown edges.
+const maxVoiceLossRate = Number(arg("max-voice-loss-rate", "0.001"));
 
 if (!certHash) {
   console.error(
@@ -67,6 +71,22 @@ console.log(JSON.stringify(result, null, 2));
 const failures = [];
 if (result.lossRate > maxLossRate) {
   failures.push(`chat lossRate ${result.lossRate} > max ${maxLossRate}`);
+}
+{
+  let received = 0;
+  let lost = 0;
+  for (const page of Object.values(result.voiceTrace ?? {})) {
+    for (const sender of Object.values(page.perSender ?? {})) {
+      received += sender.loss.received;
+      lost += sender.loss.lost;
+    }
+  }
+  const voiceLossRate = received + lost > 0 ? lost / (received + lost) : 0;
+  if (voiceLossRate > maxVoiceLossRate) {
+    failures.push(
+      `voice lossRate ${voiceLossRate.toFixed(5)} (${lost}/${received + lost}) > max ${maxVoiceLossRate}`,
+    );
+  }
 }
 for (const [tag, errs] of Object.entries(result.pageErrors)) {
   if (errs.length > 0) failures.push(`client ${tag} had page errors: ${errs.join("; ")}`);
