@@ -414,6 +414,16 @@ typedef struct {
    * first request, exactly as the old single-slot fields were — so a
    * connection that only ever uses stream 0 behaves identically to before. */
   wired_srvloop_stream_slot streams[WIRED_SRVLOOP_MAX_STREAMS];
+  /** RFC 9000 3.2: request streams already answered and released. A late
+   * duplicate (loss-delayed retransmission) of such a stream must be
+   * discarded, not re-admitted as a new stream -- re-admitted "zombies"
+   * once filled the table until genuinely new streams were dropped. All
+   * stream indexes (id/4) below req_closed_floor are closed; the next 1024
+   * indexes live in the req_closed_bm window (bit k = floor+k). A release
+   * past the window is not recorded (safe direction: a live stream is
+   * never misclassified as closed). */
+  u64 req_closed_floor;
+  u64 req_closed_bm[16];
   /** draft-ietf-webtrans-http3-15 4.3: one reassembly slot per concurrent WT
    * bidi stream, separate from streams[] above (see
    * wired_srvloop_wt_stream_slot's doc for why). Reachable here so a future
@@ -658,8 +668,10 @@ int wired_srvloop_init(wired_srvloop* l, const u8* cli_scid, u8 cli_scid_len);
  * frames of several request streams).
  * @param l the loop whose streams[] table to search/claim
  * @param stream_id the client bidi request stream id
- * @return the slot index, or -1 when the table is full (the stream's frames
- *   are dropped, same as the old fixed capacity of one). */
+ * @return the slot index; -2 when the stream was already answered and
+ *   released (RFC 9000 3.2: a late duplicate, its frames are discarded
+ *   without claiming anything); or -1 when the table is full (the stream's
+ *   frames are dropped, same as the old fixed capacity of one). */
 int wired_srvloop_slot_for(wired_srvloop* l, u64 stream_id);
 
 /** RFC 9218 7.1 / 10: apply a validated PRIORITY_UPDATE (request variant) to

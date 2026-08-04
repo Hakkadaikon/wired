@@ -21,6 +21,8 @@
  * set, so a slot used without going through stream_slot_claim (a direct
  * wired_srvloop_dispatch call, as the tests do) still starts from zero. */
 static void streams_reset(wired_srvloop* l) {
+  l->req_closed_floor = 0;
+  for (usz i = 0; i < 16; i++) l->req_closed_bm[i] = 0;
   for (usz i = 0; i < WIRED_SRVLOOP_MAX_STREAMS; i++) {
     l->streams[i].in_use         = 0;
     l->streams[i].stream_id      = 0;
@@ -282,6 +284,53 @@ static void pending_priority_consume(wired_srvloop* l, usz i) {
   l->pending_priority[p].in_use = 0;
 }
 
+/* Shift the closed-stream window down one whole word (64 indexes). */
+static void req_closed_shift64(wired_srvloop* l) {
+  for (usz i = 0; i + 1 < 16; i++)
+    l->req_closed_bm[i] = l->req_closed_bm[i + 1];
+  l->req_closed_bm[15] = 0;
+  l->req_closed_floor += 64;
+}
+
+/* Shift the closed-stream window down one index (one bit, with carry). */
+static void req_closed_shift1(wired_srvloop* l) {
+  for (usz i = 0; i < 16; i++) {
+    u64 carry           = i + 1 < 16 ? l->req_closed_bm[i + 1] << 63 : 0;
+    l->req_closed_bm[i] = (l->req_closed_bm[i] >> 1) | carry;
+  }
+  l->req_closed_floor += 1;
+}
+
+/* Advance req_closed_floor over the contiguous closed prefix, keeping the
+ * window anchored just past the lowest still-open stream index. */
+static void req_closed_advance(wired_srvloop* l) {
+  while (l->req_closed_bm[0] == ~(u64)0) req_closed_shift64(l);
+  while (l->req_closed_bm[0] & 1) req_closed_shift1(l);
+}
+
+/* Record stream_id as answered-and-released (RFC 9000 3.2). An id past the
+ * 1024-index window is left unrecorded -- the safe degradation: a very old
+ * duplicate may still claim a slot, but a live stream is never mistaken
+ * for a closed one. */
+static void req_closed_mark(wired_srvloop* l, u64 stream_id) {
+  u64 idx = stream_id / 4;
+  if (idx < l->req_closed_floor) return;
+  if (idx - l->req_closed_floor >= 1024) return;
+  l->req_closed_bm[(idx - l->req_closed_floor) / 64] |=
+      (u64)1 << ((idx - l->req_closed_floor) % 64);
+  req_closed_advance(l);
+}
+
+/* 1 if stream_id was already answered and released (see req_closed_mark). */
+static int req_closed_has(const wired_srvloop* l, u64 stream_id) {
+  u64 idx = stream_id / 4;
+  if (idx < l->req_closed_floor) return 1;
+  if (idx - l->req_closed_floor >= 1024) return 0;
+  return (l->req_closed_bm[(idx - l->req_closed_floor) / 64] >>
+          ((idx - l->req_closed_floor) % 64)) &
+         1;
+}
+
 /* Claim and reset a free slot for stream_id.
  * @return the slot index, or -1 if the table is full. */
 static int stream_slot_claim(wired_srvloop* l, u64 stream_id) {
@@ -311,6 +360,7 @@ static int stream_slot_claim(wired_srvloop* l, u64 stream_id) {
 int wired_srvloop_slot_for(wired_srvloop* l, u64 stream_id) {
   int i = stream_slot_find(l, stream_id);
   if (i >= 0) return i;
+  if (req_closed_has(l, stream_id)) return -2;
   return stream_slot_claim(l, stream_id);
 }
 
@@ -320,6 +370,7 @@ int wired_srvloop_slot_for(wired_srvloop* l, u64 stream_id) {
  * on distinct streams. A stream_id with no slot is a no-op. */
 void wired_srvloop_slot_release(wired_srvloop* l, u64 stream_id) {
   int i = stream_slot_find(l, stream_id);
+  req_closed_mark(l, stream_id);
   if (i < 0) return;
   l->streams[i].in_use         = 0;
   l->streams[i].stream_id      = 0;
