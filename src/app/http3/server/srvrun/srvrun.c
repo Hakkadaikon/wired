@@ -5289,7 +5289,7 @@ static int srvrun_resp_not_yet_idle(srvrun_resp* r) {
  * uses (quic_stp_build_server_lim, server_tp.c). */
 static u64 srvrun_stream_limit_base(const srvrun_step_ctx* ctx) {
   u64 configured = ctx->cfg->id ? ctx->cfg->id->max_streams_bidi : 0;
-  return configured ? configured : QUIC_STP_DEFAULT_MAX_STREAMS_BIDI;
+  return wired_srvloop_stream_limit(configured);
 }
 
 static void srvrun_resp_reap(

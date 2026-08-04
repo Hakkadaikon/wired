@@ -3886,6 +3886,40 @@ static void test_srvloop_step_zerortt_records_real_pn(void) {
   CHECK(f.l.app_rx_pn == 3);
 }
 
+/* A payload frame landing in a slot past 31 must still be marked for
+ * completion: the table holds 40 slots, so the touched mask has to be
+ * 64-bit (a 32-bit mask shifted by 35 is undefined behavior and, under
+ * -O2, loses the bit -- the request then sits landed but never decoded). */
+static void test_srvloop_touched_mask_reaches_high_slots(void) {
+  static wired_srvloop l;
+  u64                  touched = 0;
+  quic_stream_frame    sf;
+  static const u8      scid[1] = {1};
+  static const u8      body[1] = {0};
+  CHECK(wired_srvloop_init(&l, scid, 1));
+  for (u64 s = 0; s < 36; s++) {
+    sf.stream_id = s * 4;
+    sf.offset    = 0;
+    sf.length    = 1;
+    sf.data      = body;
+    sf.fin       = 0;
+    route_land(&l, &sf, &touched);
+  }
+  CHECK(((touched >> 0) & (u64)1) == 1);
+  CHECK(((touched >> 35) & (u64)1) == 1); /* slot 35: lost by a u32 mask */
+}
+
+/* The advertised bidi stream limit must never exceed the reassembly-table
+ * capacity: an over-advertised limit lets a loss-delayed release window
+ * silently drop accepted streams (the packet is ACKed, the peer never
+ * retransmits). 0 resolves the built-in default before clamping. */
+static void test_srvloop_stream_limit_clamps_to_table(void) {
+  CHECK(wired_srvloop_stream_limit(0) == WIRED_SRVLOOP_MAX_STREAMS);
+  CHECK(wired_srvloop_stream_limit(5) == 5);
+  CHECK(wired_srvloop_stream_limit(40) == 40);
+  CHECK(wired_srvloop_stream_limit(100) == WIRED_SRVLOOP_MAX_STREAMS);
+}
+
 void test_srvloop(void) {
   test_srvloop_recv_zerortt_opens_with_early_keys();
   test_srvloop_recv_zerortt_refused_without_early_keys();
@@ -3992,4 +4026,6 @@ void test_srvloop(void) {
   test_srvloop_recv_onertt_before_keys_ready_short_circuits_before_ku_logic();
   test_srvloop_recv_no_old_keys_before_first_update_rejects_stale_phase();
   test_srvloop_recv_follows_repeated_key_updates_across_generations();
+  test_srvloop_touched_mask_reaches_high_slots();
+  test_srvloop_stream_limit_clamps_to_table();
 }

@@ -6,6 +6,7 @@
 #include "app/http3/request/h3reqdrive/request_drive.h"
 #include "app/http3/server/h3srv/state.h"
 #include "common/bytes/span/span.h"
+#include "tls/ext/stp/server_tp.h"
 #include "tls/handshake/roles/server/server.h"
 #include "transport/conn/pnspace/pnspaces/recv_spaces.h"
 #include "transport/packet/frame/frame/connctl.h"
@@ -73,6 +74,18 @@ typedef int (*wired_srvloop_handler)(
  * (quic-go does) never retries a stream this SDK's own slot table dropped,
  * so anything short of 40 silently loses requests past the cap forever. */
 #define WIRED_SRVLOOP_MAX_STREAMS 40
+
+/** Advertised initial_max_streams_bidi resolved from `configured` (0 = the
+ * built-in default) and clamped to the reassembly-table capacity above.
+ * Advertising more streams than the table can hold opens a silent-loss
+ * window: when loss delays the ACKs that release slots, a legitimately
+ * opened stream finds the table full, its frames land nowhere, and the
+ * carrying packet is still ACKed -- so the peer never retransmits and the
+ * request is gone for good. The limit and the table must stay in lockstep. */
+static inline u64 wired_srvloop_stream_limit(u64 configured) {
+  u64 v = configured ? configured : QUIC_STP_DEFAULT_MAX_STREAMS_BIDI;
+  return v > WIRED_SRVLOOP_MAX_STREAMS ? WIRED_SRVLOOP_MAX_STREAMS : v;
+}
 
 /** One request stream's cross-datagram reassembly state — everything the
  * original single-stream wired_srvloop held, now per stream id. free (in_use

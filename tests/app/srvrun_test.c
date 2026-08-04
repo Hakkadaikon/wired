@@ -9558,7 +9558,7 @@ static void test_srvrun_slot_release_grants_one_more_stream(void) {
     CHECK(c.stream_limit_advertised == 0); /* nothing granted yet */
     srvrun_reap_resps(&ctx, &c, 0);
     CHECK(c.resp[0].in_use == 0); /* slot released */
-    CHECK(c.stream_limit_advertised == QUIC_STP_DEFAULT_MAX_STREAMS_BIDI + 1);
+    CHECK(c.stream_limit_advertised == WIRED_SRVLOOP_MAX_STREAMS + 1);
   }
 }
 
@@ -9589,10 +9589,10 @@ static void test_srvrun_stream_limit_never_decreases(void) {
     srvrun_pump_sess(&ctx, 0);
     wired_sendsess_ack(&c.resp[0].sess, 0, ~(u64)0);
     srvrun_reap_resps(&ctx, &c, 0);
-    CHECK(c.stream_limit_advertised == QUIC_STP_DEFAULT_MAX_STREAMS_BIDI + 1);
+    CHECK(c.stream_limit_advertised == WIRED_SRVLOOP_MAX_STREAMS + 1);
     wired_sendsess_ack(&c.resp[1].sess, 0, ~(u64)0);
     srvrun_reap_resps(&ctx, &c, 0);
-    CHECK(c.stream_limit_advertised == QUIC_STP_DEFAULT_MAX_STREAMS_BIDI + 2);
+    CHECK(c.stream_limit_advertised == WIRED_SRVLOOP_MAX_STREAMS + 2);
   }
 }
 
@@ -9646,7 +9646,7 @@ static void test_srvrun_streams_blocked_before_any_release_uses_base(void) {
     srvrun_step_ctx ctx = {&cfg, 0, 0, 0, 0};
     srvrun_reannounce_stream_limit(ctx.cfg, &c, srvrun_stream_limit_base(&ctx));
   }
-  CHECK(c.stream_limit_advertised == QUIC_STP_DEFAULT_MAX_STREAMS_BIDI);
+  CHECK(c.stream_limit_advertised == WIRED_SRVLOOP_MAX_STREAMS);
 }
 
 /* A small case (one stream opened and closed) grants
@@ -9677,7 +9677,7 @@ static void test_srvrun_stream_limit_small_case_single_grant(void) {
     srvrun_reannounce_stream_limit(ctx.cfg, &c, srvrun_stream_limit_base(&ctx));
   }
   CHECK(c.l.streams_blocked_seen_flag == 0);
-  CHECK(c.stream_limit_advertised == QUIC_STP_DEFAULT_MAX_STREAMS_BIDI + 1);
+  CHECK(c.stream_limit_advertised == WIRED_SRVLOOP_MAX_STREAMS + 1);
 }
 
 /* END-TO-END REGRESSION for the real interop stall: two slots share a cwnd
