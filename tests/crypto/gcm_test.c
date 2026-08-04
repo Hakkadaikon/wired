@@ -69,7 +69,59 @@ static void test_gcm_open(void) {
   CHECK(quic_gcm_open(&g2, quic_span_of(ct, 36), dec) == 0);
 }
 
+/* Deterministic byte stream (LCG, no libc rand) for the differential check
+ * below. */
+static u32 gcm_diff_rng;
+
+static u8 gcm_diff_rand(void) {
+  gcm_diff_rng = gcm_diff_rng * 1664525u + 1013904223u;
+  return (u8)(gcm_diff_rng >> 24);
+}
+
+static void gcm_diff_fill(u8* p, usz n) {
+  for (usz i = 0; i < n; i++) p[i] = gcm_diff_rand();
+}
+
+/* quic_gcm_seal/open dispatch to AES-NI when available (gcm.c). This is the
+ * scalar oracle side of that differential: it exercises whichever path
+ * quic_gcm_seal/open picks at runtime, for lengths spanning empty, sub-
+ * block, exact block, multi-block and the 1129-byte QUIC hot case. On a host
+ * without AES-NI this is exactly the scalar path already covered above, so
+ * the check still runs (it is not gated on quic_gcmx86_supported()). */
+static void gcm_dispatch_one(usz n, usz an) {
+  u8          key[16], nonce[12], aad[32];
+  u8          pt[2048], ct[2048 + 16], dec[2048];
+  quic_aes128 a;
+  gcm_diff_fill(key, 16);
+  gcm_diff_fill(nonce, 12);
+  gcm_diff_fill(aad, an);
+  gcm_diff_fill(pt, n);
+  quic_aes128_init(&a, key);
+  quic_gcm_ctx g = {&a, nonce, {aad, an}};
+
+  CHECK(quic_gcm_seal(&g, quic_span_of(pt, n), ct) == n + 16);
+  for (usz i = 0; i < n; i++) dec[i] = 0xCC;
+  CHECK(quic_gcm_open(&g, quic_span_of(ct, n + 16), dec) == 1);
+  for (usz i = 0; i < n; i++) CHECK(dec[i] == pt[i]);
+
+  /* flip one tag bit: must reject and leave dec untouched */
+  for (usz i = 0; i < n; i++) dec[i] = 0xCC;
+  ct[n] ^= 1;
+  CHECK(quic_gcm_open(&g, quic_span_of(ct, n + 16), dec) == 0);
+  for (usz i = 0; i < n; i++) CHECK(dec[i] == 0xCC);
+}
+
+static void test_gcm_dispatch(void) {
+  static const usz lens[] = {0, 1, 15, 16, 17, 64, 255, 1129, 2048};
+  static const usz aads[] = {0, 13, 20};
+  gcm_diff_rng            = 0x77697265;
+  for (usz i = 0; i < sizeof(lens) / sizeof(lens[0]); i++)
+    for (usz j = 0; j < sizeof(aads) / sizeof(aads[0]); j++)
+      gcm_dispatch_one(lens[i], aads[j]);
+}
+
 void test_gcm(void) {
   test_gcm_nist();
   test_gcm_open();
+  test_gcm_dispatch();
 }

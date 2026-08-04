@@ -1,7 +1,15 @@
 #include "crypto/symmetric/aead/gcm/gcm.h"
 
+#include "common/bytes/util/be.h"
 #include "common/bytes/util/ct.h"
 #include "crypto/symmetric/aead/gcm/gcm256.h"
+#include "crypto/symmetric/aead/gcmx86/gcmx86.h"
+
+/* AES-NI/PCLMULQDQ dispatch for AES-128-GCM (RFC 9001 5.3 uses the same AEAD
+ * regardless of which block-cipher backend computes it). Nonce/tag sizes
+ * must agree between the two paths for the dispatch below to be transparent. */
+_Static_assert(QUIC_GCM_NONCE == QUIC_GCMX86_NONCE, "gcm/gcmx86 nonce size");
+_Static_assert(QUIC_GCM_TAG == QUIC_GCMX86_TAG, "gcm/gcmx86 tag size");
 
 /* XOR 16 bytes of src into dst. */
 static void xor16(u8* dst, const u8* src) {
@@ -140,9 +148,52 @@ static void gcm_tag(const quic_gcm_st* st, quic_span ct, u8 tag[16]) {
   for (usz i = 0; i < 16; i++) tag[i] = y[i] ^ ej0[i];
 }
 
+/* Recover the original 16-byte AES-128 key from the first four round-key
+ * words (quic_aes128_init sets rk[0..3] to the key itself, FIPS 197 5.2). */
+static void gcm_key_from_aes128(const quic_aes128* a, u8 key[16]) {
+  for (usz i = 0; i < 4; i++) quic_put_be32(key + 4 * i, a->rk[i]);
+}
+
+/* Build an AES-NI key schedule from the scalar quic_aes128 already held by
+ * g. Repeated per call by design (ponytail: caching would need per-
+ * connection state this task doesn't touch; one AES key schedule + one AES
+ * block is microseconds, already measured acceptable. Upgrade path: cache
+ * the expanded quic_gcmx86 on quic_aes128 itself if profiling ever shows the
+ * expansion cost matters). */
+static void gcm_x86_from(const quic_gcm_ctx* g, quic_gcmx86* x) {
+  u8 key[16];
+  gcm_key_from_aes128(g->aes, key);
+  quic_gcmx86_init(x, key);
+}
+
+/* quic_gcmx86_open returns the plaintext length, so it cannot distinguish an
+ * authentic empty plaintext (ct.n == QUIC_GCM_TAG, returns 0) from AUTH_FAIL
+ * (also returns 0). For that one boundary case, verify the tag directly with
+ * the scalar GHASH tag computation (cheap: zero-length body) instead of
+ * trusting the ambiguous return value. */
+static int gcm_open_x86_empty(const quic_gcm_ctx* g, quic_span ct) {
+  quic_gcm_st st;
+  u8          want[16];
+  gcm_setup(g, &st);
+  gcm_tag(&st, quic_span_of(ct.p, 0), want);
+  return quic_ct_diff16(want, ct.p) == 0;
+}
+
+static int gcm_open_x86(const quic_gcm_ctx* g, quic_span ct, u8* pt) {
+  quic_gcmx86 x;
+  if (ct.n == QUIC_GCM_TAG) return gcm_open_x86_empty(g, ct);
+  gcm_x86_from(g, &x);
+  return quic_gcmx86_open(&x, g->nonce, g->aad, ct, pt) != 0;
+}
+
 usz quic_gcm_seal(const quic_gcm_ctx* g, quic_span pt, u8* out) {
   quic_gcm_st  st;
   quic_gcm_ctr c;
+  if (quic_gcmx86_supported()) {
+    quic_gcmx86 x;
+    gcm_x86_from(g, &x);
+    return quic_gcmx86_seal(&x, g->nonce, g->aad, pt, out);
+  }
   gcm_setup(g, &st);
   data_ctr(&st, &c);
   ctr_xor(&c, pt, out);
@@ -150,12 +201,13 @@ usz quic_gcm_seal(const quic_gcm_ctx* g, quic_span pt, u8* out) {
   return pt.n + QUIC_GCM_TAG;
 }
 
-int quic_gcm_open(const quic_gcm_ctx* g, quic_span ct, u8* pt) {
+/* Scalar-path body: verify the tag, then decrypt on success. Split out of
+ * quic_gcm_open so its CCN stays under budget alongside the dispatch. */
+static int gcm_open_scalar(const quic_gcm_ctx* g, quic_span ct, u8* pt) {
   quic_gcm_st  st;
   quic_gcm_ctr c;
   u8           want[16];
-  if (ct.n < QUIC_GCM_TAG) return 0;
-  quic_span body = quic_span_of(ct.p, ct.n - QUIC_GCM_TAG);
+  quic_span    body = quic_span_of(ct.p, ct.n - QUIC_GCM_TAG);
   gcm_setup(g, &st);
   gcm_tag(&st, body, want);
   if (quic_ct_diff16(want, ct.p + body.n) != 0)
@@ -163,6 +215,12 @@ int quic_gcm_open(const quic_gcm_ctx* g, quic_span ct, u8* pt) {
   data_ctr(&st, &c);
   ctr_xor(&c, body, pt);
   return 1;
+}
+
+int quic_gcm_open(const quic_gcm_ctx* g, quic_span ct, u8* pt) {
+  if (ct.n < QUIC_GCM_TAG) return 0;
+  if (quic_gcmx86_supported()) return gcm_open_x86(g, ct, pt);
+  return gcm_open_scalar(g, ct, pt);
 }
 
 /* AES-256-GCM (RFC 8446 Appendix B.4, 0x1302). Same mode of operation as
