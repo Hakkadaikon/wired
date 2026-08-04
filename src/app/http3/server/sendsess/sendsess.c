@@ -14,6 +14,11 @@ void wired_sendsess_arm(
   for (usz i = 0; i < WIRED_SENDSESS_LOG; i++) s->log[i].inflight = 0;
 }
 
+void wired_sendsess_extend(wired_sendsess* s, usz added) {
+  s->q.len += added;
+  s->active = 1;
+}
+
 void wired_sendsess_set_base_offset(wired_sendsess* s, u64 base_offset) {
   s->stream_base_offset = base_offset;
 }
