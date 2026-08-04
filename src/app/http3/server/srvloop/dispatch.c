@@ -1071,13 +1071,15 @@ static wired_srvloop_reqacc route_slot_acc(wired_srvloop_stream_slot* slot) {
  * first sight) and mark that slot touched. A full table drops the frame --
  * same policy as the old single fixed slot. */
 static void route_land(
-    wired_srvloop* l, const quic_stream_frame* sf, u32* touched) {
+    wired_srvloop* l, const quic_stream_frame* sf, u64* touched) {
   int                  i = wired_srvloop_slot_for(l, sf->stream_id);
   wired_srvloop_reqacc acc;
   if (i < 0) return;
   acc = route_slot_acc(&l->streams[i]);
   gather_one(sf, &acc);
-  *touched |= 1u << i;
+  /* u64: the table holds up to WIRED_SRVLOOP_MAX_STREAMS (40) slots, so a
+   * 32-bit mask loses (as undefined-behavior shifts) slots 32..39. */
+  *touched |= (u64)1 << i;
 }
 
 /* RFC 9000 2.2 / 12.4: route every request STREAM frame in this payload to
@@ -1086,7 +1088,7 @@ static void route_land(
  * 1 if any request-stream frame was seen, with *touched marking the slots
  * written. */
 static int route_request_frames(
-    const wired_srvloop_dispatch_ctx* ctx, quic_span payload, u32* touched) {
+    const wired_srvloop_dispatch_ctx* ctx, quic_span payload, u64* touched) {
   quic_framewalk      it;
   quic_framewalk_item fr;
   int                 seen = 0;
@@ -1184,9 +1186,9 @@ static void route_complete_slot(
 static void route_complete_touched(
     const wired_srvloop_dispatch_ctx* ctx,
     const wired_srvloop_dispatch_in*  in,
-    u32                               touched) {
+    u64                               touched) {
   for (usz i = 0; i < WIRED_SRVLOOP_MAX_STREAMS; i++)
-    if ((touched >> i) & 1u) route_complete_slot(ctx, in, (int)i);
+    if ((touched >> i) & (u64)1) route_complete_slot(ctx, in, (int)i);
 }
 
 /* The routed (ctx->l != 0) reassembly path: per-frame slot routing, then
@@ -1194,7 +1196,7 @@ static void route_complete_touched(
 static int reassemble_routed(
     const wired_srvloop_dispatch_ctx* ctx,
     const wired_srvloop_dispatch_in*  in) {
-  u32 touched = 0;
+  u64 touched = 0;
   if (!route_request_frames(ctx, in->payload, &touched)) return 0;
   route_complete_touched(ctx, in, touched);
   return 1;
