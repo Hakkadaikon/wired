@@ -1,15 +1,16 @@
 #include "crypto/asymmetric/ecc/p256sign/sign.h"
 
 #include "crypto/asymmetric/ecc/p256/p256_point.h"
+#include "crypto/asymmetric/ecc/p256fixed/p256fixed.h"
 #include "crypto/asymmetric/ecc/p256sign/rfc6979.h"
 
 /* FIPS 186-4 Section 6.3. */
 
-/* r = (k*G).x mod n. Returns 1 if r != 0. */
+/* r = (k*G).x mod n, via the fixed-base G table. Returns 1 if r != 0. */
 static int ps_compute_r(p256_fe r, const u8 kb[32]) {
-  ec_point rp;
-  quic_ec_mul(&rp, kb, &quic_p256_g);
-  quic_fp_reduce(r, rp.x, quic_p256_n);
+  p256_fe x, y;
+  if (!quic_p256fixed_mul_g(x, y, kb)) return 0;
+  quic_fp_reduce(r, x, quic_p256_n);
   return !quic_fp_is_zero(r);
 }
 
