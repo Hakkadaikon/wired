@@ -27,11 +27,9 @@
  * to read connect_stream_id from -- srvrun.h documents this as the
  * open_bidi_stream/open_uni_stream caller's responsibility. */
 
-/* Signal prefix (<=9B) + moqtrun's envelope, with room for BUNDLED rounds:
- * a keep-open relay round refused while the previous round awaits its ACK
- * is retained and rides out with the next round (moqt_relay_send_open_round),
- * so one face must hold several 20ms opus frames (~170B each with envelope).
- * 2048 absorbs ~12 frames = ~240ms of ACK stall before rounds drop. */
+/* Signal prefix (<=9B) + one relay round. A stack buffer of this size is
+ * safe everywhere below: wired_server_wt_* COPY any payload that fits their
+ * own per-slot staging (srvrun.h), so nothing here must outlive its call. */
 #define MOQT_SIG_BUF 2048
 
 /* Decimal/string/hex line-building helpers (also used by the shutdown
@@ -63,223 +61,39 @@ static i64 moqt_io_open_bidi_stream(wired_wt_session* s, quic_span payload) {
   return wired_server_wt_open_bidi_stream(s, quic_span_of(buf, sig + payload.n));
 }
 
-/* wired_server_wt_open_uni/stream_send hold their payload as a VIEW (srvrun.h:
- * "the caller must keep it alive and unmoved until every byte has been
- * acknowledged"), never copying it -- a stack-local buffer in this function
- * would be gone the moment the function returns, long before the SDK's pump
- * has even copied the bytes into a QUIC packet. moqtrun_relay_object
- * can call send_uni once per active subscriber inside a single dispatch, so
- * one static buffer is not enough either -- each call needs its own slot
- * that outlives it. A fixed ring, one slot per possible peer, gives every
- * concurrent relay call an independent, sufficiently long-lived buffer. */
-#define MOQT_RELAY_RING WIRED_MOQTRUN_MAX_SESSIONS
-static u8  g_relay_ring[MOQT_RELAY_RING][MOQT_SIG_BUF];
-static usz g_relay_ring_next;
-
-/* Takes the next one-shot ring buffer (advancing the cursor) -- shared by
- * send_uni's rounds and a keep-open stream's FINAL round
- * (moqt_relay_stage_buf), both of which need their view alive for just one
- * round. */
-static u8* moqt_relay_ring_buf(void) {
-  u8* buf           = g_relay_ring[g_relay_ring_next];
-  g_relay_ring_next = (g_relay_ring_next + 1) % MOQT_RELAY_RING;
-  return buf;
-}
-
 /* One-shot open+send+FIN (wired_server_wt_open_uni-shaped): used for a
  * relayed Object, which always completes in its stream's only round -- see
  * moqtrun.h's send_uni doc for why this must not go through
  * open_uni_stream + a bare stream_send(fin=1) instead. */
 static i64 moqt_io_send_uni(wired_wt_session* s, quic_span payload) {
-  u8* buf = moqt_relay_ring_buf();
-  usz sig = quic_wtwire_signal_put(buf, MOQT_SIG_BUF, 0, s->connect_stream_id);
-  if (sig == 0 || payload.n > MOQT_SIG_BUF - sig) return -1;
+  u8  buf[MOQT_SIG_BUF];
+  usz sig = quic_wtwire_signal_put(buf, sizeof buf, 0, s->connect_stream_id);
+  if (sig == 0 || payload.n > sizeof buf - sig) return -1;
   for (usz i = 0; i < payload.n; i++) buf[sig + i] = payload.p[i];
   return wired_server_wt_open_uni(s, quic_span_of(buf, sig + payload.n));
 }
 
-/* --- keep-open relay streams: one persistent DOUBLE buffer per open
- * stream, not a reusable ring ------------------------------------------
- *
- * wired_server_wt_stream_send holds payload as a VIEW that must stay alive
- * and unmoved until ACKed (srvrun.h), and unlike send_uni's one-shot
- * open+send+FIN, a keep-open stream's bytes must survive across MANY
- * stream_send calls while the stream stays open -- g_relay_ring's
- * round-robin reuse (fine for send_uni) would corrupt an in-flight round
- * the moment a later relay call reuses the same slot. Each open relay
- * stream gets its OWN slot (found by stream_id) for its whole lifetime.
- *
- * TWO buffers per slot, armed/pending (the same shape as moqtrun.h's
- * send_bufs doc): buf[armed] holds the round most recently handed to the
- * SDK -- possibly not yet sent, certainly not necessarily ACKed -- and is
- * NEVER written to. Every new round is staged in buf[armed^1]; only a
- * stream_send SUCCESS (which per srvrun.h proves the previous round fully
- * ACKed, releasing its view) flips armed to the staged side. A single
- * buffer here corrupted the voice relay in practice: appends arrive every
- * 20ms, far faster than a round's ACK, and each attempt's staging copy
- * overwrote the still-in-flight previous round (the stream's opening
- * header round included), so subscribers received garbage from byte 0.
- * ponytail: slot count is room-scale; raise if a real deployment needs
- * more concurrent open relay streams. */
-#define MOQT_RELAY_SLOTS WIRED_MOQTRUN_MAX_SESSIONS
-typedef struct {
-  int in_use;
-  /* Owning WT session: server-initiated uni stream ids restart at 7 on
-   * EVERY connection (srvrun.c's wt_uni_opened is per-conn), so stream_id
-   * alone collides across connections -- two peers' first voice relays are
-   * both id 7. Keying by (session, id) keeps each connection's relay on its
-   * own staging buffers; matching by id alone let one connection's round
-   * overwrite another's still-in-flight armed view (corrupting the wire
-   * mid-stream, found via the 4-client voice collapse). */
-  wired_wt_session* sess;
-  u64               stream_id;
-  u8                buf[2][MOQT_SIG_BUF];
-  int armed; /* which buf holds the in-flight round (never write it) */
-  /* Bytes staged in buf[armed^1] that the SDK refused while the previous
-   * round awaited its ACK -- retained (not dropped) and sent ahead of the
-   * next round's payload. 0 once a round is accepted. */
-  usz pending_len;
-} moqt_relay_slot;
-static moqt_relay_slot g_relay_slots[MOQT_RELAY_SLOTS];
-
-static moqt_relay_slot* moqt_relay_free_slot(void) {
-  for (usz i = 0; i < MOQT_RELAY_SLOTS; i++)
-    if (!g_relay_slots[i].in_use) return &g_relay_slots[i];
-  return 0;
-}
-
-static moqt_relay_slot* moqt_relay_find(wired_wt_session* s, u64 stream_id) {
-  for (usz i = 0; i < MOQT_RELAY_SLOTS; i++)
-    if (g_relay_slots[i].in_use && g_relay_slots[i].sess == s &&
-        g_relay_slots[i].stream_id == stream_id)
-      return &g_relay_slots[i];
-  return 0;
-}
-
-/* Signal-prefixes (first round only, same as moqt_io_send_uni) and copies
- * payload into slot's buf[0] (the first armed side), then opens the stream
- * on it. */
-static i64 moqt_relay_slot_open(
-    wired_wt_session* s, moqt_relay_slot* slot, quic_span payload) {
-  u8* buf = slot->buf[0];
-  usz sig = quic_wtwire_signal_put(buf, MOQT_SIG_BUF, 0, s->connect_stream_id);
-  if (sig == 0 || payload.n > MOQT_SIG_BUF - sig) return -1;
-  for (usz i = 0; i < payload.n; i++) buf[sig + i] = payload.p[i];
-  return wired_server_wt_open_uni_stream(
-      s, quic_span_of(buf, sig + payload.n));
-}
-
 /* wired_server_wt_open_uni_stream-shaped: opens WITHOUT FIN and keeps the
- * stream open for further moqt_io_stream_send rounds -- used to start a
- * subscriber's keep-open relay stream (moqtrun.h's open_uni_stream doc). */
+ * stream open for further stream_send rounds -- used to start a
+ * subscriber's keep-open relay stream (moqtrun.h's open_uni_stream doc).
+ * Appends need no wrapper at all: the SDK copies each accepted round into
+ * the stream's own send-slot staging and pipelines it behind unACKed
+ * rounds (srvrun.h), so the io table points straight at
+ * wired_server_wt_stream_send / wired_server_wt_stream_fin. */
 static i64 moqt_io_open_uni_stream(wired_wt_session* s, quic_span payload) {
-  moqt_relay_slot* slot = moqt_relay_free_slot();
-  if (!slot) return -1;
-  i64 sid = moqt_relay_slot_open(s, slot, payload);
-  if (sid < 0) return -1;
-  slot->in_use      = 1;
-  slot->sess        = s;
-  slot->stream_id   = (u64)sid;
-  slot->armed       = 0;
-  slot->pending_len = 0;
-  return sid;
-}
-
-/* Appends payload after any bytes retained in the PENDING face (buf[armed^1]
- * -- the armed side may still be a live in-flight view, never written) and
- * hands the whole face to wired_server_wt_stream_send. Success proves the
- * previous armed round fully ACKed (srvrun.h's single-round policy), so
- * armed flips to the staged side and the old armed face -- just proven
- * released -- becomes the next staging target. A rejection (previous round
- * not yet ACKed) RETAINS the face instead of dropping the round: those
- * bytes ride out ahead of the next round's payload, so a busy ACK window
- * converts to a small delay rather than a lost frame (the 20ms voice
- * cadence guarantees a prompt retry). Only a round that would overflow the
- * face is dropped (returns 0, counted by the hub). */
-static int moqt_relay_send_open_round(
-    wired_wt_session* s,
-    moqt_relay_slot*  slot,
-    u64               stream_id,
-    quic_span         payload) {
-  u8* stage = slot->buf[slot->armed ^ 1];
-  usz total = slot->pending_len + payload.n;
-  if (total > MOQT_SIG_BUF) return 0;
-  for (usz i = 0; i < payload.n; i++)
-    stage[slot->pending_len + i] = payload.p[i];
-  if (wired_server_wt_stream_send(
-          s, stream_id, quic_span_of(stage, total), 0) > 0) {
-    slot->armed ^= 1;
-    slot->pending_len = 0;
-    return 1;
-  }
-  slot->pending_len = total; /* retained -- delivered with the next round */
-  return 1;
-}
-
-/* FINAL (fin) round: flushes any retained bytes ahead of payload from a
- * one-shot ring buffer (the slot retires with this round, so its own faces
- * must not carry the view past the slot's reuse) and retires the slot
- * whatever the SDK said -- moqtrun has already dropped its relay entry for
- * a fin round, so the slot would only leak if kept. */
-static int moqt_relay_send_fin_round(
-    wired_wt_session* s,
-    moqt_relay_slot*  slot,
-    u64               stream_id,
-    quic_span         payload) {
-  u8* stage = moqt_relay_ring_buf();
-  u8* held  = slot->buf[slot->armed ^ 1];
-  usz total = slot->pending_len + payload.n;
-  int r     = 0;
-  if (total <= MOQT_SIG_BUF) {
-    for (usz i = 0; i < slot->pending_len; i++) stage[i] = held[i];
-    for (usz i = 0; i < payload.n; i++)
-      stage[slot->pending_len + i] = payload.p[i];
-    r = wired_server_wt_stream_send(
-        s, stream_id, quic_span_of(stage, total), 1);
-  }
-  slot->in_use = 0;
-  return r;
-}
-
-static int moqt_relay_stage_and_send(
-    wired_wt_session* s,
-    moqt_relay_slot*  slot,
-    u64               stream_id,
-    quic_span         payload,
-    int               fin) {
-  return fin ? moqt_relay_send_fin_round(s, slot, stream_id, payload)
-             : moqt_relay_send_open_round(s, slot, stream_id, payload);
-}
-
-/* wired_server_wt_stream_send-shaped: for a stream_id this file itself
- * opened via moqt_io_open_uni_stream (a relay stream), stages payload in
- * that stream's own persistent double buffer first (the VIEW-lifetime
- * problem this section's doc explains) -- any other stream_id (the control
- * stream, whose payload already lives in moqtrun's own send_bufs, moqtrun.h)
- * is passed straight through, no copy needed. */
-static int moqt_io_stream_send(
-    wired_wt_session* s, u64 stream_id, quic_span payload, int fin) {
-  moqt_relay_slot* slot = moqt_relay_find(s, stream_id);
-  if (!slot) return wired_server_wt_stream_send(s, stream_id, payload, fin);
-  return moqt_relay_stage_and_send(s, slot, stream_id, payload, fin);
-}
-
-/* wired_server_wt_stream_fin-shaped: ends a relay stream with no further
- * bytes -- no payload to stage (there is none), so this just releases the
- * slot (moqt_relay_find returns 0 for the control stream, which never
- * takes this path) and forwards to the SDK primitive. */
-static int moqt_io_stream_fin(wired_wt_session* s, u64 stream_id) {
-  moqt_relay_slot* slot = moqt_relay_find(s, stream_id);
-  if (slot) slot->in_use = 0;
-  return wired_server_wt_stream_fin(s, stream_id);
+  u8  buf[MOQT_SIG_BUF];
+  usz sig = quic_wtwire_signal_put(buf, sizeof buf, 0, s->connect_stream_id);
+  if (sig == 0 || payload.n > sizeof buf - sig) return -1;
+  for (usz i = 0; i < payload.n; i++) buf[sig + i] = payload.p[i];
+  return wired_server_wt_open_uni_stream(s, quic_span_of(buf, sig + payload.n));
 }
 
 static const wired_moqt_io g_moqt_io = {
     moqt_io_open_bidi_stream,
-    moqt_io_stream_send,
+    wired_server_wt_stream_send,
     moqt_io_send_uni,
     moqt_io_open_uni_stream,
-    moqt_io_stream_fin,
+    wired_server_wt_stream_fin,
 };
 
 static wired_moqt_hub g_hub;
