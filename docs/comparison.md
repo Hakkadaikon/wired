@@ -28,7 +28,7 @@ ngtcp2 `v1.25.0` + nghttp3 `v1.18.0`, picoquic master `0dc8ba8`
 | Language | C, freestanding [^w-libc] | Go (pure Go) [^qg-readme] | Rust (+ BoringSSL C/C++) [^qc-readme] | C11 (examples C++23) [^ng-readme] | C [^pq-readme] |
 | TLS stack | Own built-in TLS 1.3 (no external TLS library) [^w-tls] | Go standard library crypto/TLS [^qg-readme] | BoringSSL [^qc-readme] | Pluggable: GnuTLS, BoringSSL/aws-lc, Picotls, wolfSSL, LibreSSL, OpenSSL ≥ 3.5 [^ng-readme] | picotls (optional MbedTLS) [^pq-readme] |
 | libc dependency | None — every `src/**/*.c` compiles `-ffreestanding -nostdlib`; direct syscalls [^w-libc] | None (no cgo), but requires the Go runtime [^qg-nocgo] | Yes (Rust std + linked BoringSSL) [^qc-readme] | Yes (hosted C11) [^ng-readme] | Yes (hosted C) [^pq-readme] |
-| Server binary size (see definition [^binsize]) | 344,880 B (static, no libc) [^binsize] | 10,590,915 B (static Go binary incl. runtime) [^binsize] | 6,115,440 B (stripped; BoringSSL static, glibc dynamic) [^binsize] | — (no native build in this comparison [^binsize]) | — (no native build in this comparison [^binsize]) |
+| Server binary size (see definition [^binsize]) | 287,392 B (static, no libc) [^binsize] | 7,311,104 B (static Go binary incl. runtime) [^binsize] | 6,115,440 B (BoringSSL static, glibc dynamic) [^binsize] | — (no native build in this comparison [^binsize]) | — (no native build in this comparison [^binsize]) |
 | HTTP/3 (RFC 9114) | ✅ server side [^w-h3] | ✅ [^qg-readme] | ✅ (`h3` module) [^qc-h3] | ✅ via nghttp3 [^ng-h3] | ✅ minimal ("h3zero", demo grade) [^pq-readme] |
 | QPACK dynamic table (RFC 9204) | Partial — decoder has a live dynamic table; server advertises capacity 0 and its encoder is static-only [^w-qpack] | — (qpack v0.6.0 is static-table only) [^qg-qpack] | — ("TODO: implement dynamic table") [^qc-qpack] | ✅ (nghttp3 "supports dynamic table") [^ng-qpack] | — (static-only, zero-length dynamic dictionary) [^pq-qpack] |
 | WebTransport (RFC 9220 + draft-webtrans-http3) | ✅ server side, interop-tested [^w-wt] | Partial — separate companion module webtransport-go [^qg-readme] | Partial — Extended CONNECT only, no WT session layer [^qc-wt] | Partial — nghttp3 ships RFC 9220/9297 prerequisites only [^ng-wt] | ✅ (`picohttp/webtransport.c`) [^pq-wt] |
@@ -65,21 +65,22 @@ one execution form across the row.
 | picoquic | 9335 (± 5) kbps | `privateoctopus/picoquic@sha256:7e4110e3…` [^img-ver] |
 
 wired's lower goodput is consistent with its known throughput constraint
-(see the `multiplexing` row in [Interop Results](interop.md): a functional
-pass that misses the runner's 60 s completion bar — a throughput gap, not a
-correctness gap). An earlier wired run measured 7129 (± 102) kbps while a
+(see the `multiplexing` row in [Interop Results](interop.md): functionally
+correct, but the testcase itself is not passed because the runner's 60 s
+completion bar is missed — a throughput gap, not a correctness gap). An earlier wired run measured 7129 (± 102) kbps while a
 release build was compiling on the same host; it was re-measured on a quiet
 machine (the 7318 figure) and both runs are disclosed in the
 [manifest](#run-manifest).
 
 ## Speed: loopback per-request overhead
 
-Method: one pinned load client (a small quic-go v0.61.0 HTTP/3 client, source
-in the [appendix](#bench-client-source)) against each server on `127.0.0.1`,
+Method: one pinned load client (a small quic-go v0.61.0 HTTP/3 client, see
+the [appendix](#bench-client-and-server-source)) against each server on
+`127.0.0.1`,
 plain loopback (netem unavailable in this environment). All servers run as
 native binaries pinned to CPU core 3; the client uses cores 0–1. Same ECDSA
 P-256 certificate, same 1 KiB file, each server at its own defaults (recorded
-[below](#server-defaults)). Per round: 100 fresh-connection requests ("TTFB"
+[below](#server-defaults-loopback-lane)). Per round: 100 fresh-connection requests ("TTFB"
 [^ttfb-def]) plus 10,000 requests over 20 concurrent streams on warmed
 connections ("load"). 5 rounds per server [^warmup-note]. A request
 unanswered for 10 s counts as a failure and the worker moves on.
@@ -89,8 +90,8 @@ unanswered for 10 s counts as a failure and the worker moves on.
 | wired `ee86062` | 6.5 ± 0.6 | 2040 ± 1160 [^wired-stall] | 7.0 ± 0.5 | 9.3 ± 1.0 | 4 / 50,500 |
 | quic-go v0.61.0 | 2.3 ± 0.1 | 12,159 ± 426 | 1.4 ± 0.0 | 3.8 ± 0.6 | 0 |
 | quiche 0.29.3 (`55886df`) | 1.8 ± 0.1 | 20,559 ± 1703 | 0.9 ± 0.0 | 3.2 ± 0.7 | 0 |
-| ngtcp2 | — (no native build attempted: multi-stage autotools chain; measured in the goodput lane only) | | | | |
-| picoquic | — (no native build attempted: multi-stage cmake chain incl. picotls; measured in the goodput lane only) | | | | |
+| ngtcp2 | — (no native build attempted: multi-stage autotools chain; measured in the goodput lane only) | — | — | — | — |
+| picoquic | — (no native build attempted: multi-stage cmake chain incl. picotls; measured in the goodput lane only) | — | — | — | — |
 
 Client CPU stayed below saturation in every run (max 129% of a 200% two-core
 budget), but at the 12k–20k req/s level the client works hard; read
@@ -110,8 +111,9 @@ in [Interop Results](interop.md).
 implementation surveyed that speaks draft-19 is imquic [^moqt-survey]. A live
 session between imquic 0.0.2 (`1f4cbf8`, WebTransport, subprotocol `moqt-19`)
 and the wired MOQT server demonstrated certificate acceptance, SETUP
-negotiation, SUBSCRIBE → SUBSCRIBE_OK, PUBLISH acceptance (11 objects sent)
-and clean close — a first control-plane interop against an independent
+negotiation, SUBSCRIBE → SUBSCRIBE_OK, PUBLISH acceptance (the publisher
+reports 11 objects sent) and clean close — a first control-plane interop
+against an independent
 implementation. Object delivery through the relay to an imquic subscriber
 (data plane) did **not** complete and is unverified; 2 of 7 sessions also
 ended in a `Protocol Violation` close. No speed comparison is published for
@@ -141,7 +143,7 @@ reference point.
   [^img-ver]); the loopback lane uses native builds at the commits in its
   table.
 
-### Server defaults (loopback lane) {#server-defaults}
+### Server defaults (loopback lane)
 
 No tuning was applied; each server ran at its defaults. The knobs that most
 directly shape these metrics:
@@ -172,7 +174,7 @@ quiche-server --listen 127.0.0.1:14435 --cert cert.pem --key key.pem --root <doc
 Client (`taskset -c 0,1`): `benchclient -mode ttfb -n 100` and
 `benchclient -mode load -n 10000 -c 20` against `https://127.0.0.1:<port>/1k.bin`.
 
-### Bench client and server source {#bench-client-source}
+### Bench client and server source
 
 The load client and the quic-go static-file server are ~200 and ~20 lines of
 Go on quic-go v0.61.0 (`go.mod` pins `github.com/quic-go/quic-go v0.61.0`).
@@ -183,7 +185,7 @@ time so client-saturated runs can be invalidated. Raw sources and run logs
 live outside this repository; the full command lines and every run's numbers
 are published in the manifest below.
 
-## Run manifest {#run-manifest}
+## Run manifest
 
 Goodput lane (each value = runner's 5-repetition mean ± sd for that run):
 
