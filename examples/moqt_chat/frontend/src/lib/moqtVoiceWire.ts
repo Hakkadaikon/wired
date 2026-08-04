@@ -93,7 +93,7 @@ export function tryDecodeOneVoiceObject(
   pos: number,
   hasProperties: boolean,
   seq: VoiceObjectSeq,
-): { payload: VoiceObjectPayload; len: number } | null {
+): { payload: VoiceObjectPayload | null; len: number } | null {
   let decoded;
   try {
     decoded = decodeSubgroupObject(wire, pos, hasProperties, seq.prevObjectId, seq.isFirst);
@@ -103,7 +103,14 @@ export function tryDecodeOneVoiceObject(
   if (pos + decoded.len > wire.length) return null;
   seq.prevObjectId = decoded.object.objectId;
   seq.isFirst = false;
-  return { payload: decodeVoiceObjectPayload(decoded.object.payload), len: decoded.len };
+  try {
+    return { payload: decodeVoiceObjectPayload(decoded.object.payload), len: decoded.len };
+  } catch {
+    // A well-framed Object whose body cannot hold the seq header: skip it
+    // (payload null) but keep the stream position advancing -- one bad
+    // Object must not stall the parser or kill the read loop.
+    return { payload: null, len: decoded.len };
+  }
 }
 
 /** Decodes every complete Object following a voice stream's header bytes
@@ -123,7 +130,7 @@ export function decodeVoiceObjectStream(
   for (;;) {
     const decoded = tryDecodeOneVoiceObject(wire, pos, hasProperties, seq);
     if (!decoded) break;
-    out.push(decoded.payload);
+    if (decoded.payload) out.push(decoded.payload);
     pos += decoded.len;
   }
   return out;
@@ -146,7 +153,7 @@ export function drainVoiceObjectStream(
   for (;;) {
     const decoded = tryDecodeOneVoiceObject(buffered, pos, hasProperties, seq);
     if (!decoded) break;
-    onPayload(decoded.payload);
+    if (decoded.payload) onPayload(decoded.payload);
     pos += decoded.len;
   }
   return buffered.slice(pos);

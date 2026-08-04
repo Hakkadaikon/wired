@@ -4,8 +4,10 @@ import {
   buildVoiceSubgroupHeader,
   decodeVoiceObjectPayload,
   decodeVoiceObjectStream,
+  drainVoiceObjectStream,
   encodeVoiceObjectMessage,
   encodeVoiceObjectPayload,
+  voiceObjectSeqInit,
   type VoiceObjectPayload,
 } from "../moqtVoiceWire";
 
@@ -90,6 +92,23 @@ describe("encodeVoiceObjectMessage + decodeVoiceObjectStream", () => {
 
     const decoded = decodeVoiceObjectStream(truncated, header.length, false);
     expect(decoded).toEqual(payloads.slice(0, 2));
+  });
+
+  it("skips a malformed Object (body shorter than the seq header) and keeps decoding", () => {
+    // A well-framed Object whose body is too short to hold the 2-byte seq
+    // must not kill or stall the stream: it is skipped and the next Object
+    // still decodes.
+    const good1 = encodeVoiceObjectMessage(0n, { seq: 1, opus: opus(7) });
+    const malformed = new Uint8Array([0x00, 0x01, 0xaa]); // delta 0, len 1, 1-byte body
+    const good2 = encodeVoiceObjectMessage(1n, { seq: 2, opus: opus(8) });
+    const wire = concatBytes([good1, malformed, good2]);
+
+    const seen: VoiceObjectPayload[] = [];
+    const rest = drainVoiceObjectStream(wire, false, voiceObjectSeqInit(), (p) =>
+      seen.push(p),
+    );
+    expect(seen.map((p) => p.seq)).toEqual([1, 2]);
+    expect(rest.length).toBe(0);
   });
 
   it("end-to-end: header + N encodeVoiceObjectMessage calls all restore via decodeVoiceObjectStream", () => {
