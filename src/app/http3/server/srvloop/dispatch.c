@@ -1074,6 +1074,9 @@ static void route_land(
     wired_srvloop* l, const quic_stream_frame* sf, u64* touched) {
   int                  i = wired_srvloop_slot_for(l, sf->stream_id);
   wired_srvloop_reqacc acc;
+  /* RFC 9000 3.2: a late duplicate of an answered-and-released stream is
+   * discarded outright -- it must not consume a slot or count as new. */
+  if (i == -2) return;
   if (i < 0) return;
   acc = route_slot_acc(&l->streams[i]);
   gather_one(sf, &acc);

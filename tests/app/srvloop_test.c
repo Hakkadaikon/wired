@@ -3909,6 +3909,46 @@ static void test_srvloop_touched_mask_reaches_high_slots(void) {
   CHECK(((touched >> 35) & (u64)1) == 1); /* slot 35: lost by a u32 mask */
 }
 
+/* RFC 9000 3.2: STREAM frames for a stream the server already answered and
+ * released are stale duplicates (loss-delayed retransmissions) and must be
+ * discarded -- NOT treated as a new stream. Before this rule existed, a
+ * burst of such duplicates re-claimed slots ("zombies") until the table was
+ * full and a genuinely new stream's frames were silently dropped. */
+static void test_srvloop_released_stream_duplicate_is_ignored(void) {
+  static wired_srvloop l;
+  static const u8      scid[1] = {1};
+  CHECK(wired_srvloop_init(&l, scid, 1));
+  CHECK(wired_srvloop_slot_for(&l, 0) >= 0);
+  CHECK(wired_srvloop_slot_for(&l, 4) >= 0);
+  wired_srvloop_slot_release(&l, 0);
+  /* a late duplicate of released stream 0: ignored, no slot claimed */
+  CHECK(wired_srvloop_slot_for(&l, 0) == -2);
+  /* stream 4 is still live and keeps its slot */
+  CHECK(wired_srvloop_slot_for(&l, 4) >= 0);
+  /* a genuinely new stream still claims normally */
+  CHECK(wired_srvloop_slot_for(&l, 8) >= 0);
+}
+
+/* A reordered live stream (first frame arrives after a higher id's) is NOT
+ * closed and must still claim a slot; release marks are per-id, and the
+ * closed set survives out-of-order releases. */
+static void test_srvloop_closed_set_tracks_out_of_order_releases(void) {
+  static wired_srvloop l;
+  static const u8      scid[1] = {1};
+  CHECK(wired_srvloop_init(&l, scid, 1));
+  CHECK(wired_srvloop_slot_for(&l, 8) >= 0); /* id 8 first */
+  CHECK(wired_srvloop_slot_for(&l, 0) >= 0); /* reordered lower id: live */
+  CHECK(wired_srvloop_slot_for(&l, 12) >= 0);
+  wired_srvloop_slot_release(&l, 8);  /* out-of-order release */
+  wired_srvloop_slot_release(&l, 12); /* still gapped (0 live) */
+  CHECK(wired_srvloop_slot_for(&l, 8) == -2);
+  CHECK(wired_srvloop_slot_for(&l, 12) == -2);
+  CHECK(wired_srvloop_slot_for(&l, 0) >= 0); /* live, kept */
+  wired_srvloop_slot_release(&l, 0); /* floor can now advance over 0,8,12 */
+  CHECK(wired_srvloop_slot_for(&l, 0) == -2);
+  CHECK(wired_srvloop_slot_for(&l, 4) >= 0); /* never opened before: new */
+}
+
 /* The advertised bidi stream limit must never exceed the reassembly-table
  * capacity: an over-advertised limit lets a loss-delayed release window
  * silently drop accepted streams (the packet is ACKed, the peer never
@@ -4028,4 +4068,6 @@ void test_srvloop(void) {
   test_srvloop_recv_follows_repeated_key_updates_across_generations();
   test_srvloop_touched_mask_reaches_high_slots();
   test_srvloop_stream_limit_clamps_to_table();
+  test_srvloop_released_stream_duplicate_is_ignored();
+  test_srvloop_closed_set_tracks_out_of_order_releases();
 }
