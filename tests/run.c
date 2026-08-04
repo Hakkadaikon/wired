@@ -212,6 +212,7 @@
 #include "transport/packet/frame/frame/stream_ctl.c"
 #include "transport/conn/lifecycle/fsm/fsm.c"
 #include "crypto/symmetric/aead/gcm/gcm.c"
+#include "crypto/symmetric/aead/gcmx86/gcmx86.c"
 #include "tls/ext/grease/bitset.c"
 #include "tls/ext/grease/early.c"
 #include "tls/ext/grease/grease.c"
@@ -560,6 +561,7 @@
 #include "crypto/hkdf_test.c"
 #include "crypto/aes_test.c"
 #include "crypto/gcm_test.c"
+#include "crypto/gcmx86_test.c"
 #include "crypto/gcm256_test.c"
 #include "crypto/chacha20_test.c"
 #include "crypto/poly1305_test.c"
@@ -1067,6 +1069,7 @@ int main(void) {
   test_hkdf();
   test_aes();
   test_gcm();
+  test_gcmx86();
   test_gcm256();
   test_chacha20();
   test_poly1305();
