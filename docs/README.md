@@ -26,6 +26,8 @@
   RFCs/FIPS/SPs), each requirement mapped to its test or its gap.
 - [Interop Results](interop.md) — cross-implementation runs against
   quic-go and webtransport-go.
+- [Comparison](comparison.md) — features and measured speed versus other
+  HTTP/3 / WebTransport / MOQT implementations, under pinned conditions.
 
 ## Change it
 
