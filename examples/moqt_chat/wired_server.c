@@ -29,6 +29,27 @@
 
 #define MOQT_SIG_BUF 512 /* signal prefix (<=9B) + moqtrun's envelope */
 
+/* Decimal/string/hex line-building helpers (also used by the shutdown
+ * relay-stats log below). */
+static usz dec_u64(char* out, u64 v) {
+  char tmp[20];
+  usz  n = 0;
+  do {
+    tmp[n++] = (char)('0' + (v % 10));
+    v /= 10;
+  } while (v);
+  for (usz i = 0; i < n; i++) out[i] = tmp[n - 1 - i];
+  return n;
+}
+
+static void append_cstr(char* line, usz* n, const char* s) {
+  for (usz i = 0; s[i]; i++) line[(*n)++] = s[i];
+}
+
+static char hex_nibble(u8 v) {
+  return (char)(v < 10 ? '0' + v : 'a' + (v - 10));
+}
+
 static i64 moqt_io_open_bidi_stream(wired_wt_session* s, quic_span payload) {
   u8  buf[MOQT_SIG_BUF];
   usz sig = quic_wtwire_signal_put(buf, sizeof buf, 1, s->connect_stream_id);
@@ -98,8 +119,16 @@ static i64 moqt_io_send_uni(wired_wt_session* s, quic_span payload) {
 #define MOQT_RELAY_SLOTS WIRED_MOQTRUN_MAX_SESSIONS
 typedef struct {
   int in_use;
-  u64 stream_id;
-  u8  buf[2][MOQT_SIG_BUF];
+  /* Owning WT session: server-initiated uni stream ids restart at 7 on
+   * EVERY connection (srvrun.c's wt_uni_opened is per-conn), so stream_id
+   * alone collides across connections -- two peers' first voice relays are
+   * both id 7. Keying by (session, id) keeps each connection's relay on its
+   * own staging buffers; matching by id alone let one connection's round
+   * overwrite another's still-in-flight armed view (corrupting the wire
+   * mid-stream, found via the 4-client voice collapse). */
+  wired_wt_session* sess;
+  u64               stream_id;
+  u8                buf[2][MOQT_SIG_BUF];
   int armed; /* which buf holds the in-flight round (never write it) */
 } moqt_relay_slot;
 static moqt_relay_slot g_relay_slots[MOQT_RELAY_SLOTS];
@@ -110,9 +139,10 @@ static moqt_relay_slot* moqt_relay_free_slot(void) {
   return 0;
 }
 
-static moqt_relay_slot* moqt_relay_find(u64 stream_id) {
+static moqt_relay_slot* moqt_relay_find(wired_wt_session* s, u64 stream_id) {
   for (usz i = 0; i < MOQT_RELAY_SLOTS; i++)
-    if (g_relay_slots[i].in_use && g_relay_slots[i].stream_id == stream_id)
+    if (g_relay_slots[i].in_use && g_relay_slots[i].sess == s &&
+        g_relay_slots[i].stream_id == stream_id)
       return &g_relay_slots[i];
   return 0;
 }
@@ -139,6 +169,7 @@ static i64 moqt_io_open_uni_stream(wired_wt_session* s, quic_span payload) {
   i64 sid = moqt_relay_slot_open(s, slot, payload);
   if (sid < 0) return -1;
   slot->in_use    = 1;
+  slot->sess      = s;
   slot->stream_id = (u64)sid;
   slot->armed     = 0;
   return sid;
@@ -191,7 +222,7 @@ static int moqt_relay_stage_and_send(
  * is passed straight through, no copy needed. */
 static int moqt_io_stream_send(
     wired_wt_session* s, u64 stream_id, quic_span payload, int fin) {
-  moqt_relay_slot* slot = moqt_relay_find(stream_id);
+  moqt_relay_slot* slot = moqt_relay_find(s, stream_id);
   if (!slot) return wired_server_wt_stream_send(s, stream_id, payload, fin);
   return moqt_relay_stage_and_send(s, slot, stream_id, payload, fin);
 }
@@ -201,7 +232,7 @@ static int moqt_io_stream_send(
  * slot (moqt_relay_find returns 0 for the control stream, which never
  * takes this path) and forwards to the SDK primitive. */
 static int moqt_io_stream_fin(wired_wt_session* s, u64 stream_id) {
-  moqt_relay_slot* slot = moqt_relay_find(stream_id);
+  moqt_relay_slot* slot = moqt_relay_find(s, stream_id);
   if (slot) slot->in_use = 0;
   return wired_server_wt_stream_fin(s, stream_id);
 }
@@ -280,10 +311,6 @@ static void server_identity(
 
 /* --- Startup cert fingerprint log (same recipe as webtransport_chat) ---- */
 
-static char hex_nibble(u8 v) {
-  return (char)(v < 10 ? '0' + v : 'a' + (v - 10));
-}
-
 static usz hex_fingerprint(const u8 digest[32], char* out) {
   usz n = 0;
   for (usz i = 0; i < 32; i++) {
@@ -318,21 +345,6 @@ static void log_cert_fingerprint(const wired_srvboot_id* id) {
 }
 
 /* --- Shutdown relay-stats log ------------------------------------------ */
-
-static usz dec_u64(char* out, u64 v) {
-  char tmp[20];
-  usz  n = 0;
-  do {
-    tmp[n++] = (char)('0' + (v % 10));
-    v /= 10;
-  } while (v);
-  for (usz i = 0; i < n; i++) out[i] = tmp[n - 1 - i];
-  return n;
-}
-
-static void append_cstr(char* line, usz* n, const char* s) {
-  for (usz i = 0; s[i]; i++) line[(*n)++] = s[i];
-}
 
 /* One line at shutdown with the hub's cumulative relay outcomes, so a
  * measurement run can compare server-side drops against the receivers' own
