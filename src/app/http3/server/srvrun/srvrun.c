@@ -4976,12 +4976,39 @@ static int srvrun_seal_pmtu_probe(
   return wired_srvloop_send_onertt(&c->s, &sin, out);
 }
 
+/* Clear c's outstanding-probe tracking, letting the next opportunity
+ * (srvrun_pmtu_probe_candidate) start a fresh probe -- shared by the ACK
+ * (srvrun_pmtu_reap_ack) and PROBE_TIMER (srvrun_pmtu_reap_timeout)
+ * resolution paths, both of which must leave at most one probe outstanding
+ * (RFC 8899 5.1.3 PROBED_SIZE is a single value). */
+static void srvrun_pmtu_probe_clear(srvrun_conn* c) {
+  c->pmtu_probe_pn      = SRVRUN_PMTU_NO_PROBE;
+  c->pmtu_probe_size    = 0;
+  c->pmtu_probe_sent_ms = 0;
+}
+
+/* RFC 8899 5.1.1 PROBE_TIMER: an outstanding probe that has not been
+ * acked/lost within QUIC_PMTU_PROBE_TIMER_US is itself treated as a loss --
+ * without this, an unanswered probe leaves pmtu_probe_pn outstanding
+ * forever and srvrun_pmtu_probe_candidate never starts another (found by
+ * TLA+ model-checking: the ACK path alone has no fairness toward a probe
+ * the peer never acknowledges at all). Polled once per send opportunity
+ * (srvrun_pmtu_try_probe), matching how this connection has no dedicated
+ * timer thread -- only per-step polling (see srvrun_pto_deadline_ms's own
+ * doc on the same style of poll-driven deadline). */
+static void srvrun_pmtu_reap_timeout(srvrun_conn* c, u64 now_us) {
+  if (!quic_pmtu_probe_timer_due(&c->pmtu, now_us)) return;
+  quic_pmtu_on_loss(&c->pmtu, c->pmtu_probe_size);
+  srvrun_pmtu_probe_clear(c);
+}
+
 /* The next candidate size to probe on c, or 0 if none: a probe already
  * outstanding or a concluded search (quic_pmtu_next_probe's own gate) both
  * read as "nothing to do this opportunity". now_us converts srvrun's ms
  * clock into pmtu.c's us unit (matching QUIC_RTT_INITIAL_US and the other
  * RFC 9002 RTT state already on this us clock). */
 static usz srvrun_pmtu_probe_candidate(srvrun_conn* c, u64 now_us) {
+  srvrun_pmtu_reap_timeout(c, now_us);
   if (srvrun_pmtu_probe_outstanding(c)) return 0;
   return quic_pmtu_next_probe(&c->pmtu, now_us);
 }
@@ -5283,6 +5310,25 @@ static usz srvrun_feed_ack_range_wt(
   return lost;
 }
 
+/* 1 if [lo,hi] covers c's one outstanding DPLPMTUD probe pn -- the probe
+ * lives outside every resp[]/wtsend[] send-session log (srvrun_conn's own
+ * pmtu_probe_pn doc), so this is a separate branch from the range-based
+ * loss detection above, not a change to it. */
+static int srvrun_pmtu_probe_in_range(const srvrun_conn* c, u64 lo, u64 hi) {
+  return srvrun_pmtu_probe_outstanding(c) && c->pmtu_probe_pn >= lo &&
+         c->pmtu_probe_pn <= hi;
+}
+
+/* RFC 8899 5.1.3: an acked probe raises the validated PMTU (quic_pmtu_on_ack)
+ * and resolves the outstanding tracking, letting the next opportunity start
+ * a new probe. Entirely independent of the resp[]/wtsend[] ACK accounting
+ * above -- a probe's pn belongs to neither log. */
+static void srvrun_pmtu_reap_ack(srvrun_conn* c, u64 lo, u64 hi) {
+  if (!srvrun_pmtu_probe_in_range(c, lo, hi)) return;
+  quic_pmtu_on_ack(&c->pmtu, c->pmtu_probe_size);
+  srvrun_pmtu_probe_clear(c);
+}
+
 /* Broadcast one ACK range to every in-flight send session (resp[] and
  * wtsend alike), after raising the connection's shared largest_acked (RFC
  * 9002 6.1.1: one packet number space, one largest_acked -- never
@@ -5294,6 +5340,7 @@ static usz srvrun_feed_ack_range(
   lost = srvrun_feed_ack_range_wt(cfg, c, lo, hi, now_ms);
   for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++)
     lost += srvrun_feed_ack_range_resp(cfg, c, &c->resp[i], lo, hi, now_ms);
+  srvrun_pmtu_reap_ack(c, lo, hi);
   return lost;
 }
 
