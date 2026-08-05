@@ -8731,6 +8731,62 @@ static void test_srvrun_pmtu_timeout_reaped_as_loss(void) {
   CHECK(c.pmtu_probe_pn == SRVRUN_PMTU_NO_PROBE);
 }
 
+/* RFC 8899 4.4: QUIC_PMTU_MAX is the target WIRE size (datagram bytes on the
+ * path), not a plaintext payload length -- srvrun_pmtu_send_probe must leave
+ * room in its size-`size` buffer for the short header (1 + dcid.n + 4) and
+ * the AEAD tag on top of the PING+PADDING payload it builds. Drive
+ * c.pmtu.validated to the point where quic_pmtu_next_probe's candidate is
+ * QUIC_PMTU_MAX itself (the worst case: validated + QUIC_PMTU_STEP >=
+ * ceiling) and call srvrun_pmtu_try_probe through a real, key-bearing
+ * connection (sr_make_confirmed_conn) so the only way this can fail is the
+ * seal-vs-buffer-size bug, not missing keys.
+ *
+ * Before the fix: srvrun_seal_pmtu_probe's need (hdr+payload+tag) overflows
+ * buf[QUIC_PMTU_MAX] whenever size is this close to the ceiling, so seal
+ * fails every time, srvrun_pmtu_send_probe unconditionally returns 1 without
+ * ever setting pmtu_probe_pn, and quic_pmtu_next_probe keeps re-offering the
+ * same candidate forever -- an infinite busy loop in the caller
+ * (srvrun_pump_sess's `while (srvrun_pump_opportunity(...)) {}`). Bounding
+ * the call count here (instead of looping unbounded like the real caller
+ * would) turns that hang into a deterministic CI failure instead of wedging
+ * the test run. */
+static void test_srvrun_pmtu_probe_at_ceiling_does_not_spin(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  quic_obuf     ob = {0};
+  u8            obuf[2048];
+  srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                    0,  0, 0, 0, 0, 0, 0, 0, 0, 0};
+  srvrun_state st = {0, 0};
+  usz          i;
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  quic_pmtu_init(&c.pmtu);
+  /* candidate() = min(validated + QUIC_PMTU_STEP, ceiling); pushing
+   * validated to QUIC_PMTU_MAX - 1 makes that min resolve to the ceiling
+   * (QUIC_PMTU_MAX) itself -- the exact size that used to overflow buf[]. */
+  c.pmtu.validated = QUIC_PMTU_MAX - 1;
+  /* sr_make_confirmed_conn zeroes srvrun_conn, leaving pmtu_probe_pn at 0 --
+   * a real pn, not "no probe outstanding". Without this,
+   * srvrun_pmtu_probe_outstanding reads the zeroed field as an already-
+   * outstanding probe and srvrun_pmtu_try_probe never even reaches the seal
+   * this test means to exercise. */
+  c.pmtu_probe_pn = SRVRUN_PMTU_NO_PROBE;
+
+  for (i = 0; i < 8; i++) {
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
+    if (!srvrun_pmtu_try_probe(&ctx, &c)) break;
+    if (srvrun_pmtu_probe_outstanding(&c)) break;
+    /* seal failed silently (the bug): clear the candidate so the loop can't
+     * spin forever even pre-fix, and prove it took >1 attempt. */
+    c.pmtu.probe = 0;
+  }
+
+  CHECK(i < 8); /* did not exhaust the bounded retry budget */
+  CHECK(srvrun_pmtu_probe_outstanding(&c)); /* a probe actually got sealed */
+  CHECK(c.pmtu_probe_size == QUIC_PMTU_MAX);
+}
+
 /* ROUND-ROBIN, NOT DRAIN-THEN-NEXT: with three responses armed at once and
  * cwnd tight enough to allow only a few chunks per pump, every resp[] slot
  * must get a turn before any slot gets a second one -- srvrun_pump_sess used
@@ -12103,6 +12159,7 @@ void test_srvrun(void) {
   test_srvrun_pmtu_ack_raises_validated();
   test_srvrun_pmtu_ack_outside_range_no_effect();
   test_srvrun_pmtu_timeout_reaped_as_loss();
+  test_srvrun_pmtu_probe_at_ceiling_does_not_spin();
   test_srvrun_pump_round_robins_across_slots();
   test_srvrun_pacing_floor_does_not_starve_round();
   test_srvrun_pto_probe_bypasses_cwnd();

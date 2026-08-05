@@ -4948,14 +4948,29 @@ static int srvrun_pmtu_probe_outstanding(const srvrun_conn* c) {
 }
 
 /* RFC 8899 3.2/5: a PING frame (1 byte, ack-eliciting) followed by PADDING
- * (0x00) filling the rest of size bytes -- carries no application data that
+ * (0x00) filling the rest of len bytes -- carries no application data that
  * would need retransmission if the probe is lost (RFC 8899 3.4). Returns
- * size, or 0 if it does not fit cap. */
-static usz srvrun_pmtu_probe_payload(u8* buf, usz cap, usz size) {
-  if (size == 0 || size > cap) return 0;
+ * len, or 0 if it does not fit cap. */
+static usz srvrun_pmtu_probe_payload(u8* buf, usz cap, usz len) {
+  if (len == 0 || len > cap) return 0;
   buf[0] = QUIC_FRAME_PING;
-  quic_memset(buf + 1, QUIC_FRAME_PADDING, size - 1);
-  return size;
+  quic_memset(buf + 1, QUIC_FRAME_PADDING, len - 1);
+  return len;
+}
+
+/* RFC 8899 4.4/DPLPMTUD: `size` is the target WIRE size -- the UDP datagram
+ * byte count DPLPMTUD is asking the path to carry -- not a plaintext frame
+ * length. Sealing adds the short header (1 flags + dcid + 4-byte pn) and the
+ * AEAD tag on top of the payload, so the plaintext PING+PADDING built below
+ * must be shorter than `size` by that overhead or the sealed packet would
+ * overshoot the probe's own target. QUIC_PMTU_OVERHEAD already is this SDK's
+ * one worst-case figure for that overhead (max 20-byte dcid + 16-byte tag,
+ * see pmtu.h), the same constant quic_pmtu_mps subtracts for the same
+ * reason -- reused here instead of a second hand-derived margin. Returns 0
+ * if size is at or below the overhead (no room for even a 1-byte PING). */
+static usz srvrun_pmtu_probe_len(usz size) {
+  if (size <= QUIC_PMTU_OVERHEAD) return 0;
+  return size - QUIC_PMTU_OVERHEAD;
 }
 
 /* Seal the PING+PADDING payload above into out as its own 1-RTT packet,
@@ -4967,7 +4982,8 @@ static int srvrun_seal_pmtu_probe(
     srvrun_conn* c, usz size, quic_obuf* out, u64* pn) {
   u8                    pl[QUIC_PMTU_MAX];
   wired_srvloop_send_in sin;
-  usz                   pln = srvrun_pmtu_probe_payload(pl, sizeof pl, size);
+  usz                   len = srvrun_pmtu_probe_len(size);
+  usz                   pln = srvrun_pmtu_probe_payload(pl, sizeof pl, len);
   if (!pln) return 0;
   *pn = c->l.tx_pn++;
   sin = (wired_srvloop_send_in){
@@ -5014,16 +5030,25 @@ static usz srvrun_pmtu_probe_candidate(srvrun_conn* c, u64 now_us) {
 }
 
 /* Seal and send a `size`-byte probe, then record its pn/size/send-time for
- * the later ACK/LOSS reconciliation step to consume. Always returns 1: the
- * caller only reaches this once srvrun_pmtu_probe_candidate found a size,
- * and a seal failure here just means one particular opportunity built no
- * packet -- there is no narrower outcome worth reporting. */
+ * the later ACK/LOSS reconciliation step to consume. Returns 1 once a
+ * packet actually went out, 0 if this opportunity built nothing (seal
+ * failure -- e.g. an unexpected suite/dcid combination this call site did
+ * not anticipate). The 0 return matters: srvrun_pmtu_try_probe's caller
+ * treats "1 = sent, stop trying other sends this opportunity" as a per-
+ * opportunity contract, and quic_pmtu_next_probe (via probe_candidate) keeps
+ * re-offering the same candidate size until it is acked/lost/timed out --
+ * without this 0, a seal failure at one size would starve every other send
+ * on the connection in a tight retry loop, opportunity after opportunity,
+ * for as long as that size keeps failing to seal (this is the defensive
+ * half of the QUIC_PMTU_OVERHEAD fix above: with that fix in place this
+ * path should not be reachable in practice, but srvrun_pmtu_send_probe must
+ * not itself become a hang if it ever is). */
 static int srvrun_pmtu_send_probe(
     const srvrun_step_ctx* ctx, srvrun_conn* c, usz size) {
   u8        buf[QUIC_PMTU_MAX];
   quic_obuf out = quic_obuf_of(buf, sizeof buf);
   u64       pn;
-  if (!srvrun_seal_pmtu_probe(c, size, &out, &pn)) return 1;
+  if (!srvrun_seal_pmtu_probe(c, size, &out, &pn)) return 0;
   c->pmtu_probe_pn      = pn;
   c->pmtu_probe_size    = size;
   c->pmtu_probe_sent_ms = ctx->now_ms;
