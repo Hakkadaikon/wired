@@ -8642,6 +8642,95 @@ static void test_srvrun_loss_and_retransmit_across_two_responses(void) {
   }
 }
 
+/* RFC 8899 5.1.3: an ACK range covering the outstanding probe's pn must
+ * raise quic_pmtu's validated size and clear srvrun's own tracking so the
+ * next opportunity can start a new probe -- independent of the resp[]/
+ * wtsend[] ACK accounting exercised by the tests above (guard: this probe's
+ * pn was never armed into any sess log). */
+static void test_srvrun_pmtu_ack_raises_validated(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  quic_obuf     ob = {0};
+  u8            obuf[1024];
+  u64           probe_pn;
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  quic_pmtu_init(&c.pmtu);
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
+        0,  0, 0, 0, 0, 0, 0, 0, 0, 0};
+    /* stand in for a probe already sent by srvrun_pmtu_send_probe: claim a
+     * fresh pn and record it the same way that function does. */
+    probe_pn             = c.l.tx_pn++;
+    c.pmtu_probe_pn      = probe_pn;
+    c.pmtu_probe_size    = QUIC_PMTU_BASE + QUIC_PMTU_STEP;
+    c.pmtu_probe_sent_ms = 0;
+
+    srvrun_feed_ack_range(&cfg, &c, probe_pn, probe_pn, 10);
+
+    CHECK(c.pmtu.validated == QUIC_PMTU_BASE + QUIC_PMTU_STEP);
+    CHECK(c.pmtu_probe_pn == SRVRUN_PMTU_NO_PROBE);
+  }
+}
+
+/* An ACK range that does not cover the outstanding probe's pn must leave
+ * quic_pmtu and the tracking fields untouched -- the ACK-range broadcast to
+ * resp[]/wtsend[] must not accidentally resolve an unrelated probe. */
+static void test_srvrun_pmtu_ack_outside_range_no_effect(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  quic_obuf     ob = {0};
+  u8            obuf[1024];
+  u64           probe_pn;
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  quic_pmtu_init(&c.pmtu);
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
+        0,  0, 0, 0, 0, 0, 0, 0, 0, 0};
+    probe_pn             = c.l.tx_pn++;
+    c.pmtu_probe_pn      = probe_pn;
+    c.pmtu_probe_size    = QUIC_PMTU_BASE + QUIC_PMTU_STEP;
+    c.pmtu_probe_sent_ms = 0;
+
+    srvrun_feed_ack_range(&cfg, &c, probe_pn + 1, probe_pn + 5, 10);
+
+    CHECK(c.pmtu.validated == QUIC_PMTU_BASE);
+    CHECK(c.pmtu_probe_pn == probe_pn);
+  }
+}
+
+/* RFC 8899 5.1.1 PROBE_TIMER: an outstanding probe that times out (no
+ * ACK/LOSS reconciliation ever arrives) must be reaped by the next send
+ * opportunity's poll -- srvrun_pmtu_try_probe calls quic_pmtu_next_probe by
+ * way of srvrun_pmtu_probe_candidate, which must first resolve the stale
+ * probe as a loss (bumping probe_count and freeing pmtu_probe_pn) before it
+ * can offer a new candidate. Without this, TLA+ model-checking found the
+ * probe stays outstanding forever (no fairness from the ACK path alone). */
+static void test_srvrun_pmtu_timeout_reaped_as_loss(void) {
+  srvrun_conn c  = {0};
+  srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                    0,  0, 0, 0, 0, 0, 0, 0, 0, 0};
+  srvrun_state    st  = {0, 0};
+  srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
+  quic_pmtu_init(&c.pmtu);
+  c.pmtu_probe_pn      = 7;
+  c.pmtu_probe_size    = QUIC_PMTU_BASE + QUIC_PMTU_STEP;
+  c.pmtu_probe_sent_ms = 0;
+  c.pmtu.probe         = c.pmtu_probe_size;
+  c.pmtu.probe_sent_at = 0;
+
+  /* now_ms far enough past probe_sent_at (us) to clear PROBE_TIMER. */
+  ctx.now_ms = QUIC_PMTU_PROBE_TIMER_US / 1000 + 1000;
+
+  srvrun_pmtu_probe_candidate(&c, ctx.now_ms * 1000);
+
+  CHECK(c.pmtu.probe_count == 1);
+  CHECK(c.pmtu_probe_pn == SRVRUN_PMTU_NO_PROBE);
+}
+
 /* ROUND-ROBIN, NOT DRAIN-THEN-NEXT: with three responses armed at once and
  * cwnd tight enough to allow only a few chunks per pump, every resp[] slot
  * must get a turn before any slot gets a second one -- srvrun_pump_sess used
@@ -12011,6 +12100,9 @@ void test_srvrun(void) {
   test_srvrun_ku_old_keys_discarded_after_3pto_window();
   test_srvrun_sibling_ack_does_not_lose_other_slot();
   test_srvrun_loss_and_retransmit_across_two_responses();
+  test_srvrun_pmtu_ack_raises_validated();
+  test_srvrun_pmtu_ack_outside_range_no_effect();
+  test_srvrun_pmtu_timeout_reaped_as_loss();
   test_srvrun_pump_round_robins_across_slots();
   test_srvrun_pacing_floor_does_not_starve_round();
   test_srvrun_pto_probe_bypasses_cwnd();
