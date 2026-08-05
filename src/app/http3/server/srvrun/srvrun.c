@@ -41,6 +41,7 @@
 #include "tls/keys/kuswitch/twogen.h"
 #include "transport/conn/cid/migrate/migrate.h"
 #include "transport/conn/cid/path/antiamp.h"
+#include "transport/conn/cid/pmtu/pmtu.h"
 #include "transport/conn/cid/retrytoken/retrytoken.h"
 #include "transport/conn/lifecycle/conntable/conntable.h"
 #include "transport/conn/loop/manage/middlebox.h"
@@ -517,6 +518,13 @@ typedef struct {
    * ever tracks the single latest path, so an in-flight PATH_RESPONSE for a
    * since-superseded challenge simply fails to compare equal. */
   u8 path_challenge_data[QUIC_PATH_DATA];
+  /** RFC 8899 DPLPMTUD: this connection's Packetization Layer PMTU
+   * Discovery search state (quic_pmtu), giving quic_pmtu_mps the Maximum
+   * Packet Size to fill instead of a fixed guess. Initialized alongside
+   * every other slot-scoped state machine on slot claim (srvrun_open_slot);
+   * probing/ACK-LOSS integration is a later step -- today only the search's
+   * static initial MPS (QUIC_PMTU_BASE-derived) feeds send sizing. */
+  quic_pmtu pmtu;
 } srvrun_conn;
 
 /* Response storage, one row per (connection slot, response slot): 64-byte
@@ -529,7 +537,25 @@ typedef struct {
  * multiplies by N there too. */
 #define WIRED_SRVRUN_RESP_MAX 16384
 #define SRVRUN_RESP_HDR_ROOM 64
-#define SRVRUN_CHUNK 1100 /* stream bytes per packet (fits a 1500 MTU) */
+/* Fallback stream bytes per packet (fits a 1500 MTU) -- no longer used to
+ * size an actual send (srvrun_mps below drives that from c->pmtu instead);
+ * kept only as the value srvrun_mps itself falls back to for a not-yet-
+ * initialized quic_pmtu (validated == 0, e.g. a test fixture's `{0}`
+ * srvrun_conn that never routes through srvrun_open_slot). */
+#define SRVRUN_CHUNK 1100
+
+/* RFC 8899 4.4: the Maximum Packet Size c's DPLPMTUD search has validated so
+ * far, in stream bytes per packet -- every send-sizing call site in this
+ * file (wired_sendsess_arm's chunk argument, and the cwnd/credit gates that
+ * must reserve room for the same chunk they will actually send) goes
+ * through this one function instead of quic_pmtu_mps directly, so a
+ * srvrun_conn whose pmtu was never quic_pmtu_init'd (validated == 0 --
+ * every non-production `srvrun_conn c = {0}` test fixture in this file)
+ * falls back to SRVRUN_CHUNK rather than underflowing quic_pmtu_mps's
+ * unsigned subtraction. */
+static usz srvrun_mps(const srvrun_conn* c) {
+  return c->pmtu.validated ? quic_pmtu_mps(&c->pmtu) : SRVRUN_CHUNK;
+}
 /* srvrun_wait_input's poll(2) timeout: how often srvrun_step wakes up to
  * check whether any in-flight resp[] has crossed its own RTT-derived PTO
  * deadline (srvrun_pto_deadline_ms) -- this is a poll cadence, NOT the PTO
@@ -2821,7 +2847,8 @@ static u64 srvrun_next_bidi_id(srvrun_conn* c) {
  * returns), a larger one is held as a view under srvrun.h's keep-alive
  * contract. The pump takes it from the connection's next step/tick under
  * the shared cwnd/credit/pacing gates. */
-static i64 srvrun_wtsend_arm_id(srvrun_wtsend* w, u64 id, quic_span payload) {
+static i64 srvrun_wtsend_arm_id(
+    const srvrun_conn* c, srvrun_wtsend* w, u64 id, quic_span payload) {
   const u8* src = payload.p;
   w->view_round = payload.n > SRVRUN_WTSEND_BUF;
   if (!w->view_round) {
@@ -2830,7 +2857,7 @@ static i64 srvrun_wtsend_arm_id(srvrun_wtsend* w, u64 id, quic_span payload) {
   }
   w->stream_id  = id;
   w->stream_off = payload.n;
-  wired_sendsess_arm(&w->sess, src, payload.n, SRVRUN_CHUNK);
+  wired_sendsess_arm(&w->sess, src, payload.n, srvrun_mps(c));
   return (i64)id;
 }
 
@@ -2891,7 +2918,7 @@ static i64 srvrun_wt_open_uni_common(
   w->append_open = keep_open;
   wired_wt_session_note_stream_opened(s, 0);
   wired_wt_session_note_data_sent(s, payload.n);
-  return srvrun_wtsend_arm_id(w, srvrun_next_uni_id(c), payload);
+  return srvrun_wtsend_arm_id(c, w, srvrun_next_uni_id(c), payload);
 }
 
 i64 wired_server_wt_open_uni(wired_wt_session* s, quic_span payload) {
@@ -2936,7 +2963,7 @@ static i64 srvrun_wt_open_bidi_common(
   wired_wt_session_note_data_sent(s, payload.n);
   id = srvrun_next_bidi_id(c);
   srvrun_wt_preclaim_bidi_recv(c, s, id);
-  return srvrun_wtsend_arm_id(w, id, payload);
+  return srvrun_wtsend_arm_id(c, w, id, payload);
 }
 
 i64 wired_server_wt_open_bidi(wired_wt_session* s, quic_span payload) {
@@ -2974,7 +3001,7 @@ static int srvrun_wt_stream_reply_common(
   if (!w) return 0;
   w->append_open = keep_open;
   wired_wt_session_note_data_sent(s, payload.n);
-  srvrun_wtsend_arm_id(w, stream_id, payload);
+  srvrun_wtsend_arm_id(c, w, stream_id, payload);
   return 1;
 }
 
@@ -3032,8 +3059,8 @@ static int srvrun_wtsend_appendable(const srvrun_wtsend* w, usz len) {
  * cumulative stream offset. Safe exactly because everything staged so far
  * is ACKed (srvrun_wtsend_epoch_acked) -- no logged or requeued slice
  * still resolves into the old bytes. */
-static void srvrun_wtsend_epoch_reset(srvrun_wtsend* w) {
-  wired_sendsess_arm(&w->sess, w->roundbuf, 0, SRVRUN_CHUNK);
+static void srvrun_wtsend_epoch_reset(const srvrun_conn* c, srvrun_wtsend* w) {
+  wired_sendsess_arm(&w->sess, w->roundbuf, 0, srvrun_mps(c));
   wired_sendsess_set_base_offset(&w->sess, w->stream_off);
   w->view_round = 0;
 }
@@ -3047,8 +3074,8 @@ static void srvrun_wtsend_epoch_reset(srvrun_wtsend* w) {
  * drops, so the stream's true last slice carries the wire FIN
  * (srvrun_wt_slice_fin) and the slot reaps once fully ACKed. */
 static int srvrun_wtsend_stage_round(
-    srvrun_wtsend* w, quic_span payload, int fin) {
-  if (srvrun_wtsend_epoch_acked(w)) srvrun_wtsend_epoch_reset(w);
+    const srvrun_conn* c, srvrun_wtsend* w, quic_span payload, int fin) {
+  if (srvrun_wtsend_epoch_acked(w)) srvrun_wtsend_epoch_reset(c, w);
   if (w->sess.q.len + payload.n > SRVRUN_WTSEND_BUF) return 0;
   quic_memcpy(w->roundbuf + w->sess.q.len, payload.p, payload.n);
   wired_sendsess_extend(&w->sess, payload.n);
@@ -3060,9 +3087,9 @@ static int srvrun_wtsend_stage_round(
 /* 1 iff the round was accepted and staged; folds the two-step check so
  * wired_server_wt_stream_send stays inside the CCN gate. */
 static int srvrun_wtsend_accept_round(
-    srvrun_wtsend* w, quic_span payload, int fin) {
+    const srvrun_conn* c, srvrun_wtsend* w, quic_span payload, int fin) {
   return srvrun_wtsend_appendable(w, payload.n) &&
-         srvrun_wtsend_stage_round(w, payload, fin);
+         srvrun_wtsend_stage_round(c, w, payload, fin);
 }
 
 /* 1 iff this rejected append was a live round refused only because the
@@ -3083,7 +3110,7 @@ int wired_server_wt_stream_send(
     return -1;
   }
   w = srvrun_wtsend_find(c, stream_id);
-  if (!srvrun_wtsend_accept_round(w, payload, fin)) {
+  if (!srvrun_wtsend_accept_round(c, w, payload, fin)) {
     c->stat_wtsend_busy += (u64)srvrun_wtsend_busy_reject(w, payload.n);
     return -1;
   }
@@ -3098,13 +3125,14 @@ int wired_server_wt_stream_send(
  * early return), so the slot would never reap even after the bare-FIN
  * slice is ACKed. Mirrors srvrun_wtsend_append_round's arm+set_base_offset
  * pair, just with a NULL/0 payload. */
-static void srvrun_wtsend_arm_fin_only(srvrun_wtsend* w) {
-  wired_sendsess_arm(&w->sess, 0, 0, SRVRUN_CHUNK);
+static void srvrun_wtsend_arm_fin_only(const srvrun_conn* c, srvrun_wtsend* w) {
+  wired_sendsess_arm(&w->sess, 0, 0, srvrun_mps(c));
   wired_sendsess_set_base_offset(&w->sess, w->stream_off);
 }
 
-static void srvrun_wtsend_start_fin_now(srvrun_wtsend* w) {
-  srvrun_wtsend_arm_fin_only(w);
+static void srvrun_wtsend_start_fin_now(
+    const srvrun_conn* c, srvrun_wtsend* w) {
+  srvrun_wtsend_arm_fin_only(c, w);
   w->fin_only_pending = 1;
 }
 
@@ -3115,9 +3143,9 @@ static void srvrun_wtsend_start_fin_now(srvrun_wtsend* w) {
  * common case -- a WebTransport writer's close() often follows its last
  * write() before that write's round has even been ACKed) is deferred, not
  * dropped. */
-static void srvrun_wtsend_request_fin(srvrun_wtsend* w) {
+static void srvrun_wtsend_request_fin(const srvrun_conn* c, srvrun_wtsend* w) {
   if (wired_sendsess_done(&w->sess))
-    srvrun_wtsend_start_fin_now(w);
+    srvrun_wtsend_start_fin_now(c, w);
   else
     w->fin_requested = 1;
 }
@@ -3129,7 +3157,7 @@ int wired_server_wt_stream_fin(wired_wt_session* s, u64 stream_id) {
   if (sidx < 0) return -1;
   w = srvrun_wtsend_find(c, stream_id);
   if (!srvrun_wtsend_open_slot(w)) return -1;
-  srvrun_wtsend_request_fin(w);
+  srvrun_wtsend_request_fin(c, w);
   return 1;
 }
 
@@ -3776,7 +3804,7 @@ static void srvrun_start_wt_status(
   u8*       st  = env->respstore[slot][srvrun_resp_index(c, r)];
   quic_obuf pob = quic_obuf_of(st, WIRED_SRVRUN_RESP_MAX);
   if (!quic_h3resp_prefix_field(status, 0, 0, extra, &pob)) return;
-  wired_sendsess_arm(&r->sess, st, pob.len, SRVRUN_CHUNK);
+  wired_sendsess_arm(&r->sess, st, pob.len, srvrun_mps(c));
 }
 
 /* draft-ietf-webtrans-http3-15 SS3.2 (WTH3-018): "The server may reply with
@@ -4057,9 +4085,9 @@ static u8* srvrun_resp_shrink_to_fixed(
  * never frames, so there is no first-round-only prefix to skip on later
  * rounds. */
 static void srvrun_arm_hq09_resp(
-    srvrun_resp* r, u8* st, const quic_obuf* body) {
+    const srvrun_conn* c, srvrun_resp* r, u8* st, const quic_obuf* body) {
   wired_sendsess_arm(
-      &r->sess, st + SRVRUN_RESP_HDR_ROOM, body->len, SRVRUN_CHUNK);
+      &r->sess, st + SRVRUN_RESP_HDR_ROOM, body->len, srvrun_mps(c));
 }
 
 /* RFC 9114 4.1: frame the handler's body as HEADERS+DATA (quic_h3resp_prefix)
@@ -4089,7 +4117,7 @@ static void srvrun_arm_h3_resp_framed(
   st = srvrun_resp_shrink_to_fixed(
       ctx, slot, c, r, st + SRVRUN_RESP_HDR_ROOM - pob.len,
       pob.len + body->len);
-  wired_sendsess_arm(&r->sess, st, pob.len + body->len, SRVRUN_CHUNK);
+  wired_sendsess_arm(&r->sess, st, pob.len + body->len, srvrun_mps(c));
 }
 
 /* RFC 9114 4.1: a streaming response's round 1+ is unframed body bytes
@@ -4098,9 +4126,9 @@ static void srvrun_arm_h3_resp_framed(
  * shrink is also skipped here, since a shrink would discard the storage row
  * round 0's bytes may still be in flight from). */
 static void srvrun_arm_h3_resp_round(
-    srvrun_resp* r, u8* st, const quic_obuf* body) {
+    const srvrun_conn* c, srvrun_resp* r, u8* st, const quic_obuf* body) {
   wired_sendsess_arm(
-      &r->sess, st + SRVRUN_RESP_HDR_ROOM, body->len, SRVRUN_CHUNK);
+      &r->sess, st + SRVRUN_RESP_HDR_ROOM, body->len, srvrun_mps(c));
 }
 
 /* RFC 9114 4.1: frame+arm round 0, or arm a later round's unframed
@@ -4115,7 +4143,7 @@ static void srvrun_arm_h3_resp(
     const char*            ct,
     u64                    total_len) {
   if (r->stream_h3_framed) {
-    srvrun_arm_h3_resp_round(r, st, body);
+    srvrun_arm_h3_resp_round(c, r, st, body);
     return;
   }
   r->stream_h3_framed = 1;
@@ -4192,7 +4220,7 @@ static void srvrun_arm_round0(
     u64                    base_shift) {
   u64 total_len = srvrun_round0_total_len(more, total_size, body->len);
   if (c->s.sdrv.alpn == QUIC_SALPN_HQ)
-    srvrun_arm_hq09_resp(r, st, body);
+    srvrun_arm_hq09_resp(c, r, st, body);
   else
     srvrun_arm_h3_resp(ctx, c, slot, r, st, body, ct, total_len);
   wired_sendsess_set_base_offset(&r->sess, base_shift);
@@ -4552,7 +4580,7 @@ static int srvrun_sess_log_room(const wired_sendsess* sess) {
  * checked here -- it gates whole round-robin passes
  * (srvrun_pump_round_gated), not individual slots. */
 static int srvrun_cwnd_has_room(const srvrun_conn* c) {
-  return srvrun_inflight_bytes_all(c) + SRVRUN_CHUNK <= c->cc.cwnd;
+  return srvrun_inflight_bytes_all(c) + srvrun_mps(c) <= c->cc.cwnd;
 }
 
 /* Sum of consumed (taken-from-sendq) stream bytes across every WT send
@@ -4585,7 +4613,7 @@ static usz srvrun_conn_consumed_bytes(const srvrun_conn* c) {
 /* 1 when the connection's send credit (RFC 9000 18.2/19.9) has room for one
  * more chunk, summed across every slot the same way cwnd is. */
 static int srvrun_conn_credit_has_room(const srvrun_conn* c) {
-  return srvrun_conn_consumed_bytes(c) + SRVRUN_CHUNK <= c->conn_credit;
+  return srvrun_conn_consumed_bytes(c) + srvrun_mps(c) <= c->conn_credit;
 }
 
 /* 1 when RFC 9000 4.1's two flow-control credits (connection-wide, and
@@ -4598,7 +4626,7 @@ static int srvrun_sess_credit_room(
    * (RFC 9000 19.10's limit is absolute): q.cur alone restarts at 0 on
    * every streaming re-arm / epoch recycle and would under-count. */
   return srvrun_conn_credit_has_room(c) &&
-         sess->stream_base_offset + sess->q.cur + SRVRUN_CHUNK <= credit;
+         sess->stream_base_offset + sess->q.cur + srvrun_mps(c) <= credit;
 }
 
 /* 1 when a brand-new slice (from sess's sendq, not its requeue) may go out:
@@ -4768,11 +4796,12 @@ static int srvrun_pump_wt_fin_only(
  * the moment w's previous round finishes (srvrun_wtsend_request_fin's own
  * doc on why the request could not be armed immediately). No-op once
  * already promoted or if nothing was ever requested. */
-static void srvrun_wtsend_promote_fin_if_ready(srvrun_wtsend* w) {
+static void srvrun_wtsend_promote_fin_if_ready(
+    const srvrun_conn* c, srvrun_wtsend* w) {
   if (!w->fin_requested) return;
   if (!wired_sendsess_done(&w->sess)) return;
   w->fin_requested = 0;
-  srvrun_wtsend_start_fin_now(w);
+  srvrun_wtsend_start_fin_now(c, w);
 }
 
 /* Send one slice from WT send slot w under the same gates -- or, once its
@@ -4781,7 +4810,7 @@ static void srvrun_wtsend_promote_fin_if_ready(srvrun_wtsend* w) {
 static int srvrun_pump_one_wt(
     const srvrun_step_ctx* ctx, srvrun_conn* c, srvrun_wtsend* w) {
   wired_sendq_slice sl;
-  srvrun_wtsend_promote_fin_if_ready(w);
+  srvrun_wtsend_promote_fin_if_ready(c, w);
   if (!srvrun_pump_gate_ok(c, &w->sess, w->stream_credit)) return 0;
   if (wired_sendsess_take(&w->sess, &sl))
     return srvrun_send_stream_slice(
@@ -5262,7 +5291,7 @@ static void srvrun_resp_next_round(
   srvrun_call_handler(
       ctx, &r->stream_req, r->stream_off, &body, &ct, &more, &total_size);
   if (c->s.sdrv.alpn == QUIC_SALPN_HQ)
-    srvrun_arm_hq09_resp(r, st, &body);
+    srvrun_arm_hq09_resp(c, r, st, &body);
   else
     srvrun_arm_h3_resp(ctx, c, slot, r, st, &body, ct, 0);
   wired_sendsess_set_base_offset(&r->sess, r->stream_off);
@@ -5966,6 +5995,7 @@ static int srvrun_open_slot(
   quic_cc_init_algo(&ctx->st->conns[slot].cc, ctx->cfg->cc_algo);
   quic_hystart_init(&ctx->st->conns[slot].hs);
   quic_rtt_init(&ctx->st->conns[slot].rtt);
+  quic_pmtu_init(&ctx->st->conns[slot].pmtu);
   if (srvrun_issue_cid(
           ctx->cfg, ctx->st->conns[slot].scid, ctx->cfg->id->scid_len))
     return slot;
