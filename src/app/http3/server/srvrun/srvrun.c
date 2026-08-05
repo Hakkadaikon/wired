@@ -525,6 +525,17 @@ typedef struct {
    * probing/ACK-LOSS integration is a later step -- today only the search's
    * static initial MPS (QUIC_PMTU_BASE-derived) feeds send sizing. */
   quic_pmtu pmtu;
+  /** RFC 8899 DPLPMTUD probe tracking: srvrun has no pn-scoped ACK/LOSS log
+   * (resp[]/wtsend[] each track their own range-based log instead, see
+   * srvrun_feed_acks), so a sent probe's pn/size/send-time are held here,
+   * outside any slot, until the ACK/LOSS reconciliation step (a later
+   * addition) consumes them. pmtu_probe_pn == SRVRUN_PMTU_NO_PROBE means no
+   * probe is outstanding -- at most one probe is ever outstanding at a time
+   * (RFC 8899 5.1.3 PROBED_SIZE is a single value), mirroring connrunner's
+   * own pmtu_probe_held/pmtu_probe_pn pair (pmtudrive.c). */
+  u64 pmtu_probe_pn;
+  usz pmtu_probe_size;
+  u64 pmtu_probe_sent_ms;
 } srvrun_conn;
 
 /* Response storage, one row per (connection slot, response slot): 64-byte
@@ -556,6 +567,11 @@ typedef struct {
 static usz srvrun_mps(const srvrun_conn* c) {
   return c->pmtu.validated ? quic_pmtu_mps(&c->pmtu) : SRVRUN_CHUNK;
 }
+
+/* srvrun_conn.pmtu_probe_pn sentinel: no probe outstanding. A real pn never
+ * reaches this value (RFC 9000 12.3 packet numbers are monotonic from 0 in
+ * this SDK, nowhere near 2^64-1 in any run's lifetime). */
+#define SRVRUN_PMTU_NO_PROBE ((u64) - 1)
 /* srvrun_wait_input's poll(2) timeout: how often srvrun_step wakes up to
  * check whether any in-flight resp[] has crossed its own RTT-derived PTO
  * deadline (srvrun_pto_deadline_ms) -- this is a poll cadence, NOT the PTO
@@ -4922,6 +4938,83 @@ static int srvrun_pump_round_gated(const srvrun_step_ctx* ctx, srvrun_conn* c) {
   return sent;
 }
 
+/* 1 if c already has a DPLPMTUD probe outstanding (srvrun_pmtu_try_probe
+ * below has not yet been reconciled by an ACK/LOSS/timer for it) -- RFC 8899
+ * 5.1.3 PROBED_SIZE is a single value, so at most one probe is ever
+ * outstanding at a time (mirrors connrunner's own pmtu_probe_held, see
+ * pmtudrive.c). */
+static int srvrun_pmtu_probe_outstanding(const srvrun_conn* c) {
+  return c->pmtu_probe_pn != SRVRUN_PMTU_NO_PROBE;
+}
+
+/* RFC 8899 3.2/5: a PING frame (1 byte, ack-eliciting) followed by PADDING
+ * (0x00) filling the rest of size bytes -- carries no application data that
+ * would need retransmission if the probe is lost (RFC 8899 3.4). Returns
+ * size, or 0 if it does not fit cap. */
+static usz srvrun_pmtu_probe_payload(u8* buf, usz cap, usz size) {
+  if (size == 0 || size > cap) return 0;
+  buf[0] = QUIC_FRAME_PING;
+  quic_memset(buf + 1, QUIC_FRAME_PADDING, size - 1);
+  return size;
+}
+
+/* Seal the PING+PADDING payload above into out as its own 1-RTT packet,
+ * under a fresh pn from this connection's own tx_pn sequence (the same
+ * counter every other srvrun_seal_* caller advances). Returns 1 with
+ * out->len and *pn set, 0 on payload-build or seal failure (pn left
+ * unassigned). */
+static int srvrun_seal_pmtu_probe(
+    srvrun_conn* c, usz size, quic_obuf* out, u64* pn) {
+  u8                    pl[QUIC_PMTU_MAX];
+  wired_srvloop_send_in sin;
+  usz                   pln = srvrun_pmtu_probe_payload(pl, sizeof pl, size);
+  if (!pln) return 0;
+  *pn = c->l.tx_pn++;
+  sin = (wired_srvloop_send_in){
+      quic_span_of(c->l.cli_scid, c->l.cli_scid_len), *pn, -1,
+      quic_span_of(pl, pln), 0};
+  return wired_srvloop_send_onertt(&c->s, &sin, out);
+}
+
+/* The next candidate size to probe on c, or 0 if none: a probe already
+ * outstanding or a concluded search (quic_pmtu_next_probe's own gate) both
+ * read as "nothing to do this opportunity". now_us converts srvrun's ms
+ * clock into pmtu.c's us unit (matching QUIC_RTT_INITIAL_US and the other
+ * RFC 9002 RTT state already on this us clock). */
+static usz srvrun_pmtu_probe_candidate(srvrun_conn* c, u64 now_us) {
+  if (srvrun_pmtu_probe_outstanding(c)) return 0;
+  return quic_pmtu_next_probe(&c->pmtu, now_us);
+}
+
+/* Seal and send a `size`-byte probe, then record its pn/size/send-time for
+ * the later ACK/LOSS reconciliation step to consume. Always returns 1: the
+ * caller only reaches this once srvrun_pmtu_probe_candidate found a size,
+ * and a seal failure here just means one particular opportunity built no
+ * packet -- there is no narrower outcome worth reporting. */
+static int srvrun_pmtu_send_probe(
+    const srvrun_step_ctx* ctx, srvrun_conn* c, usz size) {
+  u8        buf[QUIC_PMTU_MAX];
+  quic_obuf out = quic_obuf_of(buf, sizeof buf);
+  u64       pn;
+  if (!srvrun_seal_pmtu_probe(c, size, &out, &pn)) return 1;
+  c->pmtu_probe_pn      = pn;
+  c->pmtu_probe_size    = size;
+  c->pmtu_probe_sent_ms = ctx->now_ms;
+  srvrun_send(ctx->cfg, c, quic_span_of(buf, out.len), "PMTU probe sent\n");
+  return 1;
+}
+
+/* RFC 8899 DPLPMTUD probe send opportunity: try the next candidate size
+ * (srvrun_pmtu_probe_candidate) and, if there is one, seal and send it
+ * (srvrun_pmtu_send_probe). Returns 1 if a probe was sent this opportunity,
+ * 0 if there was nothing to send. */
+static int srvrun_pmtu_try_probe(const srvrun_step_ctx* ctx, srvrun_conn* c) {
+  u64 now_us = ctx->now_ms * 1000;
+  usz size   = srvrun_pmtu_probe_candidate(c, now_us);
+  if (!size) return 0;
+  return srvrun_pmtu_send_probe(ctx, c, size);
+}
+
 /* Transmit while the window has room and slices are ready, across every
  * in-flight response on this connection (RFC 9000 2.2: several requests may
  * be in flight at once) -- round-robin one slice per slot per pass, so a
@@ -4929,7 +5022,27 @@ static int srvrun_pump_round_gated(const srvrun_step_ctx* ctx, srvrun_conn* c) {
  * connection's one shared cwnd (a strict per-slot drain-then-next order let
  * slot 0 claim the whole window every step; slot 2 fell far enough behind on
  * real send time that its own in-flight slices tripped RFC 9002 6.1.1's
- * packet threshold, not because they were actually lost). */
+ * packet threshold, not because they were actually lost).
+ *
+ * RFC 8899 DPLPMTUD probe fairness: each iteration of the loop below is one
+ * send opportunity, and a probe attempt is given first refusal on EVERY
+ * iteration -- not only once normal sends run dry. An "only after the loop"
+ * placement lets a connection with a steady stream of normal sends starve
+ * the probe forever -- a design mistake TLA+ model-checking caught: weak
+ * fairness on the merge point was not enough, since a continuously busy
+ * normal-send path never leaves a window where the probe is the only thing
+ * enabled. Trying the probe first, every iteration, gives it the standing
+ * to always take its turn the moment it has one (srvrun_pmtu_try_probe
+ * itself is a no-op whenever a probe is already outstanding or the search
+ * has nothing left to try, so this costs nothing on the common case), while
+ * still keeping one send opportunity exclusive to either a probe or a
+ * normal pass -- never both (the short-circuit below skips the normal pass
+ * on the same opportunity a probe went out). */
+static int srvrun_pump_opportunity(const srvrun_step_ctx* ctx, srvrun_conn* c) {
+  if (srvrun_pmtu_try_probe(ctx, c)) return 1;
+  return srvrun_pump_round_gated(ctx, c);
+}
+
 static void srvrun_pump_sess(const srvrun_step_ctx* ctx, int slot) {
   srvrun_conn* c = &ctx->st->conns[slot];
   /* RFC 9001 4.1.2 / RFC 9000 12.3: 1-RTT packet-protection keys (the SDK's
@@ -4944,7 +5057,7 @@ static void srvrun_pump_sess(const srvrun_step_ctx* ctx, int slot) {
    * confirms) drains every slot's already-armed sendq exactly as if it had
    * started then. */
   if (!wired_server_is_confirmed(&c->s)) return;
-  while (srvrun_pump_round_gated(ctx, c)) {
+  while (srvrun_pump_opportunity(ctx, c)) {
   }
 }
 
@@ -5996,6 +6109,7 @@ static int srvrun_open_slot(
   quic_hystart_init(&ctx->st->conns[slot].hs);
   quic_rtt_init(&ctx->st->conns[slot].rtt);
   quic_pmtu_init(&ctx->st->conns[slot].pmtu);
+  ctx->st->conns[slot].pmtu_probe_pn = SRVRUN_PMTU_NO_PROBE;
   if (srvrun_issue_cid(
           ctx->cfg, ctx->st->conns[slot].scid, ctx->cfg->id->scid_len))
     return slot;
