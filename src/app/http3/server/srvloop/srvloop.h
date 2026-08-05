@@ -418,11 +418,12 @@ typedef struct {
    * duplicate (loss-delayed retransmission) of such a stream must be
    * discarded, not re-admitted as a new stream -- re-admitted "zombies"
    * once filled the table until genuinely new streams were dropped. All
-   * stream indexes (id/4) below req_closed_floor are closed; the next 1024
-   * indexes live in the req_closed_bm window (bit k = floor+k). A release
-   * past the window is not recorded (safe direction: a live stream is
-   * never misclassified as closed). */
+   * stream indexes (id/4) below this floor are closed; see req_closed_bm
+   * for the window just above it. */
   u64 req_closed_floor;
+  /** The next 1024 stream indexes above req_closed_floor (bit k = closed at
+   * index floor+k). A release past this window is not recorded -- the safe
+   * direction: a live stream is never misclassified as closed. */
   u64 req_closed_bm[16];
   /** draft-ietf-webtrans-http3-15 4.3: one reassembly slot per concurrent WT
    * bidi stream, separate from streams[] above (see
