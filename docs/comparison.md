@@ -137,6 +137,62 @@ budget), but at the 12k–20k req/s level the client works hard; read
 differences between the fastest servers as lower bounds rather than exact
 ratios.
 
+## Update (2026-08-05): a wired stall fix and crypto acceleration
+
+The wired-side numbers above were measured against commit `ee86062`. Three
+changes landed since, all under the same measurement harness
+(`tasks/compare/bench/`) and gated by the full local test/build/CCN/valgrind
+checks:
+
+- **A correctness fix that was also a throughput bug.** A loss-delayed
+  retransmission of an already-answered request stream was being re-admitted
+  as a brand-new stream ("zombie" slot claims); a burst of these could fill
+  the connection's reassembly table and cause a genuinely new stream to be
+  silently dropped while its packet was still ACKed, so the client never
+  retried and that one request hung forever. This is why `multiplexing` in
+  [Interop Results](interop.md) is now `✅` — it was misdiagnosed earlier as
+  a pure throughput gap.
+- **AES-NI/PCLMULQDQ AES-128-GCM**, dispatched automatically when the CPU
+  supports it, ~66× faster per seal than the portable scalar path (measured:
+  1129-byte seal ~126µs → ~1.9µs).
+- **Fixed-base P-256 scalar multiplication** for ECDSA signing (a
+  precomputed comb over the base point), ~3.3× faster signing (measured:
+  ~6.3ms → ~1.9ms per signature), with byte-identical signatures to the
+  generic path (RFC 6979 is deterministic).
+
+Re-measured at commit `a34ca7e`, same harness and host, same certificate and
+file:
+
+| Metric | `ee86062` | `a34ca7e` | Change |
+|---|---|---|---|
+| TTFB p50 (loopback) | 6.5 ± 0.6 ms | **3.6 ± 0.1 ms** | 1.9× faster |
+| Load req/s (loopback) | 2040 ± 1160 [^wired-stall] | **5344 ± 263** | 1.9× (and the stall-driven variance is gone) |
+| Load p50 (loopback) | 7.0 ± 0.5 ms | **3.9 ± 0.2 ms** | 1.8× faster |
+| Load p99 (loopback) | 9.3 ± 1.0 ms | **5.2 ± 0.3 ms** | 2.0× faster |
+| Failures (loopback, 5×10,100 reqs) | 4 / 50,500 | **0 / 50,500** | stall fixed |
+| Goodput (runner, 5 runs) | 7318 ± 37 kbps | 7306 ± 27 kbps | unchanged (see below) |
+| `multiplexing` interop | 🟡 (98%, missed 60s bar) | **✅ full pass** | root cause fixed |
+| Server binary size (stripped) | 287,392 B | 357,024 B | +69,632 B (P-256 comb table) |
+
+```mermaid
+xychart-beta
+    title "wired loopback load req/s: before vs after (higher is better)"
+    x-axis ["ee86062 (before)", "a34ca7e (after)"]
+    y-axis "req/s" 0 --> 6000
+    bar [2040, 5344]
+```
+
+Client CPU hit 99% of the two-core budget in the post-fix loopback runs, so
+5344 req/s is a client-side floor, not necessarily wired's ceiling — a
+faster load generator might show a larger gap. **Goodput did not move**,
+confirming the diagnosis in the run notes: wired's simulated-link goodput is
+capped by its send datagram size (1129 B vs quic-go's PMTU-discovered
+1441 B after path MTU discovery), not by CPU — a separate, not-yet-started
+gap (PMTU discovery exists in the codebase but isn't wired into the send
+path). This does not close the gap to quiche/quic-go on the loopback req/s
+metric either (quiche's 20,559 req/s stands); it closes roughly 30% of the
+distance from wired's original per-request overhead.
+
 ## WebTransport and MOQT
 
 **WebTransport (speed):** not measured. The interop runner's WebTransport
@@ -236,6 +292,7 @@ Goodput lane (each value = runner's 5-repetition mean ± sd for that run):
 | quiche | single run | 9439 (± 3) kbps |
 | ngtcp2 | single run [^ngtcp2-warn] | 9414 (± 82) kbps |
 | picoquic | single run | 9335 (± 5) kbps |
+| wired (`a34ca7e`, post-fix) | single run | 7306 (± 27) kbps |
 
 Loopback lane, all 30 runs (no runs excluded; the two wired runs containing
 stalled requests are the source of the req/s variance [^wired-stall]):
@@ -272,6 +329,16 @@ stalled requests are the source of the req/s variance [^wired-stall]):
 | quiche | r3 | load | 10000 | 0 | 19227.8 | 0.88 | 3.94 | 111 |
 | quiche | r4 | load | 10000 | 0 | 18424.4 | 0.92 | 4.03 | 105 |
 | quiche | r5 | load | 10000 | 0 | 21859.4 | 0.82 | 2.87 | 121 |
+| wired (`a34ca7e`, post-fix) | r1 | ttfb | 100 | 0 | 254.7 | 3.65 | 6.43 | 48 |
+| wired (`a34ca7e`, post-fix) | r2 | ttfb | 100 | 0 | 263.5 | 3.60 | 5.63 | 49 |
+| wired (`a34ca7e`, post-fix) | r3 | ttfb | 100 | 0 | 254.4 | 3.54 | 6.49 | 45 |
+| wired (`a34ca7e`, post-fix) | r4 | ttfb | 100 | 0 | 247.6 | 3.74 | 6.01 | 49 |
+| wired (`a34ca7e`, post-fix) | r5 | ttfb | 100 | 0 | 253.7 | 3.65 | 6.21 | 49 |
+| wired (`a34ca7e`, post-fix) | r1 | load | 10000 | 0 | 5479.1 | 3.83 | 5.02 | 96 |
+| wired (`a34ca7e`, post-fix) | r2 | load | 10000 | 0 | 5476.6 | 3.79 | 5.34 | 96 |
+| wired (`a34ca7e`, post-fix) | r3 | load | 10000 | 0 | 5595.2 | 3.76 | 4.91 | 95 |
+| wired (`a34ca7e`, post-fix) | r4 | load | 10000 | 0 | 5233.4 | 3.95 | 5.09 | 97 |
+| wired (`a34ca7e`, post-fix) | r5 | load | 10000 | 0 | 4936.2 | 4.15 | 5.61 | 99 |
 
 ## Footnotes
 
