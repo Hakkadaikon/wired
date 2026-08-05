@@ -313,6 +313,13 @@ typedef struct {
    * already sums in-flight bytes for cwnd -- a different quantity (consumed
    * is monotonic, in-flight drops on ACK), but the same fan-out shape. */
   u64 conn_credit;
+  /** RFC 9000 4.1/19.12: the conn_credit value DATA_BLOCKED was last sent
+   * for (0 meaning "never sent yet") -- so a sustained block resends at
+   * most once per distinct ceiling, not once per pump opportunity (the
+   * gate below is checked every slice attempt). A later MAX_DATA raising
+   * conn_credit makes this stale, so the next block at the new ceiling
+   * sends again. */
+  u64 data_blocked_sent_at;
   /** RFC 9002 5/6.2: RTT estimator (smoothed_rtt/rttvar in us) feeding this
    * connection's PTO deadline (srvrun_pto_deadline_ms) -- separate from
    * srtt_ms above (ms, EWMA-only, pacing's simpler input) because PTO needs
@@ -1840,6 +1847,35 @@ static void srvrun_send_max_data(
   quic_obuf ob = quic_obuf_of(out, sizeof out);
   if (!srvrun_seal_max_data(c, value, &ob)) return;
   srvrun_send(cfg, c, quic_span_of(out, ob.len), "WT MAX_DATA sent\n");
+}
+
+/* Seal one DATA_BLOCKED frame (RFC 9000 19.12) as its own 1-RTT packet and
+ * send it, mirroring srvrun_seal_max_data for the connection-wide limit. */
+static int srvrun_seal_data_blocked(srvrun_conn* c, u64 limit, quic_obuf* out) {
+  u8                    pl[24];
+  quic_obuf             plb = quic_obuf_of(pl, sizeof pl);
+  quic_data_frame       f   = {limit};
+  wired_srvloop_send_in sin;
+  usz                   pln = quic_data_blocked_encode(plb.p, plb.cap, &f);
+  if (!pln) return 0;
+  plb.len = pln;
+  sin     = (wired_srvloop_send_in){
+      quic_span_of(c->l.cli_scid, c->l.cli_scid_len), c->l.tx_pn++, -1,
+      quic_span_of(pl, pln), 0};
+  return wired_srvloop_send_onertt(&c->s, &sin, out);
+}
+
+/* RFC 9000 4.1/19.12: "A sender SHOULD send a DATA_BLOCKED... This can be
+ * useful for debugging purposes... at the connection level" -- letting the
+ * peer know the SERVER (not just the client) is flow-control-blocked so it
+ * knows to raise MAX_DATA sooner than its own autotuning would otherwise.
+ * limit is c->conn_credit itself (the ceiling that blocked this send). */
+static void srvrun_send_data_blocked(
+    const srvrun_cfg* cfg, srvrun_conn* c, u64 limit) {
+  u8        out[128];
+  quic_obuf ob = quic_obuf_of(out, sizeof out);
+  if (!srvrun_seal_data_blocked(c, limit, &ob)) return;
+  srvrun_send(cfg, c, quic_span_of(out, ob.len), "DATA_BLOCKED sent\n");
 }
 
 /* Seal one MAX_STREAMS(bidi) frame (RFC 9000 19.11) as its own 1-RTT packet
@@ -4751,6 +4787,25 @@ static int srvrun_has_requeued(const wired_sendsess* sess) {
   return sess->requeue_n != 0;
 }
 
+/* RFC 9000 4.1/19.12: tell the peer THIS connection ran out of send credit,
+ * once per distinct ceiling (data_blocked_sent_at != c->conn_credit -- a
+ * later MAX_DATA raise makes a stale sent-at send again if blocked a second
+ * time). Without this, a peer whose own autotuning lags a fast multi-stream
+ * transfer never learns the SERVER is blocked and has no signal to raise
+ * MAX_DATA sooner -- the connection stalls until the peer's own heuristics
+ * eventually catch up, or the idle timeout fires first (RFC 9000 10.1).
+ * A no-op while conn_credit still has room: only the connection-wide ceiling
+ * blocking (not a per-stream credit or cwnd/log gate) warrants this signal,
+ * same scope DATA_BLOCKED itself carries (STREAM_DATA_BLOCKED would be the
+ * per-stream counterpart, not needed here since srvloop already raises
+ * stream credit independently via MAX_STREAM_DATA). */
+static void srvrun_notify_conn_blocked(const srvrun_cfg* cfg, srvrun_conn* c) {
+  if (srvrun_conn_credit_has_room(c)) return;
+  if (c->data_blocked_sent_at == c->conn_credit) return;
+  srvrun_send_data_blocked(cfg, c, c->conn_credit);
+  c->data_blocked_sent_at = c->conn_credit;
+}
+
 /* 1 when sess may send right now: a queued probe retransmit only needs the
  * log gate (RFC 9002 7.5 bypasses cwnd for it); brand-new data needs both
  * gates. The log gate is checked for a probe too, even though
@@ -4772,7 +4827,10 @@ static int srvrun_pump_gate_ok(
 static int srvrun_pump_one(
     const srvrun_step_ctx* ctx, srvrun_conn* c, srvrun_resp* r) {
   wired_sendq_slice sl;
-  if (!srvrun_pump_gate_ok(c, &r->sess, r->stream_credit)) return 0;
+  if (!srvrun_pump_gate_ok(c, &r->sess, r->stream_credit)) {
+    srvrun_notify_conn_blocked(ctx->cfg, c);
+    return 0;
+  }
   if (!wired_sendsess_take(&r->sess, &sl)) return 0;
   return srvrun_send_slice(ctx, c, r, &sl);
 }
@@ -4827,7 +4885,10 @@ static int srvrun_pump_one_wt(
     const srvrun_step_ctx* ctx, srvrun_conn* c, srvrun_wtsend* w) {
   wired_sendq_slice sl;
   srvrun_wtsend_promote_fin_if_ready(c, w);
-  if (!srvrun_pump_gate_ok(c, &w->sess, w->stream_credit)) return 0;
+  if (!srvrun_pump_gate_ok(c, &w->sess, w->stream_credit)) {
+    srvrun_notify_conn_blocked(ctx->cfg, c);
+    return 0;
+  }
   if (wired_sendsess_take(&w->sess, &sl))
     return srvrun_send_stream_slice(
         ctx, c, &w->sess, w->stream_id, &sl, srvrun_wt_slice_fin(w, &sl));
