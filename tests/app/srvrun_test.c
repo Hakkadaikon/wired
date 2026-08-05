@@ -8353,6 +8353,107 @@ static void test_srvrun_conn_credit_exhausted_blocks_send(void) {
   }
 }
 
+/* RFC 9000 4.1/19.12: a connection-level send credit exhausted (the same
+ * setup as test_srvrun_conn_credit_exhausted_blocks_send) must make the
+ * server send exactly one DATA_BLOCKED -- without this, a peer whose own
+ * autotuning lags a fast multi-stream transfer never learns the SERVER
+ * itself is blocked and the connection can stall until the idle timeout
+ * (this is what a real quic-go transfer run hit: MAX_DATA stopped arriving
+ * once the client believed it had granted enough, and the server never told
+ * it otherwise). */
+static void test_srvrun_conn_credit_exhausted_sends_data_blocked(void) {
+  static u8     body[4 * SRVRUN_CHUNK];
+  struct lp_fix f;
+  srvrun_conn   c;
+  quic_obuf     ob = {0};
+  u8            obuf[1024];
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.cc.cwnd               = 1u << 20;
+  c.conn_credit           = SRVRUN_CHUNK / 2;
+  c.resp[0].in_use        = 1;
+  c.resp[0].stream_id     = 0;
+  c.resp[0].stream_credit = 1u << 24;
+  wired_sendsess_arm(&c.resp[0].sess, body, sizeof body, SRVRUN_CHUNK);
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
+        0,  0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_state    st  = {0, &c};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 1, 0};
+    srvrun_test_reset_send_count();
+    srvrun_pump_sess(&ctx, 0);
+    CHECK(srvrun_test_send_count() == 1);
+    CHECK(c.data_blocked_sent_at == c.conn_credit);
+  }
+}
+
+/* A second pump opportunity against the SAME unresolved ceiling must not
+ * resend DATA_BLOCKED -- RFC 9000 4.1's signal is about the ceiling, not
+ * the poll cadence, and srvrun_pump_sess's inner `while` alone would retry
+ * every slot every opportunity. */
+static void test_srvrun_conn_credit_exhausted_data_blocked_sent_once(void) {
+  static u8     body[4 * SRVRUN_CHUNK];
+  struct lp_fix f;
+  srvrun_conn   c;
+  quic_obuf     ob = {0};
+  u8            obuf[1024];
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.cc.cwnd               = 1u << 20;
+  c.conn_credit           = SRVRUN_CHUNK / 2;
+  c.resp[0].in_use        = 1;
+  c.resp[0].stream_id     = 0;
+  c.resp[0].stream_credit = 1u << 24;
+  wired_sendsess_arm(&c.resp[0].sess, body, sizeof body, SRVRUN_CHUNK);
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
+        0,  0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_state    st  = {0, &c};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 1, 0};
+    srvrun_pump_sess(&ctx, 0); /* first opportunity: sends the one signal */
+    srvrun_test_reset_send_count();
+    srvrun_pump_sess(&ctx, 0); /* still blocked, same ceiling: no resend */
+    CHECK(srvrun_test_send_count() == 0);
+  }
+}
+
+/* A later MAX_DATA raise past the ceiling DATA_BLOCKED was last sent for
+ * makes the next block (once the new, higher ceiling is also exhausted)
+ * send again -- data_blocked_sent_at tracks the CEILING, not "ever sent". */
+static void test_srvrun_conn_credit_raised_then_blocked_resends(void) {
+  static u8     body[8 * SRVRUN_CHUNK];
+  struct lp_fix f;
+  srvrun_conn   c;
+  quic_obuf     ob = {0};
+  u8            obuf[1024];
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.cc.cwnd               = 1u << 20;
+  c.conn_credit           = SRVRUN_CHUNK / 2;
+  c.resp[0].in_use        = 1;
+  c.resp[0].stream_id     = 0;
+  c.resp[0].stream_credit = 1u << 24;
+  wired_sendsess_arm(&c.resp[0].sess, body, sizeof body, SRVRUN_CHUNK);
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
+        0,  0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_state    st  = {0, &c};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 1, 0};
+    srvrun_pump_sess(&ctx, 0); /* blocked at conn_credit == SRVRUN_CHUNK/2 */
+    /* raise conn_credit just enough for one more chunk, then re-exhaust it
+     * against the still-large sendq (arm's `body` has 8 chunks queued). */
+    c.conn_credit += SRVRUN_CHUNK;
+    srvrun_test_reset_send_count();
+    srvrun_pump_sess(&ctx, 0);
+    CHECK(srvrun_test_send_count() >= 1); /* the raised chunk's send, */
+    /* plus a fresh DATA_BLOCKED for the new (also-exhausted) ceiling. */
+    CHECK(c.data_blocked_sent_at == c.conn_credit);
+  }
+}
+
 /* A stream-level send credit smaller than one chunk blocks new sends
  * on THAT slot only -- a sibling slot with its own room keeps sending
  * (RFC 9000 4.1's stream-level credit is per-stream, independent of the
@@ -12202,6 +12303,9 @@ void test_srvrun(void) {
   test_srvrun_conn_credit_ignores_lower_max_data();
   test_srvrun_stream_credit_ignores_lower_max_stream_data();
   test_srvrun_conn_credit_exhausted_blocks_send();
+  test_srvrun_conn_credit_exhausted_sends_data_blocked();
+  test_srvrun_conn_credit_exhausted_data_blocked_sent_once();
+  test_srvrun_conn_credit_raised_then_blocked_resends();
   test_srvrun_stream_credit_exhausted_blocks_only_that_slot();
   test_srvrun_conn_credit_sums_across_slots();
   test_srvrun_send_credit_boundary_exact_fit_allowed();
