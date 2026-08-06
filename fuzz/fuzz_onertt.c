@@ -20,6 +20,7 @@
 #include "crypto/symmetric/aead/chacha/chacha20.c"
 #include "crypto/symmetric/aead/chacha/poly1305.c"
 #include "crypto/symmetric/aead/gcm/gcm.c"
+#include "crypto/symmetric/aead/gcmx86/gcmx86.c"
 #include "crypto/symmetric/hash/hash/hmac.c"
 #include "crypto/symmetric/hash/hash/sha256.c"
 #include "crypto/symmetric/hash/hash/sha384.c"
