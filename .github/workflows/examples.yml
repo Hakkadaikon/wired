@@ -9,6 +9,7 @@ name: Examples
 on:
   push:
   pull_request:
+  workflow_dispatch:
 
 jobs:
   build-and-boot:
