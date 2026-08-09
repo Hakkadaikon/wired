@@ -12,10 +12,12 @@ features (documented against each project's own sources) and in speed
 > own rows are pinned per lane because same-day changes landed while
 > measuring: a stall fix (`8c45b6f`, without which goodput was unmeasurable),
 > a defaults retune (`f644681`, Cubic + a quiche-matching connection
-> window), and a datapath round (`c4f147f`: ACK piggybacking, batched
+> window), a datapath round (`c4f147f`: ACK piggybacking, batched
 > MAX_STREAMS grants, UDP GSO send batching, cached send-gate totals, plus
-> ECDSA/x25519 double-computation fixes — the loopback section tells the
-> full story; superseded interim numbers stay in the
+> ECDSA/x25519 double-computation fixes), and a congestion/pacing round
+> (`72914d2`: a token-bucket pacer, ring-buffered streaming that removed a
+> per-round ACK-drain stall, and a BBR repair — the speed sections tell
+> the full story; superseded interim numbers stay in the
 > [run manifest](#run-manifest)). It is not a claim of general superiority
 > or inferiority of any implementation. Bad numbers are published along
 > with good ones.
@@ -63,7 +65,7 @@ endpoints run as Docker containers — one execution form across the row.
 
 | Server | Goodput (5 runs) | Server image |
 |---|---|---|
-| wired | 7814 (± 116) kbps [^w-goodput-rerun] | `wired-interop` built from commit `c4f147f` |
+| wired | 9372 (± 14) kbps [^w-goodput-rerun] | `wired-interop` built from commit `72914d2` |
 | quic-go | 9532 (± 28) kbps | `martenseemann/quic-go-interop:latest` |
 | quiche | 9443 (± 7) kbps | `cloudflare/quiche-qns:latest` |
 | ngtcp2 | 9381 (± 67) kbps [^ngtcp2-warn] | `ghcr.io/ngtcp2/ngtcp2-interop:latest` |
@@ -74,10 +76,11 @@ xychart-beta
     title "Goodput over the runner's simulated link (kbps, higher is better)"
     x-axis ["wired", "quic-go", "quiche", "ngtcp2", "picoquic"]
     y-axis "kbps" 0 --> 10000
-    bar [7814, 9532, 9443, 9381, 9328]
+    bar [9372, 9532, 9443, 9381, 9328]
 ```
 
-**wired's number is the product of two same-day changes**, both disclosed:
+**wired's number is the product of five same-day change sets**, all
+disclosed:
 
 1. **A stall fix** (`8c45b6f`). At the base commit `8068749` the 10 MB
    transfer stalled partway (655,296 of 10,485,760 bytes) and the runner
@@ -98,19 +101,38 @@ xychart-beta
    default is now Cubic (build-time selectable, see the
    [defaults table](#server-defaults-loopback-lane)), worth +874 kbps on
    this link by itself. A BBR build (`-DWIRED_CC_ALGO_DEFAULT=2`) was also
-   tried and could not complete the transfer at all — wired's BBR
-   implementation has its own unresolved issue, noted here rather than
-   hidden.
+   tried and, at this commit, could not complete the transfer at all —
+   repaired later the same day (item 5 below).
 
-The remaining gap to quic-go (7814 vs 9532 kbps) is congestion-control
-tuning headroom (recovery behavior on this 10 Mbps / 25-packet-queue
-simulated link), not a wire-format or sizing difference, and is future
-work. The later same-day datapath round (`c4f147f`) targeted the loopback
-lane, not this one: its pooled 7814 (± 116) sits ~2% under `f644681`'s
-single-run 8018 (± 74), but same-day re-runs of the pre-datapath build
-ranged 7944–8042 while post-datapath runs ranged 7630–7937 — the
-difference is within the day's run-to-run spread and a commit-level bisect
-did not attribute it to any one change [^w-goodput-rerun].
+A same-day congestion/pacing round (`f33e3ac`..`72914d2`) then closed most
+of the remaining gap, qlog-diagnosed at each step:
+
+3. **A token-bucket pacer** (`f33e3ac`). Below a 25ms pacing interval,
+   pacing used to switch fully off and a pump pass burst the whole cwnd
+   back-to-back — overflowing this link's 25-packet bottleneck queue every
+   time cwnd approached BDP and capping cwnd at ~39.6kB (~BDP) instead of
+   BDP+queue (~67kB). With refills at 1.25 x cwnd/srtt and a 10-packet
+   burst cap: 8588 (± 35) kbps, and the run-to-run spread collapsed.
+4. **Ring-buffered streaming** (`82ccdb0`). A streaming response re-armed
+   its send session once per 640KB round, legal only after every slice was
+   acknowledged — the client qlog showed 30–60ms receive gaps every
+   ~600ms (~800ms of a 9.9s transfer). Responses now stream through a
+   ring that refills while earlier bytes are still in flight: 9372 (± 14)
+   kbps, statistically level with ngtcp2 (9381) and past picoquic (9328).
+5. **A BBR repair** (`72914d2`, disclosed for completeness — the default
+   stays Cubic). The earlier "BBR could not complete the transfer" row is
+   fixed: a startup loss storm used to starve sample rounds, collapse the
+   windowed-max bandwidth estimate, and pin cwnd at a 2400-byte fixed
+   point. With starved samples barred from lowering the filter, a
+   4-packet cwnd floor (BBRMinPipeCwnd), a per-round (not per-tick)
+   PROBE_BW gain cycle, and BBR pacing through the same token bucket, a
+   BBR-forced build passes `transfer` and measures 9336/9342 kbps.
+
+The remaining ~160 kbps to quic-go (9372 vs 9532) is slow-start ramp
+efficiency on this link; no further tuning was attempted. The interim
+7814 (± 116) measured at `c4f147f` (the ~2% dip vs `f644681` that a
+commit-level bisect attributed to run-to-run spread, not any one change)
+is superseded and kept in the [run manifest](#run-manifest).
 
 ## Speed: loopback per-request overhead
 
@@ -126,7 +148,7 @@ request unanswered for 10 s counts as a failure and the worker moves on.
 
 | Server (native) | TTFB p50 (ms) | load req/s | load p50 (ms) | load p99 (ms) | failures |
 |---|---|---|---|---|---|
-| wired `c4f147f` | 3.4 ± 0.1 | 21,962 ± 591 | 0.8 ± 0.0 | 3.3 ± 0.4 | 0 / 50,500 |
+| wired `72914d2` | 3.0 ± 0.1 | 24,771 ± 1176 | 0.7 ± 0.0 | 3.4 ± 0.6 | 0 / 50,500 |
 | quic-go v0.61.0 | 2.5 ± 0.1 | 11,329 ± 633 | 1.5 ± 0.1 | 4.2 ± 0.6 | 0 / 50,500 |
 | quiche 0.29.3 (`55886df`) | 2.0 ± 0.1 | 18,550 ± 2441 | 0.9 ± 0.1 | 3.7 ± 1.1 | 0 / 50,500 |
 | ngtcp2 | — (no native build attempted: multi-stage autotools chain; measured in the goodput lane only) | — | — | — | — |
@@ -136,8 +158,8 @@ request unanswered for 10 s counts as a failure and the worker moves on.
 xychart-beta
     title "Loopback load throughput (req/s, higher is better)"
     x-axis ["wired", "quic-go", "quiche"]
-    y-axis "req/s" 0 --> 24000
-    bar [21962, 11329, 18550]
+    y-axis "req/s" 0 --> 26000
+    bar [24771, 11329, 18550]
 ```
 
 ```mermaid
@@ -145,7 +167,7 @@ xychart-beta
     title "TTFB p50 -- fresh connection incl. handshake (ms, lower is better)"
     x-axis ["wired", "quic-go", "quiche"]
     y-axis "ms" 0 --> 5
-    bar [3.4, 2.5, 2.0]
+    bar [3.0, 2.5, 2.0]
 ```
 
 ```mermaid
@@ -153,25 +175,27 @@ xychart-beta
     title "Load latency p99 (ms, lower is better)"
     x-axis ["wired", "quic-go", "quiche"]
     y-axis "ms" 0 --> 7
-    bar [3.3, 4.2, 3.7]
+    bar [3.4, 4.2, 3.7]
 ```
 
 (Bars plot the table means.) Client CPU ran past saturation for the fastest
 rows — quiche's client-side CPU peaked at 125% of the 200% two-core budget
-and wired's at 138% — so read the ratios between servers as indicative, not
+and wired's at 133% — so read the ratios between servers as indicative, not
 exact (the fastest rows are at least partly client-bound). wired's row was
-re-measured at `c4f147f` after a datapath round: batched MAX_STREAMS grants
-and an ACK piggybacked onto the response slice (≈1 datagram per request
-instead of ≈2.5), UDP GSO send batching, cached send-gate totals replacing
-an O(slots²)-per-pass scan (the single biggest req/s factor), and removal
-of a duplicated ECDSA sign computation and x25519 ECDHE (the TTFB drop from
-4.4 ms). The superseded `f644681` and `8068749` runs sit in the
+re-measured at `72914d2` after two same-day rounds. The datapath round
+(`c4f147f`): batched MAX_STREAMS grants and an ACK piggybacked onto the
+response slice (≈1 datagram per request instead of ≈2.5), UDP GSO send
+batching, cached send-gate totals replacing an O(slots²)-per-pass scan
+(the single biggest req/s factor), and removal of a duplicated ECDSA sign
+computation and x25519 ECDHE (the TTFB drop from 4.4 ms) — 21,962 ± 591
+req/s at that commit. The congestion/pacing round (`72914d2`, described in
+the goodput section) lifted it further. The superseded runs sit in the
 [manifest](#run-manifest); the lane showed no stalls or failures across
 50,500 requests on any build.
 
 ## Interop test cases (current run)
 
-Re-run against commit `c4f147f` alongside the benchmarks above (client:
+Re-run against commit `72914d2` alongside the benchmarks above (client:
 quic-go, runner commit `1d6f655`):
 
 | Test case | Result | Note |
@@ -179,8 +203,8 @@ quic-go, runner commit `1d6f655`):
 | `handshake` | ✅ | |
 | `http3` | ✅ | |
 | `multiplexing` | ✅ | |
-| `transfer` | ✅ | failed (`✕`) at commit `8068749` — the goodput-lane stall above, reproduced here on a 2 MB download; passes at the fix commit `8c45b6f` (5/5 consecutive), `f644681` (3/3), and after every datapath change of the `c4f147f` round (once per landing plus this final run) |
-| `blackhole` | ✅ | re-verified after the send-gate caching in `c4f147f` (the probe path it could have disturbed) |
+| `transfer` | ✅ | failed (`✕`) at commit `8068749` — the goodput-lane stall above, reproduced here on a 2 MB download; passes at the fix commit `8c45b6f` (5/5 consecutive), `f644681` (3/3), after every datapath change of the `c4f147f` round, and after every congestion/pacing change of the `72914d2` round (including once with BBR forced) |
+| `blackhole` | ✅ | re-verified after the send-gate caching (`c4f147f`) and again after the ring/pacer round (the probe and retransmit paths they could have disturbed) |
 
 Full per-testcase status (broader set, including WebTransport) is
 maintained separately in [Interop Results](interop.md); the four rows above
@@ -223,7 +247,7 @@ is published for MOQT. This section is carried forward unchanged from the
 - Version pins per lane: the goodput lane uses the `:latest` Docker images
   registered in the runner's `implementations_quic.json` (image digests in
   the [run manifest](#run-manifest)); the loopback lane uses native builds
-  at the commits in its table (wired `c4f147f`, quic-go client library
+  at the commits in its table (wired `72914d2`, quic-go client library
   `v0.61.0`, quiche `55886df` / crate version `0.29.3`).
 
 ### Server defaults (loopback lane)
@@ -290,21 +314,35 @@ Goodput lane (each value = runner's 5-repetition mean ± sd for that run):
 | wired (`8068749`) | first run (disclosed, unmeasurable) | transfer stalled at 655,296 / 10,485,760 bytes |
 | wired (`8c45b6f`, stall fix, NewReno default) | single run (superseded) | 7144 (± 84) kbps |
 | wired (`f644681`, Cubic default) | single run (superseded) | 8018 (± 74) kbps |
-| wired (`f644681` built `-DWIRED_CC_ALGO_DEFAULT=2`, BBR) | single run (disclosed, unmeasurable) | transfer did not complete |
+| wired (`f644681` built `-DWIRED_CC_ALGO_DEFAULT=2`, BBR) | single run (disclosed, unmeasurable) | transfer did not complete — repaired at `72914d2`, see its BBR row below |
 | wired (`0f185cf`, crypto-only, bisect re-run) | 3 runs | 8042 (± 40), 8023 (± 220), 7944 (± 229) kbps |
 | wired (`1f3df4d`, +ACK piggyback, bisect re-run) | 3 runs | 6783 (± 1627), 7945 (± 210), 7920 (± 212) kbps |
-| wired (`c4f147f`, datapath round; published above) | 5 runs | 7804 (± 242), 7937 (± 89), 7630 (± 264), 7881 (± 189), 7816 (± 241) kbps — pooled 7814 (± 116) |
+| wired (`c4f147f`, datapath round; superseded) | 5 runs | 7804 (± 242), 7937 (± 89), 7630 (± 264), 7881 (± 189), 7816 (± 241) kbps — pooled 7814 (± 116) |
+| wired (`f33e3ac`, token-bucket pacer) | 3 runs (superseded) | 8592 (± 30), 8620 (± 30), 8551 (± 23) kbps |
+| wired (`82ccdb0`, ring-buffered streaming) | 3 runs (superseded) | 9354 (± 46), 9391 (± 49), 9426 (± 18) kbps |
+| wired (`72914d2` forced `--cc-algo 2`, BBR; disclosed) | 2 runs | 9336 (± 38), 9342 (± 37) kbps |
+| wired (`72914d2`, Cubic default; published above) | 5 runs | 9380 (± 42), 9365 (± 104), 9391 (± 47), 9356 (± 38), 9369 (± 40) kbps — pooled 9372 (± 14) |
 | quic-go | single run | 9532 (± 28) kbps |
 | quiche | single run | 9443 (± 7) kbps |
 | ngtcp2 | single run [^ngtcp2-warn] | 9381 (± 67) kbps |
 | picoquic | single run | 9328 (± 5) kbps |
 
-Loopback lane, all 50 runs (no runs excluded, no failures in any run; the
-`8068749` and `f644681` wired rows are superseded measurements, kept for
-comparison against the published `c4f147f` rows):
+Loopback lane, all 60 runs (no runs excluded, no failures in any run; the
+`8068749`, `f644681`, and `c4f147f` wired rows are superseded
+measurements, kept for comparison against the published `72914d2` rows):
 
 | server | run | mode | n | fails | req/s | p50 ms | p99 ms | client CPU % |
 |---|---|---|---|---|---|---|---|---|
+| wired `72914d2` | r1 | ttfb | 100 | 0 | 294.5 | 3.05 | 6.13 | 60 |
+| wired `72914d2` | r2 | ttfb | 100 | 0 | 318.9 | 2.98 | 4.31 | 60 |
+| wired `72914d2` | r3 | ttfb | 100 | 0 | 316.7 | 2.99 | 4.13 | 60 |
+| wired `72914d2` | r4 | ttfb | 100 | 0 | 298.8 | 3.17 | 4.61 | 59 |
+| wired `72914d2` | r5 | ttfb | 100 | 0 | 312.1 | 2.96 | 4.41 | 58 |
+| wired `72914d2` | r1 | load | 10000 | 0 | 26112.3 | 0.67 | 2.58 | 133 |
+| wired `72914d2` | r2 | load | 10000 | 0 | 25891.1 | 0.65 | 3.00 | 126 |
+| wired `72914d2` | r3 | load | 10000 | 0 | 24307.3 | 0.69 | 4.07 | 129 |
+| wired `72914d2` | r4 | load | 10000 | 0 | 23406.7 | 0.69 | 3.88 | 125 |
+| wired `72914d2` | r5 | load | 10000 | 0 | 24138.2 | 0.71 | 3.34 | 127 |
 | wired `c4f147f` | r1 | ttfb | 100 | 0 | 296.3 | 3.15 | 6.05 | 60 |
 | wired `c4f147f` | r2 | ttfb | 100 | 0 | 287.3 | 3.31 | 4.75 | 59 |
 | wired `c4f147f` | r3 | ttfb | 100 | 0 | 277.2 | 3.40 | 4.55 | 64 |
@@ -377,9 +415,9 @@ comparison against the published `c4f147f` rows):
     indistinguishable from first-byte time, but the definition is the
     implemented one.
 [^w-goodput-rerun]: Pooled mean ± sd of 5 same-day runner invocations at
-    `c4f147f` (each itself a 5-repetition mean, individually listed in the
+    `72914d2` (each itself a 5-repetition mean, individually listed in the
     [run manifest](#run-manifest)). The non-wired rows were NOT re-run for
-    the `c4f147f` update; they remain the same-day single-invocation values.
+    the wired updates; they remain the same-day single-invocation values.
 [^ngtcp2-warn]: The runner logged "At least one QUIC packet could not be
     decrypted" analysis warnings during the ngtcp2 run; the goodput
     measurement itself completed normally.
