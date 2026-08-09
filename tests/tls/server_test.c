@@ -156,6 +156,18 @@ static void test_server_happy(void) {
   CHECK(wired_server_handshake_done(&f.s, &hd_ob) == 0);
 }
 
+/* One server flight computes the x25519 shared secret exactly once: the
+ * connection's packet-protection key schedule reuses the secret sdrv already
+ * derived for its flight. The expected 2 = drive_to_flight's own fixture
+ * base-mult + that single ECDHE. */
+static void test_server_single_ecdhe(void) {
+  struct srv_fix f;
+  make_client_hello(&f);
+  x25519_mult_count = 0;
+  drive_to_flight(&f);
+  CHECK(x25519_mult_count == 2);
+}
+
 /* CENTRAL SAFETY: a forged client Finished promotes nothing. */
 static void test_server_forged_finished(void) {
   struct srv_fix f;
@@ -710,6 +722,7 @@ static void test_server_no_psk_regression_unchanged(void) {
 
 void test_server(void) {
   test_server_happy();
+  test_server_single_ecdhe();
   test_server_forged_finished();
   test_server_flight_before_ch();
   test_server_fin_before_flight();

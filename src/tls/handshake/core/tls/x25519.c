@@ -243,12 +243,17 @@ static int x25519_nonzero(const u8 out[32]) {
   return d != 0;
 }
 
+/* Counts scalar multiplies so a test can pin "one server flight, one ECDHE"
+ * (the connection key schedule must reuse sdrv's secret, not recompute it). */
+static usz x25519_mult_count;
+
 int quic_x25519(
     u8       out[QUIC_X25519_LEN],
     const u8 scalar[QUIC_X25519_LEN],
     const u8 point[QUIC_X25519_LEN]) {
   fe x1, x2, z2, zinv;
   u8 e[32];
+  x25519_mult_count++;
   clamp(e, scalar);
   x25519_fe_frombytes(x1, point);
   ladder(x2, z2, e, x1);

@@ -70,10 +70,15 @@ typedef struct {
   /** RFC 8446 4.2.10 / RFC 9001 4.6.1: the 0-RTT packet-protection keys,
    * meaningful only when early_data_accepted is 1. */
   quic_initial_keys early_keys;
-  u8  hs_secret[QUIC_HKDF_PRK];    /**< RFC 8446 7.1 Handshake Secret */
-  u8  s_hs_traffic[QUIC_HKDF_PRK]; /**< RFC 8446 7.1 server hs traffic secret */
-  int hs_ready;                    /**< hs_secret derived */
-  quic_transcript tr;              /**< RFC 8446 4.4.1 Transcript-Hash */
+  u8 hs_secret[QUIC_HKDF_PRK];    /**< RFC 8446 7.1 Handshake Secret */
+  u8 s_hs_traffic[QUIC_HKDF_PRK]; /**< RFC 8446 7.1 server hs traffic secret */
+  /** RFC 8446 7.1: the ECDHE shared secret the flight derivation computed
+   * (x25519 output, or the P-256 x-coordinate -- 32 bytes either way), kept
+   * so the connection's packet-protection key schedule reuses it instead of
+   * repeating the scalar multiply. Meaningful once hs_ready is 1. */
+  u8              ecdhe_secret[32];
+  int             hs_ready; /**< hs_secret derived */
+  quic_transcript tr;       /**< RFC 8446 4.4.1 Transcript-Hash */
   /** RFC 9001 5.2 Initial-key derivation input: the DCID of the Initial
    * packet actually being processed right now. After a Retry this is the
    * Retry's own SCID (the client's second Initial is keyed off it), never
