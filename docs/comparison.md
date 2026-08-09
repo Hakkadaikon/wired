@@ -7,11 +7,12 @@ features (documented against each project's own sources) and in speed
 (measured under pinned, equal conditions).
 
 > **Scope disclaimer.** Every number below is a measurement from one specific
-> day (2026-08-04) on one specific machine (a 4-vCPU KVM VM, see the
-> [environment appendix](#environment)), against pinned versions. It is not a
-> claim of general superiority or inferiority of any implementation. Bad
-> numbers are published along with good ones; the full per-run record is in
-> the [run manifest](#run-manifest).
+> day (2026-08-09) on one specific machine (a 4-vCPU KVM VM, see the
+> [environment appendix](#environment)), against pinned versions, at wired
+> commit `8068749`. It is not a claim of general superiority or inferiority of
+> any implementation. Bad numbers are published along with good ones,
+> including a measurement wired's own goodput lane could not complete; the
+> full per-run record is in the [run manifest](#run-manifest).
 
 Legend: `✅` supported · `Partial` supported with a stated limitation ·
 `—` not supported / not measured, with the reason in the cell or footnote.
@@ -19,26 +20,26 @@ Legend: `✅` supported · `Partial` supported with a stated limitation ·
 ## Feature matrix
 
 Sources: each cell cites the project's own README/source at the pinned
-version — wired at commit `ee86062`, quic-go `v0.61.0`, quiche `0.29.3`,
-ngtcp2 `v1.25.0` + nghttp3 `v1.18.0`, picoquic master `0dc8ba8`
-(VERSION 1.1.51.1; the project tags no releases) [^pins].
+version — wired at commit `8068749`, quic-go `v0.61.0`, quiche `0.29.3`,
+ngtcp2 (interop image, untagged) [^ng-img], picoquic (interop image,
+untagged) [^pq-img].
 
 | Axis | wired | quic-go | quiche | ngtcp2 (+nghttp3) | picoquic |
 |---|---|---|---|---|---|
 | Language | C, freestanding [^w-libc] | Go (pure Go) [^qg-readme] | Rust (+ BoringSSL C/C++) [^qc-readme] | C11 (examples C++23) [^ng-readme] | C [^pq-readme] |
 | TLS stack | Own built-in TLS 1.3 (no external TLS library) [^w-tls] | Go standard library crypto/TLS [^qg-readme] | BoringSSL [^qc-readme] | Pluggable: GnuTLS, BoringSSL/aws-lc, Picotls, wolfSSL, LibreSSL, OpenSSL ≥ 3.5 [^ng-readme] | picotls (optional MbedTLS) [^pq-readme] |
 | libc dependency | None — every `src/**/*.c` compiles `-ffreestanding -nostdlib`; direct syscalls [^w-libc] | None (no cgo), but requires the Go runtime [^qg-nocgo] | Yes (Rust std + linked BoringSSL) [^qc-readme] | Yes (hosted C11) [^ng-readme] | Yes (hosted C) [^pq-readme] |
-| Server binary size (see definition [^binsize]) | 287,392 B (static, no libc) [^binsize] | 7,311,104 B (static Go binary incl. runtime) [^binsize] | 6,115,440 B (BoringSSL static, glibc dynamic) [^binsize] | — (no native build in this comparison [^binsize]) | — (no native build in this comparison [^binsize]) |
+| Server binary size (see definition [^binsize]) | 369,168 B (static, no libc) [^binsize] | 7,311,104 B (static Go binary incl. runtime) [^binsize] | 6,115,440 B (BoringSSL static, glibc dynamic) [^binsize] | — (no native build in this comparison [^binsize]) | — (no native build in this comparison [^binsize]) |
 | HTTP/3 (RFC 9114) | ✅ server side [^w-h3] | ✅ [^qg-readme] | ✅ (`h3` module) [^qc-h3] | ✅ via nghttp3 [^ng-h3] | ✅ minimal ("h3zero", demo grade) [^pq-readme] |
 | QPACK dynamic table (RFC 9204) | Partial — decoder has a live dynamic table; server advertises capacity 0 and its encoder is static-only [^w-qpack] | — (qpack v0.6.0 is static-table only) [^qg-qpack] | — ("TODO: implement dynamic table") [^qc-qpack] | ✅ (nghttp3 "supports dynamic table") [^ng-qpack] | — (static-only, zero-length dynamic dictionary) [^pq-qpack] |
-| WebTransport (RFC 9220 + draft-webtrans-http3) | ✅ server side, interop-tested [^w-wt] | Partial — separate companion module webtransport-go [^qg-readme] | Partial — Extended CONNECT only, no WT session layer [^qc-wt] | Partial — nghttp3 ships RFC 9220/9297 prerequisites only [^ng-wt] | ✅ (`picohttp/webtransport.c`) [^pq-wt] |
+| WebTransport (RFC 9220 + draft-webtrans-http3) | ✅ server side [^w-wt] | Partial — separate companion module webtransport-go [^qg-readme] | Partial — Extended CONNECT only, no WT session layer [^qc-wt] | Partial — nghttp3 ships RFC 9220/9297 prerequisites only [^ng-wt] | ✅ (`picohttp/webtransport.c`) [^pq-wt] |
 | QUIC DATAGRAM (RFC 9221) | ✅ [^w-dgram] | ✅ [^qg-readme] | ✅ [^qc-dgram] | ✅ [^ng-readme] | ✅ [^pq-readme] |
 | 0-RTT | ✅ interop-proven (`zerortt` PASS vs quic-go) [^w-interop] | ✅ [^qg-0rtt] | ✅ (`enable_early_data`) [^qc-0rtt] | ✅ [^ng-0rtt] | ✅ [^pq-0rtt] |
 | Key Update (RFC 9001 §6) | ✅ interop-proven both directions [^w-interop] | ✅ initiates + responds [^qg-ku] | Partial — responds to peer-initiated only, no local-initiate API [^qc-ku] | ✅ (`ngtcp2_conn_initiate_key_update`) [^ng-ku] | ✅ (`picoquic_start_key_rotation`) [^pq-ku] |
 | ECN | Partial — implemented + unit-tested; no third-party E2E verdict (peer limitation) [^w-interop] | ✅ on by default [^qg-ecn] | — (sending ECN not supported) [^qc-ecn] | ✅ (validation state machine) [^ng-ecn] | ✅ (ACK_ECN + counters) [^pq-ecn] |
 | Connection migration (server-side path validation) | Partial — implemented; E2E unverdictable (tooling/peer limitations) [^w-interop] | ✅ [^qg-mig] | ✅ [^qc-mig] | ✅ [^ng-mig] | ✅ [^pq-mig] |
 | QUIC v2 (RFC 9369) | Partial — implemented + unit-proven; no third-party E2E (peer limitation) [^w-interop] | ✅ [^qg-readme] | — (v1 only) [^qc-v2] | ✅ [^ng-readme] | ✅ [^pq-v2] |
-| MOQT | ✅ draft-ietf-moq-transport-19, server/relay role over WebTransport; control-plane interop demonstrated with imquic, data-plane relay unverified [^w-moqt] | — [^qg-nomoqt] | — [^qc-nomoqt] | — [^ng-nomoqt] | — (only a `moqt-16` header string in a test) [^pq-nomoqt] |
+| MOQT | ✅ draft-ietf-moq-transport-19, server/relay role over WebTransport; the `moqt-19` WT subprotocol name is an application-layer convention used by the example, not a value the SDK core negotiates [^w-moqt] | — [^qg-nomoqt] | — [^qc-nomoqt] | — [^ng-nomoqt] | — (only a `moqt-16` header string in a test) [^pq-nomoqt] |
 
 For MOQT specifically, the third-party landscape (surveyed 2026-08-04):
 imquic supports draft versions 16–19; moxygen 14/15/16/18; libquicr and
@@ -49,58 +50,59 @@ draft-ietf-moq-transport [^moqt-survey].
 
 Method: [quic-interop-runner](https://github.com/quic-interop/quic-interop-runner)
 `goodput` measurement (10 MB transfer over the runner's simulated link,
-5 repetitions), runner commit `1d6f655` (2026-04-06). The client is pinned to
-the same quic-go interop image for every server
-(`martenseemann/quic-go-interop@sha256:c90bccb2…`, containing quic-go
-`(devel)` build `fbfa1d5`, go1.26.0), so every server faces identical client
-behavior and an identical link. All endpoints run as Docker containers —
-one execution form across the row.
+5 repetitions), runner commit `1d6f655`. The client is pinned to the same
+quic-go interop image for every server (`martenseemann/quic-go-interop:latest`),
+so every server faces identical client behavior and an identical link. All
+endpoints run as Docker containers — one execution form across the row.
 
 | Server | Goodput (5 runs) | Server image |
 |---|---|---|
-| wired | 7318 (± 37) kbps | `wired-interop` built from commit `ee86062` |
-| quic-go | 9541 (± 17) kbps | `martenseemann/quic-go-interop@sha256:c90bccb2…` |
-| quiche | 9439 (± 3) kbps | `cloudflare/quiche-qns@sha256:63963aba…` [^img-ver] |
-| ngtcp2 | 9414 (± 82) kbps [^ngtcp2-warn] | `ghcr.io/ngtcp2/ngtcp2-interop@sha256:eb9e8405…` (revision `6ce75f02`) |
-| picoquic | 9335 (± 5) kbps | `privateoctopus/picoquic@sha256:7e4110e3…` [^img-ver] |
+| wired | **not measured — transfer stalls before completion** [^w-goodput-stall] | `wired-interop` built from commit `8068749` |
+| quic-go | 9532 (± 28) kbps | `martenseemann/quic-go-interop:latest` |
+| quiche | 9443 (± 7) kbps | `cloudflare/quiche-qns:latest` |
+| ngtcp2 | 9381 (± 67) kbps [^ngtcp2-warn] | `ghcr.io/ngtcp2/ngtcp2-interop:latest` |
+| picoquic | 9328 (± 5) kbps | `privateoctopus/picoquic:latest` |
 
 ```mermaid
 xychart-beta
-    title "Goodput over the runner's simulated link (kbps, higher is better)"
-    x-axis ["wired", "quic-go", "quiche", "ngtcp2", "picoquic"]
+    title "Goodput over the runner's simulated link (kbps, higher is better; wired omitted -- see note)"
+    x-axis ["quic-go", "quiche", "ngtcp2", "picoquic"]
     y-axis "kbps" 0 --> 10000
-    bar [7318, 9541, 9439, 9414, 9335]
+    bar [9532, 9443, 9381, 9328]
 ```
 
-(Bars plot the means from the table above; the ± spreads are too small to
-matter at this scale and are listed in the table.)
-
-wired's lower goodput is consistent with its known throughput constraint
-(see the `multiplexing` row in [Interop Results](interop.md): functionally
-correct, but the testcase itself is not passed because the runner's 60 s
-completion bar is missed — a throughput gap, not a correctness gap). An earlier wired run measured 7129 (± 102) kbps while a
-release build was compiling on the same host; it was re-measured on a quiet
-machine (the 7318 figure) and both runs are disclosed in the
-[manifest](#run-manifest).
+**wired's goodput could not be measured.** The 10 MB transfer stalls partway
+(this run stopped at 655,296 of 10,485,760 bytes) and never completes; the
+runner reports the cell as unmeasured (`G` with no kbps value) rather than a
+number. This reproduces a known, previously-diagnosed issue: after DPLPMTUD
+(RFC 8899) wiring raised the server's send chunk size (MPS) above roughly
+1350 bytes, multi-stream high-throughput transfers stall mid-flight —
+`bytes_in_flight` drops to 0 and the connection sits idle until the 30 s
+idle timeout closes it. The probable cause under active investigation is an
+interaction between wired's larger post-PMTU send chunk and the quic-go
+client's RTT-based receive-window auto-tuning, not a wired throughput
+ceiling in the ordinary sense (loopback numbers below, at a much smaller
+per-write size, show no such stall). See [Interop Results](interop.md) for
+the current per-testcase status; `transfer` reproduces the same stall
+independently of the goodput lane.
 
 ## Speed: loopback per-request overhead
 
 Method: one pinned load client (a small quic-go v0.61.0 HTTP/3 client, see
 the [appendix](#bench-client-and-server-source)) against each server on
-`127.0.0.1`,
-plain loopback (netem unavailable in this environment). All servers run as
-native binaries pinned to CPU core 3; the client uses cores 0–1. Same ECDSA
-P-256 certificate, same 1 KiB file, each server at its own defaults (recorded
-[below](#server-defaults-loopback-lane)). Per round: 100 fresh-connection requests ("TTFB"
-[^ttfb-def]) plus 10,000 requests over 20 concurrent streams on warmed
-connections ("load"). 5 rounds per server [^warmup-note]. A request
-unanswered for 10 s counts as a failure and the worker moves on.
+`127.0.0.1`, plain loopback (netem unavailable in this environment). All
+servers run as native binaries pinned to CPU core 3; the client uses cores
+0–1. Same ECDSA P-256 certificate, same 1 KiB file, each server at its own
+defaults (recorded [below](#server-defaults-loopback-lane)). Per round: 100
+fresh-connection requests ("TTFB" [^ttfb-def]) plus 10,000 requests over 20
+concurrent streams on warmed connections ("load"). 5 rounds per server. A
+request unanswered for 10 s counts as a failure and the worker moves on.
 
 | Server (native) | TTFB p50 (ms) | load req/s | load p50 (ms) | load p99 (ms) | failures |
 |---|---|---|---|---|---|
-| wired `ee86062` | 6.5 ± 0.6 | 2040 ± 1160 [^wired-stall] | 7.0 ± 0.5 | 9.3 ± 1.0 | 4 / 50,500 |
-| quic-go v0.61.0 | 2.3 ± 0.1 | 12,159 ± 426 | 1.4 ± 0.0 | 3.8 ± 0.6 | 0 |
-| quiche 0.29.3 (`55886df`) | 1.8 ± 0.1 | 20,559 ± 1703 | 0.9 ± 0.0 | 3.2 ± 0.7 | 0 |
+| wired `8068749` | 4.0 ± 0.3 | 5067 ± 210 | 4.2 ± 0.1 | 5.9 ± 0.5 | 0 / 50,500 |
+| quic-go v0.61.0 | 2.5 ± 0.1 | 11,329 ± 633 | 1.5 ± 0.1 | 4.2 ± 0.6 | 0 / 50,500 |
+| quiche 0.29.3 (`55886df`) | 2.0 ± 0.1 | 18,550 ± 2441 | 0.9 ± 0.1 | 3.7 ± 1.1 | 0 / 50,500 |
 | ngtcp2 | — (no native build attempted: multi-stage autotools chain; measured in the goodput lane only) | — | — | — | — |
 | picoquic | — (no native build attempted: multi-stage cmake chain incl. picotls; measured in the goodput lane only) | — | — | — | — |
 
@@ -109,89 +111,54 @@ xychart-beta
     title "Loopback load throughput (req/s, higher is better)"
     x-axis ["wired", "quic-go", "quiche"]
     y-axis "req/s" 0 --> 22000
-    bar [2040, 12159, 20559]
+    bar [5067, 11329, 18550]
 ```
 
 ```mermaid
 xychart-beta
-    title "TTFB p50 — fresh connection incl. handshake (ms, lower is better)"
+    title "TTFB p50 -- fresh connection incl. handshake (ms, lower is better)"
     x-axis ["wired", "quic-go", "quiche"]
-    y-axis "ms" 0 --> 7
-    bar [6.5, 2.3, 1.8]
+    y-axis "ms" 0 --> 5
+    bar [4.0, 2.5, 2.0]
 ```
 
 ```mermaid
 xychart-beta
     title "Load latency p99 (ms, lower is better)"
     x-axis ["wired", "quic-go", "quiche"]
-    y-axis "ms" 0 --> 10
-    bar [9.3, 3.8, 3.2]
+    y-axis "ms" 0 --> 7
+    bar [5.9, 4.2, 3.7]
 ```
 
-(Bars plot the table means. wired's req/s bar carries the timeout-inflated
-variance described in [^wired-stall] — its healthy runs sit at 2.7–3.0k
-req/s; see the manifest.)
+(Bars plot the table means.) Client CPU stayed below saturation for wired and
+quic-go (max 96% of a 200% two-core budget); quiche's client-side CPU peaked
+at 125%, meaning quiche's true ceiling is higher than the 18,550 req/s shown
+here — read the quiche/quic-go gap as a lower bound, not an exact ratio.
+wired's small per-write size (well under the goodput lane's stall threshold)
+is consistent with the loopback lane showing no stalls or failures at all
+across 50,500 requests, reinforcing that the goodput-lane stall is specific
+to large transfers at a larger MPS, not a general throughput fault.
 
-Client CPU stayed below saturation in every run (max 129% of a 200% two-core
-budget), but at the 12k–20k req/s level the client works hard; read
-differences between the fastest servers as lower bounds rather than exact
-ratios.
+## Interop test cases (current run)
 
-## Update (2026-08-05): a wired stall fix and crypto acceleration
+Re-run against commit `8068749` alongside the benchmarks above (client:
+quic-go, runner commit `1d6f655`):
 
-The wired-side numbers above were measured against commit `ee86062`. Three
-changes landed since, all under the same measurement harness
-(`tasks/compare/bench/`) and gated by the full local test/build/CCN/valgrind
-checks:
+| Test case | Result | Note |
+|---|---|---|
+| `handshake` | ✅ | |
+| `http3` | ✅ | |
+| `multiplexing` | ✅ | |
+| `transfer` | ✕ | same stall as the goodput lane: a 2 MB download stopped at 655,296 bytes and the client timed out waiting for more data |
 
-- **A correctness fix that was also a throughput bug.** A loss-delayed
-  retransmission of an already-answered request stream was being re-admitted
-  as a brand-new stream ("zombie" slot claims); a burst of these could fill
-  the connection's reassembly table and cause a genuinely new stream to be
-  silently dropped while its packet was still ACKed, so the client never
-  retried and that one request hung forever. This is why `multiplexing` in
-  [Interop Results](interop.md) is now `✅` — it was misdiagnosed earlier as
-  a pure throughput gap.
-- **AES-NI/PCLMULQDQ AES-128-GCM**, dispatched automatically when the CPU
-  supports it, ~66× faster per seal than the portable scalar path (measured:
-  1129-byte seal ~126µs → ~1.9µs).
-- **Fixed-base P-256 scalar multiplication** for ECDSA signing (a
-  precomputed comb over the base point), ~3.3× faster signing (measured:
-  ~6.3ms → ~1.9ms per signature), with byte-identical signatures to the
-  generic path (RFC 6979 is deterministic).
-
-Re-measured at commit `a34ca7e`, same harness and host, same certificate and
-file:
-
-| Metric | `ee86062` | `a34ca7e` | Change |
-|---|---|---|---|
-| TTFB p50 (loopback) | 6.5 ± 0.6 ms | **3.6 ± 0.1 ms** | 1.9× faster |
-| Load req/s (loopback) | 2040 ± 1160 [^wired-stall] | **5344 ± 263** | 1.9× (and the stall-driven variance is gone) |
-| Load p50 (loopback) | 7.0 ± 0.5 ms | **3.9 ± 0.2 ms** | 1.8× faster |
-| Load p99 (loopback) | 9.3 ± 1.0 ms | **5.2 ± 0.3 ms** | 2.0× faster |
-| Failures (loopback, 5×10,100 reqs) | 4 / 50,500 | **0 / 50,500** | stall fixed |
-| Goodput (runner, 5 runs) | 7318 ± 37 kbps | 7306 ± 27 kbps | unchanged (see below) |
-| `multiplexing` interop | 🟡 (98%, missed 60s bar) | **✅ full pass** | root cause fixed |
-| Server binary size (stripped) | 287,392 B | 357,024 B | +69,632 B (P-256 comb table) |
-
-```mermaid
-xychart-beta
-    title "wired loopback load req/s: before vs after (higher is better)"
-    x-axis ["ee86062 (before)", "a34ca7e (after)"]
-    y-axis "req/s" 0 --> 6000
-    bar [2040, 5344]
-```
-
-Client CPU hit 99% of the two-core budget in the post-fix loopback runs, so
-5344 req/s is a client-side floor, not necessarily wired's ceiling — a
-faster load generator might show a larger gap. **Goodput did not move**,
-confirming the diagnosis in the run notes: wired's simulated-link goodput is
-capped by its send datagram size (1129 B vs quic-go's PMTU-discovered
-1441 B after path MTU discovery), not by CPU — a separate, not-yet-started
-gap (PMTU discovery exists in the codebase but isn't wired into the send
-path). This does not close the gap to quiche/quic-go on the loopback req/s
-metric either (quiche's 20,559 req/s stands); it closes roughly 30% of the
-distance from wired's original per-request overhead.
+Full per-testcase status (broader set, including WebTransport) is
+maintained separately in [Interop Results](interop.md), which is dated
+"as of 2026-07" and currently lists `transfer` as ✅. That page predates the
+DPLPMTUD wiring that introduced the stall reproduced here; its `transfer`
+row has not yet been updated to reflect the regression this document's
+re-run found. Treat the `✕` above, from a same-day re-run against the
+commit this whole document is pinned to, as the current status until
+[Interop Results](interop.md) is refreshed.
 
 ## WebTransport and MOQT
 
@@ -208,23 +175,17 @@ session between imquic 0.0.2 (`1f4cbf8`, WebTransport, subprotocol `moqt-19`)
 and the wired MOQT server demonstrated certificate acceptance, SETUP
 negotiation, SUBSCRIBE → SUBSCRIBE_OK, PUBLISH acceptance (the publisher
 reports 11 objects sent) and clean close — a first control-plane interop
-against an independent
-implementation. Object delivery through the relay to an imquic subscriber
-(data plane) did **not** complete and is unverified; 2 of 7 sessions also
-ended in a `Protocol Violation` close. No speed comparison is published for
-MOQT.
-
-**MOQT (standalone reference, non-comparative):** in wired's own end-to-end
-voice-chat harness — where *both* endpoints (server and JS client) are this
-project's implementations, so this is not evidence of interoperability or
-relative speed — the healthy-run baseline is 0.36% application frame loss
-(5041/5059 frames delivered). It is listed here only as a standalone
-reference point.
+against an independent implementation. Object delivery through the relay to
+an imquic subscriber (data plane) did **not** complete and is unverified; 2
+of 7 sessions also ended in a `Protocol Violation` close. No speed comparison
+is published for MOQT. This section is carried forward unchanged from the
+2026-08-04 survey; it was not re-run for this update.
 
 ## Environment
 
 - Host: KVM full-virtualization VM, Intel Xeon Gold 6230 @ 2.10 GHz, 4 vCPUs,
-  3.8 GiB RAM, Ubuntu 24.04, kernel 6.8.0-110-generic.
+  3.8 GiB RAM, Ubuntu 24.04.4 LTS, kernel 6.8.0-110-generic. Same host as the
+  previous measurement round.
 - CPU frequency governor: unknown — the VM does not expose cpufreq sysfs.
 - `net.core.rmem_max` fixed at 208 KiB (no privilege to raise it); the
   quic-go client logs a receive-buffer warning in every loopback run. Same
@@ -232,11 +193,11 @@ reference point.
 - `tc`/netem: unavailable (no CAP_NET_ADMIN); the loopback lane therefore
   runs on an unshaped loopback.
 - Loopback lane pinning: server on core 3 (`taskset`), client on cores 0–1.
-- Version pins per lane: the goodput lane uses the Docker images listed in
-  its table (image-internal versions differ from the native pins — quic-go
-  image carries `(devel) fbfa1d5` while the native lane pins `v0.61.0`
-  [^img-ver]); the loopback lane uses native builds at the commits in its
-  table.
+- Version pins per lane: the goodput lane uses the `:latest` Docker images
+  registered in the runner's `implementations_quic.json` (image digests in
+  the [run manifest](#run-manifest)); the loopback lane uses native builds
+  at the commits in its table (wired `8068749`, quic-go client library
+  `v0.61.0`, quiche `55886df` / crate version `0.29.3`).
 
 ### Server defaults (loopback lane)
 
@@ -286,65 +247,54 @@ Goodput lane (each value = runner's 5-repetition mean ± sd for that run):
 
 | Server | Run | Result |
 |---|---|---|
-| wired | quiet re-run (published above) | 7318 (± 37) kbps |
-| wired | first run, concurrent with a compiler job (disclosed, not published) | 7129 (± 102) kbps |
-| quic-go | single run | 9541 (± 17) kbps |
-| quiche | single run | 9439 (± 3) kbps |
-| ngtcp2 | single run [^ngtcp2-warn] | 9414 (± 82) kbps |
-| picoquic | single run | 9335 (± 5) kbps |
-| wired (`a34ca7e`, post-fix) | single run | 7306 (± 27) kbps |
+| wired | single run | not measured — transfer stalled at 655,296 / 10,485,760 bytes |
+| quic-go | single run | 9532 (± 28) kbps |
+| quiche | single run | 9443 (± 7) kbps |
+| ngtcp2 | single run [^ngtcp2-warn] | 9381 (± 67) kbps |
+| picoquic | single run | 9328 (± 5) kbps |
 
-Loopback lane, all 30 runs (no runs excluded; the two wired runs containing
-stalled requests are the source of the req/s variance [^wired-stall]):
+Loopback lane, all 30 runs (no runs excluded, no failures in any run):
 
 | server | run | mode | n | fails | req/s | p50 ms | p99 ms | client CPU % |
 |---|---|---|---|---|---|---|---|---|
-| wired | r1 | ttfb | 100 | 0 | 158.9 | 6.01 | 9.00 | 33 |
-| wired | r2 | ttfb | 100 | 0 | 159.0 | 6.07 | 7.74 | 33 |
-| wired | r3 | ttfb | 100 | 0 | 158.8 | 6.11 | 7.43 | 33 |
-| wired | r4 | ttfb | 100 | 0 | 143.5 | 6.84 | 7.92 | 33 |
-| wired | r5 | ttfb | 100 | 0 | 129.0 | 7.39 | 10.39 | 34 |
-| wired | r1 | load | 10000 | 0 | 3044.6 | 6.58 | 7.71 | 62 |
-| wired | r2 | load | 10000 | 1 | 765.4 | 6.60 | 9.55 | 16 |
-| wired | r3 | load | 10000 | 0 | 2868.9 | 6.90 | 9.97 | 64 |
-| wired | r4 | load | 10000 | 0 | 2736.5 | 7.29 | 9.24 | 64 |
-| wired | r5 | load | 10000 | 3 | 785.7 | 7.62 | 10.10 | 20 |
-| quic-go | r1 | ttfb | 100 | 0 | 397.2 | 2.27 | 4.29 | 71 |
-| quic-go | r2 | ttfb | 100 | 0 | 374.4 | 2.43 | 4.11 | 76 |
-| quic-go | r3 | ttfb | 100 | 0 | 406.6 | 2.28 | 3.37 | 74 |
-| quic-go | r4 | ttfb | 100 | 0 | 380.9 | 2.38 | 4.15 | 74 |
-| quic-go | r5 | ttfb | 100 | 0 | 399.2 | 2.33 | 4.24 | 75 |
-| quic-go | r1 | load | 10000 | 0 | 11941.9 | 1.44 | 3.90 | 85 |
-| quic-go | r2 | load | 10000 | 0 | 11547.7 | 1.44 | 4.79 | 82 |
-| quic-go | r3 | load | 10000 | 0 | 12654.5 | 1.40 | 3.56 | 86 |
-| quic-go | r4 | load | 10000 | 0 | 12371.2 | 1.41 | 3.26 | 87 |
-| quic-go | r5 | load | 10000 | 0 | 12278.3 | 1.43 | 3.54 | 84 |
-| quiche | r1 | ttfb | 100 | 0 | 504.6 | 1.70 | 5.06 | 94 |
-| quiche | r2 | ttfb | 100 | 0 | 499.3 | 1.83 | 3.11 | 96 |
-| quiche | r3 | ttfb | 100 | 0 | 480.4 | 1.86 | 3.47 | 93 |
-| quiche | r4 | ttfb | 100 | 0 | 467.2 | 1.84 | 4.62 | 87 |
-| quiche | r5 | ttfb | 100 | 0 | 483.3 | 1.84 | 3.98 | 92 |
-| quiche | r1 | load | 10000 | 0 | 22425.6 | 0.81 | 2.33 | 123 |
-| quiche | r2 | load | 10000 | 0 | 20859.8 | 0.86 | 2.95 | 129 |
-| quiche | r3 | load | 10000 | 0 | 19227.8 | 0.88 | 3.94 | 111 |
-| quiche | r4 | load | 10000 | 0 | 18424.4 | 0.92 | 4.03 | 105 |
-| quiche | r5 | load | 10000 | 0 | 21859.4 | 0.82 | 2.87 | 121 |
-| wired (`a34ca7e`, post-fix) | r1 | ttfb | 100 | 0 | 254.7 | 3.65 | 6.43 | 48 |
-| wired (`a34ca7e`, post-fix) | r2 | ttfb | 100 | 0 | 263.5 | 3.60 | 5.63 | 49 |
-| wired (`a34ca7e`, post-fix) | r3 | ttfb | 100 | 0 | 254.4 | 3.54 | 6.49 | 45 |
-| wired (`a34ca7e`, post-fix) | r4 | ttfb | 100 | 0 | 247.6 | 3.74 | 6.01 | 49 |
-| wired (`a34ca7e`, post-fix) | r5 | ttfb | 100 | 0 | 253.7 | 3.65 | 6.21 | 49 |
-| wired (`a34ca7e`, post-fix) | r1 | load | 10000 | 0 | 5479.1 | 3.83 | 5.02 | 96 |
-| wired (`a34ca7e`, post-fix) | r2 | load | 10000 | 0 | 5476.6 | 3.79 | 5.34 | 96 |
-| wired (`a34ca7e`, post-fix) | r3 | load | 10000 | 0 | 5595.2 | 3.76 | 4.91 | 95 |
-| wired (`a34ca7e`, post-fix) | r4 | load | 10000 | 0 | 5233.4 | 3.95 | 5.09 | 97 |
-| wired (`a34ca7e`, post-fix) | r5 | load | 10000 | 0 | 4936.2 | 4.15 | 5.61 | 99 |
+| wired | r1 | ttfb | 100 | 0 | 222.0 | 4.02 | 7.41 | 47 |
+| wired | r2 | ttfb | 100 | 0 | 234.0 | 3.76 | 6.38 | 45 |
+| wired | r3 | ttfb | 100 | 0 | 252.2 | 3.78 | 5.40 | 48 |
+| wired | r4 | ttfb | 100 | 0 | 210.4 | 4.41 | 6.43 | 48 |
+| wired | r5 | ttfb | 100 | 0 | 227.1 | 4.07 | 7.22 | 49 |
+| wired | r1 | load | 10000 | 0 | 5337.0 | 4.01 | 5.54 | 94 |
+| wired | r2 | load | 10000 | 0 | 4967.6 | 4.10 | 6.02 | 94 |
+| wired | r3 | load | 10000 | 0 | 5229.7 | 4.09 | 5.67 | 96 |
+| wired | r4 | load | 10000 | 0 | 4971.1 | 4.23 | 6.74 | 94 |
+| wired | r5 | load | 10000 | 0 | 4828.0 | 4.38 | 5.53 | 96 |
+| quic-go | r1 | ttfb | 100 | 0 | 343.3 | 2.52 | 4.93 | 67 |
+| quic-go | r2 | ttfb | 100 | 0 | 371.3 | 2.42 | 5.40 | 75 |
+| quic-go | r3 | ttfb | 100 | 0 | 357.4 | 2.54 | 4.16 | 74 |
+| quic-go | r4 | ttfb | 100 | 0 | 374.5 | 2.46 | 3.91 | 76 |
+| quic-go | r5 | ttfb | 100 | 0 | 332.8 | 2.56 | 6.00 | 70 |
+| quic-go | r1 | load | 10000 | 0 | 11845.0 | 1.45 | 3.70 | 83 |
+| quic-go | r2 | load | 10000 | 0 | 10293.6 | 1.65 | 5.27 | 74 |
+| quic-go | r3 | load | 10000 | 0 | 11751.5 | 1.46 | 3.89 | 83 |
+| quic-go | r4 | load | 10000 | 0 | 11580.1 | 1.48 | 3.99 | 83 |
+| quic-go | r5 | load | 10000 | 0 | 11174.9 | 1.57 | 4.15 | 79 |
+| quiche | r1 | ttfb | 100 | 0 | 448.8 | 1.90 | 4.49 | 90 |
+| quiche | r2 | ttfb | 100 | 0 | 424.9 | 2.20 | 3.49 | 92 |
+| quiche | r3 | ttfb | 100 | 0 | 472.9 | 1.94 | 3.31 | 98 |
+| quiche | r4 | ttfb | 100 | 0 | 466.0 | 1.95 | 3.61 | 94 |
+| quiche | r5 | ttfb | 100 | 0 | 424.3 | 1.90 | 5.14 | 85 |
+| quiche | r1 | load | 10000 | 0 | 19780.3 | 0.90 | 2.93 | 121 |
+| quiche | r2 | load | 10000 | 0 | 20282.8 | 0.89 | 2.91 | 125 |
+| quiche | r3 | load | 10000 | 0 | 18677.8 | 0.95 | 3.31 | 116 |
+| quiche | r4 | load | 10000 | 0 | 19700.3 | 0.89 | 3.54 | 125 |
+| quiche | r5 | load | 10000 | 0 | 14310.3 | 1.04 | 5.58 | 87 |
 
 ## Footnotes
 
-[^pins]: picoquic tags no releases (only `draft-16-final`, 2018), so master
-    `0dc8ba8` (2026-07-30) is the reference. ngtcp2 v1.25.0 and nghttp3
-    v1.18.0 released 2026-07-26.
+[^ng-img]: The ngtcp2 interop image (`ghcr.io/ngtcp2/ngtcp2-interop:latest`)
+    does not expose a version label; identified by image digest only (see
+    the [run manifest](#run-manifest)).
+[^pq-img]: The picoquic interop image (`privateoctopus/picoquic:latest`)
+    does not expose a version label; identified by image digest only.
 [^binsize]: Size of the server executable actually measured in the loopback
     lane, after `strip`, including each language's runtime and any statically
     linked TLS. Link forms differ (wired fully static without libc; Go static
@@ -355,53 +305,54 @@ stalled requests are the source of the req/s variance [^wired-stall]):
     body read, including the QUIC+TLS handshake — for a 1 KiB body this is
     indistinguishable from first-byte time, but the definition is the
     implemented one.
-[^warmup-note]: The control plan called for a warmup round before the counted
-    rounds; in practice only the load mode's in-run connection warmup was
-    performed and all 5 rounds are published. Identical for every server, so
-    the comparison is unaffected.
-[^wired-stall]: In 2 of wired's 5 load runs, 4 requests total (of 50,500)
-    were never answered and hit the 10 s client timeout; the timeout wait
-    inflates those runs' wall time, which is why wired's req/s mean carries a
-    large sd. The per-run rows show the bimodality (healthy runs: 2.7–3.0k
-    req/s). This is consistent with the non-deterministic stall documented in
-    the `multiplexing` interop case.
-[^ngtcp2-warn]: The runner logged 5 "At least one QUIC packet could not be
+[^w-goodput-stall]: See "wired's goodput could not be measured" above. Log:
+    `File size of .../ashamed-proud-musician doesn't match. Original:
+    10485760 bytes, downloaded: 655296 bytes.`
+[^ngtcp2-warn]: The runner logged "At least one QUIC packet could not be
     decrypted" analysis warnings during the ngtcp2 run; the goodput
     measurement itself completed normally.
-[^img-ver]: The quiche and picoquic interop images do not expose their
-    internal build version (no OCI revision label, no embedded version
-    string); they are identified by image digest only. The quic-go image
-    embeds `(devel) fbfa1d5` (extracted via `go version -m`).
 [^moqt-survey]: Survey of 7 implementations (2026-08-04): imquic
     (<https://github.com/meetecho/imquic>, version enum v16–v19), moxygen
     (Meta), moq-rs/moq-lite (kixelated, diverged fork), libquicr (Cisco),
     moqtail, aiomoqt, mengelbart/moqtransport.
 [^w-libc]: `justfile` (`ninja` recipe compiles every `src/**/*.c` with
-    `-ffreestanding -nostdlib`); [Syscalls](syscalls.md).
+    `-ffreestanding -nostdlib -static`); [Syscalls](syscalls.md).
 [^w-tls]: [Features › RFC 8446](features/rfc8446.md) — server side of
-    TLS 1.3 embedded in QUIC, 104/105 requirements demonstrated.
-[^w-h3]: [Features › RFC 9114](features/rfc9114.md) (81/81 demonstrated);
-    `http3` interop PASS in [Interop Results](interop.md).
+    TLS 1.3 embedded in QUIC.
+[^w-h3]: [Features › RFC 9114](features/rfc9114.md); `http3` interop PASS
+    in [Interop Results](interop.md). Server implementation under
+    `src/app/http3/server/` (`srvloop.c`, `srvrun.c`, `srvboot.c`).
 [^w-qpack]: [Features › RFC 9204](features/rfc9204.md) — decoder applies Set
-    Dynamic Table Capacity and resolves dynamic/post-Base references; the
-    server advertises `SETTINGS_QPACK_MAX_TABLE_CAPACITY 0` and encodes with
-    the static table + literals only.
+    Dynamic Table Capacity and resolves dynamic/post-Base references
+    (`src/app/qpack/qpack/dyntable.c`). The server advertises
+    `SETTINGS_QPACK_MAX_TABLE_CAPACITY 0` to the peer
+    (`src/app/http3/core/h3settings/settings_build.c`), and its own response
+    encoder (`src/app/http3/request/h3resp/field_encode.c`) uses only the
+    static table and literals, never the dynamic-table encode path.
 [^w-wt]: [Features › RFC 9220](features/rfc9220.md),
-    [draft-webtrans-http3](features/draft-webtrans-http3.md) (68/68);
+    [draft-webtrans-http3](features/draft-webtrans-http3.md);
     WebTransport interop table in [Interop Results](interop.md) (receive
-    directions PASS; `*-send` cases under investigation).
-[^w-dgram]: [Features › RFC 9221](features/rfc9221.md) (27/27),
-    [RFC 9297](features/rfc9297.md) (22/22); `transfer-datagram-receive`
+    directions PASS; `*-send` cases under investigation). Implementation
+    under `src/app/webtransport/` (`session/session/session.c`,
+    `capsule/wtcapsule/wtcapsule.c`, Extended CONNECT in
+    `src/app/http3/core/h3/connect.c`).
+[^w-dgram]: [Features › RFC 9221](features/rfc9221.md),
+    [RFC 9297](features/rfc9297.md); `transfer-datagram-receive`
     interop PASS.
 [^w-interop]: [Interop Results](interop.md) — `zerortt`, `keyupdate`,
     `chacha20` PASS vs quic-go; `ecn`, `v2`, `connectionmigration` are
     implemented but carry no third-party verdict (peer/tooling limitations,
     detailed there).
-[^w-moqt]: `src/app/moqt/` + `examples/moqt_chat` (draft-ietf-moq-transport-19,
-    WT subprotocol `moqt-19`, hub/relay role; SETUP/SUBSCRIBE/PUBLISH subset,
-    SUBGROUP_HEADER data plane). Interop evidence: 2026-08-04 imquic session
-    (see the MOQT section above). MOQT headers are not yet part of the public
-    `wired.h` API surface.
+[^w-moqt]: `src/app/moqt/` (`ctl/moqctl.h`, `run/moqtrun.c`,
+    `sess/moqsess.c`, `data/moqdata.c`) + `examples/moqt_chat`
+    (draft-ietf-moq-transport-19, hub/relay role; SETUP/SUBSCRIBE/PUBLISH
+    subset, SUBGROUP_HEADER data plane). The literal string `moqt-19` as a
+    WT subprotocol name appears only in the example
+    (`examples/moqt_chat/wired_server.c`), not in `src/` — the SDK core
+    negotiates WebTransport's Extended CONNECT generically and does not
+    itself assert a subprotocol value. Interop evidence: 2026-08-04 imquic
+    session (see the MOQT section above). MOQT headers are not yet part of
+    the public `wired.h` API surface.
 [^qg-readme]: <https://github.com/quic-go/quic-go/blob/v0.61.0/README.md>
     (features list: HTTP/3 incl. RFC 9297, RFC 9221, RFC 9369; pure-Go TLS;
     WebTransport via the companion module webtransport-go).
@@ -441,19 +392,18 @@ stalled requests are the source of the req/s variance [^wired-stall]):
     9368 / 9369 extensions).
 [^ng-h3]: <https://github.com/ngtcp2/nghttp3/blob/v1.18.0/README.rst>
     (RFC 9114 + RFC 9204 in C).
-[^ng-qpack]: nghttp3 v1.18.0 README: "It supports dynamic table."
-[^ng-wt]: nghttp3 v1.18.0 `nghttp3.h`: `enable_connect_protocol` (RFC 9220)
+[^ng-qpack]: nghttp3 README: "It supports dynamic table."
+[^ng-wt]: nghttp3 `nghttp3.h`: `enable_connect_protocol` (RFC 9220)
     and `h3_datagram` (RFC 9297) settings only; no WebTransport API.
-[^ng-0rtt]: ngtcp2 v1.25.0 README "Resumption and 0-RTT"; accepted 0-RTT
+[^ng-0rtt]: ngtcp2 README "Resumption and 0-RTT"; accepted 0-RTT
     data auto-retransmitted by the library.
-[^ng-ku]: ngtcp2 v1.25.0 `ngtcp2.h`: `ngtcp2_conn_initiate_key_update`.
-[^ng-ecn]: ngtcp2 v1.25.0 `ngtcp2.h` ECN codepoints; `ngtcp2_conn.c`
+[^ng-ku]: ngtcp2 `ngtcp2.h`: `ngtcp2_conn_initiate_key_update`.
+[^ng-ecn]: ngtcp2 `ngtcp2.h` ECN codepoints; `ngtcp2_conn.c`
     `NGTCP2_ECN_STATE_*` validation states.
-[^ng-mig]: ngtcp2 v1.25.0 `ngtcp2_conn.c`
+[^ng-mig]: ngtcp2 `ngtcp2_conn.c`
     (`conn_recv_non_probing_pkt_on_new_path`), `ngtcp2.h`
     (`ngtcp2_conn_initiate_migration`).
-[^ng-nomoqt]: Grep over ngtcp2 v1.25.0 + nghttp3 v1.18.0 trees: no MOQT
-    hits.
+[^ng-nomoqt]: Grep over ngtcp2 + nghttp3 trees: no MOQT hits.
 [^pq-readme]: <https://github.com/private-octopus/picoquic/blob/master/README.md>
     (C core; picotls; h3zero minimal HTTP/3; WebTransport draft; RFC 9221 /
     9368 / 9369 / 9287).
