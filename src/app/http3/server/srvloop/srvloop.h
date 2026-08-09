@@ -183,8 +183,14 @@ typedef struct {
  * whole QUIC_CONNTABLE_CAP-sized connection table each -- that allocation
  * has since moved to static storage (matching production's own g_srvrun_env
  * singleton, which was never on the stack to begin with), so this can now
- * size for throughput instead of a stack budget it no longer shares. */
+ * size for throughput instead of a stack budget it no longer shares.
+ * Overridable per build (-D flag) -- but the advertised per-stream windows
+ * (QUIC_STP_DEFAULT_STREAM_DATA_LOCAL, server_tp.h) are a promise backed by
+ * exactly this capacity, so any override must change both together
+ * (server_tp_test.c pins them equal). */
+#ifndef WIRED_SRVLOOP_WT_BUF_CAP
 #define WIRED_SRVLOOP_WT_BUF_CAP 49152
+#endif
 
 /** How many disjoint received-but-not-yet-contiguous byte ranges one WT
  * slot's window tracks past its frontier (see wired_srvloop_wt_window). RFC
