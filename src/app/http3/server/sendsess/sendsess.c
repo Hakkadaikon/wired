@@ -61,6 +61,14 @@ int wired_sendsess_sent(
   return 1;
 }
 
+/* Room is structural: a slice taken from the requeue freed the very slot it
+ * goes back into, and a slice taken from the sendq implies the requeue was
+ * empty (wired_sendsess_take drains the requeue first). The bound check
+ * keeps the function total anyway. */
+void wired_sendsess_untake(wired_sendsess* s, const wired_sendq_slice* sl) {
+  if (s->requeue_n < WIRED_SENDSESS_LOG) s->requeue[s->requeue_n++] = *sl;
+}
+
 usz wired_sendsess_inflight_bytes(const wired_sendsess* s) {
   usz n = 0;
   for (usz i = 0; i < WIRED_SENDSESS_LOG; i++)

@@ -470,6 +470,39 @@ static void test_sendsess_inflight_bytes_survive_past_old_cap(void) {
   CHECK(wired_sendsess_inflight_bytes(&s) == 350);
 }
 
+/* A slice taken from the sendq whose send then failed must be offered
+ * again by the next take. Without this, the cursor's advance at take time
+ * makes a failed send a permanent hole: the bytes count as consumed for
+ * flow control yet were never logged in flight, so loss detection and PTO
+ * never resend them and the peer waits on the gap forever. */
+static void test_sendsess_untake_reoffers_sendq_slice(void) {
+  u8                bytes[30];
+  wired_sendsess    s;
+  wired_sendq_slice a, b;
+  wired_sendsess_arm(&s, bytes, sizeof bytes, 10);
+  CHECK(wired_sendsess_take(&s, &a) == 1);
+  wired_sendsess_untake(&s, &a);
+  CHECK(wired_sendsess_take(&s, &b) == 1);
+  CHECK(b.offset == a.offset && b.len == a.len);
+}
+
+/* Same contract for a slice that came off the requeue (a loss/PTO
+ * retransmit whose re-send failed): the slot it was popped from is free by
+ * definition, so it goes straight back and is offered again. */
+static void test_sendsess_untake_reoffers_requeued_slice(void) {
+  u8                bytes[30];
+  wired_sendsess    s;
+  wired_sendq_slice a, b;
+  wired_sendsess_arm(&s, bytes, sizeof bytes, 10);
+  wired_sendsess_take(&s, &a);
+  wired_sendsess_sent(&s, &a, 1, 0);
+  wired_sendsess_pto_fire(&s, 3); /* requeues the one in-flight slice */
+  CHECK(wired_sendsess_take(&s, &a) == 1); /* off the requeue */
+  wired_sendsess_untake(&s, &a);
+  CHECK(wired_sendsess_take(&s, &b) == 1);
+  CHECK(b.offset == a.offset && b.len == a.len);
+}
+
 void test_sendsess(void) {
   test_sendsess_take_and_track();
   test_sendsess_ack_consumes();
@@ -495,4 +528,6 @@ void test_sendsess(void) {
   test_sendsess_log_full_rejects_one_more();
   test_sendsess_log_capacity_matches_constant();
   test_sendsess_inflight_bytes_survive_past_old_cap();
+  test_sendsess_untake_reoffers_sendq_slice();
+  test_sendsess_untake_reoffers_requeued_slice();
 }
