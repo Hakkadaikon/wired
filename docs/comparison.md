@@ -9,10 +9,12 @@ features (documented against each project's own sources) and in speed
 > **Scope disclaimer.** Every number below is a measurement from one specific
 > day (2026-08-09) on one specific machine (a 4-vCPU KVM VM, see the
 > [environment appendix](#environment)), against pinned versions, at wired
-> commit `8068749`. It is not a claim of general superiority or inferiority of
-> any implementation. Bad numbers are published along with good ones,
-> including a measurement wired's own goodput lane could not complete; the
-> full per-run record is in the [run manifest](#run-manifest).
+> commit `8068749` — except wired's goodput row, measured at `8c45b6f`, the
+> same-day fix for a stall that made goodput unmeasurable at `8068749` (the
+> full story is in the goodput section). It is not a claim of general
+> superiority or inferiority of any implementation. Bad numbers are
+> published along with good ones; the full per-run record is in the
+> [run manifest](#run-manifest).
 
 Legend: `✅` supported · `Partial` supported with a stated limitation ·
 `—` not supported / not measured, with the reason in the cell or footnote.
@@ -57,7 +59,7 @@ endpoints run as Docker containers — one execution form across the row.
 
 | Server | Goodput (5 runs) | Server image |
 |---|---|---|
-| wired | **not measured — transfer stalls before completion** [^w-goodput-stall] | `wired-interop` built from commit `8068749` |
+| wired | 7144 (± 84) kbps [^w-goodput-fix] | `wired-interop` built from commit `8c45b6f` |
 | quic-go | 9532 (± 28) kbps | `martenseemann/quic-go-interop:latest` |
 | quiche | 9443 (± 7) kbps | `cloudflare/quiche-qns:latest` |
 | ngtcp2 | 9381 (± 67) kbps [^ngtcp2-warn] | `ghcr.io/ngtcp2/ngtcp2-interop:latest` |
@@ -65,26 +67,29 @@ endpoints run as Docker containers — one execution form across the row.
 
 ```mermaid
 xychart-beta
-    title "Goodput over the runner's simulated link (kbps, higher is better; wired omitted -- see note)"
-    x-axis ["quic-go", "quiche", "ngtcp2", "picoquic"]
+    title "Goodput over the runner's simulated link (kbps, higher is better)"
+    x-axis ["wired", "quic-go", "quiche", "ngtcp2", "picoquic"]
     y-axis "kbps" 0 --> 10000
-    bar [9532, 9443, 9381, 9328]
+    bar [7144, 9532, 9443, 9381, 9328]
 ```
 
-**wired's goodput could not be measured.** The 10 MB transfer stalls partway
-(this run stopped at 655,296 of 10,485,760 bytes) and never completes; the
-runner reports the cell as unmeasured (`G` with no kbps value) rather than a
-number. This reproduces a known, previously-diagnosed issue: after DPLPMTUD
-(RFC 8899) wiring raised the server's send chunk size (MPS) above roughly
-1350 bytes, multi-stream high-throughput transfers stall mid-flight —
-`bytes_in_flight` drops to 0 and the connection sits idle until the 30 s
-idle timeout closes it. The probable cause under active investigation is an
-interaction between wired's larger post-PMTU send chunk and the quic-go
-client's RTT-based receive-window auto-tuning, not a wired throughput
-ceiling in the ordinary sense (loopback numbers below, at a much smaller
-per-write size, show no such stall). See [Interop Results](interop.md) for
-the current per-testcase status; `transfer` reproduces the same stall
-independently of the goodput lane.
+**wired's measurement required a same-day bug fix.** At commit `8068749`
+the 10 MB transfer stalled partway (655,296 of 10,485,760 bytes) and the
+runner reported the cell as unmeasured. Root cause, found and fixed the
+same day (commit `8c45b6f`): the per-slice plaintext buffer was a fixed
+1400 bytes while DPLPMTUD (RFC 8899) can raise the send chunk to 1411 —
+every full-size slice failed frame encoding *after* its bytes had been
+consumed from the send queue, black-holing them (never logged in flight,
+so never loss-detected or resent) while the phantom consumption exhausted
+connection-level flow-control credit. With the buffer sized from the PMTU
+constants and failed sends returned to the retransmit queue, the transfer
+completes at full-size 1440-byte datagrams (verified: `transfer` 5/5
+consecutive PASS, previously 0/5). The remaining gap to quic-go
+(7144 vs 9532 kbps) is a packet-rate difference, not a packet-size one —
+wired sends ~620 datagrams/s where the pre-PMTU build sent ~810 smaller
+ones; congestion-control behavior (wired defaults to NewReno, the faster
+peers use Cubic) is the leading suspect and is future work, tracked
+honestly here rather than hidden.
 
 ## Speed: loopback per-request overhead
 
@@ -149,16 +154,12 @@ quic-go, runner commit `1d6f655`):
 | `handshake` | ✅ | |
 | `http3` | ✅ | |
 | `multiplexing` | ✅ | |
-| `transfer` | ✕ | same stall as the goodput lane: a 2 MB download stopped at 655,296 bytes and the client timed out waiting for more data |
+| `transfer` | ✅ | failed (`✕`) at commit `8068749` — the goodput-lane stall above, reproduced here on a 2 MB download; passes 5/5 consecutive runs at the fix commit `8c45b6f` |
 
 Full per-testcase status (broader set, including WebTransport) is
-maintained separately in [Interop Results](interop.md), which is dated
-"as of 2026-07" and currently lists `transfer` as ✅. That page predates the
-DPLPMTUD wiring that introduced the stall reproduced here; its `transfer`
-row has not yet been updated to reflect the regression this document's
-re-run found. Treat the `✕` above, from a same-day re-run against the
-commit this whole document is pinned to, as the current status until
-[Interop Results](interop.md) is refreshed.
+maintained separately in [Interop Results](interop.md); the four rows above
+are the ones this comparison's benchmarks depend on and were independently
+re-verified for this document.
 
 ## WebTransport and MOQT
 
@@ -247,7 +248,8 @@ Goodput lane (each value = runner's 5-repetition mean ± sd for that run):
 
 | Server | Run | Result |
 |---|---|---|
-| wired | single run | not measured — transfer stalled at 655,296 / 10,485,760 bytes |
+| wired (`8068749`) | first run (disclosed, unmeasurable) | transfer stalled at 655,296 / 10,485,760 bytes |
+| wired (`8c45b6f`, post-fix) | single run (published above) | 7144 (± 84) kbps |
 | quic-go | single run | 9532 (± 28) kbps |
 | quiche | single run | 9443 (± 7) kbps |
 | ngtcp2 | single run [^ngtcp2-warn] | 9381 (± 67) kbps |
@@ -305,9 +307,9 @@ Loopback lane, all 30 runs (no runs excluded, no failures in any run):
     body read, including the QUIC+TLS handshake — for a 1 KiB body this is
     indistinguishable from first-byte time, but the definition is the
     implemented one.
-[^w-goodput-stall]: See "wired's goodput could not be measured" above. Log:
-    `File size of .../ashamed-proud-musician doesn't match. Original:
-    10485760 bytes, downloaded: 655296 bytes.`
+[^w-goodput-fix]: Measured at `8c45b6f` (the stall fix) rather than the
+    document's base commit `8068749`, where the run could not complete —
+    see the goodput section for the root cause and verification.
 [^ngtcp2-warn]: The runner logged "At least one QUIC packet could not be
     decrypted" analysis warnings during the ngtcp2 run; the goodput
     measurement itself completed normally.
