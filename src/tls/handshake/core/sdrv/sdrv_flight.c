@@ -52,6 +52,9 @@ static int sdrv_ecdhe(const quic_sdrv* s, u8 ecdhe[QUIC_ECDHE_LEN]) {
 static int derive_secret(quic_sdrv* s) {
   u8 ecdhe[QUIC_ECDHE_LEN], th[QUIC_SHA256_DIGEST];
   if (!sdrv_ecdhe(s, ecdhe)) return 0;
+  /* keep the secret for the connection's own key schedule (server.c) */
+  for (usz i = 0; i < sizeof(s->ecdhe_secret); i++)
+    s->ecdhe_secret[i] = ecdhe[i];
   sdrv_derive_handshake_secret(s, ecdhe);
   quic_transcript_hash(&s->tr, th);
   quic_hkdf_label l = {"s hs traffic", 12, {th, QUIC_SHA256_DIGEST}};

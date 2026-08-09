@@ -99,10 +99,9 @@ int wired_server_recv_initial(wired_server* s, const u8* ch_msg, usz ch_len) {
 /* RFC 8446 7.1: the same PSK-vs-plain Handshake Secret branch
  * sdrv_flight.c's sdrv_derive_handshake_secret already establishes for
  * sdrv's own flight -- here for the connection's real packet-protection key
- * schedule, over the identical ecdhe (s->server_priv/s->sdrv.client_pub, the
- * same x25519 output derive_secret computes internally) and the identical
- * transcript-through-ServerHello, so both Handshake Secret computations
- * agree byte-for-byte whenever a PSK was accepted. */
+ * schedule, over the identical ecdhe (sdrv's own stored shared secret) and
+ * the identical transcript-through-ServerHello, so both Handshake Secret
+ * computations agree byte-for-byte whenever a PSK was accepted. */
 static int srv_advance_handshake(wired_server* s, u8 ecdhe[QUIC_X25519_LEN]) {
   quic_span ecdhe_span = quic_span_of(ecdhe, QUIC_X25519_LEN);
   quic_span tr_span    = quic_span_of(s->tr, s->tr_through_sh);
@@ -114,11 +113,15 @@ static int srv_advance_handshake(wired_server* s, u8 ecdhe[QUIC_X25519_LEN]) {
 }
 
 /* RFC 8446 7.1: derive the Handshake key set over the transcript through
- * ServerHello and install the Handshake-level keys. */
-/* ECDHE shared secret then advance to the handshake secret. RFC 7748 6.1: a
- * low-order client key gives an all-zero secret; reject it. */
+ * ServerHello and install the Handshake-level keys, reusing the ECDHE shared
+ * secret sdrv's flight derivation already computed over the identical
+ * (server_priv, client_pub) pair -- recomputing the scalar multiply here
+ * doubled the per-connection ECDHE cost. RFC 7748 6.1's all-zero (low-order
+ * client key) rejection already ran there: hs_ready is only set after the
+ * shared secret passed it. */
 static int srv_derive_hs(wired_server* s, u8 ecdhe[QUIC_X25519_LEN]) {
-  if (!quic_x25519(ecdhe, s->server_priv, s->sdrv.client_pub)) return 0;
+  if (!s->sdrv.hs_ready) return 0;
+  for (usz i = 0; i < QUIC_X25519_LEN; i++) ecdhe[i] = s->sdrv.ecdhe_secret[i];
   quic_keysched_set_suite(&s->sched, s->sdrv.cipher_suite);
   return srv_advance_handshake(s, ecdhe);
 }
