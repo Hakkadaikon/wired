@@ -387,6 +387,12 @@ typedef struct {
   quic_pnspaces_recv ack_recv;
   quic_ackpolicy     app_ack_policy; /**< App space's delayed-ACK timer */
   quic_ackpolicy     hs_ack_policy;  /**< Handshake space's delayed-ACK timer */
+  /** When 1, respond.c's bare-ACK packet (emit_ack_only) is suppressed for
+   * the current step: the driving loop (srvrun.c) piggybacks the pending
+   * App-space ACK onto the response slice it is about to send, or flushes
+   * it itself at step end if no slice went out. A caller that never sets
+   * it (0, every plain srvloop user) keeps the original behavior. */
+  u8 ack_defer;
   /** Monotonic ms this step is being driven at -- the time source
    * quic_ackpolicy's delayed-ACK timer measures against. The caller (e.g.
    * srvrun.c) sets this once per step, sharing its own PTO/RTT time source
