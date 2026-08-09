@@ -561,6 +561,16 @@ typedef struct {
  * initialized quic_pmtu (validated == 0, e.g. a test fixture's `{0}`
  * srvrun_conn that never routes through srvrun_open_slot). */
 #define SRVRUN_CHUNK 1100
+/* Plaintext capacity for one STREAM-frame slice: the largest slice
+ * srvrun_mps can yield (QUIC_PMTU_MAX - QUIC_PMTU_OVERHEAD) plus the
+ * worst-case RFC 9000 19.8 STREAM header (1 type byte + three 8-byte
+ * varints = 25). Derived from the PMTU constants, not a bare number: a
+ * fixed 1400 held every SRVRUN_CHUNK-sized slice but not a full
+ * DPLPMTUD-search-complete one (1411 bytes), and the resulting frame-encode
+ * failure struck AFTER wired_sendsess_take had consumed the slice's bytes
+ * -- black-holing them (never logged in flight, so never loss-detected or
+ * resent) and stalling every large transfer once the search completed. */
+#define SRVRUN_SLICE_PL (QUIC_PMTU_MAX - QUIC_PMTU_OVERHEAD + 25)
 
 /* RFC 8899 4.4: the Maximum Packet Size c's DPLPMTUD search has validated so
  * far, in stream bytes per packet -- every send-sizing call site in this
@@ -4563,7 +4573,7 @@ static int srvrun_send_stream_slice(
     u64                      stream_id,
     const wired_sendq_slice* sl,
     u8                       fin) {
-  u8                pl[1400], out[1500];
+  u8                pl[SRVRUN_SLICE_PL], out[1500];
   quic_obuf         plb = quic_obuf_of(pl, sizeof pl);
   quic_obuf         ob  = quic_obuf_of(out, sizeof out);
   quic_stream_frame f   = {
@@ -4582,6 +4592,23 @@ static int srvrun_send_stream_slice(
   return wired_sendsess_sent(sess, sl, pn, ctx->now_ms);
 }
 
+/* Send a just-taken slice; on failure return it to sess via
+ * wired_sendsess_untake so the next take offers it again. The take already
+ * advanced the sendq cursor (the slice's bytes count as consumed for flow
+ * control), so a slice dropped here would be a permanent hole -- in no log
+ * or requeue, invisible to loss detection, never resent. */
+static int srvrun_send_taken(
+    const srvrun_step_ctx*   ctx,
+    srvrun_conn*             c,
+    wired_sendsess*          sess,
+    u64                      stream_id,
+    const wired_sendq_slice* sl,
+    u8                       fin) {
+  if (srvrun_send_stream_slice(ctx, c, sess, stream_id, sl, fin)) return 1;
+  wired_sendsess_untake(sess, sl);
+  return 0;
+}
+
 /* One resp[] slot's slice, with the response path's own FIN suppression
  * (WT CONNECT stream / streaming rounds, srvrun_slice_fin above). */
 static int srvrun_send_slice(
@@ -4589,7 +4616,7 @@ static int srvrun_send_slice(
     srvrun_conn*             c,
     srvrun_resp*             r,
     const wired_sendq_slice* sl) {
-  return srvrun_send_stream_slice(
+  return srvrun_send_taken(
       ctx, c, &r->sess, r->stream_id, sl, srvrun_slice_fin(c, r, sl));
 }
 
@@ -4890,7 +4917,7 @@ static int srvrun_pump_one_wt(
     return 0;
   }
   if (wired_sendsess_take(&w->sess, &sl))
-    return srvrun_send_stream_slice(
+    return srvrun_send_taken(
         ctx, c, &w->sess, w->stream_id, &sl, srvrun_wt_slice_fin(w, &sl));
   return srvrun_pump_wt_fin_only(ctx, c, w);
 }

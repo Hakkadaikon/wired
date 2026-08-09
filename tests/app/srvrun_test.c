@@ -8888,6 +8888,45 @@ static void test_srvrun_pmtu_probe_at_ceiling_does_not_spin(void) {
   CHECK(c.pmtu_probe_size == QUIC_PMTU_MAX);
 }
 
+/* Every full-size slice at the DPLPMTUD-maximum MPS must reach the
+ * in-flight log: bytes consumed from the sendq == bytes logged in flight.
+ * srvrun_send_stream_slice's plaintext buffer was a fixed 1400 bytes while
+ * quic_pmtu_mps can reach QUIC_PMTU_MAX - QUIC_PMTU_OVERHEAD (1411), so
+ * once the search completed, every full-size slice failed frame encoding
+ * AFTER wired_sendsess_take had consumed its bytes -- black-holed (never
+ * logged, so never loss-detected or retransmitted), a permanent stream
+ * hole the peer waited on until its idle timeout, while the phantom
+ * consumption also exhausted conn credit and produced a DATA_BLOCKED for
+ * bytes that never existed on the wire. */
+static void test_srvrun_pump_full_mps_slice_reaches_log(void) {
+  static u8     body[3 * (QUIC_PMTU_MAX - QUIC_PMTU_OVERHEAD)];
+  struct lp_fix f;
+  srvrun_conn   c;
+  quic_obuf     ob = {0};
+  u8            obuf[4096];
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.cc.cwnd     = 1u << 20;
+  c.conn_credit = 1u << 24;
+  quic_pmtu_init(&c.pmtu);
+  c.pmtu.validated        = QUIC_PMTU_MAX; /* search complete: mps = 1411 */
+  c.pmtu_probe_pn         = SRVRUN_PMTU_NO_PROBE;
+  c.resp[0].in_use        = 1;
+  c.resp[0].stream_id     = 0;
+  c.resp[0].stream_credit = 1u << 24;
+  wired_sendsess_arm(&c.resp[0].sess, body, sizeof body, srvrun_mps(&c));
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
+        0,  0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_state    st  = {0, &c};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 1, 0};
+    srvrun_pump_sess(&ctx, 0);
+    CHECK(c.resp[0].sess.q.cur == sizeof body); /* all slices taken */
+    CHECK(wired_sendsess_inflight_bytes(&c.resp[0].sess) == sizeof body);
+  }
+}
+
 /* ROUND-ROBIN, NOT DRAIN-THEN-NEXT: with three responses armed at once and
  * cwnd tight enough to allow only a few chunks per pump, every resp[] slot
  * must get a turn before any slot gets a second one -- srvrun_pump_sess used
@@ -12261,6 +12300,7 @@ void test_srvrun(void) {
   test_srvrun_pmtu_ack_outside_range_no_effect();
   test_srvrun_pmtu_timeout_reaped_as_loss();
   test_srvrun_pmtu_probe_at_ceiling_does_not_spin();
+  test_srvrun_pump_full_mps_slice_reaches_log();
   test_srvrun_pump_round_robins_across_slots();
   test_srvrun_pacing_floor_does_not_starve_round();
   test_srvrun_pto_probe_bypasses_cwnd();
