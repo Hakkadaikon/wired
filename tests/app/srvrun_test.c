@@ -2838,7 +2838,12 @@ static void test_srvrun_pacing_gate(void) {
   srvrun_step_ctx ctx = {&cfg, 0, &st, 1000, 0};
   quic_cc_init(&c.cc);                  /* cwnd 12000 */
   CHECK(srvrun_pace_ok(&ctx, &c) == 1); /* srtt 0: unpaced */
-  c.srtt_ms      = 100;
+  c.srtt_ms     = 100; /* interval 12.5ms < poll tick: the token bucket gates */
+  c.pace_tokens = 0;
+  CHECK(srvrun_pace_ok(&ctx, &c) == 0);
+  c.pace_tokens = 1; /* any positive balance allows (one-slice overdraft) */
+  CHECK(srvrun_pace_ok(&ctx, &c) == 1);
+  c.cc.cwnd      = 4000; /* interval 37.5ms > poll tick: next_send_ms gates */
   c.next_send_ms = 1010; /* future */
   CHECK(srvrun_pace_ok(&ctx, &c) == 0);
   c.next_send_ms = 1000; /* due now */
@@ -2863,10 +2868,12 @@ static void test_srvrun_pacing_no_stall_within_poll_tick(void) {
   quic_cc_init(&c.cc);
   c.cc.cwnd      = 5000000;
   c.srtt_ms      = 30;
-  c.next_send_ms = 1000;
-  CHECK(srvrun_pace_ok(&ctx, &c) == 1);
+  c.next_send_ms = 1000000;     /* stale far-future: must NOT pin the send */
+  srvrun_pace_refill(&ctx, &c); /* the pump pass's own preamble */
+  CHECK(c.pace_tokens == SRVRUN_PACE_BURST); /* fresh conn: bucket caps out */
+  CHECK(srvrun_pace_ok(&ctx, &c) == 1); /* tokens, not next_send_ms, decide */
   srvrun_pace_next(&ctx, &c);
-  CHECK(c.next_send_ms == 1000);        /* still due now, same frozen step */
+  CHECK(c.next_send_ms == 1000000);     /* sub-tick: pace_next stays a no-op */
   CHECK(srvrun_pace_ok(&ctx, &c) == 1); /* a 2nd round in this step may fire */
 }
 
@@ -2941,6 +2948,38 @@ static void test_srvrun_pace_bursts_within_poll_interval(void) {
   }
   /* every chunk went out in this one call -- not capped at one round */
   CHECK(c.resp[0].sess.q.cur == sizeof body);
+}
+
+/* RFC 9002 7.7: even with a pacing interval far under one poll tick, a
+ * single pump pass is capped at a ~SRVRUN_PACE_BURST burst (token bucket)
+ * -- bursting the whole cwnd used to overflow the goodput link's 25-packet
+ * bottleneck queue, capping cwnd at ~BDP. The rest of the body waits for
+ * the ACK-clocked refill of a later step. */
+static void test_srvrun_pace_burst_capped_per_pass(void) {
+  static u8     body[20 * SRVRUN_CHUNK];
+  struct lp_fix f;
+  srvrun_conn*  c  = sr_test_conns();
+  quic_obuf     ob = {0};
+  u8            obuf[1024];
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(c, &f, &ob);
+  c->cc.cwnd               = 5000000;
+  c->srtt_ms               = 30;
+  c->resp[0].in_use        = 1;
+  c->resp[0].stream_id     = 0;
+  c->resp[0].stream_credit = sizeof body;
+  wired_sendsess_arm(&c->resp[0].sess, body, sizeof body, SRVRUN_CHUNK);
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
+        0,  0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_state    st  = {0, c};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 1000, 0};
+    srvrun_pump_sess(&ctx, 0);
+  }
+  CHECK(c->resp[0].sess.q.cur >= SRVRUN_CHUNK); /* the pass did send */
+  /* capped: full bucket plus at most a one-slice overdraft */
+  CHECK(c->resp[0].sess.q.cur <= SRVRUN_PACE_BURST + SRVRUN_CHUNK);
 }
 
 /* One pump pass's equal-size sealed slices leave as one GSO syscall batch
@@ -3340,7 +3379,8 @@ static void test_srvrun_pace_within_poll_tick_unaffected_by_probe_change(void) {
         -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
         0,  0, 0, 0, 0, 0, 0, 0, 0, 0};
     srvrun_step_ctx ctx = {&cfg, 0, 0, 1000, 0};
-    CHECK(srvrun_pace_or_probe_ok(&ctx, &c) == 1); /* srtt_ms path, unpaced */
+    srvrun_pace_refill(&ctx, &c); /* srvrun_pump_sess's own pass preamble */
+    CHECK(srvrun_pace_or_probe_ok(&ctx, &c) == 1); /* tokens, no probe */
     c.next_send_ms = 1000;
     srvrun_pace_next(&ctx, &c);
     CHECK(c.next_send_ms == 1000); /* still sub-poll-tick, unchanged */
@@ -12575,6 +12615,7 @@ void test_srvrun(void) {
   test_srvrun_pace_interval_equals_poll_no_extra_round();
   test_srvrun_pace_interval_over_poll_waits();
   test_srvrun_pace_bursts_within_poll_interval();
+  test_srvrun_pace_burst_capped_per_pass();
   test_srvrun_pump_slices_batch_into_gso();
   test_srvrun_slice_piggybacks_deferred_ack();
   test_srvrun_deferred_ack_flushed_without_slice();

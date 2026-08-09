@@ -559,6 +559,14 @@ typedef struct {
    * claims/releases/PRIORITY_UPDATEs only happen between passes, so the
    * order is stable within one. */
   usz prio_order[SRVRUN_RESP_SLOTS];
+  /** RFC 9002 7.7 pacer token bucket for the sub-poll-tick regime
+   * (srvrun_pace_within_poll_tick): bytes sendable right now, refilled at
+   * 1.25 * cwnd / srtt per elapsed ms (srvrun_pace_refill, once per pump
+   * pass) and capped at SRVRUN_PACE_BURST, charged per sent slice. Idle
+   * until the first RTT sample (srtt_ms == 0: unpaced, like next_send_ms).
+   */
+  u64 pace_tokens;
+  u64 pace_refill_ms; /**< monotonic ms of the last token refill */
 } srvrun_conn;
 
 /* Response storage, one row per (connection slot, response slot): 64-byte
@@ -595,6 +603,13 @@ typedef struct {
  * lands in the 14-48 packets/syscall ballpark quiche/quic-go batch at;
  * raise if profiling shows flush-bound pumps. */
 #define SRVRUN_GSO_SEGS 16
+/* RFC 9002 7.7: byte ceiling of one uninterrupted send burst (the pacer
+ * token bucket's capacity) -- 10 full packets, the initial-window-sized
+ * burst allowance the RFC recommends. Sized UNDER the interop goodput
+ * link's 25-packet bottleneck queue: bursting a whole cwnd used to
+ * overflow that queue every time cwnd approached BDP, capping cwnd at
+ * ~BDP (39.6kB observed) instead of BDP+queue and costing ~18% goodput. */
+#define SRVRUN_PACE_BURST (10 * QUIC_MAX_DATAGRAM)
 
 /* RFC 8899 4.4: the Maximum Packet Size c's DPLPMTUD search has validated so
  * far, in stream bytes per packet -- every send-sizing call site in this
@@ -4801,6 +4816,8 @@ static int srvrun_send_slice(
 
 static int  srvrun_pace_ok(const srvrun_step_ctx* ctx, const srvrun_conn* c);
 static void srvrun_pace_next(const srvrun_step_ctx* ctx, srvrun_conn* c);
+static void srvrun_pace_refill(const srvrun_step_ctx* ctx, srvrun_conn* c);
+static void srvrun_pace_charge(srvrun_conn* c, usz bytes);
 static void srvrun_ku_discard_stale(srvrun_conn* c, u64 now_ms);
 
 /* Sum of in-flight stream bytes across every WT send slot -- the wtsend
@@ -5068,8 +5085,10 @@ static int srvrun_pump_one(
   usz inf0 = wired_sendsess_inflight_bytes(&r->sess);
   usz con0 = srvrun_sess_consumed(&r->sess);
   int sent = srvrun_pump_one_slice(ctx, c, r);
-  c->acct_inflight += wired_sendsess_inflight_bytes(&r->sess) - inf0;
+  usz inf1 = wired_sendsess_inflight_bytes(&r->sess);
+  c->acct_inflight += inf1 - inf0;
   c->acct_consumed += srvrun_sess_consumed(&r->sess) - con0;
+  if (sent) srvrun_pace_charge(c, inf1 - inf0);
   return sent;
 }
 
@@ -5139,8 +5158,10 @@ static int srvrun_pump_one_wt(
   usz inf0 = wired_sendsess_inflight_bytes(&w->sess);
   usz con0 = srvrun_sess_consumed(&w->sess);
   int sent = srvrun_pump_one_wt_slice(ctx, c, w);
-  c->acct_inflight += wired_sendsess_inflight_bytes(&w->sess) - inf0;
+  usz inf1 = wired_sendsess_inflight_bytes(&w->sess);
+  c->acct_inflight += inf1 - inf0;
   c->acct_consumed += srvrun_sess_consumed(&w->sess) - con0;
+  if (sent) srvrun_pace_charge(c, inf1 - inf0);
   return sent;
 }
 
@@ -5428,6 +5449,7 @@ static void srvrun_pump_sess(const srvrun_step_ctx* ctx, int slot) {
   srvrun_acct_resync(c); /* pick up ACK/requeue/reap/re-arm effects wholesale
                           * before any gate reads the cached totals */
   srvrun_prio_refresh(c);
+  srvrun_pace_refill(ctx, c);
   while (srvrun_pump_opportunity(ctx, c)) {
   }
   srvrun_stage_flush(ctx->cfg); /* the pass's staged slices leave as one
@@ -5490,9 +5512,51 @@ static void srvrun_seed_boot_rtt(srvrun_conn* c, int was_booting, u64 now_ms) {
   srvrun_rtt_note(c, now_ms - c->boot_pto_sent_ms);
 }
 
-/* 1 when pacing allows a send now: unpaced until the first RTT sample. */
+static int srvrun_pace_within_poll_tick(const srvrun_conn* c);
+
+/* Bytes per ms the pacer refills at: RFC 9002 7.7's 1.25 * cwnd / srtt.
+ * Callers guarantee srtt_ms != 0. */
+static u64 srvrun_pace_rate(const srvrun_conn* c) {
+  return 5 * c->cc.cwnd / (4 * c->srtt_ms);
+}
+
+/* The uncapped balance after refilling for the wall time since the last
+ * refill. pace_refill_ms == 0 means "never refilled": a full bucket, so the
+ * very first paced pass is not stalled (real monotonic now_ms is never 0 --
+ * only a fresh connection carries the 0 stamp). */
+static u64 srvrun_pace_new_tokens(const srvrun_conn* c, u64 now_ms) {
+  if (!c->pace_refill_ms) return SRVRUN_PACE_BURST;
+  return c->pace_tokens + (now_ms - c->pace_refill_ms) * srvrun_pace_rate(c);
+}
+
+/* Advance the token bucket by the wall time since the last refill, capped
+ * at the burst ceiling. Once per pump pass (srvrun_pump_sess) -- within a
+ * pass now_ms is frozen, so the pass can never send more than one bucket.
+ */
+static void srvrun_pace_refill(const srvrun_step_ctx* ctx, srvrun_conn* c) {
+  u64 t;
+  if (!c->srtt_ms) return; /* unpaced until the first RTT sample */
+  t                 = srvrun_pace_new_tokens(c, ctx->now_ms);
+  c->pace_tokens    = t > SRVRUN_PACE_BURST ? SRVRUN_PACE_BURST : t;
+  c->pace_refill_ms = ctx->now_ms;
+}
+
+/* Spend bytes from the bucket (clamped at zero -- srvrun_pace_ok's > 0
+ * gate deliberately allows a one-slice overdraft). */
+static void srvrun_pace_charge(srvrun_conn* c, usz bytes) {
+  c->pace_tokens = c->pace_tokens > bytes ? c->pace_tokens - bytes : 0;
+}
+
+/* 1 when pacing allows a send now: unpaced until the first RTT sample; in
+ * the sub-poll-tick regime (srvrun_pace_within_poll_tick) the token bucket
+ * decides -- the ACK-clocked steps refill it, so throughput follows the
+ * pacing rate instead of the 25ms poll cadence, while a burst stays under
+ * the bucket and cannot overflow a shallow bottleneck queue; past one poll
+ * tick, the absolute next_send_ms deadline as before. */
 static int srvrun_pace_ok(const srvrun_step_ctx* ctx, const srvrun_conn* c) {
-  return !c->srtt_ms || ctx->now_ms >= c->next_send_ms;
+  if (!c->srtt_ms) return 1;
+  if (srvrun_pace_within_poll_tick(c)) return c->pace_tokens > 0;
+  return ctx->now_ms >= c->next_send_ms;
 }
 
 /* 1 if NewReno's pacing interval is under one poll-loop tick (RFC 9002 7.7
