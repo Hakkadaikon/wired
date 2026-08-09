@@ -54,9 +54,34 @@ static void test_sendq_empty(void) {
   CHECK(wired_sendq_all_sent(&q) == 1);
 }
 
+/* Ring mode: a slice never crosses the wrap (capped there, not at chunk),
+ * and slice bytes resolve at p + offset % cap; a linear queue resolves at
+ * p + offset unchanged. */
+static void test_sendq_ring_wrap(void) {
+  u8                buf[10];
+  wired_sendq       q;
+  wired_sendq_slice sl;
+  wired_sendq_init(&q, buf, 8, 4);
+  wired_sendq_set_ring(&q, 10);
+  CHECK(wired_sendq_next(&q, &sl) == 1);
+  CHECK(sl.offset == 0 && sl.len == 4);
+  CHECK(wired_sendq_slice_data(&q, &sl) == buf);
+  CHECK(wired_sendq_next(&q, &sl) == 1);
+  CHECK(sl.offset == 4 && sl.len == 4 && sl.fin == 1);
+  q.len =
+      14; /* the caller extended past the wrap: [8,14) = buf[8..10)+[0..4) */
+  CHECK(wired_sendq_next(&q, &sl) == 1);
+  CHECK(sl.offset == 8 && sl.len == 2); /* capped at the wrap */
+  CHECK(wired_sendq_slice_data(&q, &sl) == buf + 8);
+  CHECK(wired_sendq_next(&q, &sl) == 1);
+  CHECK(sl.offset == 10 && sl.len == 4 && sl.fin == 1);
+  CHECK(wired_sendq_slice_data(&q, &sl) == buf); /* wrapped to the front */
+}
+
 void test_sendq(void) {
   test_sendq_slices_partial_tail();
   test_sendq_exact_multiple();
   test_sendq_single_slice();
   test_sendq_empty();
+  test_sendq_ring_wrap();
 }
