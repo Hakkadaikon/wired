@@ -59,6 +59,16 @@ void quic_fp_sub(p256_fe r, quic_fpab ab, const p256_fe m);
 void quic_fp_mul(p256_fe r, quic_fpab ab, const p256_fe m);
 void quic_fp_sqr(p256_fe r, const p256_fe a, const p256_fe m);
 
+/* r = (a * b) mod n for the P-256 group order, a,b < n. Equivalent to
+ * quic_fp_mul(., ., n) but via two Montgomery products instead of the
+ * bit-loop long division (~1000x faster); modulus fixed to n. */
+void quic_fp_mul_n(p256_fe r, quic_fpab ab);
+
+/* r = a mod n for any a < 2^256. Equivalent to quic_fp_reduce(., ., n):
+ * n > 2^255 means 2^256 < 2n, so one conditional subtract replaces the
+ * long division. */
+void quic_fp_reduce_n(p256_fe r, const p256_fe a);
+
 /* r = (a * b) mod p, r = (a * a) mod p, using the fast FIPS 186-4 D.2.5 Solinas
  * reduction specialised to the P-256 prime. Equivalent to quic_fp_mul(.,.,p)
  * but ~100x faster; the modulus is fixed to p (NOT usable for the order n). */
