@@ -169,6 +169,23 @@ int wired_sendsess_pto_fire(wired_sendsess* s, int max);
  * @return 1 with *out filled, 0 if nothing is currently in flight. */
 int wired_sendsess_oldest_sent_ms(const wired_sendsess* s, u64* out);
 
+/** The lowest round-local offset an unacknowledged slice (in flight or
+ * requeued) still needs to retransmit from, or q.cur when none is pending:
+ * every byte below this is acknowledged (or never taken) and its ring
+ * storage may be reclaimed for new bytes.
+ * @param s the session
+ * @return the lowest still-live round-local offset */
+usz wired_sendsess_reclaim_base(const wired_sendsess* s);
+
+/** Free bytes of a cap-byte ring behind s's queue: capacity minus the live
+ * span (queued end minus wired_sendsess_reclaim_base). The caller may write
+ * this many new bytes into the ring (from position q.len % cap, not
+ * crossing the wrap in one write) and wired_sendsess_extend over them.
+ * @param s the session (its queue armed over the cap-byte ring)
+ * @param cap the ring's capacity in bytes
+ * @return bytes reclaimable for appended stream data */
+usz wired_sendsess_ring_room(const wired_sendsess* s, usz cap);
+
 /** @return 1 once everything was sent and acknowledged (session finished);
  *   also clears active. Inactive sessions report 0. */
 int wired_sendsess_done(wired_sendsess* s);
