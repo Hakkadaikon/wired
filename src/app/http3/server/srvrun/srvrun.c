@@ -10,6 +10,7 @@
 #include "app/http3/core/h3prio/h3prio.h"
 #include "app/http3/core/sfield/sfield.h"
 #include "app/http3/request/h3resp/resp_build.h"
+#include "app/http3/server/certcache/certcache.h"
 #include "app/http3/server/certreload/certreload.h"
 #include "app/http3/server/sendsess/sendsess.h"
 #include "app/http3/server/sigterm/sigterm.h"
@@ -711,6 +712,9 @@ struct wired_srvrun_env {
   /* Storage a SIGHUP reload decodes into — must outlive the identity built
    * from it. */
   wired_certreload_store certstore;
+  /* Self-signed certificate built once before the loop (certcache.h) so a
+   * chain-less identity stops rebuilding it on every accept. */
+  wired_certcache certcache;
   /* PTO probe deadline for the polling drivers (srvrun_polling_ptos). */
   u64 pto_next_ms;
   /* Spin-iteration counter pacing the clock read in srvrun_pto_due. */
@@ -7262,6 +7266,7 @@ int wired_srvrun_serve_env(
     const wired_srvrun_opt* opt) {
   srvrun_cfg cfg = srvrun_build_cfg(env, port, id, h, obs, opt);
   if (cfg.fd < 0) return 0;
+  wired_certcache_prime(&env->certcache, id);
   srvrun_install_signals(&cfg, opt);
   WIRED_LOG("listening\n");
   srvrun_loop(&cfg);
