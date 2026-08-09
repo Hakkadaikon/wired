@@ -790,6 +790,7 @@
 #include "crypto/sigalgoid_test.c"
 #include "crypto/rsachain_test.c"
 #include "crypto/p256_field_test.c"
+#include "crypto/p256field_n_test.c"
 #include "crypto/p256_ecdhe_test.c"
 #include "crypto/p384_field_test.c"
 #include "crypto/p384_point_test.c"
@@ -1299,6 +1300,7 @@ int main(void) {
   test_sigalgoid();
   test_rsachain();
   test_p256_field();
+  test_p256field_n();
   test_p384_field();
   test_p384_point();
   test_ecdsa_p384_verify();
