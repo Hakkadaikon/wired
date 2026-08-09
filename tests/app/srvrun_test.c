@@ -2969,6 +2969,10 @@ static void test_srvrun_pump_slices_batch_into_gso(void) {
     CHECK(srvrun_test_flush_count(&cfg) <= 2);
   }
   CHECK(c->resp[0].sess.q.cur == sizeof body);
+  /* drift detector: after a send-heavy pass the cached gate totals still
+   * equal their full-scan sources of truth */
+  CHECK(c->acct_inflight == srvrun_inflight_bytes_all(c));
+  CHECK(c->acct_consumed == srvrun_conn_consumed_bytes(c));
 }
 
 /* RFC 9000 13.2.1: with ack_defer set (srvrun_on_step's window), a pending
@@ -3140,6 +3144,7 @@ static void test_srvrun_pace_probe_bypasses_pacing_gate(void) {
         0,  0, 0, 0, 0, 0, 0, 0, 0, 0};
     srvrun_state    st  = {0, &c};
     srvrun_step_ctx ctx = {&cfg, 0, &st, 1000, 0};
+    srvrun_prio_refresh(&c); /* srvrun_pump_sess's own pass preamble */
     CHECK(srvrun_pump_round_gated(&ctx, &c) == 1);
   }
   CHECK(c.resp[0].sess.requeue_n == 0); /* the probe actually went out */
@@ -3169,6 +3174,7 @@ static void test_srvrun_pace_no_probe_still_gated(void) {
         0,  0, 0, 0, 0, 0, 0, 0, 0, 0};
     srvrun_state    st  = {0, &c};
     srvrun_step_ctx ctx = {&cfg, 0, &st, 1000, 0};
+    srvrun_prio_refresh(&c); /* srvrun_pump_sess's own pass preamble */
     CHECK(srvrun_pump_round_gated(&ctx, &c) == 0);
   }
   CHECK(c.resp[0].sess.q.cur == 0); /* nothing sent, still gated */
@@ -3204,6 +3210,7 @@ static void test_srvrun_pace_mixed_probe_and_new_data_round(void) {
         0,  0, 0, 0, 0, 0, 0, 0, 0, 0};
     srvrun_state    st  = {0, &c};
     srvrun_step_ctx ctx = {&cfg, 0, &st, 1000, 0};
+    srvrun_prio_refresh(&c); /* srvrun_pump_sess's own pass preamble */
     CHECK(srvrun_pump_round_gated(&ctx, &c) == 1);
   }
   CHECK(c.resp[0].sess.requeue_n == 0);           /* probe sent */
@@ -3248,6 +3255,7 @@ static void test_srvrun_pace_probe_bypass_still_respects_log_gate(void) {
         0,  0, 0, 0, 0, 0, 0, 0, 0, 0};
     srvrun_state    st  = {0, &c};
     srvrun_step_ctx ctx = {&cfg, 0, &st, 1000, 0};
+    srvrun_prio_refresh(&c); /* srvrun_pump_sess's own pass preamble */
     /* one probe slice per round-robin pass; the second pass's pacing gate
      * is bypassed again by the still-pending probe. */
     CHECK(srvrun_pump_round_gated(&ctx, &c) == 1);
@@ -3310,6 +3318,7 @@ static void test_srvrun_pace_probe_round_still_schedules_next(void) {
         0,  0, 0, 0, 0, 0, 0, 0, 0, 0};
     srvrun_state    st  = {0, &c};
     srvrun_step_ctx ctx = {&cfg, 0, &st, 1000, 0};
+    srvrun_prio_refresh(&c); /* srvrun_pump_sess's own pass preamble */
     CHECK(srvrun_pump_round_gated(&ctx, &c) == 1);
   }
   /* pacing was rescheduled from now (1000) by the real interval
