@@ -6254,6 +6254,20 @@ static int srvrun_issue_cid(const srvrun_cfg* cfg, u8* cid, u8 cid_len) {
   return 1;
 }
 
+/* The congestion controller a fresh connection starts with (RFC 9002 7):
+ * cfg->cc_algo == 0 means the build's default; a non-zero runtime choice
+ * (--cc-algo) wins. Cubic by default, matching what the mainstream stacks
+ * (quic-go, quiche) run out of the box, so untuned benchmark preconditions
+ * are equal; a build wanting NewReno overrides -DWIRED_CC_ALGO_DEFAULT=0
+ * (an explicit runtime NewReno request is indistinguishable from "unset"
+ * because QUIC_CC_ALGO_NEWRENO is itself 0). */
+#ifndef WIRED_CC_ALGO_DEFAULT
+#define WIRED_CC_ALGO_DEFAULT QUIC_CC_ALGO_CUBIC
+#endif
+static int srvrun_cc_algo(const srvrun_cfg* cfg) {
+  return cfg->cc_algo ? cfg->cc_algo : WIRED_CC_ALGO_DEFAULT;
+}
+
 /* Claim and initialize a fresh slot for dcid: record the peer, and generate
  * this slot's own scid (never cfg->id's fixed one — every slot sharing it
  * would collapse conntable's routing back to a single slot). Returns the slot
@@ -6265,7 +6279,7 @@ static int srvrun_open_slot(
   if (slot < 0) return -1;
   ctx->st->conns[slot]      = (srvrun_conn){0};
   ctx->st->conns[slot].peer = *ctx->peer;
-  quic_cc_init_algo(&ctx->st->conns[slot].cc, ctx->cfg->cc_algo);
+  quic_cc_init_algo(&ctx->st->conns[slot].cc, srvrun_cc_algo(ctx->cfg));
   quic_hystart_init(&ctx->st->conns[slot].hs);
   quic_rtt_init(&ctx->st->conns[slot].rtt);
   quic_pmtu_init(&ctx->st->conns[slot].pmtu);

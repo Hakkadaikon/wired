@@ -8888,6 +8888,22 @@ static void test_srvrun_pmtu_probe_at_ceiling_does_not_spin(void) {
   CHECK(c.pmtu_probe_size == QUIC_PMTU_MAX);
 }
 
+/* cfg->cc_algo == 0 selects the build's default congestion controller
+ * (WIRED_CC_ALGO_DEFAULT -- Cubic out of the box, aligning the untuned
+ * benchmark preconditions with the mainstream stacks, which all default to
+ * Cubic); a non-zero runtime choice still wins. A build wanting NewReno as
+ * its default overrides -DWIRED_CC_ALGO_DEFAULT=0 instead (an explicit
+ * runtime NewReno request is indistinguishable from "unset" because
+ * QUIC_CC_ALGO_NEWRENO is itself 0). */
+static void test_srvrun_cc_algo_zero_means_build_default(void) {
+  srvrun_cfg cfg = {0};
+  CHECK(srvrun_cc_algo(&cfg) == QUIC_CC_ALGO_CUBIC);
+  cfg.cc_algo = QUIC_CC_ALGO_BBR;
+  CHECK(srvrun_cc_algo(&cfg) == QUIC_CC_ALGO_BBR);
+  cfg.cc_algo = QUIC_CC_ALGO_CUBIC;
+  CHECK(srvrun_cc_algo(&cfg) == QUIC_CC_ALGO_CUBIC);
+}
+
 /* Every full-size slice at the DPLPMTUD-maximum MPS must reach the
  * in-flight log: bytes consumed from the sendq == bytes logged in flight.
  * srvrun_send_stream_slice's plaintext buffer was a fixed 1400 bytes while
@@ -12301,6 +12317,7 @@ void test_srvrun(void) {
   test_srvrun_pmtu_timeout_reaped_as_loss();
   test_srvrun_pmtu_probe_at_ceiling_does_not_spin();
   test_srvrun_pump_full_mps_slice_reaches_log();
+  test_srvrun_cc_algo_zero_means_build_default();
   test_srvrun_pump_round_robins_across_slots();
   test_srvrun_pacing_floor_does_not_starve_round();
   test_srvrun_pto_probe_bypasses_cwnd();
