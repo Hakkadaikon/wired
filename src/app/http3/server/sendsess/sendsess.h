@@ -98,6 +98,16 @@ int wired_sendsess_take(wired_sendsess* s, wired_sendq_slice* out);
 int wired_sendsess_sent(
     wired_sendsess* s, const wired_sendq_slice* sl, u64 pn, u64 now_ms);
 
+/** Return a just-taken slice whose send failed, so the next take offers it
+ * again. A taken slice has already advanced the sendq cursor -- its bytes
+ * count as consumed (flow control) but are in no log or requeue, so
+ * dropping it on a failed send would leave a permanent hole loss detection
+ * can never resend. Call only with the slice the immediately preceding
+ * wired_sendsess_take returned.
+ * @param s the session sl was taken from
+ * @param sl the slice that could not be sent */
+void wired_sendsess_untake(wired_sendsess* s, const wired_sendq_slice* sl);
+
 /** @return 1 if log entry e is in flight and inside [lo, hi]. */
 int wired_sendsess_covered(const wired_sent_slice* e, u64 lo, u64 hi);
 
