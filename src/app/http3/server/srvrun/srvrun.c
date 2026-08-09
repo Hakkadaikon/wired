@@ -571,6 +571,10 @@ typedef struct {
  * -- black-holing them (never logged in flight, so never loss-detected or
  * resent) and stalling every large transfer once the search completed. */
 #define SRVRUN_SLICE_PL (QUIC_PMTU_MAX - QUIC_PMTU_OVERHEAD + 25)
+/* Payload room reserved ahead of a slice for a piggybacked multi-range ACK
+ * -- same sizing rationale as respond.c's emit_ack_only pl[288] (room for
+ * QUIC_ACK_MAX_RANGES ranges, not just one pn). */
+#define SRVRUN_ACK_ROOM 288
 
 /* RFC 8899 4.4: the Maximum Packet Size c's DPLPMTUD search has validated so
  * far, in stream bytes per packet -- every send-sizing call site in this
@@ -2430,6 +2434,10 @@ static void srvrun_on_step(
   c->l.now_ms = ctx->now_ms; /* share srvrun's own PTO/RTT clock with
                               * quic_ackpolicy's delayed-ACK timer, not a
                               * second one. */
+  c->l.ack_defer = 1;        /* RFC 9000 13.2.1: suppress the bare-ACK packet
+                              * this step; the pump piggybacks the pending ACK
+                              * onto a slice, or srvrun_flush_deferred_ack
+                              * sends it at step end. */
   produced = wired_srvloop_step(&conn, dg, &ob);
   srvrun_ku_note_rotation(c, ctx->now_ms);
   srvrun_note_recv(ctx, &mark, c, dg.n);
@@ -4568,6 +4576,37 @@ static u8 srvrun_slice_fin(
  * stream_id, RFC 9000 19.8) and send it -- the shared body under both a
  * resp[] slot's send (srvrun_send_slice) and a WT send slot's
  * (srvrun_pump_one_wt). Returns 1 once logged in flight. */
+/* RFC 9000 13.2.1: piggyback the step's deferred pending ACK ahead of a
+ * slice when the combined plaintext still fits this connection's validated
+ * packet size. The ACK length is fixed by encoding it BEFORE committing
+ * (wired_srvloop_ack_peek leaves the pending state untouched), so an ACK
+ * that does not fit simply stays pending and the slice goes out bare -- no
+ * take-then-fail hole: the policy is only cleared (mark_sent) after the
+ * carrying packet went out. Returns the ACK bytes written at pl[0]. */
+static usz srvrun_slice_ack_peek(
+    srvrun_conn* c, const wired_sendq_slice* sl, u8* pl) {
+  usz al;
+  if (!c->l.ack_defer) return 0;
+  al = wired_srvloop_ack_peek(&c->l, pl, SRVRUN_ACK_ROOM);
+  return sl->len + al <= srvrun_mps(c) ? al : 0;
+}
+
+/* Seal pl as one 1-RTT packet under pn, send it, and -- once it is on the
+ * wire -- consume the piggybacked pending ACK when the payload carried one
+ * (al != 0). Returns 1 on success, 0 if sealing failed (nothing sent, the
+ * pending ACK untouched). */
+static int srvrun_seal_send_slice(
+    const srvrun_step_ctx* ctx, srvrun_conn* c, quic_span pl, u64 pn, usz al) {
+  u8                    out[1500];
+  quic_obuf             ob  = quic_obuf_of(out, sizeof out);
+  wired_srvloop_send_in sin = {
+      quic_span_of(c->l.cli_scid, c->l.cli_scid_len), pn, -1, pl, 0};
+  if (!wired_srvloop_send_onertt(&c->s, &sin, &ob)) return 0;
+  srvrun_send(ctx->cfg, c, quic_span_of(out, ob.len), "1-RTT payload sent\n");
+  if (al) wired_srvloop_ack_mark_sent(&c->l);
+  return 1;
+}
+
 static int srvrun_send_stream_slice(
     const srvrun_step_ctx*   ctx,
     srvrun_conn*             c,
@@ -4575,22 +4614,17 @@ static int srvrun_send_stream_slice(
     u64                      stream_id,
     const wired_sendq_slice* sl,
     u8                       fin) {
-  u8                pl[SRVRUN_SLICE_PL], out[1500];
-  quic_obuf         plb = quic_obuf_of(pl, sizeof pl);
-  quic_obuf         ob  = quic_obuf_of(out, sizeof out);
+  u8                pl[SRVRUN_ACK_ROOM + SRVRUN_SLICE_PL];
+  usz               al  = srvrun_slice_ack_peek(c, sl, pl);
+  quic_obuf         plb = quic_obuf_of(pl + al, sizeof pl - al);
   quic_stream_frame f   = {
       stream_id, wired_sendsess_stream_offset(sess, sl), sl->len,
       sess->q.p + sl->offset, fin};
   u64 pn;
   if (!quic_appdata_stream_frame(&f, &plb)) return 0;
   pn = c->l.tx_pn++;
-  {
-    wired_srvloop_send_in sin = {
-        quic_span_of(c->l.cli_scid, c->l.cli_scid_len), pn, -1,
-        quic_span_of(pl, plb.len), 0};
-    if (!wired_srvloop_send_onertt(&c->s, &sin, &ob)) return 0;
-  }
-  srvrun_send(ctx->cfg, c, quic_span_of(out, ob.len), "response slice sent\n");
+  if (!srvrun_seal_send_slice(ctx, c, quic_span_of(pl, al + plb.len), pn, al))
+    return 0;
   return wired_sendsess_sent(sess, sl, pn, ctx->now_ms);
 }
 
@@ -5695,6 +5729,30 @@ static void srvrun_qlog_metrics(const srvrun_step_ctx* ctx, srvrun_conn* c) {
     wired_qlog_append(ctx->cfg->qlog_path, quic_span_of((const u8*)rec, n));
 }
 
+/* 1 iff this step deferred a bare ACK that is due right now; closes the
+ * defer window either way (it spans exactly one step). Down connections
+ * flush nothing. */
+static int srvrun_deferred_ack_due(srvrun_conn* c) {
+  if (!c->up || !c->l.ack_defer) return 0;
+  c->l.ack_defer = 0;
+  return quic_ackpolicy_should_ack(
+      &c->l.app_ack_policy, c->l.now_ms, WIRED_SRVLOOP_MAX_ACK_DELAY_MS);
+}
+
+/* RFC 9000 13.2.1/13.2.2: a step whose deferred ACK found no slice to ride
+ * flushes it as the traditional bare-ACK datagram, so deferral never delays
+ * an ACK past the pre-existing upper bound (the delay window still gates
+ * this packet, exactly like respond.c's emit_ack_only did). */
+static void srvrun_flush_deferred_ack(
+    const srvrun_step_ctx* ctx, srvrun_conn* c) {
+  u8  pl[SRVRUN_ACK_ROOM];
+  usz al;
+  if (!srvrun_deferred_ack_due(c)) return;
+  al = wired_srvloop_ack_peek(&c->l, pl, sizeof pl);
+  if (al)
+    srvrun_seal_send_slice(ctx, c, quic_span_of(pl, al), c->l.tx_pn++, al);
+}
+
 static void srvrun_sess_on_step(const srvrun_step_ctx* ctx, int slot) {
   srvrun_conn* c = &ctx->st->conns[slot];
   srvrun_feed_acks(ctx, ctx->cfg, c);
@@ -5710,6 +5768,7 @@ static void srvrun_sess_on_step(const srvrun_step_ctx* ctx, int slot) {
   srvrun_start_done_resps(ctx, slot);
   srvrun_pump_sess(ctx, slot);
   srvrun_pump_datagram(ctx, c);
+  srvrun_flush_deferred_ack(ctx, c);
   srvrun_ku_discard_stale(c, ctx->now_ms);
   srvrun_qlog_metrics(ctx, c);
 }
