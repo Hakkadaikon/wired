@@ -218,10 +218,22 @@ static usz app_ack_append(wired_srvloop* l, u8* buf, usz cap) {
 /* RFC 9000 13.2.1/13.2.2: append an ACK ONLY when one is actually due
  * (quic_ackpolicy_should_ack) -- for emit_ack_only's bare-ACK packet, where
  * sending one costs a whole extra packet on the wire, so the delay window
- * genuinely matters (unlike app_ack_append's piggyback callers above). */
+ * genuinely matters (unlike app_ack_append's piggyback callers above).
+ * Suppressed while ack_defer is set: the driving loop (srvrun.c) piggybacks
+ * or flushes the pending ACK itself this step. */
 static usz app_ack_append_if_due(wired_srvloop* l, u8* buf, usz cap) {
+  if (l->ack_defer) return 0;
   if (!app_ack_due(l)) return 0;
   return app_ack_append(l, buf, cap);
+}
+
+usz wired_srvloop_ack_peek(wired_srvloop* l, u8* buf, usz cap) {
+  if (!l->app_ack_policy.pending) return 0;
+  return app_ack_encode_ranges(l, buf, cap);
+}
+
+void wired_srvloop_ack_mark_sent(wired_srvloop* l) {
+  quic_ackpolicy_on_ack_sent(&l->app_ack_policy);
 }
 
 #define WIRED_SRVLOOP_BODY_MAX                                                \

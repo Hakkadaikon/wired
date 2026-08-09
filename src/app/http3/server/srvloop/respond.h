@@ -23,6 +23,18 @@ const u8* wired_srvloop_ticket_key(void);
 int wired_srvloop_produce(
     const wired_srvloop_conn* conn, int got_request, quic_obuf* out);
 
+/* RFC 9000 13.2.1: encode the App space's pending multi-range ACK into buf
+ * WITHOUT clearing the pending state -- the deferred-ACK piggyback seam for
+ * a driving loop (srvrun.c) that decides fit-or-not after seeing the
+ * encoded length. Returns the encoded length, 0 when nothing is pending (or
+ * encoding fails). Pair with wired_srvloop_ack_mark_sent once the carrying
+ * packet is actually sent. */
+usz wired_srvloop_ack_peek(wired_srvloop* l, u8* buf, usz cap);
+
+/* Clear the pending-ACK state after a wired_srvloop_ack_peek result went
+ * out on the wire, so the next step's due-check starts fresh. */
+void wired_srvloop_ack_mark_sent(wired_srvloop* l);
+
 /* RFC 9000 19.20: replay the confirmation (SETTINGS + session ticket +
  * HANDSHAKE_DONE) captured at its one-time emit, re-sealed under a fresh pn
  * -- the recovery when the single confirmation datagram was lost and the
