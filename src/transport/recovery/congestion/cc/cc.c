@@ -99,29 +99,55 @@ static u64 bbr_bdp(const quic_cc* c) {
   return c->bbr.btl_bw * c->bbr.rtprop_ms;
 }
 
+/* A starved round -- far fewer bytes delivered than the window would carry
+ * (loss-stalled, idle, or app-limited) -- proves nothing about the
+ * bottleneck: its sample may only RAISE the estimate. Feeding it into the
+ * max filter would age the real peak out within QUIC_BBR_BW_WIN rounds and
+ * spiral cwnd down to the floor (observed live: a startup loss storm
+ * starved a few rounds, btl_bw collapsed, and the transfer never
+ * recovered). */
+static int bbr_round_counts(const quic_cc* c, u64 rate) {
+  int starved = c->round_bytes + QUIC_MAX_DATAGRAM < c->cwnd;
+  return !starved || rate > c->bbr.btl_bw;
+}
+
+/* Feed one closed round: the (guarded) bandwidth sample, one PROBE_BW gain
+ * cycle step -- per ROUND, not per tick: srvrun ticks every received
+ * datagram (~ms) and would spin the 8-phase cycle into noise -- and the
+ * next round's baseline. */
+static void bbr_round_feed(quic_cc* c, u64 now_ms, u64 rate) {
+  if (bbr_round_counts(c, rate)) quic_bbr_on_round(&c->bbr, rate);
+  quic_bbr_cycle_tick(&c->bbr);
+  c->round_bytes    = 0;
+  c->round_start_ms = now_ms;
+}
+
 /* Close the sample round once at least one rtprop (min 1ms) has elapsed. */
 static void bbr_round_close(quic_cc* c, u64 now_ms) {
   u64 span = now_ms - c->round_start_ms;
   u64 need = quic_u64_max(c->bbr.rtprop_ms, 1);
   if (span < need || !c->round_bytes) return;
-  quic_bbr_on_round(&c->bbr, c->round_bytes / span);
-  c->round_bytes    = 0;
-  c->round_start_ms = now_ms;
+  bbr_round_feed(c, now_ms, c->round_bytes / span);
 }
+
+/* draft-cardwell-iccrg-bbr 4.2.3.4 BBRMinPipeCwnd: never below 4 packets,
+ * so ACK clocking survives a collapsed estimate -- at 2 packets a
+ * delayed-ACK peer measures rtt ~2x rtprop and the tiny bandwidth estimate
+ * becomes self-consistent (a 2400-byte cwnd fixed point, observed live). */
+#define QUIC_CC_BBR_MIN_CWND (4 * QUIC_MAX_DATAGRAM)
 
 /* cwnd = cwnd_gain x BDP once the estimators have data. */
 static void bbr_set_cwnd(quic_cc* c) {
   u64 bdp = bbr_bdp(c);
   if (!bdp) return;
   c->cwnd = quic_u64_max(
-      quic_bbr_cwnd_gain_pct(&c->bbr) * bdp / 100, QUIC_CC_MIN_WINDOW);
+      quic_bbr_cwnd_gain_pct(&c->bbr) * bdp / 100, QUIC_CC_BBR_MIN_CWND);
 }
 
 void quic_cc_bbr_tick(quic_cc* c, u64 inflight_bytes, u64 now_ms) {
   if (c->algo != QUIC_CC_ALGO_BBR) return;
   bbr_round_close(c, now_ms);
   quic_bbr_drained(&c->bbr, inflight_bytes <= bbr_bdp(c));
-  quic_bbr_cycle_tick(&c->bbr);
   if (!quic_bbr_check_probe_rtt(&c->bbr, now_ms))
     quic_bbr_probe_rtt_exit(&c->bbr, now_ms);
   bbr_set_cwnd(c);

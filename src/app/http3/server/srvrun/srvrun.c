@@ -5530,10 +5530,20 @@ static void srvrun_seed_boot_rtt(srvrun_conn* c, int was_booting, u64 now_ms) {
 
 static int srvrun_pace_within_poll_tick(const srvrun_conn* c);
 
-/* Bytes per ms the pacer refills at: RFC 9002 7.7's 1.25 * cwnd / srtt.
- * Callers guarantee srtt_ms != 0. */
-static u64 srvrun_pace_rate(const srvrun_conn* c) {
+/* Bytes per ms the pacer refills at: BBR paces at its own model's
+ * pacing_gain% x btl_bw (falling back to the generic formula until the
+ * first bandwidth sample); Reno/Cubic at RFC 9002 7.7's 1.25 * cwnd /
+ * srtt. Callers guarantee srtt_ms != 0. */
+static u64 srvrun_pace_rate_raw(const srvrun_conn* c) {
+  if (c->cc.algo == QUIC_CC_ALGO_BBR && c->cc.bbr.btl_bw)
+    return quic_bbr_pacing_gain_pct(&c->cc.bbr) * c->cc.bbr.btl_bw / 100;
   return 5 * c->cc.cwnd / (4 * c->srtt_ms);
+}
+
+/* Floored at 1 B/ms so a degenerate estimate can never stall the refill
+ * entirely (the tokens would otherwise never accumulate again). */
+static u64 srvrun_pace_rate(const srvrun_conn* c) {
+  return quic_u64_max(srvrun_pace_rate_raw(c), 1);
 }
 
 /* The uncapped balance after refilling for the wall time since the last
@@ -5588,9 +5598,12 @@ static int srvrun_pace_ok(const srvrun_step_ctx* ctx, const srvrun_conn* c) {
  * capacity (interop goodput timing out at 60s). Once the interval grows
  * past SRVRUN_PTO_MS, deferring is real: a later poll tick or the next ACK
  * will still be there to pick the send back up, and pacing spreads it
- * genuinely. BBR is unaffected (separate pacing path). */
+ * genuinely. BBR is ALWAYS token-gated: pacing at pacing_gain x btl_bw is
+ * its core mechanism (srvrun_pace_rate_raw), and the next_send_ms deferral
+ * would pin it to the poll cadence exactly like the pre-token-bucket
+ * regression this comment records. */
 static int srvrun_pace_within_poll_tick(const srvrun_conn* c) {
-  return c->cc.algo != QUIC_CC_ALGO_BBR &&
+  return c->cc.algo == QUIC_CC_ALGO_BBR ||
          quic_pacing_interval(c->srtt_ms, c->cc.cwnd, QUIC_MAX_DATAGRAM) <
              SRVRUN_PTO_MS;
 }

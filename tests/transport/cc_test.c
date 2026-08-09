@@ -119,8 +119,62 @@ static void test_cc_pacing_zero_srtt_stays_unfloored(void) {
   CHECK(quic_cc_pacing_ms(&c, 0, 1200) == 0);
 }
 
+/* A starved round -- far fewer bytes delivered than the window would carry
+ * (loss-stalled, idle, or app-limited) -- proves nothing about the
+ * bottleneck: it may only RAISE the estimate, never enter the max filter
+ * where it would age the real peak out within QUIC_BBR_BW_WIN rounds and
+ * spiral cwnd to the floor (the observed BBR transfer death spiral). */
+static void test_cc_bbr_starved_round_cannot_lower_btl_bw(void) {
+  quic_cc c;
+  u64     t = 51;
+  quic_cc_init_algo(&c, QUIC_CC_ALGO_BBR);
+  quic_cc_on_ack(&c, 60000, 0, 50); /* healthy round: 1176 B/ms */
+  quic_cc_bbr_tick(&c, 0, t);
+  CHECK(c.bbr.btl_bw == 1176);
+  for (int i = 0; i < QUIC_BBR_BW_WIN + 1; i++) { /* enough to age it out */
+    quic_cc_on_ack(&c, 1200, t, t + 51); /* one packet per round: starved */
+    t += 51;
+    quic_cc_bbr_tick(&c, 0, t);
+  }
+  CHECK(c.bbr.btl_bw == 1176); /* the peak survives the starved stretch */
+}
+
+/* draft-cardwell-iccrg-bbr BBRMinPipeCwnd: the cwnd floor is 4 packets --
+ * at 2 packets a delayed-ACK peer measures rtt ~2x rtprop and the tiny
+ * bandwidth estimate becomes self-consistent (the observed 2400-byte
+ * fixed point that never recovered). */
+static void test_cc_bbr_cwnd_floor_four_packets(void) {
+  quic_cc c;
+  quic_cc_init_algo(&c, QUIC_CC_ALGO_BBR);
+  quic_cc_on_ack(&c, 1200, 0, 50); /* tiny first sample: 23 B/ms */
+  quic_cc_bbr_tick(&c, 0, 51);
+  /* BDP = 23 x 50 = 1150; 289% = 3323 -> floored at 4 packets */
+  CHECK(c.cwnd == 4 * QUIC_MAX_DATAGRAM);
+}
+
+/* The PROBE_BW gain cycle advances once per CLOSED ROUND (~rtprop), never
+ * per tick -- srvrun ticks every received datagram (~ms), which spun the
+ * 8-phase cycle in ~8ms and reduced the probe/drain pattern to noise. */
+static void test_cc_bbr_cycle_advances_per_round_not_per_tick(void) {
+  quic_cc c;
+  quic_cc_init_algo(&c, QUIC_CC_ALGO_BBR);
+  c.bbr.phase       = QUIC_BBR_PROBE_BW;
+  c.bbr.have_rtprop = 1;
+  c.bbr.rtprop_ms   = 50;
+  c.bbr.btl_bw      = 1000;
+  quic_cc_bbr_tick(&c, 0, 1); /* no bytes: no round closes */
+  quic_cc_bbr_tick(&c, 0, 2);
+  CHECK(c.bbr.cycle_idx == 0);
+  c.round_bytes = 60000; /* a real round's worth */
+  quic_cc_bbr_tick(&c, 0, 60);
+  CHECK(c.bbr.cycle_idx == 1); /* exactly one advance per closed round */
+}
+
 void test_cc(void) {
   test_cc_bbr_mode();
+  test_cc_bbr_starved_round_cannot_lower_btl_bw();
+  test_cc_bbr_cwnd_floor_four_packets();
+  test_cc_bbr_cycle_advances_per_round_not_per_tick();
   test_cc_cubic_mode();
   test_cc_slow_start();
   test_cc_loss_halves_floor();
