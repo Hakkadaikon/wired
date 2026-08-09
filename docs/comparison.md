@@ -260,7 +260,7 @@ directly shape these metrics:
 | Congestion control | Cubic (NewReno/BBR selectable: `--cc-algo` at runtime, `-DWIRED_CC_ALGO_DEFAULT` at build) | Cubic | Cubic |
 | `initial_max_data` | 10 MB | 768 KiB, auto-tuned up to 15 MiB | 10 MB |
 | `initial_max_stream_data` | 48 KiB local / 256 KiB remote / 48 KiB uni | 512 KiB, auto-tuned up to 6 MiB | 1 MB |
-| `initial_max_streams_bidi` | 100 (re-granted as requests complete) | 100 | 100 |
+| `initial_max_streams_bidi` | 100 configured, initial advertisement clamped to 40 (the reassembly-table capacity); slots re-granted as requests complete | 100 | 100 |
 | UDP GSO | used | used (with fallback) | used (auto-detected) |
 | qlog / debug logging | off | off | off |
 

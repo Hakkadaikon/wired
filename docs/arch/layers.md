@@ -68,7 +68,7 @@ The key point is the two-level flow control.
 QUIC limits the receive volume of the whole connection and that of each stream separately.
 With only one of these, you cannot prevent a single stream from devouring the receive buffer of the whole connection.
 Managing the two limits — per-connection and per-stream — at the same time is the central difficulty of this layer.
-Congestion control offers three algorithms — NewReno (the default), CUBIC, and BBR, selected per run — and starts from an initial window of ten times the maximum datagram size (roughly 10 × 1200 bytes).
+Congestion control offers three algorithms — CUBIC (the default), NewReno, and BBR, selected per run — and starts from an initial window of ten times the maximum datagram size (roughly 10 × 1200 bytes).
 
 Representative domains are packet framing and protection, frame encoding, loss recovery and congestion control, streams and two-level flow control, the connection lifecycle, and UDP I/O.
 
