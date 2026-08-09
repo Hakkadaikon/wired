@@ -326,9 +326,9 @@ static int req_closed_has(const wired_srvloop* l, u64 stream_id) {
   u64 idx = stream_id / 4;
   if (idx < l->req_closed_floor) return 1;
   if (idx - l->req_closed_floor >= 1024) return 0;
-  return (l->req_closed_bm[(idx - l->req_closed_floor) / 64] >>
-          ((idx - l->req_closed_floor) % 64)) &
-         1;
+  return ((l->req_closed_bm[(idx - l->req_closed_floor) / 64] >>
+           ((idx - l->req_closed_floor) % 64)) &
+          1) != 0;
 }
 
 /* Claim and reset a free slot for stream_id.
