@@ -503,6 +503,32 @@ static void test_sendsess_untake_reoffers_requeued_slice(void) {
   CHECK(b.offset == a.offset && b.len == a.len);
 }
 
+/* reclaim_base: bytes below the lowest in-flight or requeued offset are
+ * reclaimable; nothing pending -> the whole taken prefix (q.cur) is.
+ * ring_room = cap - (queued end - reclaim_base). */
+static void test_sendsess_reclaim_base_and_ring_room(void) {
+  u8                buf[100];
+  wired_sendsess    s;
+  wired_sendq_slice a, b, c;
+  wired_sendsess_arm(&s, buf, 60, 20);
+  CHECK(wired_sendsess_reclaim_base(&s) == 0);
+  CHECK(wired_sendsess_ring_room(&s, 100) == 40); /* live span = 60 queued */
+  CHECK(wired_sendsess_take(&s, &a) == 1);        /* [0,20) */
+  CHECK(wired_sendsess_take(&s, &b) == 1);        /* [20,40) */
+  CHECK(wired_sendsess_sent(&s, &a, 1, 0) == 1);
+  CHECK(wired_sendsess_sent(&s, &b, 2, 0) == 1);
+  CHECK(wired_sendsess_reclaim_base(&s) == 0); /* pn 1 still in flight */
+  wired_sendsess_ack(&s, 1, 1);
+  CHECK(wired_sendsess_reclaim_base(&s) == 20); /* pn 2 pins the base */
+  wired_sendsess_ack(&s, 2, 2);
+  CHECK(wired_sendsess_reclaim_base(&s) == 40); /* q.cur: unsent tail live */
+  CHECK(wired_sendsess_ring_room(&s, 100) == 80);
+  CHECK(wired_sendsess_take(&s, &c) == 1); /* [40,60) */
+  CHECK(wired_sendsess_sent(&s, &c, 3, 0) == 1);
+  CHECK(wired_sendsess_pto_fire(&s, 5) == 1);   /* moves [40,60) to requeue */
+  CHECK(wired_sendsess_reclaim_base(&s) == 40); /* requeued slice pins it */
+}
+
 void test_sendsess(void) {
   test_sendsess_take_and_track();
   test_sendsess_ack_consumes();
@@ -530,4 +556,5 @@ void test_sendsess(void) {
   test_sendsess_inflight_bytes_survive_past_old_cap();
   test_sendsess_untake_reoffers_sendq_slice();
   test_sendsess_untake_reoffers_requeued_slice();
+  test_sendsess_reclaim_base_and_ring_room();
 }
