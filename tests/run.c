@@ -514,6 +514,7 @@
 #include "app/http3/server/sendsess/sendsess.c"
 #include "app/http3/server/srvloop/srvloop.c"
 #include "app/http3/server/srvboot/srvboot.c"
+#include "app/http3/server/certcache/certcache.c"
 #include "app/http3/server/sigterm/sigterm.c"
 #include "app/http3/server/certreload/certreload.c"
 #include "app/http3/server/hq09/hq09.c"
@@ -1001,6 +1002,7 @@
 #include "app/srvloop_test.c"
 #include "app/srvloop_priupdate_test.c"
 #include "app/srvboot_version_test.c"
+#include "app/certcache_test.c"
 #include "app/priupdate_test.c"
 #include "app/sendq_test.c"
 #include "app/sendsess_test.c"
@@ -1538,6 +1540,7 @@ int main(void) {
   test_srvloop();
   test_srvloop_priupdate();
   test_srvboot_version();
+  test_certcache();
   test_priupdate();
   test_sendq();
   test_sendsess();
