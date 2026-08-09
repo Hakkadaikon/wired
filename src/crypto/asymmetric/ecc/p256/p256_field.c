@@ -352,6 +352,21 @@ void quic_mont_mul(p256_fe r, quic_fpab ab, const quic_mont* mont) {
   mont_finalize(r, t, mont->m);
 }
 
+/* Two CIOS products: a*R (to Montgomery form via rr), then (aR)*b*R^-1 =
+ * a*b mod n. Side-channel posture matches quic_mont_mul's own
+ * (mont_finalize's public-modulus conditional subtract) -- neither
+ * strengthened nor weakened by this fast path. */
+void quic_fp_mul_n(p256_fe r, quic_fpab ab) {
+  p256_fe am;
+  quic_mont_mul(am, (quic_fpab){ab.a, quic_p256_mont_n.rr}, &quic_p256_mont_n);
+  quic_mont_mul(r, (quic_fpab){am, ab.b}, &quic_p256_mont_n);
+}
+
+void quic_fp_reduce_n(p256_fe r, const p256_fe a) {
+  quic_fp_set(r, a);
+  if (fe_ge(r, quic_p256_n)) fe_sub_raw(r, r, quic_p256_n);
+}
+
 /* from Montgomery form: r = a * R^-1 mod m = mont_mul(a, 1). */
 static void mont_from(p256_fe r, const p256_fe a, const quic_mont* mont) {
   p256_fe one = {1, 0, 0, 0};
