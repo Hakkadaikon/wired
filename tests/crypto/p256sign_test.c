@@ -110,8 +110,20 @@ static void test_p256sign_verify_rejects_s_out_of_range(void) {
   CHECK(quic_ecdsa_p256_verify(qx, qy, r, s_np1, h) == 0);
 }
 
+/* One signature drives the fixed-base multiply exactly once: the r, s
+ * computed by the RFC 6979 suitability check are reused, not redone. */
+static void test_p256sign_single_mulg(void) {
+  u8 priv[32], h[32], r[32], s[32];
+  psign_hb32(PS_X, priv);
+  quic_sha256((const u8*)"sample", 6, h);
+  ps_mulg_count = 0;
+  CHECK(quic_p256sign_sign(priv, h, r, s) == 1);
+  CHECK(ps_mulg_count == 1);
+}
+
 void test_p256sign(void) {
   test_p256sign_known_vector();
+  test_p256sign_single_mulg();
   test_p256sign_ps_roundtrip();
   test_p256sign_low_s();
   test_p256sign_verify_rejects_zero();
