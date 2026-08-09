@@ -3072,6 +3072,23 @@ static void test_srvrun_deferred_ack_flushed_without_slice(void) {
   CHECK(c->l.ack_defer == 0);
 }
 
+/* BBR rides the same token bucket: the refill rate is pacing_gain% x
+ * btl_bw (BBR's own pacing model), not the Reno/Cubic cwnd/srtt formula.
+ */
+static void test_srvrun_pace_rate_bbr_uses_btl_bw(void) {
+  srvrun_conn c  = {0};
+  srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                    0,  0, 0, 0, 0, 0, 0, 0, 0, 0};
+  srvrun_step_ctx ctx = {&cfg, 0, 0, 1000, 0};
+  quic_cc_init_algo(&c.cc, QUIC_CC_ALGO_BBR);
+  c.srtt_ms        = 30;
+  c.cc.bbr.btl_bw  = 100;               /* B/ms */
+  c.cc.bbr.phase   = QUIC_BBR_PROBE_BW; /* cycle 0: pacing gain 125% */
+  c.pace_refill_ms = 990;               /* 10ms elapsed at now = 1000 */
+  srvrun_pace_refill(&ctx, &c);
+  CHECK(c.pace_tokens == 10 * 125); /* 10ms x (125% x 100 B/ms) */
+}
+
 /* srvrun_pace_within_poll_tick's fast path still applies at the old
  * sub-ms extreme (cwnd huge enough the interval floors to 0) -- the new,
  * wider SRVRUN_PTO_MS threshold subsumes the old one, nothing regresses. */
@@ -12656,6 +12673,7 @@ void test_srvrun(void) {
   test_srvrun_pump_slices_batch_into_gso();
   test_srvrun_slice_piggybacks_deferred_ack();
   test_srvrun_deferred_ack_flushed_without_slice();
+  test_srvrun_pace_rate_bbr_uses_btl_bw();
   test_srvrun_pace_subms_still_unlimited();
   test_srvrun_pace_small_response_unaffected();
   test_srvrun_pace_burst_no_data_terminates();
