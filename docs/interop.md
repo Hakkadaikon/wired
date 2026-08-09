@@ -17,7 +17,7 @@ limitation, or a non-protocol gap) · `—` not demonstrated yet.
 | Testcase | Implemented | Remark |
 |---|---|---|
 | `handshake` | ✅ | connection establishment |
-| `transfer` | ✅ | file download over streams |
+| `transfer` | ✅ | file download over streams. Regressed to ✕ between 2026-08-05 (DPLPMTUD wiring) and 2026-08-09: full-size slices at the PMTU-raised chunk size overflowed a fixed plaintext buffer *after* their bytes were consumed from the send queue, black-holing them beyond loss detection's reach. Re-verified 5/5 consecutive PASS at the fix, plus 3/3 at the Cubic-default build ([Comparison](comparison.md) has the full story) |
 | `http3` | ✅ | parallel HTTP/3 GETs (3 streams, 500 KB bodies) |
 | `longrtt` | ✅ | high-latency link |
 | `chacha20` | ✅ | TLS_CHACHA20_POLY1305_SHA256 negotiation end to end, including a mid-transfer Key Update under that suite |
