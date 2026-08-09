@@ -52,7 +52,12 @@ static void test_server_tp_ids_and_values(void) {
       quic_tparam_cid_match(b, quic_span_of(scid, sizeof(scid))));
 
   CHECK(parse_int(tp, QUIC_TP_MAX_IDLE_TIMEOUT, &v) && v == 30000);
-  CHECK(parse_int(tp, QUIC_TP_INITIAL_MAX_DATA, &v) && v == 1048576);
+  /* 10,000,000 matches the connection-wide default the mainstream stacks
+   * benchmark with (quiche's CLI default), so untuned cross-implementation
+   * runs start from equal preconditions. Safe above the fixed receive
+   * buffers: the per-stream windows below carry the actual buffering
+   * promise, and they bind before the connection-wide limit does. */
+  CHECK(parse_int(tp, QUIC_TP_INITIAL_MAX_DATA, &v) && v == 10000000);
   /* An advertised per-stream window is a promise to buffer that many bytes
    * past delivery. bidi_local and uni land in srvloop's fixed WT reassembly
    * windows, so they must never exceed WIRED_SRVLOOP_WT_BUF_CAP: a larger
@@ -157,7 +162,7 @@ static void test_server_tp_tunable_limits(void) {
   CHECK(tp_int_value(tp, ob.len, 0x08, &v) && v == 5);
   ob.len = 0;
   CHECK(quic_stp_build_server(quic_span_of(od, 4), quic_span_of(sc, 4), &ob));
-  CHECK(tp_int_value(tp, ob.len, 0x04, &v) && v == 1048576);
+  CHECK(tp_int_value(tp, ob.len, 0x04, &v) && v == 10000000);
   CHECK(tp_int_value(tp, ob.len, 0x08, &v) && v == 100);
 }
 
@@ -220,7 +225,7 @@ static void test_server_tp_reset_stream_at_does_not_disturb_others(void) {
   usz n = stp_build(buf, sizeof(buf));
   CHECK(n != 0);
   quic_span tp = quic_span_of(buf, n);
-  CHECK(parse_int(tp, QUIC_TP_INITIAL_MAX_DATA, &v) && v == 1048576);
+  CHECK(parse_int(tp, QUIC_TP_INITIAL_MAX_DATA, &v) && v == 10000000);
   CHECK(parse_int(tp, QUIC_TP_INITIAL_MAX_STREAMS_BIDI, &v) && v == 100);
   CHECK(tp_int_value(buf, n, 0x20, &v) == 0); /* max_datagram_frame_size */
 }

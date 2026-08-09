@@ -12,12 +12,52 @@
 /** Built-in initial_max_streams_bidi default (a zero quic_stp_limits field
  * falls back to this) -- exposed so callers that track the advertised limit
  * across a connection's life (RFC 9000 4.6/19.11 MAX_STREAMS re-grants) know
- * the true starting value without duplicating the constant. */
+ * the true starting value without duplicating the constant. Like every
+ * QUIC_STP_DEFAULT_* below, overridable per build (-D flag). */
+#ifndef QUIC_STP_DEFAULT_MAX_STREAMS_BIDI
 #define QUIC_STP_DEFAULT_MAX_STREAMS_BIDI 100
+#endif
+/** Built-in initial_max_data default (RFC 9000 18.2, 0x04) -- 10,000,000 to
+ * match the connection-wide default the mainstream stacks ship (quiche's
+ * CLI default), so untuned cross-implementation benchmarks start from equal
+ * preconditions. Safe above the fixed receive buffers: the per-stream
+ * windows below carry the actual buffering promise and bind first. */
+#ifndef QUIC_STP_DEFAULT_MAX_DATA
+#define QUIC_STP_DEFAULT_MAX_DATA 10000000
+#endif
+/** Built-in max_idle_timeout default, milliseconds (RFC 9000 18.2, 0x01). */
+#ifndef QUIC_STP_DEFAULT_IDLE_TIMEOUT_MS
+#define QUIC_STP_DEFAULT_IDLE_TIMEOUT_MS 30000
+#endif
+/** Built-in initial_max_stream_data_bidi_local / _uni default (RFC 9000
+ * 18.2, 0x05/0x07). This is a PROMISE to buffer that many bytes past
+ * delivery, and both directions land in srvloop's fixed reassembly windows
+ * -- so it must equal WIRED_SRVLOOP_WT_BUF_CAP (srvloop.h; not includable
+ * here, the tls layer sits below app, but pinned by server_tp_test.c). A
+ * build raising one MUST raise the other in the same breath: advertising
+ * more than the buffer holds lets a compliant sender outrun delivery, and
+ * the clipped-yet-ACKed overflow becomes an unfillable stream gap that
+ * freezes the stream for good (this exact bug killed moqt_chat's voice
+ * track 10 s into every call). */
+#ifndef QUIC_STP_DEFAULT_STREAM_DATA_LOCAL
+#define QUIC_STP_DEFAULT_STREAM_DATA_LOCAL 49152
+#endif
+/** Built-in initial_max_stream_data_bidi_remote default (RFC 9000 18.2,
+ * 0x06): client-initiated request streams. Kept at its historic value (the
+ * request path's own buffers predate the local/uni fix above and interop
+ * pins the old behavior). */
+#ifndef QUIC_STP_DEFAULT_STREAM_DATA_REMOTE
+#define QUIC_STP_DEFAULT_STREAM_DATA_REMOTE 262144
+#endif
+/** Built-in initial_max_streams_uni default (RFC 9000 18.2, 0x09). */
+#ifndef QUIC_STP_DEFAULT_MAX_STREAMS_UNI
+#define QUIC_STP_DEFAULT_MAX_STREAMS_UNI 100
+#endif
 /** RFC 9000 18.2: the operator-tunable integer limits this server
  * advertises; a zero field falls back to the built-in default. */
 typedef struct {
-  u64 max_data;         /**< initial_max_data (0x04), default 1MiB */
+  u64 max_data;         /**< initial_max_data (0x04), default
+                         * QUIC_STP_DEFAULT_MAX_DATA */
   u64 max_streams_bidi; /**< initial_max_streams_bidi (0x08), default 100 */
   u64 max_datagram_frame_size; /**< max_datagram_frame_size (0x20, RFC 9221 3),
                                 * 0 = not advertised (no built-in default: the
