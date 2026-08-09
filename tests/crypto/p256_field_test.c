@@ -116,10 +116,65 @@ static void test_p256_field_mont_inv_n(void) {
   }
 }
 
+/* a * (a^-1) == 1 (mod p) via the fast Fermat inverse on random inputs, and
+ * on the boundaries 1, p-1, and the reduced all-ones pattern, each boundary
+ * also cross-checked against the generic slow oracle. Pins quic_fp_inv_p's
+ * exponentiation so a reshaped power ladder cannot silently drift. */
+static void test_p256_field_inv_p_edges(void) {
+  u64 s = 0xb7e151628aed2a6bULL;
+  fe  a, ai, prod, ref, one = {1, 0, 0, 0};
+  for (int it = 0; it < 64; it++) {
+    for (int i = 0; i < 4; i++) a[i] = p256_rng(&s);
+    quic_fp_reduce(a, a, quic_p256_p);
+    if (quic_fp_is_zero(a)) continue;
+    quic_fp_inv_p(ai, a);
+    quic_fp_mul_p(prod, a, ai);
+    CHECK(quic_fp_eq(prod, one));
+  }
+  {
+    fe edges[3] = {{1, 0, 0, 0}};
+    for (int i = 0; i < 4; i++) {
+      edges[1][i] = quic_p256_p[i];
+      edges[2][i] = ~0ULL;
+    }
+    edges[1][0] -= 1; /* p - 1 */
+    quic_fp_reduce(edges[2], edges[2], quic_p256_p);
+    for (int e = 0; e < 3; e++) {
+      quic_fp_inv_p(ai, edges[e]);
+      quic_fp_inv(ref, edges[e], quic_p256_p);
+      CHECK(quic_fp_eq(ai, ref));
+      quic_fp_mul_p(prod, edges[e], ai);
+      CHECK(quic_fp_eq(prod, one));
+    }
+  }
+}
+
+/* The Montgomery inverse mod n on the same boundary shapes (1, n-1, the
+ * reduced all-ones pattern), cross-checked against the generic oracle. */
+static void test_p256_field_mont_inv_n_edges(void) {
+  fe ai, prod, ref, one = {1, 0, 0, 0};
+  fe edges[3] = {{1, 0, 0, 0}};
+  for (int i = 0; i < 4; i++) {
+    edges[1][i] = quic_p256_n[i];
+    edges[2][i] = ~0ULL;
+  }
+  edges[1][0] -= 1; /* n - 1 */
+  quic_fp_reduce(edges[2], edges[2], quic_p256_n);
+  for (int e = 0; e < 3; e++) {
+    quic_mont_inv(ai, edges[e], &quic_p256_mont_n);
+    quic_fp_inv(ref, edges[e], quic_p256_n);
+    CHECK(quic_fp_eq(ai, ref));
+    quic_fp_mul(prod, (quic_fpab){edges[e], ai}, quic_p256_n);
+    CHECK(quic_fp_eq(prod, one));
+  }
+}
+
 void test_p256_field(void) {
   test_p256_field_inv();
   test_p256_field_addsub();
   test_p256_field_bytes();
   test_p256_field_fast_matches_generic();
   test_p256_field_mont_inv_n();
+  test_p256_field_inv_p_edges();
+  test_p256_field_mont_inv_n_edges();
 }
