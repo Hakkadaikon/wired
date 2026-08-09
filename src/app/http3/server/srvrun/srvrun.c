@@ -1517,7 +1517,7 @@ static u64 srvrun_dg_stream_limit_base(const srvrun_cfg* cfg) {
 /* RFC 9297 2.1 (9297-010): the client-initiated bidi stream limit last
  * advertised via MAX_STREAMS, falling back to the transport-parameter
  * default before any raise -- same base-or-advertised pattern as
- * srvrun_grant_one_more_stream. */
+ * srvrun_grant_streams. */
 static u64 srvrun_dg_stream_limit(const srvrun_cfg* cfg, const srvrun_conn* c) {
   u64 base = srvrun_dg_stream_limit_base(cfg);
   return c->stream_limit_advertised ? c->stream_limit_advertised : base;
@@ -1910,27 +1910,29 @@ static void srvrun_send_max_streams(
   c->stream_limit_advertised = value;
 }
 
-/* RFC 9000 4.6/19.11: raise the advertised bidi stream limit by one to
- * match the receive-side capacity a just-released srvloop slot (srvrun_
- * resp_reap) freed up -- keeps "limit advertised to the client" in
- * lockstep with "requests this SDK can actually reassemble at once"
- * (WIRED_SRVLOOP_MAX_STREAMS) instead of promising room the fixed-size
- * slot table cannot back. base is the limit already in force (the
- * connection's transport-parameter default the first time this fires,
- * srvrun_conn.stream_limit_advertised after that). Keeping this invariant
- * (one raise per release) means the currently-advertised limit is always
- * derivable, so a later STREAMS_BLOCKED (srvrun_reannounce_stream_limit)
- * never needs to compute anything new -- it just repeats this same value. */
-static void srvrun_grant_one_more_stream(
-    const srvrun_cfg* cfg, srvrun_conn* c, u64 base) {
+/* RFC 9000 4.6/19.11: raise the advertised bidi stream limit by n to match
+ * the receive-side capacity the srvloop slots a reap pass (srvrun_
+ * reap_resps) just released freed up -- keeps "limit advertised to the
+ * client" in lockstep with "requests this SDK can actually reassemble at
+ * once" (WIRED_SRVLOOP_MAX_STREAMS) instead of promising room the
+ * fixed-size slot table cannot back. One MAX_STREAMS frame carries the
+ * whole batch (n released slots used to cost n separate datagrams). base
+ * is the limit already in force (the connection's transport-parameter
+ * default the first time this fires, srvrun_conn.stream_limit_advertised
+ * after that). Keeping this invariant (raise == releases) means the
+ * currently-advertised limit is always derivable, so a later
+ * STREAMS_BLOCKED (srvrun_reannounce_stream_limit) never needs to compute
+ * anything new -- it just repeats this same value. */
+static void srvrun_grant_streams(
+    const srvrun_cfg* cfg, srvrun_conn* c, u64 base, usz n) {
   u64 current = c->stream_limit_advertised ? c->stream_limit_advertised : base;
-  srvrun_send_max_streams(cfg, c, current + 1);
+  if (n) srvrun_send_max_streams(cfg, c, current + n);
 }
 
 /* RFC 9000 4.6: "An endpoint that receives a STREAMS_BLOCKED frame SHOULD
  * send a MAX_STREAMS frame if it is willing to increase the limit." This
  * SDK's limit only ever advances in lockstep with real receive capacity
- * (srvrun_grant_one_more_stream, called on every slot release), so there is
+ * (srvrun_grant_streams, one batched raise per reap pass), so there is
  * nothing new to compute here -- just resend the limit already in force
  * (or the transport-parameter default if nothing has been granted yet) in
  * case the peer's own copy of it was lost. Never trusts the peer's own
@@ -5585,7 +5587,7 @@ static int srvrun_resp_not_yet_idle(srvrun_resp* r) {
 }
 
 /* This connection's transport-parameter bidi stream limit (the value
- * srvrun_grant_one_more_stream raises from the first time it fires) -- 0
+ * srvrun_grant_streams raises from the first time it fires) -- 0
  * (unset), including when the test harness's own cfg carries no id at all,
  * falls back to the same built-in default the transport parameter itself
  * uses (quic_stp_build_server_lim, server_tp.c). */
@@ -5594,23 +5596,27 @@ static u64 srvrun_stream_limit_base(const srvrun_step_ctx* ctx) {
   return wired_srvloop_stream_limit(configured);
 }
 
-static void srvrun_resp_reap(
+/* Returns 1 when the slot was released (its stream-limit grant is owed),
+ * 0 otherwise. */
+static usz srvrun_resp_reap(
     const srvrun_step_ctx* ctx, srvrun_conn* c, int slot, srvrun_resp* r) {
-  if (srvrun_resp_not_yet_idle(r)) return;
+  if (srvrun_resp_not_yet_idle(r)) return 0;
   if (r->streaming) {
     srvrun_resp_next_round(ctx, c, slot, r);
-    return;
+    return 0;
   }
   wired_srvloop_slot_release(&c->l, r->stream_id);
   srvrun_resp_release_bigbuf(ctx->cfg->env, r);
   r->in_use = 0;
-  srvrun_grant_one_more_stream(ctx->cfg, c, srvrun_stream_limit_base(ctx));
+  return 1;
 }
 
 static void srvrun_reap_resps(
     const srvrun_step_ctx* ctx, srvrun_conn* c, int slot) {
+  usz freed = 0;
   for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++)
-    srvrun_resp_reap(ctx, c, slot, &c->resp[i]);
+    freed += srvrun_resp_reap(ctx, c, slot, &c->resp[i]);
+  srvrun_grant_streams(ctx->cfg, c, srvrun_stream_limit_base(ctx), freed);
 }
 
 /* w has delivered every byte (sent and acknowledged) AND the app has

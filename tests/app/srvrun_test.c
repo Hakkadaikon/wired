@@ -289,6 +289,40 @@ static void test_srvrun_close_drained_dispatch(void) {
   CHECK(srvrun_test_send_count() == 1);
 }
 
+/* RFC 9000 19.11: reaping N finished responses in one pass advertises the
+ * raised bidi stream limit as ONE MAX_STREAMS frame carrying base+N, not N
+ * frames climbing one step at a time (each of which is its own sealed
+ * datagram and syscall). */
+static void test_srvrun_reap_batches_max_streams(void) {
+  struct lp_fix f;
+  srvrun_conn*  conns = sr_test_conns();
+  srvrun_conn*  c     = &conns[0];
+  quic_obuf     ob;
+  u8            obuf[1024];
+  srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                    0,  0, 0, 0, 0, 0, 0, 0, 0, 0};
+  srvrun_state    st;
+  srvrun_step_ctx ctx;
+  u64             base;
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(c, &f, &ob);
+  st   = (srvrun_state){0, conns};
+  ctx  = (srvrun_step_ctx){&cfg, 0, &st, 0, 0};
+  base = srvrun_stream_limit_base(&ctx);
+  /* two finished (fully sent and ACKed), non-streaming responses */
+  for (usz i = 0; i < 2; i++) {
+    c->resp[i].in_use      = 1;
+    c->resp[i].streaming   = 0;
+    c->resp[i].stream_id   = 4 * i;
+    c->resp[i].sess.active = 1; /* zeroed queue: nothing pending -> done */
+  }
+  srvrun_test_reset_send_count();
+  srvrun_reap_resps(&ctx, c, 0);
+  CHECK(c->resp[0].in_use == 0 && c->resp[1].in_use == 0);
+  CHECK(srvrun_test_send_count() == 1);
+  CHECK(c->stream_limit_advertised == base + 2);
+}
+
 /* RFC 9114 8.1 / 9114-077: srvrun_close_grease_id (called by
  * srvrun_close_drained ahead of every H3_NO_ERROR close) either declines to
  * grease (0, a failed RNG read or the coin flip landing on "don't") or
@@ -12459,6 +12493,7 @@ void test_srvrun(void) {
   test_srvrun_all_drained_false_when_one_up();
   test_srvrun_close_drained_seals_h3_no_error();
   test_srvrun_close_drained_dispatch();
+  test_srvrun_reap_batches_max_streams();
   test_srvrun_close_grease_id_zero_or_reserved();
   test_srvrun_close_drained_error_value_wiring();
   test_srvrun_send_no_qlog_path_writes_nothing();
