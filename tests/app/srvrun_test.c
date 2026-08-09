@@ -2943,6 +2943,64 @@ static void test_srvrun_pace_bursts_within_poll_interval(void) {
   CHECK(c.resp[0].sess.q.cur == sizeof body);
 }
 
+/* RFC 9000 13.2.1: with ack_defer set (srvrun_on_step's window), a pending
+ * App-space ACK rides the response slice instead of costing its own sealed
+ * datagram -- one send for slice+ACK, pending consumed by the piggyback. */
+static void test_srvrun_slice_piggybacks_deferred_ack(void) {
+  static u8     body[128];
+  struct lp_fix f;
+  srvrun_conn*  c  = sr_test_conns();
+  quic_obuf     ob = {0};
+  u8            obuf[1024];
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(c, &f, &ob);
+  c->resp[0].in_use    = 1;
+  c->resp[0].stream_id = 0;
+  wired_sendsess_arm(&c->resp[0].sess, body, sizeof body, SRVRUN_CHUNK);
+  /* a received 1-RTT packet to acknowledge, already past the delay window */
+  quic_pnspaces_on_recv(&c->l.ack_recv, QUIC_PNS_APP, 0);
+  c->l.app_ack_policy.pending = 2;
+  c->l.ack_defer              = 1;
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
+        0,  0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_state    st  = {0, c};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 1000, 0};
+    srvrun_test_reset_send_count();
+    srvrun_pump_sess(&ctx, 0);
+  }
+  CHECK(srvrun_test_send_count() == 1);
+  CHECK(c->l.app_ack_policy.pending == 0);
+}
+
+/* RFC 9000 13.2.1/13.2.2: a step whose deferred due ACK found no slice to
+ * ride still flushes it as the traditional bare-ACK datagram at step end,
+ * so deferral never delays an ACK past the old upper bound. */
+static void test_srvrun_deferred_ack_flushed_without_slice(void) {
+  struct lp_fix f;
+  srvrun_conn*  c  = sr_test_conns();
+  quic_obuf     ob = {0};
+  u8            obuf[1024];
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(c, &f, &ob);
+  quic_pnspaces_on_recv(&c->l.ack_recv, QUIC_PNS_APP, 0);
+  c->l.app_ack_policy.pending = 2; /* due right now, no delay needed */
+  c->l.ack_defer              = 1;
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
+        0,  0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_state    st  = {0, c};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 1000, 0};
+    srvrun_test_reset_send_count();
+    srvrun_sess_on_step(&ctx, 0);
+  }
+  CHECK(srvrun_test_send_count() == 1);
+  CHECK(c->l.app_ack_policy.pending == 0);
+  CHECK(c->l.ack_defer == 0);
+}
+
 /* srvrun_pace_within_poll_tick's fast path still applies at the old
  * sub-ms extreme (cwnd huge enough the interval floors to 0) -- the new,
  * wider SRVRUN_PTO_MS threshold subsumes the old one, nothing regresses. */
@@ -7869,10 +7927,14 @@ static void test_srvrun_onertt_get_is_acked_via_srvrun_on_step(void) {
   }
   slen = client_seal_onertt_pn(&f, 9, get, glen, spkt, sizeof spkt);
   {
-    srvrun_cfg cfg = {cfd,           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                      &g_srvrun_env, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-    srvrun_step_ctx ctx = {&cfg, &srv, 0, WIRED_SRVLOOP_MAX_ACK_DELAY_MS, 0};
+    srvrun_cfg   cfg = {cfd,           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                        &g_srvrun_env, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_state st  = {0, &c};
+    srvrun_step_ctx ctx = {&cfg, &srv, &st, WIRED_SRVLOOP_MAX_ACK_DELAY_MS, 0};
     srvrun_on_step(&ctx, &c, quic_mspan_of(spkt, slen));
+    /* the ACK is deferred to step end (piggyback or flush) -- the serve
+     * path always follows srvrun_on_step with srvrun_sess_on_step */
+    srvrun_sess_on_step(&ctx, 0);
   }
   {
     u8  pkt[1500];
@@ -7915,11 +7977,14 @@ static void test_srvrun_multi_range_ack_via_srvrun_on_step(void) {
     srvrun_on_step(&ctx, &c, quic_mspan_of(spkt, slen));
   }
   {
-    srvrun_cfg cfg = {cfd,           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                      &g_srvrun_env, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-    srvrun_step_ctx ctx = {&cfg, &srv, 0, WIRED_SRVLOOP_MAX_ACK_DELAY_MS, 0};
+    srvrun_cfg   cfg = {cfd,           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                        &g_srvrun_env, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_state st  = {0, &c};
+    srvrun_step_ctx ctx = {&cfg, &srv, &st, WIRED_SRVLOOP_MAX_ACK_DELAY_MS, 0};
     slen = client_seal_onertt_pn(&f, 9, ping, 1, spkt, sizeof spkt);
     srvrun_on_step(&ctx, &c, quic_mspan_of(spkt, slen));
+    /* deferred-ACK flush happens at step end, as the serve path does */
+    srvrun_sess_on_step(&ctx, 0);
   }
   {
     u8             pkt[1500];
@@ -12473,6 +12538,8 @@ void test_srvrun(void) {
   test_srvrun_pace_interval_equals_poll_no_extra_round();
   test_srvrun_pace_interval_over_poll_waits();
   test_srvrun_pace_bursts_within_poll_interval();
+  test_srvrun_slice_piggybacks_deferred_ack();
+  test_srvrun_deferred_ack_flushed_without_slice();
   test_srvrun_pace_subms_still_unlimited();
   test_srvrun_pace_small_response_unaffected();
   test_srvrun_pace_burst_no_data_terminates();
