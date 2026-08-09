@@ -543,6 +543,22 @@ typedef struct {
   u64 pmtu_probe_pn;
   usz pmtu_probe_size;
   u64 pmtu_probe_sent_ms;
+  /** Cached cross-slot totals the per-slice send gates read instead of
+   * re-walking every resp[]/wtsend slot per slice (O(slots^2) per pass):
+   * acct_inflight mirrors srvrun_inflight_bytes_all, acct_consumed mirrors
+   * srvrun_conn_consumed_bytes. Resynced from the full scans once per step
+   * (srvrun_acct_resync -- so ACK/requeue/reap effects are picked up
+   * wholesale, never tracked per event) and delta-adjusted around each
+   * slice attempt (srvrun_pump_one/_wt), so drift cannot outlive a step by
+   * construction. The full scans stay as the source of truth and the test
+   * oracle. */
+  usz acct_inflight;
+  usz acct_consumed;
+  /** RFC 9218 visiting order for resp[] (quic_h3prio_order output), built
+   * once per pump pass (srvrun_prio_refresh) instead of once per round --
+   * claims/releases/PRIORITY_UPDATEs only happen between passes, so the
+   * order is stable within one. */
+  usz prio_order[SRVRUN_RESP_SLOTS];
 } srvrun_conn;
 
 /* Response storage, one row per (connection slot, response slot): 64-byte
@@ -4820,9 +4836,10 @@ static int srvrun_sess_log_room(const wired_sendsess* sess) {
 /* 1 when the connection's congestion window (RFC 9002 7) has room for one
  * more chunk across every slot combined. Pacing (RFC 9002 7.7) is NOT
  * checked here -- it gates whole round-robin passes
- * (srvrun_pump_round_gated), not individual slots. */
+ * (srvrun_pump_round_gated), not individual slots. Reads the cached total
+ * (srvrun_conn.acct_inflight) rather than re-walking every slot per slice. */
 static int srvrun_cwnd_has_room(const srvrun_conn* c) {
-  return srvrun_inflight_bytes_all(c) + srvrun_mps(c) <= c->cc.cwnd;
+  return c->acct_inflight + srvrun_mps(c) <= c->cc.cwnd;
 }
 
 /* Sum of consumed (taken-from-sendq) stream bytes across every WT send
@@ -4852,10 +4869,27 @@ static usz srvrun_conn_consumed_bytes(const srvrun_conn* c) {
   return total;
 }
 
+/* One sess's contribution to acct_consumed: the absolute next-unsent stream
+ * offset (see srvrun_conn_consumed_bytes on why base + cur, not cur alone).
+ */
+static usz srvrun_sess_consumed(const wired_sendsess* sess) {
+  return sess->stream_base_offset + sess->q.cur;
+}
+
+/* Resync the cached totals from the full scans -- once per step (and per
+ * pump pass), so ACK/requeue/reap/re-arm effects are picked up wholesale
+ * instead of being tracked per event; see srvrun_conn.acct_inflight's doc.
+ */
+static void srvrun_acct_resync(srvrun_conn* c) {
+  c->acct_inflight = srvrun_inflight_bytes_all(c);
+  c->acct_consumed = srvrun_conn_consumed_bytes(c);
+}
+
 /* 1 when the connection's send credit (RFC 9000 18.2/19.9) has room for one
- * more chunk, summed across every slot the same way cwnd is. */
+ * more chunk, summed across every slot the same way cwnd is (cached total,
+ * see srvrun_acct_resync). */
 static int srvrun_conn_credit_has_room(const srvrun_conn* c) {
-  return srvrun_conn_consumed_bytes(c) + srvrun_mps(c) <= c->conn_credit;
+  return c->acct_consumed + srvrun_mps(c) <= c->conn_credit;
 }
 
 /* 1 when RFC 9000 4.1's two flow-control credits (connection-wide, and
@@ -5014,7 +5048,7 @@ static int srvrun_pump_gate_ok(
 /* Send one slice from r if the gates allow and one is ready. Pacing's
  * next-send time is scheduled once per whole pass by the caller
  * (srvrun_pump_round_gated), not per slice. */
-static int srvrun_pump_one(
+static int srvrun_pump_one_slice(
     const srvrun_step_ctx* ctx, srvrun_conn* c, srvrun_resp* r) {
   wired_sendq_slice sl;
   if (!srvrun_pump_gate_ok(c, &r->sess, r->stream_credit)) {
@@ -5023,6 +5057,20 @@ static int srvrun_pump_one(
   }
   if (!wired_sendsess_take(&r->sess, &sl)) return 0;
   return srvrun_send_slice(ctx, c, r, &sl);
+}
+
+/* Delta-adjust the cached totals around one slice attempt: only this sess's
+ * contribution can change inside it (take/untake/sent), so the before/after
+ * difference is exact -- and unsigned wraparound adds a negative delta
+ * correctly. */
+static int srvrun_pump_one(
+    const srvrun_step_ctx* ctx, srvrun_conn* c, srvrun_resp* r) {
+  usz inf0 = wired_sendsess_inflight_bytes(&r->sess);
+  usz con0 = srvrun_sess_consumed(&r->sess);
+  int sent = srvrun_pump_one_slice(ctx, c, r);
+  c->acct_inflight += wired_sendsess_inflight_bytes(&r->sess) - inf0;
+  c->acct_consumed += srvrun_sess_consumed(&r->sess) - con0;
+  return sent;
 }
 
 /* The wire FIN belongs on exactly the slice that ends the stream: the
@@ -5071,7 +5119,7 @@ static void srvrun_wtsend_promote_fin_if_ready(
 /* Send one slice from WT send slot w under the same gates -- or, once its
  * own sess has nothing left to give (wired_sendsess_take), a bare-FIN
  * round if one is pending (promoting a deferred request first). */
-static int srvrun_pump_one_wt(
+static int srvrun_pump_one_wt_slice(
     const srvrun_step_ctx* ctx, srvrun_conn* c, srvrun_wtsend* w) {
   wired_sendq_slice sl;
   srvrun_wtsend_promote_fin_if_ready(c, w);
@@ -5083,6 +5131,17 @@ static int srvrun_pump_one_wt(
     return srvrun_send_taken(
         ctx, c, &w->sess, w->stream_id, &sl, srvrun_wt_slice_fin(w, &sl));
   return srvrun_pump_wt_fin_only(ctx, c, w);
+}
+
+/* srvrun_pump_one's cached-total delta wrapper, WT-slot flavor. */
+static int srvrun_pump_one_wt(
+    const srvrun_step_ctx* ctx, srvrun_conn* c, srvrun_wtsend* w) {
+  usz inf0 = wired_sendsess_inflight_bytes(&w->sess);
+  usz con0 = srvrun_sess_consumed(&w->sess);
+  int sent = srvrun_pump_one_wt_slice(ctx, c, w);
+  c->acct_inflight += wired_sendsess_inflight_bytes(&w->sess) - inf0;
+  c->acct_consumed += srvrun_sess_consumed(&w->sess) - con0;
+  return sent;
 }
 
 /* The WT-send half of one round-robin pass (one slice per slot, in order).
@@ -5123,15 +5182,21 @@ static quic_h3prio_candidate srvrun_resp_candidate(
  * incremental bandwidth sharing and same-urgency starvation avoidance
  * without extra machinery: every slot still gets exactly one slice per
  * pass, only the visiting order within a pass changed). */
-static int srvrun_pump_resp_round(const srvrun_step_ctx* ctx, srvrun_conn* c) {
+/* (Re)build c->prio_order for the coming pump pass. Claims, releases, and
+ * PRIORITY_UPDATEs all land between passes (reap/start/receive run before
+ * srvrun_pump_sess in the step), so one build per pass sees exactly what a
+ * per-round build used to. */
+static void srvrun_prio_refresh(srvrun_conn* c) {
   quic_h3prio_candidate cand[SRVRUN_RESP_SLOTS];
-  usz                   order[SRVRUN_RESP_SLOTS];
-  int                   sent = 0;
   for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++)
     cand[i] = srvrun_resp_candidate(c, i);
-  quic_h3prio_order(cand, SRVRUN_RESP_SLOTS, order);
+  quic_h3prio_order(cand, SRVRUN_RESP_SLOTS, c->prio_order);
+}
+
+static int srvrun_pump_resp_round(const srvrun_step_ctx* ctx, srvrun_conn* c) {
+  int sent = 0;
   for (usz k = 0; k < SRVRUN_RESP_SLOTS; k++)
-    sent |= srvrun_pump_one(ctx, c, &c->resp[order[k]]);
+    sent |= srvrun_pump_one(ctx, c, &c->resp[c->prio_order[k]]);
   return sent;
 }
 
@@ -5360,6 +5425,9 @@ static void srvrun_pump_sess(const srvrun_step_ctx* ctx, int slot) {
    * confirms) drains every slot's already-armed sendq exactly as if it had
    * started then. */
   if (!wired_server_is_confirmed(&c->s)) return;
+  srvrun_acct_resync(c); /* pick up ACK/requeue/reap/re-arm effects wholesale
+                          * before any gate reads the cached totals */
+  srvrun_prio_refresh(c);
   while (srvrun_pump_opportunity(ctx, c)) {
   }
   srvrun_stage_flush(ctx->cfg); /* the pass's staged slices leave as one
@@ -5887,7 +5955,8 @@ static void srvrun_flush_deferred_ack(
 static void srvrun_sess_on_step(const srvrun_step_ctx* ctx, int slot) {
   srvrun_conn* c = &ctx->st->conns[slot];
   srvrun_feed_acks(ctx, ctx->cfg, c);
-  quic_cc_bbr_tick(&c->cc, srvrun_inflight_bytes_all(c), ctx->now_ms);
+  srvrun_acct_resync(c);
+  quic_cc_bbr_tick(&c->cc, c->acct_inflight, ctx->now_ms);
   srvrun_apply_conn_credit_update(c);
   srvrun_apply_stream_credit_update(c);
   srvrun_apply_path_response(c);
