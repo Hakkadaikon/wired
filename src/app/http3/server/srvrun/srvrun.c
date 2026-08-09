@@ -575,6 +575,10 @@ typedef struct {
  * -- same sizing rationale as respond.c's emit_ack_only pl[288] (room for
  * QUIC_ACK_MAX_RANGES ranges, not just one pn). */
 #define SRVRUN_ACK_ROOM 288
+/* Sealed datagrams one GSO staging batch can hold: 16 x 1500 = 24KB per env
+ * lands in the 14-48 packets/syscall ballpark quiche/quic-go batch at;
+ * raise if profiling shows flush-bound pumps. */
+#define SRVRUN_GSO_SEGS 16
 
 /* RFC 8899 4.4: the Maximum Packet Size c's DPLPMTUD search has validated so
  * far, in stream bytes per packet -- every send-sizing call site in this
@@ -676,6 +680,19 @@ struct wired_srvrun_env {
   /* Test-only: how many times srvrun_send has fired since the last
    * srvrun_test_reset_send_count (see its doc below). */
   usz send_count;
+  /* Test-only: wire flushes (send syscall batches -- an ordinary sendto or
+   * one whole GSO sendmsg each count 1) since srvrun_test_reset_flush_count.
+   */
+  usz tx_flush_count;
+  /* GSO staging (srvrun_stage_put/srvrun_stage_flush): equal-size sealed
+   * datagrams for one peer accumulated during a pump pass, flushed as one
+   * UDP_SEGMENT sendmsg. seg_size is the first datagram's size; GSO's one
+   * legal shorter tail closes the batch early. count == 0 means empty. */
+  u8            gso_stage[SRVRUN_GSO_SEGS * 1500];
+  usz           gso_seg_size;
+  usz           gso_len;
+  usz           gso_count;
+  quic_sockaddr gso_peer;
   /* The reload generation this env has already applied (srvrun_reload_
    * if_requested); a single-threaded run sees at most one pending generation
    * at a time, so "gen != seen" behaves exactly like the old boolean flag. */
@@ -810,11 +827,26 @@ __attribute__((unused)) static usz srvrun_test_send_count(void) {
   return g_srvrun_send_count;
 }
 
+/* Test-only wire-flush counter (env.tx_flush_count's doc): syscall batches,
+ * where one whole GSO sendmsg counts 1 -- so a test can pin how many
+ * syscalls a burst of datagrams costs, independent of the per-datagram
+ * send_count above. */
+__attribute__((unused)) static void srvrun_test_reset_flush_count(
+    const srvrun_cfg* cfg) {
+  cfg->env->tx_flush_count = 0;
+}
+
+__attribute__((unused)) static usz srvrun_test_flush_count(
+    const srvrun_cfg* cfg) {
+  return cfg->env->tx_flush_count;
+}
+
 /* The one TX seam: AF_XDP when cfg->xdp is set, the UDP socket otherwise.
  * Both srvrun_send and the direct Version Negotiation send route through
  * this. */
 static void srvrun_tx(
     const srvrun_cfg* cfg, const quic_sockaddr* sa, quic_span pkt) {
+  cfg->env->tx_flush_count++;
   if (cfg->xdp)
     wired_srvxdp_send(cfg->xdp, sa, pkt);
   else
@@ -833,6 +865,100 @@ static void srvrun_send(
     WIRED_LOG(what);
     g_srvrun_send_count++;
   }
+}
+
+/* --- GSO staging: sealed datagrams batched into one sendmsg ------------- */
+
+static void srvrun_stage_reset(wired_srvrun_env* e) {
+  e->gso_count    = 0;
+  e->gso_len      = 0;
+  e->gso_seg_size = 0;
+}
+
+/* Multi-segment wire-out: one UDP GSO sendmsg for the whole batch, or --
+ * when the kernel lacks UDP_SEGMENT (negative return) -- a sendto per
+ * segment. Either way it is one flush. */
+static void srvrun_stage_tx_multi(const srvrun_cfg* cfg) {
+  wired_srvrun_env* e   = cfg->env;
+  quic_span         all = quic_span_of(e->gso_stage, e->gso_len);
+  e->tx_flush_count++;
+  if (wired_udp_send_gso(cfg->fd, &e->gso_peer, all, (u16)e->gso_seg_size) >= 0)
+    return;
+  wired_udp_send_batch(cfg->fd, &e->gso_peer, all, (u16)e->gso_seg_size);
+}
+
+/* Flush the staged batch to the wire: a single staged datagram goes out the
+ * ordinary srvrun_tx path, several leave as one GSO sendmsg. No-op when the
+ * stage is empty. Per-datagram bookkeeping (qlog, send_count) already
+ * happened at staging time (srvrun_send_staged). */
+static void srvrun_stage_flush(const srvrun_cfg* cfg) {
+  wired_srvrun_env* e = cfg->env;
+  if (e->gso_count == 0) return;
+  if (e->gso_count == 1)
+    srvrun_tx(cfg, &e->gso_peer, quic_span_of(e->gso_stage, e->gso_len));
+  else
+    srvrun_stage_tx_multi(cfg);
+  srvrun_stage_reset(e);
+}
+
+/* 1 if a pkt.n-byte datagram still has stage room: batch open, not full,
+ * and no larger than the batch's segment size (a smaller one is GSO's one
+ * legal short tail -- srvrun_stage_put closes the batch right after it). */
+static int srvrun_stage_room(const wired_srvrun_env* e, usz n) {
+  return e->gso_count != 0 && e->gso_count < SRVRUN_GSO_SEGS &&
+         n <= e->gso_seg_size;
+}
+
+/* 1 if sa is the same address:port the open batch is headed to. */
+static int srvrun_stage_same_peer(
+    const wired_srvrun_env* e, const quic_sockaddr* sa) {
+  return sa->port_be == e->gso_peer.port_be &&
+         quic_ct_diffn(sa->addr, e->gso_peer.addr, 16) == 0;
+}
+
+static int srvrun_stage_extends(
+    const wired_srvrun_env* e, const quic_sockaddr* sa, usz n) {
+  return srvrun_stage_room(e, n) && srvrun_stage_same_peer(e, sa);
+}
+
+/* Stage one sealed datagram for c's peer. A datagram that cannot extend the
+ * open batch (different peer, larger than the segment size, or the batch is
+ * full) flushes it first and opens a new one; a shorter-than-segment
+ * datagram joins as the batch's legal short tail and closes it. */
+static void srvrun_stage_put(
+    const srvrun_cfg* cfg, const srvrun_conn* c, quic_span pkt) {
+  wired_srvrun_env* e = cfg->env;
+  if (!srvrun_stage_extends(e, &c->peer, pkt.n)) {
+    srvrun_stage_flush(cfg);
+    e->gso_seg_size = pkt.n;
+    e->gso_peer     = c->peer;
+  }
+  quic_memcpy(e->gso_stage + e->gso_len, pkt.p, pkt.n);
+  e->gso_len += pkt.n;
+  e->gso_count++;
+  if (pkt.n < e->gso_seg_size) srvrun_stage_flush(cfg);
+}
+
+/* srvrun_send, except the wire syscall is deferred into the env's GSO stage
+ * (srvrun_stage_flush sends it); the per-datagram bookkeeping happens now.
+ * AF_XDP has its own TX path with no GSO, so it sends immediately. Staged
+ * packets can leave the wire AFTER a direct srvrun_send issued later in the
+ * same pump pass (e.g. DATA_BLOCKED) -- plain datagram reordering, which
+ * any QUIC peer already tolerates (RFC 9000 12.3). */
+static void srvrun_send_staged(
+    const srvrun_cfg*  cfg,
+    const srvrun_conn* c,
+    quic_span          pkt,
+    const char*        what) {
+  (void)what;
+  if (cfg->xdp || pkt.n == 0) {
+    srvrun_send(cfg, c, pkt, what);
+    return;
+  }
+  srvrun_stage_put(cfg, c, pkt);
+  srvrun_qlog_sent(cfg, pkt.n);
+  WIRED_LOG(what);
+  g_srvrun_send_count++;
 }
 
 /* RFC 9000 8.1: this slot's remaining antiamp budget before path validation.
@@ -4602,7 +4728,8 @@ static int srvrun_seal_send_slice(
   wired_srvloop_send_in sin = {
       quic_span_of(c->l.cli_scid, c->l.cli_scid_len), pn, -1, pl, 0};
   if (!wired_srvloop_send_onertt(&c->s, &sin, &ob)) return 0;
-  srvrun_send(ctx->cfg, c, quic_span_of(out, ob.len), "1-RTT payload sent\n");
+  srvrun_send_staged(
+      ctx->cfg, c, quic_span_of(out, ob.len), "1-RTT payload sent\n");
   if (al) wired_srvloop_ack_mark_sent(&c->l);
   return 1;
 }
@@ -5235,6 +5362,8 @@ static void srvrun_pump_sess(const srvrun_step_ctx* ctx, int slot) {
   if (!wired_server_is_confirmed(&c->s)) return;
   while (srvrun_pump_opportunity(ctx, c)) {
   }
+  srvrun_stage_flush(ctx->cfg); /* the pass's staged slices leave as one
+                                 * GSO batch (srvrun_send_staged) */
 }
 
 /* After a live step: feed the step's ACK ranges to the session, start a
@@ -5751,6 +5880,8 @@ static void srvrun_flush_deferred_ack(
   al = wired_srvloop_ack_peek(&c->l, pl, sizeof pl);
   if (al)
     srvrun_seal_send_slice(ctx, c, quic_span_of(pl, al), c->l.tx_pn++, al);
+  srvrun_stage_flush(ctx->cfg); /* the bare ACK stages like a slice; nothing
+                                 * later this step would flush it */
 }
 
 static void srvrun_sess_on_step(const srvrun_step_ctx* ctx, int slot) {

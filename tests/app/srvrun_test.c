@@ -2943,6 +2943,34 @@ static void test_srvrun_pace_bursts_within_poll_interval(void) {
   CHECK(c.resp[0].sess.q.cur == sizeof body);
 }
 
+/* One pump pass's equal-size sealed slices leave as one GSO syscall batch
+ * (wired_udp_send_gso staging), not one sendto per slice -- at most two
+ * flushes for a 5-slice response (an odd-size head may close the first
+ * batch early). */
+static void test_srvrun_pump_slices_batch_into_gso(void) {
+  static u8     body[5 * SRVRUN_CHUNK];
+  struct lp_fix f;
+  srvrun_conn*  c  = sr_test_conns();
+  quic_obuf     ob = {0};
+  u8            obuf[1024];
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(c, &f, &ob);
+  c->resp[0].in_use    = 1;
+  c->resp[0].stream_id = 0;
+  wired_sendsess_arm(&c->resp[0].sess, body, sizeof body, SRVRUN_CHUNK);
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
+        0,  0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_state    st  = {0, c};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 1000, 0};
+    srvrun_test_reset_flush_count(&cfg);
+    srvrun_pump_sess(&ctx, 0);
+    CHECK(srvrun_test_flush_count(&cfg) <= 2);
+  }
+  CHECK(c->resp[0].sess.q.cur == sizeof body);
+}
+
 /* RFC 9000 13.2.1: with ack_defer set (srvrun_on_step's window), a pending
  * App-space ACK rides the response slice instead of costing its own sealed
  * datagram -- one send for slice+ACK, pending consumed by the piggyback. */
@@ -12538,6 +12566,7 @@ void test_srvrun(void) {
   test_srvrun_pace_interval_equals_poll_no_extra_round();
   test_srvrun_pace_interval_over_poll_waits();
   test_srvrun_pace_bursts_within_poll_interval();
+  test_srvrun_pump_slices_batch_into_gso();
   test_srvrun_slice_piggybacks_deferred_ack();
   test_srvrun_deferred_ack_flushed_without_slice();
   test_srvrun_pace_subms_still_unlimited();
