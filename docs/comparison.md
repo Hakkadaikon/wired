@@ -9,13 +9,16 @@ features (documented against each project's own sources) and in speed
 > **Scope disclaimer.** Every number below is a measurement from one specific
 > day (2026-08-09) on one specific machine (a 4-vCPU KVM VM, see the
 > [environment appendix](#environment)), against pinned versions. wired's
-> own rows are pinned per lane because two same-day changes landed while
-> measuring: a stall fix (`8c45b6f`, without which goodput was unmeasurable)
-> and a defaults retune (`f644681`, Cubic + a quiche-matching connection
-> window — the goodput section tells the full story; superseded interim
-> numbers stay in the [run manifest](#run-manifest)). It is not a claim of
-> general superiority or inferiority of any implementation. Bad numbers are
-> published along with good ones.
+> own rows are pinned per lane because same-day changes landed while
+> measuring: a stall fix (`8c45b6f`, without which goodput was unmeasurable),
+> a defaults retune (`f644681`, Cubic + a quiche-matching connection
+> window), and a datapath round (`c4f147f`: ACK piggybacking, batched
+> MAX_STREAMS grants, UDP GSO send batching, cached send-gate totals, plus
+> ECDSA/x25519 double-computation fixes — the loopback section tells the
+> full story; superseded interim numbers stay in the
+> [run manifest](#run-manifest)). It is not a claim of general superiority
+> or inferiority of any implementation. Bad numbers are published along
+> with good ones.
 
 Legend: `✅` supported · `Partial` supported with a stated limitation ·
 `—` not supported / not measured, with the reason in the cell or footnote.
@@ -60,7 +63,7 @@ endpoints run as Docker containers — one execution form across the row.
 
 | Server | Goodput (5 runs) | Server image |
 |---|---|---|
-| wired | 8018 (± 74) kbps | `wired-interop` built from commit `f644681` |
+| wired | 7814 (± 116) kbps [^w-goodput-rerun] | `wired-interop` built from commit `c4f147f` |
 | quic-go | 9532 (± 28) kbps | `martenseemann/quic-go-interop:latest` |
 | quiche | 9443 (± 7) kbps | `cloudflare/quiche-qns:latest` |
 | ngtcp2 | 9381 (± 67) kbps [^ngtcp2-warn] | `ghcr.io/ngtcp2/ngtcp2-interop:latest` |
@@ -71,7 +74,7 @@ xychart-beta
     title "Goodput over the runner's simulated link (kbps, higher is better)"
     x-axis ["wired", "quic-go", "quiche", "ngtcp2", "picoquic"]
     y-axis "kbps" 0 --> 10000
-    bar [8018, 9532, 9443, 9381, 9328]
+    bar [7814, 9532, 9443, 9381, 9328]
 ```
 
 **wired's number is the product of two same-day changes**, both disclosed:
@@ -99,10 +102,15 @@ xychart-beta
    implementation has its own unresolved issue, noted here rather than
    hidden.
 
-The remaining gap to quic-go (8018 vs 9532 kbps) is congestion-control
+The remaining gap to quic-go (7814 vs 9532 kbps) is congestion-control
 tuning headroom (recovery behavior on this 10 Mbps / 25-packet-queue
 simulated link), not a wire-format or sizing difference, and is future
-work.
+work. The later same-day datapath round (`c4f147f`) targeted the loopback
+lane, not this one: its pooled 7814 (± 116) sits ~2% under `f644681`'s
+single-run 8018 (± 74), but same-day re-runs of the pre-datapath build
+ranged 7944–8042 while post-datapath runs ranged 7630–7937 — the
+difference is within the day's run-to-run spread and a commit-level bisect
+did not attribute it to any one change [^w-goodput-rerun].
 
 ## Speed: loopback per-request overhead
 
@@ -118,7 +126,7 @@ request unanswered for 10 s counts as a failure and the worker moves on.
 
 | Server (native) | TTFB p50 (ms) | load req/s | load p50 (ms) | load p99 (ms) | failures |
 |---|---|---|---|---|---|
-| wired `f644681` | 4.4 ± 0.2 | 4855 ± 332 | 4.4 ± 0.3 | 5.9 ± 0.3 | 0 / 50,500 |
+| wired `c4f147f` | 3.4 ± 0.1 | 21,962 ± 591 | 0.8 ± 0.0 | 3.3 ± 0.4 | 0 / 50,500 |
 | quic-go v0.61.0 | 2.5 ± 0.1 | 11,329 ± 633 | 1.5 ± 0.1 | 4.2 ± 0.6 | 0 / 50,500 |
 | quiche 0.29.3 (`55886df`) | 2.0 ± 0.1 | 18,550 ± 2441 | 0.9 ± 0.1 | 3.7 ± 1.1 | 0 / 50,500 |
 | ngtcp2 | — (no native build attempted: multi-stage autotools chain; measured in the goodput lane only) | — | — | — | — |
@@ -128,8 +136,8 @@ request unanswered for 10 s counts as a failure and the worker moves on.
 xychart-beta
     title "Loopback load throughput (req/s, higher is better)"
     x-axis ["wired", "quic-go", "quiche"]
-    y-axis "req/s" 0 --> 22000
-    bar [4855, 11329, 18550]
+    y-axis "req/s" 0 --> 24000
+    bar [21962, 11329, 18550]
 ```
 
 ```mermaid
@@ -137,7 +145,7 @@ xychart-beta
     title "TTFB p50 -- fresh connection incl. handshake (ms, lower is better)"
     x-axis ["wired", "quic-go", "quiche"]
     y-axis "ms" 0 --> 5
-    bar [4.4, 2.5, 2.0]
+    bar [3.4, 2.5, 2.0]
 ```
 
 ```mermaid
@@ -145,21 +153,25 @@ xychart-beta
     title "Load latency p99 (ms, lower is better)"
     x-axis ["wired", "quic-go", "quiche"]
     y-axis "ms" 0 --> 7
-    bar [5.9, 4.2, 3.7]
+    bar [3.3, 4.2, 3.7]
 ```
 
-(Bars plot the table means.) Client CPU ran near or past saturation for the
-fastest rows — quiche's client-side CPU peaked at 125% of the 200% two-core
-budget and wired's at 103% — so read the ratios between servers as
-indicative, not exact. wired's row was re-measured at `f644681` after the
-defaults retune; the change is within run-to-run noise for this lane (1 KiB
-responses barely exercise congestion control — the earlier `8068749`
-NewReno-default runs sit in the [manifest](#run-manifest)), and the lane
-showed no stalls or failures across 50,500 requests on either build.
+(Bars plot the table means.) Client CPU ran past saturation for the fastest
+rows — quiche's client-side CPU peaked at 125% of the 200% two-core budget
+and wired's at 138% — so read the ratios between servers as indicative, not
+exact (the fastest rows are at least partly client-bound). wired's row was
+re-measured at `c4f147f` after a datapath round: batched MAX_STREAMS grants
+and an ACK piggybacked onto the response slice (≈1 datagram per request
+instead of ≈2.5), UDP GSO send batching, cached send-gate totals replacing
+an O(slots²)-per-pass scan (the single biggest req/s factor), and removal
+of a duplicated ECDSA sign computation and x25519 ECDHE (the TTFB drop from
+4.4 ms). The superseded `f644681` and `8068749` runs sit in the
+[manifest](#run-manifest); the lane showed no stalls or failures across
+50,500 requests on any build.
 
 ## Interop test cases (current run)
 
-Re-run against commit `8068749` alongside the benchmarks above (client:
+Re-run against commit `c4f147f` alongside the benchmarks above (client:
 quic-go, runner commit `1d6f655`):
 
 | Test case | Result | Note |
@@ -167,7 +179,8 @@ quic-go, runner commit `1d6f655`):
 | `handshake` | ✅ | |
 | `http3` | ✅ | |
 | `multiplexing` | ✅ | |
-| `transfer` | ✅ | failed (`✕`) at commit `8068749` — the goodput-lane stall above, reproduced here on a 2 MB download; passes 5/5 consecutive runs at the fix commit `8c45b6f` and 3/3 at `f644681` (Cubic default) |
+| `transfer` | ✅ | failed (`✕`) at commit `8068749` — the goodput-lane stall above, reproduced here on a 2 MB download; passes at the fix commit `8c45b6f` (5/5 consecutive), `f644681` (3/3), and after every datapath change of the `c4f147f` round (once per landing plus this final run) |
+| `blackhole` | ✅ | re-verified after the send-gate caching in `c4f147f` (the probe path it could have disturbed) |
 
 Full per-testcase status (broader set, including WebTransport) is
 maintained separately in [Interop Results](interop.md); the four rows above
@@ -210,7 +223,7 @@ is published for MOQT. This section is carried forward unchanged from the
 - Version pins per lane: the goodput lane uses the `:latest` Docker images
   registered in the runner's `implementations_quic.json` (image digests in
   the [run manifest](#run-manifest)); the loopback lane uses native builds
-  at the commits in its table (wired `f644681`, quic-go client library
+  at the commits in its table (wired `c4f147f`, quic-go client library
   `v0.61.0`, quiche `55886df` / crate version `0.29.3`).
 
 ### Server defaults (loopback lane)
@@ -276,16 +289,32 @@ Goodput lane (each value = runner's 5-repetition mean ± sd for that run):
 |---|---|---|
 | wired (`8068749`) | first run (disclosed, unmeasurable) | transfer stalled at 655,296 / 10,485,760 bytes |
 | wired (`8c45b6f`, stall fix, NewReno default) | single run (superseded) | 7144 (± 84) kbps |
-| wired (`f644681`, Cubic default; published above) | single run | 8018 (± 74) kbps |
+| wired (`f644681`, Cubic default) | single run (superseded) | 8018 (± 74) kbps |
 | wired (`f644681` built `-DWIRED_CC_ALGO_DEFAULT=2`, BBR) | single run (disclosed, unmeasurable) | transfer did not complete |
+| wired (`0f185cf`, crypto-only, bisect re-run) | 3 runs | 8042 (± 40), 8023 (± 220), 7944 (± 229) kbps |
+| wired (`1f3df4d`, +ACK piggyback, bisect re-run) | 3 runs | 6783 (± 1627), 7945 (± 210), 7920 (± 212) kbps |
+| wired (`c4f147f`, datapath round; published above) | 5 runs | 7804 (± 242), 7937 (± 89), 7630 (± 264), 7881 (± 189), 7816 (± 241) kbps — pooled 7814 (± 116) |
 | quic-go | single run | 9532 (± 28) kbps |
 | quiche | single run | 9443 (± 7) kbps |
 | ngtcp2 | single run [^ngtcp2-warn] | 9381 (± 67) kbps |
 | picoquic | single run | 9328 (± 5) kbps |
 
-Loopback lane, all 40 runs (no runs excluded, no failures in any run; the
-`8068749` wired rows are the superseded NewReno-default measurement, kept
-for comparison against the published `f644681` rows):
+Loopback lane, all 50 runs (no runs excluded, no failures in any run; the
+`8068749` and `f644681` wired rows are superseded measurements, kept for
+comparison against the published `c4f147f` rows):
+
+| server | run | mode | n | fails | req/s | p50 ms | p99 ms | client CPU % |
+|---|---|---|---|---|---|---|---|---|
+| wired `c4f147f` | r1 | ttfb | 100 | 0 | 296.3 | 3.15 | 6.05 | 60 |
+| wired `c4f147f` | r2 | ttfb | 100 | 0 | 287.3 | 3.31 | 4.75 | 59 |
+| wired `c4f147f` | r3 | ttfb | 100 | 0 | 277.2 | 3.40 | 4.55 | 64 |
+| wired `c4f147f` | r4 | ttfb | 100 | 0 | 277.6 | 3.44 | 4.64 | 60 |
+| wired `c4f147f` | r5 | ttfb | 100 | 0 | 269.3 | 3.48 | 4.98 | 59 |
+| wired `c4f147f` | r1 | load | 10000 | 0 | 21225.1 | 0.75 | 3.99 | 117 |
+| wired `c4f147f` | r2 | load | 10000 | 0 | 22241.3 | 0.76 | 3.40 | 126 |
+| wired `c4f147f` | r3 | load | 10000 | 0 | 21452.5 | 0.77 | 3.22 | 128 |
+| wired `c4f147f` | r4 | load | 10000 | 0 | 22289.5 | 0.79 | 3.11 | 138 |
+| wired `c4f147f` | r5 | load | 10000 | 0 | 22601.1 | 0.77 | 2.86 | 132 |
 
 | server | run | mode | n | fails | req/s | p50 ms | p99 ms | client CPU % |
 |---|---|---|---|---|---|---|---|---|
@@ -347,6 +376,10 @@ for comparison against the published `f644681` rows):
     body read, including the QUIC+TLS handshake — for a 1 KiB body this is
     indistinguishable from first-byte time, but the definition is the
     implemented one.
+[^w-goodput-rerun]: Pooled mean ± sd of 5 same-day runner invocations at
+    `c4f147f` (each itself a 5-repetition mean, individually listed in the
+    [run manifest](#run-manifest)). The non-wired rows were NOT re-run for
+    the `c4f147f` update; they remain the same-day single-invocation values.
 [^ngtcp2-warn]: The runner logged "At least one QUIC packet could not be
     decrypted" analysis warnings during the ngtcp2 run; the goodput
     measurement itself completed normally.
