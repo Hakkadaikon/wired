@@ -3956,8 +3956,12 @@ static void test_srvloop_closed_set_tracks_out_of_order_releases(void) {
 static void test_srvloop_stream_limit_clamps_to_table(void) {
   CHECK(wired_srvloop_stream_limit(0) == WIRED_SRVLOOP_MAX_STREAMS);
   CHECK(wired_srvloop_stream_limit(5) == 5);
-  CHECK(wired_srvloop_stream_limit(40) == 40);
-  CHECK(wired_srvloop_stream_limit(100) == WIRED_SRVLOOP_MAX_STREAMS);
+  CHECK(
+      wired_srvloop_stream_limit(WIRED_SRVLOOP_MAX_STREAMS) ==
+      WIRED_SRVLOOP_MAX_STREAMS);
+  CHECK(
+      wired_srvloop_stream_limit(WIRED_SRVLOOP_MAX_STREAMS + 60) ==
+      WIRED_SRVLOOP_MAX_STREAMS);
 }
 
 void test_srvloop(void) {

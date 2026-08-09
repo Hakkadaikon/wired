@@ -72,8 +72,12 @@ typedef int (*wired_srvloop_handler)(
  * testcase (TestCaseZeroRTT.NUM_FILES) opens 40 concurrent request streams
  * in a single 0-RTT/1-RTT burst -- a client that fires them all up front
  * (quic-go does) never retries a stream this SDK's own slot table dropped,
- * so anything short of 40 silently loses requests past the cap forever. */
+ * so anything short of 40 silently loses requests past the cap forever.
+ * Overridable at build time (-DWIRED_SRVLOOP_MAX_STREAMS=N); 40 is the
+ * floor the zerortt testcase demands. */
+#ifndef WIRED_SRVLOOP_MAX_STREAMS
 #define WIRED_SRVLOOP_MAX_STREAMS 40
+#endif
 
 /** Advertised initial_max_streams_bidi resolved from `configured` (0 = the
  * built-in default) and clamped to the reassembly-table capacity above.
