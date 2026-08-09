@@ -17,7 +17,7 @@ static void p256sign_set(u8* dst, u8 val, usz n) {
 static void ps_hash_mod_n(const u8 hash[32], u8 out[32]) {
   p256_fe h, e;
   quic_fp_from_be(h, hash);
-  quic_fp_reduce(e, h, quic_p256_n);
+  quic_fp_reduce_n(e, h);
   quic_fp_to_be(out, e);
 }
 

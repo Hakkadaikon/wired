@@ -15,7 +15,7 @@ static int ps_compute_r(p256_fe r, const u8 kb[32]) {
   p256_fe x, y;
   ps_mulg_count++;
   if (!quic_p256fixed_mul_g(x, y, kb)) return 0;
-  quic_fp_reduce(r, x, quic_p256_n);
+  quic_fp_reduce_n(r, x);
   return !quic_fp_is_zero(r);
 }
 
@@ -24,7 +24,7 @@ static void ps_compute_s(p256_fe s, const u8 kb[32], const p256_fe sum) {
   p256_fe k, kinv;
   quic_fp_from_be(k, kb);
   quic_mont_inv(kinv, k, &quic_p256_mont_n); /* k^-1 mod n, fast Montgomery */
-  quic_fp_mul(s, (quic_fpab){kinv, sum}, quic_p256_n);
+  quic_fp_mul_n(s, (quic_fpab){kinv, sum});
 }
 
 /* Low-S (RFC 6979 / BoringSSL): replace s with min(s, n - s) so s <= n/2. */
@@ -52,9 +52,10 @@ static int ps_k_suitable(const u8 kb[32], void* vctx) {
   p256_fe e, eh, d, rd, sum;
   if (!ps_compute_r(c->rv, kb)) return 0;
   quic_fp_from_be(eh, c->hash);
-  quic_fp_reduce(e, eh, quic_p256_n);
+  quic_fp_reduce_n(e, eh);
   quic_fp_from_be(d, c->priv);
-  quic_fp_mul(rd, (quic_fpab){c->rv, d}, quic_p256_n);
+  quic_fp_reduce_n(d, d); /* quic_fp_mul_n needs both operands < n */
+  quic_fp_mul_n(rd, (quic_fpab){c->rv, d});
   quic_fp_add(sum, (quic_fpab){e, rd}, quic_p256_n);
   ps_compute_s(c->sv, kb, sum);
   return !quic_fp_is_zero(c->sv);
