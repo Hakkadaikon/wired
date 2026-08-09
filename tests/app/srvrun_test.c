@@ -7289,6 +7289,38 @@ static void sr_drive_round_to_done(srvrun_step_ctx* ctx, srvrun_conn* c) {
   sr_drive_resp_round_to_done(ctx, c, 0);
 }
 
+/* THE ring property: a streaming response's queue is refilled (extended)
+ * while earlier bytes are still unacknowledged and in flight -- the old
+ * fixed rounds could only re-arm after a full-buffer ACK drain, idling the
+ * link ~1 RTT per buffer (an ~8% goodput loss on the interop link). */
+static void test_srvrun_streaming_refills_before_full_ack(void) {
+  struct lp_fix f;
+  srvrun_conn   c  = {0};
+  quic_obuf     ob = {0};
+  u8            obuf[1024];
+  ob                  = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_stream_total_len = 300;
+  sr_stream_round_cap = 100;
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.s.sdrv.alpn = QUIC_SALPN_HQ;
+  c.cc.cwnd     = 1u << 20;
+  sr_set_req(&c, 0, 0, 0);
+  {
+    srvrun_cfg cfg = {
+        -1, 0, sr_stream_body_handler, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0,  0, &g_srvrun_env,          0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_state    st  = {0, &c};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
+    srvrun_start_resp(&ctx, 0);
+    CHECK(c.resp[0].sess.q.len == 100);
+    srvrun_pump_sess(&ctx, 0); /* round 0 fully sent -- nothing acked */
+    CHECK(wired_sendsess_inflight(&c.resp[0].sess) > 0);
+    srvrun_reap_resps(&ctx, &c, 0); /* refill despite the in-flight tail */
+    CHECK(c.resp[0].sess.q.len == 200);
+    CHECK(wired_sendsess_inflight(&c.resp[0].sess) > 0); /* still unacked */
+  }
+}
+
 /* With the bigbuf pool exhausted, a streaming handler's response
  * still falls back to the fixed row instead of stalling or corrupting
  * state -- srvrun_resp_storage_cap hands it WIRED_SRVRUN_RESP_MAX's smaller
@@ -7329,7 +7361,7 @@ static void test_srvrun_streaming_bigbuf_exhausted_falls_back_to_fixed_row(
     sr_drive_round_to_done(&ctx, &c);
     srvrun_reap_resps(&ctx, &c, 0);
     CHECK(c.resp[0].bigbuf_row == -1); /* still the fixed row, not a pool one */
-    CHECK(c.resp[0].sess.q.len == 10);
+    CHECK(c.resp[0].sess.q.len == fixed_cap + 10); /* ring: cumulative */
     CHECK(c.resp[0].streaming == 0);
   }
   for (usz i = 0; i < WIRED_SRVBIGBUF_ROWS; i++)
@@ -7364,9 +7396,9 @@ static void test_srvrun_streaming_mid_round_read_error_truncates(void) {
     srvrun_start_resp(&ctx, 0);
     CHECK(c.resp[0].sess.q.len == 100); /* round 0 succeeded normally */
     sr_drive_round_to_done(&ctx, &c);
-    srvrun_reap_resps(&ctx, &c, 0);   /* round 1: handler declines */
-    CHECK(c.resp[0].sess.q.len == 0); /* truncated: empty final round */
-    CHECK(c.resp[0].streaming == 0);  /* not left mid-stream forever */
+    srvrun_reap_resps(&ctx, &c, 0);     /* refill: handler declines */
+    CHECK(c.resp[0].sess.q.len == 100); /* truncated: nothing appended */
+    CHECK(c.resp[0].streaming == 0);    /* not left mid-stream forever */
     sr_drive_round_to_done(&ctx, &c);
     srvrun_reap_resps(&ctx, &c, 0);
     CHECK(c.resp[0].in_use == 0); /* slot released, no stall */
@@ -7405,9 +7437,9 @@ static void test_srvrun_streaming_file_shrinks_completes_with_actual_bytes(
     CHECK(c.resp[0].sess.q.len == 100); /* round 0: unaffected by the later
                                             shrink */
     sr_drive_round_to_done(&ctx, &c);
-    srvrun_reap_resps(&ctx, &c, 0); /* round 1: sees the shrunk total (150) */
-    CHECK(c.resp[0].sess.q.len == 50); /* 150 - 100 already sent */
-    CHECK(c.resp[0].streaming == 0);   /* completes, does not hang */
+    srvrun_reap_resps(&ctx, &c, 0); /* refill: sees the shrunk total (150) */
+    CHECK(c.resp[0].sess.q.len == 150); /* ring: cumulative, +50 */
+    CHECK(c.resp[0].streaming == 0);    /* completes, does not hang */
     sr_drive_round_to_done(&ctx, &c);
     srvrun_reap_resps(&ctx, &c, 0);
     CHECK(c.resp[0].in_use == 0);
@@ -7491,8 +7523,8 @@ static void test_srvrun_streaming_next_round_armed_after_done(void) {
     CHECK(c.resp[0].streaming == 1);
     sr_drive_round_to_done(&ctx, &c);
     srvrun_reap_resps(&ctx, &c, 0);
-    CHECK(c.resp[0].in_use == 1);       /* not released: more rounds remain */
-    CHECK(c.resp[0].sess.q.len == 100); /* round 1 armed, still capped */
+    CHECK(c.resp[0].in_use == 1);       /* not released: more bytes remain */
+    CHECK(c.resp[0].sess.q.len == 200); /* ring: cumulative, +100 */
     CHECK(c.resp[0].stream_off == 200);
   }
 }
@@ -7522,9 +7554,9 @@ static void test_srvrun_streaming_final_round_releases_slot(void) {
     sr_drive_round_to_done(&ctx, &c); /* round 0: 100 of 150 */
     srvrun_reap_resps(&ctx, &c, 0);   /* -> round 1 armed: 50 remaining */
     CHECK(c.resp[0].in_use == 1);
-    CHECK(c.resp[0].sess.q.len == 50);
-    sr_drive_round_to_done(&ctx, &c); /* round 1: the last 50 */
-    srvrun_reap_resps(&ctx, &c, 0);   /* -> fully done, slot released */
+    CHECK(c.resp[0].sess.q.len == 150); /* ring: cumulative, +50 */
+    sr_drive_round_to_done(&ctx, &c);   /* round 1: the last 50 */
+    srvrun_reap_resps(&ctx, &c, 0);     /* -> fully done, slot released */
     CHECK(c.resp[0].in_use == 0);
   }
 }
@@ -7806,7 +7838,9 @@ static void test_srvrun_streaming_body_row_cap_plus_one_streams(void) {
     CHECK(c.resp[0].streaming == 1); /* one byte remains for round 1 */
     sr_drive_round_to_done(&ctx, &c);
     srvrun_reap_resps(&ctx, &c, 0);
-    CHECK(c.resp[0].sess.q.len == 1); /* round 1: the last byte */
+    CHECK(
+        c.resp[0].sess.q.len ==
+        WIRED_SRVBIGBUF_ROW_CAP - SRVRUN_RESP_HDR_ROOM + 1); /* +last byte */
     CHECK(c.resp[0].streaming == 0);
   }
   wired_srvbigbuf_release(&g_srvrun_env.bigbuf, c.resp[0].bigbuf_row);
@@ -7852,7 +7886,9 @@ static void test_srvrun_streaming_last_round_not_shrunk_to_fixed(void) {
      * the shrink-to-fixed optimization -- same pool row, not released. */
     CHECK(c.resp[0].streaming == 0);
     CHECK(c.resp[0].bigbuf_row == row0);
-    CHECK(c.resp[0].sess.q.len == 10);
+    CHECK(
+        c.resp[0].sess.q.len ==
+        WIRED_SRVBIGBUF_ROW_CAP - SRVRUN_RESP_HDR_ROOM + 10);
   }
   wired_srvbigbuf_release(&g_srvrun_env.bigbuf, c.resp[0].bigbuf_row);
 }
@@ -7886,9 +7922,9 @@ static void test_srvrun_streaming_rearm_respects_existing_send_gates(void) {
     srvrun_start_resp(&ctx, 0);
     sr_drive_round_to_done(&ctx, &c);
     c.cc.cwnd = 0;                  /* pin cwnd to 0 before round 1 arms */
-    srvrun_reap_resps(&ctx, &c, 0); /* round 1 armed despite cwnd == 0 */
+    srvrun_reap_resps(&ctx, &c, 0); /* refilled despite cwnd == 0 */
     CHECK(c.resp[0].in_use == 1);
-    CHECK(c.resp[0].sess.q.len == 100); /* armed: bytes are queued... */
+    CHECK(c.resp[0].sess.q.len == 200); /* ring: bytes are queued... */
     CHECK(wired_sendsess_inflight(&c.resp[0].sess) == 0); /* ...but unsent */
     srvrun_pump_sess(&ctx, 0); /* cwnd == 0: the ordinary new-send gate */
     CHECK(wired_sendsess_inflight(&c.resp[0].sess) == 0); /* still blocked */
@@ -12477,6 +12513,7 @@ void test_srvrun(void) {
   test_srvrun_streaming_body_row_cap_plus_one_streams();
   test_srvrun_streaming_last_round_not_shrunk_to_fixed();
   test_srvrun_streaming_rearm_respects_existing_send_gates();
+  test_srvrun_streaming_refills_before_full_ack();
   test_srvrun_streaming_bigbuf_exhausted_falls_back_to_fixed_row();
   test_srvrun_streaming_mid_round_read_error_truncates();
   test_srvrun_streaming_file_shrinks_completes_with_actual_bytes();
