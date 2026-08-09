@@ -179,11 +179,18 @@ typedef struct {
    * accounting; srvrun_can_send_new gates new sends on it so that never
    * happens. */
   u64 stream_credit;
-  /* 1 while the app handler has more response body to produce past this
-   * round (wired_srvloop_handler's *more): srvrun_resp_reap must re-invoke
-   * the handler for the next round instead of releasing this slot once its
-   * sendsess goes idle. 0 for every ordinary (single-round) response. */
+  /* 1 while the app handler has more response body to produce
+   * (wired_srvloop_handler's *more): srvrun_resp_refill keeps feeding the
+   * ring below and the slot must not be released even if its sendsess
+   * momentarily drains. 0 for every ordinary (single-round) response. */
   int streaming;
+  /* Ring capacity of this streaming response's storage row from the armed
+   * q.p to the row's end (srvrun_resp_ring_init): the sendq cycles through
+   * it forever instead of draining and re-arming per round -- the old
+   * round boundary idled the link for ~1 RTT every buffer's worth (an
+   * ~8% goodput loss on the interop link). 0 (unset) for non-streaming
+   * responses, whose queue stays linear. */
+  usz ring_cap;
   /* Response body bytes delivered to the handler/sendsess so far, across
    * every round of a streaming response (RFC 9000 19.8's absolute stream
    * offset for the NEXT round to arm at). Meaningless while !streaming. */
@@ -3995,6 +4002,7 @@ static srvrun_resp* srvrun_resp_claim(srvrun_conn* c, u64 stream_id) {
     c->resp[i].stream_id  = stream_id;
     c->resp[i].bigbuf_row = -1;
     c->resp[i].streaming  = 0;
+    c->resp[i].ring_cap   = 0;
     /* RFC 9000 18.2/19.10: seed this stream's send credit from the peer's
      * ClientHello TP (initial_max_stream_data_bidi_local, RFC 9000 18.2:
      * the TP sender's own locally-initiated streams' credit -- this
@@ -4283,6 +4291,21 @@ static usz srvrun_resp_storage_cap(const srvrun_resp* r) {
          SRVRUN_RESP_HDR_ROOM;
 }
 
+/* The storage row r is armed over, WITHOUT the claim side effect
+ * (srvrun_resp_storage claims a pool row for bigbuf_row < 0) -- the
+ * read-only companion for callers that only need the existing base. */
+static u8* srvrun_resp_storage_ro(
+    const srvrun_step_ctx* ctx, int slot, srvrun_conn* c, srvrun_resp* r) {
+  if (r->bigbuf_row >= 0)
+    return wired_srvbigbuf_row(&ctx->cfg->env->bigbuf, r->bigbuf_row);
+  return ctx->cfg->env->respstore[slot][srvrun_resp_index(c, r)];
+}
+
+/* Full byte size of the row srvrun_resp_storage chose. */
+static usz srvrun_resp_row_size(const srvrun_resp* r) {
+  return r->bigbuf_row >= 0 ? WIRED_SRVBIGBUF_ROW_CAP : WIRED_SRVRUN_RESP_MAX;
+}
+
 /* If r's body ended up small enough for the fixed respstore row after all
  * (the common case: most responses are far under 16KB), copy it there and
  * release the pool row immediately -- pool rows are scarce (2 total) and a
@@ -4349,19 +4372,9 @@ static void srvrun_arm_h3_resp_framed(
   wired_sendsess_arm(&r->sess, st, pob.len + body->len, srvrun_mps(c));
 }
 
-/* RFC 9114 4.1: a streaming response's round 1+ is unframed body bytes
- * continuing the DATA frame round 0 already declared -- no HEADERS/DATA
- * prefix, unlike round 0's srvrun_arm_h3_resp_framed (the bigbuf-to-fixed
- * shrink is also skipped here, since a shrink would discard the storage row
- * round 0's bytes may still be in flight from). */
-static void srvrun_arm_h3_resp_round(
-    const srvrun_conn* c, srvrun_resp* r, u8* st, const quic_obuf* body) {
-  wired_sendsess_arm(
-      &r->sess, st + SRVRUN_RESP_HDR_ROOM, body->len, srvrun_mps(c));
-}
-
-/* RFC 9114 4.1: frame+arm round 0, or arm a later round's unframed
- * continuation -- whichever this call is. */
+/* RFC 9114 4.1: frame+arm round 0 (the only arm a response ever gets now
+ * -- a streaming response's later bytes continue the same DATA frame via
+ * the ring refill's extend, srvrun_resp_refill, never a re-arm). */
 static void srvrun_arm_h3_resp(
     const srvrun_step_ctx* ctx,
     srvrun_conn*           c,
@@ -4371,10 +4384,6 @@ static void srvrun_arm_h3_resp(
     const quic_obuf*       body,
     const char*            ct,
     u64                    total_len) {
-  if (r->stream_h3_framed) {
-    srvrun_arm_h3_resp_round(c, r, st, body);
-    return;
-  }
   r->stream_h3_framed = 1;
   srvrun_arm_h3_resp_framed(ctx, c, slot, r, st, body, ct, total_len);
 }
@@ -4436,6 +4445,18 @@ static u64 srvrun_round0_total_len(int more, u64 total_size, usz body_len) {
   return body_len;
 }
 
+/* Turn a freshly-armed streaming response's queue into a ring over the
+ * remainder of its storage row -- from wherever round 0's arm placed q.p
+ * (the H3 prefix start, or st + HDR_ROOM for hq-interop) to the row's end.
+ * The refill loop (srvrun_resp_refill) then cycles through it for the whole
+ * response instead of draining and re-arming per round. */
+static void srvrun_resp_ring_init(
+    const srvrun_step_ctx* ctx, srvrun_conn* c, int slot, srvrun_resp* r) {
+  u8* base    = srvrun_resp_storage_ro(ctx, slot, c, r);
+  r->ring_cap = srvrun_resp_row_size(r) - (usz)(r->sess.q.p - base);
+  wired_sendq_set_ring(&r->sess.q, r->ring_cap);
+}
+
 static void srvrun_arm_round0(
     const srvrun_step_ctx* ctx,
     srvrun_conn*           c,
@@ -4454,6 +4475,7 @@ static void srvrun_arm_round0(
     srvrun_arm_h3_resp(ctx, c, slot, r, st, body, ct, total_len);
   wired_sendsess_set_base_offset(&r->sess, base_shift);
   srvrun_prime_streaming(r, &c->l.req, more, body->len, base_shift);
+  if (r->streaming) srvrun_resp_ring_init(ctx, c, slot, r);
 }
 
 /* Run the app handler's round 0 into body/ct/more/total_size (out params). */
@@ -4705,28 +4727,22 @@ static void srvrun_start_resp(const srvrun_step_ctx* ctx, int slot) {
   srvrun_dispatch_resp(ctx, c, slot, r);
 }
 
-/* draft-ietf-webtrans-http3 4 / RFC 9114 4.1: a normal response ends its
- * stream with FIN, but the Extended CONNECT stream IS the WebTransport
- * session and stays open for its whole lifetime -- a FIN on the
- * session-accept 200 reads as "session over" and Chrome closes with code 0
- * the moment it arrives. Scoped to r's own stream_id (not the whole
- * connection): a wt_active connection may still have OTHER streams' normal
- * responses in flight (RFC 9000 2.2), and those must still get their FIN. */
-/* r's stream never gets FIN: either it IS the WebTransport session stream
- * (draft-ietf-webtrans-http3 4, see the caller's own comment), or -- a
- * streaming response mid-flight -- wired_sendq_next's fin marks the END OF
- * THIS ROUND'S BUFFER, not the end of the whole response (r->streaming is 1
- * exactly while more rounds remain), so it would otherwise be a premature
- * FIN at every round boundary except the true last one. */
-static int srvrun_slice_fin_suppressed(
-    const srvrun_conn* c, const srvrun_resp* r) {
-  int is_wt_connect_stream = srvrun_wt_slot_by_connect_id(c, r->stream_id) >= 0;
-  return is_wt_connect_stream || r->streaming;
-}
-
+/* The wire FIN belongs on exactly the slice that ends the whole response:
+ * computed fresh at send time as "ends at the queue's current logical end,
+ * with no more refills coming" -- never from sl->fin, which is frozen at
+ * take time and goes stale the moment a later refill extends the queue (a
+ * requeued end-of-buffer slice would otherwise retransmit with FIN at a
+ * mid-stream offset, RFC 9000 4.5 FINAL_SIZE_ERROR). The Extended CONNECT
+ * stream never gets FIN at all: it IS the WebTransport session
+ * (draft-ietf-webtrans-http3 4) -- a FIN on the session-accept 200 reads
+ * as "session over" and Chrome closes with code 0 the moment it arrives.
+ * Scoped to r's own stream_id: sibling normal responses still get theirs.
+ */
 static u8 srvrun_slice_fin(
     const srvrun_conn* c, const srvrun_resp* r, const wired_sendq_slice* sl) {
-  return (u8)(sl->fin && !srvrun_slice_fin_suppressed(c, r));
+  if (srvrun_wt_slot_by_connect_id(c, r->stream_id) >= 0) return 0;
+  if (r->streaming) return 0; /* the handler still owes bytes */
+  return (u8)(sl->offset + sl->len == r->sess.q.len);
 }
 
 /* Seal one slice of sess as its own 1-RTT packet (a STREAM frame on
@@ -4777,7 +4793,7 @@ static int srvrun_send_stream_slice(
   quic_obuf         plb = quic_obuf_of(pl + al, sizeof pl - al);
   quic_stream_frame f   = {
       stream_id, wired_sendsess_stream_offset(sess, sl), sl->len,
-      sess->q.p + sl->offset, fin};
+      wired_sendq_slice_data(&sess->q, sl), fin};
   u64 pn;
   if (!quic_appdata_stream_frame(&f, &plb)) return 0;
   pn = c->l.tx_pn++;
@@ -5843,28 +5859,47 @@ static void srvrun_resp_release_bigbuf(wired_srvrun_env* env, srvrun_resp* r) {
   if (r->bigbuf_row >= 0) wired_srvbigbuf_release(&env->bigbuf, r->bigbuf_row);
 }
 
-/* Run r's next streaming round: call the handler at the cumulative offset
- * already delivered, then re-arm over the fresh round's bytes.
- * hq-interop never frames a length so it always continues; H3 already wrote
- * its DATA frame's total length in round 0 (stream_h3_framed), so its later
- * rounds are just more of that frame's payload (srvrun_arm_h3_resp_round via
- * srvrun_arm_h3_resp). Clears r->streaming once the handler stops asking for
- * more. */
-static void srvrun_resp_next_round(
+/* 1 while r is a live streaming response the refill loop must keep fed. */
+static int srvrun_resp_streaming_live(const srvrun_resp* r) {
+  return r->in_use && r->streaming;
+}
+
+/* Bytes the next refill may write: the reclaimed room, capped at the ring
+ * wrap so one handler write stays contiguous in storage. */
+static usz srvrun_resp_refill_take(const srvrun_resp* r, usz room) {
+  usz take = r->ring_cap - r->sess.q.len % r->ring_cap;
+  return take < room ? take : room;
+}
+
+/* Feed r's ring: whenever enough acknowledged space has been reclaimed
+ * (wired_sendsess_ring_room), run the handler for the next body chunk
+ * directly into the ring and extend the live sendsess over it -- earlier
+ * bytes can still be in flight, so the stream never waits out a full-buffer
+ * ACK drain the way the old fixed rounds did (the round boundary idled the
+ * link ~1 RTT every 640KB, an ~8% goodput loss on the interop link). The
+ * quarter-capacity threshold keeps handler calls chunky without ever
+ * exceeding what a small fixed-row ring can reclaim. A handler that
+ * declines mid-stream (body.len 0, more 0) simply ends the stream exactly
+ * as the old round flow did. Uses r->stream_req (the round-0 copy), never
+ * c->l.req -- see stream_req's own doc. */
+static void srvrun_resp_refill(
     const srvrun_step_ctx* ctx, srvrun_conn* c, int slot, srvrun_resp* r) {
-  u8*       st = srvrun_resp_storage(ctx, slot, c, r);
-  quic_obuf body =
-      quic_obuf_of(st + SRVRUN_RESP_HDR_ROOM, srvrun_resp_storage_cap(r));
+  usz         room, take;
+  u8*         base;
+  quic_obuf   body;
   const char* ct         = 0;
   int         more       = 0;
   u64         total_size = 0;
+  if (!srvrun_resp_streaming_live(r)) return;
+  room = wired_sendsess_ring_room(&r->sess, r->ring_cap);
+  if (room < r->ring_cap / 4) return;
+  take = srvrun_resp_refill_take(r, room);
+  base = srvrun_resp_storage_ro(ctx, slot, c, r);
+  body = quic_obuf_of(
+      base + (usz)(r->sess.q.p - base) + r->sess.q.len % r->ring_cap, take);
   srvrun_call_handler(
       ctx, &r->stream_req, r->stream_off, &body, &ct, &more, &total_size);
-  if (c->s.sdrv.alpn == QUIC_SALPN_HQ)
-    srvrun_arm_hq09_resp(c, r, st, &body);
-  else
-    srvrun_arm_h3_resp(ctx, c, slot, r, st, &body, ct, 0);
-  wired_sendsess_set_base_offset(&r->sess, r->stream_off);
+  wired_sendsess_extend(&r->sess, body.len);
   r->stream_off += body.len;
   r->streaming = more != 0;
 }
@@ -5892,14 +5927,14 @@ static u64 srvrun_stream_limit_base(const srvrun_step_ctx* ctx) {
 }
 
 /* Returns 1 when the slot was released (its stream-limit grant is owed),
- * 0 otherwise. */
+ * 0 otherwise. A streaming slot is refilled (never released) until the
+ * handler's last bytes are queued AND fully acknowledged; a momentarily
+ * drained streaming sess just re-activates on the next refill's extend. */
 static usz srvrun_resp_reap(
     const srvrun_step_ctx* ctx, srvrun_conn* c, int slot, srvrun_resp* r) {
+  srvrun_resp_refill(ctx, c, slot, r);
   if (srvrun_resp_not_yet_idle(r)) return 0;
-  if (r->streaming) {
-    srvrun_resp_next_round(ctx, c, slot, r);
-    return 0;
-  }
+  if (r->streaming) return 0;
   wired_srvloop_slot_release(&c->l, r->stream_id);
   srvrun_resp_release_bigbuf(ctx->cfg->env, r);
   r->in_use = 0;
