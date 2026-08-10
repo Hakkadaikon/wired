@@ -3161,6 +3161,9 @@ static i64 srvrun_wtsend_arm_id(
   w->stream_id  = id;
   w->stream_off = payload.n;
   wired_sendsess_arm(&w->sess, src, payload.n, srvrun_mps(c));
+  /* roundbuf epochs are rings (see srvrun_wtsend_stage_round); a view round
+   * stays linear -- its bytes live in the app's storage, not roundbuf. */
+  if (!w->view_round) wired_sendq_set_ring(&w->sess.q, SRVRUN_WTSEND_BUF);
   return (i64)id;
 }
 
@@ -3365,22 +3368,43 @@ static int srvrun_wtsend_appendable(const srvrun_wtsend* w, usz len) {
 static void srvrun_wtsend_epoch_reset(const srvrun_conn* c, srvrun_wtsend* w) {
   wired_sendsess_arm(&w->sess, w->roundbuf, 0, srvrun_mps(c));
   wired_sendsess_set_base_offset(&w->sess, w->stream_off);
+  wired_sendq_set_ring(&w->sess.q, SRVRUN_WTSEND_BUF);
   w->view_round = 0;
 }
 
-/* Stage one accepted round: copy payload behind the bytes already staged
- * this epoch (recycling the buffer first once everything so far is ACKed)
- * and extend the live sendsess over it -- the round starts reaching the
- * wire on the next pump pass, WITHOUT waiting for any earlier round's ACK.
- * 0 when the round does not fit the remaining room (bounded retention; the
- * caller decides whether to drop). fin ends the app's rounds: append_open
- * drops, so the stream's true last slice carries the wire FIN
- * (srvrun_wt_slice_fin) and the slot reaps once fully ACKed. */
+/* Ring occupancy: bytes of roundbuf still pinned by an unsent, in-flight,
+ * or requeued slice. Everything below the floor is ACKed and reusable
+ * (wired_sendsess_unacked_floor's contract). */
+static usz srvrun_wtsend_ring_live(const srvrun_wtsend* w) {
+  return w->sess.q.len - wired_sendsess_unacked_floor(&w->sess);
+}
+
+/* Copy one round into the ring at its logical end. A SLICE never crosses
+ * the wrap (sendq clamps there), but a staged round may -- split the copy. */
+static void srvrun_wtsend_ring_write(srvrun_wtsend* w, quic_span payload) {
+  usz at    = w->sess.q.len % SRVRUN_WTSEND_BUF;
+  usz tail  = SRVRUN_WTSEND_BUF - at;
+  usz first = payload.n < tail ? payload.n : tail;
+  quic_memcpy(w->roundbuf + at, payload.p, first);
+  quic_memcpy(w->roundbuf, payload.p + first, payload.n - first);
+}
+
+/* Stage one accepted round: copy payload into the ring behind the bytes
+ * already staged and extend the live sendsess over it -- the round starts
+ * reaching the wire on the next pump pass, WITHOUT waiting for any earlier
+ * round's ACK. Space reclaims continuously as the oldest bytes ACK
+ * (srvrun_wtsend_ring_live), so bounded retention means "one buffer of
+ * UNACKED bytes", not "one buffer per full-epoch ACK" -- a single straggler
+ * packet no longer turns a loss spike into a burst of dropped rounds. 0
+ * when the round does not fit the live window (the caller decides whether
+ * to drop). fin ends the app's rounds: append_open drops, so the stream's
+ * true last slice carries the wire FIN (srvrun_wt_slice_fin) and the slot
+ * reaps once fully ACKed. */
 static int srvrun_wtsend_stage_round(
     const srvrun_conn* c, srvrun_wtsend* w, quic_span payload, int fin) {
   if (srvrun_wtsend_epoch_acked(w)) srvrun_wtsend_epoch_reset(c, w);
-  if (w->sess.q.len + payload.n > SRVRUN_WTSEND_BUF) return 0;
-  quic_memcpy(w->roundbuf + w->sess.q.len, payload.p, payload.n);
+  if (srvrun_wtsend_ring_live(w) + payload.n > SRVRUN_WTSEND_BUF) return 0;
+  srvrun_wtsend_ring_write(w, payload);
   wired_sendsess_extend(&w->sess, payload.n);
   w->stream_off += payload.n;
   w->append_open = fin == 0;
