@@ -74,6 +74,17 @@ e2e-setup:
 e2e-test:
     cd e2e && npm test
 
+# Chat+voice load test at the full 4-client room (the shape the voice
+# quality gates are defined against). Args forward to run-voice-load-test.mjs.
+e2e-voice *ARGS: build build-frontend
+    ./e2e/run-voice.sh --clients=4 {{ARGS}}
+
+# One stability scenario (e2e/scenarios/<id>.mjs): the runner owns the
+# server process so scenarios can kill/restart it mid-run. Evidence lands in
+# tasks/voice-stability/<id>/. e.g.: just e2e-stability s2-chat-longevity
+e2e-stability SCENARIO *ARGS: build build-frontend
+    ./e2e/run-stability.sh {{SCENARIO}} {{ARGS}}
+
 # Multi-client chat load test: N headless-Chrome clients (each its own
 # BrowserContext), joining the hub's single fixed room, exchanging chat
 # messages, graded for message loss and latency. N is capped at 4 (the
