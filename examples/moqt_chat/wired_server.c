@@ -248,6 +248,12 @@ __attribute__((force_align_arg_pointer, used)) int wired_main(
   opt.run.wt_session_ctx    = &g_hub;
   opt.run.wt_on_stream_data = wired_moqt_on_stream_data;
   opt.run.wt_stream_data_ctx = &g_hub;
+  /* Without this, a session ended server-side (idle timeout after a network
+   * drop, CONNECT stream close, ...) leaks its hub peer slot forever, and a
+   * reconnecting client whose new session reuses the same slot memory is
+   * mistaken for the dead peer -- it never receives SETUP again. */
+  opt.run.wt_on_session_close  = wired_moqt_on_session_close;
+  opt.run.wt_session_close_ctx = &g_hub;
 
   if (!wired_srvdriver_run(&id, h, obs, &opt)) wired_die("listen failed\n");
   log_relay_stats(&g_hub);
