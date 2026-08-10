@@ -73,11 +73,14 @@ int quic_stp_build_server(
 /* Same as quic_stp_build_server_lim plus retry_source_connection_id
  * (RFC 9000 7.3): emitted only when rscid is non-empty (a Retry actually
  * preceded the handshake -- the peer treats an unexpected one as a
- * TRANSPORT_PARAMETER_ERROR). */
+ * TRANSPORT_PARAMETER_ERROR). sreset_token is the 16-byte
+ * stateless_reset_token (RFC 9000 10.3.1/18.2) for the handshake SCID;
+ * empty omits the TP (a server that never sends resets advertises none). */
 int quic_stp_build_server_ret(
     quic_span              original_dcid,
     quic_span              initial_scid,
     quic_span              rscid,
+    quic_span              sreset_token,
     const quic_stp_limits* lim,
     quic_obuf*             out);
 
