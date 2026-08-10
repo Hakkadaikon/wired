@@ -1,0 +1,81 @@
+#!/usr/bin/env node
+// Stability-scenario runner: loads e2e/scenarios/<id>.mjs, hands it a live
+// browser + a controllable server (kill/restart hooks -- serverControl.mjs),
+// grades the scenario's own failure list, and drops evidence
+// (report.json / gate.txt / server.log) under tasks/voice-stability/<id>/.
+// Run through run-stability.sh (or `just e2e-stability <id>`), which owns the
+// static frontend and the Chrome pin.
+
+import path from "node:path";
+import { mkdirSync, readdirSync, writeFileSync } from "node:fs";
+import puppeteer from "puppeteer-core";
+import { resolveChromeLaunch } from "./lib/chromeLaunch.mjs";
+import { startServer } from "./lib/serverControl.mjs";
+
+const e2eDir = path.dirname(new URL(import.meta.url).pathname);
+const scenariosDir = path.join(e2eDir, "scenarios");
+
+function arg(name, fallback) {
+  const flag = `--${name}=`;
+  const found = process.argv.find((a) => a.startsWith(flag));
+  return found ? found.slice(flag.length) : fallback;
+}
+
+const scenarioId = arg("scenario", "");
+if (!scenarioId) {
+  const available = readdirSync(scenariosDir)
+    .filter((f) => f.endsWith(".mjs"))
+    .map((f) => f.replace(/\.mjs$/, ""));
+  console.error("missing --scenario=<id>; available: " + available.join(", "));
+  process.exit(2);
+}
+
+const mod = await import(path.join(scenariosDir, `${scenarioId}.mjs`));
+const evidenceDir = arg(
+  "evidence-dir",
+  path.join(e2eDir, "../../../tasks/voice-stability", scenarioId),
+);
+mkdirSync(evidenceDir, { recursive: true });
+
+const server = await startServer({
+  binPath: path.join(e2eDir, "..", "wired_server"),
+  logPath: path.join(evidenceDir, "server.log"),
+});
+
+const { executablePath, env } = resolveChromeLaunch();
+const browser = await puppeteer.launch({
+  executablePath,
+  headless: "new",
+  env,
+  args: [
+    "--no-sandbox",
+    "--use-fake-device-for-media-stream",
+    "--use-fake-ui-for-media-stream",
+  ],
+});
+
+let outcome;
+try {
+  outcome = await mod.run({
+    browser,
+    pageUrl: arg("url", "http://localhost:8093/"),
+    server,
+    arg,
+    log: (msg) => console.error(`[${scenarioId}] ${msg}`),
+  });
+} finally {
+  await browser.close().catch(() => {});
+  await server.stop().catch(() => {});
+}
+
+const { report, failures } = outcome;
+writeFileSync(path.join(evidenceDir, "report.json"), JSON.stringify(report, null, 2));
+const verdict = failures.length === 0 ? "PASS" : "FAIL:\n" + failures.map((f) => `  - ${f}`).join("\n");
+writeFileSync(path.join(evidenceDir, "gate.txt"), verdict + "\n");
+
+console.log(JSON.stringify(report, null, 2));
+if (failures.length > 0) {
+  console.error(verdict);
+  process.exit(1);
+}
+console.log("PASS");
