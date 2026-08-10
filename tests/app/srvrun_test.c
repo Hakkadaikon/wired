@@ -1007,6 +1007,107 @@ static void test_srvrun_full_table_short_header_no_evict(void) {
   }
 }
 
+/* Deterministic LCG for the wtsend rolling-reclaim differential below --
+ * reproducible round sizes and ACK order without libc rand. */
+static u32 wtr_seed;
+static u32 wtr_rand(void) {
+  wtr_seed = wtr_seed * 1664525u + 1013904223u;
+  return wtr_seed >> 16;
+}
+
+/* Rolling-reclaim differential for the WT send staging: a long-lived voice
+ * relay stream stages random-sized rounds while ACKs arrive in random order
+ * and the NEWEST packet is always still unacked (a loaded room's normal
+ * state -- something is always in flight). Bounded retention must mean
+ * "at most one buffer's worth of UNACKED bytes", not "at most one buffer's
+ * worth ever until a full-epoch ACK": the total accepted stream here is 8x
+ * the staging buffer, and every delivered slice's bytes must equal the
+ * exact concatenation of every accepted round (an overwrite of a
+ * still-unacked byte shows up as a retransmit carrying wrong bytes). */
+static void test_srvrun_wtsend_ring_rolling_reclaim(void) {
+  struct lp_fix  f;
+  srvrun_conn    c;
+  quic_obuf      ob = {0};
+  u8             obuf[1024];
+  static u8      expected[8 * SRVRUN_WTSEND_BUF];
+  static u8      recv[8 * SRVRUN_WTSEND_BUF];
+  static u8      got[8 * SRVRUN_WTSEND_BUF];
+  static u8      acked[8192];
+  usz            target = sizeof expected, staged = 0, delivered = 0;
+  u64            pn = 1, largest_acked = 0, now = 0;
+  srvrun_wtsend* w;
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  wtr_seed = 20260811;
+  for (usz i = 0; i < sizeof expected; i++) expected[i] = (u8)(wtr_rand());
+  for (usz i = 0; i < sizeof got; i++) got[i] = 0;
+  for (usz i = 0; i < sizeof acked; i++) acked[i] = 0;
+  w         = &c.wtsend[0];
+  w->in_use = 1;
+  {
+    usz first = 100;
+    srvrun_wtsend_arm_id(&c, w, 7, quic_span_of(expected, first));
+    w->append_open = 1;
+    staged         = first;
+  }
+  for (usz iter = 0; iter < 20000 && delivered < target; iter++) {
+    now += 5;
+    if (staged < target) { /* stage one more round when the ring has room */
+      usz n = 50 + wtr_rand() % 300;
+      if (n > target - staged) n = target - staged;
+      if (srvrun_wtsend_accept_round(
+              &c, w, quic_span_of(expected + staged, n), 0))
+        staged += n;
+    }
+    for (int k = 0; k < 4; k++) { /* pump a few slices */
+      wired_sendq_slice sl;
+      if (!wired_sendsess_take(&w->sess, &sl)) break;
+      {
+        const u8* sd  = wired_sendq_slice_data(&w->sess.q, &sl);
+        u64       abs = wired_sendsess_stream_offset(&w->sess, &sl);
+        CHECK(quic_ct_diffn(sd, expected + abs, sl.len) == 0);
+        quic_memcpy(recv + abs, sd, sl.len);
+        for (usz i = 0; i < sl.len; i++)
+          if (!got[abs + i]) {
+            got[abs + i] = 1;
+            delivered++;
+          }
+      }
+      if (!wired_sendsess_sent(&w->sess, &sl, pn, now)) {
+        wired_sendsess_untake(&w->sess, &sl);
+        break;
+      }
+      pn++;
+    }
+    /* ack faster than we send (8 vs 4) or the sim wedges by construction;
+     * half the picks are cumulative-ish (the oldest unacked, like a real
+     * peer's ACK ranges), half random (reorder/holes) -- and never the
+     * newest pn, so a rolling unacked tail exists at every stage attempt. */
+    for (int k = 0; k < 8 && pn > 2; k++) {
+      u64 pick = 0;
+      if (wtr_rand() & 1) {
+        for (u64 p = 1; p < pn - 1; p++)
+          if (!acked[p]) {
+            pick = p;
+            break;
+          }
+      } else {
+        pick = 1 + wtr_rand() % (pn - 2); /* excludes pn-1, the newest */
+        if (acked[pick]) pick = 0;
+      }
+      if (!pick) continue;
+      acked[pick] = 1;
+      wired_sendsess_ack(&w->sess, pick, pick);
+      if (pick > largest_acked) largest_acked = pick;
+    }
+    if (iter % 16 == 15) /* let stragglers requeue and retransmit */
+      wired_sendsess_detect_lost(&w->sess, largest_acked, now, 10000, 0, 0);
+  }
+  CHECK(staged == target);    /* staging never wedged on a partial epoch */
+  CHECK(delivered == target); /* every byte reached the subscriber */
+  CHECK(quic_ct_diffn(recv, expected, target) == 0); /* and correctly */
+}
+
 /* RFC 9000 10.3: a short-header datagram whose DCID matches no live slot is
  * answered with a stateless reset -- random-looking bytes whose trailing 16
  * bytes are the token derived from the cert seed and that DCID, and whose
@@ -13484,6 +13585,7 @@ void test_srvrun(void) {
   test_srvrun_uni_stream_limit_never_decreases();
   test_srvrun_uni_streams_blocked_reannounces_current_limit();
   test_srvrun_uni_streams_blocked_before_release_uses_base();
+  test_srvrun_wtsend_ring_rolling_reclaim();
   test_srvrun_stateless_reset_seal_token_and_size();
   test_srvrun_stateless_reset_token_survives_restart();
   test_srvrun_stateless_reset_gates();
