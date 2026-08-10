@@ -1007,6 +1007,113 @@ static void test_srvrun_full_table_short_header_no_evict(void) {
   }
 }
 
+/* RFC 9000 10.3: a short-header datagram whose DCID matches no live slot is
+ * answered with a stateless reset -- random-looking bytes whose trailing 16
+ * bytes are the token derived from the cert seed and that DCID, and whose
+ * total size stays strictly below the triggering datagram's (10.3.3 loop
+ * prevention). */
+static void test_srvrun_stateless_reset_seal_token_and_size(void) {
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32];
+  u8               out[128], key[QUIC_SRESET_KEY], want[QUIC_SRESET_TOKEN];
+  u8               dcid[8] = {0xd0, 1, 2, 3, 4, 5, 6, 7};
+  quic_obuf        ob      = quic_obuf_of(out, sizeof out);
+  sr_make_id(&id, priv, pub, seed, rnd);
+  {
+    srvrun_cfg cfg = {-1, &id,           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                      0,  &g_srvrun_env, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    CHECK(
+        srvrun_seal_stateless_reset(&cfg, quic_span_of(dcid, 8), 64, &ob) == 1);
+  }
+  CHECK(ob.len >= QUIC_SRESET_MIN && ob.len < 64);
+  quic_sreset_key_derive(seed, key);
+  quic_sreset_token(key, dcid, 8, want);
+  CHECK(quic_ct_diffn(out + ob.len - QUIC_SRESET_TOKEN, want, 16) == 0);
+}
+
+/* The token must be reproducible across a server restart -- two independent
+ * cfg instances built from the same identity seal byte-identical token
+ * tails for the same DCID. */
+static void test_srvrun_stateless_reset_token_survives_restart(void) {
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32];
+  u8               out1[128], out2[128];
+  u8               dcid[8] = {0xd1, 1, 2, 3, 4, 5, 6, 7};
+  quic_obuf        ob1     = quic_obuf_of(out1, sizeof out1);
+  quic_obuf        ob2     = quic_obuf_of(out2, sizeof out2);
+  sr_make_id(&id, priv, pub, seed, rnd);
+  {
+    srvrun_cfg cfg = {-1, &id,           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                      0,  &g_srvrun_env, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    CHECK(
+        srvrun_seal_stateless_reset(&cfg, quic_span_of(dcid, 8), 64, &ob1) ==
+        1);
+  }
+  {
+    srvrun_cfg cfg2 = {-1, &id,           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                       0,  &g_srvrun_env, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    CHECK(
+        srvrun_seal_stateless_reset(&cfg2, quic_span_of(dcid, 8), 64, &ob2) ==
+        1);
+  }
+  CHECK(
+      quic_ct_diffn(
+          out1 + ob1.len - QUIC_SRESET_TOKEN,
+          out2 + ob2.len - QUIC_SRESET_TOKEN, 16) == 0);
+}
+
+/* Only an orphan SHORT-header datagram big enough to answer smaller draws a
+ * reset: an Initial never does (it gets the refusal path), nor does a
+ * datagram at or below the minimum reset size (10.3.3). */
+static void test_srvrun_stateless_reset_gates(void) {
+  u8  initial[1500], short_hdr[64];
+  u8  dcid[8]  = {0xd2, 1, 2, 3, 4, 5, 6, 7};
+  usz total    = sr_build_client_initial(initial, sizeof initial, dcid, 8);
+  short_hdr[0] = 0x40;
+  for (usz i = 1; i < sizeof short_hdr; i++) short_hdr[i] = (u8)i;
+  CHECK(
+      srvrun_sreset_applies(
+          quic_span_of(dcid, 8), quic_mspan_of(initial, total)) == 0);
+  CHECK(
+      srvrun_sreset_applies(
+          quic_span_of(dcid, 8), quic_mspan_of(short_hdr, QUIC_SRESET_MIN)) ==
+      0);
+  CHECK(
+      srvrun_sreset_applies(
+          quic_span_of((const u8*)0, 0),
+          quic_mspan_of(short_hdr, sizeof short_hdr)) == 0);
+  CHECK(
+      srvrun_sreset_applies(
+          quic_span_of(dcid, 8), quic_mspan_of(short_hdr, sizeof short_hdr)) ==
+      1);
+}
+
+/* End-to-end reach: serving an unknown-DCID short-header datagram actually
+ * puts a reset on the wire (tx_flush_count advances) -- proving
+ * srvrun_route_and_serve wires srvrun_send_stateless_reset into the real
+ * "no slot matched" path. */
+static void test_srvrun_unknown_dcid_short_header_sends_reset(void) {
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32];
+  quic_conntable   table[QUIC_CONNTABLE_CAP];
+  quic_sockaddr    peer = {0};
+  srvrun_state     st   = {table, g_srvrun_state.conns};
+  u8               short_hdr[64];
+  usz              tx_before;
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  short_hdr[0] = 0x40;
+  for (usz i = 1; i < sizeof short_hdr; i++) short_hdr[i] = (u8)(0x30 + i);
+  sr_make_id(&id, priv, pub, seed, rnd);
+  {
+    srvrun_cfg cfg = {-1, &id,           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                      0,  &g_srvrun_env, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0, 0};
+    tx_before           = g_srvrun_env.tx_flush_count;
+    srvrun_serve(&ctx, quic_mspan_of(short_hdr, sizeof short_hdr));
+  }
+  CHECK(g_srvrun_env.tx_flush_count == tx_before + 1);
+}
+
 /* AF_XDP CORE ROUTING (wired_srvrun_opt.core_id): a fresh slot's generated
  * SCID has its leading byte overwritten with this worker's core/queue index
  * when both an XDP driver and a non-negative core_id are configured -- the
@@ -13377,6 +13484,10 @@ void test_srvrun(void) {
   test_srvrun_uni_stream_limit_never_decreases();
   test_srvrun_uni_streams_blocked_reannounces_current_limit();
   test_srvrun_uni_streams_blocked_before_release_uses_base();
+  test_srvrun_stateless_reset_seal_token_and_size();
+  test_srvrun_stateless_reset_token_survives_restart();
+  test_srvrun_stateless_reset_gates();
+  test_srvrun_unknown_dcid_short_header_sends_reset();
   test_srvrun_full_table_evicts_oldest_idle_slot();
   test_srvrun_full_table_all_active_still_refuses();
   test_srvrun_full_table_grace_boundary_admits();
