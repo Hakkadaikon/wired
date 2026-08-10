@@ -91,18 +91,51 @@ static void test_server_tp_retry_scid(void) {
   quic_obuf    ob     = quic_obuf_of(buf, sizeof buf);
   quic_span    od     = quic_span_of(odcid, sizeof odcid);
   quic_span    sc     = quic_span_of(scid, sizeof scid);
-  CHECK(quic_stp_build_server_ret(od, sc, quic_span_of(rsc, 6), 0, &ob) == 1);
+  CHECK(
+      quic_stp_build_server_ret(
+          od, sc, quic_span_of(rsc, 6), quic_span_of(0, 0), 0, &ob) == 1);
   {
     quic_span tp = quic_span_of(buf, ob.len);
     CHECK(quic_stp_parse(tp, QUIC_TP_RETRY_SOURCE_CONNECTION_ID, &bo) == 1);
     CHECK(b.n == 6 && quic_tparam_cid_match(b, quic_span_of(rsc, 6)));
   }
   ob.len = 0;
-  CHECK(quic_stp_build_server_ret(od, sc, quic_span_of(0, 0), 0, &ob) == 1);
+  CHECK(
+      quic_stp_build_server_ret(
+          od, sc, quic_span_of(0, 0), quic_span_of(0, 0), 0, &ob) == 1);
   CHECK(
       quic_stp_parse(
           quic_span_of(buf, ob.len), QUIC_TP_RETRY_SOURCE_CONNECTION_ID, &bo) ==
       0);
+}
+
+/* RFC 9000 10.3.1/18.2: a 16-byte stateless_reset_token supplied to the
+ * build lands in the TPs verbatim; an empty span omits the TP entirely (a
+ * server that never sends resets advertises none). */
+static void test_server_tp_stateless_reset_token(void) {
+  u8           buf[256];
+  quic_span    b;
+  quic_stp_out bo = {0, &b};
+  u8           tok[16];
+  quic_obuf    ob = quic_obuf_of(buf, sizeof buf);
+  quic_span    od = quic_span_of(odcid, sizeof odcid);
+  quic_span    sc = quic_span_of(scid, sizeof scid);
+  for (usz i = 0; i < 16; i++) tok[i] = (u8)(0xe0 + i);
+  CHECK(
+      quic_stp_build_server_ret(
+          od, sc, quic_span_of(0, 0), quic_span_of(tok, 16), 0, &ob) == 1);
+  {
+    quic_span tp = quic_span_of(buf, ob.len);
+    CHECK(quic_stp_parse(tp, QUIC_TP_STATELESS_RESET_TOKEN, &bo) == 1);
+    CHECK(b.n == 16 && quic_tparam_cid_match(b, quic_span_of(tok, 16)));
+  }
+  ob.len = 0;
+  CHECK(
+      quic_stp_build_server_ret(
+          od, sc, quic_span_of(0, 0), quic_span_of(0, 0), 0, &ob) == 1);
+  CHECK(
+      quic_stp_parse(
+          quic_span_of(buf, ob.len), QUIC_TP_STATELESS_RESET_TOKEN, &bo) == 0);
 }
 
 static void test_server_tp_no_room(void) {
@@ -237,6 +270,7 @@ void test_server_tp(void) {
   test_server_tp_reset_stream_at_does_not_disturb_others();
   test_server_tp_ids_and_values();
   test_server_tp_retry_scid();
+  test_server_tp_stateless_reset_token();
   test_server_tp_no_room();
   test_server_tp_parse_absent();
   test_client_tp_extract();
