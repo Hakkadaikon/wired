@@ -94,10 +94,20 @@ static int put_rscid(quic_obuf* out, quic_span rscid) {
   return put_blob(out, QUIC_TP_RETRY_SOURCE_CONNECTION_ID, rscid);
 }
 
+/* stateless_reset_token (RFC 9000 10.3.1/18.2) only when the caller supplied
+ * one; the value is exactly 16 bytes by definition, so any other non-zero
+ * length is a caller bug and fails the build rather than emitting a TP the
+ * peer must reject. */
+static int put_sreset_token(quic_obuf* out, quic_span token) {
+  if (token.n == 0) return 1;
+  return token.n == 16 && put_blob(out, QUIC_TP_STATELESS_RESET_TOKEN, token);
+}
+
 int quic_stp_build_server_ret(
     quic_span              original_dcid,
     quic_span              initial_scid,
     quic_span              rscid,
+    quic_span              sreset_token,
     const quic_stp_limits* lim,
     quic_obuf*             out) {
   int ok;
@@ -105,7 +115,7 @@ int quic_stp_build_server_ret(
   ok =
       put_blob(out, QUIC_TP_ORIGINAL_DESTINATION_CONNECTION_ID, original_dcid) &
       put_int_params(out) & put_tunables(out, lim) & put_reset_stream_at(out) &
-      put_rscid(out, rscid) &
+      put_rscid(out, rscid) & put_sreset_token(out, sreset_token) &
       put_blob(out, QUIC_TP_INITIAL_SOURCE_CONNECTION_ID, initial_scid);
   return ok;
 }
@@ -116,7 +126,8 @@ int quic_stp_build_server_lim(
     const quic_stp_limits* lim,
     quic_obuf*             out) {
   return quic_stp_build_server_ret(
-      original_dcid, initial_scid, quic_span_of(0, 0), lim, out);
+      original_dcid, initial_scid, quic_span_of(0, 0), quic_span_of(0, 0), lim,
+      out);
 }
 
 int quic_stp_build_server(
