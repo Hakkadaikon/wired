@@ -77,6 +77,19 @@ typedef void (*wired_wt_on_stream_reset)(
 typedef void (*wired_wt_on_session)(
     void* app_ctx, wired_wt_session* s, quic_span path, quic_span protocol);
 
+/** App-facing notification that a WebTransport session ended server-side:
+ * its own CONNECT stream closed, it violated a WT flow-control limit, the
+ * server sent WT_CLOSE_SESSION, or its whole connection tore down (peer
+ * CONNECTION_CLOSE, boot failure, or the idle-timeout sweep). Fires once
+ * per session, before the session object's storage can be reused by a
+ * later connection -- an app keying its own per-session state on the
+ * wired_wt_session pointer MUST release that state here, or a reconnecting
+ * client landing in the reused slot inherits the dead session's identity.
+ * s is only valid for the duration of the call.
+ * @param app_ctx opaque context registered alongside this callback
+ * @param s the session that ended */
+typedef void (*wired_wt_on_session_close)(void* app_ctx, wired_wt_session* s);
+
 /** draft-ietf-webtrans-http3-15 SS3.2 (WTH3-016/WTH3-018): the app's verdict
  * for one Extended CONNECT's :authority/:path, filled in by a registered
  * wired_wt_resource_check before the session is established.
@@ -254,6 +267,13 @@ typedef struct {
    * stream's slot is still torn down, nothing is delivered). */
   wired_wt_on_stream_reset wt_on_stream_reset;
   void* wt_stream_reset_ctx; /**< opaque ctx passed to wt_on_stream_reset */
+  /** Session-ended notification, 0 to disable (the default) -- called once
+   * per WT session when it ends server-side (CONNECT stream close, flow
+   * violation, WT_CLOSE_SESSION, or whole-connection teardown). See
+   * wired_wt_on_session_close's doc for the pointer-reuse hazard this
+   * exists to close. */
+  wired_wt_on_session_close wt_on_session_close;
+  void* wt_session_close_ctx; /**< opaque ctx passed to wt_on_session_close */
 } wired_srvrun_opt;
 
 /** Same as wired_server_run, plus opt-in polling-driver behavior. `opt` must
