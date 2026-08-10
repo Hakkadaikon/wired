@@ -131,6 +131,9 @@ typedef struct {
   /** WT stream-reset delivery, 0 to disable, see wired_srvrun_opt. */
   wired_wt_on_stream_reset wt_on_stream_reset;
   void* wt_stream_reset_ctx; /**< opaque ctx for wt_on_stream_reset */
+  /** WT session-ended delivery, 0 to disable, see wired_srvrun_opt. */
+  wired_wt_on_session_close wt_on_session_close;
+  void* wt_session_close_ctx; /**< opaque ctx for wt_on_session_close */
 } srvrun_cfg;
 
 /* One live connection's mutable state: the orchestrator, the HTTP/3 loop,
@@ -2325,8 +2328,18 @@ static void srvrun_reset_wt_streams_for_session(
  * WT_MAX_STREAMS/WT_MAX_DATA violation, WTH3-058/WTH3-061), and
  * srvrun_send_wt_close (WT_CLOSE_SESSION, WTH3-067). Split out so no caller
  * repeats the free-slot bookkeeping. */
+/* App-facing session-ended delivery (wired_wt_on_session_close): every path
+ * that ends a WT session server-side funnels through here, BEFORE the
+ * session's storage can be reused by a later connection -- an app keying
+ * per-session state on the session pointer frees it in this callback. */
+static void srvrun_notify_wt_close(const srvrun_cfg* cfg, wired_wt_session* s) {
+  if (cfg->wt_on_session_close == 0) return;
+  cfg->wt_on_session_close(cfg->wt_session_close_ctx, s);
+}
+
 static void srvrun_close_wt_session_slot(
     const srvrun_cfg* cfg, srvrun_conn* c, int sidx, u64 err_code) {
+  srvrun_notify_wt_close(cfg, srvrun_wt_slot(c, sidx));
   wired_wt_session_close(srvrun_wt_slot(c, sidx));
   srvrun_reset_wt_streams_for_session(cfg, c, sidx, err_code);
   /* Closing frees the slot -- a later Extended CONNECT may reuse it
@@ -3799,18 +3812,19 @@ static void srvrun_free_bigbuf_rows(wired_srvrun_env* env, srvrun_conn* c) {
 
 /* Close every open WT session slot on c, not just one -- whole-connection
  * teardown must never leave a session behind. */
-static void srvrun_close_all_wt(srvrun_conn* c) {
+static void srvrun_close_all_wt(const srvrun_cfg* cfg, srvrun_conn* c) {
   for (int i = 0; i < SRVRUN_MAX_WT_SESSIONS; i++) {
     if (!(*srvrun_wt_active_slot(c, i))) continue;
+    srvrun_notify_wt_close(cfg, srvrun_wt_slot(c, i));
     wired_wt_session_close(srvrun_wt_slot(c, i));
     (*srvrun_wt_active_slot(c, i)) = 0;
   }
 }
 
-static void srvrun_free_slot(wired_srvrun_env* env, srvrun_state* st, int i) {
+static void srvrun_free_slot(const srvrun_cfg* cfg, srvrun_state* st, int i) {
   srvrun_conn* c = &st->conns[i];
-  srvrun_close_all_wt(c);
-  srvrun_free_bigbuf_rows(env, c);
+  srvrun_close_all_wt(cfg, c);
+  srvrun_free_bigbuf_rows(cfg->env, c);
   quic_conntable_remove(st->table, QUIC_CONNTABLE_CAP, i);
   c->up = 0;
   wired_srvboot_acc_reset(&c->boot);
@@ -3844,10 +3858,10 @@ static int srvrun_idle_due(const srvrun_conn* c, u64 now_ms) {
 /* RFC 9000 10.1: silently discard every connection idle past the advertised
  * max_idle_timeout, freeing its slot for a new client. */
 static void srvrun_sweep_idle(
-    wired_srvrun_env* env, srvrun_state* st, u64 now_ms) {
+    const srvrun_cfg* cfg, srvrun_state* st, u64 now_ms) {
   for (usz i = 0; i < QUIC_CONNTABLE_CAP; i++)
     if (srvrun_idle_due(&st->conns[i], now_ms))
-      srvrun_free_slot(env, st, (int)i);
+      srvrun_free_slot(cfg, st, (int)i);
 }
 
 /* Cold-start outcome for a slot: on success, rekey its table entry to the
@@ -3858,7 +3872,7 @@ static void srvrun_open_done(const srvrun_step_ctx* ctx, int slot, int ok) {
   srvrun_conn* c = &ctx->st->conns[slot];
   c->up          = ok;
   if (!ok) {
-    srvrun_free_slot(ctx->cfg->env, ctx->st, slot);
+    srvrun_free_slot(ctx->cfg, ctx->st, slot);
     return;
   }
   quic_conntable_rekey(
@@ -6224,7 +6238,7 @@ static void srvrun_pto_slot(const srvrun_step_ctx* ctx, int slot) {
   srvrun_conn* c = &ctx->st->conns[slot];
   if (!srvrun_sess_waiting(c)) return;
   if (!srvrun_pto_all(c, ctx->now_ms)) {
-    srvrun_free_slot(ctx->cfg->env, ctx->st, slot);
+    srvrun_free_slot(ctx->cfg, ctx->st, slot);
     return;
   }
   srvrun_pump_sess(ctx, slot);
@@ -6246,7 +6260,7 @@ static void srvrun_step_and_reap(
   srvrun_conn* c = &ctx->st->conns[slot];
   srvrun_on_step(ctx, c, dg);
   if (c->l.peer_closed) {
-    srvrun_free_slot(ctx->cfg->env, ctx->st, slot);
+    srvrun_free_slot(ctx->cfg, ctx->st, slot);
     return;
   }
   srvrun_sess_on_step(ctx, slot);
@@ -6360,7 +6374,7 @@ static void srvrun_boot_pto_slot(const srvrun_step_ctx* ctx, int slot) {
   int          fired = c->boot_pto_count + 1;
   if (!srvrun_boot_pto_due(c, ctx->now_ms)) return;
   if (fired >= SRVRUN_PTO_MAX) {
-    srvrun_free_slot(ctx->cfg->env, ctx->st, slot);
+    srvrun_free_slot(ctx->cfg, ctx->st, slot);
     return;
   }
   srvrun_boot_pto_resend(ctx, c, fired);
@@ -7003,7 +7017,7 @@ static i64 srvrun_listen(u16 port, const wired_srvrun_opt* opt) {
 static void srvrun_serve_batch(
     const srvrun_cfg* cfg, srvrun_state* st, const quic_mmsg_buf* bufs, i64 n) {
   u64 now = quic_clock_mono_ms();
-  srvrun_sweep_idle(cfg->env, st, now); /* lazy: swept on each arrival */
+  srvrun_sweep_idle(cfg, st, now); /* lazy: swept on each arrival */
   for (i64 i = 0; i < n; i++) {
     srvrun_step_ctx ctx = {cfg, &bufs[i].src, st, now, bufs[i].ecn};
     srvrun_serve(&ctx, quic_mspan_of(bufs[i].buf.p, bufs[i].len));
@@ -7240,7 +7254,9 @@ static srvrun_cfg srvrun_build_cfg(
       opt->wt_resource_check,
       opt->wt_resource_ctx,
       opt->wt_on_stream_reset,
-      opt->wt_stream_reset_ctx};
+      opt->wt_stream_reset_ctx,
+      opt->wt_on_session_close,
+      opt->wt_session_close_ctx};
 }
 
 usz wired_srvrun_env_size(void) { return sizeof(wired_srvrun_env); }
@@ -7293,7 +7309,7 @@ int wired_server_run(
     wired_srvboot_id*    id,
     wired_srvrun_handler h,
     wired_srvrun_obs     obs) {
-  static const wired_srvrun_opt default_opt = {0, 0,  0, 0, 0, 0, 0, 0, -1, 0,
-                                               0, -1, 0, 0, 0, 0, 0, 0, 0,  0};
+  static const wired_srvrun_opt default_opt = {
+      0, 0, 0, 0, 0, 0, 0, 0, -1, 0, 0, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
   return wired_server_run_opt(port, id, h, obs, &default_opt);
 }
