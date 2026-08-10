@@ -123,6 +123,7 @@ int wired_srvloop_init(wired_srvloop* l, const u8* cli_scid, u8 cli_scid_len) {
    * was on the stack, e.g. reading streams_blocked_seen_flag as nonzero and
    * spuriously sending an unrequested MAX_STREAMS. */
   l->streams_blocked_seen_flag      = 0;
+  l->streams_blocked_uni_seen_flag  = 0;
   l->path_response_seen_flag        = 0;
   l->ecn_ect0                       = 0;
   l->ecn_ect1                       = 0;

@@ -580,6 +580,11 @@ typedef struct {
    * across steps by this loop itself, same convention as max_data_seen_
    * flag: this step's observation only. */
   int streams_blocked_seen_flag;
+  /** Same as streams_blocked_seen_flag, for a client UNI STREAMS_BLOCKED
+   * frame (0x17) -- the two directions have independent stream limits
+   * (RFC 9000 4.6), so the caller re-announces MAX_STREAMS for exactly the
+   * direction the peer reported blocked. */
+  int streams_blocked_uni_seen_flag;
   /** RFC 9000 8.2.2/19.18: the 8-byte data of a PATH_RESPONSE frame seen in
    * any 1-RTT payload opened this step (gather_path_response in dispatch.c),
    * valid only when path_response_seen_flag is set. This loop has no notion

@@ -879,11 +879,20 @@ static void gather_one_max_data(wired_srvloop* l, quic_span frame) {
   l->max_data_seen_flag = 1;
 }
 
-/* RFC 9000 19.14: scan this payload for a bidi STREAMS_BLOCKED frame,
- * mirroring gather_max_data's shape. Only the frame's presence matters
- * (srvrun.c computes the re-grant from its own slot state, not the peer's
- * claimed limit -- see streams_blocked_seen_flag's doc), so this just sets
- * the flag rather than decoding a value. Returns 1 if one was seen. */
+/* RFC 9000 19.14: latch which STREAMS_BLOCKED direction was seen -- the two
+ * directions carry independent limits, so each gets its own flag. */
+static void note_streams_blocked(wired_srvloop* l, u64 type) {
+  if (type == QUIC_FRAME_STREAMS_BLOCKED_BIDI) l->streams_blocked_seen_flag = 1;
+  if (type == QUIC_FRAME_STREAMS_BLOCKED_UNI)
+    l->streams_blocked_uni_seen_flag = 1;
+}
+
+/* RFC 9000 19.14: scan this payload for a STREAMS_BLOCKED frame (either
+ * direction), mirroring gather_max_data's shape. Only the frame's presence
+ * matters (srvrun.c computes the re-grant from its own slot state, not the
+ * peer's claimed limit -- see streams_blocked_seen_flag's doc), so this just
+ * sets the direction's flag rather than decoding a value. Returns 1 if one
+ * was seen. */
 static int gather_streams_blocked(
     wired_srvloop* l, const u8* payload, usz len) {
   quic_framewalk      it;
@@ -892,8 +901,8 @@ static int gather_streams_blocked(
   quic_framewalk_init(&it, payload, len);
   while (quic_framewalk_next(&it, &fr)) {
     if (quic_frame_classify(fr.type) != QUIC_FK_STREAMS_BLOCKED) continue;
-    seen                         = 1;
-    l->streams_blocked_seen_flag = 1;
+    seen = 1;
+    note_streams_blocked(l, fr.type);
   }
   return seen;
 }
