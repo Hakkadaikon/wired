@@ -61,6 +61,11 @@ void wired_server_set_limits(
   s->sdrv.limits.max_datagram_frame_size = max_datagram_frame_size;
 }
 
+void wired_server_set_reset_token(wired_server* s, const u8 token[16]) {
+  for (usz i = 0; i < 16; i++) s->sdrv.sreset_token[i] = token[i];
+  s->sdrv.sreset_token_set = 1;
+}
+
 void wired_server_set_keylog_path(wired_server* s, const char* path) {
   s->keylog_path = path;
 }

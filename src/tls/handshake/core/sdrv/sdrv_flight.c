@@ -70,6 +70,12 @@ static int derive_secret(quic_sdrv* s) {
  * path, the token-recovered original after a Retry) and ISCID (server
  * SCID) recorded via quic_sdrv_set_cids/quic_sdrv_set_cids_retried
  * (RFC 9000 7.3). */
+/* The advertised stateless_reset_token as a span -- empty until the caller
+ * set one (RFC 9000 10.3.1), which omits the TP. */
+static quic_span sdrv_sreset_token_span(const quic_sdrv* s) {
+  return quic_span_of(s->sreset_token, s->sreset_token_set ? 16 : 0);
+}
+
 static int emit_ee(quic_sdrv* s, quic_obuf* flight) {
   u8        tp[256], msg[1024];
   quic_obuf tob = quic_obuf_of(tp, sizeof(tp));
@@ -77,7 +83,8 @@ static int emit_ee(quic_sdrv* s, quic_obuf* flight) {
   if (!quic_stp_build_server_ret(
           quic_span_of(s->tp_odcid, s->tp_odcid_len),
           quic_span_of(s->iscid, s->iscid_len),
-          quic_span_of(s->rscid, s->rscid_len), &s->limits, &tob))
+          quic_span_of(s->rscid, s->rscid_len), sdrv_sreset_token_span(s),
+          &s->limits, &tob))
     return 0;
   if (!quic_eebuild_encrypted_extensions(
           s->alpn, quic_span_of(tp, tob.len), s->early_data_accepted, &mob))
