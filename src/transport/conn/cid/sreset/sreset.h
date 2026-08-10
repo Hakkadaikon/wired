@@ -12,6 +12,14 @@
 #define QUIC_SRESET_TOKEN 16
 #define QUIC_SRESET_KEY 32 /* static per-endpoint reset secret */
 
+/* RFC 9000 10.3.2: the reset key must be static across restarts, or a
+ * rebooted server cannot produce the token it advertised before the reboot
+ * -- the whole point of a stateless reset. Derive the per-endpoint key from
+ * a long-lived secret (the certificate seed) rather than per-boot
+ * randomness. */
+void quic_sreset_key_derive(
+    const u8 secret[QUIC_SRESET_KEY], u8 key[QUIC_SRESET_KEY]);
+
 /* Derive the Stateless Reset Token for a connection ID under a static
  * per-endpoint key (HMAC-SHA256 truncated to 16 bytes). */
 void quic_sreset_token(

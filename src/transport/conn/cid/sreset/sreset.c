@@ -4,6 +4,14 @@
 #include "common/bytes/util/num.h"
 #include "crypto/symmetric/hash/hash/hmac.h"
 
+void quic_sreset_key_derive(
+    const u8 secret[QUIC_SRESET_KEY], u8 key[QUIC_SRESET_KEY]) {
+  static const u8 label[] = "stateless reset";
+  quic_hmac_sha256(
+      quic_span_of(secret, QUIC_SRESET_KEY),
+      quic_span_of(label, sizeof label - 1), key);
+}
+
 void quic_sreset_token(
     const u8  key[QUIC_SRESET_KEY],
     const u8* cid,
