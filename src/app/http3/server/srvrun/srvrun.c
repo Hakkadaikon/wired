@@ -44,6 +44,7 @@
 #include "transport/conn/cid/path/antiamp.h"
 #include "transport/conn/cid/pmtu/pmtu.h"
 #include "transport/conn/cid/retrytoken/retrytoken.h"
+#include "transport/conn/cid/sreset/sreset.h"
 #include "transport/conn/lifecycle/conntable/conntable.h"
 #include "transport/conn/loop/manage/middlebox.h"
 #include "transport/io/socket/io/udp.h"
@@ -6949,6 +6950,46 @@ static int srvrun_evict_for_initial(
   return srvrun_open_slot(ctx, dcid, is_initial);
 }
 
+/* RFC 9000 10.3: a stateless reset answers a short-header datagram whose
+ * DCID matches no live connection -- the client is talking to a server that
+ * lost (or never had) its state, and without the reset it keeps
+ * retransmitting into silence until its own idle timeout. Never for an
+ * Initial (that path gets the CONNECTION_CLOSE refusal instead), and never
+ * for a datagram too small to answer with something strictly smaller
+ * (RFC 9000 10.3.3's loop-prevention rule: every reset sent must be smaller
+ * than the packet that triggered it). */
+static int srvrun_sreset_applies(quic_span dcid, quic_mspan dg) {
+  return dcid.p != 0 && !wired_srvboot_is_initial(dg.p, dg.n) &&
+         dg.n > QUIC_SRESET_MIN;
+}
+
+/* Build the reset for dcid: random-looking bytes ending in the token the
+ * connection's handshake advertised (same quic_sreset_key_derive derivation
+ * srvboot used, so the token survives a server restart -- the exact
+ * situation this packet exists for). Capacity is clamped below the
+ * triggering datagram's size (10.3.3). */
+static int srvrun_seal_stateless_reset(
+    const srvrun_cfg* cfg, quic_span dcid, usz trigger_len, quic_obuf* out) {
+  u8  key[QUIC_SRESET_KEY];
+  usz cap = quic_u64_min(out->cap, trigger_len - 1);
+  usz len;
+  quic_sreset_key_derive(cfg->id->cert_seed, key);
+  if (!quic_sreset_build(
+          key, dcid.p, dcid.n, trigger_len, quic_rng_bytes, out->p, cap, &len))
+    return 0;
+  out->len = len;
+  return 1;
+}
+
+static void srvrun_send_stateless_reset(
+    const srvrun_step_ctx* ctx, quic_span dcid, quic_mspan dg) {
+  u8        out[128];
+  quic_obuf ob = quic_obuf_of(out, sizeof out);
+  if (!srvrun_sreset_applies(dcid, dg)) return;
+  if (!srvrun_seal_stateless_reset(ctx->cfg, dcid, dg.n, &ob)) return;
+  srvrun_tx(ctx->cfg, ctx->peer, quic_span_of(out, ob.len));
+}
+
 /* srvrun_route plus the full-table eviction fallback (srvrun_evict_for_
  * initial). Routing to an existing slot always wins -- a retransmitted
  * Initial must reach its own connection, never trigger an eviction. */
@@ -7040,7 +7081,11 @@ static void srvrun_route_and_serve(
     quic_mspan             dg,
     quic_span              odcid) {
   int slot = srvrun_route_or_evict(ctx, dcid, dg);
-  if (slot < 0) return srvrun_send_new_conn_refusal(ctx, dcid, dg);
+  if (slot < 0) {
+    srvrun_send_new_conn_refusal(ctx, dcid, dg);
+    srvrun_send_stateless_reset(ctx, dcid, dg);
+    return;
+  }
   if (odcid.n) srvrun_note_retry_odcid(&ctx->st->conns[slot], odcid);
   srvrun_serve_slot(ctx, slot, dg);
 }
