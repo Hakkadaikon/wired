@@ -63,6 +63,10 @@ try {
     arg,
     log: (msg) => console.error(`[${scenarioId}] ${msg}`),
   });
+} catch (err) {
+  // A scenario crash is still a red run: record it as a gate failure so the
+  // evidence directory always ends up with a verdict.
+  outcome = { report: { crashed: String(err?.stack ?? err) }, failures: [`scenario crashed: ${err}`] };
 } finally {
   await browser.close().catch(() => {});
   await server.stop().catch(() => {});
