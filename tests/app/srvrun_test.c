@@ -10676,6 +10676,119 @@ static void test_srvrun_stream_limit_small_case_single_grant(void) {
   CHECK(c.stream_limit_advertised == WIRED_SRVLOOP_MAX_STREAMS + 1);
 }
 
+/* RFC 9000 4.6/19.11, uni direction: releasing a WT uni stream's reassembly
+ * slot (FIN delivered, srvrun_reap_wt_uni_slot) raises the advertised UNI
+ * stream limit by one past the transport-parameter default -- the uni
+ * mirror of test_srvrun_slot_release_grants_one_more_stream. Without this,
+ * a client that opens one short-lived uni stream per application message
+ * exhausts the initial uni limit (100) and blocks forever, even though
+ * every one of its streams was consumed and reaped long ago. */
+static void test_srvrun_uni_slot_release_grants_one_more_stream(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  quic_obuf     ob = {0};
+  u8            obuf[1024];
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.l.wt_uni_streams[0].in_use        = 1;
+  c.l.wt_uni_streams[0].stream_id     = 2;
+  c.l.wt_uni_streams[0].offered       = 1;
+  c.l.wt_uni_streams[0].fin           = 1;
+  c.l.wt_uni_streams[0].fin_off       = 0;
+  c.l.wt_uni_streams[0].delivered_len = 0;
+  c.l.wt_uni_streams[0].fin_delivered = 1;
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
+        0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_test_reset_send_count();
+    srvrun_offer_wt_uni_streams(&cfg, &c);
+  }
+  CHECK(c.l.wt_uni_streams[0].in_use == 0); /* slot reaped */
+  CHECK(srvrun_test_send_count() == 1);     /* one MAX_STREAMS(uni) sent */
+  CHECK(c.uni_stream_limit_advertised == QUIC_STP_DEFAULT_MAX_STREAMS_UNI + 1);
+  CHECK(c.stream_limit_advertised == 0); /* bidi limit untouched */
+}
+
+/* Uni advertised limit only grows: a second uni slot release raises it one
+ * more from where it stood -- mirrors test_srvrun_stream_limit_never_
+ * decreases for the uni direction. */
+static void test_srvrun_uni_stream_limit_never_decreases(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  quic_obuf     ob = {0};
+  u8            obuf[1024];
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
+        0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    c.l.wt_uni_streams[0].in_use        = 1;
+    c.l.wt_uni_streams[0].stream_id     = 2;
+    c.l.wt_uni_streams[0].offered       = 1;
+    c.l.wt_uni_streams[0].fin           = 1;
+    c.l.wt_uni_streams[0].fin_delivered = 1;
+    srvrun_offer_wt_uni_streams(&cfg, &c);
+    CHECK(
+        c.uni_stream_limit_advertised == QUIC_STP_DEFAULT_MAX_STREAMS_UNI + 1);
+    c.l.wt_uni_streams[1].in_use        = 1;
+    c.l.wt_uni_streams[1].stream_id     = 6;
+    c.l.wt_uni_streams[1].offered       = 1;
+    c.l.wt_uni_streams[1].fin           = 1;
+    c.l.wt_uni_streams[1].fin_delivered = 1;
+    srvrun_offer_wt_uni_streams(&cfg, &c);
+    CHECK(
+        c.uni_stream_limit_advertised == QUIC_STP_DEFAULT_MAX_STREAMS_UNI + 2);
+  }
+}
+
+/* RFC 9000 4.6/19.14, uni direction: a uni STREAMS_BLOCKED sighting re-sends
+ * the uni limit already in force (never a peer-claimed value), consumes the
+ * uni flag, and leaves the bidi limit alone -- mirrors test_srvrun_streams_
+ * blocked_reannounces_current_limit. */
+static void test_srvrun_uni_streams_blocked_reannounces_current_limit(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  quic_obuf     ob = {0};
+  u8            obuf[1024];
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.uni_stream_limit_advertised     = 150;
+  c.l.streams_blocked_uni_seen_flag = 1;
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
+        0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_test_reset_send_count();
+    srvrun_reannounce_uni_stream_limit(&cfg, &c);
+  }
+  CHECK(srvrun_test_send_count() == 1);          /* actually resent */
+  CHECK(c.uni_stream_limit_advertised == 150);   /* repeated, not recomputed */
+  CHECK(c.l.streams_blocked_uni_seen_flag == 0); /* consumed */
+  CHECK(c.stream_limit_advertised == 0);         /* bidi untouched */
+}
+
+/* Uni STREAMS_BLOCKED before any uni slot release falls back to the
+ * transport-parameter default -- mirrors test_srvrun_streams_blocked_
+ * before_any_release_uses_base for the uni direction. */
+static void test_srvrun_uni_streams_blocked_before_release_uses_base(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  quic_obuf     ob = {0};
+  u8            obuf[1024];
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.l.streams_blocked_uni_seen_flag = 1;
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
+        0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_reannounce_uni_stream_limit(&cfg, &c);
+  }
+  CHECK(c.uni_stream_limit_advertised == QUIC_STP_DEFAULT_MAX_STREAMS_UNI);
+}
+
 /* END-TO-END REGRESSION for the real interop stall: two slots share a cwnd
  * pinned so tight neither slot alone has room for a fresh chunk. Slot 0's
  * one in-flight slice PTOs -- without RFC 9002 7.5's cwnd bypass, this
@@ -13116,6 +13229,10 @@ void test_srvrun(void) {
   test_srvrun_streams_blocked_reannounces_current_limit();
   test_srvrun_streams_blocked_before_any_release_uses_base();
   test_srvrun_stream_limit_small_case_single_grant();
+  test_srvrun_uni_slot_release_grants_one_more_stream();
+  test_srvrun_uni_stream_limit_never_decreases();
+  test_srvrun_uni_streams_blocked_reannounces_current_limit();
+  test_srvrun_uni_streams_blocked_before_release_uses_base();
   test_srvrun_pto_resend_breaks_cwnd_deadlock();
   test_srvrun_recv_max_data_then_send_unblocks();
   test_srvrun_max_stream_data_unknown_stream_is_noop();
