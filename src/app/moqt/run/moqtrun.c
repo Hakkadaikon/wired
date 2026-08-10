@@ -909,3 +909,44 @@ void wired_moqt_on_stream_data(
   }
   moqtrun_dispatch_data_stream(hub, p, stream_id, data, fin);
 }
+
+/* 1 if sub is an Established subscription held by peer index idx. */
+static int moqtrun_sub_is_peer(const wired_moqtrun_sub* sub, usz idx) {
+  return sub->active && sub->session_idx == idx;
+}
+
+/* Clear every relay's record of subscriber slot si's stream, so a later
+ * relay round neither appends to nor late-opens a stream on the dead
+ * session. */
+static void moqtrun_relays_clear_sub(wired_moqtrun_track* t, usz si) {
+  for (usz r = 0; r < WIRED_MOQTRUN_MAX_RELAYS; r++)
+    t->relays[r].sub_stream_set[si] = 0;
+}
+
+/* Deactivate track t's subscription entries held by peer index idx. */
+static void moqtrun_track_drop_sub(wired_moqtrun_track* t, usz idx) {
+  for (usz si = 0; si < WIRED_MOQTRUN_MAX_SUBS; si++) {
+    if (!moqtrun_sub_is_peer(&t->subs[si], idx)) continue;
+    t->subs[si].active = 0;
+    moqtrun_relays_clear_sub(t, si);
+  }
+}
+
+static void moqtrun_peer_drop_subs(wired_moqtrun_peer* q, usz idx) {
+  for (usz t = 0; t < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; t++)
+    if (q->tracks[t].in_use) moqtrun_track_drop_sub(&q->tracks[t], idx);
+}
+
+/* Deactivate every subscription any peer's tracks hold for peer index idx. */
+static void moqtrun_drop_peer_subs(wired_moqt_hub* hub, usz idx) {
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SESSIONS; i++)
+    if (hub->peers[i].in_use) moqtrun_peer_drop_subs(&hub->peers[i], idx);
+}
+
+void wired_moqt_on_session_close(void* app_ctx, wired_wt_session* s) {
+  wired_moqt_hub*     hub = (wired_moqt_hub*)app_ctx;
+  wired_moqtrun_peer* p   = moqtrun_find_by_wt(hub, s);
+  if (!p) return;
+  moqtrun_drop_peer_subs(hub, (usz)(p - hub->peers));
+  p->in_use = 0;
+}
