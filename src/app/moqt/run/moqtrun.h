@@ -258,4 +258,13 @@ void wired_moqt_on_session(
 void wired_moqt_on_stream_data(
     void* app_ctx, wired_wt_session* s, u64 stream_id, quic_span data, int fin);
 
+/** wired_wt_on_session_close-shaped: frees the peer slot registered for s
+ * and deactivates every subscription other peers' tracks held for it (their
+ * relays stop targeting its streams). app_ctx must be the wired_moqt_hub*.
+ * Without this, a dead session's peer slot leaks forever and a reconnecting
+ * client whose new session reuses the same slot memory is mistaken for the
+ * dead peer -- it never receives SETUP and stays mute until the process
+ * restarts. A session the hub never registered is a no-op. */
+void wired_moqt_on_session_close(void* app_ctx, wired_wt_session* s);
+
 #endif

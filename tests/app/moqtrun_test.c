@@ -1663,6 +1663,86 @@ static void test_moqtrun_frag_overflow_counted(void) {
   CHECK(relay.frag_len == 3 && hub.stat_frag_drop == 1);
 }
 
+/* ===================== session teardown ===================== */
+
+/* A closed session's peer slot is freed: the SAME wt pointer re-registers
+ * as a fresh peer and receives a fresh SETUP. The SDK reuses connection-
+ * slot memory (a reconnecting client often gets a pointer-identical
+ * session), so without the free, on_session's duplicate guard mistook the
+ * reconnect for the dead peer and never sent SETUP -- the client stayed
+ * mute until the process restarted. */
+static void test_moqtrun_close_frees_peer_for_reregistration(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  wired_moqt_on_session(&hub, SESS_A, quic_span_of(0, 0), quic_span_of(0, 0));
+  CHECK(moqtrun_test_count_kind(1) == 1);
+
+  wired_moqt_on_session_close(&hub, SESS_A);
+  wired_moqt_on_session(&hub, SESS_A, quic_span_of(0, 0), quic_span_of(0, 0));
+
+  CHECK(moqtrun_test_count_kind(1) == 2); /* fresh SETUP for the reconnect */
+}
+
+/* Closing a subscriber deactivates its entries on every other peer's
+ * tracks: a later Object on the publisher's track is not relayed to the
+ * dead session. */
+static void test_moqtrun_close_drops_subscriptions(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  moqtrun_test_publish_alice(&hub);
+  wired_moqt_on_session(&hub, SESS_B, quic_span_of(0, 0), quic_span_of(0, 0));
+  u64 ctrl_b = moqtrun_test_last_kind(1)->stream_id;
+  wired_moqt_on_stream_data(
+      &hub, SESS_B, ctrl_b,
+      quic_span_of(g_moqt_ctl_subscribe_basic, G_MOQT_CTL_SUBSCRIBE_BASIC_LEN),
+      0);
+
+  wired_moqt_on_session_close(&hub, SESS_B);
+  moqtrun_test_reset(); /* only observe the relay's own calls */
+  wired_moqt_on_stream_data(
+      &hub, SESS_A, 999,
+      quic_span_of(
+          g_moqt_data_subgroup_stream_basic,
+          G_MOQT_DATA_SUBGROUP_STREAM_BASIC_LEN),
+      1);
+
+  CHECK(moqtrun_test_count_kind(4) == 0); /* nothing relayed to the dead B */
+  CHECK(hub.stat_relay_sent == 0);
+}
+
+/* Closing a session the hub never registered (or one already closed) is a
+ * no-op that leaves live peers untouched. */
+static void test_moqtrun_close_unknown_session_noop(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  wired_moqt_on_session(&hub, SESS_A, quic_span_of(0, 0), quic_span_of(0, 0));
+
+  wired_moqt_on_session_close(&hub, SESS_B); /* never registered */
+  wired_moqt_on_session_close(&hub, SESS_A);
+  wired_moqt_on_session_close(&hub, SESS_A); /* already closed */
+
+  wired_moqt_on_session(&hub, SESS_B, quic_span_of(0, 0), quic_span_of(0, 0));
+  CHECK(moqtrun_test_count_kind(1) == 2); /* A's SETUP + B's SETUP */
+}
+
+/* Register/close churn far past the 32-slot peer table: every reconnect
+ * still gets its SETUP (a leaked slot per disconnect used to exhaust the
+ * table and silently refuse everyone after). */
+static void test_moqtrun_close_reregister_churn(void) {
+  wired_moqt_hub hub; /* one hub across the churn, reset only the recorder */
+  moqtrun_test_reset();
+  wired_moqt_init(&hub, moqtrun_test_io());
+  for (usz i = 0; i < 2 * WIRED_MOQTRUN_MAX_SESSIONS; i++) {
+    moqtrun_test_reset();
+    wired_moqt_on_session(&hub, SESS_A, quic_span_of(0, 0), quic_span_of(0, 0));
+    CHECK(moqtrun_test_count_kind(1) == 1);
+    wired_moqt_on_session_close(&hub, SESS_A);
+  }
+}
+
 void test_moqtrun(void) {
   test_moqtrun_on_session_sends_setup();
   test_moqtrun_on_session_twice_is_idempotent();
@@ -1706,4 +1786,8 @@ void test_moqtrun(void) {
   test_moqtrun_normalize_forwards_only_whole_objects();
   test_moqtrun_fresh_delivery_tail_held_back();
   test_moqtrun_frag_overflow_counted();
+  test_moqtrun_close_frees_peer_for_reregistration();
+  test_moqtrun_close_drops_subscriptions();
+  test_moqtrun_close_unknown_session_noop();
+  test_moqtrun_close_reregister_churn();
 }
