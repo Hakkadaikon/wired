@@ -6885,6 +6885,81 @@ static int srvrun_route(
   return srvrun_open_slot(ctx, dcid, wired_srvboot_is_initial(dg.p, dg.n));
 }
 
+/* RFC 9000 10.1: how long a slot must have been idle before a full table may
+ * reclaim it for a new client. 1s keeps anything actually talking (voice
+ * sends every 20ms, keep-alive scales are far above this) out of reach of an
+ * Initial flood, while an abruptly-vanished client's slot is reusable within
+ * a human "reconnect right away" window instead of the 30s idle sweep. */
+#define WIRED_SRVRUN_EVICT_GRACE_MS 1000
+
+/* 1 if every conntable entry is live -- eviction is strictly the full-table
+ * fallback; with a free entry the normal claim path must be the one that
+ * admits (a claim that failed for any other reason must not cost a live
+ * connection its slot). */
+static int srvrun_table_full(const srvrun_state* st) {
+  for (usz i = 0; i < QUIC_CONNTABLE_CAP; i++)
+    if (!st->table[i].live) return 0;
+  return 1;
+}
+
+/* 1 if slot i beats the best-so-far eviction candidate: only a busy slot
+ * competes at all (a freed slot's stale last_ms must never make it look
+ * "oldest"), and among busy slots the smallest last_ms wins. */
+static int srvrun_evict_prefer(const srvrun_state* st, usz i, int best) {
+  if (!srvrun_slot_busy(&st->conns[i])) return 0;
+  return best < 0 || st->conns[i].last_ms < st->conns[best].last_ms;
+}
+
+/* The oldest busy slot, -1 if none is busy. Whether it is idle enough to
+ * actually evict is the caller's grace check -- the oldest busy slot being
+ * under the grace floor means no slot at all is over it. */
+static int srvrun_evict_candidate(const srvrun_state* st) {
+  int best = -1;
+  for (usz i = 0; i < QUIC_CONNTABLE_CAP; i++)
+    if (srvrun_evict_prefer(st, i, best)) best = (int)i;
+  return best;
+}
+
+static int srvrun_evict_grace_ok(const srvrun_step_ctx* ctx, int cand) {
+  return cand >= 0 && ctx->now_ms - ctx->st->conns[cand].last_ms >=
+                          WIRED_SRVRUN_EVICT_GRACE_MS;
+}
+
+/* Eviction applies only when a datagram eligible to open a connection at
+ * all (fresh Initial, sane DCID, no shutdown pending -- the same gate the
+ * normal claim uses) found the table genuinely full. */
+static int srvrun_evict_applies(
+    const srvrun_step_ctx* ctx, quic_span dcid, int is_initial) {
+  return !srvrun_claim_refused(dcid, is_initial) && srvrun_table_full(ctx->st);
+}
+
+/* Full-table fallback for a new client's Initial: free the oldest slot idle
+ * at least the grace floor and claim its place, all within this one
+ * datagram's processing (no candidate is remembered across steps -- a slot
+ * picked earlier could have been freed or sprung back to life by the time a
+ * later step fired). Returns the freshly opened slot, or -1 (caller sends
+ * the refusal) when no slot has been idle long enough. */
+static int srvrun_evict_for_initial(
+    const srvrun_step_ctx* ctx, quic_span dcid, int is_initial) {
+  int cand;
+  if (!srvrun_evict_applies(ctx, dcid, is_initial)) return -1;
+  cand = srvrun_evict_candidate(ctx->st);
+  if (!srvrun_evict_grace_ok(ctx, cand)) return -1;
+  srvrun_free_slot(ctx->cfg, ctx->st, cand);
+  return srvrun_open_slot(ctx, dcid, is_initial);
+}
+
+/* srvrun_route plus the full-table eviction fallback (srvrun_evict_for_
+ * initial). Routing to an existing slot always wins -- a retransmitted
+ * Initial must reach its own connection, never trigger an eviction. */
+static int srvrun_route_or_evict(
+    const srvrun_step_ctx* ctx, quic_span dcid, quic_mspan dg) {
+  int slot = srvrun_route(ctx, dcid, dg);
+  if (slot >= 0) return slot;
+  return srvrun_evict_for_initial(
+      ctx, dcid, wired_srvboot_is_initial(dg.p, dg.n));
+}
+
 /* RFC 9000 5.2.2: whether a datagram that matched no slot and could not
  * claim a fresh one is a genuine new-connection attempt being turned away
  * (graceful shutdown or a full conntable) rather than something that was
@@ -6964,7 +7039,7 @@ static void srvrun_route_and_serve(
     quic_span              dcid,
     quic_mspan             dg,
     quic_span              odcid) {
-  int slot = srvrun_route(ctx, dcid, dg);
+  int slot = srvrun_route_or_evict(ctx, dcid, dg);
   if (slot < 0) return srvrun_send_new_conn_refusal(ctx, dcid, dg);
   if (odcid.n) srvrun_note_retry_odcid(&ctx->st->conns[slot], odcid);
   srvrun_serve_slot(ctx, slot, dg);
