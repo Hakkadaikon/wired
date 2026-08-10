@@ -114,6 +114,15 @@ int wired_sendsess_covered(const wired_sent_slice* e, u64 lo, u64 hi);
 /** Stream bytes currently in flight (congestion-window occupancy). */
 usz wired_sendsess_inflight_bytes(const wired_sendsess* s);
 
+/** The lowest round-local offset still live -- covered by an in-flight or
+ * requeued slice, or not yet handed out. Every byte below it has been
+ * delivered and acknowledged, so ring-backed storage (wired_sendq_set_ring)
+ * may reuse that space: no logged, requeued, or future slice will ever
+ * resolve into it again.
+ * @param s the session
+ * @return the reclaim floor (0..q.len) */
+usz wired_sendsess_unacked_floor(const wired_sendsess* s);
+
 /** Bytes an ACK of [lo, hi] would newly acknowledge, without consuming it.
  * @param s the session
  * @param lo lowest packet number in the range
