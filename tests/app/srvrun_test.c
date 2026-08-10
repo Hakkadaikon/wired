@@ -863,6 +863,150 @@ static void test_srvrun_full_conntable_sends_refusal(void) {
   CHECK(quic_conntable_find(table, QUIC_CONNTABLE_CAP, g_sr_odcid, 8) == -1);
 }
 
+/* Shared fixture for the full-table eviction tests below: fill every
+ * conntable entry with a distinct live cid {i,1,2,...} and give every conn a
+ * zeroed body with up=1 and the supplied last_ms. */
+static void sr_fill_table_busy(
+    quic_conntable* table, srvrun_conn* conns, u64 last_ms) {
+  quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+  for (usz i = 0; i < QUIC_CONNTABLE_CAP; i++) {
+    u8 cid[8] = {(u8)i, 1, 2, 3, 4, 5, 6, 7};
+    CHECK(quic_conntable_insert(table, QUIC_CONNTABLE_CAP, cid, 8) >= 0);
+    conns[i]         = (srvrun_conn){0};
+    conns[i].up      = 1;
+    conns[i].last_ms = last_ms;
+  }
+}
+
+/* RFC 9000 10.1: with the table full, a brand-new Initial reclaims the
+ * OLDEST slot that has been idle at least the grace floor instead of being
+ * refused -- an idle-timeout-scale wait is no longer the price of one
+ * abruptly-vanished client. The freed slot's old cid stops routing and the
+ * new connection boots in its place. */
+static void test_srvrun_full_table_evicts_oldest_idle_slot(void) {
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32], dg[1500];
+  quic_conntable   table[QUIC_CONNTABLE_CAP];
+  quic_sockaddr    peer = {0};
+  srvrun_state     st   = {table, g_srvrun_state.conns};
+  int              last = QUIC_CONNTABLE_CAP - 1; /* the victim slot */
+  u8 lastcid[8]         = {(u8)(QUIC_CONNTABLE_CAP - 1), 1, 2, 3, 4, 5, 6, 7};
+  sr_fill_table_busy(table, st.conns, 4500); /* idle 500ms: under grace */
+  st.conns[last].last_ms = 100;              /* the one aged-out slot */
+  sr_make_id(&id, priv, pub, seed, rnd);
+  {
+    usz        total = sr_build_client_initial(dg, sizeof dg, g_sr_odcid, 8);
+    srvrun_cfg cfg   = {-1, &id,           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                        0,  &g_srvrun_env, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_step_ctx ctx  = {&cfg, &peer, &st, 5000, 0};
+    quic_span       dcid = quic_span_of(g_sr_odcid, 8);
+    CHECK(srvrun_route_or_evict(&ctx, dcid, quic_mspan_of(dg, total)) == last);
+  }
+  CHECK(quic_conntable_find(table, QUIC_CONNTABLE_CAP, lastcid, 8) == -1);
+  CHECK(quic_conntable_find(table, QUIC_CONNTABLE_CAP, g_sr_odcid, 8) == last);
+}
+
+/* Grace floor: when every slot has been active within the last second, a
+ * full table still refuses the new Initial -- an Initial flood must never
+ * churn out connections that are actually talking. */
+static void test_srvrun_full_table_all_active_still_refuses(void) {
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32], dg[1500];
+  quic_conntable   table[QUIC_CONNTABLE_CAP];
+  quic_sockaddr    peer = {0};
+  srvrun_state     st   = {table, g_srvrun_state.conns};
+  sr_fill_table_busy(table, st.conns, 4500); /* all idle only 500ms */
+  sr_make_id(&id, priv, pub, seed, rnd);
+  {
+    usz        total = sr_build_client_initial(dg, sizeof dg, g_sr_odcid, 8);
+    srvrun_cfg cfg   = {-1, &id,           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                        0,  &g_srvrun_env, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_step_ctx ctx = {&cfg, &peer, &st, 5000, 0};
+    srvrun_serve(&ctx, quic_mspan_of(dg, total));
+  }
+  CHECK(quic_conntable_find(table, QUIC_CONNTABLE_CAP, g_sr_odcid, 8) == -1);
+  for (usz i = 0; i < QUIC_CONNTABLE_CAP; i++) {
+    u8 cid[8] = {(u8)i, 1, 2, 3, 4, 5, 6, 7};
+    CHECK(quic_conntable_find(table, QUIC_CONNTABLE_CAP, cid, 8) == (int)i);
+  }
+}
+
+/* Idle exactly at the grace floor is old enough (>=, not >): the boundary
+ * case admits. */
+static void test_srvrun_full_table_grace_boundary_admits(void) {
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32], dg[1500];
+  quic_conntable   table[QUIC_CONNTABLE_CAP];
+  quic_sockaddr    peer    = {0};
+  srvrun_state     st      = {table, g_srvrun_state.conns};
+  u8               cid0[8] = {0, 1, 2, 3, 4, 5, 6, 7};
+  sr_fill_table_busy(table, st.conns, 4500);
+  st.conns[0].last_ms = 4000; /* idle exactly 1000ms at now=5000 */
+  sr_make_id(&id, priv, pub, seed, rnd);
+  {
+    usz        total = sr_build_client_initial(dg, sizeof dg, g_sr_odcid, 8);
+    srvrun_cfg cfg   = {-1, &id,           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                        0,  &g_srvrun_env, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_step_ctx ctx  = {&cfg, &peer, &st, 5000, 0};
+    quic_span       dcid = quic_span_of(g_sr_odcid, 8);
+    CHECK(srvrun_route_or_evict(&ctx, dcid, quic_mspan_of(dg, total)) == 0);
+  }
+  CHECK(quic_conntable_find(table, QUIC_CONNTABLE_CAP, cid0, 8) == -1);
+  CHECK(quic_conntable_find(table, QUIC_CONNTABLE_CAP, g_sr_odcid, 8) == 0);
+}
+
+/* An Initial whose DCID routes to an EXISTING slot (a retransmit) never
+ * enters the eviction path, however stale the rest of the table is -- the
+ * routed slot itself especially must survive. */
+static void test_srvrun_full_table_retransmit_routes_no_evict(void) {
+  quic_conntable table[QUIC_CONNTABLE_CAP];
+  quic_sockaddr  peer = {0};
+  srvrun_state   st   = {table, g_srvrun_state.conns};
+  u8             dg[1500];
+  usz            total;
+  sr_fill_table_busy(table, st.conns, 100); /* everyone is idle and old */
+  /* slot 3's cid IS the arriving Initial's DCID */
+  u8 cid3[8] = {3, 1, 2, 3, 4, 5, 6, 7};
+  total      = sr_build_client_initial(dg, sizeof dg, cid3, 8);
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
+        0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_step_ctx ctx  = {&cfg, &peer, &st, 5000, 0};
+    quic_span       dcid = quic_span_of(cid3, 8);
+    CHECK(srvrun_route_or_evict(&ctx, dcid, quic_mspan_of(dg, total)) == 3);
+  }
+  for (usz i = 0; i < QUIC_CONNTABLE_CAP; i++) {
+    u8 cid[8] = {(u8)i, 1, 2, 3, 4, 5, 6, 7};
+    CHECK(quic_conntable_find(table, QUIC_CONNTABLE_CAP, cid, 8) == (int)i);
+  }
+}
+
+/* A short-header (non-Initial) datagram with an unknown DCID never evicts,
+ * full table or not -- only a fresh Initial may take a slot (RFC 9000 7). */
+static void test_srvrun_full_table_short_header_no_evict(void) {
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32];
+  quic_conntable   table[QUIC_CONNTABLE_CAP];
+  quic_sockaddr    peer = {0};
+  srvrun_state     st   = {table, g_srvrun_state.conns};
+  u8               short_hdr[64];
+  sr_fill_table_busy(table, st.conns, 100); /* everyone evictable by age */
+  short_hdr[0] = 0x40;                      /* short header form bit */
+  for (usz i = 1; i < sizeof short_hdr; i++) short_hdr[i] = (u8)(0xa0 + i);
+  sr_make_id(&id, priv, pub, seed, rnd);
+  {
+    srvrun_cfg cfg = {-1, &id,           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                      0,  &g_srvrun_env, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_step_ctx ctx = {&cfg, &peer, &st, 5000, 0};
+    srvrun_serve(&ctx, quic_mspan_of(short_hdr, sizeof short_hdr));
+  }
+  for (usz i = 0; i < QUIC_CONNTABLE_CAP; i++) {
+    u8 cid[8] = {(u8)i, 1, 2, 3, 4, 5, 6, 7};
+    CHECK(quic_conntable_find(table, QUIC_CONNTABLE_CAP, cid, 8) == (int)i);
+  }
+}
+
 /* AF_XDP CORE ROUTING (wired_srvrun_opt.core_id): a fresh slot's generated
  * SCID has its leading byte overwritten with this worker's core/queue index
  * when both an XDP driver and a non-negative core_id are configured -- the
@@ -13233,6 +13377,11 @@ void test_srvrun(void) {
   test_srvrun_uni_stream_limit_never_decreases();
   test_srvrun_uni_streams_blocked_reannounces_current_limit();
   test_srvrun_uni_streams_blocked_before_release_uses_base();
+  test_srvrun_full_table_evicts_oldest_idle_slot();
+  test_srvrun_full_table_all_active_still_refuses();
+  test_srvrun_full_table_grace_boundary_admits();
+  test_srvrun_full_table_retransmit_routes_no_evict();
+  test_srvrun_full_table_short_header_no_evict();
   test_srvrun_pto_resend_breaks_cwnd_deadlock();
   test_srvrun_recv_max_data_then_send_unblocks();
   test_srvrun_max_stream_data_unknown_stream_is_noop();
