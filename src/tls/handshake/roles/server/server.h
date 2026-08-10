@@ -134,6 +134,15 @@ void wired_server_set_limits(
     u64           max_streams_bidi,
     u64           max_datagram_frame_size);
 
+/** Advertise this 16-byte stateless_reset_token (RFC 9000 10.3.1/18.2) for
+ * the server's handshake SCID in the transport parameters. Derive it from a
+ * restart-stable secret (quic_sreset_key_derive + quic_sreset_token) so a
+ * rebooted server can still produce it. Call before the flight is built;
+ * never calling it simply omits the TP.
+ * @param s the server
+ * @param token the 16-byte token */
+void wired_server_set_reset_token(wired_server* s, const u8 token[16]);
+
 /** Set the NSS key log file path (SSLKEYLOGFILE format); 0 disables (the
  * default). When set, wired_server_feed appends a CLIENT_HANDSHAKE_TRAFFIC_
  * SECRET line once the client Finished verifies.

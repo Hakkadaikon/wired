@@ -99,6 +99,13 @@ typedef struct {
                               * a Retry preceded this handshake */
   u8              rscid_len; /**< bytes used in rscid; 0 = no Retry */
   quic_stp_limits limits;    /**< advertised tunable limits (0 = defaults) */
+  /** stateless_reset_token (RFC 9000 10.3.1/18.2) for iscid, advertised in
+   * the EncryptedExtensions transport parameters when sreset_token_set is 1.
+   * The caller derives it from a restart-stable secret (quic_sreset_key_
+   * derive) -- a per-boot token would be useless, since the reset it
+   * authorizes is exactly the "server lost its state" signal. */
+  u8  sreset_token[16];
+  u8  sreset_token_set; /**< 1 once sreset_token holds a real token */
   u64 peer_max_datagram_frame_size; /**< peer's max_datagram_frame_size
                                      * (0x20, RFC 9221 3) from the ClientHello
                                      * transport parameters; 0 = not
