@@ -3225,6 +3225,44 @@ static void test_srvloop_gather_max_data_keeps_running_high(void) {
   CHECK(f.l.max_data_seen == 5000);
 }
 
+/* RFC 9000 19.14: a uni-direction STREAMS_BLOCKED (0x17) latches the uni
+ * flag and leaves the bidi flag alone -- the two directions have
+ * independent stream limits, so a client blocked on uni streams must
+ * trigger a MAX_STREAMS(uni) re-announce, not a useless bidi one. */
+static void test_srvloop_streams_blocked_uni_sets_uni_flag(void) {
+  struct lp_fix   f;
+  quic_obuf       ob;
+  u8              out[1024], spkt[1024];
+  usz             slen;
+  static const u8 fr[] = {0x17, 0x05}; /* STREAMS_BLOCKED(uni), limit 5 */
+  ob                   = (quic_obuf){out, sizeof out, 0};
+  lp_confirm(&f, &ob);
+  slen = client_seal_onertt(&f, fr, sizeof fr, spkt, sizeof spkt);
+  ob   = (quic_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  CHECK(f.l.streams_blocked_uni_seen_flag == 1);
+  CHECK(f.l.streams_blocked_seen_flag == 0);
+}
+
+/* RFC 9000 19.14: the bidi direction (0x16) keeps latching its own flag and
+ * leaves the uni flag alone -- the direction split cuts both ways. */
+static void test_srvloop_streams_blocked_bidi_keeps_bidi_flag(void) {
+  struct lp_fix   f;
+  quic_obuf       ob;
+  u8              out[1024], spkt[1024];
+  usz             slen;
+  static const u8 fr[] = {0x16, 0x05}; /* STREAMS_BLOCKED(bidi), limit 5 */
+  ob                   = (quic_obuf){out, sizeof out, 0};
+  lp_confirm(&f, &ob);
+  slen = client_seal_onertt(&f, fr, sizeof fr, spkt, sizeof spkt);
+  ob   = (quic_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  CHECK(f.l.streams_blocked_seen_flag == 1);
+  CHECK(f.l.streams_blocked_uni_seen_flag == 0);
+}
+
 /* RFC 9000 19.10: a MAX_STREAM_DATA frame in a 1-RTT payload latches its
  * (stream_id, value) onto max_stream_data_stream_id/_value -- the caller
  * resolves which resp[] slot stream_id names and raises that slot's own
@@ -3996,6 +4034,8 @@ void test_srvloop(void) {
   test_srvloop_produce_ack_only_ignores_pacing();
   test_srvloop_gather_max_data_raises_credit();
   test_srvloop_gather_max_data_keeps_running_high();
+  test_srvloop_streams_blocked_uni_sets_uni_flag();
+  test_srvloop_streams_blocked_bidi_keeps_bidi_flag();
   test_srvloop_gather_max_stream_data_raises_credit();
   test_srvloop_gather_max_stream_data_keeps_every_distinct_stream();
   test_srvloop_gather_max_stream_data_same_stream_overwrites();
