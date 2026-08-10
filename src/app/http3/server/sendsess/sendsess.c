@@ -76,6 +76,27 @@ usz wired_sendsess_inflight_bytes(const wired_sendsess* s) {
   return n;
 }
 
+/* 1 if in-flight log entry e pins a lower offset than floor. */
+static int sent_slice_below(const wired_sent_slice* e, usz floor) {
+  return e->inflight && e->sl.offset < floor;
+}
+
+static usz sendsess_log_floor(const wired_sendsess* s, usz floor) {
+  for (usz i = 0; i < WIRED_SENDSESS_LOG; i++)
+    if (sent_slice_below(&s->log[i], floor)) floor = s->log[i].sl.offset;
+  return floor;
+}
+
+static usz sendsess_requeue_floor(const wired_sendsess* s, usz floor) {
+  for (usz i = 0; i < s->requeue_n; i++)
+    if (s->requeue[i].offset < floor) floor = s->requeue[i].offset;
+  return floor;
+}
+
+usz wired_sendsess_unacked_floor(const wired_sendsess* s) {
+  return sendsess_requeue_floor(s, sendsess_log_floor(s, s->q.cur));
+}
+
 static int sendsess_hit(const wired_sent_slice* e, u64 lo, u64 hi);
 
 /* Fold one log entry into the peek accumulation. */
