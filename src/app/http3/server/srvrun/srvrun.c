@@ -521,6 +521,13 @@ typedef struct {
    * fixed-size slot table cannot back -- an advertisement MUST NOT decrease
    * (RFC 9000 4.6), so this only ever grows. */
   u64 stream_limit_advertised;
+  /** Same as stream_limit_advertised, for the client-initiated UNI limit
+   * (RFC 9000 4.6: independent limits per direction). Raised by one every
+   * time a WT uni stream's reassembly slot is released (srvrun_reap_wt_uni_
+   * slot), so a client opening one short-lived uni stream per message never
+   * exhausts the initial limit -- streams it already finished keep paying
+   * for new ones. Only ever grows. */
+  u64 uni_stream_limit_advertised;
   /** RFC 9000 8.2/9: this connection's ONE path-validation state machine
    * (quic_migrate), tracking the naive rebind-follow in srvrun_rebind_peer
    * through detect -> challenge -> validate. One instance, not one per path:
@@ -1825,38 +1832,48 @@ static int wt_uni_slot_needs_offer(
 }
 
 /* RFC 9000 2.2 / 19.8: same reap-once-FIN-delivered policy as
- * srvrun_reap_wt_slot, for the separate uni table. */
-static void srvrun_reap_wt_uni_slot(
+ * srvrun_reap_wt_slot, for the separate uni table. Returns 1 when the slot
+ * was released (its uni stream-limit grant is owed), 0 otherwise. */
+static int srvrun_reap_wt_uni_slot(
     wired_srvloop* l, wired_srvloop_wt_uni_stream_slot* slot) {
-  if (!slot->in_use || !slot->fin_delivered) return;
+  if (!slot->in_use || !slot->fin_delivered) return 0;
   wired_srvloop_wt_uni_slot_release(l, slot->stream_id);
+  return 1;
 }
 
 /* One wt_uni_streams slot's per-step work, mirroring
- * srvrun_offer_and_deliver_wt_slot for the separate uni table. */
-static void srvrun_offer_and_deliver_wt_uni_slot(
+ * srvrun_offer_and_deliver_wt_slot for the separate uni table. Returns 1
+ * when the slot's reap released it (its uni stream-limit grant is owed). */
+static int srvrun_offer_and_deliver_wt_uni_slot(
     const srvrun_cfg*                 cfg,
     srvrun_conn*                      c,
     wired_srvloop_wt_uni_stream_slot* slot) {
   int sidx;
   if (wt_uni_slot_needs_offer(slot)) srvrun_offer_wt_uni_slot(cfg, c, slot);
-  if (!slot->in_use) return;
+  if (!slot->in_use) return 0;
   sidx = srvrun_wt_slot_for_new_stream(c);
   srvrun_deliver_wt_stream_delta(
       cfg, c, sidx, slot->stream_id, slot->buf, &slot->win, slot->fin,
       slot->fin_off, &slot->delivered_len, &slot->fin_delivered);
   wired_srvloop_wt_window_slide(
       &slot->win, slot->buf, sizeof slot->buf, slot->delivered_len);
-  srvrun_reap_wt_uni_slot(&c->l, slot);
+  return srvrun_reap_wt_uni_slot(&c->l, slot);
 }
+
+static void srvrun_grant_uni_streams(
+    const srvrun_cfg* cfg, srvrun_conn* c, usz n);
 
 /* draft-ietf-webtrans-http3-15 4.3: after a step has reassembled this
  * datagram's frames into c->l.wt_uni_streams[], run srvrun_offer_and_deliver_
  * wt_uni_slot over every slot, mirroring srvrun_offer_wt_streams for the
- * separate uni table. */
+ * separate uni table -- then raise the uni stream limit by the number of
+ * slots the pass released (RFC 9000 4.6/19.11). */
 static void srvrun_offer_wt_uni_streams(const srvrun_cfg* cfg, srvrun_conn* c) {
+  usz freed = 0;
   for (usz i = 0; i < WIRED_SRVLOOP_MAX_WT_UNI_STREAMS; i++)
-    srvrun_offer_and_deliver_wt_uni_slot(cfg, c, &c->l.wt_uni_streams[i]);
+    freed += (usz)srvrun_offer_and_deliver_wt_uni_slot(
+        cfg, c, &c->l.wt_uni_streams[i]);
+  srvrun_grant_uni_streams(cfg, c, freed);
 }
 
 /* RFC 9000 4.1: the most a WT slot's receive window can currently absorb --
@@ -2063,13 +2080,14 @@ static void srvrun_send_data_blocked(
   srvrun_send(cfg, c, quic_span_of(out, ob.len), "DATA_BLOCKED sent\n");
 }
 
-/* Seal one MAX_STREAMS(bidi) frame (RFC 9000 19.11) as its own 1-RTT packet
- * and send it. */
-static int srvrun_seal_max_streams(srvrun_conn* c, u64 value, quic_obuf* out) {
+/* Seal one MAX_STREAMS frame (RFC 9000 19.11, uni selects 0x13) as its own
+ * 1-RTT packet and send it. */
+static int srvrun_seal_max_streams(
+    srvrun_conn* c, int uni, u64 value, quic_obuf* out) {
   u8                    pl[24];
   quic_obuf             plb = quic_obuf_of(pl, sizeof pl);
   wired_srvloop_send_in sin;
-  if (!quic_maxstreams_frame(0, value, &plb)) return 0;
+  if (!quic_maxstreams_frame(uni, value, &plb)) return 0;
   sin = (wired_srvloop_send_in){
       quic_span_of(c->l.cli_scid, c->l.cli_scid_len), c->l.tx_pn++, -1,
       quic_span_of(pl, plb.len), 0};
@@ -2077,12 +2095,15 @@ static int srvrun_seal_max_streams(srvrun_conn* c, u64 value, quic_obuf* out) {
 }
 
 static void srvrun_send_max_streams(
-    const srvrun_cfg* cfg, srvrun_conn* c, u64 value) {
+    const srvrun_cfg* cfg, srvrun_conn* c, int uni, u64 value) {
   u8        out[128];
   quic_obuf ob = quic_obuf_of(out, sizeof out);
-  if (!srvrun_seal_max_streams(c, value, &ob)) return;
+  if (!srvrun_seal_max_streams(c, uni, value, &ob)) return;
   srvrun_send(cfg, c, quic_span_of(out, ob.len), "MAX_STREAMS sent\n");
-  c->stream_limit_advertised = value;
+  if (uni)
+    c->uni_stream_limit_advertised = value;
+  else
+    c->stream_limit_advertised = value;
 }
 
 /* RFC 9000 4.6/19.11: raise the advertised bidi stream limit by n to match
@@ -2101,7 +2122,21 @@ static void srvrun_send_max_streams(
 static void srvrun_grant_streams(
     const srvrun_cfg* cfg, srvrun_conn* c, u64 base, usz n) {
   u64 current = c->stream_limit_advertised ? c->stream_limit_advertised : base;
-  if (n) srvrun_send_max_streams(cfg, c, current + n);
+  if (n) srvrun_send_max_streams(cfg, c, 0, current + n);
+}
+
+/* srvrun_grant_streams' uni mirror: raise the advertised UNI stream limit by
+ * n (one per WT uni reassembly slot released this pass). The base is the
+ * transport-parameter default itself -- unlike bidi there is no per-boot
+ * configured override, and the uni limit is cumulative-consumption credit
+ * (a released slot means one whole stream was consumed), not a concurrency
+ * clamp. */
+static void srvrun_grant_uni_streams(
+    const srvrun_cfg* cfg, srvrun_conn* c, usz n) {
+  u64 current = c->uni_stream_limit_advertised
+                    ? c->uni_stream_limit_advertised
+                    : QUIC_STP_DEFAULT_MAX_STREAMS_UNI;
+  if (n) srvrun_send_max_streams(cfg, c, 1, current + (u64)n);
 }
 
 /* RFC 9000 4.6: "An endpoint that receives a STREAMS_BLOCKED frame SHOULD
@@ -2118,7 +2153,21 @@ static void srvrun_reannounce_stream_limit(
   if (!c->l.streams_blocked_seen_flag) return;
   c->l.streams_blocked_seen_flag = 0;
   srvrun_send_max_streams(
-      cfg, c, c->stream_limit_advertised ? c->stream_limit_advertised : base);
+      cfg, c, 0,
+      c->stream_limit_advertised ? c->stream_limit_advertised : base);
+}
+
+/* srvrun_reannounce_stream_limit's uni mirror: a UNI STREAMS_BLOCKED
+ * sighting re-sends the uni limit already in force (or the transport-
+ * parameter default before any uni release raised it). */
+static void srvrun_reannounce_uni_stream_limit(
+    const srvrun_cfg* cfg, srvrun_conn* c) {
+  if (!c->l.streams_blocked_uni_seen_flag) return;
+  c->l.streams_blocked_uni_seen_flag = 0;
+  srvrun_send_max_streams(
+      cfg, c, 1,
+      c->uni_stream_limit_advertised ? c->uni_stream_limit_advertised
+                                     : QUIC_STP_DEFAULT_MAX_STREAMS_UNI);
 }
 
 /* 1 if any WT bidi or uni slot is currently in use -- srvrun_grant_conn_
@@ -6093,6 +6142,7 @@ static void srvrun_sess_on_step(const srvrun_step_ctx* ctx, int slot) {
   srvrun_reap_resps(ctx, c, slot);
   srvrun_reap_wtsends(c);
   srvrun_reannounce_stream_limit(ctx->cfg, c, srvrun_stream_limit_base(ctx));
+  srvrun_reannounce_uni_stream_limit(ctx->cfg, c);
   srvrun_abort_incomplete_reqs(ctx, slot);
   srvrun_abort_frame_unexpected_reqs(ctx, slot);
   srvrun_start_done_resps(ctx, slot);
