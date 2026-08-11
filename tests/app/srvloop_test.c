@@ -95,7 +95,12 @@ static usz lp_client_tp(u8* tp, usz cap) {
   quic_obuf tob2 = quic_obuf_of(tp + n1, cap - n1);
   usz       n2   = quic_tparam_put_int(
       &tob2, QUIC_TP_INITIAL_MAX_STREAM_DATA_BIDI_LOCAL, 1u << 24);
-  return n1 + n2;
+  /* RFC 9000 18.2: a real client grants the server uni streams (Chrome
+   * does); without this every server-initiated relay open is refused by
+   * the peer-limit gate and fixture-driven WT tests starve. */
+  quic_obuf tob3 = quic_obuf_of(tp + n1 + n2, cap - n1 - n2);
+  usz n3 = quic_tparam_put_int(&tob3, QUIC_TP_INITIAL_MAX_STREAMS_UNI, 100);
+  return n1 + n2 + n3;
 }
 
 static void lp_make_client_hello(struct lp_fix* f) {
@@ -3263,6 +3268,25 @@ static void test_srvloop_streams_blocked_bidi_keeps_bidi_flag(void) {
   CHECK(f.l.streams_blocked_uni_seen_flag == 0);
 }
 
+/* RFC 9000 19.11: a MAX_STREAMS(uni) frame (0x13) latches its value as the
+ * step's high-water mark; the bidi variant (0x12) is ignored by this
+ * gather (the server opens no peer-limit-gated bidi streams). */
+static void test_srvloop_gather_max_streams_uni(void) {
+  struct lp_fix   f;
+  quic_obuf       ob;
+  u8              out[1024], spkt[1024];
+  usz             slen;
+  static const u8 fr[] = {0x13, 0x20, 0x12, 0x7f}; /* uni 32, bidi 127 */
+  ob                   = (quic_obuf){out, sizeof out, 0};
+  lp_confirm(&f, &ob);
+  slen = client_seal_onertt(&f, fr, sizeof fr, spkt, sizeof spkt);
+  ob   = (quic_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  CHECK(f.l.max_streams_uni_seen_flag == 1);
+  CHECK(f.l.max_streams_uni_seen == 32); /* the bidi 127 did not latch */
+}
+
 /* RFC 9000 19.10: a MAX_STREAM_DATA frame in a 1-RTT payload latches its
  * (stream_id, value) onto max_stream_data_stream_id/_value -- the caller
  * resolves which resp[] slot stream_id names and raises that slot's own
@@ -4036,6 +4060,7 @@ void test_srvloop(void) {
   test_srvloop_gather_max_data_keeps_running_high();
   test_srvloop_streams_blocked_uni_sets_uni_flag();
   test_srvloop_streams_blocked_bidi_keeps_bidi_flag();
+  test_srvloop_gather_max_streams_uni();
   test_srvloop_gather_max_stream_data_raises_credit();
   test_srvloop_gather_max_stream_data_keeps_every_distinct_stream();
   test_srvloop_gather_max_stream_data_same_stream_overwrites();
