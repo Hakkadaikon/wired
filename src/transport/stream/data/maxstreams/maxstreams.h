@@ -15,6 +15,10 @@ int quic_maxstreams_frame(int uni, u64 max, quic_obuf* out);
  * success, 0 on truncated / malformed input. */
 int quic_maxstreams_parse(quic_span in, int* uni, u64* max);
 
+/* Build a STREAMS_BLOCKED frame (0x16 bidi, 0x17 uni) into out.
+ * Returns 1 and sets out->len on success, 0 on overflow / out-of-range. */
+int quic_maxstreams_blocked_frame(int uni, u64 limit, quic_obuf* out);
+
 /* RFC 9000 4.6: admission. Returns 1 if opening one more stream stays within
  * max_streams (opened < max_streams), 0 once the limit is reached
  * (a STREAM_LIMIT_ERROR). */
