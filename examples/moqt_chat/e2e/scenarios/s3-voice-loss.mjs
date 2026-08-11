@@ -85,23 +85,43 @@ export async function run({ pageUrl, server, arg, log }) {
 
     const failures = [];
     const tapEvents = {};
-    let chatMissing = 0;
+    // Distinguish "still in flight" from "gone for good": scrape once after
+    // the settle, and -- only if something is missing -- again after an
+    // extra grace. A pair missing from BOTH scrapes is a real loss; a pair
+    // that shows up late is a latency finding (report-only).
+    const missingPairs = async () => {
+      const out = [];
+      for (const c of clients) {
+        const got = new Set(await deliveredChatIds(c));
+        for (const s of sentIds) {
+          if (s.sender !== c.tag && !got.has(s.id)) out.push(`${s.id}->${c.tag}`);
+        }
+      }
+      return out;
+    };
+    const missingAtSettle = await missingPairs();
+    let missingFinal = missingAtSettle;
+    if (missingAtSettle.length > 0) {
+      log(`${missingAtSettle.length} chat deliveries still missing; extra 20s grace`);
+      await sleep(20000);
+      missingFinal = await missingPairs();
+    }
     for (const c of clients) {
       const m = await clientMetrics(c);
       tapEvents[c.tag] = m?.voiceTapEvents ?? [];
-      const got = new Set(await deliveredChatIds(c));
-      for (const s of sentIds) {
-        if (s.sender !== c.tag && !got.has(s.id)) chatMissing++;
-      }
       const dead = (m?.wtEvents ?? []).filter((e) => e.closedAt !== null);
       if (dead.length > 0) {
         failures.push(`${c.tag}: connection died mid-run (${dead[0].closeInfo})`);
       }
       for (const e of c.errors) failures.push(`${c.tag} page error: ${e}`);
     }
-    if (chatMissing > 0) {
-      failures.push(`chat loss under packet loss: ${chatMissing} deliveries missing`);
+    if (missingFinal.length > 0) {
+      failures.push(
+        `chat loss under packet loss: ${missingFinal.length} deliveries missing ` +
+          `for good (${missingFinal.slice(0, 6).join(", ")})`,
+      );
     }
+    const chatMissing = missingFinal.length;
     const voiceTrace = summarizeVoiceTrace(tapEvents);
     failures.push(...evaluateVoiceGates(voiceTrace, gateOverrides));
 
@@ -110,6 +130,8 @@ export async function run({ pageUrl, server, arg, log }) {
       seed,
       gateOverrides,
       chatMissing,
+      chatMissingAtSettle: missingAtSettle.length,
+      chatLateDelivered: missingAtSettle.length - missingFinal.length,
       voiceTrace,
       proxyStats: proxy.stats(),
     };
