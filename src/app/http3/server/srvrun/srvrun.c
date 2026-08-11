@@ -535,6 +535,14 @@ typedef struct {
    * exhausts the initial limit -- streams it already finished keep paying
    * for new ones. Only ever grows. */
   u64 uni_stream_limit_advertised;
+  /** RFC 9000 4.1: WT stream bytes delivered by slots ALREADY REAPED. The
+   * connection-wide MAX_DATA ceiling is a cumulative protocol counter, but
+   * srvrun_wt_rx_delivered_total only sums LIVE slots -- a reaped slot's
+   * bytes silently left the sum and the advertised ceiling stagnated at
+   * roughly the initial TP for a long session of short-lived streams (~10MB
+   * = ~20 min of voice) and then wedged the connection. Accumulated at reap
+   * time so the ceiling keeps counting up. Only ever grows. */
+  u64 wt_rx_reaped_total;
   /** RFC 9000 4.6/19.11: the highest MAX_STREAMS(uni) the PEER has granted
    * this server for server-initiated uni streams (relay streams). 0 until
    * the first runtime raise; the ClientHello's initial_max_streams_uni
@@ -1625,9 +1633,10 @@ static void srvrun_deliver_wt_stream_delta(
  * WIRED_SRVLOOP_MAX_WT_STREAMS exhausting after that many sequential
  * streams, mirroring srvrun_resp_reap's own release of streams[]. */
 static void srvrun_reap_wt_slot(
-    wired_srvloop* l, wired_srvloop_wt_stream_slot* slot) {
+    srvrun_conn* c, wired_srvloop_wt_stream_slot* slot) {
   if (!slot->in_use || !slot->fin_delivered) return;
-  wired_srvloop_wt_slot_release(l, slot->stream_id);
+  c->wt_rx_reaped_total += slot->delivered_len;
+  wired_srvloop_wt_slot_release(&c->l, slot->stream_id);
 }
 
 /* One wt_streams slot's per-step work: offer it to the session if this step
@@ -1647,7 +1656,7 @@ static void srvrun_offer_and_deliver_wt_slot(
       slot->fin_off, &slot->delivered_len, &slot->fin_delivered);
   wired_srvloop_wt_window_slide(
       &slot->win, slot->buf, sizeof slot->buf, slot->delivered_len);
-  srvrun_reap_wt_slot(&c->l, slot);
+  srvrun_reap_wt_slot(c, slot);
 }
 
 /* draft-ietf-webtrans-http3-15 4.3: after a step has reassembled this
@@ -1850,9 +1859,10 @@ static int wt_uni_slot_needs_offer(
  * srvrun_reap_wt_slot, for the separate uni table. Returns 1 when the slot
  * was released (its uni stream-limit grant is owed), 0 otherwise. */
 static int srvrun_reap_wt_uni_slot(
-    wired_srvloop* l, wired_srvloop_wt_uni_stream_slot* slot) {
+    srvrun_conn* c, wired_srvloop_wt_uni_stream_slot* slot) {
   if (!slot->in_use || !slot->fin_delivered) return 0;
-  wired_srvloop_wt_uni_slot_release(l, slot->stream_id);
+  c->wt_rx_reaped_total += slot->delivered_len;
+  wired_srvloop_wt_uni_slot_release(&c->l, slot->stream_id);
   return 1;
 }
 
@@ -1872,7 +1882,7 @@ static int srvrun_offer_and_deliver_wt_uni_slot(
       slot->fin_off, &slot->delivered_len, &slot->fin_delivered);
   wired_srvloop_wt_window_slide(
       &slot->win, slot->buf, sizeof slot->buf, slot->delivered_len);
-  return srvrun_reap_wt_uni_slot(&c->l, slot);
+  return srvrun_reap_wt_uni_slot(c, slot);
 }
 
 static void srvrun_grant_uni_streams(
@@ -2240,7 +2250,7 @@ static usz wt_slots_in_use(const srvrun_conn* c) {
  * connection ceiling. A no-op while no WT slot has ever been claimed
  * (wt_any_slot_in_use). */
 static void srvrun_grant_conn_credit(const srvrun_cfg* cfg, srvrun_conn* c) {
-  u64 ceiling = srvrun_wt_rx_delivered_total(c) +
+  u64 ceiling = c->wt_rx_reaped_total + srvrun_wt_rx_delivered_total(c) +
                 (u64)wt_slots_in_use(c) * WIRED_SRVLOOP_WT_BUF_CAP;
   if (!wt_any_slot_in_use(c)) return;
   if (!wt_credit_stream_due(ceiling, c->rx_max_data_advertised)) return;
