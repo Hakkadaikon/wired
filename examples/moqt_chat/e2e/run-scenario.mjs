@@ -46,10 +46,20 @@ const serverArgs =
   arg("server-qlog", "") !== ""
     ? ["--qlog", path.join(evidenceDir, "server.qlog")]
     : [];
+// --server-cpu-quota=N starves the SERVER alone to N% of one core (systemd
+// user scope) -- the resource-exhaustion reproduction knob: the relay's
+// drop counters (stat_relay_drop / stat_open_drop) never fire on an
+// unconstrained host, where whole-host contention starves the CLIENTS
+// first and the server's send path stays clean (see the s10 qlog runs).
+const cpuQuota = arg("server-cpu-quota", "");
+const serverWrap = cpuQuota
+  ? ["systemd-run", "--user", "--scope", "-q", "-p", `CPUQuota=${cpuQuota}%`]
+  : undefined;
 const server = await startServer({
   binPath: path.join(e2eDir, "..", "wired_server"),
   logPath: path.join(evidenceDir, "server.log"),
   args: serverArgs,
+  wrap: serverWrap,
 });
 
 const { executablePath, env } = resolveChromeLaunch();

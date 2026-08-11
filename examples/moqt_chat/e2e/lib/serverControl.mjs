@@ -5,14 +5,17 @@
 // run.sh/run-voice.sh manage the server from bash; scenarios need the
 // lifecycle under the test's own control, hence this module.
 
-import { spawn } from "node:child_process";
+import { spawn, execSync } from "node:child_process";
 import { appendFileSync } from "node:fs";
 
 const FINGERPRINT_RE = /cert sha-256 fingerprint: ([0-9A-Fa-f:]+)/;
 const FINGERPRINT_TIMEOUT_MS = 5000;
 
-function launch(binPath, args, logPath) {
-  const proc = spawn(binPath, args, { stdio: ["ignore", "pipe", "pipe"] });
+function launch(binPath, args, logPath, wrap) {
+  const argv = [...(wrap ?? []), binPath, ...args];
+  const proc = spawn(argv[0], argv.slice(1), {
+    stdio: ["ignore", "pipe", "pipe"],
+  });
   let buffered = "";
   let notify = () => {};
   // The fingerprint goes to the server's stderr; log and scan both streams
@@ -55,10 +58,29 @@ function waitExit(proc) {
  * @param {string} opts.binPath   path to wired_server
  * @param {string} opts.logPath   file to append all server output to
  * @param {string[]} [opts.args]  extra argv for the server
+ * @param {string[]} [opts.wrap]  argv prefix the server is launched through
+ *   (e.g. ["systemd-run","--user","--scope","-q","-p","CPUQuota=2%"] for a
+ *   resource-starvation experiment). Caveat: such wrappers do NOT forward
+ *   signals to the wrapped server (confirmed live: SIGTERM to systemd-run
+ *   --scope orphaned its child), so stop()/restart() kill the server by
+ *   name via pkill instead -- fine here because run-stability.sh already
+ *   guarantees this scenario's server is the only wired_server running.
  */
-export async function startServer({ binPath, logPath, args = [] }) {
-  let current = launch(binPath, args, logPath);
+export async function startServer({ binPath, logPath, args = [], wrap }) {
+  let current = launch(binPath, args, logPath, wrap);
   let certHash = await current.certHash;
+  const killServer = (signal) => {
+    if (!wrap) {
+      current.proc.kill(signal);
+      return;
+    }
+    const flag = signal === "SIGKILL" ? "-KILL" : "-TERM";
+    try {
+      execSync(`pkill ${flag} -x wired_server`);
+    } catch {
+      /* no process left to kill */
+    }
+  };
 
   return {
     get pid() {
@@ -69,12 +91,12 @@ export async function startServer({ binPath, logPath, args = [] }) {
     },
     /** SIGKILL simulates a crash (S-restart scenarios); SIGTERM is a clean stop. */
     async stop(signal = "SIGTERM") {
-      current.proc.kill(signal);
+      killServer(signal);
       await waitExit(current.proc);
     },
     async restart(signal = "SIGKILL") {
       await this.stop(signal);
-      current = launch(binPath, args, logPath);
+      current = launch(binPath, args, logPath, wrap);
       certHash = await current.certHash;
       return certHash;
     },
