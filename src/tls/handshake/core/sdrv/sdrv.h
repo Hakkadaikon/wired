@@ -133,7 +133,12 @@ typedef struct {
   /** peer's initial_max_stream_data_uni (0x07, RFC 9000 18.2): the
    * per-stream credit for uni streams this server opens toward the TP
    * sender, e.g. a server-opened WebTransport uni stream; 0 = absent. */
-  u64               peer_initial_max_stream_data_uni;
+  u64 peer_initial_max_stream_data_uni;
+  /** peer's initial_max_streams_uni (0x09, RFC 9000 18.2): how many uni
+   * streams THIS endpoint may open toward the peer before a MAX_STREAMS
+   * raise; 0 = absent (the RFC's default: open none until the peer grants).
+   */
+  u64               peer_initial_max_streams_uni;
   quic_salpn_choice alpn; /**< RFC 7301 3.1/3.2: this server's negotiated
                            * ALPN protocol (h3 preferred, hq-interop
                            * fallback), from the ClientHello's ALPN
