@@ -287,10 +287,16 @@ typedef struct {
    * contract applies to it); appends wait until it fully ACKs. */
   int view_round;
 } srvrun_wtsend;
-/* Concurrent server-initiated WT stream sends per connection: comfortably
- * above SRVRUN_MAX_WT_SESSIONS' fan-out needs while keeping the per-slot
- * sendsess footprint bounded (same fixed-slot policy as resp[]). */
-#define SRVRUN_WT_SEND_SLOTS 6
+/* Concurrent server-initiated WT stream sends per connection. Sized for a
+ * 4-participant relay room's worst case, not a handful: 3 long-lived voice
+ * relay streams stay claimed for the whole call (append_open never reaps),
+ * and each relayed chat message is its OWN short-lived stream whose slot
+ * only reaps once fully ACKed -- under loss, a 4-sender chat burst plus
+ * ACK-delayed stragglers held more than the 3 remaining slots and the
+ * overflow opens failed, silently losing whole messages. 3 persistent +
+ * 4 senders x ~3 ACK-delayed messages in flight = 15; 16 with one spare
+ * (same fixed-slot policy as resp[]). */
+#define SRVRUN_WT_SEND_SLOTS 16
 
 typedef struct {
   wired_server  s;
@@ -529,6 +535,14 @@ typedef struct {
    * exhausts the initial limit -- streams it already finished keep paying
    * for new ones. Only ever grows. */
   u64 uni_stream_limit_advertised;
+  /** RFC 9000 4.6/19.11: the highest MAX_STREAMS(uni) the PEER has granted
+   * this server for server-initiated uni streams (relay streams). 0 until
+   * the first runtime raise; the ClientHello's initial_max_streams_uni
+   * (sdrv) is the base before that. Opens beyond the limit are refused
+   * locally (srvrun_wt_open_uni_common) -- a peer receiving one anyway may
+   * treat it as a connection-fatal STREAM_LIMIT_ERROR, or silently discard
+   * the stream and everything sent on it. */
+  u64 peer_uni_stream_limit;
   /** RFC 9000 8.2/9: this connection's ONE path-validation state machine
    * (quic_migrate), tracking the naive rebind-follow in srvrun_rebind_peer
    * through detect -> challenge -> validate. One instance, not one per path:
@@ -3139,6 +3153,35 @@ static u64 srvrun_next_uni_id(srvrun_conn* c) {
   return 7 + 4 * c->wt_uni_opened++; /* the H3 control stream took id 3 */
 }
 
+/* RFC 9000 4.6: the peer's current uni-stream grant for server-initiated
+ * streams -- the highest runtime MAX_STREAMS(uni) raise, or the
+ * ClientHello's initial_max_streams_uni before any raise. Counts every uni
+ * stream this server opened, H3 plumbing included (wt_uni_opened's id
+ * arithmetic starts past control/QPACK: those three always count). */
+static u64 srvrun_peer_uni_limit(const srvrun_conn* c) {
+  return c->peer_uni_stream_limit ? c->peer_uni_stream_limit
+                                  : c->s.sdrv.peer_initial_max_streams_uni;
+}
+
+/* RFC 9000 19.11: fold this step's gathered MAX_STREAMS(uni) high-water
+ * mark into the connection's limit -- monotone, a stale lower raise never
+ * lowers it (mirrors srvrun_apply_conn_credit_update's shape). */
+static void srvrun_apply_uni_limit_update(srvrun_conn* c) {
+  if (!c->l.max_streams_uni_seen_flag) return;
+  c->l.max_streams_uni_seen_flag = 0;
+  if (c->l.max_streams_uni_seen > c->peer_uni_stream_limit)
+    c->peer_uni_stream_limit = c->l.max_streams_uni_seen;
+}
+
+/* 1 iff the peer's uni-stream limit admits one more server-initiated open:
+ * wt_uni_opened counts opens past the H3 control stream (id 3, the one
+ * fixed plumbing stream this server opens), which consumed the first
+ * grant. */
+static int srvrun_uni_open_allowed(const srvrun_conn* c) {
+  return quic_maxstreams_can_open(
+      c->wt_uni_opened + 1, srvrun_peer_uni_limit(c));
+}
+
 static u64 srvrun_next_bidi_id(srvrun_conn* c) {
   return 1 + 4 * c->wt_bidi_opened++;
 }
@@ -3211,12 +3254,22 @@ static int wt_open_flow_ok(
 /* Shared body of the one-shot and keep-open uni opens: flow gates, slot
  * claim, id allocation. keep_open sets append_open (srvrun_wtsend's own
  * doc), the only difference between the two entry points. */
+/* WT-session flow gates plus the peer's QUIC uni-stream limit (RFC 9000
+ * 4.6) -- an open past the latter is refused HERE, because the peer may
+ * answer it with a connection-fatal STREAM_LIMIT_ERROR or silently discard
+ * the stream and everything sent on it. */
+static int srvrun_wt_uni_open_ok(
+    srvrun_conn* c, int sidx, wired_wt_session* s, quic_span payload) {
+  if (!wt_open_flow_ok(c, sidx, s, 0, payload)) return 0;
+  return srvrun_uni_open_allowed(c);
+}
+
 static i64 srvrun_wt_open_uni_common(
     wired_wt_session* s, quic_span payload, int keep_open) {
   srvrun_conn*   c    = srvrun_session_conn(s);
   int            sidx = wt_session_slot_or_absent(c, s);
   srvrun_wtsend* w;
-  if (!wt_open_flow_ok(c, sidx, s, 0, payload)) return -1;
+  if (!srvrun_wt_uni_open_ok(c, sidx, s, payload)) return -1;
   w = srvrun_wtsend_claim(c, c->s.sdrv.peer_initial_max_stream_data_uni);
   if (!w) return -1;
   w->append_open = keep_open;
@@ -6162,6 +6215,7 @@ static void srvrun_sess_on_step(const srvrun_step_ctx* ctx, int slot) {
   srvrun_apply_conn_credit_update(c);
   srvrun_apply_stream_credit_update(c);
   srvrun_apply_path_response(c);
+  srvrun_apply_uni_limit_update(c);
   srvrun_reap_resps(ctx, c, slot);
   srvrun_reap_wtsends(c);
   srvrun_reannounce_stream_limit(ctx->cfg, c, srvrun_stream_limit_base(ctx));
