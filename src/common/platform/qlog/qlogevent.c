@@ -54,11 +54,19 @@ static void qev_put_u64(qev_w* w, u64 v) {
 /* 0 on overflow, else the byte count written. */
 static usz qev_finish(const qev_w* w) { return qev_overflowed(w) ? 0 : w->at; }
 
+/* Every record opens the same way: time, then the connection attribution
+ * (qlogevent.h's group doc -- one shared qlog file, many connections). */
+static void qev_put_head(qev_w* w, u64 time, u64 group) {
+  qev_put_str(w, "{\"time\":");
+  qev_put_u64(w, time);
+  qev_put_str(w, ",\"group_id\":");
+  qev_put_u64(w, group);
+}
+
 usz wired_qlogevent_packet_sent(
-    char* out, usz outcap, u64 time, u64 pn, usz bytes) {
+    char* out, usz outcap, u64 time, u64 group, u64 pn, usz bytes) {
   qev_w w = {out, outcap, 0};
-  qev_put_str(&w, "{\"time\":");
-  qev_put_u64(&w, time);
+  qev_put_head(&w, time, group);
   qev_put_str(&w, ",\"name\":\"packet_sent\",\"pn\":");
   qev_put_u64(&w, pn);
   qev_put_str(&w, ",\"bytes\":");
@@ -68,10 +76,9 @@ usz wired_qlogevent_packet_sent(
 }
 
 usz wired_qlogevent_packet_received(
-    char* out, usz outcap, u64 time, u64 pn, usz bytes) {
+    char* out, usz outcap, u64 time, u64 group, u64 pn, usz bytes) {
   qev_w w = {out, outcap, 0};
-  qev_put_str(&w, "{\"time\":");
-  qev_put_u64(&w, time);
+  qev_put_head(&w, time, group);
   qev_put_str(&w, ",\"name\":\"packet_received\",\"pn\":");
   qev_put_u64(&w, pn);
   qev_put_str(&w, ",\"bytes\":");
@@ -80,10 +87,10 @@ usz wired_qlogevent_packet_received(
   return qev_finish(&w);
 }
 
-usz wired_qlogevent_packet_lost(char* out, usz outcap, u64 time, u64 pn) {
+usz wired_qlogevent_packet_lost(
+    char* out, usz outcap, u64 time, u64 group, u64 pn) {
   qev_w w = {out, outcap, 0};
-  qev_put_str(&w, "{\"time\":");
-  qev_put_u64(&w, time);
+  qev_put_head(&w, time, group);
   qev_put_str(&w, ",\"name\":\"packet_lost\",\"pn\":");
   qev_put_u64(&w, pn);
   qev_put_str(&w, "}");
@@ -91,10 +98,9 @@ usz wired_qlogevent_packet_lost(char* out, usz outcap, u64 time, u64 pn) {
 }
 
 usz wired_qlogevent_conn_state(
-    char* out, usz outcap, u64 time, const char* state) {
+    char* out, usz outcap, u64 time, u64 group, const char* state) {
   qev_w w = {out, outcap, 0};
-  qev_put_str(&w, "{\"time\":");
-  qev_put_u64(&w, time);
+  qev_put_head(&w, time, group);
   qev_put_str(&w, ",\"name\":\"connection_state_updated\",\"state\":\"");
   qev_put_str(&w, state);
   qev_put_str(&w, "\"}");
@@ -111,10 +117,13 @@ static void qev_put_field(qev_w* w, const char* key, u64 v) {
 }
 
 usz wired_qlogevent_metrics(
-    char* out, usz outcap, u64 time, const wired_qlogevent_metrics_in* m) {
+    char*                             out,
+    usz                               outcap,
+    u64                               time,
+    u64                               group,
+    const wired_qlogevent_metrics_in* m) {
   qev_w w = {out, outcap, 0};
-  qev_put_str(&w, "{\"time\":");
-  qev_put_u64(&w, time);
+  qev_put_head(&w, time, group);
   qev_put_str(&w, ",\"name\":\"recovery:metrics_updated\"");
   qev_put_field(&w, "smoothed_rtt", m->smoothed_rtt);
   qev_put_field(&w, "cwnd", m->cwnd);

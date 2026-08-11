@@ -13,13 +13,21 @@
  * byte count written (not NUL-terminated length; out[n] is NOT guaranteed
  * to be '\0' when n == outcap). If the fully-built record does not fit in
  * outcap, nothing is committed and 0 is returned.
+ *
+ * group identifies which connection a record belongs to (emitted as
+ * "group_id", qlog's own cross-connection correlation field): a
+ * multi-connection server appends every connection's records into ONE qlog
+ * file, and without per-record attribution a multi-client run's packet and
+ * metrics streams interleave indistinguishably. Callers pass a stable
+ * per-connection number (srvrun uses the connection's slot index).
  */
 
 usz wired_qlogevent_packet_sent(
-    char* out, usz outcap, u64 time, u64 pn, usz bytes);
+    char* out, usz outcap, u64 time, u64 group, u64 pn, usz bytes);
 usz wired_qlogevent_packet_received(
-    char* out, usz outcap, u64 time, u64 pn, usz bytes);
-usz wired_qlogevent_packet_lost(char* out, usz outcap, u64 time, u64 pn);
+    char* out, usz outcap, u64 time, u64 group, u64 pn, usz bytes);
+usz wired_qlogevent_packet_lost(
+    char* out, usz outcap, u64 time, u64 group, u64 pn);
 
 /**
  * state is embedded verbatim as a JSON string value with no escaping —
@@ -27,7 +35,7 @@ usz wired_qlogevent_packet_lost(char* out, usz outcap, u64 time, u64 pn);
  * data derived from the wire or the application.
  */
 usz wired_qlogevent_conn_state(
-    char* out, usz outcap, u64 time, const char* state);
+    char* out, usz outcap, u64 time, u64 group, const char* state);
 
 /**
  * Input snapshot for wired_qlogevent_metrics: RFC 9002 recovery state
@@ -48,6 +56,10 @@ typedef struct {
 } wired_qlogevent_metrics_in;
 
 usz wired_qlogevent_metrics(
-    char* out, usz outcap, u64 time, const wired_qlogevent_metrics_in* m);
+    char*                             out,
+    usz                               outcap,
+    u64                               time,
+    u64                               group,
+    const wired_qlogevent_metrics_in* m);
 
 #endif
