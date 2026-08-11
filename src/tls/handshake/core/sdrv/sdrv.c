@@ -99,7 +99,7 @@ static void sdrv_copy_ticket_key(quic_sdrv* s, const u8* ticket_key) {
 }
 
 void quic_sdrv_init(quic_sdrv* s, const quic_sdrv_init_in* in) {
-  s->limits                       = (quic_stp_limits){0, 0, 0};
+  s->limits                       = (quic_stp_limits){0};
   s->sreset_token_set             = 0;
   s->peer_max_datagram_frame_size = 0;
   s->alpn                         = QUIC_SALPN_NONE;

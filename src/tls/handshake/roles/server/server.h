@@ -126,12 +126,16 @@ int wired_server_set_cids(wired_server* s, quic_span odcid, quic_span iscid);
  * @param s the server
  * @param max_data initial_max_data in bytes (0 = default)
  * @param max_streams_bidi initial_max_streams_bidi (0 = default)
+ * @param max_streams_uni initial_max_streams_uni (0 = default); advertise
+ *   only what the receive side's slot capacity actually backs (RFC 9000
+ *   4.6 lockstep -- see quic_stp_limits.max_streams_uni)
  * @param max_datagram_frame_size max_datagram_frame_size (RFC 9221 3), 0 =
  *   not advertised (no default: opt in once DATAGRAM delivery is wired) */
 void wired_server_set_limits(
     wired_server* s,
     u64           max_data,
     u64           max_streams_bidi,
+    u64           max_streams_uni,
     u64           max_datagram_frame_size);
 
 /** Advertise this 16-byte stateless_reset_token (RFC 9000 10.3.1/18.2) for
