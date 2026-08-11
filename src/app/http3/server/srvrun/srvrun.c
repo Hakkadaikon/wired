@@ -551,6 +551,22 @@ typedef struct {
    * treat it as a connection-fatal STREAM_LIMIT_ERROR, or silently discard
    * the stream and everything sent on it. */
   u64 peer_uni_stream_limit;
+  /** RFC 9000 4.6/19.14: the peer_uni_stream_limit value a UNI
+   * STREAMS_BLOCKED was last sent for (0 meaning "never sent yet") -- once
+   * per distinct ceiling, mirroring data_blocked_sent_at's own doc. A later
+   * MAX_STREAMS(uni) raise makes this stale, so blocking again at the new
+   * ceiling sends again. Without this signal, a peer whose own uni-stream
+   * accounting undercounts (or simply never re-grants after the initial
+   * transport parameter) leaves this server's relay opens failing forever
+   * with no hint that the SERVER, not the network, is the reason. */
+  u64 uni_blocked_sent_at;
+  /** 1 while a server-initiated uni open was refused by peer_uni_stream_
+   * limit since the last srvrun_pump_sess pass (srvrun_wt_uni_open_ok's own
+   * doc) -- latched here because the refusal happens on the app's own
+   * open_uni_stream call (moqtrun.c), which has no srvrun_cfg to send a
+   * STREAMS_BLOCKED through; srvrun_pump_sess (which does have cfg) checks
+   * and clears this every pass. */
+  int uni_blocked_seen;
   /** RFC 9000 8.2/9: this connection's ONE path-validation state machine
    * (quic_migrate), tracking the naive rebind-follow in srvrun_rebind_peer
    * through detect -> challenge -> validate. One instance, not one per path:
@@ -2119,6 +2135,34 @@ static int srvrun_seal_max_streams(
   return wired_srvloop_send_onertt(&c->s, &sin, out);
 }
 
+/* Seal one STREAMS_BLOCKED frame (RFC 9000 19.14, uni selects 0x17) as its
+ * own 1-RTT packet and send it -- srvrun_seal_max_streams' mirror for the
+ * SENDER-blocked signal instead of the receiver-side grant. */
+static int srvrun_seal_streams_blocked(
+    srvrun_conn* c, int uni, u64 limit, quic_obuf* out) {
+  u8                    pl[24];
+  quic_obuf             plb = quic_obuf_of(pl, sizeof pl);
+  wired_srvloop_send_in sin;
+  if (!quic_maxstreams_blocked_frame(uni, limit, &plb)) return 0;
+  sin = (wired_srvloop_send_in){
+      quic_span_of(c->l.cli_scid, c->l.cli_scid_len), c->l.tx_pn++, -1,
+      quic_span_of(pl, plb.len), 0};
+  return wired_srvloop_send_onertt(&c->s, &sin, out);
+}
+
+/* RFC 9000 4.6 19.14: "A sender SHOULD send a STREAMS_BLOCKED frame... This
+ * can be useful for debugging purposes" -- tells the peer this SERVER ran
+ * out of its own uni-stream grant for server-initiated (relay) opens, once
+ * per distinct ceiling (srvrun_notify_uni_blocked's own doc). limit is the
+ * peer_uni_stream_limit that refused the open. */
+static void srvrun_send_streams_blocked(
+    const srvrun_cfg* cfg, srvrun_conn* c, int uni, u64 limit) {
+  u8        out[128];
+  quic_obuf ob = quic_obuf_of(out, sizeof out);
+  if (!srvrun_seal_streams_blocked(c, uni, limit, &ob)) return;
+  srvrun_send(cfg, c, quic_span_of(out, ob.len), "UNI STREAMS_BLOCKED sent\n");
+}
+
 static void srvrun_send_max_streams(
     const srvrun_cfg* cfg, srvrun_conn* c, int uni, u64 value) {
   u8        out[128];
@@ -3261,6 +3305,16 @@ static int wt_open_flow_ok(
   return 0;
 }
 
+/* 1 iff c's own server-initiated uni-stream grant (peer_uni_stream_limit)
+ * admits one more open; latches uni_blocked_seen on refusal so the next
+ * srvrun_pump_sess pass sends a STREAMS_BLOCKED(uni) (srvrun_notify_uni_
+ * blocked's own doc -- this call site has no srvrun_cfg to send through). */
+static int srvrun_wt_uni_grant_ok(srvrun_conn* c) {
+  if (srvrun_uni_open_allowed(c)) return 1;
+  c->uni_blocked_seen = 1;
+  return 0;
+}
+
 /* Shared body of the one-shot and keep-open uni opens: flow gates, slot
  * claim, id allocation. keep_open sets append_open (srvrun_wtsend's own
  * doc), the only difference between the two entry points. */
@@ -3271,7 +3325,7 @@ static int wt_open_flow_ok(
 static int srvrun_wt_uni_open_ok(
     srvrun_conn* c, int sidx, wired_wt_session* s, quic_span payload) {
   if (!wt_open_flow_ok(c, sidx, s, 0, payload)) return 0;
-  return srvrun_uni_open_allowed(c);
+  return srvrun_wt_uni_grant_ok(c);
 }
 
 static i64 srvrun_wt_open_uni_common(
@@ -5216,6 +5270,24 @@ static void srvrun_notify_conn_blocked(const srvrun_cfg* cfg, srvrun_conn* c) {
   c->data_blocked_sent_at = c->conn_credit;
 }
 
+/* RFC 9000 4.6/19.14: srvrun_notify_conn_blocked's uni-stream mirror. A
+ * server-initiated uni open (moqtrun's relay streams) refused by peer_uni_
+ * stream_limit latches uni_blocked_seen at the call site (srvrun_wt_uni_
+ * grant_ok, which has no srvrun_cfg); this drains that latch once per pump
+ * pass and sends STREAMS_BLOCKED(uni) at most once per distinct ceiling
+ * (uni_blocked_sent_at), the same one-signal-per-raise shape as the bidi/
+ * DATA_BLOCKED siblings. Without this, a peer that only re-grants MAX_
+ * STREAMS(uni) on seeing this signal never learns the relay is stuck, and
+ * every relay open keeps failing until the connection ends. */
+static void srvrun_notify_uni_blocked(const srvrun_cfg* cfg, srvrun_conn* c) {
+  u64 limit = srvrun_peer_uni_limit(c);
+  if (!c->uni_blocked_seen) return;
+  c->uni_blocked_seen = 0;
+  if (c->uni_blocked_sent_at == limit) return;
+  srvrun_send_streams_blocked(cfg, c, 1, limit);
+  c->uni_blocked_sent_at = limit;
+}
+
 /* 1 when sess may send right now: a queued probe retransmit only needs the
  * log gate (RFC 9002 7.5 bypasses cwnd for it); brand-new data needs both
  * gates. The log gate is checked for a probe too, even though
@@ -5621,6 +5693,7 @@ static void srvrun_pump_sess(const srvrun_step_ctx* ctx, int slot) {
   srvrun_pace_refill(ctx, c);
   while (srvrun_pump_opportunity(ctx, c)) {
   }
+  srvrun_notify_uni_blocked(ctx->cfg, c);
   srvrun_stage_flush(ctx->cfg); /* the pass's staged slices leave as one
                                  * GSO batch (srvrun_send_staged) */
 }
