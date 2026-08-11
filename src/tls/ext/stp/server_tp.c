@@ -19,7 +19,6 @@ static const struct {
     {QUIC_TP_INITIAL_MAX_STREAM_DATA_BIDI_REMOTE,
      QUIC_STP_DEFAULT_STREAM_DATA_REMOTE},
     {QUIC_TP_INITIAL_MAX_STREAM_DATA_UNI, QUIC_STP_DEFAULT_STREAM_DATA_LOCAL},
-    {QUIC_TP_INITIAL_MAX_STREAMS_UNI, QUIC_STP_DEFAULT_MAX_STREAMS_UNI},
 };
 
 /* Append one integer TP at out->len. Returns 1 on success, 0 if it did not
@@ -64,7 +63,7 @@ static int put_int_opt(quic_obuf* out, u64 id, u64 val) {
 /* Append the operator-tunable limits (RFC 9000 18.2) plus the opt-in
  * max_datagram_frame_size (RFC 9221 3). */
 static int put_tunables(quic_obuf* out, const quic_stp_limits* lim) {
-  quic_stp_limits d = {0, 0, 0};
+  quic_stp_limits d = {0};
   if (!lim) lim = &d;
   return put_int(
              out, QUIC_TP_INITIAL_MAX_DATA,
@@ -72,6 +71,9 @@ static int put_tunables(quic_obuf* out, const quic_stp_limits* lim) {
          put_int(
              out, QUIC_TP_INITIAL_MAX_STREAMS_BIDI,
              lim_or(lim->max_streams_bidi, QUIC_STP_DEFAULT_MAX_STREAMS_BIDI)) &
+         put_int(
+             out, QUIC_TP_INITIAL_MAX_STREAMS_UNI,
+             lim_or(lim->max_streams_uni, QUIC_STP_DEFAULT_MAX_STREAMS_UNI)) &
          put_int_opt(
              out, QUIC_TP_MAX_DATAGRAM_FRAME_SIZE,
              lim->max_datagram_frame_size);

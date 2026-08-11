@@ -300,6 +300,22 @@ typedef struct {
  * STREAMS, for the same reason (5 concurrent runner transfers). */
 #define WIRED_SRVLOOP_MAX_WT_UNI_STREAMS 6
 
+/** RFC 9000 4.6: the client-initiated UNI stream limit the server initially
+ * advertises, sized to what its receive side actually backs -- the same
+ * lockstep rule wired_srvloop_stream_limit applies to bidi. A client's
+ * fixed HTTP/3 plumbing (control + QPACK encoder + decoder) holds three uni
+ * streams open for the connection's whole life; every other uni stream a
+ * client opens is WebTransport data reassembled in the wt_uni_streams[]
+ * slot table. Advertising more than 3 + slots invites the documented
+ * full-table failure (see WIRED_SRVLOOP_MAX_STREAMS's doc): a loss-delayed
+ * burst of legitimate streams lands frames in no slot while their packets
+ * still ACK, so the peer never retransmits and the messages are gone for
+ * good. The limit grows by one per released slot (srvrun.c's uni re-grant),
+ * exactly like bidi. */
+static inline u64 wired_srvloop_uni_stream_limit(void) {
+  return 3 + WIRED_SRVLOOP_MAX_WT_UNI_STREAMS;
+}
+
 /** One WebTransport uni stream's cross-datagram reassembly state (draft-ietf-
  * webtrans-http3-15 4.3). free (in_use == 0) until the stream's leading
  * type-id varint (0x54, RFC 9000 2.1 uni stream) is first sighted. buf holds

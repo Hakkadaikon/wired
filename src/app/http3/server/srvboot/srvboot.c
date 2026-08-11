@@ -83,7 +83,7 @@ static int srvboot_init(
   wired_server_init(conn->s, &in);
   wired_server_set_limits(
       conn->s, id->max_data, wired_srvloop_stream_limit(id->max_streams_bidi),
-      id->max_datagram_frame_size);
+      wired_srvloop_uni_stream_limit(), id->max_datagram_frame_size);
   srvboot_set_reset_token(conn, id);
   if (!srvboot_set_cids(conn, id, h)) return 0;
   return wired_srvloop_init(conn->l, h->scid, h->scid_len);

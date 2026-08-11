@@ -2127,16 +2127,14 @@ static void srvrun_grant_streams(
 }
 
 /* srvrun_grant_streams' uni mirror: raise the advertised UNI stream limit by
- * n (one per WT uni reassembly slot released this pass). The base is the
- * transport-parameter default itself -- unlike bidi there is no per-boot
- * configured override, and the uni limit is cumulative-consumption credit
- * (a released slot means one whole stream was consumed), not a concurrency
- * clamp. */
+ * n (one per WT uni reassembly slot released this pass), from the slot-
+ * backed initial advertisement (wired_srvloop_uni_stream_limit -- the TP
+ * and this base must agree, RFC 9000 4.6's capacity lockstep). */
 static void srvrun_grant_uni_streams(
     const srvrun_cfg* cfg, srvrun_conn* c, usz n) {
   u64 current = c->uni_stream_limit_advertised
                     ? c->uni_stream_limit_advertised
-                    : QUIC_STP_DEFAULT_MAX_STREAMS_UNI;
+                    : wired_srvloop_uni_stream_limit();
   if (n) srvrun_send_max_streams(cfg, c, 1, current + (u64)n);
 }
 
@@ -2168,7 +2166,7 @@ static void srvrun_reannounce_uni_stream_limit(
   srvrun_send_max_streams(
       cfg, c, 1,
       c->uni_stream_limit_advertised ? c->uni_stream_limit_advertised
-                                     : QUIC_STP_DEFAULT_MAX_STREAMS_UNI);
+                                     : wired_srvloop_uni_stream_limit());
 }
 
 /* 1 if any WT bidi or uni slot is currently in use -- srvrun_grant_conn_

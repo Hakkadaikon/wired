@@ -59,6 +59,13 @@ typedef struct {
   u64 max_data;         /**< initial_max_data (0x04), default
                          * QUIC_STP_DEFAULT_MAX_DATA */
   u64 max_streams_bidi; /**< initial_max_streams_bidi (0x08), default 100 */
+  /** initial_max_streams_uni (0x09), default 100. A server whose uni-stream
+   * reassembly capacity is a fixed slot table should advertise a limit that
+   * capacity actually backs (RFC 9000 4.6): a limit above capacity lets a
+   * loss-delayed burst of legitimate streams land frames nowhere while
+   * their packets still ACK, losing them for good -- the same lockstep rule
+   * max_streams_bidi already follows. */
+  u64 max_streams_uni;
   u64 max_datagram_frame_size; /**< max_datagram_frame_size (0x20, RFC 9221 3),
                                 * 0 = not advertised (no built-in default: the
                                 * caller opts in once DATAGRAM delivery is
