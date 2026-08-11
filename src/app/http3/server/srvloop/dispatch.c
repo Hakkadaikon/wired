@@ -20,6 +20,7 @@
 #include "transport/packet/frame/frame/stream_ctl.h"
 #include "transport/packet/frame/pipeline/framewalk.h"
 #include "transport/stream/data/appdata/stream_send.h"
+#include "transport/stream/data/maxstreams/maxstreams.h"
 
 /* RFC 9000 19.8: STREAM frame types occupy 0x08..0x0f. */
 static int is_stream(u64 type) {
@@ -879,6 +880,43 @@ static void gather_one_max_data(wired_srvloop* l, quic_span frame) {
   l->max_data_seen_flag = 1;
 }
 
+/* RFC 9000 19.11: latch one MAX_STREAMS(uni) frame's value as a running
+ * high-water mark (a lower/equal value never lowers it -- limits only ever
+ * grow, mirroring max_data_is_new_high). Bidi MAX_STREAMS is ignored here:
+ * this server opens no bidi streams the peer's bidi limit would gate except
+ * the per-session WT control replies, whose ids the client itself opened. */
+/* 1 iff a decoded MAX_STREAMS frame raises the step's uni high-water mark:
+ * uni direction only, and only an actual raise (limits never decrease). */
+static int max_streams_uni_is_new_high(
+    const wired_srvloop* l, int uni, u64 max) {
+  return uni && max > l->max_streams_uni_seen;
+}
+
+static void gather_one_max_streams_uni(wired_srvloop* l, quic_span frame) {
+  int uni;
+  u64 max;
+  if (!quic_maxstreams_parse(frame, &uni, &max)) return;
+  if (!max_streams_uni_is_new_high(l, uni, max)) return;
+  l->max_streams_uni_seen      = max;
+  l->max_streams_uni_seen_flag = 1;
+}
+
+/* RFC 9000 19.11: scan this payload for MAX_STREAMS frames, mirroring
+ * gather_max_data's shape. Returns 1 if any was seen. */
+static int gather_max_streams_uni(
+    wired_srvloop* l, const u8* payload, usz len) {
+  quic_framewalk      it;
+  quic_framewalk_item fr;
+  int                 seen = 0;
+  quic_framewalk_init(&it, payload, len);
+  while (quic_framewalk_next(&it, &fr)) {
+    if (quic_frame_classify(fr.type) != QUIC_FK_MAX_STREAMS) continue;
+    seen = 1;
+    gather_one_max_streams_uni(l, quic_span_of(fr.start, fr.remaining));
+  }
+  return seen;
+}
+
 /* RFC 9000 19.14: latch which STREAMS_BLOCKED direction was seen -- the two
  * directions carry independent limits, so each gets its own flag. */
 static void note_streams_blocked(wired_srvloop* l, u64 type) {
@@ -1314,14 +1352,16 @@ static int dispatch_gather_closes(
  * mirroring dispatch_gather_closes for the flow-control frame kinds. */
 static int dispatch_gather_flowctl(
     const wired_srvloop_dispatch_ctx* ctx, quic_span payload) {
-  int got_max_data, got_max_stream_data, got_streams_blocked, got_path_resp;
+  int got_max_data, got_max_stream_data, got_max_streams, got_streams_blocked,
+      got_path_resp;
   if (!ctx->l) return 0;
   got_max_data        = gather_max_data(ctx->l, payload.p, payload.n);
   got_max_stream_data = gather_max_stream_data(ctx->l, payload.p, payload.n);
+  got_max_streams     = gather_max_streams_uni(ctx->l, payload.p, payload.n);
   got_streams_blocked = gather_streams_blocked(ctx->l, payload.p, payload.n);
   got_path_resp       = gather_path_response(ctx->l, payload.p, payload.n);
-  return got_max_data | got_max_stream_data | got_streams_blocked |
-         got_path_resp;
+  return got_max_data | got_max_stream_data | got_max_streams |
+         got_streams_blocked | got_path_resp;
 }
 
 /* RFC 9218 7.1 / 10: 1 if ctx has a loop to reassemble the peer's control

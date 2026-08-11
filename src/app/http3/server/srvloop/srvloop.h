@@ -601,6 +601,14 @@ typedef struct {
    * (RFC 9000 4.6), so the caller re-announces MAX_STREAMS for exactly the
    * direction the peer reported blocked. */
   int streams_blocked_uni_seen_flag;
+  /** RFC 9000 19.11: highest MAX_STREAMS(uni) value seen in any 1-RTT
+   * payload opened this step (gather_max_streams_uni in dispatch.c) -- the
+   * peer raising how many uni streams THIS endpoint may open toward it.
+   * Same running-high-water/flag split as max_data_seen. */
+  u64 max_streams_uni_seen;
+  int max_streams_uni_seen_flag; /**< 1 once max_streams_uni_seen was set
+                                  * this step; same convention as
+                                  * max_data_seen_flag. */
   /** RFC 9000 8.2.2/19.18: the 8-byte data of a PATH_RESPONSE frame seen in
    * any 1-RTT payload opened this step (gather_path_response in dispatch.c),
    * valid only when path_response_seen_flag is set. This loop has no notion

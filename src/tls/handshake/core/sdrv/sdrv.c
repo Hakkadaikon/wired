@@ -482,6 +482,9 @@ static void sdrv_ch_take_optional(quic_sdrv* s, const u8* ch_msg, usz ch_len) {
   take_peer_tp_int(
       ch_msg, ch_len, QUIC_TP_INITIAL_MAX_STREAM_DATA_UNI,
       &s->peer_initial_max_stream_data_uni);
+  take_peer_tp_int(
+      ch_msg, ch_len, QUIC_TP_INITIAL_MAX_STREAMS_UNI,
+      &s->peer_initial_max_streams_uni);
   sdrv_negotiate_alpn(s, ch_msg, ch_len);
   sdrv_check_sni(s, ch_msg, ch_len);
   quic_transcript_add(&s->tr, ch_msg, ch_len);
