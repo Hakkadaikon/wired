@@ -52,6 +52,31 @@ static void test_maxstreams_can_open_boundary(void) {
   CHECK(quic_maxstreams_can_open(0, 0) == 0); /* zero grant blocks all */
 }
 
+/* RFC 9000 19.14: STREAMS_BLOCKED bidi=0x16, uni=0x17, then a varint limit. */
+static void test_maxstreams_blocked_frame_bidi_wire(void) {
+  u8        out[8];
+  quic_obuf ob = quic_obuf_of(out, sizeof out);
+  CHECK(quic_maxstreams_blocked_frame(0, 3, &ob) == 1);
+  CHECK(ob.len == 2);
+  CHECK(out[0] == 0x16);
+  CHECK(out[1] == 0x03);
+}
+
+static void test_maxstreams_blocked_frame_uni_wire(void) {
+  u8        out[8];
+  quic_obuf ob = quic_obuf_of(out, sizeof out);
+  CHECK(quic_maxstreams_blocked_frame(1, 100, &ob) == 1);
+  CHECK(out[0] == 0x17);
+}
+
+static void test_maxstreams_blocked_frame_overflow(void) {
+  u8        out[1];
+  quic_obuf ob = quic_obuf_of(out, sizeof out);
+  ob.len       = 99;
+  CHECK(quic_maxstreams_blocked_frame(1, 3, &ob) == 0);
+  CHECK(ob.len == 99); /* untouched on failure */
+}
+
 void test_maxstreams(void) {
   test_maxstreams_frame_bidi_wire();
   test_maxstreams_frame_uni_wire();
@@ -59,4 +84,7 @@ void test_maxstreams(void) {
   test_maxstreams_roundtrip();
   test_maxstreams_parse_truncated();
   test_maxstreams_can_open_boundary();
+  test_maxstreams_blocked_frame_bidi_wire();
+  test_maxstreams_blocked_frame_uni_wire();
+  test_maxstreams_blocked_frame_overflow();
 }
