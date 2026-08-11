@@ -11788,6 +11788,94 @@ static void test_srvrun_wt_open_uni_streams_payload_on_wire(void) {
           &c->wt, quic_span_of(sr_wtsend_hello, sizeof sr_wtsend_hello)) == 11);
 }
 
+/* RFC 9000 4.6/19.14: a server-initiated uni open refused by the peer's own
+ * uni-stream grant (moqtrun's relay streams hitting peer_uni_stream_limit --
+ * the failure mode behind a real voice-relay session's open_dropped counter
+ * climbing for good, since nothing previously told the peer this SERVER was
+ * the one stuck) must make the next pump send exactly one STREAMS_BLOCKED
+ * carrying that limit -- the peer's own signal to consider re-granting. */
+static void test_srvrun_uni_open_refused_sends_streams_blocked(void) {
+  struct lp_fix f;
+  quic_obuf     ob = {0};
+  u8            obuf[1024];
+  quic_sockaddr srv, from;
+  i64           sfd, cfd, id;
+  srvrun_conn*  c;
+  if (!sr_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
+  ob                                     = (quic_obuf){obuf, sizeof obuf, 0};
+  c                                      = sr_wtsend_fixture(&f, &ob);
+  c->peer                                = srv;
+  c->s.sdrv.peer_initial_max_streams_uni = 1; /* control(1) already spent */
+  id                                     = wired_server_wt_open_uni_stream(
+      &c->wt, quic_span_of(sr_wtsend_hello, sizeof sr_wtsend_hello));
+  CHECK(id == -1); /* refused: no grant left past the control stream */
+  CHECK(c->uni_blocked_seen == 1);
+  {
+    srvrun_cfg   cfg = {cfd,           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                        &g_srvrun_env, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_state st  = {g_srvrun_table, g_srvrun_state.conns};
+    srvrun_step_ctx ctx = {&cfg, &srv, &st, 0, 0};
+    srvrun_pump_sess(&ctx, 0);
+  }
+  CHECK(c->uni_blocked_seen == 0);
+  CHECK(c->uni_blocked_sent_at == 1);
+  {
+    u8                 pkt[1500];
+    const u8*          pl;
+    usz                pll;
+    quic_streams_frame sfr;
+    i64 r = wired_udp_recvfrom(sfd, quic_mspan_of(pkt, sizeof pkt), &from);
+    CHECK(r > 0);
+    CHECK(client_open_onertt(&f, pkt, (usz)r, &pl, &pll) == 1);
+    CHECK(quic_streams_blocked_decode(pl, pll, &sfr) > 0);
+    CHECK(sfr.uni == 1);
+    CHECK(sfr.max_streams == 1);
+  }
+  wired_udp_close(cfd);
+  wired_udp_close(sfd);
+}
+
+/* A second pump opportunity against the SAME unresolved uni ceiling must not
+ * resend STREAMS_BLOCKED(uni) -- mirrors test_srvrun_conn_credit_exhausted_
+ * data_blocked_sent_once for the uni-stream signal. */
+static void test_srvrun_uni_open_refused_streams_blocked_sent_once(void) {
+  struct lp_fix f;
+  quic_obuf     ob = {0};
+  u8            obuf[1024];
+  quic_sockaddr srv;
+  i64           sfd, cfd, id;
+  srvrun_conn*  c;
+  if (!sr_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
+  ob                                     = (quic_obuf){obuf, sizeof obuf, 0};
+  c                                      = sr_wtsend_fixture(&f, &ob);
+  c->peer                                = srv;
+  c->s.sdrv.peer_initial_max_streams_uni = 1;
+  id                                     = wired_server_wt_open_uni_stream(
+      &c->wt, quic_span_of(sr_wtsend_hello, sizeof sr_wtsend_hello));
+  CHECK(id == -1);
+  {
+    srvrun_cfg   cfg = {cfd,           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                        &g_srvrun_env, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_state st  = {g_srvrun_table, g_srvrun_state.conns};
+    srvrun_step_ctx ctx = {&cfg, &srv, &st, 0, 0};
+    srvrun_pump_sess(&ctx, 0); /* first opportunity: sends the one signal */
+  }
+  id = wired_server_wt_open_uni_stream(
+      &c->wt, quic_span_of(sr_wtsend_hello, sizeof sr_wtsend_hello));
+  CHECK(id == -1); /* still refused, same ceiling */
+  {
+    srvrun_cfg   cfg = {cfd,           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                        &g_srvrun_env, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_state st  = {g_srvrun_table, g_srvrun_state.conns};
+    srvrun_step_ctx ctx = {&cfg, &srv, &st, 0, 0};
+    srvrun_test_reset_send_count();
+    srvrun_pump_sess(&ctx, 0); /* no resend: same ceiling already notified */
+    CHECK(srvrun_test_send_count() == 0);
+  }
+  wired_udp_close(cfd);
+  wired_udp_close(sfd);
+}
+
 /* RFC 9000 2.1: server-initiated bidi ids are 1 mod 4, allocated from 1 and
  * 4 apart. A payload that fits the slot's staging is COPIED into it (the
  * caller's storage is free the moment the call returns -- srvrun.h) and
@@ -13659,6 +13747,8 @@ void test_srvrun(void) {
   test_srvrun_uni_streams_blocked_before_release_uses_base();
   test_srvrun_uni_open_respects_peer_limit();
   test_srvrun_uni_peer_limit_update_monotone();
+  test_srvrun_uni_open_refused_sends_streams_blocked();
+  test_srvrun_uni_open_refused_streams_blocked_sent_once();
   test_srvrun_reaped_slot_bytes_stay_in_max_data_base();
   test_srvrun_wtsend_ring_rolling_reclaim();
   test_srvrun_stateless_reset_seal_token_and_size();
