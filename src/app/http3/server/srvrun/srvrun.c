@@ -502,6 +502,13 @@ typedef struct {
   u64 stat_wtsend_flow;
   /** Monotonic ms of the last recovery:metrics_updated qlog emit. */
   u64 metrics_emit_ms;
+  /** This connection's slot index, stamped at claim (srvrun_open_slot) and
+   * emitted as every qlog record's group_id (qlogevent.h): one shared qlog
+   * file carries every connection's records, and without per-record
+   * attribution a multi-client run's streams interleave indistinguishably.
+   * Slot indices recycle after eviction, so the pairing is unambiguous
+   * within one connection's lifetime, not across the whole file. */
+  u64 qlog_slot;
   /** RFC 9000 2.1: how many server-initiated uni streams this connection
    * has opened past the H3 control stream (id 3), so the next uni id is
    * 7 + 4 * wt_uni_opened -- ids only ever climb, a freed send slot never
@@ -837,24 +844,28 @@ typedef struct {
 } srvrun_step_ctx;
 
 /* qlog packet_sent (pn/time are not tracked at this layer, so both are logged
- * as 0 — the record still proves a packet of `bytes` size went out). No-op
- * when no qlog path is set. */
-static void srvrun_qlog_sent(const srvrun_cfg* cfg, usz bytes) {
+ * as 0 — the record still proves a packet of `bytes` size went out). group_id
+ * is c's slot (srvrun_conn.qlog_slot's doc). No-op when no qlog path is set.
+ */
+static void srvrun_qlog_sent(
+    const srvrun_cfg* cfg, const srvrun_conn* c, usz bytes) {
   char rec[128];
   usz  n;
   if (!cfg->qlog_path) return;
-  n = wired_qlogevent_packet_sent(rec, sizeof rec, 0, 0, bytes);
+  n = wired_qlogevent_packet_sent(rec, sizeof rec, 0, c->qlog_slot, 0, bytes);
   if (n) wired_qlog_append(cfg->qlog_path, quic_span_of((const u8*)rec, n));
 }
 
 /* qlog packet_received (time not tracked at this layer; bytes is the whole
  * datagram, matching packet_sent's granularity). No-op without a qlog path.
  */
-static void srvrun_qlog_recv(const srvrun_cfg* cfg, u64 pn, usz bytes) {
+static void srvrun_qlog_recv(
+    const srvrun_cfg* cfg, const srvrun_conn* c, u64 pn, usz bytes) {
   char rec[128];
   usz  n;
   if (!cfg->qlog_path) return;
-  n = wired_qlogevent_packet_received(rec, sizeof rec, 0, pn, bytes);
+  n = wired_qlogevent_packet_received(
+      rec, sizeof rec, 0, c->qlog_slot, pn, bytes);
   if (n) wired_qlog_append(cfg->qlog_path, quic_span_of((const u8*)rec, n));
 }
 
@@ -898,7 +909,7 @@ static void srvrun_note_recv(
     const srvrun_conn*     c,
     usz                    bytes) {
   if (srvrun_rx_advanced(m, &c->l))
-    srvrun_qlog_recv(ctx->cfg, srvrun_rx_pn(m, &c->l), bytes);
+    srvrun_qlog_recv(ctx->cfg, c, srvrun_rx_pn(m, &c->l), bytes);
 }
 
 /* Send a sealed buffer to c's recorded peer, with a trace line (skip an empty
@@ -952,7 +963,7 @@ static void srvrun_send(
   (void)what; /* WIRED_LOG compiles out without -DQUIC_DEBUG */
   if (pkt.n) {
     srvrun_tx(cfg, &c->peer, pkt);
-    srvrun_qlog_sent(cfg, pkt.n);
+    srvrun_qlog_sent(cfg, c, pkt.n);
     WIRED_LOG(what);
     g_srvrun_send_count++;
   }
@@ -1047,7 +1058,7 @@ static void srvrun_send_staged(
     return;
   }
   srvrun_stage_put(cfg, c, pkt);
-  srvrun_qlog_sent(cfg, pkt.n);
+  srvrun_qlog_sent(cfg, c, pkt.n);
   WIRED_LOG(what);
   g_srvrun_send_count++;
 }
@@ -1188,7 +1199,7 @@ static int srvrun_boot_finish(
   wired_srvboot_out  out  = {&iob, &hob, {0}, 0, 0};
   if (!wired_srvboot_accept_acc(&conn, &sid, &c->boot, &out))
     return srvrun_refuse(ctx, c);
-  srvrun_qlog_recv(ctx->cfg, out.client_pn, dg.n);
+  srvrun_qlog_recv(ctx->cfg, c, out.client_pn, dg.n);
   wired_server_set_keylog_path(&c->s, ctx->cfg->keylog_path);
   wired_srvloop_set_handler(&c->l, ctx->cfg->handler, ctx->cfg->ctx);
   c->l.resp_external = 1; /* srvrun streams the response (multi-packet) */
@@ -5724,16 +5735,18 @@ static void srvrun_pump_sess(const srvrun_step_ctx* ctx, int slot) {
  * A finished session simply goes idle. */
 /* qlog packet_lost for one packet (time not tracked at this layer, logged
  * 0). No-op without a qlog path. */
-static void srvrun_qlog_lost_one(const srvrun_cfg* cfg, u64 pn) {
+static void srvrun_qlog_lost_one(
+    const srvrun_cfg* cfg, const srvrun_conn* c, u64 pn) {
   char rec[128];
   usz  w;
   if (!cfg->qlog_path) return;
-  w = wired_qlogevent_packet_lost(rec, sizeof rec, 0, pn);
+  w = wired_qlogevent_packet_lost(rec, sizeof rec, 0, c->qlog_slot, pn);
   if (w) wired_qlog_append(cfg->qlog_path, quic_span_of((const u8*)rec, w));
 }
 
-static void srvrun_qlog_lost(const srvrun_cfg* cfg, const u64* pns, usz n) {
-  for (usz i = 0; i < n; i++) srvrun_qlog_lost_one(cfg, pns[i]);
+static void srvrun_qlog_lost(
+    const srvrun_cfg* cfg, const srvrun_conn* c, const u64* pns, usz n) {
+  for (usz i = 0; i < n; i++) srvrun_qlog_lost_one(cfg, c, pns[i]);
 }
 
 /* Consume this step's ACK ranges, then declare packet-threshold losses so
@@ -5954,7 +5967,7 @@ static usz srvrun_reap_losses(
   usz n = wired_sendsess_detect_lost(
       sess, c->largest_acked, now_ms, c->rtt.smoothed_rtt, lost,
       WIRED_SENDSESS_LOG);
-  srvrun_qlog_lost(cfg, lost, n);
+  srvrun_qlog_lost(cfg, c, lost, n);
   return n;
 }
 
@@ -6280,7 +6293,7 @@ static void srvrun_qlog_metrics(const srvrun_step_ctx* ctx, srvrun_conn* c) {
   wired_qlogevent_metrics_in m;
   if (!srvrun_metrics_emit_due(ctx, c)) return;
   srvrun_metrics_fill(c, &m);
-  n = wired_qlogevent_metrics(rec, sizeof rec, ctx->now_ms, &m);
+  n = wired_qlogevent_metrics(rec, sizeof rec, ctx->now_ms, c->qlog_slot, &m);
   if (n)
     wired_qlog_append(ctx->cfg->qlog_path, quic_span_of((const u8*)rec, n));
 }
@@ -6903,8 +6916,9 @@ static int srvrun_open_slot(
     const srvrun_step_ctx* ctx, quic_span dcid, int is_initial) {
   int slot = srvrun_claim_slot(ctx, dcid, is_initial);
   if (slot < 0) return -1;
-  ctx->st->conns[slot]      = (srvrun_conn){0};
-  ctx->st->conns[slot].peer = *ctx->peer;
+  ctx->st->conns[slot]           = (srvrun_conn){0};
+  ctx->st->conns[slot].peer      = *ctx->peer;
+  ctx->st->conns[slot].qlog_slot = (u64)slot;
   quic_cc_init_algo(&ctx->st->conns[slot].cc, srvrun_cc_algo(ctx->cfg));
   quic_hystart_init(&ctx->st->conns[slot].hs);
   quic_rtt_init(&ctx->st->conns[slot].rtt);
