@@ -5406,15 +5406,36 @@ static int srvrun_pump_one_wt(
   return sent;
 }
 
-/* The WT-send half of one round-robin pass (one slice per slot, in order).
- * RFC 9218 has no urgency signal for WebTransport streams (Extended CONNECT
- * carries no Priority parameters of its own), so this half keeps its
- * pre-existing arrival-order pass unchanged. */
-static int srvrun_pump_wt_round(const srvrun_step_ctx* ctx, srvrun_conn* c) {
+/* One arrival-order pass over every in-use wtsend slot matching keep_open
+ * (append_open's own value, not just "is it set right now" -- a slot mid-
+ * closing still counts as the keep-open pass so its final slice/FIN is not
+ * pushed a whole extra pass behind fresh one-shot arrivals). */
+static int srvrun_pump_wt_round_matching(
+    const srvrun_step_ctx* ctx, srvrun_conn* c, int keep_open) {
   int sent = 0;
   for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++)
-    sent |= srvrun_pump_one_wt(ctx, c, &c->wtsend[i]);
+    if ((c->wtsend[i].append_open != 0) == keep_open)
+      sent |= srvrun_pump_one_wt(ctx, c, &c->wtsend[i]);
   return sent;
+}
+
+/* The WT-send half of one round-robin pass. RFC 9218 has no urgency signal
+ * for WebTransport streams (Extended CONNECT carries no Priority parameters
+ * of its own), so this can't read a real priority -- but moqtrun's own two
+ * stream shapes (moqtrun.h) give a usable proxy: a long-lived append_open
+ * relay stream carries one MOQT Object per round (audio, paced ~50/s and
+ * loss-tolerant-but-latency-sensitive), while a one-shot stream carries a
+ * whole chat message. Draining every append_open slot's one slice before any
+ * one-shot slot's at least keeps audio's OWN pass-order position ahead of a
+ * chat burst's tail-half slots within a single pass; it does not, by itself,
+ * bound how often a pass runs at all -- a live 4-way call with chat every
+ * 150ms still showed audio inter-arrival p99 climbing past 500ms with zero
+ * relay drops (frames queued, not lost), and this reordering alone did not
+ * measurably change that on a CPU-starved test host, so the pass-frequency
+ * side of the problem (pacing/poll cadence under contention) remains open. */
+static int srvrun_pump_wt_round(const srvrun_step_ctx* ctx, srvrun_conn* c) {
+  int sent = srvrun_pump_wt_round_matching(ctx, c, 1);
+  return sent | srvrun_pump_wt_round_matching(ctx, c, 0);
 }
 
 /* resp[] slot i's current RFC 9218 priority, read from the receive-side
