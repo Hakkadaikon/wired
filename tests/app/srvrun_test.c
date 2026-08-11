@@ -1289,6 +1289,40 @@ static void test_srvrun_open_slot_non_xdp_no_core_id_embedding(void) {
   CHECK(srvrun_xdp_core_routing(&cfg) == 0);
 }
 
+/* Each accepted connection records its own slot index (qlog_slot) at claim
+ * time -- the group_id every one of its qlog records carries, so a
+ * multi-connection server's shared qlog stays attributable per connection
+ * (srvrun_conn.qlog_slot's doc). Two distinct Initials -> two slots, each
+ * stamped with its own index (asserting conns[1] proves the stamp is the
+ * real index, not just zeroed memory). */
+static void test_srvrun_open_slot_stamps_qlog_group(void) {
+  wired_srvboot_id id;
+  u8               priv[32], pub[32], seed[32], rnd[32], dg[1500];
+  u8               odcid2[8] = {0xb2, 0xb2, 0xb2, 0xb2, 0xb2, 0xb2, 0xb2, 0xb2};
+  quic_conntable   table[QUIC_CONNTABLE_CAP];
+  quic_sockaddr    peer = {0};
+  srvrun_state     st   = {table, g_srvrun_state.conns};
+  usz              total;
+  wired_srvxdp     fake_xdp = {0}; /* zeroed, same reason as the xdp tests above
+                                    * -- the boot flight reaches
+                                    * wired_srvxdp_send on this path */
+  sr_make_id(&id, priv, pub, seed, rnd);
+  {
+    srvrun_cfg cfg = {
+        .id = &id, .xdp = &fake_xdp, .env = &g_srvrun_env, 0, 0, 0};
+    srvrun_step_ctx ctx = {&cfg, &peer, &st, 0, 0};
+    quic_conntable_init(table, QUIC_CONNTABLE_CAP);
+    total = sr_build_client_initial(dg, sizeof dg, g_sr_odcid, 8);
+    srvrun_serve(&ctx, quic_mspan_of(dg, total));
+    total = sr_build_client_initial(dg, sizeof dg, odcid2, 8);
+    srvrun_serve(&ctx, quic_mspan_of(dg, total));
+  }
+  CHECK(st.conns[0].up == 1);
+  CHECK(st.conns[1].up == 1);
+  CHECK(st.conns[0].qlog_slot == 0);
+  CHECK(st.conns[1].qlog_slot == 1);
+}
+
 /* CORE_ID < 0 (disabled sentinel) with xdp set still does not embed -- again
  * checked against srvrun_xdp_core_routing's own gate directly, mirrors
  * wired_server_run's own default_opt (xdp unset there, but core_id defaults
@@ -13779,6 +13813,7 @@ void test_srvrun(void) {
   test_srvrun_open_slot_xdp_embeds_core_id();
   test_srvrun_open_slot_xdp_embeds_core_id_zero();
   test_srvrun_open_slot_non_xdp_no_core_id_embedding();
+  test_srvrun_open_slot_stamps_qlog_group();
   test_srvrun_issue_cid_xdp_negative_core_id_no_embed();
   test_srvrun_issue_cid_xdp_embeds_core_id();
   test_srvrun_initial_retransmit_resends_cached_flight();
