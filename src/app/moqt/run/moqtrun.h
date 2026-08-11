@@ -192,6 +192,20 @@ typedef struct {
   quic_moqsess        sess;
   u64                 request_id_next; /* next Request ID this hub sends */
   wired_moqtrun_track tracks[WIRED_MOQTRUN_MAX_TRACKS_PER_PEER];
+  /** Track Names this peer has successfully SUBSCRIBEd to (ring, newest
+   * overwrites oldest past 8) -- kept on the SUBSCRIBER so the intent
+   * outlives the publisher. When a publisher drops and REPUBLISHes the
+   * same name (a rejoin), its old track died together with every
+   * subscription recorded against it, while the still-connected
+   * subscribers' clients believe their subscription stands and never
+   * re-SUBSCRIBE: the rejoined publisher played into silence until the
+   * listener reloaded the page. PUBLISH re-attaches every live holder of
+   * the name (moqtrun_reattach_subs). 8 covers a room-scale peer set
+   * (each other participant publishes two tracks). */
+  u8  sub_names[8][WIRED_MOQTRUN_MAX_NAME];
+  usz sub_name_lens[8];
+  u8  sub_names_n;  /**< entries recorded (<= 8) */
+  u8  sub_names_at; /**< ring write index */
   /** Two send_buf slots, used as an ARMED/PENDING pair rather than a single
    * shared buffer: wired_server_wt_stream_send's payload is a VIEW
    * (srvrun.h -- "the caller must keep it alive and unmoved until every
