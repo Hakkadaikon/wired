@@ -11058,7 +11058,7 @@ static void test_srvrun_uni_slot_release_grants_one_more_stream(void) {
   }
   CHECK(c.l.wt_uni_streams[0].in_use == 0); /* slot reaped */
   CHECK(srvrun_test_send_count() == 1);     /* one MAX_STREAMS(uni) sent */
-  CHECK(c.uni_stream_limit_advertised == QUIC_STP_DEFAULT_MAX_STREAMS_UNI + 1);
+  CHECK(c.uni_stream_limit_advertised == wired_srvloop_uni_stream_limit() + 1);
   CHECK(c.stream_limit_advertised == 0); /* bidi limit untouched */
 }
 
@@ -11083,7 +11083,7 @@ static void test_srvrun_uni_stream_limit_never_decreases(void) {
     c.l.wt_uni_streams[0].fin_delivered = 1;
     srvrun_offer_wt_uni_streams(&cfg, &c);
     CHECK(
-        c.uni_stream_limit_advertised == QUIC_STP_DEFAULT_MAX_STREAMS_UNI + 1);
+        c.uni_stream_limit_advertised == wired_srvloop_uni_stream_limit() + 1);
     c.l.wt_uni_streams[1].in_use        = 1;
     c.l.wt_uni_streams[1].stream_id     = 6;
     c.l.wt_uni_streams[1].offered       = 1;
@@ -11091,7 +11091,7 @@ static void test_srvrun_uni_stream_limit_never_decreases(void) {
     c.l.wt_uni_streams[1].fin_delivered = 1;
     srvrun_offer_wt_uni_streams(&cfg, &c);
     CHECK(
-        c.uni_stream_limit_advertised == QUIC_STP_DEFAULT_MAX_STREAMS_UNI + 2);
+        c.uni_stream_limit_advertised == wired_srvloop_uni_stream_limit() + 2);
   }
 }
 
@@ -11138,7 +11138,7 @@ static void test_srvrun_uni_streams_blocked_before_release_uses_base(void) {
         0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
     srvrun_reannounce_uni_stream_limit(&cfg, &c);
   }
-  CHECK(c.uni_stream_limit_advertised == QUIC_STP_DEFAULT_MAX_STREAMS_UNI);
+  CHECK(c.uni_stream_limit_advertised == wired_srvloop_uni_stream_limit());
 }
 
 /* END-TO-END REGRESSION for the real interop stall: two slots share a cwnd
