@@ -11121,6 +11121,33 @@ static void test_srvrun_uni_streams_blocked_reannounces_current_limit(void) {
   CHECK(c.stream_limit_advertised == 0);         /* bidi untouched */
 }
 
+/* RFC 9000 4.1: a reaped WT slot's delivered bytes move into the
+ * connection's cumulative counter, so the MAX_DATA ceiling keeps counting
+ * up across short-lived streams instead of stagnating at the initial TP
+ * once slots recycle (a long voice session wedged there). */
+static void test_srvrun_reaped_slot_bytes_stay_in_max_data_base(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  quic_obuf     ob = {0};
+  u8            obuf[1024];
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.l.wt_uni_streams[0].in_use        = 1;
+  c.l.wt_uni_streams[0].stream_id     = 2;
+  c.l.wt_uni_streams[0].offered       = 1;
+  c.l.wt_uni_streams[0].fin           = 1;
+  c.l.wt_uni_streams[0].delivered_len = 700;
+  c.l.wt_uni_streams[0].fin_delivered = 1;
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
+        0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_offer_wt_uni_streams(&cfg, &c);
+  }
+  CHECK(c.l.wt_uni_streams[0].in_use == 0); /* reaped */
+  CHECK(c.wt_rx_reaped_total == 700);       /* bytes moved, not lost */
+}
+
 /* RFC 9000 4.6: a server-initiated uni open is admitted only while the
  * peer's stream limit has room -- counting the fixed H3 control stream (id
  * 3) as the first grant consumed. An open past the limit must be refused
@@ -13632,6 +13659,7 @@ void test_srvrun(void) {
   test_srvrun_uni_streams_blocked_before_release_uses_base();
   test_srvrun_uni_open_respects_peer_limit();
   test_srvrun_uni_peer_limit_update_monotone();
+  test_srvrun_reaped_slot_bytes_stay_in_max_data_base();
   test_srvrun_wtsend_ring_rolling_reclaim();
   test_srvrun_stateless_reset_seal_token_and_size();
   test_srvrun_stateless_reset_token_survives_restart();
