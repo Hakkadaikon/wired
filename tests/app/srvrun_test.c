@@ -11121,6 +11121,51 @@ static void test_srvrun_uni_streams_blocked_reannounces_current_limit(void) {
   CHECK(c.stream_limit_advertised == 0);         /* bidi untouched */
 }
 
+/* RFC 9000 4.6: a server-initiated uni open is admitted only while the
+ * peer's stream limit has room -- counting the fixed H3 control stream (id
+ * 3) as the first grant consumed. An open past the limit must be refused
+ * locally: a peer receiving it may kill the connection
+ * (STREAM_LIMIT_ERROR) or silently discard the stream and everything on
+ * it. */
+static void test_srvrun_uni_open_respects_peer_limit(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  quic_obuf     ob = {0};
+  u8            obuf[1024];
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.s.sdrv.peer_initial_max_streams_uni = 2;
+  c.wt_uni_opened                       = 0;
+  CHECK(srvrun_uni_open_allowed(&c) == 1); /* control(1) + this = 2 <= 2 */
+  c.wt_uni_opened = 1;
+  CHECK(srvrun_uni_open_allowed(&c) == 0); /* would be the 3rd of 2 */
+}
+
+/* RFC 9000 19.11: a gathered MAX_STREAMS(uni) raise folds into the
+ * connection's peer limit monotonically -- a stale lower raise never
+ * lowers it, and the runtime raise overrides the ClientHello initial. */
+static void test_srvrun_uni_peer_limit_update_monotone(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  quic_obuf     ob = {0};
+  u8            obuf[1024];
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.l.max_streams_uni_seen      = 50;
+  c.l.max_streams_uni_seen_flag = 1;
+  srvrun_apply_uni_limit_update(&c);
+  CHECK(c.peer_uni_stream_limit == 50);
+  CHECK(c.l.max_streams_uni_seen_flag == 0);
+  c.l.max_streams_uni_seen      = 30; /* stale, lower */
+  c.l.max_streams_uni_seen_flag = 1;
+  srvrun_apply_uni_limit_update(&c);
+  CHECK(c.peer_uni_stream_limit == 50); /* never lowered */
+  c.wt_uni_opened = 48;
+  CHECK(srvrun_uni_open_allowed(&c) == 1); /* 48+1 < 50 */
+  c.wt_uni_opened = 49;
+  CHECK(srvrun_uni_open_allowed(&c) == 0); /* 49+1 == 50: full */
+}
+
 /* Uni STREAMS_BLOCKED before any uni slot release falls back to the
  * transport-parameter default -- mirrors test_srvrun_streams_blocked_
  * before_any_release_uses_base for the uni direction. */
@@ -13585,6 +13630,8 @@ void test_srvrun(void) {
   test_srvrun_uni_stream_limit_never_decreases();
   test_srvrun_uni_streams_blocked_reannounces_current_limit();
   test_srvrun_uni_streams_blocked_before_release_uses_base();
+  test_srvrun_uni_open_respects_peer_limit();
+  test_srvrun_uni_peer_limit_update_monotone();
   test_srvrun_wtsend_ring_rolling_reclaim();
   test_srvrun_stateless_reset_seal_token_and_size();
   test_srvrun_stateless_reset_token_survives_restart();
