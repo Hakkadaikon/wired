@@ -37,9 +37,19 @@ const evidenceDir = arg(
 );
 mkdirSync(evidenceDir, { recursive: true });
 
+// --server-qlog=1 turns on the SDK's qlog stream (per-second
+// recovery:metrics_updated records with cwnd/srtt/inflight and the WT
+// send-path stall counters -- srvrun_qlog_metrics), landing next to the
+// other evidence. Off by default: the extra write per packet costs a
+// little and most scenarios only need the shutdown stats line.
+const serverArgs =
+  arg("server-qlog", "") !== ""
+    ? ["--qlog", path.join(evidenceDir, "server.qlog")]
+    : [];
 const server = await startServer({
   binPath: path.join(e2eDir, "..", "wired_server"),
   logPath: path.join(evidenceDir, "server.log"),
+  args: serverArgs,
 });
 
 const { executablePath, env } = resolveChromeLaunch();
