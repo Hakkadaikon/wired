@@ -76,7 +76,8 @@ static void wt_uni_streams_reset(wired_srvloop* l) {
     l->wt_uni_streams[i].credit_advertised = 0;
     wt_window_reset(&l->wt_uni_streams[i].win);
   }
-  l->wt_uni_released_watermark = 0;
+  for (usz i = 0; i < 8; i++) l->wt_uni_released_recent[i] = 0;
+  l->wt_uni_released_recent_at = 0;
 }
 
 /* RFC 9218 10 / 9218-010: mark every buffered PRIORITY_UPDATE slot free. */
@@ -113,7 +114,7 @@ int wired_srvloop_init(wired_srvloop* l, const u8* cli_scid, u8 cli_scid_len) {
   l->max_data_seen_flag         = 0;
   l->max_stream_data_n          = 0;
   l->wt_released_watermark      = 0;
-  l->wt_uni_released_watermark  = 0;
+  /* wt_uni_released_recent[] is zeroed by wt_uni_streams_reset below. */
   /* max_data_seen_flag/streams_blocked_seen_flag/path_response_seen_flag are
    * "not reset across steps by this loop itself" (see their own doc in
    * srvloop.h) -- but that convention only holds once a step has actually run
@@ -511,9 +512,15 @@ int wired_srvloop_wt_uni_slot_find(const wired_srvloop* l, u64 stream_id) {
   return -1;
 }
 
+/* 1 iff stream_id was itself released recently -- a claim for it now is a
+ * delayed duplicate reopening a stream the app already saw FIN for. A new
+ * id that merely sorts below older releases is NOT stale (see
+ * wt_uni_released_recent's doc for the silent loss the broader rule
+ * caused). */
 static int wt_uni_slot_is_stale(const wired_srvloop* l, u64 stream_id) {
-  return stream_id <= l->wt_uni_released_watermark &&
-         l->wt_uni_released_watermark;
+  for (usz i = 0; i < 8; i++)
+    if (l->wt_uni_released_recent[i] == stream_id) return 1;
+  return 0;
 }
 
 /* Claim and reset a free wt_uni_streams slot for stream_id. */
@@ -550,9 +557,9 @@ int wired_srvloop_wt_uni_slot_claim(wired_srvloop* l, u64 stream_id) {
 void wired_srvloop_wt_uni_slot_release(wired_srvloop* l, u64 stream_id) {
   int i = wired_srvloop_wt_uni_slot_find(l, stream_id);
   if (i < 0) return;
-  l->wt_uni_streams[i].in_use = 0;
-  if (stream_id > l->wt_uni_released_watermark)
-    l->wt_uni_released_watermark = stream_id;
+  l->wt_uni_streams[i].in_use                             = 0;
+  l->wt_uni_released_recent[l->wt_uni_released_recent_at] = stream_id;
+  l->wt_uni_released_recent_at = (u8)((l->wt_uni_released_recent_at + 1) % 8);
 }
 
 /* draft-ietf-webtrans-http3-15 4.3: byte count of [abs_off, abs_off+n) that

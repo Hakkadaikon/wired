@@ -3268,6 +3268,23 @@ static void test_srvloop_streams_blocked_bidi_keeps_bidi_flag(void) {
   CHECK(f.l.streams_blocked_uni_seen_flag == 0);
 }
 
+/* draft-ietf-webtrans-http3-15 4.3: a recently RELEASED uni stream id is
+ * refused on re-claim (a delayed duplicate would reopen a stream the app
+ * already saw FIN for), but a NEW lower id arriving late -- its first
+ * frames loss-delayed past a faster, higher-id stream's whole lifetime --
+ * claims normally. The previous rule refused every id at or below the
+ * highest release, and such late streams were lost for good (their packets
+ * had already been ACKed, so the peer never resent). */
+static void test_srvloop_uni_claim_late_lower_id_not_stale(void) {
+  static wired_srvloop l;
+  u8                   scid[4] = {1, 2, 3, 4};
+  CHECK(wired_srvloop_init(&l, scid, 4) == 1);
+  CHECK(wired_srvloop_wt_uni_slot_claim(&l, 34) >= 0); /* the fast stream */
+  wired_srvloop_wt_uni_slot_release(&l, 34);
+  CHECK(wired_srvloop_wt_uni_slot_claim(&l, 34) == -1); /* duplicate */
+  CHECK(wired_srvloop_wt_uni_slot_claim(&l, 30) >= 0);  /* late NEW stream */
+}
+
 /* RFC 9000 19.11: a MAX_STREAMS(uni) frame (0x13) latches its value as the
  * step's high-water mark; the bidi variant (0x12) is ignored by this
  * gather (the server opens no peer-limit-gated bidi streams). */
@@ -4061,6 +4078,7 @@ void test_srvloop(void) {
   test_srvloop_streams_blocked_uni_sets_uni_flag();
   test_srvloop_streams_blocked_bidi_keeps_bidi_flag();
   test_srvloop_gather_max_streams_uni();
+  test_srvloop_uni_claim_late_lower_id_not_stale();
   test_srvloop_gather_max_stream_data_raises_credit();
   test_srvloop_gather_max_stream_data_keeps_every_distinct_stream();
   test_srvloop_gather_max_stream_data_same_stream_overwrites();

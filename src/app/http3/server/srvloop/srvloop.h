@@ -586,8 +586,18 @@ typedef struct {
    * wired_srvloop_wt_slot_claim rejects it rather than re-claiming a slot a
    * delayed duplicate could otherwise reopen after the app already saw FIN. */
   u64 wt_released_watermark;
-  /** Same as wt_released_watermark, for the separate wt_uni_streams table. */
-  u64 wt_uni_released_watermark;
+  /** The last few RELEASED uni stream ids (ring, newest overwrites oldest).
+   * A delayed duplicate claim of an id released moments ago must be refused
+   * -- it would reopen a slot the app already saw FIN for -- but ONLY ids
+   * actually released may be refused. The previous high-watermark rule
+   * ("reject any id <= the highest released") also rejected legitimately
+   * NEW lower-id streams whose first frames were loss-delayed past a
+   * higher, faster stream's whole lifetime; their packets were already
+   * ACKed, so the peer never resent and the stream's payload (a whole chat
+   * message) was gone for good. 8 spans more releases than plausibly
+   * complete inside one retransmission window of a duplicate. */
+  u64 wt_uni_released_recent[8];
+  u8  wt_uni_released_recent_at; /**< next ring write index */
   /** RFC 9000 19.14: 1 once a client bidi STREAMS_BLOCKED frame was seen in
    * any 1-RTT payload opened this step (gather_streams_blocked in
    * dispatch.c) -- the peer's own reported limit value is not latched
