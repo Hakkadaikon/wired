@@ -88,6 +88,8 @@ static void moqtrun_init_peer(
   p->in_use          = 1;
   p->wt              = s;
   p->request_id_next = 1; /* hub is the server: odd, 1-origin (draft SS10.2) */
+  p->sub_names_n     = 0;
+  p->sub_names_at    = 0;
   p->send_lens[0]    = 0;
   p->send_lens[1]    = 0;
   p->armed_idx       = 0;
@@ -247,6 +249,36 @@ static wired_moqtrun_track* moqtrun_track_alloc_slot(
   return existing ? existing : moqtrun_track_free_slot(p);
 }
 
+/* 1 iff sub-name ring entry i of p equals name. */
+static int moqtrun_sub_name_eq(
+    const wired_moqtrun_peer* p, usz i, quic_span name) {
+  return p->sub_name_lens[i] == name.n &&
+         moqtrun_bytes_eq(p->sub_names[i], name.p, name.n);
+}
+
+/* 1 iff p has recorded a successful SUBSCRIBE for name. */
+static int moqtrun_sub_name_known(const wired_moqtrun_peer* p, quic_span name) {
+  for (usz i = 0; i < p->sub_names_n; i++)
+    if (moqtrun_sub_name_eq(p, i, name)) return 1;
+  return 0;
+}
+
+static void moqtrun_sub_name_store(wired_moqtrun_peer* p, quic_span name) {
+  quic_memcpy(p->sub_names[p->sub_names_at], name.p, name.n);
+  p->sub_name_lens[p->sub_names_at] = name.n;
+  p->sub_names_at                   = (u8)((p->sub_names_at + 1) % 8);
+  if (p->sub_names_n < 8) p->sub_names_n++;
+}
+
+/* Remember a name p subscribed to, so a later REPUBLISH of it can
+ * re-attach p (wired_moqtrun_peer.sub_names' doc). An oversized name could
+ * never match a recorded track name, so it is not stored. */
+static void moqtrun_note_sub_name(wired_moqtrun_peer* p, quic_span name) {
+  if (name.n > WIRED_MOQTRUN_MAX_NAME) return;
+  if (moqtrun_sub_name_known(p, name)) return;
+  moqtrun_sub_name_store(p, name);
+}
+
 static int moqtrun_encode_request_ok(quic_mspan buf, usz* off, const void* m) {
   return quic_moqctl_request_ok_encode(buf, off, m);
 }
@@ -276,10 +308,17 @@ static void moqtrun_track_claim(
   moqtrun_record_track_name(t, name);
 }
 
+static void moqtrun_reattach_subs(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_track* track,
+    usz                  pub_idx,
+    quic_span            name);
+
 /* draft SS10.9 PUBLISH: accept a track into a free (or matching-name) slot
  * and reply REQUEST_OK; a third distinct track name (no free slot) gets
  * REQUEST_ERROR instead of silently overwriting an existing track. */
-static void moqtrun_handle_publish(wired_moqtrun_peer* p, quic_span body) {
+static void moqtrun_handle_publish(
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, quic_span body) {
   usz                 off = 0;
   quic_moqctl_publish m;
   if (quic_moqctl_publish_take(body, &off, &m) != QUIC_MOQCTL_OK) return;
@@ -289,6 +328,7 @@ static void moqtrun_handle_publish(wired_moqtrun_peer* p, quic_span body) {
     return;
   }
   moqtrun_track_claim(t, m.name.name, m.track_alias);
+  moqtrun_reattach_subs(hub, t, peer_idx, m.name.name);
   u8                     msg[WIRED_MOQTRUN_CTL_MSG_MAX];
   quic_moqctl_request_ok ok = {0};
   usz                    n  = moqtrun_envelope_put(
@@ -337,6 +377,62 @@ static u64 moqtrun_next_alias(const wired_moqtrun_track* track) {
   return max_seen;
 }
 
+/* 1 if sub is an Established subscription held by peer index idx. */
+static int moqtrun_sub_is_peer(const wired_moqtrun_sub* sub, usz idx) {
+  return sub->active && sub->session_idx == idx;
+}
+
+static int moqtrun_track_has_sub(const wired_moqtrun_track* t, usz idx) {
+  for (usz s = 0; s < WIRED_MOQTRUN_MAX_SUBS; s++)
+    if (moqtrun_sub_is_peer(&t->subs[s], idx)) return 1;
+  return 0;
+}
+
+/* 1 iff peer i is a live peer OTHER than the publisher. */
+static int moqtrun_reattach_peer_live(
+    const wired_moqt_hub* hub, usz i, usz pub_idx) {
+  return i != pub_idx && hub->peers[i].in_use;
+}
+
+/* Re-attach eligibility: a live, different peer, not already subscribed on
+ * this track, that recorded a SUBSCRIBE for this name. */
+static int moqtrun_reattach_wanted(
+    const wired_moqt_hub*      hub,
+    const wired_moqtrun_track* t,
+    usz                        i,
+    usz                        pub_idx,
+    quic_span                  name) {
+  if (!moqtrun_reattach_peer_live(hub, i, pub_idx)) return 0;
+  if (moqtrun_track_has_sub(t, i)) return 0;
+  return moqtrun_sub_name_known(&hub->peers[i], name);
+}
+
+static void moqtrun_reattach_one_sub(wired_moqtrun_track* track, usz i) {
+  wired_moqtrun_sub* slot = moqtrun_sub_slot(track);
+  if (!slot) return;
+  slot->session_idx = i;
+  slot->track_alias = moqtrun_next_alias(track);
+  slot->active      = 1;
+}
+
+/* A (re)PUBLISHed name re-attaches every still-connected peer that had
+ * subscribed to it before -- silently, with no SUBSCRIBE_OK: the
+ * subscriber's client still believes its original subscription stands
+ * (that belief, standing while the hub-side subscription had died with
+ * the publisher's previous incarnation, is exactly the played-into-
+ * silence bug this repairs). The relayed bytes carry the publisher's own
+ * SUBGROUP_HEADER alias, which the client maps statically, so no
+ * client-visible state needs renegotiating. */
+static void moqtrun_reattach_subs(
+    wired_moqt_hub*      hub,
+    wired_moqtrun_track* track,
+    usz                  pub_idx,
+    quic_span            name) {
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SESSIONS; i++)
+    if (moqtrun_reattach_wanted(hub, track, i, pub_idx, name))
+      moqtrun_reattach_one_sub(track, i);
+}
+
 static int moqtrun_encode_subscribe_ok(
     quic_mspan buf, usz* off, const void* m) {
   return quic_moqctl_subscribe_ok_encode(buf, off, m);
@@ -376,6 +472,7 @@ static void moqtrun_route_subscribe(
     return;
   }
   moqtrun_accept_subscribe(p, track, slot, peer_idx);
+  moqtrun_note_sub_name(p, m->name.name);
 }
 
 /* draft SS10.6 SUBSCRIBE: reject non-zero delivery-timeout parameters,
@@ -409,9 +506,7 @@ typedef void (*moqtrun_ctl_fn)(
 
 static void moqtrun_dispatch_publish(
     wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, quic_span body) {
-  (void)hub;
-  (void)peer_idx;
-  moqtrun_handle_publish(p, body);
+  moqtrun_handle_publish(hub, p, peer_idx, body);
 }
 
 static void moqtrun_dispatch_subscribe(
@@ -915,11 +1010,6 @@ void wired_moqt_on_stream_data(
     return;
   }
   moqtrun_dispatch_data_stream(hub, p, stream_id, data, fin);
-}
-
-/* 1 if sub is an Established subscription held by peer index idx. */
-static int moqtrun_sub_is_peer(const wired_moqtrun_sub* sub, usz idx) {
-  return sub->active && sub->session_idx == idx;
 }
 
 /* Clear every relay's record of subscriber slot si's stream, so a later
