@@ -235,6 +235,12 @@ typedef struct {
    * them (drop -- the previous round was still unACKed). Diagnostic only. */
   u64 stat_relay_sent;
   u64 stat_relay_drop;
+  /** Failed relay-stream OPENS (io.open_uni_stream returned failure --
+   * send-slot exhaustion or the peer's stream limit). A failed open loses
+   * the round exactly like stat_relay_drop's append rejection, and for a
+   * one-stream-per-message track (chat) that round is the whole message --
+   * counted so the loss is never silent again. */
+  u64 stat_open_drop;
 } wired_moqt_hub;
 
 /** Zero-initialize hub and record the io table it will send through. */

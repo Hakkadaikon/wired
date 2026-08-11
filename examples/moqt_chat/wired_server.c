@@ -209,6 +209,8 @@ static void log_relay_stats(const wired_moqt_hub* hub) {
   n += dec_u64(line + n, hub->stat_relay_drop);
   append_cstr(line, &n, " frag_dropped=");
   n += dec_u64(line + n, hub->stat_frag_drop);
+  append_cstr(line, &n, " open_dropped=");
+  n += dec_u64(line + n, hub->stat_open_drop);
   line[n++] = '\n';
   line[n]   = 0;
   wired_log_str(line);
