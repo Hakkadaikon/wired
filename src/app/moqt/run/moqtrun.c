@@ -35,6 +35,7 @@ void wired_moqt_init(wired_moqt_hub* hub, wired_moqt_io io) {
   hub->stat_frag_drop  = 0;
   hub->stat_relay_sent = 0;
   hub->stat_relay_drop = 0;
+  hub->stat_open_drop  = 0;
 }
 
 /* SS10 common envelope (Type vi64 + 16-bit Length + Body): every control
@@ -608,7 +609,10 @@ static void moqtrun_relay_late_open(
   if (moqtrun_late_open_skip(relay, fin)) return;
   i64 sid = hub->io.open_uni_stream(
       dst->wt, quic_span_of(relay->hdr, relay->hdr_len));
-  if (sid < 0) return;
+  if (sid < 0) {
+    hub->stat_open_drop++;
+    return;
+  }
   relay->sub_stream_id[i]  = (u64)sid;
   relay->sub_stream_set[i] = 1;
 }
@@ -718,7 +722,10 @@ static void moqtrun_relay_open_one(
   wired_moqtrun_peer* dst = &hub->peers[sub->session_idx];
   if (!dst->in_use) return;
   i64 sid = hub->io.open_uni_stream(dst->wt, wire);
-  if (sid < 0) return;
+  if (sid < 0) {
+    hub->stat_open_drop++;
+    return;
+  }
   relay->sub_stream_id[i]  = (u64)sid;
   relay->sub_stream_set[i] = 1;
 }
