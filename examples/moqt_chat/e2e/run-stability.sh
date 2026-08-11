@@ -18,7 +18,10 @@ shift
 pgrep -x wired_server >/dev/null 2>&1 && { pkill -x wired_server; sleep 0.5; } || true
 pkill -f puppeteer_dev_chrome_profile 2>/dev/null || true
 for d in /tmp/puppeteer_dev_chrome_profile-*; do
-  [ -e "$d" ] && rm -rf "$d"
+  # A just-killed chrome can still be writing into its profile dir, making
+  # rm -rf race ENOTEMPTY -- under set -e that aborted the whole run before
+  # it started. Best-effort cleanup only.
+  [ -e "$d" ] && rm -rf "$d" 2>/dev/null || true
 done
 
 FRONTEND_PORT=8093   # distinct from run.sh (8091) / run-voice.sh (8092)
