@@ -7,6 +7,7 @@
 import { startUdpProxy } from "../lib/udpProxy.mjs";
 import { summarizeVoiceTrace } from "../lib/voiceMetrics.mjs";
 import { evaluateVoiceGates } from "../lib/voiceGates.mjs";
+import { classifyMissingChat } from "../lib/chatLossVerdict.mjs";
 import {
   joinStabilityClient,
   waitFirstDecode,
@@ -86,6 +87,7 @@ export async function run({ pageUrl, server, arg, log }) {
     const failures = [];
     const tapEvents = {};
     const uniStreams = {};
+    const outUniStreams = {};
     // Distinguish "still in flight" from "gone for good": scrape once after
     // the settle, and -- only if something is missing -- again after an
     // extra grace. A pair missing from BOTH scrapes is a real loss; a pair
@@ -111,26 +113,28 @@ export async function run({ pageUrl, server, arg, log }) {
       const m = await clientMetrics(c);
       tapEvents[c.tag] = m?.voiceTapEvents ?? [];
       uniStreams[c.tag] = m?.wtUniStreams ?? [];
+      outUniStreams[c.tag] = m?.wtOutUniStreams ?? [];
       const dead = (m?.wtEvents ?? []).filter((e) => e.closedAt !== null);
       if (dead.length > 0) {
         failures.push(`${c.tag}: connection died mid-run (${dead[0].closeInfo})`);
       }
       for (const e of c.errors) failures.push(`${c.tag} page error: ${e}`);
     }
-    // Crossmatch each missing delivery against the receiver's TRANSPORT
-    // receive log (stabilityClient's incoming-uni-stream tap): a missing
-    // message whose id appears in some stream head DID reach the client --
-    // the loss is above the transport (frontend). One absent from every
-    // head never arrived -- the loss is in the relay/QUIC leg.
+    // Crossmatch each missing delivery against BOTH transport-level taps:
+    // the SENDER's outgoing-uni-stream log (did the client's own bytes ever
+    // leave, stabilityClient's wrapOutgoingUni) and the RECEIVER's incoming
+    // log (did they ever arrive, wrapIncomingUni). classifyMissingChat's own
+    // test list documents the three-way verdict and the id-matching edge
+    // cases (chatLossVerdict.test.mjs).
     const missingTransport = {};
     for (const pair of missingFinal) {
       const [id, receiver] = pair.split("->");
-      const hit = (uniStreams[receiver] ?? []).find((s) =>
-        s.head.includes(id),
-      );
-      missingTransport[pair] = hit
-        ? `arrived (bytes=${hit.bytes}, closed=${hit.closed}, head=${JSON.stringify(hit.head)})`
-        : "absent at transport";
+      missingTransport[pair] = classifyMissingChat({
+        id,
+        receiver,
+        outUniStreams,
+        uniStreams,
+      });
     }
     if (missingFinal.length > 0) {
       failures.push(
