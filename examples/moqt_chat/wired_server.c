@@ -94,6 +94,7 @@ static const wired_moqt_io g_moqt_io = {
     moqt_io_send_uni,
     moqt_io_open_uni_stream,
     wired_server_wt_stream_fin,
+    wired_server_wt_stream_reset,
 };
 
 static wired_moqt_hub g_hub;
@@ -201,7 +202,7 @@ static void log_cert_fingerprint(const wired_srvboot_id* id) {
  * measurement run can compare server-side drops against the receivers' own
  * sequence gaps. */
 static void log_relay_stats(const wired_moqt_hub* hub) {
-  char line[128];
+  char line[192];
   usz  n = 0;
   append_cstr(line, &n, "moqt relay: sent=");
   n += dec_u64(line + n, hub->stat_relay_sent);
@@ -211,6 +212,8 @@ static void log_relay_stats(const wired_moqt_hub* hub) {
   n += dec_u64(line + n, hub->stat_frag_drop);
   append_cstr(line, &n, " open_dropped=");
   n += dec_u64(line + n, hub->stat_open_drop);
+  append_cstr(line, &n, " reset=");
+  n += dec_u64(line + n, hub->stat_relay_reset);
   line[n++] = '\n';
   line[n]   = 0;
   wired_log_str(line);
