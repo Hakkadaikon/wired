@@ -44,6 +44,12 @@ static int g_stream_reset_ret;
  * -- simulates send-slot/stream-limit exhaustion on the receiver's
  * connection (wired_server_wt_open_uni's failure return). */
 static int g_send_uni_fail_n;
+/* When set, every send_uni addressed to THIS session returns -1 (while
+ * other sessions' sends succeed) -- the send_uni twin of
+ * g_stream_send_reject_sess, for pinning per-subscriber independence at
+ * chat's fan-out scale (test_moqtrun_chat_one_of_three_subscribers_
+ * refused). */
+static wired_wt_session* g_send_uni_reject_sess;
 
 static void moqtrun_test_reset(void) {
   g_n_calls                 = 0;
@@ -52,6 +58,7 @@ static void moqtrun_test_reset(void) {
   g_stream_send_reject_sess = 0;
   g_stream_reset_ret        = 1;
   g_send_uni_fail_n         = 0;
+  g_send_uni_reject_sess    = 0;
 }
 
 static void moqtrun_test_record(
@@ -93,6 +100,7 @@ static i64 moqtrun_test_send_uni(wired_wt_session* s, quic_span payload) {
     g_send_uni_fail_n--;
     return -1;
   }
+  if (g_send_uni_reject_sess && s == g_send_uni_reject_sess) return -1;
   return sid;
 }
 
@@ -153,6 +161,7 @@ static const moqtrun_test_call* moqtrun_test_last_kind(int kind) {
 static wired_wt_session* const SESS_A = (wired_wt_session*)(usz)1;
 static wired_wt_session* const SESS_B = (wired_wt_session*)(usz)2;
 static wired_wt_session* const SESS_C = (wired_wt_session*)(usz)3;
+static wired_wt_session* const SESS_D = (wired_wt_session*)(usz)4;
 
 /* ===================== 1. session establishment ===================== */
 
@@ -801,6 +810,90 @@ static void test_moqtrun_chat_object_relays_only_to_chat_subscriber(void) {
 
   CHECK(moqtrun_test_count_kind(4) == 1);
   CHECK(moqtrun_test_last_kind(4)->s == SESS_B);
+}
+
+/* C3 (S3 chat-loss investigation, tasks/moqt-voice-stability-plan.md):
+ * the field's 4-client room means one chat Object commonly has THREE
+ * subscribers (every other participant), a fan-out no existing test
+ * exercised (the pre-existing tests here all use one or two SESS_*). A
+ * real 1%-loss run showed a chat message missing from every one of its
+ * receivers simultaneously (e.g. msg:user3:10 absent for user1, user2, AND
+ * user4 alike) -- this pins that moqtrun's own fan-out logic (
+ * moqtrun_relay_object's for-loop over track->subs[]) reaches all three
+ * unconditionally, ruling out a hub-side "stops after N subscribers" bug
+ * as the cause of that all-receivers-missing pattern. */
+static void test_moqtrun_chat_object_relays_to_all_three_subscribers(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  moqtrun_test_publish_alice(&hub);
+
+  wired_wt_session* subs[3] = {SESS_B, SESS_C, SESS_D};
+  for (usz i = 0; i < 3; i++) {
+    wired_moqt_on_session(
+        &hub, subs[i], quic_span_of(0, 0), quic_span_of(0, 0));
+    u64 ctrl = moqtrun_test_last_kind(1)->stream_id;
+    wired_moqt_on_stream_data(
+        &hub, subs[i], ctrl,
+        quic_span_of(
+            g_moqt_ctl_subscribe_basic, G_MOQT_CTL_SUBSCRIBE_BASIC_LEN),
+        0);
+  }
+
+  moqtrun_test_reset();
+  wired_moqt_on_stream_data(
+      &hub, SESS_A, 999,
+      quic_span_of(
+          g_moqt_data_subgroup_stream_basic,
+          G_MOQT_DATA_SUBGROUP_STREAM_BASIC_LEN),
+      1 /* chat: publisher's one-shot stream, FIN'd */);
+
+  CHECK(moqtrun_test_count_kind(4) == 3); /* one send_uni per subscriber */
+  int seen_b = 0, seen_c = 0, seen_d = 0;
+  for (usz i = 0; i < g_n_calls; i++) {
+    if (g_calls[i].kind != 4) continue;
+    if (g_calls[i].s == SESS_B) seen_b = 1;
+    if (g_calls[i].s == SESS_C) seen_c = 1;
+    if (g_calls[i].s == SESS_D) seen_d = 1;
+  }
+  CHECK(seen_b && seen_c && seen_d);
+}
+
+/* Same fan-out, but the MIDDLE subscriber's send_uni is refused (send-slot
+ * exhaustion on just that connection): the other two still receive their
+ * copy, and the loss is counted (stat_open_drop), never silent -- the
+ * per-subscriber independence moqtrun_relay_to_one's own doc promises,
+ * now checked at 3-way fan-out instead of the existing 2-way audio test's
+ * scale (test_moqtrun_audio_two_subscribers_independent_streams). */
+static void test_moqtrun_chat_one_of_three_subscribers_refused(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  moqtrun_test_publish_alice(&hub);
+
+  wired_wt_session* subs[3] = {SESS_B, SESS_C, SESS_D};
+  for (usz i = 0; i < 3; i++) {
+    wired_moqt_on_session(
+        &hub, subs[i], quic_span_of(0, 0), quic_span_of(0, 0));
+    u64 ctrl = moqtrun_test_last_kind(1)->stream_id;
+    wired_moqt_on_stream_data(
+        &hub, subs[i], ctrl,
+        quic_span_of(
+            g_moqt_ctl_subscribe_basic, G_MOQT_CTL_SUBSCRIBE_BASIC_LEN),
+        0);
+  }
+
+  moqtrun_test_reset();
+  g_send_uni_reject_sess = SESS_C; /* only C's send_uni is refused */
+  wired_moqt_on_stream_data(
+      &hub, SESS_A, 999,
+      quic_span_of(
+          g_moqt_data_subgroup_stream_basic,
+          G_MOQT_DATA_SUBGROUP_STREAM_BASIC_LEN),
+      1);
+
+  CHECK(moqtrun_test_count_kind(4) == 3); /* all three attempted */
+  CHECK(hub.stat_open_drop == 1);         /* exactly C's loss is counted */
 }
 
 /* An Object on the audio track's data stream (a distinct Track Alias)
@@ -2072,6 +2165,8 @@ void test_moqtrun(void) {
   test_moqtrun_subscribe_audio_track_replies_ok();
   test_moqtrun_chat_and_audio_get_different_aliases();
   test_moqtrun_chat_object_relays_only_to_chat_subscriber();
+  test_moqtrun_chat_object_relays_to_all_three_subscribers();
+  test_moqtrun_chat_one_of_three_subscribers_refused();
   test_moqtrun_audio_object_relays_only_to_audio_subscriber();
   test_moqtrun_unknown_alias_object_relays_nowhere();
   test_moqtrun_two_subscribe_oks_one_dispatch_no_overflow();
