@@ -33,7 +33,7 @@ independent implementation) are tracked separately: see
 
 | Spec | Demonstrated | Tested | Indirect | Untested |
 |---|---|---|---|---|
-| [RFC 9000 — QUIC Transport](rfc9000.md) | 190/190 | 156 | 34 | 0 |
+| [RFC 9000 — QUIC Transport](rfc9000.md) | 190/190 | 157 | 33 | 0 |
 | [RFC 9001 — Using TLS to Secure QUIC](rfc9001.md) | 68/68 | 53 | 15 | 0 |
 | [RFC 9002 — Loss Detection and Congestion Control](rfc9002.md) | 67/67 | 56 | 11 | 0 |
 | [RFC 8999 — Version-Independent Properties](rfc8999.md) | 15/15 | 12 | 3 | 0 |
@@ -94,7 +94,7 @@ independent implementation) are tracked separately: see
 
 | Spec | Demonstrated | Tested | Indirect | Untested |
 |---|---|---|---|---|
-| [draft-ietf-webtrans-http3-15](draft-webtrans-http3.md) | 68/68 | 53 | 15 | 0 |
+| [draft-ietf-webtrans-http3-15](draft-webtrans-http3.md) | 68/68 | 52 | 16 | 0 |
 | [RFC 9220 — Extended CONNECT](rfc9220.md) | 11/11 | 10 | 1 | 0 |
 | [RFC 9297 — HTTP Datagrams and Capsules](rfc9297.md) | 22/22 | 16 | 6 | 0 |
 
