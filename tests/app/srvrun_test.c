@@ -4292,17 +4292,17 @@ static void test_srvrun_wt_bidi_stream_offered_to_session(void) {
  * n=0x3994bd84 (966049156), h = first + n + floor(n/0x1e) = first +
  * 966049156 + 34501755 = 0x52e4df8fc205. */
 static void test_srvrun_wt_bidi_stream_buffer_full_sends_reset(void) {
-  struct lp_fix              f;
-  quic_obuf                  ob;
-  u8                         obuf[1024];
-  u8                         pkt[256];
-  quic_obuf                  pktb = quic_obuf_of(pkt, sizeof pkt);
-  const u8*                  pl;
-  usz                        pll;
-  quic_reset_stream_at_frame rs;
-  quic_stop_sending_frame    ss;
-  usz                        rn, sn;
-  srvrun_conn                c = {0};
+  struct lp_fix           f;
+  quic_obuf               ob;
+  u8                      obuf[1024];
+  u8                      pkt[256];
+  quic_obuf               pktb = quic_obuf_of(pkt, sizeof pkt);
+  const u8*               pl;
+  usz                     pll;
+  quic_reset_stream_frame rs;
+  quic_stop_sending_frame ss;
+  usz                     rn, sn;
+  srvrun_conn             c = {0};
   srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
                     0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
   usz        i;
@@ -4313,29 +4313,73 @@ static void test_srvrun_wt_bidi_stream_buffer_full_sends_reset(void) {
   for (i = 0; i < WIRED_WT_MAX_BUFFERED_STREAMS; i++)
     CHECK(wired_wt_session_offer_stream(&c.wt, 100 + i) == 1);
   c.l.wt_streams[0].in_use    = 1;
-  c.l.wt_streams[0].stream_id = 999;
+  c.l.wt_streams[0].stream_id = 996; /* client bidi (996 % 4 == 0) */
   c.l.wt_streams[0].offered   = 0;
   srvrun_offer_wt_streams(&cfg, &c);
   CHECK(c.l.wt_streams[0].offered == 0); /* never associated */
   CHECK(c.l.wt_streams[0].in_use == 0);  /* freed, not left claimed forever */
   CHECK(
       srvrun_seal_wt_busy_reset(
-          &c, 999, quic_wterrmap_to_http3(QUIC_WTERR_BUFFERED_STREAM_REJECTED),
+          &c, 996, quic_wterrmap_to_http3(QUIC_WTERR_BUFFERED_STREAM_REJECTED),
           &pktb) == 1);
   CHECK(client_open_onertt(&f, pktb.p, pktb.len, &pl, &pll) == 1);
-  rn = quic_reset_stream_at_decode(pl, pll, &rs);
+  rn = quic_reset_stream_decode(pl, pll, &rs);
   CHECK(rn != 0);
-  CHECK(rs.stream_id == 999);
+  CHECK(rs.stream_id == 996);
   CHECK(rs.error_code == 0x52e4df8fc205ULL);
-  /* RESET_STREAM_AT (not a plain RESET_STREAM), both size fields 0 -- this
-   * stream never carried any application bytes to guarantee delivery of. */
+  /* Standard RESET_STREAM (0x04, RFC 9000 19.4), final size 0 -- this
+   * stream never carried any application bytes. */
   CHECK(rs.final_size == 0);
-  CHECK(rs.reliable_size == 0);
   sn = quic_stop_sending_decode(pl + rn, pll - rn, &ss);
   CHECK(sn != 0);
-  CHECK(ss.stream_id == 999);
+  CHECK(ss.stream_id == 996);
   CHECK(ss.error_code == 0x52e4df8fc205ULL);
   CHECK(rn + sn == pll);
+}
+
+/* The abort seal picks frames by STREAM TYPE (RFC 9000 19.4/19.5): a
+ * client uni stream gets STOP_SENDING alone (this server has no send part
+ * to reset -- a RESET_STREAM would be a connection-fatal
+ * STREAM_STATE_ERROR at the client), a server uni stream gets RESET_STREAM
+ * alone (the client has no send part to stop), and a bidi stream gets the
+ * full pair (pinned by the buffer-full test above). Everything is the
+ * standard 0x04, never the 0x24 extension frame an ordinary peer kills the
+ * connection over. */
+static void test_srvrun_wt_abort_frames_match_stream_type(void) {
+  struct lp_fix           f;
+  quic_obuf               ob;
+  u8                      obuf[1024];
+  u8                      pkt[256];
+  const u8*               pl;
+  usz                     pll;
+  quic_reset_stream_frame rs;
+  quic_stop_sending_frame ss;
+  usz                     n;
+  srvrun_conn             c = {0};
+  ob                        = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  /* The frame decoders skip the type byte without checking it, so the
+   * frame KIND is pinned off pl[0] directly; n == pll then proves the
+   * packet carries that one frame and nothing else. */
+  { /* client uni (id % 4 == 2): STOP_SENDING alone */
+    quic_obuf pktb = quic_obuf_of(pkt, sizeof pkt);
+    CHECK(srvrun_seal_wt_busy_reset(&c, 6, QUIC_H3_REQUEST_REJECTED, &pktb));
+    CHECK(client_open_onertt(&f, pktb.p, pktb.len, &pl, &pll) == 1);
+    CHECK(pl[0] == QUIC_FRAME_STOP_SENDING);
+    n = quic_stop_sending_decode(pl, pll, &ss);
+    CHECK(n != 0 && n == pll);
+    CHECK(ss.stream_id == 6);
+  }
+  { /* server uni (id % 4 == 3): RESET_STREAM alone */
+    quic_obuf pktb = quic_obuf_of(pkt, sizeof pkt);
+    CHECK(srvrun_seal_wt_busy_reset(&c, 7, QUIC_H3_REQUEST_REJECTED, &pktb));
+    CHECK(client_open_onertt(&f, pktb.p, pktb.len, &pl, &pll) == 1);
+    CHECK(pl[0] == QUIC_FRAME_RESET_STREAM);
+    n = quic_reset_stream_decode(pl, pll, &rs);
+    CHECK(n != 0 && n == pll);
+    CHECK(rs.stream_id == 7);
+    CHECK(rs.final_size == 0); /* no send slot armed on this id */
+  }
 }
 
 /* Mirrors test_srvrun_wt_bidi_stream_buffer_full_sends_reset for the uni
@@ -4356,13 +4400,13 @@ static void test_srvrun_wt_uni_stream_buffer_full_sends_reset(void) {
   for (i = 0; i < WIRED_WT_MAX_BUFFERED_STREAMS; i++)
     CHECK(wired_wt_session_offer_stream(&c.wt, 200 + i) == 1);
   c.l.wt_uni_streams[0].in_use    = 1;
-  c.l.wt_uni_streams[0].stream_id = 777;
+  c.l.wt_uni_streams[0].stream_id = 778; /* client uni (778 % 4 == 2) */
   c.l.wt_uni_streams[0].offered   = 0;
   tx_pn_before                    = c.l.tx_pn;
   srvrun_offer_wt_uni_streams(&cfg, &c);
   CHECK(c.l.wt_uni_streams[0].offered == 0);
   CHECK(c.l.wt_uni_streams[0].in_use == 0);
-  CHECK(c.l.tx_pn != tx_pn_before); /* a RESET_STREAM pair was sealed */
+  CHECK(c.l.tx_pn != tx_pn_before); /* a STOP_SENDING was sealed */
 }
 
 /* An Extended CONNECT with :protocol=webtransport-h3 establishes a WT
@@ -4827,18 +4871,18 @@ static void test_srvrun_second_wt_connect_rejected_429(void) {
  * srvrun_start_resp, and decodes it back off the wire to confirm both frames
  * carry the right error code and stream id. */
 static void test_srvrun_second_wt_connect_sends_reset_stream(void) {
-  struct lp_fix              f;
-  quic_conntable             table[QUIC_CONNTABLE_CAP];
-  srvrun_conn*               conns = sr_test_conns();
-  quic_obuf                  ob;
-  u8                         obuf[1024];
-  u8                         pkt[256];
-  quic_obuf                  pktb = quic_obuf_of(pkt, sizeof pkt);
-  const u8*                  pl;
-  usz                        pll;
-  quic_reset_stream_at_frame rs;
-  quic_stop_sending_frame    ss;
-  usz                        rn, sn;
+  struct lp_fix           f;
+  quic_conntable          table[QUIC_CONNTABLE_CAP];
+  srvrun_conn*            conns = sr_test_conns();
+  quic_obuf               ob;
+  u8                      obuf[1024];
+  u8                      pkt[256];
+  quic_obuf               pktb = quic_obuf_of(pkt, sizeof pkt);
+  const u8*               pl;
+  usz                     pll;
+  quic_reset_stream_frame rs;
+  quic_stop_sending_frame ss;
+  usz                     rn, sn;
   ob                    = (quic_obuf){obuf, sizeof obuf, 0};
   g_sr_wt_handler_calls = 0;
   quic_conntable_init(table, QUIC_CONNTABLE_CAP);
@@ -4870,7 +4914,7 @@ static void test_srvrun_second_wt_connect_sends_reset_stream(void) {
       srvrun_seal_wt_busy_reset(
           &conns[0], 8, QUIC_H3_REQUEST_REJECTED, &pktb) == 1);
   CHECK(client_open_onertt(&f, pktb.p, pktb.len, &pl, &pll) == 1);
-  rn = quic_reset_stream_at_decode(pl, pll, &rs);
+  rn = quic_reset_stream_decode(pl, pll, &rs);
   CHECK(rn != 0);
   CHECK(rs.stream_id == 8);
   CHECK(rs.error_code == QUIC_H3_REQUEST_REJECTED);
@@ -4884,7 +4928,7 @@ static void test_srvrun_second_wt_connect_sends_reset_stream(void) {
 /* RFC 9114 4.1.1: a request stream that ended (FIN) without ever producing a
  * complete request -- srvloop's dispatch (route_note_incomplete) latches the
  * slot in incomplete_slots, and srvrun_sess_on_step must abort it on the
- * wire with H3_REQUEST_INCOMPLETE, the same RESET_STREAM_AT + STOP_SENDING
+ * wire with H3_REQUEST_INCOMPLETE, the same RESET_STREAM + STOP_SENDING
  * pair srvrun_reject_wt_busy already sends for other stream-level errors.
  * Drives srvrun_abort_incomplete_reqs directly (same translation unit),
  * mirroring test_srvrun_second_wt_connect_sends_reset_stream's decode-back
@@ -4911,7 +4955,7 @@ static void test_srvrun_incomplete_request_stream_sends_reset(void) {
     srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
     srvrun_abort_incomplete_reqs(&ctx, 0);
   }
-  /* a RESET_STREAM_AT + STOP_SENDING pair was sealed and sent, advancing the
+  /* a RESET_STREAM + STOP_SENDING pair was sealed and sent, advancing the
    * 1-RTT packet number -- same observable test_srvrun_wt_uni_stream_
    * buffer_full_sends_reset uses (srvrun_send_wt_busy_reset's own seal
    * path is exercised directly by the WT tests above, which decode it back
@@ -4957,24 +5001,23 @@ static void test_srvrun_wt_connect_client_bidi_id_establishes_session(void) {
  * H3_ID_ERROR, mirroring test_srvrun_second_wt_connect_sends_reset_stream's
  * decode-back verification. */
 static void test_srvrun_wt_connect_non_client_bidi_id_rejected(void) {
-  struct lp_fix              f;
-  quic_conntable             table[QUIC_CONNTABLE_CAP];
-  srvrun_conn*               conns = sr_test_conns();
-  quic_obuf                  ob;
-  u8                         obuf[1024];
-  u8                         pkt[256];
-  quic_obuf                  pktb = quic_obuf_of(pkt, sizeof pkt);
-  const u8*                  pl;
-  usz                        pll;
-  quic_reset_stream_at_frame rs;
-  quic_stop_sending_frame    ss;
-  usz                        rn, sn;
+  struct lp_fix           f;
+  quic_conntable          table[QUIC_CONNTABLE_CAP];
+  srvrun_conn*            conns = sr_test_conns();
+  quic_obuf               ob;
+  u8                      obuf[1024];
+  u8                      pkt[256];
+  quic_obuf               pktb = quic_obuf_of(pkt, sizeof pkt);
+  const u8*               pl;
+  usz                     pll;
+  quic_reset_stream_frame rs;
+  quic_stop_sending_frame ss;
+  usz                     rn, sn;
   ob                    = (quic_obuf){obuf, sizeof obuf, 0};
   g_sr_wt_handler_calls = 0;
   quic_conntable_init(table, QUIC_CONNTABLE_CAP);
   sr_make_confirmed_conn(&conns[0], &f, &ob);
-  sr_set_req(
-      &conns[0], 1, 1, 5); /* 5 & 3 == 1: client-initiated uni, not bidi */
+  sr_set_req(&conns[0], 1, 1, 5); /* 5 & 3 == 1: server bidi, not client bidi */
   {
     srvrun_cfg      cfg = {-1, 0, sr_wt_handler, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                            0,  0, &g_srvrun_env, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -4987,7 +5030,7 @@ static void test_srvrun_wt_connect_non_client_bidi_id_rejected(void) {
   CHECK(g_sr_wt_handler_calls == 0); /* rejected, not routed to app handler */
   CHECK(srvrun_seal_wt_busy_reset(&conns[0], 5, QUIC_H3_ID_ERROR, &pktb) == 1);
   CHECK(client_open_onertt(&f, pktb.p, pktb.len, &pl, &pll) == 1);
-  rn = quic_reset_stream_at_decode(pl, pll, &rs);
+  rn = quic_reset_stream_decode(pl, pll, &rs);
   CHECK(rn != 0);
   CHECK(rs.stream_id == 5);
   CHECK(rs.error_code == QUIC_H3_ID_ERROR);
@@ -5192,25 +5235,25 @@ static void test_srvrun_connect_stream_reset_closes_wt_session(void) {
 
 /* draft-ietf-webtrans-http3-15 SS4.4/8.2 (WTH3-065): a session's own CONNECT
  * stream closing must reset every WT bidi stream that session owns with
- * WT_SESSION_GONE (0x170d7b68), RESET_STREAM_AT + STOP_SENDING, mapped
+ * WT_SESSION_GONE (0x170d7b68), RESET_STREAM + STOP_SENDING, mapped
  * through quic_wterrmap_to_http3 -- the expected wire value (0x52e4bbe1db93)
  * is hand-derived: first=0x52e4a40fa8db, n=0x170d7b68 (388605800),
  * h = first + n + floor(n/0x1e) = first + 388605800 + 12953526 =
  * 0x52e4bbe1db93. The reset stream's slot is also freed (in_use == 0) so a
  * later reused stream id is never mistaken for the dead one. */
 static void test_srvrun_connect_stream_reset_resets_owned_wt_bidi_stream(void) {
-  struct lp_fix              f;
-  quic_conntable             table[QUIC_CONNTABLE_CAP];
-  srvrun_conn*               conns = sr_test_conns();
-  quic_obuf                  ob;
-  u8                         obuf[1024];
-  u8                         pkt[256];
-  quic_obuf                  pktb = quic_obuf_of(pkt, sizeof pkt);
-  const u8*                  pl;
-  usz                        pll;
-  quic_reset_stream_at_frame rs;
-  quic_stop_sending_frame    ss;
-  usz                        rn, sn;
+  struct lp_fix           f;
+  quic_conntable          table[QUIC_CONNTABLE_CAP];
+  srvrun_conn*            conns = sr_test_conns();
+  quic_obuf               ob;
+  u8                      obuf[1024];
+  u8                      pkt[256];
+  quic_obuf               pktb = quic_obuf_of(pkt, sizeof pkt);
+  const u8*               pl;
+  usz                     pll;
+  quic_reset_stream_frame rs;
+  quic_stop_sending_frame ss;
+  usz                     rn, sn;
   srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
                     0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
   ob             = (quic_obuf){obuf, sizeof obuf, 0};
@@ -5234,7 +5277,7 @@ static void test_srvrun_connect_stream_reset_resets_owned_wt_bidi_stream(void) {
   CHECK(conns[0].l.wt_streams[0].in_use == 0); /* the stream slot is freed */
   CHECK(srvrun_seal_wt_busy_reset(&conns[0], 8, 0x52e4bbe1db93ULL, &pktb) == 1);
   CHECK(client_open_onertt(&f, pktb.p, pktb.len, &pl, &pll) == 1);
-  rn = quic_reset_stream_at_decode(pl, pll, &rs);
+  rn = quic_reset_stream_decode(pl, pll, &rs);
   CHECK(rn != 0);
   CHECK(rs.stream_id == 8);
   CHECK(rs.error_code == 0x52e4bbe1db93ULL);
@@ -6071,24 +6114,24 @@ static void test_srvrun_rx_datagram_no_session_callback_not_invoked(void) {
 
 /* RFC 9297 2 (9297-002): the wire-byte proof that an unmapped Quarter Stream
  * ID aborts its named request stream with H3_DATAGRAM_ERROR (0x33) -- a
- * RESET_STREAM_AT + STOP_SENDING pair on the request stream id (connect_id,
+ * RESET_STREAM + STOP_SENDING pair on the request stream id (connect_id,
  * already *4 by quic_wtwire_qsid_take), NOT a connection close. Uses a
  * confirmed connection (real 1-RTT keys) so the sealed packet can actually be
  * opened and decoded, mirroring test_srvrun_wt_bidi_stream_buffer_full_sends_
  * reset's own direct-seal-and-decode style for the sibling rejection path. */
 static void test_srvrun_rx_datagram_unknown_semantics_aborts_stream(void) {
-  struct lp_fix              f;
-  quic_obuf                  ob;
-  u8                         obuf[1024];
-  u8                         pkt[256];
-  quic_obuf                  pktb = quic_obuf_of(pkt, sizeof pkt);
-  const u8*                  pl;
-  usz                        pll;
-  quic_reset_stream_at_frame rs;
-  quic_stop_sending_frame    ss;
-  usz                        rn, sn;
-  srvrun_conn                c = {0};
-  ob                           = (quic_obuf){obuf, sizeof obuf, 0};
+  struct lp_fix           f;
+  quic_obuf               ob;
+  u8                      obuf[1024];
+  u8                      pkt[256];
+  quic_obuf               pktb = quic_obuf_of(pkt, sizeof pkt);
+  const u8*               pl;
+  usz                     pll;
+  quic_reset_stream_frame rs;
+  quic_stop_sending_frame ss;
+  usz                     rn, sn;
+  srvrun_conn             c = {0};
+  ob                        = (quic_obuf){obuf, sizeof obuf, 0};
   sr_make_confirmed_conn(&c, &f, &ob);
   /* wt_active left 0 -- no session claims stream id 8 (qsid 2). */
   c.l.rx_datagrams[0].buf[0] = 0x02; /* qsid=2 -> stream id 8 */
@@ -6132,7 +6175,7 @@ static void test_srvrun_rx_datagram_unknown_semantics_aborts_stream(void) {
   CHECK(g_srdg_calls == 0);
   CHECK(srvrun_seal_wt_busy_reset(&c, 8, QUIC_H3_DATAGRAM_ERROR, &pktb) == 1);
   CHECK(client_open_onertt(&f, pktb.p, pktb.len, &pl, &pll) == 1);
-  rn = quic_reset_stream_at_decode(pl, pll, &rs);
+  rn = quic_reset_stream_decode(pl, pll, &rs);
   CHECK(rn != 0);
   CHECK(rs.stream_id == 8);
   CHECK(rs.error_code == QUIC_H3_DATAGRAM_ERROR);
@@ -6151,20 +6194,20 @@ static void test_srvrun_rx_datagram_unknown_semantics_aborts_stream(void) {
  * client at all, so it gets its own RFC 9297 2.1 error code. qsid=100 -> id
  * 400, and 400/4 == 100 >= the default limit. */
 static void test_srvrun_rx_datagram_beyond_stream_limit_h3_id_error(void) {
-  struct lp_fix              f;
-  quic_obuf                  ob;
-  u8                         obuf[1024];
-  u8                         pkt[256];
-  quic_obuf                  pktb = quic_obuf_of(pkt, sizeof pkt);
-  const u8*                  pl;
-  usz                        pll;
-  quic_reset_stream_at_frame rs;
-  quic_stop_sending_frame    ss;
-  usz                        rn, sn;
-  u8                         qbuf[8];
-  usz                        qn;
-  srvrun_conn                c = {0};
-  ob                           = (quic_obuf){obuf, sizeof obuf, 0};
+  struct lp_fix           f;
+  quic_obuf               ob;
+  u8                      obuf[1024];
+  u8                      pkt[256];
+  quic_obuf               pktb = quic_obuf_of(pkt, sizeof pkt);
+  const u8*               pl;
+  usz                     pll;
+  quic_reset_stream_frame rs;
+  quic_stop_sending_frame ss;
+  usz                     rn, sn;
+  u8                      qbuf[8];
+  usz                     qn;
+  srvrun_conn             c = {0};
+  ob                        = (quic_obuf){obuf, sizeof obuf, 0};
   sr_make_confirmed_conn(&c, &f, &ob);
   /* wt_active left 0 -- no session claims stream id 400 either way. */
   qn                         = quic_wtwire_qsid_put(qbuf, sizeof qbuf, 400);
@@ -6210,7 +6253,7 @@ static void test_srvrun_rx_datagram_beyond_stream_limit_h3_id_error(void) {
   CHECK(g_srdg_calls == 0);
   CHECK(srvrun_seal_wt_busy_reset(&c, 400, QUIC_H3_ID_ERROR, &pktb) == 1);
   CHECK(client_open_onertt(&f, pktb.p, pktb.len, &pl, &pll) == 1);
-  rn = quic_reset_stream_at_decode(pl, pll, &rs);
+  rn = quic_reset_stream_decode(pl, pll, &rs);
   CHECK(rn != 0);
   CHECK(rs.stream_id == 400);
   CHECK(rs.error_code == QUIC_H3_ID_ERROR);
@@ -12452,18 +12495,18 @@ static void test_srvrun_wt_stream_reply_exceeding_max_data_refused(void) {
  * own WT bidi stream is reset+freed the same way srvrun_close_wt_on_stream_
  * close's WT_SESSION_GONE path does. */
 static void test_srvrun_close_wt_flow_violations_resets_session(void) {
-  struct lp_fix              f;
-  quic_conntable             table[QUIC_CONNTABLE_CAP];
-  srvrun_conn*               conns = sr_test_conns();
-  quic_obuf                  ob;
-  u8                         obuf[1024];
-  u8                         pkt[256];
-  quic_obuf                  pktb = quic_obuf_of(pkt, sizeof pkt);
-  const u8*                  pl;
-  usz                        pll;
-  quic_reset_stream_at_frame rs;
-  quic_stop_sending_frame    ss;
-  usz                        rn, sn;
+  struct lp_fix           f;
+  quic_conntable          table[QUIC_CONNTABLE_CAP];
+  srvrun_conn*            conns = sr_test_conns();
+  quic_obuf               ob;
+  u8                      obuf[1024];
+  u8                      pkt[256];
+  quic_obuf               pktb = quic_obuf_of(pkt, sizeof pkt);
+  const u8*               pl;
+  usz                     pll;
+  quic_reset_stream_frame rs;
+  quic_stop_sending_frame ss;
+  usz                     rn, sn;
   srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
                     0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
   ob             = (quic_obuf){obuf, sizeof obuf, 0};
@@ -12487,7 +12530,7 @@ static void test_srvrun_close_wt_flow_violations_resets_session(void) {
   CHECK(conns[0].l.wt_streams[0].in_use == 0);
   CHECK(srvrun_seal_wt_busy_reset(&conns[0], 8, 0x52e4a92b442eULL, &pktb) == 1);
   CHECK(client_open_onertt(&f, pktb.p, pktb.len, &pl, &pll) == 1);
-  rn = quic_reset_stream_at_decode(pl, pll, &rs);
+  rn = quic_reset_stream_decode(pl, pll, &rs);
   CHECK(rn != 0);
   CHECK(rs.error_code == 0x52e4a92b442eULL);
   sn = quic_stop_sending_decode(pl + rn, pll - rn, &ss);
@@ -14021,6 +14064,7 @@ void test_srvrun(void) {
   test_srvrun_wt_uni_stream_no_session_not_offered();
   test_srvrun_wt_bidi_stream_offered_to_session();
   test_srvrun_wt_bidi_stream_buffer_full_sends_reset();
+  test_srvrun_wt_abort_frames_match_stream_type();
   test_srvrun_wt_uni_stream_buffer_full_sends_reset();
   test_srvrun_normal_request_unaffected_by_wt_branch();
   test_srvrun_wt_connect_establishes_session();
