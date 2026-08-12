@@ -40,6 +40,10 @@ static wired_wt_session* g_stream_send_reject_sess;
 /* stream_reset's stubbed return: 1 (queued) by default; 0 simulates the
  * SDK's reset latch being full this step (wired_server_wt_stream_reset). */
 static int g_stream_reset_ret;
+/* When >0, the next N send_uni calls are recorded but return -1 (refused)
+ * -- simulates send-slot/stream-limit exhaustion on the receiver's
+ * connection (wired_server_wt_open_uni's failure return). */
+static int g_send_uni_fail_n;
 
 static void moqtrun_test_reset(void) {
   g_n_calls                 = 0;
@@ -47,6 +51,7 @@ static void moqtrun_test_reset(void) {
   g_stream_send_reject_n    = 0;
   g_stream_send_reject_sess = 0;
   g_stream_reset_ret        = 1;
+  g_send_uni_fail_n         = 0;
 }
 
 static void moqtrun_test_record(
@@ -84,6 +89,10 @@ static int moqtrun_test_stream_send(
 static i64 moqtrun_test_send_uni(wired_wt_session* s, quic_span payload) {
   i64 sid = g_next_stream_id++;
   moqtrun_test_record(4, s, (u64)sid, 1, payload);
+  if (g_send_uni_fail_n > 0) {
+    g_send_uni_fail_n--;
+    return -1;
+  }
   return sid;
 }
 
@@ -1354,6 +1363,41 @@ static void test_moqtrun_audio_two_subscribers_independent_streams(void) {
   }
 }
 
+/* A refused one-shot relay open (send_uni returning failure: the
+ * receiver's send slots or stream limit exhausted) loses that ONE
+ * subscriber's copy of the message -- it must be counted in
+ * stat_open_drop (never silent), while the other subscriber's copy still
+ * goes out. */
+static void test_moqtrun_send_uni_failure_counts_open_drop(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  moqtrun_test_publish_alice(&hub);
+  wired_moqt_on_session(&hub, SESS_B, quic_span_of(0, 0), quic_span_of(0, 0));
+  u64 ctrl_b = moqtrun_test_last_kind(1)->stream_id;
+  wired_moqt_on_stream_data(
+      &hub, SESS_B, ctrl_b,
+      quic_span_of(g_moqt_ctl_subscribe_basic, G_MOQT_CTL_SUBSCRIBE_BASIC_LEN),
+      0);
+  wired_moqt_on_session(&hub, SESS_C, quic_span_of(0, 0), quic_span_of(0, 0));
+  u64 ctrl_c = moqtrun_test_last_kind(1)->stream_id;
+  wired_moqt_on_stream_data(
+      &hub, SESS_C, ctrl_c,
+      quic_span_of(g_moqt_ctl_subscribe_basic, G_MOQT_CTL_SUBSCRIBE_BASIC_LEN),
+      0);
+
+  moqtrun_test_reset();
+  g_send_uni_fail_n = 1; /* the FIRST subscriber's open is refused */
+  wired_moqt_on_stream_data(
+      &hub, SESS_A, 999,
+      quic_span_of(
+          g_moqt_data_subgroup_stream_basic,
+          G_MOQT_DATA_SUBGROUP_STREAM_BASIC_LEN),
+      1 /* one-shot: data + FIN together */);
+  CHECK(moqtrun_test_count_kind(4) == 2); /* both sends attempted */
+  CHECK(hub.stat_open_drop == 1);         /* the refused one is counted */
+}
+
 /* ===================== 8b. busy-streak shed (stale backlog -> reset)
  * ===================== */
 
@@ -2015,6 +2059,7 @@ void test_moqtrun(void) {
   test_moqtrun_chat_still_uses_send_uni_every_object();
   test_moqtrun_stream_send_rejection_drops_frame_not_fatal();
   test_moqtrun_audio_two_subscribers_independent_streams();
+  test_moqtrun_send_uni_failure_counts_open_drop();
   test_moqtrun_busy_streak_sheds_after_threshold();
   test_moqtrun_busy_streak_success_resets();
   test_moqtrun_shed_stream_skips_publisher_fin();

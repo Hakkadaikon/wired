@@ -590,7 +590,11 @@ static void moqtrun_relay_to_one(
     wired_moqt_hub* hub, const wired_moqtrun_sub* sub, quic_span wire) {
   wired_moqtrun_peer* dst = &hub->peers[sub->session_idx];
   if (!dst->in_use) return;
-  hub->io.send_uni(dst->wt, wire);
+  /* A refused one-shot open loses this subscriber's whole message (chat's
+   * 1 stream = 1 message); count it like the keep-open path's open
+   * failures -- stat_open_drop's own doc always promised this loss is
+   * never silent, but this call site used to discard the return. */
+  if (hub->io.send_uni(dst->wt, wire) < 0) hub->stat_open_drop++;
 }
 
 static void moqtrun_relay_object(
