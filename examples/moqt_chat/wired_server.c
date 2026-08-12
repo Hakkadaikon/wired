@@ -214,6 +214,8 @@ static void log_relay_stats(const wired_moqt_hub* hub) {
   n += dec_u64(line + n, hub->stat_open_drop);
   append_cstr(line, &n, " reset=");
   n += dec_u64(line + n, hub->stat_relay_reset);
+  append_cstr(line, &n, " relay_full=");
+  n += dec_u64(line + n, hub->stat_relay_full);
   line[n++] = '\n';
   line[n]   = 0;
   wired_log_str(line);
