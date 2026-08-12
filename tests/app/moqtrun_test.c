@@ -17,9 +17,9 @@
 
 typedef struct {
   int kind; /* 1=open_bidi_stream 3=stream_send 4=send_uni
-             * 5=open_uni_stream 6=stream_fin */
+             * 5=open_uni_stream 6=stream_fin 7=stream_reset */
   wired_wt_session* s;
-  u64               stream_id; /* stream_send/stream_fin only */
+  u64               stream_id; /* stream_send/stream_fin/stream_reset only */
   int               fin;       /* stream_send only */
   u8                payload[MOQTRUN_TEST_MAX_PAYLOAD];
   usz               payload_len;
@@ -33,11 +33,20 @@ static i64               g_next_stream_id;
  * round not yet ACKed" refusal (srvrun.h's wired_server_wt_stream_send
  * doc) without a real QUIC stack. */
 static int g_stream_send_reject_n;
+/* When set, every stream_send addressed to THIS session is rejected (while
+ * other sessions' sends succeed) -- lets a test starve one subscriber
+ * without touching its peers. */
+static wired_wt_session* g_stream_send_reject_sess;
+/* stream_reset's stubbed return: 1 (queued) by default; 0 simulates the
+ * SDK's reset latch being full this step (wired_server_wt_stream_reset). */
+static int g_stream_reset_ret;
 
 static void moqtrun_test_reset(void) {
-  g_n_calls              = 0;
-  g_next_stream_id       = 100;
-  g_stream_send_reject_n = 0;
+  g_n_calls                 = 0;
+  g_next_stream_id          = 100;
+  g_stream_send_reject_n    = 0;
+  g_stream_send_reject_sess = 0;
+  g_stream_reset_ret        = 1;
 }
 
 static void moqtrun_test_record(
@@ -66,6 +75,7 @@ static int moqtrun_test_stream_send(
     g_stream_send_reject_n--;
     return 0;
   }
+  if (g_stream_send_reject_sess && s == g_stream_send_reject_sess) return 0;
   return 1;
 }
 
@@ -95,6 +105,16 @@ static int moqtrun_test_stream_fin(wired_wt_session* s, u64 stream_id) {
   return 1;
 }
 
+/* wired_server_wt_stream_reset-shaped: abandons stream_id (the primitive
+ * the busy-streak shed uses, moqtrun_relay_shed_one). Returns
+ * g_stream_reset_ret so a test can simulate the SDK refusing (latch full). */
+static int moqtrun_test_stream_reset(
+    wired_wt_session* s, u64 stream_id, u32 error_code) {
+  (void)error_code;
+  moqtrun_test_record(7, s, stream_id, 0, quic_span_of(0, 0));
+  return g_stream_reset_ret;
+}
+
 static wired_moqt_io moqtrun_test_io(void) {
   wired_moqt_io io;
   io.open_bidi_stream = moqtrun_test_open_bidi_stream;
@@ -102,6 +122,7 @@ static wired_moqt_io moqtrun_test_io(void) {
   io.send_uni         = moqtrun_test_send_uni;
   io.open_uni_stream  = moqtrun_test_open_uni_stream;
   io.stream_fin       = moqtrun_test_stream_fin;
+  io.stream_reset     = moqtrun_test_stream_reset;
   return io;
 }
 
@@ -1333,6 +1354,222 @@ static void test_moqtrun_audio_two_subscribers_independent_streams(void) {
   }
 }
 
+/* ===================== 8b. busy-streak shed (stale backlog -> reset)
+ * ===================== */
+
+/* One header-less Object round (payload byte v) on publisher stream
+ * pub_sid -- an append to an already-started relay. */
+static void moqtrun_test_send_audio_round(
+    wired_moqt_hub* hub, u64 pub_sid, u8 v) {
+  u8        buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz       off = 0;
+  quic_span p   = quic_span_of(&v, 1);
+  quic_moqdata_obj_put(quic_mspan_of(buf, sizeof buf), &off, 1, p);
+  wired_moqt_on_stream_data(hub, SESS_A, pub_sid, quic_span_of(buf, off), 0);
+}
+
+/* Starts the audio relay (SESS_A publishing, SESS_B subscribed, first
+ * Object delivered) and returns the subscriber-side relay stream id. */
+static u64 moqtrun_test_start_busy_fixture(wired_moqt_hub* hub) {
+  moqtrun_test_reset();
+  wired_moqt_init(hub, moqtrun_test_io());
+  moqtrun_test_setup_audio_relay(hub);
+  u8  first[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz first_n = moqtrun_test_subgroup_with_alias(0x02, first);
+  wired_moqt_on_stream_data(hub, SESS_A, 999, quic_span_of(first, first_n), 0);
+  return moqtrun_test_last_kind(5)->stream_id;
+}
+
+/* Sustained busy sheds the stream at the threshold, not before: K-1
+ * consecutive refused rounds leave it bound (a transient burst must not
+ * churn streams), the K-th refusal resets it exactly once (stream_reset on
+ * the relay stream's own id, counted in stat_relay_reset), and the NEXT
+ * round re-opens a fresh stream carrying the saved SUBGROUP_HEADER alone
+ * -- the same late-open path a late subscriber takes, so the client's
+ * decoder sees a well-formed stream head at the newest frame. */
+static void test_moqtrun_busy_streak_sheds_after_threshold(void) {
+  wired_moqt_hub hub;
+  u64            relay_stream_id   = moqtrun_test_start_busy_fixture(&hub);
+  const wired_moqtrun_relay* relay = &hub.peers[0].tracks[1].relays[0];
+
+  moqtrun_test_reset();
+  g_stream_send_reject_n = WIRED_MOQTRUN_RESET_AFTER_BUSY - 1;
+  for (u8 v = 0; v < WIRED_MOQTRUN_RESET_AFTER_BUSY - 1; v++)
+    moqtrun_test_send_audio_round(&hub, 999, v);
+  CHECK(moqtrun_test_count_kind(7) == 0); /* K-1: still bound */
+  CHECK(hub.stat_relay_reset == 0);
+
+  moqtrun_test_reset();
+  g_stream_send_reject_n = 1;
+  moqtrun_test_send_audio_round(&hub, 999, 9); /* K-th refusal */
+  CHECK(moqtrun_test_count_kind(7) == 1);
+  CHECK(moqtrun_test_last_kind(7)->stream_id == relay_stream_id);
+  CHECK(moqtrun_test_last_kind(7)->s == SESS_B);
+  CHECK(hub.stat_relay_reset == 1);
+
+  /* Next round: late-open with the saved header, no append to the dead
+   * stream. */
+  moqtrun_test_reset();
+  moqtrun_test_send_audio_round(&hub, 999, 10);
+  CHECK(moqtrun_test_count_kind(5) == 1);
+  CHECK(moqtrun_test_count_kind(3) == 0);
+  const moqtrun_test_call* opened = moqtrun_test_last_kind(5);
+  CHECK(opened->payload_len == relay->hdr_len);
+  for (usz i = 0; i < opened->payload_len; i++)
+    CHECK(opened->payload[i] == relay->hdr[i]);
+
+  /* And the round after that appends normally to the fresh stream. */
+  u64 fresh_id = opened->stream_id;
+  moqtrun_test_reset();
+  moqtrun_test_send_audio_round(&hub, 999, 11);
+  CHECK(moqtrun_test_count_kind(3) == 1);
+  CHECK(moqtrun_test_last_kind(3)->stream_id == fresh_id);
+}
+
+/* An accepted round in the middle of a busy run zeroes the streak: two
+ * separated sub-threshold bursts never add up to a shed. */
+static void test_moqtrun_busy_streak_success_resets(void) {
+  wired_moqt_hub hub;
+  moqtrun_test_start_busy_fixture(&hub);
+
+  moqtrun_test_reset();
+  g_stream_send_reject_n = WIRED_MOQTRUN_RESET_AFTER_BUSY - 1;
+  for (u8 v = 0; v < WIRED_MOQTRUN_RESET_AFTER_BUSY - 1; v++)
+    moqtrun_test_send_audio_round(&hub, 999, v);
+  moqtrun_test_send_audio_round(&hub, 999, 20); /* accepted: streak -> 0 */
+  g_stream_send_reject_n = WIRED_MOQTRUN_RESET_AFTER_BUSY - 1;
+  for (u8 v = 0; v < WIRED_MOQTRUN_RESET_AFTER_BUSY - 1; v++)
+    moqtrun_test_send_audio_round(&hub, 999, (u8)(30 + v));
+  CHECK(moqtrun_test_count_kind(7) == 0);
+  CHECK(hub.stat_relay_reset == 0);
+}
+
+/* After a shed, the publisher's own bare FIN must NOT be forwarded to the
+ * abandoned stream id: the subscriber slot is unbound, and a FIN-only
+ * round never late-opens a stream just to close it. */
+static void test_moqtrun_shed_stream_skips_publisher_fin(void) {
+  wired_moqt_hub hub;
+  moqtrun_test_start_busy_fixture(&hub);
+
+  moqtrun_test_reset();
+  g_stream_send_reject_n = WIRED_MOQTRUN_RESET_AFTER_BUSY;
+  for (u8 v = 0; v < WIRED_MOQTRUN_RESET_AFTER_BUSY; v++)
+    moqtrun_test_send_audio_round(&hub, 999, v);
+  CHECK(moqtrun_test_count_kind(7) == 1); /* shed happened */
+
+  moqtrun_test_reset();
+  wired_moqt_on_stream_data(&hub, SESS_A, 999, quic_span_of(0, 0), 1);
+  CHECK(moqtrun_test_count_kind(6) == 0); /* no stream_fin on the dead id */
+  CHECK(moqtrun_test_count_kind(3) == 0);
+}
+
+/* The streak is per subscriber: starving ONE subscriber's session sheds
+ * only that subscriber's stream -- the healthy peer's stream keeps
+ * receiving every round untouched. */
+static void test_moqtrun_busy_shed_isolated_per_subscriber(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  u64 ctrl_a = moqtrun_test_publish_alice(&hub);
+  moqtrun_test_publish_alice_audio(&hub, ctrl_a);
+
+  wired_moqt_on_session(&hub, SESS_B, quic_span_of(0, 0), quic_span_of(0, 0));
+  u64 ctrl_b = moqtrun_test_last_kind(1)->stream_id;
+  u8  sub_b[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz sub_b_n = moqtrun_test_subscribe_audio_msg(sub_b);
+  wired_moqt_on_stream_data(
+      &hub, SESS_B, ctrl_b, quic_span_of(sub_b, sub_b_n), 0);
+  wired_moqt_on_session(&hub, SESS_C, quic_span_of(0, 0), quic_span_of(0, 0));
+  u64 ctrl_c = moqtrun_test_last_kind(1)->stream_id;
+  u8  sub_c[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz sub_c_n = moqtrun_test_subscribe_audio_msg(sub_c);
+  wired_moqt_on_stream_data(
+      &hub, SESS_C, ctrl_c, quic_span_of(sub_c, sub_c_n), 0);
+
+  u8  first[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz first_n = moqtrun_test_subgroup_with_alias(0x02, first);
+  wired_moqt_on_stream_data(&hub, SESS_A, 999, quic_span_of(first, first_n), 0);
+
+  moqtrun_test_reset();
+  g_stream_send_reject_sess = SESS_B; /* starve B only */
+  for (u8 v = 0; v < WIRED_MOQTRUN_RESET_AFTER_BUSY; v++)
+    moqtrun_test_send_audio_round(&hub, 999, v);
+  CHECK(moqtrun_test_count_kind(7) == 1);
+  CHECK(moqtrun_test_last_kind(7)->s == SESS_B);
+  CHECK(hub.stat_relay_reset == 1);
+  /* C received every round; only B's sends were refused. */
+  usz c_sends = 0;
+  for (usz i = 0; i < g_n_calls; i++)
+    if (g_calls[i].kind == 3 && g_calls[i].s == SESS_C) c_sends++;
+  CHECK(c_sends == WIRED_MOQTRUN_RESET_AFTER_BUSY);
+}
+
+/* io.stream_reset returning 0 (the SDK's reset latch full this step) keeps
+ * the stream bound and retries the shed on the NEXT busy round -- and once
+ * the reset is finally accepted, the shed completes (fresh late-open
+ * afterward). The refusal never half-applies. */
+static void test_moqtrun_shed_refused_retries_next_round(void) {
+  wired_moqt_hub hub;
+  moqtrun_test_start_busy_fixture(&hub);
+
+  moqtrun_test_reset();
+  g_stream_reset_ret     = 0; /* SDK refuses the reset */
+  g_stream_send_reject_n = WIRED_MOQTRUN_RESET_AFTER_BUSY + 1;
+  for (u8 v = 0; v < WIRED_MOQTRUN_RESET_AFTER_BUSY; v++)
+    moqtrun_test_send_audio_round(&hub, 999, v);
+  CHECK(moqtrun_test_count_kind(7) == 1); /* attempted, refused */
+  CHECK(hub.stat_relay_reset == 0);
+  moqtrun_test_send_audio_round(&hub, 999, 20); /* still busy: retried */
+  CHECK(moqtrun_test_count_kind(7) == 2);
+  CHECK(hub.stat_relay_reset == 0);
+
+  g_stream_reset_ret     = 1; /* latch drained: reset now accepted */
+  g_stream_send_reject_n = 1;
+  moqtrun_test_send_audio_round(&hub, 999, 21);
+  CHECK(moqtrun_test_count_kind(7) == 3);
+  CHECK(hub.stat_relay_reset == 1);
+
+  moqtrun_test_reset();
+  moqtrun_test_send_audio_round(&hub, 999, 22);
+  CHECK(moqtrun_test_count_kind(5) == 1); /* fresh late-open */
+}
+
+/* A re-PUBLISH (rejoin) clears every relay -- and with them any
+ * accumulated busy streak: the fresh incarnation's first refused round
+ * starts counting from zero, not from the dead relay's leftovers. */
+static void test_moqtrun_republish_clears_busy_streak(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  u64 ctrl_a = moqtrun_test_publish_alice(&hub);
+  moqtrun_test_publish_alice_audio(&hub, ctrl_a);
+  wired_moqt_on_session(&hub, SESS_B, quic_span_of(0, 0), quic_span_of(0, 0));
+  u64 ctrl_b = moqtrun_test_last_kind(1)->stream_id;
+  u8  sub_b[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz sub_b_n = moqtrun_test_subscribe_audio_msg(sub_b);
+  wired_moqt_on_stream_data(
+      &hub, SESS_B, ctrl_b, quic_span_of(sub_b, sub_b_n), 0);
+
+  u8  first[MOQTRUN_TEST_MAX_PAYLOAD];
+  usz first_n = moqtrun_test_subgroup_with_alias(0x02, first);
+  wired_moqt_on_stream_data(&hub, SESS_A, 999, quic_span_of(first, first_n), 0);
+
+  moqtrun_test_reset();
+  g_stream_send_reject_n = WIRED_MOQTRUN_RESET_AFTER_BUSY - 1;
+  for (u8 v = 0; v < WIRED_MOQTRUN_RESET_AFTER_BUSY - 1; v++)
+    moqtrun_test_send_audio_round(&hub, 999, v); /* streak at K-1 */
+
+  moqtrun_test_publish_alice_audio(&hub, ctrl_a); /* rejoin: relays clear */
+  wired_moqt_on_stream_data(
+      &hub, SESS_A, 1001, quic_span_of(first, first_n), 0);
+
+  moqtrun_test_reset();
+  g_stream_send_reject_n = 1;
+  moqtrun_test_send_audio_round(&hub, 1001, 20);
+  CHECK(moqtrun_test_count_kind(7) == 0); /* fresh streak: 1 of K, no shed */
+  CHECK(hub.stat_relay_reset == 0);
+}
+
 /* A real browser's write()+close() can land as TWO separate wired_moqt_
  * on_stream_data calls: the message bytes (fin=0), then a byte-less
  * fin=1 call carrying only the stream's own FIN (confirmed against a real
@@ -1778,6 +2015,12 @@ void test_moqtrun(void) {
   test_moqtrun_chat_still_uses_send_uni_every_object();
   test_moqtrun_stream_send_rejection_drops_frame_not_fatal();
   test_moqtrun_audio_two_subscribers_independent_streams();
+  test_moqtrun_busy_streak_sheds_after_threshold();
+  test_moqtrun_busy_streak_success_resets();
+  test_moqtrun_shed_stream_skips_publisher_fin();
+  test_moqtrun_busy_shed_isolated_per_subscriber();
+  test_moqtrun_shed_refused_retries_next_round();
+  test_moqtrun_republish_clears_busy_streak();
   test_moqtrun_chat_split_data_then_bare_fin_relays_and_closes();
   test_moqtrun_audio_split_data_then_bare_fin_closes();
   test_moqtrun_interleaved_chat_messages_close_independently();
