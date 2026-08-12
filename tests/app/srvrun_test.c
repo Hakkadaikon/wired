@@ -11946,8 +11946,8 @@ static void test_srvrun_wt_open_bidi_allocates_ids_and_holds_view(void) {
  * - open_bidi_stream / stream_reply_open mark their slots append-open;
  *   the one-shot open_uni stays not-append-open (regression)
  * - stream_send on an id no slot holds is refused
- * - stream_reset frees the slot at once, latches, and the drain sends
- *   RESET_STREAM_AT + STOP_SENDING with the mapped error code */
+ * - stream_reset frees the slot at once, latches, and the drain sends a
+ *   standard RESET_STREAM (final size = bytes armed, no STOP_SENDING) */
 
 /* Pump slot 0 once and decode the single STREAM frame of the one packet it
  * seals onto the wire. Returns 1 with *sf filled. */
@@ -12202,15 +12202,39 @@ static void test_srvrun_wt_stream_open_variants_mark_append(void) {
   CHECK(c->wtsend[2].append_open == 0);
 }
 
+/* Receive one packet from sfd and decode the single RESET_STREAM frame in
+ * it. Returns 1 with *rs filled and *alone set to 1 when nothing follows
+ * the frame in the packet's payload (no STOP_SENDING rides along). */
+static int sr_recv_reset_stream(
+    struct lp_fix* f, i64 sfd, quic_reset_stream_frame* rs, int* alone) {
+  u8            pkt[1500];
+  const u8*     pl;
+  usz           pll;
+  usz           rn;
+  quic_sockaddr from;
+  i64 r = wired_udp_recvfrom(sfd, quic_mspan_of(pkt, sizeof pkt), &from);
+  if (r <= 0) return 0;
+  if (client_open_onertt(f, pkt, (usz)r, &pl, &pll) != 1) return 0;
+  rn = quic_reset_stream_decode(pl, pll, rs);
+  if (rn == 0) return 0;
+  *alone = rn == pll;
+  return 1;
+}
+
 /* stream_reset frees the send slot at once (the app's payload view is
  * released, RFC 9000 19.4: delivery abandoned) and latches; the drain sends
- * the RESET_STREAM_AT + STOP_SENDING pair with the app error code mapped
- * into HTTP/3's WebTransport range (draft-ietf-webtrans-http3-15 8.2). */
+ * a STANDARD RESET_STREAM (0x04) -- not the RESET_STREAM_AT extension frame,
+ * which an ordinary peer (Chrome) kills the whole connection over, and with
+ * NO STOP_SENDING (a server-initiated uni stream has no peer-to-server half
+ * to stop, RFC 9000 19.5) -- carrying the app error code mapped into
+ * HTTP/3's WebTransport range (draft-ietf-webtrans-http3-15 8.2) and the
+ * bytes already armed on the stream as Final Size (RFC 9000 4.5). The freed
+ * slot also refuses any further send on the dead id. */
 static void test_srvrun_wt_stream_reset_sends_reset_and_frees_slot(void) {
   struct lp_fix f;
   quic_obuf     ob = {0};
   u8            obuf[1024];
-  quic_sockaddr srv, from;
+  quic_sockaddr srv;
   i64           sfd, cfd;
   srvrun_conn*  c;
   if (!sr_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
@@ -12222,30 +12246,25 @@ static void test_srvrun_wt_stream_reset_sends_reset_and_frees_slot(void) {
           &c->wt, quic_span_of(sr_wtsend_hello, sizeof sr_wtsend_hello)) == 7);
   CHECK(wired_server_wt_stream_reset(&c->wt, 7, 0x42) == 1);
   CHECK(c->wtsend[0].in_use == 0);
-  CHECK(c->wt_stream_reset_pending == 1);
+  CHECK(c->wt_stream_reset_n == 1);
+  CHECK(
+      wired_server_wt_stream_send(
+          &c->wt, 7, quic_span_of(sr_wtsend_hello, 1), 0) == -1);
+  CHECK(wired_server_wt_stream_fin(&c->wt, 7) == -1);
   {
     srvrun_cfg cfg = {cfd,           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                       &g_srvrun_env, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
     srvrun_drain_wt_stream_reset(&cfg, c);
   }
-  CHECK(c->wt_stream_reset_pending == 0);
+  CHECK(c->wt_stream_reset_n == 0);
   {
-    u8                         pkt[1500];
-    const u8*                  pl;
-    usz                        pll;
-    usz                        rn, sn;
-    quic_reset_stream_at_frame rs;
-    quic_stop_sending_frame    ss;
-    i64 r = wired_udp_recvfrom(sfd, quic_mspan_of(pkt, sizeof pkt), &from);
-    CHECK(r > 0);
-    CHECK(client_open_onertt(&f, pkt, (usz)r, &pl, &pll) == 1);
-    rn = quic_reset_stream_at_decode(pl, pll, &rs);
-    CHECK(rn != 0);
+    quic_reset_stream_frame rs;
+    int                     alone = 0;
+    CHECK(sr_recv_reset_stream(&f, sfd, &rs, &alone));
     CHECK(rs.stream_id == 7);
     CHECK(rs.error_code == quic_wterrmap_to_http3(0x42));
-    sn = quic_stop_sending_decode(pl + rn, pll - rn, &ss);
-    CHECK(sn != 0);
-    CHECK(ss.stream_id == 7);
+    CHECK(rs.final_size == sizeof sr_wtsend_hello);
+    CHECK(alone == 1); /* no STOP_SENDING follows */
   }
   wired_udp_close(cfd);
   wired_udp_close(sfd);
