@@ -3285,6 +3285,20 @@ static void test_srvloop_uni_claim_late_lower_id_not_stale(void) {
   CHECK(wired_srvloop_wt_uni_slot_claim(&l, 30) >= 0);  /* late NEW stream */
 }
 
+/* The WT bidi table's twin of the uni rule above: a recently RELEASED bidi
+ * stream id is refused on re-claim, but a NEW lower id arriving
+ * loss-delayed claims normally -- the bidi table carried the same
+ * high-watermark hole after the uni side was fixed. */
+static void test_srvloop_wt_bidi_claim_late_lower_id_not_stale(void) {
+  static wired_srvloop l;
+  u8                   scid[4] = {1, 2, 3, 4};
+  CHECK(wired_srvloop_init(&l, scid, 4) == 1);
+  CHECK(wired_srvloop_wt_slot_claim(&l, 32) >= 0); /* the fast stream */
+  wired_srvloop_wt_slot_release(&l, 32);
+  CHECK(wired_srvloop_wt_slot_claim(&l, 32) == -1); /* duplicate */
+  CHECK(wired_srvloop_wt_slot_claim(&l, 28) >= 0);  /* late NEW stream */
+}
+
 /* RFC 9000 19.11: a MAX_STREAMS(uni) frame (0x13) latches its value as the
  * step's high-water mark; the bidi variant (0x12) is ignored by this
  * gather (the server opens no peer-limit-gated bidi streams). */
@@ -4079,6 +4093,7 @@ void test_srvloop(void) {
   test_srvloop_streams_blocked_bidi_keeps_bidi_flag();
   test_srvloop_gather_max_streams_uni();
   test_srvloop_uni_claim_late_lower_id_not_stale();
+  test_srvloop_wt_bidi_claim_late_lower_id_not_stale();
   test_srvloop_gather_max_stream_data_raises_credit();
   test_srvloop_gather_max_stream_data_keeps_every_distinct_stream();
   test_srvloop_gather_max_stream_data_same_stream_overwrites();

@@ -57,7 +57,8 @@ static void wt_streams_reset(wired_srvloop* l) {
     l->wt_streams[i].credit_advertised = 0;
     wt_window_reset(&l->wt_streams[i].win);
   }
-  l->wt_released_watermark = 0;
+  for (usz i = 0; i < 8; i++) l->wt_released_recent[i] = 0;
+  l->wt_released_recent_at = 0;
 }
 
 /* Mark every WT uni stream reassembly slot free (draft-ietf-webtrans-http3-15
@@ -113,8 +114,8 @@ int wired_srvloop_init(wired_srvloop* l, const u8* cli_scid, u8 cli_scid_len) {
   l->max_data_seen              = 0;
   l->max_data_seen_flag         = 0;
   l->max_stream_data_n          = 0;
-  l->wt_released_watermark      = 0;
-  /* wt_uni_released_recent[] is zeroed by wt_uni_streams_reset below. */
+  /* wt_released_recent[]/wt_uni_released_recent[] are zeroed by
+   * wt_streams_reset/wt_uni_streams_reset below. */
   /* max_data_seen_flag/streams_blocked_seen_flag/path_response_seen_flag are
    * "not reset across steps by this loop itself" (see their own doc in
    * srvloop.h) -- but that convention only holds once a step has actually run
@@ -462,11 +463,15 @@ static int wt_slot_claim_at(wired_srvloop* l, usz i, u64 stream_id) {
   return (int)i;
 }
 
-/* RFC 9000 2.1: stream_id names an already-finished (released) WT bidi
- * stream -- a late/duplicate frame this table must never re-claim a slot
- * for. */
+/* 1 iff stream_id was itself released recently -- a claim for it now is a
+ * delayed duplicate reopening a stream the app already saw FIN for. A new
+ * id that merely sorts below older releases is NOT stale: the uni table
+ * fixed this first (wt_uni_released_recent's doc), and the bidi
+ * high-watermark rule had the same silent-loss hole. */
 static int wt_slot_is_stale(const wired_srvloop* l, u64 stream_id) {
-  return stream_id <= l->wt_released_watermark && l->wt_released_watermark;
+  for (usz i = 0; i < 8; i++)
+    if (l->wt_released_recent[i] == stream_id) return 1;
+  return 0;
 }
 
 /* Claim and reset a free wt_streams slot for stream_id.
@@ -492,9 +497,9 @@ int wired_srvloop_wt_slot_claim_local(wired_srvloop* l, u64 stream_id) {
 void wired_srvloop_wt_slot_release(wired_srvloop* l, u64 stream_id) {
   int i = wired_srvloop_wt_slot_find(l, stream_id);
   if (i < 0) return;
-  l->wt_streams[i].in_use = 0;
-  if (stream_id > l->wt_released_watermark)
-    l->wt_released_watermark = stream_id;
+  l->wt_streams[i].in_use                         = 0;
+  l->wt_released_recent[l->wt_released_recent_at] = stream_id;
+  l->wt_released_recent_at = (u8)((l->wt_released_recent_at + 1) % 8);
 }
 
 /* 1 if wt uni slot is claimed and reassembling stream_id. */
