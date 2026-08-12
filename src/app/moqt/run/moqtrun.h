@@ -282,6 +282,12 @@ typedef struct {
    * subscriber's stale backlog shed in favor of a fresh stream at the
    * newest frame. Diagnostic only. */
   u64 stat_relay_reset;
+  /** Fresh publisher streams NOT relayed because every relay entry of
+   * their track was busy (moqtrun_relay_start finding no free
+   * WIRED_MOQTRUN_MAX_RELAYS slot) -- unlike stat_open_drop's
+   * one-subscriber copy loss, each of these loses the stream's whole
+   * payload for EVERY subscriber. Diagnostic only. */
+  u64 stat_relay_full;
 } wired_moqt_hub;
 
 /** Zero-initialize hub and record the io table it will send through. */

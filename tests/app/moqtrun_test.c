@@ -1398,6 +1398,34 @@ static void test_moqtrun_send_uni_failure_counts_open_drop(void) {
   CHECK(hub.stat_open_drop == 1);         /* the refused one is counted */
 }
 
+/* A fresh keep-open publisher stream arriving with every relay entry of
+ * its track busy is not relayed at all -- that whole stream's payload is
+ * lost for EVERY subscriber, so it must be counted (stat_relay_full),
+ * never silent. */
+static void test_moqtrun_relay_table_full_counts(void) {
+  moqtrun_test_reset();
+  wired_moqt_hub hub;
+  wired_moqt_init(&hub, moqtrun_test_io());
+  moqtrun_test_publish_alice(&hub);
+  wired_moqt_on_session(&hub, SESS_B, quic_span_of(0, 0), quic_span_of(0, 0));
+  u64 ctrl_b = moqtrun_test_last_kind(1)->stream_id;
+  wired_moqt_on_stream_data(
+      &hub, SESS_B, ctrl_b,
+      quic_span_of(g_moqt_ctl_subscribe_basic, G_MOQT_CTL_SUBSCRIBE_BASIC_LEN),
+      0);
+
+  moqtrun_test_reset();
+  for (usz i = 0; i <= WIRED_MOQTRUN_MAX_RELAYS; i++)
+    wired_moqt_on_stream_data(
+        &hub, SESS_A, 999 + 4 * (u64)i,
+        quic_span_of(
+            g_moqt_data_subgroup_stream_basic,
+            G_MOQT_DATA_SUBGROUP_STREAM_BASIC_LEN),
+        0 /* keep-open: each claims a relay entry */);
+  CHECK(moqtrun_test_count_kind(5) == WIRED_MOQTRUN_MAX_RELAYS);
+  CHECK(hub.stat_relay_full == 1); /* the one past the table is counted */
+}
+
 /* ===================== 8b. busy-streak shed (stale backlog -> reset)
  * ===================== */
 
@@ -2060,6 +2088,7 @@ void test_moqtrun(void) {
   test_moqtrun_stream_send_rejection_drops_frame_not_fatal();
   test_moqtrun_audio_two_subscribers_independent_streams();
   test_moqtrun_send_uni_failure_counts_open_drop();
+  test_moqtrun_relay_table_full_counts();
   test_moqtrun_busy_streak_sheds_after_threshold();
   test_moqtrun_busy_streak_success_resets();
   test_moqtrun_shed_stream_skips_publisher_fin();

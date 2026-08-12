@@ -37,6 +37,7 @@ void wired_moqt_init(wired_moqt_hub* hub, wired_moqt_io io) {
   hub->stat_relay_drop  = 0;
   hub->stat_open_drop   = 0;
   hub->stat_relay_reset = 0;
+  hub->stat_relay_full  = 0;
 }
 
 /* SS10 common envelope (Type vi64 + 16-bit Length + Body): every control
@@ -907,7 +908,10 @@ static void moqtrun_relay_start(
     quic_span            wire,
     usz                  whole_end) {
   wired_moqtrun_relay* relay = moqtrun_relay_alloc(track);
-  if (!relay) return;
+  if (!relay) {
+    hub->stat_relay_full++; /* whole message lost for every subscriber */
+    return;
+  }
   relay->in_use        = 1;
   relay->pub_stream_id = pub_stream_id;
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++) {
