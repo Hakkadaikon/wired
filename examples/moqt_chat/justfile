@@ -85,6 +85,24 @@ e2e-voice *ARGS: build build-frontend
 e2e-stability SCENARIO *ARGS: build build-frontend
     ./e2e/run-stability.sh {{SCENARIO}} {{ARGS}}
 
+# Per-change stability battery (the master ledger's CI set): chat
+# longevity, clean voice, outage-reconnect, server restart, and 1% voice
+# loss. Stops at the first failing scenario; evidence lands per scenario
+# under tasks/voice-stability/<id>/.
+e2e-stability-ci: build build-frontend
+    ./e2e/run-stability.sh s2-chat-longevity
+    ./e2e/run-stability.sh s1-voice-clean
+    ./e2e/run-stability.sh s4-voice-outage-reconnect
+    ./e2e/run-stability.sh s5b-server-restart
+    ./e2e/run-stability.sh s3-voice-loss --loss-rate=0.01
+
+# Nightly battery: the CI set plus the endurance runs -- the 25-minute
+# 2-client voice soak (S6, flow-control wedge detector) and the 4-client
+# voice+chat longevity run (S10).
+e2e-stability-nightly: e2e-stability-ci
+    ./e2e/run-stability.sh s6-voice-soak --talk-ms=1500000
+    ./e2e/run-stability.sh s10-voice-chat-longevity
+
 # Multi-client chat load test: N headless-Chrome clients (each its own
 # BrowserContext), joining the hub's single fixed room, exchanging chat
 # messages, graded for message loss and latency. N is capped at 4 (the
