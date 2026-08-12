@@ -69,6 +69,7 @@
 #include "transport/recovery/stats/stats.h"
 #include "transport/stream/data/appdata/stream_send.h"
 #include "transport/stream/data/maxstreams/maxstreams.h"
+#include "transport/stream/data/stream/stream_role.h"
 
 /* The server's fixed run context: the bound socket and the application's
  * identity + request handler. `id` points at the caller's identity struct
@@ -393,7 +394,7 @@ typedef struct {
    * wired_wt_session_stream_open_allowed/data_send_allowed) and must be
    * closed with WT_FLOW_CONTROL_ERROR. Latched rather than closed on the
    * spot: those entry points are called from app callbacks with no srvrun_cfg
-   * in hand to seal the RESET_STREAM_AT/STOP_SENDING wire bytes with, so the
+   * in hand to seal the RESET_STREAM/STOP_SENDING wire bytes with, so the
    * actual close (srvrun_close_wt_flow_violations) runs on the next
    * srvrun_on_step, which does have one -- mirrors closed_stream_seen's own
    * latch-in-a-callback/consume-at-step-time shape (wired_srvloop.h). */
@@ -1284,32 +1285,67 @@ static int srvrun_on_initial(
   return srvrun_boot_finish(ctx, slot, c, dg);
 }
 
-/* RFC 9114 4.1.1/8.1, draft-ietf-quic-reliable-stream-reset: a server aborts
- * a stream with a RESET_STREAM_AT + STOP_SENDING pair carrying err_code on
- * both -- same shape as quic_h3cancel_request, which pairs a plain
- * RESET_STREAM with STOP_SENDING for H3_REQUEST_CANCELLED, but parameterized
- * over the error code so callers can carry either an HTTP/3-level code (e.g.
- * H3_REQUEST_REJECTED) or a WebTransport application code already mapped
- * through quic_wterrmap_to_http3. RESET_STREAM_AT (not a plain RESET_STREAM)
- * since a WT session's stream aborts are draft-ietf-webtrans-
- * http3-15's own preference for reliable delivery up to a point; every
- * current caller aborts a stream that never carried any application bytes
- * (a buffer-full/busy/bad-id rejection at association time), so final_size
- * and reliable_size are both 0 -- there is nothing yet to guarantee
- * delivery of. */
-static usz srvrun_wt_busy_reset_payload(
-    u64 stream_id, u64 err_code, quic_obuf* plb) {
-  quic_reset_stream_at_frame rs = {stream_id, err_code, 0, 0};
-  quic_stop_sending_frame    ss = {stream_id, err_code};
-  usz rn = quic_reset_stream_at_encode(plb->p, plb->cap, &rs);
+/* Cumulative armed bytes on stream_id's WT send slot, 0 when none holds
+ * the id -- defined next to wired_server_wt_stream_reset below. */
+static u64 srvrun_wtsend_final_size(srvrun_conn* c, u64 stream_id);
+
+/* One standard RESET_STREAM (RFC 9000 19.4) at plb->p + at, its Final Size
+ * the bytes already armed on stream_id's send slot (0 for a stream this
+ * server never replied on -- every abort caller fires before any response
+ * bytes exist; only a WT stream_reply's own slot can carry a count). */
+static usz srvrun_wt_abort_reset(
+    srvrun_conn* c, u64 stream_id, u64 err_code, quic_obuf* plb, usz at) {
+  quic_reset_stream_frame rs = {
+      stream_id, err_code, srvrun_wtsend_final_size(c, stream_id)};
+  return quic_reset_stream_encode(plb->p + at, plb->cap - at, &rs);
+}
+
+/* One STOP_SENDING (RFC 9000 19.5) at plb->p + at. */
+static usz srvrun_wt_abort_stop(
+    u64 stream_id, u64 err_code, quic_obuf* plb, usz at) {
+  quic_stop_sending_frame ss = {stream_id, err_code};
+  return quic_stop_sending_encode(plb->p + at, plb->cap - at, &ss);
+}
+
+/* RESET_STREAM followed by STOP_SENDING -- the full abort of a bidi
+ * stream's both halves, same pair shape as quic_h3cancel_request. */
+static usz srvrun_wt_abort_pair(
+    srvrun_conn* c, u64 stream_id, u64 err_code, quic_obuf* plb) {
+  usz rn = srvrun_wt_abort_reset(c, stream_id, err_code, plb, 0);
   usz sn;
   if (!rn) return 0;
-  sn = quic_stop_sending_encode(plb->p + rn, plb->cap - rn, &ss);
+  sn = srvrun_wt_abort_stop(stream_id, err_code, plb, rn);
   if (!sn) return 0;
   return rn + sn;
 }
 
-/* Seal the RESET_STREAM+STOP_SENDING pair above into out as its own 1-RTT
+/* RFC 9114 4.1.1/8.1: a server aborts a stream with the frames RFC 9000
+ * 19.4/19.5 allow it to send FOR THAT STREAM'S TYPE, carrying err_code --
+ * an HTTP/3-level code (e.g. H3_REQUEST_REJECTED) or a WebTransport
+ * application code already mapped through quic_wterrmap_to_http3:
+ *
+ * - bidi (either initiator): RESET_STREAM + STOP_SENDING, both halves.
+ * - client uni: STOP_SENDING alone. This server has no send part, and a
+ *   RESET_STREAM arriving for what the client sees as its send-only stream
+ *   is a connection-fatal STREAM_STATE_ERROR at the client.
+ * - server uni: RESET_STREAM alone. The client cannot send on it, and a
+ *   STOP_SENDING arriving for what the client sees as a receive-only
+ *   stream is likewise connection-fatal (RFC 9000 19.5).
+ *
+ * Standard RESET_STREAM (0x04), never RESET_STREAM_AT (0x24): 0x24 is a
+ * draft-ietf-quic-reliable-stream-reset extension frame this SDK never
+ * negotiates, so a peer (Chrome included) treats it as an unknown frame
+ * and kills the whole connection with FRAME_ENCODING_ERROR. */
+static usz srvrun_wt_busy_reset_payload(
+    srvrun_conn* c, u64 stream_id, u64 err_code, quic_obuf* plb) {
+  if (!quic_stream_can_send(0, stream_id)) /* client uni */
+    return srvrun_wt_abort_stop(stream_id, err_code, plb, 0);
+  if (!quic_stream_can_receive(0, stream_id)) /* server uni */
+    return srvrun_wt_abort_reset(c, stream_id, err_code, plb, 0);
+  return srvrun_wt_abort_pair(c, stream_id, err_code, plb);
+}
+
+/* Seal the type-appropriate abort frames above into out as their own 1-RTT
  * packet on stream_id. Returns 1 with out->len set, 0 if the payload or the
  * seal failed. */
 static int srvrun_seal_wt_busy_reset(
@@ -1317,7 +1353,7 @@ static int srvrun_seal_wt_busy_reset(
   u8                    pl[64];
   quic_obuf             plb = quic_obuf_of(pl, sizeof pl);
   wired_srvloop_send_in sin;
-  usz pln = srvrun_wt_busy_reset_payload(stream_id, err_code, &plb);
+  usz pln = srvrun_wt_busy_reset_payload(c, stream_id, err_code, &plb);
   if (!pln) return 0;
   sin = (wired_srvloop_send_in){
       quic_span_of(c->l.cli_scid, c->l.cli_scid_len), c->l.tx_pn++, -1,
@@ -1325,14 +1361,14 @@ static int srvrun_seal_wt_busy_reset(
   return wired_srvloop_send_onertt(&c->s, &sin, out);
 }
 
-/* Seal and send the RESET_STREAM+STOP_SENDING pair carrying err_code as its
- * own 1-RTT packet. */
+/* Seal and send the type-appropriate abort frames carrying err_code as
+ * their own 1-RTT packet. */
 static void srvrun_send_wt_busy_reset(
     const srvrun_cfg* cfg, srvrun_conn* c, u64 stream_id, u64 err_code) {
   u8        out[128];
   quic_obuf ob = quic_obuf_of(out, sizeof out);
   if (!srvrun_seal_wt_busy_reset(c, stream_id, err_code, &ob)) return;
-  srvrun_send(cfg, c, quic_span_of(out, ob.len), "WT busy RESET_STREAM sent\n");
+  srvrun_send(cfg, c, quic_span_of(out, ob.len), "WT stream abort sent\n");
 }
 
 /* RFC 9000 10.2.3: an application-level CONNECTION_CLOSE (type 0x1d,
@@ -1796,7 +1832,7 @@ static int srvrun_dg_id_exceeds_limit(
  * that does not resolve to a live WebTransport session is a request this
  * server never assigned any HTTP Datagram meaning to. connect_id doubles as
  * the request stream id (quic_wtwire_qsid_take already multiplies the parsed
- * quarter back by 4), so it is aborted directly with the same RESET_STREAM_AT
+ * quarter back by 4), so it is aborted directly with the same RESET_STREAM
  * + STOP_SENDING pair srvrun_reject_wt_slot uses for a different rejection
  * reason -- UNLESS connect_id names a stream beyond the advertised
  * MAX_STREAMS limit (9297-010), which RFC 9297 2.1 calls out as its own
@@ -2386,11 +2422,11 @@ static u64 srvrun_wt_flow_control_code(void) {
   return quic_wterrmap_to_http3(QUIC_WTERR_FLOW_CONTROL_ERROR);
 }
 
-/* draft-ietf-webtrans-http3-15 SS4.4: reset one still-`in_use` WT bidi stream
- * that session_slot owned with err_code (RESET_STREAM_AT + STOP_
- * SENDING, srvrun_send_wt_busy_reset -- same pair shape draft-ietf-webtrans-
- * http3-15 8.2 uses for every other WT stream-level error this SDK sends)
- * and free its slot, so a session's teardown never leaves its own streams
+/* draft-ietf-webtrans-http3-15 SS4.4: abort one still-`in_use` WT bidi
+ * stream that session_slot owned with err_code (RESET_STREAM +
+ * STOP_SENDING via srvrun_send_wt_busy_reset, which picks the frames the
+ * stream's type allows -- a client bidi gets both halves) and free its
+ * slot, so a session's teardown never leaves its own streams
  * readable/writable past the session's own lifetime. A no-op for a stream
  * this session never owned (wt_session_slot mismatch) or one already free. */
 static void srvrun_reset_wt_bidi_if_owned(
@@ -2404,7 +2440,9 @@ static void srvrun_reset_wt_bidi_if_owned(
   slot->in_use = 0;
 }
 
-/* Same as srvrun_reset_wt_bidi_if_owned, for one WT uni stream slot. */
+/* Same as srvrun_reset_wt_bidi_if_owned, for one WT uni stream slot -- a
+ * client-initiated uni stream gets STOP_SENDING alone (this server has no
+ * send part to reset on it, RFC 9000 19.4/19.5). */
 static void srvrun_reset_wt_uni_if_owned(
     const srvrun_cfg*                 cfg,
     srvrun_conn*                      c,
@@ -2554,9 +2592,10 @@ static void srvrun_drain_wt_close_pending(
 /* Seal latch entry i's standard RESET_STREAM (RFC 9000 19.4) into out as
  * its own 1-RTT packet: the app code mapped into HTTP/3's WebTransport
  * range (draft-ietf-webtrans-http3-15 SS4.4/8.2) plus the final size
- * captured at latch time. Deliberately NOT srvrun_send_wt_busy_reset's
- * RESET_STREAM_AT + STOP_SENDING pair -- see the wt_stream_reset_* latch
- * fields' own doc for why either half breaks a real peer here. */
+ * captured at latch time -- NOT looked up now (srvrun_wt_abort_reset's
+ * live lookup would read 0, the send slot was already freed at latch
+ * time), and no STOP_SENDING (the latch targets server-initiated uni
+ * streams; see the wt_stream_reset_* latch fields' own doc). */
 static int srvrun_seal_wt_stream_reset(srvrun_conn* c, usz i, quic_obuf* out) {
   u8                      pl[32];
   quic_reset_stream_frame rs = {
@@ -6148,7 +6187,7 @@ static void srvrun_start_done_resps(const srvrun_step_ctx* ctx, int slot) {
  * response stream with the error code H3_REQUEST_INCOMPLETE" -- srvloop's
  * dispatch (route_note_incomplete) already detected the case and latched the
  * slot index in incomplete_slots this step; abort it here with the same
- * RESET_STREAM_AT + STOP_SENDING pair srvrun_reject_wt_busy uses, just
+ * RESET_STREAM + STOP_SENDING pair srvrun_reject_wt_busy uses, just
  * keyed by the stream's own id instead of req_stream_id. */
 static void srvrun_abort_incomplete_req(
     const srvrun_step_ctx* ctx, int slot, u8 incomplete_i) {
@@ -6170,7 +6209,7 @@ static void srvrun_abort_incomplete_reqs(const srvrun_step_ctx* ctx, int slot) {
  * PUSH_PROMISE or an HTTP/2-only reserved frame type -- srvloop's dispatch
  * (route_note_frame_unexpected) already detected it and latched the slot in
  * frame_unexpected_slots this step; abort it with H3_FRAME_UNEXPECTED, same
- * RESET_STREAM_AT + STOP_SENDING pair as srvrun_abort_incomplete_req. */
+ * RESET_STREAM + STOP_SENDING pair as srvrun_abort_incomplete_req. */
 static void srvrun_abort_frame_unexpected_req(
     const srvrun_step_ctx* ctx, int slot, u8 unexpected_i) {
   srvrun_conn* c  = &ctx->st->conns[slot];
