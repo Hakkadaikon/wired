@@ -12964,6 +12964,95 @@ static void test_srvrun_wt_send_conn_credit_shared_with_resp(void) {
   CHECK(c->resp[0].sess.q.cur == 0);
 }
 
+/* C2 (S3 chat-loss investigation, tasks/moqt-voice-stability-plan.md):
+ * a real 1%-loss run's server.log showed a chat-sized one-shot uni stream
+ * occasionally split into TWO packets -- "off=0,len=N,fin=0" followed by a
+ * separate "off=N,len=0,fin=1" -- instead of the single fin=1 slice
+ * test_srvrun_wt_open_uni_streams_payload_on_wire pins for the clean-network
+ * case. This reproduces the PTO-retransmit path a real loss would trigger
+ * (RFC 9002 6.2, the same probe pass test_srvrun_wt_send_pto_requeues_
+ * unacked_slice above exercises) at chat's actual size (19B, not
+ * SRVRUN_CHUNK) and asserts the retransmitted slice is STILL the single
+ * fin=1 round -- srvrun_wt_slice_fin recomputes fin from stream_off at
+ * SEND time (its own doc), so a requeued slice must carry the identical
+ * verdict as its first send, not split. */
+static const u8 sr_wtsend_chat19[19] = "p...msg:user4:7...";
+
+static void test_srvrun_wt_open_uni_pto_retransmit_keeps_single_fin_slice(
+    void) {
+  struct lp_fix f;
+  quic_obuf     ob = {0};
+  u8            obuf[1024];
+  quic_sockaddr srv, from;
+  i64           sfd, cfd;
+  srvrun_conn*  c;
+  srvrun_cfg    cfg;
+  srvrun_state  st;
+  if (!sr_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
+  ob      = (quic_obuf){obuf, sizeof obuf, 0};
+  c       = sr_wtsend_fixture(&f, &ob);
+  c->peer = srv;
+  CHECK(
+      wired_server_wt_open_uni(
+          &c->wt, quic_span_of(sr_wtsend_chat19, sizeof sr_wtsend_chat19)) ==
+      7);
+  cfg = (srvrun_cfg){cfd,           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                     &g_srvrun_env, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+  st  = (srvrun_state){g_srvrun_table, g_srvrun_state.conns};
+  {
+    srvrun_step_ctx ctx = {&cfg, &srv, &st, 0, 0};
+    srvrun_pump_sess(&ctx, 0);
+  }
+  {
+    /* First send on the wire: single slice, fin=1 (same shape as the
+     * clean-network pin above -- confirms the fixture itself is sane
+     * before the loss/retransmit path is exercised). */
+    u8                pkt[1500];
+    const u8*         pl;
+    usz               pll;
+    quic_stream_frame sf;
+    i64 r = wired_udp_recvfrom(sfd, quic_mspan_of(pkt, sizeof pkt), &from);
+    CHECK(r > 0);
+    CHECK(client_open_onertt(&f, pkt, (usz)r, &pl, &pll) == 1);
+    CHECK(quic_frame_get_stream(pl, pll, &sf) > 0);
+    CHECK(sf.offset == 0);
+    CHECK(sf.length == sizeof sr_wtsend_chat19);
+    CHECK(sf.fin == 1);
+  }
+  CHECK(wired_sendsess_inflight(&c->wtsend[0].sess) == 1);
+  /* Never ACKed: PTO fires and requeues the slice (RFC 9002 6.2), the same
+   * loss-recovery path a real dropped packet drives. */
+  CHECK(srvrun_pto_all(c, 1 + 10 * 1000) == 1);
+  CHECK(c->wtsend[0].sess.requeue_n == 1);
+  {
+    srvrun_step_ctx ctx = {&cfg, &srv, &st, 1 + 10 * 1000, 0};
+    srvrun_pump_sess(&ctx, 0);
+  }
+  {
+    /* The retransmit: must be the SAME single fin=1 slice, not a
+     * fin=0 data round followed by a separate 0-byte fin=1 round. */
+    u8                pkt[1500];
+    const u8*         pl;
+    usz               pll;
+    quic_stream_frame sf;
+    i64 r = wired_udp_recvfrom(sfd, quic_mspan_of(pkt, sizeof pkt), &from);
+    CHECK(r > 0);
+    CHECK(client_open_onertt(&f, pkt, (usz)r, &pl, &pll) == 1);
+    CHECK(quic_frame_get_stream(pl, pll, &sf) > 0);
+    CHECK(sf.offset == 0);
+    CHECK(sf.length == sizeof sr_wtsend_chat19);
+    CHECK(sf.fin == 1);
+  }
+  /* No second, separate 0-byte-fin packet trails this retransmit -- the
+   * whole slot has nothing left to send once the single fin=1 slice above
+   * went out again. */
+  CHECK(wired_sendsess_done(&c->wtsend[0].sess) == 0); /* still in flight */
+  CHECK(c->wtsend[0].sess.requeue_n == 0);
+  CHECK(c->wtsend[0].fin_only_pending == 0);
+  wired_udp_close(cfd);
+  wired_udp_close(sfd);
+}
+
 /* RFC 9002 6.2: a WT send slot's unacked slice past its PTO deadline is
  * requeued by the shared probe pass (the same budget policy resp[] slots
  * use), so a lost server-initiated stream slice retransmits. */
@@ -14169,6 +14258,7 @@ void test_srvrun(void) {
   test_srvrun_wt_open_slot_exhaustion_and_reuse();
   test_srvrun_wt_open_uni_respects_stream_credit();
   test_srvrun_wt_send_conn_credit_shared_with_resp();
+  test_srvrun_wt_open_uni_pto_retransmit_keeps_single_fin_slice();
   test_srvrun_wt_send_pto_requeues_unacked_slice();
   test_srvrun_wt_open_two_megabyte_payload_fully_acked();
   test_srvrun_wt_open_five_parallel_streams_unmixed();
