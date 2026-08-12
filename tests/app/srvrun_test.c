@@ -11947,7 +11947,9 @@ static void test_srvrun_wt_open_bidi_allocates_ids_and_holds_view(void) {
  *   the one-shot open_uni stays not-append-open (regression)
  * - stream_send on an id no slot holds is refused
  * - stream_reset frees the slot at once, latches, and the drain sends a
- *   standard RESET_STREAM (final size = bytes armed, no STOP_SENDING) */
+ *   standard RESET_STREAM (final size = bytes armed, no STOP_SENDING)
+ * - two resets latched between steps both reach the wire
+ * - a full reset latch refuses the call and keeps the send slot */
 
 /* Pump slot 0 once and decode the single STREAM frame of the one packet it
  * seals onto the wire. Returns 1 with *sf filled. */
@@ -12266,6 +12268,78 @@ static void test_srvrun_wt_stream_reset_sends_reset_and_frees_slot(void) {
     CHECK(rs.final_size == sizeof sr_wtsend_hello);
     CHECK(alone == 1); /* no STOP_SENDING follows */
   }
+  wired_udp_close(cfd);
+  wired_udp_close(sfd);
+}
+
+/* Two resets latched between steps BOTH reach the wire (the latch is a
+ * queue, not a last-writer-wins slot): each entry drains as its own
+ * RESET_STREAM packet carrying its own stream id and final size. */
+static void test_srvrun_wt_stream_reset_two_latched_both_drain(void) {
+  struct lp_fix f;
+  quic_obuf     ob = {0};
+  u8            obuf[1024];
+  quic_sockaddr srv;
+  i64           sfd, cfd;
+  srvrun_conn*  c;
+  i64           id2;
+  if (!sr_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
+  ob      = (quic_obuf){obuf, sizeof obuf, 0};
+  c       = sr_wtsend_fixture(&f, &ob);
+  c->peer = srv;
+  CHECK(
+      wired_server_wt_open_uni_stream(
+          &c->wt, quic_span_of(sr_wtsend_hello, sizeof sr_wtsend_hello)) == 7);
+  id2 =
+      wired_server_wt_open_uni_stream(&c->wt, quic_span_of(sr_wtsend_hello, 2));
+  CHECK(id2 > 7);
+  CHECK(wired_server_wt_stream_reset(&c->wt, 7, 0x42) == 1);
+  CHECK(wired_server_wt_stream_reset(&c->wt, (u64)id2, 0x43) == 1);
+  CHECK(c->wt_stream_reset_n == 2);
+  {
+    srvrun_cfg cfg = {cfd,           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                      &g_srvrun_env, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_drain_wt_stream_reset(&cfg, c);
+  }
+  CHECK(c->wt_stream_reset_n == 0);
+  {
+    quic_reset_stream_frame rs;
+    int                     alone = 0;
+    CHECK(sr_recv_reset_stream(&f, sfd, &rs, &alone));
+    CHECK(rs.stream_id == 7);
+    CHECK(rs.final_size == sizeof sr_wtsend_hello);
+    CHECK(sr_recv_reset_stream(&f, sfd, &rs, &alone));
+    CHECK(rs.stream_id == (u64)id2);
+    CHECK(rs.error_code == quic_wterrmap_to_http3(0x43));
+    CHECK(rs.final_size == 2);
+  }
+  wired_udp_close(cfd);
+  wired_udp_close(sfd);
+}
+
+/* A FULL reset latch refuses the call AND leaves the stream's send slot
+ * untouched: releasing the slot without latching would abandon delivery
+ * with no wire notification ever queued -- the peer would wait on that
+ * stream forever. */
+static void test_srvrun_wt_stream_reset_latch_full_keeps_slot(void) {
+  struct lp_fix f;
+  quic_obuf     ob = {0};
+  u8            obuf[1024];
+  quic_sockaddr srv;
+  i64           sfd, cfd;
+  srvrun_conn*  c;
+  if (!sr_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
+  ob      = (quic_obuf){obuf, sizeof obuf, 0};
+  c       = sr_wtsend_fixture(&f, &ob);
+  c->peer = srv;
+  CHECK(
+      wired_server_wt_open_uni_stream(
+          &c->wt, quic_span_of(sr_wtsend_hello, sizeof sr_wtsend_hello)) == 7);
+  for (usz i = 0; i < SRVRUN_WT_RESET_LATCH; i++)
+    CHECK(wired_server_wt_stream_reset(&c->wt, 1000 + i, 0x42) == 1);
+  CHECK(wired_server_wt_stream_reset(&c->wt, 7, 0x42) == 0);
+  CHECK(c->wtsend[0].in_use == 1); /* slot NOT released on refusal */
+  CHECK(c->wt_stream_reset_n == SRVRUN_WT_RESET_LATCH);
   wired_udp_close(cfd);
   wired_udp_close(sfd);
 }
@@ -14028,6 +14102,8 @@ void test_srvrun(void) {
   test_srvrun_wt_stream_fin_immediate_when_round_already_done();
   test_srvrun_wt_stream_open_variants_mark_append();
   test_srvrun_wt_stream_reset_sends_reset_and_frees_slot();
+  test_srvrun_wt_stream_reset_two_latched_both_drain();
+  test_srvrun_wt_stream_reset_latch_full_keeps_slot();
   test_srvrun_wt_open_uni_within_max_streams_succeeds();
   test_srvrun_wt_open_uni_exceeding_max_streams_refused();
   test_srvrun_wt_open_bidi_exceeding_max_streams_refused();
