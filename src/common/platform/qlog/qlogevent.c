@@ -132,6 +132,7 @@ usz wired_qlogevent_metrics(
   qev_put_field(&w, "wtsend_busy", m->wtsend_busy);
   qev_put_field(&w, "wtsend_flow", m->wtsend_flow);
   qev_put_field(&w, "wtwin_drop", m->wtwin_drop);
+  qev_put_field(&w, "streams_blocked", m->streams_blocked);
   qev_put_str(&w, "}");
   return qev_finish(&w);
 }

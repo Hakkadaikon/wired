@@ -11896,6 +11896,7 @@ static void test_srvrun_uni_open_refused_sends_streams_blocked(void) {
   }
   CHECK(c->uni_blocked_seen == 0);
   CHECK(c->uni_blocked_sent_at == 1);
+  CHECK(c->stat_streams_blocked == 1); /* qlog metrics observation point */
   {
     u8                 pkt[1500];
     const u8*          pl;

@@ -522,6 +522,11 @@ typedef struct {
   u64 stat_wtsend_ok;
   u64 stat_wtsend_busy;
   u64 stat_wtsend_flow;
+  /** STREAMS_BLOCKED frames actually sent (srvrun_send_streams_blocked):
+   * the post-hoc proof a run's stream opens were ever capped by the peer's
+   * ceiling, surfaced through the same qlog metrics record -- the send has
+   * no other observable trace once the run ends. */
+  u64 stat_streams_blocked;
   /** Monotonic ms of the last recovery:metrics_updated qlog emit. */
   u64 metrics_emit_ms;
   /** This connection's slot index, stamped at claim (srvrun_open_slot) and
@@ -2228,6 +2233,7 @@ static void srvrun_send_streams_blocked(
   u8        out[128];
   quic_obuf ob = quic_obuf_of(out, sizeof out);
   if (!srvrun_seal_streams_blocked(c, uni, limit, &ob)) return;
+  c->stat_streams_blocked++;
   srvrun_send(cfg, c, quic_span_of(out, ob.len), "UNI STREAMS_BLOCKED sent\n");
 }
 
@@ -6367,6 +6373,7 @@ static void srvrun_metrics_fill(
   m->wtsend_busy     = c->stat_wtsend_busy;
   m->wtsend_flow     = c->stat_wtsend_flow;
   m->wtwin_drop      = srvrun_wtwin_dropped(c);
+  m->streams_blocked = c->stat_streams_blocked;
 }
 
 /* 1 once per SRVRUN_METRICS_INTERVAL_MS per connection, arming the next
