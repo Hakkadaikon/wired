@@ -85,6 +85,7 @@ export async function run({ pageUrl, server, arg, log }) {
 
     const failures = [];
     const tapEvents = {};
+    const uniStreams = {};
     // Distinguish "still in flight" from "gone for good": scrape once after
     // the settle, and -- only if something is missing -- again after an
     // extra grace. A pair missing from BOTH scrapes is a real loss; a pair
@@ -109,11 +110,27 @@ export async function run({ pageUrl, server, arg, log }) {
     for (const c of clients) {
       const m = await clientMetrics(c);
       tapEvents[c.tag] = m?.voiceTapEvents ?? [];
+      uniStreams[c.tag] = m?.wtUniStreams ?? [];
       const dead = (m?.wtEvents ?? []).filter((e) => e.closedAt !== null);
       if (dead.length > 0) {
         failures.push(`${c.tag}: connection died mid-run (${dead[0].closeInfo})`);
       }
       for (const e of c.errors) failures.push(`${c.tag} page error: ${e}`);
+    }
+    // Crossmatch each missing delivery against the receiver's TRANSPORT
+    // receive log (stabilityClient's incoming-uni-stream tap): a missing
+    // message whose id appears in some stream head DID reach the client --
+    // the loss is above the transport (frontend). One absent from every
+    // head never arrived -- the loss is in the relay/QUIC leg.
+    const missingTransport = {};
+    for (const pair of missingFinal) {
+      const [id, receiver] = pair.split("->");
+      const hit = (uniStreams[receiver] ?? []).find((s) =>
+        s.head.includes(id),
+      );
+      missingTransport[pair] = hit
+        ? `arrived (bytes=${hit.bytes}, closed=${hit.closed})`
+        : "absent at transport";
     }
     if (missingFinal.length > 0) {
       failures.push(
@@ -132,6 +149,7 @@ export async function run({ pageUrl, server, arg, log }) {
       chatMissing,
       chatMissingAtSettle: missingAtSettle.length,
       chatLateDelivered: missingAtSettle.length - missingFinal.length,
+      missingTransport,
       voiceTrace,
       proxyStats: proxy.stats(),
     };

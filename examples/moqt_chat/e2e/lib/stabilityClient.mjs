@@ -32,12 +32,60 @@ const INIT_SCRIPT = `
     window.__decodeTimeline.push(window.__decodedFrameCount);
   }, 1000);
   window.__wtEvents = [];
+  // Transport-level receive log: one record per INCOMING uni stream --
+  // openedAt/bytes/head (first 256 bytes, printable-projected so a chat
+  // payload's "msg:userX:N" text is grep-able)/closed ("fin" or
+  // "abort:..."). Lets a scenario tell "the bytes never reached this
+  // client" apart from "arrived at transport but lost above it" -- the
+  // distinction DOM-scrape chat gates cannot make. Each incoming stream is
+  // tee'd: one branch to the app untouched, the logging branch is drained
+  // continuously (an unread tee branch would buffer the whole stream).
+  window.__wtUniStreams = [];
+  const wrapIncomingUni = (transport) => {
+    const inner = transport.incomingUnidirectionalStreams;
+    const wrapped = new ReadableStream({
+      async start(controller) {
+        const reader = inner.getReader();
+        try {
+          for (;;) {
+            const { value, done } = await reader.read();
+            if (done) { controller.close(); return; }
+            const [toApp, toLog] = value.tee();
+            const srec = { openedAt: Date.now(), bytes: 0, head: "", closed: null };
+            window.__wtUniStreams.push(srec);
+            (async () => {
+              const r = toLog.getReader();
+              try {
+                for (;;) {
+                  const { value: chunk, done: d } = await r.read();
+                  if (d) { srec.closed = "fin"; return; }
+                  if (srec.head.length < 256) {
+                    let s = "";
+                    for (const c of chunk)
+                      s += c >= 32 && c < 127 ? String.fromCharCode(c) : ".";
+                    srec.head = (srec.head + s).slice(0, 256);
+                  }
+                  srec.bytes += chunk.length;
+                }
+              } catch (e) { srec.closed = "abort:" + String(e); }
+            })();
+            controller.enqueue(toApp);
+          }
+        } catch (e) { controller.error(e); }
+      },
+    });
+    Object.defineProperty(transport, "incomingUnidirectionalStreams", {
+      get: () => wrapped,
+      configurable: true,
+    });
+  };
   const RealWT = window.WebTransport;
   window.WebTransport = class extends RealWT {
     constructor(...args) {
       super(...args);
       const rec = { openedAt: Date.now(), readyAt: null, closedAt: null, closeInfo: null };
       window.__wtEvents.push(rec);
+      wrapIncomingUni(this);
       this.ready.then(() => { rec.readyAt = Date.now(); }, () => {});
       this.closed.then(
         (info) => { rec.closedAt = Date.now(); rec.closeInfo = "closed:" + (info && info.closeCode); },
@@ -159,6 +207,7 @@ export async function clientMetrics(client) {
       lastDecodeAt: window.__lastDecodeAt ?? null,
       decodeTimeline: window.__decodeTimeline ?? [],
       wtEvents: window.__wtEvents ?? [],
+      wtUniStreams: window.__wtUniStreams ?? [],
       voiceTapEvents: window.__wiredVoiceTapBuf ?? [],
     }));
   } catch {
