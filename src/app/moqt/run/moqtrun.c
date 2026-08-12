@@ -31,11 +31,12 @@ static wired_moqtrun_peer* moqtrun_alloc(wired_moqt_hub* hub) {
 
 void wired_moqt_init(wired_moqt_hub* hub, wired_moqt_io io) {
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_SESSIONS; i++) hub->peers[i].in_use = 0;
-  hub->io              = io;
-  hub->stat_frag_drop  = 0;
-  hub->stat_relay_sent = 0;
-  hub->stat_relay_drop = 0;
-  hub->stat_open_drop  = 0;
+  hub->io               = io;
+  hub->stat_frag_drop   = 0;
+  hub->stat_relay_sent  = 0;
+  hub->stat_relay_drop  = 0;
+  hub->stat_open_drop   = 0;
+  hub->stat_relay_reset = 0;
 }
 
 /* SS10 common envelope (Type vi64 + 16-bit Length + Body): every control
@@ -658,13 +659,48 @@ static int moqtrun_is_bare_fin(quic_span wire, int fin) {
   return wire.n == 0 && fin;
 }
 
+/* Sub slot i's busy streak has reached the shed threshold: abandon its
+ * relay stream (io.stream_reset -- error code 0, MOQT draft-19 defines no
+ * standard code for a mid-subgroup abort) so the NEXT round re-opens a
+ * fresh stream at the newest frame via moqtrun_relay_late_open, using the
+ * relay's saved SUBGROUP_HEADER. A refused reset (the SDK's reset latch is
+ * full this step) keeps everything as-is: the saturated streak retries the
+ * shed on the next busy round. */
+static void moqtrun_relay_shed_one(
+    wired_moqt_hub*      hub,
+    wired_wt_session*    wt,
+    wired_moqtrun_relay* relay,
+    usz                  i) {
+  if (relay->sub_busy_streak[i] < WIRED_MOQTRUN_RESET_AFTER_BUSY) return;
+  if (hub->io.stream_reset(wt, relay->sub_stream_id[i], 0) != 1) return;
+  relay->sub_stream_set[i]  = 0;
+  relay->sub_busy_streak[i] = 0;
+  hub->stat_relay_reset++;
+}
+
+/* One refused relay round for sub slot i: count the drop, advance the busy
+ * streak (saturating -- 255 stays 255 so a long starvation cannot wrap back
+ * under the threshold), and shed the stream once the streak says the
+ * fullness is sustained, not a transient burst. */
+static void moqtrun_relay_note_busy(
+    wired_moqt_hub*      hub,
+    wired_wt_session*    wt,
+    wired_moqtrun_relay* relay,
+    usz                  i) {
+  hub->stat_relay_drop++;
+  if (relay->sub_busy_streak[i] < 255) relay->sub_busy_streak[i]++;
+  moqtrun_relay_shed_one(hub, wt, relay, i);
+}
+
 /* Forwards one round of publisher bytes to sub slot i's already-open relay
  * stream: a bare FIN closes it via stream_fin (moqtrun_is_bare_fin's doc),
  * anything else appends via stream_send with fin passed through. A
  * stream_send rejection (previous round not yet ACKed -- srvrun.h) drops
  * this one round for this subscriber, counted on the hub: voice is
  * loss-tolerant, and chat's rounds are paced far apart enough that in
- * practice only voice hits it. */
+ * practice only voice hits it. Sustained rejection sheds the stream
+ * entirely (moqtrun_relay_note_busy) -- delivering the newest frame beats
+ * faithfully replaying a stale backlog. */
 static void moqtrun_relay_forward_one(
     wired_moqt_hub*      hub,
     wired_wt_session*    wt,
@@ -676,10 +712,12 @@ static void moqtrun_relay_forward_one(
     hub->io.stream_fin(wt, relay->sub_stream_id[i]);
     return;
   }
-  if (hub->io.stream_send(wt, relay->sub_stream_id[i], wire, fin) == 1)
+  if (hub->io.stream_send(wt, relay->sub_stream_id[i], wire, fin) == 1) {
     hub->stat_relay_sent++;
-  else
-    hub->stat_relay_drop++;
+    relay->sub_busy_streak[i] = 0;
+    return;
+  }
+  moqtrun_relay_note_busy(hub, wt, relay, i);
 }
 
 /* 1 iff a late open would be pointless: the round at hand already ends the
@@ -708,8 +746,9 @@ static void moqtrun_relay_late_open(
     hub->stat_open_drop++;
     return;
   }
-  relay->sub_stream_id[i]  = (u64)sid;
-  relay->sub_stream_set[i] = 1;
+  relay->sub_stream_id[i]   = (u64)sid;
+  relay->sub_stream_set[i]  = 1;
+  relay->sub_busy_streak[i] = 0;
 }
 
 /* One subscriber's share of a relayed round: forward to its open stream,
@@ -821,8 +860,9 @@ static void moqtrun_relay_open_one(
     hub->stat_open_drop++;
     return;
   }
-  relay->sub_stream_id[i]  = (u64)sid;
-  relay->sub_stream_set[i] = 1;
+  relay->sub_stream_id[i]   = (u64)sid;
+  relay->sub_stream_set[i]  = 1;
+  relay->sub_busy_streak[i] = 0;
 }
 
 static void moqtrun_relay_open_all(
@@ -866,7 +906,10 @@ static void moqtrun_relay_start(
   if (!relay) return;
   relay->in_use        = 1;
   relay->pub_stream_id = pub_stream_id;
-  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++) relay->sub_stream_set[i] = 0;
+  for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++) {
+    relay->sub_stream_set[i]  = 0;
+    relay->sub_busy_streak[i] = 0; /* freestanding memory starts unzeroed */
+  }
   relay->frag_len = 0;
   moqtrun_relay_save_frag(hub, relay, wire.p + whole_end, wire.n - whole_end);
   moqtrun_relay_save_hdr(relay, wire);

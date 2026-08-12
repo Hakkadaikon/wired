@@ -69,6 +69,12 @@ typedef struct {
    * callers cannot always fold the FIN into stream_send's non-empty-
    * payload contract). */
   int (*stream_fin)(wired_wt_session* s, u64 stream_id);
+  /** wired_server_wt_stream_reset-shaped: abandons a stream opened via
+   * open_uni_stream (RESET_STREAM to the peer, pending bytes dropped) --
+   * used to shed a subscriber's stale relay backlog after sustained busy
+   * refusals (WIRED_MOQTRUN_RESET_AFTER_BUSY). Returns 1 when the reset is
+   * queued, 0 when it could not be (the caller retries next round). */
+  int (*stream_reset)(wired_wt_session* s, u64 stream_id, u32 error_code);
 } wired_moqt_io;
 
 /** One subscriber recorded against the hub's track: which session, and the
@@ -131,7 +137,23 @@ typedef struct {
   usz frag_len;
   u64 sub_stream_id[WIRED_MOQTRUN_MAX_SUBS];
   int sub_stream_set[WIRED_MOQTRUN_MAX_SUBS];
+  /** Consecutive rounds sub slot i's stream_send was refused (saturates at
+   * 255): reaching WIRED_MOQTRUN_RESET_AFTER_BUSY sheds the stream
+   * (io.stream_reset) so the next round re-opens fresh at the newest frame
+   * instead of replaying the stale backlog. Any accepted round zeroes it. */
+  u8 sub_busy_streak[WIRED_MOQTRUN_MAX_SUBS];
 } wired_moqtrun_relay;
+
+/** Consecutive refused relay rounds (io.stream_send returning busy) after
+ * which a subscriber's relay stream is abandoned via io.stream_reset and
+ * re-opened fresh (with the saved SUBGROUP_HEADER) on a later round: live
+ * audio wants the newest frame delivered, not a faithful replay of a stale
+ * backlog. 8 rounds of 20ms voice ~= 160ms of sustained send-slot fullness
+ * -- the transient one-round busy bursts a healthy call shows (a handful
+ * scattered per 10s, measured) never trip it, while true send starvation
+ * (server CPU-capped) converts to a fresh stream well under a second,
+ * discarding the ~0.5s of backlog the send slot's staging can hold. */
+#define WIRED_MOQTRUN_RESET_AFTER_BUSY 8
 
 /** Fixed capacity: publisher streams relayed concurrently per track. The
  * audio track holds ONE for its whole call; chat holds one per in-flight
@@ -255,6 +277,11 @@ typedef struct {
    * one-stream-per-message track (chat) that round is the whole message --
    * counted so the loss is never silent again. */
   u64 stat_open_drop;
+  /** Relay streams abandoned (io.stream_reset accepted) after
+   * WIRED_MOQTRUN_RESET_AFTER_BUSY consecutive busy refusals -- each is one
+   * subscriber's stale backlog shed in favor of a fresh stream at the
+   * newest frame. Diagnostic only. */
+  u64 stat_relay_reset;
 } wired_moqt_hub;
 
 /** Zero-initialize hub and record the io table it will send through. */
