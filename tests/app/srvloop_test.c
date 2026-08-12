@@ -1959,6 +1959,55 @@ static void test_srvloop_wt_uni_stream_reassembled(void) {
   }
 }
 
+/* C6 (S3 chat-loss investigation, tasks/moqt-voice-stability-plan.md):
+ * a real browser's WebTransport writer.write()+writer.close() can arrive
+ * as TWO separate STREAM frames on the wire -- a data frame (fin=0), then
+ * a SEPARATE trailing 0-byte frame carrying only FIN (the same split
+ * srvrun's own send side can produce, moqtrun_is_bare_fin's doc; C2 ruled
+ * this out as a SEND-side PTO artifact, so this checks the mirror
+ * question on the RECEIVE side: does srvloop correctly reassemble a
+ * client uni stream whose FIN genuinely arrives detached from its data,
+ * rather than assuming test_srvloop_wt_uni_stream_reassembled's
+ * fin-on-the-last-data-frame shape is the only one that occurs). */
+static void test_srvloop_wt_uni_stream_split_data_then_bare_fin(void) {
+  struct lp_fix f;
+  u8            f0[64], f1[64], out[1024], spkt[1024];
+  usz           f0l, f1l, slen;
+  quic_obuf     ob = {out, sizeof out, 0};
+  const u8*     type_plus_ab = (const u8*)"\x40\x54\x02" "AB";
+  f0l = lp_stream_frame_at(f0, sizeof f0, 2, 0, type_plus_ab, 5, 0);
+  /* A separate, later frame carrying ONLY the FIN -- zero application
+   * bytes -- at the post-type offset the data frame left off (5 wire == 2
+   * post-type, matching test_srvloop_wt_uni_stream_reassembled's own
+   * offset arithmetic doc). */
+  f1l = lp_stream_frame_at(f1, sizeof f1, 2, 5, (const u8*)"", 0, 1);
+  lp_confirm(&f, &ob);
+  slen = client_seal_onertt_pn(&f, 3, f0, f0l, spkt, sizeof spkt);
+  ob   = (quic_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  {
+    int i = wired_srvloop_wt_uni_slot_find(&f.l, 2);
+    CHECK(i >= 0);
+    CHECK(f.l.wt_uni_streams[i].win.frontier == 2); /* "AB" landed */
+    CHECK(f.l.wt_uni_streams[i].fin == 0);          /* FIN not seen yet */
+  }
+  slen = client_seal_onertt_pn(&f, 4, f1, f1l, spkt, sizeof spkt);
+  ob   = (quic_obuf){out, sizeof out, 0};
+  wired_srvloop_step(
+      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+  {
+    int i = wired_srvloop_wt_uni_slot_find(&f.l, 2);
+    CHECK(i >= 0);
+    CHECK(f.l.wt_uni_streams[i].win.frontier == 2); /* unchanged: 0 new bytes */
+    CHECK(f.l.wt_uni_streams[i].fin == 1);          /* the detached FIN lands */
+    CHECK(f.l.wt_uni_streams[i].fin_off == 2);      /* at the data's own end */
+    CHECK(
+        f.l.wt_uni_streams[i].buf[0] == 'A' &&
+        f.l.wt_uni_streams[i].buf[1] == 'B');
+  }
+}
+
 /* Control (0x00)/QPACK (0x02/0x03) uni streams, classified (offset-0 type
  * peeked) by gather_uni_stream, are accepted (no crash, no got_request), and
  * critically no wt_uni_streams[] slot is claimed for any of them (only a
@@ -4125,6 +4174,7 @@ void test_srvloop(void) {
   test_srvloop_wt_signal_only_frame_then_data();
   test_srvloop_wt_stream_without_session_no_crash();
   test_srvloop_wt_uni_stream_reassembled();
+  test_srvloop_wt_uni_stream_split_data_then_bare_fin();
   test_srvloop_uni_control_qpack_still_ignored();
   test_srvloop_second_qpack_encoder_stream_violation();
   test_srvloop_qpack_encoder_set_capacity_applied();
