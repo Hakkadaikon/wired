@@ -79,6 +79,47 @@ const INIT_SCRIPT = `
       configurable: true,
     });
   };
+  // Outgoing (client-to-server) uni stream log: mirrors __wtUniStreams but
+  // for THIS client's own sends -- one record per createUnidirectionalStream
+  // call, appended to as the app's WritableStreamDefaultWriter writes and
+  // closes. Wraps the STREAM object's own writable.getWriter, not the
+  // WritableStream class globally, so only streams this client actually
+  // opened are logged (a shared class patch would also catch unrelated
+  // internal writers). Lets a scenario tell "the bytes never left this
+  // client" apart from "left but never reached the receiver" -- the missing
+  // half of __wtUniStreams' receive-side-only view.
+  window.__wtOutUniStreams = [];
+  const wrapOutgoingUni = (transport) => {
+    const orig = transport.createUnidirectionalStream.bind(transport);
+    transport.createUnidirectionalStream = async (...args) => {
+      const stream = await orig(...args);
+      const srec = { openedAt: Date.now(), bytes: 0, head: "", closed: null };
+      window.__wtOutUniStreams.push(srec);
+      const origGetWriter = stream.getWriter.bind(stream);
+      stream.getWriter = () => {
+        const w = origGetWriter();
+        const origWrite = w.write.bind(w);
+        const origClose = w.close.bind(w);
+        const origAbort = w.abort.bind(w);
+        w.write = (chunk) => {
+          if (chunk instanceof Uint8Array) {
+            if (srec.head.length < 256) {
+              let s = "";
+              for (const c of chunk)
+                s += c >= 32 && c < 127 ? String.fromCharCode(c) : ".";
+              srec.head = (srec.head + s).slice(0, 256);
+            }
+            srec.bytes += chunk.length;
+          }
+          return origWrite(chunk);
+        };
+        w.close = () => { srec.closed = "fin"; return origClose(); };
+        w.abort = (reason) => { srec.closed = "abort:" + String(reason); return origAbort(reason); };
+        return w;
+      };
+      return stream;
+    };
+  };
   const RealWT = window.WebTransport;
   window.WebTransport = class extends RealWT {
     constructor(...args) {
@@ -86,6 +127,7 @@ const INIT_SCRIPT = `
       const rec = { openedAt: Date.now(), readyAt: null, closedAt: null, closeInfo: null };
       window.__wtEvents.push(rec);
       wrapIncomingUni(this);
+      wrapOutgoingUni(this);
       this.ready.then(() => { rec.readyAt = Date.now(); }, () => {});
       this.closed.then(
         (info) => { rec.closedAt = Date.now(); rec.closeInfo = "closed:" + (info && info.closeCode); },
@@ -208,6 +250,7 @@ export async function clientMetrics(client) {
       decodeTimeline: window.__decodeTimeline ?? [],
       wtEvents: window.__wtEvents ?? [],
       wtUniStreams: window.__wtUniStreams ?? [],
+      wtOutUniStreams: window.__wtOutUniStreams ?? [],
       voiceTapEvents: window.__wiredVoiceTapBuf ?? [],
     }));
   } catch {
