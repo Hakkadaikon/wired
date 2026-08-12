@@ -129,7 +129,7 @@ export async function run({ pageUrl, server, arg, log }) {
         s.head.includes(id),
       );
       missingTransport[pair] = hit
-        ? `arrived (bytes=${hit.bytes}, closed=${hit.closed})`
+        ? `arrived (bytes=${hit.bytes}, closed=${hit.closed}, head=${JSON.stringify(hit.head)})`
         : "absent at transport";
     }
     if (missingFinal.length > 0) {
