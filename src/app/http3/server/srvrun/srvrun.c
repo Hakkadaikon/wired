@@ -168,6 +168,13 @@ typedef struct {
  * value is descriptive bookkeeping, not itself validated. */
 #define SRVRUN_WT_PATH_CAP 128
 
+/* Pending wired_server_wt_stream_reset entries one connection holds between
+ * steps (the wt_stream_reset_* latch below). A full latch refuses further
+ * resets (nothing is overwritten or half-applied), and the caller retries
+ * after the next step drains it -- so 8 need only cover one step's realistic
+ * burst, not the whole SRVRUN_WT_SEND_SLOTS table. */
+#define SRVRUN_WT_RESET_LATCH 8
+
 typedef struct {
   int            in_use;
   u64            stream_id;
@@ -416,16 +423,30 @@ typedef struct {
   u32 wt_close_code[SRVRUN_MAX_WT_SESSIONS];
   u8  wt_close_msg[SRVRUN_MAX_WT_SESSIONS][QUIC_WTCAPSULE_CLOSE_MESSAGE_MAX];
   usz wt_close_msg_len[SRVRUN_MAX_WT_SESSIONS];
-  /** draft-ietf-webtrans-http3-15 SS4.4/8.2: a wired_server_wt_stream_reset
-   * call is pending -- latched (not sent inline) for the same
+  /** draft-ietf-webtrans-http3-15 SS4.4/8.2: wired_server_wt_stream_reset
+   * calls pending -- latched (not sent inline) for the same
    * no-srvrun_cfg-in-a-callback reason as wt_close_pending, drained on the
-   * next srvrun_on_step (srvrun_drain_wt_stream_reset): RESET_STREAM_AT +
-   * STOP_SENDING on wt_stream_reset_id carrying wt_stream_reset_app_code
-   * mapped through quic_wterrmap_to_http3. One slot, last-writer-wins, the
-   * same single-slot policy as wt_close_pending. */
-  int wt_stream_reset_pending;
-  u64 wt_stream_reset_id;
-  u32 wt_stream_reset_app_code;
+   * next srvrun_on_step (srvrun_drain_wt_stream_reset): one standard
+   * RESET_STREAM (RFC 9000 19.4) per entry, carrying the app code mapped
+   * through quic_wterrmap_to_http3 and the final size captured at latch
+   * time (the send slot's cumulative armed bytes; captured BEFORE the slot
+   * is freed, because freeing loses the count and a final size below the
+   * bytes already sent is an RFC 9000 4.5 FINAL_SIZE_ERROR at the peer).
+   * A bounded queue, not wt_close_pending's single slot: one connection
+   * can carry several app-driven streams (a relay fans one source out to
+   * many), and a second reset latched in the same step must not silently
+   * overwrite the first -- the peer would wait on the unnotified stream
+   * forever. No STOP_SENDING rides along: every target is a
+   * server-initiated uni stream, which has no peer-to-server half to stop
+   * (RFC 9000 19.5 makes STOP_SENDING on it a STREAM_STATE_ERROR). And no
+   * RESET_STREAM_AT (0x24): that is a draft-ietf-quic-reliable-stream-reset
+   * extension frame this SDK never negotiates, so a peer (Chrome included)
+   * treats it as an unknown frame and kills the whole connection with
+   * FRAME_ENCODING_ERROR. */
+  u64 wt_stream_reset_id[SRVRUN_WT_RESET_LATCH];
+  u32 wt_stream_reset_app_code[SRVRUN_WT_RESET_LATCH];
+  u64 wt_stream_reset_final[SRVRUN_WT_RESET_LATCH];
+  usz wt_stream_reset_n;
   /** One pending outbound QUIC DATAGRAM (RFC 9221 5), queued by
    * srvrun_wt_send_datagram and drained by srvrun_send_pending_datagram on
    * the next step. ponytail: single-slot, not a queue — a second send
@@ -2530,20 +2551,45 @@ static void srvrun_drain_wt_close_pending(
     srvrun_drain_wt_close_one(cfg, c, i, &ob);
 }
 
-/* Drain a wired_server_wt_stream_reset latch (wt_stream_reset_pending's own
- * doc): send the RESET_STREAM_AT + STOP_SENDING pair carrying the app error
- * code mapped into HTTP/3's WebTransport range (srvrun_send_wt_busy_reset,
- * the same abort shape every other WT stream-level error here uses,
- * draft-ietf-webtrans-http3-15 SS4.4/8.2). The send slot was already freed
- * at latch time (wired_server_wt_stream_reset), so only the wire bytes
- * remain to send. */
+/* Seal latch entry i's standard RESET_STREAM (RFC 9000 19.4) into out as
+ * its own 1-RTT packet: the app code mapped into HTTP/3's WebTransport
+ * range (draft-ietf-webtrans-http3-15 SS4.4/8.2) plus the final size
+ * captured at latch time. Deliberately NOT srvrun_send_wt_busy_reset's
+ * RESET_STREAM_AT + STOP_SENDING pair -- see the wt_stream_reset_* latch
+ * fields' own doc for why either half breaks a real peer here. */
+static int srvrun_seal_wt_stream_reset(srvrun_conn* c, usz i, quic_obuf* out) {
+  u8                      pl[32];
+  quic_reset_stream_frame rs = {
+      c->wt_stream_reset_id[i],
+      quic_wterrmap_to_http3(c->wt_stream_reset_app_code[i]),
+      c->wt_stream_reset_final[i]};
+  usz                   pln = quic_reset_stream_encode(pl, sizeof pl, &rs);
+  wired_srvloop_send_in sin;
+  if (!pln) return 0;
+  sin = (wired_srvloop_send_in){
+      quic_span_of(c->l.cli_scid, c->l.cli_scid_len), c->l.tx_pn++, -1,
+      quic_span_of(pl, pln), 0};
+  return wired_srvloop_send_onertt(&c->s, &sin, out);
+}
+
+/* Seal and send latch entry i's RESET_STREAM as its own 1-RTT packet. */
+static void srvrun_send_wt_stream_reset(
+    const srvrun_cfg* cfg, srvrun_conn* c, usz i) {
+  u8        out[128];
+  quic_obuf ob = quic_obuf_of(out, sizeof out);
+  if (!srvrun_seal_wt_stream_reset(c, i, &ob)) return;
+  srvrun_send(cfg, c, quic_span_of(out, ob.len), "WT stream RESET sent\n");
+}
+
+/* Drain the wired_server_wt_stream_reset latch (the wt_stream_reset_*
+ * fields' own doc): every entry gets its own RESET_STREAM packet. The send
+ * slots were already freed at latch time (wired_server_wt_stream_reset),
+ * so only the wire bytes remain to send. */
 static void srvrun_drain_wt_stream_reset(
     const srvrun_cfg* cfg, srvrun_conn* c) {
-  if (!c->wt_stream_reset_pending) return;
-  c->wt_stream_reset_pending = 0;
-  srvrun_send_wt_busy_reset(
-      cfg, c, c->wt_stream_reset_id,
-      quic_wterrmap_to_http3(c->wt_stream_reset_app_code));
+  for (usz i = 0; i < c->wt_stream_reset_n; i++)
+    srvrun_send_wt_stream_reset(cfg, c, i);
+  c->wt_stream_reset_n = 0;
 }
 
 /* 1 if slot is in-use and its stream id is this step's latched
@@ -3622,14 +3668,29 @@ static void srvrun_wtsend_release(srvrun_conn* c, u64 stream_id) {
   if (w) w->in_use = 0;
 }
 
+/* Cumulative armed bytes on stream_id's send slot, 0 when no slot holds the
+ * id. RFC 9000 4.5: a RESET_STREAM's Final Size must not undercut bytes
+ * already sent on the stream -- stream_off is >= the largest sent offset
+ * (bytes are armed before they are sent), so it is a safe final size. */
+static u64 srvrun_wtsend_final_size(srvrun_conn* c, u64 stream_id) {
+  const srvrun_wtsend* w = srvrun_wtsend_find(c, stream_id);
+  return w ? w->stream_off : 0;
+}
+
 int wired_server_wt_stream_reset(
     wired_wt_session* s, u64 stream_id, u32 error_code) {
   srvrun_conn* c = srvrun_session_conn(s);
+  usz          i;
   if (!c) return 0;
+  /* Latch full: refuse WITHOUT touching the send slot. Freeing it here
+   * would abandon delivery with no wire notification ever queued -- the
+   * peer would wait on the stream forever. */
+  if (c->wt_stream_reset_n >= SRVRUN_WT_RESET_LATCH) return 0;
+  i                              = c->wt_stream_reset_n++;
+  c->wt_stream_reset_id[i]       = stream_id;
+  c->wt_stream_reset_app_code[i] = error_code;
+  c->wt_stream_reset_final[i]    = srvrun_wtsend_final_size(c, stream_id);
   srvrun_wtsend_release(c, stream_id);
-  c->wt_stream_reset_id       = stream_id;
-  c->wt_stream_reset_app_code = error_code;
-  c->wt_stream_reset_pending  = 1;
   return 1;
 }
 

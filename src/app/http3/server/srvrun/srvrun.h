@@ -507,17 +507,24 @@ int wired_server_wt_stream_send(
  *   flight */
 int wired_server_wt_stream_fin(wired_wt_session* s, u64 stream_id);
 
-/** Abort a stream opened for appending: queue a RESET_STREAM_AT +
- * STOP_SENDING pair on stream_id carrying error_code mapped into HTTP/3's
- * WebTransport range (draft-ietf-webtrans-http3-15 SS4.4/8.2), delivered
- * on one of the loop's next steps -- the same deferred, single-slot,
- * last-writer-wins shape as wired_server_wt_close_session. The stream's
- * send slot is freed at once, releasing the app's payload view and
- * dropping any not-yet-sent bytes (RFC 9000 19.4: delivery is abandoned).
+/** Abort a stream opened for appending: queue a standard RESET_STREAM (RFC
+ * 9000 19.4) on stream_id carrying error_code mapped into HTTP/3's
+ * WebTransport range (draft-ietf-webtrans-http3-15 SS4.4/8.2) and the
+ * stream's bytes-armed-so-far as its Final Size, delivered on one of the
+ * loop's next steps. Resets queue into a small bounded latch (several
+ * streams can be aborted between steps -- e.g. a relay fanning one source
+ * out to many subscribers); a FULL latch refuses the call and leaves the
+ * stream untouched, so a caller can retry once a later step drains it. On
+ * success the stream's send slot is freed at once, releasing the app's
+ * payload view and dropping any not-yet-sent bytes (RFC 9000 19.4:
+ * delivery is abandoned). No STOP_SENDING accompanies the reset: the
+ * streams this API opens are server-initiated uni streams, which have no
+ * peer-to-server half to stop (RFC 9000 19.5).
  * @param s the session whose connection carries the stream
  * @param stream_id the stream to abort
  * @param error_code the WebTransport application error code to report
- * @return 1 queued, 0 when s resolves to no live connection */
+ * @return 1 queued, 0 when s resolves to no live connection or the reset
+ *   latch is full (nothing changed; retry on a later step) */
 int wired_server_wt_stream_reset(
     wired_wt_session* s, u64 stream_id, u32 error_code);
 
