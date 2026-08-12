@@ -56,7 +56,7 @@ static void test_qlogevent_conn_state(void) {
 
 static void test_qlogevent_metrics(void) {
   char                       out[256] = {0};
-  wired_qlogevent_metrics_in m        = {30000, 14720, 2400, 500, 12, 3, 7};
+  wired_qlogevent_metrics_in m        = {30000, 14720, 2400, 500, 12, 3, 7, 2};
   usz n = wired_qlogevent_metrics(out, sizeof out, 1234, 3, &m);
   CHECK(n != 0);
   CHECK(qlogevent_streq(
@@ -64,7 +64,7 @@ static void test_qlogevent_metrics(void) {
       "{\"time\":1234,\"group_id\":3,\"name\":\"recovery:metrics_updated\","
       "\"smoothed_rtt\":30000,\"cwnd\":14720,\"bytes_in_flight\":2400,"
       "\"wtsend_ok\":500,\"wtsend_busy\":12,\"wtsend_flow\":3,"
-      "\"wtwin_drop\":7}"));
+      "\"wtwin_drop\":7,\"streams_blocked\":2}"));
 }
 
 /* Buffer too small for the fully-built record: rejected, no partial write

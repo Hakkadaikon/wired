@@ -42,8 +42,11 @@ usz wired_qlogevent_conn_state(
  * (smoothed_rtt in microseconds, cwnd and bytes_in_flight in bytes) plus the
  * connection's cumulative WebTransport counters — appended send rounds
  * (wtsend_ok), rounds rejected while the previous round was still unACKed
- * (wtsend_busy), rounds rejected by session flow control (wtsend_flow), and
- * receive-window bytes dropped on buffer overflow (wtwin_drop).
+ * (wtsend_busy), rounds rejected by session flow control (wtsend_flow),
+ * receive-window bytes dropped on buffer overflow (wtwin_drop), and
+ * STREAMS_BLOCKED frames sent after a refused server-initiated stream open
+ * (streams_blocked -- RFC 9000 4.6's blocked signal, so a run's qlog shows
+ * whether the peer's stream ceiling was ever the limiting factor).
  */
 typedef struct {
   u64 smoothed_rtt;
@@ -53,6 +56,7 @@ typedef struct {
   u64 wtsend_busy;
   u64 wtsend_flow;
   u64 wtwin_drop;
+  u64 streams_blocked;
 } wired_qlogevent_metrics_in;
 
 usz wired_qlogevent_metrics(
