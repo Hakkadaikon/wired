@@ -13,7 +13,7 @@ Legend:
 - `[~]` — exercised indirectly (evidence line explains how; no dedicated test)
 - `[ ]` — not demonstrated by any test yet
 
-**Coverage: 53/68 tested, 15 indirect, 0 untested.**
+**Coverage: 52/68 tested, 16 indirect, 0 untested.**
 
 ## §3.1 Establishing a WebTransport-Capable HTTP/3 Connection
 
@@ -289,17 +289,22 @@ Legend:
   corresponds to 0x52e4a40fa8db and 0xffffffff corresponds to
   0x52e5ac983162, skipping reserved codepoints of form 0x1f*N+0x21.
   - test: `tests/app/wterrmap_test.c` — `test_wterrmap`
-- [x] WTH3-038 (§4.4) WebTransport implementations shall use the
+- [~] WTH3-038 (§4.4) WebTransport implementations shall use the
   RESET_STREAM_AT frame with a Reliable Size set to at least the size of
   the WebTransport header when resetting a WebTransport data stream.
-  - test: `tests/app/srvrun_test.c` —
-    `test_srvrun_wt_bidi_stream_buffer_full_sends_reset`
-  - evidence: the cited test's only current trigger site aborts streams
-    that never carried application bytes (reliable_size=0 is correct for
-    that case, per the srvrun.c doc comment at
-    `srvrun_wt_busy_reset_payload`); no test yet resets a WT stream that
-    has already delivered header+body bytes with a non-zero reliable
-    size.
+  - evidence: deliberately unmet until peer negotiation is tracked.
+    draft-ietf-quic-reliable-stream-reset only permits sending
+    RESET_STREAM_AT to a peer that advertised the reset_stream_at
+    transport parameter; this SDK does not parse the peer's, and real
+    browsers (Chrome) do not send it — an unnegotiated 0x24 is an unknown
+    frame the peer kills the whole connection over
+    (FRAME_ENCODING_ERROR, reproduced live). srvrun therefore aborts WT
+    streams with the standard RESET_STREAM/STOP_SENDING pair picked by
+    stream type (`tests/app/srvrun_test.c` —
+    `test_srvrun_wt_abort_frames_match_stream_type`); the RESET_STREAM_AT
+    codec itself stays tested
+    (`tests/transport/stream_ctl_test.c`) for the day peer-TP tracking
+    lands.
 - [x] WTH3-039 (§4.4) WebTransport endpoints shall forward the error code
   for a stream associated with a known session to the application that
   owns that session.
