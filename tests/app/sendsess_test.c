@@ -122,10 +122,16 @@ static void test_sendsess_threshold_declares_lost(void) {
   }
   wired_sendsess_ack(&s, 4, 4); /* largest acked 4: pns 0,1 are <= 4-3 */
   {
-    u64 lost[4] = {99, 99, 99, 99};
+    wired_sendsess_lost_slice lost[4] = {0};
     CHECK(wired_sendsess_detect_lost(&s, 4, 0, 0, lost, 4) == 2);
     /* the lost packet numbers are reported (for the caller's qlog) */
-    CHECK((lost[0] == 0 && lost[1] == 1) || (lost[0] == 1 && lost[1] == 0));
+    CHECK(
+        (lost[0].pn == 0 && lost[1].pn == 1) ||
+        (lost[0].pn == 1 && lost[1].pn == 0));
+    /* and each carries its own slice's absolute offset/length/fin */
+    CHECK(
+        (lost[0].offset == 0 || lost[0].offset == 10) && lost[0].length == 10 &&
+        lost[0].fin == 0);
   }
   CHECK(s.requeue_n == 2);
   CHECK(wired_sendsess_inflight(&s) == 2); /* pns 2,3 remain in flight */
@@ -156,12 +162,12 @@ static void test_sendsess_time_threshold_declares_lost_alone(void) {
   CHECK(wired_sendsess_sent(&s, &sl, 4, 0) == 1); /* pn 4 sent at t=0ms */
   wired_sendsess_ack(&s, 5, 5); /* largest_acked=5: pn 4 is only 1 below */
   {
-    u64 lost[1] = {99};
+    wired_sendsess_lost_slice lost[1] = {0};
     /* srtt=1000us -> time threshold = 9/8*1000 = 1125us. at now_ms=2
      * (2000us elapsed), well past it; packet threshold alone (5-4=1 < 3)
      * would not have caught this. */
     CHECK(wired_sendsess_detect_lost(&s, 5, 2, 1000, lost, 1) == 1);
-    CHECK(lost[0] == 4);
+    CHECK(lost[0].pn == 4);
   }
   CHECK(s.requeue_n == 1);
   CHECK(wired_sendsess_inflight(&s) == 0);
