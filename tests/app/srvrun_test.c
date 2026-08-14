@@ -498,6 +498,92 @@ static void test_srvrun_send_empty_pkt_no_qlog_record(void) {
   }
 }
 
+/* srvrun_send_stream_slice is the single choke point every STREAM frame
+ * (HTTP response and WebTransport alike) goes out through -- a qlog path
+ * set means every call appends one stream_frame_sent record with the
+ * frame's own stream_id/offset/length/fin and the packet number it rode
+ * on. */
+static void test_srvrun_send_stream_slice_writes_stream_frame_sent(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  quic_obuf     ob = {0};
+  u8            obuf[1024];
+  static u8     body[64];
+  srvrun_cfg    cfg = {
+      -1,
+      0,
+      0,
+      0,
+      srvrunt_qlog_path,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      &g_srvrun_env,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0};
+  srvrun_step_ctx ctx = {&cfg, 0, 0, 7000, 0};
+  ob                  = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  for (usz i = 0; i < sizeof body; i++) body[i] = (u8)i;
+  srvrunt_qlog_unlink();
+  wired_sendsess_arm(&c.resp[0].sess, body, sizeof body, sizeof body);
+  {
+    wired_sendq_slice sl;
+    CHECK(wired_sendsess_take(&c.resp[0].sess, &sl) == 1);
+    CHECK(srvrun_send_stream_slice(&ctx, &c, &c.resp[0].sess, 11, &sl, 1));
+  }
+  CHECK(
+      sr_qlog_count(
+          "\"name\":\"stream_frame_sent\",\"stream_id\":11,\"offset\":0,"
+          "\"length\":64,\"fin\":1,\"pn\":") == 1);
+  srvrunt_qlog_unlink();
+}
+
+/* Mirrors test_srvrun_send_no_qlog_path_writes_nothing: no qlog path set,
+ * no stream_frame_sent record either. */
+static void test_srvrun_send_stream_slice_no_qlog_path_writes_nothing(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  quic_obuf     ob = {0};
+  u8            obuf[1024];
+  static u8     body[64];
+  srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
+                    0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+  srvrun_step_ctx ctx = {&cfg, 0, 0, 7000, 0};
+  ob                  = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  for (usz i = 0; i < sizeof body; i++) body[i] = (u8)i;
+  srvrunt_qlog_unlink();
+  wired_sendsess_arm(&c.resp[0].sess, body, sizeof body, sizeof body);
+  {
+    wired_sendq_slice sl;
+    CHECK(wired_sendsess_take(&c.resp[0].sess, &sl) == 1);
+    CHECK(srvrun_send_stream_slice(&ctx, &c, &c.resp[0].sess, 11, &sl, 1));
+  }
+  {
+    u8  out[8] = {0};
+    ssz n = wired_fio_read(srvrunt_qlog_path, quic_mspan_of(out, sizeof out));
+    CHECK(n < 0);
+  }
+}
+
 /* Certificate hot reload (SIGHUP): srvrun_reload_if_requested drives
  * wired_certreload_load off srvrun_test_set_reload, the same test-only-hook
  * pattern as shutdown above (a real SIGHUP delivery is not unit-testable). */
@@ -14140,6 +14226,8 @@ void test_srvrun(void) {
   test_srvrun_send_no_qlog_path_writes_nothing();
   test_srvrun_send_qlog_path_writes_packet_sent();
   test_srvrun_send_empty_pkt_no_qlog_record();
+  test_srvrun_send_stream_slice_writes_stream_frame_sent();
+  test_srvrun_send_stream_slice_no_qlog_path_writes_nothing();
   test_srvrun_no_reload_leaves_id_untouched();
   test_srvrun_reload_requested_updates_id();
   test_srvrun_reload_disabled_when_no_cert_path();

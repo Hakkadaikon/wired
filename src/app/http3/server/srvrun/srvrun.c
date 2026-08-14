@@ -896,6 +896,26 @@ static void srvrun_qlog_recv(
   if (n) wired_qlog_append(cfg->qlog_path, quic_span_of((const u8*)rec, n));
 }
 
+/* qlog stream_frame_sent (RFC 9000 19.8): every STREAM frame this connection
+ * sends, fired unconditionally including retransmits -- how many times an
+ * offset range went out is itself the forensic signal this exists for. */
+static void srvrun_qlog_stream_sent(
+    const srvrun_cfg*        cfg,
+    const srvrun_conn*       c,
+    u64                      now_ms,
+    u64                      pn,
+    const quic_stream_frame* f) {
+  char                            rec[192];
+  usz                             n;
+  wired_qlogevent_stream_frame_in in;
+  if (!cfg->qlog_path) return;
+  in = (wired_qlogevent_stream_frame_in){
+      f->stream_id, f->offset, f->length, f->fin, pn};
+  n = wired_qlogevent_stream_frame(
+      rec, sizeof rec, now_ms, c->qlog_slot, "stream_frame_sent", &in);
+  if (n) wired_qlog_append(cfg->qlog_path, quic_span_of((const u8*)rec, n));
+}
+
 /* Snapshot of the loop's per-space receive marks, taken before a step; a
  * post-step difference proves the datagram carried at least one packet that
  * actually opened (an undecryptable datagram advances nothing). */
@@ -5121,6 +5141,7 @@ static int srvrun_send_stream_slice(
   u64 pn;
   if (!quic_appdata_stream_frame(&f, &plb)) return 0;
   pn = c->l.tx_pn++;
+  srvrun_qlog_stream_sent(ctx->cfg, c, ctx->now_ms, pn, &f);
   if (!srvrun_seal_send_slice(ctx, c, quic_span_of(pl, al + plb.len), pn, al))
     return 0;
   return wired_sendsess_sent(sess, sl, pn, ctx->now_ms);
