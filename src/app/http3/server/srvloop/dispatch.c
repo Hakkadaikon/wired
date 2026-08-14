@@ -13,6 +13,8 @@
 #include "app/qpack/qpackdyn/enc_stream.h"
 #include "common/bytes/util/bytes.h"
 #include "common/bytes/varint/varint.h"
+#include "common/platform/qlog/qlog.h"
+#include "common/platform/qlog/qlogevent.h"
 #include "transport/packet/frame/frame/connctl.h"
 #include "transport/packet/frame/frame/dispatch.h"
 #include "transport/packet/frame/frame/flowctl.h"
@@ -572,11 +574,29 @@ static int wt_uni_slot_for(wired_srvloop* l, const quic_stream_frame* sf) {
   return wired_srvloop_wt_uni_slot_find(l, sf->stream_id);
 }
 
+/* qlog stream_frame_received (RFC 9000 19.8) for one WT uni STREAM frame
+ * this connection's receive side just gathered, attributed via
+ * l->qlog_path/qlog_group (srvrun_conn.qlog_slot's doc) -- the received-side
+ * counterpart to srvrun_qlog_stream_sent. No-op without a qlog path. */
+static void dispatch_qlog_stream_received(
+    wired_srvloop* l, const quic_stream_frame* sf) {
+  char                            rec[192];
+  usz                             n;
+  wired_qlogevent_stream_frame_in in;
+  if (!l->qlog_path) return;
+  in = (wired_qlogevent_stream_frame_in){
+      sf->stream_id, sf->offset, sf->length, sf->fin, l->app_rx_pn};
+  n = wired_qlogevent_stream_frame(
+      rec, sizeof rec, l->now_ms, l->qlog_group, "stream_frame_received", &in);
+  if (n) wired_qlog_append(l->qlog_path, quic_span_of((const u8*)rec, n));
+}
+
 /* draft-ietf-webtrans-http3-15 4.3: land sf (already confirmed WT uni
  * traffic) into its slot, claiming one on the leading type frame. */
 static void gather_wt_uni_land(wired_srvloop* l, const quic_stream_frame* sf) {
   int i = wt_uni_slot_for(l, sf);
   if (i >= 0) gather_wt_uni_one(sf, &l->wt_uni_streams[i]);
+  dispatch_qlog_stream_received(l, sf);
 }
 
 /* draft-ietf-webtrans-http3-15 4.3 / RFC 9114 6.2: classify a client uni
