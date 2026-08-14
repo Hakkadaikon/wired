@@ -137,6 +137,16 @@ usz wired_sendsess_peek_ack(
  * range becomes acknowledged. Unknown packet numbers are ignored. */
 void wired_sendsess_ack(wired_sendsess* s, u64 lo, u64 hi);
 
+/** One packet declared lost: its packet number plus the slice's own
+ * (absolute-offset) identity, everything a stream-frame-grained qlog record
+ * needs without the caller re-deriving it from the log entry. */
+typedef struct {
+  u64 pn;     /**< packet number the slice was declared lost on */
+  u64 offset; /**< absolute stream offset (wired_sendsess_stream_offset) */
+  u64 length; /**< slice length in bytes */
+  u64 fin;    /**< 0 or 1 */
+} wired_sendsess_lost_slice;
+
 /** Declare every in-flight packet lost by RFC 9002 6.1's two independent
  * criteria (packet threshold, 6.1.1, OR time threshold, 6.1.2 -- either one
  * alone is sufficient) and move its slice to the requeue for retransmission
@@ -146,16 +156,16 @@ void wired_sendsess_ack(wired_sendsess* s, u64 lo, u64 hi);
  * @param now_ms current monotonic time
  * @param srtt_us smoothed RTT, microseconds (0 before any sample: time
  *   threshold is skipped, packet threshold alone still applies)
- * @param lost_pns receives the lost packet numbers (0 to skip reporting)
- * @param cap slots at lost_pns
+ * @param lost receives the lost slices (0 to skip reporting)
+ * @param cap slots at lost
  * @return slices newly declared lost. */
 usz wired_sendsess_detect_lost(
-    wired_sendsess* s,
-    u64             largest_acked,
-    u64             now_ms,
-    u64             srtt_us,
-    u64*            lost_pns,
-    usz             cap);
+    wired_sendsess*            s,
+    u64                        largest_acked,
+    u64                        now_ms,
+    u64                        srtt_us,
+    wired_sendsess_lost_slice* lost,
+    usz                        cap);
 
 /** Fire one probe timeout (RFC 9002 6.2): requeue the two oldest in-flight
  * slices (6.2.4 allows up to two probe datagrams) so they retransmit with
