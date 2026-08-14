@@ -136,3 +136,24 @@ usz wired_qlogevent_metrics(
   qev_put_str(&w, "}");
   return qev_finish(&w);
 }
+
+usz wired_qlogevent_stream_frame(
+    char*                                  out,
+    usz                                    outcap,
+    u64                                    time,
+    u64                                    group,
+    const char*                            name,
+    const wired_qlogevent_stream_frame_in* f) {
+  qev_w w = {out, outcap, 0};
+  qev_put_head(&w, time, group);
+  qev_put_str(&w, ",\"name\":\"");
+  qev_put_str(&w, name);
+  qev_put_str(&w, "\"");
+  qev_put_field(&w, "stream_id", f->stream_id);
+  qev_put_field(&w, "offset", f->offset);
+  qev_put_field(&w, "length", f->length);
+  qev_put_field(&w, "fin", f->fin);
+  qev_put_field(&w, "pn", f->pn);
+  qev_put_str(&w, "}");
+  return qev_finish(&w);
+}
