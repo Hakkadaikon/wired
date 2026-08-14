@@ -584,6 +584,103 @@ static void test_srvrun_send_stream_slice_no_qlog_path_writes_nothing(void) {
   }
 }
 
+/* srvrun_feed_ack_range's loss pass (RFC 9002 6.1.1) writes one
+ * stream_frame_lost record per declared-lost slice, keyed by the OWNING
+ * resp[] slot's own stream_id -- the qlog attribution
+ * srvrun_reap_losses/srvrun_feed_ack_range_sess thread through. */
+static void test_srvrun_feed_ack_range_writes_stream_frame_lost(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  quic_obuf     ob = {0};
+  u8            obuf[1024];
+  static u8     body[5 * SRVRUN_CHUNK];
+  srvrun_cfg    cfg = {
+      -1,
+      0,
+      0,
+      0,
+      srvrunt_qlog_path,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      &g_srvrun_env,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0};
+  srvrun_step_ctx ctx = {&cfg, 0, 0, 9000, 0};
+  u64             pn0;
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.resp[0].in_use    = 1;
+  c.resp[0].stream_id = 15;
+  pn0                 = c.l.tx_pn;
+  srvrunt_qlog_unlink();
+  wired_sendsess_arm(&c.resp[0].sess, body, sizeof body, SRVRUN_CHUNK);
+  for (usz i = 0; i < 5; i++) { /* pns pn0..pn0+4 in flight */
+    wired_sendq_slice sl;
+    CHECK(wired_sendsess_take(&c.resp[0].sess, &sl) == 1);
+    CHECK(wired_sendsess_sent(&c.resp[0].sess, &sl, pn0 + i, ctx.now_ms));
+  }
+  /* ack only pn0+4: pns pn0,pn0+1 are 3+ behind, past the packet threshold */
+  srvrun_feed_ack_range(&cfg, &c, pn0 + 4, pn0 + 4, ctx.now_ms);
+  CHECK(
+      sr_qlog_count(
+          "\"name\":\"stream_frame_lost\",\"stream_id\":15,\"offset\":0,"
+          "\"length\":") == 1);
+  CHECK(
+      sr_qlog_count(
+          "\"name\":\"stream_frame_lost\",\"stream_id\":15,\"offset\":") == 2);
+  srvrunt_qlog_unlink();
+}
+
+/* dispatch.c's gather_wt_uni_land (the receive side's own choke point for
+ * every client WT uni STREAM frame) writes one stream_frame_received
+ * record per frame walked, keyed by l.qlog_path/qlog_group (set once at
+ * connection setup, srvrun_open_slot) -- the received-side counterpart to
+ * stream_frame_sent, driven through wired_srvloop_step (the live decode
+ * path) rather than calling gather_wt_uni_land directly, so the test also
+ * proves srvrun_open_slot's wiring actually reaches dispatch.c. */
+static void test_srvrun_wt_uni_stream_writes_stream_frame_received(void) {
+  struct lp_fix f;
+  quic_obuf     ob = {0};
+  u8            obuf[1024], f0[64], spkt[1024], out[1024];
+  usz           f0l, slen;
+  srvrun_conn   c = {0};
+  ob              = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.l.qlog_path  = srvrunt_qlog_path;
+  c.l.qlog_group = 6;
+  srvrunt_qlog_unlink();
+  f0l  = lp_wt_uni_stream(f0, sizeof f0, 2);
+  slen = client_seal_onertt_pn(&f, 3, f0, f0l, spkt, sizeof spkt);
+  {
+    quic_obuf          sob  = {out, sizeof out, 0};
+    wired_srvloop_conn conn = {&c.l, &c.s};
+    wired_srvloop_step(&conn, quic_mspan_of(spkt, slen), &sob);
+  }
+  CHECK(
+      sr_qlog_count(
+          "\"group_id\":6,\"name\":\"stream_frame_received\","
+          "\"stream_id\":2,\"offset\":0,\"length\":4,\"fin\":0,\"pn\":3") == 1);
+  srvrunt_qlog_unlink();
+}
+
 /* Certificate hot reload (SIGHUP): srvrun_reload_if_requested drives
  * wired_certreload_load off srvrun_test_set_reload, the same test-only-hook
  * pattern as shutdown above (a real SIGHUP delivery is not unit-testable). */
@@ -10371,8 +10468,8 @@ static void test_srvrun_pto_probe_drains_multiple_requeued_slices(void) {
      * test_srvrun_loss_and_retransmit_across_two_responses). */
     c.largest_acked = pn0 + WIRED_SENDSESS_LOG - 1;
     {
-      u64 lost[WIRED_SENDSESS_LOG];
-      usz n = wired_sendsess_detect_lost(
+      wired_sendsess_lost_slice lost[WIRED_SENDSESS_LOG];
+      usz                       n = wired_sendsess_detect_lost(
           &c.resp[0].sess, c.largest_acked, ctx.now_ms, 0, lost,
           WIRED_SENDSESS_LOG);
       CHECK(n > 1); /* more than one probe queued at once */
@@ -14228,6 +14325,8 @@ void test_srvrun(void) {
   test_srvrun_send_empty_pkt_no_qlog_record();
   test_srvrun_send_stream_slice_writes_stream_frame_sent();
   test_srvrun_send_stream_slice_no_qlog_path_writes_nothing();
+  test_srvrun_feed_ack_range_writes_stream_frame_lost();
+  test_srvrun_wt_uni_stream_writes_stream_frame_received();
   test_srvrun_no_reload_leaves_id_untouched();
   test_srvrun_reload_requested_updates_id();
   test_srvrun_reload_disabled_when_no_cert_path();

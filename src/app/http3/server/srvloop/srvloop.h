@@ -703,6 +703,14 @@ typedef struct {
   u64 wt_reset_error_code; /**< its wire error code */
   int wt_reset_is_stop;    /**< 1 for STOP_SENDING, 0 for RESET_STREAM */
   int wt_reset_seen; /**< 1 once the three fields above were set this step */
+  /** qlog attribution for received-side stream frame events (mirrors
+   * srvrun_conn.qlog_slot/srvrun_cfg.qlog_path, set once at connection setup
+   * -- srvloop itself never opens or writes the file, dispatch.c only reads
+   * these two fields via wired_qlog_append). 0/unset means no qlog path
+   * configured, matching every other qlog_path-gated caller's no-op
+   * convention. */
+  const char* qlog_path;
+  u64         qlog_group; /**< srvrun_conn.qlog_slot's value for this conn */
 } wired_srvloop;
 
 /** Register the app response-body builder; pass 0 to clear (body-less 200).

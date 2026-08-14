@@ -5860,20 +5860,58 @@ static void srvrun_pump_sess(const srvrun_step_ctx* ctx, int slot) {
 /* After a live step: feed the step's ACK ranges to the session, start a
  * response for a freshly decoded request, and send what the window allows.
  * A finished session simply goes idle. */
-/* qlog packet_lost for one packet (time not tracked at this layer, logged
- * 0). No-op without a qlog path. */
-static void srvrun_qlog_lost_one(
-    const srvrun_cfg* cfg, const srvrun_conn* c, u64 pn) {
+/* qlog packet_lost (connection-level trend) for one lost pn. No-op without a
+ * qlog path -- callers only reach here after their own gate already
+ * confirmed one. */
+static void srvrun_qlog_lost_packet(
+    const srvrun_cfg* cfg, const srvrun_conn* c, u64 now_ms, u64 pn) {
   char rec[128];
-  usz  w;
-  if (!cfg->qlog_path) return;
-  w = wired_qlogevent_packet_lost(rec, sizeof rec, 0, c->qlog_slot, pn);
+  usz  w =
+      wired_qlogevent_packet_lost(rec, sizeof rec, now_ms, c->qlog_slot, pn);
   if (w) wired_qlog_append(cfg->qlog_path, quic_span_of((const u8*)rec, w));
 }
 
+/* qlog stream_frame_lost (frame-level forensics: moqt-voice-stability
+ * addendum 4/5's "did the server see loss, did it resend" question) for one
+ * declared-lost slice. */
+static void srvrun_qlog_lost_stream_frame(
+    const srvrun_cfg*                cfg,
+    const srvrun_conn*               c,
+    u64                              now_ms,
+    u64                              stream_id,
+    const wired_sendsess_lost_slice* l) {
+  char                            rec[192];
+  wired_qlogevent_stream_frame_in in = {
+      stream_id, l->offset, l->length, l->fin, l->pn};
+  usz w = wired_qlogevent_stream_frame(
+      rec, sizeof rec, now_ms, c->qlog_slot, "stream_frame_lost", &in);
+  if (w) wired_qlog_append(cfg->qlog_path, quic_span_of((const u8*)rec, w));
+}
+
+/* Both qlog records for one declared-lost slice -- packet_lost stays for
+ * existing connection-trend tooling, stream_frame_lost is the new
+ * frame-level forensic record; both fire, they serve different uses. No-op
+ * without a qlog path. */
+static void srvrun_qlog_lost_one(
+    const srvrun_cfg*                cfg,
+    const srvrun_conn*               c,
+    u64                              now_ms,
+    u64                              stream_id,
+    const wired_sendsess_lost_slice* l) {
+  if (!cfg->qlog_path) return;
+  srvrun_qlog_lost_packet(cfg, c, now_ms, l->pn);
+  srvrun_qlog_lost_stream_frame(cfg, c, now_ms, stream_id, l);
+}
+
 static void srvrun_qlog_lost(
-    const srvrun_cfg* cfg, const srvrun_conn* c, const u64* pns, usz n) {
-  for (usz i = 0; i < n; i++) srvrun_qlog_lost_one(cfg, c, pns[i]);
+    const srvrun_cfg*                cfg,
+    const srvrun_conn*               c,
+    u64                              now_ms,
+    u64                              stream_id,
+    const wired_sendsess_lost_slice* lost,
+    usz                              n) {
+  for (usz i = 0; i < n; i++)
+    srvrun_qlog_lost_one(cfg, c, now_ms, stream_id, &lost[i]);
 }
 
 /* Consume this step's ACK ranges, then declare packet-threshold losses so
@@ -6089,28 +6127,32 @@ static usz srvrun_reap_losses(
     const srvrun_cfg*  cfg,
     const srvrun_conn* c,
     wired_sendsess*    sess,
+    u64                stream_id,
     u64                now_ms) {
-  u64 lost[WIRED_SENDSESS_LOG];
-  usz n = wired_sendsess_detect_lost(
+  wired_sendsess_lost_slice lost[WIRED_SENDSESS_LOG];
+  usz                       n = wired_sendsess_detect_lost(
       sess, c->largest_acked, now_ms, c->rtt.smoothed_rtt, lost,
       WIRED_SENDSESS_LOG);
-  srvrun_qlog_lost(cfg, c, lost, n);
+  srvrun_qlog_lost(cfg, c, now_ms, stream_id, lost, n);
   return n;
 }
 
 /* Feed one ACK range to one send session and run its loss-detection pass
  * against the connection's ONE largest_acked (RFC 9002 6.1.1 -- see the
- * srvrun_conn field comment). Shared by every resp[] and wtsend slot. */
+ * srvrun_conn field comment). Shared by every resp[] and wtsend slot;
+ * stream_id is only for the loss records' qlog attribution (RFC 9000
+ * 19.8) -- ACK/loss accounting itself stays per-session, stream-agnostic. */
 static usz srvrun_feed_ack_range_sess(
     const srvrun_cfg* cfg,
     srvrun_conn*      c,
     wired_sendsess*   sess,
+    u64               stream_id,
     u64               lo,
     u64               hi,
     u64               now_ms) {
   srvrun_cc_range(c, sess, lo, hi, now_ms);
   if (!sess->has_acked) return 0;
-  return srvrun_reap_losses(cfg, c, sess, now_ms);
+  return srvrun_reap_losses(cfg, c, sess, stream_id, now_ms);
 }
 
 /* A no-op for an unused resp[] slot. */
@@ -6122,7 +6164,8 @@ static usz srvrun_feed_ack_range_resp(
     u64               hi,
     u64               now_ms) {
   if (!r->in_use) return 0;
-  return srvrun_feed_ack_range_sess(cfg, c, &r->sess, lo, hi, now_ms);
+  return srvrun_feed_ack_range_sess(
+      cfg, c, &r->sess, r->stream_id, lo, hi, now_ms);
 }
 
 /* The wtsend half of the ACK-range broadcast, mirroring the resp[] loop. */
@@ -6132,7 +6175,7 @@ static usz srvrun_feed_ack_range_wt(
   for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++)
     if (c->wtsend[i].in_use)
       lost += srvrun_feed_ack_range_sess(
-          cfg, c, &c->wtsend[i].sess, lo, hi, now_ms);
+          cfg, c, &c->wtsend[i].sess, c->wtsend[i].stream_id, lo, hi, now_ms);
   return lost;
 }
 
@@ -7044,9 +7087,11 @@ static int srvrun_open_slot(
     const srvrun_step_ctx* ctx, quic_span dcid, int is_initial) {
   int slot = srvrun_claim_slot(ctx, dcid, is_initial);
   if (slot < 0) return -1;
-  ctx->st->conns[slot]           = (srvrun_conn){0};
-  ctx->st->conns[slot].peer      = *ctx->peer;
-  ctx->st->conns[slot].qlog_slot = (u64)slot;
+  ctx->st->conns[slot]              = (srvrun_conn){0};
+  ctx->st->conns[slot].peer         = *ctx->peer;
+  ctx->st->conns[slot].qlog_slot    = (u64)slot;
+  ctx->st->conns[slot].l.qlog_path  = ctx->cfg->qlog_path;
+  ctx->st->conns[slot].l.qlog_group = (u64)slot;
   quic_cc_init_algo(&ctx->st->conns[slot].cc, srvrun_cc_algo(ctx->cfg));
   quic_hystart_init(&ctx->st->conns[slot].hs);
   quic_rtt_init(&ctx->st->conns[slot].rtt);
