@@ -66,4 +66,29 @@ usz wired_qlogevent_metrics(
     u64                               group,
     const wired_qlogevent_metrics_in* m);
 
+/**
+ * Input snapshot for wired_qlogevent_stream_frame: one STREAM frame's
+ * identity (RFC 9000 19.8) plus the packet number it rode on.
+ */
+typedef struct {
+  u64 stream_id;
+  u64 offset;
+  u64 length;
+  u64 fin; /* 0 or 1 */
+  u64 pn;
+} wired_qlogevent_stream_frame_in;
+
+/**
+ * name picks the event kind ("stream_frame_sent", "stream_frame_lost") and,
+ * like wired_qlogevent_conn_state's state, is embedded verbatim with no
+ * escaping -- pass only a fixed internal constant, never wire-derived data.
+ */
+usz wired_qlogevent_stream_frame(
+    char*                                  out,
+    usz                                    outcap,
+    u64                                    time,
+    u64                                    group,
+    const char*                            name,
+    const wired_qlogevent_stream_frame_in* f);
+
 #endif
