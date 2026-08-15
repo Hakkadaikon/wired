@@ -95,12 +95,20 @@ jobs:
             quiche-src/target/release/quiche-server --listen 127.0.0.1:14435 \
             --cert "$D/cert.pem" --key "$D/key.pem" --root "$D/docroot" \
             | tee -a out/lines.txt
+      - name: Verify lane output
+        # a lane that silently produced no load measurements must fail the
+        # job rather than render an empty green table
+        run: |
+          for s in wired quic-go quiche; do
+            grep -q "^$s .* mode=load" out/lines.txt
+          done
       - name: Collect binary sections
         run: |
           bench/sections.sh examples/word_list/wired_server \
             bench/qgserver/qgserver quiche-src/target/release/quiche-server \
             > out/sections.txt
       - name: Write summary
+        if: always()
         run: |
           {
             echo "## Loopback lane (hosted runner -- indicative only)"
@@ -133,6 +141,14 @@ jobs:
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
+      # The network simulator's compose setup needs a recent docker engine
+      # and the ip6table_filter module -- the same two prerequisites the
+      # interop runner's own CI installs (its interop-test.yml).
+      - uses: docker/setup-docker-action@v5
+        with:
+          version: version=v28.3.0
+      - name: Enable IPv6 for the network simulator
+        run: sudo modprobe ip6table_filter
       - name: Install toolchain
         run: |
           sudo apt-get update
@@ -149,10 +165,14 @@ jobs:
       - name: Set up interop runner
         run: bench/goodput-setup.sh "$HOME/quic-interop-runner"
       - name: Run goodput lane
+        # pipefail: the lane script's non-zero exit (no measurement) must
+        # fail the job, not be swallowed by tee's exit code
         run: |
+          set -o pipefail
           bench/goodput-ci.sh "$HOME/quic-interop-runner" \
             "${{ inputs.goodput_servers }}" | tee goodput.md
       - name: Write summary
+        if: always()
         run: |
           {
             echo "## Goodput lane (hosted runner -- indicative only)"
