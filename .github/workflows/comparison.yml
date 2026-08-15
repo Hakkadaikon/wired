@@ -1,0 +1,170 @@
+# Manual (workflow_dispatch only) run of the docs/comparison.md benchmark
+# lanes on a GitHub-hosted runner. Results land in the job summary and as
+# artifacts. NOTE: hosted runners are shared hardware -- these numbers are
+# same-day relative comparisons between the servers, not replacements for
+# the pinned-machine numbers published in docs/comparison.md.
+name: comparison
+
+on:
+  workflow_dispatch:
+    inputs:
+      lanes:
+        description: Which lanes to run
+        type: choice
+        options: [all, loopback, goodput]
+        default: all
+      rounds:
+        description: Loopback rounds per server
+        default: "5"
+      goodput_servers:
+        description: Comma-separated servers for the goodput lane
+        default: wired,quic-go,quiche,ngtcp2,picoquic
+
+concurrency:
+  group: comparison
+  cancel-in-progress: false
+
+jobs:
+  loopback:
+    if: inputs.lanes == 'all' || inputs.lanes == 'loopback'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      QUICHE_TAG: "0.29.3"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang ninja-build
+          curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh \
+            | bash -s -- --tag 1.40.0 --to "$HOME/.local/bin"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - name: Run bench unit tests
+        run: node --test bench/test/
+      - name: Build wired server
+        run: |
+          just gen-ninja
+          ninja examples/word_list/wired_server
+      - name: Build bench client and quic-go server
+        run: |
+          (cd bench/client && go build -o benchclient .)
+          (cd bench/qgserver && go build -o qgserver .)
+      - name: Cache quiche build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            quiche-src/target
+          key: quiche-${{ env.QUICHE_TAG }}-${{ runner.os }}
+      - name: Build quiche-server
+        run: |
+          if [ ! -d quiche-src/.git ]; then
+            git clone --depth 1 --branch "$QUICHE_TAG" --recursive \
+              https://github.com/cloudflare/quiche quiche-src
+          fi
+          (cd quiche-src && cargo build --release --bin quiche-server)
+      - name: Generate certificate and docroot
+        run: |
+          mkdir -p out/docroot
+          head -c 1024 /dev/urandom > out/docroot/1k.bin
+          openssl ecparam -name prime256v1 -genkey -noout -out out/key.pem
+          openssl req -new -x509 -key out/key.pem -out out/cert.pem -days 7 \
+            -subj "/CN=localhost" \
+            -addext "subjectAltName=DNS:localhost,IP:127.0.0.1"
+      - name: Run loopback lanes
+        run: |
+          export BENCH_CLIENT="$PWD/bench/client/benchclient"
+          D="$PWD/out"
+          bench/run-lane.sh wired 14433 "${{ inputs.rounds }}" \
+            examples/word_list/wired_server --port 14433 \
+            --root "$D/docroot" --cert "$D/cert.pem" --key "$D/key.pem" \
+            | tee -a out/lines.txt
+          sleep 2
+          bench/run-lane.sh quic-go 14434 "${{ inputs.rounds }}" \
+            bench/qgserver/qgserver -addr 127.0.0.1:14434 \
+            -root "$D/docroot" -cert "$D/cert.pem" -key "$D/key.pem" \
+            | tee -a out/lines.txt
+          sleep 2
+          bench/run-lane.sh quiche 14435 "${{ inputs.rounds }}" \
+            quiche-src/target/release/quiche-server --listen 127.0.0.1:14435 \
+            --cert "$D/cert.pem" --key "$D/key.pem" --root "$D/docroot" \
+            | tee -a out/lines.txt
+      - name: Collect binary sections
+        run: |
+          bench/sections.sh examples/word_list/wired_server \
+            bench/qgserver/qgserver quiche-src/target/release/quiche-server \
+            > out/sections.txt
+      - name: Write summary
+        run: |
+          {
+            echo "## Loopback lane (hosted runner -- indicative only)"
+            echo
+            echo "- Host: $(lscpu | sed -n 's/Model name: *//p' | head -1)," \
+                 "$(nproc) vCPU, kernel $(uname -r)"
+            echo "- wired commit: $GITHUB_SHA"
+            echo
+            echo "### Speed"
+            node bench/report.mjs speed out/lines.txt
+            echo
+            echo "### Memory / CPU under load"
+            node bench/report.mjs usage out/lines.txt
+            echo
+            echo "### Binary sections"
+            node bench/report.mjs sections out/sections.txt
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: loopback-lane
+          path: |
+            out/lines.txt
+            out/sections.txt
+            /tmp/bench-*.server.log
+
+  goodput:
+    if: inputs.lanes == 'all' || inputs.lanes == 'goodput'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
+            clang ninja-build tshark
+          curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh \
+            | bash -s -- --tag 1.40.0 --to "$HOME/.local/bin"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Build wired interop image
+        run: |
+          just gen-ninja
+          ninja examples/word_list/wired_server
+          docker build -t wired-interop -f interop/Dockerfile .
+      - name: Set up interop runner
+        run: bench/goodput-setup.sh "$HOME/quic-interop-runner"
+      - name: Run goodput lane
+        run: |
+          bench/goodput-ci.sh "$HOME/quic-interop-runner" \
+            "${{ inputs.goodput_servers }}" | tee goodput.md
+      - name: Write summary
+        run: |
+          {
+            echo "## Goodput lane (hosted runner -- indicative only)"
+            echo
+            echo "- Host: $(lscpu | sed -n 's/Model name: *//p' | head -1)," \
+                 "$(nproc) vCPU, kernel $(uname -r)"
+            echo "- wired commit: $GITHUB_SHA, runner pin 1d6f655"
+            echo
+            cat goodput.md
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: goodput-lane
+          path: |
+            goodput.md
+            ~/quic-interop-runner/ci-*.log
