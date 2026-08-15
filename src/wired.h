@@ -21,6 +21,7 @@
 #include "app/webtransport/capsule/wtcapsule/wtcapsule.h"
 #include "app/webtransport/errmap/errmap/errmap.h"
 #include "app/webtransport/wtwire/wtwire.h"
+#include "common/arch/arch.h"
 #include "common/bytes/util/bytes.h"
 #include "common/platform/cliargs/cliargs.h"
 #include "common/platform/clock/clock.h"
@@ -45,26 +46,15 @@ void* memcpy(void* dst, const void* src, usz n) {
 }
 void* memset(void* dst, int c, usz n) { return quic_memset(dst, c, n); }
 
-/* Freestanding entry point (x86_64-linux, -nostdlib). Each application TU
- * that defines WIRED_MAIN must also define `int wired_main(int argc, char**
- * argv)` (non-static, so this can link to it) as its own main. Linux enters
- * _start with RSP%16==0 and no return address on the stack; the asm below
- * recovers argc/argv from the kernel-built initial stack, 16-byte-aligns
- * RSP for the SysV ABI's post-call state wired_main expects (its own
- * force_align_arg_pointer attribute handles the rest), and exits with
- * wired_main's return value. */
+/* Freestanding entry point (-nostdlib). Each application TU that defines
+ * WIRED_MAIN must also define `int wired_main(int argc, char** argv)`
+ * (non-static, so this can link to it) as its own main. The architecture
+ * specifics -- recovering argc/argv from the kernel-built initial stack,
+ * aligning the stack for the calling convention, exiting with wired_main's
+ * return value -- live in the arch adapter's WIRED_ARCH_START_ASM. */
 int wired_main(int argc, char** argv);
 
-__attribute__((naked)) void _start(void) {
-  asm volatile(
-      "mov (%rsp), %rdi\n"
-      "lea 8(%rsp), %rsi\n"
-      "and $-16, %rsp\n"
-      "call wired_main\n"
-      "mov %eax, %edi\n"
-      "mov $60, %eax\n" /* SYS_exit */
-      "syscall\n");
-}
+__attribute__((naked)) void _start(void) { WIRED_ARCH_START_ASM(wired_main); }
 #endif
 
 #endif

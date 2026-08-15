@@ -106,4 +106,22 @@ i64 wired_arch_clone_raw(
  */
 void wired_arch_sigreturn_restorer(void);
 
+/**
+ * Body of a freestanding `_start` (to be used inside a naked function):
+ * Linux enters with RSP%16==0 and no return address on the stack; this
+ * recovers argc (rdi) and argv (rsi) from the kernel-built initial stack,
+ * 16-byte-aligns RSP for the SysV ABI's post-call state, calls @p entry
+ * (`int entry(int argc, char** argv)`), and exits with its return value.
+ */
+#define WIRED_ARCH_START_ASM(entry)    \
+  __asm__ volatile(                    \
+      "mov (%rsp), %rdi\n"             \
+      "lea 8(%rsp), %rsi\n"            \
+      "and $-16, %rsp\n"               \
+      "call " #entry                   \
+      "\n"                             \
+      "mov %eax, %edi\n"               \
+      "mov $60, %eax\n" /* SYS_exit */ \
+      "syscall\n")
+
 #endif
