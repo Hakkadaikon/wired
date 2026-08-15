@@ -53,6 +53,16 @@ If you need a new shared primitive, add it here as `inline`, do not duplicate a
 `static` across two domains. `src/` may include ONLY `sys/syscall.h` types and
 `util/*` — no standard library headers (this is what `just build` enforces).
 
+## Inline assembly and CPU builtins live in common/arch/ ONLY
+
+Every ISA-specific construct — inline asm, naked trampolines, SIMD
+instruction wrappers, x86 builtins like `__builtin_ia32_pause` — lives under
+`src/common/arch/` (`arch.h` facade, `x8664/` implementation) behind a
+`wired_arch_*` / `WIRED_ARCH_*` name. Do NOT write `__asm__` or an
+ISA-specific builtin in a domain file; add the primitive to the arch adapter
+and call it. `grep -rn '__asm__\|__builtin_ia32' src/ | grep -v common/arch/`
+must stay empty.
+
 ## Wiring a new file into the unity build (tests/run.c is MANUAL)
 
 `justfile` auto-discovers `src/**/*.c` via `find`, but `tests/run.c` is hand-
