@@ -4363,8 +4363,12 @@ static void test_srvrun_busy_poll_step_never_blocks(void) {
 
 /* Polling drivers never reach the poll-timeout probe pass, so the PTO tick
  * is clocked instead: the 1024th spin arms the SRVRUN_PTO_MS window and
- * fires, further due spins inside the window do not re-fire, and the
- * blocking driver never ticks the clocked path at all. */
+ * fires, further due spins inside the window do not re-fire. The blocking
+ * driver ticks the clocked path on EVERY step (no spin pacing): its
+ * poll-timeout probe pass is starved for as long as inbound traffic keeps
+ * the socket readable, so the clock alone must bound how late a probe can
+ * fire (the s3-voice-loss qlog showed retransmits stalled ~30s behind
+ * continuous voice traffic). */
 static void test_srvrun_polling_pto_tick(void) {
   quic_conntable table[QUIC_CONNTABLE_CAP];
   srvrun_conn*   conns = sr_test_conns();
@@ -4387,12 +4391,12 @@ static void test_srvrun_polling_pto_tick(void) {
   g_srvrun_pto_spin = 1023;
   srvrun_polling_ptos(&cfg, &st);
   CHECK(g_srvrun_pto_next_ms == armed);
-  /* blocking driver: the clocked path stays off entirely */
+  /* blocking driver: due on every step, no spin pacing needed */
   cfg.busy_poll        = 0;
   g_srvrun_pto_next_ms = 0;
-  g_srvrun_pto_spin    = 1023;
+  g_srvrun_pto_spin    = 0;
   srvrun_polling_ptos(&cfg, &st);
-  CHECK(g_srvrun_pto_next_ms == 0);
+  CHECK(g_srvrun_pto_next_ms > 0);
 }
 
 /* WRAPPER EQUIVALENCE: wired_server_run_opt with a zeroed wired_srvrun_opt
