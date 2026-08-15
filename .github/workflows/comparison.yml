@@ -44,7 +44,9 @@ jobs:
         with:
           go-version: stable
       - name: Run bench unit tests
-        run: node --test bench/test/
+        # explicit file path: `node --test <dir>/` is not portable across
+        # Node majors (v22 resolves it as a module and fails)
+        run: node --test bench/test/aggregate.test.mjs
       - name: Build wired server
         run: |
           just gen-ninja
