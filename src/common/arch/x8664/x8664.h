@@ -98,4 +98,12 @@ static inline void wired_arch_pause(void) { __builtin_ia32_pause(); }
 i64 wired_arch_clone_raw(
     i64 flags, u8* child_stack, i32* parent_tid, i32* child_tid, i64 tls);
 
+/**
+ * Signal-return trampoline for rt_sigaction(2)'s SA_RESTORER slot: the
+ * kernel jumps here when a handler returns, and the stub issues
+ * rt_sigreturn(2) (assembly in sigret.c; there is no libc `restore_rt` to
+ * fall back on). Take its address only -- it is not a callable C function.
+ */
+void wired_arch_sigreturn_restorer(void);
+
 #endif

@@ -12,17 +12,6 @@ typedef struct {
 /* rt_sigaction(2) always takes sigsetsize == sizeof(u64) on this ABI. */
 #define SIGSETSIZE 8u
 
-/* Trampoline the kernel jumps to when the handler returns: it must issue
- * rt_sigreturn(2) itself (no libc `restore_rt` to fall back on here). naked:
- * this is a real, frameless assembly stub, not a callable C function. */
-__attribute__((naked)) static void sigterm_restorer(void) {
-  __asm__ volatile(
-      "mov $%c0, %%rax\n"
-      "syscall\n"
-      :
-      : "i"(SYS_rt_sigreturn));
-}
-
 /* RFC-agnostic Unix convention: SIGHUP's signal number on Linux (all
  * architectures). */
 #define WIRED_SIGHUP 1
@@ -31,7 +20,7 @@ __attribute__((naked)) static void sigterm_restorer(void) {
  * kernel_sigaction shape and the same rt_sigreturn trampoline, so the two
  * public installers are one-line wrappers over this. */
 static int sigterm_install_signal(int sig, void (*handler)(int)) {
-  sys_sigaction act = {handler, SA_RESTORER, sigterm_restorer, 0};
+  sys_sigaction act = {handler, SA_RESTORER, wired_arch_sigreturn_restorer, 0};
   return syscall4(SYS_rt_sigaction, sig, &act, 0, SIGSETSIZE) == 0;
 }
 
