@@ -129,6 +129,7 @@
 #include "common/platform/rng/cidgen.c"
 #include "common/platform/rng/rng.c"
 #include "common/arch/x8664/clone.c"
+#include "common/arch/x8664/sigret.c"
 #include "common/platform/thread/thread.c"
 #include "transport/io/socket/io/udptransport.c"
 #include "transport/io/socket/io/addr.c"
