@@ -131,6 +131,59 @@ the ratios between the fastest servers as indicative, not exact (those rows
 are at least partly client-bound). The lane showed no stalls or failures
 across 50,500 requests on any server.
 
+## Footprint: binary sections, memory, CPU (loopback lane)
+
+Measured 2026-08-16 on the same machine as the speed lanes, one day after
+them, with the loopback lane's own driver (`bench/run-lane.sh`) on the
+three native servers. Definitions: sections are Berkeley `size(1)` over the
+lane's binaries (stripping does not change these); idle RSS is
+`/proc/<pid>/status` VmRSS ~1.5 s after startup, before any request; peak
+RSS is VmHWM after 5 load rounds of 10,000 requests; server CPU is the
+utime+stime delta (all threads) across each load round, normalized per
+request. The per-request normalization keeps CPU comparable even though
+this round's absolute throughput drifted below the published speed lane
+(~22–23k req/s for wired/quiche on this day); the raw counter lines are in
+the [run manifest](#run-manifest).
+
+| Binary | text (B) | data (B) | bss (B) |
+|---|---|---|---|
+| wired_server `9d21db9` | 356,383 | 4,640 | 10,070,944 |
+| qgserver (quic-go v0.61.0) | 6,944,061 | 353,747 | 267,888 |
+| quiche-server 0.29.3 | 5,745,509 | 375,456 | 4,512 |
+
+wired's ~10.1 MB `bss` is the freestanding static-allocation design: every
+connection table, reassembly buffer, and send-staging area is reserved up
+front, with no heap and no allocator. `bss` is address space, not memory —
+only pages actually touched become resident, which is why the resident
+numbers below stay far under it.
+
+| Server | idle RSS (KiB) | peak RSS under load (KiB) | server CPU (µs/req) | server CPU (%) | rounds |
+|---|---|---|---|---|---|
+| wired `9d21db9` | 380 | 1,928 | 35.8 ± 1.9 | 76.5 ± 4.2 | 5 |
+| quic-go v0.61.0 | 8,508 | 15,496 | 79.8 ± 3.8 | 92.0 ± 1.0 | 5 |
+| quiche 0.29.3 | 7,712 | 8,484 | 34.4 ± 0.9 | 76.0 ± 1.5 | 5 |
+
+```mermaid
+xychart-beta
+    title "Peak RSS under load (KiB, lower is better)"
+    x-axis ["wired", "quic-go", "quiche"]
+    y-axis "KiB" 0 --> 16000
+    bar [1928, 15496, 8484]
+```
+
+```mermaid
+xychart-beta
+    title "Server CPU per request (µs, lower is better)"
+    x-axis ["wired", "quic-go", "quiche"]
+    y-axis "us" 0 --> 90
+    bar [35.8, 79.8, 34.4]
+```
+
+wired serves the whole 5-round load within a 1.9 MiB peak resident set —
+about 1/8 of quic-go's and 1/4 of quiche's — and its per-request CPU sits
+level with quiche (34–36 µs) at roughly half of quic-go's. CPU% is the
+share of the server's single pinned core busy during the load rounds.
+
 ## Interop test cases (current run)
 
 Re-run against commit `9d21db9` alongside the benchmarks above (client:
@@ -242,8 +295,12 @@ document's run is a reimplementation of the earlier rounds' client to the
 same specification (the original sources were not retained), so this lane is
 internally consistent — every server measured by the same binary on the same
 day — but not directly comparable against numbers published from other days.
-Raw sources and run logs live outside this repository; every run's numbers
-are published in the manifest below.
+The sources now live in this repository under [`bench/`](../bench/), together
+with the lane driver (`run-lane.sh`), the aggregation library and its test
+suite, and a manually-dispatched GitHub Actions workflow
+(`.github/workflows/comparison.yml`) that runs both lanes on a hosted runner
+(indicative numbers only — shared hardware). Every run's numbers are
+published in the manifest below.
 
 ## Run manifest
 
@@ -293,6 +350,31 @@ Loopback lane, all 30 runs (no runs excluded, no failures in any run):
 | quiche | r3 | load | 10000 | 0 | 19238.2 | 0.94 | 2.96 | 118 |
 | quiche | r4 | load | 10000 | 0 | 19081.9 | 0.94 | 3.11 | 115 |
 | quiche | r5 | load | 10000 | 0 | 19647.5 | 0.94 | 2.76 | 115 |
+
+Footprint lane (2026-08-16, raw counter lines as emitted by
+`bench/run-lane.sh`; `dticks` at `hz=100`, RSS in KiB — the derived table is
+in the [footprint section](#footprint-binary-sections-memory-cpu-loopback-lane)):
+
+```
+wired r0 usage kind=idle reqs=0 dticks=0 wall_ms=0 hz=100 vmhwm_kb=380 vmrss_kb=380
+wired r1 usage kind=load reqs=10000 dticks=36 wall_ms=485 hz=100 vmhwm_kb=1928 vmrss_kb=1928
+wired r2 usage kind=load reqs=10000 dticks=37 wall_ms=473 hz=100 vmhwm_kb=1928 vmrss_kb=1928
+wired r3 usage kind=load reqs=10000 dticks=38 wall_ms=483 hz=100 vmhwm_kb=1928 vmrss_kb=1928
+wired r4 usage kind=load reqs=10000 dticks=35 wall_ms=432 hz=100 vmhwm_kb=1928 vmrss_kb=1928
+wired r5 usage kind=load reqs=10000 dticks=33 wall_ms=468 hz=100 vmhwm_kb=1928 vmrss_kb=1928
+quic-go r0 usage kind=idle reqs=0 dticks=0 wall_ms=0 hz=100 vmhwm_kb=8508 vmrss_kb=8508
+quic-go r1 usage kind=load reqs=10000 dticks=78 wall_ms=859 hz=100 vmhwm_kb=15456 vmrss_kb=15456
+quic-go r2 usage kind=load reqs=10000 dticks=76 wall_ms=816 hz=100 vmhwm_kb=15464 vmrss_kb=15464
+quic-go r3 usage kind=load reqs=10000 dticks=86 wall_ms=935 hz=100 vmhwm_kb=15476 vmrss_kb=15476
+quic-go r4 usage kind=load reqs=10000 dticks=79 wall_ms=851 hz=100 vmhwm_kb=15488 vmrss_kb=15488
+quic-go r5 usage kind=load reqs=10000 dticks=80 wall_ms=879 hz=100 vmhwm_kb=15496 vmrss_kb=15496
+quiche r0 usage kind=idle reqs=0 dticks=0 wall_ms=0 hz=100 vmhwm_kb=7712 vmrss_kb=7712
+quiche r1 usage kind=load reqs=10000 dticks=35 wall_ms=450 hz=100 vmhwm_kb=8440 vmrss_kb=8440
+quiche r2 usage kind=load reqs=10000 dticks=35 wall_ms=455 hz=100 vmhwm_kb=8468 vmrss_kb=8468
+quiche r3 usage kind=load reqs=10000 dticks=34 wall_ms=448 hz=100 vmhwm_kb=8468 vmrss_kb=8468
+quiche r4 usage kind=load reqs=10000 dticks=35 wall_ms=462 hz=100 vmhwm_kb=8484 vmrss_kb=8484
+quiche r5 usage kind=load reqs=10000 dticks=33 wall_ms=447 hz=100 vmhwm_kb=8484 vmrss_kb=8484
+```
 
 ## Footnotes
 
