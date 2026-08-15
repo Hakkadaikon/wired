@@ -81,4 +81,21 @@ static inline i64 syscall6(i64 n, i64 a, i64 b, i64 c, i64 d, i64 e, i64 f) {
  * spin is in progress, saving power and easing hyperthread contention. */
 static inline void wired_arch_pause(void) { __builtin_ia32_pause(); }
 
+/**
+ * Raw clone(2) whose child starts on a new stack (assembly trampoline in
+ * clone.c; a C wrapper cannot be used because the compiler's spills would
+ * read the parent's frame from the child). The caller must have pushed the
+ * child's entry function and its argument as the two topmost 8-byte slots
+ * of @p child_stack; the child pops them, calls fn(arg), then exits(0).
+ *
+ * @param flags CLONE_* flag mask passed straight to the kernel
+ * @param child_stack top of the child's stack, seeded with fn and arg
+ * @param parent_tid kernel writes the child tid here (CLONE_PARENT_SETTID)
+ * @param child_tid cleared+futex-woken on child exit (CLONE_CHILD_CLEARTID)
+ * @param tls new TLS descriptor (0 when unused)
+ * @return the child tid in the parent, or a negative -errno
+ */
+i64 wired_arch_clone_raw(
+    i64 flags, u8* child_stack, i32* parent_tid, i32* child_tid, i64 tls);
+
 #endif
