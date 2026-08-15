@@ -1,53 +1,23 @@
 #include "crypto/symmetric/aead/gcmx86/gcmx86.h"
 
+#include "common/arch/x8664/simd128.h"
 #include "common/bytes/util/be.h"
 #include "common/bytes/util/ct.h"
 #include "crypto/symmetric/aead/aes/aes.h"
 
-/* AES-128-GCM per NIST SP 800-38D on x86-64 AES-NI + PCLMULQDQ. All SIMD is
- * GCC vector extensions plus inline asm for the AES/CLMUL instructions, so
- * this file compiles freestanding with no intrinsics headers. */
+/* AES-128-GCM per NIST SP 800-38D on x86-64 AES-NI + PCLMULQDQ. The
+ * instruction wrappers live in the arch adapter (simd128.h); this file is
+ * only the GCM math on top of them. */
 
 /* One SSE register: u8 lanes for load/store/XOR, u32 lanes for the GHASH
  * shift arithmetic (casts between same-size vector types reinterpret bits).
  */
-typedef u8  gcmx86_v __attribute__((vector_size(16)));
-typedef u32 gcmx86_w __attribute__((vector_size(16)));
-
-/* Carry-less multiply of one 64-bit half of each operand; imm bit 0 selects
- * a's half, bit 4 selects b's half. */
-#define GCMX86_CLMUL(a, b, imm)                                                \
-  ({                                                                           \
-    gcmx86_v r_ = (a);                                                         \
-    __asm__("pclmulqdq %2, %1, %0" : "+x"(r_) : "x"((gcmx86_v)(b)), "i"(imm)); \
-    r_;                                                                        \
-  })
-
-/* Whole-register byte shift toward higher lanes (pslldq). */
-#define GCMX86_BSHL(a, imm)                         \
-  ({                                                \
-    gcmx86_v r_ = (a);                              \
-    __asm__("pslldq %1, %0" : "+x"(r_) : "i"(imm)); \
-    r_;                                             \
-  })
-
-/* Whole-register byte shift toward lower lanes (psrldq). */
-#define GCMX86_BSHR(a, imm)                         \
-  ({                                                \
-    gcmx86_v r_ = (a);                              \
-    __asm__("psrldq %1, %0" : "+x"(r_) : "i"(imm)); \
-    r_;                                             \
-  })
+typedef wired_arch_v128  gcmx86_v;
+typedef wired_arch_v128w gcmx86_w;
 
 /* CPUID.1:ECX bit 25 (AES-NI) and bit 1 (PCLMULQDQ). */
 static int gcmx86_cpuid_ok(void) {
-  u32 a, b, c, d;
-  __asm__ volatile("cpuid"
-                   : "=a"(a), "=b"(b), "=c"(c), "=d"(d)
-                   : "a"(1u), "c"(0u));
-  (void)a;
-  (void)b;
-  (void)d;
+  u32 c = wired_arch_cpuid_ecx(1u);
   return (int)((c >> 25) & (c >> 1) & 1u);
 }
 
@@ -86,25 +56,20 @@ static gcmx86_v gcmx86_rev(gcmx86_v a) {
  */
 static gcmx86_v gcmx86_aes(const quic_gcmx86* x, gcmx86_v in) {
   gcmx86_v s = in ^ gcmx86_load(x->rk[0]);
-  for (usz i = 1; i < 10; i++) {
-    gcmx86_v rk = gcmx86_load(x->rk[i]);
-    __asm__("aesenc %1, %0" : "+x"(s) : "x"(rk));
-  }
-  gcmx86_v last = gcmx86_load(x->rk[10]);
-  __asm__("aesenclast %1, %0" : "+x"(s) : "x"(last));
-  return s;
+  for (usz i = 1; i < 10; i++) s = wired_arch_aesenc(s, gcmx86_load(x->rk[i]));
+  return wired_arch_aesenclast(s, gcmx86_load(x->rk[10]));
 }
 
 /* 256-bit carry-less product [hi:lo] = a * b (Karatsuba: three CLMULs). */
 static void gcmx86_clmul256(
     gcmx86_v a, gcmx86_v b, gcmx86_v* lo, gcmx86_v* hi) {
-  gcmx86_v d  = GCMX86_CLMUL(a, b, 0x00); /* a0*b0 */
-  gcmx86_v c  = GCMX86_CLMUL(a, b, 0x11); /* a1*b1 */
-  gcmx86_v ax = a ^ GCMX86_BSHR(a, 8);    /* a0^a1 in the low half */
-  gcmx86_v bx = b ^ GCMX86_BSHR(b, 8);
-  gcmx86_v e  = GCMX86_CLMUL(ax, bx, 0x00) ^ c ^ d; /* middle term */
-  *lo         = d ^ GCMX86_BSHL(e, 8);
-  *hi         = c ^ GCMX86_BSHR(e, 8);
+  gcmx86_v d  = WIRED_ARCH_CLMUL(a, b, 0x00); /* a0*b0 */
+  gcmx86_v c  = WIRED_ARCH_CLMUL(a, b, 0x11); /* a1*b1 */
+  gcmx86_v ax = a ^ WIRED_ARCH_VSHRB(a, 8);   /* a0^a1 in the low half */
+  gcmx86_v bx = b ^ WIRED_ARCH_VSHRB(b, 8);
+  gcmx86_v e  = WIRED_ARCH_CLMUL(ax, bx, 0x00) ^ c ^ d; /* middle term */
+  *lo         = d ^ WIRED_ARCH_VSHLB(e, 8);
+  *hi         = c ^ WIRED_ARCH_VSHRB(e, 8);
 }
 
 /* Shift the 256-bit value [hi:lo] left one bit (aligns the reflected
@@ -114,9 +79,9 @@ static void gcmx86_shl1_256(gcmx86_v* lo, gcmx86_v* hi) {
   gcmx86_w h  = (gcmx86_w)*hi;
   gcmx86_w cl = l >> 31; /* per-lane carry bits */
   gcmx86_w ch = h >> 31;
-  *lo         = (gcmx86_v)(l << 1) | GCMX86_BSHL((gcmx86_v)cl, 4);
-  *hi         = (gcmx86_v)(h << 1) | GCMX86_BSHL((gcmx86_v)ch, 4) |
-                GCMX86_BSHR((gcmx86_v)cl, 12);
+  *lo         = (gcmx86_v)(l << 1) | WIRED_ARCH_VSHLB((gcmx86_v)cl, 4);
+  *hi         = (gcmx86_v)(h << 1) | WIRED_ARCH_VSHLB((gcmx86_v)ch, 4) |
+                WIRED_ARCH_VSHRB((gcmx86_v)cl, 12);
 }
 
 /* Reduce [hi:lo] modulo x^128 + x^7 + x^2 + x + 1 in the bit-reflected
@@ -125,8 +90,8 @@ static void gcmx86_shl1_256(gcmx86_v* lo, gcmx86_v* hi) {
 static gcmx86_v gcmx86_reduce(gcmx86_v lo, gcmx86_v hi) {
   gcmx86_w l    = (gcmx86_w)lo;
   gcmx86_w t    = (l << 31) ^ (l << 30) ^ (l << 25);
-  gcmx86_v keep = GCMX86_BSHR((gcmx86_v)t, 4);
-  l ^= (gcmx86_w)GCMX86_BSHL((gcmx86_v)t, 12);
+  gcmx86_v keep = WIRED_ARCH_VSHRB((gcmx86_v)t, 4);
+  l ^= (gcmx86_w)WIRED_ARCH_VSHLB((gcmx86_v)t, 12);
   gcmx86_w r = (l >> 1) ^ (l >> 2) ^ (l >> 7) ^ (gcmx86_w)keep;
   return hi ^ (gcmx86_v)(l ^ r);
 }
