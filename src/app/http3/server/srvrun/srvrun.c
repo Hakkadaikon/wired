@@ -7654,7 +7654,7 @@ static int srvrun_wait_input(const srvrun_cfg* cfg, srvrun_state* st) {
 static i64 srvrun_recv_xdp(
     const srvrun_cfg* cfg, quic_mmsg_buf* bufs, usz nbufs) {
   i64 n = wired_srvxdp_rx_burst(cfg->xdp, bufs, nbufs);
-  if (!n) __builtin_ia32_pause();
+  if (!n) wired_arch_pause();
   return n;
 }
 
