@@ -154,6 +154,11 @@ export async function run({ pageUrl, server, arg, log }) {
       chatMissingAtSettle: missingAtSettle.length,
       chatLateDelivered: missingAtSettle.length - missingFinal.length,
       missingTransport,
+      // Raw transport taps, persisted so offline qlog forensics can align
+      // the server's relay streams against what each receiver actually saw
+      // at the WebTransport layer (heads carry the message ids).
+      uniStreamTaps: uniStreams,
+      outUniStreamTaps: outUniStreams,
       voiceTrace,
       proxyStats: proxy.stats(),
     };
