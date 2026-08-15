@@ -7,20 +7,12 @@ features (documented against each project's own sources) and in speed
 (measured under pinned, equal conditions).
 
 > **Scope disclaimer.** Every number below is a measurement from one specific
-> day (2026-08-09) on one specific machine (a 4-vCPU KVM VM, see the
-> [environment appendix](#environment)), against pinned versions. wired's
-> own rows are pinned per lane because same-day changes landed while
-> measuring: a stall fix (`8c45b6f`, without which goodput was unmeasurable),
-> a defaults retune (`f644681`, Cubic + a quiche-matching connection
-> window), a datapath round (`c4f147f`: ACK piggybacking, batched
-> MAX_STREAMS grants, UDP GSO send batching, cached send-gate totals, plus
-> ECDSA/x25519 double-computation fixes), and a congestion/pacing round
-> (`72914d2`: a token-bucket pacer, ring-buffered streaming that removed a
-> per-round ACK-drain stall, and a BBR repair — the speed sections tell
-> the full story; superseded interim numbers stay in the
-> [run manifest](#run-manifest)). It is not a claim of general superiority
-> or inferiority of any implementation. Bad numbers are published along
-> with good ones.
+> day (2026-08-16 local; the runner's log directories carry UTC stamps of
+> 2026-08-15T16:xx onward) on one specific machine (a 4-vCPU KVM VM, see the
+> [environment appendix](#environment)), against pinned versions. wired is
+> pinned at one commit (`9d21db9`) for every lane. It is not a claim of
+> general superiority or inferiority of any implementation. Bad numbers are
+> published along with good ones.
 
 Legend: `✅` supported · `Partial` supported with a stated limitation ·
 `—` not supported / not measured, with the reason in the cell or footnote.
@@ -28,7 +20,7 @@ Legend: `✅` supported · `Partial` supported with a stated limitation ·
 ## Feature matrix
 
 Sources: each cell cites the project's own README/source at the pinned
-version — wired at commit `8068749`, quic-go `v0.61.0`, quiche `0.29.3`,
+version — wired at commit `9d21db9`, quic-go `v0.61.0`, quiche `0.29.3`,
 ngtcp2 (interop image, untagged) [^ng-img], picoquic (interop image,
 untagged) [^pq-img].
 
@@ -37,7 +29,7 @@ untagged) [^pq-img].
 | Language | C, freestanding [^w-libc] | Go (pure Go) [^qg-readme] | Rust (+ BoringSSL C/C++) [^qc-readme] | C11 (examples C++23) [^ng-readme] | C [^pq-readme] |
 | TLS stack | Own built-in TLS 1.3 (no external TLS library) [^w-tls] | Go standard library crypto/TLS [^qg-readme] | BoringSSL [^qc-readme] | Pluggable: GnuTLS, BoringSSL/aws-lc, Picotls, wolfSSL, LibreSSL, OpenSSL ≥ 3.5 [^ng-readme] | picotls (optional MbedTLS) [^pq-readme] |
 | libc dependency | None — every `src/**/*.c` compiles `-ffreestanding -nostdlib`; direct syscalls [^w-libc] | None (no cgo), but requires the Go runtime [^qg-nocgo] | Yes (Rust std + linked BoringSSL) [^qc-readme] | Yes (hosted C11) [^ng-readme] | Yes (hosted C) [^pq-readme] |
-| Server binary size (see definition [^binsize]) | 369,168 B (static, no libc) [^binsize] | 7,311,104 B (static Go binary incl. runtime) [^binsize] | 6,115,440 B (BoringSSL static, glibc dynamic) [^binsize] | — (no native build in this comparison [^binsize]) | — (no native build in this comparison [^binsize]) |
+| Server binary size (see definition [^binsize]) | 369,312 B (static, no libc) [^binsize] | 7,310,976 B (static Go binary incl. runtime) [^binsize] | 6,126,288 B (BoringSSL static, glibc dynamic) [^binsize] | — (no native build in this comparison [^binsize]) | — (no native build in this comparison [^binsize]) |
 | HTTP/3 (RFC 9114) | ✅ server side [^w-h3] | ✅ [^qg-readme] | ✅ (`h3` module) [^qc-h3] | ✅ via nghttp3 [^ng-h3] | ✅ minimal ("h3zero", demo grade) [^pq-readme] |
 | QPACK dynamic table (RFC 9204) | Partial — decoder has a live dynamic table; server advertises capacity 0 and its encoder is static-only [^w-qpack] | — (qpack v0.6.0 is static-table only) [^qg-qpack] | — ("TODO: implement dynamic table") [^qc-qpack] | ✅ (nghttp3 "supports dynamic table") [^ng-qpack] | — (static-only, zero-length dynamic dictionary) [^pq-qpack] |
 | WebTransport (RFC 9220 + draft-webtrans-http3) | ✅ server side [^w-wt] | Partial — separate companion module webtransport-go [^qg-readme] | Partial — Extended CONNECT only, no WT session layer [^qc-wt] | Partial — nghttp3 ships RFC 9220/9297 prerequisites only [^ng-wt] | ✅ (`picohttp/webtransport.c`) [^pq-wt] |
@@ -61,83 +53,32 @@ Method: [quic-interop-runner](https://github.com/quic-interop/quic-interop-runne
 5 repetitions), runner commit `1d6f655`. The client is pinned to the same
 quic-go interop image for every server (`martenseemann/quic-go-interop:latest`),
 so every server faces identical client behavior and an identical link. All
-endpoints run as Docker containers — one execution form across the row.
+endpoints run as Docker containers — one execution form across the row. All
+five rows were measured back-to-back on the same day, on an otherwise idle
+machine.
 
 | Server | Goodput (5 runs) | Server image |
 |---|---|---|
-| wired | 9394 (± 50) kbps [^w-goodput-rerun] | `wired-interop` built from commit `3d84412` |
-| quic-go | 9532 (± 28) kbps | `martenseemann/quic-go-interop:latest` |
-| quiche | 9443 (± 7) kbps | `cloudflare/quiche-qns:latest` |
-| ngtcp2 | 9381 (± 67) kbps [^ngtcp2-warn] | `ghcr.io/ngtcp2/ngtcp2-interop:latest` |
-| picoquic | 9328 (± 5) kbps | `privateoctopus/picoquic:latest` |
+| wired | 9417 (± 43) kbps | `wired-interop` built from commit `9d21db9` |
+| quic-go | 9549 (± 15) kbps | `martenseemann/quic-go-interop:latest` |
+| quiche | 9425 (± 24) kbps | `cloudflare/quiche-qns:latest` |
+| ngtcp2 | 9446 (± 56) kbps | `ghcr.io/ngtcp2/ngtcp2-interop:latest` |
+| picoquic | 9320 (± 19) kbps | `privateoctopus/picoquic:latest` |
 
 ```mermaid
 xychart-beta
     title "Goodput over the runner's simulated link (kbps, higher is better)"
     x-axis ["wired", "quic-go", "quiche", "ngtcp2", "picoquic"]
     y-axis "kbps" 0 --> 10000
-    bar [9394, 9532, 9443, 9381, 9328]
+    bar [9417, 9549, 9425, 9446, 9320]
 ```
 
-**wired's number is the product of five same-day change sets**, all
-disclosed:
-
-1. **A stall fix** (`8c45b6f`). At the base commit `8068749` the 10 MB
-   transfer stalled partway (655,296 of 10,485,760 bytes) and the runner
-   reported the cell as unmeasured. Root cause: the per-slice plaintext
-   buffer was a fixed 1400 bytes while DPLPMTUD (RFC 8899) can raise the
-   send chunk to 1411 — every full-size slice failed frame encoding
-   *after* its bytes had been consumed from the send queue, black-holing
-   them (never logged in flight, so never loss-detected or resent) while
-   the phantom consumption exhausted connection-level flow-control credit.
-   With the buffer sized from the PMTU constants and failed sends returned
-   to the retransmit queue, the transfer completes at full-size 1440-byte
-   datagrams (`transfer` 5/5 consecutive PASS, previously 0/5). Measured
-   at this commit: 7144 (± 84) kbps.
-2. **A defaults retune** (`f644681`). The remaining gap at `8c45b6f` was a
-   packet-rate difference, not a packet-size one (~620 datagrams/s vs the
-   pre-PMTU build's ~810 smaller ones), pointing at congestion control:
-   wired defaulted to NewReno where every faster peer runs Cubic. The
-   default is now Cubic (build-time selectable, see the
-   [defaults table](#server-defaults-loopback-lane)), worth +874 kbps on
-   this link by itself. A BBR build (`-DWIRED_CC_ALGO_DEFAULT=2`) was also
-   tried and, at this commit, could not complete the transfer at all —
-   repaired later the same day (item 5 below).
-
-A same-day congestion/pacing round (`f33e3ac`..`72914d2`) then closed most
-of the remaining gap, qlog-diagnosed at each step:
-
-3. **A token-bucket pacer** (`f33e3ac`). Below a 25ms pacing interval,
-   pacing used to switch fully off and a pump pass burst the whole cwnd
-   back-to-back — overflowing this link's 25-packet bottleneck queue every
-   time cwnd approached BDP and capping cwnd at ~39.6kB (~BDP) instead of
-   BDP+queue (~67kB). With refills at 1.25 x cwnd/srtt and a 10-packet
-   burst cap: 8588 (± 35) kbps, and the run-to-run spread collapsed.
-4. **Ring-buffered streaming** (`82ccdb0`). A streaming response re-armed
-   its send session once per 640KB round, legal only after every slice was
-   acknowledged — the client qlog showed 30–60ms receive gaps every
-   ~600ms (~800ms of a 9.9s transfer). Responses now stream through a
-   ring that refills while earlier bytes are still in flight: 9372 (± 14)
-   kbps, statistically level with ngtcp2 (9381) and past picoquic (9328).
-5. **A BBR repair** (`72914d2`, disclosed for completeness — the default
-   stays Cubic). The earlier "BBR could not complete the transfer" row is
-   fixed: a startup loss storm used to starve sample rounds, collapse the
-   windowed-max bandwidth estimate, and pin cwnd at a 2400-byte fixed
-   point. With starved samples barred from lowering the filter, a
-   4-packet cwnd floor (BBRMinPipeCwnd), a per-round (not per-tick)
-   PROBE_BW gain cycle, and BBR pacing through the same token bucket, a
-   BBR-forced build passes `transfer` and measures 9336/9342 kbps.
-
-The remaining ~140 kbps to quic-go (9394 vs 9532) is slow-start ramp
-efficiency on this link: every run loses a ~12-20 packet burst around
-pn 103-124 when the last doubling round overruns the 25-packet queue. Two
-candidate fixes were measured and reverted as within run-to-run spread —
-an in-round HyStart exit (the burst forms before the elevated-RTT ACKs
-that would trigger any detector can return, so exit timing cannot prevent
-it) and a slow-start pacing damp to 1.0 x cwnd/srtt. The interim
-7814 (± 116) measured at `c4f147f` (the ~2% dip vs `f644681` that a
-commit-level bisect attributed to run-to-run spread, not any one change)
-is superseded and kept in the [run manifest](#run-manifest).
+wired (9417) sits between quiche (9425) and ngtcp2 (9446) on one side and
+picoquic (9320) on the other, with the gaps to both neighbors inside or
+near the run-to-run spread; quic-go (9549) leads the field on this link.
+wired's defaults for this lane: Cubic congestion control, DPLPMTUD raising
+the datagram size to the link's full 1440 bytes, a token-bucket pacer
+(see the [defaults table](#server-defaults-loopback-lane)).
 
 ## Speed: loopback per-request overhead
 
@@ -148,15 +89,14 @@ servers run as native binaries pinned to CPU core 3; the client uses cores
 0–1. Same ECDSA P-256 certificate, same 1 KiB file, each server at its own
 defaults (recorded [below](#server-defaults-loopback-lane)). Per round: 100
 fresh-connection requests ("TTFB" [^ttfb-def]) plus 10,000 requests over 20
-concurrent streams on warmed connections ("load"). 5 rounds per server. A
+concurrent streams on a warmed connection ("load"). 5 rounds per server. A
 request unanswered for 10 s counts as a failure and the worker moves on.
 
 | Server (native) | TTFB p50 (ms) | load req/s | load p50 (ms) | load p99 (ms) | failures |
 |---|---|---|---|---|---|
-| wired `3d84412` [^w-loopback-day] | 2.5 ± 0.1 | 22,161 ± 841 | 0.8 ± 0.0 | 3.3 ± 0.3 | 0 / 50,500 |
-| wired `72914d2` (superseded) | 3.0 ± 0.1 | 24,771 ± 1176 | 0.7 ± 0.0 | 3.4 ± 0.6 | 0 / 50,500 |
-| quic-go v0.61.0 | 2.5 ± 0.1 | 11,329 ± 633 | 1.5 ± 0.1 | 4.2 ± 0.6 | 0 / 50,500 |
-| quiche 0.29.3 (`55886df`) | 2.0 ± 0.1 | 18,550 ± 2441 | 0.9 ± 0.1 | 3.7 ± 1.1 | 0 / 50,500 |
+| wired `9d21db9` | 2.2 ± 0.1 | 26,079 ± 1,075 | 0.64 ± 0.02 | 2.9 ± 0.3 | 0 / 50,500 |
+| quic-go v0.61.0 | 2.3 ± 0.1 | 12,788 ± 502 | 1.35 ± 0.04 | 3.6 ± 0.3 | 0 / 50,500 |
+| quiche 0.29.3 (`55886df`) | 2.0 ± 0.1 | 20,453 ± 1,622 | 0.90 ± 0.06 | 2.7 ± 0.4 | 0 / 50,500 |
 | ngtcp2 | — (no native build attempted: multi-stage autotools chain; measured in the goodput lane only) | — | — | — | — |
 | picoquic | — (no native build attempted: multi-stage cmake chain incl. picotls; measured in the goodput lane only) | — | — | — | — |
 
@@ -164,8 +104,8 @@ request unanswered for 10 s counts as a failure and the worker moves on.
 xychart-beta
     title "Loopback load throughput (req/s, higher is better)"
     x-axis ["wired", "quic-go", "quiche"]
-    y-axis "req/s" 0 --> 26000
-    bar [22161, 11329, 18550]
+    y-axis "req/s" 0 --> 28000
+    bar [26079, 12788, 20453]
 ```
 
 ```mermaid
@@ -173,56 +113,39 @@ xychart-beta
     title "TTFB p50 -- fresh connection incl. handshake (ms, lower is better)"
     x-axis ["wired", "quic-go", "quiche"]
     y-axis "ms" 0 --> 5
-    bar [2.5, 2.5, 2.0]
+    bar [2.2, 2.3, 2.0]
 ```
 
 ```mermaid
 xychart-beta
     title "Load latency p99 (ms, lower is better)"
     x-axis ["wired", "quic-go", "quiche"]
-    y-axis "ms" 0 --> 7
-    bar [3.3, 4.2, 3.7]
+    y-axis "ms" 0 --> 5
+    bar [2.9, 3.6, 2.7]
 ```
 
-(Bars plot the table means.) Client CPU ran past saturation for the fastest
-rows — quiche's client-side CPU peaked at 125% of the 200% two-core budget
-and wired's at 133% — so read the ratios between servers as indicative, not
-exact (the fastest rows are at least partly client-bound). wired's row was
-re-measured at `72914d2` after two same-day rounds. The datapath round
-(`c4f147f`): batched MAX_STREAMS grants and an ACK piggybacked onto the
-response slice (≈1 datagram per request instead of ≈2.5), UDP GSO send
-batching, cached send-gate totals replacing an O(slots²)-per-pass scan
-(the single biggest req/s factor), and removal of a duplicated ECDSA sign
-computation and x25519 ECDHE (the TTFB drop from 4.4 ms) — 21,962 ± 591
-req/s at that commit. The congestion/pacing round (`72914d2`, described in
-the goodput section) lifted it further. The certificate-cache/ECDSA round
-(`3d84412`) then took TTFB from its own same-day 3.4 ms baseline to
-2.5 ms: the self-signed certificate DER — a pure function of the fixed
-key, SAN, and validity anchor under RFC 6979's deterministic ECDSA — is
-now built once per process instead of per accept (~2 ms/connection when
-running self-signed), and the ECDSA sign path's generic long-division
-mod-n arithmetic was rewired through the existing Montgomery core (one
-signature 0.92 ms -> 0.20 ms). The superseded runs sit in the
-[manifest](#run-manifest); the lane showed no stalls or failures across
-50,500 requests on any build.
+(Bars plot the table means.) Client CPU ran past comfortable headroom for
+the fastest rows — wired's client-side CPU peaked at 132% of the 200%
+two-core budget and quiche's at 118%, against quic-go's 68–80% — so read
+the ratios between the fastest servers as indicative, not exact (those rows
+are at least partly client-bound). The lane showed no stalls or failures
+across 50,500 requests on any server.
 
 ## Interop test cases (current run)
 
-Re-run against commit `72914d2` alongside the benchmarks above (client:
-quic-go, runner commit `1d6f655`). The handshake, retry, resumption,
-zerortt, transfer, http3, multiplexing, and blackhole cases were
-re-verified at `3d84412` (the certificate-cache/ECDSA round), all ✓:
+Re-run against commit `9d21db9` alongside the benchmarks above (client:
+quic-go, runner commit `1d6f655`):
 
 | Test case | Result | Note |
 |---|---|---|
 | `handshake` | ✅ | |
 | `http3` | ✅ | |
 | `multiplexing` | ✅ | |
-| `transfer` | ✅ | failed (`✕`) at commit `8068749` — the goodput-lane stall above, reproduced here on a 2 MB download; passes at the fix commit `8c45b6f` (5/5 consecutive), `f644681` (3/3), after every datapath change of the `c4f147f` round, and after every congestion/pacing change of the `72914d2` round (including once with BBR forced) |
-| `blackhole` | ✅ | re-verified after the send-gate caching (`c4f147f`) and again after the ring/pacer round (the probe and retransmit paths they could have disturbed) |
+| `transfer` | ✅ | |
+| `blackhole` | ✅ | |
 
 Full per-testcase status (broader set, including WebTransport) is
-maintained separately in [Interop Results](interop.md); the four rows above
+maintained separately in [Interop Results](interop.md); the five rows above
 are the ones this comparison's benchmarks depend on and were independently
 re-verified for this document.
 
@@ -250,8 +173,7 @@ is published for MOQT. This section is carried forward unchanged from the
 ## Environment
 
 - Host: KVM full-virtualization VM, Intel Xeon Gold 6230 @ 2.10 GHz, 4 vCPUs,
-  3.8 GiB RAM, Ubuntu 24.04.4 LTS, kernel 6.8.0-110-generic. Same host as the
-  previous measurement round.
+  3.8 GiB RAM, Ubuntu 24.04.4 LTS, kernel 6.8.0-110-generic.
 - CPU frequency governor: unknown — the VM does not expose cpufreq sysfs.
 - `net.core.rmem_max` fixed at 208 KiB (no privilege to raise it); the
   quic-go client logs a receive-buffer warning in every loopback run. Same
@@ -262,7 +184,7 @@ is published for MOQT. This section is carried forward unchanged from the
 - Version pins per lane: the goodput lane uses the `:latest` Docker images
   registered in the runner's `implementations_quic.json` (image digests in
   the [run manifest](#run-manifest)); the loopback lane uses native builds
-  at the commits in its table (wired `72914d2`, quic-go client library
+  at the commits in its table (wired `9d21db9`, quic-go client library
   `v0.61.0`, quiche `55886df` / crate version `0.29.3`).
 
 ### Server defaults (loopback lane)
@@ -279,18 +201,17 @@ directly shape these metrics:
 | UDP GSO | used | used (with fallback) | used (auto-detected) |
 | qlog / debug logging | off | off | off |
 
-As of `f644681`, wired's congestion controller and every advertised
-transport-parameter default are build-time tunable (`#ifndef`-guarded
-macros, overridden with plain `-D` flags: `QUIC_STP_DEFAULT_*` in
-`server_tp.h`, `WIRED_CC_ALGO_DEFAULT` in `srvrun.c`,
-`WIRED_SRVLOOP_WT_BUF_CAP` in `srvloop.h`), and the out-of-the-box values
-for congestion control and the connection-wide window now match quiche's
-defaults. The per-stream windows deliberately stay at their buffer-backed
-values: they advertise exactly the fixed reassembly capacity behind them,
-and a build that raises them must raise the buffer with them (a unit test
-pins the pair; the freestanding static-allocation design makes bigger
-windows a real memory decision — 6 bidi + 6 uni slots per connection —
-rather than a free config flip).
+wired's congestion controller and every advertised transport-parameter
+default are build-time tunable (`#ifndef`-guarded macros, overridden with
+plain `-D` flags: `QUIC_STP_DEFAULT_*` in `server_tp.h`,
+`WIRED_CC_ALGO_DEFAULT` in `srvrun.c`, `WIRED_SRVLOOP_WT_BUF_CAP` in
+`srvloop.h`), and the out-of-the-box values for congestion control and the
+connection-wide window match quiche's defaults. The per-stream windows
+deliberately stay at their buffer-backed values: they advertise exactly the
+fixed reassembly capacity behind them, and a build that raises them must
+raise the buffer with them (a unit test pins the pair; the freestanding
+static-allocation design makes bigger windows a real memory decision —
+6 bidi + 6 uni slots per connection — rather than a free config flip).
 
 ### Reproduction
 
@@ -311,162 +232,67 @@ Client (`taskset -c 0,1`): `benchclient -mode ttfb -n 100` and
 
 ### Bench client and server source
 
-The load client and the quic-go static-file server are ~200 and ~20 lines of
+The load client and the quic-go static-file server are ~180 and ~20 lines of
 Go on quic-go v0.61.0 (`go.mod` pins `github.com/quic-go/quic-go v0.61.0`).
 The client measures per-request latency (dial start → 1 KiB response fully
 read, handshake included, for TTFB mode [^ttfb-def]), applies a 10 s
 per-request timeout, aborts a run after 500 failures, and reports its own CPU
-time so client-saturated runs can be invalidated. Raw sources and run logs
-live outside this repository; the full command lines and every run's numbers
+time so client-saturated runs can be judged. The client used for this
+document's run is a reimplementation of the earlier rounds' client to the
+same specification (the original sources were not retained), so this lane is
+internally consistent — every server measured by the same binary on the same
+day — but not directly comparable against numbers published from other days.
+Raw sources and run logs live outside this repository; every run's numbers
 are published in the manifest below.
 
 ## Run manifest
 
-Goodput lane (each value = runner's 5-repetition mean ± sd for that run):
+Goodput lane (each value = the runner's 5-repetition mean ± sd for that
+single invocation; one invocation per server, run back-to-back on an idle
+machine):
 
-| Server | Run | Result |
+| Server | Result | Image digest |
 |---|---|---|
-| wired (`8068749`) | first run (disclosed, unmeasurable) | transfer stalled at 655,296 / 10,485,760 bytes |
-| wired (`8c45b6f`, stall fix, NewReno default) | single run (superseded) | 7144 (± 84) kbps |
-| wired (`f644681`, Cubic default) | single run (superseded) | 8018 (± 74) kbps |
-| wired (`f644681` built `-DWIRED_CC_ALGO_DEFAULT=2`, BBR) | single run (disclosed, unmeasurable) | transfer did not complete — repaired at `72914d2`, see its BBR row below |
-| wired (`0f185cf`, crypto-only, bisect re-run) | 3 runs | 8042 (± 40), 8023 (± 220), 7944 (± 229) kbps |
-| wired (`1f3df4d`, +ACK piggyback, bisect re-run) | 3 runs | 6783 (± 1627), 7945 (± 210), 7920 (± 212) kbps |
-| wired (`c4f147f`, datapath round; superseded) | 5 runs | 7804 (± 242), 7937 (± 89), 7630 (± 264), 7881 (± 189), 7816 (± 241) kbps — pooled 7814 (± 116) |
-| wired (`f33e3ac`, token-bucket pacer) | 3 runs (superseded) | 8592 (± 30), 8620 (± 30), 8551 (± 23) kbps |
-| wired (`82ccdb0`, ring-buffered streaming) | 3 runs (superseded) | 9354 (± 46), 9391 (± 49), 9426 (± 18) kbps |
-| wired (`72914d2` forced `--cc-algo 2`, BBR; disclosed) | 2 runs | 9336 (± 38), 9342 (± 37) kbps |
-| wired (`72914d2`, Cubic default; superseded) | 5 runs | 9380 (± 42), 9365 (± 104), 9391 (± 47), 9356 (± 38), 9369 (± 40) kbps — pooled 9372 (± 14) |
-| wired (`7c6b464`, second-day baseline) | single run | 9414 (± 45) kbps |
-| wired (in-round HyStart exit; disclosed, reverted) | 3 runs | 9411 (± 29), 9352 (± 26), 9391 (± 40) kbps |
-| wired (slow-start pacing damp; disclosed, reverted) | 2 runs | 9361 (± 36), 9412 (± 43) kbps |
-| wired (`3d84412`, cert-cache/ECDSA round; published above) | single run | 9394 (± 50) kbps |
-| quic-go | single run | 9532 (± 28) kbps |
-| quiche | single run | 9443 (± 7) kbps |
-| ngtcp2 | single run [^ngtcp2-warn] | 9381 (± 67) kbps |
-| picoquic | single run | 9328 (± 5) kbps |
+| wired (`9d21db9`) | 9417 (± 43) kbps | local build (`wired-interop`, no registry digest) |
+| quic-go | 9549 (± 15) kbps | `martenseemann/quic-go-interop@sha256:8b8e8541…` |
+| quiche | 9425 (± 24) kbps | `cloudflare/quiche-qns@sha256:63963aba…` |
+| ngtcp2 | 9446 (± 56) kbps | `ghcr.io/ngtcp2/ngtcp2-interop@sha256:a04ad1bc…` |
+| picoquic | 9320 (± 19) kbps | `privateoctopus/picoquic@sha256:7e4110e3…` |
 
-Loopback lane, all 110 runs across both measurement days (no runs
-excluded, no failures in any run; the `8068749`, `f644681`, `c4f147f`,
-and `72914d2` wired rows are superseded measurements, kept for comparison
-against the published `3d84412` rows — `7c6b464` is `72914d2` plus
-doc/knob-only commits, re-measured as the second day's baseline):
+Loopback lane, all 30 runs (no runs excluded, no failures in any run):
 
 | server | run | mode | n | fails | req/s | p50 ms | p99 ms | client CPU % |
 |---|---|---|---|---|---|---|---|---|
-| wired `72914d2` | r1 | ttfb | 100 | 0 | 294.5 | 3.05 | 6.13 | 60 |
-| wired `72914d2` | r2 | ttfb | 100 | 0 | 318.9 | 2.98 | 4.31 | 60 |
-| wired `72914d2` | r3 | ttfb | 100 | 0 | 316.7 | 2.99 | 4.13 | 60 |
-| wired `72914d2` | r4 | ttfb | 100 | 0 | 298.8 | 3.17 | 4.61 | 59 |
-| wired `72914d2` | r5 | ttfb | 100 | 0 | 312.1 | 2.96 | 4.41 | 58 |
-| wired `72914d2` | r1 | load | 10000 | 0 | 26112.3 | 0.67 | 2.58 | 133 |
-| wired `72914d2` | r2 | load | 10000 | 0 | 25891.1 | 0.65 | 3.00 | 126 |
-| wired `72914d2` | r3 | load | 10000 | 0 | 24307.3 | 0.69 | 4.07 | 129 |
-| wired `72914d2` | r4 | load | 10000 | 0 | 23406.7 | 0.69 | 3.88 | 125 |
-| wired `72914d2` | r5 | load | 10000 | 0 | 24138.2 | 0.71 | 3.34 | 127 |
-| wired `c4f147f` | r1 | ttfb | 100 | 0 | 296.3 | 3.15 | 6.05 | 60 |
-| wired `c4f147f` | r2 | ttfb | 100 | 0 | 287.3 | 3.31 | 4.75 | 59 |
-| wired `c4f147f` | r3 | ttfb | 100 | 0 | 277.2 | 3.40 | 4.55 | 64 |
-| wired `c4f147f` | r4 | ttfb | 100 | 0 | 277.6 | 3.44 | 4.64 | 60 |
-| wired `c4f147f` | r5 | ttfb | 100 | 0 | 269.3 | 3.48 | 4.98 | 59 |
-| wired `c4f147f` | r1 | load | 10000 | 0 | 21225.1 | 0.75 | 3.99 | 117 |
-| wired `c4f147f` | r2 | load | 10000 | 0 | 22241.3 | 0.76 | 3.40 | 126 |
-| wired `c4f147f` | r3 | load | 10000 | 0 | 21452.5 | 0.77 | 3.22 | 128 |
-| wired `c4f147f` | r4 | load | 10000 | 0 | 22289.5 | 0.79 | 3.11 | 138 |
-| wired `c4f147f` | r5 | load | 10000 | 0 | 22601.1 | 0.77 | 2.86 | 132 |
-
-| server | run | mode | n | fails | req/s | p50 ms | p99 ms | client CPU % |
-|---|---|---|---|---|---|---|---|---|
-| wired `8068749` | r1 | ttfb | 100 | 0 | 222.0 | 4.02 | 7.41 | 47 |
-| wired `8068749` | r2 | ttfb | 100 | 0 | 234.0 | 3.76 | 6.38 | 45 |
-| wired `8068749` | r3 | ttfb | 100 | 0 | 252.2 | 3.78 | 5.40 | 48 |
-| wired `8068749` | r4 | ttfb | 100 | 0 | 210.4 | 4.41 | 6.43 | 48 |
-| wired `8068749` | r5 | ttfb | 100 | 0 | 227.1 | 4.07 | 7.22 | 49 |
-| wired `8068749` | r1 | load | 10000 | 0 | 5337.0 | 4.01 | 5.54 | 94 |
-| wired `8068749` | r2 | load | 10000 | 0 | 4967.6 | 4.10 | 6.02 | 94 |
-| wired `8068749` | r3 | load | 10000 | 0 | 5229.7 | 4.09 | 5.67 | 96 |
-| wired `8068749` | r4 | load | 10000 | 0 | 4971.1 | 4.23 | 6.74 | 94 |
-| wired `8068749` | r5 | load | 10000 | 0 | 4828.0 | 4.38 | 5.53 | 96 |
-| wired `f644681` | r1 | ttfb | 100 | 0 | 221.8 | 4.19 | 6.52 | 47 |
-| wired `f644681` | r2 | ttfb | 100 | 0 | 221.1 | 4.19 | 6.41 | 43 |
-| wired `f644681` | r3 | ttfb | 100 | 0 | 216.1 | 4.43 | 6.40 | 47 |
-| wired `f644681` | r4 | ttfb | 100 | 0 | 210.3 | 4.53 | 6.39 | 47 |
-| wired `f644681` | r5 | ttfb | 100 | 0 | 199.8 | 4.78 | 6.27 | 47 |
-| wired `f644681` | r1 | load | 10000 | 0 | 5142.8 | 4.08 | 5.57 | 95 |
-| wired `f644681` | r2 | load | 10000 | 0 | 4960.9 | 4.18 | 6.07 | 94 |
-| wired `f644681` | r3 | load | 10000 | 0 | 4836.8 | 4.31 | 5.68 | 98 |
-| wired `f644681` | r4 | load | 10000 | 0 | 5038.8 | 4.50 | 6.13 | 99 |
-| wired `f644681` | r5 | load | 10000 | 0 | 4294.8 | 4.77 | 6.04 | 103 |
-| quic-go | r1 | ttfb | 100 | 0 | 343.3 | 2.52 | 4.93 | 67 |
-| quic-go | r2 | ttfb | 100 | 0 | 371.3 | 2.42 | 5.40 | 75 |
-| quic-go | r3 | ttfb | 100 | 0 | 357.4 | 2.54 | 4.16 | 74 |
-| quic-go | r4 | ttfb | 100 | 0 | 374.5 | 2.46 | 3.91 | 76 |
-| quic-go | r5 | ttfb | 100 | 0 | 332.8 | 2.56 | 6.00 | 70 |
-| quic-go | r1 | load | 10000 | 0 | 11845.0 | 1.45 | 3.70 | 83 |
-| quic-go | r2 | load | 10000 | 0 | 10293.6 | 1.65 | 5.27 | 74 |
-| quic-go | r3 | load | 10000 | 0 | 11751.5 | 1.46 | 3.89 | 83 |
-| quic-go | r4 | load | 10000 | 0 | 11580.1 | 1.48 | 3.99 | 83 |
-| quic-go | r5 | load | 10000 | 0 | 11174.9 | 1.57 | 4.15 | 79 |
-| quiche | r1 | ttfb | 100 | 0 | 448.8 | 1.90 | 4.49 | 90 |
-| quiche | r2 | ttfb | 100 | 0 | 424.9 | 2.20 | 3.49 | 92 |
-| quiche | r3 | ttfb | 100 | 0 | 472.9 | 1.94 | 3.31 | 98 |
-| quiche | r4 | ttfb | 100 | 0 | 466.0 | 1.95 | 3.61 | 94 |
-| quiche | r5 | ttfb | 100 | 0 | 424.3 | 1.90 | 5.14 | 85 |
-| quiche | r1 | load | 10000 | 0 | 19780.3 | 0.90 | 2.93 | 121 |
-| quiche | r2 | load | 10000 | 0 | 20282.8 | 0.89 | 2.91 | 125 |
-| quiche | r3 | load | 10000 | 0 | 18677.8 | 0.95 | 3.31 | 116 |
-| quiche | r4 | load | 10000 | 0 | 19700.3 | 0.89 | 3.54 | 125 |
-| quiche | r5 | load | 10000 | 0 | 14310.3 | 1.04 | 5.58 | 87 |
-| wired `7c6b464` (same-day baseline) | r1 | ttfb | 100 | 0 | 260.7 | 3.51 | 7.17 | 59 |
-| wired `7c6b464` (same-day baseline) | r2 | ttfb | 100 | 0 | 283.3 | 3.31 | 4.71 | 59 |
-| wired `7c6b464` (same-day baseline) | r3 | ttfb | 100 | 0 | 260.8 | 3.48 | 6.67 | 56 |
-| wired `7c6b464` (same-day baseline) | r4 | ttfb | 100 | 0 | 265.2 | 3.44 | 5.55 | 59 |
-| wired `7c6b464` (same-day baseline) | r5 | ttfb | 100 | 0 | 259.6 | 3.38 | 6.56 | 57 |
-| wired `7c6b464` (same-day baseline) | r1 | load | 10000 | 0 | 21682.0 | 0.74 | 3.88 | 118 |
-| wired `7c6b464` (same-day baseline) | r2 | load | 10000 | 0 | 20314.1 | 0.79 | 3.85 | 113 |
-| wired `7c6b464` (same-day baseline) | r3 | load | 10000 | 0 | 19438.8 | 0.79 | 4.10 | 120 |
-| wired `7c6b464` (same-day baseline) | r4 | load | 10000 | 0 | 21576.2 | 0.77 | 4.05 | 138 |
-| wired `7c6b464` (same-day baseline) | r5 | load | 10000 | 0 | 21442.6 | 0.74 | 4.74 | 120 |
-| wired `7c6b464` self-signed (same-day baseline) | r1 | ttfb | 100 | 0 | 163.8 | 5.73 | 8.22 | 42 |
-| wired `7c6b464` self-signed (same-day baseline) | r2 | ttfb | 100 | 0 | 191.4 | 5.07 | 6.58 | 38 |
-| wired `7c6b464` self-signed (same-day baseline) | r3 | ttfb | 100 | 0 | 189.9 | 5.10 | 6.25 | 39 |
-| wired `7c6b464` self-signed (same-day baseline) | r4 | ttfb | 100 | 0 | 180.3 | 5.32 | 7.25 | 40 |
-| wired `7c6b464` self-signed (same-day baseline) | r5 | ttfb | 100 | 0 | 179.9 | 5.33 | 7.70 | 41 |
-| wired `7c6b464` self-signed (same-day baseline) | r1 | load | 10000 | 0 | 25508.9 | 0.66 | 3.17 | 126 |
-| wired `7c6b464` self-signed (same-day baseline) | r2 | load | 10000 | 0 | 24426.5 | 0.66 | 3.50 | 125 |
-| wired `7c6b464` self-signed (same-day baseline) | r3 | load | 10000 | 0 | 24575.7 | 0.69 | 3.52 | 129 |
-| wired `7c6b464` self-signed (same-day baseline) | r4 | load | 10000 | 0 | 24559.1 | 0.69 | 3.13 | 127 |
-| wired `7c6b464` self-signed (same-day baseline) | r5 | load | 10000 | 0 | 21506.4 | 0.78 | 3.09 | 126 |
-| wired `e603fcc` self-signed (cert cache) | r1 | ttfb | 100 | 0 | 321.4 | 2.93 | 4.98 | 61 |
-| wired `e603fcc` self-signed (cert cache) | r2 | ttfb | 100 | 0 | 299.2 | 3.08 | 4.94 | 59 |
-| wired `e603fcc` self-signed (cert cache) | r3 | ttfb | 100 | 0 | 317.5 | 2.99 | 4.13 | 62 |
-| wired `e603fcc` self-signed (cert cache) | r4 | ttfb | 100 | 0 | 280.5 | 3.29 | 5.59 | 62 |
-| wired `e603fcc` self-signed (cert cache) | r5 | ttfb | 100 | 0 | 257.8 | 3.63 | 5.43 | 66 |
-| wired `e603fcc` self-signed (cert cache) | r1 | load | 10000 | 0 | 24987.2 | 0.69 | 2.92 | 127 |
-| wired `e603fcc` self-signed (cert cache) | r2 | load | 10000 | 0 | 24739.2 | 0.68 | 3.06 | 128 |
-| wired `e603fcc` self-signed (cert cache) | r3 | load | 10000 | 0 | 23011.9 | 0.74 | 2.96 | 133 |
-| wired `e603fcc` self-signed (cert cache) | r4 | load | 10000 | 0 | 18806.3 | 0.86 | 3.89 | 129 |
-| wired `e603fcc` self-signed (cert cache) | r5 | load | 10000 | 0 | 18350.5 | 0.88 | 4.02 | 119 |
-| wired `3d84412` (published) | r1 | ttfb | 100 | 0 | 350.6 | 2.52 | 5.71 | 76 |
-| wired `3d84412` (published) | r2 | ttfb | 100 | 0 | 374.2 | 2.44 | 4.83 | 74 |
-| wired `3d84412` (published) | r3 | ttfb | 100 | 0 | 367.1 | 2.44 | 4.52 | 70 |
-| wired `3d84412` (published) | r4 | ttfb | 100 | 0 | 345.0 | 2.58 | 6.11 | 73 |
-| wired `3d84412` (published) | r5 | ttfb | 100 | 0 | 340.8 | 2.69 | 4.18 | 71 |
-| wired `3d84412` (published) | r1 | load | 10000 | 0 | 21291.4 | 0.76 | 3.11 | 129 |
-| wired `3d84412` (published) | r2 | load | 10000 | 0 | 23337.3 | 0.73 | 2.82 | 129 |
-| wired `3d84412` (published) | r3 | load | 10000 | 0 | 22398.0 | 0.77 | 3.26 | 132 |
-| wired `3d84412` (published) | r4 | load | 10000 | 0 | 22382.3 | 0.76 | 3.70 | 128 |
-| wired `3d84412` (published) | r5 | load | 10000 | 0 | 21398.5 | 0.79 | 3.42 | 127 |
-| wired `3d84412` self-signed | r1 | ttfb | 100 | 0 | 343.7 | 2.58 | 5.63 | 70 |
-| wired `3d84412` self-signed | r2 | ttfb | 100 | 0 | 359.1 | 2.47 | 4.89 | 71 |
-| wired `3d84412` self-signed | r3 | ttfb | 100 | 0 | 348.1 | 2.64 | 5.02 | 71 |
-| wired `3d84412` self-signed | r4 | ttfb | 100 | 0 | 370.5 | 2.39 | 4.45 | 75 |
-| wired `3d84412` self-signed | r5 | ttfb | 100 | 0 | 344.1 | 2.54 | 5.17 | 69 |
-| wired `3d84412` self-signed | r1 | load | 10000 | 0 | 23862.0 | 0.74 | 2.90 | 134 |
-| wired `3d84412` self-signed | r2 | load | 10000 | 0 | 21019.5 | 0.79 | 4.18 | 126 |
-| wired `3d84412` self-signed | r3 | load | 10000 | 0 | 21054.9 | 0.76 | 4.10 | 125 |
-| wired `3d84412` self-signed | r4 | load | 10000 | 0 | 22497.7 | 0.74 | 3.13 | 130 |
-| wired `3d84412` self-signed | r5 | load | 10000 | 0 | 22864.5 | 0.73 | 3.56 | 126 |
+| wired `9d21db9` | r1 | ttfb | 100 | 0 | 426.3 | 2.17 | 4.92 | 73 |
+| wired `9d21db9` | r2 | ttfb | 100 | 0 | 443.1 | 2.11 | 2.79 | 73 |
+| wired `9d21db9` | r3 | ttfb | 100 | 0 | 436.4 | 2.15 | 3.26 | 74 |
+| wired `9d21db9` | r4 | ttfb | 100 | 0 | 399.7 | 2.29 | 3.24 | 76 |
+| wired `9d21db9` | r5 | ttfb | 100 | 0 | 413.3 | 2.26 | 3.38 | 73 |
+| wired `9d21db9` | r1 | load | 10000 | 0 | 27067.0 | 0.61 | 3.26 | 117 |
+| wired `9d21db9` | r2 | load | 10000 | 0 | 27125.7 | 0.62 | 2.82 | 124 |
+| wired `9d21db9` | r3 | load | 10000 | 0 | 25174.4 | 0.66 | 3.16 | 132 |
+| wired `9d21db9` | r4 | load | 10000 | 0 | 24773.7 | 0.66 | 2.75 | 117 |
+| wired `9d21db9` | r5 | load | 10000 | 0 | 26252.3 | 0.65 | 2.65 | 123 |
+| quic-go | r1 | ttfb | 100 | 0 | 376.0 | 2.36 | 4.51 | 72 |
+| quic-go | r2 | ttfb | 100 | 0 | 307.8 | 2.51 | 9.11 | 60 |
+| quic-go | r3 | ttfb | 100 | 0 | 403.5 | 2.25 | 3.68 | 70 |
+| quic-go | r4 | ttfb | 100 | 0 | 394.2 | 2.27 | 4.29 | 76 |
+| quic-go | r5 | ttfb | 100 | 0 | 393.0 | 2.24 | 4.79 | 71 |
+| quic-go | r1 | load | 10000 | 0 | 13299.6 | 1.30 | 3.61 | 78 |
+| quic-go | r2 | load | 10000 | 0 | 12086.5 | 1.42 | 4.11 | 68 |
+| quic-go | r3 | load | 10000 | 0 | 13005.6 | 1.33 | 3.48 | 78 |
+| quic-go | r4 | load | 10000 | 0 | 12451.9 | 1.36 | 3.64 | 73 |
+| quic-go | r5 | load | 10000 | 0 | 13096.8 | 1.35 | 3.17 | 80 |
+| quiche | r1 | ttfb | 100 | 0 | 492.0 | 1.80 | 3.86 | 92 |
+| quiche | r2 | ttfb | 100 | 0 | 469.6 | 1.92 | 3.65 | 92 |
+| quiche | r3 | ttfb | 100 | 0 | 414.8 | 2.03 | 5.05 | 89 |
+| quiche | r4 | ttfb | 100 | 0 | 427.2 | 2.03 | 4.68 | 91 |
+| quiche | r5 | ttfb | 100 | 0 | 414.1 | 2.08 | 4.48 | 90 |
+| quiche | r1 | load | 10000 | 0 | 22767.1 | 0.81 | 2.13 | 118 |
+| quiche | r2 | load | 10000 | 0 | 21529.7 | 0.86 | 2.44 | 117 |
+| quiche | r3 | load | 10000 | 0 | 19238.2 | 0.94 | 2.96 | 118 |
+| quiche | r4 | load | 10000 | 0 | 19081.9 | 0.94 | 3.11 | 115 |
+| quiche | r5 | load | 10000 | 0 | 19647.5 | 0.94 | 2.76 | 115 |
 
 ## Footnotes
 
@@ -485,24 +311,6 @@ doc/knob-only commits, re-measured as the second day's baseline):
     body read, including the QUIC+TLS handshake — for a 1 KiB body this is
     indistinguishable from first-byte time, but the definition is the
     implemented one.
-[^w-goodput-rerun]: Single 5-repetition runner invocation at `3d84412`
-    (the certificate-cache/ECDSA round; its same-day `7c6b464` baseline
-    measured 9394 vs 9414 — level, as expected for a TTFB-targeted round).
-    The superseded `72914d2` pooled value (9372 ± 14, five same-day
-    invocations) is in the [run manifest](#run-manifest). The non-wired
-    rows were NOT re-run for the wired updates; they remain their own
-    same-day single-invocation values.
-[^w-loopback-day]: Measured on a different day than the other rows.
-    Machine state drifts between sessions: the same `72914d2`-equivalent
-    build re-measured 3.4 ms / 20,891 req/s on the `3d84412` day (vs the
-    3.0 / 24,771 published from its own day), so compare the two wired
-    rows via their same-day baselines, and the cross-server rows within
-    their shared day. Same-day A/B for the `3d84412` round: TTFB
-    3.42 ± 0.08 -> 2.53 ± 0.11 ms, load 20,891 ± 980 -> 22,161 ± 841
-    req/s.
-[^ngtcp2-warn]: The runner logged "At least one QUIC packet could not be
-    decrypted" analysis warnings during the ngtcp2 run; the goodput
-    measurement itself completed normally.
 [^moqt-survey]: Survey of 7 implementations (2026-08-04): imquic
     (<https://github.com/meetecho/imquic>, version enum v16–v19), moxygen
     (Meta), moq-rs/moq-lite (kixelated, diverged fork), libquicr (Cisco),
