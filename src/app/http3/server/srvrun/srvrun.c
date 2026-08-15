@@ -6137,46 +6137,50 @@ static usz srvrun_reap_losses(
   return n;
 }
 
-/* Feed one ACK range to one send session and run its loss-detection pass
- * against the connection's ONE largest_acked (RFC 9002 6.1.1 -- see the
- * srvrun_conn field comment). Shared by every resp[] and wtsend slot;
- * stream_id is only for the loss records' qlog attribution (RFC 9000
- * 19.8) -- ACK/loss accounting itself stays per-session, stream-agnostic. */
-static usz srvrun_feed_ack_range_sess(
-    const srvrun_cfg* cfg,
-    srvrun_conn*      c,
-    wired_sendsess*   sess,
-    u64               stream_id,
-    u64               lo,
-    u64               hi,
-    u64               now_ms) {
-  srvrun_cc_range(c, sess, lo, hi, now_ms);
-  if (!sess->has_acked) return 0;
-  return srvrun_reap_losses(cfg, c, sess, stream_id, now_ms);
+/* Ack/cc accounting for one range on every in-use wtsend session. Loss
+ * reaping deliberately does NOT happen here -- see srvrun_feed_acks. */
+static void srvrun_ack_range_wt(srvrun_conn* c, u64 lo, u64 hi, u64 now_ms) {
+  for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++)
+    if (c->wtsend[i].in_use)
+      srvrun_cc_range(c, &c->wtsend[i].sess, lo, hi, now_ms);
 }
 
-/* A no-op for an unused resp[] slot. */
-static usz srvrun_feed_ack_range_resp(
-    const srvrun_cfg* cfg,
-    srvrun_conn*      c,
-    srvrun_resp*      r,
-    u64               lo,
-    u64               hi,
-    u64               now_ms) {
-  if (!r->in_use) return 0;
-  return srvrun_feed_ack_range_sess(
-      cfg, c, &r->sess, r->stream_id, lo, hi, now_ms);
+/* The resp[] half of the ACK-range broadcast, mirroring the wtsend loop. */
+static void srvrun_ack_range_resps(srvrun_conn* c, u64 lo, u64 hi, u64 now_ms) {
+  for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++)
+    if (c->resp[i].in_use) srvrun_cc_range(c, &c->resp[i].sess, lo, hi, now_ms);
 }
 
-/* The wtsend half of the ACK-range broadcast, mirroring the resp[] loop. */
-static usz srvrun_feed_ack_range_wt(
-    const srvrun_cfg* cfg, srvrun_conn* c, u64 lo, u64 hi, u64 now_ms) {
+/* One loss pass over every in-use wtsend session against the connection's
+ * ONE largest_acked (RFC 9002 6.1.1); the slot's stream_id is only for the
+ * loss records' qlog attribution (RFC 9000 19.8). */
+static usz srvrun_reap_losses_wt(
+    const srvrun_cfg* cfg, srvrun_conn* c, u64 now_ms) {
   usz lost = 0;
   for (usz i = 0; i < SRVRUN_WT_SEND_SLOTS; i++)
     if (c->wtsend[i].in_use)
-      lost += srvrun_feed_ack_range_sess(
-          cfg, c, &c->wtsend[i].sess, c->wtsend[i].stream_id, lo, hi, now_ms);
+      lost += srvrun_reap_losses(
+          cfg, c, &c->wtsend[i].sess, c->wtsend[i].stream_id, now_ms);
   return lost;
+}
+
+/* The resp[] half of the loss pass. */
+static usz srvrun_reap_losses_resps(
+    const srvrun_cfg* cfg, srvrun_conn* c, u64 now_ms) {
+  usz lost = 0;
+  for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++)
+    if (c->resp[i].in_use)
+      lost += srvrun_reap_losses(
+          cfg, c, &c->resp[i].sess, c->resp[i].stream_id, now_ms);
+  return lost;
+}
+
+/* The whole-connection loss pass: every in-use send session, wtsend and
+ * resp[] alike. Runs once per srvrun_feed_acks batch, never per range. */
+static usz srvrun_reap_losses_all(
+    const srvrun_cfg* cfg, srvrun_conn* c, u64 now_ms) {
+  return srvrun_reap_losses_wt(cfg, c, now_ms) +
+         srvrun_reap_losses_resps(cfg, c, now_ms);
 }
 
 /* 1 if [lo,hi] covers c's one outstanding DPLPMTUD probe pn -- the probe
@@ -6198,27 +6202,35 @@ static void srvrun_pmtu_reap_ack(srvrun_conn* c, u64 lo, u64 hi) {
   srvrun_pmtu_probe_clear(c);
 }
 
-/* Broadcast one ACK range to every in-flight send session (resp[] and
- * wtsend alike), after raising the connection's shared largest_acked (RFC
- * 9002 6.1.1: one packet number space, one largest_acked -- never
- * regresses). */
-static usz srvrun_feed_ack_range(
-    const srvrun_cfg* cfg, srvrun_conn* c, u64 lo, u64 hi, u64 now_ms) {
-  usz lost;
+/* Broadcast one ACK range's accounting to every in-flight send session
+ * (resp[] and wtsend alike), after raising the connection's shared
+ * largest_acked (RFC 9002 6.1.1: one packet number space, one
+ * largest_acked -- never regresses). Accounting only -- no loss pass. */
+static void srvrun_feed_ack_range(srvrun_conn* c, u64 lo, u64 hi, u64 now_ms) {
   if (hi > c->largest_acked) c->largest_acked = hi;
-  lost = srvrun_feed_ack_range_wt(cfg, c, lo, hi, now_ms);
-  for (usz i = 0; i < SRVRUN_RESP_SLOTS; i++)
-    lost += srvrun_feed_ack_range_resp(cfg, c, &c->resp[i], lo, hi, now_ms);
+  srvrun_ack_range_wt(c, lo, hi, now_ms);
+  srvrun_ack_range_resps(c, lo, hi, now_ms);
   srvrun_pmtu_reap_ack(c, lo, hi);
-  return lost;
 }
 
+/* Consume a step's ACK ranges, THEN run one loss pass over the whole
+ * connection. The two-phase order is load-bearing in both directions:
+ * (a) reaping per range mis-fires -- an ACK frame's ranges arrive
+ * largest-first, so a reap right after range 0 sees the lower ranges'
+ * packets as unacked-behind-largest and spuriously requeues them (a real
+ * quic-go client's ACKs for streams 4/8 once re-sent ~35KB of stream 0's
+ * already-delivered body this way); (b) reaping only sessions the peer
+ * has acked leaves a one-shot round whose only packet was dropped -- so
+ * no session-local ACK can ever arrive -- undeclared for tens of seconds
+ * (RFC 9002 6.1's "sent prior to an acknowledged packet" is about the
+ * connection's packet number space, not one session's own ACK history;
+ * the s3-voice-loss qlog caught exactly this on chat relay streams). */
 static void srvrun_feed_acks(
     const srvrun_step_ctx* ctx, const srvrun_cfg* cfg, srvrun_conn* c) {
-  usz lost = 0;
+  usz lost;
   for (usz i = 0; i < c->l.ack_n; i++)
-    lost += srvrun_feed_ack_range(
-        cfg, c, c->l.ack_lo[i], c->l.ack_hi[i], ctx->now_ms);
+    srvrun_feed_ack_range(c, c->l.ack_lo[i], c->l.ack_hi[i], ctx->now_ms);
+  lost = srvrun_reap_losses_all(cfg, c, ctx->now_ms);
   if (lost) quic_cc_on_loss(&c->cc, ctx->now_ms, ctx->now_ms);
 }
 
