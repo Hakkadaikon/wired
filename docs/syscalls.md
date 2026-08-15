@@ -10,12 +10,16 @@
 
 `wired` is libc-free (`-ffreestanding -nostdlib`): every kernel interaction is
 a raw x86_64 Linux syscall issued through `syscall1`/`syscall3`/`syscall4`/
-`syscall6` (`src/common/platform/sys/syscall.h`). This is the full list of
-syscalls the SDK issues, why each is needed, and where.
+`syscall6`. The facade every domain includes is
+`src/common/platform/sys/syscall.h`; the SYS_* numbers and the `syscall`
+instruction sequence behind it live in the architecture adapter
+(`src/common/arch/x8664/x8664.h`). This is the full list of syscalls the SDK
+issues, why each is needed, and where.
 
-Numbers not defined in `syscall.h` itself are defined locally next to their
-one call site (noted in the Defined column) to keep the shared header limited
-to syscalls used from more than one subsystem.
+Numbers not defined in the shared header (the Defined column's `syscall.h`,
+meaning the facade + its arch adapter) are defined locally next to their
+one call site to keep the shared header limited to syscalls used from more
+than one subsystem.
 
 The table is sorted by syscall number.
 
@@ -30,7 +34,7 @@ The table is sorted by syscall number.
 | `munmap` | 11 | `syscall.h` | Unmap a previously mapped region. | `xsksetup_munmap`, called from `xsksetup_unwind`/`quic_xsksetup_close` (`xsksetup.c`), releases the UMEM and ring mappings on teardown or when a later step of `quic_xsksetup_open` fails partway through setup. The thread runtime unmaps a joined thread's stack. |
 | `rt_sigaction` | 13 | `syscall.h` | Install a signal handler. | `app/http3/server/sigterm/sigterm.c`: `wired_sigterm_install` / `wired_sighup_install` register a handler for `SIGTERM` and `SIGHUP` (graceful server shutdown / config reload), with `SA_RESTORER` set since the kernel refuses a handler with no restorer. |
 | `rt_sigprocmask` | 14 | `syscall.h` | Block/unblock signal delivery for the calling thread. | `sigterm.c`'s `wired_sigmask_block_shutdown`/`wired_sigmask_unblock_shutdown`: the multi-worker driver blocks `SIGTERM`/`SIGHUP` before cloning workers (the mask is inherited, so no delivery race window) and unblocks on the control thread only, making it the sole receiver of process-directed shutdown/reload signals. |
-| `rt_sigreturn` | 15 | `syscall.h` | Return from a signal handler back to interrupted context. | `sigterm.c`'s `sigterm_restorer`: a hand-written naked-asm trampoline passed as the `SA_RESTORER` target, standing in for libc's `restore_rt` (freestanding has no libc to provide one). |
+| `rt_sigreturn` | 15 | `syscall.h` | Return from a signal handler back to interrupted context. | `wired_arch_sigreturn_restorer` (`common/arch/x8664/sigret.c`): a hand-written naked-asm trampoline passed as the `SA_RESTORER` target by `sigterm.c`, standing in for libc's `restore_rt` (freestanding has no libc to provide one). |
 | `pread64` | 17 | `syscall.h` | Read from a file descriptor at a given offset, without moving the file position. | `common/platform/fio/fio.c`: `wired_fio_pread` reads one chunk of a file at an explicit offset — how `examples/word_list` streams a large static file into per-response body buffers without loading the whole file. |
 | `socket` | 41 | `syscall.h` | Create a socket. | `wired_udp_socket` (`transport/io/socket/io/udp.c`) creates an `AF_INET`/`SOCK_DGRAM` (UDP) socket; used by both client and server (`wired_server_listen`) setup. |
 | `sendto` | 44 | `syscall.h` | Send a datagram, optionally to an explicit address. | `wired_udp_send` (`udp.c`) sends one UDP datagram; also the per-segment fallback loop in `wired_udp_send_batch` when GSO is unavailable. |
@@ -39,7 +43,7 @@ The table is sorted by syscall number.
 | `bind` | 49 | `syscall.h` | Bind a socket to a local address. | `wired_udp_bind` (`udp.c`) binds the listening port; called from `wired_server_listen` on the server side. |
 | `setsockopt` | 54 | `syscall.h` | Set a socket option. | `wired_udp_gso_enable` (`udp.c`) sets `UDP_SEGMENT` (`SOL_UDP` level) to enable UDP Generic Segmentation Offload, letting the kernel split one large send into multiple datagrams of `segsize` bytes. |
 | `getsockopt` | 55 | local: `transport/io/xdp/xsksetup/xsksetup.c` | Get a socket option. | `xsksetup_get_offsets` (`xsksetup.c`) reads `XDP_MMAP_OFFSETS` to learn each ring's producer/consumer/descriptor byte offsets before mmap'ing it; `quic_xsksetup_stats` reads `XDP_STATISTICS` to report kernel-side drop/fill counters for the AF_XDP socket. |
-| `clone` | 56 | `syscall.h` | Create a new thread (or process) sharing the caller's address space per flags. | `common/platform/thread/thread.c`'s `wired_thread_start`: spawns one worker thread (`CLONE_VM\|FS\|FILES\|SIGHAND\|THREAD\|SYSVSEM\|PARENT_SETTID\|CHILD_CLEARTID`) on a freshly mmap'd stack, via a hand-written asm trampoline (the child returns on the new stack, so a plain C wrapper cannot issue it). `PARENT_SETTID` has the kernel itself write the new tid into the join word, closing the race a parent-side store after `clone()` returns would have against the child already exiting and `CHILD_CLEARTID` zeroing it first. |
+| `clone` | 56 | `syscall.h` | Create a new thread (or process) sharing the caller's address space per flags. | `common/platform/thread/thread.c`'s `wired_thread_start`: spawns one worker thread (`CLONE_VM\|FS\|FILES\|SIGHAND\|THREAD\|SYSVSEM\|PARENT_SETTID\|CHILD_CLEARTID`) on a freshly mmap'd stack, via a hand-written asm trampoline (`wired_arch_clone_raw`, `common/arch/x8664/clone.c` — the child returns on the new stack, so a plain C wrapper cannot issue it). `PARENT_SETTID` has the kernel itself write the new tid into the join word, closing the race a parent-side store after `clone()` returns would have against the child already exiting and `CHILD_CLEARTID` zeroing it first. |
 | `fork` | 57 | `syscall.h` | Create a child process duplicating the caller. | `app/http3/server/srvworkers/srvworkers.c`: `wired_srvworkers_run` forks N shared-nothing worker processes, each binding the same port via `SO_REUSEPORT`; the parent stays behind as their restart supervisor. |
 | `exit` | 60 | `syscall.h` | Terminate the calling process (or thread: the last thread exiting ends the process). | `common/platform/sys/sys.c`'s generic freestanding `_start` exits(0) once done, as does the `WIRED_MAIN` `_start` stub `wired.h` emits into an application binary; `wired_die` (`common/platform/exit/exit.c`) exits(1) on a fatal error; the thread trampoline (`thread.c`) exits a finished worker thread. |
 | `wait4` | 61 | `syscall.h` | Wait for a child process to change state. | `srvworkers.c`'s supervisor loop blocks in `wait4(-1, ...)` until any worker dies, then re-forks a replacement — crash resilience for the multi-process driver. |

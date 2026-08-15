@@ -1,8 +1,9 @@
 ---
 name: syscall-docs
 description: >
-  Keep docs/syscalls.md in sync with src/common/platform/sys/syscall.h and
-  any locally-#define'd SYS_* numbers. Use whenever a syscall is added,
+  Keep docs/syscalls.md in sync with the shared syscall surface
+  (src/common/platform/sys/syscall.h facade + the SYS_* numbers in
+  src/common/arch/x8664/x8664.h) and any locally-#define'd SYS_* numbers. Use whenever a syscall is added,
   removed, or its call site/purpose changes in this repo — e.g. after adding
   a new `#define SYS_*`, after adding/removing a `syscall1/3/4/6(...)` call
   site, or when asked to "update the syscall docs" / "syscallの説明を更新".
@@ -11,8 +12,9 @@ description: >
 # syscall-docs
 
 `wired` is libc-free: every kernel interaction is a raw syscall issued via
-`syscall1`/`syscall3`/`syscall4`/`syscall6` (`src/common/platform/sys/
-syscall.h`). `docs/syscalls.md` is the single table of every syscall this SDK
+`syscall1`/`syscall3`/`syscall4`/`syscall6` — facade
+`src/common/platform/sys/syscall.h`, SYS_* numbers and the instruction
+sequence in `src/common/arch/x8664/x8664.h`. `docs/syscalls.md` is the single table of every syscall this SDK
 issues — number, description, and why `wired` calls it. It goes stale the
 moment a syscall is added/removed without updating that table, so treat this
 skill as a required step alongside any change to syscall usage, not an
@@ -20,7 +22,8 @@ afterthought.
 
 ## When to run this
 
-- A new `#define SYS_<name> <number>` was added to `syscall.h`, or locally
+- A new `#define SYS_<name> <number>` was added to the shared header
+  (`common/arch/x8664/x8664.h`), or locally
   next to a call site (the existing pattern for single-use syscalls, e.g.
   `SYS_poll` in `transport/io/socket/poll/wait.c`, `SYS_fcntl` in
   `transport/io/socket/poll/nonblock.c`).
@@ -33,14 +36,14 @@ afterthought.
 
 1. **Enumerate every syscall definition.**
    ```sh
-   grep -n '^#define SYS_' src/common/platform/sys/syscall.h
+   grep -n '^#define SYS_' src/common/arch/x8664/x8664.h
    grep -rn '#define SYS_' --include=*.c src/   # local one-off definitions
    ```
 2. **Enumerate every call site** and confirm each definition is actually used
    (and vice versa — every call site maps to a definition):
    ```sh
    grep -rn 'SYS_[a-zA-Z_]*' --include=*.c --include=*.h src/ examples/ \
-       | grep -v 'syscall.h:'
+       | grep -v 'syscall.h:' | grep -v 'x8664.h:'
    ```
 3. **For each syscall, read its call site(s)** to confirm (don't guess):
    - which function(s)/file(s):line(s) call it
