@@ -25,36 +25,6 @@
 /* FUTEX_WAIT, Linux <linux/futex.h>. */
 #define THREAD_FUTEX_WAIT 0
 
-/* Raw clone(2). The child returns on a NEW stack, so this cannot go through
- * the C syscall6 wrapper (compiler spills would read the parent's frame).
- * SysV args: rdi=flags, rsi=child_stack, rdx=parent_tid, rcx=child_tid,
- * r8=tls; the syscall ABI wants arg4 in r10. Parent path: return the
- * kernel's rax (tid or -errno). Child path (rax==0): pop fn and arg pushed
- * by thread_stack_prep, align rsp so `call` leaves RSP%16==8 at fn entry
- * (x86_64 ABI, same discipline as the examples' _start), call fn, then
- * SYS_exit(0) which fires the CLEARTID clear+wake. */
-i64 wired_thread_clone_raw(
-    i64 flags, u8* child_stack, i32* parent_tid, i32* child_tid, i64 tls);
-__asm__(
-    ".text\n"
-    ".globl wired_thread_clone_raw\n"
-    "wired_thread_clone_raw:\n"
-    "  movq %rcx, %r10\n"
-    "  movl $56, %eax\n" /* SYS_clone */
-    "  syscall\n"
-    "  testq %rax, %rax\n"
-    "  jnz 1f\n"
-    "  popq %rax\n" /* fn */
-    "  popq %rdi\n" /* arg */
-    "  xorl %ebp, %ebp\n"
-    "  andq $-16, %rsp\n"
-    "  callq *%rax\n"
-    "  xorl %edi, %edi\n"
-    "  movl $60, %eax\n" /* SYS_exit */
-    "  syscall\n"
-    "1:\n"
-    "  retq\n");
-
 /* Map guard+stack and turn the low page into the guard. mmap failures are
  * -errno in -4095..-1 (kernel guarantee), and x86_64 user addresses are
  * never negative, so `< 0` is the error test. */
@@ -75,7 +45,7 @@ static i64 thread_map_stack(wired_thread* t) {
 
 /* Seed the child stack: fn then arg at the top-16 slot (mmap is page
  * aligned, so the returned stack pointer stays 16-byte aligned for the
- * child's pops in wired_thread_clone_raw). */
+ * child's pops in wired_arch_clone_raw). */
 static u8* thread_stack_prep(wired_thread* t, void (*fn)(void*), void* arg) {
   u64* slots = (u64*)(t->stack + t->stack_len - 16);
   slots[0]   = (u64)fn;
@@ -86,7 +56,7 @@ static u8* thread_stack_prep(wired_thread* t, void (*fn)(void*), void* arg) {
 i64 wired_thread_start(wired_thread* t, void (*fn)(void*), void* arg) {
   i64 r = thread_map_stack(t);
   if (r < 0) return r;
-  r = wired_thread_clone_raw(
+  r = wired_arch_clone_raw(
       THREAD_CLONE_FLAGS, thread_stack_prep(t, fn, arg), &t->tid, &t->tid, 0);
   if (r < 0) {
     syscall3(SYS_munmap, t->stack, t->stack_len, 0);
