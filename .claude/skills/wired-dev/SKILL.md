@@ -82,16 +82,24 @@ A single-file green ($TMPDIR driver) does **not** prove integrated green
 Before any commit, all three must be green, plus the count check. Copy-paste:
 
 ```sh
-just test    # unity build of all *_test.c -> must print "all tests passed"
-just build   # every src/**/*.c compiled -ffreestanding -Werror -> exit 0
+just test-fast  # sharded parallel build of all *_test.c -> "all tests passed"
+just build      # every src/**/*.c compiled -ffreestanding -Werror -> exit 0
 lizard src --CCN 3 -w                          # CCN gate -> exit 0
 ```
+
+`test-fast` compiles run.c's include list as parallel shard TUs (~4x faster,
+same tests, same output). One thing it CANNOT see: a `static`/`typedef`/macro
+collision between files that land in different shards — only the single-TU
+`just test` (which CI runs on every push) catches those. So a locally green
+`test-fast` can still go red in CI on a name collision; when your diff adds
+any new symbol, either grep first (section 2.1) or run the full `just test`
+once before pushing.
 
 Count check — wiring silently fails and you commit code that is never built
 or tested (#12, #15). Verify the numbers match:
 
 ```sh
-[ "$(find build -name '*.o' | wc -l)" = "$(find src -name '*.c' | wc -l)" ] \
+[ "$(find build/src -name '*.o' | wc -l)" = "$(find src -name '*.c' | wc -l)" ] \
   && echo "obj==src OK" || echo "WIRING MISMATCH"
 ```
 
@@ -114,7 +122,7 @@ makes the pipeline exit 0 (tail succeeds) even when CCN is red, and a red
 commit lands (#7, #7b). Gate and commit are separate steps:
 
 ```sh
-if just test 2>&1 | grep -q "all tests passed" \
+if just test-fast 2>&1 | grep -q "all tests passed" \
    && just build >/dev/null 2>&1 \
    && lizard src --CCN 3 -w; then
   git commit ...        # only here
@@ -128,7 +136,9 @@ fi
   though the files are unrelated. *Avoid:* prefix domain symbols, route shared
   helpers through `util/*.h` inline, give public API a `quic_<domain>_` prefix.
   *Detect:* `grep` before naming (section 2.1); the collision shows up as a
-  redefinition error in `just test` / `just build` after wire-up.
+  redefinition error in `just test` / `just build` after wire-up — but NOT
+  necessarily in `just test-fast`, whose shard TUs can keep the two files
+  apart (section 3).
 
 - **Single-file green is not integrated green (#16).** A coder reporting "all
   tests passed / CCN<=3" from a $TMPDIR driver can still go red in the unity

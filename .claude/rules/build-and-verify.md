@@ -88,7 +88,10 @@ error that has nothing to do with the repo. When this happens:
 
 A commit is allowed only when ALL THREE are green in the SAME working tree:
 
-1. `just test` — hosted unity build, all tests pass (assertions on).
+1. `just test-fast` — hosted sharded parallel build (run.c's include list
+   split into shard TUs by `scripts/gen_shards.py`), all tests pass
+   (assertions on). Same tests and same "all tests passed" output as
+   `just test`, ~4x faster.
 2. `just ninja` — every `src/**/*.c` compiles `-ffreestanding -nostdlib
    -Werror` to a path-qualified `build/<path>.o`. (This is the raw compile
    step. `just build` = `fmt` + `ninja` + `lint`; the gate uses `ninja`
@@ -100,12 +103,24 @@ Plus the count check (see below). Run them as a single guarded command so a
 red result physically cannot reach `git commit`:
 
 ```sh
-if just test 2>&1 | grep -q "all tests passed" \
+if just test-fast 2>&1 | grep -q "all tests passed" \
    && just ninja >/dev/null 2>&1 \
    && lizard src --CCN 3 -w; then
     git commit -m "..."
 fi
 ```
+
+### test-fast vs test: the collision blind spot
+
+The single-TU `just test` is what CI runs, and it is the ONLY build that
+sees a `static`/`typedef`/macro collision between any two files in the repo
+(naming-and-unity-build.md) — `test-fast`'s shard TUs can keep the colliding
+pair in different shards, so a locally green `test-fast` can still turn CI
+red on a name collision. Public-symbol duplicates ARE still caught (they
+collide at link). When a diff introduces any new symbol name, grep first as
+naming-and-unity-build.md requires, or run the full `just test` once before
+pushing. `just test` remains correct anywhere `test-fast` is named here —
+it is the stronger, slower form of the same leg.
 
 ## Why each rung exists (each is a logged failure)
 
@@ -143,11 +158,14 @@ fi
 After any wiring change, verify nothing was dropped from the build:
 
 ```sh
-[ "$(find src -name '*.c' | wc -l)" = "$(find build -name '*.o' | wc -l)" ]
+[ "$(find src -name '*.c' | wc -l)" = "$(find build/src -name '*.o' | wc -l)" ]
 ```
 
 - These counts MUST be equal (#12/#15). A mismatch means a source is not being
   compiled — wiring is broken.
+- Count `build/src` specifically, not all of `build`: `build/shards/` holds
+  the test-fast shard objects, which are not freestanding objects and would
+  skew the count.
 - The count is only trustworthy because `build` emits `build/<full/path>.o`
   preserving directory structure. Do NOT change the build recipe to drop bare
   `<basename>.o` into one dir: `control.c`/`frame.c`/`grease.c`/`vneg.c` share
