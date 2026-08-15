@@ -17,7 +17,8 @@ comparisons, not replacements for the pinned-machine numbers in the doc).
   per run plus raw `/proc` usage counters per load round.
 - `sections.sh <bin>...` — Berkeley `size` dump.
 - `report.mjs speed|usage|sections <file>` — markdown tables via
-  `lib/aggregate.mjs` (pure functions, tested: `node --test bench/test/`).
+  `lib/aggregate.mjs` (pure functions, tested:
+  `node --test bench/test/aggregate.test.mjs`).
 - `goodput-setup.sh` / `goodput-ci.sh` — pinned quic-interop-runner
   checkout + one goodput row per server (used by the workflow's goodput
   job; also work locally with Docker + tshark).
