@@ -584,10 +584,10 @@ static void test_srvrun_send_stream_slice_no_qlog_path_writes_nothing(void) {
   }
 }
 
-/* srvrun_feed_ack_range's loss pass (RFC 9002 6.1.1) writes one
- * stream_frame_lost record per declared-lost slice, keyed by the OWNING
- * resp[] slot's own stream_id -- the qlog attribution
- * srvrun_reap_losses/srvrun_feed_ack_range_sess thread through. */
+/* The connection loss pass (RFC 9002 6.1.1, srvrun_feed_acks' second
+ * phase) writes one stream_frame_lost record per declared-lost slice,
+ * keyed by the OWNING resp[] slot's own stream_id -- the qlog attribution
+ * srvrun_reap_losses threads through. */
 static void test_srvrun_feed_ack_range_writes_stream_frame_lost(void) {
   struct lp_fix f;
   srvrun_conn   c;
@@ -638,7 +638,8 @@ static void test_srvrun_feed_ack_range_writes_stream_frame_lost(void) {
     CHECK(wired_sendsess_sent(&c.resp[0].sess, &sl, pn0 + i, ctx.now_ms));
   }
   /* ack only pn0+4: pns pn0,pn0+1 are 3+ behind, past the packet threshold */
-  srvrun_feed_ack_range(&cfg, &c, pn0 + 4, pn0 + 4, ctx.now_ms);
+  srvrun_feed_ack_range(&c, pn0 + 4, pn0 + 4, ctx.now_ms);
+  srvrun_reap_losses_all(&cfg, &c, ctx.now_ms);
   CHECK(
       sr_qlog_count(
           "\"name\":\"stream_frame_lost\",\"stream_id\":15,\"offset\":0,"
@@ -646,6 +647,149 @@ static void test_srvrun_feed_ack_range_writes_stream_frame_lost(void) {
   CHECK(
       sr_qlog_count(
           "\"name\":\"stream_frame_lost\",\"stream_id\":15,\"offset\":") == 2);
+  srvrunt_qlog_unlink();
+}
+
+/* RFC 9002 6.1: the "sent prior to an acknowledged packet" prerequisite is
+ * about the CONNECTION's packet number space, not the round's own session.
+ * A one-shot WT round whose only packet is dropped never gets a session-
+ * local ACK, yet later acknowledged packets (any other stream's) must still
+ * drive its loss declaration -- the s3-voice-loss qlog showed such a chat
+ * relay sitting undeclared for 30+ seconds while voice ACKs streamed in. */
+static void test_srvrun_wt_unacked_round_loss_detected(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  quic_obuf     ob = {0};
+  u8            obuf[1024];
+  static u8     body[SRVRUN_CHUNK];
+  srvrun_cfg    cfg = {
+      -1,
+      0,
+      0,
+      0,
+      srvrunt_qlog_path,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      &g_srvrun_env,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0};
+  srvrun_step_ctx   ctx = {&cfg, 0, 0, 9000, 0};
+  wired_sendq_slice sl;
+  u64               pn0;
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.wtsend[0].in_use    = 1;
+  c.wtsend[0].stream_id = 19;
+  pn0                   = c.l.tx_pn;
+  srvrunt_qlog_unlink();
+  wired_sendsess_arm(&c.wtsend[0].sess, body, sizeof body, SRVRUN_CHUNK);
+  CHECK(wired_sendsess_take(&c.wtsend[0].sess, &sl) == 1);
+  CHECK(wired_sendsess_sent(&c.wtsend[0].sess, &sl, pn0, ctx.now_ms));
+  /* the peer acks a LATER packet only (some other stream's): past the
+   * packet threshold, pn0 must be declared lost despite this session never
+   * having been acked itself */
+  srvrun_feed_ack_range(&c, pn0 + 4, pn0 + 4, ctx.now_ms);
+  srvrun_reap_losses_all(&cfg, &c, ctx.now_ms);
+  CHECK(sr_qlog_count("\"name\":\"stream_frame_lost\",\"stream_id\":19,") == 1);
+  srvrunt_qlog_unlink();
+}
+
+/* The bare-FIN round re-arms its session (srvrun_wtsend_start_fin_now), so
+ * a dropped FIN packet leaves a round that will never see a session-local
+ * ACK -- same blind spot as above, in the exact shape the s3 qlog caught:
+ * data delivered, FIN lost, stream never closing on the receiver. The lost
+ * FIN must be redeclared via later connection ACKs and resent on the next
+ * pump. */
+static void test_srvrun_wt_lost_bare_fin_redetected_and_resent(void) {
+  struct lp_fix f;
+  srvrun_conn   c;
+  quic_obuf     ob = {0};
+  u8            obuf[1024];
+  static u8     body[19];
+  srvrun_cfg    cfg = {
+      -1,
+      0,
+      0,
+      0,
+      srvrunt_qlog_path,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      &g_srvrun_env,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0};
+  srvrun_step_ctx   ctx = {&cfg, 0, 0, 9000, 0};
+  wired_sendq_slice sl;
+  u64               pn_data, pn_fin;
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.wtsend[0].in_use        = 1;
+  c.wtsend[0].stream_id     = 23;
+  c.wtsend[0].stream_credit = 1000;
+  c.wtsend[0].stream_off    = sizeof body;
+  srvrunt_qlog_unlink();
+  /* data round: sent and acknowledged (the receiver got the message) */
+  wired_sendsess_arm(&c.wtsend[0].sess, body, sizeof body, SRVRUN_CHUNK);
+  CHECK(wired_sendsess_take(&c.wtsend[0].sess, &sl) == 1);
+  pn_data = c.l.tx_pn;
+  CHECK(srvrun_send_stream_slice(&ctx, &c, &c.wtsend[0].sess, 23, &sl, 0));
+  srvrun_feed_ack_range(&c, pn_data, pn_data, ctx.now_ms);
+  /* bare-FIN round: sent (re-arming the session), then dropped on the wire */
+  srvrun_wtsend_start_fin_now(&c, &c.wtsend[0]);
+  pn_fin = c.l.tx_pn;
+  CHECK(srvrun_pump_wt_fin_only(&ctx, &c, &c.wtsend[0]));
+  CHECK(
+      sr_qlog_count(
+          "\"name\":\"stream_frame_sent\",\"stream_id\":23,\"offset\":19,"
+          "\"length\":0,\"fin\":1,") == 1);
+  /* later connection ACKs (voice traffic) must declare the FIN lost... */
+  srvrun_feed_ack_range(&c, pn_fin + 4, pn_fin + 4, ctx.now_ms);
+  srvrun_reap_losses_all(&cfg, &c, ctx.now_ms);
+  CHECK(
+      sr_qlog_count(
+          "\"name\":\"stream_frame_lost\",\"stream_id\":23,\"offset\":19,"
+          "\"length\":0,\"fin\":1,") == 1);
+  /* ...and the next pump resends it */
+  CHECK(srvrun_pump_one_wt(&ctx, &c, &c.wtsend[0]));
+  CHECK(
+      sr_qlog_count(
+          "\"name\":\"stream_frame_sent\",\"stream_id\":23,\"offset\":19,"
+          "\"length\":0,\"fin\":1,") == 2);
   srvrunt_qlog_unlink();
 }
 
@@ -3549,9 +3693,6 @@ static void test_srvrun_rtt_sample_uses_newest_hit_only(void) {
     /* three slices sent 100ms apart (pn0 at t=0, pn0+1 at t=100, pn0+2 at
      * t=200) -- a real gap round-robin pumping can produce across an
      * otherwise-idle slot's own queue. */
-    srvrun_cfg cfg = {
-        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
-        0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
     srvrun_resp*      r = &c.resp[0];
     wired_sendq_slice sl;
     CHECK(wired_sendsess_take(&r->sess, &sl) == 1);
@@ -3563,7 +3704,7 @@ static void test_srvrun_rtt_sample_uses_newest_hit_only(void) {
     /* one ACK range at t=215 covers all three: newest send time is 200,
      * so the sample must be 215-200=15, not an average pulled toward the
      * pn0 slice's 215-0=215. */
-    srvrun_feed_ack_range(&cfg, &c, pn0, pn0 + 2, 215);
+    srvrun_feed_ack_range(&c, pn0, pn0 + 2, 215);
     CHECK(c.srtt_ms == 15);
   }
 }
@@ -9957,10 +10098,59 @@ static void test_srvrun_sibling_ack_does_not_lose_other_slot(void) {
     /* ACK only slot 1's range. Slot 0's log must be untouched: still all 8
      * in flight, no requeue, largest_acked never set (slot 0 has not
      * actually been acked yet). */
-    srvrun_feed_ack_range(&cfg, &c, pn0_b, pn0_b + 3, ctx.now_ms);
+    srvrun_feed_ack_range(&c, pn0_b, pn0_b + 3, ctx.now_ms);
     CHECK(wired_sendsess_inflight(&c.resp[0].sess) == 8);
     CHECK(c.resp[0].sess.requeue_n == 0);
     CHECK(c.resp[0].sess.has_acked == 0);
+  }
+}
+
+/* ALL of an ACK frame's ranges are consumed before the loss pass runs
+ * (srvrun_feed_acks' two-phase order): ranges arrive largest-first, so a
+ * per-range loss pass would let range 0 raise largest_acked past the
+ * packet threshold and spuriously requeue the lower range's packets
+ * before that very range clears them -- the quic-go 500KB interop
+ * incident (~35KB of already-delivered body re-sent). One frame acking
+ * EVERYTHING as two largest-first ranges must requeue nothing. */
+static void test_srvrun_ack_ranges_batched_before_loss_pass(void) {
+  static u8     body0[8 * SRVRUN_CHUNK];
+  static u8     body1[4 * SRVRUN_CHUNK];
+  struct lp_fix f;
+  srvrun_conn   c;
+  quic_obuf     ob = {0};
+  u8            obuf[1024];
+  u64           pn0_a, pn0_b;
+  ob = (quic_obuf){obuf, sizeof obuf, 0};
+  sr_make_confirmed_conn(&c, &f, &ob);
+  c.cc.cwnd           = 1u << 20;
+  c.resp[0].in_use    = 1;
+  c.resp[0].stream_id = 0;
+  c.resp[1].in_use    = 1;
+  c.resp[1].stream_id = 4;
+  pn0_a               = c.l.tx_pn;
+  wired_sendsess_arm(&c.resp[0].sess, body0, sizeof body0, SRVRUN_CHUNK);
+  {
+    srvrun_cfg cfg = {
+        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
+        0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    srvrun_state    st  = {0, &c};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 1, 0};
+    srvrun_pump_sess(&ctx, 0);
+    CHECK(wired_sendsess_inflight(&c.resp[0].sess) == 8);
+    pn0_b = c.l.tx_pn;
+    wired_sendsess_arm(&c.resp[1].sess, body1, sizeof body1, SRVRUN_CHUNK);
+    srvrun_pump_sess(&ctx, 0);
+    CHECK(wired_sendsess_inflight(&c.resp[1].sess) == 4);
+    c.l.ack_lo[0] = pn0_b;
+    c.l.ack_hi[0] = pn0_b + 3;
+    c.l.ack_lo[1] = pn0_a;
+    c.l.ack_hi[1] = pn0_a + 7;
+    c.l.ack_n     = 2;
+    srvrun_feed_acks(&ctx, &cfg, &c);
+    CHECK(c.resp[0].sess.requeue_n == 0);
+    CHECK(c.resp[1].sess.requeue_n == 0);
+    CHECK(wired_sendsess_inflight(&c.resp[0].sess) == 0);
+    CHECK(wired_sendsess_inflight(&c.resp[1].sess) == 0);
   }
 }
 
@@ -10000,7 +10190,7 @@ static void test_srvrun_loss_and_retransmit_across_two_responses(void) {
      * the remaining 4 slices. A range naming slot 0's pns must not touch
      * slot 1's still-untouched log (guard 5). */
     srvrun_feed_ack_range(
-        &cfg, &c, pn0_a, pn0_a + WIRED_SENDSESS_LOG - 1, ctx.now_ms);
+        &c, pn0_a, pn0_a + WIRED_SENDSESS_LOG - 1, ctx.now_ms);
     CHECK(wired_sendsess_inflight(&c.resp[1].sess) == WIRED_SENDSESS_LOG);
     /* hystart_ack's srtt sample would otherwise arm pacing and block the
      * very next pump at this fixed now_ms; reset it so only the log/cwnd
@@ -10016,8 +10206,9 @@ static void test_srvrun_loss_and_retransmit_across_two_responses(void) {
      * packet-loss threshold, so the detector must requeue all of them
      * rather than silently drop them. */
     srvrun_feed_ack_range(
-        &cfg, &c, pn0_b + WIRED_SENDSESS_LOG - 1,
-        pn0_b + WIRED_SENDSESS_LOG - 1, ctx.now_ms);
+        &c, pn0_b + WIRED_SENDSESS_LOG - 1, pn0_b + WIRED_SENDSESS_LOG - 1,
+        ctx.now_ms);
+    srvrun_reap_losses_all(&cfg, &c, ctx.now_ms);
     CHECK(c.resp[1].sess.requeue_n > 0);
     c.srtt_ms      = 0;
     c.next_send_ms = 0;
@@ -10039,7 +10230,7 @@ static void test_srvrun_loss_and_retransmit_across_two_responses(void) {
         found = 1;
       }
       if (found) {
-        srvrun_feed_ack_range(&cfg, &c, lo, hi, ctx.now_ms);
+        srvrun_feed_ack_range(&c, lo, hi, ctx.now_ms);
         c.srtt_ms      = 0;
         c.next_send_ms = 0;
       }
@@ -10065,9 +10256,6 @@ static void test_srvrun_pmtu_ack_raises_validated(void) {
   sr_make_confirmed_conn(&c, &f, &ob);
   quic_pmtu_init(&c.pmtu);
   {
-    srvrun_cfg cfg = {
-        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
-        0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
     /* stand in for a probe already sent by srvrun_pmtu_send_probe: claim a
      * fresh pn and record it the same way that function does. */
     probe_pn             = c.l.tx_pn++;
@@ -10075,7 +10263,7 @@ static void test_srvrun_pmtu_ack_raises_validated(void) {
     c.pmtu_probe_size    = QUIC_PMTU_BASE + QUIC_PMTU_STEP;
     c.pmtu_probe_sent_ms = 0;
 
-    srvrun_feed_ack_range(&cfg, &c, probe_pn, probe_pn, 10);
+    srvrun_feed_ack_range(&c, probe_pn, probe_pn, 10);
 
     CHECK(c.pmtu.validated == QUIC_PMTU_BASE + QUIC_PMTU_STEP);
     CHECK(c.pmtu_probe_pn == SRVRUN_PMTU_NO_PROBE);
@@ -10095,15 +10283,12 @@ static void test_srvrun_pmtu_ack_outside_range_no_effect(void) {
   sr_make_confirmed_conn(&c, &f, &ob);
   quic_pmtu_init(&c.pmtu);
   {
-    srvrun_cfg cfg = {
-        -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
-        0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
     probe_pn             = c.l.tx_pn++;
     c.pmtu_probe_pn      = probe_pn;
     c.pmtu_probe_size    = QUIC_PMTU_BASE + QUIC_PMTU_STEP;
     c.pmtu_probe_sent_ms = 0;
 
-    srvrun_feed_ack_range(&cfg, &c, probe_pn + 1, probe_pn + 5, 10);
+    srvrun_feed_ack_range(&c, probe_pn + 1, probe_pn + 5, 10);
 
     CHECK(c.pmtu.validated == QUIC_PMTU_BASE);
     CHECK(c.pmtu_probe_pn == probe_pn);
@@ -11978,7 +12163,7 @@ static srvrun_cfg sr_wt_send_cfg(void) {
  * responses runs), then reset pacing so the next pump is not blocked by the
  * fixed test clock. */
 static void sr_wtsend_ack_all_inflight(
-    const srvrun_cfg* cfg, srvrun_conn* c, wired_sendsess* s, u64 now) {
+    srvrun_conn* c, wired_sendsess* s, u64 now) {
   u64 lo = 0, hi = 0;
   int found = 0;
   for (usz i = 0; i < WIRED_SENDSESS_LOG; i++) {
@@ -11989,7 +12174,7 @@ static void sr_wtsend_ack_all_inflight(
     found = 1;
   }
   if (!found) return;
-  srvrun_feed_ack_range(cfg, c, lo, hi, now);
+  srvrun_feed_ack_range(c, lo, hi, now);
   c->srtt_ms      = 0;
   c->next_send_ms = 0;
 }
@@ -12219,7 +12404,6 @@ static void test_srvrun_wt_open_uni_stream_appends_then_finishes(void) {
   quic_stream_frame sf;
   srvrun_conn*      c;
   u8                scratch[3];
-  srvrun_cfg        acfg = sr_wt_send_cfg();
   if (!sr_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
   ob      = (quic_obuf){obuf, sizeof obuf, 0};
   c       = sr_wtsend_fixture(&f, &ob);
@@ -12245,7 +12429,7 @@ static void test_srvrun_wt_open_uni_stream_appends_then_finishes(void) {
   CHECK(sf.fin == 0);
   CHECK(sf.length == 3);
   for (usz i = 0; i < 3; i++) CHECK(sf.data[i] == sr_wtsend_more[i]);
-  sr_wtsend_ack_all_inflight(&acfg, c, &c->wtsend[0].sess, 0);
+  sr_wtsend_ack_all_inflight(c, &c->wtsend[0].sess, 0);
   /* an empty round has no slice for a FIN to ride on -- a misuse
    * rejection, NOT a busy drop, so the busy counter stays put */
   CHECK(wired_server_wt_stream_send(&c->wt, 7, quic_span_of(0, 0), 1) == -1);
@@ -12259,7 +12443,7 @@ static void test_srvrun_wt_open_uni_stream_appends_then_finishes(void) {
   CHECK(sf.offset == sizeof sr_wtsend_hello + sizeof sr_wtsend_more);
   CHECK(sf.fin == 1); /* the true stream end */
   CHECK(c->stat_wtsend_ok == 2 && c->stat_wtsend_flow == 0);
-  sr_wtsend_ack_all_inflight(&acfg, c, &c->wtsend[0].sess, 0);
+  sr_wtsend_ack_all_inflight(c, &c->wtsend[0].sess, 0);
   srvrun_reap_wtsends(c);
   CHECK(c->wtsend[0].in_use == 0);
   wired_udp_close(cfd);
@@ -12277,7 +12461,6 @@ static void test_srvrun_wt_stream_send_queue_bound(void) {
   i64           sfd, cfd;
   srvrun_conn*  c;
   static u8     big[SRVRUN_WTSEND_BUF];
-  srvrun_cfg    acfg = sr_wt_send_cfg();
   if (!sr_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
   ob      = (quic_obuf){obuf, sizeof obuf, 0};
   c       = sr_wtsend_fixture(&f, &ob);
@@ -12304,7 +12487,7 @@ static void test_srvrun_wt_stream_send_queue_bound(void) {
     for (usz i = 0; i < slices; i++)
       CHECK(sr_wtsend_pump_recv_stream(&f, cfd, sfd, &srv, &sf));
   }
-  sr_wtsend_ack_all_inflight(&acfg, c, &c->wtsend[0].sess, 0);
+  sr_wtsend_ack_all_inflight(c, &c->wtsend[0].sess, 0);
   CHECK(wired_server_wt_stream_send(&c->wt, 7, quic_span_of(big, 1), 0) == 1);
   wired_udp_close(cfd);
   wired_udp_close(sfd);
@@ -12335,7 +12518,6 @@ static void test_srvrun_wt_stream_fin_deferred_until_round_acked(void) {
   i64               sfd, cfd;
   quic_stream_frame sf;
   srvrun_conn*      c;
-  srvrun_cfg        acfg = sr_wt_send_cfg();
   if (!sr_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
   ob      = (quic_obuf){obuf, sizeof obuf, 0};
   c       = sr_wtsend_fixture(&f, &ob);
@@ -12354,7 +12536,7 @@ static void test_srvrun_wt_stream_fin_deferred_until_round_acked(void) {
   CHECK(sr_wtsend_pump_recv_stream(&f, cfd, sfd, &srv, &sf));
   CHECK(sf.offset == 0);
   CHECK(sf.fin == 0);
-  sr_wtsend_ack_all_inflight(&acfg, c, &c->wtsend[0].sess, 0);
+  sr_wtsend_ack_all_inflight(c, &c->wtsend[0].sess, 0);
   /* the deferred FIN promotes itself and goes out on the very next pump. */
   CHECK(sr_wtsend_pump_recv_stream(&f, cfd, sfd, &srv, &sf));
   CHECK(sf.stream_id == 7);
@@ -12363,7 +12545,7 @@ static void test_srvrun_wt_stream_fin_deferred_until_round_acked(void) {
   CHECK(sf.fin == 1);
   CHECK(c->wtsend[0].fin_requested == 0);
   CHECK(c->wtsend[0].append_open == 0);
-  sr_wtsend_ack_all_inflight(&acfg, c, &c->wtsend[0].sess, 0);
+  sr_wtsend_ack_all_inflight(c, &c->wtsend[0].sess, 0);
   srvrun_reap_wtsends(c);
   CHECK(c->wtsend[0].in_use == 0);
   wired_udp_close(cfd);
@@ -12381,7 +12563,6 @@ static void test_srvrun_wt_stream_fin_immediate_when_round_already_done(void) {
   i64               sfd, cfd;
   quic_stream_frame sf;
   srvrun_conn*      c;
-  srvrun_cfg        acfg = sr_wt_send_cfg();
   if (!sr_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
   ob      = (quic_obuf){obuf, sizeof obuf, 0};
   c       = sr_wtsend_fixture(&f, &ob);
@@ -12390,7 +12571,7 @@ static void test_srvrun_wt_stream_fin_immediate_when_round_already_done(void) {
       wired_server_wt_open_uni_stream(
           &c->wt, quic_span_of(sr_wtsend_hello, sizeof sr_wtsend_hello)) == 7);
   CHECK(sr_wtsend_pump_recv_stream(&f, cfd, sfd, &srv, &sf));
-  sr_wtsend_ack_all_inflight(&acfg, c, &c->wtsend[0].sess, 0);
+  sr_wtsend_ack_all_inflight(c, &c->wtsend[0].sess, 0);
   CHECK(wired_server_wt_stream_fin(&c->wt, 7) == 1);
   CHECK(c->wtsend[0].fin_only_pending == 1);
   CHECK(c->wtsend[0].fin_requested == 0);
@@ -13070,7 +13251,7 @@ static void test_srvrun_wt_open_slot_exhaustion_and_reuse(void) {
     srvrun_state    st  = {g_srvrun_table, g_srvrun_state.conns};
     srvrun_step_ctx ctx = {&cfg, 0, &st, 1, 0};
     srvrun_pump_sess(&ctx, 0);
-    srvrun_feed_ack_range(&cfg, c, 0, c->l.tx_pn, 1); /* covers every pn */
+    srvrun_feed_ack_range(c, 0, c->l.tx_pn, 1); /* covers every pn */
   }
   srvrun_reap_wtsends(c);
   for (int i = 0; i < SRVRUN_WT_SEND_SLOTS; i++)
@@ -13286,10 +13467,10 @@ static void test_srvrun_wt_open_two_megabyte_payload_fully_acked(void) {
          round < 100 && c->wtsend[0].sess.q.cur < sizeof sr_wtsend_big;
          round++) {
       srvrun_pump_sess(&ctx, 0);
-      sr_wtsend_ack_all_inflight(&cfg, c, &c->wtsend[0].sess, 1);
+      sr_wtsend_ack_all_inflight(c, &c->wtsend[0].sess, 1);
     }
     CHECK(c->wtsend[0].sess.q.cur == sizeof sr_wtsend_big);
-    sr_wtsend_ack_all_inflight(&cfg, c, &c->wtsend[0].sess, 1);
+    sr_wtsend_ack_all_inflight(c, &c->wtsend[0].sess, 1);
   }
   srvrun_reap_wtsends(c);
   CHECK(c->wtsend[0].in_use == 0); /* every byte acked: slot reclaimed */
@@ -14142,6 +14323,7 @@ void test_srvrun(void) {
   test_srvrun_ku_old_keys_retained_within_3pto_window();
   test_srvrun_ku_old_keys_discarded_after_3pto_window();
   test_srvrun_sibling_ack_does_not_lose_other_slot();
+  test_srvrun_ack_ranges_batched_before_loss_pass();
   test_srvrun_loss_and_retransmit_across_two_responses();
   test_srvrun_pmtu_ack_raises_validated();
   test_srvrun_pmtu_ack_outside_range_no_effect();
@@ -14326,6 +14508,8 @@ void test_srvrun(void) {
   test_srvrun_send_stream_slice_writes_stream_frame_sent();
   test_srvrun_send_stream_slice_no_qlog_path_writes_nothing();
   test_srvrun_feed_ack_range_writes_stream_frame_lost();
+  test_srvrun_wt_unacked_round_loss_detected();
+  test_srvrun_wt_lost_bare_fin_redetected_and_resent();
   test_srvrun_wt_uni_stream_writes_stream_frame_received();
   test_srvrun_no_reload_leaves_id_untouched();
   test_srvrun_reload_requested_updates_id();
