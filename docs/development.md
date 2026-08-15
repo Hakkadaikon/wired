@@ -118,6 +118,7 @@ commit.
 | `ninja` | Compile every `src/**/*.c` with `-ffreestanding -nostdlib` into `build/<path>.o` — the proof of libc independence. |
 | `lib` | Archive the SDK objects into `build/libwired.a` (excludes the SDK's own `_start` stub so your app supplies the entry point). |
 | `test` | Format, then build and run `build/quic_test`: `tests/run.c` is a single unity translation unit including every production `.c` and every `*_test.c`, assertions on. |
+| `test-fast` | Same tests as `test`, but the include list of `tests/run.c` is split into shard translation units (`scripts/gen_shards.py`) compiled in parallel — ~4x faster. Cannot see `static`/`typedef`/macro collisions *between* shards; `test` (the single TU, run by CI) remains the authority on those. |
 | `ccn` | `lizard src --CCN 3 -w` — every function must hold cyclomatic complexity ≤ 3. |
 | `check` | `ccn` + `test`. |
 | `fmt` / `fmt-check` | clang-format in place / verify without writing. |
@@ -157,13 +158,18 @@ A commit is allowed only when all three pass in the same working tree, plus the
 count check. Run them guarded so a red result cannot reach `git commit`:
 
 ```sh
-if just test 2>&1 | grep -q "all tests passed" \
+if just test-fast 2>&1 | grep -q "all tests passed" \
    && just ninja >/dev/null 2>&1 \
    && lizard src --CCN 3 -w \
-   && [ "$(find src -name '*.c' | wc -l)" = "$(find build -name '*.o' | wc -l)" ]; then
+   && [ "$(find src -name '*.c' | wc -l)" = "$(find build/src -name '*.o' | wc -l)" ]; then
     git commit -m "..."
 fi
 ```
+
+`test-fast` is the everyday form of the test leg; the single-TU `just test`
+is strictly stronger (it also catches cross-file `static`/`typedef`/macro
+collisions) and CI runs it on every push — run it locally before pushing a
+diff that introduces new symbol names.
 
 Never pipe a gate into `tail`/`head` and `&&` a commit on the pipe's exit (the
 exit is the pager's). Never `;`-chain a gate and a commit. The count check
