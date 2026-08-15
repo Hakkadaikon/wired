@@ -82,6 +82,18 @@ ninja: gen-ninja
 test: fmt gen-ninja
     ninja build/quic_test && build/quic_test
 
+# fast dev-loop tests: run.c split into shard TUs compiled in parallel
+# (~4x faster than the 1-core single-TU `test`, more on small increments;
+# -O2 cost grows superlinearly with TU size, so splitting also cuts total
+# CPU, not just wall time). Same tests,
+# same "all tests passed" output — but shards cannot see static/typedef/
+# macro collisions ACROSS shard TUs, so the single-TU `test` stays the
+# authoritative gate (CI runs it on every push; run it locally when in
+# doubt about a name collision).
+test-fast: fmt gen-ninja
+    python3 scripts/gen_shards.py
+    ninja build/quic_test_fast && build/quic_test_fast
+
 # line coverage of the hosted unity test (LLVM source-based coverage).
 # Separate binary from `test` -- instrumentation must never leak into the
 # gate build, so this recompiles tests/run.c on its own with
@@ -115,7 +127,7 @@ wire-check: ninja
     find src -name '*.c' | sed 's|^src/||' | sort > "$tmp/src"
     grep '^#include ".*\.c"' tests/run.c | grep -v '_test\.c"' \
         | sed 's/^#include "//; s/"$//' | sort > "$tmp/inc"
-    nsrc=$(wc -l < "$tmp/src"); nobj=$(find build -name '*.o' | wc -l)
+    nsrc=$(wc -l < "$tmp/src"); nobj=$(find build/src -name '*.o' | wc -l)
     echo "src .c: $nsrc / freestanding .o: $nobj"
     [ "$nsrc" -eq "$nobj" ] || { echo "WIRING MISMATCH: a source compiles to no object" >&2; exit 1; }
     # unity build: every src .c included once, except sys.c (its only symbol

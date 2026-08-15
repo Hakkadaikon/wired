@@ -49,6 +49,19 @@ dbgsrcs=$(printf '%s\n' "$srcs" | grep -v '^src/common/platform/sys/sys\.c$' \
     echo "  deps = gcc"
     echo "  description = CC \$out"
     echo
+    echo "# shard objects for the fast dev-loop test binary: same hosted"
+    echo "# flags, but -c so the K shard TUs compile in parallel. The depfile"
+    echo "# limits a rebuild to the shards whose included files changed."
+    echo "rule cc_hosted_obj"
+    echo "  command = \$cc \$testflags -MD -MF \$out.d -c \$in -o \$out"
+    echo "  depfile = \$out.d"
+    echo "  deps = gcc"
+    echo "  description = CC \$out"
+    echo
+    echo "rule cc_hosted_link"
+    echo "  command = \$cc \$testflags \$in -o \$out"
+    echo "  description = LINK \$out"
+    echo
     echo "rule cc_fuzz_bin"
     echo "  command = \$cc \$fuzzflags -MD -MF \$out.d \$in -o \$out"
     echo "  depfile = \$out.d"
@@ -75,6 +88,18 @@ dbgsrcs=$(printf '%s\n' "$srcs" | grep -v '^src/common/platform/sys/sys\.c$' \
     echo "# *_test.c once), so it compiles straight to a binary -- no per-file"
     echo "# objects to track here."
     echo "build build/quic_test: cc_hosted_bin tests/run.c"
+    echo
+    echo "# fast dev-loop variant: run.c split into shard TUs (gen_shards.py,"
+    echo "# K must match its constant) compiled in parallel, linked into one"
+    echo "# binary. NOT the commit gate -- cross-TU static/macro collisions"
+    echo "# are only caught by the single-TU build/quic_test above."
+    shard_objs=""
+    for n in 0 1 2 3 4 5 6 7; do
+        echo "build build/shards/shard_$n.o: cc_hosted_obj build/shards/shard_$n.c"
+        shard_objs="$shard_objs build/shards/shard_$n.o"
+    done
+    echo "build build/shards/shard_main.o: cc_hosted_obj build/shards/shard_main.c"
+    echo "build build/quic_test_fast: cc_hosted_link build/shards/shard_main.o$shard_objs"
     echo
     echo "# fuzz: each harness includes its target src/**.c directly (hosted,"
     echo "# ASan+libFuzzer instrumented), same reasoning as the unity build."
