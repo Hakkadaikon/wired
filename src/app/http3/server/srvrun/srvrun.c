@@ -7602,22 +7602,23 @@ static int srvrun_polling(const srvrun_cfg* cfg) {
   return cfg->busy_poll || cfg->xdp != 0;
 }
 
-/* env->pto_next_ms/pto_spin: the PTO probe deadline for the polling drivers.
- * They never sleep in poll(2), so the poll-timeout probe pass in srvrun_step
- * is unreachable for them and a lost reply would otherwise never be
- * retransmitted (RFC 9002 6.2). pto_spin paces the clock read below (1 on
- * every 1024th call). */
-
-/* 1 on every 1024th call in a polling driver: the mono-clock read is a real
- * syscall, too costly to pay per spin iteration for a 300ms deadline. */
+/* env->pto_next_ms/pto_spin: the PTO probe deadline for every driver. The
+ * polling drivers never sleep in poll(2), so the poll-timeout probe pass in
+ * srvrun_step is unreachable for them -- and the blocking driver's timeout
+ * branch is just as unreachable for as long as continuous inbound traffic
+ * keeps the socket readable within every 25ms window (a live relay under
+ * steady voice uploads starved it for 30+ seconds, RFC 9002 6.2's probe
+ * never firing). So the clocked pass runs for all drivers; pto_spin paces
+ * the clock read below (1 on every 1024th call) for the spin drivers only,
+ * since a blocking step already pays at least one syscall per iteration. */
 static int srvrun_pto_due(const srvrun_cfg* cfg, wired_srvrun_env* env) {
-  if (!srvrun_polling(cfg)) return 0;
+  if (!srvrun_polling(cfg)) return 1;
   env->pto_spin++;
   return (env->pto_spin & 1023u) == 0;
 }
 
-/* Clocked stand-in for the poll-timeout probe pass: fire the PTOs on the
- * same SRVRUN_PTO_MS cadence the blocking driver gets from poll(2). */
+/* The clocked probe pass: fire the PTOs on the SRVRUN_PTO_MS cadence
+ * regardless of whether poll(2) ever times out (srvrun_pto_due's doc). */
 static void srvrun_polling_ptos(const srvrun_cfg* cfg, srvrun_state* st) {
   u64 now;
   if (!srvrun_pto_due(cfg, cfg->env)) return;
