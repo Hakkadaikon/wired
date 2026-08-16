@@ -2,6 +2,6 @@
 
 /* Freestanding entry point. No libc, no crt. */
 void _start(void) {
-  syscall1(SYS_exit, 0);
+  wired_arch_exit(0);
   __builtin_unreachable();
 }

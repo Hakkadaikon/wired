@@ -21,18 +21,18 @@ void wired_fmt_u64(char* out, usz* at, const wired_fmt_u64_in* in) {
 void wired_log_str(const char* s) {
   usz n = 0;
   while (s[n]) n++;
-  syscall3(SYS_write, 2, (i64)s, (i64)n);
+  wired_arch_write(2, s, n);
 }
 
 void wired_log_ts(const char* s) {
   i64  ts[2] = {0, 0};
   char p[24];
   usz  at = 0;
-  syscall3(SYS_clock_gettime, 0, (i64)ts, 0);
+  wired_arch_clock_gettime(0, ts);
   wired_fmt_u64(p, &at, &(wired_fmt_u64_in){(u64)ts[0], 1});
   p[at++] = '.';
   wired_fmt_u64(p, &at, &(wired_fmt_u64_in){(u64)ts[1], 9});
   p[at++] = ' ';
-  syscall3(SYS_write, 2, (i64)p, (i64)at);
+  wired_arch_write(2, p, at);
   wired_log_str(s);
 }
