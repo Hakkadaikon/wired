@@ -77,14 +77,14 @@ typedef struct {
 } xsk_umem_reg;
 
 static i64 xsksetup_mmap(usz len, u64 pgoff, i64 fd) {
-  return syscall6(
-      SYS_mmap, 0, (i64)len, QUIC_PROT_READ | QUIC_PROT_WRITE,
-      QUIC_MAP_SHARED | QUIC_MAP_POPULATE, fd, (i64)pgoff);
+  return wired_arch_mmap(
+      0, len, QUIC_PROT_READ | QUIC_PROT_WRITE,
+      QUIC_MAP_SHARED | QUIC_MAP_POPULATE, fd, pgoff);
 }
 
 static i64 xsksetup_munmap(void* addr, usz len) {
   if (!addr) return 0;
-  return syscall3(SYS_munmap, addr, len, 0);
+  return wired_arch_munmap((i64)addr, len);
 }
 
 /* Undo whatever of x was already built, in reverse order. Every field is
@@ -95,7 +95,7 @@ static void xsksetup_unwind(quic_xsk* x) {
   xsksetup_munmap(x->map_tx, x->map_tx_len);
   xsksetup_munmap(x->map_rx, x->map_rx_len);
   if (x->umem) xsksetup_munmap(x->umem, x->umem_len);
-  if (x->fd >= 0) syscall1(SYS_close, x->fd);
+  if (x->fd >= 0) wired_arch_close(x->fd);
   x->fd = -1;
 }
 
@@ -105,23 +105,22 @@ static i64 xsksetup_umem(quic_xsk* x) {
   i64          r;
   xsk_umem_reg reg = {0, QUIC_XSKSETUP_UMEM_LEN, QUIC_XSKSETUP_FRAME_SIZE, 0, 0,
                       0};
-  r                = syscall6(
-      SYS_mmap, 0, QUIC_XSKSETUP_UMEM_LEN, QUIC_PROT_READ | QUIC_PROT_WRITE,
+  r                = wired_arch_mmap(
+      0, QUIC_XSKSETUP_UMEM_LEN, QUIC_PROT_READ | QUIC_PROT_WRITE,
       QUIC_MAP_PRIVATE | QUIC_MAP_ANONYMOUS, -1, 0);
   if (r < 0) return r;
   x->umem     = (u8*)r;
   x->umem_len = QUIC_XSKSETUP_UMEM_LEN;
   reg.addr    = (u64)x->umem;
-  r           = syscall6(
-      SYS_setsockopt, x->fd, QUIC_SOL_XDP, QUIC_XDP_UMEM_REG, (i64)&reg,
-      sizeof reg, 0);
+  r           = wired_arch_setsockopt(
+      x->fd, QUIC_SOL_XDP, QUIC_XDP_UMEM_REG, &reg, sizeof reg);
   return r;
 }
 
 /* Set the entry count of all four rings via their respective setsockopts. */
 static i64 xsksetup_ring_size(i64 fd, int name) {
   u32 n = QUIC_XSKSETUP_RING_ENTRIES;
-  return syscall6(SYS_setsockopt, fd, QUIC_SOL_XDP, name, (i64)&n, sizeof n, 0);
+  return wired_arch_setsockopt(fd, QUIC_SOL_XDP, name, &n, sizeof n);
 }
 
 static i64 xsksetup_ring_sizes(quic_xsk* x) {
@@ -203,15 +202,14 @@ static i64 xsksetup_map_rings(quic_xsk* x, const xsk_mmap_offsets* mo) {
 
 static i64 xsksetup_get_offsets(i64 fd, xsk_mmap_offsets* mo) {
   u32 len = sizeof(*mo);
-  return syscall6(
-      SYS_getsockopt, fd, QUIC_SOL_XDP, QUIC_XDP_MMAP_OFFSETS, (i64)mo,
-      (i64)&len, 0);
+  return wired_arch_getsockopt(
+      fd, QUIC_SOL_XDP, QUIC_XDP_MMAP_OFFSETS, mo, &len);
 }
 
 static i64 xsksetup_bind(quic_xsk* x, const quic_xsk_cfg* cfg) {
   xsk_sockaddr sa = {
       QUIC_AF_XDP, cfg->bind_flags, cfg->ifindex, cfg->queue_id, 0};
-  return syscall3(SYS_bind, x->fd, &sa, sizeof sa);
+  return wired_arch_bind(x->fd, &sa, sizeof sa);
 }
 
 /* Push every RX-pool frame address (0..QUIC_XSKSETUP_UMEM_FRAMES/2, matching
@@ -258,7 +256,7 @@ static i64 xsksetup_build(quic_xsk* x, const quic_xsk_cfg* cfg) {
 i64 quic_xsksetup_open(quic_xsk* x, const quic_xsk_cfg* cfg) {
   i64 r;
   *x    = (quic_xsk){0};
-  x->fd = syscall3(SYS_socket, QUIC_AF_XDP, QUIC_SOCK_RAW, 0);
+  x->fd = wired_arch_socket(QUIC_AF_XDP, QUIC_SOCK_RAW, 0);
   if (x->fd < 0) return x->fd;
   r = xsksetup_build(x, cfg);
   if (r < 0) {
@@ -275,12 +273,11 @@ void quic_xsksetup_close(quic_xsk* x) {
 }
 
 i64 quic_xsksetup_kick_tx(i64 fd) {
-  return syscall6(SYS_sendto, fd, 0, 0, 0x40 /* MSG_DONTWAIT */, 0, 0);
+  return wired_arch_sendto(fd, 0, 0, 0x40 /* MSG_DONTWAIT */, 0, 0);
 }
 
 i64 quic_xsksetup_stats(i64 fd, u64 out[6]) {
   u32 len = 6 * sizeof(u64);
-  return syscall6(
-      SYS_getsockopt, fd, QUIC_SOL_XDP, QUIC_XDP_STATISTICS, (i64)out,
-      (i64)&len, 0);
+  return wired_arch_getsockopt(
+      fd, QUIC_SOL_XDP, QUIC_XDP_STATISTICS, out, &len);
 }

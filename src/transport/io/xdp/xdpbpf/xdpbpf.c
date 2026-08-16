@@ -196,7 +196,7 @@ typedef struct {
 
 i64 quic_xdpbpf_map_create(u32 max_entries) {
   bpf_attr_map_create attr = {BPF_MAP_TYPE_XSKMAP, 4, 4, max_entries, 0};
-  return syscall3(SYS_bpf, BPF_MAP_CREATE, &attr, sizeof attr);
+  return wired_arch_bpf(BPF_MAP_CREATE, &attr, sizeof attr);
 }
 
 /* BPF_MAP_UPDATE_ELEM attr (linux/bpf.h:1427): map_fd, then two 8-byte
@@ -210,7 +210,7 @@ typedef struct {
 
 i64 quic_xdpbpf_map_set(i64 map_fd, u32 key, u32 xsk_fd) {
   bpf_attr_map_update attr = {(u32)map_fd, (u64)&key, (u64)&xsk_fd, 0};
-  return syscall3(SYS_bpf, BPF_MAP_UPDATE_ELEM, &attr, sizeof attr);
+  return wired_arch_bpf(BPF_MAP_UPDATE_ELEM, &attr, sizeof attr);
 }
 
 /* BPF_PROG_LOAD attr (linux/bpf.h:1454), the fields this SDK sets (40
@@ -236,7 +236,7 @@ i64 quic_xdpbpf_prog_load(const u64* insns, u32 cnt, quic_mspan log) {
   bpf_attr_prog_load attr      = {
       BPF_PROG_TYPE_XDP, cnt, (u64)insns, (u64)license, 0, 0, 0};
   if (log.n > 0) prog_load_attach_log(&attr, log);
-  return syscall3(SYS_bpf, BPF_PROG_LOAD, &attr, sizeof attr);
+  return wired_arch_bpf(BPF_PROG_LOAD, &attr, sizeof attr);
 }
 
 /* BPF_LINK_CREATE attr (linux/bpf.h:1624), the first 16 bytes (the union's
@@ -251,5 +251,5 @@ typedef struct {
 i64 quic_xdpbpf_link_create(i64 prog_fd, u32 ifindex, u32 flags) {
   bpf_attr_link_create attr = {
       (u32)prog_fd, ifindex, BPF_ATTACH_TYPE_XDP, flags};
-  return syscall3(SYS_bpf, BPF_LINK_CREATE, &attr, sizeof attr);
+  return wired_arch_bpf(BPF_LINK_CREATE, &attr, sizeof attr);
 }
