@@ -10,6 +10,7 @@
  * switching the include here — no other file changes.
  */
 
+#include "common/arch/sysops.h"
 #include "common/arch/x8664/x8664.h"
 
 #endif

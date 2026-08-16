@@ -1,7 +1,5 @@
 #include "transport/io/socket/poll/wait.h"
 
-#define SYS_poll 7 /* x86_64 poll(fds, nfds, timeout_ms) */
-
 void quic_poll_fill_readable(quic_pollfd* p, i64 fd) {
   p->fd      = (i32)fd;
   p->events  = QUIC_POLLIN;

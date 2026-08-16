@@ -1,10 +1,5 @@
 #include "transport/io/xdp/xdpbpf/xdpbpf.h"
 
-/* bpf(2) syscall number: not in the shared syscall.h table because only this
- * file uses it (naming-and-unity-build.md: local #define for a single
- * subsystem). Verified against /usr/include/asm/unistd_64.h (__NR_bpf). */
-#define SYS_bpf 321
-
 /* linux/bpf.h enum bpf_cmd, verified two ways on this host (6.8.0): (1) hand-
  * counting the enum body at line 883 from BPF_MAP_CREATE=0, (2) compiling a
  * one-line C probe that prints the real macro values <linux/bpf.h> expands
