@@ -29,13 +29,13 @@
  * -errno in -4095..-1 (kernel guarantee), and x86_64 user addresses are
  * never negative, so `< 0` is the error test. */
 static i64 thread_map_stack(wired_thread* t) {
-  i64 base = syscall6(
-      SYS_mmap, 0, THREAD_MAP_LEN, THREAD_PROT_READ | THREAD_PROT_WRITE,
+  i64 base = wired_arch_mmap(
+      0, THREAD_MAP_LEN, THREAD_PROT_READ | THREAD_PROT_WRITE,
       THREAD_MAP_PRIVATE | THREAD_MAP_ANONYMOUS, -1, 0);
   if (base < 0) return base;
-  i64 r = syscall3(SYS_mprotect, base, THREAD_GUARD_LEN, THREAD_PROT_NONE);
+  i64 r = wired_arch_mprotect(base, THREAD_GUARD_LEN, THREAD_PROT_NONE);
   if (r < 0) {
-    syscall3(SYS_munmap, base, THREAD_MAP_LEN, 0);
+    wired_arch_munmap(base, THREAD_MAP_LEN);
     return r;
   }
   t->stack     = (u8*)base;
@@ -59,7 +59,7 @@ i64 wired_thread_start(wired_thread* t, void (*fn)(void*), void* arg) {
   r = wired_arch_clone_raw(
       THREAD_CLONE_FLAGS, thread_stack_prep(t, fn, arg), &t->tid, &t->tid, 0);
   if (r < 0) {
-    syscall3(SYS_munmap, t->stack, t->stack_len, 0);
+    wired_arch_munmap((i64)t->stack, t->stack_len);
     t->stack = 0;
     return r;
   }
@@ -73,15 +73,15 @@ i64 wired_thread_start(wired_thread* t, void (*fn)(void*), void* arg) {
 static void thread_wait_tid(i32* tid) {
   i32 v;
   while ((v = __atomic_load_n(tid, __ATOMIC_ACQUIRE)) != 0)
-    syscall6(SYS_futex, (i64)tid, THREAD_FUTEX_WAIT, v, 0, 0, 0);
+    wired_arch_futex(tid, THREAD_FUTEX_WAIT, v, 0, 0, 0);
 }
 
 i64 wired_thread_join(wired_thread* t) {
   thread_wait_tid(&t->tid);
-  syscall3(SYS_munmap, t->stack, t->stack_len, 0);
+  wired_arch_munmap((i64)t->stack, t->stack_len);
   t->stack     = 0;
   t->stack_len = 0;
   return 0;
 }
 
-i64 wired_thread_tid(void) { return syscall1(SYS_gettid, 0); }
+i64 wired_thread_tid(void) { return wired_arch_gettid(); }

@@ -126,13 +126,13 @@ static void srvthreads_worker_trampoline(void* argp) {
  * same test as thread.c's thread_map_stack). */
 static u8* srvthreads_alloc_envs(int n_cores) {
   i64 sz   = (i64)wired_srvrun_env_size() * n_cores;
-  i64 base = syscall6(
-      SYS_mmap, 0, sz, SRVTHREADS_PROT_RW, SRVTHREADS_MAP_PRIVATE_ANON, -1, 0);
+  i64 base = wired_arch_mmap(
+      0, sz, SRVTHREADS_PROT_RW, SRVTHREADS_MAP_PRIVATE_ANON, -1, 0);
   return base < 0 ? 0 : (u8*)base;
 }
 
 static void srvthreads_free_envs(u8* base, int n_cores) {
-  syscall3(SYS_munmap, (i64)base, (i64)wired_srvrun_env_size() * n_cores, 0);
+  wired_arch_munmap((i64)base, wired_srvrun_env_size() * n_cores);
 }
 
 static wired_srvrun_env* srvthreads_env_at(u8* base, int i) {
@@ -145,8 +145,8 @@ static wired_srvrun_env* srvthreads_env_at(u8* base, int i) {
  * proportional instead of a fixed WIRED_SRVTHREADS_MAX*MAX allocation. */
 static wired_srvinbox_ring* srvthreads_alloc_mesh(int n_cores) {
   i64 sz   = (i64)sizeof(wired_srvinbox_ring) * (i64)n_cores * (i64)n_cores;
-  i64 base = syscall6(
-      SYS_mmap, 0, sz, SRVTHREADS_PROT_RW, SRVTHREADS_MAP_PRIVATE_ANON, -1, 0);
+  i64 base = wired_arch_mmap(
+      0, sz, SRVTHREADS_PROT_RW, SRVTHREADS_MAP_PRIVATE_ANON, -1, 0);
   if (base < 0) return 0;
   for (i64 i = 0; i < (i64)n_cores * n_cores; i++)
     wired_srvinbox_ring_init((wired_srvinbox_ring*)base + i);
@@ -154,9 +154,8 @@ static wired_srvinbox_ring* srvthreads_alloc_mesh(int n_cores) {
 }
 
 static void srvthreads_free_mesh(wired_srvinbox_ring* mesh, int n_cores) {
-  syscall3(
-      SYS_munmap, (i64)mesh,
-      (i64)sizeof(wired_srvinbox_ring) * (i64)n_cores * (i64)n_cores, 0);
+  wired_arch_munmap(
+      (i64)mesh, sizeof(wired_srvinbox_ring) * (i64)n_cores * (i64)n_cores);
 }
 
 /* Worker i's receive row is mesh + i*n_cores (n_cores rings). */
@@ -224,7 +223,7 @@ static void srvthreads_wait_shutdown(int* word) {
   quic_timespec ts = {
       SRVTHREADS_WAIT_MS / 1000, (i64)(SRVTHREADS_WAIT_MS % 1000) * 1000000};
   while (__atomic_load_n(word, __ATOMIC_ACQUIRE) == 0)
-    syscall6(SYS_futex, (i64)word, SRVTHREADS_FUTEX_WAIT, 0, (i64)&ts, 0, 0);
+    wired_arch_futex(word, SRVTHREADS_FUTEX_WAIT, 0, &ts, 0, 0);
 }
 
 /* Open the shared per-interface BPF filter in XDP mode; a no-op success (fd
