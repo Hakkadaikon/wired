@@ -22,7 +22,7 @@ static ssz fio_read_result(i64 ret, usz done) {
  * from "file larger than buf" (WIRED_FIO_ETOOBIG). */
 static ssz fio_full_result(i64 fd, usz done) {
   u8  probe;
-  i64 ret = syscall3(SYS_read, fd, &probe, 1);
+  i64 ret = wired_arch_read(fd, &probe, 1);
   if (ret > 0) return WIRED_FIO_ETOOBIG;
   return fio_read_result(ret, done);
 }
@@ -31,7 +31,7 @@ static ssz fio_full_result(i64 fd, usz done) {
 static ssz fio_fill(i64 fd, quic_mspan buf) {
   usz done = 0;
   while (done < buf.n) {
-    i64 ret = syscall3(SYS_read, fd, buf.p + done, buf.n - done);
+    i64 ret = wired_arch_read(fd, buf.p + done, buf.n - done);
     if (fio_read_done(ret)) return fio_read_result(ret, done);
     done += (usz)ret;
   }
@@ -39,11 +39,11 @@ static ssz fio_fill(i64 fd, quic_mspan buf) {
 }
 
 ssz wired_fio_read(const char* path, quic_mspan buf) {
-  i64 fd = syscall3(SYS_openat, FIO_AT_FDCWD, path, FIO_O_RDONLY);
+  i64 fd = wired_arch_openat(FIO_AT_FDCWD, path, FIO_O_RDONLY, 0);
   ssz got;
   if (fd < 0) return (ssz)fd;
   got = fio_fill(fd, buf);
-  syscall1(SYS_close, fd);
+  wired_arch_close(fd);
   return got;
 }
 
@@ -53,18 +53,18 @@ ssz wired_fio_read(const char* path, quic_mspan buf) {
 #define FIO_STAT_SIZE_OFF 48
 
 ssz wired_fio_open(const char* path) {
-  return (ssz)syscall3(SYS_openat, FIO_AT_FDCWD, path, FIO_O_RDONLY);
+  return (ssz)wired_arch_openat(FIO_AT_FDCWD, path, FIO_O_RDONLY, 0);
 }
 
-void wired_fio_close(i64 fd) { syscall1(SYS_close, fd); }
+void wired_fio_close(i64 fd) { wired_arch_close(fd); }
 
 ssz wired_fio_pread(i64 fd, quic_mspan buf, u64 off) {
-  return (ssz)syscall4(SYS_pread64, fd, buf.p, buf.n, off);
+  return (ssz)wired_arch_pread64(fd, buf.p, buf.n, off);
 }
 
 ssz wired_fio_size(const char* path) {
   u8  st[FIO_STAT_BUF_LEN] = {0};
-  i64 ret = syscall4(SYS_newfstatat, FIO_AT_FDCWD, path, st, 0);
+  i64 ret                  = wired_arch_newfstatat(FIO_AT_FDCWD, path, st, 0);
   if (ret < 0) return (ssz)ret;
   return (ssz) * (const i64*)(st + FIO_STAT_SIZE_OFF);
 }
@@ -74,7 +74,7 @@ ssz wired_fio_size(const char* path) {
 static ssz fio_write_all(i64 fd, quic_span data) {
   usz done = 0;
   while (done < data.n) {
-    i64 ret = syscall3(SYS_write, fd, data.p + done, data.n - done);
+    i64 ret = wired_arch_write(fd, data.p + done, data.n - done);
     if (ret <= 0) return (ssz)ret;
     done += (usz)ret;
   }
@@ -82,13 +82,12 @@ static ssz fio_write_all(i64 fd, quic_span data) {
 }
 
 ssz wired_fio_append(const char* path, quic_span data) {
-  i64 fd = syscall6(
-      SYS_openat, FIO_AT_FDCWD, (i64)path, FIO_O_APPEND_WR, FIO_MODE_OWNER_RW,
-      0, 0);
+  i64 fd =
+      wired_arch_openat(FIO_AT_FDCWD, path, FIO_O_APPEND_WR, FIO_MODE_OWNER_RW);
   ssz put;
   if (fd < 0) return (ssz)fd;
   put = fio_write_all(fd, data);
-  syscall1(SYS_close, fd);
+  wired_arch_close(fd);
   return put;
 }
 
@@ -96,17 +95,16 @@ ssz wired_fio_append(const char* path, quic_span data) {
 static int fio_mkdir_ok(i64 ret) { return ret == 0 || ret == -FIO_EEXIST; }
 
 i64 wired_fio_mkdir(const char* path) {
-  i64 ret = syscall3(SYS_mkdirat, FIO_AT_FDCWD, path, FIO_MODE_DIR);
+  i64 ret = wired_arch_mkdirat(FIO_AT_FDCWD, path, FIO_MODE_DIR);
   return fio_mkdir_ok(ret) ? 0 : ret;
 }
 
 i64 wired_fio_write_new(const char* path, quic_span data) {
-  i64 fd = syscall6(
-      SYS_openat, FIO_AT_FDCWD, (i64)path, FIO_O_TRUNC_WR, FIO_MODE_WORLD_R, 0,
-      0);
+  i64 fd =
+      wired_arch_openat(FIO_AT_FDCWD, path, FIO_O_TRUNC_WR, FIO_MODE_WORLD_R);
   ssz put;
   if (fd < 0) return fd;
   put = fio_write_all(fd, data);
-  syscall1(SYS_close, fd);
+  wired_arch_close(fd);
   return put < 0 ? (i64)put : 0;
 }
