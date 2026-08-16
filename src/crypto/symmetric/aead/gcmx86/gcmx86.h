@@ -4,8 +4,9 @@
 #include "common/bytes/span/span.h"
 
 /* Hardware AES-128-GCM (NIST SP 800-38D) using x86-64 AES-NI and PCLMULQDQ
- * via inline asm (no intrinsics headers: this tree is libc-free). Same AEAD
- * as crypto/symmetric/aead/gcm (RFC 9001 5.3), roughly two orders of
+ * via the arch adapter's instruction wrappers (common/arch/x8664/simd128.h;
+ * no intrinsics headers: this tree is libc-free). Same AEAD as
+ * crypto/symmetric/aead/gcm (RFC 9001 5.3), roughly two orders of
  * magnitude faster per block. Callers must gate on quic_gcmx86_supported()
  * and fall back to the scalar quic_gcm_* path when it returns 0. */
 
