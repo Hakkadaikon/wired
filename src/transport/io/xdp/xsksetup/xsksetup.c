@@ -5,7 +5,6 @@
  * /usr/include/x86_64-linux-gnu/asm/unistd_64.h on this host (6.8.0):
  * __NR_getsockopt=55 (line 59). mmap/munmap moved to the shared table when
  * the thread runtime became a second user. */
-#define SYS_getsockopt 55
 
 /* AF_XDP / SOL_XDP (linux/bits/socket.h, x86_64-linux-gnu):
  * PF_XDP=44 (bits/socket.h:88, AF_XDP is an alias), SOL_XDP=283

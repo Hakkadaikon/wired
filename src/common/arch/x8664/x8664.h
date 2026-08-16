@@ -42,6 +42,10 @@
 #define SYS_fork 57               /**< fork(2) syscall number */
 #define SYS_wait4 61              /**< wait4(2) syscall number */
 #define SYS_exit_group 231        /**< exit_group(2) syscall number */
+#define SYS_poll 7                /**< poll(2) syscall number */
+#define SYS_getsockopt 55         /**< getsockopt(2) syscall number */
+#define SYS_fcntl 72              /**< fcntl(2) syscall number */
+#define SYS_bpf 321               /**< bpf(2) syscall number */
 
 /** x86_64 Linux rt_sigaction(2) requires SA_RESTORER plus a userspace
  * trampoline that issues rt_sigreturn(2); the kernel refuses a bare handler
@@ -76,6 +80,20 @@ static inline i64 syscall6(i64 n, i64 a, i64 b, i64 c, i64 d, i64 e, i64 f) {
                    : "rcx", "r11", "memory");
   return ret;
 }
+
+/** Two-argument syscall: syscall6() with the trailing arguments zeroed. */
+#define syscall2(n, a, b) syscall6((n), (i64)(a), (i64)(b), 0, 0, 0, 0)
+/** Three-argument syscall: syscall6() with the trailing arguments zeroed. */
+#define syscall3(n, a, b, c) \
+  syscall6((n), (i64)(a), (i64)(b), (i64)(c), 0, 0, 0)
+/** Four-argument syscall: syscall6() with the trailing arguments zeroed. */
+#define syscall4(n, a, b, c, d) \
+  syscall6((n), (i64)(a), (i64)(b), (i64)(c), (i64)(d), 0, 0)
+/** Five-argument syscall: syscall6() with the trailing argument zeroed. */
+#define syscall5(n, a, b, c, d, e) \
+  syscall6((n), (i64)(a), (i64)(b), (i64)(c), (i64)(d), (i64)(e), 0)
+/** One-argument syscall: syscall6() with the trailing arguments zeroed. */
+#define syscall1(n, a) syscall6((n), (i64)(a), 0, 0, 0, 0, 0)
 
 /** CPU spin-wait hint for busy-poll loops (x86 `pause`): tells the core a
  * spin is in progress, saving power and easing hyperthread contention. */
