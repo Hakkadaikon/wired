@@ -165,6 +165,6 @@ int quic_client_is_connected(const quic_client* c) {
 }
 
 void quic_client_close(quic_client* c) {
-  if (c->fd >= 0) syscall1(SYS_close, c->fd);
+  if (c->fd >= 0) wired_arch_close(c->fd);
   c->fd = -1;
 }

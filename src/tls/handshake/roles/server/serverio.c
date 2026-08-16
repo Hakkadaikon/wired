@@ -27,6 +27,6 @@ int wired_server_run_handshake(wired_server* s, int max_iterations) {
 }
 
 void wired_server_close(wired_server* s) {
-  if (s->fd >= 0) syscall1(SYS_close, s->fd);
+  if (s->fd >= 0) wired_arch_close(s->fd);
   s->fd = -1;
 }
