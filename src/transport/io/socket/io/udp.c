@@ -50,39 +50,36 @@ void wired_udp_addr(quic_sockaddr* sa, u16 port, const u8 octets[4]) {
 
 i64 wired_udp_socket(void) {
   int v6only = 0;
-  i64 fd     = syscall3(SYS_socket, WIRED_AF_INET6, WIRED_SOCK_DGRAM, 0);
+  i64 fd     = wired_arch_socket(WIRED_AF_INET6, WIRED_SOCK_DGRAM, 0);
   if (fd < 0) return fd;
   /* dual stack: v4 peers arrive v4-mapped on the same fd. Linux defaults
    * IPV6_V6ONLY to 0 already; setting it explicitly pins the behavior
    * against a flipped net.ipv6.bindv6only sysctl. */
-  syscall6(
-      SYS_setsockopt, fd, WIRED_IPPROTO_IPV6, WIRED_IPV6_V6ONLY, (i64)&v6only,
-      sizeof(v6only), 0);
+  wired_arch_setsockopt(
+      fd, WIRED_IPPROTO_IPV6, WIRED_IPV6_V6ONLY, &v6only, sizeof(v6only));
   return fd;
 }
 
 i64 wired_udp_bind(i64 fd, const quic_sockaddr* sa) {
-  return syscall3(SYS_bind, fd, sa, sizeof(*sa));
+  return wired_arch_bind(fd, sa, sizeof(*sa));
 }
 
 i64 wired_udp_send(i64 fd, const quic_sockaddr* sa, quic_span buf) {
-  return syscall6(
-      SYS_sendto, fd, (i64)buf.p, (i64)buf.n, 0, (i64)sa, sizeof(*sa));
+  return wired_arch_sendto(fd, buf.p, buf.n, 0, sa, sizeof(*sa));
 }
 
 i64 wired_udp_recv(i64 fd, quic_mspan buf) {
-  return syscall6(SYS_recvfrom, fd, (i64)buf.p, (i64)buf.n, 0, 0, 0);
+  return wired_arch_recvfrom(fd, buf.p, buf.n, 0, 0, 0);
 }
 
 i64 wired_udp_recvfrom(i64 fd, quic_mspan buf, quic_sockaddr* src) {
   /* addrlen is in/out: pass the buffer size, kernel writes the actual length.
    */
   u32 addrlen = sizeof(*src);
-  return syscall6(
-      SYS_recvfrom, fd, (i64)buf.p, (i64)buf.n, 0, (i64)src, (i64)&addrlen);
+  return wired_arch_recvfrom(fd, buf.p, buf.n, 0, src, &addrlen);
 }
 
-i64 wired_udp_close(i64 fd) { return syscall1(SYS_close, fd); }
+i64 wired_udp_close(i64 fd) { return wired_arch_close(fd); }
 
 /* x86_64 Linux struct iovec (16 bytes): base pointer + length. Manually
  * defined per naming-and-unity-build.md — src/ may not include <sys/uio.h>. */
@@ -118,9 +115,8 @@ void wired_udp_gso_cmsg_build(u8 out[WIRED_GSO_CMSG_SPACE], u16 segsize) {
 
 i64 wired_udp_gso_enable(i64 fd, u16 segsize) {
   u16 val = segsize;
-  return syscall6(
-      SYS_setsockopt, fd, WIRED_SOL_UDP, WIRED_UDP_SEGMENT, (i64)&val,
-      sizeof(val), 0);
+  return wired_arch_setsockopt(
+      fd, WIRED_SOL_UDP, WIRED_UDP_SEGMENT, &val, sizeof(val));
 }
 
 /* RFC 3168 / RFC 9000 13.4.1: ECT(0) codepoint (0b10) as the IPv4 TOS byte's
@@ -138,12 +134,10 @@ i64 wired_udp_ect0_enable(i64 fd) {
   /* dual stack: IP_TOS marks the v4-mapped sends, IPV6_TCLASS the native
    * v6 ones; the v6 option is best-effort (its failure never voids the
    * still-working v4 marking). */
-  syscall6(
-      SYS_setsockopt, fd, WIRED_IPPROTO_IPV6, WIRED_IPV6_TCLASS, (i64)&val,
-      sizeof(val), 0);
-  return syscall6(
-      SYS_setsockopt, fd, WIRED_IPPROTO_IP, WIRED_IP_TOS, (i64)&val,
-      sizeof(val), 0);
+  wired_arch_setsockopt(
+      fd, WIRED_IPPROTO_IPV6, WIRED_IPV6_TCLASS, &val, sizeof(val));
+  return wired_arch_setsockopt(
+      fd, WIRED_IPPROTO_IP, WIRED_IP_TOS, &val, sizeof(val));
 }
 
 /* IP_MTU_DISCOVER setsockopt name (Linux uapi in.h). */
@@ -157,20 +151,17 @@ i64 wired_udp_ect0_enable(i64 fd) {
 
 i64 wired_udp_pmtu_probe_enable(i64 fd) {
   int val = WIRED_IP_PMTUDISC_DO;
-  return syscall6(
-      SYS_setsockopt, fd, WIRED_IPPROTO_IP, WIRED_IP_MTU_DISCOVER, (i64)&val,
-      sizeof(val), 0);
+  return wired_arch_setsockopt(
+      fd, WIRED_IPPROTO_IP, WIRED_IP_MTU_DISCOVER, &val, sizeof(val));
 }
 
 i64 wired_udp_recvtos_enable(i64 fd) {
   int val = 1;
   /* same dual-stack pairing as wired_udp_ect0_enable above. */
-  syscall6(
-      SYS_setsockopt, fd, WIRED_IPPROTO_IPV6, WIRED_IPV6_RECVTCLASS, (i64)&val,
-      sizeof(val), 0);
-  return syscall6(
-      SYS_setsockopt, fd, WIRED_IPPROTO_IP, WIRED_IP_RECVTOS, (i64)&val,
-      sizeof(val), 0);
+  wired_arch_setsockopt(
+      fd, WIRED_IPPROTO_IPV6, WIRED_IPV6_RECVTCLASS, &val, sizeof(val));
+  return wired_arch_setsockopt(
+      fd, WIRED_IPPROTO_IP, WIRED_IP_RECVTOS, &val, sizeof(val));
 }
 
 i64 wired_udp_send_gso(
@@ -185,7 +176,7 @@ i64 wired_udp_send_gso(
   msg.msg_iovlen     = 1;
   msg.msg_control    = cmsg;
   msg.msg_controllen = WIRED_GSO_CMSG_SPACE;
-  return syscall3(SYS_sendmsg, fd, &msg, 0);
+  return wired_arch_sendmsg(fd, &msg, 0);
 }
 
 /* Length of the next segment starting at off: segsize, or the remainder if
@@ -355,8 +346,7 @@ i64 wired_udp_recvmmsg(i64 fd, quic_mmsg_buf* bufs, usz count) {
   usz          n = count < WIRED_RECVMMSG_MAX ? count : WIRED_RECVMMSG_MAX;
   i64          r;
   recvmmsg_fill_all(slots, iovs, bufs, n, cmsgbufs);
-  r = syscall6(
-      SYS_recvmmsg, fd, (i64)slots, (i64)n, WIRED_MSG_WAITFORONE, 0, 0);
+  r = wired_arch_recvmmsg(fd, slots, n, WIRED_MSG_WAITFORONE, 0);
   if (r < 0) return r;
   recvmmsg_read_lens(bufs, slots, r);
   recvmmsg_read_ecn(bufs, slots, r);
@@ -384,9 +374,8 @@ i64 wired_udp_recvmmsg_fallback(i64 fd, quic_mmsg_buf* bufs, usz count) {
 
 i64 wired_udp_reuseport_enable(i64 fd) {
   int val = 1;
-  return syscall6(
-      SYS_setsockopt, fd, WIRED_SOL_SOCKET, WIRED_SO_REUSEPORT, (i64)&val,
-      sizeof(val), 0);
+  return wired_arch_setsockopt(
+      fd, WIRED_SOL_SOCKET, WIRED_SO_REUSEPORT, &val, sizeof(val));
 }
 
 /* MSG_DONTWAIT (linux/socket.h): non-blocking for this call only, unlike
@@ -400,9 +389,8 @@ i64 wired_udp_recvmmsg_nowait(i64 fd, quic_mmsg_buf* bufs, usz count) {
   usz          n = count < WIRED_RECVMMSG_MAX ? count : WIRED_RECVMMSG_MAX;
   i64          r;
   recvmmsg_fill_all(slots, iovs, bufs, n, cmsgbufs);
-  r = syscall6(
-      SYS_recvmmsg, fd, (i64)slots, (i64)n,
-      WIRED_MSG_WAITFORONE | WIRED_MSG_DONTWAIT, 0, 0);
+  r = wired_arch_recvmmsg(
+      fd, slots, n, WIRED_MSG_WAITFORONE | WIRED_MSG_DONTWAIT, 0);
   if (r < 0) return r;
   recvmmsg_read_lens(bufs, slots, r);
   recvmmsg_read_ecn(bufs, slots, r);
@@ -415,9 +403,9 @@ i64 wired_udp_recvmmsg_nowait(i64 fd, quic_mmsg_buf* bufs, usz count) {
 #define WIRED_SO_BUSY_POLL 46
 
 i64 wired_udp_busy_poll_enable(i64 fd, int microseconds) {
-  return syscall6(
-      SYS_setsockopt, fd, WIRED_SOL_SOCKET, WIRED_SO_BUSY_POLL,
-      (i64)&microseconds, sizeof(microseconds), 0);
+  return wired_arch_setsockopt(
+      fd, WIRED_SOL_SOCKET, WIRED_SO_BUSY_POLL, &microseconds,
+      sizeof(microseconds));
 }
 
 /* SO_PREFER_BUSY_POLL setsockopt name (Linux). Only has kernel effect when
@@ -425,9 +413,8 @@ i64 wired_udp_busy_poll_enable(i64 fd, int microseconds) {
 #define WIRED_SO_PREFER_BUSY_POLL 69
 
 i64 wired_udp_prefer_busy_poll_enable(i64 fd, int enable) {
-  return syscall6(
-      SYS_setsockopt, fd, WIRED_SOL_SOCKET, WIRED_SO_PREFER_BUSY_POLL,
-      (i64)&enable, sizeof(enable), 0);
+  return wired_arch_setsockopt(
+      fd, WIRED_SOL_SOCKET, WIRED_SO_PREFER_BUSY_POLL, &enable, sizeof(enable));
 }
 
 /* SO_BUSY_POLL_BUDGET setsockopt name (Linux): caps packets processed per
@@ -435,9 +422,8 @@ i64 wired_udp_prefer_busy_poll_enable(i64 fd, int enable) {
 #define WIRED_SO_BUSY_POLL_BUDGET 70
 
 i64 wired_udp_busy_poll_budget_set(i64 fd, int budget) {
-  return syscall6(
-      SYS_setsockopt, fd, WIRED_SOL_SOCKET, WIRED_SO_BUSY_POLL_BUDGET,
-      (i64)&budget, sizeof(budget), 0);
+  return wired_arch_setsockopt(
+      fd, WIRED_SOL_SOCKET, WIRED_SO_BUSY_POLL_BUDGET, &budget, sizeof(budget));
 }
 
 /* SO_INCOMING_CPU setsockopt name (Linux). SET direction only: no
@@ -446,7 +432,6 @@ i64 wired_udp_busy_poll_budget_set(i64 fd, int budget) {
 #define WIRED_SO_INCOMING_CPU 49
 
 i64 wired_udp_incoming_cpu_set(i64 fd, int cpu) {
-  return syscall6(
-      SYS_setsockopt, fd, WIRED_SOL_SOCKET, WIRED_SO_INCOMING_CPU, (i64)&cpu,
-      sizeof(cpu), 0);
+  return wired_arch_setsockopt(
+      fd, WIRED_SOL_SOCKET, WIRED_SO_INCOMING_CPU, &cpu, sizeof(cpu));
 }
