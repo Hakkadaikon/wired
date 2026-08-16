@@ -4,7 +4,7 @@
 
 /* Close one fd unconditionally; a negative fd is simply not closed. */
 static void srvxdpbpf_close_fd(i64* fd) {
-  if (*fd >= 0) syscall1(SYS_close, *fd);
+  if (*fd >= 0) wired_arch_close(*fd);
   *fd = -1;
 }
 

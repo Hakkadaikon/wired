@@ -21,7 +21,7 @@ typedef struct {
  * public installers are one-line wrappers over this. */
 static int sigterm_install_signal(int sig, void (*handler)(int)) {
   sys_sigaction act = {handler, SA_RESTORER, wired_arch_sigreturn_restorer, 0};
-  return syscall4(SYS_rt_sigaction, sig, &act, 0, SIGSETSIZE) == 0;
+  return wired_arch_rt_sigaction(sig, &act, 0, SIGSETSIZE) == 0;
 }
 
 int wired_sigterm_install(void (*handler)(int)) {
@@ -41,7 +41,7 @@ int wired_sighup_install(void (*handler)(int)) {
  * selects the signal; both public wrappers pass the same SIGTERM|SIGHUP set. */
 static int sigterm_mask_shutdown(int how) {
   u64 mask = (1ull << (SIGTERM - 1)) | (1ull << (WIRED_SIGHUP - 1));
-  return syscall4(SYS_rt_sigprocmask, how, &mask, 0, SIGSETSIZE) == 0;
+  return wired_arch_rt_sigprocmask(how, &mask, 0, SIGSETSIZE) == 0;
 }
 
 int wired_sigmask_block_shutdown(void) {

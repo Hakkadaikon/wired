@@ -23,7 +23,7 @@ static int srvpin_popcount_bytes(const u8* p, usz n) {
 
 int wired_srvpin_cpu_count(void) {
   u8  mask[WIRED_SRVPIN_MASK_BYTES] = {0};
-  i64 r = syscall3(SYS_sched_getaffinity, 0, WIRED_SRVPIN_MASK_BYTES, mask);
+  i64 r = wired_arch_sched_getaffinity(0, WIRED_SRVPIN_MASK_BYTES, mask);
   if (r < 0) return (int)r;
   return srvpin_popcount_bytes(mask, WIRED_SRVPIN_MASK_BYTES);
 }
@@ -37,6 +37,6 @@ int wired_srvpin_bind_self(int cpu_index) {
   u64 mask;
   if (!srvpin_cpu_index_valid(cpu_index)) return -1;
   mask = (u64)1 << cpu_index;
-  return (int)syscall3(
-      SYS_sched_setaffinity, 0, WIRED_SRVPIN_SETMASK_BYTES, &mask);
+  return (int)wired_arch_sched_setaffinity(
+      0, WIRED_SRVPIN_SETMASK_BYTES, &mask);
 }

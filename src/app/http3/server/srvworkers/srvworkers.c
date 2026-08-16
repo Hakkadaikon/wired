@@ -90,7 +90,7 @@ static void srvworkers_child_start(
     int                  pin_cores) {
   if (pin_cores) wired_srvpin_bind_self(worker_index);
   g_srvworkers_child_fn(port, id, h, obs, worker_index);
-  syscall1(SYS_exit_group, 0);
+  wired_arch_exit_group(0);
 }
 
 /* Fork one worker. On the child side this never returns (see
@@ -104,7 +104,7 @@ static int srvworkers_fork_one(
     wired_srvrun_handler h,
     wired_srvrun_obs     obs,
     int                  pin_cores) {
-  i64 pid = syscall1(SYS_fork, 0);
+  i64 pid = wired_arch_fork();
   if (pid < 0) return (int)pid;
   if (pid == 0)
     srvworkers_child_start(worker_index, port, id, h, obs, pin_cores);
@@ -146,7 +146,7 @@ static void srvworkers_supervise_once(
     wired_srvrun_obs            obs,
     const wired_srvworkers_opt* opt) {
   i64 status;
-  i64 dead = syscall4(SYS_wait4, -1, &status, 0, 0);
+  i64 dead = wired_arch_wait4(-1, &status, 0, 0);
   int slot = srvworkers_slot_for_pid(t->pid, t->n, dead);
   if (slot >= 0) srvworkers_fork_one(t, slot, port, id, h, obs, opt->pin_cores);
 }

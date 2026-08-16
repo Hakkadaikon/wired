@@ -15,6 +15,6 @@ static i64 poll_result(i64 r, u16 revents) {
 i64 quic_poll_wait_readable(i64 fd, u64 timeout_ms) {
   quic_pollfd p;
   quic_poll_fill_readable(&p, fd);
-  i64 r = syscall3(SYS_poll, &p, 1, (i64)(i32)timeout_ms);
+  i64 r = wired_arch_poll(&p, 1, (i32)timeout_ms);
   return poll_result(r, p.revents);
 }
