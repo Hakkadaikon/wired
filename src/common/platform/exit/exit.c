@@ -4,6 +4,6 @@
 
 void wired_die(const char* msg) {
   wired_log_str(msg);
-  syscall1(SYS_exit, 1);
+  wired_arch_exit(1);
   __builtin_unreachable();
 }
