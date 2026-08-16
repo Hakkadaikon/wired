@@ -11,10 +11,11 @@ description: >
 
 # syscall-docs
 
-`wired` is libc-free: every kernel interaction is a raw syscall issued via
-`syscall1`/`syscall3`/`syscall4`/`syscall6` — facade
-`src/common/platform/sys/syscall.h`, SYS_* numbers and the instruction
-sequence in `src/common/arch/x8664/x8664.h`. `docs/syscalls.md` is the single table of every syscall this SDK
+`wired` is libc-free: every kernel interaction goes through a typed
+`wired_arch_<name>` wrapper (`src/common/arch/sysops.h`); the SYS_* numbers,
+raw `syscallN` macros, and instruction sequence live in
+`src/common/arch/x8664/x8664.h` and are called only inside
+`src/common/arch/`. `docs/syscalls.md` is the single table of every syscall this SDK
 issues — number, description, and why `wired` calls it. It goes stale the
 moment a syscall is added/removed without updating that table, so treat this
 skill as a required step alongside any change to syscall usage, not an
@@ -22,28 +23,26 @@ afterthought.
 
 ## When to run this
 
-- A new `#define SYS_<name> <number>` was added to the shared header
-  (`common/arch/x8664/x8664.h`), or locally
-  next to a call site (the existing pattern for single-use syscalls, e.g.
-  `SYS_poll` in `transport/io/socket/poll/wait.c`, `SYS_fcntl` in
-  `transport/io/socket/poll/nonblock.c`).
-- A new `syscall1/3/4/6(SYS_..., ...)` call site was added, removed, or its
-  purpose changed (e.g. new flags, new caller, new subsystem using an
-  existing syscall).
+- A new `#define SYS_<name> <number>` plus its `wired_arch_<name>` wrapper
+  was added to the arch adapter (`common/arch/x8664/x8664.h` + `sysops.h`).
+- A `wired_arch_<name>(...)` call site was added, removed, or its purpose
+  changed (e.g. new flags, new caller, new subsystem using an existing
+  syscall).
 - The user asks to update/regenerate/audit the syscall documentation.
 
 ## Procedure
 
-1. **Enumerate every syscall definition.**
+1. **Enumerate every syscall definition** (all numbers live in the arch
+   adapter; a `#define SYS_` anywhere else is itself a finding):
    ```sh
    grep -n '^#define SYS_' src/common/arch/x8664/x8664.h
-   grep -rn '#define SYS_' --include=*.c src/   # local one-off definitions
+   grep -rn '#define SYS_' --include=*.c src/   # must be empty
    ```
-2. **Enumerate every call site** and confirm each definition is actually used
-   (and vice versa — every call site maps to a definition):
+2. **Enumerate every call site** and confirm each wrapper is actually used
+   (and vice versa — every call site maps to a wrapper in sysops.h):
    ```sh
-   grep -rn 'SYS_[a-zA-Z_]*' --include=*.c --include=*.h src/ examples/ \
-       | grep -v 'syscall.h:' | grep -v 'x8664.h:'
+   grep -rn 'wired_arch_[a-z0-9_]*(' --include=*.c src/ \
+       | grep -v 'src/common/arch/'
    ```
 3. **For each syscall, read its call site(s)** to confirm (don't guess):
    - which function(s)/file(s):line(s) call it
@@ -56,8 +55,8 @@ afterthought.
    remove the row if a syscall was deleted. Keep one row per syscall name,
    not per call site — list multiple call sites in the same cell.
 5. **Keep the table's columns**: Syscall | Number | Defined | Description |
-   Why `wired` calls it. "Defined" points at `syscall.h:<line>` for shared
-   syscalls, or `<file>:<line> (local)` for single-site ones.
+   Why `wired` calls it. "Defined" says `syscall.h` (the shared facade +
+   arch adapter surface) for every syscall — local defines no longer exist.
 6. If the change affects *how* I/O multiplexing works (e.g. moving off a
    single-fd `poll` model), also revisit the "Why `poll`, not `epoll`"
    section — it documents a design decision (single fd per wire loop), not

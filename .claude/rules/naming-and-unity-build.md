@@ -53,15 +53,22 @@ If you need a new shared primitive, add it here as `inline`, do not duplicate a
 `static` across two domains. `src/` may include ONLY `sys/syscall.h` types and
 `util/*` — no standard library headers (this is what `just build` enforces).
 
-## Inline assembly and CPU builtins live in common/arch/ ONLY
+## Inline assembly, CPU builtins, and raw syscalls live in common/arch/ ONLY
 
 Every ISA-specific construct — inline asm, naked trampolines, SIMD
 instruction wrappers, x86 builtins like `__builtin_ia32_pause` — lives under
 `src/common/arch/` (`arch.h` facade, `x8664/` implementation) behind a
-`wired_arch_*` / `WIRED_ARCH_*` name. Do NOT write `__asm__` or an
-ISA-specific builtin in a domain file; add the primitive to the arch adapter
-and call it. `grep -rn '__asm__\|__builtin_ia32' src/ | grep -v common/arch/`
-must stay empty.
+`wired_arch_*` / `WIRED_ARCH_*` name. The same goes for the raw syscall
+layer: domain files call the typed `wired_arch_<name>()` wrappers
+(`common/arch/sysops.h`), never `syscallN(...)` or a `SYS_*` constant, and
+a new syscall means adding its number to `x8664/x8664.h` plus a wrapper to
+`sysops.h` (see docs/syscalls.md). Do NOT write `__asm__`, an ISA builtin,
+or a raw syscall in a domain file. Both greps must stay empty:
+
+```sh
+grep -rn '__asm__\|__builtin_ia32' src/ | grep -v common/arch/
+grep -rn 'syscall[1-6](\|SYS_[a-z]' src/ | grep -v common/arch/
+```
 
 ## Wiring a new file into the unity build (tests/run.c is MANUAL)
 

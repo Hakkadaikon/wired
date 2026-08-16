@@ -32,10 +32,13 @@ parts you reread.
 - **No standard headers.** Do not `#include <string.h>`, `<stdint.h>`,
   `<stdlib.h>`, etc. The only outside surface is direct syscalls via
   `src/sys/` and the shared inline helpers in `src/util/`.
-- **No inline asm / CPU builtins outside `src/common/arch/`.** ISA-specific
-  code (asm, naked trampolines, SIMD wrappers, `__builtin_ia32_*`) lives in
-  the arch adapter (`common/arch/x8664/`) behind `wired_arch_*` names; domain
-  files call those.
+- **No inline asm / CPU builtins / raw syscalls outside `src/common/arch/`.**
+  ISA-specific code (asm, naked trampolines, SIMD wrappers,
+  `__builtin_ia32_*`) lives in the arch adapter (`common/arch/x8664/`)
+  behind `wired_arch_*` names, and kernel calls go through the typed
+  wrappers in `common/arch/sysops.h` — never `syscallN(SYS_*)` in a domain
+  file. A new syscall = number in `x8664.h` + wrapper in `sysops.h` +
+  docs/syscalls.md row.
 - **`src/util/` holds the shared primitives.** `util/be.h` (big-endian
   store/load), `util/bytes.h` (byte copy/compare), `util/ct.h` (constant-time
   compare), `util/num.h` (min/max etc). Use these; do not hand-roll your own
