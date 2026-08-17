@@ -7,7 +7,7 @@
  * unacknowledged packets between the previous range's low and this range's
  * high: gap = prev.lo - cur.hi - 2 (RFC 9000 19.3). */
 static int put_pair(
-    wired_obuf* o, const quic_ack_range* prev, const quic_ack_range* cur) {
+    wired_obuf* o, const ack_range* prev, const ack_range* cur) {
   if (!varint_put(
           wired_mspan_of(o->p, o->cap), &o->len, prev->lo - cur->hi - 2))
     return 0;
@@ -15,12 +15,12 @@ static int put_pair(
 }
 
 /* The frame type is 0x03 when ECN counts are present, else 0x02. */
-static u64 ack_type(const quic_ack_frame* f) {
+static u64 ack_type(const ack_frame* f) {
   return f->has_ecn ? QUIC_FRAME_ACK_ECN : QUIC_FRAME_ACK;
 }
 
 /* Write type, largest, ack_delay (three varints). Returns 1 ok, 0. */
-static int put_ack_meta(wired_obuf* o, const quic_ack_frame* f) {
+static int put_ack_meta(wired_obuf* o, const ack_frame* f) {
   if (!varint_put(wired_mspan_of(o->p, o->cap), &o->len, ack_type(f))) return 0;
   if (!varint_put(wired_mspan_of(o->p, o->cap), &o->len, f->ranges[0].hi))
     return 0;
@@ -34,21 +34,21 @@ static int put_two(wired_obuf* o, u64 a, u64 b) {
 }
 
 /* Append the ECN counts (ECT0, ECT1, CE) when present. Returns 1 ok, 0. */
-static int put_ack_ecn(wired_obuf* o, const quic_ack_frame* f) {
+static int put_ack_ecn(wired_obuf* o, const ack_frame* f) {
   if (!f->has_ecn) return 1;
   if (!put_two(o, f->ect0, f->ect1)) return 0;
   return varint_put(wired_mspan_of(o->p, o->cap), &o->len, f->ce);
 }
 
 /* Encode the fixed prologue: type, largest, ack_delay, range count, first. */
-static int put_ack_head(wired_obuf* o, const quic_ack_frame* f) {
-  const quic_ack_range* r0 = &f->ranges[0];
+static int put_ack_head(wired_obuf* o, const ack_frame* f) {
+  const ack_range* r0 = &f->ranges[0];
   if (!put_ack_meta(o, f)) return 0;
   return put_two(o, f->n_ranges - 1, r0->hi - r0->lo);
 }
 
 /* Append all subsequent (Gap, Range Length) pairs. Returns 1 ok, 0 on error. */
-static int put_ack_pairs(wired_obuf* o, const quic_ack_frame* f) {
+static int put_ack_pairs(wired_obuf* o, const ack_frame* f) {
   int ok = 1;
   for (usz i = 1; i < f->n_ranges; i++)
     if (!put_pair(o, &f->ranges[i - 1], &f->ranges[i])) ok = 0;
@@ -59,18 +59,18 @@ static int put_ack_pairs(wired_obuf* o, const quic_ack_frame* f) {
 static int ranges_ok(usz n) { return n != 0 && n <= QUIC_ACK_MAX_RANGES; }
 
 /* Write all (Gap, Range Length) pairs then any ECN counts. */
-static int put_ack_pairs_ecn(wired_obuf* o, const quic_ack_frame* f) {
+static int put_ack_pairs_ecn(wired_obuf* o, const ack_frame* f) {
   if (!put_ack_pairs(o, f)) return 0;
   return put_ack_ecn(o, f);
 }
 
 /* Write the head then all pairs and ECN. Returns 1 ok, 0 on overflow. */
-static int put_ack_body(wired_obuf* o, const quic_ack_frame* f) {
+static int put_ack_body(wired_obuf* o, const ack_frame* f) {
   if (!put_ack_head(o, f)) return 0;
   return put_ack_pairs_ecn(o, f);
 }
 
-usz quic_ack_encode(u8* buf, usz cap, const quic_ack_frame* f) {
+usz ack_encode(u8* buf, usz cap, const ack_frame* f) {
   wired_obuf o = obuf_of(buf, cap);
   if (!ranges_ok(f->n_ranges)) return 0;
   if (!put_ack_body(&o, f)) return 0;
@@ -79,10 +79,10 @@ usz quic_ack_encode(u8* buf, usz cap, const quic_ack_frame* f) {
 
 /* Decode-side scratch threaded through the take_* helpers. */
 typedef struct {
-  quic_ack_frame* f;
-  u64             largest;
-  u64             first;
-  u64             count;
+  ack_frame* f;
+  u64        largest;
+  u64        first;
+  u64        count;
 } ackdec;
 
 /* Read largest, ack_delay, range count (three varints). Returns 1 ok, 0. */
@@ -120,7 +120,7 @@ static int take_two(wired_span in, usz* off, u64 v[2]) {
 
 /* Read one (Gap, Range Length) pair into ranges[i] from ranges[i-1]. cur
  * points at ranges[i]; the previous range is cur[-1]. */
-static int take_pair(wired_span in, usz* off, quic_ack_range* cur) {
+static int take_pair(wired_span in, usz* off, ack_range* cur) {
   u64 gl[2], prev_lo = cur[-1].lo;
   if (!take_two(in, off, gl)) return 0;
   if (!pair_fits(prev_lo, gl[0], gl[1])) return 0;
@@ -147,7 +147,7 @@ static int take_ack_prologue(wired_span in, usz* off, ackdec* d) {
 }
 
 /* Read the ECN counts when the type byte was 0x03. Returns 1 ok, 0 bad. */
-static int take_ack_ecn(wired_span in, usz* off, quic_ack_frame* f) {
+static int take_ack_ecn(wired_span in, usz* off, ack_frame* f) {
   u64 e[2] = {0, 0};
   f->ect0 = f->ect1 = f->ce = 0;
   if (!f->has_ecn) return 1;
@@ -163,7 +163,7 @@ static int take_ack_rest(wired_span in, usz* off, ackdec* d) {
   return take_ack_ecn(in, off, d->f);
 }
 
-usz quic_ack_decode(const u8* buf, usz n, quic_ack_frame* f) {
+usz ack_decode(const u8* buf, usz n, ack_frame* f) {
   wired_span in  = wired_span_of(buf, n);
   usz        off = 1; /* type byte */
   ackdec     d   = {f, 0, 0, 0};

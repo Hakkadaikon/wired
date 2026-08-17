@@ -15,20 +15,16 @@ typedef struct {
   wired_mspan pkt;
   usz         pn_off;
   u64         length;
-} quic_vpn_desc;
+} vpn_desc;
 
 /* On success returns 1 with *payload viewing the decrypted frames inside
  * pkt; on authentication failure returns 0 (AES-128-GCM; equivalent to
- * quic_vpn_open_suite with suite = QUIC_TLS_AES_128_GCM_SHA256). */
-int quic_vpn_open(
-    const quic_protect_keys* k, const quic_vpn_desc* d, wired_span* payload);
+ * vpn_open_suite with suite = QUIC_TLS_AES_128_GCM_SHA256). */
+int vpn_open(const protect_keys* k, const vpn_desc* d, wired_span* payload);
 
-/* Same as quic_vpn_open, but opens under the given negotiated TLS 1.3 cipher
+/* Same as vpn_open, but opens under the given negotiated TLS 1.3 cipher
  * suite (RFC 8446 B.4). Returns 0 on an unrecognized suite. */
-int quic_vpn_open_suite(
-    u16                      suite,
-    const quic_protect_keys* k,
-    const quic_vpn_desc*     d,
-    wired_span*              payload);
+int vpn_open_suite(
+    u16 suite, const protect_keys* k, const vpn_desc* d, wired_span* payload);
 
 #endif

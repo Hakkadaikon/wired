@@ -15,7 +15,7 @@
 /* shared = X25519(my_priv, peer_pub), all 32-byte little-endian.
  * RFC 7748 6.1: returns 0 if the shared secret is all-zero (low-order peer
  * key); the caller MUST abort the handshake on 0. */
-int quic_crypto_stream_ecdhe(
+int crypto_stream_ecdhe(
     const u8 my_priv[QUIC_ECDHE_LEN],
     const u8 peer_pub[QUIC_ECDHE_LEN],
     u8       shared[QUIC_ECDHE_LEN]);
@@ -27,7 +27,7 @@ int quic_crypto_stream_ecdhe(
  * point and runs RFC 8446 7.4.2 / SEC1 3.3.1 ECDH, writing a 32-byte shared
  * secret (the X coordinate). Returns 0 for an unrecognised group, a
  * low-order x25519 result, or an invalid P-256 peer point. */
-int quic_crypto_stream_ecdhe_group(
+int crypto_stream_ecdhe_group(
     u16      group,
     const u8 my_priv[QUIC_ECDHE_LEN],
     const u8 peer_pub[QUIC_ECDHE_LEN],

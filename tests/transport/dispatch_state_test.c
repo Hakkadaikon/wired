@@ -9,13 +9,10 @@
 /* Wire one frame into buf via its encoder, returning the byte count. */
 
 static void ds_init(
-    quic_framedispatch_state* st,
-    quic_stream_read*         s,
-    quic_sentpkt*             t,
-    quic_flow_credit*         c) {
-  quic_stream_read_init(s);
-  quic_sentpkt_init(t);
-  quic_flow_credit_init(c, 0);
+    framedispatch_state* st, stream_read* s, sentpkt* t, flow_credit* c) {
+  stream_read_init(s);
+  sentpkt_init(t);
+  flow_credit_init(c, 0);
   st->stream            = s;
   st->sent              = t;
   st->credit            = c;
@@ -29,111 +26,111 @@ static void ds_init(
 
 /* STREAM frame delivers bytes the application can pull back. */
 static void test_dispatch_stream(void) {
-  quic_framedispatch_state st;
-  quic_stream_read         s;
-  quic_sentpkt             t;
-  quic_flow_credit         c;
+  framedispatch_state st;
+  stream_read         s;
+  sentpkt             t;
+  flow_credit         c;
   ds_init(&st, &s, &t, &c);
-  u8                buf[32];
-  quic_stream_frame f = {3, 0, 4, (const u8*)"data", 0};
-  usz               n = quic_frame_put_stream(buf, sizeof buf, &f);
-  CHECK(quic_framedispatch_handle(&st, buf[0], wired_span_of(buf, n)) == 1);
+  u8           buf[32];
+  stream_frame f = {3, 0, 4, (const u8*)"data", 0};
+  usz          n = frame_put_stream(buf, sizeof buf, &f);
+  CHECK(framedispatch_handle(&st, buf[0], wired_span_of(buf, n)) == 1);
   u8         out[8];
   wired_obuf ob = obuf_of(out, sizeof out);
-  quic_stream_read_pull(&s, &ob);
+  stream_read_pull(&s, &ob);
   CHECK(ob.len == 4);
   CHECK(st.ack_eliciting == 1);
 }
 
 /* ACK frame removes acknowledged packets from the sent table. */
 static void test_dispatch_ack(void) {
-  quic_framedispatch_state st;
-  quic_stream_read         s;
-  quic_sentpkt             t;
-  quic_flow_credit         c;
+  framedispatch_state st;
+  stream_read         s;
+  sentpkt             t;
+  flow_credit         c;
   ds_init(&st, &s, &t, &c);
   for (u64 pn = 1; pn <= 5; pn++)
-    quic_sentpkt_on_send(&t, &(quic_sentpkt_out){pn, 0, 1, 1});
-  quic_ack_frame f;
+    sentpkt_on_send(&t, &(sentpkt_out){pn, 0, 1, 1});
+  ack_frame f;
   for (usz i = 0; i < sizeof f; i++) ((u8*)&f)[i] = 0;
   f.n_ranges     = 1;
   f.ranges[0].hi = 5;
   f.ranges[0].lo = 3;
   u8  buf[32];
-  usz n = quic_ack_encode(buf, sizeof buf, &f);
-  CHECK(quic_framedispatch_handle(&st, buf[0], wired_span_of(buf, n)) == 1);
-  CHECK(quic_sentpkt_count(&t) == 2); /* 5,4,3 acked; 1,2 remain */
-  CHECK(st.ack_eliciting == 0);       /* ACK is not ack-eliciting */
+  usz n = ack_encode(buf, sizeof buf, &f);
+  CHECK(framedispatch_handle(&st, buf[0], wired_span_of(buf, n)) == 1);
+  CHECK(sentpkt_count(&t) == 2); /* 5,4,3 acked; 1,2 remain */
+  CHECK(st.ack_eliciting == 0);  /* ACK is not ack-eliciting */
 }
 
 /* MAX_DATA frame raises the flow credit limit. */
 static void test_dispatch_max_data(void) {
-  quic_framedispatch_state st;
-  quic_stream_read         s;
-  quic_sentpkt             t;
-  quic_flow_credit         c;
+  framedispatch_state st;
+  stream_read         s;
+  sentpkt             t;
+  flow_credit         c;
   ds_init(&st, &s, &t, &c);
-  quic_data_frame f = {9000};
-  u8              buf[16];
-  usz             n = quic_max_data_encode(buf, sizeof buf, &f);
-  CHECK(quic_framedispatch_handle(&st, buf[0], wired_span_of(buf, n)) == 1);
-  CHECK(quic_flow_credit_violation(&c, 9000) == 0);
-  CHECK(quic_flow_credit_violation(&c, 9001) == 1);
+  data_frame f = {9000};
+  u8         buf[16];
+  usz        n = max_data_encode(buf, sizeof buf, &f);
+  CHECK(framedispatch_handle(&st, buf[0], wired_span_of(buf, n)) == 1);
+  CHECK(flow_credit_violation(&c, 9000) == 0);
+  CHECK(flow_credit_violation(&c, 9001) == 1);
 }
 
 /* PING sets the ack-eliciting flag and nothing else. */
 static void test_dispatch_ping(void) {
-  quic_framedispatch_state st;
-  quic_stream_read         s;
-  quic_sentpkt             t;
-  quic_flow_credit         c;
+  framedispatch_state st;
+  stream_read         s;
+  sentpkt             t;
+  flow_credit         c;
   ds_init(&st, &s, &t, &c);
   u8 buf[1] = {QUIC_FRAME_PING};
-  CHECK(quic_framedispatch_handle(&st, buf[0], wired_span_of(buf, 1)) == 1);
+  CHECK(framedispatch_handle(&st, buf[0], wired_span_of(buf, 1)) == 1);
   CHECK(st.ack_eliciting == 1);
   CHECK(st.close == 0);
 }
 
 /* CONNECTION_CLOSE sets the close flag. */
 static void test_dispatch_close(void) {
-  quic_framedispatch_state st;
-  quic_stream_read         s;
-  quic_sentpkt             t;
-  quic_flow_credit         c;
+  framedispatch_state st;
+  stream_read         s;
+  sentpkt             t;
+  flow_credit         c;
   ds_init(&st, &s, &t, &c);
-  quic_conn_close_frame f = {0, 7, 0, 0, (const u8*)0};
-  u8                    buf[16];
-  usz                   n = quic_frame_put_conn_close(buf, sizeof buf, &f);
-  CHECK(quic_framedispatch_handle(&st, buf[0], wired_span_of(buf, n)) == 1);
+  conn_close_frame f = {0, 7, 0, 0, (const u8*)0};
+  u8               buf[16];
+  usz              n = frame_put_conn_close(buf, sizeof buf, &f);
+  CHECK(framedispatch_handle(&st, buf[0], wired_span_of(buf, n)) == 1);
   CHECK(st.close == 1);
   CHECK(st.ack_eliciting == 0); /* CONNECTION_CLOSE is exempt */
 }
 
 /* PADDING is ignored and is not ack-eliciting. */
 static void test_dispatch_padding(void) {
-  quic_framedispatch_state st;
-  quic_stream_read         s;
-  quic_sentpkt             t;
-  quic_flow_credit         c;
+  framedispatch_state st;
+  stream_read         s;
+  sentpkt             t;
+  flow_credit         c;
   ds_init(&st, &s, &t, &c);
   u8 buf[1] = {QUIC_FRAME_PADDING};
-  CHECK(quic_framedispatch_handle(&st, buf[0], wired_span_of(buf, 1)) == 1);
+  CHECK(framedispatch_handle(&st, buf[0], wired_span_of(buf, 1)) == 1);
   CHECK(st.ack_eliciting == 0);
   CHECK(st.close == 0);
 }
 
 /* RFC 9221 5: a DATAGRAM frame is decoded and its payload exposed on state. */
 static void test_dispatch_datagram(void) {
-  quic_framedispatch_state st;
-  quic_stream_read         s;
-  quic_sentpkt             t;
-  quic_flow_credit         c;
+  framedispatch_state st;
+  stream_read         s;
+  sentpkt             t;
+  flow_credit         c;
   ds_init(&st, &s, &t, &c);
   quic_datagram_frame f = {4, (const u8*)"data"};
   u8                  buf[16];
   usz n = quic_datagram_encode(wired_mspan_of(buf, sizeof buf), &f, 1);
   CHECK(n != 0);
-  CHECK(quic_framedispatch_handle(&st, buf[0], wired_span_of(buf, n)) == 1);
+  CHECK(framedispatch_handle(&st, buf[0], wired_span_of(buf, n)) == 1);
   CHECK(st.has_datagram == 1);
   CHECK(st.datagram.n == 4);
   CHECK(st.datagram.p[0] == 'd' && st.datagram.p[3] == 'a');
@@ -143,98 +140,96 @@ static void test_dispatch_datagram(void) {
 /* A DATAGRAM frame whose LEN varint overruns the buffer is malformed and
  * rejected, leaving has_datagram unset. */
 static void test_dispatch_datagram_malformed(void) {
-  quic_framedispatch_state st;
-  quic_stream_read         s;
-  quic_sentpkt             t;
-  quic_flow_credit         c;
+  framedispatch_state st;
+  stream_read         s;
+  sentpkt             t;
+  flow_credit         c;
   ds_init(&st, &s, &t, &c);
   u8 buf[3] = {QUIC_FRAME_DATAGRAM_LEN, 0x40, 0xff}; /* length varint = 255 */
-  CHECK(
-      quic_framedispatch_handle(&st, buf[0], wired_span_of(buf, sizeof buf)) ==
-      0);
+  CHECK(framedispatch_handle(&st, buf[0], wired_span_of(buf, sizeof buf)) == 0);
   CHECK(st.has_datagram == 0);
 }
 
 /* Unknown frame type is rejected. */
 static void test_dispatch_unknown(void) {
-  quic_framedispatch_state st;
-  quic_stream_read         s;
-  quic_sentpkt             t;
-  quic_flow_credit         c;
+  framedispatch_state st;
+  stream_read         s;
+  sentpkt             t;
+  flow_credit         c;
   ds_init(&st, &s, &t, &c);
   u8 buf[1] = {0x7f};
-  CHECK(quic_framedispatch_handle(&st, 0x7f, wired_span_of(buf, 1)) == 0);
+  CHECK(framedispatch_handle(&st, 0x7f, wired_span_of(buf, 1)) == 0);
 }
 
 /* RFC 9000 19.7: a server receiving NEW_TOKEN is a protocol violation. */
 static void test_dispatch_new_token_violation(void) {
-  quic_framedispatch_state st;
-  quic_stream_read         s;
-  quic_sentpkt             t;
-  quic_flow_credit         c;
+  framedispatch_state st;
+  stream_read         s;
+  sentpkt             t;
+  flow_credit         c;
   ds_init(&st, &s, &t, &c);
-  quic_new_token_frame f = {4, (const u8*)"tokn"};
-  u8                   buf[16];
-  usz                  n = quic_new_token_encode(buf, sizeof buf, &f);
+  new_token_frame f = {4, (const u8*)"tokn"};
+  u8              buf[16];
+  usz             n = new_token_encode(buf, sizeof buf, &f);
   CHECK(
-      quic_framedispatch_handle(
-          &st, QUIC_FRAME_NEW_TOKEN, wired_span_of(buf, n)) == 0);
+      framedispatch_handle(&st, QUIC_FRAME_NEW_TOKEN, wired_span_of(buf, n)) ==
+      0);
   CHECK(st.violation == 1);
 }
 
 /* RFC 9000 19.20: a server receiving HANDSHAKE_DONE is a protocol
  * violation. */
 static void test_dispatch_handshake_done_violation(void) {
-  quic_framedispatch_state st;
-  quic_stream_read         s;
-  quic_sentpkt             t;
-  quic_flow_credit         c;
+  framedispatch_state st;
+  stream_read         s;
+  sentpkt             t;
+  flow_credit         c;
   ds_init(&st, &s, &t, &c);
   u8  buf[1];
-  usz n = quic_handshake_done_encode(buf, sizeof buf);
+  usz n = handshake_done_encode(buf, sizeof buf);
   CHECK(
-      quic_framedispatch_handle(
+      framedispatch_handle(
           &st, QUIC_FRAME_HANDSHAKE_DONE, wired_span_of(buf, n)) == 0);
   CHECK(st.violation == 1);
 }
 
 /* A frame a server may legitimately receive leaves violation unset. */
 static void test_dispatch_no_violation_on_normal_frame(void) {
-  quic_framedispatch_state st;
-  quic_stream_read         s;
-  quic_sentpkt             t;
-  quic_flow_credit         c;
+  framedispatch_state st;
+  stream_read         s;
+  sentpkt             t;
+  flow_credit         c;
   ds_init(&st, &s, &t, &c);
   u8 buf[1] = {QUIC_FRAME_PING};
-  CHECK(quic_framedispatch_handle(&st, buf[0], wired_span_of(buf, 1)) == 1);
+  CHECK(framedispatch_handle(&st, buf[0], wired_span_of(buf, 1)) == 1);
   CHECK(st.violation == 0);
 }
 
 /* Standalone ack-eliciting predicate (RFC 9000 13.2.1). */
 static void test_dispatch_ack_eliciting_predicate(void) {
-  CHECK(quic_framedispatch_ack_eliciting(QUIC_FRAME_PADDING) == 0);
-  CHECK(quic_framedispatch_ack_eliciting(QUIC_FRAME_ACK) == 0);
-  CHECK(quic_framedispatch_ack_eliciting(QUIC_FRAME_ACK_ECN) == 0);
-  CHECK(quic_framedispatch_ack_eliciting(QUIC_FRAME_CONN_CLOSE_TPT) == 0);
-  CHECK(quic_framedispatch_ack_eliciting(QUIC_FRAME_CONN_CLOSE_APP) == 0);
-  CHECK(quic_framedispatch_ack_eliciting(QUIC_FRAME_PING) == 1);
-  CHECK(quic_framedispatch_ack_eliciting(QUIC_FRAME_STREAM_BASE) == 1);
-  CHECK(quic_framedispatch_ack_eliciting(QUIC_FRAME_MAX_DATA) == 1);
+  CHECK(framedispatch_ack_eliciting(QUIC_FRAME_PADDING) == 0);
+  CHECK(framedispatch_ack_eliciting(QUIC_FRAME_ACK) == 0);
+  CHECK(framedispatch_ack_eliciting(QUIC_FRAME_ACK_ECN) == 0);
+  CHECK(framedispatch_ack_eliciting(QUIC_FRAME_CONN_CLOSE_TPT) == 0);
+  CHECK(framedispatch_ack_eliciting(QUIC_FRAME_CONN_CLOSE_APP) == 0);
+  CHECK(framedispatch_ack_eliciting(QUIC_FRAME_PING) == 1);
+  CHECK(framedispatch_ack_eliciting(QUIC_FRAME_STREAM_BASE) == 1);
+  CHECK(framedispatch_ack_eliciting(QUIC_FRAME_MAX_DATA) == 1);
 }
 
 /* RFC 9000 3.5: STOP_SENDING makes the receiving endpoint owe an automatic
  * RESET_STREAM echoing the same stream ID and error code. */
 static void test_dispatch_stop_sending_owes_reset(void) {
-  quic_framedispatch_state st;
-  quic_stream_read         s;
-  quic_sentpkt             t;
-  quic_flow_credit         c;
+  framedispatch_state st;
+  stream_read         s;
+  sentpkt             t;
+  flow_credit         c;
   ds_init(&st, &s, &t, &c);
-  quic_stop_sending_frame f = {.stream_id = 9, .error_code = 0x42};
-  u8                      buf[16];
-  usz                     n = quic_stop_sending_encode(buf, sizeof buf, &f);
+  stop_sending_frame f = {.stream_id = 9, .error_code = 0x42};
+  u8                 buf[16];
+  usz                n = stop_sending_encode(buf, sizeof buf, &f);
   CHECK(
-      quic_framedispatch_handle(
+      framedispatch_handle(
           &st, QUIC_FRAME_STOP_SENDING, wired_span_of(buf, n)) == 1);
   CHECK(st.stop_sending_owed == 1);
   CHECK(st.stop_sending_stream_id == 9);
@@ -245,17 +240,16 @@ static void test_dispatch_stop_sending_owes_reset(void) {
 /* RFC 9000 19.4: RESET_STREAM is decoded and its stream ID/error code
  * exposed on state. */
 static void test_dispatch_reset_stream(void) {
-  quic_framedispatch_state st;
-  quic_stream_read         s;
-  quic_sentpkt             t;
-  quic_flow_credit         c;
+  framedispatch_state st;
+  stream_read         s;
+  sentpkt             t;
+  flow_credit         c;
   ds_init(&st, &s, &t, &c);
-  quic_reset_stream_frame f = {
-      .stream_id = 3, .error_code = 0x9, .final_size = 100};
-  u8  buf[32];
-  usz n = quic_reset_stream_encode(buf, sizeof buf, &f);
+  reset_stream_frame f = {.stream_id = 3, .error_code = 0x9, .final_size = 100};
+  u8                 buf[32];
+  usz                n = reset_stream_encode(buf, sizeof buf, &f);
   CHECK(
-      quic_framedispatch_handle(
+      framedispatch_handle(
           &st, QUIC_FRAME_RESET_STREAM, wired_span_of(buf, n)) == 1);
   CHECK(st.has_reset_stream == 1);
   CHECK(st.reset_stream_stream_id == 3);

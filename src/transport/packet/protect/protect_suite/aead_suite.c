@@ -32,7 +32,7 @@ static usz cha_seal(const aead_suite_io* io) {
   return chapoly_seal(&c, io->in, io->out);
 }
 
-usz quic_aead_suite_seal(const quic_aead_suite_op* op, wired_span pt, u8* out) {
+usz aead_suite_seal(const aead_suite_op* op, wired_span pt, u8* out) {
   u8 nonce[12];
   suite_nonce(op->iv, op->pn, nonce);
   aead_suite_io io = {op->key, nonce, op->aad, pt, out};
@@ -59,7 +59,7 @@ static usz cha_open(const aead_suite_io* io) {
   return io->in.n;
 }
 
-usz quic_aead_suite_open(const quic_aead_suite_op* op, wired_span ct, u8* pt) {
+usz aead_suite_open(const aead_suite_op* op, wired_span ct, u8* pt) {
   u8 nonce[12];
   suite_nonce(op->iv, op->pn, nonce);
   aead_suite_io io = {op->key, nonce, op->aad, ct, pt};

@@ -1,6 +1,6 @@
 #include "transport/conn/cid/pmtu/pmtu.h"
 
-void quic_pmtu_init(quic_pmtu* p) {
+void pmtu_init(pmtu* p) {
   p->validated     = QUIC_PMTU_BASE;
   p->probe         = 0;
   p->ceiling       = QUIC_PMTU_MAX;
@@ -12,26 +12,26 @@ void quic_pmtu_init(quic_pmtu* p) {
 }
 
 /* The next candidate size above the validated PMTU, capped at the ceiling. */
-static usz candidate(const quic_pmtu* p) {
+static usz candidate(const pmtu* p) {
   usz want = p->validated + QUIC_PMTU_STEP;
   return (want < p->ceiling) ? want : p->ceiling;
 }
 
 /* A candidate is worth probing only above the validated size and never at a
  * size the path already dropped (re-probing a lost size would loop). */
-static int pmtu_viable(const quic_pmtu* p, usz next) {
+static int pmtu_viable(const pmtu* p, usz next) {
   return next > p->validated && next != p->lost;
 }
 
 /* RFC 8899 5.2: mark Search Complete, recording `now` as complete_at only the
  * first time (searching was still 1) so a later re-check does not keep
  * pushing the PMTU_RAISE_TIMER's start forward. */
-static void conclude_search(quic_pmtu* p, u64 now) {
+static void conclude_search(pmtu* p, u64 now) {
   if (p->searching) p->complete_at = now;
   p->searching = 0;
 }
 
-usz quic_pmtu_next_probe(quic_pmtu* p, u64 now) {
+usz pmtu_next_probe(pmtu* p, u64 now) {
   usz next = candidate(p);
   if (!p->searching || !pmtu_viable(p, next)) {
     conclude_search(p, now);
@@ -42,7 +42,7 @@ usz quic_pmtu_next_probe(quic_pmtu* p, u64 now) {
   return next;
 }
 
-void quic_pmtu_on_ack(quic_pmtu* p, usz size) {
+void pmtu_on_ack(pmtu* p, usz size) {
   if (size > p->validated) p->validated = size; /* path carries this size */
   p->probe         = 0;
   p->probe_count   = 0; /* RFC 8899 5.1.3: an ack resets PROBE_COUNT */
@@ -51,15 +51,15 @@ void quic_pmtu_on_ack(quic_pmtu* p, usz size) {
 
 /* RFC 8899 5.1.3/4.3: PROBE_COUNT exceeded MAX_PROBES for the already-
  * validated size -- a black hole, not just a failed search candidate. */
-static int is_black_hole(const quic_pmtu* p, usz size) {
+static int is_black_hole(const pmtu* p, usz size) {
   return p->probe_count > QUIC_PMTU_MAX_PROBES && size == p->validated;
 }
 
 /* RFC 8899 4.3: a black hole brings the PLPMTU itself back down, not just
  * caps future growth. */
-static void pmtu_black_hole(quic_pmtu* p) { p->validated = QUIC_PMTU_BASE; }
+static void pmtu_black_hole(pmtu* p) { p->validated = QUIC_PMTU_BASE; }
 
-void quic_pmtu_on_loss(quic_pmtu* p, usz size) {
+void pmtu_on_loss(pmtu* p, usz size) {
   p->probe_count++;                         /* RFC 8899 5.1.3 */
   if (size < p->ceiling) p->ceiling = size; /* size is too big for the path */
   p->lost          = size;
@@ -68,24 +68,22 @@ void quic_pmtu_on_loss(quic_pmtu* p, usz size) {
   if (is_black_hole(p, size)) pmtu_black_hole(p);
 }
 
-usz quic_pmtu_mps(const quic_pmtu* p) {
-  return p->validated - QUIC_PMTU_OVERHEAD;
-}
+usz pmtu_mps(const pmtu* p) { return p->validated - QUIC_PMTU_OVERHEAD; }
 
 /* RFC 8899 5.1.1: PROBE_TIMER is running only while a probe is outstanding
- * (probe_sent_at is set the moment quic_pmtu_next_probe sends one, and
+ * (probe_sent_at is set the moment pmtu_next_probe sends one, and
  * cleared by on_ack/on_loss when it resolves). */
-int quic_pmtu_probe_timer_due(const quic_pmtu* p, u64 now) {
+int pmtu_probe_timer_due(const pmtu* p, u64 now) {
   if (!p->probe) return 0;
   return now - p->probe_sent_at >= QUIC_PMTU_PROBE_TIMER_US;
 }
 
-int quic_pmtu_raise_timer_due(const quic_pmtu* p, u64 now) {
+int pmtu_raise_timer_due(const pmtu* p, u64 now) {
   if (p->searching) return 0;
   return now - p->complete_at >= QUIC_PMTU_RAISE_TIMER_US;
 }
 
-void quic_pmtu_resume_search(quic_pmtu* p) {
+void pmtu_resume_search(pmtu* p) {
   p->searching   = 1;
   p->ceiling     = QUIC_PMTU_MAX;
   p->lost        = 0;

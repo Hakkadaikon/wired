@@ -25,7 +25,7 @@ typedef struct {
   u32 flowinfo; /**< sin6_flowinfo, zeroed */
   u8  addr[16]; /**< native IPv6, or v4-mapped \::ffff:a.b.c.d */
   u32 scope_id; /**< sin6_scope_id, zeroed */
-} quic_sockaddr;
+} sockaddr;
 
 /** Build an address from host-order port and IPv4 octets[0..3] = a.b.c.d,
  * as the v4-mapped \::ffff:a.b.c.d — or, when the octets are all zero, the
@@ -34,13 +34,13 @@ typedef struct {
  * @param sa receives the kernel-ready address
  * @param port UDP port in host byte order
  * @param octets IPv4 address octets a.b.c.d */
-void wired_udp_addr(quic_sockaddr* sa, u16 port, const u8 octets[4]);
+void wired_udp_addr(sockaddr* sa, u16 port, const u8 octets[4]);
 
 /** Read a v4-mapped (or any) address's IPv4 bytes as a big-endian u32 —
  * the accessor the IPv4-only paths (AF_XDP framing, MAC learning) use.
  * @param sa the address to read
  * @return addr[12..15] as a big-endian u32 */
-static inline u32 wired_udp_addr4_be(const quic_sockaddr* sa) {
+static inline u32 wired_udp_addr4_be(const sockaddr* sa) {
   return ((u32)sa->addr[12] << 24) | ((u32)sa->addr[13] << 16) |
          ((u32)sa->addr[14] << 8) | sa->addr[15];
 }
@@ -55,14 +55,14 @@ i64 wired_udp_socket(void);
  * @param fd the socket fd
  * @param sa the local address to bind
  * @return 0 on success or a negative errno. */
-i64 wired_udp_bind(i64 fd, const quic_sockaddr* sa);
+i64 wired_udp_bind(i64 fd, const sockaddr* sa);
 
 /** Send buf to sa.
  * @param fd the socket fd
  * @param sa the destination address
  * @param buf the datagram to send
  * @return bytes sent or a negative errno. */
-i64 wired_udp_send(i64 fd, const quic_sockaddr* sa, wired_span buf);
+i64 wired_udp_send(i64 fd, const sockaddr* sa, wired_span buf);
 
 /** Receive up to buf.n bytes into buf.p.
  * @param fd the socket fd
@@ -76,7 +76,7 @@ i64 wired_udp_recv(i64 fd, wired_mspan buf);
  * @param buf destination buffer
  * @param src receives the datagram's source address
  * @return bytes read or a negative errno. */
-i64 wired_udp_recvfrom(i64 fd, wired_mspan buf, quic_sockaddr* src);
+i64 wired_udp_recvfrom(i64 fd, wired_mspan buf, sockaddr* src);
 
 /** Close fd. Takes ownership of fd: after this call fd is invalid regardless
  * of the return value, and the caller must not use or close it again.
@@ -111,8 +111,7 @@ void wired_udp_gso_cmsg_build(u8 out[WIRED_GSO_CMSG_SPACE], u16 segsize);
  * @param segsize per-segment byte size (last segment may be shorter)
  * @return total bytes sent, or a negative errno (e.g. the caller should fall
  *   back to wired_udp_send_batch when fd has no UDP_SEGMENT support). */
-i64 wired_udp_send_gso(
-    i64 fd, const quic_sockaddr* sa, wired_span buf, u16 segsize);
+i64 wired_udp_send_gso(i64 fd, const sockaddr* sa, wired_span buf, u16 segsize);
 
 /** Send count back-to-back segsize-byte segments to sa via one sendto() call
  * per segment (no GSO). The last segment may be shorter (total = buf.n). The
@@ -123,14 +122,14 @@ i64 wired_udp_send_gso(
  * @param segsize per-segment byte size (last segment may be shorter)
  * @return total bytes sent, or a negative errno on the first failure. */
 i64 wired_udp_send_batch(
-    i64 fd, const quic_sockaddr* sa, wired_span buf, u16 segsize);
+    i64 fd, const sockaddr* sa, wired_span buf, u16 segsize);
 
 /** One slot of a recvmmsg() batch: caller-owned receive buffer and source
  * address, filled in by wired_udp_recvmmsg on return. */
 typedef struct {
-  wired_mspan   buf; /**< in: destination buffer; unused bytes untouched */
-  quic_sockaddr src; /**< out: datagram's source address */
-  u32           len; /**< out: bytes received into buf.p */
+  wired_mspan buf; /**< in: destination buffer; unused bytes untouched */
+  sockaddr    src; /**< out: datagram's source address */
+  u32         len; /**< out: bytes received into buf.p */
   /** out: RFC 3168 ECN codepoint of the received IP header (0 = Not-ECT,
    * 1 = ECT(1), 2 = ECT(0), 3 = CE), read from the IP_TOS cmsg when
    * IP_RECVTOS is enabled on the socket (wired_udp_ect0_enable does not
@@ -139,7 +138,7 @@ typedef struct {
    * wired_udp_recvmmsg_fallback) has no cmsg support at all -- always the
    * safe "not ECN-marked" reading, never a false ECT/CE count. */
   u8 ecn;
-} quic_mmsg_buf;
+} mmsg_buf;
 
 /** Receive up to count datagrams in one recvmmsg() syscall (Linux GRO-style
  * batched receive, kernel >= 2.6.33). Each bufs[i].buf is a caller-owned
@@ -154,7 +153,7 @@ typedef struct {
  * @return number of datagrams received, or a negative errno (e.g. ENOSYS on
  *   a kernel without recvmmsg) — the caller should fall back to
  *   wired_udp_recvmmsg_fallback in that case. */
-i64 wired_udp_recvmmsg(i64 fd, quic_mmsg_buf* bufs, usz count);
+i64 wired_udp_recvmmsg(i64 fd, mmsg_buf* bufs, usz count);
 
 /** Receive up to count datagrams via a wired_udp_recvfrom() loop (one syscall
  * per datagram), stopping at the first empty/error result. The always-
@@ -164,7 +163,7 @@ i64 wired_udp_recvmmsg(i64 fd, quic_mmsg_buf* bufs, usz count);
  * @param bufs array of count receive slots
  * @param count number of slots in bufs
  * @return number of datagrams received (0..count). */
-i64 wired_udp_recvmmsg_fallback(i64 fd, quic_mmsg_buf* bufs, usz count);
+i64 wired_udp_recvmmsg_fallback(i64 fd, mmsg_buf* bufs, usz count);
 
 /** Enable ECT(0) marking (RFC 3168, RFC 9000 13.4.1) on every packet fd sends:
  * sets the IPv4 TOS byte's low 2 bits to 0b10 via IP_TOS (Linux uapi in.h).
@@ -184,7 +183,7 @@ i64 wired_udp_ect0_enable(i64 fd);
  * always sets the IPv4 DF (Don't Fragment) bit and never fragments outgoing
  * datagrams on this socket, and suppresses its own PMTU enforcement/caching
  * from ICMP Fragmentation Needed messages (RFC 8899 4.5) -- the flow's PLPMTU
- * search (quic_pmtu) owns path MTU discovery instead of the kernel.
+ * search (pmtu) owns path MTU discovery instead of the kernel.
  * ponytail: no fallback path on setsockopt failure, same scope note as
  * wired_udp_ect0_enable -- the quic-interop-runner's Linux container has this
  * option unconditionally.
@@ -194,7 +193,7 @@ i64 wired_udp_pmtu_probe_enable(i64 fd);
 
 /** Enable IP_RECVTOS on fd (Linux uapi in.h) so wired_udp_recvmmsg/
  * wired_udp_recvmmsg_nowait attach each received datagram's ECN codepoint
- * into quic_mmsg_buf.ecn via an IP_TOS cmsg. Independent of
+ * into mmsg_buf.ecn via an IP_TOS cmsg. Independent of
  * wired_udp_ect0_enable: a socket may receive ECN reports without marking
  * its own outgoing packets, or vice versa.
  * ponytail: no fallback on failure, same scope note as wired_udp_ect0_enable.
@@ -216,7 +215,7 @@ i64 wired_udp_reuseport_enable(i64 fd);
  * @param bufs array of count receive slots
  * @param count number of slots in bufs
  * @return number of datagrams received, or a negative errno. */
-i64 wired_udp_recvmmsg_nowait(i64 fd, quic_mmsg_buf* bufs, usz count);
+i64 wired_udp_recvmmsg_nowait(i64 fd, mmsg_buf* bufs, usz count);
 
 /** Enable SO_BUSY_POLL on fd: the kernel spins the driver's poll routine for
  * up to microseconds before sleeping (Linux, needs CONFIG_NET_RX_BUSY_POLL

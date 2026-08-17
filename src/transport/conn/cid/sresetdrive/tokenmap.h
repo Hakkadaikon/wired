@@ -19,25 +19,23 @@ typedef struct {
   u8 cid[QUIC_SRESETDRIVE_MAX_CID];
   u8 cid_len;
   u8 token[QUIC_SRESETDRIVE_TOKEN];
-} quic_sresetdrive_entry;
+} sresetdrive_entry;
 
 /** The set of CID-to-token entries tracked for one peer. */
 typedef struct {
-  quic_sresetdrive_entry e[QUIC_SRESETDRIVE_CAP];
-  usz                    count;
-} quic_sresetdrive_map;
+  sresetdrive_entry e[QUIC_SRESETDRIVE_CAP];
+  usz               count;
+} sresetdrive_map;
 
 /* Reset the map to empty. */
-void quic_sresetdrive_map_init(quic_sresetdrive_map* m);
+void sresetdrive_map_init(sresetdrive_map* m);
 
 /* Record `token` for `cid`. Returns 1 on success, 0 if full or CID too long. */
-int quic_sresetdrive_map_add(
-    quic_sresetdrive_map* m,
-    wired_span            cid,
-    const u8              token[QUIC_SRESETDRIVE_TOKEN]);
+int sresetdrive_map_add(
+    sresetdrive_map* m, wired_span cid, const u8 token[QUIC_SRESETDRIVE_TOKEN]);
 
 /* On a match, point `*token` at the stored token and return 1; else 0. */
-int quic_sresetdrive_map_find(
-    const quic_sresetdrive_map* m, wired_span cid, const u8** token);
+int sresetdrive_map_find(
+    const sresetdrive_map* m, wired_span cid, const u8** token);
 
 #endif

@@ -4,7 +4,7 @@
 #include "common/bytes/varint/varint.h"
 
 /* RFC 9000 17.2.2: Token Length(varint) + Token. */
-usz quic_inittoken_put(u8* buf, usz cap, wired_span token) {
+usz inittoken_put(u8* buf, usz cap, wired_span token) {
   usz off = 0;
   if (!varint_put(wired_mspan_of(buf, cap), &off, token.n)) return 0;
   if (!bytes_put(
@@ -19,7 +19,7 @@ static int take_tlen(wired_span in, usz* off, u64* tlen) {
   return *tlen <= in.n - *off;
 }
 
-usz quic_inittoken_get(const u8* buf, usz n, wired_span* token) {
+usz inittoken_get(const u8* buf, usz n, wired_span* token) {
   usz off = 0;
   u64 tlen;
   if (!take_tlen(wired_span_of(buf, n), &off, &tlen)) return 0;

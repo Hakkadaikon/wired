@@ -36,7 +36,7 @@ void wired_server_init(wired_server* s, const wired_server_init_in* in) {
   keysched_init(&s->sched);
   keyset_init(&s->keys);
   srvfin_state_init(&s->fin, &s->sched, &s->keys);
-  quic_crecv_init(&s->crecv);
+  crecv_init(&s->crecv);
   s->fd                = -1;
   s->phase             = WIRED_SERVER_HS_INITIAL;
   s->hs_done_sent      = 0;
@@ -251,9 +251,9 @@ static int srv_on_finished(wired_server* s, const u8* msg, usz len) {
 int wired_server_feed(wired_server* s, const u8* crypto_payload, usz len) {
   const u8* msg;
   usz       mlen;
-  if (!quic_crecv_collect(&s->crecv, crypto_payload, len)) return 0;
-  if (!quic_crecv_complete_message(&s->crecv)) return 0;
-  quic_crecv_message(&s->crecv, &msg, &mlen);
+  if (!crecv_collect(&s->crecv, crypto_payload, len)) return 0;
+  if (!crecv_complete_message(&s->crecv)) return 0;
+  crecv_message(&s->crecv, &msg, &mlen);
   return srv_on_finished(s, msg, mlen);
 }
 

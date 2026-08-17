@@ -45,10 +45,10 @@ static usz build_sh_td(u8* out, usz cap, const u8 pub[32]) {
 
 /* Wrap a whole TLS message in one CRYPTO frame at offset 0. */
 static usz wrap_crypto(u8* out, usz cap, const u8* msg, usz n) {
-  usz                        w   = 0;
-  wired_obuf                 ob  = obuf_of(out, cap);
-  quic_crypto_stream_emit_in ein = {0, 256};
-  CHECK(quic_crypto_stream_emit(wired_span_of(msg, n), &ein, &ob) == 1);
+  usz                   w   = 0;
+  wired_obuf            ob  = obuf_of(out, cap);
+  crypto_stream_emit_in ein = {0, 256};
+  CHECK(crypto_stream_emit(wired_span_of(msg, n), &ein, &ob) == 1);
   w = ob.len;
   return w;
 }
@@ -118,11 +118,10 @@ static void test_tlsdriver_crypto_overflow_reports_error_code(void) {
 
   u8 msg[QUIC_REASM_CAP + 8];
   for (usz i = 0; i < sizeof(msg); i++) msg[i] = 1;
-  u8                         frame[QUIC_REASM_CAP + 64];
-  wired_obuf                 ob  = obuf_of(frame, sizeof(frame));
-  quic_crypto_stream_emit_in ein = {0, 512};
-  CHECK(
-      quic_crypto_stream_emit(wired_span_of(msg, sizeof(msg)), &ein, &ob) == 1);
+  u8                    frame[QUIC_REASM_CAP + 64];
+  wired_obuf            ob  = obuf_of(frame, sizeof(frame));
+  crypto_stream_emit_in ein = {0, 512};
+  CHECK(crypto_stream_emit(wired_span_of(msg, sizeof(msg)), &ein, &ob) == 1);
 
   CHECK(tlsdriver_recv_crypto(&d, frame, ob.len) == 0);
   CHECK(tlsdriver_last_error(&d) == QUIC_EC_CRYPTO_BUFFER_EXCEEDED);

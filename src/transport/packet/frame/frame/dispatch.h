@@ -32,12 +32,12 @@ typedef enum {
   QUIC_FK_HANDSHAKE_DONE,
   QUIC_FK_DATAGRAM,
   QUIC_FK_RESET_STREAM_AT
-} quic_frame_kind;
+} frame_kind;
 
 /* Classify a frame type value into its kind. */
-quic_frame_kind quic_frame_classify(u64 type);
+frame_kind frame_classify(u64 type);
 
 /* True if a frame of this kind makes the packet ack-eliciting. */
-int quic_frame_ack_eliciting(quic_frame_kind kind);
+int frame_ack_eliciting(frame_kind kind);
 
 #endif

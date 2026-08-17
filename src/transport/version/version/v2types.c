@@ -6,20 +6,16 @@ static const int V2_WIRE[4] = {
 
 static int in_range(int v) { return v >= 0 && v < 4; }
 
-int quic_v1_packet_type(quic_logical_type lt) {
-  return in_range(lt) ? (int)lt : -1;
+int v1_packet_type(logical_type lt) { return in_range(lt) ? (int)lt : -1; }
+
+int v2_packet_type(logical_type lt) { return in_range(lt) ? V2_WIRE[lt] : -1; }
+
+logical_type v1_logical_type(int wire) {
+  return in_range(wire) ? (logical_type)wire : QUIC_LT_INVALID;
 }
 
-int quic_v2_packet_type(quic_logical_type lt) {
-  return in_range(lt) ? V2_WIRE[lt] : -1;
-}
-
-quic_logical_type quic_v1_logical_type(int wire) {
-  return in_range(wire) ? (quic_logical_type)wire : QUIC_LT_INVALID;
-}
-
-quic_logical_type quic_v2_logical_type(int wire) {
+logical_type v2_logical_type(int wire) {
   for (int lt = 0; lt < 4; lt++)
-    if (V2_WIRE[lt] == wire) return (quic_logical_type)lt;
+    if (V2_WIRE[lt] == wire) return (logical_type)lt;
   return QUIC_LT_INVALID;
 }

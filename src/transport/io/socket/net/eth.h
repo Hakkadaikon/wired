@@ -22,18 +22,18 @@ typedef struct {
   u8 src[6];
   /** EtherType in host order (e.g. QUIC_ETH_TYPE_IPV4) */
   u16 ethertype;
-} quic_eth_head;
+} eth_head;
 
 /** Build a 14-byte Ethernet II header into out per h.
  * @param out destination buffer, must be >= QUIC_ETH_HDR bytes
  * @param h   header fields to encode
  * @return QUIC_ETH_HDR. */
-usz quic_eth_build(u8* out, const quic_eth_head* h);
+usz eth_build(u8* out, const eth_head* h);
 
 /** Parse the Ethernet II header at the start of frame into h.
  * @param frame the received frame bytes
  * @param h     receives the decoded header
  * @return 1 ok, 0 if frame.n < QUIC_ETH_HDR. */
-int quic_eth_parse(wired_span frame, quic_eth_head* h);
+int eth_parse(wired_span frame, eth_head* h);
 
 #endif

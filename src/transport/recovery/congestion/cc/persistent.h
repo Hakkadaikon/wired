@@ -8,9 +8,9 @@
 
 /* True when the loss period spans at least kPersistentCongestionThreshold (3)
  * PTOs. */
-int quic_cc_persistent(u64 loss_period, u64 pto);
+int cc_persistent(u64 loss_period, u64 pto);
 
 /* Window after persistent congestion: kMinimumWindow = 2 * max_datagram. */
-u64 quic_cc_persistent_cwnd(u64 max_datagram);
+u64 cc_persistent_cwnd(u64 max_datagram);
 
 #endif

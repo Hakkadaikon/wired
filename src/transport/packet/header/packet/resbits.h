@@ -12,6 +12,6 @@
 
 /* Whether the reserved bits of an unprotected first byte are valid (zero).
  * is_long selects the long- vs short-header mask. Returns 1 if valid. */
-int quic_resbits_ok(u8 byte0, int is_long);
+int resbits_ok(u8 byte0, int is_long);
 
 #endif

@@ -24,8 +24,8 @@ static void test_lhdr_initial(void) {
   p[n++]          = 0x09; /* Length varint = 9 */
   usz want_pn_off = n;
 
-  quic_lhdr h;
-  int       ok = quic_lhdr_parse(wired_span_of(p, n), 1, &h);
+  lhdr h;
+  int  ok = lhdr_parse(wired_span_of(p, n), 1, &h);
   CHECK(ok == 1);
   CHECK(h.dcid.n == 2 && h.dcid.p[0] == 0xAA && h.dcid.p[1] == 0xBB);
   CHECK(h.scid.n == 1 && h.scid.p[0] == 0xCC);
@@ -50,8 +50,8 @@ static void test_lhdr_handshake(void) {
   p[n++]          = 5;    /* Length varint = 5 */
   usz want_pn_off = n;
 
-  quic_lhdr h;
-  int       ok = quic_lhdr_parse(wired_span_of(p, n), 0, &h);
+  lhdr h;
+  int  ok = lhdr_parse(wired_span_of(p, n), 0, &h);
   CHECK(ok == 1);
   CHECK(h.dcid.n == 1 && h.dcid.p[0] == 0x11);
   CHECK(h.scid.n == 0);
@@ -62,9 +62,9 @@ static void test_lhdr_handshake(void) {
 
 /* A short-header byte0 (high bit clear) is not a long header. */
 static void test_lhdr_not_long(void) {
-  u8        p[8] = {0x40, 0, 0, 0, 1, 0, 0, 0};
-  quic_lhdr h;
-  CHECK(quic_lhdr_parse(wired_span_of(p, 8), 1, &h) == 0);
+  u8   p[8] = {0x40, 0, 0, 0, 1, 0, 0, 0};
+  lhdr h;
+  CHECK(lhdr_parse(wired_span_of(p, 8), 1, &h) == 0);
 }
 
 /* Truncation: a DCID length that overruns the buffer parses to 0. */
@@ -79,8 +79,8 @@ static void test_lhdr_truncated(void) {
   p[n++] = 20; /* DCID len 20 but only 2 bytes remain */
   p[n++] = 0xAA;
   p[n++] = 0xBB;
-  quic_lhdr h;
-  CHECK(quic_lhdr_parse(wired_span_of(p, n), 1, &h) == 0);
+  lhdr h;
+  CHECK(lhdr_parse(wired_span_of(p, n), 1, &h) == 0);
 }
 
 /* Missing Length field after a valid prefix parses to 0. */
@@ -95,16 +95,16 @@ static void test_lhdr_no_length(void) {
   p[n++] = 0; /* DCID len 0 */
   p[n++] = 0; /* SCID len 0 */
   /* Handshake: next would be Length, but buffer ends here. */
-  quic_lhdr h;
-  CHECK(quic_lhdr_parse(wired_span_of(p, n), 0, &h) == 0);
+  lhdr h;
+  CHECK(lhdr_parse(wired_span_of(p, n), 0, &h) == 0);
 }
 
 /* RFC 9000 17.2: pn_len is (byte0 & 0x03) + 1 after HP removal. */
 static void test_lhdr_pn_len(void) {
-  CHECK(quic_lhdr_pn_len(0xC0) == 1);
-  CHECK(quic_lhdr_pn_len(0xC1) == 2);
-  CHECK(quic_lhdr_pn_len(0xC2) == 3);
-  CHECK(quic_lhdr_pn_len(0xC3) == 4);
+  CHECK(lhdr_pn_len(0xC0) == 1);
+  CHECK(lhdr_pn_len(0xC1) == 2);
+  CHECK(lhdr_pn_len(0xC2) == 3);
+  CHECK(lhdr_pn_len(0xC3) == 4);
 }
 
 void test_lhdr_parse(void) {

@@ -13,17 +13,17 @@
 typedef struct {
   usz n;
   u32 versions[QUIC_VERS_MAX]; /* preference order, most preferred first */
-} quic_vers_set;
+} vers_set;
 
 /* Initialise s to this endpoint's supported set (v2 then v1). */
-void quic_vers_init(quic_vers_set* s);
+void vers_init(vers_set* s);
 
 /* 1 if s supports version, else 0. */
-int quic_vers_supports(const quic_vers_set* s, u32 version);
+int vers_supports(const vers_set* s, u32 version);
 
 /* Pick the most-preferred version in s that also appears in peer_versions
  * (peer's Available Versions). Returns 1 with *chosen set, or 0 if none. */
-int quic_vers_choose_compatible(
-    const quic_vers_set* s, quic_verlist peer_versions, u32* chosen);
+int vers_choose_compatible(
+    const vers_set* s, verlist peer_versions, u32* chosen);
 
 #endif

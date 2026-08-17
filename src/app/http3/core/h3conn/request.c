@@ -10,8 +10,8 @@ int quic_h3conn_send_request(
   wired_obuf h3ob = obuf_of(h3, sizeof(h3));
   if (!quic_h3req_build(in->qpack_headers, in->body, &h3ob)) return 0;
   {
-    quic_stream_frame f = {stream_id, 0, h3ob.len, h3, 1};
-    if (!quic_appdata_stream_frame(&f, out)) return 0;
+    stream_frame f = {stream_id, 0, h3ob.len, h3, 1};
+    if (!appdata_stream_frame(&f, out)) return 0;
     return 1;
   }
 }

@@ -18,15 +18,15 @@ typedef struct {
   usz samples;        /* RTT samples seen this round */
   u64 round_end_pn;   /* first pn of the next round (round boundary) */
   int have_boundary;  /* 1 once round_end_pn is armed */
-} quic_hystart;
+} hystart;
 
-void quic_hystart_init(quic_hystart* h);
+void hystart_init(hystart* h);
 
 /* Feed one RTT sample for an ACK of acked_pn; next_pn (the next packet
  * number the sender would use) becomes the boundary that ends the current
  * round. Returns 1 when slow start should end now (RFC 9406 4.2: at least 8
  * samples in the round and the round min exceeds last round's min by
  * clamp(4ms, last/8, 16ms)). */
-int quic_hystart_sample(quic_hystart* h, u64 rtt_ms, u64 acked_pn, u64 next_pn);
+int hystart_sample(hystart* h, u64 rtt_ms, u64 acked_pn, u64 next_pn);
 
 #endif

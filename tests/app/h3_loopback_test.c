@@ -145,7 +145,7 @@ static usz lb_seal_handshake(
       0,
       wired_span_of(msg, mlen),
       0};
-  quic_protect_keys pk = {k, &hp};
+  protect_keys pk = {k, &hp};
   CHECK(quic_srvwire_seal_handshake(&pk, &in, &ob));
   return ob.len;
 }
@@ -158,12 +158,12 @@ static usz lb_seal_onertt(
   usz                 total = 0;
   CHECK(keysched_get(&f->s.sched, QUIC_KS_CLIENT_AP, &k) == 1);
   aes128_init(&hp, k->hp);
-  quic_protect_keys      pk = {k, &hp};
-  quic_hspkt_onertt_desc d  = {
+  protect_keys      pk = {k, &hp};
+  hspkt_onertt_desc d  = {
       wired_span_of(f->s.sdrv.iscid, f->s.sdrv.iscid_len), 0,
       wired_span_of(pl, pln), 0};
   wired_obuf o = obuf_of(pkt, cap);
-  CHECK(quic_hspkt_onertt_build(&pk, &d, &o));
+  CHECK(hspkt_onertt_build(&pk, &d, &o));
   total = o.len;
   return total;
 }
@@ -175,10 +175,10 @@ static int lb_open_onertt(
   aes128              hp;
   CHECK(keysched_get(&f->s.sched, QUIC_KS_SERVER_AP, &k) == 1);
   aes128_init(&hp, k->hp);
-  quic_protect_keys           pk = {k, &hp};
-  quic_hspkt_onertt_open_desc d  = {wired_mspan_of(pkt, len), 6, 0};
-  wired_span                  v;
-  if (!quic_hspkt_onertt_open(&pk, &d, &v)) return 0;
+  protect_keys           pk = {k, &hp};
+  hspkt_onertt_open_desc d  = {wired_mspan_of(pkt, len), 6, 0};
+  wired_span             v;
+  if (!hspkt_onertt_open(&pk, &d, &v)) return 0;
   *pl  = v.p;
   *pll = v.n;
   return 1;
@@ -186,7 +186,7 @@ static int lb_open_onertt(
 
 /* A bound server socket and a client socket, both on 127.0.0.1. Returns 1 with
  * the fds, or 0 (benign skip) if the sandbox forbids sockets. */
-static int lb_open_sockets(i64* sfd, i64* cfd, quic_sockaddr* srv) {
+static int lb_open_sockets(i64* sfd, i64* cfd, sockaddr* srv) {
   *sfd = wired_udp_socket();
   if (*sfd < 0) return 0;
   wired_udp_addr(srv, 4435, (const u8[4]){127, 0, 0, 1});
@@ -205,16 +205,16 @@ static int lb_open_sockets(i64* sfd, i64* cfd, quic_sockaddr* srv) {
 /* Ship `pkt` from client to server and run one srvloop_step on what arrives.
  * Returns the step result; *out_len holds the sealed reply length. */
 static int lb_wire_step(
-    struct lb_fix*       f,
-    i64                  cfd,
-    i64                  sfd,
-    const quic_sockaddr* srv,
-    const u8*            pkt,
-    usz                  n,
-    wired_obuf*          out) {
-  quic_sockaddr from;
-  u8            rx[1500];
-  i64           r;
+    struct lb_fix*  f,
+    i64             cfd,
+    i64             sfd,
+    const sockaddr* srv,
+    const u8*       pkt,
+    usz             n,
+    wired_obuf*     out) {
+  sockaddr from;
+  u8       rx[1500];
+  i64      r;
   CHECK(wired_udp_send(cfd, srv, wired_span_of(pkt, n)) == (i64)n);
   r = wired_udp_recvfrom(sfd, wired_mspan_of(rx, sizeof rx), &from);
   CHECK(r == (i64)n);
@@ -225,11 +225,11 @@ static int lb_wire_step(
 /* (1) Loopback: the client's real protected Initial reaches a bound server
  * socket, padded to 1200 (RFC 9000 14.1). */
 static void test_loopback_initial_datagram(void) {
-  client        c;
-  quic_sockaddr srv, from;
-  u8            priv[32], pub[32], pkt[1500], dg[1500];
-  usz           total = 0;
-  i64           sfd, n;
+  client   c;
+  sockaddr srv, from;
+  u8       priv[32], pub[32], pkt[1500], dg[1500];
+  usz      total = 0;
+  i64      sfd, n;
 
   sfd = wired_udp_socket();
   if (sfd < 0) return; /* sandbox: no sockets */
@@ -271,7 +271,7 @@ static void test_loopback_initial_datagram(void) {
  * seals a HANDSHAKE_DONE and a 200 the peer opens with SERVER_AP. */
 static void test_loopback_wire_confirm_and_get(void) {
   struct lb_fix f;
-  quic_sockaddr srv;
+  sockaddr      srv;
   i64           sfd, cfd;
   u8            cpkt[1300], out[1300], get[512];
   usz           clen, glen;
@@ -292,15 +292,15 @@ static void test_loopback_wire_confirm_and_get(void) {
   CHECK(lb_wire_step(&f, cfd, sfd, &srv, cpkt, clen, &ob) == 1);
   CHECK(wired_server_is_confirmed(&f.s) == 1);
   {
-    const u8*         pkts[4];
-    usz               offs[4], lens[4];
-    quic_pktlist      plist = {pkts, offs, lens, 4};
-    quic_stream_frame sf;
-    usz np = quic_udploop_split(wired_span_of(out, ob.len), &plist);
+    const u8*    pkts[4];
+    usz          offs[4], lens[4];
+    pktlist      plist = {pkts, offs, lens, 4};
+    stream_frame sf;
+    usz          np = udploop_split(wired_span_of(out, ob.len), &plist);
     CHECK(np == 2);
     CHECK((out[offs[0]] & 0x80) != 0); /* long-header Handshake ACK */
     CHECK(lb_open_onertt(&f, out + offs[1], lens[1], &pl, &pll) == 1);
-    CHECK(quic_frame_get_stream(pl, pll, &sf) > 0 && sf.stream_id == 3);
+    CHECK(frame_get_stream(pl, pll, &sf) > 0 && sf.stream_id == 3);
     CHECK(pl[pll - 1] == 0x1e); /* trailing HANDSHAKE_DONE */
   }
 
@@ -539,7 +539,7 @@ static void test_srvboot_acks_actual_initial_pn(void) {
 }
 
 /* v is one of p's listed supported versions. */
-static int vneg_lists(const quic_vneg_packet* p, u32 v) {
+static int vneg_lists(const vneg_packet* p, u32 v) {
   for (usz i = 0; i < p->count; i++)
     if (be_get_be32(p->versions + 4 * i) == v) return 1;
   return 0;
@@ -550,10 +550,10 @@ static int vneg_lists(const quic_vneg_packet* p, u32 v) {
  * supported versions -- v1 and v2 (RFC 9368 5) -- offered (RFC 9000 5.2.2 /
  * RFC 8999 6). */
 static void test_srvboot_vneg_responds_to_alien_version(void) {
-  u8               dg[1200] = {0};
-  u8               vn[64];
-  usz              n;
-  quic_vneg_packet p;
+  u8          dg[1200] = {0};
+  u8          vn[64];
+  usz         n;
+  vneg_packet p;
   dg[0] = 0xd3; /* long header, some alien version's type bits */
   dg[1] = 0x0a;
   dg[2] = 0x0a;
@@ -565,7 +565,7 @@ static void test_srvboot_vneg_responds_to_alien_version(void) {
   for (usz i = 0; i < 5; i++) dg[15 + i] = (u8)(0xa0 + i);
   n = wired_srvboot_vneg(wired_span_of(dg, sizeof dg), vn, sizeof vn);
   CHECK(n > 0);
-  CHECK(quic_vneg_parse(vn, n, &p) == n);
+  CHECK(vneg_parse(vn, n, &p) == n);
   CHECK(p.dcid_len == 5); /* response DCID = received SCID */
   CHECK(p.dcid[0] == 0xa0 && p.dcid[4] == 0xa4);
   CHECK(p.scid_len == 8); /* response SCID = received DCID */
@@ -634,10 +634,10 @@ static usz sb_build_raw_ch(client* c, u8* ch, usz cap) {
  * oversized (split) ClientHello arrives in. */
 static usz sb_seal_ch_chunk(
     u8* dg, usz cap, wired_span chunk, u64 off, u64 pn) {
-  quic_initpkt_desc d = {
+  initpkt_desc d = {
       wired_span_of(g_scid, 6), wired_span_of(g_scid, 6), chunk, pn, off};
   wired_obuf o = obuf_of(dg, cap);
-  CHECK(quic_initpkt_build(&d, &o) == 1);
+  CHECK(initpkt_build(&d, &o) == 1);
   return o.len;
 }
 
@@ -813,12 +813,12 @@ static void test_bootacc_foreign_dcid_ignored(void) {
   usz n1 = sb_seal_ch_chunk(dg1, sizeof dg1, wired_span_of(ch, 60), 0, 0);
   usz na;
   {
-    static const u8   other[6] = {9, 9, 9, 9, 9, 9};
-    quic_initpkt_desc d        = {
+    static const u8 other[6] = {9, 9, 9, 9, 9, 9};
+    initpkt_desc    d        = {
         wired_span_of(other, 6), wired_span_of(g_scid, 6),
         wired_span_of(ch + 60, n - 60), 5, 60};
     wired_obuf o = obuf_of(alien, sizeof alien);
-    CHECK(quic_initpkt_build(&d, &o) == 1);
+    CHECK(initpkt_build(&d, &o) == 1);
     na = o.len;
   }
   wired_srvboot_acc_reset(&a);
@@ -966,11 +966,11 @@ static void test_srvboot_acc_allows_switched_dcid(void) {
   wired_srvboot_acc a;
   usz               n = sb_build_raw_ch(&c, ch, sizeof ch);
   usz n1 = sb_seal_ch_chunk(dg1, sizeof dg1, wired_span_of(ch, 60), 0, 0);
-  quic_initpkt_desc d = {
+  initpkt_desc d = {
       wired_span_of(alt, 6), wired_span_of(alt, 6),
       wired_span_of(ch + 60, n - 60), 1, 60};
   wired_obuf o = obuf_of(dga, sizeof dga);
-  CHECK(quic_initpkt_build(&d, &o) == 1);
+  CHECK(initpkt_build(&d, &o) == 1);
   wired_srvboot_acc_reset(&a);
   CHECK(wired_srvboot_acc_feed(&a, wired_mspan_of(dg1, n1)) == 1);
   CHECK(srvboot_acc_admit(&a, wired_mspan_of(dga, o.len)) == 0);
@@ -1012,15 +1012,15 @@ static void test_srvboot_refusal_closes_unservable(void) {
   nr = wired_srvboot_refusal(&a, wired_span_of(g_scid, 6), 0, ref, sizeof ref);
   CHECK(nr >= 1200); /* a padded server Initial datagram */
   {
-    initial_keys      ck, sk;
-    aes128            hp;
-    wired_span        frames;
-    quic_protect_keys k;
-    quic_rx_desc      d = {wired_mspan_of(ref, nr), 1};
-    quic_initpkt_derive(wired_span_of(g_scid, 6), &ck, &sk);
+    initial_keys ck, sk;
+    aes128       hp;
+    wired_span   frames;
+    protect_keys k;
+    rx_desc      d = {wired_mspan_of(ref, nr), 1};
+    initpkt_derive(wired_span_of(g_scid, 6), &ck, &sk);
     aes128_init(&hp, sk.hp);
-    k = (quic_protect_keys){&sk, &hp};
-    CHECK(quic_rx_packet(&k, &d, &frames) == 1);
+    k = (protect_keys){&sk, &hp};
+    CHECK(rx_packet(&k, &d, &frames) == 1);
     /* CONNECTION_CLOSE (transport): type 1c, code 0x128 (varint 41 28),
      * frame type 0, empty reason */
     CHECK(frames.p[0] == 0x1c);
@@ -1091,15 +1091,15 @@ static void test_srvboot_refusal_reports_missing_tp_ext(void) {
       &a, wired_span_of(g_scid, 6), sdrv_last_error(&s.sdrv), ref, sizeof ref);
   CHECK(nr >= 1200);
   {
-    initial_keys      ck, sk;
-    aes128            hp;
-    wired_span        frames;
-    quic_protect_keys k;
-    quic_rx_desc      d = {wired_mspan_of(ref, nr), 1};
-    quic_initpkt_derive(wired_span_of(g_scid, 6), &ck, &sk);
+    initial_keys ck, sk;
+    aes128       hp;
+    wired_span   frames;
+    protect_keys k;
+    rx_desc      d = {wired_mspan_of(ref, nr), 1};
+    initpkt_derive(wired_span_of(g_scid, 6), &ck, &sk);
     aes128_init(&hp, sk.hp);
-    k = (quic_protect_keys){&sk, &hp};
-    CHECK(quic_rx_packet(&k, &d, &frames) == 1);
+    k = (protect_keys){&sk, &hp};
+    CHECK(rx_packet(&k, &d, &frames) == 1);
     /* CONNECTION_CLOSE (transport): type 1c, code 0x016d (varint 41 6d) */
     CHECK(frames.p[0] == 0x1c);
     CHECK(frames.p[1] == 0x41 && frames.p[2] == 0x6d);
@@ -1212,27 +1212,26 @@ static void test_srvboot_split_flight_datagrams(void) {
 
 /* Open each flight datagram with SERVER_HS and collect its CRYPTO frames into
  * the reassembler, in forward or reverse datagram order. */
-static void sb_split_collect(
-    struct sb_split_fix* f, int reverse, quic_crecv* cr) {
+static void sb_split_collect(struct sb_split_fix* f, int reverse, crecv* cr) {
   const initial_keys* shs;
   aes128              hp;
   usz                 offs[WIRED_SRVBOOT_FLIGHT_MAX], off = 0;
   CHECK(keysched_get(&f->s.sched, QUIC_KS_SERVER_HS, &shs) == 1);
   aes128_init(&hp, shs->hp);
-  quic_protect_keys pk = {shs, &hp};
+  protect_keys pk = {shs, &hp};
   for (usz i = 0; i < f->out.dgram_count; i++) {
     offs[i] = off;
     off += f->out.dgram_len[i];
   }
-  quic_crecv_init(cr);
+  crecv_init(cr);
   for (usz k = 0; k < f->out.dgram_count; k++) {
     usz        i = reverse ? f->out.dgram_count - 1 - k : k;
     wired_span frames;
     CHECK(
-        quic_hspkt_open(
+        hspkt_open(
             &pk, wired_mspan_of(f->hs + offs[i], f->out.dgram_len[i]),
             &frames) == 1);
-    CHECK(quic_crecv_collect(cr, frames.p, frames.n) == 1);
+    CHECK(crecv_collect(cr, frames.p, frames.n) == 1);
   }
 }
 
@@ -1240,11 +1239,11 @@ static void sb_split_collect(
  * transcript, then check the trailing server Finished against it
  * (RFC 8446 4.4.4). */
 static void sb_split_check_finished(
-    const quic_crecv* cr, transcript* tr, const u8 s_traffic[32]) {
+    const crecv* cr, transcript* tr, const u8 s_traffic[32]) {
   const u8* fl;
   usz       fln, p = 0;
   u8        th[32];
-  quic_crecv_message(cr, &fl, &fln);
+  crecv_message(cr, &fl, &fln);
   CHECK(fln > 0);
   while (p + 4 <= fln && fl[p] != QUIC_HS_FINISHED) {
     usz mlen = 4 + (((usz)fl[p + 1] << 16) | ((usz)fl[p + 2] << 8) | fl[p + 3]);
@@ -1270,7 +1269,7 @@ static void sb_split_client_handshake(int reverse) {
   wired_span                 shv;
   u8         sh_pub[32], shared[32], hsec[32], th[32], s_traffic[32];
   transcript tr;
-  quic_crecv cr;
+  crecv      cr;
   sb_split_boot(&f);
   CHECK(f.out.dgram_count >= 2);
   {

@@ -44,20 +44,20 @@ static const kind_row TABLE[] = {
     {0x31, QUIC_FK_DATAGRAM},
     {0x24, QUIC_FK_RESET_STREAM_AT}};
 
-quic_frame_kind quic_frame_classify(u64 type) {
+frame_kind frame_classify(u64 type) {
   usz n = sizeof(TABLE) / sizeof(TABLE[0]);
   for (usz i = 0; i < n; i++)
-    if (TABLE[i].type == type) return (quic_frame_kind)TABLE[i].kind;
+    if (TABLE[i].type == type) return (frame_kind)TABLE[i].kind;
   return QUIC_FK_UNKNOWN;
 }
 
 /* Only ACK, PADDING, and CONNECTION_CLOSE are non-ack-eliciting. */
-static int non_eliciting(quic_frame_kind k) {
+static int non_eliciting(frame_kind k) {
   return k == QUIC_FK_PADDING || k == QUIC_FK_ACK ||
          k == QUIC_FK_CONNECTION_CLOSE;
 }
 
-int quic_frame_ack_eliciting(quic_frame_kind kind) {
+int frame_ack_eliciting(frame_kind kind) {
   if (kind == QUIC_FK_UNKNOWN) return 0;
   return !non_eliciting(kind);
 }

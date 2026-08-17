@@ -8,7 +8,7 @@ static int early_space(int initial_inflight, int handshake_inflight) {
   return QUIC_HSPTO_SPACE_APPLICATION;
 }
 
-int quic_hspto_probe_space(
+int hspto_probe_space(
     int initial_inflight, int handshake_inflight, int handshake_confirmed) {
   if (handshake_confirmed) return QUIC_HSPTO_SPACE_APPLICATION;
   return early_space(initial_inflight, handshake_inflight);

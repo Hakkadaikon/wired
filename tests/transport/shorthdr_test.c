@@ -6,26 +6,26 @@
 /* RFC 9000 17.3.1: byte0 = 0 1 S R R K P P. */
 static void test_shorthdr_byte0_bits(void) {
   /* fixed bit set, short form (bit7=0), reserved (0x18) clear */
-  CHECK(quic_shorthdr_byte0(0, 0, 1) == 0x40);
-  CHECK((quic_shorthdr_byte0(0, 0, 1) & 0x80) == 0);
-  CHECK((quic_shorthdr_byte0(0, 0, 4) & 0x18) == 0);
+  CHECK(shorthdr_byte0(0, 0, 1) == 0x40);
+  CHECK((shorthdr_byte0(0, 0, 1) & 0x80) == 0);
+  CHECK((shorthdr_byte0(0, 0, 4) & 0x18) == 0);
 
   /* spin -> bit5 (0x20) */
-  CHECK((quic_shorthdr_byte0(1, 0, 1) & 0x20) == 0x20);
-  CHECK((quic_shorthdr_byte0(0, 0, 1) & 0x20) == 0x00);
+  CHECK((shorthdr_byte0(1, 0, 1) & 0x20) == 0x20);
+  CHECK((shorthdr_byte0(0, 0, 1) & 0x20) == 0x00);
 
   /* key phase -> bit2 (0x04) */
-  CHECK((quic_shorthdr_byte0(0, 1, 1) & 0x04) == 0x04);
-  CHECK((quic_shorthdr_byte0(0, 0, 1) & 0x04) == 0x00);
+  CHECK((shorthdr_byte0(0, 1, 1) & 0x04) == 0x04);
+  CHECK((shorthdr_byte0(0, 0, 1) & 0x04) == 0x00);
 
   /* pn_len-1 in low two bits */
-  CHECK((quic_shorthdr_byte0(0, 0, 1) & 0x03) == 0);
-  CHECK((quic_shorthdr_byte0(0, 0, 2) & 0x03) == 1);
-  CHECK((quic_shorthdr_byte0(0, 0, 4) & 0x03) == 3);
+  CHECK((shorthdr_byte0(0, 0, 1) & 0x03) == 0);
+  CHECK((shorthdr_byte0(0, 0, 2) & 0x03) == 1);
+  CHECK((shorthdr_byte0(0, 0, 4) & 0x03) == 3);
 
   /* non-1 spin/key_phase still map to a single bit */
-  CHECK((quic_shorthdr_byte0(7, 0, 1) & 0x20) == 0x20);
-  CHECK((quic_shorthdr_byte0(0, 7, 1) & 0x04) == 0x04);
+  CHECK((shorthdr_byte0(7, 0, 1) & 0x20) == 0x20);
+  CHECK((shorthdr_byte0(0, 7, 1) & 0x04) == 0x04);
 }
 
 /* Layout: byte0, then DCID, then pn in pn_len big-endian bytes. */
@@ -33,11 +33,11 @@ static void test_shorthdr_build_layout(void) {
   u8 dcid[4] = {0xAA, 0xBB, 0xCC, 0xDD};
   u8 out[16];
 
-  quic_shorthdr_desc d = {1, 1, wired_span_of(dcid, 4), 0x010203, 4};
-  wired_obuf         o = obuf_of(out, sizeof out);
-  CHECK(quic_shorthdr_build(&d, &o));
+  shorthdr_desc d = {1, 1, wired_span_of(dcid, 4), 0x010203, 4};
+  wired_obuf    o = obuf_of(out, sizeof out);
+  CHECK(shorthdr_build(&d, &o));
   CHECK(o.len == 1 + 4 + 4);
-  CHECK(out[0] == quic_shorthdr_byte0(1, 1, 4));
+  CHECK(out[0] == shorthdr_byte0(1, 1, 4));
   CHECK(out[1] == 0xAA && out[2] == 0xBB && out[3] == 0xCC && out[4] == 0xDD);
   /* pn 0x00010203 big-endian over 4 bytes */
   CHECK(out[5] == 0x00 && out[6] == 0x01 && out[7] == 0x02 && out[8] == 0x03);
@@ -48,15 +48,15 @@ static void test_shorthdr_build_reject(void) {
   u8 dcid[2] = {1, 2};
   u8 out[8];
 
-  quic_shorthdr_desc d0 = {0, 0, wired_span_of(dcid, 2), 1, 0};
-  quic_shorthdr_desc d5 = {0, 0, wired_span_of(dcid, 2), 1, 5};
-  quic_shorthdr_desc d4 = {0, 0, wired_span_of(dcid, 2), 1, 4};
-  wired_obuf         o  = obuf_of(out, sizeof out);
-  wired_obuf         o6 = obuf_of(out, 6);
-  CHECK(quic_shorthdr_build(&d0, &o) == 0);
-  CHECK(quic_shorthdr_build(&d5, &o) == 0);
+  shorthdr_desc d0 = {0, 0, wired_span_of(dcid, 2), 1, 0};
+  shorthdr_desc d5 = {0, 0, wired_span_of(dcid, 2), 1, 5};
+  shorthdr_desc d4 = {0, 0, wired_span_of(dcid, 2), 1, 4};
+  wired_obuf    o  = obuf_of(out, sizeof out);
+  wired_obuf    o6 = obuf_of(out, 6);
+  CHECK(shorthdr_build(&d0, &o) == 0);
+  CHECK(shorthdr_build(&d5, &o) == 0);
   /* needs 1 + 2 + 4 = 7 bytes; give 6 */
-  CHECK(quic_shorthdr_build(&d4, &o6) == 0);
+  CHECK(shorthdr_build(&d4, &o6) == 0);
 }
 
 /* Round trip: read spin/key_phase/pn_len/pn back from the built bytes. */
@@ -64,18 +64,18 @@ static void test_shorthdr_roundtrip(void) {
   u8 dcid[3] = {0x11, 0x22, 0x33};
   u8 out[16];
 
-  quic_shorthdr_desc da = {1, 1, wired_span_of(dcid, 3), 0xABCD, 2};
-  wired_obuf         o  = obuf_of(out, sizeof out);
-  CHECK(quic_shorthdr_build(&da, &o));
-  CHECK(quic_spin_get(out[0]) == 1);
+  shorthdr_desc da = {1, 1, wired_span_of(dcid, 3), 0xABCD, 2};
+  wired_obuf    o  = obuf_of(out, sizeof out);
+  CHECK(shorthdr_build(&da, &o));
+  CHECK(spin_get(out[0]) == 1);
   CHECK(((out[0] >> 2) & 1) == 1); /* key phase */
   CHECK((out[0] & 0x03) + 1 == 2); /* pn_len */
   /* pn recovered from the 2 trailing bytes (after byte0 + 3 DCID) */
   CHECK(((u64)out[4] << 8 | out[5]) == 0xABCD);
 
-  quic_shorthdr_desc db = {0, 0, wired_span_of(dcid, 3), 0x7F, 1};
-  CHECK(quic_shorthdr_build(&db, &o));
-  CHECK(quic_spin_get(out[0]) == 0);
+  shorthdr_desc db = {0, 0, wired_span_of(dcid, 3), 0x7F, 1};
+  CHECK(shorthdr_build(&db, &o));
+  CHECK(spin_get(out[0]) == 0);
   CHECK(((out[0] >> 2) & 1) == 0);
   CHECK((out[0] & 0x03) + 1 == 1);
   CHECK(out[4] == 0x7F);

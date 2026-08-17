@@ -89,7 +89,7 @@ static i64 xsksetup_munmap(void* addr, usz len) {
 
 /* Undo whatever of x was already built, in reverse order. Every field is
  * safe to unwind unconditionally: munmap/close ignore a NULL/-1 handle. */
-static void xsksetup_unwind(quic_xsk* x) {
+static void xsksetup_unwind(xsk* x) {
   xsksetup_munmap(x->map_comp, x->map_comp_len);
   xsksetup_munmap(x->map_fill, x->map_fill_len);
   xsksetup_munmap(x->map_tx, x->map_tx_len);
@@ -101,7 +101,7 @@ static void xsksetup_unwind(quic_xsk* x) {
 
 /* Allocate the UMEM as one anonymous mmap and register it with the socket
  * via XDP_UMEM_REG. */
-static i64 xsksetup_umem(quic_xsk* x) {
+static i64 xsksetup_umem(xsk* x) {
   i64          r;
   xsk_umem_reg reg = {0, QUIC_XSKSETUP_UMEM_LEN, QUIC_XSKSETUP_FRAME_SIZE, 0, 0,
                       0};
@@ -123,7 +123,7 @@ static i64 xsksetup_ring_size(i64 fd, int name) {
   return wired_arch_setsockopt(fd, QUIC_SOL_XDP, name, &n, sizeof n);
 }
 
-static i64 xsksetup_ring_sizes(quic_xsk* x) {
+static i64 xsksetup_ring_sizes(xsk* x) {
   static const int names[4] = {
       QUIC_XDP_UMEM_FILL_RING, QUIC_XDP_UMEM_COMPLETION_RING, QUIC_XDP_RX_RING,
       QUIC_XDP_TX_RING};
@@ -135,14 +135,14 @@ static i64 xsksetup_ring_sizes(quic_xsk* x) {
 }
 
 /* One ring's mmap length: the descriptor array's offset plus entries *
- * entry_size (entry_size is 16 for rx/tx's quic_xdp_desc, 8 for the bare u64
+ * entry_size (entry_size is 16 for rx/tx's xdp_desc, 8 for the bare u64
  * addresses of fill/comp). */
 static usz xsksetup_ring_len(const xsk_ring_offset* o, usz entry_size) {
   return (usz)o->desc + QUIC_XSKSETUP_RING_ENTRIES * entry_size;
 }
 
 static void xsksetup_view(
-    quic_xskring_view* v, void* base, const xsk_ring_offset* o) {
+    xskring_view* v, void* base, const xsk_ring_offset* o) {
   v->producer = (u32*)((u8*)base + o->producer);
   v->consumer = (u32*)((u8*)base + o->consumer);
   v->desc     = (u8*)base + o->desc;
@@ -150,30 +150,30 @@ static void xsksetup_view(
 }
 
 /* mmap one ring at the given pgoff/offsets-entry_size and init its
- * quic_xskring from the resulting view. On failure returns the mmap's
+ * xskring from the resulting view. On failure returns the mmap's
  * negative errno without touching map/map_len (caller's xsksetup_unwind
  * still sees the prior NULL). */
 static i64 xsksetup_map_one(
-    quic_xsk*              x,
-    quic_xskring*          ring,
+    xsk*                   x,
+    xskring*               ring,
     void**                 map,
     usz*                   map_len,
     u64                    pgoff,
     const xsk_ring_offset* o,
     usz                    entry_size) {
-  quic_xskring_view v;
-  usz               len = xsksetup_ring_len(o, entry_size);
-  i64               r   = xsksetup_mmap(len, pgoff, x->fd);
+  xskring_view v;
+  usz          len = xsksetup_ring_len(o, entry_size);
+  i64          r   = xsksetup_mmap(len, pgoff, x->fd);
   if (r < 0) return r;
   *map     = (void*)r;
   *map_len = len;
   xsksetup_view(&v, *map, o);
-  quic_xskring_init(ring, &v);
+  xskring_init(ring, &v);
   return 0;
 }
 
 /* fill/comp share the 8-byte (bare u64 address) entry size. */
-static i64 xsksetup_map_fill_comp(quic_xsk* x, const xsk_mmap_offsets* mo) {
+static i64 xsksetup_map_fill_comp(xsk* x, const xsk_mmap_offsets* mo) {
   i64 r = xsksetup_map_one(
       x, &x->fill, &x->map_fill, &x->map_fill_len, QUIC_XDP_PGOFF_FILL_RING,
       &mo->fr, 8);
@@ -183,18 +183,18 @@ static i64 xsksetup_map_fill_comp(quic_xsk* x, const xsk_mmap_offsets* mo) {
       QUIC_XDP_PGOFF_COMPLETION_RING, &mo->cr, 8);
 }
 
-/* rx/tx share the 16-byte quic_xdp_desc entry size. */
-static i64 xsksetup_map_rx_tx(quic_xsk* x, const xsk_mmap_offsets* mo) {
+/* rx/tx share the 16-byte xdp_desc entry size. */
+static i64 xsksetup_map_rx_tx(xsk* x, const xsk_mmap_offsets* mo) {
   i64 r = xsksetup_map_one(
       x, &x->rx, &x->map_rx, &x->map_rx_len, QUIC_XDP_PGOFF_RX_RING, &mo->rx,
-      sizeof(quic_xdp_desc));
+      sizeof(xdp_desc));
   if (r < 0) return r;
   return xsksetup_map_one(
       x, &x->tx, &x->map_tx, &x->map_tx_len, QUIC_XDP_PGOFF_TX_RING, &mo->tx,
-      sizeof(quic_xdp_desc));
+      sizeof(xdp_desc));
 }
 
-static i64 xsksetup_map_rings(quic_xsk* x, const xsk_mmap_offsets* mo) {
+static i64 xsksetup_map_rings(xsk* x, const xsk_mmap_offsets* mo) {
   i64 r = xsksetup_map_fill_comp(x, mo);
   if (r < 0) return r;
   return xsksetup_map_rx_tx(x, mo);
@@ -206,7 +206,7 @@ static i64 xsksetup_get_offsets(i64 fd, xsk_mmap_offsets* mo) {
       fd, QUIC_SOL_XDP, QUIC_XDP_MMAP_OFFSETS, mo, &len);
 }
 
-static i64 xsksetup_bind(quic_xsk* x, const quic_xsk_cfg* cfg) {
+static i64 xsksetup_bind(xsk* x, const xsk_cfg* cfg) {
   xsk_sockaddr sa = {
       QUIC_AF_XDP, cfg->bind_flags, cfg->ifindex, cfg->queue_id, 0};
   return wired_arch_bind(x->fd, &sa, sizeof sa);
@@ -215,19 +215,18 @@ static i64 xsksetup_bind(quic_xsk* x, const quic_xsk_cfg* cfg) {
 /* Push every RX-pool frame address (0..QUIC_XSKSETUP_UMEM_FRAMES/2, matching
  * xskumem's RX/TX pool split) onto the fill ring so the kernel has frames to
  * receive into as soon as bind completes. */
-static void xsksetup_prime_fill(quic_xsk* x) {
+static void xsksetup_prime_fill(xsk* x) {
   u32 n   = QUIC_XSKSETUP_UMEM_FRAMES / 2;
   u32 idx = 0;
-  u32 got = quic_xskring_prod_reserve(&x->fill, n, &idx);
+  u32 got = xskring_prod_reserve(&x->fill, n, &idx);
   for (u32 i = 0; i < got; i++)
-    *quic_xskring_addr_at(&x->fill, idx + i) =
-        (u64)i * QUIC_XSKSETUP_FRAME_SIZE;
-  quic_xskring_prod_submit(&x->fill, got);
+    *xskring_addr_at(&x->fill, idx + i) = (u64)i * QUIC_XSKSETUP_FRAME_SIZE;
+  xskring_prod_submit(&x->fill, got);
 }
 
 /* UMEM registration and ring-size setsockopts: the two steps that need no
  * mmap'd ring data yet. */
-static i64 xsksetup_build_head(quic_xsk* x) {
+static i64 xsksetup_build_head(xsk* x) {
   i64 r = xsksetup_umem(x);
   if (r < 0) return r;
   return xsksetup_ring_sizes(x);
@@ -235,7 +234,7 @@ static i64 xsksetup_build_head(quic_xsk* x) {
 
 /* Offsets + ring mmaps + bind: the steps that need x->fd already configured
  * by xsksetup_build_head. */
-static i64 xsksetup_build_body(quic_xsk* x, const quic_xsk_cfg* cfg) {
+static i64 xsksetup_build_body(xsk* x, const xsk_cfg* cfg) {
   xsk_mmap_offsets mo;
   i64              r = xsksetup_get_offsets(x->fd, &mo);
   if (r < 0) return r;
@@ -245,17 +244,17 @@ static i64 xsksetup_build_body(quic_xsk* x, const quic_xsk_cfg* cfg) {
 }
 
 /* Runs the four-step open sequence, returning the negative errno of the
- * first step that fails. Split out of quic_xsksetup_open so that function
+ * first step that fails. Split out of xsksetup_open so that function
  * stays a single CCN-1 dispatch. */
-static i64 xsksetup_build(quic_xsk* x, const quic_xsk_cfg* cfg) {
+static i64 xsksetup_build(xsk* x, const xsk_cfg* cfg) {
   i64 r = xsksetup_build_head(x);
   if (r < 0) return r;
   return xsksetup_build_body(x, cfg);
 }
 
-i64 quic_xsksetup_open(quic_xsk* x, const quic_xsk_cfg* cfg) {
+i64 xsksetup_open(xsk* x, const xsk_cfg* cfg) {
   i64 r;
-  *x    = (quic_xsk){0};
+  *x    = (xsk){0};
   x->fd = wired_arch_socket(QUIC_AF_XDP, QUIC_SOCK_RAW, 0);
   if (x->fd < 0) return x->fd;
   r = xsksetup_build(x, cfg);
@@ -267,16 +266,16 @@ i64 quic_xsksetup_open(quic_xsk* x, const quic_xsk_cfg* cfg) {
   return 0;
 }
 
-void quic_xsksetup_close(quic_xsk* x) {
+void xsksetup_close(xsk* x) {
   if (x->fd < 0) return;
   xsksetup_unwind(x);
 }
 
-i64 quic_xsksetup_kick_tx(i64 fd) {
+i64 xsksetup_kick_tx(i64 fd) {
   return wired_arch_sendto(fd, 0, 0, 0x40 /* MSG_DONTWAIT */, 0, 0);
 }
 
-i64 quic_xsksetup_stats(i64 fd, u64 out[6]) {
+i64 xsksetup_stats(i64 fd, u64 out[6]) {
   u32 len = 6 * sizeof(u64);
   return wired_arch_getsockopt(
       fd, QUIC_SOL_XDP, QUIC_XDP_STATISTICS, out, &len);

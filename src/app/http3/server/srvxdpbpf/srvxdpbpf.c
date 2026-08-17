@@ -13,11 +13,11 @@ static void srvxdpbpf_close_fd(i64* fd) {
 static i64 srvxdpbpf_load(wired_srvxdpbpf* b, u16 port) {
   u64 insns[QUIC_XDPBPF_PROG_LEN];
   b->prog_fd = b->link_fd = -1;
-  b->map_fd               = quic_xdpbpf_map_create(WIRED_SRVXDPBPF_MAP_ENTRIES);
+  b->map_fd               = xdpbpf_map_create(WIRED_SRVXDPBPF_MAP_ENTRIES);
   if (b->map_fd < 0) return b->map_fd;
-  quic_xdpbpf_prog_build(insns, (i32)b->map_fd, port);
+  xdpbpf_prog_build(insns, (i32)b->map_fd, port);
   b->prog_fd =
-      quic_xdpbpf_prog_load(insns, QUIC_XDPBPF_PROG_LEN, wired_mspan_of(0, 0));
+      xdpbpf_prog_load(insns, QUIC_XDPBPF_PROG_LEN, wired_mspan_of(0, 0));
   return b->prog_fd < 0 ? b->prog_fd : 0;
 }
 
@@ -28,7 +28,7 @@ i64 wired_srvxdpbpf_open(
     wired_srvxdpbpf_close(b);
     return r;
   }
-  b->link_fd = quic_xdpbpf_link_create(b->prog_fd, ifindex, attach_flags);
+  b->link_fd = xdpbpf_link_create(b->prog_fd, ifindex, attach_flags);
   if (b->link_fd < 0) {
     r = b->link_fd;
     wired_srvxdpbpf_close(b);
@@ -38,7 +38,7 @@ i64 wired_srvxdpbpf_open(
 }
 
 i64 wired_srvxdpbpf_register(wired_srvxdpbpf* b, u32 queue_id, u32 xsk_fd) {
-  return quic_xdpbpf_map_set(b->map_fd, queue_id, xsk_fd);
+  return xdpbpf_map_set(b->map_fd, queue_id, xsk_fd);
 }
 
 void wired_srvxdpbpf_close(wired_srvxdpbpf* b) {

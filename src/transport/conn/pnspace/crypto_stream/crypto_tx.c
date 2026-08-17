@@ -21,10 +21,9 @@ typedef struct {
  * p->out->len. Returns 1 on success, 0 if it does not fit. */
 static int emit_one(
     wired_span tls_bytes, const emit_chunk* c, emit_progress* p) {
-  quic_crypto_frame f = {
-      c->base_offset + p->pos, c->chunk, tls_bytes.p + p->pos};
-  usz n = quic_frame_put_crypto(
-      p->out->p + p->out->len, p->out->cap - p->out->len, &f);
+  crypto_frame f = {c->base_offset + p->pos, c->chunk, tls_bytes.p + p->pos};
+  usz          n =
+      frame_put_crypto(p->out->p + p->out->len, p->out->cap - p->out->len, &f);
   if (n == 0) return 0;
   p->out->len += n;
   p->pos += c->chunk;
@@ -32,10 +31,8 @@ static int emit_one(
 }
 
 /* RFC 9000 19.6 */
-int quic_crypto_stream_emit(
-    wired_span                        tls_bytes,
-    const quic_crypto_stream_emit_in* in,
-    wired_obuf*                       out) {
+int crypto_stream_emit(
+    wired_span tls_bytes, const crypto_stream_emit_in* in, wired_obuf* out) {
   emit_progress p = {0, out};
   out->len        = 0;
   int ok          = in->max_frame != 0;

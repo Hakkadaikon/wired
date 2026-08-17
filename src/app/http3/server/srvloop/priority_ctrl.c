@@ -25,7 +25,7 @@ static int ctrl_is_uni_stream_id(u64 stream_id) {
  * that by having reassembled anything into l->ctrl at all -- see
  * wired_srvloop_ctrl_gather's own doc for why offset>0 is accepted
  * unconditionally once id-matched). */
-static int ctrl_leading_type_is_control(const quic_stream_frame* sf) {
+static int ctrl_leading_type_is_control(const stream_frame* sf) {
   u64 v;
   usz off = 0;
   if (!varint_take(wired_span_of(sf->data, (usz)sf->length), &off, &v))
@@ -35,9 +35,8 @@ static int ctrl_leading_type_is_control(const quic_stream_frame* sf) {
 
 /* 1 if the walked frame decodes into sf as a client uni STREAM frame; the
  * caller still must confirm it is specifically the control stream. */
-static int ctrl_stream_of(u64 type, wired_span frame, quic_stream_frame* sf) {
-  return ctrl_is_stream_type(type) &&
-         quic_frame_get_stream(frame.p, frame.n, sf) &&
+static int ctrl_stream_of(u64 type, wired_span frame, stream_frame* sf) {
+  return ctrl_is_stream_type(type) && frame_get_stream(frame.p, frame.n, sf) &&
          ctrl_is_uni_stream_id(sf->stream_id);
 }
 
@@ -48,7 +47,7 @@ static int ctrl_stream_of(u64 type, wired_span frame, quic_stream_frame* sf) {
 /* sf's own bytes that are the leading type varint rather than control-stream
  * payload: the whole varint for the offset-0 frame, none for any later one
  * (the type never reappears mid-stream). */
-static usz ctrl_skip_len(const quic_stream_frame* sf) {
+static usz ctrl_skip_len(const stream_frame* sf) {
   if (sf->offset == 0) return CTRL_TYPE_LEN;
   return 0;
 }
@@ -56,7 +55,7 @@ static usz ctrl_skip_len(const quic_stream_frame* sf) {
 /* sf's stream-level offset, shifted back by the type varint's own length so
  * it lands in l->ctrl's post-type-varint coordinate space (offset 0 of
  * l->ctrl.buf is the type varint's first following byte). */
-static u64 ctrl_abs_off(const quic_stream_frame* sf) {
+static u64 ctrl_abs_off(const stream_frame* sf) {
   if (sf->offset == 0) return 0;
   return sf->offset - CTRL_TYPE_LEN;
 }
@@ -66,7 +65,7 @@ static u64 ctrl_abs_off(const quic_stream_frame* sf) {
  * called once ctrl_leading_type_is_control (for offset 0) or an established
  * control-stream frame (offset>0) has already confirmed this is the control
  * stream. Mirrors dispatch.c's own gather_one/bump_len shape for req_buf. */
-static void ctrl_land(wired_srvloop* l, const quic_stream_frame* sf) {
+static void ctrl_land(wired_srvloop* l, const stream_frame* sf) {
   usz skip = ctrl_skip_len(sf);
   usz off  = (usz)ctrl_abs_off(sf);
   if (off >= sizeof l->ctrl.buf) return;
@@ -144,14 +143,13 @@ static void ctrl_walk(wired_srvloop* l) {
  * bytes) has a later frame arriving. A later frame before ANY offset-0 frame
  * was seen (l->ctrl.len == 0) belongs to a stream not yet confirmed control
  * and is not control traffic. */
-static int ctrl_frame_relevant(
-    const wired_srvloop* l, const quic_stream_frame* sf) {
+static int ctrl_frame_relevant(const wired_srvloop* l, const stream_frame* sf) {
   if (sf->offset == 0) return ctrl_leading_type_is_control(sf);
   return l->ctrl.len != 0;
 }
 
 int wired_srvloop_ctrl_gather(wired_srvloop* l, u64 type, wired_span frame) {
-  quic_stream_frame sf;
+  stream_frame sf;
   if (!ctrl_stream_of(type, frame, &sf)) return 0;
   if (!ctrl_frame_relevant(l, &sf)) return 0;
   ctrl_land(l, &sf);
@@ -167,9 +165,8 @@ static int req_is_bidi_stream_id(u64 stream_id) {
 
 /* 1 if the walked frame decodes into sf as a client bidi (request) STREAM
  * frame. */
-static int req_stream_of(u64 type, wired_span frame, quic_stream_frame* sf) {
-  return ctrl_is_stream_type(type) &&
-         quic_frame_get_stream(frame.p, frame.n, sf) &&
+static int req_stream_of(u64 type, wired_span frame, stream_frame* sf) {
+  return ctrl_is_stream_type(type) && frame_get_stream(frame.p, frame.n, sf) &&
          req_is_bidi_stream_id(sf->stream_id);
 }
 
@@ -178,7 +175,7 @@ static int req_stream_of(u64 type, wired_span frame, quic_stream_frame* sf) {
  * frame's bytes ahead of one already begun, so a request stream's PRIORITY_
  * UPDATE is always frame-aligned with whatever STREAM frame first carries
  * it, exactly like request_parse.c's own find_headers walk. */
-static int req_carries_priupdate(const quic_stream_frame* sf) {
+static int req_carries_priupdate(const stream_frame* sf) {
   quic_h3_priupdate f = {0};
   return quic_h3_priupdate_get(wired_span_of(sf->data, (usz)sf->length), &f) !=
          0;
@@ -196,7 +193,7 @@ static void req_latch_priupdate_violation(wired_srvloop* l) {
 
 int wired_srvloop_req_priupdate_gather(
     wired_srvloop* l, u64 type, wired_span frame) {
-  quic_stream_frame sf;
+  stream_frame sf;
   if (!req_stream_of(type, frame, &sf)) return 0;
   if (req_carries_priupdate(&sf)) req_latch_priupdate_violation(l);
   return 1;

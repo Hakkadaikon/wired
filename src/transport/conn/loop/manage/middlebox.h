@@ -8,9 +8,9 @@
  * to pass middleboxes that key on a minimum size. */
 
 /* Whether an Initial-bearing datagram of `datagram_size` meets the minimum. */
-int quic_middlebox_initial_ok(usz datagram_size);
+int middlebox_initial_ok(usz datagram_size);
 
 /* Whether `port` is the expected QUIC UDP port. */
-int quic_middlebox_port_expected(u16 port);
+int middlebox_port_expected(u16 port);
 
 #endif

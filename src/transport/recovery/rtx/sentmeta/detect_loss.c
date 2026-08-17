@@ -11,25 +11,22 @@ static int sentmeta_by_time(u64 now, u64 sent, u64 loss_delay) {
 }
 
 /* A tracked packet past either threshold is lost. */
-static int sentmeta_is_lost(
-    const quic_sentmeta_pkt* p, const quic_sentmeta_loss_in* in) {
+static int sentmeta_is_lost(const sentmeta_pkt* p, const sentmeta_loss_in* in) {
   return sentmeta_by_packet(in->largest_acked, p->pn) ||
          sentmeta_by_time(in->now, p->time_sent, in->loss_delay);
 }
 
 static int sentmeta_lost_slot(
-    const quic_sentmeta* m, usz i, const quic_sentmeta_loss_in* in) {
+    const sentmeta* m, usz i, const sentmeta_loss_in* in) {
   return m->pkts[i].used && sentmeta_is_lost(&m->pkts[i], in);
 }
 
-void quic_sentmeta_detect_loss(
-    quic_sentmeta*               m,
-    const quic_sentmeta_loss_in* in,
-    quic_sentmeta_u64out         lost) {
+void sentmeta_detect_loss(
+    sentmeta* m, const sentmeta_loss_in* in, sentmeta_u64out lost) {
   *lost.n = 0;
   for (usz i = 0; i < QUIC_SENTMETA_CAP; i++) {
     if (!sentmeta_lost_slot(m, i, in)) continue;
     lost.out[(*lost.n)++] = m->pkts[i].pn;
-    quic_sentmeta_reclaim(m, i);
+    sentmeta_reclaim(m, i);
   }
 }

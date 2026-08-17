@@ -13,9 +13,9 @@ static void test_newtoken_wire_roundtrip(void) {
   u8         token[QUIC_NEWTOKEN_WIRE_LEN];
   u64        issued_at;
   wired_span nonce;
-  CHECK(quic_newtoken_wire_make(key, wired_span_of(addr, 4), 1000, token) == 1);
+  CHECK(newtoken_wire_make(key, wired_span_of(addr, 4), 1000, token) == 1);
   CHECK(
-      quic_newtoken_wire_verify(
+      newtoken_wire_verify(
           key, wired_span_of(addr, 4), wired_span_of(token, sizeof token), 1000,
           &issued_at, &nonce) == 1);
   CHECK(issued_at == 1000);
@@ -30,8 +30,8 @@ static void test_newtoken_distinct_per_call(void) {
   set_key(key);
   const u8 addr[4] = {192, 0, 2, 1};
   u8       t1[QUIC_NEWTOKEN_WIRE_LEN], t2[QUIC_NEWTOKEN_WIRE_LEN];
-  CHECK(quic_newtoken_wire_make(key, wired_span_of(addr, 4), 1000, t1) == 1);
-  CHECK(quic_newtoken_wire_make(key, wired_span_of(addr, 4), 1000, t2) == 1);
+  CHECK(newtoken_wire_make(key, wired_span_of(addr, 4), 1000, t1) == 1);
+  CHECK(newtoken_wire_make(key, wired_span_of(addr, 4), 1000, t2) == 1);
   int differs = 0;
   for (usz i = 0; i < QUIC_NEWTOKEN_WIRE_LEN; i++)
     if (t1[i] != t2[i]) differs = 1;
@@ -48,17 +48,17 @@ static void test_newtoken_expiry_boundary(void) {
   u64        issued_at;
   wired_span nonce;
   u64        t0 = 1000;
-  CHECK(quic_newtoken_wire_make(key, wired_span_of(addr, 4), t0, token) == 1);
+  CHECK(newtoken_wire_make(key, wired_span_of(addr, 4), t0, token) == 1);
 
   u64 at_limit = t0 + QUIC_NEWTOKEN_MAX_AGE_SECS;
   CHECK(
-      quic_newtoken_wire_verify(
+      newtoken_wire_verify(
           key, wired_span_of(addr, 4), wired_span_of(token, sizeof token),
           at_limit, &issued_at, &nonce) == 1);
 
   u64 past_limit = at_limit + 1;
   CHECK(
-      quic_newtoken_wire_verify(
+      newtoken_wire_verify(
           key, wired_span_of(addr, 4), wired_span_of(token, sizeof token),
           past_limit, &issued_at, &nonce) == 0);
 }
@@ -72,9 +72,9 @@ static void test_newtoken_future_issued_at_rejected(void) {
   u8         token[QUIC_NEWTOKEN_WIRE_LEN];
   u64        issued_at;
   wired_span nonce;
-  CHECK(quic_newtoken_wire_make(key, wired_span_of(addr, 4), 5000, token) == 1);
+  CHECK(newtoken_wire_make(key, wired_span_of(addr, 4), 5000, token) == 1);
   CHECK(
-      quic_newtoken_wire_verify(
+      newtoken_wire_verify(
           key, wired_span_of(addr, 4), wired_span_of(token, sizeof token), 4999,
           &issued_at, &nonce) == 0);
 }
@@ -90,31 +90,31 @@ static void test_newtoken_tamper_rejected(void) {
   u8         token[QUIC_NEWTOKEN_WIRE_LEN];
   u64        issued_at;
   wired_span nonce;
-  CHECK(quic_newtoken_wire_make(key, wired_span_of(addr, 4), 1000, token) == 1);
+  CHECK(newtoken_wire_make(key, wired_span_of(addr, 4), 1000, token) == 1);
 
   token[QUIC_NEWTOKEN_WIRE_LEN - 1] ^= 1; /* MAC byte */
   CHECK(
-      quic_newtoken_wire_verify(
+      newtoken_wire_verify(
           key, wired_span_of(addr, 4), wired_span_of(token, sizeof token), 1000,
           &issued_at, &nonce) == 0);
   token[QUIC_NEWTOKEN_WIRE_LEN - 1] ^= 1;
 
   token[8] ^= 1; /* nonce byte */
   CHECK(
-      quic_newtoken_wire_verify(
+      newtoken_wire_verify(
           key, wired_span_of(addr, 4), wired_span_of(token, sizeof token), 1000,
           &issued_at, &nonce) == 0);
   token[8] ^= 1;
 
   token[0] ^= 1; /* issued_at byte */
   CHECK(
-      quic_newtoken_wire_verify(
+      newtoken_wire_verify(
           key, wired_span_of(addr, 4), wired_span_of(token, sizeof token), 1000,
           &issued_at, &nonce) == 0);
   token[0] ^= 1;
 
   CHECK(
-      quic_newtoken_wire_verify(
+      newtoken_wire_verify(
           key, wired_span_of(addr2, 4), wired_span_of(token, sizeof token),
           1000, &issued_at, &nonce) == 0);
 }
@@ -127,14 +127,14 @@ static void test_newtoken_malformed_rejected(void) {
   u64        issued_at;
   wired_span nonce;
   CHECK(
-      quic_newtoken_wire_verify(
+      newtoken_wire_verify(
           key, wired_span_of(addr, 4), wired_span_of(bad, sizeof bad), 1000,
           &issued_at, &nonce) == 0);
 }
 
 /* RFC 9000 8.1.4: replay limiting. Each token's nonce is a fresh, unique
  * identity (uniqueness proven above), so the existing single-use tracker
- * (quic_zerortt_seen, used for 0-RTT ticket replay) applies unchanged: first
+ * (zerortt_seen, used for 0-RTT ticket replay) applies unchanged: first
  * presentation of a token's nonce succeeds, a second presentation of the
  * same nonce is a replay. */
 static void test_newtoken_replay_rejected_via_seen_nonce(void) {
@@ -144,16 +144,16 @@ static void test_newtoken_replay_rejected_via_seen_nonce(void) {
   u8         token[QUIC_NEWTOKEN_WIRE_LEN];
   u64        issued_at;
   wired_span nonce;
-  CHECK(quic_newtoken_wire_make(key, wired_span_of(addr, 4), 1000, token) == 1);
+  CHECK(newtoken_wire_make(key, wired_span_of(addr, 4), 1000, token) == 1);
   CHECK(
-      quic_newtoken_wire_verify(
+      newtoken_wire_verify(
           key, wired_span_of(addr, 4), wired_span_of(token, sizeof token), 1000,
           &issued_at, &nonce) == 1);
 
-  quic_zerortt_seen seen;
-  quic_zerortt_seen_init(&seen);
-  CHECK(quic_zerortt_seen_check(&seen, nonce) == 1); /* first use */
-  CHECK(quic_zerortt_seen_check(&seen, nonce) == 0); /* replay */
+  zerortt_seen seen;
+  zerortt_seen_init(&seen);
+  CHECK(zerortt_seen_check(&seen, nonce) == 1); /* first use */
+  CHECK(zerortt_seen_check(&seen, nonce) == 0); /* replay */
 }
 
 void test_newtoken(void) {

@@ -16,14 +16,14 @@ typedef struct {
   u8  cid_len;
   u8  cid[QUIC_NCID_MAX_LEN];
   u8  token[QUIC_NCID_TOKEN]; /* stateless reset token */
-} quic_ncid_frame;
+} ncid_frame;
 
 /* Encode into buf of cap bytes. Returns bytes written, or 0 on overflow /
  * invalid (cid_len out of range, or retire_prior_to > seq). */
-usz quic_ncid_encode(u8* buf, usz cap, const quic_ncid_frame* f);
+usz ncid_encode(u8* buf, usz cap, const ncid_frame* f);
 
 /* Decode at buf (n readable, type byte 0x18 at buf[0]). Returns bytes
  * consumed, or 0 on malformed / truncated input. */
-usz quic_ncid_decode(const u8* buf, usz n, quic_ncid_frame* f);
+usz ncid_decode(const u8* buf, usz n, ncid_frame* f);
 
 #endif

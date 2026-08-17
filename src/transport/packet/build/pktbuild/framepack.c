@@ -3,7 +3,7 @@
 #include "common/bytes/util/bytes.h"
 
 /* RFC 9000 12.4: a packet payload is a sequence of complete frames. */
-int quic_pktbuild_framepack(
+int pktbuild_framepack(
     wired_obuf* out, const wired_span* frames, usz n_frames) {
   for (usz i = 0; i < n_frames; i++) {
     if (!bytes_put(

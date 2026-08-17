@@ -36,41 +36,41 @@ typedef struct {
   u64 rtprop_at;     /**< when rtprop_ms was last lowered/refreshed */
   int have_rtprop;   /**< 1 once any RTT sample arrived */
   u64 probe_rtt_end; /**< PROBE_RTT dwell deadline */
-} quic_bbr;
+} bbr;
 
-void quic_bbr_init(quic_bbr* b);
+void bbr_init(bbr* b);
 
 /** Feed one round's delivery-rate sample (bytes/ms or any consistent unit):
  * refreshes the windowed-max estimate and runs the full-pipe check —
  * STARTUP moves to DRAIN once three rounds pass without 1.25x growth. */
-void quic_bbr_on_round(quic_bbr* b, u64 bw_sample);
+void bbr_on_round(bbr* b, u64 bw_sample);
 
 /** Feed one RTT sample at now: keeps the windowed minimum (a lower sample
  * or an expired window takes it). */
-void quic_bbr_on_rtt(quic_bbr* b, u64 rtt_ms, u64 now_ms);
+void bbr_on_rtt(bbr* b, u64 rtt_ms, u64 now_ms);
 
 /** DRAIN exit check: once inflight has drained to the BDP
  * (inflight_at_bdp = 1, judged by the caller) DRAIN moves to PROBE_BW. */
-void quic_bbr_drained(quic_bbr* b, int inflight_at_bdp);
+void bbr_drained(bbr* b, int inflight_at_bdp);
 
 /** Advance the PROBE_BW gain cycle one step (modulo 8); frozen elsewhere. */
-void quic_bbr_cycle_tick(quic_bbr* b);
+void bbr_cycle_tick(bbr* b);
 
 /** RTprop-expiry check (BBRCheckProbeRTT): with the window expired, any
  * phase yields to PROBE_RTT and the dwell deadline is armed.
  * @return 1 when PROBE_RTT was entered. */
-int quic_bbr_check_probe_rtt(quic_bbr* b, u64 now_ms);
+int bbr_check_probe_rtt(bbr* b, u64 now_ms);
 
 /** PROBE_RTT exit (BBRExitProbeRTT): after the dwell, return to PROBE_BW
  * when the pipe filled, else back to STARTUP. */
-void quic_bbr_probe_rtt_exit(quic_bbr* b, u64 now_ms);
+void bbr_probe_rtt_exit(bbr* b, u64 now_ms);
 
 /** The phase's pacing gain in percent (STARTUP 289 = 2/ln2, DRAIN 35 its
  * inverse, PROBE_BW cycles 125,75,100x6, PROBE_RTT 100). */
-u64 quic_bbr_pacing_gain_pct(const quic_bbr* b);
+u64 bbr_pacing_gain_pct(const bbr* b);
 
 /** The phase's cwnd gain in percent (STARTUP/DRAIN 289, PROBE_BW 200,
  * PROBE_RTT 100 — the caller floors PROBE_RTT's window separately). */
-u64 quic_bbr_cwnd_gain_pct(const quic_bbr* b);
+u64 bbr_cwnd_gain_pct(const bbr* b);
 
 #endif

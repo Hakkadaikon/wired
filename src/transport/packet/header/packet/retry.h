@@ -18,7 +18,7 @@ typedef struct {
   const u8* token;
   usz       token_len;
   u8        tag[QUIC_RETRY_TAG_LEN];
-} quic_retry_packet;
+} retry_packet;
 
 /** Everything a Retry packet carries: version, CIDs, token, 16-byte tag. */
 typedef struct {
@@ -27,13 +27,13 @@ typedef struct {
   wired_span scid;
   wired_span token;
   const u8*  tag;
-} quic_retry_desc;
+} retry_desc;
 
 /* Build a Retry packet into buf (cap bytes). Returns bytes written, or 0. */
-usz quic_retry_build(u8* buf, usz cap, const quic_retry_desc* d);
+usz retry_build(u8* buf, usz cap, const retry_desc* d);
 
 /* Parse a Retry packet from buf (n bytes). Fills r (r->token points into
  * buf, r->tag is copied). Returns bytes consumed (== n), or 0 if malformed. */
-usz quic_retry_parse(const u8* buf, usz n, quic_retry_packet* r);
+usz retry_parse(const u8* buf, usz n, retry_packet* r);
 
 #endif

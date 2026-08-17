@@ -17,11 +17,11 @@ typedef struct {
   u8  buf[QUIC_CRECV_BUF];    /**< reassembled CRYPTO stream bytes */
   u8  filled[QUIC_CRECV_BUF]; /**< 1 where a byte has been written */
   usz received_to;            /**< contiguous bytes available from offset 0 */
-} quic_crecv;
+} crecv;
 
 /** Start with an empty reassembly buffer.
  * @param s reassembly state to initialize */
-void quic_crecv_init(quic_crecv* s);
+void crecv_init(crecv* s);
 
 /** Walk a payload, write every CRYPTO frame at its offset, ignore other
  * frames. Updates the contiguous prefix.
@@ -30,6 +30,6 @@ void quic_crecv_init(quic_crecv* s);
  * @param len length of frames in bytes
  * @return 1, or 0 if a CRYPTO frame falls outside the buffer
  * (RFC 9000 19.6). */
-int quic_crecv_collect(quic_crecv* s, const u8* frames, usz len);
+int crecv_collect(crecv* s, const u8* frames, usz len);
 
 #endif

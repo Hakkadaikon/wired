@@ -24,11 +24,11 @@
 /* RFC 9000 13.2.1 / 19.3: encode an ACK frame for the single packet number pn.
  */
 static usz encode_ack_one(u8* frames, usz cap, u64 pn) {
-  quic_ack_frame f = {0};
-  f.n_ranges       = 1;
-  f.ranges[0].hi   = pn;
-  f.ranges[0].lo   = pn;
-  return quic_ack_encode(frames, cap, &f);
+  ack_frame f    = {0};
+  f.n_ranges     = 1;
+  f.ranges[0].hi = pn;
+  f.ranges[0].lo = pn;
+  return ack_encode(frames, cap, &f);
 }
 
 /* RFC 9000 13.2.1: seal a Handshake packet that carries only an ACK of the
@@ -44,29 +44,29 @@ static int emit_handshake_ack(const wired_srvloop_conn* c, wired_obuf* out) {
   if (!wired_srvloop_seal_keys(c->s, QUIC_LEVEL_HANDSHAKE, &dk)) return 0;
   fl = encode_ack_one(frames, sizeof frames, c->l->hs_rx_pn);
   if (fl == 0) return 0;
-  quic_protect_keys pk = {dk.keys, &dk.hp};
-  quic_hspkt_desc   d  = {
+  protect_keys pk = {dk.keys, &dk.hp};
+  hspkt_desc   d  = {
       wired_span_of(c->l->cli_scid, c->l->cli_scid_len),
       wired_span_of(c->s->sdrv.iscid, c->s->sdrv.iscid_len), c->l->hs_tx_pn++,
       wired_span_of(frames, fl)};
   /* out->len 0 unless built */
-  return quic_hspkt_build_suite(c->s->sdrv.cipher_suite, &pk, &d, out);
+  return hspkt_build_suite(c->s->sdrv.cipher_suite, &pk, &d, out);
 }
 
 /* RFC 9114 6.2.1: wrap the control-stream type + SETTINGS in a STREAM frame on
  * the first server unidirectional stream (id 3, no FIN: the stream stays open).
  */
 static int build_settings_frame(wired_srvloop* l, wired_obuf* out) {
-  u8                ctl[64];
-  wired_obuf        ctlb = obuf_of(ctl, sizeof ctl);
-  quic_stream_frame f;
+  u8           ctl[64];
+  wired_obuf   ctlb = obuf_of(ctl, sizeof ctl);
+  stream_frame f;
   /* advertise WebTransport + H3 datagrams only when the QUIC transport also
    * negotiated max_datagram_frame_size (RFC 9297 2.1.1 MUST) */
   if (!wired_h3srv_open_control(
           &l->h3, l->we_advertised_max_datagram > 0, &ctlb))
     return 0;
-  f = (quic_stream_frame){WIRED_SRVLOOP_CTRL_STREAM, 0, ctlb.len, ctl, 0};
-  return quic_appdata_stream_frame(&f, out);
+  f = (stream_frame){WIRED_SRVLOOP_CTRL_STREAM, 0, ctlb.len, ctl, 0};
+  return appdata_stream_frame(&f, out);
 }
 
 /* RFC 8446 4.6.1 / RFC 9001 4: server session tickets are sealed under a
@@ -105,13 +105,13 @@ static usz build_ticket_message(const wired_server* s, u8* msg, usz msg_cap) {
 /* Seal a fresh session ticket and append it as a CRYPTO frame
  * (RFC 9000 19.6) to a 1-RTT payload. */
 static int append_ticket_frame(const wired_server* s, wired_obuf* out) {
-  u8                msg[64 + QUIC_TICKET_SEALED_LEN];
-  quic_crypto_frame cf;
-  usz               written;
-  usz               mlen = build_ticket_message(s, msg, sizeof msg);
+  u8           msg[64 + QUIC_TICKET_SEALED_LEN];
+  crypto_frame cf;
+  usz          written;
+  usz          mlen = build_ticket_message(s, msg, sizeof msg);
   if (mlen == 0) return 0;
-  cf      = (quic_crypto_frame){0, mlen, msg};
-  written = quic_frame_put_crypto(out->p + out->len, out->cap - out->len, &cf);
+  cf      = (crypto_frame){0, mlen, msg};
+  written = frame_put_crypto(out->p + out->len, out->cap - out->len, &cf);
   if (written == 0) return 0;
   out->len += written;
   return 1;
@@ -150,9 +150,9 @@ static int confirm_payload(const wired_srvloop_conn* c, wired_obuf* out) {
 }
 
 /* RFC 9000 13.2.1/13.2.2/19.3: whether an ACK is owed on the App pn space
- * right now (quic_ackpolicy, already latched by srvloop.c's receive path). */
+ * right now (ackpolicy, already latched by srvloop.c's receive path). */
 static int app_ack_due(const wired_srvloop* l) {
-  return quic_ackpolicy_should_ack(
+  return ackpolicy_should_ack(
       &l->app_ack_policy, l->now_ms, WIRED_SRVLOOP_MAX_ACK_DELAY_MS);
 }
 
@@ -168,7 +168,7 @@ static int app_ack_ecn_any_seen(const wired_srvloop* l) {
  * f as a plain type-0x02 ACK (has_ecn stays 0) when all three are still zero
  * -- the pre-existing non-ECN wire format for a connection/path that never
  * reported an ECN-marked datagram. */
-static void app_ack_set_ecn(const wired_srvloop* l, quic_ack_frame* f) {
+static void app_ack_set_ecn(const wired_srvloop* l, ack_frame* f) {
   if (!app_ack_ecn_any_seen(l)) return;
   f->has_ecn = 1;
   f->ect0    = l->ecn_ect0;
@@ -177,28 +177,27 @@ static void app_ack_set_ecn(const wired_srvloop* l, quic_ack_frame* f) {
 }
 
 /* RFC 9000 19.3: encode a full multi-range ACK frame from the App pn
- * space's received-pn window (quic_pnspaces_recv, RFC 9000 12.3/13.2.1),
+ * space's received-pn window (pnspaces_recv, RFC 9000 12.3/13.2.1),
  * with an ack_delay reflecting how long the oldest unacked eliciting packet
- * has waited (quic_ack_delay_encode, RFC 9000 19.3/13.2.5), and this
+ * has waited (ack_delay_encode, RFC 9000 19.3/13.2.5), and this
  * connection's cumulative ECN counts (RFC 9000 19.3.2, app_ack_set_ecn).
  * Returns the encoded length, 0 if the window is empty or encoding fails
  * (e.g. the range count would overflow QUIC_ACK_MAX_RANGES -- caller then
  * sends no ACK this round rather than a corrupt one). */
 static usz app_ack_encode_ranges(wired_srvloop* l, u8* buf, usz cap) {
-  u64            raw[2 * QUIC_ACK_MAX_RANGES + 1];
-  u64            largest;
-  quic_u64obuf   ranges = {raw, sizeof raw / sizeof raw[0], 0};
-  quic_ack_frame f      = {0};
-  if (!quic_pnspaces_ack_ranges(
-          &l->ack_recv, QUIC_PNS_APP,
-          &(quic_pnspaces_ack_out){&largest, &ranges}))
+  u64       raw[2 * QUIC_ACK_MAX_RANGES + 1];
+  u64       largest;
+  u64obuf   ranges = {raw, sizeof raw / sizeof raw[0], 0};
+  ack_frame f      = {0};
+  if (!pnspaces_ack_ranges(
+          &l->ack_recv, QUIC_PNS_APP, &(pnspaces_ack_out){&largest, &ranges}))
     return 0;
-  if (!quic_ackrangeconv_to_frame(largest, raw, ranges.len, &f)) return 0;
-  f.ack_delay = quic_ack_delay_encode(
+  if (!ackrangeconv_to_frame(largest, raw, ranges.len, &f)) return 0;
+  f.ack_delay = ack_delay_encode(
       (l->now_ms - l->app_ack_policy.since_tick) * 1000,
       QUIC_ACK_DELAY_EXPONENT_DEFAULT);
   app_ack_set_ecn(l, &f);
-  return quic_ack_encode(buf, cap, &f);
+  return ack_encode(buf, cap, &f);
 }
 
 /* RFC 9000 13.2.1: append a multi-range ACK of the App pn space's received
@@ -207,16 +206,16 @@ static usz app_ack_encode_ranges(wired_srvloop* l, u8* buf, usz cap) {
  * these paths always attach a pending ACK rather than waiting out the delay
  * window on a packet that's going out anyway. Nothing to append (the App
  * space's window is empty) is the only reason this returns 0. Clears the
- * pending state once encoded (quic_ackpolicy_on_ack_sent) so the next
+ * pending state once encoded (ackpolicy_on_ack_sent) so the next
  * step's due-check starts fresh. */
 static usz app_ack_append(wired_srvloop* l, u8* buf, usz cap) {
   usz n = app_ack_encode_ranges(l, buf, cap);
-  if (n) quic_ackpolicy_on_ack_sent(&l->app_ack_policy);
+  if (n) ackpolicy_on_ack_sent(&l->app_ack_policy);
   return n;
 }
 
 /* RFC 9000 13.2.1/13.2.2: append an ACK ONLY when one is actually due
- * (quic_ackpolicy_should_ack) -- for emit_ack_only's bare-ACK packet, where
+ * (ackpolicy_should_ack) -- for emit_ack_only's bare-ACK packet, where
  * sending one costs a whole extra packet on the wire, so the delay window
  * genuinely matters (unlike app_ack_append's piggyback callers above).
  * Suppressed while ack_defer is set: the driving loop (srvrun.c) piggybacks
@@ -233,7 +232,7 @@ usz wired_srvloop_ack_peek(wired_srvloop* l, u8* buf, usz cap) {
 }
 
 void wired_srvloop_ack_mark_sent(wired_srvloop* l) {
-  quic_ackpolicy_on_ack_sent(&l->app_ack_policy);
+  ackpolicy_on_ack_sent(&l->app_ack_policy);
 }
 
 #define WIRED_SRVLOOP_BODY_MAX                                                \

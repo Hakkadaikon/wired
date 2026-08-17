@@ -13,8 +13,8 @@
 static usz ku_label_build(u8 buf[KU_LABEL_MAX], u32 version) {
   const char* prefix;
   usz         prefix_len;
-  if (!quic_version_label_prefix(version, &prefix, &prefix_len))
-    quic_version_label_prefix(QUIC_VERSION_1, &prefix, &prefix_len);
+  if (!version_label_prefix(version, &prefix, &prefix_len))
+    version_label_prefix(QUIC_VERSION_1, &prefix, &prefix_len);
   bytes_memcpy(buf, prefix, prefix_len);
   buf[prefix_len]     = 'k';
   buf[prefix_len + 1] = 'u';

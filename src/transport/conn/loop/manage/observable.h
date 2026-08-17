@@ -17,6 +17,6 @@
 
 /* True if field_id is observable in the clear, given header form
  * (is_long != 0 for a long header). RFC 9312 2/3. */
-int quic_observable_field(int field_id, int is_long);
+int observable_field(int field_id, int is_long);
 
 #endif

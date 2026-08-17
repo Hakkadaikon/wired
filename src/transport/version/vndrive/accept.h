@@ -11,7 +11,6 @@
 
 /* 1 if this VN packet should be processed: handshake not yet complete and
  * sent_version is absent from offered. 0 otherwise. */
-int quic_vndrive_accept(
-    int handshake_complete, u32 sent_version, quic_verlist offered);
+int vndrive_accept(int handshake_complete, u32 sent_version, verlist offered);
 
 #endif

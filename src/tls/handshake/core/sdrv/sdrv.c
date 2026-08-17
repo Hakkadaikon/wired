@@ -562,12 +562,12 @@ static int find_client_early_data_ext(
  * this binary: a ticket identity is process-unique sealed-ciphertext bytes
  * (a fresh random nonce per ticket_seal call), so unrelated tests never
  * collide on it. */
-static quic_zerortt_seen g_sdrv_zerortt_seen;
-static int               g_sdrv_zerortt_seen_init_done;
+static zerortt_seen g_sdrv_zerortt_seen;
+static int          g_sdrv_zerortt_seen_init_done;
 
-static quic_zerortt_seen* sdrv_zerortt_seen(void) {
+static zerortt_seen* sdrv_zerortt_seen(void) {
   if (!g_sdrv_zerortt_seen_init_done) {
-    quic_zerortt_seen_init(&g_sdrv_zerortt_seen);
+    zerortt_seen_init(&g_sdrv_zerortt_seen);
     g_sdrv_zerortt_seen_init_done = 1;
   }
   return &g_sdrv_zerortt_seen;
@@ -576,15 +576,15 @@ static quic_zerortt_seen* sdrv_zerortt_seen(void) {
 /* RFC 8446 4.2.11.1 / 8.3: the ticket is on its first use (RFC 8446 8.1) and
  * the client's claimed ticket age is still fresh relative to the server's
  * own record of issuance (ticket_freshness_ok) -- the two conditions
- * quic_zerortt_replay_ok's ticket_first_use argument and the freshness gate
+ * zerortt_replay_ok's ticket_first_use argument and the freshness gate
  * this SDK adds on top of it. A stale/manipulated age is treated exactly
  * like a policy-unsafe request: 0-RTT is declined, the handshake itself
  * proceeds as 1-RTT (RFC 8446 4.2.10). */
 static int sdrv_early_data_eligible(
     const ticket* t, const tlsext_psk_offer* off) {
-  int first_use = quic_zerortt_seen_check(
+  int first_use = zerortt_seen_check(
       sdrv_zerortt_seen(), wired_span_of(off->identity, off->id_len));
-  if (!quic_zerortt_replay_ok(1, first_use)) return 0;
+  if (!zerortt_replay_ok(1, first_use)) return 0;
   return ticket_freshness_ok(t, off->ticket_age, wired_clock_epoch_secs());
 }
 
@@ -781,10 +781,10 @@ static int find_version_information(
  * is optional); present-but-malformed value bytes are not. */
 static int sdrv_ch_check_version_information(
     sdrv* s, const u8* ch_msg, usz ch_len) {
-  wired_span               bytes;
-  quic_version_information vi;
+  wired_span          bytes;
+  version_information vi;
   if (!find_version_information(ch_msg, ch_len, &bytes)) return 1;
-  if (quic_verinfo_decode(bytes.p, bytes.n, &vi) == bytes.n) return 1;
+  if (verinfo_decode(bytes.p, bytes.n, &vi) == bytes.n) return 1;
   s->last_error = QUIC_ERR_TRANSPORT_PARAMETER_ERROR;
   return 0;
 }

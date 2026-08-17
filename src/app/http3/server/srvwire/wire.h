@@ -11,7 +11,7 @@
  * and the inverse on open. This is the seal/open glue (CRYPTO-frame emit +
  * extract, server-direction Initial keys) that the packet builders do not own,
  * shared by the server wire loop and the client wire path. 1-RTT carries STREAM
- * frames, not CRYPTO, and quic_hspkt_onertt_build/open already take raw
+ * frames, not CRYPTO, and hspkt_onertt_build/open already take raw
  * payload, so no 1-RTT wrapper lives here. */
 
 /** Remaining arguments of quic_srvwire_seal_initial/seal_handshake beyond the
@@ -93,26 +93,24 @@ int quic_srvwire_open_initial(
  * (RFC 9000 13.2.1); ack_pn < 0 emits CRYPTO only. Returns 1 with out->len
  * set, or 0 on overflow. */
 int quic_srvwire_seal_handshake(
-    const quic_protect_keys*    k,
-    const quic_srvwire_seal_in* in,
-    wired_obuf*                 out);
+    const protect_keys* k, const quic_srvwire_seal_in* in, wired_obuf* out);
 
 /* Same as quic_srvwire_seal_handshake, but seals under the given negotiated
  * TLS 1.3 cipher suite (RFC 8446 B.4). Returns 0 on an unrecognized suite. */
 int quic_srvwire_seal_handshake_suite(
     u16                         suite,
-    const quic_protect_keys*    k,
+    const protect_keys*         k,
     const quic_srvwire_seal_in* in,
     wired_obuf*                 out);
 
 /* RFC 9001 5: open a Handshake packet sealed by quic_srvwire_seal_handshake.
  * Returns 1, or 0 on authentication failure or short input. */
 int quic_srvwire_open_handshake(
-    const quic_protect_keys* k, wired_mspan pkt, wired_span* tls);
+    const protect_keys* k, wired_mspan pkt, wired_span* tls);
 
 /* Same as quic_srvwire_open_handshake, but opens under the given negotiated
  * TLS 1.3 cipher suite (RFC 8446 B.4). Returns 0 on an unrecognized suite. */
 int quic_srvwire_open_handshake_suite(
-    u16 suite, const quic_protect_keys* k, wired_mspan pkt, wired_span* tls);
+    u16 suite, const protect_keys* k, wired_mspan pkt, wired_span* tls);
 
 #endif

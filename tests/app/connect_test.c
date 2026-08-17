@@ -164,8 +164,8 @@ static usz build_connect_stream(
       quic_h3_frame_put(
           &h3b, QUIC_H3_FRAME_HEADERS, wired_span_of(fs, fsb.len)) > 0);
 
-  quic_stream_frame sf = {0, 0, h3b.len, h3, 1};
-  usz               w  = quic_frame_put_stream(out, cap, &sf);
+  stream_frame sf = {0, 0, h3b.len, h3, 1};
+  usz          w  = frame_put_stream(out, cap, &sf);
   CHECK(w > 0);
   return w;
 }

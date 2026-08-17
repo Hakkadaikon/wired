@@ -81,7 +81,7 @@ static int put_tunables(wired_obuf* out, const stp_limits* lim) {
 
 /* reset_stream_at (draft-ietf-quic-reliable-stream-reset 4): advertise
  * support unconditionally via an empty-valued TP -- the codec
- * (quic_reset_stream_at_encode/_decode) is stable, and announcing costs
+ * (reset_stream_at_encode/_decode) is stable, and announcing costs
  * nothing even though no live sender uses it yet (unlike
  * max_datagram_frame_size, whose receive side is not wired). */
 static int put_reset_stream_at(wired_obuf* out) {

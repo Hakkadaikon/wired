@@ -8,6 +8,6 @@
  * A version is compatible with itself; v1 and v2 are compatible with each
  * other (RFC 9369 3.1). */
 
-int quic_version_compatible(u32 a, u32 b);
+int version_compatible(u32 a, u32 b);
 
 #endif

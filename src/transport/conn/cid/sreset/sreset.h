@@ -17,12 +17,12 @@
  * -- the whole point of a stateless reset. Derive the per-endpoint key from
  * a long-lived secret (the certificate seed) rather than per-boot
  * randomness. */
-void quic_sreset_key_derive(
+void sreset_key_derive(
     const u8 secret[QUIC_SRESET_KEY], u8 key[QUIC_SRESET_KEY]);
 
 /* Derive the Stateless Reset Token for a connection ID under a static
  * per-endpoint key (HMAC-SHA256 truncated to 16 bytes). */
-void quic_sreset_token(
+void sreset_token(
     const u8  key[QUIC_SRESET_KEY],
     const u8* cid,
     usz       cid_len,
@@ -31,8 +31,7 @@ void quic_sreset_token(
 /* Whether a received datagram of `len` bytes is a stateless reset carrying
  * the expected token: its trailing 16 bytes match, in constant time, and the
  * datagram is long enough to contain a token. Returns 1 on a match. */
-int quic_sreset_detect(
-    const u8* dgram, usz len, const u8 token[QUIC_SRESET_TOKEN]);
+int sreset_detect(const u8* dgram, usz len, const u8 token[QUIC_SRESET_TOKEN]);
 
 /* Smallest packet that can carry a token: 5 bytes of header room (enough to
  * look like a short header, RFC 9000 10.3) plus the 16-byte token. */
@@ -43,14 +42,14 @@ int quic_sreset_detect(
  * reset that is three or more times the size of the triggering packet (to
  * avoid being used for amplification), and MUST be at least
  * QUIC_SRESET_MIN bytes to look like a valid short header. */
-usz quic_sreset_size(usz trigger_len);
+usz sreset_size(usz trigger_len);
 
 /* Build a stateless reset packet for `cid` into `out` (capacity `out_cap`).
- * Size is quic_sreset_size(trigger_len), clamped to out_cap. The leading
+ * Size is sreset_size(trigger_len), clamped to out_cap. The leading
  * bytes are random (via `rand_fill`, e.g. rng_bytes) and the trailing
  * 16 bytes are the token derived from `key`+`cid`. Writes the packet length
  * to *out_len. Returns 1 on success, 0 if out_cap is below the minimum. */
-int quic_sreset_build(
+int sreset_build(
     const u8  key[QUIC_SRESET_KEY],
     const u8* cid,
     usz       cid_len,

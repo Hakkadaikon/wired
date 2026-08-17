@@ -8,6 +8,6 @@
  * Destination Connection ID. Returns 1 if the packet's DCID exactly matches
  * the connection's CID (same length and bytes), 0 otherwise. Zero-length CIDs
  * match only other zero-length CIDs. */
-int quic_demux_match(wired_span dcid, wired_span conn_cid);
+int demux_match(wired_span dcid, wired_span conn_cid);
 
 #endif

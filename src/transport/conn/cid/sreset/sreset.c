@@ -4,7 +4,7 @@
 #include "common/bytes/util/num.h"
 #include "crypto/symmetric/hash/hash/hmac.h"
 
-void quic_sreset_key_derive(
+void sreset_key_derive(
     const u8 secret[QUIC_SRESET_KEY], u8 key[QUIC_SRESET_KEY]) {
   static const u8 label[] = "stateless reset";
   hmac_sha256(
@@ -12,7 +12,7 @@ void quic_sreset_key_derive(
       wired_span_of(label, sizeof label - 1), key);
 }
 
-void quic_sreset_token(
+void sreset_token(
     const u8  key[QUIC_SRESET_KEY],
     const u8* cid,
     usz       cid_len,
@@ -23,19 +23,18 @@ void quic_sreset_token(
   for (usz i = 0; i < QUIC_SRESET_TOKEN; i++) token[i] = mac[i]; /* truncate */
 }
 
-int quic_sreset_detect(
-    const u8* dgram, usz len, const u8 token[QUIC_SRESET_TOKEN]) {
+int sreset_detect(const u8* dgram, usz len, const u8 token[QUIC_SRESET_TOKEN]) {
   if (len < QUIC_SRESET_TOKEN) return 0; /* too short to carry a token */
   return ct_diff16(dgram + len - QUIC_SRESET_TOKEN, token) == 0;
 }
 
-usz quic_sreset_size(usz trigger_len) {
+usz sreset_size(usz trigger_len) {
   usz cap = trigger_len * 3;
   if (cap > 0) cap -= 1; /* strictly under 3x, not 3x itself */
   return u64_max(cap, QUIC_SRESET_MIN);
 }
 
-int quic_sreset_build(
+int sreset_build(
     const u8  key[QUIC_SRESET_KEY],
     const u8* cid,
     usz       cid_len,
@@ -45,11 +44,11 @@ int quic_sreset_build(
     usz  out_cap,
     usz* out_len) {
   if (out_cap < QUIC_SRESET_MIN) return 0;
-  usz len = u64_min(quic_sreset_size(trigger_len), out_cap);
+  usz len = u64_min(sreset_size(trigger_len), out_cap);
 
   rand_fill(out, len);
   u8 token[QUIC_SRESET_TOKEN];
-  quic_sreset_token(key, cid, cid_len, token);
+  sreset_token(key, cid, cid_len, token);
   for (usz i = 0; i < QUIC_SRESET_TOKEN; i++)
     out[len - QUIC_SRESET_TOKEN + i] = token[i];
   *out_len = len;

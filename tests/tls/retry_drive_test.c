@@ -17,10 +17,10 @@ static usz make_retry(
     usz       tlen) {
   static const u8 dummy_dcid[4]           = {0xaa, 0xbb, 0xcc, 0xdd};
   u8              tag[QUIC_RETRY_TAG_LEN] = {0};
-  quic_retry_desc rd                      = {
+  retry_desc      rd                      = {
       QUIC_VERSION_1, wired_span_of(dummy_dcid, 4), wired_span_of(scid, scil),
       wired_span_of(token, tlen), tag};
-  usz n = quic_retry_build(buf, cap, &rd);
+  usz n = retry_build(buf, cap, &rd);
   /* recompute the real tag over (orig_dcid || retry-without-tag) */
   retry_tag(
       wired_span_of(orig_dcid, odcil),

@@ -2,7 +2,7 @@
 
 #include "common/bytes/util/bytes.h"
 
-usz quic_udploop_pack(const quic_pktsrc* src, wired_obuf* out) {
+usz udploop_pack(const pktsrc* src, wired_obuf* out) {
   usz       off = 0;
   const u8* p   = src->pkts;
   for (usz i = 0; i < src->n_pkts; i++) {
@@ -19,9 +19,8 @@ usz quic_udploop_pack(const quic_pktsrc* src, wired_obuf* out) {
 /* The full datagram was sent iff send returned exactly len bytes. */
 static int sent_whole(i64 r, usz len) { return r >= 0 && (usz)r == len; }
 
-usz quic_udploop_tx(
-    const quic_udpdst* dst, const quic_pktsrc* src, wired_obuf* out) {
-  usz len = quic_udploop_pack(src, out);
+usz udploop_tx(const udpdst* dst, const pktsrc* src, wired_obuf* out) {
+  usz len = udploop_pack(src, out);
   i64 r;
   if (len == 0) return 0; /* RFC 9000 12.2: overflow or nothing to send */
   r = wired_udp_send(dst->fd, dst->peer, wired_span_of(out->p, len));

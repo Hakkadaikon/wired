@@ -13,16 +13,16 @@ typedef enum {
   QUIC_LT_HANDSHAKE = 2,
   QUIC_LT_RETRY     = 3,
   QUIC_LT_INVALID   = -1
-} quic_logical_type;
+} logical_type;
 
 /* Wire value of a logical type under v1 (RFC 9000 17.2) or v2 (RFC 9369 3.2).
  * Returns -1 for an unknown logical type. */
-int quic_v1_packet_type(quic_logical_type lt);
-int quic_v2_packet_type(quic_logical_type lt);
+int v1_packet_type(logical_type lt);
+int v2_packet_type(logical_type lt);
 
 /* Inverse: the logical type for a 2-bit wire value under v1 / v2.
  * Returns QUIC_LT_INVALID for an out-of-range value. */
-quic_logical_type quic_v1_logical_type(int wire);
-quic_logical_type quic_v2_logical_type(int wire);
+logical_type v1_logical_type(int wire);
+logical_type v2_logical_type(int wire);
 
 #endif

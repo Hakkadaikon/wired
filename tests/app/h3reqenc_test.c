@@ -133,8 +133,8 @@ static int scan_for_data(const u8* h3, usz n, const u8** b, usz* blen) {
 /* Locate the request stream's first DATA frame body; returns 1 with (*b,*blen)
  * viewing it, 0 if no DATA frame is present. */
 static int find_data_body(const u8* req, usz req_len, const u8** b, usz* blen) {
-  quic_stream_frame f;
-  if (!quic_frame_get_stream(req, req_len, &f)) return 0;
+  stream_frame f;
+  if (!frame_get_stream(req, req_len, &f)) return 0;
   return scan_for_data(f.data, (usz)f.length, b, blen);
 }
 

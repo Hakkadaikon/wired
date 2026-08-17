@@ -3,11 +3,11 @@
 /* RFC 9114 4.1.1: cancelling a request emits RESET_STREAM then STOP_SENDING,
  * both with H3_REQUEST_CANCELLED (0x010c) on the request stream. */
 static void test_h3cancel_request_builds_both_frames(void) {
-  u8                      out[64];
-  wired_obuf              ob = {out, sizeof out, 0};
-  quic_reset_stream_frame rs;
-  quic_stop_sending_frame ss;
-  usz                     rn;
+  u8                 out[64];
+  wired_obuf         ob = {out, sizeof out, 0};
+  reset_stream_frame rs;
+  stop_sending_frame ss;
+  usz                rn;
 
   CHECK(quic_h3cancel_request(8, 100, &ob) == 1);
   usz len = ob.len;
@@ -15,7 +15,7 @@ static void test_h3cancel_request_builds_both_frames(void) {
 
   /* First frame: RESET_STREAM (type 0x04 at out[0]). */
   CHECK(out[0] == QUIC_FRAME_RESET_STREAM);
-  rn = quic_reset_stream_decode(out, len, &rs);
+  rn = reset_stream_decode(out, len, &rs);
   CHECK(rn > 0);
   CHECK(rs.stream_id == 8);
   CHECK(rs.error_code == QUIC_H3_REQUEST_CANCELLED);
@@ -23,20 +23,20 @@ static void test_h3cancel_request_builds_both_frames(void) {
 
   /* Second frame: STOP_SENDING follows immediately (type 0x05). */
   CHECK(out[rn] == QUIC_FRAME_STOP_SENDING);
-  CHECK(quic_stop_sending_decode(out + rn, len - rn, &ss) == len - rn);
+  CHECK(stop_sending_decode(out + rn, len - rn, &ss) == len - rn);
   CHECK(ss.stream_id == 8);
   CHECK(ss.error_code == QUIC_H3_REQUEST_CANCELLED);
 }
 
 /* Boundary: a varint-max stream id still round-trips through the pair. */
 static void test_h3cancel_request_large_ids(void) {
-  u8                      out[64];
-  wired_obuf              ob = {out, sizeof out, 0};
-  quic_reset_stream_frame rs;
-  usz                     rn;
+  u8                 out[64];
+  wired_obuf         ob = {out, sizeof out, 0};
+  reset_stream_frame rs;
+  usz                rn;
 
   CHECK(quic_h3cancel_request(0x3fffffffffffffffULL, 0, &ob) == 1);
-  rn = quic_reset_stream_decode(out, ob.len, &rs);
+  rn = reset_stream_decode(out, ob.len, &rs);
   CHECK(rn > 0);
   CHECK(rs.stream_id == 0x3fffffffffffffffULL);
   CHECK(rs.final_size == 0);

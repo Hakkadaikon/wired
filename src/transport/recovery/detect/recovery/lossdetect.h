@@ -11,15 +11,15 @@
 #define QUIC_LOSS_TIME_DEN 8
 
 /* True when pn is kPacketThreshold or more below largest_acked. */
-int quic_loss_by_packet(u64 largest_acked, u64 pn);
+int loss_by_packet(u64 largest_acked, u64 pn);
 
 /** The elapsed-time inputs: the current clock and when the packet was sent. */
 typedef struct {
   u64 now;
   u64 sent_time;
-} quic_loss_when;
+} loss_when;
 
 /* True when now - sent_time >= 9/8 * max(srtt, latest_rtt). */
-int quic_loss_by_time(quic_loss_when when, u64 srtt, u64 latest_rtt);
+int loss_by_time(loss_when when, u64 srtt, u64 latest_rtt);
 
 #endif

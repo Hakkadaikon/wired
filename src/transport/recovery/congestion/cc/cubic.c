@@ -15,7 +15,7 @@ static u64 icbrt(u64 x) {
   return y;
 }
 
-u64 quic_cubic_k_ms(u64 w_max_seg) { return icbrt(w_max_seg * 750000000u); }
+u64 cubic_k_ms(u64 w_max_seg) { return icbrt(w_max_seg * 750000000u); }
 
 /* |t - K| capped so the cube fits i64 (100s past K is far beyond any real
  * epoch between losses at these window sizes). */
@@ -34,12 +34,12 @@ static i64 cubic_term(i64 d) {
   return d < 0 ? -(i64)t : (i64)t;
 }
 
-u64 quic_cubic_w(u64 t_ms, u64 k_ms, u64 w_max_seg) {
+u64 cubic_w(u64 t_ms, u64 k_ms, u64 w_max_seg) {
   i64 w = (i64)w_max_seg + cubic_term((i64)t_ms - (i64)k_ms);
   return w > 0 ? (u64)w : 0;
 }
 
-u64 quic_cubic_wmax_fastconv(u64 w_seg, u64 prev_wmax_seg) {
+u64 cubic_wmax_fastconv(u64 w_seg, u64 prev_wmax_seg) {
   if (w_seg < prev_wmax_seg) return w_seg * 17 / 20;
   return w_seg;
 }

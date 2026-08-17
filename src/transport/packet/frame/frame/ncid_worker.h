@@ -17,11 +17,11 @@
  * input-validation boundary.
  *
  * Returns 0 on success, negative if bits is out of range or cid_len==0. */
-int quic_ncid_worker_encode(u8* cid, usz cid_len, int bits, u32 worker_idx);
+int ncid_worker_encode(u8* cid, usz cid_len, int bits, u32 worker_idx);
 
 /* Decode the worker index back out of cid[0]'s leading `bits` bits.
  * Returns the decoded index (>=0), or negative if bits is out of range or
  * cid_len==0. */
-int quic_ncid_worker_decode(const u8* cid, usz cid_len, int bits);
+int ncid_worker_decode(const u8* cid, usz cid_len, int bits);
 
 #endif

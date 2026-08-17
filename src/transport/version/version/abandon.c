@@ -9,11 +9,11 @@ static int supported(const u32* we_support, usz n_support, u32 v) {
 
 /* RFC 9368 3: a usable offered version is non-reserved and supported. */
 static int usable(u32 v, const u32* we_support, usz n_support) {
-  return !quic_version_is_reserved(v) && supported(we_support, n_support, v);
+  return !version_is_reserved(v) && supported(we_support, n_support, v);
 }
 
 /* RFC 9368 3 */
-int quic_version_must_abandon(quic_verlist offered, quic_verlist we_support) {
+int version_must_abandon(verlist offered, verlist we_support) {
   for (usz i = 0; i < offered.n; i++)
     if (usable(offered.list[i], we_support.list, we_support.n)) return 0;
   return 1;

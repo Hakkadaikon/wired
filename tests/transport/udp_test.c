@@ -3,13 +3,13 @@
 /* The struct is the kernel's sockaddr_in6: 2+2+4+16+4 = 28 bytes, the
  * addrlen every bind/sendto/recvfrom passes. */
 static void test_udp_sockaddr_is_sockaddr_in6_sized(void) {
-  CHECK(sizeof(quic_sockaddr) == 28);
+  CHECK(sizeof(sockaddr) == 28);
 }
 
 /* A nonzero IPv4 builds the v4-mapped ::ffff:a.b.c.d (RFC 4291 2.5.5.2),
  * big-endian port, zeroed flow/scope. */
 static void test_udp_addr_builds_v4_mapped(void) {
-  quic_sockaddr sa;
+  sockaddr sa;
   wired_udp_addr(&sa, 443, (const u8[4]){127, 0, 0, 1});
   CHECK(sa.family == WIRED_AF_INET6);
   /* port 443 = 0x01BB -> network order 0xBB01 on a little-endian host */
@@ -24,7 +24,7 @@ static void test_udp_addr_builds_v4_mapped(void) {
 /* 0.0.0.0 asks for the dual-stack any-address :: -- a mapped ::ffff:0.0.0.0
  * would bind IPv4-only. */
 static void test_udp_addr_all_zero_builds_any(void) {
-  quic_sockaddr sa;
+  sockaddr sa;
   wired_udp_addr(&sa, 443, (const u8[4]){0, 0, 0, 0});
   for (usz i = 0; i < 16; i++) CHECK(sa.addr[i] == 0);
 }
@@ -32,7 +32,7 @@ static void test_udp_addr_all_zero_builds_any(void) {
 /* The v4 accessor reads the mapped bytes back as a host-order u32 -- what
  * the IPv4-only AF_XDP framing path consumes. */
 static void test_udp_addr4_be_roundtrip(void) {
-  quic_sockaddr sa;
+  sockaddr sa;
   wired_udp_addr(&sa, 443, (const u8[4]){192, 168, 1, 20});
   CHECK(wired_udp_addr4_be(&sa) == 0xC0A80114);
 }
@@ -161,8 +161,8 @@ static void test_udp_recvmmsg_msg_ctruncated_falls_back_to_zero(void) {
   *(i32*)(control + 8)             = WIRED_IPPROTO_IP;
   *(i32*)(control + 12)            = WIRED_IP_TOS;
   control[16]              = 2; /* ECT(0) -- but MSG_CTRUNC must mask it out */
-  quic_mmsghdr  slot       = {0};
-  quic_mmsg_buf buf        = {0};
+  mmsghdr  slot            = {0};
+  mmsg_buf buf             = {0};
   slot.msg_hdr.msg_control = control;
   slot.msg_hdr.msg_controllen = sizeof control;
   slot.msg_hdr.msg_flags      = WIRED_MSG_CTRUNC;

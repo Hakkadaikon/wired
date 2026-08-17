@@ -14,10 +14,10 @@ static usz t_tx(
     wired_span          frames,
     u8*                 pkt,
     usz                 cap) {
-  quic_protect_keys k    = {ik, hp};
-  wired_span        none = wired_span_of((const u8*)0, 0);
-  quic_tx_desc      d    = {0xc3, dcid, none, 1, none, pn, frames, 0};
-  return quic_tx_packet(&k, &d, wired_mspan_of(pkt, cap));
+  protect_keys k    = {ik, hp};
+  wired_span   none = wired_span_of((const u8*)0, 0);
+  tx_desc      d    = {0xc3, dcid, none, 1, none, pn, frames, 0};
+  return tx_packet(&k, &d, wired_mspan_of(pkt, cap));
 }
 
 /* Open one Initial packet; returns 1 and the frames view on success. */
@@ -27,12 +27,12 @@ static int t_rx(
     u8*                 pkt,
     usz                 n,
     wired_span*         frames) {
-  quic_protect_keys k = {ik, hp};
-  quic_rx_desc      d = {wired_mspan_of(pkt, n), 1};
-  return quic_rx_packet(&k, &d, frames);
+  protect_keys k = {ik, hp};
+  rx_desc      d = {wired_mspan_of(pkt, n), 1};
+  return rx_packet(&k, &d, frames);
 }
 
-/* RFC 9001 5: a packet sealed by quic_tx_packet unprotects under the same keys
+/* RFC 9001 5: a packet sealed by tx_packet unprotects under the same keys
  * back to the identical frame bytes. */
 static void test_txpacket_roundtrip(void) {
   const u8     dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
@@ -42,7 +42,7 @@ static void test_txpacket_roundtrip(void) {
   aes128_init(&hp, ik.hp);
 
   u8  ping[1];
-  usz fl = quic_frame_put_simple(ping, sizeof(ping), QUIC_FRAME_PING);
+  usz fl = frame_put_simple(ping, sizeof(ping), QUIC_FRAME_PING);
   CHECK(fl == 1);
 
   u8  pkt[256];

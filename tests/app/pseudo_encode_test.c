@@ -77,8 +77,8 @@ static usz wrap_stream(const u8* fs, usz fs_len, u8* out, usz cap) {
   CHECK(
       quic_h3_frame_put(
           &h3b, QUIC_H3_FRAME_HEADERS, wired_span_of(fs, fs_len)) > 0);
-  quic_stream_frame sf = {0, 0, h3b.len, h3, 1};
-  return quic_frame_put_stream(out, cap, &sf);
+  stream_frame sf = {0, 0, h3b.len, h3, 1};
+  return frame_put_stream(out, cap, &sf);
 }
 
 /* RFC 9220 3: an Extended CONNECT (:method=CONNECT, :scheme=https,

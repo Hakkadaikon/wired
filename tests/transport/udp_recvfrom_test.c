@@ -2,7 +2,7 @@
 
 /* No real socket: recvfrom on a bad fd must fail without touching src. */
 static void test_recvfrom_badfd(void) {
-  quic_sockaddr src;
+  sockaddr src;
   wired_udp_addr(
       &src, 443,
       (const u8[4]){9, 9, 9, 9}); /* sentinel the kernel must not need */

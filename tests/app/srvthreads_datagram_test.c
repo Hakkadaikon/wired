@@ -127,14 +127,14 @@ static void sdt_server_thread(void* argp) {
  * for: a peer that only ever sees the server's bytes on the wire. */
 
 struct sdt_client {
-  client        c;
-  i64           fd;
-  quic_sockaddr srv;
-  u8            priv[32], pub[32];
-  u8            ch[512]; /* our own raw ClientHello, saved for the transcript */
-  usz           ch_len;
-  u8            chsh[900]; /* CH||SH, growing to CH||SH||EE below */
-  usz           chsh_len;
+  client   c;
+  i64      fd;
+  sockaddr srv;
+  u8       priv[32], pub[32];
+  u8       ch[512]; /* our own raw ClientHello, saved for the transcript */
+  usz      ch_len;
+  u8       chsh[900]; /* CH||SH, growing to CH||SH||EE below */
+  usz      chsh_len;
 };
 
 /* RFC 9221 3: advertise max_datagram_frame_size in our own ClientHello's
@@ -198,8 +198,8 @@ static void sdt_client_init(struct sdt_client* cx) {
 /* Wait for one reply datagram into buf; on arrival, records its length via
  * *out_len and returns 1. */
 static int sdt_recv_one(i64 fd, u8* buf, usz cap, usz* out_len) {
-  quic_sockaddr from;
-  i64           r = wired_udp_recvfrom(fd, wired_mspan_of(buf, cap), &from);
+  sockaddr from;
+  i64      r = wired_udp_recvfrom(fd, wired_mspan_of(buf, cap), &from);
   if (r <= 0) return 0;
   *out_len = (usz)r;
   return 1;
@@ -253,12 +253,12 @@ static int sdt_do_initial(
     u8*                hs_reply,
     usz                hcap,
     usz*               hlen) {
-  u8                dg[1500];
-  wired_obuf        ob = obuf_of(dg, sizeof dg);
-  quic_initpkt_desc d  = {
+  u8           dg[1500];
+  wired_obuf   ob = obuf_of(dg, sizeof dg);
+  initpkt_desc d  = {
       wired_span_of(g_sdt_cli_scid, 6), wired_span_of(g_sdt_cli_scid, 6),
       wired_span_of(cx->ch, cx->ch_len), 0, 0};
-  if (!quic_initpkt_build(&d, &ob)) return 0;
+  if (!initpkt_build(&d, &ob)) return 0;
   return sdt_retry_initial(
       cx, wired_span_of(dg, ob.len), ini_reply, cap, ilen, hs_reply, hcap,
       hlen);
@@ -284,7 +284,7 @@ static int sdt_do_initial(
  * tlsdriver.c itself is a separate, pre-existing SDK gap outside this task's
  * scope. */
 /* tlsdriver_recv_crypto wants a raw CRYPTO frame (it runs
- * quic_frame_get_crypto itself), but client_open_initial_wire already
+ * frame_get_crypto itself), but client_open_initial_wire already
  * unwrapped one -- re-wrap the recovered ServerHello bytes into a synthetic
  * CRYPTO frame at offset 0 so the driver can reassemble+consume it, the same
  * encoder client_build_initial uses on the send side. Also captures
@@ -302,11 +302,11 @@ static int sdt_append_chsh(struct sdt_client* cx, wired_span tls) {
 }
 
 static int sdt_feed_serverhello(struct sdt_client* cx, wired_span tls) {
-  u8                         cframe[600];
-  wired_obuf                 cb  = obuf_of(cframe, sizeof cframe);
-  quic_crypto_stream_emit_in ein = {0, (usz)tls.n};
+  u8                    cframe[600];
+  wired_obuf            cb  = obuf_of(cframe, sizeof cframe);
+  crypto_stream_emit_in ein = {0, (usz)tls.n};
   if (!sdt_append_chsh(cx, tls)) return 0;
-  if (!quic_crypto_stream_emit(tls, &ein, &cb)) return 0;
+  if (!crypto_stream_emit(tls, &ein, &cb)) return 0;
   return tlsdriver_recv_crypto(&cx->c.tls, cframe, cb.len);
 }
 
@@ -501,8 +501,8 @@ static int sdt_drive_hs_flight(struct sdt_client* cx, const u8* p, usz n) {
 }
 
 static int sdt_open_handshake(struct sdt_client* cx, u8* pkt, usz len) {
-  wired_span       tls;
-  quic_appdata_pkt in = {wired_mspan_of(pkt, len), 6};
+  wired_span  tls;
+  appdata_pkt in = {wired_mspan_of(pkt, len), 6};
   if (!client_open_handshake_wire(&cx->c, &in, &tls)) return 0;
   return sdt_drive_hs_flight(cx, tls.p, tls.n);
 }
@@ -541,9 +541,9 @@ static int sdt_open_onertt(
   if (!keysched_get(&cx->c.tls.ks, QUIC_KS_SERVER_AP, &k)) return 0;
   aes128_init(&hp, k->hp);
   {
-    quic_protect_keys           pk = {k, &hp};
-    quic_hspkt_onertt_open_desc d  = {wired_mspan_of(pkt, len), 6, 0};
-    if (!quic_hspkt_onertt_open(&pk, &d, &v)) return 0;
+    protect_keys           pk = {k, &hp};
+    hspkt_onertt_open_desc d  = {wired_mspan_of(pkt, len), 6, 0};
+    if (!hspkt_onertt_open(&pk, &d, &v)) return 0;
   }
   *pl  = v.p;
   *pll = v.n;
@@ -552,10 +552,10 @@ static int sdt_open_onertt(
 
 /* 1 if this 1-RTT payload carries a HANDSHAKE_DONE frame (0x1e). */
 static int sdt_payload_has_hs_done(const u8* pl, usz pll) {
-  quic_framewalk      it;
-  quic_framewalk_item fr;
-  quic_framewalk_init(&it, pl, pll);
-  while (quic_framewalk_next(&it, &fr))
+  framewalk      it;
+  framewalk_item fr;
+  framewalk_init(&it, pl, pll);
+  while (framewalk_next(&it, &fr))
     if (fr.type == 0x1e) return 1;
   return 0;
 }
@@ -581,15 +581,15 @@ static int sdt_slice_has_hs_done(struct sdt_client* cx, const u8* p, usz n) {
 }
 
 static int sdt_try_recv_hs_done(struct sdt_client* cx) {
-  u8            pkt[1500];
-  quic_sockaddr from;
-  const u8*     pkts[8];
-  usz           offs[8], lens[8];
-  quic_pktlist  plist = {pkts, offs, lens, 8};
-  usz           n, i;
+  u8        pkt[1500];
+  sockaddr  from;
+  const u8* pkts[8];
+  usz       offs[8], lens[8];
+  pktlist   plist = {pkts, offs, lens, 8};
+  usz       n, i;
   i64 r = wired_udp_recvfrom(cx->fd, wired_mspan_of(pkt, sizeof pkt), &from);
   if (r <= 0) return 0;
-  n = quic_udploop_split(wired_span_of(pkt, (usz)r), &plist);
+  n = udploop_split(wired_span_of(pkt, (usz)r), &plist);
   for (i = 0; i < n; i++)
     if (sdt_slice_has_hs_done(cx, pkt + offs[i], lens[i])) return 1;
   return 0;
@@ -702,15 +702,15 @@ static usz sdt_seal_stream(
     usz                cap) {
   const initial_keys* k;
   aes128              hp;
-  quic_appdata_tx     tx = {
+  appdata_tx          tx = {
       wired_span_of(g_sdt_cli_scid, 6), pn, stream_id,
       wired_span_of(payload, plen), 0};
   wired_obuf ob = obuf_of(out, cap);
   if (!keysched_get(&cx->c.tls.ks, QUIC_KS_CLIENT_AP, &k)) return 0;
   aes128_init(&hp, k->hp);
   {
-    quic_protect_keys pk = {k, &hp};
-    if (!quic_appdata_send(&pk, &tx, &ob)) return 0;
+    protect_keys pk = {k, &hp};
+    if (!appdata_send(&pk, &tx, &ob)) return 0;
   }
   return ob.len;
 }
@@ -771,30 +771,29 @@ static int sdt_has_status_200_byte(const u8* data, u64 len) {
 
 /* fr is a STREAM frame (RFC 9000 19.8 type range) on stream 0. */
 /* fr.type is in the STREAM frame range (RFC 9000 19.8). */
-static int sdt_is_stream_frame(const quic_framewalk_item* fr) {
+static int sdt_is_stream_frame(const framewalk_item* fr) {
   return fr->type >= 0x08 && fr->type <= 0x0f;
 }
 
-static int sdt_is_our_stream0(
-    const quic_framewalk_item* fr, quic_stream_frame* sf) {
+static int sdt_is_our_stream0(const framewalk_item* fr, stream_frame* sf) {
   if (!sdt_is_stream_frame(fr)) return 0;
-  if (!quic_frame_get_stream(fr->start, fr->remaining, sf)) return 0;
+  if (!frame_get_stream(fr->start, fr->remaining, sf)) return 0;
   return sf->stream_id == 0;
 }
 
 /* fr is our stream-0 STREAM frame and its data carries the 2xx status byte.
  */
-static int sdt_frame_has_2xx(const quic_framewalk_item* fr) {
-  quic_stream_frame sf;
+static int sdt_frame_has_2xx(const framewalk_item* fr) {
+  stream_frame sf;
   if (!sdt_is_our_stream0(fr, &sf)) return 0;
   return sdt_has_status_200_byte(sf.data, sf.length);
 }
 
 static int sdt_stream0_has_2xx(const u8* pl, usz pll) {
-  quic_framewalk      it;
-  quic_framewalk_item fr;
-  quic_framewalk_init(&it, pl, pll);
-  while (quic_framewalk_next(&it, &fr))
+  framewalk      it;
+  framewalk_item fr;
+  framewalk_init(&it, pl, pll);
+  while (framewalk_next(&it, &fr))
     if (sdt_frame_has_2xx(&fr)) return 1;
   return 0;
 }
@@ -802,10 +801,10 @@ static int sdt_stream0_has_2xx(const u8* pl, usz pll) {
 /* One receive attempt while waiting for the CONNECT's 2xx: 1 if this
  * datagram was the 1-RTT reply and it carried the 2xx, 0 to keep waiting. */
 static int sdt_try_recv_2xx(struct sdt_client* cx) {
-  u8            pkt[1500];
-  quic_sockaddr from;
-  const u8*     pl;
-  usz           pll;
+  u8        pkt[1500];
+  sockaddr  from;
+  const u8* pl;
+  usz       pll;
   i64 r = wired_udp_recvfrom(cx->fd, wired_mspan_of(pkt, sizeof pkt), &from);
   if (!sdt_recv_is_onertt(r, pkt)) return 0;
   if (!sdt_open_onertt(cx, pkt, (usz)r, &pl, &pll)) return 0;
@@ -825,12 +824,12 @@ static int sdt_wait_connect_2xx(struct sdt_client* cx, int max_tries) {
 
 /* CLIENT_AP key + its header-protection cipher, ready to seal a 1-RTT
  * packet. */
-static int sdt_client_ap_key(struct sdt_client* cx, quic_protect_keys* pk) {
+static int sdt_client_ap_key(struct sdt_client* cx, protect_keys* pk) {
   const initial_keys* k;
   static aes128       hp; /* outlives the call, mirrors cw_dirkey's shape */
   if (!keysched_get(&cx->c.tls.ks, QUIC_KS_CLIENT_AP, &k)) return 0;
   aes128_init(&hp, k->hp);
-  *pk = (quic_protect_keys){k, &hp};
+  *pk = (protect_keys){k, &hp};
   return 1;
 }
 
@@ -845,15 +844,15 @@ static int sdt_build_datagram_pkt(
     u8*                frame,
     usz                frame_cap,
     wired_obuf*        out) {
-  wired_mspan            fb   = wired_mspan_of(frame, frame_cap);
-  quic_datagram_frame    df   = {n, payload};
-  usz                    flen = quic_datagram_encode(fb, &df, 0);
-  quic_protect_keys      pk;
-  quic_hspkt_onertt_desc d = {
+  wired_mspan         fb   = wired_mspan_of(frame, frame_cap);
+  quic_datagram_frame df   = {n, payload};
+  usz                 flen = quic_datagram_encode(fb, &df, 0);
+  protect_keys        pk;
+  hspkt_onertt_desc   d = {
       wired_span_of(g_sdt_cli_scid, 6), 1, wired_span_of(frame, flen), 0};
   if (flen == 0) return 0;
   if (!sdt_client_ap_key(cx, &pk)) return 0;
-  return quic_hspkt_onertt_build(&pk, &d, out);
+  return hspkt_onertt_build(&pk, &d, out);
 }
 
 /* RFC 9297 2.1: prefix payload with varint(quarter stream id) before sealing
@@ -883,7 +882,7 @@ static int sdt_bytes_eq(const u8* a, const u8* b, usz n) {
   return diff == 0;
 }
 
-static int sdt_is_datagram_frame(const quic_framewalk_item* fr) {
+static int sdt_is_datagram_frame(const framewalk_item* fr) {
   return fr->type == QUIC_FRAME_DATAGRAM || fr->type == QUIC_FRAME_DATAGRAM_LEN;
 }
 
@@ -891,13 +890,13 @@ static int sdt_is_datagram_frame(const quic_framewalk_item* fr) {
  */
 /* Decode fr as a DATAGRAM frame into *df. Returns 0 if fr is not one. */
 static int sdt_decode_datagram(
-    const quic_framewalk_item* fr, quic_datagram_frame* df) {
+    const framewalk_item* fr, quic_datagram_frame* df) {
   if (!sdt_is_datagram_frame(fr)) return 0;
   return quic_datagram_decode(fr->start, fr->remaining, df) != 0;
 }
 
 static int sdt_datagram_matches(
-    const quic_framewalk_item* fr, const u8* want, usz want_len) {
+    const framewalk_item* fr, const u8* want, usz want_len) {
   quic_datagram_frame df;
   if (!sdt_decode_datagram(fr, &df)) return 0;
   if (df.length != want_len) return 0;
@@ -908,14 +907,14 @@ static int sdt_datagram_matches(
  * (stream 0 -> one 0x00 byte) ahead of the relayed payload. */
 static int sdt_payload_has_our_datagram(
     const u8* pl, usz pll, const u8* want, usz want_len) {
-  u8                  prefixed[300];
-  quic_framewalk      it;
-  quic_framewalk_item fr;
+  u8             prefixed[300];
+  framewalk      it;
+  framewalk_item fr;
   if (want_len + 1 > sizeof prefixed) return 0;
   prefixed[0] = 0x00;
   for (usz i = 0; i < want_len; i++) prefixed[1 + i] = want[i];
-  quic_framewalk_init(&it, pl, pll);
-  while (quic_framewalk_next(&it, &fr))
+  framewalk_init(&it, pl, pll);
+  while (framewalk_next(&it, &fr))
     if (sdt_datagram_matches(&fr, prefixed, want_len + 1)) return 1;
   return 0;
 }
@@ -938,8 +937,8 @@ static int sdt_onertt_is_our_echo(
 
 static int sdt_try_recv_echo(
     struct sdt_client* cx, const u8* payload, usz plen) {
-  u8            pkt[1500];
-  quic_sockaddr from;
+  u8       pkt[1500];
+  sockaddr from;
   i64 r = wired_udp_recvfrom(cx->fd, wired_mspan_of(pkt, sizeof pkt), &from);
   if (r <= 0) return -1; /* nothing queued this round */
   return sdt_onertt_is_our_echo(cx, r, pkt, payload, plen);

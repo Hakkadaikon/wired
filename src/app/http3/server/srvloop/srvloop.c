@@ -139,9 +139,9 @@ int wired_srvloop_init(wired_srvloop* l, const u8* cli_scid, u8 cli_scid_len) {
   l->wt_reset_error_code            = 0;
   l->wt_reset_is_stop               = 0;
   l->wt_reset_seen                  = 0;
-  quic_pnspaces_recv_init(&l->ack_recv);
-  quic_ackpolicy_init(&l->app_ack_policy);
-  quic_ackpolicy_init(&l->hs_ack_policy);
+  pnspaces_recv_init(&l->ack_recv);
+  ackpolicy_init(&l->app_ack_policy);
+  ackpolicy_init(&l->hs_ack_policy);
   l->now_ms = 0;
   streams_reset(l);
   wt_streams_reset(l);
@@ -159,7 +159,7 @@ void wired_srvloop_set_handler(
   l->req_ctx    = ctx;
 }
 
-/* RFC 3168 ECN codepoints (matching quic_mmsg_buf.ecn): 0 Not-ECT, 1 ECT(1),
+/* RFC 3168 ECN codepoints (matching mmsg_buf.ecn): 0 Not-ECT, 1 ECT(1),
  * 2 ECT(0), 3 CE. Indexes ecn_counter_for below. */
 #define WIRED_ECN_ECT1 1
 #define WIRED_ECN_ECT0 2
@@ -200,7 +200,7 @@ static int app_pkt_is_long(u8 byte0) { return (byte0 & 0x80u) != 0; }
 /* RFC 9000 A.3: recover the truncated PN at pn/pn_len against the largest
  * seen so far and record it as the number to ACK / the new baseline. */
 static void app_rx_record(wired_srvloop* l, const u8* pn, usz pn_len) {
-  l->app_rx_pn   = quic_pnum_decode(pn, pn_len, app_largest_pn(l));
+  l->app_rx_pn   = pnum_decode(pn, pn_len, app_largest_pn(l));
   l->app_rx_seen = 1;
 }
 
@@ -217,9 +217,9 @@ static void note_app_rx_short(
  * (recv_zerortt) -- its pn sits past Version/DCID/SCID/Length, not right
  * after byte0+DCID like a short-header 1-RTT packet. */
 static void note_app_rx_long(wired_srvloop* l, wired_mspan pkt) {
-  quic_lhdr h;
-  if (!quic_lhdr_parse(wired_span_of(pkt.p, pkt.n), 0, &h)) return;
-  app_rx_record(l, pkt.p + h.pn_off, quic_lhdr_pn_len(pkt.p[0]));
+  lhdr h;
+  if (!lhdr_parse(wired_span_of(pkt.p, pkt.n), 0, &h)) return;
+  app_rx_record(l, pkt.p + h.pn_off, lhdr_pn_len(pkt.p[0]));
 }
 
 static void note_app_rx(
@@ -243,11 +243,11 @@ static u64 hs_largest_pn(const wired_srvloop* l) {
  * (curl leads with an ACK-only Handshake packet), so a fixed ACK of 0 leaves
  * the Finished unacknowledged and the client PTO-retransmits it for seconds. */
 static void note_hs_rx(wired_srvloop* l, const srvloop_opened* o) {
-  quic_lhdr h;
+  lhdr h;
   if (o->level != QUIC_LEVEL_HANDSHAKE) return;
-  if (!quic_lhdr_parse(wired_span_of(o->pkt.p, o->pkt.n), 0, &h)) return;
-  l->hs_rx_pn = quic_pnum_decode(
-      o->pkt.p + h.pn_off, quic_lhdr_pn_len(o->pkt.p[0]), hs_largest_pn(l));
+  if (!lhdr_parse(wired_span_of(o->pkt.p, o->pkt.n), 0, &h)) return;
+  l->hs_rx_pn = pnum_decode(
+      o->pkt.p + h.pn_off, lhdr_pn_len(o->pkt.p[0]), hs_largest_pn(l));
   l->hs_rx_seen = 1;
 }
 
@@ -820,10 +820,10 @@ static int srvloop_close_type(u64 type) {
 /* RFC 9000 10.2.2: 1 if the opened payload carries a CONNECTION_CLOSE frame
  * (either variant, any encryption level — the peer is closing or draining). */
 static int srvloop_has_close(wired_span pl) {
-  quic_framewalk      it;
-  quic_framewalk_item fr;
-  quic_framewalk_init(&it, pl.p, pl.n);
-  while (quic_framewalk_next(&it, &fr))
+  framewalk      it;
+  framewalk_item fr;
+  framewalk_init(&it, pl.p, pl.n);
+  while (framewalk_next(&it, &fr))
     if (srvloop_close_type(fr.type)) return 1;
   return 0;
 }
@@ -838,8 +838,8 @@ static void srvloop_push_ack(wired_srvloop* l, u64 lo, u64 hi) {
 
 /* Decode one ACK frame and record its ranges (RFC 9000 19.3). */
 static void srvloop_take_ack(wired_srvloop* l, const u8* buf, usz n) {
-  quic_ack_frame f;
-  if (quic_ack_decode(buf, n, &f) == 0) return;
+  ack_frame f;
+  if (ack_decode(buf, n, &f) == 0) return;
   for (usz i = 0; i < f.n_ranges; i++)
     srvloop_push_ack(l, f.ranges[i].lo, f.ranges[i].hi);
 }
@@ -848,23 +848,23 @@ static void srvloop_take_ack(wired_srvloop* l, const u8* buf, usz n) {
  * list (RFC 9000 19.3) — the caller consumes them to advance its own sent
  * bookkeeping (e.g. a multi-packet response in flight). */
 static void srvloop_collect_acks(wired_srvloop* l, wired_span pl) {
-  quic_framewalk      it;
-  quic_framewalk_item fr;
-  quic_framewalk_init(&it, pl.p, pl.n);
-  while (quic_framewalk_next(&it, &fr))
-    if (quic_frame_classify(fr.type) == QUIC_FK_ACK)
+  framewalk      it;
+  framewalk_item fr;
+  framewalk_init(&it, pl.p, pl.n);
+  while (framewalk_next(&it, &fr))
+    if (frame_classify(fr.type) == QUIC_FK_ACK)
       srvloop_take_ack(l, fr.start, fr.remaining);
 }
 
 /* RFC 9000 13.2: 1 if any frame in pl is ack-eliciting (every frame except
  * PADDING/ACK/CONNECTION_CLOSE). */
 static int srvloop_payload_ack_eliciting(wired_span pl) {
-  quic_framewalk      it;
-  quic_framewalk_item fr;
-  int                 eliciting = 0;
-  quic_framewalk_init(&it, pl.p, pl.n);
-  while (quic_framewalk_next(&it, &fr))
-    eliciting |= quic_frame_ack_eliciting(quic_frame_classify(fr.type));
+  framewalk      it;
+  framewalk_item fr;
+  int            eliciting = 0;
+  framewalk_init(&it, pl.p, pl.n);
+  while (framewalk_next(&it, &fr))
+    eliciting |= frame_ack_eliciting(frame_classify(fr.type));
   return eliciting;
 }
 
@@ -874,15 +874,15 @@ static int srvloop_payload_ack_eliciting(wired_span pl) {
  * packet (e.g. ACK-only) touches neither -- receiving only ACKs is never
  * itself a reason to ACK. */
 static void srvloop_note_ack_owed(
-    quic_pnspaces_recv* recv,
-    int                 space,
-    quic_ackpolicy*     policy,
-    wired_span          pl,
-    u64                 pn,
-    u64                 now_ms) {
+    pnspaces_recv* recv,
+    int            space,
+    ackpolicy*     policy,
+    wired_span     pl,
+    u64            pn,
+    u64            now_ms) {
   if (!srvloop_payload_ack_eliciting(pl)) return;
-  quic_pnspaces_on_recv(recv, space, pn);
-  quic_ackpolicy_on_eliciting(policy, now_ms);
+  pnspaces_on_recv(recv, space, pn);
+  ackpolicy_on_eliciting(policy, now_ms);
 }
 
 /* Dispatch this opened payload. Request STREAM frames are routed per frame
@@ -989,16 +989,16 @@ static void rearm_frame_unexpected(wired_srvloop* l) {
  * and process every slice before building one reply for the whole datagram. */
 int wired_srvloop_step(
     const wired_srvloop_conn* conn, wired_mspan dgram, wired_obuf* out) {
-  const u8*    pkts[WIRED_SRVLOOP_MAXPKTS];
-  usz          offs[WIRED_SRVLOOP_MAXPKTS], lens[WIRED_SRVLOOP_MAXPKTS], n, i;
-  int          answer;
-  int          r;
-  quic_pktlist plist          = {pkts, offs, lens, WIRED_SRVLOOP_MAXPKTS};
+  const u8* pkts[WIRED_SRVLOOP_MAXPKTS];
+  usz       offs[WIRED_SRVLOOP_MAXPKTS], lens[WIRED_SRVLOOP_MAXPKTS], n, i;
+  int       answer;
+  int       r;
+  pktlist   plist             = {pkts, offs, lens, WIRED_SRVLOOP_MAXPKTS};
   conn->l->ack_n              = 0;
   conn->l->done_n             = 0;
   conn->l->incomplete_n       = 0;
   conn->l->frame_unexpected_n = 0;
-  n = quic_udploop_split(wired_span_of(dgram.p, dgram.n), &plist);
+  n = udploop_split(wired_span_of(dgram.p, dgram.n), &plist);
   for (i = 0; i < n; i++)
     step_one(conn, wired_mspan_of(dgram.p + offs[i], lens[i]));
   conn->l->got_request = conn->l->done_n > 0;

@@ -6,6 +6,6 @@ static int within_budget(u32 chosen_version, int vn_retry_count) {
   return chosen_version != 0 && vn_retry_count < QUIC_VNDRIVE_MAX_RETRY;
 }
 
-int quic_vndrive_should_retry(u32 chosen_version, int vn_retry_count) {
+int vndrive_should_retry(u32 chosen_version, int vn_retry_count) {
   return within_budget(chosen_version, vn_retry_count);
 }

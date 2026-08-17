@@ -15,20 +15,20 @@ typedef struct {
   u64 delivered;            /* length of the contiguous prefix consumed */
   u64 final_size;           /* set once FIN is known */
   int have_final;
-} quic_reasm;
+} reasm;
 
-void quic_reasm_init(quic_reasm* r);
+void reasm_init(reasm* r);
 
 /* Insert data at offset. Returns 1 on success, 0 if it exceeds the buffer
  * capacity or a known final size. Idempotent on overlapping data. */
-int quic_reasm_insert(quic_reasm* r, u64 offset, wired_span data);
+int reasm_insert(reasm* r, u64 offset, wired_span data);
 
 /* Record the stream's final size (from a FIN). Returns 1 on success, 0 if it
  * conflicts with data already received past it. */
-int quic_reasm_set_final(quic_reasm* r, u64 final_size);
+int reasm_set_final(reasm* r, u64 final_size);
 
 /* Advance over the contiguous received prefix; returns the new delivered
  * watermark (== length of data ready to hand to the application). */
-u64 quic_reasm_deliver(quic_reasm* r);
+u64 reasm_deliver(reasm* r);
 
 #endif

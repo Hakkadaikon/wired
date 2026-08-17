@@ -10,9 +10,9 @@
 
 /* Bytes still sendable before hitting the 3x limit: 3*received - sent, or 0
  * if already at or over the limit. */
-u64 quic_antiamp_budget(u64 received, u64 sent);
+u64 antiamp_budget(u64 received, u64 sent);
 
 /* Whether sending `want` more bytes stays within the 3x limit. */
-int quic_antiamp_can_send(u64 received, u64 sent, u64 want);
+int antiamp_can_send(u64 received, u64 sent, u64 want);
 
 #endif

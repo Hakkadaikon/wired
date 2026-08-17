@@ -16,11 +16,11 @@
  * issues one PAUSE instruction before returning. Never blocks, never loops
  * internally: exactly one recvmmsg_nowait call per invocation.
  * @param fd the socket fd
- * @param bufs array of count receive slots (see quic_mmsg_buf)
+ * @param bufs array of count receive slots (see mmsg_buf)
  * @param count number of slots in bufs
  * @return whatever wired_udp_recvmmsg_nowait returned, unchanged (datagram
  *   count, 0, or a negative errno). */
-i64 wired_srvpoll_spin_step(i64 fd, quic_mmsg_buf* bufs, usz count);
+i64 wired_srvpoll_spin_step(i64 fd, mmsg_buf* bufs, usz count);
 
 /** Cap on wired_srvpoll_backoff.empty_spins (and thus on PAUSE instructions
  * issued per empty step) -- bounds worst-case latency into a burst after a
@@ -43,6 +43,6 @@ typedef struct {
  * @param bo caller-owned backoff state, threaded across calls.
  * @return whatever wired_udp_recvmmsg_nowait returned, unchanged. */
 i64 wired_srvpoll_spin_step_backoff(
-    i64 fd, quic_mmsg_buf* bufs, usz count, wired_srvpoll_backoff* bo);
+    i64 fd, mmsg_buf* bufs, usz count, wired_srvpoll_backoff* bo);
 
 #endif

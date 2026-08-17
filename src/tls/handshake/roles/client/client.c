@@ -51,11 +51,10 @@ usz client_build_initial(client* c, u8* out, usz cap) {
   wired_obuf ob = obuf_of(ch, sizeof(ch));
   if (!tlsdriver_client_hello(&c->tls, &ob)) return 0;
   {
-    quic_crypto_stream_emit_in ein = {0, QUIC_CLIENT_CRYPTO_FRAME};
-    wired_obuf                 fb  = obuf_of(out, cap);
-    if (!quic_crypto_stream_emit(wired_span_of(ch, ob.len), &ein, &fb))
-      return 0;
-    return quic_pktbuild_init_pad(out, fb.len, cap);
+    crypto_stream_emit_in ein = {0, QUIC_CLIENT_CRYPTO_FRAME};
+    wired_obuf            fb  = obuf_of(out, cap);
+    if (!crypto_stream_emit(wired_span_of(ch, ob.len), &ein, &fb)) return 0;
+    return pktbuild_init_pad(out, fb.len, cap);
   }
 }
 

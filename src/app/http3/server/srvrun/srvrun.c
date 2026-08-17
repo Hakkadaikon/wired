@@ -145,7 +145,7 @@ typedef struct {
  * datagram was received most recently), and this slot's own server source
  * connection id. scid is generated per slot (cid_generate): every slot
  * sharing cfg->id's fixed scid would make every connection answer to the same
- * DCID, collapsing quic_conntable's routing to a single slot. Indexed in
+ * DCID, collapsing conntable's routing to a single slot. Indexed in
  * parallel with the conntable slot of the same index. */
 /* One in-flight response answering one request stream. The connection's PN
  * space (l.tx_pn) and congestion controller (cc, below) stay per-connection
@@ -310,16 +310,16 @@ typedef struct {
   wired_server  s;
   wired_srvloop l;
   int           up;
-  quic_sockaddr peer;
+  sockaddr      peer;
   u8            scid[WIRED_MAX_CID_LEN];
   int           goaway_sent; /**< 1 once graceful-shutdown GOAWAY sent */
   u64           last_ms;     /**< monotonic ms of the last routed datagram */
   srvrun_resp   resp[SRVRUN_RESP_SLOTS]; /**< in-flight responses, one per
                                              answered request stream */
-  quic_cc      cc;      /**< congestion window gating every resp[]'s pump */
-  quic_hystart hs;      /**< slow-start exit detector (RFC 9406) */
-  u64          srtt_ms; /**< smoothed RTT of this connection's acks (pacing) */
-  u64          next_send_ms; /**< pacing: earliest time to send again */
+  cc      cc;           /**< congestion window gating every resp[]'s pump */
+  hystart hs;           /**< slow-start exit detector (RFC 9406) */
+  u64     srtt_ms;      /**< smoothed RTT of this connection's acks (pacing) */
+  u64     next_send_ms; /**< pacing: earliest time to send again */
   /** RFC 9002 6.1.1: highest pn ACKed anywhere on this connection's ONE
    * packet number space (monotone) -- every resp[]'s packet-loss threshold
    * check must compare against this, not a per-stream value. Packet numbers
@@ -350,7 +350,7 @@ typedef struct {
    * connection's PTO deadline (srvrun_pto_deadline_ms) -- separate from
    * srtt_ms above (ms, EWMA-only, pacing's simpler input) because PTO needs
    * rttvar too. */
-  quic_rtt rtt;
+  rtt rtt;
   /** RFC 9001 6.5: monotonic ms this connection's Key Update generation last
    * advanced (s->ku.generation), used to floor how long the retained old
    * 1-RTT keys survive (srvrun_ku_discard_stale, 3x the PTO). Meaningless
@@ -602,13 +602,13 @@ typedef struct {
    * and clears this every pass. */
   int uni_blocked_seen;
   /** RFC 9000 8.2/9: this connection's ONE path-validation state machine
-   * (quic_migrate), tracking the naive rebind-follow in srvrun_rebind_peer
+   * (migrate), tracking the naive rebind-follow in srvrun_rebind_peer
    * through detect -> challenge -> validate. One instance, not one per path:
    * this SDK tracks only the single most-recently-seen path (see
    * path_challenge_data's doc) -- multiple concurrent paths (RFC 9000 9.3.1)
    * are out of scope (see srvrun_rebind_peer's own doc for the full
    * list of what this slice deliberately does not implement). */
-  quic_migrate migrate;
+  migrate migrate;
   /** RFC 9000 8.2.2: the 8-byte PATH_CHALLENGE data last sent for the path
    * currently being validated, valid only while migrate.challenged and not
    * yet migrate.validated. Re-armed (overwritten) on every new rebind
@@ -617,12 +617,12 @@ typedef struct {
    * since-superseded challenge simply fails to compare equal. */
   u8 path_challenge_data[QUIC_PATH_DATA];
   /** RFC 8899 DPLPMTUD: this connection's Packetization Layer PMTU
-   * Discovery search state (quic_pmtu), giving quic_pmtu_mps the Maximum
+   * Discovery search state (pmtu), giving pmtu_mps the Maximum
    * Packet Size to fill instead of a fixed guess. Initialized alongside
    * every other slot-scoped state machine on slot claim (srvrun_open_slot);
    * probing/ACK-LOSS integration is a later step -- today only the search's
    * static initial MPS (QUIC_PMTU_BASE-derived) feeds send sizing. */
-  quic_pmtu pmtu;
+  pmtu pmtu;
   /** RFC 8899 DPLPMTUD probe tracking: srvrun has no pn-scoped ACK/LOSS log
    * (resp[]/wtsend[] each track their own range-based log instead, see
    * srvrun_feed_acks), so a sent probe's pn/size/send-time are held here,
@@ -673,7 +673,7 @@ typedef struct {
 /* Fallback stream bytes per packet (fits a 1500 MTU) -- no longer used to
  * size an actual send (srvrun_mps below drives that from c->pmtu instead);
  * kept only as the value srvrun_mps itself falls back to for a not-yet-
- * initialized quic_pmtu (validated == 0, e.g. a test fixture's `{0}`
+ * initialized pmtu (validated == 0, e.g. a test fixture's `{0}`
  * srvrun_conn that never routes through srvrun_open_slot). */
 #define SRVRUN_CHUNK 1100
 /* Plaintext capacity for one STREAM-frame slice: the largest slice
@@ -706,13 +706,13 @@ typedef struct {
  * far, in stream bytes per packet -- every send-sizing call site in this
  * file (wired_sendsess_arm's chunk argument, and the cwnd/credit gates that
  * must reserve room for the same chunk they will actually send) goes
- * through this one function instead of quic_pmtu_mps directly, so a
- * srvrun_conn whose pmtu was never quic_pmtu_init'd (validated == 0 --
+ * through this one function instead of pmtu_mps directly, so a
+ * srvrun_conn whose pmtu was never pmtu_init'd (validated == 0 --
  * every non-production `srvrun_conn c = {0}` test fixture in this file)
- * falls back to SRVRUN_CHUNK rather than underflowing quic_pmtu_mps's
+ * falls back to SRVRUN_CHUNK rather than underflowing pmtu_mps's
  * unsigned subtraction. */
 static usz srvrun_mps(const srvrun_conn* c) {
-  return c->pmtu.validated ? quic_pmtu_mps(&c->pmtu) : SRVRUN_CHUNK;
+  return c->pmtu.validated ? pmtu_mps(&c->pmtu) : SRVRUN_CHUNK;
 }
 
 /* srvrun_conn.pmtu_probe_pn sentinel: no probe outstanding. A real pn never
@@ -780,8 +780,8 @@ typedef struct {
 struct wired_srvrun_env {
   /* RFC 9000 5.1: a fixed pool of connection slots keyed by DCID, so one
    * socket serves several clients at once. */
-  quic_conntable table[QUIC_CONNTABLE_CAP];
-  srvrun_conn    conns[QUIC_CONNTABLE_CAP];
+  conntable   table[QUIC_CONNTABLE_CAP];
+  srvrun_conn conns[QUIC_CONNTABLE_CAP];
   /* Response storage, one row per (connection slot, response slot) (see
    * WIRED_SRVRUN_RESP_MAX above). */
   u8 respstore[QUIC_CONNTABLE_CAP][SRVRUN_RESP_SLOTS][WIRED_SRVRUN_RESP_MAX];
@@ -813,11 +813,11 @@ struct wired_srvrun_env {
    * datagrams for one peer accumulated during a pump pass, flushed as one
    * UDP_SEGMENT sendmsg. seg_size is the first datagram's size; GSO's one
    * legal shorter tail closes the batch early. count == 0 means empty. */
-  u8            gso_stage[SRVRUN_GSO_SEGS * 1500];
-  usz           gso_seg_size;
-  usz           gso_len;
-  usz           gso_count;
-  quic_sockaddr gso_peer;
+  u8       gso_stage[SRVRUN_GSO_SEGS * 1500];
+  usz      gso_seg_size;
+  usz      gso_len;
+  usz      gso_count;
+  sockaddr gso_peer;
   /* The reload generation this env has already applied (srvrun_reload_
    * if_requested); a single-threaded run sees at most one pending generation
    * at a time, so "gen != seen" behaves exactly like the old boolean flag. */
@@ -849,8 +849,8 @@ static wired_srvrun_env g_srvrun_env;
 #define g_srvrun_send_count (g_srvrun_env.send_count)
 
 typedef struct {
-  quic_conntable* table;
-  srvrun_conn*    conns;
+  conntable*   table;
+  srvrun_conn* conns;
 } srvrun_state;
 
 /* Everything one datagram-serving step needs besides the datagram itself and
@@ -858,12 +858,12 @@ typedef struct {
  * arrived from, and the mutable server state. Folded into one parameter so
  * srvrun_send/on_initial/on_step/serve stay <=3 args. */
 typedef struct {
-  const srvrun_cfg*    cfg;
-  const quic_sockaddr* peer;
-  srvrun_state*        st;
-  u64                  now_ms; /**< monotonic ms this step started at */
+  const srvrun_cfg* cfg;
+  const sockaddr*   peer;
+  srvrun_state*     st;
+  u64               now_ms; /**< monotonic ms this step started at */
   /** RFC 9000 13.4 / RFC 9002 19.3.2: the ECN codepoint (RFC 3168, 0..3) this
-   * datagram's UDP layer read off its IP_TOS cmsg (quic_mmsg_buf.ecn in
+   * datagram's UDP layer read off its IP_TOS cmsg (mmsg_buf.ecn in
    * udp.h), carried through so srvrun_serve_slot can hand it to the routed
    * slot's wired_srvloop_ecn_note. 0 (Not-ECT) for any caller that does not
    * set it explicitly. */
@@ -900,11 +900,11 @@ static void srvrun_qlog_recv(
  * sends, fired unconditionally including retransmits -- how many times an
  * offset range went out is itself the forensic signal this exists for. */
 static void srvrun_qlog_stream_sent(
-    const srvrun_cfg*        cfg,
-    const srvrun_conn*       c,
-    u64                      now_ms,
-    u64                      pn,
-    const quic_stream_frame* f) {
+    const srvrun_cfg*   cfg,
+    const srvrun_conn*  c,
+    u64                 now_ms,
+    u64                 pn,
+    const stream_frame* f) {
   char                            rec[192];
   usz                             n;
   wired_qlogevent_stream_frame_in in;
@@ -994,7 +994,7 @@ __attribute__((unused)) static usz srvrun_test_flush_count(
  * Both srvrun_send and the direct Version Negotiation send route through
  * this. */
 static void srvrun_tx(
-    const srvrun_cfg* cfg, const quic_sockaddr* sa, wired_span pkt) {
+    const srvrun_cfg* cfg, const sockaddr* sa, wired_span pkt) {
   cfg->env->tx_flush_count++;
   if (cfg->xdp)
     wired_srvxdp_send(cfg->xdp, sa, pkt);
@@ -1060,13 +1060,13 @@ static int srvrun_stage_room(const wired_srvrun_env* e, usz n) {
 
 /* 1 if sa is the same address:port the open batch is headed to. */
 static int srvrun_stage_same_peer(
-    const wired_srvrun_env* e, const quic_sockaddr* sa) {
+    const wired_srvrun_env* e, const sockaddr* sa) {
   return sa->port_be == e->gso_peer.port_be &&
          ct_diffn(sa->addr, e->gso_peer.addr, 16) == 0;
 }
 
 static int srvrun_stage_extends(
-    const wired_srvrun_env* e, const quic_sockaddr* sa, usz n) {
+    const wired_srvrun_env* e, const sockaddr* sa, usz n) {
   return srvrun_stage_room(e, n) && srvrun_stage_same_peer(e, sa);
 }
 
@@ -1115,7 +1115,7 @@ static void srvrun_send_staged(
  * longer applies -- callers must check that first (this alone would just
  * report the frozen boot_rx/tx_bytes snapshot forever). */
 static u64 srvrun_boot_budget(const srvrun_conn* c) {
-  return quic_antiamp_budget(c->boot_rx_bytes, c->boot_tx_bytes);
+  return antiamp_budget(c->boot_rx_bytes, c->boot_tx_bytes);
 }
 
 /* Send one datagram through the boot-phase antiamp gate, bumping
@@ -1176,7 +1176,7 @@ static void srvrun_boot_send_hs_gated(
 /* Build this slot's own wired_srvboot_id: every field from cfg->id except
  * scid, which is c's own per-connection id — sharing cfg->id's fixed scid
  * across every slot would make every connection answer to the same DCID,
- * collapsing quic_conntable's routing to a single slot (RFC 9000 5.1). */
+ * collapsing conntable's routing to a single slot (RFC 9000 5.1). */
 static wired_srvboot_id srvrun_slot_id(
     const wired_srvboot_id* base, const srvrun_conn* c) {
   wired_srvboot_id id = *base;
@@ -1320,16 +1320,16 @@ static u64 srvrun_wtsend_final_size(srvrun_conn* c, u64 stream_id);
  * bytes exist; only a WT stream_reply's own slot can carry a count). */
 static usz srvrun_wt_abort_reset(
     srvrun_conn* c, u64 stream_id, u64 err_code, wired_obuf* plb, usz at) {
-  quic_reset_stream_frame rs = {
+  reset_stream_frame rs = {
       stream_id, err_code, srvrun_wtsend_final_size(c, stream_id)};
-  return quic_reset_stream_encode(plb->p + at, plb->cap - at, &rs);
+  return reset_stream_encode(plb->p + at, plb->cap - at, &rs);
 }
 
 /* One STOP_SENDING (RFC 9000 19.5) at plb->p + at. */
 static usz srvrun_wt_abort_stop(
     u64 stream_id, u64 err_code, wired_obuf* plb, usz at) {
-  quic_stop_sending_frame ss = {stream_id, err_code};
-  return quic_stop_sending_encode(plb->p + at, plb->cap - at, &ss);
+  stop_sending_frame ss = {stream_id, err_code};
+  return stop_sending_encode(plb->p + at, plb->cap - at, &ss);
 }
 
 /* RESET_STREAM followed by STOP_SENDING -- the full abort of a bidi
@@ -1363,9 +1363,9 @@ static usz srvrun_wt_abort_pair(
  * and kills the whole connection with FRAME_ENCODING_ERROR. */
 static usz srvrun_wt_busy_reset_payload(
     srvrun_conn* c, u64 stream_id, u64 err_code, wired_obuf* plb) {
-  if (!quic_stream_can_send(0, stream_id)) /* client uni */
+  if (!stream_can_send(0, stream_id)) /* client uni */
     return srvrun_wt_abort_stop(stream_id, err_code, plb, 0);
-  if (!quic_stream_can_receive(0, stream_id)) /* server uni */
+  if (!stream_can_receive(0, stream_id)) /* server uni */
     return srvrun_wt_abort_reset(c, stream_id, err_code, plb, 0);
   return srvrun_wt_abort_pair(c, stream_id, err_code, plb);
 }
@@ -1403,8 +1403,8 @@ static void srvrun_send_wt_busy_reset(
  * connection closing itself for an application-level protocol violation. */
 static usz srvrun_app_close_payload(
     u64 error_code, wired_span reason, wired_obuf* plb) {
-  quic_conn_close_frame cc = {1, error_code, 0, reason.n, reason.p};
-  return quic_frame_put_conn_close(plb->p, plb->cap, &cc);
+  conn_close_frame cc = {1, error_code, 0, reason.n, reason.p};
+  return frame_put_conn_close(plb->p, plb->cap, &cc);
 }
 
 /* Seal the CONNECTION_CLOSE above into out as its own 1-RTT packet. Returns
@@ -1444,13 +1444,13 @@ static void srvrun_send_app_close(
  * plb->len set, 0 on overflow. */
 static int srvrun_continue_payload(
     u64 stream_id, wired_obuf* plb, usz* h3_len) {
-  u8                h3[16];
-  wired_obuf        h3b = obuf_of(h3, sizeof h3);
-  quic_stream_frame f;
+  u8           h3[16];
+  wired_obuf   h3b = obuf_of(h3, sizeof h3);
+  stream_frame f;
   if (!quic_h3resp_prefix(100, 0, 0, &h3b)) return 0;
-  f       = (quic_stream_frame){stream_id, 0, h3b.len, h3, 0};
+  f       = (stream_frame){stream_id, 0, h3b.len, h3, 0};
   *h3_len = h3b.len;
-  return quic_appdata_stream_frame(&f, plb) != 0;
+  return appdata_stream_frame(&f, plb) != 0;
 }
 
 /* Seal the 100-continue payload above into out as its own 1-RTT packet.
@@ -1493,8 +1493,8 @@ static usz srvrun_send_continue(
  * wired_srvboot_refusal's own transport-close payload. */
 static usz srvrun_transport_close_payload(
     u64 error_code, wired_span reason, wired_obuf* plb) {
-  quic_conn_close_frame cc = {0, error_code, 0, reason.n, reason.p};
-  return quic_frame_put_conn_close(plb->p, plb->cap, &cc);
+  conn_close_frame cc = {0, error_code, 0, reason.n, reason.p};
+  return frame_put_conn_close(plb->p, plb->cap, &cc);
 }
 
 /* Seal the CONNECTION_CLOSE above into out as its own 1-RTT packet. Returns
@@ -2034,11 +2034,11 @@ static int wt_credit_stream_due(u64 ceiling, u64 credit_advertised) {
  * shape for a different frame. */
 static int srvrun_seal_max_stream_data(
     srvrun_conn* c, u64 stream_id, u64 value, wired_obuf* out) {
-  u8                     pl[32];
-  wired_obuf             plb = obuf_of(pl, sizeof pl);
-  quic_stream_data_frame f   = {stream_id, value};
-  wired_srvloop_send_in  sin;
-  usz                    pln = quic_max_stream_data_encode(plb.p, plb.cap, &f);
+  u8                    pl[32];
+  wired_obuf            plb = obuf_of(pl, sizeof pl);
+  stream_data_frame     f   = {stream_id, value};
+  wired_srvloop_send_in sin;
+  usz                   pln = max_stream_data_encode(plb.p, plb.cap, &f);
   if (!pln) return 0;
   plb.len = pln;
   sin     = (wired_srvloop_send_in){
@@ -2129,7 +2129,7 @@ static int srvrun_seal_path_challenge(
   u8                    pl[24];
   wired_obuf            plb = obuf_of(pl, sizeof pl);
   wired_srvloop_send_in sin;
-  usz pln = quic_path_encode(plb.p, plb.cap, QUIC_FRAME_PATH_CHALLENGE, data);
+  usz pln = path_encode(plb.p, plb.cap, QUIC_FRAME_PATH_CHALLENGE, data);
   if (!pln) return 0;
   plb.len = pln;
   sin     = (wired_srvloop_send_in){
@@ -2147,7 +2147,7 @@ static int pad_challenge_fits(usz len, usz need, usz cap) {
 }
 
 static usz srvrun_pad_path_challenge(u8* out, usz len, usz cap) {
-  usz need = quic_pad_needed(len);
+  usz need = pad_needed(len);
   if (!pad_challenge_fits(len, need, cap)) return len;
   for (usz i = 0; i < need; i++) out[len + i] = 0; /* PADDING frame (0x00) */
   return len + need;
@@ -2168,9 +2168,9 @@ static void srvrun_send_path_challenge(
 static int srvrun_seal_max_data(srvrun_conn* c, u64 value, wired_obuf* out) {
   u8                    pl[24];
   wired_obuf            plb = obuf_of(pl, sizeof pl);
-  quic_data_frame       f   = {value};
+  data_frame            f   = {value};
   wired_srvloop_send_in sin;
-  usz                   pln = quic_max_data_encode(plb.p, plb.cap, &f);
+  usz                   pln = max_data_encode(plb.p, plb.cap, &f);
   if (!pln) return 0;
   plb.len = pln;
   sin     = (wired_srvloop_send_in){
@@ -2193,9 +2193,9 @@ static int srvrun_seal_data_blocked(
     srvrun_conn* c, u64 limit, wired_obuf* out) {
   u8                    pl[24];
   wired_obuf            plb = obuf_of(pl, sizeof pl);
-  quic_data_frame       f   = {limit};
+  data_frame            f   = {limit};
   wired_srvloop_send_in sin;
-  usz                   pln = quic_data_blocked_encode(plb.p, plb.cap, &f);
+  usz                   pln = data_blocked_encode(plb.p, plb.cap, &f);
   if (!pln) return 0;
   plb.len = pln;
   sin     = (wired_srvloop_send_in){
@@ -2224,7 +2224,7 @@ static int srvrun_seal_max_streams(
   u8                    pl[24];
   wired_obuf            plb = obuf_of(pl, sizeof pl);
   wired_srvloop_send_in sin;
-  if (!quic_maxstreams_frame(uni, value, &plb)) return 0;
+  if (!maxstreams_frame(uni, value, &plb)) return 0;
   sin = (wired_srvloop_send_in){
       wired_span_of(c->l.cli_scid, c->l.cli_scid_len), c->l.tx_pn++, -1,
       wired_span_of(pl, plb.len), 0};
@@ -2239,7 +2239,7 @@ static int srvrun_seal_streams_blocked(
   u8                    pl[24];
   wired_obuf            plb = obuf_of(pl, sizeof pl);
   wired_srvloop_send_in sin;
-  if (!quic_maxstreams_blocked_frame(uni, limit, &plb)) return 0;
+  if (!maxstreams_blocked_frame(uni, limit, &plb)) return 0;
   sin = (wired_srvloop_send_in){
       wired_span_of(c->l.cli_scid, c->l.cli_scid_len), c->l.tx_pn++, -1,
       wired_span_of(pl, plb.len), 0};
@@ -2507,10 +2507,10 @@ static int srvrun_send_wt_capsule(
   u8                    pl[32 + 16 + 4 + QUIC_WTCAPSULE_CLOSE_MESSAGE_MAX];
   wired_obuf            plb = obuf_of(pl, sizeof pl);
   wired_srvloop_send_in sin;
-  quic_stream_frame     f = {
+  stream_frame          f = {
       srvrun_wt_slot(c, sidx)->connect_stream_id, c->wt_connect_sent_len[sidx],
       capsule_bytes.n, capsule_bytes.p, fin};
-  if (!quic_appdata_stream_frame(&f, &plb)) return 0;
+  if (!appdata_stream_frame(&f, &plb)) return 0;
   sin = (wired_srvloop_send_in){
       wired_span_of(c->l.cli_scid, c->l.cli_scid_len), c->l.tx_pn++, -1,
       wired_span_of(pl, plb.len), 0};
@@ -2626,12 +2626,12 @@ static void srvrun_drain_wt_close_pending(
  * time), and no STOP_SENDING (the latch targets server-initiated uni
  * streams; see the wt_stream_reset_* latch fields' own doc). */
 static int srvrun_seal_wt_stream_reset(srvrun_conn* c, usz i, wired_obuf* out) {
-  u8                      pl[32];
-  quic_reset_stream_frame rs = {
+  u8                 pl[32];
+  reset_stream_frame rs = {
       c->wt_stream_reset_id[i],
       wired_wterrmap_to_http3(c->wt_stream_reset_app_code[i]),
       c->wt_stream_reset_final[i]};
-  usz                   pln = quic_reset_stream_encode(pl, sizeof pl, &rs);
+  usz                   pln = reset_stream_encode(pl, sizeof pl, &rs);
   wired_srvloop_send_in sin;
   if (!pln) return 0;
   sin = (wired_srvloop_send_in){
@@ -2854,7 +2854,7 @@ static void srvrun_on_step(
   srvrun_rxmark      mark = srvrun_rx_mark(&c->l);
   int                produced;
   c->l.now_ms = ctx->now_ms; /* share srvrun's own PTO/RTT clock with
-                              * quic_ackpolicy's delayed-ACK timer, not a
+                              * ackpolicy's delayed-ACK timer, not a
                               * second one. */
   c->l.ack_defer = 1;        /* RFC 9000 13.2.1: suppress the bare-ACK packet
                               * this step; the pump piggybacks the pending ACK
@@ -2907,13 +2907,13 @@ static usz srvrun_ctrl_settings_len(int advertise_wt) {
  * wrapped in a STREAM frame at the control stream's fixed post-SETTINGS
  * offset. Returns 1 with plb->len set, 0 on overflow. */
 static int srvrun_goaway_payload(int advertise_wt, wired_obuf* plb) {
-  u8                h3[16];
-  usz               h3n = quic_h3_goaway_put(h3, sizeof h3, SRVRUN_GOAWAY_ID);
-  quic_stream_frame f;
+  u8           h3[16];
+  usz          h3n = quic_h3_goaway_put(h3, sizeof h3, SRVRUN_GOAWAY_ID);
+  stream_frame f;
   if (h3n == 0) return 0;
-  f = (quic_stream_frame){
+  f = (stream_frame){
       SRVRUN_CTRL_STREAM, srvrun_ctrl_settings_len(advertise_wt), h3n, h3, 0};
-  return quic_appdata_stream_frame(&f, plb);
+  return appdata_stream_frame(&f, plb);
 }
 
 /* Seal a GOAWAY (RFC 9114 5.2) on the control stream into one 1-RTT packet for
@@ -3357,8 +3357,7 @@ static void srvrun_apply_uni_limit_update(srvrun_conn* c) {
  * fixed plumbing stream this server opens), which consumed the first
  * grant. */
 static int srvrun_uni_open_allowed(const srvrun_conn* c) {
-  return quic_maxstreams_can_open(
-      c->wt_uni_opened + 1, srvrun_peer_uni_limit(c));
+  return maxstreams_can_open(c->wt_uni_opened + 1, srvrun_peer_uni_limit(c));
 }
 
 static u64 srvrun_next_bidi_id(srvrun_conn* c) {
@@ -4079,7 +4078,7 @@ static int srvrun_awaiting_confirm(const srvrun_conn* c) {
  * than assuming v1's). */
 static int srvrun_pkt_is_initial(wired_mspan dg, usz off) {
   if (off + 5 > dg.n) return 0;
-  return quic_packet_long_type(dg.p[off], be_get_be32(dg.p + off + 1)) ==
+  return packet_long_type(dg.p[off], be_get_be32(dg.p + off + 1)) ==
          QUIC_PT_INITIAL;
 }
 
@@ -4097,10 +4096,10 @@ static int srvrun_pkts_all_initial(wired_mspan dg, const usz* offs, usz n) {
  * boot-flight resend (that discards the Finished and wedges the handshake
  * unconfirmed; curl connects and then stalls on its request). */
 static int srvrun_dgram_all_initial(wired_mspan dg) {
-  const u8*    pkts[4];
-  usz          offs[4], lens[4], n;
-  quic_pktlist pl = {pkts, offs, lens, 4};
-  n               = quic_udploop_split(wired_span_of(dg.p, dg.n), &pl);
+  const u8* pkts[4];
+  usz       offs[4], lens[4], n;
+  pktlist   pl = {pkts, offs, lens, 4};
+  n            = udploop_split(wired_span_of(dg.p, dg.n), &pl);
   return n != 0 && srvrun_pkts_all_initial(dg, offs, n);
 }
 
@@ -4154,7 +4153,7 @@ static void srvrun_free_slot(const srvrun_cfg* cfg, srvrun_state* st, int i) {
   srvrun_conn* c = &st->conns[i];
   srvrun_close_all_wt(cfg, c);
   srvrun_free_bigbuf_rows(cfg->env, c);
-  quic_conntable_remove(st->table, QUIC_CONNTABLE_CAP, i);
+  conntable_remove(st->table, QUIC_CONNTABLE_CAP, i);
   c->up = 0;
   wired_srvboot_acc_reset(&c->boot);
   /* RFC 9000 8.1 antiamp state is per-attempt -- a slot reused for a fresh
@@ -4204,7 +4203,7 @@ static void srvrun_open_done(const srvrun_step_ctx* ctx, int slot, int ok) {
     srvrun_free_slot(ctx->cfg, ctx->st, slot);
     return;
   }
-  quic_conntable_rekey(
+  conntable_rekey(
       ctx->st->table, QUIC_CONNTABLE_CAP, slot, c->scid,
       ctx->cfg->id->scid_len);
 }
@@ -5136,14 +5135,14 @@ static int srvrun_send_stream_slice(
     u64                      stream_id,
     const wired_sendq_slice* sl,
     u8                       fin) {
-  u8                pl[SRVRUN_ACK_ROOM + SRVRUN_SLICE_PL];
-  usz               al  = srvrun_slice_ack_peek(c, sl, pl);
-  wired_obuf        plb = obuf_of(pl + al, sizeof pl - al);
-  quic_stream_frame f   = {
+  u8           pl[SRVRUN_ACK_ROOM + SRVRUN_SLICE_PL];
+  usz          al  = srvrun_slice_ack_peek(c, sl, pl);
+  wired_obuf   plb = obuf_of(pl + al, sizeof pl - al);
+  stream_frame f   = {
       stream_id, wired_sendsess_stream_offset(sess, sl), sl->len,
       wired_sendq_slice_data(&sess->q, sl), fin};
   u64 pn;
-  if (!quic_appdata_stream_frame(&f, &plb)) return 0;
+  if (!appdata_stream_frame(&f, &plb)) return 0;
   pn = c->l.tx_pn++;
   srvrun_qlog_stream_sent(ctx->cfg, c, ctx->now_ms, pn, &f);
   if (!srvrun_seal_send_slice(ctx, c, wired_span_of(pl, al + plb.len), pn, al))
@@ -5317,7 +5316,7 @@ static void srvrun_stream_credit_raise(u64* credit, u64 value) {
 /* 1 if this step's gathered PATH_RESPONSE (srvloop's gather_path_response)
  * is worth comparing at all: a connection that never issued a PATH_CHALLENGE
  * (migrate.challenged == 0) cannot have a real one to match against --
- * quic_migrate_validate itself already refuses without challenged, but
+ * migrate_validate itself already refuses without challenged, but
  * checking here first avoids running the (cheap, but still pointless)
  * compare and lets srvrun_apply_path_response's own CCN stay at the gate. */
 static int srvrun_path_response_pending(const srvrun_conn* c) {
@@ -5335,14 +5334,14 @@ static int srvrun_path_response_matches(const srvrun_conn* c) {
 
 /* RFC 9000 8.2.2: apply this step's gathered PATH_RESPONSE (if any) against
  * the challenge this connection last sent (c->path_challenge_data). A match
- * validates the path (quic_migrate_validate); a mismatch or an unchallenged
+ * validates the path (migrate_validate); a mismatch or an unchallenged
  * connection leaves migrate untouched. Always consumes the step's latch,
  * same convention as srvrun_apply_conn_credit_update. See
  * srvrun_rebind_peer's doc comment for why the response's own source
  * address is deliberately never checked here. */
 static void srvrun_apply_path_response(srvrun_conn* c) {
   if (!c->l.path_response_seen_flag) return;
-  if (srvrun_path_response_matches(c)) quic_migrate_validate(&c->migrate);
+  if (srvrun_path_response_matches(c)) migrate_validate(&c->migrate);
   c->l.path_response_seen_flag = 0;
 }
 
@@ -5706,7 +5705,7 @@ static usz srvrun_pmtu_probe_payload(u8* buf, usz cap, usz len) {
  * must be shorter than `size` by that overhead or the sealed packet would
  * overshoot the probe's own target. QUIC_PMTU_OVERHEAD already is this SDK's
  * one worst-case figure for that overhead (max 20-byte dcid + 16-byte tag,
- * see pmtu.h), the same constant quic_pmtu_mps subtracts for the same
+ * see pmtu.h), the same constant pmtu_mps subtracts for the same
  * reason -- reused here instead of a second hand-derived margin. Returns 0
  * if size is at or below the overhead (no room for even a 1-byte PING). */
 static usz srvrun_pmtu_probe_len(usz size) {
@@ -5754,20 +5753,20 @@ static void srvrun_pmtu_probe_clear(srvrun_conn* c) {
  * timer thread -- only per-step polling (see srvrun_pto_deadline_ms's own
  * doc on the same style of poll-driven deadline). */
 static void srvrun_pmtu_reap_timeout(srvrun_conn* c, u64 now_us) {
-  if (!quic_pmtu_probe_timer_due(&c->pmtu, now_us)) return;
-  quic_pmtu_on_loss(&c->pmtu, c->pmtu_probe_size);
+  if (!pmtu_probe_timer_due(&c->pmtu, now_us)) return;
+  pmtu_on_loss(&c->pmtu, c->pmtu_probe_size);
   srvrun_pmtu_probe_clear(c);
 }
 
 /* The next candidate size to probe on c, or 0 if none: a probe already
- * outstanding or a concluded search (quic_pmtu_next_probe's own gate) both
+ * outstanding or a concluded search (pmtu_next_probe's own gate) both
  * read as "nothing to do this opportunity". now_us converts srvrun's ms
  * clock into pmtu.c's us unit (matching QUIC_RTT_INITIAL_US and the other
  * RFC 9002 RTT state already on this us clock). */
 static usz srvrun_pmtu_probe_candidate(srvrun_conn* c, u64 now_us) {
   srvrun_pmtu_reap_timeout(c, now_us);
   if (srvrun_pmtu_probe_outstanding(c)) return 0;
-  return quic_pmtu_next_probe(&c->pmtu, now_us);
+  return pmtu_next_probe(&c->pmtu, now_us);
 }
 
 /* Seal and send a `size`-byte probe, then record its pn/size/send-time for
@@ -5776,7 +5775,7 @@ static usz srvrun_pmtu_probe_candidate(srvrun_conn* c, u64 now_us) {
  * failure -- e.g. an unexpected suite/dcid combination this call site did
  * not anticipate). The 0 return matters: srvrun_pmtu_try_probe's caller
  * treats "1 = sent, stop trying other sends this opportunity" as a per-
- * opportunity contract, and quic_pmtu_next_probe (via probe_candidate) keeps
+ * opportunity contract, and pmtu_next_probe (via probe_candidate) keeps
  * re-offering the same candidate size until it is acked/lost/timed out --
  * without this 0, a seal failure at one size would starve every other send
  * on the connection in a tight retry loop, opportunity after opportunity,
@@ -5927,7 +5926,7 @@ static void srvrun_qlog_lost(
  * ms-only EWMA pacing already relies on, unchanged. */
 static void srvrun_rtt_note(srvrun_conn* c, u64 sample_ms) {
   c->srtt_ms = c->srtt_ms ? (7 * c->srtt_ms + sample_ms) / 8 : sample_ms;
-  quic_rtt_sample(
+  rtt_sample(
       &c->rtt, sample_ms * 1000, 0, SRVRUN_MAX_ACK_DELAY_US,
       wired_server_is_confirmed(&c->s));
 }
@@ -5965,7 +5964,7 @@ static int srvrun_pace_within_poll_tick(const srvrun_conn* c);
  * srtt. Callers guarantee srtt_ms != 0. */
 static u64 srvrun_pace_rate_raw(const srvrun_conn* c) {
   if (c->cc.algo == QUIC_CC_ALGO_BBR && c->cc.bbr.btl_bw)
-    return quic_bbr_pacing_gain_pct(&c->cc.bbr) * c->cc.bbr.btl_bw / 100;
+    return bbr_pacing_gain_pct(&c->cc.bbr) * c->cc.bbr.btl_bw / 100;
   return 5 * c->cc.cwnd / (4 * c->srtt_ms);
 }
 
@@ -6033,7 +6032,7 @@ static int srvrun_pace_ok(const srvrun_step_ctx* ctx, const srvrun_conn* c) {
  * regression this comment records. */
 static int srvrun_pace_within_poll_tick(const srvrun_conn* c) {
   return c->cc.algo == QUIC_CC_ALGO_BBR ||
-         quic_pacing_interval(c->srtt_ms, c->cc.cwnd, QUIC_MAX_DATAGRAM) <
+         pacing_interval(c->srtt_ms, c->cc.cwnd, QUIC_MAX_DATAGRAM) <
              SRVRUN_PTO_MS;
 }
 
@@ -6043,7 +6042,7 @@ static int srvrun_pace_within_poll_tick(const srvrun_conn* c) {
 static void srvrun_pace_next(const srvrun_step_ctx* ctx, srvrun_conn* c) {
   if (srvrun_pace_within_poll_tick(c)) return;
   c->next_send_ms =
-      ctx->now_ms + quic_cc_pacing_ms(&c->cc, c->srtt_ms, QUIC_MAX_DATAGRAM);
+      ctx->now_ms + cc_pacing_ms(&c->cc, c->srtt_ms, QUIC_MAX_DATAGRAM);
 }
 
 /* 1 while the controller is still in slow start (no loss, no exit yet). */
@@ -6058,7 +6057,7 @@ static int srvrun_in_slow_start(const srvrun_conn* c) {
  * the RTT estimator -- see srvrun_hystart_range's comment for why. */
 static void srvrun_hystart_ack(srvrun_conn* c, u64 pn, u64 sent_ms, u64 now) {
   if (!srvrun_in_slow_start(c)) return;
-  if (quic_hystart_sample(&c->hs, now - sent_ms, pn, c->l.tx_pn))
+  if (hystart_sample(&c->hs, now - sent_ms, pn, c->l.tx_pn))
     c->cc.ssthresh = c->cc.cwnd;
 }
 
@@ -6115,7 +6114,7 @@ static void srvrun_cc_range(
   if (bytes) {
     srvrun_rtt_note(c, now_ms - newest);
     srvrun_hystart_range(c, sess, lo, hi, now_ms);
-    quic_cc_on_ack(&c->cc, bytes, newest, now_ms);
+    cc_on_ack(&c->cc, bytes, newest, now_ms);
   } else if (!srvrun_cc_range_has_hit(sess, lo, hi)) {
     return;
   }
@@ -6123,7 +6122,7 @@ static void srvrun_cc_range(
 }
 
 /* Threshold pass over sess's log: requeue losses, log each lost packet. The
- * congestion-window shrink (quic_cc_on_loss) is applied once per step by
+ * congestion-window shrink (cc_on_loss) is applied once per step by
  * the caller (srvrun_feed_acks), not here, so a loss on several concurrent
  * responses in the same step still only shrinks the connection's one
  * window once. */
@@ -6196,13 +6195,13 @@ static int srvrun_pmtu_probe_in_range(const srvrun_conn* c, u64 lo, u64 hi) {
          c->pmtu_probe_pn <= hi;
 }
 
-/* RFC 8899 5.1.3: an acked probe raises the validated PMTU (quic_pmtu_on_ack)
+/* RFC 8899 5.1.3: an acked probe raises the validated PMTU (pmtu_on_ack)
  * and resolves the outstanding tracking, letting the next opportunity start
  * a new probe. Entirely independent of the resp[]/wtsend[] ACK accounting
  * above -- a probe's pn belongs to neither log. */
 static void srvrun_pmtu_reap_ack(srvrun_conn* c, u64 lo, u64 hi) {
   if (!srvrun_pmtu_probe_in_range(c, lo, hi)) return;
-  quic_pmtu_on_ack(&c->pmtu, c->pmtu_probe_size);
+  pmtu_on_ack(&c->pmtu, c->pmtu_probe_size);
   srvrun_pmtu_probe_clear(c);
 }
 
@@ -6235,7 +6234,7 @@ static void srvrun_feed_acks(
   for (usz i = 0; i < c->l.ack_n; i++)
     srvrun_feed_ack_range(c, c->l.ack_lo[i], c->l.ack_hi[i], ctx->now_ms);
   lost = srvrun_reap_losses_all(cfg, c, ctx->now_ms);
-  if (lost) quic_cc_on_loss(&c->cc, ctx->now_ms, ctx->now_ms);
+  if (lost) cc_on_loss(&c->cc, ctx->now_ms, ctx->now_ms);
 }
 
 /* Send c's pending DATAGRAM (if any) using a scratch wired_obuf on the stack,
@@ -6442,10 +6441,10 @@ static u64 srvrun_wtwin_dropped(const srvrun_conn* c) {
  * state (quic_stats) plus this connection's WT diagnostic counters. */
 static void srvrun_metrics_fill(
     const srvrun_conn* c, wired_qlogevent_metrics_in* m) {
-  quic_stats_rtt rtt;
-  quic_stats_cc  cc;
-  quic_stats_rtt_get(&c->rtt, &rtt);
-  quic_stats_cc_get(&c->cc, &cc);
+  stats_rtt rtt;
+  stats_cc  cc;
+  stats_rtt_get(&c->rtt, &rtt);
+  stats_cc_get(&c->cc, &cc);
   m->smoothed_rtt    = rtt.smoothed_rtt;
   m->cwnd            = cc.cwnd;
   m->bytes_in_flight = srvrun_inflight_bytes_all(c);
@@ -6491,7 +6490,7 @@ static void srvrun_qlog_metrics(const srvrun_step_ctx* ctx, srvrun_conn* c) {
 static int srvrun_deferred_ack_due(srvrun_conn* c) {
   if (!c->up || !c->l.ack_defer) return 0;
   c->l.ack_defer = 0;
-  return quic_ackpolicy_should_ack(
+  return ackpolicy_should_ack(
       &c->l.app_ack_policy, c->l.now_ms, WIRED_SRVLOOP_MAX_ACK_DELAY_MS);
 }
 
@@ -6515,7 +6514,7 @@ static void srvrun_sess_on_step(const srvrun_step_ctx* ctx, int slot) {
   srvrun_conn* c = &ctx->st->conns[slot];
   srvrun_feed_acks(ctx, ctx->cfg, c);
   srvrun_acct_resync(c);
-  quic_cc_bbr_tick(&c->cc, c->acct_inflight, ctx->now_ms);
+  cc_bbr_tick(&c->cc, c->acct_inflight, ctx->now_ms);
   srvrun_apply_conn_credit_update(c);
   srvrun_apply_stream_credit_update(c);
   srvrun_apply_path_response(c);
@@ -6587,12 +6586,12 @@ static int srvrun_has_boot_outbound(const srvrun_conn* c) {
 
 /* RFC 9002 6.2: this connection's current PTO duration in ms, scaled by
  * 2^pto_count backoff. Before any RTT sample exists, fall back to the RFC
- * 9002 6.2.2 kInitialRtt-based default (quic_rtt_init seeds exactly that),
+ * 9002 6.2.2 kInitialRtt-based default (rtt_init seeds exactly that),
  * so an idle-but-just-opened connection still gets a sane (not zero)
  * deadline. */
 static u64 srvrun_pto_deadline_ms(const srvrun_conn* c, int pto_count) {
-  quic_pto_rtt rtt = {c->rtt.smoothed_rtt, c->rtt.rttvar};
-  u64 us = quic_pto_duration(rtt, SRVRUN_MAX_ACK_DELAY_US, (u32)pto_count);
+  pto_rtt rtt = {c->rtt.smoothed_rtt, c->rtt.rttvar};
+  u64     us  = pto_duration(rtt, SRVRUN_MAX_ACK_DELAY_US, (u32)pto_count);
   return us / 1000;
 }
 
@@ -6914,14 +6913,14 @@ static int srvrun_gen_path_challenge(u8 data[QUIC_PATH_DATA]) {
  * peer -- c->peer must already be updated to ctx->peer before this runs (the
  * challenge has to reach the path being validated). A generation failure
  * leaves migrate un-challenged and sends nothing: challenged==0 means
- * a later PATH_RESPONSE cannot spuriously validate (quic_migrate_validate's
+ * a later PATH_RESPONSE cannot spuriously validate (migrate_validate's
  * own precondition), matching "no challenge was ever actually issued". */
 static void srvrun_arm_path_challenge(const srvrun_cfg* cfg, srvrun_conn* c) {
   u8 data[QUIC_PATH_DATA];
   if (!srvrun_gen_path_challenge(data)) return;
   c->migrate.handshake_confirmed = 1; /* only reachable post-confirm */
-  quic_migrate_detect(&c->migrate);
-  quic_migrate_challenge(&c->migrate);
+  migrate_detect(&c->migrate);
+  migrate_challenge(&c->migrate);
   bytes_memcpy(c->path_challenge_data, data, QUIC_PATH_DATA);
   srvrun_send_path_challenge(cfg, c, data);
 }
@@ -6939,8 +6938,8 @@ static void srvrun_arm_path_challenge(const srvrun_cfg* cfg, srvrun_conn* c) {
  * Deliberately out of scope for this slice: RFC 9000 9.4's
  * congestion-control/RTT reset on a confirmed migration, 8.2.1's send-volume
  * limit on a not-yet-validated path, actually switching to a new connection
- * ID (quic_migrate_confirm is never called here), and tracking more than one
- * path at once (srvrun_conn holds a single quic_migrate + a single 8-byte
+ * ID (migrate_confirm is never called here), and tracking more than one
+ * path at once (srvrun_conn holds a single migrate + a single 8-byte
  * challenge, see their own doc comments) are all left undone -- this is
  * still the naive subset, now with a real PATH_CHALLENGE/PATH_RESPONSE round
  * trip layered on top rather than full RFC 9000 9 path validation.
@@ -7022,12 +7021,12 @@ static void srvrun_serve_slot(
 }
 
 /* dg's DCID as a span into dg, or a 0-length span if dg is too short to carry
- * the DCID length it claims (quic_dcidresolve_dcid can't tell that apart from
+ * the DCID length it claims (dcidresolve_dcid can't tell that apart from
  * a legitimate zero-length CID on its own, so reject dcid_len < 0 first). */
 static wired_span srvrun_dcid(wired_mspan dg, u8 short_hdr_len) {
-  int dcid_len = quic_dcidresolve_len(dg, short_hdr_len);
+  int dcid_len = dcidresolve_len(dg, short_hdr_len);
   if (dcid_len < 0) return wired_span_of(0, 0);
-  return quic_dcidresolve_dcid(dg, dcid_len);
+  return dcidresolve_dcid(dg, dcid_len);
 }
 
 /* Find the live slot this datagram's DCID matches. -1 if none does (the
@@ -7035,8 +7034,7 @@ static wired_span srvrun_dcid(wired_mspan dg, u8 short_hdr_len) {
  * has open). */
 static int srvrun_find_slot(const srvrun_step_ctx* ctx, wired_span dcid) {
   if (dcid.p == 0) return -1;
-  return quic_conntable_find(
-      ctx->st->table, QUIC_CONNTABLE_CAP, dcid.p, (u8)dcid.n);
+  return conntable_find(ctx->st->table, QUIC_CONNTABLE_CAP, dcid.p, (u8)dcid.n);
 }
 
 /* Claim a free slot for a DCID no live connection matches. Only a fresh
@@ -7054,7 +7052,7 @@ static int srvrun_claim_refused(wired_span dcid, int is_initial) {
 static int srvrun_claim_slot(
     const srvrun_step_ctx* ctx, wired_span dcid, int is_initial) {
   if (srvrun_claim_refused(dcid, is_initial)) return -1;
-  return quic_conntable_insert(
+  return conntable_insert(
       ctx->st->table, QUIC_CONNTABLE_CAP, dcid.p, (u8)dcid.n);
 }
 
@@ -7062,7 +7060,7 @@ static int srvrun_claim_slot(
  * non-negative core_id does a freshly generated CID get its leading byte
  * overwritten with this worker's own core/queue index, so the BPF filter can
  * key an XSKMAP lookup off the CID instead of the NIC's rx_queue_index.
- * Neither guard is a validating boundary -- quic_ncid_worker_encode itself
+ * Neither guard is a validating boundary -- ncid_worker_encode itself
  * already no-ops (returns < 0) on a zero-length cid; there is simply nothing
  * to embed into. */
 static int srvrun_xdp_core_routing(const srvrun_cfg* cfg) {
@@ -7076,7 +7074,7 @@ static int srvrun_xdp_core_routing(const srvrun_cfg* cfg) {
 static int srvrun_issue_cid(const srvrun_cfg* cfg, u8* cid, u8 cid_len) {
   if (!cid_generate(cid, cid_len)) return 0;
   if (srvrun_xdp_core_routing(cfg))
-    quic_ncid_worker_encode(cid, cid_len, 8, (u32)cfg->core_id);
+    ncid_worker_encode(cid, cid_len, 8, (u32)cfg->core_id);
   return 1;
 }
 
@@ -7108,15 +7106,15 @@ static int srvrun_open_slot(
   ctx->st->conns[slot].qlog_slot    = (u64)slot;
   ctx->st->conns[slot].l.qlog_path  = ctx->cfg->qlog_path;
   ctx->st->conns[slot].l.qlog_group = (u64)slot;
-  quic_cc_init_algo(&ctx->st->conns[slot].cc, srvrun_cc_algo(ctx->cfg));
-  quic_hystart_init(&ctx->st->conns[slot].hs);
-  quic_rtt_init(&ctx->st->conns[slot].rtt);
-  quic_pmtu_init(&ctx->st->conns[slot].pmtu);
+  cc_init_algo(&ctx->st->conns[slot].cc, srvrun_cc_algo(ctx->cfg));
+  hystart_init(&ctx->st->conns[slot].hs);
+  rtt_init(&ctx->st->conns[slot].rtt);
+  pmtu_init(&ctx->st->conns[slot].pmtu);
   ctx->st->conns[slot].pmtu_probe_pn = SRVRUN_PMTU_NO_PROBE;
   if (srvrun_issue_cid(
           ctx->cfg, ctx->st->conns[slot].scid, ctx->cfg->id->scid_len))
     return slot;
-  quic_conntable_remove(ctx->st->table, QUIC_CONNTABLE_CAP, slot);
+  conntable_remove(ctx->st->table, QUIC_CONNTABLE_CAP, slot);
   return -1;
 }
 
@@ -7137,22 +7135,22 @@ static const u8 g_srvrun_retry_key[QUIC_RETRYTOKEN_KEY] = {
  * patches the real RFC 9001 5.8 tag in afterward. Returns bytes written, or
  * 0 on overflow. */
 static usz srvrun_retry_pkt_build(
-    const quic_lhdr* h, const u8 scid[8], wired_span token, u8* pkt, usz cap) {
-  quic_retry_desc d = {1, h->scid, wired_span_of(scid, 8), token, pkt};
-  return quic_retry_build(pkt, cap, &d);
+    const lhdr* h, const u8 scid[8], wired_span token, u8* pkt, usz cap) {
+  retry_desc d = {1, h->scid, wired_span_of(scid, 8), token, pkt};
+  return retry_build(pkt, cap, &d);
 }
 
 /* scid + wire token for the Retry answering h, or 0 tn on RNG/overflow
  * failure. */
 static void srvrun_retry_prep(
     const srvrun_step_ctx* ctx,
-    const quic_lhdr*       h,
+    const lhdr*            h,
     u8                     scid[8],
     u8                     token[QUIC_RETRYTOKEN_WIRE_MAX],
     usz*                   tn) {
   *tn = 0;
   if (!cid_generate(scid, 8)) return;
-  *tn = quic_retrytoken_wire_make(
+  *tn = retrytoken_wire_make(
       g_srvrun_retry_key,
       wired_span_of((const u8*)ctx->peer, sizeof(*ctx->peer)), h->dcid, token);
 }
@@ -7161,7 +7159,7 @@ static void srvrun_retry_prep(
  * carries a garbage tag (srvrun_retry_pkt_build); patch in the RFC 9001 5.8
  * tag computed over everything before it. */
 static void srvrun_retry_finish(
-    const srvrun_step_ctx* ctx, const quic_lhdr* h, u8* pkt, usz n) {
+    const srvrun_step_ctx* ctx, const lhdr* h, u8* pkt, usz n) {
   retry_tag(
       h->dcid, wired_span_of(pkt, n - QUIC_RETRY_TAG_LEN),
       pkt + n - QUIC_RETRY_TAG_LEN);
@@ -7173,7 +7171,7 @@ static void srvrun_retry_finish(
  * client will derive its next Initial keys from (RFC 9001 5.2), the wire
  * token binding the peer address to h's DCID (the true ODCID), and the
  * RFC 9001 5.8 integrity tag patched over the assembled packet. */
-static void srvrun_send_retry(const srvrun_step_ctx* ctx, const quic_lhdr* h) {
+static void srvrun_send_retry(const srvrun_step_ctx* ctx, const lhdr* h) {
   u8  scid[8], token[QUIC_RETRYTOKEN_WIRE_MAX], pkt[128];
   usz tn, n;
   srvrun_retry_prep(ctx, h, scid, token, &tn);
@@ -7188,7 +7186,7 @@ static void srvrun_send_retry(const srvrun_step_ctx* ctx, const quic_lhdr* h) {
  * the embedded original DCID (a view into dg's token bytes). */
 static int srvrun_retry_token_ok(
     const srvrun_step_ctx* ctx, wired_span token, wired_span* odcid) {
-  return quic_retrytoken_wire_verify(
+  return retrytoken_wire_verify(
       g_srvrun_retry_key,
       wired_span_of((const u8*)ctx->peer, sizeof(*ctx->peer)), token, odcid);
 }
@@ -7196,7 +7194,7 @@ static int srvrun_retry_token_ok(
 /* h carries a token: consumed either way -- valid recovers *odcid and lets
  * the caller continue serving (0), invalid drops the datagram (1). */
 static int srvrun_retry_gate_tokened(
-    const srvrun_step_ctx* ctx, const quic_lhdr* h, wired_span* odcid) {
+    const srvrun_step_ctx* ctx, const lhdr* h, wired_span* odcid) {
   return !srvrun_retry_token_ok(ctx, h->token, odcid);
 }
 
@@ -7206,8 +7204,8 @@ static int srvrun_retry_gate_tokened(
  * goes out), or an invalid token (dropped). */
 static int srvrun_retry_gate(
     const srvrun_step_ctx* ctx, wired_mspan dg, wired_span* odcid) {
-  quic_lhdr h;
-  if (!quic_lhdr_parse(wired_span_of(dg.p, dg.n), 1, &h)) return 1;
+  lhdr h;
+  if (!lhdr_parse(wired_span_of(dg.p, dg.n), 1, &h)) return 1;
   if (h.token.n != 0) return srvrun_retry_gate_tokened(ctx, &h, odcid);
   srvrun_send_retry(ctx, &h);
   return 1;
@@ -7348,7 +7346,7 @@ static int srvrun_sreset_applies(wired_span dcid, wired_mspan dg) {
 }
 
 /* Build the reset for dcid: random-looking bytes ending in the token the
- * connection's handshake advertised (same quic_sreset_key_derive derivation
+ * connection's handshake advertised (same sreset_key_derive derivation
  * srvboot used, so the token survives a server restart -- the exact
  * situation this packet exists for). Capacity is clamped below the
  * triggering datagram's size (10.3.3). */
@@ -7357,8 +7355,8 @@ static int srvrun_seal_stateless_reset(
   u8  key[QUIC_SRESET_KEY];
   usz cap = u64_min(out->cap, trigger_len - 1);
   usz len;
-  quic_sreset_key_derive(cfg->id->cert_seed, key);
-  if (!quic_sreset_build(
+  sreset_key_derive(cfg->id->cert_seed, key);
+  if (!sreset_build(
           key, dcid.p, dcid.n, trigger_len, rng_bytes, out->p, cap, &len))
     return 0;
   out->len = len;
@@ -7401,13 +7399,13 @@ static int srvrun_is_refusable_new_conn(wired_span dcid, wired_mspan dg) {
  * with out->len set, 0 on a malformed header or overflow. */
 static int srvrun_seal_new_conn_refusal(
     wired_span dg, const u8 scid[8], wired_obuf* out) {
-  quic_lhdr             h;
-  u8                    fr[8];
-  usz                   fn;
-  quic_conn_close_frame cc = {0, QUIC_ERR_CONNECTION_REFUSED, 0, 0, 0};
-  quic_srvwire_seal_in  wi;
-  if (!quic_lhdr_parse(dg, 1, &h)) return 0;
-  fn = quic_frame_put_conn_close(fr, sizeof fr, &cc);
+  lhdr                 h;
+  u8                   fr[8];
+  usz                  fn;
+  conn_close_frame     cc = {0, QUIC_ERR_CONNECTION_REFUSED, 0, 0, 0};
+  quic_srvwire_seal_in wi;
+  if (!lhdr_parse(dg, 1, &h)) return 0;
+  fn = frame_put_conn_close(fr, sizeof fr, &cc);
   if (!fn) return 0;
   wi = (quic_srvwire_seal_in){
       h.dcid, h.scid, wired_span_of(scid, 8), 0, -1, wired_span_of(fr, fn), 0};
@@ -7479,8 +7477,7 @@ static void srvrun_route_and_serve(
  * never treated as a connection error, since a malicious or misbehaving
  * middlebox (not the peer) is the more likely cause (RFC 9000 14). */
 static int srvrun_size_violation(wired_mspan dg) {
-  return wired_srvboot_is_initial(dg.p, dg.n) &&
-         !quic_middlebox_initial_ok(dg.n);
+  return wired_srvboot_is_initial(dg.p, dg.n) && !middlebox_initial_ok(dg.n);
 }
 
 /* dg past the size-violation gate: version-negotiate, consume a retry, or
@@ -7530,8 +7527,8 @@ static void srvrun_maybe_incoming_cpu(i64 fd, const wired_srvrun_opt* opt) {
 
 /* Bind a UDP socket on port. Returns the fd, or <0 on failure. */
 static i64 srvrun_listen(u16 port, const wired_srvrun_opt* opt) {
-  quic_sockaddr sa;
-  i64           fd = wired_udp_socket();
+  sockaddr sa;
+  i64      fd = wired_udp_socket();
   if (fd < 0) return fd;
   /* Best-effort: lets multiple srvworkers children share one port. A
    * single-worker run does not need it, so a failure here is not fatal --
@@ -7542,7 +7539,7 @@ static i64 srvrun_listen(u16 port, const wired_srvrun_opt* opt) {
    * unaware kernel/NIC simply won't provide, never a bind blocker. */
   wired_udp_ect0_enable(fd);
   wired_udp_recvtos_enable(fd);
-  /* RFC 8899 4.5: this connection runs its own DPLPMTUD search (quic_pmtu via
+  /* RFC 8899 4.5: this connection runs its own DPLPMTUD search (pmtu via
    * connrunner's probe drive), so the kernel's own PMTU enforcement/caching
    * must be suspended for this socket's flows -- best-effort like the ECN
    * options above, never a bind blocker. */
@@ -7569,7 +7566,7 @@ static i64 srvrun_listen(u16 port, const wired_srvrun_opt* opt) {
  * sweep and one clock read cover the whole batch; each message's own source
  * address is the peer a fresh slot records (RFC 9000 5.1). */
 static void srvrun_serve_batch(
-    const srvrun_cfg* cfg, srvrun_state* st, const quic_mmsg_buf* bufs, i64 n) {
+    const srvrun_cfg* cfg, srvrun_state* st, const mmsg_buf* bufs, i64 n) {
   u64 now = clock_mono_ms();
   srvrun_sweep_idle(cfg, st, now); /* lazy: swept on each arrival */
   for (i64 i = 0; i < n; i++) {
@@ -7651,13 +7648,12 @@ static int srvrun_may_block_unbounded(const srvrun_cfg* cfg, srvrun_state* st) {
 static int srvrun_wait_input(const srvrun_cfg* cfg, srvrun_state* st) {
   if (srvrun_polling(cfg)) return 1;
   if (srvrun_may_block_unbounded(cfg, st)) return 1;
-  return quic_poll_wait_readable(cfg->fd, SRVRUN_PTO_MS) > 0;
+  return poll_wait_readable(cfg->fd, SRVRUN_PTO_MS) > 0;
 }
 
 /* AF_XDP rx_burst step: pause once on an empty burst, same spin-step shape
  * as wired_srvpoll_spin_step (srvrun_recv below). */
-static i64 srvrun_recv_xdp(
-    const srvrun_cfg* cfg, quic_mmsg_buf* bufs, usz nbufs) {
+static i64 srvrun_recv_xdp(const srvrun_cfg* cfg, mmsg_buf* bufs, usz nbufs) {
   i64 n = wired_srvxdp_rx_burst(cfg->xdp, bufs, nbufs);
   if (!n) wired_arch_pause();
   return n;
@@ -7666,14 +7662,14 @@ static i64 srvrun_recv_xdp(
 /* The batch receive call itself: AF_XDP when cfg->xdp is set, MSG_DONTWAIT
  * spin-step in busy_poll mode, the existing blocking recvmmsg otherwise
  * (byte-identical default path). */
-static i64 srvrun_recv(const srvrun_cfg* cfg, quic_mmsg_buf* bufs, usz nbufs) {
+static i64 srvrun_recv(const srvrun_cfg* cfg, mmsg_buf* bufs, usz nbufs) {
   if (cfg->xdp) return srvrun_recv_xdp(cfg, bufs, nbufs);
   if (cfg->busy_poll) return wired_srvpoll_spin_step(cfg->fd, bufs, nbufs);
   return wired_udp_recvmmsg(cfg->fd, bufs, nbufs);
 }
 
 static void srvrun_step(
-    const srvrun_cfg* cfg, srvrun_state* st, quic_mmsg_buf* bufs, usz nbufs) {
+    const srvrun_cfg* cfg, srvrun_state* st, mmsg_buf* bufs, usz nbufs) {
   i64 r;
   srvrun_reload_if_requested(cfg, cfg->env);
   srvrun_bcast_drain_self(st); /* other workers' broadcasts */
@@ -7695,14 +7691,14 @@ static void srvrun_step(
  * Returns 1 once every connection has drained or the tick budget is spent
  * (the caller should stop), 0 to keep draining. */
 static int srvrun_drain_tick(
-    const srvrun_cfg* cfg, srvrun_state* st, quic_mmsg_buf* bufs, int tick) {
-  if (quic_poll_wait_readable(cfg->fd, SRVRUN_DRAIN_TICK_MS) > 0)
+    const srvrun_cfg* cfg, srvrun_state* st, mmsg_buf* bufs, int tick) {
+  if (poll_wait_readable(cfg->fd, SRVRUN_DRAIN_TICK_MS) > 0)
     srvrun_step(cfg, st, bufs, SRVRUN_RX_BATCH);
   return srvrun_all_drained(st) || tick >= SRVRUN_DRAIN_TICKS;
 }
 
 /* Point each batch slot at env's own storage. */
-static void srvrun_rx_init(wired_srvrun_env* env, quic_mmsg_buf* bufs) {
+static void srvrun_rx_init(wired_srvrun_env* env, mmsg_buf* bufs) {
   for (usz i = 0; i < SRVRUN_RX_BATCH; i++)
     bufs[i].buf = wired_mspan_of(env->rxstorage[i], sizeof env->rxstorage[i]);
 }
@@ -7740,10 +7736,10 @@ static void srvrun_close_drained(const srvrun_cfg* cfg, srvrun_state* st) {
  * been requested; once requested, send GOAWAY to every live connection once
  * and drain for a bounded grace period (RFC 9114 5.2) before returning. */
 static void srvrun_loop(const srvrun_cfg* cfg) {
-  srvrun_state  st = {cfg->env->table, cfg->env->conns};
-  quic_mmsg_buf bufs[SRVRUN_RX_BATCH];
-  int           tick = 0;
-  quic_conntable_init(st.table, QUIC_CONNTABLE_CAP);
+  srvrun_state st = {cfg->env->table, cfg->env->conns};
+  mmsg_buf     bufs[SRVRUN_RX_BATCH];
+  int          tick = 0;
+  conntable_init(st.table, QUIC_CONNTABLE_CAP);
   srvrun_rx_init(cfg->env, bufs);
   while (!srvrun_shutdown_requested())
     srvrun_step(cfg, &st, bufs, SRVRUN_RX_BATCH);

@@ -12,7 +12,7 @@
 typedef struct {
   u64 srtt;
   u64 rttvar;
-} quic_hspto_rtt;
+} hspto_rtt;
 
 /** Remaining inputs: backoff, granularity, and the handshake-confirmed ack
  * delay term. */
@@ -21,10 +21,10 @@ typedef struct {
   u64 granularity;
   int handshake_confirmed;
   u64 max_ack_delay;
-} quic_hspto_ctx;
+} hspto_ctx;
 
 /* PTO = srtt + max(4*rttvar, granularity) [+ max_ack_delay if confirmed],
  * scaled by 2^pto_count (clamped). */
-u64 quic_hspto_duration(quic_hspto_rtt rtt, const quic_hspto_ctx* ctx);
+u64 hspto_duration(hspto_rtt rtt, const hspto_ctx* ctx);
 
 #endif

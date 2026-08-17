@@ -13,29 +13,27 @@
  * the ACK-range builder. */
 #define QUIC_PNSPACES_ACK_CAP (QUIC_RECVPN_WINDOW + 1)
 
-/** Per-space received-packet-number tracking (quic_recvpn), one per
+/** Per-space received-packet-number tracking (recvpn), one per
  * QUIC_PNS_*. */
 typedef struct {
-  quic_recvpn
-      r[QUIC_PNS_COUNT]; /**< indexed by QUIC_PNS_INITIAL/HANDSHAKE/APP */
-} quic_pnspaces_recv;
+  recvpn r[QUIC_PNS_COUNT]; /**< indexed by QUIC_PNS_INITIAL/HANDSHAKE/APP */
+} pnspaces_recv;
 
-void quic_pnspaces_recv_init(quic_pnspaces_recv* s);
+void pnspaces_recv_init(pnspaces_recv* s);
 
 /* Record packet number pn as received in `space` only. */
-void quic_pnspaces_on_recv(quic_pnspaces_recv* s, int space, u64 pn);
+void pnspaces_on_recv(pnspaces_recv* s, int space, u64 pn);
 
-/** Where quic_pnspaces_ack_ranges writes the largest acked and the ranges. */
+/** Where pnspaces_ack_ranges writes the largest acked and the ranges. */
 typedef struct {
-  u64* largest; /**< out: highest received packet number in `space` */
-  quic_u64obuf*
-      ranges; /**< out: encoded ACK ranges, see quic_ackgen_build_ranges */
-} quic_pnspaces_ack_out;
+  u64*     largest; /**< out: highest received packet number in `space` */
+  u64obuf* ranges;  /**< out: encoded ACK ranges, see ackgen_build_ranges */
+} pnspaces_ack_out;
 
 /* Build the ACK ranges for `space` from its received PNs (layout per
- * quic_ackgen_build_ranges / RFC 9000 19.3). Returns 1 on success, 0 if the
+ * ackgen_build_ranges / RFC 9000 19.3). Returns 1 on success, 0 if the
  * space has received nothing or cap is too small. */
-int quic_pnspaces_ack_ranges(
-    const quic_pnspaces_recv* s, int space, const quic_pnspaces_ack_out* out);
+int pnspaces_ack_ranges(
+    const pnspaces_recv* s, int space, const pnspaces_ack_out* out);
 
 #endif

@@ -16,19 +16,19 @@ typedef struct {
   u64 largest; /**< highest packet number recorded (valid once any seen) */
   u64 bitmap;  /**< bit i set => (largest - 1 - i) was received */
   int any;     /**< whether anything has been recorded yet */
-} quic_recvpn;
+} recvpn;
 
-void quic_recvpn_init(quic_recvpn* r);
+void recvpn_init(recvpn* r);
 
 /* Whether packet number pn has already been recorded (a duplicate). */
-int quic_recvpn_seen(const quic_recvpn* r, u64 pn);
+int recvpn_seen(const recvpn* r, u64 pn);
 
 /* Record packet number pn as received. Numbers older than the window are
  * ignored (treated as already acknowledged). */
-void quic_recvpn_record(quic_recvpn* r, u64 pn);
+void recvpn_record(recvpn* r, u64 pn);
 
 /* The first ACK range: the count of contiguous packets ending at `largest`
  * that have been received (0 if none recorded). */
-u64 quic_recvpn_first_range(const quic_recvpn* r);
+u64 recvpn_first_range(const recvpn* r);
 
 #endif

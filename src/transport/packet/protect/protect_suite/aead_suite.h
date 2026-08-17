@@ -17,14 +17,14 @@ typedef struct {
   const u8*  iv;
   u64        pn;
   wired_span aad;
-} quic_aead_suite_op;
+} aead_suite_op;
 
 /* Seal pt into out as ciphertext followed by the 16-byte tag. Returns the
  * total written length (pt.n + 16), or 0 on an unknown suite. */
-usz quic_aead_suite_seal(const quic_aead_suite_op* op, wired_span pt, u8* out);
+usz aead_suite_seal(const aead_suite_op* op, wired_span pt, u8* out);
 
 /* Open ct (ct.n ciphertext bytes followed by a 16-byte tag) into pt.
  * Returns ct.n on success, 0 on tag mismatch or unknown suite. */
-usz quic_aead_suite_open(const quic_aead_suite_op* op, wired_span ct, u8* pt);
+usz aead_suite_open(const aead_suite_op* op, wired_span ct, u8* pt);
 
 #endif

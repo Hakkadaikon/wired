@@ -15,17 +15,17 @@ static void test_onertt_roundtrip(void) {
   const u8     frames[] = {0x08, 'd', 'a', 't', 'a'}; /* STREAM-ish payload */
   onertt_keys(&k, &hp);
 
-  u8                     pkt[64];
-  quic_protect_keys      pk = {&k, &hp};
-  quic_hspkt_onertt_desc d  = {
+  u8                pkt[64];
+  protect_keys      pk = {&k, &hp};
+  hspkt_onertt_desc d  = {
       wired_span_of(dcid, 5), 12, wired_span_of(frames, sizeof(frames)), 0};
   wired_obuf o = obuf_of(pkt, sizeof(pkt));
-  CHECK(quic_hspkt_onertt_build(&pk, &d, &o));
+  CHECK(hspkt_onertt_build(&pk, &d, &o));
   CHECK(o.len == 5u + 5u + sizeof(frames) + 16u); /* byte0+dcid+pn+ct+tag */
 
-  wired_span                  out;
-  quic_hspkt_onertt_open_desc od = {wired_mspan_of(pkt, o.len), 5, 0};
-  CHECK(quic_hspkt_onertt_open(&pk, &od, &out));
+  wired_span             out;
+  hspkt_onertt_open_desc od = {wired_mspan_of(pkt, o.len), 5, 0};
+  CHECK(hspkt_onertt_open(&pk, &od, &out));
   CHECK(out.n == sizeof(frames));
   for (usz i = 0; i < sizeof(frames); i++) CHECK(out.p[i] == frames[i]);
 }
@@ -39,12 +39,12 @@ static void test_onertt_byte0(void) {
   const u8     frames[] = {0x08, 'X'};
   onertt_keys(&k, &hp);
 
-  u8                     pkt[64];
-  quic_protect_keys      pk = {&k, &hp};
-  quic_hspkt_onertt_desc d  = {
+  u8                pkt[64];
+  protect_keys      pk = {&k, &hp};
+  hspkt_onertt_desc d  = {
       wired_span_of(dcid, 4), 1, wired_span_of(frames, sizeof(frames)), 0};
   wired_obuf o = obuf_of(pkt, sizeof(pkt));
-  CHECK(quic_hspkt_onertt_build(&pk, &d, &o));
+  CHECK(hspkt_onertt_build(&pk, &d, &o));
   CHECK((pkt[0] & 0x80) == 0x00); /* short header form */
 }
 
@@ -56,16 +56,16 @@ static void test_onertt_tamper(void) {
   const u8     frames[] = {0x08, 'h', 'i'};
   onertt_keys(&k, &hp);
 
-  u8                     pkt[64];
-  quic_protect_keys      pk = {&k, &hp};
-  quic_hspkt_onertt_desc d  = {
+  u8                pkt[64];
+  protect_keys      pk = {&k, &hp};
+  hspkt_onertt_desc d  = {
       wired_span_of(dcid, 4), 5, wired_span_of(frames, sizeof(frames)), 0};
   wired_obuf o = obuf_of(pkt, sizeof(pkt));
-  CHECK(quic_hspkt_onertt_build(&pk, &d, &o));
+  CHECK(hspkt_onertt_build(&pk, &d, &o));
   pkt[o.len - 1] ^= 0x01;
-  wired_span                  out;
-  quic_hspkt_onertt_open_desc od = {wired_mspan_of(pkt, o.len), 4, 0};
-  CHECK(!quic_hspkt_onertt_open(&pk, &od, &out));
+  wired_span             out;
+  hspkt_onertt_open_desc od = {wired_mspan_of(pkt, o.len), 4, 0};
+  CHECK(!hspkt_onertt_open(&pk, &od, &out));
 }
 
 /* Seal a 1-RTT packet whose packet number is TRUNCATED to pn_len bytes (curl
@@ -89,14 +89,14 @@ static usz seal_truncated(
   usz    i;
   out[0] = 0x40u | (u8)(pn_len - 1u); /* short header, fixed bit, pn length */
   for (i = 0; i < dcid_len; i++) out[1 + i] = dcid[i];
-  quic_pnum_encode(out + pn_off, full_pn, pn_len);
-  quic_protect_nonce(k->iv, full_pn, nonce);
+  pnum_encode(out + pn_off, full_pn, pn_len);
+  protect_nonce(k->iv, full_pn, nonce);
   aes128_init(&aead, k->key);
   gcm_ctx g = {&aead, nonce, {out, hdr_len}};
   gcm_seal(&g, wired_span_of(pl, pl_len), out + hdr_len);
-  quic_hp_mask(hp, out + pn_off + 4, mask);
-  quic_hp_fields hf = {&out[0], out + pn_off, pn_len, QUIC_HP_SHORT_MASK};
-  quic_hp_apply(mask, &hf);
+  hp_mask(hp, out + pn_off + 4, mask);
+  hp_fields hf = {&out[0], out + pn_off, pn_len, QUIC_HP_SHORT_MASK};
+  hp_apply(mask, &hf);
   return hdr_len + pl_len + QUIC_GCM_TAG;
 }
 
@@ -108,28 +108,28 @@ static usz seal_truncated(
  * fails — proving the recovery, not the truncated value, is what authenticates.
  */
 static void test_onertt_truncated_pn(void) {
-  initial_keys      k;
-  aes128            hp;
-  const u8          dcid[5]  = {0xaa, 0xbb, 0xcc, 0xdd, 0xee};
-  const u8          frames[] = {0x08, 'c', 'u', 'r', 'l'};
-  u8                pkt[64];
-  wired_span        out;
-  usz               total;
-  quic_protect_keys pk = {&k, &hp};
+  initial_keys k;
+  aes128       hp;
+  const u8     dcid[5]  = {0xaa, 0xbb, 0xcc, 0xdd, 0xee};
+  const u8     frames[] = {0x08, 'c', 'u', 'r', 'l'};
+  u8           pkt[64];
+  wired_span   out;
+  usz          total;
+  protect_keys pk = {&k, &hp};
   onertt_keys(&k, &hp);
 
   total = seal_truncated(&k, &hp, dcid, 5, 300, 1, frames, sizeof frames, pkt);
   /* truncated byte (300 & 0xff == 44) != real PN 300, so largest_pn matters */
-  quic_hspkt_onertt_open_desc od = {wired_mspan_of(pkt, total), 5, 299};
-  CHECK(quic_hspkt_onertt_open(&pk, &od, &out));
+  hspkt_onertt_open_desc od = {wired_mspan_of(pkt, total), 5, 299};
+  CHECK(hspkt_onertt_open(&pk, &od, &out));
   CHECK(out.n == sizeof frames);
   for (usz i = 0; i < sizeof frames; i++) CHECK(out.p[i] == frames[i]);
 
   /* Without the right baseline the recovered PN is 44, the nonce is wrong,
    * and authentication fails — confirms the test exercises PN recovery. */
   total = seal_truncated(&k, &hp, dcid, 5, 300, 1, frames, sizeof frames, pkt);
-  quic_hspkt_onertt_open_desc o0 = {wired_mspan_of(pkt, total), 5, 0};
-  CHECK(!quic_hspkt_onertt_open(&pk, &o0, &out));
+  hspkt_onertt_open_desc o0 = {wired_mspan_of(pkt, total), 5, 0};
+  CHECK(!hspkt_onertt_open(&pk, &o0, &out));
 }
 
 /* Chrome's ACK-only 1-RTT packets are the minimum length whose header-
@@ -140,19 +140,19 @@ static void test_onertt_truncated_pn(void) {
  * Rejecting these dropped every ACK Chrome sent after its CONNECT and the
  * connection blackholed. */
 static void test_onertt_min_length_short_pn(void) {
-  initial_keys      k;
-  aes128            hp;
-  const u8          dcid[6]  = {1, 2, 3, 4, 5, 6};
-  const u8          frames[] = {0x01, 0x01, 0x01}; /* PING PING PING */
-  u8                pkt[64];
-  wired_span        out;
-  usz               total;
-  quic_protect_keys pk = {&k, &hp};
+  initial_keys k;
+  aes128       hp;
+  const u8     dcid[6]  = {1, 2, 3, 4, 5, 6};
+  const u8     frames[] = {0x01, 0x01, 0x01}; /* PING PING PING */
+  u8           pkt[64];
+  wired_span   out;
+  usz          total;
+  protect_keys pk = {&k, &hp};
   onertt_keys(&k, &hp);
   total = seal_truncated(&k, &hp, dcid, 6, 42, 1, frames, sizeof frames, pkt);
   CHECK(total == 27); /* the exact shape Chrome sends */
-  quic_hspkt_onertt_open_desc od = {wired_mspan_of(pkt, total), 6, 30};
-  CHECK(quic_hspkt_onertt_open(&pk, &od, &out));
+  hspkt_onertt_open_desc od = {wired_mspan_of(pkt, total), 6, 30};
+  CHECK(hspkt_onertt_open(&pk, &od, &out));
   CHECK(out.n == sizeof frames);
   for (usz i = 0; i < sizeof frames; i++) CHECK(out.p[i] == frames[i]);
 }

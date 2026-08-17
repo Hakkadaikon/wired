@@ -23,7 +23,7 @@
  * bits are a rotation of v1's), so this always needs the packet's own
  * Version field alongside byte0, never byte0 alone. */
 static int srvboot_is_long_initial(u8 byte0, u32 version) {
-  return quic_packet_long_type(byte0, version) == QUIC_PT_INITIAL;
+  return packet_long_type(byte0, version) == QUIC_PT_INITIAL;
 }
 
 /* 1 if dg has room for a long header prefix (byte0 + 4-byte version) and
@@ -68,8 +68,8 @@ static int srvboot_set_cids(
 static void srvboot_set_reset_token(
     const wired_srvboot_conn* conn, const wired_srvboot_id* id) {
   u8 key[QUIC_SRESET_KEY], token[QUIC_SRESET_TOKEN];
-  quic_sreset_key_derive(id->cert_seed, key);
-  quic_sreset_token(key, id->scid, id->scid_len, token);
+  sreset_key_derive(id->cert_seed, key);
+  sreset_token(key, id->scid, id->scid_len, token);
   wired_server_set_reset_token(conn->s, token);
 }
 
@@ -95,9 +95,9 @@ static int srvboot_init(
  * ServerHello Initial must acknowledge the number actually received or the
  * peer keeps retransmitting. */
 static u64 srvboot_initial_pn(wired_mspan dg) {
-  quic_lhdr h;
-  if (!quic_lhdr_parse(wired_span_of(dg.p, dg.n), 1, &h)) return 0;
-  return quic_pnum_decode(dg.p + h.pn_off, quic_lhdr_pn_len(dg.p[0]), 0);
+  lhdr h;
+  if (!lhdr_parse(wired_span_of(dg.p, dg.n), 1, &h)) return 0;
+  return pnum_decode(dg.p + h.pn_off, lhdr_pn_len(dg.p[0]), 0);
 }
 
 /* The two pieces of a server flight: the ServerHello (Initial space) and the
@@ -183,7 +183,7 @@ static int srvboot_seal_flight(
  * in `version` -- the accepted Initial's own version (RFC 9368 2 / property
  * 2: this server never switches away from the version the client's first
  * flight used, so the reply is trivially compatible with it, verified
- * defensively via quic_version_compatible rather than assumed). */
+ * defensively via version_compatible rather than assumed). */
 /* flight sized past a real 9-cert amplificationlimit chain's Handshake
  * flight (EncryptedExtensions + 9 CERTIFICATE entries + CertificateVerify +
  * Finished) with headroom -- matches srvrun_conn.boot_hs, the buffer this
@@ -209,7 +209,7 @@ static int srvboot_build_flight_bytes(
   wired_obuf      sh_ob = obuf_of(sh, SRVBOOT_SH_MAX);
   wired_obuf      fl_ob = obuf_of(flight, SRVBOOT_HS_FLIGHT_MAX);
   sdrv_flight_out fo    = {&sh_ob, &fl_ob};
-  if (!quic_version_compatible(version, version)) return 0;
+  if (!version_compatible(version, version)) return 0;
   if (!wired_server_build_flight(conn->s, id->random, &fo)) return 0;
   *fb = (srvboot_flight_bytes){
       wired_span_of(sh, sh_ob.len), wired_span_of(flight, fl_ob.len)};
@@ -239,7 +239,7 @@ static int srvboot_flight(
 }
 
 void wired_srvboot_acc_reset(wired_srvboot_acc* a) {
-  quic_crecv_init(&a->cr);
+  crecv_init(&a->cr);
   a->largest_pn = 0;
   a->any        = 0;
   a->opened     = 0;
@@ -302,8 +302,8 @@ static int srvboot_acc_take(wired_srvboot_acc* a, wired_mspan pkt) {
   wired_span payload;
   wired_span odcid = wired_span_of(a->hdr.dcid, a->hdr.dcid_len);
   if (!srvboot_is_long_initial(pkt.p[0], a->hdr.version)) return 0;
-  if (!quic_initpkt_open_ver(odcid, a->hdr.version, pkt, &payload)) return 0;
-  quic_crecv_collect(&a->cr, payload.p, payload.n);
+  if (!initpkt_open_ver(odcid, a->hdr.version, pkt, &payload)) return 0;
+  crecv_collect(&a->cr, payload.p, payload.n);
   a->largest_pn = u64_max(a->largest_pn, srvboot_initial_pn(pkt));
   a->opened++;
   return 1;
@@ -348,7 +348,7 @@ usz wired_srvboot_partial_ack(
 
 int wired_srvboot_is_zerortt(const u8* dg, usz len) {
   if (!srvboot_is_initial_sized(dg, len)) return 0;
-  return quic_packet_long_type(dg[0], be_get_be32(dg + 1)) == QUIC_PT_0RTT;
+  return packet_long_type(dg[0], be_get_be32(dg + 1)) == QUIC_PT_0RTT;
 }
 
 /* 1 if a has room for one more buffered 0-RTT datagram of dg's size --
@@ -372,11 +372,11 @@ static void srvboot_zerortt_buffer(wired_srvboot_acc* a, wired_mspan dg) {
 /* Absorb every coalesced Initial packet in dg into a. Split out of
  * wired_srvboot_acc_feed so its own 0-RTT/Initial dispatch stays <=3. */
 static int srvboot_acc_feed_initial(wired_srvboot_acc* a, wired_mspan dg) {
-  const u8*    pkts[SRVBOOT_ACC_PKTS];
-  usz          offs[SRVBOOT_ACC_PKTS], lens[SRVBOOT_ACC_PKTS], n, got = 0;
-  quic_pktlist pl = {pkts, offs, lens, SRVBOOT_ACC_PKTS};
+  const u8* pkts[SRVBOOT_ACC_PKTS];
+  usz       offs[SRVBOOT_ACC_PKTS], lens[SRVBOOT_ACC_PKTS], n, got = 0;
+  pktlist   pl = {pkts, offs, lens, SRVBOOT_ACC_PKTS};
   if (!srvboot_acc_admit(a, dg)) return 0;
-  n = quic_udploop_split(wired_span_of(dg.p, dg.n), &pl);
+  n = udploop_split(wired_span_of(dg.p, dg.n), &pl);
   for (usz i = 0; i < n; i++)
     got += (usz)srvboot_acc_take(a, wired_mspan_of(dg.p + offs[i], lens[i]));
   return got != 0;
@@ -400,7 +400,7 @@ wired_span wired_srvboot_acc_zerortt_take(const wired_srvboot_acc* a, usz i) {
 }
 
 int wired_srvboot_acc_complete(const wired_srvboot_acc* a) {
-  return a->any && quic_crecv_complete_message(&a->cr);
+  return a->any && crecv_complete_message(&a->cr);
 }
 
 /* Init the server/loop from the bound header and fold the reassembled
@@ -410,7 +410,7 @@ static int srvboot_acc_start(
     const wired_srvboot_id*   id,
     wired_srvboot_acc*        a) {
   wired_span ch;
-  quic_crecv_message(&a->cr, &ch.p, &ch.n);
+  crecv_message(&a->cr, &ch.p, &ch.n);
   if (!srvboot_init(conn, id, &a->hdr)) return 0;
   return wired_server_recv_initial(conn->s, ch.p, ch.n);
 }
@@ -443,11 +443,11 @@ usz wired_srvboot_refusal(
     u64                      error_code,
     u8*                      out,
     usz                      cap) {
-  u8                    fr[8];
-  quic_conn_close_frame f  = {0, srvboot_refusal_error(error_code), 0, 0, 0};
-  usz                   fn = quic_frame_put_conn_close(fr, sizeof fr, &f);
-  wired_obuf            ob = obuf_of(out, cap);
-  quic_srvwire_seal_in  wi = {
+  u8                   fr[8];
+  conn_close_frame     f  = {0, srvboot_refusal_error(error_code), 0, 0, 0};
+  usz                  fn = frame_put_conn_close(fr, sizeof fr, &f);
+  wired_obuf           ob = obuf_of(out, cap);
+  quic_srvwire_seal_in wi = {
       wired_span_of(a->hdr.dcid, a->hdr.dcid_len),
       wired_span_of(a->hdr.scid, a->hdr.scid_len),
       scid,
@@ -479,10 +479,10 @@ static int srvboot_vn_sized(wired_span dg) {
 /* 1 if v is neither a Version Negotiation packet's 0 (RFC 9000 6.1) nor a
  * version this server speaks (RFC 9368 5 supported set: v1, v2). */
 static int srvboot_vn_alien(u32 v) {
-  quic_vers_set s;
+  vers_set s;
   if (v == 0) return 0;
-  quic_vers_init(&s);
-  return !quic_vers_supports(&s, v);
+  vers_init(&s);
+  return !vers_supports(&s, v);
 }
 
 /* 1 if dg is a long-header datagram of an unsupported version. */
@@ -491,14 +491,14 @@ static int srvboot_vn_owed(wired_span dg) {
 }
 
 usz wired_srvboot_vneg(wired_span dg, u8* out, usz cap) {
-  quic_vers_set  s;
-  wired_header   h;
-  quic_vneg_desc d;
+  vers_set     s;
+  wired_header h;
+  vneg_desc    d;
   if (!srvboot_vn_owed(dg)) return 0;
   if (!wired_header_parse(dg.p, dg.n, &h)) return 0;
-  quic_vers_init(&s);
-  d = (quic_vneg_desc){
+  vers_init(&s);
+  d = (vneg_desc){
       wired_span_of(h.dcid, h.dcid_len), wired_span_of(h.scid, h.scid_len),
       s.versions, s.n};
-  return quic_vneg_respond(out, cap, &d);
+  return vneg_respond(out, cap, &d);
 }

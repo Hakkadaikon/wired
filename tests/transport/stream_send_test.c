@@ -12,9 +12,9 @@ static int appdata_frame_flat(
     u8*       out,
     usz       cap,
     usz*      out_len) {
-  quic_stream_frame f  = {sid, off, n, d, (u8)(fin ? 1 : 0)};
-  wired_obuf        ob = obuf_of(out, cap);
-  if (!quic_appdata_stream_frame(&f, &ob)) return 0;
+  stream_frame f  = {sid, off, n, d, (u8)(fin ? 1 : 0)};
+  wired_obuf   ob = obuf_of(out, cap);
+  if (!appdata_stream_frame(&f, &ob)) return 0;
   *out_len = ob.len;
   return 1;
 }
@@ -32,10 +32,10 @@ static int appdata_send_flat(
     u8*                 out,
     usz                 cap,
     usz*                out_len) {
-  quic_protect_keys pk = {k, hp};
-  quic_appdata_tx   tx = {{dcid, dcid_len}, pn, sid, {data, len}, fin};
-  wired_obuf        ob = obuf_of(out, cap);
-  if (!quic_appdata_send(&pk, &tx, &ob)) return 0;
+  protect_keys pk = {k, hp};
+  appdata_tx   tx = {{dcid, dcid_len}, pn, sid, {data, len}, fin};
+  wired_obuf   ob = obuf_of(out, cap);
+  if (!appdata_send(&pk, &tx, &ob)) return 0;
   *out_len = ob.len;
   return 1;
 }
@@ -51,10 +51,10 @@ static int appdata_recv_flat(
     const u8**          data,
     usz*                dlen,
     int*                fin) {
-  quic_protect_keys pk = {k, hp};
-  quic_appdata_pkt  ap = {{pkt, len}, dcid_len};
-  quic_stream_frame f;
-  if (!quic_appdata_recv(&pk, &ap, &f)) return 0;
+  protect_keys pk = {k, hp};
+  appdata_pkt  ap = {{pkt, len}, dcid_len};
+  stream_frame f;
+  if (!appdata_recv(&pk, &ap, &f)) return 0;
   *sid  = f.stream_id;
   *off  = f.offset;
   *data = f.data;
@@ -73,8 +73,8 @@ static void test_stream_frame_basic(void) {
       appdata_frame_flat(4, 0, data, sizeof(data), 0, out, sizeof(out), &olen));
   CHECK(out[0] == (QUIC_FRAME_STREAM_BASE | QUIC_STREAM_LEN));
 
-  quic_stream_frame f;
-  CHECK(quic_frame_get_stream(out, olen, &f) == olen);
+  stream_frame f;
+  CHECK(frame_get_stream(out, olen, &f) == olen);
   CHECK(f.stream_id == 4);
   CHECK(f.offset == 0);
   CHECK(f.length == sizeof(data));
@@ -93,8 +93,8 @@ static void test_stream_frame_off_fin(void) {
       out[0] == (QUIC_FRAME_STREAM_BASE | QUIC_STREAM_OFF | QUIC_STREAM_LEN |
                  QUIC_STREAM_FIN));
 
-  quic_stream_frame f;
-  CHECK(quic_frame_get_stream(out, olen, &f) == olen);
+  stream_frame f;
+  CHECK(frame_get_stream(out, olen, &f) == olen);
   CHECK(f.stream_id == 7);
   CHECK(f.offset == 100);
   CHECK(f.fin == 1);
@@ -110,8 +110,8 @@ static void test_stream_frame_off_nofin(void) {
   CHECK(out[0] == (QUIC_FRAME_STREAM_BASE | QUIC_STREAM_OFF | QUIC_STREAM_LEN));
   CHECK((out[0] & QUIC_STREAM_FIN) == 0);
 
-  quic_stream_frame f;
-  CHECK(quic_frame_get_stream(out, olen, &f) == olen);
+  stream_frame f;
+  CHECK(frame_get_stream(out, olen, &f) == olen);
   CHECK(f.offset == 5);
   CHECK(f.fin == 0);
 }
@@ -124,8 +124,8 @@ static void test_stream_frame_empty(void) {
   CHECK(appdata_frame_flat(8, 0, (const u8*)"", 0, 1, out, sizeof(out), &olen));
   CHECK(out[0] == (QUIC_FRAME_STREAM_BASE | QUIC_STREAM_LEN | QUIC_STREAM_FIN));
 
-  quic_stream_frame f;
-  CHECK(quic_frame_get_stream(out, olen, &f) == olen);
+  stream_frame f;
+  CHECK(frame_get_stream(out, olen, &f) == olen);
   CHECK(f.stream_id == 8);
   CHECK(f.length == 0);
   CHECK(f.fin == 1);

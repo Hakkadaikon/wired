@@ -25,10 +25,7 @@
  * streams of stream_id's type have been created so far; only consulted when
  * stream_id is locally initiated. Returns 1 if legal, 0 (STREAM_STATE_ERROR)
  * otherwise. */
-int quic_streamstate_ok(
-    int                 am_server,
-    u64                 stream_id,
-    int                 needs_send,
-    const quic_streams* local_streams);
+int streamstate_ok(
+    int am_server, u64 stream_id, int needs_send, const streams* local_streams);
 
 #endif

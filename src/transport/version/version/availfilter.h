@@ -6,6 +6,6 @@
 /* RFC 9368 3: Available Versions may contain reserved (GREASE) versions that
  * must be ignored when negotiating. A version is usable if it is not
  * reserved. */
-int quic_verinfo_is_usable(u32 version);
+int verinfo_is_usable(u32 version);
 
 #endif

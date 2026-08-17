@@ -4,7 +4,7 @@
 /* @file
  * A named acceptance test that DOCUMENTS the known QUIC-migration/
  * SO_REUSEPORT routing gap, using the CID worker-index codec
- * (quic_ncid_worker_encode/decode) to demonstrate it concretely. This does
+ * (ncid_worker_encode/decode) to demonstrate it concretely. This does
  * NOT implement any migration-handling logic -- that is explicitly out of
  * scope (eBPF CID steering). It is a regression anchor: if the CID encoding
  * is accidentally broken, or accidentally "fixed" in a way inconsistent with
@@ -28,8 +28,8 @@ static u32 naive_hash_route(u32 src_ip, u32 src_port, int num_workers) {
  * migration, so this half of the story is correct by construction. */
 static void test_migration_cid_bits_survive_unchanged(void) {
   u8 cid[8] = {0};
-  CHECK(quic_ncid_worker_encode(cid, sizeof cid, 2, 2) == 0);
-  CHECK(quic_ncid_worker_decode(cid, sizeof cid, 2) == 2);
+  CHECK(ncid_worker_encode(cid, sizeof cid, 2, 2) == 0);
+  CHECK(ncid_worker_decode(cid, sizeof cid, 2) == 2);
 }
 
 /* TEST: the documented gap. Original 4-tuple (10.0.0.3, port 12345) hashes
@@ -52,11 +52,11 @@ static void test_migration_naive_hash_disagrees_with_cid(void) {
   int cid_worker    = 2;
   u32 hash_before, hash_after, cid_after;
 
-  CHECK(quic_ncid_worker_encode(cid, sizeof cid, 2, (u32)cid_worker) == 0);
+  CHECK(ncid_worker_encode(cid, sizeof cid, 2, (u32)cid_worker) == 0);
 
   hash_before = naive_hash_route(original_ip, original_port, num_workers);
   hash_after  = naive_hash_route(migrated_ip, migrated_port, num_workers);
-  cid_after   = (u32)quic_ncid_worker_decode(cid, sizeof cid, 2);
+  cid_after   = (u32)ncid_worker_decode(cid, sizeof cid, 2);
 
   CHECK((int)hash_before == cid_worker); /* agree at connection start */
   CHECK((int)cid_after == cid_worker);   /* CID bits: unchanged by migration */

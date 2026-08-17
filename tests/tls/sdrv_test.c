@@ -776,13 +776,13 @@ static void test_sdrv_recv_client_hello_dup_tp_rejected(void) {
  * 9368 3 wire format: Chosen Version + Available Versions, each 4 bytes) is
  * accepted like any other unrecognized-but-valid parameter. */
 static void test_sdrv_recv_client_hello_version_information_ok(void) {
-  u8                       cli_pub[32], srv_random[32];
-  u8                       vibuf[16], tpbuf[32], ch[512];
-  wired_obuf               tob = obuf_of(tpbuf, sizeof(tpbuf));
-  usz                      tp_len, ch_len, vi_len;
-  sdrv                     s;
-  quic_version_information vi = {QUIC_VERSION_1, 1, {QUIC_VERSION_1}};
-  vi_len                      = quic_verinfo_encode(vibuf, sizeof(vibuf), &vi);
+  u8                  cli_pub[32], srv_random[32];
+  u8                  vibuf[16], tpbuf[32], ch[512];
+  wired_obuf          tob = obuf_of(tpbuf, sizeof(tpbuf));
+  usz                 tp_len, ch_len, vi_len;
+  sdrv                s;
+  version_information vi = {QUIC_VERSION_1, 1, {QUIC_VERSION_1}};
+  vi_len                 = verinfo_encode(vibuf, sizeof(vibuf), &vi);
   CHECK(vi_len != 0);
   tp_len = tparam_put_blob(
       &tob, QUIC_TP_VERSION_INFORMATION, wired_span_of(vibuf, vi_len));

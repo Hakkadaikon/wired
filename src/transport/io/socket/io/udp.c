@@ -32,7 +32,7 @@ static void udp_addr_map4(u8 addr[16], const u8 octets[4]) {
   for (usz i = 0; i < 4; i++) addr[12 + i] = octets[i];
 }
 
-void wired_udp_addr(quic_sockaddr* sa, u16 port, const u8 octets[4]) {
+void wired_udp_addr(sockaddr* sa, u16 port, const u8 octets[4]) {
   for (usz i = 0; i < 16; i++) sa->addr[i] = 0;
   sa->family   = WIRED_AF_INET6;
   sa->port_be  = hton16(port);
@@ -60,11 +60,11 @@ i64 wired_udp_socket(void) {
   return fd;
 }
 
-i64 wired_udp_bind(i64 fd, const quic_sockaddr* sa) {
+i64 wired_udp_bind(i64 fd, const sockaddr* sa) {
   return wired_arch_bind(fd, sa, sizeof(*sa));
 }
 
-i64 wired_udp_send(i64 fd, const quic_sockaddr* sa, wired_span buf) {
+i64 wired_udp_send(i64 fd, const sockaddr* sa, wired_span buf) {
   return wired_arch_sendto(fd, buf.p, buf.n, 0, sa, sizeof(*sa));
 }
 
@@ -72,7 +72,7 @@ i64 wired_udp_recv(i64 fd, wired_mspan buf) {
   return wired_arch_recvfrom(fd, buf.p, buf.n, 0, 0, 0);
 }
 
-i64 wired_udp_recvfrom(i64 fd, wired_mspan buf, quic_sockaddr* src) {
+i64 wired_udp_recvfrom(i64 fd, wired_mspan buf, sockaddr* src) {
   /* addrlen is in/out: pass the buffer size, kernel writes the actual length.
    */
   u32 addrlen = sizeof(*src);
@@ -86,7 +86,7 @@ i64 wired_udp_close(i64 fd) { return wired_arch_close(fd); }
 typedef struct {
   const void* iov_base;
   u64         iov_len;
-} quic_iovec;
+} iovec;
 
 /* x86_64 Linux struct msghdr (56 bytes), manually laid out to match the
  * kernel ABI for sendmsg(2) (man 2 sendmsg / uapi socket.h). */
@@ -94,13 +94,13 @@ typedef struct {
   const void* msg_name;
   u32         msg_namelen;
   u32         msg_namelen_pad; /* kernel struct has 4B padding here (LP64) */
-  quic_iovec* msg_iov;
+  iovec*      msg_iov;
   u64         msg_iovlen;
   void*       msg_control;
   u64         msg_controllen;
   u32         msg_flags;
   u32         msg_flags_pad;
-} quic_msghdr;
+} msghdr;
 
 void wired_udp_gso_cmsg_build(u8 out[WIRED_GSO_CMSG_SPACE], u16 segsize) {
   bytes_memset(out, 0, WIRED_GSO_CMSG_SPACE);
@@ -165,10 +165,10 @@ i64 wired_udp_recvtos_enable(i64 fd) {
 }
 
 i64 wired_udp_send_gso(
-    i64 fd, const quic_sockaddr* sa, wired_span buf, u16 segsize) {
-  u8          cmsg[WIRED_GSO_CMSG_SPACE];
-  quic_iovec  iov = {buf.p, buf.n};
-  quic_msghdr msg = {0};
+    i64 fd, const sockaddr* sa, wired_span buf, u16 segsize) {
+  u8     cmsg[WIRED_GSO_CMSG_SPACE];
+  iovec  iov = {buf.p, buf.n};
+  msghdr msg = {0};
   wired_udp_gso_cmsg_build(cmsg, segsize);
   msg.msg_name       = sa;
   msg.msg_namelen    = sizeof(*sa);
@@ -186,7 +186,7 @@ static usz gso_batch_seglen(usz remaining, u16 segsize) {
 }
 
 i64 wired_udp_send_batch(
-    i64 fd, const quic_sockaddr* sa, wired_span buf, u16 segsize) {
+    i64 fd, const sockaddr* sa, wired_span buf, u16 segsize) {
   usz off  = 0;
   i64 sent = 0;
   while (off < buf.n) {
@@ -265,10 +265,10 @@ static u8 cmsg_read_ip_tos(const u8* control, u64 controllen) {
 /* x86_64 Linux struct mmsghdr (man 2 recvmmsg / uapi socket.h): the msghdr
  * above plus the kernel-filled received length. */
 typedef struct {
-  quic_msghdr msg_hdr;
-  u32         msg_len;
-  u32         msg_len_pad; /* kernel struct has 4B padding here (LP64) */
-} quic_mmsghdr;
+  msghdr msg_hdr;
+  u32    msg_len;
+  u32    msg_len_pad; /* kernel struct has 4B padding here (LP64) */
+} mmsghdr;
 
 /* recvmmsg() caps count at IOV_MAX-equivalent batch sizes in practice; QUIC
  * datagram batches are always small, so a fixed on-stack cap is enough
@@ -284,8 +284,8 @@ typedef struct {
  * back as 0. Zeroes the whole slot first so no uninitialized stack bytes
  * (e.g. msg_control/msg_controllen) ever reach the recvmmsg(2) syscall. */
 static void recvmmsg_fill_slot(
-    quic_mmsghdr* slot, quic_iovec* iov, quic_mmsg_buf* b, u8* cmsgbuf) {
-  *slot                        = (quic_mmsghdr){0};
+    mmsghdr* slot, iovec* iov, mmsg_buf* b, u8* cmsgbuf) {
+  *slot                        = (mmsghdr){0};
   iov->iov_base                = b->buf.p;
   iov->iov_len                 = b->buf.n;
   slot->msg_hdr.msg_name       = &b->src;
@@ -300,18 +300,17 @@ static void recvmmsg_fill_slot(
  * slots of WIRED_RECV_CMSG_CAP bytes each, one per bufs[i]: distinct scratch
  * per slot, so batched ECN bits never cross-contaminate. */
 static void recvmmsg_fill_all(
-    quic_mmsghdr*  slots,
-    quic_iovec*    iovs,
-    quic_mmsg_buf* bufs,
-    usz            n,
-    u8             cmsgbufs[][WIRED_RECV_CMSG_CAP]) {
+    mmsghdr*  slots,
+    iovec*    iovs,
+    mmsg_buf* bufs,
+    usz       n,
+    u8        cmsgbufs[][WIRED_RECV_CMSG_CAP]) {
   for (usz i = 0; i < n; i++)
     recvmmsg_fill_slot(&slots[i], &iovs[i], &bufs[i], cmsgbufs[i]);
 }
 
 /* Copy the kernel-filled length back into each received slot. */
-static void recvmmsg_read_lens(
-    quic_mmsg_buf* bufs, const quic_mmsghdr* slots, i64 r) {
+static void recvmmsg_read_lens(mmsg_buf* bufs, const mmsghdr* slots, i64 r) {
   for (i64 i = 0; i < r; i++) bufs[i].len = slots[i].msg_len;
 }
 
@@ -323,13 +322,12 @@ static void recvmmsg_read_lens(
 
 /* Read each received slot's ECN bits from the cmsg buffer the kernel
  * filled, honoring MSG_CTRUNC. */
-static void recvmmsg_read_ecn(
-    quic_mmsg_buf* bufs, const quic_mmsghdr* slots, i64 r) {
+static void recvmmsg_read_ecn(mmsg_buf* bufs, const mmsghdr* slots, i64 r) {
   for (i64 i = 0; i < r; i++) {
-    const quic_msghdr* h = &slots[i].msg_hdr;
-    bufs[i].ecn = (h->msg_flags & WIRED_MSG_CTRUNC)
-                      ? 0
-                      : cmsg_read_ip_tos(h->msg_control, h->msg_controllen);
+    const msghdr* h = &slots[i].msg_hdr;
+    bufs[i].ecn     = (h->msg_flags & WIRED_MSG_CTRUNC)
+                          ? 0
+                          : cmsg_read_ip_tos(h->msg_control, h->msg_controllen);
   }
 }
 
@@ -339,12 +337,12 @@ static void recvmmsg_read_ecn(
  * loop asking for a full batch would hang on a single arriving datagram. */
 #define WIRED_MSG_WAITFORONE 0x10000
 
-i64 wired_udp_recvmmsg(i64 fd, quic_mmsg_buf* bufs, usz count) {
-  quic_mmsghdr slots[WIRED_RECVMMSG_MAX]                         = {0};
-  quic_iovec   iovs[WIRED_RECVMMSG_MAX]                          = {0};
-  u8           cmsgbufs[WIRED_RECVMMSG_MAX][WIRED_RECV_CMSG_CAP] = {0};
-  usz          n = count < WIRED_RECVMMSG_MAX ? count : WIRED_RECVMMSG_MAX;
-  i64          r;
+i64 wired_udp_recvmmsg(i64 fd, mmsg_buf* bufs, usz count) {
+  mmsghdr slots[WIRED_RECVMMSG_MAX]                         = {0};
+  iovec   iovs[WIRED_RECVMMSG_MAX]                          = {0};
+  u8      cmsgbufs[WIRED_RECVMMSG_MAX][WIRED_RECV_CMSG_CAP] = {0};
+  usz     n = count < WIRED_RECVMMSG_MAX ? count : WIRED_RECVMMSG_MAX;
+  i64     r;
   recvmmsg_fill_all(slots, iovs, bufs, n, cmsgbufs);
   r = wired_arch_recvmmsg(fd, slots, n, WIRED_MSG_WAITFORONE, 0);
   if (r < 0) return r;
@@ -353,7 +351,7 @@ i64 wired_udp_recvmmsg(i64 fd, quic_mmsg_buf* bufs, usz count) {
   return r;
 }
 
-i64 wired_udp_recvmmsg_fallback(i64 fd, quic_mmsg_buf* bufs, usz count) {
+i64 wired_udp_recvmmsg_fallback(i64 fd, mmsg_buf* bufs, usz count) {
   usz n = 0;
   while (n < count) {
     i64 r = wired_udp_recvfrom(fd, bufs[n].buf, &bufs[n].src);
@@ -382,12 +380,12 @@ i64 wired_udp_reuseport_enable(i64 fd) {
  * O_NONBLOCK which is a persistent open-file-description flag. */
 #define WIRED_MSG_DONTWAIT 0x40
 
-i64 wired_udp_recvmmsg_nowait(i64 fd, quic_mmsg_buf* bufs, usz count) {
-  quic_mmsghdr slots[WIRED_RECVMMSG_MAX]                         = {0};
-  quic_iovec   iovs[WIRED_RECVMMSG_MAX]                          = {0};
-  u8           cmsgbufs[WIRED_RECVMMSG_MAX][WIRED_RECV_CMSG_CAP] = {0};
-  usz          n = count < WIRED_RECVMMSG_MAX ? count : WIRED_RECVMMSG_MAX;
-  i64          r;
+i64 wired_udp_recvmmsg_nowait(i64 fd, mmsg_buf* bufs, usz count) {
+  mmsghdr slots[WIRED_RECVMMSG_MAX]                         = {0};
+  iovec   iovs[WIRED_RECVMMSG_MAX]                          = {0};
+  u8      cmsgbufs[WIRED_RECVMMSG_MAX][WIRED_RECV_CMSG_CAP] = {0};
+  usz     n = count < WIRED_RECVMMSG_MAX ? count : WIRED_RECVMMSG_MAX;
+  i64     r;
   recvmmsg_fill_all(slots, iovs, bufs, n, cmsgbufs);
   r = wired_arch_recvmmsg(
       fd, slots, n, WIRED_MSG_WAITFORONE | WIRED_MSG_DONTWAIT, 0);

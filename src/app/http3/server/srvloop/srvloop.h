@@ -399,14 +399,14 @@ typedef struct {
                     * client Finished's actual PN, which is not always 0) */
   int hs_rx_seen;  /**< 1 once a Handshake packet has been received */
   /** RFC 9000 12.3/13.2.1/13.2.2/19.3: every packet number space's received-pn
-   * window (quic_pnspaces_recv, independent per space -- Initial is out of
+   * window (pnspaces_recv, independent per space -- Initial is out of
    * this loop's scope, srvboot's own layer) plus whether/when each space
-   * owes an ACK (quic_ackpolicy, one instance per space since App and
+   * owes an ACK (ackpolicy, one instance per space since App and
    * Handshake ack independently). Indexed by QUIC_PNS_APP/QUIC_PNS_HANDSHAKE
    * (transport/conn/lifecycle/conn/pnspace.h). */
-  quic_pnspaces_recv ack_recv;
-  quic_ackpolicy     app_ack_policy; /**< App space's delayed-ACK timer */
-  quic_ackpolicy     hs_ack_policy;  /**< Handshake space's delayed-ACK timer */
+  pnspaces_recv ack_recv;
+  ackpolicy     app_ack_policy; /**< App space's delayed-ACK timer */
+  ackpolicy     hs_ack_policy;  /**< Handshake space's delayed-ACK timer */
   /** When 1, respond.c's bare-ACK packet (emit_ack_only) is suppressed for
    * the current step: the driving loop (srvrun.c) piggybacks the pending
    * App-space ACK onto the response slice it is about to send, or flushes
@@ -414,7 +414,7 @@ typedef struct {
    * it (0, every plain srvloop user) keeps the original behavior. */
   u8 ack_defer;
   /** Monotonic ms this step is being driven at -- the time source
-   * quic_ackpolicy's delayed-ACK timer measures against. The caller (e.g.
+   * ackpolicy's delayed-ACK timer measures against. The caller (e.g.
    * srvrun.c) sets this once per step, sharing its own PTO/RTT time source
    * (srvrun_step_ctx.now_ms) rather than adding a second clock; a caller
    * that never sets it (0) simply never ages a pending ACK past the delay
@@ -508,7 +508,7 @@ typedef struct {
   int resp_external;      /**< 1: the caller answers requests, not the loop */
   /** ACK ranges (RFC 9000 19.3) seen in payloads opened this step, reset at
    * the start of every wired_srvloop_step; overflow past the cap is dropped.
-   * 32 matches quic_ack_decode's own max range count (ack.h), so a single
+   * 32 matches ack_decode's own max range count (ack.h), so a single
    * ACK frame's ranges are never truncated here before the caller (multiple
    * per-stream send sessions, each keyed by pn) gets to consume them. */
   u64 ack_lo[32]; /**< range lows, parallel with ack_hi */
@@ -638,7 +638,7 @@ typedef struct {
    * this running total, not one step's delta (see app_ack_encode_ranges in
    * respond.c). Advanced by wired_srvloop_ecn_note, called once per received
    * datagram with the ECN codepoint the UDP layer read from its IP_TOS cmsg
-   * (quic_mmsg_buf.ecn in udp.h). 0 for all three until any ECN-marked
+   * (mmsg_buf.ecn in udp.h). 0 for all three until any ECN-marked
    * datagram arrives. */
   u64 ecn_ect0;
   /** ECT(1) running total (same lifecycle as ecn_ect0's doc above). */
@@ -890,7 +890,7 @@ int wired_srvloop_step(
     const wired_srvloop_conn* conn, wired_mspan dgram, wired_obuf* out);
 
 /** RFC 9000 13.4 / RFC 9002 19.3.2: add one received datagram's ECN codepoint
- * (RFC 3168: 0 Not-ECT, 1 ECT(1), 2 ECT(0), 3 CE, matching quic_mmsg_buf.ecn
+ * (RFC 3168: 0 Not-ECT, 1 ECT(1), 2 ECT(0), 3 CE, matching mmsg_buf.ecn
  * in udp.h) to l's cumulative counts, which app_ack_encode_ranges (respond.c)
  * later reports in the connection's 1-RTT ACK frames. The caller driving the
  * UDP receive loop (e.g. srvrun.c) calls this once per received datagram,

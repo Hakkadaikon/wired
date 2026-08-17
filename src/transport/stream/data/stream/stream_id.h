@@ -12,13 +12,13 @@
 #define QUIC_STREAM_DIR_BIT 0x2       /* 0 bidi, 1 uni */
 
 /* Whether the stream was initiated by the client (vs the server). */
-int quic_stream_is_client_initiated(u64 id);
+int stream_is_client_initiated(u64 id);
 
 /* Whether the stream is unidirectional (vs bidirectional). */
-int quic_stream_is_uni(u64 id);
+int stream_is_uni(u64 id);
 
 /* The nth stream (sequence index) of a given type. is_server and is_uni
  * select one of the four types; index is the 0-based position. */
-u64 quic_stream_id(int is_server, int is_uni, u64 index);
+u64 stream_id(int is_server, int is_uni, u64 index);
 
 #endif

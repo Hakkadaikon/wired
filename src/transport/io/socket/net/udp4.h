@@ -13,27 +13,26 @@
 typedef struct {
   u32 src;
   u32 dst;
-} quic_ipv4addrs;
+} ipv4addrs;
 
 /** Source and destination UDP ports (host order). */
 typedef struct {
   u16 sport;
   u16 dport;
-} quic_udpports;
+} udpports;
 
 /** Ports and addresses (both host order) for one UDP/IPv4 datagram. */
 typedef struct {
-  quic_udpports  ports;
-  quic_ipv4addrs addrs;
-} quic_udp4meta;
+  udpports  ports;
+  ipv4addrs addrs;
+} udp4meta;
 
 /* Build a UDP header + payload into out (8-byte header followed by the
  * payload, pseudo-header checksum filled in). Returns the datagram length
  * (8 + payload_len), or 0 if it does not fit in out->cap. */
-usz quic_udp4_build(
-    wired_obuf* out, const quic_udp4meta* meta, wired_span payload);
+usz udp4_build(wired_obuf* out, const udp4meta* meta, wired_span payload);
 
 /* Verify a received datagram's checksum given the addresses. */
-int quic_udp4_check(wired_span dgram, quic_ipv4addrs addrs);
+int udp4_check(wired_span dgram, ipv4addrs addrs);
 
 #endif

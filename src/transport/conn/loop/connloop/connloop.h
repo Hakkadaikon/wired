@@ -25,26 +25,26 @@ enum {
  * monotonic send level, handshake/validation flags, lifecycle phase, PTO
  * arming, and byte/auth-failure accounting. */
 typedef struct {
-  keyset       keys;
-  quic_sentpkt sent;
-  int          send_level; /* highest protection level used to send so far */
-  int          handshake_complete;  /* RFC 9001 4.1.2: TLS handshake done */
-  int          handshake_confirmed; /* RFC 9001 4.1.2: HANDSHAKE_DONE seen */
-  int          validated;           /* RFC 9000 8.1: address validated */
-  int          is_server;
-  int          phase;      /* QUIC_CONNLOOP_* */
-  int          pto_armed;  /* RFC 9002 6.2: PTO timer armed */
-  u64          recv_bytes; /* RFC 9000 8.1: bytes received on this path */
-  u64          sent_bytes; /* RFC 9000 8.1: bytes sent on this path */
-  u64 auth_fail_count;     /* RFC 9001 6.6: packets that failed AEAD auth */
-  int aead_limit; /* 1 once auth_fail_count reached the integrity limit --
-                   * caller must close with AEAD_LIMIT_REACHED */
-} quic_connloop;
+  keyset  keys;
+  sentpkt sent;
+  int     send_level;         /* highest protection level used to send so far */
+  int     handshake_complete; /* RFC 9001 4.1.2: TLS handshake done */
+  int     handshake_confirmed; /* RFC 9001 4.1.2: HANDSHAKE_DONE seen */
+  int     validated;           /* RFC 9000 8.1: address validated */
+  int     is_server;
+  int     phase;           /* QUIC_CONNLOOP_* */
+  int     pto_armed;       /* RFC 9002 6.2: PTO timer armed */
+  u64     recv_bytes;      /* RFC 9000 8.1: bytes received on this path */
+  u64     sent_bytes;      /* RFC 9000 8.1: bytes sent on this path */
+  u64     auth_fail_count; /* RFC 9001 6.6: packets that failed AEAD auth */
+  int     aead_limit; /* 1 once auth_fail_count reached the integrity limit --
+                       * caller must close with AEAD_LIMIT_REACHED */
+} connloop;
 
 /* Initialize an active connection with an empty keyset and no bytes counted.
  * No level can send until keys are installed; the send level starts below
  * Initial so the first send must promote into Initial. */
-void quic_connloop_init(quic_connloop* c, int is_server);
+void connloop_init(connloop* c, int is_server);
 
 /* RFC 9000 12.2: account a received datagram of len bytes at protection
  * `level` and, only when that level's key is installed and the connection is
@@ -52,15 +52,15 @@ void quic_connloop_init(quic_connloop* c, int is_server);
  * received bytes always raise the anti-amplification budget. Returns 1 if the
  * packet was processed, 0 if it was dropped (no key / discarded level / closed
  * phase). */
-int quic_connloop_on_recv(quic_connloop* c, int level, usz len);
+int connloop_on_recv(connloop* c, int level, usz len);
 
-/** Everything quic_connloop_on_send needs besides the loop. */
+/** Everything connloop_on_send needs besides the loop. */
 typedef struct {
   int level;
   int ack_eliciting;
   u64 pn;
   usz len;
-} quic_connloop_send_in;
+} connloop_send_in;
 
 /* RFC 9001 4.9 / RFC 9000 8.1: try to send `in->len` bytes at protection
  * `in->level`. Refuses if the level would regress, if it is 1-RTT before the
@@ -69,12 +69,12 @@ typedef struct {
  * records the send (ack-eliciting packets are tracked, with `in->pn` as the
  * packet number) and arms the PTO timer when ack-eliciting data is in flight.
  * Returns 1 if sent, 0 if refused. */
-int quic_connloop_on_send(quic_connloop* c, const quic_connloop_send_in* in);
+int connloop_on_send(connloop* c, const connloop_send_in* in);
 
 /* RFC 9000 8.1: mark the peer's address validated (a Handshake packet was
  * received, or path validation completed). Lifts the anti-amplification limit
  * so subsequent sends are no longer capped at 3x the bytes received. */
-void quic_connloop_validate(quic_connloop* c);
+void connloop_validate(connloop* c);
 
 /* RFC 9001 6.6: record one packet that failed AEAD authentication. Increments
  * auth_fail_count and, once it reaches the integrity limit for the AEAD in
@@ -82,39 +82,39 @@ void quic_connloop_validate(quic_connloop* c);
  * variants' shared 2^52), sets aead_limit so the caller closes the
  * connection with AEAD_LIMIT_REACHED. Idempotent past the limit: further
  * failures keep aead_limit set. */
-void quic_connloop_on_auth_fail(quic_connloop* c, int is_chacha);
+void connloop_on_auth_fail(connloop* c, int is_chacha);
 
-/** Everything quic_connloop_on_ack needs besides the loop. */
+/** Everything connloop_on_ack needs besides the loop. */
 typedef struct {
   u64        ack_largest;
   const u64* ack_ranges;
   usz        n_ranges;
-} quic_connloop_ack_in;
+} connloop_ack_in;
 
 /* RFC 9002 5.1: process a received ACK. Removes exactly the acknowledged,
  * genuinely-tracked packets from in-flight; an ACK naming an untracked packet
  * removes nothing. Disarms the PTO timer when in-flight becomes empty.
  * Returns the number of packets newly acknowledged. */
-usz quic_connloop_on_ack(quic_connloop* c, const quic_connloop_ack_in* in);
+usz connloop_on_ack(connloop* c, const connloop_ack_in* in);
 
-/** Everything quic_connloop_on_pto needs besides the loop. */
+/** Everything connloop_on_pto needs besides the loop. */
 typedef struct {
   int level;
   u64 pn;
   usz len;
-} quic_connloop_pto_in;
+} connloop_pto_in;
 
 /* RFC 9002 6.2: PTO fired. Sends a fresh probe at `in->level` (recorded as a
  * new in-flight packet `in->pn`) WITHOUT abandoning existing in-flight
  * packets. Only acts while there is ack-eliciting data in flight; never arms
  * on an empty in-flight set. Returns 1 if a probe was sent, 0 otherwise. */
-int quic_connloop_on_pto(quic_connloop* c, const quic_connloop_pto_in* in);
+int connloop_on_pto(connloop* c, const connloop_pto_in* in);
 
 /* RFC 9000 10.2: drive the close sequence one step:
  * active -> closing (local CONNECTION_CLOSE), closing/active -> draining
  * (peer CONNECTION_CLOSE or idle timeout), draining -> closed. A
  * closing-family phase never returns to active. `peer_closed` selects the
  * draining path; otherwise the phase advances along its own track. */
-void quic_connloop_close(quic_connloop* c, int peer_closed);
+void connloop_close(connloop* c, int peer_closed);
 
 #endif

@@ -41,7 +41,7 @@ static void test_cw_initial_roundtrip(void) {
   CHECK(ob.len == 1200);
   wired_span fv;
   CHECK(
-      quic_initpkt_open(
+      initpkt_open(
           wired_span_of(cw_dcid, 8), wired_mspan_of(pkt, ob.len), &fv) == 1);
   CHECK(fv.p[0] == 0x06);          /* CRYPTO frame */
   CHECK(fv.p[1] == 0x00);          /* offset 0 */
@@ -96,8 +96,8 @@ static void test_cw_handshake_roundtrip(void) {
   CHECK(keysched_get(&c.tls.ks, QUIC_KS_CLIENT_HS, &chs) == 1);
   aes128_init(&hp, chs->hp);
   {
-    wired_span        sp;
-    quic_protect_keys pk = {chs, &hp};
+    wired_span   sp;
+    protect_keys pk = {chs, &hp};
     CHECK(
         quic_srvwire_open_handshake(&pk, wired_mspan_of(pkt, total), &sp) == 1);
     CHECK(sp.n == sizeof(fin));
@@ -116,12 +116,12 @@ static void test_cw_handshake_roundtrip(void) {
         -1,
         wired_span_of(fin, sizeof(fin)),
         0};
-    quic_protect_keys pk = {shs, &hp};
+    protect_keys pk = {shs, &hp};
     CHECK(quic_srvwire_seal_handshake(&pk, &in, &ob2) == 1);
     total = ob2.len;
   }
   {
-    quic_appdata_pkt oin = {wired_mspan_of(pkt, total), 8};
+    appdata_pkt oin = {wired_mspan_of(pkt, total), 8};
     CHECK(client_open_handshake_wire(&c, &oin, &tls) == 1);
   }
   CHECK(tls.n == sizeof(fin));
@@ -143,7 +143,7 @@ static void test_cw_wrong_direction_fails(void) {
   CHECK(client_seal_handshake_wire(&c, &sin, &ob) == 1);
   /* opening own-sealed packet with the peer-direction open key must fail. */
   {
-    quic_appdata_pkt oin = {wired_mspan_of(pkt, ob.len), 8};
+    appdata_pkt oin = {wired_mspan_of(pkt, ob.len), 8};
     CHECK(client_open_handshake_wire(&c, &oin, &tls) == 0);
   }
 }
@@ -161,13 +161,13 @@ static void test_cw_onertt_roundtrip(void) {
   int                 fin  = 0;
   const initial_keys *cap, *sap;
   aes128              hp;
-  quic_appdata_tx     tx;
+  appdata_tx          tx;
   wired_obuf          ob = obuf_of(pkt, sizeof(pkt));
-  quic_stream_frame   sf;
+  stream_frame        sf;
   cw_derive_keys(&c);
 
   /* client GET sealed with CLIENT_AP; peer opens with the same client key. */
-  tx = (quic_appdata_tx){
+  tx = (appdata_tx){
       wired_span_of(cw_dcid, 8), 0, 4, wired_span_of(get, sizeof(get)), 0};
   CHECK(client_send_appdata_wire(&c, &tx, &ob) == 1);
   total = ob.len;
@@ -208,7 +208,7 @@ static void test_cw_onertt_wrong_dcid_dropped(void) {
   usz                 total = 0;
   const initial_keys* sap;
   aes128              hp;
-  quic_stream_frame   sf;
+  stream_frame        sf;
   cw_derive_keys(&c);
   CHECK(keysched_get(&c.tls.ks, QUIC_KS_SERVER_AP, &sap) == 1);
   aes128_init(&hp, sap->hp);

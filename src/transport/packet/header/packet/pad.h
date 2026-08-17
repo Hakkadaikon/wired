@@ -10,6 +10,6 @@
 
 /* PADDING bytes needed to bring a datagram of cur_len up to the 1200-byte
  * minimum (0 if it is already large enough). */
-usz quic_pad_needed(usz cur_len);
+usz pad_needed(usz cur_len);
 
 #endif

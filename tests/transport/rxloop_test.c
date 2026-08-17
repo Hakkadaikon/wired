@@ -23,10 +23,10 @@ static void test_rx_split_two(void) {
   dg[n++]         = 2;
   dg[n++]         = 3; /* short to end */
 
-  const u8*    pkts[4];
-  usz          offs[4], lens[4];
-  quic_pktlist out = {pkts, offs, lens, 4};
-  usz          got = quic_udploop_split(wired_span_of(dg, n), &out);
+  const u8* pkts[4];
+  usz       offs[4], lens[4];
+  pktlist   out = {pkts, offs, lens, 4};
+  usz       got = udploop_split(wired_span_of(dg, n), &out);
 
   CHECK(got == 2);
   CHECK(offs[0] == 0 && lens[0] == initial_len && pkts[0] == dg);
@@ -35,29 +35,29 @@ static void test_rx_split_two(void) {
 
 /* A single short-header packet yields one packet spanning the datagram. */
 static void test_rx_split_one(void) {
-  u8           dg[4] = {0x40, 1, 2, 3};
-  const u8*    pkts[2];
-  usz          offs[2], lens[2];
-  quic_pktlist out = {pkts, offs, lens, 2};
-  usz          got = quic_udploop_split(wired_span_of(dg, 4), &out);
+  u8        dg[4] = {0x40, 1, 2, 3};
+  const u8* pkts[2];
+  usz       offs[2], lens[2];
+  pktlist   out = {pkts, offs, lens, 2};
+  usz       got = udploop_split(wired_span_of(dg, 4), &out);
   CHECK(got == 1 && offs[0] == 0 && lens[0] == 4);
 }
 
 /* An empty datagram yields no packets (mirrors an EAGAIN recv of zero). */
 static void test_rx_split_empty(void) {
-  const u8*    pkts[2];
-  usz          offs[2], lens[2];
-  quic_pktlist out = {pkts, offs, lens, 2};
-  CHECK(quic_udploop_split(wired_span_of((const u8*)0, 0), &out) == 0);
+  const u8* pkts[2];
+  usz       offs[2], lens[2];
+  pktlist   out = {pkts, offs, lens, 2};
+  CHECK(udploop_split(wired_span_of((const u8*)0, 0), &out) == 0);
 }
 
 /* max_pkts caps how many packets are recorded. */
 static void test_rx_split_cap(void) {
-  u8           dg[4] = {0x40, 1, 2, 3};
-  const u8*    pkts[1];
-  usz          offs[1], lens[1];
-  quic_pktlist out = {pkts, offs, lens, 0};
-  CHECK(quic_udploop_split(wired_span_of(dg, 4), &out) == 0);
+  u8        dg[4] = {0x40, 1, 2, 3};
+  const u8* pkts[1];
+  usz       offs[1], lens[1];
+  pktlist   out = {pkts, offs, lens, 0};
+  CHECK(udploop_split(wired_span_of(dg, 4), &out) == 0);
 }
 
 void test_rxloop(void) {

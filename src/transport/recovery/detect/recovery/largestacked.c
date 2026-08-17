@@ -2,10 +2,8 @@
 
 #include "common/bytes/util/num.h"
 
-u64 quic_largest_acked_update(u64 current, u64 new_largest) {
+u64 largest_acked_update(u64 current, u64 new_largest) {
   return u64_max(current, new_largest);
 }
 
-int quic_newly_acked(u64 prev_largest, u64 pn) {
-  return pn > prev_largest ? 1 : 0;
-}
+int newly_acked(u64 prev_largest, u64 pn) { return pn > prev_largest ? 1 : 0; }

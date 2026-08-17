@@ -21,9 +21,9 @@ static usz initpkt_min_usz(usz a, usz b) { return a < b ? a : b; }
 /* Build the CRYPTO frame for the ClientHello, then PADDING-fill to target. */
 static int build_payload(
     wired_span crypto, u64 off, usz target, wired_obuf* out) {
-  usz                        n, fill = initpkt_min_usz(target, out->cap);
-  quic_crypto_stream_emit_in in = {off, crypto.n};
-  if (!quic_crypto_stream_emit(crypto, &in, out)) return 0;
+  usz                   n, fill = initpkt_min_usz(target, out->cap);
+  crypto_stream_emit_in in = {off, crypto.n};
+  if (!crypto_stream_emit(crypto, &in, out)) return 0;
   n = out->len;
   for (; n < fill; n++) out->p[n] = 0x00;
   out->len = n;
@@ -34,26 +34,26 @@ static int build_payload(
  * 17.2 for v1, RFC 9369 3.2 for v2). 0 for a version this SDK cannot encode
  * type bits for. */
 static u8 initpkt_byte0(u32 version) {
-  int wire = version == QUIC_VERSION_2 ? quic_v2_packet_type(QUIC_LT_INITIAL)
-                                       : quic_v1_packet_type(QUIC_LT_INITIAL);
+  int wire = version == QUIC_VERSION_2 ? v2_packet_type(QUIC_LT_INITIAL)
+                                       : v1_packet_type(QUIC_LT_INITIAL);
   return wire < 0 ? 0 : (u8)(0xC0 | (wire << 4));
 }
 
 /* Seal byte0/version/keys/payload into out. Returns 1, or 0 on overflow. */
 static int initpkt_seal(
-    u8                       byte0,
-    u32                      version,
-    const quic_initpkt_desc* d,
-    const initial_keys*      ck,
-    wired_span               payload,
-    wired_obuf*              out) {
+    u8                  byte0,
+    u32                 version,
+    const initpkt_desc* d,
+    const initial_keys* ck,
+    wired_span          payload,
+    wired_obuf*         out) {
   aes128 hp;
   usz    total;
   aes128_init(&hp, ck->hp);
-  quic_protect_keys k = {ck, &hp};
-  quic_tx_desc t = {byte0, d->dcid, d->scid, 1, wired_span_of((const u8*)0, 0),
+  protect_keys k = {ck, &hp};
+  tx_desc      t = {byte0, d->dcid, d->scid, 1, wired_span_of((const u8*)0, 0),
                     d->pn, payload, version};
-  total          = quic_tx_packet(&k, &t, wired_mspan_of(out->p, out->cap));
+  total          = tx_packet(&k, &t, wired_mspan_of(out->p, out->cap));
   if (total == 0) return 0;
   out->len = total;
   return 1;
@@ -62,8 +62,7 @@ static int initpkt_seal(
 /* RFC 9000 17.2.2 / RFC 9369 3.2-3.3.1: emit a complete Initial long header
  * carrying the SCID and an empty Token under `version`, padded to the
  * 1200-byte datagram floor. */
-int quic_initpkt_build_ver(
-    u32 version, const quic_initpkt_desc* d, wired_obuf* out) {
+int initpkt_build_ver(u32 version, const initpkt_desc* d, wired_obuf* out) {
   initial_keys ck, sk;
   u8           payload[1200];
   wired_obuf   po    = obuf_of(payload, sizeof(payload));
@@ -72,13 +71,13 @@ int quic_initpkt_build_ver(
   if (!build_payload(
           d->crypto, d->crypto_off, pad_target(d->dcid.n, d->scid.n), &po))
     return 0;
-  quic_initpkt_derive_ver(d->dcid, version, &ck, &sk);
+  initpkt_derive_ver(d->dcid, version, &ck, &sk);
   return initpkt_seal(
       byte0, version, d, &ck, wired_span_of(payload, po.len), out);
 }
 
 /* RFC 9000 17.2.2: emit a complete Initial long header carrying the SCID and an
  * empty Token, padded to the 1200-byte datagram floor. */
-int quic_initpkt_build(const quic_initpkt_desc* d, wired_obuf* out) {
-  return quic_initpkt_build_ver(QUIC_VERSION_1, d, out);
+int initpkt_build(const initpkt_desc* d, wired_obuf* out) {
+  return initpkt_build_ver(QUIC_VERSION_1, d, out);
 }

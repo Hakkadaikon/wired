@@ -11,7 +11,6 @@
 /* Writes *chosen with the most-preferred version in `supported` (preference
  * order) that also appears in `offered` and returns 1; returns 0 if there is
  * no common version. */
-int quic_vndrive_select(
-    quic_verlist offered, quic_verlist supported, u32* chosen);
+int vndrive_select(verlist offered, verlist supported, u32* chosen);
 
 #endif

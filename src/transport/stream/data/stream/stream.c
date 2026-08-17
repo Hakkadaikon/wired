@@ -6,7 +6,7 @@
  * it moves the state to that row's `to`. Table-driven keeps CCN minimal and
  * makes the legal RFC 9000 3.1/3.2 transitions auditable in one place. */
 
-typedef quic_fsm_row row;
+typedef fsm_row row;
 
 /* RFC 9000 3.1 sending part. RESET is legal from any pre-terminal state. */
 static const row send_rows[] = {
@@ -29,18 +29,18 @@ static const row recv_rows[] = {
     {QUIC_RECV_RESET_RECVD, QUIC_RECV_EV_READ, QUIC_RECV_RESET_READ},
 };
 
-int quic_send_step(quic_send_state* s, quic_send_event ev) {
-  u8             st    = (u8)*s;
-  quic_fsm_table table = {send_rows, sizeof(send_rows) / sizeof(row)};
-  int            ok    = quic_fsm_step(&st, &table, (u8)ev);
-  *s                   = (quic_send_state)st;
+int send_step(send_state* s, send_event ev) {
+  u8        st    = (u8)*s;
+  fsm_table table = {send_rows, sizeof(send_rows) / sizeof(row)};
+  int       ok    = fsm_step(&st, &table, (u8)ev);
+  *s              = (send_state)st;
   return ok;
 }
 
-int quic_recv_step(quic_recv_state* s, quic_recv_event ev) {
-  u8             st    = (u8)*s;
-  quic_fsm_table table = {recv_rows, sizeof(recv_rows) / sizeof(row)};
-  int            ok    = quic_fsm_step(&st, &table, (u8)ev);
-  *s                   = (quic_recv_state)st;
+int recv_step(recv_state* s, recv_event ev) {
+  u8        st    = (u8)*s;
+  fsm_table table = {recv_rows, sizeof(recv_rows) / sizeof(row)};
+  int       ok    = fsm_step(&st, &table, (u8)ev);
+  *s              = (recv_state)st;
   return ok;
 }

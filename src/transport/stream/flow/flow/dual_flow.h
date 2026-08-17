@@ -10,10 +10,9 @@
 typedef struct {
   u64 used;
   u64 max;
-} quic_flow_usage;
+} flow_usage;
 
 /* Whether the stream and connection usages are each within their limits. */
-int quic_dual_flow_ok(
-    const quic_flow_usage* stream, const quic_flow_usage* conn);
+int dual_flow_ok(const flow_usage* stream, const flow_usage* conn);
 
 #endif

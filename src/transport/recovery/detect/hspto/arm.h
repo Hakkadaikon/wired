@@ -11,9 +11,9 @@ typedef struct {
   int handshake_inflight;
   int handshake_confirmed;
   int has_handshake_keys;
-} quic_hspto_inputs;
+} hspto_inputs;
 
 /* Arm the PTO timer? Returns 1 if it should be armed, 0 otherwise. */
-int quic_hspto_should_arm(const quic_hspto_inputs* in);
+int hspto_should_arm(const hspto_inputs* in);
 
 #endif

@@ -47,7 +47,7 @@ static void newtoken_mac(
       wired_span_of(key, QUIC_NEWTOKEN_KEY), wired_span_of(msg, n), mac);
 }
 
-int quic_newtoken_wire_make(
+int newtoken_wire_make(
     const u8   key[QUIC_NEWTOKEN_KEY],
     wired_span addr,
     u64        now_secs,
@@ -90,7 +90,7 @@ static int newtoken_valid(
          mac_ok(key, addr, *issued_at, token);
 }
 
-int quic_newtoken_wire_verify(
+int newtoken_wire_verify(
     const u8    key[QUIC_NEWTOKEN_KEY],
     wired_span  addr,
     wired_span  token,

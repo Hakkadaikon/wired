@@ -10,7 +10,7 @@
  * type bits as v1 (QUIC_VERSION_1); v2 packet-level classification is out of
  * scope until v2 connections are accepted. */
 static int long_level(u8 byte0, int* level) {
-  int t = quic_packet_long_type(byte0, QUIC_VERSION_1);
+  int t = packet_long_type(byte0, QUIC_VERSION_1);
   if (t == QUIC_PT_INITIAL) {
     *level = QUIC_LEVEL_INITIAL;
     return 1;
@@ -22,8 +22,8 @@ static int long_level(u8 byte0, int* level) {
   return 0;
 }
 
-int quic_connrunner_packet_level(u8 byte0, int* level) {
-  if (quic_packet_is_long(byte0)) return long_level(byte0, level);
+int connrunner_packet_level(u8 byte0, int* level) {
+  if (packet_is_long(byte0)) return long_level(byte0, level);
   *level = QUIC_LEVEL_ONERTT; /* RFC 9000 17.3: short header is 1-RTT */
   return 1;
 }

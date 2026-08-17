@@ -15,13 +15,11 @@ void test_hp_suite(void) {
   u8 aes_key[16];
   for (usz i = 0; i < 16; i++) aes_key[i] = (u8)i;
   for (usz i = 0; i < 16; i++) sample[i] = (u8)(0x10 + i);
-  CHECK(
-      quic_hp_suite_mask(QUIC_TLS_AES_128_GCM_SHA256, aes_key, sample, mask) ==
-      1);
+  CHECK(hp_suite_mask(QUIC_TLS_AES_128_GCM_SHA256, aes_key, sample, mask) == 1);
   aes128 hp;
   aes128_init(&hp, aes_key);
   u8 want_aes[5];
-  quic_hp_mask(&hp, sample, want_aes);
+  hp_mask(&hp, sample, want_aes);
   for (usz i = 0; i < 5; i++) CHECK(mask[i] == want_aes[i]);
 
   /* RFC 9001 5.4.4 ChaCha suite: A.5 vector. */
@@ -31,12 +29,12 @@ void test_hp_suite(void) {
       cha_key, 32);
   hps_uhx("5e5cd55c41f69080575d7999c25a5bfb", sample, 16);
   CHECK(
-      quic_hp_suite_mask(
-          QUIC_TLS_CHACHA20_POLY1305_SHA256, cha_key, sample, mask) == 1);
+      hp_suite_mask(QUIC_TLS_CHACHA20_POLY1305_SHA256, cha_key, sample, mask) ==
+      1);
   u8 want_cha[5];
   hps_uhx("aefefe7d03", want_cha, 5);
   for (usz i = 0; i < 5; i++) CHECK(mask[i] == want_cha[i]);
 
   /* Unknown suite: no derivation. */
-  CHECK(quic_hp_suite_mask(0x0000, cha_key, sample, mask) == 0);
+  CHECK(hp_suite_mask(0x0000, cha_key, sample, mask) == 0);
 }

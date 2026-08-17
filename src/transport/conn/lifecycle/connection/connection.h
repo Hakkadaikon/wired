@@ -15,39 +15,38 @@
 /** RFC 9000 12 / RFC 9001 4: a connection's keyset, phase/packet-number-space
  * machine, link, connection ID and role, plus its receive scratch buffer. */
 typedef struct {
-  keyset        keys;
-  quic_conn     conn;
-  quic_memlink* link;
-  u8            dcid[8];
-  int           is_server;
-  /** Scratch for quic_connection_recv's unprotect: per-instance so two
+  keyset   keys;
+  conn     conn;
+  memlink* link;
+  u8       dcid[8];
+  int      is_server;
+  /** Scratch for connection_recv's unprotect: per-instance so two
    * connections stepping concurrently (e.g. from separate threads) never
    * share one buffer. The returned plaintext view stays valid until this
    * connection's next recv, same lifetime rule as before this became a
    * member. */
   u8 rxbuf[QUIC_MEMLINK_MTU];
-} quic_connection;
+} connection;
 
-/** Everything quic_connection_init needs besides the connection. */
+/** Everything connection_init needs besides the connection. */
 typedef struct {
-  const u8*     dcid; /* [8] */
-  quic_memlink* link;
-  int           is_server;
-} quic_connection_init_in;
+  const u8* dcid; /* [8] */
+  memlink*  link;
+  int       is_server;
+} connection_init_in;
 
 /* Initialize a connection over `in->link` with the shared DCID and role. The
  * keyset starts empty; no level can send until keys are installed. */
-void quic_connection_init(
-    quic_connection* c, const quic_connection_init_in* in);
+void connection_init(connection* c, const connection_init_in* in);
 
 /* Assemble and protect one packet of `frames` at protection `level`
  * (QUIC_LEVEL_*), pushing it onto the link. Returns 1 on success, 0 if the
  * level's keys are not installed or assembly fails. */
-int quic_connection_send(quic_connection* c, int level, wired_span frames);
+int connection_send(connection* c, int level, wired_span frames);
 
 /* Pull one packet at `level` from the link, unprotect it, and initialize
  * `iter` over its plaintext frames. Returns 1 on success, 0 if nothing valid
  * was available or the level's keys are not installed. */
-int quic_connection_recv(quic_connection* c, int level, quic_framewalk* iter);
+int connection_recv(connection* c, int level, framewalk* iter);
 
 #endif

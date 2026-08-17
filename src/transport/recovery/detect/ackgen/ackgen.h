@@ -17,9 +17,9 @@ typedef struct {
   int ack_eliciting_received;
   int ack_already_pending;
   u64 since_last_ack;
-} quic_ackgen_state;
+} ackgen_state;
 
 /* Whether an ACK should be sent now. */
-int quic_ackgen_should_ack(const quic_ackgen_state* s, u64 max_ack_delay);
+int ackgen_should_ack(const ackgen_state* s, u64 max_ack_delay);
 
 #endif

@@ -39,10 +39,10 @@ static void sdrv_derive_handshake_secret(sdrv* s, const u8 ecdhe[32]) {
 
 /* RFC 8446 7.4.2: the ECDHE shared secret over the negotiated group
  * (x25519 or secp256r1, RFC 8446 4.2.7), dispatched via
- * quic_crypto_stream_ecdhe_group so this driver never re-implements the
+ * crypto_stream_ecdhe_group so this driver never re-implements the
  * per-group ECDH switch (ecdhe.c's ecdh_dispatch equivalent). */
 static int sdrv_ecdhe(const sdrv* s, u8 ecdhe[QUIC_ECDHE_LEN]) {
-  return quic_crypto_stream_ecdhe_group(
+  return crypto_stream_ecdhe_group(
       s->group, s->server_priv, s->client_pub, ecdhe);
 }
 

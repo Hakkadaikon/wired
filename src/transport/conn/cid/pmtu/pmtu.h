@@ -44,46 +44,46 @@ typedef struct {
   u64 probe_sent_at; /* RFC 8899 5.1.1 PROBE_TIMER: when `probe` was sent */
   u64 complete_at;   /* RFC 8899 5.1.1 PMTU_RAISE_TIMER: when searching
                       * became 0 (0 while still searching) */
-} quic_pmtu;
+} pmtu;
 
-void quic_pmtu_init(quic_pmtu* p);
+void pmtu_init(pmtu* p);
 
 /* The size to probe next, or 0 if the search is done. Sets p->probe and, on
  * success, `now` into probe_sent_at (RFC 8899 5.1.1: "each time a probe
  * packet is sent, the PROBE_TIMER is started"). Records `now` into
  * complete_at the moment the search ends (RFC 8899 5.2 Search Complete). */
-usz quic_pmtu_next_probe(quic_pmtu* p, u64 now);
+usz pmtu_next_probe(pmtu* p, u64 now);
 
 /* A probe of `size` was acknowledged: raise the validated PMTU and reset
  * PROBE_COUNT (RFC 8899 5.1.3). */
-void quic_pmtu_on_ack(quic_pmtu* p, usz size);
+void pmtu_on_ack(pmtu* p, usz size);
 
 /* A probe of `size` was lost: increments PROBE_COUNT (RFC 8899 5.1.3). Below
  * QUIC_PMTU_MAX_PROBES this only bounds the search (`ceiling`/`lost`); once
  * PROBE_COUNT exceeds QUIC_PMTU_MAX_PROBES the size is unsupported, and if
  * `size` was the already-validated PLPMTU this is a black hole (RFC 8899
  * 4.3): validated drops back to QUIC_PMTU_BASE. */
-void quic_pmtu_on_loss(quic_pmtu* p, usz size);
+void pmtu_on_loss(pmtu* p, usz size);
 
 /* RFC 8899 4.4: the Maximum Packet Size the application may fill, derived
  * from the current PLPMTU minus this PL's per-datagram overhead. */
-usz quic_pmtu_mps(const quic_pmtu* p);
+usz pmtu_mps(const pmtu* p);
 
 /* RFC 8899 5.1.1: true once QUIC_PMTU_PROBE_TIMER_US has elapsed since the
  * outstanding probe was sent without being acked or lost yet -- the probe
  * should be treated as failed (PROBE_COUNT incremented, retried or the
  * search concluded) rather than waited on forever. False when no probe is
  * outstanding. */
-int quic_pmtu_probe_timer_due(const quic_pmtu* p, u64 now);
+int pmtu_probe_timer_due(const pmtu* p, u64 now);
 
 /* RFC 8899 5.2/5.1.1: true once QUIC_PMTU_RAISE_TIMER_US has elapsed since
  * the search reached Search Complete -- the search should resume. False
  * while still searching (complete_at unset). */
-int quic_pmtu_raise_timer_due(const quic_pmtu* p, u64 now);
+int pmtu_raise_timer_due(const pmtu* p, u64 now);
 
 /* RFC 8899 5.2: reenter the Search phase after the PMTU_RAISE_TIMER fires --
  * clears the ceiling/lost bounds learned by the prior search round so larger
  * candidates already ruled out get a fresh chance, and resets PROBE_COUNT. */
-void quic_pmtu_resume_search(quic_pmtu* p);
+void pmtu_resume_search(pmtu* p);
 
 #endif

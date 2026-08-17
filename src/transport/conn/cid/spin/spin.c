@@ -1,19 +1,19 @@
 #include "transport/conn/cid/spin/spin.h"
 
-int quic_spin_outgoing(int is_server, int peer_spin) {
+int spin_outgoing(int is_server, int peer_spin) {
   /* server reflects the received bit; client sends its inverse */
   return is_server ? (peer_spin & 1) : ((peer_spin & 1) ^ 1);
 }
 
-int quic_spin_get(u8 byte0) { return (byte0 & QUIC_SPIN_BIT) != 0; }
+int spin_get(u8 byte0) { return (byte0 & QUIC_SPIN_BIT) != 0; }
 
-u8 quic_spin_set(u8 byte0, int spin) {
+u8 spin_set(u8 byte0, int spin) {
   u8 cleared = byte0 & (u8)~QUIC_SPIN_BIT;
   return spin ? (cleared | QUIC_SPIN_BIT) : cleared;
 }
 
-int quic_spin_disabled(u8 rand_byte) { return (rand_byte % 16) == 0; }
+int spin_disabled(u8 rand_byte) { return (rand_byte % 16) == 0; }
 
-int quic_spin_outgoing_ex(int is_server, int peer_spin, int disabled) {
-  return disabled ? 0 : quic_spin_outgoing(is_server, peer_spin);
+int spin_outgoing_ex(int is_server, int peer_spin, int disabled) {
+  return disabled ? 0 : spin_outgoing(is_server, peer_spin);
 }

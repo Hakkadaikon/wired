@@ -12,7 +12,6 @@
  * retransmittable frame yields its bytes; a non-retransmittable frame
  * (ACK/PADDING) or a pn not held yields out->len = 0. Returns 1 on success, 0
  * if out->cap is too small. */
-int quic_rtxdrive_build(
-    const quic_rtxbytes* store, u64 lost_pn, wired_obuf* out);
+int rtxdrive_build(const rtxbytes* store, u64 lost_pn, wired_obuf* out);
 
 #endif

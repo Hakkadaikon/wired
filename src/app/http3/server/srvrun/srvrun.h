@@ -237,7 +237,7 @@ typedef struct {
    * dedicated sentinel like incoming_cpu since core 0 is itself valid).
    * >= 0, only when xdp is also set: this worker's own core/queue index,
    * packed into the leading byte of every SCID this worker generates
-   * (quic_ncid_worker_encode, bits=8) so a BPF filter can route by CID
+   * (ncid_worker_encode, bits=8) so a BPF filter can route by CID
    * instead of NIC queue after a connection migrates. Ignored when xdp is 0
    * (SO_REUSEPORT/plain UDP mode never embeds a core id). */
   int core_id;

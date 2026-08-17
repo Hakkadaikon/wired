@@ -11,7 +11,7 @@ typedef struct {
   u64 largest_acked;
   u64 now;
   u64 loss_delay;
-} quic_loss_params;
+} loss_params;
 
 /* Mark in-flight packets as lost when they are kPacketThreshold or more
  * below largest_acked, or older than now - loss_delay. Lost pns are
@@ -24,7 +24,6 @@ typedef struct {
  * in-flight packet is considered regardless of when it was sent relative to
  * any acknowledged packet -- which trivially satisfies the MUST NOT: nothing
  * sent after the earliest acknowledged packet is ever skipped (9002-059). */
-void quic_loss_detect(
-    quic_sentpkt* t, const quic_loss_params* p, quic_u64out lost);
+void loss_detect(sentpkt* t, const loss_params* p, u64out lost);
 
 #endif

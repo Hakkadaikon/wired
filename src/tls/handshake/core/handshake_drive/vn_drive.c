@@ -9,7 +9,7 @@ static u32 vn_at(wired_span vn, usz i) {
 }
 
 /* True if want appears verbatim in the VN list. */
-static int vn_lists(wired_span vn, u32 want) {
+static int vn_drive_lists(wired_span vn, u32 want) {
   for (usz i = 0; i < vn.n / 4; i++)
     if (vn_at(vn, i) == want) return 1;
   return 0;
@@ -17,11 +17,11 @@ static int vn_lists(wired_span vn, u32 want) {
 
 /* True if want is offered in the VN list and is not a reserved/GREASE value. */
 static int vn_offers(wired_span vn, u32 want) {
-  if (quic_version_is_reserved(want)) return 0;
-  return vn_lists(vn, want);
+  if (version_is_reserved(want)) return 0;
+  return vn_drive_lists(vn, want);
 }
 
-int vn_choose(wired_span vn, quic_verlist mine, u32* chosen) {
+int vn_choose(wired_span vn, verlist mine, u32* chosen) {
   for (usz i = 0; i < mine.n; i++) {
     if (!vn_offers(vn, mine.list[i])) continue;
     *chosen = mine.list[i];

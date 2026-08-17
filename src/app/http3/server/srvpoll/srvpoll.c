@@ -2,7 +2,7 @@
 
 /* ponytail: PAUSE has no observable side effect for tests to assert on; its
  * only job is "don't spin the CPU at full tilt while empty". */
-i64 wired_srvpoll_spin_step(i64 fd, quic_mmsg_buf* bufs, usz count) {
+i64 wired_srvpoll_spin_step(i64 fd, mmsg_buf* bufs, usz count) {
   i64 r = wired_udp_recvmmsg_nowait(fd, bufs, count);
   if (r <= 0) wired_arch_pause();
   return r;
@@ -18,7 +18,7 @@ static void srvpoll_backoff_pause_n(u64 n) {
 }
 
 i64 wired_srvpoll_spin_step_backoff(
-    i64 fd, quic_mmsg_buf* bufs, usz count, wired_srvpoll_backoff* bo) {
+    i64 fd, mmsg_buf* bufs, usz count, wired_srvpoll_backoff* bo) {
   i64 r = wired_udp_recvmmsg_nowait(fd, bufs, count);
   if (r > 0) {
     bo->empty_spins = 0;

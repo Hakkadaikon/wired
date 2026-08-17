@@ -21,7 +21,7 @@ int quic_h3settings_control_stream(
  * NewSessionTicket message." A pure predicate: the caller supplies both the
  * value remembered from the ticket-issuing connection (prior_value) and the
  * value this 0-RTT-accepting connection is about to send (new_value) --
- * mirrors zerortt_policy.h's quic_zerortt_replay_ok, which likewise leaves
+ * mirrors zerortt_policy.h's zerortt_replay_ok, which likewise leaves
  * resolving/storing its own inputs to the caller rather than owning state
  * itself.
  * @param prior_value the SETTINGS_H3_DATAGRAM value sent when the resumed

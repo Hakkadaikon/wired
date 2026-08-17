@@ -11,9 +11,9 @@
 
 /* Keys, packet descriptor and HP mask threaded through one open. */
 typedef struct {
-  const initial_keys*              keys;
-  const quic_hspkt_unprotect_desc* d;
-  u8                               mask[5];
+  const initial_keys*         keys;
+  const hspkt_unprotect_desc* d;
+  u8                          mask[5];
 } hsunprot_ctx;
 
 /* RFC 9001 5.3: AEAD-open ciphertext at pkt+hdr_len using header as AAD.
@@ -23,7 +23,7 @@ static int aead_open(const hsunprot_ctx* c, usz hdr_len, u64 pn) {
   aes128 aead;
   u8*    pkt    = c->d->pkt.p;
   usz    ct_len = c->d->pkt.n - hdr_len - QUIC_GCM_TAG;
-  quic_protect_nonce(c->keys->iv, pn, nonce);
+  protect_nonce(c->keys->iv, pn, nonce);
   aes128_init(&aead, c->keys->key);
   gcm_ctx g = {&aead, nonce, {pkt, hdr_len}};
   return gcm_open(
@@ -40,10 +40,10 @@ static int open_pkt(const hsunprot_ctx* c, wired_span* payload) {
   usz pn_off  = c->d->pn_off;
   usz pn_len  = (pkt[0] & 0x03u) + 1u;
   usz hdr_len = pn_off + pn_len;
-  quic_hp_protect_pn(pkt + pn_off, pn_len, c->mask);
+  hp_protect_pn(pkt + pn_off, pn_len, c->mask);
   if (c->d->pkt.n <= hdr_len + QUIC_GCM_TAG) return 0;
   if (!aead_open(
-          c, hdr_len, quic_pnum_decode(pkt + pn_off, pn_len, c->d->largest_pn)))
+          c, hdr_len, pnum_decode(pkt + pn_off, pn_len, c->d->largest_pn)))
     return 0;
   *payload = wired_span_of(pkt + hdr_len, c->d->pkt.n - hdr_len - QUIC_GCM_TAG);
   return 1;
@@ -54,10 +54,8 @@ static int open_pkt(const hsunprot_ctx* c, wired_span* payload) {
  * The sample for header protection is always at pn_off+4 (RFC 9001 5.4.2).
  * Only byte0 is unmasked here; the pn bytes are unmasked in open_pkt once
  * their true count is known, so a short PN does not corrupt the ciphertext. */
-int quic_hspkt_unprotect(
-    const quic_protect_keys*         k,
-    const quic_hspkt_unprotect_desc* d,
-    wired_span*                      payload) {
+int hspkt_unprotect(
+    const protect_keys* k, const hspkt_unprotect_desc* d, wired_span* payload) {
   hsunprot_ctx c = {k->keys, d, {0}};
   /* RFC 9001 5.4.2: the only length bound this side may impose before the
    * true PN length is known is that the HP sample (16 bytes at pn_off+4)
@@ -66,31 +64,30 @@ int quic_hspkt_unprotect(
    * sender's choice (RFC 9000 17.3.1), and Chrome's ACK-only 1-RTT packets
    * are exactly that minimum shape. open_pkt re-checks against the true
    * header length once the PN length is unmasked. */
-  if (!quic_hp_sample_ok(d->pkt.n, quic_hp_sample_offset(d->pn_off))) return 0;
-  quic_hp_mask(k->hp, d->pkt.p + quic_hp_sample_offset(d->pn_off), c.mask);
+  if (!hp_sample_ok(d->pkt.n, hp_sample_offset(d->pn_off))) return 0;
+  hp_mask(k->hp, d->pkt.p + hp_sample_offset(d->pn_off), c.mask);
   d->pkt.p[0] ^= c.mask[0] & d->bits_mask;
   return open_pkt(&c, payload);
 }
 
 /* Same context as hsunprot_ctx, plus the negotiated suite (RFC 8446 B.4). */
 typedef struct {
-  u16                              suite;
-  const initial_keys*              keys;
-  const quic_hspkt_unprotect_desc* d;
-  u8                               mask[5];
+  u16                         suite;
+  const initial_keys*         keys;
+  const hspkt_unprotect_desc* d;
+  u8                          mask[5];
 } hsunprot_suite_ctx;
 
 /* RFC 9001 5.3: AEAD-open ciphertext at pkt+hdr_len using header as AAD,
  * under c->suite. hdr_len is the true header length (pn_off + recovered
- * pn_len). op.iv is the raw key IV (quic_aead_suite_open derives the nonce
+ * pn_len). op.iv is the raw key IV (aead_suite_open derives the nonce
  * itself: iv XOR pn), not a precomputed nonce. */
 static int aead_open_suite(const hsunprot_suite_ctx* c, usz hdr_len, u64 pn) {
-  usz                tag_len = aead_tag_len(c->suite);
-  u8*                pkt     = c->d->pkt.p;
-  usz                ct_len  = c->d->pkt.n - hdr_len - tag_len;
-  quic_aead_suite_op op      = {
-      c->suite, c->keys->key, c->keys->iv, pn, {pkt, hdr_len}};
-  return quic_aead_suite_open(
+  usz           tag_len = aead_tag_len(c->suite);
+  u8*           pkt     = c->d->pkt.p;
+  usz           ct_len  = c->d->pkt.n - hdr_len - tag_len;
+  aead_suite_op op = {c->suite, c->keys->key, c->keys->iv, pn, {pkt, hdr_len}};
+  return aead_suite_open(
              &op, wired_span_of(pkt + hdr_len, ct_len), pkt + hdr_len) != 0;
 }
 
@@ -104,7 +101,7 @@ static int open_pkt_suite_head(
   usz pn_off = c->d->pn_off;
   usz pn_len = (pkt[0] & 0x03u) + 1u;
   if (tag_len == 0) return 0;
-  quic_hp_protect_pn(pkt + pn_off, pn_len, c->mask);
+  hp_protect_pn(pkt + pn_off, pn_len, c->mask);
   *hdr_len = pn_off + pn_len;
   return c->d->pkt.n > *hdr_len + tag_len;
 }
@@ -117,25 +114,24 @@ static int open_pkt_suite(const hsunprot_suite_ctx* c, wired_span* payload) {
   if (!open_pkt_suite_head(c, tag_len, &hdr_len)) return 0;
   if (!aead_open_suite(
           c, hdr_len,
-          quic_pnum_decode(
+          pnum_decode(
               pkt + c->d->pn_off, hdr_len - c->d->pn_off, c->d->largest_pn)))
     return 0;
   *payload = wired_span_of(pkt + hdr_len, c->d->pkt.n - hdr_len - tag_len);
   return 1;
 }
 
-/* Same as quic_hspkt_unprotect, but opens under the given negotiated TLS 1.3
+/* Same as hspkt_unprotect, but opens under the given negotiated TLS 1.3
  * cipher suite (RFC 8446 B.4). Returns 0 on an unrecognized suite. */
-int quic_hspkt_unprotect_suite(
-    u16                              suite,
-    const quic_protect_keys*         k,
-    const quic_hspkt_unprotect_desc* d,
-    wired_span*                      payload) {
+int hspkt_unprotect_suite(
+    u16                         suite,
+    const protect_keys*         k,
+    const hspkt_unprotect_desc* d,
+    wired_span*                 payload) {
   hsunprot_suite_ctx c = {suite, k->keys, d, {0}};
-  if (!quic_hp_sample_ok(d->pkt.n, quic_hp_sample_offset(d->pn_off))) return 0;
-  if (!quic_hp_suite_mask(
-          suite, k->keys->hp, d->pkt.p + quic_hp_sample_offset(d->pn_off),
-          c.mask))
+  if (!hp_sample_ok(d->pkt.n, hp_sample_offset(d->pn_off))) return 0;
+  if (!hp_suite_mask(
+          suite, k->keys->hp, d->pkt.p + hp_sample_offset(d->pn_off), c.mask))
     return 0;
   d->pkt.p[0] ^= c.mask[0] & d->bits_mask;
   return open_pkt_suite(&c, payload);

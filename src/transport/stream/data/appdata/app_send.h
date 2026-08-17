@@ -11,12 +11,11 @@ typedef struct {
   u64        stream_id;
   wired_span data;
   int        fin;
-} quic_appdata_tx;
+} appdata_tx;
 
 /* RFC 9001 5: carry application data in a 1-RTT (short header) packet. The
  * data is framed as a STREAM frame (RFC 9000 19.8) and sealed with the 1-RTT
  * keys into out; length to out->len. Returns 1, or 0 on overflow. */
-int quic_appdata_send(
-    const quic_protect_keys* k, const quic_appdata_tx* tx, wired_obuf* out);
+int appdata_send(const protect_keys* k, const appdata_tx* tx, wired_obuf* out);
 
 #endif

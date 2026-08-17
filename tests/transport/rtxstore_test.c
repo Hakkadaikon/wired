@@ -1,33 +1,33 @@
 #include "test.h"
 
 static void test_rtxstore_store_get_roundtrip(void) {
-  quic_rtxbytes st;
-  const u8      frame[] = {0x08, 0x00, 0x05, 'h', 'e', 'l', 'l', 'o'};
-  wired_span    got;
+  rtxbytes   st;
+  const u8   frame[] = {0x08, 0x00, 0x05, 'h', 'e', 'l', 'l', 'o'};
+  wired_span got;
 
-  quic_rtxbytes_init(&st);
-  CHECK(quic_rtxbytes_store(&st, 7, wired_span_of(frame, sizeof frame)) == 1);
-  CHECK(quic_rtxbytes_get(&st, 7, &got) == 1);
+  rtxbytes_init(&st);
+  CHECK(rtxbytes_store(&st, 7, wired_span_of(frame, sizeof frame)) == 1);
+  CHECK(rtxbytes_get(&st, 7, &got) == 1);
   CHECK(got.n == sizeof frame);
   for (usz i = 0; i < sizeof frame; i++) CHECK(got.p[i] == frame[i]);
 }
 
 static void test_rtxstore_miss(void) {
-  quic_rtxbytes st;
-  const u8      frame[] = {0x01};
-  wired_span    got;
+  rtxbytes   st;
+  const u8   frame[] = {0x01};
+  wired_span got;
 
-  quic_rtxbytes_init(&st);
-  quic_rtxbytes_store(&st, 1, wired_span_of(frame, sizeof frame));
-  CHECK(quic_rtxbytes_get(&st, 99, &got) == 0);
+  rtxbytes_init(&st);
+  rtxbytes_store(&st, 1, wired_span_of(frame, sizeof frame));
+  CHECK(rtxbytes_get(&st, 99, &got) == 0);
 }
 
 static void test_rtxstore_too_large(void) {
-  quic_rtxbytes st;
-  static u8     big[QUIC_RTXBYTES_FRAME + 1];
+  rtxbytes  st;
+  static u8 big[QUIC_RTXBYTES_FRAME + 1];
 
-  quic_rtxbytes_init(&st);
-  CHECK(quic_rtxbytes_store(&st, 1, wired_span_of(big, sizeof big)) == 0);
+  rtxbytes_init(&st);
+  CHECK(rtxbytes_store(&st, 1, wired_span_of(big, sizeof big)) == 0);
 }
 
 void test_rtxstore(void) {

@@ -5,22 +5,22 @@
 #include "transport/packet/frame/frame/frame.h"
 
 static void test_closeframe_wire(void) {
-  static const u8       reason[] = {'f', 'l', 'o', 'w'};
-  u8                    buf[64];
-  quic_conn_close_frame got;
-  quic_flowviol_err     e = {
+  static const u8  reason[] = {'f', 'l', 'o', 'w'};
+  u8               buf[64];
+  conn_close_frame got;
+  flowviol_err     e = {
       QUIC_EC_FLOW_CONTROL_ERROR,
       QUIC_FRAME_CONN_CLOSE_TPT,
       {reason, sizeof reason}};
   wired_obuf ob = obuf_of(buf, sizeof buf);
 
-  CHECK(quic_flowviol_close_frame(&e, &ob) == 1);
+  CHECK(flowviol_close_frame(&e, &ob) == 1);
   usz len = ob.len;
   CHECK(len > 0);
   CHECK(buf[0] == QUIC_FRAME_CONN_CLOSE_TPT); /* transport variant 0x1c */
 
   /* the error code, triggering frame type, and reason land on the wire */
-  CHECK(quic_frame_get_conn_close(buf, len, &got) == len);
+  CHECK(frame_get_conn_close(buf, len, &got) == len);
   CHECK(got.is_app == 0);
   CHECK(got.error_code == QUIC_EC_FLOW_CONTROL_ERROR);
   CHECK(got.frame_type == QUIC_FRAME_CONN_CLOSE_TPT);
@@ -29,10 +29,10 @@ static void test_closeframe_wire(void) {
 }
 
 static void test_closeframe_overflow(void) {
-  u8                buf[2];
-  quic_flowviol_err e  = {QUIC_EC_STREAM_LIMIT_ERROR, 0x12, {0, 0}};
-  wired_obuf        ob = obuf_of(buf, sizeof buf);
-  CHECK(quic_flowviol_close_frame(&e, &ob) == 0);
+  u8           buf[2];
+  flowviol_err e  = {QUIC_EC_STREAM_LIMIT_ERROR, 0x12, {0, 0}};
+  wired_obuf   ob = obuf_of(buf, sizeof buf);
+  CHECK(flowviol_close_frame(&e, &ob) == 0);
 }
 
 void test_closeframe(void) {

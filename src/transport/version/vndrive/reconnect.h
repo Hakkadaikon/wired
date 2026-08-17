@@ -11,6 +11,6 @@
 
 /* 1 if the client should re-send an Initial: chosen_version is non-zero and it
  * has not already exhausted its single VN retry. 0 means give up. */
-int quic_vndrive_should_retry(u32 chosen_version, int vn_retry_count);
+int vndrive_should_retry(u32 chosen_version, int vn_retry_count);
 
 #endif

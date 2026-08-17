@@ -9,6 +9,6 @@
 
 /* Whether an ACK is due now. unacked_eliciting: outstanding unacked
  * ack-eliciting packets. elapsed: ticks since the oldest. */
-int quic_ackgen_due(u32 unacked_eliciting, u64 elapsed, u64 max_ack_delay);
+int ackgen_due(u32 unacked_eliciting, u64 elapsed, u64 max_ack_delay);
 
 #endif

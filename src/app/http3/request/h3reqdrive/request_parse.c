@@ -77,10 +77,10 @@ static int find_body(wired_span h3, usz off, wired_h3reqdrive_req* r) {
 
 int wired_h3reqdrive_request_sections(
     wired_span stream_data, wired_span* fs, wired_h3reqdrive_req* r) {
-  quic_stream_frame f;
-  usz               end = 0;
-  wired_span        h3;
-  if (!quic_frame_get_stream(stream_data.p, stream_data.n, &f)) return 0;
+  stream_frame f;
+  usz          end = 0;
+  wired_span   h3;
+  if (!frame_get_stream(stream_data.p, stream_data.n, &f)) return 0;
   h3 = wired_span_of(f.data, (usz)f.length);
   if (!find_headers(h3, fs, &end, r)) return 0;
   return find_body(h3, end, r);
@@ -140,7 +140,7 @@ static int trailer_headers_at(wired_span h3, usz off, wired_span* trailer_fs) {
 
 int wired_h3reqdrive_request_trailer(
     wired_span stream_data, wired_span* trailer_fs) {
-  quic_stream_frame    f;
+  stream_frame         f;
   wired_span           h3, fs;
   usz                  end     = 0;
   wired_h3reqdrive_req discard = {0}; /* trailer lookup runs after the
@@ -151,7 +151,7 @@ int wired_h3reqdrive_request_trailer(
                                        * to find the trailer's offset, so
                                        * find_headers' reject latch has
                                        * nowhere useful to report to here. */
-  if (!quic_frame_get_stream(stream_data.p, stream_data.n, &f)) return 0;
+  if (!frame_get_stream(stream_data.p, stream_data.n, &f)) return 0;
   h3 = wired_span_of(f.data, (usz)f.length);
   if (!find_headers(h3, &fs, &end, &discard)) return 0;
   return trailer_headers_at(h3, body_end_off(h3, end), trailer_fs);
