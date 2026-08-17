@@ -61,9 +61,10 @@ A separate verification layer (TLA+ specs and Lean 4 proofs in local
 `tasks/` workspaces, not shipped) feeds invariants into the tests.
 
 To find code: one concern lives in exactly one `src/<dir>/` (MECE). The
-directory name is the domain; its public API is prefixed `quic_<domain>_`. The
-app-facing layers (server, srvloop, h3srv, udp, pem, fio, and friends) are the
-one exception: they carry the SDK brand prefix `wired_<domain>_` instead. So
+directory name is the domain; internal (SDK-only) API carries the module's
+own token as its prefix (`h3_*`, `bn_*`, `sdrv_*`). The application-facing
+surface — everything the examples call — carries the SDK brand prefix
+`wired_*` instead. So
 `grep -rn 'stream_' src/transport/stream/` is the whole story for stream
 framing, and a new behavior belongs in the layer whose responsibilities it
 matches.
@@ -147,8 +148,9 @@ A change that breaks any of these is not done.
   or merge two concerns into one dir.
 - **Unity build = one global namespace.** Because `tests/run.c` links the whole
   repo as a single TU, *every* symbol — public function, `static` helper,
-  `typedef`, macro, constant — is globally unique. Public API gets a
-  `quic_<domain>_` prefix; grep `src/` before adding a name. A duplicated
+  `typedef`, macro, constant — is globally unique. Application-facing API
+  gets the `wired_` prefix, internal API its module token
+  (`moqctl_*`, `hkdf_*`); grep `src/` before adding a name. A duplicated
   `static` helper is a link collision, not a private detail — hoist it to
   `util/*` as `inline`. Verify: `just test`.
 
@@ -180,8 +182,9 @@ catches a source that silently never got compiled — objects must equal sources
 A domain is `src/<name>/<name>.h` (types, constants, prototypes) +
 `src/<name>/<name>.c` (implementation with `static` helpers).
 
-1. Create `src/<name>/<name>.{h,c}`; public API = `quic_<name>_*`, grep
-   `src/` to confirm the names are unique.
+1. Create `src/<name>/<name>.{h,c}`; internal API = `<name>_*` (or
+   `wired_<name>_*` if applications will call it), grep `src/` to confirm
+   the names are unique.
 2. Test first: `tests/<name>_test.c` with the RFC golden vector,
    round-trip, and malformed cases.
 3. Wire `tests/run.c` — three manual edits: `#include` the production

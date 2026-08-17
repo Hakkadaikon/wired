@@ -24,9 +24,11 @@ the same headers. This is a map, not a tutorial — see
 those expose one top-level entry point meant to be called once; others expose
 an internal state machine's individual steps, callable in the wrong order or
 with a dangling buffer if the caller does not already understand the
-underlying protocol. Both kinds carry a non-`static` `wired_`/`quic_` name and
-both compile the same way, so the header alone does not tell you which is
-which. This document does.
+underlying protocol. The prefix tells you the audience — `wired_*` is the
+application-facing surface, a bare module token (`sdrv_*`, `moqctl_*`,
+`bytes_*`) is SDK-internal — but within `wired_*` it does not tell you which
+functions are the whole-job entry points and which are low-level steps with
+ordering preconditions. This document does.
 
 Everything below is reachable from the single `wired.h` include — no second
 header is needed.
@@ -109,27 +111,24 @@ Until a version number exists, treat every commit to a low-level function as
 a potential behavior change and every commit to a stable function as
 requiring a changelog note.
 
-## Known naming deviations
+## The naming rule
 
-Per `.claude/rules/naming-and-unity-build.md`, the app-facing layer (server,
-srvloop, h3srv, h3reqdrive, udp, header, srvboot, srvrun, pem, eckey, fio)
-carries the `wired_<domain>_` prefix; everything else in the SDK core carries
-`quic_<domain>_`.
+Per `.claude/rules/naming-and-unity-build.md`, the prefix encodes the
+audience, not the protocol:
 
-- `common/platform/debug/debug.h` uses the `wired_` prefix
-  (`wired_fmt_u64`, `wired_log_str`, `wired_log_ts`) and the `WIRED_DEBUG_H`
-  include guard, but `debug` is not listed among the app-facing domains in
-  the naming rule. `common/platform/cliargs/cliargs.h` (`wired_cliargs_*`)
-  is in the same position. This is a documentation gap in the naming rule,
-  not a code change — recorded here, not fixed in code per the task scope.
-- The naming rule's app-facing domain list predates the newer app-facing
-  domains (certreload, mimetype, staticfile, srvdriver, srvworkers,
-  srvthreads, srvxdp, srvxdpbpf, and the WebTransport session layer), all of
-  which carry `wired_` consistently with the rule's intent. Same gap
-  category: the list is stale, the prefixes are not.
+- **`wired_*` / `WIRED_*`** — the application-facing surface: everything in
+  the Stable table, plus the low-level helpers the bundled examples call
+  (the span types and codecs above). Breaking-change policy per the
+  versioning section.
+- **module token (`sdrv_*`, `h3_*`, `bn_*`, `LEVEL_*`)** — SDK-internal,
+  non-`static` names shared between modules. No stability promise.
+- **`static` helpers** — file-local, prefixed enough to stay unique in the
+  unity build.
 
-No prefix inconsistency was found: every function checked in the headers
-`wired.h` includes uses either `wired_` or `quic_` as its layer prescribes.
+A handful of internal helpers (`bytes_put`, `bytes_memcpy`, `wired_x25519`)
+are reachable from `wired.h` because the app-facing layer is built out of
+them; the Low-level table above is the authoritative list of what needs
+care.
 
 ---
 
