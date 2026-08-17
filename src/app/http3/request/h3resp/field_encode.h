@@ -12,19 +12,19 @@
  * static table, else a Literal Field Line referencing the static name.
  * content_type == 0 emits only :status. Returns 1 with out->len set, 0 if
  * out lacks capacity. */
-int quic_h3resp_encode_headers(
+int h3resp_encode_headers(
     u16 status, const char* content_type, wired_obuf* out);
 
-/* Same as quic_h3resp_encode_headers plus, when extra is non-null, one
+/* Same as h3resp_encode_headers plus, when extra is non-null, one
  * trailing Literal Field Line With Literal Name (RFC 9204 4.5.6) carrying
  * extra's (name, value) verbatim -- e.g. the wt-protocol response header of
  * WebTransport subprotocol negotiation. extra == 0 behaves identically to
- * quic_h3resp_encode_headers. Returns 1 with out->len set, 0 if out lacks
+ * h3resp_encode_headers. Returns 1 with out->len set, 0 if out lacks
  * capacity. */
-int quic_h3resp_encode_headers_field(
-    u16                     status,
-    const char*             content_type,
-    const quic_qpack_field* extra,
-    wired_obuf*             out);
+int h3resp_encode_headers_field(
+    u16                status,
+    const char*        content_type,
+    const qpack_field* extra,
+    wired_obuf*        out);
 
 #endif

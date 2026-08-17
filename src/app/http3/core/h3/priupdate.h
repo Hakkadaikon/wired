@@ -18,19 +18,19 @@ typedef struct {
   int        push;       /**< 0: request variant, 1: push variant */
   u64        element_id; /**< prioritized element (stream or push) id */
   wired_span value;      /**< Priority Field Value bytes (view) */
-} quic_h3_priupdate;
+} h3_priupdate;
 
 /** Encode one PRIORITY_UPDATE frame.
  * @return bytes written, 0 on overflow. */
-usz quic_h3_priupdate_put(u8* buf, usz cap, const quic_h3_priupdate* f);
+usz h3_priupdate_put(u8* buf, usz cap, const h3_priupdate* f);
 
 /** Decode a PRIORITY_UPDATE frame at buf (value views into buf).
  * @return bytes consumed, 0 on a different type or truncated input. */
-usz quic_h3_priupdate_get(wired_span buf, quic_h3_priupdate* f);
+usz h3_priupdate_get(wired_span buf, h3_priupdate* f);
 
 /** Parse a Priority Field Value dictionary into p (RFC 9218 4/5): `u=0..7`
  * sets the urgency, `i`/`i=?1` the incremental flag; anything malformed or
  * unknown leaves the RFC defaults (u=3, i=0) in place. */
-void quic_h3_priority_sfv(wired_span v, quic_h3_priority* p);
+void h3_priority_sfv(wired_span v, h3_priority* p);
 
 #endif

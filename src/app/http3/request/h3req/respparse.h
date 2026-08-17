@@ -9,12 +9,12 @@
 typedef struct {
   wired_span headers;
   wired_span body;
-} quic_h3req_resp;
+} h3req_resp;
 
 /* RFC 9114 4.1. Split a response stream into its leading HEADERS frame (the
  * status/header field section) and the following DATA frame (the body).
  * Returns 1 on success, 0 if the stream does not begin with a well-formed
  * HEADERS frame or a following frame is malformed. */
-int quic_h3req_resp_parse(wired_span stream, quic_h3req_resp* resp);
+int h3req_resp_parse(wired_span stream, h3req_resp* resp);
 
 #endif

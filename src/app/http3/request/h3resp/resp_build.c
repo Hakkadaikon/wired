@@ -11,7 +11,7 @@ static int resp_append_body(wired_span body, wired_obuf* out) {
   usz        n;
   if (!body.n) return 1;
   ob = obuf_of(out->p + out->len, out->cap - out->len);
-  n  = quic_h3_frame_put(&ob, QUIC_H3_FRAME_DATA, body);
+  n  = h3_frame_put(&ob, QUIC_H3_FRAME_DATA, body);
   if (!n) return 0;
   out->len += n;
   return 1;
@@ -21,20 +21,19 @@ static int resp_append_body(wired_span body, wired_obuf* out) {
  * when given) field section into out. Returns its byte length, or 0 if
  * encoding or framing lacks capacity. */
 static usz put_headers(
-    u16                     status,
-    const char*             content_type,
-    const quic_qpack_field* extra,
-    wired_obuf*             out) {
+    u16                status,
+    const char*        content_type,
+    const qpack_field* extra,
+    wired_obuf*        out) {
   u8         field[192];
   wired_obuf fob = obuf_of(field, sizeof field);
-  if (!quic_h3resp_encode_headers_field(status, content_type, extra, &fob))
-    return 0;
-  return quic_h3_frame_put(
+  if (!h3resp_encode_headers_field(status, content_type, extra, &fob)) return 0;
+  return h3_frame_put(
       out, QUIC_H3_FRAME_HEADERS, wired_span_of(field, fob.len));
 }
 
 /* RFC 9114 4.1 */
-int quic_h3resp_build(
+int h3resp_build(
     u16 status, const char* content_type, wired_span body, wired_obuf* out) {
   wired_obuf head = obuf_of(out->p, out->cap);
   usz        off  = put_headers(status, content_type, 0, &head);
@@ -56,12 +55,12 @@ static int prefix_data_hdr(u64 body_len, wired_obuf* out) {
   return 1;
 }
 
-int quic_h3resp_prefix_field(
-    u16                     status,
-    const char*             content_type,
-    u64                     body_len,
-    const quic_qpack_field* extra,
-    wired_obuf*             out) {
+int h3resp_prefix_field(
+    u16                status,
+    const char*        content_type,
+    u64                body_len,
+    const qpack_field* extra,
+    wired_obuf*        out) {
   wired_obuf head = obuf_of(out->p, out->cap);
   usz        off  = put_headers(status, content_type, extra, &head);
   if (!off) return 0;
@@ -69,7 +68,7 @@ int quic_h3resp_prefix_field(
   return prefix_data_hdr(body_len, out);
 }
 
-int quic_h3resp_prefix(
+int h3resp_prefix(
     u16 status, const char* content_type, u64 body_len, wired_obuf* out) {
-  return quic_h3resp_prefix_field(status, content_type, body_len, 0, out);
+  return h3resp_prefix_field(status, content_type, body_len, 0, out);
 }

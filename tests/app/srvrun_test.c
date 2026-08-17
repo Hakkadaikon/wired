@@ -111,7 +111,7 @@ static int sr_find_goaway_id(const u8* pl, usz pll, u64* id) {
   stream_frame sf;
   usz          n = frame_get_stream(pl, pll, &sf);
   if (n == 0 || sf.stream_id != SRVRUN_CTRL_STREAM) return 0;
-  return quic_h3_goaway_get(sf.data, (usz)sf.length, id) > 0;
+  return h3_goaway_get(sf.data, (usz)sf.length, id) > 0;
 }
 
 /* Find a PATH_CHALLENGE frame (RFC 9000 19.17) in an opened payload, copying
@@ -336,29 +336,28 @@ static void test_srvrun_reap_batches_max_streams(void) {
 /* RFC 9114 8.1 / 9114-077: srvrun_close_grease_id (called by
  * srvrun_close_drained ahead of every H3_NO_ERROR close) either declines to
  * grease (0, a failed RNG read or the coin flip landing on "don't") or
- * returns a value quic_h3_is_reserved accepts -- never an arbitrary other
+ * returns a value h3_is_reserved accepts -- never an arbitrary other
  * code. Exercises the real getrandom syscall (no mock exists for it in this
  * SDK, see rng.c), so the assertion is on the invariant, not a specific
  * value -- same style as srvrun_close_drained_dispatch's count-only check for
  * a path with no sent-bytes capture. */
 static void test_srvrun_close_grease_id_zero_or_reserved(void) {
   u64 g = srvrun_close_grease_id();
-  CHECK(g == 0 || quic_h3_is_reserved(g));
+  CHECK(g == 0 || h3_is_reserved(g));
 }
 
-/* RFC 9114 8.1 / 9114-077: quic_h3_error_send_value, the function
+/* RFC 9114 8.1 / 9114-077: h3_error_send_value, the function
  * srvrun_close_drained wires srvrun_close_grease_id's result through, only
  * ever substitutes for QUIC_H3_NO_ERROR -- any other code passes through
  * unchanged even when a (nonsensical here, but exercising the guard) grease
  * id is supplied. */
 static void test_srvrun_close_drained_error_value_wiring(void) {
-  CHECK(quic_h3_error_send_value(QUIC_H3_NO_ERROR, 0) == QUIC_H3_NO_ERROR);
+  CHECK(h3_error_send_value(QUIC_H3_NO_ERROR, 0) == QUIC_H3_NO_ERROR);
   CHECK(
-      quic_h3_error_send_value(QUIC_H3_NO_ERROR, quic_h3_grease_value(5)) ==
-      quic_h3_grease_value(5));
+      h3_error_send_value(QUIC_H3_NO_ERROR, h3_grease_value(5)) ==
+      h3_grease_value(5));
   CHECK(
-      quic_h3_error_send_value(
-          QUIC_H3_GENERAL_PROTOCOL_ERROR, quic_h3_grease_value(5)) ==
+      h3_error_send_value(QUIC_H3_GENERAL_PROTOCOL_ERROR, h3_grease_value(5)) ==
       QUIC_H3_GENERAL_PROTOCOL_ERROR);
 }
 
@@ -1115,7 +1114,7 @@ static void test_srvrun_size_violation_discards_no_slot(void) {
 /* RFC 9000 5.2.2: a refused new connection gets an unpadded server Initial
  * carrying CONNECTION_CLOSE(CONNECTION_REFUSED), openable with Initial keys
  * derived from the client's own DCID -- no live connection state needed.
- * Opened directly via rx_packet (not quic_srvwire_open_initial, which
+ * Opened directly via rx_packet (not srvwire_open_initial, which
  * expects a CRYPTO-wrapped flight; this packet carries a raw frame instead,
  * same convention test_srvboot_refusal_reports_missing_tp_ext in
  * h3_loopback_test.c uses for wired_srvboot_refusal's own transport-close
@@ -3454,7 +3453,7 @@ static void test_srvrun_parallel_responses_three_streams(void) {
     wired_obuf preb = {pre, sizeof pre, 0};
     CHECK(buckets[i].used == 1);
     CHECK(buckets[i].fin == 1);
-    CHECK(quic_h3resp_prefix(200, 0, 1, &preb) == 1);
+    CHECK(h3resp_prefix(200, 0, 1, &preb) == 1);
     CHECK(buckets[i].high == preb.len + 1);
     for (usz j = 0; j < preb.len; j++) CHECK(buckets[i].buf[j] == pre[j]);
     CHECK(buckets[i].buf[preb.len] == (u8)paths[i][1]);
@@ -3521,7 +3520,7 @@ static void test_srvrun_takeover_streams_large_body(void) {
   wired_udp_close(cfd);
   wired_udp_close(sfd);
   /* the reassembled stream is exactly prefix + body, fin on the tail */
-  CHECK(quic_h3resp_prefix(200, 0, 2500, &preb) == 1);
+  CHECK(h3resp_prefix(200, 0, 2500, &preb) == 1);
   CHECK(fin == 1);
   CHECK(high == preb.len + 2500);
   for (usz i = 0; i < preb.len; i++) CHECK(asm_buf[i] == pre[i]);
@@ -6035,7 +6034,7 @@ static void test_srvrun_idle_sweep_without_wt_unaffected(void) {
 
 /* QUIC DATAGRAM SEND (RFC 9221 5): srvrun_queue_datagram queues a payload,
  * srvrun_send_pending_datagram seals it into a real 1-RTT packet. The client
- * opens that packet under its own peer key and quic_datagram_decode recovers
+ * opens that packet under its own peer key and datagram_decode recovers
  * the exact payload bytes -- proof of a genuine encode -> seal -> wire ->
  * decode round trip, not just "the function returned 1". Requires a non-zero
  * peer_max_datagram_frame_size (the peer must have advertised support) since
@@ -6043,13 +6042,13 @@ static void test_srvrun_idle_sweep_without_wt_unaffected(void) {
 static const u8 sr_dg_payload[] = {0xde, 0xad, 0xbe, 0xef, 0x01};
 
 static void test_srvrun_datagram_round_trip_on_wire(void) {
-  struct lp_fix       f;
-  srvrun_conn         c;
-  wired_obuf          ob;
-  u8                  obuf[1600];
-  const u8*           pl;
-  usz                 pll;
-  quic_datagram_frame df;
+  struct lp_fix  f;
+  srvrun_conn    c;
+  wired_obuf     ob;
+  u8             obuf[1600];
+  const u8*      pl;
+  usz            pll;
+  datagram_frame df;
   ob = (wired_obuf){obuf, sizeof obuf, 0};
   sr_make_confirmed_conn(&c, &f, &ob);
   c.s.sdrv.peer_max_datagram_frame_size = 65535;
@@ -6072,7 +6071,7 @@ static void test_srvrun_datagram_round_trip_on_wire(void) {
     CHECK(client_open_onertt(&f, out.p, out.len, &pl, &pll) == 1);
   }
   CHECK(c.dg_pending == 0); /* drained */
-  CHECK(quic_datagram_decode(pl, pll, &df) == pll);
+  CHECK(datagram_decode(pl, pll, &df) == pll);
   CHECK(df.length == 1 + sizeof sr_dg_payload);
   CHECK(df.data[0] == 0x01); /* qsid prefix (4/4) */
   for (usz i = 0; i < sizeof sr_dg_payload; i++)
@@ -6255,19 +6254,19 @@ static const u8 sr_rxdg_payload[] = {0x01, 0xaa, 0xbb, 0xcc};
 static const u8 sr_rxdg_content[] = {0xaa, 0xbb, 0xcc};
 
 static void test_srvrun_rx_datagram_delivers_to_callback(void) {
-  struct lp_fix       f;
-  conntable           table[QUIC_CONNTABLE_CAP];
-  srvrun_conn*        conns = sr_test_conns();
-  wired_obuf          ob;
-  u8                  obuf[1024], payload[64], spkt[1024], out[1024];
-  usz                 plen, slen;
-  quic_datagram_frame df = {
+  struct lp_fix  f;
+  conntable      table[QUIC_CONNTABLE_CAP];
+  srvrun_conn*   conns = sr_test_conns();
+  wired_obuf     ob;
+  u8             obuf[1024], payload[64], spkt[1024], out[1024];
+  usz            plen, slen;
+  datagram_frame df = {
       .length = sizeof sr_rxdg_payload, .data = sr_rxdg_payload};
   ob = (wired_obuf){obuf, sizeof obuf, 0};
   sr_make_confirmed_conn(&conns[0], &f, &ob);
   conns[0].l.we_advertised_max_datagram = 100; /* RFC 9221 3: opted in */
   sr_establish_wt(conns, table, 4);
-  plen = quic_datagram_encode(wired_mspan_of(payload, sizeof payload), &df, 1);
+  plen = datagram_encode(wired_mspan_of(payload, sizeof payload), &df, 1);
   slen = client_seal_onertt_pn(&f, 3, payload, plen, spkt, sizeof spkt);
   {
     wired_obuf         sob  = {out, sizeof out, 0};
@@ -6541,7 +6540,7 @@ static void test_srvrun_rx_datagram_beyond_stream_limit_h3_id_error(void) {
   ob                   = (wired_obuf){obuf, sizeof obuf, 0};
   sr_make_confirmed_conn(&c, &f, &ob);
   /* wt_active left 0 -- no session claims stream id 400 either way. */
-  qn                         = quic_wtwire_qsid_put(qbuf, sizeof qbuf, 400);
+  qn                         = wtwire_qsid_put(qbuf, sizeof qbuf, 400);
   c.l.rx_datagrams[0].buf[0] = qbuf[0];
   c.l.rx_datagrams[0].buf[1] = qbuf[1];
   c.l.rx_datagrams[0].buf[2] = 0xEE;
@@ -6613,7 +6612,7 @@ static void test_srvrun_rx_datagram_routes_by_qsid_not_first_active(void) {
   wired_wt_session_establish(&c.wt1);
   c.wt1_active = 1;
   /* qsid = 8/4 = 2 -> names slot 1, not slot 0. */
-  qn                         = quic_wtwire_qsid_put(qbuf, sizeof qbuf, 8);
+  qn                         = wtwire_qsid_put(qbuf, sizeof qbuf, 8);
   c.l.rx_datagrams[0].buf[0] = qbuf[0];
   c.l.rx_datagrams[0].buf[1] = 0xEE;
   c.l.rx_datagrams[0].len    = qn + 1;
@@ -6890,14 +6889,14 @@ static void test_srvrun_oversized_datagram_latches_violation_on_step(void) {
   srvrun_conn   c = {0};
   srvrun_cfg cfg = {-1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
                     0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-  srvrun_step_ctx     ctx = {&cfg, 0, 0, 0, 0};
-  u8                  data[200];
-  quic_datagram_frame df = {.length = sizeof data, .data = data};
+  srvrun_step_ctx ctx = {&cfg, 0, 0, 0, 0};
+  u8              data[200];
+  datagram_frame  df = {.length = sizeof data, .data = data};
   for (usz i = 0; i < sizeof data; i++) data[i] = (u8)i;
   ob = (wired_obuf){obuf, sizeof obuf, 0};
   sr_make_confirmed_conn(&c, &f, &ob);
   c.l.we_advertised_max_datagram = 100; /* RFC 9221 3: advertised limit 100 */
-  plen = quic_datagram_encode(wired_mspan_of(payload, sizeof payload), &df, 1);
+  plen = datagram_encode(wired_mspan_of(payload, sizeof payload), &df, 1);
   slen = client_seal_onertt_pn(&f, 3, payload, plen, spkt, sizeof spkt);
   srvrun_on_step(&ctx, &c, wired_mspan_of(spkt, slen));
   CHECK(c.l.datagram_violation == 1);
@@ -7377,9 +7376,9 @@ static void test_srvrun_wt_full_session_lifecycle_on_wire(void) {
    * datagrams -> app callback) is exercised on the exact bytes the send side
    * produced, a real encode -> wire -> decode -> deliver round trip. */
   {
-    quic_datagram_frame df;
-    u8                  dgpl[64];
-    usz                 dgpll;
+    datagram_frame df;
+    u8             dgpl[64];
+    usz            dgpll;
     conns[0].s.sdrv.peer_max_datagram_frame_size = 65535;
     conns[0].l.we_advertised_max_datagram        = 65535;
     CHECK(
@@ -7394,7 +7393,7 @@ static void test_srvrun_wt_full_session_lifecycle_on_wire(void) {
       CHECK(srvrun_send_pending_datagram(&cfg, &conns[0], &sendob) == 1);
       CHECK(client_open_onertt(&f, sendob.p, sendob.len, &pl, &pll) == 1);
     }
-    CHECK(quic_datagram_decode(pl, pll, &df) == pll);
+    CHECK(datagram_decode(pl, pll, &df) == pll);
     /* RFC 9297 2.1: the outbound wire bytes carry the target session's qsid
      * prefix (session on stream 4 -> qsid 1, byte 0x01) ahead of the queued
      * payload. */
@@ -7406,10 +7405,10 @@ static void test_srvrun_wt_full_session_lifecycle_on_wire(void) {
      * the server carries the same qsid prefix, so the wire bytes can be
      * reused verbatim. */
     {
-      quic_datagram_frame wdf;
+      datagram_frame wdf;
       wdf.length = df.length;
       wdf.data   = df.data;
-      dgpll = quic_datagram_encode(wired_mspan_of(dgpl, sizeof dgpl), &wdf, 1);
+      dgpll      = datagram_encode(wired_mspan_of(dgpl, sizeof dgpl), &wdf, 1);
     }
     {
       srvrun_cfg      cfg = {-1,
@@ -8132,14 +8131,14 @@ static void sr_broadcast_relay(
 }
 
 static void test_srvrun_broadcast_datagram_reaches_two_real_clients(void) {
-  struct lp_fix       f0, f1;
-  wired_obuf          ob0, ob1;
-  u8                  obuf0[1024], obuf1[1024];
-  u8                  out0[1024], out1[1024], spkt[1024];
-  usz                 slen;
-  const u8*           pl;
-  usz                 pll;
-  quic_datagram_frame df;
+  struct lp_fix  f0, f1;
+  wired_obuf     ob0, ob1;
+  u8             obuf0[1024], obuf1[1024];
+  u8             out0[1024], out1[1024], spkt[1024];
+  usz            slen;
+  const u8*      pl;
+  usz            pll;
+  datagram_frame df;
 
   sr_reset_global_table();
   ob0 = (wired_obuf){obuf0, sizeof obuf0, 0};
@@ -8204,18 +8203,18 @@ static void test_srvrun_broadcast_datagram_reaches_two_real_clients(void) {
         0,
         0,
         0};
-    srvrun_state        st  = {g_srvrun_table, g_srvrun_state.conns};
-    srvrun_step_ctx     ctx = {&cfg, 0, &st, 0, 0};
-    u8                  dgpl[64];
-    usz                 dgpll;
-    u8                  wire[1 + sizeof sr_dg_payload];
-    quic_datagram_frame in;
+    srvrun_state    st  = {g_srvrun_table, g_srvrun_state.conns};
+    srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
+    u8              dgpl[64];
+    usz             dgpll;
+    u8              wire[1 + sizeof sr_dg_payload];
+    datagram_frame  in;
     wire[0] = 0x01; /* qsid=1 (4/4) */
     for (usz i = 0; i < sizeof sr_dg_payload; i++)
       wire[1 + i] = sr_dg_payload[i];
     in.length = sizeof wire;
     in.data   = wire;
-    dgpll     = quic_datagram_encode(wired_mspan_of(dgpl, sizeof dgpl), &in, 1);
+    dgpll     = datagram_encode(wired_mspan_of(dgpl, sizeof dgpl), &in, 1);
     slen      = client_seal_onertt_pn(&f0, 3, dgpl, dgpll, spkt, sizeof spkt);
     srvrun_on_step(&ctx, &g_srvrun_state.conns[0], wired_mspan_of(spkt, slen));
   }
@@ -8241,13 +8240,13 @@ static void test_srvrun_broadcast_datagram_reaches_two_real_clients(void) {
         srvrun_send_pending_datagram(
             &cfg, &g_srvrun_state.conns[1], &sendob1) == 1);
     CHECK(client_open_onertt(&f0, sendob0.p, sendob0.len, &pl, &pll) == 1);
-    CHECK(quic_datagram_decode(pl, pll, &df) == pll);
+    CHECK(datagram_decode(pl, pll, &df) == pll);
     CHECK(df.length == 1 + sizeof sr_dg_payload);
     CHECK(df.data[0] == 0x01);
     for (usz i = 0; i < sizeof sr_dg_payload; i++)
       CHECK(df.data[1 + i] == sr_dg_payload[i]);
     CHECK(client_open_onertt(&f1, sendob1.p, sendob1.len, &pl, &pll) == 1);
-    CHECK(quic_datagram_decode(pl, pll, &df) == pll);
+    CHECK(datagram_decode(pl, pll, &df) == pll);
     CHECK(df.length == 1 + sizeof sr_dg_payload);
     CHECK(df.data[0] == 0x01);
     for (usz i = 0; i < sizeof sr_dg_payload; i++)
@@ -8356,7 +8355,7 @@ static void test_srvrun_bigbuf_pool_serves_large_body(void) {
   /* the handler filled the whole pool-row cap (past HDR_ROOM); the armed
    * session covers prefix + that many body bytes, well past 16KB */
   CHECK(
-      quic_h3resp_prefix(
+      h3resp_prefix(
           200, 0, WIRED_SRVBIGBUF_ROW_CAP - SRVRUN_RESP_HDR_ROOM, &preb) == 1);
   CHECK(
       c.resp[0].sess.q.len ==
@@ -8981,7 +8980,7 @@ static void test_srvrun_streaming_later_round_uses_own_stream_not_sibling(
 
 /* An H3 (not hq-interop) streaming response's round-0 DATA frame
  * declares sr_stream_total_len (the full body), not just round 0's 100-byte
- * slice -- quic_h3resp_prefix's body_len argument must have been the total,
+ * slice -- h3resp_prefix's body_len argument must have been the total,
  * provable by decoding the prefix bytes at the front of the armed session
  * and checking the DATA frame's length varint. */
 static void test_srvrun_streaming_h3_prefix_receives_total_size_not_round_len(
@@ -9007,7 +9006,7 @@ static void test_srvrun_streaming_h3_prefix_receives_total_size_not_round_len(
     srvrun_step_ctx ctx = {&cfg, 0, &st, 0, 0};
     srvrun_start_resp(&ctx, 0);
   }
-  CHECK(quic_h3resp_prefix(200, 0, 300, &preb) == 1);
+  CHECK(h3resp_prefix(200, 0, 300, &preb) == 1);
   CHECK(c.resp[0].sess.q.len == preb.len + 100); /* prefix + round 0's body */
 }
 
@@ -11735,7 +11734,7 @@ static int srn_wt_contains(const u8* hay, usz n, const char* needle) {
  * field line -- verified two ways: the raw Location bytes appear on the
  * wire (srn_wt_contains, the same idiom the wt-protocol header tests above
  * use) and the numeric :status decodes to 302 via the public
- * quic_h3conn_recv_response (RFC 9204 4.5), after re-wrapping the raw
+ * h3conn_recv_response (RFC 9204 4.5), after re-wrapping the raw
  * HEADERS+DATA bytes srvrun_start_wt_status wrote (row start, no STREAM-
  * frame envelope) as a synthetic offset-0 STREAM frame -- mirroring
  * dispatch.c's own peek_decode_request wrap-then-decode idiom. */
@@ -11755,14 +11754,14 @@ static void sr_wt_resource_check_redirect(
 }
 
 static void test_srvrun_wt_resource_check_redirect_3xx_with_location(void) {
-  struct lp_fix    f;
-  conntable        table[QUIC_CONNTABLE_CAP];
-  srvrun_conn*     conns = sr_test_conns();
-  wired_obuf       ob;
-  u8               obuf[1024];
-  u8               wrap[1024];
-  wired_obuf       wob = obuf_of(wrap, sizeof wrap);
-  quic_h3conn_resp resp;
+  struct lp_fix f;
+  conntable     table[QUIC_CONNTABLE_CAP];
+  srvrun_conn*  conns = sr_test_conns();
+  wired_obuf    ob;
+  u8            obuf[1024];
+  u8            wrap[1024];
+  wired_obuf    wob = obuf_of(wrap, sizeof wrap);
+  h3conn_resp   resp;
   ob                    = (wired_obuf){obuf, sizeof obuf, 0};
   g_sr_wt_handler_calls = 0;
   conntable_init(table, QUIC_CONNTABLE_CAP);
@@ -11788,7 +11787,7 @@ static void test_srvrun_wt_resource_check_redirect_3xx_with_location(void) {
     stream_frame sf = {
         0, 0, conns[0].resp[0].sess.q.len, g_srvrun_respstore[0][0], 1};
     CHECK(appdata_stream_frame(&sf, &wob));
-    CHECK(quic_h3conn_recv_response(wired_span_of(wob.p, wob.len), &resp));
+    CHECK(h3conn_recv_response(wired_span_of(wob.p, wob.len), &resp));
     CHECK(resp.status == 302);
   }
 }
@@ -11797,7 +11796,7 @@ static void test_srvrun_wt_resource_check_redirect_3xx_with_location(void) {
  * carry Content-Length, Content-Type, or Transfer-Encoding fields.
  * srvrun_start_wt_status is the ONLY builder used for WebTransport's bare
  * 2xx/3xx/4xx status responses (session-establishing 2xx, the redirect
- * tested above, and rejections); it calls quic_h3resp_prefix_field with a
+ * tested above, and rejections); it calls h3resp_prefix_field with a
  * NULL content_type and no body, so put_status_and_ct never emits a
  * content-type field line and prefix_data_hdr never emits a DATA frame
  * (hence no Content-Length/Transfer-Encoding source either) -- the
@@ -12061,11 +12060,10 @@ static void test_srvrun_wt_on_session_two_sessions_each_path(void) {
  * put_litname (that one is another test file's static). */
 static void srn_put_litname(
     u8* fs, usz* off, const char* name, const char* value) {
-  quic_qpack_field fl = {
+  qpack_field fl = {
       wired_span_of((const u8*)name, wired_cstr_len(name)),
       wired_span_of((const u8*)value, wired_cstr_len(value))};
-  *off +=
-      quic_qpack_literal_name_encode(wired_mspan_of(fs + *off, 128), 0, &fl);
+  *off += qpack_literal_name_encode(wired_mspan_of(fs + *off, 128), 0, &fl);
 }
 
 /* WIRE CAPTURE (draft-ietf-webtrans-http3-15 SS3.4): a regular
@@ -12078,14 +12076,14 @@ static void test_srvrun_wt_avail_captured_from_wire(void) {
   usz                  off;
   wired_obuf           req_ob = {req, sizeof req, 0};
   wired_h3reqdrive_req r;
-  quic_qpack_prefix    pfx = {0, 0, 0};
-  off                      = quic_qpack_prefix_encode(fs, 64, &pfx);
-  off += quic_qpack_indexed_encode(
+  qpack_prefix         pfx = {0, 0, 0};
+  off                      = qpack_prefix_encode(fs, 64, &pfx);
+  off += qpack_indexed_encode(
       wired_mspan_of(fs + off, 64), 17, 1); /* :method GET */
   srn_put_litname(fs, &off, "wt-available-protocols", "\"foo\", \"bar\"");
   {
-    quic_h3conn_req_in req_in = {wired_span_of(fs, off), wired_span_of(0, 0)};
-    CHECK(quic_h3conn_send_request(0, &req_in, &req_ob));
+    h3conn_req_in req_in = {wired_span_of(fs, off), wired_span_of(0, 0)};
+    CHECK(h3conn_send_request(0, &req_in, &req_ob));
   }
   CHECK(wired_h3reqdrive_recv_get(
       wired_span_of(req, req_ob.len), wired_mspan_of(scratch, sizeof scratch),
@@ -12096,11 +12094,11 @@ static void test_srvrun_wt_avail_captured_from_wire(void) {
   {
     u8         fs2[64], req2[256];
     wired_obuf ob2 = {req2, sizeof req2, 0};
-    usz        n2  = quic_qpack_prefix_encode(fs2, 64, &pfx);
-    n2 += quic_qpack_indexed_encode(wired_mspan_of(fs2 + n2, 64), 17, 1);
+    usz        n2  = qpack_prefix_encode(fs2, 64, &pfx);
+    n2 += qpack_indexed_encode(wired_mspan_of(fs2 + n2, 64), 17, 1);
     {
-      quic_h3conn_req_in in2 = {wired_span_of(fs2, n2), wired_span_of(0, 0)};
-      CHECK(quic_h3conn_send_request(0, &in2, &ob2));
+      h3conn_req_in in2 = {wired_span_of(fs2, n2), wired_span_of(0, 0)};
+      CHECK(h3conn_send_request(0, &in2, &ob2));
     }
     CHECK(wired_h3reqdrive_recv_get(
         wired_span_of(req2, ob2.len), wired_mspan_of(scratch, sizeof scratch),
@@ -12109,22 +12107,22 @@ static void test_srvrun_wt_avail_captured_from_wire(void) {
   }
   /* an oversized value (300 octets > the 256-octet buffer) is dropped */
   {
-    static u8        scratch3[1024];
-    quic_qpack_field fl;
-    wired_obuf       ob3 = {req, sizeof req, 0};
+    static u8   scratch3[1024];
+    qpack_field fl;
+    wired_obuf  ob3 = {req, sizeof req, 0};
     for (usz i = 0; i < sizeof big; i++) big[i] = 'a';
     big[0]   = '"';
     big[299] = '"';
-    fl       = (quic_qpack_field){
+    fl       = (qpack_field){
         wired_span_of((const u8*)"wt-available-protocols", 22),
         wired_span_of(big, sizeof big)};
-    off = quic_qpack_prefix_encode(fs, 64, &pfx);
-    off += quic_qpack_indexed_encode(wired_mspan_of(fs + off, 64), 17, 1);
-    off += quic_qpack_literal_name_encode(
+    off = qpack_prefix_encode(fs, 64, &pfx);
+    off += qpack_indexed_encode(wired_mspan_of(fs + off, 64), 17, 1);
+    off += qpack_literal_name_encode(
         wired_mspan_of(fs + off, sizeof fs - off), 0, &fl);
     {
-      quic_h3conn_req_in in3 = {wired_span_of(fs, off), wired_span_of(0, 0)};
-      CHECK(quic_h3conn_send_request(0, &in3, &ob3));
+      h3conn_req_in in3 = {wired_span_of(fs, off), wired_span_of(0, 0)};
+      CHECK(h3conn_send_request(0, &in3, &ob3));
     }
     CHECK(wired_h3reqdrive_recv_get(
         wired_span_of(req, ob3.len), wired_mspan_of(scratch3, sizeof scratch3),
@@ -12928,13 +12926,13 @@ static void test_srvrun_close_wt_flow_violations_noop_without_latch(void) {
 
 /* ===== W-13/WTH3-048: GOAWAY drives a WT_DRAIN_SESSION capsule per active
  * session (draft-ietf-webtrans-http3-15 SS4.2/4.7). srvrun_send_wt_drain
- * seals the empty-body capsule (quic_wtcapsule_encode_drain, wtcapsule.h) as
+ * seals the empty-body capsule (wtcapsule_encode_drain, wtcapsule.h) as
  * a STREAM frame on the session's own CONNECT stream at wt_connect_sent_len,
  * and applies wired_wt_session_drain's ESTABLISHED->DRAINING transition. */
 
 /* DRAIN SENT: the sealed packet's STREAM frame carries the CONNECT stream id
  * at the recorded offset, and decodes back to a WT_DRAIN_SESSION capsule
- * (quic_wtcapsule_decode_drain, the encode/decode round-trip this SDK's own
+ * (wtcapsule_decode_drain, the encode/decode round-trip this SDK's own
  * codec already proves at the unit level -- this test proves srvrun wires it
  * onto the wire at the RIGHT stream/offset). The session moves to DRAINING
  * and wt_connect_sent_len advances past the capsule's own byte length. */
@@ -12960,8 +12958,7 @@ static void test_srvrun_send_wt_drain_seals_capsule_on_connect_stream(void) {
   CHECK(sf.stream_id == 4); /* sr_wtsend_fixture's own CONNECT stream id */
   CHECK(sf.offset == 20);
   CHECK(sf.fin == 0); /* WT_DRAIN_SESSION never FINs the session */
-  CHECK(
-      quic_wtcapsule_decode_drain(wired_span_of(sf.data, sf.length), &at) == 1);
+  CHECK(wtcapsule_decode_drain(wired_span_of(sf.data, sf.length), &at) == 1);
 }
 
 /* DRAIN SKIPS INACTIVE/NON-ESTABLISHED SLOTS: srvrun_send_wt_drain_all only
@@ -13571,13 +13568,13 @@ static void test_srvrun_wt_send_datagram_to_prefixes_qsid(void) {
       CHECK(e->buf[1 + i] == sr_dg_payload[i]);
   }
   {
-    u8                  out[1600];
-    wired_obuf          ob2 = {out, sizeof out, 0};
-    const u8*           pl;
-    usz                 pll, qn;
-    u64                 sid = 0;
-    quic_datagram_frame df;
-    srvrun_cfg          cfg = {
+    u8             out[1600];
+    wired_obuf     ob2 = {out, sizeof out, 0};
+    const u8*      pl;
+    usz            pll, qn;
+    u64            sid = 0;
+    datagram_frame df;
+    srvrun_cfg     cfg = {
         -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, &g_srvrun_env,
         0,  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
     CHECK(
@@ -13587,7 +13584,7 @@ static void test_srvrun_wt_send_datagram_to_prefixes_qsid(void) {
                 g_srvrun_env.dgring[0].buf, g_srvrun_env.dgring[0].len),
             &ob2) == 1);
     CHECK(client_open_onertt(&f, out, ob2.len, &pl, &pll) == 1);
-    CHECK(quic_datagram_decode(pl, pll, &df) == pll);
+    CHECK(datagram_decode(pl, pll, &df) == pll);
     CHECK(df.length == 1 + sizeof sr_dg_payload);
     qn = wired_wtwire_qsid_take(wired_span_of(df.data, df.length), &sid);
     CHECK(qn == 1);

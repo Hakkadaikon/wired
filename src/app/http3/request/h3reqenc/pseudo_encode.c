@@ -37,26 +37,26 @@ static int val_cstr(const u8* val, usz vlen, char* buf) {
  * compare and present, else -1. */
 static i64 static_index(const pseudo_field* f, char* buf) {
   if (!val_cstr(f->val, f->vlen, buf)) return -1;
-  return quic_qpack_static_find(f->name, buf);
+  return qpack_static_find(f->name, buf);
 }
 
 /* Encode one pseudo-header field line: Indexed when (name, value) is in the
  * static table, else a Literal With Name Reference. Returns bytes written or 0.
  */
 static usz put_pseudo(const pseudo_field* f, u8* out, usz cap) {
-  char               buf[VALBUF_CAP];
-  i64                idx = static_index(f, buf);
-  quic_qpack_nameref r   = {f->name_idx, 1, 0};
+  char          buf[VALBUF_CAP];
+  i64           idx = static_index(f, buf);
+  qpack_nameref r   = {f->name_idx, 1, 0};
   if (idx >= 0)
-    return quic_qpack_indexed_encode(wired_mspan_of(out, cap), (u64)idx, 1);
-  return quic_qpack_literal_namref_encode(
+    return qpack_indexed_encode(wired_mspan_of(out, cap), (u64)idx, 1);
+  return qpack_literal_namref_encode(
       wired_mspan_of(out, cap), &r, wired_span_of(f->val, f->vlen));
 }
 
 /* Encode the empty Encoded Field Section Prefix at out. */
 static usz put_section_prefix(u8* out, usz cap) {
-  quic_qpack_prefix pfx = {0, 0, 0};
-  return quic_qpack_prefix_encode(out, cap, &pfx);
+  qpack_prefix pfx = {0, 0, 0};
+  return qpack_prefix_encode(out, cap, &pfx);
 }
 
 /* Append n field lines from fields[0..n-1] after out->len. Returns 1 ok, 0 on
@@ -74,9 +74,9 @@ static int put_fields(const pseudo_field* fields, usz n, wired_obuf* out) {
  * always a Literal Field Line With Literal Name. Returns 1 ok, 0 on overflow.
  */
 static int put_protocol(wired_span protocol, wired_obuf* out) {
-  static const u8  name[] = ":protocol";
-  quic_qpack_field f      = {wired_span_of(name, sizeof name - 1), protocol};
-  usz              w      = quic_qpack_literal_name_encode(
+  static const u8 name[] = ":protocol";
+  qpack_field     f      = {wired_span_of(name, sizeof name - 1), protocol};
+  usz             w      = qpack_literal_name_encode(
       wired_mspan_of(out->p + out->len, out->cap - out->len), 0, &f);
   if (!w) return 0;
   out->len += w;
@@ -101,7 +101,7 @@ static int put_section(
 }
 
 /* RFC 9204 4.5 / RFC 9114 4.3.1, RFC 9220 3 */
-int quic_h3req_enc_pseudo(const quic_h3req_pseudo_in* in, wired_obuf* out) {
+int h3req_enc_pseudo(const h3req_pseudo_in* in, wired_obuf* out) {
   pseudo_field fields[4] = {
       {in->method.p, in->method.n, ":method", QPACK_METHOD_NAME_INDEX},
       {in->scheme.p, in->scheme.n, ":scheme", QPACK_SCHEME_NAME_INDEX},
@@ -114,7 +114,7 @@ int quic_h3req_enc_pseudo(const quic_h3req_pseudo_in* in, wired_obuf* out) {
 
 /* RFC 9114 4.4 / RFC 9110 9.3.6: a CONNECT request carries only :method=CONNECT
  * and :authority; :scheme and :path are omitted. */
-int quic_h3req_enc_connect(wired_span authority, wired_obuf* out) {
+int h3req_enc_connect(wired_span authority, wired_obuf* out) {
   static const u8 connect[] = {'C', 'O', 'N', 'N', 'E', 'C', 'T'};
   pseudo_field    fields[2] = {
       {connect, sizeof connect, ":method", QPACK_METHOD_NAME_INDEX},

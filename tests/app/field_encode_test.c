@@ -5,7 +5,7 @@
 static void test_field_encode_status_200(void) {
   u8         out[16];
   wired_obuf ob = {out, sizeof out, 0};
-  CHECK(quic_h3resp_encode_headers(200, 0, &ob) == 1);
+  CHECK(h3resp_encode_headers(200, 0, &ob) == 1);
   /* prefix: Required Insert Count 0, Delta Base 0. */
   CHECK(ob.len == 3);
   CHECK(out[0] == 0x00 && out[1] == 0x00);
@@ -16,16 +16,15 @@ static void test_field_encode_status_200(void) {
 /* A status absent from the static table is a Literal Field Line referencing
  * the :status name (static index 24) with the decimal value. */
 static void test_field_encode_status_201(void) {
-  u8                 out[16];
-  wired_obuf         ob = {out, sizeof out, 0};
-  usz                pl;
-  quic_qpack_nameref r = {0, 0, 0};
-  u8                 val[8];
-  wired_obuf         vb = obuf_of(val, sizeof val);
-  CHECK(quic_h3resp_encode_headers(201, 0, &ob) == 1);
+  u8            out[16];
+  wired_obuf    ob = {out, sizeof out, 0};
+  usz           pl;
+  qpack_nameref r = {0, 0, 0};
+  u8            val[8];
+  wired_obuf    vb = obuf_of(val, sizeof val);
+  CHECK(h3resp_encode_headers(201, 0, &ob) == 1);
   CHECK(out[0] == 0x00 && out[1] == 0x00);
-  pl = quic_qpack_literal_namref_decode(
-      wired_span_of(out + 2, ob.len - 2), &r, &vb);
+  pl = qpack_literal_namref_decode(wired_span_of(out + 2, ob.len - 2), &r, &vb);
   CHECK(pl != 0);
   CHECK(r.is_static == 1 && r.index == 24);
   CHECK(vb.len == 3 && val[0] == '2' && val[1] == '0' && val[2] == '1');
@@ -37,7 +36,7 @@ static void test_field_encode_status_201(void) {
 static void test_field_encode_status_404(void) {
   u8         out[16];
   wired_obuf ob = {out, sizeof out, 0};
-  CHECK(quic_h3resp_encode_headers(404, 0, &ob) == 1);
+  CHECK(h3resp_encode_headers(404, 0, &ob) == 1);
   CHECK(ob.len == 3 && out[0] == 0x00 && out[1] == 0x00);
   CHECK(out[2] == 0xdb);
 }
@@ -46,7 +45,7 @@ static void test_field_encode_status_404(void) {
 static void test_field_encode_overflow(void) {
   u8         out[2];
   wired_obuf ob = {out, sizeof out, 0};
-  CHECK(quic_h3resp_encode_headers(200, 0, &ob) == 0);
+  CHECK(h3resp_encode_headers(200, 0, &ob) == 0);
 }
 
 /* RFC 9204 4.5: :status 200 + content-type "text/html" (both in the static
@@ -55,7 +54,7 @@ static void test_field_encode_overflow(void) {
 static void test_field_encode_headers_content_type_indexed(void) {
   u8         out[16];
   wired_obuf ob = {out, sizeof out, 0};
-  CHECK(quic_h3resp_encode_headers(200, "text/css", &ob) == 1);
+  CHECK(h3resp_encode_headers(200, "text/css", &ob) == 1);
   CHECK(ob.len == 4);
   CHECK(out[0] == 0x00 && out[1] == 0x00);
   CHECK(out[2] == 0xd9); /* :status 200, static index 25 */
@@ -67,15 +66,14 @@ static void test_field_encode_headers_content_type_indexed(void) {
  * referencing the content-type name (static index 44, "content-type" value
  * ignored for a name-only reference). */
 static void test_field_encode_headers_content_type_literal(void) {
-  u8                 out[32];
-  wired_obuf         ob = {out, sizeof out, 0};
-  usz                pl;
-  quic_qpack_nameref r = {0, 0, 0};
-  u8                 val[32];
-  wired_obuf         vb = obuf_of(val, sizeof val);
-  CHECK(quic_h3resp_encode_headers(200, "text/javascript", &ob) == 1);
-  pl = quic_qpack_literal_namref_decode(
-      wired_span_of(out + 3, ob.len - 3), &r, &vb);
+  u8            out[32];
+  wired_obuf    ob = {out, sizeof out, 0};
+  usz           pl;
+  qpack_nameref r = {0, 0, 0};
+  u8            val[32];
+  wired_obuf    vb = obuf_of(val, sizeof val);
+  CHECK(h3resp_encode_headers(200, "text/javascript", &ob) == 1);
+  pl = qpack_literal_namref_decode(wired_span_of(out + 3, ob.len - 3), &r, &vb);
   CHECK(pl != 0);
   CHECK(r.is_static == 1 && r.index == 44);
   CHECK(vb.len == 15);
@@ -87,7 +85,7 @@ static void test_field_encode_headers_content_type_literal(void) {
 static void test_field_encode_headers_no_content_type(void) {
   u8         out[16];
   wired_obuf ob = {out, sizeof out, 0};
-  CHECK(quic_h3resp_encode_headers(200, 0, &ob) == 1);
+  CHECK(h3resp_encode_headers(200, 0, &ob) == 1);
   CHECK(ob.len == 3);
   CHECK(out[0] == 0x00 && out[1] == 0x00 && out[2] == 0xd9);
 }
@@ -96,7 +94,7 @@ static void test_field_encode_headers_no_content_type(void) {
 static void test_field_encode_headers_overflow(void) {
   u8         out[3];
   wired_obuf ob = {out, sizeof out, 0};
-  CHECK(quic_h3resp_encode_headers(200, "text/css", &ob) == 0);
+  CHECK(h3resp_encode_headers(200, "text/css", &ob) == 0);
 }
 
 void test_field_encode(void) {

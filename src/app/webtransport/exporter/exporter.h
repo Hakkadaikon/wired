@@ -41,7 +41,7 @@
  * @param out         receives the serialized bytes
  * @param cap         capacity of out
  */
-usz quic_wt_exporter_ctx_encode(
+usz wt_exporter_ctx_encode(
     u64 session_id, wired_span label, wired_span app_context, u8* out, usz cap);
 
 /* draft-ietf-webtrans-http3-15 4.8: compute
@@ -53,7 +53,7 @@ usz quic_wt_exporter_ctx_encode(
  * keysched_exporter_secret).
  * @return 1 on success, 0 if label/app_context exceed 255 bytes or okm's
  *   length does not fit hkdf_expand_label */
-int quic_wt_exporter(
+int wt_exporter(
     const u8    exporter_secret[QUIC_HKDF_PRK],
     u64         session_id,
     wired_span  label,

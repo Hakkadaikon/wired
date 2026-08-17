@@ -9,10 +9,10 @@
  * successive GOAWAY ids are monotonically non-increasing. */
 
 /* Whether the request with `request_id` is processed under `goaway_limit`. */
-int quic_h3_shutdown_processes(u64 request_id, u64 goaway_limit);
+int h3_shutdown_processes(u64 request_id, u64 goaway_limit);
 
 /* Whether a GOAWAY id update from `prev` to `next` is valid (non-increasing).
  */
-int quic_h3_shutdown_id_monotone(u64 prev, u64 next);
+int h3_shutdown_id_monotone(u64 prev, u64 next);
 
 #endif

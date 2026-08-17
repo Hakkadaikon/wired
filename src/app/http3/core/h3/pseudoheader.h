@@ -20,30 +20,30 @@ typedef enum {
   QUIC_H3_PH_PROTOCOL, /* RFC 9220 3: Extended CONNECT's :protocol */
   QUIC_H3_PH_STATUS,
   QUIC_H3_PH_UNKNOWN /* a name beginning with ':' that is not known */
-} quic_h3_ph_kind;
+} h3_ph_kind;
 
 /* Classify a field name of len bytes. Returns the pseudo-header kind, or
  * QUIC_H3_PH_NONE for a regular field, or QUIC_H3_PH_UNKNOWN for an
  * unrecognised ':'-prefixed name. */
-quic_h3_ph_kind quic_h3_ph_classify(const u8* name, usz len);
+h3_ph_kind h3_ph_classify(const u8* name, usz len);
 
 /** Accumulates the pseudo-headers of one field section, in receipt order. */
 typedef struct {
   u8 seen;        /* bitmask of QUIC_H3_PH_* kinds that appeared */
   u8 saw_regular; /* a regular field has been seen */
   u8 ok;          /* 0 once any ordering/duplicate/unknown rule is broken */
-} quic_h3_ph_set;
+} h3_ph_set;
 
-void quic_h3_ph_init(quic_h3_ph_set* p);
+void h3_ph_init(h3_ph_set* p);
 
 /* Feed the next field name. Maintains p->ok: a pseudo-header after a regular
  * field, a duplicate pseudo-header, or an unknown pseudo-header clears it. */
-void quic_h3_ph_field(quic_h3_ph_set* p, const u8* name, usz len);
+void h3_ph_field(h3_ph_set* p, const u8* name, usz len);
 
 /* Whether the accumulated pseudo-headers form a valid request / response:
  * p->ok held and the required set is present (request: :method :scheme :path;
  * response: :status). Returns 1 valid, 0 malformed. */
-int quic_h3_ph_request_ok(const quic_h3_ph_set* p);
-int quic_h3_ph_response_ok(const quic_h3_ph_set* p);
+int h3_ph_request_ok(const h3_ph_set* p);
+int h3_ph_response_ok(const h3_ph_set* p);
 
 #endif

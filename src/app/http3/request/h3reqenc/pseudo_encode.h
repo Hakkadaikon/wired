@@ -16,7 +16,7 @@ typedef struct {
   wired_span authority;
   wired_span path;
   wired_span protocol;
-} quic_h3req_pseudo_in;
+} h3req_pseudo_in;
 
 /* RFC 9204 4.5 / RFC 9114 4.3.1. Encode a request field section carrying the
  * four request pseudo-headers (:method, :scheme, :authority, :path): the empty
@@ -28,11 +28,11 @@ typedef struct {
  * 3's :protocol is appended as a Literal Field Line With Literal Name (no
  * static-table entry exists for :protocol). Returns 1 with out->len set, 0 if
  * out lacks capacity. */
-int quic_h3req_enc_pseudo(const quic_h3req_pseudo_in* in, wired_obuf* out);
+int h3req_enc_pseudo(const h3req_pseudo_in* in, wired_obuf* out);
 
 /* RFC 9114 4.4 / RFC 9110 9.3.6. Encode a CONNECT request field section: the
  * empty prefix followed by just :method=CONNECT and :authority (no :scheme or
  * :path). Returns 1 with out->len set, 0 if out lacks capacity. */
-int quic_h3req_enc_connect(wired_span authority, wired_obuf* out);
+int h3req_enc_connect(wired_span authority, wired_obuf* out);
 
 #endif

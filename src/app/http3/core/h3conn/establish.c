@@ -9,8 +9,8 @@
 #define QUIC_H3_CONTROL_STREAM_TYPE 0x00
 
 /* RFC 9114 6.2 / 7.2.4 */
-int quic_h3conn_open_control(int advertise_wt, u8* out, usz cap, usz* out_len) {
-  return quic_h3settings_control_stream(advertise_wt, out, cap, out_len);
+int h3conn_open_control(int advertise_wt, u8* out, usz cap, usz* out_len) {
+  return h3settings_control_stream(advertise_wt, out, cap, out_len);
 }
 
 /* RFC 9114 6.2.1: consume the leading control stream type, leaving *off at the
@@ -24,12 +24,12 @@ static int skip_control_type(const u8* s, usz len, usz* off) {
 }
 
 /* RFC 9114 7.2.4 */
-int quic_h3conn_peer_settings_ok(const u8* control_stream, usz len) {
-  quic_h3_settings_state st  = {0};
-  usz                    off = 0;
-  quic_h3_frame          f   = {0};
+int h3conn_peer_settings_ok(const u8* control_stream, usz len) {
+  h3_settings_state st  = {0};
+  usz               off = 0;
+  h3_frame          f   = {0};
   if (!skip_control_type(control_stream, len, &off)) return 0;
-  if (!quic_h3_frame_get(wired_span_of(control_stream + off, len - off), &f))
+  if (!h3_frame_get(wired_span_of(control_stream + off, len - off), &f))
     return 0;
-  return quic_h3_settings_first(&st, f.type);
+  return h3_settings_first(&st, f.type);
 }

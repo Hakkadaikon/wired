@@ -26,7 +26,7 @@ static u64 dg_best_payload(u64 room) {
   return best;
 }
 
-u64 quic_datagram_max_payload(u64 max_frame_size, int with_len) {
+u64 datagram_max_payload(u64 max_frame_size, int with_len) {
   u64 room;
   if (max_frame_size < 2) return 0; /* need at least type + 1 byte */
   room = max_frame_size - 1;        /* RFC 9221 5: minus the type byte */

@@ -61,7 +61,7 @@ static int on_close(framedispatch_state* st, const u8* frame, usz len) {
  * input is rejected so the caller can close the connection. */
 static int on_datagram(framedispatch_state* st, const u8* frame, usz len) {
   wired_span f = wired_span_of(frame, len);
-  if (!quic_dgdeliver_extract(f, &st->datagram)) return 0;
+  if (!dgdeliver_extract(f, &st->datagram)) return 0;
   st->has_datagram = 1;
   return 1;
 }

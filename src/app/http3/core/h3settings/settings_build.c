@@ -1,6 +1,6 @@
 #include "app/http3/core/h3settings/settings_build.h"
 
-#include "app/http3/core/h3/frame.h" /* quic_h3_settings, quic_h3_settings_put, QUIC_H3_SETTINGS_MAX_FIELD_SECTION_SIZE */
+#include "app/http3/core/h3/frame.h" /* h3_settings, h3_settings_put, QUIC_H3_SETTINGS_MAX_FIELD_SECTION_SIZE */
 #include "app/http3/core/h3/qpack_settings.h" /* QUIC_H3_SETTINGS_ENABLE_CONNECT_PROTOCOL */
 
 /* RFC 9204 5: QPACK SETTINGS identifiers. */
@@ -33,8 +33,7 @@
 #define QUIC_H3_SETTINGS_WT_INITIAL_MAX_DATA 0x2b61
 
 /* RFC 9220 3: append SETTINGS_ENABLE_CONNECT_PROTOCOL when requested. */
-static void append_connect_protocol(
-    const quic_h3settings_in* in, quic_h3_settings* s) {
+static void append_connect_protocol(const h3settings_in* in, h3_settings* s) {
   if (!in->enable_connect_protocol) return;
   s->pairs[s->n].id    = QUIC_H3_SETTINGS_ENABLE_CONNECT_PROTOCOL;
   s->pairs[s->n].value = 1;
@@ -42,8 +41,7 @@ static void append_connect_protocol(
 }
 
 /* RFC 9297 2.1.1: append SETTINGS_H3_DATAGRAM when requested. */
-static void append_h3_datagram(
-    const quic_h3settings_in* in, quic_h3_settings* s) {
+static void append_h3_datagram(const h3settings_in* in, h3_settings* s) {
   if (!in->enable_h3_datagram) return;
   s->pairs[s->n].id    = QUIC_H3_SETTINGS_H3_DATAGRAM;
   s->pairs[s->n].value = 1;
@@ -53,8 +51,7 @@ static void append_h3_datagram(
 /* draft-ietf-webtrans-http3 8.2 + draft-02: append both generations'
  * WebTransport settings when requested (see QUIC_H3_SETTINGS_WT_DRAFT02's
  * doc for why the legacy pair is still required). */
-static void append_wt_max_sessions(
-    const quic_h3settings_in* in, quic_h3_settings* s) {
+static void append_wt_max_sessions(const h3settings_in* in, h3_settings* s) {
   if (!in->wt_max_sessions) return;
   s->pairs[s->n].id    = QUIC_H3_SETTINGS_WT_MAX_SESSIONS;
   s->pairs[s->n].value = in->wt_max_sessions;
@@ -70,7 +67,7 @@ static void append_wt_max_sessions(
 /* draft-ietf-webtrans-http3-15 5.5.1: append SETTINGS_WT_INITIAL_MAX_STREAMS_
  * UNI when requested. */
 static void append_wt_initial_max_streams_uni(
-    const quic_h3settings_in* in, quic_h3_settings* s) {
+    const h3settings_in* in, h3_settings* s) {
   if (!in->wt_initial_max_streams_uni) return;
   s->pairs[s->n].id    = QUIC_H3_SETTINGS_WT_INITIAL_MAX_STREAMS_UNI;
   s->pairs[s->n].value = in->wt_initial_max_streams_uni;
@@ -79,7 +76,7 @@ static void append_wt_initial_max_streams_uni(
 
 /* draft-ietf-webtrans-http3-15 5.5.2: bidi counterpart of the above. */
 static void append_wt_initial_max_streams_bidi(
-    const quic_h3settings_in* in, quic_h3_settings* s) {
+    const h3settings_in* in, h3_settings* s) {
   if (!in->wt_initial_max_streams_bidi) return;
   s->pairs[s->n].id    = QUIC_H3_SETTINGS_WT_INITIAL_MAX_STREAMS_BIDI;
   s->pairs[s->n].value = in->wt_initial_max_streams_bidi;
@@ -89,7 +86,7 @@ static void append_wt_initial_max_streams_bidi(
 /* draft-ietf-webtrans-http3-15 5.5.3: append SETTINGS_WT_INITIAL_MAX_DATA
  * when requested. */
 static void append_wt_initial_max_data(
-    const quic_h3settings_in* in, quic_h3_settings* s) {
+    const h3settings_in* in, h3_settings* s) {
   if (!in->wt_initial_max_data) return;
   s->pairs[s->n].id    = QUIC_H3_SETTINGS_WT_INITIAL_MAX_DATA;
   s->pairs[s->n].value = in->wt_initial_max_data;
@@ -99,9 +96,9 @@ static void append_wt_initial_max_data(
 /* RFC 9114 7.2.4.1 / 9114-064: append a caller-chosen reserved (grease)
  * SETTINGS identifier when in->grease_id is non-zero -- the probabilistic
  * decision of WHETHER and WHICH identifier to send lives in the caller
- * (quic_h3settings_control_stream), keeping this function itself
+ * (h3settings_control_stream), keeping this function itself
  * deterministic and easy to test byte-for-byte. */
-static void append_grease(const quic_h3settings_in* in, quic_h3_settings* s) {
+static void append_grease(const h3settings_in* in, h3_settings* s) {
   if (!in->grease_id) return;
   s->pairs[s->n].id    = in->grease_id;
   s->pairs[s->n].value = 0;
@@ -109,8 +106,8 @@ static void append_grease(const quic_h3settings_in* in, quic_h3_settings* s) {
 }
 
 /* RFC 9114 7.2.4 */
-int quic_h3settings_build(const quic_h3settings_in* in, wired_obuf* out) {
-  quic_h3_settings s;
+int h3settings_build(const h3settings_in* in, wired_obuf* out) {
+  h3_settings s;
   s.n              = 3;
   s.pairs[0].id    = QUIC_H3_SETTINGS_MAX_FIELD_SECTION_SIZE;
   s.pairs[0].value = in->max_field_section_size;
@@ -126,7 +123,7 @@ int quic_h3settings_build(const quic_h3settings_in* in, wired_obuf* out) {
   append_wt_initial_max_data(in, &s);
   append_grease(in, &s);
 
-  usz w = quic_h3_settings_put(out->p, out->cap, &s);
+  usz w = h3_settings_put(out->p, out->cap, &s);
   if (w == 0) return 0;
   out->len = w;
   return 1;

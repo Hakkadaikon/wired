@@ -18,7 +18,7 @@
  *   seal 1-RTT     -> CLIENT_AP,  open 1-RTT     -> SERVER_AP
  * Initial keys are derived from the DCID (shared); the client seals its Initial
  * with the client-direction Initial keys and opens the server Initial with the
- * server-direction Initial keys (quic_srvwire_open_initial). */
+ * server-direction Initial keys (srvwire_open_initial). */
 
 /** dcid/scid are connection ids; pn is the packet number. */
 typedef struct {

@@ -51,11 +51,11 @@ static void test_cw_initial_roundtrip(void) {
 
 /* RFC 9001 5.2: client opens a server Initial sealed by the server codec. */
 static void test_cw_open_server_initial(void) {
-  const u8             sh[] = {0x02, 0x00, 0x00, 0x02, 0xab, 0xcd};
-  u8                   pkt[1300];
-  wired_span           tls;
-  wired_obuf           ob = obuf_of(pkt, sizeof(pkt));
-  quic_srvwire_seal_in in = {
+  const u8        sh[] = {0x02, 0x00, 0x00, 0x02, 0xab, 0xcd};
+  u8              pkt[1300];
+  wired_span      tls;
+  wired_obuf      ob = obuf_of(pkt, sizeof(pkt));
+  srvwire_seal_in in = {
       wired_span_of(cw_dcid, 8),
       wired_span_of(cw_dcid, 8),
       wired_span_of(cw_scid, 4),
@@ -63,7 +63,7 @@ static void test_cw_open_server_initial(void) {
       -1,
       wired_span_of(sh, sizeof(sh)),
       0};
-  CHECK(quic_srvwire_seal_initial(&in, &ob) == 1);
+  CHECK(srvwire_seal_initial(&in, &ob) == 1);
   {
     clientwire_open_in oin = {
         wired_span_of(cw_dcid, 8), wired_mspan_of(pkt, ob.len), 0};
@@ -98,8 +98,7 @@ static void test_cw_handshake_roundtrip(void) {
   {
     wired_span   sp;
     protect_keys pk = {chs, &hp};
-    CHECK(
-        quic_srvwire_open_handshake(&pk, wired_mspan_of(pkt, total), &sp) == 1);
+    CHECK(srvwire_open_handshake(&pk, wired_mspan_of(pkt, total), &sp) == 1);
     CHECK(sp.n == sizeof(fin));
   }
 
@@ -107,8 +106,8 @@ static void test_cw_handshake_roundtrip(void) {
   CHECK(keysched_get(&c.tls.ks, QUIC_KS_SERVER_HS, &shs) == 1);
   aes128_init(&hp, shs->hp);
   {
-    wired_obuf           ob2 = obuf_of(pkt, sizeof(pkt));
-    quic_srvwire_seal_in in  = {
+    wired_obuf      ob2 = obuf_of(pkt, sizeof(pkt));
+    srvwire_seal_in in  = {
         wired_span_of((const u8*)0, 0),
         wired_span_of(cw_dcid, 8),
         wired_span_of(cw_scid, 4),
@@ -117,7 +116,7 @@ static void test_cw_handshake_roundtrip(void) {
         wired_span_of(fin, sizeof(fin)),
         0};
     protect_keys pk = {shs, &hp};
-    CHECK(quic_srvwire_seal_handshake(&pk, &in, &ob2) == 1);
+    CHECK(srvwire_seal_handshake(&pk, &in, &ob2) == 1);
     total = ob2.len;
   }
   {

@@ -8,7 +8,7 @@
  * client-initiated bidirectional, their IDs are multiples of four, so the
  * division is exact and reversible. */
 
-u64 quic_h3_quarter_stream_id(u64 stream_id);
-u64 quic_h3_stream_from_quarter(u64 quarter);
+u64 h3_quarter_stream_id(u64 stream_id);
+u64 h3_stream_from_quarter(u64 quarter);
 
 #endif

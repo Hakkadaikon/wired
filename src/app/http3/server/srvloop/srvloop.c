@@ -30,7 +30,7 @@ static void streams_reset(wired_srvloop* l) {
     l->streams[i].req_fin        = 0;
     l->streams[i].req_done       = 0;
     l->streams[i].req_incomplete = 0;
-    quic_h3_priority_init(&l->streams[i].priority);
+    h3_priority_init(&l->streams[i].priority);
   }
 }
 
@@ -149,7 +149,7 @@ int wired_srvloop_init(wired_srvloop* l, const u8* cli_scid, u8 cli_scid_len) {
   pending_priority_reset(l);
   l->ctrl.len    = 0;
   l->ctrl.parsed = 0;
-  quic_h3_control_init(&l->peer_ctrl);
+  h3_control_init(&l->peer_ctrl);
   return 1;
 }
 
@@ -347,7 +347,7 @@ static int stream_slot_claim(wired_srvloop* l, u64 stream_id) {
     l->streams[i].req_fin        = 0;
     l->streams[i].req_done       = 0;
     l->streams[i].req_incomplete = 0;
-    quic_h3_priority_init(&l->streams[i].priority);
+    h3_priority_init(&l->streams[i].priority);
     pending_priority_consume(l, i);
     return (int)i;
   }
@@ -383,7 +383,7 @@ void wired_srvloop_slot_release(wired_srvloop* l, u64 stream_id) {
   l->streams[i].req_fin        = 0;
   l->streams[i].req_done       = 0;
   l->streams[i].req_incomplete = 0;
-  quic_h3_priority_init(&l->streams[i].priority);
+  h3_priority_init(&l->streams[i].priority);
 }
 
 /* The first free pending_priority[] slot, or -1 if the table is full. */
@@ -400,7 +400,7 @@ static int pending_priority_free_slot(const wired_srvloop* l) {
  * update, same truncate-on-overflow policy family as this file's other fixed
  * tables. */
 static void pending_priority_set(
-    wired_srvloop* l, u64 stream_id, const quic_h3_priority* p) {
+    wired_srvloop* l, u64 stream_id, const h3_priority* p) {
   int i = pending_priority_find(l, stream_id);
   if (i < 0) i = pending_priority_free_slot(l);
   if (i < 0) return;
@@ -410,7 +410,7 @@ static void pending_priority_set(
 }
 
 void wired_srvloop_priority_apply(
-    wired_srvloop* l, u64 stream_id, const quic_h3_priority* p) {
+    wired_srvloop* l, u64 stream_id, const h3_priority* p) {
   int i = stream_slot_find(l, stream_id);
   if (i >= 0)
     l->streams[i].priority = *p;
@@ -423,7 +423,7 @@ void wired_srvloop_priority_apply(
  * streams[] slot (that stays wired_srvloop_slot_for's job, called only from
  * the receive path) -- this is the read-only counterpart. */
 int wired_srvloop_priority_of(
-    const wired_srvloop* l, u64 stream_id, quic_h3_priority* out) {
+    const wired_srvloop* l, u64 stream_id, h3_priority* out) {
   int i = stream_slot_find(l, stream_id);
   if (i < 0) return 0;
   *out = l->streams[i].priority;

@@ -12,6 +12,6 @@
 /* Returns 1 if id is a valid GOAWAY identifier from this sender, else 0.
  * from_server selects the server rule (client bidi Stream ID) over the client
  * rule (any Push ID). */
-int quic_h3_goaway_id_ok(u64 id, int from_server);
+int h3_goaway_id_ok(u64 id, int from_server);
 
 #endif

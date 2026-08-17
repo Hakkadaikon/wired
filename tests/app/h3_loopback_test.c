@@ -137,7 +137,7 @@ static usz lb_seal_handshake(
   aes128_init(&hp, k->hp);
   /* ack_pn 0: also acknowledge the server's Handshake PN 0, exercising the
    * server open path against a flight that carries a trailing ACK frame. */
-  quic_srvwire_seal_in in = {
+  srvwire_seal_in in = {
       wired_span_of((const u8*)0, 0),
       wired_span_of(f->s.sdrv.iscid, f->s.sdrv.iscid_len),
       wired_span_of(g_scid, 6),
@@ -146,7 +146,7 @@ static usz lb_seal_handshake(
       wired_span_of(msg, mlen),
       0};
   protect_keys pk = {k, &hp};
-  CHECK(quic_srvwire_seal_handshake(&pk, &in, &ob));
+  CHECK(srvwire_seal_handshake(&pk, &in, &ob));
   return ob.len;
 }
 
@@ -320,8 +320,8 @@ static void test_loopback_wire_confirm_and_get(void) {
   CHECK(ob.len > 0);
   CHECK(lb_open_onertt(&f, out, ob.len, &pl, &pll) == 1);
   {
-    quic_h3conn_resp resp_out = {0};
-    CHECK(quic_h3conn_recv_response(wired_span_of(pl, pll), &resp_out));
+    h3conn_resp resp_out = {0};
+    CHECK(h3conn_recv_response(wired_span_of(pl, pll), &resp_out));
     CHECK(resp_out.status == 200); /* RFC 9114 4.1 */
   }
   wired_udp_close(cfd);

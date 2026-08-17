@@ -48,8 +48,8 @@ int client_build_initial_wire(
 
 /* RFC 9001 5.2: open the server Initial with the server-direction keys. */
 int client_open_initial_wire(const clientwire_open_in* in, wired_span* tls) {
-  quic_srvwire_open_initial_in oin = {in->dcid, in->pn};
-  return quic_srvwire_open_initial(&oin, in->pkt, tls);
+  srvwire_open_initial_in oin = {in->dcid, in->pn};
+  return srvwire_open_initial(&oin, in->pkt, tls);
 }
 
 /* RFC 9001 5: seal a Handshake flight with CLIENT_HS (own direction). The
@@ -57,8 +57,8 @@ int client_open_initial_wire(const clientwire_open_in* in, wired_span* tls) {
  * hdr.dcid is the header's DCID. */
 int client_seal_handshake_wire(
     client* c, const clientwire_seal_in* in, wired_obuf* out) {
-  cw_dirkey            dk;
-  quic_srvwire_seal_in si = {
+  cw_dirkey       dk;
+  srvwire_seal_in si = {
       wired_span_of((const u8*)0, 0),
       in->hdr.dcid,
       in->hdr.scid,
@@ -69,7 +69,7 @@ int client_seal_handshake_wire(
   protect_keys pk;
   if (!cw_dir_key(c, QUIC_KS_CLIENT_HS, &dk)) return 0;
   pk = (protect_keys){dk.k, &dk.hp};
-  return quic_srvwire_seal_handshake(&pk, &si, out);
+  return srvwire_seal_handshake(&pk, &si, out);
 }
 
 /* RFC 9001 5: open a server Handshake flight with SERVER_HS (peer direction).
@@ -81,7 +81,7 @@ int client_open_handshake_wire(
   (void)in->dcid_len;
   if (!cw_dir_key(c, QUIC_KS_SERVER_HS, &dk)) return 0;
   pk = (protect_keys){dk.k, &dk.hp};
-  return quic_srvwire_open_handshake(&pk, in->pkt, tls);
+  return srvwire_open_handshake(&pk, in->pkt, tls);
 }
 
 /* RFC 9001 5: send 1-RTT application data with CLIENT_AP (own direction). */

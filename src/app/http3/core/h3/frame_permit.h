@@ -18,10 +18,10 @@ enum {
 };
 
 /* Returns 1 if frame_type is permitted on a stream of stream_kind, else 0. */
-int quic_h3_frame_on_stream(u64 frame_type, int stream_kind);
+int h3_frame_on_stream(u64 frame_type, int stream_kind);
 
 /* Whether a received frame_type is safe to receive at all, independent of
- * which stream it arrived on (quic_h3_frame_on_stream above answers a
+ * which stream it arrived on (h3_frame_on_stream above answers a
  * different question -- where a sender may PUT a frame type). 0 in two
  * cases, both RFC 9114 7.2.8 / connection error H3_FRAME_UNEXPECTED:
  *  - PUSH_PROMISE (7.2.5): a SERVER-to-client frame. This SDK implements the
@@ -32,6 +32,6 @@ int quic_h3_frame_on_stream(u64 frame_type, int stream_kind);
  *    unknown/grease and permitted everywhere).
  * Returns 1 if frame_type is safe to receive as-is, 0 if it must be treated
  * as H3_FRAME_UNEXPECTED. */
-int quic_h3_frame_recv_ok(u64 frame_type);
+int h3_frame_recv_ok(u64 frame_type);
 
 #endif

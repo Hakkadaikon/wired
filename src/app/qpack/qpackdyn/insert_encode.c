@@ -11,8 +11,8 @@
 /* RFC 9204 4.3.3. Encode the 5-bit prefixed name length then the name octets.
  * Returns bytes written, or 0 if the prefix or the name does not fit. */
 static usz encode_name(wired_mspan out, wired_span name) {
-  quic_qpack_pfx pfx = {5, QPACK_INSERT_LITNAME};
-  usz            off = quic_qpack_int_encode(out, pfx, name.n);
+  qpack_pfx pfx = {5, QPACK_INSERT_LITNAME};
+  usz       off = qpack_int_encode(out, pfx, name.n);
   if (off == 0) return 0;
   if (!bytes_put(
           wired_mspan_of(out.p, out.n), &off, wired_span_of(name.p, name.n)))
@@ -20,9 +20,9 @@ static usz encode_name(wired_mspan out, wired_span name) {
   return off;
 }
 
-usz quic_qdyn_insert_literal(const quic_qpack_field* f, wired_obuf* out) {
+usz qdyn_insert_literal(const qpack_field* f, wired_obuf* out) {
   usz off = encode_name(wired_mspan_of(out->p, out->cap), f->name);
-  usz w   = off ? quic_qpack_string_encode(
+  usz w   = off ? qpack_string_encode(
                       wired_mspan_of(out->p + off, out->cap - off), f->value)
                 : 0;
   if (w == 0) return 0;

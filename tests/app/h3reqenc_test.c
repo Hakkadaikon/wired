@@ -23,8 +23,8 @@ static int em_eq(const u8* a, usz alen, const char* b) {
 static i64 first_static_index(const u8* fs, usz fs_len) {
   u64 index     = 0;
   int is_static = 0;
-  usz off       = quic_qpack_prefix_decode(fs, fs_len, &(quic_qpack_prefix){0});
-  usz c         = off ? quic_qpack_indexed_decode(
+  usz off       = qpack_prefix_decode(fs, fs_len, &(qpack_prefix){0});
+  usz c         = off ? qpack_indexed_decode(
                             wired_span_of(fs + off, fs_len - off), &index, &is_static)
                       : 0;
   if (!c || !is_static) return -1;
@@ -42,14 +42,14 @@ static void test_enc_method_static_index(void) {
       {"GET", 3, 17},     {"HEAD", 4, 18}, {"DELETE", 6, 16},
       {"OPTIONS", 7, 19}, {"POST", 4, 20}, {"PUT", 3, 21},
   };
-  const u8              path[] = {'/'};
-  const u8              auth[] = {'h'};
-  quic_h3req_headers_in hin    = {
+  const u8         path[] = {'/'};
+  const u8         auth[] = {'h'};
+  h3req_headers_in hin    = {
       wired_span_of(path, sizeof path), wired_span_of(auth, sizeof auth)};
   for (usz i = 0; i < 6; i++) {
     u8         fs[256];
     wired_obuf ob = {fs, sizeof fs, 0};
-    CHECK(quic_h3req_enc_method(
+    CHECK(h3req_enc_method(
         wired_span_of((const u8*)cases[i].m, cases[i].mlen), &hin, &ob));
     CHECK(first_static_index(fs, ob.len) == cases[i].idx);
   }
@@ -58,13 +58,13 @@ static void test_enc_method_static_index(void) {
 /* RFC 9204 4.5.4: a method absent from the static table (PATCH) is not a
  * leading Indexed Field Line; it goes out as a name-reference literal. */
 static void test_enc_method_unknown_literal(void) {
-  const u8              path[] = {'/'};
-  const u8              auth[] = {'h'};
-  u8                    fs[256];
-  wired_obuf            ob  = {fs, sizeof fs, 0};
-  quic_h3req_headers_in hin = {
+  const u8         path[] = {'/'};
+  const u8         auth[] = {'h'};
+  u8               fs[256];
+  wired_obuf       ob  = {fs, sizeof fs, 0};
+  h3req_headers_in hin = {
       wired_span_of(path, sizeof path), wired_span_of(auth, sizeof auth)};
-  CHECK(quic_h3req_enc_method(wired_span_of((const u8*)"PATCH", 5), &hin, &ob));
+  CHECK(h3req_enc_method(wired_span_of((const u8*)"PATCH", 5), &hin, &ob));
   CHECK(first_static_index(fs, ob.len) == -1);
 }
 
@@ -79,14 +79,14 @@ static int enc_bytes_eq(const u8* a, usz alen, const u8* b, usz blen) {
 /* RFC 9114 4.3.1: enc_get stays a thin wrapper -> identical bytes to
  * enc_method with :method = GET. */
 static void test_enc_get_matches_method(void) {
-  const u8              path[] = {'/', 'x'};
-  const u8              auth[] = {'h', '1'};
-  u8                    a[256], b[256];
-  wired_obuf            aob = {a, sizeof a, 0}, bob = {b, sizeof b, 0};
-  quic_h3req_headers_in hin = {
+  const u8         path[] = {'/', 'x'};
+  const u8         auth[] = {'h', '1'};
+  u8               a[256], b[256];
+  wired_obuf       aob = {a, sizeof a, 0}, bob = {b, sizeof b, 0};
+  h3req_headers_in hin = {
       wired_span_of(path, sizeof path), wired_span_of(auth, sizeof auth)};
-  CHECK(quic_h3req_enc_get(&hin, &aob));
-  CHECK(quic_h3req_enc_method(wired_span_of((const u8*)"GET", 3), &hin, &bob));
+  CHECK(h3req_enc_get(&hin, &aob));
+  CHECK(h3req_enc_method(wired_span_of((const u8*)"GET", 3), &hin, &bob));
   CHECK(enc_bytes_eq(a, aob.len, b, bob.len));
 }
 
@@ -115,10 +115,10 @@ static void test_send_method_post_roundtrip(void) {
 /* Scan the HTTP/3 frames in [h3,h3+n) for the first DATA frame, viewing its
  * payload in (*b,*blen). Returns 1 if found, 0 otherwise. */
 static int scan_for_data(const u8* h3, usz n, const u8** b, usz* blen) {
-  quic_h3_frame f   = {0};
-  usz           off = 0;
+  h3_frame f   = {0};
+  usz      off = 0;
   while (off < n) {
-    usz used = quic_h3_frame_get(wired_span_of(h3 + off, n - off), &f);
+    usz used = h3_frame_get(wired_span_of(h3 + off, n - off), &f);
     if (!used) return 0;
     off += used;
     if (f.type == QUIC_H3_FRAME_DATA) {

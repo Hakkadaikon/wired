@@ -126,9 +126,9 @@ static void test_dispatch_datagram(void) {
   sentpkt             t;
   flow_credit         c;
   ds_init(&st, &s, &t, &c);
-  quic_datagram_frame f = {4, (const u8*)"data"};
-  u8                  buf[16];
-  usz n = quic_datagram_encode(wired_mspan_of(buf, sizeof buf), &f, 1);
+  datagram_frame f = {4, (const u8*)"data"};
+  u8             buf[16];
+  usz            n = datagram_encode(wired_mspan_of(buf, sizeof buf), &f, 1);
   CHECK(n != 0);
   CHECK(framedispatch_handle(&st, buf[0], wired_span_of(buf, n)) == 1);
   CHECK(st.has_datagram == 1);

@@ -12,8 +12,7 @@
  * will open a WebTransport session; only advertise it when the QUIC
  * transport also negotiated max_datagram_frame_size (RFC 9297 2.1.1 makes
  * that a MUST). Returns 1 ok with *out_len set, 0 if no room. */
-int quic_h3settings_control_stream(
-    int advertise_wt, u8* out, usz cap, usz* out_len);
+int h3settings_control_stream(int advertise_wt, u8* out, usz cap, usz* out_len);
 
 /* RFC 9297 2.1.1 / 9297-014: "When servers decide to accept 0-RTT data, they
  * MUST send a SETTINGS_H3_DATAGRAM setting greater than or equal to the
@@ -29,14 +28,14 @@ int quic_h3settings_control_stream(
  * @param new_value   the value this connection is about to send
  * @return 1 if new_value >= prior_value (ok to send), 0 if it would regress
  *   (H3_SETTINGS_ERROR territory on the client's own validation side) */
-int quic_h3settings_h3_datagram_monotonic_ok(u64 prior_value, u64 new_value);
+int h3settings_h3_datagram_monotonic_ok(u64 prior_value, u64 new_value);
 
 /* RFC 9114 7.2.4.2 (9114-066): "If the server cannot determine that the
  * settings remembered by a client are compatible with its current
  * settings, it MUST NOT accept 0-RTT data. Remembered settings are
  * compatible if a client complying with those settings would not violate
  * the server's current settings." Every settings value this SDK sends
- * (settings_build.h's quic_h3settings_in, minus grease_id -- a
+ * (settings_build.h's h3settings_in, minus grease_id -- a
  * per-connection random reserved identifier the client is required to
  * ignore regardless of value, RFC 9114 7.2.8) is a limit that only gets
  * MORE permissive as it grows (a higher table capacity, more blocked
@@ -50,7 +49,7 @@ int quic_h3settings_h3_datagram_monotonic_ok(u64 prior_value, u64 new_value);
  *   accepting 0-RTT
  * @return 1 if compatible (safe to accept 0-RTT), 0 if not (the caller
  *   MUST NOT accept 0-RTT data) */
-int quic_h3settings_zerortt_compatible(
-    const quic_h3settings_in* prior, const quic_h3settings_in* current);
+int h3settings_zerortt_compatible(
+    const h3settings_in* prior, const h3settings_in* current);
 
 #endif

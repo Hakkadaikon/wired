@@ -35,7 +35,7 @@ usz wired_wtwire_signal_put(u8* buf, usz cap, int bidi, u64 session_id);
  * @param session_id QUIC stream ID of the Extended CONNECT stream
  * @return bytes written, or 0 if it does not fit
  */
-usz quic_wtwire_qsid_put(u8* buf, usz cap, u64 session_id);
+usz wtwire_qsid_put(u8* buf, usz cap, u64 session_id);
 
 /** Read the quarter-stream-ID varint at the head of a datagram.
  * RFC 9297 SS2.1: a Quarter Stream ID above 2^60-1 does not map to any legal

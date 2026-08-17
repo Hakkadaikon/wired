@@ -5,7 +5,7 @@ static usz entry_size(usz name_len, usz value_len) {
   return name_len + value_len + 32;
 }
 
-void quic_qpack_dyn_init(quic_qpack_dyn* t, usz capacity) {
+void qpack_dyn_init(qpack_dyn* t, usz capacity) {
   t->head     = 0;
   t->count    = 0;
   t->dropped  = 0;
@@ -13,33 +13,32 @@ void quic_qpack_dyn_init(quic_qpack_dyn* t, usz capacity) {
   t->capacity = capacity;
 }
 
-usz quic_qpack_dyn_size(const quic_qpack_dyn* t) { return t->size; }
+usz qpack_dyn_size(const qpack_dyn* t) { return t->size; }
 
 /* RFC 9204 3.2.2: drop the oldest entry to reclaim space. */
-static void evict_oldest(quic_qpack_dyn* t) {
-  quic_qpack_dyn_entry* e = &t->ring[t->head];
+static void evict_oldest(qpack_dyn* t) {
+  qpack_dyn_entry* e = &t->ring[t->head];
   t->size -= entry_size(e->name_len, e->value_len);
   t->head = (t->head + 1) % QUIC_QPACK_DYN_MAX_ENTRIES;
   t->count--;
   t->dropped++;
 }
 
-static int fits_fields(const quic_qpack_field* f) {
+static int fits_fields(const qpack_field* f) {
   return f->name.n <= QUIC_QPACK_DYN_MAX_NAME &&
          f->value.n <= QUIC_QPACK_DYN_MAX_VALUE;
 }
 
-static int over_capacity(const quic_qpack_dyn* t, usz need) {
+static int over_capacity(const qpack_dyn* t, usz need) {
   return t->size + need > t->capacity;
 }
 
 /* RFC 9204 3.2.2: evict until the new entry fits or nothing remains. */
-static void make_room(quic_qpack_dyn* t, usz need) {
+static void make_room(qpack_dyn* t, usz need) {
   while (t->count > 0 && over_capacity(t, need)) evict_oldest(t);
 }
 
-static int can_insert(
-    const quic_qpack_dyn* t, usz need, const quic_qpack_field* f) {
+static int can_insert(const qpack_dyn* t, usz need, const qpack_field* f) {
   if (!fits_fields(f)) return 0;
   if (need > t->capacity) return 0;
   return t->count < QUIC_QPACK_DYN_MAX_ENTRIES;
@@ -49,9 +48,9 @@ static void copy_field(u8* dst, wired_span src) {
   for (usz i = 0; i < src.n; i++) dst[i] = src.p[i];
 }
 
-static void store_entry(quic_qpack_dyn* t, const quic_qpack_field* f) {
-  usz slot                = (t->head + t->count) % QUIC_QPACK_DYN_MAX_ENTRIES;
-  quic_qpack_dyn_entry* e = &t->ring[slot];
+static void store_entry(qpack_dyn* t, const qpack_field* f) {
+  usz              slot = (t->head + t->count) % QUIC_QPACK_DYN_MAX_ENTRIES;
+  qpack_dyn_entry* e    = &t->ring[slot];
   copy_field(e->name, f->name);
   copy_field(e->value, f->value);
   e->name_len  = f->name.n;
@@ -60,7 +59,7 @@ static void store_entry(quic_qpack_dyn* t, const quic_qpack_field* f) {
   t->count++;
 }
 
-int quic_qpack_dyn_insert(quic_qpack_dyn* t, const quic_qpack_field* f) {
+int qpack_dyn_insert(qpack_dyn* t, const qpack_field* f) {
   usz need = entry_size(f->name.n, f->value.n);
   if (!can_insert(t, need, f)) return 0;
   make_room(t, need);
@@ -74,12 +73,12 @@ int quic_qpack_dyn_insert(quic_qpack_dyn* t, const quic_qpack_field* f) {
  * raise never evicts (make_room's own over_capacity(t, 0) check is
  * size > capacity, so a raised capacity is never "over" and the loop is a
  * no-op) -- both directions share this one path. */
-void quic_qpack_dyn_set_capacity(quic_qpack_dyn* t, usz new_capacity) {
+void qpack_dyn_set_capacity(qpack_dyn* t, usz new_capacity) {
   t->capacity = new_capacity;
   make_room(t, 0);
 }
 
 /* RFC 9204 4.3.1 */
-int quic_qpack_capacity_within_limit(u64 capacity, u64 max_table_capacity) {
+int qpack_capacity_within_limit(u64 capacity, u64 max_table_capacity) {
   return capacity <= max_table_capacity;
 }

@@ -3,7 +3,7 @@
 /* Every encoder-stream instruction round-trips its integer field and its kind
  * is recovered from the leading bit pattern (RFC 9204 4.3). */
 static void test_qpack_enc_instr_roundtrip(void) {
-  quic_qpack_enc_kind kinds[] = {
+  qpack_enc_kind kinds[] = {
       QUIC_QPACK_ENC_SET_CAPACITY,
       QUIC_QPACK_ENC_INSERT_NAME_REF,
       QUIC_QPACK_ENC_INSERT_LITERAL,
@@ -11,31 +11,31 @@ static void test_qpack_enc_instr_roundtrip(void) {
   };
   for (usz i = 0; i < sizeof(kinds) / sizeof(kinds[0]); i++) {
     u8  buf[8];
-    usz w = quic_qpack_enc_instr_encode(
+    usz w = qpack_enc_instr_encode(
         wired_mspan_of(buf, sizeof(buf)), kinds[i], 1337);
     CHECK(w != 0);
-    quic_qpack_enc_kind k;
-    u64                 v;
-    usz r = quic_qpack_enc_instr_decode(wired_span_of(buf, w), &k, &v);
+    qpack_enc_kind k;
+    u64            v;
+    usz            r = qpack_enc_instr_decode(wired_span_of(buf, w), &k, &v);
     CHECK(r == w && k == kinds[i] && v == 1337);
   }
 }
 
 /* Every decoder-stream instruction round-trips (RFC 9204 4.4). */
 static void test_qpack_dec_instr_roundtrip(void) {
-  quic_qpack_dec_kind kinds[] = {
+  qpack_dec_kind kinds[] = {
       QUIC_QPACK_DEC_SECTION_ACK,
       QUIC_QPACK_DEC_STREAM_CANCEL,
       QUIC_QPACK_DEC_INSERT_COUNT,
   };
   for (usz i = 0; i < sizeof(kinds) / sizeof(kinds[0]); i++) {
     u8  buf[8];
-    usz w = quic_qpack_dec_instr_encode(
-        wired_mspan_of(buf, sizeof(buf)), kinds[i], 42);
+    usz w =
+        qpack_dec_instr_encode(wired_mspan_of(buf, sizeof(buf)), kinds[i], 42);
     CHECK(w != 0);
-    quic_qpack_dec_kind k;
-    u64                 v;
-    usz r = quic_qpack_dec_instr_decode(wired_span_of(buf, w), &k, &v);
+    qpack_dec_kind k;
+    u64            v;
+    usz            r = qpack_dec_instr_decode(wired_span_of(buf, w), &k, &v);
     CHECK(r == w && k == kinds[i] && v == 42);
   }
 }
@@ -45,11 +45,11 @@ static void test_qpack_dec_instr_roundtrip(void) {
 static void test_qpack_instr_pattern(void) {
   u8          buf[2];
   wired_mspan b = wired_mspan_of(buf, sizeof(buf));
-  quic_qpack_dec_instr_encode(b, QUIC_QPACK_DEC_SECTION_ACK, 0);
+  qpack_dec_instr_encode(b, QUIC_QPACK_DEC_SECTION_ACK, 0);
   CHECK((buf[0] & 0x80) == 0x80);
-  quic_qpack_dec_instr_encode(b, QUIC_QPACK_DEC_INSERT_COUNT, 0);
+  qpack_dec_instr_encode(b, QUIC_QPACK_DEC_INSERT_COUNT, 0);
   CHECK((buf[0] & 0xc0) == 0x00);
-  quic_qpack_dec_instr_encode(b, QUIC_QPACK_DEC_STREAM_CANCEL, 0);
+  qpack_dec_instr_encode(b, QUIC_QPACK_DEC_STREAM_CANCEL, 0);
   CHECK((buf[0] & 0xc0) == 0x40);
 }
 
@@ -57,13 +57,13 @@ static void test_qpack_instr_pattern(void) {
 static void test_qpack_instr_truncated(void) {
   u8 buf[8];
   /* A value needing a continuation byte, then cut to just the prefix byte. */
-  usz w = quic_qpack_enc_instr_encode(
+  usz w = qpack_enc_instr_encode(
       wired_mspan_of(buf, sizeof(buf)), QUIC_QPACK_ENC_DUPLICATE, 1000);
   CHECK(w > 1);
-  quic_qpack_enc_kind k;
-  u64                 v;
-  CHECK(quic_qpack_enc_instr_decode(wired_span_of(buf, w - 1), &k, &v) == 0);
-  CHECK(quic_qpack_enc_instr_decode(wired_span_of(buf, 0), &k, &v) == 0);
+  qpack_enc_kind k;
+  u64            v;
+  CHECK(qpack_enc_instr_decode(wired_span_of(buf, w - 1), &k, &v) == 0);
+  CHECK(qpack_enc_instr_decode(wired_span_of(buf, 0), &k, &v) == 0);
 }
 
 void test_qpack_instruction(void) {

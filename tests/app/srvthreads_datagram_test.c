@@ -670,16 +670,16 @@ static int sdt_handshake(struct sdt_client* cx) {
  * STREAM frame happens in sdt_seal_stream0 below (it needs the client's own
  * key schedule, unlike this pure encode step). */
 static usz sdt_build_connect(u8* out, usz cap) {
-  u8                   fields[256];
-  wired_obuf           fob = obuf_of(fields, sizeof fields);
-  wired_obuf           hob = obuf_of(out, cap);
-  quic_h3req_pseudo_in pin = {
+  u8              fields[256];
+  wired_obuf      fob = obuf_of(fields, sizeof fields);
+  wired_obuf      hob = obuf_of(out, cap);
+  h3req_pseudo_in pin = {
       wired_span_of((const u8*)"CONNECT", 7),
       wired_span_of((const u8*)"https", 5), wired_span_of((const u8*)"h", 1),
       wired_span_of((const u8*)"/", 1),
       wired_span_of((const u8*)"webtransport", 12)};
-  if (!quic_h3req_enc_pseudo(&pin, &fob)) return 0;
-  if (!quic_h3_frame_put(
+  if (!h3req_enc_pseudo(&pin, &fob)) return 0;
+  if (!h3_frame_put(
           &hob, QUIC_H3_FRAME_HEADERS, wired_span_of(fields, fob.len)))
     return 0;
   return hob.len;
@@ -726,7 +726,7 @@ static int sdt_send_client_settings(struct sdt_client* cx) {
   u8         stream_bytes[9], settings_frame[8], pkt[256];
   wired_obuf fob = obuf_of(settings_frame, sizeof settings_frame);
   usz        plen, flen;
-  if (!quic_h3_frame_put(
+  if (!h3_frame_put(
           &fob, QUIC_H3_FRAME_SETTINGS, wired_span_of((const u8*)"", 0)))
     return 0;
   stream_bytes[0] = 0x00; /* control stream type varint */
@@ -844,11 +844,11 @@ static int sdt_build_datagram_pkt(
     u8*                frame,
     usz                frame_cap,
     wired_obuf*        out) {
-  wired_mspan         fb   = wired_mspan_of(frame, frame_cap);
-  quic_datagram_frame df   = {n, payload};
-  usz                 flen = quic_datagram_encode(fb, &df, 0);
-  protect_keys        pk;
-  hspkt_onertt_desc   d = {
+  wired_mspan       fb   = wired_mspan_of(frame, frame_cap);
+  datagram_frame    df   = {n, payload};
+  usz               flen = datagram_encode(fb, &df, 0);
+  protect_keys      pk;
+  hspkt_onertt_desc d = {
       wired_span_of(g_sdt_cli_scid, 6), 1, wired_span_of(frame, flen), 0};
   if (flen == 0) return 0;
   if (!sdt_client_ap_key(cx, &pk)) return 0;
@@ -889,15 +889,14 @@ static int sdt_is_datagram_frame(const framewalk_item* fr) {
 /* fr is a DATAGRAM frame (RFC 9221 5) whose payload equals want[0..want_len).
  */
 /* Decode fr as a DATAGRAM frame into *df. Returns 0 if fr is not one. */
-static int sdt_decode_datagram(
-    const framewalk_item* fr, quic_datagram_frame* df) {
+static int sdt_decode_datagram(const framewalk_item* fr, datagram_frame* df) {
   if (!sdt_is_datagram_frame(fr)) return 0;
-  return quic_datagram_decode(fr->start, fr->remaining, df) != 0;
+  return datagram_decode(fr->start, fr->remaining, df) != 0;
 }
 
 static int sdt_datagram_matches(
     const framewalk_item* fr, const u8* want, usz want_len) {
-  quic_datagram_frame df;
+  datagram_frame df;
   if (!sdt_decode_datagram(fr, &df)) return 0;
   if (df.length != want_len) return 0;
   return sdt_bytes_eq(df.data, want, want_len);

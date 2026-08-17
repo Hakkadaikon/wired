@@ -15,7 +15,7 @@
 
 /* Whether a SETTINGS identifier may appear on an HTTP/3 connection. Returns 0
  * for a reserved HTTP/2 identifier (H3_SETTINGS_ERROR), 1 otherwise. */
-int quic_h3_setting_allowed(u64 id);
+int h3_setting_allowed(u64 id);
 
 /* RFC 9297 2.1.1, id 0x33. Kept local to this check rather than shared with
  * h3settings/settings_build.c's own identical #define: that file builds the
@@ -32,6 +32,6 @@ int quic_h3_setting_allowed(u64 id);
  * @param value the received SETTINGS value
  * @return 1 if allowed, 0 if this is SETTINGS_H3_DATAGRAM with an out-of-
  *   range value (H3_SETTINGS_ERROR) */
-int quic_h3_setting_h3_datagram_value_ok(u64 id, u64 value);
+int h3_setting_h3_datagram_value_ok(u64 id, u64 value);
 
 #endif

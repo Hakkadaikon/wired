@@ -331,8 +331,8 @@ static int srvboot_acc_ackable(const wired_srvboot_acc* a) {
 
 usz wired_srvboot_partial_ack(
     wired_srvboot_acc* a, wired_span scid, u8* out, usz cap) {
-  wired_obuf           ob = obuf_of(out, cap);
-  quic_srvwire_seal_in wi = {
+  wired_obuf      ob = obuf_of(out, cap);
+  srvwire_seal_in wi = {
       wired_span_of(a->hdr.dcid, a->hdr.dcid_len),
       wired_span_of(a->hdr.scid, a->hdr.scid_len),
       scid,
@@ -341,7 +341,7 @@ usz wired_srvboot_partial_ack(
       wired_span_of(0, 0),
       0};
   if (!srvboot_acc_ackable(a)) return 0;
-  if (!quic_srvwire_seal_initial_frames_lean(&wi, &ob)) return 0;
+  if (!srvwire_seal_initial_frames_lean(&wi, &ob)) return 0;
   a->ack_pn++;
   return ob.len;
 }
@@ -443,11 +443,11 @@ usz wired_srvboot_refusal(
     u64                      error_code,
     u8*                      out,
     usz                      cap) {
-  u8                   fr[8];
-  conn_close_frame     f  = {0, srvboot_refusal_error(error_code), 0, 0, 0};
-  usz                  fn = frame_put_conn_close(fr, sizeof fr, &f);
-  wired_obuf           ob = obuf_of(out, cap);
-  quic_srvwire_seal_in wi = {
+  u8               fr[8];
+  conn_close_frame f  = {0, srvboot_refusal_error(error_code), 0, 0, 0};
+  usz              fn = frame_put_conn_close(fr, sizeof fr, &f);
+  wired_obuf       ob = obuf_of(out, cap);
+  srvwire_seal_in  wi = {
       wired_span_of(a->hdr.dcid, a->hdr.dcid_len),
       wired_span_of(a->hdr.scid, a->hdr.scid_len),
       scid,
@@ -456,7 +456,7 @@ usz wired_srvboot_refusal(
       wired_span_of(fr, fn),
       0};
   if (fn == 0) return 0;
-  if (!quic_srvwire_seal_initial_frames(&wi, &ob)) return 0;
+  if (!srvwire_seal_initial_frames(&wi, &ob)) return 0;
   return ob.len;
 }
 

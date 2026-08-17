@@ -5,8 +5,8 @@
 /* Read one frame of an expected type. Returns bytes consumed, 0 on a
  * truncated frame or a type mismatch. */
 static usz get_typed(wired_span buf, u64 want, wired_span* payload) {
-  quic_h3_frame f;
-  usz           used = quic_h3_frame_get(buf, &f);
+  h3_frame f;
+  usz      used = h3_frame_get(buf, &f);
   if (!used || f.type != want) return 0;
   *payload = wired_span_of(f.payload, (usz)f.payload_len);
   return used;
@@ -21,7 +21,7 @@ static int parse_body(wired_span rem, wired_span* body) {
 }
 
 /* RFC 9114 4.1 */
-int quic_h3req_resp_parse(wired_span stream, quic_h3req_resp* resp) {
+int h3req_resp_parse(wired_span stream, h3req_resp* resp) {
   usz off = get_typed(stream, QUIC_H3_FRAME_HEADERS, &resp->headers);
   if (!off) return 0;
   return parse_body(wired_span_of(stream.p + off, stream.n - off), &resp->body);

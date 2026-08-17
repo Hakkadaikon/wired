@@ -31,7 +31,7 @@ typedef struct {
   u8  incremental; /**< RFC 9218 4.2 */
   u64 stream_id;   /**< RFC 9218 10's same-urgency tie-break key */
   int in_use;      /**< 0: not a live candidate, sorts after every live one */
-} quic_h3prio_candidate;
+} h3prio_candidate;
 
 /** Fill order[0..n) with a permutation of 0..n-1 that visits `c` in RFC
  * 9218 10 priority order: ascending urgency first (lower urgency = higher
@@ -44,6 +44,6 @@ typedef struct {
  * @param c candidates, c[0..n)
  * @param n candidate/order count
  * @param order receives the visiting order, order[0..n) */
-void quic_h3prio_order(const quic_h3prio_candidate* c, usz n, usz* order);
+void h3prio_order(const h3prio_candidate* c, usz n, usz* order);
 
 #endif

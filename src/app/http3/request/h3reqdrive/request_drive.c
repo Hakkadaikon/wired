@@ -19,13 +19,13 @@
 /* RFC 9114 4.1 / 4.3.1, RFC 9204 4.5 */
 int wired_h3reqdrive_send_method(
     u64 stream_id, const wired_h3reqdrive_send_in* in, wired_obuf* out) {
-  u8                    fs[256];
-  wired_obuf            fsb = obuf_of(fs, sizeof(fs));
-  quic_h3req_headers_in hin = {in->path, in->authority};
-  quic_h3conn_req_in    rin;
-  if (!quic_h3req_enc_method(in->method, &hin, &fsb)) return 0;
-  rin = (quic_h3conn_req_in){wired_span_of(fs, fsb.len), in->body};
-  return quic_h3conn_send_request(stream_id, &rin, out);
+  u8               fs[256];
+  wired_obuf       fsb = obuf_of(fs, sizeof(fs));
+  h3req_headers_in hin = {in->path, in->authority};
+  h3conn_req_in    rin;
+  if (!h3req_enc_method(in->method, &hin, &fsb)) return 0;
+  rin = (h3conn_req_in){wired_span_of(fs, fsb.len), in->body};
+  return h3conn_send_request(stream_id, &rin, out);
 }
 
 /* RFC 9114 4.1 / 4.3.1, RFC 9204 4.5 */
@@ -55,7 +55,7 @@ static usz cstr_len(const char* s) {
 }
 
 /* Borrow a dynamic-table field's name/value view into L (RFC 9204 3.2.4). */
-static void borrow_dynamic(const quic_qpack_field* f, rline* L) {
+static void borrow_dynamic(const qpack_field* f, rline* L) {
   L->name         = f->name.p;
   L->name_len     = f->name.n;
   L->value        = f->value.p;
@@ -69,11 +69,11 @@ static void borrow_dynamic(const quic_qpack_field* f, rline* L) {
  * dyn->table when set; a caller with no dynamic table (dyn->table == 0, e.g.
  * no encoder stream has been seen yet) simply cannot resolve one, matching
  * this decoder's prior static-table-only behavior. */
-static usz line_indexed(wired_span fs, const quic_qdyn_src* dyn, rline* L) {
-  quic_qpack_field f;
-  usz              consumed;
-  quic_qdyn_src    src = {dyn->table, dyn->base, fs};
-  if (!quic_qdyn_decode_field(&src, &f, &consumed)) return 0;
+static usz line_indexed(wired_span fs, const qdyn_src* dyn, rline* L) {
+  qpack_field f;
+  usz         consumed;
+  qdyn_src    src = {dyn->table, dyn->base, fs};
+  if (!qdyn_decode_field(&src, &f, &consumed)) return 0;
   borrow_dynamic(&f, L);
   return consumed;
 }
@@ -81,11 +81,11 @@ static usz line_indexed(wired_span fs, const quic_qdyn_src* dyn, rline* L) {
 /* RFC 9204 4.5.4: a Literal With Name Reference -> static name, copied value.
  */
 static usz line_namref(wired_span fs, wired_mspan scr, rline* L) {
-  quic_qpack_nameref r    = {0, 0, 0};
-  wired_obuf         vb   = obuf_of(scr.p, scr.n);
-  const char *       name = 0, *value = 0;
-  usz                c = quic_qpack_literal_namref_decode(fs, &r, &vb);
-  if (!c || !quic_qpack_static_get((usz)r.index, &name, &value)) return 0;
+  qpack_nameref r    = {0, 0, 0};
+  wired_obuf    vb   = obuf_of(scr.p, scr.n);
+  const char *  name = 0, *value = 0;
+  usz           c = qpack_literal_namref_decode(fs, &r, &vb);
+  if (!c || !qpack_static_get((usz)r.index, &name, &value)) return 0;
   L->name         = (const u8*)name;
   L->name_len     = cstr_len(name);
   L->value        = scr.p;
@@ -107,11 +107,11 @@ static usz litname_split(usz scr_n) {
 /* RFC 9204 4.5.6: a Literal With Literal Name -> name in the first (capped)
  * scratch share, value in the rest (disjoint, both written in one call). */
 static usz line_litname(wired_span fs, wired_mspan scr, rline* L) {
-  int                 never = 0;
-  usz                 half  = litname_split(scr.n);
-  quic_qpack_fieldbuf fb    = {
+  int            never = 0;
+  usz            half  = litname_split(scr.n);
+  qpack_fieldbuf fb    = {
       obuf_of(scr.p, half), obuf_of(scr.p + half, scr.n - half)};
-  usz c = quic_qpack_literal_name_decode(fs, &never, &fb);
+  usz c = qpack_literal_name_decode(fs, &never, &fb);
   if (!c) return 0;
   L->name         = scr.p;
   L->name_len     = fb.name.len;
@@ -126,7 +126,7 @@ static usz line_litname(wired_span fs, wired_mspan scr, rline* L) {
  * and Literal With Literal Name are static-table/copied-value only -- see
  * line_namref/line_litname's own docs). */
 static usz decode_line(
-    wired_span fs, wired_mspan scr, const quic_qdyn_src* dyn, rline* L) {
+    wired_span fs, wired_mspan scr, const qdyn_src* dyn, rline* L) {
   usz c = line_indexed(fs, dyn, L);
   if (c) return c;
   c = line_namref(fs, scr, L);
@@ -136,7 +136,7 @@ static usz decode_line(
 
 /* A request pseudo-header kind has a (value, len) slot in wired_h3reqdrive_req.
  */
-static int is_request_pseudo(quic_h3_ph_kind k) {
+static int is_request_pseudo(h3_ph_kind k) {
   return k >= QUIC_H3_PH_METHOD && k <= QUIC_H3_PH_PROTOCOL;
 }
 
@@ -152,7 +152,7 @@ static int line_name_is(const rline* L, const char* s) {
  * field value; other regular fields stay ignored. */
 static void take_priority(const rline* L, wired_h3reqdrive_req* r) {
   if (line_name_is(L, "priority"))
-    quic_h3_priority_sfv(wired_span_of(L->value, L->value_len), &r->priority);
+    h3_priority_sfv(wired_span_of(L->value, L->value_len), &r->priority);
 }
 
 /* WebTransport draft-ietf-webtrans-http3-15 SS3.6 / RFC 9220 3: a regular
@@ -241,7 +241,7 @@ static void classify_line(const rline* L, wired_h3reqdrive_req* r) {
       &r->authority_len,
       &r->path_len,
       &r->protocol_len};
-  quic_h3_ph_kind k = quic_h3_ph_classify(L->name, L->name_len);
+  h3_ph_kind k = h3_ph_classify(L->name, L->name_len);
   if (!is_request_pseudo(k)) {
     classify_regular(L, r);
     return;
@@ -258,19 +258,19 @@ static void classify_line(const rline* L, wired_h3reqdrive_req* r) {
  * reference unresolvable, matching this decoder's prior static-only
  * behavior. */
 typedef struct {
-  wired_span    fs;
-  wired_mspan   scr;
-  usz           off;
-  usz           used;
-  quic_qdyn_src dyn;
+  wired_span  fs;
+  wired_mspan scr;
+  usz         off;
+  usz         used;
+  qdyn_src    dyn;
 } rd_cursor;
 
 /* RFC 9114 10.3, RFC 9110 5.5: neither half of a recovered field line may
  * carry a CR, LF or NUL octet -- such a line is malformed regardless of how
  * it was encoded. */
 static int line_bytes_ok(const rline* L) {
-  return quic_h3_header_bytes_ok(L->name, L->name_len) &&
-         quic_h3_header_bytes_ok(L->value, L->value_len);
+  return h3_header_bytes_ok(L->name, L->name_len) &&
+         h3_header_bytes_ok(L->value, L->value_len);
 }
 
 /* RFC 9114 4.1 / 4.2: request-smuggling defenses that key off the field
@@ -278,9 +278,9 @@ static int line_bytes_ok(const rline* L) {
  * (Connection, Keep-Alive, Proxy-Connection, Upgrade) are always malformed,
  * and a TE field's value must be exactly "trailers". */
 static int line_smuggling_ok(const rline* L) {
-  if (quic_h3_header_name_forbidden(L->name, L->name_len)) return 0;
+  if (h3_header_name_forbidden(L->name, L->name_len)) return 0;
   if (!line_name_is(L, "te")) return 1;
-  return quic_h3_header_te_ok(L->value, L->value_len);
+  return h3_header_te_ok(L->value, L->value_len);
 }
 
 /* Decode failure or any malformed-line check on the recovered line. */
@@ -313,7 +313,7 @@ static int scan_lines(rd_cursor* cur, wired_h3reqdrive_req* r) {
 
 /* RFC 9204 4.5.1.2 (9204-046): resolve the section prefix's Required Insert
  * Count and Base, rejecting a Sign=1 prefix whose Base would be negative
- * (quic_qpack_base_valid). Returns bytes consumed by the prefix with *base
+ * (qpack_base_valid). Returns bytes consumed by the prefix with *base
  * filled, 0 if the section prefix is malformed or names an invalid Base.
  * dyn is the table this section's dynamic references (if any) resolve
  * against; 0 (no encoder stream seen yet) still resolves a Base of 0
@@ -326,8 +326,8 @@ static int scan_lines(rd_cursor* cur, wired_h3reqdrive_req* r) {
 /* RFC 9204 3.2.2: MaxEntries is the dynamic table's capacity divided by 32. */
 #define QPACK_DYN_ENTRY_SIZE_OVERHEAD 32
 
-static quic_qpack_ric_ctx dyn_ric_ctx(const quic_qpack_dyn* dyn) {
-  quic_qpack_ric_ctx ctx = {0, 0};
+static qpack_ric_ctx dyn_ric_ctx(const qpack_dyn* dyn) {
+  qpack_ric_ctx ctx = {0, 0};
   if (!dyn) return ctx;
   ctx.max_entries   = dyn->capacity / QPACK_DYN_ENTRY_SIZE_OVERHEAD;
   ctx.total_inserts = dyn->dropped + dyn->count;
@@ -339,18 +339,18 @@ static quic_qpack_ric_ctx dyn_ric_ctx(const quic_qpack_dyn* dyn) {
  * yields would be negative. Split out of prefix_base so its own branch count
  * stays at the CCN gate. */
 static int prefix_resolve_base(
-    const quic_qpack_prefix* p, const quic_qpack_dyn* dyn, u64* base) {
-  quic_qpack_ric_ctx ctx = dyn_ric_ctx(dyn);
-  u64                ric;
-  if (!quic_qpack_ric_decode(p->required_insert_count, &ctx, &ric)) return 0;
-  if (!quic_qpack_base_valid(ric, p->sign, p->delta_base)) return 0;
-  *base = quic_qpack_base(ric, p->sign, p->delta_base);
+    const qpack_prefix* p, const qpack_dyn* dyn, u64* base) {
+  qpack_ric_ctx ctx = dyn_ric_ctx(dyn);
+  u64           ric;
+  if (!qpack_ric_decode(p->required_insert_count, &ctx, &ric)) return 0;
+  if (!qpack_base_valid(ric, p->sign, p->delta_base)) return 0;
+  *base = qpack_base(ric, p->sign, p->delta_base);
   return 1;
 }
 
-static usz prefix_base(wired_span fs, const quic_qpack_dyn* dyn, u64* base) {
-  quic_qpack_prefix p;
-  usz               off = quic_qpack_prefix_decode(fs.p, fs.n, &p);
+static usz prefix_base(wired_span fs, const qpack_dyn* dyn, u64* base) {
+  qpack_prefix p;
+  usz          off = qpack_prefix_decode(fs.p, fs.n, &p);
   if (!off) return 0;
   return prefix_resolve_base(&p, dyn, base) ? off : 0;
 }
@@ -363,7 +363,7 @@ static usz prefix_base(wired_span fs, const quic_qpack_dyn* dyn, u64* base) {
 static int decode_lines(
     wired_span            fs,
     wired_mspan           scr,
-    const quic_qpack_dyn* dyn,
+    const qpack_dyn*      dyn,
     wired_h3reqdrive_req* r) {
   rd_cursor cur = {fs, scr, 0, 0, {dyn, 0, fs}};
   cur.off       = prefix_base(fs, dyn, &cur.dyn.base);
@@ -383,11 +383,11 @@ static int path_present_and_empty(const wired_h3reqdrive_req* r) {
 int wired_h3reqdrive_recv_get_dyn(
     wired_span            stream_data,
     wired_mspan           scratch,
-    const quic_qpack_dyn* dyn,
+    const qpack_dyn*      dyn,
     wired_h3reqdrive_req* r) {
   wired_span fs = wired_span_of(0, 0);
   *r            = (wired_h3reqdrive_req){0};
-  quic_h3_priority_init(&r->priority);
+  h3_priority_init(&r->priority);
   if (!wired_h3reqdrive_request_sections(stream_data, &fs, r)) return 0;
   if (!decode_lines(fs, scratch, dyn, r)) return 0;
   return !path_present_and_empty(r);
@@ -406,8 +406,7 @@ int wired_h3reqdrive_recv_get(
  * are discarded (a trailer's regular fields are unused by this SDK); only
  * the name classification and scratch bookkeeping matter here. */
 static int trailer_line_ok(const rline* L) {
-  return line_ok(L) &&
-         quic_h3_ph_classify(L->name, L->name_len) == QUIC_H3_PH_NONE;
+  return line_ok(L) && h3_ph_classify(L->name, L->name_len) == QUIC_H3_PH_NONE;
 }
 
 static int trailer_step_line(rd_cursor* cur) {
@@ -443,8 +442,7 @@ int wired_h3reqdrive_trailer_ok(wired_span stream_data, wired_mspan scratch) {
   wired_span trailer_fs = wired_span_of(0, 0);
   rd_cursor  cur;
   if (!wired_h3reqdrive_request_trailer(stream_data, &trailer_fs)) return 1;
-  cur.off = quic_qpack_prefix_decode(
-      trailer_fs.p, trailer_fs.n, &(quic_qpack_prefix){0});
+  cur.off = qpack_prefix_decode(trailer_fs.p, trailer_fs.n, &(qpack_prefix){0});
   if (!cur.off) return 0;
   cur.fs        = trailer_fs;
   cur.scr       = scratch;

@@ -25,13 +25,12 @@ static usz priupdate_stream_frame(
  * the combined length (RFC 9114 6.2.1 / RFC 9218 7.1). */
 static usz priupdate_ctrl_payload(
     u8* out, usz cap, u64 element_id, int push, const char* pfv, usz pfv_len) {
-  usz               off = 1; /* control type 0x00, single byte */
-  quic_h3_priupdate f   = {
-      push, element_id, wired_span_of((const u8*)pfv, pfv_len)};
-  usz n;
+  usz          off = 1; /* control type 0x00, single byte */
+  h3_priupdate f   = {push, element_id, wired_span_of((const u8*)pfv, pfv_len)};
+  usz          n;
   if (cap < 1) return 0;
   out[0] = 0x00;
-  n      = quic_h3_priupdate_put(out + off, cap - off, &f);
+  n      = h3_priupdate_put(out + off, cap - off, &f);
   if (!n) return 0;
   return off + n;
 }
@@ -113,9 +112,9 @@ static void test_srvloop_priupdate_on_request_stream_unexpected(void) {
   CHECK(wired_srvloop_init(
       &l, g_priupdate_cli_scid, sizeof g_priupdate_cli_scid));
 
-  plen = quic_h3_priupdate_put(
+  plen = h3_priupdate_put(
       payload, sizeof payload,
-      &(quic_h3_priupdate){0, 4, wired_span_of((const u8*)"u=1", 3)});
+      &(h3_priupdate){0, 4, wired_span_of((const u8*)"u=1", 3)});
   CHECK(plen > 0);
   /* stream 0: a client-initiated bidi (request) stream id. */
   flen = priupdate_stream_frame(frame, sizeof frame, 0, 0, payload, plen, 0);
@@ -161,7 +160,7 @@ static usz settings_ctrl_payload(u8* out, usz cap) {
   wired_obuf sob = obuf_of(sf, sizeof sf);
   usz        i;
   if (cap < 1) return 0;
-  if (!quic_h3_frame_put(
+  if (!h3_frame_put(
           &sob, QUIC_H3_FRAME_SETTINGS, wired_span_of((const u8*)"", 0)))
     return 0;
   if (cap < 1 + sob.len) return 0;
@@ -221,14 +220,14 @@ static void test_srvloop_ctrl_first_frame_not_settings_missing(void) {
  * priority (the same value a scheduler would order sends by) without
  * allocating anything. */
 static void test_srvloop_priority_of_open_stream(void) {
-  wired_srvloop    l;
-  quic_h3_priority p;
+  wired_srvloop l;
+  h3_priority   p;
 
   CHECK(wired_srvloop_init(
       &l, g_priupdate_cli_scid, sizeof g_priupdate_cli_scid));
   CHECK(wired_srvloop_slot_for(&l, 4) >= 0);
   wired_srvloop_priority_apply(
-      &l, 4, &(quic_h3_priority){2, 1}); /* u=2, incremental */
+      &l, 4, &(h3_priority){2, 1}); /* u=2, incremental */
 
   CHECK(wired_srvloop_priority_of(&l, 4, &p) == 1);
   CHECK(p.urgency == 2);
@@ -237,8 +236,8 @@ static void test_srvloop_priority_of_open_stream(void) {
 
 /* A stream id with no open streams[] slot has nothing to read. */
 static void test_srvloop_priority_of_unopened_stream(void) {
-  wired_srvloop    l;
-  quic_h3_priority p;
+  wired_srvloop l;
+  h3_priority   p;
 
   CHECK(wired_srvloop_init(
       &l, g_priupdate_cli_scid, sizeof g_priupdate_cli_scid));

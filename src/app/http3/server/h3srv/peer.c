@@ -72,9 +72,9 @@ int wired_h3srv_on_peer_qpack(
 
 /* Accepted uni stream type classifiers, scanned until one matches. */
 static int (*const accept_uni_checks[])(u64) = {
-    quic_h3_stream_type_is_control,
-    quic_h3_stream_type_is_qpack,
-    quic_h3_stream_type_is_webtransport,
+    h3_stream_type_is_control,
+    h3_stream_type_is_qpack,
+    h3_stream_type_is_webtransport,
 };
 
 /* RFC 9114 6.2 / RFC 9204 4.2 / draft-ietf-webtrans-http3-15 4.3 */

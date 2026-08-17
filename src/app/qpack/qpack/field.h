@@ -8,12 +8,12 @@
 typedef struct {
   wired_span name;  /**< field name view */
   wired_span value; /**< field value view */
-} quic_qpack_field;
+} qpack_field;
 
 /** The caller-owned output buffers a QPACK decoder fills. */
 typedef struct {
   wired_obuf name;  /**< output buffer for the field name */
   wired_obuf value; /**< output buffer for the field value */
-} quic_qpack_fieldbuf;
+} qpack_fieldbuf;
 
 #endif

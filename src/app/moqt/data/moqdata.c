@@ -27,14 +27,14 @@ static int moqdata_classify_fixed(u64 v) {
 static int moqdata_classify_kind(u64 v) {
   int fixed = moqdata_classify_fixed(v);
   if (fixed) return fixed;
-  if (quic_moqdata_type_valid(v)) return QUIC_MOQDATA_STREAM_SUBGROUP;
+  if (moqdata_type_valid(v)) return QUIC_MOQDATA_STREAM_SUBGROUP;
   return QUIC_MOQDATA_STREAM_UNKNOWN;
 }
 
-int quic_moqdata_classify(wired_span in, usz* off) {
+int moqdata_classify(wired_span in, usz* off) {
   usz at = 0;
   u64 v;
-  if (!quic_moqvi_take(in, &at, &v)) return QUIC_MOQDATA_STREAM_INSUFFICIENT;
+  if (!moqvi_take(in, &at, &v)) return QUIC_MOQDATA_STREAM_INSUFFICIENT;
   *off = at;
   return moqdata_classify_kind(v);
 }
@@ -44,37 +44,37 @@ int quic_moqdata_classify(wired_span in, usz* off) {
 static int moqdata_type_bit4(u64 t) { return (t & 0x10) != 0; }
 
 static int moqdata_type_mode_ok(u64 t) {
-  return quic_moqdata_type_sgid_mode(t) != 3;
+  return moqdata_type_sgid_mode(t) != 3;
 }
 
-int quic_moqdata_type_valid(u64 type) {
+int moqdata_type_valid(u64 type) {
   if (type & 0x80) return 0;
   if (!moqdata_type_bit4(type)) return 0;
   return moqdata_type_mode_ok(type);
 }
 
-int quic_moqdata_type_props(u64 type) { return (type & 0x01) != 0; }
-u64 quic_moqdata_type_sgid_mode(u64 type) { return (type >> 1) & 0x3; }
-int quic_moqdata_type_end_of_group(u64 type) { return (type & 0x08) != 0; }
-int quic_moqdata_type_default_priority(u64 type) { return (type & 0x20) != 0; }
-int quic_moqdata_type_first_object(u64 type) { return (type & 0x40) != 0; }
+int moqdata_type_props(u64 type) { return (type & 0x01) != 0; }
+u64 moqdata_type_sgid_mode(u64 type) { return (type >> 1) & 0x3; }
+int moqdata_type_end_of_group(u64 type) { return (type & 0x08) != 0; }
+int moqdata_type_default_priority(u64 type) { return (type & 0x20) != 0; }
+int moqdata_type_first_object(u64 type) { return (type & 0x40) != 0; }
 
 /* ===== SUBGROUP_HEADER take/put (11.4.2) ===== */
 
 static int moqdata_subhdr_take_sgid(
-    wired_span buf, usz* at, quic_moqdata_subhdr* h) {
-  u64 mode = quic_moqdata_type_sgid_mode(h->type);
+    wired_span buf, usz* at, moqdata_subhdr* h) {
+  u64 mode = moqdata_type_sgid_mode(h->type);
   if (mode == 1) {
     h->subgroup_id_pending = 1;
     return 1;
   }
   if (mode != 2) return 1;
-  return quic_moqvi_take(buf, at, &h->subgroup_id);
+  return moqvi_take(buf, at, &h->subgroup_id);
 }
 
 static int moqdata_subhdr_take_prio(
-    wired_span buf, usz* at, quic_moqdata_subhdr* h) {
-  if (quic_moqdata_type_default_priority(h->type)) {
+    wired_span buf, usz* at, moqdata_subhdr* h) {
+  if (moqdata_type_default_priority(h->type)) {
     h->priority = 0;
     return 1;
   }
@@ -84,47 +84,46 @@ static int moqdata_subhdr_take_prio(
   return 1;
 }
 
-static int moqdata_subhdr_take_ids(
-    wired_span buf, usz* at, quic_moqdata_subhdr* h) {
-  if (!quic_moqvi_take(buf, at, &h->track_alias)) return 0;
-  if (!quic_moqvi_take(buf, at, &h->group_id)) return 0;
+static int moqdata_subhdr_take_ids(wired_span buf, usz* at, moqdata_subhdr* h) {
+  if (!moqvi_take(buf, at, &h->track_alias)) return 0;
+  if (!moqvi_take(buf, at, &h->group_id)) return 0;
   return moqdata_subhdr_take_sgid(buf, at, h);
 }
 
 static int moqdata_subhdr_take_body(
-    wired_span buf, usz* at, quic_moqdata_subhdr* h, usz* off) {
+    wired_span buf, usz* at, moqdata_subhdr* h, usz* off) {
   if (!moqdata_subhdr_take_ids(buf, at, h)) return QUIC_MOQDATA_INSUFFICIENT;
   if (!moqdata_subhdr_take_prio(buf, at, h)) return QUIC_MOQDATA_INSUFFICIENT;
   *off = *at;
   return QUIC_MOQDATA_OK;
 }
 
-int quic_moqdata_subhdr_take(wired_span buf, usz* off, quic_moqdata_subhdr* h) {
+int moqdata_subhdr_take(wired_span buf, usz* off, moqdata_subhdr* h) {
   usz at = *off;
   u64 type;
-  if (!quic_moqvi_take(buf, &at, &type)) return QUIC_MOQDATA_INSUFFICIENT;
-  if (!quic_moqdata_type_valid(type)) return QUIC_MOQDATA_VIOLATION;
-  *h      = (quic_moqdata_subhdr){0};
+  if (!moqvi_take(buf, &at, &type)) return QUIC_MOQDATA_INSUFFICIENT;
+  if (!moqdata_type_valid(type)) return QUIC_MOQDATA_VIOLATION;
+  *h      = (moqdata_subhdr){0};
   h->type = type;
   return moqdata_subhdr_take_body(buf, &at, h, off);
 }
 
-void quic_moqdata_subhdr_resolve(quic_moqdata_subhdr* h, u64 first_object_id) {
+void moqdata_subhdr_resolve(moqdata_subhdr* h, u64 first_object_id) {
   if (!h->subgroup_id_pending) return;
   h->subgroup_id         = first_object_id;
   h->subgroup_id_pending = 0;
 }
 
 static int moqdata_subhdr_put_sgid(
-    wired_mspan buf, usz* at, const quic_moqdata_subhdr* h) {
-  u64 mode = quic_moqdata_type_sgid_mode(h->type);
+    wired_mspan buf, usz* at, const moqdata_subhdr* h) {
+  u64 mode = moqdata_type_sgid_mode(h->type);
   if (mode != 2) return 1;
-  return quic_moqvi_put(buf, at, h->subgroup_id);
+  return moqvi_put(buf, at, h->subgroup_id);
 }
 
 static int moqdata_subhdr_put_prio(
-    wired_mspan buf, usz* at, const quic_moqdata_subhdr* h) {
-  if (quic_moqdata_type_default_priority(h->type)) return 1;
+    wired_mspan buf, usz* at, const moqdata_subhdr* h) {
+  if (moqdata_type_default_priority(h->type)) return 1;
   if (*at >= buf.n) return 0;
   buf.p[*at] = (u8)h->priority;
   (*at)++;
@@ -132,28 +131,27 @@ static int moqdata_subhdr_put_prio(
 }
 
 static int moqdata_subhdr_put_ids(
-    wired_mspan buf, usz* at, const quic_moqdata_subhdr* h) {
-  if (!quic_moqvi_put(buf, at, h->track_alias)) return 0;
-  if (!quic_moqvi_put(buf, at, h->group_id)) return 0;
+    wired_mspan buf, usz* at, const moqdata_subhdr* h) {
+  if (!moqvi_put(buf, at, h->track_alias)) return 0;
+  if (!moqvi_put(buf, at, h->group_id)) return 0;
   return moqdata_subhdr_put_sgid(buf, at, h);
 }
 
 static int moqdata_subhdr_put_body(
-    wired_mspan buf, usz* at, const quic_moqdata_subhdr* h) {
+    wired_mspan buf, usz* at, const moqdata_subhdr* h) {
   if (!moqdata_subhdr_put_ids(buf, at, h)) return 0;
   return moqdata_subhdr_put_prio(buf, at, h);
 }
 
 static int moqdata_subhdr_put_rest(
-    wired_mspan buf, usz* at, const quic_moqdata_subhdr* h) {
-  if (!quic_moqvi_put(buf, at, h->type)) return 0;
+    wired_mspan buf, usz* at, const moqdata_subhdr* h) {
+  if (!moqvi_put(buf, at, h->type)) return 0;
   return moqdata_subhdr_put_body(buf, at, h);
 }
 
-int quic_moqdata_subhdr_put(
-    wired_mspan buf, usz* off, const quic_moqdata_subhdr* h) {
+int moqdata_subhdr_put(wired_mspan buf, usz* off, const moqdata_subhdr* h) {
   usz at = *off;
-  if (!quic_moqdata_type_valid(h->type)) return QUIC_MOQDATA_VIOLATION;
+  if (!moqdata_type_valid(h->type)) return QUIC_MOQDATA_VIOLATION;
   if (!moqdata_subhdr_put_rest(buf, &at, h)) return QUIC_MOQDATA_INSUFFICIENT;
   *off = at;
   return QUIC_MOQDATA_OK;
@@ -161,9 +159,9 @@ int quic_moqdata_subhdr_put(
 
 /* ===== Object framing (4237-4362) ===== */
 
-quic_moqdata_objseq quic_moqdata_objseq_of(u64 type) {
-  quic_moqdata_objseq s = {0};
-  s.has_props           = quic_moqdata_type_props(type);
+moqdata_objseq moqdata_objseq_of(u64 type) {
+  moqdata_objseq s = {0};
+  s.has_props      = moqdata_type_props(type);
   return s;
 }
 
@@ -178,9 +176,9 @@ static u64 moqdata_next_id(int have_prev, u64 prev_id, u64 delta) {
 }
 
 static int moqdata_obj_take_id(
-    wired_span buf, usz* at, quic_moqdata_objseq* seq, quic_moqdata_obj* o) {
+    wired_span buf, usz* at, moqdata_objseq* seq, moqdata_obj* o) {
   u64 delta;
-  if (!quic_moqvi_take(buf, at, &delta)) return QUIC_MOQDATA_INSUFFICIENT;
+  if (!moqvi_take(buf, at, &delta)) return QUIC_MOQDATA_INSUFFICIENT;
   if (moqdata_id_overflow(seq->have_prev, seq->prev_id, delta))
     return QUIC_MOQDATA_VIOLATION;
   o->object_id = moqdata_next_id(seq->have_prev, seq->prev_id, delta);
@@ -195,7 +193,7 @@ static int moqdata_obj_skip(wired_span buf, usz* at, u64 n) {
 
 static int moqdata_obj_take_props_field(
     wired_span buf, usz* at, u64* props_len) {
-  if (!quic_moqvi_take(buf, at, props_len)) return 0;
+  if (!moqvi_take(buf, at, props_len)) return 0;
   return moqdata_obj_skip(buf, at, *props_len);
 }
 
@@ -217,13 +215,13 @@ static int moqdata_obj_props_ok(u64 props_len, u64 status) {
 }
 
 static int moqdata_obj_take_status(wired_span buf, usz* at, u64* status) {
-  if (!quic_moqvi_take(buf, at, status)) return QUIC_MOQDATA_INSUFFICIENT;
+  if (!moqvi_take(buf, at, status)) return QUIC_MOQDATA_INSUFFICIENT;
   if (!moqdata_status_known(*status)) return QUIC_MOQDATA_VIOLATION;
   return QUIC_MOQDATA_OK;
 }
 
 static int moqdata_obj_take_empty(
-    wired_span buf, usz* at, u64 props_len, quic_moqdata_obj* o) {
+    wired_span buf, usz* at, u64 props_len, moqdata_obj* o) {
   int r = moqdata_obj_take_status(buf, at, &o->status);
   if (r != QUIC_MOQDATA_OK) return r;
   if (!moqdata_obj_props_ok(props_len, o->status))
@@ -233,7 +231,7 @@ static int moqdata_obj_take_empty(
 }
 
 static int moqdata_obj_take_payload(
-    wired_span buf, usz* at, u64 len, quic_moqdata_obj* o) {
+    wired_span buf, usz* at, u64 len, moqdata_obj* o) {
   if (*at + len > buf.n) return QUIC_MOQDATA_INSUFFICIENT;
   o->payload = wired_span_of(buf.p + *at, (usz)len);
   *at += (usz)len;
@@ -242,20 +240,20 @@ static int moqdata_obj_take_payload(
 }
 
 static int moqdata_obj_take_body(
-    wired_span buf, usz* at, u64 props_len, quic_moqdata_obj* o) {
+    wired_span buf, usz* at, u64 props_len, moqdata_obj* o) {
   u64 len;
-  if (!quic_moqvi_take(buf, at, &len)) return QUIC_MOQDATA_INSUFFICIENT;
+  if (!moqvi_take(buf, at, &len)) return QUIC_MOQDATA_INSUFFICIENT;
   if (len == 0) return moqdata_obj_take_empty(buf, at, props_len, o);
   return moqdata_obj_take_payload(buf, at, len, o);
 }
 
 static int moqdata_obj_take_finish(
-    wired_span           buf,
-    usz*                 at,
-    u64                  props_len,
-    quic_moqdata_objseq* seq,
-    quic_moqdata_obj*    out,
-    usz*                 off) {
+    wired_span      buf,
+    usz*            at,
+    u64             props_len,
+    moqdata_objseq* seq,
+    moqdata_obj*    out,
+    usz*            off) {
   int r = moqdata_obj_take_body(buf, at, props_len, out);
   if (r != QUIC_MOQDATA_OK) return r;
   seq->have_prev = 1;
@@ -264,8 +262,8 @@ static int moqdata_obj_take_finish(
   return QUIC_MOQDATA_OK;
 }
 
-int quic_moqdata_obj_take(
-    wired_span buf, usz* off, quic_moqdata_objseq* seq, quic_moqdata_obj* out) {
+int moqdata_obj_take(
+    wired_span buf, usz* off, moqdata_objseq* seq, moqdata_obj* out) {
   usz at = *off;
   u64 props_len;
   int r = moqdata_obj_take_id(buf, &at, seq, out);
@@ -283,16 +281,15 @@ static int moqdata_span_copy(wired_mspan buf, usz* at, wired_span payload) {
 }
 
 static int moqdata_obj_put_body(wired_mspan buf, usz* at, wired_span payload) {
-  if (!quic_moqvi_put(buf, at, payload.n)) return 0;
-  if (payload.n == 0)
-    return quic_moqvi_put(buf, at, QUIC_MOQDATA_STATUS_NORMAL);
+  if (!moqvi_put(buf, at, payload.n)) return 0;
+  if (payload.n == 0) return moqvi_put(buf, at, QUIC_MOQDATA_STATUS_NORMAL);
   return moqdata_span_copy(buf, at, payload);
 }
 
-int quic_moqdata_obj_put(
+int moqdata_obj_put(
     wired_mspan buf, usz* off, u64 id_delta, wired_span payload) {
   usz at = *off;
-  if (!quic_moqvi_put(buf, &at, id_delta)) return QUIC_MOQDATA_INSUFFICIENT;
+  if (!moqvi_put(buf, &at, id_delta)) return QUIC_MOQDATA_INSUFFICIENT;
   if (!moqdata_obj_put_body(buf, &at, payload))
     return QUIC_MOQDATA_INSUFFICIENT;
   *off = at;
@@ -300,14 +297,14 @@ int quic_moqdata_obj_put(
 }
 
 static int moqdata_obj_put_status_body(wired_mspan buf, usz* at, u64 status) {
-  if (!quic_moqvi_put(buf, at, 0)) return 0;
-  return quic_moqvi_put(buf, at, status);
+  if (!moqvi_put(buf, at, 0)) return 0;
+  return moqvi_put(buf, at, status);
 }
 
-int quic_moqdata_obj_put_status(
+int moqdata_obj_put_status(
     wired_mspan buf, usz* off, u64 id_delta, u64 status) {
   usz at = *off;
-  if (!quic_moqvi_put(buf, &at, id_delta)) return QUIC_MOQDATA_INSUFFICIENT;
+  if (!moqvi_put(buf, &at, id_delta)) return QUIC_MOQDATA_INSUFFICIENT;
   if (!moqdata_obj_put_status_body(buf, &at, status))
     return QUIC_MOQDATA_INSUFFICIENT;
   *off = at;
@@ -320,16 +317,15 @@ int quic_moqdata_obj_put_status(
   0x70ULL /* PROPERTIES off, mode 0b00, no eog, \
               default priority, FIRST_OBJECT set */
 
-int quic_moqdata_msg_build(
-    wired_mspan buf, usz* off, const quic_moqdata_msg* m) {
-  usz                 at = *off;
-  quic_moqdata_subhdr h  = {0};
-  h.type                 = MOQDATA_MSG_TYPE;
-  h.track_alias          = m->track_alias;
-  h.group_id             = m->group_id;
-  if (quic_moqdata_subhdr_put(buf, &at, &h) != QUIC_MOQDATA_OK)
+int moqdata_msg_build(wired_mspan buf, usz* off, const moqdata_msg* m) {
+  usz            at = *off;
+  moqdata_subhdr h  = {0};
+  h.type            = MOQDATA_MSG_TYPE;
+  h.track_alias     = m->track_alias;
+  h.group_id        = m->group_id;
+  if (moqdata_subhdr_put(buf, &at, &h) != QUIC_MOQDATA_OK)
     return QUIC_MOQDATA_INSUFFICIENT;
-  if (quic_moqdata_obj_put(buf, &at, 0, m->payload) != QUIC_MOQDATA_OK)
+  if (moqdata_obj_put(buf, &at, 0, m->payload) != QUIC_MOQDATA_OK)
     return QUIC_MOQDATA_INSUFFICIENT;
   *off = at;
   return QUIC_MOQDATA_OK;

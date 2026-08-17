@@ -17,7 +17,7 @@ int wired_srvloop_send_initial_ver(
     const wired_server*          s,
     const wired_srvloop_send_in* in,
     wired_obuf*                  out) {
-  quic_srvwire_seal_in wi = {
+  srvwire_seal_in wi = {
       wired_span_of(s->sdrv.odcid, s->sdrv.odcid_len),
       in->cli_scid,
       wired_span_of(s->sdrv.iscid, s->sdrv.iscid_len),
@@ -25,7 +25,7 @@ int wired_srvloop_send_initial_ver(
       in->ack_pn,
       in->payload,
       0};
-  return quic_srvwire_seal_initial_ver(version, &wi, out);
+  return srvwire_seal_initial_ver(version, &wi, out);
 }
 
 int wired_srvloop_send_initial(
@@ -39,7 +39,7 @@ int wired_srvloop_send_initial(
 int wired_srvloop_send_handshake(
     const wired_server* s, const wired_srvloop_send_in* in, wired_obuf* out) {
   wired_srvloop_dirkeys dk;
-  quic_srvwire_seal_in  wi = {
+  srvwire_seal_in       wi = {
       wired_span_of((const u8*)0, 0),
       in->cli_scid,
       wired_span_of(s->sdrv.iscid, s->sdrv.iscid_len),
@@ -50,7 +50,7 @@ int wired_srvloop_send_handshake(
   protect_keys k;
   if (!wired_srvloop_seal_keys(s, QUIC_LEVEL_HANDSHAKE, &dk)) return 0;
   k = (protect_keys){dk.keys, &dk.hp};
-  return quic_srvwire_seal_handshake_suite(s->sdrv.cipher_suite, &k, &wi, out);
+  return srvwire_seal_handshake_suite(s->sdrv.cipher_suite, &k, &wi, out);
 }
 
 /* RFC 9001 6.2: this endpoint's send-side generation (s->ku_send.cur,

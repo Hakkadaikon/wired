@@ -127,7 +127,7 @@ typedef struct {
    * is (re)claimed -- a request that never receives a PRIORITY_UPDATE keeps
    * whatever the Priority request header field set (RFC 9218 5), unaffected
    * by this field. */
-  quic_h3_priority priority;
+  h3_priority priority;
 } wired_srvloop_stream_slot;
 
 /** RFC 9218 7.1 / 10: how many PRIORITY_UPDATE frames naming a not-yet-open
@@ -140,9 +140,9 @@ typedef struct {
 /** One buffered PRIORITY_UPDATE naming a request stream this connection has
  * not opened yet (RFC 9218 10 / 9218-010). in_use == 0 marks a free slot. */
 typedef struct {
-  int              in_use;    /**< 0 marks a free slot */
-  u64              stream_id; /**< the not-yet-open request stream id */
-  quic_h3_priority priority;  /**< the priority to apply once it opens */
+  int         in_use;    /**< 0 marks a free slot */
+  u64         stream_id; /**< the not-yet-open request stream id */
+  h3_priority priority;  /**< the priority to apply once it opens */
 } wired_srvloop_pending_priority;
 
 /** Byte capacity of the peer control stream's reassembly buffer (RFC 9114
@@ -532,7 +532,7 @@ typedef struct {
    * wired_srvboot_id.max_datagram_frame_size, which this is populated from at
    * connection boot — see srvrun_boot_finish). Used by dispatch.c's DATAGRAM
    * gathering to reject a frame the peer had no right to send
-   * (quic_datagram_recv_ok). */
+   * (datagram_recv_ok). */
   u64 we_advertised_max_datagram;
   /** 1 once a received DATAGRAM frame violated RFC 9221 3 (exceeded
    * we_advertised_max_datagram, or arrived when it was never advertised) —
@@ -662,7 +662,7 @@ typedef struct {
    * control-stream frame is walked (priority_ctrl.c's ctrl_note_generic) --
    * peer_ctrl.settings_seen is 1 once the client's SETTINGS has actually
    * arrived, gating WebTransport CONNECT dispatch (srvrun.c) until it has. */
-  quic_h3_control peer_ctrl;
+  h3_control peer_ctrl;
   /** RFC 9218 7.1 / RFC 9114 8.1: the H3 connection error code of the most
    * recent rejected PRIORITY_UPDATE this step (H3_FRAME_UNEXPECTED /
    * H3_ID_ERROR), 0 when none was rejected. Mirrors datagram_violation's
@@ -751,7 +751,7 @@ int wired_srvloop_slot_for(wired_srvloop* l, u64 stream_id);
  * @param stream_id the client bidi request stream id the update names
  * @param p the priority to apply (already decoded/validated by the caller) */
 void wired_srvloop_priority_apply(
-    wired_srvloop* l, u64 stream_id, const quic_h3_priority* p);
+    wired_srvloop* l, u64 stream_id, const h3_priority* p);
 
 /** RFC 9218 10: read stream_id's current priority (its RFC 9218 4.1 default
  * until any PRIORITY_UPDATE or Priority header field changed it) without
@@ -763,7 +763,7 @@ void wired_srvloop_priority_apply(
  * @param out receives the priority, valid only when 1 is returned
  * @return 1 if stream_id has an open streams[] slot, 0 otherwise. */
 int wired_srvloop_priority_of(
-    const wired_srvloop* l, u64 stream_id, quic_h3_priority* out);
+    const wired_srvloop* l, u64 stream_id, h3_priority* out);
 
 /** RFC 9000 2.2: free the streams[] slot reassembling stream_id, once its
  * response has been fully sent and acknowledged -- called by the response

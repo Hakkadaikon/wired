@@ -15,7 +15,7 @@
 /* Effective value of a received QPACK setting. When the SETTINGS frame omits
  * the parameter the default of 0 applies (no dynamic table / no blocked
  * streams), so callers pass 0 in that case and the value is returned as-is. */
-u64 quic_h3_qpack_max_table(u64 setting_value);
-u64 quic_h3_qpack_blocked_streams(u64 setting_value);
+u64 h3_qpack_max_table(u64 setting_value);
+u64 h3_qpack_blocked_streams(u64 setting_value);
 
 #endif

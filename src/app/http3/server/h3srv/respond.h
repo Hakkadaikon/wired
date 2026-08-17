@@ -24,8 +24,8 @@ int wired_h3srv_on_request(
 
 /** The request stream to reply on and the response to build. */
 typedef struct {
-  u64              stream_id;
-  quic_h3conn_resp resp;
+  u64         stream_id;
+  h3conn_resp resp;
 } wired_h3srv_send_in;
 
 /* RFC 9114 4.1 / 4.3.2. Build a response (HEADERS with :status, plus DATA when

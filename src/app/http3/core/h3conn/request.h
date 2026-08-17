@@ -9,14 +9,14 @@
 typedef struct {
   wired_span qpack_headers;
   wired_span body;
-} quic_h3conn_req_in;
+} h3conn_req_in;
 
 /* RFC 9114 4.1. Build an HTTP/3 request (a HEADERS frame carrying the
  * QPACK-encoded field section, plus a DATA frame when body is non-empty) and
  * wrap it in a QUIC STREAM frame (RFC 9000 19.8) for stream_id at offset 0
  * with the FIN bit set. Returns 1 with out->len set, 0 if out lacks
  * capacity. */
-int quic_h3conn_send_request(
-    u64 stream_id, const quic_h3conn_req_in* in, wired_obuf* out);
+int h3conn_send_request(
+    u64 stream_id, const h3conn_req_in* in, wired_obuf* out);
 
 #endif

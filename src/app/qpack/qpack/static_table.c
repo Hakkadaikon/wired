@@ -110,7 +110,7 @@ static const qpack_static_entry table[QUIC_QPACK_STATIC_COUNT] = {
     {"x-frame-options", "sameorigin"},
 };
 
-int quic_qpack_static_get(usz index, const char** name, const char** value) {
+int qpack_static_get(usz index, const char** name, const char** value) {
   if (index >= QUIC_QPACK_STATIC_COUNT) return 0;
   *name  = table[index].name;
   *value = table[index].value;
@@ -132,7 +132,7 @@ static int entry_eq(usz i, const char* name, const char* value) {
   return str_eq(table[i].name, name) && str_eq(table[i].value, value);
 }
 
-i64 quic_qpack_static_find(const char* name, const char* value) {
+i64 qpack_static_find(const char* name, const char* value) {
   for (usz i = 0; i < QUIC_QPACK_STATIC_COUNT; i++)
     if (entry_eq(i, name, value)) return (i64)i;
   return -1;

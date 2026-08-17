@@ -106,7 +106,7 @@ static int pad_valid(const hctx* c) {
  */
 static int decode_ok(const hctx* c) { return c->ok && pad_valid(c); }
 
-int quic_qpack_huffman_decode(wired_span src, wired_obuf* dst) {
+int qpack_huffman_decode(wired_span src, wired_obuf* dst) {
   hctx c = {0, 0, dst->p, dst->cap, 0, 1};
   feed(&c, src);
   if (!decode_ok(&c)) return 0;

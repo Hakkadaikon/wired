@@ -10,7 +10,7 @@
 
 /* Returns 1 when a DATAGRAM frame of `frame_size` may be sent in 0-RTT given
  * the `remembered_max` max_datagram_frame_size from the previous connection. */
-int quic_datagram_0rtt_ok(u64 remembered_max, u64 frame_size);
+int datagram_0rtt_ok(u64 remembered_max, u64 frame_size);
 
 /* RFC 9221 3: "When servers decide to accept 0-RTT data, they MUST send a
  * max_datagram_frame_size transport parameter greater than or equal to the
@@ -18,6 +18,6 @@ int quic_datagram_0rtt_ok(u64 remembered_max, u64 frame_size);
  * NewSessionTicket message." Returns 1 when accepting 0-RTT is safe: the
  * value this connection is about to advertise (accept_max) is >= the value
  * advertised on the ticket-issuing connection (issued_max). */
-int quic_datagram_0rtt_accept_ok(u64 issued_max, u64 accept_max);
+int datagram_0rtt_accept_ok(u64 issued_max, u64 accept_max);
 
 #endif

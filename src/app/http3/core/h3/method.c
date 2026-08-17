@@ -1,8 +1,8 @@
 #include "app/http3/core/h3/method.h"
 
 /* One registered method name plus whether this server allows it through to
- * the application handler -- a flat table keeps both quic_h3_method_is_known
- * and quic_h3_method_is_allowed at a single scan with no nested branching. */
+ * the application handler -- a flat table keeps both h3_method_is_known
+ * and h3_method_is_allowed at a single scan with no nested branching. */
 typedef struct {
   const char* name;
   usz         len;
@@ -12,7 +12,7 @@ typedef struct {
 #define H3METHOD_ENTRY(s, allowed) {s, sizeof(s) - 1, allowed}
 
 /* RFC 9110 9.1's registered methods plus PATCH (RFC 5789). allowed=1 marks
- * quic_h3_method_is_allowed's server-wide allow set (see method.h's doc for
+ * h3_method_is_allowed's server-wide allow set (see method.h's doc for
  * why TRACE/CONNECT are recognized but not allowed). */
 static const h3method_entry H3METHOD_TABLE[] = {
     H3METHOD_ENTRY("GET", 1),    H3METHOD_ENTRY("HEAD", 1),
@@ -41,11 +41,9 @@ static const h3method_entry* h3method_find(wired_span method) {
   return 0;
 }
 
-int quic_h3_method_is_known(wired_span method) {
-  return h3method_find(method) != 0;
-}
+int h3_method_is_known(wired_span method) { return h3method_find(method) != 0; }
 
-int quic_h3_method_is_allowed(wired_span method) {
+int h3_method_is_allowed(wired_span method) {
   const h3method_entry* e = h3method_find(method);
   return e != 0 && e->allowed;
 }

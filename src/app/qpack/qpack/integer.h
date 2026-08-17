@@ -14,14 +14,14 @@
 typedef struct {
   u8 bits;    /* prefix length in bits */
   u8 pattern; /* fixed high bits above the prefix */
-} quic_qpack_pfx;
+} qpack_pfx;
 
 /* Encode value under pfx into buf. Returns bytes written, or 0 if it does not
  * fit. */
-usz quic_qpack_int_encode(wired_mspan buf, quic_qpack_pfx pfx, u64 value);
+usz qpack_int_encode(wired_mspan buf, qpack_pfx pfx, u64 value);
 
 /* Decode an N-bit prefixed integer from buf into *value.
  * Returns bytes consumed, or 0 on truncation / overflow. */
-usz quic_qpack_int_decode(wired_span buf, u8 prefix_bits, u64* value);
+usz qpack_int_decode(wired_span buf, u8 prefix_bits, u64* value);
 
 #endif

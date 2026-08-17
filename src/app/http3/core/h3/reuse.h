@@ -6,7 +6,6 @@
  * negotiated version is compatible. */
 
 /* True only if same origin AND connection alive AND version compatible. */
-int quic_h3_conn_reusable(
-    int same_origin, int conn_alive, int version_compatible);
+int h3_conn_reusable(int same_origin, int conn_alive, int version_compatible);
 
 #endif

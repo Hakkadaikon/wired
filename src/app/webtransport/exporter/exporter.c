@@ -32,7 +32,7 @@ static usz put_ctx_fields(
   return off;
 }
 
-usz quic_wt_exporter_ctx_encode(
+usz wt_exporter_ctx_encode(
     u64        session_id,
     wired_span label,
     wired_span app_context,
@@ -44,15 +44,15 @@ usz quic_wt_exporter_ctx_encode(
 }
 
 /* draft-ietf-webtrans-http3-15 4.8 */
-int quic_wt_exporter(
+int wt_exporter(
     const u8    exporter_secret[QUIC_HKDF_PRK],
     u64         session_id,
     wired_span  label,
     wired_span  app_context,
     wired_mspan okm) {
   u8  ctx[QUIC_WT_EXPORTER_CTX_MAX];
-  usz ctx_len = quic_wt_exporter_ctx_encode(
-      session_id, label, app_context, ctx, sizeof ctx);
+  usz ctx_len =
+      wt_exporter_ctx_encode(session_id, label, app_context, ctx, sizeof ctx);
   static const u8 exporter_label[] = "EXPORTER-WebTransport";
   if (!ctx_len) return 0;
   return tls_exporter(

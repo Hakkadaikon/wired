@@ -21,7 +21,7 @@ typedef struct {
                                    browsers key WebTransport support on */
   u64 grease_id; /* RFC 9114 7.2.4.1 / 9114-064: non-zero appends this
                     reserved (grease, 0x1f*N + 0x21 form, see
-                    quic_h3_grease_value) identifier with value 0. The
+                    h3_grease_value) identifier with value 0. The
                     probabilistic decision of whether/which to send belongs
                     to the caller, not this builder (0 = the pre-existing
                     deterministic behavior every caller keeps by default). */
@@ -45,7 +45,7 @@ typedef struct {
                                        semantics as
                                        wired_wt_session_set_max_data
                                        (session.h). */
-} quic_h3settings_in;
+} h3settings_in;
 
 /* RFC 9114 7.2.4: build a SETTINGS frame carrying the three common settings
  * (MAX_FIELD_SECTION_SIZE 0x06, QPACK_MAX_TABLE_CAPACITY 0x01,
@@ -55,6 +55,6 @@ typedef struct {
  * and SETTINGS_WEBTRANSPORT_MAX_SESSIONS (draft-ietf-webtrans-http3 8.2, id
  * 0xc671706a) when in->wt_max_sessions is non-zero. Returns 1 ok with
  * out->len set, 0 if no room. */
-int quic_h3settings_build(const quic_h3settings_in* in, wired_obuf* out);
+int h3settings_build(const h3settings_in* in, wired_obuf* out);
 
 #endif

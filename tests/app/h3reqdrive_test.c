@@ -103,10 +103,10 @@ static usz cstr(const char* s) {
 /* RFC 9204 4.5.6: a Literal Field Line With Literal Name carrying (name,value),
  * appended at *off in fs. */
 static void put_litname(u8* fs, usz* off, const char* name, const char* value) {
-  quic_qpack_field f = {
+  qpack_field f = {
       wired_span_of((const u8*)name, cstr(name)),
       wired_span_of((const u8*)value, cstr(value))};
-  *off += quic_qpack_literal_name_encode(wired_mspan_of(fs + *off, 64), 0, &f);
+  *off += qpack_literal_name_encode(wired_mspan_of(fs + *off, 64), 0, &f);
 }
 
 /* RFC 9114 4.3.1: an empty :path for an "http"/"https" request is malformed,
@@ -116,16 +116,16 @@ static void test_reqdrive_empty_path_rejected(void) {
   usz                  off;
   wired_obuf           req_ob = {req, sizeof req, 0};
   wired_h3reqdrive_req r;
-  quic_qpack_prefix    pfx = {0, 0, 0};
-  off                      = quic_qpack_prefix_encode(fs, 64, &pfx);
-  off += quic_qpack_indexed_encode(
+  qpack_prefix         pfx = {0, 0, 0};
+  off                      = qpack_prefix_encode(fs, 64, &pfx);
+  off += qpack_indexed_encode(
       wired_mspan_of(fs + off, 64), 17, 1); /* :method GET */
   put_litname(fs, &off, ":scheme", "https");
   put_litname(fs, &off, ":authority", "h");
   put_litname(fs, &off, ":path", ""); /* empty :path */
   {
-    quic_h3conn_req_in req_in = {wired_span_of(fs, off), wired_span_of(0, 0)};
-    CHECK(quic_h3conn_send_request(0, &req_in, &req_ob));
+    h3conn_req_in req_in = {wired_span_of(fs, off), wired_span_of(0, 0)};
+    CHECK(h3conn_send_request(0, &req_in, &req_ob));
   }
   CHECK(!wired_h3reqdrive_recv_get(
       wired_span_of(req, req_ob.len), wired_mspan_of(scratch, sizeof scratch),
@@ -141,16 +141,16 @@ static void test_reqdrive_one_char_path_ok(void) {
   usz                  off;
   wired_obuf           req_ob = {req, sizeof req, 0};
   wired_h3reqdrive_req r;
-  quic_qpack_prefix    pfx = {0, 0, 0};
-  off                      = quic_qpack_prefix_encode(fs, 64, &pfx);
-  off += quic_qpack_indexed_encode(
+  qpack_prefix         pfx = {0, 0, 0};
+  off                      = qpack_prefix_encode(fs, 64, &pfx);
+  off += qpack_indexed_encode(
       wired_mspan_of(fs + off, 64), 17, 1); /* :method GET */
   put_litname(fs, &off, ":scheme", "https");
   put_litname(fs, &off, ":authority", "h");
   put_litname(fs, &off, ":path", "/");
   {
-    quic_h3conn_req_in req_in = {wired_span_of(fs, off), wired_span_of(0, 0)};
-    CHECK(quic_h3conn_send_request(0, &req_in, &req_ob));
+    h3conn_req_in req_in = {wired_span_of(fs, off), wired_span_of(0, 0)};
+    CHECK(h3conn_send_request(0, &req_in, &req_ob));
   }
   CHECK(wired_h3reqdrive_recv_get(
       wired_span_of(req, req_ob.len), wired_mspan_of(scratch, sizeof scratch),
@@ -163,15 +163,15 @@ static void test_reqdrive_one_char_path_ok(void) {
  * mix of indexed, name-reference and literal-name forms, plus a regular
  * user-agent header as a literal-name line. */
 static usz curl_field_section(u8* fs) {
-  quic_qpack_prefix  pfx  = {0, 0, 0};
-  usz                off  = quic_qpack_prefix_encode(fs, 64, &pfx);
-  quic_qpack_nameref path = {1, 1, 0};
-  off += quic_qpack_indexed_encode(
+  qpack_prefix  pfx  = {0, 0, 0};
+  usz           off  = qpack_prefix_encode(fs, 64, &pfx);
+  qpack_nameref path = {1, 1, 0};
+  off += qpack_indexed_encode(
       wired_mspan_of(fs + off, 64), 17, 1); /* :method GET */
   put_litname(fs, &off, ":authority", "curl.test");
-  off += quic_qpack_indexed_encode(
+  off += qpack_indexed_encode(
       wired_mspan_of(fs + off, 64), 23, 1); /* :scheme https */
-  off += quic_qpack_literal_namref_encode(
+  off += qpack_literal_namref_encode(
       wired_mspan_of(fs + off, 64), &path,
       wired_span_of((const u8*)"/get", 4)); /* :path */
   put_litname(fs, &off, "user-agent", "curl/8");
@@ -186,15 +186,15 @@ static void test_reqdrive_priority_header(void) {
   wired_obuf           req_ob = {req, sizeof req, 0};
   wired_h3reqdrive_req r;
   {
-    quic_qpack_prefix pfx = {0, 0, 0};
-    off                   = quic_qpack_prefix_encode(fs, 64, &pfx);
-    off += quic_qpack_indexed_encode(
+    qpack_prefix pfx = {0, 0, 0};
+    off              = qpack_prefix_encode(fs, 64, &pfx);
+    off += qpack_indexed_encode(
         wired_mspan_of(fs + off, 64), 17, 1); /* :method GET */
     put_litname(fs, &off, "priority", "u=1, i");
   }
   {
-    quic_h3conn_req_in req_in = {wired_span_of(fs, off), wired_span_of(0, 0)};
-    CHECK(quic_h3conn_send_request(0, &req_in, &req_ob));
+    h3conn_req_in req_in = {wired_span_of(fs, off), wired_span_of(0, 0)};
+    CHECK(h3conn_send_request(0, &req_in, &req_ob));
   }
   CHECK(wired_h3reqdrive_recv_get(
       wired_span_of(req, req_ob.len), wired_mspan_of(scratch, sizeof scratch),
@@ -202,11 +202,11 @@ static void test_reqdrive_priority_header(void) {
   CHECK(r.priority.urgency == 1 && r.priority.incremental == 1);
   /* a request without the header keeps the defaults */
   {
-    u8                 fs2[64], req2[256];
-    wired_obuf         ob2 = {req2, sizeof req2, 0};
-    usz                n2  = curl_field_section(fs2);
-    quic_h3conn_req_in in2 = {wired_span_of(fs2, n2), wired_span_of(0, 0)};
-    CHECK(quic_h3conn_send_request(0, &in2, &ob2));
+    u8            fs2[64], req2[256];
+    wired_obuf    ob2 = {req2, sizeof req2, 0};
+    usz           n2  = curl_field_section(fs2);
+    h3conn_req_in in2 = {wired_span_of(fs2, n2), wired_span_of(0, 0)};
+    CHECK(h3conn_send_request(0, &in2, &ob2));
     CHECK(wired_h3reqdrive_recv_get(
         wired_span_of(req2, ob2.len), wired_mspan_of(scratch, sizeof scratch),
         &r));
@@ -222,14 +222,14 @@ static void test_reqdrive_origin_header(void) {
   usz                  off;
   wired_obuf           req_ob = {req, sizeof req, 0};
   wired_h3reqdrive_req r;
-  quic_qpack_prefix    pfx = {0, 0, 0};
-  off                      = quic_qpack_prefix_encode(fs, 64, &pfx);
-  off += quic_qpack_indexed_encode(
+  qpack_prefix         pfx = {0, 0, 0};
+  off                      = qpack_prefix_encode(fs, 64, &pfx);
+  off += qpack_indexed_encode(
       wired_mspan_of(fs + off, 64), 17, 1); /* :method GET */
   put_litname(fs, &off, "origin", "https://example.test");
   {
-    quic_h3conn_req_in req_in = {wired_span_of(fs, off), wired_span_of(0, 0)};
-    CHECK(quic_h3conn_send_request(0, &req_in, &req_ob));
+    h3conn_req_in req_in = {wired_span_of(fs, off), wired_span_of(0, 0)};
+    CHECK(h3conn_send_request(0, &req_in, &req_ob));
   }
   CHECK(wired_h3reqdrive_recv_get(
       wired_span_of(req, req_ob.len), wired_mspan_of(scratch, sizeof scratch),
@@ -237,11 +237,11 @@ static void test_reqdrive_origin_header(void) {
   CHECK(rd_eq(r.origin, r.origin_len, "https://example.test", 20));
   /* a request without the header leaves origin absent */
   {
-    u8                 fs2[64], req2[256];
-    wired_obuf         ob2 = {req2, sizeof req2, 0};
-    usz                n2  = curl_field_section(fs2);
-    quic_h3conn_req_in in2 = {wired_span_of(fs2, n2), wired_span_of(0, 0)};
-    CHECK(quic_h3conn_send_request(0, &in2, &ob2));
+    u8            fs2[64], req2[256];
+    wired_obuf    ob2 = {req2, sizeof req2, 0};
+    usz           n2  = curl_field_section(fs2);
+    h3conn_req_in in2 = {wired_span_of(fs2, n2), wired_span_of(0, 0)};
+    CHECK(h3conn_send_request(0, &in2, &ob2));
     CHECK(wired_h3reqdrive_recv_get(
         wired_span_of(req2, ob2.len), wired_mspan_of(scratch, sizeof scratch),
         &r));
@@ -267,18 +267,18 @@ static void test_reqdrive_long_value_header(void) {
   usz                  off;
   wired_obuf           req_ob = {req, sizeof req, 0};
   wired_h3reqdrive_req r;
-  quic_qpack_prefix    pfx = {0, 0, 0};
-  quic_qpack_field     f   = {
+  qpack_prefix         pfx = {0, 0, 0};
+  qpack_field          f   = {
       wired_span_of((const u8*)"origin", 6),
       wired_span_of((const u8*)long_value, cstr(long_value))};
-  off = quic_qpack_prefix_encode(fs, sizeof fs, &pfx);
-  off += quic_qpack_indexed_encode(
+  off = qpack_prefix_encode(fs, sizeof fs, &pfx);
+  off += qpack_indexed_encode(
       wired_mspan_of(fs + off, sizeof fs - off), 17, 1); /* :method GET */
-  off += quic_qpack_literal_name_encode(
+  off += qpack_literal_name_encode(
       wired_mspan_of(fs + off, sizeof fs - off), 0, &f);
   {
-    quic_h3conn_req_in req_in = {wired_span_of(fs, off), wired_span_of(0, 0)};
-    CHECK(quic_h3conn_send_request(0, &req_in, &req_ob));
+    h3conn_req_in req_in = {wired_span_of(fs, off), wired_span_of(0, 0)};
+    CHECK(h3conn_send_request(0, &req_in, &req_ob));
   }
   CHECK(wired_h3reqdrive_recv_get(
       wired_span_of(req, req_ob.len), wired_mspan_of(scratch, sizeof scratch),
@@ -294,14 +294,14 @@ static void test_reqdrive_rejects_crlf_in_name(void) {
   usz                  off;
   wired_obuf           req_ob = {req, sizeof req, 0};
   wired_h3reqdrive_req r;
-  quic_qpack_prefix    pfx = {0, 0, 0};
-  off                      = quic_qpack_prefix_encode(fs, sizeof fs, &pfx);
-  off += quic_qpack_indexed_encode(
+  qpack_prefix         pfx = {0, 0, 0};
+  off                      = qpack_prefix_encode(fs, sizeof fs, &pfx);
+  off += qpack_indexed_encode(
       wired_mspan_of(fs + off, sizeof fs - off), 17, 1); /* :method GET */
   put_litname(fs, &off, "x-evil\r", "1");
   {
-    quic_h3conn_req_in req_in = {wired_span_of(fs, off), wired_span_of(0, 0)};
-    CHECK(quic_h3conn_send_request(0, &req_in, &req_ob));
+    h3conn_req_in req_in = {wired_span_of(fs, off), wired_span_of(0, 0)};
+    CHECK(h3conn_send_request(0, &req_in, &req_ob));
   }
   CHECK(!wired_h3reqdrive_recv_get(
       wired_span_of(req, req_ob.len), wired_mspan_of(scratch, sizeof scratch),
@@ -319,18 +319,18 @@ static void test_reqdrive_rejects_nul_in_value(void) {
   usz                  off;
   wired_obuf           req_ob = {req, sizeof req, 0};
   wired_h3reqdrive_req r;
-  quic_qpack_prefix    pfx = {0, 0, 0};
-  quic_qpack_field     f   = {
+  qpack_prefix         pfx = {0, 0, 0};
+  qpack_field          f   = {
       wired_span_of((const u8*)"origin", 6),
       wired_span_of(evil_value, sizeof evil_value)};
-  off = quic_qpack_prefix_encode(fs, sizeof fs, &pfx);
-  off += quic_qpack_indexed_encode(
+  off = qpack_prefix_encode(fs, sizeof fs, &pfx);
+  off += qpack_indexed_encode(
       wired_mspan_of(fs + off, sizeof fs - off), 17, 1); /* :method GET */
-  off += quic_qpack_literal_name_encode(
+  off += qpack_literal_name_encode(
       wired_mspan_of(fs + off, sizeof fs - off), 0, &f);
   {
-    quic_h3conn_req_in req_in = {wired_span_of(fs, off), wired_span_of(0, 0)};
-    CHECK(quic_h3conn_send_request(0, &req_in, &req_ob));
+    h3conn_req_in req_in = {wired_span_of(fs, off), wired_span_of(0, 0)};
+    CHECK(h3conn_send_request(0, &req_in, &req_ob));
   }
   CHECK(!wired_h3reqdrive_recv_get(
       wired_span_of(req, req_ob.len), wired_mspan_of(scratch, sizeof scratch),
@@ -344,14 +344,14 @@ static void test_reqdrive_rejects_transfer_encoding(void) {
   usz                  off;
   wired_obuf           req_ob = {req, sizeof req, 0};
   wired_h3reqdrive_req r;
-  quic_qpack_prefix    pfx = {0, 0, 0};
-  off                      = quic_qpack_prefix_encode(fs, sizeof fs, &pfx);
-  off += quic_qpack_indexed_encode(
+  qpack_prefix         pfx = {0, 0, 0};
+  off                      = qpack_prefix_encode(fs, sizeof fs, &pfx);
+  off += qpack_indexed_encode(
       wired_mspan_of(fs + off, sizeof fs - off), 17, 1); /* :method GET */
   put_litname(fs, &off, "transfer-encoding", "chunked");
   {
-    quic_h3conn_req_in req_in = {wired_span_of(fs, off), wired_span_of(0, 0)};
-    CHECK(quic_h3conn_send_request(0, &req_in, &req_ob));
+    h3conn_req_in req_in = {wired_span_of(fs, off), wired_span_of(0, 0)};
+    CHECK(h3conn_send_request(0, &req_in, &req_ob));
   }
   CHECK(!wired_h3reqdrive_recv_get(
       wired_span_of(req, req_ob.len), wired_mspan_of(scratch, sizeof scratch),
@@ -365,14 +365,14 @@ static void test_reqdrive_rejects_connection_specific(void) {
   usz                  off;
   wired_obuf           req_ob = {req, sizeof req, 0};
   wired_h3reqdrive_req r;
-  quic_qpack_prefix    pfx = {0, 0, 0};
-  off                      = quic_qpack_prefix_encode(fs, sizeof fs, &pfx);
-  off += quic_qpack_indexed_encode(
+  qpack_prefix         pfx = {0, 0, 0};
+  off                      = qpack_prefix_encode(fs, sizeof fs, &pfx);
+  off += qpack_indexed_encode(
       wired_mspan_of(fs + off, sizeof fs - off), 17, 1); /* :method GET */
   put_litname(fs, &off, "connection", "keep-alive");
   {
-    quic_h3conn_req_in req_in = {wired_span_of(fs, off), wired_span_of(0, 0)};
-    CHECK(quic_h3conn_send_request(0, &req_in, &req_ob));
+    h3conn_req_in req_in = {wired_span_of(fs, off), wired_span_of(0, 0)};
+    CHECK(h3conn_send_request(0, &req_in, &req_ob));
   }
   CHECK(!wired_h3reqdrive_recv_get(
       wired_span_of(req, req_ob.len), wired_mspan_of(scratch, sizeof scratch),
@@ -386,29 +386,28 @@ static void test_reqdrive_te_value(void) {
   usz                  off;
   wired_obuf           req_ob = {req, sizeof req, 0};
   wired_h3reqdrive_req r;
-  quic_qpack_prefix    pfx = {0, 0, 0};
-  off                      = quic_qpack_prefix_encode(fs, sizeof fs, &pfx);
-  off += quic_qpack_indexed_encode(
+  qpack_prefix         pfx = {0, 0, 0};
+  off                      = qpack_prefix_encode(fs, sizeof fs, &pfx);
+  off += qpack_indexed_encode(
       wired_mspan_of(fs + off, sizeof fs - off), 17, 1); /* :method GET */
   put_litname(fs, &off, "te", "gzip");
   {
-    quic_h3conn_req_in req_in = {wired_span_of(fs, off), wired_span_of(0, 0)};
-    CHECK(quic_h3conn_send_request(0, &req_in, &req_ob));
+    h3conn_req_in req_in = {wired_span_of(fs, off), wired_span_of(0, 0)};
+    CHECK(h3conn_send_request(0, &req_in, &req_ob));
   }
   CHECK(!wired_h3reqdrive_recv_get(
       wired_span_of(req, req_ob.len), wired_mspan_of(scratch, sizeof scratch),
       &r));
   {
     u8         fs2[96], req2[256];
-    usz        off2 = quic_qpack_prefix_encode(fs2, sizeof fs2, &pfx);
+    usz        off2 = qpack_prefix_encode(fs2, sizeof fs2, &pfx);
     wired_obuf ob2  = {req2, sizeof req2, 0};
-    off2 += quic_qpack_indexed_encode(
+    off2 += qpack_indexed_encode(
         wired_mspan_of(fs2 + off2, sizeof fs2 - off2), 17, 1); /* :method GET */
     put_litname(fs2, &off2, "te", "trailers");
     {
-      quic_h3conn_req_in req_in = {
-          wired_span_of(fs2, off2), wired_span_of(0, 0)};
-      CHECK(quic_h3conn_send_request(0, &req_in, &ob2));
+      h3conn_req_in req_in = {wired_span_of(fs2, off2), wired_span_of(0, 0)};
+      CHECK(h3conn_send_request(0, &req_in, &ob2));
     }
     CHECK(wired_h3reqdrive_recv_get(
         wired_span_of(req2, ob2.len), wired_mspan_of(scratch, sizeof scratch),
@@ -422,14 +421,14 @@ static void test_reqdrive_single_cookie(void) {
   usz                  off;
   wired_obuf           req_ob = {req, sizeof req, 0};
   wired_h3reqdrive_req r;
-  quic_qpack_prefix    pfx = {0, 0, 0};
-  off                      = quic_qpack_prefix_encode(fs, sizeof fs, &pfx);
-  off += quic_qpack_indexed_encode(
+  qpack_prefix         pfx = {0, 0, 0};
+  off                      = qpack_prefix_encode(fs, sizeof fs, &pfx);
+  off += qpack_indexed_encode(
       wired_mspan_of(fs + off, sizeof fs - off), 17, 1); /* :method GET */
   put_litname(fs, &off, "cookie", "a=1");
   {
-    quic_h3conn_req_in req_in = {wired_span_of(fs, off), wired_span_of(0, 0)};
-    CHECK(quic_h3conn_send_request(0, &req_in, &req_ob));
+    h3conn_req_in req_in = {wired_span_of(fs, off), wired_span_of(0, 0)};
+    CHECK(h3conn_send_request(0, &req_in, &req_ob));
   }
   CHECK(wired_h3reqdrive_recv_get(
       wired_span_of(req, req_ob.len), wired_mspan_of(scratch, sizeof scratch),
@@ -445,16 +444,16 @@ static void test_reqdrive_multi_cookie_joined(void) {
   usz                  off;
   wired_obuf           req_ob = {req, sizeof req, 0};
   wired_h3reqdrive_req r;
-  quic_qpack_prefix    pfx = {0, 0, 0};
-  off                      = quic_qpack_prefix_encode(fs, sizeof fs, &pfx);
-  off += quic_qpack_indexed_encode(
+  qpack_prefix         pfx = {0, 0, 0};
+  off                      = qpack_prefix_encode(fs, sizeof fs, &pfx);
+  off += qpack_indexed_encode(
       wired_mspan_of(fs + off, sizeof fs - off), 17, 1); /* :method GET */
   put_litname(fs, &off, "cookie", "a=1");
   put_litname(fs, &off, "cookie", "b=2");
   put_litname(fs, &off, "cookie", "c=3");
   {
-    quic_h3conn_req_in req_in = {wired_span_of(fs, off), wired_span_of(0, 0)};
-    CHECK(quic_h3conn_send_request(0, &req_in, &req_ob));
+    h3conn_req_in req_in = {wired_span_of(fs, off), wired_span_of(0, 0)};
+    CHECK(h3conn_send_request(0, &req_in, &req_ob));
   }
   CHECK(wired_h3reqdrive_recv_get(
       wired_span_of(req, req_ob.len), wired_mspan_of(scratch, sizeof scratch),
@@ -471,9 +470,8 @@ static void test_reqdrive_no_cookie(void) {
   wired_h3reqdrive_req r;
 
   {
-    quic_h3conn_req_in req_in = {
-        wired_span_of(fs, fs_len), wired_span_of(0, 0)};
-    CHECK(quic_h3conn_send_request(0, &req_in, &req_ob));
+    h3conn_req_in req_in = {wired_span_of(fs, fs_len), wired_span_of(0, 0)};
+    CHECK(h3conn_send_request(0, &req_in, &req_ob));
   }
   CHECK(wired_h3reqdrive_recv_get(
       wired_span_of(req, req_ob.len), wired_mspan_of(scratch, sizeof scratch),
@@ -491,9 +489,8 @@ static void test_reqdrive_curl_get(void) {
   wired_h3reqdrive_req r;
 
   {
-    quic_h3conn_req_in req_in = {
-        wired_span_of(fs, fs_len), wired_span_of(0, 0)};
-    CHECK(quic_h3conn_send_request(0, &req_in, &req_ob));
+    h3conn_req_in req_in = {wired_span_of(fs, fs_len), wired_span_of(0, 0)};
+    CHECK(h3conn_send_request(0, &req_in, &req_ob));
   }
   CHECK(wired_h3reqdrive_recv_get(
       wired_span_of(req, req_ob.len), wired_mspan_of(scratch, sizeof scratch),
@@ -511,8 +508,7 @@ static usz put_grease_frame(u8* buf, usz cap) {
   const u8   g[] = {'G', 'R', 'E', 'A', 'S', 'E', ' ', 'i', 's',
                     ' ', 't', 'h', 'e', ' ', 'w', 'o', 'r', 'd'};
   wired_obuf ob  = {buf, cap, 0};
-  return quic_h3_frame_put(
-      &ob, 0x1f * 0x4000 + 0x21, wired_span_of(g, sizeof g));
+  return h3_frame_put(&ob, 0x1f * 0x4000 + 0x21, wired_span_of(g, sizeof g));
 }
 
 /* RFC 9114 7.2.5/7.2.8 (9114-067): a PUSH_PROMISE frame -- a server-to-client
@@ -521,7 +517,7 @@ static usz put_grease_frame(u8* buf, usz cap) {
 static usz put_push_promise_frame(u8* buf, usz cap) {
   const u8   pp[] = {0, 0, 0, 0}; /* push id + a placeholder field section */
   wired_obuf ob   = {buf, cap, 0};
-  return quic_h3_frame_put(
+  return h3_frame_put(
       &ob, QUIC_H3_FRAME_PUSH_PROMISE, wired_span_of(pp, sizeof pp));
 }
 
@@ -531,7 +527,7 @@ static usz put_push_promise_frame(u8* buf, usz cap) {
 static usz put_http2_reserved_frame(u8* buf, usz cap, u64 type) {
   const u8   b[] = {'x'};
   wired_obuf ob  = {buf, cap, 0};
-  return quic_h3_frame_put(&ob, type, wired_span_of(b, sizeof b));
+  return h3_frame_put(&ob, type, wired_span_of(b, sizeof b));
 }
 
 /* RFC 9114 7.2.5/7.2.8 (9114-067): a request stream carrying a PUSH_PROMISE
@@ -546,7 +542,7 @@ static void test_reqdrive_push_promise_rejected(void) {
   h3_len = put_push_promise_frame(h3, sizeof(h3));
   hob    = (wired_obuf){h3 + h3_len, sizeof(h3) - h3_len, 0};
   h3_len +=
-      quic_h3_frame_put(&hob, QUIC_H3_FRAME_HEADERS, wired_span_of(fs, fs_len));
+      h3_frame_put(&hob, QUIC_H3_FRAME_HEADERS, wired_span_of(fs, fs_len));
   CHECK(appdata_frame_flat(0, 0, h3, h3_len, 1, req, sizeof(req), &req_len));
   CHECK(
       wired_h3reqdrive_recv_get(
@@ -567,8 +563,8 @@ static void test_reqdrive_http2_reserved_rejected(void) {
 
     h3_len = put_http2_reserved_frame(h3, sizeof(h3), reserved[i]);
     hob    = (wired_obuf){h3 + h3_len, sizeof(h3) - h3_len, 0};
-    h3_len += quic_h3_frame_put(
-        &hob, QUIC_H3_FRAME_HEADERS, wired_span_of(fs, fs_len));
+    h3_len +=
+        h3_frame_put(&hob, QUIC_H3_FRAME_HEADERS, wired_span_of(fs, fs_len));
     CHECK(appdata_frame_flat(0, 0, h3, h3_len, 1, req, sizeof(req), &req_len));
     CHECK(
         wired_h3reqdrive_recv_get(
@@ -590,7 +586,7 @@ static void test_reqdrive_leading_grease(void) {
   h3_len = put_grease_frame(h3, sizeof(h3));
   hob    = (wired_obuf){h3 + h3_len, sizeof(h3) - h3_len, 0};
   h3_len +=
-      quic_h3_frame_put(&hob, QUIC_H3_FRAME_HEADERS, wired_span_of(fs, fs_len));
+      h3_frame_put(&hob, QUIC_H3_FRAME_HEADERS, wired_span_of(fs, fs_len));
   CHECK(appdata_frame_flat(0, 0, h3, h3_len, 1, req, sizeof(req), &req_len));
   CHECK(wired_h3reqdrive_recv_get(
       wired_span_of(req, req_len), wired_mspan_of(scratch, sizeof scratch),
@@ -613,7 +609,7 @@ static void test_reqdrive_two_greases(void) {
   h3_len += put_grease_frame(h3 + h3_len, sizeof(h3) - h3_len);
   hob = (wired_obuf){h3 + h3_len, sizeof(h3) - h3_len, 0};
   h3_len +=
-      quic_h3_frame_put(&hob, QUIC_H3_FRAME_HEADERS, wired_span_of(fs, fs_len));
+      h3_frame_put(&hob, QUIC_H3_FRAME_HEADERS, wired_span_of(fs, fs_len));
   CHECK(appdata_frame_flat(0, 0, h3, h3_len, 1, req, sizeof(req), &req_len));
   CHECK(wired_h3reqdrive_recv_get(
       wired_span_of(req, req_len), wired_mspan_of(scratch, sizeof scratch),
@@ -646,10 +642,10 @@ static void test_reqdrive_grease_then_body(void) {
   h3_len = put_grease_frame(h3, sizeof(h3));
   hob    = (wired_obuf){h3 + h3_len, sizeof(h3) - h3_len, 0};
   h3_len +=
-      quic_h3_frame_put(&hob, QUIC_H3_FRAME_HEADERS, wired_span_of(fs, fs_len));
+      h3_frame_put(&hob, QUIC_H3_FRAME_HEADERS, wired_span_of(fs, fs_len));
   hob = (wired_obuf){h3 + h3_len, sizeof(h3) - h3_len, 0};
-  h3_len += quic_h3_frame_put(
-      &hob, QUIC_H3_FRAME_DATA, wired_span_of(body, sizeof body));
+  h3_len +=
+      h3_frame_put(&hob, QUIC_H3_FRAME_DATA, wired_span_of(body, sizeof body));
   CHECK(appdata_frame_flat(0, 0, h3, h3_len, 1, req, sizeof(req), &req_len));
   CHECK(wired_h3reqdrive_recv_get(
       wired_span_of(req, req_len), wired_mspan_of(scratch, sizeof scratch),
@@ -668,12 +664,11 @@ static void test_reqdrive_data_after_grease(void) {
   wired_h3reqdrive_req r;
   wired_obuf           hob = {h3, sizeof h3, 0};
 
-  h3_len =
-      quic_h3_frame_put(&hob, QUIC_H3_FRAME_HEADERS, wired_span_of(fs, fs_len));
+  h3_len = h3_frame_put(&hob, QUIC_H3_FRAME_HEADERS, wired_span_of(fs, fs_len));
   h3_len += put_grease_frame(h3 + h3_len, sizeof(h3) - h3_len);
   hob = (wired_obuf){h3 + h3_len, sizeof(h3) - h3_len, 0};
-  h3_len += quic_h3_frame_put(
-      &hob, QUIC_H3_FRAME_DATA, wired_span_of(body, sizeof body));
+  h3_len +=
+      h3_frame_put(&hob, QUIC_H3_FRAME_DATA, wired_span_of(body, sizeof body));
   CHECK(appdata_frame_flat(0, 0, h3, h3_len, 1, req, sizeof(req), &req_len));
   CHECK(wired_h3reqdrive_recv_get(
       wired_span_of(req, req_len), wired_mspan_of(scratch, sizeof scratch),
@@ -691,14 +686,11 @@ static void test_reqdrive_multi_data(void) {
   wired_h3reqdrive_req r;
   wired_obuf           hob = {h3, sizeof h3, 0};
 
-  h3_len =
-      quic_h3_frame_put(&hob, QUIC_H3_FRAME_HEADERS, wired_span_of(fs, fs_len));
+  h3_len = h3_frame_put(&hob, QUIC_H3_FRAME_HEADERS, wired_span_of(fs, fs_len));
+  hob    = (wired_obuf){h3 + h3_len, sizeof(h3) - h3_len, 0};
+  h3_len += h3_frame_put(&hob, QUIC_H3_FRAME_DATA, wired_span_of(a, sizeof a));
   hob = (wired_obuf){h3 + h3_len, sizeof(h3) - h3_len, 0};
-  h3_len +=
-      quic_h3_frame_put(&hob, QUIC_H3_FRAME_DATA, wired_span_of(a, sizeof a));
-  hob = (wired_obuf){h3 + h3_len, sizeof(h3) - h3_len, 0};
-  h3_len +=
-      quic_h3_frame_put(&hob, QUIC_H3_FRAME_DATA, wired_span_of(b, sizeof b));
+  h3_len += h3_frame_put(&hob, QUIC_H3_FRAME_DATA, wired_span_of(b, sizeof b));
   CHECK(appdata_frame_flat(0, 0, h3, h3_len, 1, req, sizeof(req), &req_len));
   CHECK(wired_h3reqdrive_recv_get(
       wired_span_of(req, req_len), wired_mspan_of(scratch, sizeof scratch),
@@ -755,16 +747,16 @@ static void test_reqdrive_onertt(void) {
 /* RFC 9114 4.1: a 200 response built by h3conn round-trips alongside the
  * driven request so the client recovers :status and body. */
 static void test_reqdrive_response_status(void) {
-  const u8         body[] = {'o', 'k'};
-  u8               resp[256];
-  wired_obuf       resp_ob  = {resp, sizeof resp, 0};
-  quic_h3conn_resp resp_out = {0};
+  const u8    body[] = {'o', 'k'};
+  u8          resp[256];
+  wired_obuf  resp_ob  = {resp, sizeof resp, 0};
+  h3conn_resp resp_out = {0};
 
   {
-    quic_h3conn_resp resp_in = {200, wired_span_of(body, sizeof body), 0};
-    CHECK(quic_h3conn_send_response(0, &resp_in, &resp_ob));
+    h3conn_resp resp_in = {200, wired_span_of(body, sizeof body), 0};
+    CHECK(h3conn_send_response(0, &resp_in, &resp_ob));
   }
-  CHECK(quic_h3conn_recv_response(wired_span_of(resp, resp_ob.len), &resp_out));
+  CHECK(h3conn_recv_response(wired_span_of(resp, resp_ob.len), &resp_out));
   CHECK(resp_out.status == 200);
   CHECK(
       resp_out.body.n == 2 && resp_out.body.p[0] == 'o' &&
@@ -777,8 +769,8 @@ static void test_reqdrive_response_status(void) {
 /* Build a trailer field section (QPACK prefix + one literal-name field line
  * name/value) into fs, returning its length. */
 static usz trailer_field_section(u8* fs, const char* name, const char* value) {
-  quic_qpack_prefix pfx = {0, 0, 0};
-  usz               off = quic_qpack_prefix_encode(fs, 64, &pfx);
+  qpack_prefix pfx = {0, 0, 0};
+  usz          off = qpack_prefix_encode(fs, 64, &pfx);
   put_litname(fs, &off, name, value);
   return off;
 }
@@ -794,14 +786,13 @@ static usz build_request_with_trailer(
   usz        h3_len = 0, req_len = 0;
   const u8   body[] = {'h', 'i'};
   wired_obuf hob    = {h3, sizeof h3, 0};
-  h3_len =
-      quic_h3_frame_put(&hob, QUIC_H3_FRAME_HEADERS, wired_span_of(fs, fs_len));
+  h3_len = h3_frame_put(&hob, QUIC_H3_FRAME_HEADERS, wired_span_of(fs, fs_len));
+  hob    = (wired_obuf){h3 + h3_len, sizeof(h3) - h3_len, 0};
+  h3_len +=
+      h3_frame_put(&hob, QUIC_H3_FRAME_DATA, wired_span_of(body, sizeof body));
   hob = (wired_obuf){h3 + h3_len, sizeof(h3) - h3_len, 0};
-  h3_len += quic_h3_frame_put(
-      &hob, QUIC_H3_FRAME_DATA, wired_span_of(body, sizeof body));
-  hob = (wired_obuf){h3 + h3_len, sizeof(h3) - h3_len, 0};
-  h3_len += quic_h3_frame_put(
-      &hob, QUIC_H3_FRAME_HEADERS, wired_span_of(tfs, tfs_len));
+  h3_len +=
+      h3_frame_put(&hob, QUIC_H3_FRAME_HEADERS, wired_span_of(tfs, tfs_len));
   CHECK(appdata_frame_flat(0, 0, h3, h3_len, 1, req, cap, &req_len));
   return req_len;
 }
@@ -830,8 +821,8 @@ static void test_reqdrive_no_trailer_ok(void) {
   usz                  fs_len = curl_field_section(fs), req_len = 0;
   wired_h3reqdrive_req r;
   wired_obuf           req_ob = {req, sizeof req, 0};
-  quic_h3conn_req_in req_in = {wired_span_of(fs, fs_len), wired_span_of(0, 0)};
-  CHECK(quic_h3conn_send_request(0, &req_in, &req_ob));
+  h3conn_req_in req_in = {wired_span_of(fs, fs_len), wired_span_of(0, 0)};
+  CHECK(h3conn_send_request(0, &req_in, &req_ob));
   req_len = req_ob.len;
   CHECK(wired_h3reqdrive_recv_get(
       wired_span_of(req, req_len), wired_mspan_of(scratch, sizeof scratch),
@@ -841,25 +832,25 @@ static void test_reqdrive_no_trailer_ok(void) {
 }
 
 static void test_reqdrive_dynamic_table(void) {
-  quic_qpack_dyn   t;
-  u8               fs[8];
-  wired_obuf       ob       = obuf_of(fs, sizeof(fs));
-  usz              consumed = 0;
-  u64              base, rel;
-  quic_qpack_field f = {
+  qpack_dyn   t;
+  u8          fs[8];
+  wired_obuf  ob       = obuf_of(fs, sizeof(fs));
+  usz         consumed = 0;
+  u64         base, rel;
+  qpack_field f = {
       wired_span_of((const u8*)":authority", 10),
       wired_span_of((const u8*)"ex.com", 6)};
-  quic_qpack_match m;
-  quic_qpack_field d;
-  quic_qpack_dyn_init(&t, 4096);
+  qpack_match m;
+  qpack_field d;
+  qpack_dyn_init(&t, 4096);
 
-  CHECK(quic_qpack_dyn_insert(&t, &f));
+  CHECK(qpack_dyn_insert(&t, &f));
   base = t.dropped + t.count;
-  CHECK(quic_qpack_dyn_find(&t, &f, &m));
+  CHECK(qpack_dyn_find(&t, &f, &m));
   rel = base - m.abs_index - 1;
-  CHECK(quic_qdyn_indexed_dynamic(rel, &ob));
-  quic_qdyn_src src = {&t, base, wired_span_of(fs, ob.len)};
-  CHECK(quic_qdyn_decode_field(&src, &d, &consumed));
+  CHECK(qdyn_indexed_dynamic(rel, &ob));
+  qdyn_src src = {&t, base, wired_span_of(fs, ob.len)};
+  CHECK(qdyn_decode_field(&src, &d, &consumed));
   CHECK(rd_eq(d.name.p, d.name.n, ":authority", 10));
   CHECK(rd_eq(d.value.p, d.value.n, "ex.com", 6));
 }
@@ -872,39 +863,39 @@ static void test_reqdrive_dynamic_table(void) {
  * dynamic table (9204-048's Indexed form; :method/:scheme/:path stay
  * static-table indexed/literal as in curl_field_section). */
 static void test_reqdrive_recv_get_dyn_resolves_indexed(void) {
-  quic_qpack_dyn   t;
-  quic_qpack_field f = {
+  qpack_dyn   t;
+  qpack_field f = {
       wired_span_of((const u8*)":authority", 10),
       wired_span_of((const u8*)"ex.com", 6)};
-  quic_qpack_match     m;
+  qpack_match          m;
   u8                   fs[64], req[256], scratch[128];
   usz                  off, req_len = 0;
   u64                  base, rel, ric, encoded;
-  quic_qpack_prefix    pfx;
+  qpack_prefix         pfx;
   wired_h3reqdrive_req r;
   wired_obuf           req_ob = {req, sizeof req, 0};
 
-  quic_qpack_dyn_init(&t, 4096);
-  CHECK(quic_qpack_dyn_insert(&t, &f));
+  qpack_dyn_init(&t, 4096);
+  CHECK(qpack_dyn_insert(&t, &f));
   base = t.dropped + t.count;
-  CHECK(quic_qpack_dyn_find(&t, &f, &m));
+  CHECK(qpack_dyn_find(&t, &f, &m));
   rel = base - m.abs_index - 1;
   ric = base; /* RFC 9204 2.1.2: RIC covers every referenced entry */
 
-  encoded = quic_qpack_ric_encode(ric, 4096 / 32);
-  pfx     = (quic_qpack_prefix){encoded, 0, 0}; /* Sign=0, Base = RIC */
-  off     = quic_qpack_prefix_encode(fs, sizeof fs, &pfx);
-  off += quic_qpack_indexed_encode(
+  encoded = qpack_ric_encode(ric, 4096 / 32);
+  pfx     = (qpack_prefix){encoded, 0, 0}; /* Sign=0, Base = RIC */
+  off     = qpack_prefix_encode(fs, sizeof fs, &pfx);
+  off += qpack_indexed_encode(
       wired_mspan_of(fs + off, sizeof fs - off), 17, 1); /* :method GET */
   {
     wired_mspan mb = wired_mspan_of(fs + off, sizeof fs - off);
-    off += quic_qpack_indexed_encode(mb, rel, 0); /* :authority, dynamic */
+    off += qpack_indexed_encode(mb, rel, 0); /* :authority, dynamic */
   }
   put_litname(fs, &off, ":scheme", "https");
   put_litname(fs, &off, ":path", "/");
   {
-    quic_h3conn_req_in req_in = {wired_span_of(fs, off), wired_span_of(0, 0)};
-    CHECK(quic_h3conn_send_request(0, &req_in, &req_ob));
+    h3conn_req_in req_in = {wired_span_of(fs, off), wired_span_of(0, 0)};
+    CHECK(h3conn_send_request(0, &req_in, &req_ob));
   }
   req_len = req_ob.len;
   CHECK(wired_h3reqdrive_recv_get_dyn(
@@ -920,18 +911,18 @@ static void test_reqdrive_recv_get_dyn_resolves_indexed(void) {
 static void test_reqdrive_recv_get_dyn_invalid_base_rejected(void) {
   u8                   fs[64], req[256], scratch[128];
   usz                  off;
-  quic_qpack_prefix    pfx = {0, 1, 0}; /* RIC=0, Sign=1, DeltaBase=0 */
+  qpack_prefix         pfx = {0, 1, 0}; /* RIC=0, Sign=1, DeltaBase=0 */
   wired_h3reqdrive_req r;
   wired_obuf           req_ob = {req, sizeof req, 0};
-  off                         = quic_qpack_prefix_encode(fs, sizeof fs, &pfx);
-  off += quic_qpack_indexed_encode(
+  off                         = qpack_prefix_encode(fs, sizeof fs, &pfx);
+  off += qpack_indexed_encode(
       wired_mspan_of(fs + off, sizeof fs - off), 17, 1); /* :method GET */
   put_litname(fs, &off, ":scheme", "https");
   put_litname(fs, &off, ":authority", "h");
   put_litname(fs, &off, ":path", "/");
   {
-    quic_h3conn_req_in req_in = {wired_span_of(fs, off), wired_span_of(0, 0)};
-    CHECK(quic_h3conn_send_request(0, &req_in, &req_ob));
+    h3conn_req_in req_in = {wired_span_of(fs, off), wired_span_of(0, 0)};
+    CHECK(h3conn_send_request(0, &req_in, &req_ob));
   }
   CHECK(!wired_h3reqdrive_recv_get_dyn(
       wired_span_of(req, req_ob.len), wired_mspan_of(scratch, sizeof scratch),
@@ -946,8 +937,8 @@ static void test_reqdrive_recv_get_dyn_null_table_matches_static_only(void) {
   usz                  fs_len = curl_field_section(fs), req_len = 0;
   wired_h3reqdrive_req r;
   wired_obuf           req_ob = {req, sizeof req, 0};
-  quic_h3conn_req_in req_in = {wired_span_of(fs, fs_len), wired_span_of(0, 0)};
-  CHECK(quic_h3conn_send_request(0, &req_in, &req_ob));
+  h3conn_req_in req_in = {wired_span_of(fs, fs_len), wired_span_of(0, 0)};
+  CHECK(h3conn_send_request(0, &req_in, &req_ob));
   req_len = req_ob.len;
   CHECK(wired_h3reqdrive_recv_get_dyn(
       wired_span_of(req, req_len), wired_mspan_of(scratch, sizeof scratch), 0,
