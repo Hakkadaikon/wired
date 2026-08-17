@@ -13,9 +13,9 @@ warnflags := "-Wall -Wextra -Werror -O2"
 # per invocation with `just --set conntable_cap 256 build`, or via the
 # CONNTABLE_CAP env var (`CONNTABLE_CAP=256 just build`).
 conntable_cap := env_var_or_default("CONNTABLE_CAP", "4")
-connflags := "-DQUIC_CONNTABLE_CAP=" + conntable_cap
+connflags := "-DWIRED_CONNTABLE_CAP=" + conntable_cap
 # freestanding: the product constraint -- every src file must compile with no
-# libc at all. Also used (plus -DQUIC_DEBUG) for the example binaries.
+# libc at all. Also used (plus -DWIRED_DEBUG) for the example binaries.
 cflags := "-target x86_64-unknown-linux-gnu -ffreestanding -fno-stack-protector -fno-builtin -nostdlib -static " + warnflags + " " + connflags + " -Isrc"
 # hosted test: -mbranches-within-32B-boundaries because this host's Xeon
 # (Cascade Lake) has the JCC erratum; without it, test runtime swings ~40% on

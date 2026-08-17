@@ -1007,7 +1007,7 @@ static void srvrun_send(
     const srvrun_conn* c,
     wired_span         pkt,
     const char*        what) {
-  (void)what; /* WIRED_LOG compiles out without -DQUIC_DEBUG */
+  (void)what; /* WIRED_LOG compiles out without -DWIRED_DEBUG */
   if (pkt.n) {
     srvrun_tx(cfg, &c->peer, pkt);
     srvrun_qlog_sent(cfg, c, pkt.n);

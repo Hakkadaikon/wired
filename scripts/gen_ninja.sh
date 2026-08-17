@@ -3,7 +3,7 @@
 # per-object compile (proves libc independence), the libwired.a archive, the
 # hosted unity-build test binary, the three libFuzzer harnesses, and the
 # example server (release: links libwired.a; debug: recompiles the SDK with
-# -DQUIC_DEBUG so the flag reaches in-SDK trace points). Each variant needs
+# -DWIRED_DEBUG so the flag reaches in-SDK trace points). Each variant needs
 # its own rule (different flags = incompatible .o ABIs, so they can't share
 # object files), but all live in one build.ninja so `ninja <target>` builds
 # any of them and `ninja` alone builds just the freestanding default.
@@ -22,7 +22,7 @@ objs=$(printf '%s\n' "$srcs" | sed 's|^|build/|; s|\.c$|.o|' | tr '\n' ' ')
 libobjs=$(printf '%s\n' "$srcs" | grep -v '^src/common/platform/sys/sys\.c$' \
     | sed 's|^|build/|; s|\.c$|.o|' | tr '\n' ' ')
 # The debug example compiles the SDK from source (sys.c excluded, the example
-# has its own _start) so -DQUIC_DEBUG reaches every trace point.
+# has its own _start) so -DWIRED_DEBUG reaches every trace point.
 dbgsrcs=$(printf '%s\n' "$srcs" | grep -v '^src/common/platform/sys/sys\.c$' \
     | tr '\n' ' ')
 
@@ -112,10 +112,10 @@ dbgsrcs=$(printf '%s\n' "$srcs" | grep -v '^src/common/platform/sys/sys\.c$' \
     echo "build examples/word_list/wired_server: cc_freestanding_bin \$"
     echo "    examples/word_list/wired_server.c build/libwired.a"
     echo
-    echo "# debug example: SDK recompiled from source with -DQUIC_DEBUG."
+    echo "# debug example: SDK recompiled from source with -DWIRED_DEBUG."
     echo "build examples/word_list/wired_server_debug: cc_freestanding_bin \$"
     echo "    examples/word_list/wired_server.c $dbgsrcs"
-    echo "  extra = -DQUIC_DEBUG"
+    echo "  extra = -DWIRED_DEBUG"
     echo
     echo "build examples/webtransport_echo/wired_server: cc_freestanding_bin \$"
     echo "    examples/webtransport_echo/wired_server.c build/libwired.a"
