@@ -49,8 +49,8 @@ static void make_client_hello_sni(struct srv_fix* f, wired_span sni) {
     f->srv_random[i] = (u8)(0xa0 + i);
   }
   wired_x25519_base(cli_pub, f->cli_priv);
-  f->ch_len = quic_tls_client_hello(
-      &(quic_clienthello_in){f->srv_random, cli_pub, sni, wired_span_of(0, 0)},
+  f->ch_len = tls_client_hello(
+      &(clienthello_in){f->srv_random, cli_pub, sni, wired_span_of(0, 0)},
       &(wired_obuf){f->ch, sizeof(f->ch), 0});
 }
 
@@ -71,7 +71,7 @@ static void drive_to_flight(struct srv_fix* f) {
   wired_server_init_in sin   = {srv_priv, srv_pub, cert_seed, 0, 0, 0, 0, 0};
   wired_obuf           sh_ob = obuf_of(f->sh, sizeof(f->sh));
   wired_obuf           fl_ob = obuf_of(f->flight, sizeof(f->flight));
-  quic_sdrv_flight_out fo    = {&sh_ob, &fl_ob};
+  sdrv_flight_out      fo    = {&sh_ob, &fl_ob};
   wired_server_init(&f->s, &sin);
   CHECK(wired_server_recv_initial(&f->s, f->ch, f->ch_len) == 1);
   CHECK(f->s.phase == WIRED_SERVER_HS_CH_RECVD);
@@ -85,30 +85,30 @@ static void drive_to_flight(struct srv_fix* f) {
  * base key = client hs traffic secret over the transcript through ServerHello;
  * verify_data over the transcript hash through the server Finished. */
 static void make_client_finished(struct srv_fix* f) {
-  quic_serverhello_out sh;
-  u8                   hs[32], c_traffic[32], th[32];
-  quic_transcript      tr;
-  usz                  off;
-  CHECK(quic_tls_parse_server_hello(
-      wired_span_of(f->sh, f->sh_len), f->sh_pub, &sh));
+  serverhello_out sh;
+  u8              hs[32], c_traffic[32], th[32];
+  transcript      tr;
+  usz             off;
+  CHECK(
+      tls_parse_server_hello(wired_span_of(f->sh, f->sh_len), f->sh_pub, &sh));
   {
     u8 shared[32];
     wired_x25519(shared, f->cli_priv, f->sh_pub);
-    quic_tls_handshake_secret(shared, hs);
+    tls_handshake_secret(shared, hs);
   }
-  quic_transcript_init(&tr);
-  quic_transcript_add(&tr, f->ch, f->ch_len);
-  quic_transcript_add(&tr, f->sh, f->sh_len);
-  quic_transcript_hash(&tr, th); /* through ServerHello */
+  transcript_init(&tr);
+  transcript_add(&tr, f->ch, f->ch_len);
+  transcript_add(&tr, f->sh, f->sh_len);
+  transcript_hash(&tr, th); /* through ServerHello */
   hkdf_label chl = {"c hs traffic", 12, {th, 32}};
   hkdf_expand_label(hs, &chl, wired_mspan_of(c_traffic, 32));
-  quic_transcript_add(&tr, f->flight, f->flight_len);
-  quic_transcript_hash(&tr, th); /* through server Finished */
+  transcript_add(&tr, f->flight, f->flight_len);
+  transcript_hash(&tr, th); /* through server Finished */
 
-  off = quic_hs_begin(f->cli_fin, sizeof(f->cli_fin), QUIC_HS_FINISHED);
-  quic_tls_finished_verify_data(c_traffic, th, f->cli_fin + off);
+  off = hs_begin(f->cli_fin, sizeof(f->cli_fin), QUIC_HS_FINISHED);
+  tls_finished_verify_data(c_traffic, th, f->cli_fin + off);
   f->cli_fin_len = off + QUIC_TLS_VERIFY_DATA;
-  quic_hs_finish(f->cli_fin, f->cli_fin_len);
+  hs_finish(f->cli_fin, f->cli_fin_len);
 }
 
 /* Wrap a TLS message as a CRYPTO-frame payload for wired_server_feed. */
@@ -133,7 +133,7 @@ static void test_server_happy(void) {
   /* 1-RTT not armed, not confirmed at flight time. */
   CHECK(wired_server_is_confirmed(&f.s) == 0);
   {
-    const quic_initial_keys* k;
+    const initial_keys* k;
     CHECK(keyset_for_level(&f.s.keys, QUIC_LEVEL_ONERTT, &k) == 0);
     CHECK(keyset_for_level(&f.s.keys, QUIC_LEVEL_HANDSHAKE, &k) == 1);
   }
@@ -145,7 +145,7 @@ static void test_server_happy(void) {
   CHECK(wired_server_is_confirmed(&f.s) == 1);
   CHECK(f.s.phase == WIRED_SERVER_HS_CONFIRMED);
   {
-    const quic_initial_keys* k;
+    const initial_keys* k;
     CHECK(keyset_for_level(&f.s.keys, QUIC_LEVEL_ONERTT, &k) == 1);
   }
 
@@ -184,7 +184,7 @@ static void test_server_forged_finished(void) {
   CHECK(wired_server_is_confirmed(&f.s) == 0);
   CHECK(f.s.phase == WIRED_SERVER_HS_FLIGHT_SENT);
   {
-    const quic_initial_keys* k;
+    const initial_keys* k;
     CHECK(keyset_for_level(&f.s.keys, QUIC_LEVEL_ONERTT, &k) == 0);
   }
   hd_ob = obuf_of(hsdone, sizeof(hsdone));
@@ -199,7 +199,7 @@ static void test_server_flight_before_ch(void) {
   u8                   sh[256], flight[2048], rnd[32];
   wired_obuf           sh_ob = obuf_of(sh, sizeof(sh));
   wired_obuf           fl_ob = obuf_of(flight, sizeof(flight));
-  quic_sdrv_flight_out fo    = {&sh_ob, &fl_ob};
+  sdrv_flight_out      fo    = {&sh_ob, &fl_ob};
   wired_server_init_in sin;
   for (usz i = 0; i < 32; i++) {
     srv_priv[i]  = (u8)(0x40 + i);
@@ -211,7 +211,7 @@ static void test_server_flight_before_ch(void) {
   wired_server_init(&f.s, &sin);
   CHECK(wired_server_build_flight(&f.s, rnd, &fo) == 0);
   {
-    const quic_initial_keys* k;
+    const initial_keys* k;
     CHECK(keyset_for_level(&f.s.keys, QUIC_LEVEL_HANDSHAKE, &k) == 0);
   }
 }
@@ -237,9 +237,9 @@ static void test_server_fin_before_flight(void) {
   /* still CH_RECVD: any Finished-like payload must not promote */
   {
     u8  fin[40];
-    usz off = quic_hs_begin(fin, sizeof(fin), QUIC_HS_FINISHED);
+    usz off = hs_begin(fin, sizeof(fin), QUIC_HS_FINISHED);
     for (usz i = 0; i < 32; i++) fin[off + i] = 0;
-    quic_hs_finish(fin, off + 32);
+    hs_finish(fin, off + 32);
     plen = srv_wrap_crypto(fin, off + 32, payload, sizeof(payload));
   }
   CHECK(wired_server_feed(&f.s, payload, plen) == 0);
@@ -260,30 +260,29 @@ static usz client_transcript(struct srv_fix* f, u8* buf) {
  * shared ECDHE, then app_keys over the raw transcript through the server
  * Finished (CH..SH..server flight) — never the client Finished. */
 static void client_ap_keys(
-    struct srv_fix* f, int is_server, quic_initial_keys* out) {
+    struct srv_fix* f, int is_server, initial_keys* out) {
   u8  shared[32], hs[32], master[32], tr[3072];
   usz tlen;
   wired_x25519(shared, f->cli_priv, f->sh_pub);
-  quic_tls_handshake_secret(shared, hs);
-  quic_tls_master_secret(hs, master);
+  tls_handshake_secret(shared, hs);
+  tls_master_secret(hs, master);
   tlen = client_transcript(f, tr);
-  quic_tls_app_keys(
-      &(quic_app_keys_in){master, wired_span_of(tr, tlen), is_server}, out);
+  tls_app_keys(&(app_keys_in){master, wired_span_of(tr, tlen), is_server}, out);
 }
 
 /* Whole key material (key+iv+hp) is identical. */
-static int ap_keys_eq(const quic_initial_keys* a, const quic_initial_keys* b) {
+static int ap_keys_eq(const initial_keys* a, const initial_keys* b) {
   const u8 *pa = (const u8*)a, *pb = (const u8*)b;
   int       diff = 0;
-  for (usz i = 0; i < sizeof(quic_initial_keys); i++) diff |= pa[i] ^ pb[i];
+  for (usz i = 0; i < sizeof(initial_keys); i++) diff |= pa[i] ^ pb[i];
   return diff == 0;
 }
 
 /* The server's installed AP keys for one direction equal the client's. */
 static void check_dir_matches(struct srv_fix* f, int which, int is_server) {
-  const quic_initial_keys* got;
-  quic_initial_keys        want;
-  CHECK(quic_keysched_get(&f->s.sched, which, &got) == 1);
+  const initial_keys* got;
+  initial_keys        want;
+  CHECK(keysched_get(&f->s.sched, which, &got) == 1);
   client_ap_keys(f, is_server, &want);
   CHECK(ap_keys_eq(got, &want));
 }
@@ -331,7 +330,7 @@ static void test_server_sni_mismatch_rejected(void) {
   CHECK(wired_server_recv_initial(&f.s, f.ch, f.ch_len) == 0);
   CHECK(f.s.phase == WIRED_SERVER_HS_INITIAL);
   CHECK(
-      quic_sdrv_last_error(&f.s.sdrv) ==
+      sdrv_last_error(&f.s.sdrv) ==
       err_crypto(QUIC_TLS_ALERT_UNRECOGNIZED_NAME));
 }
 
@@ -440,7 +439,7 @@ typedef struct {
 } srvt_psk_fixture;
 
 static void srvt_psk_fixture_init(srvt_psk_fixture* f) {
-  quic_ticket t = {{0}, 0, 7200, 0};
+  ticket t = {{0}, 0, 7200, 0};
   for (usz i = 0; i < QUIC_TICKET_KEY_LEN; i++)
     f->ticket_key[i] = (u8)(0xd0 + i);
   for (usz i = 0; i < QUIC_TICKET_SECRET_LEN; i++) {
@@ -448,7 +447,7 @@ static void srvt_psk_fixture_init(srvt_psk_fixture* f) {
     t.secret[i]  = f->secret[i];
   }
   srvt_psk_from_res_master(f->secret, f->psk);
-  quic_ticket_seal(&t, f->ticket_key, f->sealed);
+  ticket_seal(&t, f->ticket_key, f->sealed);
 }
 
 /* Append psk_key_exchange_modes then a pre_shared_key extension (single
@@ -459,19 +458,19 @@ static void srvt_psk_fixture_init(srvt_psk_fixture* f) {
  * pre_shared_key the last extension (4.2.11). Sets *psk_ext_off to
  * pre_shared_key's own TLV offset (header included). */
 static usz srvt_psk_append(
-    u8*                       out,
-    usz                       out_cap,
-    const u8*                 ch,
-    usz                       ch_len,
-    const quic_tlsext_psk_in* psk,
-    usz*                      psk_ext_off) {
+    u8*                  out,
+    usz                  out_cap,
+    const u8*            ch,
+    usz                  ch_len,
+    const tlsext_psk_in* psk,
+    usz*                 psk_ext_off) {
   usz        exts_len_off = 45; /* see sdrv_test.c's sdrv_test_append_psk */
   usz        old_exts_len;
   u8         modes[8], scratch[128];
   usz        modes_len;
   wired_obuf eob = obuf_of(scratch, sizeof(scratch));
-  if (!quic_tlsext_psk_modes(modes, sizeof(modes), &modes_len)) return 0;
-  if (!quic_tlsext_pre_shared_key(psk, &eob)) return 0;
+  if (!tlsext_psk_modes(modes, sizeof(modes), &modes_len)) return 0;
+  if (!tlsext_pre_shared_key(psk, &eob)) return 0;
   if (ch_len + modes_len + eob.len > out_cap) return 0;
   for (usz i = 0; i < ch_len; i++) out[i] = ch[i];
   old_exts_len = (usz)out[exts_len_off] << 8 | out[exts_len_off + 1];
@@ -479,7 +478,7 @@ static usz srvt_psk_append(
   *psk_ext_off = ch_len + modes_len;
   for (usz i = 0; i < eob.len; i++) out[ch_len + modes_len + i] = scratch[i];
   be_put_be16(out + exts_len_off, (u16)(old_exts_len + modes_len + eob.len));
-  quic_hs_finish(out, ch_len + modes_len + eob.len);
+  hs_finish(out, ch_len + modes_len + eob.len);
   return ch_len + modes_len + eob.len;
 }
 
@@ -501,8 +500,8 @@ static void make_psk_client_hello(
   usz psk_ext_off, trunc_len;
   make_client_hello(f);
   {
-    u8                 zero_binder[QUIC_HKDF_PRK] = {0};
-    quic_tlsext_psk_in psk                        = {
+    u8            zero_binder[QUIC_HKDF_PRK] = {0};
+    tlsext_psk_in psk                        = {
         wired_span_of(pf->sealed, sizeof(pf->sealed)), 0,
         wired_span_of(zero_binder, sizeof(zero_binder))};
     *ch2_len =
@@ -510,9 +509,9 @@ static void make_psk_client_hello(
     CHECK(*ch2_len != 0);
   }
   trunc_len = srvt_psk_truncate_len(psk_ext_off, sizeof(pf->sealed));
-  quic_tls_binder_compute(pf->psk, wired_span_of(ch2, trunc_len), binder);
+  tls_binder_compute(pf->psk, wired_span_of(ch2, trunc_len), binder);
   {
-    quic_tlsext_psk_in psk = {
+    tlsext_psk_in psk = {
         wired_span_of(pf->sealed, sizeof(pf->sealed)), 0,
         wired_span_of(binder, sizeof(binder))};
     *ch2_len =
@@ -536,7 +535,7 @@ static void drive_psk_to_flight(
                                 0,        0,       0,         pf->ticket_key};
   wired_obuf           sh_ob = obuf_of(f->sh, sizeof(f->sh));
   wired_obuf           fl_ob = obuf_of(f->flight, sizeof(f->flight));
-  quic_sdrv_flight_out fo    = {&sh_ob, &fl_ob};
+  sdrv_flight_out      fo    = {&sh_ob, &fl_ob};
   wired_server_init(&f->s, &sin);
   CHECK(wired_server_recv_initial(&f->s, ch2, ch2_len) == 1);
   CHECK(f->s.sdrv.psk_accepted == 1);
@@ -547,8 +546,8 @@ static void drive_psk_to_flight(
    * it directly (without going through make_client_finished_psk, which is
    * where the plain flow first parses it). */
   {
-    quic_serverhello_out shp;
-    CHECK(quic_tls_parse_server_hello(
+    serverhello_out shp;
+    CHECK(tls_parse_server_hello(
         wired_span_of(f->sh, f->sh_len), f->sh_pub, &shp));
   }
   /* client_transcript/make_client_finished below must hash the PSK
@@ -564,30 +563,30 @@ static void drive_psk_to_flight(
  * 8446 7.1: Early = HKDF-Extract(0, PSK)). Otherwise identical. */
 static void make_client_finished_psk(
     struct srv_fix* f, const srvt_psk_fixture* pf) {
-  quic_serverhello_out sh;
-  u8                   hs[32], c_traffic[32], th[32];
-  quic_transcript      tr;
-  usz                  off;
-  CHECK(quic_tls_parse_server_hello(
-      wired_span_of(f->sh, f->sh_len), f->sh_pub, &sh));
+  serverhello_out sh;
+  u8              hs[32], c_traffic[32], th[32];
+  transcript      tr;
+  usz             off;
+  CHECK(
+      tls_parse_server_hello(wired_span_of(f->sh, f->sh_len), f->sh_pub, &sh));
   {
     u8 shared[32];
     wired_x25519(shared, f->cli_priv, f->sh_pub);
-    quic_tls_handshake_secret_psk(pf->psk, shared, hs);
+    tls_handshake_secret_psk(pf->psk, shared, hs);
   }
-  quic_transcript_init(&tr);
-  quic_transcript_add(&tr, f->ch, f->ch_len);
-  quic_transcript_add(&tr, f->sh, f->sh_len);
-  quic_transcript_hash(&tr, th); /* through ServerHello */
+  transcript_init(&tr);
+  transcript_add(&tr, f->ch, f->ch_len);
+  transcript_add(&tr, f->sh, f->sh_len);
+  transcript_hash(&tr, th); /* through ServerHello */
   hkdf_label chl = {"c hs traffic", 12, {th, 32}};
   hkdf_expand_label(hs, &chl, wired_mspan_of(c_traffic, 32));
-  quic_transcript_add(&tr, f->flight, f->flight_len);
-  quic_transcript_hash(&tr, th); /* through server Finished */
+  transcript_add(&tr, f->flight, f->flight_len);
+  transcript_hash(&tr, th); /* through server Finished */
 
-  off = quic_hs_begin(f->cli_fin, sizeof(f->cli_fin), QUIC_HS_FINISHED);
-  quic_tls_finished_verify_data(c_traffic, th, f->cli_fin + off);
+  off = hs_begin(f->cli_fin, sizeof(f->cli_fin), QUIC_HS_FINISHED);
+  tls_finished_verify_data(c_traffic, th, f->cli_fin + off);
   f->cli_fin_len = off + QUIC_TLS_VERIFY_DATA;
-  quic_hs_finish(f->cli_fin, f->cli_fin_len);
+  hs_finish(f->cli_fin, f->cli_fin_len);
 }
 
 /* Derive the application keys the way a resuming client does: PSK-branch
@@ -599,15 +598,14 @@ static void client_ap_keys_psk(
     struct srv_fix*         f,
     const srvt_psk_fixture* pf,
     int                     is_server,
-    quic_initial_keys*      out) {
+    initial_keys*           out) {
   u8  shared[32], hs[32], master[32], tr[3072];
   usz tlen;
   wired_x25519(shared, f->cli_priv, f->sh_pub);
-  quic_tls_handshake_secret_psk(pf->psk, shared, hs);
-  quic_tls_master_secret(hs, master);
+  tls_handshake_secret_psk(pf->psk, shared, hs);
+  tls_master_secret(hs, master);
   tlen = client_transcript(f, tr);
-  quic_tls_app_keys(
-      &(quic_app_keys_in){master, wired_span_of(tr, tlen), is_server}, out);
+  tls_app_keys(&(app_keys_in){master, wired_span_of(tr, tlen), is_server}, out);
 }
 
 /* A PSK-accepted connection's Handshake Secret (recomputed the RFC
@@ -635,24 +633,24 @@ static void test_server_psk_accepted_keys_match_client(void) {
   /* sdrv's own Handshake Secret (sdrv_flight.c's PSK branch) equals an
    * independent recomputation from the same ECDHE and the ticket secret. */
   wired_x25519(shared, f.cli_priv, f.sh_pub);
-  quic_tls_handshake_secret_psk(pf.psk, shared, want_hs);
-  CHECK(quic_sdrv_handshake_secret(&f.s.sdrv, &sdrv_hs) == 1);
+  tls_handshake_secret_psk(pf.psk, shared, want_hs);
+  CHECK(sdrv_handshake_secret(&f.s.sdrv, &sdrv_hs) == 1);
   for (usz i = 0; i < 32; i++) CHECK(sdrv_hs[i] == want_hs[i]);
 
   /* The connection's real Handshake-level keys (keyschedule.c, via
    * server.c's srv_advance_handshake) match a client's PSK derivation too,
    * over the transcript through ServerHello (ClientHello || ServerHello),
-   * the same span srv_derive_hs feeds quic_keysched_advance_handshake_psk. */
+   * the same span srv_derive_hs feeds keysched_advance_handshake_psk. */
   {
-    const quic_initial_keys* got;
-    quic_initial_keys        want;
-    u8                       tr_sh[1024];
-    usz                      tr_sh_len = 0;
+    const initial_keys* got;
+    initial_keys        want;
+    u8                  tr_sh[1024];
+    usz                 tr_sh_len = 0;
     for (usz i = 0; i < f.ch_len; i++) tr_sh[tr_sh_len++] = f.ch[i];
     for (usz i = 0; i < f.sh_len; i++) tr_sh[tr_sh_len++] = f.sh[i];
-    CHECK(quic_keysched_get(&f.s.sched, QUIC_KS_SERVER_HS, &got) == 1);
-    quic_tls_handshake_keys(
-        &(quic_handshake_keys_in){want_hs, wired_span_of(tr_sh, tr_sh_len), 1},
+    CHECK(keysched_get(&f.s.sched, QUIC_KS_SERVER_HS, &got) == 1);
+    tls_handshake_keys(
+        &(handshake_keys_in){want_hs, wired_span_of(tr_sh, tr_sh_len), 1},
         &want);
     CHECK(ap_keys_eq(got, &want));
   }
@@ -666,12 +664,12 @@ static void test_server_psk_accepted_keys_match_client(void) {
   CHECK(wired_server_feed(&f.s, payload, plen) == 1);
   CHECK(wired_server_is_confirmed(&f.s) == 1);
   {
-    const quic_initial_keys* got;
-    quic_initial_keys        want;
-    CHECK(quic_keysched_get(&f.s.sched, QUIC_KS_SERVER_AP, &got) == 1);
+    const initial_keys* got;
+    initial_keys        want;
+    CHECK(keysched_get(&f.s.sched, QUIC_KS_SERVER_AP, &got) == 1);
     client_ap_keys_psk(&f, &pf, 1, &want);
     CHECK(ap_keys_eq(got, &want));
-    CHECK(quic_keysched_get(&f.s.sched, QUIC_KS_CLIENT_AP, &got) == 1);
+    CHECK(keysched_get(&f.s.sched, QUIC_KS_CLIENT_AP, &got) == 1);
     client_ap_keys_psk(&f, &pf, 0, &want);
     CHECK(ap_keys_eq(got, &want));
   }
@@ -681,8 +679,7 @@ static void test_server_psk_accepted_keys_match_client(void) {
  * keyschedule_test.c's identically-shaped helper -- both are unity-built
  * into the same TU, but each test file should stand alone rather than lean
  * on another file's include order). */
-static int srvt_keys_differ(
-    const quic_initial_keys* a, const quic_initial_keys* b) {
+static int srvt_keys_differ(const initial_keys* a, const initial_keys* b) {
   int d = 0;
   for (usz i = 0; i < QUIC_INITIAL_KEY; i++) d |= (a->key[i] != b->key[i]);
   return d;
@@ -693,18 +690,18 @@ static int srvt_keys_differ(
  * ECDHE/transcript would produce -- proves the PSK secret is actually mixed
  * into the key schedule, not silently ignored. */
 static void test_server_psk_keys_differ_from_plain(void) {
-  struct srv_fix           f;
-  srvt_psk_fixture         pf;
-  u8                       ch2[700];
-  usz                      ch2_len;
-  const quic_initial_keys* got;
-  quic_initial_keys        plain;
+  struct srv_fix      f;
+  srvt_psk_fixture    pf;
+  u8                  ch2[700];
+  usz                 ch2_len;
+  const initial_keys* got;
+  initial_keys        plain;
 
   srvt_psk_fixture_init(&pf);
   make_psk_client_hello(&f, &pf, ch2, sizeof(ch2), &ch2_len);
   drive_psk_to_flight(&f, &pf, ch2, ch2_len);
 
-  CHECK(quic_keysched_get(&f.s.sched, QUIC_KS_SERVER_HS, &got) == 1);
+  CHECK(keysched_get(&f.s.sched, QUIC_KS_SERVER_HS, &got) == 1);
   client_ap_keys(&f, 1, &plain); /* plain (non-PSK) derivation, same ecdhe */
   CHECK(srvt_keys_differ(got, &plain));
 }

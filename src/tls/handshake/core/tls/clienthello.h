@@ -15,13 +15,13 @@ typedef struct {
   const u8*  pub;    /* 32 bytes */
   wired_span sni;
   wired_span tp;
-} quic_clienthello_in;
+} clienthello_in;
 
 /* Build the ClientHello into out from in. Returns the handshake message
  * length, or 0 if it does not fit. ALPN offers "h3". */
-usz quic_tls_client_hello(const quic_clienthello_in* in, wired_obuf* out);
+usz tls_client_hello(const clienthello_in* in, wired_obuf* out);
 
-/** Same as quic_clienthello_in, but the key_share's NamedGroup (RFC 8446
+/** Same as clienthello_in, but the key_share's NamedGroup (RFC 8446
  * 4.2.7) and pub's length are explicit instead of the frozen x25519/32-byte
  * pair -- pub must point at pub_len bytes (32 for QUIC_GROUP_X25519, 65 for
  * QUIC_GROUP_SECP256R1). */
@@ -32,12 +32,11 @@ typedef struct {
   wired_span tp;
   u16        group;
   usz        pub_len;
-} quic_clienthello_group_in;
+} clienthello_group_in;
 
 /* Build the ClientHello into out from in, offering in->group's key_share.
  * Returns the handshake message length, or 0 if it does not fit. ALPN
  * offers "h3". */
-usz quic_tls_client_hello_group(
-    const quic_clienthello_group_in* in, wired_obuf* out);
+usz tls_client_hello_group(const clienthello_group_in* in, wired_obuf* out);
 
 #endif

@@ -3,7 +3,7 @@
 #include "common/bytes/util/be.h"
 
 /* RFC 8446 4.2.7: type(2) + ext_data length(2) + list length(2) + groups. */
-usz quic_tls_ext_supported_groups(u8* buf, usz cap) {
+usz tls_ext_supported_groups(u8* buf, usz cap) {
   if (cap < 8) return 0;
   be_put_be16(buf, QUIC_EXT_SUPPORTED_GROUPS);
   be_put_be16(buf + 2, 4);
@@ -13,7 +13,7 @@ usz quic_tls_ext_supported_groups(u8* buf, usz cap) {
 }
 
 /* RFC 8446 4.2.3: type(2) + ext_data length(2) + list length(2) + schemes. */
-usz quic_tls_ext_sig_algs(u8* buf, usz cap) {
+usz tls_ext_sig_algs(u8* buf, usz cap) {
   if (cap < 12) return 0;
   be_put_be16(buf, QUIC_EXT_SIGNATURE_ALGORITHMS);
   be_put_be16(buf + 2, 8);
@@ -49,7 +49,7 @@ static int sig_algs_scan(const u8* buf, usz cnt, u16 scheme) {
   return 0;
 }
 
-int quic_tls_ext_sig_algs_has(const u8* buf, usz n, u16 scheme) {
+int tls_ext_sig_algs_has(const u8* buf, usz n, u16 scheme) {
   usz llen;
   if (!sig_algs_framed(buf, n)) return 0;
   llen = (usz)buf[4] << 8 | buf[5];

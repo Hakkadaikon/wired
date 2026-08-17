@@ -28,8 +28,8 @@ static int append_wrapped(wired_obuf* out, u16 type, wired_span body) {
   u8 hdr[4];
   be_put_be16(hdr, type);
   be_put_be16(hdr + 2, (u16)body.n);
-  if (!quic_tls_ext_append(out, wired_span_of(hdr, 4))) return 0;
-  return quic_tls_ext_append(out, body);
+  if (!tls_ext_append(out, wired_span_of(hdr, 4))) return 0;
+  return tls_ext_append(out, body);
 }
 
 /* Encode an extension into scratch then append it whole; ANDs the room flag. */
@@ -37,7 +37,7 @@ typedef usz (*ext_enc)(u8*, usz);
 static int append_self(wired_obuf* out, ext_enc enc) {
   u8  scratch[16];
   usz w = enc(scratch, sizeof(scratch));
-  return (w != 0) & quic_tls_ext_append(out, wired_span_of(scratch, w));
+  return (w != 0) & tls_ext_append(out, wired_span_of(scratch, w));
 }
 
 /* The mandatory extensions: supported_versions, supported_groups,
@@ -45,11 +45,11 @@ static int append_self(wired_obuf* out, ext_enc enc) {
  * (secp256r1: 4 + 2 + 4 + 65). */
 static int append_core(wired_obuf* out, const u8* pub, u16 group, usz pub_len) {
   u8  ks[75];
-  usz kw = quic_tls_ext_key_share(ks, sizeof(ks), group, pub, pub_len);
-  int ok = append_self(out, quic_tls_ext_supported_versions);
-  ok &= append_self(out, quic_tls_ext_supported_groups);
-  ok &= append_self(out, quic_tls_ext_sig_algs);
-  return ok & (kw != 0) & quic_tls_ext_append(out, wired_span_of(ks, kw));
+  usz kw = tls_ext_key_share(ks, sizeof(ks), group, pub, pub_len);
+  int ok = append_self(out, tls_ext_supported_versions);
+  ok &= append_self(out, tls_ext_supported_groups);
+  ok &= append_self(out, tls_ext_sig_algs);
+  return ok & (kw != 0) & tls_ext_append(out, wired_span_of(ks, kw));
 }
 
 /* server_name (RFC 6066) wrapped as ServerNameList length(2) + entry. */
@@ -58,7 +58,7 @@ static int append_sni(wired_obuf* out, wired_span sni) {
   wired_obuf bob = obuf_of(body + 2, sizeof(body) - 2);
   usz        e;
   if (sni.n == 0) return 1;
-  e = quic_tls_sni_encode(&bob, sni);
+  e = tls_sni_encode(&bob, sni);
   be_put_be16(body, (u16)e);
   return (e != 0) &
          append_wrapped(out, QUIC_SNI_TYPE, wired_span_of(body, e + 2));
@@ -68,7 +68,7 @@ static int append_sni(wired_obuf* out, wired_span sni) {
 static int append_alpn(wired_obuf* out) {
   u8         body[16];
   wired_obuf bob = obuf_of(body, sizeof(body));
-  usz        a = quic_tls_alpn_encode(&bob, wired_span_of((const u8*)"h3", 2));
+  usz        a   = tls_alpn_encode(&bob, wired_span_of((const u8*)"h3", 2));
   return (a != 0) & append_wrapped(out, QUIC_ALPN_TYPE, wired_span_of(body, a));
 }
 
@@ -76,8 +76,8 @@ static int append_alpn(wired_obuf* out) {
 static int append_tp(wired_obuf* out, wired_span tp) {
   u8         ext[2048];
   wired_obuf eob = obuf_of(ext, sizeof(ext));
-  usz        w   = quic_tpext_encode(&eob, tp);
-  return (w != 0) & quic_tls_ext_append(out, wired_span_of(ext, w));
+  usz        w   = tpext_encode(&eob, tp);
+  return (w != 0) & tls_ext_append(out, wired_span_of(ext, w));
 }
 
 /* Every append_* argument set beyond the shared out cursor and pub key. */
@@ -102,8 +102,8 @@ static usz append_exts(
 static usz ch_finish(u8* buf, usz off, usz block_start) {
   usz end;
   if (off == 0) return 0;
-  end = quic_tls_ext_block_finish(buf, off, block_start);
-  if (end != 0) quic_hs_finish(buf, end);
+  end = tls_ext_block_finish(buf, off, block_start);
+  if (end != 0) hs_finish(buf, end);
   return end;
 }
 
@@ -114,7 +114,7 @@ static usz build_client_hello(
     const u8*                  pub,
     const clienthello_exts_in* exts,
     wired_obuf*                out) {
-  usz off = quic_hs_begin(out->p, out->cap, QUIC_HS_CLIENT_HELLO);
+  usz off = hs_begin(out->p, out->cap, QUIC_HS_CLIENT_HELLO);
   usz block_start;
   if (off == 0 || off + 41 + 2 > out->cap)
     return 0; /* header + prefix + ext_len */
@@ -125,13 +125,12 @@ static usz build_client_hello(
   return ch_finish(out->p, off, block_start);
 }
 
-usz quic_tls_client_hello(const quic_clienthello_in* in, wired_obuf* out) {
+usz tls_client_hello(const clienthello_in* in, wired_obuf* out) {
   clienthello_exts_in exts = {in->sni, in->tp, QUIC_GROUP_X25519, 32};
   return build_client_hello(in->random, in->pub, &exts, out);
 }
 
-usz quic_tls_client_hello_group(
-    const quic_clienthello_group_in* in, wired_obuf* out) {
+usz tls_client_hello_group(const clienthello_group_in* in, wired_obuf* out) {
   clienthello_exts_in exts = {in->sni, in->tp, in->group, in->pub_len};
   return build_client_hello(in->random, in->pub, &exts, out);
 }

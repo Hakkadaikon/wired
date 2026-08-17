@@ -13,8 +13,8 @@ static void test_tparam_roundtrip(void) {
     u8         buf[32];
     u64        id, val;
     wired_obuf ob = obuf_of(buf, sizeof(buf));
-    usz        w  = quic_tparam_put_int(&ob, cases[i].id, cases[i].val);
-    usz        r  = quic_tparam_get_int(wired_span_of(buf, w), &id, &val);
+    usz        w  = tparam_put_int(&ob, cases[i].id, cases[i].val);
+    usz        r  = tparam_get_int(wired_span_of(buf, w), &id, &val);
     CHECK(w != 0 && r == w && id == cases[i].id && val == cases[i].val);
   }
 }
@@ -23,12 +23,12 @@ static void test_tparam_truncated(void) {
   u8         buf[32];
   u64        id, val;
   wired_obuf ob = obuf_of(buf, sizeof(buf));
-  usz        w  = quic_tparam_put_int(&ob, QUIC_TP_INITIAL_MAX_DATA, 1048576);
+  usz        w  = tparam_put_int(&ob, QUIC_TP_INITIAL_MAX_DATA, 1048576);
   /* feeding fewer bytes than encoded must fail */
-  CHECK(quic_tparam_get_int(wired_span_of(buf, w - 1), &id, &val) == 0);
+  CHECK(tparam_get_int(wired_span_of(buf, w - 1), &id, &val) == 0);
   /* no room to encode */
   wired_obuf tiny = obuf_of(buf, 1);
-  CHECK(quic_tparam_put_int(&tiny, QUIC_TP_INITIAL_MAX_DATA, 1048576) == 0);
+  CHECK(tparam_put_int(&tiny, QUIC_TP_INITIAL_MAX_DATA, 1048576) == 0);
 }
 
 /* RFC 9221 3: max_datagram_frame_size is encoded/decoded as a plain single
@@ -42,8 +42,8 @@ static void test_tparam_max_datagram_frame_size(void) {
     u8         buf[32];
     u64        id, val;
     wired_obuf ob = obuf_of(buf, sizeof(buf));
-    usz w = quic_tparam_put_int(&ob, QUIC_TP_MAX_DATAGRAM_FRAME_SIZE, cases[i]);
-    usz r = quic_tparam_get_int(wired_span_of(buf, w), &id, &val);
+    usz w = tparam_put_int(&ob, QUIC_TP_MAX_DATAGRAM_FRAME_SIZE, cases[i]);
+    usz r = tparam_get_int(wired_span_of(buf, w), &id, &val);
     CHECK(
         w != 0 && r == w && id == QUIC_TP_MAX_DATAGRAM_FRAME_SIZE &&
         val == cases[i]);
@@ -55,23 +55,23 @@ static void test_tparam_max_datagram_frame_size(void) {
 static void test_tparam_no_duplicates(void) {
   u8         buf[64];
   wired_obuf ob = obuf_of(buf, sizeof(buf));
-  usz        w1 = quic_tparam_put_int(&ob, QUIC_TP_MAX_IDLE_TIMEOUT, 30000);
-  CHECK(quic_tparam_no_duplicates(wired_span_of(buf, w1)) == 1);
+  usz        w1 = tparam_put_int(&ob, QUIC_TP_MAX_IDLE_TIMEOUT, 30000);
+  CHECK(tparam_no_duplicates(wired_span_of(buf, w1)) == 1);
 
   wired_obuf ob2 = obuf_of(buf + w1, sizeof(buf) - w1);
-  usz        w2  = quic_tparam_put_int(&ob2, QUIC_TP_INITIAL_MAX_DATA, 1000);
-  CHECK(quic_tparam_no_duplicates(wired_span_of(buf, w1 + w2)) == 1);
+  usz        w2  = tparam_put_int(&ob2, QUIC_TP_INITIAL_MAX_DATA, 1000);
+  CHECK(tparam_no_duplicates(wired_span_of(buf, w1 + w2)) == 1);
 
   /* same id again: duplicate */
   wired_obuf ob3 = obuf_of(buf + w1 + w2, sizeof(buf) - w1 - w2);
-  usz        w3  = quic_tparam_put_int(&ob3, QUIC_TP_MAX_IDLE_TIMEOUT, 1);
-  CHECK(quic_tparam_no_duplicates(wired_span_of(buf, w1 + w2 + w3)) == 0);
+  usz        w3  = tparam_put_int(&ob3, QUIC_TP_MAX_IDLE_TIMEOUT, 1);
+  CHECK(tparam_no_duplicates(wired_span_of(buf, w1 + w2 + w3)) == 0);
 }
 
 /* Malformed TLV input (undecodable) is treated as failure, not "no dup". */
 static void test_tparam_no_duplicates_malformed(void) {
   u8 buf[2] = {0x40, 0xff}; /* 2-byte varint id header but truncated */
-  CHECK(quic_tparam_no_duplicates(wired_span_of(buf, sizeof(buf))) == 0);
+  CHECK(tparam_no_duplicates(wired_span_of(buf, sizeof(buf))) == 0);
 }
 
 void test_tparam(void) {

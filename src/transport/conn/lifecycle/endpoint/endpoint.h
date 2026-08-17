@@ -14,11 +14,11 @@
 /** A QUIC endpoint's X25519 key pair, connection ID, and handshake-level
  * packet protection keys once the ECDHE agreement completes. */
 typedef struct {
-  u8                priv[32];     /* X25519 private key */
-  u8                pub[32];      /* X25519 public key */
-  u8                dcid[8];      /* connection ID used for Initial keys */
-  quic_initial_keys hs_keys;      /* handshake-level packet protection keys */
-  int               have_hs_keys; /* 1 once the ECDHE handshake secret is in */
+  u8           priv[32];     /* X25519 private key */
+  u8           pub[32];      /* X25519 public key */
+  u8           dcid[8];      /* connection ID used for Initial keys */
+  initial_keys hs_keys;      /* handshake-level packet protection keys */
+  int          have_hs_keys; /* 1 once the ECDHE handshake secret is in */
 } quic_endpoint;
 
 /* Initialize an endpoint with its private scalar and the shared DCID; derives

@@ -17,7 +17,7 @@
  *
  * What is NOT implemented: converting a raw U-label (actual Unicode
  * codepoints, e.g. UTF-8 "café.example") into its A-label ("xn--caf-
- * dma.example") per the RFC 3492 Punycode algorithm. quic_salpn_idna_to_ascii
+ * dma.example") per the RFC 3492 Punycode algorithm. salpn_idna_to_ascii
  * below only recognizes the already-ASCII case; a caller that hands it
  * non-ASCII input gets a clean 0 (reject), never a silently wrong
  * conversion. */
@@ -27,6 +27,6 @@
  * returns the byte count. Returns 0 if host contains any non-ASCII byte
  * (Punycode U-label -> A-label conversion is not implemented) or does not
  * fit in cap. */
-usz quic_salpn_idna_to_ascii(wired_span host, u8* out, usz cap);
+usz salpn_idna_to_ascii(wired_span host, u8* out, usz cap);
 
 #endif

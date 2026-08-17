@@ -55,11 +55,11 @@ static int srvboot_set_cids(
   wired_span scid = wired_span_of(id->scid, id->scid_len);
   wired_span dcid = wired_span_of(h->dcid, h->dcid_len);
   if (!id->retry_odcid_len) return wired_server_set_cids(conn->s, dcid, scid);
-  if (!quic_sdrv_set_cids_retried(
+  if (!sdrv_set_cids_retried(
           &conn->s->sdrv, dcid, scid,
           wired_span_of(id->retry_odcid, id->retry_odcid_len)))
     return 0;
-  return quic_sdrv_set_retry_scid(&conn->s->sdrv, dcid);
+  return sdrv_set_retry_scid(&conn->s->sdrv, dcid);
 }
 
 /* RFC 9000 10.3.1: advertise a stateless_reset_token for this connection's
@@ -206,9 +206,9 @@ static int srvboot_build_flight_bytes(
     u8*                       sh,
     u8*                       flight,
     srvboot_flight_bytes*     fb) {
-  wired_obuf           sh_ob = obuf_of(sh, SRVBOOT_SH_MAX);
-  wired_obuf           fl_ob = obuf_of(flight, SRVBOOT_HS_FLIGHT_MAX);
-  quic_sdrv_flight_out fo    = {&sh_ob, &fl_ob};
+  wired_obuf      sh_ob = obuf_of(sh, SRVBOOT_SH_MAX);
+  wired_obuf      fl_ob = obuf_of(flight, SRVBOOT_HS_FLIGHT_MAX);
+  sdrv_flight_out fo    = {&sh_ob, &fl_ob};
   if (!quic_version_compatible(version, version)) return 0;
   if (!wired_server_build_flight(conn->s, id->random, &fo)) return 0;
   *fb = (srvboot_flight_bytes){
@@ -427,7 +427,7 @@ int wired_srvboot_accept_acc(
 }
 
 /* RFC 9001 4.8: 0x128 (TLS handshake_failure) when the caller has no more
- * specific quic_sdrv_last_error cause on hand. */
+ * specific sdrv_last_error cause on hand. */
 #define SRVBOOT_REFUSAL_DEFAULT_ERROR 0x128
 
 /* error_code, or the generic fallback when the caller had no specific

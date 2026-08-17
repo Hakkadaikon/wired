@@ -50,7 +50,7 @@ usz quic_wt_exporter_ctx_encode(
  * (RFC 8446 7.5) for the given session, application label, and
  * application context. exporter_secret is the connection's
  * exporter_master_secret (tls/keys/schedule_drive/keyschedule.h's
- * quic_keysched_exporter_secret).
+ * keysched_exporter_secret).
  * @return 1 on success, 0 if label/app_context exceed 255 bytes or okm's
  *   length does not fit hkdf_expand_label */
 int quic_wt_exporter(

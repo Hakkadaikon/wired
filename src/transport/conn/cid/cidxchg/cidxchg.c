@@ -42,7 +42,7 @@ int quic_cidxchg_remember_odcid(
 /* RFC 9000 7.3 */
 int quic_cidxchg_verify_odcid(
     const quic_cidxchg* x, const u8* odcid_tp, u8 len) {
-  return quic_tpverify_odcid(
+  return tpverify_odcid(
       wired_span_of(x->init_dcid, x->init_dcid_len),
       wired_span_of(odcid_tp, len));
 }

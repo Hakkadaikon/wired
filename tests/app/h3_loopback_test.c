@@ -67,8 +67,8 @@ static void lb_make_client_hello(struct lb_fix* f) {
     f->srv_random[i] = (u8)(0xa0 + i);
   }
   wired_x25519_base(cli_pub, f->cli_priv);
-  f->ch_len = quic_tls_client_hello(
-      &(quic_clienthello_in){
+  f->ch_len = tls_client_hello(
+      &(clienthello_in){
           f->srv_random, cli_pub, wired_span_of(0, 0), wired_span_of(0, 0)},
       &(wired_obuf){f->ch, sizeof(f->ch), 0});
 }
@@ -86,7 +86,7 @@ static void lb_drive_to_flight(struct lb_fix* f) {
   wired_server_init_in sin   = {srv_priv, srv_pub, cert_seed, 0, 0, 0, 0, 0};
   wired_obuf           sh_ob = obuf_of(f->sh, sizeof(f->sh));
   wired_obuf           fl_ob = obuf_of(f->flight, sizeof(f->flight));
-  quic_sdrv_flight_out fo    = {&sh_ob, &fl_ob};
+  sdrv_flight_out      fo    = {&sh_ob, &fl_ob};
   wired_server_init(&f->s, &sin);
   CHECK(
       wired_server_set_cids(
@@ -101,39 +101,39 @@ static void lb_drive_to_flight(struct lb_fix* f) {
 
 /* RFC 8446 4.4.4: compute the genuine client Finished from the transcript. */
 static void lb_make_client_finished(struct lb_fix* f) {
-  quic_serverhello_out sh;
-  u8                   hs[32], c_traffic[32], th[32];
-  quic_transcript      tr;
-  usz                  off;
-  CHECK(quic_tls_parse_server_hello(
-      wired_span_of(f->sh, f->sh_len), f->sh_pub, &sh));
+  serverhello_out sh;
+  u8              hs[32], c_traffic[32], th[32];
+  transcript      tr;
+  usz             off;
+  CHECK(
+      tls_parse_server_hello(wired_span_of(f->sh, f->sh_len), f->sh_pub, &sh));
   {
     u8 shared[32];
     wired_x25519(shared, f->cli_priv, f->sh_pub);
-    quic_tls_handshake_secret(shared, hs);
+    tls_handshake_secret(shared, hs);
   }
-  quic_transcript_init(&tr);
-  quic_transcript_add(&tr, f->ch, f->ch_len);
-  quic_transcript_add(&tr, f->sh, f->sh_len);
-  quic_transcript_hash(&tr, th);
+  transcript_init(&tr);
+  transcript_add(&tr, f->ch, f->ch_len);
+  transcript_add(&tr, f->sh, f->sh_len);
+  transcript_hash(&tr, th);
   hkdf_label chl = {"c hs traffic", 12, {th, 32}};
   hkdf_expand_label(hs, &chl, wired_mspan_of(c_traffic, 32));
-  quic_transcript_add(&tr, f->flight, f->flight_len);
-  quic_transcript_hash(&tr, th);
-  off = quic_hs_begin(f->cli_fin, sizeof(f->cli_fin), QUIC_HS_FINISHED);
-  quic_tls_finished_verify_data(c_traffic, th, f->cli_fin + off);
+  transcript_add(&tr, f->flight, f->flight_len);
+  transcript_hash(&tr, th);
+  off = hs_begin(f->cli_fin, sizeof(f->cli_fin), QUIC_HS_FINISHED);
+  tls_finished_verify_data(c_traffic, th, f->cli_fin + off);
   f->cli_fin_len = off + QUIC_TLS_VERIFY_DATA;
-  quic_hs_finish(f->cli_fin, f->cli_fin_len);
+  hs_finish(f->cli_fin, f->cli_fin_len);
 }
 
 /* Client peer: seal a Handshake CRYPTO flight toward the server with the
  * peer-direction CLIENT_HS key (the server opens with it). */
 static usz lb_seal_handshake(
     struct lb_fix* f, const u8* msg, usz mlen, u8* pkt, usz cap) {
-  const quic_initial_keys* k;
-  aes128                   hp;
-  wired_obuf               ob = {pkt, cap, 0};
-  CHECK(quic_keysched_get(&f->s.sched, QUIC_KS_CLIENT_HS, &k) == 1);
+  const initial_keys* k;
+  aes128              hp;
+  wired_obuf          ob = {pkt, cap, 0};
+  CHECK(keysched_get(&f->s.sched, QUIC_KS_CLIENT_HS, &k) == 1);
   aes128_init(&hp, k->hp);
   /* ack_pn 0: also acknowledge the server's Handshake PN 0, exercising the
    * server open path against a flight that carries a trailing ACK frame. */
@@ -153,10 +153,10 @@ static usz lb_seal_handshake(
 /* Client peer: seal a 1-RTT STREAM payload toward the server with CLIENT_AP. */
 static usz lb_seal_onertt(
     struct lb_fix* f, const u8* pl, usz pln, u8* pkt, usz cap) {
-  const quic_initial_keys* k;
-  aes128                   hp;
-  usz                      total = 0;
-  CHECK(quic_keysched_get(&f->s.sched, QUIC_KS_CLIENT_AP, &k) == 1);
+  const initial_keys* k;
+  aes128              hp;
+  usz                 total = 0;
+  CHECK(keysched_get(&f->s.sched, QUIC_KS_CLIENT_AP, &k) == 1);
   aes128_init(&hp, k->hp);
   quic_protect_keys      pk = {k, &hp};
   quic_hspkt_onertt_desc d  = {
@@ -171,9 +171,9 @@ static usz lb_seal_onertt(
 /* Client peer: open a server 1-RTT packet with the peer SERVER_AP key. */
 static int lb_open_onertt(
     struct lb_fix* f, u8* pkt, usz len, const u8** pl, usz* pll) {
-  const quic_initial_keys* k;
-  aes128                   hp;
-  CHECK(quic_keysched_get(&f->s.sched, QUIC_KS_SERVER_AP, &k) == 1);
+  const initial_keys* k;
+  aes128              hp;
+  CHECK(keysched_get(&f->s.sched, QUIC_KS_SERVER_AP, &k) == 1);
   aes128_init(&hp, k->hp);
   quic_protect_keys           pk = {k, &hp};
   quic_hspkt_onertt_open_desc d  = {wired_mspan_of(pkt, len), 6, 0};
@@ -225,7 +225,7 @@ static int lb_wire_step(
 /* (1) Loopback: the client's real protected Initial reaches a bound server
  * socket, padded to 1200 (RFC 9000 14.1). */
 static void test_loopback_initial_datagram(void) {
-  quic_client   c;
+  client        c;
   quic_sockaddr srv, from;
   u8            priv[32], pub[32], pkt[1500], dg[1500];
   usz           total = 0;
@@ -241,12 +241,12 @@ static void test_loopback_initial_datagram(void) {
 
   for (usz i = 0; i < 32; i++) priv[i] = (u8)(7 + i);
   wired_x25519_base(pub, priv);
-  quic_tlsdriver_init(&c.tls, priv, pub, 0);
+  tlsdriver_init(&c.tls, priv, pub, 0);
   {
-    quic_clientwire_hdr_in hdr = {
+    clientwire_hdr_in hdr = {
         wired_span_of(g_scid, 6), wired_span_of(g_scid, 6), 0};
     wired_obuf ob = obuf_of(pkt, sizeof pkt);
-    CHECK(quic_client_build_initial_wire(&c, &hdr, &ob) == 1);
+    CHECK(client_build_initial_wire(&c, &hdr, &ob) == 1);
     total = ob.len;
   }
   CHECK(total == 1200); /* RFC 9000 14.1 padding */
@@ -360,7 +360,7 @@ static void sb_make_id(
  * datagram (built in-buffer, no socket) and seals two reply datagrams, each
  * fitting the same 1500-byte buffers production (srvrun) sends from. */
 static void test_srvboot_accept(void) {
-  quic_client      c;
+  client           c;
   wired_server     s;
   wired_srvloop    l;
   wired_srvboot_id id;
@@ -372,12 +372,12 @@ static void test_srvboot_accept(void) {
 
   for (usz i = 0; i < 32; i++) cpriv[i] = (u8)(7 + i);
   wired_x25519_base(cpub, cpriv);
-  quic_tlsdriver_init(&c.tls, cpriv, cpub, 0);
+  tlsdriver_init(&c.tls, cpriv, cpub, 0);
   {
-    quic_clientwire_hdr_in hdr = {
+    clientwire_hdr_in hdr = {
         wired_span_of(g_scid, 6), wired_span_of(g_scid, 6), 0};
     wired_obuf ob = obuf_of(dg, sizeof dg);
-    CHECK(quic_client_build_initial_wire(&c, &hdr, &ob) == 1);
+    CHECK(client_build_initial_wire(&c, &hdr, &ob) == 1);
     total = ob.len;
   }
 
@@ -416,18 +416,18 @@ static void sb_accept_cids(
     wired_srvboot_out* out,
     wired_server*      s,
     wired_srvloop*     l) {
-  quic_client      c;
+  client           c;
   wired_srvboot_id id;
   u8               priv[32], pub[32], seed[32], rnd[32], cpriv[32], cpub[32];
   u8               dg[1500];
   usz              total = 0;
   for (usz i = 0; i < 32; i++) cpriv[i] = (u8)(7 + i);
   wired_x25519_base(cpub, cpriv);
-  quic_tlsdriver_init(&c.tls, cpriv, cpub, 0);
+  tlsdriver_init(&c.tls, cpriv, cpub, 0);
   {
-    quic_clientwire_hdr_in hdr = {dcid, scid, 0};
-    wired_obuf             ob  = obuf_of(dg, sizeof dg);
-    CHECK(quic_client_build_initial_wire(&c, &hdr, &ob) == 1);
+    clientwire_hdr_in hdr = {dcid, scid, 0};
+    wired_obuf        ob  = obuf_of(dg, sizeof dg);
+    CHECK(client_build_initial_wire(&c, &hdr, &ob) == 1);
     total = ob.len;
   }
   wired_srvboot_conn conn = {s, l};
@@ -510,7 +510,7 @@ static void test_srvboot_rejects_non_initial(void) {
  * actually carried (a retransmitted Initial arrives with pn > 0), not a
  * hardcoded 0 (RFC 9000 13.2.1). */
 static void test_srvboot_acks_actual_initial_pn(void) {
-  quic_client        c;
+  client             c;
   wired_server       s;
   wired_srvloop      l;
   wired_srvboot_id   id;
@@ -524,12 +524,12 @@ static void test_srvboot_acks_actual_initial_pn(void) {
   usz                total = 0;
   for (usz i = 0; i < 32; i++) cpriv[i] = (u8)(7 + i);
   wired_x25519_base(cpub, cpriv);
-  quic_tlsdriver_init(&c.tls, cpriv, cpub, 0);
+  tlsdriver_init(&c.tls, cpriv, cpub, 0);
   {
-    quic_clientwire_hdr_in hdr = {
+    clientwire_hdr_in hdr = {
         wired_span_of(g_scid, 6), wired_span_of(g_scid, 6), 2};
     wired_obuf ob = obuf_of(dg, sizeof dg);
-    CHECK(quic_client_build_initial_wire(&c, &hdr, &ob) == 1);
+    CHECK(client_build_initial_wire(&c, &hdr, &ob) == 1);
     total = ob.len;
   }
   sb_make_id(&id, priv, pub, seed, rnd);
@@ -618,13 +618,13 @@ static void test_srvboot_vneg_guards(void) {
 }
 
 /* Build the fixed test client's raw ClientHello bytes (no CRYPTO framing). */
-static usz sb_build_raw_ch(quic_client* c, u8* ch, usz cap) {
+static usz sb_build_raw_ch(client* c, u8* ch, usz cap) {
   usz n;
   u8  cpriv[32], cpub[32];
   for (usz i = 0; i < 32; i++) cpriv[i] = (u8)(7 + i);
   wired_x25519_base(cpub, cpriv);
-  quic_tlsdriver_init(&c->tls, cpriv, cpub, 0);
-  n = quic_tlsdriver_raw_client_hello(&c->tls, ch, cap);
+  tlsdriver_init(&c->tls, cpriv, cpub, 0);
+  n = tlsdriver_raw_client_hello(&c->tls, ch, cap);
   CHECK(n > 100); /* both split chunks below must be non-empty */
   return n;
 }
@@ -656,7 +656,7 @@ static int sb_accept_acc(wired_srvboot_acc* a, wired_srvboot_out* out) {
  * first (no flight may be sent yet) and accepted after the second, ACKing
  * the highest packet number received (RFC 9000 19.6 / 13.2.1). */
 static void test_bootacc_split_two_datagrams(void) {
-  quic_client       c;
+  client            c;
   u8                ch[2048], dg1[1400], dg2[1400], ini[1500], hs[1500];
   wired_obuf        iob = {ini, sizeof ini, 0};
   wired_obuf        hob = {hs, sizeof hs, 0};
@@ -766,7 +766,7 @@ static void test_bootacc_zerortt_cleared_on_reset(void) {
  * absorption are independent (RFC 9000 12.2/RFC 9001 4.6.1: 0-RTT may
  * legitimately arrive ahead of, behind, or between Initial pieces). */
 static void test_bootacc_zerortt_interleaved_with_initial(void) {
-  quic_client       c;
+  client            c;
   u8                ch[2048], dg1[1400], dg2[1400], dgz[8];
   usz               nz;
   wired_srvboot_acc a;
@@ -788,7 +788,7 @@ static void test_bootacc_zerortt_interleaved_with_initial(void) {
 /* Chunks arriving in reverse order still complete the ClientHello: each is
  * buffered at its offset and only the contiguous prefix decides. */
 static void test_bootacc_out_of_order(void) {
-  quic_client       c;
+  client            c;
   u8                ch[2048], dg1[1400], dg2[1400];
   wired_srvboot_acc a;
   usz               n = sb_build_raw_ch(&c, ch, sizeof ch);
@@ -806,7 +806,7 @@ static void test_bootacc_out_of_order(void) {
  * is refused outright: buffer, contiguity, and packet-number state stay
  * untouched (its Initial keys belong to another connection). */
 static void test_bootacc_foreign_dcid_ignored(void) {
-  quic_client       c;
+  client            c;
   u8                ch[2048], dg1[1400], alien[1400];
   wired_srvboot_acc a;
   usz               n = sb_build_raw_ch(&c, ch, sizeof ch);
@@ -836,7 +836,7 @@ static void test_bootacc_foreign_dcid_ignored(void) {
 /* Retransmitted (duplicate) chunks are idempotent: feeding the same
  * datagram twice leaves the buffer exactly as one feed did. */
 static void test_bootacc_duplicate_idempotent(void) {
-  quic_client       c;
+  client            c;
   u8                ch[2048], dg1[1400], dg2[1400];
   wired_srvboot_acc a;
   usz               n = sb_build_raw_ch(&c, ch, sizeof ch);
@@ -858,7 +858,7 @@ static void test_bootacc_duplicate_idempotent(void) {
  * flight ACKs that maximum — not whichever packet happened to arrive last
  * (RFC 9000 13.2.1). */
 static void test_bootacc_pn_monotone_ack_max(void) {
-  quic_client       c;
+  client            c;
   u8                ch[2048], dg1[1400], dg2[1400], ini[1500], hs[1500];
   wired_obuf        iob = {ini, sizeof ini, 0};
   wired_obuf        hob = {hs, sizeof hs, 0};
@@ -880,7 +880,7 @@ static void test_bootacc_pn_monotone_ack_max(void) {
 /* A CRYPTO chunk falling outside the reassembly buffer is dropped without
  * disturbing what was already buffered. */
 static void test_bootacc_overflow_chunk_ignored(void) {
-  quic_client       c;
+  client            c;
   u8                ch[2048], dg1[1400], wild[1400];
   wired_srvboot_acc a;
   usz               n = sb_build_raw_ch(&c, ch, sizeof ch);
@@ -898,7 +898,7 @@ static void test_bootacc_overflow_chunk_ignored(void) {
 /* Two Initial packets coalesced into ONE datagram (RFC 9000 12.2) are both
  * opened and both chunks land — not just the first packet. */
 static void test_bootacc_coalesced_initials(void) {
-  quic_client       c;
+  client            c;
   u8                ch[2048], dg[2900];
   wired_srvboot_acc a;
   usz               n = sb_build_raw_ch(&c, ch, sizeof ch);
@@ -919,7 +919,7 @@ static void test_bootacc_coalesced_initials(void) {
  * runner's 30% bursty loss). The ack's own pn starts at 2 and climbs, so
  * it never collides with the accept flight's server Initial pn 1. */
 static void test_srvboot_partial_ack_builds_and_advances_pn(void) {
-  quic_client       c;
+  client            c;
   u8                ch[2048], dg1[1400], out[1400];
   wired_srvboot_acc a;
   usz               n = sb_build_raw_ch(&c, ch, sizeof ch);
@@ -960,7 +960,7 @@ static void test_srvboot_partial_ack_needs_opened_packet(void) {
  * accumulator (keys stay the ODCID's); before the allow it is rejected as
  * foreign. */
 static void test_srvboot_acc_allows_switched_dcid(void) {
-  quic_client       c;
+  client            c;
   u8                ch[2048], dg1[1400], dga[1400];
   u8                alt[6] = {9, 9, 9, 9, 9, 9};
   wired_srvboot_acc a;
@@ -984,7 +984,7 @@ static void test_srvboot_acc_allows_switched_dcid(void) {
  * received packet, so the peer fails fast instead of retrying into a
  * timeout (RFC 9001 4.8 / RFC 9000 10.2). */
 static void test_srvboot_refusal_closes_unservable(void) {
-  quic_client       c;
+  client            c;
   u8                ch[512], dg[1400], ref[1500];
   u8                ini[1500], hs[1500];
   wired_obuf        iob = {ini, sizeof ini, 0};
@@ -1012,7 +1012,7 @@ static void test_srvboot_refusal_closes_unservable(void) {
   nr = wired_srvboot_refusal(&a, wired_span_of(g_scid, 6), 0, ref, sizeof ref);
   CHECK(nr >= 1200); /* a padded server Initial datagram */
   {
-    quic_initial_keys ck, sk;
+    initial_keys      ck, sk;
     aes128            hp;
     wired_span        frames;
     quic_protect_keys k;
@@ -1055,17 +1055,17 @@ static usz sb_strip_tp_ext(u8* ch, usz ch_len) {
                                        cut);
   ch[SDRV_H3_EXTS_LEN_OFF]     = (u8)(exts_len >> 8);
   ch[SDRV_H3_EXTS_LEN_OFF + 1] = (u8)exts_len;
-  quic_hs_finish(ch, nlen);
+  hs_finish(ch, nlen);
   return nlen;
 }
 
 /* RFC 9001 8.2: a ClientHello missing quic_transport_parameters is rejected
- * by quic_sdrv_recv_client_hello with the missing_extension CRYPTO_ERROR
+ * by sdrv_recv_client_hello with the missing_extension CRYPTO_ERROR
  * (0x016d) recorded in sdrv.last_error -- wired_srvboot_refusal must carry
  * that exact code into the wire CONNECTION_CLOSE instead of the generic
  * handshake_failure fallback, so the peer sees the real cause. */
 static void test_srvboot_refusal_reports_missing_tp_ext(void) {
-  quic_client        c;
+  client             c;
   u8                 ch[512], dg[1400], ref[1500];
   u8                 ini[1500], hs[1500];
   wired_obuf         iob = {ini, sizeof ini, 0};
@@ -1086,13 +1086,12 @@ static void test_srvboot_refusal_reports_missing_tp_ext(void) {
   CHECK(wired_srvboot_acc_complete(&a) == 1);
   sb_make_id(&id, priv, pub, seed, rnd);
   CHECK(wired_srvboot_accept_acc(&conn, &id, &a, &out) == 0);
-  CHECK(quic_sdrv_last_error(&s.sdrv) == 0x016d);
+  CHECK(sdrv_last_error(&s.sdrv) == 0x016d);
   nr = wired_srvboot_refusal(
-      &a, wired_span_of(g_scid, 6), quic_sdrv_last_error(&s.sdrv), ref,
-      sizeof ref);
+      &a, wired_span_of(g_scid, 6), sdrv_last_error(&s.sdrv), ref, sizeof ref);
   CHECK(nr >= 1200);
   {
-    quic_initial_keys ck, sk;
+    initial_keys      ck, sk;
     aes128            hp;
     wired_span        frames;
     quic_protect_keys k;
@@ -1149,7 +1148,7 @@ static void sb_make_chain_id(
  * client side needs to finish the handshake from the sealed reply datagrams:
  * the client's ECDHE private, its raw ClientHello, and the reply buffers. */
 struct sb_split_fix {
-  quic_client       c;
+  client            c;
   wired_server      s;
   wired_srvloop     l;
   u8                priv[32], pub[32], rnd[32];
@@ -1177,14 +1176,14 @@ static void sb_split_boot(struct sb_split_fix* f) {
   f->out = (wired_srvboot_out){&f->iob, &f->hob, {0}, 0, 0};
   for (usz i = 0; i < 32; i++) f->cpriv[i] = (u8)(7 + i);
   wired_x25519_base(cpub, f->cpriv);
-  quic_tlsdriver_init(&f->c.tls, f->cpriv, cpub, 0);
-  f->ch_len = quic_tlsdriver_raw_client_hello(&f->c.tls, f->ch, sizeof f->ch);
+  tlsdriver_init(&f->c.tls, f->cpriv, cpub, 0);
+  f->ch_len = tlsdriver_raw_client_hello(&f->c.tls, f->ch, sizeof f->ch);
   CHECK(f->ch_len > 0);
   {
-    quic_clientwire_hdr_in hdr = {
+    clientwire_hdr_in hdr = {
         wired_span_of(g_scid, 6), wired_span_of(g_scid, 6), 0};
     wired_obuf ob = obuf_of(dg, sizeof dg);
-    CHECK(quic_client_build_initial_wire(&f->c, &hdr, &ob) == 1);
+    CHECK(client_build_initial_wire(&f->c, &hdr, &ob) == 1);
     total = ob.len;
   }
   sb_make_chain_id(&id, f->priv, f->pub, f->rnd);
@@ -1215,10 +1214,10 @@ static void test_srvboot_split_flight_datagrams(void) {
  * the reassembler, in forward or reverse datagram order. */
 static void sb_split_collect(
     struct sb_split_fix* f, int reverse, quic_crecv* cr) {
-  const quic_initial_keys* shs;
-  aes128                   hp;
-  usz                      offs[WIRED_SRVBOOT_FLIGHT_MAX], off = 0;
-  CHECK(quic_keysched_get(&f->s.sched, QUIC_KS_SERVER_HS, &shs) == 1);
+  const initial_keys* shs;
+  aes128              hp;
+  usz                 offs[WIRED_SRVBOOT_FLIGHT_MAX], off = 0;
+  CHECK(keysched_get(&f->s.sched, QUIC_KS_SERVER_HS, &shs) == 1);
   aes128_init(&hp, shs->hp);
   quic_protect_keys pk = {shs, &hp};
   for (usz i = 0; i < f->out.dgram_count; i++) {
@@ -1241,7 +1240,7 @@ static void sb_split_collect(
  * transcript, then check the trailing server Finished against it
  * (RFC 8446 4.4.4). */
 static void sb_split_check_finished(
-    const quic_crecv* cr, quic_transcript* tr, const u8 s_traffic[32]) {
+    const quic_crecv* cr, transcript* tr, const u8 s_traffic[32]) {
   const u8* fl;
   usz       fln, p = 0;
   u8        th[32];
@@ -1251,13 +1250,13 @@ static void sb_split_check_finished(
     usz mlen = 4 + (((usz)fl[p + 1] << 16) | ((usz)fl[p + 2] << 8) | fl[p + 3]);
     CHECK(p + mlen <= fln);
     if (p + mlen > fln) return; /* garbled reassembly: already FAILed above */
-    quic_transcript_add(tr, fl + p, mlen);
+    transcript_add(tr, fl + p, mlen);
     p += mlen;
   }
   CHECK(p + 4 <= fln);
   if (p + 4 > fln) return; /* no Finished found: already FAILed above */
-  quic_transcript_hash(tr, th);
-  CHECK(quic_tls_finished_check(s_traffic, th, fl + p + 4) == 1);
+  transcript_hash(tr, th);
+  CHECK(tls_finished_check(s_traffic, th, fl + p + 4) == 1);
 }
 
 /* Client side of a split flight: open the server Initial (ServerHello), open
@@ -1267,25 +1266,25 @@ static void sb_split_check_finished(
  * completes only if every chunk landed at its correct stream offset. */
 static void sb_split_client_handshake(int reverse) {
   static struct sb_split_fix f;
-  quic_serverhello_out       sho;
+  serverhello_out            sho;
   wired_span                 shv;
-  u8              sh_pub[32], shared[32], hsec[32], th[32], s_traffic[32];
-  quic_transcript tr;
-  quic_crecv      cr;
+  u8         sh_pub[32], shared[32], hsec[32], th[32], s_traffic[32];
+  transcript tr;
+  quic_crecv cr;
   sb_split_boot(&f);
   CHECK(f.out.dgram_count >= 2);
   {
-    quic_clientwire_open_in oin = {
+    clientwire_open_in oin = {
         wired_span_of(g_scid, 6), wired_mspan_of(f.ini, f.iob.len), 0};
-    CHECK(quic_client_open_initial_wire(&oin, &shv) == 1);
+    CHECK(client_open_initial_wire(&oin, &shv) == 1);
   }
-  CHECK(quic_tls_parse_server_hello(shv, sh_pub, &sho) == 1);
+  CHECK(tls_parse_server_hello(shv, sh_pub, &sho) == 1);
   wired_x25519(shared, f.cpriv, sh_pub);
-  quic_tls_handshake_secret(shared, hsec);
-  quic_transcript_init(&tr);
-  quic_transcript_add(&tr, f.ch, f.ch_len);
-  quic_transcript_add(&tr, shv.p, shv.n);
-  quic_transcript_hash(&tr, th);
+  tls_handshake_secret(shared, hsec);
+  transcript_init(&tr);
+  transcript_add(&tr, f.ch, f.ch_len);
+  transcript_add(&tr, shv.p, shv.n);
+  transcript_hash(&tr, th);
   {
     hkdf_label shl = {"s hs traffic", 12, {th, 32}};
     hkdf_expand_label(hsec, &shl, wired_mspan_of(s_traffic, 32));

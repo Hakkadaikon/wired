@@ -11,16 +11,15 @@ static int encext_fits(usz tp_len, usz cap) {
   return tp_len <= 0xFFFF && 4 + 2 + 4 + tp_len <= cap;
 }
 
-int quic_sflight_encrypted_extensions(
-    wired_span transport_params, wired_obuf* out) {
+int sflight_encrypted_extensions(wired_span transport_params, wired_obuf* out) {
   usz        off, ext;
   wired_obuf eob;
   if (!encext_fits(transport_params.n, out->cap)) return 0;
-  off = quic_hs_begin(out->p, out->cap, QUIC_HS_ENCRYPTED_EXT);
+  off = hs_begin(out->p, out->cap, QUIC_HS_ENCRYPTED_EXT);
   eob = obuf_of(out->p + off + 2, out->cap - off - 2);
-  ext = quic_tpext_encode(&eob, transport_params);
+  ext = tpext_encode(&eob, transport_params);
   be_put_be16(out->p + off, (u16)ext); /* extensions block length */
   out->len = off + 2 + ext;
-  quic_hs_finish(out->p, out->len);
+  hs_finish(out->p, out->len);
   return 1;
 }

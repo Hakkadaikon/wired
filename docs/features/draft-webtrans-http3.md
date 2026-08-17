@@ -397,14 +397,14 @@ Legend:
   struct.
   - test: `tests/tls/keyschedule_test.c` —
     `test_keyschedule_exporter_secret_matches_oneshot`
-  - evidence: `quic_tls_exporter` (RFC 8446 7.5's TLS-Exporter, new
+  - evidence: `tls_exporter` (RFC 8446 7.5's TLS-Exporter, new
     `tls/handshake/core/tls/exporter.c`) and `quic_wt_exporter_ctx_encode`
     plus `quic_wt_exporter` (the WebTransport Exporter Context
     serialization and the "EXPORTER-WebTransport" wrapper, new
     `app/webtransport/exporter/exporter.c`) are implemented and reachable
-    from a live `quic_keysched` (exporter_master_secret is derived
+    from a live `keysched` (exporter_master_secret is derived
     automatically at the same stage as the application traffic secrets,
-    `quic_keysched_exporter_secret`).
+    `keysched_exporter_secret`).
   - gap: no application-facing WebTransport session API exposes this yet
     (draft-ietf-webtrans-http3-15 leaves the exporter-request API's shape
     to the implementation).

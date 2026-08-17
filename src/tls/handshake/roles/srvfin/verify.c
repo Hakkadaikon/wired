@@ -11,14 +11,14 @@ static int is_finished_msg(usz off, u8 type, usz body_len) {
 }
 
 /* RFC 8446 4.4.4 */
-int quic_srvfin_verify_client_finished(
+int srvfin_verify_client_finished(
     wired_span client_finished_msg,
     const u8   client_hs_traffic_secret[QUIC_HKDF_PRK],
     const u8   transcript_hash[QUIC_SHA256_DIGEST]) {
   u8  type;
   usz body_len, off;
-  off = quic_hs_parse(client_finished_msg, &type, &body_len);
+  off = hs_parse(client_finished_msg, &type, &body_len);
   if (!is_finished_msg(off, type, body_len)) return 0;
-  return quic_tls_finished_check(
+  return tls_finished_check(
       client_hs_traffic_secret, transcript_hash, client_finished_msg.p + off);
 }

@@ -27,7 +27,7 @@ typedef struct {
                        * 4.2.8.2), per group below. */
   /** RFC 8446 4.2.7 NamedGroup negotiated for the ECDHE key_share
    * (QUIC_GROUP_X25519 or QUIC_GROUP_SECP256R1); QUIC_GROUP_X25519 unless
-   * quic_sdrv_set_group selects otherwise. Governs how server_priv/
+   * sdrv_set_group selects otherwise. Governs how server_priv/
    * server_pub/client_pub are interpreted. */
   u16 group;
   u8  p256_priv[32]; /**< RFC 5480 ECDSA P-256 signing scalar; also the
@@ -47,12 +47,12 @@ typedef struct {
   u8  client_sid_len; /**< 0..32 */
   /** RFC 8446 4.6.1: this server's session-ticket encryption key, or
    * has_ticket_key 0 to disable resumption entirely (pre_shared_key is then
-   * never inspected). Set once at quic_sdrv_init from
-   * quic_sdrv_init_in.ticket_key. */
+   * never inspected). Set once at sdrv_init from
+   * sdrv_init_in.ticket_key. */
   u8 ticket_key[QUIC_TICKET_KEY_LEN];
   /** 1 when ticket_key above is set; 0 disables resumption. */
   int has_ticket_key;
-  /** RFC 8446 4.2.11/4.2.11.2: set by quic_sdrv_recv_client_hello when the
+  /** RFC 8446 4.2.11/4.2.11.2: set by sdrv_recv_client_hello when the
    * ClientHello's pre_shared_key ticket opened under ticket_key and its
    * binder verified. psk_secret (the opened ticket's resumption secret) is
    * only meaningful when this is 1. */
@@ -60,7 +60,7 @@ typedef struct {
   /** The opened ticket's resumption secret; meaningful when psk_accepted. */
   u8 psk_secret[QUIC_TICKET_SECRET_LEN];
   /** RFC 8446 4.2.10 / RFC 9001 4.6.1/9.2: set by
-   * quic_sdrv_recv_client_hello when the ClientHello carries early_data
+   * sdrv_recv_client_hello when the ClientHello carries early_data
    * (0x002a) alongside an accepted pre_shared_key AND the presented ticket
    * is on its first use (RFC 8446 8.1 single-use enforcement,
    * quic_zerortt_seen_check). A replayed ticket's early_data is refused
@@ -69,16 +69,16 @@ typedef struct {
   int early_data_accepted;
   /** RFC 8446 4.2.10 / RFC 9001 4.6.1: the 0-RTT packet-protection keys,
    * meaningful only when early_data_accepted is 1. */
-  quic_initial_keys early_keys;
-  u8 hs_secret[QUIC_HKDF_PRK];    /**< RFC 8446 7.1 Handshake Secret */
+  initial_keys early_keys;
+  u8           hs_secret[QUIC_HKDF_PRK]; /**< RFC 8446 7.1 Handshake Secret */
   u8 s_hs_traffic[QUIC_HKDF_PRK]; /**< RFC 8446 7.1 server hs traffic secret */
   /** RFC 8446 7.1: the ECDHE shared secret the flight derivation computed
    * (x25519 output, or the P-256 x-coordinate -- 32 bytes either way), kept
    * so the connection's packet-protection key schedule reuses it instead of
    * repeating the scalar multiply. Meaningful once hs_ready is 1. */
-  u8              ecdhe_secret[32];
-  int             hs_ready; /**< hs_secret derived */
-  quic_transcript tr;       /**< RFC 8446 4.4.1 Transcript-Hash */
+  u8         ecdhe_secret[32];
+  int        hs_ready; /**< hs_secret derived */
+  transcript tr;       /**< RFC 8446 4.4.1 Transcript-Hash */
   /** RFC 9001 5.2 Initial-key derivation input: the DCID of the Initial
    * packet actually being processed right now. After a Retry this is the
    * Retry's own SCID (the client's second Initial is keyed off it), never
@@ -93,12 +93,12 @@ typedef struct {
    * accept path; after a Retry it is the token-recovered original while
    * odcid above has already moved on to the Retry's SCID. */
   u8 tp_odcid[20];
-  u8 tp_odcid_len;           /**< bytes used in tp_odcid (0..20) */
-  u8 rscid[20];              /**< RFC 9000 7.3 retry_source_connection_id --
-                              * the Retry packet's SCID, advertised only when
-                              * a Retry preceded this handshake */
-  u8              rscid_len; /**< bytes used in rscid; 0 = no Retry */
-  quic_stp_limits limits;    /**< advertised tunable limits (0 = defaults) */
+  u8 tp_odcid_len;      /**< bytes used in tp_odcid (0..20) */
+  u8 rscid[20];         /**< RFC 9000 7.3 retry_source_connection_id --
+                         * the Retry packet's SCID, advertised only when
+                         * a Retry preceded this handshake */
+  u8         rscid_len; /**< bytes used in rscid; 0 = no Retry */
+  stp_limits limits;    /**< advertised tunable limits (0 = defaults) */
   /** stateless_reset_token (RFC 9000 10.3.1/18.2) for iscid, advertised in
    * the EncryptedExtensions transport parameters when sreset_token_set is 1.
    * The caller derives it from a restart-stable secret (quic_sreset_key_
@@ -138,34 +138,34 @@ typedef struct {
    * streams THIS endpoint may open toward the peer before a MAX_STREAMS
    * raise; 0 = absent (the RFC's default: open none until the peer grants).
    */
-  u64               peer_initial_max_streams_uni;
-  quic_salpn_choice alpn; /**< RFC 7301 3.1/3.2: this server's negotiated
-                           * ALPN protocol (h3 preferred, hq-interop
-                           * fallback), from the ClientHello's ALPN
-                           * extension. QUIC_SALPN_NONE if the client
-                           * offered neither -- the caller (server.c) must
-                           * fail the handshake rather than proceed. */
-  u16 cipher_suite;       /**< RFC 8446 B.4 / RFC 9001 9.3: this server's
-                           * negotiated TLS 1.3 cipher suite (AES_128_GCM_
-                           * SHA256 preferred, CHACHA20_POLY1305_SHA256
-                           * fallback), set by quic_sdrv_recv_client_hello.
-                           * Governs ServerHello.cipher_suite and the
-                           * Handshake/1-RTT key derivation and packet
-                           * protection; Initial packet protection (RFC 9001
-                           * 5.2) is unaffected and stays AES-128-GCM. */
+  u64          peer_initial_max_streams_uni;
+  salpn_choice alpn; /**< RFC 7301 3.1/3.2: this server's negotiated
+                      * ALPN protocol (h3 preferred, hq-interop
+                      * fallback), from the ClientHello's ALPN
+                      * extension. QUIC_SALPN_NONE if the client
+                      * offered neither -- the caller (server.c) must
+                      * fail the handshake rather than proceed. */
+  u16 cipher_suite;  /**< RFC 8446 B.4 / RFC 9001 9.3: this server's
+                      * negotiated TLS 1.3 cipher suite (AES_128_GCM_
+                      * SHA256 preferred, CHACHA20_POLY1305_SHA256
+                      * fallback), set by sdrv_recv_client_hello.
+                      * Governs ServerHello.cipher_suite and the
+                      * Handshake/1-RTT key derivation and packet
+                      * protection; Initial packet protection (RFC 9001
+                      * 5.2) is unaffected and stays AES-128-GCM. */
   /** RFC 9001 8.2: the CRYPTO_ERROR (0x0100 | TLS alert) recorded when
-   * quic_sdrv_recv_client_hello rejects the ClientHello -- currently only
+   * sdrv_recv_client_hello rejects the ClientHello -- currently only
    * set to missing_extension (RFC 8446 B.2: alert 109 = 0x6d, so 0x016d)
    * when the quic_transport_parameters extension (0x39) is absent. 0 when
    * the last call succeeded. */
   u64 last_error;
-  /** RFC 8446 4.1.4: set by quic_sdrv_recv_client_hello when the
+  /** RFC 8446 4.1.4: set by sdrv_recv_client_hello when the
    * ClientHello carried no x25519 key_share, meaning a HelloRetryRequest
-   * must be sent (quic_sdrv_build_hrr) instead of the normal server flight.
-   * Cleared once quic_sdrv_build_hrr has produced the HRR. */
+   * must be sent (sdrv_build_hrr) instead of the normal server flight.
+   * Cleared once sdrv_build_hrr has produced the HRR. */
   int hrr_needed;
-  /** 1 once quic_sdrv_build_hrr has emitted a HelloRetryRequest for this
-   * connection; the next quic_sdrv_recv_client_hello call is then the
+  /** 1 once sdrv_build_hrr has emitted a HelloRetryRequest for this
+   * connection; the next sdrv_recv_client_hello call is then the
    * post-HRR second ClientHello and must offer the same cipher_suite (RFC
    * 8446 4.1.2) and gets its transcript message_hash-transformed (4.4.1). */
   int hrr_sent;
@@ -173,21 +173,21 @@ typedef struct {
    * becomes 1 so ClientHello2 can be checked against it. */
   u16 hrr_cipher_suite;
   /** RFC 8446 4.4.1: SHA-256(ClientHello1), computed when hrr_needed is set
-   * so quic_sdrv_build_hrr can fold the message_hash synthetic message into
+   * so sdrv_build_hrr can fold the message_hash synthetic message into
    * the transcript without keeping ClientHello1's raw bytes around. */
   u8 ch1_hash[32];
   /** RFC 6066 3: the ClientHello's server_name extension checked against
-   * this driver's own certificate (quic_salpn_sni_check), set by
-   * quic_sdrv_recv_client_hello. QUIC_SALPN_SNI_ABSENT when the client sent
+   * this driver's own certificate (salpn_sni_check), set by
+   * sdrv_recv_client_hello. QUIC_SALPN_SNI_ABSENT when the client sent
    * no server_name (or it was malformed); this SDK's policy is to continue
    * the handshake in every case (RFC 6066 3 leaves both a mismatch alert and
    * silently continuing as valid server behavior) -- the field is exposed so
    * a caller (server.c) MAY choose to send unrecognized_name
    * (QUIC_TLS_ALERT_UNRECOGNIZED_NAME) on QUIC_SALPN_SNI_MISMATCH instead. */
-  quic_salpn_sni_outcome sni_outcome;
-} quic_sdrv;
+  salpn_sni_outcome sni_outcome;
+} sdrv;
 
-/** Inputs to quic_sdrv_init.
+/** Inputs to sdrv_init.
  *
  * server_priv_x25519/server_pub_x25519 are the ECDHE key pair. sign_priv is
  * the ECDSA P-256 signing scalar; in self-signed mode (chain is NULL or
@@ -213,9 +213,9 @@ typedef struct {
   u64 now_secs;
   /** RFC 8446 4.6.1: this server's session-ticket encryption key
    * (QUIC_TICKET_KEY_LEN bytes), or 0 to disable session resumption --
-   * quic_sdrv_recv_client_hello then never inspects pre_shared_key. */
+   * sdrv_recv_client_hello then never inspects pre_shared_key. */
   const u8* ticket_key;
-} quic_sdrv_init_in;
+} sdrv_init_in;
 
 /** Hold the server key material. If in->chain is NULL/empty, build the
  * self-signed P-256 certificate from in->sign_priv; otherwise copy the chain
@@ -223,7 +223,7 @@ typedef struct {
  * schedule.
  * @param s driver state to initialize
  * @param in key material and optional external certificate chain */
-void quic_sdrv_init(quic_sdrv* s, const quic_sdrv_init_in* in);
+void sdrv_init(sdrv* s, const sdrv_init_in* in);
 
 /** RFC 9000 7.3: record the ODCID (the DCID of the client's first Initial)
  * and the ISCID (the server's source connection id) to advertise in the
@@ -233,17 +233,17 @@ void quic_sdrv_init(quic_sdrv* s, const quic_sdrv_init_in* in);
  * @param odcid DCID of the client's first Initial packet
  * @param iscid the server's source connection id
  * @return 1 on success, 0 if either length exceeds 20. */
-int quic_sdrv_set_cids(quic_sdrv* s, wired_span odcid, wired_span iscid);
+int sdrv_set_cids(sdrv* s, wired_span odcid, wired_span iscid);
 
 /** RFC 8446 4.2.7: select the NamedGroup for the ECDHE key_share
- * (QUIC_GROUP_X25519 or QUIC_GROUP_SECP256R1). quic_sdrv_init defaults to
+ * (QUIC_GROUP_X25519 or QUIC_GROUP_SECP256R1). sdrv_init defaults to
  * QUIC_GROUP_X25519; call this right after init, before receiving any
  * ClientHello, to use secp256r1 instead. server_priv/server_pub must already
  * hold the matching key pair (32-byte P-256 scalar + 65-byte SEC1
- * uncompressed public, in place of the x25519 pair quic_sdrv_init took).
+ * uncompressed public, in place of the x25519 pair sdrv_init took).
  * @param s driver state
  * @param group the NamedGroup to require/advertise. */
-void quic_sdrv_set_group(quic_sdrv* s, u16 group);
+void sdrv_set_group(sdrv* s, u16 group);
 
 /** RFC 9000 7.3, post-Retry accept: odcid is the Initial-key derivation
  * input (the Retry's own SCID -- the client's second Initial is keyed off
@@ -252,8 +252,8 @@ void quic_sdrv_set_group(quic_sdrv* s, u16 group);
  * Retry token -- advertised as original_destination_connection_id instead
  * of odcid, which has already moved on.
  * @return 1 on success, 0 if any length exceeds 20. */
-int quic_sdrv_set_cids_retried(
-    quic_sdrv* s, wired_span odcid, wired_span iscid, wired_span true_odcid);
+int sdrv_set_cids_retried(
+    sdrv* s, wired_span odcid, wired_span iscid, wired_span true_odcid);
 
 /** Record the Retry packet's SCID for the retry_source_connection_id
  * transport parameter (RFC 9000 7.3) -- only after a Retry actually
@@ -261,7 +261,7 @@ int quic_sdrv_set_cids_retried(
  * @param s the server driver
  * @param rscid the Retry's source connection id (at most 20 bytes)
  * @return 1 on success, 0 when rscid exceeds 20 bytes */
-int quic_sdrv_set_retry_scid(quic_sdrv* s, wired_span rscid);
+int sdrv_set_retry_scid(sdrv* s, wired_span rscid);
 
 /** RFC 8446 4.4.1: fold the ClientHello into the transcript and take the
  * client's x25519 key_share.
@@ -277,7 +277,7 @@ int quic_sdrv_set_retry_scid(quic_sdrv* s, wired_span rscid);
  * fail (0) -- RFC 8446 4.2.11.2 MUST abort the handshake, never fall back
  * silently. On a verified binder, psk_accepted is set to 1 and psk_secret
  * holds the opened ticket's resumption secret, for
- * quic_sdrv_build_server_flight's key schedule.
+ * sdrv_build_server_flight's key schedule.
  *
  * RFC 9001 8.2: a ClientHello missing the quic_transport_parameters
  * extension (0x39) is rejected before any other field is taken; s->last_error
@@ -289,11 +289,11 @@ int quic_sdrv_set_retry_scid(quic_sdrv* s, wired_span rscid);
  *   ClientHello itself is malformed/unsupported, lacks the
  *   quic_transport_parameters extension, or a presented PSK binder fails
  *   verification. */
-int quic_sdrv_recv_client_hello(quic_sdrv* s, const u8* ch_msg, usz ch_len);
+int sdrv_recv_client_hello(sdrv* s, const u8* ch_msg, usz ch_len);
 
 /** RFC 6066 3: the outcome of checking the last ClientHello's server_name
- * against this driver's own certificate (set by quic_sdrv_recv_client_hello
- * via quic_salpn_sni_check). QUIC_SALPN_SNI_ABSENT if the client sent no
+ * against this driver's own certificate (set by sdrv_recv_client_hello
+ * via salpn_sni_check). QUIC_SALPN_SNI_ABSENT if the client sent no
  * server_name (or it was malformed) or no certificate was available yet to
  * check against. A QUIC_SALPN_SNI_MISMATCH never fails the handshake on its
  * own (RFC 6066 3 permits continuing); a caller that wants to enforce
@@ -301,51 +301,51 @@ int quic_sdrv_recv_client_hello(quic_sdrv* s, const u8* ch_msg, usz ch_len);
  * err_crypto(QUIC_TLS_ALERT_UNRECOGNIZED_NAME) itself.
  * @param s driver state
  * @return the last checked SNI outcome. */
-quic_salpn_sni_outcome quic_sdrv_sni_outcome(const quic_sdrv* s);
+salpn_sni_outcome sdrv_sni_outcome(const sdrv* s);
 
 /** RFC 6066 3: opt-in enforcement of the last checked SNI outcome. A
  * QUIC_SALPN_SNI_MISMATCH sets s->last_error to
  * err_crypto(QUIC_TLS_ALERT_UNRECOGNIZED_NAME) and fails; MATCH and
  * ABSENT are no-ops. Call right after a successful
- * quic_sdrv_recv_client_hello when the caller wants unrecognized_name
+ * sdrv_recv_client_hello when the caller wants unrecognized_name
  * enforced instead of RFC 6066 3's silent-continue default.
  * @param s driver state
  * @return 1 to continue, 0 if the caller must reject the handshake. */
-int quic_sdrv_enforce_sni(quic_sdrv* s);
+int sdrv_enforce_sni(sdrv* s);
 
-/** RFC 8446 4.1.4: 1 when the last quic_sdrv_recv_client_hello call found no
+/** RFC 8446 4.1.4: 1 when the last sdrv_recv_client_hello call found no
  * x25519 key_share and a HelloRetryRequest must be sent before anything
- * else -- the caller must call quic_sdrv_build_hrr instead of proceeding to
- * quic_sdrv_build_server_flight.
+ * else -- the caller must call sdrv_build_hrr instead of proceeding to
+ * sdrv_build_server_flight.
  * @param s driver state
  * @return 1 if a HelloRetryRequest is pending, 0 otherwise. */
-int quic_sdrv_hrr_pending(const quic_sdrv* s);
+int sdrv_hrr_pending(const sdrv* s);
 
 /** RFC 8446 4.1.4 / 4.4.1: build the HelloRetryRequest (requesting x25519,
  * this driver's only supported group) into out, fold it into the
- * transcript, and arm ClientHello2 handling: quic_sdrv_recv_client_hello.
- * Must only be called when quic_sdrv_hrr_pending is 1 (right after the
+ * transcript, and arm ClientHello2 handling: sdrv_recv_client_hello.
+ * Must only be called when sdrv_hrr_pending is 1 (right after the
  * ClientHello1 that triggered it, before anything else touches the
  * transcript).
  * @param s driver state
  * @param out receives the HelloRetryRequest message bytes
  * @return 1 on success, 0 if out is too small. */
-int quic_sdrv_build_hrr(quic_sdrv* s, wired_obuf* out);
+int sdrv_build_hrr(sdrv* s, wired_obuf* out);
 
 /** RFC 9001 8.2 / RFC 9000 20.1: the CRYPTO_ERROR recorded by the last
- * quic_sdrv_recv_client_hello call, or 0 if it succeeded.
+ * sdrv_recv_client_hello call, or 0 if it succeeded.
  * @param s driver state
  * @return the CRYPTO_ERROR code (0x0100 | TLS alert), or 0. */
-u64 quic_sdrv_last_error(const quic_sdrv* s);
+u64 sdrv_last_error(const sdrv* s);
 
-/** Destination for quic_sdrv_build_server_flight: sh receives the
+/** Destination for sdrv_build_server_flight: sh receives the
  * ServerHello, hs the EncryptedExtensions || Certificate ||
  * CertificateVerify || Finished flight. */
 typedef struct {
   wired_obuf* sh; /**< receives the ServerHello */
   wired_obuf* hs; /**< receives EncryptedExtensions || Certificate ||
                    * CertificateVerify || Finished */
-} quic_sdrv_flight_out;
+} sdrv_flight_out;
 
 /** RFC 8446 4.4: build the full server flight into out->sh / out->hs.
  * Derives the handshake secret over the real ECDHE.
@@ -353,22 +353,22 @@ typedef struct {
  * @param server_random the 32-byte ServerHello.random
  * @param out destination buffers for the ServerHello and handshake flight
  * @return 1 on success, 0 if a buffer is too small. */
-int quic_sdrv_build_server_flight(
-    quic_sdrv* s, const u8* server_random, const quic_sdrv_flight_out* out);
+int sdrv_build_server_flight(
+    sdrv* s, const u8* server_random, const sdrv_flight_out* out);
 
 /** Point *secret at the derived Handshake Secret (verification aid).
  * @param s driver state
  * @param secret receives a pointer to the internal Handshake Secret
  * @return 1 if build_server_flight has run, 0 otherwise. */
-int quic_sdrv_handshake_secret(const quic_sdrv* s, const u8** secret);
+int sdrv_handshake_secret(const sdrv* s, const u8** secret);
 
 /** RFC 8446 4.2.10 / RFC 9001 4.6.1: the 0-RTT packet-protection keys
  * (client_early_traffic_secret's key/iv/hp), derived by
- * quic_sdrv_recv_client_hello over the accepted PSK and the raw ClientHello
+ * sdrv_recv_client_hello over the accepted PSK and the raw ClientHello
  * bytes when early_data_accepted is 1.
- * @param s driver state (quic_sdrv_recv_client_hello must have run)
+ * @param s driver state (sdrv_recv_client_hello must have run)
  * @param out receives the 0-RTT key/iv/hp
  * @return 1 if early_data_accepted, 0 otherwise (out untouched). */
-int quic_sdrv_early_keys(const quic_sdrv* s, quic_initial_keys* out);
+int sdrv_early_keys(const sdrv* s, initial_keys* out);
 
 #endif

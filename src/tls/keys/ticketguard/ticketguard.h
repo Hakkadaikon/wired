@@ -21,15 +21,15 @@ typedef struct {
   u8  fp[QUIC_TICKETGUARD_CAP][QUIC_TICKETGUARD_FP]; /**< seen fingerprints */
   int live[QUIC_TICKETGUARD_CAP]; /**< 1 when the slot holds one */
   usz next;                       /**< ring write position */
-} quic_ticketguard;
+} ticketguard;
 
 /** Empty the seen set. */
-void quic_ticketguard_init(quic_ticketguard* g);
+void ticketguard_init(ticketguard* g);
 
 /** Present one sealed ticket: the first time its fingerprint is seen it is
  * recorded and accepted; a repeat — or a ticket too short to fingerprint —
  * is refused.
  * @return 1 on first use, 0 on replay or malformed input. */
-int quic_ticketguard_first_use(quic_ticketguard* g, wired_span sealed);
+int ticketguard_first_use(ticketguard* g, wired_span sealed);
 
 #endif

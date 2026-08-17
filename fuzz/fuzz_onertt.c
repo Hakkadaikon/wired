@@ -85,7 +85,7 @@ static void arm_onertt(quic_connio *io, int is_server) {
   quic_connio_init_in in = {is_server, 0x43, 1u << 20};
   quic_connio_init(io, wired_span_of((const u8 *)"\x01\x02\x03\x04", 4), &in);
 
-  quic_initial_keys k = {0};
+  initial_keys k = {0};
   keyset_install(&io->loop.keys, QUIC_LEVEL_INITIAL, &k);
   keyset_install(&io->loop.keys, QUIC_LEVEL_HANDSHAKE, &k);
   keyset_install(&io->loop.keys, QUIC_LEVEL_ONERTT, &k);

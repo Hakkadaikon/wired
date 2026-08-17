@@ -2,7 +2,7 @@
 
 static void test_ext_groups_golden(void) {
   u8  buf[16];
-  usz w = quic_tls_ext_supported_groups(buf, sizeof(buf));
+  usz w = tls_ext_supported_groups(buf, sizeof(buf));
   /* wire: type 0x000a, ext_data 0x0004, list 0x0002, x25519 0x001d */
   CHECK(w == 8);
   CHECK(buf[0] == 0x00 && buf[1] == 0x0a);
@@ -13,7 +13,7 @@ static void test_ext_groups_golden(void) {
 
 static void test_ext_sig_algs_golden(void) {
   u8  buf[16];
-  usz w = quic_tls_ext_sig_algs(buf, sizeof(buf));
+  usz w = tls_ext_sig_algs(buf, sizeof(buf));
   /* wire: type 0x000d, ext_data 0x0008, list 0x0006, then three schemes */
   CHECK(w == 12);
   CHECK(buf[0] == 0x00 && buf[1] == 0x0d);
@@ -27,8 +27,8 @@ static void test_ext_sig_algs_golden(void) {
 static void test_ext_algs_encode_guard(void) {
   u8 g[7];
   u8 s[11];
-  CHECK(quic_tls_ext_supported_groups(g, sizeof(g)) == 0);
-  CHECK(quic_tls_ext_sig_algs(s, sizeof(s)) == 0);
+  CHECK(tls_ext_supported_groups(g, sizeof(g)) == 0);
+  CHECK(tls_ext_sig_algs(s, sizeof(s)) == 0);
 }
 
 void test_ext_algs(void) {

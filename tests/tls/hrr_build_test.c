@@ -25,7 +25,7 @@ static const u8* hrr_find_ext(const u8* ext, usz total, u16 t, usz* elen) {
 static void test_hrr_random_sentinel(void) {
   u8 fixed[32];
   wired_sha256((const u8*)"HelloRetryRequest", 17, fixed);
-  for (int i = 0; i < 32; i++) CHECK(quic_hrr_random[i] == fixed[i]);
+  for (int i = 0; i < 32; i++) CHECK(hrr_random[i] == fixed[i]);
 }
 
 /* RFC 8446 4.1.4: HRR wire form without cookie. */
@@ -36,14 +36,14 @@ static void test_hrr_build_no_cookie(void) {
   const u8 * body, *ext, *sv, *kse;
   wired_obuf ob = obuf_of(out, sizeof out);
 
-  CHECK(quic_hrr_build(QUIC_GROUP_X25519, wired_span_of(0, 0), &ob) == 1);
+  CHECK(hrr_build(QUIC_GROUP_X25519, wired_span_of(0, 0), &ob) == 1);
   len = ob.len;
-  CHECK(quic_hs_parse(wired_span_of(out, len), &type, &body_len) == 4);
+  CHECK(hs_parse(wired_span_of(out, len), &type, &body_len) == 4);
   CHECK(type == QUIC_HS_SERVER_HELLO);
 
   body = out + 4;
   CHECK(hrrt_rd16(body) == 0x0303); /* legacy_version */
-  for (int i = 0; i < 32; i++) CHECK(body[2 + i] == quic_hrr_random[i]);
+  for (int i = 0; i < 32; i++) CHECK(body[2 + i] == hrr_random[i]);
   CHECK(body[34] == 0); /* empty session_id */
   ext       = body + 38;
   ext_total = hrrt_rd16(ext);
@@ -65,7 +65,7 @@ static void test_hrr_build_cookie(void) {
   const u8 * ext, *c;
   wired_obuf ob = obuf_of(out, sizeof out);
 
-  CHECK(quic_hrr_build(QUIC_GROUP_X25519, wired_span_of(ck, 5), &ob) == 1);
+  CHECK(hrr_build(QUIC_GROUP_X25519, wired_span_of(ck, 5), &ob) == 1);
   ext       = out + 4 + 38;
   ext_total = hrrt_rd16(ext);
   ext += 2;
@@ -77,20 +77,20 @@ static void test_hrr_build_cookie(void) {
 static void test_hrr_build_overflow(void) {
   u8         out[16];
   wired_obuf ob = obuf_of(out, 8);
-  CHECK(quic_hrr_build(QUIC_GROUP_X25519, wired_span_of(0, 0), &ob) == 0);
+  CHECK(hrr_build(QUIC_GROUP_X25519, wired_span_of(0, 0), &ob) == 0);
 }
 
 /* RFC 8446 4.4.1: message_hash is msg_type 254, the usual 4-byte handshake
- * header, and the raw hash bytes as its body -- same framing quic_hs_parse
+ * header, and the raw hash bytes as its body -- same framing hs_parse
  * expects. */
 static void test_hrr_message_hash_shape(void) {
   u8  hash[32], out[64];
   u8  type;
   usz body_len, n;
   for (int i = 0; i < 32; i++) hash[i] = (u8)i;
-  n = quic_hrr_message_hash(hash, 32, out, sizeof(out));
+  n = hrr_message_hash(hash, 32, out, sizeof(out));
   CHECK(n == 36);
-  CHECK(quic_hs_parse(wired_span_of(out, n), &type, &body_len) == 4);
+  CHECK(hs_parse(wired_span_of(out, n), &type, &body_len) == 4);
   CHECK(type == 254);
   CHECK(body_len == 32);
   for (int i = 0; i < 32; i++) CHECK(out[4 + i] == hash[i]);
@@ -101,7 +101,7 @@ static void test_hrr_message_hash_overflow(void) {
   u8  hash[32], out[10];
   usz n;
   for (int i = 0; i < 32; i++) hash[i] = (u8)i;
-  n = quic_hrr_message_hash(hash, 32, out, sizeof(out));
+  n = hrr_message_hash(hash, 32, out, sizeof(out));
   CHECK(n == 0);
 }
 

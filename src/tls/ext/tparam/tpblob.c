@@ -6,7 +6,7 @@
 
 /* --- opaque-value parameter --- */
 
-usz quic_tparam_put_blob(wired_obuf* out, u64 id, wired_span val) {
+usz tparam_put_blob(wired_obuf* out, u64 id, wired_span val) {
   usz off = 0;
   int ok =
       varint_put(wired_mspan_of(out->p, out->cap), &off, id) &
@@ -31,7 +31,7 @@ static int blob_take_hdr(wired_span buf, usz* off, tpblob_hdr* hdr) {
   return hdr->len <= buf.n - *off;
 }
 
-usz quic_tparam_get_blob(wired_span buf, u64* id, wired_span* val) {
+usz tparam_get_blob(wired_span buf, u64* id, wired_span* val) {
   usz        off = 0;
   tpblob_hdr hdr;
   if (!blob_take_hdr(buf, &off, &hdr)) return 0;
@@ -54,8 +54,7 @@ static int pa_put_port(wired_mspan v, usz* off, u16 port) {
 
 /* Whole value (sans id/length) into v of cap bytes. Returns its length, 0 on
  * overflow or cid_len > 20. v is sized for the max, so writes always fit. */
-static usz pa_build_value(
-    u8* v, usz cap, const struct quic_preferred_address* pa) {
+static usz pa_build_value(u8* v, usz cap, const struct preferred_address* pa) {
   usz         off = 0;
   u8          cl  = pa->cid_len;
   wired_mspan mv  = wired_mspan_of(v, cap);
@@ -72,13 +71,13 @@ static usz pa_build_value(
   return ok ? off : 0;
 }
 
-usz quic_tparam_put_preferred_address(
-    u8* buf, usz cap, const struct quic_preferred_address* pa) {
+usz tparam_put_preferred_address(
+    u8* buf, usz cap, const struct preferred_address* pa) {
   u8         v[61]; /* 4+2+16+2+1 + 20 + 16 */
   usz        vlen = pa_build_value(v, sizeof(v), pa);
   wired_obuf out  = obuf_of(buf, cap);
   if (vlen == 0) return 0;
-  return quic_tparam_put_blob(
+  return tparam_put_blob(
       &out, QUIC_TP_PREFERRED_ADDRESS, wired_span_of(v, vlen));
 }
 
@@ -91,8 +90,7 @@ static int pa_take_port(wired_span v, usz* off, u16* port) {
 }
 
 /* Read fixed prefix from value view at *off. Returns 1 ok, 0 if truncated. */
-static int pa_take_addrs(
-    wired_span v, usz* off, struct quic_preferred_address* pa) {
+static int pa_take_addrs(wired_span v, usz* off, struct preferred_address* pa) {
   return bytes_take(wired_span_of(v.p, v.n), off, wired_mspan_of(pa->ipv4, 4)) &
          pa_take_port(v, off, &pa->ipv4_port) &
          bytes_take(
@@ -103,8 +101,7 @@ static int pa_take_addrs(
 /* Read cid_len (validating it fits pa->cid) then the cid bytes. Returns 1 ok,
  * 0 if bad; short-circuits so pa->cid_len is never range-checked before
  * bytes_take has actually written it. */
-static int pa_take_cid(
-    wired_span v, usz* off, struct quic_preferred_address* pa) {
+static int pa_take_cid(wired_span v, usz* off, struct preferred_address* pa) {
   if (!bytes_take(
           wired_span_of(v.p, v.n), off, wired_mspan_of(&pa->cid_len, 1)))
     return 0;
@@ -115,20 +112,20 @@ static int pa_take_cid(
 
 /* Read cid_len, cid, reset token. Returns 1 ok, 0 if bad. */
 static int pa_take_cid_token(
-    wired_span v, usz* off, struct quic_preferred_address* pa) {
+    wired_span v, usz* off, struct preferred_address* pa) {
   if (!pa_take_cid(v, off, pa)) return 0;
   return bytes_take(
       wired_span_of(v.p, v.n), off, wired_mspan_of(pa->reset_token, 16));
 }
 
 /* Parse a value view of exactly len bytes. Returns 1 ok, 0 if malformed. */
-static int pa_parse_value(wired_span v, struct quic_preferred_address* pa) {
+static int pa_parse_value(wired_span v, struct preferred_address* pa) {
   usz off = 0;
   int ok  = pa_take_addrs(v, &off, pa) & pa_take_cid_token(v, &off, pa);
   return ok && off == v.n;
 }
 
-/* id is meaningful only when quic_tparam_get_blob succeeded (it leaves id
+/* id is meaningful only when tparam_get_blob succeeded (it leaves id
  * untouched on failure), so id must be initialized before any read of it —
  * even passing an unread id by value to a helper counts as a read for
  * uninitialized-value analysis. */
@@ -137,11 +134,11 @@ static int pa_blob_is_preferred_address(usz r, u64 id) {
   return id == QUIC_TP_PREFERRED_ADDRESS;
 }
 
-usz quic_tparam_get_preferred_address(
-    const u8* buf, usz n, struct quic_preferred_address* pa) {
+usz tparam_get_preferred_address(
+    const u8* buf, usz n, struct preferred_address* pa) {
   u64        id = 0;
   wired_span v;
-  usz        r = quic_tparam_get_blob(wired_span_of(buf, n), &id, &v);
+  usz        r = tparam_get_blob(wired_span_of(buf, n), &id, &v);
   if (!pa_blob_is_preferred_address(r, id)) return 0;
   if (!pa_parse_value(v, pa)) return 0;
   return r;

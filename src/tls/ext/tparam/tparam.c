@@ -4,7 +4,7 @@
 #include "tls/ext/tparam/tpblob.h"
 
 /* id + len(=value's varint length) + value, all varints. */
-usz quic_tparam_put_int(wired_obuf* out, u64 id, u64 value) {
+usz tparam_put_int(wired_obuf* out, u64 id, u64 value) {
   usz vlen = varint_len(value);
   usz need = varint_len(id) + 1 + vlen;
   usz off;
@@ -39,7 +39,7 @@ static int take_id_len(wired_span buf, usz* off, tparam_hdr* hdr) {
   return varint_take(wired_span_of(buf.p, buf.n), off, &hdr->vlen);
 }
 
-usz quic_tparam_get_int(wired_span buf, u64* id, u64* value) {
+usz tparam_get_int(wired_span buf, u64* id, u64* value) {
   usz        off = 0;
   tparam_hdr hdr;
   if (!take_id_len(buf, &off, &hdr)) return 0;
@@ -52,7 +52,7 @@ usz quic_tparam_get_int(wired_span buf, u64* id, u64* value) {
 /* RFC 9000 7.4: a transport parameter appearing more than once is a
  * TRANSPORT_PARAMETER_ERROR. Every parameter (int- or blob-valued) shares
  * the same (id, length, value) TLV shape, so a generic length-only walk
- * (via quic_tparam_get_blob) is enough to collect every id -- no need to
+ * (via tparam_get_blob) is enough to collect every id -- no need to
  * know which parameters are ints vs blobs here. */
 #define QUIC_TPARAM_MAX_SEEN 32
 
@@ -79,14 +79,13 @@ static int can_record(const tparam_seen* s, u64 id) {
 static usz seen_step(tparam_seen* s, wired_span buf, usz off) {
   u64        id;
   wired_span val;
-  usz        r =
-      quic_tparam_get_blob(wired_span_of(buf.p + off, buf.n - off), &id, &val);
+  usz r = tparam_get_blob(wired_span_of(buf.p + off, buf.n - off), &id, &val);
   if (r == 0 || !can_record(s, id)) return 0;
   s->seen[s->count++] = id;
   return r;
 }
 
-int quic_tparam_no_duplicates(wired_span buf) {
+int tparam_no_duplicates(wired_span buf) {
   tparam_seen s   = {.count = 0};
   usz         off = 0;
   while (off < buf.n) {

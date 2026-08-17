@@ -17,6 +17,6 @@
  * one key) has reached the AEAD's integrity limit, 0 otherwise. is_chacha
  * selects the ChaCha20-Poly1305 limit, else AES-GCM (128 or 256 share the
  * same limit). */
-int quic_aead_integrity_exceeded(u64 auth_failures, int is_chacha);
+int aead_integrity_exceeded(u64 auth_failures, int is_chacha);
 
 #endif

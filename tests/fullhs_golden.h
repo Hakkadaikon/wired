@@ -2,7 +2,7 @@
 #define QUIC_TESTS_FULLHS_GOLDEN_H
 
 /* Generated golden data for cert-policy tests that only exercise
- * quic_fullhs_recv_cert's validity/SAN checks (not its signature): a real
+ * fullhs_recv_cert's validity/SAN checks (not its signature): a real
  * Ed25519 leaf Certificate message. The transcript and CertificateVerify
  * signature for tests that DO verify a signature are built fresh per test
  * run instead (RFC 8446 4.4.1: the transcript is ClientHello||ServerHello,

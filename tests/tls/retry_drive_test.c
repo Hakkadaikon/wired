@@ -22,7 +22,7 @@ static usz make_retry(
       wired_span_of(token, tlen), tag};
   usz n = quic_retry_build(buf, cap, &rd);
   /* recompute the real tag over (orig_dcid || retry-without-tag) */
-  quic_retry_tag(
+  retry_tag(
       wired_span_of(orig_dcid, odcil),
       wired_span_of(buf, n - QUIC_RETRY_TAG_LEN), buf + n - QUIC_RETRY_TAG_LEN);
   return n;
@@ -39,9 +39,9 @@ static void test_retry_process_ok(void) {
   u8         out_token[64], new_dcid[WIRED_MAX_CID_LEN], new_dcil = 0;
   wired_obuf tok_ob = obuf_of(out_token, sizeof(out_token));
   CHECK(
-      quic_retry_process(
+      retry_process(
           wired_span_of(pkt, n), wired_span_of(odcid, 8),
-          &(quic_retry_process_out){&tok_ob, new_dcid, &new_dcil}) == 1);
+          &(retry_process_out){&tok_ob, new_dcid, &new_dcil}) == 1);
   CHECK(tok_ob.len == 6);
   for (usz i = 0; i < 6; i++) CHECK(out_token[i] == token[i]);
   CHECK(new_dcil == 5);
@@ -62,9 +62,9 @@ static void test_retry_process_bad_tag(void) {
 
   u8 out_token[64], new_dcid[WIRED_MAX_CID_LEN], new_dcil = 0xff;
   CHECK(
-      quic_retry_process(
+      retry_process(
           wired_span_of(pkt, n), wired_span_of(wrong, 8),
-          &(quic_retry_process_out){
+          &(retry_process_out){
               &(wired_obuf){out_token, sizeof(out_token), 0}, new_dcid,
               &new_dcil}) == 0);
 }
@@ -74,17 +74,17 @@ static void test_retry_process_short(void) {
   u8 pkt[4] = {0xf0, 0, 0, 1};
   u8 out_token[8], new_dcid[WIRED_MAX_CID_LEN], new_dcil;
   CHECK(
-      quic_retry_process(
+      retry_process(
           wired_span_of(pkt, sizeof(pkt)), wired_span_of(0, 0),
-          &(quic_retry_process_out){
+          &(retry_process_out){
               &(wired_obuf){out_token, sizeof(out_token), 0}, new_dcid,
               &new_dcil}) == 0);
 }
 
 /* The one-shot gate: a second Retry must be ignored. */
 static void test_retry_already(void) {
-  CHECK(quic_retry_already(0) == 0);
-  CHECK(quic_retry_already(1) == 1);
+  CHECK(retry_already(0) == 0);
+  CHECK(retry_already(1) == 1);
 }
 
 void test_retry_drive(void) {

@@ -4,7 +4,7 @@
 #include "common/bytes/util/bytes.h"
 
 /* RFC 6066 3: name_type(1)=host_name + name length(2) + host. */
-usz quic_tls_sni_encode(wired_obuf* out, wired_span host) {
+usz tls_sni_encode(wired_obuf* out, wired_span host) {
   usz off = 3;
   if (host.n > 0xFFFF || off + host.n > out->cap) return 0;
   out->p[0] = QUIC_SNI_HOST_NAME;
@@ -23,7 +23,7 @@ static int sni_head(wired_span buf, usz* len) {
   return buf.p[0] == QUIC_SNI_HOST_NAME && 3 + *len <= buf.n;
 }
 
-usz quic_tls_sni_decode(wired_span buf, wired_span* host) {
+usz tls_sni_decode(wired_span buf, wired_span* host) {
   usz len;
   if (!sni_head(buf, &len)) return 0;
   *host = wired_span_of(buf.p + 3, len);

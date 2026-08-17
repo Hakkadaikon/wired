@@ -24,7 +24,7 @@
  * obfuscated_ticket_age presented in pre_shared_key and the age_add sealed
  * inside the opened ticket. RFC 8446 4.2.11.1: subtraction is mod 2^32,
  * which u32 wraparound gives for free. */
-u32 quic_ticket_real_age_ms(u32 obfuscated_age, u32 age_add);
+u32 ticket_real_age_ms(u32 obfuscated_age, u32 age_add);
 
 /* Returns 1 when 0-RTT may be accepted for an opened ticket t: the ticket is
  * still within its lifetime at now_secs (RFC 8446 4.6.1), and the client's
@@ -34,7 +34,6 @@ u32 quic_ticket_real_age_ms(u32 obfuscated_age, u32 age_add);
  * a full 1-RTT handshake rather than failing the connection (RFC 8446
  * 4.2.10). now_secs and t->issued_at share the same clock
  * (wired_clock_epoch_secs). */
-int quic_ticket_freshness_ok(
-    const quic_ticket* t, u32 obfuscated_age, u64 now_secs);
+int ticket_freshness_ok(const ticket* t, u32 obfuscated_age, u64 now_secs);
 
 #endif

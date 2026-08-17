@@ -69,10 +69,10 @@ static int hrr_is_server_hello(usz hdr, u8 type) {
   return hdr != 0 && type == QUIC_HS_SERVER_HELLO;
 }
 
-int quic_hrr_selected_group(const u8* hrr_msg, usz len, u16* group) {
+int hrr_selected_group(const u8* hrr_msg, usz len, u16* group) {
   u8  type;
   usz body_len, total, eoff;
-  usz hdr = quic_hs_parse(wired_span_of(hrr_msg, len), &type, &body_len);
+  usz hdr = hs_parse(wired_span_of(hrr_msg, len), &type, &body_len);
   if (!hrr_is_server_hello(hdr, type)) return 0;
   eoff = hrr_locate_exts(hrr_msg + hdr, body_len, &total);
   if (eoff == 0) return 0;

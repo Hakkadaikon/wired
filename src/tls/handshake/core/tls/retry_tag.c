@@ -20,8 +20,7 @@ static usz build_pseudo(wired_span odcid, wired_span retry, u8* aad) {
   return n;
 }
 
-void quic_retry_tag(
-    wired_span odcid, wired_span retry, u8 tag[QUIC_RETRY_TAG]) {
+void retry_tag(wired_span odcid, wired_span retry, u8 tag[QUIC_RETRY_TAG]) {
   u8     aad[1 + 20 + 1500]; /* ponytail: MTU-bounded pseudo-packet scratch */
   aes128 a;
   usz    aad_len = build_pseudo(odcid, retry, aad);
@@ -32,10 +31,10 @@ void quic_retry_tag(
   gcm_seal(&g, wired_span_of(0, 0), tag);
 }
 
-int quic_retry_verify(wired_span odcid, wired_span retry_with_tag) {
+int retry_verify(wired_span odcid, wired_span retry_with_tag) {
   u8         want[QUIC_RETRY_TAG];
   wired_span retry =
       wired_span_of(retry_with_tag.p, retry_with_tag.n - QUIC_RETRY_TAG);
-  quic_retry_tag(odcid, retry, want);
+  retry_tag(odcid, retry, want);
   return ct_diff16(want, retry_with_tag.p + retry.n) == 0;
 }

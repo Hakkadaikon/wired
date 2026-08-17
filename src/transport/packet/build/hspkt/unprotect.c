@@ -11,7 +11,7 @@
 
 /* Keys, packet descriptor and HP mask threaded through one open. */
 typedef struct {
-  const quic_initial_keys*         keys;
+  const initial_keys*              keys;
   const quic_hspkt_unprotect_desc* d;
   u8                               mask[5];
 } hsunprot_ctx;
@@ -75,7 +75,7 @@ int quic_hspkt_unprotect(
 /* Same context as hsunprot_ctx, plus the negotiated suite (RFC 8446 B.4). */
 typedef struct {
   u16                              suite;
-  const quic_initial_keys*         keys;
+  const initial_keys*              keys;
   const quic_hspkt_unprotect_desc* d;
   u8                               mask[5];
 } hsunprot_suite_ctx;
@@ -85,7 +85,7 @@ typedef struct {
  * pn_len). op.iv is the raw key IV (quic_aead_suite_open derives the nonce
  * itself: iv XOR pn), not a precomputed nonce. */
 static int aead_open_suite(const hsunprot_suite_ctx* c, usz hdr_len, u64 pn) {
-  usz                tag_len = quic_aead_tag_len(c->suite);
+  usz                tag_len = aead_tag_len(c->suite);
   u8*                pkt     = c->d->pkt.p;
   usz                ct_len  = c->d->pkt.n - hdr_len - tag_len;
   quic_aead_suite_op op      = {
@@ -111,7 +111,7 @@ static int open_pkt_suite_head(
 
 /* Same as open_pkt, but resolves pn_len/hdr_len/AEAD under c->suite. */
 static int open_pkt_suite(const hsunprot_suite_ctx* c, wired_span* payload) {
-  usz tag_len = quic_aead_tag_len(c->suite);
+  usz tag_len = aead_tag_len(c->suite);
   u8* pkt     = c->d->pkt.p;
   usz hdr_len;
   if (!open_pkt_suite_head(c, tag_len, &hdr_len)) return 0;

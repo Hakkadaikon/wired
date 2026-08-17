@@ -707,16 +707,16 @@ static void test_reqdrive_multi_data(void) {
 }
 
 /* RFC 9001 5: derive a shared 1-RTT key pair for the end-to-end path. */
-static void rd_keys(quic_initial_keys* k, aes128* hp) {
+static void rd_keys(initial_keys* k, aes128* hp) {
   const u8 dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
-  quic_initial_derive(wired_span_of(dcid, 8), 1, QUIC_VERSION_1, k);
+  initial_derive(wired_span_of(dcid, 8), 1, QUIC_VERSION_1, k);
   aes128_init(hp, k->hp);
 }
 
 /* RFC 9001 5 / RFC 9114 4.1: the GET request is sealed and opened through a
  * real 1-RTT packet before recv_get recovers :authority and :path. */
 static void test_reqdrive_onertt(void) {
-  quic_initial_keys    k;
+  initial_keys         k;
   aes128               hp;
   const u8             dcid[4] = {7, 7, 7, 7};
   const u8             path[]  = {'/', 'a'};

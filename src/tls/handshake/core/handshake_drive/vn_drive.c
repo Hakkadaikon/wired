@@ -21,7 +21,7 @@ static int vn_offers(wired_span vn, u32 want) {
   return vn_lists(vn, want);
 }
 
-int quic_vn_choose(wired_span vn, quic_verlist mine, u32* chosen) {
+int vn_choose(wired_span vn, quic_verlist mine, u32* chosen) {
   for (usz i = 0; i < mine.n; i++) {
     if (!vn_offers(vn, mine.list[i])) continue;
     *chosen = mine.list[i];
@@ -30,4 +30,4 @@ int quic_vn_choose(wired_span vn, quic_verlist mine, u32* chosen) {
   return 0;
 }
 
-int quic_vn_acceptable(int handshake_started) { return handshake_started == 0; }
+int vn_acceptable(int handshake_started) { return handshake_started == 0; }

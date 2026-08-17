@@ -3,7 +3,7 @@
 #include "common/bytes/util/be.h"
 
 /* RFC 8446 4.2.9: type(2) + ext_data len(2) + list len(1) + 1 mode = 6. */
-int quic_tlsext_psk_modes(u8* out, usz cap, usz* out_len) {
+int tlsext_psk_modes(u8* out, usz cap, usz* out_len) {
   if (cap < 6) return 0;
   be_put_be16(out, QUIC_TLSEXT_T_PSK_MODES);
   be_put_be16(out + 2, 2);
@@ -27,7 +27,7 @@ static int modes_has_dhe(const u8* out, usz cnt) {
   return 0;
 }
 
-int quic_tlsext_psk_modes_parse(const u8* out, usz n) {
+int tlsext_psk_modes_parse(const u8* out, usz n) {
   if (n < 6 || !modes_framed(out, n)) return 0;
   return modes_has_dhe(out, out[4]);
 }

@@ -26,8 +26,8 @@ static usz build(u8* buf, usz cap) {
     random[i] = (u8)i;
     pub[i]    = (u8)(0x40 + i);
   }
-  return quic_tls_client_hello(
-      &(quic_clienthello_in){
+  return tls_client_hello(
+      &(clienthello_in){
           random, pub, wired_span_of((const u8*)"example.com", 11),
           wired_span_of(tp, sizeof(tp))},
       &(wired_obuf){buf, cap, 0});
@@ -40,7 +40,7 @@ static void test_client_hello_has_all_exts(void) {
   usz w = build(buf, sizeof(buf));
   CHECK(w > 0);
   CHECK(buf[0] == 1); /* ClientHello */
-  CHECK(quic_hs_parse(wired_span_of(buf, w), &type, &body_len) == 4);
+  CHECK(hs_parse(wired_span_of(buf, w), &type, &body_len) == 4);
   CHECK(type == 1);
   CHECK(ch_has_ext(buf + 4, body_len, 0x002b)); /* supported_versions */
   CHECK(ch_has_ext(buf + 4, body_len, 0x000a)); /* supported_groups */
@@ -59,9 +59,8 @@ static void test_client_hello_no_sni(void) {
     random[i] = 0;
     pub[i]    = 0;
   }
-  w = quic_tls_client_hello(
-      &(quic_clienthello_in){
-          random, pub, wired_span_of(0, 0), wired_span_of(tp, 2)},
+  w = tls_client_hello(
+      &(clienthello_in){random, pub, wired_span_of(0, 0), wired_span_of(tp, 2)},
       &(wired_obuf){buf, sizeof(buf), 0});
   CHECK(w > 0);
   CHECK(!ch_has_ext(buf + 4, w - 4, 0x0000)); /* SNI omitted */

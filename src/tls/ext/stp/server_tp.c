@@ -26,7 +26,7 @@ static const struct {
 static int put_int(wired_obuf* out, u64 id, u64 val) {
   usz        before = out->len;
   wired_obuf tail   = obuf_of(out->p + before, out->cap - before);
-  usz        w      = quic_tparam_put_int(&tail, id, val);
+  usz        w      = tparam_put_int(&tail, id, val);
   out->len += w;
   return w != 0;
 }
@@ -35,7 +35,7 @@ static int put_int(wired_obuf* out, u64 id, u64 val) {
 static int put_blob(wired_obuf* out, u64 id, wired_span val) {
   usz        before = out->len;
   wired_obuf tail   = obuf_of(out->p + before, out->cap - before);
-  usz        w      = quic_tparam_put_blob(&tail, id, val);
+  usz        w      = tparam_put_blob(&tail, id, val);
   out->len += w;
   return w != 0;
 }
@@ -62,8 +62,8 @@ static int put_int_opt(wired_obuf* out, u64 id, u64 val) {
 
 /* Append the operator-tunable limits (RFC 9000 18.2) plus the opt-in
  * max_datagram_frame_size (RFC 9221 3). */
-static int put_tunables(wired_obuf* out, const quic_stp_limits* lim) {
-  quic_stp_limits d = {0};
+static int put_tunables(wired_obuf* out, const stp_limits* lim) {
+  stp_limits d = {0};
   if (!lim) lim = &d;
   return put_int(
              out, QUIC_TP_INITIAL_MAX_DATA,
@@ -105,13 +105,13 @@ static int put_sreset_token(wired_obuf* out, wired_span token) {
   return token.n == 16 && put_blob(out, QUIC_TP_STATELESS_RESET_TOKEN, token);
 }
 
-int quic_stp_build_server_ret(
-    wired_span             original_dcid,
-    wired_span             initial_scid,
-    wired_span             rscid,
-    wired_span             sreset_token,
-    const quic_stp_limits* lim,
-    wired_obuf*            out) {
+int stp_build_server_ret(
+    wired_span        original_dcid,
+    wired_span        initial_scid,
+    wired_span        rscid,
+    wired_span        sreset_token,
+    const stp_limits* lim,
+    wired_obuf*       out) {
   int ok;
   out->len = 0;
   ok =
@@ -122,17 +122,17 @@ int quic_stp_build_server_ret(
   return ok;
 }
 
-int quic_stp_build_server_lim(
-    wired_span             original_dcid,
-    wired_span             initial_scid,
-    const quic_stp_limits* lim,
-    wired_obuf*            out) {
-  return quic_stp_build_server_ret(
+int stp_build_server_lim(
+    wired_span        original_dcid,
+    wired_span        initial_scid,
+    const stp_limits* lim,
+    wired_obuf*       out) {
+  return stp_build_server_ret(
       original_dcid, initial_scid, wired_span_of(0, 0), wired_span_of(0, 0),
       lim, out);
 }
 
-int quic_stp_build_server(
+int stp_build_server(
     wired_span original_dcid, wired_span initial_scid, wired_obuf* out) {
-  return quic_stp_build_server_lim(original_dcid, initial_scid, 0, out);
+  return stp_build_server_lim(original_dcid, initial_scid, 0, out);
 }

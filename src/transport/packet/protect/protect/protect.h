@@ -12,8 +12,8 @@
 /** AEAD keys plus the expanded header-protection cipher for one packet-number
  * space. keys.key/iv are the AEAD key/iv; hp is expanded from keys.hp. */
 typedef struct {
-  const quic_initial_keys* keys;
-  const aes128*            hp;
+  const initial_keys* keys;
+  const aes128*       hp;
 } quic_protect_keys;
 
 /* Compute the 12-byte AEAD nonce: iv with the packet number XORed into its

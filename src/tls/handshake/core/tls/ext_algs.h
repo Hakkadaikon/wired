@@ -17,11 +17,11 @@
 
 /* Encode supported_groups offering x25519 only. Returns bytes written into
  * buf (cap total), or 0 if it does not fit. */
-usz quic_tls_ext_supported_groups(u8* buf, usz cap);
+usz tls_ext_supported_groups(u8* buf, usz cap);
 
 /* Encode signature_algorithms offering ecdsa_secp256r1_sha256,
  * rsa_pss_rsae_sha256 and ed25519. Returns bytes written, or 0 if no room. */
-usz quic_tls_ext_sig_algs(u8* buf, usz cap);
+usz tls_ext_sig_algs(u8* buf, usz cap);
 
 /* RFC 8446 4.4.3 / 4.2.3: does the ClientHello's signature_algorithms
  * extension (buf, header included, n readable) name `scheme`? Used by the
@@ -29,6 +29,6 @@ usz quic_tls_ext_sig_algs(u8* buf, usz cap);
  * with from what the client actually offered, rather than assuming a fixed
  * one. Returns 1 if present, 0 if absent, malformed, or scheme is not in the
  * list. */
-int quic_tls_ext_sig_algs_has(const u8* buf, usz n, u16 scheme);
+int tls_ext_sig_algs_has(const u8* buf, usz n, u16 scheme);
 
 #endif

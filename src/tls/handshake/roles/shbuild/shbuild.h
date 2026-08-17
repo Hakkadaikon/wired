@@ -15,7 +15,7 @@
  * 4.1.3/4.2.11) adds the pre_shared_key extension carrying selected_identity
  * -- this SDK only ever offers/accepts a single PSK identity, so the index
  * is always 0. */
-/** Inputs to quic_shbuild_server_hello: the fixed x25519 ServerHello fields
+/** Inputs to shbuild_server_hello: the fixed x25519 ServerHello fields
  * (random, echoed session_id, negotiated cipher_suite, x25519 server_pub) and
  * whether a PSK identity was accepted. */
 typedef struct {
@@ -24,13 +24,13 @@ typedef struct {
   u16        cipher_suite;
   const u8*  server_pub;
   int        psk_accepted;
-} quic_shbuild_in;
+} shbuild_in;
 
 /* Build the ServerHello into out. On success writes the total message length
  * to out->len and returns 1; returns 0 if it does not fit. */
-int quic_shbuild_server_hello(const quic_shbuild_in* in, wired_obuf* out);
+int shbuild_server_hello(const shbuild_in* in, wired_obuf* out);
 
-/** Same as quic_shbuild_in, but the key_share's NamedGroup (RFC 8446 4.2.7)
+/** Same as shbuild_in, but the key_share's NamedGroup (RFC 8446 4.2.7)
  * and server_pub's length are explicit instead of the frozen x25519/32-byte
  * pair -- server_pub must point at pub_len bytes (32 for QUIC_GROUP_X25519,
  * 65 for QUIC_GROUP_SECP256R1). */
@@ -42,12 +42,11 @@ typedef struct {
   int        psk_accepted;
   u16        group;
   usz        pub_len;
-} quic_shbuild_group_in;
+} shbuild_group_in;
 
 /* Build the ServerHello into out, replying with in->group's key_share. On
  * success writes the total message length to out->len and returns 1;
  * returns 0 if it does not fit. */
-int quic_shbuild_server_hello_group(
-    const quic_shbuild_group_in* in, wired_obuf* out);
+int shbuild_server_hello_group(const shbuild_group_in* in, wired_obuf* out);
 
 #endif

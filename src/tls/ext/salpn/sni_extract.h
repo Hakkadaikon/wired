@@ -11,6 +11,6 @@
 /* On success sets *host (a view into sni_ext.p) and returns 1; 0 if
  * truncated, the name_type is not host_name, or a length field overruns
  * sni_ext.n. */
-int quic_salpn_extract_sni(wired_span sni_ext, wired_span* host);
+int salpn_extract_sni(wired_span sni_ext, wired_span* host);
 
 #endif

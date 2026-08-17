@@ -39,15 +39,15 @@ static usz rx(quic_memlink* l, u8* qpkt, usz cap, u32 src, u32 dst) {
 /* Build an Initial carrying a ClientHello, protected with the client's
  * Initial keys, into out. Returns the protected length. */
 static usz make_client_initial(
-    quic_endpoint*           c,
-    const quic_initial_keys* ik,
-    const aes128*            hp,
-    u8*                      out,
-    usz                      cap) {
+    quic_endpoint*      c,
+    const initial_keys* ik,
+    const aes128*       hp,
+    u8*                 out,
+    usz                 cap) {
   u8  hello[256], crypto[300], hdr[18];
   u8  rnd[32] = {0};
-  usz hl      = quic_hs_build_hello(
-      hello, sizeof(hello), QUIC_HS_CLIENT_HELLO, rnd, c->pub);
+  usz hl =
+      hs_build_hello(hello, sizeof(hello), QUIC_HS_CLIENT_HELLO, rnd, c->pub);
   quic_crypto_frame cf = {.offset = 0, .length = hl, .data = hello};
   usz               cl = quic_frame_put_crypto(crypto, sizeof(crypto), &cf);
   for (usz i = 0; i < 18; i++) hdr[i] = 0;
@@ -65,11 +65,11 @@ static usz make_client_initial(
 
 /* Server receives the client Initial, unprotects, and extracts the share. */
 static int server_read_initial(
-    u8*                      pkt,
-    usz                      plen,
-    const quic_initial_keys* ik,
-    const aes128*            hp,
-    u8                       peer_pub[32]) {
+    u8*                 pkt,
+    usz                 plen,
+    const initial_keys* ik,
+    const aes128*       hp,
+    u8                  peer_pub[32]) {
   quic_protect_keys    k  = {ik, hp};
   quic_protect_open_io io = {wired_mspan_of(pkt, plen), 18, 14, 4, 1};
   usz                  pl = quic_protect_open(&k, &io);
@@ -77,9 +77,9 @@ static int server_read_initial(
   u8                   type;
   usz                  body_len;
   if (pl == 0 || quic_frame_get_crypto(pkt + 18, pl, &cf) == 0) return 0;
-  if (quic_hs_parse(wired_span_of(cf.data, cf.length), &type, &body_len) == 0)
+  if (hs_parse(wired_span_of(cf.data, cf.length), &type, &body_len) == 0)
     return 0;
-  return quic_hs_peer_share(cf.data + 4, body_len, peer_pub);
+  return hs_peer_share(cf.data + 4, body_len, peer_pub);
 }
 
 /* Full kernel-free handshake: client Initial over memlink -> server reads it,
@@ -96,9 +96,9 @@ static void test_endpoint_handshake(void) {
   quic_endpoint_init(&cl, cpriv, dcid);
   quic_endpoint_init(&sv, spriv, dcid);
 
-  quic_initial_keys cik; /* client Initial keys (both sides derive) */
-  aes128            chp;
-  quic_initial_derive(wired_span_of(dcid, 8), 0, QUIC_VERSION_1, &cik);
+  initial_keys cik; /* client Initial keys (both sides derive) */
+  aes128       chp;
+  initial_derive(wired_span_of(dcid, 8), 0, QUIC_VERSION_1, &cik);
   aes128_init(&chp, cik.hp);
 
   quic_memlink link;
@@ -125,13 +125,13 @@ static void test_endpoint_handshake(void) {
   quic_endpoint_agree(&cl, &pc);
   quic_endpoint_agree(&sv, &ps);
   /* client's view of the server direction == server's own keys */
-  quic_initial_keys cl_sees_server;
+  initial_keys cl_sees_server;
   {
     u8 shared[32], hs[32];
     wired_x25519(shared, cl.priv, sv.pub);
-    quic_tls_handshake_secret(shared, hs);
-    quic_tls_handshake_keys(
-        &(quic_handshake_keys_in){hs, wired_span_of(tr, sizeof(tr)), 1},
+    tls_handshake_secret(shared, hs);
+    tls_handshake_keys(
+        &(handshake_keys_in){hs, wired_span_of(tr, sizeof(tr)), 1},
         &cl_sees_server);
   }
   for (usz i = 0; i < QUIC_INITIAL_KEY; i++)

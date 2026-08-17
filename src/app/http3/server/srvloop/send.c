@@ -59,7 +59,7 @@ int wired_srvloop_send_handshake(
  * response"). Falls back to the schedule's fixed generation-0 SERVER_AP only
  * if seeding kuswitch itself failed (should not happen once confirmed; a
  * missing key still fails closed). dk's storage is owned by the caller
- * (wired_srvloop_send_onertt's own stack frame) so the quic_initial_keys*
+ * (wired_srvloop_send_onertt's own stack frame) so the initial_keys*
  * this writes into *out stays valid past this call -- writing dk here
  * instead of taking it as a local would leave *out pointing at a returned
  * stack frame. */
@@ -89,7 +89,7 @@ int wired_srvloop_send_onertt(
   wired_srvloop_dirkeys dk;
   aes128                hp;
   quic_protect_keys     pk;
-  int phase = s->ku_seeded ? quic_keyphase_bit(s->ku_send.generation) : 0;
+  int phase = s->ku_seeded ? keyphase_bit(s->ku_send.generation) : 0;
   quic_hspkt_onertt_desc d = {in->cli_scid, in->pn, in->payload, phase};
   if (!send_onertt_keys(s, &dk, &hp, &pk)) return 0;
   return quic_hspkt_onertt_build_suite(s->sdrv.cipher_suite, &pk, &d, out);

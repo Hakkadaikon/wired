@@ -16,14 +16,14 @@ void test_sflight_finished_build(void) {
   for (usz i = 0; i < sizeof(key); i++) key[i] = (u8)(i + 1);
   for (usz i = 0; i < 32; i++) thash[i] = (u8)(0x80 + i);
 
-  CHECK(quic_sflight_finished(key, thash, &ob));
-  CHECK(quic_hs_parse(wired_span_of(out, ob.len), &type, &body_len) == 4);
+  CHECK(sflight_finished(key, thash, &ob));
+  CHECK(hs_parse(wired_span_of(out, ob.len), &type, &body_len) == 4);
   CHECK(type == QUIC_HS_FINISHED);
   CHECK(body_len == QUIC_TLS_VERIFY_DATA);
 
   /* the body is verify_data the verifier accepts. */
-  CHECK(quic_tls_finished_check(key, thash, out + 4));
+  CHECK(tls_finished_check(key, thash, out + 4));
 
   ob = obuf_of(out, 4);
-  CHECK(!quic_sflight_finished(key, thash, &ob));
+  CHECK(!sflight_finished(key, thash, &ob));
 }

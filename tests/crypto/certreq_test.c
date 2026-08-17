@@ -59,11 +59,11 @@ static void test_certreq_parse_truncated(void) {
 static void test_certreq_parse_missing_sig_algs(void) {
   u8      msg[16];
   certreq cr;
-  usz     off  = quic_hs_begin(msg, sizeof(msg), 0x0d);
+  usz     off  = hs_begin(msg, sizeof(msg), 0x0d);
   msg[off]     = 0; /* empty context */
   msg[off + 1] = 0; /* extensions length 0 */
   msg[off + 2] = 0;
-  quic_hs_finish(msg, off + 3);
+  hs_finish(msg, off + 3);
   CHECK(certreq_parse(wired_span_of(msg, off + 3), &cr) == 0);
 }
 

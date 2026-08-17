@@ -17,11 +17,11 @@ typedef struct {
   wired_span identity;
   u32        ticket_age;
   wired_span binder;
-} quic_tlsext_psk_in;
+} tlsext_psk_in;
 
 /* Encode pre_shared_key with one identity and one binder into out->p (out->cap
  * total). Sets out->len. Returns 1, or 0 if it does not fit. */
-int quic_tlsext_pre_shared_key(const quic_tlsext_psk_in* in, wired_obuf* out);
+int tlsext_pre_shared_key(const tlsext_psk_in* in, wired_obuf* out);
 
 /** Located fields of a parsed single-entry pre_shared_key. The pointers alias
  * the input buffer. */
@@ -31,11 +31,10 @@ typedef struct {
   u32       ticket_age;
   const u8* binder;
   usz       binder_len;
-} quic_tlsext_psk_offer;
+} tlsext_psk_offer;
 
 /* Parse a single-entry pre_shared_key at out (n readable) into *off. Returns 1
  * on success, 0 if absent or malformed. */
-int quic_tlsext_pre_shared_key_parse(
-    const u8* out, usz n, quic_tlsext_psk_offer* off);
+int tlsext_pre_shared_key_parse(const u8* out, usz n, tlsext_psk_offer* off);
 
 #endif

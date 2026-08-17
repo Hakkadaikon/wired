@@ -95,10 +95,10 @@ static int srvwire_initial_tx_lean_ver(
     const quic_srvwire_seal_in* in,
     wired_obuf*                 fb,
     wired_obuf*                 out) {
-  quic_initial_keys ck, sk;
-  aes128            hp;
-  usz               total;
-  u8                byte0 = srvwire_initial_byte0(version);
+  initial_keys ck, sk;
+  aes128       hp;
+  usz          total;
+  u8           byte0 = srvwire_initial_byte0(version);
   if (byte0 == 0) return 0;
   quic_initpkt_derive_ver(in->dcid, version, &ck, &sk);
   aes128_init(&hp, sk.hp);
@@ -173,9 +173,9 @@ int quic_srvwire_seal_initial_frames_lean(
 /* RFC 9001 5.2 */
 int quic_srvwire_open_initial(
     const quic_srvwire_open_initial_in* in, wired_mspan pkt, wired_span* tls) {
-  quic_initial_keys ck, sk;
-  aes128            hp;
-  wired_span        frames;
+  initial_keys ck, sk;
+  aes128       hp;
+  wired_span   frames;
   (void)in->pn;
   quic_initpkt_derive(in->dcid, &ck, &sk);
   aes128_init(&hp, sk.hp);

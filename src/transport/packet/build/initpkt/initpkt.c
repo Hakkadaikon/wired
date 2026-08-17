@@ -44,7 +44,7 @@ static int initpkt_seal(
     u8                       byte0,
     u32                      version,
     const quic_initpkt_desc* d,
-    const quic_initial_keys* ck,
+    const initial_keys*      ck,
     wired_span               payload,
     wired_obuf*              out) {
   aes128 hp;
@@ -64,10 +64,10 @@ static int initpkt_seal(
  * 1200-byte datagram floor. */
 int quic_initpkt_build_ver(
     u32 version, const quic_initpkt_desc* d, wired_obuf* out) {
-  quic_initial_keys ck, sk;
-  u8                payload[1200];
-  wired_obuf        po    = obuf_of(payload, sizeof(payload));
-  u8                byte0 = initpkt_byte0(version);
+  initial_keys ck, sk;
+  u8           payload[1200];
+  wired_obuf   po    = obuf_of(payload, sizeof(payload));
+  u8           byte0 = initpkt_byte0(version);
   if (byte0 == 0) return 0;
   if (!build_payload(
           d->crypto, d->crypto_off, pad_target(d->dcid.n, d->scid.n), &po))

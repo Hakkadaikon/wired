@@ -10,14 +10,14 @@
 
 /* RFC 9000 17.3: short-header byte0 has high bit 0 (short form), fixed bit
  * set (0x40), and a 4-byte packet-number length (low bits 0x03). RFC 9001 6:
- * bit 0x04 (quic_keyphase_set) then carries this packet's Key Phase. */
+ * bit 0x04 (keyphase_set) then carries this packet's Key Phase. */
 #define QUIC_ONERTT_BYTE0 0x43
 
 /* RFC 9000 17.3 / RFC 9001 6: byte0 (with its Key Phase bit set), dcid, then
  * a 4-byte packet number. */
 static usz build_short_header(u8* hdr, wired_span dcid, u64 pn, int phase_bit) {
   usz i;
-  hdr[0] = quic_keyphase_set(QUIC_ONERTT_BYTE0, phase_bit);
+  hdr[0] = keyphase_set(QUIC_ONERTT_BYTE0, phase_bit);
   for (i = 0; i < dcid.n; i++) hdr[1 + i] = dcid.p[i];
   for (i = 0; i < 4; i++) hdr[1 + dcid.n + i] = (u8)(pn >> (8 * (3 - i)));
   return 5u + dcid.n;
@@ -88,7 +88,7 @@ int quic_hspkt_onertt_build_suite(
   u8*            o       = out->p;
   usz            hdr_len = build_short_header(o, d->dcid, d->pn, d->phase_bit);
   usz            pn_off  = 1u + d->dcid.n;
-  usz            need    = hdr_len + d->payload.n + quic_aead_tag_len(suite);
+  usz            need    = hdr_len + d->payload.n + aead_tag_len(suite);
   quic_hp_fields hf      = {o, o + pn_off, 4, QUIC_HP_SHORT_MASK};
   if (!onertt_seal_suite(suite, k, d, o, hdr_len, need, out)) return 0;
   if (!quic_hp_suite_mask(suite, k->keys->hp, o + pn_off + 4, mask)) return 0;

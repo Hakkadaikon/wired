@@ -1,18 +1,18 @@
 #include "test.h"
 
-static void onertt_keys(quic_initial_keys* k, aes128* hp) {
+static void onertt_keys(initial_keys* k, aes128* hp) {
   const u8 dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
-  quic_initial_derive(wired_span_of(dcid, 8), 1, QUIC_VERSION_1, k);
+  initial_derive(wired_span_of(dcid, 8), 1, QUIC_VERSION_1, k);
   aes128_init(hp, k->hp);
 }
 
 /* RFC 9000 17.3 / RFC 9001 5: build a 1-RTT packet, then open it with the
  * same keys; the payload comes back byte-for-byte. */
 static void test_onertt_roundtrip(void) {
-  quic_initial_keys k;
-  aes128            hp;
-  const u8          dcid[5] = {0xaa, 0xbb, 0xcc, 0xdd, 0xee};
-  const u8 frames[] = {0x08, 'd', 'a', 't', 'a'}; /* STREAM-ish payload */
+  initial_keys k;
+  aes128       hp;
+  const u8     dcid[5]  = {0xaa, 0xbb, 0xcc, 0xdd, 0xee};
+  const u8     frames[] = {0x08, 'd', 'a', 't', 'a'}; /* STREAM-ish payload */
   onertt_keys(&k, &hp);
 
   u8                     pkt[64];
@@ -33,10 +33,10 @@ static void test_onertt_roundtrip(void) {
 /* RFC 9000 17.3: short-header form has the high bit of byte0 clear. After
  * header protection the low 5 bits are masked, but the high bit stays 0. */
 static void test_onertt_byte0(void) {
-  quic_initial_keys k;
-  aes128            hp;
-  const u8          dcid[4]  = {1, 2, 3, 4};
-  const u8          frames[] = {0x08, 'X'};
+  initial_keys k;
+  aes128       hp;
+  const u8     dcid[4]  = {1, 2, 3, 4};
+  const u8     frames[] = {0x08, 'X'};
   onertt_keys(&k, &hp);
 
   u8                     pkt[64];
@@ -50,10 +50,10 @@ static void test_onertt_byte0(void) {
 
 /* A tampered ciphertext byte makes open fail (AEAD authentication). */
 static void test_onertt_tamper(void) {
-  quic_initial_keys k;
-  aes128            hp;
-  const u8          dcid[4]  = {9, 8, 7, 6};
-  const u8          frames[] = {0x08, 'h', 'i'};
+  initial_keys k;
+  aes128       hp;
+  const u8     dcid[4]  = {9, 8, 7, 6};
+  const u8     frames[] = {0x08, 'h', 'i'};
   onertt_keys(&k, &hp);
 
   u8                     pkt[64];
@@ -73,15 +73,15 @@ static void test_onertt_tamper(void) {
  * the header carries only its low pn_len bytes. Mirrors onertt_build but with a
  * short PN. RFC 9000 17.3 / A.2, RFC 9001 5.3/5.4. */
 static usz seal_truncated(
-    const quic_initial_keys* k,
-    const aes128*            hp,
-    const u8*                dcid,
-    u8                       dcid_len,
-    u64                      full_pn,
-    usz                      pn_len,
-    const u8*                pl,
-    usz                      pl_len,
-    u8*                      out) {
+    const initial_keys* k,
+    const aes128*       hp,
+    const u8*           dcid,
+    u8                  dcid_len,
+    u64                 full_pn,
+    usz                 pn_len,
+    const u8*           pl,
+    usz                 pl_len,
+    u8*                 out) {
   u8     nonce[QUIC_INITIAL_IV], mask[5];
   aes128 aead;
   usz    pn_off  = 1u + dcid_len;
@@ -108,7 +108,7 @@ static usz seal_truncated(
  * fails — proving the recovery, not the truncated value, is what authenticates.
  */
 static void test_onertt_truncated_pn(void) {
-  quic_initial_keys k;
+  initial_keys      k;
   aes128            hp;
   const u8          dcid[5]  = {0xaa, 0xbb, 0xcc, 0xdd, 0xee};
   const u8          frames[] = {0x08, 'c', 'u', 'r', 'l'};
@@ -140,7 +140,7 @@ static void test_onertt_truncated_pn(void) {
  * Rejecting these dropped every ACK Chrome sent after its CONNECT and the
  * connection blackholed. */
 static void test_onertt_min_length_short_pn(void) {
-  quic_initial_keys k;
+  initial_keys      k;
   aes128            hp;
   const u8          dcid[6]  = {1, 2, 3, 4, 5, 6};
   const u8          frames[] = {0x01, 0x01, 0x01}; /* PING PING PING */

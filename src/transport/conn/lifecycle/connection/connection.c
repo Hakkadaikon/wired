@@ -20,10 +20,10 @@ void quic_connection_init(
 }
 
 int quic_connection_send(quic_connection* c, int level, wired_span frames) {
-  const quic_initial_keys* k;
-  aes128                   hp;
-  u8                       out[QUIC_MEMLINK_MTU];
-  usz                      n;
+  const initial_keys* k;
+  aes128              hp;
+  u8                  out[QUIC_MEMLINK_MTU];
+  usz                 n;
   if (!keyset_for_level(&c->keys, level, &k)) return 0;
   aes128_init(&hp, k->hp);
   quic_protect_keys pk   = {k, &hp};
@@ -41,7 +41,7 @@ int quic_connection_send(quic_connection* c, int level, wired_span frames) {
  * plaintext. Returns 1 on success, 0 if nothing valid. c->rxbuf backs the
  * view, so it outlives this call (until c's next recv). */
 static int recv_open(
-    quic_connection* c, const quic_initial_keys* k, wired_span* frames) {
+    quic_connection* c, const initial_keys* k, wired_span* frames) {
   aes128 hp;
   usz    rn = quic_memlink_recv(c->link, c->rxbuf, sizeof(c->rxbuf));
   if (rn == 0) return 0;
@@ -52,8 +52,8 @@ static int recv_open(
 }
 
 int quic_connection_recv(quic_connection* c, int level, quic_framewalk* iter) {
-  const quic_initial_keys* k;
-  wired_span               frames;
+  const initial_keys* k;
+  wired_span          frames;
   if (!keyset_for_level(&c->keys, level, &k)) return 0;
   if (!recv_open(c, k, &frames)) return 0;
   quic_framewalk_init(iter, frames.p, frames.n);

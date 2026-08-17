@@ -48,7 +48,7 @@ typedef struct {
 
 /* RFC 9001 5.3: nonce = iv XOR pn, then AEAD-open ct after the header. */
 static int vpn_aead_open(
-    const quic_initial_keys* keys, u8* pkt, const vpnopen_dims* v) {
+    const initial_keys* keys, u8* pkt, const vpnopen_dims* v) {
   u8     nonce[QUIC_INITIAL_IV];
   aes128 aead;
   quic_protect_nonce(keys->iv, v->pn, nonce);
@@ -93,7 +93,7 @@ static int remove_hp_suite(
  * raw key IV (quic_aead_suite_open derives the nonce itself: iv XOR pn, RFC
  * 9001 5.3), not a precomputed nonce. */
 static int vpn_aead_open_suite(
-    u16 suite, const quic_initial_keys* keys, u8* pkt, const vpnopen_dims* v) {
+    u16 suite, const initial_keys* keys, u8* pkt, const vpnopen_dims* v) {
   quic_aead_suite_op op = {
       suite, keys->key, keys->iv, v->pn, {pkt, v->hdr_len}};
   return quic_aead_suite_open(
@@ -154,7 +154,7 @@ int quic_vpn_open_suite(
     const quic_protect_keys* k,
     const quic_vpn_desc*     d,
     wired_span*              payload) {
-  usz          tag_len = quic_aead_tag_len(suite);
+  usz          tag_len = aead_tag_len(suite);
   vpnopen_dims v;
   if (!vpn_open_suite_head(suite, k, d, tag_len, &v)) return 0;
   if (!vpn_aead_open_suite(suite, k->keys, d->pkt.p, &v)) return 0;

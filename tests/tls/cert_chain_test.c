@@ -31,16 +31,16 @@ static const u8 cc_c[2] = {0xc1, 0xc2};
 
 /* [leaf, issuer]: both entries viewed, leaf first, lengths exact. */
 static void test_cert_chain_two(void) {
-  u8                  body[64];
-  const u8*           certs[2] = {cc_a, cc_b};
-  usz                 lens[2]  = {sizeof(cc_a), sizeof(cc_b)};
-  quic_tls_cert_entry e[QUIC_TLS_CERT_CHAIN_MAX];
-  wired_span          ctx;
-  usz                 n = cc_body(body, certs, lens, 2), count;
+  u8             body[64];
+  const u8*      certs[2] = {cc_a, cc_b};
+  usz            lens[2]  = {sizeof(cc_a), sizeof(cc_b)};
+  tls_cert_entry e[QUIC_TLS_CERT_CHAIN_MAX];
+  wired_span     ctx;
+  usz            n = cc_body(body, certs, lens, 2), count;
   CHECK(
-      quic_tls_cert_chain(
-          wired_span_of(body, n), &ctx,
-          &(quic_tls_cert_chain_out){e, 4, &count}) == 1);
+      tls_cert_chain(
+          wired_span_of(body, n), &ctx, &(tls_cert_chain_out){e, 4, &count}) ==
+      1);
   CHECK(count == 2);
   CHECK(e[0].cert_len == 3 && e[0].cert_data[0] == 0xa1);
   CHECK(e[1].cert_len == 5 && e[1].cert_data[4] == 0xb5);
@@ -48,23 +48,23 @@ static void test_cert_chain_two(void) {
 
 /* 1 entry and 3 entries both enumerate fully. */
 static void test_cert_chain_counts(void) {
-  u8                  body[64];
-  const u8*           certs[3] = {cc_a, cc_b, cc_c};
-  usz                 lens[3]  = {sizeof(cc_a), sizeof(cc_b), sizeof(cc_c)};
-  quic_tls_cert_entry e[QUIC_TLS_CERT_CHAIN_MAX];
-  wired_span          ctx;
-  usz                 n, count;
+  u8             body[64];
+  const u8*      certs[3] = {cc_a, cc_b, cc_c};
+  usz            lens[3]  = {sizeof(cc_a), sizeof(cc_b), sizeof(cc_c)};
+  tls_cert_entry e[QUIC_TLS_CERT_CHAIN_MAX];
+  wired_span     ctx;
+  usz            n, count;
   n = cc_body(body, certs, lens, 1);
   CHECK(
-      quic_tls_cert_chain(
-          wired_span_of(body, n), &ctx,
-          &(quic_tls_cert_chain_out){e, 4, &count}) == 1);
+      tls_cert_chain(
+          wired_span_of(body, n), &ctx, &(tls_cert_chain_out){e, 4, &count}) ==
+      1);
   CHECK(count == 1);
   n = cc_body(body, certs, lens, 3);
   CHECK(
-      quic_tls_cert_chain(
-          wired_span_of(body, n), &ctx,
-          &(quic_tls_cert_chain_out){e, 4, &count}) == 1);
+      tls_cert_chain(
+          wired_span_of(body, n), &ctx, &(tls_cert_chain_out){e, 4, &count}) ==
+      1);
   CHECK(count == 3 && e[2].cert_len == 2);
 }
 
@@ -74,36 +74,36 @@ static void test_cert_chain_overflow(void) {
   const u8* certs[5] = {cc_a, cc_a, cc_a, cc_a, cc_a};
   usz       lens[5]  = {
       sizeof(cc_a), sizeof(cc_a), sizeof(cc_a), sizeof(cc_a), sizeof(cc_a)};
-  quic_tls_cert_entry e[QUIC_TLS_CERT_CHAIN_MAX];
-  wired_span          ctx;
-  usz                 n = cc_body(body, certs, lens, 5), count;
+  tls_cert_entry e[QUIC_TLS_CERT_CHAIN_MAX];
+  wired_span     ctx;
+  usz            n = cc_body(body, certs, lens, 5), count;
   CHECK(
-      quic_tls_cert_chain(
-          wired_span_of(body, n), &ctx,
-          &(quic_tls_cert_chain_out){e, 4, &count}) == 0);
+      tls_cert_chain(
+          wired_span_of(body, n), &ctx, &(tls_cert_chain_out){e, 4, &count}) ==
+      0);
 }
 
 /* A truncated entry (cert bytes or extensions cut off) is rejected. */
 static void test_cert_chain_truncated(void) {
-  u8                  body[64];
-  const u8*           certs[2] = {cc_a, cc_b};
-  usz                 lens[2]  = {sizeof(cc_a), sizeof(cc_b)};
-  quic_tls_cert_entry e[QUIC_TLS_CERT_CHAIN_MAX];
-  wired_span          ctx;
-  usz                 n = cc_body(body, certs, lens, 2), count;
+  u8             body[64];
+  const u8*      certs[2] = {cc_a, cc_b};
+  usz            lens[2]  = {sizeof(cc_a), sizeof(cc_b)};
+  tls_cert_entry e[QUIC_TLS_CERT_CHAIN_MAX];
+  wired_span     ctx;
+  usz            n = cc_body(body, certs, lens, 2), count;
   /* entry 2's cert_len claims more bytes than the list holds
    * (entry 1 spans body[4..11], entry 2's 3-byte length is at body[12]) */
   body[14] = 0x09;
   CHECK(
-      quic_tls_cert_chain(
-          wired_span_of(body, n), &ctx,
-          &(quic_tls_cert_chain_out){e, 4, &count}) == 0);
+      tls_cert_chain(
+          wired_span_of(body, n), &ctx, &(tls_cert_chain_out){e, 4, &count}) ==
+      0);
   body[14] = 0x05;
   /* whole buffer cut short: the certificate_list vector itself is truncated */
   CHECK(
-      quic_tls_cert_chain(
+      tls_cert_chain(
           wired_span_of(body, n - 1), &ctx,
-          &(quic_tls_cert_chain_out){e, 4, &count}) == 0);
+          &(tls_cert_chain_out){e, 4, &count}) == 0);
 }
 
 void test_cert_chain(void) {

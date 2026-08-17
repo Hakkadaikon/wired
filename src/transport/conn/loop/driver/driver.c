@@ -20,13 +20,13 @@ static const u8 g_order[QUIC_DRIVER_FLIGHT_MAX][2] = {
 #define G_ORDER_LEN QUIC_DRIVER_FLIGHT_MAX
 
 void quic_driver_init(quic_driver* d, int is_server, wired_span dcid) {
-  quic_initial_keys   k0  = {0};
+  initial_keys        k0  = {0};
   quic_connio_init_in cin = {is_server, 0x43, 1u << 20};
   quic_connio_init(&d->io, dcid, &cin);
   d->io.loop.validated = 1; /* RFC 9000 8.1: test path is pre-validated */
   keyset_install(&d->io.loop.keys, QUIC_LEVEL_INITIAL, &k0);
-  quic_hsdriver_init(&d->hs, is_server);
-  quic_keysched_init(&d->ks);
+  hsdriver_init(&d->hs, is_server);
+  keysched_init(&d->ks);
   d->is_server = is_server;
   d->tx_sent   = 0;
   d->rx_done   = 0;
@@ -63,8 +63,8 @@ static int sends_index(const quic_driver* d, u8 pos) {
 /* connio uses one key per level for both seal and open, so both peers install
  * the same direction's material to interoperate (RFC 9001 5). */
 static void install_level(quic_driver* d, int level, int which) {
-  const quic_initial_keys* k;
-  if (quic_keysched_get(&d->ks, which, &k))
+  const initial_keys* k;
+  if (keysched_get(&d->ks, which, &k))
     keyset_install(&d->io.loop.keys, level, k);
 }
 
@@ -75,11 +75,11 @@ static void derive_for(quic_driver* d, u8 msg_type) {
   static const u8 ecdhe[32] = {0};
   static const u8 tr[1]     = {0};
   if (msg_type == QUIC_HSD_SERVER_HELLO) {
-    quic_keysched_advance_handshake(
+    keysched_advance_handshake(
         &d->ks, wired_span_of(ecdhe, sizeof(ecdhe)), wired_span_of(tr, 1));
     install_level(d, QUIC_LEVEL_HANDSHAKE, QUIC_KS_CLIENT_HS);
   } else if (msg_type == QUIC_HSD_FINISHED) {
-    quic_keysched_advance_master(&d->ks, tr, 1);
+    keysched_advance_master(&d->ks, tr, 1);
     install_level(d, QUIC_LEVEL_ONERTT, QUIC_KS_CLIENT_AP);
   }
 }
@@ -87,15 +87,15 @@ static void derive_for(quic_driver* d, u8 msg_type) {
 /* RFC 8446 4.4: CertificateVerify marks the peer authenticated, opening the
  * gate hsdriver enforces before the Finished step. */
 static void advance_order(quic_driver* d, u8 msg_type, u8 level) {
-  if (msg_type == QUIC_HSD_CERT_VERIFY) quic_hsdriver_cert_verified(&d->hs);
-  quic_hsdriver_recv(&d->hs, msg_type, level);
+  if (msg_type == QUIC_HSD_CERT_VERIFY) hsdriver_cert_verified(&d->hs);
+  hsdriver_recv(&d->hs, msg_type, level);
 }
 
 /* RFC 9001 4.9: the connloop send-level ceiling tracks handshake completion;
  * mirror the order machine's verdict so 1-RTT may be sent once complete. */
 static void sync_completion(quic_driver* d) {
-  d->io.loop.handshake_complete  = quic_hsdriver_complete(&d->hs);
-  d->io.loop.handshake_confirmed = quic_hsdriver_confirmed(&d->hs);
+  d->io.loop.handshake_complete  = hsdriver_complete(&d->hs);
+  d->io.loop.handshake_confirmed = hsdriver_confirmed(&d->hs);
 }
 
 /* A queued datagram is waiting and the next transcript step is one this peer
@@ -182,7 +182,7 @@ int quic_driver_step(quic_driver* d) {
 }
 
 int quic_driver_handshake_complete(const quic_driver* d) {
-  return quic_hsdriver_complete(&d->hs);
+  return hsdriver_complete(&d->hs);
 }
 
 /* Keep running while steps remain and the handshake is not yet complete. */

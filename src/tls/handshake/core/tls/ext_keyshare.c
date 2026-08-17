@@ -13,10 +13,9 @@ static usz group_key_len(u16 group) {
   return 0;
 }
 
-usz quic_tls_ext_key_share_len(u16 group) { return group_key_len(group); }
+usz tls_ext_key_share_len(u16 group) { return group_key_len(group); }
 
-usz quic_tls_ext_key_share(
-    u8* buf, usz cap, u16 group, const u8* pub, usz pub_len) {
+usz tls_ext_key_share(u8* buf, usz cap, u16 group, const u8* pub, usz pub_len) {
   usz entry = 4 + pub_len;   /* group(2) ke_len(2) key */
   usz total = 4 + 2 + entry; /* type(2) ext_len(2) shares_len(2) entry */
   if (cap < total) return 0;
@@ -45,7 +44,7 @@ static int entry_ok(const u8* buf, usz n, usz* klen) {
   return entry_hdr_ok(buf, n, klen);
 }
 
-int quic_tls_ext_key_share_parse(
+int tls_ext_key_share_parse(
     const u8* buf, usz n, u16* group, u8* pub, usz* pub_len, usz pub_cap) {
   usz klen, key = 4;
   if (!entry_ok(buf, n, &klen) || klen > pub_cap) return 0;
@@ -106,7 +105,7 @@ static int ks_find_group(
   return 0;
 }
 
-int quic_tls_ext_key_share_scan(
+int tls_ext_key_share_scan(
     const u8* buf, usz n, u16 want_group, u8* pub, usz* pub_len, usz pub_cap) {
   usz list, off = 2;
   if (!ks_list_len(buf, n, &list)) return 0;

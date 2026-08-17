@@ -7,10 +7,10 @@
 #include "tls/handshake/core/tls/handshake.h"
 
 /* RFC 8446 4.1.3: SHA-256("HelloRetryRequest"). */
-const u8 quic_hrr_random[32] = {0xcf, 0x21, 0xad, 0x74, 0xe5, 0x9a, 0x61, 0x11,
-                                0xbe, 0x1d, 0x8c, 0x02, 0x1e, 0x65, 0xb8, 0x91,
-                                0xc2, 0xa2, 0x11, 0x16, 0x7a, 0xbb, 0x8c, 0x5e,
-                                0x07, 0x9e, 0x09, 0xe2, 0xc8, 0xa8, 0x33, 0x9c};
+const u8 hrr_random[32] = {0xcf, 0x21, 0xad, 0x74, 0xe5, 0x9a, 0x61, 0x11,
+                           0xbe, 0x1d, 0x8c, 0x02, 0x1e, 0x65, 0xb8, 0x91,
+                           0xc2, 0xa2, 0x11, 0x16, 0x7a, 0xbb, 0x8c, 0x5e,
+                           0x07, 0x9e, 0x09, 0xe2, 0xc8, 0xa8, 0x33, 0x9c};
 
 #define QUIC_EXT_COOKIE 44
 
@@ -18,7 +18,7 @@ const u8 quic_hrr_random[32] = {0xcf, 0x21, 0xad, 0x74, 0xe5, 0x9a, 0x61, 0x11,
  * the HRR random sentinel. Returns the offset past it. */
 static usz hrr_prefix(u8* out, usz off) {
   be_put_be16(out + off, 0x0303);
-  for (usz i = 0; i < 32; i++) out[off + 2 + i] = quic_hrr_random[i];
+  for (usz i = 0; i < 32; i++) out[off + 2 + i] = hrr_random[i];
   out[off + 34] = 0; /* empty session_id */
   be_put_be16(out + off + 35, QUIC_TLS_AES128_GCM_SHA256);
   out[off + 37] = 0; /* compression */
@@ -31,7 +31,7 @@ static int hrr_versions(wired_obuf* out) {
   be_put_be16(ext, QUIC_EXT_SUPPORTED_VERSIONS);
   be_put_be16(ext + 2, 2);
   be_put_be16(ext + 4, QUIC_TLS13_VERSION);
-  return quic_tls_ext_append(out, wired_span_of(ext, 6));
+  return tls_ext_append(out, wired_span_of(ext, 6));
 }
 
 /* RFC 8446 4.1.4 key_share carries the selected_group only (no key). */
@@ -40,7 +40,7 @@ static int hrr_key_share(wired_obuf* out, u16 group) {
   be_put_be16(ext, QUIC_EXT_KEY_SHARE);
   be_put_be16(ext + 2, 2);
   be_put_be16(ext + 4, group);
-  return quic_tls_ext_append(out, wired_span_of(ext, 6));
+  return tls_ext_append(out, wired_span_of(ext, 6));
 }
 
 /* RFC 8446 4.2.2 cookie header: type(2) ext_len(2) cookie_len(2). */
@@ -78,8 +78,8 @@ static usz hrr_exts(wired_obuf* out, u16 group, wired_span ck) {
 static usz hrr_finish(u8* buf, usz off, usz block_start) {
   usz end;
   if (off == 0) return 0;
-  end = quic_tls_ext_block_finish(buf, off, block_start);
-  if (end != 0) quic_hs_finish(buf, end);
+  end = tls_ext_block_finish(buf, off, block_start);
+  if (end != 0) hs_finish(buf, end);
   return end;
 }
 
@@ -88,8 +88,8 @@ static int hrr_head_fits(usz off, usz cap) {
   return off != 0 && off + 40 <= cap;
 }
 
-int quic_hrr_build(u16 selected_group, wired_span cookie, wired_obuf* out) {
-  usz        off = quic_hs_begin(out->p, out->cap, QUIC_HS_SERVER_HELLO);
+int hrr_build(u16 selected_group, wired_span cookie, wired_obuf* out) {
+  usz        off = hs_begin(out->p, out->cap, QUIC_HS_SERVER_HELLO);
   usz        block_start, end;
   wired_obuf w;
   if (!hrr_head_fits(off, out->cap)) return 0;
@@ -104,20 +104,19 @@ int quic_hrr_build(u16 selected_group, wired_span cookie, wired_obuf* out) {
 }
 
 /* RFC 8446 4.4.1: msg_type 254, same 4-byte handshake header framing
- * (quic_hs_begin/quic_hs_finish) as every other handshake message, body is
+ * (hs_begin/hs_finish) as every other handshake message, body is
  * the raw hash bytes of ClientHello1. */
 #define QUIC_HS_MESSAGE_HASH 254
 
-/* off (a quic_hs_begin result) plus n more bytes still fits within cap. */
+/* off (a hs_begin result) plus n more bytes still fits within cap. */
 static int hrr_mh_fits(usz off, usz n, usz cap) {
   return off != 0 && off + n <= cap;
 }
 
-usz quic_hrr_message_hash(
-    const u8* ch1_hash, usz ch1_hash_len, u8* out, usz cap) {
-  usz off = quic_hs_begin(out, cap, QUIC_HS_MESSAGE_HASH);
+usz hrr_message_hash(const u8* ch1_hash, usz ch1_hash_len, u8* out, usz cap) {
+  usz off = hs_begin(out, cap, QUIC_HS_MESSAGE_HASH);
   if (!hrr_mh_fits(off, ch1_hash_len, cap)) return 0;
   for (usz i = 0; i < ch1_hash_len; i++) out[off + i] = ch1_hash[i];
-  quic_hs_finish(out, off + ch1_hash_len);
+  hs_finish(out, off + ch1_hash_len);
   return off + ch1_hash_len;
 }

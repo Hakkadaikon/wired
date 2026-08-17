@@ -5,7 +5,7 @@
 static void mk(quic_evloop* c) {
   quic_evloop_init_in in = {QUIC_LEVEL_INITIAL, 1u << 20, 10};
   quic_evloop_init(c, &in);
-  quic_initial_keys k = {0};
+  initial_keys k = {0};
   keyset_install(&c->gate.keys, QUIC_LEVEL_INITIAL, &k);
   c->gate.validated = 1;
 }
@@ -338,7 +338,7 @@ static void test_discard_keys_resets_pto_and_loss_timers(void) {
   CHECK(c.pto.armed == 0);
   CHECK(c.loss.armed == 0);
   {
-    const quic_initial_keys* out = 0;
+    const initial_keys* out = 0;
     CHECK(keyset_for_level(&c.gate.keys, QUIC_LEVEL_INITIAL, &out) == 0);
   }
 }

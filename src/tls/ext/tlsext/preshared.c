@@ -14,7 +14,7 @@ static usz psk_total(usz id_len, usz binder_len) {
   return 4 + 2 + (2 + id_len + 4) + 2 + (1 + binder_len);
 }
 
-int quic_tlsext_pre_shared_key(const quic_tlsext_psk_in* in, wired_obuf* out) {
+int tlsext_pre_shared_key(const tlsext_psk_in* in, wired_obuf* out) {
   usz id_len     = in->identity.n;
   usz binder_len = in->binder.n;
   usz total      = psk_total(id_len, binder_len);
@@ -67,8 +67,7 @@ static int psk_offer_ok(const u8* out, usz n, usz id_len) {
   return psk_prefix_ok(out, n, id_len) && psk_shape_ok(out, n, l);
 }
 
-int quic_tlsext_pre_shared_key_parse(
-    const u8* out, usz n, quic_tlsext_psk_offer* off) {
+int tlsext_pre_shared_key_parse(const u8* out, usz n, tlsext_psk_offer* off) {
   usz id_len = (n >= 8) ? ((usz)out[6] << 8 | out[7]) : 0;
   if (!psk_offer_ok(out, n, id_len)) return 0;
   off->binder_len = out[14 + id_len];

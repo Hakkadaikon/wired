@@ -3,7 +3,7 @@
 #include "common/bytes/util/be.h"
 
 /* RFC 8446 4.2.1: type(2) + ext_data length(2) + list length(1) + versions. */
-usz quic_tls_ext_supported_versions(u8* buf, usz cap) {
+usz tls_ext_supported_versions(u8* buf, usz cap) {
   if (cap < 7) return 0;
   be_put_be16(buf, QUIC_EXT_SUPPORTED_VERSIONS);
   be_put_be16(buf + 2, 3);
@@ -44,7 +44,7 @@ static int versions_scan(const u8* buf, usz cnt) {
   return 0;
 }
 
-int quic_tls_ext_versions_has_tls13(const u8* buf, usz n) {
+int tls_ext_versions_has_tls13(const u8* buf, usz n) {
   if (!versions_framed(buf, n)) return 0;
   return versions_scan(buf, versions_count(buf));
 }

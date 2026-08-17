@@ -36,9 +36,9 @@ int quic_connrunner_recv_retry(quic_connrunner* r, const quic_retry_event* e) {
 /* RFC 9001 5.2: install the new Initial keys derived from the Retry DCID and
  * adopt that DCID for subsequent Initials. */
 static void rederive_initial(quic_connrunner* r) {
-  quic_initial_keys k;
-  usz               off = 0;
-  quic_initial_derive(
+  initial_keys k;
+  usz          off = 0;
+  initial_derive(
       wired_span_of(r->retry.dcid, r->retry.dcid_len), r->io.loop.is_server,
       QUIC_VERSION_1, &k);
   keyset_install(&r->io.loop.keys, QUIC_LEVEL_INITIAL, &k);
@@ -118,12 +118,12 @@ static int drive_vn(quic_connrunner* r, const u8* pkt, usz len) {
 /* RFC 9000 17.2.5: parse and verify a Retry against the current DCID, then
  * drive recv_retry; a malformed Retry is consumed (1) without action. */
 static int drive_retry(quic_connrunner* r, const u8* pkt, usz len) {
-  u8                     token[256], dcid[WIRED_MAX_CID_LEN];
-  u8                     dlen;
-  quic_retry_event       e;
-  wired_obuf             tok_ob = obuf_of(token, sizeof(token));
-  quic_retry_process_out out    = {&tok_ob, dcid, &dlen};
-  e.tag_valid                   = quic_retry_process(
+  u8                token[256], dcid[WIRED_MAX_CID_LEN];
+  u8                dlen;
+  quic_retry_event  e;
+  wired_obuf        tok_ob = obuf_of(token, sizeof(token));
+  retry_process_out out    = {&tok_ob, dcid, &dlen};
+  e.tag_valid              = retry_process(
       wired_span_of(pkt, len), wired_span_of(r->io.dcid, r->io.dcid_len), &out);
   e.scid  = wired_span_of(dcid, dlen);
   e.token = wired_span_of(token, tok_ob.len);

@@ -88,7 +88,7 @@ int quic_srvwire_open_initial(
     const quic_srvwire_open_initial_in* in, wired_mspan pkt, wired_span* tls);
 
 /* RFC 9001 5: seal a TLS flight into a Handshake packet under caller-supplied
- * directional keys (from quic_keysched_get). When in->ack_pn >= 0 the flight
+ * directional keys (from keysched_get). When in->ack_pn >= 0 the flight
  * leads with an ACK frame for that received Handshake-space packet number
  * (RFC 9000 13.2.1); ack_pn < 0 emits CRYPTO only. Returns 1 with out->len
  * set, or 0 on overflow. */

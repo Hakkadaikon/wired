@@ -4,8 +4,8 @@
 static void test_send_level_never_regresses(void) {
   quic_connloop c;
   quic_connloop_init(&c, 1);
-  c.validated = 1; /* lift anti-amp so the gate under test is the level */
-  quic_initial_keys k = {0};
+  c.validated    = 1; /* lift anti-amp so the gate under test is the level */
+  initial_keys k = {0};
   keyset_install(&c.keys, QUIC_LEVEL_INITIAL, &k);
   keyset_install(&c.keys, QUIC_LEVEL_HANDSHAKE, &k);
 
@@ -32,8 +32,8 @@ static void test_send_level_never_regresses(void) {
 static void test_no_app_data_before_handshake_complete(void) {
   quic_connloop c;
   quic_connloop_init(&c, 1);
-  c.validated         = 1;
-  quic_initial_keys k = {0};
+  c.validated    = 1;
+  initial_keys k = {0};
   keyset_install(&c.keys, QUIC_LEVEL_INITIAL, &k);
   keyset_install(&c.keys, QUIC_LEVEL_HANDSHAKE, &k);
   keyset_install(&c.keys, QUIC_LEVEL_ONERTT, &k);
@@ -61,7 +61,7 @@ static void test_no_app_data_before_handshake_complete(void) {
 static void test_server_send_capped_3x_recv(void) {
   quic_connloop c;
   quic_connloop_init(&c, 1);
-  quic_initial_keys k = {0};
+  initial_keys k = {0};
   keyset_install(&c.keys, QUIC_LEVEL_INITIAL, &k);
 
   quic_connloop_on_recv(&c, QUIC_LEVEL_INITIAL, 100); /* budget = 300 */
@@ -84,7 +84,7 @@ static void test_server_send_capped_3x_recv(void) {
 static void test_validate_lifts_3x_cap(void) {
   quic_connloop c;
   quic_connloop_init(&c, 1);
-  quic_initial_keys k = {0};
+  initial_keys k = {0};
   keyset_install(&c.keys, QUIC_LEVEL_INITIAL, &k);
 
   quic_connloop_on_recv(&c, QUIC_LEVEL_INITIAL, 100); /* budget = 300 */
@@ -117,7 +117,7 @@ static void test_recv_drops_packet_without_key(void) {
 static void test_closed_processes_no_packet(void) {
   quic_connloop c;
   quic_connloop_init(&c, 1);
-  quic_initial_keys k = {0};
+  initial_keys k = {0};
   keyset_install(&c.keys, QUIC_LEVEL_INITIAL, &k);
   c.phase    = QUIC_CONNLOOP_CLOSED;
   u64 before = c.recv_bytes;
@@ -130,8 +130,8 @@ static void test_closed_processes_no_packet(void) {
 static void test_ack_removes_tracked_packet(void) {
   quic_connloop c;
   quic_connloop_init(&c, 1);
-  c.validated         = 1;
-  quic_initial_keys k = {0};
+  c.validated    = 1;
+  initial_keys k = {0};
   keyset_install(&c.keys, QUIC_LEVEL_INITIAL, &k);
   quic_connloop_on_send(
       &c, &(quic_connloop_send_in){QUIC_LEVEL_INITIAL, 1, 0, 10});
@@ -158,8 +158,8 @@ static void test_ack_removes_tracked_packet(void) {
 static void test_pto_sends_probe_keeps_inflight(void) {
   quic_connloop c;
   quic_connloop_init(&c, 1);
-  c.validated         = 1;
-  quic_initial_keys k = {0};
+  c.validated    = 1;
+  initial_keys k = {0};
   keyset_install(&c.keys, QUIC_LEVEL_INITIAL, &k);
 
   /* empty in-flight: PTO refuses, stays disarmed */
@@ -208,7 +208,7 @@ static void test_closing_sends_no_app_data(void) {
   quic_connloop_init(&c, 1);
   c.validated          = 1;
   c.handshake_complete = 1;
-  quic_initial_keys k  = {0};
+  initial_keys k       = {0};
   keyset_install(&c.keys, QUIC_LEVEL_ONERTT, &k);
   c.send_level = QUIC_LEVEL_HANDSHAKE;
   quic_connloop_close(&c, 0); /* -> closing */
@@ -221,7 +221,7 @@ static void test_closing_sends_no_app_data(void) {
 static void test_no_recv_at_discarded_level(void) {
   quic_connloop c;
   quic_connloop_init(&c, 1);
-  quic_initial_keys k = {0};
+  initial_keys k = {0};
   keyset_install(&c.keys, QUIC_LEVEL_INITIAL, &k);
   CHECK(quic_connloop_on_recv(&c, QUIC_LEVEL_INITIAL, 10) == 1);
   keyset_discard(&c.keys, QUIC_LEVEL_INITIAL);
@@ -236,10 +236,10 @@ static void test_handshake_progress_reaches_confirmed(void) {
   quic_connloop cl, sv;
   quic_connloop_init(&cl, 0);
   quic_connloop_init(&sv, 1);
-  cl.validated        = 1;
-  sv.validated        = 1;
-  quic_initial_keys k = {0};
-  int               lv;
+  cl.validated   = 1;
+  sv.validated   = 1;
+  initial_keys k = {0};
+  int          lv;
   for (lv = QUIC_LEVEL_INITIAL; lv <= QUIC_LEVEL_ONERTT; lv++) {
     keyset_install(&cl.keys, lv, &k);
     keyset_install(&sv.keys, lv, &k);

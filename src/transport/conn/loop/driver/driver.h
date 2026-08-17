@@ -20,17 +20,17 @@
 /** The connection driver: ties the handshake order machine, key schedule,
  * and connio transport together and runs them to completion. */
 typedef struct {
-  quic_connio   io; /* real seal/open transport + connloop gate */
-  quic_hsdriver hs; /* handshake message order machine */
-  quic_keysched ks; /* order-driven key schedule */
-  int           is_server;
-  u8            tx_sent; /* outbound flight messages emitted so far */
-  u8            rx_done; /* inbound flight messages processed so far */
-  u64           tx_off;  /* STREAM offset carrying the next outbound message */
-  usz           in_len;  /* queued inbound datagram length (0 = none) */
-  usz           out_len; /* produced outbound datagram length (0 = none) */
-  u8            in_buf[QUIC_DRIVER_DGRAM_CAP];
-  u8            out_buf[QUIC_DRIVER_DGRAM_CAP];
+  quic_connio io; /* real seal/open transport + connloop gate */
+  hsdriver    hs; /* handshake message order machine */
+  keysched    ks; /* order-driven key schedule */
+  int         is_server;
+  u8          tx_sent; /* outbound flight messages emitted so far */
+  u8          rx_done; /* inbound flight messages processed so far */
+  u64         tx_off;  /* STREAM offset carrying the next outbound message */
+  usz         in_len;  /* queued inbound datagram length (0 = none) */
+  usz         out_len; /* produced outbound datagram length (0 = none) */
+  u8          in_buf[QUIC_DRIVER_DGRAM_CAP];
+  u8          out_buf[QUIC_DRIVER_DGRAM_CAP];
 } quic_driver;
 
 /* Initialize an active connection driver as client (is_server 0) or server

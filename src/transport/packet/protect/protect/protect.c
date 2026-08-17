@@ -16,8 +16,7 @@ void quic_protect_nonce(
 
 /* Copy the header into io->out and seal the payload after it, returning the
  * total length (header + ciphertext + tag) or 0 on overflow. */
-static usz seal_into(
-    const quic_initial_keys* keys, const quic_protect_seal_io* io) {
+static usz seal_into(const initial_keys* keys, const quic_protect_seal_io* io) {
   u8     nonce[QUIC_INITIAL_IV];
   aes128 aead;
   u8*    out  = io->out.p;
@@ -75,9 +74,9 @@ static void protect_copy_hdr(u8* out, wired_span hdr) {
  * returning the total length (header + ciphertext + tag) or 0 on
  * overflow/unknown suite. */
 static usz seal_into_suite(
-    u16 suite, const quic_initial_keys* keys, const quic_protect_seal_io* io) {
-  u8* out  = io->out.p;
-  usz need = io->hdr.n + io->payload.n + quic_aead_tag_len(suite);
+    u16 suite, const initial_keys* keys, const quic_protect_seal_io* io) {
+  u8*                out  = io->out.p;
+  usz                need = io->hdr.n + io->payload.n + aead_tag_len(suite);
   quic_aead_suite_op op;
   if (need > io->out.n) return 0;
   protect_copy_hdr(out, io->hdr);
@@ -112,8 +111,8 @@ usz quic_protect_seal_suite(
 
 usz quic_protect_open_suite(
     u16 suite, const quic_protect_keys* k, const quic_protect_open_io* io) {
-  u8* pkt    = io->pkt.p;
-  usz ct_len = io->pkt.n - io->hdr_len - quic_aead_tag_len(suite);
+  u8*                pkt    = io->pkt.p;
+  usz                ct_len = io->pkt.n - io->hdr_len - aead_tag_len(suite);
   quic_aead_suite_op op;
   if (!protect_header_suite(
           suite, k->keys->hp, pkt,

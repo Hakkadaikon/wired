@@ -6,7 +6,7 @@
 
 /* RFC 8446 4.6.1 */
 /* Copy the captured resumption PSK, when the caller has one. */
-static void resume_take_psk(quic_resume* r, const u8* psk) {
+static void resume_take_psk(resume* r, const u8* psk) {
   r->have_psk = psk != 0;
   if (!psk) return;
   for (usz i = 0; i < 32; i++) r->psk[i] = psk[i];
@@ -14,13 +14,12 @@ static void resume_take_psk(quic_resume* r, const u8* psk) {
 
 /* RFC 6066 3: remember the server_name this session was established under,
  * truncated to QUIC_RESUME_SNI_MAX (RFC 1035 3.1's 255-octet name bound). */
-static void resume_take_sni(quic_resume* r, wired_span sni) {
+static void resume_take_sni(resume* r, wired_span sni) {
   r->sni_len = u64_min(sni.n, QUIC_RESUME_SNI_MAX);
   for (usz i = 0; i < r->sni_len; i++) r->sni[i] = sni.p[i];
 }
 
-int quic_resume_store(
-    quic_resume* r, wired_span ticket, const quic_resume_store_in* in) {
+int resume_store(resume* r, wired_span ticket, const resume_store_in* in) {
   usz off = 0;
   if (!bytes_put(
           wired_mspan_of(r->ticket, QUIC_RESUME_TICKET_MAX), &off, ticket))
@@ -36,30 +35,29 @@ int quic_resume_store(
 }
 
 /* RFC 8446 4.6.1: usable while now < issued_at + lifetime. */
-int quic_resume_valid(const quic_resume* r, u64 now) {
+int resume_valid(const resume* r, u64 now) {
   return r->have_ticket && now < r->issued_at + r->lifetime;
 }
 
 /* RFC 9001 4.6 / RFC 9000 7.4.1 */
-int quic_resume_tp_compatible(u64 remembered_max_data, u64 new_max_data) {
+int resume_tp_compatible(u64 remembered_max_data, u64 new_max_data) {
   return remembered_max_data <= new_max_data;
 }
 
 /* RFC 6066 3: an omitted server_name on resumption, or no remembered one, is
  * always compatible; otherwise the two names must match exactly. */
-int quic_resume_sni_compatible(const quic_resume* r, wired_span new_sni) {
+int resume_sni_compatible(const resume* r, wired_span new_sni) {
   if (new_sni.n == 0 || r->sni_len == 0) return 1;
   return ascii_dns_eq(wired_span_of(r->sni, r->sni_len), new_sni);
 }
 
 /* RFC 9001 4.6 */
-int quic_resume_can_0rtt(
-    const quic_resume* r, int ticket_valid, int tp_compatible) {
+int resume_can_0rtt(const resume* r, int ticket_valid, int tp_compatible) {
   return r->have_ticket && ticket_valid && tp_compatible;
 }
 
 /* RFC 9000 8.1 / 17.2.5: a Retry never invalidates resumption. */
-int quic_resume_after_retry(const quic_resume* r, int retry_received) {
+int resume_after_retry(const resume* r, int retry_received) {
   (void)retry_received;
   return r->have_ticket;
 }
@@ -68,7 +66,7 @@ int quic_resume_after_retry(const quic_resume* r, int retry_received) {
  * ticket_len be16 | ticket bytes. */
 #define RESUME_BLOB_HDR (8 + 4 + 8 + 32 + 2)
 
-usz quic_resume_session(const quic_resume* r, u8* out, usz cap) {
+usz resume_session(const resume* r, u8* out, usz cap) {
   usz off = 0;
   if (!r->have_ticket || RESUME_BLOB_HDR + r->ticket_len > cap) return 0;
   be_put_be64(out, r->issued_at);
@@ -90,7 +88,7 @@ static int resume_blob_len_ok(wired_span blob, usz* tlen) {
   return *tlen <= QUIC_RESUME_TICKET_MAX && blob.n == RESUME_BLOB_HDR + *tlen;
 }
 
-int quic_resume_set_session(quic_resume* r, wired_span blob) {
+int resume_set_session(resume* r, wired_span blob) {
   usz tlen;
   usz off = 0;
   if (!resume_blob_len_ok(blob, &tlen)) return 0;
@@ -105,9 +103,9 @@ int quic_resume_set_session(quic_resume* r, wired_span blob) {
   return 1;
 }
 
-int quic_resume_early_keys(
-    const quic_resume* r, const u8* ch, usz ch_len, quic_initial_keys* out) {
+int resume_early_keys(
+    const resume* r, const u8* ch, usz ch_len, initial_keys* out) {
   if (!r->have_psk) return 0;
-  quic_tls_early_keys(r->psk, ch, ch_len, out);
+  tls_early_keys(r->psk, ch, ch_len, out);
   return 1;
 }

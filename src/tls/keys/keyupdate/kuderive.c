@@ -21,13 +21,13 @@ static usz ku_label_build(u8 buf[KU_LABEL_MAX], u32 version) {
   return prefix_len + 2;
 }
 
-void quic_ku_next_secret_v(u32 version, const u8 cur[32], u8 next[32]) {
+void ku_next_secret_v(u32 version, const u8 cur[32], u8 next[32]) {
   u8         buf[KU_LABEL_MAX];
   usz        n = ku_label_build(buf, version);
   hkdf_label l = {(const char*)buf, n, {0, 0}};
   hkdf_expand_label(cur, &l, wired_mspan_of(next, 32));
 }
 
-void quic_ku_next_secret(const u8 cur[32], u8 next[32]) {
-  quic_ku_next_secret_v(QUIC_VERSION_1, cur, next);
+void ku_next_secret(const u8 cur[32], u8 next[32]) {
+  ku_next_secret_v(QUIC_VERSION_1, cur, next);
 }

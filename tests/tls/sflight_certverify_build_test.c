@@ -29,14 +29,13 @@ void test_sflight_certverify_build(void) {
   for (usz i = 0; i < 32; i++) thash[i] = (u8)(0x40 + i);
   CHECK(ed25519_keypair(seed, pub));
 
-  CHECK(quic_sflight_certificate_verify(seed, thash, &ob));
-  CHECK(quic_hs_parse(wired_span_of(out, ob.len), &type, &body_len) == 4);
+  CHECK(sflight_certificate_verify(seed, thash, &ob));
+  CHECK(hs_parse(wired_span_of(out, ob.len), &type, &body_len) == 4);
   CHECK(type == 15);
   CHECK(4 + body_len == ob.len);
 
   /* body parses as scheme 0x0807 + a 64-byte signature. */
-  CHECK(quic_tls_certverify_parse(
-      wired_span_of(out + 4, body_len), &scheme, &sig));
+  CHECK(tls_certverify_parse(wired_span_of(out + 4, body_len), &scheme, &sig));
   CHECK(scheme == 0x0807);
   CHECK(sig.n == 64);
 
@@ -49,5 +48,5 @@ void test_sflight_certverify_build(void) {
   CHECK(!ed25519_verify(sig.p, content, 130, pub));
 
   ob = obuf_of(out, 4);
-  CHECK(!quic_sflight_certificate_verify(seed, thash, &ob));
+  CHECK(!sflight_certificate_verify(seed, thash, &ob));
 }

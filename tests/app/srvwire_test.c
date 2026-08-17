@@ -78,7 +78,7 @@ static void test_srvwire_initial_wrong_key(void) {
 }
 
 /* Shared Handshake keys for the round-trip tests (RFC 9001 5). */
-static void hs_keys(quic_initial_keys* k, aes128* hp) {
+static void hs_keys(initial_keys* k, aes128* hp) {
   for (usz i = 0; i < 16; i++) {
     k->key[i] = (u8)(0x10 + i);
     k->hp[i]  = (u8)(0x90 + i);
@@ -90,11 +90,11 @@ static void hs_keys(quic_initial_keys* k, aes128* hp) {
 /* RFC 9001 5: Handshake flight. Sealed and opened under the same caller-
  * supplied directional keys recovers the EE/Cert/CV/Fin bytes. */
 static void test_srvwire_handshake_roundtrip(void) {
-  const u8 dcid[6] = {'C', 'I', 'D', 'x', 'y', 'z'};
-  const u8 scid[6] = {'S', 'R', 'V', 'C', 'I', 'D'};
-  const u8 fl[]    = {'E', 'E', 'C', 'e', 'r', 't', 'C', 'V', 'F', 'i', 'n'};
-  quic_initial_keys k;
-  aes128            hp;
+  const u8     dcid[6] = {'C', 'I', 'D', 'x', 'y', 'z'};
+  const u8     scid[6] = {'S', 'R', 'V', 'C', 'I', 'D'};
+  const u8     fl[] = {'E', 'E', 'C', 'e', 'r', 't', 'C', 'V', 'F', 'i', 'n'};
+  initial_keys k;
+  aes128       hp;
   hs_keys(&k, &hp);
   u8                   pkt[256];
   wired_obuf           ob = {pkt, sizeof pkt, 0};
@@ -116,11 +116,11 @@ static void test_srvwire_handshake_roundtrip(void) {
 
 /* Wrong Handshake keys must fail to open. */
 static void test_srvwire_handshake_wrong_key(void) {
-  const u8 dcid[6] = {'C', 'I', 'D', 'x', 'y', 'z'};
-  const u8 scid[6] = {'S', 'R', 'V', 'C', 'I', 'D'};
-  const u8 fl[]    = {'E', 'E', 'C', 'e', 'r', 't', 'C', 'V', 'F', 'i', 'n'};
-  quic_initial_keys k, bad;
-  aes128            hp, badhp;
+  const u8     dcid[6] = {'C', 'I', 'D', 'x', 'y', 'z'};
+  const u8     scid[6] = {'S', 'R', 'V', 'C', 'I', 'D'};
+  const u8     fl[] = {'E', 'E', 'C', 'e', 'r', 't', 'C', 'V', 'F', 'i', 'n'};
+  initial_keys k, bad;
+  aes128       hp, badhp;
   hs_keys(&k, &hp);
   hs_keys(&bad, &badhp);
   bad.key[0] ^= 0xff;
@@ -160,16 +160,16 @@ static int find_trailing_ack(const u8* frames, usz n, quic_ack_frame* ack) {
  * Acknowledged equals the received client packet number, alongside the CRYPTO.
  */
 static void test_srvwire_initial_acks_client(void) {
-  const u8 dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
-  const u8 scid[6] = {'S', 'R', 'V', 'C', 'I', 'D'};
-  const u8 sh[]    = {'S', 'e', 'r', 'v', 'e', 'r', 'H', 'e', 'l', 'l', 'o'};
-  quic_initial_keys    ck, sk;
-  aes128               hp;
-  u8                   pkt[1300];
-  wired_obuf           ob = {pkt, sizeof pkt, 0};
-  const u8*            frames;
-  usz                  fl;
-  quic_ack_frame       ack;
+  const u8       dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
+  const u8       scid[6] = {'S', 'R', 'V', 'C', 'I', 'D'};
+  const u8       sh[] = {'S', 'e', 'r', 'v', 'e', 'r', 'H', 'e', 'l', 'l', 'o'};
+  initial_keys   ck, sk;
+  aes128         hp;
+  u8             pkt[1300];
+  wired_obuf     ob = {pkt, sizeof pkt, 0};
+  const u8*      frames;
+  usz            fl;
+  quic_ack_frame ack;
   quic_srvwire_seal_in in = {
       wired_span_of(dcid, 8),
       wired_span_of(dcid, 8),
@@ -196,16 +196,16 @@ static void test_srvwire_initial_acks_client(void) {
 /* RFC 9000 13.2.1: a Handshake flight likewise acknowledges a received
  * Handshake-space packet (here PN 3) with a trailing ACK frame. */
 static void test_srvwire_handshake_acks_client(void) {
-  const u8          dcid[6] = {'C', 'I', 'D', 'x', 'y', 'z'};
-  const u8          scid[6] = {'S', 'R', 'V', 'C', 'I', 'D'};
-  const u8          fl_in[] = {'E', 'E', 'F', 'i', 'n'};
-  quic_initial_keys k;
-  aes128            hp;
-  u8                pkt[512];
-  wired_obuf        ob = {pkt, sizeof pkt, 0};
-  const u8*         frames;
-  usz               fl;
-  quic_ack_frame    ack;
+  const u8       dcid[6] = {'C', 'I', 'D', 'x', 'y', 'z'};
+  const u8       scid[6] = {'S', 'R', 'V', 'C', 'I', 'D'};
+  const u8       fl_in[] = {'E', 'E', 'F', 'i', 'n'};
+  initial_keys   k;
+  aes128         hp;
+  u8             pkt[512];
+  wired_obuf     ob = {pkt, sizeof pkt, 0};
+  const u8*      frames;
+  usz            fl;
+  quic_ack_frame ack;
   hs_keys(&k, &hp);
   quic_srvwire_seal_in in = {
       wired_span_of((const u8*)0, 0),

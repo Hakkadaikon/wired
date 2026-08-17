@@ -15,10 +15,10 @@
  * on success, 0 if it does not fit or alpn is QUIC_SALPN_NONE (nothing
  * negotiated -- the caller must not have reached here with an unresolved
  * negotiation). */
-int quic_eebuild_encrypted_extensions(
-    quic_salpn_choice alpn,
-    wired_span        transport_params,
-    int               early_data,
-    wired_obuf*       out);
+int eebuild_encrypted_extensions(
+    salpn_choice alpn,
+    wired_span   transport_params,
+    int          early_data,
+    wired_obuf*  out);
 
 #endif

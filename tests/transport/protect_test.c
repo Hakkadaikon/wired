@@ -18,10 +18,10 @@ static void test_protect_nonce_rfc(void) {
 /* Seal then open returns the original header and payload (protect∘unprotect
  * = id), using keys derived exactly as for a real Initial packet. */
 static void test_protect_roundtrip(void) {
-  const u8          dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
-  quic_initial_keys keys;
-  aes128            hp;
-  quic_initial_derive(wired_span_of(dcid, 8), 0, QUIC_VERSION_1, &keys);
+  const u8     dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
+  initial_keys keys;
+  aes128       hp;
+  initial_derive(wired_span_of(dcid, 8), 0, QUIC_VERSION_1, &keys);
   aes128_init(&hp, keys.hp);
 
   /* a long-header Initial with a 4-byte packet number at offset 18 */
@@ -60,10 +60,10 @@ static void test_protect_roundtrip(void) {
 
 /* A tampered ciphertext byte makes open fail. */
 static void test_protect_tamper(void) {
-  const u8          dcid[8] = {1, 2, 3, 4, 5, 6, 7, 8};
-  quic_initial_keys keys;
-  aes128            hp;
-  quic_initial_derive(wired_span_of(dcid, 8), 0, QUIC_VERSION_1, &keys);
+  const u8     dcid[8] = {1, 2, 3, 4, 5, 6, 7, 8};
+  initial_keys keys;
+  aes128       hp;
+  initial_derive(wired_span_of(dcid, 8), 0, QUIC_VERSION_1, &keys);
   aes128_init(&hp, keys.hp);
   u8       hdr[18] = {0xc3, 0, 0, 0, 1, 8, 1, 2, 3, 4, 5, 6, 7, 8, 0, 0, 0, 2};
   const u8 payload[] = {1, 2, 3, 4};

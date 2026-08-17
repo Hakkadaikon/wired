@@ -2,7 +2,7 @@
 
 #include "crypto/symmetric/hash/hash/hmac.h"
 
-void quic_tls_finished_verify_data(
+void tls_finished_verify_data(
     const u8 base_key[QUIC_HKDF_PRK],
     const u8 transcript_hash[QUIC_SHA256_DIGEST],
     u8       out[QUIC_TLS_VERIFY_DATA]) {
@@ -22,11 +22,11 @@ static u8 digest_diff(const u8 a[32], const u8 b[32]) {
   return d;
 }
 
-int quic_tls_finished_check(
+int tls_finished_check(
     const u8 base_key[QUIC_HKDF_PRK],
     const u8 transcript_hash[QUIC_SHA256_DIGEST],
     const u8 received[QUIC_TLS_VERIFY_DATA]) {
   u8 want[QUIC_TLS_VERIFY_DATA];
-  quic_tls_finished_verify_data(base_key, transcript_hash, want);
+  tls_finished_verify_data(base_key, transcript_hash, want);
   return digest_diff(want, received) == 0;
 }

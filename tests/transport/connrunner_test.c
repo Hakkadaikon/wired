@@ -32,8 +32,8 @@ static void test_packet_level(void) {
 /* Install the same Initial keys on a connio pair and lift their gates so a
  * sealed packet from one opens under the other. */
 static void arm(quic_connio* io) {
-  quic_initial_keys k = {0};
-  io->loop.validated  = 1;
+  initial_keys k     = {0};
+  io->loop.validated = 1;
   keyset_install(&io->loop.keys, QUIC_LEVEL_INITIAL, &k);
 }
 
@@ -46,8 +46,7 @@ static void mk_runner(quic_connrunner* r, int is_server) {
   quic_connrunner_init(r, wired_span_of(g_dcid, 8), &in);
   arm(&r->io);
   r->loop.gate.validated = 1; /* lift anti-amp on the loop side */
-  keyset_install(
-      &r->loop.gate.keys, QUIC_LEVEL_INITIAL, &(quic_initial_keys){0});
+  keyset_install(&r->loop.gate.keys, QUIC_LEVEL_INITIAL, &(initial_keys){0});
 }
 
 /* RFC 9001 5 / RFC 9000 13.2.1: a sealed ack-eliciting packet fed to
@@ -254,8 +253,8 @@ static void test_advance_closed_idle(void) {
  * Handshake, so the next send may promote straight to 1-RTT (RFC 9001
  * 4.1.4/4.9) -- same shape as connio_test.c's own connrunner_arm_onertt. */
 static void connrunner_arm_onertt(quic_connio* io) {
-  quic_initial_keys k = {0};
-  io->loop.validated  = 1;
+  initial_keys k     = {0};
+  io->loop.validated = 1;
   keyset_install(&io->loop.keys, QUIC_LEVEL_INITIAL, &k);
   keyset_install(&io->loop.keys, QUIC_LEVEL_HANDSHAKE, &k);
   keyset_install(&io->loop.keys, QUIC_LEVEL_ONERTT, &k);
@@ -453,7 +452,7 @@ static void test_sentmeta_loss_feeds_rtx(void) {
  * produce distinct next-generation keys. */
 static void mk_ku(quic_connrunner* r, int confirmed) {
   mk_runner(r, 0);
-  keyset_install(&r->io.loop.keys, QUIC_LEVEL_ONERTT, &(quic_initial_keys){0});
+  keyset_install(&r->io.loop.keys, QUIC_LEVEL_ONERTT, &(initial_keys){0});
   r->io.loop.handshake_confirmed = confirmed;
   quic_connrunner_keyupdate_init(r);
   for (usz i = 0; i < QUIC_HKDF_PRK; i++) r->ku_secret[i] = (u8)(i + 1);
@@ -464,7 +463,7 @@ static void mk_ku(quic_connrunner* r, int confirmed) {
 static void test_ku_no_derive_before_confirm(void) {
   quic_connrunner r;
   mk_ku(&r, 0);
-  u8 byte0 = quic_keyphase_set(0x40, 1);              /* opposite phase bit */
+  u8 byte0 = keyphase_set(0x40, 1);                   /* opposite phase bit */
   CHECK(quic_connrunner_recv_keygen(&r, byte0) != 1); /* next NOT selected */
   CHECK(r.ku.generation == 0);                        /* send gen unchanged */
   CHECK(r.ku_phase == 0); /* advertised phase unchanged */
@@ -476,7 +475,7 @@ static void test_ku_no_derive_before_confirm(void) {
 static void test_ku_recv_selects_next_gen(void) {
   quic_connrunner r;
   mk_ku(&r, 1);
-  u8 byte0 = quic_keyphase_set(0x40, 1);
+  u8 byte0 = keyphase_set(0x40, 1);
   CHECK(quic_connrunner_recv_keygen(&r, byte0) == 1); /* next generation */
   CHECK(r.ku.generation == 0);                        /* send gen unchanged */
 }
@@ -491,8 +490,8 @@ static void test_ku_initiate_derives_then_toggles(void) {
       quic_connrunner_maybe_initiate_ku(
           &r, &(quic_connrunner_ku_in){100, 10, 1}) == 1);
   CHECK(r.ku.generation == 1);
-  CHECK(r.ku.have_old == 1);                 /* prior read key retained */
-  CHECK(quic_keyphase_get(r.ku_phase) == 1); /* phase == gen%2 */
+  CHECK(r.ku.have_old == 1);            /* prior read key retained */
+  CHECK(keyphase_get(r.ku_phase) == 1); /* phase == gen%2 */
   CHECK(r.ku_unacked == 1);
 }
 
@@ -557,7 +556,7 @@ static void test_ku_drop_discarded_gen(void) {
       &r, &(quic_connrunner_ku_in){0, 10, 2}); /* now at gen 1, phase 1 */
   quic_connrunner_ku_completed(&r, 0);
   quic_connrunner_maybe_discard_ku(&r, 100, 2); /* drop the old gen-0 key */
-  u8 old_phase = quic_keyphase_set(0x40, 0);    /* asks for gen 0 */
+  u8 old_phase = keyphase_set(0x40, 0);         /* asks for gen 0 */
   CHECK(quic_connrunner_recv_keygen(&r, old_phase) == -1); /* no key */
 }
 

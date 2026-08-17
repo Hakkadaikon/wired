@@ -189,7 +189,7 @@ typedef struct {
   u8 alt_dcid_len;
   /** RFC 9001 4.6.1: 0-RTT datagrams arrive interleaved with the Initials
    * this accumulator is reassembling the ClientHello from, but their own
-   * packet-protection keys (quic_sdrv_early_keys) do not exist until the
+   * packet-protection keys (sdrv_early_keys) do not exist until the
    * ClientHello is complete and the server has accepted the PSK -- so each
    * whole raw 0-RTT datagram is held here verbatim and only opened once
    * wired_srvboot_accept_acc succeeds (RFC 9000 12.2: never split a
@@ -284,7 +284,7 @@ int wired_srvboot_accept_acc(
  * @param a the bound accumulator of the refused attempt
  * @param scid the server connection id to answer with
  * @param error_code RFC 9001 8.2 CRYPTO_ERROR (0x0100 | TLS alert) to report,
- *   e.g. quic_sdrv_last_error's value -- 0 falls back to the generic TLS
+ *   e.g. sdrv_last_error's value -- 0 falls back to the generic TLS
  *   handshake_failure code (0x128, RFC 9001 4.8) when the caller has no more
  *   specific cause on hand.
  * @param out receives the sealed Initial datagram

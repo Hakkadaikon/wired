@@ -29,7 +29,7 @@ static u32 nst_random_age_add(void) {
 }
 
 static void put_nst_prefix(
-    u8* body, const quic_ticket* t, u32 age_add, const u8* sealed) {
+    u8* body, const ticket* t, u32 age_add, const u8* sealed) {
   usz i;
   be_put_be32(body, t->lifetime_secs);
   be_put_be32(body + 4, age_add);
@@ -48,28 +48,28 @@ static usz put_nst_exts(u8* p, usz cap, u32 max_early_data_size) {
     return 2;
   }
   eob = obuf_of(p + 2, cap - 2);
-  quic_tlsext_early_data_nst(max_early_data_size, &eob);
+  tlsext_early_data_nst(max_early_data_size, &eob);
   be_put_be16(p, (u16)eob.len);
   return 2 + eob.len;
 }
 
-usz quic_tls_new_session_ticket_encode(
-    u8*                out,
-    usz                cap,
-    const quic_ticket* t,
-    const u8           key[QUIC_TICKET_KEY_LEN],
-    u32                max_early_data_size) {
-  u8          sealed[QUIC_TICKET_SEALED_LEN];
-  quic_ticket sealed_t = *t;
-  usz         off      = quic_hs_begin(out, cap, QUIC_HS_NEW_SESSION_TICKET);
+usz tls_new_session_ticket_encode(
+    u8*           out,
+    usz           cap,
+    const ticket* t,
+    const u8      key[QUIC_TICKET_KEY_LEN],
+    u32           max_early_data_size) {
+  u8     sealed[QUIC_TICKET_SEALED_LEN];
+  ticket sealed_t = *t;
+  usz    off      = hs_begin(out, cap, QUIC_HS_NEW_SESSION_TICKET);
   if (off == 0 || cap - off < QUIC_NST_PREFIX_LEN + 2) return 0;
   sealed_t.lifetime_secs = nst_clamp_lifetime(t->lifetime_secs);
   sealed_t.age_add       = nst_random_age_add();
-  quic_ticket_seal(&sealed_t, key, sealed);
+  ticket_seal(&sealed_t, key, sealed);
   put_nst_prefix(out + off, &sealed_t, sealed_t.age_add, sealed);
   off += QUIC_NST_PREFIX_LEN;
   off += put_nst_exts(out + off, cap - off, max_early_data_size);
-  quic_hs_finish(out, off);
+  hs_finish(out, off);
   return off;
 }
 
@@ -97,10 +97,10 @@ static int nst_take_ticket(wired_span msg, usz body_len, wired_span* sealed) {
   return 1;
 }
 
-int quic_tls_new_session_ticket_parse(wired_span msg, wired_span* sealed) {
+int tls_new_session_ticket_parse(wired_span msg, wired_span* sealed) {
   u8  type;
   usz body_len;
-  if (quic_hs_parse(msg, &type, &body_len) == 0) return 0;
+  if (hs_parse(msg, &type, &body_len) == 0) return 0;
   if (!nst_header_ok(type, body_len)) return 0;
   return nst_take_ticket(msg, body_len, sealed);
 }

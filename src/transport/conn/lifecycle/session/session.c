@@ -62,7 +62,7 @@ static void fill_header(u8 hdr[18], u8 byte0, const u8 dcid[8], u8 pn_low) {
 void quic_session_init(quic_session* s, const quic_session_init_in* in) {
   quic_endpoint_init(&s->ep, in->priv, in->dcid);
   quic_conn_init(&s->conn);
-  quic_initial_derive(wired_span_of(in->dcid, 8), 0, QUIC_VERSION_1, &s->ikeys);
+  initial_derive(wired_span_of(in->dcid, 8), 0, QUIC_VERSION_1, &s->ikeys);
   aes128_init(&s->ihp, s->ikeys.hp);
   s->link      = in->link;
   s->is_server = in->is_server;
@@ -73,7 +73,7 @@ void quic_session_init(quic_session* s, const quic_session_init_in* in) {
 int quic_session_client_hello(quic_session* s) {
   u8  hello[256], crypto[300], hdr[18], out[1200];
   u8  rnd[32] = {0};
-  usz hl      = quic_hs_build_hello(
+  usz hl      = hs_build_hello(
       hello, sizeof(hello), QUIC_HS_CLIENT_HELLO, rnd, s->ep.pub);
   quic_crypto_frame cf = {.offset = 0, .length = hl, .data = hello};
   usz               cl = quic_frame_put_crypto(crypto, sizeof(crypto), &cf);
@@ -95,9 +95,9 @@ static int read_share(u8* pkt, usz pl, u8 peer_pub[32]) {
   u8                type;
   usz               body_len;
   if (quic_frame_get_crypto(pkt + 18, pl, &cf) == 0) return 0;
-  if (quic_hs_parse(wired_span_of(cf.data, cf.length), &type, &body_len) == 0)
+  if (hs_parse(wired_span_of(cf.data, cf.length), &type, &body_len) == 0)
     return 0;
-  return quic_hs_peer_share(cf.data + 4, body_len, peer_pub);
+  return hs_peer_share(cf.data + 4, body_len, peer_pub);
 }
 
 /* Unprotect a received Initial of rn bytes in place; returns plaintext len. */

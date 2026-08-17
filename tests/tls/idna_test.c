@@ -7,7 +7,7 @@
 static void test_idna_ascii_passthrough(void) {
   const u8 host[] = "example.com";
   u8       out[32];
-  usz      n = quic_salpn_idna_to_ascii(
+  usz      n = salpn_idna_to_ascii(
       wired_span_of(host, sizeof(host) - 1), out, sizeof(out));
   CHECK(n == sizeof(host) - 1);
   for (usz i = 0; i < n; i++) CHECK(out[i] == host[i]);
@@ -19,7 +19,7 @@ static void test_idna_ascii_passthrough(void) {
 static void test_idna_alabel_passthrough(void) {
   const u8 host[] = "xn--caf-dma.example";
   u8       out[32];
-  usz      n = quic_salpn_idna_to_ascii(
+  usz      n = salpn_idna_to_ascii(
       wired_span_of(host, sizeof(host) - 1), out, sizeof(out));
   CHECK(n == sizeof(host) - 1);
   for (usz i = 0; i < n; i++) CHECK(out[i] == host[i]);
@@ -32,7 +32,7 @@ static void test_idna_non_ascii_rejected(void) {
   const u8 host[] = {'c', 'a', 'f', 0xc3, 0xa9, '.', 'e', 'x'};
   u8       out[32];
   CHECK(
-      quic_salpn_idna_to_ascii(
+      salpn_idna_to_ascii(
           wired_span_of(host, sizeof(host)), out, sizeof(out)) == 0);
 }
 
@@ -41,7 +41,7 @@ static void test_idna_no_room(void) {
   const u8 host[] = "example.com";
   u8       out[4];
   CHECK(
-      quic_salpn_idna_to_ascii(
+      salpn_idna_to_ascii(
           wired_span_of(host, sizeof(host) - 1), out, sizeof(out)) == 0);
 }
 

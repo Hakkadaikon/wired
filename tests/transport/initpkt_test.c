@@ -3,8 +3,8 @@
 /* RFC 9001 A.1: DCID 0x8394c8f03e515708 yields the known client Initial key,
  * iv, and hp. quic_initpkt_derive must reproduce these for the client side. */
 static void test_initpkt_keys_rfc(void) {
-  const u8          dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
-  quic_initial_keys ck, sk;
+  const u8     dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
+  initial_keys ck, sk;
   quic_initpkt_derive(wired_span_of(dcid, 8), &ck, &sk);
 
   const u8 want_key[16] = {0x1f, 0x36, 0x96, 0x13, 0xdd, 0x76, 0xd5, 0x46,

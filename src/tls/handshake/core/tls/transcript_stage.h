@@ -9,11 +9,9 @@
 
 /* After ClientHello..ServerHello (client_handshake/server_handshake secrets).
  */
-void quic_transcript_ch_sh(
-    const quic_transcript* t, u8 out[QUIC_SHA256_DIGEST]);
+void transcript_ch_sh(const transcript* t, u8 out[QUIC_SHA256_DIGEST]);
 
 /* After ClientHello..server Finished (master secret derivation input). */
-void quic_transcript_ch_sfin(
-    const quic_transcript* t, u8 out[QUIC_SHA256_DIGEST]);
+void transcript_ch_sfin(const transcript* t, u8 out[QUIC_SHA256_DIGEST]);
 
 #endif

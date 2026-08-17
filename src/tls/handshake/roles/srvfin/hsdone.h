@@ -10,11 +10,10 @@
 #define QUIC_SRVFIN_HANDSHAKE_DONE 0x1e
 
 /* 1 if the server should send HANDSHAKE_DONE now: complete and not yet sent. */
-int quic_srvfin_should_send_handshake_done(
-    int handshake_complete, int already_sent);
+int srvfin_should_send_handshake_done(int handshake_complete, int already_sent);
 
 /* Write the single-byte HANDSHAKE_DONE frame. Returns 1 and sets *out_len=1,
  * or 0 if cap is 0. */
-int quic_srvfin_handshake_done_frame(u8* out, usz cap, usz* out_len);
+int srvfin_handshake_done_frame(u8* out, usz cap, usz* out_len);
 
 #endif

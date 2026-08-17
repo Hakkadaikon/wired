@@ -33,8 +33,8 @@
  * datagram never reaches even the sender itself, though the identical single-
  * process wired_server_run_opt path works.
  *
- * This drives a genuinely independent client role (quic_client + clientwire's
- * real-AEAD codec + quic_fullhs, none of which peek into wired_server/
+ * This drives a genuinely independent client role (client + clientwire's
+ * real-AEAD codec + fullhs, none of which peek into wired_server/
  * wired_srvloop internals) over a real 127.0.0.1 UDP socket against a real
  * wired_srvthreads_run(...) worker thread, so the reproduction exercises the
  * exact code path a browser would: Initial -> ServerHello -> Handshake
@@ -121,13 +121,13 @@ static void sdt_server_thread(void* argp) {
 }
 
 /* --- independent client role: real AEAD wire, own key schedule -----------
- * Every seal/open below goes through quic_client's own c.tls.ks (derived
- * from OUR ECDHE exchange with the server, via quic_tlsdriver_recv_crypto /
- * quic_fullhs), never wired_server's. This is the "hard mode" the task asks
+ * Every seal/open below goes through client's own c.tls.ks (derived
+ * from OUR ECDHE exchange with the server, via tlsdriver_recv_crypto /
+ * fullhs), never wired_server's. This is the "hard mode" the task asks
  * for: a peer that only ever sees the server's bytes on the wire. */
 
 struct sdt_client {
-  quic_client   c;
+  client        c;
   i64           fd;
   quic_sockaddr srv;
   u8            priv[32], pub[32];
@@ -140,15 +140,15 @@ struct sdt_client {
 /* RFC 9221 3: advertise max_datagram_frame_size in our own ClientHello's
  * transport parameters so the server's DATAGRAM sender (srvrun_send_pending_
  * datagram, gated on sdrv.peer_max_datagram_frame_size) is willing to send us
- * a broadcast echo. quic_tlsdriver_raw_client_hello hardcodes an empty TP
+ * a broadcast echo. tlsdriver_raw_client_hello hardcodes an empty TP
  * blob (client-role default, no in-tree caller needed one until this test),
- * so build the ClientHello directly via quic_tls_client_hello instead of
+ * so build the ClientHello directly via tls_client_hello instead of
  * going through it, and hand-sync tlsdriver's own transcript_ch bookkeeping
- * (normally quic_tlsdriver_client_hello's job) to the same bytes. */
+ * (normally tlsdriver_client_hello's job) to the same bytes. */
 static usz sdt_build_ch_with_dg_tp(struct sdt_client* cx, u8* ch, usz cap) {
   u8         tp[32];
   wired_obuf tob = obuf_of(tp, sizeof tp);
-  usz tn = quic_tparam_put_int(&tob, QUIC_TP_MAX_DATAGRAM_FRAME_SIZE, 65535);
+  usz        tn  = tparam_put_int(&tob, QUIC_TP_MAX_DATAGRAM_FRAME_SIZE, 65535);
   /* RFC 9000 18.2: the server's send-credit gates (srvrun_can_send_new) now
    * consult initial_max_data/initial_max_stream_data_bidi_local from this
    * ClientHello -- without them the server's WT-status 2xx response is
@@ -156,18 +156,18 @@ static usz sdt_build_ch_with_dg_tp(struct sdt_client* cx, u8* ch, usz cap) {
    * (the DATAGRAM broadcast echo). Generously high so it never binds. */
   {
     wired_obuf tob2 = obuf_of(tp + tn, sizeof tp - tn);
-    tn += quic_tparam_put_int(&tob2, QUIC_TP_INITIAL_MAX_DATA, 1u << 24);
+    tn += tparam_put_int(&tob2, QUIC_TP_INITIAL_MAX_DATA, 1u << 24);
   }
   {
     wired_obuf tob3 = obuf_of(tp + tn, sizeof tp - tn);
-    tn += quic_tparam_put_int(
+    tn += tparam_put_int(
         &tob3, QUIC_TP_INITIAL_MAX_STREAM_DATA_BIDI_LOCAL, 1u << 24);
   }
-  static const u8     random[32] = {0};
-  quic_clienthello_in in         = {
+  static const u8 random[32] = {0};
+  clienthello_in  in         = {
       random, cx->pub, wired_span_of((const u8*)0, 0), wired_span_of(tp, tn)};
   wired_obuf ob = obuf_of(ch, cap);
-  usz        n  = quic_tls_client_hello(&in, &ob);
+  usz        n  = tls_client_hello(&in, &ob);
   if (n == 0) return 0;
   bytes_memcpy(cx->c.tls.transcript_ch, ch, n);
   cx->c.tls.transcript_ch_len = n;
@@ -177,7 +177,7 @@ static usz sdt_build_ch_with_dg_tp(struct sdt_client* cx, u8* ch, usz cap) {
 static void sdt_client_init(struct sdt_client* cx) {
   for (usz i = 0; i < 32; i++) cx->priv[i] = (u8)(0x11 + i);
   wired_x25519_base(cx->pub, cx->priv);
-  quic_tlsdriver_init(&cx->c.tls, cx->priv, cx->pub, 0);
+  tlsdriver_init(&cx->c.tls, cx->priv, cx->pub, 0);
   /* Our own raw ClientHello (with the DATAGRAM transport parameter), saved
    * for the transcript -- reproduces byte-for-byte what sdt_do_initial sends
    * on the wire. */
@@ -243,7 +243,7 @@ static int sdt_retry_initial(
 /* Seals cx->ch (already built by sdt_client_init, with the DATAGRAM transport
  * parameter) into a protected Initial packet -- quic_client_build_initial_
  * wire cannot be reused here since it always rebuilds the ClientHello itself
- * via quic_tlsdriver_raw_client_hello's hardcoded empty transport parameters
+ * via tlsdriver_raw_client_hello's hardcoded empty transport parameters
  * (see sdt_build_ch_with_dg_tp's doc). */
 static int sdt_do_initial(
     struct sdt_client* cx,
@@ -267,27 +267,27 @@ static int sdt_do_initial(
 /* Open the server's Initial reply (ServerHello) and feed it to our own
  * tlsdriver (recovers the peer key_share, agrees the ECDHE secret, advances
  * the hsdriver order machine -- all correct). Does NOT yet derive final
- * Handshake keys or seed quic_fullhs: both need the transcript extended with
+ * Handshake keys or seed fullhs: both need the transcript extended with
  * EncryptedExtensions first (RFC 8446 4.4 -- see sdt_finish_hs_secrets),
  * which only arrives in the Handshake packet opened next.
  *
- * ponytail-adjacent finding, not a fix: quic_tlsdriver_recv_crypto (src/tls/
+ * ponytail-adjacent finding, not a fix: tlsdriver_recv_crypto (src/tls/
  * handshake/core/tlsdriver/tlsdriver.c) derives Handshake traffic keys using
  * ONLY the just-received message as the RFC 8446 7.1 Transcript-Hash input,
  * never folding in the ClientHello (or EncryptedExtensions). Every existing
- * unit test pairs two quic_tlsdriver instances that both make this same
+ * unit test pairs two tlsdriver instances that both make this same
  * substitution, so it cancels out and looks correct there; it only surfaces
  * against a real peer (like wired_server here) whose own transcript
  * genuinely folds in every prior message. sdt_finish_hs_secrets below
- * recomputes it correctly via the public quic_keysched_advance_handshake
+ * recomputes it correctly via the public keysched_advance_handshake
  * entry point -- enough to get this reproduction past the handshake; fixing
  * tlsdriver.c itself is a separate, pre-existing SDK gap outside this task's
  * scope. */
-/* quic_tlsdriver_recv_crypto wants a raw CRYPTO frame (it runs
- * quic_frame_get_crypto itself), but quic_client_open_initial_wire already
+/* tlsdriver_recv_crypto wants a raw CRYPTO frame (it runs
+ * quic_frame_get_crypto itself), but client_open_initial_wire already
  * unwrapped one -- re-wrap the recovered ServerHello bytes into a synthetic
  * CRYPTO frame at offset 0 so the driver can reassemble+consume it, the same
- * encoder quic_client_build_initial uses on the send side. Also captures
+ * encoder client_build_initial uses on the send side. Also captures
  * CH||SH into cx->chsh for sdt_rederive_hs_keys below. */
 /* Append tls onto cx->ch to build cx->chsh (CH||SH); cx->ch_len bytes of
  * ClientHello, then tls.n bytes of ServerHello. Returns 0 if it would
@@ -307,62 +307,62 @@ static int sdt_feed_serverhello(struct sdt_client* cx, wired_span tls) {
   quic_crypto_stream_emit_in ein = {0, (usz)tls.n};
   if (!sdt_append_chsh(cx, tls)) return 0;
   if (!quic_crypto_stream_emit(tls, &ein, &cb)) return 0;
-  return quic_tlsdriver_recv_crypto(&cx->c.tls, cframe, cb.len);
+  return tlsdriver_recv_crypto(&cx->c.tls, cframe, cb.len);
 }
 
 /* RFC 8446 7.1: client_/server_handshake_traffic_secret only need
  * Transcript-Hash(ClientHello..ServerHello) -- EncryptedExtensions is not
  * part of this input, so the Handshake AEAD keys can (and must) be corrected
  * here, before the Handshake packet carrying EE is even opened.
- * quic_fullhs's own transcript (needing CH||SH||EE) is seeded separately,
+ * fullhs's own transcript (needing CH||SH||EE) is seeded separately,
  * once EE's bytes are available -- see sdt_finish_hs_secrets. */
 static int sdt_rederive_hs_keys(struct sdt_client* cx) {
   const u8* shared;
-  if (!quic_tlsdriver_shared_secret(&cx->c.tls, &shared)) return 0;
-  quic_keysched_init(&cx->c.tls.ks); /* undo the wrong-transcript stage */
-  return quic_keysched_advance_handshake(
+  if (!tlsdriver_shared_secret(&cx->c.tls, &shared)) return 0;
+  keysched_init(&cx->c.tls.ks); /* undo the wrong-transcript stage */
+  return keysched_advance_handshake(
       &cx->c.tls.ks, wired_span_of(shared, 32),
       wired_span_of(cx->chsh, cx->chsh_len));
 }
 
 static int sdt_open_initial(struct sdt_client* cx, u8* pkt, usz len) {
-  wired_span              tls;
-  quic_clientwire_open_in oin = {
+  wired_span         tls;
+  clientwire_open_in oin = {
       wired_span_of(g_sdt_cli_scid, 6), wired_mspan_of(pkt, len), 0};
-  if (!quic_client_open_initial_wire(&oin, &tls)) return 0;
+  if (!client_open_initial_wire(&oin, &tls)) return 0;
   if (!sdt_feed_serverhello(cx, tls)) return 0;
   return sdt_rederive_hs_keys(cx);
 }
 
 /* RFC 8446 4.4: EncryptedExtensions (msg type 8, the first message of the
- * Handshake flight) carries no cryptographic content quic_fullhs needs to
+ * Handshake flight) carries no cryptographic content fullhs needs to
  * verify, but its bytes DO belong in the Certificate/CertificateVerify/
  * Finished transcript hash (RFC 8446 4.4.1's Transcript-Hash runs over every
- * handshake message in order, EE included) -- quic_fullhs_init's `sh` param
+ * handshake message in order, EE included) -- fullhs_init's `sh` param
  * seeds exactly that running transcript (h->tr), so EE must be folded in
  * here, before Certificate.
  *
- * quic_fullhs_init also derives hs_traffic_peer/hs_traffic_self (RFC 8446
+ * fullhs_init also derives hs_traffic_peer/hs_traffic_self (RFC 8446
  * 7.1 client_/server_handshake_traffic_secret, used only for each side's
  * Finished verify_data) from that SAME `sh` span -- but per RFC 8446 7.1
  * those secrets are Transcript-Hash(ClientHello..ServerHello) alone, EE
  * excluded (the real server's sdrv_flight.c derive_secret() computes
  * s_hs_traffic from s->tr right after build_server_hello, strictly before
- * emit_hs_flight/EE exist). So quic_fullhs_init's internal seed_secrets
+ * emit_hs_flight/EE exist). So fullhs_init's internal seed_secrets
  * ends up deriving
  * hs_traffic_peer/self from CH||SH||EE, which will never match the real
  * peer's CH||SH-only secret -- this is the same pre-existing transcript gap
- * as quic_tlsdriver_recv_crypto (see sdt_open_initial's doc), just one call
- * layer up, and not something a caller can route around via quic_fullhs's
+ * as tlsdriver_recv_crypto (see sdt_open_initial's doc), just one call
+ * layer up, and not something a caller can route around via fullhs's
  * public API (there is no separate "extend the transcript without touching
  * hs_traffic" entry point). Recomputing hs_traffic_peer/self directly here
  * and overwriting the two fields is the workaround: it reuses the exact RFC
- * 8446 7.1 formula (quic_tls_derive_secret, "c hs traffic"/"s hs traffic"
- * over CH||SH only) that quic_tls_handshake_keys already applies correctly
+ * 8446 7.1 formula (tls_derive_secret, "c hs traffic"/"s hs traffic"
+ * over CH||SH only) that tls_handshake_keys already applies correctly
  * for the AEAD keys in sdt_open_initial. */
 /* cx->c.sh_transcript <- SH||EE (the ServerHello bytes alone, out of
  * cx->chsh = CH||SH via cx->ch_len as the split point, then EE) -- NOT
- * CH||SH||EE: quic_fullhs_init's own seed_secrets (RFC 8446 7.1) prepends
+ * CH||SH||EE: fullhs_init's own seed_secrets (RFC 8446 7.1) prepends
  * tls->transcript_ch (our saved ClientHello) itself, so a caller-supplied
  * `sh` must start at ServerHello or the ClientHello ends up folded in twice.
  * Returns 0 if it would overflow. */
@@ -378,30 +378,30 @@ static int sdt_build_chshee(struct sdt_client* cx, const u8* ee, usz ee_len) {
   return 1;
 }
 
-/* Extend cx->c.sh_transcript to SH||EE and seed quic_fullhs from it. */
+/* Extend cx->c.sh_transcript to SH||EE and seed fullhs from it. */
 static int sdt_seed_fullhs(struct sdt_client* cx, const u8* ee, usz ee_len) {
   if (!sdt_build_chshee(cx, ee, ee_len)) return 0;
-  return quic_fullhs_init(
+  return fullhs_init(
       &cx->c.hs, &cx->c.tls, wired_span_of(cx->c.sh_transcript, cx->c.sh_len));
 }
 
 /* Recompute hs_traffic_peer/self per RFC 8446 7.1 (label + CH||SH only) and
- * overwrite quic_fullhs_init's CH||SH||EE-tainted versions -- see this
+ * overwrite fullhs_init's CH||SH||EE-tainted versions -- see this
  * function group's file-level doc for why. */
 static int sdt_rederive_finished_secrets(struct sdt_client* cx) {
-  u8                    hs[QUIC_HKDF_PRK];
-  const u8*             shared;
-  quic_derive_secret_in peer_in, self_in;
-  if (!quic_tlsdriver_shared_secret(&cx->c.tls, &shared)) return 0;
-  quic_tls_handshake_secret(shared, hs);
-  peer_in = (quic_derive_secret_in){
+  u8               hs[QUIC_HKDF_PRK];
+  const u8*        shared;
+  derive_secret_in peer_in, self_in;
+  if (!tlsdriver_shared_secret(&cx->c.tls, &shared)) return 0;
+  tls_handshake_secret(shared, hs);
+  peer_in = (derive_secret_in){
       hs, wired_span_of((const u8*)"s hs traffic", 12),
       wired_span_of(cx->chsh, cx->chsh_len)};
-  self_in = (quic_derive_secret_in){
+  self_in = (derive_secret_in){
       hs, wired_span_of((const u8*)"c hs traffic", 12),
       wired_span_of(cx->chsh, cx->chsh_len)};
-  quic_tls_derive_secret(&peer_in, cx->c.hs.hs_traffic_peer);
-  quic_tls_derive_secret(&self_in, cx->c.hs.hs_traffic_self);
+  tls_derive_secret(&peer_in, cx->c.hs.hs_traffic_peer);
+  tls_derive_secret(&self_in, cx->c.hs.hs_traffic_self);
   return 1;
 }
 
@@ -414,16 +414,16 @@ static int sdt_finish_hs_secrets(
 /* Open the server's Handshake reply (Certificate/CertificateVerify/Finished,
  * all in one CRYPTO frame for this SDK's self-signed identity -- confirmed
  * by tests/app/h3_loopback_test.c's test_srvboot_accept, out.dgram_count==1)
- * and drive quic_fullhs through it message by message. */
+ * and drive fullhs through it message by message. */
 static int sdt_feed_cert(struct sdt_client* cx, const u8* m, usz n) {
-  return quic_fullhs_recv_cert(&cx->c.hs, m, n);
+  return fullhs_recv_cert(&cx->c.hs, m, n);
 }
 static int sdt_feed_certverify(struct sdt_client* cx, const u8* m, usz n) {
   u16 scheme = (u16)((m[QUIC_HS_HEADER] << 8) | m[QUIC_HS_HEADER + 1]);
-  return quic_fullhs_recv_certverify(&cx->c.hs, wired_span_of(m, n), scheme);
+  return fullhs_recv_certverify(&cx->c.hs, wired_span_of(m, n), scheme);
 }
 static int sdt_feed_finished(struct sdt_client* cx, const u8* m, usz n) {
-  return quic_fullhs_recv_finished(&cx->c.hs, m, n);
+  return fullhs_recv_finished(&cx->c.hs, m, n);
 }
 
 static const struct {
@@ -456,8 +456,8 @@ static usz sdt_hs_msg_total(const u8* p, usz off, usz n) {
 
 /* The first message in this SDK's Handshake flight is always
  * EncryptedExtensions (RFC 8446 4.4, quic_sdrv_flight.c's emit_ee_cert); it
- * carries nothing quic_fullhs needs to verify, but its bytes must reach the
- * transcript before quic_fullhs_init runs (see sdt_finish_hs_secrets) -- so
+ * carries nothing fullhs needs to verify, but its bytes must reach the
+ * transcript before fullhs_init runs (see sdt_finish_hs_secrets) -- so
  * it is consumed here, not dispatched through sdt_feed_one_hs_msg. Returns
  * the byte offset just past EE, or 0 on a malformed flight. */
 /* total is a well-formed, in-bounds EncryptedExtensions message at p[0..). */
@@ -484,7 +484,7 @@ static usz sdt_feed_rest_step(
 }
 
 /* Every message after EncryptedExtensions (Certificate, CertificateVerify,
- * Finished), fed to quic_fullhs in order. */
+ * Finished), fed to fullhs in order. */
 static int sdt_feed_rest(struct sdt_client* cx, const u8* p, usz off, usz n) {
   while (off < n) {
     usz next = sdt_feed_rest_step(cx, p, off, n);
@@ -503,23 +503,23 @@ static int sdt_drive_hs_flight(struct sdt_client* cx, const u8* p, usz n) {
 static int sdt_open_handshake(struct sdt_client* cx, u8* pkt, usz len) {
   wired_span       tls;
   quic_appdata_pkt in = {wired_mspan_of(pkt, len), 6};
-  if (!quic_client_open_handshake_wire(&cx->c, &in, &tls)) return 0;
+  if (!client_open_handshake_wire(&cx->c, &in, &tls)) return 0;
   return sdt_drive_hs_flight(cx, tls.p, tls.n);
 }
 
 /* Seal our own Finished into a Handshake packet (CLIENT_HS, our own
  * direction) and send it. */
 static int sdt_send_finished(struct sdt_client* cx) {
-  u8                      fin[128], pkt[512];
-  wired_obuf              fob = obuf_of(fin, sizeof fin);
-  wired_obuf              pkt_ob;
-  quic_clientwire_seal_in sin;
-  if (!quic_fullhs_send_finished(&cx->c.hs, &fob)) return 0;
+  u8                 fin[128], pkt[512];
+  wired_obuf         fob = obuf_of(fin, sizeof fin);
+  wired_obuf         pkt_ob;
+  clientwire_seal_in sin;
+  if (!fullhs_send_finished(&cx->c.hs, &fob)) return 0;
   pkt_ob = obuf_of(pkt, sizeof pkt);
-  sin    = (quic_clientwire_seal_in){
+  sin    = (clientwire_seal_in){
       {wired_span_of(g_sdt_cli_scid, 6), wired_span_of(g_sdt_cli_scid, 6), 0},
       wired_span_of(fin, fob.len)};
-  if (!quic_client_seal_handshake_wire(&cx->c, &sin, &pkt_ob)) return 0;
+  if (!client_seal_handshake_wire(&cx->c, &sin, &pkt_ob)) return 0;
   return wired_udp_send(cx->fd, &cx->srv, wired_span_of(pkt, pkt_ob.len)) ==
          (i64)pkt_ob.len;
 }
@@ -528,17 +528,17 @@ static int sdt_send_finished(struct sdt_client* cx) {
  * the server's Finished verified (sdt_handshake's advance_application call),
  * so this only needs the HANDSHAKE_DONE frame to have been observed. */
 static int sdt_confirm(struct sdt_client* cx) {
-  return quic_fullhs_confirmed(&cx->c.hs);
+  return fullhs_confirmed(&cx->c.hs);
 }
 
 /* Open a 1-RTT reply payload (raw, so multiple coalesced frames can be
  * walked) with our own SERVER_AP key. */
 static int sdt_open_onertt(
     struct sdt_client* cx, u8* pkt, usz len, const u8** pl, usz* pll) {
-  const quic_initial_keys* k;
-  aes128                   hp;
-  wired_span               v;
-  if (!quic_keysched_get(&cx->c.tls.ks, QUIC_KS_SERVER_AP, &k)) return 0;
+  const initial_keys* k;
+  aes128              hp;
+  wired_span          v;
+  if (!keysched_get(&cx->c.tls.ks, QUIC_KS_SERVER_AP, &k)) return 0;
   aes128_init(&hp, k->hp);
   {
     quic_protect_keys           pk = {k, &hp};
@@ -627,9 +627,9 @@ static int sdt_recv_accept_flight(struct sdt_client* cx) {
  * half of sdt_handshake_to_finished. 1-RTT keys must be derived before
  * sdt_wait_hs_done, whose reply IS a 1-RTT packet (mirrors client.c's
  * do_confirm ordering, split across two calls since this test drives the
- * wire directly rather than through quic_client_feed). */
+ * wire directly rather than through client_feed). */
 static int sdt_send_own_finished(struct sdt_client* cx) {
-  if (!quic_fullhs_advance_application(&cx->c.hs)) return 0;
+  if (!fullhs_advance_application(&cx->c.hs)) return 0;
   return sdt_send_finished(cx);
 }
 
@@ -700,13 +700,13 @@ static usz sdt_seal_stream(
     usz                plen,
     u8*                out,
     usz                cap) {
-  const quic_initial_keys* k;
-  aes128                   hp;
-  quic_appdata_tx          tx = {
+  const initial_keys* k;
+  aes128              hp;
+  quic_appdata_tx     tx = {
       wired_span_of(g_sdt_cli_scid, 6), pn, stream_id,
       wired_span_of(payload, plen), 0};
   wired_obuf ob = obuf_of(out, cap);
-  if (!quic_keysched_get(&cx->c.tls.ks, QUIC_KS_CLIENT_AP, &k)) return 0;
+  if (!keysched_get(&cx->c.tls.ks, QUIC_KS_CLIENT_AP, &k)) return 0;
   aes128_init(&hp, k->hp);
   {
     quic_protect_keys pk = {k, &hp};
@@ -826,9 +826,9 @@ static int sdt_wait_connect_2xx(struct sdt_client* cx, int max_tries) {
 /* CLIENT_AP key + its header-protection cipher, ready to seal a 1-RTT
  * packet. */
 static int sdt_client_ap_key(struct sdt_client* cx, quic_protect_keys* pk) {
-  const quic_initial_keys* k;
-  static aes128 hp; /* outlives the call, mirrors cw_dirkey's shape */
-  if (!quic_keysched_get(&cx->c.tls.ks, QUIC_KS_CLIENT_AP, &k)) return 0;
+  const initial_keys* k;
+  static aes128       hp; /* outlives the call, mirrors cw_dirkey's shape */
+  if (!keysched_get(&cx->c.tls.ks, QUIC_KS_CLIENT_AP, &k)) return 0;
   aes128_init(&hp, k->hp);
   *pk = (quic_protect_keys){k, &hp};
   return 1;
@@ -1040,9 +1040,9 @@ static void test_srvthreads_datagram_self_echo(void) {
 /* --- direct root-cause confirmation (no handshake needed) ----------------
  *
  * The wire-level scenario above proves the bug end-to-end but is gated on a
- * pre-existing, unrelated SDK gap (quic_tlsdriver_recv_crypto's Transcript-
+ * pre-existing, unrelated SDK gap (tlsdriver_recv_crypto's Transcript-
  * Hash input omits the ClientHello -- see sdt_open_initial's doc): every
- * existing unit test masks it by pairing two quic_tlsdriver instances that
+ * existing unit test masks it by pairing two tlsdriver instances that
  * both make the same substitution, so it has never been exercised against a
  * real independent peer before. Fixing that is out of this task's scope.
  *
