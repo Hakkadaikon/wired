@@ -5,7 +5,7 @@
 static void test_initpkt_keys_rfc(void) {
   const u8          dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
   quic_initial_keys ck, sk;
-  quic_initpkt_derive(quic_span_of(dcid, 8), &ck, &sk);
+  quic_initpkt_derive(wired_span_of(dcid, 8), &ck, &sk);
 
   const u8 want_key[16] = {0x1f, 0x36, 0x96, 0x13, 0xdd, 0x76, 0xd5, 0x46,
                            0x77, 0x30, 0xef, 0xcb, 0xe3, 0xb1, 0xa2, 0x2d};
@@ -30,16 +30,16 @@ static void test_initpkt_roundtrip(void) {
 
   u8                pkt[1300];
   quic_initpkt_desc d = {
-      quic_span_of(dcid, 8), quic_span_of(scid, 4),
-      quic_span_of(ch, sizeof(ch)), 2, 0};
-  quic_obuf o = quic_obuf_of(pkt, sizeof(pkt));
+      wired_span_of(dcid, 8), wired_span_of(scid, 4),
+      wired_span_of(ch, sizeof(ch)), 2, 0};
+  wired_obuf o = quic_obuf_of(pkt, sizeof(pkt));
   CHECK(quic_initpkt_build(&d, &o));
   /* RFC 9000 14.1: the datagram reaches the 1200-byte minimum */
   CHECK(o.len >= 1200);
 
-  quic_span crypto;
+  wired_span crypto;
   CHECK(quic_initpkt_open(
-      quic_span_of(dcid, 8), quic_mspan_of(pkt, o.len), &crypto));
+      wired_span_of(dcid, 8), wired_mspan_of(pkt, o.len), &crypto));
   /* the recovered frames begin with a CRYPTO frame (type 0x06) carrying CH */
   CHECK(crypto.p[0] == 0x06);
   /* CRYPTO frame: type, offset varint (0x00), length varint (0x0b), then CH */
@@ -55,13 +55,13 @@ static void test_initpkt_crypto_offset(void) {
   const u8          ch[]    = {'t', 'a', 'i', 'l'};
   u8                pkt[1300];
   quic_initpkt_desc d = {
-      quic_span_of(dcid, 8), quic_span_of((const u8*)0, 0),
-      quic_span_of(ch, sizeof(ch)), 1, 7};
-  quic_obuf o = quic_obuf_of(pkt, sizeof(pkt));
-  quic_span crypto;
+      wired_span_of(dcid, 8), wired_span_of((const u8*)0, 0),
+      wired_span_of(ch, sizeof(ch)), 1, 7};
+  wired_obuf o = quic_obuf_of(pkt, sizeof(pkt));
+  wired_span crypto;
   CHECK(quic_initpkt_build(&d, &o));
   CHECK(quic_initpkt_open(
-      quic_span_of(dcid, 8), quic_mspan_of(pkt, o.len), &crypto));
+      wired_span_of(dcid, 8), wired_mspan_of(pkt, o.len), &crypto));
   /* CRYPTO frame: type, offset varint (7), length varint (4), the chunk */
   CHECK(crypto.p[0] == 0x06);
   CHECK(crypto.p[1] == 0x07 && crypto.p[2] == 0x04);
@@ -74,14 +74,14 @@ static void test_initpkt_tamper(void) {
   const u8          ch[]    = {'h', 'i'};
   u8                pkt[1300];
   quic_initpkt_desc d = {
-      quic_span_of(dcid, 8), quic_span_of((const u8*)0, 0),
-      quic_span_of(ch, sizeof(ch)), 7, 0};
-  quic_obuf o = quic_obuf_of(pkt, sizeof(pkt));
+      wired_span_of(dcid, 8), wired_span_of((const u8*)0, 0),
+      wired_span_of(ch, sizeof(ch)), 7, 0};
+  wired_obuf o = quic_obuf_of(pkt, sizeof(pkt));
   CHECK(quic_initpkt_build(&d, &o));
   pkt[o.len - 1] ^= 0x01;
-  quic_span crypto;
+  wired_span crypto;
   CHECK(!quic_initpkt_open(
-      quic_span_of(dcid, 8), quic_mspan_of(pkt, o.len), &crypto));
+      wired_span_of(dcid, 8), wired_mspan_of(pkt, o.len), &crypto));
 }
 
 void test_initpkt(void) {

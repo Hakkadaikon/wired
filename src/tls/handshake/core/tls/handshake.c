@@ -16,7 +16,7 @@ void quic_hs_finish(u8* out, usz total) {
   out[3]   = (u8)body;
 }
 
-usz quic_hs_parse(quic_span buf, u8* type, usz* body_len) {
+usz quic_hs_parse(wired_span buf, u8* type, usz* body_len) {
   usz len;
   if (buf.n < 4) return 0;
   len = ((usz)buf.p[1] << 16) | ((usz)buf.p[2] << 8) | buf.p[3];

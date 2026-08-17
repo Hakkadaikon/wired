@@ -25,7 +25,7 @@ static void rmmsg_send_n(
   for (int i = 0; i < count; i++) {
     u8 payload[32];
     for (usz j = 0; j < len; j++) payload[j] = (u8)i;
-    wired_udp_send(cfd, srv, quic_span_of(payload, len));
+    wired_udp_send(cfd, srv, wired_span_of(payload, len));
   }
 }
 
@@ -40,7 +40,7 @@ static void test_recvmmsg_receives_batch(void) {
   u8            storage[3][16];
   if (!rmmsg_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
   rmmsg_send_n(cfd, &srv, 3, 8);
-  for (usz i = 0; i < 3; i++) bufs[i].buf = quic_mspan_of(storage[i], 16);
+  for (usz i = 0; i < 3; i++) bufs[i].buf = wired_mspan_of(storage[i], 16);
   i64 r = wired_udp_recvmmsg(sfd, bufs, 3);
   if (r < 0) {
     /* ENOSYS on a kernel without recvmmsg: nothing more to prove here. */
@@ -68,7 +68,7 @@ static void test_recvmmsg_fallback_receives_batch(void) {
   u8            storage[3][16];
   if (!rmmsg_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
   rmmsg_send_n(cfd, &srv, 3, 8);
-  for (usz i = 0; i < 3; i++) bufs[i].buf = quic_mspan_of(storage[i], 16);
+  for (usz i = 0; i < 3; i++) bufs[i].buf = wired_mspan_of(storage[i], 16);
   i64 r = wired_udp_recvmmsg_fallback(sfd, bufs, 3);
   CHECK(r == 3);
   for (i64 i = 0; i < r; i++) {
@@ -88,7 +88,7 @@ static void test_recvmmsg_fallback_empty_returns_zero(void) {
   quic_mmsg_buf bufs[2];
   u8            storage[2][16];
   if (!rmmsg_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
-  for (usz i = 0; i < 2; i++) bufs[i].buf = quic_mspan_of(storage[i], 16);
+  for (usz i = 0; i < 2; i++) bufs[i].buf = wired_mspan_of(storage[i], 16);
   /* Nothing sent to sfd: recvfrom would block forever on a blocking socket,
    * so instead prove the zero-count slot case: count == 0 is always 0. */
   CHECK(wired_udp_recvmmsg_fallback(sfd, bufs, 0) == 0);
@@ -108,7 +108,7 @@ static void test_recvmmsg_returns_partial_batch(void) {
   u8            storage[8][16];
   if (!rmmsg_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
   rmmsg_send_n(cfd, &srv, 3, 8);
-  for (usz i = 0; i < 8; i++) bufs[i].buf = quic_mspan_of(storage[i], 16);
+  for (usz i = 0; i < 8; i++) bufs[i].buf = wired_mspan_of(storage[i], 16);
   i64 r = wired_udp_recvmmsg(sfd, bufs, 8);
   if (r < 0) { /* ENOSYS: nothing to prove */
     wired_udp_close(cfd);

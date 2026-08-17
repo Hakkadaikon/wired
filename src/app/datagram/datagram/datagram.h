@@ -24,7 +24,7 @@ typedef struct {
  * 0x31 (explicit length); otherwise 0x30 and the data must be the last frame
  * in the packet. Returns bytes written, or 0. */
 usz quic_datagram_encode(
-    quic_mspan buf, const quic_datagram_frame* f, int with_len);
+    wired_mspan buf, const quic_datagram_frame* f, int with_len);
 
 /* Decode a DATAGRAM frame at buf (n readable, type byte at buf[0]). For 0x30
  * the data is the rest of the buffer; for 0x31 the length is explicit.

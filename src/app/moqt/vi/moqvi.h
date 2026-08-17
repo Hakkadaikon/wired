@@ -26,9 +26,9 @@ usz quic_moqvi_decode(const u8* buf, usz n, u64* out);
  * one integer at buf+*off and advances *off on success. */
 
 /* Returns 1 ok, 0 if truncated (*off unchanged). */
-int quic_moqvi_take(quic_span buf, usz* off, u64* out);
+int quic_moqvi_take(wired_span buf, usz* off, u64* out);
 
 /* Returns 1 ok, 0 if no room within cap (*off unchanged). */
-int quic_moqvi_put(quic_mspan buf, usz* off, u64 v);
+int quic_moqvi_put(wired_mspan buf, usz* off, u64 v);
 
 #endif

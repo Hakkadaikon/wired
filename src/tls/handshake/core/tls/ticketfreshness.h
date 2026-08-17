@@ -15,7 +15,7 @@
  * requires this check to prevent excessive age skew from being used to
  * extend a ticket's usable window or to defeat replay mitigations, but does
  * not mandate a specific window; this SDK measures at one-second resolution
- * (quic_clock_epoch_secs, no per-ticket RTT sample) and uses a fixed 10s
+ * (wired_clock_epoch_secs, no per-ticket RTT sample) and uses a fixed 10s
  * window, generous enough to absorb ordinary network RTT and clock jitter
  * while still rejecting a materially stale or manipulated claim. */
 #define QUIC_TICKET_FRESHNESS_WINDOW_SECS 10
@@ -33,7 +33,7 @@ u32 quic_ticket_real_age_ms(u32 obfuscated_age, u32 age_add);
  * (RFC 8446 4.2.11.1 / 8.3). Returns 0 otherwise -- the caller falls back to
  * a full 1-RTT handshake rather than failing the connection (RFC 8446
  * 4.2.10). now_secs and t->issued_at share the same clock
- * (quic_clock_epoch_secs). */
+ * (wired_clock_epoch_secs). */
 int quic_ticket_freshness_ok(
     const quic_ticket* t, u32 obfuscated_age, u64 now_secs);
 

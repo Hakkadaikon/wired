@@ -14,18 +14,18 @@ static void test_resume_session_roundtrip(void) {
   for (usz i = 0; i < 32; i++) psk[i] = (u8)(0xA0 + i);
   CHECK(
       quic_resume_store(
-          &r, quic_span_of(tk, 4),
-          &(quic_resume_store_in){100, 50, 1000, psk, quic_span_of(0, 0)}) ==
+          &r, wired_span_of(tk, 4),
+          &(quic_resume_store_in){100, 50, 1000, psk, wired_span_of(0, 0)}) ==
       1);
   n = quic_resume_session(&r, blob, sizeof blob);
   CHECK(n > 0);
-  CHECK(quic_resume_set_session(&back, quic_span_of(blob, n)) == 1);
+  CHECK(quic_resume_set_session(&back, wired_span_of(blob, n)) == 1);
   CHECK(back.have_ticket == 1 && back.ticket_len == 4);
   CHECK(back.ticket[0] == 9 && back.ticket[3] == 6);
   CHECK(back.issued_at == 100 && back.lifetime == 50 && back.max_data == 1000);
   CHECK(back.have_psk == 1 && back.psk[0] == 0xA0 && back.psk[31] == 0xBF);
   /* truncated blob rejected */
-  CHECK(quic_resume_set_session(&back, quic_span_of(blob, n - 1)) == 0);
+  CHECK(quic_resume_set_session(&back, wired_span_of(blob, n - 1)) == 0);
   /* nothing stored -> no session bytes */
   {
     quic_resume empty2 = {0};
@@ -45,8 +45,8 @@ static void test_resume_early_keys_from_session(void) {
   for (usz i = 0; i < 32; i++) psk[i] = (u8)(3 * i + 1);
   CHECK(
       quic_resume_store(
-          &r, quic_span_of(tk, 4),
-          &(quic_resume_store_in){1, 2, 3, psk, quic_span_of(0, 0)}) == 1);
+          &r, wired_span_of(tk, 4),
+          &(quic_resume_store_in){1, 2, 3, psk, wired_span_of(0, 0)}) == 1);
   quic_tls_early_keys(psk, ch, sizeof ch, &want);
   CHECK(quic_resume_early_keys(&r, ch, sizeof ch, &got) == 1);
   for (usz i = 0; i < sizeof want.key; i++) CHECK(got.key[i] == want.key[i]);
@@ -66,17 +66,17 @@ static void test_resume_sni_compatible(void) {
   const u8    host[] = "Example.COM";
   CHECK(
       quic_resume_store(
-          &r, quic_span_of(tk, 2),
+          &r, wired_span_of(tk, 2),
           &(quic_resume_store_in){
-              1, 2, 3, 0, quic_span_of(host, sizeof(host) - 1)}) == 1);
+              1, 2, 3, 0, wired_span_of(host, sizeof(host) - 1)}) == 1);
   CHECK(r.sni_len == sizeof(host) - 1);
   /* omitted this time -> compatible regardless */
-  CHECK(quic_resume_sni_compatible(&r, quic_span_of(0, 0)) == 1);
+  CHECK(quic_resume_sni_compatible(&r, wired_span_of(0, 0)) == 1);
   /* same name, different case -> compatible */
   {
     const u8 same[] = "example.com";
     CHECK(
-        quic_resume_sni_compatible(&r, quic_span_of(same, sizeof(same) - 1)) ==
+        quic_resume_sni_compatible(&r, wired_span_of(same, sizeof(same) - 1)) ==
         1);
   }
   /* different name -> not compatible */
@@ -84,7 +84,7 @@ static void test_resume_sni_compatible(void) {
     const u8 other[] = "other.example";
     CHECK(
         quic_resume_sni_compatible(
-            &r, quic_span_of(other, sizeof(other) - 1)) == 0);
+            &r, wired_span_of(other, sizeof(other) - 1)) == 0);
   }
   /* a session that never remembered a server_name accepts any new one */
   {
@@ -93,12 +93,12 @@ static void test_resume_sni_compatible(void) {
     const u8    any[]  = "anything.example";
     CHECK(
         quic_resume_store(
-            &nosni, quic_span_of(tk2, 2),
-            &(quic_resume_store_in){1, 2, 3, 0, quic_span_of(0, 0)}) == 1);
+            &nosni, wired_span_of(tk2, 2),
+            &(quic_resume_store_in){1, 2, 3, 0, wired_span_of(0, 0)}) == 1);
     CHECK(nosni.sni_len == 0);
     CHECK(
         quic_resume_sni_compatible(
-            &nosni, quic_span_of(any, sizeof(any) - 1)) == 1);
+            &nosni, wired_span_of(any, sizeof(any) - 1)) == 1);
   }
 }
 
@@ -112,8 +112,8 @@ void test_resume(void) {
   /* store succeeds and records the ticket */
   CHECK(
       quic_resume_store(
-          &r, quic_span_of(tk, sizeof tk),
-          &(quic_resume_store_in){100, 50, 1000, 0, quic_span_of(0, 0)}) == 1);
+          &r, wired_span_of(tk, sizeof tk),
+          &(quic_resume_store_in){100, 50, 1000, 0, wired_span_of(0, 0)}) == 1);
   CHECK(r.have_ticket == 1);
   CHECK(r.ticket_len == 4);
   CHECK(r.ticket[0] == 1 && r.ticket[3] == 4);
@@ -149,7 +149,7 @@ void test_resume(void) {
   quic_resume r2                              = {0};
   CHECK(
       quic_resume_store(
-          &r2, quic_span_of(big, sizeof big),
-          &(quic_resume_store_in){0, 10, 0, 0, quic_span_of(0, 0)}) == 0);
+          &r2, wired_span_of(big, sizeof big),
+          &(quic_resume_store_in){0, 10, 0, 0, wired_span_of(0, 0)}) == 0);
   CHECK(r2.have_ticket == 0);
 }

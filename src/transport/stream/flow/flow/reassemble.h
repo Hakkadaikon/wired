@@ -21,7 +21,7 @@ void quic_reasm_init(quic_reasm* r);
 
 /* Insert data at offset. Returns 1 on success, 0 if it exceeds the buffer
  * capacity or a known final size. Idempotent on overlapping data. */
-int quic_reasm_insert(quic_reasm* r, u64 offset, quic_span data);
+int quic_reasm_insert(quic_reasm* r, u64 offset, wired_span data);
 
 /* Record the stream's final size (from a FIN). Returns 1 on success, 0 if it
  * conflicts with data already received past it. */

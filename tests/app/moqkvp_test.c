@@ -16,7 +16,7 @@ static void test_moqkvp_take_even_num(void) {
   quic_moqkvp kv;
 
   CHECK(
-      quic_moqkvp_take(quic_span_of(in, sizeof in), &off, &prev, &kv) ==
+      quic_moqkvp_take(wired_span_of(in, sizeof in), &off, &prev, &kv) ==
       QUIC_MOQKVP_OK);
   CHECK(kv.type == 0);
   CHECK(!kv.is_raw);
@@ -33,7 +33,7 @@ static void test_moqkvp_take_odd_raw(void) {
   quic_moqkvp kv;
 
   CHECK(
-      quic_moqkvp_take(quic_span_of(in, sizeof in), &off, &prev, &kv) ==
+      quic_moqkvp_take(wired_span_of(in, sizeof in), &off, &prev, &kv) ==
       QUIC_MOQKVP_OK);
   CHECK(kv.type == 1);
   CHECK(kv.is_raw);
@@ -52,11 +52,11 @@ static void test_moqkvp_take_delta_accumulates(void) {
   quic_moqkvp kv;
 
   CHECK(
-      quic_moqkvp_take(quic_span_of(in, sizeof in), &off, &prev, &kv) ==
+      quic_moqkvp_take(wired_span_of(in, sizeof in), &off, &prev, &kv) ==
       QUIC_MOQKVP_OK);
   CHECK(kv.type == 2 && !kv.is_raw && kv.num == 5);
   CHECK(
-      quic_moqkvp_take(quic_span_of(in, sizeof in), &off, &prev, &kv) ==
+      quic_moqkvp_take(wired_span_of(in, sizeof in), &off, &prev, &kv) ==
       QUIC_MOQKVP_OK);
   CHECK(kv.type == 5);
   CHECK(kv.is_raw);
@@ -74,7 +74,7 @@ static void test_moqkvp_take_nonminimal_delta(void) {
   quic_moqkvp kv;
 
   CHECK(
-      quic_moqkvp_take(quic_span_of(in, sizeof in), &off, &prev, &kv) ==
+      quic_moqkvp_take(wired_span_of(in, sizeof in), &off, &prev, &kv) ==
       QUIC_MOQKVP_OK);
   CHECK(kv.type == 0 && kv.num == 37);
   CHECK(off == 3);
@@ -89,7 +89,7 @@ static void test_moqkvp_take_nonminimal_even_value(void) {
   quic_moqkvp kv;
 
   CHECK(
-      quic_moqkvp_take(quic_span_of(in, sizeof in), &off, &prev, &kv) ==
+      quic_moqkvp_take(wired_span_of(in, sizeof in), &off, &prev, &kv) ==
       QUIC_MOQKVP_OK);
   CHECK(kv.type == 0 && kv.num == 37);
   CHECK(off == 3);
@@ -105,12 +105,12 @@ static void test_moqkvp_take_type_overflow(void) {
   quic_moqkvp kv;
 
   CHECK(
-      quic_moqkvp_take(quic_span_of(d1, sizeof d1), &off, &prev, &kv) ==
+      quic_moqkvp_take(wired_span_of(d1, sizeof d1), &off, &prev, &kv) ==
       QUIC_MOQKVP_VIOLATION);
   CHECK(off == 0 && prev == (u64)-1);
 
   CHECK(
-      quic_moqkvp_take(quic_span_of(d0, sizeof d0), &off, &prev, &kv) ==
+      quic_moqkvp_take(wired_span_of(d0, sizeof d0), &off, &prev, &kv) ==
       QUIC_MOQKVP_OK);
   CHECK(kv.type == (u64)-1 && kv.is_raw && kv.raw.n == 0);
 }
@@ -134,7 +134,7 @@ static void test_moqkvp_take_len_65535_accepted(void) {
 
   CHECK(
       quic_moqkvp_take(
-          quic_span_of(moqkvp_len_buf, 4 + QUIC_MOQKVP_MAX_LEN), &off, &prev,
+          wired_span_of(moqkvp_len_buf, 4 + QUIC_MOQKVP_MAX_LEN), &off, &prev,
           &kv) == QUIC_MOQKVP_OK);
   CHECK(kv.type == 1 && kv.is_raw);
   CHECK(kv.raw.n == QUIC_MOQKVP_MAX_LEN);
@@ -156,7 +156,7 @@ static void test_moqkvp_take_len_65536_violation(void) {
 
   CHECK(
       quic_moqkvp_take(
-          quic_span_of(moqkvp_len_buf, sizeof moqkvp_len_buf), &off, &prev,
+          wired_span_of(moqkvp_len_buf, sizeof moqkvp_len_buf), &off, &prev,
           &kv) == QUIC_MOQKVP_VIOLATION);
   CHECK(off == 0 && prev == 0);
 }
@@ -170,13 +170,13 @@ static void test_moqkvp_take_truncated_insufficient(void) {
   quic_moqkvp kv;
 
   CHECK(
-      quic_moqkvp_take(quic_span_of(in, sizeof in), &off, &prev, &kv) ==
+      quic_moqkvp_take(wired_span_of(in, sizeof in), &off, &prev, &kv) ==
       QUIC_MOQKVP_INSUFFICIENT);
   CHECK(off == 0 && prev == 0);
 
   /* empty input: even the Delta varint is missing */
   CHECK(
-      quic_moqkvp_take(quic_span_of(0, 0), &off, &prev, &kv) ==
+      quic_moqkvp_take(wired_span_of(0, 0), &off, &prev, &kv) ==
       QUIC_MOQKVP_INSUFFICIENT);
 }
 
@@ -191,8 +191,8 @@ static void test_moqkvp_roundtrip(void) {
   usz         off  = 0;
   u64         prev = 0;
 
-  CHECK(quic_moqkvp_put(quic_mspan_of(buf, sizeof buf), &off, &prev, &even));
-  CHECK(quic_moqkvp_put(quic_mspan_of(buf, sizeof buf), &off, &prev, &odd));
+  CHECK(quic_moqkvp_put(wired_mspan_of(buf, sizeof buf), &off, &prev, &even));
+  CHECK(quic_moqkvp_put(wired_mspan_of(buf, sizeof buf), &off, &prev, &odd));
   CHECK(off == sizeof golden);
   CHECK(prev == 5);
   for (usz i = 0; i < sizeof golden; i++) CHECK(buf[i] == golden[i]);
@@ -209,10 +209,10 @@ static void test_moqkvp_put_rejects(void) {
   usz         off      = 0;
   u64         prev     = 2;
 
-  CHECK(!quic_moqkvp_put(quic_mspan_of(buf, sizeof buf), &off, &prev, &back));
-  CHECK(
-      !quic_moqkvp_put(quic_mspan_of(buf, sizeof buf), &off, &prev, &too_long));
-  CHECK(!quic_moqkvp_put(quic_mspan_of(buf, 1), &off, &prev, &ok));
+  CHECK(!quic_moqkvp_put(wired_mspan_of(buf, sizeof buf), &off, &prev, &back));
+  CHECK(!quic_moqkvp_put(
+      wired_mspan_of(buf, sizeof buf), &off, &prev, &too_long));
+  CHECK(!quic_moqkvp_put(wired_mspan_of(buf, 1), &off, &prev, &ok));
   CHECK(off == 0 && prev == 2);
 }
 

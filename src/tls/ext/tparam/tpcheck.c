@@ -9,16 +9,16 @@ static int bytes_eq(const u8* a, const u8* b, usz n) {
   return 1;
 }
 
-int quic_tparam_cid_match(quic_span got, quic_span expected) {
+int quic_tparam_cid_match(wired_span got, wired_span expected) {
   if (got.n != expected.n) return 0;
   return bytes_eq(got.p, expected.p, got.n);
 }
 
-int quic_tparam_check_initial_scid(quic_span got, quic_span observed) {
+int quic_tparam_check_initial_scid(wired_span got, wired_span observed) {
   return quic_tparam_cid_match(got, observed);
 }
 
-int quic_tparam_check_original_dcid(quic_span got, quic_span sent_dcid) {
+int quic_tparam_check_original_dcid(wired_span got, wired_span sent_dcid) {
   return quic_tparam_cid_match(got, sent_dcid);
 }
 

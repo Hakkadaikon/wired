@@ -22,11 +22,11 @@ typedef struct {
 
 /** Everything a Retry packet carries: version, CIDs, token, 16-byte tag. */
 typedef struct {
-  u32       version;
-  quic_span dcid;
-  quic_span scid;
-  quic_span token;
-  const u8* tag;
+  u32        version;
+  wired_span dcid;
+  wired_span scid;
+  wired_span token;
+  const u8*  tag;
 } quic_retry_desc;
 
 /* Build a Retry packet into buf (cap bytes). Returns bytes written, or 0. */

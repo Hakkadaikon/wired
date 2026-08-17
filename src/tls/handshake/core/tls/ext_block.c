@@ -11,9 +11,9 @@ int quic_tls_ext_block_begin(const u8* buf, usz cap, usz* off) {
   return 1;
 }
 
-int quic_tls_ext_append(quic_obuf* out, quic_span ext) {
+int quic_tls_ext_append(wired_obuf* out, wired_span ext) {
   return quic_put_bytes(
-      quic_mspan_of(out->p, out->cap), &out->len, quic_span_of(ext.p, ext.n));
+      wired_mspan_of(out->p, out->cap), &out->len, wired_span_of(ext.p, ext.n));
 }
 
 /* Back-fill the reserved length to span everything past block_start + 2. */

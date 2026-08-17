@@ -12,7 +12,7 @@ static void test_validity_golden(void) {
   quic_x509 c;
   CHECK(
       quic_x509_parse(
-          quic_span_of(quic_x509_golden, sizeof(quic_x509_golden)), &c) == 1);
+          wired_span_of(quic_x509_golden, sizeof(quic_x509_golden)), &c) == 1);
 
   /* exactly notBefore and notAfter are inclusive */
   CHECK(quic_x509_validity_ok(c.tbs, NB) == 1);
@@ -27,10 +27,10 @@ static void test_validity_golden(void) {
 
 static void test_validity_malformed(void) {
   /* tbs too short to read a SEQUENCE header */
-  CHECK(quic_x509_validity_ok(quic_span_of(quic_x509_golden + 4, 3), NB) == 0);
+  CHECK(quic_x509_validity_ok(wired_span_of(quic_x509_golden + 4, 3), NB) == 0);
   /* tbs SEQUENCE without enough elements to reach validity */
   const u8 tbs[] = {0x30, 0x03, 0x02, 0x01, 0x02};
-  CHECK(quic_x509_validity_ok(quic_span_of(tbs, sizeof(tbs)), NB) == 0);
+  CHECK(quic_x509_validity_ok(wired_span_of(tbs, sizeof(tbs)), NB) == 0);
 }
 
 /* 1 if a[0..13) equals the NUL-terminated ASCII literal want. */
@@ -105,9 +105,9 @@ static void test_utctime_encode_roundtrip(void) {
     quic_x509_utctime_encode(samples[i] + 1, na);
     usz m = build_tbs_with_validity(nb, na, tbs);
 
-    CHECK(quic_x509_validity_ok(quic_span_of(tbs, m), samples[i]) == 1);
-    CHECK(quic_x509_validity_ok(quic_span_of(tbs, m), samples[i] + 1) == 1);
-    CHECK(quic_x509_validity_ok(quic_span_of(tbs, m), samples[i] - 1) == 0);
+    CHECK(quic_x509_validity_ok(wired_span_of(tbs, m), samples[i]) == 1);
+    CHECK(quic_x509_validity_ok(wired_span_of(tbs, m), samples[i] + 1) == 1);
+    CHECK(quic_x509_validity_ok(wired_span_of(tbs, m), samples[i] - 1) == 0);
   }
 }
 

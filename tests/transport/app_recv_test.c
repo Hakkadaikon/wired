@@ -2,7 +2,7 @@
 
 static void recv_keys(quic_initial_keys* k, quic_aes128* hp) {
   const u8 dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
-  quic_initial_derive(quic_span_of(dcid, 8), 1, QUIC_VERSION_1, k);
+  quic_initial_derive(wired_span_of(dcid, 8), 1, QUIC_VERSION_1, k);
   quic_aes128_init(hp, k->hp);
 }
 
@@ -44,8 +44,8 @@ static void test_recv_offset(void) {
   u8                     pkt[128];
   quic_protect_keys      pk = {&k, &hp};
   quic_hspkt_onertt_desc bd = {
-      quic_span_of(dcid, 4), 3, quic_span_of(frame, flen), 0};
-  quic_obuf o = quic_obuf_of(pkt, sizeof(pkt));
+      wired_span_of(dcid, 4), 3, wired_span_of(frame, flen), 0};
+  wired_obuf o = quic_obuf_of(pkt, sizeof(pkt));
   CHECK(quic_hspkt_onertt_build(&pk, &bd, &o));
   usz total = o.len;
 
@@ -73,8 +73,8 @@ static void test_recv_empty_payload(void) {
   u8                     pkt[128];
   quic_protect_keys      pk = {&k, &hp};
   quic_hspkt_onertt_desc bd = {
-      quic_span_of(dcid, 4), 1, quic_span_of((const u8*)"", 0), 0};
-  quic_obuf o = quic_obuf_of(pkt, sizeof(pkt));
+      wired_span_of(dcid, 4), 1, wired_span_of((const u8*)"", 0), 0};
+  wired_obuf o = quic_obuf_of(pkt, sizeof(pkt));
   CHECK(quic_hspkt_onertt_build(&pk, &bd, &o));
   usz total = o.len;
 
@@ -99,8 +99,8 @@ static void test_recv_malformed(void) {
   u8                     pkt[128];
   quic_protect_keys      pk = {&k, &hp};
   quic_hspkt_onertt_desc bd = {
-      quic_span_of(dcid, 4), 2, quic_span_of(bad, sizeof(bad)), 0};
-  quic_obuf o = quic_obuf_of(pkt, sizeof(pkt));
+      wired_span_of(dcid, 4), 2, wired_span_of(bad, sizeof(bad)), 0};
+  wired_obuf o = quic_obuf_of(pkt, sizeof(pkt));
   CHECK(quic_hspkt_onertt_build(&pk, &bd, &o));
   usz total = o.len;
 

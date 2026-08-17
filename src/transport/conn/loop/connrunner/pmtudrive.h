@@ -24,7 +24,7 @@ void quic_connrunner_pmtu_init(quic_connrunner* r);
  * 8899 5.1.1 PROBE_TIMER for the probe just sent, and -- when Search
  * Complete's PMTU_RAISE_TIMER has fired -- resumes the search first. */
 usz quic_connrunner_pmtu_build_probe(
-    quic_connrunner* r, quic_obuf* out, u64 now);
+    quic_connrunner* r, wired_obuf* out, u64 now);
 
 /* RFC 8899 3.3: if `pn` is the outstanding probe's packet number, tell the
  * search it was delivered (raises validated/MPS, resets PROBE_COUNT). */

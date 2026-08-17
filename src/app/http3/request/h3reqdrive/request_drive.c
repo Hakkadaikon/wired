@@ -18,22 +18,22 @@
 
 /* RFC 9114 4.1 / 4.3.1, RFC 9204 4.5 */
 int wired_h3reqdrive_send_method(
-    u64 stream_id, const wired_h3reqdrive_send_in* in, quic_obuf* out) {
+    u64 stream_id, const wired_h3reqdrive_send_in* in, wired_obuf* out) {
   u8                    fs[256];
-  quic_obuf             fsb = quic_obuf_of(fs, sizeof(fs));
+  wired_obuf            fsb = quic_obuf_of(fs, sizeof(fs));
   quic_h3req_headers_in hin = {in->path, in->authority};
   quic_h3conn_req_in    rin;
   if (!quic_h3req_enc_method(in->method, &hin, &fsb)) return 0;
-  rin = (quic_h3conn_req_in){quic_span_of(fs, fsb.len), in->body};
+  rin = (quic_h3conn_req_in){wired_span_of(fs, fsb.len), in->body};
   return quic_h3conn_send_request(stream_id, &rin, out);
 }
 
 /* RFC 9114 4.1 / 4.3.1, RFC 9204 4.5 */
 int wired_h3reqdrive_send_get(
-    u64 stream_id, const wired_h3reqdrive_get_in* in, quic_obuf* out) {
+    u64 stream_id, const wired_h3reqdrive_get_in* in, wired_obuf* out) {
   static const u8          method[] = {'G', 'E', 'T'};
   wired_h3reqdrive_send_in sin      = {
-      quic_span_of(method, 3), in->path, in->authority, quic_span_of(0, 0)};
+      wired_span_of(method, 3), in->path, in->authority, wired_span_of(0, 0)};
   return wired_h3reqdrive_send_method(stream_id, &sin, out);
 }
 
@@ -69,7 +69,7 @@ static void borrow_dynamic(const quic_qpack_field* f, rline* L) {
  * dyn->table when set; a caller with no dynamic table (dyn->table == 0, e.g.
  * no encoder stream has been seen yet) simply cannot resolve one, matching
  * this decoder's prior static-table-only behavior. */
-static usz line_indexed(quic_span fs, const quic_qdyn_src* dyn, rline* L) {
+static usz line_indexed(wired_span fs, const quic_qdyn_src* dyn, rline* L) {
   quic_qpack_field f;
   usz              consumed;
   quic_qdyn_src    src = {dyn->table, dyn->base, fs};
@@ -80,9 +80,9 @@ static usz line_indexed(quic_span fs, const quic_qdyn_src* dyn, rline* L) {
 
 /* RFC 9204 4.5.4: a Literal With Name Reference -> static name, copied value.
  */
-static usz line_namref(quic_span fs, quic_mspan scr, rline* L) {
+static usz line_namref(wired_span fs, wired_mspan scr, rline* L) {
   quic_qpack_nameref r    = {0, 0, 0};
-  quic_obuf          vb   = quic_obuf_of(scr.p, scr.n);
+  wired_obuf         vb   = quic_obuf_of(scr.p, scr.n);
   const char *       name = 0, *value = 0;
   usz                c = quic_qpack_literal_namref_decode(fs, &r, &vb);
   if (!c || !quic_qpack_static_get((usz)r.index, &name, &value)) return 0;
@@ -106,7 +106,7 @@ static usz litname_split(usz scr_n) {
 
 /* RFC 9204 4.5.6: a Literal With Literal Name -> name in the first (capped)
  * scratch share, value in the rest (disjoint, both written in one call). */
-static usz line_litname(quic_span fs, quic_mspan scr, rline* L) {
+static usz line_litname(wired_span fs, wired_mspan scr, rline* L) {
   int                 never = 0;
   usz                 half  = litname_split(scr.n);
   quic_qpack_fieldbuf fb    = {
@@ -126,7 +126,7 @@ static usz line_litname(quic_span fs, quic_mspan scr, rline* L) {
  * and Literal With Literal Name are static-table/copied-value only -- see
  * line_namref/line_litname's own docs). */
 static usz decode_line(
-    quic_span fs, quic_mspan scr, const quic_qdyn_src* dyn, rline* L) {
+    wired_span fs, wired_mspan scr, const quic_qdyn_src* dyn, rline* L) {
   usz c = line_indexed(fs, dyn, L);
   if (c) return c;
   c = line_namref(fs, scr, L);
@@ -152,7 +152,7 @@ static int line_name_is(const rline* L, const char* s) {
  * field value; other regular fields stay ignored. */
 static void take_priority(const rline* L, wired_h3reqdrive_req* r) {
   if (line_name_is(L, "priority"))
-    quic_h3_priority_sfv(quic_span_of(L->value, L->value_len), &r->priority);
+    quic_h3_priority_sfv(wired_span_of(L->value, L->value_len), &r->priority);
 }
 
 /* WebTransport draft-ietf-webtrans-http3-15 SS3.6 / RFC 9220 3: a regular
@@ -258,8 +258,8 @@ static void classify_line(const rline* L, wired_h3reqdrive_req* r) {
  * reference unresolvable, matching this decoder's prior static-only
  * behavior. */
 typedef struct {
-  quic_span     fs;
-  quic_mspan    scr;
+  wired_span    fs;
+  wired_mspan   scr;
   usz           off;
   usz           used;
   quic_qdyn_src dyn;
@@ -291,10 +291,10 @@ static int line_ok(const rline* L) {
 /* Decode one line at cur->off into r, advancing cur. Returns 1 ok, 0 on a
  * malformed line (decode failure or a forbidden CR/LF/NUL octet). */
 static int step_line(rd_cursor* cur, wired_h3reqdrive_req* r) {
-  rline     L;
-  quic_span rest = quic_span_of(cur->fs.p + cur->off, cur->fs.n - cur->off);
-  usz       c    = decode_line(
-      rest, quic_mspan_of(cur->scr.p + cur->used, cur->scr.n - cur->used),
+  rline      L;
+  wired_span rest = wired_span_of(cur->fs.p + cur->off, cur->fs.n - cur->off);
+  usz        c    = decode_line(
+      rest, wired_mspan_of(cur->scr.p + cur->used, cur->scr.n - cur->used),
       &cur->dyn, &L);
   if (!c || !line_ok(&L)) return 0;
   classify_line(&L, r);
@@ -348,7 +348,7 @@ static int prefix_resolve_base(
   return 1;
 }
 
-static usz prefix_base(quic_span fs, const quic_qpack_dyn* dyn, u64* base) {
+static usz prefix_base(wired_span fs, const quic_qpack_dyn* dyn, u64* base) {
   quic_qpack_prefix p;
   usz               off = quic_qpack_prefix_decode(fs.p, fs.n, &p);
   if (!off) return 0;
@@ -361,8 +361,8 @@ static usz prefix_base(quic_span fs, const quic_qpack_dyn* dyn, u64* base) {
  * dynamic-table field-line reference then simply fails to resolve, see
  * line_indexed's own doc). */
 static int decode_lines(
-    quic_span             fs,
-    quic_mspan            scr,
+    wired_span            fs,
+    wired_mspan           scr,
     const quic_qpack_dyn* dyn,
     wired_h3reqdrive_req* r) {
   rd_cursor cur = {fs, scr, 0, 0, {dyn, 0, fs}};
@@ -381,12 +381,12 @@ static int path_present_and_empty(const wired_h3reqdrive_req* r) {
 
 /* RFC 9114 4.1, RFC 9204 4.5 */
 int wired_h3reqdrive_recv_get_dyn(
-    quic_span             stream_data,
-    quic_mspan            scratch,
+    wired_span            stream_data,
+    wired_mspan           scratch,
     const quic_qpack_dyn* dyn,
     wired_h3reqdrive_req* r) {
-  quic_span fs = quic_span_of(0, 0);
-  *r           = (wired_h3reqdrive_req){0};
+  wired_span fs = wired_span_of(0, 0);
+  *r            = (wired_h3reqdrive_req){0};
   quic_h3_priority_init(&r->priority);
   if (!wired_h3reqdrive_request_sections(stream_data, &fs, r)) return 0;
   if (!decode_lines(fs, scratch, dyn, r)) return 0;
@@ -396,7 +396,7 @@ int wired_h3reqdrive_recv_get_dyn(
 /* RFC 9114 4.1, RFC 9204 4.5: static-table-only convenience wrapper (no
  * dynamic table observed / not tracked by this caller). */
 int wired_h3reqdrive_recv_get(
-    quic_span stream_data, quic_mspan scratch, wired_h3reqdrive_req* r) {
+    wired_span stream_data, wired_mspan scratch, wired_h3reqdrive_req* r) {
   return wired_h3reqdrive_recv_get_dyn(stream_data, scratch, 0, r);
 }
 
@@ -413,8 +413,8 @@ static int trailer_line_ok(const rline* L) {
 static int trailer_step_line(rd_cursor* cur) {
   rline L;
   usz   c = decode_line(
-      quic_span_of(cur->fs.p + cur->off, cur->fs.n - cur->off),
-      quic_mspan_of(cur->scr.p + cur->used, cur->scr.n - cur->used), &cur->dyn,
+      wired_span_of(cur->fs.p + cur->off, cur->fs.n - cur->off),
+      wired_mspan_of(cur->scr.p + cur->used, cur->scr.n - cur->used), &cur->dyn,
       &L);
   if (!c) return 0;
   if (!trailer_line_ok(&L)) return 0;
@@ -439,9 +439,9 @@ static int trailer_scan_lines(rd_cursor* cur) {
  *   values during the walk (discarded once this call returns)
  * @return 1 if there is no trailer, or the trailer has no pseudo-header and
  *   no malformed line; 0 if the trailer is malformed or carries one. */
-int wired_h3reqdrive_trailer_ok(quic_span stream_data, quic_mspan scratch) {
-  quic_span trailer_fs = quic_span_of(0, 0);
-  rd_cursor cur;
+int wired_h3reqdrive_trailer_ok(wired_span stream_data, wired_mspan scratch) {
+  wired_span trailer_fs = wired_span_of(0, 0);
+  rd_cursor  cur;
   if (!wired_h3reqdrive_request_trailer(stream_data, &trailer_fs)) return 1;
   cur.off = quic_qpack_prefix_decode(
       trailer_fs.p, trailer_fs.n, &(quic_qpack_prefix){0});

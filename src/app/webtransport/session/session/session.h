@@ -154,7 +154,7 @@ int wired_wt_session_offer_stream(wired_wt_session* s, u64 stream_id);
  * @param s the session to offer the datagram to
  * @param data the datagram payload
  * @return 1 if buffered or accepted, 0 if dropped */
-int wired_wt_session_offer_datagram(wired_wt_session* s, quic_span data);
+int wired_wt_session_offer_datagram(wired_wt_session* s, wired_span data);
 
 /** Record a WT_MAX_STREAMS value just received from the peer
  * (draft-ietf-webtrans-http3-15 SS5.3). WT_MAX_STREAMS capsules are

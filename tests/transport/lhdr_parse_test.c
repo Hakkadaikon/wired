@@ -25,7 +25,7 @@ static void test_lhdr_initial(void) {
   usz want_pn_off = n;
 
   quic_lhdr h;
-  int       ok = quic_lhdr_parse(quic_span_of(p, n), 1, &h);
+  int       ok = quic_lhdr_parse(wired_span_of(p, n), 1, &h);
   CHECK(ok == 1);
   CHECK(h.dcid.n == 2 && h.dcid.p[0] == 0xAA && h.dcid.p[1] == 0xBB);
   CHECK(h.scid.n == 1 && h.scid.p[0] == 0xCC);
@@ -51,7 +51,7 @@ static void test_lhdr_handshake(void) {
   usz want_pn_off = n;
 
   quic_lhdr h;
-  int       ok = quic_lhdr_parse(quic_span_of(p, n), 0, &h);
+  int       ok = quic_lhdr_parse(wired_span_of(p, n), 0, &h);
   CHECK(ok == 1);
   CHECK(h.dcid.n == 1 && h.dcid.p[0] == 0x11);
   CHECK(h.scid.n == 0);
@@ -64,7 +64,7 @@ static void test_lhdr_handshake(void) {
 static void test_lhdr_not_long(void) {
   u8        p[8] = {0x40, 0, 0, 0, 1, 0, 0, 0};
   quic_lhdr h;
-  CHECK(quic_lhdr_parse(quic_span_of(p, 8), 1, &h) == 0);
+  CHECK(quic_lhdr_parse(wired_span_of(p, 8), 1, &h) == 0);
 }
 
 /* Truncation: a DCID length that overruns the buffer parses to 0. */
@@ -80,7 +80,7 @@ static void test_lhdr_truncated(void) {
   p[n++] = 0xAA;
   p[n++] = 0xBB;
   quic_lhdr h;
-  CHECK(quic_lhdr_parse(quic_span_of(p, n), 1, &h) == 0);
+  CHECK(quic_lhdr_parse(wired_span_of(p, n), 1, &h) == 0);
 }
 
 /* Missing Length field after a valid prefix parses to 0. */
@@ -96,7 +96,7 @@ static void test_lhdr_no_length(void) {
   p[n++] = 0; /* SCID len 0 */
   /* Handshake: next would be Length, but buffer ends here. */
   quic_lhdr h;
-  CHECK(quic_lhdr_parse(quic_span_of(p, n), 0, &h) == 0);
+  CHECK(quic_lhdr_parse(wired_span_of(p, n), 0, &h) == 0);
 }
 
 /* RFC 9000 17.2: pn_len is (byte0 & 0x03) + 1 after HP removal. */

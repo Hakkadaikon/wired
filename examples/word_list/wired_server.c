@@ -41,7 +41,7 @@ static void history_append(const u8* body, usz n) {
 
 /* Copy up to out->cap bytes of src into out, setting out->len to the count
  * copied. */
-static void copy_capped(quic_obuf* out, quic_span src) {
+static void copy_capped(wired_obuf* out, wired_span src) {
   usz i;
   for (i = 0; i < src.n && i < out->cap; i++) out->p[i] = src.p[i];
   out->len = i;
@@ -61,7 +61,7 @@ typedef struct {
 } app_config;
 
 /* Append span's bytes to line at *at, stopping at cap. */
-static void log_append_span(char* line, usz cap, usz* at, quic_span span) {
+static void log_append_span(char* line, usz cap, usz* at, wired_span span) {
   usz i;
   for (i = 0; i < span.n && *at < cap; i++) line[(*at)++] = (char)span.p[i];
 }
@@ -71,8 +71,8 @@ static void log_append_span(char* line, usz cap, usz* at, quic_span span) {
  */
 static void access_log(
     const app_config* cfg,
-    quic_span         method,
-    quic_span         path,
+    wired_span         method,
+    wired_span         path,
     u64               status,
     u64               nbytes) {
   char line[512];
@@ -86,17 +86,17 @@ static void access_log(
   line[at++] = ' ';
   wired_fmt_u64(line, &at, &(wired_fmt_u64_in){nbytes, 1});
   line[at++] = '\n';
-  wired_fio_append(cfg->access_log, quic_span_of((const u8*)line, at));
+  wired_fio_append(cfg->access_log, wired_span_of((const u8*)line, at));
 }
 
 /* Write the 404 body and return its status code. */
-static u64 not_found(quic_obuf* body_out) {
-  copy_capped(body_out, quic_span_of((const u8*)"404 Not Found\n", 14));
+static u64 not_found(wired_obuf* body_out) {
+  copy_capped(body_out, wired_span_of((const u8*)"404 Not Found\n", 14));
   return 404;
 }
 
 /* NUL-terminate path into reqpath (cap-1 bytes max). */
-static void reqpath_copy(char* reqpath, usz cap, quic_span path) {
+static void reqpath_copy(char* reqpath, usz cap, wired_span path) {
   usz i;
   for (i = 0; i < path.n && i < cap - 1; i++) reqpath[i] = (char)path.p[i];
   reqpath[i] = 0;
@@ -113,7 +113,7 @@ static void reqpath_copy(char* reqpath, usz cap, quic_span path) {
 static u64 serve_static_round(
     const char* resolved,
     u64         offset,
-    quic_obuf*  body_out,
+    wired_obuf*  body_out,
     int*        more,
     u64*        total_size) {
   ssz fd = wired_fio_open(resolved);
@@ -125,7 +125,7 @@ static u64 serve_static_round(
     return not_found(body_out);
   }
   if (offset == 0) *total_size = (u64)total;
-  got = wired_fio_pread(fd, quic_mspan_of(body_out->p, body_out->cap), offset);
+  got = wired_fio_pread(fd, wired_mspan_of(body_out->p, body_out->cap), offset);
   wired_fio_close(fd);
   if (got < 0) return not_found(body_out);
   body_out->len = (usz)got;
@@ -142,9 +142,9 @@ static u64 serve_static_round(
  * across repeated calls at increasing offset (see wired_srvloop_handler). */
 static u64 serve_static(
     const app_config* cfg,
-    quic_span         path,
+    wired_span         path,
     u64               offset,
-    quic_obuf*        body_out,
+    wired_obuf*        body_out,
     const char**      content_type,
     int*              more,
     u64*              total_size) {
@@ -161,13 +161,13 @@ static u64 serve_static(
 /* History-demo mode (--root absent): RFC 9110 9.3.1 (GET) returns the log;
  * 9.3.3 (POST) appends and echoes. Always returns 200 (matches the wire
  * :status, which srvloop always sends as 200). */
-static u64 serve_history(const wired_h3reqdrive_req* req, quic_obuf* body_out) {
+static u64 serve_history(const wired_h3reqdrive_req* req, wired_obuf* body_out) {
   if (req->method_len == 4 && req->method[0] == 'P') {
     history_append(req->body, req->body_len);
-    copy_capped(body_out, quic_span_of(req->body, req->body_len));
+    copy_capped(body_out, wired_span_of(req->body, req->body_len));
     return 200;
   }
-  copy_capped(body_out, quic_span_of(g_history, g_history_len));
+  copy_capped(body_out, wired_span_of(g_history, g_history_len));
   return 200;
 }
 
@@ -179,13 +179,13 @@ static int app_on_request(
     void*                       ctx,
     const wired_h3reqdrive_req* req,
     u64                         offset,
-    quic_obuf*                  body_out,
+    wired_obuf*                  body_out,
     const char**                content_type,
     int*                        more,
     u64*                        total_size) {
   const app_config* cfg    = (const app_config*)ctx;
-  quic_span         method = quic_span_of(req->method, req->method_len);
-  quic_span         path   = quic_span_of(req->path, req->path_len);
+  wired_span         method = wired_span_of(req->method, req->method_len);
+  wired_span         path   = wired_span_of(req->path, req->path_len);
   u64               status = cfg->root ? serve_static(
                                cfg, path, offset, body_out, content_type, more,
                                total_size)
@@ -195,19 +195,19 @@ static int app_on_request(
 }
 
 /* 1 if ob holds exactly "hi" (the POST echo). */
-static int selfcheck_echo_ok(const quic_obuf* ob, const u8* out) {
+static int selfcheck_echo_ok(const wired_obuf* ob, const u8* out) {
   return ob->len == 2 && out[0] == 'h';
 }
 
 /* 1 if ob holds exactly "\nhi" (the GET history dump after one POST). */
-static int selfcheck_history_ok(const quic_obuf* ob, const u8* out) {
+static int selfcheck_history_ok(const wired_obuf* ob, const u8* out) {
   return ob->len == 3 && out[1] == 'h' && out[2] == 'i';
 }
 
 /* Self-check (ponytail: the only non-trivial app logic is the store/echo). */
 static void app_selfcheck(void) {
   u8                   out[64];
-  quic_obuf            ob           = {out, sizeof out, 0};
+  wired_obuf            ob           = {out, sizeof out, 0};
   app_config           cfg          = {0};
   const char*          content_type = 0;
   int                  more         = 0;
@@ -246,7 +246,7 @@ static void server_identity(wired_srvboot_id* id, server_keys* k) {
     k->seed[i] = (u8)(0x80 + i);
     k->rnd[i]  = (u8)(0xa0 + i);
   }
-  quic_x25519_base(k->pub, k->priv);
+  wired_x25519_base(k->pub, k->priv);
   id->priv        = k->priv;
   id->pub         = k->pub;
   id->cert_seed   = k->seed;

@@ -30,6 +30,6 @@ void quic_h3_priority_set_urgency(quic_h3_priority* p, u8 digit);
 
 /* RFC 9218 4.2: at an `i` member starting at v[i], a bare `i` (or `i=?1`)
  * sets incremental, `i=?0` clears it; malformed forms leave p untouched. */
-void quic_h3_priority_set_incremental(quic_h3_priority* p, quic_span v, usz i);
+void quic_h3_priority_set_incremental(quic_h3_priority* p, wired_span v, usz i);
 
 #endif

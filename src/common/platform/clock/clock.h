@@ -30,6 +30,6 @@ u64 quic_clock_ymdhms(void);
  * arithmetic-friendly (e.g. computing a validity window's end as now + N
  * days before formatting either bound).
  * @return UNIX epoch seconds, or 0 on syscall failure */
-u64 quic_clock_epoch_secs(void);
+u64 wired_clock_epoch_secs(void);
 
 #endif

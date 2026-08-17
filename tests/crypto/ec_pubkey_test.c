@@ -12,7 +12,7 @@ static void test_ec_pubkey_extract(void) {
     key[2 + i]  = (u8)i;
     key[34 + i] = (u8)(0x40 + i);
   }
-  CHECK(quic_x509_ec_pubkey(quic_span_of(key, sizeof(key)), x, y) == 1);
+  CHECK(quic_x509_ec_pubkey(wired_span_of(key, sizeof(key)), x, y) == 1);
   CHECK(x[0] == 0 && x[31] == 31);
   CHECK(y[0] == 0x40 && y[31] == 0x5f);
 }
@@ -23,9 +23,9 @@ static void test_ec_pubkey_bad(void) {
   u8 key[66], x[32], y[32];
   key[0] = 0x00;
   key[1] = 0x02;
-  CHECK(quic_x509_ec_pubkey(quic_span_of(key, sizeof(key)), x, y) == 0);
+  CHECK(quic_x509_ec_pubkey(wired_span_of(key, sizeof(key)), x, y) == 0);
   key[1] = 0x04;
-  CHECK(quic_x509_ec_pubkey(quic_span_of(key, 65), x, y) == 0); /* short */
+  CHECK(quic_x509_ec_pubkey(wired_span_of(key, 65), x, y) == 0); /* short */
 }
 
 /* FIPS 186-4 D.1.2.3 P-256 base point G, big-endian X/Y (hand-verified: Y is
@@ -46,7 +46,7 @@ static void test_ec_pubkey_compressed_odd(void) {
   key[0] = 0x00;
   key[1] = 0x03;
   for (usz i = 0; i < 32; i++) key[2 + i] = p256_gx[i];
-  CHECK(quic_x509_ec_pubkey(quic_span_of(key, sizeof(key)), x, y) == 1);
+  CHECK(quic_x509_ec_pubkey(wired_span_of(key, sizeof(key)), x, y) == 1);
   for (usz i = 0; i < 32; i++) CHECK(x[i] == p256_gx[i]);
   for (usz i = 0; i < 32; i++) CHECK(y[i] == p256_gy[i]);
 }
@@ -58,7 +58,7 @@ static void test_ec_pubkey_compressed_even_selects_other_root(void) {
   key[0] = 0x00;
   key[1] = 0x02;
   for (usz i = 0; i < 32; i++) key[2 + i] = p256_gx[i];
-  CHECK(quic_x509_ec_pubkey(quic_span_of(key, sizeof(key)), x, y) == 1);
+  CHECK(quic_x509_ec_pubkey(wired_span_of(key, sizeof(key)), x, y) == 1);
   CHECK((y[31] & 1) == 0);
   int same = 1;
   for (usz i = 0; i < 32; i++)
@@ -72,7 +72,7 @@ static void test_ec_pubkey_bad_tag(void) {
   key[0] = 0x00;
   key[1] = 0x05;
   for (usz i = 0; i < 32; i++) key[2 + i] = p256_gx[i];
-  CHECK(quic_x509_ec_pubkey(quic_span_of(key, sizeof(key)), x, y) == 0);
+  CHECK(quic_x509_ec_pubkey(wired_span_of(key, sizeof(key)), x, y) == 0);
 }
 
 /* FIPS 186-4 D.1.2.4 P-384 base point G, big-endian X/Y (hand-verified: Y is
@@ -95,7 +95,7 @@ static void test_ec_pubkey384_compressed_odd(void) {
   key[0] = 0x00;
   key[1] = 0x03;
   for (usz i = 0; i < 48; i++) key[2 + i] = p384_gx[i];
-  CHECK(quic_x509_ec_pubkey384(quic_span_of(key, sizeof(key)), x, y) == 1);
+  CHECK(quic_x509_ec_pubkey384(wired_span_of(key, sizeof(key)), x, y) == 1);
   for (usz i = 0; i < 48; i++) CHECK(x[i] == p384_gx[i]);
   for (usz i = 0; i < 48; i++) CHECK(y[i] == p384_gy[i]);
 }
@@ -106,7 +106,7 @@ static void test_ec_pubkey384_compressed_even_selects_other_root(void) {
   key[0] = 0x00;
   key[1] = 0x02;
   for (usz i = 0; i < 48; i++) key[2 + i] = p384_gx[i];
-  CHECK(quic_x509_ec_pubkey384(quic_span_of(key, sizeof(key)), x, y) == 1);
+  CHECK(quic_x509_ec_pubkey384(wired_span_of(key, sizeof(key)), x, y) == 1);
   CHECK((y[47] & 1) == 0);
   int same = 1;
   for (usz i = 0; i < 48; i++)
@@ -120,7 +120,7 @@ static void test_ec_pubkey384_bad_tag(void) {
   key[0] = 0x00;
   key[1] = 0x05;
   for (usz i = 0; i < 48; i++) key[2 + i] = p384_gx[i];
-  CHECK(quic_x509_ec_pubkey384(quic_span_of(key, sizeof(key)), x, y) == 0);
+  CHECK(quic_x509_ec_pubkey384(wired_span_of(key, sizeof(key)), x, y) == 0);
 }
 
 void test_ec_pubkey(void) {

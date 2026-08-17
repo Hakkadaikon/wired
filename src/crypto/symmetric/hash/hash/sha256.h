@@ -53,6 +53,6 @@ void quic_sha256_final(quic_sha256_ctx* s, u8 out[QUIC_SHA256_DIGEST]);
  * @param len  number of bytes at data
  * @param out  receives the 32-byte digest
  */
-void quic_sha256(const u8* data, usz len, u8 out[QUIC_SHA256_DIGEST]);
+void wired_sha256(const u8* data, usz len, u8 out[QUIC_SHA256_DIGEST]);
 
 #endif

@@ -73,7 +73,7 @@ static const char                                          crt_bad_key_pem[] =
 
 static void crt_write(const char* path, const char* text, usz n) {
   syscall3(SYS_unlinkat, CRT_AT_FDCWD, path, 0);
-  wired_fio_append(path, quic_span_of((const u8*)text, n));
+  wired_fio_append(path, wired_span_of((const u8*)text, n));
 }
 
 static void crt_unlink(const char* path) {

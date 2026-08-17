@@ -25,6 +25,6 @@ typedef enum {
  * MISMATCH degrades to unrecognized_name (QUIC_TLS_ALERT_UNRECOGNIZED_NAME)
  * or is ignored. */
 quic_salpn_sni_outcome quic_salpn_sni_check(
-    const u8* ch_msg, usz ch_len, quic_span tbs);
+    const u8* ch_msg, usz ch_len, wired_span tbs);
 
 #endif

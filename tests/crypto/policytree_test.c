@@ -55,7 +55,7 @@ static void test_tree_fold_no_ext_empties(void) {
   quic_x509_policy_tree t;
   quic_x509_policy_tree_init(&t);
   quic_x509_policy_tree_fold(
-      &t, quic_span_of(pt_tbs_no_ext, sizeof(pt_tbs_no_ext)), 0);
+      &t, wired_span_of(pt_tbs_no_ext, sizeof(pt_tbs_no_ext)), 0);
   CHECK(quic_x509_policy_tree_nonempty(&t) == 0);
 }
 
@@ -64,7 +64,7 @@ static void test_tree_fold_any_policy_stays_nonempty(void) {
   quic_x509_policy_tree t;
   quic_x509_policy_tree_init(&t);
   quic_x509_policy_tree_fold(
-      &t, quic_span_of(pt_tbs_any_policy, sizeof(pt_tbs_any_policy)), 0);
+      &t, wired_span_of(pt_tbs_any_policy, sizeof(pt_tbs_any_policy)), 0);
   CHECK(quic_x509_policy_tree_nonempty(&t) == 1);
 }
 
@@ -74,7 +74,7 @@ static void test_tree_fold_specific_narrows_nonempty(void) {
   quic_x509_policy_tree t;
   quic_x509_policy_tree_init(&t);
   quic_x509_policy_tree_fold(
-      &t, quic_span_of(pt_tbs_policy_x, sizeof(pt_tbs_policy_x)), 0);
+      &t, wired_span_of(pt_tbs_policy_x, sizeof(pt_tbs_policy_x)), 0);
   CHECK(quic_x509_policy_tree_nonempty(&t) == 1);
 }
 
@@ -84,9 +84,9 @@ static void test_tree_fold_disjoint_policies_empties(void) {
   quic_x509_policy_tree t;
   quic_x509_policy_tree_init(&t);
   quic_x509_policy_tree_fold(
-      &t, quic_span_of(pt_tbs_policy_x, sizeof(pt_tbs_policy_x)), 0);
+      &t, wired_span_of(pt_tbs_policy_x, sizeof(pt_tbs_policy_x)), 0);
   quic_x509_policy_tree_fold(
-      &t, quic_span_of(pt_tbs_policy_y, sizeof(pt_tbs_policy_y)), 0);
+      &t, wired_span_of(pt_tbs_policy_y, sizeof(pt_tbs_policy_y)), 0);
   CHECK(quic_x509_policy_tree_nonempty(&t) == 0);
 }
 
@@ -96,9 +96,9 @@ static void test_tree_fold_same_policy_twice_stays_nonempty(void) {
   quic_x509_policy_tree t;
   quic_x509_policy_tree_init(&t);
   quic_x509_policy_tree_fold(
-      &t, quic_span_of(pt_tbs_policy_x, sizeof(pt_tbs_policy_x)), 0);
+      &t, wired_span_of(pt_tbs_policy_x, sizeof(pt_tbs_policy_x)), 0);
   quic_x509_policy_tree_fold(
-      &t, quic_span_of(pt_tbs_policy_x, sizeof(pt_tbs_policy_x)), 0);
+      &t, wired_span_of(pt_tbs_policy_x, sizeof(pt_tbs_policy_x)), 0);
   CHECK(quic_x509_policy_tree_nonempty(&t) == 1);
 }
 
@@ -108,9 +108,9 @@ static void test_tree_fold_empty_is_monotonic(void) {
   quic_x509_policy_tree t;
   quic_x509_policy_tree_init(&t);
   quic_x509_policy_tree_fold(
-      &t, quic_span_of(pt_tbs_no_ext, sizeof(pt_tbs_no_ext)), 0);
+      &t, wired_span_of(pt_tbs_no_ext, sizeof(pt_tbs_no_ext)), 0);
   quic_x509_policy_tree_fold(
-      &t, quic_span_of(pt_tbs_any_policy, sizeof(pt_tbs_any_policy)), 0);
+      &t, wired_span_of(pt_tbs_any_policy, sizeof(pt_tbs_any_policy)), 0);
   CHECK(quic_x509_policy_tree_nonempty(&t) == 0);
 }
 
@@ -122,7 +122,7 @@ static void test_tree_fold_any_policy_inhibited_narrows(void) {
   quic_x509_policy_tree t;
   quic_x509_policy_tree_init(&t);
   quic_x509_policy_tree_fold(
-      &t, quic_span_of(pt_tbs_any_policy, sizeof(pt_tbs_any_policy)), 1);
+      &t, wired_span_of(pt_tbs_any_policy, sizeof(pt_tbs_any_policy)), 1);
   CHECK(quic_x509_policy_tree_nonempty(&t) == 0);
 }
 
@@ -133,7 +133,7 @@ static void test_tree_fold_any_and_specific_inhibited_keeps_specific(void) {
   quic_x509_policy_tree_init(&t);
   quic_x509_policy_tree_fold(
       &t,
-      quic_span_of(pt_tbs_any_and_policy_x, sizeof(pt_tbs_any_and_policy_x)),
+      wired_span_of(pt_tbs_any_and_policy_x, sizeof(pt_tbs_any_and_policy_x)),
       1);
   CHECK(quic_x509_policy_tree_nonempty(&t) == 1);
 }

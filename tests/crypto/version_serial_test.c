@@ -7,12 +7,12 @@
 /* RFC 5280 4.1.2.1/4.1.2.2. version and serialNumber off the real tbs. */
 static void test_vs_golden(void) {
   quic_tbscert t;
-  CHECK(quic_tbscert_parse(quic_span_of(quic_x509_golden + 4, 305), &t) == 1);
+  CHECK(quic_tbscert_parse(wired_span_of(quic_x509_golden + 4, 305), &t) == 1);
 
   u64 ver;
   CHECK(quic_tbscert_version(&t, &ver) == 1 && ver == 2);
 
-  quic_span serial;
+  wired_span serial;
   CHECK(quic_tbscert_serial(&t, &serial) == 1);
   CHECK(serial.p == quic_x509_golden + 15 && serial.n == 20);
   CHECK(serial.p[0] == 0x60);
@@ -21,7 +21,7 @@ static void test_vs_golden(void) {
 /* RFC 5280 4.1.2.1. An absent [0] version defaults to v1 (0). */
 static void test_vs_default_v1(void) {
   quic_tbscert t;
-  t.version = quic_span_of(0, 0);
+  t.version = wired_span_of(0, 0);
   u64 ver;
   CHECK(quic_tbscert_version(&t, &ver) == 1 && ver == 0);
 }
@@ -29,8 +29,8 @@ static void test_vs_default_v1(void) {
 /* RFC 5280 4.1.2.2. serialNumber over 20 octets is rejected. */
 static void test_vs_serial_too_long(void) {
   quic_tbscert t;
-  t.serial = quic_span_of(quic_x509_golden, 21);
-  quic_span serial;
+  t.serial = wired_span_of(quic_x509_golden, 21);
+  wired_span serial;
   CHECK(quic_tbscert_serial(&t, &serial) == 0);
 }
 

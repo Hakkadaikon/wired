@@ -14,7 +14,7 @@ static int is_space(u8 c) { return c == 0x20; }
  * (>= 0x80): a multi-byte DirectoryString encoding (UTF-8 non-ASCII,
  * BMPString, UniversalString, TeletexString 8-bit) this SDK does not
  * decode. */
-static int has_non_ascii(quic_span s) {
+static int has_non_ascii(wired_span s) {
   for (usz i = 0; i < s.n; i++)
     if (s.p[i] & 0x80) return 1;
   return 0;
@@ -28,12 +28,12 @@ static int has_non_ascii(quic_span s) {
  * is insignificant even though non-space content follows) from an internal
  * run (something was already produced, so this run is significant). */
 typedef struct {
-  quic_span s;
-  usz       i;
-  int       emitted;
+  wired_span s;
+  usz        i;
+  int        emitted;
 } dirstring_cursor;
 
-static void cursor_init(dirstring_cursor* c, quic_span s) {
+static void cursor_init(dirstring_cursor* c, wired_span s) {
   c->s       = s;
   c->i       = 0;
   c->emitted = 0;
@@ -86,7 +86,7 @@ static int step_equal(dirstring_cursor* a, dirstring_cursor* b, int* more) {
 }
 
 /* Byte-exact comparison (RFC 4518 preparation skipped). */
-static int dirstring_bytes_eq(quic_span a, quic_span b) {
+static int dirstring_bytes_eq(wired_span a, wired_span b) {
   usz diff = 0;
   if (a.n != b.n) return 0;
   for (usz i = 0; i < a.n; i++) diff |= (usz)(a.p[i] ^ b.p[i]);
@@ -95,7 +95,7 @@ static int dirstring_bytes_eq(quic_span a, quic_span b) {
 
 /* Either operand carries a byte this SDK does not case-fold (see dirstring.h
  * on why that falls back to byte-exact comparison). */
-static int either_non_ascii(quic_span a, quic_span b) {
+static int either_non_ascii(wired_span a, wired_span b) {
   return has_non_ascii(a) || has_non_ascii(b);
 }
 
@@ -107,7 +107,7 @@ static int cursors_equal(dirstring_cursor* a, dirstring_cursor* b) {
   return 1;
 }
 
-int quic_x509_dirstring_ci_equal(quic_span a, quic_span b) {
+int quic_x509_dirstring_ci_equal(wired_span a, wired_span b) {
   dirstring_cursor ca, cb;
   if (either_non_ascii(a, b)) return dirstring_bytes_eq(a, b);
   cursor_init(&ca, a);
@@ -117,7 +117,7 @@ int quic_x509_dirstring_ci_equal(quic_span a, quic_span b) {
 
 /* AttributeTypeAndValue ::= SEQUENCE { type OID, value ANY }. View the type
  * OID and the value TLV's content octets. */
-static int atv_parts(quic_span atv, quic_span* oid, quic_span* val) {
+static int atv_parts(wired_span atv, wired_span* oid, wired_span* val) {
   quic_derseq c;
   u8          tag;
   quic_derseq_init(&c, atv);
@@ -127,20 +127,20 @@ static int atv_parts(quic_span atv, quic_span* oid, quic_span* val) {
 
 /* View both elements' parts; 0 if either is malformed. */
 static int atv_pair_parts(
-    quic_span  a,
-    quic_span  b,
-    quic_span* oid_a,
-    quic_span* val_a,
-    quic_span* oid_b,
-    quic_span* val_b) {
+    wired_span  a,
+    wired_span  b,
+    wired_span* oid_a,
+    wired_span* val_a,
+    wired_span* oid_b,
+    wired_span* val_b) {
   if (!atv_parts(a, oid_a, val_a)) return 0;
   return atv_parts(b, oid_b, val_b);
 }
 
 /* Two AttributeTypeAndValue elements: same type OID, dirstring-ci-equal
  * value. */
-static int atv_ci_equal(quic_span a, quic_span b) {
-  quic_span oid_a, val_a, oid_b, val_b;
+static int atv_ci_equal(wired_span a, wired_span b) {
+  wired_span oid_a, val_a, oid_b, val_b;
   if (!atv_pair_parts(a, b, &oid_a, &val_a, &oid_b, &val_b)) return 0;
   if (!quic_der_oid_equal(oid_a, oid_b)) return 0;
   return quic_x509_dirstring_ci_equal(val_a, val_b);
@@ -150,14 +150,14 @@ static int atv_ci_equal(quic_span a, quic_span b) {
  * element presence and, when both present, applying elem_eq to their
  * values. *done is set once either cursor runs out. Returns 0 to signal
  * "the two sequences differ, stop and reject". */
-typedef int (*dirstring_elem_eq)(quic_span, quic_span);
+typedef int (*dirstring_elem_eq)(wired_span, wired_span);
 
 static int parallel_step(
     quic_derseq* ca, quic_derseq* cb, dirstring_elem_eq elem_eq, int* done) {
-  u8        ta, tb;
-  quic_span va, vb;
-  int       ok_a = quic_derseq_next(ca, &ta, &va);
-  int       ok_b = quic_derseq_next(cb, &tb, &vb);
+  u8         ta, tb;
+  wired_span va, vb;
+  int        ok_a = quic_derseq_next(ca, &ta, &va);
+  int        ok_b = quic_derseq_next(cb, &tb, &vb);
   if (ok_a != ok_b) return 0;
   *done = !ok_a;
   return *done || elem_eq(va, vb);
@@ -166,7 +166,7 @@ static int parallel_step(
 /* Walk two SEQUENCE-OF-shaped content spans in lockstep, requiring the same
  * element count and elem_eq to hold on every pair (in encoded order). */
 static int parallel_seq_equal(
-    quic_span a, quic_span b, dirstring_elem_eq elem_eq) {
+    wired_span a, wired_span b, dirstring_elem_eq elem_eq) {
   quic_derseq ca, cb;
   int         done = 0;
   quic_derseq_init(&ca, a);
@@ -179,20 +179,20 @@ static int parallel_seq_equal(
 /* Two RDNs (SET OF AttributeTypeAndValue): same element count, each pair
  * (in encoded order) atv-ci-equal. See dirstring.h on why encoded order is
  * required rather than unordered SET matching. */
-static int rdn_ci_equal(quic_span a, quic_span b) {
+static int rdn_ci_equal(wired_span a, wired_span b) {
   return parallel_seq_equal(a, b, atv_ci_equal);
 }
 
 /* View both Names' content octets (SEQUENCE OF RDN); 0 if either is
  * malformed. */
 static int name_pair_content(
-    quic_span a, quic_span b, quic_span* seq_a, quic_span* seq_b) {
+    wired_span a, wired_span b, wired_span* seq_a, wired_span* seq_b) {
   if (!quic_der_seq(a, seq_a)) return 0;
   return quic_der_seq(b, seq_b);
 }
 
-int quic_x509_dn_equal_ci(quic_span a, quic_span b) {
-  quic_span seq_a, seq_b;
+int quic_x509_dn_equal_ci(wired_span a, wired_span b) {
+  wired_span seq_a, seq_b;
   if (!name_pair_content(a, b, &seq_a, &seq_b)) return 0;
   return parallel_seq_equal(seq_a, seq_b, rdn_ci_equal);
 }

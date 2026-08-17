@@ -12,13 +12,13 @@ void test_appkeys(void) {
 
   quic_initial_keys c, c2, s;
   quic_tls_app_keys(
-      &(quic_app_keys_in){ms, quic_span_of(transcript, sizeof(transcript)), 0},
+      &(quic_app_keys_in){ms, wired_span_of(transcript, sizeof(transcript)), 0},
       &c);
   quic_tls_app_keys(
-      &(quic_app_keys_in){ms, quic_span_of(transcript, sizeof(transcript)), 0},
+      &(quic_app_keys_in){ms, wired_span_of(transcript, sizeof(transcript)), 0},
       &c2);
   quic_tls_app_keys(
-      &(quic_app_keys_in){ms, quic_span_of(transcript, sizeof(transcript)), 1},
+      &(quic_app_keys_in){ms, wired_span_of(transcript, sizeof(transcript)), 1},
       &s);
 
   for (usz i = 0; i < QUIC_INITIAL_KEY; i++) CHECK(c.key[i] == c2.key[i]);
@@ -31,7 +31,7 @@ void test_appkeys(void) {
   quic_initial_keys hk;
   quic_tls_handshake_keys(
       &(quic_handshake_keys_in){
-          ms, quic_span_of(transcript, sizeof(transcript)), 0},
+          ms, wired_span_of(transcript, sizeof(transcript)), 0},
       &hk);
   differ = 0;
   for (usz i = 0; i < QUIC_INITIAL_KEY; i++) differ |= (c.key[i] != hk.key[i]);

@@ -36,7 +36,7 @@ static void test_clock_mono(void) {
  * quic_clock_ymdhms once run back through the existing epoch->ymdhms
  * converter (both read the same underlying clock). */
 static void test_clock_epoch_secs(void) {
-  u64 secs = quic_clock_epoch_secs();
+  u64 secs = wired_clock_epoch_secs();
   CHECK(secs >= 1767225600ULL); /* 2026-01-01T00:00:00Z */
   CHECK(quic_clock_epoch_to_ymdhms(secs) == quic_clock_ymdhms());
 }

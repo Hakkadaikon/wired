@@ -6,9 +6,10 @@ static void test_emit_splits(void) {
   u8 src[20];
   for (usz i = 0; i < sizeof src; i++) src[i] = (u8)(i + 1);
   u8                         out[128];
-  quic_obuf                  ob  = quic_obuf_of(out, sizeof out);
+  wired_obuf                 ob  = quic_obuf_of(out, sizeof out);
   quic_crypto_stream_emit_in ein = {100, 8};
-  CHECK(quic_crypto_stream_emit(quic_span_of(src, sizeof src), &ein, &ob) == 1);
+  CHECK(
+      quic_crypto_stream_emit(wired_span_of(src, sizeof src), &ein, &ob) == 1);
   usz out_len = ob.len;
 
   usz pos        = 0;
@@ -34,16 +35,16 @@ static void test_emit_splits(void) {
 static void test_recv_reorder_dup(void) {
   quic_crypto_rx rx;
   quic_crypto_stream_rx_init(&rx);
-  u8        a[] = {1, 2, 3}, b[] = {4, 5, 6};
-  u8        out[16];
-  quic_obuf ob = quic_obuf_of(out, sizeof out);
+  u8         a[] = {1, 2, 3}, b[] = {4, 5, 6};
+  u8         out[16];
+  wired_obuf ob = quic_obuf_of(out, sizeof out);
 
-  CHECK(quic_crypto_stream_recv(&rx, 3, quic_span_of(b, 3)) == 1);
+  CHECK(quic_crypto_stream_recv(&rx, 3, wired_span_of(b, 3)) == 1);
   CHECK(quic_crypto_stream_read(&rx, &ob) == 1);
   CHECK(ob.len == 0); /* gap: nothing yet */
 
-  CHECK(quic_crypto_stream_recv(&rx, 0, quic_span_of(a, 3)) == 1);
-  CHECK(quic_crypto_stream_recv(&rx, 3, quic_span_of(b, 3)) == 1); /* dup */
+  CHECK(quic_crypto_stream_recv(&rx, 0, wired_span_of(a, 3)) == 1);
+  CHECK(quic_crypto_stream_recv(&rx, 3, wired_span_of(b, 3)) == 1); /* dup */
   CHECK(quic_crypto_stream_read(&rx, &ob) == 1);
   CHECK(ob.len == 6);
   for (usz i = 0; i < 6; i++) CHECK(out[i] == (u8)(i + 1));
@@ -59,8 +60,8 @@ static void test_ecdhe_symmetric(void) {
     cpriv[i] = (u8)(i + 1);
     spriv[i] = (u8)(64 - i);
   }
-  quic_x25519_base(cpub, cpriv);
-  quic_x25519_base(spub, spriv);
+  wired_x25519_base(cpub, cpriv);
+  wired_x25519_base(spub, spriv);
   quic_crypto_stream_ecdhe(cpriv, spub, cs);
   quic_crypto_stream_ecdhe(spriv, cpub, ss);
   for (usz i = 0; i < 32; i++) CHECK(cs[i] == ss[i]);
@@ -73,20 +74,20 @@ static void test_clienthello_roundtrip(void) {
     random[i] = (u8)i;
     priv[i]   = (u8)(i * 3 + 1);
   }
-  quic_x25519_base(pub, priv);
+  wired_x25519_base(pub, priv);
 
   u8  ch[1024];
   usz ch_len = quic_tls_client_hello(
       &(quic_clienthello_in){
-          random, pub, quic_span_of((const u8*)"example.com", 11),
-          quic_span_of(tp, sizeof tp)},
-      &(quic_obuf){ch, sizeof ch, 0});
+          random, pub, wired_span_of((const u8*)"example.com", 11),
+          wired_span_of(tp, sizeof tp)},
+      &(wired_obuf){ch, sizeof ch, 0});
   CHECK(ch_len != 0);
 
   u8                         frames[2048];
-  quic_obuf                  fb  = quic_obuf_of(frames, sizeof frames);
+  wired_obuf                 fb  = quic_obuf_of(frames, sizeof frames);
   quic_crypto_stream_emit_in ein = {0, 40};
-  CHECK(quic_crypto_stream_emit(quic_span_of(ch, ch_len), &ein, &fb) == 1);
+  CHECK(quic_crypto_stream_emit(wired_span_of(ch, ch_len), &ein, &fb) == 1);
   usz flen = fb.len;
 
   /* Feed decoded frames in reverse order to exercise reassembly. */
@@ -108,11 +109,11 @@ static void test_clienthello_roundtrip(void) {
   }
   for (usz i = nf; i-- > 0;)
     CHECK(
-        quic_crypto_stream_recv(&rx, offs[i], quic_span_of(datp[i], lens[i])) ==
-        1);
+        quic_crypto_stream_recv(
+            &rx, offs[i], wired_span_of(datp[i], lens[i])) == 1);
 
-  u8        got[1024];
-  quic_obuf gb = quic_obuf_of(got, sizeof got);
+  u8         got[1024];
+  wired_obuf gb = quic_obuf_of(got, sizeof got);
   CHECK(quic_crypto_stream_read(&rx, &gb) == 1);
   usz got_len = gb.len;
   CHECK(got_len == ch_len);
@@ -129,11 +130,11 @@ static void test_recv_overflow_reports_error_code(void) {
   /* one byte at the last offset of the reassembly buffer: fits. */
   CHECK(
       quic_crypto_stream_recv_ec(
-          &rx, QUIC_REASM_CAP - 1, quic_span_of(&byte, 1), &ec) == 1);
+          &rx, QUIC_REASM_CAP - 1, wired_span_of(&byte, 1), &ec) == 1);
   /* one byte past the buffer: overflow. */
   CHECK(
       quic_crypto_stream_recv_ec(
-          &rx, QUIC_REASM_CAP, quic_span_of(&byte, 1), &ec) == 0);
+          &rx, QUIC_REASM_CAP, wired_span_of(&byte, 1), &ec) == 0);
   CHECK(ec == QUIC_EC_CRYPTO_BUFFER_EXCEEDED);
 }
 

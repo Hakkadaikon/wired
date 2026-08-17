@@ -30,14 +30,14 @@ static void pc_pubkey(const u8 priv[32], u8 x[32], u8 y[32]) {
 static usz pc_build(
     const u8 priv[32], const u8 x[32], const u8 y[32], u8* cert, usz cap) {
   quic_p256cert_key k = {priv, x, y, 0, 0};
-  quic_obuf         o = quic_obuf_of(cert, cap);
+  wired_obuf        o = quic_obuf_of(cert, cap);
   CHECK(quic_p256cert_build(&k, &o) == 1);
   return o.len;
 }
 
 /* Right-align a DER INTEGER value (sans/with 0x00 pad, <=32 octets) into b[32].
  */
-static void pc_be32(u8 b[32], quic_span v) {
+static void pc_be32(u8 b[32], wired_span v) {
   const u8* p = v.p;
   usz       n = v.n;
   for (usz i = 0; i < 32; i++) b[i] = 0;
@@ -49,9 +49,9 @@ static void pc_be32(u8 b[32], quic_span v) {
 }
 
 /* SEC1 C.5. Decode ECDSA-Sig-Value SEQUENCE{ INTEGER r, INTEGER s } -> r, s. */
-static int pc_sig_rs(quic_span der, u8 r[32], u8 s[32]) {
+static int pc_sig_rs(wired_span der, u8 r[32], u8 s[32]) {
   u8          tag;
-  quic_span   seq, rv, sv;
+  wired_span  seq, rv, sv;
   quic_derseq c;
   if (!quic_der_seq(der, &seq)) return 0;
   quic_derseq_init(&c, seq);
@@ -63,9 +63,9 @@ static int pc_sig_rs(quic_span der, u8 r[32], u8 s[32]) {
 }
 
 /* RFC 5280 4.1.2.7. Split a standalone SPKI into algorithm OID and key bits. */
-static int pc_split_spki(quic_span spki, quic_span* oid, quic_span* key) {
+static int pc_split_spki(wired_span spki, wired_span* oid, wired_span* key) {
   u8          tag;
-  quic_span   seq, alg;
+  wired_span  seq, alg;
   quic_derseq c, a;
   if (!quic_der_seq(spki, &seq)) return 0;
   quic_derseq_init(&c, seq);
@@ -81,12 +81,12 @@ static void test_spki_roundtrip(void) {
   for (usz i = 0; i < 32; i++) priv[i] = (u8)(0x10 + i);
   pc_pubkey(priv, x, y);
 
-  u8        spki[128];
-  quic_obuf o = quic_obuf_of(spki, sizeof(spki));
+  u8         spki[128];
+  wired_obuf o = quic_obuf_of(spki, sizeof(spki));
   CHECK(quic_p256cert_spki(x, y, &o) == 1);
 
-  quic_span oid, key;
-  CHECK(pc_split_spki(quic_span_of(spki, o.len), &oid, &key) == 1);
+  wired_span oid, key;
+  CHECK(pc_split_spki(wired_span_of(spki, o.len), &oid, &key) == 1);
   CHECK(quic_x509_is_ec(oid) == 1);
 
   u8 rx[32], ry[32];
@@ -104,7 +104,7 @@ static void test_p256cert_parse(void) {
   usz clen = pc_build(priv, x, y, cert, sizeof(cert));
 
   quic_x509 c;
-  CHECK(quic_x509_parse(quic_span_of(cert, clen), &c) == 1);
+  CHECK(quic_x509_parse(wired_span_of(cert, clen), &c) == 1);
   CHECK(c.sig_alg_oid.n == sizeof(pc_oid_ecdsa_sha256));
   for (usz i = 0; i < c.sig_alg_oid.n; i++)
     CHECK(c.sig_alg_oid.p[i] == pc_oid_ecdsa_sha256[i]);
@@ -119,9 +119,9 @@ static void test_cert_spki_key(void) {
   u8        cert[1024];
   usz       clen = pc_build(priv, x, y, cert, sizeof(cert));
   quic_x509 c;
-  CHECK(quic_x509_parse(quic_span_of(cert, clen), &c) == 1);
+  CHECK(quic_x509_parse(wired_span_of(cert, clen), &c) == 1);
 
-  quic_span oid, key;
+  wired_span oid, key;
   CHECK(quic_x509_public_key(c.tbs, &oid, &key) == 1);
   CHECK(quic_x509_is_ec(oid) == 1);
 
@@ -139,21 +139,21 @@ static void test_cert_selfsigned(void) {
   u8        cert[1024];
   usz       clen = pc_build(priv, x, y, cert, sizeof(cert));
   quic_x509 c;
-  CHECK(quic_x509_parse(quic_span_of(cert, clen), &c) == 1);
+  CHECK(quic_x509_parse(wired_span_of(cert, clen), &c) == 1);
 
   /* signatureValue BIT STRING: 0x00 unused-bits then ECDSA-Sig-Value DER. */
   CHECK(c.sig.n > 1 && c.sig.p[0] == 0x00);
   u8 r[32], s[32];
-  CHECK(pc_sig_rs(quic_span_of(c.sig.p + 1, c.sig.n - 1), r, s) == 1);
+  CHECK(pc_sig_rs(wired_span_of(c.sig.p + 1, c.sig.n - 1), r, s) == 1);
 
   u8 hash[32];
-  quic_sha256(c.tbs.p, c.tbs.n, hash);
+  wired_sha256(c.tbs.p, c.tbs.n, hash);
   CHECK(quic_ecdsa_p256_verify(x, y, r, s, hash) == 1);
 
   /* A flipped TBS byte must break verification. */
   u8 saved = c.tbs.p[0];
   ((u8*)c.tbs.p)[0] ^= 0xff;
-  quic_sha256(c.tbs.p, c.tbs.n, hash);
+  wired_sha256(c.tbs.p, c.tbs.n, hash);
   CHECK(quic_ecdsa_p256_verify(x, y, r, s, hash) == 0);
   ((u8*)c.tbs.p)[0] = saved;
 }
@@ -168,14 +168,14 @@ static void test_cert_san_localhost(void) {
   u8        cert[1024];
   usz       clen = pc_build(priv, x, y, cert, sizeof(cert));
   quic_x509 c;
-  CHECK(quic_x509_parse(quic_span_of(cert, clen), &c) == 1);
+  CHECK(quic_x509_parse(wired_span_of(cert, clen), &c) == 1);
 
   CHECK(
-      quic_x509_san_matches(c.tbs, quic_span_of((const u8*)"localhost", 9)) ==
+      quic_x509_san_matches(c.tbs, wired_span_of((const u8*)"localhost", 9)) ==
       1);
   CHECK(
       quic_x509_san_matches(
-          c.tbs, quic_span_of((const u8*)"example.com", 11)) == 0);
+          c.tbs, wired_span_of((const u8*)"example.com", 11)) == 0);
 }
 
 /* id-ce-subjectAltName = 2.5.29.17 (RFC 5280 4.2.1.6), mirroring san.c's own
@@ -196,7 +196,7 @@ static int pc_ipv4_tlv_at(const u8* p, const u8 ip[4]) {
  * substring scan is fine here: the TLV's tag byte cannot appear as a false
  * match inside the fixed-shape dNSName entry this same GeneralNames
  * SEQUENCE also carries. */
-static int pc_has_san_ipv4(quic_span der, const u8 ip[4]) {
+static int pc_has_san_ipv4(wired_span der, const u8 ip[4]) {
   if (der.n < 6) return 0;
   for (usz i = 0; i + 6 <= der.n; i++)
     if (pc_ipv4_tlv_at(der.p + i, ip)) return 1;
@@ -212,13 +212,13 @@ static void test_cert_san_ipv4_omitted(void) {
 
   u8                cert[1024];
   quic_p256cert_key k = {priv, x, y, 0, 0};
-  quic_obuf         o = quic_obuf_of(cert, sizeof(cert));
+  wired_obuf        o = quic_obuf_of(cert, sizeof(cert));
   CHECK(quic_p256cert_build(&k, &o) == 1);
 
-  quic_x509 c;
-  quic_span san;
-  CHECK(quic_x509_parse(quic_span_of(cert, o.len), &c) == 1);
-  CHECK(quic_x509_find_ext(c.tbs, quic_span_of(pct_oid_san, 3), &san) == 1);
+  quic_x509  c;
+  wired_span san;
+  CHECK(quic_x509_parse(wired_span_of(cert, o.len), &c) == 1);
+  CHECK(quic_x509_find_ext(c.tbs, wired_span_of(pct_oid_san, 3), &san) == 1);
   {
     const u8 zero_ip[4] = {0, 0, 0, 0};
     CHECK(pc_has_san_ipv4(san, zero_ip) == 0);
@@ -237,18 +237,18 @@ static void test_cert_san_ipv4_present(void) {
   const u8          ip[4] = {160, 251, 55, 132};
   u8                cert[1024];
   quic_p256cert_key k = {priv, x, y, ip, 0};
-  quic_obuf         o = quic_obuf_of(cert, sizeof(cert));
+  wired_obuf        o = quic_obuf_of(cert, sizeof(cert));
   CHECK(quic_p256cert_build(&k, &o) == 1);
 
-  quic_x509 c;
-  quic_span san;
-  CHECK(quic_x509_parse(quic_span_of(cert, o.len), &c) == 1);
-  CHECK(quic_x509_find_ext(c.tbs, quic_span_of(pct_oid_san, 3), &san) == 1);
+  quic_x509  c;
+  wired_span san;
+  CHECK(quic_x509_parse(wired_span_of(cert, o.len), &c) == 1);
+  CHECK(quic_x509_find_ext(c.tbs, wired_span_of(pct_oid_san, 3), &san) == 1);
   CHECK(pc_has_san_ipv4(san, ip) == 1);
   /* dNSName=localhost is still there too -- san_ipv4 adds, does not
    * replace */
   CHECK(
-      quic_x509_san_matches(c.tbs, quic_span_of((const u8*)"localhost", 9)) ==
+      quic_x509_san_matches(c.tbs, wired_span_of((const u8*)"localhost", 9)) ==
       1);
 }
 
@@ -267,11 +267,11 @@ static void test_cert_now_secs_14day_window(void) {
   const u64         fourteen_d = 14ULL * 86400ULL;
   u8                cert[1024];
   quic_p256cert_key k = {priv, x, y, 0, now};
-  quic_obuf         o = quic_obuf_of(cert, sizeof(cert));
+  wired_obuf        o = quic_obuf_of(cert, sizeof(cert));
   CHECK(quic_p256cert_build(&k, &o) == 1);
 
   quic_x509 c;
-  CHECK(quic_x509_parse(quic_span_of(cert, o.len), &c) == 1);
+  CHECK(quic_x509_parse(wired_span_of(cert, o.len), &c) == 1);
 
   /* quic_x509_validity_ok takes YYYYMMDDHHMMSS, not raw epoch seconds --
    * round every probe through the same converter the cert builder used. */
@@ -303,11 +303,11 @@ static void test_cert_now_secs_zero_keeps_fixed_window(void) {
 
   u8                cert[1024];
   quic_p256cert_key k = {priv, x, y, 0, 0};
-  quic_obuf         o = quic_obuf_of(cert, sizeof(cert));
+  wired_obuf        o = quic_obuf_of(cert, sizeof(cert));
   CHECK(quic_p256cert_build(&k, &o) == 1);
 
   quic_x509 c;
-  CHECK(quic_x509_parse(quic_span_of(cert, o.len), &c) == 1);
+  CHECK(quic_x509_parse(wired_span_of(cert, o.len), &c) == 1);
   CHECK(quic_x509_validity_ok(c.tbs, 20200101000000ULL) == 1);
   CHECK(quic_x509_validity_ok(c.tbs, 20300101000000ULL) == 1);
 }

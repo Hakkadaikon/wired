@@ -3,8 +3,8 @@
 /* RFC 9204 4.5: :status 200 is in the static table, so the field section is
  * the 2-byte empty prefix followed by an Indexed Field Line (1Tiiiiii). */
 static void test_field_encode_status_200(void) {
-  u8        out[16];
-  quic_obuf ob = {out, sizeof out, 0};
+  u8         out[16];
+  wired_obuf ob = {out, sizeof out, 0};
   CHECK(quic_h3resp_encode_headers(200, 0, &ob) == 1);
   /* prefix: Required Insert Count 0, Delta Base 0. */
   CHECK(ob.len == 3);
@@ -17,15 +17,15 @@ static void test_field_encode_status_200(void) {
  * the :status name (static index 24) with the decimal value. */
 static void test_field_encode_status_201(void) {
   u8                 out[16];
-  quic_obuf          ob = {out, sizeof out, 0};
+  wired_obuf         ob = {out, sizeof out, 0};
   usz                pl;
   quic_qpack_nameref r = {0, 0, 0};
   u8                 val[8];
-  quic_obuf          vb = quic_obuf_of(val, sizeof val);
+  wired_obuf         vb = quic_obuf_of(val, sizeof val);
   CHECK(quic_h3resp_encode_headers(201, 0, &ob) == 1);
   CHECK(out[0] == 0x00 && out[1] == 0x00);
   pl = quic_qpack_literal_namref_decode(
-      quic_span_of(out + 2, ob.len - 2), &r, &vb);
+      wired_span_of(out + 2, ob.len - 2), &r, &vb);
   CHECK(pl != 0);
   CHECK(r.is_static == 1 && r.index == 24);
   CHECK(vb.len == 3 && val[0] == '2' && val[1] == '0' && val[2] == '1');
@@ -35,8 +35,8 @@ static void test_field_encode_status_201(void) {
  * lookup, not a hard-coded 25: :status 404 is static index 27 -> 0x80|0x40|27.
  */
 static void test_field_encode_status_404(void) {
-  u8        out[16];
-  quic_obuf ob = {out, sizeof out, 0};
+  u8         out[16];
+  wired_obuf ob = {out, sizeof out, 0};
   CHECK(quic_h3resp_encode_headers(404, 0, &ob) == 1);
   CHECK(ob.len == 3 && out[0] == 0x00 && out[1] == 0x00);
   CHECK(out[2] == 0xdb);
@@ -44,8 +44,8 @@ static void test_field_encode_status_404(void) {
 
 /* Insufficient capacity fails without writing past the buffer. */
 static void test_field_encode_overflow(void) {
-  u8        out[2];
-  quic_obuf ob = {out, sizeof out, 0};
+  u8         out[2];
+  wired_obuf ob = {out, sizeof out, 0};
   CHECK(quic_h3resp_encode_headers(200, 0, &ob) == 0);
 }
 
@@ -53,8 +53,8 @@ static void test_field_encode_overflow(void) {
  * table) is the 2-byte prefix, an Indexed Field Line for :status, then an
  * Indexed Field Line for content-type. */
 static void test_field_encode_headers_content_type_indexed(void) {
-  u8        out[16];
-  quic_obuf ob = {out, sizeof out, 0};
+  u8         out[16];
+  wired_obuf ob = {out, sizeof out, 0};
   CHECK(quic_h3resp_encode_headers(200, "text/css", &ob) == 1);
   CHECK(ob.len == 4);
   CHECK(out[0] == 0x00 && out[1] == 0x00);
@@ -68,14 +68,14 @@ static void test_field_encode_headers_content_type_indexed(void) {
  * ignored for a name-only reference). */
 static void test_field_encode_headers_content_type_literal(void) {
   u8                 out[32];
-  quic_obuf          ob = {out, sizeof out, 0};
+  wired_obuf         ob = {out, sizeof out, 0};
   usz                pl;
   quic_qpack_nameref r = {0, 0, 0};
   u8                 val[32];
-  quic_obuf          vb = quic_obuf_of(val, sizeof val);
+  wired_obuf         vb = quic_obuf_of(val, sizeof val);
   CHECK(quic_h3resp_encode_headers(200, "text/javascript", &ob) == 1);
   pl = quic_qpack_literal_namref_decode(
-      quic_span_of(out + 3, ob.len - 3), &r, &vb);
+      wired_span_of(out + 3, ob.len - 3), &r, &vb);
   CHECK(pl != 0);
   CHECK(r.is_static == 1 && r.index == 44);
   CHECK(vb.len == 15);
@@ -85,8 +85,8 @@ static void test_field_encode_headers_content_type_literal(void) {
  * Indexed Field Line for :status 200 (static index 25), same as
  * test_field_encode_status_200. */
 static void test_field_encode_headers_no_content_type(void) {
-  u8        out[16];
-  quic_obuf ob = {out, sizeof out, 0};
+  u8         out[16];
+  wired_obuf ob = {out, sizeof out, 0};
   CHECK(quic_h3resp_encode_headers(200, 0, &ob) == 1);
   CHECK(ob.len == 3);
   CHECK(out[0] == 0x00 && out[1] == 0x00 && out[2] == 0xd9);
@@ -94,8 +94,8 @@ static void test_field_encode_headers_no_content_type(void) {
 
 /* Insufficient capacity fails without writing past the buffer. */
 static void test_field_encode_headers_overflow(void) {
-  u8        out[3];
-  quic_obuf ob = {out, sizeof out, 0};
+  u8         out[3];
+  wired_obuf ob = {out, sizeof out, 0};
   CHECK(quic_h3resp_encode_headers(200, "text/css", &ob) == 0);
 }
 

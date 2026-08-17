@@ -1,13 +1,13 @@
 #include "test.h"
 
 void test_rscid(void) {
-  u8        rscid[6] = {1, 1, 2, 3, 5, 8};
-  u8        same[6]  = {1, 1, 2, 3, 5, 8};
-  u8        diff[6]  = {1, 1, 2, 3, 5, 9};
-  quic_span r        = quic_span_of(rscid, 6);
-  quic_span s        = quic_span_of(same, 6);
-  quic_span d        = quic_span_of(diff, 6);
-  quic_span none     = quic_span_of(0, 0);
+  u8         rscid[6] = {1, 1, 2, 3, 5, 8};
+  u8         same[6]  = {1, 1, 2, 3, 5, 8};
+  u8         diff[6]  = {1, 1, 2, 3, 5, 9};
+  wired_span r        = wired_span_of(rscid, 6);
+  wired_span s        = wired_span_of(same, 6);
+  wired_span d        = wired_span_of(diff, 6);
+  wired_span none     = wired_span_of(0, 0);
 
   /* Retry occurred, parameter present and matching -> ok */
   CHECK(quic_tpverify_rscid(&(quic_tpverify_rscid_in){1, r, s, 1}) == 1);

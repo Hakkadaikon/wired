@@ -29,7 +29,7 @@ static void entry_set(
 /* RFC 9000 10.3 */
 int quic_sresetdrive_map_add(
     quic_sresetdrive_map* m,
-    quic_span             cid,
+    wired_span            cid,
     const u8              token[QUIC_SRESETDRIVE_TOKEN]) {
   if (!can_add(m, (u8)cid.n)) return 0;
   entry_set(&m->e[m->count++], cid.p, (u8)cid.n, token);
@@ -38,7 +38,7 @@ int quic_sresetdrive_map_add(
 
 /* RFC 9000 10.3 */
 int quic_sresetdrive_map_find(
-    const quic_sresetdrive_map* m, quic_span cid, const u8** token) {
+    const quic_sresetdrive_map* m, wired_span cid, const u8** token) {
   for (usz i = 0; i < m->count; i++) {
     if (cid_eq(&m->e[i], cid.p, (u8)cid.n)) {
       *token = m->e[i].token;

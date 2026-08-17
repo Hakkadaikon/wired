@@ -7,16 +7,16 @@
 /** Opened-payload output: the protection level the packet was opened at and
  * the recovered plaintext frames (a view into the input datagram). */
 typedef struct {
-  int       level;
-  quic_span payload;
+  int        level;
+  wired_span payload;
 } wired_srvloop_recv_out;
 
 /** The received datagram and the largest 1-RTT packet number seen so far
  * (0 before any), used to recover the full packet number from its truncated
  * form for the 1-RTT space. */
 typedef struct {
-  quic_mspan dgram;
-  u64        largest_pn;
+  wired_mspan dgram;
+  u64         largest_pn;
 } wired_srvloop_recv_in;
 
 /* RFC 9001 4 / 5.1 / RFC 9000 17.2 / A.3: open one received server-side

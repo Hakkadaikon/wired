@@ -61,7 +61,7 @@ static void test_framewalk_datagram_len_then_ping(void) {
   u8                  buf[64];
   usz                 n  = 0;
   quic_datagram_frame df = {.length = 3, .data = (const u8*)"xyz"};
-  n += quic_datagram_encode(quic_mspan_of(buf + n, sizeof(buf) - n), &df, 1);
+  n += quic_datagram_encode(wired_mspan_of(buf + n, sizeof(buf) - n), &df, 1);
   n += quic_frame_put_simple(buf + n, sizeof(buf) - n, QUIC_FRAME_PING);
 
   quic_framewalk it;
@@ -83,7 +83,7 @@ static void test_framewalk_datagram_no_len_consumes_rest(void) {
   u8                  buf[64];
   usz                 n  = 0;
   quic_datagram_frame df = {.length = 5, .data = (const u8*)"hello"};
-  n += quic_datagram_encode(quic_mspan_of(buf + n, sizeof(buf) - n), &df, 0);
+  n += quic_datagram_encode(wired_mspan_of(buf + n, sizeof(buf) - n), &df, 0);
 
   quic_framewalk it;
   quic_framewalk_init(&it, buf, n);

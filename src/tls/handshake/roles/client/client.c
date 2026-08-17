@@ -26,7 +26,7 @@ int quic_client_init(quic_client* c, const quic_client_init_in* in) {
   c->host_len = in->server_name.n;
   c->castore  = 0;
   if (!client_setup(c)) return 0;
-  quic_x25519_base(c->my_pub, c->my_priv);
+  wired_x25519_base(c->my_pub, c->my_priv);
   c->fd = wired_udp_socket();
   if (c->fd < 0) return 0;
   wired_udp_addr(&c->peer, in->port, in->server_ip);
@@ -49,13 +49,14 @@ void quic_client_set_castore(quic_client* c, const quic_castore* store) {
  * when real on-wire protection is wired. The padded length is the on-wire one.
  */
 usz quic_client_build_initial(quic_client* c, u8* out, usz cap) {
-  u8        ch[QUIC_CLIENT_HELLO_MAX];
-  quic_obuf ob = quic_obuf_of(ch, sizeof(ch));
+  u8         ch[QUIC_CLIENT_HELLO_MAX];
+  wired_obuf ob = quic_obuf_of(ch, sizeof(ch));
   if (!quic_tlsdriver_client_hello(&c->tls, &ob)) return 0;
   {
     quic_crypto_stream_emit_in ein = {0, QUIC_CLIENT_CRYPTO_FRAME};
-    quic_obuf                  fb  = quic_obuf_of(out, cap);
-    if (!quic_crypto_stream_emit(quic_span_of(ch, ob.len), &ein, &fb)) return 0;
+    wired_obuf                 fb  = quic_obuf_of(out, cap);
+    if (!quic_crypto_stream_emit(wired_span_of(ch, ob.len), &ein, &fb))
+      return 0;
     return quic_pktbuild_init_pad(out, fb.len, cap);
   }
 }
@@ -64,7 +65,7 @@ int quic_client_start(quic_client* c) {
   u8  dg[QUIC_CLIENT_DATAGRAM_MAX];
   usz len = quic_client_build_initial(c, dg, sizeof(dg));
   if (len == 0) return 0;
-  return wired_udp_send(c->fd, &c->peer, quic_span_of(dg, len)) == (i64)len;
+  return wired_udp_send(c->fd, &c->peer, wired_span_of(dg, len)) == (i64)len;
 }
 
 /* RFC 8446 4.4.3: CertificateVerify body opens with the 2-byte scheme. */
@@ -77,7 +78,7 @@ static int dispatch_cert(quic_client* c, const u8* m, usz n) {
   return quic_fullhs_recv_cert(&c->hs, m, n);
 }
 static int dispatch_cv(quic_client* c, const u8* m, usz n) {
-  return quic_fullhs_recv_certverify(&c->hs, quic_span_of(m, n), cv_scheme(m));
+  return quic_fullhs_recv_certverify(&c->hs, wired_span_of(m, n), cv_scheme(m));
 }
 static int dispatch_fin(quic_client* c, const u8* m, usz n) {
   return quic_fullhs_recv_finished(&c->hs, m, n);
@@ -131,9 +132,9 @@ static int feed_initial(quic_client* c, const u8* msg, usz len) {
   if (!quic_tlsdriver_recv_crypto(&c->tls, msg, len)) return 0;
   save_sh(c, msg, len);
   if (!quic_fullhs_init(
-          &c->hs, &c->tls, quic_span_of(c->sh_transcript, c->sh_len)))
+          &c->hs, &c->tls, wired_span_of(c->sh_transcript, c->sh_len)))
     return 0;
-  quic_fullhs_set_policy(&c->hs, c->now, quic_span_of(c->host, c->host_len));
+  quic_fullhs_set_policy(&c->hs, c->now, wired_span_of(c->host, c->host_len));
   quic_fullhs_set_castore(&c->hs, c->castore);
   c->phase = QUIC_CLIENT_HS_AUTH;
   return 1;
@@ -149,7 +150,7 @@ int quic_client_feed(quic_client* c, const u8* crypto_payload, usz len) {
 
 int quic_client_pump(quic_client* c) {
   u8  dg[QUIC_CLIENT_DATAGRAM_MAX];
-  i64 n = wired_udp_recv(c->fd, quic_mspan_of(dg, sizeof(dg)));
+  i64 n = wired_udp_recv(c->fd, wired_mspan_of(dg, sizeof(dg)));
   if (n <= 0) return 0;
   return quic_client_feed(c, dg, (usz)n);
 }

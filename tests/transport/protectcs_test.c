@@ -29,8 +29,8 @@ static void pcs_roundtrip(u16 suite, const u8* key, usz keylen, u8 byte0) {
   /* HP must have altered byte0 and/or the packet number. */
   CHECK(pkt[0] != byte0 || pkt[4] != 7);
 
-  quic_span              got;
-  quic_protectcs_open_io oi = {quic_mspan_of(pkt, out_len), 1};
+  wired_span             got;
+  quic_protectcs_open_io oi = {wired_mspan_of(pkt, out_len), 1};
   CHECK(quic_protectcs_open(&k, &oi, &got) == 1);
   CHECK(got.n == sizeof(payload));
   for (usz i = 0; i < sizeof(payload); i++) CHECK(got.p[i] == payload[i]);
@@ -68,8 +68,8 @@ static void cross_suite(void) {
 
   /* Tampering the ChaCha ciphertext tag fails authentication. */
   c[lc - 1] ^= 0xff;
-  quic_span              got;
-  quic_protectcs_open_io oc = {quic_mspan_of(c, lc), 1};
+  wired_span             got;
+  quic_protectcs_open_io oc = {wired_mspan_of(c, lc), 1};
   CHECK(quic_protectcs_open(&kc, &oc, &got) == 0);
 }
 
@@ -94,7 +94,7 @@ void test_protectcs(void) {
   quic_protectcs_keys    bad = {0x0000, cha_key, cha_key, cha_key};
   quic_protectcs_seal_io sb  = {pkt, 1, 4, 1, 20};
   CHECK(quic_protectcs_seal(&bad, &sb, &n) == 0);
-  quic_span              got;
-  quic_protectcs_open_io ob = {quic_mspan_of(pkt, 41), 1};
+  wired_span             got;
+  quic_protectcs_open_io ob = {wired_mspan_of(pkt, 41), 1};
   CHECK(quic_protectcs_open(&bad, &ob, &got) == 0);
 }

@@ -4,7 +4,7 @@
 #include "tls/ext/tparam/tpblob.h"
 
 /* id + len(=value's varint length) + value, all varints. */
-usz quic_tparam_put_int(quic_obuf* out, u64 id, u64 value) {
+usz quic_tparam_put_int(wired_obuf* out, u64 id, u64 value) {
   usz vlen = quic_varint_len(value);
   usz need = quic_varint_len(id) + 1 + vlen;
   usz off;
@@ -24,22 +24,22 @@ typedef struct {
 
 /* Read the value varint and require it to span exactly hdr->vlen bytes
  * within buf.n. */
-static int take_value(quic_span buf, usz* off, tparam_hdr* hdr) {
+static int take_value(wired_span buf, usz* off, tparam_hdr* hdr) {
   usz before = *off;
   if (hdr->vlen > buf.n - *off) return 0;
   if (!quic_varint_take(
-          quic_span_of(buf.p, before + (usz)hdr->vlen), off, &hdr->value))
+          wired_span_of(buf.p, before + (usz)hdr->vlen), off, &hdr->value))
     return 0;
   return *off - before == (usz)hdr->vlen;
 }
 
 /* Read the id and length varints, advancing *off. Returns 1 ok, 0 bad. */
-static int take_id_len(quic_span buf, usz* off, tparam_hdr* hdr) {
-  if (!quic_varint_take(quic_span_of(buf.p, buf.n), off, &hdr->id)) return 0;
-  return quic_varint_take(quic_span_of(buf.p, buf.n), off, &hdr->vlen);
+static int take_id_len(wired_span buf, usz* off, tparam_hdr* hdr) {
+  if (!quic_varint_take(wired_span_of(buf.p, buf.n), off, &hdr->id)) return 0;
+  return quic_varint_take(wired_span_of(buf.p, buf.n), off, &hdr->vlen);
 }
 
-usz quic_tparam_get_int(quic_span buf, u64* id, u64* value) {
+usz quic_tparam_get_int(wired_span buf, u64* id, u64* value) {
   usz        off = 0;
   tparam_hdr hdr;
   if (!take_id_len(buf, &off, &hdr)) return 0;
@@ -76,17 +76,17 @@ static int can_record(const tparam_seen* s, u64 id) {
 
 /* Read one TLV at buf.p+off and record its id. Returns bytes consumed, or 0
  * on a malformed TLV, a full table, or a duplicate id. */
-static usz seen_step(tparam_seen* s, quic_span buf, usz off) {
-  u64       id;
-  quic_span val;
-  usz       r =
-      quic_tparam_get_blob(quic_span_of(buf.p + off, buf.n - off), &id, &val);
+static usz seen_step(tparam_seen* s, wired_span buf, usz off) {
+  u64        id;
+  wired_span val;
+  usz        r =
+      quic_tparam_get_blob(wired_span_of(buf.p + off, buf.n - off), &id, &val);
   if (r == 0 || !can_record(s, id)) return 0;
   s->seen[s->count++] = id;
   return r;
 }
 
-int quic_tparam_no_duplicates(quic_span buf) {
+int quic_tparam_no_duplicates(wired_span buf) {
   tparam_seen s   = {.count = 0};
   usz         off = 0;
   while (off < buf.n) {

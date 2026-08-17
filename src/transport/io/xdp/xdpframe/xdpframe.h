@@ -44,7 +44,7 @@ typedef struct {
  * @param frame the received frame bytes
  * @param out   receives the payload view and peer info (views into frame)
  * @return 1 accepted, 0 rejected. */
-int quic_xdpframe_parse(quic_span frame, quic_xdpframe_rx* out);
+int quic_xdpframe_parse(wired_span frame, quic_xdpframe_rx* out);
 
 /** Addressing for one outgoing frame: the MACs plus the ports and addresses
  * consumed by the IPv4 and UDP builders (host order, as in quic_udp4meta). */
@@ -64,6 +64,6 @@ typedef struct {
  * @param payload the UDP payload (the QUIC datagram)
  * @return QUIC_XDPFRAME_HDRS + payload.n, or 0 if frame.n is too small. */
 usz quic_xdpframe_build(
-    quic_mspan frame, const quic_xdpframe_tx* m, quic_span payload);
+    wired_mspan frame, const quic_xdpframe_tx* m, wired_span payload);
 
 #endif

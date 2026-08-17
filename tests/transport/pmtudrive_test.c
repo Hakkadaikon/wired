@@ -12,7 +12,7 @@ static void pd_mk_runner(quic_connrunner* r) {
   quic_sockaddr           peer = {0};
   quic_connrunner_init_in in   = {
       -1, &peer, QUIC_LEVEL_INITIAL, 1u << 20, 64, 1, 0xc3, 1u << 20};
-  quic_connrunner_init(r, quic_span_of(g_pd_dcid, 8), &in);
+  quic_connrunner_init(r, wired_span_of(g_pd_dcid, 8), &in);
   r->io.loop.validated   = 1;
   r->loop.gate.validated = 1;
   quic_keyset_install(
@@ -26,9 +26,9 @@ static void pd_mk_runner(quic_connrunner* r) {
 static void test_pmtudrive_build_probe_ping_plus_padding(void) {
   quic_connrunner r;
   pd_mk_runner(&r);
-  u8        pkt[QUIC_PMTU_MAX + 64];
-  quic_obuf ob  = quic_obuf_of(pkt, sizeof(pkt));
-  usz       out = quic_connrunner_pmtu_build_probe(&r, &ob, 0);
+  u8         pkt[QUIC_PMTU_MAX + 64];
+  wired_obuf ob  = quic_obuf_of(pkt, sizeof(pkt));
+  usz        out = quic_connrunner_pmtu_build_probe(&r, &ob, 0);
   CHECK(out != 0);
   CHECK(r.pmtu.probe == QUIC_PMTU_BASE + QUIC_PMTU_STEP);
   CHECK(r.pmtu_probe_held == 1);
@@ -49,10 +49,10 @@ static void test_pmtudrive_probe_frame_is_ping_plus_padding_only(void) {
 static void test_pmtudrive_build_probe_single_outstanding(void) {
   quic_connrunner r;
   pd_mk_runner(&r);
-  u8        pkt[QUIC_PMTU_MAX + 64];
-  quic_obuf ob1 = quic_obuf_of(pkt, sizeof(pkt));
+  u8         pkt[QUIC_PMTU_MAX + 64];
+  wired_obuf ob1 = quic_obuf_of(pkt, sizeof(pkt));
   CHECK(quic_connrunner_pmtu_build_probe(&r, &ob1, 0) != 0);
-  quic_obuf ob2 = quic_obuf_of(pkt, sizeof(pkt));
+  wired_obuf ob2 = quic_obuf_of(pkt, sizeof(pkt));
   CHECK(quic_connrunner_pmtu_build_probe(&r, &ob2, 0) == 0);
 }
 
@@ -61,8 +61,8 @@ static void test_pmtudrive_build_probe_single_outstanding(void) {
 static void test_pmtudrive_on_ack_confirms_matching_pn(void) {
   quic_connrunner r;
   pd_mk_runner(&r);
-  u8        pkt[QUIC_PMTU_MAX + 64];
-  quic_obuf ob = quic_obuf_of(pkt, sizeof(pkt));
+  u8         pkt[QUIC_PMTU_MAX + 64];
+  wired_obuf ob = quic_obuf_of(pkt, sizeof(pkt));
   CHECK(quic_connrunner_pmtu_build_probe(&r, &ob, 0) != 0);
   u64 pn = r.pmtu_probe_pn;
 
@@ -75,8 +75,8 @@ static void test_pmtudrive_on_ack_confirms_matching_pn(void) {
 static void test_pmtudrive_on_ack_ignores_other_pn(void) {
   quic_connrunner r;
   pd_mk_runner(&r);
-  u8        pkt[QUIC_PMTU_MAX + 64];
-  quic_obuf ob = quic_obuf_of(pkt, sizeof(pkt));
+  u8         pkt[QUIC_PMTU_MAX + 64];
+  wired_obuf ob = quic_obuf_of(pkt, sizeof(pkt));
   CHECK(quic_connrunner_pmtu_build_probe(&r, &ob, 0) != 0);
 
   quic_connrunner_pmtu_on_ack(&r, r.pmtu_probe_pn + 1);
@@ -89,8 +89,8 @@ static void test_pmtudrive_on_ack_ignores_other_pn(void) {
 static void test_pmtudrive_on_loss_matches_pn(void) {
   quic_connrunner r;
   pd_mk_runner(&r);
-  u8        pkt[QUIC_PMTU_MAX + 64];
-  quic_obuf ob = quic_obuf_of(pkt, sizeof(pkt));
+  u8         pkt[QUIC_PMTU_MAX + 64];
+  wired_obuf ob = quic_obuf_of(pkt, sizeof(pkt));
   CHECK(quic_connrunner_pmtu_build_probe(&r, &ob, 0) != 0);
   u64 pn = r.pmtu_probe_pn;
 
@@ -104,9 +104,9 @@ static void test_pmtudrive_on_loss_matches_pn(void) {
 static void test_pmtudrive_track_sent_registers_in_sentmeta(void) {
   quic_connrunner r;
   pd_mk_runner(&r);
-  u8        pkt[QUIC_PMTU_MAX + 64];
-  quic_obuf ob  = quic_obuf_of(pkt, sizeof(pkt));
-  usz       out = quic_connrunner_pmtu_build_probe(&r, &ob, 0);
+  u8         pkt[QUIC_PMTU_MAX + 64];
+  wired_obuf ob  = quic_obuf_of(pkt, sizeof(pkt));
+  usz        out = quic_connrunner_pmtu_build_probe(&r, &ob, 0);
   CHECK(out != 0);
 
   quic_connrunner_pmtu_track_sent(&r, 1, out);
@@ -127,8 +127,8 @@ static void test_pmtudrive_track_sent_noop_without_probe(void) {
 static void test_pmtudrive_reconcile_acks(void) {
   quic_connrunner r;
   pd_mk_runner(&r);
-  u8        pkt[QUIC_PMTU_MAX + 64];
-  quic_obuf ob = quic_obuf_of(pkt, sizeof(pkt));
+  u8         pkt[QUIC_PMTU_MAX + 64];
+  wired_obuf ob = quic_obuf_of(pkt, sizeof(pkt));
   CHECK(quic_connrunner_pmtu_build_probe(&r, &ob, 0) != 0);
   r.io.disp.has_ack       = 1;
   r.io.disp.largest_acked = r.pmtu_probe_pn;
@@ -143,8 +143,8 @@ static void test_pmtudrive_reconcile_acks(void) {
 static void test_pmtudrive_reconcile_losses(void) {
   quic_connrunner r;
   pd_mk_runner(&r);
-  u8        pkt[QUIC_PMTU_MAX + 64];
-  quic_obuf ob = quic_obuf_of(pkt, sizeof(pkt));
+  u8         pkt[QUIC_PMTU_MAX + 64];
+  wired_obuf ob = quic_obuf_of(pkt, sizeof(pkt));
   CHECK(quic_connrunner_pmtu_build_probe(&r, &ob, 0) != 0);
   u64 lost[1] = {r.pmtu_probe_pn};
 
@@ -158,8 +158,8 @@ static void test_pmtudrive_reconcile_losses(void) {
 static void test_pmtudrive_reconcile_leaves_unresolved_outstanding(void) {
   quic_connrunner r;
   pd_mk_runner(&r);
-  u8        pkt[QUIC_PMTU_MAX + 64];
-  quic_obuf ob = quic_obuf_of(pkt, sizeof(pkt));
+  u8         pkt[QUIC_PMTU_MAX + 64];
+  wired_obuf ob = quic_obuf_of(pkt, sizeof(pkt));
   CHECK(quic_connrunner_pmtu_build_probe(&r, &ob, 0) != 0);
 
   quic_connrunner_pmtu_reconcile(&r, (const u64*)0, 0, 0);
@@ -171,8 +171,8 @@ static void test_pmtudrive_reconcile_leaves_unresolved_outstanding(void) {
 static void test_pmtudrive_reconcile_probe_timer_expiry(void) {
   quic_connrunner r;
   pd_mk_runner(&r);
-  u8        pkt[QUIC_PMTU_MAX + 64];
-  quic_obuf ob = quic_obuf_of(pkt, sizeof(pkt));
+  u8         pkt[QUIC_PMTU_MAX + 64];
+  wired_obuf ob = quic_obuf_of(pkt, sizeof(pkt));
   CHECK(quic_connrunner_pmtu_build_probe(&r, &ob, 1000) != 0);
 
   quic_connrunner_pmtu_reconcile(
@@ -187,8 +187,8 @@ static void test_pmtudrive_reconcile_probe_timer_expiry(void) {
 static void test_pmtudrive_reconcile_probe_timer_not_yet_due(void) {
   quic_connrunner r;
   pd_mk_runner(&r);
-  u8        pkt[QUIC_PMTU_MAX + 64];
-  quic_obuf ob = quic_obuf_of(pkt, sizeof(pkt));
+  u8         pkt[QUIC_PMTU_MAX + 64];
+  wired_obuf ob = quic_obuf_of(pkt, sizeof(pkt));
   CHECK(quic_connrunner_pmtu_build_probe(&r, &ob, 1000) != 0);
 
   quic_connrunner_pmtu_reconcile(
@@ -204,7 +204,7 @@ static void test_pmtudrive_advance_sends_probe_when_idle(void) {
   pd_mk_runner(&r);
   r.loop.gate.handshake_confirmed = 1;
 
-  usz out = quic_connrunner_advance(&r, 0, quic_mspan_of((u8*)0, 0));
+  usz out = quic_connrunner_advance(&r, 0, wired_mspan_of((u8*)0, 0));
   CHECK(out > r.loop.send_len); /* strictly larger than a normal packet */
   CHECK(r.pmtu_probe_held == 1);
   CHECK(quic_sentmeta_find(&r.sent, r.pmtu_probe_pn) != QUIC_SENTMETA_CAP);
@@ -217,7 +217,7 @@ static void test_pmtudrive_advance_no_probe_before_confirm(void) {
   quic_connrunner r;
   pd_mk_runner(&r);
 
-  usz out = quic_connrunner_advance(&r, 0, quic_mspan_of((u8*)0, 0));
+  usz out = quic_connrunner_advance(&r, 0, wired_mspan_of((u8*)0, 0));
   CHECK(out == 0);
   CHECK(r.pmtu_probe_held == 0);
 }
@@ -228,9 +228,9 @@ static void test_pmtudrive_advance_no_probe_before_confirm(void) {
 static void test_pmtudrive_build_probe_resumes_after_raise_timer(void) {
   quic_connrunner r;
   pd_mk_runner(&r);
-  u8        pkt[QUIC_PMTU_MAX + 64];
-  quic_obuf ob1   = quic_obuf_of(pkt, sizeof(pkt));
-  usz       first = quic_connrunner_pmtu_build_probe(&r, &ob1, 0);
+  u8         pkt[QUIC_PMTU_MAX + 64];
+  wired_obuf ob1   = quic_obuf_of(pkt, sizeof(pkt));
+  usz        first = quic_connrunner_pmtu_build_probe(&r, &ob1, 0);
   CHECK(first != 0);
   quic_connrunner_pmtu_on_loss(&r, r.pmtu_probe_pn); /* caps the ceiling */
   CHECK(r.pmtu.searching == 1); /* not concluded yet -- next_probe not rerun */
@@ -238,13 +238,13 @@ static void test_pmtudrive_build_probe_resumes_after_raise_timer(void) {
   /* The candidate is now above the just-capped ceiling, so this build_probe
    * call's own quic_pmtu_next_probe concludes the search (searching -> 0)
    * before the PMTU_RAISE_TIMER has had any chance to fire (now=0 still). */
-  quic_obuf ob2 = quic_obuf_of(pkt, sizeof(pkt));
+  wired_obuf ob2 = quic_obuf_of(pkt, sizeof(pkt));
   CHECK(quic_connrunner_pmtu_build_probe(&r, &ob2, 0) == 0);
   CHECK(r.pmtu.searching == 0);
 
   /* Once QUIC_PMTU_RAISE_TIMER_US has elapsed since that conclusion, the
    * next build_probe call resumes the search and finds a new candidate. */
-  quic_obuf ob3 = quic_obuf_of(pkt, sizeof(pkt));
+  wired_obuf ob3 = quic_obuf_of(pkt, sizeof(pkt));
   CHECK(
       quic_connrunner_pmtu_build_probe(&r, &ob3, QUIC_PMTU_RAISE_TIMER_US) !=
       0);
@@ -258,15 +258,15 @@ static void test_pmtudrive_build_probe_resumes_after_raise_timer(void) {
 static void test_pmtudrive_next_probe_blocked_within_min_interval(void) {
   quic_connrunner r;
   pd_mk_runner(&r);
-  u8        pkt[QUIC_PMTU_MAX + 64];
-  quic_obuf ob1 = quic_obuf_of(pkt, sizeof(pkt));
+  u8         pkt[QUIC_PMTU_MAX + 64];
+  wired_obuf ob1 = quic_obuf_of(pkt, sizeof(pkt));
   CHECK(quic_connrunner_pmtu_build_probe(&r, &ob1, 1000) != 0);
   u64 pn = r.pmtu_probe_pn;
 
   quic_connrunner_pmtu_on_ack(&r, pn);
 
-  quic_obuf ob2 = quic_obuf_of(pkt, sizeof(pkt));
-  usz       out = quic_connrunner_pmtu_build_probe(
+  wired_obuf ob2 = quic_obuf_of(pkt, sizeof(pkt));
+  usz        out = quic_connrunner_pmtu_build_probe(
       &r, &ob2, 1000 + QUIC_RTT_INITIAL_US - 1);
   CHECK(out == 0);
   CHECK(r.pmtu_probe_held == 0);
@@ -277,15 +277,15 @@ static void test_pmtudrive_next_probe_blocked_within_min_interval(void) {
 static void test_pmtudrive_next_probe_allowed_after_min_interval(void) {
   quic_connrunner r;
   pd_mk_runner(&r);
-  u8        pkt[QUIC_PMTU_MAX + 64];
-  quic_obuf ob1 = quic_obuf_of(pkt, sizeof(pkt));
+  u8         pkt[QUIC_PMTU_MAX + 64];
+  wired_obuf ob1 = quic_obuf_of(pkt, sizeof(pkt));
   CHECK(quic_connrunner_pmtu_build_probe(&r, &ob1, 1000) != 0);
   u64 pn = r.pmtu_probe_pn;
 
   quic_connrunner_pmtu_on_ack(&r, pn);
 
-  quic_obuf ob2 = quic_obuf_of(pkt, sizeof(pkt));
-  usz       out =
+  wired_obuf ob2 = quic_obuf_of(pkt, sizeof(pkt));
+  usz        out =
       quic_connrunner_pmtu_build_probe(&r, &ob2, 1000 + QUIC_RTT_INITIAL_US);
   CHECK(out != 0);
   CHECK(r.pmtu_probe_held == 1);

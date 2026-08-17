@@ -9,13 +9,14 @@
 static void test_enc_stream_set_capacity_applied(void) {
   quic_qpack_dyn t;
   u8             buf[4];
-  quic_mspan     mb = quic_mspan_of(buf, sizeof buf);
+  wired_mspan    mb = wired_mspan_of(buf, sizeof buf);
   usz n   = quic_qpack_enc_instr_encode(mb, QUIC_QPACK_ENC_SET_CAPACITY, 10);
   u16 err = 0;
 
   quic_qpack_dyn_init(&t, 0);
   CHECK(n > 0);
-  CHECK(quic_qdyn_enc_apply_capacity(quic_span_of(buf, n), &t, 100, &err) == n);
+  CHECK(
+      quic_qdyn_enc_apply_capacity(wired_span_of(buf, n), &t, 100, &err) == n);
   CHECK(t.capacity == 10);
   CHECK(err == 0);
 }
@@ -25,13 +26,13 @@ static void test_enc_stream_set_capacity_applied(void) {
 static void test_enc_stream_set_capacity_over_limit_rejected(void) {
   quic_qpack_dyn t;
   u8             buf[4];
-  quic_mspan     mb = quic_mspan_of(buf, sizeof buf);
+  wired_mspan    mb = wired_mspan_of(buf, sizeof buf);
   usz n   = quic_qpack_enc_instr_encode(mb, QUIC_QPACK_ENC_SET_CAPACITY, 50);
   u16 err = 0;
 
   quic_qpack_dyn_init(&t, 0);
   CHECK(n > 0);
-  CHECK(quic_qdyn_enc_apply_capacity(quic_span_of(buf, n), &t, 10, &err) == 0);
+  CHECK(quic_qdyn_enc_apply_capacity(wired_span_of(buf, n), &t, 10, &err) == 0);
   CHECK(t.capacity == 0);
   CHECK(err == QUIC_QPACK_ENCODER_STREAM_ERROR);
 }
@@ -42,9 +43,9 @@ static void test_enc_stream_set_capacity_over_limit_rejected(void) {
 static void test_enc_stream_set_capacity_reduction_evicts(void) {
   quic_qpack_dyn   t;
   quic_qpack_field f = {
-      quic_span_of((const u8*)"a", 1), quic_span_of((const u8*)"1", 1)};
-  u8         buf[4];
-  quic_mspan mb = quic_mspan_of(buf, sizeof buf);
+      wired_span_of((const u8*)"a", 1), wired_span_of((const u8*)"1", 1)};
+  u8          buf[4];
+  wired_mspan mb = wired_mspan_of(buf, sizeof buf);
   usz n   = quic_qpack_enc_instr_encode(mb, QUIC_QPACK_ENC_SET_CAPACITY, 0);
   u16 err = 0;
 
@@ -52,7 +53,7 @@ static void test_enc_stream_set_capacity_reduction_evicts(void) {
   CHECK(quic_qpack_dyn_insert(&t, &f) == 1);
   CHECK(t.count == 1);
   CHECK(n > 0);
-  CHECK(quic_qdyn_enc_apply_capacity(quic_span_of(buf, n), &t, 40, &err) == n);
+  CHECK(quic_qdyn_enc_apply_capacity(wired_span_of(buf, n), &t, 40, &err) == n);
   CHECK(t.capacity == 0);
   CHECK(t.count == 0);
 }
@@ -65,13 +66,14 @@ static void test_enc_stream_set_capacity_reduction_evicts(void) {
 static void test_enc_stream_non_capacity_instruction_unconsumed(void) {
   quic_qpack_dyn t;
   u8             buf[4];
-  quic_mspan     mb = quic_mspan_of(buf, sizeof buf);
+  wired_mspan    mb = wired_mspan_of(buf, sizeof buf);
   usz n   = quic_qpack_enc_instr_encode(mb, QUIC_QPACK_ENC_INSERT_NAME_REF, 5);
   u16 err = 0;
 
   quic_qpack_dyn_init(&t, 0);
   CHECK(n > 0);
-  CHECK(quic_qdyn_enc_apply_capacity(quic_span_of(buf, n), &t, 100, &err) == 0);
+  CHECK(
+      quic_qdyn_enc_apply_capacity(wired_span_of(buf, n), &t, 100, &err) == 0);
   CHECK(err == 0);
 }
 
@@ -80,7 +82,7 @@ static void test_enc_stream_truncated_unconsumed(void) {
   quic_qpack_dyn t;
   u16            err = 0;
   quic_qpack_dyn_init(&t, 0);
-  CHECK(quic_qdyn_enc_apply_capacity(quic_span_of(0, 0), &t, 100, &err) == 0);
+  CHECK(quic_qdyn_enc_apply_capacity(wired_span_of(0, 0), &t, 100, &err) == 0);
   CHECK(err == 0);
 }
 

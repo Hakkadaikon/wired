@@ -46,7 +46,7 @@ static void test_cvecdsa_header(void) {
   cv_hb32(CV_X, priv);
   cv_th(th);
   CHECK(quic_cvecdsa_build(priv, th, msg, sizeof msg, &n) == 1);
-  CHECK(quic_hs_parse(quic_span_of(msg, n), &type, &body_len) == 4);
+  CHECK(quic_hs_parse(wired_span_of(msg, n), &type, &body_len) == 4);
   CHECK(type == 0x0f);
   CHECK(4 + body_len == n);
   CHECK((((usz)msg[4] << 8) | msg[5]) == 0x0403);
@@ -80,7 +80,7 @@ static void test_cvecdsa_verify_roundtrip(void) {
   cv_th(th);
   CHECK(quic_cvecdsa_build(priv, th, msg, sizeof msg, &n) == 1);
   quic_cvecdsa_signed_content(th, c);
-  quic_sha256(c, 130, h);
+  wired_sha256(c, 130, h);
   /* DER at msg+8: SEQ(0x30) len, INT(0x02) rlen r..., INT(0x02) slen s... */
   cv_der_extract(msg + 8, r, s);
   CHECK(quic_ecdsa_p256_verify(qx, qy, r, s, h) == 1);

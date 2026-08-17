@@ -88,8 +88,8 @@ typedef struct {
 
 /* Generic frame (Type Length Payload). Encode returns bytes written or 0;
  * decode returns bytes consumed or 0 and views payload in place (no copy). */
-usz quic_h3_frame_put(quic_obuf* out, u64 type, quic_span payload);
-usz quic_h3_frame_get(quic_span buf, quic_h3_frame* f);
+usz quic_h3_frame_put(wired_obuf* out, u64 type, wired_span payload);
+usz quic_h3_frame_get(wired_span buf, quic_h3_frame* f);
 
 /* Single-varint-payload frames: CANCEL_PUSH / MAX_PUSH_ID carry a Push ID,
  * GOAWAY carries a Stream ID or Push ID. */

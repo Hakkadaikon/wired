@@ -12,8 +12,8 @@
 static void save_client_ap_secret(
     quic_keysched* st, const u8* transcript, usz transcript_len) {
   quic_derive_secret_in dsi = {
-      st->master, quic_span_of((const u8*)"c ap traffic", 12),
-      quic_span_of(transcript, transcript_len)};
+      st->master, wired_span_of((const u8*)"c ap traffic", 12),
+      wired_span_of(transcript, transcript_len)};
   quic_tls_derive_secret(&dsi, st->client_ap_secret);
 }
 
@@ -22,8 +22,8 @@ static void save_client_ap_secret(
 static void save_server_ap_secret(
     quic_keysched* st, const u8* transcript, usz transcript_len) {
   quic_derive_secret_in dsi = {
-      st->master, quic_span_of((const u8*)"s ap traffic", 12),
-      quic_span_of(transcript, transcript_len)};
+      st->master, wired_span_of((const u8*)"s ap traffic", 12),
+      wired_span_of(transcript, transcript_len)};
   quic_tls_derive_secret(&dsi, st->server_ap_secret);
 }
 
@@ -46,7 +46,7 @@ static int ecdhe_ok(int stage, usz ecdhe_len) {
  * derive from -- shared by the plain and PSK-resumption entry points below,
  * which differ only in how hs itself was computed. */
 static void install_handshake_secret(
-    quic_keysched* st, const u8 hs[QUIC_HKDF_PRK], quic_span transcript) {
+    quic_keysched* st, const u8 hs[QUIC_HKDF_PRK], wired_span transcript) {
   quic_handshake_keys_in in;
   in.hs_secret  = hs;
   in.transcript = transcript;
@@ -59,7 +59,7 @@ static void install_handshake_secret(
 }
 
 int quic_keysched_advance_handshake(
-    quic_keysched* st, quic_span ecdhe, quic_span transcript) {
+    quic_keysched* st, wired_span ecdhe, wired_span transcript) {
   u8 hs[QUIC_HKDF_PRK];
   if (!ecdhe_ok(st->stage, ecdhe.n)) return 0;
   quic_tls_handshake_secret(ecdhe.p, hs);
@@ -68,7 +68,10 @@ int quic_keysched_advance_handshake(
 }
 
 int quic_keysched_advance_handshake_psk(
-    quic_keysched* st, quic_span psk, quic_span ecdhe, quic_span transcript) {
+    quic_keysched* st,
+    wired_span     psk,
+    wired_span     ecdhe,
+    wired_span     transcript) {
   u8 hs[QUIC_HKDF_PRK];
   if (!ecdhe_ok(st->stage, ecdhe.n)) return 0;
   quic_tls_handshake_secret_psk(psk.p, ecdhe.p, hs);
@@ -81,7 +84,7 @@ int quic_keysched_advance_master(
   quic_app_keys_in in;
   if (st->stage != 1) return 0;
   in.master     = st->master;
-  in.transcript = quic_span_of(transcript, transcript_len);
+  in.transcript = wired_span_of(transcript, transcript_len);
   in.is_server  = 0;
   quic_tls_app_keys_suite(&in, st->suite, &st->keys[QUIC_KS_CLIENT_AP]);
   save_client_ap_secret(st, transcript, transcript_len);

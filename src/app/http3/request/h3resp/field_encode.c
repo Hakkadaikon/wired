@@ -38,21 +38,22 @@ static usz put_status_line(u16 status, u8* out, usz cap) {
   status_digits(status, digits);
   idx = quic_qpack_static_find(":status", (const char*)digits);
   if (idx >= 0)
-    return quic_qpack_indexed_encode(quic_mspan_of(out, cap), (u64)idx, 1);
+    return quic_qpack_indexed_encode(wired_mspan_of(out, cap), (u64)idx, 1);
   return quic_qpack_literal_namref_encode(
-      quic_mspan_of(out, cap), &r, quic_span_of(digits, 3));
+      wired_mspan_of(out, cap), &r, wired_span_of(digits, 3));
 }
 
 /* Append the content-type field line: Indexed when the value is in the
  * static table, else a Literal referencing the static content-type name. */
 static usz put_content_type_line(const char* content_type, u8* out, usz cap) {
   quic_qpack_nameref r   = {QPACK_CONTENT_TYPE_NAME_INDEX, 1, 0};
-  usz                len = quic_cstr_len(content_type);
+  usz                len = wired_cstr_len(content_type);
   i64                idx = quic_qpack_static_find("content-type", content_type);
   if (idx >= 0)
-    return quic_qpack_indexed_encode(quic_mspan_of(out, cap), (u64)idx, 1);
+    return quic_qpack_indexed_encode(wired_mspan_of(out, cap), (u64)idx, 1);
   return quic_qpack_literal_namref_encode(
-      quic_mspan_of(out, cap), &r, quic_span_of((const u8*)content_type, len));
+      wired_mspan_of(out, cap), &r,
+      wired_span_of((const u8*)content_type, len));
 }
 
 /* Append the content-type field line at *off when content_type is non-null;
@@ -84,7 +85,7 @@ static int append_extra_field(
   usz n;
   if (!extra) return 1;
   n = quic_qpack_literal_name_encode(
-      quic_mspan_of(out + *off, cap - *off), 0, extra);
+      wired_mspan_of(out + *off, cap - *off), 0, extra);
   if (!n) return 0;
   *off += n;
   return 1;
@@ -104,7 +105,7 @@ int quic_h3resp_encode_headers_field(
     u16                     status,
     const char*             content_type,
     const quic_qpack_field* extra,
-    quic_obuf*              out) {
+    wired_obuf*             out) {
   usz off = put_status_and_ct(status, content_type, out->p, out->cap);
   if (!off) return 0;
   if (!append_extra_field(extra, out->p, out->cap, &off)) return 0;
@@ -114,6 +115,6 @@ int quic_h3resp_encode_headers_field(
 
 /* RFC 9204 4.5 */
 int quic_h3resp_encode_headers(
-    u16 status, const char* content_type, quic_obuf* out) {
+    u16 status, const char* content_type, wired_obuf* out) {
   return quic_h3resp_encode_headers_field(status, content_type, 0, out);
 }

@@ -25,7 +25,7 @@ void quic_retrytoken_make(
   u8  msg[QUIC_RETRYTOKEN_MSG];
   usz n = build_msg(msg, in);
   quic_hmac_sha256(
-      quic_span_of(key, QUIC_RETRYTOKEN_KEY), quic_span_of(msg, n), token);
+      wired_span_of(key, QUIC_RETRYTOKEN_KEY), wired_span_of(msg, n), token);
 }
 
 int quic_retrytoken_verify(
@@ -38,10 +38,10 @@ int quic_retrytoken_verify(
 }
 
 usz quic_retrytoken_wire_make(
-    const u8  key[QUIC_RETRYTOKEN_KEY],
-    quic_span addr,
-    quic_span odcid,
-    u8        token[QUIC_RETRYTOKEN_WIRE_MAX]) {
+    const u8   key[QUIC_RETRYTOKEN_KEY],
+    wired_span addr,
+    wired_span odcid,
+    u8         token[QUIC_RETRYTOKEN_WIRE_MAX]) {
   quic_retrytoken_in in = {addr, odcid};
   if (odcid.n > 20) return 0;
   token[0] = (u8)odcid.n;
@@ -52,20 +52,20 @@ usz quic_retrytoken_wire_make(
 
 /* 1 if the framing holds: odcid_len within the CID cap and the token long
  * enough to carry it plus the HMAC. */
-static int retrytoken_wire_framed(quic_span token) {
+static int retrytoken_wire_framed(wired_span token) {
   if (token.n < 1 + QUIC_RETRYTOKEN_LEN) return 0;
   if (token.p[0] > 20) return 0;
   return token.n == (usz)1 + token.p[0] + QUIC_RETRYTOKEN_LEN;
 }
 
 int quic_retrytoken_wire_verify(
-    const u8   key[QUIC_RETRYTOKEN_KEY],
-    quic_span  addr,
-    quic_span  token,
-    quic_span* odcid) {
+    const u8    key[QUIC_RETRYTOKEN_KEY],
+    wired_span  addr,
+    wired_span  token,
+    wired_span* odcid) {
   quic_retrytoken_in in;
   if (!retrytoken_wire_framed(token)) return 0;
-  *odcid = quic_span_of(token.p + 1, token.p[0]);
+  *odcid = wired_span_of(token.p + 1, token.p[0]);
   in     = (quic_retrytoken_in){addr, *odcid};
   return quic_retrytoken_verify(key, &in, token.p + 1 + token.p[0]);
 }

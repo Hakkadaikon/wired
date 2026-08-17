@@ -225,13 +225,13 @@ typedef struct {
   u64 log_buf;
 } bpf_attr_prog_load;
 
-static void prog_load_attach_log(bpf_attr_prog_load* attr, quic_mspan log) {
+static void prog_load_attach_log(bpf_attr_prog_load* attr, wired_mspan log) {
   attr->log_level = 1;
   attr->log_size  = (u32)log.n;
   attr->log_buf   = (u64)log.p;
 }
 
-i64 quic_xdpbpf_prog_load(const u64* insns, u32 cnt, quic_mspan log) {
+i64 quic_xdpbpf_prog_load(const u64* insns, u32 cnt, wired_mspan log) {
   static const u8    license[] = "Dual MIT/GPL";
   bpf_attr_prog_load attr      = {
       BPF_PROG_TYPE_XDP, cnt, (u64)insns, (u64)license, 0, 0, 0};

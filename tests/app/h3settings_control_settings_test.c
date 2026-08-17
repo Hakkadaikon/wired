@@ -11,12 +11,12 @@ void test_h3settings_control_settings(void) {
   u64 stype;
   usz consumed = 0;
   CHECK(
-      quic_h3_stream_type_parse(quic_span_of(buf, n), &stype, &consumed) == 1);
+      quic_h3_stream_type_parse(wired_span_of(buf, n), &stype, &consumed) == 1);
   CHECK(consumed == 1 && quic_h3_stream_type_is_control(stype));
 
   /* the bytes after the type are a SETTINGS frame */
   quic_h3_frame f;
-  usz r = quic_h3_frame_get(quic_span_of(buf + consumed, n - consumed), &f);
+  usz r = quic_h3_frame_get(wired_span_of(buf + consumed, n - consumed), &f);
   CHECK(r == n - consumed && f.type == QUIC_H3_FRAME_SETTINGS);
 
   /* the first control frame passes the settings-sequence gate */
@@ -35,10 +35,10 @@ void test_h3settings_control_settings_advertises_connect_protocol(void) {
   usz n        = 0;
   usz consumed = 0;
   CHECK(quic_h3settings_control_stream(0, buf, sizeof(buf), &n) == 1);
-  quic_h3_stream_type_parse(quic_span_of(buf, n), &(u64){0}, &consumed);
+  quic_h3_stream_type_parse(wired_span_of(buf, n), &(u64){0}, &consumed);
 
   quic_h3_frame f;
-  quic_h3_frame_get(quic_span_of(buf + consumed, n - consumed), &f);
+  quic_h3_frame_get(wired_span_of(buf + consumed, n - consumed), &f);
 
   quic_h3_settings s;
   usz              sr = quic_h3_settings_get(buf + consumed, n - consumed, &s);
@@ -69,7 +69,7 @@ void test_h3settings_control_settings_advertises_wt(void) {
   quic_h3_settings s;
 
   CHECK(quic_h3settings_control_stream(1, buf, sizeof(buf), &n) == 1);
-  quic_h3_stream_type_parse(quic_span_of(buf, n), &(u64){0}, &consumed);
+  quic_h3_stream_type_parse(wired_span_of(buf, n), &(u64){0}, &consumed);
   CHECK(quic_h3_settings_get(buf + consumed, n - consumed, &s) > 0);
   CHECK(hcs_has_pair(&s, 0x33, 1) == 1);
   CHECK(hcs_has_pair(&s, 0xc671706a, 1) == 1);
@@ -77,7 +77,7 @@ void test_h3settings_control_settings_advertises_wt(void) {
   CHECK(hcs_has_pair(&s, 0x2c7cf000, 1) == 1);
 
   CHECK(quic_h3settings_control_stream(0, buf, sizeof(buf), &n) == 1);
-  quic_h3_stream_type_parse(quic_span_of(buf, n), &(u64){0}, &consumed);
+  quic_h3_stream_type_parse(wired_span_of(buf, n), &(u64){0}, &consumed);
   CHECK(quic_h3_settings_get(buf + consumed, n - consumed, &s) > 0);
   CHECK(hcs_has_pair(&s, 0x33, 1) == 0);
   CHECK(hcs_has_pair(&s, 0xc671706a, 1) == 0);

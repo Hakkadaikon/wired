@@ -4,7 +4,7 @@
 
 static int sao_is(const u8* oid, usz n, u8 key, u8 hash) {
   quic_x509_sigalg a;
-  return quic_x509_sigalg_lookup(quic_span_of(oid, n), &a) == 1 &&
+  return quic_x509_sigalg_lookup(wired_span_of(oid, n), &a) == 1 &&
          a.key_kind == key && a.hash_kind == hash;
 }
 
@@ -41,11 +41,11 @@ static void test_sigalgoid_unknown(void) {
   static const u8  pss[]  = {0x2a, 0x86, 0x48, 0x86, 0xf7,
                              0x0d, 0x01, 0x01, 0x0a};
   quic_x509_sigalg a;
-  CHECK(quic_x509_sigalg_lookup(quic_span_of(r224, sizeof(r224)), &a) == 0);
-  CHECK(quic_x509_sigalg_lookup(quic_span_of(sha1, sizeof(sha1)), &a) == 0);
-  CHECK(quic_x509_sigalg_lookup(quic_span_of(md5, sizeof(md5)), &a) == 0);
-  CHECK(quic_x509_sigalg_lookup(quic_span_of(pss, sizeof(pss)), &a) == 0);
-  CHECK(quic_x509_sigalg_lookup(quic_span_of(r224, 8), &a) == 0); /* short */
+  CHECK(quic_x509_sigalg_lookup(wired_span_of(r224, sizeof(r224)), &a) == 0);
+  CHECK(quic_x509_sigalg_lookup(wired_span_of(sha1, sizeof(sha1)), &a) == 0);
+  CHECK(quic_x509_sigalg_lookup(wired_span_of(md5, sizeof(md5)), &a) == 0);
+  CHECK(quic_x509_sigalg_lookup(wired_span_of(pss, sizeof(pss)), &a) == 0);
+  CHECK(quic_x509_sigalg_lookup(wired_span_of(r224, 8), &a) == 0); /* short */
 }
 
 void test_sigalgoid(void) {

@@ -14,10 +14,10 @@
 /* Compute the Retry Integrity Tag. odcid is the Original Destination
  * Connection ID (the DCID of the client's first Initial); retry is the Retry
  * packet bytes excluding the trailing 16-byte tag. */
-void quic_retry_tag(quic_span odcid, quic_span retry, u8 tag[QUIC_RETRY_TAG]);
+void quic_retry_tag(wired_span odcid, wired_span retry, u8 tag[QUIC_RETRY_TAG]);
 
 /* Verify a received Retry packet's tag in constant time. retry_with_tag is
  * the full Retry packet (its last 16 bytes are the tag). Returns 1 if valid. */
-int quic_retry_verify(quic_span odcid, quic_span retry_with_tag);
+int quic_retry_verify(wired_span odcid, wired_span retry_with_tag);
 
 #endif

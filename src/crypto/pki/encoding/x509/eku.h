@@ -11,6 +11,6 @@ extern const u8 quic_x509_oid_server_auth[8];
  * default: unrestricted), or present and contains purpose_oid among its
  * KeyPurposeIds. 0 if the extension is present but purpose_oid is absent,
  * or the extension is malformed. */
-int quic_x509_eku_allows(quic_span tbs, quic_span purpose_oid);
+int quic_x509_eku_allows(wired_span tbs, wired_span purpose_oid);
 
 #endif

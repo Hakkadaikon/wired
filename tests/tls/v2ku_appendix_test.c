@@ -41,9 +41,9 @@ static void test_v2ku_appendix_key_iv_hp(void) {
   quic_hkdf_label lk = {"quicv2 key", 10, {0, 0}};
   quic_hkdf_label li = {"quicv2 iv", 9, {0, 0}};
   quic_hkdf_label lh = {"quicv2 hp", 9, {0, 0}};
-  quic_hkdf_expand_label(A5_SECRET, &lk, quic_mspan_of(key, 32));
-  quic_hkdf_expand_label(A5_SECRET, &li, quic_mspan_of(iv, 12));
-  quic_hkdf_expand_label(A5_SECRET, &lh, quic_mspan_of(hp, 32));
+  quic_hkdf_expand_label(A5_SECRET, &lk, wired_mspan_of(key, 32));
+  quic_hkdf_expand_label(A5_SECRET, &li, wired_mspan_of(iv, 12));
+  quic_hkdf_expand_label(A5_SECRET, &lh, wired_mspan_of(hp, 32));
   for (usz i = 0; i < 32; i++) CHECK(key[i] == A5_KEY[i]);
   for (usz i = 0; i < 12; i++) CHECK(iv[i] == A5_IV[i]);
   for (usz i = 0; i < 32; i++) CHECK(hp[i] == A5_HP[i]);
@@ -82,8 +82,8 @@ static void test_v2ku_appendix_seal(void) {
   const u8 want_ct[17] = {0x0a, 0xe7, 0xb6, 0xb9, 0x32, 0xbc, 0x27, 0xd7, 0x86,
                           0xf4, 0xbc, 0x2b, 0xb2, 0x0f, 0x21, 0x62, 0xba};
   u8       ct[17];
-  quic_chapoly_ctx c = {A5_KEY, nonce, quic_span_of(aad, 4)};
-  quic_chapoly_seal(&c, quic_span_of(pt, 1), ct);
+  quic_chapoly_ctx c = {A5_KEY, nonce, wired_span_of(aad, 4)};
+  quic_chapoly_seal(&c, wired_span_of(pt, 1), ct);
   for (usz i = 0; i < 17; i++) CHECK(ct[i] == want_ct[i]);
 }
 

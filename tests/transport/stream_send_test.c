@@ -13,7 +13,7 @@ static int appdata_frame_flat(
     usz       cap,
     usz*      out_len) {
   quic_stream_frame f  = {sid, off, n, d, (u8)(fin ? 1 : 0)};
-  quic_obuf         ob = quic_obuf_of(out, cap);
+  wired_obuf        ob = quic_obuf_of(out, cap);
   if (!quic_appdata_stream_frame(&f, &ob)) return 0;
   *out_len = ob.len;
   return 1;
@@ -34,7 +34,7 @@ static int appdata_send_flat(
     usz*                     out_len) {
   quic_protect_keys pk = {k, hp};
   quic_appdata_tx   tx = {{dcid, dcid_len}, pn, sid, {data, len}, fin};
-  quic_obuf         ob = quic_obuf_of(out, cap);
+  wired_obuf        ob = quic_obuf_of(out, cap);
   if (!quic_appdata_send(&pk, &tx, &ob)) return 0;
   *out_len = ob.len;
   return 1;

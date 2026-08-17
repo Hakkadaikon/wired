@@ -9,6 +9,6 @@
  * checked against the issuer key (ECDSA P-256/P-384 or RSA PKCS#1 v1.5). The
  * issuer key type selects the algorithm. Returns 1 if the signature verifies,
  * else 0. */
-int quic_castore_verify_signed_by(quic_span cert, quic_span issuer_cert);
+int quic_castore_verify_signed_by(wired_span cert, wired_span issuer_cert);
 
 #endif

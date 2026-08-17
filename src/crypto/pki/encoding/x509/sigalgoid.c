@@ -46,11 +46,11 @@ static const struct {
      {QUIC_X509_SIG_RSA_PKCS1, QUIC_X509_HASH_SHA512}},
 };
 
-int quic_x509_sigalg_lookup(quic_span oid, quic_x509_sigalg* out) {
+int quic_x509_sigalg_lookup(wired_span oid, quic_x509_sigalg* out) {
   usz n = sizeof(sao_table) / sizeof(sao_table[0]);
   for (usz i = 0; i < n; i++)
     if (quic_der_oid_equal(
-            oid, quic_span_of(sao_table[i].oid, sao_table[i].oid_len))) {
+            oid, wired_span_of(sao_table[i].oid, sao_table[i].oid_len))) {
       *out = sao_table[i].alg;
       return 1;
     }

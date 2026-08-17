@@ -11,7 +11,7 @@
  * existing {status, body} initializers still compile (it defaults to 0). */
 typedef struct {
   u16         status;
-  quic_span   body;
+  wired_span  body;
   const char* content_type;
 } quic_h3conn_resp;
 
@@ -20,12 +20,12 @@ typedef struct {
  * it in a QUIC STREAM frame (RFC 9000 19.8) for stream_id at offset 0 with
  * the FIN bit set. Returns 1 with out->len set, 0 if out lacks capacity. */
 int quic_h3conn_send_response(
-    u64 stream_id, const quic_h3conn_resp* resp, quic_obuf* out);
+    u64 stream_id, const quic_h3conn_resp* resp, wired_obuf* out);
 
 /* RFC 9114 4.1. Decode a STREAM frame (RFC 9000 19.8) carrying an HTTP/3
  * response: recover the :status from the leading HEADERS frame and view the
  * DATA body in place. Returns 1 on success, 0 on a malformed frame or
  * unrecognised :status encoding. */
-int quic_h3conn_recv_response(quic_span stream_data, quic_h3conn_resp* resp);
+int quic_h3conn_recv_response(wired_span stream_data, quic_h3conn_resp* resp);
 
 #endif

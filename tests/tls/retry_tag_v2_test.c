@@ -75,8 +75,8 @@ static void test_retry_tag_v2_rfc9369_a4_vector(void) {
   quic_aes128 a;
   u8          tag[16];
   quic_aes128_init(&a, key);
-  quic_gcm_ctx g = {&a, nonce, quic_span_of(aad, n)};
-  quic_gcm_seal(&g, quic_span_of(0, 0), tag);
+  quic_gcm_ctx g = {&a, nonce, wired_span_of(aad, n)};
+  quic_gcm_seal(&g, wired_span_of(0, 0), tag);
 
   for (usz i = 0; i < 16; i++) CHECK(tag[i] == want_tag[i]);
 }

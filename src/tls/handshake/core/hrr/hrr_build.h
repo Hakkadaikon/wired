@@ -16,7 +16,7 @@ extern const u8 quic_hrr_random[32];
  * must retry with; cookie (may be empty) is echoed in a cookie extension.
  * On success writes the total message length to out->len and returns 1;
  * returns 0 if it does not fit. */
-int quic_hrr_build(u16 selected_group, quic_span cookie, quic_obuf* out);
+int quic_hrr_build(u16 selected_group, wired_span cookie, wired_obuf* out);
 
 /* RFC 8446 4.4.1: after a HelloRetryRequest, ClientHello1 is replaced in the
  * transcript by a synthetic "message_hash" message: msg_type 254, a 3-byte

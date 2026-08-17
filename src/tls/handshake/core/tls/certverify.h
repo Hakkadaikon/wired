@@ -13,10 +13,10 @@
  * end-entity certificate (DER), sig its signature, transcript_hash the
  * handshake transcript hash the signature covers. */
 typedef struct {
-  u16       scheme;
-  quic_span cert;
-  quic_span sig;
-  const u8* transcript_hash; /* 32 bytes */
+  u16        scheme;
+  wired_span cert;
+  wired_span sig;
+  const u8*  transcript_hash; /* 32 bytes */
 } quic_certverify_in;
 
 /* RFC 8446 4.4.3. Verify a server CertificateVerify signature against the

@@ -40,11 +40,11 @@ typedef struct {
 } salpn_scan_in;
 
 /* One extension at in->q: -1 overrun, 0 mismatch (advance), 1 match. */
-static int one_ext(salpn_scan_in* in, quic_span* ext) {
+static int one_ext(salpn_scan_in* in, wired_span* ext) {
   usz dlen = rd16(in->m + in->q + 2);
   if (in->q + 4 + dlen > in->end) return -1;
   if (rd16(in->m + in->q) == in->ext_type) {
-    *ext = quic_span_of(in->m + in->q + 4, dlen);
+    *ext = wired_span_of(in->m + in->q + 4, dlen);
     return 1;
   }
   in->q += 4 + dlen;
@@ -52,7 +52,7 @@ static int one_ext(salpn_scan_in* in, quic_span* ext) {
 }
 
 /* Scan the extensions block [q,end) for ext_type. */
-static int scan(salpn_scan_in* in, quic_span* ext) {
+static int scan(salpn_scan_in* in, wired_span* ext) {
   while (in->q + 4 <= in->end) {
     int r = one_ext(in, ext);
     if (r != 0) return r > 0;
@@ -67,7 +67,7 @@ typedef struct {
 } salpn_bounds;
 
 /* Read the 2-byte extensions block length at p and set bounds. */
-static int block_end(quic_span m, usz p, salpn_bounds* b) {
+static int block_end(wired_span m, usz p, salpn_bounds* b) {
   if (p + 2 > m.n) return 0;
   b->end = p + 2 + rd16(m.p + p);
   b->q   = p + 2;
@@ -75,13 +75,14 @@ static int block_end(quic_span m, usz p, salpn_bounds* b) {
 }
 
 /* Locate the extensions block end and capture its start. */
-static int exts_bounds(quic_span m, salpn_bounds* b) {
+static int exts_bounds(wired_span m, salpn_bounds* b) {
   usz p = 4; /* msg_type(1) + length(3) */
   if (!to_exts(m.p, m.n, &p)) return 0;
   return block_end(m, p, b);
 }
 
-int quic_salpn_find_extension(quic_span ch_msg, u16 ext_type, quic_span* ext) {
+int quic_salpn_find_extension(
+    wired_span ch_msg, u16 ext_type, wired_span* ext) {
   salpn_bounds  b;
   salpn_scan_in in;
   if (!exts_bounds(ch_msg, &b)) return 0;

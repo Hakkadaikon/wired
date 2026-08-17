@@ -29,7 +29,7 @@ typedef struct wired_srvrun_env wired_srvrun_env;
  * @param s the session the datagram is associated with
  * @param data the datagram's payload bytes */
 typedef void (*wired_wt_on_datagram)(
-    void* app_ctx, wired_wt_session* s, quic_span data);
+    void* app_ctx, wired_wt_session* s, wired_span data);
 
 /** draft-ietf-webtrans-http3-15 4.3: app-facing delivery of one reassembled
  * chunk of a WebTransport bidi/uni stream's bytes, drained from wired_srvloop's
@@ -41,7 +41,11 @@ typedef void (*wired_wt_on_datagram)(
  * @param data the stream's reassembled bytes so far past the signal/type byte
  * @param fin 1 once the stream's FIN has been seen */
 typedef void (*wired_wt_on_stream_data)(
-    void* app_ctx, wired_wt_session* s, u64 stream_id, quic_span data, int fin);
+    void*             app_ctx,
+    wired_wt_session* s,
+    u64               stream_id,
+    wired_span        data,
+    int               fin);
 
 /** draft-ietf-webtrans-http3-15 4.4 (WTH3-040): app-facing delivery of a
  * RESET_STREAM/STOP_SENDING received on one of session s's own WT bidi/uni
@@ -49,7 +53,7 @@ typedef void (*wired_wt_on_stream_data)(
  * error code outside the WT_APPLICATION_ERROR range, then the implementation
  * should deliver this to the application as a stream reset with no
  * application error code" -- mapped is 1 when the wire error code fell
- * inside the WT_APPLICATION_ERROR range (quic_wterrmap_from_http3 accepted
+ * inside the WT_APPLICATION_ERROR range (wired_wterrmap_from_http3 accepted
  * it) and app_error_code is the recovered WebTransport application error
  * code, or mapped is 0 (app_error_code left at 0, not itself meaningful) for
  * a wire code outside that range or on a reserved codepoint.
@@ -75,7 +79,7 @@ typedef void (*wired_wt_on_stream_reset)(
  * @param protocol the negotiated subprotocol (the raw token, not its
  *   sf-string encoding); empty when no subprotocol was negotiated */
 typedef void (*wired_wt_on_session)(
-    void* app_ctx, wired_wt_session* s, quic_span path, quic_span protocol);
+    void* app_ctx, wired_wt_session* s, wired_span path, wired_span protocol);
 
 /** App-facing notification that a WebTransport session ended server-side:
  * its own CONNECT stream closed, it violated a WT flow-control limit, the
@@ -118,8 +122,8 @@ typedef struct {
  * @param out the verdict to fill in */
 typedef void (*wired_wt_resource_check)(
     void*                       app_ctx,
-    quic_span                   authority,
-    quic_span                   path,
+    wired_span                  authority,
+    wired_span                  path,
     wired_wt_resource_decision* out);
 
 /** The application's request responder: the callback and its opaque context,
@@ -367,7 +371,7 @@ int* wired_srvrun_shutdown_word(void);
  * default, single-process wired_server_run(_opt) or a lone
  * wired_srvrun_serve_env instance) fans out directly to the single
  * g_srvrun_env. */
-int wired_server_broadcast_datagram(quic_span data);
+int wired_server_broadcast_datagram(wired_span data);
 
 /** Queue one HTTP Datagram (RFC 9297) to EVERY active WebTransport session
  * in the caller's server loop -- the burst-safe sibling of
@@ -396,13 +400,13 @@ int wired_server_broadcast_datagram(quic_span data);
  * @return 1 if every target session was queued (including when there is no
  *   target at all), 0 when the ring filled up or the prefixed payload
  *   exceeds a ring slot for some target */
-int wired_server_broadcast_datagram_ring(quic_span data);
+int wired_server_broadcast_datagram_ring(wired_span data);
 
 /** Open a new server-initiated unidirectional stream on s's connection (RFC
  * 9000 2.1: id 3 mod 4) and send the whole payload on it, closing with FIN
  * on the final slice. payload must already carry the WebTransport stream
  * signal prefix (draft-ietf-webtrans-http3-15 4.2: varint 0x54 + the CONNECT
- * stream id, quic_wtwire_signal_put) -- this SDK sends the bytes verbatim.
+ * stream id, wired_wtwire_signal_put) -- this SDK sends the bytes verbatim.
  * A payload up to the send slot's own staging capacity (4096 bytes) is
  * COPIED: the caller's storage is free the moment the call returns. Only a
  * larger payload is held as a VIEW, and then the caller must keep it alive
@@ -415,14 +419,14 @@ int wired_server_broadcast_datagram_ring(quic_span data);
  * @param payload the complete stream bytes, signal prefix included
  * @return the allocated stream id, or negative when s resolves to no live
  *   connection or every send slot is busy */
-i64 wired_server_wt_open_uni(wired_wt_session* s, quic_span payload);
+i64 wired_server_wt_open_uni(wired_wt_session* s, wired_span payload);
 
 /** Same as wired_server_wt_open_uni, but a server-initiated bidirectional
  * stream (RFC 9000 2.1: id 1 mod 4; signal prefix varint 0x41).
  * @param s the session whose connection the stream is opened on
  * @param payload the complete stream bytes, signal prefix included
  * @return the allocated stream id, or negative on failure */
-i64 wired_server_wt_open_bidi(wired_wt_session* s, quic_span payload);
+i64 wired_server_wt_open_bidi(wired_wt_session* s, wired_span payload);
 
 /** Send payload on this endpoint's send direction of the client-initiated
  * bidirectional stream `stream_id` (a WebTransport data stream the client
@@ -435,7 +439,7 @@ i64 wired_server_wt_open_bidi(wired_wt_session* s, quic_span payload);
  * @return 1 accepted, 0 when s resolves to no live connection or every send
  *   slot is busy */
 int wired_server_wt_stream_reply(
-    wired_wt_session* s, u64 stream_id, quic_span payload);
+    wired_wt_session* s, u64 stream_id, wired_span payload);
 
 /** Same as wired_server_wt_open_uni, but WITHOUT closing the stream: no FIN
  * is sent after payload's final slice, and the stream stays open for
@@ -445,7 +449,7 @@ int wired_server_wt_stream_reply(
  * @param s the session whose connection the stream is opened on
  * @param payload the first round's bytes, signal prefix included
  * @return the allocated stream id, or negative on failure */
-i64 wired_server_wt_open_uni_stream(wired_wt_session* s, quic_span payload);
+i64 wired_server_wt_open_uni_stream(wired_wt_session* s, wired_span payload);
 
 /** Same as wired_server_wt_open_uni_stream, but a server-initiated
  * bidirectional stream (RFC 9000 2.1: id 1 mod 4; signal prefix varint
@@ -453,7 +457,7 @@ i64 wired_server_wt_open_uni_stream(wired_wt_session* s, quic_span payload);
  * @param s the session whose connection the stream is opened on
  * @param payload the first round's bytes, signal prefix included
  * @return the allocated stream id, or negative on failure */
-i64 wired_server_wt_open_bidi_stream(wired_wt_session* s, quic_span payload);
+i64 wired_server_wt_open_bidi_stream(wired_wt_session* s, wired_span payload);
 
 /** Same as wired_server_wt_stream_reply, but WITHOUT closing the stream --
  * the opening round of a reply on a client-initiated bidi stream that stays
@@ -463,7 +467,7 @@ i64 wired_server_wt_open_bidi_stream(wired_wt_session* s, quic_span payload);
  * @param payload the first round's bytes
  * @return 1 accepted, 0 on failure */
 int wired_server_wt_stream_reply_open(
-    wired_wt_session* s, u64 stream_id, quic_span payload);
+    wired_wt_session* s, u64 stream_id, wired_span payload);
 
 /** Append one more round of bytes to a stream opened with wired_server_wt_
  * open_uni_stream/open_bidi_stream/stream_reply_open: payload goes out at
@@ -487,7 +491,7 @@ int wired_server_wt_stream_reply_open(
  *   capacity is exhausted, or the session's WT_MAX_DATA limit would be
  *   exceeded */
 int wired_server_wt_stream_send(
-    wired_wt_session* s, u64 stream_id, quic_span payload, int fin);
+    wired_wt_session* s, u64 stream_id, wired_span payload, int fin);
 
 /** Ends a stream opened for appending with NO further bytes: a bare FIN on
  * an otherwise-empty final round (RFC 9000 19.8 permits a zero-length
@@ -542,7 +546,7 @@ int wired_server_wt_stream_reset(
  * @return 1 queued, 0 when s resolves to no live connection, this
  *   endpoint's SETTINGS have not been sent yet (RFC 9297 2.1), the ring is
  *   full, or the prefixed payload exceeds a ring slot */
-int wired_server_wt_send_datagram_to(wired_wt_session* s, quic_span payload);
+int wired_server_wt_send_datagram_to(wired_wt_session* s, wired_span payload);
 
 /** draft-ietf-webtrans-http3-15 SS4.2/SS4.4/8.2 (WTH3-067): close s's
  * WebTransport session: send a WT_CLOSE_SESSION capsule (app_error_code,
@@ -560,7 +564,7 @@ int wired_server_wt_send_datagram_to(wired_wt_session* s, quic_span payload);
  *   is truncated to the cap
  * @return 1 queued, 0 when s resolves to no live connection */
 int wired_server_wt_close_session(
-    wired_wt_session* s, u32 app_error_code, quic_span message);
+    wired_wt_session* s, u32 app_error_code, wired_span message);
 
 /** Register the calling thread as srvthreads worker `index` of `n_total`,
  * with its own N-ring inbox row (inbox_row[j] receives broadcasts sent by

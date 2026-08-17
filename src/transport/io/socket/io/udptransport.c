@@ -26,10 +26,10 @@ int quic_udp_transport_send(quic_udp_transport* t, const u8* buf, usz len) {
   u8            o[4];
   quic_addr_to_octets(t->peer_addr, o);
   wired_udp_addr(&sa, t->peer_port, o);
-  return wired_udp_send(t->fd, &sa, quic_span_of(buf, len)) >= 0 ? 1 : 0;
+  return wired_udp_send(t->fd, &sa, wired_span_of(buf, len)) >= 0 ? 1 : 0;
 }
 
 usz quic_udp_transport_recv(quic_udp_transport* t, u8* buf, usz cap) {
-  i64 r = wired_udp_recv(t->fd, quic_mspan_of(buf, cap));
+  i64 r = wired_udp_recv(t->fd, wired_mspan_of(buf, cap));
   return r > 0 ? (usz)r : 0;
 }

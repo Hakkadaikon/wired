@@ -12,17 +12,17 @@
 
 /* Forward: application error code -> HTTP/3-level error code. n may be any
  * u32 value; the whole domain maps into [first, last]. */
-u64 quic_wterrmap_to_http3(u32 n);
+u64 wired_wterrmap_to_http3(u32 n);
 
 /* Reverse: HTTP/3-level error code -> application error code. Returns 1 and
  * sets *n_out on success. Returns 0 if h falls outside [first, last] or
  * lands on a reserved codepoint (defends against arbitrary/adversarial h
  * values arriving from the wire; a value produced by
- * quic_wterrmap_to_http3 never triggers this rejection). */
-int quic_wterrmap_from_http3(u64 h, u32* n_out);
+ * wired_wterrmap_to_http3 never triggers this rejection). */
+int wired_wterrmap_from_http3(u64 h, u32* n_out);
 
 /* draft-ietf-webtrans-http3-15 8.2: named WebTransport application error
- * codes, each an input n to quic_wterrmap_to_http3 above. Defined here
+ * codes, each an input n to wired_wterrmap_to_http3 above. Defined here
  * (rather than at each event site) because most do not yet have a live
  * trigger in this SDK -- their prerequisite feature is not yet implemented:
  *

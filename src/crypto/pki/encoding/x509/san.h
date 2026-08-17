@@ -6,6 +6,6 @@
 
 /* RFC 5280 4.2.1.6 / RFC 6125. 1 if a subjectAltName dNSName matches the
  * hostname; 0 otherwise. A leading "*." wildcard matches one label only. */
-int quic_x509_san_matches(quic_span tbs, quic_span hostname);
+int quic_x509_san_matches(wired_span tbs, wired_span hostname);
 
 #endif

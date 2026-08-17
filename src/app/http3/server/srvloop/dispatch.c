@@ -40,7 +40,7 @@ static int is_request_stream(u64 stream_id) { return (stream_id & 0x03) == 0; }
  * (value 0x41). Only offset 0 is ever checked here — the signal MUST be the
  * stream's leading bytes, so a later (offset>0) frame is never mistaken for
  * one. Truncated/undecodable leading bytes are not the signal (0). */
-static int is_wt_stream_signal(quic_span data) {
+static int is_wt_stream_signal(wired_span data) {
   u64 v;
   usz off = 0;
   if (!quic_varint_take(data, &off, &v)) return 0;
@@ -53,7 +53,7 @@ static int is_wt_stream_signal(quic_span data) {
  * never checked against the signal, matching "MUST be the leading bytes". */
 static int sf_is_wt_signalled(const quic_stream_frame* sf) {
   return sf->offset == 0 &&
-         is_wt_stream_signal(quic_span_of(sf->data, (usz)sf->length));
+         is_wt_stream_signal(wired_span_of(sf->data, (usz)sf->length));
 }
 
 /* draft-ietf-webtrans-http3-15 4.3: this frame is either the stream's leading
@@ -104,7 +104,7 @@ static int is_request_frame(
  * request decoder. */
 static int dispatch_stream(
     wired_h3srv_state*               h3,
-    quic_span                        frame,
+    wired_span                       frame,
     const wired_srvloop_dispatch_in* in) {
   wired_h3srv_req_in rin = {frame, in->scratch};
   if (!wired_h3srv_on_request(h3, &rin, in->req)) return 0;
@@ -126,8 +126,8 @@ static void gather_one(const quic_stream_frame* sf, wired_srvloop_reqacc* acc) {
   usz off = (usz)sf->offset;
   if (off >= acc->cap) return;
   quic_put_bytes(
-      quic_mspan_of(acc->buf, acc->cap), &off,
-      quic_span_of(sf->data, (usz)sf->length));
+      wired_mspan_of(acc->buf, acc->cap), &off,
+      wired_span_of(sf->data, (usz)sf->length));
   bump_len(acc, (usz)sf->offset + (usz)sf->length);
   *acc->fin |= sf->fin;
 }
@@ -137,7 +137,7 @@ static void gather_one(const quic_stream_frame* sf, wired_srvloop_reqacc* acc) {
  * frame (offset>0, already claimed in l->wt_streams[]) is excluded here too,
  * not just its own offset-0 signal frame. */
 static int request_stream_of(
-    const wired_srvloop* l, u64 type, quic_span frame, quic_stream_frame* sf) {
+    const wired_srvloop* l, u64 type, wired_span frame, quic_stream_frame* sf) {
   return is_request_frame(l, type, frame.p, frame.n) &&
          quic_frame_get_stream(frame.p, frame.n, sf);
 }
@@ -158,7 +158,7 @@ static int gather_request(
   quic_framewalk_init(&it, payload, len);
   while (quic_framewalk_next(&it, &fr))
     if (request_stream_of(
-            l, fr.type, quic_span_of(fr.start, fr.remaining), &sf)) {
+            l, fr.type, wired_span_of(fr.start, fr.remaining), &sf)) {
       gather_one(&sf, acc);
       seen = 1;
     }
@@ -171,7 +171,7 @@ static int gather_request(
  * none is fully buffered yet (or the first frame is not HEADERS). */
 static usz acc_headers_frame_len(const wired_srvloop_reqacc* acc) {
   quic_h3_frame f;
-  usz           n = quic_h3_frame_get(quic_span_of(acc->buf, *acc->len), &f);
+  usz           n = quic_h3_frame_get(wired_span_of(acc->buf, *acc->len), &f);
   if (n == 0) return 0;
   return f.type == QUIC_H3_FRAME_HEADERS ? n : 0;
 }
@@ -198,10 +198,10 @@ static int peek_decode_request(
     usz                              n,
     wired_h3reqdrive_req*            r) {
   quic_stream_frame f  = {0, 0, n, acc->buf, 0};
-  quic_obuf         ob = quic_obuf_of(in->wrap.p, in->wrap.n);
+  wired_obuf        ob = quic_obuf_of(in->wrap.p, in->wrap.n);
   if (!quic_appdata_stream_frame(&f, &ob)) return 0;
   return wired_h3reqdrive_recv_get(
-      quic_span_of(in->wrap.p, ob.len), in->scratch, r);
+      wired_span_of(in->wrap.p, ob.len), in->scratch, r);
 }
 
 /* RFC 9220 3 / draft-ietf-webtrans-http3 3: an Extended CONNECT's request
@@ -234,7 +234,7 @@ static int request_complete(
  * this is exactly the classifier gather_wt_stream needs to find WT frames
  * request_stream_of deliberately skips. */
 static int client_bidi_stream_of(
-    u64 type, quic_span frame, quic_stream_frame* sf) {
+    u64 type, wired_span frame, quic_stream_frame* sf) {
   return is_stream(type) && quic_frame_get_stream(frame.p, frame.n, sf) &&
          is_request_stream(sf->stream_id);
 }
@@ -251,7 +251,7 @@ static int is_server_bidi_stream(u64 stream_id) {
  * srvrun.c itself opened (wired_server_wt_open_bidi). Mirrors
  * client_bidi_stream_of's shape for the separate id space. */
 static int server_bidi_stream_of(
-    u64 type, quic_span frame, quic_stream_frame* sf) {
+    u64 type, wired_span frame, quic_stream_frame* sf) {
   return is_stream(type) && quic_frame_get_stream(frame.p, frame.n, sf) &&
          is_server_bidi_stream(sf->stream_id);
 }
@@ -289,8 +289,8 @@ static void gather_wt_one(
   wired_srvloop_wt_window_accept(&slot->win, abs_off, n, &rel_off, &accepted);
   if (accepted)
     quic_put_bytes(
-        quic_mspan_of(slot->buf, sizeof slot->buf), &rel_off,
-        quic_span_of(sf->data + skip + (n - accepted), accepted));
+        wired_mspan_of(slot->buf, sizeof slot->buf), &rel_off,
+        wired_span_of(sf->data + skip + (n - accepted), accepted));
   if (sf->fin) {
     slot->fin     = 1;
     slot->fin_off = abs_off + n;
@@ -303,7 +303,7 @@ static void gather_wt_one(
  * session id's own bytes as a leading garbage byte on every request line
  * (found via a real webtransport-go interop run: the app's GET parser saw an
  * extra byte before "GET "). Consume both and sum their lengths. */
-static usz wt_signal_len(quic_span data) {
+static usz wt_signal_len(wired_span data) {
   u64 v;
   usz off = 0;
   quic_varint_take(data, &off, &v);
@@ -319,7 +319,7 @@ static int wt_slot_for_signal(wired_srvloop* l, const quic_stream_frame* sf) {
   int i = wired_srvloop_wt_slot_claim(l, sf->stream_id);
   if (i < 0) return -1;
   l->wt_streams[i].sig_len =
-      wt_signal_len(quic_span_of(sf->data, (usz)sf->length));
+      wt_signal_len(wired_span_of(sf->data, (usz)sf->length));
   return i;
 }
 
@@ -344,7 +344,7 @@ static void gather_wt_land(wired_srvloop* l, const quic_stream_frame* sf) {
  * traffic (wt_frame_relevant), gather it into its slot. Returns 1 if it was
  * (whether or not a slot was available to hold it — matching gather_request's
  * seen semantics). */
-static int gather_wt_frame(wired_srvloop* l, u64 type, quic_span frame) {
+static int gather_wt_frame(wired_srvloop* l, u64 type, wired_span frame) {
   quic_stream_frame sf;
   if (!client_bidi_stream_of(type, frame, &sf)) return 0;
   if (!wt_frame_relevant(l, &sf)) return 0;
@@ -362,7 +362,7 @@ static int gather_wt_frame(wired_srvloop* l, u64 type, quic_span frame) {
  * one shape the RFC forbids outright. */
 static int is_wt_signal_mid_stream(const quic_stream_frame* sf) {
   return sf->offset != 0 &&
-         is_wt_stream_signal(quic_span_of(sf->data, (usz)sf->length));
+         is_wt_stream_signal(wired_span_of(sf->data, (usz)sf->length));
 }
 
 /* 1 if the walked frame at `frame` is a client-bidi-id-shaped STREAM frame
@@ -378,7 +378,7 @@ static int is_wt_signal_mid_stream(const quic_stream_frame* sf) {
  * repeated), so a real WT stream's own application bytes cannot spuriously
  * trigger this. */
 static int gather_one_wt_signal_violation(
-    wired_srvloop* l, u64 type, quic_span frame) {
+    wired_srvloop* l, u64 type, wired_span frame) {
   quic_stream_frame sf;
   if (!client_bidi_stream_of(type, frame, &sf)) return 0;
   if (!is_wt_signal_mid_stream(&sf)) return 0;
@@ -397,7 +397,7 @@ static int gather_one_wt_signal_violation(
  * (whether or not a slot existed to receive it), mirroring gather_wt_frame's
  * own seen semantics. */
 static int gather_server_bidi_frame(
-    wired_srvloop* l, u64 type, quic_span frame) {
+    wired_srvloop* l, u64 type, wired_span frame) {
   quic_stream_frame sf;
   int               i;
   if (!server_bidi_stream_of(type, frame, &sf)) return 0;
@@ -422,10 +422,10 @@ static int gather_wt_stream(wired_srvloop* l, const u8* payload, usz len) {
   quic_framewalk_init(&it, payload, len);
   while (quic_framewalk_next(&it, &fr)) {
     seen |= gather_server_bidi_frame(
-        l, fr.type, quic_span_of(fr.start, fr.remaining));
-    seen |= gather_wt_frame(l, fr.type, quic_span_of(fr.start, fr.remaining));
+        l, fr.type, wired_span_of(fr.start, fr.remaining));
+    seen |= gather_wt_frame(l, fr.type, wired_span_of(fr.start, fr.remaining));
     seen |= gather_one_wt_signal_violation(
-        l, fr.type, quic_span_of(fr.start, fr.remaining));
+        l, fr.type, wired_span_of(fr.start, fr.remaining));
   }
   return seen;
 }
@@ -440,7 +440,7 @@ static int is_uni_stream(u64 stream_id) { return (stream_id & 0x03) == 2; }
  * (0x02/0x03) / WebTransport (0x54), reused rather than reimplemented. An
  * undecodable leading varint classifies as not-accepted (0), same as any
  * other unrecognized type. */
-static int uni_stream_type_accepted(quic_span data) {
+static int uni_stream_type_accepted(wired_span data) {
   u64 v;
   usz off = 0;
   if (!quic_varint_take(data, &off, &v)) return 0;
@@ -453,7 +453,7 @@ static int uni_stream_type_accepted(quic_span data) {
  * l->qpack_stream_violation for the caller driving the loop to close the
  * connection over (H3_STREAM_CREATION_ERROR). Any other (or undecodable)
  * type is a no-op, matching uni_stream_type_accepted's own read-only peek. */
-static void uni_stream_type_note_qpack(wired_srvloop* l, quic_span data) {
+static void uni_stream_type_note_qpack(wired_srvloop* l, wired_span data) {
   u64 v;
   usz off = 0;
   u16 err;
@@ -472,7 +472,7 @@ static void uni_stream_type_note_qpack(wired_srvloop* l, quic_span data) {
 /* Apply a Set Dynamic Table Capacity instruction (if any) at the head of
  * rest to l, latching a rejection. Split out of uni_stream_type_apply_qpack_
  * capacity so its own branch count stays at the CCN gate. */
-static void apply_qpack_capacity_rest(wired_srvloop* l, quic_span rest) {
+static void apply_qpack_capacity_rest(wired_srvloop* l, wired_span rest) {
   u16 err = 0;
   quic_qdyn_enc_apply_capacity(
       rest, &l->h3.qdyn, l->h3.qpack_max_table_capacity, &err);
@@ -480,12 +480,12 @@ static void apply_qpack_capacity_rest(wired_srvloop* l, quic_span rest) {
 }
 
 static void uni_stream_type_apply_qpack_capacity(
-    wired_srvloop* l, quic_span data) {
+    wired_srvloop* l, wired_span data) {
   u64 v;
   usz off = 0;
   if (!quic_varint_take(data, &off, &v)) return;
   if (v != QUIC_H3_STREAM_QPACK_ENCODER) return;
-  apply_qpack_capacity_rest(l, quic_span_of(data.p + off, data.n - off));
+  apply_qpack_capacity_rest(l, wired_span_of(data.p + off, data.n - off));
 }
 
 /* draft-ietf-webtrans-http3-15 4.3: 1 if this uni stream's very first bytes
@@ -494,7 +494,7 @@ static void uni_stream_type_apply_qpack_capacity(
  * stream's type is unambiguous and never mid-stream — only offset 0 is ever
  * checked, matching is_wt_stream_signal's own read-only peek (no state is
  * consumed beyond the local varint decode). */
-static int is_wt_uni_stream_type(quic_span data) {
+static int is_wt_uni_stream_type(wired_span data) {
   u64 v;
   usz off = 0;
   if (!quic_varint_take(data, &off, &v)) return 0;
@@ -506,13 +506,13 @@ static int is_wt_uni_stream_type(quic_span data) {
  * for a uni stream (mirrors sf_is_wt_signalled's bidi counterpart). */
 static int sf_is_wt_uni_typed(const quic_stream_frame* sf) {
   return sf->offset == 0 &&
-         is_wt_uni_stream_type(quic_span_of(sf->data, (usz)sf->length));
+         is_wt_uni_stream_type(wired_span_of(sf->data, (usz)sf->length));
 }
 
 /* 1 if the walked frame at `frame` is a client uni STREAM frame (low bits 10)
  * — the id space wt_uni_streams draws from, decoded into sf for the caller. */
 static int client_uni_stream_of(
-    u64 type, quic_span frame, quic_stream_frame* sf) {
+    u64 type, wired_span frame, quic_stream_frame* sf) {
   return is_stream(type) && quic_frame_get_stream(frame.p, frame.n, sf) &&
          is_uni_stream(sf->stream_id);
 }
@@ -547,8 +547,8 @@ static void gather_wt_uni_one(
   wired_srvloop_wt_window_accept(&slot->win, abs_off, n, &rel_off, &accepted);
   if (accepted)
     quic_put_bytes(
-        quic_mspan_of(slot->buf, sizeof slot->buf), &rel_off,
-        quic_span_of(sf->data + skip + (n - accepted), accepted));
+        wired_mspan_of(slot->buf, sizeof slot->buf), &rel_off,
+        wired_span_of(sf->data + skip + (n - accepted), accepted));
   if (sf->fin) {
     slot->fin     = 1;
     slot->fin_off = abs_off + n;
@@ -563,7 +563,7 @@ static int wt_uni_slot_for_type(wired_srvloop* l, const quic_stream_frame* sf) {
   int i = wired_srvloop_wt_uni_slot_claim(l, sf->stream_id);
   if (i < 0) return -1;
   l->wt_uni_streams[i].type_len =
-      wt_signal_len(quic_span_of(sf->data, (usz)sf->length));
+      wt_signal_len(wired_span_of(sf->data, (usz)sf->length));
   return i;
 }
 
@@ -588,7 +588,7 @@ static void dispatch_qlog_stream_received(
       sf->stream_id, sf->offset, sf->length, sf->fin, l->app_rx_pn};
   n = wired_qlogevent_stream_frame(
       rec, sizeof rec, l->now_ms, l->qlog_group, "stream_frame_received", &in);
-  if (n) wired_qlog_append(l->qlog_path, quic_span_of((const u8*)rec, n));
+  if (n) wired_qlog_append(l->qlog_path, wired_span_of((const u8*)rec, n));
 }
 
 /* draft-ietf-webtrans-http3-15 4.3: land sf (already confirmed WT uni
@@ -612,14 +612,14 @@ static void gather_wt_uni_land(wired_srvloop* l, const quic_stream_frame* sf) {
  * gather_wt_uni_frame's own doc) plus recording a QPACK encoder/decoder type
  * on l->h3.peer_qpack_* (RFC 9204 4.2, 9204-028). Split out of gather_wt_uni_
  * frame so its own branch count stays at the CCN gate. */
-static void gather_wt_uni_classify(wired_srvloop* l, quic_span data) {
+static void gather_wt_uni_classify(wired_srvloop* l, wired_span data) {
   uni_stream_type_accepted(data);
   uni_stream_type_note_qpack(l, data);
   uni_stream_type_apply_qpack_capacity(l, data);
 }
 
 static void gather_wt_uni_frame(wired_srvloop* l, const quic_stream_frame* sf) {
-  quic_span data = quic_span_of(sf->data, (usz)sf->length);
+  wired_span data = wired_span_of(sf->data, (usz)sf->length);
   if (sf->offset == 0) gather_wt_uni_classify(l, data);
   if (!wt_uni_frame_relevant(l, sf)) return;
   gather_wt_uni_land(l, sf);
@@ -631,7 +631,7 @@ static void gather_wt_uni_frame(wired_srvloop* l, const quic_stream_frame* sf) {
  * at all (matching gather_wt_frame's "seen" semantics for the bidi table) —
  * this lets the caller keep such a payload out of dispatch_non_request's
  * handshake-feed fallback exactly like a bidi/request STREAM frame does. */
-static int gather_uni_frame(wired_srvloop* l, u64 type, quic_span frame) {
+static int gather_uni_frame(wired_srvloop* l, u64 type, wired_span frame) {
   quic_stream_frame sf;
   if (!client_uni_stream_of(type, frame, &sf)) return 0;
   gather_wt_uni_frame(l, &sf);
@@ -650,7 +650,7 @@ static int gather_uni_stream(wired_srvloop* l, const u8* payload, usz len) {
   int                 seen = 0;
   quic_framewalk_init(&it, payload, len);
   while (quic_framewalk_next(&it, &fr))
-    seen |= gather_uni_frame(l, fr.type, quic_span_of(fr.start, fr.remaining));
+    seen |= gather_uni_frame(l, fr.type, wired_span_of(fr.start, fr.remaining));
   return seen;
 }
 
@@ -666,7 +666,7 @@ static int gather_ctrl_priupdate(wired_srvloop* l, const u8* payload, usz len) {
   quic_framewalk_init(&it, payload, len);
   while (quic_framewalk_next(&it, &fr))
     seen |= wired_srvloop_ctrl_gather(
-        l, fr.type, quic_span_of(fr.start, fr.remaining));
+        l, fr.type, wired_span_of(fr.start, fr.remaining));
   return seen;
 }
 
@@ -682,7 +682,7 @@ static int gather_req_priupdate(wired_srvloop* l, const u8* payload, usz len) {
   quic_framewalk_init(&it, payload, len);
   while (quic_framewalk_next(&it, &fr))
     seen |= wired_srvloop_req_priupdate_gather(
-        l, fr.type, quic_span_of(fr.start, fr.remaining));
+        l, fr.type, wired_span_of(fr.start, fr.remaining));
   return seen;
 }
 
@@ -690,13 +690,13 @@ static int gather_req_priupdate(wired_srvloop* l, const u8* payload, usz len) {
  * rx_datagrams slot (truncated to its cap, matching this repo's existing
  * truncate-on-overflow policy for fixed buffers). Caller has already checked
  * the queue is not full. */
-static void queue_rx_datagram(wired_srvloop* l, quic_span payload) {
+static void queue_rx_datagram(wired_srvloop* l, wired_span payload) {
   wired_srvloop_rx_datagram* slot = &l->rx_datagrams[l->rx_datagram_n];
   usz                        cap  = sizeof slot->buf;
   usz                        n    = payload.n < cap ? payload.n : cap;
   usz                        off  = 0;
   quic_put_bytes(
-      quic_mspan_of(slot->buf, cap), &off, quic_span_of(payload.p, n));
+      wired_mspan_of(slot->buf, cap), &off, wired_span_of(payload.p, n));
   slot->len = n;
   l->rx_datagram_n++;
 }
@@ -717,8 +717,8 @@ static int datagram_size_ok(const wired_srvloop* l, usz payload_len) {
  * connection over (RFC 9221 3: PROTOCOL_VIOLATION). A malformed frame queues
  * nothing and is not itself a violation (distinct failure mode). Caller
  * (gather_one_datagram) has already confirmed the type and queue room. */
-static void queue_decoded_datagram(wired_srvloop* l, quic_span frame) {
-  quic_span payload;
+static void queue_decoded_datagram(wired_srvloop* l, wired_span frame) {
+  wired_span payload;
   if (!quic_dgdeliver_extract(frame, &payload)) return;
   if (!datagram_size_ok(l, payload.n)) {
     l->datagram_violation = 1;
@@ -733,7 +733,7 @@ static void queue_decoded_datagram(wired_srvloop* l, quic_span frame) {
  * rx_datagram_n's doc for why): RFC 9221 datagrams are unreliable, so silently
  * dropping one under sustained load is within spec rather than a bug to fix.
  */
-static void gather_one_datagram(wired_srvloop* l, u64 type, quic_span frame) {
+static void gather_one_datagram(wired_srvloop* l, u64 type, wired_span frame) {
   if (quic_frame_classify(type) != QUIC_FK_DATAGRAM) return;
   if (l->rx_datagram_n >= WIRED_SRVLOOP_MAX_RX_DATAGRAMS) return;
   queue_decoded_datagram(l, frame);
@@ -752,7 +752,7 @@ static int gather_rx_datagrams(wired_srvloop* l, const u8* payload, usz len) {
   quic_framewalk_init(&it, payload, len);
   while (quic_framewalk_next(&it, &fr)) {
     if (quic_frame_classify(fr.type) == QUIC_FK_DATAGRAM) seen = 1;
-    gather_one_datagram(l, fr.type, quic_span_of(fr.start, fr.remaining));
+    gather_one_datagram(l, fr.type, wired_span_of(fr.start, fr.remaining));
   }
   return seen;
 }
@@ -763,7 +763,7 @@ static int gather_rx_datagrams(wired_srvloop* l, const u8* payload, usz len) {
  * RELIABLE size and is not itself the close signal this loop tracks
  * (srvrun.c does not yet emit it so there is no live peer path to test
  * against). */
-static int reset_stream_id(u64 type, quic_span frame, u64* stream_id_out) {
+static int reset_stream_id(u64 type, wired_span frame, u64* stream_id_out) {
   quic_reset_stream_frame f;
   if (quic_frame_classify(type) != QUIC_FK_RESET_STREAM) return 0;
   if (quic_reset_stream_decode(frame.p, frame.n, &f) == 0) return 0;
@@ -777,7 +777,7 @@ static int reset_stream_id(u64 type, quic_span frame, u64* stream_id_out) {
  * closing it, since either end of a bidi stream that will never carry more
  * data again is the observable "this stream is done" signal this loop
  * tracks. */
-static int stop_sending_id(u64 type, quic_span frame, u64* stream_id_out) {
+static int stop_sending_id(u64 type, wired_span frame, u64* stream_id_out) {
   quic_stop_sending_frame f;
   if (quic_frame_classify(type) != QUIC_FK_STOP_SENDING) return 0;
   if (quic_stop_sending_decode(frame.p, frame.n, &f) == 0) return 0;
@@ -789,7 +789,7 @@ static int stop_sending_id(u64 type, quic_span frame, u64* stream_id_out) {
  * decoded into *out. Split out of gather_one_wt_reset to keep its own branch
  * count at the CCN gate. */
 static int wt_reset_frame(
-    u64 type, quic_span frame, quic_reset_stream_frame* out) {
+    u64 type, wired_span frame, quic_reset_stream_frame* out) {
   if (quic_frame_classify(type) != QUIC_FK_RESET_STREAM) return 0;
   return quic_reset_stream_decode(frame.p, frame.n, out) != 0;
 }
@@ -798,7 +798,7 @@ static int wt_reset_frame(
  * decoded into *out. Mirrors wt_reset_frame for the other close-shaped
  * frame kind. */
 static int wt_stop_frame(
-    u64 type, quic_span frame, quic_stop_sending_frame* out) {
+    u64 type, wired_span frame, quic_stop_sending_frame* out) {
   if (quic_frame_classify(type) != QUIC_FK_STOP_SENDING) return 0;
   return quic_stop_sending_decode(frame.p, frame.n, out) != 0;
 }
@@ -810,10 +810,10 @@ static int wt_stop_frame(
  * (reset_stream_id/stop_sending_id both discard it, since the CONNECT-
  * stream-close case they serve never needed it). l has no notion of which
  * stream id belongs to a WT session -- the caller (srvrun.c) resolves that
- * and decides whether/how to map the code through quic_wterrmap_from_http3.
+ * and decides whether/how to map the code through wired_wterrmap_from_http3.
  * Only the last one seen this step survives if more than one arrives, same
  * convention as closed_stream_id. */
-static void gather_one_wt_reset(wired_srvloop* l, u64 type, quic_span frame) {
+static void gather_one_wt_reset(wired_srvloop* l, u64 type, wired_span frame) {
   quic_reset_stream_frame rs;
   quic_stop_sending_frame ss;
   if (wt_reset_frame(type, frame, &rs)) {
@@ -837,7 +837,7 @@ static void gather_one_wt_reset(wired_srvloop* l, u64 type, quic_span frame) {
  * rather than is_request_stream directly, so a stream already claimed by
  * wt_streams[] (checked elsewhere, not here) is not excluded: closing is
  * tracked independent of which path is reassembling the stream's bytes. */
-static int stream_fin_id(u64 type, quic_span frame, u64* stream_id_out) {
+static int stream_fin_id(u64 type, wired_span frame, u64* stream_id_out) {
   quic_stream_frame sf;
   if (!client_bidi_stream_of(type, frame, &sf) || !sf.fin) return 0;
   *stream_id_out = sf.stream_id;
@@ -848,7 +848,7 @@ static int stream_fin_id(u64 type, quic_span frame, u64* stream_id_out) {
  * whichever of the three close-shaped decoders recognizes it; 0 if frame is
  * none of them. Split from gather_one_stream_close to keep its own branch
  * count at the CCN gate. */
-static int closed_frame_id(u64 type, quic_span frame, u64* stream_id_out) {
+static int closed_frame_id(u64 type, wired_span frame, u64* stream_id_out) {
   if (reset_stream_id(type, frame, stream_id_out)) return 1;
   if (stop_sending_id(type, frame, stream_id_out)) return 1;
   return stream_fin_id(type, frame, stream_id_out);
@@ -864,7 +864,7 @@ static int closed_frame_id(u64 type, quic_span frame, u64* stream_id_out) {
  * own "last one wins" mirroring), which is enough for the single-CONNECT-
  * stream-per-connection shape this SDK serves. */
 static void gather_one_stream_close(
-    wired_srvloop* l, u64 type, quic_span frame) {
+    wired_srvloop* l, u64 type, wired_span frame) {
   u64 stream_id;
   if (!closed_frame_id(type, frame, &stream_id)) return;
   l->closed_stream_id   = stream_id;
@@ -893,7 +893,7 @@ static int max_data_is_new_high(const wired_srvloop* l, u64 candidate) {
  * 9000 4.1 forbids a send credit from ever decreasing and this loop has no
  * notion of the running credit to compare against. Caller (gather_max_data)
  * has already confirmed frame's kind, so this only decodes. */
-static void gather_one_max_data(wired_srvloop* l, quic_span frame) {
+static void gather_one_max_data(wired_srvloop* l, wired_span frame) {
   quic_data_frame f;
   if (quic_max_data_decode(frame.p, frame.n, &f) == 0) return;
   if (max_data_is_new_high(l, f.value)) l->max_data_seen = f.value;
@@ -912,7 +912,7 @@ static int max_streams_uni_is_new_high(
   return uni && max > l->max_streams_uni_seen;
 }
 
-static void gather_one_max_streams_uni(wired_srvloop* l, quic_span frame) {
+static void gather_one_max_streams_uni(wired_srvloop* l, wired_span frame) {
   int uni;
   u64 max;
   if (!quic_maxstreams_parse(frame, &uni, &max)) return;
@@ -932,7 +932,7 @@ static int gather_max_streams_uni(
   while (quic_framewalk_next(&it, &fr)) {
     if (quic_frame_classify(fr.type) != QUIC_FK_MAX_STREAMS) continue;
     seen = 1;
-    gather_one_max_streams_uni(l, quic_span_of(fr.start, fr.remaining));
+    gather_one_max_streams_uni(l, wired_span_of(fr.start, fr.remaining));
   }
   return seen;
 }
@@ -969,7 +969,7 @@ static int gather_streams_blocked(
  * gather_one_max_data's split (loop body pulled out to keep the scanning
  * loop's own CCN at the gate). A malformed/truncated frame is silently
  * skipped, same policy as gather_one_max_data's decode failure. */
-static void gather_one_path_response(wired_srvloop* l, quic_span frame) {
+static void gather_one_path_response(wired_srvloop* l, wired_span frame) {
   if (!quic_path_decode(
           frame.p, frame.n, QUIC_FRAME_PATH_RESPONSE, l->path_response_data))
     return;
@@ -991,7 +991,7 @@ static int gather_path_response(wired_srvloop* l, const u8* payload, usz len) {
   while (quic_framewalk_next(&it, &fr)) {
     if (quic_frame_classify(fr.type) != QUIC_FK_PATH_RESPONSE) continue;
     seen = 1;
-    gather_one_path_response(l, quic_span_of(fr.start, fr.remaining));
+    gather_one_path_response(l, wired_span_of(fr.start, fr.remaining));
   }
   return seen;
 }
@@ -1007,7 +1007,7 @@ static int gather_max_data(wired_srvloop* l, const u8* payload, usz len) {
   while (quic_framewalk_next(&it, &fr)) {
     if (quic_frame_classify(fr.type) != QUIC_FK_MAX_DATA) continue;
     seen = 1;
-    gather_one_max_data(l, quic_span_of(fr.start, fr.remaining));
+    gather_one_max_data(l, wired_span_of(fr.start, fr.remaining));
   }
   return seen;
 }
@@ -1040,7 +1040,7 @@ static int max_stream_data_slot(wired_srvloop* l, u64 stream_id) {
   return i;
 }
 
-static void gather_one_max_stream_data(wired_srvloop* l, quic_span frame) {
+static void gather_one_max_stream_data(wired_srvloop* l, wired_span frame) {
   quic_stream_data_frame f;
   int                    i;
   if (quic_max_stream_data_decode(frame.p, frame.n, &f) == 0) return;
@@ -1059,7 +1059,7 @@ static int gather_max_stream_data(
   while (quic_framewalk_next(&it, &fr)) {
     if (quic_frame_classify(fr.type) != QUIC_FK_MAX_STREAM_DATA) continue;
     seen = 1;
-    gather_one_max_stream_data(l, quic_span_of(fr.start, fr.remaining));
+    gather_one_max_stream_data(l, wired_span_of(fr.start, fr.remaining));
   }
   return seen;
 }
@@ -1079,8 +1079,8 @@ static int gather_stream_closes(wired_srvloop* l, const u8* payload, usz len) {
   quic_framewalk_init(&it, payload, len);
   while (quic_framewalk_next(&it, &fr)) {
     if (is_close_shaped(quic_frame_classify(fr.type), fr.type)) seen = 1;
-    gather_one_stream_close(l, fr.type, quic_span_of(fr.start, fr.remaining));
-    gather_one_wt_reset(l, fr.type, quic_span_of(fr.start, fr.remaining));
+    gather_one_stream_close(l, fr.type, wired_span_of(fr.start, fr.remaining));
+    gather_one_wt_reset(l, fr.type, wired_span_of(fr.start, fr.remaining));
   }
   return seen;
 }
@@ -1095,10 +1095,10 @@ static void drive_complete(
     wired_srvloop_reqacc*            acc,
     const wired_srvloop_dispatch_in* in) {
   quic_stream_frame f  = {0, 0, *acc->len, acc->buf, 1};
-  quic_obuf         ob = quic_obuf_of(in->wrap.p, in->wrap.n);
+  wired_obuf        ob = quic_obuf_of(in->wrap.p, in->wrap.n);
   *acc->done           = 1;
   if (quic_appdata_stream_frame(&f, &ob))
-    dispatch_stream(h3, quic_span_of(in->wrap.p, ob.len), in);
+    dispatch_stream(h3, wired_span_of(in->wrap.p, ob.len), in);
 }
 
 /* quic-interop-runner's hq-interop (HTTP/0.9 over QUIC, see hq09.h):
@@ -1111,9 +1111,9 @@ static void drive_complete(
  * drive_complete's "decode at most once" contract). */
 static void drive_complete_hq09(
     wired_srvloop_reqacc* acc, const wired_srvloop_dispatch_in* in) {
-  quic_span path;
+  wired_span path;
   *acc->done = 1;
-  if (!wired_hq09_parse_get(quic_span_of(acc->buf, *acc->len), &path)) return;
+  if (!wired_hq09_parse_get(wired_span_of(acc->buf, *acc->len), &path)) return;
   *in->req            = (wired_h3reqdrive_req){0};
   in->req->method     = (const u8*)"GET";
   in->req->method_len = 3;
@@ -1158,7 +1158,7 @@ static void route_land(
  * 1 if any request-stream frame was seen, with *touched marking the slots
  * written. */
 static int route_request_frames(
-    const wired_srvloop_dispatch_ctx* ctx, quic_span payload, u64* touched) {
+    const wired_srvloop_dispatch_ctx* ctx, wired_span payload, u64* touched) {
   quic_framewalk      it;
   quic_framewalk_item fr;
   int                 seen = 0;
@@ -1166,7 +1166,7 @@ static int route_request_frames(
   quic_framewalk_init(&it, payload.p, payload.n);
   while (quic_framewalk_next(&it, &fr))
     if (request_stream_of(
-            ctx->l, fr.type, quic_span_of(fr.start, fr.remaining), &sf)) {
+            ctx->l, fr.type, wired_span_of(fr.start, fr.remaining), &sf)) {
       route_land(ctx->l, &sf, touched);
       seen = 1;
     }
@@ -1242,8 +1242,8 @@ static void route_complete_slot(
   wired_srvloop_reqacc       acc  = route_slot_acc(slot);
   int                        got  = 0;
   wired_srvloop_dispatch_in  sin  = {
-      in->payload, quic_mspan_of(slot->req_scratch, sizeof slot->req_scratch),
-      quic_mspan_of(slot->req_wrap, sizeof slot->req_wrap), &got, &slot->req};
+      in->payload, wired_mspan_of(slot->req_scratch, sizeof slot->req_scratch),
+      wired_mspan_of(slot->req_wrap, sizeof slot->req_wrap), &got, &slot->req};
   if (!request_complete(&acc, &sin)) return;
   route_dispatch_complete(ctx, &acc, &sin);
   if (got)
@@ -1330,7 +1330,7 @@ static int dispatch_non_request(wired_server* s, const u8* payload, usz len) {
  * exercising only the request path directly (l == 0) skips WT gathering
  * entirely rather than dereferencing a null loop. */
 static int dispatch_gather_wt(
-    const wired_srvloop_dispatch_ctx* ctx, quic_span payload) {
+    const wired_srvloop_dispatch_ctx* ctx, wired_span payload) {
   if (!ctx->l) return 0;
   return gather_wt_stream(ctx->l, payload.p, payload.n);
 }
@@ -1340,7 +1340,7 @@ static int dispatch_gather_wt(
  * request path directly (l == 0) skips DATAGRAM gathering entirely rather
  * than dereferencing a null loop. */
 static int dispatch_gather_datagrams(
-    const wired_srvloop_dispatch_ctx* ctx, quic_span payload) {
+    const wired_srvloop_dispatch_ctx* ctx, wired_span payload) {
   if (!ctx->l) return 0;
   return gather_rx_datagrams(ctx->l, payload.p, payload.n);
 }
@@ -1349,7 +1349,7 @@ static int dispatch_gather_datagrams(
  * payload carried any client uni STREAM frame (draft-ietf-webtrans-http3-15
  * 4.3 / RFC 9114 6.2), mirroring dispatch_gather_wt for the uni table. */
 static int dispatch_gather_uni(
-    const wired_srvloop_dispatch_ctx* ctx, quic_span payload) {
+    const wired_srvloop_dispatch_ctx* ctx, wired_span payload) {
   if (!ctx->l) return 0;
   return gather_uni_stream(ctx->l, payload.p, payload.n);
 }
@@ -1362,7 +1362,7 @@ static int dispatch_gather_uni(
  * otherwise fall through to dispatch_non_request's handshake-feed fallback
  * (RFC 9000 12.4: a 1-RTT payload must never re-enter the handshake). */
 static int dispatch_gather_closes(
-    const wired_srvloop_dispatch_ctx* ctx, quic_span payload) {
+    const wired_srvloop_dispatch_ctx* ctx, wired_span payload) {
   if (!ctx->l) return 0;
   return gather_stream_closes(ctx->l, payload.p, payload.n);
 }
@@ -1371,7 +1371,7 @@ static int dispatch_gather_closes(
  * into and this payload carried a MAX_DATA or MAX_STREAM_DATA frame,
  * mirroring dispatch_gather_closes for the flow-control frame kinds. */
 static int dispatch_gather_flowctl(
-    const wired_srvloop_dispatch_ctx* ctx, quic_span payload) {
+    const wired_srvloop_dispatch_ctx* ctx, wired_span payload) {
   int got_max_data, got_max_stream_data, got_max_streams, got_streams_blocked,
       got_path_resp;
   if (!ctx->l) return 0;
@@ -1388,7 +1388,7 @@ static int dispatch_gather_flowctl(
  * stream into (ctx->l != 0) and this payload carried any of its frames,
  * mirroring dispatch_gather_uni for the PRIORITY_UPDATE-applying walk. */
 static int dispatch_gather_ctrl_priupdate(
-    const wired_srvloop_dispatch_ctx* ctx, quic_span payload) {
+    const wired_srvloop_dispatch_ctx* ctx, wired_span payload) {
   if (!ctx->l) return 0;
   return gather_ctrl_priupdate(ctx->l, payload.p, payload.n);
 }
@@ -1398,7 +1398,7 @@ static int dispatch_gather_ctrl_priupdate(
  * frame, mirroring dispatch_gather_ctrl_priupdate for the request-side scan.
  */
 static int dispatch_gather_req_priupdate(
-    const wired_srvloop_dispatch_ctx* ctx, quic_span payload) {
+    const wired_srvloop_dispatch_ctx* ctx, wired_span payload) {
   if (!ctx->l) return 0;
   return gather_req_priupdate(ctx->l, payload.p, payload.n);
 }
@@ -1416,7 +1416,7 @@ static int dispatch_gather_req_priupdate(
  * PRIORITY_UPDATE-relevant frames (each independent of the others, see
  * wired_srvloop_dispatch's doc); 1 if any kind was present. */
 static int dispatch_gather_side_channels(
-    const wired_srvloop_dispatch_ctx* ctx, quic_span payload) {
+    const wired_srvloop_dispatch_ctx* ctx, wired_span payload) {
   int got_wt       = dispatch_gather_wt(ctx, payload);
   int got_uni      = dispatch_gather_uni(ctx, payload);
   int got_dg       = dispatch_gather_datagrams(ctx, payload);

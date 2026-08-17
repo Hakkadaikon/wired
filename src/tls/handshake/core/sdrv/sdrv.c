@@ -59,9 +59,9 @@ static void sdrv_build_cert(quic_sdrv* s, u64 now_secs) {
   {
     const u8*         ip = sdrv_has_san_ipv4(s) ? s->san_ipv4 : 0;
     quic_p256cert_key k  = {s->p256_priv, pub_x, pub_y, ip, now_secs};
-    quic_obuf         o  = quic_obuf_of(s->cert_buf, sizeof(s->cert_buf));
+    wired_obuf        o  = quic_obuf_of(s->cert_buf, sizeof(s->cert_buf));
     quic_p256cert_build(&k, &o);
-    s->certs[0]   = quic_span_of(s->cert_buf, o.len);
+    s->certs[0]   = wired_span_of(s->cert_buf, o.len);
     s->cert_count = 1;
   }
 }
@@ -132,7 +132,7 @@ void quic_sdrv_init(quic_sdrv* s, const quic_sdrv_init_in* in) {
 
 /* Copy a connection id (<=20 bytes) into dst, recording its length. Returns 1
  * on success, 0 if len exceeds 20. */
-static int sdrv_set_cid(u8* dst, u8* dst_len, quic_span cid) {
+static int sdrv_set_cid(u8* dst, u8* dst_len, wired_span cid) {
   if (cid.n > 20) return 0;
   for (usz i = 0; i < cid.n; i++) dst[i] = cid.p[i];
   *dst_len = (u8)cid.n;
@@ -141,20 +141,20 @@ static int sdrv_set_cid(u8* dst, u8* dst_len, quic_span cid) {
 
 void quic_sdrv_set_group(quic_sdrv* s, u16 group) { s->group = group; }
 
-int quic_sdrv_set_cids(quic_sdrv* s, quic_span odcid, quic_span iscid) {
+int quic_sdrv_set_cids(quic_sdrv* s, wired_span odcid, wired_span iscid) {
   return sdrv_set_cid(s->odcid, &s->odcid_len, odcid) &&
          sdrv_set_cid(s->iscid, &s->iscid_len, iscid) &&
          sdrv_set_cid(s->tp_odcid, &s->tp_odcid_len, odcid);
 }
 
 int quic_sdrv_set_cids_retried(
-    quic_sdrv* s, quic_span odcid, quic_span iscid, quic_span true_odcid) {
+    quic_sdrv* s, wired_span odcid, wired_span iscid, wired_span true_odcid) {
   return sdrv_set_cid(s->odcid, &s->odcid_len, odcid) &&
          sdrv_set_cid(s->iscid, &s->iscid_len, iscid) &&
          sdrv_set_cid(s->tp_odcid, &s->tp_odcid_len, true_odcid);
 }
 
-int quic_sdrv_set_retry_scid(quic_sdrv* s, quic_span rscid) {
+int quic_sdrv_set_retry_scid(quic_sdrv* s, wired_span rscid) {
   return sdrv_set_cid(s->rscid, &s->rscid_len, rscid);
 }
 
@@ -221,7 +221,7 @@ static usz prefix_len(const u8* b, usz p, usz w) {
 
 /* Skip a w-byte-length-prefixed vector at p; return the offset past it
  * (0 = overrun). */
-static usz skip_vec(quic_span b, usz p, usz w) {
+static usz skip_vec(wired_span b, usz p, usz w) {
   if (!prefix_fits(p, w, b.n)) return 0;
   p += w + prefix_len(b.p, p, w);
   return p <= b.n ? p : 0;
@@ -229,17 +229,17 @@ static usz skip_vec(quic_span b, usz p, usz w) {
 
 /* RFC 8446 4.1.2: offset of the extensions-length field, or 0 on overrun. */
 static usz sdrv_ch_prefix(const u8* b, usz n) {
-  quic_span span = quic_span_of(b, n);
-  usz       p    = skip_vec(span, 34, 1); /* session_id after version+random */
-  p              = skip_vec(span, p, 2);  /* cipher_suites */
-  p              = skip_vec(span, p, 1);  /* compression_methods */
+  wired_span span = wired_span_of(b, n);
+  usz        p    = skip_vec(span, 34, 1); /* session_id after version+random */
+  p               = skip_vec(span, p, 2);  /* cipher_suites */
+  p               = skip_vec(span, p, 1);  /* compression_methods */
   return prefix_fits(p, 2, n) ? p : 0;
 }
 
 /* The message is a well-framed ClientHello; sets *body_len. */
 static int sdrv_is_client_hello(const u8* buf, usz n, usz* body_len) {
   u8 type;
-  return quic_hs_parse(quic_span_of(buf, n), &type, body_len) == 4 &&
+  return quic_hs_parse(wired_span_of(buf, n), &type, body_len) == 4 &&
          type == QUIC_HS_CLIENT_HELLO;
 }
 
@@ -273,12 +273,12 @@ static int take_client_keyshare(
 /* One extension at *q: -1 overrun, 1 if it names want_type (*ext set to its
  * full TLV, header included), 0 skip; *q advances. */
 static int sdrv_ch_ext_one(
-    const sdrv_ch_block* blk, usz* q, unsigned want_type, quic_span* ext) {
+    const sdrv_ch_block* blk, usz* q, unsigned want_type, wired_span* ext) {
   unsigned type;
   usz      dlen, start = *q;
   if (!sdrv_ch_hdr(blk, q, &type, &dlen)) return -1;
   if (type != want_type) return 0;
-  *ext = quic_span_of(blk->b + start, 4 + dlen);
+  *ext = wired_span_of(blk->b + start, 4 + dlen);
   return 1;
 }
 
@@ -288,7 +288,7 @@ static int sdrv_ch_ext_one(
  * the quic_transport_parameters (RFC 9001 8.2, 0x39) and pre_shared_key
  * (RFC 8446 4.2.11, 0x0029) lookups below. */
 static int sdrv_ch_find_ext(
-    const u8* b, usz q, usz end, unsigned want_type, quic_span* ext) {
+    const u8* b, usz q, usz end, unsigned want_type, wired_span* ext) {
   sdrv_ch_block blk = {b, end};
   int           r   = 0;
   while (r == 0 && q + 4 <= end) r = sdrv_ch_ext_one(&blk, &q, want_type, ext);
@@ -299,7 +299,7 @@ static int sdrv_ch_find_ext(
  * TLV, header included, as quic_tpext_decode expects). Returns 1 and sets
  * *ext on success, 0 if the ClientHello is malformed or carries no such
  * extension. */
-static int find_client_tp_ext(const u8* ch, usz ch_len, quic_span* ext) {
+static int find_client_tp_ext(const u8* ch, usz ch_len, wired_span* ext) {
   usz body, start, end;
   if (!sdrv_is_client_hello(ch, ch_len, &body)) return 0;
   if (!sdrv_ch_exts_span(ch + 4, body, &start, &end)) return 0;
@@ -309,7 +309,7 @@ static int find_client_tp_ext(const u8* ch, usz ch_len, quic_span* ext) {
 /* RFC 8446 4.2.11: locate the pre_shared_key extension (0x0029) TLV, header
  * included, if the ClientHello carries one. */
 #define QUIC_SDRV_PSK_EXT_TYPE 0x0029
-static int find_client_psk_ext(const u8* ch, usz ch_len, quic_span* ext) {
+static int find_client_psk_ext(const u8* ch, usz ch_len, wired_span* ext) {
   usz body, start, end;
   if (!sdrv_is_client_hello(ch, ch_len, &body)) return 0;
   if (!sdrv_ch_exts_span(ch + 4, body, &start, &end)) return 0;
@@ -322,7 +322,7 @@ static int find_client_psk_ext(const u8* ch, usz ch_len, quic_span* ext) {
  * (header included) on success, 0 if the ClientHello is malformed or the
  * type is absent. */
 static int find_client_ext(
-    const u8* ch, usz ch_len, unsigned want_type, quic_span* ext) {
+    const u8* ch, usz ch_len, unsigned want_type, wired_span* ext) {
   usz body, start, end;
   if (!sdrv_is_client_hello(ch, ch_len, &body)) return 0;
   if (!sdrv_ch_exts_span(ch + 4, body, &start, &end)) return 0;
@@ -335,7 +335,7 @@ static int find_client_ext(
  * this is an optional parameter, never a ClientHello rejection. */
 static void take_peer_max_datagram_frame_size(
     const u8* ch, usz ch_len, u64* out) {
-  quic_span    ext, tp;
+  wired_span   ext, tp;
   quic_stp_out out_v = {out, 0};
   *out               = 0;
   if (!find_client_tp_ext(ch, ch_len, &ext)) return;
@@ -350,7 +350,7 @@ static void take_peer_max_datagram_frame_size(
  * nothing" when unadvertised, matching this SDK's existing absent-parameter
  * convention (take_peer_max_datagram_frame_size above). */
 static void take_peer_tp_int(const u8* ch, usz ch_len, u64 param_id, u64* out) {
-  quic_span    ext, tp;
+  wired_span   ext, tp;
   quic_stp_out out_v = {out, 0};
   *out               = 0;
   if (!find_client_tp_ext(ch, ch_len, &ext)) return;
@@ -396,10 +396,10 @@ static int take_client_sid(quic_sdrv* s, const u8* ch_msg, usz ch_len) {
  * caller (quic_sdrv_recv_client_hello returning that outcome is not itself
  * a parse failure; the caller checks s->alpn before building a flight). */
 static void sdrv_negotiate_alpn(quic_sdrv* s, const u8* ch_msg, usz ch_len) {
-  quic_span ext;
+  wired_span ext;
   s->alpn = QUIC_SALPN_NONE;
   if (!quic_salpn_find_extension(
-          quic_span_of(ch_msg, ch_len), QUIC_SALPN_EXT_TYPE, &ext))
+          wired_span_of(ch_msg, ch_len), QUIC_SALPN_EXT_TYPE, &ext))
     return;
   s->alpn = quic_salpn_negotiate(ext.p, ext.n);
 }
@@ -430,13 +430,14 @@ static int cipher_vec_ok(usz p, usz n, usz body_len) {
  * on success; 0 if the ClientHello is malformed or the vector's byte length
  * is odd (not a whole number of 2-byte suites -- rejected rather than
  * silently truncated) or overruns body. */
-static int sdrv_ch_cipher_suites(const u8* body, usz body_len, quic_span* out) {
-  usz p = skip_vec(quic_span_of(body, body_len), 34, 1);
+static int sdrv_ch_cipher_suites(
+    const u8* body, usz body_len, wired_span* out) {
+  usz p = skip_vec(wired_span_of(body, body_len), 34, 1);
   usz n;
   if (!prefix_fits(p, 2, body_len)) return 0;
   n = prefix_len(body, p, 2);
   if (!cipher_vec_ok(p, n, body_len)) return 0;
-  *out = quic_span_of(body + p + 2, n);
+  *out = wired_span_of(body + p + 2, n);
   return 1;
 }
 
@@ -448,7 +449,7 @@ static int sdrv_ch_cipher_suites(const u8* body, usz body_len, quic_span* out) {
  * AES_128/CHACHA20 overlap) -- the caller fails the handshake rather than
  * falling back to an unconfigured suite. */
 static int sdrv_negotiate_cipher(quic_sdrv* s, const u8* body, usz body_len) {
-  quic_span suites;
+  wired_span suites;
   if (!sdrv_ch_cipher_suites(body, body_len, &suites)) return 0;
   return quic_cipher_select(suites.p, suites.n / 2, &s->cipher_suite);
 }
@@ -500,10 +501,10 @@ static void sdrv_ch_take_optional(quic_sdrv* s, const u8* ch_msg, usz ch_len) {
  * 12+id_len bytes -- and the binders_len field starts right there (RFC 8446
  * 4.2.11's OfferedPsks: identities<7..>, binders<33..>). So the absolute cut
  * is psk_ext.p - ch_msg + 12 + id_len. */
-static quic_span sdrv_psk_truncate(
-    const u8* ch_msg, quic_span psk_ext, usz id_len) {
+static wired_span sdrv_psk_truncate(
+    const u8* ch_msg, wired_span psk_ext, usz id_len) {
   usz cut = (usz)(psk_ext.p - ch_msg) + 12 + id_len;
-  return quic_span_of(ch_msg, cut);
+  return wired_span_of(ch_msg, cut);
 }
 
 /* Open the presented ticket (off->identity, the sealed quic_ticket bytes)
@@ -512,7 +513,7 @@ static quic_span sdrv_psk_truncate(
  * handshake rather than treating this as an error (RFC 8446 4.2.11 MAY). */
 static int sdrv_psk_open_ticket(
     const quic_sdrv* s, const quic_tlsext_psk_offer* off, quic_ticket* t) {
-  quic_span sealed = quic_span_of(off->identity, off->id_len);
+  wired_span sealed = wired_span_of(off->identity, off->id_len);
   return quic_ticket_open(sealed, s->ticket_key, t);
 }
 
@@ -525,7 +526,7 @@ static int sdrv_psk_open_ticket(
 static void sdrv_psk_from_ticket_secret(
     const u8 res_master_secret[QUIC_TICKET_SECRET_LEN], u8 psk_out[32]) {
   quic_hkdf_label l = {"resumption", 10, {0, 0}};
-  quic_hkdf_expand_label(res_master_secret, &l, quic_mspan_of(psk_out, 32));
+  quic_hkdf_expand_label(res_master_secret, &l, wired_mspan_of(psk_out, 32));
 }
 
 /* The opened ticket's binder verifies against the truncated ClientHello.
@@ -535,10 +536,10 @@ static void sdrv_psk_from_ticket_secret(
 static int sdrv_psk_binder_ok(
     const quic_ticket*           t,
     const u8*                    ch_msg,
-    quic_span                    psk_ext,
+    wired_span                   psk_ext,
     const quic_tlsext_psk_offer* off) {
-  quic_span truncated = sdrv_psk_truncate(ch_msg, psk_ext, off->id_len);
-  u8        psk[32];
+  wired_span truncated = sdrv_psk_truncate(ch_msg, psk_ext, off->id_len);
+  u8         psk[32];
   sdrv_psk_from_ticket_secret(t->secret, psk);
   return quic_tls_binder_verify(psk, truncated, off->binder);
 }
@@ -548,7 +549,7 @@ static int sdrv_psk_binder_ok(
  * direction -- presence alone is the signal). */
 #define QUIC_SDRV_EARLY_DATA_EXT_TYPE 0x002a
 static int find_client_early_data_ext(
-    const u8* ch, usz ch_len, quic_span* ext) {
+    const u8* ch, usz ch_len, wired_span* ext) {
   usz body, start, end;
   if (!sdrv_is_client_hello(ch, ch_len, &body)) return 0;
   if (!sdrv_ch_exts_span(ch + 4, body, &start, &end)) return 0;
@@ -583,9 +584,9 @@ static quic_zerortt_seen* sdrv_zerortt_seen(void) {
 static int sdrv_early_data_eligible(
     const quic_ticket* t, const quic_tlsext_psk_offer* off) {
   int first_use = quic_zerortt_seen_check(
-      sdrv_zerortt_seen(), quic_span_of(off->identity, off->id_len));
+      sdrv_zerortt_seen(), wired_span_of(off->identity, off->id_len));
   if (!quic_zerortt_replay_ok(1, first_use)) return 0;
-  return quic_ticket_freshness_ok(t, off->ticket_age, quic_clock_epoch_secs());
+  return quic_ticket_freshness_ok(t, off->ticket_age, wired_clock_epoch_secs());
 }
 
 /* RFC 8446 4.2.10: the ClientHello asked for 0-RTT (an early_data extension
@@ -596,7 +597,7 @@ static int sdrv_early_data_wanted(
     usz                          ch_len,
     const quic_ticket*           t,
     const quic_tlsext_psk_offer* off) {
-  quic_span ed_ext;
+  wired_span ed_ext;
   if (!find_client_early_data_ext(ch_msg, ch_len, &ed_ext)) return 0;
   return sdrv_early_data_eligible(t, off);
 }
@@ -619,7 +620,7 @@ static int sdrv_psk_accept_opened(
     const quic_ticket*           t,
     const u8*                    ch_msg,
     usz                          ch_len,
-    quic_span                    psk_ext,
+    wired_span                   psk_ext,
     const quic_tlsext_psk_offer* off) {
   if (!sdrv_psk_binder_ok(t, ch_msg, psk_ext, off)) return 0;
   s->psk_accepted = 1;
@@ -640,7 +641,7 @@ static int sdrv_psk_try_offer(
     quic_sdrv*                   s,
     const u8*                    ch_msg,
     usz                          ch_len,
-    quic_span                    psk_ext,
+    wired_span                   psk_ext,
     const quic_tlsext_psk_offer* off) {
   quic_ticket t;
   if (!sdrv_psk_open_ticket(s, off, &t)) return 1;
@@ -655,7 +656,7 @@ static int sdrv_find_psk_offer(
     const quic_sdrv*       s,
     const u8*              ch_msg,
     usz                    ch_len,
-    quic_span*             psk_ext,
+    wired_span*            psk_ext,
     quic_tlsext_psk_offer* off) {
   if (!s->has_ticket_key) return 0;
   if (!find_client_psk_ext(ch_msg, ch_len, psk_ext)) return 0;
@@ -668,7 +669,7 @@ static int sdrv_find_psk_offer(
  * fail state table). Absent/disabled/malformed: no-op success, matching
  * today's full-handshake behavior exactly. */
 static int sdrv_ch_take_psk(quic_sdrv* s, const u8* ch_msg, usz ch_len) {
-  quic_span             psk_ext;
+  wired_span            psk_ext;
   quic_tlsext_psk_offer off;
   if (!sdrv_find_psk_offer(s, ch_msg, ch_len, &psk_ext, &off)) return 1;
   return sdrv_psk_try_offer(s, ch_msg, ch_len, psk_ext, &off);
@@ -682,7 +683,7 @@ static int sdrv_ch_take_psk(quic_sdrv* s, const u8* ch_msg, usz ch_len) {
 static void sdrv_ch_arm_hrr(quic_sdrv* s, const u8* ch_msg, usz ch_len) {
   s->hrr_needed       = 1;
   s->hrr_cipher_suite = s->cipher_suite;
-  quic_sha256(ch_msg, ch_len, s->ch1_hash);
+  wired_sha256(ch_msg, ch_len, s->ch1_hash);
 }
 
 /* RFC 8446 4.1.2: after a HelloRetryRequest, ClientHello2 MUST renegotiate
@@ -735,8 +736,8 @@ static int sdrv_ch_required_fields(quic_sdrv* s, const u8* ch_msg, usz ch_len) {
  * when the ClientHello carries no quic_transport_parameters extension. Sets
  * s->last_error and returns 0 on that rejection, 1 otherwise. */
 static int sdrv_ch_require_tp_ext(quic_sdrv* s, const u8* ch_msg, usz ch_len) {
-  quic_span ext;
-  int       found = find_client_tp_ext(ch_msg, ch_len, &ext);
+  wired_span ext;
+  int        found = find_client_tp_ext(ch_msg, ch_len, &ext);
   if (quic_encext_required_ok(found)) return 1;
   s->last_error = quic_err_crypto(109);
   return 0;
@@ -746,8 +747,8 @@ static int sdrv_ch_require_tp_ext(quic_sdrv* s, const u8* ch_msg, usz ch_len) {
  * or an empty span if the extension is absent or its own framing is
  * malformed -- either case is "nothing to check here", left to the
  * individual takers elsewhere to degrade gracefully. */
-static quic_span sdrv_tp_seq(const u8* ch_msg, usz ch_len) {
-  quic_span ext, tp = quic_span_of(0, 0);
+static wired_span sdrv_tp_seq(const u8* ch_msg, usz ch_len) {
+  wired_span ext, tp = wired_span_of(0, 0);
   if (!find_client_tp_ext(ch_msg, ch_len, &ext)) return tp;
   quic_tpext_decode(ext, &tp);
   return tp;
@@ -758,7 +759,7 @@ static quic_span sdrv_tp_seq(const u8* ch_msg, usz ch_len) {
  * itself is confirmed present (sdrv_ch_require_tp_ext) and before any
  * individual parameter is read out of it. */
 static int sdrv_ch_reject_dup_tp(quic_sdrv* s, const u8* ch_msg, usz ch_len) {
-  quic_span tp = sdrv_tp_seq(ch_msg, ch_len);
+  wired_span tp = sdrv_tp_seq(ch_msg, ch_len);
   if (tp.n == 0 || quic_tparam_no_duplicates(tp)) return 1;
   s->last_error = QUIC_ERR_TRANSPORT_PARAMETER_ERROR;
   return 0;
@@ -769,8 +770,8 @@ static int sdrv_ch_reject_dup_tp(quic_sdrv* s, const u8* ch_msg, usz ch_len) {
  * sequence is empty or carries no such parameter ("absent", not an error --
  * see sdrv_ch_check_version_information's doc). */
 static int find_version_information(
-    const u8* ch_msg, usz ch_len, quic_span* bytes) {
-  quic_span    tp    = sdrv_tp_seq(ch_msg, ch_len);
+    const u8* ch_msg, usz ch_len, wired_span* bytes) {
+  wired_span   tp    = sdrv_tp_seq(ch_msg, ch_len);
   quic_stp_out out_v = {0, bytes};
   if (tp.n == 0) return 0;
   return quic_stp_parse(tp, QUIC_TP_VERSION_INFORMATION, &out_v);
@@ -782,7 +783,7 @@ static int find_version_information(
  * is optional); present-but-malformed value bytes are not. */
 static int sdrv_ch_check_version_information(
     quic_sdrv* s, const u8* ch_msg, usz ch_len) {
-  quic_span                bytes;
+  wired_span               bytes;
   quic_version_information vi;
   if (!find_version_information(ch_msg, ch_len, &bytes)) return 1;
   if (quic_verinfo_decode(bytes.p, bytes.n, &vi) == bytes.n) return 1;
@@ -790,16 +791,16 @@ static int sdrv_ch_check_version_information(
   return 0;
 }
 
-/* The ClientHello's extensions block as a quic_span (TLV bytes only, no
+/* The ClientHello's extensions block as a wired_span (TLV bytes only, no
  * outer length field), or a 0-length span if the ClientHello is malformed --
  * "nothing to check" is left to each guard below to handle on its own terms.
  */
-static quic_span sdrv_ch_exts(const u8* ch_msg, usz ch_len) {
+static wired_span sdrv_ch_exts(const u8* ch_msg, usz ch_len) {
   usz body, start, end;
-  if (!sdrv_is_client_hello(ch_msg, ch_len, &body)) return quic_span_of(0, 0);
+  if (!sdrv_is_client_hello(ch_msg, ch_len, &body)) return wired_span_of(0, 0);
   if (!sdrv_ch_exts_span(ch_msg + 4, body, &start, &end))
-    return quic_span_of(0, 0);
-  return quic_span_of(ch_msg + 4 + start, end - start);
+    return wired_span_of(0, 0);
+  return wired_span_of(ch_msg + 4 + start, end - start);
 }
 
 /* RFC 8446 4.2: reject a ClientHello carrying more than one extension of the
@@ -807,7 +808,7 @@ static quic_span sdrv_ch_exts(const u8* ch_msg, usz ch_len) {
  * on a repeat; 1 otherwise (including a malformed extensions block, left for
  * the other gates to reject on their own terms). */
 static int sdrv_ch_reject_dup_ext(quic_sdrv* s, const u8* ch_msg, usz ch_len) {
-  quic_span exts = sdrv_ch_exts(ch_msg, ch_len);
+  wired_span exts = sdrv_ch_exts(ch_msg, ch_len);
   if (exts.n == 0 || quic_chguard_no_dup_ext(exts)) return 1;
   s->last_error = quic_err_crypto(47);
   return 0;
@@ -821,7 +822,7 @@ static int sdrv_ch_reject_dup_ext(quic_sdrv* s, const u8* ch_msg, usz ch_len) {
  * the other gates to reject on their own terms). */
 static int sdrv_ch_reject_illegal_ext(
     quic_sdrv* s, const u8* ch_msg, usz ch_len) {
-  quic_span exts = sdrv_ch_exts(ch_msg, ch_len);
+  wired_span exts = sdrv_ch_exts(ch_msg, ch_len);
   if (exts.n == 0 || quic_chguard_ch_legal_exts(exts)) return 1;
   s->last_error = quic_err_crypto(47);
   return 0;
@@ -833,8 +834,8 @@ static int sdrv_ch_reject_illegal_ext(
  * s->last_error (protocol_version, alert 70) and returns 0 if absent or
  * TLS 1.3 is not offered. */
 static int sdrv_ch_require_version(quic_sdrv* s, const u8* ch_msg, usz ch_len) {
-  quic_span ext;
-  int       found =
+  wired_span ext;
+  int        found =
       find_client_ext(ch_msg, ch_len, QUIC_EXT_SUPPORTED_VERSIONS, &ext);
   if (found && quic_tls_ext_versions_has_tls13(ext.p, ext.n)) return 1;
   s->last_error = quic_err_crypto(70);
@@ -846,8 +847,8 @@ static int sdrv_ch_require_version(quic_sdrv* s, const u8* ch_msg, usz ch_len) {
  * Sets s->last_error (missing_extension, alert 109) and returns 0 if either
  * is absent. */
 static int sdrv_ch_require_algs(quic_sdrv* s, const u8* ch_msg, usz ch_len) {
-  quic_span sig_ext, grp_ext;
-  int       has_sig =
+  wired_span sig_ext, grp_ext;
+  int        has_sig =
       find_client_ext(ch_msg, ch_len, QUIC_EXT_SIGNATURE_ALGORITHMS, &sig_ext);
   int has_grp =
       find_client_ext(ch_msg, ch_len, QUIC_EXT_SUPPORTED_GROUPS, &grp_ext);
@@ -861,9 +862,9 @@ static int sdrv_ch_require_algs(quic_sdrv* s, const u8* ch_msg, usz ch_len) {
  * (missing_extension, alert 109) and returns 0 on a violation. */
 static int sdrv_ch_require_psk_modes(
     quic_sdrv* s, const u8* ch_msg, usz ch_len) {
-  quic_span psk_ext, modes_ext;
-  int       has_psk = find_client_psk_ext(ch_msg, ch_len, &psk_ext);
-  int       modes_dhe_ke =
+  wired_span psk_ext, modes_ext;
+  int        has_psk = find_client_psk_ext(ch_msg, ch_len, &psk_ext);
+  int        modes_dhe_ke =
       find_client_ext(ch_msg, ch_len, QUIC_TLSEXT_T_PSK_MODES, &modes_ext) &&
       quic_tlsext_psk_modes_parse(modes_ext.p, modes_ext.n);
   if (quic_chguard_psk_modes_ok(has_psk, modes_dhe_ke)) return 1;
@@ -876,16 +877,16 @@ static int sdrv_ch_require_psk_modes(
  * 1 when pre_shared_key is absent or is indeed the last extension. */
 /* The ClientHello's pre_shared_key TLV (header included), or a 0-length span
  * if absent -- quic_chguard_psk_last treats that as "nothing to check". */
-static quic_span sdrv_ch_psk_ext_or_empty(const u8* ch_msg, usz ch_len) {
-  quic_span psk_ext;
+static wired_span sdrv_ch_psk_ext_or_empty(const u8* ch_msg, usz ch_len) {
+  wired_span psk_ext;
   if (find_client_psk_ext(ch_msg, ch_len, &psk_ext)) return psk_ext;
-  return quic_span_of(0, 0);
+  return wired_span_of(0, 0);
 }
 
 static int sdrv_ch_require_psk_last(
     quic_sdrv* s, const u8* ch_msg, usz ch_len) {
-  quic_span exts    = sdrv_ch_exts(ch_msg, ch_len);
-  quic_span psk_ext = sdrv_ch_psk_ext_or_empty(ch_msg, ch_len);
+  wired_span exts    = sdrv_ch_exts(ch_msg, ch_len);
+  wired_span psk_ext = sdrv_ch_psk_ext_or_empty(ch_msg, ch_len);
   if (exts.n == 0) return 1;
   if (quic_chguard_psk_last(exts, psk_ext)) return 1;
   s->last_error = quic_err_crypto(47);
@@ -904,7 +905,7 @@ static int sdrv_ch_require_psk_last(
  * the sub-check of sdrv_ch_require_scheme_offered split out to keep its own
  * CCN flat. */
 static int sdrv_ch_offers_p256_scheme(const u8* ch_msg, usz ch_len) {
-  quic_span ext;
+  wired_span ext;
   if (!find_client_ext(ch_msg, ch_len, QUIC_EXT_SIGNATURE_ALGORITHMS, &ext))
     return 0;
   return quic_tls_ext_sig_algs_has(
@@ -990,8 +991,8 @@ static void sdrv_hrr_reset_transcript(
   quic_transcript_add(&s->tr, hrr, hrr_len);
 }
 
-int quic_sdrv_build_hrr(quic_sdrv* s, quic_obuf* out) {
-  if (!quic_hrr_build(s->group, quic_span_of(0, 0), out)) return 0;
+int quic_sdrv_build_hrr(quic_sdrv* s, wired_obuf* out) {
+  if (!quic_hrr_build(s->group, wired_span_of(0, 0), out)) return 0;
   sdrv_hrr_reset_transcript(s, out->p, out->len);
   s->hrr_sent   = 1;
   s->hrr_needed = 0;

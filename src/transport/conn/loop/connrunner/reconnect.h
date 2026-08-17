@@ -19,9 +19,9 @@ void quic_connrunner_reconnect_init(quic_connrunner* r);
 
 /** One received Retry: the Integrity Tag verdict, its SCID and its token. */
 typedef struct {
-  int       tag_valid; /* Retry Integrity Tag result */
-  quic_span scid;      /* Retry SCID */
-  quic_span token;     /* Retry token */
+  int        tag_valid; /* Retry Integrity Tag result */
+  wired_span scid;      /* Retry SCID */
+  wired_span token;     /* Retry token */
 } quic_retry_event;
 
 /* RFC 9000 17.2.5.2 receive path: process a long-header Retry. Accepts the

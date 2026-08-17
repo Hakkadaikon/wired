@@ -8,7 +8,7 @@
 #include "crypto/pki/trust/castore/castore.h"
 #include "test.h"
 
-#define PV_SPAN(der) quic_span_of(der, sizeof(der))
+#define PV_SPAN(der) wired_span_of(der, sizeof(der))
 
 static quic_castore_entry pv_roots[4];
 
@@ -21,7 +21,7 @@ static void store_with_root(quic_castore* s) {
  */
 static void test_valid_chain(void) {
   quic_castore s;
-  quic_span    certs[2] = {
+  wired_span   certs[2] = {
       PV_SPAN(quic_castore_leaf_der), PV_SPAN(quic_castore_root_der)};
   store_with_root(&s);
   CHECK(quic_castore_validate_chain(&s, certs, 2) == 1);
@@ -30,7 +30,7 @@ static void test_valid_chain(void) {
 /* A single self-signed root that is itself the anchor validates. */
 static void test_lone_root_chain(void) {
   quic_castore s;
-  quic_span    certs[1] = {PV_SPAN(quic_castore_root_der)};
+  wired_span   certs[1] = {PV_SPAN(quic_castore_root_der)};
   store_with_root(&s);
   CHECK(quic_castore_validate_chain(&s, certs, 1) == 1);
 }
@@ -38,7 +38,7 @@ static void test_lone_root_chain(void) {
 /* Root not registered: no anchor, so the path fails. */
 static void test_unregistered_root_fails(void) {
   quic_castore s;
-  quic_span    certs[2] = {
+  wired_span   certs[2] = {
       PV_SPAN(quic_castore_leaf_der), PV_SPAN(quic_castore_root_der)};
   quic_castore_init(&s, pv_roots, 4);
   CHECK(quic_castore_validate_chain(&s, certs, 2) == 0);
@@ -49,7 +49,7 @@ static void test_unregistered_root_fails(void) {
  * the leaf's issuer CN=Test Root CA). */
 static void test_name_mismatch_fails(void) {
   quic_castore s;
-  quic_span    certs[2] = {
+  wired_span   certs[2] = {
       PV_SPAN(quic_castore_leaf_der), PV_SPAN(quic_castore_leaf_der)};
   store_with_root(&s);
   CHECK(quic_castore_validate_chain(&s, certs, 2) == 0);
@@ -61,7 +61,7 @@ static void test_tampered_signature_fails(void) {
   u8           leaf[sizeof(quic_castore_leaf_der)];
   for (usz i = 0; i < sizeof(leaf); i++) leaf[i] = quic_castore_leaf_der[i];
   leaf[sizeof(leaf) - 1] ^= 0xff; /* last signature octet */
-  quic_span certs[2] = {PV_SPAN(leaf), PV_SPAN(quic_castore_root_der)};
+  wired_span certs[2] = {PV_SPAN(leaf), PV_SPAN(quic_castore_root_der)};
   store_with_root(&s);
   CHECK(quic_castore_validate_chain(&s, certs, 2) == 0);
 }
@@ -71,7 +71,7 @@ static void test_tampered_signature_fails(void) {
  * CA:FALSE, so [leaf2, mid, root2] is rejected only because mid is not a CA. */
 static void test_non_ca_intermediate_fails(void) {
   quic_castore s;
-  quic_span    certs[3] = {
+  wired_span   certs[3] = {
       PV_SPAN(quic_castore_leaf2_der), PV_SPAN(quic_castore_mid_der),
       PV_SPAN(quic_castore_root2_der)};
   quic_castore_init(&s, pv_roots, 4);
@@ -88,7 +88,7 @@ static void store_with_root3(quic_castore* s) {
  * pathlen:0 CA may issue it directly. [leafm, mid3, root3] validates. */
 static void test_pathlen_zero_direct_leaf_ok(void) {
   quic_castore s;
-  quic_span    certs[3] = {
+  wired_span   certs[3] = {
       PV_SPAN(quic_castore_leafm_der), PV_SPAN(quic_castore_mid3_der),
       PV_SPAN(quic_castore_root3_der)};
   store_with_root3(&s);
@@ -100,7 +100,7 @@ static void test_pathlen_zero_direct_leaf_ok(void) {
  * [leaf3, sub3, mid3, root3] is valid; only the length constraint rejects. */
 static void test_pathlen_zero_sub_ca_fails(void) {
   quic_castore s;
-  quic_span    certs[4] = {
+  wired_span   certs[4] = {
       PV_SPAN(quic_castore_leaf3_der), PV_SPAN(quic_castore_sub3_der),
       PV_SPAN(quic_castore_mid3_der), PV_SPAN(quic_castore_root3_der)};
   store_with_root3(&s);
@@ -113,7 +113,7 @@ static void test_pathlen_zero_sub_ca_fails(void) {
  * duplicate check the repeated root would both link to itself and anchor. */
 static void test_duplicate_cert_fails(void) {
   quic_castore s;
-  quic_span    certs[2] = {
+  wired_span   certs[2] = {
       PV_SPAN(quic_castore_root_der), PV_SPAN(quic_castore_root_der)};
   store_with_root(&s);
   CHECK(quic_castore_validate_chain(&s, certs, 2) == 0);
@@ -122,7 +122,7 @@ static void test_duplicate_cert_fails(void) {
 /* The duplicate appears at the tail of a longer, otherwise-valid path. */
 static void test_duplicate_cert_at_tail_fails(void) {
   quic_castore s;
-  quic_span    certs[3] = {
+  wired_span   certs[3] = {
       PV_SPAN(quic_castore_leaf_der), PV_SPAN(quic_castore_root_der),
       PV_SPAN(quic_castore_root_der)};
   store_with_root(&s);
@@ -139,7 +139,7 @@ static void store_with_ku_root(quic_castore* s) {
  * rejected as a leaf. */
 static void test_ed_leaf_keyusage_rejects(void) {
   quic_castore s;
-  quic_span    certs[2] = {
+  wired_span   certs[2] = {
       PV_SPAN(quic_castore_ku_ed_leaf_reject_der),
       PV_SPAN(quic_castore_ku_root_der)};
   store_with_ku_root(&s);
@@ -151,7 +151,7 @@ static void test_ed_leaf_keyusage_rejects(void) {
  * outer signature regardless of the leaf's own SPKI algorithm. */
 static void test_ed_leaf_keyusage_accepts(void) {
   quic_castore s;
-  quic_span    certs[2] = {
+  wired_span   certs[2] = {
       PV_SPAN(quic_castore_ku_ed_leaf_ok_der),
       PV_SPAN(quic_castore_ku_root_der)};
   store_with_ku_root(&s);
@@ -162,7 +162,7 @@ static void test_ed_leaf_keyusage_accepts(void) {
  * keyAgreement must be rejected. */
 static void test_x25519_leaf_keyusage_rejects(void) {
   quic_castore s;
-  quic_span    certs[2] = {
+  wired_span   certs[2] = {
       PV_SPAN(quic_castore_ku_x25519_leaf_reject_der),
       PV_SPAN(quic_castore_ku_root_der)};
   store_with_ku_root(&s);
@@ -173,7 +173,7 @@ static void test_x25519_leaf_keyusage_rejects(void) {
  * validates. */
 static void test_x25519_leaf_keyusage_accepts(void) {
   quic_castore s;
-  quic_span    certs[2] = {
+  wired_span   certs[2] = {
       PV_SPAN(quic_castore_ku_x25519_leaf_ok_der),
       PV_SPAN(quic_castore_ku_root_der)};
   store_with_ku_root(&s);
@@ -188,7 +188,7 @@ static void test_x25519_leaf_keyusage_accepts(void) {
  * leaf span exercises the path. */
 static void test_ed_ca_keyusage_rejects(void) {
   quic_castore s;
-  quic_span    certs[2] = {
+  wired_span   certs[2] = {
       PV_SPAN(quic_castore_ku_ed_leaf_ok_der),
       PV_SPAN(quic_castore_ku_ed_mid_reject_der)};
   store_with_ku_root(&s);
@@ -208,7 +208,7 @@ static void store_with_si_root(quic_castore* s) {
  * excluded), so mid's pathlen:0 is satisfied. */
 static void test_self_issued_excluded_from_pathlen(void) {
   quic_castore s;
-  quic_span    certs[4] = {
+  wired_span   certs[4] = {
       PV_SPAN(quic_castore_si_leaf_der), PV_SPAN(quic_castore_si_mid2_der),
       PV_SPAN(quic_castore_si_mid_der), PV_SPAN(quic_castore_si_root_der)};
   store_with_si_root(&s);
@@ -225,7 +225,7 @@ static void store_with_nc_root(quic_castore* s) {
  * validates. */
 static void test_name_constraints_permitted_subject_ok(void) {
   quic_castore s;
-  quic_span    certs[2] = {
+  wired_span   certs[2] = {
       PV_SPAN(quic_castore_nc_leaf_ok_der), PV_SPAN(quic_castore_nc_root_der)};
   store_with_nc_root(&s);
   CHECK(quic_castore_validate_chain(&s, certs, 2) == 1);
@@ -237,7 +237,7 @@ static void test_name_constraints_permitted_subject_ok(void) {
  * rejects this exact pair with "permitted subtree violation". */
 static void test_name_constraints_excluded_subject_rejects(void) {
   quic_castore s;
-  quic_span    certs[2] = {
+  wired_span   certs[2] = {
       PV_SPAN(quic_castore_nc_leaf_bad_der), PV_SPAN(quic_castore_nc_root_der)};
   store_with_nc_root(&s);
   CHECK(quic_castore_validate_chain(&s, certs, 2) == 0);
@@ -255,7 +255,7 @@ static void store_with_pc_root(quic_castore* s) {
  * satisfied. */
 static void test_require_explicit_policy_matching_policy_ok(void) {
   quic_castore s;
-  quic_span    certs[3] = {
+  wired_span   certs[3] = {
       PV_SPAN(quic_castore_pc_leaf3_der), PV_SPAN(quic_castore_pc_mid2_der),
       PV_SPAN(quic_castore_pc_root_der)};
   store_with_pc_root(&s);
@@ -267,7 +267,7 @@ static void test_require_explicit_policy_matching_policy_ok(void) {
  * fails and the path must be rejected. */
 static void test_require_explicit_policy_disjoint_policy_rejects(void) {
   quic_castore s;
-  quic_span    certs[3] = {
+  wired_span   certs[3] = {
       PV_SPAN(quic_castore_pc_leaf4_der), PV_SPAN(quic_castore_pc_mid2_der),
       PV_SPAN(quic_castore_pc_root_der)};
   store_with_pc_root(&s);

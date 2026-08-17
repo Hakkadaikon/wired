@@ -28,8 +28,8 @@ static usz sdrv_hrr_build_ch(
     u8* ch, usz cap, const u8* cli_pub, const u8* srv_random) {
   return quic_tls_client_hello(
       &(quic_clienthello_in){
-          srv_random, cli_pub, quic_span_of(0, 0), quic_span_of(0, 0)},
-      &(quic_obuf){ch, cap, 0});
+          srv_random, cli_pub, wired_span_of(0, 0), wired_span_of(0, 0)},
+      &(wired_obuf){ch, cap, 0});
 }
 
 /* Overwrite the key_share group field so the ClientHello no longer offers
@@ -51,7 +51,7 @@ static void sdrv_hrr_init_any(quic_sdrv* s) {
     srv_priv[i]  = (u8)(0x40 + i);
     cert_priv[i] = (u8)(0x80 + i);
   }
-  quic_x25519_base(srv_pub, srv_priv);
+  wired_x25519_base(srv_pub, srv_priv);
   {
     quic_sdrv_init_in din = {srv_priv, srv_pub, cert_priv, 0, 0, 0, 0, 0};
     quic_sdrv_init(s, &din);
@@ -71,7 +71,7 @@ static void sdrv_hrr_fixture_init(sdrv_hrr_fixture* f) {
     cli_priv[i]      = (u8)(i + 1);
     f->srv_random[i] = (u8)(0xa0 + i);
   }
-  quic_x25519_base(f->cli_pub, cli_priv);
+  wired_x25519_base(f->cli_pub, cli_priv);
 }
 
 /* (a) A normal ClientHello (real x25519 key_share) is accepted exactly as
@@ -98,7 +98,7 @@ static void test_sdrv_hrr_no_x25519_triggers_hrr(void) {
   u8               ch[512], hrr[256];
   usz              ch_len;
   quic_sdrv        s;
-  quic_obuf        hob = quic_obuf_of(hrr, sizeof(hrr));
+  wired_obuf       hob = quic_obuf_of(hrr, sizeof(hrr));
   sdrv_hrr_fixture_init(&f);
   ch_len = sdrv_hrr_build_ch(ch, sizeof(ch), f.cli_pub, f.srv_random);
   CHECK(ch_len != 0);
@@ -117,7 +117,7 @@ static void test_sdrv_hrr_second_ch_same_cipher_accepted(void) {
   u8               ch1[512], ch2[512], hrr[256];
   usz              ch1_len, ch2_len;
   quic_sdrv        s;
-  quic_obuf        hob = quic_obuf_of(hrr, sizeof(hrr));
+  wired_obuf       hob = quic_obuf_of(hrr, sizeof(hrr));
   sdrv_hrr_fixture_init(&f);
   ch1_len = sdrv_hrr_build_ch(ch1, sizeof(ch1), f.cli_pub, f.srv_random);
   CHECK(ch1_len != 0);
@@ -139,7 +139,7 @@ static void test_sdrv_hrr_second_ch_diff_cipher_rejected(void) {
   u8               ch1[512], ch2[512], hrr[256];
   usz              ch1_len, ch2_len;
   quic_sdrv        s;
-  quic_obuf        hob = quic_obuf_of(hrr, sizeof(hrr));
+  wired_obuf       hob = quic_obuf_of(hrr, sizeof(hrr));
   sdrv_hrr_fixture_init(&f);
   ch1_len = sdrv_hrr_build_ch(ch1, sizeof(ch1), f.cli_pub, f.srv_random);
   CHECK(ch1_len != 0);
@@ -163,7 +163,7 @@ static void test_sdrv_hrr_transcript_uses_message_hash(void) {
   u8               ch1[512], hrr[256];
   usz              ch1_len;
   quic_sdrv        s;
-  quic_obuf        hob = quic_obuf_of(hrr, sizeof(hrr));
+  wired_obuf       hob = quic_obuf_of(hrr, sizeof(hrr));
   u8               ch1_hash[32], mh[36], expect[32], got[32];
   usz              mh_len;
   quic_transcript  expect_tr;
@@ -176,7 +176,7 @@ static void test_sdrv_hrr_transcript_uses_message_hash(void) {
   CHECK(quic_sdrv_recv_client_hello(&s, ch1, ch1_len) == 1);
   CHECK(quic_sdrv_build_hrr(&s, &hob) == 1);
 
-  quic_sha256(ch1, ch1_len, ch1_hash);
+  wired_sha256(ch1, ch1_len, ch1_hash);
   mh_len = quic_hrr_message_hash(ch1_hash, 32, mh, sizeof(mh));
   CHECK(mh_len == 36);
   quic_transcript_init(&expect_tr);

@@ -36,6 +36,6 @@ usz quic_tls_new_session_ticket_encode(
  * ticket bytes as a view into msg (still opaque; call quic_ticket_open with
  * the server's key to recover the quic_ticket). Returns 1 on success, 0 if
  * msg is truncated or inconsistent. */
-int quic_tls_new_session_ticket_parse(quic_span msg, quic_span* sealed);
+int quic_tls_new_session_ticket_parse(wired_span msg, wired_span* sealed);
 
 #endif

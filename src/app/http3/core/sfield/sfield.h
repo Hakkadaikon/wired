@@ -28,7 +28,7 @@ typedef struct {
  * @param it   iterator to initialize
  * @param list the raw field value, e.g. `"foo", "bar"`
  */
-void quic_sfield_iter_init(quic_sfield_iter* it, quic_span list);
+void quic_sfield_iter_init(quic_sfield_iter* it, wired_span list);
 
 /** Decode the next sf-string member into out (escapes resolved).
  *
@@ -41,7 +41,7 @@ void quic_sfield_iter_init(quic_sfield_iter* it, quic_span list);
  * @param out receives the decoded content; out->len is advanced
  * @return 1 = member produced, 0 = end of list, -1 = syntax error
  */
-int quic_sfield_next_string(quic_sfield_iter* it, quic_obuf* out);
+int quic_sfield_next_string(quic_sfield_iter* it, wired_obuf* out);
 
 /** Serialize s as one sf-string (RFC 8941 SS4.1.6): wrap in DQUOTEs and
  * backslash-escape DQUOTE and backslash.
@@ -52,6 +52,6 @@ int quic_sfield_next_string(quic_sfield_iter* it, quic_obuf* out);
  * @return bytes written, or 0 if s does not fit or contains a byte an
  *         sf-string cannot represent (0x00-0x1f, 0x7f and above)
  */
-usz quic_sfield_string_encode(u8* buf, usz cap, quic_span s);
+usz quic_sfield_string_encode(u8* buf, usz cap, wired_span s);
 
 #endif

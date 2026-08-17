@@ -39,8 +39,8 @@ static const u8 ekut_tbs_both[] = {
     0x2b, 0x06, 0x01,        0x05, 0x05, 0x07, 0x03, 0x02, 0x06, 0x08,
     0x2b, 0x06, 0x01,        0x05, 0x05, 0x07, 0x03, 0x01};
 
-static quic_span server_auth(void) {
-  return quic_span_of(
+static wired_span server_auth(void) {
+  return wired_span_of(
       quic_x509_oid_server_auth, sizeof(quic_x509_oid_server_auth));
 }
 
@@ -49,7 +49,7 @@ static quic_span server_auth(void) {
 static void test_eku_no_extension_allows(void) {
   CHECK(
       quic_x509_eku_allows(
-          quic_span_of(ekut_tbs_no_ext, sizeof(ekut_tbs_no_ext)),
+          wired_span_of(ekut_tbs_no_ext, sizeof(ekut_tbs_no_ext)),
           server_auth()) == 1);
 }
 
@@ -57,7 +57,7 @@ static void test_eku_no_extension_allows(void) {
 static void test_eku_empty_rejects(void) {
   CHECK(
       quic_x509_eku_allows(
-          quic_span_of(ekut_tbs_empty, sizeof(ekut_tbs_empty)),
+          wired_span_of(ekut_tbs_empty, sizeof(ekut_tbs_empty)),
           server_auth()) == 0);
 }
 
@@ -65,7 +65,7 @@ static void test_eku_empty_rejects(void) {
 static void test_eku_server_auth_present_allows(void) {
   CHECK(
       quic_x509_eku_allows(
-          quic_span_of(ekut_tbs_server_auth, sizeof(ekut_tbs_server_auth)),
+          wired_span_of(ekut_tbs_server_auth, sizeof(ekut_tbs_server_auth)),
           server_auth()) == 1);
 }
 
@@ -73,7 +73,7 @@ static void test_eku_server_auth_present_allows(void) {
 static void test_eku_server_auth_absent_rejects(void) {
   CHECK(
       quic_x509_eku_allows(
-          quic_span_of(ekut_tbs_client_auth, sizeof(ekut_tbs_client_auth)),
+          wired_span_of(ekut_tbs_client_auth, sizeof(ekut_tbs_client_auth)),
           server_auth()) == 0);
 }
 
@@ -81,7 +81,7 @@ static void test_eku_server_auth_absent_rejects(void) {
 static void test_eku_server_auth_among_others_allows(void) {
   CHECK(
       quic_x509_eku_allows(
-          quic_span_of(ekut_tbs_both, sizeof(ekut_tbs_both)), server_auth()) ==
+          wired_span_of(ekut_tbs_both, sizeof(ekut_tbs_both)), server_auth()) ==
       1);
 }
 
@@ -90,8 +90,8 @@ static void test_eku_server_auth_among_others_allows(void) {
 static void test_eku_client_auth_query_absent(void) {
   CHECK(
       quic_x509_eku_allows(
-          quic_span_of(ekut_tbs_server_auth, sizeof(ekut_tbs_server_auth)),
-          quic_span_of(ekut_oid_client_auth, sizeof(ekut_oid_client_auth))) ==
+          wired_span_of(ekut_tbs_server_auth, sizeof(ekut_tbs_server_auth)),
+          wired_span_of(ekut_oid_client_auth, sizeof(ekut_oid_client_auth))) ==
       0);
 }
 

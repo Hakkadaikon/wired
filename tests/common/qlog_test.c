@@ -18,11 +18,11 @@ static void test_qlog_append_frames_one_record(void) {
   const u8 rec[] = "{\"a\":1}";
   qlogt_unlink();
   CHECK(
-      wired_qlog_append(qlogt_path, quic_span_of(rec, sizeof(rec) - 1)) ==
+      wired_qlog_append(qlogt_path, wired_span_of(rec, sizeof(rec) - 1)) ==
       (ssz)(sizeof(rec) - 1 + 2));
   {
     u8  out[32] = {0};
-    ssz n       = wired_fio_read(qlogt_path, quic_mspan_of(out, sizeof out));
+    ssz n       = wired_fio_read(qlogt_path, wired_mspan_of(out, sizeof out));
     CHECK(n == (ssz)(sizeof(rec) - 1 + 2));
     CHECK(out[0] == 0x1E);
     for (usz i = 0; i < sizeof(rec) - 1; i++) CHECK(out[1 + i] == (u8)rec[i]);
@@ -38,12 +38,12 @@ static void test_qlog_append_multiple_records(void) {
   const u8 rec2[] = "{\"b\":2}";
   qlogt_unlink();
   CHECK(
-      wired_qlog_append(qlogt_path, quic_span_of(rec1, sizeof(rec1) - 1)) > 0);
+      wired_qlog_append(qlogt_path, wired_span_of(rec1, sizeof(rec1) - 1)) > 0);
   CHECK(
-      wired_qlog_append(qlogt_path, quic_span_of(rec2, sizeof(rec2) - 1)) > 0);
+      wired_qlog_append(qlogt_path, wired_span_of(rec2, sizeof(rec2) - 1)) > 0);
   {
     u8  out[64] = {0};
-    ssz n       = wired_fio_read(qlogt_path, quic_mspan_of(out, sizeof out));
+    ssz n       = wired_fio_read(qlogt_path, wired_mspan_of(out, sizeof out));
     ssz want    = (ssz)(2 * (sizeof(rec1) - 1 + 2));
     CHECK(n == want);
     /* second record's RS starts right after the first record's LF */
@@ -57,10 +57,10 @@ static void test_qlog_append_multiple_records(void) {
 /* Empty record: still framed (RS + LF only), not rejected. */
 static void test_qlog_append_empty_record(void) {
   qlogt_unlink();
-  CHECK(wired_qlog_append(qlogt_path, quic_span_of(0, 0)) == 2);
+  CHECK(wired_qlog_append(qlogt_path, wired_span_of(0, 0)) == 2);
   {
     u8  out[4] = {0};
-    ssz n      = wired_fio_read(qlogt_path, quic_mspan_of(out, sizeof out));
+    ssz n      = wired_fio_read(qlogt_path, wired_mspan_of(out, sizeof out));
     CHECK(n == 2);
     CHECK(out[0] == 0x1E && out[1] == '\n');
   }

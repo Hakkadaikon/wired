@@ -12,11 +12,11 @@
 /* Opaque-value parameter: id + length + val bytes into out->p (out->cap
  * bytes). val may be empty (e.g. disable_active_migration). Returns bytes
  * written, 0 if it does not fit / id out of range. */
-usz quic_tparam_put_blob(quic_obuf* out, u64 id, quic_span val);
+usz quic_tparam_put_blob(wired_obuf* out, u64 id, wired_span val);
 
 /* Decode one opaque parameter at buf.p (buf.n readable). On success sets *id
  * and *val (a view into buf.p), returns bytes consumed; 0 if malformed. */
-usz quic_tparam_get_blob(quic_span buf, u64* id, quic_span* val);
+usz quic_tparam_get_blob(wired_span buf, u64* id, wired_span* val);
 
 /* RFC 9000 18.2 preferred_address value. cid is 0..20 bytes. */
 struct quic_preferred_address {

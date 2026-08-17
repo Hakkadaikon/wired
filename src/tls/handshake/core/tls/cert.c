@@ -28,19 +28,19 @@ static int take_view(cur* c, u32 len, const u8** out) {
 }
 
 /* Read a k-byte length then that many bytes as a view. */
-static int take_vec(cur* c, usz k, quic_span* out) {
+static int take_vec(cur* c, usz k, wired_span* out) {
   u32       len;
   const u8* p;
   if (!take_len(c, k, &len)) return 0;
   if (!take_view(c, len, &p)) return 0;
-  *out = quic_span_of(p, len);
+  *out = wired_span_of(p, len);
   return 1;
 }
 
 /* The end-entity entry: cert_data (3-byte length) then its extensions
  * (2-byte length), within the certificate_list. */
 static int take_entry(cur* c, quic_tls_cert_entry* first) {
-  quic_span cert, ext;
+  wired_span cert, ext;
   if (!take_vec(c, 3, &cert)) return 0;
   if (!take_vec(c, 2, &ext)) return 0; /* skip this entry's extensions */
   first->cert_data = cert.p;
@@ -49,10 +49,10 @@ static int take_entry(cur* c, quic_tls_cert_entry* first) {
 }
 
 int quic_tls_cert_parse(
-    quic_span buf, quic_span* context, quic_tls_cert_entry* first) {
-  cur       c = {buf.p, buf.n, 0};
-  quic_span list;
-  cur       lc;
+    wired_span buf, wired_span* context, quic_tls_cert_entry* first) {
+  cur        c = {buf.p, buf.n, 0};
+  wired_span list;
+  cur        lc;
   if (!take_vec(&c, 1, context)) return 0;
   if (!take_vec(&c, 3, &list)) return 0;
   lc = (cur){list.p, list.n, 0};
@@ -76,10 +76,10 @@ static int entries_loop(cur* lc, const quic_tls_cert_chain_out* out) {
 }
 
 int quic_tls_cert_chain(
-    quic_span buf, quic_span* context, const quic_tls_cert_chain_out* out) {
-  cur       c = {buf.p, buf.n, 0};
-  quic_span list;
-  cur       lc;
+    wired_span buf, wired_span* context, const quic_tls_cert_chain_out* out) {
+  cur        c = {buf.p, buf.n, 0};
+  wired_span list;
+  cur        lc;
   *out->count = 0;
   if (!take_vec(&c, 1, context)) return 0;
   if (!take_vec(&c, 3, &list)) return 0;
@@ -87,7 +87,7 @@ int quic_tls_cert_chain(
   return entries_loop(&lc, out);
 }
 
-int quic_tls_certverify_parse(quic_span buf, u16* scheme, quic_span* sig) {
+int quic_tls_certverify_parse(wired_span buf, u16* scheme, wired_span* sig) {
   cur c = {buf.p, buf.n, 0};
   u32 s;
   if (!take_len(&c, 2, &s)) return 0;
@@ -122,7 +122,7 @@ static void build_signed(const u8 transcript_hash[32], u8 out[130]) {
 }
 
 int quic_tls_certverify_ed25519(
-    quic_span sig, const u8 transcript_hash[32], const u8 pubkey[32]) {
+    wired_span sig, const u8 transcript_hash[32], const u8 pubkey[32]) {
   u8 content[130];
   if (sig.n != QUIC_ED25519_SIG) return 0;
   build_signed(transcript_hash, content);

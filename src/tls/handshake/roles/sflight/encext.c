@@ -12,9 +12,9 @@ static int encext_fits(usz tp_len, usz cap) {
 }
 
 int quic_sflight_encrypted_extensions(
-    quic_span transport_params, quic_obuf* out) {
-  usz       off, ext;
-  quic_obuf eob;
+    wired_span transport_params, wired_obuf* out) {
+  usz        off, ext;
+  wired_obuf eob;
   if (!encext_fits(transport_params.n, out->cap)) return 0;
   off = quic_hs_begin(out->p, out->cap, QUIC_HS_ENCRYPTED_EXT);
   eob = quic_obuf_of(out->p + off + 2, out->cap - off - 2);

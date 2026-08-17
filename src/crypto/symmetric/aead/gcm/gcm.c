@@ -92,7 +92,7 @@ typedef struct {
 } quic_gcm_ctr;
 
 /* XOR up to 16 keystream bytes E(K,ctr) into out; returns bytes done. */
-static usz ctr_chunk(quic_gcm_ctr* c, quic_span in, u8* out) {
+static usz ctr_chunk(quic_gcm_ctr* c, wired_span in, u8* out) {
   u8  ks[16];
   usz n = (in.n < 16) ? in.n : 16;
   quic_aes128_encrypt(c->a, c->ctr, ks);
@@ -102,10 +102,10 @@ static usz ctr_chunk(quic_gcm_ctr* c, quic_span in, u8* out) {
 }
 
 /* XOR keystream E(K, counter) over in, advancing the counter. */
-static void ctr_xor(quic_gcm_ctr* c, quic_span in, u8* out) {
+static void ctr_xor(quic_gcm_ctr* c, wired_span in, u8* out) {
   usz off = 0;
   while (off < in.n)
-    off += ctr_chunk(c, quic_span_of(in.p + off, in.n - off), out + off);
+    off += ctr_chunk(c, wired_span_of(in.p + off, in.n - off), out + off);
 }
 
 /* Per-invocation GHASH state: the inputs plus H = E(K, 0^128) and J0. */
@@ -136,7 +136,7 @@ static void data_ctr(const quic_gcm_st* st, quic_gcm_ctr* c) {
 }
 
 /* Compute the authentication tag over the AAD and ct using H and J0. */
-static void gcm_tag(const quic_gcm_st* st, quic_span ct, u8 tag[16]) {
+static void gcm_tag(const quic_gcm_st* st, wired_span ct, u8 tag[16]) {
   u8 y[16], lens[16], ej0[16];
   for (usz i = 0; i < 16; i++) y[i] = 0;
   ghash_bytes(st->h, y, st->g->aad.p, st->g->aad.n);
@@ -171,22 +171,22 @@ static void gcm_x86_from(const quic_gcm_ctx* g, quic_gcmx86* x) {
  * (also returns 0). For that one boundary case, verify the tag directly with
  * the scalar GHASH tag computation (cheap: zero-length body) instead of
  * trusting the ambiguous return value. */
-static int gcm_open_x86_empty(const quic_gcm_ctx* g, quic_span ct) {
+static int gcm_open_x86_empty(const quic_gcm_ctx* g, wired_span ct) {
   quic_gcm_st st;
   u8          want[16];
   gcm_setup(g, &st);
-  gcm_tag(&st, quic_span_of(ct.p, 0), want);
+  gcm_tag(&st, wired_span_of(ct.p, 0), want);
   return quic_ct_diff16(want, ct.p) == 0;
 }
 
-static int gcm_open_x86(const quic_gcm_ctx* g, quic_span ct, u8* pt) {
+static int gcm_open_x86(const quic_gcm_ctx* g, wired_span ct, u8* pt) {
   quic_gcmx86 x;
   if (ct.n == QUIC_GCM_TAG) return gcm_open_x86_empty(g, ct);
   gcm_x86_from(g, &x);
   return quic_gcmx86_open(&x, g->nonce, g->aad, ct, pt) != 0;
 }
 
-usz quic_gcm_seal(const quic_gcm_ctx* g, quic_span pt, u8* out) {
+usz quic_gcm_seal(const quic_gcm_ctx* g, wired_span pt, u8* out) {
   quic_gcm_st  st;
   quic_gcm_ctr c;
   if (quic_gcmx86_supported()) {
@@ -197,17 +197,17 @@ usz quic_gcm_seal(const quic_gcm_ctx* g, quic_span pt, u8* out) {
   gcm_setup(g, &st);
   data_ctr(&st, &c);
   ctr_xor(&c, pt, out);
-  gcm_tag(&st, quic_span_of(out, pt.n), out + pt.n);
+  gcm_tag(&st, wired_span_of(out, pt.n), out + pt.n);
   return pt.n + QUIC_GCM_TAG;
 }
 
 /* Scalar-path body: verify the tag, then decrypt on success. Split out of
  * quic_gcm_open so its CCN stays under budget alongside the dispatch. */
-static int gcm_open_scalar(const quic_gcm_ctx* g, quic_span ct, u8* pt) {
+static int gcm_open_scalar(const quic_gcm_ctx* g, wired_span ct, u8* pt) {
   quic_gcm_st  st;
   quic_gcm_ctr c;
   u8           want[16];
-  quic_span    body = quic_span_of(ct.p, ct.n - QUIC_GCM_TAG);
+  wired_span   body = wired_span_of(ct.p, ct.n - QUIC_GCM_TAG);
   gcm_setup(g, &st);
   gcm_tag(&st, body, want);
   if (quic_ct_diff16(want, ct.p + body.n) != 0)
@@ -217,7 +217,7 @@ static int gcm_open_scalar(const quic_gcm_ctx* g, quic_span ct, u8* pt) {
   return 1;
 }
 
-int quic_gcm_open(const quic_gcm_ctx* g, quic_span ct, u8* pt) {
+int quic_gcm_open(const quic_gcm_ctx* g, wired_span ct, u8* pt) {
   if (ct.n < QUIC_GCM_TAG) return 0;
   if (quic_gcmx86_supported()) return gcm_open_x86(g, ct, pt);
   return gcm_open_scalar(g, ct, pt);
@@ -235,7 +235,7 @@ typedef struct {
 } quic_gcm256_ctr;
 
 /* XOR up to 16 keystream bytes E(K,ctr) into out; returns bytes done. */
-static usz ctr_chunk256(quic_gcm256_ctr* c, quic_span in, u8* out) {
+static usz ctr_chunk256(quic_gcm256_ctr* c, wired_span in, u8* out) {
   u8  ks[16];
   usz n = (in.n < 16) ? in.n : 16;
   quic_aes256_encrypt(c->a, c->ctr, ks);
@@ -245,10 +245,10 @@ static usz ctr_chunk256(quic_gcm256_ctr* c, quic_span in, u8* out) {
 }
 
 /* XOR keystream E(K, counter) over in, advancing the counter. */
-static void ctr_xor256(quic_gcm256_ctr* c, quic_span in, u8* out) {
+static void ctr_xor256(quic_gcm256_ctr* c, wired_span in, u8* out) {
   usz off = 0;
   while (off < in.n)
-    off += ctr_chunk256(c, quic_span_of(in.p + off, in.n - off), out + off);
+    off += ctr_chunk256(c, wired_span_of(in.p + off, in.n - off), out + off);
 }
 
 /* Per-invocation GHASH state: the inputs plus H = E(K, 0^128) and J0. */
@@ -279,7 +279,7 @@ static void data_ctr256(const quic_gcm256_st* st, quic_gcm256_ctr* c) {
 }
 
 /* Compute the authentication tag over the AAD and ct using H and J0. */
-static void gcm_tag256(const quic_gcm256_st* st, quic_span ct, u8 tag[16]) {
+static void gcm_tag256(const quic_gcm256_st* st, wired_span ct, u8 tag[16]) {
   u8 y[16], lens[16], ej0[16];
   for (usz i = 0; i < 16; i++) y[i] = 0;
   ghash_bytes(st->h, y, st->g->aad.p, st->g->aad.n);
@@ -291,22 +291,22 @@ static void gcm_tag256(const quic_gcm256_st* st, quic_span ct, u8 tag[16]) {
   for (usz i = 0; i < 16; i++) tag[i] = y[i] ^ ej0[i];
 }
 
-usz quic_gcm256_seal(const quic_gcm256_ctx* g, quic_span pt, u8* out) {
+usz quic_gcm256_seal(const quic_gcm256_ctx* g, wired_span pt, u8* out) {
   quic_gcm256_st  st;
   quic_gcm256_ctr c;
   gcm_setup256(g, &st);
   data_ctr256(&st, &c);
   ctr_xor256(&c, pt, out);
-  gcm_tag256(&st, quic_span_of(out, pt.n), out + pt.n);
+  gcm_tag256(&st, wired_span_of(out, pt.n), out + pt.n);
   return pt.n + QUIC_GCM_TAG;
 }
 
-int quic_gcm256_open(const quic_gcm256_ctx* g, quic_span ct, u8* pt) {
+int quic_gcm256_open(const quic_gcm256_ctx* g, wired_span ct, u8* pt) {
   quic_gcm256_st  st;
   quic_gcm256_ctr c;
   u8              want[16];
   if (ct.n < QUIC_GCM_TAG) return 0;
-  quic_span body = quic_span_of(ct.p, ct.n - QUIC_GCM_TAG);
+  wired_span body = wired_span_of(ct.p, ct.n - QUIC_GCM_TAG);
   gcm_setup256(g, &st);
   gcm_tag256(&st, body, want);
   if (quic_ct_diff16(want, ct.p + body.n) != 0)

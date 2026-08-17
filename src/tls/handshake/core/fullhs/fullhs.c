@@ -27,18 +27,18 @@ static int tr_add(quic_fullhs* h, const u8* msg, usz len) {
 
 /* RFC 8446 4.4.1: Transcript-Hash over every message buffered so far. */
 static void tr_hash(const quic_fullhs* h, u8 out[QUIC_SHA256_DIGEST]) {
-  quic_sha256(h->tr, h->tr_len, out);
+  wired_sha256(h->tr, h->tr_len, out);
 }
 
 /* RFC 8446 7.1: one direction's handshake traffic secret over the transcript
  * through ServerHello. is_server selects "s hs traffic"/"c hs traffic". */
 static void hs_traffic(
-    const u8  hs[QUIC_HKDF_PRK],
-    quic_span sh,
-    int       is_server,
-    u8        out[QUIC_HKDF_PRK]) {
+    const u8   hs[QUIC_HKDF_PRK],
+    wired_span sh,
+    int        is_server,
+    u8         out[QUIC_HKDF_PRK]) {
   const char*           label = is_server ? "s hs traffic" : "c hs traffic";
-  quic_derive_secret_in in    = {hs, quic_span_of((const u8*)label, 12), sh};
+  quic_derive_secret_in in    = {hs, wired_span_of((const u8*)label, 12), sh};
   quic_tls_derive_secret(&in, out);
 }
 
@@ -50,15 +50,15 @@ static void hs_traffic(
  * is prepended first, exactly like tlsdriver.c's own build_transcript does
  * for the handshake-secret derivation. */
 static void seed_secrets(quic_fullhs* h, const u8* sh, usz sh_len) {
-  u8        hs[QUIC_HKDF_PRK];
-  const u8* ecdhe;
-  quic_span tr_span;
+  u8         hs[QUIC_HKDF_PRK];
+  const u8*  ecdhe;
+  wired_span tr_span;
   quic_tlsdriver_shared_secret(h->tls, &ecdhe);
   quic_tls_handshake_secret(ecdhe, hs);
   h->tr_len = 0;
   tr_add(h, h->tls->transcript_ch, h->tls->transcript_ch_len);
   tr_add(h, sh, sh_len);
-  tr_span = quic_span_of(h->tr, h->tr_len);
+  tr_span = wired_span_of(h->tr, h->tr_len);
   /* peer direction is the opposite of our own role. */
   hs_traffic(hs, tr_span, !h->is_server, h->hs_traffic_peer);
   hs_traffic(hs, tr_span, h->is_server, h->hs_traffic_self);
@@ -75,7 +75,7 @@ static void prime_order(quic_fullhs* h) {
       &h->tls->hs, QUIC_HSD_ENCRYPTED_EXT, QUIC_HSD_PROT_HANDSHAKE);
 }
 
-int quic_fullhs_init(quic_fullhs* h, quic_tlsdriver* tls, quic_span sh) {
+int quic_fullhs_init(quic_fullhs* h, quic_tlsdriver* tls, wired_span sh) {
   if (!quic_tlsdriver_handshake_secret_ready(tls)) return 0;
   h->tls             = tls;
   h->is_server       = tls->is_server;
@@ -92,7 +92,7 @@ int quic_fullhs_init(quic_fullhs* h, quic_tlsdriver* tls, quic_span sh) {
   return 1;
 }
 
-void quic_fullhs_set_policy(quic_fullhs* h, u64 now, quic_span host) {
+void quic_fullhs_set_policy(quic_fullhs* h, u64 now, wired_span host) {
   h->policy_now      = now;
   h->policy_host     = host.p;
   h->policy_host_len = host.n;
@@ -125,12 +125,12 @@ static int fullhs_time_ok(const quic_fullhs* h, const quic_x509* x) {
 static int fullhs_host_ok(const quic_fullhs* h, const quic_x509* x) {
   return h->policy_host_len == 0 ||
          quic_x509_san_matches(
-             x->tbs, quic_span_of(h->policy_host, h->policy_host_len));
+             x->tbs, wired_span_of(h->policy_host, h->policy_host_len));
 }
 
 static int fullhs_policy_checks(const quic_fullhs* h, const u8* cert, usz n) {
   quic_x509 x;
-  if (!quic_x509_parse(quic_span_of(cert, n), &x)) return 0;
+  if (!quic_x509_parse(wired_span_of(cert, n), &x)) return 0;
   return fullhs_time_ok(h, &x) && fullhs_host_ok(h, &x);
 }
 
@@ -142,10 +142,10 @@ static int fullhs_policy_ok(const quic_fullhs* h, const u8* cert, usz n) {
 
 /* Every CertificateEntry of the wire chain, leaf first. */
 static int fullhs_chain_parse(
-    quic_span cert_msg, const quic_tls_cert_chain_out* out) {
-  quic_span ctx;
-  quic_span body =
-      quic_span_of(cert_msg.p + QUIC_HS_HEADER, cert_msg.n - QUIC_HS_HEADER);
+    wired_span cert_msg, const quic_tls_cert_chain_out* out) {
+  wired_span ctx;
+  wired_span body =
+      wired_span_of(cert_msg.p + QUIC_HS_HEADER, cert_msg.n - QUIC_HS_HEADER);
   return quic_tls_cert_chain(body, &ctx, out);
 }
 
@@ -153,10 +153,10 @@ static int fullhs_chain_parse(
  * link-by-link to one of its anchors. NULL store skips. */
 static int fullhs_chain_ok(
     const quic_fullhs* h, const quic_tls_cert_entry* e, usz n) {
-  quic_span certs[QUIC_TLS_CERT_CHAIN_MAX];
+  wired_span certs[QUIC_TLS_CERT_CHAIN_MAX];
   if (h->castore == 0) return 1;
   for (usz i = 0; i < n; i++)
-    certs[i] = quic_span_of(e[i].cert_data, e[i].cert_len);
+    certs[i] = wired_span_of(e[i].cert_data, e[i].cert_len);
   return quic_castore_validate_chain(h->castore, certs, n);
 }
 
@@ -171,7 +171,7 @@ static int fullhs_cert_checks(
 /* Parse and accept (or reject) the wire chain. */
 static int fullhs_chain_accept(
     const quic_fullhs*             h,
-    quic_span                      cert_msg,
+    wired_span                     cert_msg,
     const quic_tls_cert_chain_out* out) {
   if (!fullhs_chain_parse(cert_msg, out)) return 0;
   return fullhs_cert_checks(h, out->entries, *out->count);
@@ -182,7 +182,7 @@ static int fullhs_chain_accept(
  * datagram buffer for the rest of the handshake. */
 typedef struct {
   usz                        base;
-  quic_span                  cert_msg;
+  wired_span                 cert_msg;
   const quic_tls_cert_entry* e;
   usz                        n;
 } fullhs_chain_rec_in;
@@ -199,7 +199,7 @@ static void fullhs_cert_record(quic_fullhs* h, const fullhs_chain_rec_in* in) {
 
 /* On any reject nothing is recorded, so the CertificateVerify signature can
  * never verify and cert_verified stays shut. */
-static int fullhs_cert_take(quic_fullhs* h, quic_span cert_msg) {
+static int fullhs_cert_take(quic_fullhs* h, wired_span cert_msg) {
   quic_tls_cert_entry     e[QUIC_TLS_CERT_CHAIN_MAX];
   usz                     n;
   fullhs_chain_rec_in     rec;
@@ -216,27 +216,27 @@ static int fullhs_cert_take(quic_fullhs* h, quic_span cert_msg) {
 
 int quic_fullhs_recv_cert(quic_fullhs* h, const u8* cert_msg, usz len) {
   if (!order_ok(h, QUIC_HSD_CERTIFICATE)) return 0;
-  return fullhs_cert_take(h, quic_span_of(cert_msg, len));
+  return fullhs_cert_take(h, wired_span_of(cert_msg, len));
 }
 
 /* Verify the CertificateVerify signature over the transcript hash through the
  * Certificate message (the message body precedes the running hash). */
-static int cv_verify(quic_fullhs* h, quic_span cv_msg, u16 scheme) {
-  u16       sig_scheme;
-  quic_span sig,
-      body = quic_span_of(cv_msg.p + QUIC_HS_HEADER, cv_msg.n - QUIC_HS_HEADER);
+static int cv_verify(quic_fullhs* h, wired_span cv_msg, u16 scheme) {
+  u16                sig_scheme;
+  wired_span         sig, body = wired_span_of(
+                              cv_msg.p + QUIC_HS_HEADER, cv_msg.n - QUIC_HS_HEADER);
   u8                 th[QUIC_SHA256_DIGEST];
   quic_certverify_in in;
   if (!quic_tls_certverify_parse(body, &sig_scheme, &sig)) return 0;
   tr_hash(h, th);
   in.scheme          = scheme;
-  in.cert            = quic_span_of(h->peer_cert, h->peer_cert_len);
+  in.cert            = wired_span_of(h->peer_cert, h->peer_cert_len);
   in.sig             = sig;
   in.transcript_hash = th;
   return quic_tls_verify_cert_signature(&in);
 }
 
-int quic_fullhs_recv_certverify(quic_fullhs* h, quic_span cv_msg, u16 scheme) {
+int quic_fullhs_recv_certverify(quic_fullhs* h, wired_span cv_msg, u16 scheme) {
   if (!cv_verify(h, cv_msg, scheme)) return 0;
   if (!order_ok(h, QUIC_HSD_CERT_VERIFY)) return 0;
   quic_hsdriver_cert_verified(&h->tls->hs);
@@ -260,7 +260,7 @@ int quic_fullhs_recv_finished(quic_fullhs* h, const u8* fin_msg, usz len) {
   return fold_finished(h, fin_msg, len);
 }
 
-int quic_fullhs_send_finished(quic_fullhs* h, quic_obuf* out) {
+int quic_fullhs_send_finished(quic_fullhs* h, wired_obuf* out) {
   u8 th[QUIC_SHA256_DIGEST];
   if (out->cap < QUIC_HS_HEADER + QUIC_TLS_VERIFY_DATA) return 0;
   out->p[0] = QUIC_HSD_FINISHED;

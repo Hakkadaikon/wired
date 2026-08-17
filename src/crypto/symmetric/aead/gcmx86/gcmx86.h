@@ -38,8 +38,8 @@ void quic_gcmx86_init(quic_gcmx86* x, const u8 key[16]);
 usz quic_gcmx86_seal(
     const quic_gcmx86* x,
     const u8           nonce[QUIC_GCMX86_NONCE],
-    quic_span          aad,
-    quic_span          pt,
+    wired_span         aad,
+    wired_span         pt,
     u8*                out);
 
 /* Open: ct spans ciphertext || 16-byte tag. On tag mismatch returns 0 and
@@ -48,8 +48,8 @@ usz quic_gcmx86_seal(
 usz quic_gcmx86_open(
     const quic_gcmx86* x,
     const u8           nonce[QUIC_GCMX86_NONCE],
-    quic_span          aad,
-    quic_span          ct,
+    wired_span         aad,
+    wired_span         ct,
     u8*                out);
 
 #endif

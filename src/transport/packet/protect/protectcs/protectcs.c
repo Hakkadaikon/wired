@@ -29,9 +29,10 @@ int quic_protectcs_seal(
     usz*                          out_len) {
   usz                hdr_len = io->pn_off + io->pn_len;
   quic_aead_suite_op op      = {
-      k->suite, k->key, k->iv, io->pn, quic_span_of(io->pkt, hdr_len)};
+      k->suite, k->key, k->iv, io->pn, wired_span_of(io->pkt, hdr_len)};
   usz n = quic_aead_suite_seal(
-      &op, quic_span_of(io->pkt + hdr_len, io->payload_len), io->pkt + hdr_len);
+      &op, wired_span_of(io->pkt + hdr_len, io->payload_len),
+      io->pkt + hdr_len);
   if (n == 0) return 0;
   if (!pcs_apply_hp(k, io)) return 0;
   *out_len = hdr_len + n;
@@ -61,7 +62,7 @@ static usz pcs_remove_hp(const quic_protectcs_keys* k, u8* pkt, usz pn_off) {
 int quic_protectcs_open(
     const quic_protectcs_keys*    k,
     const quic_protectcs_open_io* io,
-    quic_span*                    payload) {
+    wired_span*                   payload) {
   u8* pkt    = io->pkt.p;
   usz pn_len = pcs_remove_hp(k, pkt, io->pn_off);
   if (pn_len == 0) return 0;
@@ -69,10 +70,10 @@ int quic_protectcs_open(
   usz                ct_len  = io->pkt.n - hdr_len - 16;
   quic_aead_suite_op op      = {
       k->suite, k->key, k->iv, pcs_read_pn(pkt, io->pn_off, pn_len),
-      quic_span_of(pkt, hdr_len)};
+      wired_span_of(pkt, hdr_len)};
   if (!quic_aead_suite_open(
-          &op, quic_span_of(pkt + hdr_len, ct_len), pkt + hdr_len))
+          &op, wired_span_of(pkt + hdr_len, ct_len), pkt + hdr_len))
     return 0;
-  *payload = quic_span_of(pkt + hdr_len, ct_len);
+  *payload = wired_span_of(pkt + hdr_len, ct_len);
   return 1;
 }

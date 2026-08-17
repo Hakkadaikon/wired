@@ -33,7 +33,7 @@ static int has_token(const u8* buf) {
 /* Skip the Initial token (a varint length plus that many bytes). */
 static int skip_token(const u8* buf, usz n, usz* p) {
   u64 tlen;
-  if (!quic_varint_take(quic_span_of(buf, n), p, &tlen)) return 0;
+  if (!quic_varint_take(wired_span_of(buf, n), p, &tlen)) return 0;
   *p += (usz)tlen;
   return *p <= n;
 }
@@ -47,18 +47,18 @@ static int skip_long_prefix(const u8* buf, usz n, usz* p) {
 
 /* 1 if buf has at least 5 bytes left from *p (byte0 + 4-byte version --
  * what has_token needs to read the packet's own version field). */
-static int has_prefix_room(quic_span buf, usz p) { return buf.n - p >= 5; }
+static int has_prefix_room(wired_span buf, usz p) { return buf.n - p >= 5; }
 
 /* Skip the token (Initial only, identified from the packet's own bytes at
  * pkt_start before the prefix advanced *p past them) or nothing. */
-static int skip_optional_token(quic_span buf, const u8* pkt_start, usz* p) {
+static int skip_optional_token(wired_span buf, const u8* pkt_start, usz* p) {
   if (!has_token(pkt_start)) return 1;
   return skip_token(buf.p, buf.n, p);
 }
 
 /* Advance *p past the prefix and, for an Initial packet, the token. The
  * packet starts at buf.p[*p] == the header's byte0 on entry. */
-static int skip_to_length(quic_span buf, usz* p) {
+static int skip_to_length(wired_span buf, usz* p) {
   const u8* pkt_start = buf.p + *p;
   if (!has_prefix_room(buf, *p)) return 0;
   if (!skip_long_prefix(buf.p, buf.n, p)) return 0;
@@ -67,9 +67,9 @@ static int skip_to_length(quic_span buf, usz* p) {
 
 /* Read the Length varint at *p and bound the packet [off, *p+Length);
  * returns its total length from off, or 0 if it runs past the datagram. */
-static usz take_length_bound(quic_span buf, usz off, usz* p) {
+static usz take_length_bound(wired_span buf, usz off, usz* p) {
   u64 length;
-  if (!quic_varint_take(quic_span_of(buf.p, buf.n), p, &length)) return 0;
+  if (!quic_varint_take(wired_span_of(buf.p, buf.n), p, &length)) return 0;
   if (*p + (usz)length > buf.n) return 0;
   return *p - off + (usz)length;
 }
@@ -77,8 +77,8 @@ static usz take_length_bound(quic_span buf, usz off, usz* p) {
 /* Total bytes of the long-header packet at off, or 0 if malformed. */
 static usz long_packet_len(const u8* buf, usz n, usz off) {
   usz p = off;
-  if (!skip_to_length(quic_span_of(buf, n), &p)) return 0;
-  return take_length_bound(quic_span_of(buf, n), off, &p);
+  if (!skip_to_length(wired_span_of(buf, n), &p)) return 0;
+  return take_length_bound(wired_span_of(buf, n), off, &p);
 }
 
 /* Emit a packet [off, off+len) and advance the cursor by len. */

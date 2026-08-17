@@ -31,9 +31,9 @@ static void test_connect_forbidden(void) {
 static void test_connect_encode_two_fields(void) {
   static const u8 authority[] = {'h', 'o', 's', 't', ':', '4', '4', '3'};
   u8              out[64];
-  quic_obuf       ob = {out, sizeof out, 0};
+  wired_obuf      ob = {out, sizeof out, 0};
   CHECK(
-      quic_h3req_enc_connect(quic_span_of(authority, sizeof authority), &ob) ==
+      quic_h3req_enc_connect(wired_span_of(authority, sizeof authority), &ob) ==
       1);
   usz n = ob.len;
 
@@ -44,15 +44,15 @@ static void test_connect_encode_two_fields(void) {
   u64 idx       = 0;
   int is_static = 0;
   usz c         = quic_qpack_indexed_decode(
-      quic_span_of(out + off, n - off), &idx, &is_static);
+      wired_span_of(out + off, n - off), &idx, &is_static);
   CHECK(c > 0 && is_static == 1 && idx == 15); /* :method CONNECT */
   off += c;
 
   quic_qpack_nameref nr = {0, 0, 0};
   u8                 val[32];
-  quic_obuf          vb = quic_obuf_of(val, sizeof val);
+  wired_obuf         vb = quic_obuf_of(val, sizeof val);
   c                     = quic_qpack_literal_namref_decode(
-      quic_span_of(out + off, n - off), &nr, &vb);
+      wired_span_of(out + off, n - off), &nr, &vb);
   CHECK(c > 0 && nr.is_static == 1 && nr.index == 0); /* :authority name ref */
   CHECK(vb.len == sizeof authority && val[0] == 'h' && val[7] == '3');
   off += c;
@@ -143,26 +143,26 @@ static void test_connect_state_forward(void) {
  * :protocol field, then a matching QUIC STREAM frame header. Mirrors the
  * wire shape wired_h3reqdrive_recv_get expects. */
 static usz build_connect_stream(
-    int want_protocol, quic_span protocol, u8* out, usz cap) {
+    int want_protocol, wired_span protocol, u8* out, usz cap) {
   u8              fs[128];
-  quic_obuf       fsb         = quic_obuf_of(fs, sizeof fs);
+  wired_obuf      fsb         = quic_obuf_of(fs, sizeof fs);
   static const u8 authority[] = {'h', 'o', 's', 't'};
   CHECK(
-      quic_h3req_enc_connect(quic_span_of(authority, sizeof authority), &fsb) ==
-      1);
+      quic_h3req_enc_connect(
+          wired_span_of(authority, sizeof authority), &fsb) == 1);
   if (want_protocol) {
-    quic_qpack_field f = {quic_span_of((const u8*)":protocol", 9), protocol};
+    quic_qpack_field f = {wired_span_of((const u8*)":protocol", 9), protocol};
     usz              w = quic_qpack_literal_name_encode(
-        quic_mspan_of(fs + fsb.len, sizeof(fs) - fsb.len), 0, &f);
+        wired_mspan_of(fs + fsb.len, sizeof(fs) - fsb.len), 0, &f);
     CHECK(w > 0);
     fsb.len += w;
   }
 
-  u8        h3[160];
-  quic_obuf h3b = quic_obuf_of(h3, sizeof h3);
+  u8         h3[160];
+  wired_obuf h3b = quic_obuf_of(h3, sizeof h3);
   CHECK(
       quic_h3_frame_put(
-          &h3b, QUIC_H3_FRAME_HEADERS, quic_span_of(fs, fsb.len)) > 0);
+          &h3b, QUIC_H3_FRAME_HEADERS, wired_span_of(fs, fsb.len)) > 0);
 
   quic_stream_frame sf = {0, 0, h3b.len, h3, 1};
   usz               w  = quic_frame_put_stream(out, cap, &sf);
@@ -175,13 +175,13 @@ static void test_connect_protocol_present(void) {
   static const u8 ws[] = {'w', 'e', 'b', 's', 'o', 'c', 'k', 'e', 't'};
   u8              stream[256];
   usz             n = build_connect_stream(
-      1, quic_span_of(ws, sizeof ws), stream, sizeof stream);
+      1, wired_span_of(ws, sizeof ws), stream, sizeof stream);
 
   u8                   scratch[128];
   wired_h3reqdrive_req r = {0};
   CHECK(
       wired_h3reqdrive_recv_get(
-          quic_span_of(stream, n), quic_mspan_of(scratch, sizeof scratch),
+          wired_span_of(stream, n), wired_mspan_of(scratch, sizeof scratch),
           &r) == 1);
   CHECK(r.protocol_len == sizeof ws);
   CHECK(r.protocol != 0);
@@ -191,13 +191,13 @@ static void test_connect_protocol_present(void) {
 /* A CONNECT request without :protocol still parses, protocol_len stays 0. */
 static void test_connect_protocol_absent(void) {
   u8  stream[256];
-  usz n = build_connect_stream(0, quic_span_of(0, 0), stream, sizeof stream);
+  usz n = build_connect_stream(0, wired_span_of(0, 0), stream, sizeof stream);
 
   u8                   scratch[128];
   wired_h3reqdrive_req r = {0};
   CHECK(
       wired_h3reqdrive_recv_get(
-          quic_span_of(stream, n), quic_mspan_of(scratch, sizeof scratch),
+          wired_span_of(stream, n), wired_mspan_of(scratch, sizeof scratch),
           &r) == 1);
   CHECK(r.protocol == 0);
   CHECK(r.protocol_len == 0);

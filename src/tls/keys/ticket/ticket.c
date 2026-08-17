@@ -34,12 +34,12 @@ void quic_ticket_seal(
 
   quic_chapoly_ctx c = {key, nonce, {0, 0}};
   quic_chapoly_seal(
-      &c, quic_span_of(plain, QUIC_TICKET_PLAIN_LEN),
+      &c, wired_span_of(plain, QUIC_TICKET_PLAIN_LEN),
       out + QUIC_TICKET_NONCE_LEN);
 }
 
 int quic_ticket_open(
-    quic_span in, const u8 key[QUIC_TICKET_KEY_LEN], quic_ticket* out) {
+    wired_span in, const u8 key[QUIC_TICKET_KEY_LEN], quic_ticket* out) {
   if (in.n != QUIC_TICKET_SEALED_LEN) return 0;
 
   const u8*        nonce    = in.p;
@@ -48,7 +48,7 @@ int quic_ticket_open(
   quic_chapoly_ctx c        = {key, nonce, {0, 0}};
 
   u8 plain[QUIC_TICKET_PLAIN_LEN];
-  if (!quic_chapoly_open(&c, quic_span_of(body, body_len), plain)) return 0;
+  if (!quic_chapoly_open(&c, wired_span_of(body, body_len), plain)) return 0;
 
   ticket_decode(plain, out);
   return 1;

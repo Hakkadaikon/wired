@@ -30,7 +30,7 @@ void quic_hs_finish(u8* out, usz total);
 
 /* Parse a handshake message header at buf. Sets *type and *body_len and
  * returns the body offset (4), or 0 if truncated/inconsistent. */
-usz quic_hs_parse(quic_span buf, u8* type, usz* body_len);
+usz quic_hs_parse(wired_span buf, u8* type, usz* body_len);
 
 /* Build a minimal ClientHello/ServerHello carrying the 32-byte X25519 share
  * `pub` and the 32-byte random. Returns total message length, or 0. */

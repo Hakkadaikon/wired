@@ -21,7 +21,7 @@ const u8* wired_srvloop_ticket_key(void);
  * 0.
  */
 int wired_srvloop_produce(
-    const wired_srvloop_conn* conn, int got_request, quic_obuf* out);
+    const wired_srvloop_conn* conn, int got_request, wired_obuf* out);
 
 /* RFC 9000 13.2.1: encode the App space's pending multi-range ACK into buf
  * WITHOUT clearing the pending state -- the deferred-ACK piggyback seam for
@@ -40,6 +40,6 @@ void wired_srvloop_ack_mark_sent(wired_srvloop* l);
  * -- the recovery when the single confirmation datagram was lost and the
  * client keeps probing its Finished. Returns 1 and sets out->len, or 0 when
  * no confirmation was emitted (or cached) yet. */
-int wired_srvloop_reconfirm(const wired_srvloop_conn* conn, quic_obuf* out);
+int wired_srvloop_reconfirm(const wired_srvloop_conn* conn, wired_obuf* out);
 
 #endif

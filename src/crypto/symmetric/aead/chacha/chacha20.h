@@ -24,6 +24,6 @@ void quic_chacha20_block(
     u8       out[QUIC_CHACHA_BLOCK]);
 
 /* Encrypt/decrypt in (XOR keystream) starting at c->counter. */
-void quic_chacha20_xor(const quic_chacha_ctx* c, quic_span in, u8* out);
+void quic_chacha20_xor(const quic_chacha_ctx* c, wired_span in, u8* out);
 
 #endif

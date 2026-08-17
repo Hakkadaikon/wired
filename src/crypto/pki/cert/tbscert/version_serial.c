@@ -18,7 +18,7 @@ static int serial_ok(const quic_tbscert* t) {
   return t->serial.n > 0 && t->serial.n <= TBS_SERIAL_MAX;
 }
 
-int quic_tbscert_serial(const quic_tbscert* t, quic_span* serial) {
+int quic_tbscert_serial(const quic_tbscert* t, wired_span* serial) {
   if (!serial_ok(t)) return 0;
   *serial = t->serial;
   return 1;

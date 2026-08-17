@@ -49,9 +49,9 @@ typedef struct {
 /** Everything quic_client_init needs besides the client: the server address
  * to connect to and the SNI host name to offer. */
 typedef struct {
-  const u8* server_ip; /* 4-byte IPv4 octets */
-  u16       port;
-  quic_span server_name; /* SNI host name, view (caller-owned) */
+  const u8*  server_ip; /* 4-byte IPv4 octets */
+  u16        port;
+  wired_span server_name; /* SNI host name, view (caller-owned) */
 } quic_client_init_in;
 
 /* Open a UDP socket, connect to in->server_ip:in->port, generate our X25519

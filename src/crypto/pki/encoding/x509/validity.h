@@ -9,7 +9,7 @@
  * GeneralizedTime YYYYMMDDHHMMSSZ) and compares against now, given as the
  * decimal YYYYMMDDHHMMSS (e.g. 20260628030430). Returns 1 if
  * notBefore <= now <= notAfter, 0 otherwise or on malformed input. */
-int quic_x509_validity_ok(quic_span tbs, u64 now);
+int quic_x509_validity_ok(wired_span tbs, u64 now);
 
 /* RFC 5280 4.1.2.5.1. Encode a decimal YYYYMMDDHHMMSS (the same convention as
  * quic_x509_validity_ok's now, e.g. from quic_clock_epoch_to_ymdhms) as an

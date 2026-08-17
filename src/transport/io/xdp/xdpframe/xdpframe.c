@@ -4,7 +4,7 @@
 #include "common/bytes/util/bytes.h"
 
 /* Record both MACs from the eth header; 1 iff the frame carries IPv4. */
-static int xdpf_eth(quic_span frame, quic_xdpframe_rx* out) {
+static int xdpf_eth(wired_span frame, quic_xdpframe_rx* out) {
   quic_eth_head eh;
   if (!quic_eth_parse(frame, &eh)) return 0;
   quic_memcpy(out->peer_mac, eh.src, 6);
@@ -67,7 +67,7 @@ static int xdpf_ip(const u8* ip, usz rem, quic_xdpframe_rx* out) {
   return xdpf_udp(ip, hlen, out);
 }
 
-int quic_xdpframe_parse(quic_span frame, quic_xdpframe_rx* out) {
+int quic_xdpframe_parse(wired_span frame, quic_xdpframe_rx* out) {
   if (frame.n < QUIC_XDPFRAME_HDRS) return 0;
   if (!xdpf_eth(frame, out)) return 0;
   return xdpf_ip(frame.p + QUIC_ETH_HDR, frame.n - QUIC_ETH_HDR, out);
@@ -83,12 +83,12 @@ static void xdpf_put_eth(u8* p, const quic_xdpframe_tx* m) {
 }
 
 usz quic_xdpframe_build(
-    quic_mspan frame, const quic_xdpframe_tx* m, quic_span payload) {
+    wired_mspan frame, const quic_xdpframe_tx* m, wired_span payload) {
   usz            total = QUIC_XDPFRAME_HDRS + payload.n;
   quic_ipv4_head ih    = {
       (u16)(QUIC_IPV4_HDR + QUIC_UDP_HDR + payload.n), m->udp.addrs.src,
       m->udp.addrs.dst, QUIC_IP_PROTO_UDP};
-  quic_obuf ob;
+  wired_obuf ob;
   if (frame.n < total) return 0;
   xdpf_put_eth(frame.p, m);
   quic_ipv4_build(frame.p + QUIC_ETH_HDR, &ih);

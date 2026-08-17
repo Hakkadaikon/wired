@@ -9,8 +9,8 @@
 /* Decode one more CERTIFICATE block (RFC 7468 5) from text into der, up to
  * WIRED_CERTRELOAD_CHAIN_MAX total. */
 static int certreload_next_cert(
-    quic_span text, usz* at, quic_obuf* der, usz n) {
-  quic_span label;
+    wired_span text, usz* at, wired_obuf* der, usz n) {
+  wired_span label;
   return n < WIRED_CERTRELOAD_CHAIN_MAX &&
          wired_pem_next(text, at, &label, der);
 }
@@ -18,12 +18,13 @@ static int certreload_next_cert(
 /* Fill store->chain[] from cert.pem's text, leaf first. Returns the number of
  * certificates decoded (0 if none). */
 static usz certreload_load_chain(
-    quic_span text, wired_certreload_store* store) {
-  quic_obuf der = quic_obuf_of(store->chain_der, sizeof store->chain_der);
-  usz       at = 0, n = 0, start = 0;
+    wired_span text, wired_certreload_store* store) {
+  wired_obuf der = quic_obuf_of(store->chain_der, sizeof store->chain_der);
+  usz        at = 0, n = 0, start = 0;
   while (certreload_next_cert(text, &at, &der, n)) {
-    store->chain[n++] = quic_span_of(store->chain_der + start, der.len - start);
-    start             = der.len;
+    store->chain[n++] =
+        wired_span_of(store->chain_der + start, der.len - start);
+    start = der.len;
   }
   return n;
 }
@@ -33,7 +34,7 @@ static int certreload_label_ch(const char* s, usz i, u8 c) {
   return s[i] != 0 && (u8)s[i] == c;
 }
 
-static int certreload_label_eq(quic_span label, const char* s) {
+static int certreload_label_eq(wired_span label, const char* s) {
   usz i;
   for (i = 0; i < label.n; i++)
     if (!certreload_label_ch(s, i, label.p[i])) return 0;
@@ -43,15 +44,15 @@ static int certreload_label_eq(quic_span label, const char* s) {
 /* RFC 7468 10/13: the two labels wired_eckey_p256_priv can decode. Anything
  * else -- notably the "EC PARAMETERS" block `openssl ecparam -genkey`
  * prepends before the key -- is not the key and must be skipped. */
-static int certreload_key_label(quic_span label) {
+static int certreload_key_label(wired_span label) {
   return certreload_label_eq(label, "EC PRIVATE KEY") ||
          certreload_label_eq(label, "PRIVATE KEY");
 }
 
 /* Decode PEM blocks until one carries a private-key label; 1 with its DER
  * appended to der, 0 when text runs out first. */
-static int certreload_next_key(quic_span text, usz* at, quic_obuf* der) {
-  quic_span label;
+static int certreload_next_key(wired_span text, usz* at, wired_obuf* der) {
+  wired_span label;
   while (wired_pem_next(text, at, &label, der)) {
     if (certreload_key_label(label)) return 1;
     der->len = 0; /* discard a skipped block's DER */
@@ -61,26 +62,26 @@ static int certreload_next_key(quic_span text, usz* at, quic_obuf* der) {
 
 /* Extract the P-256 private scalar from key.pem's first private-key PEM
  * block into store->priv. Returns 1 on success. */
-static int certreload_load_key(quic_span text, wired_certreload_store* store) {
-  u8        der_buf[192];
-  quic_obuf der = quic_obuf_of(der_buf, sizeof der_buf);
-  usz       at  = 0;
+static int certreload_load_key(wired_span text, wired_certreload_store* store) {
+  u8         der_buf[192];
+  wired_obuf der = quic_obuf_of(der_buf, sizeof der_buf);
+  usz        at  = 0;
   if (!certreload_next_key(text, &at, &der)) return 0;
-  return wired_eckey_p256_priv(quic_span_of(der_buf, der.len), store->priv);
+  return wired_eckey_p256_priv(wired_span_of(der_buf, der.len), store->priv);
 }
 
 /* Read path into buf (cap bytes), returning the byte count or -1 on any
  * read failure (including WIRED_FIO_ETOOBIG). */
 static ssz certreload_read_file(const char* path, u8* buf, usz cap) {
-  ssz n = wired_fio_read(path, quic_mspan_of(buf, cap));
+  ssz n = wired_fio_read(path, wired_mspan_of(buf, cap));
   return n < 0 ? -1 : n;
 }
 
 /* Decode cert_text/key_text (already read into memory) into store and point
  * id at the result. Returns 1 on success. */
 static int certreload_decode(
-    quic_span               cert_text,
-    quic_span               key_text,
+    wired_span              cert_text,
+    wired_span              key_text,
     wired_certreload_store* store,
     wired_srvboot_id*       id) {
   usz n = certreload_load_chain(cert_text, store);
@@ -104,7 +105,7 @@ int wired_certreload_load(
   ssz kn = certreload_read_file(key_path, key_pem, sizeof key_pem);
   if (cn < 0 || kn < 0) return 0;
   return certreload_decode(
-      quic_span_of(cert_pem, (usz)cn), quic_span_of(key_pem, (usz)kn), store,
+      wired_span_of(cert_pem, (usz)cn), wired_span_of(key_pem, (usz)kn), store,
       id);
 }
 

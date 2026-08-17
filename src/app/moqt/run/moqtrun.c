@@ -44,10 +44,13 @@ void wired_moqt_init(wired_moqt_hub* hub, wired_moqt_io io) {
  * message this hub sends goes through this one encoder, so the Length
  * backpatch lives in exactly one place. Returns bytes written, or 0 if the
  * body encoder failed (buf too small). */
-typedef int (*moqtrun_body_encode_fn)(quic_mspan, usz*, const void*);
+typedef int (*moqtrun_body_encode_fn)(wired_mspan, usz*, const void*);
 
 static usz moqtrun_envelope_put(
-    quic_mspan buf, u64 type, moqtrun_body_encode_fn body_fn, const void* msg) {
+    wired_mspan            buf,
+    u64                    type,
+    moqtrun_body_encode_fn body_fn,
+    const void*            msg) {
   usz eoff = 0;
   if (!quic_moqvi_put(buf, &eoff, type)) return 0;
   usz len_at = eoff;
@@ -59,7 +62,7 @@ static usz moqtrun_envelope_put(
   return eoff;
 }
 
-static int moqtrun_encode_setup(quic_mspan buf, usz* off, const void* m) {
+static int moqtrun_encode_setup(wired_mspan buf, usz* off, const void* m) {
   return quic_moqctl_setup_encode(buf, off, m);
 }
 
@@ -73,9 +76,9 @@ static int moqtrun_encode_setup(quic_mspan buf, usz* off, const void* m) {
 static u64 moqtrun_send_setup(wired_moqt_io* io, wired_wt_session* s, u8* buf) {
   quic_moqctl_setup setup = {0};
   usz               n     = moqtrun_envelope_put(
-      quic_mspan_of(buf, WIRED_MOQTRUN_CTL_SEND_BUF), QUIC_MOQCTL_T_SETUP,
+      wired_mspan_of(buf, WIRED_MOQTRUN_CTL_SEND_BUF), QUIC_MOQCTL_T_SETUP,
       moqtrun_encode_setup, &setup);
-  i64 sid = io->open_bidi_stream(s, quic_span_of(buf, n));
+  i64 sid = io->open_bidi_stream(s, wired_span_of(buf, n));
   return sid < 0 ? 0 : (u64)sid;
 }
 
@@ -103,7 +106,7 @@ static void moqtrun_init_peer(
 }
 
 void wired_moqt_on_session(
-    void* app_ctx, wired_wt_session* s, quic_span path, quic_span protocol) {
+    void* app_ctx, wired_wt_session* s, wired_span path, wired_span protocol) {
   (void)path;
   (void)protocol;
   wired_moqt_hub* hub = (wired_moqt_hub*)app_ctx;
@@ -148,7 +151,7 @@ static int moqtrun_has_timeout_param(const quic_moqctl_params* params) {
  * stream_send only once. Silently drops on overflow
  * (WIRED_MOQTRUN_CTL_SEND_BUF is sized for the worst case this hub's own
  * protocol subset can produce, so overflow never happens in practice). */
-static void moqtrun_queue_reply(wired_moqtrun_peer* p, quic_span msg) {
+static void moqtrun_queue_reply(wired_moqtrun_peer* p, wired_span msg) {
   int pending_idx = p->armed_idx ^ 1;
   if (p->send_lens[pending_idx] + msg.n > WIRED_MOQTRUN_CTL_SEND_BUF) return;
   quic_memcpy(
@@ -182,14 +185,14 @@ static void moqtrun_flush_replies(wired_moqt_io* io, wired_moqtrun_peer* p) {
   if (p->send_lens[pending_idx] == 0) return;
   int r = io->stream_send(
       p->wt, p->control_stream_id,
-      quic_span_of(p->send_bufs[pending_idx], p->send_lens[pending_idx]), 0);
+      wired_span_of(p->send_bufs[pending_idx], p->send_lens[pending_idx]), 0);
   if (r <= 0) return;
   p->send_lens[p->armed_idx] = 0; /* old armed slot: now safe to reuse */
   p->armed_idx               = pending_idx;
 }
 
 static int moqtrun_encode_request_error(
-    quic_mspan buf, usz* off, const void* m) {
+    wired_mspan buf, usz* off, const void* m) {
   return quic_moqctl_request_error_encode(buf, off, m);
 }
 
@@ -198,16 +201,16 @@ static void moqtrun_send_request_error(wired_moqtrun_peer* p, u64 code) {
   quic_moqctl_request_error e = {0};
   e.error_code                = code;
   usz n                       = moqtrun_envelope_put(
-      quic_mspan_of(msg, sizeof msg), QUIC_MOQCTL_T_REQUEST_ERROR,
+      wired_mspan_of(msg, sizeof msg), QUIC_MOQCTL_T_REQUEST_ERROR,
       moqtrun_encode_request_error, &e);
-  moqtrun_queue_reply(p, quic_span_of(msg, n));
+  moqtrun_queue_reply(p, wired_span_of(msg, n));
 }
 
 /* Copies name into t->name (Track Name = participant id, or
  * "<participant id>/audio"), truncated to WIRED_MOQTRUN_MAX_NAME (room ids
  * are short; a real deployment would reject an oversized one instead --
  * ponytail: no such input in this subset's usage). */
-static void moqtrun_record_track_name(wired_moqtrun_track* t, quic_span name) {
+static void moqtrun_record_track_name(wired_moqtrun_track* t, wired_span name) {
   usz n = name.n < WIRED_MOQTRUN_MAX_NAME ? name.n : WIRED_MOQTRUN_MAX_NAME;
   quic_memcpy(t->name, name.p, n);
   t->name_len = n;
@@ -220,14 +223,14 @@ static int moqtrun_bytes_eq(const u8* a, const u8* b, usz n) {
 }
 
 static int moqtrun_track_name_matches(
-    const wired_moqtrun_track* t, quic_span name) {
+    const wired_moqtrun_track* t, wired_span name) {
   return t->in_use && t->name_len == name.n &&
          moqtrun_bytes_eq(t->name, name.p, name.n);
 }
 
 /* Finds p's own track slot already PUBLISHed under name, else 0. */
 static wired_moqtrun_track* moqtrun_track_slot_for_name(
-    wired_moqtrun_peer* p, quic_span name) {
+    wired_moqtrun_peer* p, wired_span name) {
   for (usz t = 0; t < WIRED_MOQTRUN_MAX_TRACKS_PER_PEER; t++)
     if (moqtrun_track_name_matches(&p->tracks[t], name)) return &p->tracks[t];
   return 0;
@@ -246,26 +249,27 @@ static wired_moqtrun_track* moqtrun_track_free_slot(wired_moqtrun_peer* p) {
  * single-track hub's overwrite behavior), else a fresh free slot, else 0
  * when both slots are already taken by other names. */
 static wired_moqtrun_track* moqtrun_track_alloc_slot(
-    wired_moqtrun_peer* p, quic_span name) {
+    wired_moqtrun_peer* p, wired_span name) {
   wired_moqtrun_track* existing = moqtrun_track_slot_for_name(p, name);
   return existing ? existing : moqtrun_track_free_slot(p);
 }
 
 /* 1 iff sub-name ring entry i of p equals name. */
 static int moqtrun_sub_name_eq(
-    const wired_moqtrun_peer* p, usz i, quic_span name) {
+    const wired_moqtrun_peer* p, usz i, wired_span name) {
   return p->sub_name_lens[i] == name.n &&
          moqtrun_bytes_eq(p->sub_names[i], name.p, name.n);
 }
 
 /* 1 iff p has recorded a successful SUBSCRIBE for name. */
-static int moqtrun_sub_name_known(const wired_moqtrun_peer* p, quic_span name) {
+static int moqtrun_sub_name_known(
+    const wired_moqtrun_peer* p, wired_span name) {
   for (usz i = 0; i < p->sub_names_n; i++)
     if (moqtrun_sub_name_eq(p, i, name)) return 1;
   return 0;
 }
 
-static void moqtrun_sub_name_store(wired_moqtrun_peer* p, quic_span name) {
+static void moqtrun_sub_name_store(wired_moqtrun_peer* p, wired_span name) {
   quic_memcpy(p->sub_names[p->sub_names_at], name.p, name.n);
   p->sub_name_lens[p->sub_names_at] = name.n;
   p->sub_names_at                   = (u8)((p->sub_names_at + 1) % 8);
@@ -275,13 +279,13 @@ static void moqtrun_sub_name_store(wired_moqtrun_peer* p, quic_span name) {
 /* Remember a name p subscribed to, so a later REPUBLISH of it can
  * re-attach p (wired_moqtrun_peer.sub_names' doc). An oversized name could
  * never match a recorded track name, so it is not stored. */
-static void moqtrun_note_sub_name(wired_moqtrun_peer* p, quic_span name) {
+static void moqtrun_note_sub_name(wired_moqtrun_peer* p, wired_span name) {
   if (name.n > WIRED_MOQTRUN_MAX_NAME) return;
   if (moqtrun_sub_name_known(p, name)) return;
   moqtrun_sub_name_store(p, name);
 }
 
-static int moqtrun_encode_request_ok(quic_mspan buf, usz* off, const void* m) {
+static int moqtrun_encode_request_ok(wired_mspan buf, usz* off, const void* m) {
   return quic_moqctl_request_ok_encode(buf, off, m);
 }
 
@@ -302,7 +306,7 @@ static void moqtrun_track_clear_relays(wired_moqtrun_track* t) {
  * publisher's old streams are gone (and freestanding memory starts
  * unzeroed, so a fresh slot's relays hold garbage until this). */
 static void moqtrun_track_claim(
-    wired_moqtrun_track* t, quic_span name, u64 track_alias) {
+    wired_moqtrun_track* t, wired_span name, u64 track_alias) {
   if (!t->in_use) moqtrun_track_clear_subs(t);
   t->in_use    = 1;
   t->own_alias = track_alias;
@@ -314,13 +318,13 @@ static void moqtrun_reattach_subs(
     wired_moqt_hub*      hub,
     wired_moqtrun_track* track,
     usz                  pub_idx,
-    quic_span            name);
+    wired_span           name);
 
 /* draft SS10.9 PUBLISH: accept a track into a free (or matching-name) slot
  * and reply REQUEST_OK; a third distinct track name (no free slot) gets
  * REQUEST_ERROR instead of silently overwriting an existing track. */
 static void moqtrun_handle_publish(
-    wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, quic_span body) {
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
   usz                 off = 0;
   quic_moqctl_publish m;
   if (quic_moqctl_publish_take(body, &off, &m) != QUIC_MOQCTL_OK) return;
@@ -334,16 +338,16 @@ static void moqtrun_handle_publish(
   u8                     msg[WIRED_MOQTRUN_CTL_MSG_MAX];
   quic_moqctl_request_ok ok = {0};
   usz                    n  = moqtrun_envelope_put(
-      quic_mspan_of(msg, sizeof msg), QUIC_MOQCTL_T_REQUEST_OK,
+      wired_mspan_of(msg, sizeof msg), QUIC_MOQCTL_T_REQUEST_OK,
       moqtrun_encode_request_ok, &ok);
-  moqtrun_queue_reply(p, quic_span_of(msg, n));
+  moqtrun_queue_reply(p, wired_span_of(msg, n));
 }
 
 /* p's matching track slot if p is a connected peer, else 0 -- guards the
  * in_use check ahead of the name scan so the caller's loop body is one
  * unconditional call. */
 static wired_moqtrun_track* moqtrun_peer_track_for_name(
-    wired_moqtrun_peer* p, quic_span name) {
+    wired_moqtrun_peer* p, wired_span name) {
   return p->in_use ? moqtrun_track_slot_for_name(p, name) : 0;
 }
 
@@ -403,7 +407,7 @@ static int moqtrun_reattach_wanted(
     const wired_moqtrun_track* t,
     usz                        i,
     usz                        pub_idx,
-    quic_span                  name) {
+    wired_span                 name) {
   if (!moqtrun_reattach_peer_live(hub, i, pub_idx)) return 0;
   if (moqtrun_track_has_sub(t, i)) return 0;
   return moqtrun_sub_name_known(&hub->peers[i], name);
@@ -429,14 +433,14 @@ static void moqtrun_reattach_subs(
     wired_moqt_hub*      hub,
     wired_moqtrun_track* track,
     usz                  pub_idx,
-    quic_span            name) {
+    wired_span           name) {
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_SESSIONS; i++)
     if (moqtrun_reattach_wanted(hub, track, i, pub_idx, name))
       moqtrun_reattach_one_sub(track, i);
 }
 
 static int moqtrun_encode_subscribe_ok(
-    quic_mspan buf, usz* off, const void* m) {
+    wired_mspan buf, usz* off, const void* m) {
   return quic_moqctl_subscribe_ok_encode(buf, off, m);
 }
 
@@ -454,9 +458,9 @@ static void moqtrun_accept_subscribe(
   quic_moqctl_subscribe_ok ok = {0};
   ok.track_alias              = slot->track_alias;
   usz n                       = moqtrun_envelope_put(
-      quic_mspan_of(msg, sizeof msg), QUIC_MOQCTL_T_SUBSCRIBE_OK,
+      wired_mspan_of(msg, sizeof msg), QUIC_MOQCTL_T_SUBSCRIBE_OK,
       moqtrun_encode_subscribe_ok, &ok);
-  moqtrun_queue_reply(p, quic_span_of(msg, n));
+  moqtrun_queue_reply(p, wired_span_of(msg, n));
 }
 
 /* draft SS10.6 SUBSCRIBE: find the matching published track and reply
@@ -480,7 +484,7 @@ static void moqtrun_route_subscribe(
 /* draft SS10.6 SUBSCRIBE: reject non-zero delivery-timeout parameters,
  * else delegate matching + response to moqtrun_route_subscribe. */
 static void moqtrun_handle_subscribe(
-    wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, quic_span body) {
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
   usz                   off = 0;
   quic_moqctl_subscribe m;
   if (quic_moqctl_subscribe_take(body, &off, &m) != QUIC_MOQCTL_OK) return;
@@ -504,20 +508,20 @@ static void moqtrun_handle_not_supported(wired_moqtrun_peer* p) {
 static void moqtrun_handle_request_goaway(void) {}
 
 typedef void (*moqtrun_ctl_fn)(
-    wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, quic_span body);
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body);
 
 static void moqtrun_dispatch_publish(
-    wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, quic_span body) {
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
   moqtrun_handle_publish(hub, p, peer_idx, body);
 }
 
 static void moqtrun_dispatch_subscribe(
-    wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, quic_span body) {
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
   moqtrun_handle_subscribe(hub, p, peer_idx, body);
 }
 
 static void moqtrun_dispatch_not_supported(
-    wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, quic_span body) {
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
   (void)hub;
   (void)peer_idx;
   (void)body;
@@ -525,7 +529,7 @@ static void moqtrun_dispatch_not_supported(
 }
 
 static void moqtrun_dispatch_goaway(
-    wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, quic_span body) {
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span body) {
   (void)hub;
   (void)p;
   (void)peer_idx;
@@ -569,13 +573,13 @@ static moqtrun_ctl_fn moqtrun_ctl_lookup(u64 type) {
  * Two calls, never more, keeps every reply either delivered or still
  * queued for the next try -- never dropped. */
 static void moqtrun_dispatch_ctl_stream(
-    wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, quic_span data) {
+    wired_moqt_hub* hub, wired_moqtrun_peer* p, usz peer_idx, wired_span data) {
   usz off = 0;
   moqtrun_flush_replies(&hub->io, p);
   while (off < data.n) {
-    u64       type = 0;
-    quic_span body = {0, 0};
-    int       r    = quic_moqctl_peek_type(data, &off, &type, &body);
+    u64        type = 0;
+    wired_span body = {0, 0};
+    int        r    = quic_moqctl_peek_type(data, &off, &type, &body);
     if (r != QUIC_MOQCTL_OK) break;
     moqtrun_ctl_lookup(type)(hub, p, peer_idx, body);
   }
@@ -588,7 +592,7 @@ static void moqtrun_dispatch_ctl_stream(
  * FIN'd in a single io.send_uni call -- the whole-message-in-one-call path
  * (a publisher stream whose data AND fin arrived together). */
 static void moqtrun_relay_to_one(
-    wired_moqt_hub* hub, const wired_moqtrun_sub* sub, quic_span wire) {
+    wired_moqt_hub* hub, const wired_moqtrun_sub* sub, wired_span wire) {
   wired_moqtrun_peer* dst = &hub->peers[sub->session_idx];
   if (!dst->in_use) return;
   /* A refused one-shot open loses this subscriber's whole message (chat's
@@ -599,7 +603,7 @@ static void moqtrun_relay_to_one(
 }
 
 static void moqtrun_relay_object(
-    wired_moqt_hub* hub, wired_moqtrun_track* track, quic_span wire) {
+    wired_moqt_hub* hub, wired_moqtrun_track* track, wired_span wire) {
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++)
     if (track->subs[i].active) moqtrun_relay_to_one(hub, &track->subs[i], wire);
 }
@@ -609,7 +613,7 @@ static void moqtrun_relay_object(
  * of one track's streams can be forwarded concurrently). --- */
 
 static usz moqtrun_decode_object_loop(
-    quic_span data, usz* off, const quic_moqdata_subhdr* hdr);
+    wired_span data, usz* off, const quic_moqdata_subhdr* hdr);
 
 static int moqtrun_relay_matches(
     const wired_moqtrun_relay* r, u64 pub_stream_id) {
@@ -660,7 +664,7 @@ static wired_moqtrun_relay* moqtrun_relay_alloc(wired_moqtrun_track* track) {
  * landed as two distinct wired_moqt_on_stream_data calls). stream_send
  * cannot carry this (srvrun.h: a round's payload must be non-empty), so
  * the caller routes it to stream_fin instead. */
-static int moqtrun_is_bare_fin(quic_span wire, int fin) {
+static int moqtrun_is_bare_fin(wired_span wire, int fin) {
   return wire.n == 0 && fin;
 }
 
@@ -711,7 +715,7 @@ static void moqtrun_relay_forward_one(
     wired_wt_session*    wt,
     wired_moqtrun_relay* relay,
     usz                  i,
-    quic_span            wire,
+    wired_span           wire,
     int                  fin) {
   if (moqtrun_is_bare_fin(wire, fin)) {
     hub->io.stream_fin(wt, relay->sub_stream_id[i]);
@@ -746,7 +750,7 @@ static void moqtrun_relay_late_open(
     int                  fin) {
   if (moqtrun_late_open_skip(relay, fin)) return;
   i64 sid = hub->io.open_uni_stream(
-      dst->wt, quic_span_of(relay->hdr, relay->hdr_len));
+      dst->wt, wired_span_of(relay->hdr, relay->hdr_len));
   if (sid < 0) {
     hub->stat_open_drop++;
     return;
@@ -764,7 +768,7 @@ static void moqtrun_relay_append_one(
     wired_moqtrun_sub*   sub,
     wired_moqtrun_relay* relay,
     usz                  i,
-    quic_span            wire,
+    wired_span           wire,
     int                  fin) {
   wired_moqtrun_peer* dst = &hub->peers[sub->session_idx];
   if (!dst->in_use) return;
@@ -779,7 +783,7 @@ static void moqtrun_relay_append_all(
     wired_moqt_hub*      hub,
     wired_moqtrun_track* track,
     wired_moqtrun_relay* relay,
-    quic_span            wire,
+    wired_span           wire,
     int                  fin) {
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++)
     if (track->subs[i].active)
@@ -810,23 +814,23 @@ static void moqtrun_relay_save_frag(
  * dropped round must never end mid-Object. hdr type 0 is the right decode
  * context here for the same reason it was for the former known-stream
  * resolver: every relayed stream's header has the Properties bit off. */
-static quic_span moqtrun_relay_normalize(
-    wired_moqt_hub* hub, wired_moqtrun_relay* relay, quic_span data) {
+static wired_span moqtrun_relay_normalize(
+    wired_moqt_hub* hub, wired_moqtrun_relay* relay, wired_span data) {
   usz                 total = relay->frag_len + data.n;
   quic_moqdata_subhdr hdr   = {0};
   usz                 off   = 0;
   quic_memcpy(hub->relay_scratch, relay->frag, relay->frag_len);
   quic_memcpy(hub->relay_scratch + relay->frag_len, data.p, data.n);
   moqtrun_decode_object_loop(
-      quic_span_of(hub->relay_scratch, total), &off, &hdr);
+      wired_span_of(hub->relay_scratch, total), &off, &hdr);
   moqtrun_relay_save_frag(hub, relay, hub->relay_scratch + off, total - off);
-  return quic_span_of(hub->relay_scratch, off);
+  return wired_span_of(hub->relay_scratch, off);
 }
 
 /* 1 if this normalized round carries anything worth forwarding: whole
  * Objects, or the publisher's FIN (which must reach the subscriber streams
  * even with no bytes of its own). */
-static int moqtrun_relay_round_due(quic_span whole, int fin) {
+static int moqtrun_relay_round_due(wired_span whole, int fin) {
   return whole.n != 0 || fin;
 }
 
@@ -840,9 +844,9 @@ static void moqtrun_relay_continue(
     wired_moqt_hub*      hub,
     wired_moqtrun_track* track,
     wired_moqtrun_relay* relay,
-    quic_span            wire,
+    wired_span           wire,
     int                  fin) {
-  quic_span whole = moqtrun_relay_normalize(hub, relay, wire);
+  wired_span whole = moqtrun_relay_normalize(hub, relay, wire);
   if (moqtrun_relay_round_due(whole, fin))
     moqtrun_relay_append_all(hub, track, relay, whole, fin);
   if (fin) relay->in_use = 0;
@@ -857,7 +861,7 @@ static void moqtrun_relay_open_one(
     wired_moqtrun_sub*   sub,
     wired_moqtrun_relay* relay,
     usz                  i,
-    quic_span            wire) {
+    wired_span           wire) {
   wired_moqtrun_peer* dst = &hub->peers[sub->session_idx];
   if (!dst->in_use) return;
   i64 sid = hub->io.open_uni_stream(dst->wt, wire);
@@ -874,7 +878,7 @@ static void moqtrun_relay_open_all(
     wired_moqt_hub*      hub,
     wired_moqtrun_track* track,
     wired_moqtrun_relay* relay,
-    quic_span            wire) {
+    wired_span           wire) {
   for (usz i = 0; i < WIRED_MOQTRUN_MAX_SUBS; i++)
     if (track->subs[i].active)
       moqtrun_relay_open_one(hub, &track->subs[i], relay, i, wire);
@@ -885,7 +889,8 @@ static void moqtrun_relay_open_all(
  * this is only called for a stream that already classified and decoded as
  * SUBGROUP, so a decode failure here cannot really happen; it just leaves
  * hdr_len 0 (late joiners are then skipped rather than sent garbage). */
-static void moqtrun_relay_save_hdr(wired_moqtrun_relay* relay, quic_span data) {
+static void moqtrun_relay_save_hdr(
+    wired_moqtrun_relay* relay, wired_span data) {
   usz                 off = 0;
   quic_moqdata_subhdr hdr;
   relay->hdr_len = 0;
@@ -905,7 +910,7 @@ static void moqtrun_relay_start(
     wired_moqt_hub*      hub,
     wired_moqtrun_track* track,
     u64                  pub_stream_id,
-    quic_span            wire,
+    wired_span           wire,
     usz                  whole_end) {
   wired_moqtrun_relay* relay = moqtrun_relay_alloc(track);
   if (!relay) {
@@ -921,7 +926,7 @@ static void moqtrun_relay_start(
   relay->frag_len = 0;
   moqtrun_relay_save_frag(hub, relay, wire.p + whole_end, wire.n - whole_end);
   moqtrun_relay_save_hdr(relay, wire);
-  moqtrun_relay_open_all(hub, track, relay, quic_span_of(wire.p, whole_end));
+  moqtrun_relay_open_all(hub, track, relay, wired_span_of(wire.p, whole_end));
 }
 
 /* Decodes the SUBGROUP_HEADER + the one Object this subset always sends
@@ -941,7 +946,7 @@ static void moqtrun_relay_start(
  * hub's former one-shot-Object path, this is that path's generalization to
  * N Objects on one stream. */
 static usz moqtrun_decode_object_loop(
-    quic_span data, usz* off, const quic_moqdata_subhdr* hdr) {
+    wired_span data, usz* off, const quic_moqdata_subhdr* hdr) {
   quic_moqdata_objseq seq = quic_moqdata_objseq_of(hdr->type);
   usz                 n   = 0;
   while (*off < data.n) {
@@ -975,7 +980,7 @@ static wired_moqtrun_track* moqtrun_track_by_alias(
  * stream's own normalization boundary, moqtrun_relay_normalize's twin for
  * the opening delivery). */
 static wired_moqtrun_track* moqtrun_decode_fresh_subgroup(
-    wired_moqtrun_peer* p, quic_span data, usz* whole_end) {
+    wired_moqtrun_peer* p, wired_span data, usz* whole_end) {
   usz                 off = 0;
   quic_moqdata_subhdr hdr;
   if (quic_moqdata_subhdr_take(data, &off, &hdr) != QUIC_MOQDATA_OK) return 0;
@@ -990,7 +995,7 @@ static wired_moqtrun_track* moqtrun_decode_fresh_subgroup(
  * slots -- else 0 (not a SUBGROUP stream, header decode failure, zero
  * Objects decoded, or an unknown Track Alias). */
 static wired_moqtrun_track* moqtrun_resolve_fresh_stream_track(
-    wired_moqtrun_peer* p, quic_span data, usz* whole_end) {
+    wired_moqtrun_peer* p, wired_span data, usz* whole_end) {
   usz classify_off = 0;
   int kind         = quic_moqdata_classify(data, &classify_off);
   if (kind != QUIC_MOQDATA_STREAM_SUBGROUP) return 0;
@@ -1009,7 +1014,7 @@ static void moqtrun_dispatch_fresh_stream(
     wired_moqt_hub*     hub,
     wired_moqtrun_peer* p,
     u64                 stream_id,
-    quic_span           data,
+    wired_span          data,
     int                 fin) {
   usz                  whole_end = 0;
   wired_moqtrun_track* track =
@@ -1032,7 +1037,7 @@ static void moqtrun_dispatch_data_stream(
     wired_moqt_hub*     hub,
     wired_moqtrun_peer* p,
     u64                 stream_id,
-    quic_span           data,
+    wired_span          data,
     int                 fin) {
   wired_moqtrun_track* track = 0;
   wired_moqtrun_relay* relay =
@@ -1050,7 +1055,7 @@ void wired_moqt_on_stream_data(
     void*             app_ctx,
     wired_wt_session* s,
     u64               stream_id,
-    quic_span         data,
+    wired_span        data,
     int               fin) {
   wired_moqt_hub*     hub = (wired_moqt_hub*)app_ctx;
   wired_moqtrun_peer* p   = moqtrun_find_by_wt(hub, s);

@@ -29,7 +29,7 @@ static void test_fio_roundtrip(void) {
   u8 data[5] = {0x11, 0x22, 0x33, 0x44, 0x55};
   u8 out[16] = {0};
   fiot_make(data, 5);
-  CHECK(wired_fio_read(fiot_path, quic_mspan_of(out, sizeof out)) == 5);
+  CHECK(wired_fio_read(fiot_path, wired_mspan_of(out, sizeof out)) == 5);
   for (usz i = 0; i < 5; i++) CHECK(out[i] == data[i]);
   fiot_unlink();
 }
@@ -39,7 +39,7 @@ static void test_fio_missing(void) {
   u8 out[4];
   CHECK(
       wired_fio_read(
-          "build/fio_test_missing.tmp", quic_mspan_of(out, sizeof out)) < 0);
+          "build/fio_test_missing.tmp", wired_mspan_of(out, sizeof out)) < 0);
 }
 
 /* File size == buf.n exactly: success, not overflow. */
@@ -47,7 +47,7 @@ static void test_fio_exact_fit(void) {
   u8 data[4] = {9, 8, 7, 6};
   u8 out[4]  = {0};
   fiot_make(data, 4);
-  CHECK(wired_fio_read(fiot_path, quic_mspan_of(out, sizeof out)) == 4);
+  CHECK(wired_fio_read(fiot_path, wired_mspan_of(out, sizeof out)) == 4);
   CHECK(out[3] == 6);
   fiot_unlink();
 }
@@ -58,7 +58,7 @@ static void test_fio_overflow(void) {
   u8 out[4];
   fiot_make(data, 5);
   CHECK(
-      wired_fio_read(fiot_path, quic_mspan_of(out, sizeof out)) ==
+      wired_fio_read(fiot_path, wired_mspan_of(out, sizeof out)) ==
       WIRED_FIO_ETOOBIG);
   fiot_unlink();
 }
@@ -67,7 +67,7 @@ static void test_fio_overflow(void) {
 static void test_fio_empty(void) {
   u8 out[4];
   fiot_make(0, 0);
-  CHECK(wired_fio_read(fiot_path, quic_mspan_of(out, sizeof out)) == 0);
+  CHECK(wired_fio_read(fiot_path, wired_mspan_of(out, sizeof out)) == 0);
   fiot_unlink();
 }
 
@@ -77,11 +77,11 @@ static void test_fio_append_appends(void) {
   const u8 first[]  = {'a', 'b'};
   const u8 second[] = {'c', 'd'};
   fiot_unlink();
-  CHECK(wired_fio_append(fiot_path, quic_span_of(first, 2)) == 2);
-  CHECK(wired_fio_append(fiot_path, quic_span_of(second, 2)) == 2);
+  CHECK(wired_fio_append(fiot_path, wired_span_of(first, 2)) == 2);
+  CHECK(wired_fio_append(fiot_path, wired_span_of(second, 2)) == 2);
   {
     u8 out[8] = {0};
-    CHECK(wired_fio_read(fiot_path, quic_mspan_of(out, sizeof out)) == 4);
+    CHECK(wired_fio_read(fiot_path, wired_mspan_of(out, sizeof out)) == 4);
     CHECK(out[0] == 'a' && out[1] == 'b' && out[2] == 'c' && out[3] == 'd');
   }
   fiot_unlink();
@@ -90,7 +90,7 @@ static void test_fio_append_appends(void) {
 /* Zero-length append: no-op, still succeeds. */
 static void test_fio_append_empty(void) {
   fiot_unlink();
-  CHECK(wired_fio_append(fiot_path, quic_span_of(0, 0)) == 0);
+  CHECK(wired_fio_append(fiot_path, wired_span_of(0, 0)) == 0);
   fiot_unlink();
 }
 
@@ -116,7 +116,7 @@ static void test_fio_open_pread_close_roundtrip(void) {
   fiot_make(data, 5);
   fd = wired_fio_open(fiot_path);
   CHECK(fd >= 0);
-  CHECK(wired_fio_pread(fd, quic_mspan_of(out, sizeof out), 0) == 5);
+  CHECK(wired_fio_pread(fd, wired_mspan_of(out, sizeof out), 0) == 5);
   for (usz i = 0; i < 5; i++) CHECK(out[i] == data[i]);
   wired_fio_close(fd);
   fiot_unlink();
@@ -132,7 +132,7 @@ static void test_fio_pread_nonzero_offset(void) {
   fiot_make(data, 6);
   fd = wired_fio_open(fiot_path);
   CHECK(fd >= 0);
-  CHECK(wired_fio_pread(fd, quic_mspan_of(out, sizeof out), 3) == 3);
+  CHECK(wired_fio_pread(fd, wired_mspan_of(out, sizeof out), 3) == 3);
   CHECK(out[0] == 40 && out[1] == 50 && out[2] == 60);
   wired_fio_close(fd);
   fiot_unlink();
@@ -146,7 +146,7 @@ static void test_fio_pread_at_eof(void) {
   fiot_make(data, 4);
   fd = wired_fio_open(fiot_path);
   CHECK(fd >= 0);
-  CHECK(wired_fio_pread(fd, quic_mspan_of(out, sizeof out), 4) == 0);
+  CHECK(wired_fio_pread(fd, wired_mspan_of(out, sizeof out), 4) == 0);
   wired_fio_close(fd);
   fiot_unlink();
 }
@@ -160,7 +160,7 @@ static void test_fio_pread_partial_round(void) {
   fiot_make(data, 10);
   fd = wired_fio_open(fiot_path);
   CHECK(fd >= 0);
-  CHECK(wired_fio_pread(fd, quic_mspan_of(out, sizeof out), 0) == 4);
+  CHECK(wired_fio_pread(fd, wired_mspan_of(out, sizeof out), 0) == 4);
   CHECK(out[0] == 0 && out[3] == 3);
   wired_fio_close(fd);
   fiot_unlink();
@@ -184,8 +184,8 @@ static void test_fio_write_new_roundtrip(void) {
   const u8 data[3] = {'x', 'y', 'z'};
   u8       out[8]  = {0};
   fiot_unlink();
-  CHECK(wired_fio_write_new(fiot_path, quic_span_of(data, 3)) == 0);
-  CHECK(wired_fio_read(fiot_path, quic_mspan_of(out, sizeof out)) == 3);
+  CHECK(wired_fio_write_new(fiot_path, wired_span_of(data, 3)) == 0);
+  CHECK(wired_fio_read(fiot_path, wired_mspan_of(out, sizeof out)) == 3);
   CHECK(out[0] == 'x' && out[1] == 'y' && out[2] == 'z');
   fiot_unlink();
 }
@@ -196,9 +196,9 @@ static void test_fio_write_new_truncates(void) {
   const u8 longer[5]  = {1, 2, 3, 4, 5};
   const u8 shorter[2] = {9, 8};
   u8       out[8]     = {0};
-  CHECK(wired_fio_write_new(fiot_path, quic_span_of(longer, 5)) == 0);
-  CHECK(wired_fio_write_new(fiot_path, quic_span_of(shorter, 2)) == 0);
-  CHECK(wired_fio_read(fiot_path, quic_mspan_of(out, sizeof out)) == 2);
+  CHECK(wired_fio_write_new(fiot_path, wired_span_of(longer, 5)) == 0);
+  CHECK(wired_fio_write_new(fiot_path, wired_span_of(shorter, 2)) == 0);
+  CHECK(wired_fio_read(fiot_path, wired_mspan_of(out, sizeof out)) == 2);
   CHECK(out[0] == 9 && out[1] == 8);
   fiot_unlink();
 }
@@ -206,8 +206,8 @@ static void test_fio_write_new_truncates(void) {
 /* Empty span: a zero-byte file results. */
 static void test_fio_write_new_empty(void) {
   const u8 data[1] = {7};
-  CHECK(wired_fio_write_new(fiot_path, quic_span_of(data, 1)) == 0);
-  CHECK(wired_fio_write_new(fiot_path, quic_span_of(0, 0)) == 0);
+  CHECK(wired_fio_write_new(fiot_path, wired_span_of(data, 1)) == 0);
+  CHECK(wired_fio_write_new(fiot_path, wired_span_of(0, 0)) == 0);
   CHECK(wired_fio_size(fiot_path) == 0);
   fiot_unlink();
 }
@@ -216,8 +216,8 @@ static void test_fio_write_new_empty(void) {
 static void test_fio_write_new_missing_parent(void) {
   const u8 data[1] = {1};
   CHECK(
-      wired_fio_write_new("build/fio_test_nodir.tmp/f", quic_span_of(data, 1)) <
-      0);
+      wired_fio_write_new(
+          "build/fio_test_nodir.tmp/f", wired_span_of(data, 1)) < 0);
 }
 
 /* wired_fio_mkdir creates a directory that write_new can then write into. */
@@ -226,7 +226,7 @@ static void test_fio_mkdir_then_write(void) {
   const char file[]  = "build/fio_test_dir.tmp/f";
   fiot_rmdir();
   CHECK(wired_fio_mkdir(fiot_dir) == 0);
-  CHECK(wired_fio_write_new(file, quic_span_of(data, 1)) == 0);
+  CHECK(wired_fio_write_new(file, wired_span_of(data, 1)) == 0);
   CHECK(wired_fio_size(file) == 1);
   syscall3(SYS_unlinkat, FIOT_AT_FDCWD, file, 0);
   fiot_rmdir();

@@ -31,11 +31,11 @@ static usz eebuild_early_data(u8* out, usz cap, int early_data) {
 
 int quic_eebuild_encrypted_extensions(
     quic_salpn_choice alpn,
-    quic_span         transport_params,
+    wired_span        transport_params,
     int               early_data,
-    quic_obuf*        out) {
-  usz       off, alpn_len, ext, ed;
-  quic_obuf eob;
+    wired_obuf*       out) {
+  usz        off, alpn_len, ext, ed;
+  wired_obuf eob;
   if (!eebuild_fits(transport_params.n, out->cap)) return 0;
   off = quic_hs_begin(out->p, out->cap, QUIC_HS_ENCRYPTED_EXT);
   if (!quic_salpn_build_response(

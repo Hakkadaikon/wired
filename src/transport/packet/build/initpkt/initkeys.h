@@ -8,7 +8,7 @@
  * the Destination Connection ID of the client's first Initial packet, under
  * QUIC v1. Equivalent to quic_initpkt_derive_ver(dcid, QUIC_VERSION_1, ...). */
 void quic_initpkt_derive(
-    quic_span          dcid,
+    wired_span         dcid,
     quic_initial_keys* client_keys,
     quic_initial_keys* server_keys);
 
@@ -17,7 +17,7 @@ void quic_initpkt_derive(
  * Label prefix, tls/handshake/core/tls/initial.c). Unknown versions still
  * derive via the fallback quic_initial_derive applies. */
 void quic_initpkt_derive_ver(
-    quic_span          dcid,
+    wired_span         dcid,
     u32                version,
     quic_initial_keys* client_keys,
     quic_initial_keys* server_keys);

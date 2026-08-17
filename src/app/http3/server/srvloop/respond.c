@@ -37,7 +37,7 @@ static usz encode_ack_one(u8* frames, usz cap, u64 pn) {
  * leads with an ACK-only Handshake packet, so the Finished is not at PN 0 and a
  * fixed ACK of 0 left it unacknowledged — the client then PTO-retransmitted it
  * for ~4s before the handshake completed (the appconnect stall). */
-static int emit_handshake_ack(const wired_srvloop_conn* c, quic_obuf* out) {
+static int emit_handshake_ack(const wired_srvloop_conn* c, wired_obuf* out) {
   wired_srvloop_dirkeys dk;
   u8                    frames[16];
   usz                   fl;
@@ -46,9 +46,9 @@ static int emit_handshake_ack(const wired_srvloop_conn* c, quic_obuf* out) {
   if (fl == 0) return 0;
   quic_protect_keys pk = {dk.keys, &dk.hp};
   quic_hspkt_desc   d  = {
-      quic_span_of(c->l->cli_scid, c->l->cli_scid_len),
-      quic_span_of(c->s->sdrv.iscid, c->s->sdrv.iscid_len), c->l->hs_tx_pn++,
-      quic_span_of(frames, fl)};
+      wired_span_of(c->l->cli_scid, c->l->cli_scid_len),
+      wired_span_of(c->s->sdrv.iscid, c->s->sdrv.iscid_len), c->l->hs_tx_pn++,
+      wired_span_of(frames, fl)};
   /* out->len 0 unless built */
   return quic_hspkt_build_suite(c->s->sdrv.cipher_suite, &pk, &d, out);
 }
@@ -56,9 +56,9 @@ static int emit_handshake_ack(const wired_srvloop_conn* c, quic_obuf* out) {
 /* RFC 9114 6.2.1: wrap the control-stream type + SETTINGS in a STREAM frame on
  * the first server unidirectional stream (id 3, no FIN: the stream stays open).
  */
-static int build_settings_frame(wired_srvloop* l, quic_obuf* out) {
+static int build_settings_frame(wired_srvloop* l, wired_obuf* out) {
   u8                ctl[64];
-  quic_obuf         ctlb = quic_obuf_of(ctl, sizeof ctl);
+  wired_obuf        ctlb = quic_obuf_of(ctl, sizeof ctl);
   quic_stream_frame f;
   /* advertise WebTransport + H3 datagrams only when the QUIC transport also
    * negotiated max_datagram_frame_size (RFC 9297 2.1.1 MUST) */
@@ -96,7 +96,7 @@ const u8* wired_srvloop_ticket_key(void) { return g_ticket_key; }
 
 static usz build_ticket_message(const wired_server* s, u8* msg, usz msg_cap) {
   quic_ticket t = {{0}, 0, 7200, 0};
-  t.issued_at   = quic_clock_epoch_secs();
+  t.issued_at   = wired_clock_epoch_secs();
   if (!wired_server_resumption_secret(s, t.secret)) return 0;
   return quic_tls_new_session_ticket_encode(
       msg, msg_cap, &t, g_ticket_key, WIRED_SRVLOOP_MAX_EARLY_DATA_SIZE);
@@ -104,7 +104,7 @@ static usz build_ticket_message(const wired_server* s, u8* msg, usz msg_cap) {
 
 /* Seal a fresh session ticket and append it as a CRYPTO frame
  * (RFC 9000 19.6) to a 1-RTT payload. */
-static int append_ticket_frame(const wired_server* s, quic_obuf* out) {
+static int append_ticket_frame(const wired_server* s, wired_obuf* out) {
   u8                msg[64 + QUIC_TICKET_SEALED_LEN];
   quic_crypto_frame cf;
   usz               written;
@@ -120,7 +120,7 @@ static int append_ticket_frame(const wired_server* s, quic_obuf* out) {
 /* SETTINGS (RFC 9114 6.2.1) followed by a session ticket (RFC 8446 4.6.1),
  * the head of the confirmation payload. */
 static int confirm_head(
-    const wired_server* s, wired_srvloop* l, quic_obuf* out) {
+    const wired_server* s, wired_srvloop* l, wired_obuf* out) {
   if (!build_settings_frame(l, out)) return 0;
   return append_ticket_frame(s, out);
 }
@@ -137,9 +137,9 @@ static void confirm_cache_store(wired_srvloop* l, const u8* p, usz n) {
 /* The 1-RTT payload sent at confirmation: confirm_head, then HANDSHAKE_DONE
  * (RFC 9000 19.20) last — callers rely on HANDSHAKE_DONE being the trailing
  * frame. */
-static int confirm_payload(const wired_srvloop_conn* c, quic_obuf* out) {
-  quic_obuf ob = quic_obuf_of(out->p, out->cap);
-  usz       a;
+static int confirm_payload(const wired_srvloop_conn* c, wired_obuf* out) {
+  wired_obuf ob = quic_obuf_of(out->p, out->cap);
+  usz        a;
   if (!confirm_head(c->s, c->l, &ob)) return 0;
   a  = ob.len;
   ob = quic_obuf_of(out->p + a, out->cap - a);
@@ -247,10 +247,10 @@ void wired_srvloop_ack_mark_sent(wired_srvloop* l) {
  * sets it. */
 static const u8* build_body(
     wired_srvloop* l, u8* body, usz* body_len, const char** content_type) {
-  quic_obuf ob         = quic_obuf_of(body, WIRED_SRVLOOP_BODY_MAX);
-  int       more       = 0;
-  u64       total_size = 0;
-  *body_len            = 0;
+  wired_obuf ob         = quic_obuf_of(body, WIRED_SRVLOOP_BODY_MAX);
+  int        more       = 0;
+  u64        total_size = 0;
+  *body_len             = 0;
   if (l->on_request &&
       l->on_request(
           l->req_ctx, &l->req, 0, &ob, content_type, &more, &total_size)) {
@@ -262,7 +262,7 @@ static const u8* build_body(
 
 /* RFC 9114 4.1 / 4.3.2: the 200 STREAM frame for the decoded request, carrying
  * the handler-built body; an empty section when no request was decoded. */
-static int response_frame(wired_srvloop* l, int got_request, quic_obuf* out) {
+static int response_frame(wired_srvloop* l, int got_request, wired_obuf* out) {
   u8          body[WIRED_SRVLOOP_BODY_MAX];
   usz         body_len;
   const u8*   b;
@@ -275,7 +275,7 @@ static int response_frame(wired_srvloop* l, int got_request, quic_obuf* out) {
   {
     wired_h3srv_send_in send = {
         WIRED_SRVLOOP_RESP_STREAM,
-        {200, quic_span_of(b, body_len), content_type}};
+        {200, wired_span_of(b, body_len), content_type}};
     return wired_h3srv_build_response(&l->h3, &send, out);
   }
 }
@@ -289,9 +289,9 @@ static int response_frame(wired_srvloop* l, int got_request, quic_obuf* out) {
  * does not constrain HTTP/3 stream order, so a peer routes each STREAM by its
  * id. */
 static int confirm_then_maybe_200(
-    const wired_srvloop_conn* c, int got_request, quic_obuf* out) {
-  quic_obuf ob = quic_obuf_of(out->p, out->cap);
-  usz       a;
+    const wired_srvloop_conn* c, int got_request, wired_obuf* out) {
+  wired_obuf ob = quic_obuf_of(out->p, out->cap);
+  usz        a;
   if (!confirm_payload(c, &ob)) return 0;
   a  = ob.len;
   ob = quic_obuf_of(out->p + a, out->cap - a);
@@ -303,16 +303,16 @@ static int confirm_then_maybe_200(
 /* Seal the confirmation 1-RTT packet (SETTINGS + HANDSHAKE_DONE, and the 200 +
  * received-packet ACK when a GET was decoded) into out, in one 1-RTT packet. */
 static int seal_confirm_onertt(
-    const wired_srvloop_conn* c, int got_request, quic_obuf* out) {
-  u8        pl[WIRED_SRVLOOP_BODY_MAX + 288];
-  quic_obuf plb = quic_obuf_of(pl, sizeof pl);
-  usz       pll;
+    const wired_srvloop_conn* c, int got_request, wired_obuf* out) {
+  u8         pl[WIRED_SRVLOOP_BODY_MAX + 288];
+  wired_obuf plb = quic_obuf_of(pl, sizeof pl);
+  usz        pll;
   if (!confirm_then_maybe_200(c, got_request, &plb)) return 0;
   pll = plb.len;
   pll += app_ack_append(c->l, pl + pll, sizeof pl - pll);
   wired_srvloop_send_in sin = {
-      quic_span_of(c->l->cli_scid, c->l->cli_scid_len), c->l->tx_pn++, -1,
-      quic_span_of(pl, pll), 0};
+      wired_span_of(c->l->cli_scid, c->l->cli_scid_len), c->l->tx_pn++, -1,
+      wired_span_of(pl, pll), 0};
   return wired_srvloop_send_onertt(c->s, &sin, out);
 }
 
@@ -320,9 +320,9 @@ static int seal_confirm_onertt(
  * single 1-RTT packet (SETTINGS + HANDSHAKE_DONE, plus the 200 when a GET came
  * in the same datagram) into one datagram. */
 static int emit_confirm(
-    const wired_srvloop_conn* c, int got_request, quic_obuf* out) {
-  quic_obuf ob = quic_obuf_of(out->p, out->cap);
-  usz       hl;
+    const wired_srvloop_conn* c, int got_request, wired_obuf* out) {
+  wired_obuf ob = quic_obuf_of(out->p, out->cap);
+  usz        hl;
   if (!emit_handshake_ack(c, &ob)) return 0;
   hl = ob.len;
   ob = quic_obuf_of(out->p + hl, out->cap - hl);
@@ -336,16 +336,16 @@ static int emit_confirm(
  * packet. The response STREAM frame carries an explicit length, so a peer's
  * response decoder stops at it and ignores the trailing ACK. SETTINGS were
  * already sent at confirmation (build_response needs settings_sent). */
-static int emit_response(const wired_srvloop_conn* c, quic_obuf* out) {
-  u8        pl[WIRED_SRVLOOP_BODY_MAX + 288];
-  quic_obuf plb = quic_obuf_of(pl, sizeof pl);
-  usz       rl;
+static int emit_response(const wired_srvloop_conn* c, wired_obuf* out) {
+  u8         pl[WIRED_SRVLOOP_BODY_MAX + 288];
+  wired_obuf plb = quic_obuf_of(pl, sizeof pl);
+  usz        rl;
   if (!response_frame(c->l, 1, &plb)) return 0;
   rl = plb.len;
   rl += app_ack_append(c->l, pl + rl, sizeof pl - rl);
   wired_srvloop_send_in sin = {
-      quic_span_of(c->l->cli_scid, c->l->cli_scid_len), c->l->tx_pn++, -1,
-      quic_span_of(pl, rl), 0};
+      wired_span_of(c->l->cli_scid, c->l->cli_scid_len), c->l->tx_pn++, -1,
+      wired_span_of(pl, rl), 0};
   return wired_srvloop_send_onertt(c->s, &sin, out);
 }
 
@@ -355,13 +355,13 @@ static int emit_response(const wired_srvloop_conn* c, quic_obuf* out) {
  * when the delayed-ACK policy actually calls for one now (RFC 9000
  * 13.2.1/13.2.2) -- unlike the piggyback callers above, this packet exists
  * solely to carry the ACK, so the delay window matters here. */
-static int emit_ack_only(const wired_srvloop_conn* c, quic_obuf* out) {
+static int emit_ack_only(const wired_srvloop_conn* c, wired_obuf* out) {
   u8  pl[288]; /* room for QUIC_ACK_MAX_RANGES ranges, not just one pn */
   usz a = app_ack_append_if_due(c->l, pl, sizeof pl);
   if (a == 0) return 0;
   wired_srvloop_send_in sin = {
-      quic_span_of(c->l->cli_scid, c->l->cli_scid_len), c->l->tx_pn++, -1,
-      quic_span_of(pl, a), 0};
+      wired_span_of(c->l->cli_scid, c->l->cli_scid_len), c->l->tx_pn++, -1,
+      wired_span_of(pl, a), 0};
   return wired_srvloop_send_onertt(c->s, &sin, out);
 }
 
@@ -369,7 +369,7 @@ static int emit_ack_only(const wired_srvloop_conn* c, quic_obuf* out) {
  * ACK of the received 1-RTT packet, else nothing. The confirmation is never
  * re-emitted here (RFC 9000 13.2.1). */
 static int produce_confirmed(
-    const wired_srvloop_conn* c, int got_request, quic_obuf* out) {
+    const wired_srvloop_conn* c, int got_request, wired_obuf* out) {
   if (got_request) return emit_response(c, out);
   return emit_ack_only(c, out);
 }
@@ -380,7 +380,7 @@ static int produce_confirmed(
  * packets cannot coalesce). So curl receives SETTINGS to establish HTTP/3 and
  * the 200 together, never the 200 alone with SETTINGS still missing. */
 static int emit_confirm_then_maybe_200(
-    const wired_srvloop_conn* c, int got_request, quic_obuf* out) {
+    const wired_srvloop_conn* c, int got_request, wired_obuf* out) {
   if (!emit_confirm(c, got_request, out)) return 0;
   c->l->hs_done_sent = 1;
   c->l->ticket_sent  = 1;
@@ -394,17 +394,17 @@ static int emit_confirm_then_maybe_200(
 static int confirm_pending(const wired_srvloop* l) { return !l->hs_done_sent; }
 
 int wired_srvloop_produce(
-    const wired_srvloop_conn* conn, int got_request, quic_obuf* out) {
+    const wired_srvloop_conn* conn, int got_request, wired_obuf* out) {
   if (confirm_pending(conn->l))
     return emit_confirm_then_maybe_200(conn, got_request, out);
   return produce_confirmed(conn, got_request, out);
 }
 
-int wired_srvloop_reconfirm(const wired_srvloop_conn* conn, quic_obuf* out) {
+int wired_srvloop_reconfirm(const wired_srvloop_conn* conn, wired_obuf* out) {
   wired_srvloop* l = conn->l;
   if (!l->hs_done_sent || l->confirm_frames_len == 0) return 0;
   wired_srvloop_send_in sin = {
-      quic_span_of(l->cli_scid, l->cli_scid_len), l->tx_pn++, -1,
-      quic_span_of(l->confirm_frames, l->confirm_frames_len), 0};
+      wired_span_of(l->cli_scid, l->cli_scid_len), l->tx_pn++, -1,
+      wired_span_of(l->confirm_frames, l->confirm_frames_len), 0};
   return wired_srvloop_send_onertt(conn->s, &sin, out);
 }

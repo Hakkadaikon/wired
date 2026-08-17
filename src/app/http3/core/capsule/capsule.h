@@ -28,7 +28,7 @@
  * @param value capsule value bytes (may be empty)
  * @return 1 on success, 0 if it doesn't fit (or type is out of varint range)
  */
-int quic_capsule_encode(quic_obuf* out, u64 type, quic_span value);
+int quic_capsule_encode(wired_obuf* out, u64 type, wired_span value);
 
 /** Decode the next capsule starting at *at within data.
  *
@@ -52,7 +52,7 @@ int quic_capsule_encode(quic_obuf* out, u64 type, quic_span value);
  * @param value set to a view of the capsule value on success
  * @return 1 on success, 0 if incomplete or malformed
  */
-int quic_capsule_decode(quic_span data, usz* at, u64* type, quic_span* value);
+int quic_capsule_decode(wired_span data, usz* at, u64* type, wired_span* value);
 
 /** RFC 9297 SS3.3 (9297-021): "If the receive side of a stream carrying
  * Capsules is terminated cleanly and the last Capsule on the stream was
@@ -69,6 +69,6 @@ int quic_capsule_decode(quic_span data, usz* at, u64* type, quic_span* value);
  * @return 1 if this is a FIN-terminated truncated capsule (malformed), 0
  *   otherwise (either not FIN yet, or no leftover bytes at all)
  */
-int quic_capsule_fin_truncated(quic_span data, usz at, int fin);
+int quic_capsule_fin_truncated(wired_span data, usz at, int fin);
 
 #endif

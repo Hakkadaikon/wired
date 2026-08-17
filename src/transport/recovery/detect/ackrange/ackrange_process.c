@@ -30,7 +30,7 @@ static void akr_ack_range(quic_sentpkt* t, akr_pnrange r, quic_u64out out) {
 }
 
 int quic_ackrange_process(
-    quic_sentpkt* t, quic_span ack_frame, quic_u64out newly_acked) {
+    quic_sentpkt* t, wired_span ack_frame, quic_u64out newly_acked) {
   quic_ack_frame f;
   *newly_acked.n = 0;
   if (quic_ack_decode(ack_frame.p, ack_frame.n, &f) == 0) return 0;

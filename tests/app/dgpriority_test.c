@@ -19,9 +19,9 @@ static void test_dgpriority_higher(void) {
  * urgent (lowest urgency) one. */
 static void test_dgpriority_pick_selects_most_urgent(void) {
   quic_dgpriority_candidate c[3] = {
-      {quic_span_of((const u8*)"low", 3), 5},
-      {quic_span_of((const u8*)"high", 4), 1},
-      {quic_span_of((const u8*)"mid", 3), 3},
+      {wired_span_of((const u8*)"low", 3), 5},
+      {wired_span_of((const u8*)"high", 4), 1},
+      {wired_span_of((const u8*)"mid", 3), 3},
   };
   CHECK(quic_dgpriority_pick(c, 3) == 1);
 }
@@ -30,8 +30,8 @@ static void test_dgpriority_pick_selects_most_urgent(void) {
  * priority-then-arrival order). */
 static void test_dgpriority_pick_tie_keeps_earliest(void) {
   quic_dgpriority_candidate c[2] = {
-      {quic_span_of((const u8*)"first", 5), 3},
-      {quic_span_of((const u8*)"second", 6), 3},
+      {wired_span_of((const u8*)"first", 5), 3},
+      {wired_span_of((const u8*)"second", 6), 3},
   };
   CHECK(quic_dgpriority_pick(c, 2) == 0);
 }

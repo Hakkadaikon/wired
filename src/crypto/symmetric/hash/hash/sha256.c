@@ -131,7 +131,7 @@ void quic_sha256_final(quic_sha256_ctx* s, u8 out[QUIC_SHA256_DIGEST]) {
   for (usz i = 0; i < 8; i++) put_be32(out + i * 4, s->h[i]);
 }
 
-void quic_sha256(const u8* data, usz len, u8 out[QUIC_SHA256_DIGEST]) {
+void wired_sha256(const u8* data, usz len, u8 out[QUIC_SHA256_DIGEST]) {
   quic_sha256_ctx s;
   quic_sha256_init(&s);
   quic_sha256_update(&s, data, len);

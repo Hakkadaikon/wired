@@ -25,7 +25,7 @@ typedef struct {
 static void check_decode(const moqvi_dec_vec* g) {
   u64 out = 0;
   usz off = 0;
-  CHECK(quic_moqvi_take(quic_span_of(g->p, g->n), &off, &out));
+  CHECK(quic_moqvi_take(wired_span_of(g->p, g->n), &off, &out));
   CHECK(out == g->v);
   CHECK(off == g->n);
 }
@@ -80,7 +80,7 @@ static void check_encode(const moqvi_enc_vec* g) {
   u8  buf[9] = {0};
   usz off    = 0;
   CHECK(quic_moqvi_len(g->v) == g->n);
-  CHECK(quic_moqvi_put(quic_mspan_of(buf, sizeof buf), &off, g->v));
+  CHECK(quic_moqvi_put(wired_mspan_of(buf, sizeof buf), &off, g->v));
   CHECK(off == g->n);
   for (usz i = 0; i < g->n; i++) CHECK(buf[i] == g->p[i]);
 }
@@ -131,7 +131,7 @@ static void check_truncated(const u8* p, usz n) {
   u64 out = 0;
   usz off = 0;
   CHECK(quic_moqvi_decode(p, n, &out) == 0);
-  CHECK(!quic_moqvi_take(quic_span_of(p, n), &off, &out));
+  CHECK(!quic_moqvi_take(wired_span_of(p, n), &off, &out));
   CHECK(off == 0);
 }
 
@@ -157,10 +157,10 @@ static void test_moqvi_roundtrip(void) {
   usz off = 0;
   usz at  = 0;
   for (usz i = 0; i < 7; i++)
-    CHECK(quic_moqvi_put(quic_mspan_of(buf, sizeof buf), &off, vals[i]));
+    CHECK(quic_moqvi_put(wired_mspan_of(buf, sizeof buf), &off, vals[i]));
   for (usz i = 0; i < 7; i++) {
     u64 out = 0;
-    CHECK(quic_moqvi_take(quic_span_of(buf, off), &at, &out));
+    CHECK(quic_moqvi_take(wired_span_of(buf, off), &at, &out));
     CHECK(out == vals[i]);
   }
   CHECK(at == off);
@@ -172,7 +172,7 @@ static void test_moqvi_decode_ignores_trailing(void) {
   static const u8 buf[] = {0xbb, 0xbd, 0xAA, 0xBB};
   u64             out   = 0;
   usz             off   = 0;
-  CHECK(quic_moqvi_take(quic_span_of(buf, sizeof buf), &off, &out));
+  CHECK(quic_moqvi_take(wired_span_of(buf, sizeof buf), &off, &out));
   CHECK(out == 15293);
   CHECK(off == 2);
 }
@@ -182,11 +182,11 @@ static void test_moqvi_decode_ignores_trailing(void) {
 static void test_moqvi_put_too_small(void) {
   u8  buf[2];
   usz off = 0;
-  CHECK(!quic_moqvi_put(quic_mspan_of(buf, sizeof buf), &off, 16384));
+  CHECK(!quic_moqvi_put(wired_mspan_of(buf, sizeof buf), &off, 16384));
   CHECK(off == 0);
-  CHECK(quic_moqvi_put(quic_mspan_of(buf, sizeof buf), &off, 16383));
+  CHECK(quic_moqvi_put(wired_mspan_of(buf, sizeof buf), &off, 16383));
   CHECK(off == 2);
-  CHECK(!quic_moqvi_put(quic_mspan_of(buf, sizeof buf), &off, 0));
+  CHECK(!quic_moqvi_put(wired_mspan_of(buf, sizeof buf), &off, 0));
 }
 
 void test_moqvi(void) {

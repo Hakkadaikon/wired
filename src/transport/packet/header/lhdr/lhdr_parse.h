@@ -12,17 +12,17 @@
 /** Parsed long header fields. dcid/scid/token view into the packet (token.p
  * is NULL when empty). */
 typedef struct {
-  quic_span dcid;
-  quic_span scid;
-  quic_span token;
-  u64       length;
-  usz       pn_off;
+  wired_span dcid;
+  wired_span scid;
+  wired_span token;
+  u64        length;
+  usz        pn_off;
 } quic_lhdr;
 
 /* Parse pkt. is_initial selects whether a Token field is present (RFC 9000
  * 17.2.2 Initial) or absent (17.2.4 Handshake). On success fills *out and
  * returns 1. Returns 0 on any malformed or truncated input. */
-int quic_lhdr_parse(quic_span pkt, int is_initial, quic_lhdr* out);
+int quic_lhdr_parse(wired_span pkt, int is_initial, quic_lhdr* out);
 
 /* RFC 9000 17.2: after HP removal the two low bits of byte 0 hold the packet
  * number length minus one. Returns 1..4. */

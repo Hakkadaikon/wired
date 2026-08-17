@@ -25,7 +25,7 @@ static void test_keyschedule_order(void) {
 
   CHECK(
       quic_keysched_advance_handshake(
-          &st, quic_span_of(ecdhe, 32), quic_span_of(tr, sizeof(tr))) == 1);
+          &st, wired_span_of(ecdhe, 32), wired_span_of(tr, sizeof(tr))) == 1);
   CHECK(quic_keysched_get(&st, QUIC_KS_CLIENT_HS, &k) == 1);
   CHECK(quic_keysched_get(&st, QUIC_KS_SERVER_HS, &k) == 1);
   /* app keys still unavailable before master stage */
@@ -54,10 +54,10 @@ static void test_keyschedule_double_handshake(void) {
   quic_keysched_init(&st);
   CHECK(
       quic_keysched_advance_handshake(
-          &st, quic_span_of(ecdhe, 32), quic_span_of(tr, sizeof(tr))) == 1);
+          &st, wired_span_of(ecdhe, 32), wired_span_of(tr, sizeof(tr))) == 1);
   CHECK(
       quic_keysched_advance_handshake(
-          &st, quic_span_of(ecdhe, 32), quic_span_of(tr, sizeof(tr))) == 0);
+          &st, wired_span_of(ecdhe, 32), wired_span_of(tr, sizeof(tr))) == 0);
 }
 
 /* A wrong-length ECDHE secret is rejected at the trust boundary. */
@@ -68,7 +68,7 @@ static void test_keyschedule_bad_ecdhe(void) {
   quic_keysched_init(&st);
   CHECK(
       quic_keysched_advance_handshake(
-          &st, quic_span_of(ecdhe, 31), quic_span_of(tr, sizeof(tr))) == 0);
+          &st, wired_span_of(ecdhe, 31), wired_span_of(tr, sizeof(tr))) == 0);
   CHECK(st.stage == 0); /* stage unchanged on rejection */
 }
 
@@ -81,7 +81,7 @@ static void test_keyschedule_matches_oneshot(void) {
   const quic_initial_keys *c_hs, *s_hs, *c_ap, *s_ap;
   quic_keysched_init(&st);
   quic_keysched_advance_handshake(
-      &st, quic_span_of(ecdhe, 32), quic_span_of(tr, sizeof(tr)));
+      &st, wired_span_of(ecdhe, 32), wired_span_of(tr, sizeof(tr)));
   quic_keysched_advance_master(&st, tr, sizeof(tr));
   quic_keysched_get(&st, QUIC_KS_CLIENT_HS, &c_hs);
   quic_keysched_get(&st, QUIC_KS_SERVER_HS, &s_hs);
@@ -92,11 +92,11 @@ static void test_keyschedule_matches_oneshot(void) {
   quic_initial_keys ref;
   quic_tls_handshake_secret(ecdhe, hs);
   quic_tls_handshake_keys(
-      &(quic_handshake_keys_in){hs, quic_span_of(tr, sizeof(tr)), 0}, &ref);
+      &(quic_handshake_keys_in){hs, wired_span_of(tr, sizeof(tr)), 0}, &ref);
   for (usz i = 0; i < QUIC_INITIAL_KEY; i++) CHECK(c_hs->key[i] == ref.key[i]);
   quic_tls_master_secret(hs, master);
   quic_tls_app_keys(
-      &(quic_app_keys_in){master, quic_span_of(tr, sizeof(tr)), 1}, &ref);
+      &(quic_app_keys_in){master, wired_span_of(tr, sizeof(tr)), 1}, &ref);
   for (usz i = 0; i < QUIC_INITIAL_KEY; i++) CHECK(s_ap->key[i] == ref.key[i]);
 
   /* directions and stages produce distinct keys */
@@ -118,8 +118,8 @@ static void test_keyschedule_psk_matches_oneshot(void) {
   quic_keysched_init(&st);
   CHECK(
       quic_keysched_advance_handshake_psk(
-          &st, quic_span_of(psk, 32), quic_span_of(ecdhe, 32),
-          quic_span_of(tr, sizeof(tr))) == 1);
+          &st, wired_span_of(psk, 32), wired_span_of(ecdhe, 32),
+          wired_span_of(tr, sizeof(tr))) == 1);
   quic_keysched_get(&st, QUIC_KS_CLIENT_HS, &c_hs);
   quic_keysched_get(&st, QUIC_KS_SERVER_HS, &s_hs);
 
@@ -127,10 +127,10 @@ static void test_keyschedule_psk_matches_oneshot(void) {
   quic_initial_keys ref;
   quic_tls_handshake_secret_psk(psk, ecdhe, hs);
   quic_tls_handshake_keys(
-      &(quic_handshake_keys_in){hs, quic_span_of(tr, sizeof(tr)), 0}, &ref);
+      &(quic_handshake_keys_in){hs, wired_span_of(tr, sizeof(tr)), 0}, &ref);
   for (usz i = 0; i < QUIC_INITIAL_KEY; i++) CHECK(c_hs->key[i] == ref.key[i]);
   quic_tls_handshake_keys(
-      &(quic_handshake_keys_in){hs, quic_span_of(tr, sizeof(tr)), 1}, &ref);
+      &(quic_handshake_keys_in){hs, wired_span_of(tr, sizeof(tr)), 1}, &ref);
   for (usz i = 0; i < QUIC_INITIAL_KEY; i++) CHECK(s_hs->key[i] == ref.key[i]);
   quic_tls_master_secret(hs, master);
   for (usz i = 0; i < 32; i++) CHECK(st.master[i] == master[i]);
@@ -148,10 +148,10 @@ static void test_keyschedule_psk_differs_from_plain(void) {
   quic_keysched_init(&st_psk);
   quic_keysched_init(&st_plain);
   quic_keysched_advance_handshake_psk(
-      &st_psk, quic_span_of(psk, 32), quic_span_of(ecdhe, 32),
-      quic_span_of(tr, sizeof(tr)));
+      &st_psk, wired_span_of(psk, 32), wired_span_of(ecdhe, 32),
+      wired_span_of(tr, sizeof(tr)));
   quic_keysched_advance_handshake(
-      &st_plain, quic_span_of(ecdhe, 32), quic_span_of(tr, sizeof(tr)));
+      &st_plain, wired_span_of(ecdhe, 32), wired_span_of(tr, sizeof(tr)));
   quic_keysched_get(&st_psk, QUIC_KS_SERVER_HS, &psk_hs);
   quic_keysched_get(&st_plain, QUIC_KS_SERVER_HS, &plain_hs);
   CHECK(keys_differ(psk_hs, plain_hs));
@@ -169,7 +169,7 @@ static void test_keyschedule_exporter_secret_matches_oneshot(void) {
   quic_keysched_init(&st);
   CHECK(quic_keysched_exporter_secret(&st, &exp) == 0); /* not yet reached */
   quic_keysched_advance_handshake(
-      &st, quic_span_of(ecdhe, 32), quic_span_of(tr, sizeof(tr)));
+      &st, wired_span_of(ecdhe, 32), wired_span_of(tr, sizeof(tr)));
   CHECK(quic_keysched_exporter_secret(&st, &exp) == 0); /* still stage 1 */
   quic_keysched_advance_master(&st, tr, sizeof(tr));
   CHECK(quic_keysched_exporter_secret(&st, &exp) == 1);
@@ -190,8 +190,8 @@ static void test_keyschedule_psk_bad_ecdhe(void) {
   quic_keysched_init(&st);
   CHECK(
       quic_keysched_advance_handshake_psk(
-          &st, quic_span_of(psk, 32), quic_span_of(ecdhe, 31),
-          quic_span_of(tr, sizeof(tr))) == 0);
+          &st, wired_span_of(psk, 32), wired_span_of(ecdhe, 31),
+          wired_span_of(tr, sizeof(tr))) == 0);
   CHECK(st.stage == 0);
 }
 

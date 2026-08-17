@@ -24,7 +24,7 @@ static int digits(const u8* p, usz n, u64* out) {
 }
 
 /* Z-terminated string of the expected length. */
-static int zterm(quic_span v, usz want) {
+static int zterm(wired_span v, usz want) {
   return v.n == want && v.p[want - 1] == 'Z';
 }
 
@@ -41,46 +41,46 @@ static int utc_digits(const u8* v, u64* out) {
 }
 
 /* RFC 5280 4.1.2.5.1. UTCTime is YYMMDDHHMMSSZ. */
-static int utctime(quic_span v, u64* out) {
+static int utctime(wired_span v, u64* out) {
   if (!zterm(v, 13)) return 0;
   return utc_digits(v.p, out);
 }
 
 /* RFC 5280 4.1.2.5.2. GeneralizedTime is YYYYMMDDHHMMSSZ. */
-static int gentime(quic_span v, u64* out) {
+static int gentime(wired_span v, u64* out) {
   if (!zterm(v, 15)) return 0;
   return digits(v.p, 14, out);
 }
 
 /* Decode a Time (UTCTime or GeneralizedTime) into YYYYMMDDHHMMSS. */
-static int time_value(u8 tag, quic_span v, u64* out) {
+static int time_value(u8 tag, wired_span v, u64* out) {
   if (tag == DER_UTCTIME) return utctime(v, out);
   if (tag == DER_GENTIME) return gentime(v, out);
   return 0;
 }
 
 /* Position c before the validity element, inside the tbs SEQUENCE value. */
-static int tbs_to_validity(quic_span tbs, quic_derseq* c) {
+static int tbs_to_validity(wired_span tbs, quic_derseq* c) {
   return quic_x509_tbs_cursor(tbs, c) && quic_derseq_skip(c, VALIDITY_SKIP);
 }
 
 /* Read one Time element of c into *out. */
 static int next_time(quic_derseq* c, u64* out) {
-  u8        tag;
-  quic_span v;
+  u8         tag;
+  wired_span v;
   if (!quic_derseq_next(c, &tag, &v)) return 0;
   return time_value(tag, v, out);
 }
 
 /* RFC 5280 4.1.2.5. Extract notBefore and notAfter from the Validity value. */
-static int validity_bounds(quic_span val, u64* nb, u64* na) {
+static int validity_bounds(wired_span val, u64* nb, u64* na) {
   quic_derseq c;
   quic_derseq_init(&c, val);
   return next_time(&c, nb) && next_time(&c, na);
 }
 
 /* The Validity SEQUENCE value out of tbs. */
-static int reach_validity(quic_span tbs, quic_span* v) {
+static int reach_validity(wired_span tbs, wired_span* v) {
   quic_derseq c;
   if (!tbs_to_validity(tbs, &c)) return 0;
   return quic_derseq_next_tagged(&c, QUIC_DER_SEQUENCE, v);
@@ -89,9 +89,9 @@ static int reach_validity(quic_span tbs, quic_span* v) {
 /* notBefore <= now <= notAfter. */
 static int in_window(u64 nb, u64 na, u64 now) { return nb <= now && now <= na; }
 
-int quic_x509_validity_ok(quic_span tbs, u64 now) {
-  quic_span v;
-  u64       nb, na;
+int quic_x509_validity_ok(wired_span tbs, u64 now) {
+  wired_span v;
+  u64        nb, na;
   if (!reach_validity(tbs, &v)) return 0;
   return validity_bounds(v, &nb, &na) && in_window(nb, na, now);
 }

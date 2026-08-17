@@ -75,7 +75,7 @@ int quic_h3settings_control_stream(
     int advertise_wt, u8* out, usz cap, usz* out_len) {
   usz                pre = 0;
   quic_h3settings_in in  = control_settings_in(advertise_wt);
-  quic_obuf          ob;
+  wired_obuf         ob;
   if (!quic_h3settings_control_prefix(out, cap, &pre)) return 0;
   ob = quic_obuf_of(out + pre, cap - pre);
   if (!quic_h3settings_build(&in, &ob)) return 0;

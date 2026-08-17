@@ -15,7 +15,7 @@
 
 /* RFC 9000 17.3 / RFC 9001 6: byte0 (with its Key Phase bit set), dcid, then
  * a 4-byte packet number. */
-static usz build_short_header(u8* hdr, quic_span dcid, u64 pn, int phase_bit) {
+static usz build_short_header(u8* hdr, wired_span dcid, u64 pn, int phase_bit) {
   usz i;
   hdr[0] = quic_keyphase_set(QUIC_ONERTT_BYTE0, phase_bit);
   for (i = 0; i < dcid.n; i++) hdr[1 + i] = dcid.p[i];
@@ -28,7 +28,7 @@ static usz build_short_header(u8* hdr, quic_span dcid, u64 pn, int phase_bit) {
 int quic_hspkt_onertt_build(
     const quic_protect_keys*      k,
     const quic_hspkt_onertt_desc* d,
-    quic_obuf*                    out) {
+    wired_obuf*                   out) {
   u8             nonce[QUIC_INITIAL_IV], mask[5];
   quic_aes128    aead;
   u8*            o       = out->p;
@@ -51,7 +51,7 @@ int quic_hspkt_onertt_build(
 int quic_hspkt_onertt_open(
     const quic_protect_keys*           k,
     const quic_hspkt_onertt_open_desc* d,
-    quic_span*                         payload) {
+    wired_span*                        payload) {
   quic_hspkt_unprotect_desc u = {
       d->pkt, 5u + (usz)d->dcid_len, 1u + (usz)d->dcid_len, QUIC_HP_SHORT_MASK,
       d->largest_pn};
@@ -69,7 +69,7 @@ static int onertt_seal_suite(
     u8*                           o,
     usz                           hdr_len,
     usz                           need,
-    quic_obuf*                    out) {
+    wired_obuf*                   out) {
   quic_aead_suite_op op;
   if (need > out->cap) return 0;
   op = (quic_aead_suite_op){
@@ -83,7 +83,7 @@ int quic_hspkt_onertt_build_suite(
     u16                           suite,
     const quic_protect_keys*      k,
     const quic_hspkt_onertt_desc* d,
-    quic_obuf*                    out) {
+    wired_obuf*                   out) {
   u8             mask[5];
   u8*            o       = out->p;
   usz            hdr_len = build_short_header(o, d->dcid, d->pn, d->phase_bit);
@@ -103,7 +103,7 @@ int quic_hspkt_onertt_open_suite(
     u16                                suite,
     const quic_protect_keys*           k,
     const quic_hspkt_onertt_open_desc* d,
-    quic_span*                         payload) {
+    wired_span*                        payload) {
   quic_hspkt_unprotect_desc u = {
       d->pkt, 5u + (usz)d->dcid_len, 1u + (usz)d->dcid_len, QUIC_HP_SHORT_MASK,
       d->largest_pn};

@@ -19,7 +19,7 @@ static void test_x25519_rfc_v1(void) {
       point);
   hb32(
       "c3da55379de9c6908e94ea4df28d084f32eccf03491c71f754b4075577a28552", want);
-  CHECK(quic_x25519(out, scalar, point) == 1);
+  CHECK(wired_x25519(out, scalar, point) == 1);
   for (usz i = 0; i < 32; i++) CHECK(out[i] == want[i]);
 }
 
@@ -34,21 +34,21 @@ static void test_x25519_rfc_v2(void) {
       point);
   hb32(
       "95cbde9476e8907d7aade45cb4b873f88b595a68799fa152e6f8f7647aac7957", want);
-  CHECK(quic_x25519(out, scalar, point) == 1);
+  CHECK(wired_x25519(out, scalar, point) == 1);
   for (usz i = 0; i < 32; i++) CHECK(out[i] == want[i]);
 }
 
 /* RFC 7748 6.1: a low-order point yields an all-zero shared secret, which must
  * be rejected (a non-contributory key exchange). u=0 and u=1 are order-1/2
- * points; an honest ladder sends them to zero, and quic_x25519 returns 0. */
+ * points; an honest ladder sends them to zero, and wired_x25519 returns 0. */
 static void test_x25519_low_order_rejected(void) {
   u8 scalar[32] = {0}, out[32], low_order[32] = {0};
   scalar[0]  = 5;
   scalar[31] = 0x40;
-  CHECK(quic_x25519(out, scalar, low_order) == 0); /* u = 0 */
+  CHECK(wired_x25519(out, scalar, low_order) == 0); /* u = 0 */
   for (usz i = 0; i < 32; i++) CHECK(out[i] == 0);
   low_order[0] = 1;
-  CHECK(quic_x25519(out, scalar, low_order) == 0); /* u = 1 */
+  CHECK(wired_x25519(out, scalar, low_order) == 0); /* u = 1 */
   for (usz i = 0; i < 32; i++) CHECK(out[i] == 0);
 }
 
@@ -59,10 +59,10 @@ static void test_x25519_ecdhe(void) {
   a[31] = 0x40; /* arbitrary clamped-ish scalars */
   b[0]  = 9;
   b[31] = 0x40;
-  quic_x25519_base(pa, a);
-  quic_x25519_base(pb, b);
-  quic_x25519(sa, a, pb);
-  quic_x25519(sb, b, pa);
+  wired_x25519_base(pa, a);
+  wired_x25519_base(pb, b);
+  wired_x25519(sa, a, pb);
+  wired_x25519(sb, b, pa);
   for (usz i = 0; i < 32; i++) CHECK(sa[i] == sb[i]); /* shared secret */
 }
 
@@ -77,8 +77,8 @@ static void test_x25519_noncanonical_u_reduced(void) {
   u8 scalar[32] = {9}, noncanon[32], canon[32] = {18}, out_nc[32], out_c[32];
   for (usz i = 0; i < 31; i++) noncanon[i] = 0xff;
   noncanon[31] = 0x7f; /* top bit clear: value == 2^255-1 == p+18 */
-  CHECK(quic_x25519(out_nc, scalar, noncanon) == 1);
-  CHECK(quic_x25519(out_c, scalar, canon) == 1);
+  CHECK(wired_x25519(out_nc, scalar, noncanon) == 1);
+  CHECK(wired_x25519(out_c, scalar, canon) == 1);
   for (usz i = 0; i < 32; i++) CHECK(out_nc[i] == out_c[i]);
 }
 
@@ -92,7 +92,7 @@ static void test_x25519_rfc_iterate_1(void) {
   u8 nine[32] = {9}, out[32], want[32];
   hb32(
       "422c8e7a6227d7bca1350b3e2bb7279f7897b87bb6854b783c60e80311ae3079", want);
-  CHECK(quic_x25519(out, nine, nine) == 1);
+  CHECK(wired_x25519(out, nine, nine) == 1);
   for (usz i = 0; i < 32; i++) CHECK(out[i] == want[i]);
 }
 
@@ -101,7 +101,7 @@ static void test_x25519_rfc_iterate_1000(void) {
   hb32(
       "684cf59ba83309552800ef566f2f4d3c1c3887c49360e3875f2eb94d99532c51", want);
   for (int i = 0; i < 1000; i++) {
-    quic_x25519(next, k, u);
+    wired_x25519(next, k, u);
     for (usz j = 0; j < 32; j++) u[j] = k[j];
     for (usz j = 0; j < 32; j++) k[j] = next[j];
   }
@@ -128,13 +128,13 @@ static void test_x25519_rfc_dh_alice_bob(void) {
       "4a5d9d5ba4ce2de1728e3bf480350f25e07e21c947d19e3376f09b3c1e161742",
       want_k);
 
-  quic_x25519_base(pa, a);
-  quic_x25519_base(pb, b);
+  wired_x25519_base(pa, a);
+  wired_x25519_base(pb, b);
   for (usz i = 0; i < 32; i++) CHECK(pa[i] == want_pa[i]);
   for (usz i = 0; i < 32; i++) CHECK(pb[i] == want_pb[i]);
 
-  quic_x25519(ka, a, pb);
-  quic_x25519(kb, b, pa);
+  wired_x25519(ka, a, pb);
+  wired_x25519(kb, b, pa);
   for (usz i = 0; i < 32; i++) CHECK(ka[i] == want_k[i]);
   for (usz i = 0; i < 32; i++) CHECK(kb[i] == want_k[i]);
 }

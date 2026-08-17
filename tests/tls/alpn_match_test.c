@@ -16,13 +16,13 @@ static void test_alpn_match_equal(void) {
   const u8 c[] = {'h', '3'};
   CHECK(
       quic_tls_alpn_equal(
-          quic_span_of(a, sizeof(a)), quic_span_of(b, sizeof(b))) == 1);
+          wired_span_of(a, sizeof(a)), wired_span_of(b, sizeof(b))) == 1);
   CHECK(
       quic_tls_alpn_equal(
-          quic_span_of(a, sizeof(a)), quic_span_of(c, sizeof(c))) == 0);
+          wired_span_of(a, sizeof(a)), wired_span_of(c, sizeof(c))) == 0);
   CHECK(
       quic_tls_alpn_equal(
-          quic_span_of(a, sizeof(a)), quic_span_of(a, sizeof(a) - 1)) == 0);
+          wired_span_of(a, sizeof(a)), wired_span_of(a, sizeof(a) - 1)) == 0);
 }
 
 void test_alpn_match(void) {

@@ -14,8 +14,8 @@ int quic_qpack_dyn_get(
   usz off                       = (usz)(abs_index - t->dropped);
   usz slot                      = (t->head + off) % QUIC_QPACK_DYN_MAX_ENTRIES;
   const quic_qpack_dyn_entry* e = &t->ring[slot];
-  out->name                     = quic_span_of(e->name, e->name_len);
-  out->value                    = quic_span_of(e->value, e->value_len);
+  out->name                     = wired_span_of(e->name, e->name_len);
+  out->value                    = wired_span_of(e->value, e->value_len);
   return 1;
 }
 

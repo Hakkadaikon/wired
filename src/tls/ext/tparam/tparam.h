@@ -44,17 +44,17 @@
 /* Encode one integer-valued parameter (id, varint value) into out->p (out->cap
  * bytes). Returns bytes written, or 0 if it does not fit / value out of range.
  */
-usz quic_tparam_put_int(quic_obuf* out, u64 id, u64 value);
+usz quic_tparam_put_int(wired_obuf* out, u64 id, u64 value);
 
 /* Decode one parameter at buf.p (buf.n readable). On success sets *id, *value
  * (decoded as a varint) and returns total bytes consumed; 0 on malformed
  * input or a value whose length is not a single varint. */
-usz quic_tparam_get_int(quic_span buf, u64* id, u64* value);
+usz quic_tparam_get_int(wired_span buf, u64* id, u64* value);
 
 /* RFC 9000 7.4: scan a full transport-parameter TLV sequence and report
  * whether every parameter id is distinct. Returns 1 if all ids are unique,
  * 0 if any id repeats or the sequence is malformed
  * (TRANSPORT_PARAMETER_ERROR either way). */
-int quic_tparam_no_duplicates(quic_span buf);
+int quic_tparam_no_duplicates(wired_span buf);
 
 #endif

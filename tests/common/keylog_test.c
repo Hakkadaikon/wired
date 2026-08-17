@@ -21,7 +21,7 @@ static const char keylogt_zero_cr_hex[] =
 static void keylogt_check_line(
     const char* label, const char* cr_hex, const char* secret_hex) {
   u8  out[256] = {0};
-  ssz n        = wired_fio_read(keylogt_path, quic_mspan_of(out, sizeof out));
+  ssz n        = wired_fio_read(keylogt_path, wired_mspan_of(out, sizeof out));
   usz label_n  = 0;
   usz i;
   while (label[label_n]) label_n++;
@@ -47,7 +47,7 @@ static void test_keylog_append_known_vector(void) {
 
   keylogt_unlink();
   CHECK(
-      wired_keylog_append(keylogt_path, label, cr, quic_span_of(secret, 4)) >
+      wired_keylog_append(keylogt_path, label, cr, wired_span_of(secret, 4)) >
       0);
   keylogt_check_line(label, keylogt_zero_cr_hex, "deadbeef");
   keylogt_unlink();
@@ -64,11 +64,11 @@ static void test_keylog_append_nibble_order_and_case(void) {
 
   keylogt_unlink();
   CHECK(
-      wired_keylog_append(keylogt_path, label, cr, quic_span_of(secret, 1)) >
+      wired_keylog_append(keylogt_path, label, cr, wired_span_of(secret, 1)) >
       0);
   {
     u8  out[256] = {0};
-    ssz n        = wired_fio_read(keylogt_path, quic_mspan_of(out, sizeof out));
+    ssz n = wired_fio_read(keylogt_path, wired_mspan_of(out, sizeof out));
     CHECK(n > 0);
     CHECK(out[2] == 'a' && out[3] == '0'); /* label(1) + ' '(1) */
     CHECK(out[2 + 62] == '0' && out[2 + 63] == '9');
@@ -85,7 +85,7 @@ static void test_keylog_append_empty_secret(void) {
   const char* label  = "L";
 
   keylogt_unlink();
-  CHECK(wired_keylog_append(keylogt_path, label, cr, quic_span_of(0, 0)) > 0);
+  CHECK(wired_keylog_append(keylogt_path, label, cr, wired_span_of(0, 0)) > 0);
   keylogt_check_line(label, keylogt_zero_cr_hex, "");
   keylogt_unlink();
 }
@@ -100,11 +100,11 @@ static void test_keylog_append_secret_too_big(void) {
   keylogt_unlink();
   CHECK(
       wired_keylog_append(
-          keylogt_path, label, cr, quic_span_of(secret, sizeof secret)) ==
+          keylogt_path, label, cr, wired_span_of(secret, sizeof secret)) ==
       WIRED_FIO_ETOOBIG);
   {
     u8  out[8] = {0};
-    ssz n      = wired_fio_read(keylogt_path, quic_mspan_of(out, sizeof out));
+    ssz n      = wired_fio_read(keylogt_path, wired_mspan_of(out, sizeof out));
     CHECK(n < 0); /* file was never created */
   }
 }

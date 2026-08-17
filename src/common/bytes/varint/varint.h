@@ -24,9 +24,9 @@ usz quic_varint_decode(const u8* buf, usz n, u64* out);
  * decodes/encodes one varint at buf+*off and advances *off on success. */
 
 /* Returns 1 ok, 0 if truncated. */
-int quic_varint_take(quic_span buf, usz* off, u64* out);
+int quic_varint_take(wired_span buf, usz* off, u64* out);
 
 /* Returns 1 ok, 0 if out of range or no room within cap. */
-int quic_varint_put(quic_mspan buf, usz* off, u64 v);
+int quic_varint_put(wired_mspan buf, usz* off, u64 v);
 
 #endif

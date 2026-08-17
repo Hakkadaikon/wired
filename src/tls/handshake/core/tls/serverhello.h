@@ -19,7 +19,7 @@ typedef struct {
  * success, 0 if truncated, the message is not a ServerHello, or the
  * key_share is absent/not x25519. */
 int quic_tls_parse_server_hello(
-    quic_span buf, u8 server_pub[32], quic_serverhello_out* out);
+    wired_span buf, u8 server_pub[32], quic_serverhello_out* out);
 
 /* Same parse, but accepts either NamedGroup (RFC 8446 4.2.7): x25519 (32-byte
  * key) or secp256r1 (65-byte SEC1 uncompressed key, RFC 8446 4.2.8.2).
@@ -28,6 +28,6 @@ int quic_tls_parse_server_hello(
  * success, 0 under the same conditions as quic_tls_parse_server_hello, or if
  * the key_share's group is recognised but neither of the two above. */
 int quic_tls_parse_server_hello_group(
-    quic_span buf, u8 server_pub[65], u16* group, quic_serverhello_out* out);
+    wired_span buf, u8 server_pub[65], u16* group, quic_serverhello_out* out);
 
 #endif

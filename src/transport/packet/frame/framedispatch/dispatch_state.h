@@ -17,11 +17,11 @@ typedef struct {
   u8                close;   /* set on CONNECTION_CLOSE (RFC 9000 19.19) */
   u8                has_ack; /* set when an ACK frame arrived (RFC 9000 19.3) */
   u64               largest_acked; /* its Largest Acknowledged, when has_ack */
-  u8        has_datagram; /* set when a DATAGRAM frame arrived (RFC 9221 5) */
-  quic_span datagram;     /* its payload view, when has_datagram (no copy);
-                           * a future higher layer (e.g. WebTransport
-                           * session) still needs to drain this per frame -
-                           * only the most recent one is kept here. */
+  u8         has_datagram; /* set when a DATAGRAM frame arrived (RFC 9221 5) */
+  wired_span datagram;     /* its payload view, when has_datagram (no copy);
+                            * a future higher layer (e.g. WebTransport
+                            * session) still needs to drain this per frame -
+                            * only the most recent one is kept here. */
   u8 violation; /* set when a server-recv-forbidden frame arrived (RFC 9000
                  * 19.7/19.20) -- the caller must close with
                  * PROTOCOL_VIOLATION. */
@@ -44,7 +44,7 @@ typedef struct {
  * whole frame. Returns 1 if handled, 0 on an unknown type or malformed frame.
  */
 int quic_framedispatch_handle(
-    quic_framedispatch_state* st, u64 frame_type, quic_span frame);
+    quic_framedispatch_state* st, u64 frame_type, wired_span frame);
 
 /* RFC 9000 13.2.1: every frame except PADDING, ACK and CONNECTION_CLOSE is
  * ack-eliciting. Returns 1 or 0. */

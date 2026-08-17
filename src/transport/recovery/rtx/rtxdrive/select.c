@@ -4,7 +4,7 @@
 
 int quic_rtxdrive_select(
     const quic_rtxbytes* store, u64 lost_pn, int* is_retransmittable) {
-  quic_span frame;
+  wired_span frame;
 
   if (!quic_rtxbytes_get(store, lost_pn, &frame)) return 0;
   *is_retransmittable = quic_rtxbytes_retransmittable(frame.p, frame.n) == 1;

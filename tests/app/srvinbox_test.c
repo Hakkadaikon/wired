@@ -192,7 +192,7 @@ static void test_srvinbox_registry_single_worker_reaches_own_env(void) {
   wired_srvrun_broadcast_register(0, 1, row, env);
   CHECK(
       wired_server_broadcast_datagram(
-          quic_span_of(sib_msg_a, sizeof sib_msg_a)) == 1);
+          wired_span_of(sib_msg_a, sizeof sib_msg_a)) == 1);
   CHECK(c->dg_pending == 1);
   CHECK(c->dg_pending_len == sizeof sib_msg_a);
   for (usz i = 0; i < sizeof sib_msg_a; i++)
@@ -224,7 +224,7 @@ static void sib_mesh_worker_a_fn(void* argp) {
   wired_srvrun_broadcast_register(a->index, 2, a->row, a->env);
   __atomic_store_n(&sib_mesh_a_registered, 1, __ATOMIC_RELEASE);
   while (!__atomic_load_n(&sib_mesh_b_registered, __ATOMIC_ACQUIRE));
-  wired_server_broadcast_datagram(quic_span_of(sib_msg_b, sizeof sib_msg_b));
+  wired_server_broadcast_datagram(wired_span_of(sib_msg_b, sizeof sib_msg_b));
   __atomic_store_n(&sib_mesh_b_may_check, 1, __ATOMIC_RELEASE);
   wired_srvrun_broadcast_unregister();
 }

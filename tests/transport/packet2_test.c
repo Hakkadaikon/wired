@@ -6,7 +6,7 @@
 static void test_short_build(void) {
   const u8        dcid[4] = {0x11, 0x22, 0x33, 0x44};
   u8              buf[16];
-  quic_short_desc d = {quic_span_of(dcid, 4), 1, 1, 0xABCD, 2};
+  quic_short_desc d = {wired_span_of(dcid, 4), 1, 1, 0xABCD, 2};
   usz             w = quic_short_build(buf, sizeof(buf), &d);
   CHECK(w == 1 + 4 + 2);
   /* fixed bit set, spin (bit5) set, key_phase (bit2) set, pn_len-1 == 1 */
@@ -18,7 +18,7 @@ static void test_short_build(void) {
 static void test_short_build_min(void) {
   const u8        dcid[1] = {0x99};
   u8              buf[8];
-  quic_short_desc d = {quic_span_of(dcid, 1), 0, 0, 0x7F, 1};
+  quic_short_desc d = {wired_span_of(dcid, 1), 0, 0, 0x7F, 1};
   usz             w = quic_short_build(buf, sizeof(buf), &d);
   CHECK(w == 3);
   CHECK(buf[0] == 0x40); /* no spin, no key phase, pn_len 1 */
@@ -28,9 +28,9 @@ static void test_short_build_min(void) {
 static void test_short_bad_args(void) {
   const u8        dcid[4] = {0};
   u8              buf[16];
-  quic_short_desc d0 = {quic_span_of(dcid, 4), 0, 0, 0, 0};
-  quic_short_desc d5 = {quic_span_of(dcid, 4), 0, 0, 0, 5};
-  quic_short_desc d1 = {quic_span_of(dcid, 4), 0, 0, 0, 1};
+  quic_short_desc d0 = {wired_span_of(dcid, 4), 0, 0, 0, 0};
+  quic_short_desc d5 = {wired_span_of(dcid, 4), 0, 0, 0, 5};
+  quic_short_desc d1 = {wired_span_of(dcid, 4), 0, 0, 0, 1};
   CHECK(quic_short_build(buf, sizeof(buf), &d0) == 0); /* pn_len 0 */
   CHECK(quic_short_build(buf, sizeof(buf), &d5) == 0); /* pn_len 5 */
   CHECK(quic_short_build(buf, 3, &d1) == 0);           /* no room */
@@ -45,8 +45,8 @@ static void test_retry_roundtrip(void) {
 
   u8              buf[64];
   quic_retry_desc rd = {
-      1, quic_span_of(dcid, 3), quic_span_of(scid, 2), quic_span_of(token, 5),
-      tag};
+      1, wired_span_of(dcid, 3), wired_span_of(scid, 2),
+      wired_span_of(token, 5), tag};
   usz w = quic_retry_build(buf, sizeof(buf), &rd);
   CHECK(w == 5 + 1 + 3 + 1 + 2 + 5 + QUIC_RETRY_TAG_LEN);
   CHECK(buf[0] == 0xF0 && buf[4] == 1); /* type Retry, version 1 */
@@ -67,8 +67,8 @@ static void test_retry_truncated(void) {
   u8              tag[QUIC_RETRY_TAG_LEN] = {0};
   u8              buf[64];
   quic_retry_desc rd = {
-      1, quic_span_of(dcid, 1), quic_span_of(scid, 1), quic_span_of(token, 1),
-      tag};
+      1, wired_span_of(dcid, 1), wired_span_of(scid, 1),
+      wired_span_of(token, 1), tag};
   usz w = quic_retry_build(buf, sizeof(buf), &rd);
   CHECK(w != 0);
 
@@ -89,7 +89,7 @@ static void test_vneg_roundtrip(void) {
   const u32 vers[2] = {0x00000001, 0x6B3343CF}; /* v1 and a GREASE-ish value */
 
   u8             buf[64];
-  quic_vneg_desc vd = {quic_span_of(dcid, 2), quic_span_of(scid, 3), vers, 2};
+  quic_vneg_desc vd = {wired_span_of(dcid, 2), wired_span_of(scid, 3), vers, 2};
   usz            w  = quic_vneg_build(buf, sizeof(buf), &vd);
   CHECK(w == 5 + 1 + 2 + 1 + 3 + 2 * 4);
   CHECK(buf[0] == 0x80);
@@ -114,7 +114,7 @@ static void test_vneg_respond_swap(void) {
   const u32      vers[1]      = {0x00000001};
   u8             buf[64];
   quic_vneg_desc rv = {
-      quic_span_of(recv_dcid, 2), quic_span_of(recv_scid, 3), vers, 1};
+      wired_span_of(recv_dcid, 2), wired_span_of(recv_scid, 3), vers, 1};
   usz w = quic_vneg_respond(buf, sizeof(buf), &rv);
   CHECK(w != 0);
 
@@ -130,8 +130,8 @@ static void test_vneg_bad(void) {
   const u8       scid[1] = {0x02};
   const u32      vers[1] = {0x00000001};
   u8             buf[64];
-  quic_vneg_desc v0 = {quic_span_of(dcid, 1), quic_span_of(scid, 1), vers, 0};
-  quic_vneg_desc v1 = {quic_span_of(dcid, 1), quic_span_of(scid, 1), vers, 1};
+  quic_vneg_desc v0 = {wired_span_of(dcid, 1), wired_span_of(scid, 1), vers, 0};
+  quic_vneg_desc v1 = {wired_span_of(dcid, 1), wired_span_of(scid, 1), vers, 1};
   /* count 0 must fail to build */
   CHECK(quic_vneg_build(buf, sizeof(buf), &v0) == 0);
 

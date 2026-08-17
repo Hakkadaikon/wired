@@ -87,7 +87,7 @@ usz quic_tlsdriver_raw_client_hello(quic_tlsdriver* d, u8* out, usz cap);
 /* Build a real ClientHello carrying our key_share and emit it as CRYPTO
  * frame(s) into out, writing the encoded length to out->len. Returns 1 on
  * success, 0 if it does not fit. */
-int quic_tlsdriver_client_hello(quic_tlsdriver* d, quic_obuf* out);
+int quic_tlsdriver_client_hello(quic_tlsdriver* d, wired_obuf* out);
 
 /* Feed one CRYPTO frame: reassemble it, and once a whole TLS message is
  * contiguous, take the peer key_share, compute the ECDHE shared secret and

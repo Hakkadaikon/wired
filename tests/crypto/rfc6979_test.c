@@ -20,7 +20,7 @@ static void test_rfc6979_sample_k(void) {
   u8 priv[32], want[32], h[32], k[32];
   r6979_hb32(R6979_X, priv);
   r6979_hb32(R6979_K, want);
-  quic_sha256((const u8*)"sample", 6, h);
+  wired_sha256((const u8*)"sample", 6, h);
   quic_p256sign_k(priv, h, k);
   for (usz i = 0; i < 32; i++) CHECK(k[i] == want[i]);
 }
@@ -70,7 +70,7 @@ static void test_rfc6979_retry_skips_rejected_candidates(void) {
   u8               priv[32], h[32], k0[32], kr[32];
   r6979_reject_ctx ctx = {0};
   r6979_hb32(R6979_X, priv);
-  quic_sha256((const u8*)"sample", 6, h);
+  wired_sha256((const u8*)"sample", 6, h);
   quic_p256sign_k(priv, h, k0);
   quic_p256sign_k_retry(priv, h, kr, r6979_reject_first_two, &ctx);
   CHECK(ctx.calls == 3);    /* rejected twice, accepted on the 3rd draw */

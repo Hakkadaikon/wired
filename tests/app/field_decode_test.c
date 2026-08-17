@@ -9,7 +9,7 @@
 
 #define eq_len(s) quic_qdyn_cstr_len(s)
 
-static int eq(quic_span a, const char* b, usz blen) {
+static int eq(wired_span a, const char* b, usz blen) {
   if (a.n != blen) return 0;
   for (usz i = 0; i < a.n; i++)
     if (a.p[i] != (u8)b[i]) return 0;
@@ -18,8 +18,8 @@ static int eq(quic_span a, const char* b, usz blen) {
 
 static quic_qpack_field fd_field(const char* name, const char* value) {
   quic_qpack_field f = {
-      quic_span_of((const u8*)name, eq_len(name)),
-      quic_span_of((const u8*)value, eq_len(value))};
+      wired_span_of((const u8*)name, eq_len(name)),
+      wired_span_of((const u8*)value, eq_len(value))};
   return f;
 }
 
@@ -28,7 +28,7 @@ static quic_qpack_field fd_field(const char* name, const char* value) {
 static void qd_roundtrip(
     quic_qpack_dyn* t, const char* name, const char* value) {
   u8               fs[8];
-  quic_obuf        ob       = quic_obuf_of(fs, sizeof(fs));
+  wired_obuf       ob       = quic_obuf_of(fs, sizeof(fs));
   usz              consumed = 0;
   u64              base, rel;
   quic_qpack_field f = fd_field(name, value);
@@ -40,7 +40,7 @@ static void qd_roundtrip(
   CHECK(quic_qpack_dyn_find(t, &f, &m));
   rel = base - m.abs_index - 1;
   CHECK(quic_qdyn_indexed_dynamic(rel, &ob));
-  quic_qdyn_src src = {t, base, quic_span_of(fs, ob.len)};
+  quic_qdyn_src src = {t, base, wired_span_of(fs, ob.len)};
   CHECK(quic_qdyn_decode_field(&src, &d, &consumed));
   CHECK(consumed == ob.len);
   CHECK(eq(d.name, name, eq_len(name)));
@@ -55,13 +55,13 @@ static void test_dynamic_roundtrip(void) {
   /* The older entry still resolves after a second insert (base advanced). */
   {
     u8               fs[8];
-    quic_obuf        ob       = quic_obuf_of(fs, sizeof(fs));
+    wired_obuf       ob       = quic_obuf_of(fs, sizeof(fs));
     usz              consumed = 0;
     u64              base     = t.dropped + t.count;
     quic_qpack_field d;
     /* abs 0 ("x-a") relative to base 2 is rel = 1. */
     CHECK(quic_qdyn_indexed_dynamic(1, &ob));
-    quic_qdyn_src src = {&t, base, quic_span_of(fs, ob.len)};
+    quic_qdyn_src src = {&t, base, wired_span_of(fs, ob.len)};
     CHECK(quic_qdyn_decode_field(&src, &d, &consumed));
     CHECK(eq(d.name, "x-a", 3) && eq(d.value, "1", 1));
   }
@@ -75,7 +75,7 @@ static void test_static_reference(void) {
   usz              consumed = 0;
   quic_qpack_field d;
   quic_qpack_dyn_init(&t, 256);
-  quic_qdyn_src src = {&t, 0, quic_span_of(fs, 1)};
+  quic_qdyn_src src = {&t, 0, wired_span_of(fs, 1)};
   CHECK(quic_qdyn_decode_field(&src, &d, &consumed));
   CHECK(consumed == 1);
   CHECK(eq(d.name, ":method", 7) && eq(d.value, "GET", 3));
@@ -88,7 +88,7 @@ static void test_non_indexed_reject(void) {
   usz              consumed = 99;
   quic_qpack_field d;
   quic_qpack_dyn_init(&t, 256);
-  quic_qdyn_src src = {&t, 0, quic_span_of(fs, 1)};
+  quic_qdyn_src src = {&t, 0, wired_span_of(fs, 1)};
   CHECK(quic_qdyn_decode_field(&src, &d, &consumed) == 0);
 }
 
@@ -96,7 +96,7 @@ static void test_non_indexed_reject(void) {
 static void test_dynamic_miss(void) {
   quic_qpack_dyn   t;
   u8               fs[2];
-  quic_obuf        ob       = quic_obuf_of(fs, sizeof(fs));
+  wired_obuf       ob       = quic_obuf_of(fs, sizeof(fs));
   usz              consumed = 0;
   quic_qpack_field f        = fd_field("a", "b");
   quic_qpack_field d;
@@ -104,7 +104,7 @@ static void test_dynamic_miss(void) {
   CHECK(quic_qpack_dyn_insert(&t, &f));
   /* base 1, rel 5 -> abs underflow / absent entry. */
   CHECK(quic_qdyn_indexed_dynamic(5, &ob));
-  quic_qdyn_src src = {&t, 1, quic_span_of(fs, ob.len)};
+  quic_qdyn_src src = {&t, 1, wired_span_of(fs, ob.len)};
   CHECK(quic_qdyn_decode_field(&src, &d, &consumed) == 0);
 }
 
@@ -120,7 +120,7 @@ static void test_postbase_field_decode(void) {
   CHECK(quic_qpack_dyn_insert(&t, &f));
   /* Base=0 (as if the section prefix declared Base before this insert),
    * post-Base index 0 -> absolute index 0, the entry just inserted. */
-  quic_qdyn_src src = {&t, 0, quic_span_of(fs, 1)};
+  quic_qdyn_src src = {&t, 0, wired_span_of(fs, 1)};
   CHECK(quic_qdyn_decode_field(&src, &d, &consumed));
   CHECK(consumed == 1);
   CHECK(eq(d.name, "x-a", 3) && eq(d.value, "1", 1));
@@ -133,7 +133,7 @@ static void test_postbase_field_miss(void) {
   usz              consumed = 0;
   quic_qpack_field d;
   quic_qpack_dyn_init(&t, 256);
-  quic_qdyn_src src = {&t, 0, quic_span_of(fs, 1)};
+  quic_qdyn_src src = {&t, 0, wired_span_of(fs, 1)};
   CHECK(quic_qdyn_decode_field(&src, &d, &consumed) == 0);
 }
 
@@ -142,11 +142,11 @@ static void test_postbase_field_miss(void) {
 static void test_postbase_name_resolve(void) {
   quic_qpack_dyn   t;
   quic_qpack_field f = fd_field("x-b", "two");
-  quic_span        name;
+  wired_span       name;
   quic_qpack_dyn_init(&t, 256);
   CHECK(quic_qpack_dyn_insert(&t, &f));
   {
-    quic_qdyn_src src = {&t, 0, quic_span_of(0, 0)};
+    quic_qdyn_src src = {&t, 0, wired_span_of(0, 0)};
     CHECK(quic_qdyn_resolve_postbase_name(&src, 0, &name));
     CHECK(eq(name, "x-b", 3));
   }
@@ -155,10 +155,10 @@ static void test_postbase_name_resolve(void) {
 /* A post-Base index past the live window resolves to no name. */
 static void test_postbase_name_miss(void) {
   quic_qpack_dyn t;
-  quic_span      name;
+  wired_span     name;
   quic_qpack_dyn_init(&t, 256);
   {
-    quic_qdyn_src src = {&t, 0, quic_span_of(0, 0)};
+    quic_qdyn_src src = {&t, 0, wired_span_of(0, 0)};
     CHECK(quic_qdyn_resolve_postbase_name(&src, 0, &name) == 0);
   }
 }

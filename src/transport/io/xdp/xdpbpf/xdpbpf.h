@@ -46,7 +46,7 @@ i64 quic_xdpbpf_map_set(i64 map_fd, u32 key, u32 xsk_fd);
 /** Load cnt XDP instructions (license "Dual MIT/GPL"). If log.n > 0 the
  * verifier log is written into log for diagnosis. Returns the program fd, or
  * a negative errno (e.g. -EACCES when the verifier rejects). */
-i64 quic_xdpbpf_prog_load(const u64* insns, u32 cnt, quic_mspan log);
+i64 quic_xdpbpf_prog_load(const u64* insns, u32 cnt, wired_mspan log);
 
 /** Attach a loaded XDP program to ifindex via BPF_LINK_CREATE. flags is 0 for
  * native driver mode or XDP_FLAGS_SKB_MODE (2) for generic mode. Returns the

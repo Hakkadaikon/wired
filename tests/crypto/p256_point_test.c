@@ -101,7 +101,7 @@ static void test_p256_mul_ct_rfc6979_vector(void) {
   p256_fe  r;
   p256pt_hb32(priv_hex, priv);
   p256pt_hb32(wr_hex, wr);
-  quic_sha256((const u8*)"sample", 6, hash);
+  wired_sha256((const u8*)"sample", 6, hash);
   quic_p256sign_k(priv, hash, kb);
   quic_ec_mul(&rp, kb, &quic_p256_g);
   quic_fp_reduce(r, rp.x, quic_p256_n);

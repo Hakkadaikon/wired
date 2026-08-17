@@ -30,6 +30,6 @@ void quic_zerortt_seen_init(quic_zerortt_seen* s);
 /* Check whether identity has been presented to s before; records it either
  * way. Returns 1 on first use (identity was not already recorded), 0 on a
  * replay (already recorded). */
-int quic_zerortt_seen_check(quic_zerortt_seen* s, quic_span identity);
+int quic_zerortt_seen_check(quic_zerortt_seen* s, wired_span identity);
 
 #endif

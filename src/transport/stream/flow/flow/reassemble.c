@@ -13,7 +13,7 @@ static int insert_fits(const quic_reasm* r, u64 offset, usz len) {
   return !r->have_final || offset + len <= r->final_size;
 }
 
-int quic_reasm_insert(quic_reasm* r, u64 offset, quic_span data) {
+int quic_reasm_insert(quic_reasm* r, u64 offset, wired_span data) {
   if (!insert_fits(r, offset, data.n)) return 0;
   for (usz i = 0; i < data.n; i++) {
     r->buf[offset + i]  = data.p[i]; /* idempotent: overlaps re-set */

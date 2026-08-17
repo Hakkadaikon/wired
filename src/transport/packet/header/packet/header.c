@@ -15,7 +15,7 @@ static int cid_fits(u8 len, usz off, usz n) {
 
 /* Read one length-prefixed CID at buf. On success advances *off by 1+len,
  * copies the CID into dst->p and sets dst->n. Returns 1 ok, 0 truncated. */
-static int read_cid(quic_span buf, usz* off, quic_mspan* dst) {
+static int read_cid(wired_span buf, usz* off, wired_mspan* dst) {
   u8 len;
   if (*off >= buf.n) return 0;
   len = buf.p[*off];
@@ -27,9 +27,9 @@ static int read_cid(quic_span buf, usz* off, quic_mspan* dst) {
 }
 
 /* Read the length-prefixed DCID then SCID at *off into h. */
-static int read_cids(quic_span buf, usz* off, wired_header* h) {
-  quic_mspan d = quic_mspan_of(h->dcid, 0);
-  quic_mspan s = quic_mspan_of(h->scid, 0);
+static int read_cids(wired_span buf, usz* off, wired_header* h) {
+  wired_mspan d = wired_mspan_of(h->dcid, 0);
+  wired_mspan s = wired_mspan_of(h->scid, 0);
   if (!read_cid(buf, off, &d)) return 0;
   if (!read_cid(buf, off, &s)) return 0;
   h->dcid_len = (u8)d.n;
@@ -44,7 +44,7 @@ static usz parse_long(const u8* buf, usz n, wired_header* h) {
   h->long_type = (buf[0] >> 4) & 0x3;
   h->version = ((u32)buf[1] << 24) | ((u32)buf[2] << 16) | ((u32)buf[3] << 8) |
                (u32)buf[4];
-  if (!read_cids(quic_span_of(buf, n), &off, h)) return 0;
+  if (!read_cids(wired_span_of(buf, n), &off, h)) return 0;
   return off;
 }
 
@@ -66,7 +66,7 @@ usz wired_header_parse(const u8* buf, usz n, wired_header* h) {
 }
 
 /* Append a length-prefixed CID; advance out->len. Returns 1 ok, 0 no room. */
-static int write_cid(quic_obuf* out, quic_span cid) {
+static int write_cid(wired_obuf* out, wired_span cid) {
   if (out->len + 1 + cid.n > out->cap) return 0;
   out->p[out->len] = (u8)cid.n;
   for (usz i = 0; i < cid.n; i++) out->p[out->len + 1 + i] = cid.p[i];
@@ -87,16 +87,16 @@ static usz put_long_prefix(u8* buf, usz cap, const wired_header* h) {
 }
 
 /* Append both CIDs (dcid then scid); zero out->len on overflow. */
-static void write_cids(quic_obuf* out, const wired_header* h) {
-  const quic_span cid[2] = {
-      quic_span_of(h->dcid, h->dcid_len), quic_span_of(h->scid, h->scid_len)};
+static void write_cids(wired_obuf* out, const wired_header* h) {
+  const wired_span cid[2] = {
+      wired_span_of(h->dcid, h->dcid_len), wired_span_of(h->scid, h->scid_len)};
   for (usz i = 0; i < 2; i++)
     if (!write_cid(out, cid[i])) out->len = 0;
 }
 
 usz wired_header_build_long(u8* buf, usz cap, const wired_header* h) {
-  quic_obuf out = quic_obuf_of(buf, cap);
-  out.len       = put_long_prefix(buf, cap, h);
+  wired_obuf out = quic_obuf_of(buf, cap);
+  out.len        = put_long_prefix(buf, cap, h);
   if (out.len != 0) write_cids(&out, h);
   return out.len;
 }

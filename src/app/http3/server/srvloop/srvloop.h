@@ -62,7 +62,7 @@ typedef int (*wired_srvloop_handler)(
     void*                       ctx,
     const wired_h3reqdrive_req* req,
     u64                         offset,
-    quic_obuf*                  body_out,
+    wired_obuf*                 body_out,
     const char**                content_type,
     int*                        more,
     u64*                        total_size);
@@ -887,7 +887,7 @@ typedef struct {
  * @return 1 if an outbound packet was written, 0 if the step produced none
  *   (or the input was dropped). */
 int wired_srvloop_step(
-    const wired_srvloop_conn* conn, quic_mspan dgram, quic_obuf* out);
+    const wired_srvloop_conn* conn, wired_mspan dgram, wired_obuf* out);
 
 /** RFC 9000 13.4 / RFC 9002 19.3.2: add one received datagram's ECN codepoint
  * (RFC 3168: 0 Not-ECT, 1 ECT(1), 2 ECT(0), 3 CE, matching quic_mmsg_buf.ecn

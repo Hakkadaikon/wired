@@ -33,8 +33,8 @@ static void test_shorthdr_build_layout(void) {
   u8 dcid[4] = {0xAA, 0xBB, 0xCC, 0xDD};
   u8 out[16];
 
-  quic_shorthdr_desc d = {1, 1, quic_span_of(dcid, 4), 0x010203, 4};
-  quic_obuf          o = quic_obuf_of(out, sizeof out);
+  quic_shorthdr_desc d = {1, 1, wired_span_of(dcid, 4), 0x010203, 4};
+  wired_obuf         o = quic_obuf_of(out, sizeof out);
   CHECK(quic_shorthdr_build(&d, &o));
   CHECK(o.len == 1 + 4 + 4);
   CHECK(out[0] == quic_shorthdr_byte0(1, 1, 4));
@@ -48,11 +48,11 @@ static void test_shorthdr_build_reject(void) {
   u8 dcid[2] = {1, 2};
   u8 out[8];
 
-  quic_shorthdr_desc d0 = {0, 0, quic_span_of(dcid, 2), 1, 0};
-  quic_shorthdr_desc d5 = {0, 0, quic_span_of(dcid, 2), 1, 5};
-  quic_shorthdr_desc d4 = {0, 0, quic_span_of(dcid, 2), 1, 4};
-  quic_obuf          o  = quic_obuf_of(out, sizeof out);
-  quic_obuf          o6 = quic_obuf_of(out, 6);
+  quic_shorthdr_desc d0 = {0, 0, wired_span_of(dcid, 2), 1, 0};
+  quic_shorthdr_desc d5 = {0, 0, wired_span_of(dcid, 2), 1, 5};
+  quic_shorthdr_desc d4 = {0, 0, wired_span_of(dcid, 2), 1, 4};
+  wired_obuf         o  = quic_obuf_of(out, sizeof out);
+  wired_obuf         o6 = quic_obuf_of(out, 6);
   CHECK(quic_shorthdr_build(&d0, &o) == 0);
   CHECK(quic_shorthdr_build(&d5, &o) == 0);
   /* needs 1 + 2 + 4 = 7 bytes; give 6 */
@@ -64,8 +64,8 @@ static void test_shorthdr_roundtrip(void) {
   u8 dcid[3] = {0x11, 0x22, 0x33};
   u8 out[16];
 
-  quic_shorthdr_desc da = {1, 1, quic_span_of(dcid, 3), 0xABCD, 2};
-  quic_obuf          o  = quic_obuf_of(out, sizeof out);
+  quic_shorthdr_desc da = {1, 1, wired_span_of(dcid, 3), 0xABCD, 2};
+  wired_obuf         o  = quic_obuf_of(out, sizeof out);
   CHECK(quic_shorthdr_build(&da, &o));
   CHECK(quic_spin_get(out[0]) == 1);
   CHECK(((out[0] >> 2) & 1) == 1); /* key phase */
@@ -73,7 +73,7 @@ static void test_shorthdr_roundtrip(void) {
   /* pn recovered from the 2 trailing bytes (after byte0 + 3 DCID) */
   CHECK(((u64)out[4] << 8 | out[5]) == 0xABCD);
 
-  quic_shorthdr_desc db = {0, 0, quic_span_of(dcid, 3), 0x7F, 1};
+  quic_shorthdr_desc db = {0, 0, wired_span_of(dcid, 3), 0x7F, 1};
   CHECK(quic_shorthdr_build(&db, &o));
   CHECK(quic_spin_get(out[0]) == 0);
   CHECK(((out[0] >> 2) & 1) == 0);

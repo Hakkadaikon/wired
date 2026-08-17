@@ -19,13 +19,13 @@ static void shdr_put_pn(u8* dst, u64 pn, u8 pn_len) {
   for (u8 i = 0; i < pn_len; i++) dst[i] = (u8)(pn >> ((pn_len - 1 - i) * 8));
 }
 
-int quic_shorthdr_build(const quic_shorthdr_desc* d, quic_obuf* out) {
+int quic_shorthdr_build(const quic_shorthdr_desc* d, wired_obuf* out) {
   usz off = 1;
   if (!shorthdr_ok(out->cap, d)) return 0;
   out->p[0] = quic_shorthdr_byte0(d->spin, d->key_phase, d->pn_len);
   quic_put_bytes(
-      quic_mspan_of(out->p, out->cap), &off,
-      quic_span_of(d->dcid.p, d->dcid.n)); /* room ok */
+      wired_mspan_of(out->p, out->cap), &off,
+      wired_span_of(d->dcid.p, d->dcid.n)); /* room ok */
   shdr_put_pn(out->p + off, d->pn, d->pn_len);
   out->len = off + d->pn_len;
   return 1;

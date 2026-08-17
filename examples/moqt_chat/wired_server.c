@@ -53,24 +53,24 @@ static char hex_nibble(u8 v) {
   return (char)(v < 10 ? '0' + v : 'a' + (v - 10));
 }
 
-static i64 moqt_io_open_bidi_stream(wired_wt_session* s, quic_span payload) {
+static i64 moqt_io_open_bidi_stream(wired_wt_session* s, wired_span payload) {
   u8  buf[MOQT_SIG_BUF];
-  usz sig = quic_wtwire_signal_put(buf, sizeof buf, 1, s->connect_stream_id);
+  usz sig = wired_wtwire_signal_put(buf, sizeof buf, 1, s->connect_stream_id);
   if (sig == 0 || payload.n > sizeof buf - sig) return -1;
   for (usz i = 0; i < payload.n; i++) buf[sig + i] = payload.p[i];
-  return wired_server_wt_open_bidi_stream(s, quic_span_of(buf, sig + payload.n));
+  return wired_server_wt_open_bidi_stream(s, wired_span_of(buf, sig + payload.n));
 }
 
 /* One-shot open+send+FIN (wired_server_wt_open_uni-shaped): used for a
  * relayed Object, which always completes in its stream's only round -- see
  * moqtrun.h's send_uni doc for why this must not go through
  * open_uni_stream + a bare stream_send(fin=1) instead. */
-static i64 moqt_io_send_uni(wired_wt_session* s, quic_span payload) {
+static i64 moqt_io_send_uni(wired_wt_session* s, wired_span payload) {
   u8  buf[MOQT_SIG_BUF];
-  usz sig = quic_wtwire_signal_put(buf, sizeof buf, 0, s->connect_stream_id);
+  usz sig = wired_wtwire_signal_put(buf, sizeof buf, 0, s->connect_stream_id);
   if (sig == 0 || payload.n > sizeof buf - sig) return -1;
   for (usz i = 0; i < payload.n; i++) buf[sig + i] = payload.p[i];
-  return wired_server_wt_open_uni(s, quic_span_of(buf, sig + payload.n));
+  return wired_server_wt_open_uni(s, wired_span_of(buf, sig + payload.n));
 }
 
 /* wired_server_wt_open_uni_stream-shaped: opens WITHOUT FIN and keeps the
@@ -80,12 +80,12 @@ static i64 moqt_io_send_uni(wired_wt_session* s, quic_span payload) {
  * the stream's own send-slot staging and pipelines it behind unACKed
  * rounds (srvrun.h), so the io table points straight at
  * wired_server_wt_stream_send / wired_server_wt_stream_fin. */
-static i64 moqt_io_open_uni_stream(wired_wt_session* s, quic_span payload) {
+static i64 moqt_io_open_uni_stream(wired_wt_session* s, wired_span payload) {
   u8  buf[MOQT_SIG_BUF];
-  usz sig = quic_wtwire_signal_put(buf, sizeof buf, 0, s->connect_stream_id);
+  usz sig = wired_wtwire_signal_put(buf, sizeof buf, 0, s->connect_stream_id);
   if (sig == 0 || payload.n > sizeof buf - sig) return -1;
   for (usz i = 0; i < payload.n; i++) buf[sig + i] = payload.p[i];
-  return wired_server_wt_open_uni_stream(s, quic_span_of(buf, sig + payload.n));
+  return wired_server_wt_open_uni_stream(s, wired_span_of(buf, sig + payload.n));
 }
 
 static const wired_moqt_io g_moqt_io = {
@@ -105,7 +105,7 @@ static int app_on_request(
     void*                       ctx,
     const wired_h3reqdrive_req* req,
     u64                         offset,
-    quic_obuf*                  body_out,
+    wired_obuf*                  body_out,
     const char**                content_type,
     int*                        more,
     u64*                        total_size) {
@@ -145,7 +145,7 @@ static void server_identity(
     k->seed[i] = (u8)(0x90 + i);
     k->rnd[i]  = (u8)(0xb0 + i);
   }
-  quic_x25519_base(k->pub, k->priv);
+  wired_x25519_base(k->pub, k->priv);
   id->priv                    = k->priv;
   id->pub                     = k->pub;
   id->cert_seed               = k->seed;
@@ -184,7 +184,7 @@ static void log_cert_fingerprint(const wired_srvboot_id* id) {
 
   wired_server_init(&s, &in);
   if (s.sdrv.cert_count == 0) wired_die("cert build failed\n");
-  quic_sha256(s.sdrv.certs[0].p, s.sdrv.certs[0].n, digest);
+  wired_sha256(s.sdrv.certs[0].p, s.sdrv.certs[0].n, digest);
 
   {
     static const char prefix[] = "cert sha-256 fingerprint: ";
@@ -234,7 +234,7 @@ __attribute__((force_align_arg_pointer, used)) int wired_main(
   server_keys          keys;
   wired_srvdriver_opt  opt;
   int                  have_san_ipv4;
-  u64                  now_secs = quic_clock_epoch_secs();
+  u64                  now_secs = wired_clock_epoch_secs();
   wired_srvrun_handler h        = {app_on_request, 0};
   wired_srvrun_obs     obs      = {
       wired_cliargs_str(argc, argv, "--qlog", 0),

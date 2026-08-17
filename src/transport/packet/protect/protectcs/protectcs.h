@@ -40,8 +40,8 @@ int quic_protectcs_seal(
 /** One in-place open: pkt holds a protected packet with the packet number at
  * pn_off. */
 typedef struct {
-  quic_mspan pkt;
-  usz        pn_off;
+  wired_mspan pkt;
+  usz         pn_off;
 } quic_protectcs_open_io;
 
 /* Open in place: removes header protection (recovering pn_len from byte0),
@@ -51,6 +51,6 @@ typedef struct {
 int quic_protectcs_open(
     const quic_protectcs_keys*    k,
     const quic_protectcs_open_io* io,
-    quic_span*                    payload);
+    wired_span*                   payload);
 
 #endif

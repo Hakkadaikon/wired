@@ -46,9 +46,9 @@ static usz build_sh_td(u8* out, usz cap, const u8 pub[32]) {
 /* Wrap a whole TLS message in one CRYPTO frame at offset 0. */
 static usz wrap_crypto(u8* out, usz cap, const u8* msg, usz n) {
   usz                        w   = 0;
-  quic_obuf                  ob  = quic_obuf_of(out, cap);
+  wired_obuf                 ob  = quic_obuf_of(out, cap);
   quic_crypto_stream_emit_in ein = {0, 256};
-  CHECK(quic_crypto_stream_emit(quic_span_of(msg, n), &ein, &ob) == 1);
+  CHECK(quic_crypto_stream_emit(wired_span_of(msg, n), &ein, &ob) == 1);
   w = ob.len;
   return w;
 }
@@ -69,15 +69,15 @@ static void test_tlsdriver_real_ecdhe_agree(void) {
     cl_priv[i] = (u8)(1 + i);
     sv_priv[i] = (u8)(200 - i);
   }
-  quic_x25519_base(cl_pub, cl_priv);
-  quic_x25519_base(sv_pub, sv_priv);
+  wired_x25519_base(cl_pub, cl_priv);
+  wired_x25519_base(sv_pub, sv_priv);
 
   quic_tlsdriver_init(&cl, cl_priv, cl_pub, 0);
   quic_tlsdriver_init(&sv, sv_priv, sv_pub, 1);
 
   /* client -> server: real ClientHello in a CRYPTO frame */
   {
-    quic_obuf ob = quic_obuf_of(frame, sizeof(frame));
+    wired_obuf ob = quic_obuf_of(frame, sizeof(frame));
     CHECK(quic_tlsdriver_client_hello(&cl, &ob) == 1);
     fl = ob.len;
   }
@@ -101,7 +101,7 @@ static void test_tlsdriver_real_ecdhe_agree(void) {
 static void test_tlsdriver_rejects_garbage(void) {
   u8             priv[32] = {7}, pub[32], junk[8] = {0xff, 0, 0, 0, 0, 0, 0, 0};
   quic_tlsdriver d;
-  quic_x25519_base(pub, priv);
+  wired_x25519_base(pub, priv);
   quic_tlsdriver_init(&d, priv, pub, 1);
   CHECK(quic_tlsdriver_recv_crypto(&d, junk, sizeof(junk)) == 0);
   CHECK(quic_tlsdriver_handshake_secret_ready(&d) == 0);
@@ -113,16 +113,16 @@ static void test_tlsdriver_rejects_garbage(void) {
 static void test_tlsdriver_crypto_overflow_reports_error_code(void) {
   u8             priv[32] = {7}, pub[32];
   quic_tlsdriver d;
-  quic_x25519_base(pub, priv);
+  wired_x25519_base(pub, priv);
   quic_tlsdriver_init(&d, priv, pub, 1);
 
   u8 msg[QUIC_REASM_CAP + 8];
   for (usz i = 0; i < sizeof(msg); i++) msg[i] = 1;
   u8                         frame[QUIC_REASM_CAP + 64];
-  quic_obuf                  ob  = quic_obuf_of(frame, sizeof(frame));
+  wired_obuf                 ob  = quic_obuf_of(frame, sizeof(frame));
   quic_crypto_stream_emit_in ein = {0, 512};
   CHECK(
-      quic_crypto_stream_emit(quic_span_of(msg, sizeof(msg)), &ein, &ob) == 1);
+      quic_crypto_stream_emit(wired_span_of(msg, sizeof(msg)), &ein, &ob) == 1);
 
   CHECK(quic_tlsdriver_recv_crypto(&d, frame, ob.len) == 0);
   CHECK(quic_tlsdriver_last_error(&d) == QUIC_EC_CRYPTO_BUFFER_EXCEEDED);

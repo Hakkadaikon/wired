@@ -19,6 +19,6 @@ int quic_legacy_check_client_hello(const u8* ch_msg, usz len);
  * sets *sid to the session_id bytes (or ch_msg+offset with *sid_len 0 when
  * empty) and *sid_len to its length (0..32), returning 1. Returns 0 if the
  * message is truncated or not a ClientHello. */
-int quic_legacy_session_id(quic_span ch_msg, const u8** sid, u8* sid_len);
+int quic_legacy_session_id(wired_span ch_msg, const u8** sid, u8* sid_len);
 
 #endif

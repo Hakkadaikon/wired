@@ -10,7 +10,7 @@ static void test_ca_true(void) {
   quic_x509 c;
   CHECK(
       quic_x509_parse(
-          quic_span_of(quic_chain_golden1, sizeof(quic_chain_golden1)), &c) ==
+          wired_span_of(quic_chain_golden1, sizeof(quic_chain_golden1)), &c) ==
       1);
   CHECK(quic_x509_is_ca(c.tbs) == 1);
 }
@@ -20,7 +20,7 @@ static void test_ca_false(void) {
   quic_x509 c;
   CHECK(
       quic_x509_parse(
-          quic_span_of(quic_chain_golden2, sizeof(quic_chain_golden2)), &c) ==
+          wired_span_of(quic_chain_golden2, sizeof(quic_chain_golden2)), &c) ==
       1);
   CHECK(quic_x509_is_ca(c.tbs) == 0);
 }
@@ -28,7 +28,7 @@ static void test_ca_false(void) {
 /* No extensions at all: not a CA. */
 static void test_no_extensions(void) {
   const u8 tbs[] = {0x30, 0x03, 0x02, 0x01, 0x02};
-  CHECK(quic_x509_is_ca(quic_span_of(tbs, sizeof(tbs))) == 0);
+  CHECK(quic_x509_is_ca(wired_span_of(tbs, sizeof(tbs))) == 0);
 }
 
 /* Offset of the BasicConstraints value {cA TRUE, pathLen 0} inside mid3's
@@ -53,7 +53,7 @@ static void mid3_patched(usz rel, u8 v, u8* der, quic_x509* c) {
   CHECK(off != 0);
   der[off + rel] = v;
   CHECK(
-      quic_x509_parse(quic_span_of(der, sizeof(quic_castore_mid3_der)), c) ==
+      quic_x509_parse(wired_span_of(der, sizeof(quic_castore_mid3_der)), c) ==
       1);
 }
 
@@ -63,7 +63,7 @@ static void test_pathlen_allows_boundary(void) {
   quic_x509 c;
   CHECK(
       quic_x509_parse(
-          quic_span_of(quic_castore_mid3_der, sizeof(quic_castore_mid3_der)),
+          wired_span_of(quic_castore_mid3_der, sizeof(quic_castore_mid3_der)),
           &c) == 1);
   CHECK(quic_x509_pathlen_allows(c.tbs, 0) == 1);
   CHECK(quic_x509_pathlen_allows(c.tbs, 1) == 0);

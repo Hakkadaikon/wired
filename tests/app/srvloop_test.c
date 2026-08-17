@@ -64,8 +64,8 @@ static wired_srvloop_reqacc lp_reqacc(wired_srvloop* l) {
 
 /* View slot 0's re-wrap buffer (RFC 9000 2.2), the caller-owned storage a
  * direct wired_srvloop_dispatch call needs for in->wrap. */
-static quic_mspan lp_wrap0(wired_srvloop* l) {
-  return quic_mspan_of(l->streams[0].req_wrap, sizeof l->streams[0].req_wrap);
+static wired_mspan lp_wrap0(wired_srvloop* l) {
+  return wired_mspan_of(l->streams[0].req_wrap, sizeof l->streams[0].req_wrap);
 }
 
 struct lp_fix {
@@ -90,15 +90,15 @@ struct lp_fix {
  * (cwnd, log capacity, ...), not flow control, so the credit itself must
  * never be the constraining factor here. */
 static usz lp_client_tp(u8* tp, usz cap) {
-  quic_obuf tob = quic_obuf_of(tp, cap);
-  usz       n1  = quic_tparam_put_int(&tob, QUIC_TP_INITIAL_MAX_DATA, 1u << 24);
-  quic_obuf tob2 = quic_obuf_of(tp + n1, cap - n1);
-  usz       n2   = quic_tparam_put_int(
+  wired_obuf tob = quic_obuf_of(tp, cap);
+  usz        n1 = quic_tparam_put_int(&tob, QUIC_TP_INITIAL_MAX_DATA, 1u << 24);
+  wired_obuf tob2 = quic_obuf_of(tp + n1, cap - n1);
+  usz        n2   = quic_tparam_put_int(
       &tob2, QUIC_TP_INITIAL_MAX_STREAM_DATA_BIDI_LOCAL, 1u << 24);
   /* RFC 9000 18.2: a real client grants the server uni streams (Chrome
    * does); without this every server-initiated relay open is refused by
    * the peer-limit gate and fixture-driven WT tests starve. */
-  quic_obuf tob3 = quic_obuf_of(tp + n1 + n2, cap - n1 - n2);
+  wired_obuf tob3 = quic_obuf_of(tp + n1 + n2, cap - n1 - n2);
   usz n3 = quic_tparam_put_int(&tob3, QUIC_TP_INITIAL_MAX_STREAMS_UNI, 100);
   return n1 + n2 + n3;
 }
@@ -111,12 +111,13 @@ static void lp_make_client_hello(struct lp_fix* f) {
     f->cli_priv[i]   = (u8)(i + 1);
     f->srv_random[i] = (u8)(0xa0 + i);
   }
-  quic_x25519_base(cli_pub, f->cli_priv);
+  wired_x25519_base(cli_pub, f->cli_priv);
   tp_len    = lp_client_tp(tp, sizeof(tp));
   f->ch_len = quic_tls_client_hello(
       &(quic_clienthello_in){
-          f->srv_random, cli_pub, quic_span_of(0, 0), quic_span_of(tp, tp_len)},
-      &(quic_obuf){f->ch, sizeof(f->ch), 0});
+          f->srv_random, cli_pub, wired_span_of(0, 0),
+          wired_span_of(tp, tp_len)},
+      &(wired_obuf){f->ch, sizeof(f->ch), 0});
 }
 
 /* Message-level offset of the single cipher_suites entry quic_tls_client_
@@ -144,16 +145,16 @@ static void lp_drive_to_flight(struct lp_fix* f) {
     srv_priv[i]  = (u8)(0x40 + i);
     cert_seed[i] = (u8)(0x80 + i);
   }
-  quic_x25519_base(srv_pub, srv_priv);
+  wired_x25519_base(srv_pub, srv_priv);
 
   wired_server_init_in sin   = {srv_priv, srv_pub, cert_seed, 0, 0, 0, 0, 0};
-  quic_obuf            sh_ob = quic_obuf_of(f->sh, sizeof(f->sh));
-  quic_obuf            fl_ob = quic_obuf_of(f->flight, sizeof(f->flight));
+  wired_obuf           sh_ob = quic_obuf_of(f->sh, sizeof(f->sh));
+  wired_obuf           fl_ob = quic_obuf_of(f->flight, sizeof(f->flight));
   quic_sdrv_flight_out fo    = {&sh_ob, &fl_ob};
   wired_server_init(&f->s, &sin);
   CHECK(
       wired_server_set_cids(
-          &f->s, quic_span_of(g_cli_scid, 6), quic_span_of(g_cli_scid, 6)) ==
+          &f->s, wired_span_of(g_cli_scid, 6), wired_span_of(g_cli_scid, 6)) ==
       1);
   CHECK(wired_srvloop_init(&f->l, g_cli_scid, 6) == 1);
   CHECK(wired_server_recv_initial(&f->s, f->ch, f->ch_len) == 1);
@@ -170,10 +171,10 @@ static void lp_make_client_finished(struct lp_fix* f) {
   quic_transcript      tr;
   usz                  off;
   CHECK(quic_tls_parse_server_hello(
-      quic_span_of(f->sh, f->sh_len), f->sh_pub, &sh));
+      wired_span_of(f->sh, f->sh_len), f->sh_pub, &sh));
   {
     u8 shared[32];
-    quic_x25519(shared, f->cli_priv, f->sh_pub);
+    wired_x25519(shared, f->cli_priv, f->sh_pub);
     quic_tls_handshake_secret(shared, hs);
   }
   quic_transcript_init(&tr);
@@ -181,7 +182,7 @@ static void lp_make_client_finished(struct lp_fix* f) {
   quic_transcript_add(&tr, f->sh, f->sh_len);
   quic_transcript_hash(&tr, th);
   quic_hkdf_label chl = {"c hs traffic", 12, {th, 32}};
-  quic_hkdf_expand_label(hs, &chl, quic_mspan_of(c_traffic, 32));
+  quic_hkdf_expand_label(hs, &chl, wired_mspan_of(c_traffic, 32));
   quic_transcript_add(&tr, f->flight, f->flight_len);
   quic_transcript_hash(&tr, th);
 
@@ -197,16 +198,16 @@ static usz client_seal_handshake(
     struct lp_fix* f, const u8* msg, usz mlen, u8* pkt, usz cap) {
   const quic_initial_keys* k;
   quic_aes128              hp;
-  quic_obuf                ob = {pkt, cap, 0};
+  wired_obuf               ob = {pkt, cap, 0};
   CHECK(quic_keysched_get(&f->s.sched, QUIC_KS_CLIENT_HS, &k) == 1);
   quic_aes128_init(&hp, k->hp);
   quic_srvwire_seal_in in = {
-      quic_span_of((const u8*)0, 0),
-      quic_span_of(f->s.sdrv.iscid, f->s.sdrv.iscid_len),
-      quic_span_of(g_cli_scid, 6),
+      wired_span_of((const u8*)0, 0),
+      wired_span_of(f->s.sdrv.iscid, f->s.sdrv.iscid_len),
+      wired_span_of(g_cli_scid, 6),
       0,
       -1,
-      quic_span_of(msg, mlen),
+      wired_span_of(msg, mlen),
       0};
   quic_protect_keys pk = {k, &hp};
   CHECK(quic_srvwire_seal_handshake(&pk, &in, &ob));
@@ -220,16 +221,16 @@ static usz client_seal_handshake_pn(
     struct lp_fix* f, u64 pn, const u8* msg, usz mlen, u8* pkt, usz cap) {
   const quic_initial_keys* k;
   quic_aes128              hp;
-  quic_obuf                ob = {pkt, cap, 0};
+  wired_obuf               ob = {pkt, cap, 0};
   CHECK(quic_keysched_get(&f->s.sched, QUIC_KS_CLIENT_HS, &k) == 1);
   quic_aes128_init(&hp, k->hp);
   quic_srvwire_seal_in in = {
-      quic_span_of((const u8*)0, 0),
-      quic_span_of(f->s.sdrv.iscid, f->s.sdrv.iscid_len),
-      quic_span_of(g_cli_scid, 6),
+      wired_span_of((const u8*)0, 0),
+      wired_span_of(f->s.sdrv.iscid, f->s.sdrv.iscid_len),
+      wired_span_of(g_cli_scid, 6),
       pn,
       -1,
-      quic_span_of(msg, mlen),
+      wired_span_of(msg, mlen),
       0};
   quic_protect_keys pk = {k, &hp};
   CHECK(quic_srvwire_seal_handshake(&pk, &in, &ob));
@@ -246,9 +247,9 @@ static usz client_seal_onertt(
   quic_aes128_init(&hp, k->hp);
   quic_protect_keys      pk = {k, &hp};
   quic_hspkt_onertt_desc d  = {
-      quic_span_of(f->s.sdrv.iscid, f->s.sdrv.iscid_len), 0,
-      quic_span_of(pl, pln), 0};
-  quic_obuf o = quic_obuf_of(pkt, cap);
+      wired_span_of(f->s.sdrv.iscid, f->s.sdrv.iscid_len), 0,
+      wired_span_of(pl, pln), 0};
+  wired_obuf o = quic_obuf_of(pkt, cap);
   CHECK(quic_hspkt_onertt_build(&pk, &d, &o));
   total = o.len;
   return total;
@@ -259,20 +260,20 @@ static usz client_seal_onertt(
 static void test_srvloop_send_initial_roundtrip(void) {
   struct lp_fix f;
   u8            pkt[1300];
-  quic_obuf     ob  = {pkt, sizeof pkt, 0};
-  quic_span     tls = {0, 0};
+  wired_obuf    ob  = {pkt, sizeof pkt, 0};
+  wired_span    tls = {0, 0};
   lp_make_client_hello(&f);
   lp_drive_to_flight(&f);
   wired_srvloop_send_in in = {
-      quic_span_of(g_cli_scid, 6), 1, -1, quic_span_of(f.sh, f.sh_len), 0};
+      wired_span_of(g_cli_scid, 6), 1, -1, wired_span_of(f.sh, f.sh_len), 0};
   CHECK(wired_srvloop_send_initial(&f.s, &in, &ob));
   /* RFC 9000 14.1: the Initial datagram is padded to >= 1200, else curl drops
    * it and PTO-retransmits its own Initial for ~4s (the appconnect stall). */
   CHECK(ob.len >= 1200);
   {
     quic_srvwire_open_initial_in oin = {
-        quic_span_of(f.s.sdrv.odcid, f.s.sdrv.odcid_len), 1};
-    CHECK(quic_srvwire_open_initial(&oin, quic_mspan_of(pkt, ob.len), &tls));
+        wired_span_of(f.s.sdrv.odcid, f.s.sdrv.odcid_len), 1};
+    CHECK(quic_srvwire_open_initial(&oin, wired_mspan_of(pkt, ob.len), &tls));
   }
   CHECK(tls.n == f.sh_len); /* PADDING after CRYPTO is ignored on open */
 }
@@ -288,7 +289,7 @@ static void test_srvloop_send_initial_roundtrip(void) {
 static void test_srvloop_seal_chacha_roundtrip(void) {
   struct lp_fix f;
   u8            hpkt[2048], opkt[1024];
-  quic_obuf     hob = {hpkt, sizeof hpkt, 0}, oob = {opkt, sizeof opkt, 0};
+  wired_obuf    hob = {hpkt, sizeof hpkt, 0}, oob = {opkt, sizeof opkt, 0};
   lp_make_client_hello_chacha(&f);
   lp_drive_to_flight(&f);
   CHECK(f.s.sdrv.cipher_suite == QUIC_TLS_CHACHA20_POLY1305_SHA256);
@@ -301,10 +302,10 @@ static void test_srvloop_seal_chacha_roundtrip(void) {
   {
     const quic_initial_keys* shs;
     quic_aes128              hp;
-    quic_span                tls = {0, 0};
+    wired_span               tls = {0, 0};
     wired_srvloop_send_in    in  = {
-        quic_span_of(g_cli_scid, 6), 0, -1,
-        quic_span_of(f.flight, f.flight_len), 0};
+        wired_span_of(g_cli_scid, 6), 0, -1,
+        wired_span_of(f.flight, f.flight_len), 0};
     CHECK(wired_srvloop_send_handshake(&f.s, &in, &hob));
     CHECK(quic_keysched_get(&f.s.sched, QUIC_KS_SERVER_HS, &shs) == 1);
     quic_aes128_init(&hp, shs->hp);
@@ -313,7 +314,7 @@ static void test_srvloop_seal_chacha_roundtrip(void) {
       CHECK(
           quic_srvwire_open_handshake_suite(
               QUIC_TLS_CHACHA20_POLY1305_SHA256, &pk,
-              quic_mspan_of(hpkt, hob.len), &tls) == 1);
+              wired_mspan_of(hpkt, hob.len), &tls) == 1);
       CHECK(tls.n == f.flight_len);
       for (usz i = 0; i < tls.n; i++) CHECK(tls.p[i] == f.flight[i]);
     }
@@ -325,7 +326,7 @@ static void test_srvloop_seal_chacha_roundtrip(void) {
     const quic_initial_keys* sap;
     const quic_initial_keys* chs;
     quic_aes128              hp;
-    quic_span                pl = {0, 0};
+    wired_span               pl = {0, 0};
     u8                       cpkt[1024];
     usz                      clen;
     lp_make_client_finished(&f);
@@ -335,14 +336,14 @@ static void test_srvloop_seal_chacha_roundtrip(void) {
     {
       quic_protect_keys    cpk = {chs, 0};
       quic_srvwire_seal_in cin = {
-          quic_span_of((const u8*)0, 0),
-          quic_span_of(f.s.sdrv.iscid, f.s.sdrv.iscid_len),
-          quic_span_of(g_cli_scid, 6),
+          wired_span_of((const u8*)0, 0),
+          wired_span_of(f.s.sdrv.iscid, f.s.sdrv.iscid_len),
+          wired_span_of(g_cli_scid, 6),
           0,
           -1,
-          quic_span_of(f.cli_fin, f.cli_fin_len),
+          wired_span_of(f.cli_fin, f.cli_fin_len),
           0};
-      quic_obuf cob = {cpkt, sizeof cpkt, 0};
+      wired_obuf cob = {cpkt, sizeof cpkt, 0};
       CHECK(
           quic_srvwire_seal_handshake_suite(
               QUIC_TLS_CHACHA20_POLY1305_SHA256, &cpk, &cin, &cob) == 1);
@@ -350,7 +351,7 @@ static void test_srvloop_seal_chacha_roundtrip(void) {
     }
     CHECK(
         wired_srvloop_step(
-            &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(cpkt, clen),
+            &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(cpkt, clen),
             &oob) == 1);
     CHECK(wired_server_is_confirmed(&f.s) == 1);
     CHECK(quic_keysched_get(&f.s.sched, QUIC_KS_SERVER_AP, &sap) == 1);
@@ -361,12 +362,12 @@ static void test_srvloop_seal_chacha_roundtrip(void) {
       const u8*    pkts[4];
       usz          offs[4], lens[4];
       quic_pktlist plist = {pkts, offs, lens, 4};
-      usz          np = quic_udploop_split(quic_span_of(opkt, oob.len), &plist);
+      usz np = quic_udploop_split(wired_span_of(opkt, oob.len), &plist);
       CHECK(np == 2);
       {
         quic_protect_keys           pk = {sap, &hp};
         quic_hspkt_onertt_open_desc d  = {
-            quic_mspan_of(opkt + offs[1], lens[1]), 6, 0};
+            wired_mspan_of(opkt + offs[1], lens[1]), 6, 0};
         CHECK(
             quic_hspkt_onertt_open_suite(
                 QUIC_TLS_CHACHA20_POLY1305_SHA256, &pk, &d, &pl) == 1);
@@ -385,7 +386,7 @@ static void test_srvloop_seal_chacha_roundtrip(void) {
 static void test_srvloop_open_chacha(void) {
   struct lp_fix f;
   u8            cpkt[1024], opkt[1024], reqb[512], rpkt[1024];
-  quic_obuf     oob = {opkt, sizeof opkt, 0}, rob = {reqb, sizeof reqb, 0};
+  wired_obuf    oob = {opkt, sizeof opkt, 0}, rob = {reqb, sizeof reqb, 0};
   usz           clen, rlen, slen;
   lp_make_client_hello_chacha(&f);
   lp_drive_to_flight(&f);
@@ -401,14 +402,14 @@ static void test_srvloop_open_chacha(void) {
     {
       quic_protect_keys    pk = {chs, 0};
       quic_srvwire_seal_in in = {
-          quic_span_of((const u8*)0, 0),
-          quic_span_of(f.s.sdrv.iscid, f.s.sdrv.iscid_len),
-          quic_span_of(g_cli_scid, 6),
+          wired_span_of((const u8*)0, 0),
+          wired_span_of(f.s.sdrv.iscid, f.s.sdrv.iscid_len),
+          wired_span_of(g_cli_scid, 6),
           0,
           -1,
-          quic_span_of(f.cli_fin, f.cli_fin_len),
+          wired_span_of(f.cli_fin, f.cli_fin_len),
           0};
-      quic_obuf cob = {cpkt, sizeof cpkt, 0};
+      wired_obuf cob = {cpkt, sizeof cpkt, 0};
       CHECK(
           quic_srvwire_seal_handshake_suite(
               QUIC_TLS_CHACHA20_POLY1305_SHA256, &pk, &in, &cob) == 1);
@@ -417,8 +418,8 @@ static void test_srvloop_open_chacha(void) {
   }
   CHECK(
       wired_srvloop_step(
-          &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(cpkt, clen), &oob) ==
-      1);
+          &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(cpkt, clen),
+          &oob) == 1);
   CHECK(wired_server_is_confirmed(&f.s) == 1);
 
   /* 1-RTT open: a client GET sealed under CLIENT_AP ChaCha20 keys must be
@@ -426,28 +427,28 @@ static void test_srvloop_open_chacha(void) {
   {
     const quic_initial_keys* cap;
     wired_h3reqdrive_send_in in = {
-        quic_span_of((const u8*)"GET", 3), quic_span_of((const u8*)"/", 1),
-        quic_span_of((const u8*)"h", 1), quic_span_of(0, 0)};
+        wired_span_of((const u8*)"GET", 3), wired_span_of((const u8*)"/", 1),
+        wired_span_of((const u8*)"h", 1), wired_span_of(0, 0)};
     CHECK(wired_h3reqdrive_send_method(0, &in, &rob));
     rlen = rob.len;
     CHECK(quic_keysched_get(&f.s.sched, QUIC_KS_CLIENT_AP, &cap) == 1);
     {
       quic_protect_keys      pk = {cap, 0};
       quic_hspkt_onertt_desc d  = {
-          quic_span_of(f.s.sdrv.iscid, f.s.sdrv.iscid_len), 1,
-          quic_span_of(reqb, rlen), 0};
-      quic_obuf rb = {rpkt, sizeof rpkt, 0};
+          wired_span_of(f.s.sdrv.iscid, f.s.sdrv.iscid_len), 1,
+          wired_span_of(reqb, rlen), 0};
+      wired_obuf rb = {rpkt, sizeof rpkt, 0};
       CHECK(
           quic_hspkt_onertt_build_suite(
               QUIC_TLS_CHACHA20_POLY1305_SHA256, &pk, &d, &rb) == 1);
       slen = rb.len;
     }
   }
-  oob = (quic_obuf){opkt, sizeof opkt, 0};
+  oob = (wired_obuf){opkt, sizeof opkt, 0};
   CHECK(
       wired_srvloop_step(
-          &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(rpkt, slen), &oob) ==
-      1);
+          &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(rpkt, slen),
+          &oob) == 1);
   CHECK(f.l.got_request == 1);
 }
 
@@ -457,18 +458,18 @@ static void test_srvloop_open_chacha(void) {
 static void test_srvloop_wrong_direction_open_fails(void) {
   struct lp_fix            f;
   u8                       pkt[2300];
-  quic_obuf                ob = {pkt, sizeof pkt, 0};
+  wired_obuf               ob = {pkt, sizeof pkt, 0};
   const quic_initial_keys *own, *peer;
   quic_aes128              ownhp, peerhp;
-  quic_span                tls = {0, 0};
+  wired_span               tls = {0, 0};
   lp_make_client_hello(&f);
   lp_drive_to_flight(&f);
   CHECK(quic_keysched_get(&f.s.sched, QUIC_KS_SERVER_HS, &own) == 1);
   quic_aes128_init(&ownhp, own->hp);
   {
     wired_srvloop_send_in sin = {
-        quic_span_of(g_cli_scid, 6), 0, -1,
-        quic_span_of(f.flight, f.flight_len), 0};
+        wired_span_of(g_cli_scid, 6), 0, -1,
+        wired_span_of(f.flight, f.flight_len), 0};
     CHECK(wired_srvloop_send_handshake(&f.s, &sin, &ob));
   }
   /* SERVER_HS (own / client-peer) opens it; CLIENT_HS (server-open) must NOT.
@@ -476,8 +477,8 @@ static void test_srvloop_wrong_direction_open_fails(void) {
   {
     quic_protect_keys ownpk = {own, &ownhp};
     CHECK(
-        quic_srvwire_open_handshake(&ownpk, quic_mspan_of(pkt, ob.len), &tls) ==
-        1);
+        quic_srvwire_open_handshake(
+            &ownpk, wired_mspan_of(pkt, ob.len), &tls) == 1);
   }
   CHECK(quic_keysched_get(&f.s.sched, QUIC_KS_CLIENT_HS, &peer) == 1);
   quic_aes128_init(&peerhp, peer->hp);
@@ -485,7 +486,7 @@ static void test_srvloop_wrong_direction_open_fails(void) {
     quic_protect_keys peerpk = {peer, &peerhp};
     CHECK(
         quic_srvwire_open_handshake(
-            &peerpk, quic_mspan_of(pkt, ob.len), &tls) == 0);
+            &peerpk, wired_mspan_of(pkt, ob.len), &tls) == 0);
   }
 }
 
@@ -493,13 +494,13 @@ static void test_srvloop_wrong_direction_open_fails(void) {
 static void test_srvloop_no_onertt_seal_before_confirm(void) {
   struct lp_fix f;
   u8            pkt[256], frame[1] = {0x1e};
-  quic_obuf     ob = {pkt, sizeof pkt, 0};
+  wired_obuf    ob = {pkt, sizeof pkt, 0};
   lp_make_client_hello(&f);
   lp_drive_to_flight(&f);
   CHECK(wired_server_is_confirmed(&f.s) == 0);
   {
     wired_srvloop_send_in in = {
-        quic_span_of(g_cli_scid, 6), 0, -1, quic_span_of(frame, 1), 0};
+        wired_span_of(g_cli_scid, 6), 0, -1, wired_span_of(frame, 1), 0};
     CHECK(wired_srvloop_send_onertt(&f.s, &in, &ob) == 0);
   }
 }
@@ -510,7 +511,7 @@ static void test_srvloop_forged_finished_no_promote(void) {
   struct lp_fix f;
   u8            cpkt[512], out[512];
   usz           clen;
-  quic_obuf     ob = {out, sizeof out, 0};
+  wired_obuf    ob = {out, sizeof out, 0};
   lp_make_client_hello(&f);
   lp_drive_to_flight(&f);
   lp_make_client_finished(&f);
@@ -518,7 +519,7 @@ static void test_srvloop_forged_finished_no_promote(void) {
   clen = client_seal_handshake(&f, f.cli_fin, f.cli_fin_len, cpkt, sizeof cpkt);
   CHECK(
       wired_srvloop_step(
-          &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(cpkt, clen), &ob) ==
+          &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(cpkt, clen), &ob) ==
       0);
   CHECK(wired_server_is_confirmed(&f.s) == 0);
   {
@@ -536,8 +537,8 @@ static int client_open_onertt(
   CHECK(quic_keysched_get(&f->s.sched, QUIC_KS_SERVER_AP, &k) == 1);
   quic_aes128_init(&hp, k->hp);
   quic_protect_keys           pk = {k, &hp};
-  quic_hspkt_onertt_open_desc d  = {quic_mspan_of(pkt, len), 6, 0};
-  quic_span                   v;
+  quic_hspkt_onertt_open_desc d  = {wired_mspan_of(pkt, len), 6, 0};
+  wired_span                  v;
   if (!quic_hspkt_onertt_open(&pk, &d, &v)) return 0;
   *pl  = v.p;
   *pll = v.n;
@@ -564,7 +565,7 @@ static void test_srvloop_full_roundtrip(void) {
   struct lp_fix f;
   u8            cpkt[1024], out[1024], get[512];
   usz           clen, glen;
-  quic_obuf     ob = {out, sizeof out, 0};
+  wired_obuf    ob = {out, sizeof out, 0};
   const u8*     pkts[4];
   usz           offs[4], lens[4], np;
   lp_make_client_hello(&f);
@@ -573,12 +574,12 @@ static void test_srvloop_full_roundtrip(void) {
   clen = client_seal_handshake(&f, f.cli_fin, f.cli_fin_len, cpkt, sizeof cpkt);
   CHECK(
       wired_srvloop_step(
-          &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(cpkt, clen), &ob) ==
+          &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(cpkt, clen), &ob) ==
       1);
   CHECK(wired_server_is_confirmed(&f.s) == 1);
   /* The reply coalesces a Handshake ACK (long header) and a 1-RTT packet. */
   quic_pktlist plist = {pkts, offs, lens, 4};
-  np                 = quic_udploop_split(quic_span_of(out, ob.len), &plist);
+  np                 = quic_udploop_split(wired_span_of(out, ob.len), &plist);
   CHECK(np == 2);
   CHECK((out[offs[0]] & 0x80) != 0); /* slice 0: long-header Handshake ACK */
   {
@@ -590,11 +591,11 @@ static void test_srvloop_full_roundtrip(void) {
 
   /* GET over 1-RTT -> a 200 response that the client can decode. */
   {
-    quic_obuf gob = {get, sizeof get, 0};
+    wired_obuf gob = {get, sizeof get, 0};
     CHECK(wired_h3reqdrive_send_get(
         0,
         &(wired_h3reqdrive_get_in){
-            quic_span_of((const u8*)"/", 1), quic_span_of((const u8*)"h", 1)},
+            wired_span_of((const u8*)"/", 1), wired_span_of((const u8*)"h", 1)},
         &gob));
     glen = gob.len;
   }
@@ -604,13 +605,13 @@ static void test_srvloop_full_roundtrip(void) {
     const u8* pl;
     usz       pll;
     quic_h3conn_resp resp_out = {0};
-    ob                        = (quic_obuf){out, sizeof out, 0};
+    ob                        = (wired_obuf){out, sizeof out, 0};
     CHECK(
         wired_srvloop_step(
-            &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen),
+            &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen),
             &ob) == 1);
     CHECK(client_open_onertt(&f, out, ob.len, &pl, &pll) == 1);
-    CHECK(quic_h3conn_recv_response(quic_span_of(pl, pll), &resp_out) == 1);
+    CHECK(quic_h3conn_recv_response(wired_span_of(pl, pll), &resp_out) == 1);
     CHECK(resp_out.status == 200);
   }
 }
@@ -633,7 +634,7 @@ static void test_srvloop_response_dcid_is_client_scid(void) {
   struct lp_fix   f;
   u8              cpkt[1024], out[1024];
   usz             clen;
-  quic_obuf       ob = {out, sizeof out, 0};
+  wired_obuf      ob = {out, sizeof out, 0};
   const u8*       pkts[4];
   usz             offs[4], lens[4], np;
   lp_make_client_hello(&f);
@@ -644,10 +645,10 @@ static void test_srvloop_response_dcid_is_client_scid(void) {
   clen = client_seal_handshake(&f, f.cli_fin, f.cli_fin_len, cpkt, sizeof cpkt);
   CHECK(
       wired_srvloop_step(
-          &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(cpkt, clen), &ob) ==
+          &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(cpkt, clen), &ob) ==
       1);
   quic_pktlist plist = {pkts, offs, lens, 4};
-  np                 = quic_udploop_split(quic_span_of(out, ob.len), &plist);
+  np                 = quic_udploop_split(wired_span_of(out, ob.len), &plist);
   CHECK(np == 2);                                    /* Handshake ACK + 1-RTT */
   CHECK(onertt_dcid_is(out + offs[1], cli_scid, 6)); /* DCID == client SCID */
   CHECK(
@@ -664,9 +665,9 @@ static usz client_seal_onertt_pn(
   quic_aes128_init(&hp, k->hp);
   quic_protect_keys      pk = {k, &hp};
   quic_hspkt_onertt_desc d  = {
-      quic_span_of(f->s.sdrv.iscid, f->s.sdrv.iscid_len), pn,
-      quic_span_of(pl, pln), 0};
-  quic_obuf o = quic_obuf_of(pkt, cap);
+      wired_span_of(f->s.sdrv.iscid, f->s.sdrv.iscid_len), pn,
+      wired_span_of(pl, pln), 0};
+  wired_obuf o = quic_obuf_of(pkt, cap);
   CHECK(quic_hspkt_onertt_build(&pk, &d, &o));
   total = o.len;
   return total;
@@ -709,7 +710,7 @@ static int find_ack_frame(const u8* pl, usz pll, quic_ack_frame* out) {
 }
 
 /* Drive the loop to confirmed with a genuine client Finished. */
-static void lp_confirm(struct lp_fix* f, quic_obuf* ob) {
+static void lp_confirm(struct lp_fix* f, wired_obuf* ob) {
   u8  cpkt[1024];
   usz clen;
   lp_make_client_hello(f);
@@ -720,8 +721,8 @@ static void lp_confirm(struct lp_fix* f, quic_obuf* ob) {
   ob->len = 0;
   CHECK(
       wired_srvloop_step(
-          &(wired_srvloop_conn){&f->l, &f->s}, quic_mspan_of(cpkt, clen), ob) ==
-      1);
+          &(wired_srvloop_conn){&f->l, &f->s}, wired_mspan_of(cpkt, clen),
+          ob) == 1);
   CHECK(wired_server_is_confirmed(&f->s) == 1);
 }
 
@@ -732,24 +733,24 @@ static void test_srvloop_onertt_get_is_acked(void) {
   struct lp_fix f;
   u8            out[1024], get[512], spkt[1024];
   usz           glen, slen;
-  quic_obuf     ob = {out, sizeof out, 0};
+  wired_obuf    ob = {out, sizeof out, 0};
   const u8*     pl;
   usz           pll;
   lp_confirm(&f, &ob);
   {
-    quic_obuf gob = {get, sizeof get, 0};
+    wired_obuf gob = {get, sizeof get, 0};
     CHECK(wired_h3reqdrive_send_get(
         0,
         &(wired_h3reqdrive_get_in){
-            quic_span_of((const u8*)"/", 1), quic_span_of((const u8*)"h", 1)},
+            wired_span_of((const u8*)"/", 1), wired_span_of((const u8*)"h", 1)},
         &gob));
     glen = gob.len;
   }
   slen = client_seal_onertt_pn(&f, 7, get, glen, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   CHECK(
       wired_srvloop_step(
-          &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob) ==
+          &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob) ==
       1);
   CHECK(client_open_onertt(&f, out, ob.len, &pl, &pll) == 1);
   check_acks_pn(pl, pll, 7);
@@ -765,8 +766,8 @@ static int client_open_handshake(
   CHECK(quic_keysched_get(&f->s.sched, QUIC_KS_SERVER_HS, &k) == 1);
   quic_aes128_init(&hp, k->hp);
   quic_protect_keys pk = {k, &hp};
-  quic_span         v;
-  if (!quic_hspkt_open(&pk, quic_mspan_of((u8*)pkt, len), &v)) return 0;
+  wired_span        v;
+  if (!quic_hspkt_open(&pk, wired_mspan_of((u8*)pkt, len), &v)) return 0;
   *pl  = v.p;
   *pll = v.n;
   return 1;
@@ -780,7 +781,7 @@ static void test_srvloop_handshake_ack_tracks_pn(void) {
   struct lp_fix f;
   u8            cpkt[1024], out[1024];
   usz           clen;
-  quic_obuf     ob = {out, sizeof out, 0};
+  wired_obuf    ob = {out, sizeof out, 0};
   const u8 *    pkts[4], *pl;
   usz           offs[4], lens[4], np, pll;
   lp_make_client_hello(&f);
@@ -790,10 +791,10 @@ static void test_srvloop_handshake_ack_tracks_pn(void) {
       &f, 3, f.cli_fin, f.cli_fin_len, cpkt, sizeof cpkt);
   CHECK(
       wired_srvloop_step(
-          &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(cpkt, clen), &ob) ==
+          &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(cpkt, clen), &ob) ==
       1);
   quic_pktlist plist = {pkts, offs, lens, 4};
-  np                 = quic_udploop_split(quic_span_of(out, ob.len), &plist);
+  np                 = quic_udploop_split(wired_span_of(out, ob.len), &plist);
   CHECK(np == 2);
   CHECK((out[offs[0]] & 0x80) != 0); /* slice 0: long-header Handshake ACK */
   CHECK(client_open_handshake(&f, out + offs[0], lens[0], &pl, &pll) == 1);
@@ -820,7 +821,7 @@ static void check_confirm_and_200_payload(const u8* pl, usz pll) {
       continue;
     if (sf.stream_id == 3) settings = 1;
     if (sf.stream_id == 0 &&
-        quic_h3conn_recv_response(quic_span_of(frame, rem), &resp_out) &&
+        quic_h3conn_recv_response(wired_span_of(frame, rem), &resp_out) &&
         resp_out.status == 200)
       ok200 = 1;
   }
@@ -848,7 +849,7 @@ static void lp_confirm_via_dispatch(struct lp_fix* f) {
   {
     wired_srvloop_reqacc      acc = lp_reqacc(&f->l);
     wired_srvloop_dispatch_in in  = {
-        quic_span_of(payload, plen), quic_mspan_of(scratch, sizeof scratch),
+        wired_span_of(payload, plen), wired_mspan_of(scratch, sizeof scratch),
         lp_wrap0(&f->l), &got, &req};
     CHECK(
         wired_srvloop_dispatch(
@@ -861,14 +862,14 @@ static void lp_confirm_via_dispatch(struct lp_fix* f) {
  * complete HEADERS frame for the given pseudo-headers, with the given FIN. */
 static usz lp_build_headers_stream(
     const quic_h3req_pseudo_in* pin, int fin, u8* out, usz cap) {
-  u8        fields[256], h3buf[300];
-  quic_obuf fob = quic_obuf_of(fields, sizeof fields);
-  quic_obuf hob = quic_obuf_of(h3buf, sizeof h3buf);
-  quic_obuf sob = quic_obuf_of(out, cap);
+  u8         fields[256], h3buf[300];
+  wired_obuf fob = quic_obuf_of(fields, sizeof fields);
+  wired_obuf hob = quic_obuf_of(h3buf, sizeof h3buf);
+  wired_obuf sob = quic_obuf_of(out, cap);
   CHECK(quic_h3req_enc_pseudo(pin, &fob) == 1);
   CHECK(
       quic_h3_frame_put(
-          &hob, QUIC_H3_FRAME_HEADERS, quic_span_of(fields, fob.len)) != 0);
+          &hob, QUIC_H3_FRAME_HEADERS, wired_span_of(fields, fob.len)) != 0);
   {
     quic_stream_frame sf = {0, 0, hob.len, h3buf, fin};
     CHECK(quic_appdata_stream_frame(&sf, &sob) == 1);
@@ -889,16 +890,16 @@ static void test_srvloop_connect_drives_without_fin(void) {
   int                  got = 0;
   usz                  n;
   quic_h3req_pseudo_in pin = {
-      quic_span_of((const u8*)"CONNECT", 7),
-      quic_span_of((const u8*)"https", 5), quic_span_of((const u8*)"h", 1),
-      quic_span_of((const u8*)"/", 1),
-      quic_span_of((const u8*)"webtransport", 12)};
+      wired_span_of((const u8*)"CONNECT", 7),
+      wired_span_of((const u8*)"https", 5), wired_span_of((const u8*)"h", 1),
+      wired_span_of((const u8*)"/", 1),
+      wired_span_of((const u8*)"webtransport", 12)};
   lp_confirm_via_dispatch(&f);
   n = lp_build_headers_stream(&pin, 0, stream, sizeof stream);
   {
     wired_srvloop_reqacc      acc = lp_reqacc(&f.l);
     wired_srvloop_dispatch_in in  = {
-        quic_span_of(stream, n), quic_mspan_of(scratch, sizeof scratch),
+        wired_span_of(stream, n), wired_mspan_of(scratch, sizeof scratch),
         lp_wrap0(&f.l), &got, &req};
     CHECK(
         wired_srvloop_dispatch(
@@ -918,15 +919,15 @@ static void test_srvloop_get_still_waits_for_fin(void) {
   int                  got = 0;
   usz                  n;
   quic_h3req_pseudo_in pin = {
-      quic_span_of((const u8*)"GET", 3), quic_span_of((const u8*)"https", 5),
-      quic_span_of((const u8*)"h", 1), quic_span_of((const u8*)"/", 1),
-      quic_span_of((const u8*)0, 0)};
+      wired_span_of((const u8*)"GET", 3), wired_span_of((const u8*)"https", 5),
+      wired_span_of((const u8*)"h", 1), wired_span_of((const u8*)"/", 1),
+      wired_span_of((const u8*)0, 0)};
   lp_confirm_via_dispatch(&f);
   n = lp_build_headers_stream(&pin, 0, stream, sizeof stream);
   {
     wired_srvloop_reqacc      acc = lp_reqacc(&f.l);
     wired_srvloop_dispatch_in in  = {
-        quic_span_of(stream, n), quic_mspan_of(scratch, sizeof scratch),
+        wired_span_of(stream, n), wired_mspan_of(scratch, sizeof scratch),
         lp_wrap0(&f.l), &got, &req};
     CHECK(
         wired_srvloop_dispatch(
@@ -944,31 +945,31 @@ static void test_srvloop_confirm_and_200_coalesce(void) {
   struct lp_fix f;
   u8            out[1500], get[512], spkt[1024];
   usz           glen, slen;
-  quic_obuf     ob = {out, sizeof out, 0};
+  wired_obuf    ob = {out, sizeof out, 0};
   const u8*     pkts[4];
   usz           offs[4], lens[4], np;
   lp_confirm_via_dispatch(&f);
   CHECK(f.l.hs_done_sent == 0); /* confirmation not yet sealed */
   {
-    quic_obuf gob = {get, sizeof get, 0};
+    wired_obuf gob = {get, sizeof get, 0};
     CHECK(wired_h3reqdrive_send_get(
         0,
         &(wired_h3reqdrive_get_in){
-            quic_span_of((const u8*)"/", 1), quic_span_of((const u8*)"h", 1)},
+            wired_span_of((const u8*)"/", 1), wired_span_of((const u8*)"h", 1)},
         &gob));
     glen = gob.len;
   }
   slen = client_seal_onertt(&f, get, glen, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   CHECK(
       wired_srvloop_step(
-          &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob) ==
+          &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob) ==
       1);
   /* Reply: [Handshake ACK (long)][one 1-RTT packet: SETTINGS + HANDSHAKE_DONE
    * + 200]. Short-header packets carry no length, so confirm and 200 share a
    * single 1-RTT payload rather than two coalesced 1-RTT packets. */
   quic_pktlist plist = {pkts, offs, lens, 4};
-  np                 = quic_udploop_split(quic_span_of(out, ob.len), &plist);
+  np                 = quic_udploop_split(wired_span_of(out, ob.len), &plist);
   CHECK(np == 2);
   CHECK((out[offs[0]] & 0x80) != 0); /* slice 0: long-header Handshake ACK */
   {
@@ -988,13 +989,13 @@ static void test_srvloop_confirm_emitted_once(void) {
   u8  out[1024], junk[8] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
   u8  spkt[1024];
   usz slen;
-  quic_obuf ob = {out, sizeof out, 0};
+  wired_obuf ob = {out, sizeof out, 0};
   lp_confirm(&f, &ob);
   /* A 1-RTT packet that carries only PADDING: no request decoded. */
   slen = client_seal_onertt_pn(&f, 3, junk, sizeof junk, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
-      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   if (ob.len > 0) {
     const u8* pl;
     usz       pll;
@@ -1037,7 +1038,7 @@ static void test_srvloop_dispatch_padding_before_crypto(void) {
   {
     wired_srvloop_reqacc      acc = lp_reqacc(&f.l);
     wired_srvloop_dispatch_in in  = {
-        quic_span_of(payload, plen), quic_mspan_of(scratch, sizeof scratch),
+        wired_span_of(payload, plen), wired_mspan_of(scratch, sizeof scratch),
         lp_wrap0(&f.l), &got, &req};
     CHECK(
         wired_srvloop_dispatch(
@@ -1053,30 +1054,30 @@ static void test_srvloop_padding_before_stream(void) {
   struct lp_fix f;
   u8            cpkt[1024], out[1024], get[512], pget[576], spkt[1024];
   usz           clen, glen, plen, slen;
-  quic_obuf     ob = {out, sizeof out, 0};
+  wired_obuf    ob = {out, sizeof out, 0};
   lp_make_client_hello(&f);
   lp_drive_to_flight(&f);
   lp_make_client_finished(&f);
   clen = client_seal_handshake(&f, f.cli_fin, f.cli_fin_len, cpkt, sizeof cpkt);
   CHECK(
       wired_srvloop_step(
-          &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(cpkt, clen), &ob) ==
+          &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(cpkt, clen), &ob) ==
       1);
   {
-    quic_obuf gob = {get, sizeof get, 0};
+    wired_obuf gob = {get, sizeof get, 0};
     CHECK(wired_h3reqdrive_send_get(
         0,
         &(wired_h3reqdrive_get_in){
-            quic_span_of((const u8*)"/", 1), quic_span_of((const u8*)"h", 1)},
+            wired_span_of((const u8*)"/", 1), wired_span_of((const u8*)"h", 1)},
         &gob));
     glen = gob.len;
   }
   plen = lp_pad_prefix(pget, get, glen);
   slen = client_seal_onertt(&f, pget, plen, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   CHECK(
       wired_srvloop_step(
-          &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob) ==
+          &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob) ==
       1);
   CHECK(ob.len > 0);
 }
@@ -1091,7 +1092,7 @@ static void test_srvloop_coalesced_finished_behind_leading(void) {
   u8            lead[256], rest[512], dg[1024], out[1024];
   u8            padding[1] = {0x00}; /* RFC 9000 19.1 */
   usz           lead_len, rest_len, i, off = 0;
-  quic_obuf     ob = {out, sizeof out, 0};
+  wired_obuf    ob = {out, sizeof out, 0};
   lp_make_client_hello(&f);
   lp_drive_to_flight(&f);
   lp_make_client_finished(&f);
@@ -1102,7 +1103,8 @@ static void test_srvloop_coalesced_finished_behind_leading(void) {
   for (i = 0; i < rest_len; i++) dg[off++] = rest[i];
   CHECK(
       wired_srvloop_step(
-          &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(dg, off), &ob) == 1);
+          &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(dg, off), &ob) ==
+      1);
   CHECK(wired_server_is_confirmed(&f.s) == 1);
 }
 
@@ -1118,9 +1120,9 @@ static usz lp_uni_stream(u8* out, usz cap, u64 stream_id, u8 lead) {
  * instruction (RFC 9204 4.3.1). */
 static usz lp_qpack_encoder_set_capacity(
     u8* out, usz cap, u64 stream_id, u64 capacity) {
-  u8         body[8];
-  quic_mspan mb = quic_mspan_of(body + 1, sizeof body - 1);
-  usz        n =
+  u8          body[8];
+  wired_mspan mb = wired_mspan_of(body + 1, sizeof body - 1);
+  usz         n =
       quic_qpack_enc_instr_encode(mb, QUIC_QPACK_ENC_SET_CAPACITY, capacity);
   quic_stream_frame sf;
   body[0] = QUIC_H3_STREAM_QPACK_ENCODER;
@@ -1146,7 +1148,7 @@ static void test_srvloop_dispatch_uni_streams_not_request(void) {
   {
     wired_srvloop_reqacc      acc = lp_reqacc(&f.l);
     wired_srvloop_dispatch_in in  = {
-        quic_span_of(payload, off), quic_mspan_of(scratch, sizeof scratch),
+        wired_span_of(payload, off), wired_mspan_of(scratch, sizeof scratch),
         lp_wrap0(&f.l), &got, &req};
     CHECK(
         wired_srvloop_dispatch(
@@ -1170,11 +1172,11 @@ static void test_srvloop_dispatch_get_after_uni_streams(void) {
   off += lp_uni_stream(payload + off, sizeof payload - off, 2, 0x00);
   off += lp_uni_stream(payload + off, sizeof payload - off, 3, 0x03);
   {
-    quic_obuf gob = {get, sizeof get, 0};
+    wired_obuf gob = {get, sizeof get, 0};
     CHECK(wired_h3reqdrive_send_get(
         0,
         &(wired_h3reqdrive_get_in){
-            quic_span_of((const u8*)"/", 1), quic_span_of((const u8*)"h", 1)},
+            wired_span_of((const u8*)"/", 1), wired_span_of((const u8*)"h", 1)},
         &gob));
     glen = gob.len;
   }
@@ -1182,7 +1184,7 @@ static void test_srvloop_dispatch_get_after_uni_streams(void) {
   {
     wired_srvloop_reqacc      acc = lp_reqacc(&f.l);
     wired_srvloop_dispatch_in in  = {
-        quic_span_of(payload, off), quic_mspan_of(scratch, sizeof scratch),
+        wired_span_of(payload, off), wired_mspan_of(scratch, sizeof scratch),
         lp_wrap0(&f.l), &got, &req};
     CHECK(
         wired_srvloop_dispatch(
@@ -1203,13 +1205,13 @@ static usz lp_split_post_frames(
   quic_h3_frame            hf   = {0};
   const u8*                body = (const u8*)"hi";
   wired_h3reqdrive_send_in in   = {
-      quic_span_of((const u8*)"POST", 4), quic_span_of((const u8*)"/", 1),
-      quic_span_of((const u8*)"h", 1), quic_span_of(body, 2)};
-  quic_obuf rob = {reqb, sizeof reqb, 0};
+      wired_span_of((const u8*)"POST", 4), wired_span_of((const u8*)"/", 1),
+      wired_span_of((const u8*)"h", 1), wired_span_of(body, 2)};
+  wired_obuf rob = {reqb, sizeof reqb, 0};
   CHECK(wired_h3reqdrive_send_method(0, &in, &rob));
   rlen = rob.len;
   CHECK(quic_frame_get_stream(reqb, rlen, &sf) > 0);
-  hb = quic_h3_frame_get(quic_span_of(sf.data, (usz)sf.length), &hf);
+  hb = quic_h3_frame_get(wired_span_of(sf.data, (usz)sf.length), &hf);
   CHECK(hb > 0 && hf.type == QUIC_H3_FRAME_HEADERS);
   CHECK(appdata_frame_flat(0, 0, sf.data, hb, 0, hp, hcap, hl));
   CHECK(appdata_frame_flat(
@@ -1236,13 +1238,13 @@ static usz lp_split_post_frames_on(
   quic_stream_frame        sf;
   quic_h3_frame            hf = {0};
   wired_h3reqdrive_send_in in = {
-      quic_span_of((const u8*)"POST", 4), quic_span_of((const u8*)"/", 1),
-      quic_span_of((const u8*)"h", 1), quic_span_of(body, body_len)};
-  quic_obuf rob = {reqb, sizeof reqb, 0};
+      wired_span_of((const u8*)"POST", 4), wired_span_of((const u8*)"/", 1),
+      wired_span_of((const u8*)"h", 1), wired_span_of(body, body_len)};
+  wired_obuf rob = {reqb, sizeof reqb, 0};
   CHECK(wired_h3reqdrive_send_method(stream_id, &in, &rob));
   rlen = rob.len;
   CHECK(quic_frame_get_stream(reqb, rlen, &sf) > 0);
-  hb = quic_h3_frame_get(quic_span_of(sf.data, (usz)sf.length), &hf);
+  hb = quic_h3_frame_get(wired_span_of(sf.data, (usz)sf.length), &hf);
   CHECK(hb > 0 && hf.type == QUIC_H3_FRAME_HEADERS);
   CHECK(appdata_frame_flat(stream_id, 0, sf.data, hb, 0, hp, hcap, hl));
   CHECK(appdata_frame_flat(
@@ -1262,7 +1264,7 @@ static void test_srvloop_two_requests_complete_same_step(void) {
   u8            h0[256], d0[256], h4[256], d4[256], out[1024], spkt[1024];
   u8            payload[512];
   usz           h0l, d0l, h4l, d4l, slen, off;
-  quic_obuf     ob    = {out, sizeof out, 0};
+  wired_obuf    ob    = {out, sizeof out, 0};
   const u8*     body0 = (const u8*)"AA";
   const u8*     body4 = (const u8*)"BBB";
   lp_split_post_frames_on(
@@ -1276,9 +1278,9 @@ static void test_srvloop_two_requests_complete_same_step(void) {
   for (usz i = 0; i < h0l; i++) payload[off++] = h0[i];
   for (usz i = 0; i < h4l; i++) payload[off++] = h4[i];
   slen = client_seal_onertt_pn(&f, 3, payload, off, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
-      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   CHECK(f.l.got_request == 0);
   CHECK(f.l.done_n == 0);
   CHECK(f.l.streams[0].in_use == 1 && f.l.streams[0].stream_id == 0);
@@ -1289,9 +1291,9 @@ static void test_srvloop_two_requests_complete_same_step(void) {
   for (usz i = 0; i < d0l; i++) payload[off++] = d0[i];
   for (usz i = 0; i < d4l; i++) payload[off++] = d4[i];
   slen = client_seal_onertt_pn(&f, 4, payload, off, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
-      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   CHECK(f.l.done_n == 2);
   {
     const wired_srvloop_stream_slot* s0 = &f.l.streams[f.l.done_slots[0]];
@@ -1317,13 +1319,13 @@ static void test_srvloop_fin_no_headers_marks_incomplete(void) {
   struct lp_fix f;
   u8            out[1024], frm[64], spkt[1024];
   usz           flen, slen;
-  quic_obuf     ob = {out, sizeof out, 0};
+  wired_obuf    ob = {out, sizeof out, 0};
   lp_confirm(&f, &ob);
   CHECK(appdata_frame_flat(0, 0, (const u8*)"", 0, 1, frm, sizeof frm, &flen));
   slen = client_seal_onertt_pn(&f, 7, frm, flen, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
-      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   CHECK(f.l.done_n == 0);
   CHECK(f.l.incomplete_n == 1);
   CHECK(f.l.incomplete_slots[0] == 0);
@@ -1338,7 +1340,7 @@ static void test_srvloop_fin_truncated_headers_marks_incomplete(void) {
   struct lp_fix f;
   u8            hp[256], dp[256], frm[64], spkt[1024], out[1024];
   usz           hl, dl, flen, slen;
-  quic_obuf     ob = {out, sizeof out, 0};
+  wired_obuf    ob = {out, sizeof out, 0};
   lp_confirm(&f, &ob);
   lp_split_post_frames(hp, sizeof hp, &hl, dp, sizeof dp, &dl);
   /* Re-frame only the leading half of the HEADERS stream bytes, but with
@@ -1346,9 +1348,9 @@ static void test_srvloop_fin_truncated_headers_marks_incomplete(void) {
    * mind any body) finished arriving. */
   CHECK(appdata_frame_flat(0, 0, hp, hl / 2, 1, frm, sizeof frm, &flen));
   slen = client_seal_onertt_pn(&f, 7, frm, flen, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
-      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   CHECK(f.l.done_n == 0);
   CHECK(f.l.incomplete_n == 1);
 }
@@ -1358,21 +1360,21 @@ static void test_srvloop_complete_get_not_marked_incomplete(void) {
   struct lp_fix f;
   u8            out[1024], get[512], spkt[1024];
   usz           glen, slen;
-  quic_obuf     ob = {out, sizeof out, 0};
+  wired_obuf    ob = {out, sizeof out, 0};
   lp_confirm(&f, &ob);
   {
-    quic_obuf gob = {get, sizeof get, 0};
+    wired_obuf gob = {get, sizeof get, 0};
     CHECK(wired_h3reqdrive_send_get(
         0,
         &(wired_h3reqdrive_get_in){
-            quic_span_of((const u8*)"/", 1), quic_span_of((const u8*)"h", 1)},
+            wired_span_of((const u8*)"/", 1), wired_span_of((const u8*)"h", 1)},
         &gob));
     glen = gob.len;
   }
   slen = client_seal_onertt_pn(&f, 7, get, glen, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
-      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   CHECK(f.l.done_n == 1);
   CHECK(f.l.incomplete_n == 0);
   CHECK(f.l.streams[0].req_incomplete == 0);
@@ -1388,7 +1390,7 @@ static void test_srvloop_two_streams_reassemble_independently(void) {
   struct lp_fix f;
   u8            h0[256], d0[256], h4[256], d4[256], out[1024], spkt[1024];
   usz           h0l, d0l, h4l, d4l, slen;
-  quic_obuf     ob    = {out, sizeof out, 0};
+  wired_obuf    ob    = {out, sizeof out, 0};
   const u8*     body0 = (const u8*)"AA";
   const u8*     body4 = (const u8*)"BBB";
   lp_split_post_frames_on(
@@ -1399,21 +1401,21 @@ static void test_srvloop_two_streams_reassemble_independently(void) {
   /* datagram 1: stream 0's HEADERS only, then stream 4's HEADERS only -> no
    * request completes yet on either stream. */
   slen = client_seal_onertt_pn(&f, 3, h0, h0l, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
-      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   CHECK(f.l.got_request == 0);
   slen = client_seal_onertt_pn(&f, 4, h4, h4l, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
-      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   CHECK(f.l.got_request == 0);
   /* datagram 3: stream 4's DATA+FIN completes stream 4's request with ITS
    * body ("BBB"), stream 0's slot is untouched. */
   slen = client_seal_onertt_pn(&f, 5, d4, d4l, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
-      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   CHECK(f.l.got_request == 1);
   CHECK(
       f.l.req.body_len == 3 && f.l.req.body[0] == 'B' &&
@@ -1421,9 +1423,9 @@ static void test_srvloop_two_streams_reassemble_independently(void) {
   /* datagram 4: stream 0's DATA+FIN completes stream 0's request with ITS OWN
    * body ("AA") — not stream 4's, and not corrupted by stream 4's slot. */
   slen = client_seal_onertt_pn(&f, 6, d0, d0l, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
-      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   CHECK(f.l.got_request == 1);
   CHECK(
       f.l.req.body_len == 2 && f.l.req.body[0] == 'A' &&
@@ -1455,7 +1457,7 @@ static void test_srvloop_wt_bidi_stream_not_request(void) {
   struct lp_fix f;
   u8            h0[256], d0[256], wt[64], out[1024], spkt[1024];
   usz           h0l, d0l, wtl, slen;
-  quic_obuf     ob    = {out, sizeof out, 0};
+  wired_obuf    ob    = {out, sizeof out, 0};
   const u8*     body0 = (const u8*)"AA";
   lp_split_post_frames_on(
       0, body0, 2, h0, sizeof h0, &h0l, d0, sizeof d0, &d0l);
@@ -1471,9 +1473,9 @@ static void test_srvloop_wt_bidi_stream_not_request(void) {
     for (usz i = 0; i < wtl; i++) payload[off++] = wt[i];
     slen = client_seal_onertt_pn(&f, 3, payload, off, spkt, sizeof spkt);
   }
-  ob = (quic_obuf){out, sizeof out, 0};
+  ob = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
-      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   CHECK(f.l.got_request == 0);
   /* only slot 0 (stream 0's) is claimed; no slot exists for stream 4. */
   CHECK(f.l.streams[0].in_use == 1 && f.l.streams[0].stream_id == 0);
@@ -1482,9 +1484,9 @@ static void test_srvloop_wt_bidi_stream_not_request(void) {
   /* datagram 2: stream 0's DATA+FIN completes ITS OWN request, unaffected by
    * the WT stream's earlier frame in datagram 1. */
   slen = client_seal_onertt_pn(&f, 4, d0, d0l, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
-      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   CHECK(f.l.got_request == 1);
   CHECK(
       f.l.req.body_len == 2 && f.l.req.body[0] == 'A' &&
@@ -1503,10 +1505,10 @@ static void test_srvloop_wt_bidi_stream_not_request(void) {
  * hq-interop GET, not attempt QPACK/HEADERS parsing (which they are not). */
 static void test_srvloop_hq09_recv_get_produces_request(void) {
   struct lp_fix f;
-  quic_obuf     ob;
+  wired_obuf    ob;
   u8            out[1024], get[64], spkt[1024];
   usz           glen, slen;
-  ob = (quic_obuf){out, sizeof out, 0};
+  ob = (wired_obuf){out, sizeof out, 0};
   lp_confirm(&f, &ob);
   f.s.sdrv.alpn     = QUIC_SALPN_HQ;
   f.l.resp_external = 1; /* real deployments always set this (srvrun.c);
@@ -1519,14 +1521,14 @@ static void test_srvloop_hq09_recv_get_produces_request(void) {
   }
   CHECK(glen != 0);
   slen = client_seal_onertt(&f, get, glen, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   /* This test's only concern is request decoding -- resp_external means the
    * loop's own response_frame never fires, so the step's produced/out value
    * (whether the delayed-ACK policy decided a bare-ACK packet was due this
    * round, RFC 9000 13.2.1) is not asserted on here; a real deployment's
    * later steps eventually flush any still-pending ACK. */
   wired_srvloop_step(
-      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   CHECK(f.l.got_request == 1);
   CHECK(f.l.req.method_len == 3);
   CHECK(f.l.req.path_len == 10);
@@ -1707,7 +1709,7 @@ static void test_srvloop_wt_bidi_stream_reassembled(void) {
   struct lp_fix f;
   u8            f0[64], f1[64], out[1024], spkt[1024];
   usz           f0l, f1l, slen;
-  quic_obuf     ob = {out, sizeof out, 0};
+  wired_obuf    ob = {out, sizeof out, 0};
   /* offset 0: the 2-byte 0x41 type ({0x40,0x41}) plus a 1-byte session id
    * varint (this stream's own CONNECT id, 4) -- draft-ietf-webtrans-http3-15
    * 4.3's signal is TWO varints, not one -- followed by "AB" application
@@ -1720,13 +1722,13 @@ static void test_srvloop_wt_bidi_stream_reassembled(void) {
   f1l = lp_stream_frame_at(f1, sizeof f1, 4, 5, cd, 2, 1);
   lp_confirm(&f, &ob);
   slen = client_seal_onertt_pn(&f, 3, f0, f0l, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
-      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   slen = client_seal_onertt_pn(&f, 4, f1, f1l, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
-      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   {
     int i = wired_srvloop_wt_slot_find(&f.l, 4);
     CHECK(i >= 0);
@@ -1760,21 +1762,21 @@ static void test_srvloop_wt_bidi_continuation_not_absorbed_into_request(void) {
   struct lp_fix f;
   u8            f0[64], f1[64], out[1024], spkt[1024];
   usz           f0l, f1l, slen;
-  quic_obuf     ob = {out, sizeof out, 0};
+  wired_obuf    ob = {out, sizeof out, 0};
   const u8*     sig_plus_ab = (const u8*)"\x40\x41\x04" "AB";
   const u8* cd = (const u8*)"CD";
   f0l          = lp_stream_frame_at(f0, sizeof f0, 4, 0, sig_plus_ab, 5, 0);
   f1l          = lp_stream_frame_at(f1, sizeof f1, 4, 5, cd, 2, 1);
   lp_confirm(&f, &ob);
   slen = client_seal_onertt_pn(&f, 3, f0, f0l, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
-      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   CHECK(!lp_streams_slot_claims(&f.l, 4));
   slen = client_seal_onertt_pn(&f, 4, f1, f1l, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
-      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   CHECK(!lp_streams_slot_claims(&f.l, 4));
   CHECK(f.l.got_request == 0);
   for (usz i = 0; i < WIRED_SRVLOOP_MAX_STREAMS; i++)
@@ -1789,7 +1791,7 @@ static void test_srvloop_wt_stream_concurrent_with_request(void) {
   struct lp_fix f;
   u8            h0[256], d0[256], wt[64], out[1024], spkt[1024];
   usz           h0l, d0l, wtl, slen;
-  quic_obuf     ob    = {out, sizeof out, 0};
+  wired_obuf    ob    = {out, sizeof out, 0};
   const u8*     body0 = (const u8*)"AA";
   lp_split_post_frames_on(
       0, body0, 2, h0, sizeof h0, &h0l, d0, sizeof d0, &d0l);
@@ -1803,9 +1805,9 @@ static void test_srvloop_wt_stream_concurrent_with_request(void) {
     for (usz i = 0; i < wtl; i++) payload[off++] = wt[i];
     slen = client_seal_onertt_pn(&f, 3, payload, off, spkt, sizeof spkt);
   }
-  ob = (quic_obuf){out, sizeof out, 0};
+  ob = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
-      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   CHECK(f.l.got_request == 0);
   /* the WT stream's slot exists (separate table), the request table has only
    * stream 0's slot -- neither corrupted the other. */
@@ -1818,9 +1820,9 @@ static void test_srvloop_wt_stream_concurrent_with_request(void) {
   CHECK(f.l.streams[0].in_use == 1 && f.l.streams[0].stream_id == 0);
   /* datagram 2: stream 0's DATA+FIN completes ITS OWN request. */
   slen = client_seal_onertt_pn(&f, 4, d0, d0l, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
-      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   CHECK(f.l.got_request == 1);
   CHECK(
       f.l.req.body_len == 2 && f.l.req.body[0] == 'A' &&
@@ -1845,7 +1847,7 @@ static void test_srvloop_wt_signal_only_frame_then_data(void) {
   struct lp_fix f;
   u8            f0[64], f1[64], out[1024], spkt[1024];
   usz           f0l, f1l, slen;
-  quic_obuf     ob = {out, sizeof out, 0};
+  wired_obuf    ob = {out, sizeof out, 0};
   const u8*     sig_only =
       (const u8*)"\x40\x41\x04"; /* type + session id, no app bytes */
   const u8* app = (const u8*)"Z";
@@ -1853,13 +1855,13 @@ static void test_srvloop_wt_signal_only_frame_then_data(void) {
   f1l           = lp_stream_frame_at(f1, sizeof f1, 4, 3, app, 1, 1);
   lp_confirm(&f, &ob);
   slen = client_seal_onertt_pn(&f, 3, f0, f0l, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
-      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   slen = client_seal_onertt_pn(&f, 4, f1, f1l, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
-      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   {
     int i = wired_srvloop_wt_slot_find(&f.l, 4);
     CHECK(i >= 0);
@@ -1882,13 +1884,13 @@ static void test_srvloop_wt_stream_without_session_no_crash(void) {
   struct lp_fix f;
   u8            wt[64], out[1024], spkt[1024];
   usz           wtl, slen;
-  quic_obuf     ob = {out, sizeof out, 0};
+  wired_obuf    ob = {out, sizeof out, 0};
   wtl              = lp_wt_bidi_stream(wt, sizeof wt, 4);
   lp_confirm(&f, &ob);
   slen = client_seal_onertt_pn(&f, 3, wt, wtl, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
-      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   CHECK(f.l.got_request == 0);
   {
     int i = wired_srvloop_wt_slot_find(&f.l, 4);
@@ -1927,7 +1929,7 @@ static void test_srvloop_wt_uni_stream_reassembled(void) {
   struct lp_fix f;
   u8            f0[64], f1[64], out[1024], spkt[1024];
   usz           f0l, f1l, slen;
-  quic_obuf     ob = {out, sizeof out, 0};
+  wired_obuf    ob = {out, sizeof out, 0};
   /* offset 0: the 2-byte 0x54 type varint ({0x40,0x54}) plus a 1-byte session
    * id varint (this stream's own CONNECT id, 2) -- the leading signal is TWO
    * varints, not one -- followed by "AB" application bytes. */
@@ -1939,13 +1941,13 @@ static void test_srvloop_wt_uni_stream_reassembled(void) {
   f1l = lp_stream_frame_at(f1, sizeof f1, 2, 5, cd, 2, 1);
   lp_confirm(&f, &ob);
   slen = client_seal_onertt_pn(&f, 3, f0, f0l, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
-      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   slen = client_seal_onertt_pn(&f, 4, f1, f1l, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
-      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   {
     int i = wired_srvloop_wt_uni_slot_find(&f.l, 2);
     CHECK(i >= 0);
@@ -1973,7 +1975,7 @@ static void test_srvloop_wt_uni_stream_split_data_then_bare_fin(void) {
   struct lp_fix f;
   u8            f0[64], f1[64], out[1024], spkt[1024];
   usz           f0l, f1l, slen;
-  quic_obuf     ob = {out, sizeof out, 0};
+  wired_obuf    ob = {out, sizeof out, 0};
   const u8*     type_plus_ab = (const u8*)"\x40\x54\x02" "AB";
   f0l = lp_stream_frame_at(f0, sizeof f0, 2, 0, type_plus_ab, 5, 0);
   /* A separate, later frame carrying ONLY the FIN -- zero application
@@ -1983,9 +1985,9 @@ static void test_srvloop_wt_uni_stream_split_data_then_bare_fin(void) {
   f1l = lp_stream_frame_at(f1, sizeof f1, 2, 5, (const u8*)"", 0, 1);
   lp_confirm(&f, &ob);
   slen = client_seal_onertt_pn(&f, 3, f0, f0l, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
-      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   {
     int i = wired_srvloop_wt_uni_slot_find(&f.l, 2);
     CHECK(i >= 0);
@@ -1993,9 +1995,9 @@ static void test_srvloop_wt_uni_stream_split_data_then_bare_fin(void) {
     CHECK(f.l.wt_uni_streams[i].fin == 0);          /* FIN not seen yet */
   }
   slen = client_seal_onertt_pn(&f, 4, f1, f1l, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
-      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   {
     int i = wired_srvloop_wt_uni_slot_find(&f.l, 2);
     CHECK(i >= 0);
@@ -2019,15 +2021,15 @@ static void test_srvloop_uni_control_qpack_still_ignored(void) {
   struct lp_fix f;
   u8            payload[256], out[1024], spkt[1024];
   usz           off = 0, slen;
-  quic_obuf     ob  = {out, sizeof out, 0};
+  wired_obuf    ob  = {out, sizeof out, 0};
   off += lp_uni_stream(payload + off, sizeof payload - off, 2, 0x00);
   off += lp_uni_stream(payload + off, sizeof payload - off, 6, 0x02);
   off += lp_uni_stream(payload + off, sizeof payload - off, 10, 0x03);
   lp_confirm(&f, &ob);
   slen = client_seal_onertt_pn(&f, 3, payload, off, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
-      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   CHECK(f.l.got_request == 0);
   CHECK(f.l.peer_closed == 0);
   CHECK(wired_srvloop_wt_uni_slot_find(&f.l, 2) < 0);
@@ -2049,14 +2051,14 @@ static void test_srvloop_second_qpack_encoder_stream_violation(void) {
   struct lp_fix f;
   u8            payload[256], out[1024], spkt[1024];
   usz           off = 0, slen;
-  quic_obuf     ob  = {out, sizeof out, 0};
+  wired_obuf    ob  = {out, sizeof out, 0};
   off += lp_uni_stream(payload + off, sizeof payload - off, 2, 0x02);
   off += lp_uni_stream(payload + off, sizeof payload - off, 6, 0x02);
   lp_confirm(&f, &ob);
   slen = client_seal_onertt_pn(&f, 3, payload, off, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
-      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   CHECK(f.l.qpack_stream_violation == QUIC_H3_STREAM_CREATION_ERROR);
 }
 
@@ -2069,14 +2071,14 @@ static void test_srvloop_qpack_encoder_set_capacity_applied(void) {
   struct lp_fix f;
   u8            payload[64], out[1024], spkt[1024];
   usz           off, slen;
-  quic_obuf     ob = {out, sizeof out, 0};
+  wired_obuf    ob = {out, sizeof out, 0};
   off = lp_qpack_encoder_set_capacity(payload, sizeof payload, 2, 10);
   lp_confirm(&f, &ob);
   f.l.h3.qpack_max_table_capacity = 100;
   slen = client_seal_onertt_pn(&f, 3, payload, off, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
-      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   CHECK(f.l.h3.qdyn.capacity == 10);
   CHECK(f.l.qpack_stream_violation == 0);
 }
@@ -2088,14 +2090,14 @@ static void test_srvloop_qpack_encoder_set_capacity_over_limit(void) {
   struct lp_fix f;
   u8            payload[64], out[1024], spkt[1024];
   usz           off, slen;
-  quic_obuf     ob = {out, sizeof out, 0};
+  wired_obuf    ob = {out, sizeof out, 0};
   off = lp_qpack_encoder_set_capacity(payload, sizeof payload, 2, 50);
   lp_confirm(&f, &ob);
   f.l.h3.qpack_max_table_capacity = 10;
   slen = client_seal_onertt_pn(&f, 3, payload, off, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
-      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   CHECK(f.l.h3.qdyn.capacity == 0);
   CHECK(f.l.qpack_stream_violation == QUIC_QPACK_ENCODER_STREAM_ERROR);
 }
@@ -2107,13 +2109,13 @@ static void test_srvloop_uni_unrecognized_type_no_crash(void) {
   struct lp_fix f;
   u8            payload[64], out[1024], spkt[1024];
   usz           off, slen;
-  quic_obuf     ob = {out, sizeof out, 0};
+  wired_obuf    ob = {out, sizeof out, 0};
   off              = lp_uni_stream(payload, sizeof payload, 2, 0x7f);
   lp_confirm(&f, &ob);
   slen = client_seal_onertt_pn(&f, 3, payload, off, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
-      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   CHECK(f.l.got_request == 0);
   CHECK(f.l.peer_closed == 0);
   CHECK(wired_srvloop_wt_uni_slot_find(&f.l, 2) < 0);
@@ -2130,14 +2132,14 @@ static void test_srvloop_uni_reset_before_type_no_crash(void) {
   struct lp_fix           f;
   u8                      payload[64], out[1024], spkt[1024];
   usz                     off = 0, slen;
-  quic_obuf               ob  = {out, sizeof out, 0};
+  wired_obuf              ob  = {out, sizeof out, 0};
   quic_reset_stream_frame rs  = {2, 0x100, 0};
   off = quic_reset_stream_encode(payload, sizeof payload, &rs);
   lp_confirm(&f, &ob);
   slen = client_seal_onertt_pn(&f, 3, payload, off, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
-      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   CHECK(f.l.got_request == 0);
   CHECK(f.l.peer_closed == 0);
   CHECK(wired_srvloop_wt_uni_slot_find(&f.l, 2) < 0);
@@ -2154,13 +2156,13 @@ static void test_srvloop_wt_uni_stream_without_session_no_crash(void) {
   struct lp_fix f;
   u8            wt[64], out[1024], spkt[1024];
   usz           wtl, slen;
-  quic_obuf     ob = {out, sizeof out, 0};
+  wired_obuf    ob = {out, sizeof out, 0};
   wtl              = lp_wt_uni_stream(wt, sizeof wt, 2);
   lp_confirm(&f, &ob);
   slen = client_seal_onertt_pn(&f, 3, wt, wtl, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
-      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   CHECK(f.l.got_request == 0);
   {
     int i = wired_srvloop_wt_uni_slot_find(&f.l, 2);
@@ -2183,15 +2185,15 @@ static void test_srvloop_datagram_queued_on_step(void) {
   struct lp_fix       f;
   u8                  payload[64], out[1024], spkt[1024];
   usz                 plen, slen;
-  quic_obuf           ob = {out, sizeof out, 0};
+  wired_obuf          ob = {out, sizeof out, 0};
   quic_datagram_frame df = {.length = 5, .data = (const u8*)"hello"};
-  plen = quic_datagram_encode(quic_mspan_of(payload, sizeof payload), &df, 1);
+  plen = quic_datagram_encode(wired_mspan_of(payload, sizeof payload), &df, 1);
   lp_confirm(&f, &ob);
   f.l.we_advertised_max_datagram = 100; /* RFC 9221 3: server opted in */
   slen = client_seal_onertt_pn(&f, 3, payload, plen, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
-      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   CHECK(f.l.rx_datagram_n == 1);
   CHECK(
       f.l.rx_datagrams[0].len == 5 && f.l.rx_datagrams[0].buf[0] == 'h' &&
@@ -2208,7 +2210,7 @@ static void test_srvloop_datagram_queue_overflow_drops_newest(void) {
   struct lp_fix f;
   u8            payload[64], out[1024], spkt[1024];
   usz           plen, slen;
-  quic_obuf     ob = {out, sizeof out, 0};
+  wired_obuf    ob = {out, sizeof out, 0};
   usz           i;
   lp_confirm(&f, &ob);
   f.l.we_advertised_max_datagram = 100; /* RFC 9221 3: server opted in */
@@ -2216,11 +2218,12 @@ static void test_srvloop_datagram_queue_overflow_drops_newest(void) {
   for (i = 0; i < WIRED_SRVLOOP_MAX_RX_DATAGRAMS; i++) {
     u8                  b  = (u8)('A' + i);
     quic_datagram_frame df = {.length = 1, .data = &b};
-    plen = quic_datagram_encode(quic_mspan_of(payload, sizeof payload), &df, 1);
+    plen =
+        quic_datagram_encode(wired_mspan_of(payload, sizeof payload), &df, 1);
     slen = client_seal_onertt_pn(&f, 3 + i, payload, plen, spkt, sizeof spkt);
-    ob   = (quic_obuf){out, sizeof out, 0};
+    ob   = (wired_obuf){out, sizeof out, 0};
     wired_srvloop_step(
-        &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+        &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   }
   CHECK(f.l.rx_datagram_n == WIRED_SRVLOOP_MAX_RX_DATAGRAMS);
   for (i = 0; i < WIRED_SRVLOOP_MAX_RX_DATAGRAMS; i++)
@@ -2231,13 +2234,14 @@ static void test_srvloop_datagram_queue_overflow_drops_newest(void) {
   {
     u8                  b  = 'Z';
     quic_datagram_frame df = {.length = 1, .data = &b};
-    plen = quic_datagram_encode(quic_mspan_of(payload, sizeof payload), &df, 1);
+    plen =
+        quic_datagram_encode(wired_mspan_of(payload, sizeof payload), &df, 1);
     slen = client_seal_onertt_pn(
         &f, 3 + WIRED_SRVLOOP_MAX_RX_DATAGRAMS, payload, plen, spkt,
         sizeof spkt);
-    ob = (quic_obuf){out, sizeof out, 0};
+    ob = (wired_obuf){out, sizeof out, 0};
     wired_srvloop_step(
-        &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+        &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   }
   CHECK(f.l.rx_datagram_n == WIRED_SRVLOOP_MAX_RX_DATAGRAMS);
   for (i = 0; i < WIRED_SRVLOOP_MAX_RX_DATAGRAMS; i++)
@@ -2252,17 +2256,17 @@ static void test_srvloop_datagram_within_advertised_limit_accepted(void) {
   struct lp_fix       f;
   u8                  payload[64], out[1024], spkt[1024];
   usz                 plen, slen;
-  quic_obuf           ob = {out, sizeof out, 0};
+  wired_obuf          ob = {out, sizeof out, 0};
   u8                  data[50];
   quic_datagram_frame df = {.length = sizeof data, .data = data};
   for (usz i = 0; i < sizeof data; i++) data[i] = (u8)i;
-  plen = quic_datagram_encode(quic_mspan_of(payload, sizeof payload), &df, 1);
+  plen = quic_datagram_encode(wired_mspan_of(payload, sizeof payload), &df, 1);
   lp_confirm(&f, &ob);
   f.l.we_advertised_max_datagram = 100; /* RFC 9221 3: server opted in */
   slen = client_seal_onertt_pn(&f, 3, payload, plen, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
-      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   CHECK(f.l.rx_datagram_n == 1);
   CHECK(f.l.rx_datagrams[0].len == sizeof data);
   CHECK(f.l.datagram_violation == 0);
@@ -2277,17 +2281,17 @@ static void test_srvloop_datagram_998_bytes_not_truncated(void) {
   struct lp_fix       f;
   u8                  payload[1100], out[1500], spkt[1500];
   usz                 plen, slen;
-  quic_obuf           ob = {out, sizeof out, 0};
+  wired_obuf          ob = {out, sizeof out, 0};
   u8                  data[998];
   quic_datagram_frame df = {.length = sizeof data, .data = data};
   for (usz i = 0; i < sizeof data; i++) data[i] = (u8)(i & 0xff);
-  plen = quic_datagram_encode(quic_mspan_of(payload, sizeof payload), &df, 1);
+  plen = quic_datagram_encode(wired_mspan_of(payload, sizeof payload), &df, 1);
   lp_confirm(&f, &ob);
   f.l.we_advertised_max_datagram = 1200; /* RFC 9221 3: server opted in */
   slen = client_seal_onertt_pn(&f, 3, payload, plen, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
-      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   CHECK(f.l.rx_datagram_n == 1);
   CHECK(f.l.rx_datagrams[0].len == sizeof data);
   CHECK(f.l.datagram_violation == 0);
@@ -2303,17 +2307,17 @@ static void test_srvloop_datagram_exceeding_advertised_limit_rejected(void) {
   struct lp_fix       f;
   u8                  payload[512], out[1024], spkt[1024];
   usz                 plen, slen;
-  quic_obuf           ob = {out, sizeof out, 0};
+  wired_obuf          ob = {out, sizeof out, 0};
   u8                  data[200];
   quic_datagram_frame df = {.length = sizeof data, .data = data};
   for (usz i = 0; i < sizeof data; i++) data[i] = (u8)i;
-  plen = quic_datagram_encode(quic_mspan_of(payload, sizeof payload), &df, 1);
+  plen = quic_datagram_encode(wired_mspan_of(payload, sizeof payload), &df, 1);
   lp_confirm(&f, &ob);
   f.l.we_advertised_max_datagram = 100; /* RFC 9221 3: advertised limit 100 */
   slen = client_seal_onertt_pn(&f, 3, payload, plen, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
-      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   CHECK(f.l.rx_datagram_n == 0);
   CHECK(f.l.datagram_violation == 1);
 }
@@ -2326,15 +2330,15 @@ static void test_srvloop_datagram_without_advertising_rejected(void) {
   struct lp_fix       f;
   u8                  payload[64], out[1024], spkt[1024];
   usz                 plen, slen;
-  quic_obuf           ob = {out, sizeof out, 0};
+  wired_obuf          ob = {out, sizeof out, 0};
   quic_datagram_frame df = {.length = 5, .data = (const u8*)"hello"};
-  plen = quic_datagram_encode(quic_mspan_of(payload, sizeof payload), &df, 1);
+  plen = quic_datagram_encode(wired_mspan_of(payload, sizeof payload), &df, 1);
   lp_confirm(&f, &ob);
   /* f.l.we_advertised_max_datagram left at its wired_srvloop_init default: 0 */
   slen = client_seal_onertt_pn(&f, 3, payload, plen, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
-      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   CHECK(f.l.rx_datagram_n == 0);
   CHECK(f.l.datagram_violation == 1);
 }
@@ -2345,19 +2349,19 @@ static void test_srvloop_request_only_leaves_rx_datagrams_empty(void) {
   struct lp_fix f;
   u8            get[512], out[1024], spkt[1024];
   usz           glen, slen;
-  quic_obuf     ob  = {out, sizeof out, 0};
-  quic_obuf     gob = {get, sizeof get, 0};
+  wired_obuf    ob  = {out, sizeof out, 0};
+  wired_obuf    gob = {get, sizeof get, 0};
   lp_confirm(&f, &ob);
   CHECK(wired_h3reqdrive_send_get(
       0,
       &(wired_h3reqdrive_get_in){
-          quic_span_of((const u8*)"/", 1), quic_span_of((const u8*)"h", 1)},
+          wired_span_of((const u8*)"/", 1), wired_span_of((const u8*)"h", 1)},
       &gob));
   glen = gob.len;
   slen = client_seal_onertt_pn(&f, 3, get, glen, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
-      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   CHECK(f.l.got_request == 1);
   CHECK(f.l.rx_datagram_n == 0);
 }
@@ -2376,9 +2380,9 @@ static void test_srvloop_stream_leading_0x40_not_wt_signal(void) {
   int                      got  = 0;
   const u8*                body = (const u8*)"hi";
   wired_h3reqdrive_send_in in   = {
-      quic_span_of((const u8*)"POST", 4), quic_span_of((const u8*)"/", 1),
-      quic_span_of((const u8*)"h", 1), quic_span_of(body, 2)};
-  quic_obuf rob = {reqb, sizeof reqb, 0};
+      wired_span_of((const u8*)"POST", 4), wired_span_of((const u8*)"/", 1),
+      wired_span_of((const u8*)"h", 1), wired_span_of(body, 2)};
+  wired_obuf rob = {reqb, sizeof reqb, 0};
   lp_make_client_hello(&f);
   lp_drive_to_flight(&f);
   CHECK(wired_h3reqdrive_send_method(0, &in, &rob));
@@ -2387,7 +2391,7 @@ static void test_srvloop_stream_leading_0x40_not_wt_signal(void) {
   {
     wired_srvloop_reqacc      acc = lp_reqacc(&f.l);
     wired_srvloop_dispatch_in in2 = {
-        quic_span_of(payload, rlen), quic_mspan_of(scratch, sizeof scratch),
+        wired_span_of(payload, rlen), wired_mspan_of(scratch, sizeof scratch),
         lp_wrap0(&f.l), &got, &req};
     CHECK(
         wired_srvloop_dispatch(
@@ -2414,15 +2418,15 @@ static void test_srvloop_wt_signal_mid_stream_latches_violation(void) {
   quic_stream_frame sf = {4, 3, sizeof sig, sig, 0};
   u8                payload[64];
   usz               plen, slen;
-  quic_obuf         ob = {out, sizeof out, 0};
+  wired_obuf        ob = {out, sizeof out, 0};
   lp_confirm(&f, &ob);
   plen = quic_frame_put_stream(payload, sizeof payload, &sf);
   CHECK(plen != 0);
   slen = client_seal_onertt_pn(&f, 3, payload, plen, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   CHECK(f.l.wt_signal_mid_stream_violation == 0);
   wired_srvloop_step(
-      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   CHECK(f.l.wt_signal_mid_stream_violation == 1);
 }
 
@@ -2436,13 +2440,13 @@ static void test_srvloop_wt_signal_offset_zero_not_violation(void) {
   struct lp_fix f;
   u8            wt[64], out[1024], spkt[1024];
   usz           wtl, slen;
-  quic_obuf     ob = {out, sizeof out, 0};
+  wired_obuf    ob = {out, sizeof out, 0};
   wtl              = lp_wt_bidi_stream(wt, sizeof wt, 4);
   lp_confirm(&f, &ob);
   slen = client_seal_onertt_pn(&f, 3, wt, wtl, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
-      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   CHECK(f.l.wt_signal_mid_stream_violation == 0);
 }
 
@@ -2464,8 +2468,8 @@ static void test_srvloop_dispatch_split_request_streams(void) {
   {
     wired_srvloop_reqacc      acc = lp_reqacc(&f.l);
     wired_srvloop_dispatch_in in  = {
-        quic_span_of(payload, hl + dl), quic_mspan_of(scratch, sizeof scratch),
-        lp_wrap0(&f.l), &got, &req};
+        wired_span_of(payload, hl + dl),
+        wired_mspan_of(scratch, sizeof scratch), lp_wrap0(&f.l), &got, &req};
     CHECK(
         wired_srvloop_dispatch(
             &(wired_srvloop_dispatch_ctx){&f.s, &f.l.h3, &acc, 0}, &in) == 1);
@@ -2493,7 +2497,7 @@ static void test_srvloop_dispatch_split_across_datagrams(void) {
     wired_srvloop_reqacc acc = lp_reqacc(&f.l);
     /* datagram 1: HEADERS only, no FIN -> accumulated, no request yet. */
     wired_srvloop_dispatch_in in1 = {
-        quic_span_of(hp, hl), quic_mspan_of(scratch, sizeof scratch),
+        wired_span_of(hp, hl), wired_mspan_of(scratch, sizeof scratch),
         lp_wrap0(&f.l), &got, &req};
     CHECK(
         wired_srvloop_dispatch(
@@ -2501,7 +2505,7 @@ static void test_srvloop_dispatch_split_across_datagrams(void) {
     CHECK(got == 0);
     /* datagram 2: DATA at offset hb, FIN -> request completes with body. */
     wired_srvloop_dispatch_in in2 = {
-        quic_span_of(dp, dl), quic_mspan_of(scratch, sizeof scratch),
+        wired_span_of(dp, dl), wired_mspan_of(scratch, sizeof scratch),
         lp_wrap0(&f.l), &got, &req};
     CHECK(
         wired_srvloop_dispatch(
@@ -2522,7 +2526,7 @@ static int lp_echo_handler(
     void*                       ctx,
     const wired_h3reqdrive_req* req,
     u64                         offset,
-    quic_obuf*                  body_out,
+    wired_obuf*                 body_out,
     const char**                content_type,
     int*                        more,
     u64*                        total_size) {
@@ -2546,21 +2550,21 @@ static int lp_echo_handler(
 static void lp_post_echo(struct lp_fix* f, const u8* body, usz blen) {
   u8               out[1024], reqb[512], spkt[1024];
   usz              rlen, slen;
-  quic_obuf        ob = {out, sizeof out, 0}, rob = {reqb, sizeof reqb, 0};
+  wired_obuf       ob = {out, sizeof out, 0}, rob = {reqb, sizeof reqb, 0};
   const u8*        pl;
   quic_h3conn_resp resp_out   = {0};
   wired_h3reqdrive_send_in in = {
-      quic_span_of((const u8*)"POST", 4), quic_span_of((const u8*)"/", 1),
-      quic_span_of((const u8*)"h", 1), quic_span_of(body, blen)};
+      wired_span_of((const u8*)"POST", 4), wired_span_of((const u8*)"/", 1),
+      wired_span_of((const u8*)"h", 1), wired_span_of(body, blen)};
   CHECK(wired_h3reqdrive_send_method(0, &in, &rob));
   rlen = rob.len;
   slen = client_seal_onertt(f, reqb, rlen, spkt, sizeof spkt);
   CHECK(
       wired_srvloop_step(
-          &(wired_srvloop_conn){&f->l, &f->s}, quic_mspan_of(spkt, slen),
+          &(wired_srvloop_conn){&f->l, &f->s}, wired_mspan_of(spkt, slen),
           &ob) == 1);
   CHECK(client_open_onertt(f, out, ob.len, &pl, &rlen) == 1);
-  CHECK(quic_h3conn_recv_response(quic_span_of(pl, rlen), &resp_out) == 1);
+  CHECK(quic_h3conn_recv_response(wired_span_of(pl, rlen), &resp_out) == 1);
   CHECK(resp_out.status == 200);
   CHECK(resp_out.body.n == blen);
   for (slen = 0; slen < blen; slen++)
@@ -2572,9 +2576,9 @@ static void lp_post_echo(struct lp_fix* f, const u8* body, usz blen) {
  * output reaches the sealed response, not the old body-less 200. */
 static void test_srvloop_handler_body_echoed(void) {
   struct lp_fix f;
-  quic_obuf     ob;
+  wired_obuf    ob;
   u8            out[1024];
-  ob                 = (quic_obuf){out, sizeof out, 0};
+  ob                 = (wired_obuf){out, sizeof out, 0};
   g_test_history_len = 0;
   lp_confirm(&f, &ob);
   wired_srvloop_set_handler(&f.l, lp_echo_handler, 0);
@@ -2588,7 +2592,7 @@ static void test_srvloop_handler_body_echoed(void) {
 /* Walk a 1-RTT payload for a CRYPTO frame (RFC 9000 19.6) carrying a
  * NewSessionTicket (RFC 8446 4.6.1) and return its sealed ticket bytes via
  * *sealed. Returns 1 if found. */
-static int find_ticket_crypto(const u8* pl, usz pll, quic_span* sealed) {
+static int find_ticket_crypto(const u8* pl, usz pll, wired_span* sealed) {
   quic_framewalk      it;
   quic_framewalk_item fr;
   quic_framewalk_init(&it, pl, pll);
@@ -2597,7 +2601,7 @@ static int find_ticket_crypto(const u8* pl, usz pll, quic_span* sealed) {
     if (fr.type != QUIC_FRAME_CRYPTO) continue;
     if (quic_frame_get_crypto(fr.start, fr.remaining, &cf) == 0) continue;
     if (quic_tls_new_session_ticket_parse(
-            quic_span_of(cf.data, cf.length), sealed))
+            wired_span_of(cf.data, cf.length), sealed))
       return 1;
   }
   return 0;
@@ -2610,19 +2614,19 @@ static int find_ticket_crypto(const u8* pl, usz pll, quic_span* sealed) {
 static void test_srvloop_ticket_sent_on_confirm(void) {
   struct lp_fix f;
   u8            out[1500];
-  quic_obuf     ob = {out, sizeof out, 0};
+  wired_obuf    ob = {out, sizeof out, 0};
   const u8*     pkts[4];
   usz           offs[4], lens[4], np;
   const u8*     pl;
   usz           pll;
-  quic_span     sealed;
+  wired_span    sealed;
   quic_ticket   opened;
   lp_confirm(&f, &ob);
   CHECK(f.l.ticket_sent == 1);
   /* The confirming datagram coalesces a long-header Handshake ACK ahead of the
    * 1-RTT packet (RFC 9000 12.2); split it before opening as 1-RTT. */
   quic_pktlist plist = {pkts, offs, lens, 4};
-  np                 = quic_udploop_split(quic_span_of(out, ob.len), &plist);
+  np                 = quic_udploop_split(wired_span_of(out, ob.len), &plist);
   CHECK(np == 2);
   CHECK(client_open_onertt(&f, out + offs[1], lens[1], &pl, &pll) == 1);
   CHECK(find_ticket_crypto(pl, pll, &sealed) == 1);
@@ -2634,7 +2638,7 @@ static void test_srvloop_ticket_sent_on_confirm(void) {
 static void test_srvloop_no_ticket_before_confirm(void) {
   struct lp_fix f;
   u8            out[1024];
-  quic_obuf     ob = {out, sizeof out, 0};
+  wired_obuf    ob = {out, sizeof out, 0};
   lp_make_client_hello(&f);
   lp_drive_to_flight(&f);
   CHECK(f.l.ticket_sent == 0);
@@ -2648,17 +2652,17 @@ static void test_srvloop_ticket_not_resent(void) {
   u8            out[1024], junk[8] = {0};
   u8            spkt[1024];
   usz           slen;
-  quic_obuf     ob = {out, sizeof out, 0};
+  wired_obuf    ob = {out, sizeof out, 0};
   lp_confirm(&f, &ob);
   CHECK(f.l.ticket_sent == 1);
   slen = client_seal_onertt_pn(&f, 3, junk, sizeof junk, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
-      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   if (ob.len > 0) {
-    const u8* pl;
-    usz       pll;
-    quic_span sealed;
+    const u8*  pl;
+    usz        pll;
+    wired_span sealed;
     CHECK(client_open_onertt(&f, out, ob.len, &pl, &pll) == 1);
     CHECK(find_ticket_crypto(pl, pll, &sealed) == 0);
   }
@@ -2674,11 +2678,11 @@ static void test_srvloop_close_frame_detected(void) {
   quic_conn_close_frame app     = {1, 0, 0, 0, 0};
   usz                   n = quic_frame_put_conn_close(cc, sizeof cc, &tpt);
   CHECK(n > 0);
-  CHECK(srvloop_has_close(quic_span_of(cc, n)) == 1);
+  CHECK(srvloop_has_close(wired_span_of(cc, n)) == 1);
   n = quic_frame_put_conn_close(cc, sizeof cc, &app);
   CHECK(n > 0);
-  CHECK(srvloop_has_close(quic_span_of(cc, n)) == 1);
-  CHECK(srvloop_has_close(quic_span_of(ping, 1)) == 0);
+  CHECK(srvloop_has_close(wired_span_of(cc, n)) == 1);
+  CHECK(srvloop_has_close(wired_span_of(ping, 1)) == 0);
 }
 
 /* An ack-eliciting 1-RTT packet (here, a PING frame) records its pn
@@ -2686,15 +2690,15 @@ static void test_srvloop_close_frame_detected(void) {
  * (quic_ackpolicy pending). */
 static void test_srvloop_ack_eliciting_records_pn_and_pending(void) {
   struct lp_fix f;
-  quic_obuf     ob;
+  wired_obuf    ob;
   u8            out[1024], ping[1] = {0x01}, spkt[1024];
   usz           slen;
-  ob = (quic_obuf){out, sizeof out, 0};
+  ob = (wired_obuf){out, sizeof out, 0};
   lp_confirm(&f, &ob);
   slen = client_seal_onertt_pn(&f, 7, ping, 1, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
-      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   CHECK(quic_recvpn_seen(&f.l.ack_recv.r[QUIC_PNS_APP], 7) == 1);
   CHECK(f.l.app_ack_policy.pending == 1);
 }
@@ -2704,18 +2708,18 @@ static void test_srvloop_ack_eliciting_records_pn_and_pending(void) {
  * receiving only ACKs is never itself a reason to ACK. */
 static void test_srvloop_ack_non_eliciting_not_recorded(void) {
   struct lp_fix  f;
-  quic_obuf      ob;
+  wired_obuf     ob;
   u8             out[1024], fr[16], spkt[1024];
   usz            fl, slen;
   quic_ack_frame ackf = {0, 1, {{0, 0}}, 0, 0, 0, 0};
-  ob                  = (quic_obuf){out, sizeof out, 0};
+  ob                  = (wired_obuf){out, sizeof out, 0};
   lp_confirm(&f, &ob);
   fl = quic_ack_encode(fr, sizeof fr, &ackf);
   CHECK(fl > 0);
   slen = client_seal_onertt_pn(&f, 7, fr, fl, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
-      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   CHECK(quic_recvpn_seen(&f.l.ack_recv.r[QUIC_PNS_APP], 7) == 0);
   CHECK(f.l.app_ack_policy.pending == 0);
 }
@@ -2727,7 +2731,7 @@ static void test_srvloop_ack_non_eliciting_not_recorded(void) {
 static void test_srvloop_ack_no_eliciting_no_ack(void) {
   struct lp_fix f;
   u8            out[1024];
-  quic_obuf     ob = (quic_obuf){out, sizeof out, 0};
+  wired_obuf    ob = (wired_obuf){out, sizeof out, 0};
   lp_confirm(&f, &ob);
   CHECK(f.l.app_ack_policy.pending == 0);
   CHECK(
@@ -2743,21 +2747,21 @@ static void test_srvloop_ack_no_eliciting_no_ack(void) {
  * so the second step's own step_note_ack_owed piggyback actually fires. */
 static void test_srvloop_ack_single_gap_two_ranges(void) {
   struct lp_fix  f;
-  quic_obuf      ob;
+  wired_obuf     ob;
   u8             out[1024], ping[1] = {0x01}, spkt[1024];
   usz            slen;
   quic_ack_frame a;
-  ob = (quic_obuf){out, sizeof out, 0};
+  ob = (wired_obuf){out, sizeof out, 0};
   lp_confirm(&f, &ob);
   slen = client_seal_onertt_pn(&f, 7, ping, 1, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
-      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   f.l.now_ms += WIRED_SRVLOOP_MAX_ACK_DELAY_MS;
   slen = client_seal_onertt_pn(&f, 9, ping, 1, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
-      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   {
     const u8* pl;
     usz       pll;
@@ -2774,21 +2778,21 @@ static void test_srvloop_ack_single_gap_two_ranges(void) {
  * order-independent. */
 static void test_srvloop_ack_reordered_pns_still_correct(void) {
   struct lp_fix  f;
-  quic_obuf      ob;
+  wired_obuf     ob;
   u8             out[1024], ping[1] = {0x01}, spkt[1024];
   usz            slen;
   quic_ack_frame a;
-  ob = (quic_obuf){out, sizeof out, 0};
+  ob = (wired_obuf){out, sizeof out, 0};
   lp_confirm(&f, &ob);
   slen = client_seal_onertt_pn(&f, 9, ping, 1, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
-      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   f.l.now_ms += WIRED_SRVLOOP_MAX_ACK_DELAY_MS;
   slen = client_seal_onertt_pn(&f, 7, ping, 1, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
-      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   {
     const u8* pl;
     usz       pll;
@@ -2806,23 +2810,23 @@ static void test_srvloop_ack_reordered_pns_still_correct(void) {
  * should recognize before crediting another pending increment. */
 static void test_srvloop_ack_duplicate_pn_not_double_counted(void) {
   struct lp_fix f;
-  quic_obuf     ob;
+  wired_obuf    ob;
   u8            out[1024], ping[1] = {0x01}, spkt[1024];
   usz           slen;
-  ob = (quic_obuf){out, sizeof out, 0};
+  ob = (wired_obuf){out, sizeof out, 0};
   lp_confirm(&f, &ob);
   slen = client_seal_onertt_pn(&f, 7, ping, 1, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
-      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   CHECK(f.l.app_ack_policy.pending == 1);
   /* app_ack_append's piggyback already cleared pending on this same step's
    * reply, so re-arm it deterministically before re-sending pn 7. */
   quic_ackpolicy_on_ack_sent(&f.l.app_ack_policy);
   slen = client_seal_onertt_pn(&f, 7, ping, 1, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
-      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   CHECK(quic_recvpn_seen(&f.l.ack_recv.r[QUIC_PNS_APP], 7) == 1);
 }
 
@@ -2831,21 +2835,21 @@ static void test_srvloop_ack_duplicate_pn_not_double_counted(void) {
  * again must not fabricate a new ACK-owed signal. */
 static void test_srvloop_ack_stale_pn_outside_window_ignored(void) {
   struct lp_fix f;
-  quic_obuf     ob;
+  wired_obuf    ob;
   u8            out[1024], ping[1] = {0x01}, spkt[1024];
   usz           slen;
-  ob = (quic_obuf){out, sizeof out, 0};
+  ob = (wired_obuf){out, sizeof out, 0};
   lp_confirm(&f, &ob);
   slen = client_seal_onertt_pn(
       &f, QUIC_RECVPN_WINDOW + 100, ping, 1, spkt, sizeof spkt);
-  ob = (quic_obuf){out, sizeof out, 0};
+  ob = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
-      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   quic_ackpolicy_on_ack_sent(&f.l.app_ack_policy);
   slen = client_seal_onertt_pn(&f, 1, ping, 1, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
-      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   CHECK(quic_recvpn_seen(&f.l.ack_recv.r[QUIC_PNS_APP], 1) == 0);
 }
 
@@ -2854,21 +2858,21 @@ static void test_srvloop_ack_stale_pn_outside_window_ignored(void) {
  * the window, only pns strictly older fall outside it. */
 static void test_srvloop_ack_recvpn_window_boundary(void) {
   struct lp_fix f;
-  quic_obuf     ob;
+  wired_obuf    ob;
   u8            out[1024], ping[1] = {0x01}, spkt[1024];
   usz           slen;
-  ob = (quic_obuf){out, sizeof out, 0};
+  ob = (wired_obuf){out, sizeof out, 0};
   lp_confirm(&f, &ob);
   slen = client_seal_onertt_pn(&f, 1, ping, 1, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
-      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   quic_ackpolicy_on_ack_sent(&f.l.app_ack_policy);
   slen = client_seal_onertt_pn(
       &f, 1 + QUIC_RECVPN_WINDOW, ping, 1, spkt, sizeof spkt);
-  ob = (quic_obuf){out, sizeof out, 0};
+  ob = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
-      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   CHECK(quic_recvpn_seen(&f.l.ack_recv.r[QUIC_PNS_APP], 1) == 1);
 }
 
@@ -2877,21 +2881,21 @@ static void test_srvloop_ack_recvpn_window_boundary(void) {
  * the largest and is acked as its own single-packet range. */
 static void test_srvloop_ack_large_pn_jump_handled_by_existing_recvpn(void) {
   struct lp_fix  f;
-  quic_obuf      ob;
+  wired_obuf     ob;
   u8             out[1024], ping[1] = {0x01}, spkt[1024];
   usz            slen;
   quic_ack_frame a;
-  ob = (quic_obuf){out, sizeof out, 0};
+  ob = (wired_obuf){out, sizeof out, 0};
   lp_confirm(&f, &ob);
   slen = client_seal_onertt_pn(&f, 1, ping, 1, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
-      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   f.l.now_ms += WIRED_SRVLOOP_MAX_ACK_DELAY_MS;
   slen = client_seal_onertt_pn(&f, 100000, ping, 1, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
-      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   {
     const u8* pl;
     usz       pll;
@@ -2908,24 +2912,24 @@ static void test_srvloop_ack_large_pn_jump_handled_by_existing_recvpn(void) {
  * quic_ack_encode rejecting the frame. */
 static void test_srvloop_ack_ranges_within_window_all_included(void) {
   struct lp_fix  f;
-  quic_obuf      ob;
+  wired_obuf     ob;
   u8             out[1024], ping[1] = {0x01}, spkt[1024];
   usz            slen;
   quic_ack_frame a;
   u64            pn;
-  ob = (quic_obuf){out, sizeof out, 0};
+  ob = (wired_obuf){out, sizeof out, 0};
   lp_confirm(&f, &ob);
   for (pn = 1; pn <= 61; pn += 2) {
     slen = client_seal_onertt_pn(&f, pn, ping, 1, spkt, sizeof spkt);
-    ob   = (quic_obuf){out, sizeof out, 0};
+    ob   = (wired_obuf){out, sizeof out, 0};
     wired_srvloop_step(
-        &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+        &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   }
   f.l.now_ms += WIRED_SRVLOOP_MAX_ACK_DELAY_MS;
   slen = client_seal_onertt_pn(&f, 63, ping, 1, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
-      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   {
     const u8* pl;
     usz       pll;
@@ -2945,23 +2949,23 @@ static void test_srvloop_ack_ranges_within_window_all_included(void) {
  * crash or garbage frame. */
 static void test_srvloop_ack_encode_overflow_falls_back_safely(void) {
   struct lp_fix f;
-  quic_obuf     ob;
+  wired_obuf    ob;
   u8            out[1024], ping[1] = {0x01}, spkt[1024];
   usz           slen;
   u64           pn;
-  ob = (quic_obuf){out, sizeof out, 0};
+  ob = (wired_obuf){out, sizeof out, 0};
   lp_confirm(&f, &ob);
   for (pn = 1; pn <= 63; pn += 2) {
     slen = client_seal_onertt_pn(&f, pn, ping, 1, spkt, sizeof spkt);
-    ob   = (quic_obuf){out, sizeof out, 0};
+    ob   = (wired_obuf){out, sizeof out, 0};
     wired_srvloop_step(
-        &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+        &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   }
   f.l.now_ms += WIRED_SRVLOOP_MAX_ACK_DELAY_MS;
   slen = client_seal_onertt_pn(&f, 65, ping, 1, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
-      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   {
     u8  buf[512];
     usz n = app_ack_encode_ranges(&f.l, buf, sizeof buf);
@@ -2976,17 +2980,17 @@ static void test_srvloop_ack_encode_overflow_falls_back_safely(void) {
  * Finished's own pn after an unrelated App-space packet arrives). */
 static void test_srvloop_ack_pn_spaces_independent(void) {
   struct lp_fix f;
-  quic_obuf     ob;
+  wired_obuf    ob;
   u8            out[1024], ping[1] = {0x01}, spkt[1024];
   usz           slen;
-  ob = (quic_obuf){out, sizeof out, 0};
+  ob = (wired_obuf){out, sizeof out, 0};
   lp_confirm(&f, &ob);
   CHECK(
       quic_recvpn_seen(&f.l.ack_recv.r[QUIC_PNS_HANDSHAKE], f.l.hs_rx_pn) == 1);
   slen = client_seal_onertt_pn(&f, 7, ping, 1, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
-      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   CHECK(quic_recvpn_seen(&f.l.ack_recv.r[QUIC_PNS_APP], 7) == 1);
   CHECK(quic_recvpn_seen(&f.l.ack_recv.r[QUIC_PNS_HANDSHAKE], 7) == 0);
 }
@@ -3001,7 +3005,7 @@ static void test_srvloop_ack_pn_spaces_independent(void) {
 static void test_srvloop_ack_nothing_pending_no_ack_frame_emitted(void) {
   struct lp_fix f;
   u8            out[1024];
-  quic_obuf     ob = (quic_obuf){out, sizeof out, 0};
+  wired_obuf    ob = (wired_obuf){out, sizeof out, 0};
   lp_confirm(&f, &ob);
   CHECK(f.l.app_ack_policy.pending == 0);
   CHECK(
@@ -3021,16 +3025,16 @@ static void test_srvloop_ack_nothing_pending_no_ack_frame_emitted(void) {
  * how long the server waited. */
 static void test_srvloop_ack_delay_field_encodes_actual_delay(void) {
   struct lp_fix  f;
-  quic_obuf      ob;
+  wired_obuf     ob;
   u8             out[1024], ping[1] = {0x01}, spkt[1024];
   usz            slen;
   quic_ack_frame a;
-  ob = (quic_obuf){out, sizeof out, 0};
+  ob = (wired_obuf){out, sizeof out, 0};
   lp_confirm(&f, &ob);
   slen = client_seal_onertt_pn(&f, 7, ping, 1, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
-      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   f.l.now_ms += WIRED_SRVLOOP_MAX_ACK_DELAY_MS;
   {
     u8  buf[288];
@@ -3048,21 +3052,21 @@ static void test_srvloop_ack_delay_field_encodes_actual_delay(void) {
  * existing at all. */
 static void test_srvloop_ack_ecn_always_disabled(void) {
   struct lp_fix  f;
-  quic_obuf      ob;
+  wired_obuf     ob;
   u8             out[1024], ping[1] = {0x01}, spkt[1024];
   usz            slen;
   quic_ack_frame a;
-  ob = (quic_obuf){out, sizeof out, 0};
+  ob = (wired_obuf){out, sizeof out, 0};
   lp_confirm(&f, &ob);
   slen = client_seal_onertt_pn(&f, 7, ping, 1, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
-      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   f.l.now_ms += WIRED_SRVLOOP_MAX_ACK_DELAY_MS;
   slen = client_seal_onertt_pn(&f, 8, ping, 1, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
-      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   {
     const u8* pl;
     usz       pll;
@@ -3078,9 +3082,9 @@ static void test_srvloop_ack_ecn_always_disabled(void) {
  * (RFC 9000 19.3.2's counts are running totals across the connection). */
 static void test_srvloop_ecn_counts_accumulate_on_receive(void) {
   struct lp_fix f;
-  quic_obuf     ob;
+  wired_obuf    ob;
   u8            out[1024];
-  ob = (quic_obuf){out, sizeof out, 0};
+  ob = (wired_obuf){out, sizeof out, 0};
   lp_confirm(&f, &ob);
   CHECK(f.l.ecn_ect0 == 0 && f.l.ecn_ect1 == 0 && f.l.ecn_ce == 0);
   wired_srvloop_ecn_note(&f.l, 0); /* Not-ECT: no-op */
@@ -3099,26 +3103,26 @@ static void test_srvloop_ecn_counts_accumulate_on_receive(void) {
  * matching the counter it mirrors. */
 static void test_srvloop_ack_includes_ecn_counts_when_nonzero(void) {
   struct lp_fix  f;
-  quic_obuf      ob;
+  wired_obuf     ob;
   u8             out[1024], ping[1] = {0x01}, spkt[1024];
   usz            slen;
   quic_ack_frame a;
-  ob = (quic_obuf){out, sizeof out, 0};
+  ob = (wired_obuf){out, sizeof out, 0};
   lp_confirm(&f, &ob);
   wired_srvloop_ecn_note(&f.l, 2); /* ECT(0) */
   wired_srvloop_ecn_note(&f.l, 3); /* CE */
   slen = client_seal_onertt_pn(&f, 7, ping, 1, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
-      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   /* Same two-step shape as test_srvloop_ack_ecn_always_disabled: the delay
    * window must elapse and a second eliciting packet arrive before
    * emit_ack_only actually has an ACK due to send (RFC 9000 13.2.1). */
   f.l.now_ms += WIRED_SRVLOOP_MAX_ACK_DELAY_MS;
   slen = client_seal_onertt_pn(&f, 8, ping, 1, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
-      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   {
     const u8* pl;
     usz       pll;
@@ -3136,15 +3140,15 @@ static void test_srvloop_ack_includes_ecn_counts_when_nonzero(void) {
  * but becomes due at exactly that many ms. */
 static void test_srvloop_ack_delay_window_boundary(void) {
   struct lp_fix f;
-  quic_obuf     ob;
+  wired_obuf    ob;
   u8            out[1024], ping[1] = {0x01}, spkt[1024];
   usz           slen;
-  ob = (quic_obuf){out, sizeof out, 0};
+  ob = (wired_obuf){out, sizeof out, 0};
   lp_confirm(&f, &ob);
   slen = client_seal_onertt_pn(&f, 7, ping, 1, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
-      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   CHECK(
       quic_ackpolicy_should_ack(
           &f.l.app_ack_policy, f.l.app_ack_policy.since_tick,
@@ -3183,18 +3187,18 @@ static void test_srvloop_ack_second_eliciting_forces_immediate(void) {
  * rather than staying stuck at "due" forever. */
 static void test_srvloop_ack_sent_clears_pending_state(void) {
   struct lp_fix f;
-  quic_obuf     ob;
+  wired_obuf    ob;
   u8            out[1024], ping[1] = {0x01}, spkt[1024];
   usz           slen;
-  ob = (quic_obuf){out, sizeof out, 0};
+  ob = (wired_obuf){out, sizeof out, 0};
   lp_confirm(&f, &ob);
   slen = client_seal_onertt_pn(&f, 7, ping, 1, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   /* the confirm step's own piggyback (app_ack_append, unconditional) already
    * sends and clears any pending ACK from confirmation itself; this second
    * step's ping is the one under test. */
   wired_srvloop_step(
-      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   CHECK(f.l.app_ack_policy.pending == 1);
   /* GET decoded or not, confirm_pending is already false (post-confirm), so
    * produce_confirmed's emit_ack_only/emit_response always piggybacks via
@@ -3216,19 +3220,19 @@ static void test_srvloop_ack_sent_clears_pending_state(void) {
  * a due ACK is produced unconditionally on the very next call. */
 static void test_srvloop_produce_ack_only_ignores_pacing(void) {
   struct lp_fix f;
-  quic_obuf     ob;
+  wired_obuf    ob;
   u8            out[1024], ping[1] = {0x01}, spkt[1024];
   usz           slen;
-  ob = (quic_obuf){out, sizeof out, 0};
+  ob = (wired_obuf){out, sizeof out, 0};
   lp_confirm(&f, &ob);
   slen = client_seal_onertt_pn(&f, 7, ping, 1, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
-      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   CHECK(f.l.app_ack_policy.pending == 1);       /* the ping owes an ACK */
   f.l.now_ms += WIRED_SRVLOOP_MAX_ACK_DELAY_MS; /* delay window elapses */
   {
-    quic_obuf ob2 = {out, sizeof out, 0};
+    wired_obuf ob2 = {out, sizeof out, 0};
     int r = wired_srvloop_produce(&(wired_srvloop_conn){&f.l, &f.s}, 0, &ob2);
     CHECK(r == 1); /* bare-ACK packet produced -- no pacing gate */
     CHECK(ob2.len > 0);
@@ -3240,18 +3244,18 @@ static void test_srvloop_produce_ack_only_ignores_pacing(void) {
  * (srvrun.c) may now raise its own running credit to. */
 static void test_srvloop_gather_max_data_raises_credit(void) {
   struct lp_fix   f;
-  quic_obuf       ob;
+  wired_obuf      ob;
   u8              out[1024], fr[16], spkt[1024];
   usz             fl, slen;
   quic_data_frame md = {2000000};
-  ob                 = (quic_obuf){out, sizeof out, 0};
+  ob                 = (wired_obuf){out, sizeof out, 0};
   lp_confirm(&f, &ob);
   fl = quic_max_data_encode(fr, sizeof fr, &md);
   CHECK(fl > 0);
   slen = client_seal_onertt(&f, fr, fl, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
-      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   CHECK(f.l.max_data_seen_flag == 1);
   CHECK(f.l.max_data_seen == 2000000);
 }
@@ -3262,20 +3266,20 @@ static void test_srvloop_gather_max_data_raises_credit(void) {
  * "never decreases" at the gather layer itself. */
 static void test_srvloop_gather_max_data_keeps_running_high(void) {
   struct lp_fix   f;
-  quic_obuf       ob;
+  wired_obuf      ob;
   u8              out[1024], fr[32], spkt[1024];
   usz             fl, fl2, slen;
   quic_data_frame lo = {1000}, hi = {5000};
-  ob = (quic_obuf){out, sizeof out, 0};
+  ob = (wired_obuf){out, sizeof out, 0};
   lp_confirm(&f, &ob);
   fl = quic_max_data_encode(fr, sizeof fr, &hi);
   CHECK(fl > 0);
   fl2 = quic_max_data_encode(fr + fl, sizeof fr - fl, &lo);
   CHECK(fl2 > 0);
   slen = client_seal_onertt(&f, fr, fl + fl2, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
-      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   CHECK(f.l.max_data_seen == 5000);
 }
 
@@ -3285,16 +3289,16 @@ static void test_srvloop_gather_max_data_keeps_running_high(void) {
  * trigger a MAX_STREAMS(uni) re-announce, not a useless bidi one. */
 static void test_srvloop_streams_blocked_uni_sets_uni_flag(void) {
   struct lp_fix   f;
-  quic_obuf       ob;
+  wired_obuf      ob;
   u8              out[1024], spkt[1024];
   usz             slen;
   static const u8 fr[] = {0x17, 0x05}; /* STREAMS_BLOCKED(uni), limit 5 */
-  ob                   = (quic_obuf){out, sizeof out, 0};
+  ob                   = (wired_obuf){out, sizeof out, 0};
   lp_confirm(&f, &ob);
   slen = client_seal_onertt(&f, fr, sizeof fr, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
-      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   CHECK(f.l.streams_blocked_uni_seen_flag == 1);
   CHECK(f.l.streams_blocked_seen_flag == 0);
 }
@@ -3303,16 +3307,16 @@ static void test_srvloop_streams_blocked_uni_sets_uni_flag(void) {
  * leaves the uni flag alone -- the direction split cuts both ways. */
 static void test_srvloop_streams_blocked_bidi_keeps_bidi_flag(void) {
   struct lp_fix   f;
-  quic_obuf       ob;
+  wired_obuf      ob;
   u8              out[1024], spkt[1024];
   usz             slen;
   static const u8 fr[] = {0x16, 0x05}; /* STREAMS_BLOCKED(bidi), limit 5 */
-  ob                   = (quic_obuf){out, sizeof out, 0};
+  ob                   = (wired_obuf){out, sizeof out, 0};
   lp_confirm(&f, &ob);
   slen = client_seal_onertt(&f, fr, sizeof fr, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
-      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   CHECK(f.l.streams_blocked_seen_flag == 1);
   CHECK(f.l.streams_blocked_uni_seen_flag == 0);
 }
@@ -3353,16 +3357,16 @@ static void test_srvloop_wt_bidi_claim_late_lower_id_not_stale(void) {
  * gather (the server opens no peer-limit-gated bidi streams). */
 static void test_srvloop_gather_max_streams_uni(void) {
   struct lp_fix   f;
-  quic_obuf       ob;
+  wired_obuf      ob;
   u8              out[1024], spkt[1024];
   usz             slen;
   static const u8 fr[] = {0x13, 0x20, 0x12, 0x7f}; /* uni 32, bidi 127 */
-  ob                   = (quic_obuf){out, sizeof out, 0};
+  ob                   = (wired_obuf){out, sizeof out, 0};
   lp_confirm(&f, &ob);
   slen = client_seal_onertt(&f, fr, sizeof fr, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
-      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   CHECK(f.l.max_streams_uni_seen_flag == 1);
   CHECK(f.l.max_streams_uni_seen == 32); /* the bidi 127 did not latch */
 }
@@ -3373,18 +3377,18 @@ static void test_srvloop_gather_max_streams_uni(void) {
  * running credit. */
 static void test_srvloop_gather_max_stream_data_raises_credit(void) {
   struct lp_fix          f;
-  quic_obuf              ob;
+  wired_obuf             ob;
   u8                     out[1024], fr[32], spkt[1024];
   usz                    fl, slen;
   quic_stream_data_frame msd = {4, 300000};
-  ob                         = (quic_obuf){out, sizeof out, 0};
+  ob                         = (wired_obuf){out, sizeof out, 0};
   lp_confirm(&f, &ob);
   fl = quic_max_stream_data_encode(fr, sizeof fr, &msd);
   CHECK(fl > 0);
   slen = client_seal_onertt(&f, fr, fl, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
-      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   CHECK(f.l.max_stream_data_n == 1);
   CHECK(f.l.max_stream_data_stream_id[0] == 4);
   CHECK(f.l.max_stream_data_value[0] == 300000);
@@ -3398,13 +3402,13 @@ static void test_srvloop_gather_max_stream_data_raises_credit(void) {
 static void test_srvloop_gather_max_stream_data_keeps_every_distinct_stream(
     void) {
   struct lp_fix          f;
-  quic_obuf              ob;
+  wired_obuf             ob;
   u8                     out[1024], fr[96], spkt[1024];
   usz                    at   = 0, fl, slen;
   quic_stream_data_frame msd0 = {4, 100000};
   quic_stream_data_frame msd1 = {8, 200000};
   quic_stream_data_frame msd2 = {12, 300000};
-  ob                          = (quic_obuf){out, sizeof out, 0};
+  ob                          = (wired_obuf){out, sizeof out, 0};
   lp_confirm(&f, &ob);
   fl = quic_max_stream_data_encode(fr + at, sizeof(fr) - at, &msd0);
   CHECK(fl > 0);
@@ -3416,9 +3420,9 @@ static void test_srvloop_gather_max_stream_data_keeps_every_distinct_stream(
   CHECK(fl > 0);
   at += fl;
   slen = client_seal_onertt(&f, fr, at, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
-      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   CHECK(f.l.max_stream_data_n == 3);
   CHECK(f.l.max_stream_data_stream_id[0] == 4);
   CHECK(f.l.max_stream_data_value[0] == 100000);
@@ -3434,12 +3438,12 @@ static void test_srvloop_gather_max_stream_data_keeps_every_distinct_stream(
  * behavior when there was only ever one stream to raise. */
 static void test_srvloop_gather_max_stream_data_same_stream_overwrites(void) {
   struct lp_fix          f;
-  quic_obuf              ob;
+  wired_obuf             ob;
   u8                     out[1024], fr[64], spkt[1024];
   usz                    at   = 0, fl, slen;
   quic_stream_data_frame msd0 = {4, 100000};
   quic_stream_data_frame msd1 = {4, 500000};
-  ob                          = (quic_obuf){out, sizeof out, 0};
+  ob                          = (wired_obuf){out, sizeof out, 0};
   lp_confirm(&f, &ob);
   fl = quic_max_stream_data_encode(fr + at, sizeof(fr) - at, &msd0);
   CHECK(fl > 0);
@@ -3448,9 +3452,9 @@ static void test_srvloop_gather_max_stream_data_same_stream_overwrites(void) {
   CHECK(fl > 0);
   at += fl;
   slen = client_seal_onertt(&f, fr, at, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
-      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   CHECK(f.l.max_stream_data_n == 1);
   CHECK(f.l.max_stream_data_stream_id[0] == 4);
   CHECK(f.l.max_stream_data_value[0] == 500000);
@@ -3461,15 +3465,15 @@ static void test_srvloop_gather_max_stream_data_same_stream_overwrites(void) {
  * on being false by default. */
 static void test_srvloop_no_flowctl_frame_leaves_latches_unset(void) {
   struct lp_fix f;
-  quic_obuf     ob;
+  wired_obuf    ob;
   u8            out[1024], ping[1] = {0x01}, spkt[1024];
   usz           slen;
-  ob = (quic_obuf){out, sizeof out, 0};
+  ob = (wired_obuf){out, sizeof out, 0};
   lp_confirm(&f, &ob);
   slen = client_seal_onertt(&f, ping, 1, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
-      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   CHECK(f.l.max_data_seen_flag == 0);
   CHECK(f.l.max_stream_data_n == 0);
 }
@@ -3479,19 +3483,19 @@ static void test_srvloop_no_flowctl_frame_leaves_latches_unset(void) {
  * never does, and re-arming the loop clears the mark. */
 static void test_srvloop_peer_close_sets_flag(void) {
   struct lp_fix         f;
-  quic_obuf             ob;
+  wired_obuf            ob;
   u8                    out[1024], cc[32], spkt[1024];
   usz                   ccn, slen;
   quic_conn_close_frame ccf = {0, 0, 0, 0, 0};
-  ob                        = (quic_obuf){out, sizeof out, 0};
+  ob                        = (wired_obuf){out, sizeof out, 0};
   lp_confirm(&f, &ob);
   CHECK(f.l.peer_closed == 0); /* normal handshake never sets it */
   ccn = quic_frame_put_conn_close(cc, sizeof cc, &ccf);
   CHECK(ccn > 0);
   slen = client_seal_onertt(&f, cc, ccn, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
-      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   CHECK(f.l.peer_closed == 1);
   CHECK(wired_srvloop_init(&f.l, f.l.cli_scid, f.l.cli_scid_len) == 1);
   CHECK(f.l.peer_closed == 0); /* re-arm clears the mark */
@@ -3502,19 +3506,19 @@ static void test_srvloop_peer_close_sets_flag(void) {
  * ACK leaves the list empty (reset each step). */
 static void test_srvloop_collects_ack_ranges(void) {
   struct lp_fix  f;
-  quic_obuf      ob;
+  wired_obuf     ob;
   u8             out[1024], fr[64], spkt[1024];
   usz            fl, slen;
   quic_ack_frame af = {0};
-  ob                = (quic_obuf){out, sizeof out, 0};
+  ob                = (wired_obuf){out, sizeof out, 0};
   lp_confirm(&f, &ob);
   /* no ACK in anything so far this step path */
   {
     u8 ping[1] = {0x01};
     slen       = client_seal_onertt(&f, ping, 1, spkt, sizeof spkt);
-    ob         = (quic_obuf){out, sizeof out, 0};
+    ob         = (wired_obuf){out, sizeof out, 0};
     wired_srvloop_step(
-        &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+        &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
     CHECK(f.l.ack_n == 0);
   }
   af.n_ranges     = 2;
@@ -3525,9 +3529,9 @@ static void test_srvloop_collects_ack_ranges(void) {
   fl              = quic_ack_encode(fr, sizeof fr, &af);
   CHECK(fl > 0);
   slen = client_seal_onertt(&f, fr, fl, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
-      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   CHECK(f.l.ack_n == 2);
   CHECK(f.l.ack_hi[0] == 9 && f.l.ack_lo[0] == 7);
   CHECK(f.l.ack_hi[1] == 4 && f.l.ack_lo[1] == 4);
@@ -3538,25 +3542,25 @@ static void test_srvloop_collects_ack_ranges(void) {
  * latched and readable, and re-arming clears the takeover state. */
 static void test_srvloop_external_resp_suppresses_200(void) {
   struct lp_fix f;
-  quic_obuf     ob;
+  wired_obuf    ob;
   u8            out[1024], get[512], spkt[1024];
   usz           glen, slen;
-  ob = (quic_obuf){out, sizeof out, 0};
+  ob = (wired_obuf){out, sizeof out, 0};
   lp_confirm(&f, &ob);
   f.l.resp_external = 1;
   {
-    quic_obuf gob = {get, sizeof get, 0};
+    wired_obuf gob = {get, sizeof get, 0};
     CHECK(wired_h3reqdrive_send_get(
         0,
         &(wired_h3reqdrive_get_in){
-            quic_span_of((const u8*)"/", 1), quic_span_of((const u8*)"h", 1)},
+            wired_span_of((const u8*)"/", 1), wired_span_of((const u8*)"h", 1)},
         &gob));
     glen = gob.len;
   }
   slen = client_seal_onertt(&f, get, glen, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   wired_srvloop_step(
-      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob);
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob);
   /* the request reached the caller... */
   CHECK(f.l.got_request == 1);
   CHECK(f.l.req.path_len == 1 && f.l.req.path[0] == '/');
@@ -3566,7 +3570,7 @@ static void test_srvloop_external_resp_suppresses_200(void) {
     usz              pll;
     quic_h3conn_resp resp_out = {0};
     CHECK(client_open_onertt(&f, out, ob.len, &pl, &pll) == 1);
-    CHECK(quic_h3conn_recv_response(quic_span_of(pl, pll), &resp_out) == 0);
+    CHECK(quic_h3conn_recv_response(wired_span_of(pl, pll), &resp_out) == 0);
   }
   /* re-arm clears takeover state */
   CHECK(wired_srvloop_init(&f.l, f.l.cli_scid, f.l.cli_scid_len) == 1);
@@ -3608,9 +3612,9 @@ static usz client_seal_onertt_pn_gen(
   {
     quic_protect_keys      pk = {use, &hp};
     quic_hspkt_onertt_desc d  = {
-        quic_span_of(s->sdrv.iscid, s->sdrv.iscid_len), pn,
-        quic_span_of(pl, pln), phase};
-    quic_obuf o = quic_obuf_of(pkt, cap);
+        wired_span_of(s->sdrv.iscid, s->sdrv.iscid_len), pn,
+        wired_span_of(pl, pln), phase};
+    wired_obuf o = quic_obuf_of(pkt, cap);
     CHECK(quic_hspkt_onertt_build(&pk, &d, &o));
     total = o.len;
   }
@@ -3624,25 +3628,25 @@ static void test_srvloop_recv_same_phase_uses_current_keys(void) {
   struct lp_fix f;
   u8            out[1024], get[512], spkt[1024];
   usz           glen, slen;
-  quic_obuf     ob = {out, sizeof out, 0};
+  wired_obuf    ob = {out, sizeof out, 0};
   const u8*     pl;
   usz           pll;
   lp_confirm(&f, &ob);
   CHECK(f.s.ku.generation == 0);
   {
-    quic_obuf gob = {get, sizeof get, 0};
+    wired_obuf gob = {get, sizeof get, 0};
     CHECK(wired_h3reqdrive_send_get(
         0,
         &(wired_h3reqdrive_get_in){
-            quic_span_of((const u8*)"/", 1), quic_span_of((const u8*)"h", 1)},
+            wired_span_of((const u8*)"/", 1), wired_span_of((const u8*)"h", 1)},
         &gob));
     glen = gob.len;
   }
   slen = client_seal_onertt_pn_gen(&f.s, 7, 0, get, glen, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   CHECK(
       wired_srvloop_step(
-          &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob) ==
+          &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob) ==
       1);
   CHECK(client_open_onertt(&f, out, ob.len, &pl, &pll) == 1);
   check_acks_pn(pl, pll, 7);
@@ -3656,22 +3660,22 @@ static void test_srvloop_recv_new_phase_derives_next_keys(void) {
   struct lp_fix f;
   u8            out[1024], get[512], spkt[1024];
   usz           glen, slen;
-  quic_obuf     ob = {out, sizeof out, 0};
+  wired_obuf    ob = {out, sizeof out, 0};
   lp_confirm(&f, &ob);
   {
-    quic_obuf gob = {get, sizeof get, 0};
+    wired_obuf gob = {get, sizeof get, 0};
     CHECK(wired_h3reqdrive_send_get(
         0,
         &(wired_h3reqdrive_get_in){
-            quic_span_of((const u8*)"/", 1), quic_span_of((const u8*)"h", 1)},
+            wired_span_of((const u8*)"/", 1), wired_span_of((const u8*)"h", 1)},
         &gob));
     glen = gob.len;
   }
   slen = client_seal_onertt_pn_gen(&f.s, 7, 1, get, glen, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   CHECK(
       wired_srvloop_step(
-          &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob) ==
+          &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob) ==
       1);
   CHECK(f.s.ku.generation == 1); /* confirmed by the successful decrypt */
   CHECK(f.s.ku.have_old == 1);   /* generation 0 retained as old */
@@ -3689,7 +3693,7 @@ static int client_open_onertt_gen1(
   quic_initial_keys next;
   u8                next_secret[QUIC_HKDF_PRK];
   quic_aes128       hp;
-  quic_span         v;
+  wired_span        v;
   CHECK(quic_keysched_server_ap_secret(&f->s.sched, &secret) == 1);
   quic_kuswitch_next_keys(secret, &next, next_secret);
   {
@@ -3700,7 +3704,7 @@ static int client_open_onertt_gen1(
   quic_aes128_init(&hp, next.hp);
   {
     quic_protect_keys           pk = {&next, &hp};
-    quic_hspkt_onertt_open_desc d  = {quic_mspan_of(pkt, len), 6, 0};
+    quic_hspkt_onertt_open_desc d  = {wired_mspan_of(pkt, len), 6, 0};
     if (!quic_hspkt_onertt_open(&pk, &d, &v)) return 0;
   }
   *pl  = v.p;
@@ -3712,25 +3716,25 @@ static void test_srvloop_send_keys_follow_peer_update_before_ack(void) {
   struct lp_fix f;
   u8            out[1024], get[512], spkt[1024];
   usz           glen, slen;
-  quic_obuf     ob = {out, sizeof out, 0};
+  wired_obuf    ob = {out, sizeof out, 0};
   const u8*     pl;
   usz           pll;
   lp_confirm(&f, &ob);
   {
-    quic_obuf gob = {get, sizeof get, 0};
+    wired_obuf gob = {get, sizeof get, 0};
     CHECK(wired_h3reqdrive_send_get(
         0,
         &(wired_h3reqdrive_get_in){
-            quic_span_of((const u8*)"/", 1), quic_span_of((const u8*)"h", 1)},
+            wired_span_of((const u8*)"/", 1), wired_span_of((const u8*)"h", 1)},
         &gob));
     glen = gob.len;
   }
   /* seal this GET under generation 1 -- the peer's Key Update */
   slen = client_seal_onertt_pn_gen(&f.s, 7, 1, get, glen, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   CHECK(
       wired_srvloop_step(
-          &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob) ==
+          &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob) ==
       1);
   CHECK(f.s.ku.generation == 1); /* recv side confirmed the update */
   /* the reply (carrying this GET's ACK) must be sealed under generation 1
@@ -3757,14 +3761,14 @@ static void test_srvloop_recv_failed_decrypt_does_not_advance_generation(void) {
   struct lp_fix f;
   u8            out[1024], get[512], spkt[1024];
   usz           glen, slen;
-  quic_obuf     ob = {out, sizeof out, 0};
+  wired_obuf    ob = {out, sizeof out, 0};
   lp_confirm(&f, &ob);
   {
-    quic_obuf gob = {get, sizeof get, 0};
+    wired_obuf gob = {get, sizeof get, 0};
     CHECK(wired_h3reqdrive_send_get(
         0,
         &(wired_h3reqdrive_get_in){
-            quic_span_of((const u8*)"/", 1), quic_span_of((const u8*)"h", 1)},
+            wired_span_of((const u8*)"/", 1), wired_span_of((const u8*)"h", 1)},
         &gob));
     glen = gob.len;
   }
@@ -3773,10 +3777,10 @@ static void test_srvloop_recv_failed_decrypt_does_not_advance_generation(void) {
    * (current), any retained old, nor the derived next-generation probe. */
   slen = client_seal_onertt_pn_gen(&f.s, 7, 1, get, glen, spkt, sizeof spkt);
   spkt[slen - 1] ^= 0xff; /* corrupt the last ciphertext/tag byte */
-  ob = (quic_obuf){out, sizeof out, 0};
+  ob = (wired_obuf){out, sizeof out, 0};
   CHECK(
       wired_srvloop_step(
-          &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob) ==
+          &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob) ==
       0);
   CHECK(f.s.ku.generation == 0); /* no rotation on a failed probe */
   CHECK(f.s.ku.have_old == 0);
@@ -3789,14 +3793,14 @@ static void test_srvloop_recv_reordered_packet_uses_old_keys(void) {
   struct lp_fix f;
   u8            out[1024], get[512], spkt[1024], spkt_old[1024];
   usz           glen, slen, slen_old;
-  quic_obuf     ob = {out, sizeof out, 0};
+  wired_obuf    ob = {out, sizeof out, 0};
   lp_confirm(&f, &ob);
   {
-    quic_obuf gob = {get, sizeof get, 0};
+    wired_obuf gob = {get, sizeof get, 0};
     CHECK(wired_h3reqdrive_send_get(
         0,
         &(wired_h3reqdrive_get_in){
-            quic_span_of((const u8*)"/", 1), quic_span_of((const u8*)"h", 1)},
+            wired_span_of((const u8*)"/", 1), wired_span_of((const u8*)"h", 1)},
         &gob));
     glen = gob.len;
   }
@@ -3805,17 +3809,17 @@ static void test_srvloop_recv_reordered_packet_uses_old_keys(void) {
       &f.s, 6, 0, get, glen, spkt_old, sizeof spkt_old);
   /* the update: gen-1 packet confirms and rotates gen 0 into old */
   slen = client_seal_onertt_pn_gen(&f.s, 7, 1, get, glen, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   CHECK(
       wired_srvloop_step(
-          &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob) ==
+          &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob) ==
       1);
   CHECK(f.s.ku.generation == 1);
   /* the reordered gen-0 packet arrives after: old keys must still open it */
-  ob = (quic_obuf){out, sizeof out, 0};
+  ob = (wired_obuf){out, sizeof out, 0};
   CHECK(
       wired_srvloop_step(
-          &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt_old, slen_old),
+          &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt_old, slen_old),
           &ob) == 1);
   CHECK(f.s.ku.generation == 1); /* an old-generation hit never rotates */
 }
@@ -3838,7 +3842,7 @@ test_srvloop_recv_onertt_before_keys_ready_short_circuits_before_ku_logic(
   CHECK(f.s.ku_seeded == 0);
   CHECK(
       wired_srvloop_recv(
-          &f.s, &(wired_srvloop_recv_in){quic_mspan_of(pkt, sizeof pkt), 0},
+          &f.s, &(wired_srvloop_recv_in){wired_mspan_of(pkt, sizeof pkt), 0},
           &out) == 0);
 }
 
@@ -3848,9 +3852,9 @@ test_srvloop_recv_onertt_before_keys_ready_short_circuits_before_ku_logic(
 static void
 test_srvloop_recv_no_old_keys_before_first_update_rejects_stale_phase(void) {
   struct lp_fix f;
-  quic_obuf     ob = {0};
+  wired_obuf    ob = {0};
   u8            out[1024];
-  ob = (quic_obuf){out, sizeof out, 0};
+  ob = (wired_obuf){out, sizeof out, 0};
   lp_confirm(&f, &ob);
   CHECK(f.s.ku.generation == 0);
   CHECK(f.s.ku.have_old == 0);
@@ -3866,23 +3870,23 @@ static void test_srvloop_recv_follows_repeated_key_updates_across_generations(
   struct lp_fix f;
   u8            out[1024], get[512], spkt[1024];
   usz           glen, slen;
-  quic_obuf     ob = {out, sizeof out, 0};
+  wired_obuf    ob = {out, sizeof out, 0};
   lp_confirm(&f, &ob);
   {
-    quic_obuf gob = {get, sizeof get, 0};
+    wired_obuf gob = {get, sizeof get, 0};
     CHECK(wired_h3reqdrive_send_get(
         0,
         &(wired_h3reqdrive_get_in){
-            quic_span_of((const u8*)"/", 1), quic_span_of((const u8*)"h", 1)},
+            wired_span_of((const u8*)"/", 1), wired_span_of((const u8*)"h", 1)},
         &gob));
     glen = gob.len;
   }
   /* update 1: gen 0 -> gen 1 */
   slen = client_seal_onertt_pn_gen(&f.s, 7, 1, get, glen, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   CHECK(
       wired_srvloop_step(
-          &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob) ==
+          &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob) ==
       1);
   CHECK(f.s.ku.generation == 1);
   /* update 2: gen 1 -> gen 2, using the schedule's OWN client_ap_secret as
@@ -3891,10 +3895,10 @@ static void test_srvloop_recv_follows_repeated_key_updates_across_generations(
    * holds; since generation 1 is now current, feeding it gen==1 here seals
    * under the true generation 2). */
   slen = client_seal_onertt_pn_gen(&f.s, 8, 1, get, glen, spkt, sizeof spkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   CHECK(
       wired_srvloop_step(
-          &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(spkt, slen), &ob) ==
+          &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen), &ob) ==
       1);
   CHECK(f.s.ku.generation == 2);
 }
@@ -3910,7 +3914,7 @@ static void test_srvloop_recv_zerortt_opens_with_early_keys(void) {
   u8                     psk[32], ch[64];
   u8                     payload[8] = {1, 2, 3, 4, 5, 6, 7, 8};
   u8                     pkt[256];
-  quic_obuf              ob = quic_obuf_of(pkt, sizeof(pkt));
+  wired_obuf             ob = quic_obuf_of(pkt, sizeof(pkt));
   quic_aes128            hp;
   wired_srvloop_recv_in  ri;
   wired_srvloop_recv_out ro;
@@ -3920,7 +3924,7 @@ static void test_srvloop_recv_zerortt_opens_with_early_keys(void) {
     psk[i]       = (u8)(0xc0 + i);
   }
   for (usz i = 0; i < sizeof(ch); i++) ch[i] = (u8)i;
-  quic_x25519_base(srv_pub, srv_priv);
+  wired_x25519_base(srv_pub, srv_priv);
   {
     wired_server_init_in sin = {srv_priv, srv_pub, cert_seed, 0, 0, 0, 0, 0};
     wired_server_init(&s, &sin);
@@ -3941,19 +3945,19 @@ static void test_srvloop_recv_zerortt_opens_with_early_keys(void) {
     quic_protect_keys pk = {&s.sdrv.early_keys, &hp};
     quic_tx_desc      d  = {
         0xd3,
-        quic_span_of(g_cli_scid, 6),
-        quic_span_of(g_cli_scid, 6),
+        wired_span_of(g_cli_scid, 6),
+        wired_span_of(g_cli_scid, 6),
         0,
-        quic_span_of(0, 0),
+        wired_span_of(0, 0),
         0,
-        quic_span_of(payload, sizeof(payload)),
+        wired_span_of(payload, sizeof(payload)),
         0};
     ob.len = quic_tx_packet_suite(
-        s.sdrv.cipher_suite, &pk, &d, quic_mspan_of(pkt, sizeof(pkt)));
+        s.sdrv.cipher_suite, &pk, &d, wired_mspan_of(pkt, sizeof(pkt)));
     CHECK(ob.len != 0);
   }
 
-  ri = (wired_srvloop_recv_in){quic_mspan_of(pkt, ob.len), 0};
+  ri = (wired_srvloop_recv_in){wired_mspan_of(pkt, ob.len), 0};
   CHECK(wired_srvloop_recv(&s, &ri, &ro) == 1);
   CHECK(ro.level == QUIC_LEVEL_ONERTT);
   CHECK(ro.payload.n == sizeof(payload));
@@ -3974,13 +3978,13 @@ static void test_srvloop_recv_zerortt_refused_without_early_keys(void) {
     srv_priv[i]  = (u8)(0x40 + i);
     cert_seed[i] = (u8)(0x80 + i);
   }
-  quic_x25519_base(srv_pub, srv_priv);
+  wired_x25519_base(srv_pub, srv_priv);
   {
     wired_server_init_in sin = {srv_priv, srv_pub, cert_seed, 0, 0, 0, 0, 0};
     wired_server_init(&s, &sin);
   }
   CHECK(s.sdrv.early_data_accepted == 0);
-  ri = (wired_srvloop_recv_in){quic_mspan_of(pkt, sizeof(pkt)), 0};
+  ri = (wired_srvloop_recv_in){wired_mspan_of(pkt, sizeof(pkt)), 0};
   CHECK(wired_srvloop_recv(&s, &ri, &ro) == 0);
 }
 
@@ -3995,7 +3999,7 @@ static void test_srvloop_recv_zerortt_refused_without_early_keys(void) {
 static void test_srvloop_step_zerortt_records_real_pn(void) {
   struct lp_fix f;
   u8            psk[32], out[1024], pkt[256];
-  quic_obuf     ob = {out, sizeof out, 0};
+  wired_obuf    ob = {out, sizeof out, 0};
   quic_aes128   hp;
   const u8      payload[1] = {0x01}; /* RFC 9000 19.2: a bare PING frame,
                                       * ack-eliciting and self-contained */
@@ -4011,19 +4015,19 @@ static void test_srvloop_step_zerortt_records_real_pn(void) {
     quic_protect_keys pk = {&f.s.sdrv.early_keys, &hp};
     quic_tx_desc      d  = {
         0xd3,
-        quic_span_of(g_cli_scid, 6),
-        quic_span_of(g_cli_scid, 6),
+        wired_span_of(g_cli_scid, 6),
+        wired_span_of(g_cli_scid, 6),
         0, /* is_initial: 0-RTT carries no Token field, RFC 9000 17.2.3 */
-        quic_span_of(0, 0),
+        wired_span_of(0, 0),
         3, /* pn 3: nonzero, distinct from every other space's pn */
-        quic_span_of(payload, sizeof(payload)),
+        wired_span_of(payload, sizeof(payload)),
         0};
     slen = quic_tx_packet_suite(
-        f.s.sdrv.cipher_suite, &pk, &d, quic_mspan_of(pkt, sizeof(pkt)));
+        f.s.sdrv.cipher_suite, &pk, &d, wired_mspan_of(pkt, sizeof(pkt)));
     CHECK(slen != 0);
   }
   wired_srvloop_step(
-      &(wired_srvloop_conn){&f.l, &f.s}, quic_mspan_of(pkt, slen), &ob);
+      &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(pkt, slen), &ob);
   CHECK(f.l.app_rx_seen == 1);
   CHECK(f.l.app_rx_pn == 3);
 }

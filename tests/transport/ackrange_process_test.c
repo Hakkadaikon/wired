@@ -27,7 +27,7 @@ void test_ackrange_process(void) {
     CHECK(len > 0);
     CHECK(
         quic_ackrange_process(
-            &t, quic_span_of(buf, len), (quic_u64out){acked, &n}) == 1);
+            &t, wired_span_of(buf, len), (quic_u64out){acked, &n}) == 1);
     CHECK(n == 3);                      /* 5,4,3 acked */
     CHECK(quic_sentpkt_count(&t) == 2); /* 1,2 still in flight */
   }
@@ -43,7 +43,7 @@ void test_ackrange_process(void) {
     CHECK(len > 0);
     CHECK(
         quic_ackrange_process(
-            &t, quic_span_of(buf, len), (quic_u64out){acked, &n}) == 1);
+            &t, wired_span_of(buf, len), (quic_u64out){acked, &n}) == 1);
     CHECK(n == 4);                      /* 8,7,4,3 acked */
     CHECK(quic_sentpkt_count(&t) == 4); /* 1,2,5,6 remain */
   }
@@ -56,7 +56,7 @@ void test_ackrange_process(void) {
     u8 bad[2] = {0x02, 0x00};
     CHECK(
         quic_ackrange_process(
-            &t, quic_span_of(bad, sizeof bad), (quic_u64out){acked, &n}) == 0);
+            &t, wired_span_of(bad, sizeof bad), (quic_u64out){acked, &n}) == 0);
     CHECK(n == 0);
     CHECK(quic_sentpkt_count(&t) == 1);
   }

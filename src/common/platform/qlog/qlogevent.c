@@ -30,7 +30,7 @@ static void qev_copy(qev_w* w, const char* s, usz n) {
 }
 
 static void qev_put_str(qev_w* w, const char* s) {
-  usz n = quic_cstr_len(s);
+  usz n = wired_cstr_len(s);
   if (!qev_reserve(w, n)) return;
   qev_copy(w, s, n);
 }

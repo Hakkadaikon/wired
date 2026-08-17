@@ -31,7 +31,7 @@ static void sflight_cv_signed(const u8* transcript_hash, u8 out[130]) {
 }
 
 int quic_sflight_certificate_verify(
-    const u8 seed[32], const u8* transcript_hash, quic_obuf* out) {
+    const u8 seed[32], const u8* transcript_hash, wired_obuf* out) {
   u8  content[130];
   usz off;
   if (out->cap < 4 + 2 + 2 + QUIC_ED25519_SIG) return 0;

@@ -33,7 +33,7 @@ static void test_xdpframe_rx_golden(void) {
   quic_sockaddr    want_src, want_dst;
   wired_udp_addr(&want_src, 5555, (const u8[]){10, 7, 0, 2});
   wired_udp_addr(&want_dst, 4433, (const u8[]){10, 7, 0, 1});
-  CHECK(quic_xdpframe_parse(quic_span_of(xdpft_golden, 60), &rx) == 1);
+  CHECK(quic_xdpframe_parse(wired_span_of(xdpft_golden, 60), &rx) == 1);
   CHECK(rx.src.family == want_src.family);
   CHECK(rx.src.port_be == want_src.port_be);
   CHECK(quic_ct_diffn(rx.src.addr, want_src.addr, 16) == 0);
@@ -52,7 +52,7 @@ static int xdpft_rejects(usz n, usz off, u8 val) {
   quic_xdpframe_rx rx;
   for (usz i = 0; i < 60; i++) f[i] = xdpft_golden[i];
   f[off] = val;
-  return quic_xdpframe_parse(quic_span_of(f, n), &rx) == 0;
+  return quic_xdpframe_parse(wired_span_of(f, n), &rx) == 0;
 }
 
 static void test_xdpframe_rx_rejects(void) {
@@ -92,7 +92,7 @@ static const u8 xdpft_options[64] = {
 
 static void test_xdpframe_rx_accepts_ihl_with_consistent_options(void) {
   quic_xdpframe_rx rx;
-  CHECK(quic_xdpframe_parse(quic_span_of(xdpft_options, 64), &rx) == 1);
+  CHECK(quic_xdpframe_parse(wired_span_of(xdpft_options, 64), &rx) == 1);
   CHECK(rx.dport == 4433);
   CHECK(rx.payload_len == 2 && rx.payload[0] == 'h' && rx.payload[1] == 'i');
 }
@@ -109,23 +109,23 @@ static void test_xdpframe_tx_roundtrip(void) {
   quic_eth_head    eh;
   quic_xdpframe_rx rx;
   usz              n = quic_xdpframe_build(
-      quic_mspan_of(buf, sizeof(buf)), &m, quic_span_of(pl, 3));
+      wired_mspan_of(buf, sizeof(buf)), &m, wired_span_of(pl, 3));
   CHECK(n == QUIC_XDPFRAME_HDRS + 3);
-  CHECK(quic_eth_parse(quic_span_of(buf, n), &eh) == 1);
+  CHECK(quic_eth_parse(wired_span_of(buf, n), &eh) == 1);
   CHECK(eh.ethertype == QUIC_ETH_TYPE_IPV4);
   CHECK(xdpft_mac_eq(eh.dst, m.dst_mac) && xdpft_mac_eq(eh.src, m.src_mac));
   CHECK(quic_ipv4_check(buf + QUIC_ETH_HDR) == 1);
   CHECK(
       quic_udp4_check(
-          quic_span_of(buf + QUIC_ETH_HDR + QUIC_IPV4_HDR, QUIC_UDP_HDR + 3),
+          wired_span_of(buf + QUIC_ETH_HDR + QUIC_IPV4_HDR, QUIC_UDP_HDR + 3),
           m.udp.addrs) == 1);
   CHECK(buf[QUIC_XDPFRAME_HDRS] == 0xc0 && buf[QUIC_XDPFRAME_HDRS + 2] == 0xee);
-  CHECK(quic_xdpframe_parse(quic_span_of(buf, n), &rx) == 1);
+  CHECK(quic_xdpframe_parse(wired_span_of(buf, n), &rx) == 1);
   CHECK(rx.dport == 5555 && rx.payload_len == 3);
   CHECK(
       quic_xdpframe_build(
-          quic_mspan_of(buf, QUIC_XDPFRAME_HDRS + 2), &m,
-          quic_span_of(pl, 3)) == 0);
+          wired_mspan_of(buf, QUIC_XDPFRAME_HDRS + 2), &m,
+          wired_span_of(pl, 3)) == 0);
 }
 
 /* Parsing the golden frame and reflecting its fields into a reply swaps the
@@ -136,7 +136,7 @@ static void test_xdpframe_reflect(void) {
   quic_sockaddr    want_src, want_peer;
   u8               buf[64];
   const u8         pl[2] = {'y', 'o'};
-  CHECK(quic_xdpframe_parse(quic_span_of(xdpft_golden, 60), &rx) == 1);
+  CHECK(quic_xdpframe_parse(wired_span_of(xdpft_golden, 60), &rx) == 1);
   for (usz i = 0; i < 6; i++) m.dst_mac[i] = rx.peer_mac[i];
   for (usz i = 0; i < 6; i++) m.src_mac[i] = rx.our_mac[i];
   m.udp.ports.sport = rx.dport;
@@ -144,9 +144,9 @@ static void test_xdpframe_reflect(void) {
   m.udp.addrs.src   = rx.our_ip;
   m.udp.addrs.dst   = wired_udp_addr4_be(&rx.src);
   usz n             = quic_xdpframe_build(
-      quic_mspan_of(buf, sizeof(buf)), &m, quic_span_of(pl, 2));
+      wired_mspan_of(buf, sizeof(buf)), &m, wired_span_of(pl, 2));
   CHECK(n == QUIC_XDPFRAME_HDRS + 2);
-  CHECK(quic_xdpframe_parse(quic_span_of(buf, n), &rr) == 1);
+  CHECK(quic_xdpframe_parse(wired_span_of(buf, n), &rr) == 1);
   wired_udp_addr(&want_src, 4433, (const u8[]){10, 7, 0, 1});
   wired_udp_addr(&want_peer, 5555, (const u8[]){10, 7, 0, 2});
   CHECK(rr.src.port_be == want_src.port_be);

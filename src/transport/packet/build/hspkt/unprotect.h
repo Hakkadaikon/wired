@@ -13,11 +13,11 @@
  * (through the packet number); bits_mask selects long (0x0f) or short
  * (0x1f) byte0 masking. */
 typedef struct {
-  quic_mspan pkt;
-  usz        hdr_len;
-  usz        pn_off;
-  u8         bits_mask;
-  u64        largest_pn;
+  wired_mspan pkt;
+  usz         hdr_len;
+  usz         pn_off;
+  u8          bits_mask;
+  u64         largest_pn;
 } quic_hspkt_unprotect_desc;
 
 /* On success *payload views the plaintext within pkt. Returns 1 on success,
@@ -26,7 +26,7 @@ typedef struct {
 int quic_hspkt_unprotect(
     const quic_protect_keys*         k,
     const quic_hspkt_unprotect_desc* d,
-    quic_span*                       payload);
+    wired_span*                      payload);
 
 /* Same as quic_hspkt_unprotect, but opens under the given negotiated TLS 1.3
  * cipher suite (RFC 8446 B.4). Returns 0 on an unrecognized suite. */
@@ -34,6 +34,6 @@ int quic_hspkt_unprotect_suite(
     u16                              suite,
     const quic_protect_keys*         k,
     const quic_hspkt_unprotect_desc* d,
-    quic_span*                       payload);
+    wired_span*                      payload);
 
 #endif

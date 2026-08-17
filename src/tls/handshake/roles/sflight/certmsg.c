@@ -15,19 +15,19 @@ static void put_be24(u8* p, u32 v) {
 }
 
 /* One CertificateEntry into out at out->len; advances out->len past it. */
-static void put_entry(quic_obuf* out, quic_span cert) {
+static void put_entry(wired_obuf* out, wired_span cert) {
   put_be24(out->p + out->len, (u32)cert.n);
   out->len += 3;
   quic_put_bytes(
-      quic_mspan_of(out->p, out->cap), &out->len,
-      quic_span_of(cert.p, cert.n));   /* room checked */
+      wired_mspan_of(out->p, out->cap), &out->len,
+      wired_span_of(cert.p, cert.n));  /* room checked */
   quic_put_be16(out->p + out->len, 0); /* empty extensions */
   out->len += 2;
 }
 
 /* Total certificate_list bytes for certs[0..count): each entry is
  * len(3) + cert_data + extensions(2). */
-static usz certchain_wire_len(const quic_span* certs, usz count) {
+static usz certchain_wire_len(const wired_span* certs, usz count) {
   usz total = 0;
   for (usz i = 0; i < count; i++) total += 3 + certs[i].n + 2;
   return total;
@@ -51,7 +51,7 @@ static int certchain_ok(const quic_sflight_certchain_in* in, usz cap) {
 }
 
 int quic_sflight_certificate_chain(
-    const quic_sflight_certchain_in* in, quic_obuf* out) {
+    const quic_sflight_certchain_in* in, wired_obuf* out) {
   usz off, list_len;
   if (!certchain_ok(in, out->cap)) return 0;
   list_len    = certchain_wire_len(in->certs, in->count);
@@ -64,7 +64,7 @@ int quic_sflight_certificate_chain(
   return 1;
 }
 
-int quic_sflight_certificate(quic_span cert_der, quic_obuf* out) {
+int quic_sflight_certificate(wired_span cert_der, wired_obuf* out) {
   quic_sflight_certchain_in in = {&cert_der, 1};
   return quic_sflight_certificate_chain(&in, out);
 }

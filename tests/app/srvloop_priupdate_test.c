@@ -27,7 +27,7 @@ static usz priupdate_ctrl_payload(
     u8* out, usz cap, u64 element_id, int push, const char* pfv, usz pfv_len) {
   usz               off = 1; /* control type 0x00, single byte */
   quic_h3_priupdate f   = {
-      push, element_id, quic_span_of((const u8*)pfv, pfv_len)};
+      push, element_id, wired_span_of((const u8*)pfv, pfv_len)};
   usz n;
   if (cap < 1) return 0;
   out[0] = 0x00;
@@ -44,8 +44,8 @@ static void priupdate_dispatch(wired_srvloop* l, const u8* frame, usz len) {
   int                       got = 0;
   wired_h3reqdrive_req      req = {0};
   wired_srvloop_dispatch_in in  = {
-      quic_span_of(frame, len), quic_mspan_of(0, 0), quic_mspan_of(0, 0), &got,
-      &req};
+      wired_span_of(frame, len), wired_mspan_of(0, 0), wired_mspan_of(0, 0),
+      &got, &req};
   wired_srvloop_dispatch(&(wired_srvloop_dispatch_ctx){0, 0, 0, l}, &in);
 }
 
@@ -115,7 +115,7 @@ static void test_srvloop_priupdate_on_request_stream_unexpected(void) {
 
   plen = quic_h3_priupdate_put(
       payload, sizeof payload,
-      &(quic_h3_priupdate){0, 4, quic_span_of((const u8*)"u=1", 3)});
+      &(quic_h3_priupdate){0, 4, wired_span_of((const u8*)"u=1", 3)});
   CHECK(plen > 0);
   /* stream 0: a client-initiated bidi (request) stream id. */
   flen = priupdate_stream_frame(frame, sizeof frame, 0, 0, payload, plen, 0);
@@ -157,12 +157,12 @@ static void test_srvloop_priupdate_bad_id_error(void) {
  * shape for the other control-stream frame this file's gather now tracks
  * (WTH3-009/042). */
 static usz settings_ctrl_payload(u8* out, usz cap) {
-  u8        sf[8];
-  quic_obuf sob = quic_obuf_of(sf, sizeof sf);
-  usz       i;
+  u8         sf[8];
+  wired_obuf sob = quic_obuf_of(sf, sizeof sf);
+  usz        i;
   if (cap < 1) return 0;
   if (!quic_h3_frame_put(
-          &sob, QUIC_H3_FRAME_SETTINGS, quic_span_of((const u8*)"", 0)))
+          &sob, QUIC_H3_FRAME_SETTINGS, wired_span_of((const u8*)"", 0)))
     return 0;
   if (cap < 1 + sob.len) return 0;
   out[0] = 0x00;

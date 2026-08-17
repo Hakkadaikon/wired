@@ -11,7 +11,7 @@
 #include "transport/io/udp/udploop/txloop.h"
 
 void quic_connrunner_init(
-    quic_connrunner* r, quic_span dcid, const quic_connrunner_init_in* in) {
+    quic_connrunner* r, wired_span dcid, const quic_connrunner_init_in* in) {
   quic_connio_init_in cin = {in->is_server, in->byte0, in->initial_max_data};
   quic_evloop_init_in ein = {in->level, in->cwnd, in->send_len};
   r->fd                   = in->fd;
@@ -33,7 +33,7 @@ void quic_connrunner_init(
  * protocol violation is never silently dropped for lack of anything else to
  * send. */
 static usz advance_close_on_violation(quic_connrunner* r, usz out) {
-  quic_obuf ob;
+  wired_obuf ob;
   if (out) return out;
   ob = quic_obuf_of(r->txbuf, sizeof(r->txbuf));
   return quic_connio_close_on_violation(&r->io, &ob);
@@ -43,7 +43,7 @@ static usz advance_close_on_violation(quic_connrunner* r, usz out) {
  * integrity limit latched by quic_connio_recv's decrypt-failure path -- only
  * runs when nothing else was already chosen to send this step. */
 static usz advance_close_on_aead_limit(quic_connrunner* r, usz out) {
-  quic_obuf ob;
+  wired_obuf ob;
   if (out) return out;
   ob = quic_obuf_of(r->txbuf, sizeof(r->txbuf));
   return quic_connio_close_on_aead_limit(&r->io, &ob);
@@ -53,7 +53,7 @@ static usz advance_close_on_aead_limit(quic_connrunner* r, usz out) {
  * RESET_STREAM a STOP_SENDING obligates -- only runs when nothing else was
  * already chosen to send this step. */
 static usz advance_stop_sending_reset(quic_connrunner* r, usz out) {
-  quic_obuf ob;
+  wired_obuf ob;
   if (out) return out;
   ob = quic_obuf_of(r->txbuf, sizeof(r->txbuf));
   return quic_connio_send_stop_sending_reset(&r->io, &ob);
@@ -76,8 +76,8 @@ static usz advance_pmtu_probe(quic_connrunner* r, usz out, u64 now) {
   usz sealed;
   if (out || !r->loop.gate.handshake_confirmed) return out;
   {
-    quic_obuf ob = quic_obuf_of(r->txbuf, sizeof(r->txbuf));
-    sealed       = quic_connrunner_pmtu_build_probe(r, &ob, now);
+    wired_obuf ob = quic_obuf_of(r->txbuf, sizeof(r->txbuf));
+    sealed        = quic_connrunner_pmtu_build_probe(r, &ob, now);
   }
   return sealed;
 }
@@ -86,7 +86,7 @@ static usz advance_pmtu_probe(quic_connrunner* r, usz out, u64 now) {
  * in hand (or empty). Drain receives, step the loop (timers + one send
  * decision), then seal whatever the loop chose -- recv before step before send.
  * Returns the sealed datagram length to transmit, or 0. Socket-free. */
-usz quic_connrunner_advance(quic_connrunner* r, u64 now, quic_mspan dgram) {
+usz quic_connrunner_advance(quic_connrunner* r, u64 now, wired_mspan dgram) {
   u64 sent_before;
   int kind;
   usz out;
@@ -139,19 +139,19 @@ static usz wait_and_recv(quic_connrunner* r, u64 now) {
   i64 got;
   if (quic_poll_wait_readable(r->fd, wait_timeout(r, now)) != 1) return 0;
   got = wired_udp_recvfrom(
-      r->fd, quic_mspan_of(r->rxbuf, sizeof(r->rxbuf)), &r->peer);
+      r->fd, wired_mspan_of(r->rxbuf, sizeof(r->rxbuf)), &r->peer);
   if (got <= 0) return 0;
   return (usz)got;
 }
 
 void quic_connrunner_iterate(quic_connrunner* r, u64 now) {
   usz len = wait_and_recv(r, now);
-  usz out = quic_connrunner_advance(r, now, quic_mspan_of(r->rxbuf, len));
+  usz out = quic_connrunner_advance(r, now, wired_mspan_of(r->rxbuf, len));
   if (out) {
     usz         one = out;
     quic_udpdst dst = {r->fd, &r->peer};
     quic_pktsrc src = {r->txbuf, &one, 1};
-    quic_obuf   ob  = quic_obuf_of(r->rxbuf, sizeof(r->rxbuf));
+    wired_obuf  ob  = quic_obuf_of(r->rxbuf, sizeof(r->rxbuf));
     quic_udploop_tx(&dst, &src, &ob);
   }
 }

@@ -9,13 +9,13 @@
  * length), and AEAD-opens the payload in place. is_initial selects whether a
  * Token field is present. */
 typedef struct {
-  quic_mspan pkt;
-  int        is_initial;
+  wired_mspan pkt;
+  int         is_initial;
 } quic_rx_desc;
 
 /* On success *frames views the plaintext frame bytes within pkt. Returns 1 on
  * success, 0 if authentication fails or the packet is malformed. */
 int quic_rx_packet(
-    const quic_protect_keys* k, const quic_rx_desc* d, quic_span* frames);
+    const quic_protect_keys* k, const quic_rx_desc* d, wired_span* frames);
 
 #endif

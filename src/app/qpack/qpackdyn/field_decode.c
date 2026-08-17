@@ -11,8 +11,8 @@
 static int resolve_static(u64 index, quic_qpack_field* out) {
   const char *n, *v;
   if (!quic_qpack_static_get((usz)index, &n, &v)) return 0;
-  out->name  = quic_span_of((const u8*)n, quic_qdyn_cstr_len(n));
-  out->value = quic_span_of((const u8*)v, quic_qdyn_cstr_len(v));
+  out->name  = wired_span_of((const u8*)n, quic_qdyn_cstr_len(n));
+  out->value = wired_span_of((const u8*)v, quic_qdyn_cstr_len(v));
   return 1;
 }
 
@@ -65,7 +65,7 @@ int quic_qdyn_decode_field(
 }
 
 int quic_qdyn_resolve_postbase_name(
-    const quic_qdyn_src* src, u64 postbase, quic_span* name) {
+    const quic_qdyn_src* src, u64 postbase, wired_span* name) {
   quic_qpack_field f;
   if (!resolve_postbase(src, postbase, &f)) return 0;
   *name = f.name;

@@ -15,7 +15,7 @@ int wired_server_listen(wired_server* s, u16 port) {
 
 int wired_server_pump(wired_server* s) {
   u8  dg[WIRED_SERVER_DATAGRAM_MAX];
-  i64 n = wired_udp_recvfrom(s->fd, quic_mspan_of(dg, sizeof(dg)), &s->peer);
+  i64 n = wired_udp_recvfrom(s->fd, wired_mspan_of(dg, sizeof(dg)), &s->peer);
   if (n <= 0) return 0;
   return wired_server_feed(s, dg, (usz)n);
 }

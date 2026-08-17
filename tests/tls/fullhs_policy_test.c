@@ -64,25 +64,25 @@ static void fp_new_client(
     cl_priv[i] = (u8)(1 + i);
     sv_priv[i] = (u8)(200 - i);
   }
-  quic_x25519_base(cl_pub, cl_priv);
-  quic_x25519_base(sv_pub, sv_priv);
+  wired_x25519_base(cl_pub, cl_priv);
+  wired_x25519_base(sv_pub, sv_priv);
   quic_tlsdriver_init(cl, cl_priv, cl_pub, 0);
   quic_tlsdriver_init(sv, sv_priv, sv_pub, 1);
   {
-    quic_obuf ob = quic_obuf_of(frame, sizeof(frame));
+    wired_obuf ob = quic_obuf_of(frame, sizeof(frame));
     CHECK(quic_tlsdriver_client_hello(cl, &ob) == 1);
     fl = ob.len;
   }
   CHECK(quic_tlsdriver_recv_crypto(sv, frame, fl) == 1);
   *shn = fp_build_sh(sh, 512, sv_pub);
   {
-    quic_obuf                  ob  = quic_obuf_of(frame, sizeof(frame));
+    wired_obuf                 ob  = quic_obuf_of(frame, sizeof(frame));
     quic_crypto_stream_emit_in ein = {0, 256};
-    CHECK(quic_crypto_stream_emit(quic_span_of(sh, *shn), &ein, &ob) == 1);
+    CHECK(quic_crypto_stream_emit(wired_span_of(sh, *shn), &ein, &ob) == 1);
     fl = ob.len;
   }
   CHECK(quic_tlsdriver_recv_crypto(cl, frame, fl) == 1);
-  CHECK(quic_fullhs_init(h, cl, quic_span_of(sh, *shn)) == 1);
+  CHECK(quic_fullhs_init(h, cl, wired_span_of(sh, *shn)) == 1);
 }
 
 /* A freshly built self-signed Ed25519 leaf, wrapped as a TLS Certificate
@@ -90,11 +90,11 @@ static void fp_new_client(
  * constant, so its signature always matches whatever transcript this run's
  * real ClientHello/ServerHello exchange produced. */
 static usz fp_build_cert_msg(const u8 seed[32], u8* out, usz cap) {
-  u8        der[512];
-  quic_obuf dob = quic_obuf_of(der, sizeof(der));
-  quic_obuf mob = quic_obuf_of(out, cap);
+  u8         der[512];
+  wired_obuf dob = quic_obuf_of(der, sizeof(der));
+  wired_obuf mob = quic_obuf_of(out, cap);
   CHECK(quic_selfcert_build(seed, &dob) == 1);
-  CHECK(quic_sflight_certificate(quic_span_of(der, dob.len), &mob) == 1);
+  CHECK(quic_sflight_certificate(wired_span_of(der, dob.len), &mob) == 1);
   return mob.len;
 }
 
@@ -109,7 +109,7 @@ static int fp_cert_result(
   u8             sh[512];
   usz            shn;
   fp_new_client(&cl, &sv, &h, sh, &shn);
-  quic_fullhs_set_policy(&h, now, quic_span_of(host, host_len));
+  quic_fullhs_set_policy(&h, now, wired_span_of(host, host_len));
   return quic_fullhs_recv_cert(&h, msg, msg_len);
 }
 
@@ -145,7 +145,7 @@ static usz fp_p256_cert_msg(u8* msg) {
   quic_fp_to_be(x, q.x);
   quic_fp_to_be(y, q.y);
   quic_p256cert_key k = {priv, x, y, 0, 0};
-  quic_obuf         o = quic_obuf_of(cert, sizeof(cert));
+  wired_obuf        o = quic_obuf_of(cert, sizeof(cert));
   CHECK(quic_p256cert_build(&k, &o) == 1);
   clen = o.len;
   return fp_wrap_cert(msg, cert, clen);
@@ -197,9 +197,9 @@ static void test_fullhs_policy_gate(void) {
   usz            shn, cert_msg_len, cv_len, n;
 
   fp_new_client(&cltls, &svtls, &cl, sh, &shn);
-  CHECK(quic_fullhs_init(&sv, &svtls, quic_span_of(sh, shn)) == 1);
+  CHECK(quic_fullhs_init(&sv, &svtls, wired_span_of(sh, shn)) == 1);
   quic_fullhs_set_policy(
-      &cl, 20370101000000ULL, quic_span_of(0, 0)); /* expired */
+      &cl, 20370101000000ULL, wired_span_of(0, 0)); /* expired */
 
   for (usz i = 0; i < 32; i++) cert_seed[i] = (u8)(60 + i);
   cert_msg_len = fp_build_cert_msg(cert_seed, cert_msg, sizeof(cert_msg));
@@ -207,16 +207,16 @@ static void test_fullhs_policy_gate(void) {
   /* the server (no policy) authenticates itself and signs its Finished */
   CHECK(quic_fullhs_recv_cert(&sv, cert_msg, cert_msg_len) == 1);
   {
-    quic_obuf cvob = quic_obuf_of(cv, sizeof(cv));
-    quic_sha256(sv.tr, sv.tr_len, th);
+    wired_obuf cvob = quic_obuf_of(cv, sizeof(cv));
+    wired_sha256(sv.tr, sv.tr_len, th);
     CHECK(quic_sflight_certificate_verify(cert_seed, th, &cvob) == 1);
     cv_len = cvob.len;
   }
   CHECK(
       quic_fullhs_recv_certverify(
-          &sv, quic_span_of(cv, cv_len), QUIC_TLS_SCHEME_ED25519) == 1);
+          &sv, wired_span_of(cv, cv_len), QUIC_TLS_SCHEME_ED25519) == 1);
   {
-    quic_obuf ob = quic_obuf_of(svfin, sizeof(svfin));
+    wired_obuf ob = quic_obuf_of(svfin, sizeof(svfin));
     CHECK(quic_fullhs_send_finished(&sv, &ob) == 1);
     n = ob.len;
   }
@@ -225,7 +225,7 @@ static void test_fullhs_policy_gate(void) {
   CHECK(quic_fullhs_recv_cert(&cl, cert_msg, cert_msg_len) == 0);
   CHECK(
       quic_fullhs_recv_certverify(
-          &cl, quic_span_of(cv, cv_len), QUIC_TLS_SCHEME_ED25519) == 0);
+          &cl, wired_span_of(cv, cv_len), QUIC_TLS_SCHEME_ED25519) == 0);
   CHECK(quic_fullhs_recv_finished(&cl, svfin, n) == 0);
   CHECK(quic_fullhs_is_complete(&cl) == 0);
 }

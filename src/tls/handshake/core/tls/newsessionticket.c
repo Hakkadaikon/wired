@@ -42,7 +42,7 @@ static void put_nst_prefix(
  * max_early_data_size is nonzero, or extensions_len(2)=0 alone otherwise.
  * Returns the bytes written (2 or 10). */
 static usz put_nst_exts(u8* p, usz cap, u32 max_early_data_size) {
-  quic_obuf eob;
+  wired_obuf eob;
   if (max_early_data_size == 0 || cap < 10) {
     quic_put_be16(p, 0);
     return 2;
@@ -90,14 +90,14 @@ static int nst_ticket_fits(usz body_len, usz ticket_len) {
 
 /* Body-level check + the sealed-ticket view, once the header parsed and
  * passed nst_header_ok. */
-static int nst_take_ticket(quic_span msg, usz body_len, quic_span* sealed) {
+static int nst_take_ticket(wired_span msg, usz body_len, wired_span* sealed) {
   usz ticket_len = get_be16(msg.p + 4 + 9);
   if (!nst_ticket_fits(body_len, ticket_len)) return 0;
-  *sealed = quic_span_of(msg.p + 4 + 11, ticket_len);
+  *sealed = wired_span_of(msg.p + 4 + 11, ticket_len);
   return 1;
 }
 
-int quic_tls_new_session_ticket_parse(quic_span msg, quic_span* sealed) {
+int quic_tls_new_session_ticket_parse(wired_span msg, wired_span* sealed) {
   u8  type;
   usz body_len;
   if (quic_hs_parse(msg, &type, &body_len) == 0) return 0;

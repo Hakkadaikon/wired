@@ -106,7 +106,7 @@ static gcmx86_v gcmx86_gfmul(gcmx86_v a, gcmx86_v b) {
 
 /* Absorb in (zero-padded to a block multiple) into the GHASH accumulator y:
  * per block, y = (y ^ block) * H. */
-static gcmx86_v gcmx86_ghash(gcmx86_v h, gcmx86_v y, quic_span in) {
+static gcmx86_v gcmx86_ghash(gcmx86_v h, gcmx86_v y, wired_span in) {
   usz off = 0;
   for (; off + 16 <= in.n; off += 16)
     y = gcmx86_gfmul(y ^ gcmx86_rev(gcmx86_load(in.p + off)), h);
@@ -131,7 +131,7 @@ static void gcmx86_ctr_block(
 
 /* Advance the counter and XOR the final partial block (in.n < 16). */
 static void gcmx86_ctr_tail(
-    const quic_gcmx86* x, u8 j[16], quic_span in, u8* out) {
+    const quic_gcmx86* x, u8 j[16], wired_span in, u8* out) {
   u8 ks[16];
   gcmx86_inc32(j);
   gcmx86_store(ks, gcmx86_aes(x, gcmx86_load(j)));
@@ -141,12 +141,12 @@ static void gcmx86_ctr_tail(
 /* CTR-encrypt in into out; j enters as J0 (data blocks use J0+1, J0+2, ...).
  * ponytail: one block per AES call; interleave 4-8 counter blocks if a
  * profiler ever shows the aesenc dependency chain dominating. */
-static void gcmx86_ctr(const quic_gcmx86* x, u8 j[16], quic_span in, u8* out) {
+static void gcmx86_ctr(const quic_gcmx86* x, u8 j[16], wired_span in, u8* out) {
   usz off = 0;
   for (; off + 16 <= in.n; off += 16)
     gcmx86_ctr_block(x, j, in.p + off, out + off);
   if (off < in.n)
-    gcmx86_ctr_tail(x, j, quic_span_of(in.p + off, in.n - off), out + off);
+    gcmx86_ctr_tail(x, j, wired_span_of(in.p + off, in.n - off), out + off);
 }
 
 /* J0 = nonce || 0x00000001 (SP 800-38D 7.1, 96-bit IV). */
@@ -162,8 +162,8 @@ static void gcmx86_j0(u8 j[16], const u8 nonce[QUIC_GCMX86_NONCE]) {
 static void gcmx86_tag(
     const quic_gcmx86* x,
     const u8           j0[16],
-    quic_span          aad,
-    quic_span          ct,
+    wired_span         aad,
+    wired_span         ct,
     u8                 tag[16]) {
   u8       lens[16];
   gcmx86_v h = gcmx86_load_rev(x->h, 16);
@@ -188,26 +188,26 @@ void quic_gcmx86_init(quic_gcmx86* x, const u8 key[16]) {
 usz quic_gcmx86_seal(
     const quic_gcmx86* x,
     const u8           nonce[QUIC_GCMX86_NONCE],
-    quic_span          aad,
-    quic_span          pt,
+    wired_span         aad,
+    wired_span         pt,
     u8*                out) {
   u8 j0[16], j[16];
   gcmx86_j0(j0, nonce);
   for (usz i = 0; i < 16; i++) j[i] = j0[i];
   gcmx86_ctr(x, j, pt, out);
-  gcmx86_tag(x, j0, aad, quic_span_of(out, pt.n), out + pt.n);
+  gcmx86_tag(x, j0, aad, wired_span_of(out, pt.n), out + pt.n);
   return pt.n + QUIC_GCMX86_TAG;
 }
 
 usz quic_gcmx86_open(
     const quic_gcmx86* x,
     const u8           nonce[QUIC_GCMX86_NONCE],
-    quic_span          aad,
-    quic_span          ct,
+    wired_span         aad,
+    wired_span         ct,
     u8*                out) {
   u8 j[16], want[16];
   if (ct.n < QUIC_GCMX86_TAG) return 0;
-  quic_span body = quic_span_of(ct.p, ct.n - QUIC_GCMX86_TAG);
+  wired_span body = wired_span_of(ct.p, ct.n - QUIC_GCMX86_TAG);
   gcmx86_j0(j, nonce);
   gcmx86_tag(x, j, aad, body, want);
   if (quic_ct_diff16(want, ct.p + body.n) != 0)

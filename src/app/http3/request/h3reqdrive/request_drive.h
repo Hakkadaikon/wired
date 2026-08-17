@@ -13,8 +13,8 @@
 
 /** The :path and :authority values for a GET request. */
 typedef struct {
-  quic_span path;      /**< the :path pseudo-header value */
-  quic_span authority; /**< the :authority pseudo-header value */
+  wired_span path;      /**< the :path pseudo-header value */
+  wired_span authority; /**< the :authority pseudo-header value */
 } wired_h3reqdrive_get_in;
 
 /** RFC 9114 4.1 / 4.3.1, RFC 9204 4.5: drive an HTTP/3 GET request end to
@@ -25,15 +25,15 @@ typedef struct {
  * @param out receives the encoded STREAM frame
  * @return 1 with out->len set, 0 on overflow. */
 int wired_h3reqdrive_send_get(
-    u64 stream_id, const wired_h3reqdrive_get_in* in, quic_obuf* out);
+    u64 stream_id, const wired_h3reqdrive_get_in* in, wired_obuf* out);
 
 /** Remaining arguments of wired_h3reqdrive_send_method beyond stream_id/out:
  * the request line (method/path/authority) and the optional body. */
 typedef struct {
-  quic_span method;    /**< the :method pseudo-header value */
-  quic_span path;      /**< the :path pseudo-header value */
-  quic_span authority; /**< the :authority pseudo-header value */
-  quic_span body;      /**< optional request body; empty for none */
+  wired_span method;    /**< the :method pseudo-header value */
+  wired_span path;      /**< the :path pseudo-header value */
+  wired_span authority; /**< the :authority pseudo-header value */
+  wired_span body;      /**< optional request body; empty for none */
 } wired_h3reqdrive_send_in;
 
 /** RFC 9114 4.1 / 4.3.1, RFC 9204 4.5: drive an arbitrary-method HTTP/3
@@ -45,7 +45,7 @@ typedef struct {
  * @param out receives the encoded STREAM frame
  * @return 1 with out->len set, 0 on overflow. */
 int wired_h3reqdrive_send_method(
-    u64 stream_id, const wired_h3reqdrive_send_in* in, quic_obuf* out);
+    u64 stream_id, const wired_h3reqdrive_send_in* in, wired_obuf* out);
 
 /** RFC 9114 4.1 / 4.3.1, RFC 9204 4.5: recovered request pseudo-headers.
  * Each value is either a static-table view or a copy in the caller-supplied
@@ -110,7 +110,7 @@ typedef struct {
  * @param r receives the recovered pseudo-headers and body view
  * @return 1 on success, 0 on a malformed frame or field section. */
 int wired_h3reqdrive_recv_get(
-    quic_span stream_data, quic_mspan scratch, wired_h3reqdrive_req* r);
+    wired_span stream_data, wired_mspan scratch, wired_h3reqdrive_req* r);
 
 /** Same as wired_h3reqdrive_recv_get, but also resolves dynamic-table
  * references (RFC 9204 4.5.2/4.5.3 Indexed Field Line / Indexed Field Line
@@ -125,8 +125,8 @@ int wired_h3reqdrive_recv_get(
  * @return 1 on success, 0 on a malformed frame, field section, or an
  *   unresolvable/invalid dynamic-table reference (RFC 9204 4.5.1.2). */
 int wired_h3reqdrive_recv_get_dyn(
-    quic_span             stream_data,
-    quic_mspan            scratch,
+    wired_span            stream_data,
+    wired_mspan           scratch,
     const quic_qpack_dyn* dyn,
     wired_h3reqdrive_req* r);
 
@@ -138,6 +138,6 @@ int wired_h3reqdrive_recv_get_dyn(
  *   values during the walk (discarded once this call returns)
  * @return 1 if there is no trailer or it is free of pseudo-headers, 0 if the
  *   trailer is malformed or carries a pseudo-header. */
-int wired_h3reqdrive_trailer_ok(quic_span stream_data, quic_mspan scratch);
+int wired_h3reqdrive_trailer_ok(wired_span stream_data, wired_mspan scratch);
 
 #endif

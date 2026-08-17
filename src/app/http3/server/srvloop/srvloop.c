@@ -187,8 +187,8 @@ static u64 app_largest_pn(const wired_srvloop* l) {
 /* The opened packet's level and its (still-mutable) bytes, as note_app_rx /
  * note_hs_rx need both together. */
 typedef struct {
-  int        level;
-  quic_mspan pkt;
+  int         level;
+  wired_mspan pkt;
 } srvloop_opened;
 
 /* RFC 9000 17.2/17.3: byte0's form bit tells a short-header 1-RTT packet
@@ -208,7 +208,7 @@ static void app_rx_record(wired_srvloop* l, const u8* pn, usz pn_len) {
  * right after byte0 + the server's own DCID (iscid, the id the client
  * addressed it to); byte0's low bits give its length. */
 static void note_app_rx_short(
-    wired_srvloop* l, wired_server* s, quic_mspan pkt) {
+    wired_srvloop* l, wired_server* s, wired_mspan pkt) {
   app_rx_record(l, pkt.p + 1u + s->sdrv.iscid_len, (pkt.p[0] & 0x03u) + 1u);
 }
 
@@ -216,9 +216,9 @@ static void note_app_rx_short(
  * 12.3) but wears a long header with no Token field, exactly like Handshake
  * (recv_zerortt) -- its pn sits past Version/DCID/SCID/Length, not right
  * after byte0+DCID like a short-header 1-RTT packet. */
-static void note_app_rx_long(wired_srvloop* l, quic_mspan pkt) {
+static void note_app_rx_long(wired_srvloop* l, wired_mspan pkt) {
   quic_lhdr h;
-  if (!quic_lhdr_parse(quic_span_of(pkt.p, pkt.n), 0, &h)) return;
+  if (!quic_lhdr_parse(wired_span_of(pkt.p, pkt.n), 0, &h)) return;
   app_rx_record(l, pkt.p + h.pn_off, quic_lhdr_pn_len(pkt.p[0]));
 }
 
@@ -245,7 +245,7 @@ static u64 hs_largest_pn(const wired_srvloop* l) {
 static void note_hs_rx(wired_srvloop* l, const srvloop_opened* o) {
   quic_lhdr h;
   if (o->level != QUIC_LEVEL_HANDSHAKE) return;
-  if (!quic_lhdr_parse(quic_span_of(o->pkt.p, o->pkt.n), 0, &h)) return;
+  if (!quic_lhdr_parse(wired_span_of(o->pkt.p, o->pkt.n), 0, &h)) return;
   l->hs_rx_pn = quic_pnum_decode(
       o->pkt.p + h.pn_off, quic_lhdr_pn_len(o->pkt.p[0]), hs_largest_pn(l));
   l->hs_rx_seen = 1;
@@ -819,7 +819,7 @@ static int srvloop_close_type(u64 type) {
 
 /* RFC 9000 10.2.2: 1 if the opened payload carries a CONNECTION_CLOSE frame
  * (either variant, any encryption level — the peer is closing or draining). */
-static int srvloop_has_close(quic_span pl) {
+static int srvloop_has_close(wired_span pl) {
   quic_framewalk      it;
   quic_framewalk_item fr;
   quic_framewalk_init(&it, pl.p, pl.n);
@@ -847,7 +847,7 @@ static void srvloop_take_ack(wired_srvloop* l, const u8* buf, usz n) {
 /* Surface every ACK frame in the opened payload to the caller's per-step
  * list (RFC 9000 19.3) — the caller consumes them to advance its own sent
  * bookkeeping (e.g. a multi-packet response in flight). */
-static void srvloop_collect_acks(wired_srvloop* l, quic_span pl) {
+static void srvloop_collect_acks(wired_srvloop* l, wired_span pl) {
   quic_framewalk      it;
   quic_framewalk_item fr;
   quic_framewalk_init(&it, pl.p, pl.n);
@@ -858,7 +858,7 @@ static void srvloop_collect_acks(wired_srvloop* l, quic_span pl) {
 
 /* RFC 9000 13.2: 1 if any frame in pl is ack-eliciting (every frame except
  * PADDING/ACK/CONNECTION_CLOSE). */
-static int srvloop_payload_ack_eliciting(quic_span pl) {
+static int srvloop_payload_ack_eliciting(wired_span pl) {
   quic_framewalk      it;
   quic_framewalk_item fr;
   int                 eliciting = 0;
@@ -877,7 +877,7 @@ static void srvloop_note_ack_owed(
     quic_pnspaces_recv* recv,
     int                 space,
     quic_ackpolicy*     policy,
-    quic_span           pl,
+    wired_span          pl,
     u64                 pn,
     u64                 now_ms) {
   if (!srvloop_payload_ack_eliciting(pl)) return;
@@ -891,11 +891,11 @@ static void srvloop_note_ack_owed(
  * l->done_slots and mirrored into l->req/req_stream_id there. The in
  * scratch/wrap/req fields are unused on the routed path (each completion
  * uses its own slot's buffers), passed empty. */
-static void step_dispatch(const wired_srvloop_conn* conn, quic_span payload) {
+static void step_dispatch(const wired_srvloop_conn* conn, wired_span payload) {
   wired_srvloop*            l   = conn->l;
   int                       got = 0;
   wired_srvloop_dispatch_in in  = {
-      payload, quic_mspan_of(0, 0), quic_mspan_of(0, 0), &got, &l->req};
+      payload, wired_mspan_of(0, 0), wired_mspan_of(0, 0), &got, &l->req};
   wired_srvloop_dispatch_ctx ctx = {conn->s, &l->h3, 0, l};
   wired_srvloop_dispatch(&ctx, &in);
 }
@@ -904,7 +904,8 @@ static void step_dispatch(const wired_srvloop_conn* conn, quic_span payload) {
  * its ack-eliciting bookkeeping (RFC 9000 12.3); Initial is out of this
  * loop's scope (srvboot's own layer). Split out of step_one to keep its
  * own branch count at the CCN gate. */
-static void step_note_ack_owed(wired_srvloop* l, quic_span payload, int level) {
+static void step_note_ack_owed(
+    wired_srvloop* l, wired_span payload, int level) {
   if (level == QUIC_LEVEL_ONERTT)
     srvloop_note_ack_owed(
         &l->ack_recv, QUIC_PNS_APP, &l->app_ack_policy, payload, l->app_rx_pn,
@@ -919,7 +920,7 @@ static void step_note_ack_owed(wired_srvloop* l, quic_span payload, int level) {
  * STREAM frame sets *got_request; CRYPTO is fed to the handshake. A slice that
  * fails to open (wrong level/key) is silently skipped, as the next slice in the
  * datagram may still be ours (RFC 9000 12.2). */
-static void step_one(const wired_srvloop_conn* conn, quic_mspan pkt) {
+static void step_one(const wired_srvloop_conn* conn, wired_mspan pkt) {
   wired_srvloop*         l = conn->l;
   wired_server*          s = conn->s;
   wired_srvloop_recv_out ro;
@@ -987,7 +988,7 @@ static void rearm_frame_unexpected(wired_srvloop* l) {
  * Initial/ACK ahead of the Handshake carrying the client Finished). Split it
  * and process every slice before building one reply for the whole datagram. */
 int wired_srvloop_step(
-    const wired_srvloop_conn* conn, quic_mspan dgram, quic_obuf* out) {
+    const wired_srvloop_conn* conn, wired_mspan dgram, wired_obuf* out) {
   const u8*    pkts[WIRED_SRVLOOP_MAXPKTS];
   usz          offs[WIRED_SRVLOOP_MAXPKTS], lens[WIRED_SRVLOOP_MAXPKTS], n, i;
   int          answer;
@@ -997,9 +998,9 @@ int wired_srvloop_step(
   conn->l->done_n             = 0;
   conn->l->incomplete_n       = 0;
   conn->l->frame_unexpected_n = 0;
-  n = quic_udploop_split(quic_span_of(dgram.p, dgram.n), &plist);
+  n = quic_udploop_split(wired_span_of(dgram.p, dgram.n), &plist);
   for (i = 0; i < n; i++)
-    step_one(conn, quic_mspan_of(dgram.p + offs[i], lens[i]));
+    step_one(conn, wired_mspan_of(dgram.p + offs[i], lens[i]));
   conn->l->got_request = conn->l->done_n > 0;
   /* takeover: the caller answers the request, the loop only confirms/ACKs */
   answer = conn->l->got_request && !conn->l->resp_external;

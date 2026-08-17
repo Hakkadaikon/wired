@@ -17,12 +17,12 @@
  *   header (which carries no length prefix)
  * @return the DCID length, or -1 if dg is too short to carry the length it
  *   claims (a long header needs 6 bytes just to reach the length byte). */
-int quic_dcidresolve_len(quic_mspan dg, u8 short_hdr_len);
+int quic_dcidresolve_len(wired_mspan dg, u8 short_hdr_len);
 
 /** The DCID as a span into dg. dcid_len is normally quic_dcidresolve_len's
  * result; a negative dcid_len or one that does not fit within dg yields a
  * 0-length span (indistinguishable from a legitimate zero-length CID, RFC
  * 9000 5.1 — callers that must tell these apart check dcid_len < 0 first). */
-quic_span quic_dcidresolve_dcid(quic_mspan dg, int dcid_len);
+wired_span quic_dcidresolve_dcid(wired_mspan dg, int dcid_len);
 
 #endif

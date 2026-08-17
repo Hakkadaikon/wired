@@ -19,8 +19,8 @@ static void cw_derive_keys(quic_client* c) {
   quic_keysched_init(&c->tls.ks);
   CHECK(
       quic_keysched_advance_handshake(
-          &c->tls.ks, quic_span_of(ecdhe, 32), quic_span_of(tr, sizeof(tr))) ==
-      1);
+          &c->tls.ks, wired_span_of(ecdhe, 32),
+          wired_span_of(tr, sizeof(tr))) == 1);
   CHECK(quic_keysched_advance_master(&c->tls.ks, tr, sizeof(tr)) == 1);
 }
 
@@ -31,18 +31,18 @@ static void cw_derive_keys(quic_client* c) {
 static void test_cw_initial_roundtrip(void) {
   quic_client            c;
   u8                     priv[32], pub[32], pkt[1300];
-  quic_obuf              ob  = quic_obuf_of(pkt, sizeof(pkt));
+  wired_obuf             ob  = quic_obuf_of(pkt, sizeof(pkt));
   quic_clientwire_hdr_in hdr = {
-      quic_span_of(cw_dcid, 8), quic_span_of(cw_scid, 4), 0};
+      wired_span_of(cw_dcid, 8), wired_span_of(cw_scid, 4), 0};
   for (usz i = 0; i < 32; i++) priv[i] = (u8)(7 + i);
-  quic_x25519_base(pub, priv);
+  wired_x25519_base(pub, priv);
   quic_tlsdriver_init(&c.tls, priv, pub, 0);
   CHECK(quic_client_build_initial_wire(&c, &hdr, &ob) == 1);
   CHECK(ob.len == 1200);
-  quic_span fv;
+  wired_span fv;
   CHECK(
       quic_initpkt_open(
-          quic_span_of(cw_dcid, 8), quic_mspan_of(pkt, ob.len), &fv) == 1);
+          wired_span_of(cw_dcid, 8), wired_mspan_of(pkt, ob.len), &fv) == 1);
   CHECK(fv.p[0] == 0x06);          /* CRYPTO frame */
   CHECK(fv.p[1] == 0x00);          /* offset 0 */
   CHECK((fv.p[2] & 0xc0) == 0x40); /* 2-byte length varint */
@@ -53,20 +53,20 @@ static void test_cw_initial_roundtrip(void) {
 static void test_cw_open_server_initial(void) {
   const u8             sh[] = {0x02, 0x00, 0x00, 0x02, 0xab, 0xcd};
   u8                   pkt[1300];
-  quic_span            tls;
-  quic_obuf            ob = quic_obuf_of(pkt, sizeof(pkt));
+  wired_span           tls;
+  wired_obuf           ob = quic_obuf_of(pkt, sizeof(pkt));
   quic_srvwire_seal_in in = {
-      quic_span_of(cw_dcid, 8),
-      quic_span_of(cw_dcid, 8),
-      quic_span_of(cw_scid, 4),
+      wired_span_of(cw_dcid, 8),
+      wired_span_of(cw_dcid, 8),
+      wired_span_of(cw_scid, 4),
       0,
       -1,
-      quic_span_of(sh, sizeof(sh)),
+      wired_span_of(sh, sizeof(sh)),
       0};
   CHECK(quic_srvwire_seal_initial(&in, &ob) == 1);
   {
     quic_clientwire_open_in oin = {
-        quic_span_of(cw_dcid, 8), quic_mspan_of(pkt, ob.len), 0};
+        wired_span_of(cw_dcid, 8), wired_mspan_of(pkt, ob.len), 0};
     CHECK(quic_client_open_initial_wire(&oin, &tls) == 1);
   }
   CHECK(tls.n == sizeof(sh));
@@ -81,13 +81,13 @@ static void test_cw_handshake_roundtrip(void) {
   const u8                 fin[] = {0x14, 0x00, 0x00, 0x03, 0x01, 0x02, 0x03};
   u8                       pkt[512];
   usz                      total = 0;
-  quic_span                tls;
+  wired_span               tls;
   const quic_initial_keys *chs, *shs;
   quic_aes128              hp;
   quic_clientwire_seal_in  sin = {
-      {quic_span_of(cw_dcid, 8), quic_span_of(cw_scid, 4), 0},
-      quic_span_of(fin, sizeof(fin))};
-  quic_obuf ob = quic_obuf_of(pkt, sizeof(pkt));
+      {wired_span_of(cw_dcid, 8), wired_span_of(cw_scid, 4), 0},
+      wired_span_of(fin, sizeof(fin))};
+  wired_obuf ob = quic_obuf_of(pkt, sizeof(pkt));
   cw_derive_keys(&c);
 
   /* client seals with CLIENT_HS; peer opens with the same client key. */
@@ -96,10 +96,10 @@ static void test_cw_handshake_roundtrip(void) {
   CHECK(quic_keysched_get(&c.tls.ks, QUIC_KS_CLIENT_HS, &chs) == 1);
   quic_aes128_init(&hp, chs->hp);
   {
-    quic_span         sp;
+    wired_span        sp;
     quic_protect_keys pk = {chs, &hp};
     CHECK(
-        quic_srvwire_open_handshake(&pk, quic_mspan_of(pkt, total), &sp) == 1);
+        quic_srvwire_open_handshake(&pk, wired_mspan_of(pkt, total), &sp) == 1);
     CHECK(sp.n == sizeof(fin));
   }
 
@@ -107,21 +107,21 @@ static void test_cw_handshake_roundtrip(void) {
   CHECK(quic_keysched_get(&c.tls.ks, QUIC_KS_SERVER_HS, &shs) == 1);
   quic_aes128_init(&hp, shs->hp);
   {
-    quic_obuf            ob2 = quic_obuf_of(pkt, sizeof(pkt));
+    wired_obuf           ob2 = quic_obuf_of(pkt, sizeof(pkt));
     quic_srvwire_seal_in in  = {
-        quic_span_of((const u8*)0, 0),
-        quic_span_of(cw_dcid, 8),
-        quic_span_of(cw_scid, 4),
+        wired_span_of((const u8*)0, 0),
+        wired_span_of(cw_dcid, 8),
+        wired_span_of(cw_scid, 4),
         0,
         -1,
-        quic_span_of(fin, sizeof(fin)),
+        wired_span_of(fin, sizeof(fin)),
         0};
     quic_protect_keys pk = {shs, &hp};
     CHECK(quic_srvwire_seal_handshake(&pk, &in, &ob2) == 1);
     total = ob2.len;
   }
   {
-    quic_appdata_pkt oin = {quic_mspan_of(pkt, total), 8};
+    quic_appdata_pkt oin = {wired_mspan_of(pkt, total), 8};
     CHECK(quic_client_open_handshake_wire(&c, &oin, &tls) == 1);
   }
   CHECK(tls.n == sizeof(fin));
@@ -134,16 +134,16 @@ static void test_cw_wrong_direction_fails(void) {
   quic_client             c;
   const u8                fin[] = {0x14, 0x00, 0x00, 0x01, 0x09};
   u8                      pkt[512];
-  quic_span               tls;
+  wired_span              tls;
   quic_clientwire_seal_in sin = {
-      {quic_span_of(cw_dcid, 8), quic_span_of(cw_scid, 4), 0},
-      quic_span_of(fin, sizeof(fin))};
-  quic_obuf ob = quic_obuf_of(pkt, sizeof(pkt));
+      {wired_span_of(cw_dcid, 8), wired_span_of(cw_scid, 4), 0},
+      wired_span_of(fin, sizeof(fin))};
+  wired_obuf ob = quic_obuf_of(pkt, sizeof(pkt));
   cw_derive_keys(&c);
   CHECK(quic_client_seal_handshake_wire(&c, &sin, &ob) == 1);
   /* opening own-sealed packet with the peer-direction open key must fail. */
   {
-    quic_appdata_pkt oin = {quic_mspan_of(pkt, ob.len), 8};
+    quic_appdata_pkt oin = {wired_mspan_of(pkt, ob.len), 8};
     CHECK(quic_client_open_handshake_wire(&c, &oin, &tls) == 0);
   }
 }
@@ -162,13 +162,13 @@ static void test_cw_onertt_roundtrip(void) {
   const quic_initial_keys *cap, *sap;
   quic_aes128              hp;
   quic_appdata_tx          tx;
-  quic_obuf                ob = quic_obuf_of(pkt, sizeof(pkt));
+  wired_obuf               ob = quic_obuf_of(pkt, sizeof(pkt));
   quic_stream_frame        sf;
   cw_derive_keys(&c);
 
   /* client GET sealed with CLIENT_AP; peer opens with the same client key. */
   tx = (quic_appdata_tx){
-      quic_span_of(cw_dcid, 8), 0, 4, quic_span_of(get, sizeof(get)), 0};
+      wired_span_of(cw_dcid, 8), 0, 4, wired_span_of(get, sizeof(get)), 0};
   CHECK(quic_client_send_appdata_wire(&c, &tx, &ob) == 1);
   total = ob.len;
   CHECK(quic_keysched_get(&c.tls.ks, QUIC_KS_CLIENT_AP, &cap) == 1);
@@ -188,7 +188,7 @@ static void test_cw_onertt_roundtrip(void) {
           &total) == 1);
   {
     quic_clientwire_recv_in rin = {
-        quic_mspan_of(pkt, total), quic_span_of(cw_scid, 4)};
+        wired_mspan_of(pkt, total), wired_span_of(cw_scid, 4)};
     CHECK(quic_client_recv_appdata_wire(&c, &rin, &sf) == 1);
   }
   CHECK(sf.length == sizeof(ok) && sf.fin == 1);
@@ -219,7 +219,7 @@ static void test_cw_onertt_wrong_dcid_dropped(void) {
           &total) == 1);
   {
     quic_clientwire_recv_in rin = {
-        quic_mspan_of(pkt, total), quic_span_of(cw_scid, 4)};
+        wired_mspan_of(pkt, total), wired_span_of(cw_scid, 4)};
     CHECK(quic_client_recv_appdata_wire(&c, &rin, &sf) == 0);
   }
 }

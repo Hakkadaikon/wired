@@ -136,7 +136,7 @@ static void test_srvdriver_parse_cores_malformed(void) {
 static wired_wt_on_datagram g_sd_seen_dg_cb;
 static void*                g_sd_seen_dg_ctx;
 
-static void sd_marker_dg_cb(void* ctx, wired_wt_session* s, quic_span d) {
+static void sd_marker_dg_cb(void* ctx, wired_wt_session* s, wired_span d) {
   (void)ctx;
   (void)s;
   (void)d;

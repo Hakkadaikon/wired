@@ -8,11 +8,11 @@
  * then DCID (no length prefix) and the packet number in pn_len big-endian
  * bytes. spin and key_phase are treated as 0/1. pn_len must be 1..4. */
 typedef struct {
-  quic_span dcid;
-  u8        spin;
-  u8        key_phase;
-  u64       pn;
-  usz       pn_len;
+  wired_span dcid;
+  u8         spin;
+  u8         key_phase;
+  u64        pn;
+  usz        pn_len;
 } quic_short_desc;
 
 /* Returns bytes written into buf (cap total), or 0 on bad args / no room. */

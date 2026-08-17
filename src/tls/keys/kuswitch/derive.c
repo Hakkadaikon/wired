@@ -12,9 +12,9 @@ static void kuswitch_derive_key_iv(
   quic_hkdf_label lk = {"quic key", 8, {0, 0}};
   quic_hkdf_label li = {"quic iv", 7, {0, 0}};
   quic_hkdf_expand_label(
-      next_secret, &lk, quic_mspan_of(next_keys->key, key_len));
+      next_secret, &lk, wired_mspan_of(next_keys->key, key_len));
   quic_hkdf_expand_label(
-      next_secret, &li, quic_mspan_of(next_keys->iv, QUIC_INITIAL_IV));
+      next_secret, &li, wired_mspan_of(next_keys->iv, QUIC_INITIAL_IV));
 }
 
 void quic_kuswitch_next_keys(

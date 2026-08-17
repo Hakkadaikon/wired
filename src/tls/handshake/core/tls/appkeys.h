@@ -9,9 +9,9 @@
  * handshake bytes hashed for the traffic secret, is_server selects the
  * "s ap traffic"/"c ap traffic" label. */
 typedef struct {
-  const u8* master; /* QUIC_HKDF_PRK bytes */
-  quic_span transcript;
-  int       is_server;
+  const u8*  master; /* QUIC_HKDF_PRK bytes */
+  wired_span transcript;
+  int        is_server;
 } quic_app_keys_in;
 
 /* RFC 9001 4.1 / RFC 8446 7.1: 1-RTT (application) packet protection keys.

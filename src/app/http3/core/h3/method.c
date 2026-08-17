@@ -31,21 +31,21 @@ static int h3method_bytes_eq(const u8* a, const char* b, usz len) {
   return 1;
 }
 
-static int h3method_matches(quic_span method, const h3method_entry* e) {
+static int h3method_matches(wired_span method, const h3method_entry* e) {
   return method.n == e->len && h3method_bytes_eq(method.p, e->name, e->len);
 }
 
-static const h3method_entry* h3method_find(quic_span method) {
+static const h3method_entry* h3method_find(wired_span method) {
   for (usz i = 0; i < H3METHOD_TABLE_N; i++)
     if (h3method_matches(method, &H3METHOD_TABLE[i])) return &H3METHOD_TABLE[i];
   return 0;
 }
 
-int quic_h3_method_is_known(quic_span method) {
+int quic_h3_method_is_known(wired_span method) {
   return h3method_find(method) != 0;
 }
 
-int quic_h3_method_is_allowed(quic_span method) {
+int quic_h3_method_is_allowed(wired_span method) {
   const h3method_entry* e = h3method_find(method);
   return e != 0 && e->allowed;
 }

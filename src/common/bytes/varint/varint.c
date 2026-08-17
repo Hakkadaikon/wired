@@ -55,14 +55,14 @@ usz quic_varint_decode(const u8* buf, usz n, u64* out) {
   return need;
 }
 
-int quic_varint_take(quic_span buf, usz* off, u64* out) {
+int quic_varint_take(wired_span buf, usz* off, u64* out) {
   usz used = quic_varint_decode(buf.p + *off, buf.n - *off, out);
   if (used == 0) return 0;
   *off += used;
   return 1;
 }
 
-int quic_varint_put(quic_mspan buf, usz* off, u64 v) {
+int quic_varint_put(wired_mspan buf, usz* off, u64 v) {
   usz need = quic_varint_len(v);
   if (need == 0 || *off + need > buf.n) return 0;
   *off += quic_varint_encode(buf.p + *off, v);

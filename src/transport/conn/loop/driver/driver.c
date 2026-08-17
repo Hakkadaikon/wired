@@ -19,7 +19,7 @@ static const u8 g_order[QUIC_DRIVER_FLIGHT_MAX][2] = {
 };
 #define G_ORDER_LEN QUIC_DRIVER_FLIGHT_MAX
 
-void quic_driver_init(quic_driver* d, int is_server, quic_span dcid) {
+void quic_driver_init(quic_driver* d, int is_server, wired_span dcid) {
   quic_initial_keys   k0  = {0};
   quic_connio_init_in cin = {is_server, 0x43, 1u << 20};
   quic_connio_init(&d->io, dcid, &cin);
@@ -76,7 +76,7 @@ static void derive_for(quic_driver* d, u8 msg_type) {
   static const u8 tr[1]     = {0};
   if (msg_type == QUIC_HSD_SERVER_HELLO) {
     quic_keysched_advance_handshake(
-        &d->ks, quic_span_of(ecdhe, sizeof(ecdhe)), quic_span_of(tr, 1));
+        &d->ks, wired_span_of(ecdhe, sizeof(ecdhe)), wired_span_of(tr, 1));
     install_level(d, QUIC_LEVEL_HANDSHAKE, QUIC_KS_CLIENT_HS);
   } else if (msg_type == QUIC_HSD_FINISHED) {
     quic_keysched_advance_master(&d->ks, tr, 1);
@@ -110,9 +110,10 @@ static int can_recv(const quic_driver* d) {
  * a single byte was recovered, 0 if the open was gated/failed. Clears the
  * inbox either way. */
 static int open_message(quic_driver* d, u8 level, u8* msg) {
-  u8        got[QUIC_DRIVER_DGRAM_CAP];
-  quic_obuf gb = quic_obuf_of(got, sizeof(got));
-  int ok = quic_connio_recv(&d->io, level, quic_mspan_of(d->in_buf, d->in_len));
+  u8         got[QUIC_DRIVER_DGRAM_CAP];
+  wired_obuf gb = quic_obuf_of(got, sizeof(got));
+  int        ok =
+      quic_connio_recv(&d->io, level, wired_mspan_of(d->in_buf, d->in_len));
   d->in_len = 0;
   if (!ok) return 0;
   quic_stream_read_pull(&d->io.stream, &gb);
@@ -159,8 +160,8 @@ static int do_send(quic_driver* d) {
   stf.fin       = 0;
   fl            = quic_frame_put_stream(frames, sizeof(frames), &stf);
   {
-    quic_connio_send_in sin = {level, quic_span_of(frames, fl)};
-    quic_obuf           ob  = quic_obuf_of(d->out_buf, sizeof(d->out_buf));
+    quic_connio_send_in sin = {level, wired_span_of(frames, fl)};
+    wired_obuf          ob  = quic_obuf_of(d->out_buf, sizeof(d->out_buf));
     n                       = quic_connio_send(&d->io, &sin, &ob);
   }
   if (n == 0) return 0;

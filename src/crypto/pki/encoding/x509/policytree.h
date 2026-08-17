@@ -49,7 +49,7 @@ void quic_x509_policy_tree_init(quic_x509_policy_tree* t);
  *     root's anyPolicy narrows). An already-empty tree stays empty
  *     (monotonic). */
 void quic_x509_policy_tree_fold(
-    quic_x509_policy_tree* t, quic_span tbs, int any_inhibited);
+    quic_x509_policy_tree* t, wired_span tbs, int any_inhibited);
 
 /* 1 if the tree is non-empty (root anyPolicy, or a narrowed set with at
  * least one surviving OID); 0 if pruned to empty. RFC 5280 6.1.5 (g): a

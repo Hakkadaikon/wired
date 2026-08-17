@@ -8,6 +8,6 @@
  * server's transport parameters equals the Destination CID it placed in its
  * first Initial. Constant-time compare. 1 if matched, 0 on
  * TRANSPORT_PARAMETER_ERROR. */
-int quic_tpverify_odcid(quic_span sent_dcid, quic_span tp_odcid);
+int quic_tpverify_odcid(wired_span sent_dcid, wired_span tp_odcid);
 
 #endif

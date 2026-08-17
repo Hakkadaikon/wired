@@ -12,6 +12,6 @@
  * precondition of sending any response). Returns 1 with out->len set, 0 if
  * out lacks capacity. */
 int wired_h3srv_open_control(
-    wired_h3srv_state* st, int advertise_wt, quic_obuf* out);
+    wired_h3srv_state* st, int advertise_wt, wired_obuf* out);
 
 #endif

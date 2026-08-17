@@ -5,8 +5,8 @@
 
 /** RSA public key: modulus n and exponent e, both big-endian. */
 typedef struct {
-  quic_span n;
-  quic_span e;
+  wired_span n;
+  wired_span e;
 } quic_rsa_pub;
 
 /* RFC 8017: this verifier supports the common public exponent F4 (65537)
@@ -18,6 +18,6 @@ int quic_rsa_e_is_f4(const u8* e, usz e_len);
  * be F4 (anything else is rejected). Returns 1 if the signature is valid,
  * else 0. */
 int quic_rsa_pkcs1_verify(
-    const quic_rsa_pub* pub, quic_span sig, quic_span msg_hash);
+    const quic_rsa_pub* pub, wired_span sig, wired_span msg_hash);
 
 #endif

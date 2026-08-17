@@ -24,7 +24,7 @@ static u32 pseudo_sum(u32 sum, quic_ipv4addrs addrs, u16 udp_len) {
 }
 
 /* Write the 8-byte UDP header (ports, length, zero checksum) and payload. */
-static void put_udp(u8* out, quic_udpports ports, quic_span payload) {
+static void put_udp(u8* out, quic_udpports ports, wired_span payload) {
   u16 udp_len = (u16)(QUIC_UDP_HDR + payload.n);
   put_be16(out, ports.sport);
   put_be16(out + 2, ports.dport);
@@ -41,7 +41,7 @@ static u16 udp_cksum_field(u16 folded) {
 }
 
 usz quic_udp4_build(
-    quic_obuf* out, const quic_udp4meta* meta, quic_span payload) {
+    wired_obuf* out, const quic_udp4meta* meta, wired_span payload) {
   u16 udp_len = (u16)(QUIC_UDP_HDR + payload.n);
   u32 sum;
   u16 folded;
@@ -62,7 +62,7 @@ static int udp_cksum_absent(const u8* dgram) {
 
 /* An all-zero checksum field is accepted unverified (see udp_cksum_absent);
  * otherwise the pseudo-header sum over the datagram must fold to zero. */
-int quic_udp4_check(quic_span dgram, quic_ipv4addrs addrs) {
+int quic_udp4_check(wired_span dgram, quic_ipv4addrs addrs) {
   u32 sum;
   if (dgram.n < QUIC_UDP_HDR) return 0;
   if (udp_cksum_absent(dgram.p)) return 1;

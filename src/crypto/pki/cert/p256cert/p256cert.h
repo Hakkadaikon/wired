@@ -19,7 +19,7 @@
  * window exceeds 14 days -- see
  * https://www.w3.org/TR/webtransport/#dom-webtransporthash). 0 to keep the
  * pre-existing fixed 2020-2030 window (tests only; a real server must pass
- * quic_clock_epoch_secs()). */
+ * wired_clock_epoch_secs()). */
 typedef struct {
   const u8* priv;
   const u8* x;
@@ -32,6 +32,6 @@ typedef struct {
  * (self-issued CN=localhost, fixed validity, secp256r1 SPKI,
  * ecdsa-with-SHA256 signature) from the key into out, setting out->len.
  * Returns 1 ok, 0 on failure. */
-int quic_p256cert_build(const quic_p256cert_key* k, quic_obuf* out);
+int quic_p256cert_build(const quic_p256cert_key* k, wired_obuf* out);
 
 #endif

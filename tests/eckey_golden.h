@@ -88,7 +88,7 @@ static const u8 quic_eckey_ed25519_test1_pub[32] = {
 /* RFC 7748 5.2 X25519 test vector, Alice's private key: the RAW (unclamped)
  * 32-byte scalar -- a[0]&7 == 7 and the top two bits of a[31] are both 0,
  * so this is not itself a valid clamped scalar, proving any clamping in the
- * round-trip below comes from quic_x25519_base's internal RFC 7748 5
+ * round-trip below comes from wired_x25519_base's internal RFC 7748 5
  * decodeScalar25519, not from import. Wrapped as an RFC 8410 7
  * OneAsymmetricKey with privateKeyAlgorithm id-X25519 (hand-derived, same
  * layout as quic_eckey_ed25519_pkcs8_der with this OID/scalar substituted).

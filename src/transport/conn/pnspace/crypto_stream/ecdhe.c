@@ -9,7 +9,7 @@ int quic_crypto_stream_ecdhe(
     const u8 my_priv[QUIC_ECDHE_LEN],
     const u8 peer_pub[QUIC_ECDHE_LEN],
     u8       shared[QUIC_ECDHE_LEN]) {
-  return quic_x25519(shared, my_priv, peer_pub);
+  return wired_x25519(shared, my_priv, peer_pub);
 }
 
 /* RFC 8446 7.4.2 / SEC1 3.3.1: P-256 ECDH, peer_pub SEC1-decoded first. */

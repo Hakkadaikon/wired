@@ -37,9 +37,9 @@ static void test_dispatch_stream(void) {
   u8                buf[32];
   quic_stream_frame f = {3, 0, 4, (const u8*)"data", 0};
   usz               n = quic_frame_put_stream(buf, sizeof buf, &f);
-  CHECK(quic_framedispatch_handle(&st, buf[0], quic_span_of(buf, n)) == 1);
-  u8        out[8];
-  quic_obuf ob = quic_obuf_of(out, sizeof out);
+  CHECK(quic_framedispatch_handle(&st, buf[0], wired_span_of(buf, n)) == 1);
+  u8         out[8];
+  wired_obuf ob = quic_obuf_of(out, sizeof out);
   quic_stream_read_pull(&s, &ob);
   CHECK(ob.len == 4);
   CHECK(st.ack_eliciting == 1);
@@ -61,7 +61,7 @@ static void test_dispatch_ack(void) {
   f.ranges[0].lo = 3;
   u8  buf[32];
   usz n = quic_ack_encode(buf, sizeof buf, &f);
-  CHECK(quic_framedispatch_handle(&st, buf[0], quic_span_of(buf, n)) == 1);
+  CHECK(quic_framedispatch_handle(&st, buf[0], wired_span_of(buf, n)) == 1);
   CHECK(quic_sentpkt_count(&t) == 2); /* 5,4,3 acked; 1,2 remain */
   CHECK(st.ack_eliciting == 0);       /* ACK is not ack-eliciting */
 }
@@ -76,7 +76,7 @@ static void test_dispatch_max_data(void) {
   quic_data_frame f = {9000};
   u8              buf[16];
   usz             n = quic_max_data_encode(buf, sizeof buf, &f);
-  CHECK(quic_framedispatch_handle(&st, buf[0], quic_span_of(buf, n)) == 1);
+  CHECK(quic_framedispatch_handle(&st, buf[0], wired_span_of(buf, n)) == 1);
   CHECK(quic_flow_credit_violation(&c, 9000) == 0);
   CHECK(quic_flow_credit_violation(&c, 9001) == 1);
 }
@@ -89,7 +89,7 @@ static void test_dispatch_ping(void) {
   quic_flow_credit         c;
   ds_init(&st, &s, &t, &c);
   u8 buf[1] = {QUIC_FRAME_PING};
-  CHECK(quic_framedispatch_handle(&st, buf[0], quic_span_of(buf, 1)) == 1);
+  CHECK(quic_framedispatch_handle(&st, buf[0], wired_span_of(buf, 1)) == 1);
   CHECK(st.ack_eliciting == 1);
   CHECK(st.close == 0);
 }
@@ -104,7 +104,7 @@ static void test_dispatch_close(void) {
   quic_conn_close_frame f = {0, 7, 0, 0, (const u8*)0};
   u8                    buf[16];
   usz                   n = quic_frame_put_conn_close(buf, sizeof buf, &f);
-  CHECK(quic_framedispatch_handle(&st, buf[0], quic_span_of(buf, n)) == 1);
+  CHECK(quic_framedispatch_handle(&st, buf[0], wired_span_of(buf, n)) == 1);
   CHECK(st.close == 1);
   CHECK(st.ack_eliciting == 0); /* CONNECTION_CLOSE is exempt */
 }
@@ -117,7 +117,7 @@ static void test_dispatch_padding(void) {
   quic_flow_credit         c;
   ds_init(&st, &s, &t, &c);
   u8 buf[1] = {QUIC_FRAME_PADDING};
-  CHECK(quic_framedispatch_handle(&st, buf[0], quic_span_of(buf, 1)) == 1);
+  CHECK(quic_framedispatch_handle(&st, buf[0], wired_span_of(buf, 1)) == 1);
   CHECK(st.ack_eliciting == 0);
   CHECK(st.close == 0);
 }
@@ -131,9 +131,9 @@ static void test_dispatch_datagram(void) {
   ds_init(&st, &s, &t, &c);
   quic_datagram_frame f = {4, (const u8*)"data"};
   u8                  buf[16];
-  usz n = quic_datagram_encode(quic_mspan_of(buf, sizeof buf), &f, 1);
+  usz n = quic_datagram_encode(wired_mspan_of(buf, sizeof buf), &f, 1);
   CHECK(n != 0);
-  CHECK(quic_framedispatch_handle(&st, buf[0], quic_span_of(buf, n)) == 1);
+  CHECK(quic_framedispatch_handle(&st, buf[0], wired_span_of(buf, n)) == 1);
   CHECK(st.has_datagram == 1);
   CHECK(st.datagram.n == 4);
   CHECK(st.datagram.p[0] == 'd' && st.datagram.p[3] == 'a');
@@ -150,7 +150,7 @@ static void test_dispatch_datagram_malformed(void) {
   ds_init(&st, &s, &t, &c);
   u8 buf[3] = {QUIC_FRAME_DATAGRAM_LEN, 0x40, 0xff}; /* length varint = 255 */
   CHECK(
-      quic_framedispatch_handle(&st, buf[0], quic_span_of(buf, sizeof buf)) ==
+      quic_framedispatch_handle(&st, buf[0], wired_span_of(buf, sizeof buf)) ==
       0);
   CHECK(st.has_datagram == 0);
 }
@@ -163,7 +163,7 @@ static void test_dispatch_unknown(void) {
   quic_flow_credit         c;
   ds_init(&st, &s, &t, &c);
   u8 buf[1] = {0x7f};
-  CHECK(quic_framedispatch_handle(&st, 0x7f, quic_span_of(buf, 1)) == 0);
+  CHECK(quic_framedispatch_handle(&st, 0x7f, wired_span_of(buf, 1)) == 0);
 }
 
 /* RFC 9000 19.7: a server receiving NEW_TOKEN is a protocol violation. */
@@ -178,7 +178,7 @@ static void test_dispatch_new_token_violation(void) {
   usz                  n = quic_new_token_encode(buf, sizeof buf, &f);
   CHECK(
       quic_framedispatch_handle(
-          &st, QUIC_FRAME_NEW_TOKEN, quic_span_of(buf, n)) == 0);
+          &st, QUIC_FRAME_NEW_TOKEN, wired_span_of(buf, n)) == 0);
   CHECK(st.violation == 1);
 }
 
@@ -194,7 +194,7 @@ static void test_dispatch_handshake_done_violation(void) {
   usz n = quic_handshake_done_encode(buf, sizeof buf);
   CHECK(
       quic_framedispatch_handle(
-          &st, QUIC_FRAME_HANDSHAKE_DONE, quic_span_of(buf, n)) == 0);
+          &st, QUIC_FRAME_HANDSHAKE_DONE, wired_span_of(buf, n)) == 0);
   CHECK(st.violation == 1);
 }
 
@@ -206,7 +206,7 @@ static void test_dispatch_no_violation_on_normal_frame(void) {
   quic_flow_credit         c;
   ds_init(&st, &s, &t, &c);
   u8 buf[1] = {QUIC_FRAME_PING};
-  CHECK(quic_framedispatch_handle(&st, buf[0], quic_span_of(buf, 1)) == 1);
+  CHECK(quic_framedispatch_handle(&st, buf[0], wired_span_of(buf, 1)) == 1);
   CHECK(st.violation == 0);
 }
 
@@ -235,7 +235,7 @@ static void test_dispatch_stop_sending_owes_reset(void) {
   usz                     n = quic_stop_sending_encode(buf, sizeof buf, &f);
   CHECK(
       quic_framedispatch_handle(
-          &st, QUIC_FRAME_STOP_SENDING, quic_span_of(buf, n)) == 1);
+          &st, QUIC_FRAME_STOP_SENDING, wired_span_of(buf, n)) == 1);
   CHECK(st.stop_sending_owed == 1);
   CHECK(st.stop_sending_stream_id == 9);
   CHECK(st.stop_sending_error_code == 0x42);
@@ -256,7 +256,7 @@ static void test_dispatch_reset_stream(void) {
   usz n = quic_reset_stream_encode(buf, sizeof buf, &f);
   CHECK(
       quic_framedispatch_handle(
-          &st, QUIC_FRAME_RESET_STREAM, quic_span_of(buf, n)) == 1);
+          &st, QUIC_FRAME_RESET_STREAM, wired_span_of(buf, n)) == 1);
   CHECK(st.has_reset_stream == 1);
   CHECK(st.reset_stream_stream_id == 3);
   CHECK(st.reset_stream_error_code == 0x9);

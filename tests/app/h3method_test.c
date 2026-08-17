@@ -1,6 +1,6 @@
 #include "test.h"
 
-#define METHOD(s) quic_span_of((const u8*)(s), sizeof(s) - 1)
+#define METHOD(s) wired_span_of((const u8*)(s), sizeof(s) - 1)
 
 /* RFC 9110 9.1: every registered method (plus RFC 5789 PATCH) is known. */
 static void test_h3method_known_methods(void) {
