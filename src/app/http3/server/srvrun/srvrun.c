@@ -6432,7 +6432,7 @@ static u64 srvrun_wtwin_dropped(const srvrun_conn* c) {
 }
 
 /* Snapshot for the qlog recovery:metrics_updated record: RFC 9002 recovery
- * state (quic_stats) plus this connection's WT diagnostic counters. */
+ * state (stats) plus this connection's WT diagnostic counters. */
 static void srvrun_metrics_fill(
     const srvrun_conn* c, wired_qlogevent_metrics_in* m) {
   stats_rtt rtt;

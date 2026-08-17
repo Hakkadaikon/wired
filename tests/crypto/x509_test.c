@@ -7,25 +7,23 @@
 /* RFC 5280 4.1. The three top-level fields are split out of a real cert. */
 static void test_x509_parse_golden(void) {
   x509 c;
-  CHECK(
-      x509_parse(
-          wired_span_of(quic_x509_golden, sizeof(quic_x509_golden)), &c) == 1);
+  CHECK(x509_parse(wired_span_of(x509_golden, sizeof(x509_golden)), &c) == 1);
   /* tbsCertificate spans offset 4..309 (header included). */
-  CHECK(c.tbs.p == quic_x509_golden + 4 && c.tbs.n == 305);
+  CHECK(c.tbs.p == x509_golden + 4 && c.tbs.n == 305);
   /* signatureAlgorithm OID is ecdsa-with-SHA256. */
   CHECK(
       der_oid_equal(
-          c.sig_alg_oid,
-          wired_span_of(
-              quic_oid_ecdsa_sha256, sizeof(quic_oid_ecdsa_sha256))) == 1);
+          c.sig_alg_oid, wired_span_of(
+                             x509_golden_oid_ecdsa_sha256,
+                             sizeof(x509_golden_oid_ecdsa_sha256))) == 1);
   /* signatureValue BIT STRING value is 71 octets (at offset 323). */
-  CHECK(c.sig.p == quic_x509_golden + 323 && c.sig.n == 71);
+  CHECK(c.sig.p == x509_golden + 323 && c.sig.n == 71);
 }
 
 static void test_x509_truncated(void) {
   x509 c;
-  CHECK(x509_parse(wired_span_of(quic_x509_golden, 10), &c) == 0);
-  CHECK(x509_parse(wired_span_of(quic_x509_golden, 0), &c) == 0);
+  CHECK(x509_parse(wired_span_of(x509_golden, 10), &c) == 0);
+  CHECK(x509_parse(wired_span_of(x509_golden, 0), &c) == 0);
 }
 
 /* A SEQUENCE whose first element is an INTEGER (not the tbs SEQUENCE). */

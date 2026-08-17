@@ -312,10 +312,9 @@ static void test_client_policy_valid(void) {
 
 /* A Certificate handshake message wrapping the realchain [leaf, int]. */
 static usz rc_cert_msg(u8* out) {
-  const u8* certs[2] = {quic_realchain_leaf_der, quic_realchain_int_der};
-  usz       lens[2]  = {
-      sizeof(quic_realchain_leaf_der), sizeof(quic_realchain_int_der)};
-  usz off = HS_HEADER + 4, list, body;
+  const u8* certs[2] = {realchain_leaf_der, realchain_int_der};
+  usz       lens[2]  = {sizeof(realchain_leaf_der), sizeof(realchain_int_der)};
+  usz       off      = HS_HEADER + 4, list, body;
   for (usz i = 0; i < 2; i++) {
     usz n        = lens[i];
     out[off]     = (u8)(n >> 16);
@@ -364,7 +363,7 @@ static usz rc_sign_cv(const fullhs* h, u8* cv) {
   content[97] = 0x00;
   for (usz i = 0; i < 32; i++) content[98 + i] = th[i];
   wired_sha256(content, 130, chash);
-  CHECK(p256sign_sign(quic_realchain_leaf_priv, chash, r, s) == 1);
+  CHECK(p256sign_sign(realchain_leaf_priv, chash, r, s) == 1);
   rn     = rc_der_int(der + 2, r);
   sn     = rc_der_int(der + 2 + rn, s);
   der[0] = 0x30;
@@ -417,8 +416,7 @@ static void test_client_castore_confirmed(void) {
   CHECK(
       castore_add(
           &store,
-          wired_span_of(
-              quic_realchain_root_der, sizeof(quic_realchain_root_der))) == 1);
+          wired_span_of(realchain_root_der, sizeof(realchain_root_der))) == 1);
   fullhs_set_castore(&c.hs, &store);
 
   n = rc_cert_msg(certmsg);
@@ -452,8 +450,7 @@ static void test_client_castore_wrong_root(void) {
   CHECK(
       castore_add(
           &store,
-          wired_span_of(
-              quic_realchain_root_der, sizeof(quic_realchain_root_der))) == 1);
+          wired_span_of(realchain_root_der, sizeof(realchain_root_der))) == 1);
   policy_client(&c, &svtls, 0, 0, 0);
   client_set_castore(&c, &store);
   fullhs_set_castore(&c.hs, c.castore); /* as feed_initial would */

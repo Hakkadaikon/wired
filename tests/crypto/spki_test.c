@@ -7,9 +7,7 @@
 /* RFC 5280 4.1.2.7. The EC public key is pulled out of the real tbs. */
 static void test_spki_golden(void) {
   x509 c;
-  CHECK(
-      x509_parse(
-          wired_span_of(quic_x509_golden, sizeof(quic_x509_golden)), &c) == 1);
+  CHECK(x509_parse(wired_span_of(x509_golden, sizeof(x509_golden)), &c) == 1);
 
   wired_span oid, key;
   CHECK(x509_public_key(c.tbs, &oid, &key) == 1);
@@ -17,7 +15,7 @@ static void test_spki_golden(void) {
   CHECK(x509_is_ec(oid) == 1);
   CHECK(x509_is_rsa(oid) == 0);
   /* subjectPublicKey BIT STRING value is 66 octets (at offset 158). */
-  CHECK(key.p == quic_x509_golden + 158 && key.n == 66);
+  CHECK(key.p == x509_golden + 158 && key.n == 66);
   /* BIT STRING leads with the unused-bits count 0x00, then 0x04 (point). */
   CHECK(key.p[0] == 0x00 && key.p[1] == 0x04);
 }
@@ -25,8 +23,7 @@ static void test_spki_golden(void) {
 static void test_spki_truncated(void) {
   wired_span oid, key;
   /* tbs too short to even read its own SEQUENCE header. */
-  CHECK(
-      x509_public_key(wired_span_of(quic_x509_golden + 4, 3), &oid, &key) == 0);
+  CHECK(x509_public_key(wired_span_of(x509_golden + 4, 3), &oid, &key) == 0);
 }
 
 /* A tbs SEQUENCE with too few elements never reaches the SPKI slot. */

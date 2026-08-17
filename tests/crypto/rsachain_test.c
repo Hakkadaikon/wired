@@ -20,33 +20,33 @@ static int rct_validate(
 /* sha256WithRSAEncryption under an RSA-2048 root verifies; a tampered
  * signature does not. */
 static void test_rsachain_sha256(void) {
-  u8 bad[sizeof(quic_rsachain_rleaf256_der)];
+  u8 bad[sizeof(rsachain_rleaf256_der)];
   CHECK(
       rct_validate(
-          quic_rsachain_rroot_der, sizeof(quic_rsachain_rroot_der),
-          quic_rsachain_rleaf256_der, sizeof(quic_rsachain_rleaf256_der)) == 1);
-  for (usz i = 0; i < sizeof(bad); i++) bad[i] = quic_rsachain_rleaf256_der[i];
+          rsachain_rroot_der, sizeof(rsachain_rroot_der), rsachain_rleaf256_der,
+          sizeof(rsachain_rleaf256_der)) == 1);
+  for (usz i = 0; i < sizeof(bad); i++) bad[i] = rsachain_rleaf256_der[i];
   bad[sizeof(bad) - 1] ^= 0x01;
   CHECK(
       rct_validate(
-          quic_rsachain_rroot_der, sizeof(quic_rsachain_rroot_der), bad,
-          sizeof(bad)) == 0);
+          rsachain_rroot_der, sizeof(rsachain_rroot_der), bad, sizeof(bad)) ==
+      0);
 }
 
 /* sha384WithRSAEncryption verifies (the SHA-384 digest path). */
 static void test_rsachain_sha384(void) {
   CHECK(
       rct_validate(
-          quic_rsachain_rroot_der, sizeof(quic_rsachain_rroot_der),
-          quic_rsachain_rleaf384_der, sizeof(quic_rsachain_rleaf384_der)) == 1);
+          rsachain_rroot_der, sizeof(rsachain_rroot_der), rsachain_rleaf384_der,
+          sizeof(rsachain_rleaf384_der)) == 1);
 }
 
 /* An RSA-4096 root verifies (the widened bignum). */
 static void test_rsachain_4096(void) {
   CHECK(
       rct_validate(
-          quic_rsachain_r4root_der, sizeof(quic_rsachain_r4root_der),
-          quic_rsachain_r4leaf_der, sizeof(quic_rsachain_r4leaf_der)) == 1);
+          rsachain_r4root_der, sizeof(rsachain_r4root_der), rsachain_r4leaf_der,
+          sizeof(rsachain_r4leaf_der)) == 1);
 }
 
 /* ecdsa-with-SHA384 over a P-256 issuer verifies (FIPS 186-4 leftmost-32
@@ -54,9 +54,8 @@ static void test_rsachain_4096(void) {
 static void test_ecchain_sha384(void) {
   CHECK(
       rct_validate(
-          quic_rsachain_ecroot_der, sizeof(quic_rsachain_ecroot_der),
-          quic_rsachain_ecleaf384_der,
-          sizeof(quic_rsachain_ecleaf384_der)) == 1);
+          rsachain_ecroot_der, sizeof(rsachain_ecroot_der),
+          rsachain_ecleaf384_der, sizeof(rsachain_ecleaf384_der)) == 1);
 }
 
 /* sha224WithRSAEncryption carries a VALID signature but sits outside the
@@ -64,8 +63,8 @@ static void test_ecchain_sha384(void) {
 static void test_rsachain_sha224_rejected(void) {
   CHECK(
       rct_validate(
-          quic_rsachain_rroot_der, sizeof(quic_rsachain_rroot_der),
-          quic_rsachain_rleaf224_der, sizeof(quic_rsachain_rleaf224_der)) == 0);
+          rsachain_rroot_der, sizeof(rsachain_rroot_der), rsachain_rleaf224_der,
+          sizeof(rsachain_rleaf224_der)) == 0);
 }
 
 /* GeneralizedTime bounds (notAfter 2060-09-21) admit 2055 and reject 2061. */
@@ -73,8 +72,7 @@ static void test_gentime_validity(void) {
   x509 c;
   CHECK(
       x509_parse(
-          wired_span_of(
-              quic_rsachain_gentime_der, sizeof(quic_rsachain_gentime_der)),
+          wired_span_of(rsachain_gentime_der, sizeof(rsachain_gentime_der)),
           &c) == 1);
   CHECK(x509_validity_ok(c.tbs, 20550101000000ULL) == 1);
   CHECK(x509_validity_ok(c.tbs, 20610101000000ULL) == 0);

@@ -1,5 +1,5 @@
-#ifndef QUIC_TEST_X509_GOLDEN_H
-#define QUIC_TEST_X509_GOLDEN_H
+#ifndef TEST_X509_GOLDEN_H
+#define TEST_X509_GOLDEN_H
 
 #include "common/platform/sys/syscall.h"
 
@@ -12,7 +12,7 @@
  * Validity: notBefore 260628030430Z, notAfter 270628030430Z (UTCTime).
  * The CN keeps the repository's pre-rename name (quic_vibe): it is baked into
  * the signed DER, so renaming it would invalidate the vector. */
-static const u8 quic_x509_golden[] = {
+static const u8 x509_golden[] = {
     0x30, 0x82, 0x01, 0x86, 0x30, 0x82, 0x01, 0x2d, 0xa0, 0x03, 0x02, 0x01,
     0x02, 0x02, 0x14, 0x60, 0x82, 0xb8, 0x55, 0x8a, 0x85, 0xc0, 0xd4, 0xf5,
     0x4f, 0xdb, 0x5c, 0x5c, 0x5b, 0xd1, 0x3a, 0xd2, 0x0f, 0xc3, 0xf4, 0x30,
@@ -49,10 +49,10 @@ static const u8 quic_x509_golden[] = {
 };
 
 /* ecdsa-with-SHA256 = 1.2.840.10045.4.3.2 */
-static const u8 quic_oid_ecdsa_sha256[] = {0x2a, 0x86, 0x48, 0xce,
-                                           0x3d, 0x04, 0x03, 0x02};
+static const u8 x509_golden_oid_ecdsa_sha256[] = {0x2a, 0x86, 0x48, 0xce,
+                                                  0x3d, 0x04, 0x03, 0x02};
 /* id-ecPublicKey = 1.2.840.10045.2.1 */
-static const u8 quic_oid_ec_pubkey[] = {0x2a, 0x86, 0x48, 0xce,
-                                        0x3d, 0x02, 0x01};
+static const u8 x509_golden_oid_ec_pubkey[] = {0x2a, 0x86, 0x48, 0xce,
+                                               0x3d, 0x02, 0x01};
 
 #endif

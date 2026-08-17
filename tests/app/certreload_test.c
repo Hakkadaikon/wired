@@ -45,7 +45,7 @@ static const char crt_bad_key_path[] = "build/certreload_badkey_test.pem";
   "1bEFTVlBPJ5KAiBmLezPmHFQVmTof4p/fF61tCsXAb9CHpQxFpB4zqkW7Q==\n"     \
   "-----END CERTIFICATE-----\n"
 
-/* base64 of quic_eckey_sec1_der (eckey_golden.h), computed offline. */
+/* base64 of eckey_sec1_der (eckey_golden.h), computed offline. */
 #define CRT_PEM_KEY                                                    \
   "-----BEGIN EC PRIVATE KEY-----\n"                                   \
   "MHcCAQEEIGEwVXfogbUsrnfdXV/ibLZWhMGAQXbeSwuof7yWDf8PoAoGCCqGSM49\n" \
@@ -89,7 +89,7 @@ static void test_certreload_loads_single_cert(void) {
   crt_write(crt_key_path, crt_key_pem, sizeof(crt_key_pem) - 1);
   CHECK(wired_certreload_load(crt_cert_path, crt_key_path, &store, &id) == 1);
   CHECK(id.chain_count == 1);
-  CHECK(id.chain[0].n == sizeof(quic_realchain_leaf_der));
+  CHECK(id.chain[0].n == sizeof(realchain_leaf_der));
   CHECK(id.cert_seed == store.priv);
   crt_unlink(crt_cert_path);
   crt_unlink(crt_key_path);
@@ -103,8 +103,8 @@ static void test_certreload_loads_two_cert_chain(void) {
   crt_write(crt_key_path, crt_key_pem, sizeof(crt_key_pem) - 1);
   CHECK(wired_certreload_load(crt_cert_2_path, crt_key_path, &store, &id) == 1);
   CHECK(id.chain_count == 2);
-  CHECK(id.chain[0].n == sizeof(quic_realchain_leaf_der));
-  CHECK(id.chain[1].n == sizeof(quic_realchain_int_der));
+  CHECK(id.chain[0].n == sizeof(realchain_leaf_der));
+  CHECK(id.chain[1].n == sizeof(realchain_int_der));
   crt_unlink(crt_cert_2_path);
   crt_unlink(crt_key_path);
 }
@@ -133,8 +133,7 @@ static void test_certreload_loads_nine_cert_chain(void) {
       wired_certreload_load(crt_cert_nine_path, crt_key_path, &store, &id) ==
       1);
   CHECK(id.chain_count == 9);
-  for (i = 0; i < 9; i++)
-    CHECK(id.chain[i].n == sizeof(quic_realchain_leaf_der));
+  for (i = 0; i < 9; i++) CHECK(id.chain[i].n == sizeof(realchain_leaf_der));
   crt_unlink(crt_cert_nine_path);
   crt_unlink(crt_key_path);
 }
@@ -235,7 +234,7 @@ static void test_certreload_or_selfsigned_loads(void) {
   crt_write(crt_key_path, crt_key_pem, sizeof(crt_key_pem) - 1);
   wired_certreload_load_or_selfsigned(crt_cert_path, crt_key_path, &store, &id);
   CHECK(id.chain_count == 1);
-  CHECK(id.chain[0].n == sizeof(quic_realchain_leaf_der));
+  CHECK(id.chain[0].n == sizeof(realchain_leaf_der));
   crt_unlink(crt_cert_path);
   crt_unlink(crt_key_path);
 }

@@ -194,8 +194,8 @@ static void test_sdrv_external_chain(void) {
   wired_span cv_sig;
   sdrv       s;
   wired_span chain[2] = {
-      wired_span_of(quic_realchain_leaf_der, sizeof(quic_realchain_leaf_der)),
-      wired_span_of(quic_realchain_int_der, sizeof(quic_realchain_int_der))};
+      wired_span_of(realchain_leaf_der, sizeof(realchain_leaf_der)),
+      wired_span_of(realchain_int_der, sizeof(realchain_int_der))};
 
   for (usz i = 0; i < 32; i++) {
     cli_priv[i]   = (u8)(i + 1);
@@ -208,7 +208,7 @@ static void test_sdrv_external_chain(void) {
   CHECK(ch_len != 0);
 
   {
-    sdrv_init_in in = {srv_priv, srv_pub, quic_realchain_leaf_priv, chain, 2, 0,
+    sdrv_init_in in = {srv_priv, srv_pub, realchain_leaf_priv, chain, 2, 0,
                        0,        0};
     sdrv_test_drive(
         &s, &in, ch, ch_len, srv_random, sh, sizeof(sh), &sh_len, flight,
@@ -229,12 +229,12 @@ static void test_sdrv_external_chain(void) {
     tls_cert_chain_out co = {entries, TLS_CERT_CHAIN_MAX, &count};
     CHECK(tls_cert_chain(wired_span_of(cm + 4, cml - 4), &ctx, &co));
     CHECK(count == 2);
-    CHECK(entries[0].cert_len == sizeof(quic_realchain_leaf_der));
+    CHECK(entries[0].cert_len == sizeof(realchain_leaf_der));
     for (usz i = 0; i < entries[0].cert_len; i++)
-      CHECK(entries[0].cert_data[i] == quic_realchain_leaf_der[i]);
-    CHECK(entries[1].cert_len == sizeof(quic_realchain_int_der));
+      CHECK(entries[0].cert_data[i] == realchain_leaf_der[i]);
+    CHECK(entries[1].cert_len == sizeof(realchain_int_der));
     for (usz i = 0; i < entries[1].cert_len; i++)
-      CHECK(entries[1].cert_data[i] == quic_realchain_int_der[i]);
+      CHECK(entries[1].cert_data[i] == realchain_int_der[i]);
 
     /* CertificateVerify (scheme 0x0403) verifies against the golden leaf's
      * real public key over the transcript through Certificate. */
@@ -253,8 +253,8 @@ static void test_sdrv_external_chain(void) {
       {
         certverify_in cvin;
         cvin.scheme = 0x0403;
-        cvin.cert   = wired_span_of(
-            quic_realchain_leaf_der, sizeof(quic_realchain_leaf_der));
+        cvin.cert =
+            wired_span_of(realchain_leaf_der, sizeof(realchain_leaf_der));
         cvin.sig             = cv_sig;
         cvin.transcript_hash = th;
         CHECK(tls_verify_cert_signature(&cvin));
@@ -269,14 +269,13 @@ static void test_sdrv_external_chain(void) {
       wired_span    path[3] = {
           wired_span_of(entries[0].cert_data, entries[0].cert_len),
           wired_span_of(entries[1].cert_data, entries[1].cert_len),
-          wired_span_of(
-              quic_realchain_root_der, sizeof(quic_realchain_root_der))};
+          wired_span_of(realchain_root_der, sizeof(realchain_root_der))};
       castore_init(&store, roots, 1);
       CHECK(
           castore_add(
-              &store, wired_span_of(
-                          quic_realchain_root_der,
-                          sizeof(quic_realchain_root_der))) == 1);
+              &store,
+              wired_span_of(realchain_root_der, sizeof(realchain_root_der))) ==
+          1);
       CHECK(castore_validate_chain(&store, path, 3) == 1);
     }
   }
@@ -296,8 +295,8 @@ static void test_sdrv_external_chain_wrong_key(void) {
   wired_span cv_sig;
   sdrv       s;
   wired_span chain[2] = {
-      wired_span_of(quic_realchain_leaf_der, sizeof(quic_realchain_leaf_der)),
-      wired_span_of(quic_realchain_int_der, sizeof(quic_realchain_int_der))};
+      wired_span_of(realchain_leaf_der, sizeof(realchain_leaf_der)),
+      wired_span_of(realchain_int_der, sizeof(realchain_int_der))};
 
   for (usz i = 0; i < 32; i++) {
     cli_priv[i]   = (u8)(i + 1);
@@ -336,9 +335,8 @@ static void test_sdrv_external_chain_wrong_key(void) {
     {
       certverify_in cvin;
       cvin.scheme = 0x0403;
-      cvin.cert   = wired_span_of(
-          quic_realchain_leaf_der, sizeof(quic_realchain_leaf_der));
-      cvin.sig             = cv_sig;
+      cvin.cert = wired_span_of(realchain_leaf_der, sizeof(realchain_leaf_der));
+      cvin.sig  = cv_sig;
       cvin.transcript_hash = th;
       CHECK(!tls_verify_cert_signature(&cvin));
     }
@@ -357,9 +355,9 @@ static void test_sdrv_chain_overflow(void) {
   usz        ch_len;
   sdrv       s;
   wired_span leaf =
-      wired_span_of(quic_realchain_leaf_der, sizeof(quic_realchain_leaf_der));
+      wired_span_of(realchain_leaf_der, sizeof(realchain_leaf_der));
   wired_span intermediate =
-      wired_span_of(quic_realchain_int_der, sizeof(quic_realchain_int_der));
+      wired_span_of(realchain_int_der, sizeof(realchain_int_der));
   wired_span chain[11] = {leaf, intermediate, leaf, intermediate,
                           leaf, intermediate, leaf, intermediate,
                           leaf, intermediate, leaf};
@@ -399,7 +397,7 @@ static void test_sdrv_flight_nine_cert_chain(void) {
   usz        ch_len;
   sdrv       s;
   wired_span leaf =
-      wired_span_of(quic_realchain_leaf_der, sizeof(quic_realchain_leaf_der));
+      wired_span_of(realchain_leaf_der, sizeof(realchain_leaf_der));
   wired_span chain[9] = {leaf, leaf, leaf, leaf, leaf, leaf, leaf, leaf, leaf};
 
   for (usz i = 0; i < 32; i++) {

@@ -161,12 +161,12 @@ static void test_fullhs_chain_retained(void) {
   n = fc_cert_msg(msg, fc_realchain, fc_realchain_len, 2);
   CHECK(fullhs_recv_cert(&cl, msg, n) == 1);
   CHECK(cl.cert_count == 2);
-  CHECK(cl.cert_lens[0] == sizeof(quic_realchain_leaf_der));
-  CHECK(cl.cert_lens[1] == sizeof(quic_realchain_int_der));
+  CHECK(cl.cert_lens[0] == sizeof(realchain_leaf_der));
+  CHECK(cl.cert_lens[1] == sizeof(realchain_int_der));
   for (usz i = 0; i < cl.cert_lens[0]; i++)
-    CHECK(cl.tr[cl.cert_off[0] + i] == quic_realchain_leaf_der[i]);
+    CHECK(cl.tr[cl.cert_off[0] + i] == realchain_leaf_der[i]);
   for (usz i = 0; i < cl.cert_lens[1]; i++)
-    CHECK(cl.tr[cl.cert_off[1] + i] == quic_realchain_int_der[i]);
+    CHECK(cl.tr[cl.cert_off[1] + i] == realchain_int_der[i]);
   CHECK(cl.peer_cert == cl.tr + cl.cert_off[0]);
 }
 
@@ -184,8 +184,7 @@ static void test_fullhs_castore_ok(void) {
   CHECK(
       castore_add(
           &store,
-          wired_span_of(
-              quic_realchain_root_der, sizeof(quic_realchain_root_der))) == 1);
+          wired_span_of(realchain_root_der, sizeof(realchain_root_der))) == 1);
   fullhs_set_castore(&cl, &store);
   n = fc_cert_msg(msg, fc_realchain, fc_realchain_len, 2);
   CHECK(fullhs_recv_cert(&cl, msg, n) == 1);
@@ -208,8 +207,7 @@ static void test_fullhs_castore_wrong_root(void) {
   CHECK(
       castore_add(
           &store,
-          wired_span_of(
-              quic_realchain_root_der, sizeof(quic_realchain_root_der))) == 1);
+          wired_span_of(realchain_root_der, sizeof(realchain_root_der))) == 1);
   fullhs_set_castore(&cl, &store); /* this leaf can't anchor here */
 
   for (usz i = 0; i < 32; i++) cert_seed[i] = (u8)(80 + i);
@@ -245,9 +243,8 @@ static void test_fullhs_castore_swapped(void) {
   fullhs        cl;
   castore       store;
   castore_entry roots[2];
-  const u8*     certs[2] = {quic_realchain_int_der, quic_realchain_leaf_der};
-  usz           lens[2]  = {
-      sizeof(quic_realchain_int_der), sizeof(quic_realchain_leaf_der)};
+  const u8*     certs[2] = {realchain_int_der, realchain_leaf_der};
+  usz lens[2] = {sizeof(realchain_int_der), sizeof(realchain_leaf_der)};
   u8  sh[512], msg[1024];
   usz shn, n;
   fc_new_client(&cltls, &svtls, &cl, sh, &shn);
@@ -255,18 +252,17 @@ static void test_fullhs_castore_swapped(void) {
   CHECK(
       castore_add(
           &store,
-          wired_span_of(
-              quic_realchain_root_der, sizeof(quic_realchain_root_der))) == 1);
+          wired_span_of(realchain_root_der, sizeof(realchain_root_der))) == 1);
   fullhs_set_castore(&cl, &store);
   n = fc_cert_msg(msg, certs, lens, 2);
   CHECK(fullhs_recv_cert(&cl, msg, n) == 0);
 }
 
 void test_fullhs_chain(void) {
-  fc_realchain[0]     = quic_realchain_leaf_der;
-  fc_realchain[1]     = quic_realchain_int_der;
-  fc_realchain_len[0] = sizeof(quic_realchain_leaf_der);
-  fc_realchain_len[1] = sizeof(quic_realchain_int_der);
+  fc_realchain[0]     = realchain_leaf_der;
+  fc_realchain[1]     = realchain_int_der;
+  fc_realchain_len[0] = sizeof(realchain_leaf_der);
+  fc_realchain_len[1] = sizeof(realchain_int_der);
   test_fullhs_chain_stale_buffer();
   test_fullhs_chain_retained();
   test_fullhs_castore_ok();

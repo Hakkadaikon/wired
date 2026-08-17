@@ -8,35 +8,38 @@
 /* RFC 5280 4.1.2.3. The tbs signature OID is ecdsa-with-SHA256. */
 static void test_sigalg_oid(void) {
   tbscert t;
-  CHECK(tbscert_parse(wired_span_of(quic_x509_golden + 4, 305), &t) == 1);
+  CHECK(tbscert_parse(wired_span_of(x509_golden + 4, 305), &t) == 1);
 
   wired_span oid;
   CHECK(tbscert_sigalg_oid(&t, &oid) == 1);
-  CHECK(oid.p == quic_x509_golden + 39 && oid.n == 8);
+  CHECK(oid.p == x509_golden + 39 && oid.n == 8);
   CHECK(
       der_oid_equal(
           oid, wired_span_of(
-                   quic_oid_ecdsa_sha256, sizeof(quic_oid_ecdsa_sha256))) == 1);
+                   x509_golden_oid_ecdsa_sha256,
+                   sizeof(x509_golden_oid_ecdsa_sha256))) == 1);
 }
 
 /* RFC 5280 4.1.1.2. The tbs OID matches the outer signatureAlgorithm OID. */
 static void test_sigalg_matches(void) {
   tbscert t;
-  CHECK(tbscert_parse(wired_span_of(quic_x509_golden + 4, 305), &t) == 1);
+  CHECK(tbscert_parse(wired_span_of(x509_golden + 4, 305), &t) == 1);
   CHECK(
       tbscert_sigalg_matches(
           &t, wired_span_of(
-                  quic_oid_ecdsa_sha256, sizeof(quic_oid_ecdsa_sha256))) == 1);
+                  x509_golden_oid_ecdsa_sha256,
+                  sizeof(x509_golden_oid_ecdsa_sha256))) == 1);
 }
 
 /* RFC 5280 4.1.1.2. A different outer OID is a mismatch. */
 static void test_sigalg_mismatch(void) {
   tbscert t;
-  CHECK(tbscert_parse(wired_span_of(quic_x509_golden + 4, 305), &t) == 1);
+  CHECK(tbscert_parse(wired_span_of(x509_golden + 4, 305), &t) == 1);
   CHECK(
       tbscert_sigalg_matches(
-          &t, wired_span_of(quic_oid_ec_pubkey, sizeof(quic_oid_ec_pubkey))) ==
-      0);
+          &t, wired_span_of(
+                  x509_golden_oid_ec_pubkey,
+                  sizeof(x509_golden_oid_ec_pubkey))) == 0);
 }
 
 /* RFC 5758 2. AlgorithmIdentifier VALUE bytes (SEQUENCE header stripped) for
@@ -63,7 +66,8 @@ static void test_sigalg_params_absent_ok(void) {
   CHECK(
       der_oid_equal(
           oid, wired_span_of(
-                   quic_oid_ecdsa_sha256, sizeof(quic_oid_ecdsa_sha256))) == 1);
+                   x509_golden_oid_ecdsa_sha256,
+                   sizeof(x509_golden_oid_ecdsa_sha256))) == 1);
 }
 
 /* RFC 5758 2. A NULL parameters field is an equivalent legal encoding,
@@ -75,7 +79,8 @@ static void test_sigalg_params_null_ok(void) {
   CHECK(
       der_oid_equal(
           oid, wired_span_of(
-                   quic_oid_ecdsa_sha256, sizeof(quic_oid_ecdsa_sha256))) == 1);
+                   x509_golden_oid_ecdsa_sha256,
+                   sizeof(x509_golden_oid_ecdsa_sha256))) == 1);
 }
 
 void test_sigalg(void) {

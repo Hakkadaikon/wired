@@ -1120,19 +1120,16 @@ static void sb_make_chain_id(
     rnd[i]  = (u8)(0xa0 + i);
   }
   wired_x25519_base(pub, priv);
-  sb_chain[0] =
-      wired_span_of(quic_realchain_leaf_der, sizeof quic_realchain_leaf_der);
-  sb_chain[1] =
-      wired_span_of(quic_realchain_int_der, sizeof quic_realchain_int_der);
-  sb_chain[2] =
-      wired_span_of(quic_realchain_root_der, sizeof quic_realchain_root_der);
-  id->priv                    = priv;
-  id->pub                     = pub;
-  id->cert_seed               = quic_realchain_leaf_priv;
-  id->scid                    = g_scid;
-  id->scid_len                = 6;
-  id->random                  = rnd;
-  id->chain                   = sb_chain;
+  sb_chain[0]   = wired_span_of(realchain_leaf_der, sizeof realchain_leaf_der);
+  sb_chain[1]   = wired_span_of(realchain_int_der, sizeof realchain_int_der);
+  sb_chain[2]   = wired_span_of(realchain_root_der, sizeof realchain_root_der);
+  id->priv      = priv;
+  id->pub       = pub;
+  id->cert_seed = realchain_leaf_priv;
+  id->scid      = g_scid;
+  id->scid_len  = 6;
+  id->random    = rnd;
+  id->chain     = sb_chain;
   id->chain_count             = 3;
   id->max_data                = 0;
   id->max_streams_bidi        = 0;

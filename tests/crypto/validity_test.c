@@ -10,9 +10,7 @@
 
 static void test_validity_golden(void) {
   x509 c;
-  CHECK(
-      x509_parse(
-          wired_span_of(quic_x509_golden, sizeof(quic_x509_golden)), &c) == 1);
+  CHECK(x509_parse(wired_span_of(x509_golden, sizeof(x509_golden)), &c) == 1);
 
   /* exactly notBefore and notAfter are inclusive */
   CHECK(x509_validity_ok(c.tbs, NB) == 1);
@@ -27,7 +25,7 @@ static void test_validity_golden(void) {
 
 static void test_validity_malformed(void) {
   /* tbs too short to read a SEQUENCE header */
-  CHECK(x509_validity_ok(wired_span_of(quic_x509_golden + 4, 3), NB) == 0);
+  CHECK(x509_validity_ok(wired_span_of(x509_golden + 4, 3), NB) == 0);
   /* tbs SEQUENCE without enough elements to reach validity */
   const u8 tbs[] = {0x30, 0x03, 0x02, 0x01, 0x02};
   CHECK(x509_validity_ok(wired_span_of(tbs, sizeof(tbs)), NB) == 0);
