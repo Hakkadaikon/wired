@@ -25,9 +25,9 @@ typedef struct {
  * it is caller-owned rather than a dispatch-local), and the completed-request
  * outputs. */
 typedef struct {
-  quic_span             payload;
-  quic_mspan            scratch;
-  quic_mspan            wrap;
+  wired_span            payload;
+  wired_mspan           scratch;
+  wired_mspan           wrap;
   int*                  got_request;
   wired_h3reqdrive_req* req;
 } wired_srvloop_dispatch_in;

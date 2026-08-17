@@ -13,7 +13,7 @@
  * content_type == 0 emits only :status. Returns 1 with out->len set, 0 if
  * out lacks capacity. */
 int quic_h3resp_encode_headers(
-    u16 status, const char* content_type, quic_obuf* out);
+    u16 status, const char* content_type, wired_obuf* out);
 
 /* Same as quic_h3resp_encode_headers plus, when extra is non-null, one
  * trailing Literal Field Line With Literal Name (RFC 9204 4.5.6) carrying
@@ -25,6 +25,6 @@ int quic_h3resp_encode_headers_field(
     u16                     status,
     const char*             content_type,
     const quic_qpack_field* extra,
-    quic_obuf*              out);
+    wired_obuf*             out);
 
 #endif

@@ -9,13 +9,13 @@
  * whether the Token fields are present (Initial 17.2.2 vs Handshake 17.2.4).
  * The frame bytes are sealed as the payload. */
 typedef struct {
-  u8        byte0;
-  quic_span dcid;
-  quic_span scid;
-  int       is_initial;
-  quic_span token;
-  u64       pn;
-  quic_span frames;
+  u8         byte0;
+  wired_span dcid;
+  wired_span scid;
+  int        is_initial;
+  wired_span token;
+  u64        pn;
+  wired_span frames;
   /** Long header Version field (RFC 9000 17.2). 0 (the zero-value default of
    * an existing positional initializer that predates this field) means QUIC
    * v1 -- 0 is never itself a valid version to send here (RFC 8999 6.1
@@ -28,7 +28,7 @@ typedef struct {
  * on overflow (AES-128-GCM; equivalent to quic_tx_packet_suite with suite =
  * QUIC_TLS_AES_128_GCM_SHA256). */
 usz quic_tx_packet(
-    const quic_protect_keys* k, const quic_tx_desc* d, quic_mspan out);
+    const quic_protect_keys* k, const quic_tx_desc* d, wired_mspan out);
 
 /* Same as quic_tx_packet, but seals under the given negotiated TLS 1.3
  * cipher suite (RFC 8446 B.4). Returns 0 on an unrecognized suite. */
@@ -36,6 +36,6 @@ usz quic_tx_packet_suite(
     u16                      suite,
     const quic_protect_keys* k,
     const quic_tx_desc*      d,
-    quic_mspan               out);
+    wired_mspan              out);
 
 #endif

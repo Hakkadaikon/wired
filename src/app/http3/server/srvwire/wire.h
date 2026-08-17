@@ -30,13 +30,13 @@
  * writing dcid into the header addresses a datagram the peer does not
  * recognize as its own and silently discards (RFC 9000 5.1). */
 typedef struct {
-  quic_span dcid;     /**< Initial key derivation input (RFC 9001 5.2) */
-  quic_span hdr_dcid; /**< header Destination Connection ID (RFC 9000 7.2) */
-  quic_span scid;
-  u64       pn;
-  i64       ack_pn;
-  quic_span tls;
-  u64       crypto_off;
+  wired_span dcid;     /**< Initial key derivation input (RFC 9001 5.2) */
+  wired_span hdr_dcid; /**< header Destination Connection ID (RFC 9000 7.2) */
+  wired_span scid;
+  u64        pn;
+  i64        ack_pn;
+  wired_span tls;
+  u64        crypto_off;
 } quic_srvwire_seal_in;
 
 /* RFC 9001 5.2: seal a TLS flight (e.g. ServerHello) into a server Initial
@@ -46,7 +46,7 @@ typedef struct {
  * ack-eliciting Initials must be acknowledged so the peer stops its PTO
  * retransmissions); ack_pn < 0 emits CRYPTO only. Returns 1 with out->len
  * set, or 0 on overflow. */
-int quic_srvwire_seal_initial(const quic_srvwire_seal_in* in, quic_obuf* out);
+int quic_srvwire_seal_initial(const quic_srvwire_seal_in* in, wired_obuf* out);
 
 /* Same as quic_srvwire_seal_initial, but the Initial keys, the header's
  * Version field, and byte0's long-header type bits all follow `version`
@@ -55,7 +55,7 @@ int quic_srvwire_seal_initial(const quic_srvwire_seal_in* in, quic_obuf* out);
  * responding in the version the peer used, no separate switch). Unknown
  * versions fail closed (0 written). */
 int quic_srvwire_seal_initial_ver(
-    u32 version, const quic_srvwire_seal_in* in, quic_obuf* out);
+    u32 version, const quic_srvwire_seal_in* in, wired_obuf* out);
 
 /* Seal pre-built frame bytes (in->tls holds raw frames, e.g. a
  * CONNECTION_CLOSE refusing the connection) into a padded server Initial
@@ -63,7 +63,7 @@ int quic_srvwire_seal_initial_ver(
  * (RFC 9000 17.2.2 / 19.19). Returns 1 with out->len set, or 0 on overflow.
  */
 int quic_srvwire_seal_initial_frames(
-    const quic_srvwire_seal_in* in, quic_obuf* out);
+    const quic_srvwire_seal_in* in, wired_obuf* out);
 
 /* Same as quic_srvwire_seal_initial_frames but WITHOUT the 1200-byte PADDING
  * floor. Only for packets that are not ack-eliciting (e.g. an ACK-only
@@ -72,20 +72,20 @@ int quic_srvwire_seal_initial_frames(
  * budget than a padded one (a padded partial-ClientHello ack starved the
  * amplificationlimit flight's tail by exactly its padding). */
 int quic_srvwire_seal_initial_frames_lean(
-    const quic_srvwire_seal_in* in, quic_obuf* out);
+    const quic_srvwire_seal_in* in, wired_obuf* out);
 
 /** The client's original DCID (Initial keys are derived from it) and the
  * packet number the caller expects (currently unused, reserved). */
 typedef struct {
-  quic_span dcid;
-  u64       pn;
+  wired_span dcid;
+  u64        pn;
 } quic_srvwire_open_initial_in;
 
 /* RFC 9001 5.2: open a server Initial sealed by quic_srvwire_seal_initial. On
  * success *tls points at the recovered flight within pkt and *tls_len holds its
  * length. Returns 1, or 0 on authentication failure or short input. */
 int quic_srvwire_open_initial(
-    const quic_srvwire_open_initial_in* in, quic_mspan pkt, quic_span* tls);
+    const quic_srvwire_open_initial_in* in, wired_mspan pkt, wired_span* tls);
 
 /* RFC 9001 5: seal a TLS flight into a Handshake packet under caller-supplied
  * directional keys (from quic_keysched_get). When in->ack_pn >= 0 the flight
@@ -93,7 +93,9 @@ int quic_srvwire_open_initial(
  * (RFC 9000 13.2.1); ack_pn < 0 emits CRYPTO only. Returns 1 with out->len
  * set, or 0 on overflow. */
 int quic_srvwire_seal_handshake(
-    const quic_protect_keys* k, const quic_srvwire_seal_in* in, quic_obuf* out);
+    const quic_protect_keys*    k,
+    const quic_srvwire_seal_in* in,
+    wired_obuf*                 out);
 
 /* Same as quic_srvwire_seal_handshake, but seals under the given negotiated
  * TLS 1.3 cipher suite (RFC 8446 B.4). Returns 0 on an unrecognized suite. */
@@ -101,16 +103,16 @@ int quic_srvwire_seal_handshake_suite(
     u16                         suite,
     const quic_protect_keys*    k,
     const quic_srvwire_seal_in* in,
-    quic_obuf*                  out);
+    wired_obuf*                 out);
 
 /* RFC 9001 5: open a Handshake packet sealed by quic_srvwire_seal_handshake.
  * Returns 1, or 0 on authentication failure or short input. */
 int quic_srvwire_open_handshake(
-    const quic_protect_keys* k, quic_mspan pkt, quic_span* tls);
+    const quic_protect_keys* k, wired_mspan pkt, wired_span* tls);
 
 /* Same as quic_srvwire_open_handshake, but opens under the given negotiated
  * TLS 1.3 cipher suite (RFC 8446 B.4). Returns 0 on an unrecognized suite. */
 int quic_srvwire_open_handshake_suite(
-    u16 suite, const quic_protect_keys* k, quic_mspan pkt, quic_span* tls);
+    u16 suite, const quic_protect_keys* k, wired_mspan pkt, wired_span* tls);
 
 #endif

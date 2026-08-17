@@ -83,7 +83,7 @@ void quic_keysched_set_suite(quic_keysched* st, u16 suite);
  * @return 1 on success, 0 if the stage is not init (order violation).
  */
 int quic_keysched_advance_handshake(
-    quic_keysched* st, quic_span ecdhe, quic_span transcript);
+    quic_keysched* st, wired_span ecdhe, wired_span transcript);
 
 /**
  * Same as quic_keysched_advance_handshake, but for a PSK-resumption
@@ -101,7 +101,7 @@ int quic_keysched_advance_handshake(
  * @return 1 on success, 0 if the stage is not init (order violation).
  */
 int quic_keysched_advance_handshake_psk(
-    quic_keysched* st, quic_span psk, quic_span ecdhe, quic_span transcript);
+    quic_keysched* st, wired_span psk, wired_span ecdhe, wired_span transcript);
 
 /**
  * Finished processed: derive Master Secret and the application traffic keys.

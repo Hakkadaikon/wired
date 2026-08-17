@@ -30,9 +30,9 @@ static void certcache_build(wired_certcache* c, const wired_srvboot_id* id) {
   {
     quic_p256cert_key k = {
         id->cert_seed, pub_x, pub_y, certcache_san(id->san_ipv4), id->now_secs};
-    quic_obuf o = quic_obuf_of(c->der, sizeof(c->der));
+    wired_obuf o = quic_obuf_of(c->der, sizeof(c->der));
     quic_p256cert_build(&k, &o);
-    c->chain[0] = quic_span_of(c->der, o.len);
+    c->chain[0] = wired_span_of(c->der, o.len);
   }
   c->primed = 1;
 }

@@ -21,6 +21,6 @@
  * not constrain directoryName), 0 if excluded, not covered by any permitted
  * subtree when at least one is present, or the extension is malformed (fail
  * closed). */
-int quic_x509_name_constraints_permit(quic_span cert_tbs, quic_span subject);
+int quic_x509_name_constraints_permit(wired_span cert_tbs, wired_span subject);
 
 #endif

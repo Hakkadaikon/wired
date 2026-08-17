@@ -8,9 +8,9 @@ static void test_derseq_two_ints(void) {
   /* SEQUENCE { INTEGER 1, INTEGER 256 } value bytes */
   const u8    seq[] = {0x02, 0x01, 0x01, 0x02, 0x02, 0x01, 0x00};
   quic_derseq c;
-  quic_derseq_init(&c, quic_span_of(seq, sizeof(seq)));
-  u8        tag;
-  quic_span val;
+  quic_derseq_init(&c, wired_span_of(seq, sizeof(seq)));
+  u8         tag;
+  wired_span val;
   CHECK(quic_derseq_next(&c, &tag, &val) == 1);
   CHECK(tag == QUIC_DER_INTEGER && val.n == 1 && val.p[0] == 0x01);
   CHECK(quic_derseq_next(&c, &tag, &val) == 1);
@@ -25,16 +25,16 @@ static void test_derseq_nested(void) {
   /* inner SEQUENCE {INTEGER 7} = 30 03 02 01 07 ; then INTEGER 9 */
   const u8    seq[] = {0x30, 0x03, 0x02, 0x01, 0x07, 0x02, 0x01, 0x09};
   quic_derseq c;
-  quic_derseq_init(&c, quic_span_of(seq, sizeof(seq)));
-  u8        tag;
-  quic_span val;
+  quic_derseq_init(&c, wired_span_of(seq, sizeof(seq)));
+  u8         tag;
+  wired_span val;
   CHECK(quic_derseq_next(&c, &tag, &val) == 1);
   CHECK(tag == QUIC_DER_SEQUENCE && val.n == 3);
   /* descend into the inner sequence's value */
   quic_derseq inner;
   quic_derseq_init(&inner, val);
-  u8        itag;
-  quic_span ival;
+  u8         itag;
+  wired_span ival;
   CHECK(quic_derseq_next(&inner, &itag, &ival) == 1);
   CHECK(itag == QUIC_DER_INTEGER && ival.n == 1 && ival.p[0] == 0x07);
   CHECK(quic_derseq_next(&inner, &itag, &ival) == 0);
@@ -48,9 +48,9 @@ static void test_derseq_truncated_element(void) {
   /* element claims 4 octets but only 1 remains */
   const u8    seq[] = {0x02, 0x04, 0xAA};
   quic_derseq c;
-  quic_derseq_init(&c, quic_span_of(seq, sizeof(seq)));
-  u8        tag;
-  quic_span val;
+  quic_derseq_init(&c, wired_span_of(seq, sizeof(seq)));
+  u8         tag;
+  wired_span val;
   CHECK(quic_derseq_next(&c, &tag, &val) == 0);
 }
 

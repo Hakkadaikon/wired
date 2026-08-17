@@ -57,12 +57,12 @@ usz quic_tlsdriver_raw_client_hello(quic_tlsdriver* d, u8* out, usz cap) {
    * walk (e.g. the RFC 9000 7.4 duplicate-id scan a real server runs). */
   return quic_tls_client_hello_group(
       &(quic_clienthello_group_in){
-          random, d->my_pub, quic_span_of(d->sni, d->sni_len),
-          quic_span_of(0, 0), d->group, quic_tls_ext_key_share_len(d->group)},
-      &(quic_obuf){out, cap, 0});
+          random, d->my_pub, wired_span_of(d->sni, d->sni_len),
+          wired_span_of(0, 0), d->group, quic_tls_ext_key_share_len(d->group)},
+      &(wired_obuf){out, cap, 0});
 }
 
-int quic_tlsdriver_client_hello(quic_tlsdriver* d, quic_obuf* out) {
+int quic_tlsdriver_client_hello(quic_tlsdriver* d, wired_obuf* out) {
   u8  ch[512];
   usz n = quic_tlsdriver_raw_client_hello(d, ch, sizeof(ch));
   quic_crypto_stream_emit_in in = {0, QUIC_TLSDRIVER_CRYPTO_MAX};
@@ -72,7 +72,7 @@ int quic_tlsdriver_client_hello(quic_tlsdriver* d, quic_obuf* out) {
    * the field's doc comment in tlsdriver.h. */
   quic_memcpy(d->transcript_ch, ch, n);
   d->transcript_ch_len = n;
-  return quic_crypto_stream_emit(quic_span_of(ch, n), &in, out);
+  return quic_crypto_stream_emit(wired_span_of(ch, n), &in, out);
 }
 
 /* Skip a 1-byte-length-prefixed vector at p (session_id, compression).
@@ -135,7 +135,7 @@ static int ch_walk(const u8* b, usz q, usz end, u16 want_group, u8 pub[65]) {
 /* The message is a well-framed ClientHello; sets *body_len. */
 static int is_client_hello(const u8* buf, usz n, usz* body_len) {
   u8 type;
-  return quic_hs_parse(quic_span_of(buf, n), &type, body_len) == 4 &&
+  return quic_hs_parse(wired_span_of(buf, n), &type, body_len) == 4 &&
          type == QUIC_HS_CLIENT_HELLO;
 }
 
@@ -159,7 +159,7 @@ static int peer_keyshare(
   u16                  got_group;
   if (d->is_server) return parse_client_hello_keyshare(msg, n, d->group, pub);
   if (!quic_tls_parse_server_hello_group(
-          quic_span_of(msg, n), pub, &got_group, &sh))
+          wired_span_of(msg, n), pub, &got_group, &sh))
     return 0;
   return got_group == d->group;
 }
@@ -206,7 +206,7 @@ static int derive_handshake_secret(
    * secret regardless of key_share width (P-256's is X(shared), not the
    * 65-byte SEC1 point) -- feed exactly that many bytes to the schedule. */
   return quic_keysched_advance_handshake(
-      &d->ks, quic_span_of(d->shared, 32), quic_span_of(transcript, tn));
+      &d->ks, wired_span_of(d->shared, 32), wired_span_of(transcript, tn));
 }
 
 /* RFC 8446 4.4.1: the server side has no ClientHello of its own emission to
@@ -242,17 +242,17 @@ static int derive_handshake(quic_tlsdriver* d, const u8* msg, usz n) {
  * advance *p past it. Returns 1 on success, 0 on a bad frame or buffer
  * overflow (RFC 9000 7.5: d->last_error is set to CRYPTO_BUFFER_EXCEEDED in
  * the latter case). */
-static int feed_one(quic_tlsdriver* d, quic_span frame, usz* p) {
+static int feed_one(quic_tlsdriver* d, wired_span frame, usz* p) {
   quic_crypto_frame f;
   usz used = quic_frame_get_crypto(frame.p + *p, frame.n - *p, &f);
   if (used == 0) return 0;
   *p += used;
   return quic_crypto_stream_recv_ec(
-      &d->rx, f.offset, quic_span_of(f.data, (usz)f.length), &d->last_error);
+      &d->rx, f.offset, wired_span_of(f.data, (usz)f.length), &d->last_error);
 }
 
 /* Feed every CRYPTO frame packed in frame. Returns 1 if all parsed. */
-static int feed_all(quic_tlsdriver* d, quic_span frame) {
+static int feed_all(quic_tlsdriver* d, wired_span frame) {
   usz p  = 0;
   int ok = 1;
   while (ok && p < frame.n) ok = feed_one(d, frame, &p);
@@ -261,16 +261,16 @@ static int feed_all(quic_tlsdriver* d, quic_span frame) {
 
 /* Reassemble all CRYPTO frames and copy the contiguous TLS bytes into out,
  * writing the length to out->len. Returns 1 if any bytes are ready. */
-static int reassemble(quic_tlsdriver* d, quic_span frame, quic_obuf* out) {
+static int reassemble(quic_tlsdriver* d, wired_span frame, wired_obuf* out) {
   if (!feed_all(d, frame)) return 0;
   return quic_crypto_stream_read(&d->rx, out) && out->len != 0;
 }
 
 int quic_tlsdriver_recv_crypto(
     quic_tlsdriver* d, const u8* crypto_frame, usz len) {
-  u8        msg[512];
-  quic_obuf out = quic_obuf_of(msg, sizeof(msg));
-  if (!reassemble(d, quic_span_of(crypto_frame, len), &out)) return 0;
+  u8         msg[512];
+  wired_obuf out = quic_obuf_of(msg, sizeof(msg));
+  if (!reassemble(d, wired_span_of(crypto_frame, len), &out)) return 0;
   return derive_handshake(d, msg, out.len);
 }
 

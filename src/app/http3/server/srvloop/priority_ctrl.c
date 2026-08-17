@@ -28,14 +28,14 @@ static int ctrl_is_uni_stream_id(u64 stream_id) {
 static int ctrl_leading_type_is_control(const quic_stream_frame* sf) {
   u64 v;
   usz off = 0;
-  if (!quic_varint_take(quic_span_of(sf->data, (usz)sf->length), &off, &v))
+  if (!quic_varint_take(wired_span_of(sf->data, (usz)sf->length), &off, &v))
     return 0;
   return quic_h3_stream_type_is_control(v);
 }
 
 /* 1 if the walked frame decodes into sf as a client uni STREAM frame; the
  * caller still must confirm it is specifically the control stream. */
-static int ctrl_stream_of(u64 type, quic_span frame, quic_stream_frame* sf) {
+static int ctrl_stream_of(u64 type, wired_span frame, quic_stream_frame* sf) {
   return ctrl_is_stream_type(type) &&
          quic_frame_get_stream(frame.p, frame.n, sf) &&
          ctrl_is_uni_stream_id(sf->stream_id);
@@ -71,8 +71,8 @@ static void ctrl_land(wired_srvloop* l, const quic_stream_frame* sf) {
   usz off  = (usz)ctrl_abs_off(sf);
   if (off >= sizeof l->ctrl.buf) return;
   quic_put_bytes(
-      quic_mspan_of(l->ctrl.buf, sizeof l->ctrl.buf), &off,
-      quic_span_of(sf->data + skip, (usz)sf->length - skip));
+      wired_mspan_of(l->ctrl.buf, sizeof l->ctrl.buf), &off,
+      wired_span_of(sf->data + skip, (usz)sf->length - skip));
   if (off > l->ctrl.len) l->ctrl.len = off;
 }
 
@@ -110,7 +110,7 @@ static void ctrl_note_frame(wired_srvloop* l, int is_settings) {
  * unexamined. Either way, its type also latches SETTINGS-ordering state
  * (ctrl_note_frame). Returns bytes consumed, or 0 if the next frame is not
  * yet fully buffered (the caller stops walking until more bytes arrive). */
-static usz ctrl_walk_one(wired_srvloop* l, quic_span avail) {
+static usz ctrl_walk_one(wired_srvloop* l, wired_span avail) {
   quic_h3_priupdate f  = {0};
   quic_h3_frame     gf = {0};
   usz               n  = quic_h3_priupdate_get(avail, &f);
@@ -131,7 +131,7 @@ static usz ctrl_walk_one(wired_srvloop* l, quic_span avail) {
 static void ctrl_walk(wired_srvloop* l) {
   usz n;
   do {
-    quic_span avail = quic_span_of(
+    wired_span avail = wired_span_of(
         l->ctrl.buf + l->ctrl.parsed, l->ctrl.len - l->ctrl.parsed);
     n = ctrl_walk_one(l, avail);
     l->ctrl.parsed += n;
@@ -150,7 +150,7 @@ static int ctrl_frame_relevant(
   return l->ctrl.len != 0;
 }
 
-int wired_srvloop_ctrl_gather(wired_srvloop* l, u64 type, quic_span frame) {
+int wired_srvloop_ctrl_gather(wired_srvloop* l, u64 type, wired_span frame) {
   quic_stream_frame sf;
   if (!ctrl_stream_of(type, frame, &sf)) return 0;
   if (!ctrl_frame_relevant(l, &sf)) return 0;
@@ -167,7 +167,7 @@ static int req_is_bidi_stream_id(u64 stream_id) {
 
 /* 1 if the walked frame decodes into sf as a client bidi (request) STREAM
  * frame. */
-static int req_stream_of(u64 type, quic_span frame, quic_stream_frame* sf) {
+static int req_stream_of(u64 type, wired_span frame, quic_stream_frame* sf) {
   return ctrl_is_stream_type(type) &&
          quic_frame_get_stream(frame.p, frame.n, sf) &&
          req_is_bidi_stream_id(sf->stream_id);
@@ -180,7 +180,7 @@ static int req_stream_of(u64 type, quic_span frame, quic_stream_frame* sf) {
  * it, exactly like request_parse.c's own find_headers walk. */
 static int req_carries_priupdate(const quic_stream_frame* sf) {
   quic_h3_priupdate f = {0};
-  return quic_h3_priupdate_get(quic_span_of(sf->data, (usz)sf->length), &f) !=
+  return quic_h3_priupdate_get(wired_span_of(sf->data, (usz)sf->length), &f) !=
          0;
 }
 
@@ -195,7 +195,7 @@ static void req_latch_priupdate_violation(wired_srvloop* l) {
 }
 
 int wired_srvloop_req_priupdate_gather(
-    wired_srvloop* l, u64 type, quic_span frame) {
+    wired_srvloop* l, u64 type, wired_span frame) {
   quic_stream_frame sf;
   if (!req_stream_of(type, frame, &sf)) return 0;
   if (req_carries_priupdate(&sf)) req_latch_priupdate_violation(l);

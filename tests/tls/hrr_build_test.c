@@ -24,21 +24,21 @@ static const u8* hrr_find_ext(const u8* ext, usz total, u16 t, usz* elen) {
 /* RFC 8446 4.1.3: the random sentinel is SHA-256("HelloRetryRequest"). */
 static void test_hrr_random_sentinel(void) {
   u8 fixed[32];
-  quic_sha256((const u8*)"HelloRetryRequest", 17, fixed);
+  wired_sha256((const u8*)"HelloRetryRequest", 17, fixed);
   for (int i = 0; i < 32; i++) CHECK(quic_hrr_random[i] == fixed[i]);
 }
 
 /* RFC 8446 4.1.4: HRR wire form without cookie. */
 static void test_hrr_build_no_cookie(void) {
-  u8        out[256];
-  usz       len, body_len, ext_total, elen;
-  u8        type;
-  const u8 *body, *ext, *sv, *kse;
-  quic_obuf ob = quic_obuf_of(out, sizeof out);
+  u8         out[256];
+  usz        len, body_len, ext_total, elen;
+  u8         type;
+  const u8 * body, *ext, *sv, *kse;
+  wired_obuf ob = quic_obuf_of(out, sizeof out);
 
-  CHECK(quic_hrr_build(QUIC_GROUP_X25519, quic_span_of(0, 0), &ob) == 1);
+  CHECK(quic_hrr_build(QUIC_GROUP_X25519, wired_span_of(0, 0), &ob) == 1);
   len = ob.len;
-  CHECK(quic_hs_parse(quic_span_of(out, len), &type, &body_len) == 4);
+  CHECK(quic_hs_parse(wired_span_of(out, len), &type, &body_len) == 4);
   CHECK(type == QUIC_HS_SERVER_HELLO);
 
   body = out + 4;
@@ -60,12 +60,12 @@ static void test_hrr_build_no_cookie(void) {
 
 /* RFC 8446 4.2.2: cookie extension carries opaque cookie<1..2^16-1>. */
 static void test_hrr_build_cookie(void) {
-  u8        out[256], ck[5] = {1, 2, 3, 4, 5};
-  usz       ext_total, elen;
-  const u8 *ext, *c;
-  quic_obuf ob = quic_obuf_of(out, sizeof out);
+  u8         out[256], ck[5] = {1, 2, 3, 4, 5};
+  usz        ext_total, elen;
+  const u8 * ext, *c;
+  wired_obuf ob = quic_obuf_of(out, sizeof out);
 
-  CHECK(quic_hrr_build(QUIC_GROUP_X25519, quic_span_of(ck, 5), &ob) == 1);
+  CHECK(quic_hrr_build(QUIC_GROUP_X25519, wired_span_of(ck, 5), &ob) == 1);
   ext       = out + 4 + 38;
   ext_total = hrrt_rd16(ext);
   ext += 2;
@@ -75,9 +75,9 @@ static void test_hrr_build_cookie(void) {
 }
 
 static void test_hrr_build_overflow(void) {
-  u8        out[16];
-  quic_obuf ob = quic_obuf_of(out, 8);
-  CHECK(quic_hrr_build(QUIC_GROUP_X25519, quic_span_of(0, 0), &ob) == 0);
+  u8         out[16];
+  wired_obuf ob = quic_obuf_of(out, 8);
+  CHECK(quic_hrr_build(QUIC_GROUP_X25519, wired_span_of(0, 0), &ob) == 0);
 }
 
 /* RFC 8446 4.4.1: message_hash is msg_type 254, the usual 4-byte handshake
@@ -90,7 +90,7 @@ static void test_hrr_message_hash_shape(void) {
   for (int i = 0; i < 32; i++) hash[i] = (u8)i;
   n = quic_hrr_message_hash(hash, 32, out, sizeof(out));
   CHECK(n == 36);
-  CHECK(quic_hs_parse(quic_span_of(out, n), &type, &body_len) == 4);
+  CHECK(quic_hs_parse(wired_span_of(out, n), &type, &body_len) == 4);
   CHECK(type == 254);
   CHECK(body_len == 32);
   for (int i = 0; i < 32; i++) CHECK(out[4 + i] == hash[i]);

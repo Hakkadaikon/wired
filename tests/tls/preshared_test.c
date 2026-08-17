@@ -4,9 +4,9 @@ static void test_preshared_golden(void) {
   u8                 id[3] = {0xaa, 0xbb, 0xcc};
   u8                 bd[2] = {0x11, 0x22};
   u8                 buf[64];
-  quic_obuf          ob = quic_obuf_of(buf, sizeof(buf));
+  wired_obuf         ob = quic_obuf_of(buf, sizeof(buf));
   quic_tlsext_psk_in in = {
-      quic_span_of(id, 3), 0x01020304, quic_span_of(bd, 2)};
+      wired_span_of(id, 3), 0x01020304, wired_span_of(bd, 2)};
   CHECK(quic_tlsext_pre_shared_key(&in, &ob) == 1);
   /* type 0x0029, ext_data len, identities_len, id_len, id, age,
    * binders_len, binder_len, binder */
@@ -30,10 +30,10 @@ static void test_preshared_roundtrip(void) {
   u8                    id[4] = {0xde, 0xad, 0xbe, 0xef};
   u8                    bd[3] = {0x09, 0x08, 0x07};
   u8                    buf[64];
-  quic_obuf             ob = quic_obuf_of(buf, sizeof(buf));
+  wired_obuf            ob = quic_obuf_of(buf, sizeof(buf));
   quic_tlsext_psk_offer off;
   quic_tlsext_psk_in    in = {
-      quic_span_of(id, 4), 0x12345678, quic_span_of(bd, 3)};
+      wired_span_of(id, 4), 0x12345678, wired_span_of(bd, 3)};
   quic_tlsext_pre_shared_key(&in, &ob);
   CHECK(quic_tlsext_pre_shared_key_parse(buf, ob.len, &off) == 1);
   CHECK(off.id_len == 4);
@@ -47,9 +47,9 @@ static void test_preshared_guards(void) {
   u8                    id[2] = {0x01, 0x02};
   u8                    bd[2] = {0x03, 0x04};
   u8                    buf[64];
-  quic_obuf             ob = quic_obuf_of(buf, sizeof(buf));
+  wired_obuf            ob = quic_obuf_of(buf, sizeof(buf));
   quic_tlsext_psk_offer off;
-  quic_tlsext_psk_in    in = {quic_span_of(id, 2), 1, quic_span_of(bd, 2)};
+  quic_tlsext_psk_in    in = {wired_span_of(id, 2), 1, wired_span_of(bd, 2)};
   quic_tlsext_pre_shared_key(&in, &ob);
   /* truncated */
   CHECK(quic_tlsext_pre_shared_key_parse(buf, ob.len - 1, &off) == 0);
@@ -62,8 +62,8 @@ static void test_preshared_encode_guard(void) {
   u8                 id[2] = {0x01, 0x02};
   u8                 bd[2] = {0x03, 0x04};
   u8                 buf[10];
-  quic_obuf          ob = quic_obuf_of(buf, sizeof(buf));
-  quic_tlsext_psk_in in = {quic_span_of(id, 2), 1, quic_span_of(bd, 2)};
+  wired_obuf         ob = quic_obuf_of(buf, sizeof(buf));
+  quic_tlsext_psk_in in = {wired_span_of(id, 2), 1, wired_span_of(bd, 2)};
   /* needs 4+2+(2+2+4)+2+(1+2) = 19, cap 10 too small */
   CHECK(quic_tlsext_pre_shared_key(&in, &ob) == 0);
 }

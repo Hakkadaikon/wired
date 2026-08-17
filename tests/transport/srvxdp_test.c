@@ -91,7 +91,7 @@ static void test_srvxdp_rx_basic(void) {
   i64           n;
   u32           idx;
   sxt_init(&w, &x);
-  bufs[0].buf = quic_mspan_of(payload_buf, sizeof payload_buf);
+  bufs[0].buf = wired_mspan_of(payload_buf, sizeof payload_buf);
 
   sxt_kernel_rx_push(&w, 0);
   n = wired_srvxdp_rx_burst(&x, bufs, 4);
@@ -113,7 +113,7 @@ static void test_srvxdp_rx_conservation(void) {
   u8            payload_buf[64];
   quic_mmsg_buf bufs[4];
   sxt_init(&w, &x);
-  bufs[0].buf = quic_mspan_of(payload_buf, sizeof payload_buf);
+  bufs[0].buf = wired_mspan_of(payload_buf, sizeof payload_buf);
 
   for (int cycle = 0; cycle < 200; cycle++) {
     u64 addr = (u64)(cycle % 8) * QUIC_XSKUMEM_FRAME_SIZE;
@@ -131,7 +131,7 @@ static void test_srvxdp_rx_conservation(void) {
 static void sxt_learn_peer(sxt_world* w, wired_srvxdp* x, quic_sockaddr* dst) {
   u8            payload_buf[64];
   quic_mmsg_buf bufs[4];
-  bufs[0].buf = quic_mspan_of(payload_buf, sizeof payload_buf);
+  bufs[0].buf = wired_mspan_of(payload_buf, sizeof payload_buf);
   sxt_kernel_rx_push(w, 0);
   wired_srvxdp_rx_burst(x, bufs, 4);
   *dst = bufs[0].src;
@@ -150,10 +150,10 @@ static void test_srvxdp_send_basic(void) {
   sxt_init(&w, &x);
   sxt_learn_peer(&w, &x, &dst);
 
-  CHECK(wired_srvxdp_send(&x, &dst, quic_span_of(pl, 3)) == 1);
+  CHECK(wired_srvxdp_send(&x, &dst, wired_span_of(pl, 3)) == 1);
   CHECK(quic_xskring_cons_peek(&w.ktx, 1, &idx) == 1);
   d = quic_xskring_desc_at(&w.ktx, idx);
-  CHECK(quic_xdpframe_parse(quic_span_of(w.umem + d->addr, d->len), &rx) == 1);
+  CHECK(quic_xdpframe_parse(wired_span_of(w.umem + d->addr, d->len), &rx) == 1);
   CHECK(rx.payload_len == 3 && rx.payload[0] == 0xc0 && rx.payload[2] == 0xee);
   /* the frame's source must be our identity, byte-exact on the wire:
    * 10.7.0.1:4433 (a reversed source IP passed every earlier check) */
@@ -180,7 +180,7 @@ static void test_srvxdp_completion_reap(void) {
 
   /* drain txpool to exactly one frame left, then send it */
   for (int i = 0; i < 63; i++) CHECK(quic_xskumem_alloc_get(&x.txpool) >= 0);
-  CHECK(wired_srvxdp_send(&x, &dst, quic_span_of(pl, 1)) == 1);
+  CHECK(wired_srvxdp_send(&x, &dst, wired_span_of(pl, 1)) == 1);
   /* pool now empty: kernel "completes" the frame it just took off tx */
   CHECK(quic_xskring_cons_peek(&w.ktx, 1, &tx_idx) == 1);
   txd = quic_xskring_desc_at(&w.ktx, tx_idx);
@@ -189,7 +189,7 @@ static void test_srvxdp_completion_reap(void) {
   quic_xskring_prod_submit(&w.kcomp, 1);
   quic_xskring_cons_release(&w.ktx, 1);
 
-  got = wired_srvxdp_send(&x, &dst, quic_span_of(pl, 1));
+  got = wired_srvxdp_send(&x, &dst, wired_span_of(pl, 1));
   CHECK(got == 1);
 }
 
@@ -203,8 +203,8 @@ static void test_srvxdp_txpool_exhaustion(void) {
   sxt_learn_peer(&w, &x, &dst);
 
   for (int i = 0; i < 64; i++)
-    CHECK(wired_srvxdp_send(&x, &dst, quic_span_of(pl, 1)) == 1);
-  CHECK(wired_srvxdp_send(&x, &dst, quic_span_of(pl, 1)) == 0);
+    CHECK(wired_srvxdp_send(&x, &dst, wired_span_of(pl, 1)) == 1);
+  CHECK(wired_srvxdp_send(&x, &dst, wired_span_of(pl, 1)) == 0);
 }
 
 /* 6: send() to an unlearned destination drops without touching tx. */
@@ -217,7 +217,7 @@ static void test_srvxdp_mac_miss(void) {
   sxt_init(&w, &x);
   wired_udp_addr(&dst, 4433, (const u8[]){10, 9, 9, 9});
 
-  CHECK(wired_srvxdp_send(&x, &dst, quic_span_of(pl, 1)) == 0);
+  CHECK(wired_srvxdp_send(&x, &dst, wired_span_of(pl, 1)) == 0);
   CHECK(quic_xskring_cons_peek(&w.ktx, 1, &idx) == 0);
 }
 

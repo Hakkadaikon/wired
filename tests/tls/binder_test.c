@@ -12,8 +12,8 @@ static void test_binder_verify_ok(void) {
   binder_fill(psk, 32, 0x40);
   const u8 ch[] = "ClientHello-truncated-up-to-identities";
   u8       binder[32];
-  quic_tls_binder_compute(psk, quic_span_of(ch, sizeof(ch)), binder);
-  CHECK(quic_tls_binder_verify(psk, quic_span_of(ch, sizeof(ch)), binder));
+  quic_tls_binder_compute(psk, wired_span_of(ch, sizeof(ch)), binder);
+  CHECK(quic_tls_binder_verify(psk, wired_span_of(ch, sizeof(ch)), binder));
 }
 
 static void test_binder_reject_flipped_binder_byte(void) {
@@ -21,9 +21,9 @@ static void test_binder_reject_flipped_binder_byte(void) {
   binder_fill(psk, 32, 0x40);
   const u8 ch[] = "ClientHello-truncated-up-to-identities";
   u8       binder[32];
-  quic_tls_binder_compute(psk, quic_span_of(ch, sizeof(ch)), binder);
+  quic_tls_binder_compute(psk, wired_span_of(ch, sizeof(ch)), binder);
   binder[0] ^= 0x01;
-  CHECK(!quic_tls_binder_verify(psk, quic_span_of(ch, sizeof(ch)), binder));
+  CHECK(!quic_tls_binder_verify(psk, wired_span_of(ch, sizeof(ch)), binder));
 }
 
 static void test_binder_reject_tampered_transcript(void) {
@@ -32,8 +32,8 @@ static void test_binder_reject_tampered_transcript(void) {
   const u8 ch[]  = "ClientHello-truncated-up-to-identities";
   const u8 ch2[] = "ClientHello-TAMPERED-up-to-identities!";
   u8       binder[32];
-  quic_tls_binder_compute(psk, quic_span_of(ch, sizeof(ch)), binder);
-  CHECK(!quic_tls_binder_verify(psk, quic_span_of(ch2, sizeof(ch2)), binder));
+  quic_tls_binder_compute(psk, wired_span_of(ch, sizeof(ch)), binder);
+  CHECK(!quic_tls_binder_verify(psk, wired_span_of(ch2, sizeof(ch2)), binder));
 }
 
 static void test_binder_reject_wrong_psk(void) {
@@ -42,8 +42,8 @@ static void test_binder_reject_wrong_psk(void) {
   binder_fill(psk_b, 32, 0x41);
   const u8 ch[] = "ClientHello-truncated-up-to-identities";
   u8       binder[32];
-  quic_tls_binder_compute(psk_a, quic_span_of(ch, sizeof(ch)), binder);
-  CHECK(!quic_tls_binder_verify(psk_b, quic_span_of(ch, sizeof(ch)), binder));
+  quic_tls_binder_compute(psk_a, wired_span_of(ch, sizeof(ch)), binder);
+  CHECK(!quic_tls_binder_verify(psk_b, wired_span_of(ch, sizeof(ch)), binder));
 }
 
 static void test_binder_deterministic(void) {
@@ -51,8 +51,8 @@ static void test_binder_deterministic(void) {
   binder_fill(psk, 32, 0x40);
   const u8 ch[] = "ClientHello-truncated-up-to-identities";
   u8       b1[32], b2[32];
-  quic_tls_binder_compute(psk, quic_span_of(ch, sizeof(ch)), b1);
-  quic_tls_binder_compute(psk, quic_span_of(ch, sizeof(ch)), b2);
+  quic_tls_binder_compute(psk, wired_span_of(ch, sizeof(ch)), b1);
+  quic_tls_binder_compute(psk, wired_span_of(ch, sizeof(ch)), b2);
   for (usz i = 0; i < 32; i++) CHECK(b1[i] == b2[i]);
 }
 
@@ -71,13 +71,13 @@ static void test_binder_key_matches_manual_derivation(void) {
   binder_fill(psk, 32, 0x55);
   u8 zero[32] = {0};
   u8 early[32];
-  quic_hkdf_extract(quic_span_of(zero, 32), quic_span_of(psk, 32), early);
+  quic_hkdf_extract(wired_span_of(zero, 32), wired_span_of(psk, 32), early);
 
   u8 empty_hash[32];
-  quic_sha256(zero, 0, empty_hash); /* Transcript-Hash("") */
+  wired_sha256(zero, 0, empty_hash); /* Transcript-Hash("") */
   quic_hkdf_label l = {"res binder", 10, {empty_hash, 32}};
   u8              want[32];
-  CHECK(quic_hkdf_expand_label(early, &l, quic_mspan_of(want, 32)));
+  CHECK(quic_hkdf_expand_label(early, &l, wired_mspan_of(want, 32)));
 
   u8 got[32];
   quic_tls_binder_key(psk, got);

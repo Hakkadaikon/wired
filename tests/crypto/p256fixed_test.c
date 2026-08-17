@@ -95,7 +95,7 @@ static void test_p256fixed_rfc6979_vector(void) {
   p256_fe x, y, r;
   pf_hb32(priv_hex, priv);
   pf_hb32(wr_hex, wr);
-  quic_sha256((const u8*)"sample", 6, hash);
+  wired_sha256((const u8*)"sample", 6, hash);
   quic_p256sign_k(priv, hash, kb);
   CHECK(quic_p256fixed_mul_g(x, y, kb));
   quic_fp_reduce(r, x, quic_p256_n);

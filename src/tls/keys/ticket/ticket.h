@@ -37,6 +37,6 @@ void quic_ticket_seal(
  * QUIC_TICKET_SEALED_LEN bytes. Returns 1 and fills *out on success; returns
  * 0 (leaving *out untouched) if the key is wrong or the bytes were altered. */
 int quic_ticket_open(
-    quic_span in, const u8 key[QUIC_TICKET_KEY_LEN], quic_ticket* out);
+    wired_span in, const u8 key[QUIC_TICKET_KEY_LEN], quic_ticket* out);
 
 #endif

@@ -7,7 +7,7 @@ static int hq09_is_newline(u8 c) { return c == '\r' || c == '\n'; }
 
 /* Trailing "\r\n"/"\n" bytes at line's end (mirrors the reference server's
  * TrimRight("\r\n")). Returns the trimmed length. */
-static usz hq09_trim_newlines(quic_span line) {
+static usz hq09_trim_newlines(wired_span line) {
   usz n = line.n;
   while (n > 0 && hq09_is_newline(line.p[n - 1])) n--;
   return n;
@@ -35,9 +35,9 @@ static int hq09_is_get_slash(const u8* p, usz n) {
   return n >= 5 && !hq09_bytes_differ(p, want, 5);
 }
 
-int wired_hq09_parse_get(quic_span line, quic_span* path) {
+int wired_hq09_parse_get(wired_span line, wired_span* path) {
   usz n = hq09_trim_spaces(line.p, hq09_trim_newlines(line));
   if (!hq09_is_get_slash(line.p, n)) return 0;
-  *path = quic_span_of(line.p + 4, n - 4);
+  *path = wired_span_of(line.p + 4, n - 4);
   return 1;
 }

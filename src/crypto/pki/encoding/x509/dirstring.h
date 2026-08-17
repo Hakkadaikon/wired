@@ -21,7 +21,7 @@
 /* 1 if the two DirectoryString content octets (tag+length stripped, e.g. the
  * value of a PrintableString/UTF8String/IA5String/TeletexString/BMPString/
  * UniversalString TLV) are equal under the above rules; 0 otherwise. */
-int quic_x509_dirstring_ci_equal(quic_span a, quic_span b);
+int quic_x509_dirstring_ci_equal(wired_span a, wired_span b);
 
 /* RFC 5280 7.1. 1 if Name a and Name b (each the Name SEQUENCE's TLV,
  * header included, as returned by quic_x509_issuer/quic_x509_subject) are
@@ -34,6 +34,6 @@ int quic_x509_dirstring_ci_equal(quic_span a, quic_span b);
  * closed towards the stricter byte-equal behavior of quic_x509_dn_equal for
  * that rare multi-valued-RDN case, rather than implement full
  * unordered-SET matching). Returns 0 if either Name is malformed. */
-int quic_x509_dn_equal_ci(quic_span a, quic_span b);
+int quic_x509_dn_equal_ci(wired_span a, wired_span b);
 
 #endif

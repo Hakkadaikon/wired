@@ -32,7 +32,7 @@
  * @return 1 on success; 0 on malformed DER, a scalar not exactly 32
  *         bytes, or an unsupported structure/version.
  */
-int wired_eckey_p256_priv(quic_span key_der, u8 out[32]);
+int wired_eckey_p256_priv(wired_span key_der, u8 out[32]);
 
 /**
  * Encode a 32-byte Ed25519 seed as an RFC 8410 7 OneAsymmetricKey DER
@@ -44,7 +44,7 @@ int wired_eckey_p256_priv(quic_span key_der, u8 out[32]);
  * @param out  receives the encoded DER; out->len is set on success.
  * @return 1 on success; 0 if out's capacity is too small.
  */
-int wired_eckey_ed25519_pkcs8_encode(const u8 seed[32], quic_obuf* out);
+int wired_eckey_ed25519_pkcs8_encode(const u8 seed[32], wired_obuf* out);
 
 /**
  * Extract the 32-byte Curve25519 private key from an RFC 8410 7
@@ -58,6 +58,6 @@ int wired_eckey_ed25519_pkcs8_encode(const u8 seed[32], quic_obuf* out);
  * @param out     receives the 32-byte private key.
  * @return 1 on success; 0 on malformed DER or a key not exactly 32 bytes.
  */
-int wired_eckey_curve25519_priv(quic_span key_der, u8 out[32]);
+int wired_eckey_curve25519_priv(wired_span key_der, u8 out[32]);
 
 #endif

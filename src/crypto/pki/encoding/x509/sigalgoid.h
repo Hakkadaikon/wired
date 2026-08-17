@@ -25,6 +25,6 @@ typedef struct {
 
 /* Look up a signatureAlgorithm OID (DER value bytes). Returns 1 and fills
  * *out for a listed algorithm, 0 for anything else (fail closed). */
-int quic_x509_sigalg_lookup(quic_span oid, quic_x509_sigalg* out);
+int quic_x509_sigalg_lookup(wired_span oid, quic_x509_sigalg* out);
 
 #endif

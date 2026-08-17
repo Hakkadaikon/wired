@@ -37,8 +37,8 @@ static void ps_mix(
     u8 k[32], u8 v[32], u8 sep, const u8 priv[32], const u8 hred[32]) {
   u8  msg[97];
   usz n = ps_build_seed(msg, v, sep, priv, hred);
-  quic_hmac_sha256(quic_span_of(k, 32), quic_span_of(msg, n), k);
-  quic_hmac_sha256(quic_span_of(k, 32), quic_span_of(v, 32), v);
+  quic_hmac_sha256(wired_span_of(k, 32), wired_span_of(msg, n), k);
+  quic_hmac_sha256(wired_span_of(k, 32), wired_span_of(v, 32), v);
 }
 
 /* 1 if 1 <= cand < n (in range as a nonce). */
@@ -53,8 +53,8 @@ static void ps_advance(u8 k[32], u8 v[32]) {
   u8 msg[33];
   p256sign_copy(msg, v, 32);
   msg[32] = 0x00;
-  quic_hmac_sha256(quic_span_of(k, 32), quic_span_of(msg, 33), k);
-  quic_hmac_sha256(quic_span_of(k, 32), quic_span_of(v, 32), v);
+  quic_hmac_sha256(wired_span_of(k, 32), wired_span_of(msg, 33), k);
+  quic_hmac_sha256(wired_span_of(k, 32), wired_span_of(v, 32), v);
 }
 
 /* 1 if v is both in [1,n-1] and accepted by the caller's suitability check
@@ -68,7 +68,7 @@ static int ps_accept(const u8 v[32], quic_p256sign_k_ok ok, void* ctx) {
 static void ps_gen_candidate(
     u8 k[32], u8 v[32], u8 out[32], quic_p256sign_k_ok ok, void* ctx) {
   for (;;) {
-    quic_hmac_sha256(quic_span_of(k, 32), quic_span_of(v, 32), v);
+    quic_hmac_sha256(wired_span_of(k, 32), wired_span_of(v, 32), v);
     if (ps_accept(v, ok, ctx)) break;
     ps_advance(k, v);
   }

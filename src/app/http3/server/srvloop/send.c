@@ -16,11 +16,11 @@ int wired_srvloop_send_initial_ver(
     u32                          version,
     const wired_server*          s,
     const wired_srvloop_send_in* in,
-    quic_obuf*                   out) {
+    wired_obuf*                  out) {
   quic_srvwire_seal_in wi = {
-      quic_span_of(s->sdrv.odcid, s->sdrv.odcid_len),
+      wired_span_of(s->sdrv.odcid, s->sdrv.odcid_len),
       in->cli_scid,
-      quic_span_of(s->sdrv.iscid, s->sdrv.iscid_len),
+      wired_span_of(s->sdrv.iscid, s->sdrv.iscid_len),
       in->pn,
       in->ack_pn,
       in->payload,
@@ -29,7 +29,7 @@ int wired_srvloop_send_initial_ver(
 }
 
 int wired_srvloop_send_initial(
-    const wired_server* s, const wired_srvloop_send_in* in, quic_obuf* out) {
+    const wired_server* s, const wired_srvloop_send_in* in, wired_obuf* out) {
   return wired_srvloop_send_initial_ver(QUIC_VERSION_1, s, in, out);
 }
 
@@ -37,12 +37,12 @@ int wired_srvloop_send_initial(
  * addressed to the client's SCID (RFC 9000 7.2). The key-derivation dcid slot
  * is unused at this level (keys come from the schedule). */
 int wired_srvloop_send_handshake(
-    const wired_server* s, const wired_srvloop_send_in* in, quic_obuf* out) {
+    const wired_server* s, const wired_srvloop_send_in* in, wired_obuf* out) {
   wired_srvloop_dirkeys dk;
   quic_srvwire_seal_in  wi = {
-      quic_span_of((const u8*)0, 0),
+      wired_span_of((const u8*)0, 0),
       in->cli_scid,
-      quic_span_of(s->sdrv.iscid, s->sdrv.iscid_len),
+      wired_span_of(s->sdrv.iscid, s->sdrv.iscid_len),
       in->pn,
       in->ack_pn,
       in->payload,
@@ -85,7 +85,7 @@ static int send_onertt_keys(
  * uses to detect an update, RFC 9001 6.3). 0 (generation 0's phase) before
  * kuswitch is seeded, matching send_onertt_keys's own fallback. */
 int wired_srvloop_send_onertt(
-    const wired_server* s, const wired_srvloop_send_in* in, quic_obuf* out) {
+    const wired_server* s, const wired_srvloop_send_in* in, wired_obuf* out) {
   wired_srvloop_dirkeys dk;
   quic_aes128           hp;
   quic_protect_keys     pk;

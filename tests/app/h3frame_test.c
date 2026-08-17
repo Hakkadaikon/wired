@@ -8,15 +8,15 @@ static int h3f_bytes_eq(const u8* a, const u8* b, usz n) {
 
 /* Generic DATA/HEADERS frames round-trip type + length + opaque payload. */
 static void test_h3frame_generic(void) {
-  u8        body[] = {0xde, 0xad, 0xbe, 0xef};
-  u8        buf[16];
-  quic_obuf ob = {buf, sizeof buf, 0};
-  usz       w  = quic_h3_frame_put(
-      &ob, QUIC_H3_FRAME_DATA, quic_span_of(body, sizeof body));
+  u8         body[] = {0xde, 0xad, 0xbe, 0xef};
+  u8         buf[16];
+  wired_obuf ob = {buf, sizeof buf, 0};
+  usz        w  = quic_h3_frame_put(
+      &ob, QUIC_H3_FRAME_DATA, wired_span_of(body, sizeof body));
   CHECK(w == 2 + sizeof(body) && buf[0] == QUIC_H3_FRAME_DATA);
 
   quic_h3_frame f;
-  usz           r = quic_h3_frame_get(quic_span_of(buf, w), &f);
+  usz           r = quic_h3_frame_get(wired_span_of(buf, w), &f);
   CHECK(
       r == w && f.type == QUIC_H3_FRAME_DATA && f.payload_len == sizeof(body));
   CHECK(h3f_bytes_eq(f.payload, body, sizeof(body)));
@@ -24,14 +24,14 @@ static void test_h3frame_generic(void) {
   /* HEADERS carries an opaque (QPACK) block the same way. */
   u8  hb[] = {0x01, 0x02, 0x03};
   usz hw   = quic_h3_frame_put(
-      &ob, QUIC_H3_FRAME_HEADERS, quic_span_of(hb, sizeof hb));
-  usz hr = quic_h3_frame_get(quic_span_of(buf, hw), &f);
+      &ob, QUIC_H3_FRAME_HEADERS, wired_span_of(hb, sizeof hb));
+  usz hr = quic_h3_frame_get(wired_span_of(buf, hw), &f);
   CHECK(
       hr == hw && f.type == QUIC_H3_FRAME_HEADERS &&
       h3f_bytes_eq(f.payload, hb, sizeof(hb)));
 
   /* truncated: Length claims 4 bytes but only 3 are present */
-  CHECK(quic_h3_frame_get(quic_span_of(buf, hw - 1), &f) == 0);
+  CHECK(quic_h3_frame_get(wired_span_of(buf, hw - 1), &f) == 0);
 }
 
 /* CANCEL_PUSH / MAX_PUSH_ID carry a Push ID; GOAWAY a Stream/Push ID. */

@@ -38,9 +38,9 @@ void quic_tls_exporter_master_secret(
  * @return 1 on success, 0 if a length does not fit (see
  *   quic_hkdf_expand_label) */
 int quic_tls_exporter(
-    const u8   secret[QUIC_HKDF_PRK],
-    quic_span  label,
-    quic_span  context,
-    quic_mspan okm);
+    const u8    secret[QUIC_HKDF_PRK],
+    wired_span  label,
+    wired_span  context,
+    wired_mspan okm);
 
 #endif

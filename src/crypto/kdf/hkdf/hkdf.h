@@ -22,7 +22,7 @@
 typedef struct {
   const char* label;     /**< label text without the "tls13 " prefix */
   usz         label_len; /**< length of label in bytes */
-  quic_span   ctx;       /**< context (hash value); may be empty {0, 0} */
+  wired_span  ctx;       /**< context (hash value); may be empty {0, 0} */
 } quic_hkdf_label;
 
 /**
@@ -32,7 +32,7 @@ typedef struct {
  * @param ikm  input keying material
  * @param prk  receives the 32-byte pseudorandom key
  */
-void quic_hkdf_extract(quic_span salt, quic_span ikm, u8 prk[QUIC_HKDF_PRK]);
+void quic_hkdf_extract(wired_span salt, wired_span ikm, u8 prk[QUIC_HKDF_PRK]);
 
 /**
  * okm = HKDF-Expand(prk, info, okm.n).
@@ -45,7 +45,7 @@ void quic_hkdf_extract(quic_span salt, quic_span ikm, u8 prk[QUIC_HKDF_PRK]);
  * @return 1 on success, 0 if the length is out of range.
  */
 int quic_hkdf_expand(
-    const u8 prk[QUIC_HKDF_PRK], quic_span info, quic_mspan okm);
+    const u8 prk[QUIC_HKDF_PRK], wired_span info, wired_mspan okm);
 
 /**
  * okm = HKDF-Expand-Label(prk, label, context, okm.n) with the "tls13 "
@@ -57,7 +57,7 @@ int quic_hkdf_expand(
  * @return 1 on success, 0 if the label/context/length do not fit.
  */
 int quic_hkdf_expand_label(
-    const u8 prk[QUIC_HKDF_PRK], const quic_hkdf_label* l, quic_mspan okm);
+    const u8 prk[QUIC_HKDF_PRK], const quic_hkdf_label* l, wired_mspan okm);
 
 /**
  * prk = HKDF-Extract(salt, ikm) instantiated with HMAC-SHA-384
@@ -68,7 +68,7 @@ int quic_hkdf_expand_label(
  * @param prk  receives the 48-byte pseudorandom key
  */
 void quic_hkdf_extract_384(
-    quic_span salt, quic_span ikm, u8 prk[QUIC_HKDF_PRK_384]);
+    wired_span salt, wired_span ikm, u8 prk[QUIC_HKDF_PRK_384]);
 
 /**
  * okm = HKDF-Expand(prk, info, okm.n) instantiated with HMAC-SHA-384
@@ -82,7 +82,7 @@ void quic_hkdf_extract_384(
  * @return 1 on success, 0 if the length is out of range.
  */
 int quic_hkdf_expand_384(
-    const u8 prk[QUIC_HKDF_PRK_384], quic_span info, quic_mspan okm);
+    const u8 prk[QUIC_HKDF_PRK_384], wired_span info, wired_mspan okm);
 
 /**
  * okm = HKDF-Expand-Label(prk, label, context, okm.n) with the "tls13 "
@@ -94,6 +94,6 @@ int quic_hkdf_expand_384(
  * @return 1 on success, 0 if the label/context/length do not fit.
  */
 int quic_hkdf_expand_label_384(
-    const u8 prk[QUIC_HKDF_PRK_384], const quic_hkdf_label* l, quic_mspan okm);
+    const u8 prk[QUIC_HKDF_PRK_384], const quic_hkdf_label* l, wired_mspan okm);
 
 #endif

@@ -19,6 +19,6 @@ typedef struct {
 /* Returns 1 on success with out->len set to the concatenated length, or 0 if
  * out->cap is too small. */
 int quic_rtxbytes_collect(
-    const quic_rtxbytes* st, quic_lost_pns lost, quic_obuf* out);
+    const quic_rtxbytes* st, quic_lost_pns lost, wired_obuf* out);
 
 #endif

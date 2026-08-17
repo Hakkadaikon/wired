@@ -116,7 +116,7 @@ body buffer:
 static int app_on_request(
     void*                       ctx,
     const wired_h3reqdrive_req* req,   /* method/path/body views */
-    quic_obuf*                  body_out,
+    wired_obuf*                  body_out,
     const char**                content_type) {
   /* write the response body into body_out, set *content_type */
   return 1;

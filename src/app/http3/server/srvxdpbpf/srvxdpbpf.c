@@ -17,7 +17,7 @@ static i64 srvxdpbpf_load(wired_srvxdpbpf* b, u16 port) {
   if (b->map_fd < 0) return b->map_fd;
   quic_xdpbpf_prog_build(insns, (i32)b->map_fd, port);
   b->prog_fd =
-      quic_xdpbpf_prog_load(insns, QUIC_XDPBPF_PROG_LEN, quic_mspan_of(0, 0));
+      quic_xdpbpf_prog_load(insns, QUIC_XDPBPF_PROG_LEN, wired_mspan_of(0, 0));
   return b->prog_fd < 0 ? b->prog_fd : 0;
 }
 

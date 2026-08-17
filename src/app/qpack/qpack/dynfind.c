@@ -1,18 +1,18 @@
 #include "app/qpack/qpack/dynfind.h"
 
-static int df_bytes_eq(quic_span a, quic_span b) {
+static int df_bytes_eq(wired_span a, wired_span b) {
   if (a.n != b.n) return 0;
   u8 diff = 0;
   for (usz i = 0; i < a.n; i++) diff |= (u8)(a.p[i] ^ b.p[i]);
   return diff == 0;
 }
 
-static int df_name_eq(const quic_qpack_dyn_entry* e, quic_span name) {
-  return df_bytes_eq(quic_span_of(e->name, e->name_len), name);
+static int df_name_eq(const quic_qpack_dyn_entry* e, wired_span name) {
+  return df_bytes_eq(wired_span_of(e->name, e->name_len), name);
 }
 
-static int value_eq(const quic_qpack_dyn_entry* e, quic_span value) {
-  return df_bytes_eq(quic_span_of(e->value, e->value_len), value);
+static int value_eq(const quic_qpack_dyn_entry* e, wired_span value) {
+  return df_bytes_eq(wired_span_of(e->value, e->value_len), value);
 }
 
 /* Classify one entry: 2 = name+value, 1 = name only, 0 = no match. */

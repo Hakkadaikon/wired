@@ -64,7 +64,7 @@ static usz next_probe_size(quic_connrunner* r, u64 now) {
  * pn it was sent under for the ack/loss paths to recognize, and `now` as the
  * min-interval clock (RFC 8899 3.7) that survives ack/loss resolution. */
 static usz seal_probe(
-    quic_connrunner* r, quic_span frame, quic_obuf* out, u64 now) {
+    quic_connrunner* r, wired_span frame, wired_obuf* out, u64 now) {
   usz                 sealed;
   quic_connio_send_in sin = {r->loop.level, frame};
   r->pmtu_probe_pn        = quic_connio_tx_next(&r->io, r->loop.level);
@@ -75,14 +75,14 @@ static usz seal_probe(
 }
 
 usz quic_connrunner_pmtu_build_probe(
-    quic_connrunner* r, quic_obuf* out, u64 now) {
+    quic_connrunner* r, wired_obuf* out, u64 now) {
   u8  frame[QUIC_PMTU_MAX];
   usz size = next_probe_size(r, now);
   usz fl;
   if (!size) return 0;
   fl = build_ping_padding(frame, sizeof(frame), size);
   if (!fl) return 0;
-  return seal_probe(r, quic_span_of(frame, fl), out, now);
+  return seal_probe(r, wired_span_of(frame, fl), out, now);
 }
 
 /* pn is the outstanding probe's, and still is one (guards a stray call after

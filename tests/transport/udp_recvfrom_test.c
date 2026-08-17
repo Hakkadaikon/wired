@@ -7,7 +7,7 @@ static void test_recvfrom_badfd(void) {
       &src, 443,
       (const u8[4]){9, 9, 9, 9}); /* sentinel the kernel must not need */
   u8  buf[16];
-  i64 r = wired_udp_recvfrom(-1, quic_mspan_of(buf, sizeof buf), &src);
+  i64 r = wired_udp_recvfrom(-1, wired_mspan_of(buf, sizeof buf), &src);
   /* EBADF (-9) on Linux; any negative errno is acceptable. */
   CHECK(r < 0);
   /* Failed recvfrom leaves the sentinel intact. */

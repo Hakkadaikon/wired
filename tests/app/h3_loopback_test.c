@@ -66,11 +66,11 @@ static void lb_make_client_hello(struct lb_fix* f) {
     f->cli_priv[i]   = (u8)(i + 1);
     f->srv_random[i] = (u8)(0xa0 + i);
   }
-  quic_x25519_base(cli_pub, f->cli_priv);
+  wired_x25519_base(cli_pub, f->cli_priv);
   f->ch_len = quic_tls_client_hello(
       &(quic_clienthello_in){
-          f->srv_random, cli_pub, quic_span_of(0, 0), quic_span_of(0, 0)},
-      &(quic_obuf){f->ch, sizeof(f->ch), 0});
+          f->srv_random, cli_pub, wired_span_of(0, 0), wired_span_of(0, 0)},
+      &(wired_obuf){f->ch, sizeof(f->ch), 0});
 }
 
 /* Bring the server to FLIGHT_SENT (Handshake keys derived) and init the loop.
@@ -81,16 +81,16 @@ static void lb_drive_to_flight(struct lb_fix* f) {
     srv_priv[i]  = (u8)(0x40 + i);
     cert_seed[i] = (u8)(0x80 + i);
   }
-  quic_x25519_base(srv_pub, srv_priv);
+  wired_x25519_base(srv_pub, srv_priv);
 
   wired_server_init_in sin   = {srv_priv, srv_pub, cert_seed, 0, 0, 0, 0, 0};
-  quic_obuf            sh_ob = quic_obuf_of(f->sh, sizeof(f->sh));
-  quic_obuf            fl_ob = quic_obuf_of(f->flight, sizeof(f->flight));
+  wired_obuf           sh_ob = quic_obuf_of(f->sh, sizeof(f->sh));
+  wired_obuf           fl_ob = quic_obuf_of(f->flight, sizeof(f->flight));
   quic_sdrv_flight_out fo    = {&sh_ob, &fl_ob};
   wired_server_init(&f->s, &sin);
   CHECK(
       wired_server_set_cids(
-          &f->s, quic_span_of(g_scid, 6), quic_span_of(g_scid, 6)) == 1);
+          &f->s, wired_span_of(g_scid, 6), wired_span_of(g_scid, 6)) == 1);
   CHECK(wired_srvloop_init(&f->l, g_scid, 6) == 1);
   CHECK(wired_server_recv_initial(&f->s, f->ch, f->ch_len) == 1);
   CHECK(wired_server_build_flight(&f->s, f->srv_random, &fo) == 1);
@@ -106,10 +106,10 @@ static void lb_make_client_finished(struct lb_fix* f) {
   quic_transcript      tr;
   usz                  off;
   CHECK(quic_tls_parse_server_hello(
-      quic_span_of(f->sh, f->sh_len), f->sh_pub, &sh));
+      wired_span_of(f->sh, f->sh_len), f->sh_pub, &sh));
   {
     u8 shared[32];
-    quic_x25519(shared, f->cli_priv, f->sh_pub);
+    wired_x25519(shared, f->cli_priv, f->sh_pub);
     quic_tls_handshake_secret(shared, hs);
   }
   quic_transcript_init(&tr);
@@ -117,7 +117,7 @@ static void lb_make_client_finished(struct lb_fix* f) {
   quic_transcript_add(&tr, f->sh, f->sh_len);
   quic_transcript_hash(&tr, th);
   quic_hkdf_label chl = {"c hs traffic", 12, {th, 32}};
-  quic_hkdf_expand_label(hs, &chl, quic_mspan_of(c_traffic, 32));
+  quic_hkdf_expand_label(hs, &chl, wired_mspan_of(c_traffic, 32));
   quic_transcript_add(&tr, f->flight, f->flight_len);
   quic_transcript_hash(&tr, th);
   off = quic_hs_begin(f->cli_fin, sizeof(f->cli_fin), QUIC_HS_FINISHED);
@@ -132,18 +132,18 @@ static usz lb_seal_handshake(
     struct lb_fix* f, const u8* msg, usz mlen, u8* pkt, usz cap) {
   const quic_initial_keys* k;
   quic_aes128              hp;
-  quic_obuf                ob = {pkt, cap, 0};
+  wired_obuf               ob = {pkt, cap, 0};
   CHECK(quic_keysched_get(&f->s.sched, QUIC_KS_CLIENT_HS, &k) == 1);
   quic_aes128_init(&hp, k->hp);
   /* ack_pn 0: also acknowledge the server's Handshake PN 0, exercising the
    * server open path against a flight that carries a trailing ACK frame. */
   quic_srvwire_seal_in in = {
-      quic_span_of((const u8*)0, 0),
-      quic_span_of(f->s.sdrv.iscid, f->s.sdrv.iscid_len),
-      quic_span_of(g_scid, 6),
+      wired_span_of((const u8*)0, 0),
+      wired_span_of(f->s.sdrv.iscid, f->s.sdrv.iscid_len),
+      wired_span_of(g_scid, 6),
       0,
       0,
-      quic_span_of(msg, mlen),
+      wired_span_of(msg, mlen),
       0};
   quic_protect_keys pk = {k, &hp};
   CHECK(quic_srvwire_seal_handshake(&pk, &in, &ob));
@@ -160,9 +160,9 @@ static usz lb_seal_onertt(
   quic_aes128_init(&hp, k->hp);
   quic_protect_keys      pk = {k, &hp};
   quic_hspkt_onertt_desc d  = {
-      quic_span_of(f->s.sdrv.iscid, f->s.sdrv.iscid_len), 0,
-      quic_span_of(pl, pln), 0};
-  quic_obuf o = quic_obuf_of(pkt, cap);
+      wired_span_of(f->s.sdrv.iscid, f->s.sdrv.iscid_len), 0,
+      wired_span_of(pl, pln), 0};
+  wired_obuf o = quic_obuf_of(pkt, cap);
   CHECK(quic_hspkt_onertt_build(&pk, &d, &o));
   total = o.len;
   return total;
@@ -176,8 +176,8 @@ static int lb_open_onertt(
   CHECK(quic_keysched_get(&f->s.sched, QUIC_KS_SERVER_AP, &k) == 1);
   quic_aes128_init(&hp, k->hp);
   quic_protect_keys           pk = {k, &hp};
-  quic_hspkt_onertt_open_desc d  = {quic_mspan_of(pkt, len), 6, 0};
-  quic_span                   v;
+  quic_hspkt_onertt_open_desc d  = {wired_mspan_of(pkt, len), 6, 0};
+  wired_span                  v;
   if (!quic_hspkt_onertt_open(&pk, &d, &v)) return 0;
   *pl  = v.p;
   *pll = v.n;
@@ -211,15 +211,15 @@ static int lb_wire_step(
     const quic_sockaddr* srv,
     const u8*            pkt,
     usz                  n,
-    quic_obuf*           out) {
+    wired_obuf*          out) {
   quic_sockaddr from;
   u8            rx[1500];
   i64           r;
-  CHECK(wired_udp_send(cfd, srv, quic_span_of(pkt, n)) == (i64)n);
-  r = wired_udp_recvfrom(sfd, quic_mspan_of(rx, sizeof rx), &from);
+  CHECK(wired_udp_send(cfd, srv, wired_span_of(pkt, n)) == (i64)n);
+  r = wired_udp_recvfrom(sfd, wired_mspan_of(rx, sizeof rx), &from);
   CHECK(r == (i64)n);
   return wired_srvloop_step(
-      &(wired_srvloop_conn){&f->l, &f->s}, quic_mspan_of(rx, (usz)r), out);
+      &(wired_srvloop_conn){&f->l, &f->s}, wired_mspan_of(rx, (usz)r), out);
 }
 
 /* (1) Loopback: the client's real protected Initial reaches a bound server
@@ -240,12 +240,12 @@ static void test_loopback_initial_datagram(void) {
   }
 
   for (usz i = 0; i < 32; i++) priv[i] = (u8)(7 + i);
-  quic_x25519_base(pub, priv);
+  wired_x25519_base(pub, priv);
   quic_tlsdriver_init(&c.tls, priv, pub, 0);
   {
     quic_clientwire_hdr_in hdr = {
-        quic_span_of(g_scid, 6), quic_span_of(g_scid, 6), 0};
-    quic_obuf ob = quic_obuf_of(pkt, sizeof pkt);
+        wired_span_of(g_scid, 6), wired_span_of(g_scid, 6), 0};
+    wired_obuf ob = quic_obuf_of(pkt, sizeof pkt);
     CHECK(quic_client_build_initial_wire(&c, &hdr, &ob) == 1);
     total = ob.len;
   }
@@ -257,8 +257,8 @@ static void test_loopback_initial_datagram(void) {
       wired_udp_close(sfd);
       return;
     }
-    CHECK(wired_udp_send(cfd, &srv, quic_span_of(pkt, total)) == (i64)total);
-    n = wired_udp_recvfrom(sfd, quic_mspan_of(dg, sizeof dg), &from);
+    CHECK(wired_udp_send(cfd, &srv, wired_span_of(pkt, total)) == (i64)total);
+    n = wired_udp_recvfrom(sfd, wired_mspan_of(dg, sizeof dg), &from);
     CHECK(n == 1200);
     CHECK((dg[0] & 0x80) != 0); /* long header (RFC 9000 17.2) */
     wired_udp_close(cfd);
@@ -275,7 +275,7 @@ static void test_loopback_wire_confirm_and_get(void) {
   i64           sfd, cfd;
   u8            cpkt[1300], out[1300], get[512];
   usz           clen, glen;
-  quic_obuf     ob = {out, sizeof out, 0};
+  wired_obuf    ob = {out, sizeof out, 0};
   const u8*     pl;
   usz           pll;
 
@@ -296,7 +296,7 @@ static void test_loopback_wire_confirm_and_get(void) {
     usz               offs[4], lens[4];
     quic_pktlist      plist = {pkts, offs, lens, 4};
     quic_stream_frame sf;
-    usz np = quic_udploop_split(quic_span_of(out, ob.len), &plist);
+    usz np = quic_udploop_split(wired_span_of(out, ob.len), &plist);
     CHECK(np == 2);
     CHECK((out[offs[0]] & 0x80) != 0); /* long-header Handshake ACK */
     CHECK(lb_open_onertt(&f, out + offs[1], lens[1], &pl, &pll) == 1);
@@ -306,22 +306,22 @@ static void test_loopback_wire_confirm_and_get(void) {
 
   /* GET over the wire -> 200 sealed back, opened by the peer. */
   {
-    quic_obuf gob = {get, sizeof get, 0};
+    wired_obuf gob = {get, sizeof get, 0};
     CHECK(wired_h3reqdrive_send_get(
         0,
         &(wired_h3reqdrive_get_in){
-            quic_span_of((const u8*)"/", 1), quic_span_of((const u8*)"h", 1)},
+            wired_span_of((const u8*)"/", 1), wired_span_of((const u8*)"h", 1)},
         &gob));
     glen = gob.len;
   }
   clen = lb_seal_onertt(&f, get, glen, cpkt, sizeof cpkt);
-  ob   = (quic_obuf){out, sizeof out, 0};
+  ob   = (wired_obuf){out, sizeof out, 0};
   CHECK(lb_wire_step(&f, cfd, sfd, &srv, cpkt, clen, &ob) == 1);
   CHECK(ob.len > 0);
   CHECK(lb_open_onertt(&f, out, ob.len, &pl, &pll) == 1);
   {
     quic_h3conn_resp resp_out = {0};
-    CHECK(quic_h3conn_recv_response(quic_span_of(pl, pll), &resp_out));
+    CHECK(quic_h3conn_recv_response(wired_span_of(pl, pll), &resp_out));
     CHECK(resp_out.status == 200); /* RFC 9114 4.1 */
   }
   wired_udp_close(cfd);
@@ -337,7 +337,7 @@ static void sb_make_id(
     seed[i] = (u8)(0x80 + i);
     rnd[i]  = (u8)(0xa0 + i);
   }
-  quic_x25519_base(pub, priv);
+  wired_x25519_base(pub, priv);
   id->priv                    = priv;
   id->pub                     = pub;
   id->cert_seed               = seed;
@@ -367,16 +367,16 @@ static void test_srvboot_accept(void) {
   u8               priv[32], pub[32], seed[32], rnd[32], cpriv[32], cpub[32];
   u8               dg[1500], ini[1500], hs[1500];
   usz              total = 0;
-  quic_obuf        iob   = {ini, sizeof ini, 0};
-  quic_obuf        hob   = {hs, sizeof hs, 0};
+  wired_obuf       iob   = {ini, sizeof ini, 0};
+  wired_obuf       hob   = {hs, sizeof hs, 0};
 
   for (usz i = 0; i < 32; i++) cpriv[i] = (u8)(7 + i);
-  quic_x25519_base(cpub, cpriv);
+  wired_x25519_base(cpub, cpriv);
   quic_tlsdriver_init(&c.tls, cpriv, cpub, 0);
   {
     quic_clientwire_hdr_in hdr = {
-        quic_span_of(g_scid, 6), quic_span_of(g_scid, 6), 0};
-    quic_obuf ob = quic_obuf_of(dg, sizeof dg);
+        wired_span_of(g_scid, 6), wired_span_of(g_scid, 6), 0};
+    wired_obuf ob = quic_obuf_of(dg, sizeof dg);
     CHECK(quic_client_build_initial_wire(&c, &hdr, &ob) == 1);
     total = ob.len;
   }
@@ -385,7 +385,7 @@ static void test_srvboot_accept(void) {
   wired_srvboot_in   in;
   wired_srvboot_out  out = {&iob, &hob, {0}, 0, 0};
   sb_make_id(&id, priv, pub, seed, rnd);
-  in = (wired_srvboot_in){&id, quic_mspan_of(dg, total)};
+  in = (wired_srvboot_in){&id, wired_mspan_of(dg, total)};
   CHECK(wired_srvboot_accept(&conn, &in, &out) == 1);
   CHECK(s.phase == WIRED_SERVER_HS_FLIGHT_SENT);
   /* RFC 9000 14.1: the ack-eliciting server Initial datagram is padded to at
@@ -411,8 +411,8 @@ static void test_srvboot_accept(void) {
 /* Run wired_srvboot_accept on a client Initial built with the given DCID and
  * SCID, filling out's reply datagrams. */
 static void sb_accept_cids(
-    quic_span          dcid,
-    quic_span          scid,
+    wired_span         dcid,
+    wired_span         scid,
     wired_srvboot_out* out,
     wired_server*      s,
     wired_srvloop*     l) {
@@ -422,23 +422,23 @@ static void sb_accept_cids(
   u8               dg[1500];
   usz              total = 0;
   for (usz i = 0; i < 32; i++) cpriv[i] = (u8)(7 + i);
-  quic_x25519_base(cpub, cpriv);
+  wired_x25519_base(cpub, cpriv);
   quic_tlsdriver_init(&c.tls, cpriv, cpub, 0);
   {
     quic_clientwire_hdr_in hdr = {dcid, scid, 0};
-    quic_obuf              ob  = quic_obuf_of(dg, sizeof dg);
+    wired_obuf             ob  = quic_obuf_of(dg, sizeof dg);
     CHECK(quic_client_build_initial_wire(&c, &hdr, &ob) == 1);
     total = ob.len;
   }
   wired_srvboot_conn conn = {s, l};
   wired_srvboot_in   in;
   sb_make_id(&id, priv, pub, seed, rnd);
-  in = (wired_srvboot_in){&id, quic_mspan_of(dg, total)};
+  in = (wired_srvboot_in){&id, wired_mspan_of(dg, total)};
   CHECK(wired_srvboot_accept(&conn, &in, out) == 1);
 }
 
 /* The reply datagram's header DCID equals want (RFC 9000 7.2). */
-static void sb_check_hdr_dcid(quic_span dg, quic_span want) {
+static void sb_check_hdr_dcid(wired_span dg, wired_span want) {
   wired_header h;
   CHECK(wired_header_parse(dg.p, dg.n, &h) != 0);
   CHECK(h.dcid_len == want.n);
@@ -460,13 +460,13 @@ static void test_srvboot_reply_dcid_is_client_scid(void) {
   wired_server      s;
   wired_srvloop     l;
   u8                ini[1500], hs[1500];
-  quic_obuf         iob = {ini, sizeof ini, 0};
-  quic_obuf         hob = {hs, sizeof hs, 0};
+  wired_obuf        iob = {ini, sizeof ini, 0};
+  wired_obuf        hob = {hs, sizeof hs, 0};
   wired_srvboot_out out = {&iob, &hob, {0}, 0, 0};
   sb_accept_cids(
-      quic_span_of(cli_dcid, 8), quic_span_of(cli_scid, 5), &out, &s, &l);
-  sb_check_hdr_dcid(quic_span_of(ini, iob.len), quic_span_of(cli_scid, 5));
-  sb_check_hdr_dcid(quic_span_of(hs, hob.len), quic_span_of(cli_scid, 5));
+      wired_span_of(cli_dcid, 8), wired_span_of(cli_scid, 5), &out, &s, &l);
+  sb_check_hdr_dcid(wired_span_of(ini, iob.len), wired_span_of(cli_scid, 5));
+  sb_check_hdr_dcid(wired_span_of(hs, hob.len), wired_span_of(cli_scid, 5));
 }
 
 /* Chrome sends a zero-length SCID (it routes replies by address); the reply
@@ -477,13 +477,14 @@ static void test_srvboot_reply_dcid_empty_client_scid(void) {
   wired_server      s;
   wired_srvloop     l;
   u8                ini[1500], hs[1500];
-  quic_obuf         iob = {ini, sizeof ini, 0};
-  quic_obuf         hob = {hs, sizeof hs, 0};
+  wired_obuf        iob = {ini, sizeof ini, 0};
+  wired_obuf        hob = {hs, sizeof hs, 0};
   wired_srvboot_out out = {&iob, &hob, {0}, 0, 0};
   sb_accept_cids(
-      quic_span_of(cli_dcid, 8), quic_span_of((const u8*)0, 0), &out, &s, &l);
-  sb_check_hdr_dcid(quic_span_of(ini, iob.len), quic_span_of((const u8*)0, 0));
-  sb_check_hdr_dcid(quic_span_of(hs, hob.len), quic_span_of((const u8*)0, 0));
+      wired_span_of(cli_dcid, 8), wired_span_of((const u8*)0, 0), &out, &s, &l);
+  sb_check_hdr_dcid(
+      wired_span_of(ini, iob.len), wired_span_of((const u8*)0, 0));
+  sb_check_hdr_dcid(wired_span_of(hs, hob.len), wired_span_of((const u8*)0, 0));
 }
 
 /* A datagram that is not a valid Initial is refused (no flight produced). */
@@ -494,13 +495,13 @@ static void test_srvboot_rejects_non_initial(void) {
   u8               priv[32], pub[32], seed[32], rnd[32];
   u8 garbage[8] = {0x40, 1, 2, 3, 4, 5, 6, 7}; /* short header, not Initial */
   u8 ini[1500], hs[1500];
-  quic_obuf          iob  = {ini, sizeof ini, 0};
-  quic_obuf          hob  = {hs, sizeof hs, 0};
+  wired_obuf         iob  = {ini, sizeof ini, 0};
+  wired_obuf         hob  = {hs, sizeof hs, 0};
   wired_srvboot_out  out  = {&iob, &hob, {0}, 0, 0};
   wired_srvboot_conn conn = {&s, &l};
   wired_srvboot_in   in;
   sb_make_id(&id, priv, pub, seed, rnd);
-  in = (wired_srvboot_in){&id, quic_mspan_of(garbage, sizeof garbage)};
+  in = (wired_srvboot_in){&id, wired_mspan_of(garbage, sizeof garbage)};
   CHECK(wired_srvboot_is_initial(garbage, sizeof garbage) == 0);
   CHECK(wired_srvboot_accept(&conn, &in, &out) == 0);
 }
@@ -515,24 +516,24 @@ static void test_srvboot_acks_actual_initial_pn(void) {
   wired_srvboot_id   id;
   u8                 priv[32], pub[32], seed[32], rnd[32], cpriv[32], cpub[32];
   u8                 dg[1500], ini[1500], hs[1500];
-  quic_obuf          iob  = {ini, sizeof ini, 0};
-  quic_obuf          hob  = {hs, sizeof hs, 0};
+  wired_obuf         iob  = {ini, sizeof ini, 0};
+  wired_obuf         hob  = {hs, sizeof hs, 0};
   wired_srvboot_out  out  = {&iob, &hob, {0}, 0, 0};
   wired_srvboot_conn conn = {&s, &l};
   wired_srvboot_in   in;
   usz                total = 0;
   for (usz i = 0; i < 32; i++) cpriv[i] = (u8)(7 + i);
-  quic_x25519_base(cpub, cpriv);
+  wired_x25519_base(cpub, cpriv);
   quic_tlsdriver_init(&c.tls, cpriv, cpub, 0);
   {
     quic_clientwire_hdr_in hdr = {
-        quic_span_of(g_scid, 6), quic_span_of(g_scid, 6), 2};
-    quic_obuf ob = quic_obuf_of(dg, sizeof dg);
+        wired_span_of(g_scid, 6), wired_span_of(g_scid, 6), 2};
+    wired_obuf ob = quic_obuf_of(dg, sizeof dg);
     CHECK(quic_client_build_initial_wire(&c, &hdr, &ob) == 1);
     total = ob.len;
   }
   sb_make_id(&id, priv, pub, seed, rnd);
-  in = (wired_srvboot_in){&id, quic_mspan_of(dg, total)};
+  in = (wired_srvboot_in){&id, wired_mspan_of(dg, total)};
   CHECK(wired_srvboot_accept(&conn, &in, &out) == 1);
   CHECK(out.client_pn == 2);
 }
@@ -562,7 +563,7 @@ static void test_srvboot_vneg_responds_to_alien_version(void) {
   for (usz i = 0; i < 8; i++) dg[6 + i] = (u8)(0x11 * (i + 1));
   dg[14] = 5; /* SCID */
   for (usz i = 0; i < 5; i++) dg[15 + i] = (u8)(0xa0 + i);
-  n = wired_srvboot_vneg(quic_span_of(dg, sizeof dg), vn, sizeof vn);
+  n = wired_srvboot_vneg(wired_span_of(dg, sizeof dg), vn, sizeof vn);
   CHECK(n > 0);
   CHECK(quic_vneg_parse(vn, n, &p) == n);
   CHECK(p.dcid_len == 5); /* response DCID = received SCID */
@@ -589,7 +590,7 @@ static void test_srvboot_vneg_not_owed_for_v2(void) {
   dg[14] = 5;
   for (usz i = 0; i < 5; i++) dg[15 + i] = (u8)(0xa0 + i);
   u8 vn[64];
-  CHECK(wired_srvboot_vneg(quic_span_of(dg, sizeof dg), vn, sizeof vn) == 0);
+  CHECK(wired_srvboot_vneg(wired_span_of(dg, sizeof dg), vn, sizeof vn) == 0);
 }
 
 /* No Version Negotiation for: an under-1200 datagram (amplification guard),
@@ -602,18 +603,18 @@ static void test_srvboot_vneg_guards(void) {
   dg[4]  = 0xcf; /* alien version 0x000000cf */
   dg[5]  = 4;
   dg[10] = 4;
-  CHECK(wired_srvboot_vneg(quic_span_of(dg, 1199), vn, sizeof vn) == 0);
-  CHECK(wired_srvboot_vneg(quic_span_of(dg, sizeof dg), vn, sizeof vn) > 0);
+  CHECK(wired_srvboot_vneg(wired_span_of(dg, 1199), vn, sizeof vn) == 0);
+  CHECK(wired_srvboot_vneg(wired_span_of(dg, sizeof dg), vn, sizeof vn) > 0);
   dg[4] = 0; /* version 0: a VN packet itself */
-  CHECK(wired_srvboot_vneg(quic_span_of(dg, sizeof dg), vn, sizeof vn) == 0);
+  CHECK(wired_srvboot_vneg(wired_span_of(dg, sizeof dg), vn, sizeof vn) == 0);
   dg[4] = 1; /* version 1: supported, normal path */
-  CHECK(wired_srvboot_vneg(quic_span_of(dg, sizeof dg), vn, sizeof vn) == 0);
+  CHECK(wired_srvboot_vneg(wired_span_of(dg, sizeof dg), vn, sizeof vn) == 0);
   dg[4] = 0xcf;
   dg[0] = 0x53; /* short header */
-  CHECK(wired_srvboot_vneg(quic_span_of(dg, sizeof dg), vn, sizeof vn) == 0);
+  CHECK(wired_srvboot_vneg(wired_span_of(dg, sizeof dg), vn, sizeof vn) == 0);
   dg[0] = 0xd3;
   dg[5] = 21; /* DCID longer than any valid connection id */
-  CHECK(wired_srvboot_vneg(quic_span_of(dg, sizeof dg), vn, sizeof vn) == 0);
+  CHECK(wired_srvboot_vneg(wired_span_of(dg, sizeof dg), vn, sizeof vn) == 0);
 }
 
 /* Build the fixed test client's raw ClientHello bytes (no CRYPTO framing). */
@@ -621,7 +622,7 @@ static usz sb_build_raw_ch(quic_client* c, u8* ch, usz cap) {
   usz n;
   u8  cpriv[32], cpub[32];
   for (usz i = 0; i < 32; i++) cpriv[i] = (u8)(7 + i);
-  quic_x25519_base(cpub, cpriv);
+  wired_x25519_base(cpub, cpriv);
   quic_tlsdriver_init(&c->tls, cpriv, cpub, 0);
   n = quic_tlsdriver_raw_client_hello(&c->tls, ch, cap);
   CHECK(n > 100); /* both split chunks below must be non-empty */
@@ -631,10 +632,11 @@ static usz sb_build_raw_ch(quic_client* c, u8* ch, usz cap) {
 /* Seal one ClientHello chunk as its own protected Initial datagram at the
  * given CRYPTO offset and packet number — the shape each piece of an
  * oversized (split) ClientHello arrives in. */
-static usz sb_seal_ch_chunk(u8* dg, usz cap, quic_span chunk, u64 off, u64 pn) {
+static usz sb_seal_ch_chunk(
+    u8* dg, usz cap, wired_span chunk, u64 off, u64 pn) {
   quic_initpkt_desc d = {
-      quic_span_of(g_scid, 6), quic_span_of(g_scid, 6), chunk, pn, off};
-  quic_obuf o = quic_obuf_of(dg, cap);
+      wired_span_of(g_scid, 6), wired_span_of(g_scid, 6), chunk, pn, off};
+  wired_obuf o = quic_obuf_of(dg, cap);
   CHECK(quic_initpkt_build(&d, &o) == 1);
   return o.len;
 }
@@ -656,18 +658,18 @@ static int sb_accept_acc(wired_srvboot_acc* a, wired_srvboot_out* out) {
 static void test_bootacc_split_two_datagrams(void) {
   quic_client       c;
   u8                ch[2048], dg1[1400], dg2[1400], ini[1500], hs[1500];
-  quic_obuf         iob = {ini, sizeof ini, 0};
-  quic_obuf         hob = {hs, sizeof hs, 0};
+  wired_obuf        iob = {ini, sizeof ini, 0};
+  wired_obuf        hob = {hs, sizeof hs, 0};
   wired_srvboot_out out = {&iob, &hob, {0}, 0, 0};
   wired_srvboot_acc a;
   usz               n = sb_build_raw_ch(&c, ch, sizeof ch);
-  usz n1 = sb_seal_ch_chunk(dg1, sizeof dg1, quic_span_of(ch, 60), 0, 0);
+  usz n1 = sb_seal_ch_chunk(dg1, sizeof dg1, wired_span_of(ch, 60), 0, 0);
   usz n2 =
-      sb_seal_ch_chunk(dg2, sizeof dg2, quic_span_of(ch + 60, n - 60), 60, 1);
+      sb_seal_ch_chunk(dg2, sizeof dg2, wired_span_of(ch + 60, n - 60), 60, 1);
   wired_srvboot_acc_reset(&a);
-  CHECK(wired_srvboot_acc_feed(&a, quic_mspan_of(dg1, n1)) == 1);
+  CHECK(wired_srvboot_acc_feed(&a, wired_mspan_of(dg1, n1)) == 1);
   CHECK(wired_srvboot_acc_complete(&a) == 0);
-  CHECK(wired_srvboot_acc_feed(&a, quic_mspan_of(dg2, n2)) == 1);
+  CHECK(wired_srvboot_acc_feed(&a, wired_mspan_of(dg2, n2)) == 1);
   CHECK(wired_srvboot_acc_complete(&a) == 1);
   CHECK(sb_accept_acc(&a, &out) == 1);
   CHECK(out.client_pn == 1);
@@ -704,12 +706,12 @@ static void test_bootacc_zerortt_buffered_verbatim(void) {
   n1 = sb_build_zerortt_dg(dg1, sizeof dg1, 0xbb);
   wired_srvboot_acc_reset(&a);
   CHECK(wired_srvboot_acc_zerortt_count(&a) == 0);
-  CHECK(wired_srvboot_acc_feed(&a, quic_mspan_of(dg0, n0)) == 1);
-  CHECK(wired_srvboot_acc_feed(&a, quic_mspan_of(dg1, n1)) == 1);
+  CHECK(wired_srvboot_acc_feed(&a, wired_mspan_of(dg0, n0)) == 1);
+  CHECK(wired_srvboot_acc_feed(&a, wired_mspan_of(dg1, n1)) == 1);
   CHECK(wired_srvboot_acc_zerortt_count(&a) == 2);
   {
-    quic_span t0 = wired_srvboot_acc_zerortt_take(&a, 0);
-    quic_span t1 = wired_srvboot_acc_zerortt_take(&a, 1);
+    wired_span t0 = wired_srvboot_acc_zerortt_take(&a, 0);
+    wired_span t1 = wired_srvboot_acc_zerortt_take(&a, 1);
     CHECK(t0.n == n0 && t0.p[7] == 0xaa);
     CHECK(t1.n == n1 && t1.p[7] == 0xbb);
   }
@@ -730,12 +732,12 @@ static void test_bootacc_zerortt_overflow_dropped(void) {
   wired_srvboot_acc_reset(&a);
   for (usz i = 0; i < WIRED_SRVBOOT_ZERORTT_MAX; i++) {
     n = sb_build_zerortt_dg(dg, sizeof dg, (u8)i);
-    CHECK(wired_srvboot_acc_feed(&a, quic_mspan_of(dg, n)) == 1);
+    CHECK(wired_srvboot_acc_feed(&a, wired_mspan_of(dg, n)) == 1);
   }
   CHECK(wired_srvboot_acc_zerortt_count(&a) == WIRED_SRVBOOT_ZERORTT_MAX);
   /* one more: still "fed" (not malformed) but silently dropped, not stored */
   n = sb_build_zerortt_dg(dg, sizeof dg, 0xff);
-  CHECK(wired_srvboot_acc_feed(&a, quic_mspan_of(dg, n)) == 1);
+  CHECK(wired_srvboot_acc_feed(&a, wired_mspan_of(dg, n)) == 1);
   CHECK(wired_srvboot_acc_zerortt_count(&a) == WIRED_SRVBOOT_ZERORTT_MAX);
   /* the stored set is unchanged -- the last accepted one is still index
    * MAX-1's original fingerprint, not the overflowing 0xff */
@@ -753,7 +755,7 @@ static void test_bootacc_zerortt_cleared_on_reset(void) {
   usz               n0 = sb_build_zerortt_dg(dg0, sizeof dg0, 0xcc);
   wired_srvboot_acc a;
   wired_srvboot_acc_reset(&a);
-  CHECK(wired_srvboot_acc_feed(&a, quic_mspan_of(dg0, n0)) == 1);
+  CHECK(wired_srvboot_acc_feed(&a, wired_mspan_of(dg0, n0)) == 1);
   CHECK(wired_srvboot_acc_zerortt_count(&a) == 1);
   wired_srvboot_acc_reset(&a);
   CHECK(wired_srvboot_acc_zerortt_count(&a) == 0);
@@ -769,15 +771,15 @@ static void test_bootacc_zerortt_interleaved_with_initial(void) {
   usz               nz;
   wired_srvboot_acc a;
   usz               n = sb_build_raw_ch(&c, ch, sizeof ch);
-  usz n1 = sb_seal_ch_chunk(dg1, sizeof dg1, quic_span_of(ch, 60), 0, 0);
+  usz n1 = sb_seal_ch_chunk(dg1, sizeof dg1, wired_span_of(ch, 60), 0, 0);
   usz n2 =
-      sb_seal_ch_chunk(dg2, sizeof dg2, quic_span_of(ch + 60, n - 60), 60, 1);
+      sb_seal_ch_chunk(dg2, sizeof dg2, wired_span_of(ch + 60, n - 60), 60, 1);
   nz = sb_build_zerortt_dg(dgz, sizeof dgz, 0xee);
   wired_srvboot_acc_reset(&a);
-  CHECK(wired_srvboot_acc_feed(&a, quic_mspan_of(dg1, n1)) == 1);
-  CHECK(wired_srvboot_acc_feed(&a, quic_mspan_of(dgz, nz)) == 1);
+  CHECK(wired_srvboot_acc_feed(&a, wired_mspan_of(dg1, n1)) == 1);
+  CHECK(wired_srvboot_acc_feed(&a, wired_mspan_of(dgz, nz)) == 1);
   CHECK(wired_srvboot_acc_complete(&a) == 0);
-  CHECK(wired_srvboot_acc_feed(&a, quic_mspan_of(dg2, n2)) == 1);
+  CHECK(wired_srvboot_acc_feed(&a, wired_mspan_of(dg2, n2)) == 1);
   CHECK(wired_srvboot_acc_complete(&a) == 1);
   CHECK(wired_srvboot_acc_zerortt_count(&a) == 1);
   CHECK(wired_srvboot_acc_zerortt_take(&a, 0).p[7] == 0xee);
@@ -790,13 +792,13 @@ static void test_bootacc_out_of_order(void) {
   u8                ch[2048], dg1[1400], dg2[1400];
   wired_srvboot_acc a;
   usz               n = sb_build_raw_ch(&c, ch, sizeof ch);
-  usz n1 = sb_seal_ch_chunk(dg1, sizeof dg1, quic_span_of(ch, 60), 0, 0);
+  usz n1 = sb_seal_ch_chunk(dg1, sizeof dg1, wired_span_of(ch, 60), 0, 0);
   usz n2 =
-      sb_seal_ch_chunk(dg2, sizeof dg2, quic_span_of(ch + 60, n - 60), 60, 1);
+      sb_seal_ch_chunk(dg2, sizeof dg2, wired_span_of(ch + 60, n - 60), 60, 1);
   wired_srvboot_acc_reset(&a);
-  CHECK(wired_srvboot_acc_feed(&a, quic_mspan_of(dg2, n2)) == 1);
+  CHECK(wired_srvboot_acc_feed(&a, wired_mspan_of(dg2, n2)) == 1);
   CHECK(wired_srvboot_acc_complete(&a) == 0);
-  CHECK(wired_srvboot_acc_feed(&a, quic_mspan_of(dg1, n1)) == 1);
+  CHECK(wired_srvboot_acc_feed(&a, wired_mspan_of(dg1, n1)) == 1);
   CHECK(wired_srvboot_acc_complete(&a) == 1);
 }
 
@@ -808,23 +810,23 @@ static void test_bootacc_foreign_dcid_ignored(void) {
   u8                ch[2048], dg1[1400], alien[1400];
   wired_srvboot_acc a;
   usz               n = sb_build_raw_ch(&c, ch, sizeof ch);
-  usz n1 = sb_seal_ch_chunk(dg1, sizeof dg1, quic_span_of(ch, 60), 0, 0);
+  usz n1 = sb_seal_ch_chunk(dg1, sizeof dg1, wired_span_of(ch, 60), 0, 0);
   usz na;
   {
     static const u8   other[6] = {9, 9, 9, 9, 9, 9};
     quic_initpkt_desc d        = {
-        quic_span_of(other, 6), quic_span_of(g_scid, 6),
-        quic_span_of(ch + 60, n - 60), 5, 60};
-    quic_obuf o = quic_obuf_of(alien, sizeof alien);
+        wired_span_of(other, 6), wired_span_of(g_scid, 6),
+        wired_span_of(ch + 60, n - 60), 5, 60};
+    wired_obuf o = quic_obuf_of(alien, sizeof alien);
     CHECK(quic_initpkt_build(&d, &o) == 1);
     na = o.len;
   }
   wired_srvboot_acc_reset(&a);
-  CHECK(wired_srvboot_acc_feed(&a, quic_mspan_of(dg1, n1)) == 1);
+  CHECK(wired_srvboot_acc_feed(&a, wired_mspan_of(dg1, n1)) == 1);
   {
     usz before = a.cr.received_to;
     u64 pn     = a.largest_pn;
-    CHECK(wired_srvboot_acc_feed(&a, quic_mspan_of(alien, na)) == 0);
+    CHECK(wired_srvboot_acc_feed(&a, wired_mspan_of(alien, na)) == 0);
     CHECK(a.cr.received_to == before);
     CHECK(a.largest_pn == pn);
     CHECK(wired_srvboot_acc_complete(&a) == 0);
@@ -838,17 +840,17 @@ static void test_bootacc_duplicate_idempotent(void) {
   u8                ch[2048], dg1[1400], dg2[1400];
   wired_srvboot_acc a;
   usz               n = sb_build_raw_ch(&c, ch, sizeof ch);
-  usz n1 = sb_seal_ch_chunk(dg1, sizeof dg1, quic_span_of(ch, 60), 0, 0);
+  usz n1 = sb_seal_ch_chunk(dg1, sizeof dg1, wired_span_of(ch, 60), 0, 0);
   usz n2 =
-      sb_seal_ch_chunk(dg2, sizeof dg2, quic_span_of(ch + 60, n - 60), 60, 1);
+      sb_seal_ch_chunk(dg2, sizeof dg2, wired_span_of(ch + 60, n - 60), 60, 1);
   u8 copy[1400];
   for (usz i = 0; i < n1; i++) copy[i] = dg1[i];
   wired_srvboot_acc_reset(&a);
-  CHECK(wired_srvboot_acc_feed(&a, quic_mspan_of(dg1, n1)) == 1);
-  CHECK(wired_srvboot_acc_feed(&a, quic_mspan_of(copy, n1)) == 1);
+  CHECK(wired_srvboot_acc_feed(&a, wired_mspan_of(dg1, n1)) == 1);
+  CHECK(wired_srvboot_acc_feed(&a, wired_mspan_of(copy, n1)) == 1);
   CHECK(a.cr.received_to == 60);
   CHECK(wired_srvboot_acc_complete(&a) == 0);
-  CHECK(wired_srvboot_acc_feed(&a, quic_mspan_of(dg2, n2)) == 1);
+  CHECK(wired_srvboot_acc_feed(&a, wired_mspan_of(dg2, n2)) == 1);
   CHECK(wired_srvboot_acc_complete(&a) == 1);
 }
 
@@ -858,18 +860,18 @@ static void test_bootacc_duplicate_idempotent(void) {
 static void test_bootacc_pn_monotone_ack_max(void) {
   quic_client       c;
   u8                ch[2048], dg1[1400], dg2[1400], ini[1500], hs[1500];
-  quic_obuf         iob = {ini, sizeof ini, 0};
-  quic_obuf         hob = {hs, sizeof hs, 0};
+  wired_obuf        iob = {ini, sizeof ini, 0};
+  wired_obuf        hob = {hs, sizeof hs, 0};
   wired_srvboot_out out = {&iob, &hob, {0}, 0, 0};
   wired_srvboot_acc a;
   usz               n = sb_build_raw_ch(&c, ch, sizeof ch);
-  usz n1 = sb_seal_ch_chunk(dg1, sizeof dg1, quic_span_of(ch, 60), 0, 1);
+  usz n1 = sb_seal_ch_chunk(dg1, sizeof dg1, wired_span_of(ch, 60), 0, 1);
   usz n2 =
-      sb_seal_ch_chunk(dg2, sizeof dg2, quic_span_of(ch + 60, n - 60), 60, 2);
+      sb_seal_ch_chunk(dg2, sizeof dg2, wired_span_of(ch + 60, n - 60), 60, 2);
   wired_srvboot_acc_reset(&a);
-  CHECK(wired_srvboot_acc_feed(&a, quic_mspan_of(dg2, n2)) == 1);
+  CHECK(wired_srvboot_acc_feed(&a, wired_mspan_of(dg2, n2)) == 1);
   CHECK(a.largest_pn == 2);
-  CHECK(wired_srvboot_acc_feed(&a, quic_mspan_of(dg1, n1)) == 1);
+  CHECK(wired_srvboot_acc_feed(&a, wired_mspan_of(dg1, n1)) == 1);
   CHECK(a.largest_pn == 2);
   CHECK(sb_accept_acc(&a, &out) == 1);
   CHECK(out.client_pn == 2);
@@ -884,11 +886,11 @@ static void test_bootacc_overflow_chunk_ignored(void) {
   usz               n = sb_build_raw_ch(&c, ch, sizeof ch);
   usz               n1, nw;
   (void)n;
-  n1 = sb_seal_ch_chunk(dg1, sizeof dg1, quic_span_of(ch, 60), 0, 0);
-  nw = sb_seal_ch_chunk(wild, sizeof wild, quic_span_of(ch, 60), 2040, 3);
+  n1 = sb_seal_ch_chunk(dg1, sizeof dg1, wired_span_of(ch, 60), 0, 0);
+  nw = sb_seal_ch_chunk(wild, sizeof wild, wired_span_of(ch, 60), 2040, 3);
   wired_srvboot_acc_reset(&a);
-  CHECK(wired_srvboot_acc_feed(&a, quic_mspan_of(dg1, n1)) == 1);
-  wired_srvboot_acc_feed(&a, quic_mspan_of(wild, nw));
+  CHECK(wired_srvboot_acc_feed(&a, wired_mspan_of(dg1, n1)) == 1);
+  wired_srvboot_acc_feed(&a, wired_mspan_of(wild, nw));
   CHECK(a.cr.received_to == 60);
   CHECK(wired_srvboot_acc_complete(&a) == 0);
 }
@@ -900,11 +902,11 @@ static void test_bootacc_coalesced_initials(void) {
   u8                ch[2048], dg[2900];
   wired_srvboot_acc a;
   usz               n = sb_build_raw_ch(&c, ch, sizeof ch);
-  usz n1 = sb_seal_ch_chunk(dg, sizeof dg, quic_span_of(ch, 60), 0, 0);
+  usz n1 = sb_seal_ch_chunk(dg, sizeof dg, wired_span_of(ch, 60), 0, 0);
   usz n2 = sb_seal_ch_chunk(
-      dg + n1, sizeof dg - n1, quic_span_of(ch + 60, n - 60), 60, 1);
+      dg + n1, sizeof dg - n1, wired_span_of(ch + 60, n - 60), 60, 1);
   wired_srvboot_acc_reset(&a);
-  CHECK(wired_srvboot_acc_feed(&a, quic_mspan_of(dg, n1 + n2)) == 1);
+  CHECK(wired_srvboot_acc_feed(&a, wired_mspan_of(dg, n1 + n2)) == 1);
   CHECK(wired_srvboot_acc_complete(&a) == 1);
   CHECK(a.largest_pn == 1);
 }
@@ -921,14 +923,14 @@ static void test_srvboot_partial_ack_builds_and_advances_pn(void) {
   u8                ch[2048], dg1[1400], out[1400];
   wired_srvboot_acc a;
   usz               n = sb_build_raw_ch(&c, ch, sizeof ch);
-  usz n1 = sb_seal_ch_chunk(dg1, sizeof dg1, quic_span_of(ch, 60), 0, 7);
+  usz n1 = sb_seal_ch_chunk(dg1, sizeof dg1, wired_span_of(ch, 60), 0, 7);
   (void)n;
   usz an;
   wired_srvboot_acc_reset(&a);
-  CHECK(wired_srvboot_acc_feed(&a, quic_mspan_of(dg1, n1)) == 1);
+  CHECK(wired_srvboot_acc_feed(&a, wired_mspan_of(dg1, n1)) == 1);
   CHECK(wired_srvboot_acc_complete(&a) == 0);
   CHECK(a.ack_pn == 2);
-  an = wired_srvboot_partial_ack(&a, quic_span_of(g_scid, 6), out, sizeof out);
+  an = wired_srvboot_partial_ack(&a, wired_span_of(g_scid, 6), out, sizeof out);
   CHECK(an > 0);
   /* not ack-eliciting, so no 1200-byte floor (RFC 9000 14.1) -- and a
    * padded ack burned ~25x more RFC 9000 8.1 budget, starving the
@@ -936,7 +938,7 @@ static void test_srvboot_partial_ack_builds_and_advances_pn(void) {
   CHECK(an < 200);
   CHECK(a.ack_pn == 3);
   CHECK(
-      wired_srvboot_partial_ack(&a, quic_span_of(g_scid, 6), out, sizeof out) >
+      wired_srvboot_partial_ack(&a, wired_span_of(g_scid, 6), out, sizeof out) >
       0);
   CHECK(a.ack_pn == 4);
 }
@@ -948,8 +950,8 @@ static void test_srvboot_partial_ack_needs_opened_packet(void) {
   u8                out[1400];
   wired_srvboot_acc_reset(&a);
   CHECK(
-      wired_srvboot_partial_ack(&a, quic_span_of(g_scid, 6), out, sizeof out) ==
-      0);
+      wired_srvboot_partial_ack(
+          &a, wired_span_of(g_scid, 6), out, sizeof out) == 0);
 }
 
 /* RFC 9000 7.2: the client switches its DCID to the server's scid upon the
@@ -963,17 +965,17 @@ static void test_srvboot_acc_allows_switched_dcid(void) {
   u8                alt[6] = {9, 9, 9, 9, 9, 9};
   wired_srvboot_acc a;
   usz               n = sb_build_raw_ch(&c, ch, sizeof ch);
-  usz n1 = sb_seal_ch_chunk(dg1, sizeof dg1, quic_span_of(ch, 60), 0, 0);
+  usz n1 = sb_seal_ch_chunk(dg1, sizeof dg1, wired_span_of(ch, 60), 0, 0);
   quic_initpkt_desc d = {
-      quic_span_of(alt, 6), quic_span_of(alt, 6), quic_span_of(ch + 60, n - 60),
-      1, 60};
-  quic_obuf o = quic_obuf_of(dga, sizeof dga);
+      wired_span_of(alt, 6), wired_span_of(alt, 6),
+      wired_span_of(ch + 60, n - 60), 1, 60};
+  wired_obuf o = quic_obuf_of(dga, sizeof dga);
   CHECK(quic_initpkt_build(&d, &o) == 1);
   wired_srvboot_acc_reset(&a);
-  CHECK(wired_srvboot_acc_feed(&a, quic_mspan_of(dg1, n1)) == 1);
-  CHECK(srvboot_acc_admit(&a, quic_mspan_of(dga, o.len)) == 0);
-  wired_srvboot_acc_allow(&a, quic_span_of(alt, 6));
-  CHECK(srvboot_acc_admit(&a, quic_mspan_of(dga, o.len)) == 1);
+  CHECK(wired_srvboot_acc_feed(&a, wired_mspan_of(dg1, n1)) == 1);
+  CHECK(srvboot_acc_admit(&a, wired_mspan_of(dga, o.len)) == 0);
+  wired_srvboot_acc_allow(&a, wired_span_of(alt, 6));
+  CHECK(srvboot_acc_admit(&a, wired_mspan_of(dga, o.len)) == 1);
 }
 
 /* An authenticated ClientHello the server cannot serve (its key_share
@@ -985,8 +987,8 @@ static void test_srvboot_refusal_closes_unservable(void) {
   quic_client       c;
   u8                ch[512], dg[1400], ref[1500];
   u8                ini[1500], hs[1500];
-  quic_obuf         iob = {ini, sizeof ini, 0};
-  quic_obuf         hob = {hs, sizeof hs, 0};
+  wired_obuf        iob = {ini, sizeof ini, 0};
+  wired_obuf        hob = {hs, sizeof hs, 0};
   wired_srvboot_out out = {&iob, &hob, {0}, 0, 0};
   wired_srvboot_acc a;
   usz               n = sb_build_raw_ch(&c, ch, sizeof ch);
@@ -1002,20 +1004,20 @@ static void test_srvboot_refusal_closes_unservable(void) {
       break;
     }
   CHECK(hit == 1);
-  nd = sb_seal_ch_chunk(dg, sizeof dg, quic_span_of(ch, n), 0, 3);
+  nd = sb_seal_ch_chunk(dg, sizeof dg, wired_span_of(ch, n), 0, 3);
   wired_srvboot_acc_reset(&a);
-  CHECK(wired_srvboot_acc_feed(&a, quic_mspan_of(dg, nd)) == 1);
+  CHECK(wired_srvboot_acc_feed(&a, wired_mspan_of(dg, nd)) == 1);
   CHECK(wired_srvboot_acc_complete(&a) == 1);
   CHECK(sb_accept_acc(&a, &out) == 0); /* unservable key share */
-  nr = wired_srvboot_refusal(&a, quic_span_of(g_scid, 6), 0, ref, sizeof ref);
+  nr = wired_srvboot_refusal(&a, wired_span_of(g_scid, 6), 0, ref, sizeof ref);
   CHECK(nr >= 1200); /* a padded server Initial datagram */
   {
     quic_initial_keys ck, sk;
     quic_aes128       hp;
-    quic_span         frames;
+    wired_span        frames;
     quic_protect_keys k;
-    quic_rx_desc      d = {quic_mspan_of(ref, nr), 1};
-    quic_initpkt_derive(quic_span_of(g_scid, 6), &ck, &sk);
+    quic_rx_desc      d = {wired_mspan_of(ref, nr), 1};
+    quic_initpkt_derive(wired_span_of(g_scid, 6), &ck, &sk);
     quic_aes128_init(&hp, sk.hp);
     k = (quic_protect_keys){&sk, &hp};
     CHECK(quic_rx_packet(&k, &d, &frames) == 1);
@@ -1066,8 +1068,8 @@ static void test_srvboot_refusal_reports_missing_tp_ext(void) {
   quic_client        c;
   u8                 ch[512], dg[1400], ref[1500];
   u8                 ini[1500], hs[1500];
-  quic_obuf          iob = {ini, sizeof ini, 0};
-  quic_obuf          hob = {hs, sizeof hs, 0};
+  wired_obuf         iob = {ini, sizeof ini, 0};
+  wired_obuf         hob = {hs, sizeof hs, 0};
   wired_srvboot_out  out = {&iob, &hob, {0}, 0, 0};
   wired_srvboot_acc  a;
   wired_server       s;
@@ -1078,24 +1080,24 @@ static void test_srvboot_refusal_reports_missing_tp_ext(void) {
   usz                n    = sb_build_raw_ch(&c, ch, sizeof ch);
   usz                nd, nr;
   n  = sb_strip_tp_ext(ch, n);
-  nd = sb_seal_ch_chunk(dg, sizeof dg, quic_span_of(ch, n), 0, 5);
+  nd = sb_seal_ch_chunk(dg, sizeof dg, wired_span_of(ch, n), 0, 5);
   wired_srvboot_acc_reset(&a);
-  CHECK(wired_srvboot_acc_feed(&a, quic_mspan_of(dg, nd)) == 1);
+  CHECK(wired_srvboot_acc_feed(&a, wired_mspan_of(dg, nd)) == 1);
   CHECK(wired_srvboot_acc_complete(&a) == 1);
   sb_make_id(&id, priv, pub, seed, rnd);
   CHECK(wired_srvboot_accept_acc(&conn, &id, &a, &out) == 0);
   CHECK(quic_sdrv_last_error(&s.sdrv) == 0x016d);
   nr = wired_srvboot_refusal(
-      &a, quic_span_of(g_scid, 6), quic_sdrv_last_error(&s.sdrv), ref,
+      &a, wired_span_of(g_scid, 6), quic_sdrv_last_error(&s.sdrv), ref,
       sizeof ref);
   CHECK(nr >= 1200);
   {
     quic_initial_keys ck, sk;
     quic_aes128       hp;
-    quic_span         frames;
+    wired_span        frames;
     quic_protect_keys k;
-    quic_rx_desc      d = {quic_mspan_of(ref, nr), 1};
-    quic_initpkt_derive(quic_span_of(g_scid, 6), &ck, &sk);
+    quic_rx_desc      d = {wired_mspan_of(ref, nr), 1};
+    quic_initpkt_derive(wired_span_of(g_scid, 6), &ck, &sk);
     quic_aes128_init(&hp, sk.hp);
     k = (quic_protect_keys){&sk, &hp};
     CHECK(quic_rx_packet(&k, &d, &frames) == 1);
@@ -1110,7 +1112,7 @@ static void test_srvboot_refusal_reports_missing_tp_ext(void) {
  * included (RFC 8446 4.4.2 allows it) so the flight outgrows one MTU datagram,
  * signing the CertificateVerify with the leaf's P-256 key. File-scope: sdrv
  * holds the chain as views for the connection's lifetime. */
-static quic_span sb_chain[3];
+static wired_span sb_chain[3];
 
 static void sb_make_chain_id(
     wired_srvboot_id* id, u8 priv[32], u8 pub[32], u8 rnd[32]) {
@@ -1118,13 +1120,13 @@ static void sb_make_chain_id(
     priv[i] = (u8)(0x40 + i);
     rnd[i]  = (u8)(0xa0 + i);
   }
-  quic_x25519_base(pub, priv);
+  wired_x25519_base(pub, priv);
   sb_chain[0] =
-      quic_span_of(quic_realchain_leaf_der, sizeof quic_realchain_leaf_der);
+      wired_span_of(quic_realchain_leaf_der, sizeof quic_realchain_leaf_der);
   sb_chain[1] =
-      quic_span_of(quic_realchain_int_der, sizeof quic_realchain_int_der);
+      wired_span_of(quic_realchain_int_der, sizeof quic_realchain_int_der);
   sb_chain[2] =
-      quic_span_of(quic_realchain_root_der, sizeof quic_realchain_root_der);
+      wired_span_of(quic_realchain_root_der, sizeof quic_realchain_root_der);
   id->priv                    = priv;
   id->pub                     = pub;
   id->cert_seed               = quic_realchain_leaf_priv;
@@ -1156,7 +1158,7 @@ struct sb_split_fix {
   usz               ch_len;
   u8                ini[1500];
   u8                hs[4096];
-  quic_obuf         iob, hob;
+  wired_obuf        iob, hob;
   wired_srvboot_out out;
 };
 
@@ -1174,19 +1176,19 @@ static void sb_split_boot(struct sb_split_fix* f) {
   f->hob = quic_obuf_of(f->hs, sizeof f->hs);
   f->out = (wired_srvboot_out){&f->iob, &f->hob, {0}, 0, 0};
   for (usz i = 0; i < 32; i++) f->cpriv[i] = (u8)(7 + i);
-  quic_x25519_base(cpub, f->cpriv);
+  wired_x25519_base(cpub, f->cpriv);
   quic_tlsdriver_init(&f->c.tls, f->cpriv, cpub, 0);
   f->ch_len = quic_tlsdriver_raw_client_hello(&f->c.tls, f->ch, sizeof f->ch);
   CHECK(f->ch_len > 0);
   {
     quic_clientwire_hdr_in hdr = {
-        quic_span_of(g_scid, 6), quic_span_of(g_scid, 6), 0};
-    quic_obuf ob = quic_obuf_of(dg, sizeof dg);
+        wired_span_of(g_scid, 6), wired_span_of(g_scid, 6), 0};
+    wired_obuf ob = quic_obuf_of(dg, sizeof dg);
     CHECK(quic_client_build_initial_wire(&f->c, &hdr, &ob) == 1);
     total = ob.len;
   }
   sb_make_chain_id(&id, f->priv, f->pub, f->rnd);
-  in = (wired_srvboot_in){&id, quic_mspan_of(dg, total)};
+  in = (wired_srvboot_in){&id, wired_mspan_of(dg, total)};
   CHECK(wired_srvboot_accept(&conn, &in, &f->out) == 1);
 }
 
@@ -1225,11 +1227,11 @@ static void sb_split_collect(
   }
   quic_crecv_init(cr);
   for (usz k = 0; k < f->out.dgram_count; k++) {
-    usz       i = reverse ? f->out.dgram_count - 1 - k : k;
-    quic_span frames;
+    usz        i = reverse ? f->out.dgram_count - 1 - k : k;
+    wired_span frames;
     CHECK(
         quic_hspkt_open(
-            &pk, quic_mspan_of(f->hs + offs[i], f->out.dgram_len[i]),
+            &pk, wired_mspan_of(f->hs + offs[i], f->out.dgram_len[i]),
             &frames) == 1);
     CHECK(quic_crecv_collect(cr, frames.p, frames.n) == 1);
   }
@@ -1266,7 +1268,7 @@ static void sb_split_check_finished(
 static void sb_split_client_handshake(int reverse) {
   static struct sb_split_fix f;
   quic_serverhello_out       sho;
-  quic_span                  shv;
+  wired_span                 shv;
   u8              sh_pub[32], shared[32], hsec[32], th[32], s_traffic[32];
   quic_transcript tr;
   quic_crecv      cr;
@@ -1274,11 +1276,11 @@ static void sb_split_client_handshake(int reverse) {
   CHECK(f.out.dgram_count >= 2);
   {
     quic_clientwire_open_in oin = {
-        quic_span_of(g_scid, 6), quic_mspan_of(f.ini, f.iob.len), 0};
+        wired_span_of(g_scid, 6), wired_mspan_of(f.ini, f.iob.len), 0};
     CHECK(quic_client_open_initial_wire(&oin, &shv) == 1);
   }
   CHECK(quic_tls_parse_server_hello(shv, sh_pub, &sho) == 1);
-  quic_x25519(shared, f.cpriv, sh_pub);
+  wired_x25519(shared, f.cpriv, sh_pub);
   quic_tls_handshake_secret(shared, hsec);
   quic_transcript_init(&tr);
   quic_transcript_add(&tr, f.ch, f.ch_len);
@@ -1286,7 +1288,7 @@ static void sb_split_client_handshake(int reverse) {
   quic_transcript_hash(&tr, th);
   {
     quic_hkdf_label shl = {"s hs traffic", 12, {th, 32}};
-    quic_hkdf_expand_label(hsec, &shl, quic_mspan_of(s_traffic, 32));
+    quic_hkdf_expand_label(hsec, &shl, wired_mspan_of(s_traffic, 32));
   }
   sb_split_collect(&f, reverse, &cr);
   sb_split_check_finished(&cr, &tr, s_traffic);

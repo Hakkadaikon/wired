@@ -11,13 +11,13 @@
 /* What the CONNECTION_CLOSE reports: the error code, the type of the frame
  * that triggered the violation, and a reason phrase (may be empty). */
 typedef struct {
-  u64       error_code;
-  u64       frame_type;
-  quic_span reason;
+  u64        error_code;
+  u64        frame_type;
+  wired_span reason;
 } quic_flowviol_err;
 
 /* Writes the frame to out and its length to out->len. Returns 1 on success,
  * 0 on overflow. */
-int quic_flowviol_close_frame(const quic_flowviol_err* e, quic_obuf* out);
+int quic_flowviol_close_frame(const quic_flowviol_err* e, wired_obuf* out);
 
 #endif

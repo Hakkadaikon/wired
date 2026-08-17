@@ -43,19 +43,19 @@ typedef struct {
 /* Set up an active connection: empty keyset, fresh receive state, the dispatch
  * view wired to drain ACKs into loop.sent, and the given header parameters. */
 void quic_connio_init(
-    quic_connio* io, quic_span dcid, const quic_connio_init_in* in);
+    quic_connio* io, wired_span dcid, const quic_connio_init_in* in);
 
 /* RFC 9001 5: receive one protected datagram at protection `level`. Gates via
  * connloop_on_recv; on permission, fetches the level's keys, opens the packet
  * in place, and dispatches every recovered frame into the receive state.
  * Returns 1 if the packet was processed, 0 if gated out or authentication
  * failed. `datagram` is modified in place (header protection / AEAD). */
-int quic_connio_recv(quic_connio* io, int level, quic_mspan datagram);
+int quic_connio_recv(quic_connio* io, int level, wired_mspan datagram);
 
 /** The protection level and frame bytes to seal into a packet. */
 typedef struct {
-  int       level;
-  quic_span frames;
+  int        level;
+  wired_span frames;
 } quic_connio_send_in;
 
 /* RFC 9001 5: send frame bytes at protection `level`. Gates via
@@ -63,7 +63,7 @@ typedef struct {
  * protected packet into out. Returns the protected length, or 0 if
  * gated out or out is too small. */
 usz quic_connio_send(
-    quic_connio* io, const quic_connio_send_in* in, quic_obuf* out);
+    quic_connio* io, const quic_connio_send_in* in, wired_obuf* out);
 
 /* RFC 9000 12.3: the next send packet number for `level`'s own space (peek,
  * does not advance). Each level/space numbers independently from 0. */
@@ -77,7 +77,7 @@ u64 quic_connio_rx_next(const quic_connio* io, int level);
  * transport CONNECTION_CLOSE carrying PROTOCOL_VIOLATION as a 1-RTT packet
  * into out and clear the flag. Returns the sealed length, or 0 if no
  * violation was pending or the seal failed (out too small / no 1-RTT key). */
-usz quic_connio_close_on_violation(quic_connio* io, quic_obuf* out);
+usz quic_connio_close_on_violation(quic_connio* io, wired_obuf* out);
 
 /* RFC 9001 6.6: if a received packet's AEAD authentication failures have
  * reached the integrity limit (tracked in loop.auth_fail_count via
@@ -86,13 +86,13 @@ usz quic_connio_close_on_violation(quic_connio* io, quic_obuf* out);
  * into out and clear the pending flag. Returns the sealed length, or 0 if
  * the limit was not reached or the seal failed (out too small / no 1-RTT
  * key). */
-usz quic_connio_close_on_aead_limit(quic_connio* io, quic_obuf* out);
+usz quic_connio_close_on_aead_limit(quic_connio* io, wired_obuf* out);
 
 /* RFC 9000 3.5: if the last dispatched frame set disp.stop_sending_owed (a
  * STOP_SENDING arrived), seal a RESET_STREAM echoing its stream ID and error
  * code verbatim as a 1-RTT packet into out and clear the flag. final_size is
  * 0 (the send side has not tracked any bytes as sent on this path). Returns
  * the sealed length, or 0 if none was owed or the seal failed. */
-usz quic_connio_send_stop_sending_reset(quic_connio* io, quic_obuf* out);
+usz quic_connio_send_stop_sending_reset(quic_connio* io, wired_obuf* out);
 
 #endif

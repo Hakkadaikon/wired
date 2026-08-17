@@ -27,7 +27,7 @@ static void der_put_len(u8* out, usz lo, usz len) {
   der_put_be(out + 1, lo - 1, len);
 }
 
-int quic_selfcert_der_tlv(u8 tag, quic_span val, quic_obuf* out) {
+int quic_selfcert_der_tlv(u8 tag, wired_span val, wired_obuf* out) {
   usz lo = len_octets(val.n), off = 0;
   if (lo == 0) return 0;
   if (1 + lo + val.n > out->cap) return 0;
@@ -35,7 +35,7 @@ int quic_selfcert_der_tlv(u8 tag, quic_span val, quic_obuf* out) {
   der_put_len(out->p + off, lo, val.n);
   off += lo;
   quic_put_bytes(
-      quic_mspan_of(out->p, out->cap), &off, quic_span_of(val.p, val.n));
+      wired_mspan_of(out->p, out->cap), &off, wired_span_of(val.p, val.n));
   out->len = off;
   return 1;
 }

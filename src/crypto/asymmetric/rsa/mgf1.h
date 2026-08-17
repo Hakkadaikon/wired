@@ -5,6 +5,6 @@
 
 /* RFC 8017 B.2.1. MGF1 mask generation with SHA-256 as the hash. Fills
  * mask from seed. */
-void quic_mgf1_sha256(quic_span seed, quic_mspan mask);
+void quic_mgf1_sha256(wired_span seed, wired_mspan mask);
 
 #endif

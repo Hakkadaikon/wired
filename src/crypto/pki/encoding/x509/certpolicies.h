@@ -13,8 +13,8 @@
 /** A fixed-capacity set of policy OID views into a certificate's tbs buffer
  * (no copying, no allocation). */
 typedef struct {
-  quic_span oid[QUIC_X509_CERT_POLICY_MAX];
-  usz       n;
+  wired_span oid[QUIC_X509_CERT_POLICY_MAX];
+  usz        n;
 } quic_x509_policy_set;
 
 /* RFC 5280 4.2.1.4. anyPolicy = 2.5.29.32.0. */
@@ -25,7 +25,7 @@ extern const u8 quic_x509_oid_any_policy[4];
  * QUIC_X509_CERT_POLICY_MAX; malformed PolicyInformation entries are
  * skipped rather than aborting the whole extension, matching the "SHOULD NOT
  * duplicate" tolerance of 4.2.1.4). *out is untouched on return 0. */
-int quic_x509_cert_policies(quic_span tbs, quic_x509_policy_set* out);
+int quic_x509_cert_policies(wired_span tbs, quic_x509_policy_set* out);
 
 /* 1 if set contains the anyPolicy OID. */
 int quic_x509_policy_set_has_any(const quic_x509_policy_set* set);

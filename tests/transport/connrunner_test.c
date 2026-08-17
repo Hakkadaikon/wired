@@ -43,7 +43,7 @@ static void mk_runner(quic_connrunner* r, int is_server) {
   quic_sockaddr           peer = {0};
   quic_connrunner_init_in in   = {
       -1, &peer, QUIC_LEVEL_INITIAL, 1u << 20, 64, is_server, 0xc3, 1u << 20};
-  quic_connrunner_init(r, quic_span_of(g_dcid, 8), &in);
+  quic_connrunner_init(r, wired_span_of(g_dcid, 8), &in);
   arm(&r->io);
   r->loop.gate.validated = 1; /* lift anti-amp on the loop side */
   quic_keyset_install(
@@ -57,7 +57,7 @@ static void test_process_datagram_owes_ack(void) {
   quic_connio         cl;
   quic_connrunner     r;
   quic_connio_init_in cin = {0, 0xc3, 1u << 20};
-  quic_connio_init(&cl, quic_span_of(g_dcid, 8), &cin);
+  quic_connio_init(&cl, wired_span_of(g_dcid, 8), &cin);
   arm(&cl);
   mk_runner(&r, 1);
 
@@ -72,13 +72,13 @@ static void test_process_datagram_owes_ack(void) {
   u8  pkt[256];
   usz n;
   {
-    quic_connio_send_in sin = {QUIC_LEVEL_INITIAL, quic_span_of(frames, fl)};
-    quic_obuf           ob  = quic_obuf_of(pkt, sizeof(pkt));
+    quic_connio_send_in sin = {QUIC_LEVEL_INITIAL, wired_span_of(frames, fl)};
+    wired_obuf          ob  = quic_obuf_of(pkt, sizeof(pkt));
     n                       = quic_connio_send(&cl, &sin, &ob);
   }
   CHECK(n != 0);
 
-  CHECK(quic_connrunner_process_datagram(&r, quic_mspan_of(pkt, n)) == 1);
+  CHECK(quic_connrunner_process_datagram(&r, wired_mspan_of(pkt, n)) == 1);
   CHECK(r.loop.rx_n == 1);     /* queued into the loop */
   CHECK(r.loop.ack_owed == 0); /* not yet processed */
   quic_evloop_step(&r.loop, 0);
@@ -95,7 +95,7 @@ static void test_process_datagram_dcid_mismatch_ignored(void) {
   quic_connio         cl;
   quic_connrunner     r;
   quic_connio_init_in cin = {0, 0xc3, 1u << 20};
-  quic_connio_init(&cl, quic_span_of(g_dcid, 8), &cin);
+  quic_connio_init(&cl, wired_span_of(g_dcid, 8), &cin);
   arm(&cl);
   mk_runner(&r, 1);
 
@@ -110,14 +110,14 @@ static void test_process_datagram_dcid_mismatch_ignored(void) {
   u8  pkt[256];
   usz n;
   {
-    quic_connio_send_in sin = {QUIC_LEVEL_INITIAL, quic_span_of(frames, fl)};
-    quic_obuf           ob  = quic_obuf_of(pkt, sizeof(pkt));
+    quic_connio_send_in sin = {QUIC_LEVEL_INITIAL, wired_span_of(frames, fl)};
+    wired_obuf          ob  = quic_obuf_of(pkt, sizeof(pkt));
     n                       = quic_connio_send(&cl, &sin, &ob);
   }
   CHECK(n != 0);
   pkt[6] ^= 0xff; /* corrupt the first DCID byte (long header, offset 6) */
 
-  CHECK(quic_connrunner_process_datagram(&r, quic_mspan_of(pkt, n)) == 0);
+  CHECK(quic_connrunner_process_datagram(&r, wired_mspan_of(pkt, n)) == 0);
   CHECK(r.loop.rx_n == 0); /* never reached dispatch */
 }
 
@@ -126,7 +126,7 @@ static void test_unparseable_owes_nothing(void) {
   quic_connrunner r;
   mk_runner(&r, 1);
   u8 junk[32] = {0x43, 0, 0, 0}; /* short header, no valid keys/AEAD */
-  quic_connrunner_process_datagram(&r, quic_mspan_of(junk, sizeof(junk)));
+  quic_connrunner_process_datagram(&r, wired_mspan_of(junk, sizeof(junk)));
   quic_evloop_step(&r.loop, 0);
   CHECK(r.loop.ack_owed == 0);
   CHECK(r.loop.next_pn == 0); /* nothing to send */
@@ -198,7 +198,7 @@ static void test_retransmit_real_bytes(void) {
       .data      = (const u8*)"hello",
       .fin       = 1};
   usz fl = quic_frame_put_stream(frames, sizeof(frames), &sf);
-  CHECK(quic_rtxbytes_store(&real.rtx, 7, quic_span_of(frames, fl)) == 1);
+  CHECK(quic_rtxbytes_store(&real.rtx, 7, wired_span_of(frames, fl)) == 1);
   set_lost(&real, 7); /* held in the store -> real bytes */
   set_lost(&ping, 7); /* empty store -> PING fallback */
 
@@ -214,7 +214,7 @@ static void test_advance_roundtrip(void) {
   quic_connio         cl;
   quic_connrunner     r;
   quic_connio_init_in cin = {0, 0xc3, 1u << 20};
-  quic_connio_init(&cl, quic_span_of(g_dcid, 8), &cin);
+  quic_connio_init(&cl, wired_span_of(g_dcid, 8), &cin);
   arm(&cl);
   mk_runner(&r, 1);
 
@@ -223,20 +223,20 @@ static void test_advance_roundtrip(void) {
   u8  pkt[256];
   usz n;
   {
-    quic_connio_send_in sin = {QUIC_LEVEL_INITIAL, quic_span_of(frames, fl)};
-    quic_obuf           ob  = quic_obuf_of(pkt, sizeof(pkt));
+    quic_connio_send_in sin = {QUIC_LEVEL_INITIAL, wired_span_of(frames, fl)};
+    wired_obuf          ob  = quic_obuf_of(pkt, sizeof(pkt));
     n                       = quic_connio_send(&cl, &sin, &ob);
   }
   CHECK(n != 0);
 
-  usz out = quic_connrunner_advance(&r, 0, quic_mspan_of(pkt, n));
+  usz out = quic_connrunner_advance(&r, 0, wired_mspan_of(pkt, n));
   CHECK(out != 0);            /* the owed ACK was sealed and returned */
   CHECK(r.loop.next_pn == 1); /* exactly one send */
   CHECK(r.loop.ack_owed == 0);
 
   /* the sealed reply is a real ACK frame the peer can open */
   CHECK(
-      quic_connio_recv(&cl, QUIC_LEVEL_INITIAL, quic_mspan_of(r.txbuf, out)) ==
+      quic_connio_recv(&cl, QUIC_LEVEL_INITIAL, wired_mspan_of(r.txbuf, out)) ==
       1);
 }
 
@@ -245,7 +245,7 @@ static void test_advance_closed_idle(void) {
   quic_connrunner r;
   mk_runner(&r, 1);
   quic_evloop_close(&r.loop, 0);
-  usz out = quic_connrunner_advance(&r, 0, quic_mspan_of((u8*)0, 0));
+  usz out = quic_connrunner_advance(&r, 0, wired_mspan_of((u8*)0, 0));
   CHECK(out == 0);
   CHECK(r.loop.next_pn == 0);
 }
@@ -275,7 +275,7 @@ static void test_advance_closes_on_violation(void) {
   quic_connrunner r;
   mk_runner(&r, 1); /* server */
   quic_connio_init_in cin = {0, 0x43, 1u << 20};
-  quic_connio_init(&cl, quic_span_of(g_dcid, 8), &cin);
+  quic_connio_init(&cl, wired_span_of(g_dcid, 8), &cin);
   connrunner_arm_onertt(&cl);
   connrunner_arm_onertt(&r.io);
 
@@ -285,21 +285,21 @@ static void test_advance_closes_on_violation(void) {
   u8  pkt[256];
   usz n;
   {
-    quic_connio_send_in sin = {QUIC_LEVEL_ONERTT, quic_span_of(frame, fl)};
-    quic_obuf           ob  = quic_obuf_of(pkt, sizeof pkt);
+    quic_connio_send_in sin = {QUIC_LEVEL_ONERTT, wired_span_of(frame, fl)};
+    wired_obuf          ob  = quic_obuf_of(pkt, sizeof pkt);
     n                       = quic_connio_send(&cl, &sin, &ob);
   }
   CHECK(n != 0);
 
   {
-    usz out = quic_connrunner_advance(&r, 0, quic_mspan_of(pkt, n));
+    usz out = quic_connrunner_advance(&r, 0, wired_mspan_of(pkt, n));
     CHECK(out != 0); /* a CONNECTION_CLOSE was sealed, not silence */
     CHECK(r.io.disp.violation == 0); /* the flag fired and was cleared */
 
     /* the client's own connio opens it and sees a real transport close */
     CHECK(
-        quic_connio_recv(&cl, QUIC_LEVEL_ONERTT, quic_mspan_of(r.txbuf, out)) ==
-        1);
+        quic_connio_recv(
+            &cl, QUIC_LEVEL_ONERTT, wired_mspan_of(r.txbuf, out)) == 1);
     CHECK(cl.disp.close == 1);
   }
 }
@@ -315,7 +315,7 @@ static void test_advance_closes_on_aead_limit(void) {
   quic_connrunner r;
   mk_runner(&r, 1); /* server */
   quic_connio_init_in cin = {0, 0x43, 1u << 20};
-  quic_connio_init(&cl, quic_span_of(g_dcid, 8), &cin);
+  quic_connio_init(&cl, wired_span_of(g_dcid, 8), &cin);
   connrunner_arm_onertt(&cl);
   connrunner_arm_onertt(&r.io);
   r.io.loop.auth_fail_count = QUIC_AEAD_INTEGRITY_LIMIT_AESGCM - 1;
@@ -324,21 +324,21 @@ static void test_advance_closes_on_aead_limit(void) {
   u8  pkt[256];
   usz pn;
   {
-    quic_connio_send_in sin = {QUIC_LEVEL_ONERTT, quic_span_of(frame, 1)};
-    quic_obuf           ob  = quic_obuf_of(pkt, sizeof pkt);
+    quic_connio_send_in sin = {QUIC_LEVEL_ONERTT, wired_span_of(frame, 1)};
+    wired_obuf          ob  = quic_obuf_of(pkt, sizeof pkt);
     pn                      = quic_connio_send(&cl, &sin, &ob);
   }
   CHECK(pn != 0);
   pkt[pn - 1] ^= 0xff; /* tamper the AEAD tag so recv fails auth */
 
   {
-    usz out = quic_connrunner_advance(&r, 0, quic_mspan_of(pkt, pn));
+    usz out = quic_connrunner_advance(&r, 0, wired_mspan_of(pkt, pn));
     CHECK(out != 0); /* a CONNECTION_CLOSE was sealed, not silence */
     CHECK(r.io.loop.aead_limit == 0); /* the flag fired and was cleared */
 
     CHECK(
-        quic_connio_recv(&cl, QUIC_LEVEL_ONERTT, quic_mspan_of(r.txbuf, out)) ==
-        1);
+        quic_connio_recv(
+            &cl, QUIC_LEVEL_ONERTT, wired_mspan_of(r.txbuf, out)) == 1);
     CHECK(cl.disp.close == 1);
   }
 }
@@ -353,7 +353,7 @@ static void test_advance_sends_stop_sending_reset(void) {
   quic_connrunner r;
   mk_runner(&r, 1); /* server */
   quic_connio_init_in cin = {0, 0x43, 1u << 20};
-  quic_connio_init(&cl, quic_span_of(g_dcid, 8), &cin);
+  quic_connio_init(&cl, wired_span_of(g_dcid, 8), &cin);
   connrunner_arm_onertt(&cl);
   connrunner_arm_onertt(&r.io);
 
@@ -364,20 +364,20 @@ static void test_advance_sends_stop_sending_reset(void) {
   u8  pkt[256];
   usz pn;
   {
-    quic_connio_send_in sin = {QUIC_LEVEL_ONERTT, quic_span_of(frame, fl)};
-    quic_obuf           ob  = quic_obuf_of(pkt, sizeof pkt);
+    quic_connio_send_in sin = {QUIC_LEVEL_ONERTT, wired_span_of(frame, fl)};
+    wired_obuf          ob  = quic_obuf_of(pkt, sizeof pkt);
     pn                      = quic_connio_send(&cl, &sin, &ob);
   }
   CHECK(pn != 0);
 
   {
-    usz out = quic_connrunner_advance(&r, 0, quic_mspan_of(pkt, pn));
+    usz out = quic_connrunner_advance(&r, 0, wired_mspan_of(pkt, pn));
     CHECK(out != 0); /* a RESET_STREAM was sealed, not silence */
     CHECK(r.io.disp.stop_sending_owed == 0); /* the flag fired and cleared */
 
     CHECK(
-        quic_connio_recv(&cl, QUIC_LEVEL_ONERTT, quic_mspan_of(r.txbuf, out)) ==
-        1);
+        quic_connio_recv(
+            &cl, QUIC_LEVEL_ONERTT, wired_mspan_of(r.txbuf, out)) == 1);
     CHECK(
         cl.disp.reset_stream_stream_id == 5 &&
         cl.disp.reset_stream_error_code == 0x77);
@@ -394,8 +394,8 @@ static usz seal_ack(quic_connio* peer, u64 largest, u8* out, usz cap) {
   usz fl           = quic_ack_encode(frames, sizeof(frames), &f);
   CHECK(fl != 0 && frames[0] == 0x02); /* a real ACK frame was encoded */
   {
-    quic_connio_send_in sin = {QUIC_LEVEL_INITIAL, quic_span_of(frames, fl)};
-    quic_obuf           ob  = quic_obuf_of(out, cap);
+    quic_connio_send_in sin = {QUIC_LEVEL_INITIAL, wired_span_of(frames, fl)};
+    wired_obuf          ob  = quic_obuf_of(out, cap);
     return quic_connio_send(peer, &sin, &ob);
   }
 }
@@ -407,13 +407,13 @@ static void test_sentmeta_inflight_tracking(void) {
   quic_connio         peer;
   quic_connrunner     r;
   quic_connio_init_in cin = {0, 0xc3, 1u << 20};
-  quic_connio_init(&peer, quic_span_of(g_dcid, 8), &cin);
+  quic_connio_init(&peer, wired_span_of(g_dcid, 8), &cin);
   arm(&peer);
   mk_runner(&r, 1);
   r.loop.gate.handshake_complete = 1;
   r.loop.have_new_data           = 1; /* originate one in-flight packet */
 
-  usz out = quic_connrunner_advance(&r, 1, quic_mspan_of((u8*)0, 0));
+  usz out = quic_connrunner_advance(&r, 1, wired_mspan_of((u8*)0, 0));
   CHECK(out != 0);                      /* a packet went on the wire */
   CHECK(r.sent.total_in_flight == out); /* its bytes are counted in flight */
   CHECK(quic_sentmeta_find(&r.sent, 0) != QUIC_SENTMETA_CAP); /* pn 0 tracked */
@@ -422,7 +422,7 @@ static void test_sentmeta_inflight_tracking(void) {
   u8  ack[256];
   usz an = seal_ack(&peer, 0, ack, sizeof(ack)); /* ACK Largest=0 */
   CHECK(an != 0);
-  quic_connrunner_advance(&r, 2, quic_mspan_of(ack, an));
+  quic_connrunner_advance(&r, 2, wired_mspan_of(ack, an));
   CHECK(r.io.disp.has_ack == 1);      /* the ACK was opened and dispatched */
   CHECK(r.sent.total_in_flight == 0); /* acked -> dropped from in flight */
   CHECK(quic_sentmeta_find(&r.sent, 0) == QUIC_SENTMETA_CAP);
@@ -597,7 +597,8 @@ static int recv_retry_flat(
     const u8*        token,
     usz              token_len) {
   quic_retry_event e = {
-      tag_valid, quic_span_of(scid, scid_len), quic_span_of(token, token_len)};
+      tag_valid, wired_span_of(scid, scid_len),
+      wired_span_of(token, token_len)};
   return quic_connrunner_recv_retry(r, &e);
 }
 

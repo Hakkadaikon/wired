@@ -26,7 +26,7 @@ static void load_vec(u8 qx[32], u8 qy[32], u8 r[32], u8 s[32], u8 h[32]) {
   ecdsa_hb32(QY, qy);
   ecdsa_hb32(SR, r);
   ecdsa_hb32(SS, s);
-  quic_sha256((const u8*)"sample", 6, h);
+  wired_sha256((const u8*)"sample", 6, h);
 }
 
 /* Valid signature verifies. */

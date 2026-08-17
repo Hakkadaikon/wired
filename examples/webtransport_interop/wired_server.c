@@ -55,10 +55,10 @@ static int str_eq(const char* a, const char* b) {
   return a[i] == b[i];
 }
 
-static usz cstr_len_opt(const char* s) { return s ? quic_cstr_len(s) : 0; }
+static usz cstr_len_opt(const char* s) { return s ? wired_cstr_len(s) : 0; }
 
 /* First index of c in s, or -1. */
-static ssz span_find(quic_span s, u8 c) {
+static ssz span_find(wired_span s, u8 c) {
   for (usz i = 0; i < s.n; i++)
     if (s.p[i] == c) return (ssz)i;
   return -1;
@@ -70,7 +70,7 @@ static int bytes_same(const u8* a, const u8* b, usz n) {
   return 1;
 }
 
-static int span_eq(quic_span a, quic_span b) {
+static int span_eq(wired_span a, wired_span b) {
   return a.n == b.n && bytes_same(a.p, b.p, a.n);
 }
 
@@ -82,15 +82,15 @@ static usz cat_str(char* dst, usz cap, usz at, const char* s) {
   return at;
 }
 
-static usz cat_span(char* dst, usz cap, usz at, quic_span s) {
+static usz cat_span(char* dst, usz cap, usz at, wired_span s) {
   usz i;
   for (i = 0; i < s.n && at < cap - 1; i++) dst[at++] = (char)s.p[i];
   dst[at] = 0;
   return at;
 }
 
-static quic_span strip_slash(quic_span p) {
-  if (p.n && p.p[0] == '/') return quic_span_of(p.p + 1, p.n - 1);
+static wired_span strip_slash(wired_span p) {
+  if (p.n && p.p[0] == '/') return wired_span_of(p.p + 1, p.n - 1);
   return p;
 }
 
@@ -102,8 +102,8 @@ static quic_span strip_slash(quic_span p) {
  * varint session id) written ahead of a GET line for uni/bidi opens. */
 #define GET_SIG_CAP 16
 
-static quic_span g_endpoint; /* one endpoint (the reference peer's model) */
-static quic_span g_files[FILES_MAX];
+static wired_span g_endpoint; /* one endpoint (the reference peer's model) */
+static wired_span g_files[FILES_MAX];
 static usz       g_nfiles;
 static u8        g_get[FILES_MAX][GETLINE_CAP]; /* "GET <file>" lines, kept
                                                  * alive for the whole run */
@@ -113,11 +113,11 @@ static usz g_get_len[FILES_MAX];
 static u8  g_get_sig[FILES_MAX][GET_SIG_CAP + GETLINE_CAP];
 static usz g_get_sig_len[FILES_MAX];
 
-static void requests_add(quic_span tok) {
+static void requests_add(wired_span tok) {
   ssz slash = span_find(tok, '/');
   if (slash < 0 || g_nfiles >= FILES_MAX) return;
-  g_endpoint          = quic_span_of(tok.p, (usz)slash);
-  g_files[g_nfiles++] = quic_span_of(
+  g_endpoint          = wired_span_of(tok.p, (usz)slash);
+  g_files[g_nfiles++] = wired_span_of(
       tok.p + (usz)slash + 1, tok.n - (usz)slash - 1);
 }
 
@@ -131,14 +131,14 @@ static void requests_parse(const char* req) {
   usz i = 0, n = cstr_len_opt(req);
   while (i < n) {
     usz j = token_end(req, i, n);
-    if (j > i) requests_add(quic_span_of((const u8*)req + i, j - i));
+    if (j > i) requests_add(wired_span_of((const u8*)req + i, j - i));
     i = j + 1;
   }
 }
 
 static void prep_get_lines(void) {
   for (usz i = 0; i < g_nfiles; i++)
-    g_get_len[i] = quic_wtwire_get_put(g_get[i], GETLINE_CAP, g_files[i]);
+    g_get_len[i] = wired_wtwire_get_put(g_get[i], GETLINE_CAP, g_files[i]);
 }
 
 /* --- session table: connect stream id -> endpoint path ------------------- */
@@ -171,19 +171,19 @@ static session_slot* session_alloc(void) {
   return &g_sessions[0]; /* table full: recycle the oldest slot */
 }
 
-static void session_note(const wired_wt_session* s, quic_span path) {
+static void session_note(const wired_wt_session* s, wired_span path) {
   session_slot* e  = session_find(s->connect_stream_id);
-  quic_span     ep = strip_slash(path);
+  wired_span     ep = strip_slash(path);
   if (!e) e = session_alloc();
   e->used = 1;
   e->sid  = s->connect_stream_id;
   e->len  = cat_span(e->path, sizeof e->path, 0, ep);
 }
 
-static quic_span session_endpoint(const wired_wt_session* s) {
+static wired_span session_endpoint(const wired_wt_session* s) {
   session_slot* e = session_find(s->connect_stream_id);
-  if (!e) return quic_span_of(0, 0);
-  return quic_span_of((const u8*)e->path, e->len);
+  if (!e) return wired_span_of(0, 0);
+  return wired_span_of((const u8*)e->path, e->len);
 }
 
 /* --- static send buffers (view-based send APIs need stable storage) ------ */
@@ -216,7 +216,7 @@ static u8* dg_take(void) {
 /* --- file paths ----------------------------------------------------------- */
 
 /* Read /www/<endpoint>/<file> into out; negative when missing/unreadable. */
-static ssz www_read(quic_span endpoint, quic_span file, quic_mspan out) {
+static ssz www_read(wired_span endpoint, wired_span file, wired_mspan out) {
   char path[PATH_CAP];
   usz  at = cat_str(path, sizeof path, 0, "/www/");
   at      = cat_span(path, sizeof path, at, endpoint);
@@ -226,7 +226,7 @@ static ssz www_read(quic_span endpoint, quic_span file, quic_mspan out) {
 }
 
 /* /downloads/<endpoint>/<name> into dest (endpoint from REQUESTS). */
-static void dest_build(char* dest, quic_span name) {
+static void dest_build(char* dest, wired_span name) {
   usz at = cat_str(dest, PATH_CAP, 0, "/downloads/");
   at     = cat_span(dest, PATH_CAP, at, g_endpoint);
   at     = cat_str(dest, PATH_CAP, at, "/");
@@ -253,39 +253,39 @@ static void setup_downloads(void) {
 
 /* Client uni "GET <file>": signal prefix + "PUSH <basename>\n" + content on
  * a NEW uni stream, closed after the payload (the SDK adds the FIN). */
-static void serve_uni_get(wired_wt_session* s, quic_span ep, quic_span file) {
+static void serve_uni_get(wired_wt_session* s, wired_span ep, wired_span file) {
   u8* slot = pool_take();
-  usz sig  = quic_wtwire_signal_put(slot, POOL_HEAD, 0, s->connect_stream_id);
-  usz head = quic_wtwire_push_head_put(
-      slot + sig, POOL_HEAD - sig, quic_wtwire_basename(file));
+  usz sig  = wired_wtwire_signal_put(slot, POOL_HEAD, 0, s->connect_stream_id);
+  usz head = wired_wtwire_push_head_put(
+      slot + sig, POOL_HEAD - sig, wired_wtwire_basename(file));
   ssz got;
   if (sig == 0 || head == 0) return;
   head += sig;
-  got = www_read(ep, file, quic_mspan_of(slot + head, POOL_BODY));
+  got = www_read(ep, file, wired_mspan_of(slot + head, POOL_BODY));
   if (got < 0) return; /* missing file: ignore, keep serving */
-  wired_server_wt_open_uni(s, quic_span_of(slot, head + (usz)got));
+  wired_server_wt_open_uni(s, wired_span_of(slot, head + (usz)got));
 }
 
 /* Client bidi "GET <file>": bare content back on the SAME stream. */
 static void serve_bidi_get(
-    wired_wt_session* s, u64 stream_id, quic_span ep, quic_span file) {
+    wired_wt_session* s, u64 stream_id, wired_span ep, wired_span file) {
   u8* slot = pool_take();
-  ssz got  = www_read(ep, file, quic_mspan_of(slot, POOL_BODY));
+  ssz got  = www_read(ep, file, wired_mspan_of(slot, POOL_BODY));
   if (got < 0) return;
-  wired_server_wt_stream_reply(s, stream_id, quic_span_of(slot, (usz)got));
+  wired_server_wt_stream_reply(s, stream_id, wired_span_of(slot, (usz)got));
 }
 
 /* Datagram "GET <file>": one "PUSH <basename>\n" + content datagram back
  * (the SDK adds the quarter-stream-id prefix). */
-static void serve_dg_get(wired_wt_session* s, quic_span ep, quic_span file) {
+static void serve_dg_get(wired_wt_session* s, wired_span ep, wired_span file) {
   u8* slot = dg_take();
   usz head =
-      quic_wtwire_push_head_put(slot, DG_CAP, quic_wtwire_basename(file));
+      wired_wtwire_push_head_put(slot, DG_CAP, wired_wtwire_basename(file));
   ssz got;
   if (head == 0) return;
-  got = www_read(ep, file, quic_mspan_of(slot + head, DG_CAP - head));
+  got = www_read(ep, file, wired_mspan_of(slot + head, DG_CAP - head));
   if (got < 0) return;
-  wired_server_wt_send_datagram_to(s, quic_span_of(slot, head + (usz)got));
+  wired_server_wt_send_datagram_to(s, wired_span_of(slot, head + (usz)got));
 }
 
 /* --- per-stream receive state -------------------------------------------- */
@@ -345,7 +345,7 @@ static stream_slot* stream_open(u64 id) {
 
 /* --- feeding received stream chunks, one handler per state --------------- */
 
-static void head_append(stream_slot* e, quic_span d) {
+static void head_append(stream_slot* e, wired_span d) {
   usz i;
   for (i = 0; i < d.n && e->head_len < sizeof e->head; i++)
     e->head[e->head_len++] = d.p[i];
@@ -354,23 +354,23 @@ static void head_append(stream_slot* e, quic_span d) {
 /* Full "GET <file>" line gathered (FIN seen): answer by stream type.
  * RFC 9000 2.1: a client-initiated uni stream has id % 4 == 2. */
 static void finish_get(wired_wt_session* s, stream_slot* e) {
-  quic_span file;
-  quic_span ep = session_endpoint(s);
-  if (!quic_wtwire_get_parse(quic_span_of(e->head, e->head_len), &file))
+  wired_span file;
+  wired_span ep = session_endpoint(s);
+  if (!wired_wtwire_get_parse(wired_span_of(e->head, e->head_len), &file))
     return;
   if ((e->stream_id & 3) == 2) serve_uni_get(s, ep, file);
   else serve_bidi_get(s, e->stream_id, ep, file);
 }
 
 static void feed_none(
-    wired_wt_session* s, stream_slot* e, quic_span d, int fin) {
+    wired_wt_session* s, stream_slot* e, wired_span d, int fin) {
   (void)s;
   (void)e;
   (void)d;
   (void)fin;
 }
 
-static void feed_get(wired_wt_session* s, stream_slot* e, quic_span d, int fin) {
+static void feed_get(wired_wt_session* s, stream_slot* e, wired_span d, int fin) {
   head_append(e, d);
   if (fin) {
     finish_get(s, e);
@@ -380,44 +380,44 @@ static void feed_get(wired_wt_session* s, stream_slot* e, quic_span d, int fin) 
 
 /* Header complete: parse the name from head[0..head_n), create the download
  * file with this chunk's content bytes past the newline, keep appending. */
-static void push_start(stream_slot* e, usz head_n, quic_span rest, int fin) {
-  quic_span name, content;
-  if (!quic_wtwire_push_parse(
-          quic_span_of(e->head, head_n), &name, &content)) {
+static void push_start(stream_slot* e, usz head_n, wired_span rest, int fin) {
+  wired_span name, content;
+  if (!wired_wtwire_push_parse(
+          wired_span_of(e->head, head_n), &name, &content)) {
     e->state = ST_FREE;
     return;
   }
-  dest_build(e->dest, quic_wtwire_basename(name));
+  dest_build(e->dest, wired_wtwire_basename(name));
   wired_fio_write_new(e->dest, rest);
   e->state = fin ? ST_FREE : ST_PUSH_BODY;
 }
 
 static void feed_push_head(
-    wired_wt_session* s, stream_slot* e, quic_span d, int fin) {
+    wired_wt_session* s, stream_slot* e, wired_span d, int fin) {
   usz prev = e->head_len;
   ssz nl;
   usz skip;
   (void)s;
   head_append(e, d);
-  nl = span_find(quic_span_of(e->head, e->head_len), '\n');
+  nl = span_find(wired_span_of(e->head, e->head_len), '\n');
   if (nl < 0) {
     if (fin) e->state = ST_FREE; /* FIN before any newline: drop */
     return;
   }
   skip = (usz)nl + 1 - prev; /* header bytes consumed from THIS chunk */
-  push_start(e, (usz)nl + 1, quic_span_of(d.p + skip, d.n - skip), fin);
+  push_start(e, (usz)nl + 1, wired_span_of(d.p + skip, d.n - skip), fin);
 }
 
 /* ST_PUSH_BODY and ST_BODY: stream the chunk straight to the download file
  * (never buffering the whole body in RAM). */
 static void feed_save(
-    wired_wt_session* s, stream_slot* e, quic_span d, int fin) {
+    wired_wt_session* s, stream_slot* e, wired_span d, int fin) {
   (void)s;
   wired_fio_append(e->dest, d);
   if (fin) e->state = ST_FREE;
 }
 
-typedef void (*feed_fn)(wired_wt_session*, stream_slot*, quic_span, int);
+typedef void (*feed_fn)(wired_wt_session*, stream_slot*, wired_span, int);
 
 static const feed_fn FEEDS[] = {
     feed_none,      /* ST_FREE */
@@ -428,7 +428,7 @@ static const feed_fn FEEDS[] = {
 };
 
 static void on_stream_data(
-    void* ctx, wired_wt_session* s, u64 id, quic_span data, int fin) {
+    void* ctx, wired_wt_session* s, u64 id, wired_span data, int fin) {
   stream_slot* e = stream_find(id);
   (void)ctx;
   if (!e) e = stream_open(id);
@@ -442,7 +442,7 @@ static void on_stream_data(
  * carry the WT stream signal ahead of the line; datagrams do not). */
 static void prep_sig_gets(wired_wt_session* s, int bidi) {
   for (usz i = 0; i < g_nfiles; i++) {
-    usz sig = quic_wtwire_signal_put(
+    usz sig = wired_wtwire_signal_put(
         g_get_sig[i], GET_SIG_CAP, bidi, s->connect_stream_id);
     for (usz j = 0; j < g_get_len[i]; j++) g_get_sig[i][sig + j] = g_get[i][j];
     g_get_sig_len[i] = sig + g_get_len[i];
@@ -452,26 +452,26 @@ static void prep_sig_gets(wired_wt_session* s, int bidi) {
 static void send_gets_uni(wired_wt_session* s) {
   prep_sig_gets(s, 0);
   for (usz i = 0; i < g_nfiles; i++)
-    wired_server_wt_open_uni(s, quic_span_of(g_get_sig[i], g_get_sig_len[i]));
+    wired_server_wt_open_uni(s, wired_span_of(g_get_sig[i], g_get_sig_len[i]));
 }
 
 /* Register the reply stream (same id) before the peer's bytes arrive, so
  * on_stream_data streams them to the right /downloads file. */
-static void body_slot_open(u64 sid, quic_span file) {
+static void body_slot_open(u64 sid, wired_span file) {
   stream_slot* e = stream_alloc();
   if (!e) return;
   e->state     = ST_BODY;
   e->stream_id = sid;
   e->head_len  = 0;
-  dest_build(e->dest, quic_wtwire_basename(file));
-  wired_fio_write_new(e->dest, quic_span_of(0, 0));
+  dest_build(e->dest, wired_wtwire_basename(file));
+  wired_fio_write_new(e->dest, wired_span_of(0, 0));
 }
 
 static void send_gets_bidi(wired_wt_session* s) {
   prep_sig_gets(s, 1);
   for (usz i = 0; i < g_nfiles; i++) {
     i64 sid = wired_server_wt_open_bidi(
-        s, quic_span_of(g_get_sig[i], g_get_sig_len[i]));
+        s, wired_span_of(g_get_sig[i], g_get_sig_len[i]));
     if (sid >= 0) body_slot_open((u64)sid, g_files[i]);
   }
 }
@@ -479,7 +479,7 @@ static void send_gets_bidi(wired_wt_session* s) {
 static void send_gets_dg(wired_wt_session* s) {
   for (usz i = 0; i < g_nfiles; i++)
     wired_server_wt_send_datagram_to(
-        s, quic_span_of(g_get[i], g_get_len[i]));
+        s, wired_span_of(g_get[i], g_get_len[i]));
 }
 
 typedef void (*send_fn)(wired_wt_session*);
@@ -492,13 +492,13 @@ static const send_fn SENDS[MODE_COUNT] = {
     send_gets_dg,   /* MODE_DG_SEND */
 };
 
-static void session_send_gets(wired_wt_session* s, quic_span path) {
+static void session_send_gets(wired_wt_session* s, wired_span path) {
   if (SENDS[g_mode] && span_eq(strip_slash(path), g_endpoint))
     SENDS[g_mode](s);
 }
 
 static void on_session(
-    void* ctx, wired_wt_session* s, quic_span path, quic_span protocol) {
+    void* ctx, wired_wt_session* s, wired_span path, wired_span protocol) {
   (void)ctx;
   session_note(s, path);
   if (g_mode == MODE_HANDSHAKE)
@@ -508,32 +508,32 @@ static void on_session(
 
 /* --- datagrams ------------------------------------------------------------ */
 
-static void dg_serve(wired_wt_session* s, quic_span msg) {
-  quic_span file;
-  if (!quic_wtwire_get_parse(msg, &file)) return;
+static void dg_serve(wired_wt_session* s, wired_span msg) {
+  wired_span file;
+  if (!wired_wtwire_get_parse(msg, &file)) return;
   serve_dg_get(s, session_endpoint(s), file);
 }
 
 /* One PUSH datagram carries a whole (sub-MTU) file. */
-static void dg_save(quic_span msg) {
-  quic_span name, content;
+static void dg_save(wired_span msg) {
+  wired_span name, content;
   char      dest[PATH_CAP];
-  if (!quic_wtwire_push_parse(msg, &name, &content)) return;
-  dest_build(dest, quic_wtwire_basename(name));
+  if (!wired_wtwire_push_parse(msg, &name, &content)) return;
+  dest_build(dest, wired_wtwire_basename(name));
   wired_fio_write_new(dest, content);
 }
 
-static void dg_handle(wired_wt_session* s, quic_span msg) {
+static void dg_handle(wired_wt_session* s, wired_span msg) {
   if (g_mode == MODE_TRANSFER) dg_serve(s, msg);
   if (g_mode == MODE_DG_SEND) dg_save(msg);
 }
 
-static void on_datagram(void* ctx, wired_wt_session* s, quic_span dg) {
+static void on_datagram(void* ctx, wired_wt_session* s, wired_span dg) {
   u64 sid;
-  usz used = quic_wtwire_qsid_take(dg, &sid);
+  usz used = wired_wtwire_qsid_take(dg, &sid);
   (void)ctx;
   if (!used) return;
-  dg_handle(s, quic_span_of(dg.p + used, dg.n - used));
+  dg_handle(s, wired_span_of(dg.p + used, dg.n - used));
 }
 
 /* --- plain HTTP/3 app (the runner only health-checks it) ----------------- */
@@ -542,7 +542,7 @@ static int app_on_request(
     void*                       ctx,
     const wired_h3reqdrive_req* req,
     u64                         offset,
-    quic_obuf*                  body_out,
+    wired_obuf*                  body_out,
     const char**                content_type,
     int*                        more,
     u64*                        total_size) {
@@ -581,7 +581,7 @@ static void server_identity(wired_srvboot_id* id, server_keys* k) {
     k->seed[i] = (u8)(0xa0 + i);
     k->rnd[i]  = (u8)(0xc0 + i);
   }
-  quic_x25519_base(k->pub, k->priv);
+  wired_x25519_base(k->pub, k->priv);
   id->priv                    = k->priv;
   id->pub                     = k->pub;
   id->cert_seed               = k->seed;

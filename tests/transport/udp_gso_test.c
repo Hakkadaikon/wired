@@ -44,7 +44,7 @@ static int gso_recv_count(i64 sfd) {
   u8  rx[64];
   int n = 0;
   for (int i = 0; i < 3; i++) {
-    if (wired_udp_recv(sfd, quic_mspan_of(rx, sizeof rx)) <= 0) break;
+    if (wired_udp_recv(sfd, wired_mspan_of(rx, sizeof rx)) <= 0) break;
     n++;
   }
   return n;
@@ -60,7 +60,7 @@ static void test_send_batch_delivers_segments(void) {
   if (!gso_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
   CHECK(
       wired_udp_send_batch(
-          cfd, &srv, quic_span_of(payload, sizeof payload), 10) ==
+          cfd, &srv, wired_span_of(payload, sizeof payload), 10) ==
       (i64)sizeof payload);
   CHECK(gso_recv_count(sfd) == 3);
   wired_udp_close(cfd);
@@ -78,7 +78,7 @@ static void test_send_gso_delivers_total_bytes(void) {
   wired_udp_gso_enable(cfd, 10);
   CHECK(
       wired_udp_send_gso(
-          cfd, &srv, quic_span_of(payload, sizeof payload), 10) ==
+          cfd, &srv, wired_span_of(payload, sizeof payload), 10) ==
       (i64)sizeof payload);
   CHECK(gso_recv_count(sfd) == 3);
   wired_udp_close(cfd);
@@ -122,7 +122,7 @@ static void test_recvmmsg_nowait_returns_immediately_when_empty(void) {
   i64           sfd, cfd;
   quic_sockaddr srv;
   u8            rx[64];
-  quic_mmsg_buf bufs[1] = {{quic_mspan_of(rx, sizeof rx), {0}, 0, 0}};
+  quic_mmsg_buf bufs[1] = {{wired_mspan_of(rx, sizeof rx), {0}, 0, 0}};
   if (!gso_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
   CHECK(wired_udp_recvmmsg_nowait(sfd, bufs, 1) < 0);
   wired_udp_close(cfd);
@@ -135,11 +135,11 @@ static void test_recvmmsg_nowait_delivers_queued_datagram(void) {
   i64           sfd, cfd;
   quic_sockaddr srv;
   u8            rx[64];
-  quic_mmsg_buf bufs[1]    = {{quic_mspan_of(rx, sizeof rx), {0}, 0, 0}};
+  quic_mmsg_buf bufs[1]    = {{wired_mspan_of(rx, sizeof rx), {0}, 0, 0}};
   const u8      payload[5] = {1, 2, 3, 4, 5};
   if (!gso_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
   CHECK(
-      wired_udp_send(cfd, &srv, quic_span_of(payload, sizeof payload)) ==
+      wired_udp_send(cfd, &srv, wired_span_of(payload, sizeof payload)) ==
       (i64)sizeof payload);
   CHECK(wired_udp_recvmmsg_nowait(sfd, bufs, 1) == 1);
   CHECK(bufs[0].len == sizeof payload);
@@ -213,12 +213,12 @@ static void test_udp_ect0_enable_sets_tos(void) {
   i64           sfd, cfd;
   quic_sockaddr srv;
   u8            rx[64];
-  quic_mmsg_buf bufs[1]    = {{quic_mspan_of(rx, sizeof rx), {0}, 0, 0}};
+  quic_mmsg_buf bufs[1]    = {{wired_mspan_of(rx, sizeof rx), {0}, 0, 0}};
   const u8      payload[3] = {1, 2, 3};
   if (!ecn_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
   CHECK(wired_udp_ect0_enable(cfd) == 0);
   CHECK(
-      wired_udp_send(cfd, &srv, quic_span_of(payload, sizeof payload)) ==
+      wired_udp_send(cfd, &srv, wired_span_of(payload, sizeof payload)) ==
       (i64)sizeof payload);
   CHECK(wired_udp_recvmmsg(sfd, bufs, 1) == 1);
   CHECK(bufs[0].ecn == 2); /* ECT(0) */
@@ -233,11 +233,11 @@ static void test_udp_recvmmsg_no_cmsg_defaults_to_zero_e2e(void) {
   i64           sfd, cfd;
   quic_sockaddr srv;
   u8            rx[64];
-  quic_mmsg_buf bufs[1]    = {{quic_mspan_of(rx, sizeof rx), {0}, 0, 0}};
+  quic_mmsg_buf bufs[1]    = {{wired_mspan_of(rx, sizeof rx), {0}, 0, 0}};
   const u8      payload[3] = {9, 9, 9};
   if (!ecn_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
   CHECK(
-      wired_udp_send(cfd, &srv, quic_span_of(payload, sizeof payload)) ==
+      wired_udp_send(cfd, &srv, wired_span_of(payload, sizeof payload)) ==
       (i64)sizeof payload);
   CHECK(wired_udp_recvmmsg(sfd, bufs, 1) == 1);
   CHECK(bufs[0].ecn == 0);
@@ -253,16 +253,16 @@ static void test_udp_recvmmsg_batch_ecn_per_slot(void) {
   quic_sockaddr srv;
   u8            rx0[64], rx1[64], rx2[64];
   quic_mmsg_buf bufs[3] = {
-      {quic_mspan_of(rx0, sizeof rx0), {0}, 0, 0},
-      {quic_mspan_of(rx1, sizeof rx1), {0}, 0, 0},
-      {quic_mspan_of(rx2, sizeof rx2), {0}, 0, 0}};
+      {wired_mspan_of(rx0, sizeof rx0), {0}, 0, 0},
+      {wired_mspan_of(rx1, sizeof rx1), {0}, 0, 0},
+      {wired_mspan_of(rx2, sizeof rx2), {0}, 0, 0}};
   const u8 payload[3] = {1, 2, 3};
   int      n, i;
   if (!ecn_open_sockets(&sfd, &cfd, &srv)) return; /* sandbox: skip */
   CHECK(wired_udp_ect0_enable(cfd) == 0);
   for (i = 0; i < 3; i++)
     CHECK(
-        wired_udp_send(cfd, &srv, quic_span_of(payload, sizeof payload)) ==
+        wired_udp_send(cfd, &srv, wired_span_of(payload, sizeof payload)) ==
         (i64)sizeof payload);
   n = (int)wired_udp_recvmmsg(sfd, bufs, 3);
   CHECK(n == 3);

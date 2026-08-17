@@ -10,17 +10,17 @@ static int fits(usz token_len, usz scid_len) {
 
 /* RFC 9000 17.2.5.2 */
 int quic_retrydrive_apply(
-    quic_span retry_token, quic_span retry_scid, quic_retrydrive_state* out) {
+    wired_span retry_token, wired_span retry_scid, quic_retrydrive_state* out) {
   usz off = 0;
   if (!fits(retry_token.n, retry_scid.n)) return 0;
   quic_put_bytes(
-      quic_mspan_of(out->token, sizeof out->token), &off,
-      quic_span_of(retry_token.p, retry_token.n));
+      wired_mspan_of(out->token, sizeof out->token), &off,
+      wired_span_of(retry_token.p, retry_token.n));
   out->token_len = retry_token.n;
   off            = 0;
   quic_put_bytes(
-      quic_mspan_of(out->dcid, sizeof out->dcid), &off,
-      quic_span_of(retry_scid.p, retry_scid.n));
+      wired_mspan_of(out->dcid, sizeof out->dcid), &off,
+      wired_span_of(retry_scid.p, retry_scid.n));
   out->dcid_len     = (u8)retry_scid.n;
   out->received     = 1;
   out->key_rederive = 1;

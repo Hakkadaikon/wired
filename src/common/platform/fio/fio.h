@@ -27,7 +27,7 @@
  *         openat/read fails; WIRED_FIO_ETOOBIG when buf is full but the
  *         file still has unread bytes
  */
-ssz wired_fio_read(const char* path, quic_mspan buf);
+ssz wired_fio_read(const char* path, wired_mspan buf);
 
 /**
  * Append data to the file at path, creating it (mode 0600) if it does not
@@ -40,7 +40,7 @@ ssz wired_fio_read(const char* path, quic_mspan buf);
  * @return bytes written (== data.n) on success; a negative -errno when
  *         openat/write fails
  */
-ssz wired_fio_append(const char* path, quic_span data);
+ssz wired_fio_append(const char* path, wired_span data);
 
 /**
  * Open path for reading (openat(AT_FDCWD, path, O_RDONLY)), leaving the
@@ -75,7 +75,7 @@ ssz wired_fio_size(const char* path);
  * @return bytes read (0 at EOF, < buf.n only at EOF) on success; a negative
  *         -errno when the read fails
  */
-ssz wired_fio_pread(i64 fd, quic_mspan buf, u64 off);
+ssz wired_fio_pread(i64 fd, wired_mspan buf, u64 off);
 
 /**
  * Create the directory at path (mkdirat(AT_FDCWD, path, 0755)). A path that
@@ -99,7 +99,7 @@ i64 wired_fio_mkdir(const char* path);
  * @param data bytes to write
  * @return 0 on success; a negative -errno when openat/write fails
  */
-i64 wired_fio_write_new(const char* path, quic_span data);
+i64 wired_fio_write_new(const char* path, wired_span data);
 
 /**
  * Close a descriptor from wired_fio_open. Idempotent misuse (already closed,

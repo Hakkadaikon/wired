@@ -317,7 +317,7 @@ Legend:
   - test: `tests/app/srvrun_test.c` —
     `test_srvrun_wt_reset_mapped_delivers_app_error_code`
   - evidence: the receive-side stream-reset handling path in srvrun.c now
-    calls `quic_wterrmap_from_http3` to decide whether a mapped application
+    calls `wired_wterrmap_from_http3` to decide whether a mapped application
     error code or none is delivered to the app.
 
 ## §4.5 Datagrams
@@ -498,7 +498,7 @@ Legend:
   - evidence: a stream open exceeding the limit refuses the open and
     latches `wt_flow_violation`; `srvrun_close_wt_flow_violations` closes
     the session on the next step with WT_FLOW_CONTROL_ERROR mapped through
-    `quic_wterrmap_to_http3`.
+    `wired_wterrmap_to_http3`.
 - [~] WTH3-059 (§5.3) The WT_STREAMS_BLOCKED capsule can be sent to
   indicate that an endpoint was unable to create a stream due to the
   session-level stream limit.

@@ -12,19 +12,19 @@
 
 /** Parsed CertificateRequest: views into the message buffer. */
 typedef struct {
-  quic_span ctx;      /* certificate_request_context */
-  quic_span sig_algs; /* signature_algorithms scheme list */
+  wired_span ctx;      /* certificate_request_context */
+  wired_span sig_algs; /* signature_algorithms scheme list */
 } quic_certreq;
 
 /* Build a CertificateRequest with an empty context and a single
  * signature_algorithms extension whose scheme list is sig_algs (a sequence of
  * 2-byte SignatureSchemes). Writes into out and sets out->len to the message
  * length. Returns 1 on success, 0 if it does not fit. */
-int quic_certreq_build(quic_span sig_algs, quic_obuf* out);
+int quic_certreq_build(wired_span sig_algs, wired_obuf* out);
 
 /* Parse a CertificateRequest message msg (including the handshake header).
  * On success fills *out and returns 1. Returns 0 if truncated, not a
  * CertificateRequest, or signature_algorithms is absent. */
-int quic_certreq_parse(quic_span msg, quic_certreq* out);
+int quic_certreq_parse(wired_span msg, quic_certreq* out);
 
 #endif

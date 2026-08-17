@@ -8,7 +8,7 @@
 /* Install the same 1-RTT keys on both ends so a sealed packet opens. */
 static void install_1rtt(quic_connection* c, const u8 dcid[8]) {
   quic_initial_keys k;
-  quic_initial_derive(quic_span_of(dcid, 8), 1, QUIC_VERSION_1, &k);
+  quic_initial_derive(wired_span_of(dcid, 8), 1, QUIC_VERSION_1, &k);
   quic_keyset_install(&c->keys, QUIC_LEVEL_ONERTT, &k);
 }
 
@@ -36,8 +36,8 @@ static void test_connection_roundtrip(void) {
   usz fl = quic_frame_put_stream(frames, sizeof(frames), &sf);
 
   CHECK(
-      quic_connection_send(&srv, QUIC_LEVEL_ONERTT, quic_span_of(frames, fl)) ==
-      1);
+      quic_connection_send(
+          &srv, QUIC_LEVEL_ONERTT, wired_span_of(frames, fl)) == 1);
 
   quic_framewalk it;
   CHECK(quic_connection_recv(&cli, QUIC_LEVEL_ONERTT, &it) == 1);
@@ -62,7 +62,7 @@ static void test_connection_guards(void) {
 
   u8 frames[1] = {0x01}; /* PING */
   CHECK(
-      quic_connection_send(&c, QUIC_LEVEL_ONERTT, quic_span_of(frames, 1)) ==
+      quic_connection_send(&c, QUIC_LEVEL_ONERTT, wired_span_of(frames, 1)) ==
       0);
 
   quic_framewalk it;

@@ -18,7 +18,8 @@
  * @param msg message to authenticate
  * @param out receives the 32-byte MAC
  */
-void quic_hmac_sha256(quic_span key, quic_span msg, u8 out[QUIC_SHA256_DIGEST]);
+void quic_hmac_sha256(
+    wired_span key, wired_span msg, u8 out[QUIC_SHA256_DIGEST]);
 
 /**
  * Compute HMAC-SHA-256(key, msg) truncated to its leftmost out_len bytes
@@ -31,7 +32,7 @@ void quic_hmac_sha256(quic_span key, quic_span msg, u8 out[QUIC_SHA256_DIGEST]);
  * @param out_len number of leftmost bytes to keep (0..QUIC_SHA256_DIGEST)
  */
 void quic_hmac_sha256_truncated(
-    quic_span key, quic_span msg, u8* out, usz out_len);
+    wired_span key, wired_span msg, u8* out, usz out_len);
 
 /**
  * Compute HMAC-SHA-384(key, msg) (RFC 2104, FIPS 180-4 SHA-384).
@@ -40,6 +41,7 @@ void quic_hmac_sha256_truncated(
  * @param msg message to authenticate
  * @param out receives the 48-byte MAC
  */
-void quic_hmac_sha384(quic_span key, quic_span msg, u8 out[QUIC_SHA384_DIGEST]);
+void quic_hmac_sha384(
+    wired_span key, wired_span msg, u8 out[QUIC_SHA384_DIGEST]);
 
 #endif

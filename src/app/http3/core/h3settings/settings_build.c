@@ -109,7 +109,7 @@ static void append_grease(const quic_h3settings_in* in, quic_h3_settings* s) {
 }
 
 /* RFC 9114 7.2.4 */
-int quic_h3settings_build(const quic_h3settings_in* in, quic_obuf* out) {
+int quic_h3settings_build(const quic_h3settings_in* in, wired_obuf* out) {
   quic_h3_settings s;
   s.n              = 3;
   s.pairs[0].id    = QUIC_H3_SETTINGS_MAX_FIELD_SECTION_SIZE;

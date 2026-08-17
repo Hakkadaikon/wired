@@ -4,7 +4,7 @@
  * Literal Name; decoding it back yields the same name and value. */
 static void test_header_roundtrip(void) {
   u8                  out[64];
-  quic_obuf           ob    = {out, sizeof out, 0};
+  wired_obuf          ob    = {out, sizeof out, 0};
   const u8*           name  = (const u8*)"user-agent";
   const u8*           value = (const u8*)"quic/1";
   int                 never = 1;
@@ -14,11 +14,11 @@ static void test_header_roundtrip(void) {
       quic_obuf_of(nm, sizeof nm), quic_obuf_of(val, sizeof val)};
   CHECK(
       quic_h3req_enc_header(
-          quic_span_of(name, 10), quic_span_of(value, 6), &ob) == 1);
+          wired_span_of(name, 10), wired_span_of(value, 6), &ob) == 1);
   usz n = ob.len;
   /* 001NHiii literal-name pattern, N=0, H=0. */
   CHECK((out[0] & 0xe0) == 0x20);
-  used = quic_qpack_literal_name_decode(quic_span_of(out, n), &never, &fb);
+  used = quic_qpack_literal_name_decode(wired_span_of(out, n), &never, &fb);
   CHECK(used == n && never == 0);
   CHECK(fb.name.len == 10 && nm[0] == 'u' && nm[9] == 't');
   CHECK(fb.value.len == 6 && val[0] == 'q' && val[5] == '1');
@@ -26,13 +26,13 @@ static void test_header_roundtrip(void) {
 
 /* Insufficient capacity fails. */
 static void test_header_overflow(void) {
-  u8        out[2];
-  quic_obuf ob    = {out, sizeof out, 0};
-  const u8* name  = (const u8*)"user-agent";
-  const u8* value = (const u8*)"quic/1";
+  u8         out[2];
+  wired_obuf ob    = {out, sizeof out, 0};
+  const u8*  name  = (const u8*)"user-agent";
+  const u8*  value = (const u8*)"quic/1";
   CHECK(
       quic_h3req_enc_header(
-          quic_span_of(name, 10), quic_span_of(value, 6), &ob) == 0);
+          wired_span_of(name, 10), wired_span_of(value, 6), &ob) == 0);
 }
 
 void test_header_encode(void) {

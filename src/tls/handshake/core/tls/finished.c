@@ -9,10 +9,10 @@ void quic_tls_finished_verify_data(
   u8              finished_key[QUIC_SHA256_DIGEST];
   quic_hkdf_label l = {"finished", 8, {0, 0}};
   quic_hkdf_expand_label(
-      base_key, &l, quic_mspan_of(finished_key, QUIC_SHA256_DIGEST));
+      base_key, &l, wired_mspan_of(finished_key, QUIC_SHA256_DIGEST));
   quic_hmac_sha256(
-      quic_span_of(finished_key, QUIC_SHA256_DIGEST),
-      quic_span_of(transcript_hash, QUIC_SHA256_DIGEST), out);
+      wired_span_of(finished_key, QUIC_SHA256_DIGEST),
+      wired_span_of(transcript_hash, QUIC_SHA256_DIGEST), out);
 }
 
 /* Constant-time 32-byte digest comparison: 0 if equal. */

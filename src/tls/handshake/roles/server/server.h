@@ -87,11 +87,11 @@ typedef struct {
  * default of building its own self-signed P-256 end-entity certificate from
  * cert_seed (sdrv). */
 typedef struct {
-  const u8*        server_priv_x25519; /**< X25519 private, 32 bytes */
-  const u8*        server_pub_x25519;  /**< X25519 public, 32 bytes */
-  const u8*        cert_seed;   /**< ECDSA P-256 signing scalar, big-endian */
-  const quic_span* chain;       /**< optional: external chain, leaf first */
-  usz              chain_count; /**< entries in chain; 0 = self-signed */
+  const u8*         server_priv_x25519; /**< X25519 private, 32 bytes */
+  const u8*         server_pub_x25519;  /**< X25519 public, 32 bytes */
+  const u8*         cert_seed;   /**< ECDSA P-256 signing scalar, big-endian */
+  const wired_span* chain;       /**< optional: external chain, leaf first */
+  usz               chain_count; /**< entries in chain; 0 = self-signed */
   /** RFC 5280 4.2.1.6: see wired_srvboot_id.san_ipv4's doc -- threaded here
    * to sdrv's self-signed certificate builder. 0 to omit. */
   const u8* san_ipv4;
@@ -119,7 +119,7 @@ void wired_server_init(wired_server* s, const wired_server_init_in* in);
  * @param odcid the DCID of the client's first Initial
  * @param iscid the server's source connection id
  * @return 1 ok, 0 if either length exceeds 20. */
-int wired_server_set_cids(wired_server* s, quic_span odcid, quic_span iscid);
+int wired_server_set_cids(wired_server* s, wired_span odcid, wired_span iscid);
 
 /** Override the advertised transport-parameter limits (RFC 9000 18.2);
  * a zero field keeps its built-in default. Call before the flight is built.
@@ -193,7 +193,7 @@ int wired_server_feed(wired_server* s, const u8* crypto_payload, usz len);
  * @param out receives the HANDSHAKE_DONE frame
  * @return 1 and sets out->len, or 0 if not confirmed, already sent, or
  *   out->cap is 0. */
-int wired_server_handshake_done(wired_server* s, quic_obuf* out);
+int wired_server_handshake_done(wired_server* s, wired_obuf* out);
 
 /** 1 once the client Finished verified and the handshake is confirmed.
  * @param s the orchestrator to inspect

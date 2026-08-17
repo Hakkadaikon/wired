@@ -32,7 +32,7 @@
  * advanced past the Stream Type field on any outcome but INSUFFICIENT
  * (left at 0 there). SUBGROUP_HEADER's Type byte is left unconsumed so the
  * caller can pass it to quic_moqdata_subhdr_take. */
-int quic_moqdata_classify(quic_span in, usz* off);
+int quic_moqdata_classify(wired_span in, usz* off);
 
 /** SUBGROUP_HEADER Type byte (11.4.2): 0b0XX1XXXX with bit4 required and
  * mode 0b11 reserved. */
@@ -59,9 +59,9 @@ typedef struct {
 
 /** Returns QUIC_MOQDATA_OK/INSUFFICIENT/VIOLATION. On any outcome but OK,
  * *off is left unchanged. */
-int quic_moqdata_subhdr_take(quic_span buf, usz* off, quic_moqdata_subhdr* h);
+int quic_moqdata_subhdr_take(wired_span buf, usz* off, quic_moqdata_subhdr* h);
 int quic_moqdata_subhdr_put(
-    quic_mspan buf, usz* off, const quic_moqdata_subhdr* h);
+    wired_mspan buf, usz* off, const quic_moqdata_subhdr* h);
 
 /** Resolves a mode-0b01 deferred Subgroup ID from the first Object ID.
  * No-op when h->subgroup_id_pending is already false. */
@@ -82,9 +82,9 @@ quic_moqdata_objseq quic_moqdata_objseq_of(u64 type);
  * Payload Length was 0 and an explicit Status was read. payload is empty
  * when Payload Length is 0. */
 typedef struct {
-  u64       object_id;
-  u64       status;
-  quic_span payload;
+  u64        object_id;
+  u64        status;
+  wired_span payload;
 } quic_moqdata_obj;
 
 #define QUIC_MOQDATA_STATUS_NORMAL 0x0ULL
@@ -97,27 +97,27 @@ typedef struct {
  * ID overflow, an unknown Status value, and a non-empty Properties field
  * on a non-Normal (Payload Length 0 + explicit Status) Object. */
 int quic_moqdata_obj_take(
-    quic_span buf, usz* off, quic_moqdata_objseq* seq, quic_moqdata_obj* out);
+    wired_span buf, usz* off, quic_moqdata_objseq* seq, quic_moqdata_obj* out);
 
 /** Encodes an Object ID Delta of id_delta followed by payload. Non-empty
  * payload: Payload Length + bytes (Status omitted, implicit Normal).
  * Empty payload: Payload Length 0 followed by an explicit Normal Status
  * (11.4.2: the Status field is required whenever Payload Length is 0). */
 int quic_moqdata_obj_put(
-    quic_mspan buf, usz* off, u64 id_delta, quic_span payload);
+    wired_mspan buf, usz* off, u64 id_delta, wired_span payload);
 
 /** Encodes an Object ID Delta of id_delta, Payload Length 0, and the
  * given explicit Status. */
 int quic_moqdata_obj_put_status(
-    quic_mspan buf, usz* off, u64 id_delta, u64 status);
+    wired_mspan buf, usz* off, u64 id_delta, u64 status);
 
 /** One-message builder: a single SUBGROUP_HEADER (Type 0x70: PROPERTIES
  * off, mode 0b00, no end-of-group, default priority, FIRST_OBJECT set)
  * carrying one Object (payload form, implicit Normal status). */
 typedef struct {
-  u64       track_alias;
-  u64       group_id;
-  quic_span payload;
+  u64        track_alias;
+  u64        group_id;
+  wired_span payload;
 } quic_moqdata_msg;
 
 /** Worst-case wire size of quic_moqdata_msg_build's header + Object
@@ -125,6 +125,7 @@ typedef struct {
  * Group ID(9) + Object ID Delta(9) + Payload Length(9) = 37. */
 #define QUIC_MOQDATA_MSG_OVERHEAD 37
 
-int quic_moqdata_msg_build(quic_mspan buf, usz* off, const quic_moqdata_msg* m);
+int quic_moqdata_msg_build(
+    wired_mspan buf, usz* off, const quic_moqdata_msg* m);
 
 #endif

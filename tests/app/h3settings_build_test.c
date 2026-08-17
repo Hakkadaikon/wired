@@ -4,14 +4,14 @@
 void test_h3settings_build(void) {
   u8                 buf[32];
   quic_h3settings_in in = {0x4000, 0, 100, 0, 0, 0, 0, 0, 0, 0};
-  quic_obuf          ob = {buf, sizeof buf, 0};
+  wired_obuf         ob = {buf, sizeof buf, 0};
   CHECK(quic_h3settings_build(&in, &ob) == 1);
   usz n = ob.len;
   CHECK(n > 2 && buf[0] == QUIC_H3_FRAME_SETTINGS);
 
   /* length field matches the remaining payload bytes */
   quic_h3_frame f;
-  usz           r = quic_h3_frame_get(quic_span_of(buf, n), &f);
+  usz           r = quic_h3_frame_get(wired_span_of(buf, n), &f);
   CHECK(r == n && f.type == QUIC_H3_FRAME_SETTINGS && f.payload_len == n - 2);
 
   /* read the (id,value) pairs back via the existing SETTINGS codec */
@@ -25,7 +25,7 @@ void test_h3settings_build(void) {
   CHECK(s.pairs[2].id == 0x07 && s.pairs[2].value == 100);
 
   /* no room */
-  ob = (quic_obuf){buf, 2, 0};
+  ob = (wired_obuf){buf, 2, 0};
   CHECK(quic_h3settings_build(&in, &ob) == 0);
 }
 
@@ -34,7 +34,7 @@ void test_h3settings_build(void) {
 void test_h3settings_build_connect_protocol(void) {
   u8                 buf[32];
   quic_h3settings_in in = {0x4000, 0, 100, 1, 0, 0, 0, 0, 0, 0};
-  quic_obuf          ob = {buf, sizeof buf, 0};
+  wired_obuf         ob = {buf, sizeof buf, 0};
   CHECK(quic_h3settings_build(&in, &ob) == 1);
 
   quic_h3_settings s;
@@ -55,7 +55,7 @@ void test_h3settings_build_connect_protocol(void) {
 void test_h3settings_build_h3_datagram_and_wt_enabled(void) {
   u8                 buf[48];
   quic_h3settings_in in = {0x4000, 0, 100, 0, 1, 5, 0, 0, 0, 0};
-  quic_obuf          ob = {buf, sizeof buf, 0};
+  wired_obuf         ob = {buf, sizeof buf, 0};
   CHECK(quic_h3settings_build(&in, &ob) == 1);
 
   quic_h3_settings s;
@@ -75,7 +75,7 @@ void test_h3settings_build_h3_datagram_and_wt_enabled(void) {
 void test_h3settings_build_h3_datagram_and_wt_disabled(void) {
   u8                 buf[32];
   quic_h3settings_in in = {0x4000, 0, 100, 0, 0, 0, 0, 0, 0, 0};
-  quic_obuf          ob = {buf, sizeof buf, 0};
+  wired_obuf         ob = {buf, sizeof buf, 0};
   CHECK(quic_h3settings_build(&in, &ob) == 1);
 
   quic_h3_settings s;
@@ -89,7 +89,7 @@ void test_h3settings_build_h3_datagram_and_wt_disabled(void) {
 void test_h3settings_build_grease_zero_omits_pair(void) {
   u8                 buf[32];
   quic_h3settings_in in = {0x4000, 0, 100, 0, 0, 0, 0, 0, 0, 0};
-  quic_obuf          ob = {buf, sizeof buf, 0};
+  wired_obuf         ob = {buf, sizeof buf, 0};
   CHECK(quic_h3settings_build(&in, &ob) == 1);
 
   quic_h3_settings s;
@@ -104,7 +104,7 @@ void test_h3settings_build_grease_nonzero_appends_pair(void) {
   u8                 buf[32];
   u64                gid = quic_h3_grease_value(9);
   quic_h3settings_in in  = {0x4000, 0, 100, 0, 0, 0, gid, 0, 0, 0};
-  quic_obuf          ob  = {buf, sizeof buf, 0};
+  wired_obuf         ob  = {buf, sizeof buf, 0};
   CHECK(quic_h3settings_build(&in, &ob) == 1);
 
   quic_h3_settings s;
@@ -126,7 +126,7 @@ void test_h3settings_build_wt_flow_control_initial_limits(void) {
       .wt_initial_max_streams_uni  = 3,
       .wt_initial_max_streams_bidi = 7,
       .wt_initial_max_data         = 65536};
-  quic_obuf ob = {buf, sizeof buf, 0};
+  wired_obuf ob = {buf, sizeof buf, 0};
   CHECK(quic_h3settings_build(&in, &ob) == 1);
 
   quic_h3_settings s;
@@ -143,7 +143,7 @@ void test_h3settings_build_wt_flow_control_initial_limits(void) {
 void test_h3settings_build_wt_flow_control_zero_omits_pairs(void) {
   u8                 buf[32];
   quic_h3settings_in in = {0x4000, 0, 100, 0, 0, 0, 0, 0, 0, 0};
-  quic_obuf          ob = {buf, sizeof buf, 0};
+  wired_obuf         ob = {buf, sizeof buf, 0};
   CHECK(quic_h3settings_build(&in, &ob) == 1);
 
   quic_h3_settings s;

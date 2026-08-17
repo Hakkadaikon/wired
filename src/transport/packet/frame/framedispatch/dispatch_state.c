@@ -14,7 +14,7 @@ static int on_stream(quic_framedispatch_state* st, const u8* frame, usz len) {
   quic_stream_frame f;
   if (quic_frame_get_stream(frame, len, &f) == 0) return 0;
   return quic_stream_read_push(
-      st->stream, f.offset, quic_span_of(f.data, f.length));
+      st->stream, f.offset, wired_span_of(f.data, f.length));
 }
 
 /* RFC 9000 19.3: an ACK frame is decoded to its ranges, then replayed as the
@@ -60,7 +60,7 @@ static int on_close(quic_framedispatch_state* st, const u8* frame, usz len) {
  * higher layer (e.g. a future WebTransport session) to drain later; malformed
  * input is rejected so the caller can close the connection. */
 static int on_datagram(quic_framedispatch_state* st, const u8* frame, usz len) {
-  quic_span f = quic_span_of(frame, len);
+  wired_span f = wired_span_of(frame, len);
   if (!quic_dgdeliver_extract(f, &st->datagram)) return 0;
   st->has_datagram = 1;
   return 1;
@@ -126,7 +126,7 @@ static handler handler_for(quic_frame_kind k) {
 }
 
 int quic_framedispatch_handle(
-    quic_framedispatch_state* st, u64 frame_type, quic_span frame) {
+    quic_framedispatch_state* st, u64 frame_type, wired_span frame) {
   quic_frame_kind k = quic_frame_classify(frame_type);
   handler         h;
   if (quic_frame_server_recv_forbidden(k)) {

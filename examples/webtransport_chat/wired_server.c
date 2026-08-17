@@ -24,7 +24,7 @@
  * picking the broadcast primitive -- every channel uses the bounded ring so
  * a burst of same-step broadcasts is queued in full, never overwritten. */
 static void wt_on_datagram_cb(
-    void* app_ctx, wired_wt_session* s, quic_span data) {
+    void* app_ctx, wired_wt_session* s, wired_span data) {
   (void)app_ctx;
   (void)s;
   wired_server_broadcast_datagram_ring(data);
@@ -37,7 +37,7 @@ static int app_on_request(
     void*                       ctx,
     const wired_h3reqdrive_req* req,
     u64                         offset,
-    quic_obuf*                  body_out,
+    wired_obuf*                  body_out,
     const char**                content_type,
     int*                        more,
     u64*                        total_size) {
@@ -77,7 +77,7 @@ static void server_identity(
     k->seed[i] = (u8)(0x90 + i);
     k->rnd[i]  = (u8)(0xb0 + i);
   }
-  quic_x25519_base(k->pub, k->priv);
+  wired_x25519_base(k->pub, k->priv);
   id->priv                    = k->priv;
   id->pub                     = k->pub;
   id->cert_seed               = k->seed;
@@ -131,7 +131,7 @@ static void log_cert_fingerprint(const wired_srvboot_id* id) {
 
   wired_server_init(&s, &in);
   if (s.sdrv.cert_count == 0) wired_die("cert build failed\n");
-  quic_sha256(s.sdrv.certs[0].p, s.sdrv.certs[0].n, digest);
+  wired_sha256(s.sdrv.certs[0].p, s.sdrv.certs[0].n, digest);
 
   {
     static const char prefix[] = "cert sha-256 fingerprint: ";
@@ -159,7 +159,7 @@ __attribute__((force_align_arg_pointer, used)) int wired_main(
   server_keys          keys;
   wired_srvdriver_opt  opt;
   int                  have_san_ipv4;
-  u64                  now_secs = quic_clock_epoch_secs();
+  u64                  now_secs = wired_clock_epoch_secs();
   wired_srvrun_handler h        = {app_on_request, 0};
   wired_srvrun_obs     obs      = {
       wired_cliargs_str(argc, argv, "--qlog", 0),

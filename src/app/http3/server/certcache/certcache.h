@@ -15,10 +15,10 @@
  * a wired_srvboot_id borrows, and whether it has been built. The holder must
  * outlive every connection using the chain (an env-lifetime member). */
 typedef struct {
-  u8 der[512];        /**< certificate DER (owned; same sizing rationale as
-                       * quic_sdrv.cert_buf) */
-  quic_span chain[1]; /**< 1-entry chain view over der, once primed */
-  int       primed;   /**< 1 once der/chain hold a built certificate */
+  u8 der[512];         /**< certificate DER (owned; same sizing rationale as
+                        * quic_sdrv.cert_buf) */
+  wired_span chain[1]; /**< 1-entry chain view over der, once primed */
+  int        primed;   /**< 1 once der/chain hold a built certificate */
 } wired_certcache;
 
 /** Build the self-signed certificate for id once and point id->chain at the

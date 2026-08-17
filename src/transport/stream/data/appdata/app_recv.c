@@ -8,7 +8,7 @@ int quic_appdata_recv(
     const quic_protect_keys* k,
     const quic_appdata_pkt*  p,
     quic_stream_frame*       f) {
-  quic_span payload;
+  wired_span payload;
   /* ponytail: this one-shot entry opens a single packet with no receive
    * history, so largest_pn is 0; full-pn recovery across truncated PNs is the
    * srvloop path's job (RFC 9000 A.3). */

@@ -5,8 +5,8 @@
 /* A well-formed "GET <path>\r\n" line yields <path> exactly. */
 static void test_hq09_parse_get_request_extracts_path(void) {
   static const u8 line[] = "GET /file1.txt\r\n";
-  quic_span       path;
-  CHECK(wired_hq09_parse_get(quic_span_of(line, sizeof(line) - 1), &path));
+  wired_span      path;
+  CHECK(wired_hq09_parse_get(wired_span_of(line, sizeof(line) - 1), &path));
   CHECK(path.n == 10);
   CHECK(path.p[0] == '/' && path.p[1] == 'f' && path.p[9] == 't');
 }
@@ -16,8 +16,8 @@ static void test_hq09_parse_get_request_extracts_path(void) {
  * character independently. */
 static void test_hq09_parse_get_request_tolerates_lf_only(void) {
   static const u8 line[] = "GET /file1.txt\n";
-  quic_span       path;
-  CHECK(wired_hq09_parse_get(quic_span_of(line, sizeof(line) - 1), &path));
+  wired_span      path;
+  CHECK(wired_hq09_parse_get(wired_span_of(line, sizeof(line) - 1), &path));
   CHECK(path.n == 10);
 }
 
@@ -26,8 +26,8 @@ static void test_hq09_parse_get_request_tolerates_lf_only(void) {
  * optional punctuation this parser tolerates, not a required delimiter. */
 static void test_hq09_parse_get_request_tolerates_no_newline(void) {
   static const u8 line[] = "GET /file1.txt";
-  quic_span       path;
-  CHECK(wired_hq09_parse_get(quic_span_of(line, sizeof(line) - 1), &path));
+  wired_span      path;
+  CHECK(wired_hq09_parse_get(wired_span_of(line, sizeof(line) - 1), &path));
   CHECK(path.n == 10);
 }
 
@@ -37,21 +37,21 @@ static void test_hq09_parse_get_request_rejects_non_get_or_no_slash(void) {
   static const u8 not_get[]   = "PUT /file1.txt\r\n";
   static const u8 no_slash[]  = "GET file1.txt\r\n";
   static const u8 too_short[] = "GE";
-  quic_span       path;
-  CHECK(
-      !wired_hq09_parse_get(quic_span_of(not_get, sizeof(not_get) - 1), &path));
+  wired_span      path;
   CHECK(!wired_hq09_parse_get(
-      quic_span_of(no_slash, sizeof(no_slash) - 1), &path));
+      wired_span_of(not_get, sizeof(not_get) - 1), &path));
   CHECK(!wired_hq09_parse_get(
-      quic_span_of(too_short, sizeof(too_short) - 1), &path));
+      wired_span_of(no_slash, sizeof(no_slash) - 1), &path));
+  CHECK(!wired_hq09_parse_get(
+      wired_span_of(too_short, sizeof(too_short) - 1), &path));
 }
 
 /* Boundary: the bare root path "/" (list of length 1) still parses to an
  * empty-after-slash-inclusive path, not rejected as too short. */
 static void test_hq09_parse_get_request_root_path(void) {
   static const u8 line[] = "GET /\r\n";
-  quic_span       path;
-  CHECK(wired_hq09_parse_get(quic_span_of(line, sizeof(line) - 1), &path));
+  wired_span      path;
+  CHECK(wired_hq09_parse_get(wired_span_of(line, sizeof(line) - 1), &path));
   CHECK(path.n == 1);
   CHECK(path.p[0] == '/');
 }

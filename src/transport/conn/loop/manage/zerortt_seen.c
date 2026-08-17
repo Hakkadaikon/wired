@@ -24,9 +24,9 @@ static void zerortt_seen_record(quic_zerortt_seen* s, const u8 digest[32]) {
   if (s->count < QUIC_ZERORTT_SEEN_CAP) s->count++;
 }
 
-int quic_zerortt_seen_check(quic_zerortt_seen* s, quic_span identity) {
+int quic_zerortt_seen_check(quic_zerortt_seen* s, wired_span identity) {
   u8 digest[32];
-  quic_sha256(identity.p, identity.n, digest);
+  wired_sha256(identity.p, identity.n, digest);
   if (zerortt_seen_find(s, digest) >= 0) return 0;
   zerortt_seen_record(s, digest);
   return 1;

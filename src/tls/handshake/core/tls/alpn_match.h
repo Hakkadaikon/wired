@@ -16,6 +16,6 @@ int quic_tls_alpn_is_h3(const u8* proto, usz len);
 int quic_tls_alpn_is_hq(const u8* proto, usz len);
 
 /* Returns 1 if the two protocol names are byte-for-byte equal, else 0. */
-int quic_tls_alpn_equal(quic_span a, quic_span b);
+int quic_tls_alpn_equal(wired_span a, wired_span b);
 
 #endif

@@ -21,15 +21,15 @@
  * issued certificate chain (leaf first) to send instead of a self-signed
  * certificate. All views; the caller keeps them alive for the call. */
 typedef struct {
-  const u8*        priv;        /**< X25519 private, 32 bytes */
-  const u8*        pub;         /**< X25519 public, 32 bytes */
-  const u8*        cert_seed;   /**< ECDSA P-256 signing scalar, 32 bytes */
-  const u8*        scid;        /**< server source connection id */
-  u8               scid_len;    /**< scid length in octets, at most 20 */
-  const u8*        random;      /**< ServerHello.random, 32 bytes */
-  const quic_span* chain;       /**< optional: external chain, leaf first */
-  usz              chain_count; /**< entries in chain; 0 = self-signed */
-  u64              max_data;    /**< advertised initial_max_data; 0 = default */
+  const u8*         priv;        /**< X25519 private, 32 bytes */
+  const u8*         pub;         /**< X25519 public, 32 bytes */
+  const u8*         cert_seed;   /**< ECDSA P-256 signing scalar, 32 bytes */
+  const u8*         scid;        /**< server source connection id */
+  u8                scid_len;    /**< scid length in octets, at most 20 */
+  const u8*         random;      /**< ServerHello.random, 32 bytes */
+  const wired_span* chain;       /**< optional: external chain, leaf first */
+  usz               chain_count; /**< entries in chain; 0 = self-signed */
+  u64               max_data; /**< advertised initial_max_data; 0 = default */
   u64 max_streams_bidi; /**< advertised initial_max_streams_bidi; 0 = default */
   u64 max_datagram_frame_size; /**< advertised max_datagram_frame_size
                                 * (RFC 9221 3); 0 = not advertised (no
@@ -47,7 +47,7 @@ typedef struct {
    * validity window is anchored to (notBefore = now_secs, notAfter =
    * now_secs + 14 days -- the W3C WebTransport spec's
    * serverCertificateHashes pinning rejects any cert whose validity window
-   * exceeds 14 days). Pass quic_clock_epoch_secs() for a real deployment; 0
+   * exceeds 14 days). Pass wired_clock_epoch_secs() for a real deployment; 0
    * keeps a fixed 2020-2030 window (tests only -- that window is far outside
    * 14 days and will fail serverCertificateHashes validation in a browser).
    * Ignored when chain_count > 0. */
@@ -94,7 +94,7 @@ typedef struct {
  * recover the ClientHello from. */
 typedef struct {
   const wired_srvboot_id* id;    /**< fixed server identity to boot with */
-  quic_mspan              dgram; /**< the client's Initial datagram */
+  wired_mspan             dgram; /**< the client's Initial datagram */
 } wired_srvboot_in;
 
 /** Most Handshake flight datagrams a bootstrap seals: sized past
@@ -109,8 +109,8 @@ typedef struct {
  * (RFC 9000 19.6), concatenated in flight and sliced by dgram_len. The caller
  * sends the Initial first, then each flight slice as its own UDP datagram. */
 typedef struct {
-  quic_obuf* initial; /**< sealed server Initial datagram (>= 1200 bytes) */
-  quic_obuf* flight;  /**< all sealed Handshake datagrams, concatenated */
+  wired_obuf* initial; /**< sealed server Initial datagram (>= 1200 bytes) */
+  wired_obuf* flight;  /**< all sealed Handshake datagrams, concatenated */
   usz dgram_len[WIRED_SRVBOOT_FLIGHT_MAX]; /**< each flight datagram's length */
   usz dgram_count; /**< flight datagrams sealed (their lengths sum to
                       flight->len) */
@@ -148,7 +148,7 @@ int wired_srvboot_accept(
  * @param out receives the Version Negotiation packet
  * @param cap bytes available at out
  * @return bytes written, or 0 when no response is owed. */
-usz wired_srvboot_vneg(quic_span dg, u8* out, usz cap);
+usz wired_srvboot_vneg(wired_span dg, u8* out, usz cap);
 
 /** Datagrams a boot's accumulator holds verbatim while waiting for 0-RTT keys
  * (wired_srvboot_acc.zerortt_dg): comfortably past a real quic-go 0-RTT
@@ -223,7 +223,7 @@ void wired_srvboot_acc_reset(wired_srvboot_acc* a);
  *   and was absorbed, or the datagram was buffered as 0-RTT; 0 if it was
  *   refused outright (unparseable, a foreign DCID, or nothing in it opened
  *   under the bound keys). */
-int wired_srvboot_acc_feed(wired_srvboot_acc* a, quic_mspan dg);
+int wired_srvboot_acc_feed(wired_srvboot_acc* a, wired_mspan dg);
 
 /** @param a the accumulator
  * @return the number of whole 0-RTT datagrams buffered in a
@@ -234,7 +234,7 @@ usz wired_srvboot_acc_zerortt_count(const wired_srvboot_acc* a);
  * @param a the accumulator
  * @param i index, 0 <= i < wired_srvboot_acc_zerortt_count(a)
  * @return the datagram's bytes as a view into a's own storage. */
-quic_span wired_srvboot_acc_zerortt_take(const wired_srvboot_acc* a, usz i);
+wired_span wired_srvboot_acc_zerortt_take(const wired_srvboot_acc* a, usz i);
 
 /** Admit dcid alongside the bound one: after the server's first packet the
  * client switches its DCID to the server's scid (RFC 9000 7.2), and its
@@ -242,7 +242,7 @@ quic_span wired_srvboot_acc_zerortt_take(const wired_srvboot_acc* a, usz i);
  * bound ODCID's (RFC 9001 5.2).
  * @param a the accumulator
  * @param dcid the additional DCID to admit (the server's own scid) */
-void wired_srvboot_acc_allow(wired_srvboot_acc* a, quic_span dcid);
+void wired_srvboot_acc_allow(wired_srvboot_acc* a, wired_span dcid);
 
 /** Seal an ACK-only server Initial acknowledging the highest Initial opened
  * so far (RFC 9000 13.2.1) — sent while the ClientHello is still
@@ -257,7 +257,7 @@ void wired_srvboot_acc_allow(wired_srvboot_acc* a, quic_span dcid);
  * @return bytes written, or 0 when nothing was opened yet or sealing
  *   failed. */
 usz wired_srvboot_partial_ack(
-    wired_srvboot_acc* a, quic_span scid, u8* out, usz cap);
+    wired_srvboot_acc* a, wired_span scid, u8* out, usz cap);
 
 /** @param a the accumulator
  * @return 1 once the buffered CRYPTO prefix folds a complete ClientHello. */
@@ -292,7 +292,7 @@ int wired_srvboot_accept_acc(
  * @return bytes written, or 0 on overflow. */
 usz wired_srvboot_refusal(
     const wired_srvboot_acc* a,
-    quic_span                scid,
+    wired_span               scid,
     u64                      error_code,
     u8*                      out,
     usz                      cap);

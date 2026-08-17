@@ -29,7 +29,7 @@ int quic_h3conn_peer_settings_ok(const u8* control_stream, usz len) {
   usz                    off = 0;
   quic_h3_frame          f   = {0};
   if (!skip_control_type(control_stream, len, &off)) return 0;
-  if (!quic_h3_frame_get(quic_span_of(control_stream + off, len - off), &f))
+  if (!quic_h3_frame_get(wired_span_of(control_stream + off, len - off), &f))
     return 0;
   return quic_h3_settings_first(&st, f.type);
 }

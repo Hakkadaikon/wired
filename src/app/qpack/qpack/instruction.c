@@ -29,7 +29,7 @@ static const instr_spec dec_specs[] = {
 
 /* Encode value under the given spec: its pattern in the high bits, value in an
  * N-bit prefix integer. Returns bytes written or 0. */
-static usz instr_encode(quic_mspan buf, const instr_spec* s, u64 value) {
+static usz instr_encode(wired_mspan buf, const instr_spec* s, u64 value) {
   quic_qpack_pfx pfx = {s->prefix_bits, s->pattern};
   return quic_qpack_int_encode(buf, pfx, value);
 }
@@ -61,7 +61,7 @@ typedef struct {
 
 /* Decode one instruction from the set: classify the leading byte, read its
  * prefix integer. Fills *f, returns bytes consumed or 0. */
-static usz instr_decode(quic_span buf, const instr_set* s, instr_field* f) {
+static usz instr_decode(wired_span buf, const instr_set* s, instr_field* f) {
   if (buf.n == 0) return 0;
   f->kind = spec_classify(s->specs, s->count, buf.p[0]);
   if (f->kind >= s->count) return 0;
@@ -69,12 +69,12 @@ static usz instr_decode(quic_span buf, const instr_set* s, instr_field* f) {
 }
 
 usz quic_qpack_enc_instr_encode(
-    quic_mspan buf, quic_qpack_enc_kind kind, u64 value) {
+    wired_mspan buf, quic_qpack_enc_kind kind, u64 value) {
   return instr_encode(buf, &enc_specs[kind], value);
 }
 
 usz quic_qpack_enc_instr_decode(
-    quic_span buf, quic_qpack_enc_kind* kind, u64* value) {
+    wired_span buf, quic_qpack_enc_kind* kind, u64* value) {
   instr_set   s = {enc_specs, 4};
   instr_field f;
   usz         r = instr_decode(buf, &s, &f);
@@ -86,12 +86,12 @@ usz quic_qpack_enc_instr_decode(
 }
 
 usz quic_qpack_dec_instr_encode(
-    quic_mspan buf, quic_qpack_dec_kind kind, u64 value) {
+    wired_mspan buf, quic_qpack_dec_kind kind, u64 value) {
   return instr_encode(buf, &dec_specs[kind], value);
 }
 
 usz quic_qpack_dec_instr_decode(
-    quic_span buf, quic_qpack_dec_kind* kind, u64* value) {
+    wired_span buf, quic_qpack_dec_kind* kind, u64* value) {
   instr_set   s = {dec_specs, 3};
   instr_field f;
   usz         r = instr_decode(buf, &s, &f);

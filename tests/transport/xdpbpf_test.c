@@ -204,7 +204,7 @@ static void test_xdpbpf_prog_load_accepts_golden(i64 map_fd) {
   i64 prog_fd;
   quic_xdpbpf_prog_build(prog, (i32)map_fd, 4433);
   prog_fd = quic_xdpbpf_prog_load(
-      prog, QUIC_XDPBPF_PROG_LEN, quic_mspan_of(log, sizeof log));
+      prog, QUIC_XDPBPF_PROG_LEN, wired_mspan_of(log, sizeof log));
   CHECK(prog_fd >= 0);
   xbt_close_if_open(prog_fd);
 }
@@ -218,7 +218,7 @@ static void test_xdpbpf_prog_load_rejects_corrupted(i64 map_fd) {
   quic_xdpbpf_prog_build(bad, (i32)map_fd, 4433);
   bad[4] = bad[4] ^ 0x00ffULL;
   bad_fd = quic_xdpbpf_prog_load(
-      bad, QUIC_XDPBPF_PROG_LEN, quic_mspan_of(log, sizeof log));
+      bad, QUIC_XDPBPF_PROG_LEN, wired_mspan_of(log, sizeof log));
   CHECK(bad_fd < 0);
   xbt_close_if_open(bad_fd);
 }

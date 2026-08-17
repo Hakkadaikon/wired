@@ -25,7 +25,7 @@ void quic_ku_next_secret_v(u32 version, const u8 cur[32], u8 next[32]) {
   u8              buf[KU_LABEL_MAX];
   usz             n = ku_label_build(buf, version);
   quic_hkdf_label l = {(const char*)buf, n, {0, 0}};
-  quic_hkdf_expand_label(cur, &l, quic_mspan_of(next, 32));
+  quic_hkdf_expand_label(cur, &l, wired_mspan_of(next, 32));
 }
 
 void quic_ku_next_secret(const u8 cur[32], u8 next[32]) {

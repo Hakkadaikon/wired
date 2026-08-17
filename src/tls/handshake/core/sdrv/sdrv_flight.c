@@ -16,7 +16,7 @@
 
 /* Append msg to flight (advancing flight->len) and fold it into the
  * transcript. Returns 1 if it fit. */
-static int emit_msg(quic_sdrv* s, quic_span msg, quic_obuf* flight) {
+static int emit_msg(quic_sdrv* s, wired_span msg, wired_obuf* flight) {
   if (msg.n > flight->cap - flight->len) return 0;
   for (usz i = 0; i < msg.n; i++) flight->p[flight->len + i] = msg.p[i];
   flight->len += msg.n;
@@ -59,7 +59,7 @@ static int derive_secret(quic_sdrv* s) {
   quic_transcript_hash(&s->tr, th);
   quic_hkdf_label l = {"s hs traffic", 12, {th, QUIC_SHA256_DIGEST}};
   quic_hkdf_expand_label(
-      s->hs_secret, &l, quic_mspan_of(s->s_hs_traffic, QUIC_HKDF_PRK));
+      s->hs_secret, &l, wired_mspan_of(s->s_hs_traffic, QUIC_HKDF_PRK));
   s->hs_ready = 1;
   return 1;
 }
@@ -72,62 +72,62 @@ static int derive_secret(quic_sdrv* s) {
  * (RFC 9000 7.3). */
 /* The advertised stateless_reset_token as a span -- empty until the caller
  * set one (RFC 9000 10.3.1), which omits the TP. */
-static quic_span sdrv_sreset_token_span(const quic_sdrv* s) {
-  return quic_span_of(s->sreset_token, s->sreset_token_set ? 16 : 0);
+static wired_span sdrv_sreset_token_span(const quic_sdrv* s) {
+  return wired_span_of(s->sreset_token, s->sreset_token_set ? 16 : 0);
 }
 
-static int emit_ee(quic_sdrv* s, quic_obuf* flight) {
-  u8        tp[256], msg[1024];
-  quic_obuf tob = quic_obuf_of(tp, sizeof(tp));
-  quic_obuf mob = quic_obuf_of(msg, sizeof(msg));
+static int emit_ee(quic_sdrv* s, wired_obuf* flight) {
+  u8         tp[256], msg[1024];
+  wired_obuf tob = quic_obuf_of(tp, sizeof(tp));
+  wired_obuf mob = quic_obuf_of(msg, sizeof(msg));
   if (!quic_stp_build_server_ret(
-          quic_span_of(s->tp_odcid, s->tp_odcid_len),
-          quic_span_of(s->iscid, s->iscid_len),
-          quic_span_of(s->rscid, s->rscid_len), sdrv_sreset_token_span(s),
+          wired_span_of(s->tp_odcid, s->tp_odcid_len),
+          wired_span_of(s->iscid, s->iscid_len),
+          wired_span_of(s->rscid, s->rscid_len), sdrv_sreset_token_span(s),
           &s->limits, &tob))
     return 0;
   if (!quic_eebuild_encrypted_extensions(
-          s->alpn, quic_span_of(tp, tob.len), s->early_data_accepted, &mob))
+          s->alpn, wired_span_of(tp, tob.len), s->early_data_accepted, &mob))
     return 0;
-  return emit_msg(s, quic_span_of(msg, mob.len), flight);
+  return emit_msg(s, wired_span_of(msg, mob.len), flight);
 }
 
 /* RFC 8446 4.4.2: build Certificate (carrying s->certs[0..cert_count), leaf
  * first) and fold it into the flight. */
-static int emit_cert(quic_sdrv* s, quic_obuf* flight) {
+static int emit_cert(quic_sdrv* s, wired_obuf* flight) {
   /* room for a real-web chain (~2KB+) and past quic-interop-runner's
    * deliberately inflated 9-cert amplificationlimit chain (~10KB of DER)
    * with headroom -- see QUIC_TLS_CERT_CHAIN_MAX. */
   u8                        msg[16384];
-  quic_obuf                 mob = quic_obuf_of(msg, sizeof(msg));
+  wired_obuf                mob = quic_obuf_of(msg, sizeof(msg));
   quic_sflight_certchain_in cin = {s->certs, s->cert_count};
   if (!quic_sflight_certificate_chain(&cin, &mob)) return 0;
-  return emit_msg(s, quic_span_of(msg, mob.len), flight);
+  return emit_msg(s, wired_span_of(msg, mob.len), flight);
 }
 
 /* RFC 8446 4.4.3: ECDSA P-256 CertificateVerify (scheme 0x0403) over the
  * transcript through Certificate. */
-static int emit_certverify(quic_sdrv* s, quic_obuf* flight) {
+static int emit_certverify(quic_sdrv* s, wired_obuf* flight) {
   u8  msg[256], th[QUIC_SHA256_DIGEST];
   usz n;
   quic_transcript_hash(&s->tr, th);
   if (!quic_cvecdsa_build(s->p256_priv, th, msg, sizeof(msg), &n)) return 0;
-  return emit_msg(s, quic_span_of(msg, n), flight);
+  return emit_msg(s, wired_span_of(msg, n), flight);
 }
 
 /* RFC 8446 4.4.4: Finished under the server handshake traffic secret at the
  * transcript hash through CertificateVerify. */
-static int emit_finished(quic_sdrv* s, quic_obuf* flight) {
-  u8        msg[64], th[QUIC_SHA256_DIGEST];
-  quic_obuf mob = quic_obuf_of(msg, sizeof(msg));
+static int emit_finished(quic_sdrv* s, wired_obuf* flight) {
+  u8         msg[64], th[QUIC_SHA256_DIGEST];
+  wired_obuf mob = quic_obuf_of(msg, sizeof(msg));
   quic_transcript_hash(&s->tr, th);
   if (!quic_sflight_finished(s->s_hs_traffic, th, &mob)) return 0;
-  return emit_msg(s, quic_span_of(msg, mob.len), flight);
+  return emit_msg(s, wired_span_of(msg, mob.len), flight);
 }
 
 /* RFC 8446 4.4.2 + 4.4.3 + 4.4.4: the full-handshake tail -- Certificate,
  * CertificateVerify, then Finished. */
-static int emit_cert_cv_fin(quic_sdrv* s, quic_obuf* flight) {
+static int emit_cert_cv_fin(quic_sdrv* s, wired_obuf* flight) {
   return emit_cert(s, flight) && emit_certverify(s, flight) &&
          emit_finished(s, flight);
 }
@@ -136,7 +136,7 @@ static int emit_cert_cv_fin(quic_sdrv* s, quic_obuf* flight) {
  * resuming via PSK, Certificate and CertificateVerify are both omitted (the
  * peer's identity was already proven when the PSK was issued) -- only
  * EncryptedExtensions then Finished are sent. */
-static int emit_hs_flight(quic_sdrv* s, quic_obuf* flight) {
+static int emit_hs_flight(quic_sdrv* s, wired_obuf* flight) {
   if (!emit_ee(s, flight)) return 0;
   return s->psk_accepted ? emit_finished(s, flight)
                          : emit_cert_cv_fin(s, flight);
@@ -144,10 +144,10 @@ static int emit_hs_flight(quic_sdrv* s, quic_obuf* flight) {
 
 /* RFC 8446 4.1.3: build the ServerHello, fold it in, and derive secrets. */
 static int sdrv_build_server_hello(
-    quic_sdrv* s, const u8* random, quic_obuf* out) {
+    quic_sdrv* s, const u8* random, wired_obuf* out) {
   quic_shbuild_group_in in = {
       random,
-      quic_span_of(s->client_sid, s->client_sid_len),
+      wired_span_of(s->client_sid, s->client_sid_len),
       s->cipher_suite,
       s->server_pub,
       s->psk_accepted,

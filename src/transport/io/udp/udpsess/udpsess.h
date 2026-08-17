@@ -34,7 +34,7 @@ typedef struct {
 
 /* Bind a session to an open transport. path 0 is the active path, seeded from
  * the transport's current peer and the given DCID. */
-void quic_udpsess_init(quic_udpsess* s, quic_udp_transport* t, quic_span dcid);
+void quic_udpsess_init(quic_udpsess* s, quic_udp_transport* t, wired_span dcid);
 
 /** A candidate peer address: big-endian addr, host-order port. */
 typedef struct {
@@ -48,7 +48,7 @@ void quic_udpsess_set_peer(
     quic_udpsess* s, usz path, const quic_udpsess_peer* peer);
 
 /* Associate a destination CID with a path (RFC 9000 9.5). */
-void quic_udpsess_set_dcid(quic_udpsess* s, usz path, quic_span dcid);
+void quic_udpsess_set_dcid(quic_udpsess* s, usz path, wired_span dcid);
 
 /* Whether migration to a new path is permitted (RFC 9000 9.3): only once that
  * path has been validated. */
@@ -62,6 +62,6 @@ int quic_udpsess_migrate(quic_udpsess* s, usz path, int new_path_validated);
 /* The destination CID to use on `path` (RFC 9000 9.5). Writes the view into
  * *dcid and returns 1; returns 0 for an out-of-range or unset path. */
 int quic_udpsess_dcid_for_path(
-    const quic_udpsess* s, usz path, quic_span* dcid);
+    const quic_udpsess* s, usz path, wired_span* dcid);
 
 #endif

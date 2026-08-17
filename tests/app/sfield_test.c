@@ -13,18 +13,18 @@ static int sfield_bytes_eq(const u8* p, const char* s, usz n) {
   return 1;
 }
 
-static int sfield_obuf_is(const quic_obuf* out, const char* s, usz n) {
+static int sfield_obuf_is(const wired_obuf* out, const char* s, usz n) {
   return out->len == n && sfield_bytes_eq(out->p, s, n);
 }
 
-static quic_span sfield_span(const char* s, usz n) {
-  return quic_span_of((const u8*)s, n);
+static wired_span sfield_span(const char* s, usz n) {
+  return wired_span_of((const u8*)s, n);
 }
 
 static void test_sfield_single_item(void) {
   quic_sfield_iter it;
   u8               buf[16];
-  quic_obuf        out = quic_obuf_of(buf, sizeof buf);
+  wired_obuf       out = quic_obuf_of(buf, sizeof buf);
 
   quic_sfield_iter_init(&it, sfield_span("\"foo\"", 5));
   CHECK(quic_sfield_next_string(&it, &out) == 1);
@@ -35,8 +35,8 @@ static void test_sfield_single_item(void) {
 static void test_sfield_multiple_items_in_order(void) {
   quic_sfield_iter it;
   u8               b1[16], b2[16];
-  quic_obuf        o1 = quic_obuf_of(b1, sizeof b1);
-  quic_obuf        o2 = quic_obuf_of(b2, sizeof b2);
+  wired_obuf       o1 = quic_obuf_of(b1, sizeof b1);
+  wired_obuf       o2 = quic_obuf_of(b2, sizeof b2);
 
   quic_sfield_iter_init(&it, sfield_span("\"foo\", \"bar\"", 12));
   CHECK(quic_sfield_next_string(&it, &o1) == 1);
@@ -49,7 +49,7 @@ static void test_sfield_multiple_items_in_order(void) {
 static void test_sfield_comma_and_space_inside_quotes(void) {
   quic_sfield_iter it;
   u8               buf[16];
-  quic_obuf        out = quic_obuf_of(buf, sizeof buf);
+  wired_obuf       out = quic_obuf_of(buf, sizeof buf);
 
   quic_sfield_iter_init(&it, sfield_span("\"a, b\"", 6));
   CHECK(quic_sfield_next_string(&it, &out) == 1);
@@ -60,8 +60,8 @@ static void test_sfield_comma_and_space_inside_quotes(void) {
 static void test_sfield_escaped_quote_and_backslash(void) {
   quic_sfield_iter it;
   u8               b1[16], b2[16];
-  quic_obuf        o1 = quic_obuf_of(b1, sizeof b1);
-  quic_obuf        o2 = quic_obuf_of(b2, sizeof b2);
+  wired_obuf       o1 = quic_obuf_of(b1, sizeof b1);
+  wired_obuf       o2 = quic_obuf_of(b2, sizeof b2);
 
   /* raw input: "a\"b", "a\\b" */
   quic_sfield_iter_init(&it, sfield_span("\"a\\\"b\", \"a\\\\b\"", 15));
@@ -74,9 +74,9 @@ static void test_sfield_escaped_quote_and_backslash(void) {
 static void test_sfield_empty_and_ws_only_input_yields_no_items(void) {
   quic_sfield_iter it;
   u8               buf[8];
-  quic_obuf        out = quic_obuf_of(buf, sizeof buf);
+  wired_obuf       out = quic_obuf_of(buf, sizeof buf);
 
-  quic_sfield_iter_init(&it, quic_span_of(0, 0));
+  quic_sfield_iter_init(&it, wired_span_of(0, 0));
   CHECK(quic_sfield_next_string(&it, &out) == 0);
 
   quic_sfield_iter_init(&it, sfield_span(" \t ", 3));
@@ -86,7 +86,7 @@ static void test_sfield_empty_and_ws_only_input_yields_no_items(void) {
 static void test_sfield_bare_token_is_error(void) {
   quic_sfield_iter it;
   u8               buf[8];
-  quic_obuf        out = quic_obuf_of(buf, sizeof buf);
+  wired_obuf       out = quic_obuf_of(buf, sizeof buf);
 
   quic_sfield_iter_init(&it, sfield_span("foo", 3));
   CHECK(quic_sfield_next_string(&it, &out) == -1);
@@ -95,7 +95,7 @@ static void test_sfield_bare_token_is_error(void) {
 static void test_sfield_bare_integer_is_error(void) {
   quic_sfield_iter it;
   u8               buf[8];
-  quic_obuf        out = quic_obuf_of(buf, sizeof buf);
+  wired_obuf       out = quic_obuf_of(buf, sizeof buf);
 
   quic_sfield_iter_init(&it, sfield_span("123", 3));
   CHECK(quic_sfield_next_string(&it, &out) == -1);
@@ -104,7 +104,7 @@ static void test_sfield_bare_integer_is_error(void) {
 static void test_sfield_bad_escape_is_error(void) {
   quic_sfield_iter it;
   u8               buf[8];
-  quic_obuf        out = quic_obuf_of(buf, sizeof buf);
+  wired_obuf       out = quic_obuf_of(buf, sizeof buf);
 
   /* raw input: "a\x" -- only \" and \\ are valid (RFC 8941 SS3.3.3) */
   quic_sfield_iter_init(&it, sfield_span("\"a\\x\"", 5));
@@ -114,7 +114,7 @@ static void test_sfield_bad_escape_is_error(void) {
 static void test_sfield_missing_close_quote_is_error(void) {
   quic_sfield_iter it;
   u8               buf[8];
-  quic_obuf        out = quic_obuf_of(buf, sizeof buf);
+  wired_obuf       out = quic_obuf_of(buf, sizeof buf);
 
   quic_sfield_iter_init(&it, sfield_span("\"foo", 4));
   CHECK(quic_sfield_next_string(&it, &out) == -1);
@@ -123,8 +123,8 @@ static void test_sfield_missing_close_quote_is_error(void) {
 static void test_sfield_parameters_are_skipped(void) {
   quic_sfield_iter it;
   u8               b1[16], b2[16];
-  quic_obuf        o1 = quic_obuf_of(b1, sizeof b1);
-  quic_obuf        o2 = quic_obuf_of(b2, sizeof b2);
+  wired_obuf       o1 = quic_obuf_of(b1, sizeof b1);
+  wired_obuf       o2 = quic_obuf_of(b2, sizeof b2);
 
   quic_sfield_iter_init(&it, sfield_span("\"foo\";q=1, \"bar\"", 16));
   CHECK(quic_sfield_next_string(&it, &o1) == 1);
@@ -139,13 +139,13 @@ static void test_sfield_encode_parse_roundtrip(void) {
   usz              len;
   quic_sfield_iter it;
   u8               buf[16];
-  quic_obuf        out = quic_obuf_of(buf, sizeof buf);
+  wired_obuf       out = quic_obuf_of(buf, sizeof buf);
 
   len = quic_sfield_string_encode(enc, sizeof enc, sfield_span("foo", 3));
   CHECK(len == 5);
   CHECK(sfield_bytes_eq(enc, "\"foo\"", 5));
 
-  quic_sfield_iter_init(&it, quic_span_of(enc, len));
+  quic_sfield_iter_init(&it, wired_span_of(enc, len));
   CHECK(quic_sfield_next_string(&it, &out) == 1);
   CHECK(sfield_obuf_is(&out, "foo", 3));
 }

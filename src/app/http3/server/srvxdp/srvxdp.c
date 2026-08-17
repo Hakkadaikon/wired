@@ -91,7 +91,7 @@ static void srvxdp_learn(wired_srvxdp* x, const quic_xdpframe_rx* rx) {
 static int srvxdp_rx_one(
     wired_srvxdp* x, u64 addr, u32 len, quic_mmsg_buf* out) {
   quic_xdpframe_rx rx;
-  quic_span        frame = quic_span_of(x->xsk.umem + addr, len);
+  wired_span       frame = wired_span_of(x->xsk.umem + addr, len);
   if (!quic_xdpframe_parse(frame, &rx)) return 0;
   if (rx.payload_len > out->buf.n) return 0;
   srvxdp_learn(x, &rx);
@@ -183,7 +183,7 @@ static i64 srvxdp_tx_submit(wired_srvxdp* x, i64 addr, usz n) {
 }
 
 i64 wired_srvxdp_send(
-    wired_srvxdp* x, const quic_sockaddr* dst, quic_span pkt) {
+    wired_srvxdp* x, const quic_sockaddr* dst, wired_span pkt) {
   u8               peer_mac[6];
   quic_xdpframe_tx m;
   i64              addr;
@@ -196,7 +196,7 @@ i64 wired_srvxdp_send(
 
   srvxdp_tx_meta(x, dst, peer_mac, &m);
   n = quic_xdpframe_build(
-      quic_mspan_of(x->xsk.umem + addr, QUIC_XSKSETUP_FRAME_SIZE), &m, pkt);
+      wired_mspan_of(x->xsk.umem + addr, QUIC_XSKSETUP_FRAME_SIZE), &m, pkt);
   return srvxdp_tx_submit(x, addr, n);
 }
 

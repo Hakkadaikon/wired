@@ -23,10 +23,10 @@ static usz resolved_hp_len(u16 suite) {
 void quic_tls_derive_secret(
     const quic_derive_secret_in* in, u8 out[QUIC_HKDF_PRK]) {
   u8 thash[QUIC_SHA256_DIGEST];
-  quic_sha256(in->messages.p, in->messages.n, thash);
+  wired_sha256(in->messages.p, in->messages.n, thash);
   quic_hkdf_label l = {
       (const char*)in->label.p, in->label.n, {thash, sizeof(thash)}};
-  quic_hkdf_expand_label(in->secret, &l, quic_mspan_of(out, QUIC_HKDF_PRK));
+  quic_hkdf_expand_label(in->secret, &l, wired_mspan_of(out, QUIC_HKDF_PRK));
 }
 
 /* A literal ASCII label plus its length, before folding into a span. */
@@ -37,10 +37,10 @@ typedef struct {
 
 /* Build the derive-secret input for a literal ASCII label. */
 static quic_derive_secret_in derive_in(
-    const u8* secret, ascii_label label, quic_span messages) {
+    const u8* secret, ascii_label label, wired_span messages) {
   quic_derive_secret_in in;
   in.secret   = secret;
-  in.label    = quic_span_of((const u8*)label.s, label.len);
+  in.label    = wired_span_of((const u8*)label.s, label.len);
   in.messages = messages;
   return in;
 }
@@ -56,11 +56,11 @@ static void handshake_secret_from_early(
   u8 derived[QUIC_HKDF_PRK];
   /* derived = Derive-Secret(Early, "derived", "") -- empty transcript. */
   quic_derive_secret_in in =
-      derive_in(early, (ascii_label){"derived", 7}, quic_span_of(zero, 0));
+      derive_in(early, (ascii_label){"derived", 7}, wired_span_of(zero, 0));
   quic_tls_derive_secret(&in, derived);
   /* Handshake Secret = HKDF-Extract(derived, ECDHE). */
   quic_hkdf_extract(
-      quic_span_of(derived, QUIC_HKDF_PRK), quic_span_of(ecdhe, 32), out);
+      wired_span_of(derived, QUIC_HKDF_PRK), wired_span_of(ecdhe, 32), out);
 }
 
 void quic_tls_handshake_secret(const u8 ecdhe[32], u8 out[QUIC_HKDF_PRK]) {
@@ -68,7 +68,7 @@ void quic_tls_handshake_secret(const u8 ecdhe[32], u8 out[QUIC_HKDF_PRK]) {
   u8 early[QUIC_HKDF_PRK];
   /* Early Secret = HKDF-Extract(0, 0). */
   quic_hkdf_extract(
-      quic_span_of(zero, QUIC_HKDF_PRK), quic_span_of(zero, QUIC_HKDF_PRK),
+      wired_span_of(zero, QUIC_HKDF_PRK), wired_span_of(zero, QUIC_HKDF_PRK),
       early);
   handshake_secret_from_early(early, ecdhe, out);
 }
@@ -79,14 +79,14 @@ void quic_tls_handshake_secret_psk(
   u8 early[QUIC_HKDF_PRK];
   /* Early Secret = HKDF-Extract(0, PSK). */
   quic_hkdf_extract(
-      quic_span_of(zero, QUIC_HKDF_PRK), quic_span_of(psk, QUIC_HKDF_PRK),
+      wired_span_of(zero, QUIC_HKDF_PRK), wired_span_of(psk, QUIC_HKDF_PRK),
       early);
   handshake_secret_from_early(early, ecdhe, out);
 }
 
 /* Expand one packet-protection field (RFC 9001 5.1 labels) from a secret. */
 static void hs_field(
-    const u8 secret[QUIC_HKDF_PRK], quic_span label, quic_mspan out) {
+    const u8 secret[QUIC_HKDF_PRK], wired_span label, wired_mspan out) {
   quic_hkdf_label l = {(const char*)label.p, label.n, {0, 0}};
   quic_hkdf_expand_label(secret, &l, out);
 }
@@ -107,14 +107,14 @@ static void protection_keys_zero_tail(
 static void protection_keys(
     const u8 ts[QUIC_HKDF_PRK], quic_initial_keys* out) {
   hs_field(
-      ts, quic_span_of((const u8*)"quic key", 8),
-      quic_mspan_of(out->key, QUIC_INITIAL_KEY));
+      ts, wired_span_of((const u8*)"quic key", 8),
+      wired_mspan_of(out->key, QUIC_INITIAL_KEY));
   hs_field(
-      ts, quic_span_of((const u8*)"quic iv", 7),
-      quic_mspan_of(out->iv, QUIC_INITIAL_IV));
+      ts, wired_span_of((const u8*)"quic iv", 7),
+      wired_mspan_of(out->iv, QUIC_INITIAL_IV));
   hs_field(
-      ts, quic_span_of((const u8*)"quic hp", 7),
-      quic_mspan_of(out->hp, QUIC_INITIAL_HP));
+      ts, wired_span_of((const u8*)"quic hp", 7),
+      wired_mspan_of(out->hp, QUIC_INITIAL_HP));
   protection_keys_zero_tail(out, QUIC_INITIAL_KEY, QUIC_INITIAL_HP);
 }
 
@@ -135,14 +135,14 @@ static void protection_keys_suite(
     const u8 ts[QUIC_HKDF_PRK], u16 suite, quic_initial_keys* out) {
   usz key_len = resolved_key_len(suite), hp_len = resolved_hp_len(suite);
   hs_field(
-      ts, quic_span_of((const u8*)"quic key", 8),
-      quic_mspan_of(out->key, key_len));
+      ts, wired_span_of((const u8*)"quic key", 8),
+      wired_mspan_of(out->key, key_len));
   hs_field(
-      ts, quic_span_of((const u8*)"quic iv", 7),
-      quic_mspan_of(out->iv, QUIC_INITIAL_IV));
+      ts, wired_span_of((const u8*)"quic iv", 7),
+      wired_mspan_of(out->iv, QUIC_INITIAL_IV));
   hs_field(
-      ts, quic_span_of((const u8*)"quic hp", 7),
-      quic_mspan_of(out->hp, hp_len));
+      ts, wired_span_of((const u8*)"quic hp", 7),
+      wired_mspan_of(out->hp, hp_len));
   protection_keys_zero_tail(out, key_len, hp_len);
 }
 
@@ -166,13 +166,13 @@ void quic_tls_early_keys(
   u8 ts[QUIC_HKDF_PRK];
   /* Early Secret = HKDF-Extract(0, PSK). */
   quic_hkdf_extract(
-      quic_span_of(zero, QUIC_HKDF_PRK), quic_span_of(psk, QUIC_HKDF_PRK),
+      wired_span_of(zero, QUIC_HKDF_PRK), wired_span_of(psk, QUIC_HKDF_PRK),
       early);
   /* client_early_traffic_secret over the ClientHello. */
   {
     quic_derive_secret_in in = derive_in(
         early, (ascii_label){"c e traffic", 11},
-        quic_span_of(client_hello, client_hello_len));
+        wired_span_of(client_hello, client_hello_len));
     quic_tls_derive_secret(&in, ts);
   }
   protection_keys(ts, out);

@@ -74,13 +74,13 @@ int quic_session_accept(quic_session* s);
  * server's share from `peer` (in this in-memory setup the server's public key
  * is known directly). Returns 1 on success. */
 int quic_session_finish(
-    quic_session* client, quic_session* server, quic_span transcript);
+    quic_session* client, quic_session* server, wired_span transcript);
 
 /** One outgoing STREAM message: the stream, its payload, and the FIN bit. */
 typedef struct {
-  u64       stream_id;
-  quic_span data;
-  int       fin;
+  u64        stream_id;
+  wired_span data;
+  int        fin;
 } quic_session_msg;
 
 /* Send a 1-RTT STREAM frame (protected with the agreed keys) onto the link.

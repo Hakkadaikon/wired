@@ -15,7 +15,7 @@ typedef struct {
 /* RFC 9000 12.2: several QUIC packets may be coalesced into one UDP datagram.
  * Packing concatenates src's packets into out. Returns the datagram length
  * (also out->len), or 0 if the concatenation would exceed out->cap. */
-usz quic_udploop_pack(const quic_pktsrc* src, quic_obuf* out);
+usz quic_udploop_pack(const quic_pktsrc* src, wired_obuf* out);
 
 /** A destination socket: an open fd and the peer to send to. */
 typedef struct {
@@ -26,6 +26,6 @@ typedef struct {
 /* Pack the packets and send them as one datagram to dst. Returns the bytes
  * sent, or 0 if packing overflows out->cap or the send fails. */
 usz quic_udploop_tx(
-    const quic_udpdst* dst, const quic_pktsrc* src, quic_obuf* out);
+    const quic_udpdst* dst, const quic_pktsrc* src, wired_obuf* out);
 
 #endif

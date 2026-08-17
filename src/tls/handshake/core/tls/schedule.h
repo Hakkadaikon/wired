@@ -12,9 +12,9 @@
  * bytes (no "tls13 " prefix, that is added by hkdf), messages the transcript
  * bytes to hash. */
 typedef struct {
-  const u8* secret; /* QUIC_HKDF_PRK bytes */
-  quic_span label;
-  quic_span messages;
+  const u8*  secret; /* QUIC_HKDF_PRK bytes */
+  wired_span label;
+  wired_span messages;
 } quic_derive_secret_in;
 
 /* Derive-Secret(secret, label, messages) = HKDF-Expand-Label(secret, label,
@@ -38,9 +38,9 @@ void quic_tls_handshake_secret_psk(
  * transcript the handshake bytes hashed for the traffic secret, is_server
  * selects the "s hs traffic"/"c hs traffic" label. */
 typedef struct {
-  const u8* hs_secret; /* QUIC_HKDF_PRK bytes */
-  quic_span transcript;
-  int       is_server;
+  const u8*  hs_secret; /* QUIC_HKDF_PRK bytes */
+  wired_span transcript;
+  int        is_server;
 } quic_handshake_keys_in;
 
 /* From the handshake secret and the handshake transcript, derive one side's

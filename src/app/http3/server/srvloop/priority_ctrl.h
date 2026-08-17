@@ -25,7 +25,7 @@
  *   update
  * @param type the walked frame's type
  * @param frame the walked frame's own bytes (header + body) */
-int wired_srvloop_ctrl_gather(wired_srvloop* l, u64 type, quic_span frame);
+int wired_srvloop_ctrl_gather(wired_srvloop* l, u64 type, wired_span frame);
 
 /** RFC 9218 7.1 / 9218-013: if the walked frame at `frame` (of `type`) is a
  * client bidi (request) STREAM frame whose data begins with a PRIORITY_UPDATE
@@ -37,6 +37,6 @@ int wired_srvloop_ctrl_gather(wired_srvloop* l, u64 type, quic_span frame);
  * @param type the walked frame's type
  * @param frame the walked frame's own bytes (header + body) */
 int wired_srvloop_req_priupdate_gather(
-    wired_srvloop* l, u64 type, quic_span frame);
+    wired_srvloop* l, u64 type, wired_span frame);
 
 #endif

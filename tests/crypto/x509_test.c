@@ -9,37 +9,37 @@ static void test_x509_parse_golden(void) {
   quic_x509 c;
   CHECK(
       quic_x509_parse(
-          quic_span_of(quic_x509_golden, sizeof(quic_x509_golden)), &c) == 1);
+          wired_span_of(quic_x509_golden, sizeof(quic_x509_golden)), &c) == 1);
   /* tbsCertificate spans offset 4..309 (header included). */
   CHECK(c.tbs.p == quic_x509_golden + 4 && c.tbs.n == 305);
   /* signatureAlgorithm OID is ecdsa-with-SHA256. */
   CHECK(
       quic_der_oid_equal(
           c.sig_alg_oid,
-          quic_span_of(quic_oid_ecdsa_sha256, sizeof(quic_oid_ecdsa_sha256))) ==
-      1);
+          wired_span_of(
+              quic_oid_ecdsa_sha256, sizeof(quic_oid_ecdsa_sha256))) == 1);
   /* signatureValue BIT STRING value is 71 octets (at offset 323). */
   CHECK(c.sig.p == quic_x509_golden + 323 && c.sig.n == 71);
 }
 
 static void test_x509_truncated(void) {
   quic_x509 c;
-  CHECK(quic_x509_parse(quic_span_of(quic_x509_golden, 10), &c) == 0);
-  CHECK(quic_x509_parse(quic_span_of(quic_x509_golden, 0), &c) == 0);
+  CHECK(quic_x509_parse(wired_span_of(quic_x509_golden, 10), &c) == 0);
+  CHECK(quic_x509_parse(wired_span_of(quic_x509_golden, 0), &c) == 0);
 }
 
 /* A SEQUENCE whose first element is an INTEGER (not the tbs SEQUENCE). */
 static void test_x509_not_tbs_seq(void) {
   const u8  bad[] = {0x30, 0x03, 0x02, 0x01, 0x05};
   quic_x509 c;
-  CHECK(quic_x509_parse(quic_span_of(bad, sizeof(bad)), &c) == 0);
+  CHECK(quic_x509_parse(wired_span_of(bad, sizeof(bad)), &c) == 0);
 }
 
 /* Top-level tag is not SEQUENCE. */
 static void test_x509_not_seq(void) {
   const u8  bad[] = {0x02, 0x01, 0x05};
   quic_x509 c;
-  CHECK(quic_x509_parse(quic_span_of(bad, sizeof(bad)), &c) == 0);
+  CHECK(quic_x509_parse(wired_span_of(bad, sizeof(bad)), &c) == 0);
 }
 
 /* Six NULL elements standing in for serialNumber..subjectPublicKeyInfo, so
@@ -109,7 +109,7 @@ static const u8 x509t_tbs_mixed[] = {
 static void test_unknown_critical_no_extensions(void) {
   CHECK(
       quic_x509_has_unknown_critical(
-          quic_span_of(x509t_tbs_no_ext, sizeof(x509t_tbs_no_ext))) == 0);
+          wired_span_of(x509t_tbs_no_ext, sizeof(x509t_tbs_no_ext))) == 0);
 }
 
 /* A known critical extension (basicConstraints) does not trigger rejection.
@@ -117,20 +117,20 @@ static void test_unknown_critical_no_extensions(void) {
 static void test_unknown_critical_known_ext_ok(void) {
   CHECK(
       quic_x509_has_unknown_critical(
-          quic_span_of(x509t_tbs_bc_crit, sizeof(x509t_tbs_bc_crit))) == 0);
+          wired_span_of(x509t_tbs_bc_crit, sizeof(x509t_tbs_bc_crit))) == 0);
 }
 
 /* RFC 5280 4.2: an unrecognized extnID marked critical TRUE is rejected. */
 static void test_unknown_critical_rejects(void) {
   CHECK(
-      quic_x509_has_unknown_critical(quic_span_of(
+      quic_x509_has_unknown_critical(wired_span_of(
           x509t_tbs_unknown_crit, sizeof(x509t_tbs_unknown_crit))) == 1);
 }
 
 /* An unrecognized extnID marked critical FALSE is not rejected. */
 static void test_unknown_noncritical_ok(void) {
   CHECK(
-      quic_x509_has_unknown_critical(quic_span_of(
+      quic_x509_has_unknown_critical(wired_span_of(
           x509t_tbs_unknown_noncrit, sizeof(x509t_tbs_unknown_noncrit))) == 0);
 }
 
@@ -138,7 +138,7 @@ static void test_unknown_noncritical_ok(void) {
  * DEFAULT), so it is not rejected. */
 static void test_unknown_critical_default_false(void) {
   CHECK(
-      quic_x509_has_unknown_critical(quic_span_of(
+      quic_x509_has_unknown_critical(wired_span_of(
           x509t_tbs_unknown_default, sizeof(x509t_tbs_unknown_default))) == 0);
 }
 
@@ -147,7 +147,7 @@ static void test_unknown_critical_default_false(void) {
  * trigger unknown-critical rejection on its own. */
 static void test_critical_certificate_policies_known(void) {
   CHECK(
-      quic_x509_has_unknown_critical(quic_span_of(
+      quic_x509_has_unknown_critical(wired_span_of(
           x509t_tbs_cert_policies_crit,
           sizeof(x509t_tbs_cert_policies_crit))) == 0);
 }
@@ -157,7 +157,7 @@ static void test_critical_certificate_policies_known(void) {
 static void test_unknown_critical_mixed_rejects(void) {
   CHECK(
       quic_x509_has_unknown_critical(
-          quic_span_of(x509t_tbs_mixed, sizeof(x509t_tbs_mixed))) == 1);
+          wired_span_of(x509t_tbs_mixed, sizeof(x509t_tbs_mixed))) == 1);
 }
 
 /* RFC 5280 4.1: issuerUniqueID [1] IMPLICIT BIT STRING, one arbitrary octet
@@ -190,22 +190,22 @@ static const u8 x509t_tbs_uid2_ext[] = {
 static void test_unique_id_issuer_only_reaches_extensions(void) {
   CHECK(
       quic_x509_has_unknown_critical(
-          quic_span_of(x509t_tbs_uid1_ext, sizeof(x509t_tbs_uid1_ext))) == 0);
+          wired_span_of(x509t_tbs_uid1_ext, sizeof(x509t_tbs_uid1_ext))) == 0);
 }
 
 /* Both issuerUniqueID and subjectUniqueID present: extensions still reached.
  */
 static void test_unique_id_both_reaches_extensions(void) {
   CHECK(
-      quic_x509_has_unknown_critical(
-          quic_span_of(x509t_tbs_uid12_ext, sizeof(x509t_tbs_uid12_ext))) == 0);
+      quic_x509_has_unknown_critical(wired_span_of(
+          x509t_tbs_uid12_ext, sizeof(x509t_tbs_uid12_ext))) == 0);
 }
 
 /* subjectUniqueID alone (no issuerUniqueID): extensions still reached. */
 static void test_unique_id_subject_only_reaches_extensions(void) {
   CHECK(
       quic_x509_has_unknown_critical(
-          quic_span_of(x509t_tbs_uid2_ext, sizeof(x509t_tbs_uid2_ext))) == 0);
+          wired_span_of(x509t_tbs_uid2_ext, sizeof(x509t_tbs_uid2_ext))) == 0);
 }
 
 void test_x509(void) {

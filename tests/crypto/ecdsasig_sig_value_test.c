@@ -11,9 +11,9 @@ static const u8* golden_sig(void) { return quic_x509_golden + 324; }
 /* SEC1 C.5. Pull the two 32-octet INTEGER values out of the golden SEQUENCE. */
 static int golden_rs(u8 r[32], u8 s[32]) {
   quic_der_tlv seq, ri, si;
-  if (!quic_der_read(quic_span_of(golden_sig(), 70), &seq)) return 0;
+  if (!quic_der_read(wired_span_of(golden_sig(), 70), &seq)) return 0;
   quic_der_read(seq.val, &ri);
-  quic_der_read(quic_span_of(seq.val.p + ri.used, seq.val.n - ri.used), &si);
+  quic_der_read(wired_span_of(seq.val.p + ri.used, seq.val.n - ri.used), &si);
   for (usz i = 0; i < 32; i++) {
     r[i] = ri.val.p[i];
     s[i] = si.val.p[i];
@@ -42,7 +42,7 @@ static void test_sig_reparse(void) {
   s[0]           = 0x01;
   CHECK(quic_ecdsasig_encode(r, s, out, sizeof(out), &n) == 1);
   CHECK(
-      quic_der_read(quic_span_of(out, n), &seq) == 1 &&
+      quic_der_read(wired_span_of(out, n), &seq) == 1 &&
       seq.tag == QUIC_DER_SEQUENCE);
   CHECK(quic_der_read(seq.val, &v) == 1 && v.tag == QUIC_DER_INTEGER);
   CHECK(v.val.n == 33 && v.val.p[0] == 0x00 && v.val.p[1] == 0x80);

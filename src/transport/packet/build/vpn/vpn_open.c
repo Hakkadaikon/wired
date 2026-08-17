@@ -56,13 +56,13 @@ static int vpn_aead_open(
   quic_aes128_init(&aead, keys->key);
   quic_gcm_ctx g = {&aead, nonce, {pkt, v->hdr_len}};
   return quic_gcm_open(
-      &g, quic_span_of(pkt + v->hdr_len, v->ct_len + QUIC_GCM_TAG),
+      &g, wired_span_of(pkt + v->hdr_len, v->ct_len + QUIC_GCM_TAG),
       pkt + v->hdr_len);
 }
 
 /* RFC 9001 5.4.1/5.3 */
 int quic_vpn_open(
-    const quic_protect_keys* k, const quic_vpn_desc* d, quic_span* payload) {
+    const quic_protect_keys* k, const quic_vpn_desc* d, wired_span* payload) {
   usz          pn_len;
   vpnopen_dims v;
   if (!region_ok(d)) return 0;
@@ -70,7 +70,7 @@ int quic_vpn_open(
   v.hdr_len = d->pn_off + pn_len;
   v.ct_len  = (usz)d->length - pn_len - QUIC_GCM_TAG;
   if (!vpn_aead_open(k->keys, d->pkt.p, &v)) return 0;
-  *payload = quic_span_of(d->pkt.p + v.hdr_len, v.ct_len);
+  *payload = wired_span_of(d->pkt.p + v.hdr_len, v.ct_len);
   return 1;
 }
 
@@ -98,7 +98,7 @@ static int vpn_aead_open_suite(
   quic_aead_suite_op op = {
       suite, keys->key, keys->iv, v->pn, {pkt, v->hdr_len}};
   return quic_aead_suite_open(
-             &op, quic_span_of(pkt + v->hdr_len, v->ct_len),
+             &op, wired_span_of(pkt + v->hdr_len, v->ct_len),
              pkt + v->hdr_len) != 0;
 }
 
@@ -154,11 +154,11 @@ int quic_vpn_open_suite(
     u16                      suite,
     const quic_protect_keys* k,
     const quic_vpn_desc*     d,
-    quic_span*               payload) {
+    wired_span*              payload) {
   usz          tag_len = quic_aead_tag_len(suite);
   vpnopen_dims v;
   if (!vpn_open_suite_head(suite, k, d, tag_len, &v)) return 0;
   if (!vpn_aead_open_suite(suite, k->keys, d->pkt.p, &v)) return 0;
-  *payload = quic_span_of(d->pkt.p + v.hdr_len, v.ct_len);
+  *payload = wired_span_of(d->pkt.p + v.hdr_len, v.ct_len);
   return 1;
 }

@@ -27,6 +27,6 @@
  * returns the byte count. Returns 0 if host contains any non-ASCII byte
  * (Punycode U-label -> A-label conversion is not implemented) or does not
  * fit in cap. */
-usz quic_salpn_idna_to_ascii(quic_span host, u8* out, usz cap);
+usz quic_salpn_idna_to_ascii(wired_span host, u8* out, usz cap);
 
 #endif

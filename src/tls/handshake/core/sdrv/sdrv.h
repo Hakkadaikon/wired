@@ -36,11 +36,11 @@ typedef struct {
   /** RFC 5280 4.2.1.6: see wired_srvboot_id.san_ipv4's doc. All-zero (the
    * zero-initialized default) means omit -- 0.0.0.0 is never a real peer, so
    * this needs no separate "is it set" flag. */
-  u8        san_ipv4[4];
-  quic_span certs[QUIC_TLS_CERT_CHAIN_MAX]; /**< RFC 8446 4.4.2
-                                             * certificate_list, leaf first
-                                             * (caller-owned views in
-                                             * external-chain mode) */
+  u8         san_ipv4[4];
+  wired_span certs[QUIC_TLS_CERT_CHAIN_MAX]; /**< RFC 8446 4.4.2
+                                              * certificate_list, leaf first
+                                              * (caller-owned views in
+                                              * external-chain mode) */
   usz cert_count;     /**< 0 = nothing to send (flight build fails) */
   u8  client_pub[65]; /**< RFC 8446 4.2.8 client key_share, group above */
   u8  client_sid[32]; /**< RFC 8446 4.1.2 legacy_session_id */
@@ -198,13 +198,13 @@ typedef struct {
  * QUIC_TLS_CERT_CHAIN_MAX makes the flight unbuildable (cert_count stays 0),
  * not a truncated/overflowing copy. */
 typedef struct {
-  const u8*        server_priv_x25519; /**< ECDHE x25519 private (32 bytes) */
-  const u8*        server_pub_x25519;  /**< ECDHE x25519 public (32 bytes) */
-  const u8*        sign_priv; /**< ECDSA P-256 signing scalar (32 bytes) */
-  const quic_span* chain;     /**< external chain, leaf first; NULL for
-                               * self-signed mode (caller keeps the views
-                               * alive through the handshake) */
-  usz chain_count;            /**< entries in chain; 0 = self-signed mode */
+  const u8*         server_priv_x25519; /**< ECDHE x25519 private (32 bytes) */
+  const u8*         server_pub_x25519;  /**< ECDHE x25519 public (32 bytes) */
+  const u8*         sign_priv; /**< ECDSA P-256 signing scalar (32 bytes) */
+  const wired_span* chain;     /**< external chain, leaf first; NULL for
+                                * self-signed mode (caller keeps the views
+                                * alive through the handshake) */
+  usz chain_count;             /**< entries in chain; 0 = self-signed mode */
   /** RFC 5280 4.2.1.6: see wired_srvboot_id.san_ipv4's doc. 0 to omit. */
   const u8* san_ipv4;
   /** RFC 5280 4.1.2.5.1: see wired_srvboot_id.now_secs's doc. Only used in
@@ -233,7 +233,7 @@ void quic_sdrv_init(quic_sdrv* s, const quic_sdrv_init_in* in);
  * @param odcid DCID of the client's first Initial packet
  * @param iscid the server's source connection id
  * @return 1 on success, 0 if either length exceeds 20. */
-int quic_sdrv_set_cids(quic_sdrv* s, quic_span odcid, quic_span iscid);
+int quic_sdrv_set_cids(quic_sdrv* s, wired_span odcid, wired_span iscid);
 
 /** RFC 8446 4.2.7: select the NamedGroup for the ECDHE key_share
  * (QUIC_GROUP_X25519 or QUIC_GROUP_SECP256R1). quic_sdrv_init defaults to
@@ -253,7 +253,7 @@ void quic_sdrv_set_group(quic_sdrv* s, u16 group);
  * of odcid, which has already moved on.
  * @return 1 on success, 0 if any length exceeds 20. */
 int quic_sdrv_set_cids_retried(
-    quic_sdrv* s, quic_span odcid, quic_span iscid, quic_span true_odcid);
+    quic_sdrv* s, wired_span odcid, wired_span iscid, wired_span true_odcid);
 
 /** Record the Retry packet's SCID for the retry_source_connection_id
  * transport parameter (RFC 9000 7.3) -- only after a Retry actually
@@ -261,7 +261,7 @@ int quic_sdrv_set_cids_retried(
  * @param s the server driver
  * @param rscid the Retry's source connection id (at most 20 bytes)
  * @return 1 on success, 0 when rscid exceeds 20 bytes */
-int quic_sdrv_set_retry_scid(quic_sdrv* s, quic_span rscid);
+int quic_sdrv_set_retry_scid(quic_sdrv* s, wired_span rscid);
 
 /** RFC 8446 4.4.1: fold the ClientHello into the transcript and take the
  * client's x25519 key_share.
@@ -330,7 +330,7 @@ int quic_sdrv_hrr_pending(const quic_sdrv* s);
  * @param s driver state
  * @param out receives the HelloRetryRequest message bytes
  * @return 1 on success, 0 if out is too small. */
-int quic_sdrv_build_hrr(quic_sdrv* s, quic_obuf* out);
+int quic_sdrv_build_hrr(quic_sdrv* s, wired_obuf* out);
 
 /** RFC 9001 8.2 / RFC 9000 20.1: the CRYPTO_ERROR recorded by the last
  * quic_sdrv_recv_client_hello call, or 0 if it succeeded.
@@ -342,9 +342,9 @@ u64 quic_sdrv_last_error(const quic_sdrv* s);
  * ServerHello, hs the EncryptedExtensions || Certificate ||
  * CertificateVerify || Finished flight. */
 typedef struct {
-  quic_obuf* sh; /**< receives the ServerHello */
-  quic_obuf* hs; /**< receives EncryptedExtensions || Certificate ||
-                  * CertificateVerify || Finished */
+  wired_obuf* sh; /**< receives the ServerHello */
+  wired_obuf* hs; /**< receives EncryptedExtensions || Certificate ||
+                   * CertificateVerify || Finished */
 } quic_sdrv_flight_out;
 
 /** RFC 8446 4.4: build the full server flight into out->sh / out->hs.

@@ -9,11 +9,11 @@
 
 /* Encode index/is_static as an indexed field line into buf.
  * Returns bytes written, or 0 if it does not fit. */
-usz quic_qpack_indexed_encode(quic_mspan buf, u64 index, int is_static);
+usz quic_qpack_indexed_encode(wired_mspan buf, u64 index, int is_static);
 
 /* Decode an indexed field line from buf into *index and *is_static.
  * Returns bytes consumed, or 0 on a non-indexed pattern or truncation. */
-usz quic_qpack_indexed_decode(quic_span buf, u64* index, int* is_static);
+usz quic_qpack_indexed_decode(wired_span buf, u64* index, int* is_static);
 
 /* RFC 9204 4.5.3. Indexed Field Line with Post-Base Index: pattern 0001iiii,
  * where the 4-bit prefixed integer is a post-Base index into the dynamic
@@ -22,10 +22,10 @@ usz quic_qpack_indexed_decode(quic_span buf, u64* index, int* is_static);
 
 /* Encode a post-Base indexed field line into buf.
  * Returns bytes written, or 0 if it does not fit. */
-usz quic_qpack_indexed_postbase_encode(quic_mspan buf, u64 postbase);
+usz quic_qpack_indexed_postbase_encode(wired_mspan buf, u64 postbase);
 
 /* Decode a post-Base indexed field line from buf into *postbase.
  * Returns bytes consumed, or 0 on a non-matching pattern or truncation. */
-usz quic_qpack_indexed_postbase_decode(quic_span buf, u64* postbase);
+usz quic_qpack_indexed_postbase_decode(wired_span buf, u64* postbase);
 
 #endif

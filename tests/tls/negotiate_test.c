@@ -7,20 +7,20 @@
 /* ProtocolNameList: list_len(2) (name_len(1) name)* */
 
 void test_negotiate_selects_h3_from_clienthello(void) {
-  u8        buf[512], random[32], pub[32];
-  u8        tp[3] = {0x01, 0x02, 0x03};
-  quic_span ext;
-  usz       w;
+  u8         buf[512], random[32], pub[32];
+  u8         tp[3] = {0x01, 0x02, 0x03};
+  wired_span ext;
+  usz        w;
   for (usz i = 0; i < 32; i++) {
     random[i] = (u8)i;
     pub[i]    = (u8)(0x40 + i);
   }
   w = quic_tls_client_hello(
       &(quic_clienthello_in){
-          random, pub, quic_span_of(0, 0), quic_span_of(tp, sizeof(tp))},
-      &(quic_obuf){buf, sizeof(buf), 0});
+          random, pub, wired_span_of(0, 0), wired_span_of(tp, sizeof(tp))},
+      &(wired_obuf){buf, sizeof(buf), 0});
   CHECK(quic_salpn_find_extension(
-      quic_span_of(buf, w), QUIC_SALPN_EXT_TYPE, &ext));
+      wired_span_of(buf, w), QUIC_SALPN_EXT_TYPE, &ext));
   CHECK(quic_salpn_select_h3(ext.p, ext.n) == 1);
 }
 

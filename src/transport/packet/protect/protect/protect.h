@@ -26,12 +26,12 @@ void quic_protect_nonce(
  * pn_len its encoded length (1..4). pn is the full packet number (for the
  * nonce), payload the plaintext frames, out the destination buffer. */
 typedef struct {
-  quic_span  hdr;
-  usz        pn_off;
-  usz        pn_len;
-  u64        pn;
-  quic_span  payload;
-  quic_mspan out;
+  wired_span  hdr;
+  usz         pn_off;
+  usz         pn_len;
+  u64         pn;
+  wired_span  payload;
+  wired_mspan out;
 } quic_protect_seal_io;
 
 /* Write header + ciphertext + tag into io->out, apply header protection in
@@ -54,11 +54,11 @@ usz quic_protect_seal_suite(
  * at pn_off (pn_len bytes). pn is the full packet number (recovered by the
  * caller). */
 typedef struct {
-  quic_mspan pkt;
-  usz        hdr_len;
-  usz        pn_off;
-  usz        pn_len;
-  u64        pn;
+  wired_mspan pkt;
+  usz         hdr_len;
+  usz         pn_off;
+  usz         pn_len;
+  u64         pn;
 } quic_protect_open_io;
 
 /* Removes header protection in place, then verifies and decrypts the payload

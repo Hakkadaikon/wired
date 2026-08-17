@@ -10,7 +10,7 @@ usz quic_eth_build(u8* out, const quic_eth_head* h) {
   return QUIC_ETH_HDR;
 }
 
-int quic_eth_parse(quic_span frame, quic_eth_head* h) {
+int quic_eth_parse(wired_span frame, quic_eth_head* h) {
   if (frame.n < QUIC_ETH_HDR) return 0;
   quic_memcpy(h->dst, frame.p, 6);
   quic_memcpy(h->src, frame.p + 6, 6);

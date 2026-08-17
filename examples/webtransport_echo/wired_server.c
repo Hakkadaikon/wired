@@ -33,7 +33,7 @@ static void wt_selfcheck_session_buffer(wired_wt_session* s) {
       wired_wt_session_offer_stream(s, /*stream_id=*/4),
       "wt: buffer stream failed\n");
   wt_selfcheck_require(
-      wired_wt_session_offer_datagram(s, quic_span_of((const u8*)"hi", 2)),
+      wired_wt_session_offer_datagram(s, wired_span_of((const u8*)"hi", 2)),
       "wt: buffer datagram failed\n");
 }
 
@@ -68,14 +68,14 @@ static void wt_selfcheck_session(void) {
 /* Encode then decode a WT_CLOSE_SESSION capsule, checking both steps
  * succeed. Returns the decoded fields via code_out and msg_out. */
 static void wt_selfcheck_capsule_roundtrip(
-    u32 code, quic_span msg, u32* code_out, quic_span* msg_out) {
+    u32 code, wired_span msg, u32* code_out, wired_span* msg_out) {
   u8        buf[64];
-  quic_obuf ob = {buf, sizeof buf, 0};
+  wired_obuf ob = {buf, sizeof buf, 0};
   usz       at = 0;
-  if (!quic_wtcapsule_encode_close(&ob, code, msg))
+  if (!wired_wtcapsule_encode_close(&ob, code, msg))
     wired_die("wt: capsule encode failed\n");
-  if (!quic_wtcapsule_decode_close(
-          quic_span_of(buf, ob.len), &at, code_out, msg_out))
+  if (!wired_wtcapsule_decode_close(
+          wired_span_of(buf, ob.len), &at, code_out, msg_out))
     wired_die("wt: capsule decode failed\n");
 }
 
@@ -84,9 +84,9 @@ static void wt_selfcheck_capsule_roundtrip(
 static void wt_selfcheck_capsule(void) {
   const u8  msg[] = {'b', 'y', 'e'};
   u32       code_out;
-  quic_span msg_out;
+  wired_span msg_out;
   wt_selfcheck_capsule_roundtrip(
-      0x2a, quic_span_of(msg, sizeof msg), &code_out, &msg_out);
+      0x2a, wired_span_of(msg, sizeof msg), &code_out, &msg_out);
   if (code_out != 0x2a || msg_out.n != sizeof msg)
     wired_die("wt: capsule round-trip mismatch\n");
   wired_log_str("wt-selfcheck: WT_CLOSE_SESSION capsule round-trip ok\n");
@@ -96,10 +96,10 @@ static void wt_selfcheck_capsule(void) {
  * application error code (draft-ietf-webtrans-http3-15 8.2). */
 static void wt_selfcheck_errmap(void) {
   u32 n = 0x2a;
-  u64 h = quic_wterrmap_to_http3(n);
+  u64 h = wired_wterrmap_to_http3(n);
   u32 n_out;
 
-  if (!quic_wterrmap_from_http3(h, &n_out) || n_out != n)
+  if (!wired_wterrmap_from_http3(h, &n_out) || n_out != n)
     wired_die("wt: errmap round-trip mismatch\n");
 
   wired_log_str("wt-selfcheck: error-code mapping round-trip ok\n");
@@ -120,7 +120,7 @@ static int app_on_request(
     void*                       ctx,
     const wired_h3reqdrive_req* req,
     u64                         offset,
-    quic_obuf*                  body_out,
+    wired_obuf*                  body_out,
     const char**                content_type,
     int*                        more,
     u64*                        total_size) {
@@ -158,7 +158,7 @@ static void server_identity(wired_srvboot_id* id, server_keys* k) {
     k->seed[i] = (u8)(0x90 + i);
     k->rnd[i]  = (u8)(0xb0 + i);
   }
-  quic_x25519_base(k->pub, k->priv);
+  wired_x25519_base(k->pub, k->priv);
   id->priv      = k->priv;
   id->pub       = k->pub;
   id->cert_seed = k->seed;

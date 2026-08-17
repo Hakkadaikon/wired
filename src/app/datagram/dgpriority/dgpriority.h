@@ -32,8 +32,8 @@ int quic_dgpriority_higher(u8 urg_a, u8 urg_b);
 
 /** One DATAGRAM send candidate: the payload to send and its urgency. */
 typedef struct {
-  quic_span data;
-  u8        urgency;
+  wired_span data;
+  u8         urgency;
 } quic_dgpriority_candidate;
 
 /* Scan candidates[0..n) and return the index of the one with the highest

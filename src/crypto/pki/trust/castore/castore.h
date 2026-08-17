@@ -9,7 +9,7 @@
  * caller's DER buffers; nothing is copied — the array and every registered
  * DER must outlive the store. */
 
-typedef quic_span quic_castore_entry; /* one root certificate DER view */
+typedef wired_span quic_castore_entry; /* one root certificate DER view */
 
 /** A trust store: caller-owned root array, its capacity, and the count
  * currently registered. */
@@ -24,12 +24,12 @@ void quic_castore_init(quic_castore* s, quic_castore_entry* roots, usz cap);
 
 /* RFC 5280 6.1. Register one root CA certificate (DER).
  * Returns 1 on success, 0 if the store is full or the input is malformed. */
-int quic_castore_add(quic_castore* s, quic_span cert_der);
+int quic_castore_add(quic_castore* s, wired_span cert_der);
 
 /* RFC 5280 6.1. Find a registered root whose subject Name equals issuer_dn
  * (a Name SEQUENCE view, header included). On a match views the root DER in
  * *root and returns 1; returns 0 if none matches. */
 int quic_castore_find_by_subject(
-    const quic_castore* s, quic_span issuer_dn, quic_span* root);
+    const quic_castore* s, wired_span issuer_dn, wired_span* root);
 
 #endif

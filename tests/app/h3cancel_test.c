@@ -4,7 +4,7 @@
  * both with H3_REQUEST_CANCELLED (0x010c) on the request stream. */
 static void test_h3cancel_request_builds_both_frames(void) {
   u8                      out[64];
-  quic_obuf               ob = {out, sizeof out, 0};
+  wired_obuf              ob = {out, sizeof out, 0};
   quic_reset_stream_frame rs;
   quic_stop_sending_frame ss;
   usz                     rn;
@@ -31,7 +31,7 @@ static void test_h3cancel_request_builds_both_frames(void) {
 /* Boundary: a varint-max stream id still round-trips through the pair. */
 static void test_h3cancel_request_large_ids(void) {
   u8                      out[64];
-  quic_obuf               ob = {out, sizeof out, 0};
+  wired_obuf              ob = {out, sizeof out, 0};
   quic_reset_stream_frame rs;
   usz                     rn;
 
@@ -44,8 +44,8 @@ static void test_h3cancel_request_large_ids(void) {
 
 /* A buffer too small for both frames is rejected, not truncated. */
 static void test_h3cancel_request_overflow(void) {
-  u8        out[3];
-  quic_obuf ob = {out, sizeof out, 99};
+  u8         out[3];
+  wired_obuf ob = {out, sizeof out, 99};
 
   CHECK(quic_h3cancel_request(8, 100, &ob) == 0);
 }

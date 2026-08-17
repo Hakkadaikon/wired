@@ -31,6 +31,6 @@ ssz wired_keylog_append(
     const char* path,
     const char* label,
     const u8    client_random[32],
-    quic_span   secret);
+    wired_span  secret);
 
 #endif

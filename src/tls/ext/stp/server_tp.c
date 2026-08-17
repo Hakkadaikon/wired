@@ -23,25 +23,25 @@ static const struct {
 
 /* Append one integer TP at out->len. Returns 1 on success, 0 if it did not
  * fit. */
-static int put_int(quic_obuf* out, u64 id, u64 val) {
-  usz       before = out->len;
-  quic_obuf tail   = quic_obuf_of(out->p + before, out->cap - before);
-  usz       w      = quic_tparam_put_int(&tail, id, val);
+static int put_int(wired_obuf* out, u64 id, u64 val) {
+  usz        before = out->len;
+  wired_obuf tail   = quic_obuf_of(out->p + before, out->cap - before);
+  usz        w      = quic_tparam_put_int(&tail, id, val);
   out->len += w;
   return w != 0;
 }
 
 /* Append one opaque TP (the two connection ids) at out->len. */
-static int put_blob(quic_obuf* out, u64 id, quic_span val) {
-  usz       before = out->len;
-  quic_obuf tail   = quic_obuf_of(out->p + before, out->cap - before);
-  usz       w      = quic_tparam_put_blob(&tail, id, val);
+static int put_blob(wired_obuf* out, u64 id, wired_span val) {
+  usz        before = out->len;
+  wired_obuf tail   = quic_obuf_of(out->p + before, out->cap - before);
+  usz        w      = quic_tparam_put_blob(&tail, id, val);
   out->len += w;
   return w != 0;
 }
 
 /* Append all integer-valued parameters. Returns 1 if every one fit. */
-static int put_int_params(quic_obuf* out) {
+static int put_int_params(wired_obuf* out) {
   int ok = 1;
   for (usz i = 0; i < sizeof(int_params) / sizeof(int_params[0]); i++)
     ok &= put_int(out, int_params[i].id, int_params[i].val);
@@ -56,13 +56,13 @@ static u64 lim_or(u64 v, u64 dflt) { return v ? v : dflt; }
  * built-in default: unlike max_data/max_streams_bidi, absence is the correct
  * out-of-the-box behavior until a caller opts in. Returns 1 if it fit or was
  * skipped, 0 only on an actual encode failure. */
-static int put_int_opt(quic_obuf* out, u64 id, u64 val) {
+static int put_int_opt(wired_obuf* out, u64 id, u64 val) {
   return val ? put_int(out, id, val) : 1;
 }
 
 /* Append the operator-tunable limits (RFC 9000 18.2) plus the opt-in
  * max_datagram_frame_size (RFC 9221 3). */
-static int put_tunables(quic_obuf* out, const quic_stp_limits* lim) {
+static int put_tunables(wired_obuf* out, const quic_stp_limits* lim) {
   quic_stp_limits d = {0};
   if (!lim) lim = &d;
   return put_int(
@@ -84,14 +84,14 @@ static int put_tunables(quic_obuf* out, const quic_stp_limits* lim) {
  * (quic_reset_stream_at_encode/_decode) is stable, and announcing costs
  * nothing even though no live sender uses it yet (unlike
  * max_datagram_frame_size, whose receive side is not wired). */
-static int put_reset_stream_at(quic_obuf* out) {
-  return put_blob(out, QUIC_TP_RESET_STREAM_AT, quic_span_of(0, 0));
+static int put_reset_stream_at(wired_obuf* out) {
+  return put_blob(out, QUIC_TP_RESET_STREAM_AT, wired_span_of(0, 0));
 }
 
 /* retry_source_connection_id only when a Retry actually happened -- an
  * unexpected one is a TRANSPORT_PARAMETER_ERROR at the peer (RFC 9000 7.3).
  */
-static int put_rscid(quic_obuf* out, quic_span rscid) {
+static int put_rscid(wired_obuf* out, wired_span rscid) {
   if (rscid.n == 0) return 1;
   return put_blob(out, QUIC_TP_RETRY_SOURCE_CONNECTION_ID, rscid);
 }
@@ -100,18 +100,18 @@ static int put_rscid(quic_obuf* out, quic_span rscid) {
  * one; the value is exactly 16 bytes by definition, so any other non-zero
  * length is a caller bug and fails the build rather than emitting a TP the
  * peer must reject. */
-static int put_sreset_token(quic_obuf* out, quic_span token) {
+static int put_sreset_token(wired_obuf* out, wired_span token) {
   if (token.n == 0) return 1;
   return token.n == 16 && put_blob(out, QUIC_TP_STATELESS_RESET_TOKEN, token);
 }
 
 int quic_stp_build_server_ret(
-    quic_span              original_dcid,
-    quic_span              initial_scid,
-    quic_span              rscid,
-    quic_span              sreset_token,
+    wired_span             original_dcid,
+    wired_span             initial_scid,
+    wired_span             rscid,
+    wired_span             sreset_token,
     const quic_stp_limits* lim,
-    quic_obuf*             out) {
+    wired_obuf*            out) {
   int ok;
   out->len = 0;
   ok =
@@ -123,16 +123,16 @@ int quic_stp_build_server_ret(
 }
 
 int quic_stp_build_server_lim(
-    quic_span              original_dcid,
-    quic_span              initial_scid,
+    wired_span             original_dcid,
+    wired_span             initial_scid,
     const quic_stp_limits* lim,
-    quic_obuf*             out) {
+    wired_obuf*            out) {
   return quic_stp_build_server_ret(
-      original_dcid, initial_scid, quic_span_of(0, 0), quic_span_of(0, 0), lim,
-      out);
+      original_dcid, initial_scid, wired_span_of(0, 0), wired_span_of(0, 0),
+      lim, out);
 }
 
 int quic_stp_build_server(
-    quic_span original_dcid, quic_span initial_scid, quic_obuf* out) {
+    wired_span original_dcid, wired_span initial_scid, wired_obuf* out) {
   return quic_stp_build_server_lim(original_dcid, initial_scid, 0, out);
 }

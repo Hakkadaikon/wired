@@ -46,7 +46,7 @@ static void test_gcm256_kat(void) {
 
   quic_aes256_init(&a, key);
   quic_gcm256_ctx g = {&a, iv, {aad, al}};
-  quic_gcm256_seal(&g, quic_span_of(pt, pl), ct);
+  quic_gcm256_seal(&g, wired_span_of(pt, pl), ct);
   for (usz i = 0; i < pl; i++) CHECK(ct[i] == want_ct[i]);
   for (usz i = 0; i < 16; i++) CHECK(ct[pl + i] == want_tag[i]);
 }
@@ -62,9 +62,9 @@ static void test_gcm256_open(void) {
   }
   quic_aes256_init(&a, key);
   quic_gcm256_ctx g = {&a, iv, {(const u8*)"hdr", 3}};
-  quic_gcm256_seal(&g, quic_span_of(pt, 20), ct);
+  quic_gcm256_seal(&g, wired_span_of(pt, 20), ct);
 
-  CHECK(quic_gcm256_open(&g, quic_span_of(ct, 36), dec) == 1);
+  CHECK(quic_gcm256_open(&g, wired_span_of(ct, 36), dec) == 1);
   for (usz i = 0; i < 20; i++) CHECK(dec[i] == pt[i]);
 
   /* flip one tag bit: must reject and not overwrite dec */
@@ -72,12 +72,12 @@ static void test_gcm256_open(void) {
   u8 bad[36];
   for (usz i = 0; i < 36; i++) bad[i] = ct[i];
   bad[20] ^= 1;
-  CHECK(quic_gcm256_open(&g, quic_span_of(bad, 36), dec) == 0);
+  CHECK(quic_gcm256_open(&g, wired_span_of(bad, 36), dec) == 0);
   for (usz i = 0; i < 20; i++) CHECK(dec[i] == 0xCC);
 
   /* flip one AAD byte: must reject */
   quic_gcm256_ctx g2 = {&a, iv, {(const u8*)"HDR", 3}};
-  CHECK(quic_gcm256_open(&g2, quic_span_of(ct, 36), dec) == 0);
+  CHECK(quic_gcm256_open(&g2, wired_span_of(ct, 36), dec) == 0);
 }
 
 /* AES-128-GCM and AES-256-GCM keyed with the same 128-bit prefix bytes must
@@ -92,11 +92,11 @@ static void test_gcm256_differs_from_gcm128(void) {
 
   quic_aes128_init(&a128, key128);
   quic_gcm_ctx g128 = {&a128, iv, {0, 0}};
-  quic_gcm_seal(&g128, quic_span_of(pt, 16), ct128);
+  quic_gcm_seal(&g128, wired_span_of(pt, 16), ct128);
 
   quic_aes256_init(&a256, key256);
   quic_gcm256_ctx g256 = {&a256, iv, {0, 0}};
-  quic_gcm256_seal(&g256, quic_span_of(pt, 16), ct256);
+  quic_gcm256_seal(&g256, wired_span_of(pt, 16), ct256);
 
   int same = 1;
   for (usz i = 0; i < 16 + 16; i++)

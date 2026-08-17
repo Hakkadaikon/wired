@@ -28,9 +28,9 @@ typedef struct {
   /** concatenated DER of every chain cert. Sized past a real 9-cert
    * amplificationlimit chain's cert.pem (13594 bytes of PEM/base64; DER is
    * more compact) with headroom. */
-  u8        chain_der[16384];
-  quic_span chain[WIRED_CERTRELOAD_CHAIN_MAX]; /**< views into chain_der */
-  u8        priv[32];                          /**< P-256 private scalar */
+  u8         chain_der[16384];
+  wired_span chain[WIRED_CERTRELOAD_CHAIN_MAX]; /**< views into chain_der */
+  u8         priv[32];                          /**< P-256 private scalar */
 } wired_certreload_store;
 
 /** Read cert_path/key_path, decode the PEM chain and private key into store,

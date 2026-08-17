@@ -9,9 +9,9 @@ static void test_spki_golden(void) {
   quic_x509 c;
   CHECK(
       quic_x509_parse(
-          quic_span_of(quic_x509_golden, sizeof(quic_x509_golden)), &c) == 1);
+          wired_span_of(quic_x509_golden, sizeof(quic_x509_golden)), &c) == 1);
 
-  quic_span oid, key;
+  wired_span oid, key;
   CHECK(quic_x509_public_key(c.tbs, &oid, &key) == 1);
   /* algorithm is id-ecPublicKey, not rsaEncryption. */
   CHECK(quic_x509_is_ec(oid) == 1);
@@ -23,18 +23,18 @@ static void test_spki_golden(void) {
 }
 
 static void test_spki_truncated(void) {
-  quic_span oid, key;
+  wired_span oid, key;
   /* tbs too short to even read its own SEQUENCE header. */
   CHECK(
-      quic_x509_public_key(quic_span_of(quic_x509_golden + 4, 3), &oid, &key) ==
-      0);
+      quic_x509_public_key(
+          wired_span_of(quic_x509_golden + 4, 3), &oid, &key) == 0);
 }
 
 /* A tbs SEQUENCE with too few elements never reaches the SPKI slot. */
 static void test_spki_short_tbs(void) {
-  const u8  tbs[] = {0x30, 0x03, 0x02, 0x01, 0x02};
-  quic_span oid, key;
-  CHECK(quic_x509_public_key(quic_span_of(tbs, sizeof(tbs)), &oid, &key) == 0);
+  const u8   tbs[] = {0x30, 0x03, 0x02, 0x01, 0x02};
+  wired_span oid, key;
+  CHECK(quic_x509_public_key(wired_span_of(tbs, sizeof(tbs)), &oid, &key) == 0);
 }
 
 /* RFC 8410 3. id-X25519 = 1.3.101.110, id-X448 = 1.3.101.111,
@@ -47,7 +47,7 @@ static const u8 oid_ed25519_bytes[] = {0x2b, 0x65, 0x70};
 static const u8 oid_ed448_bytes[]   = {0x2b, 0x65, 0x71};
 
 static void test_spki_is_x25519(void) {
-  quic_span oid = quic_span_of(oid_x25519_bytes, sizeof(oid_x25519_bytes));
+  wired_span oid = wired_span_of(oid_x25519_bytes, sizeof(oid_x25519_bytes));
   CHECK(quic_x509_is_x25519(oid) == 1);
   CHECK(quic_x509_is_x448(oid) == 0);
   CHECK(quic_x509_is_ed25519(oid) == 0);
@@ -55,19 +55,19 @@ static void test_spki_is_x25519(void) {
 }
 
 static void test_spki_is_x448(void) {
-  quic_span oid = quic_span_of(oid_x448_bytes, sizeof(oid_x448_bytes));
+  wired_span oid = wired_span_of(oid_x448_bytes, sizeof(oid_x448_bytes));
   CHECK(quic_x509_is_x448(oid) == 1);
   CHECK(quic_x509_is_x25519(oid) == 0);
 }
 
 static void test_spki_is_ed25519(void) {
-  quic_span oid = quic_span_of(oid_ed25519_bytes, sizeof(oid_ed25519_bytes));
+  wired_span oid = wired_span_of(oid_ed25519_bytes, sizeof(oid_ed25519_bytes));
   CHECK(quic_x509_is_ed25519(oid) == 1);
   CHECK(quic_x509_is_ed448(oid) == 0);
 }
 
 static void test_spki_is_ed448(void) {
-  quic_span oid = quic_span_of(oid_ed448_bytes, sizeof(oid_ed448_bytes));
+  wired_span oid = wired_span_of(oid_ed448_bytes, sizeof(oid_ed448_bytes));
   CHECK(quic_x509_is_ed448(oid) == 1);
   CHECK(quic_x509_is_ed25519(oid) == 0);
 }
@@ -84,22 +84,23 @@ static const u8 oid_ec_bytes[]    = {0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01};
 
 static void test_spki_is_ecdh(void) {
   CHECK(
-      quic_x509_is_ecdh(quic_span_of(oid_ecdh_bytes, sizeof(oid_ecdh_bytes))) ==
-      1);
+      quic_x509_is_ecdh(
+          wired_span_of(oid_ecdh_bytes, sizeof(oid_ecdh_bytes))) == 1);
   CHECK(
       quic_x509_is_ecmqv(
-          quic_span_of(oid_ecdh_bytes, sizeof(oid_ecdh_bytes))) == 0);
+          wired_span_of(oid_ecdh_bytes, sizeof(oid_ecdh_bytes))) == 0);
   CHECK(
-      quic_x509_is_ecdh(quic_span_of(oid_ec_bytes, sizeof(oid_ec_bytes))) == 0);
+      quic_x509_is_ecdh(wired_span_of(oid_ec_bytes, sizeof(oid_ec_bytes))) ==
+      0);
 }
 
 static void test_spki_is_ecmqv(void) {
   CHECK(
       quic_x509_is_ecmqv(
-          quic_span_of(oid_ecmqv_bytes, sizeof(oid_ecmqv_bytes))) == 1);
+          wired_span_of(oid_ecmqv_bytes, sizeof(oid_ecmqv_bytes))) == 1);
   CHECK(
       quic_x509_is_ecdh(
-          quic_span_of(oid_ecmqv_bytes, sizeof(oid_ecmqv_bytes))) == 0);
+          wired_span_of(oid_ecmqv_bytes, sizeof(oid_ecmqv_bytes))) == 0);
 }
 
 /* Five NULL elements standing in for serialNumber..subject, so
@@ -137,10 +138,10 @@ static const u8 spt_tbs_ec_with_params[] = {
     0x2a, 0x86, 0x48,       0xce, 0x3d, 0x03, 0x01, 0x07, SPT_KEY_BITS};
 
 static void test_ec_curve_ecdh_reads_params(void) {
-  quic_span curve_oid;
+  wired_span curve_oid;
   CHECK(
       quic_x509_ec_curve(
-          quic_span_of(
+          wired_span_of(
               spt_tbs_ecdh_with_params, sizeof(spt_tbs_ecdh_with_params)),
           &curve_oid) == 1);
   CHECK(quic_x509_is_p256(curve_oid) == 1);
@@ -148,14 +149,14 @@ static void test_ec_curve_ecdh_reads_params(void) {
 
 static void test_restricted_params_ecdh_with_params_ok(void) {
   CHECK(
-      quic_x509_ec_restricted_params_ok(quic_span_of(
+      quic_x509_ec_restricted_params_ok(wired_span_of(
           spt_tbs_ecdh_with_params, sizeof(spt_tbs_ecdh_with_params))) == 1);
 }
 
 /* RFC 5480 2.1.2: id-ecDH MUST carry ECParameters; absent is rejected. */
 static void test_restricted_params_ecdh_no_params_rejected(void) {
   CHECK(
-      quic_x509_ec_restricted_params_ok(quic_span_of(
+      quic_x509_ec_restricted_params_ok(wired_span_of(
           spt_tbs_ecdh_no_params, sizeof(spt_tbs_ecdh_no_params))) == 0);
 }
 
@@ -163,7 +164,7 @@ static void test_restricted_params_ecdh_no_params_rejected(void) {
  * this always passes regardless of ECParameters. */
 static void test_restricted_params_unrestricted_alg_ok(void) {
   CHECK(
-      quic_x509_ec_restricted_params_ok(quic_span_of(
+      quic_x509_ec_restricted_params_ok(wired_span_of(
           spt_tbs_ec_with_params, sizeof(spt_tbs_ec_with_params))) == 1);
 }
 

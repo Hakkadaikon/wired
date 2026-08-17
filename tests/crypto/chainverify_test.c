@@ -3,12 +3,12 @@
 #include "castore_golden.h"
 #include "test.h"
 
-static quic_span chv_leaf_span(void) {
-  return quic_span_of(quic_castore_leaf_der, sizeof(quic_castore_leaf_der));
+static wired_span chv_leaf_span(void) {
+  return wired_span_of(quic_castore_leaf_der, sizeof(quic_castore_leaf_der));
 }
 
-static quic_span chv_root_span(void) {
-  return quic_span_of(quic_castore_root_der, sizeof(quic_castore_root_der));
+static wired_span chv_root_span(void) {
+  return wired_span_of(quic_castore_root_der, sizeof(quic_castore_root_der));
 }
 
 /* RFC 5280 6.1.3. The leaf is signed by the root's key. */
@@ -33,7 +33,7 @@ static void test_tampered_tbs_fails(void) {
   leaf[40] ^= 0xff; /* inside the tbsCertificate */
   CHECK(
       quic_castore_verify_signed_by(
-          quic_span_of(leaf, sizeof(leaf)), chv_root_span()) == 0);
+          wired_span_of(leaf, sizeof(leaf)), chv_root_span()) == 0);
 }
 
 /* RFC 5280 4.1.1.2: the inner tbsCertificate.signatureAlgorithm must equal the
@@ -47,7 +47,7 @@ static void test_sigalg_mismatch_fails(void) {
   leaf[331] ^= 0x01; /* outer sigAlg OID value byte */
   CHECK(
       quic_castore_verify_signed_by(
-          quic_span_of(leaf, sizeof(leaf)), chv_root_span()) == 0);
+          wired_span_of(leaf, sizeof(leaf)), chv_root_span()) == 0);
 }
 
 void test_chainverify(void) {

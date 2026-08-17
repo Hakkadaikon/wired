@@ -4,7 +4,7 @@
 #include "crypto/symmetric/hash/hash/sha256.h"
 
 /* SHA-256(seed || counter_be32) -> 32-byte block. */
-static void mgf1_block(quic_span seed, u32 counter, u8 out[32]) {
+static void mgf1_block(wired_span seed, u32 counter, u8 out[32]) {
   u8 c[4];
   quic_put_be32(c, counter);
   quic_sha256_ctx s;
@@ -17,7 +17,7 @@ static void mgf1_block(quic_span seed, u32 counter, u8 out[32]) {
 static usz min_usz(usz a, usz b) { return a < b ? a : b; }
 
 /* RFC 8017 B.2.1. */
-void quic_mgf1_sha256(quic_span seed, quic_mspan mask) {
+void quic_mgf1_sha256(wired_span seed, wired_mspan mask) {
   u8  t[32];
   usz off = 0;
   for (u32 counter = 0; off < mask.n; counter++) {

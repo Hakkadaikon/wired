@@ -20,24 +20,24 @@ typedef struct {
 /* Encode a name-reference field line: *r plus the value. Returns bytes
  * written, or 0 if it does not fit. */
 usz quic_qpack_literal_namref_encode(
-    quic_mspan buf, const quic_qpack_nameref* r, quic_span value);
+    wired_mspan buf, const quic_qpack_nameref* r, wired_span value);
 
 /* Decode a name-reference field line into *r and the value (into val, length
  * to val->len). Returns bytes consumed, or 0 on a non-matching pattern,
  * truncation, or value overflow. */
 usz quic_qpack_literal_namref_decode(
-    quic_span buf, quic_qpack_nameref* r, quic_obuf* val);
+    wired_span buf, quic_qpack_nameref* r, wired_obuf* val);
 
 /* Encode a literal-name field line: never flag plus the (name, value) pair.
  * Returns bytes written, or 0 if it does not fit. */
 usz quic_qpack_literal_name_encode(
-    quic_mspan buf, int never, const quic_qpack_field* f);
+    wired_mspan buf, int never, const quic_qpack_field* f);
 
 /* Decode a literal-name field line into *never and the (name, value) buffers.
  * A H=1 name is Huffman-decoded. Returns bytes consumed, or 0 on a
  * non-matching pattern, truncation, or overflow. */
 usz quic_qpack_literal_name_decode(
-    quic_span buf, int* never, quic_qpack_fieldbuf* out);
+    wired_span buf, int* never, quic_qpack_fieldbuf* out);
 
 /* RFC 9204 4.5.5. Literal Field Line With Post-Base Name Reference: pattern
  * 0000Niii, N=never-indexed, a 3-bit prefixed post-Base index into the
@@ -53,12 +53,12 @@ typedef struct {
 /* Encode a post-Base name-reference field line: *r plus the value. Returns
  * bytes written, or 0 if it does not fit. */
 usz quic_qpack_literal_postbase_encode(
-    quic_mspan buf, const quic_qpack_postbaseref* r, quic_span value);
+    wired_mspan buf, const quic_qpack_postbaseref* r, wired_span value);
 
 /* Decode a post-Base name-reference field line into *r and the value (into
  * val, length to val->len). Returns bytes consumed, or 0 on a non-matching
  * pattern, truncation, or value overflow. */
 usz quic_qpack_literal_postbase_decode(
-    quic_span buf, quic_qpack_postbaseref* r, quic_obuf* val);
+    wired_span buf, quic_qpack_postbaseref* r, wired_obuf* val);
 
 #endif

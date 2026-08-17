@@ -16,7 +16,7 @@
 #include "crypto/pki/cert/tbscert/fields.c"
 
 int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
-  quic_span cert = quic_span_of((const u8 *)data, (usz)size);
+  wired_span cert = wired_span_of((const u8 *)data, (usz)size);
 
   quic_x509 x;
   if (!quic_x509_parse(cert, &x)) return 0;
@@ -32,8 +32,8 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
   /* RFC 5280 4.2.1.9 basicConstraints OID, walked regardless of whether it
    * is actually present — exercises the extensions-scan path too. */
   static const u8 basic_constraints_oid[] = {0x55, 0x1d, 0x13};
-  quic_span       val;
-  quic_x509_find_ext(x.tbs, quic_span_of(basic_constraints_oid, 3), &val);
+  wired_span       val;
+  quic_x509_find_ext(x.tbs, wired_span_of(basic_constraints_oid, 3), &val);
 
   return 0;
 }

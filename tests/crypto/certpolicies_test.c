@@ -42,7 +42,7 @@ static void test_cp_absent(void) {
   quic_x509_policy_set set;
   CHECK(
       quic_x509_cert_policies(
-          quic_span_of(cpt_tbs_no_ext, sizeof(cpt_tbs_no_ext)), &set) == 0);
+          wired_span_of(cpt_tbs_no_ext, sizeof(cpt_tbs_no_ext)), &set) == 0);
 }
 
 /* A single anyPolicy entry is read and recognized. */
@@ -50,8 +50,8 @@ static void test_cp_any_policy(void) {
   quic_x509_policy_set set;
   CHECK(
       quic_x509_cert_policies(
-          quic_span_of(cpt_tbs_any_policy, sizeof(cpt_tbs_any_policy)), &set) ==
-      1);
+          wired_span_of(cpt_tbs_any_policy, sizeof(cpt_tbs_any_policy)),
+          &set) == 1);
   CHECK(set.n == 1);
   CHECK(quic_x509_policy_set_has_any(&set) == 1);
 }
@@ -61,13 +61,14 @@ static void test_cp_single_policy(void) {
   quic_x509_policy_set set;
   CHECK(
       quic_x509_cert_policies(
-          quic_span_of(cpt_tbs_policy_x, sizeof(cpt_tbs_policy_x)), &set) == 1);
+          wired_span_of(cpt_tbs_policy_x, sizeof(cpt_tbs_policy_x)), &set) ==
+      1);
   CHECK(set.n == 1);
   CHECK(quic_x509_policy_set_has_any(&set) == 0);
   CHECK(
       quic_der_oid_equal(
           set.oid[0],
-          quic_span_of(cpt_oid_policy_x, sizeof(cpt_oid_policy_x))) == 1);
+          wired_span_of(cpt_oid_policy_x, sizeof(cpt_oid_policy_x))) == 1);
 }
 
 /* Two PolicyInformation entries are both read. */
@@ -75,7 +76,7 @@ static void test_cp_two_policies(void) {
   quic_x509_policy_set set;
   CHECK(
       quic_x509_cert_policies(
-          quic_span_of(cpt_tbs_policy_xy, sizeof(cpt_tbs_policy_xy)), &set) ==
+          wired_span_of(cpt_tbs_policy_xy, sizeof(cpt_tbs_policy_xy)), &set) ==
       1);
   CHECK(set.n == 2);
 }

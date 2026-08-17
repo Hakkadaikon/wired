@@ -6,10 +6,10 @@
 
 /** Inputs for the retry_source_connection_id consistency check. */
 typedef struct {
-  int       retry_occurred;
-  quic_span retry_scid;
-  quic_span tp_rscid;
-  int       tp_present;
+  int        retry_occurred;
+  wired_span retry_scid;
+  wired_span tp_rscid;
+  int        tp_present;
 } quic_tpverify_rscid_in;
 
 /* RFC 9000 7.3: retry_source_connection_id must be present iff a Retry was

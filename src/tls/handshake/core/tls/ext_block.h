@@ -13,7 +13,7 @@
 int quic_tls_ext_block_begin(const u8* buf, usz cap, usz* off);
 
 /* Append ext to out (advancing out->len). Returns 1, 0 if no room. */
-int quic_tls_ext_append(quic_obuf* out, quic_span ext);
+int quic_tls_ext_append(wired_obuf* out, wired_span ext);
 
 /* Back-fill the 2-byte length at block_start to cover everything appended
  * since begin. Returns the final block length written (off), or 0 if the body

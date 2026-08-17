@@ -8,7 +8,7 @@
 typedef struct {
   const quic_qpack_dyn* table;
   u64                   base;
-  quic_span             fs;
+  wired_span            fs;
 } quic_qdyn_src;
 
 /* RFC 9204 4.5.2 / 4.5.3. Decode one Indexed Field Line, or one Indexed Field
@@ -30,6 +30,6 @@ int quic_qdyn_decode_field(
  * post-Base index and the literal value; only the name comes from the table.
  */
 int quic_qdyn_resolve_postbase_name(
-    const quic_qdyn_src* src, u64 postbase, quic_span* name);
+    const quic_qdyn_src* src, u64 postbase, wired_span* name);
 
 #endif

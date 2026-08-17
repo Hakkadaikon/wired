@@ -90,7 +90,7 @@ static void test_nst_roundtrip(void) {
   quic_ticket t = nst_sample_ticket();
   u8          out[256];
   usz         n;
-  quic_span   sealed;
+  wired_span  sealed;
   quic_ticket opened;
   u8          wrong_key[QUIC_TICKET_KEY_LEN];
 
@@ -98,7 +98,7 @@ static void test_nst_roundtrip(void) {
   n = quic_tls_new_session_ticket_encode(out, sizeof out, &t, key, 0);
   CHECK(n > 0);
 
-  CHECK(quic_tls_new_session_ticket_parse(quic_span_of(out, n), &sealed) == 1);
+  CHECK(quic_tls_new_session_ticket_parse(wired_span_of(out, n), &sealed) == 1);
   CHECK(quic_ticket_open(sealed, key, &opened) == 1);
   CHECK(opened.lifetime_secs == t.lifetime_secs);
   CHECK(opened.issued_at == t.issued_at);
@@ -136,13 +136,13 @@ static void test_nst_lifetime_clamped_to_7days(void) {
   quic_ticket t = nst_sample_ticket();
   u8          out[256];
   usz         n;
-  quic_span   sealed;
+  wired_span  sealed;
   quic_ticket opened;
   t.lifetime_secs = 604800 + 12345;
   fill_nst_key(key, 0x99);
   n = quic_tls_new_session_ticket_encode(out, sizeof out, &t, key, 0);
   CHECK(n > 0);
-  CHECK(quic_tls_new_session_ticket_parse(quic_span_of(out, n), &sealed) == 1);
+  CHECK(quic_tls_new_session_ticket_parse(wired_span_of(out, n), &sealed) == 1);
   CHECK(quic_ticket_open(sealed, key, &opened) == 1);
   CHECK(opened.lifetime_secs == 604800);
 }
@@ -154,13 +154,13 @@ static void test_nst_lifetime_within_bound_unchanged(void) {
   quic_ticket t = nst_sample_ticket();
   u8          out[256];
   usz         n;
-  quic_span   sealed;
+  wired_span  sealed;
   quic_ticket opened;
   t.lifetime_secs = 3600;
   fill_nst_key(key, 0xaa);
   n = quic_tls_new_session_ticket_encode(out, sizeof out, &t, key, 0);
   CHECK(n > 0);
-  CHECK(quic_tls_new_session_ticket_parse(quic_span_of(out, n), &sealed) == 1);
+  CHECK(quic_tls_new_session_ticket_parse(wired_span_of(out, n), &sealed) == 1);
   CHECK(quic_ticket_open(sealed, key, &opened) == 1);
   CHECK(opened.lifetime_secs == 3600);
 }
@@ -171,11 +171,11 @@ static void test_nst_parse_truncated(void) {
   quic_ticket t = nst_sample_ticket();
   u8          out[256];
   usz         n;
-  quic_span   sealed;
+  wired_span  sealed;
   fill_nst_key(key, 0x55);
   n = quic_tls_new_session_ticket_encode(out, sizeof out, &t, key, 0);
   CHECK(
-      quic_tls_new_session_ticket_parse(quic_span_of(out, n - 1), &sealed) ==
+      quic_tls_new_session_ticket_parse(wired_span_of(out, n - 1), &sealed) ==
       0);
 }
 

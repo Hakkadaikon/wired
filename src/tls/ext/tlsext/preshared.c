@@ -14,7 +14,7 @@ static usz psk_total(usz id_len, usz binder_len) {
   return 4 + 2 + (2 + id_len + 4) + 2 + (1 + binder_len);
 }
 
-int quic_tlsext_pre_shared_key(const quic_tlsext_psk_in* in, quic_obuf* out) {
+int quic_tlsext_pre_shared_key(const quic_tlsext_psk_in* in, wired_obuf* out) {
   usz id_len     = in->identity.n;
   usz binder_len = in->binder.n;
   usz total      = psk_total(id_len, binder_len);

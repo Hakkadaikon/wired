@@ -7,8 +7,8 @@
 /** The QPACK-encoded field section and optional body of an outbound
  * request. */
 typedef struct {
-  quic_span qpack_headers;
-  quic_span body;
+  wired_span qpack_headers;
+  wired_span body;
 } quic_h3conn_req_in;
 
 /* RFC 9114 4.1. Build an HTTP/3 request (a HEADERS frame carrying the
@@ -17,6 +17,6 @@ typedef struct {
  * with the FIN bit set. Returns 1 with out->len set, 0 if out lacks
  * capacity. */
 int quic_h3conn_send_request(
-    u64 stream_id, const quic_h3conn_req_in* in, quic_obuf* out);
+    u64 stream_id, const quic_h3conn_req_in* in, wired_obuf* out);
 
 #endif

@@ -3,6 +3,6 @@
 #include "tls/ext/tpverify/ctcid.h"
 
 /* RFC 9000 7.3 */
-int quic_tpverify_iscid(quic_span first_scid, quic_span tp_iscid) {
+int quic_tpverify_iscid(wired_span first_scid, wired_span tp_iscid) {
   return quic_tpverify_cid_eq(first_scid, tp_iscid);
 }

@@ -83,7 +83,7 @@
  * real or zeroed, and connio_test.c's arm_onertt proves that. */
 static void arm_onertt(quic_connio *io, int is_server) {
   quic_connio_init_in in = {is_server, 0x43, 1u << 20};
-  quic_connio_init(io, quic_span_of((const u8 *)"\x01\x02\x03\x04", 4), &in);
+  quic_connio_init(io, wired_span_of((const u8 *)"\x01\x02\x03\x04", 4), &in);
 
   quic_initial_keys k = {0};
   quic_keyset_install(&io->loop.keys, QUIC_LEVEL_INITIAL, &k);
@@ -112,7 +112,7 @@ static void feed_one(quic_connio *io, const u8 *data, usz len) {
   if (len == 0 || len > SCRATCH_CAP) return;
   if (!quic_connrunner_packet_level(data[0], &level)) return;
   for (usz i = 0; i < len; i++) scratch[i] = data[i];
-  quic_connio_recv(io, level, quic_mspan_of(scratch, len));
+  quic_connio_recv(io, level, wired_mspan_of(scratch, len));
 }
 
 int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {

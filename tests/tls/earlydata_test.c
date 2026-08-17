@@ -11,8 +11,8 @@ static void test_earlydata_ch_golden(void) {
 }
 
 static void test_earlydata_nst_golden(void) {
-  u8        buf[16];
-  quic_obuf ob = quic_obuf_of(buf, sizeof(buf));
+  u8         buf[16];
+  wired_obuf ob = quic_obuf_of(buf, sizeof(buf));
   /* wire: type 0x002a, ext_data len 0x0004, max_early_data_size */
   CHECK(quic_tlsext_early_data_nst(0x01020304, &ob) == 1);
   CHECK(ob.len == 8);
@@ -22,18 +22,18 @@ static void test_earlydata_nst_golden(void) {
 }
 
 static void test_earlydata_nst_roundtrip(void) {
-  u8        buf[16];
-  u32       got = 0;
-  quic_obuf ob  = quic_obuf_of(buf, sizeof(buf));
+  u8         buf[16];
+  u32        got = 0;
+  wired_obuf ob  = quic_obuf_of(buf, sizeof(buf));
   quic_tlsext_early_data_nst(0xdeadbeef, &ob);
   CHECK(quic_tlsext_early_data_nst_parse(buf, ob.len, &got) == 1);
   CHECK(got == 0xdeadbeef);
 }
 
 static void test_earlydata_nst_guards(void) {
-  u8        buf[16];
-  u32       got = 0;
-  quic_obuf ob  = quic_obuf_of(buf, sizeof(buf));
+  u8         buf[16];
+  u32        got = 0;
+  wired_obuf ob  = quic_obuf_of(buf, sizeof(buf));
   quic_tlsext_early_data_nst(7, &ob);
   /* truncated */
   CHECK(quic_tlsext_early_data_nst_parse(buf, ob.len - 1, &got) == 0);
@@ -46,9 +46,9 @@ static void test_earlydata_nst_guards(void) {
 }
 
 static void test_earlydata_encode_guards(void) {
-  u8        buf[8];
-  usz       w = 0;
-  quic_obuf ob;
+  u8         buf[8];
+  usz        w = 0;
+  wired_obuf ob;
   CHECK(quic_tlsext_early_data_ch(buf, 3, &w) == 0);
   ob = quic_obuf_of(buf, 7);
   CHECK(quic_tlsext_early_data_nst(1, &ob) == 0);

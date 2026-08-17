@@ -429,7 +429,7 @@ typedef struct {
    * no-srvrun_cfg-in-a-callback reason as wt_close_pending, drained on the
    * next srvrun_on_step (srvrun_drain_wt_stream_reset): one standard
    * RESET_STREAM (RFC 9000 19.4) per entry, carrying the app code mapped
-   * through quic_wterrmap_to_http3 and the final size captured at latch
+   * through wired_wterrmap_to_http3 and the final size captured at latch
    * time (the send slot's cumulative armed bytes; captured BEFORE the slot
    * is freed, because freeing loses the count and a final size below the
    * bytes already sent is an RFC 9000 4.5 FINAL_SIZE_ERROR at the peer).
@@ -880,7 +880,7 @@ static void srvrun_qlog_sent(
   usz  n;
   if (!cfg->qlog_path) return;
   n = wired_qlogevent_packet_sent(rec, sizeof rec, 0, c->qlog_slot, 0, bytes);
-  if (n) wired_qlog_append(cfg->qlog_path, quic_span_of((const u8*)rec, n));
+  if (n) wired_qlog_append(cfg->qlog_path, wired_span_of((const u8*)rec, n));
 }
 
 /* qlog packet_received (time not tracked at this layer; bytes is the whole
@@ -893,7 +893,7 @@ static void srvrun_qlog_recv(
   if (!cfg->qlog_path) return;
   n = wired_qlogevent_packet_received(
       rec, sizeof rec, 0, c->qlog_slot, pn, bytes);
-  if (n) wired_qlog_append(cfg->qlog_path, quic_span_of((const u8*)rec, n));
+  if (n) wired_qlog_append(cfg->qlog_path, wired_span_of((const u8*)rec, n));
 }
 
 /* qlog stream_frame_sent (RFC 9000 19.8): every STREAM frame this connection
@@ -913,7 +913,7 @@ static void srvrun_qlog_stream_sent(
       f->stream_id, f->offset, f->length, f->fin, pn};
   n = wired_qlogevent_stream_frame(
       rec, sizeof rec, now_ms, c->qlog_slot, "stream_frame_sent", &in);
-  if (n) wired_qlog_append(cfg->qlog_path, quic_span_of((const u8*)rec, n));
+  if (n) wired_qlog_append(cfg->qlog_path, wired_span_of((const u8*)rec, n));
 }
 
 /* Snapshot of the loop's per-space receive marks, taken before a step; a
@@ -994,7 +994,7 @@ __attribute__((unused)) static usz srvrun_test_flush_count(
  * Both srvrun_send and the direct Version Negotiation send route through
  * this. */
 static void srvrun_tx(
-    const srvrun_cfg* cfg, const quic_sockaddr* sa, quic_span pkt) {
+    const srvrun_cfg* cfg, const quic_sockaddr* sa, wired_span pkt) {
   cfg->env->tx_flush_count++;
   if (cfg->xdp)
     wired_srvxdp_send(cfg->xdp, sa, pkt);
@@ -1005,7 +1005,7 @@ static void srvrun_tx(
 static void srvrun_send(
     const srvrun_cfg*  cfg,
     const srvrun_conn* c,
-    quic_span          pkt,
+    wired_span         pkt,
     const char*        what) {
   (void)what; /* WIRED_LOG compiles out without -DQUIC_DEBUG */
   if (pkt.n) {
@@ -1029,7 +1029,7 @@ static void srvrun_stage_reset(wired_srvrun_env* e) {
  * segment. Either way it is one flush. */
 static void srvrun_stage_tx_multi(const srvrun_cfg* cfg) {
   wired_srvrun_env* e   = cfg->env;
-  quic_span         all = quic_span_of(e->gso_stage, e->gso_len);
+  wired_span        all = wired_span_of(e->gso_stage, e->gso_len);
   e->tx_flush_count++;
   if (wired_udp_send_gso(cfg->fd, &e->gso_peer, all, (u16)e->gso_seg_size) >= 0)
     return;
@@ -1044,7 +1044,7 @@ static void srvrun_stage_flush(const srvrun_cfg* cfg) {
   wired_srvrun_env* e = cfg->env;
   if (e->gso_count == 0) return;
   if (e->gso_count == 1)
-    srvrun_tx(cfg, &e->gso_peer, quic_span_of(e->gso_stage, e->gso_len));
+    srvrun_tx(cfg, &e->gso_peer, wired_span_of(e->gso_stage, e->gso_len));
   else
     srvrun_stage_tx_multi(cfg);
   srvrun_stage_reset(e);
@@ -1075,7 +1075,7 @@ static int srvrun_stage_extends(
  * full) flushes it first and opens a new one; a shorter-than-segment
  * datagram joins as the batch's legal short tail and closes it. */
 static void srvrun_stage_put(
-    const srvrun_cfg* cfg, const srvrun_conn* c, quic_span pkt) {
+    const srvrun_cfg* cfg, const srvrun_conn* c, wired_span pkt) {
   wired_srvrun_env* e = cfg->env;
   if (!srvrun_stage_extends(e, &c->peer, pkt.n)) {
     srvrun_stage_flush(cfg);
@@ -1097,7 +1097,7 @@ static void srvrun_stage_put(
 static void srvrun_send_staged(
     const srvrun_cfg*  cfg,
     const srvrun_conn* c,
-    quic_span          pkt,
+    wired_span         pkt,
     const char*        what) {
   (void)what;
   if (cfg->xdp || pkt.n == 0) {
@@ -1124,7 +1124,7 @@ static u64 srvrun_boot_budget(const srvrun_conn* c) {
  * just sends and accounts, so a caller that already decided (e.g. because
  * the path is confirmed) never gets silently overruled here. */
 static void srvrun_boot_send(
-    const srvrun_cfg* cfg, srvrun_conn* c, quic_span pkt, const char* what) {
+    const srvrun_cfg* cfg, srvrun_conn* c, wired_span pkt, const char* what) {
   srvrun_send(cfg, c, pkt, what);
   c->boot_tx_bytes += pkt.n;
 }
@@ -1145,7 +1145,7 @@ static void srvrun_boot_send_initial(
     const srvrun_cfg* cfg, srvrun_conn* c, const char* what) {
   int confirmed = wired_server_is_confirmed(&c->s);
   if (!srvrun_boot_gate_blocks(c, confirmed, c->boot_ini_len))
-    srvrun_boot_send(cfg, c, quic_span_of(c->boot_ini, c->boot_ini_len), what);
+    srvrun_boot_send(cfg, c, wired_span_of(c->boot_ini, c->boot_ini_len), what);
 }
 
 /* Offset into boot_hs where the first not-yet-sent datagram starts. */
@@ -1164,8 +1164,8 @@ static void srvrun_boot_send_hs_gated(
     const srvrun_cfg* cfg, srvrun_conn* c, int confirmed) {
   usz off = srvrun_boot_sent_off(c);
   while (c->boot_dgram_sent < c->boot_dgram_count) {
-    quic_span pkt =
-        quic_span_of(c->boot_hs + off, c->boot_dgram_len[c->boot_dgram_sent]);
+    wired_span pkt =
+        wired_span_of(c->boot_hs + off, c->boot_dgram_len[c->boot_dgram_sent]);
     if (srvrun_boot_gate_blocks(c, confirmed, pkt.n)) return;
     srvrun_boot_send(cfg, c, pkt, "server Handshake flight sent\n");
     off += pkt.n;
@@ -1198,10 +1198,10 @@ static int srvrun_refuse(const srvrun_step_ctx* ctx, const srvrun_conn* c) {
   u8  pkt[1500];
   u64 err = quic_sdrv_last_error(&c->s.sdrv);
   usz n   = wired_srvboot_refusal(
-      &c->boot, quic_span_of(c->scid, ctx->cfg->id->scid_len), err, pkt,
+      &c->boot, wired_span_of(c->scid, ctx->cfg->id->scid_len), err, pkt,
       sizeof pkt);
   WIRED_LOG("srvboot accept failed\n");
-  if (n) srvrun_send(ctx->cfg, c, quic_span_of(pkt, n), "boot refused\n");
+  if (n) srvrun_send(ctx->cfg, c, wired_span_of(pkt, n), "boot refused\n");
   return 0;
 }
 
@@ -1212,7 +1212,7 @@ static int srvrun_refuse(const srvrun_step_ctx* ctx, const srvrun_conn* c) {
  * dispatch completed, mirrors srvrun_step_and_reap) -- both defined further
  * down this file once the response-pumping helpers they depend on exist. */
 static void srvrun_on_step(
-    const srvrun_step_ctx* ctx, srvrun_conn* c, quic_mspan dg);
+    const srvrun_step_ctx* ctx, srvrun_conn* c, wired_mspan dg);
 static void srvrun_sess_on_step(const srvrun_step_ctx* ctx, int slot);
 
 /* RFC 9001 4.6.1: dg's boot accumulator held every 0-RTT datagram that
@@ -1231,16 +1231,16 @@ static void srvrun_boot_flush_zerortt(
     const srvrun_step_ctx* ctx, srvrun_conn* c, int slot) {
   usz n = wired_srvboot_acc_zerortt_count(&c->boot);
   for (usz i = 0; i < n && !c->l.peer_closed; i++) {
-    quic_span dg = wired_srvboot_acc_zerortt_take(&c->boot, i);
-    srvrun_on_step(ctx, c, quic_mspan_of((u8*)dg.p, dg.n));
+    wired_span dg = wired_srvboot_acc_zerortt_take(&c->boot, i);
+    srvrun_on_step(ctx, c, wired_mspan_of((u8*)dg.p, dg.n));
     srvrun_sess_on_step(ctx, slot);
   }
 }
 
 static int srvrun_boot_finish(
-    const srvrun_step_ctx* ctx, int slot, srvrun_conn* c, quic_mspan dg) {
-  quic_obuf          iob  = quic_obuf_of(c->boot_ini, sizeof c->boot_ini);
-  quic_obuf          hob  = quic_obuf_of(c->boot_hs, sizeof c->boot_hs);
+    const srvrun_step_ctx* ctx, int slot, srvrun_conn* c, wired_mspan dg) {
+  wired_obuf         iob  = quic_obuf_of(c->boot_ini, sizeof c->boot_ini);
+  wired_obuf         hob  = quic_obuf_of(c->boot_hs, sizeof c->boot_hs);
   wired_srvboot_conn conn = {&c->s, &c->l};
   wired_srvboot_id   sid  = srvrun_slot_id(ctx->cfg->id, c);
   wired_srvboot_out  out  = {&iob, &hob, {0}, 0, 0};
@@ -1286,7 +1286,7 @@ static int srvrun_boot_finish(
 
 /* Feed dg into c's boot accumulator, restarting it for a fresh attempt (a
  * just-claimed slot, or a confirmed connection re-cold-starting). */
-static int srvrun_boot_feed(srvrun_conn* c, quic_mspan dg) {
+static int srvrun_boot_feed(srvrun_conn* c, wired_mspan dg) {
   if (c->up || !c->boot.any) wired_srvboot_acc_reset(&c->boot);
   return wired_srvboot_acc_feed(&c->boot, dg);
 }
@@ -1304,7 +1304,7 @@ static int srvrun_boot_salvage(const srvrun_conn* c) {
 }
 
 static int srvrun_on_initial(
-    const srvrun_step_ctx* ctx, int slot, srvrun_conn* c, quic_mspan dg) {
+    const srvrun_step_ctx* ctx, int slot, srvrun_conn* c, wired_mspan dg) {
   if (!srvrun_boot_feed(c, dg)) return srvrun_boot_salvage(c);
   if (!wired_srvboot_acc_complete(&c->boot)) return SRVRUN_BOOT_PENDING;
   return srvrun_boot_finish(ctx, slot, c, dg);
@@ -1319,7 +1319,7 @@ static u64 srvrun_wtsend_final_size(srvrun_conn* c, u64 stream_id);
  * server never replied on -- every abort caller fires before any response
  * bytes exist; only a WT stream_reply's own slot can carry a count). */
 static usz srvrun_wt_abort_reset(
-    srvrun_conn* c, u64 stream_id, u64 err_code, quic_obuf* plb, usz at) {
+    srvrun_conn* c, u64 stream_id, u64 err_code, wired_obuf* plb, usz at) {
   quic_reset_stream_frame rs = {
       stream_id, err_code, srvrun_wtsend_final_size(c, stream_id)};
   return quic_reset_stream_encode(plb->p + at, plb->cap - at, &rs);
@@ -1327,7 +1327,7 @@ static usz srvrun_wt_abort_reset(
 
 /* One STOP_SENDING (RFC 9000 19.5) at plb->p + at. */
 static usz srvrun_wt_abort_stop(
-    u64 stream_id, u64 err_code, quic_obuf* plb, usz at) {
+    u64 stream_id, u64 err_code, wired_obuf* plb, usz at) {
   quic_stop_sending_frame ss = {stream_id, err_code};
   return quic_stop_sending_encode(plb->p + at, plb->cap - at, &ss);
 }
@@ -1335,7 +1335,7 @@ static usz srvrun_wt_abort_stop(
 /* RESET_STREAM followed by STOP_SENDING -- the full abort of a bidi
  * stream's both halves, same pair shape as quic_h3cancel_request. */
 static usz srvrun_wt_abort_pair(
-    srvrun_conn* c, u64 stream_id, u64 err_code, quic_obuf* plb) {
+    srvrun_conn* c, u64 stream_id, u64 err_code, wired_obuf* plb) {
   usz rn = srvrun_wt_abort_reset(c, stream_id, err_code, plb, 0);
   usz sn;
   if (!rn) return 0;
@@ -1347,7 +1347,7 @@ static usz srvrun_wt_abort_pair(
 /* RFC 9114 4.1.1/8.1: a server aborts a stream with the frames RFC 9000
  * 19.4/19.5 allow it to send FOR THAT STREAM'S TYPE, carrying err_code --
  * an HTTP/3-level code (e.g. H3_REQUEST_REJECTED) or a WebTransport
- * application code already mapped through quic_wterrmap_to_http3:
+ * application code already mapped through wired_wterrmap_to_http3:
  *
  * - bidi (either initiator): RESET_STREAM + STOP_SENDING, both halves.
  * - client uni: STOP_SENDING alone. This server has no send part, and a
@@ -1362,7 +1362,7 @@ static usz srvrun_wt_abort_pair(
  * negotiates, so a peer (Chrome included) treats it as an unknown frame
  * and kills the whole connection with FRAME_ENCODING_ERROR. */
 static usz srvrun_wt_busy_reset_payload(
-    srvrun_conn* c, u64 stream_id, u64 err_code, quic_obuf* plb) {
+    srvrun_conn* c, u64 stream_id, u64 err_code, wired_obuf* plb) {
   if (!quic_stream_can_send(0, stream_id)) /* client uni */
     return srvrun_wt_abort_stop(stream_id, err_code, plb, 0);
   if (!quic_stream_can_receive(0, stream_id)) /* server uni */
@@ -1374,15 +1374,15 @@ static usz srvrun_wt_busy_reset_payload(
  * packet on stream_id. Returns 1 with out->len set, 0 if the payload or the
  * seal failed. */
 static int srvrun_seal_wt_busy_reset(
-    srvrun_conn* c, u64 stream_id, u64 err_code, quic_obuf* out) {
+    srvrun_conn* c, u64 stream_id, u64 err_code, wired_obuf* out) {
   u8                    pl[64];
-  quic_obuf             plb = quic_obuf_of(pl, sizeof pl);
+  wired_obuf            plb = quic_obuf_of(pl, sizeof pl);
   wired_srvloop_send_in sin;
   usz pln = srvrun_wt_busy_reset_payload(c, stream_id, err_code, &plb);
   if (!pln) return 0;
   sin = (wired_srvloop_send_in){
-      quic_span_of(c->l.cli_scid, c->l.cli_scid_len), c->l.tx_pn++, -1,
-      quic_span_of(pl, pln), 0};
+      wired_span_of(c->l.cli_scid, c->l.cli_scid_len), c->l.tx_pn++, -1,
+      wired_span_of(pl, pln), 0};
   return wired_srvloop_send_onertt(&c->s, &sin, out);
 }
 
@@ -1390,10 +1390,10 @@ static int srvrun_seal_wt_busy_reset(
  * their own 1-RTT packet. */
 static void srvrun_send_wt_busy_reset(
     const srvrun_cfg* cfg, srvrun_conn* c, u64 stream_id, u64 err_code) {
-  u8        out[128];
-  quic_obuf ob = quic_obuf_of(out, sizeof out);
+  u8         out[128];
+  wired_obuf ob = quic_obuf_of(out, sizeof out);
   if (!srvrun_seal_wt_busy_reset(c, stream_id, err_code, &ob)) return;
-  srvrun_send(cfg, c, quic_span_of(out, ob.len), "WT stream abort sent\n");
+  srvrun_send(cfg, c, wired_span_of(out, ob.len), "WT stream abort sent\n");
 }
 
 /* RFC 9000 10.2.3: an application-level CONNECTION_CLOSE (type 0x1d,
@@ -1402,7 +1402,7 @@ static void srvrun_send_wt_busy_reset(
  * (srvboot.c) but for use OUTSIDE handshake rejection -- an established
  * connection closing itself for an application-level protocol violation. */
 static usz srvrun_app_close_payload(
-    u64 error_code, quic_span reason, quic_obuf* plb) {
+    u64 error_code, wired_span reason, wired_obuf* plb) {
   quic_conn_close_frame cc = {1, error_code, 0, reason.n, reason.p};
   return quic_frame_put_conn_close(plb->p, plb->cap, &cc);
 }
@@ -1410,26 +1410,27 @@ static usz srvrun_app_close_payload(
 /* Seal the CONNECTION_CLOSE above into out as its own 1-RTT packet. Returns
  * 1 with out->len set, 0 if the payload or the seal failed. */
 static int srvrun_seal_app_close(
-    srvrun_conn* c, u64 error_code, quic_span reason, quic_obuf* out) {
+    srvrun_conn* c, u64 error_code, wired_span reason, wired_obuf* out) {
   u8                    pl[64];
-  quic_obuf             plb = quic_obuf_of(pl, sizeof pl);
+  wired_obuf            plb = quic_obuf_of(pl, sizeof pl);
   wired_srvloop_send_in sin;
   usz pln = srvrun_app_close_payload(error_code, reason, &plb);
   if (!pln) return 0;
   sin = (wired_srvloop_send_in){
-      quic_span_of(c->l.cli_scid, c->l.cli_scid_len), c->l.tx_pn++, -1,
-      quic_span_of(pl, pln), 0};
+      wired_span_of(c->l.cli_scid, c->l.cli_scid_len), c->l.tx_pn++, -1,
+      wired_span_of(pl, pln), 0};
   return wired_srvloop_send_onertt(&c->s, &sin, out);
 }
 
 /* Seal and send an application-level CONNECTION_CLOSE as its own 1-RTT
  * packet (e.g. srvrun_close_on_bad_qsid's RFC 9297 2.1 H3_DATAGRAM_ERROR). */
 static void srvrun_send_app_close(
-    const srvrun_cfg* cfg, srvrun_conn* c, u64 error_code, quic_span reason) {
-  u8        out[128];
-  quic_obuf ob = quic_obuf_of(out, sizeof out);
+    const srvrun_cfg* cfg, srvrun_conn* c, u64 error_code, wired_span reason) {
+  u8         out[128];
+  wired_obuf ob = quic_obuf_of(out, sizeof out);
   if (!srvrun_seal_app_close(c, error_code, reason, &ob)) return;
-  srvrun_send(cfg, c, quic_span_of(out, ob.len), "app CONNECTION_CLOSE sent\n");
+  srvrun_send(
+      cfg, c, wired_span_of(out, ob.len), "app CONNECTION_CLOSE sent\n");
 }
 
 /* RFC 9110 10.1.1: build a bare "100 Continue" HEADERS frame (no DATA, RFC
@@ -1441,9 +1442,10 @@ static void srvrun_send_app_close(
  * *h3_len receives the HEADERS frame's own byte length (the request stream's
  * new base offset the final response must continue from). Returns 1 with
  * plb->len set, 0 on overflow. */
-static int srvrun_continue_payload(u64 stream_id, quic_obuf* plb, usz* h3_len) {
+static int srvrun_continue_payload(
+    u64 stream_id, wired_obuf* plb, usz* h3_len) {
   u8                h3[16];
-  quic_obuf         h3b = quic_obuf_of(h3, sizeof h3);
+  wired_obuf        h3b = quic_obuf_of(h3, sizeof h3);
   quic_stream_frame f;
   if (!quic_h3resp_prefix(100, 0, 0, &h3b)) return 0;
   f       = (quic_stream_frame){stream_id, 0, h3b.len, h3, 0};
@@ -1456,14 +1458,14 @@ static int srvrun_continue_payload(u64 stream_id, quic_obuf* plb, usz* h3_len) {
  * srvrun_continue_payload). Returns 1 with out->len set, 0 if nothing was
  * built/sealed. */
 static int srvrun_seal_continue(
-    srvrun_conn* c, u64 stream_id, quic_obuf* out, usz* h3_len) {
+    srvrun_conn* c, u64 stream_id, wired_obuf* out, usz* h3_len) {
   u8                    pl[64];
-  quic_obuf             plb = quic_obuf_of(pl, sizeof pl);
+  wired_obuf            plb = quic_obuf_of(pl, sizeof pl);
   wired_srvloop_send_in sin;
   if (!srvrun_continue_payload(stream_id, &plb, h3_len)) return 0;
   sin = (wired_srvloop_send_in){
-      quic_span_of(c->l.cli_scid, c->l.cli_scid_len), c->l.tx_pn++, -1,
-      quic_span_of(pl, plb.len), 0};
+      wired_span_of(c->l.cli_scid, c->l.cli_scid_len), c->l.tx_pn++, -1,
+      wired_span_of(pl, plb.len), 0};
   return wired_srvloop_send_onertt(&c->s, &sin, out);
 }
 
@@ -1475,11 +1477,11 @@ static int srvrun_seal_continue(
  * (no base offset shift) if sealing failed or cfg has no socket to send on. */
 static usz srvrun_send_continue(
     const srvrun_cfg* cfg, srvrun_conn* c, u64 stream_id) {
-  u8        out[128];
-  quic_obuf ob     = quic_obuf_of(out, sizeof out);
-  usz       h3_len = 0;
+  u8         out[128];
+  wired_obuf ob     = quic_obuf_of(out, sizeof out);
+  usz        h3_len = 0;
   if (!srvrun_seal_continue(c, stream_id, &ob, &h3_len)) return 0;
-  srvrun_send(cfg, c, quic_span_of(out, ob.len), "100 Continue sent\n");
+  srvrun_send(cfg, c, wired_span_of(out, ob.len), "100 Continue sent\n");
   return h3_len;
 }
 
@@ -1490,7 +1492,7 @@ static usz srvrun_send_continue(
  * application error. frame_type 0 (unknown/unspecified) matches
  * wired_srvboot_refusal's own transport-close payload. */
 static usz srvrun_transport_close_payload(
-    u64 error_code, quic_span reason, quic_obuf* plb) {
+    u64 error_code, wired_span reason, wired_obuf* plb) {
   quic_conn_close_frame cc = {0, error_code, 0, reason.n, reason.p};
   return quic_frame_put_conn_close(plb->p, plb->cap, &cc);
 }
@@ -1498,27 +1500,27 @@ static usz srvrun_transport_close_payload(
 /* Seal the CONNECTION_CLOSE above into out as its own 1-RTT packet. Returns
  * 1 with out->len set, 0 if the payload or the seal failed. */
 static int srvrun_seal_transport_close(
-    srvrun_conn* c, u64 error_code, quic_span reason, quic_obuf* out) {
+    srvrun_conn* c, u64 error_code, wired_span reason, wired_obuf* out) {
   u8                    pl[64];
-  quic_obuf             plb = quic_obuf_of(pl, sizeof pl);
+  wired_obuf            plb = quic_obuf_of(pl, sizeof pl);
   wired_srvloop_send_in sin;
   usz pln = srvrun_transport_close_payload(error_code, reason, &plb);
   if (!pln) return 0;
   sin = (wired_srvloop_send_in){
-      quic_span_of(c->l.cli_scid, c->l.cli_scid_len), c->l.tx_pn++, -1,
-      quic_span_of(pl, pln), 0};
+      wired_span_of(c->l.cli_scid, c->l.cli_scid_len), c->l.tx_pn++, -1,
+      wired_span_of(pl, pln), 0};
   return wired_srvloop_send_onertt(&c->s, &sin, out);
 }
 
 /* Seal and send a transport-level CONNECTION_CLOSE as its own 1-RTT packet
  * (RFC 9000 20.1 error code, e.g. QUIC_ERR_PROTOCOL_VIOLATION). */
 static void srvrun_send_transport_close(
-    const srvrun_cfg* cfg, srvrun_conn* c, u64 error_code, quic_span reason) {
-  u8        out[128];
-  quic_obuf ob = quic_obuf_of(out, sizeof out);
+    const srvrun_cfg* cfg, srvrun_conn* c, u64 error_code, wired_span reason) {
+  u8         out[128];
+  wired_obuf ob = quic_obuf_of(out, sizeof out);
   if (!srvrun_seal_transport_close(c, error_code, reason, &ob)) return;
   srvrun_send(
-      cfg, c, quic_span_of(out, ob.len), "transport CONNECTION_CLOSE sent\n");
+      cfg, c, wired_span_of(out, ob.len), "transport CONNECTION_CLOSE sent\n");
 }
 
 /* Index-based view over the two physical slots (wt/wt_active, wt1/wt1_active)
@@ -1594,13 +1596,13 @@ static int srvrun_wt_slot_for_new_stream(const srvrun_conn* c) {
  * (wired_wt_session_offer_stream returned 0, i.e. WIRED_WT_MAX_BUFFERED_
  * STREAMS is full on an unestablished session) is the caller's own contract
  * to enforce (session.h's offer_stream doc): reset the stream with
- * WT_BUFFERED_STREAM_REJECTED, mapped through quic_wterrmap_to_http3 since
+ * WT_BUFFERED_STREAM_REJECTED, mapped through wired_wterrmap_to_http3 since
  * it is a WebTransport application error code, not an HTTP/3-level one. */
 static void srvrun_reject_wt_slot(
     const srvrun_cfg* cfg, srvrun_conn* c, u64 stream_id) {
   srvrun_send_wt_busy_reset(
       cfg, c, stream_id,
-      quic_wterrmap_to_http3(QUIC_WTERR_BUFFERED_STREAM_REJECTED));
+      wired_wterrmap_to_http3(QUIC_WTERR_BUFFERED_STREAM_REJECTED));
 }
 
 /* draft-ietf-webtrans-http3-15 4.3: associate one newly-reassembled WT bidi
@@ -1727,7 +1729,7 @@ static void srvrun_deliver_wt_stream_delta(
     return;
   cfg->wt_on_stream_data(
       cfg->wt_stream_data_ctx, srvrun_wt_slot(c, sidx), stream_id,
-      quic_span_of(
+      wired_span_of(
           buf + (*delivered_len - win->base),
           (usz)(frontier_abs - *delivered_len)),
       fin_now);
@@ -1778,11 +1780,11 @@ static void srvrun_offer_wt_streams(const srvrun_cfg* cfg, srvrun_conn* c) {
 
 /* RFC 9297 2.1: close the connection with H3_DATAGRAM_ERROR because a
  * received HTTP Datagram's Quarter Stream ID field was truncated/missing or
- * exceeded 2^60-1 (quic_wtwire_qsid_take rejects both the same way). */
+ * exceeded 2^60-1 (wired_wtwire_qsid_take rejects both the same way). */
 static void srvrun_close_on_bad_qsid(const srvrun_cfg* cfg, srvrun_conn* c) {
   static const u8 reason[] = "bad HTTP Datagram Quarter Stream ID";
   srvrun_send_app_close(
-      cfg, c, QUIC_H3_DATAGRAM_ERROR, quic_span_of(reason, sizeof reason - 1));
+      cfg, c, QUIC_H3_DATAGRAM_ERROR, wired_span_of(reason, sizeof reason - 1));
 }
 
 /* RFC 9297 2.1 (9297-009): a datagram naming a not-yet-established session is
@@ -1856,7 +1858,7 @@ static int srvrun_dg_id_exceeds_limit(
  * only HTTP Datagram semantics are WebTransport's, so a Quarter Stream ID
  * that does not resolve to a live WebTransport session is a request this
  * server never assigned any HTTP Datagram meaning to. connect_id doubles as
- * the request stream id (quic_wtwire_qsid_take already multiplies the parsed
+ * the request stream id (wired_wtwire_qsid_take already multiplies the parsed
  * quarter back by 4), so it is aborted directly with the same RESET_STREAM
  * + STOP_SENDING pair srvrun_reject_wt_slot uses for a different rejection
  * reason -- UNLESS connect_id names a stream beyond the advertised
@@ -1885,14 +1887,14 @@ static int wt_session_receive_side_closed(const wired_wt_session* s) {
  * resolved to (never NULL), already past the unknown-semantics and
  * receive-side-closed checks. */
 static void srvrun_deliver_to_known_session(
-    const srvrun_cfg* cfg, wired_wt_session* s, quic_span data) {
+    const srvrun_cfg* cfg, wired_wt_session* s, wired_span data) {
   int deliver = srvrun_dg_should_deliver(cfg, s);
   wired_wt_session_offer_datagram(s, data);
   if (deliver) cfg->wt_on_datagram(cfg->wt_datagram_ctx, s, data);
 }
 
 static void srvrun_route_rx_datagram(
-    const srvrun_cfg* cfg, srvrun_conn* c, u64 connect_id, quic_span data) {
+    const srvrun_cfg* cfg, srvrun_conn* c, u64 connect_id, wired_span data) {
   int               sidx = srvrun_wt_slot_by_connect_id(c, connect_id);
   wired_wt_session* s;
   if (sidx < 0) {
@@ -1907,21 +1909,21 @@ static void srvrun_route_rx_datagram(
 /* RFC 9297 2.1: the payload is prefixed with varint(quarter stream id) --
  * decode that prefix, rejecting a short/oversized field with
  * H3_DATAGRAM_ERROR (srvrun_close_on_bad_qsid, same failure signal
- * quic_wtwire_qsid_take gives both cases), then hand the derived stream id
+ * wired_wtwire_qsid_take gives both cases), then hand the derived stream id
  * and the remaining bytes to srvrun_route_rx_datagram. */
 static void srvrun_deliver_rx_datagram(
     const srvrun_cfg*                cfg,
     srvrun_conn*                     c,
     const wired_srvloop_rx_datagram* dg) {
-  quic_span raw = quic_span_of(dg->buf, dg->len);
-  u64       connect_id;
-  usz       prefix = quic_wtwire_qsid_take(raw, &connect_id);
+  wired_span raw = wired_span_of(dg->buf, dg->len);
+  u64        connect_id;
+  usz        prefix = wired_wtwire_qsid_take(raw, &connect_id);
   if (!prefix) {
     srvrun_close_on_bad_qsid(cfg, c);
     return;
   }
   srvrun_route_rx_datagram(
-      cfg, c, connect_id, quic_span_of(dg->buf + prefix, dg->len - prefix));
+      cfg, c, connect_id, wired_span_of(dg->buf + prefix, dg->len - prefix));
 }
 
 /* RFC 9221 5 (Phase 7b Slice 2): drain every DATAGRAM this step's
@@ -2031,26 +2033,26 @@ static int wt_credit_stream_due(u64 ceiling, u64 credit_advertised) {
  * its own 1-RTT packet and send it, mirroring srvrun_seal_wt_busy_reset's
  * shape for a different frame. */
 static int srvrun_seal_max_stream_data(
-    srvrun_conn* c, u64 stream_id, u64 value, quic_obuf* out) {
+    srvrun_conn* c, u64 stream_id, u64 value, wired_obuf* out) {
   u8                     pl[32];
-  quic_obuf              plb = quic_obuf_of(pl, sizeof pl);
+  wired_obuf             plb = quic_obuf_of(pl, sizeof pl);
   quic_stream_data_frame f   = {stream_id, value};
   wired_srvloop_send_in  sin;
   usz                    pln = quic_max_stream_data_encode(plb.p, plb.cap, &f);
   if (!pln) return 0;
   plb.len = pln;
   sin     = (wired_srvloop_send_in){
-      quic_span_of(c->l.cli_scid, c->l.cli_scid_len), c->l.tx_pn++, -1,
-      quic_span_of(pl, pln), 0};
+      wired_span_of(c->l.cli_scid, c->l.cli_scid_len), c->l.tx_pn++, -1,
+      wired_span_of(pl, pln), 0};
   return wired_srvloop_send_onertt(&c->s, &sin, out);
 }
 
 static void srvrun_send_max_stream_data(
     const srvrun_cfg* cfg, srvrun_conn* c, u64 stream_id, u64 value) {
-  u8        out[128];
-  quic_obuf ob = quic_obuf_of(out, sizeof out);
+  u8         out[128];
+  wired_obuf ob = quic_obuf_of(out, sizeof out);
   if (!srvrun_seal_max_stream_data(c, stream_id, value, &ob)) return;
-  srvrun_send(cfg, c, quic_span_of(out, ob.len), "WT MAX_STREAM_DATA sent\n");
+  srvrun_send(cfg, c, wired_span_of(out, ob.len), "WT MAX_STREAM_DATA sent\n");
 }
 
 /* RFC 9000 4.1/19.10: re-grant stream_id's receive credit if the window has
@@ -2123,16 +2125,16 @@ static u64 srvrun_wt_rx_delivered_total(const srvrun_conn* c) {
  * payload. Sent to c->peer -- the caller (srvrun_rebind_peer) has already
  * updated c->peer to the new path this challenges, RFC 9000 8.2.1. */
 static int srvrun_seal_path_challenge(
-    srvrun_conn* c, const u8 data[QUIC_PATH_DATA], quic_obuf* out) {
+    srvrun_conn* c, const u8 data[QUIC_PATH_DATA], wired_obuf* out) {
   u8                    pl[24];
-  quic_obuf             plb = quic_obuf_of(pl, sizeof pl);
+  wired_obuf            plb = quic_obuf_of(pl, sizeof pl);
   wired_srvloop_send_in sin;
   usz pln = quic_path_encode(plb.p, plb.cap, QUIC_FRAME_PATH_CHALLENGE, data);
   if (!pln) return 0;
   plb.len = pln;
   sin     = (wired_srvloop_send_in){
-      quic_span_of(c->l.cli_scid, c->l.cli_scid_len), c->l.tx_pn++, -1,
-      quic_span_of(pl, pln), 0};
+      wired_span_of(c->l.cli_scid, c->l.cli_scid_len), c->l.tx_pn++, -1,
+      wired_span_of(pl, pln), 0};
   return wired_srvloop_send_onertt(&c->s, &sin, out);
 }
 
@@ -2153,51 +2155,52 @@ static usz srvrun_pad_path_challenge(u8* out, usz len, usz cap) {
 
 static void srvrun_send_path_challenge(
     const srvrun_cfg* cfg, srvrun_conn* c, const u8 data[QUIC_PATH_DATA]) {
-  u8        out[QUIC_MIN_INITIAL_DATAGRAM];
-  quic_obuf ob = quic_obuf_of(out, sizeof out);
-  usz       n;
+  u8         out[QUIC_MIN_INITIAL_DATAGRAM];
+  wired_obuf ob = quic_obuf_of(out, sizeof out);
+  usz        n;
   if (!srvrun_seal_path_challenge(c, data, &ob)) return;
   n = srvrun_pad_path_challenge(out, ob.len, sizeof out);
-  srvrun_send(cfg, c, quic_span_of(out, n), "PATH_CHALLENGE sent\n");
+  srvrun_send(cfg, c, wired_span_of(out, n), "PATH_CHALLENGE sent\n");
 }
 
 /* Seal one MAX_DATA frame (RFC 9000 19.9) as its own 1-RTT packet and send
  * it, mirroring srvrun_seal_max_stream_data for the connection-wide frame. */
-static int srvrun_seal_max_data(srvrun_conn* c, u64 value, quic_obuf* out) {
+static int srvrun_seal_max_data(srvrun_conn* c, u64 value, wired_obuf* out) {
   u8                    pl[24];
-  quic_obuf             plb = quic_obuf_of(pl, sizeof pl);
+  wired_obuf            plb = quic_obuf_of(pl, sizeof pl);
   quic_data_frame       f   = {value};
   wired_srvloop_send_in sin;
   usz                   pln = quic_max_data_encode(plb.p, plb.cap, &f);
   if (!pln) return 0;
   plb.len = pln;
   sin     = (wired_srvloop_send_in){
-      quic_span_of(c->l.cli_scid, c->l.cli_scid_len), c->l.tx_pn++, -1,
-      quic_span_of(pl, pln), 0};
+      wired_span_of(c->l.cli_scid, c->l.cli_scid_len), c->l.tx_pn++, -1,
+      wired_span_of(pl, pln), 0};
   return wired_srvloop_send_onertt(&c->s, &sin, out);
 }
 
 static void srvrun_send_max_data(
     const srvrun_cfg* cfg, srvrun_conn* c, u64 value) {
-  u8        out[128];
-  quic_obuf ob = quic_obuf_of(out, sizeof out);
+  u8         out[128];
+  wired_obuf ob = quic_obuf_of(out, sizeof out);
   if (!srvrun_seal_max_data(c, value, &ob)) return;
-  srvrun_send(cfg, c, quic_span_of(out, ob.len), "WT MAX_DATA sent\n");
+  srvrun_send(cfg, c, wired_span_of(out, ob.len), "WT MAX_DATA sent\n");
 }
 
 /* Seal one DATA_BLOCKED frame (RFC 9000 19.12) as its own 1-RTT packet and
  * send it, mirroring srvrun_seal_max_data for the connection-wide limit. */
-static int srvrun_seal_data_blocked(srvrun_conn* c, u64 limit, quic_obuf* out) {
+static int srvrun_seal_data_blocked(
+    srvrun_conn* c, u64 limit, wired_obuf* out) {
   u8                    pl[24];
-  quic_obuf             plb = quic_obuf_of(pl, sizeof pl);
+  wired_obuf            plb = quic_obuf_of(pl, sizeof pl);
   quic_data_frame       f   = {limit};
   wired_srvloop_send_in sin;
   usz                   pln = quic_data_blocked_encode(plb.p, plb.cap, &f);
   if (!pln) return 0;
   plb.len = pln;
   sin     = (wired_srvloop_send_in){
-      quic_span_of(c->l.cli_scid, c->l.cli_scid_len), c->l.tx_pn++, -1,
-      quic_span_of(pl, pln), 0};
+      wired_span_of(c->l.cli_scid, c->l.cli_scid_len), c->l.tx_pn++, -1,
+      wired_span_of(pl, pln), 0};
   return wired_srvloop_send_onertt(&c->s, &sin, out);
 }
 
@@ -2208,23 +2211,23 @@ static int srvrun_seal_data_blocked(srvrun_conn* c, u64 limit, quic_obuf* out) {
  * limit is c->conn_credit itself (the ceiling that blocked this send). */
 static void srvrun_send_data_blocked(
     const srvrun_cfg* cfg, srvrun_conn* c, u64 limit) {
-  u8        out[128];
-  quic_obuf ob = quic_obuf_of(out, sizeof out);
+  u8         out[128];
+  wired_obuf ob = quic_obuf_of(out, sizeof out);
   if (!srvrun_seal_data_blocked(c, limit, &ob)) return;
-  srvrun_send(cfg, c, quic_span_of(out, ob.len), "DATA_BLOCKED sent\n");
+  srvrun_send(cfg, c, wired_span_of(out, ob.len), "DATA_BLOCKED sent\n");
 }
 
 /* Seal one MAX_STREAMS frame (RFC 9000 19.11, uni selects 0x13) as its own
  * 1-RTT packet and send it. */
 static int srvrun_seal_max_streams(
-    srvrun_conn* c, int uni, u64 value, quic_obuf* out) {
+    srvrun_conn* c, int uni, u64 value, wired_obuf* out) {
   u8                    pl[24];
-  quic_obuf             plb = quic_obuf_of(pl, sizeof pl);
+  wired_obuf            plb = quic_obuf_of(pl, sizeof pl);
   wired_srvloop_send_in sin;
   if (!quic_maxstreams_frame(uni, value, &plb)) return 0;
   sin = (wired_srvloop_send_in){
-      quic_span_of(c->l.cli_scid, c->l.cli_scid_len), c->l.tx_pn++, -1,
-      quic_span_of(pl, plb.len), 0};
+      wired_span_of(c->l.cli_scid, c->l.cli_scid_len), c->l.tx_pn++, -1,
+      wired_span_of(pl, plb.len), 0};
   return wired_srvloop_send_onertt(&c->s, &sin, out);
 }
 
@@ -2232,14 +2235,14 @@ static int srvrun_seal_max_streams(
  * own 1-RTT packet and send it -- srvrun_seal_max_streams' mirror for the
  * SENDER-blocked signal instead of the receiver-side grant. */
 static int srvrun_seal_streams_blocked(
-    srvrun_conn* c, int uni, u64 limit, quic_obuf* out) {
+    srvrun_conn* c, int uni, u64 limit, wired_obuf* out) {
   u8                    pl[24];
-  quic_obuf             plb = quic_obuf_of(pl, sizeof pl);
+  wired_obuf            plb = quic_obuf_of(pl, sizeof pl);
   wired_srvloop_send_in sin;
   if (!quic_maxstreams_blocked_frame(uni, limit, &plb)) return 0;
   sin = (wired_srvloop_send_in){
-      quic_span_of(c->l.cli_scid, c->l.cli_scid_len), c->l.tx_pn++, -1,
-      quic_span_of(pl, plb.len), 0};
+      wired_span_of(c->l.cli_scid, c->l.cli_scid_len), c->l.tx_pn++, -1,
+      wired_span_of(pl, plb.len), 0};
   return wired_srvloop_send_onertt(&c->s, &sin, out);
 }
 
@@ -2250,19 +2253,19 @@ static int srvrun_seal_streams_blocked(
  * peer_uni_stream_limit that refused the open. */
 static void srvrun_send_streams_blocked(
     const srvrun_cfg* cfg, srvrun_conn* c, int uni, u64 limit) {
-  u8        out[128];
-  quic_obuf ob = quic_obuf_of(out, sizeof out);
+  u8         out[128];
+  wired_obuf ob = quic_obuf_of(out, sizeof out);
   if (!srvrun_seal_streams_blocked(c, uni, limit, &ob)) return;
   c->stat_streams_blocked++;
-  srvrun_send(cfg, c, quic_span_of(out, ob.len), "UNI STREAMS_BLOCKED sent\n");
+  srvrun_send(cfg, c, wired_span_of(out, ob.len), "UNI STREAMS_BLOCKED sent\n");
 }
 
 static void srvrun_send_max_streams(
     const srvrun_cfg* cfg, srvrun_conn* c, int uni, u64 value) {
-  u8        out[128];
-  quic_obuf ob = quic_obuf_of(out, sizeof out);
+  u8         out[128];
+  wired_obuf ob = quic_obuf_of(out, sizeof out);
   if (!srvrun_seal_max_streams(c, uni, value, &ob)) return;
-  srvrun_send(cfg, c, quic_span_of(out, ob.len), "MAX_STREAMS sent\n");
+  srvrun_send(cfg, c, wired_span_of(out, ob.len), "MAX_STREAMS sent\n");
   if (uni)
     c->uni_stream_limit_advertised = value;
   else
@@ -2437,7 +2440,7 @@ static int wt_connect_stream_slot(const srvrun_conn* c) {
  * HTTP/3-level error-code range (errmap.h), the application error code every
  * stream a closing session still owns is reset/stopped with below. */
 static u64 srvrun_wt_session_gone_code(void) {
-  return quic_wterrmap_to_http3(QUIC_WTERR_SESSION_GONE);
+  return wired_wterrmap_to_http3(QUIC_WTERR_SESSION_GONE);
 }
 
 /* draft-ietf-webtrans-http3-15 SS5.3/5.4/8.2: WT_FLOW_CONTROL_ERROR, mapped
@@ -2445,7 +2448,7 @@ static u64 srvrun_wt_session_gone_code(void) {
  * session closing for exceeding its peer-advertised WT_MAX_STREAMS/WT_MAX_
  * DATA limit is reset/stopped with (srvrun_close_flow_violated_slot). */
 static u64 srvrun_wt_flow_control_code(void) {
-  return quic_wterrmap_to_http3(QUIC_WTERR_FLOW_CONTROL_ERROR);
+  return wired_wterrmap_to_http3(QUIC_WTERR_FLOW_CONTROL_ERROR);
 }
 
 /* draft-ietf-webtrans-http3-15 SS4.4: abort one still-`in_use` WT bidi
@@ -2494,25 +2497,25 @@ static int srvrun_send_wt_capsule(
     const srvrun_cfg* cfg,
     srvrun_conn*      c,
     int               sidx,
-    quic_span         capsule_bytes,
+    wired_span        capsule_bytes,
     u8                fin,
-    quic_obuf*        out) {
+    wired_obuf*       out) {
   /* +32: STREAM frame header room (type + stream id + offset + length
    * varints, RFC 9000 19.8) ahead of capsule_bytes -- sized to fit the
    * largest capsule this file sends, WT_CLOSE_SESSION's own worst case
    * (QUIC_WTCAPSULE_CLOSE_MESSAGE_MAX, srvrun_send_wt_close's own body[]). */
   u8                    pl[32 + 16 + 4 + QUIC_WTCAPSULE_CLOSE_MESSAGE_MAX];
-  quic_obuf             plb = quic_obuf_of(pl, sizeof pl);
+  wired_obuf            plb = quic_obuf_of(pl, sizeof pl);
   wired_srvloop_send_in sin;
   quic_stream_frame     f = {
       srvrun_wt_slot(c, sidx)->connect_stream_id, c->wt_connect_sent_len[sidx],
       capsule_bytes.n, capsule_bytes.p, fin};
   if (!quic_appdata_stream_frame(&f, &plb)) return 0;
   sin = (wired_srvloop_send_in){
-      quic_span_of(c->l.cli_scid, c->l.cli_scid_len), c->l.tx_pn++, -1,
-      quic_span_of(pl, plb.len), 0};
+      wired_span_of(c->l.cli_scid, c->l.cli_scid_len), c->l.tx_pn++, -1,
+      wired_span_of(pl, plb.len), 0};
   if (!wired_srvloop_send_onertt(&c->s, &sin, out)) return 0;
-  srvrun_send(cfg, c, quic_span_of(out->p, out->len), "WT capsule sent\n");
+  srvrun_send(cfg, c, wired_span_of(out->p, out->len), "WT capsule sent\n");
   c->wt_connect_sent_len[sidx] += capsule_bytes.n;
   return 1;
 }
@@ -2581,23 +2584,23 @@ static void srvrun_close_wt_on_stream_close(
  * stream's own FIN/reset either way, and leaving the session open forever on
  * a local encode failure would be worse. */
 static void srvrun_send_wt_close(
-    const srvrun_cfg* cfg, srvrun_conn* c, int sidx, quic_obuf* out) {
+    const srvrun_cfg* cfg, srvrun_conn* c, int sidx, wired_obuf* out) {
   /* +4: WT_CLOSE_SESSION's fixed 32-bit Application Error Code field
    * (wtcapsule.h). +16: worst-case Capsule Type + Capsule Length varint
    * overhead (RFC 9000 SS16: a varint is at most 8 bytes each,
    * quic_capsule_encode's own envelope) ahead of the 4-byte code and message
-   * quic_wtcapsule_encode_close writes into this same buffer. */
-  u8        body[16 + 4 + QUIC_WTCAPSULE_CLOSE_MESSAGE_MAX];
-  quic_obuf bob = quic_obuf_of(body, sizeof body);
-  if (quic_wtcapsule_encode_close(
+   * wired_wtcapsule_encode_close writes into this same buffer. */
+  u8         body[16 + 4 + QUIC_WTCAPSULE_CLOSE_MESSAGE_MAX];
+  wired_obuf bob = quic_obuf_of(body, sizeof body);
+  if (wired_wtcapsule_encode_close(
           &bob, c->wt_close_code[sidx],
-          quic_span_of(c->wt_close_msg[sidx], c->wt_close_msg_len[sidx])))
-    srvrun_send_wt_capsule(cfg, c, sidx, quic_span_of(body, bob.len), 1, out);
+          wired_span_of(c->wt_close_msg[sidx], c->wt_close_msg_len[sidx])))
+    srvrun_send_wt_capsule(cfg, c, sidx, wired_span_of(body, bob.len), 1, out);
   srvrun_close_wt_session_slot(cfg, c, sidx, srvrun_wt_session_gone_code());
 }
 
 static void srvrun_drain_wt_close_one(
-    const srvrun_cfg* cfg, srvrun_conn* c, int i, quic_obuf* out) {
+    const srvrun_cfg* cfg, srvrun_conn* c, int i, wired_obuf* out) {
   if (!c->wt_close_pending[i]) return;
   c->wt_close_pending[i] = 0;
   if (srvrun_wt_is_active(c, i)) srvrun_send_wt_close(cfg, c, i, out);
@@ -2610,7 +2613,7 @@ static void srvrun_drain_wt_close_pending(
     const srvrun_cfg* cfg, srvrun_conn* c) {
   u8 out[1500]; /* worst case: WT_CLOSE_SESSION's 1024-byte message
                  * cap (srvrun_send_wt_close's own body[] doc) */
-  quic_obuf ob = quic_obuf_of(out, sizeof out);
+  wired_obuf ob = quic_obuf_of(out, sizeof out);
   for (int i = 0; i < SRVRUN_MAX_WT_SESSIONS; i++)
     srvrun_drain_wt_close_one(cfg, c, i, &ob);
 }
@@ -2622,28 +2625,28 @@ static void srvrun_drain_wt_close_pending(
  * live lookup would read 0, the send slot was already freed at latch
  * time), and no STOP_SENDING (the latch targets server-initiated uni
  * streams; see the wt_stream_reset_* latch fields' own doc). */
-static int srvrun_seal_wt_stream_reset(srvrun_conn* c, usz i, quic_obuf* out) {
+static int srvrun_seal_wt_stream_reset(srvrun_conn* c, usz i, wired_obuf* out) {
   u8                      pl[32];
   quic_reset_stream_frame rs = {
       c->wt_stream_reset_id[i],
-      quic_wterrmap_to_http3(c->wt_stream_reset_app_code[i]),
+      wired_wterrmap_to_http3(c->wt_stream_reset_app_code[i]),
       c->wt_stream_reset_final[i]};
   usz                   pln = quic_reset_stream_encode(pl, sizeof pl, &rs);
   wired_srvloop_send_in sin;
   if (!pln) return 0;
   sin = (wired_srvloop_send_in){
-      quic_span_of(c->l.cli_scid, c->l.cli_scid_len), c->l.tx_pn++, -1,
-      quic_span_of(pl, pln), 0};
+      wired_span_of(c->l.cli_scid, c->l.cli_scid_len), c->l.tx_pn++, -1,
+      wired_span_of(pl, pln), 0};
   return wired_srvloop_send_onertt(&c->s, &sin, out);
 }
 
 /* Seal and send latch entry i's RESET_STREAM as its own 1-RTT packet. */
 static void srvrun_send_wt_stream_reset(
     const srvrun_cfg* cfg, srvrun_conn* c, usz i) {
-  u8        out[128];
-  quic_obuf ob = quic_obuf_of(out, sizeof out);
+  u8         out[128];
+  wired_obuf ob = quic_obuf_of(out, sizeof out);
   if (!srvrun_seal_wt_stream_reset(c, i, &ob)) return;
-  srvrun_send(cfg, c, quic_span_of(out, ob.len), "WT stream RESET sent\n");
+  srvrun_send(cfg, c, wired_span_of(out, ob.len), "WT stream RESET sent\n");
 }
 
 /* Drain the wired_server_wt_stream_reset latch (the wt_stream_reset_*
@@ -2716,7 +2719,7 @@ static int wt_reset_session_slot(srvrun_conn* c) {
  * STOP_SENDING frame is received with an error code outside the
  * WT_APPLICATION_ERROR range, then the implementation should deliver this
  * to the application as a stream reset with no application error code."
- * quic_wterrmap_from_http3 (errmap.h) recovers the WebTransport application
+ * wired_wterrmap_from_http3 (errmap.h) recovers the WebTransport application
  * error code when the wire code falls inside that range; mapped is left 0
  * (app_error_code meaningless) otherwise -- this is the SDK-side half of
  * WTH3-040, deciding what to hand the app; wired_wt_on_stream_reset's own
@@ -2724,7 +2727,7 @@ static int wt_reset_session_slot(srvrun_conn* c) {
 static void srvrun_deliver_wt_reset(
     const srvrun_cfg* cfg, srvrun_conn* c, int sidx) {
   u32 app_code = 0;
-  int mapped   = quic_wterrmap_from_http3(c->l.wt_reset_error_code, &app_code);
+  int mapped   = wired_wterrmap_from_http3(c->l.wt_reset_error_code, &app_code);
   if (!cfg->wt_on_stream_reset) return;
   cfg->wt_on_stream_reset(
       cfg->wt_stream_reset_ctx, srvrun_wt_slot(c, sidx),
@@ -2779,7 +2782,7 @@ static void srvrun_close_on_datagram_violation(
   static const u8 reason[] = "DATAGRAM exceeds advertised limit";
   srvrun_send_transport_close(
       cfg, c, QUIC_ERR_PROTOCOL_VIOLATION,
-      quic_span_of(reason, sizeof reason - 1));
+      wired_span_of(reason, sizeof reason - 1));
 }
 
 /* draft-ietf-webtrans-http3-15 4.3: this step's WT bidi gathering
@@ -2795,7 +2798,7 @@ static void srvrun_close_on_wt_signal_violation(
     const srvrun_cfg* cfg, srvrun_conn* c) {
   static const u8 reason[] = "WT_STREAM signal outside stream's leading bytes";
   srvrun_send_app_close(
-      cfg, c, QUIC_H3_FRAME_ERROR, quic_span_of(reason, sizeof reason - 1));
+      cfg, c, QUIC_H3_FRAME_ERROR, wired_span_of(reason, sizeof reason - 1));
 }
 
 /* 1 if this step's own gathering (dispatch.c) latched a connection-ending
@@ -2823,7 +2826,7 @@ static int srvrun_close_on_step_violation(
 /* Send this step's sealed reply, if any and if the connection is not
  * draining after a peer CONNECTION_CLOSE (RFC 9000 10.2.2). */
 static void srvrun_send_step_reply(
-    const srvrun_cfg* cfg, srvrun_conn* c, int produced, quic_span out) {
+    const srvrun_cfg* cfg, srvrun_conn* c, int produced, wired_span out) {
   if (c->l.peer_closed) return;
   if (produced) srvrun_send(cfg, c, out, "1-RTT reply sealed and sent\n");
 }
@@ -2844,9 +2847,9 @@ static void srvrun_ku_note_rotation(srvrun_conn* c, u64 now_ms) {
  * instead (srvrun_close_on_step_violation), or the step observed a peer
  * CONNECTION_CLOSE (srvrun_send_step_reply's own gate). */
 static void srvrun_on_step(
-    const srvrun_step_ctx* ctx, srvrun_conn* c, quic_mspan dg) {
+    const srvrun_step_ctx* ctx, srvrun_conn* c, wired_mspan dg) {
   u8                 out[1500];
-  quic_obuf          ob   = quic_obuf_of(out, sizeof out);
+  wired_obuf         ob   = quic_obuf_of(out, sizeof out);
   wired_srvloop_conn conn = {&c->l, &c->s};
   srvrun_rxmark      mark = srvrun_rx_mark(&c->l);
   int                produced;
@@ -2870,7 +2873,7 @@ static void srvrun_on_step(
   srvrun_drain_wt_close_pending(ctx->cfg, c);
   srvrun_drain_wt_stream_reset(ctx->cfg, c);
   if (srvrun_close_on_step_violation(ctx->cfg, c)) return;
-  srvrun_send_step_reply(ctx->cfg, c, produced, quic_span_of(out, ob.len));
+  srvrun_send_step_reply(ctx->cfg, c, produced, wired_span_of(out, ob.len));
 }
 
 /* RFC 9114 6.2.1: first server unidirectional (control) stream id, same value
@@ -2903,7 +2906,7 @@ static usz srvrun_ctrl_settings_len(int advertise_wt) {
 /* Build the 1-RTT payload for a GOAWAY (RFC 9114 5.2): the H3 GOAWAY frame
  * wrapped in a STREAM frame at the control stream's fixed post-SETTINGS
  * offset. Returns 1 with plb->len set, 0 on overflow. */
-static int srvrun_goaway_payload(int advertise_wt, quic_obuf* plb) {
+static int srvrun_goaway_payload(int advertise_wt, wired_obuf* plb) {
   u8                h3[16];
   usz               h3n = quic_h3_goaway_put(h3, sizeof h3, SRVRUN_GOAWAY_ID);
   quic_stream_frame f;
@@ -2918,17 +2921,17 @@ static int srvrun_goaway_payload(int advertise_wt, quic_obuf* plb) {
  * 1 with out->len set, 0 if the payload cannot be built or c has no 1-RTT key
  * yet. */
 static int srvrun_send_goaway(
-    const srvrun_cfg* cfg, srvrun_conn* c, quic_obuf* out) {
+    const srvrun_cfg* cfg, srvrun_conn* c, wired_obuf* out) {
   u8                    pl[64];
-  quic_obuf             plb = quic_obuf_of(pl, sizeof pl);
+  wired_obuf            plb = quic_obuf_of(pl, sizeof pl);
   wired_srvloop_send_in sin;
   if (!srvrun_goaway_payload(c->l.we_advertised_max_datagram > 0, &plb))
     return 0;
   sin = (wired_srvloop_send_in){
-      quic_span_of(c->l.cli_scid, c->l.cli_scid_len), c->l.tx_pn++, -1,
-      quic_span_of(pl, plb.len), 0};
+      wired_span_of(c->l.cli_scid, c->l.cli_scid_len), c->l.tx_pn++, -1,
+      wired_span_of(pl, plb.len), 0};
   if (!wired_srvloop_send_onertt(&c->s, &sin, out)) return 0;
-  srvrun_send(cfg, c, quic_span_of(out->p, out->len), "GOAWAY sent\n");
+  srvrun_send(cfg, c, wired_span_of(out->p, out->len), "GOAWAY sent\n");
   c->goaway_sent = 1;
   return 1;
 }
@@ -2939,12 +2942,12 @@ static int srvrun_send_goaway(
  * if the session was not ESTABLISHED (wired_wt_session_drain's own 0 return,
  * e.g. already draining/closed) -- nothing to drain twice. */
 static void srvrun_send_wt_drain(
-    const srvrun_cfg* cfg, srvrun_conn* c, int sidx, quic_obuf* out) {
-  u8        body[8];
-  quic_obuf bob = quic_obuf_of(body, sizeof body);
+    const srvrun_cfg* cfg, srvrun_conn* c, int sidx, wired_obuf* out) {
+  u8         body[8];
+  wired_obuf bob = quic_obuf_of(body, sizeof body);
   if (!wired_wt_session_drain(srvrun_wt_slot(c, sidx))) return;
   if (!quic_wtcapsule_encode_drain(&bob)) return;
-  srvrun_send_wt_capsule(cfg, c, sidx, quic_span_of(body, bob.len), 0, out);
+  srvrun_send_wt_capsule(cfg, c, sidx, wired_span_of(body, bob.len), 0, out);
 }
 
 /* Fan WT_DRAIN_SESSION out to every active WT session slot on c -- run right
@@ -2952,7 +2955,7 @@ static void srvrun_send_wt_drain(
  * http3-15 SS4.7 ties this capsule to ("a server sends WT_DRAIN_SESSION [...]
  * when [...] the connection is going away, for example, [...] GOAWAY"). */
 static void srvrun_send_wt_drain_all(
-    const srvrun_cfg* cfg, srvrun_conn* c, quic_obuf* out) {
+    const srvrun_cfg* cfg, srvrun_conn* c, wired_obuf* out) {
   for (int i = 0; i < SRVRUN_MAX_WT_SESSIONS; i++)
     if (srvrun_wt_is_active(c, i)) srvrun_send_wt_drain(cfg, c, i, out);
 }
@@ -2993,7 +2996,7 @@ static int srvrun_owes_goaway(const srvrun_conn* c) {
  * so it needs the attribute to avoid -Wunused-function under -Werror there.
  * @return 1 if queued, 0 if data.n exceeds dg_pending_buf's capacity or our
  * own SETTINGS have not been sent yet (RFC 9297 2.1) */
-static int srvrun_queue_datagram(srvrun_conn* c, quic_span data) {
+static int srvrun_queue_datagram(srvrun_conn* c, wired_span data) {
   if (!c->l.h3.settings_sent) return 0;
   if (data.n > sizeof c->dg_pending_buf) return 0;
   quic_memcpy(c->dg_pending_buf, data.p, data.n);
@@ -3015,18 +3018,18 @@ static int srvrun_queue_datagram(srvrun_conn* c, quic_span data) {
  * Returns 1 if sent, 0 if the frame could not be built (too large for the
  * peer's limit, or it would not fit the local buffer). */
 static int srvrun_send_datagram_now(
-    const srvrun_cfg* cfg, srvrun_conn* c, quic_span data, quic_obuf* out) {
+    const srvrun_cfg* cfg, srvrun_conn* c, wired_span data, wired_obuf* out) {
   u8                    pl[1400];
-  quic_obuf             plb        = quic_obuf_of(pl, sizeof pl);
+  wired_obuf            plb        = quic_obuf_of(pl, sizeof pl);
   u64                   peer_limit = c->s.sdrv.peer_max_datagram_frame_size;
   quic_dgdeliver_opts   o = {.with_length = 1, .max_frame_size = peer_limit};
   wired_srvloop_send_in sin;
   if (!quic_dgdeliver_frame(data, &o, &plb)) return 0;
   sin = (wired_srvloop_send_in){
-      quic_span_of(c->l.cli_scid, c->l.cli_scid_len), c->l.tx_pn++, -1,
-      quic_span_of(pl, plb.len), 0};
+      wired_span_of(c->l.cli_scid, c->l.cli_scid_len), c->l.tx_pn++, -1,
+      wired_span_of(pl, plb.len), 0};
   if (!wired_srvloop_send_onertt(&c->s, &sin, out)) return 0;
-  srvrun_send(cfg, c, quic_span_of(out->p, out->len), "DATAGRAM sent\n");
+  srvrun_send(cfg, c, wired_span_of(out->p, out->len), "DATAGRAM sent\n");
   return 1;
 }
 
@@ -3041,28 +3044,28 @@ static int srvrun_send_dg_prefixed(
     const srvrun_cfg*       cfg,
     srvrun_conn*            c,
     const wired_wt_session* s,
-    quic_span               payload,
-    quic_obuf*              out) {
+    wired_span              payload,
+    wired_obuf*             out) {
   u8  buf[8 + sizeof c->dg_pending_buf];
   usz qn = quic_wtwire_qsid_put(buf, sizeof buf, s->connect_stream_id);
   if (!qn) return 0;
   quic_memcpy(buf + qn, payload.p, payload.n);
   out->len = 0;
   return srvrun_send_datagram_now(
-      cfg, c, quic_span_of(buf, qn + payload.n), out);
+      cfg, c, wired_span_of(buf, qn + payload.n), out);
 }
 
 /* One session slot's share of srvrun_send_pending_datagram: an inactive or
  * send-side-closed slot is skipped (1 -- best-effort, mirroring
  * srvrun_broadcast_to_all), an eligible one reports its send result. */
 static int srvrun_send_pending_dg_slot(
-    const srvrun_cfg* cfg, srvrun_conn* c, int i, quic_obuf* out) {
+    const srvrun_cfg* cfg, srvrun_conn* c, int i, wired_obuf* out) {
   wired_wt_session* s;
   if (!srvrun_wt_is_active(c, i)) return 1;
   s = srvrun_wt_slot(c, i);
   if (!wt_session_send_side_open(s)) return 1;
   return srvrun_send_dg_prefixed(
-      cfg, c, s, quic_span_of(c->dg_pending_buf, c->dg_pending_len), out);
+      cfg, c, s, wired_span_of(c->dg_pending_buf, c->dg_pending_len), out);
 }
 
 /* Seal c's one pending broadcast DATAGRAM (srvrun_queue_datagram's single
@@ -3071,7 +3074,7 @@ static int srvrun_send_pending_dg_slot(
  * was sent to, keeps it pending on failure so a later step may retry
  * against a raised peer limit. */
 static int srvrun_send_pending_datagram(
-    const srvrun_cfg* cfg, srvrun_conn* c, quic_obuf* out) {
+    const srvrun_cfg* cfg, srvrun_conn* c, wired_obuf* out) {
   int ok = 1;
   for (int i = 0; i < SRVRUN_MAX_WT_SESSIONS; i++)
     ok &= srvrun_send_pending_dg_slot(cfg, c, i, out);
@@ -3100,7 +3103,7 @@ static int srvrun_is_broadcast_target(const srvrun_conn* c) {
  * connection still drains through its own srvrun_send_pending_datagram on
  * its own next step, same as any other queued datagram; this only makes
  * every eligible connection's slot hold the same payload at once. */
-static void srvrun_broadcast_to_all(srvrun_state* st, quic_span data) {
+static void srvrun_broadcast_to_all(srvrun_state* st, wired_span data) {
   for (usz i = 0; i < QUIC_CONNTABLE_CAP; i++)
     if (srvrun_is_broadcast_target(&st->conns[i]))
       srvrun_queue_datagram(&st->conns[i], data);
@@ -3169,7 +3172,7 @@ static int srvrun_bcast_mesh_target(int t, int my_slot) {
  * its own row here too would double-deliver: once now via the direct
  * fan-out, once more next step when it drains its own inbox row. my_slot
  * lets the loop skip exactly the caller's own registry entry. */
-static void srvrun_bcast_mesh_push(int my_slot, int my_index, quic_span data) {
+static void srvrun_bcast_mesh_push(int my_slot, int my_index, wired_span data) {
   for (int t = 0; t < SRVRUN_BCAST_MAX; t++) {
     if (!srvrun_bcast_mesh_target(t, my_slot)) continue;
     wired_srvinbox_push(&g_srvrun_bcast[t].inbox_row[my_index], data.p, data.n);
@@ -3180,7 +3183,7 @@ static void srvrun_bcast_mesh_push(int my_slot, int my_index, quic_span data) {
  * srvthreads worker ever called wired_srvrun_broadcast_register), so this is
  * either wired_server_run(_opt) or the one-and-only wired_srvrun_serve_env
  * instance -- both drive the single process-wide g_srvrun_env. */
-static int srvrun_broadcast_direct(quic_span data) {
+static int srvrun_broadcast_direct(wired_span data) {
   srvrun_broadcast_to_all(
       &(srvrun_state){g_srvrun_table, g_srvrun_state.conns}, data);
   return 1;
@@ -3192,7 +3195,7 @@ static int srvrun_broadcast_direct(quic_span data) {
  * gives every worker its own mmap'd env instead of the single global one.
  * With 2+ workers also push into every OTHER registered worker's inbox row
  * so their own next step delivers it to their own sessions. */
-static int srvrun_broadcast_registered(int slot, quic_span data) {
+static int srvrun_broadcast_registered(int slot, wired_span data) {
   srvrun_bcast_entry* e = &g_srvrun_bcast[slot];
   srvrun_broadcast_to_all(&(srvrun_state){e->env->table, e->env->conns}, data);
   if (e->n_total > 1) srvrun_bcast_mesh_push(slot, e->index, data);
@@ -3202,11 +3205,11 @@ static int srvrun_broadcast_registered(int slot, quic_span data) {
 /* data.n fits every fan-out target's payload capacity (dg_pending_buf and
  * every wired_srvinbox_ring slot share the same 1200-byte cap by
  * construction, WIRED_SRVINBOX_SLOT_MAX). */
-static int srvrun_broadcast_fits(quic_span data) {
+static int srvrun_broadcast_fits(wired_span data) {
   return data.n <= sizeof g_srvrun_state.conns[0].dg_pending_buf;
 }
 
-int wired_server_broadcast_datagram(quic_span data) {
+int wired_server_broadcast_datagram(wired_span data) {
   int slot;
   if (!srvrun_broadcast_fits(data)) return 0;
   slot = srvrun_bcast_find(wired_thread_tid());
@@ -3221,7 +3224,7 @@ static void srvrun_bcast_drain_one(
     srvrun_state* st, wired_srvinbox_ring* row, int j) {
   u8  buf[WIRED_SRVINBOX_SLOT_MAX];
   usz n = wired_srvinbox_pop(&row[j], buf, sizeof buf);
-  if (n) srvrun_broadcast_to_all(st, quic_span_of(buf, n));
+  if (n) srvrun_broadcast_to_all(st, wired_span_of(buf, n));
 }
 
 /* This thread's own registry slot, or -1 if there is nothing to drain: fewer
@@ -3368,7 +3371,7 @@ static u64 srvrun_next_bidi_id(srvrun_conn* c) {
  * contract. The pump takes it from the connection's next step/tick under
  * the shared cwnd/credit/pacing gates. */
 static i64 srvrun_wtsend_arm_id(
-    const srvrun_conn* c, srvrun_wtsend* w, u64 id, quic_span payload) {
+    const srvrun_conn* c, srvrun_wtsend* w, u64 id, wired_span payload) {
   const u8* src = payload.p;
   w->view_round = payload.n > SRVRUN_WTSEND_BUF;
   if (!w->view_round) {
@@ -3392,7 +3395,7 @@ static srvrun_wtsend* srvrun_wtsend_find(srvrun_conn* c, u64 stream_id);
  * session.h). Folded into one predicate so every caller's own branch count
  * stays at the CCN gate. */
 static int wt_flow_allows_open(
-    const wired_wt_session* s, int bidi, quic_span payload) {
+    const wired_wt_session* s, int bidi, wired_span payload) {
   return wired_wt_session_stream_open_allowed(s, bidi) &&
          wired_wt_session_data_send_allowed(s, payload.n);
 }
@@ -3420,7 +3423,7 @@ static int wt_open_flow_ok(
     int               sidx,
     wired_wt_session* s,
     int               bidi,
-    quic_span         payload) {
+    wired_span        payload) {
   if (sidx < 0) return 0;
   if (wt_flow_allows_open(s, bidi, payload)) return 1;
   c->wt_flow_violation[sidx] = 1;
@@ -3445,13 +3448,13 @@ static int srvrun_wt_uni_grant_ok(srvrun_conn* c) {
  * answer it with a connection-fatal STREAM_LIMIT_ERROR or silently discard
  * the stream and everything sent on it. */
 static int srvrun_wt_uni_open_ok(
-    srvrun_conn* c, int sidx, wired_wt_session* s, quic_span payload) {
+    srvrun_conn* c, int sidx, wired_wt_session* s, wired_span payload) {
   if (!wt_open_flow_ok(c, sidx, s, 0, payload)) return 0;
   return srvrun_wt_uni_grant_ok(c);
 }
 
 static i64 srvrun_wt_open_uni_common(
-    wired_wt_session* s, quic_span payload, int keep_open) {
+    wired_wt_session* s, wired_span payload, int keep_open) {
   srvrun_conn*   c    = srvrun_session_conn(s);
   int            sidx = wt_session_slot_or_absent(c, s);
   srvrun_wtsend* w;
@@ -3464,11 +3467,11 @@ static i64 srvrun_wt_open_uni_common(
   return srvrun_wtsend_arm_id(c, w, srvrun_next_uni_id(c), payload);
 }
 
-i64 wired_server_wt_open_uni(wired_wt_session* s, quic_span payload) {
+i64 wired_server_wt_open_uni(wired_wt_session* s, wired_span payload) {
   return srvrun_wt_open_uni_common(s, payload, 0);
 }
 
-i64 wired_server_wt_open_uni_stream(wired_wt_session* s, quic_span payload) {
+i64 wired_server_wt_open_uni_stream(wired_wt_session* s, wired_span payload) {
   return srvrun_wt_open_uni_common(s, payload, 1);
 }
 
@@ -3492,7 +3495,7 @@ static void srvrun_wt_preclaim_bidi_recv(
 /* Shared body of the one-shot and keep-open bidi opens -- the bidi twin of
  * srvrun_wt_open_uni_common, plus the receive-side preclaim. */
 static i64 srvrun_wt_open_bidi_common(
-    wired_wt_session* s, quic_span payload, int keep_open) {
+    wired_wt_session* s, wired_span payload, int keep_open) {
   srvrun_conn*   c    = srvrun_session_conn(s);
   int            sidx = wt_session_slot_or_absent(c, s);
   srvrun_wtsend* w;
@@ -3509,11 +3512,11 @@ static i64 srvrun_wt_open_bidi_common(
   return srvrun_wtsend_arm_id(c, w, id, payload);
 }
 
-i64 wired_server_wt_open_bidi(wired_wt_session* s, quic_span payload) {
+i64 wired_server_wt_open_bidi(wired_wt_session* s, wired_span payload) {
   return srvrun_wt_open_bidi_common(s, payload, 0);
 }
 
-i64 wired_server_wt_open_bidi_stream(wired_wt_session* s, quic_span payload) {
+i64 wired_server_wt_open_bidi_stream(wired_wt_session* s, wired_span payload) {
   return srvrun_wt_open_bidi_common(s, payload, 1);
 }
 
@@ -3533,7 +3536,7 @@ static int wt_reply_flow_ok(
 /* Shared body of the one-shot and keep-open replies on a client-initiated
  * bidi stream. */
 static int srvrun_wt_stream_reply_common(
-    wired_wt_session* s, u64 stream_id, quic_span payload, int keep_open) {
+    wired_wt_session* s, u64 stream_id, wired_span payload, int keep_open) {
   srvrun_conn*   c    = srvrun_session_conn(s);
   int            sidx = wt_session_slot_or_absent(c, s);
   srvrun_wtsend* w;
@@ -3549,12 +3552,12 @@ static int srvrun_wt_stream_reply_common(
 }
 
 int wired_server_wt_stream_reply(
-    wired_wt_session* s, u64 stream_id, quic_span payload) {
+    wired_wt_session* s, u64 stream_id, wired_span payload) {
   return srvrun_wt_stream_reply_common(s, stream_id, payload, 0);
 }
 
 int wired_server_wt_stream_reply_open(
-    wired_wt_session* s, u64 stream_id, quic_span payload) {
+    wired_wt_session* s, u64 stream_id, wired_span payload) {
   return srvrun_wt_stream_reply_common(s, stream_id, payload, 1);
 }
 
@@ -3618,7 +3621,7 @@ static usz srvrun_wtsend_ring_live(const srvrun_wtsend* w) {
 
 /* Copy one round into the ring at its logical end. A SLICE never crosses
  * the wrap (sendq clamps there), but a staged round may -- split the copy. */
-static void srvrun_wtsend_ring_write(srvrun_wtsend* w, quic_span payload) {
+static void srvrun_wtsend_ring_write(srvrun_wtsend* w, wired_span payload) {
   usz at    = w->sess.q.len % SRVRUN_WTSEND_BUF;
   usz tail  = SRVRUN_WTSEND_BUF - at;
   usz first = payload.n < tail ? payload.n : tail;
@@ -3638,7 +3641,7 @@ static void srvrun_wtsend_ring_write(srvrun_wtsend* w, quic_span payload) {
  * true last slice carries the wire FIN (srvrun_wt_slice_fin) and the slot
  * reaps once fully ACKed. */
 static int srvrun_wtsend_stage_round(
-    const srvrun_conn* c, srvrun_wtsend* w, quic_span payload, int fin) {
+    const srvrun_conn* c, srvrun_wtsend* w, wired_span payload, int fin) {
   if (srvrun_wtsend_epoch_acked(w)) srvrun_wtsend_epoch_reset(c, w);
   if (srvrun_wtsend_ring_live(w) + payload.n > SRVRUN_WTSEND_BUF) return 0;
   srvrun_wtsend_ring_write(w, payload);
@@ -3651,7 +3654,7 @@ static int srvrun_wtsend_stage_round(
 /* 1 iff the round was accepted and staged; folds the two-step check so
  * wired_server_wt_stream_send stays inside the CCN gate. */
 static int srvrun_wtsend_accept_round(
-    const srvrun_conn* c, srvrun_wtsend* w, quic_span payload, int fin) {
+    const srvrun_conn* c, srvrun_wtsend* w, wired_span payload, int fin) {
   return srvrun_wtsend_appendable(w, payload.n) &&
          srvrun_wtsend_stage_round(c, w, payload, fin);
 }
@@ -3665,7 +3668,7 @@ static int srvrun_wtsend_busy_reject(const srvrun_wtsend* w, usz len) {
 }
 
 int wired_server_wt_stream_send(
-    wired_wt_session* s, u64 stream_id, quic_span payload, int fin) {
+    wired_wt_session* s, u64 stream_id, wired_span payload, int fin) {
   srvrun_conn*   c    = srvrun_session_conn(s);
   int            sidx = wt_session_slot_or_absent(c, s);
   srvrun_wtsend* w;
@@ -3796,7 +3799,7 @@ static srvrun_dgring_entry* srvrun_dgring_tail(wired_srvrun_env* env) {
  * quic_wtwire_qsid_put) followed by the payload copy. 0 when the prefixed
  * payload does not fit a ring slot. */
 static int srvrun_dgring_fill(
-    srvrun_dgring_entry* e, int conn_slot, u64 connect_id, quic_span payload) {
+    srvrun_dgring_entry* e, int conn_slot, u64 connect_id, wired_span payload) {
   usz qn = quic_wtwire_qsid_put(e->buf, sizeof e->buf, connect_id);
   if (!qn || payload.n > sizeof e->buf - qn) return 0;
   quic_memcpy(e->buf + qn, payload.p, payload.n);
@@ -3806,7 +3809,7 @@ static int srvrun_dgring_fill(
 }
 
 static int srvrun_dgring_push(
-    wired_srvrun_env* env, int slot, u64 connect_id, quic_span payload) {
+    wired_srvrun_env* env, int slot, u64 connect_id, wired_span payload) {
   srvrun_dgring_entry* e = srvrun_dgring_tail(env);
   if (!e) return 0;
   if (!srvrun_dgring_fill(e, slot, connect_id, payload)) return 0;
@@ -3814,7 +3817,7 @@ static int srvrun_dgring_push(
   return 1;
 }
 
-int wired_server_wt_send_datagram_to(wired_wt_session* s, quic_span payload) {
+int wired_server_wt_send_datagram_to(wired_wt_session* s, wired_span payload) {
   wired_srvrun_env* env;
   int               slot;
   srvrun_session_conn_env(s, &env, &slot);
@@ -3838,7 +3841,7 @@ static int srvrun_bcast_ring_target(wired_srvrun_env* env, int cslot, int i) {
  * best-effort skip), an eligible one that cannot be queued (ring full, or
  * the qsid-prefixed payload exceeds a ring slot) reports 0. */
 static int srvrun_bcast_ring_sess(
-    wired_srvrun_env* env, int cslot, int i, quic_span data) {
+    wired_srvrun_env* env, int cslot, int i, wired_span data) {
   if (!srvrun_bcast_ring_target(env, cslot, i)) return 1;
   return srvrun_dgring_push(
       env, cslot, srvrun_wt_slot(&env->conns[cslot], i)->connect_stream_id,
@@ -3849,14 +3852,14 @@ static int srvrun_bcast_ring_sess(
  * out of wired_server_broadcast_datagram_ring so each loop stays at the CCN
  * gate. */
 static int srvrun_bcast_ring_conn(
-    wired_srvrun_env* env, int cslot, quic_span data) {
+    wired_srvrun_env* env, int cslot, wired_span data) {
   int ok = 1;
   for (int i = 0; i < SRVRUN_MAX_WT_SESSIONS; i++)
     ok &= srvrun_bcast_ring_sess(env, cslot, i, data);
   return ok;
 }
 
-int wired_server_broadcast_datagram_ring(quic_span data) {
+int wired_server_broadcast_datagram_ring(wired_span data) {
   wired_srvrun_env* env = srvrun_caller_env();
   int               ok  = 1;
   for (usz i = 0; i < QUIC_CONNTABLE_CAP; i++)
@@ -3865,19 +3868,19 @@ int wired_server_broadcast_datagram_ring(quic_span data) {
 }
 
 /* Copy message into c's own wt_close_msg[sidx] scratch, capped at
- * QUIC_WTCAPSULE_CLOSE_MESSAGE_MAX (quic_wtcapsule_encode_close's own limit,
+ * QUIC_WTCAPSULE_CLOSE_MESSAGE_MAX (wired_wtcapsule_encode_close's own limit,
  * wtcapsule.h) -- a longer message is truncated rather than rejected, same
  * ponytail policy as this file's other fixed-capacity copies (e.g. wt_path).
  */
 static void srvrun_wt_close_record_message(
-    srvrun_conn* c, int sidx, quic_span message) {
+    srvrun_conn* c, int sidx, wired_span message) {
   usz n = quic_u64_min(message.n, QUIC_WTCAPSULE_CLOSE_MESSAGE_MAX);
   quic_memcpy(c->wt_close_msg[sidx], message.p, n);
   c->wt_close_msg_len[sidx] = n;
 }
 
 int wired_server_wt_close_session(
-    wired_wt_session* s, u32 app_error_code, quic_span message) {
+    wired_wt_session* s, u32 app_error_code, wired_span message) {
   srvrun_conn* c    = srvrun_session_conn(s);
   int          sidx = wt_session_slot_or_absent(c, s);
   if (sidx < 0) return 0;
@@ -3894,10 +3897,10 @@ int wired_server_wt_close_session(
 static void srvrun_dgring_send_one(
     const srvrun_cfg* cfg, srvrun_state* st, const srvrun_dgring_entry* e) {
   u8           out[1500];
-  quic_obuf    ob = quic_obuf_of(out, sizeof out);
+  wired_obuf   ob = quic_obuf_of(out, sizeof out);
   srvrun_conn* c  = &st->conns[e->conn_slot];
   if (c->up)
-    srvrun_send_datagram_now(cfg, c, quic_span_of(e->buf, e->len), &ob);
+    srvrun_send_datagram_now(cfg, c, wired_span_of(e->buf, e->len), &ob);
 }
 
 /* Drain the whole session-addressed datagram ring, oldest first -- run once
@@ -3919,14 +3922,14 @@ static void srvrun_dgring_drain(const srvrun_cfg* cfg, srvrun_state* st) {
  * (srvrun_send_wt_drain_all, WTH3-048) -- split out of srvrun_goaway_all so
  * its own loop stays at the CCN gate. */
 static void srvrun_goaway_one(
-    const srvrun_cfg* cfg, srvrun_conn* c, quic_obuf* ob) {
+    const srvrun_cfg* cfg, srvrun_conn* c, wired_obuf* ob) {
   if (!srvrun_send_goaway(cfg, c, ob)) return;
   srvrun_send_wt_drain_all(cfg, c, ob);
 }
 
 static void srvrun_goaway_all(const srvrun_cfg* cfg, srvrun_state* st) {
-  u8        out[256];
-  quic_obuf ob = quic_obuf_of(out, sizeof out);
+  u8         out[256];
+  wired_obuf ob = quic_obuf_of(out, sizeof out);
   for (usz i = 0; i < QUIC_CONNTABLE_CAP; i++)
     if (srvrun_owes_goaway(&st->conns[i]))
       srvrun_goaway_one(cfg, &st->conns[i], &ob);
@@ -4057,7 +4060,7 @@ static int srvrun_reinit_ok(const srvrun_conn* c) {
 /* Whether dg may (re)open c: a long-header Initial, not during graceful
  * shutdown (no new Initial is accepted, fresh slot or existing one alike),
  * and only on a slot eligible to (re)cold-start. */
-static int srvrun_is_new(const srvrun_conn* c, quic_mspan dg) {
+static int srvrun_is_new(const srvrun_conn* c, wired_mspan dg) {
   if (!wired_srvboot_is_initial(dg.p, dg.n)) return 0;
   if (srvrun_shutdown_requested()) return 0;
   return srvrun_reinit_ok(c);
@@ -4074,14 +4077,14 @@ static int srvrun_awaiting_confirm(const srvrun_conn* c) {
  * (RFC 9000 17.2.2 for v1, RFC 9369 3.2 for v2 -- the type-bit layout is
  * version-dependent, so this reads the packet's own Version field rather
  * than assuming v1's). */
-static int srvrun_pkt_is_initial(quic_mspan dg, usz off) {
+static int srvrun_pkt_is_initial(wired_mspan dg, usz off) {
   if (off + 5 > dg.n) return 0;
   return quic_packet_long_type(dg.p[off], quic_get_be32(dg.p + off + 1)) ==
          QUIC_PT_INITIAL;
 }
 
 /* 1 if every packet at offs[0..n) within dg is an Initial. */
-static int srvrun_pkts_all_initial(quic_mspan dg, const usz* offs, usz n) {
+static int srvrun_pkts_all_initial(wired_mspan dg, const usz* offs, usz n) {
   for (usz i = 0; i < n; i++)
     if (!srvrun_pkt_is_initial(dg, offs[i])) return 0;
   return 1;
@@ -4093,11 +4096,11 @@ static int srvrun_pkts_all_initial(quic_mspan dg, const usz* offs, usz n) {
  * a bare first-flight retransmit, and must never be swallowed by the cached
  * boot-flight resend (that discards the Finished and wedges the handshake
  * unconfirmed; curl connects and then stalls on its request). */
-static int srvrun_dgram_all_initial(quic_mspan dg) {
+static int srvrun_dgram_all_initial(wired_mspan dg) {
   const u8*    pkts[4];
   usz          offs[4], lens[4], n;
   quic_pktlist pl = {pkts, offs, lens, 4};
-  n               = quic_udploop_split(quic_span_of(dg.p, dg.n), &pl);
+  n               = quic_udploop_split(wired_span_of(dg.p, dg.n), &pl);
   return n != 0 && srvrun_pkts_all_initial(dg, offs, n);
 }
 
@@ -4107,7 +4110,7 @@ static int srvrun_dgram_all_initial(quic_mspan dg) {
  * hasn't reached it yet -- not a new connection attempt. A datagram that
  * coalesces anything beyond Initials (srvrun_dgram_all_initial says no)
  * carries handshake progress and takes the step path instead. */
-static int srvrun_is_boot_retransmit(const srvrun_conn* c, quic_mspan dg) {
+static int srvrun_is_boot_retransmit(const srvrun_conn* c, wired_mspan dg) {
   if (!srvrun_awaiting_confirm(c)) return 0;
   if (c->boot_ini_len == 0) return 0;
   return srvrun_dgram_all_initial(dg);
@@ -4215,7 +4218,7 @@ static void srvrun_call_handler(
     const srvrun_step_ctx*      ctx,
     const wired_h3reqdrive_req* req,
     u64                         offset,
-    quic_obuf*                  body,
+    wired_obuf*                 body,
     const char**                ct,
     int*                        more,
     u64*                        total_size) {
@@ -4382,8 +4385,8 @@ static void srvrun_start_wt_status(
     srvrun_resp*            r,
     u16                     status,
     const quic_qpack_field* extra) {
-  u8*       st  = env->respstore[slot][srvrun_resp_index(c, r)];
-  quic_obuf pob = quic_obuf_of(st, WIRED_SRVRUN_RESP_MAX);
+  u8*        st  = env->respstore[slot][srvrun_resp_index(c, r)];
+  wired_obuf pob = quic_obuf_of(st, WIRED_SRVRUN_RESP_MAX);
   if (!quic_h3resp_prefix_field(status, 0, 0, extra, &pob)) return;
   wired_sendsess_arm(&r->sess, st, pob.len, srvrun_mps(c));
 }
@@ -4400,9 +4403,9 @@ static void srvrun_reject_wt_redirect(
     srvrun_conn*      c,
     srvrun_resp*      r,
     u16               status,
-    quic_span         location) {
+    wired_span        location) {
   static const u8  name[] = {'l', 'o', 'c', 'a', 't', 'i', 'o', 'n'};
-  quic_qpack_field f      = {quic_span_of(name, sizeof name), location};
+  quic_qpack_field f      = {wired_span_of(name, sizeof name), location};
   srvrun_start_wt_status(env, slot, c, r, status, &f);
 }
 
@@ -4420,8 +4423,8 @@ static void srvrun_wt_resource_decide(
   if (!cfg->wt_resource_check) return;
   cfg->wt_resource_check(
       cfg->wt_resource_ctx,
-      quic_span_of(c->l.req.authority, c->l.req.authority_len),
-      quic_span_of(c->l.req.path, c->l.req.path_len), out);
+      wired_span_of(c->l.req.authority, c->l.req.authority_len),
+      wired_span_of(c->l.req.path, c->l.req.path_len), out);
 }
 
 /* 1 if status is in the 3xx range (RFC 9110 15.4), the only range
@@ -4442,7 +4445,8 @@ static void srvrun_start_wt_resource_status(
     const wired_wt_resource_decision* d) {
   if (wt_status_is_3xx(d->status)) {
     srvrun_reject_wt_redirect(
-        env, slot, c, r, d->status, quic_span_of(d->location, d->location_len));
+        env, slot, c, r, d->status,
+        wired_span_of(d->location, d->location_len));
     return;
   }
   srvrun_start_wt_status(env, slot, c, r, d->status, 0);
@@ -4458,7 +4462,7 @@ static void srvrun_wt_record_path(srvrun_conn* c, int sidx) {
 }
 
 /* The n octets at s (up to the next ' ' or NUL) equal item byte for byte. */
-static int srvrun_tok_eq(const char* s, usz n, quic_span item) {
+static int srvrun_tok_eq(const char* s, usz n, wired_span item) {
   return n == item.n && wt_bytes_eq((const u8*)s, item.p, n);
 }
 
@@ -4477,7 +4481,7 @@ static const char* srvrun_skip_spaces(const char* s) {
 
 /* item is one of the entries of the space-separated server subprotocol
  * list. */
-static int srvrun_wt_server_has(const char* list, quic_span item) {
+static int srvrun_wt_server_has(const char* list, wired_span item) {
   const char* s = list;
   while (*s) {
     usz n = srvrun_tok_len(s);
@@ -4493,11 +4497,11 @@ static int srvrun_wt_server_has(const char* list, quic_span item) {
  * length (selected). */
 static int srvrun_wt_try_next(
     const char* list, quic_sfield_iter* it, u8* out, usz cap) {
-  quic_obuf ob = quic_obuf_of(out, cap);
-  int       rc = quic_sfield_next_string(it, &ob);
+  wired_obuf ob = quic_obuf_of(out, cap);
+  int        rc = quic_sfield_next_string(it, &ob);
   if (rc <= 0) return -1;
-  return srvrun_wt_server_has(list, quic_span_of(out, ob.len)) ? (int)ob.len
-                                                               : 0;
+  return srvrun_wt_server_has(list, wired_span_of(out, ob.len)) ? (int)ob.len
+                                                                : 0;
 }
 
 /* draft-ietf-webtrans-http3-15 SS3.4: pick the first member of the client's
@@ -4507,7 +4511,7 @@ static int srvrun_wt_try_next(
  * subprotocol or the offer is not a valid sf-list (RFC 8941 4.2: a list that
  * fails to parse is discarded entirely). */
 static usz srvrun_wt_select(
-    const char* list, quic_span avail, u8* out, usz cap) {
+    const char* list, wired_span avail, u8* out, usz cap) {
   quic_sfield_iter it;
   int              r = 0;
   quic_sfield_iter_init(&it, avail);
@@ -4534,7 +4538,7 @@ static usz srvrun_wt_negotiate(
   const wired_h3reqdrive_req* req = &c->l.req;
   if (!cfg->wt_protocols || !req->wt_avail_len) return 0;
   return srvrun_wt_select(
-      cfg->wt_protocols, quic_span_of(req->wt_avail, req->wt_avail_len), out,
+      cfg->wt_protocols, wired_span_of(req->wt_avail, req->wt_avail_len), out,
       cap);
 }
 
@@ -4547,7 +4551,7 @@ static void srvrun_wt_proto_pick(
   p->sfv_len = 0;
   if (p->tok_len)
     p->sfv_len = quic_sfield_string_encode(
-        p->sfv, sizeof p->sfv, quic_span_of(p->tok, p->tok_len));
+        p->sfv, sizeof p->sfv, wired_span_of(p->tok, p->tok_len));
   if (!p->sfv_len) p->tok_len = 0;
 }
 
@@ -4555,11 +4559,11 @@ static void srvrun_wt_proto_pick(
  * built), with the recorded :path and the negotiated subprotocol (empty when
  * none). No-op without a registered callback. */
 static void srvrun_wt_notify(
-    const srvrun_cfg* cfg, srvrun_conn* c, int sidx, quic_span protocol) {
+    const srvrun_cfg* cfg, srvrun_conn* c, int sidx, wired_span protocol) {
   if (!cfg->wt_on_session) return;
   cfg->wt_on_session(
       cfg->wt_session_ctx, srvrun_wt_slot(c, sidx),
-      quic_span_of(c->wt_path[sidx], c->wt_path_len[sidx]), protocol);
+      wired_span_of(c->wt_path[sidx], c->wt_path_len[sidx]), protocol);
 }
 
 /* Establish a WebTransport session for this Extended CONNECT (draft-ietf-
@@ -4583,7 +4587,7 @@ static void srvrun_start_wt(
   if (sidx < 0) return;
   srvrun_wt_proto_pick(cfg, c, &p);
   f = (quic_qpack_field){
-      quic_span_of(name, sizeof name), quic_span_of(p.sfv, p.sfv_len)};
+      wired_span_of(name, sizeof name), wired_span_of(p.sfv, p.sfv_len)};
   wired_wt_session_init(srvrun_wt_slot(c, sidx), c->l.req_stream_id);
   wired_wt_session_establish(srvrun_wt_slot(c, sidx));
   (*srvrun_wt_active_slot(c, sidx)) = 1;
@@ -4592,7 +4596,7 @@ static void srvrun_start_wt(
   /* wt_connect_sent_len's own doc: the 2xx HEADERS frame's byte length is
    * where a later capsule append (srvrun_send_wt_capsule) must continue. */
   c->wt_connect_sent_len[sidx] = r->sess.q.len;
-  srvrun_wt_notify(cfg, c, sidx, quic_span_of(p.tok, p.tok_len));
+  srvrun_wt_notify(cfg, c, sidx, wired_span_of(p.tok, p.tok_len));
 }
 
 /* Reject this Extended CONNECT with 403 (a present but malformed Origin)
@@ -4609,7 +4613,7 @@ static void srvrun_reject_wt(
  * reserving the same HDR_ROOM prefix at its own front. Pool exhaustion
  * falls back to the fixed row (its cap simply bounds the handler's write,
  * same as before this pool existed): a body that then overflows the fixed
- * row is truncated by the handler's own quic_obuf cap, not a new failure
+ * row is truncated by the handler's own wired_obuf cap, not a new failure
  * mode. r->bigbuf_row records which storage was used, -1 for the fixed row,
  * so srvrun_resp_reap knows whether to release a pool row later. A
  * streaming response's later rounds (r->bigbuf_row already >= 0) reuse that
@@ -4681,7 +4685,7 @@ static u8* srvrun_resp_shrink_to_fixed(
  * never frames, so there is no first-round-only prefix to skip on later
  * rounds. */
 static void srvrun_arm_hq09_resp(
-    const srvrun_conn* c, srvrun_resp* r, u8* st, const quic_obuf* body) {
+    const srvrun_conn* c, srvrun_resp* r, u8* st, const wired_obuf* body) {
   wired_sendsess_arm(
       &r->sess, st + SRVRUN_RESP_HDR_ROOM, body->len, srvrun_mps(c));
 }
@@ -4699,17 +4703,17 @@ static void srvrun_arm_h3_resp_framed(
     int                    slot,
     srvrun_resp*           r,
     u8*                    st,
-    const quic_obuf*       body,
+    const wired_obuf*      body,
     const char*            ct,
     u64                    total_len) {
-  u8        pre[SRVRUN_RESP_HDR_ROOM];
-  quic_obuf pob = quic_obuf_of(pre, sizeof pre);
-  usz       off;
+  u8         pre[SRVRUN_RESP_HDR_ROOM];
+  wired_obuf pob = quic_obuf_of(pre, sizeof pre);
+  usz        off;
   if (!quic_h3resp_prefix(200, ct, total_len, &pob)) return;
   off = SRVRUN_RESP_HDR_ROOM - pob.len;
   quic_put_bytes(
-      quic_mspan_of(st, SRVRUN_RESP_HDR_ROOM), &off,
-      quic_span_of(pre, pob.len));
+      wired_mspan_of(st, SRVRUN_RESP_HDR_ROOM), &off,
+      wired_span_of(pre, pob.len));
   st = srvrun_resp_shrink_to_fixed(
       ctx, slot, c, r, st + SRVRUN_RESP_HDR_ROOM - pob.len,
       pob.len + body->len);
@@ -4725,7 +4729,7 @@ static void srvrun_arm_h3_resp(
     int                    slot,
     srvrun_resp*           r,
     u8*                    st,
-    const quic_obuf*       body,
+    const wired_obuf*      body,
     const char*            ct,
     u64                    total_len) {
   r->stream_h3_framed = 1;
@@ -4807,7 +4811,7 @@ static void srvrun_arm_round0(
     int                    slot,
     srvrun_resp*           r,
     u8*                    st,
-    const quic_obuf*       body,
+    const wired_obuf*      body,
     const char*            ct,
     int                    more,
     u64                    total_size,
@@ -4826,7 +4830,7 @@ static void srvrun_arm_round0(
 static void srvrun_call_round0(
     const srvrun_step_ctx* ctx,
     srvrun_conn*           c,
-    quic_obuf*             body,
+    wired_obuf*            body,
     const char**           ct,
     int*                   more,
     u64*                   total_size) {
@@ -4851,8 +4855,8 @@ static u64 srvrun_maybe_send_continue(const srvrun_cfg* cfg, srvrun_conn* c) {
  * srvrun_start_resp itself stays at its gate/dispatch decision (CCN). */
 static void srvrun_start_app_resp(
     const srvrun_step_ctx* ctx, srvrun_conn* c, int slot, srvrun_resp* r) {
-  u8*       st = srvrun_resp_storage(ctx, slot, c, r);
-  quic_obuf body =
+  u8*        st = srvrun_resp_storage(ctx, slot, c, r);
+  wired_obuf body =
       quic_obuf_of(st + SRVRUN_RESP_HDR_ROOM, srvrun_resp_storage_cap(r));
   const char* ct         = 0;
   int         more       = 0;
@@ -5000,7 +5004,7 @@ static void srvrun_dispatch_wt_gated(
  * srvrun_start_resp so a malformed/unsupported method never reaches either
  * path. */
 static u16 srvrun_method_status(const wired_h3reqdrive_req* r) {
-  quic_span method = quic_span_of(r->method, r->method_len);
+  wired_span method = wired_span_of(r->method, r->method_len);
   if (!quic_h3_method_is_known(method)) return 501;
   if (!quic_h3_method_is_allowed(method)) return 405;
   return 0;
@@ -5113,14 +5117,14 @@ static usz srvrun_slice_ack_peek(
  * (al != 0). Returns 1 on success, 0 if sealing failed (nothing sent, the
  * pending ACK untouched). */
 static int srvrun_seal_send_slice(
-    const srvrun_step_ctx* ctx, srvrun_conn* c, quic_span pl, u64 pn, usz al) {
+    const srvrun_step_ctx* ctx, srvrun_conn* c, wired_span pl, u64 pn, usz al) {
   u8                    out[1500];
-  quic_obuf             ob  = quic_obuf_of(out, sizeof out);
+  wired_obuf            ob  = quic_obuf_of(out, sizeof out);
   wired_srvloop_send_in sin = {
-      quic_span_of(c->l.cli_scid, c->l.cli_scid_len), pn, -1, pl, 0};
+      wired_span_of(c->l.cli_scid, c->l.cli_scid_len), pn, -1, pl, 0};
   if (!wired_srvloop_send_onertt(&c->s, &sin, &ob)) return 0;
   srvrun_send_staged(
-      ctx->cfg, c, quic_span_of(out, ob.len), "1-RTT payload sent\n");
+      ctx->cfg, c, wired_span_of(out, ob.len), "1-RTT payload sent\n");
   if (al) wired_srvloop_ack_mark_sent(&c->l);
   return 1;
 }
@@ -5134,7 +5138,7 @@ static int srvrun_send_stream_slice(
     u8                       fin) {
   u8                pl[SRVRUN_ACK_ROOM + SRVRUN_SLICE_PL];
   usz               al  = srvrun_slice_ack_peek(c, sl, pl);
-  quic_obuf         plb = quic_obuf_of(pl + al, sizeof pl - al);
+  wired_obuf        plb = quic_obuf_of(pl + al, sizeof pl - al);
   quic_stream_frame f   = {
       stream_id, wired_sendsess_stream_offset(sess, sl), sl->len,
       wired_sendq_slice_data(&sess->q, sl), fin};
@@ -5142,7 +5146,7 @@ static int srvrun_send_stream_slice(
   if (!quic_appdata_stream_frame(&f, &plb)) return 0;
   pn = c->l.tx_pn++;
   srvrun_qlog_stream_sent(ctx->cfg, c, ctx->now_ms, pn, &f);
-  if (!srvrun_seal_send_slice(ctx, c, quic_span_of(pl, al + plb.len), pn, al))
+  if (!srvrun_seal_send_slice(ctx, c, wired_span_of(pl, al + plb.len), pn, al))
     return 0;
   return wired_sendsess_sent(sess, sl, pn, ctx->now_ms);
 }
@@ -5716,7 +5720,7 @@ static usz srvrun_pmtu_probe_len(usz size) {
  * out->len and *pn set, 0 on payload-build or seal failure (pn left
  * unassigned). */
 static int srvrun_seal_pmtu_probe(
-    srvrun_conn* c, usz size, quic_obuf* out, u64* pn) {
+    srvrun_conn* c, usz size, wired_obuf* out, u64* pn) {
   u8                    pl[QUIC_PMTU_MAX];
   wired_srvloop_send_in sin;
   usz                   len = srvrun_pmtu_probe_len(size);
@@ -5724,8 +5728,8 @@ static int srvrun_seal_pmtu_probe(
   if (!pln) return 0;
   *pn = c->l.tx_pn++;
   sin = (wired_srvloop_send_in){
-      quic_span_of(c->l.cli_scid, c->l.cli_scid_len), *pn, -1,
-      quic_span_of(pl, pln), 0};
+      wired_span_of(c->l.cli_scid, c->l.cli_scid_len), *pn, -1,
+      wired_span_of(pl, pln), 0};
   return wired_srvloop_send_onertt(&c->s, &sin, out);
 }
 
@@ -5782,14 +5786,14 @@ static usz srvrun_pmtu_probe_candidate(srvrun_conn* c, u64 now_us) {
  * not itself become a hang if it ever is). */
 static int srvrun_pmtu_send_probe(
     const srvrun_step_ctx* ctx, srvrun_conn* c, usz size) {
-  u8        buf[QUIC_PMTU_MAX];
-  quic_obuf out = quic_obuf_of(buf, sizeof buf);
-  u64       pn;
+  u8         buf[QUIC_PMTU_MAX];
+  wired_obuf out = quic_obuf_of(buf, sizeof buf);
+  u64        pn;
   if (!srvrun_seal_pmtu_probe(c, size, &out, &pn)) return 0;
   c->pmtu_probe_pn      = pn;
   c->pmtu_probe_size    = size;
   c->pmtu_probe_sent_ms = ctx->now_ms;
-  srvrun_send(ctx->cfg, c, quic_span_of(buf, out.len), "PMTU probe sent\n");
+  srvrun_send(ctx->cfg, c, wired_span_of(buf, out.len), "PMTU probe sent\n");
   return 1;
 }
 
@@ -5868,7 +5872,7 @@ static void srvrun_qlog_lost_packet(
   char rec[128];
   usz  w =
       wired_qlogevent_packet_lost(rec, sizeof rec, now_ms, c->qlog_slot, pn);
-  if (w) wired_qlog_append(cfg->qlog_path, quic_span_of((const u8*)rec, w));
+  if (w) wired_qlog_append(cfg->qlog_path, wired_span_of((const u8*)rec, w));
 }
 
 /* qlog stream_frame_lost (frame-level forensics: moqt-voice-stability
@@ -5885,7 +5889,7 @@ static void srvrun_qlog_lost_stream_frame(
       stream_id, l->offset, l->length, l->fin, l->pn};
   usz w = wired_qlogevent_stream_frame(
       rec, sizeof rec, now_ms, c->qlog_slot, "stream_frame_lost", &in);
-  if (w) wired_qlog_append(cfg->qlog_path, quic_span_of((const u8*)rec, w));
+  if (w) wired_qlog_append(cfg->qlog_path, wired_span_of((const u8*)rec, w));
 }
 
 /* Both qlog records for one declared-lost slice -- packet_lost stays for
@@ -6234,11 +6238,11 @@ static void srvrun_feed_acks(
   if (lost) quic_cc_on_loss(&c->cc, ctx->now_ms, ctx->now_ms);
 }
 
-/* Send c's pending DATAGRAM (if any) using a scratch quic_obuf on the stack,
+/* Send c's pending DATAGRAM (if any) using a scratch wired_obuf on the stack,
  * the same shape srvrun_send_pending_datagram expects. */
 static void srvrun_pump_datagram(const srvrun_step_ctx* ctx, srvrun_conn* c) {
-  u8        out[1500];
-  quic_obuf ob = quic_obuf_of(out, sizeof out);
+  u8         out[1500];
+  wired_obuf ob = quic_obuf_of(out, sizeof out);
   if (!c->dg_pending) return;
   srvrun_send_pending_datagram(ctx->cfg, c, &ob);
 }
@@ -6341,7 +6345,7 @@ static void srvrun_resp_refill(
     const srvrun_step_ctx* ctx, srvrun_conn* c, int slot, srvrun_resp* r) {
   usz         room, take;
   u8*         base;
-  quic_obuf   body;
+  wired_obuf  body;
   const char* ct         = 0;
   int         more       = 0;
   u64         total_size = 0;
@@ -6478,7 +6482,7 @@ static void srvrun_qlog_metrics(const srvrun_step_ctx* ctx, srvrun_conn* c) {
   srvrun_metrics_fill(c, &m);
   n = wired_qlogevent_metrics(rec, sizeof rec, ctx->now_ms, c->qlog_slot, &m);
   if (n)
-    wired_qlog_append(ctx->cfg->qlog_path, quic_span_of((const u8*)rec, n));
+    wired_qlog_append(ctx->cfg->qlog_path, wired_span_of((const u8*)rec, n));
 }
 
 /* 1 iff this step deferred a bare ACK that is due right now; closes the
@@ -6502,7 +6506,7 @@ static void srvrun_flush_deferred_ack(
   if (!srvrun_deferred_ack_due(c)) return;
   al = wired_srvloop_ack_peek(&c->l, pl, sizeof pl);
   if (al)
-    srvrun_seal_send_slice(ctx, c, quic_span_of(pl, al), c->l.tx_pn++, al);
+    srvrun_seal_send_slice(ctx, c, wired_span_of(pl, al), c->l.tx_pn++, al);
   srvrun_stage_flush(ctx->cfg); /* the bare ACK stages like a slice; nothing
                                  * later this step would flush it */
 }
@@ -6683,7 +6687,7 @@ static void srvrun_dg_slot(const srvrun_step_ctx* ctx, int slot) {
 /* One live step; a peer CONNECTION_CLOSE observed by the loop frees the slot
  * afterward (RFC 9000 10.2.2: the connection is done, its state discarded). */
 static void srvrun_step_and_reap(
-    const srvrun_step_ctx* ctx, int slot, quic_mspan dg) {
+    const srvrun_step_ctx* ctx, int slot, wired_mspan dg) {
   srvrun_conn* c = &ctx->st->conns[slot];
   srvrun_on_step(ctx, c, dg);
   if (c->l.peer_closed) {
@@ -6707,7 +6711,7 @@ static void srvrun_step_and_reap(
 static void srvrun_boot_partial_ack(const srvrun_step_ctx* ctx, int slot) {
   u8           out[1400];
   srvrun_conn* c    = &ctx->st->conns[slot];
-  quic_span    scid = quic_span_of(c->scid, ctx->cfg->id->scid_len);
+  wired_span   scid = wired_span_of(c->scid, ctx->cfg->id->scid_len);
   usz          n = wired_srvboot_partial_ack(&c->boot, scid, out, sizeof out);
   if (n == 0) return;
   if (srvrun_boot_gate_blocks(c, 0, n)) return;
@@ -6718,11 +6722,11 @@ static void srvrun_boot_partial_ack(const srvrun_step_ctx* ctx, int slot) {
    * Post-switch datagrams route via srvrun_find_boot_scid instead. */
   wired_srvboot_acc_allow(&c->boot, scid);
   srvrun_boot_send(
-      ctx->cfg, c, quic_span_of(out, n), "partial ClientHello acked\n");
+      ctx->cfg, c, wired_span_of(out, n), "partial ClientHello acked\n");
 }
 
 static void srvrun_cold_start(
-    const srvrun_step_ctx* ctx, int slot, quic_mspan dg) {
+    const srvrun_step_ctx* ctx, int slot, wired_mspan dg) {
   int r = srvrun_on_initial(ctx, slot, &ctx->st->conns[slot], dg);
   if (r != SRVRUN_BOOT_PENDING) {
     srvrun_open_done(ctx, slot, r);
@@ -6833,7 +6837,7 @@ static void srvrun_fire_ptos(const srvrun_cfg* cfg, srvrun_state* st) {
  * derived. A slot already up (c->up) instead takes the live 1-RTT/0-RTT
  * step path (srvrun_step_and_reap), which opens directly with the
  * connection's now-installed keys. */
-static int srvrun_boot_zerortt(srvrun_conn* c, quic_mspan dg) {
+static int srvrun_boot_zerortt(srvrun_conn* c, wired_mspan dg) {
   if (c->up || !wired_srvboot_is_zerortt(dg.p, dg.n)) return 0;
   wired_srvboot_acc_feed(&c->boot, dg);
   return 1;
@@ -6844,7 +6848,7 @@ static int srvrun_boot_zerortt(srvrun_conn* c, quic_mspan dg) {
  * 0-RTT datagram arriving ahead of this boot's keys (srvrun_boot_zerortt) --
  * dispatched to whichever applies. Returns 1 if any handled dg. */
 static int srvrun_serve_boot(
-    const srvrun_step_ctx* ctx, int slot, quic_mspan dg) {
+    const srvrun_step_ctx* ctx, int slot, wired_mspan dg) {
   srvrun_conn* c = &ctx->st->conns[slot];
   if (srvrun_is_new(c, dg)) {
     srvrun_cold_start(ctx, slot, dg);
@@ -6965,7 +6969,7 @@ static void srvrun_rebind_peer(const srvrun_step_ctx* ctx, srvrun_conn* c) {
 
 /* 1 if dg leads with a long-header Handshake packet (first byte 0b1110xxxx,
  * RFC 9000 17.2) -- readable without any keys. */
-static int srvrun_leads_handshake(quic_mspan dg) {
+static int srvrun_leads_handshake(wired_mspan dg) {
   return dg.n != 0 && (dg.p[0] & 0xf0) == 0xe0;
 }
 
@@ -6978,21 +6982,22 @@ static int srvrun_leads_handshake(quic_mspan dg) {
  * loss profile). */
 static void srvrun_reconfirm(const srvrun_step_ctx* ctx, srvrun_conn* c) {
   u8                 out[512];
-  quic_obuf          ob   = quic_obuf_of(out, sizeof out);
+  wired_obuf         ob   = quic_obuf_of(out, sizeof out);
   wired_srvloop_conn conn = {&c->l, &c->s};
   if (!wired_srvloop_reconfirm(&conn, &ob)) return;
-  srvrun_send(ctx->cfg, c, quic_span_of(ob.p, ob.len), "confirmation resent\n");
+  srvrun_send(
+      ctx->cfg, c, wired_span_of(ob.p, ob.len), "confirmation resent\n");
 }
 
 static void srvrun_reconfirm_on_hs_probe(
-    const srvrun_step_ctx* ctx, srvrun_conn* c, quic_mspan dg) {
+    const srvrun_step_ctx* ctx, srvrun_conn* c, wired_mspan dg) {
   if (!wired_server_is_confirmed(&c->s)) return;
   if (!srvrun_leads_handshake(dg)) return;
   srvrun_reconfirm(ctx, c);
 }
 
 static void srvrun_serve_slot(
-    const srvrun_step_ctx* ctx, int slot, quic_mspan dg) {
+    const srvrun_step_ctx* ctx, int slot, wired_mspan dg) {
   srvrun_conn* c       = &ctx->st->conns[slot];
   int          booting = srvrun_awaiting_confirm(c);
   c->last_ms = ctx->now_ms; /* RFC 9000 10.1: activity resets idle age */
@@ -7020,16 +7025,16 @@ static void srvrun_serve_slot(
 /* dg's DCID as a span into dg, or a 0-length span if dg is too short to carry
  * the DCID length it claims (quic_dcidresolve_dcid can't tell that apart from
  * a legitimate zero-length CID on its own, so reject dcid_len < 0 first). */
-static quic_span srvrun_dcid(quic_mspan dg, u8 short_hdr_len) {
+static wired_span srvrun_dcid(wired_mspan dg, u8 short_hdr_len) {
   int dcid_len = quic_dcidresolve_len(dg, short_hdr_len);
-  if (dcid_len < 0) return quic_span_of(0, 0);
+  if (dcid_len < 0) return wired_span_of(0, 0);
   return quic_dcidresolve_dcid(dg, dcid_len);
 }
 
 /* Find the live slot this datagram's DCID matches. -1 if none does (the
  * datagram is malformed, or its DCID belongs to no connection this process
  * has open). */
-static int srvrun_find_slot(const srvrun_step_ctx* ctx, quic_span dcid) {
+static int srvrun_find_slot(const srvrun_step_ctx* ctx, wired_span dcid) {
   if (dcid.p == 0) return -1;
   return quic_conntable_find(
       ctx->st->table, QUIC_CONNTABLE_CAP, dcid.p, (u8)dcid.n);
@@ -7043,12 +7048,12 @@ static int srvrun_find_slot(const srvrun_step_ctx* ctx, quic_span dcid) {
  * either, so a brand-new client cannot start a connection during drain. -1 if
  * dcid is malformed, is_initial is false, shutdown is pending, or the table
  * is full. */
-static int srvrun_claim_refused(quic_span dcid, int is_initial) {
+static int srvrun_claim_refused(wired_span dcid, int is_initial) {
   return dcid.p == 0 || !is_initial || srvrun_shutdown_requested();
 }
 
 static int srvrun_claim_slot(
-    const srvrun_step_ctx* ctx, quic_span dcid, int is_initial) {
+    const srvrun_step_ctx* ctx, wired_span dcid, int is_initial) {
   if (srvrun_claim_refused(dcid, is_initial)) return -1;
   return quic_conntable_insert(
       ctx->st->table, QUIC_CONNTABLE_CAP, dcid.p, (u8)dcid.n);
@@ -7096,7 +7101,7 @@ static int srvrun_cc_algo(const srvrun_cfg* cfg) {
  * index, or -1 if claiming fails or scid generation fails (in which case the
  * claimed slot is freed again rather than run with an all-zero scid). */
 static int srvrun_open_slot(
-    const srvrun_step_ctx* ctx, quic_span dcid, int is_initial) {
+    const srvrun_step_ctx* ctx, wired_span dcid, int is_initial) {
   int slot = srvrun_claim_slot(ctx, dcid, is_initial);
   if (slot < 0) return -1;
   ctx->st->conns[slot]              = (srvrun_conn){0};
@@ -7133,8 +7138,8 @@ static const u8 g_srvrun_retry_key[QUIC_RETRYTOKEN_KEY] = {
  * patches the real RFC 9001 5.8 tag in afterward. Returns bytes written, or
  * 0 on overflow. */
 static usz srvrun_retry_pkt_build(
-    const quic_lhdr* h, const u8 scid[8], quic_span token, u8* pkt, usz cap) {
-  quic_retry_desc d = {1, h->scid, quic_span_of(scid, 8), token, pkt};
+    const quic_lhdr* h, const u8 scid[8], wired_span token, u8* pkt, usz cap) {
+  quic_retry_desc d = {1, h->scid, wired_span_of(scid, 8), token, pkt};
   return quic_retry_build(pkt, cap, &d);
 }
 
@@ -7150,7 +7155,7 @@ static void srvrun_retry_prep(
   if (!quic_cid_generate(scid, 8)) return;
   *tn = quic_retrytoken_wire_make(
       g_srvrun_retry_key,
-      quic_span_of((const u8*)ctx->peer, sizeof(*ctx->peer)), h->dcid, token);
+      wired_span_of((const u8*)ctx->peer, sizeof(*ctx->peer)), h->dcid, token);
 }
 
 /* Assemble the Retry with its real integrity tag and send it: pkt already
@@ -7159,9 +7164,9 @@ static void srvrun_retry_prep(
 static void srvrun_retry_finish(
     const srvrun_step_ctx* ctx, const quic_lhdr* h, u8* pkt, usz n) {
   quic_retry_tag(
-      h->dcid, quic_span_of(pkt, n - QUIC_RETRY_TAG_LEN),
+      h->dcid, wired_span_of(pkt, n - QUIC_RETRY_TAG_LEN),
       pkt + n - QUIC_RETRY_TAG_LEN);
-  srvrun_tx(ctx->cfg, ctx->peer, quic_span_of(pkt, n));
+  srvrun_tx(ctx->cfg, ctx->peer, wired_span_of(pkt, n));
 }
 
 /* Build and send the stateless Retry answering h (an Initial without a
@@ -7174,7 +7179,8 @@ static void srvrun_send_retry(const srvrun_step_ctx* ctx, const quic_lhdr* h) {
   usz tn, n;
   srvrun_retry_prep(ctx, h, scid, token, &tn);
   if (tn == 0) return;
-  n = srvrun_retry_pkt_build(h, scid, quic_span_of(token, tn), pkt, sizeof pkt);
+  n = srvrun_retry_pkt_build(
+      h, scid, wired_span_of(token, tn), pkt, sizeof pkt);
   if (n == 0) return;
   srvrun_retry_finish(ctx, h, pkt, n);
 }
@@ -7182,16 +7188,16 @@ static void srvrun_send_retry(const srvrun_step_ctx* ctx, const quic_lhdr* h) {
 /* Verify a presented token against the peer address; on success *odcid is
  * the embedded original DCID (a view into dg's token bytes). */
 static int srvrun_retry_token_ok(
-    const srvrun_step_ctx* ctx, quic_span token, quic_span* odcid) {
+    const srvrun_step_ctx* ctx, wired_span token, wired_span* odcid) {
   return quic_retrytoken_wire_verify(
       g_srvrun_retry_key,
-      quic_span_of((const u8*)ctx->peer, sizeof(*ctx->peer)), token, odcid);
+      wired_span_of((const u8*)ctx->peer, sizeof(*ctx->peer)), token, odcid);
 }
 
 /* h carries a token: consumed either way -- valid recovers *odcid and lets
  * the caller continue serving (0), invalid drops the datagram (1). */
 static int srvrun_retry_gate_tokened(
-    const srvrun_step_ctx* ctx, const quic_lhdr* h, quic_span* odcid) {
+    const srvrun_step_ctx* ctx, const quic_lhdr* h, wired_span* odcid) {
   return !srvrun_retry_token_ok(ctx, h->token, odcid);
 }
 
@@ -7200,9 +7206,9 @@ static int srvrun_retry_gate_tokened(
  * anything else is consumed here -- a malformed header, no token (a Retry
  * goes out), or an invalid token (dropped). */
 static int srvrun_retry_gate(
-    const srvrun_step_ctx* ctx, quic_mspan dg, quic_span* odcid) {
+    const srvrun_step_ctx* ctx, wired_mspan dg, wired_span* odcid) {
   quic_lhdr h;
-  if (!quic_lhdr_parse(quic_span_of(dg.p, dg.n), 1, &h)) return 1;
+  if (!quic_lhdr_parse(wired_span_of(dg.p, dg.n), 1, &h)) return 1;
   if (h.token.n != 0) return srvrun_retry_gate_tokened(ctx, &h, odcid);
   srvrun_send_retry(ctx, &h);
   return 1;
@@ -7210,7 +7216,7 @@ static int srvrun_retry_gate(
 
 /* Stash the token-recovered ODCID on the freshly claimed slot so the accept
  * path advertises it (srvrun_slot_id -> srvboot_tp_odcid). */
-static void srvrun_note_retry_odcid(srvrun_conn* c, quic_span odcid) {
+static void srvrun_note_retry_odcid(srvrun_conn* c, wired_span odcid) {
   if (odcid.n == 0 || odcid.n > WIRED_MAX_CID_LEN) return;
   quic_memcpy(c->retry_odcid, odcid.p, odcid.n);
   c->retry_odcid_len = (u8)odcid.n;
@@ -7219,11 +7225,11 @@ static void srvrun_note_retry_odcid(srvrun_conn* c, quic_span odcid) {
 /* Answer an unsupported-version datagram with Version Negotiation, straight
  * to the sender — no connection slot is involved (RFC 9000 5.2.2). Returns 1
  * when the datagram was consumed this way. */
-static int srvrun_vneg(const srvrun_step_ctx* ctx, quic_mspan dg) {
+static int srvrun_vneg(const srvrun_step_ctx* ctx, wired_mspan dg) {
   u8  vn[64];
-  usz n = wired_srvboot_vneg(quic_span_of(dg.p, dg.n), vn, sizeof vn);
+  usz n = wired_srvboot_vneg(wired_span_of(dg.p, dg.n), vn, sizeof vn);
   if (!n) return 0;
-  srvrun_tx(ctx->cfg, ctx->peer, quic_span_of(vn, n));
+  srvrun_tx(ctx->cfg, ctx->peer, wired_span_of(vn, n));
   return 1;
 }
 
@@ -7235,7 +7241,7 @@ static int srvrun_boot_pending(const srvrun_conn* c) {
 
 /* 1 if slot i is a still-pending boot whose own scid equals dcid. */
 static int srvrun_boot_scid_match(
-    const srvrun_step_ctx* ctx, usz i, quic_span dcid) {
+    const srvrun_step_ctx* ctx, usz i, wired_span dcid) {
   const srvrun_conn* c = &ctx->st->conns[i];
   if (!srvrun_boot_pending(c)) return 0;
   if (dcid.n != ctx->cfg->id->scid_len) return 0;
@@ -7247,7 +7253,7 @@ static int srvrun_boot_scid_match(
  * (RFC 9000 7.2) while the routing entry still keys the ODCID -- without
  * this, the switched retransmits claimed a competing slot with a
  * different initial_source_connection_id. */
-static int srvrun_find_boot_scid(const srvrun_step_ctx* ctx, quic_span dcid) {
+static int srvrun_find_boot_scid(const srvrun_step_ctx* ctx, wired_span dcid) {
   for (usz i = 0; i < QUIC_CONNTABLE_CAP; i++)
     if (srvrun_boot_scid_match(ctx, i, dcid)) return (int)i;
   return -1;
@@ -7257,7 +7263,7 @@ static int srvrun_find_boot_scid(const srvrun_step_ctx* ctx, quic_span dcid) {
  * switched its DCID onto, else a fresh claim (only for a new Initial); -1
  * when none. */
 static int srvrun_route(
-    const srvrun_step_ctx* ctx, quic_span dcid, quic_mspan dg) {
+    const srvrun_step_ctx* ctx, wired_span dcid, wired_mspan dg) {
   int slot = srvrun_find_slot(ctx, dcid);
   if (slot >= 0) return slot;
   slot = srvrun_find_boot_scid(ctx, dcid);
@@ -7309,7 +7315,7 @@ static int srvrun_evict_grace_ok(const srvrun_step_ctx* ctx, int cand) {
  * all (fresh Initial, sane DCID, no shutdown pending -- the same gate the
  * normal claim uses) found the table genuinely full. */
 static int srvrun_evict_applies(
-    const srvrun_step_ctx* ctx, quic_span dcid, int is_initial) {
+    const srvrun_step_ctx* ctx, wired_span dcid, int is_initial) {
   return !srvrun_claim_refused(dcid, is_initial) && srvrun_table_full(ctx->st);
 }
 
@@ -7320,7 +7326,7 @@ static int srvrun_evict_applies(
  * later step fired). Returns the freshly opened slot, or -1 (caller sends
  * the refusal) when no slot has been idle long enough. */
 static int srvrun_evict_for_initial(
-    const srvrun_step_ctx* ctx, quic_span dcid, int is_initial) {
+    const srvrun_step_ctx* ctx, wired_span dcid, int is_initial) {
   int cand;
   if (!srvrun_evict_applies(ctx, dcid, is_initial)) return -1;
   cand = srvrun_evict_candidate(ctx->st);
@@ -7337,7 +7343,7 @@ static int srvrun_evict_for_initial(
  * for a datagram too small to answer with something strictly smaller
  * (RFC 9000 10.3.3's loop-prevention rule: every reset sent must be smaller
  * than the packet that triggered it). */
-static int srvrun_sreset_applies(quic_span dcid, quic_mspan dg) {
+static int srvrun_sreset_applies(wired_span dcid, wired_mspan dg) {
   return dcid.p != 0 && !wired_srvboot_is_initial(dg.p, dg.n) &&
          dg.n > QUIC_SRESET_MIN;
 }
@@ -7348,7 +7354,7 @@ static int srvrun_sreset_applies(quic_span dcid, quic_mspan dg) {
  * situation this packet exists for). Capacity is clamped below the
  * triggering datagram's size (10.3.3). */
 static int srvrun_seal_stateless_reset(
-    const srvrun_cfg* cfg, quic_span dcid, usz trigger_len, quic_obuf* out) {
+    const srvrun_cfg* cfg, wired_span dcid, usz trigger_len, wired_obuf* out) {
   u8  key[QUIC_SRESET_KEY];
   usz cap = quic_u64_min(out->cap, trigger_len - 1);
   usz len;
@@ -7361,19 +7367,19 @@ static int srvrun_seal_stateless_reset(
 }
 
 static void srvrun_send_stateless_reset(
-    const srvrun_step_ctx* ctx, quic_span dcid, quic_mspan dg) {
-  u8        out[128];
-  quic_obuf ob = quic_obuf_of(out, sizeof out);
+    const srvrun_step_ctx* ctx, wired_span dcid, wired_mspan dg) {
+  u8         out[128];
+  wired_obuf ob = quic_obuf_of(out, sizeof out);
   if (!srvrun_sreset_applies(dcid, dg)) return;
   if (!srvrun_seal_stateless_reset(ctx->cfg, dcid, dg.n, &ob)) return;
-  srvrun_tx(ctx->cfg, ctx->peer, quic_span_of(out, ob.len));
+  srvrun_tx(ctx->cfg, ctx->peer, wired_span_of(out, ob.len));
 }
 
 /* srvrun_route plus the full-table eviction fallback (srvrun_evict_for_
  * initial). Routing to an existing slot always wins -- a retransmitted
  * Initial must reach its own connection, never trigger an eviction. */
 static int srvrun_route_or_evict(
-    const srvrun_step_ctx* ctx, quic_span dcid, quic_mspan dg) {
+    const srvrun_step_ctx* ctx, wired_span dcid, wired_mspan dg) {
   int slot = srvrun_route(ctx, dcid, dg);
   if (slot >= 0) return slot;
   return srvrun_evict_for_initial(
@@ -7385,7 +7391,7 @@ static int srvrun_route_or_evict(
  * (graceful shutdown or a full conntable) rather than something that was
  * never eligible to open one in the first place (a malformed/absent DCID or
  * a non-Initial packet) -- only the former deserves a refusal reply. */
-static int srvrun_is_refusable_new_conn(quic_span dcid, quic_mspan dg) {
+static int srvrun_is_refusable_new_conn(wired_span dcid, wired_mspan dg) {
   return dcid.p != 0 && wired_srvboot_is_initial(dg.p, dg.n);
 }
 
@@ -7395,7 +7401,7 @@ static int srvrun_is_refusable_new_conn(quic_span dcid, quic_mspan dg) {
  * needed -- Initial keys come from the DCID alone, RFC 9001 5.2). Returns 1
  * with out->len set, 0 on a malformed header or overflow. */
 static int srvrun_seal_new_conn_refusal(
-    quic_span dg, const u8 scid[8], quic_obuf* out) {
+    wired_span dg, const u8 scid[8], wired_obuf* out) {
   quic_lhdr             h;
   u8                    fr[8];
   usz                   fn;
@@ -7405,7 +7411,7 @@ static int srvrun_seal_new_conn_refusal(
   fn = quic_frame_put_conn_close(fr, sizeof fr, &cc);
   if (!fn) return 0;
   wi = (quic_srvwire_seal_in){
-      h.dcid, h.scid, quic_span_of(scid, 8), 0, -1, quic_span_of(fr, fn), 0};
+      h.dcid, h.scid, wired_span_of(scid, 8), 0, -1, wired_span_of(fr, fn), 0};
   return quic_srvwire_seal_initial_frames_lean(&wi, out);
 }
 
@@ -7414,19 +7420,19 @@ static int srvrun_seal_new_conn_refusal(
  * connection ends immediately after, so no routing table entry is needed
  * for it. */
 static void srvrun_send_new_conn_refusal(
-    const srvrun_step_ctx* ctx, quic_span dcid, quic_mspan dg) {
-  u8        out[128];
-  u8        scid[8] = {0};
-  quic_obuf ob      = quic_obuf_of(out, sizeof out);
+    const srvrun_step_ctx* ctx, wired_span dcid, wired_mspan dg) {
+  u8         out[128];
+  u8         scid[8] = {0};
+  wired_obuf ob      = quic_obuf_of(out, sizeof out);
   if (!srvrun_is_refusable_new_conn(dcid, dg)) return;
-  if (!srvrun_seal_new_conn_refusal(quic_span_of(dg.p, dg.n), scid, &ob))
+  if (!srvrun_seal_new_conn_refusal(wired_span_of(dg.p, dg.n), scid, &ob))
     return;
-  srvrun_tx(ctx->cfg, ctx->peer, quic_span_of(out, ob.len));
+  srvrun_tx(ctx->cfg, ctx->peer, wired_span_of(out, ob.len));
 }
 
 /* 1 if force_retry is on and dg is a fresh Initial (the gate's precondition
  * before any slot lookup). */
-static int srvrun_retry_wanted(const srvrun_step_ctx* ctx, quic_mspan dg) {
+static int srvrun_retry_wanted(const srvrun_step_ctx* ctx, wired_mspan dg) {
   return ctx->cfg->force_retry && wired_srvboot_is_initial(dg.p, dg.n);
 }
 
@@ -7434,7 +7440,7 @@ static int srvrun_retry_wanted(const srvrun_step_ctx* ctx, quic_mspan dg) {
  * slot: a claimed slot's own retransmits already passed validation once,
  * and a post-Retry Initial routes by the token path instead. */
 static int srvrun_retry_applies(
-    const srvrun_step_ctx* ctx, quic_span dcid, quic_mspan dg) {
+    const srvrun_step_ctx* ctx, wired_span dcid, wired_mspan dg) {
   if (!srvrun_retry_wanted(ctx, dg)) return 0;
   if (srvrun_find_slot(ctx, dcid) >= 0) return 0;
   return srvrun_find_boot_scid(ctx, dcid) < 0;
@@ -7444,9 +7450,9 @@ static int srvrun_retry_applies(
  * token was dropped) -- the caller stops here either way. */
 static int srvrun_retry_consumed(
     const srvrun_step_ctx* ctx,
-    quic_span              dcid,
-    quic_mspan             dg,
-    quic_span*             odcid) {
+    wired_span             dcid,
+    wired_mspan            dg,
+    wired_span*            odcid) {
   if (!srvrun_retry_applies(ctx, dcid, dg)) return 0;
   return srvrun_retry_gate(ctx, dg, odcid);
 }
@@ -7456,9 +7462,9 @@ static int srvrun_retry_consumed(
  * reads it (srvrun_slot_id -> srvboot_tp_odcid). */
 static void srvrun_route_and_serve(
     const srvrun_step_ctx* ctx,
-    quic_span              dcid,
-    quic_mspan             dg,
-    quic_span              odcid) {
+    wired_span             dcid,
+    wired_mspan            dg,
+    wired_span             odcid) {
   int slot = srvrun_route_or_evict(ctx, dcid, dg);
   if (slot < 0) {
     srvrun_send_new_conn_refusal(ctx, dcid, dg);
@@ -7473,7 +7479,7 @@ static void srvrun_route_and_serve(
  * 1200-byte floor violates the size constraint and is discarded outright --
  * never treated as a connection error, since a malicious or misbehaving
  * middlebox (not the peer) is the more likely cause (RFC 9000 14). */
-static int srvrun_size_violation(quic_mspan dg) {
+static int srvrun_size_violation(wired_mspan dg) {
   return wired_srvboot_is_initial(dg.p, dg.n) &&
          !quic_middlebox_initial_ok(dg.n);
 }
@@ -7481,15 +7487,15 @@ static int srvrun_size_violation(quic_mspan dg) {
 /* dg past the size-violation gate: version-negotiate, consume a retry, or
  * route it to its slot. Split from srvrun_serve so neither carries more than
  * one guard beyond its own entry check (CCN). */
-static void srvrun_serve_sized(const srvrun_step_ctx* ctx, quic_mspan dg) {
-  quic_span dcid  = srvrun_dcid(dg, ctx->cfg->id->scid_len);
-  quic_span odcid = {0, 0};
+static void srvrun_serve_sized(const srvrun_step_ctx* ctx, wired_mspan dg) {
+  wired_span dcid  = srvrun_dcid(dg, ctx->cfg->id->scid_len);
+  wired_span odcid = {0, 0};
   if (srvrun_vneg(ctx, dg)) return;
   if (srvrun_retry_consumed(ctx, dcid, dg, &odcid)) return;
   srvrun_route_and_serve(ctx, dcid, dg, odcid);
 }
 
-static void srvrun_serve(const srvrun_step_ctx* ctx, quic_mspan dg) {
+static void srvrun_serve(const srvrun_step_ctx* ctx, wired_mspan dg) {
   if (srvrun_size_violation(dg)) return;
   srvrun_serve_sized(ctx, dg);
 }
@@ -7569,7 +7575,7 @@ static void srvrun_serve_batch(
   srvrun_sweep_idle(cfg, st, now); /* lazy: swept on each arrival */
   for (i64 i = 0; i < n; i++) {
     srvrun_step_ctx ctx = {cfg, &bufs[i].src, st, now, bufs[i].ecn};
-    srvrun_serve(&ctx, quic_mspan_of(bufs[i].buf.p, bufs[i].len));
+    srvrun_serve(&ctx, wired_mspan_of(bufs[i].buf.p, bufs[i].len));
   }
 }
 
@@ -7699,7 +7705,7 @@ static int srvrun_drain_tick(
 /* Point each batch slot at env's own storage. */
 static void srvrun_rx_init(wired_srvrun_env* env, quic_mmsg_buf* bufs) {
   for (usz i = 0; i < SRVRUN_RX_BATCH; i++)
-    bufs[i].buf = quic_mspan_of(env->rxstorage[i], sizeof env->rxstorage[i]);
+    bufs[i].buf = wired_mspan_of(env->rxstorage[i], sizeof env->rxstorage[i]);
 }
 
 /* RFC 9114 8.1 / 9114-077: when about to close with H3_NO_ERROR, occasionally
@@ -7728,7 +7734,7 @@ static void srvrun_close_drained(const srvrun_cfg* cfg, srvrun_state* st) {
       srvrun_send_app_close(
           cfg, &st->conns[i],
           quic_h3_error_send_value(QUIC_H3_NO_ERROR, srvrun_close_grease_id()),
-          quic_span_of(0, 0));
+          wired_span_of(0, 0));
 }
 
 /* Receive datagrams until told to stop: normal service while no shutdown has

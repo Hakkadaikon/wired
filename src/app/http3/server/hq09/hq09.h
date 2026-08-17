@@ -23,6 +23,6 @@
  *   trailing newline)
  * @param path receives the path view (into line, no copy)
  * @return 1 on a valid GET request line, 0 otherwise */
-int wired_hq09_parse_get(quic_span line, quic_span* path);
+int wired_hq09_parse_get(wired_span line, wired_span* path);
 
 #endif

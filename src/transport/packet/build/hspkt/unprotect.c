@@ -27,7 +27,7 @@ static int aead_open(const hsunprot_ctx* c, usz hdr_len, u64 pn) {
   quic_aes128_init(&aead, c->keys->key);
   quic_gcm_ctx g = {&aead, nonce, {pkt, hdr_len}};
   return quic_gcm_open(
-      &g, quic_span_of(pkt + hdr_len, ct_len + QUIC_GCM_TAG), pkt + hdr_len);
+      &g, wired_span_of(pkt + hdr_len, ct_len + QUIC_GCM_TAG), pkt + hdr_len);
 }
 
 /* RFC 9001 5.4.1 / RFC 9000 17.3 / A.3: byte0 (already unmasked) carries the
@@ -35,7 +35,7 @@ static int aead_open(const hsunprot_ctx* c, usz hdr_len, u64 pn) {
  * bytes, recover the FULL packet number from the truncated value using
  * largest_pn (the nonce/AEAD must use the full pn, not the truncated one; the
  * header bytes stay truncated as AAD), fix hdr_len and AEAD-open. */
-static int open_pkt(const hsunprot_ctx* c, quic_span* payload) {
+static int open_pkt(const hsunprot_ctx* c, wired_span* payload) {
   u8* pkt     = c->d->pkt.p;
   usz pn_off  = c->d->pn_off;
   usz pn_len  = (pkt[0] & 0x03u) + 1u;
@@ -45,7 +45,7 @@ static int open_pkt(const hsunprot_ctx* c, quic_span* payload) {
   if (!aead_open(
           c, hdr_len, quic_pnum_decode(pkt + pn_off, pn_len, c->d->largest_pn)))
     return 0;
-  *payload = quic_span_of(pkt + hdr_len, c->d->pkt.n - hdr_len - QUIC_GCM_TAG);
+  *payload = wired_span_of(pkt + hdr_len, c->d->pkt.n - hdr_len - QUIC_GCM_TAG);
   return 1;
 }
 
@@ -57,7 +57,7 @@ static int open_pkt(const hsunprot_ctx* c, quic_span* payload) {
 int quic_hspkt_unprotect(
     const quic_protect_keys*         k,
     const quic_hspkt_unprotect_desc* d,
-    quic_span*                       payload) {
+    wired_span*                      payload) {
   hsunprot_ctx c = {k->keys, d, {0}};
   /* RFC 9001 5.4.2: the only length bound this side may impose before the
    * true PN length is known is that the HP sample (16 bytes at pn_off+4)
@@ -91,7 +91,7 @@ static int aead_open_suite(const hsunprot_suite_ctx* c, usz hdr_len, u64 pn) {
   quic_aead_suite_op op      = {
       c->suite, c->keys->key, c->keys->iv, pn, {pkt, hdr_len}};
   return quic_aead_suite_open(
-             &op, quic_span_of(pkt + hdr_len, ct_len), pkt + hdr_len) != 0;
+             &op, wired_span_of(pkt + hdr_len, ct_len), pkt + hdr_len) != 0;
 }
 
 /* pn_len/hdr_len for c under suite, and whether the buffer is long enough
@@ -110,7 +110,7 @@ static int open_pkt_suite_head(
 }
 
 /* Same as open_pkt, but resolves pn_len/hdr_len/AEAD under c->suite. */
-static int open_pkt_suite(const hsunprot_suite_ctx* c, quic_span* payload) {
+static int open_pkt_suite(const hsunprot_suite_ctx* c, wired_span* payload) {
   usz tag_len = quic_aead_tag_len(c->suite);
   u8* pkt     = c->d->pkt.p;
   usz hdr_len;
@@ -120,7 +120,7 @@ static int open_pkt_suite(const hsunprot_suite_ctx* c, quic_span* payload) {
           quic_pnum_decode(
               pkt + c->d->pn_off, hdr_len - c->d->pn_off, c->d->largest_pn)))
     return 0;
-  *payload = quic_span_of(pkt + hdr_len, c->d->pkt.n - hdr_len - tag_len);
+  *payload = wired_span_of(pkt + hdr_len, c->d->pkt.n - hdr_len - tag_len);
   return 1;
 }
 
@@ -130,7 +130,7 @@ int quic_hspkt_unprotect_suite(
     u16                              suite,
     const quic_protect_keys*         k,
     const quic_hspkt_unprotect_desc* d,
-    quic_span*                       payload) {
+    wired_span*                      payload) {
   hsunprot_suite_ctx c = {suite, k->keys, d, {0}};
   if (!quic_hp_sample_ok(d->pkt.n, quic_hp_sample_offset(d->pn_off))) return 0;
   if (!quic_hp_suite_mask(

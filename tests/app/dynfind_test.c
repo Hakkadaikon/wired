@@ -5,7 +5,7 @@
 /* Build a one-byte-name, one-byte-value field from two C-string literals. */
 static quic_qpack_field df_field(const char* n, const char* v) {
   quic_qpack_field f = {
-      quic_span_of((const u8*)n, 1), quic_span_of((const u8*)v, 1)};
+      wired_span_of((const u8*)n, 1), wired_span_of((const u8*)v, 1)};
   return f;
 }
 

@@ -45,7 +45,7 @@ static int can_insert(
   return t->count < QUIC_QPACK_DYN_MAX_ENTRIES;
 }
 
-static void copy_field(u8* dst, quic_span src) {
+static void copy_field(u8* dst, wired_span src) {
   for (usz i = 0; i < src.n; i++) dst[i] = src.p[i];
 }
 

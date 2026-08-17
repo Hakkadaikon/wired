@@ -5,8 +5,8 @@
  * tracker is the thing quic_zerortt_replay_ok's ticket_first_use argument
  * comes from. */
 
-static quic_span zerortt_seen_span(const u8* p, usz n) {
-  return quic_span_of(p, n);
+static wired_span zerortt_seen_span(const u8* p, usz n) {
+  return wired_span_of(p, n);
 }
 
 /* A ticket identity never seen before is a first use. */

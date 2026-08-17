@@ -62,13 +62,13 @@ i64 wired_udp_bind(i64 fd, const quic_sockaddr* sa);
  * @param sa the destination address
  * @param buf the datagram to send
  * @return bytes sent or a negative errno. */
-i64 wired_udp_send(i64 fd, const quic_sockaddr* sa, quic_span buf);
+i64 wired_udp_send(i64 fd, const quic_sockaddr* sa, wired_span buf);
 
 /** Receive up to buf.n bytes into buf.p.
  * @param fd the socket fd
  * @param buf destination buffer
  * @return bytes read or a negative errno. */
-i64 wired_udp_recv(i64 fd, quic_mspan buf);
+i64 wired_udp_recv(i64 fd, wired_mspan buf);
 
 /** Receive up to buf.n bytes into buf.p and write the source address into
  * src.
@@ -76,7 +76,7 @@ i64 wired_udp_recv(i64 fd, quic_mspan buf);
  * @param buf destination buffer
  * @param src receives the datagram's source address
  * @return bytes read or a negative errno. */
-i64 wired_udp_recvfrom(i64 fd, quic_mspan buf, quic_sockaddr* src);
+i64 wired_udp_recvfrom(i64 fd, wired_mspan buf, quic_sockaddr* src);
 
 /** Close fd. Takes ownership of fd: after this call fd is invalid regardless
  * of the return value, and the caller must not use or close it again.
@@ -112,7 +112,7 @@ void wired_udp_gso_cmsg_build(u8 out[WIRED_GSO_CMSG_SPACE], u16 segsize);
  * @return total bytes sent, or a negative errno (e.g. the caller should fall
  *   back to wired_udp_send_batch when fd has no UDP_SEGMENT support). */
 i64 wired_udp_send_gso(
-    i64 fd, const quic_sockaddr* sa, quic_span buf, u16 segsize);
+    i64 fd, const quic_sockaddr* sa, wired_span buf, u16 segsize);
 
 /** Send count back-to-back segsize-byte segments to sa via one sendto() call
  * per segment (no GSO). The last segment may be shorter (total = buf.n). The
@@ -123,12 +123,12 @@ i64 wired_udp_send_gso(
  * @param segsize per-segment byte size (last segment may be shorter)
  * @return total bytes sent, or a negative errno on the first failure. */
 i64 wired_udp_send_batch(
-    i64 fd, const quic_sockaddr* sa, quic_span buf, u16 segsize);
+    i64 fd, const quic_sockaddr* sa, wired_span buf, u16 segsize);
 
 /** One slot of a recvmmsg() batch: caller-owned receive buffer and source
  * address, filled in by wired_udp_recvmmsg on return. */
 typedef struct {
-  quic_mspan    buf; /**< in: destination buffer; unused bytes untouched */
+  wired_mspan   buf; /**< in: destination buffer; unused bytes untouched */
   quic_sockaddr src; /**< out: datagram's source address */
   u32           len; /**< out: bytes received into buf.p */
   /** out: RFC 3168 ECN codepoint of the received IP header (0 = Not-ECT,

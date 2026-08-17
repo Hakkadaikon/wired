@@ -35,7 +35,7 @@ static void test_gcm_nist(void) {
 
   quic_aes128_init(&a, key);
   quic_gcm_ctx g = {&a, iv, {aad, al}};
-  quic_gcm_seal(&g, quic_span_of(pt, pl), ct);
+  quic_gcm_seal(&g, wired_span_of(pt, pl), ct);
   for (usz i = 0; i < pl; i++) CHECK(ct[i] == want_ct[i]);
   for (usz i = 0; i < 16; i++) CHECK(ct[pl + i] == want_tag[i]);
 }
@@ -51,9 +51,9 @@ static void test_gcm_open(void) {
   }
   quic_aes128_init(&a, key);
   quic_gcm_ctx g = {&a, iv, {(const u8*)"hdr", 3}};
-  quic_gcm_seal(&g, quic_span_of(pt, 20), ct);
+  quic_gcm_seal(&g, wired_span_of(pt, 20), ct);
 
-  CHECK(quic_gcm_open(&g, quic_span_of(ct, 36), dec) == 1);
+  CHECK(quic_gcm_open(&g, wired_span_of(ct, 36), dec) == 1);
   for (usz i = 0; i < 20; i++) CHECK(dec[i] == pt[i]);
 
   /* flip one tag bit: must reject and not overwrite dec */
@@ -61,12 +61,12 @@ static void test_gcm_open(void) {
   u8 bad[36];
   for (usz i = 0; i < 36; i++) bad[i] = ct[i];
   bad[20] ^= 1;
-  CHECK(quic_gcm_open(&g, quic_span_of(bad, 36), dec) == 0);
+  CHECK(quic_gcm_open(&g, wired_span_of(bad, 36), dec) == 0);
   for (usz i = 0; i < 20; i++) CHECK(dec[i] == 0xCC);
 
   /* flip one AAD byte: must reject */
   quic_gcm_ctx g2 = {&a, iv, {(const u8*)"HDR", 3}};
-  CHECK(quic_gcm_open(&g2, quic_span_of(ct, 36), dec) == 0);
+  CHECK(quic_gcm_open(&g2, wired_span_of(ct, 36), dec) == 0);
 }
 
 /* Deterministic byte stream (LCG, no libc rand) for the differential check
@@ -99,15 +99,15 @@ static void gcm_dispatch_one(usz n, usz an) {
   quic_aes128_init(&a, key);
   quic_gcm_ctx g = {&a, nonce, {aad, an}};
 
-  CHECK(quic_gcm_seal(&g, quic_span_of(pt, n), ct) == n + 16);
+  CHECK(quic_gcm_seal(&g, wired_span_of(pt, n), ct) == n + 16);
   for (usz i = 0; i < n; i++) dec[i] = 0xCC;
-  CHECK(quic_gcm_open(&g, quic_span_of(ct, n + 16), dec) == 1);
+  CHECK(quic_gcm_open(&g, wired_span_of(ct, n + 16), dec) == 1);
   for (usz i = 0; i < n; i++) CHECK(dec[i] == pt[i]);
 
   /* flip one tag bit: must reject and leave dec untouched */
   for (usz i = 0; i < n; i++) dec[i] = 0xCC;
   ct[n] ^= 1;
-  CHECK(quic_gcm_open(&g, quic_span_of(ct, n + 16), dec) == 0);
+  CHECK(quic_gcm_open(&g, wired_span_of(ct, n + 16), dec) == 0);
   for (usz i = 0; i < n; i++) CHECK(dec[i] == 0xCC);
 }
 

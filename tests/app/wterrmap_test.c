@@ -18,10 +18,10 @@ static const u32 wterrmap_boundary_vals[] = {
   (sizeof(wterrmap_boundary_vals) / sizeof(wterrmap_boundary_vals[0]))
 
 static void wterrmap_check_roundtrip(u32 n) {
-  u64 h = quic_wterrmap_to_http3(n);
+  u64 h = wired_wterrmap_to_http3(n);
   CHECK(h >= WTERRMAP_FIRST && h <= WTERRMAP_LAST);
   u32 back = 0;
-  CHECK(quic_wterrmap_from_http3(h, &back) == 1);
+  CHECK(wired_wterrmap_from_http3(h, &back) == 1);
   CHECK(back == n);
 }
 
@@ -34,8 +34,8 @@ void test_wterrmap(void) {
   }
 
   /* Tight-bound equalities. */
-  CHECK(quic_wterrmap_to_http3(0) == WTERRMAP_FIRST);
-  CHECK(quic_wterrmap_to_http3(0xffffffff) == WTERRMAP_LAST);
+  CHECK(wired_wterrmap_to_http3(0) == WTERRMAP_FIRST);
+  CHECK(wired_wterrmap_to_http3(0xffffffff) == WTERRMAP_LAST);
 
   /* 1: modest random sample via a fixed-seed LCG (deterministic). */
   u32 seed = 0xC0FFEEu;
@@ -50,19 +50,19 @@ void test_wterrmap(void) {
   u64 reserved_h   = WTERRMAP_FIRST + 30;
   u32 reserved_out = 0;
   CHECK((reserved_h - 0x21) % 0x1f == 0);
-  CHECK(quic_wterrmap_from_http3(reserved_h, &reserved_out) == 0);
+  CHECK(wired_wterrmap_from_http3(reserved_h, &reserved_out) == 0);
 
   /* 4: out-of-range rejection on both sides. */
   u32 oor_out = 0;
-  CHECK(quic_wterrmap_from_http3(WTERRMAP_FIRST - 1, &oor_out) == 0);
-  CHECK(quic_wterrmap_from_http3(WTERRMAP_LAST + 1, &oor_out) == 0);
+  CHECK(wired_wterrmap_from_http3(WTERRMAP_FIRST - 1, &oor_out) == 0);
+  CHECK(wired_wterrmap_from_http3(WTERRMAP_LAST + 1, &oor_out) == 0);
 
   /* 6: regression for the "checked on shifted instead of h" bug class.
    * At shifted=30, (h-0x21)%0x1f == 0 (reserved on h, must reject) but
    * (shifted-0x21)%0x1f == 28 != 0 (would wrongly accept if checked on
    * shifted). This is a genuine divergence, not an unconstructable case. */
   CHECK((30 - 0x21) % 0x1f != 0);
-  CHECK(quic_wterrmap_from_http3(reserved_h, &reserved_out) == 0);
+  CHECK(wired_wterrmap_from_http3(reserved_h, &reserved_out) == 0);
 
   /* 7: named WT application error codes (webtransport-plan.md Section G)
    * carry the exact hex values from the draft. Most are not wired to a

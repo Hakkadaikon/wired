@@ -8,17 +8,18 @@ void test_tpcheck(void) {
   static const u8 c[] = {0x01, 0x02, 0x03, 0x05}; /* differs in last byte */
   static const u8 z[] = {0};
 
-  quic_span sa   = quic_span_of(a, 4);
-  quic_span sb   = quic_span_of(b, 4);
-  quic_span sc   = quic_span_of(c, 4);
-  quic_span sz   = quic_span_of(z, 0);
-  quic_span none = quic_span_of(0, 0);
+  wired_span sa   = wired_span_of(a, 4);
+  wired_span sb   = wired_span_of(b, 4);
+  wired_span sc   = wired_span_of(c, 4);
+  wired_span sz   = wired_span_of(z, 0);
+  wired_span none = wired_span_of(0, 0);
 
   /* byte-for-byte match, including length */
   CHECK(quic_tparam_cid_match(sa, sb) == 1);
   CHECK(quic_tparam_cid_match(sa, sc) == 0);
   CHECK(
-      quic_tparam_cid_match(sa, quic_span_of(a, 3)) == 0); /* length mismatch */
+      quic_tparam_cid_match(sa, wired_span_of(a, 3)) ==
+      0);                                    /* length mismatch */
   CHECK(quic_tparam_cid_match(sz, sz) == 1); /* both empty (zero-length CID) */
 
   /* initial_source_connection_id vs the peer's observed Source CID */

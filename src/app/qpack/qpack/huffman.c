@@ -92,7 +92,7 @@ static void step_octet(hctx* c, u8 byte) {
 
 /* Feed every input octet into c; a broken octet leaves c->ok clear so the
  * remaining octets are stepped over as no-ops. */
-static void feed(hctx* c, quic_span src) {
+static void feed(hctx* c, wired_span src) {
   for (usz i = 0; i < src.n; i++) step_octet(c, src.p[i]);
 }
 
@@ -106,7 +106,7 @@ static int pad_valid(const hctx* c) {
  */
 static int decode_ok(const hctx* c) { return c->ok && pad_valid(c); }
 
-int quic_qpack_huffman_decode(quic_span src, quic_obuf* dst) {
+int quic_qpack_huffman_decode(wired_span src, wired_obuf* dst) {
   hctx c = {0, 0, dst->p, dst->cap, 0, 1};
   feed(&c, src);
   if (!decode_ok(&c)) return 0;

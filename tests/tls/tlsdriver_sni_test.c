@@ -17,14 +17,15 @@ static void sni_driver(quic_tlsdriver* d) {
 static void test_tlsdriver_sni_present(void) {
   quic_tlsdriver d;
   u8             ch[512];
-  quic_span      ext, host;
+  wired_span     ext, host;
   usz            w;
   sni_driver(&d);
   quic_tlsdriver_set_sni(&d, (const u8*)"example.com", 11);
   w = quic_tlsdriver_raw_client_hello(&d, ch, sizeof(ch));
   CHECK(w > 0);
   CHECK(
-      quic_salpn_find_extension(quic_span_of(ch, w), QUIC_SNI_TYPE, &ext) == 1);
+      quic_salpn_find_extension(wired_span_of(ch, w), QUIC_SNI_TYPE, &ext) ==
+      1);
   CHECK(quic_salpn_extract_sni(ext, &host) == 1);
   CHECK(host.n == 11 && host.p[0] == 'e' && host.p[10] == 'm');
 }
@@ -33,13 +34,14 @@ static void test_tlsdriver_sni_present(void) {
 static void test_tlsdriver_sni_absent(void) {
   quic_tlsdriver d;
   u8             ch[512];
-  quic_span      ext;
+  wired_span     ext;
   usz            w;
   sni_driver(&d);
   w = quic_tlsdriver_raw_client_hello(&d, ch, sizeof(ch));
   CHECK(w > 0);
   CHECK(
-      quic_salpn_find_extension(quic_span_of(ch, w), QUIC_SNI_TYPE, &ext) == 0);
+      quic_salpn_find_extension(wired_span_of(ch, w), QUIC_SNI_TYPE, &ext) ==
+      0);
 }
 
 void test_tlsdriver_sni(void) {

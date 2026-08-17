@@ -12,7 +12,7 @@ int quic_x509_policy_tree_nonempty(const quic_x509_policy_tree* t) {
 }
 
 /* 1 if oid appears in set (OID-equal, no policy mapping). */
-static int set_contains(const quic_x509_policy_set* set, quic_span oid) {
+static int set_contains(const quic_x509_policy_set* set, wired_span oid) {
   for (usz i = 0; i < set->n; i++)
     if (quic_der_oid_equal(set->oid[i], oid)) return 1;
   return 0;
@@ -23,7 +23,7 @@ static int set_contains(const quic_x509_policy_set* set, quic_span oid) {
  * so the room check only guards the redundant case of a itself being at the
  * cap). */
 static void intersect_fold(
-    quic_span cand, const quic_x509_policy_set* b, quic_x509_policy_set* out) {
+    wired_span cand, const quic_x509_policy_set* b, quic_x509_policy_set* out) {
   if (out->n >= QUIC_X509_CERT_POLICY_MAX) return;
   if (set_contains(b, cand)) out->oid[out->n++] = cand;
 }
@@ -56,8 +56,8 @@ static void narrow(quic_x509_policy_tree* t, const quic_x509_policy_set* cp) {
  * is being treated as absent). */
 static void strip_any(
     const quic_x509_policy_set* in, quic_x509_policy_set* out) {
-  quic_span any =
-      quic_span_of(quic_x509_oid_any_policy, sizeof(quic_x509_oid_any_policy));
+  wired_span any =
+      wired_span_of(quic_x509_oid_any_policy, sizeof(quic_x509_oid_any_policy));
   out->n = 0;
   for (usz i = 0; i < in->n; i++)
     if (!quic_der_oid_equal(in->oid[i], any)) out->oid[out->n++] = in->oid[i];
@@ -95,7 +95,7 @@ static void fold_present(
 }
 
 void quic_x509_policy_tree_fold(
-    quic_x509_policy_tree* t, quic_span tbs, int any_inhibited) {
+    quic_x509_policy_tree* t, wired_span tbs, int any_inhibited) {
   quic_x509_policy_set cp;
   if (!quic_x509_policy_tree_nonempty(t)) return;
   if (!quic_x509_cert_policies(tbs, &cp)) {

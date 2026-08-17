@@ -58,14 +58,14 @@ usz quic_moqvi_decode(const u8* buf, usz n, u64* out) {
   return need;
 }
 
-int quic_moqvi_take(quic_span buf, usz* off, u64* out) {
+int quic_moqvi_take(wired_span buf, usz* off, u64* out) {
   usz used = quic_moqvi_decode(buf.p + *off, buf.n - *off, out);
   if (used == 0) return 0;
   *off += used;
   return 1;
 }
 
-int quic_moqvi_put(quic_mspan buf, usz* off, u64 v) {
+int quic_moqvi_put(wired_mspan buf, usz* off, u64 v) {
   usz need = quic_moqvi_len(v);
   if (*off + need > buf.n) return 0;
   *off += quic_moqvi_encode(buf.p + *off, v);

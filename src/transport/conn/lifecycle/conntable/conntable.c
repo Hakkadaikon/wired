@@ -9,17 +9,17 @@ void quic_conntable_init(quic_conntable* t, usz cap) {
   }
 }
 
-static int conntable_cid_matches(quic_span want, const u8* cid, u8 cid_len) {
-  return quic_demux_match(want, quic_span_of(cid, cid_len));
+static int conntable_cid_matches(wired_span want, const u8* cid, u8 cid_len) {
+  return quic_demux_match(want, wired_span_of(cid, cid_len));
 }
 
 /* The alt CID (rekey's stashed prior primary) also routes here, if set. */
-static int conntable_alt_matches(const quic_conntable* slot, quic_span want) {
+static int conntable_alt_matches(const quic_conntable* slot, wired_span want) {
   if (!slot->alt_cid_len) return 0;
   return conntable_cid_matches(want, slot->alt_cid, slot->alt_cid_len);
 }
 
-static int conntable_slot_matches(const quic_conntable* slot, quic_span want) {
+static int conntable_slot_matches(const quic_conntable* slot, wired_span want) {
   if (!slot->live) return 0;
   if (conntable_cid_matches(want, slot->cid, slot->cid_len)) return 1;
   return conntable_alt_matches(slot, want);
@@ -27,7 +27,7 @@ static int conntable_slot_matches(const quic_conntable* slot, quic_span want) {
 
 int quic_conntable_find(
     const quic_conntable* t, usz cap, const u8* dcid, u8 dcid_len) {
-  quic_span want = quic_span_of(dcid, dcid_len);
+  wired_span want = wired_span_of(dcid, dcid_len);
   for (usz i = 0; i < cap; i++)
     if (conntable_slot_matches(&t[i], want)) return (int)i;
   return -1;

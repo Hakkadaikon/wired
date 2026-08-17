@@ -18,10 +18,10 @@ typedef struct {
 
 /* Encode value under pfx into buf. Returns bytes written, or 0 if it does not
  * fit. */
-usz quic_qpack_int_encode(quic_mspan buf, quic_qpack_pfx pfx, u64 value);
+usz quic_qpack_int_encode(wired_mspan buf, quic_qpack_pfx pfx, u64 value);
 
 /* Decode an N-bit prefixed integer from buf into *value.
  * Returns bytes consumed, or 0 on truncation / overflow. */
-usz quic_qpack_int_decode(quic_span buf, u8 prefix_bits, u64* value);
+usz quic_qpack_int_decode(wired_span buf, u8 prefix_bits, u64* value);
 
 #endif

@@ -55,6 +55,6 @@ typedef struct {
  * and SETTINGS_WEBTRANSPORT_MAX_SESSIONS (draft-ietf-webtrans-http3 8.2, id
  * 0xc671706a) when in->wt_max_sessions is non-zero. Returns 1 ok with
  * out->len set, 0 if no room. */
-int quic_h3settings_build(const quic_h3settings_in* in, quic_obuf* out);
+int quic_h3settings_build(const quic_h3settings_in* in, wired_obuf* out);
 
 #endif

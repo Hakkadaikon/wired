@@ -17,8 +17,8 @@
  * negotiation). */
 int quic_eebuild_encrypted_extensions(
     quic_salpn_choice alpn,
-    quic_span         transport_params,
+    wired_span        transport_params,
     int               early_data,
-    quic_obuf*        out);
+    wired_obuf*       out);
 
 #endif

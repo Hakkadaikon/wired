@@ -19,8 +19,8 @@ typedef struct {
 /** What a Version Negotiation packet carries: both CIDs and the supported
  * version list (count entries). */
 typedef struct {
-  quic_span  dcid;
-  quic_span  scid;
+  wired_span dcid;
+  wired_span scid;
   const u32* versions;
   usz        count;
 } quic_vneg_desc;

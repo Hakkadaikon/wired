@@ -42,10 +42,10 @@
  * QUIC_NEWTOKEN_WIRE_LEN bytes to token. Returns 1 on success, 0 if the
  * CSPRNG failed. */
 int quic_newtoken_wire_make(
-    const u8  key[QUIC_NEWTOKEN_KEY],
-    quic_span addr,
-    u64       now_secs,
-    u8        token[QUIC_NEWTOKEN_WIRE_LEN]);
+    const u8   key[QUIC_NEWTOKEN_KEY],
+    wired_span addr,
+    u64        now_secs,
+    u8         token[QUIC_NEWTOKEN_WIRE_LEN]);
 
 /* Verify a presented wire token against the presenting address and current
  * time. Accepts only if: the token is exactly QUIC_NEWTOKEN_WIRE_LEN bytes,
@@ -55,11 +55,11 @@ int quic_newtoken_wire_make(
  * rejected). On success returns 1 and sets *issued_at and *nonce (a view
  * into token, for the caller's own replay check). Returns 0 otherwise. */
 int quic_newtoken_wire_verify(
-    const u8   key[QUIC_NEWTOKEN_KEY],
-    quic_span  addr,
-    quic_span  token,
-    u64        now_secs,
-    u64*       issued_at,
-    quic_span* nonce);
+    const u8    key[QUIC_NEWTOKEN_KEY],
+    wired_span  addr,
+    wired_span  token,
+    u64         now_secs,
+    u64*        issued_at,
+    wired_span* nonce);
 
 #endif

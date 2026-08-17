@@ -16,9 +16,9 @@
  * malformed -- the datagram's other, matching packets still process). A
  * packet too short to carry the DCID length it claims (dcid_len < 0) is
  * rejected the same way a real mismatch would be. */
-static int dcid_matches(const quic_connrunner* r, quic_mspan pkt) {
-  int       dcid_len = quic_dcidresolve_len(pkt, r->io.dcid_len);
-  quic_span dcid;
+static int dcid_matches(const quic_connrunner* r, wired_mspan pkt) {
+  int        dcid_len = quic_dcidresolve_len(pkt, r->io.dcid_len);
+  wired_span dcid;
   if (dcid_len < 0 || (u8)dcid_len != r->io.dcid_len) return 0;
   dcid = quic_dcidresolve_dcid(pkt, dcid_len);
   return quic_ct_diffn(dcid.p, r->io.dcid, r->io.dcid_len) == 0;
@@ -42,14 +42,15 @@ static int recv_level(quic_connrunner* r, u8 byte0, int* level) {
 /* RFC 9000 12.2 then 9001 6.3: a packet admitted at all only once its DCID
  * names this connection (a mismatched coalesced packet is ignored, not just
  * dropped as malformed). */
-static int recv_level_and_dcid(quic_connrunner* r, quic_mspan pkt, int* level) {
+static int recv_level_and_dcid(
+    quic_connrunner* r, wired_mspan pkt, int* level) {
   return recv_level(r, pkt.p[0], level) && dcid_matches(r, pkt);
 }
 
 /* The protection level and packet slice open_one opens. */
 typedef struct {
-  int        level;
-  quic_mspan pkt;
+  int         level;
+  wired_mspan pkt;
 } recv_open_in;
 
 /* RFC 9001 5: open one packet slice at `in->level` and read back whether it
@@ -66,7 +67,7 @@ static int open_one(quic_connrunner* r, const recv_open_in* in, int* elicited) {
 /* RFC 9000 17.2.5/6.2 then RFC 9001 5: drive a Retry/VN reconnect off the
  * receive path; otherwise classify and open the protected packet. A Retry/VN
  * is handled but never queued as an ack-eliciting receive (returns 0). */
-static int recv_one(quic_connrunner* r, quic_mspan pkt, int* elicited) {
+static int recv_one(quic_connrunner* r, wired_mspan pkt, int* elicited) {
   recv_open_in in = {0, pkt};
   if (quic_connrunner_recv_reconnect(r, pkt.p, pkt.n)) return 0;
   if (!recv_level_and_dcid(r, pkt, &in.level)) return 0;
@@ -78,15 +79,15 @@ static void feed_loop(quic_connrunner* r, int elicited) {
   quic_evloop_on_receive(&r->loop, elicited);
 }
 
-usz quic_connrunner_process_datagram(quic_connrunner* r, quic_mspan dgram) {
+usz quic_connrunner_process_datagram(quic_connrunner* r, wired_mspan dgram) {
   const u8* pkts[QUIC_CONNRUNNER_MAXPKTS];
   usz       offs[QUIC_CONNRUNNER_MAXPKTS], lens[QUIC_CONNRUNNER_MAXPKTS], n, i;
   usz       accepted = 0;
   quic_pktlist out   = {pkts, offs, lens, QUIC_CONNRUNNER_MAXPKTS};
-  n                  = quic_udploop_split(quic_span_of(dgram.p, dgram.n), &out);
+  n = quic_udploop_split(wired_span_of(dgram.p, dgram.n), &out);
   for (i = 0; i < n; i++) {
     int elicited = 0;
-    if (!recv_one(r, quic_mspan_of(dgram.p + offs[i], lens[i]), &elicited))
+    if (!recv_one(r, wired_mspan_of(dgram.p + offs[i], lens[i]), &elicited))
       continue;
     feed_loop(r, elicited);
     accepted++;

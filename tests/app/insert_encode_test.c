@@ -12,9 +12,9 @@ static void test_insert_literal_golden(void) {
                               '-', 'v', 'a', 'l', 'u', 'e'};
   u8               out[64];
   quic_qpack_field f = {
-      quic_span_of(name, sizeof(name)), quic_span_of(value, sizeof(value))};
-  quic_obuf ob = quic_obuf_of(out, sizeof(out));
-  usz       w  = quic_qdyn_insert_literal(&f, &ob);
+      wired_span_of(name, sizeof(name)), wired_span_of(value, sizeof(value))};
+  wired_obuf ob = quic_obuf_of(out, sizeof(out));
+  usz        w  = quic_qdyn_insert_literal(&f, &ob);
   CHECK(w == ob.len);
   CHECK(ob.len == 1 + 10 + 1 + 12);
   CHECK(out[0] == 0x4a);
@@ -30,9 +30,9 @@ static void test_insert_literal_namelen_boundary(void) {
   u8       out[64];
   for (usz i = 0; i < sizeof(name); i++) name[i] = 'a';
   quic_qpack_field f = {
-      quic_span_of(name, sizeof(name)), quic_span_of(value, 1)};
-  quic_obuf ob = quic_obuf_of(out, sizeof(out));
-  usz       w  = quic_qdyn_insert_literal(&f, &ob);
+      wired_span_of(name, sizeof(name)), wired_span_of(value, 1)};
+  wired_obuf ob = quic_obuf_of(out, sizeof(out));
+  usz        w  = quic_qdyn_insert_literal(&f, &ob);
   CHECK(w == ob.len && ob.len == 2 + 31 + 2);
   CHECK(out[0] == 0x5f && out[1] == 0x00);
 }
@@ -42,8 +42,8 @@ static void test_insert_literal_nofit(void) {
   const u8         name[]  = {'a', 'b'};
   const u8         value[] = {'c'};
   u8               out[2];
-  quic_qpack_field f  = {quic_span_of(name, 2), quic_span_of(value, 1)};
-  quic_obuf        ob = quic_obuf_of(out, sizeof(out));
+  quic_qpack_field f  = {wired_span_of(name, 2), wired_span_of(value, 1)};
+  wired_obuf       ob = quic_obuf_of(out, sizeof(out));
   CHECK(quic_qdyn_insert_literal(&f, &ob) == 0);
 }
 

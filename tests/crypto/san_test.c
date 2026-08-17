@@ -7,8 +7,8 @@
 /* Parse a golden cert and match host (a string literal span) against it. */
 static int san_match(const u8* der, usz der_len, const u8* host, usz hlen) {
   quic_x509 c;
-  CHECK(quic_x509_parse(quic_span_of(der, der_len), &c) == 1);
-  return quic_x509_san_matches(c.tbs, quic_span_of(host, hlen));
+  CHECK(quic_x509_parse(wired_span_of(der, der_len), &c) == 1);
+  return quic_x509_san_matches(c.tbs, wired_span_of(host, hlen));
 }
 
 /* cert1 SAN lists example.com and *.example.com. */
@@ -114,12 +114,12 @@ static void test_san_fragment_wildcard_match(void) {
   const u8 host2[] = "baz.example.net";
   CHECK(
       quic_x509_san_matches(
-          quic_span_of(san_fragment_tbs, sizeof(san_fragment_tbs)),
-          quic_span_of(host1, sizeof(host1) - 1)) == 1);
+          wired_span_of(san_fragment_tbs, sizeof(san_fragment_tbs)),
+          wired_span_of(host1, sizeof(host1) - 1)) == 1);
   CHECK(
       quic_x509_san_matches(
-          quic_span_of(san_fragment_tbs, sizeof(san_fragment_tbs)),
-          quic_span_of(host2, sizeof(host2) - 1)) == 1);
+          wired_span_of(san_fragment_tbs, sizeof(san_fragment_tbs)),
+          wired_span_of(host2, sizeof(host2) - 1)) == 1);
 }
 
 /* The fragment wildcard's fixed prefix "baz" must still match literally. */
@@ -127,8 +127,8 @@ static void test_san_fragment_wildcard_no_match(void) {
   const u8 host[] = "bar1.example.net";
   CHECK(
       quic_x509_san_matches(
-          quic_span_of(san_fragment_tbs, sizeof(san_fragment_tbs)),
-          quic_span_of(host, sizeof(host) - 1)) == 0);
+          wired_span_of(san_fragment_tbs, sizeof(san_fragment_tbs)),
+          wired_span_of(host, sizeof(host) - 1)) == 0);
 }
 
 void test_san(void) {

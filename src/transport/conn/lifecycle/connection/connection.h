@@ -43,7 +43,7 @@ void quic_connection_init(
 /* Assemble and protect one packet of `frames` at protection `level`
  * (QUIC_LEVEL_*), pushing it onto the link. Returns 1 on success, 0 if the
  * level's keys are not installed or assembly fails. */
-int quic_connection_send(quic_connection* c, int level, quic_span frames);
+int quic_connection_send(quic_connection* c, int level, wired_span frames);
 
 /* Pull one packet at `level` from the link, unprotect it, and initialize
  * `iter` over its plaintext frames. Returns 1 on success, 0 if nothing valid

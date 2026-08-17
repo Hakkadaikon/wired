@@ -18,8 +18,8 @@ static void test_retrydrive_apply(void) {
 
   CHECK(
       quic_retrydrive_apply(
-          quic_span_of(tok, sizeof tok), quic_span_of(scid, sizeof scid), &s) ==
-      1);
+          wired_span_of(tok, sizeof tok), wired_span_of(scid, sizeof scid),
+          &s) == 1);
   CHECK(s.received == 1);
   CHECK(s.key_rederive == 1);
   CHECK(s.token_len == sizeof tok);
@@ -36,8 +36,8 @@ static void test_retrydrive_apply_overflow(void) {
 
   CHECK(
       quic_retrydrive_apply(
-          quic_span_of(big, sizeof big), quic_span_of(scid, sizeof scid), &s) ==
-      0);
+          wired_span_of(big, sizeof big), wired_span_of(scid, sizeof scid),
+          &s) == 0);
   CHECK(s.received == 0); /* untouched */
 }
 
@@ -53,7 +53,7 @@ static void test_retrydrive_initial_token(void) {
   CHECK(len == 0); /* no Retry yet -> empty token */
 
   quic_retrydrive_apply(
-      quic_span_of(tok, sizeof tok), quic_span_of(scid, sizeof scid), &s);
+      wired_span_of(tok, sizeof tok), wired_span_of(scid, sizeof scid), &s);
   quic_retrydrive_initial_token(&s, &t, &len);
   CHECK(len == sizeof tok);
   for (usz i = 0; i < sizeof tok; i++) CHECK(t[i] == tok[i]);

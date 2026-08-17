@@ -27,7 +27,7 @@ static void test_session_e2e(void) {
   CHECK(quic_session_client_hello(&cli) == 1);
   CHECK(quic_session_accept(&srv) == 1);
   const u8 tr[] = "transcript";
-  CHECK(quic_session_finish(&cli, &srv, quic_span_of(tr, sizeof(tr))) == 1);
+  CHECK(quic_session_finish(&cli, &srv, wired_span_of(tr, sizeof(tr))) == 1);
 
   /* server -> client 1-RTT STREAM */
   quic_session_msg m1 = {4, {(const u8*)"hello", 5}, 1};

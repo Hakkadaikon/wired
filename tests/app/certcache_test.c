@@ -10,7 +10,7 @@ static void certcache_test_keys(u8 srv_priv[32], u8 srv_pub[32], u8 seed[32]) {
     srv_priv[i] = (u8)(0x40 + i);
     seed[i]     = (u8)(0x80 + i);
   }
-  quic_x25519_base(srv_pub, srv_priv);
+  wired_x25519_base(srv_pub, srv_priv);
 }
 
 /* 1 if the primed cache's DER equals the driver's own certificate bytes. */
@@ -67,10 +67,10 @@ static void test_certcache_primed_init_reuses_der(void) {
 static void test_certcache_external_chain_noop(void) {
   u8                     seed[32], fake[4] = {1, 2, 3, 4};
   static wired_certcache cache;
-  quic_span              ext[1];
+  wired_span             ext[1];
   wired_srvboot_id       id = {0};
   for (usz i = 0; i < 32; i++) seed[i] = (u8)(0x80 + i);
-  ext[0]         = quic_span_of(fake, 4);
+  ext[0]         = wired_span_of(fake, 4);
   id.cert_seed   = seed;
   id.chain       = ext;
   id.chain_count = 1;
@@ -143,14 +143,14 @@ static void test_certcache_sni_localhost_match(void) {
     cli_priv[i]   = (u8)(i + 1);
     srv_random[i] = (u8)(0xa0 + i);
   }
-  quic_x25519_base(cli_pub, cli_priv);
+  wired_x25519_base(cli_pub, cli_priv);
   id.cert_seed = seed;
   wired_certcache_prime(&cache, &id);
   ch_len = quic_tls_client_hello(
       &(quic_clienthello_in){
-          srv_random, cli_pub, quic_span_of(host, sizeof(host) - 1),
-          quic_span_of(0, 0)},
-      &(quic_obuf){ch, sizeof(ch), 0});
+          srv_random, cli_pub, wired_span_of(host, sizeof(host) - 1),
+          wired_span_of(0, 0)},
+      &(wired_obuf){ch, sizeof(ch), 0});
   CHECK(ch_len != 0);
   {
     quic_sdrv_init_in din = {srv_priv,       srv_pub, seed, id.chain,

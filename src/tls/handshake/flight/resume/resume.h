@@ -43,13 +43,13 @@ typedef struct {
   /** RFC 6066 3: the server_name this session was established under (a view
    * kept alive only for the call), or n 0 when none was offered. Longer than
    * QUIC_RESUME_SNI_MAX is truncated to it. */
-  quic_span sni;
+  wired_span sni;
 } quic_resume_store_in;
 
 /* Store a ticket and the transport parameters to remember for 0-RTT.
  * Returns 1 on success, 0 if the ticket does not fit. RFC 8446 4.6.1. */
 int quic_resume_store(
-    quic_resume* r, quic_span ticket, const quic_resume_store_in* in);
+    quic_resume* r, wired_span ticket, const quic_resume_store_in* in);
 
 /* Serialize the stored session (ticket, metadata, PSK) into an opaque blob
  * the application can persist across processes (quiche session() shape).
@@ -58,7 +58,7 @@ usz quic_resume_session(const quic_resume* r, u8* out, usz cap);
 
 /* Restore a blob produced by quic_resume_session. Returns 1 on success, 0 on
  * a malformed/truncated blob (r is left untouched then). */
-int quic_resume_set_session(quic_resume* r, quic_span blob);
+int quic_resume_set_session(quic_resume* r, wired_span blob);
 
 /* Derive the 0-RTT early keys from the stored session's PSK over the new
  * connection's ClientHello (RFC 9001 4.6 via quic_tls_early_keys). Returns 1,
@@ -82,7 +82,7 @@ int quic_resume_tp_compatible(u64 remembered_max_data, u64 new_max_data);
  * comparison, matching quic_x509_san_matches's DNS-ID rule). A stored
  * session with no remembered server_name (r->sni_len 0) is compatible with
  * any new_sni. Returns 1 compatible, 0 otherwise. */
-int quic_resume_sni_compatible(const quic_resume* r, quic_span new_sni);
+int quic_resume_sni_compatible(const quic_resume* r, wired_span new_sni);
 
 /* Returns 1 when 0-RTT may be attempted: ticket valid and transport
  * parameters compatible. RFC 9001 4.6. */

@@ -30,6 +30,6 @@ void quic_ticketguard_init(quic_ticketguard* g);
  * recorded and accepted; a repeat — or a ticket too short to fingerprint —
  * is refused.
  * @return 1 on first use, 0 on replay or malformed input. */
-int quic_ticketguard_first_use(quic_ticketguard* g, quic_span sealed);
+int quic_ticketguard_first_use(quic_ticketguard* g, wired_span sealed);
 
 #endif

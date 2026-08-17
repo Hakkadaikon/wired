@@ -47,7 +47,7 @@ void wired_server_init(wired_server* s, const wired_server_init_in* in) {
   s->ku_seeded         = 0;
 }
 
-int wired_server_set_cids(wired_server* s, quic_span odcid, quic_span iscid) {
+int wired_server_set_cids(wired_server* s, wired_span odcid, wired_span iscid) {
   return quic_sdrv_set_cids(&s->sdrv, odcid, iscid);
 }
 
@@ -110,11 +110,11 @@ int wired_server_recv_initial(wired_server* s, const u8* ch_msg, usz ch_len) {
  * the identical transcript-through-ServerHello, so both Handshake Secret
  * computations agree byte-for-byte whenever a PSK was accepted. */
 static int srv_advance_handshake(wired_server* s, u8 ecdhe[QUIC_X25519_LEN]) {
-  quic_span ecdhe_span = quic_span_of(ecdhe, QUIC_X25519_LEN);
-  quic_span tr_span    = quic_span_of(s->tr, s->tr_through_sh);
+  wired_span ecdhe_span = wired_span_of(ecdhe, QUIC_X25519_LEN);
+  wired_span tr_span    = wired_span_of(s->tr, s->tr_through_sh);
   if (s->sdrv.psk_accepted)
     return quic_keysched_advance_handshake_psk(
-        &s->sched, quic_span_of(s->sdrv.psk_secret, QUIC_HKDF_PRK), ecdhe_span,
+        &s->sched, wired_span_of(s->sdrv.psk_secret, QUIC_HKDF_PRK), ecdhe_span,
         tr_span);
   return quic_keysched_advance_handshake(&s->sched, ecdhe_span, tr_span);
 }
@@ -171,7 +171,7 @@ static void srv_log_c_hs_traffic(const wired_server* s, const u8* c_traffic) {
   if (!s->keylog_path) return;
   wired_keylog_append(
       s->keylog_path, "CLIENT_HANDSHAKE_TRAFFIC_SECRET", s->client_random,
-      quic_span_of(c_traffic, QUIC_HKDF_PRK));
+      wired_span_of(c_traffic, QUIC_HKDF_PRK));
 }
 
 /* RFC 8446 4.4.4: verify the client Finished against the client handshake
@@ -183,12 +183,12 @@ static int srv_verify_finished(wired_server* s, const u8* msg, usz len) {
   int                   ok;
   if (!quic_sdrv_handshake_secret(&s->sdrv, &hs)) return 0;
   dsi.secret   = hs;
-  dsi.label    = quic_span_of((const u8*)"c hs traffic", 12);
-  dsi.messages = quic_span_of(s->tr, s->tr_through_sh);
+  dsi.label    = wired_span_of((const u8*)"c hs traffic", 12);
+  dsi.messages = wired_span_of(s->tr, s->tr_through_sh);
   quic_tls_derive_secret(&dsi, c_traffic);
-  quic_sha256(s->tr, s->tr_through_flight, th);
-  ok =
-      quic_srvfin_verify_client_finished(quic_span_of(msg, len), c_traffic, th);
+  wired_sha256(s->tr, s->tr_through_flight, th);
+  ok = quic_srvfin_verify_client_finished(
+      wired_span_of(msg, len), c_traffic, th);
   if (ok) srv_log_c_hs_traffic(s, c_traffic);
   return ok;
 }
@@ -258,7 +258,7 @@ int wired_server_feed(wired_server* s, const u8* crypto_payload, usz len) {
   return srv_on_finished(s, msg, mlen);
 }
 
-int wired_server_handshake_done(wired_server* s, quic_obuf* out) {
+int wired_server_handshake_done(wired_server* s, wired_obuf* out) {
   if (!quic_srvfin_should_send_handshake_done(
           s->fin.confirmed, s->hs_done_sent))
     return 0;
@@ -280,8 +280,8 @@ int wired_server_is_confirmed(const wired_server* s) {
 static void srv_resumption_master_secret(const wired_server* s, u8 out[32]) {
   quic_derive_secret_in in;
   in.secret   = s->sched.master;
-  in.label    = quic_span_of((const u8*)"res master", 10);
-  in.messages = quic_span_of(s->tr, s->tr_through_client_fin);
+  in.label    = wired_span_of((const u8*)"res master", 10);
+  in.messages = wired_span_of(s->tr, s->tr_through_client_fin);
   quic_tls_derive_secret(&in, out);
 }
 

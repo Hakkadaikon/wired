@@ -64,15 +64,15 @@ i64 wired_udp_bind(i64 fd, const quic_sockaddr* sa) {
   return wired_arch_bind(fd, sa, sizeof(*sa));
 }
 
-i64 wired_udp_send(i64 fd, const quic_sockaddr* sa, quic_span buf) {
+i64 wired_udp_send(i64 fd, const quic_sockaddr* sa, wired_span buf) {
   return wired_arch_sendto(fd, buf.p, buf.n, 0, sa, sizeof(*sa));
 }
 
-i64 wired_udp_recv(i64 fd, quic_mspan buf) {
+i64 wired_udp_recv(i64 fd, wired_mspan buf) {
   return wired_arch_recvfrom(fd, buf.p, buf.n, 0, 0, 0);
 }
 
-i64 wired_udp_recvfrom(i64 fd, quic_mspan buf, quic_sockaddr* src) {
+i64 wired_udp_recvfrom(i64 fd, wired_mspan buf, quic_sockaddr* src) {
   /* addrlen is in/out: pass the buffer size, kernel writes the actual length.
    */
   u32 addrlen = sizeof(*src);
@@ -165,7 +165,7 @@ i64 wired_udp_recvtos_enable(i64 fd) {
 }
 
 i64 wired_udp_send_gso(
-    i64 fd, const quic_sockaddr* sa, quic_span buf, u16 segsize) {
+    i64 fd, const quic_sockaddr* sa, wired_span buf, u16 segsize) {
   u8          cmsg[WIRED_GSO_CMSG_SPACE];
   quic_iovec  iov = {buf.p, buf.n};
   quic_msghdr msg = {0};
@@ -186,12 +186,12 @@ static usz gso_batch_seglen(usz remaining, u16 segsize) {
 }
 
 i64 wired_udp_send_batch(
-    i64 fd, const quic_sockaddr* sa, quic_span buf, u16 segsize) {
+    i64 fd, const quic_sockaddr* sa, wired_span buf, u16 segsize) {
   usz off  = 0;
   i64 sent = 0;
   while (off < buf.n) {
     usz n = gso_batch_seglen(buf.n - off, segsize);
-    i64 r = wired_udp_send(fd, sa, quic_span_of(buf.p + off, n));
+    i64 r = wired_udp_send(fd, sa, wired_span_of(buf.p + off, n));
     if (r < 0) return r;
     sent += r;
     off += n;

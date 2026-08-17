@@ -24,10 +24,10 @@ static void set_p256_identity(quic_tlsdriver* d, const u8 priv[32]) {
  * and a single secp256r1 key_share for pub (65-byte SEC1 uncompressed). */
 static usz build_sh_p256(u8* out, usz cap, const u8 pub[QUIC_P256_PUBKEY_LEN]) {
   u8                    random[32];
-  quic_obuf             ob = quic_obuf_of(out, cap);
+  wired_obuf            ob = quic_obuf_of(out, cap);
   quic_shbuild_group_in in = {
       random,
-      quic_span_of((const u8*)0, 0),
+      wired_span_of((const u8*)0, 0),
       0x1301,
       pub,
       0,
@@ -40,9 +40,9 @@ static usz build_sh_p256(u8* out, usz cap, const u8 pub[QUIC_P256_PUBKEY_LEN]) {
 
 /* Wrap a whole TLS message in one CRYPTO frame at offset 0. */
 static usz wrap_crypto_p256(u8* out, usz cap, const u8* msg, usz n) {
-  quic_obuf                  ob  = quic_obuf_of(out, cap);
+  wired_obuf                 ob  = quic_obuf_of(out, cap);
   quic_crypto_stream_emit_in ein = {0, 256};
-  CHECK(quic_crypto_stream_emit(quic_span_of(msg, n), &ein, &ob) == 1);
+  CHECK(quic_crypto_stream_emit(wired_span_of(msg, n), &ein, &ob) == 1);
   return ob.len;
 }
 
@@ -78,7 +78,7 @@ static void test_tlsdriver_p256_ecdhe_agree(void) {
   /* client -> server: real ClientHello (secp256r1 key_share) in a CRYPTO
    * frame */
   {
-    quic_obuf ob = quic_obuf_of(frame, sizeof(frame));
+    wired_obuf ob = quic_obuf_of(frame, sizeof(frame));
     CHECK(quic_tlsdriver_client_hello(&cl, &ob) == 1);
     fl = ob.len;
   }

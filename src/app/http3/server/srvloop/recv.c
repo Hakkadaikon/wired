@@ -20,7 +20,8 @@ static int recv_initial(
     const wired_srvloop_recv_in* in,
     wired_srvloop_recv_out*      out) {
   return quic_initpkt_open(
-      quic_span_of(s->sdrv.odcid, s->sdrv.odcid_len), in->dgram, &out->payload);
+      wired_span_of(s->sdrv.odcid, s->sdrv.odcid_len), in->dgram,
+      &out->payload);
 }
 
 /* RFC 9001 5.1: open a Handshake packet with the peer-direction CLIENT_HS key.
@@ -46,13 +47,13 @@ static int recv_handshake(
 static usz onertt_hdr_len(u8 dcid_len) { return 1u + (usz)dcid_len + 4u; }
 
 static void onertt_backup(
-    quic_mspan pkt, u8 dcid_len, u8 save[RECV_ONERTT_HDR_MAX]) {
+    wired_mspan pkt, u8 dcid_len, u8 save[RECV_ONERTT_HDR_MAX]) {
   usz n = onertt_hdr_len(dcid_len);
   for (usz i = 0; i < n && i < pkt.n; i++) save[i] = pkt.p[i];
 }
 
 static void onertt_restore(
-    quic_mspan pkt, u8 dcid_len, const u8 save[RECV_ONERTT_HDR_MAX]) {
+    wired_mspan pkt, u8 dcid_len, const u8 save[RECV_ONERTT_HDR_MAX]) {
   usz n = onertt_hdr_len(dcid_len);
   for (usz i = 0; i < n && i < pkt.n; i++) pkt.p[i] = save[i];
 }
@@ -60,7 +61,7 @@ static void onertt_restore(
 /* Try opening with one key candidate; restores the header bytes first so a
  * prior failed attempt against a different generation left no residue
  * (quic_hspkt_onertt_open mutates the datagram's own bytes in place through
- * its pkt view, regardless of how many quic_mspan copies wrap it). */
+ * its pkt view, regardless of how many wired_mspan copies wrap it). */
 static int onertt_try(
     wired_server*                s,
     const wired_srvloop_recv_in* in,
@@ -175,7 +176,7 @@ static int recv_at_level(
  * QUIC_LEVEL_ONERTT -- every downstream consumer (ACK bookkeeping, frame
  * dispatch) already handles that level unmodified. */
 static int recv_zerortt(
-    wired_server* s, const wired_srvloop_recv_in* in, quic_span* payload) {
+    wired_server* s, const wired_srvloop_recv_in* in, wired_span* payload) {
   quic_initial_keys keys;
   quic_aes128       hp;
   if (!quic_sdrv_early_keys(&s->sdrv, &keys)) return 0;

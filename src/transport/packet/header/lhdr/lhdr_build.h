@@ -13,15 +13,15 @@
  * (the 16-byte AEAD tag, RFC 9001). is_initial selects whether the Token
  * fields are present. */
 typedef struct {
-  u8        byte0;
-  u32       version;
-  quic_span dcid;
-  quic_span scid;
-  int       is_initial;
-  quic_span token;
-  usz       payload_len;
-  u64       pn;
-  u8        pn_len;
+  u8         byte0;
+  u32        version;
+  wired_span dcid;
+  wired_span scid;
+  int        is_initial;
+  wired_span token;
+  usz        payload_len;
+  u64        pn;
+  u8         pn_len;
 } quic_lhdr_desc;
 
 /* Build the header into out (out->len receives the total bytes written, the
@@ -29,7 +29,7 @@ typedef struct {
  * the Length varint so the caller can rewrite it later. Returns the header
  * length (== out->len), or 0 if it does not fit. */
 usz quic_lhdr_build(
-    const quic_lhdr_desc* d, quic_obuf* out, usz* length_off_out);
+    const quic_lhdr_desc* d, wired_obuf* out, usz* length_off_out);
 
 /* RFC 9000 17.2: set byte0's low two bits to pn_len-1, leaving the form,
  * fixed bit, type, and reserved bits untouched. pn_len must be 1, 2, or 4. */

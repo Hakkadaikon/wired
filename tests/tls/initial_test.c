@@ -23,7 +23,7 @@ static int same_bytes(const u8* a, const u8* b, usz n) {
 static void test_initial_client(void) {
   const u8          dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
   quic_initial_keys k;
-  quic_initial_derive(quic_span_of(dcid, 8), 0, QUIC_VERSION_1, &k);
+  quic_initial_derive(wired_span_of(dcid, 8), 0, QUIC_VERSION_1, &k);
   CHECK(keq(k.key, "1f369613dd76d5467730efcbe3b1a22d", 16));
   CHECK(keq(k.iv, "fa044b2f42a3fd3b46fb255c", 12));
   CHECK(keq(k.hp, "9f50449e04a0e810283a1e9933adedd2", 16));
@@ -32,7 +32,7 @@ static void test_initial_client(void) {
 static void test_initial_server(void) {
   const u8          dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
   quic_initial_keys k;
-  quic_initial_derive(quic_span_of(dcid, 8), 1, QUIC_VERSION_1, &k);
+  quic_initial_derive(wired_span_of(dcid, 8), 1, QUIC_VERSION_1, &k);
   CHECK(keq(k.key, "cf3a5331653c364c88f0f379b6067e37", 16));
   CHECK(keq(k.iv, "0ac1493ca1905853b0bba03e", 12));
   CHECK(keq(k.hp, "c206b8d9b9f0f37644430b490eeaa314", 16));
@@ -43,7 +43,7 @@ static void test_initial_server(void) {
 static void test_initial_v2_differs_from_v1(void) {
   const u8          dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
   quic_initial_keys v2;
-  quic_initial_derive(quic_span_of(dcid, 8), 0, QUIC_VERSION_2, &v2);
+  quic_initial_derive(wired_span_of(dcid, 8), 0, QUIC_VERSION_2, &v2);
   CHECK(!keq(v2.key, "1f369613dd76d5467730efcbe3b1a22d", 16));
 }
 
@@ -51,7 +51,7 @@ static void test_initial_v2_differs_from_v1(void) {
 static void test_initial_v2_client(void) {
   const u8          dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
   quic_initial_keys k;
-  quic_initial_derive(quic_span_of(dcid, 8), 0, QUIC_VERSION_2, &k);
+  quic_initial_derive(wired_span_of(dcid, 8), 0, QUIC_VERSION_2, &k);
   CHECK(keq(k.key, "8b1a0bc121284290a29e0971b5cd045d", 16));
   CHECK(keq(k.iv, "91f73e2351d8fa91660e909f", 12));
   CHECK(keq(k.hp, "45b95e15235d6f45a6b19cbcb0294ba9", 16));
@@ -60,7 +60,7 @@ static void test_initial_v2_client(void) {
 static void test_initial_v2_server(void) {
   const u8          dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
   quic_initial_keys k;
-  quic_initial_derive(quic_span_of(dcid, 8), 1, QUIC_VERSION_2, &k);
+  quic_initial_derive(wired_span_of(dcid, 8), 1, QUIC_VERSION_2, &k);
   CHECK(keq(k.key, "82db637861d55e1d011f19ea71d5d2a7", 16));
   CHECK(keq(k.iv, "dd13c276499c0249d3310652", 12));
   CHECK(keq(k.hp, "edf6d05c83121201b436e16877593c3a", 16));
@@ -83,10 +83,10 @@ static void test_initial_v2_uses_pinned_salt(void) {
   quic_initial_keys got;
   CHECK(quic_version_initial_salt(QUIC_VERSION_2, &salt, &salt_len) == 1);
   quic_hkdf_extract(
-      quic_span_of(salt, salt_len), quic_span_of(dcid, 8), secret);
-  quic_hkdf_expand_label(secret, &cl, quic_mspan_of(side, QUIC_HKDF_PRK));
-  quic_hkdf_expand_label(side, &kl, quic_mspan_of(want_key, QUIC_INITIAL_KEY));
-  quic_initial_derive(quic_span_of(dcid, 8), 0, QUIC_VERSION_2, &got);
+      wired_span_of(salt, salt_len), wired_span_of(dcid, 8), secret);
+  quic_hkdf_expand_label(secret, &cl, wired_mspan_of(side, QUIC_HKDF_PRK));
+  quic_hkdf_expand_label(side, &kl, wired_mspan_of(want_key, QUIC_INITIAL_KEY));
+  quic_initial_derive(wired_span_of(dcid, 8), 0, QUIC_VERSION_2, &got);
   CHECK(same_bytes(got.key, want_key, QUIC_INITIAL_KEY));
 }
 

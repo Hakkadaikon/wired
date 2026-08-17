@@ -34,7 +34,7 @@ static void test_p256sign_known_vector(void) {
   psign_hb32(PS_X, priv);
   psign_hb32(PS_R, wr);
   psign_hb32(PS_S, ws);
-  quic_sha256((const u8*)"sample", 6, h);
+  wired_sha256((const u8*)"sample", 6, h);
   CHECK(quic_p256sign_sign(priv, h, r, s) == 1);
   for (usz i = 0; i < 32; i++) CHECK(r[i] == wr[i]);
   for (usz i = 0; i < 32; i++) CHECK(s[i] == ws[i]);
@@ -46,7 +46,7 @@ static void ps_roundtrip(const u8* msg, usz len) {
   psign_hb32(PS_X, priv);
   psign_hb32(PS_QX, qx);
   psign_hb32(PS_QY, qy);
-  quic_sha256(msg, len, h);
+  wired_sha256(msg, len, h);
   CHECK(quic_p256sign_sign(priv, h, r, s) == 1);
   CHECK(quic_ecdsa_p256_verify(qx, qy, r, s, h) == 1);
 }
@@ -70,7 +70,7 @@ static void test_p256sign_low_s(void) {
   u8 priv[32], h[32], r[32], s[32], nhalf[32], zero[32] = {0};
   psign_hb32(PS_X, priv);
   psign_hb32(PS_NHALF, nhalf);
-  quic_sha256((const u8*)"test", 4, h);
+  wired_sha256((const u8*)"test", 4, h);
   CHECK(quic_p256sign_sign(priv, h, r, s) == 1);
   CHECK(le32(s, nhalf) == 1);
   CHECK(le32(r, zero) == 0);
@@ -85,7 +85,7 @@ static void test_p256sign_verify_rejects_zero(void) {
   psign_hb32(PS_QY, qy);
   psign_hb32(PS_R, r);
   psign_hb32(PS_S, s);
-  quic_sha256((const u8*)"sample", 6, h);
+  wired_sha256((const u8*)"sample", 6, h);
   CHECK(quic_ecdsa_p256_verify(qx, qy, zero, s, h) == 0);
   CHECK(quic_ecdsa_p256_verify(qx, qy, r, zero, h) == 0);
 }
@@ -105,7 +105,7 @@ static void test_p256sign_verify_rejects_s_out_of_range(void) {
   psign_hb32(PS_R, r);
   psign_hb32(PS_N, s_n);
   psign_hb32(PS_N_PLUS_1, s_np1);
-  quic_sha256((const u8*)"sample", 6, h);
+  wired_sha256((const u8*)"sample", 6, h);
   CHECK(quic_ecdsa_p256_verify(qx, qy, r, s_n, h) == 0);
   CHECK(quic_ecdsa_p256_verify(qx, qy, r, s_np1, h) == 0);
 }
@@ -115,7 +115,7 @@ static void test_p256sign_verify_rejects_s_out_of_range(void) {
 static void test_p256sign_single_mulg(void) {
   u8 priv[32], h[32], r[32], s[32];
   psign_hb32(PS_X, priv);
-  quic_sha256((const u8*)"sample", 6, h);
+  wired_sha256((const u8*)"sample", 6, h);
   ps_mulg_count = 0;
   CHECK(quic_p256sign_sign(priv, h, r, s) == 1);
   CHECK(ps_mulg_count == 1);

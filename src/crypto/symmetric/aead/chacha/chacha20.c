@@ -68,7 +68,7 @@ void quic_chacha20_block(
 }
 
 /* XOR up to one block of keystream into out; returns bytes done. */
-static usz xor_chunk(const quic_chacha_ctx* c, quic_span in, u8* out) {
+static usz xor_chunk(const quic_chacha_ctx* c, wired_span in, u8* out) {
   u8  ks[QUIC_CHACHA_BLOCK];
   usz n = (in.n < QUIC_CHACHA_BLOCK) ? in.n : QUIC_CHACHA_BLOCK;
   quic_chacha20_block(c->key, c->counter, c->nonce, ks);
@@ -76,11 +76,11 @@ static usz xor_chunk(const quic_chacha_ctx* c, quic_span in, u8* out) {
   return n;
 }
 
-void quic_chacha20_xor(const quic_chacha_ctx* c, quic_span in, u8* out) {
+void quic_chacha20_xor(const quic_chacha_ctx* c, wired_span in, u8* out) {
   quic_chacha_ctx cc  = *c;
   usz             off = 0;
   while (off < in.n) {
-    off += xor_chunk(&cc, quic_span_of(in.p + off, in.n - off), out + off);
+    off += xor_chunk(&cc, wired_span_of(in.p + off, in.n - off), out + off);
     cc.counter++;
   }
 }

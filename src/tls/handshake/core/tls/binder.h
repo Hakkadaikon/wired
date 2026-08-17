@@ -23,14 +23,16 @@ void quic_tls_binder_key(const u8 psk[QUIC_HKDF_PRK], u8 out[QUIC_HKDF_PRK]);
  * EXCLUDING the binders list itself (RFC 8446 4.2.11.2). The caller is
  * responsible for slicing the ClientHello correctly. */
 void quic_tls_binder_compute(
-    const u8 psk[QUIC_HKDF_PRK], quic_span truncated_ch, u8 out[QUIC_HKDF_PRK]);
+    const u8   psk[QUIC_HKDF_PRK],
+    wired_span truncated_ch,
+    u8         out[QUIC_HKDF_PRK]);
 
 /* Verify a presented binder against one recomputed from psk/truncated_ch, in
  * constant time. Returns 1 on a match, 0 otherwise (reject: abort the
  * handshake). received must be QUIC_HKDF_PRK (32) bytes. */
 int quic_tls_binder_verify(
-    const u8  psk[QUIC_HKDF_PRK],
-    quic_span truncated_ch,
-    const u8  received[QUIC_HKDF_PRK]);
+    const u8   psk[QUIC_HKDF_PRK],
+    wired_span truncated_ch,
+    const u8   received[QUIC_HKDF_PRK]);
 
 #endif

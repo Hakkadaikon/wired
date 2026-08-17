@@ -42,6 +42,6 @@ typedef struct {
  * @param version the QUIC version whose salt/label prefix to use
  * @param out receives the derived keys */
 void quic_initial_derive(
-    quic_span dcid, int is_server, u32 version, quic_initial_keys* out);
+    wired_span dcid, int is_server, u32 version, quic_initial_keys* out);
 
 #endif

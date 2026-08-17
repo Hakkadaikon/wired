@@ -73,7 +73,7 @@ typedef struct {
 } quic_stp_limits;
 
 int quic_stp_build_server(
-    quic_span original_dcid, quic_span initial_scid, quic_obuf* out);
+    wired_span original_dcid, wired_span initial_scid, wired_obuf* out);
 
 /* As quic_stp_build_server, with the tunable limits overriding defaults
  * (lim = 0 keeps every default). */
@@ -84,17 +84,17 @@ int quic_stp_build_server(
  * stateless_reset_token (RFC 9000 10.3.1/18.2) for the handshake SCID;
  * empty omits the TP (a server that never sends resets advertises none). */
 int quic_stp_build_server_ret(
-    quic_span              original_dcid,
-    quic_span              initial_scid,
-    quic_span              rscid,
-    quic_span              sreset_token,
+    wired_span             original_dcid,
+    wired_span             initial_scid,
+    wired_span             rscid,
+    wired_span             sreset_token,
     const quic_stp_limits* lim,
-    quic_obuf*             out);
+    wired_obuf*            out);
 
 int quic_stp_build_server_lim(
-    quic_span              original_dcid,
-    quic_span              initial_scid,
+    wired_span             original_dcid,
+    wired_span             initial_scid,
     const quic_stp_limits* lim,
-    quic_obuf*             out);
+    wired_obuf*            out);
 
 #endif

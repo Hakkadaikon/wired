@@ -33,7 +33,7 @@ static usz seal_into(
 
 /* Apply header protection: sample 16 bytes at pn+4, mask byte0 and the
  * pn.n packet-number bytes at pn.p. */
-static void protect_header(const quic_aes128* hp_aes, u8* pkt, quic_mspan pn) {
+static void protect_header(const quic_aes128* hp_aes, u8* pkt, wired_mspan pn) {
   u8             mask[5];
   quic_hp_fields f = {pkt, pn.p, pn.n, QUIC_HP_LONG_MASK};
   quic_hp_mask(hp_aes, pn.p + 4, mask);
@@ -45,7 +45,7 @@ usz quic_protect_seal(
   usz total = seal_into(k->keys, io);
   if (total == 0) return 0;
   protect_header(
-      k->hp, io->out.p, quic_mspan_of(io->out.p + io->pn_off, io->pn_len));
+      k->hp, io->out.p, wired_mspan_of(io->out.p + io->pn_off, io->pn_len));
   return total;
 }
 
@@ -56,18 +56,18 @@ usz quic_protect_open(
   u8*         pkt    = io->pkt.p;
   usz         ct_len = io->pkt.n - io->hdr_len - QUIC_GCM_TAG;
   /* XOR self-inverse: removes HP */
-  protect_header(k->hp, pkt, quic_mspan_of(pkt + io->pn_off, io->pn_len));
+  protect_header(k->hp, pkt, wired_mspan_of(pkt + io->pn_off, io->pn_len));
   quic_protect_nonce(k->keys->iv, io->pn, nonce);
   quic_aes128_init(&aead, k->keys->key);
   quic_gcm_ctx g = {&aead, nonce, {pkt, io->hdr_len}};
   if (!quic_gcm_open(
-          &g, quic_span_of(pkt + io->hdr_len, ct_len + QUIC_GCM_TAG),
+          &g, wired_span_of(pkt + io->hdr_len, ct_len + QUIC_GCM_TAG),
           pkt + io->hdr_len))
     return 0;
   return ct_len;
 }
 
-static void protect_copy_hdr(u8* out, quic_span hdr) {
+static void protect_copy_hdr(u8* out, wired_span hdr) {
   for (usz i = 0; i < hdr.n; i++) out[i] = hdr.p[i];
 }
 
@@ -91,7 +91,7 @@ static usz seal_into_suite(
  * 5.4.1/5.4.3) using keys->hp's raw bytes. Returns 0 on an unrecognized
  * suite. */
 static int protect_header_suite(
-    u16 suite, const u8* hp_key, u8* pkt, quic_mspan pn) {
+    u16 suite, const u8* hp_key, u8* pkt, wired_mspan pn) {
   u8             mask[5];
   quic_hp_fields f = {pkt, pn.p, pn.n, QUIC_HP_LONG_MASK};
   if (!quic_hp_suite_mask(suite, hp_key, pn.p + 4, mask)) return 0;
@@ -105,7 +105,7 @@ usz quic_protect_seal_suite(
   if (total == 0) return 0;
   if (!protect_header_suite(
           suite, k->keys->hp, io->out.p,
-          quic_mspan_of(io->out.p + io->pn_off, io->pn_len)))
+          wired_mspan_of(io->out.p + io->pn_off, io->pn_len)))
     return 0;
   return total;
 }
@@ -116,12 +116,13 @@ usz quic_protect_open_suite(
   usz ct_len = io->pkt.n - io->hdr_len - quic_aead_tag_len(suite);
   quic_aead_suite_op op;
   if (!protect_header_suite(
-          suite, k->keys->hp, pkt, quic_mspan_of(pkt + io->pn_off, io->pn_len)))
+          suite, k->keys->hp, pkt,
+          wired_mspan_of(pkt + io->pn_off, io->pn_len)))
     return 0;
   /* quic_aead_suite_open derives the nonce itself (iv XOR pn); op.iv is the
    * raw key IV, not a precomputed nonce (RFC 9001 5.3). */
   op = (quic_aead_suite_op){
       suite, k->keys->key, k->keys->iv, io->pn, {pkt, io->hdr_len}};
   return quic_aead_suite_open(
-      &op, quic_span_of(pkt + io->hdr_len, ct_len), pkt + io->hdr_len);
+      &op, wired_span_of(pkt + io->hdr_len, ct_len), pkt + io->hdr_len);
 }

@@ -14,8 +14,8 @@
 
 /** The client address and original DCID bound into a Retry token. */
 typedef struct {
-  quic_span addr;
-  quic_span odcid;
+  wired_span addr;
+  wired_span odcid;
 } quic_retrytoken_in;
 
 /* Generate a Retry token for a client address and original DCID under the
@@ -44,19 +44,19 @@ int quic_retrytoken_verify(
  * written (1 + odcid.n + QUIC_RETRYTOKEN_LEN), or 0 when odcid exceeds 20
  * bytes. */
 usz quic_retrytoken_wire_make(
-    const u8  key[QUIC_RETRYTOKEN_KEY],
-    quic_span addr,
-    quic_span odcid,
-    u8        token[QUIC_RETRYTOKEN_WIRE_MAX]);
+    const u8   key[QUIC_RETRYTOKEN_KEY],
+    wired_span addr,
+    wired_span odcid,
+    u8         token[QUIC_RETRYTOKEN_WIRE_MAX]);
 
 /* Verify a presented wire token against the presenting address. On success
  * returns 1 and sets *odcid to the embedded ODCID (a view into token).
  * Returns 0 on a malformed token (bad length framing) or an HMAC mismatch.
  * Constant-time in the HMAC compare. */
 int quic_retrytoken_wire_verify(
-    const u8   key[QUIC_RETRYTOKEN_KEY],
-    quic_span  addr,
-    quic_span  token,
-    quic_span* odcid);
+    const u8    key[QUIC_RETRYTOKEN_KEY],
+    wired_span  addr,
+    wired_span  token,
+    wired_span* odcid);
 
 #endif

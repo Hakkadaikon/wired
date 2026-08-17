@@ -10,8 +10,8 @@
 /** The request STREAM frame bytes to decode and the caller's decode scratch
  * buffer (view-only fields of the decoded request borrow into it). */
 typedef struct {
-  quic_span  stream_data;
-  quic_mspan scratch;
+  wired_span  stream_data;
+  wired_mspan scratch;
 } wired_h3srv_req_in;
 
 /* RFC 9114 4.1. Decode a request HEADERS frame (a STREAM frame carrying a GET)
@@ -34,11 +34,13 @@ typedef struct {
  * writes nothing. Returns 1 with out->len set, 0 on a precondition failure or
  * overflow. */
 int wired_h3srv_build_response(
-    const wired_h3srv_state* st, const wired_h3srv_send_in* in, quic_obuf* out);
+    const wired_h3srv_state*   st,
+    const wired_h3srv_send_in* in,
+    wired_obuf*                out);
 
 /** The request method (used only to detect HEAD) and the response to send. */
 typedef struct {
-  quic_span           method;
+  wired_span          method;
   wired_h3srv_send_in send;
 } wired_h3srv_resp_for_method_in;
 
@@ -51,6 +53,6 @@ typedef struct {
 int wired_h3srv_build_response_for_method(
     const wired_h3srv_state*              st,
     const wired_h3srv_resp_for_method_in* in,
-    quic_obuf*                            out);
+    wired_obuf*                           out);
 
 #endif

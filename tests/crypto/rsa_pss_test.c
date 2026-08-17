@@ -67,7 +67,8 @@ static const quic_rsa_pub pvt_pub = {{pss_n, 256}, {pvt_e, 3}};
 static void test_rsa_pss_valid(void) {
   CHECK(
       quic_rsa_pss_verify(
-          &pvt_pub, (quic_span){pss_sig, 256}, (quic_span){pss_hash, 32}) == 1);
+          &pvt_pub, (wired_span){pss_sig, 256}, (wired_span){pss_hash, 32}) ==
+      1);
 }
 
 /* A flipped signature byte must fail. */
@@ -77,7 +78,7 @@ static void test_rsa_pss_tampered_sig(void) {
   bad[128] ^= 0x01;
   CHECK(
       quic_rsa_pss_verify(
-          &pvt_pub, (quic_span){bad, 256}, (quic_span){pss_hash, 32}) == 0);
+          &pvt_pub, (wired_span){bad, 256}, (wired_span){pss_hash, 32}) == 0);
 }
 
 /* A wrong message hash must fail. */
@@ -87,17 +88,19 @@ static void test_rsa_pss_wrong_hash(void) {
   h[0] ^= 0xff;
   CHECK(
       quic_rsa_pss_verify(
-          &pvt_pub, (quic_span){pss_sig, 256}, (quic_span){h, 32}) == 0);
+          &pvt_pub, (wired_span){pss_sig, 256}, (wired_span){h, 32}) == 0);
 }
 
 /* Size guards: bad lengths are rejected. */
 static void test_rsa_pss_sizes(void) {
   CHECK(
       quic_rsa_pss_verify(
-          &pvt_pub, (quic_span){pss_sig, 255}, (quic_span){pss_hash, 32}) == 0);
+          &pvt_pub, (wired_span){pss_sig, 255}, (wired_span){pss_hash, 32}) ==
+      0);
   CHECK(
       quic_rsa_pss_verify(
-          &pvt_pub, (quic_span){pss_sig, 256}, (quic_span){pss_hash, 31}) == 0);
+          &pvt_pub, (wired_span){pss_sig, 256}, (wired_span){pss_hash, 31}) ==
+      0);
 }
 
 void test_rsa_pss(void) {

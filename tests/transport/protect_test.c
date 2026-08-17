@@ -21,7 +21,7 @@ static void test_protect_roundtrip(void) {
   const u8          dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
   quic_initial_keys keys;
   quic_aes128       hp;
-  quic_initial_derive(quic_span_of(dcid, 8), 0, QUIC_VERSION_1, &keys);
+  quic_initial_derive(wired_span_of(dcid, 8), 0, QUIC_VERSION_1, &keys);
   quic_aes128_init(&hp, keys.hp);
 
   /* a long-header Initial with a 4-byte packet number at offset 18 */
@@ -39,18 +39,18 @@ static void test_protect_roundtrip(void) {
   u8                   pkt[64];
   quic_protect_keys    k   = {&keys, &hp};
   quic_protect_seal_io sio = {
-      quic_span_of(hdr, 18),
+      wired_span_of(hdr, 18),
       14,
       4,
       2,
-      quic_span_of(payload, sizeof(payload)),
-      quic_mspan_of(pkt, sizeof(pkt))};
+      wired_span_of(payload, sizeof(payload)),
+      wired_mspan_of(pkt, sizeof(pkt))};
   usz total = quic_protect_seal(&k, &sio);
   CHECK(total == 18 + sizeof(payload) + 16);
   /* header protection altered byte0's low bits and the packet number */
   CHECK(pkt[0] != 0xc3 || pkt[17] != 2);
 
-  quic_protect_open_io oio = {quic_mspan_of(pkt, total), 18, 14, 4, 2};
+  quic_protect_open_io oio = {wired_mspan_of(pkt, total), 18, 14, 4, 2};
   usz                  pl  = quic_protect_open(&k, &oio);
   CHECK(pl == sizeof(payload));
   CHECK(pkt[0] == 0xc3 && pkt[17] == 2); /* header restored */
@@ -63,22 +63,22 @@ static void test_protect_tamper(void) {
   const u8          dcid[8] = {1, 2, 3, 4, 5, 6, 7, 8};
   quic_initial_keys keys;
   quic_aes128       hp;
-  quic_initial_derive(quic_span_of(dcid, 8), 0, QUIC_VERSION_1, &keys);
+  quic_initial_derive(wired_span_of(dcid, 8), 0, QUIC_VERSION_1, &keys);
   quic_aes128_init(&hp, keys.hp);
   u8       hdr[18] = {0xc3, 0, 0, 0, 1, 8, 1, 2, 3, 4, 5, 6, 7, 8, 0, 0, 0, 2};
   const u8 payload[] = {1, 2, 3, 4};
   u8       pkt[64];
   quic_protect_keys    k   = {&keys, &hp};
   quic_protect_seal_io sio = {
-      quic_span_of(hdr, 18),
+      wired_span_of(hdr, 18),
       14,
       4,
       2,
-      quic_span_of(payload, sizeof(payload)),
-      quic_mspan_of(pkt, sizeof(pkt))};
+      wired_span_of(payload, sizeof(payload)),
+      wired_mspan_of(pkt, sizeof(pkt))};
   usz total = quic_protect_seal(&k, &sio);
   pkt[20] ^= 0x40; /* flip a ciphertext bit */
-  quic_protect_open_io oio = {quic_mspan_of(pkt, total), 18, 14, 4, 2};
+  quic_protect_open_io oio = {wired_mspan_of(pkt, total), 18, 14, 4, 2};
   CHECK(quic_protect_open(&k, &oio) == 0);
 }
 

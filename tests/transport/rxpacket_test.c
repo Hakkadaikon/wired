@@ -11,9 +11,9 @@ static int r_rx(
     const quic_aes128*       hp,
     u8*                      pkt,
     usz                      n,
-    quic_span*               frames) {
+    wired_span*              frames) {
   quic_protect_keys k = {ik, hp};
-  quic_rx_desc      d = {quic_mspan_of(pkt, n), 1};
+  quic_rx_desc      d = {wired_mspan_of(pkt, n), 1};
   return quic_rx_packet(&k, &d, frames);
 }
 
@@ -22,7 +22,7 @@ static void test_rxpacket_payload_view(void) {
   const u8          dcid[8] = {9, 8, 7, 6, 5, 4, 3, 2};
   quic_initial_keys ik;
   quic_aes128       hp;
-  quic_initial_derive(quic_span_of(dcid, 8), 1, QUIC_VERSION_1, &ik);
+  quic_initial_derive(wired_span_of(dcid, 8), 1, QUIC_VERSION_1, &ik);
   quic_aes128_init(&hp, ik.hp);
 
   u8  frames[8];
@@ -37,13 +37,13 @@ static void test_rxpacket_payload_view(void) {
 
   u8                pkt[256];
   quic_protect_keys k    = {&ik, &hp};
-  quic_span         none = quic_span_of((const u8*)0, 0);
-  quic_tx_desc      td   = {0xc3, quic_span_of(dcid, 8),    none, 1, none,
-                            5,    quic_span_of(frames, fl), 0};
-  usz n = quic_tx_packet(&k, &td, quic_mspan_of(pkt, sizeof(pkt)));
+  wired_span        none = wired_span_of((const u8*)0, 0);
+  quic_tx_desc      td   = {0xc3, wired_span_of(dcid, 8),    none, 1, none,
+                            5,    wired_span_of(frames, fl), 0};
+  usz n = quic_tx_packet(&k, &td, wired_mspan_of(pkt, sizeof(pkt)));
   CHECK(n != 0);
 
-  quic_span got;
+  wired_span got;
   CHECK(r_rx(&ik, &hp, pkt, n, &got) == 1);
   CHECK(got.n == 3);
   CHECK(got.p[0] == QUIC_FRAME_PING && got.p[1] == QUIC_FRAME_PADDING);
@@ -56,7 +56,7 @@ static void test_rxpacket_too_short(void) {
   quic_initial_keys ik     = {0};
   quic_aes128       hp     = {0};
   u8                buf[4] = {0};
-  quic_span         got;
+  wired_span        got;
   CHECK(r_rx(&ik, &hp, buf, sizeof(buf), &got) == 0);
 }
 
@@ -65,14 +65,14 @@ static usz build_pkt(quic_initial_keys* ik, quic_aes128* hp, u8* pkt, usz cap) {
   static const u8 dcid[8] = {9, 8, 7, 6, 5, 4, 3, 2};
   u8              frames[3];
   usz             fl = 0;
-  quic_initial_derive(quic_span_of(dcid, 8), 1, QUIC_VERSION_1, ik);
+  quic_initial_derive(wired_span_of(dcid, 8), 1, QUIC_VERSION_1, ik);
   quic_aes128_init(hp, ik->hp);
   fl += quic_frame_put_simple(frames + fl, sizeof(frames), QUIC_FRAME_PING);
   quic_protect_keys k    = {ik, hp};
-  quic_span         none = quic_span_of((const u8*)0, 0);
-  quic_tx_desc      td   = {0xc3, quic_span_of(dcid, 8),    none, 1, none,
-                            5,    quic_span_of(frames, fl), 0};
-  return quic_tx_packet(&k, &td, quic_mspan_of(pkt, cap));
+  wired_span        none = wired_span_of((const u8*)0, 0);
+  quic_tx_desc      td   = {0xc3, wired_span_of(dcid, 8),    none, 1, none,
+                            5,    wired_span_of(frames, fl), 0};
+  return quic_tx_packet(&k, &td, wired_mspan_of(pkt, cap));
 }
 
 /* RFC 9001 5.2: a packet whose AEAD tag is flipped must be dropped, not crash.
@@ -81,7 +81,7 @@ static void test_rxpacket_tampered_tag(void) {
   quic_initial_keys ik;
   quic_aes128       hp;
   u8                pkt[256];
-  quic_span         got;
+  wired_span        got;
   usz               n = build_pkt(&ik, &hp, pkt, sizeof(pkt));
   CHECK(n != 0);
   pkt[n - 1] ^= 0x01; /* flip one tag byte */
@@ -93,7 +93,7 @@ static void test_rxpacket_truncated_payload(void) {
   quic_initial_keys ik;
   quic_aes128       hp;
   u8                pkt[256];
-  quic_span         got;
+  wired_span        got;
   usz               n = build_pkt(&ik, &hp, pkt, sizeof(pkt));
   CHECK(n != 0);
   CHECK(r_rx(&ik, &hp, pkt, n - 1, &got) == 0);
@@ -107,7 +107,7 @@ static void test_rxpacket_oversized_length(void) {
   quic_initial_keys ik;
   quic_aes128       hp;
   u8                pkt[256];
-  quic_span         got;
+  wired_span        got;
   usz               n = build_pkt(&ik, &hp, pkt, sizeof(pkt));
   CHECK(n != 0);
   CHECK(pkt[15] == 0x00);     /* empty token length */
@@ -122,10 +122,10 @@ static void test_rxpacket_wrong_key(void) {
   quic_initial_keys ik, wrong;
   quic_aes128       hp;
   u8                pkt[256];
-  quic_span         got;
+  wired_span        got;
   usz               n = build_pkt(&ik, &hp, pkt, sizeof(pkt));
   CHECK(n != 0);
-  quic_initial_derive(quic_span_of(other, 8), 1, QUIC_VERSION_1, &wrong);
+  quic_initial_derive(wired_span_of(other, 8), 1, QUIC_VERSION_1, &wrong);
   CHECK(r_rx(&wrong, &hp, pkt, n, &got) == 0);
 }
 

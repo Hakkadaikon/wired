@@ -18,20 +18,20 @@
  * Each check returns 1 on success, 0 on a TRANSPORT_PARAMETER_ERROR. */
 
 /* Whether two connection IDs are byte-for-byte equal. */
-int quic_tparam_cid_match(quic_span got, quic_span expected);
+int quic_tparam_cid_match(wired_span got, wired_span expected);
 
 /* initial_source_connection_id must equal the peer's observed Source CID. */
-int quic_tparam_check_initial_scid(quic_span got, quic_span observed);
+int quic_tparam_check_initial_scid(wired_span got, wired_span observed);
 
 /* original_destination_connection_id must equal the DCID the client sent. */
-int quic_tparam_check_original_dcid(quic_span got, quic_span sent_dcid);
+int quic_tparam_check_original_dcid(wired_span got, wired_span sent_dcid);
 
 /** Inputs for the retry_source_connection_id presence/match check. */
 typedef struct {
-  int       did_retry;
-  int       has_param;
-  quic_span got;
-  quic_span retry_scid;
+  int        did_retry;
+  int        has_param;
+  wired_span got;
+  wired_span retry_scid;
 } quic_tparam_retry_scid_in;
 
 /* retry_source_connection_id must be present and match the Retry Source CID

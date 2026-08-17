@@ -37,12 +37,12 @@
  *   stream ID, session.h's wired_wt_session.connect_stream_id)
  * @param label       the application-supplied exporter label
  * @param app_context the application-supplied exporter context (may be
- *   empty, quic_span_of(0, 0))
+ *   empty, wired_span_of(0, 0))
  * @param out         receives the serialized bytes
  * @param cap         capacity of out
  */
 usz quic_wt_exporter_ctx_encode(
-    u64 session_id, quic_span label, quic_span app_context, u8* out, usz cap);
+    u64 session_id, wired_span label, wired_span app_context, u8* out, usz cap);
 
 /* draft-ietf-webtrans-http3-15 4.8: compute
  *   TLS-Exporter("EXPORTER-WebTransport", WebTransport Exporter Context,
@@ -54,10 +54,10 @@ usz quic_wt_exporter_ctx_encode(
  * @return 1 on success, 0 if label/app_context exceed 255 bytes or okm's
  *   length does not fit quic_hkdf_expand_label */
 int quic_wt_exporter(
-    const u8   exporter_secret[QUIC_HKDF_PRK],
-    u64        session_id,
-    quic_span  label,
-    quic_span  app_context,
-    quic_mspan okm);
+    const u8    exporter_secret[QUIC_HKDF_PRK],
+    u64         session_id,
+    wired_span  label,
+    wired_span  app_context,
+    wired_mspan okm);
 
 #endif

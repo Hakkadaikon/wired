@@ -29,7 +29,7 @@ static void test_eth_roundtrip(void) {
   u8            out[QUIC_ETH_HDR];
   quic_eth_head g;
   quic_eth_build(out, &h);
-  CHECK(quic_eth_parse(quic_span_of(out, QUIC_ETH_HDR), &g) == 1);
+  CHECK(quic_eth_parse(wired_span_of(out, QUIC_ETH_HDR), &g) == 1);
   CHECK(eth_bytes_eq(g.dst, h.dst, 6) && eth_bytes_eq(g.src, h.src, 6));
   CHECK(g.ethertype == h.ethertype);
 }
@@ -38,7 +38,7 @@ static void test_eth_roundtrip(void) {
 static void test_eth_short(void) {
   u8            buf[QUIC_ETH_HDR] = {0};
   quic_eth_head g;
-  CHECK(quic_eth_parse(quic_span_of(buf, QUIC_ETH_HDR - 1), &g) == 0);
+  CHECK(quic_eth_parse(wired_span_of(buf, QUIC_ETH_HDR - 1), &g) == 0);
 }
 
 void test_eth(void) {

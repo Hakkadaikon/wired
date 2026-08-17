@@ -14,14 +14,14 @@
 
 /** A single PSK identity + binder to encode into pre_shared_key. */
 typedef struct {
-  quic_span identity;
-  u32       ticket_age;
-  quic_span binder;
+  wired_span identity;
+  u32        ticket_age;
+  wired_span binder;
 } quic_tlsext_psk_in;
 
 /* Encode pre_shared_key with one identity and one binder into out->p (out->cap
  * total). Sets out->len. Returns 1, or 0 if it does not fit. */
-int quic_tlsext_pre_shared_key(const quic_tlsext_psk_in* in, quic_obuf* out);
+int quic_tlsext_pre_shared_key(const quic_tlsext_psk_in* in, wired_obuf* out);
 
 /** Located fields of a parsed single-entry pre_shared_key. The pointers alias
  * the input buffer. */

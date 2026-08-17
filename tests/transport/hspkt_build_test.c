@@ -5,7 +5,7 @@
 static void hspkt_keys(quic_initial_keys* k, quic_aes128* hp) {
   const u8 dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
   quic_initial_derive(
-      quic_span_of(dcid, 8), 1, QUIC_VERSION_1, k); /* server side */
+      wired_span_of(dcid, 8), 1, QUIC_VERSION_1, k); /* server side */
   quic_aes128_init(hp, k->hp);
 }
 
@@ -23,17 +23,17 @@ static void test_hspkt_build_roundtrip(void) {
   u8                pkt[128];
   quic_protect_keys pk = {&k, &hp};
   quic_hspkt_desc   d  = {
-      quic_span_of(dcid, 5), quic_span_of(scid, 3), 9,
-      quic_span_of(frames, sizeof(frames))};
-  quic_obuf o = quic_obuf_of(pkt, sizeof(pkt));
+      wired_span_of(dcid, 5), wired_span_of(scid, 3), 9,
+      wired_span_of(frames, sizeof(frames))};
+  wired_obuf o = quic_obuf_of(pkt, sizeof(pkt));
   CHECK(quic_hspkt_build(&pk, &d, &o));
   /* RFC 9000 17.2.4 complete header: byte0(1)+version(4)+dcid_len(1)+dcid(5)
    * +scid_len(1)+scid(3)+Length(1-byte varint)+pn(4) = 20, then payload+tag.
    * No Token field for Handshake. */
   CHECK(o.len == 20u + sizeof(frames) + 16u);
 
-  quic_span out;
-  CHECK(quic_hspkt_open(&pk, quic_mspan_of(pkt, o.len), &out));
+  wired_span out;
+  CHECK(quic_hspkt_open(&pk, wired_mspan_of(pkt, o.len), &out));
   CHECK(out.n == sizeof(frames));
   for (usz i = 0; i < sizeof(frames); i++) CHECK(out.p[i] == frames[i]);
 }
@@ -51,9 +51,9 @@ static void test_hspkt_build_byte0(void) {
   u8                pkt[128];
   quic_protect_keys pk = {&k, &hp};
   quic_hspkt_desc   d  = {
-      quic_span_of(dcid, 4), quic_span_of((const u8*)0, 0), 1,
-      quic_span_of(frames, sizeof(frames))};
-  quic_obuf o = quic_obuf_of(pkt, sizeof(pkt));
+      wired_span_of(dcid, 4), wired_span_of((const u8*)0, 0), 1,
+      wired_span_of(frames, sizeof(frames))};
+  wired_obuf o = quic_obuf_of(pkt, sizeof(pkt));
   CHECK(quic_hspkt_build(&pk, &d, &o));
   CHECK((pkt[0] & 0x80) == 0x80); /* long header form */
   CHECK((pkt[0] & 0x30) == 0x20); /* type bits = Handshake (0x2) */
@@ -70,13 +70,13 @@ static void test_hspkt_build_tamper(void) {
   u8                pkt[128];
   quic_protect_keys pk = {&k, &hp};
   quic_hspkt_desc   d  = {
-      quic_span_of(dcid, 4), quic_span_of((const u8*)0, 0), 3,
-      quic_span_of(frames, sizeof(frames))};
-  quic_obuf o = quic_obuf_of(pkt, sizeof(pkt));
+      wired_span_of(dcid, 4), wired_span_of((const u8*)0, 0), 3,
+      wired_span_of(frames, sizeof(frames))};
+  wired_obuf o = quic_obuf_of(pkt, sizeof(pkt));
   CHECK(quic_hspkt_build(&pk, &d, &o));
   pkt[o.len - 1] ^= 0x01;
-  quic_span out;
-  CHECK(!quic_hspkt_open(&pk, quic_mspan_of(pkt, o.len), &out));
+  wired_span out;
+  CHECK(!quic_hspkt_open(&pk, wired_mspan_of(pkt, o.len), &out));
 }
 
 void test_hspkt_build(void) {

@@ -36,9 +36,9 @@ static void cv_build_signed(const u8 transcript_hash[32], u8 out[130]) {
 }
 
 /* View the end-entity certificate's subjectPublicKey BIT STRING value. */
-static int cert_spki_key(quic_span cert, quic_span* key) {
-  quic_x509 c;
-  quic_span oid;
+static int cert_spki_key(wired_span cert, wired_span* key) {
+  quic_x509  c;
+  wired_span oid;
   if (!quic_x509_parse(cert, &c)) return 0;
   return quic_x509_public_key(c.tbs, &oid, key);
 }
@@ -61,9 +61,9 @@ static int fits32(usz len) { return len >= 1 && len <= 32; }
 
 /* Copy one INTEGER into a 32-byte big-endian field (rejecting > 32 octets). */
 static int copy_int32(quic_derseq* c, u8 out[32]) {
-  quic_span s;
-  const u8* v;
-  usz       len;
+  wired_span s;
+  const u8*  v;
+  usz        len;
   if (!quic_derseq_next_tagged(c, QUIC_DER_INTEGER, &s)) return 0;
   v   = s.p;
   len = s.n;
@@ -74,9 +74,9 @@ static int copy_int32(quic_derseq* c, u8 out[32]) {
 }
 
 /* SEC1 C.5. ECDSA-Sig-Value ::= SEQUENCE { r INTEGER, s INTEGER }. */
-static int ecdsa_split(quic_span sig, u8 r[32], u8 s[32]) {
+static int ecdsa_split(wired_span sig, u8 r[32], u8 s[32]) {
   quic_derseq c;
-  quic_span   seq;
+  wired_span  seq;
   if (!quic_der_seq(sig, &seq)) return 0;
   quic_derseq_init(&c, seq);
   if (!copy_int32(&c, r)) return 0;
@@ -90,38 +90,38 @@ typedef struct {
 
 /* Pull the EC point and the (r, s) signature. */
 static int ecdsa_inputs(
-    quic_span cert, quic_span sig, certverify_ecdsa_fields* f) {
-  quic_span key;
+    wired_span cert, wired_span sig, certverify_ecdsa_fields* f) {
+  wired_span key;
   if (!cert_spki_key(cert, &key)) return 0;
   if (!quic_x509_ec_pubkey(key, f->x, f->y)) return 0;
   return ecdsa_split(sig, f->r, f->s);
 }
 
-static int verify_ecdsa(quic_span cert, quic_span sig, const u8 hash[32]) {
+static int verify_ecdsa(wired_span cert, wired_span sig, const u8 hash[32]) {
   certverify_ecdsa_fields f;
   if (!ecdsa_inputs(cert, sig, &f)) return 0;
   return quic_ecdsa_p256_verify(f.x, f.y, f.r, f.s, hash);
 }
 
-static int verify_rsa(quic_span cert, quic_span sig, const u8 hash[32]) {
-  quic_span key, n, e;
+static int verify_rsa(wired_span cert, wired_span sig, const u8 hash[32]) {
+  wired_span key, n, e;
   if (!cert_spki_key(cert, &key)) return 0;
   if (!quic_x509_rsa_pubkey(key, &n, &e)) return 0;
   /* RFC 8446 9.1: rsa_pss_rsae_sha256 is RSASSA-PSS (never PKCS#1 v1.5). */
   quic_rsa_pub pub = {n, e};
-  return quic_rsa_pss_verify(&pub, sig, quic_span_of(hash, 32));
+  return quic_rsa_pss_verify(&pub, sig, wired_span_of(hash, 32));
 }
 
 /* RFC 5280 4.1.2.7: a 32-byte raw key wrapped in the BIT STRING's leading
  * unused-bits octet (0x00). */
-static int is_ed25519_bits(quic_span bits) {
+static int is_ed25519_bits(wired_span bits) {
   return bits.n == QUIC_ED25519_PUBKEY + 1 && bits.p[0] == 0x00;
 }
 
 /* The 32-byte Ed25519 public key from the certificate, past the unused-bits
  * octet. */
-static int ed25519_key(quic_span cert, const u8** key) {
-  quic_span bits;
+static int ed25519_key(wired_span cert, const u8** key) {
+  wired_span bits;
   if (!cert_spki_key(cert, &bits)) return 0;
   if (!is_ed25519_bits(bits)) return 0;
   *key = bits.p + 1;
@@ -129,7 +129,7 @@ static int ed25519_key(quic_span cert, const u8** key) {
 }
 
 static int verify_ed25519(
-    quic_span cert, quic_span sig, const u8 content[130]) {
+    wired_span cert, wired_span sig, const u8 content[130]) {
   const u8* key;
   if (sig.n != QUIC_ED25519_SIG) return 0;
   if (!ed25519_key(cert, &key)) return 0;
@@ -139,7 +139,7 @@ static int verify_ed25519(
 /* RFC 8446 4.4.3. Hash branches (ecdsa/rsa over SHA-256 of the content). */
 static int verify_hashed(const quic_certverify_in* in, const u8 content[130]) {
   u8 hash[32];
-  quic_sha256(content, 130, hash);
+  wired_sha256(content, 130, hash);
   if (in->scheme == QUIC_TLS_SCHEME_ECDSA_P256)
     return verify_ecdsa(in->cert, in->sig, hash);
   if (in->scheme == QUIC_TLS_SCHEME_RSA_PSS_SHA256)

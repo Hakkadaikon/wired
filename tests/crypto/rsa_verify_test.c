@@ -66,7 +66,8 @@ static const quic_rsa_pub rvt_pub = {{rsa_n, 256}, {rvt_e, 3}};
 static void test_rsa_pkcs1_valid(void) {
   CHECK(
       quic_rsa_pkcs1_verify(
-          &rvt_pub, (quic_span){rsa_sig, 256}, (quic_span){rsa_hash, 32}) == 1);
+          &rvt_pub, (wired_span){rsa_sig, 256}, (wired_span){rsa_hash, 32}) ==
+      1);
 }
 
 /* A flipped signature byte must fail. */
@@ -76,7 +77,7 @@ static void test_rsa_pkcs1_tampered_sig(void) {
   bad[100] ^= 0x01;
   CHECK(
       quic_rsa_pkcs1_verify(
-          &rvt_pub, (quic_span){bad, 256}, (quic_span){rsa_hash, 32}) == 0);
+          &rvt_pub, (wired_span){bad, 256}, (wired_span){rsa_hash, 32}) == 0);
 }
 
 /* A wrong message hash must fail. */
@@ -86,7 +87,7 @@ static void test_rsa_pkcs1_wrong_hash(void) {
   h[0] ^= 0xff;
   CHECK(
       quic_rsa_pkcs1_verify(
-          &rvt_pub, (quic_span){rsa_sig, 256}, (quic_span){h, 32}) == 0);
+          &rvt_pub, (wired_span){rsa_sig, 256}, (wired_span){h, 32}) == 0);
 }
 
 /* Size guards: bad lengths and a too-small modulus are rejected. */
@@ -94,13 +95,15 @@ static void test_rsa_pkcs1_sizes(void) {
   static const quic_rsa_pub small = {{rsa_n, 40}, {rvt_e, 3}};
   CHECK(
       quic_rsa_pkcs1_verify(
-          &rvt_pub, (quic_span){rsa_sig, 255}, (quic_span){rsa_hash, 32}) == 0);
+          &rvt_pub, (wired_span){rsa_sig, 255}, (wired_span){rsa_hash, 32}) ==
+      0);
   CHECK(
       quic_rsa_pkcs1_verify(
-          &rvt_pub, (quic_span){rsa_sig, 256}, (quic_span){rsa_hash, 31}) == 0);
+          &rvt_pub, (wired_span){rsa_sig, 256}, (wired_span){rsa_hash, 31}) ==
+      0);
   CHECK(
       quic_rsa_pkcs1_verify(
-          &small, (quic_span){rsa_sig, 40}, (quic_span){rsa_hash, 32}) == 0);
+          &small, (wired_span){rsa_sig, 40}, (wired_span){rsa_hash, 32}) == 0);
 }
 
 /* RFC 8017: the gate accepts exactly the 3-byte 01 00 01 and rejects other
@@ -123,7 +126,8 @@ static void test_rsa_e3_rejected(void) {
   static const quic_rsa_pub pub_e3 = {{rsa_n, 256}, {e3, 1}};
   CHECK(
       quic_rsa_pkcs1_verify(
-          &pub_e3, (quic_span){rsa_sig, 256}, (quic_span){rsa_hash, 32}) == 0);
+          &pub_e3, (wired_span){rsa_sig, 256}, (wired_span){rsa_hash, 32}) ==
+      0);
 }
 
 void test_rsa_verify(void) {

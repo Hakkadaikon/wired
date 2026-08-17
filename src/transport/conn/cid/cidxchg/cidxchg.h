@@ -25,7 +25,8 @@ typedef struct {
 /* Seed the exchange: the client's first random DCID and our own SCID. The
  * current send DCID starts equal to the first DCID. Returns 1 ok, 0 if either
  * length exceeds 20. */
-int quic_cidxchg_init(quic_cidxchg* x, quic_span init_dcid, quic_span own_scid);
+int quic_cidxchg_init(
+    quic_cidxchg* x, wired_span init_dcid, wired_span own_scid);
 
 /* RFC 9000 7.2: the client adopts the server's SCID as its DCID once it sees
  * the server's response. Returns 1 ok, 0 if scid_len > 20. */

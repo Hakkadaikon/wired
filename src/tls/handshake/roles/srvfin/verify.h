@@ -11,8 +11,8 @@
  * traffic secret and the transcript hash up to (but not including) the client
  * Finished. Returns 1 on a match, 0 on any malformed message or mismatch. */
 int quic_srvfin_verify_client_finished(
-    quic_span client_finished_msg,
-    const u8  client_hs_traffic_secret[QUIC_HKDF_PRK],
-    const u8  transcript_hash[QUIC_SHA256_DIGEST]);
+    wired_span client_finished_msg,
+    const u8   client_hs_traffic_secret[QUIC_HKDF_PRK],
+    const u8   transcript_hash[QUIC_SHA256_DIGEST]);
 
 #endif

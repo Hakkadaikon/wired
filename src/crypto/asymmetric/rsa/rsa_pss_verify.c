@@ -51,7 +51,7 @@ static int pss_inputs_ok(const quic_rsa_pub* pub, usz sig_len, usz hash_len) {
 /* RFC 8017 8.1.2 step 1 and steps 2-3: reject s >= n, else m = s^e mod n and
  * EM = I2OSP(m, emLen). Returns 1 on success, 0 if the signature is out of
  * range. */
-static int rsa_recover_em(quic_span n, quic_span sig, quic_mspan em) {
+static int rsa_recover_em(wired_span n, wired_span sig, wired_mspan em) {
   quic_bn bn_n, bn_s, bn_e, m;
   quic_bn_from_be(&bn_n, n.p, n.n);
   quic_bn_from_be(&bn_s, sig.p, sig.n);
@@ -69,11 +69,11 @@ static usz rsa_em_bits(const u8* n, usz n_len) {
 }
 
 int quic_rsa_pss_verify(
-    const quic_rsa_pub* pub, quic_span sig, quic_span mhash) {
+    const quic_rsa_pub* pub, wired_span sig, wired_span mhash) {
   if (!pss_inputs_ok(pub, sig.n, mhash.n)) return 0;
   usz em_bits = rsa_em_bits(pub->n.p, pub->n.n);
   usz em_len  = (em_bits + 7) / 8;
   u8  em[RSA_PSS_MAX];
-  return rsa_recover_em(pub->n, sig, (quic_mspan){em, em_len}) &&
-         quic_emsa_pss_verify((quic_span){em, em_len}, em_bits, mhash);
+  return rsa_recover_em(pub->n, sig, (wired_mspan){em, em_len}) &&
+         quic_emsa_pss_verify((wired_span){em, em_len}, em_bits, mhash);
 }

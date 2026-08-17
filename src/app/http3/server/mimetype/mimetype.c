@@ -52,7 +52,7 @@ static usz mimetype_last_dot(const char* path, usz n) {
  * pointer. Returns 0 (len 0) when there is no '.' in the final segment, or
  * the '.' is the segment's last character. */
 static const char* mimetype_find_ext(const char* path, usz* len) {
-  usz n   = quic_cstr_len(path);
+  usz n   = wired_cstr_len(path);
   usz dot = mimetype_last_dot(path, n);
   *len    = 0;
   if (dot == n || dot + 1 == n) return 0;

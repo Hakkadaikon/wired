@@ -56,12 +56,13 @@ static void test_gcmx86_nist(void) {
   quic_gcmx86_init(&x, key);
   CHECK(
       quic_gcmx86_seal(
-          &x, iv, quic_span_of(aad, al), quic_span_of(pt, pl), out) == pl + 16);
+          &x, iv, wired_span_of(aad, al), wired_span_of(pt, pl), out) ==
+      pl + 16);
   for (usz i = 0; i < pl; i++) CHECK(out[i] == want_ct[i]);
   for (usz i = 0; i < 16; i++) CHECK(out[pl + i] == want_tag[i]);
   CHECK(
       quic_gcmx86_open(
-          &x, iv, quic_span_of(aad, al), quic_span_of(out, pl + 16), dec) ==
+          &x, iv, wired_span_of(aad, al), wired_span_of(out, pl + 16), dec) ==
       pl);
   for (usz i = 0; i < pl; i++) CHECK(dec[i] == pt[i]);
 }
@@ -80,19 +81,19 @@ static void gcmx86_diff_one(usz n, usz an) {
 
   quic_aes128_init(&a, key);
   quic_gcm_ctx g = {&a, nonce, {aad, an}};
-  quic_gcm_seal(&g, quic_span_of(pt, n), want);
+  quic_gcm_seal(&g, wired_span_of(pt, n), want);
 
   quic_gcmx86_init(&x, key);
   CHECK(
       quic_gcmx86_seal(
-          &x, nonce, quic_span_of(aad, an), quic_span_of(pt, n), got) ==
+          &x, nonce, wired_span_of(aad, an), wired_span_of(pt, n), got) ==
       n + 16);
   for (usz i = 0; i < n + 16; i++) CHECK(got[i] == want[i]);
 
   for (usz i = 0; i < n; i++) dec[i] = 0xCC;
   CHECK(
       quic_gcmx86_open(
-          &x, nonce, quic_span_of(aad, an), quic_span_of(got, n + 16), dec) ==
+          &x, nonce, wired_span_of(aad, an), wired_span_of(got, n + 16), dec) ==
       n);
   for (usz i = 0; i < n; i++) CHECK(dec[i] == pt[i]);
 
@@ -101,7 +102,7 @@ static void gcmx86_diff_one(usz n, usz an) {
   got[n] ^= 1;
   CHECK(
       quic_gcmx86_open(
-          &x, nonce, quic_span_of(aad, an), quic_span_of(got, n + 16), dec) ==
+          &x, nonce, wired_span_of(aad, an), wired_span_of(got, n + 16), dec) ==
       0);
   for (usz i = 0; i < n; i++) CHECK(dec[i] == 0xCC);
 }

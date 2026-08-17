@@ -14,16 +14,16 @@
 typedef struct {
   const quic_aes128* aes;
   const u8*          nonce; /* QUIC_GCM_NONCE bytes */
-  quic_span          aad;
+  wired_span         aad;
 } quic_gcm_ctx;
 
 /* Seal: encrypt pt and append the 16-byte tag; out receives pt.n + 16 bytes
  * (ciphertext || tag). Returns the sealed length (pt.n + QUIC_GCM_TAG). */
-usz quic_gcm_seal(const quic_gcm_ctx* g, quic_span pt, u8* out);
+usz quic_gcm_seal(const quic_gcm_ctx* g, wired_span pt, u8* out);
 
 /* Open: ct spans ciphertext || 16-byte tag. On tag mismatch, returns 0 and
  * does NOT write plaintext. On success, writes ct.n - 16 bytes to pt and
  * returns 1. */
-int quic_gcm_open(const quic_gcm_ctx* g, quic_span ct, u8* pt);
+int quic_gcm_open(const quic_gcm_ctx* g, wired_span ct, u8* pt);
 
 #endif

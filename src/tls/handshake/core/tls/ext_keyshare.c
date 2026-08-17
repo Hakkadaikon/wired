@@ -51,7 +51,8 @@ int quic_tls_ext_key_share_parse(
   if (!entry_ok(buf, n, &klen) || klen > pub_cap) return 0;
   *group   = quic_get_be16(buf);
   *pub_len = klen;
-  return quic_take_bytes(quic_span_of(buf, n), &key, quic_mspan_of(pub, klen));
+  return quic_take_bytes(
+      wired_span_of(buf, n), &key, wired_mspan_of(pub, klen));
 }
 
 /* The KeyShareEntry's key_exchange length lies within avail bytes from its
@@ -83,7 +84,7 @@ static int ks_entry_matches(
 static int ks_take_key(const u8* buf, usz end, usz off, usz klen, u8* pub) {
   usz key = off + 4;
   return quic_take_bytes(
-      quic_span_of(buf, end), &key, quic_mspan_of(pub, klen));
+      wired_span_of(buf, end), &key, wired_mspan_of(pub, klen));
 }
 
 /* Scan the KeyShareEntry list in buf[off..end) for want_group; on success

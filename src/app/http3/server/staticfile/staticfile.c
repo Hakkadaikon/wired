@@ -21,7 +21,7 @@ static int staticfile_dotdot_here(const char* path, usz i) {
 }
 
 int wired_staticfile_has_traversal(const char* path) {
-  usz n = quic_cstr_len(path);
+  usz n = wired_cstr_len(path);
   for (usz i = 0; i + 1 < n; i++)
     if (staticfile_dotdot_here(path, i)) return 1;
   return 0;
@@ -69,7 +69,7 @@ int wired_staticfile_resolve(
     char*       out,
     usz         outcap) {
   usz off  = 0;
-  usz rlen = quic_cstr_len(reqpath);
+  usz rlen = wired_cstr_len(reqpath);
   if (!staticfile_append_base(out, outcap, &off, root, reqpath)) return 0;
   if (!staticfile_is_dir(reqpath, rlen)) return 1;
   return staticfile_append_index(out, outcap, &off, rlen, index);

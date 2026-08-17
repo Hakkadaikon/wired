@@ -26,7 +26,7 @@ static void tg_record(quic_ticketguard* g, const u8* fp) {
   g->next          = (g->next + 1) % QUIC_TICKETGUARD_CAP;
 }
 
-int quic_ticketguard_first_use(quic_ticketguard* g, quic_span sealed) {
+int quic_ticketguard_first_use(quic_ticketguard* g, wired_span sealed) {
   if (sealed.n < QUIC_TICKETGUARD_FP) return 0;
   if (tg_seen(g, sealed.p)) return 0;
   tg_record(g, sealed.p);

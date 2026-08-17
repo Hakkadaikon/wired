@@ -37,18 +37,18 @@ static usz cw_client_hello(quic_client* c, u8* ch, usz cap) {
 
 /* RFC 9001 5.2 */
 int quic_client_build_initial_wire(
-    quic_client* c, const quic_clientwire_hdr_in* hdr, quic_obuf* out) {
+    quic_client* c, const quic_clientwire_hdr_in* hdr, wired_obuf* out) {
   u8  ch[QUIC_CLIENTWIRE_CH_MAX];
   usz ch_len = cw_client_hello(c, ch, sizeof(ch));
   if (ch_len == 0) return 0;
   quic_initpkt_desc d = {
-      hdr->dcid, hdr->scid, quic_span_of(ch, ch_len), hdr->pn, 0};
+      hdr->dcid, hdr->scid, wired_span_of(ch, ch_len), hdr->pn, 0};
   return quic_initpkt_build(&d, out);
 }
 
 /* RFC 9001 5.2: open the server Initial with the server-direction keys. */
 int quic_client_open_initial_wire(
-    const quic_clientwire_open_in* in, quic_span* tls) {
+    const quic_clientwire_open_in* in, wired_span* tls) {
   quic_srvwire_open_initial_in oin = {in->dcid, in->pn};
   return quic_srvwire_open_initial(&oin, in->pkt, tls);
 }
@@ -57,10 +57,10 @@ int quic_client_open_initial_wire(
  * key-derivation dcid slot is unused (keys come from the schedule); in->
  * hdr.dcid is the header's DCID. */
 int quic_client_seal_handshake_wire(
-    quic_client* c, const quic_clientwire_seal_in* in, quic_obuf* out) {
+    quic_client* c, const quic_clientwire_seal_in* in, wired_obuf* out) {
   cw_dirkey            dk;
   quic_srvwire_seal_in si = {
-      quic_span_of((const u8*)0, 0),
+      wired_span_of((const u8*)0, 0),
       in->hdr.dcid,
       in->hdr.scid,
       in->hdr.pn,
@@ -76,7 +76,7 @@ int quic_client_seal_handshake_wire(
 /* RFC 9001 5: open a server Handshake flight with SERVER_HS (peer direction).
  */
 int quic_client_open_handshake_wire(
-    quic_client* c, const quic_appdata_pkt* in, quic_span* tls) {
+    quic_client* c, const quic_appdata_pkt* in, wired_span* tls) {
   cw_dirkey         dk;
   quic_protect_keys pk;
   (void)in->dcid_len;
@@ -87,7 +87,7 @@ int quic_client_open_handshake_wire(
 
 /* RFC 9001 5: send 1-RTT application data with CLIENT_AP (own direction). */
 int quic_client_send_appdata_wire(
-    quic_client* c, const quic_appdata_tx* in, quic_obuf* out) {
+    quic_client* c, const quic_appdata_tx* in, wired_obuf* out) {
   cw_dirkey         dk;
   quic_protect_keys pk;
   if (!cw_dir_key(c, QUIC_KS_CLIENT_AP, &dk)) return 0;
@@ -100,7 +100,7 @@ int quic_client_send_appdata_wire(
  * route to us is for another connection and is dropped (this is the check curl
  * applies, so the in-tree client catches a server that writes the wrong DCID).
  */
-static int cw_dcid_is_ours(quic_mspan pkt, quic_span scid) {
+static int cw_dcid_is_ours(wired_mspan pkt, wired_span scid) {
   u8 d = 0;
   if (pkt.n < 1u + scid.n) return 0;
   for (usz i = 0; i < scid.n; i++) d |= pkt.p[1 + i] ^ scid.p[i];

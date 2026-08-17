@@ -11,14 +11,14 @@
  * the body. When body is empty only the HEADERS frame is emitted. Returns 1
  * with out->len set on success, 0 if out lacks capacity. */
 int quic_h3resp_build(
-    u16 status, const char* content_type, quic_span body, quic_obuf* out);
+    u16 status, const char* content_type, wired_span body, wired_obuf* out);
 
 /* RFC 9114 4.1 / 7.1: the response prefix alone — the HEADERS frame plus the
  * DATA frame header (type + length varints, no payload bytes) for a body of
  * body_len bytes already sitting elsewhere. body_len 0 emits HEADERS only.
  * Returns 1 with out->len set, 0 if out lacks capacity. */
 int quic_h3resp_prefix(
-    u16 status, const char* content_type, u64 body_len, quic_obuf* out);
+    u16 status, const char* content_type, u64 body_len, wired_obuf* out);
 
 /* Same as quic_h3resp_prefix plus, when extra is non-null, one trailing
  * Literal Field Line With Literal Name (RFC 9204 4.5.6) in the HEADERS
@@ -31,6 +31,6 @@ int quic_h3resp_prefix_field(
     const char*             content_type,
     u64                     body_len,
     const quic_qpack_field* extra,
-    quic_obuf*              out);
+    wired_obuf*             out);
 
 #endif

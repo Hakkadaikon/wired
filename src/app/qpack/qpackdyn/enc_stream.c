@@ -23,7 +23,7 @@ static int is_set_capacity(usz used, quic_qpack_enc_kind kind) {
 }
 
 usz quic_qdyn_enc_apply_capacity(
-    quic_span buf, quic_qpack_dyn* t, u64 max_table_capacity, u16* err) {
+    wired_span buf, quic_qpack_dyn* t, u64 max_table_capacity, u16* err) {
   quic_qpack_enc_kind kind;
   u64                 value;
   usz                 used = quic_qpack_enc_instr_decode(buf, &kind, &value);

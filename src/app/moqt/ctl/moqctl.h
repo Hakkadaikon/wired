@@ -106,8 +106,8 @@ typedef struct {
 /** Location A < Location B: (A.Group, A.Object) lexicographic. */
 int quic_moqctl_loc_less(quic_moqctl_loc a, quic_moqctl_loc b);
 
-int quic_moqctl_loc_take(quic_span buf, usz* off, quic_moqctl_loc* out);
-int quic_moqctl_loc_put(quic_mspan buf, usz* off, quic_moqctl_loc loc);
+int quic_moqctl_loc_take(wired_span buf, usz* off, quic_moqctl_loc* out);
+int quic_moqctl_loc_put(wired_mspan buf, usz* off, quic_moqctl_loc loc);
 
 /** draft-ietf-moq-transport-19 SS9.3.1 Location Filter. */
 typedef struct {
@@ -119,43 +119,44 @@ typedef struct {
 /** Returns QUIC_MOQCTL_OK / INSUFFICIENT / VIOLATION (unknown type, or
  * AbsoluteRange End Group overflowing 2^64-1). */
 int quic_moqctl_locfilter_take(
-    quic_span buf, usz* off, quic_moqctl_locfilter* out);
+    wired_span buf, usz* off, quic_moqctl_locfilter* out);
 int quic_moqctl_locfilter_put(
-    quic_mspan buf, usz* off, const quic_moqctl_locfilter* f);
+    wired_mspan buf, usz* off, const quic_moqctl_locfilter* f);
 
 /** draft-ietf-moq-transport-19 SS1.5 Track Namespace: up to
  * QUIC_MOQCTL_MAX_NS_FIELDS fields, each a byte-string view into the
  * decode input (or caller-owned storage on encode). */
 typedef struct {
-  quic_span fields[QUIC_MOQCTL_MAX_NS_FIELDS];
-  usz       n;
+  wired_span fields[QUIC_MOQCTL_MAX_NS_FIELDS];
+  usz        n;
 } quic_moqctl_ns;
 
 /** Full Track Name: Track Namespace + Track Name (may be empty). */
 typedef struct {
   quic_moqctl_ns ns;
-  quic_span      name;
+  wired_span     name;
 } quic_moqctl_ftn;
 
 /** VIOLATION on: a field of length 0, >32 fields, or total (namespace +
  * name) bytes > QUIC_MOQCTL_MAX_FTN_LEN. */
-int quic_moqctl_ftn_take(quic_span buf, usz* off, quic_moqctl_ftn* out);
-int quic_moqctl_ftn_put(quic_mspan buf, usz* off, const quic_moqctl_ftn* f);
+int quic_moqctl_ftn_take(wired_span buf, usz* off, quic_moqctl_ftn* out);
+int quic_moqctl_ftn_put(wired_mspan buf, usz* off, const quic_moqctl_ftn* f);
 
 /** Track Namespace alone (no Track Name): same VIOLATION rules as the
  * namespace half of quic_moqctl_ftn_take (field length 0, >32 fields).
  * Exposed separately for contexts that decode a bare Track Namespace. */
-int quic_moqctl_ns_take(quic_span buf, usz* off, quic_moqctl_ns* out);
+int quic_moqctl_ns_take(wired_span buf, usz* off, quic_moqctl_ns* out);
 
 /** Exact byte comparison (SS1.5): 1 if equal, 0 otherwise. */
 int quic_moqctl_ftn_eq(const quic_moqctl_ftn* a, const quic_moqctl_ftn* b);
 
 /** draft-ietf-moq-transport-19 SS1.4.4 Reason Phrase: Length + UTF-8 bytes,
  * length capped at QUIC_MOQCTL_MAX_REASON_LEN. */
-typedef quic_span quic_moqctl_reason;
+typedef wired_span quic_moqctl_reason;
 
-int quic_moqctl_reason_take(quic_span buf, usz* off, quic_moqctl_reason* out);
-int quic_moqctl_reason_put(quic_mspan buf, usz* off, quic_moqctl_reason reason);
+int quic_moqctl_reason_take(wired_span buf, usz* off, quic_moqctl_reason* out);
+int quic_moqctl_reason_put(
+    wired_mspan buf, usz* off, quic_moqctl_reason reason);
 
 /** draft-ietf-moq-transport-19 SS10.2 Message Parameter: Type Delta +
  * Value. Decoded absolute type + encoding-tagged value. */
@@ -165,7 +166,7 @@ typedef struct {
   u64             u8v;   /* PENC_UINT8 */
   u64             vi;    /* PENC_VARINT */
   quic_moqctl_loc loc;   /* PENC_LOCATION */
-  quic_span       bytes; /* PENC_BYTES */
+  wired_span      bytes; /* PENC_BYTES */
 } quic_moqctl_param;
 
 /** A decoded/to-encode Message Parameter list. msg_type selects which
@@ -184,26 +185,26 @@ typedef struct {
  * quic_moqctl_params_take's return contract below). */
 #define QUIC_MOQCTL_PARAMS_KVFMT (-4)
 int quic_moqctl_params_take(
-    quic_span buf, usz* off, u64 msg_type, quic_moqctl_params* out);
+    wired_span buf, usz* off, u64 msg_type, quic_moqctl_params* out);
 int quic_moqctl_params_put(
-    quic_mspan buf, usz* off, const quic_moqctl_params* params);
+    wired_mspan buf, usz* off, const quic_moqctl_params* params);
 
 /** draft-ietf-moq-transport-19 SS10.4 SETUP: Setup Options are a KVP list
  * (unknown options ignored on decode -- not surfaced here). PATH/AUTHORITY
  * are surfaced explicitly since WebTransport-context rejection is a
  * session-layer decision. */
 typedef struct {
-  int       has_path;
-  quic_span path;
-  int       has_authority;
-  quic_span authority;
-  int       has_implementation;
-  quic_span implementation;
+  int        has_path;
+  wired_span path;
+  int        has_authority;
+  wired_span authority;
+  int        has_implementation;
+  wired_span implementation;
 } quic_moqctl_setup;
 
-int quic_moqctl_setup_take(quic_span buf, usz* off, quic_moqctl_setup* out);
+int quic_moqctl_setup_take(wired_span buf, usz* off, quic_moqctl_setup* out);
 int quic_moqctl_setup_encode(
-    quic_mspan buf, usz* off, const quic_moqctl_setup* s);
+    wired_mspan buf, usz* off, const quic_moqctl_setup* s);
 
 /** draft-ietf-moq-transport-19 SS10.6 SUBSCRIBE. */
 typedef struct {
@@ -213,9 +214,9 @@ typedef struct {
 } quic_moqctl_subscribe;
 
 int quic_moqctl_subscribe_take(
-    quic_span buf, usz* off, quic_moqctl_subscribe* out);
+    wired_span buf, usz* off, quic_moqctl_subscribe* out);
 int quic_moqctl_subscribe_encode(
-    quic_mspan buf, usz* off, const quic_moqctl_subscribe* m);
+    wired_mspan buf, usz* off, const quic_moqctl_subscribe* m);
 
 /** draft-ietf-moq-transport-19 SS10.7 SUBSCRIBE_OK. track_properties is
  * the residual span (this codec does not parse Properties -- data-layer
@@ -223,13 +224,13 @@ int quic_moqctl_subscribe_encode(
 typedef struct {
   u64                track_alias;
   quic_moqctl_params params;
-  quic_span          track_properties;
+  wired_span         track_properties;
 } quic_moqctl_subscribe_ok;
 
 int quic_moqctl_subscribe_ok_take(
-    quic_span buf, usz* off, quic_moqctl_subscribe_ok* out);
+    wired_span buf, usz* off, quic_moqctl_subscribe_ok* out);
 int quic_moqctl_subscribe_ok_encode(
-    quic_mspan buf, usz* off, const quic_moqctl_subscribe_ok* m);
+    wired_mspan buf, usz* off, const quic_moqctl_subscribe_ok* m);
 
 /** draft-ietf-moq-transport-19 SS10.9 PUBLISH. */
 typedef struct {
@@ -237,12 +238,13 @@ typedef struct {
   quic_moqctl_ftn    name;
   u64                track_alias;
   quic_moqctl_params params;
-  quic_span          track_properties;
+  wired_span         track_properties;
 } quic_moqctl_publish;
 
-int quic_moqctl_publish_take(quic_span buf, usz* off, quic_moqctl_publish* out);
+int quic_moqctl_publish_take(
+    wired_span buf, usz* off, quic_moqctl_publish* out);
 int quic_moqctl_publish_encode(
-    quic_mspan buf, usz* off, const quic_moqctl_publish* m);
+    wired_mspan buf, usz* off, const quic_moqctl_publish* m);
 
 /** draft-ietf-moq-transport-19 SS10.5 REQUEST_OK. Non-empty
  * track_properties is only legal for the TRACK_STATUS_OK variant; this
@@ -251,19 +253,19 @@ int quic_moqctl_publish_encode(
  * PUBLISH_OK etc." rule. */
 typedef struct {
   quic_moqctl_params params;
-  quic_span          track_properties;
+  wired_span         track_properties;
 } quic_moqctl_request_ok;
 
 int quic_moqctl_request_ok_take(
-    quic_span buf, usz* off, quic_moqctl_request_ok* out);
+    wired_span buf, usz* off, quic_moqctl_request_ok* out);
 int quic_moqctl_request_ok_encode(
-    quic_mspan buf, usz* off, const quic_moqctl_request_ok* m);
+    wired_mspan buf, usz* off, const quic_moqctl_request_ok* m);
 
 /** draft-ietf-moq-transport-19 SS10.8 REQUEST_ERROR redirect (SS10.8.1). */
 typedef struct {
-  quic_span      connect_uri;
+  wired_span     connect_uri;
   quic_moqctl_ns track_namespace;
-  quic_span      track_name;
+  wired_span     track_name;
 } quic_moqctl_redirect;
 
 /** draft-ietf-moq-transport-19 SS10.8 REQUEST_ERROR. has_redirect is only
@@ -279,9 +281,9 @@ typedef struct {
 } quic_moqctl_request_error;
 
 int quic_moqctl_request_error_take(
-    quic_span buf, usz* off, quic_moqctl_request_error* out);
+    wired_span buf, usz* off, quic_moqctl_request_error* out);
 int quic_moqctl_request_error_encode(
-    quic_mspan buf, usz* off, const quic_moqctl_request_error* m);
+    wired_mspan buf, usz* off, const quic_moqctl_request_error* m);
 
 /** draft-ietf-moq-transport-19 SS10.10 PUBLISH_DONE. */
 typedef struct {
@@ -291,19 +293,19 @@ typedef struct {
 } quic_moqctl_publish_done;
 
 int quic_moqctl_publish_done_take(
-    quic_span buf, usz* off, quic_moqctl_publish_done* out);
+    wired_span buf, usz* off, quic_moqctl_publish_done* out);
 int quic_moqctl_publish_done_encode(
-    quic_mspan buf, usz* off, const quic_moqctl_publish_done* m);
+    wired_mspan buf, usz* off, const quic_moqctl_publish_done* m);
 
 /** draft-ietf-moq-transport-19 SS10.3 GOAWAY. */
 typedef struct {
-  quic_span new_session_uri;
-  u64       timeout;
+  wired_span new_session_uri;
+  u64        timeout;
 } quic_moqctl_goaway;
 
-int quic_moqctl_goaway_take(quic_span buf, usz* off, quic_moqctl_goaway* out);
+int quic_moqctl_goaway_take(wired_span buf, usz* off, quic_moqctl_goaway* out);
 int quic_moqctl_goaway_encode(
-    quic_mspan buf, usz* off, const quic_moqctl_goaway* m);
+    wired_mspan buf, usz* off, const quic_moqctl_goaway* m);
 
 /** Common envelope: reads Type (vi64) + Length (16-bit BE) at *off,
  * without consuming past QUIC_MOQCTL_OK's Type+Length header. On
@@ -317,6 +319,6 @@ int quic_moqctl_goaway_encode(
  * SUBSCRIBE_NAMESPACE/SUBSCRIBE_TRACKS/NAMESPACE/NAMESPACE_DONE/
  * PUBLISH_SKIPPED); caller replies NOT_SUPPORTED rather than closing. */
 int quic_moqctl_peek_type(
-    quic_span buf, usz* off, u64* type_out, quic_span* body);
+    wired_span buf, usz* off, u64* type_out, wired_span* body);
 
 #endif

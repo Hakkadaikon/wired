@@ -25,7 +25,7 @@ static i64 first_static_index(const u8* fs, usz fs_len) {
   int is_static = 0;
   usz off       = quic_qpack_prefix_decode(fs, fs_len, &(quic_qpack_prefix){0});
   usz c         = off ? quic_qpack_indexed_decode(
-                            quic_span_of(fs + off, fs_len - off), &index, &is_static)
+                            wired_span_of(fs + off, fs_len - off), &index, &is_static)
                       : 0;
   if (!c || !is_static) return -1;
   return (i64)index;
@@ -45,12 +45,12 @@ static void test_enc_method_static_index(void) {
   const u8              path[] = {'/'};
   const u8              auth[] = {'h'};
   quic_h3req_headers_in hin    = {
-      quic_span_of(path, sizeof path), quic_span_of(auth, sizeof auth)};
+      wired_span_of(path, sizeof path), wired_span_of(auth, sizeof auth)};
   for (usz i = 0; i < 6; i++) {
-    u8        fs[256];
-    quic_obuf ob = {fs, sizeof fs, 0};
+    u8         fs[256];
+    wired_obuf ob = {fs, sizeof fs, 0};
     CHECK(quic_h3req_enc_method(
-        quic_span_of((const u8*)cases[i].m, cases[i].mlen), &hin, &ob));
+        wired_span_of((const u8*)cases[i].m, cases[i].mlen), &hin, &ob));
     CHECK(first_static_index(fs, ob.len) == cases[i].idx);
   }
 }
@@ -61,10 +61,10 @@ static void test_enc_method_unknown_literal(void) {
   const u8              path[] = {'/'};
   const u8              auth[] = {'h'};
   u8                    fs[256];
-  quic_obuf             ob  = {fs, sizeof fs, 0};
+  wired_obuf            ob  = {fs, sizeof fs, 0};
   quic_h3req_headers_in hin = {
-      quic_span_of(path, sizeof path), quic_span_of(auth, sizeof auth)};
-  CHECK(quic_h3req_enc_method(quic_span_of((const u8*)"PATCH", 5), &hin, &ob));
+      wired_span_of(path, sizeof path), wired_span_of(auth, sizeof auth)};
+  CHECK(quic_h3req_enc_method(wired_span_of((const u8*)"PATCH", 5), &hin, &ob));
   CHECK(first_static_index(fs, ob.len) == -1);
 }
 
@@ -82,11 +82,11 @@ static void test_enc_get_matches_method(void) {
   const u8              path[] = {'/', 'x'};
   const u8              auth[] = {'h', '1'};
   u8                    a[256], b[256];
-  quic_obuf             aob = {a, sizeof a, 0}, bob = {b, sizeof b, 0};
+  wired_obuf            aob = {a, sizeof a, 0}, bob = {b, sizeof b, 0};
   quic_h3req_headers_in hin = {
-      quic_span_of(path, sizeof path), quic_span_of(auth, sizeof auth)};
+      wired_span_of(path, sizeof path), wired_span_of(auth, sizeof auth)};
   CHECK(quic_h3req_enc_get(&hin, &aob));
-  CHECK(quic_h3req_enc_method(quic_span_of((const u8*)"GET", 3), &hin, &bob));
+  CHECK(quic_h3req_enc_method(wired_span_of((const u8*)"GET", 3), &hin, &bob));
   CHECK(enc_bytes_eq(a, aob.len, b, bob.len));
 }
 
@@ -97,14 +97,14 @@ static void test_send_method_post_roundtrip(void) {
   const u8                 auth[] = {'e', 'x'};
   const u8                 body[] = {'h', 'i'};
   u8                       req[256], scratch[128];
-  quic_obuf                req_ob = {req, sizeof req, 0};
+  wired_obuf               req_ob = {req, sizeof req, 0};
   wired_h3reqdrive_req     r;
   wired_h3reqdrive_send_in in = {
-      quic_span_of((const u8*)"POST", 4), quic_span_of(path, sizeof path),
-      quic_span_of(auth, sizeof auth), quic_span_of(body, sizeof body)};
+      wired_span_of((const u8*)"POST", 4), wired_span_of(path, sizeof path),
+      wired_span_of(auth, sizeof auth), wired_span_of(body, sizeof body)};
   CHECK(wired_h3reqdrive_send_method(0, &in, &req_ob));
   CHECK(wired_h3reqdrive_recv_get(
-      quic_span_of(req, req_ob.len), quic_mspan_of(scratch, sizeof scratch),
+      wired_span_of(req, req_ob.len), wired_mspan_of(scratch, sizeof scratch),
       &r));
   CHECK(em_eq(r.method, r.method_len, "POST"));
   CHECK(em_eq(r.scheme, r.scheme_len, "https"));
@@ -118,7 +118,7 @@ static int scan_for_data(const u8* h3, usz n, const u8** b, usz* blen) {
   quic_h3_frame f   = {0};
   usz           off = 0;
   while (off < n) {
-    usz used = quic_h3_frame_get(quic_span_of(h3 + off, n - off), &f);
+    usz used = quic_h3_frame_get(wired_span_of(h3 + off, n - off), &f);
     if (!used) return 0;
     off += used;
     if (f.type == QUIC_H3_FRAME_DATA) {
@@ -145,20 +145,20 @@ static void test_send_method_body_frame(void) {
   const u8                 auth[] = {'h'};
   const u8                 body[] = {'A', 'B', 'C'};
   u8                       req[256];
-  quic_obuf                req_ob = {req, sizeof req, 0};
+  wired_obuf               req_ob = {req, sizeof req, 0};
   usz                      blen   = 0;
   const u8*                b      = 0;
   wired_h3reqdrive_send_in in1    = {
-      quic_span_of((const u8*)"POST", 4), quic_span_of(path, sizeof path),
-      quic_span_of(auth, sizeof auth), quic_span_of(body, sizeof body)};
+      wired_span_of((const u8*)"POST", 4), wired_span_of(path, sizeof path),
+      wired_span_of(auth, sizeof auth), wired_span_of(body, sizeof body)};
   CHECK(wired_h3reqdrive_send_method(0, &in1, &req_ob));
   CHECK(find_data_body(req, req_ob.len, &b, &blen));
   CHECK(blen == 3 && b[0] == 'A' && b[1] == 'B' && b[2] == 'C');
   /* boundary: no body -> no DATA frame */
-  req_ob                       = (quic_obuf){req, sizeof req, 0};
+  req_ob                       = (wired_obuf){req, sizeof req, 0};
   wired_h3reqdrive_send_in in2 = {
-      quic_span_of((const u8*)"GET", 3), quic_span_of(path, sizeof path),
-      quic_span_of(auth, sizeof auth), quic_span_of(0, 0)};
+      wired_span_of((const u8*)"GET", 3), wired_span_of(path, sizeof path),
+      wired_span_of(auth, sizeof auth), wired_span_of(0, 0)};
   CHECK(wired_h3reqdrive_send_method(0, &in2, &req_ob));
   CHECK(find_data_body(req, req_ob.len, &b, &blen) == 0);
 }
@@ -168,14 +168,14 @@ static void test_send_method_asterisk_path(void) {
   const u8                 path[] = {'*'};
   const u8                 auth[] = {'e', 'x'};
   u8                       req[256], scratch[128];
-  quic_obuf                req_ob = {req, sizeof req, 0};
+  wired_obuf               req_ob = {req, sizeof req, 0};
   wired_h3reqdrive_req     r;
   wired_h3reqdrive_send_in in = {
-      quic_span_of((const u8*)"OPTIONS", 7), quic_span_of(path, sizeof path),
-      quic_span_of(auth, sizeof auth), quic_span_of(0, 0)};
+      wired_span_of((const u8*)"OPTIONS", 7), wired_span_of(path, sizeof path),
+      wired_span_of(auth, sizeof auth), wired_span_of(0, 0)};
   CHECK(wired_h3reqdrive_send_method(0, &in, &req_ob));
   CHECK(wired_h3reqdrive_recv_get(
-      quic_span_of(req, req_ob.len), quic_mspan_of(scratch, sizeof scratch),
+      wired_span_of(req, req_ob.len), wired_mspan_of(scratch, sizeof scratch),
       &r));
   CHECK(em_eq(r.method, r.method_len, "OPTIONS"));
   CHECK(em_eq(r.path, r.path_len, "*"));

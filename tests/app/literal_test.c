@@ -8,13 +8,13 @@ static void test_literal_namref_golden(void) {
   u8                 buf[8];
   quic_qpack_nameref er = {1, 1, 0};
   usz                w  = quic_qpack_literal_namref_encode(
-      quic_mspan_of(buf, sizeof(buf)), &er, quic_span_of(v, 1));
+      wired_mspan_of(buf, sizeof(buf)), &er, wired_span_of(v, 1));
   CHECK(w == 3 && buf[0] == 0x51 && buf[1] == 0x01 && buf[2] == 0x2f);
 
   quic_qpack_nameref dr;
   u8                 out[8];
-  quic_obuf          ob = quic_obuf_of(out, sizeof(out));
-  usz r = quic_qpack_literal_namref_decode(quic_span_of(buf, w), &dr, &ob);
+  wired_obuf         ob = quic_obuf_of(out, sizeof(out));
+  usz r = quic_qpack_literal_namref_decode(wired_span_of(buf, w), &dr, &ob);
   CHECK(r == w && dr.index == 1 && dr.is_static == 1 && dr.never == 0);
   CHECK(ob.len == 1 && out[0] == '/');
 }
@@ -26,14 +26,14 @@ static void test_literal_namref_flags(void) {
   u8                 buf[8];
   quic_qpack_nameref er = {3, 0, 1};
   usz                w  = quic_qpack_literal_namref_encode(
-      quic_mspan_of(buf, sizeof(buf)), &er, quic_span_of(v, 2));
+      wired_mspan_of(buf, sizeof(buf)), &er, wired_span_of(v, 2));
   /* 01NTiiii: N=1,T=0,index=3 -> 0110 0011 = 0x63. */
   CHECK(w != 0 && buf[0] == 0x63);
 
   quic_qpack_nameref dr;
   u8                 out[8];
-  quic_obuf          ob = quic_obuf_of(out, sizeof(out));
-  usz r = quic_qpack_literal_namref_decode(quic_span_of(buf, w), &dr, &ob);
+  wired_obuf         ob = quic_obuf_of(out, sizeof(out));
+  usz r = quic_qpack_literal_namref_decode(wired_span_of(buf, w), &dr, &ob);
   CHECK(r == w && dr.index == 3 && dr.is_static == 0 && dr.never == 1);
   CHECK(ob.len == 2 && out[0] == 'a' && out[1] == 'b');
 }
@@ -43,8 +43,9 @@ static void test_literal_namref_reject(void) {
   u8                 bad = 0x80;
   quic_qpack_nameref dr;
   u8                 out[8];
-  quic_obuf          ob = quic_obuf_of(out, sizeof(out));
-  CHECK(quic_qpack_literal_namref_decode(quic_span_of(&bad, 1), &dr, &ob) == 0);
+  wired_obuf         ob = quic_obuf_of(out, sizeof(out));
+  CHECK(
+      quic_qpack_literal_namref_decode(wired_span_of(&bad, 1), &dr, &ob) == 0);
 }
 
 /* RFC 9204 4.5.6: N=0,H=0,name "x" (00100001=0x21, 0x78), value "y". */
@@ -52,9 +53,9 @@ static void test_literal_name_golden(void) {
   const u8         nm[] = {'x'};
   const u8         v[]  = {'y'};
   u8               buf[8];
-  quic_qpack_field ef = {quic_span_of(nm, 1), quic_span_of(v, 1)};
+  quic_qpack_field ef = {wired_span_of(nm, 1), wired_span_of(v, 1)};
   usz              w =
-      quic_qpack_literal_name_encode(quic_mspan_of(buf, sizeof(buf)), 0, &ef);
+      quic_qpack_literal_name_encode(wired_mspan_of(buf, sizeof(buf)), 0, &ef);
   CHECK(w == 4 && buf[0] == 0x21 && buf[1] == 0x78);
   CHECK(buf[2] == 0x01 && buf[3] == 0x79);
 
@@ -62,7 +63,7 @@ static void test_literal_name_golden(void) {
   u8                  outn[8], outv[8];
   quic_qpack_fieldbuf fb = {
       quic_obuf_of(outn, sizeof(outn)), quic_obuf_of(outv, sizeof(outv))};
-  usz r = quic_qpack_literal_name_decode(quic_span_of(buf, w), &nv, &fb);
+  usz r = quic_qpack_literal_name_decode(wired_span_of(buf, w), &nv, &fb);
   CHECK(r == w && nv == 0 && fb.name.len == 1 && outn[0] == 'x');
   CHECK(fb.value.len == 1 && outv[0] == 'y');
 }
@@ -72,9 +73,9 @@ static void test_literal_name_prefix_boundary(void) {
   const u8         nm[] = {'a', 'b', 'c', 'd', 'e', 'f', 'g'};
   const u8         v[]  = {'z'};
   u8               buf[16];
-  quic_qpack_field ef = {quic_span_of(nm, 7), quic_span_of(v, 1)};
+  quic_qpack_field ef = {wired_span_of(nm, 7), wired_span_of(v, 1)};
   usz              w =
-      quic_qpack_literal_name_encode(quic_mspan_of(buf, sizeof(buf)), 0, &ef);
+      quic_qpack_literal_name_encode(wired_mspan_of(buf, sizeof(buf)), 0, &ef);
   /* 001NHiii with iii=111 then a 0x00 continuation byte for 7-7=0. */
   CHECK(w != 0 && buf[0] == 0x27 && buf[1] == 0x00);
 
@@ -82,7 +83,7 @@ static void test_literal_name_prefix_boundary(void) {
   u8                  outn[8], outv[8];
   quic_qpack_fieldbuf fb = {
       quic_obuf_of(outn, sizeof(outn)), quic_obuf_of(outv, sizeof(outv))};
-  usz r = quic_qpack_literal_name_decode(quic_span_of(buf, w), &nv, &fb);
+  usz r = quic_qpack_literal_name_decode(wired_span_of(buf, w), &nv, &fb);
   CHECK(r == w && fb.name.len == 7 && outn[6] == 'g');
   CHECK(fb.value.len == 1 && outv[0] == 'z');
 }
@@ -95,8 +96,9 @@ static void test_literal_name_reject(void) {
   u8                  outn[8], outv[8];
   quic_qpack_fieldbuf fb = {
       quic_obuf_of(outn, sizeof(outn)), quic_obuf_of(outv, sizeof(outv))};
-  CHECK(quic_qpack_literal_name_decode(quic_span_of(&huff, 1), &nv, &fb) == 0);
-  CHECK(quic_qpack_literal_name_decode(quic_span_of(&wrong, 1), &nv, &fb) == 0);
+  CHECK(quic_qpack_literal_name_decode(wired_span_of(&huff, 1), &nv, &fb) == 0);
+  CHECK(
+      quic_qpack_literal_name_decode(wired_span_of(&wrong, 1), &nv, &fb) == 0);
 }
 
 /* RFC 9204 4.5.5: N=0, index=0 (0000 0 000=0x00), value "x" (0x01 0x78). */
@@ -105,13 +107,13 @@ static void test_literal_postbase_golden(void) {
   u8                     buf[8];
   quic_qpack_postbaseref er = {0, 0};
   usz                    w  = quic_qpack_literal_postbase_encode(
-      quic_mspan_of(buf, sizeof(buf)), &er, quic_span_of(v, 1));
+      wired_mspan_of(buf, sizeof(buf)), &er, wired_span_of(v, 1));
   CHECK(w == 3 && buf[0] == 0x00 && buf[1] == 0x01 && buf[2] == 0x78);
 
   quic_qpack_postbaseref dr;
   u8                     out[8];
-  quic_obuf              ob = quic_obuf_of(out, sizeof(out));
-  usz r = quic_qpack_literal_postbase_decode(quic_span_of(buf, w), &dr, &ob);
+  wired_obuf             ob = quic_obuf_of(out, sizeof(out));
+  usz r = quic_qpack_literal_postbase_decode(wired_span_of(buf, w), &dr, &ob);
   CHECK(r == w && dr.index == 0 && dr.never == 0);
   CHECK(ob.len == 1 && out[0] == 'x');
 }
@@ -122,14 +124,14 @@ static void test_literal_postbase_flags(void) {
   u8                     buf[8];
   quic_qpack_postbaseref er = {3, 1};
   usz                    w  = quic_qpack_literal_postbase_encode(
-      quic_mspan_of(buf, sizeof(buf)), &er, quic_span_of(v, 2));
+      wired_mspan_of(buf, sizeof(buf)), &er, wired_span_of(v, 2));
   /* 0000Niii: N=1, index=3 -> 0000 1011 = 0x0B. */
   CHECK(w != 0 && buf[0] == 0x0B);
 
   quic_qpack_postbaseref dr;
   u8                     out[8];
-  quic_obuf              ob = quic_obuf_of(out, sizeof(out));
-  usz r = quic_qpack_literal_postbase_decode(quic_span_of(buf, w), &dr, &ob);
+  wired_obuf             ob = quic_obuf_of(out, sizeof(out));
+  usz r = quic_qpack_literal_postbase_decode(wired_span_of(buf, w), &dr, &ob);
   CHECK(r == w && dr.index == 3 && dr.never == 1);
   CHECK(ob.len == 2 && out[0] == 'a' && out[1] == 'b');
 }
@@ -140,9 +142,10 @@ static void test_literal_postbase_reject(void) {
   u8                     bad = 0x80; /* Indexed Field Line */
   quic_qpack_postbaseref dr;
   u8                     out[8];
-  quic_obuf              ob = quic_obuf_of(out, sizeof(out));
+  wired_obuf             ob = quic_obuf_of(out, sizeof(out));
   CHECK(
-      quic_qpack_literal_postbase_decode(quic_span_of(&bad, 1), &dr, &ob) == 0);
+      quic_qpack_literal_postbase_decode(wired_span_of(&bad, 1), &dr, &ob) ==
+      0);
 }
 
 void test_literal(void) {

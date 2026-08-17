@@ -7,15 +7,15 @@ void quic_rtxbytes_init(quic_rtxbytes* st) {
   for (usz i = 0; i < QUIC_RTXBYTES_SLOTS; i++) st->s[i].used = 0;
 }
 
-int quic_rtxbytes_store(quic_rtxbytes* st, u64 pn, quic_span frame) {
+int quic_rtxbytes_store(quic_rtxbytes* st, u64 pn, wired_span frame) {
   quic_rtxbytes_slot* slot;
   usz                 off = 0;
 
   if (frame.n > QUIC_RTXBYTES_FRAME) return 0;
   slot = &st->s[st->next];
   if (!quic_put_bytes(
-          quic_mspan_of(slot->data, QUIC_RTXBYTES_FRAME), &off,
-          quic_span_of(frame.p, frame.n)))
+          wired_mspan_of(slot->data, QUIC_RTXBYTES_FRAME), &off,
+          wired_span_of(frame.p, frame.n)))
     return 0;
   slot->pn   = pn;
   slot->len  = frame.n;
@@ -29,10 +29,10 @@ static int slot_holds(const quic_rtxbytes_slot* slot, u64 pn) {
   return slot->used && slot->pn == pn;
 }
 
-int quic_rtxbytes_get(const quic_rtxbytes* st, u64 pn, quic_span* out) {
+int quic_rtxbytes_get(const quic_rtxbytes* st, u64 pn, wired_span* out) {
   for (usz i = 0; i < QUIC_RTXBYTES_SLOTS; i++) {
     if (!slot_holds(&st->s[i], pn)) continue;
-    *out = quic_span_of(st->s[i].data, st->s[i].len);
+    *out = wired_span_of(st->s[i].data, st->s[i].len);
     return 1;
   }
   return 0;

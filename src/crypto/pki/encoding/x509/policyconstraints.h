@@ -19,11 +19,11 @@
  * and carries it. Returns QUIC_X509_SKIPCERTS_NONE if the extension is
  * absent or present without this field (both mean "unconstrained"), or
  * QUIC_X509_SKIPCERTS_MALFORMED if the extension is present but malformed. */
-u64 quic_x509_require_explicit_policy(quic_span tbs);
+u64 quic_x509_require_explicit_policy(wired_span tbs);
 
 /* RFC 5280 4.2.1.14. InhibitAnyPolicy ::= SkipCerts (a bare INTEGER
  * extnValue, not wrapped in a SEQUENCE). Returns QUIC_X509_SKIPCERTS_NONE if
  * absent, QUIC_X509_SKIPCERTS_MALFORMED if present but malformed. */
-u64 quic_x509_inhibit_any_policy(quic_span tbs);
+u64 quic_x509_inhibit_any_policy(wired_span tbs);
 
 #endif

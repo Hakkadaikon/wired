@@ -40,26 +40,26 @@ typedef struct {
    * returns the allocated id or negative on failure -- the control stream
    * (moqtrun_send_setup) needs this because it stays open for further
    * rounds (SUBSCRIBE_OK/REQUEST_OK/... replies, one per call). */
-  i64 (*open_bidi_stream)(wired_wt_session* s, quic_span payload);
+  i64 (*open_bidi_stream)(wired_wt_session* s, wired_span payload);
   /** wired_server_wt_stream_send-shaped: appends payload, fin=1 closes.
    * wired_server_wt_stream_send never accepts an empty payload (a FIN
    * needs a final non-empty slice to ride on -- see its doc), so this
    * table's callers never invoke stream_send with fin=1 and an empty
    * payload; use send_uni for a stream that closes with its only round. */
   int (*stream_send)(
-      wired_wt_session* s, u64 stream_id, quic_span payload, int fin);
+      wired_wt_session* s, u64 stream_id, wired_span payload, int fin);
   /** wired_server_wt_open_uni-shaped: opens a fresh uni stream, sends the
    * whole payload, and closes it with FIN on the final slice -- one call,
    * no keep-open round. Used for a relayed Object (one
    * complete SUBGROUP_HEADER+Object per stream), which never needs a
    * second round. */
-  i64 (*send_uni)(wired_wt_session* s, quic_span payload);
+  i64 (*send_uni)(wired_wt_session* s, wired_span payload);
   /** wired_server_wt_open_uni_stream-shaped: opens a fresh uni stream
    * WITHOUT FIN, sends payload as its first round, and keeps the stream
    * open for further stream_send rounds -- used to start a subscriber's
    * long-lived relay stream (the audio track's per-frame relay, unlike
    * chat's one-shot send_uni). */
-  i64 (*open_uni_stream)(wired_wt_session* s, quic_span payload);
+  i64 (*open_uni_stream)(wired_wt_session* s, wired_span payload);
   /** wired_server_wt_stream_fin-shaped: ends a stream opened via
    * open_uni_stream/stream_send(fin=0) with no further bytes -- used when
    * the publisher's own stream FIN arrives on a call carrying no new
@@ -298,7 +298,7 @@ void wired_moqt_init(wired_moqt_hub* hub, wired_moqt_io io);
  * wired_moqt_hub*. path/protocol are unused (room membership is hub-side
  * fixed, not negotiated). */
 void wired_moqt_on_session(
-    void* app_ctx, wired_wt_session* s, quic_span path, quic_span protocol);
+    void* app_ctx, wired_wt_session* s, wired_span path, wired_span protocol);
 
 /** wired_wt_on_stream_data-shaped: dispatches one chunk of a control or
  * data stream to the hub's session/subscribe state machines and the
@@ -309,7 +309,11 @@ void wired_moqt_on_session(
  * chat-message-sized payloads this hub relays; a partial-message boundary
  * spanning two calls is not reassembled). */
 void wired_moqt_on_stream_data(
-    void* app_ctx, wired_wt_session* s, u64 stream_id, quic_span data, int fin);
+    void*             app_ctx,
+    wired_wt_session* s,
+    u64               stream_id,
+    wired_span        data,
+    int               fin);
 
 /** wired_wt_on_session_close-shaped: frees the peer slot registered for s
  * and deactivates every subscription other peers' tracks held for it (their

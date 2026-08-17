@@ -4,12 +4,12 @@
 void test_dg_recv_with_length(void) {
   const u8            data[] = {0xDE, 0xAD, 0xBE, 0xEF};
   u8                  frame[16];
-  quic_obuf           fb = quic_obuf_of(frame, sizeof(frame));
+  wired_obuf          fb = quic_obuf_of(frame, sizeof(frame));
   quic_dgdeliver_opts o  = {1, 64};
-  quic_dgdeliver_frame(quic_span_of(data, 4), &o, &fb);
+  quic_dgdeliver_frame(wired_span_of(data, 4), &o, &fb);
 
-  quic_span p  = {0, 0};
-  int       ok = quic_dgdeliver_extract(quic_span_of(frame, fb.len), &p);
+  wired_span p  = {0, 0};
+  int        ok = quic_dgdeliver_extract(wired_span_of(frame, fb.len), &p);
   CHECK(ok == 1 && p.n == 4 && p.p == frame + 2); /* type + len byte */
   CHECK(p.p[0] == 0xDE && p.p[3] == 0xEF);
 }
@@ -18,12 +18,12 @@ void test_dg_recv_with_length(void) {
 void test_dg_recv_no_length(void) {
   const u8            data[] = {7, 8, 9};
   u8                  frame[16];
-  quic_obuf           fb = quic_obuf_of(frame, sizeof(frame));
+  wired_obuf          fb = quic_obuf_of(frame, sizeof(frame));
   quic_dgdeliver_opts o  = {0, 64};
-  quic_dgdeliver_frame(quic_span_of(data, 3), &o, &fb);
+  quic_dgdeliver_frame(wired_span_of(data, 3), &o, &fb);
 
-  quic_span p  = {0, 0};
-  int       ok = quic_dgdeliver_extract(quic_span_of(frame, fb.len), &p);
+  wired_span p  = {0, 0};
+  int        ok = quic_dgdeliver_extract(wired_span_of(frame, fb.len), &p);
   CHECK(ok == 1 && p.n == 3 && p.p == frame + 1);
   CHECK(p.p[0] == 7 && p.p[2] == 9);
 }
@@ -32,10 +32,10 @@ void test_dg_recv_no_length(void) {
 void test_dg_recv_truncated(void) {
   const u8            data[] = {1, 2, 3, 4, 5};
   u8                  frame[16];
-  quic_obuf           fb = quic_obuf_of(frame, sizeof(frame));
+  wired_obuf          fb = quic_obuf_of(frame, sizeof(frame));
   quic_dgdeliver_opts o  = {1, 64};
-  quic_dgdeliver_frame(quic_span_of(data, 5), &o, &fb);
+  quic_dgdeliver_frame(wired_span_of(data, 5), &o, &fb);
 
-  quic_span p = {0, 0};
-  CHECK(quic_dgdeliver_extract(quic_span_of(frame, fb.len - 1), &p) == 0);
+  wired_span p = {0, 0};
+  CHECK(quic_dgdeliver_extract(wired_span_of(frame, fb.len - 1), &p) == 0);
 }

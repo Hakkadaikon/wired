@@ -29,9 +29,9 @@ void quic_endpoint_init(quic_endpoint* e, const u8 priv[32], const u8 dcid[8]);
  * bytes), the handshake transcript, and the direction the derived keys are
  * for. */
 typedef struct {
-  const u8* peer_pub;
-  quic_span transcript;
-  int       is_server;
+  const u8*  peer_pub;
+  wired_span transcript;
+  int        is_server;
 } quic_endpoint_peer;
 
 /* Complete the key agreement from the peer inputs: computes the ECDHE secret

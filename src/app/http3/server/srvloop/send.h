@@ -19,14 +19,14 @@
  * send_onertt), and the payload — a TLS flight to wrap in CRYPTO for
  * Initial/Handshake, or the raw 1-RTT payload for send_onertt. */
 typedef struct {
-  quic_span cli_scid; /**< reply DCID: the client's SCID (RFC 9000 7.2) */
-  u64       pn;       /**< the packet number to seal with */
-  i64       ack_pn;   /**< client packet to acknowledge, < 0 for none */
-  quic_span payload;  /**< TLS flight (Initial/Handshake) or raw 1-RTT bytes */
-  u64       crypto_off; /**< CRYPTO stream offset of payload's first byte
-                           (send_handshake only, RFC 9000 19.6): 0 for an
-                           unsplit flight, the chunk's start offset when a
-                           flight is split across packets */
+  wired_span cli_scid; /**< reply DCID: the client's SCID (RFC 9000 7.2) */
+  u64        pn;       /**< the packet number to seal with */
+  i64        ack_pn;   /**< client packet to acknowledge, < 0 for none */
+  wired_span payload;  /**< TLS flight (Initial/Handshake) or raw 1-RTT bytes */
+  u64        crypto_off; /**< CRYPTO stream offset of payload's first byte
+                            (send_handshake only, RFC 9000 19.6): 0 for an
+                            unsplit flight, the chunk's start offset when a
+                            flight is split across packets */
 } wired_srvloop_send_in;
 
 /** Seal a ServerHello TLS flight into a server Initial packet, addressed to
@@ -39,7 +39,7 @@ typedef struct {
  * @param out receives the sealed packet
  * @return 1 with out->len set, 0 on overflow. */
 int wired_srvloop_send_initial(
-    const wired_server* s, const wired_srvloop_send_in* in, quic_obuf* out);
+    const wired_server* s, const wired_srvloop_send_in* in, wired_obuf* out);
 
 /** Same as wired_srvloop_send_initial, but the Initial keys, the header's
  * Version field, and byte0's type bits all follow `version` (RFC 9369
@@ -50,7 +50,7 @@ int wired_srvloop_send_initial_ver(
     u32                          version,
     const wired_server*          s,
     const wired_srvloop_send_in* in,
-    quic_obuf*                   out);
+    wired_obuf*                  out);
 
 /** Seal a Handshake TLS flight under SERVER_HS. When in->ack_pn >= 0 the
  * flight acknowledges that received Handshake-space packet number (RFC 9000
@@ -61,7 +61,7 @@ int wired_srvloop_send_initial_ver(
  * @return 1 with out->len set, or 0 if the key is not derived or on
  *   overflow. */
 int wired_srvloop_send_handshake(
-    const wired_server* s, const wired_srvloop_send_in* in, quic_obuf* out);
+    const wired_server* s, const wired_srvloop_send_in* in, wired_obuf* out);
 
 /** Seal a raw 1-RTT payload (for example HANDSHAKE_DONE) under SERVER_AP.
  * in->ack_pn is unused (1-RTT sealing never ACKs).
@@ -71,6 +71,6 @@ int wired_srvloop_send_handshake(
  * @return 1 with out->len set, or 0 if the key is not derived or on
  *   overflow. */
 int wired_srvloop_send_onertt(
-    const wired_server* s, const wired_srvloop_send_in* in, quic_obuf* out);
+    const wired_server* s, const wired_srvloop_send_in* in, wired_obuf* out);
 
 #endif

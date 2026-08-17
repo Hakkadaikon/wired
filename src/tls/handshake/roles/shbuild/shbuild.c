@@ -8,13 +8,13 @@
 /* Internal, group-explicit view shared by both public entry points (x25519-
  * frozen quic_shbuild_in and group-explicit quic_shbuild_group_in). */
 typedef struct {
-  const u8* random;
-  quic_span session_id;
-  u16       cipher_suite;
-  const u8* server_pub;
-  int       psk_accepted;
-  u16       group;
-  usz       pub_len;
+  const u8*  random;
+  wired_span session_id;
+  u16        cipher_suite;
+  const u8*  server_pub;
+  int        psk_accepted;
+  u16        group;
+  usz        pub_len;
 } shb_in;
 
 /* RFC 8446 4.1.3 prefix: legacy_version(2) random(32) session_id(1+sid_len)
@@ -34,12 +34,12 @@ static usz shb_prefix(u8* out, usz off, const shb_in* in) {
 /* RFC 8446 4.2.1 ServerHello supported_versions: ext_data is the selected
  * version (2 bytes), no list length. type(2) ext_len(2)=2 version(2). */
 static int shb_versions(u8* buf, usz cap, usz* off) {
-  u8        ext[6];
-  quic_obuf out = {buf, cap, *off};
+  u8         ext[6];
+  wired_obuf out = {buf, cap, *off};
   quic_put_be16(ext, QUIC_EXT_SUPPORTED_VERSIONS);
   quic_put_be16(ext + 2, 2);
   quic_put_be16(ext + 4, QUIC_TLS13_VERSION);
-  if (!quic_tls_ext_append(&out, quic_span_of(ext, 6))) return 0;
+  if (!quic_tls_ext_append(&out, wired_span_of(ext, 6))) return 0;
   *off = out.len;
   return 1;
 }
@@ -49,14 +49,14 @@ static int shb_versions(u8* buf, usz cap, usz* off) {
  * the widest supported group (secp256r1: 8 + 65). */
 static int shb_key_share(
     u8* buf, usz cap, usz* off, const u8* pub, u16 group, usz pub_len) {
-  u8        ext[73];
-  quic_obuf out = {buf, cap, *off};
+  u8         ext[73];
+  wired_obuf out = {buf, cap, *off};
   quic_put_be16(ext, QUIC_EXT_KEY_SHARE);
   quic_put_be16(ext + 2, (u16)(4 + pub_len));
   quic_put_be16(ext + 4, group);
   quic_put_be16(ext + 6, (u16)pub_len);
   for (usz i = 0; i < pub_len; i++) ext[8 + i] = pub[i];
-  if (!quic_tls_ext_append(&out, quic_span_of(ext, 8 + pub_len))) return 0;
+  if (!quic_tls_ext_append(&out, wired_span_of(ext, 8 + pub_len))) return 0;
   *off = out.len;
   return 1;
 }
@@ -67,12 +67,12 @@ static int shb_key_share(
  * selected_identity(2)=0. */
 #define QUIC_EXT_PRE_SHARED_KEY 0x0029
 static int shb_psk(u8* buf, usz cap, usz* off) {
-  u8        ext[6];
-  quic_obuf out = {buf, cap, *off};
+  u8         ext[6];
+  wired_obuf out = {buf, cap, *off};
   quic_put_be16(ext, QUIC_EXT_PRE_SHARED_KEY);
   quic_put_be16(ext + 2, 2);
   quic_put_be16(ext + 4, 0);
-  if (!quic_tls_ext_append(&out, quic_span_of(ext, 6))) return 0;
+  if (!quic_tls_ext_append(&out, wired_span_of(ext, 6))) return 0;
   *off = out.len;
   return 1;
 }
@@ -101,7 +101,7 @@ static int shb_fits(usz off, usz sid_len, usz cap) {
 }
 
 /* Shared body for both entry points. */
-static int build_server_hello(const shb_in* in, quic_obuf* out) {
+static int build_server_hello(const shb_in* in, wired_obuf* out) {
   usz off = quic_hs_begin(out->p, out->cap, QUIC_HS_SERVER_HELLO);
   usz block_start, end;
   if (!shb_fits(off, in->session_id.n, out->cap)) return 0;
@@ -114,7 +114,7 @@ static int build_server_hello(const shb_in* in, quic_obuf* out) {
   return 1;
 }
 
-int quic_shbuild_server_hello(const quic_shbuild_in* in, quic_obuf* out) {
+int quic_shbuild_server_hello(const quic_shbuild_in* in, wired_obuf* out) {
   shb_in si = {
       in->random,
       in->session_id,
@@ -127,7 +127,7 @@ int quic_shbuild_server_hello(const quic_shbuild_in* in, quic_obuf* out) {
 }
 
 int quic_shbuild_server_hello_group(
-    const quic_shbuild_group_in* in, quic_obuf* out) {
+    const quic_shbuild_group_in* in, wired_obuf* out) {
   shb_in si = {in->random,     in->session_id,   in->cipher_suite,
                in->server_pub, in->psk_accepted, in->group,
                in->pub_len};

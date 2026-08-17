@@ -29,8 +29,8 @@
 static void test_derive_ver_v1_matches_default(void) {
   const u8          dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
   quic_initial_keys ck1, sk1, ck2, sk2;
-  quic_initpkt_derive(quic_span_of(dcid, 8), &ck1, &sk1);
-  quic_initpkt_derive_ver(quic_span_of(dcid, 8), QUIC_VERSION_1, &ck2, &sk2);
+  quic_initpkt_derive(wired_span_of(dcid, 8), &ck1, &sk1);
+  quic_initpkt_derive_ver(wired_span_of(dcid, 8), QUIC_VERSION_1, &ck2, &sk2);
   for (usz i = 0; i < 16; i++) CHECK(ck1.key[i] == ck2.key[i]);
   for (usz i = 0; i < 12; i++) CHECK(ck1.iv[i] == ck2.iv[i]);
   for (usz i = 0; i < 16; i++) CHECK(ck1.hp[i] == ck2.hp[i]);
@@ -43,8 +43,8 @@ static void test_derive_ver_v2_differs_from_v1(void) {
   const u8          dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
   quic_initial_keys ck1, sk1, ck2, sk2;
   int               same_key = 1;
-  quic_initpkt_derive_ver(quic_span_of(dcid, 8), QUIC_VERSION_1, &ck1, &sk1);
-  quic_initpkt_derive_ver(quic_span_of(dcid, 8), QUIC_VERSION_2, &ck2, &sk2);
+  quic_initpkt_derive_ver(wired_span_of(dcid, 8), QUIC_VERSION_1, &ck1, &sk1);
+  quic_initpkt_derive_ver(wired_span_of(dcid, 8), QUIC_VERSION_2, &ck2, &sk2);
   for (usz i = 0; i < 16; i++)
     if (ck1.key[i] != ck2.key[i]) same_key = 0;
   CHECK(!same_key);
@@ -60,14 +60,15 @@ static void test_initpkt_ver_v2_roundtrip(void) {
   const u8          ch[]    = {'v', '2', 'c', 'h'};
   u8                pkt[1300];
   quic_initpkt_desc d = {
-      quic_span_of(dcid, 8), quic_span_of(scid, 4), quic_span_of(ch, 4), 0, 0};
-  quic_obuf o = quic_obuf_of(pkt, sizeof(pkt));
+      wired_span_of(dcid, 8), wired_span_of(scid, 4), wired_span_of(ch, 4), 0,
+      0};
+  wired_obuf o = quic_obuf_of(pkt, sizeof(pkt));
   CHECK(quic_initpkt_build_ver(QUIC_VERSION_2, &d, &o));
   CHECK(o.len >= 1200);
 
-  quic_span crypto;
+  wired_span crypto;
   CHECK(quic_initpkt_open_ver(
-      quic_span_of(dcid, 8), QUIC_VERSION_2, quic_mspan_of(pkt, o.len),
+      wired_span_of(dcid, 8), QUIC_VERSION_2, wired_mspan_of(pkt, o.len),
       &crypto));
   CHECK(crypto.p[0] == 0x06); /* CRYPTO frame type */
   for (usz i = 0; i < 4; i++) CHECK(crypto.p[3 + i] == ch[i]);
@@ -81,13 +82,13 @@ static void test_initpkt_ver_wrong_version_fails(void) {
   const u8          ch[]    = {'x'};
   u8                pkt[1300];
   quic_initpkt_desc d = {
-      quic_span_of(dcid, 8), quic_span_of((const u8*)0, 0), quic_span_of(ch, 1),
-      0, 0};
-  quic_obuf o = quic_obuf_of(pkt, sizeof(pkt));
-  quic_span crypto;
+      wired_span_of(dcid, 8), wired_span_of((const u8*)0, 0),
+      wired_span_of(ch, 1), 0, 0};
+  wired_obuf o = quic_obuf_of(pkt, sizeof(pkt));
+  wired_span crypto;
   CHECK(quic_initpkt_build_ver(QUIC_VERSION_2, &d, &o));
   CHECK(!quic_initpkt_open_ver(
-      quic_span_of(dcid, 8), QUIC_VERSION_1, quic_mspan_of(pkt, o.len),
+      wired_span_of(dcid, 8), QUIC_VERSION_1, wired_mspan_of(pkt, o.len),
       &crypto));
 }
 
@@ -98,9 +99,9 @@ static void test_initpkt_ver_v2_byte0_type_bits(void) {
   const u8          ch[]    = {'x'};
   u8                pkt[1300];
   quic_initpkt_desc d = {
-      quic_span_of(dcid, 8), quic_span_of((const u8*)0, 0), quic_span_of(ch, 1),
-      0, 0};
-  quic_obuf o = quic_obuf_of(pkt, sizeof(pkt));
+      wired_span_of(dcid, 8), wired_span_of((const u8*)0, 0),
+      wired_span_of(ch, 1), 0, 0};
+  wired_obuf o = quic_obuf_of(pkt, sizeof(pkt));
   CHECK(quic_initpkt_build_ver(QUIC_VERSION_2, &d, &o));
   CHECK(quic_packet_long_type(pkt[0], QUIC_VERSION_2) == QUIC_PT_INITIAL);
   /* the same byte read under v1's table must NOT decode as Initial (it is
@@ -160,7 +161,7 @@ static void test_vneg_lists_v1_and_v2(void) {
   u8  out[64];
   int saw_v1 = 0, saw_v2 = 0;
   vneg_dg_init(0x0a0a0a0au); /* a GREASE-shaped unsupported version */
-  usz n = wired_srvboot_vneg(quic_span_of(vneg_dg, sizeof(vneg_dg)), out, 64);
+  usz n = wired_srvboot_vneg(wired_span_of(vneg_dg, sizeof(vneg_dg)), out, 64);
   CHECK(n > 0);
   /* supported-version list starts right after the swapped-CID header
    * (byte0, 4-byte version=0, DCIDlen+DCID, SCIDlen+SCID); DCID/SCID here
@@ -178,7 +179,7 @@ static void test_vneg_lists_v1_and_v2(void) {
 static void test_vneg_not_owed_for_v2(void) {
   vneg_dg_init(QUIC_VERSION_2);
   u8  out[64];
-  usz n = wired_srvboot_vneg(quic_span_of(vneg_dg, sizeof(vneg_dg)), out, 64);
+  usz n = wired_srvboot_vneg(wired_span_of(vneg_dg, sizeof(vneg_dg)), out, 64);
   CHECK(n == 0);
 }
 
@@ -187,7 +188,7 @@ static void test_vneg_not_owed_for_v2(void) {
 static void test_vneg_owed_for_alien_version(void) {
   vneg_dg_init(0x0a0a0a0au);
   u8  out[64];
-  usz n = wired_srvboot_vneg(quic_span_of(vneg_dg, sizeof(vneg_dg)), out, 64);
+  usz n = wired_srvboot_vneg(wired_span_of(vneg_dg, sizeof(vneg_dg)), out, 64);
   CHECK(n > 0);
 }
 
@@ -208,11 +209,11 @@ static usz sbv_make_client_hello(u8* ch, usz cap) {
     cli_priv[i]   = (u8)(i + 1);
     srv_random[i] = (u8)(0xa0 + i);
   }
-  quic_x25519_base(cli_pub, cli_priv);
-  quic_obuf ob = quic_obuf_of(ch, cap);
+  wired_x25519_base(cli_pub, cli_priv);
+  wired_obuf ob = quic_obuf_of(ch, cap);
   return quic_tls_client_hello(
       &(quic_clienthello_in){
-          srv_random, cli_pub, quic_span_of(0, 0), quic_span_of(0, 0)},
+          srv_random, cli_pub, wired_span_of(0, 0), wired_span_of(0, 0)},
       &ob);
 }
 
@@ -231,13 +232,13 @@ static void test_srvboot_accept_v2_initial(void) {
     srv_priv[i]  = (u8)(0x40 + i);
     cert_seed[i] = (u8)(0x80 + i);
   }
-  quic_x25519_base(srv_pub, srv_priv);
+  wired_x25519_base(srv_pub, srv_priv);
 
   u8                pkt[1300];
   quic_initpkt_desc d = {
-      quic_span_of(dcid, 8), quic_span_of(cli_scid, 4),
-      quic_span_of(ch, ch_len), 0, 0};
-  quic_obuf o = quic_obuf_of(pkt, sizeof(pkt));
+      wired_span_of(dcid, 8), wired_span_of(cli_scid, 4),
+      wired_span_of(ch, ch_len), 0, 0};
+  wired_obuf o = quic_obuf_of(pkt, sizeof(pkt));
   CHECK(quic_initpkt_build_ver(QUIC_VERSION_2, &d, &o));
 
   wired_srvboot_id id = {0};
@@ -249,11 +250,11 @@ static void test_srvboot_accept_v2_initial(void) {
   id.random           = srv_priv; /* any 32 bytes; content unchecked here */
 
   u8                 init_buf[1500], flight_buf[4096];
-  quic_obuf          init_ob   = quic_obuf_of(init_buf, sizeof(init_buf));
-  quic_obuf          flight_ob = quic_obuf_of(flight_buf, sizeof(flight_buf));
+  wired_obuf         init_ob   = quic_obuf_of(init_buf, sizeof(init_buf));
+  wired_obuf         flight_ob = quic_obuf_of(flight_buf, sizeof(flight_buf));
   wired_srvboot_out  out       = {&init_ob, &flight_ob, {0}, 0, 0};
   wired_srvboot_conn conn      = {&f.s, &f.l};
-  wired_srvboot_in   in        = {&id, quic_mspan_of(pkt, o.len)};
+  wired_srvboot_in   in        = {&id, wired_mspan_of(pkt, o.len)};
 
   CHECK(wired_srvboot_accept(&conn, &in, &out) == 1);
   /* the sealed server Initial's own long-header Version field must be v2,

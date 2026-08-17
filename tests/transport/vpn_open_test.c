@@ -11,7 +11,7 @@ static void roundtrip(usz pn_len, u64 pn) {
   const u8          dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
   quic_initial_keys keys;
   quic_aes128       hp;
-  quic_initial_derive(quic_span_of(dcid, 8), 0, QUIC_VERSION_1, &keys);
+  quic_initial_derive(wired_span_of(dcid, 8), 0, QUIC_VERSION_1, &keys);
   quic_aes128_init(&hp, keys.hp);
 
   /* byte0 = 0xc0 | (pn_len-1); fixed-length prefix then the pn at pn_off. */
@@ -39,18 +39,18 @@ static void roundtrip(usz pn_len, u64 pn) {
   u8                   pkt[80];
   quic_protect_keys    k   = {&keys, &hp};
   quic_protect_seal_io sio = {
-      quic_span_of(hdr, hdr_len),
+      wired_span_of(hdr, hdr_len),
       pn_off,
       pn_len,
       pn,
-      quic_span_of(payload, sizeof(payload)),
-      quic_mspan_of(pkt, sizeof(pkt))};
+      wired_span_of(payload, sizeof(payload)),
+      wired_mspan_of(pkt, sizeof(pkt))};
   usz total = quic_protect_seal(&k, &sio);
   CHECK(total == hdr_len + sizeof(payload) + 16);
 
   u64           length = pn_len + sizeof(payload) + 16;
-  quic_span     out;
-  quic_vpn_desc vd = {quic_mspan_of(pkt, total), pn_off, length};
+  wired_span    out;
+  quic_vpn_desc vd = {wired_mspan_of(pkt, total), pn_off, length};
   CHECK(quic_vpn_open(&k, &vd, &out));
   CHECK(pkt[0] == (u8)(0xc0 | (pn_len - 1))); /* byte0 unmasked -> pn_len */
   CHECK((pkt[0] & 0x03) + 1 == pn_len);
@@ -69,24 +69,24 @@ static void test_vpn_tamper(void) {
   const u8          dcid[8] = {1, 2, 3, 4, 5, 6, 7, 8};
   quic_initial_keys keys;
   quic_aes128       hp;
-  quic_initial_derive(quic_span_of(dcid, 8), 0, QUIC_VERSION_1, &keys);
+  quic_initial_derive(wired_span_of(dcid, 8), 0, QUIC_VERSION_1, &keys);
   quic_aes128_init(&hp, keys.hp);
   u8 hdr[18] = {0xc1, 0, 0, 0, 1, 8, 1, 2, 3, 4, 5, 6, 7, 8, 0, 0, 0x12, 0x34};
   const u8             payload[] = {1, 2, 3, 4};
   u8                   pkt[64];
   quic_protect_keys    k   = {&keys, &hp};
   quic_protect_seal_io sio = {
-      quic_span_of(hdr, 18),
+      wired_span_of(hdr, 18),
       16,
       2,
       0x1234,
-      quic_span_of(payload, sizeof(payload)),
-      quic_mspan_of(pkt, sizeof(pkt))};
+      wired_span_of(payload, sizeof(payload)),
+      wired_mspan_of(pkt, sizeof(pkt))};
   usz total = quic_protect_seal(&k, &sio);
   pkt[total - 1] ^= 0x80; /* flip a tag bit */
-  quic_span     out;
+  wired_span    out;
   u64           length = 2 + sizeof(payload) + 16;
-  quic_vpn_desc vd     = {quic_mspan_of(pkt, total), 16, length};
+  quic_vpn_desc vd     = {wired_mspan_of(pkt, total), 16, length};
   CHECK(quic_vpn_open(&k, &vd, &out) == 0);
   /* RFC 9001 9.5: header protection removal, packet number recovery, and
    * packet protection removal are applied together -- an AEAD tag failure
@@ -102,7 +102,7 @@ static void test_vpn_protect_compat(void) {
   const u8          dcid[8] = {0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08};
   quic_initial_keys keys;
   quic_aes128       hp;
-  quic_initial_derive(quic_span_of(dcid, 8), 0, QUIC_VERSION_1, &keys);
+  quic_initial_derive(wired_span_of(dcid, 8), 0, QUIC_VERSION_1, &keys);
   quic_aes128_init(&hp, keys.hp);
   u8       hdr[18]   = {0xc3, 0,    0,    0,    1,    8, 0x83, 0x94, 0xc8,
                         0xf0, 0x3e, 0x51, 0x57, 0x08, 0, 0,    0,    2};
@@ -110,16 +110,16 @@ static void test_vpn_protect_compat(void) {
   u8       pkt[64];
   quic_protect_keys    k   = {&keys, &hp};
   quic_protect_seal_io sio = {
-      quic_span_of(hdr, 18),
+      wired_span_of(hdr, 18),
       14,
       4,
       2,
-      quic_span_of(payload, sizeof(payload)),
-      quic_mspan_of(pkt, sizeof(pkt))};
+      wired_span_of(payload, sizeof(payload)),
+      wired_mspan_of(pkt, sizeof(pkt))};
   usz           total = quic_protect_seal(&k, &sio);
-  quic_span     out;
+  wired_span    out;
   u64           length = 4 + sizeof(payload) + 16;
-  quic_vpn_desc vd     = {quic_mspan_of(pkt, total), 14, length};
+  quic_vpn_desc vd     = {wired_mspan_of(pkt, total), 14, length};
   CHECK(quic_vpn_open(&k, &vd, &out));
   CHECK(out.n == sizeof(payload));
   for (usz i = 0; i < sizeof(payload); i++) CHECK(out.p[i] == payload[i]);

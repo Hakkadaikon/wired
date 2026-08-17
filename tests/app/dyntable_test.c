@@ -5,7 +5,7 @@
 /* Build a field from two C-string literals of the given lengths. */
 static quic_qpack_field dt_field(const char* n, usz nl, const char* v, usz vl) {
   quic_qpack_field f = {
-      quic_span_of((const u8*)n, nl), quic_span_of((const u8*)v, vl)};
+      wired_span_of((const u8*)n, nl), wired_span_of((const u8*)v, vl)};
   return f;
 }
 

@@ -157,7 +157,7 @@ static void test_srvworkers_child_start_passes_worker_index(void) {
  * zeroed literal, so wt_on_datagram/busy_poll/force_retry set by the app
  * were silently dropped in --workers mode (same disease the --cores driver
  * had). fork_all must seed the pre-fork base every child derives from. */
-static void sw_marker_dg_cb(void* ctx, wired_wt_session* s, quic_span d) {
+static void sw_marker_dg_cb(void* ctx, wired_wt_session* s, wired_span d) {
   (void)ctx;
   (void)s;
   (void)d;

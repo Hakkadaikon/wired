@@ -7,8 +7,8 @@
 /** One received 1-RTT packet: the bytes (opened in place) and the connection's
  * short-header DCID length. */
 typedef struct {
-  quic_mspan pkt;
-  u8         dcid_len;
+  wired_mspan pkt;
+  u8          dcid_len;
 } quic_appdata_pkt;
 
 /* RFC 9001 5: open a 1-RTT packet with the 1-RTT keys and decode the STREAM

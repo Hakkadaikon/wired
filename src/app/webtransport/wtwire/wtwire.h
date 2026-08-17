@@ -27,7 +27,7 @@
  * @param session_id QUIC stream ID of the Extended CONNECT stream
  * @return bytes written, or 0 if it does not fit
  */
-usz quic_wtwire_signal_put(u8* buf, usz cap, int bidi, u64 session_id);
+usz wired_wtwire_signal_put(u8* buf, usz cap, int bidi, u64 session_id);
 
 /** Write the datagram quarter-stream-ID prefix varint(session_id / 4).
  * @param buf        destination
@@ -45,7 +45,7 @@ usz quic_wtwire_qsid_put(u8* buf, usz cap, u64 session_id);
  * @param session_id set to quarter stream ID * 4 on success
  * @return bytes consumed, or 0 if the varint is truncated/missing/too large
  */
-usz quic_wtwire_qsid_take(quic_span dg, u64* session_id);
+usz wired_wtwire_qsid_take(wired_span dg, u64* session_id);
 
 /** Parse a "GET <filename>" line. The filename is trimmed of surrounding
  * spaces, tabs, and line endings; an empty trimmed name is an error.
@@ -53,7 +53,7 @@ usz quic_wtwire_qsid_take(quic_span dg, u64* session_id);
  * @param file set to a view of the trimmed filename on success
  * @return 1 on success, 0 on failure
  */
-int quic_wtwire_get_parse(quic_span line, quic_span* file);
+int wired_wtwire_get_parse(wired_span line, wired_span* file);
 
 /** Write "GET <filename>" (no trailing newline) into buf.
  * @param buf      destination
@@ -61,7 +61,7 @@ int quic_wtwire_get_parse(quic_span line, quic_span* file);
  * @param filename the requested file name
  * @return bytes written, or 0 if it does not fit
  */
-usz quic_wtwire_get_put(u8* buf, usz cap, quic_span filename);
+usz wired_wtwire_get_put(u8* buf, usz cap, wired_span filename);
 
 /** Parse a "PUSH <name>\n<content>" message. The split is at the first
  * newline; the name is trimmed, and an empty trimmed name or a missing
@@ -71,7 +71,8 @@ usz quic_wtwire_get_put(u8* buf, usz cap, quic_span filename);
  * @param content set to a view of the bytes after the newline on success
  * @return 1 on success, 0 on failure
  */
-int quic_wtwire_push_parse(quic_span msg, quic_span* name, quic_span* content);
+int wired_wtwire_push_parse(
+    wired_span msg, wired_span* name, wired_span* content);
 
 /** Write the push header "PUSH <basename>\n" into buf.
  * @param buf      destination
@@ -79,13 +80,13 @@ int quic_wtwire_push_parse(quic_span msg, quic_span* name, quic_span* content);
  * @param basename the pushed file's base name
  * @return bytes written, or 0 if it does not fit
  */
-usz quic_wtwire_push_head_put(u8* buf, usz cap, quic_span basename);
+usz wired_wtwire_push_head_put(u8* buf, usz cap, wired_span basename);
 
 /** View of the path component after the last '/'; the whole path if it has
  * no '/'. A path ending in '/' yields an empty span.
  * @param path the input path
  * @return the basename view (borrows path's bytes)
  */
-quic_span quic_wtwire_basename(quic_span path);
+wired_span wired_wtwire_basename(wired_span path);
 
 #endif

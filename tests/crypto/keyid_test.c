@@ -30,45 +30,45 @@ static const u8 keyidt_tbs_akid[] = {
  * locating the extnValue by its extnID; RFC 5280 4.2.1.2 does not require
  * key-identifier matching during path validation. */
 static void test_skid_found(void) {
-  quic_span val;
+  wired_span val;
   CHECK(
       quic_x509_subject_key_id(
-          quic_span_of(keyidt_tbs_skid, sizeof(keyidt_tbs_skid)), &val) == 1);
+          wired_span_of(keyidt_tbs_skid, sizeof(keyidt_tbs_skid)), &val) == 1);
   CHECK(val.n == 6);
 }
 
 static void test_akid_found(void) {
-  quic_span val;
+  wired_span val;
   CHECK(
       quic_x509_authority_key_id(
-          quic_span_of(keyidt_tbs_akid, sizeof(keyidt_tbs_akid)), &val) == 1);
+          wired_span_of(keyidt_tbs_akid, sizeof(keyidt_tbs_akid)), &val) == 1);
   CHECK(val.n == 8);
 }
 
 static void test_skid_absent(void) {
-  quic_span val;
+  wired_span val;
   CHECK(
       quic_x509_subject_key_id(
-          quic_span_of(keyidt_tbs_no_ext, sizeof(keyidt_tbs_no_ext)), &val) ==
+          wired_span_of(keyidt_tbs_no_ext, sizeof(keyidt_tbs_no_ext)), &val) ==
       0);
 }
 
 static void test_akid_absent(void) {
-  quic_span val;
+  wired_span val;
   CHECK(
       quic_x509_authority_key_id(
-          quic_span_of(keyidt_tbs_no_ext, sizeof(keyidt_tbs_no_ext)), &val) ==
+          wired_span_of(keyidt_tbs_no_ext, sizeof(keyidt_tbs_no_ext)), &val) ==
       0);
 }
 
 /* A real certificate (the golden cert) carries both extensions; both must be
  * recognized from the same tbs. */
 static void test_golden_cert_has_both(void) {
-  quic_x509 c;
-  quic_span val;
+  quic_x509  c;
+  wired_span val;
   CHECK(
       quic_x509_parse(
-          quic_span_of(quic_x509_golden, sizeof(quic_x509_golden)), &c) == 1);
+          wired_span_of(quic_x509_golden, sizeof(quic_x509_golden)), &c) == 1);
   CHECK(quic_x509_subject_key_id(c.tbs, &val) == 1);
   CHECK(val.n == 22);
   CHECK(quic_x509_authority_key_id(c.tbs, &val) == 1);

@@ -1,7 +1,7 @@
 #include "tls/handshake/core/tls/alpn_match.h"
 
 /* RFC 7301 3.2: byte-for-byte comparison of protocol names. */
-int quic_tls_alpn_equal(quic_span a, quic_span b) {
+int quic_tls_alpn_equal(wired_span a, wired_span b) {
   u8 diff = 0;
   if (a.n != b.n) return 0;
   for (usz i = 0; i < a.n; i++) diff |= a.p[i] ^ b.p[i];
@@ -10,11 +10,11 @@ int quic_tls_alpn_equal(quic_span a, quic_span b) {
 
 int quic_tls_alpn_is_h3(const u8* proto, usz len) {
   static const u8 h3[2] = {0x68, 0x33};
-  return quic_tls_alpn_equal(quic_span_of(proto, len), quic_span_of(h3, 2));
+  return quic_tls_alpn_equal(wired_span_of(proto, len), wired_span_of(h3, 2));
 }
 
 int quic_tls_alpn_is_hq(const u8* proto, usz len) {
   static const u8 hq[10] = {0x68, 0x71, 0x2d, 0x69, 0x6e,
                             0x74, 0x65, 0x72, 0x6f, 0x70};
-  return quic_tls_alpn_equal(quic_span_of(proto, len), quic_span_of(hq, 10));
+  return quic_tls_alpn_equal(wired_span_of(proto, len), wired_span_of(hq, 10));
 }

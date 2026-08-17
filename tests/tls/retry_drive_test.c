@@ -18,13 +18,13 @@ static usz make_retry(
   static const u8 dummy_dcid[4]           = {0xaa, 0xbb, 0xcc, 0xdd};
   u8              tag[QUIC_RETRY_TAG_LEN] = {0};
   quic_retry_desc rd                      = {
-      QUIC_VERSION_1, quic_span_of(dummy_dcid, 4), quic_span_of(scid, scil),
-      quic_span_of(token, tlen), tag};
+      QUIC_VERSION_1, wired_span_of(dummy_dcid, 4), wired_span_of(scid, scil),
+      wired_span_of(token, tlen), tag};
   usz n = quic_retry_build(buf, cap, &rd);
   /* recompute the real tag over (orig_dcid || retry-without-tag) */
   quic_retry_tag(
-      quic_span_of(orig_dcid, odcil), quic_span_of(buf, n - QUIC_RETRY_TAG_LEN),
-      buf + n - QUIC_RETRY_TAG_LEN);
+      wired_span_of(orig_dcid, odcil),
+      wired_span_of(buf, n - QUIC_RETRY_TAG_LEN), buf + n - QUIC_RETRY_TAG_LEN);
   return n;
 }
 
@@ -36,11 +36,11 @@ static void test_retry_process_ok(void) {
   u8       pkt[64];
   usz      n = make_retry(pkt, sizeof(pkt), odcid, 8, scid, 5, token, 6);
 
-  u8        out_token[64], new_dcid[WIRED_MAX_CID_LEN], new_dcil = 0;
-  quic_obuf tok_ob = quic_obuf_of(out_token, sizeof(out_token));
+  u8         out_token[64], new_dcid[WIRED_MAX_CID_LEN], new_dcil = 0;
+  wired_obuf tok_ob = quic_obuf_of(out_token, sizeof(out_token));
   CHECK(
       quic_retry_process(
-          quic_span_of(pkt, n), quic_span_of(odcid, 8),
+          wired_span_of(pkt, n), wired_span_of(odcid, 8),
           &(quic_retry_process_out){&tok_ob, new_dcid, &new_dcil}) == 1);
   CHECK(tok_ob.len == 6);
   for (usz i = 0; i < 6; i++) CHECK(out_token[i] == token[i]);
@@ -63,9 +63,9 @@ static void test_retry_process_bad_tag(void) {
   u8 out_token[64], new_dcid[WIRED_MAX_CID_LEN], new_dcil = 0xff;
   CHECK(
       quic_retry_process(
-          quic_span_of(pkt, n), quic_span_of(wrong, 8),
+          wired_span_of(pkt, n), wired_span_of(wrong, 8),
           &(quic_retry_process_out){
-              &(quic_obuf){out_token, sizeof(out_token), 0}, new_dcid,
+              &(wired_obuf){out_token, sizeof(out_token), 0}, new_dcid,
               &new_dcil}) == 0);
 }
 
@@ -75,9 +75,9 @@ static void test_retry_process_short(void) {
   u8 out_token[8], new_dcid[WIRED_MAX_CID_LEN], new_dcil;
   CHECK(
       quic_retry_process(
-          quic_span_of(pkt, sizeof(pkt)), quic_span_of(0, 0),
+          wired_span_of(pkt, sizeof(pkt)), wired_span_of(0, 0),
           &(quic_retry_process_out){
-              &(quic_obuf){out_token, sizeof(out_token), 0}, new_dcid,
+              &(wired_obuf){out_token, sizeof(out_token), 0}, new_dcid,
               &new_dcil}) == 0);
 }
 
