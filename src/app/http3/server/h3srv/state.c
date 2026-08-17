@@ -9,5 +9,5 @@ void wired_h3srv_state_init(wired_h3srv_state* st, u64 max_table_capacity) {
   st->peer_qpack_encoder       = 0;
   st->peer_qpack_decoder       = 0;
   st->qpack_max_table_capacity = max_table_capacity;
-  quic_qpack_dyn_init(&st->qdyn, 0);
+  qpack_dyn_init(&st->qdyn, 0);
 }

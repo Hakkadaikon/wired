@@ -6,7 +6,7 @@
 static void test_indexed_dynamic_golden(void) {
   u8         out[4];
   wired_obuf ob = obuf_of(out, sizeof(out));
-  usz        w  = quic_qdyn_indexed_dynamic(5, &ob);
+  usz        w  = qdyn_indexed_dynamic(5, &ob);
   CHECK(w == ob.len && ob.len == 1 && out[0] == 0x85);
 }
 
@@ -14,7 +14,7 @@ static void test_indexed_dynamic_golden(void) {
 static void test_indexed_dynamic_prefix_boundary(void) {
   u8         out[4];
   wired_obuf ob = obuf_of(out, sizeof(out));
-  usz        w  = quic_qdyn_indexed_dynamic(63, &ob);
+  usz        w  = qdyn_indexed_dynamic(63, &ob);
   CHECK(w == ob.len && ob.len == 2 && out[0] == 0xBF && out[1] == 0x00);
 }
 

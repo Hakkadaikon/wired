@@ -10,11 +10,11 @@
 #include "transport/stream/data/appdata/stream_send.h"
 
 /* RFC 9114 4.1 / RFC 9000 19.8 */
-int quic_h3conn_send_response(
-    u64 stream_id, const quic_h3conn_resp* resp, wired_obuf* out) {
+int h3conn_send_response(
+    u64 stream_id, const h3conn_resp* resp, wired_obuf* out) {
   u8         h3[1500];
   wired_obuf h3ob = obuf_of(h3, sizeof(h3));
-  if (!quic_h3resp_build(resp->status, resp->content_type, resp->body, &h3ob))
+  if (!h3resp_build(resp->status, resp->content_type, resp->body, &h3ob))
     return 0;
   {
     stream_frame f = {stream_id, 0, h3ob.len, h3, 1};
@@ -34,20 +34,19 @@ static int status_from_indexed(const u8* buf, usz n, u16* status) {
   int         is_static = 0;
   const char* name      = 0;
   const char* value     = 0;
-  if (!quic_qpack_indexed_decode(wired_span_of(buf, n), &index, &is_static))
+  if (!qpack_indexed_decode(wired_span_of(buf, n), &index, &is_static))
     return 0;
-  if (!quic_qpack_static_get((usz)index, &name, &value)) return 0;
+  if (!qpack_static_get((usz)index, &name, &value)) return 0;
   *status = digits_to_status((const u8*)value);
   return 1;
 }
 
 /* RFC 9204 4.5.4: Literal :status with name reference -> its 3-octet value. */
 static int status_from_literal(const u8* buf, usz n, u16* status) {
-  quic_qpack_nameref r = {0, 0, 0};
-  u8                 val[8];
-  wired_obuf         vb = obuf_of(val, sizeof(val));
-  if (!quic_qpack_literal_namref_decode(wired_span_of(buf, n), &r, &vb))
-    return 0;
+  qpack_nameref r = {0, 0, 0};
+  u8            val[8];
+  wired_obuf    vb = obuf_of(val, sizeof(val));
+  if (!qpack_literal_namref_decode(wired_span_of(buf, n), &r, &vb)) return 0;
   if (vb.len != 3) return 0;
   *status = digits_to_status(val);
   return 1;
@@ -56,19 +55,18 @@ static int status_from_literal(const u8* buf, usz n, u16* status) {
 /* RFC 9204 4.5: decode the single :status field line after the section prefix.
  */
 static int decode_status(const u8* fs, usz n, u16* status) {
-  usz off = quic_qpack_prefix_decode(fs, n, &(quic_qpack_prefix){0});
+  usz off = qpack_prefix_decode(fs, n, &(qpack_prefix){0});
   if (!off) return 0;
   if (status_from_indexed(fs + off, n - off, status)) return 1;
   return status_from_literal(fs + off, n - off, status);
 }
 
 /* RFC 9114 4.1 / RFC 9000 19.8 */
-int quic_h3conn_recv_response(wired_span stream_data, quic_h3conn_resp* resp) {
-  stream_frame    f;
-  quic_h3req_resp rp = {0};
+int h3conn_recv_response(wired_span stream_data, h3conn_resp* resp) {
+  stream_frame f;
+  h3req_resp   rp = {0};
   if (!frame_get_stream(stream_data.p, stream_data.n, &f)) return 0;
-  if (!quic_h3req_resp_parse(wired_span_of(f.data, (usz)f.length), &rp))
-    return 0;
+  if (!h3req_resp_parse(wired_span_of(f.data, (usz)f.length), &rp)) return 0;
   resp->body = rp.body;
   return decode_status(rp.headers.p, rp.headers.n, &resp->status);
 }

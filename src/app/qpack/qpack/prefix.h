@@ -13,12 +13,12 @@ typedef struct {
   u64 required_insert_count; /* wire-encoded value (0 when table is empty) */
   u8  sign;                  /* S bit: 0 Base >= ReqInsertCount, 1 below */
   u64 delta_base;
-} quic_qpack_prefix;
+} qpack_prefix;
 
 /* Encode the prefix into buf of cap bytes. Returns bytes written or 0. */
-usz quic_qpack_prefix_encode(u8* buf, usz cap, const quic_qpack_prefix* p);
+usz qpack_prefix_encode(u8* buf, usz cap, const qpack_prefix* p);
 
 /* Decode the prefix from buf of n bytes. Returns bytes consumed or 0. */
-usz quic_qpack_prefix_decode(const u8* buf, usz n, quic_qpack_prefix* p);
+usz qpack_prefix_decode(const u8* buf, usz n, qpack_prefix* p);
 
 #endif

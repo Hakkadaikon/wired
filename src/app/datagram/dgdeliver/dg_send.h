@@ -9,13 +9,12 @@
 typedef struct {
   int with_length;
   u64 max_frame_size;
-} quic_dgdeliver_opts;
+} dgdeliver_opts;
 
 /* RFC 9221 5: build a DATAGRAM frame for immediate delivery (no queueing, no
  * retransmit tracking by the caller). The whole frame must fit the peer's
  * max_frame_size; otherwise 0. On success writes the frame into out (length
  * in out->len), returning 1. */
-int quic_dgdeliver_frame(
-    wired_span data, const quic_dgdeliver_opts* o, wired_obuf* out);
+int dgdeliver_frame(wired_span data, const dgdeliver_opts* o, wired_obuf* out);
 
 #endif

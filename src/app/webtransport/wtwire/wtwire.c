@@ -16,7 +16,7 @@ usz wired_wtwire_signal_put(u8* buf, usz cap, int bidi, u64 session_id) {
 }
 
 /* RFC 9297 2.1: HTTP Datagrams are prefixed with the quarter stream ID. */
-usz quic_wtwire_qsid_put(u8* buf, usz cap, u64 session_id) {
+usz wtwire_qsid_put(u8* buf, usz cap, u64 session_id) {
   usz off = 0;
   if (!varint_put(wired_mspan_of(buf, cap), &off, session_id / 4)) return 0;
   return off;

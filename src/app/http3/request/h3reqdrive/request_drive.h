@@ -57,18 +57,18 @@ typedef struct {
   usz       scheme_len; /**< scheme length in octets */
   const u8* authority;  /**< :authority value (static-table view or
                            scratch) */
-  usz              authority_len; /**< authority length in octets */
-  const u8*        path;     /**< :path value (static-table view or scratch) */
-  usz              path_len; /**< path length in octets */
-  const u8*        protocol; /**< RFC 9220 3: :protocol value, 0 if absent */
-  usz              protocol_len; /**< protocol length in octets, 0 if absent */
-  const u8*        body; /**< request body view into stream_data, 0 if none */
-  usz              body_len; /**< 0 for GET and other bodyless requests */
-  quic_h3_priority priority; /**< RFC 9218 5 priority header (defaults) */
-  const u8* origin; /**< regular `origin` header value (static-table view or
-                       scratch), 0 if absent (RFC 9220 3 / WebTransport draft
-                       SS3.6 origin check applies only when present) */
-  usz origin_len;   /**< origin length in octets, 0 if absent */
+  usz         authority_len; /**< authority length in octets */
+  const u8*   path;          /**< :path value (static-table view or scratch) */
+  usz         path_len;      /**< path length in octets */
+  const u8*   protocol;      /**< RFC 9220 3: :protocol value, 0 if absent */
+  usz         protocol_len;  /**< protocol length in octets, 0 if absent */
+  const u8*   body;     /**< request body view into stream_data, 0 if none */
+  usz         body_len; /**< 0 for GET and other bodyless requests */
+  h3_priority priority; /**< RFC 9218 5 priority header (defaults) */
+  const u8*   origin;   /**< regular `origin` header value (static-table view or
+                           scratch), 0 if absent (RFC 9220 3 / WebTransport draft
+                           SS3.6 origin check applies only when present) */
+  usz origin_len;       /**< origin length in octets, 0 if absent */
   /** WebTransport subprotocol negotiation: the raw `wt-available-protocols`
    * header value (an RFC 8941 sf-list of sf-strings, the client's offer in
    * preference order), copied verbatim -- not a scratch view like origin,
@@ -93,7 +93,7 @@ typedef struct {
    * PUSH_PROMISE (a server-to-client frame this server-only SDK never sends,
    * so any received instance is unexpected) or an HTTP/2-only reserved type
    * (0x02/0x06/0x08/0x09). Set by find_headers (request_parse.c) via
-   * quic_h3_frame_recv_ok; the caller aborts the stream with
+   * h3_frame_recv_ok; the caller aborts the stream with
    * H3_FRAME_UNEXPECTED instead of the H3_REQUEST_INCOMPLETE an ordinary
    * decode failure gets. */
   int frame_unexpected;
@@ -127,7 +127,7 @@ int wired_h3reqdrive_recv_get(
 int wired_h3reqdrive_recv_get_dyn(
     wired_span            stream_data,
     wired_mspan           scratch,
-    const quic_qpack_dyn* dyn,
+    const qpack_dyn*      dyn,
     wired_h3reqdrive_req* r);
 
 /** RFC 9114 4.3: check that a request stream's trailer section (if any)

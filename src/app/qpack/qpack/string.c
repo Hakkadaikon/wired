@@ -7,9 +7,9 @@
 /* The Huffman flag sits in the bit above the 7-bit length prefix. */
 #define QPACK_STR_HUFFMAN 0x80
 
-usz quic_qpack_string_encode(wired_mspan buf, wired_span src) {
-  quic_qpack_pfx pfx = {7, 0};
-  usz            off = quic_qpack_int_encode(buf, pfx, src.n);
+usz qpack_string_encode(wired_mspan buf, wired_span src) {
+  qpack_pfx pfx = {7, 0};
+  usz       off = qpack_int_encode(buf, pfx, src.n);
   if (off == 0) return 0;
   if (!bytes_put(
           wired_mspan_of(buf.p, buf.n), &off, wired_span_of(src.p, src.n)))
@@ -30,7 +30,7 @@ static int take_header(wired_span buf, qstr_head* h) {
   usz used;
   if (buf.n == 0) return 0;
   h->huff = (buf.p[0] & QPACK_STR_HUFFMAN) != 0;
-  used    = quic_qpack_int_decode(buf, 7, &v);
+  used    = qpack_int_decode(buf, 7, &v);
   if (used == 0) return 0;
   h->off = used;
   h->len = (usz)v;
@@ -53,10 +53,10 @@ static int str_raw(wired_span oct, wired_obuf* dst) {
 static int str_value(wired_span buf, const qstr_head* h, wired_obuf* dst) {
   if (h->off + h->len > buf.n) return 0;
   wired_span oct = wired_span_of(buf.p + h->off, h->len);
-  return h->huff ? quic_qpack_huffman_decode(oct, dst) : str_raw(oct, dst);
+  return h->huff ? qpack_huffman_decode(oct, dst) : str_raw(oct, dst);
 }
 
-usz quic_qpack_string_decode(wired_span buf, wired_obuf* dst) {
+usz qpack_string_decode(wired_span buf, wired_obuf* dst) {
   qstr_head h;
   if (!take_header(buf, &h)) return 0;
   if (!str_value(buf, &h, dst)) return 0;

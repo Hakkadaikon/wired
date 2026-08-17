@@ -34,12 +34,12 @@ static usz conn_close_len(const u8* buf, usz n) {
   return frame_get_conn_close(buf, n, &f);
 }
 /* RFC 9221 5: type 0x30 has no Length field and runs to the end of the packet;
- * type 0x31 carries an explicit Length varint. quic_datagram_decode already
+ * type 0x31 carries an explicit Length varint. datagram_decode already
  * returns total bytes consumed for either shape, so the walker need not
  * re-derive the varint arithmetic. */
 static usz datagram_len(const u8* buf, usz n) {
-  quic_datagram_frame f;
-  return quic_datagram_decode(buf, n, &f);
+  datagram_frame f;
+  return datagram_decode(buf, n, &f);
 }
 /* RFC 9000 19.4/19.5, draft-ietf-quic-reliable-stream-reset: these three
  * stream-control kinds share the same decode-returns-bytes-consumed shape as

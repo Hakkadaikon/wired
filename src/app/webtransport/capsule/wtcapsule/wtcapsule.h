@@ -57,15 +57,15 @@ int wired_wtcapsule_encode_close(
  * @param out destination buffer view
  * @return 1 on success, 0 if it doesn't fit in out
  */
-int quic_wtcapsule_encode_drain(wired_obuf* out);
+int wtcapsule_encode_drain(wired_obuf* out);
 
 /** Attempt to decode the capsule at *at within data as a WT_CLOSE_SESSION.
  *
  * "Wrong type, don't consume" contract: if a complete capsule is present at
  * *at but its type is not 0x2843, this returns 0 and *at, *app_error_code,
  * *message are all left UNCHANGED -- so a caller can go on to try a
- * different decode_* function (e.g. quic_wtcapsule_decode_drain) at the
- * same, still-unconsumed offset. This differs from quic_capsule_decode
+ * different decode_* function (e.g. wtcapsule_decode_drain) at the
+ * same, still-unconsumed offset. This differs from capsule_decode
  * itself, which reports "no complete capsule yet" the same way it reports
  * "wrong type" would be reported here: both leave *at untouched, so the two
  * failure causes are indistinguishable to the caller by design (either way,
@@ -92,7 +92,7 @@ int wired_wtcapsule_decode_close(
  * @param at   in/out cursor offset within data
  * @return 1 if a WT_DRAIN_SESSION capsule was present and consumed, 0 otherwise
  */
-int quic_wtcapsule_decode_drain(wired_span data, usz* at);
+int wtcapsule_decode_drain(wired_span data, usz* at);
 
 /** Encode a WT_MAX_STREAMS capsule (draft-ietf-webtrans-http3-15 SS5.6.2)
  * into out: type 0x190B4D3F for bidi, 0x190B4D40 for uni, body a single
@@ -104,8 +104,7 @@ int quic_wtcapsule_decode_drain(wired_span data, usz* at);
  * @return 1 on success, 0 if it doesn't fit in out or max_streams is out of
  *   varint range
  */
-int quic_wtcapsule_encode_max_streams(
-    wired_obuf* out, int bidi, u64 max_streams);
+int wtcapsule_encode_max_streams(wired_obuf* out, int bidi, u64 max_streams);
 
 /** Attempt to decode the capsule at *at within data as a WT_MAX_STREAMS
  * capsule of the given direction. Same "wrong type/incomplete, don't
@@ -116,7 +115,7 @@ int quic_wtcapsule_encode_max_streams(
  * @param max_streams set to the decoded Maximum Streams value on success
  * @return 1 on success, 0 otherwise
  */
-int quic_wtcapsule_decode_max_streams(
+int wtcapsule_decode_max_streams(
     wired_span data, usz* at, int bidi, u64* max_streams);
 
 /** Encode a WT_STREAMS_BLOCKED capsule (SS5.6.3) into out: type 0x190B4D43
@@ -127,19 +126,19 @@ int quic_wtcapsule_decode_max_streams(
  * @return 1 on success, 0 if it doesn't fit in out or max_streams is out of
  *   varint range
  */
-int quic_wtcapsule_encode_streams_blocked(
+int wtcapsule_encode_streams_blocked(
     wired_obuf* out, int bidi, u64 max_streams);
 
 /** Attempt to decode the capsule at *at within data as a WT_STREAMS_BLOCKED
  * capsule of the given direction. Same contract as
- * quic_wtcapsule_decode_max_streams.
+ * wtcapsule_decode_max_streams.
  * @param data        the buffer to decode from
  * @param at          in/out cursor offset within data
  * @param bidi        nonzero to match the bidi type, 0 to match uni
  * @param max_streams set to the decoded Maximum Streams value on success
  * @return 1 on success, 0 otherwise
  */
-int quic_wtcapsule_decode_streams_blocked(
+int wtcapsule_decode_streams_blocked(
     wired_span data, usz* at, int bidi, u64* max_streams);
 
 /** Encode a WT_MAX_DATA capsule (SS5.6.4, type 0x190B4D3D) into out: body a
@@ -149,7 +148,7 @@ int quic_wtcapsule_decode_streams_blocked(
  * @return 1 on success, 0 if it doesn't fit in out or max_data is out of
  *   varint range
  */
-int quic_wtcapsule_encode_max_data(wired_obuf* out, u64 max_data);
+int wtcapsule_encode_max_data(wired_obuf* out, u64 max_data);
 
 /** Attempt to decode the capsule at *at within data as a WT_MAX_DATA
  * capsule. Same "wrong type/incomplete, don't consume" contract as
@@ -159,7 +158,7 @@ int quic_wtcapsule_encode_max_data(wired_obuf* out, u64 max_data);
  * @param max_data set to the decoded Maximum Data value on success
  * @return 1 on success, 0 otherwise
  */
-int quic_wtcapsule_decode_max_data(wired_span data, usz* at, u64* max_data);
+int wtcapsule_decode_max_data(wired_span data, usz* at, u64* max_data);
 
 /** Encode a WT_DATA_BLOCKED capsule (SS5.6.5, type 0x190B4D41) into out:
  * body a single varint (Maximum Data, the limit in effect when blocking
@@ -169,15 +168,15 @@ int quic_wtcapsule_decode_max_data(wired_span data, usz* at, u64* max_data);
  * @return 1 on success, 0 if it doesn't fit in out or max_data is out of
  *   varint range
  */
-int quic_wtcapsule_encode_data_blocked(wired_obuf* out, u64 max_data);
+int wtcapsule_encode_data_blocked(wired_obuf* out, u64 max_data);
 
 /** Attempt to decode the capsule at *at within data as a WT_DATA_BLOCKED
- * capsule. Same contract as quic_wtcapsule_decode_max_data.
+ * capsule. Same contract as wtcapsule_decode_max_data.
  * @param data     the buffer to decode from
  * @param at       in/out cursor offset within data
  * @param max_data set to the decoded Maximum Data value on success
  * @return 1 on success, 0 otherwise
  */
-int quic_wtcapsule_decode_data_blocked(wired_span data, usz* at, u64* max_data);
+int wtcapsule_decode_data_blocked(wired_span data, usz* at, u64* max_data);
 
 #endif

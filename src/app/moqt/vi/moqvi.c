@@ -8,7 +8,7 @@
 static const u8 moqvi_prefix[10] = {0,    0x00, 0x80, 0xC0, 0xE0,
                                     0xF0, 0xF8, 0xFC, 0xFE, 0xFF};
 
-usz quic_moqvi_len(u64 v) {
+usz moqvi_len(u64 v) {
   usz k = 1;
   while (k < 9 && (v >> (7 * k)) != 0) k++;
   return k;
@@ -24,8 +24,8 @@ static void moqvi_store_be(u8* buf, u64 v, usz n) {
   }
 }
 
-usz quic_moqvi_encode(u8* buf, u64 v) {
-  usz n = quic_moqvi_len(v);
+usz moqvi_encode(u8* buf, u64 v) {
+  usz n = moqvi_len(v);
   moqvi_store_be(buf, v, n);
   buf[0] |= moqvi_prefix[n];
   return n;
@@ -49,7 +49,7 @@ static u64 moqvi_get_be(const u8* buf, usz n) {
   return v;
 }
 
-usz quic_moqvi_decode(const u8* buf, usz n, u64* out) {
+usz moqvi_decode(const u8* buf, usz n, u64* out) {
   usz need;
   if (n == 0) return 0;
   need = moqvi_hdr_len(buf[0]);
@@ -58,16 +58,16 @@ usz quic_moqvi_decode(const u8* buf, usz n, u64* out) {
   return need;
 }
 
-int quic_moqvi_take(wired_span buf, usz* off, u64* out) {
-  usz used = quic_moqvi_decode(buf.p + *off, buf.n - *off, out);
+int moqvi_take(wired_span buf, usz* off, u64* out) {
+  usz used = moqvi_decode(buf.p + *off, buf.n - *off, out);
   if (used == 0) return 0;
   *off += used;
   return 1;
 }
 
-int quic_moqvi_put(wired_mspan buf, usz* off, u64 v) {
-  usz need = quic_moqvi_len(v);
+int moqvi_put(wired_mspan buf, usz* off, u64 v) {
+  usz need = moqvi_len(v);
   if (*off + need > buf.n) return 0;
-  *off += quic_moqvi_encode(buf.p + *off, v);
+  *off += moqvi_encode(buf.p + *off, v);
   return 1;
 }

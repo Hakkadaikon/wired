@@ -17,9 +17,7 @@ static const int next_data[] = {
     [QUIC_H3REQ_ORDER_TRAILERS] = 0,
 };
 
-void quic_h3req_order_init(quic_h3req_order_state* s) {
-  *s = QUIC_H3REQ_ORDER_START;
-}
+void h3req_order_init(h3req_order_state* s) { *s = QUIC_H3REQ_ORDER_START; }
 
 /* Pick the transition row for a frame type; null payload-only frames other
  * than HEADERS/DATA are not part of the request message and are rejected. */
@@ -29,7 +27,7 @@ static const int* row_for(u64 frame_type) {
   return 0;
 }
 
-int quic_h3req_order_accept(quic_h3req_order_state* s, u64 frame_type) {
+int h3req_order_accept(h3req_order_state* s, u64 frame_type) {
   const int* row = row_for(frame_type);
   if (!row || !row[*s]) return 0;
   *s = row[*s];

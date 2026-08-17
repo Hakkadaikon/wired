@@ -3,7 +3,7 @@
 /* RFC 9114 4.3. 1 if c is an uppercase ASCII letter A-Z. */
 static int upper(u8 c) { return c >= 'A' && c <= 'Z'; }
 
-int quic_h3_header_name_ok(const u8* name, usz len) {
+int h3_header_name_ok(const u8* name, usz len) {
   for (usz i = 0; i < len; i++)
     if (upper(name[i])) return 0;
   return 1;
@@ -12,7 +12,7 @@ int quic_h3_header_name_ok(const u8* name, usz len) {
 /* RFC 9114 10.3 / RFC 9110 5.5. 1 if c is CR, LF or NUL. */
 static int forbidden(u8 c) { return c == 0x0d || c == 0x0a || c == 0x00; }
 
-int quic_h3_header_bytes_ok(const u8* buf, usz len) {
+int h3_header_bytes_ok(const u8* buf, usz len) {
   for (usz i = 0; i < len; i++)
     if (forbidden(buf[i])) return 0;
   return 1;
@@ -29,7 +29,7 @@ static usz hc_cstr_len(const char* s) {
 
 /* 1 if a (alen bytes) is exactly the NUL-terminated literal b, given b's
  * precomputed length blen. Accumulates a byte diff over the shorter length
- * (like quic_h3_header_bytes_ok above) so the length check stays a single
+ * (like h3_header_bytes_ok above) so the length check stays a single
  * trailing comparison instead of an early-return branch. */
 static int hc_bytes_eq(const u8* a, usz alen, const char* b, usz blen) {
   usz shorter = alen < blen ? alen : blen;
@@ -51,12 +51,12 @@ static const char* const forbidden_names[] = {
 };
 #define FORBIDDEN_NAMES_N (sizeof(forbidden_names) / sizeof(forbidden_names[0]))
 
-int quic_h3_header_name_forbidden(const u8* name, usz len) {
+int h3_header_name_forbidden(const u8* name, usz len) {
   for (usz i = 0; i < FORBIDDEN_NAMES_N; i++)
     if (hc_str_eq(name, len, forbidden_names[i])) return 1;
   return 0;
 }
 
-int quic_h3_header_te_ok(const u8* value, usz len) {
+int h3_header_te_ok(const u8* value, usz len) {
   return hc_str_eq(value, len, "trailers");
 }

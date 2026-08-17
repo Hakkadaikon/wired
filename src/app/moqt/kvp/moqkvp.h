@@ -23,7 +23,7 @@
  * (draft-ietf-moq-transport-19 1.4.3: 2^16-1). */
 #define QUIC_MOQKVP_MAX_LEN 0xFFFF
 
-/** quic_moqkvp_take results. INSUFFICIENT means the input ended mid-pair
+/** moqkvp_take results. INSUFFICIENT means the input ended mid-pair
  * (may be benign if more bytes can still arrive); VIOLATION means the pair
  * itself is illegal (Type overflow or Length > QUIC_MOQKVP_MAX_LEN) and no
  * amount of further input can fix it. Callers close with different codes. */
@@ -37,7 +37,7 @@ typedef struct {
   int        is_raw; /**< 1 when type is odd: value in raw; 0: value in num */
   u64        num;    /**< even-Type value (single varint) */
   wired_span raw;    /**< odd-Type value; a view into the decode input */
-} quic_moqkvp;
+} moqkvp;
 
 /** Decode the next Key-Value-Pair at *off within buf.
  *
@@ -53,8 +53,7 @@ typedef struct {
  * @return QUIC_MOQKVP_OK, QUIC_MOQKVP_INSUFFICIENT (truncated), or
  *   QUIC_MOQKVP_VIOLATION (Type overflow / Length too large)
  */
-int quic_moqkvp_take(
-    wired_span buf, usz* off, u64* prev_type, quic_moqkvp* out);
+int moqkvp_take(wired_span buf, usz* off, u64* prev_type, moqkvp* out);
 
 /** Encode one Key-Value-Pair at *off within buf.
  *
@@ -70,7 +69,6 @@ int quic_moqkvp_take(
  * @return 1 ok, 0 if kv->type < *prev_type, kv->raw.n exceeds
  *   QUIC_MOQKVP_MAX_LEN, or buf has no room
  */
-int quic_moqkvp_put(
-    wired_mspan buf, usz* off, u64* prev_type, const quic_moqkvp* kv);
+int moqkvp_put(wired_mspan buf, usz* off, u64* prev_type, const moqkvp* kv);
 
 #endif

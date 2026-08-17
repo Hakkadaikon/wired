@@ -30,7 +30,7 @@ static int permit_mask(u64 frame_type) {
   return m ? m : C | R | P; /* gap in table */
 }
 
-int quic_h3_frame_on_stream(u64 frame_type, int stream_kind) {
+int h3_frame_on_stream(u64 frame_type, int stream_kind) {
   return (permit_mask(frame_type) >> stream_kind) & 1;
 }
 
@@ -45,7 +45,7 @@ static int is_http2_only_reserved(u64 frame_type) {
   return 0;
 }
 
-int quic_h3_frame_recv_ok(u64 frame_type) {
+int h3_frame_recv_ok(u64 frame_type) {
   if (frame_type == QUIC_H3_FRAME_PUSH_PROMISE) return 0;
   return !is_http2_only_reserved(frame_type);
 }

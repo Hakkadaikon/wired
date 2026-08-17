@@ -18,21 +18,20 @@
 typedef struct {
   u64       length; /* data length */
   const u8* data;   /* view into the packet buffer */
-} quic_datagram_frame;
+} datagram_frame;
 
 /* Encode a DATAGRAM frame into buf. When with_len is set the frame is type
  * 0x31 (explicit length); otherwise 0x30 and the data must be the last frame
  * in the packet. Returns bytes written, or 0. */
-usz quic_datagram_encode(
-    wired_mspan buf, const quic_datagram_frame* f, int with_len);
+usz datagram_encode(wired_mspan buf, const datagram_frame* f, int with_len);
 
 /* Decode a DATAGRAM frame at buf (n readable, type byte at buf[0]). For 0x30
  * the data is the rest of the buffer; for 0x31 the length is explicit.
  * Fills *f (data points into buf) and returns bytes consumed, or 0. */
-usz quic_datagram_decode(const u8* buf, usz n, quic_datagram_frame* f);
+usz datagram_decode(const u8* buf, usz n, datagram_frame* f);
 
 /* Whether a datagram of size frame_len may be sent given the peer's
  * advertised max_datagram_frame_size (0 means datagrams are not supported). */
-int quic_datagram_allowed(u64 max_datagram_frame_size, u64 frame_len);
+int datagram_allowed(u64 max_datagram_frame_size, u64 frame_len);
 
 #endif

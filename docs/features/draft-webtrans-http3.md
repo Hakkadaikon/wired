@@ -151,7 +151,7 @@ Legend:
     `test_h3settings_zerortt_compatible_wt_session_limit_lowered_rejected`
   - test: `tests/app/h3settings_control_settings_test.c` —
     `test_h3settings_zerortt_compatible_wt_flow_control_lowered_rejected`
-  - evidence: `quic_h3settings_zerortt_compatible` (9114-066) already
+  - evidence: `h3settings_zerortt_compatible` (9114-066) already
     covers `wt_max_sessions` ("the limit of maximum open WebTransport
     sessions") and `wt_initial_max_streams_uni/bidi`/`wt_initial_max_data`
     (WTH3-051's "other initial flow control values") in its general
@@ -398,8 +398,8 @@ Legend:
   - test: `tests/tls/keyschedule_test.c` —
     `test_keyschedule_exporter_secret_matches_oneshot`
   - evidence: `tls_exporter` (RFC 8446 7.5's TLS-Exporter, new
-    `tls/handshake/core/tls/exporter.c`) and `quic_wt_exporter_ctx_encode`
-    plus `quic_wt_exporter` (the WebTransport Exporter Context
+    `tls/handshake/core/tls/exporter.c`) and `wt_exporter_ctx_encode`
+    plus `wt_exporter` (the WebTransport Exporter Context
     serialization and the "EXPORTER-WebTransport" wrapper, new
     `app/webtransport/exporter/exporter.c`) are implemented and reachable
     from a live `keysched` (exporter_master_secret is derived
@@ -420,8 +420,8 @@ Legend:
   - test: `tests/app/h3settings_build_test.c` —
     `test_h3settings_build_wt_flow_control_zero_omits_pairs`
   - gap: the three SETTINGS_WT_INITIAL_MAX_* identifiers (0x2b64/0x2b65/
-    0x2b61) are now defined and `quic_h3settings_build` sends each when its
-    `quic_h3settings_in` field is non-zero, but no caller decides to enable
+    0x2b61) are now defined and `h3settings_build` sends each when its
+    `h3settings_in` field is non-zero, but no caller decides to enable
     them yet -- this SDK's 2-session cap (`SRVRUN_MAX_WT_SESSIONS`) remains
     a static limit, and every existing call site still passes 0 for these
     three fields (relying on the pre-existing per-session capsule

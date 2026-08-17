@@ -181,7 +181,7 @@ static void test_moqtrun_on_session_sends_setup(void) {
   u64        type;
   wired_span body;
   CHECK(
-      quic_moqctl_peek_type(
+      moqctl_peek_type(
           wired_span_of(c->payload, c->payload_len), &off, &type, &body) ==
       QUIC_MOQCTL_OK);
   CHECK(type == QUIC_MOQCTL_T_SETUP);
@@ -227,7 +227,7 @@ static void test_moqtrun_publish_replies_request_ok(void) {
   u64        type;
   wired_span body;
   CHECK(
-      quic_moqctl_peek_type(
+      moqctl_peek_type(
           wired_span_of(c->payload, c->payload_len), &off, &type, &body) ==
       QUIC_MOQCTL_OK);
   CHECK(type == QUIC_MOQCTL_T_REQUEST_OK);
@@ -316,13 +316,13 @@ static void test_moqtrun_subscribe_matching_publish_replies_ok(void) {
   u64        type;
   wired_span body;
   CHECK(
-      quic_moqctl_peek_type(
+      moqctl_peek_type(
           wired_span_of(c->payload, c->payload_len), &off, &type, &body) ==
       QUIC_MOQCTL_OK);
   CHECK(type == QUIC_MOQCTL_T_SUBSCRIBE_OK);
-  quic_moqctl_subscribe_ok ok;
-  usz                      body_off = 0;
-  CHECK(quic_moqctl_subscribe_ok_take(body, &body_off, &ok) == QUIC_MOQCTL_OK);
+  moqctl_subscribe_ok ok;
+  usz                 body_off = 0;
+  CHECK(moqctl_subscribe_ok_take(body, &body_off, &ok) == QUIC_MOQCTL_OK);
   (void)ok; /* alias value itself is hub-assigned, not pinned */
 }
 
@@ -345,13 +345,13 @@ static void test_moqtrun_subscribe_without_publish_replies_error(void) {
   u64                      type;
   wired_span               body;
   CHECK(
-      quic_moqctl_peek_type(
+      moqctl_peek_type(
           wired_span_of(c->payload, c->payload_len), &off, &type, &body) ==
       QUIC_MOQCTL_OK);
   CHECK(type == QUIC_MOQCTL_T_REQUEST_ERROR);
-  quic_moqctl_request_error e;
-  usz                       body_off = 0;
-  CHECK(quic_moqctl_request_error_take(body, &body_off, &e) == QUIC_MOQCTL_OK);
+  moqctl_request_error e;
+  usz                  body_off = 0;
+  CHECK(moqctl_request_error_take(body, &body_off, &e) == QUIC_MOQCTL_OK);
   CHECK(e.error_code == QUIC_MOQCTL_ERR_DOES_NOT_EXIST);
 }
 
@@ -510,13 +510,13 @@ static void test_moqtrun_subscribe_nonzero_timeout_rejected(void) {
   u64                      type;
   wired_span               body;
   CHECK(
-      quic_moqctl_peek_type(
+      moqctl_peek_type(
           wired_span_of(c->payload, c->payload_len), &off, &type, &body) ==
       QUIC_MOQCTL_OK);
   CHECK(type == QUIC_MOQCTL_T_REQUEST_ERROR);
-  quic_moqctl_request_error e;
-  usz                       body_off = 0;
-  CHECK(quic_moqctl_request_error_take(body, &body_off, &e) == QUIC_MOQCTL_OK);
+  moqctl_request_error e;
+  usz                  body_off = 0;
+  CHECK(moqctl_request_error_take(body, &body_off, &e) == QUIC_MOQCTL_OK);
   CHECK(e.error_code == QUIC_MOQCTL_ERR_NOT_SUPPORTED);
 }
 
@@ -539,11 +539,11 @@ static void test_moqtrun_subscribe_ok_carries_no_timeout_param(void) {
   usz                      off = 0;
   u64                      type;
   wired_span               body;
-  quic_moqctl_peek_type(
+  moqctl_peek_type(
       wired_span_of(c->payload, c->payload_len), &off, &type, &body);
-  quic_moqctl_subscribe_ok ok;
-  usz                      body_off = 0;
-  quic_moqctl_subscribe_ok_take(body, &body_off, &ok);
+  moqctl_subscribe_ok ok;
+  usz                 body_off = 0;
+  moqctl_subscribe_ok_take(body, &body_off, &ok);
   CHECK(ok.params.n == 0);
 }
 
@@ -573,7 +573,7 @@ static void test_moqtrun_unknown_first_type_gets_not_supported(void) {
   u64                      type;
   wired_span               body;
   CHECK(
-      quic_moqctl_peek_type(
+      moqctl_peek_type(
           wired_span_of(c->payload, c->payload_len), &off, &type, &body) ==
       QUIC_MOQCTL_OK);
   CHECK(type == QUIC_MOQCTL_T_REQUEST_ERROR);
@@ -592,10 +592,10 @@ static void test_moqtrun_goaway_on_request_stream_produces_no_reply(void) {
   u64 ctrl_a = moqtrun_test_last_kind(1)->stream_id;
 
   moqtrun_test_reset();
-  quic_moqctl_goaway g = {0};
-  u8                 buf[16];
-  usz                off = 0;
-  quic_moqctl_goaway_encode(wired_mspan_of(buf, sizeof buf), &off, &g);
+  moqctl_goaway g = {0};
+  u8            buf[16];
+  usz           off = 0;
+  moqctl_goaway_encode(wired_mspan_of(buf, sizeof buf), &off, &g);
   wired_moqt_on_stream_data(&hub, SESS_A, ctrl_a, wired_span_of(buf, off), 0);
 
   CHECK(g_n_calls == 0);
@@ -635,7 +635,7 @@ static void test_moqtrun_peer_publishes_two_tracks(void) {
   u64                      type;
   wired_span               body;
   CHECK(
-      quic_moqctl_peek_type(
+      moqctl_peek_type(
           wired_span_of(c->payload, c->payload_len), &off, &type, &body) ==
       QUIC_MOQCTL_OK);
   CHECK(type == QUIC_MOQCTL_T_REQUEST_OK);
@@ -668,7 +668,7 @@ static void test_moqtrun_third_publish_gets_error(void) {
   u64                      type;
   wired_span               body;
   CHECK(
-      quic_moqctl_peek_type(
+      moqctl_peek_type(
           wired_span_of(c->payload, c->payload_len), &off, &type, &body) ==
       QUIC_MOQCTL_OK);
   CHECK(type == QUIC_MOQCTL_T_REQUEST_ERROR);
@@ -693,7 +693,7 @@ static void test_moqtrun_republish_same_name_reuses_slot(void) {
   u64                      type;
   wired_span               body;
   CHECK(
-      quic_moqctl_peek_type(
+      moqctl_peek_type(
           wired_span_of(c->payload, c->payload_len), &off, &type, &body) ==
       QUIC_MOQCTL_OK);
   CHECK(type == QUIC_MOQCTL_T_REQUEST_OK); /* not REQUEST_ERROR (slot free) */
@@ -718,7 +718,7 @@ static void test_moqtrun_subscribe_audio_track_replies_ok(void) {
   u64                      type;
   wired_span               body;
   CHECK(
-      quic_moqctl_peek_type(
+      moqctl_peek_type(
           wired_span_of(c->payload, c->payload_len), &off, &type, &body) ==
       QUIC_MOQCTL_OK);
   CHECK(type == QUIC_MOQCTL_T_SUBSCRIBE_OK);
@@ -747,12 +747,12 @@ static void test_moqtrun_chat_and_audio_get_different_aliases(void) {
   usz                      off1       = 0;
   u64                      type1;
   wired_span               body1;
-  quic_moqctl_peek_type(
+  moqctl_peek_type(
       wired_span_of(chat_reply->payload, chat_reply->payload_len), &off1,
       &type1, &body1);
-  quic_moqctl_subscribe_ok chat_ok;
-  usz                      chat_off = 0;
-  quic_moqctl_subscribe_ok_take(body1, &chat_off, &chat_ok);
+  moqctl_subscribe_ok chat_ok;
+  usz                 chat_off = 0;
+  moqctl_subscribe_ok_take(body1, &chat_off, &chat_ok);
 
   u8  buf[MOQTRUN_TEST_MAX_PAYLOAD];
   usz n = moqtrun_test_subscribe_audio_msg(buf);
@@ -761,12 +761,12 @@ static void test_moqtrun_chat_and_audio_get_different_aliases(void) {
   usz                      off2        = 0;
   u64                      type2;
   wired_span               body2;
-  quic_moqctl_peek_type(
+  moqctl_peek_type(
       wired_span_of(audio_reply->payload, audio_reply->payload_len), &off2,
       &type2, &body2);
-  quic_moqctl_subscribe_ok audio_ok;
-  usz                      audio_off = 0;
-  quic_moqctl_subscribe_ok_take(body2, &audio_off, &audio_ok);
+  moqctl_subscribe_ok audio_ok;
+  usz                 audio_off = 0;
+  moqctl_subscribe_ok_take(body2, &audio_off, &audio_ok);
 
   CHECK(type1 == QUIC_MOQCTL_T_SUBSCRIBE_OK);
   CHECK(type2 == QUIC_MOQCTL_T_SUBSCRIBE_OK);
@@ -987,14 +987,14 @@ static void test_moqtrun_two_subscribe_oks_one_dispatch_no_overflow(void) {
   u64                      t1;
   wired_span               b1;
   CHECK(
-      quic_moqctl_peek_type(
+      moqctl_peek_type(
           wired_span_of(c->payload, c->payload_len), &check_off, &t1, &b1) ==
       QUIC_MOQCTL_OK);
   CHECK(t1 == QUIC_MOQCTL_T_SUBSCRIBE_OK);
   u64        t2;
   wired_span b2;
   CHECK(
-      quic_moqctl_peek_type(
+      moqctl_peek_type(
           wired_span_of(c->payload, c->payload_len), &check_off, &t2, &b2) ==
       QUIC_MOQCTL_OK);
   CHECK(t2 == QUIC_MOQCTL_T_SUBSCRIBE_OK);
@@ -1009,16 +1009,15 @@ static void test_moqtrun_two_subscribe_oks_one_dispatch_no_overflow(void) {
  * (its own index) and Object ID == its index (id_delta 0 for the first,
  * else 1). Returns the total bytes written. */
 static usz moqtrun_test_build_multi_object_stream(usz n_objects, u8* buf) {
-  quic_moqdata_subhdr h = {0};
+  moqdata_subhdr h = {0};
   h.type =
       0x30; /* mode 0b00 (explicit subgroup_id=0), no props, default priority */
   usz off = 0;
-  quic_moqdata_subhdr_put(
-      wired_mspan_of(buf, MOQTRUN_TEST_MAX_PAYLOAD), &off, &h);
+  moqdata_subhdr_put(wired_mspan_of(buf, MOQTRUN_TEST_MAX_PAYLOAD), &off, &h);
   for (usz i = 0; i < n_objects; i++) {
     u8         payload_byte = (u8)i;
     wired_span payload      = wired_span_of(&payload_byte, 1);
-    quic_moqdata_obj_put(
+    moqdata_obj_put(
         wired_mspan_of(buf, MOQTRUN_TEST_MAX_PAYLOAD), &off, i == 0 ? 0 : 1,
         payload);
   }
@@ -1031,10 +1030,10 @@ static void test_moqtrun_decode_loop_single_object_matches_one_shot(void) {
   u8  buf[MOQTRUN_TEST_MAX_PAYLOAD];
   usz total = moqtrun_test_build_multi_object_stream(1, buf);
 
-  usz                 off = 0;
-  quic_moqdata_subhdr hdr;
+  usz            off = 0;
+  moqdata_subhdr hdr;
   CHECK(
-      quic_moqdata_subhdr_take(wired_span_of(buf, total), &off, &hdr) ==
+      moqdata_subhdr_take(wired_span_of(buf, total), &off, &hdr) ==
       QUIC_MOQDATA_OK);
   usz n = moqtrun_decode_object_loop(wired_span_of(buf, total), &off, &hdr);
   CHECK(n == 1);
@@ -1049,10 +1048,10 @@ static void test_moqtrun_decode_loop_multiple_objects(void) {
     u8  buf[MOQTRUN_TEST_MAX_PAYLOAD];
     usz total = moqtrun_test_build_multi_object_stream(counts[c], buf);
 
-    usz                 off = 0;
-    quic_moqdata_subhdr hdr;
+    usz            off = 0;
+    moqdata_subhdr hdr;
     CHECK(
-        quic_moqdata_subhdr_take(wired_span_of(buf, total), &off, &hdr) ==
+        moqdata_subhdr_take(wired_span_of(buf, total), &off, &hdr) ==
         QUIC_MOQDATA_OK);
     usz n = moqtrun_decode_object_loop(wired_span_of(buf, total), &off, &hdr);
     CHECK(n == counts[c]);
@@ -1068,10 +1067,10 @@ static void test_moqtrun_decode_loop_stops_at_truncation(void) {
   usz total     = moqtrun_test_build_multi_object_stream(3, buf);
   usz truncated = total - 1; /* cuts into the 3rd Object's payload byte */
 
-  usz                 off = 0;
-  quic_moqdata_subhdr hdr;
+  usz            off = 0;
+  moqdata_subhdr hdr;
   CHECK(
-      quic_moqdata_subhdr_take(wired_span_of(buf, truncated), &off, &hdr) ==
+      moqdata_subhdr_take(wired_span_of(buf, truncated), &off, &hdr) ==
       QUIC_MOQDATA_OK);
   usz        header_end = off;
   wired_span data       = wired_span_of(buf, truncated);
@@ -1082,26 +1081,26 @@ static void test_moqtrun_decode_loop_stops_at_truncation(void) {
 }
 
 /* An Object whose cumulative Object ID overflows (VIOLATION, per
- * quic_moqdata_obj_take's doc) stops the loop there -- objects decoded
+ * moqdata_obj_take's doc) stops the loop there -- objects decoded
  * before it are still counted, the VIOLATION-shaped one is not. */
 static void test_moqtrun_decode_loop_stops_at_violation(void) {
-  u8                  buf[MOQTRUN_TEST_MAX_PAYLOAD];
-  quic_moqdata_subhdr h = {0};
-  h.type                = 0x30;
-  usz off               = 0;
-  quic_moqdata_subhdr_put(wired_mspan_of(buf, sizeof buf), &off, &h);
+  u8             buf[MOQTRUN_TEST_MAX_PAYLOAD];
+  moqdata_subhdr h = {0};
+  h.type           = 0x30;
+  usz off          = 0;
+  moqdata_subhdr_put(wired_mspan_of(buf, sizeof buf), &off, &h);
   u8         payload_byte = 0;
   wired_span payload      = wired_span_of(&payload_byte, 1);
-  quic_moqdata_obj_put(wired_mspan_of(buf, sizeof buf), &off, 0, payload);
+  moqdata_obj_put(wired_mspan_of(buf, sizeof buf), &off, 0, payload);
   /* 2nd Object: id_delta = UINT64_MAX overflows Object ID accumulation. */
-  quic_moqdata_obj_put(
+  moqdata_obj_put(
       wired_mspan_of(buf, sizeof buf), &off, 0xFFFFFFFFFFFFFFFFULL, payload);
   usz total = off;
 
-  usz                 decode_off = 0;
-  quic_moqdata_subhdr hdr;
+  usz            decode_off = 0;
+  moqdata_subhdr hdr;
   CHECK(
-      quic_moqdata_subhdr_take(wired_span_of(buf, total), &decode_off, &hdr) ==
+      moqdata_subhdr_take(wired_span_of(buf, total), &decode_off, &hdr) ==
       QUIC_MOQDATA_OK);
   usz n =
       moqtrun_decode_object_loop(wired_span_of(buf, total), &decode_off, &hdr);
@@ -1164,15 +1163,15 @@ static void test_moqtrun_data_stream_continues_across_calls_without_header(
       &hub, SESS_B, ctrl_b, wired_span_of(sub_audio, sub_audio_n), 0);
 
   /* First call: SUBGROUP_HEADER (audio's declared alias 2) + one Object. */
-  quic_moqdata_subhdr h = {0};
-  h.type                = 0x30;
+  moqdata_subhdr h = {0};
+  h.type           = 0x30;
   u8  first[MOQTRUN_TEST_MAX_PAYLOAD];
   usz first_off = 0;
-  quic_moqdata_subhdr_put(wired_mspan_of(first, sizeof first), &first_off, &h);
+  moqdata_subhdr_put(wired_mspan_of(first, sizeof first), &first_off, &h);
   first[1]            = 0x02; /* Track Alias byte: audio's declared alias */
   u8         payload0 = 7;
   wired_span p0       = wired_span_of(&payload0, 1);
-  quic_moqdata_obj_put(wired_mspan_of(first, sizeof first), &first_off, 0, p0);
+  moqdata_obj_put(wired_mspan_of(first, sizeof first), &first_off, 0, p0);
 
   moqtrun_test_reset();
   wired_moqt_on_stream_data(
@@ -1185,8 +1184,7 @@ static void test_moqtrun_data_stream_continues_across_calls_without_header(
   usz        second_off = 0;
   u8         payload1   = 8;
   wired_span p1         = wired_span_of(&payload1, 1);
-  quic_moqdata_obj_put(
-      wired_mspan_of(second, sizeof second), &second_off, 1, p1);
+  moqdata_obj_put(wired_mspan_of(second, sizeof second), &second_off, 1, p1);
 
   moqtrun_test_reset();
   wired_moqt_on_stream_data(
@@ -1221,7 +1219,7 @@ static void test_moqtrun_unbound_stream_id_relays_nowhere(void) {
   wired_span p0       = wired_span_of(&payload0, 1);
   u8         bare[MOQTRUN_TEST_MAX_PAYLOAD];
   usz        bare_off = 0;
-  quic_moqdata_obj_put(wired_mspan_of(bare, sizeof bare), &bare_off, 0, p0);
+  moqdata_obj_put(wired_mspan_of(bare, sizeof bare), &bare_off, 0, p0);
 
   moqtrun_test_reset();
   wired_moqt_on_stream_data(
@@ -1274,8 +1272,7 @@ static void test_moqtrun_audio_first_object_opens_then_appends(void) {
   wired_span p1       = wired_span_of(&payload1, 1);
   u8         second[MOQTRUN_TEST_MAX_PAYLOAD];
   usz        second_off = 0;
-  quic_moqdata_obj_put(
-      wired_mspan_of(second, sizeof second), &second_off, 1, p1);
+  moqdata_obj_put(wired_mspan_of(second, sizeof second), &second_off, 1, p1);
 
   moqtrun_test_reset();
   wired_moqt_on_stream_data(
@@ -1374,8 +1371,7 @@ static void test_moqtrun_stream_send_rejection_drops_frame_not_fatal(void) {
   wired_span p1       = wired_span_of(&payload1, 1);
   u8         second[MOQTRUN_TEST_MAX_PAYLOAD];
   usz        second_off = 0;
-  quic_moqdata_obj_put(
-      wired_mspan_of(second, sizeof second), &second_off, 1, p1);
+  moqdata_obj_put(wired_mspan_of(second, sizeof second), &second_off, 1, p1);
 
   g_stream_send_reject_n = 1; /* the next stream_send call is refused */
   wired_moqt_on_stream_data(
@@ -1390,7 +1386,7 @@ static void test_moqtrun_stream_send_rejection_drops_frame_not_fatal(void) {
   wired_span p2       = wired_span_of(&payload2, 1);
   u8         third[MOQTRUN_TEST_MAX_PAYLOAD];
   usz        third_off = 0;
-  quic_moqdata_obj_put(wired_mspan_of(third, sizeof third), &third_off, 1, p2);
+  moqdata_obj_put(wired_mspan_of(third, sizeof third), &third_off, 1, p2);
 
   moqtrun_test_reset();
   wired_moqt_on_stream_data(
@@ -1444,8 +1440,7 @@ static void test_moqtrun_audio_two_subscribers_independent_streams(void) {
   wired_span p1       = wired_span_of(&payload1, 1);
   u8         second[MOQTRUN_TEST_MAX_PAYLOAD];
   usz        second_off = 0;
-  quic_moqdata_obj_put(
-      wired_mspan_of(second, sizeof second), &second_off, 1, p1);
+  moqdata_obj_put(wired_mspan_of(second, sizeof second), &second_off, 1, p1);
 
   moqtrun_test_reset();
   wired_moqt_on_stream_data(
@@ -1531,7 +1526,7 @@ static void moqtrun_test_send_audio_round(
   u8         buf[MOQTRUN_TEST_MAX_PAYLOAD];
   usz        off = 0;
   wired_span p   = wired_span_of(&v, 1);
-  quic_moqdata_obj_put(wired_mspan_of(buf, sizeof buf), &off, 1, p);
+  moqdata_obj_put(wired_mspan_of(buf, sizeof buf), &off, 1, p);
   wired_moqt_on_stream_data(hub, SESS_A, pub_sid, wired_span_of(buf, off), 0);
 }
 
@@ -1911,8 +1906,7 @@ static void test_moqtrun_late_subscriber_gets_late_opened_stream(void) {
   wired_span p1       = wired_span_of(&payload1, 1);
   u8         second[MOQTRUN_TEST_MAX_PAYLOAD];
   usz        second_off = 0;
-  quic_moqdata_obj_put(
-      wired_mspan_of(second, sizeof second), &second_off, 1, p1);
+  moqdata_obj_put(wired_mspan_of(second, sizeof second), &second_off, 1, p1);
 
   moqtrun_test_reset();
   wired_moqt_on_stream_data(
@@ -1957,7 +1951,7 @@ static void test_moqtrun_torn_object_held_until_complete(void) {
   u8  payload[5] = {1, 2, 3, 4, 5};
   u8  obj[MOQTRUN_TEST_MAX_PAYLOAD];
   usz obj_n = 0;
-  quic_moqdata_obj_put(
+  moqdata_obj_put(
       wired_mspan_of(obj, sizeof obj), &obj_n, 1, wired_span_of(payload, 5));
   usz cut = obj_n - 3; /* tear inside the payload */
 
@@ -1993,14 +1987,11 @@ static void test_moqtrun_normalize_forwards_only_whole_objects(void) {
   u8  pc[5] = {0xC, 0xC, 0xC, 0xC, 0xC};
   u8  abc[MOQTRUN_TEST_MAX_PAYLOAD];
   usz n = 0;
-  quic_moqdata_obj_put(
-      wired_mspan_of(abc, sizeof abc), &n, 1, wired_span_of(pa, 3));
+  moqdata_obj_put(wired_mspan_of(abc, sizeof abc), &n, 1, wired_span_of(pa, 3));
   usz a_end = n;
-  quic_moqdata_obj_put(
-      wired_mspan_of(abc, sizeof abc), &n, 1, wired_span_of(pb, 4));
+  moqdata_obj_put(wired_mspan_of(abc, sizeof abc), &n, 1, wired_span_of(pb, 4));
   usz b_end = n;
-  quic_moqdata_obj_put(
-      wired_mspan_of(abc, sizeof abc), &n, 1, wired_span_of(pc, 5));
+  moqdata_obj_put(wired_mspan_of(abc, sizeof abc), &n, 1, wired_span_of(pc, 5));
   usz cut1 = a_end - 2; /* first delivery tears inside A */
   usz cut2 = b_end + 3; /* second delivery ends inside C */
 
@@ -2038,7 +2029,7 @@ static void test_moqtrun_fresh_delivery_tail_held_back(void) {
   usz n = moqtrun_test_subgroup_with_alias(0x02, wire); /* header + 1 obj */
   usz whole_end = n;
   u8  p2[4]     = {9, 9, 9, 9};
-  quic_moqdata_obj_put(
+  moqdata_obj_put(
       wired_mspan_of(wire, sizeof wire), &n, 1, wired_span_of(p2, 4));
   usz cut = whole_end + 2; /* tear inside the 2nd Object */
 

@@ -10,6 +10,6 @@
  * Returns 1 on success, 0 on: dst overflow, an EOS symbol in the stream,
  * a padding of 8 or more bits, or a final padding that is not all-ones
  * (RFC 7541 5.2). */
-int quic_qpack_huffman_decode(wired_span src, wired_obuf* dst);
+int qpack_huffman_decode(wired_span src, wired_obuf* dst);
 
 #endif

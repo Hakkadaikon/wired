@@ -19,12 +19,12 @@ static void test_capsule_roundtrip_small_type(void) {
   u64        type_out;
   wired_span value_out;
 
-  CHECK(quic_capsule_encode(&out, 0x00, value_in));
+  CHECK(capsule_encode(&out, 0x00, value_in));
   /* type varint(1B) + length varint(1B) + 5 value bytes = 7 */
   CHECK(out.len == 7);
 
-  CHECK(quic_capsule_decode(
-      wired_span_of(buf, out.len), &at, &type_out, &value_out));
+  CHECK(
+      capsule_decode(wired_span_of(buf, out.len), &at, &type_out, &value_out));
   CHECK(type_out == 0x00);
   CHECK(value_out.n == 5);
   for (usz i = 0; i < 5; i++) CHECK(value_out.p[i] == val[i]);
@@ -42,9 +42,9 @@ static void test_capsule_roundtrip_large_types(void) {
   u64        type_out;
   wired_span value_out;
 
-  CHECK(quic_capsule_encode(&out, 0x2843, value_in));
-  CHECK(quic_capsule_decode(
-      wired_span_of(buf, out.len), &at, &type_out, &value_out));
+  CHECK(capsule_encode(&out, 0x2843, value_in));
+  CHECK(
+      capsule_decode(wired_span_of(buf, out.len), &at, &type_out, &value_out));
   CHECK(type_out == 0x2843);
   CHECK(value_out.n == 3);
   CHECK(at == out.len);
@@ -56,8 +56,8 @@ static void test_capsule_roundtrip_large_types(void) {
     u64        type_out2;
     wired_span value_out2;
 
-    CHECK(quic_capsule_encode(&out2, 0x190B4D3DULL, value_in));
-    CHECK(quic_capsule_decode(
+    CHECK(capsule_encode(&out2, 0x190B4D3DULL, value_in));
+    CHECK(capsule_decode(
         wired_span_of(buf2, out2.len), &at2, &type_out2, &value_out2));
     CHECK(type_out2 == 0x190B4D3DULL);
     CHECK(value_out2.n == 3);
@@ -73,12 +73,12 @@ static void test_capsule_roundtrip_empty_value(void) {
   u64        type_out;
   wired_span value_out;
 
-  CHECK(quic_capsule_encode(&out, 0x78ae, value_in));
+  CHECK(capsule_encode(&out, 0x78ae, value_in));
   CHECK(
       out.len ==
       5); /* 0x78ae > 0x3FFF -> 4-byte type varint + 1-byte length(0) */
-  CHECK(quic_capsule_decode(
-      wired_span_of(buf, out.len), &at, &type_out, &value_out));
+  CHECK(
+      capsule_decode(wired_span_of(buf, out.len), &at, &type_out, &value_out));
   CHECK(type_out == 0x78ae);
   CHECK(value_out.n == 0);
   CHECK(at == out.len);
@@ -91,8 +91,7 @@ static void test_capsule_decode_truncated_type(void) {
   u64 type_out;
   wired_span value_out;
 
-  CHECK(
-      !quic_capsule_decode(wired_span_of(buf, 1), &at, &type_out, &value_out));
+  CHECK(!capsule_decode(wired_span_of(buf, 1), &at, &type_out, &value_out));
   CHECK(at == 0);
 }
 
@@ -105,9 +104,9 @@ static void test_capsule_decode_truncated_value(void) {
   u64        type_out;
   wired_span value_out;
 
-  CHECK(quic_capsule_encode(&out, 0x01, wired_span_of(val, sizeof val)));
+  CHECK(capsule_encode(&out, 0x01, wired_span_of(val, sizeof val)));
   /* Truncate: hand decode only the header plus 2 of the 5 value bytes. */
-  CHECK(!quic_capsule_decode(
+  CHECK(!capsule_decode(
       wired_span_of(buf, out.len - 3), &at, &type_out, &value_out));
   CHECK(at == 0);
 }
@@ -119,7 +118,7 @@ static void test_capsule_encode_too_small_leaves_out_unmodified(void) {
   wired_obuf out    = obuf_of(buf, sizeof buf);
   u8         val[5] = {1, 2, 3, 4, 5};
 
-  CHECK(!quic_capsule_encode(&out, 0x00, wired_span_of(val, sizeof val)));
+  CHECK(!capsule_encode(&out, 0x00, wired_span_of(val, sizeof val)));
   CHECK(out.len == 0);
   CHECK(buf[0] == 0xEE);
   CHECK(buf[1] == 0xEE);
@@ -137,16 +136,16 @@ static void test_capsule_decode_multiple_back_to_back(void) {
   wired_span value_out;
   wired_span data;
 
-  CHECK(quic_capsule_encode(&out, 0x00, wired_span_of(val1, sizeof val1)));
-  CHECK(quic_capsule_encode(&out, 0x2843, wired_span_of(val2, sizeof val2)));
+  CHECK(capsule_encode(&out, 0x00, wired_span_of(val1, sizeof val1)));
+  CHECK(capsule_encode(&out, 0x2843, wired_span_of(val2, sizeof val2)));
   data = wired_span_of(buf, out.len);
 
-  CHECK(quic_capsule_decode(data, &at, &type_out, &value_out));
+  CHECK(capsule_decode(data, &at, &type_out, &value_out));
   CHECK(type_out == 0x00);
   CHECK(value_out.n == 2);
   CHECK(value_out.p[0] == 0x11);
 
-  CHECK(quic_capsule_decode(data, &at, &type_out, &value_out));
+  CHECK(capsule_decode(data, &at, &type_out, &value_out));
   CHECK(type_out == 0x2843);
   CHECK(value_out.n == 3);
   CHECK(value_out.p[2] == 0x55);
@@ -164,13 +163,13 @@ static void test_capsule_different_types_same_value_bytes(void) {
   wired_span value1, value2;
   wired_span data;
 
-  CHECK(quic_capsule_encode(&out, 0x05, wired_span_of(val, sizeof val)));
+  CHECK(capsule_encode(&out, 0x05, wired_span_of(val, sizeof val)));
   at2 = out.len;
-  CHECK(quic_capsule_encode(&out, 0x06, wired_span_of(val, sizeof val)));
+  CHECK(capsule_encode(&out, 0x06, wired_span_of(val, sizeof val)));
   data = wired_span_of(buf, out.len);
 
-  CHECK(quic_capsule_decode(data, &at1, &type1, &value1));
-  CHECK(quic_capsule_decode(data, &at2, &type2, &value2));
+  CHECK(capsule_decode(data, &at1, &type1, &value1));
+  CHECK(capsule_decode(data, &at2, &type2, &value2));
   CHECK(type1 == 0x05);
   CHECK(type2 == 0x06);
   CHECK(type1 != type2);
@@ -180,7 +179,7 @@ static void test_capsule_different_types_same_value_bytes(void) {
  * carrying Capsules is terminated cleanly and the last Capsule on the
  * stream was truncated, then the server shall treat this as a malformed or
  * incomplete message." at is the cursor left by the last successful
- * quic_capsule_decode; leftover bytes at data.n - at with fin set is exactly
+ * capsule_decode; leftover bytes at data.n - at with fin set is exactly
  * this case. */
 static void test_capsule_fin_truncated_reports_malformed(void) {
   u8         buf[16];
@@ -188,21 +187,21 @@ static void test_capsule_fin_truncated_reports_malformed(void) {
   u8         val[5] = {1, 2, 3, 4, 5};
   usz        at     = 0;
 
-  CHECK(quic_capsule_encode(&out, 0x01, wired_span_of(val, sizeof val)));
+  CHECK(capsule_encode(&out, 0x01, wired_span_of(val, sizeof val)));
   /* Deliver only the header plus 2 of the 5 value bytes, then FIN. */
-  CHECK(quic_capsule_fin_truncated(wired_span_of(buf, out.len - 3), at, 1));
+  CHECK(capsule_fin_truncated(wired_span_of(buf, out.len - 3), at, 1));
 }
 
 /* TEST 10: the same leftover bytes WITHOUT fin yet is benign -- "wait for
- * more data", per quic_capsule_decode's own doc. */
+ * more data", per capsule_decode's own doc. */
 static void test_capsule_no_fin_truncated_is_not_malformed(void) {
   u8         buf[16];
   wired_obuf out    = obuf_of(buf, sizeof buf);
   u8         val[5] = {1, 2, 3, 4, 5};
   usz        at     = 0;
 
-  CHECK(quic_capsule_encode(&out, 0x01, wired_span_of(val, sizeof val)));
-  CHECK(!quic_capsule_fin_truncated(wired_span_of(buf, out.len - 3), at, 0));
+  CHECK(capsule_encode(&out, 0x01, wired_span_of(val, sizeof val)));
+  CHECK(!capsule_fin_truncated(wired_span_of(buf, out.len - 3), at, 0));
 }
 
 /* TEST 11: a clean FIN exactly at a capsule boundary (no leftover bytes) is
@@ -215,17 +214,17 @@ static void test_capsule_fin_at_boundary_is_not_malformed(void) {
   u64        type_out;
   wired_span value_out;
 
-  CHECK(quic_capsule_encode(&out, 0x01, wired_span_of(val, sizeof val)));
-  CHECK(quic_capsule_decode(
-      wired_span_of(buf, out.len), &at, &type_out, &value_out));
+  CHECK(capsule_encode(&out, 0x01, wired_span_of(val, sizeof val)));
+  CHECK(
+      capsule_decode(wired_span_of(buf, out.len), &at, &type_out, &value_out));
   CHECK(at == out.len);
-  CHECK(!quic_capsule_fin_truncated(wired_span_of(buf, out.len), at, 1));
+  CHECK(!capsule_fin_truncated(wired_span_of(buf, out.len), at, 1));
 }
 
 /* TEST 12: an empty stream (FIN immediately, no bytes at all) is not
  * malformed -- there is no truncated capsule, just nothing sent. */
 static void test_capsule_fin_empty_stream_is_not_malformed(void) {
-  CHECK(!quic_capsule_fin_truncated(wired_span_of(0, 0), 0, 1));
+  CHECK(!capsule_fin_truncated(wired_span_of(0, 0), 0, 1));
 }
 
 void test_capsule(void) {

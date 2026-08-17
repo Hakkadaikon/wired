@@ -51,19 +51,19 @@ static void test_wtwire_signal_put_capacity(void) {
 static void test_wtwire_qsid_put(void) {
   u8 buf[8];
 
-  CHECK(quic_wtwire_qsid_put(buf, sizeof buf, 4) == 1);
+  CHECK(wtwire_qsid_put(buf, sizeof buf, 4) == 1);
   CHECK(buf[0] == 0x01);
 
-  CHECK(quic_wtwire_qsid_put(buf, sizeof buf, 0) == 1);
+  CHECK(wtwire_qsid_put(buf, sizeof buf, 0) == 1);
   CHECK(buf[0] == 0x00);
 
   /* 400 / 4 = 100 -> 2-byte varint 0x40 0x64. */
-  CHECK(quic_wtwire_qsid_put(buf, sizeof buf, 400) == 2);
+  CHECK(wtwire_qsid_put(buf, sizeof buf, 400) == 2);
   CHECK(buf[0] == 0x40);
   CHECK(buf[1] == 0x64);
 
-  CHECK(quic_wtwire_qsid_put(buf, 1, 400) == 0);
-  CHECK(quic_wtwire_qsid_put(buf, 0, 0) == 0);
+  CHECK(wtwire_qsid_put(buf, 1, 400) == 0);
+  CHECK(wtwire_qsid_put(buf, 0, 0) == 0);
 }
 
 /* TEST 4: qsid put -> take round-trips session_id and consumed length. */
@@ -72,12 +72,12 @@ static void test_wtwire_qsid_roundtrip(void) {
   usz n;
   u64 sid = 0;
 
-  n = quic_wtwire_qsid_put(buf, sizeof buf, 400);
+  n = wtwire_qsid_put(buf, sizeof buf, 400);
   CHECK(n == 2);
   CHECK(wired_wtwire_qsid_take(wired_span_of(buf, n), &sid) == n);
   CHECK(sid == 400);
 
-  n = quic_wtwire_qsid_put(buf, sizeof buf, 4);
+  n = wtwire_qsid_put(buf, sizeof buf, 4);
   CHECK(wired_wtwire_qsid_take(wired_span_of(buf, n), &sid) == n);
   CHECK(sid == 4);
 }
@@ -99,13 +99,13 @@ static void test_wtwire_qsid_take_range(void) {
   u64 sid;
 
   /* 2^60-1: the largest legal QSID. */
-  n = quic_wtwire_qsid_put(buf, sizeof buf, (((u64)1 << 60) - 1) * 4);
+  n = wtwire_qsid_put(buf, sizeof buf, (((u64)1 << 60) - 1) * 4);
   CHECK(n != 0);
   CHECK(wired_wtwire_qsid_take(wired_span_of(buf, n), &sid) == n);
   CHECK(sid == (((u64)1 << 60) - 1) * 4);
 
   /* 2^60: one past the legal range -> rejected. */
-  n = quic_wtwire_qsid_put(buf, sizeof buf, ((u64)1 << 60) * 4);
+  n = wtwire_qsid_put(buf, sizeof buf, ((u64)1 << 60) * 4);
   CHECK(n != 0);
   CHECK(wired_wtwire_qsid_take(wired_span_of(buf, n), &sid) == 0);
 }

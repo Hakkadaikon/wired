@@ -12,23 +12,23 @@ static u8 sign_prefix(u8 sign) { return sign ? PREFIX_SIGN_BIT : 0; }
 /* off + w, or 0 if either is 0 (an empty second field means failure). */
 static usz prefix_join(usz off, usz w) { return (off && w) ? off + w : 0; }
 
-usz quic_qpack_prefix_encode(u8* buf, usz cap, const quic_qpack_prefix* p) {
-  quic_qpack_pfx ric = {8, 0};
-  usz            off = quic_qpack_int_encode(
-      wired_mspan_of(buf, cap), ric, p->required_insert_count);
-  quic_qpack_pfx db = {7, sign_prefix(p->sign)};
-  usz            w  = off ? quic_qpack_int_encode(
-                                wired_mspan_of(buf + off, cap - off), db, p->delta_base)
-                          : 0;
+usz qpack_prefix_encode(u8* buf, usz cap, const qpack_prefix* p) {
+  qpack_pfx ric = {8, 0};
+  usz       off =
+      qpack_int_encode(wired_mspan_of(buf, cap), ric, p->required_insert_count);
+  qpack_pfx db = {7, sign_prefix(p->sign)};
+  usz       w  = off ? qpack_int_encode(
+                           wired_mspan_of(buf + off, cap - off), db, p->delta_base)
+                     : 0;
   return prefix_join(off, w);
 }
 
-usz quic_qpack_prefix_decode(const u8* buf, usz n, quic_qpack_prefix* p) {
-  usz off = quic_qpack_int_decode(
-      wired_span_of(buf, n), 8, &p->required_insert_count);
+usz qpack_prefix_decode(const u8* buf, usz n, qpack_prefix* p) {
+  usz off =
+      qpack_int_decode(wired_span_of(buf, n), 8, &p->required_insert_count);
   if (off == 0) return 0;
   p->sign = (buf[off] & PREFIX_SIGN_BIT) ? 1 : 0;
   return prefix_join(
-      off, quic_qpack_int_decode(
-               wired_span_of(buf + off, n - off), 7, &p->delta_base));
+      off,
+      qpack_int_decode(wired_span_of(buf + off, n - off), 7, &p->delta_base));
 }

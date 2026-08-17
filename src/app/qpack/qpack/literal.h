@@ -15,29 +15,27 @@ typedef struct {
   u64 index;
   int is_static; /* T */
   int never;     /* N */
-} quic_qpack_nameref;
+} qpack_nameref;
 
 /* Encode a name-reference field line: *r plus the value. Returns bytes
  * written, or 0 if it does not fit. */
-usz quic_qpack_literal_namref_encode(
-    wired_mspan buf, const quic_qpack_nameref* r, wired_span value);
+usz qpack_literal_namref_encode(
+    wired_mspan buf, const qpack_nameref* r, wired_span value);
 
 /* Decode a name-reference field line into *r and the value (into val, length
  * to val->len). Returns bytes consumed, or 0 on a non-matching pattern,
  * truncation, or value overflow. */
-usz quic_qpack_literal_namref_decode(
-    wired_span buf, quic_qpack_nameref* r, wired_obuf* val);
+usz qpack_literal_namref_decode(
+    wired_span buf, qpack_nameref* r, wired_obuf* val);
 
 /* Encode a literal-name field line: never flag plus the (name, value) pair.
  * Returns bytes written, or 0 if it does not fit. */
-usz quic_qpack_literal_name_encode(
-    wired_mspan buf, int never, const quic_qpack_field* f);
+usz qpack_literal_name_encode(wired_mspan buf, int never, const qpack_field* f);
 
 /* Decode a literal-name field line into *never and the (name, value) buffers.
  * A H=1 name is Huffman-decoded. Returns bytes consumed, or 0 on a
  * non-matching pattern, truncation, or overflow. */
-usz quic_qpack_literal_name_decode(
-    wired_span buf, int* never, quic_qpack_fieldbuf* out);
+usz qpack_literal_name_decode(wired_span buf, int* never, qpack_fieldbuf* out);
 
 /* RFC 9204 4.5.5. Literal Field Line With Post-Base Name Reference: pattern
  * 0000Niii, N=never-indexed, a 3-bit prefixed post-Base index into the
@@ -48,17 +46,17 @@ usz quic_qpack_literal_name_decode(
 typedef struct {
   u64 index;
   int never; /* N */
-} quic_qpack_postbaseref;
+} qpack_postbaseref;
 
 /* Encode a post-Base name-reference field line: *r plus the value. Returns
  * bytes written, or 0 if it does not fit. */
-usz quic_qpack_literal_postbase_encode(
-    wired_mspan buf, const quic_qpack_postbaseref* r, wired_span value);
+usz qpack_literal_postbase_encode(
+    wired_mspan buf, const qpack_postbaseref* r, wired_span value);
 
 /* Decode a post-Base name-reference field line into *r and the value (into
  * val, length to val->len). Returns bytes consumed, or 0 on a non-matching
  * pattern, truncation, or value overflow. */
-usz quic_qpack_literal_postbase_decode(
-    wired_span buf, quic_qpack_postbaseref* r, wired_obuf* val);
+usz qpack_literal_postbase_decode(
+    wired_span buf, qpack_postbaseref* r, wired_obuf* val);
 
 #endif

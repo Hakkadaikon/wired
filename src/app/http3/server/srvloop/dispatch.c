@@ -169,8 +169,8 @@ static int gather_request(
 /* Bytes of the complete HTTP/3 HEADERS frame at the head of acc, or 0 when
  * none is fully buffered yet (or the first frame is not HEADERS). */
 static usz acc_headers_frame_len(const wired_srvloop_reqacc* acc) {
-  quic_h3_frame f;
-  usz           n = quic_h3_frame_get(wired_span_of(acc->buf, *acc->len), &f);
+  h3_frame f;
+  usz      n = h3_frame_get(wired_span_of(acc->buf, *acc->len), &f);
   if (n == 0) return 0;
   return f.type == QUIC_H3_FRAME_HEADERS ? n : 0;
 }
@@ -471,7 +471,7 @@ static void uni_stream_type_note_qpack(wired_srvloop* l, wired_span data) {
  * capacity so its own branch count stays at the CCN gate. */
 static void apply_qpack_capacity_rest(wired_srvloop* l, wired_span rest) {
   u16 err = 0;
-  quic_qdyn_enc_apply_capacity(
+  qdyn_enc_apply_capacity(
       rest, &l->h3.qdyn, l->h3.qpack_max_table_capacity, &err);
   if (err) l->qpack_stream_violation = err;
 }
@@ -702,7 +702,7 @@ static void queue_rx_datagram(wired_srvloop* l, wired_span payload) {
  * predicate (dgcheck.h); the "we advertised at all" flag is derived here from
  * the 0-sentinel rather than threaded as a separate bit. */
 static int datagram_size_ok(const wired_srvloop* l, usz payload_len) {
-  return quic_datagram_recv_ok(
+  return datagram_recv_ok(
       l->we_advertised_max_datagram, l->we_advertised_max_datagram > 0,
       (u64)payload_len);
 }
@@ -714,7 +714,7 @@ static int datagram_size_ok(const wired_srvloop* l, usz payload_len) {
  * (gather_one_datagram) has already confirmed the type and queue room. */
 static void queue_decoded_datagram(wired_srvloop* l, wired_span frame) {
   wired_span payload;
-  if (!quic_dgdeliver_extract(frame, &payload)) return;
+  if (!dgdeliver_extract(frame, &payload)) return;
   if (!datagram_size_ok(l, payload.n)) {
     l->datagram_violation = 1;
     return;

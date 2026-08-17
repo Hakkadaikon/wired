@@ -21,14 +21,14 @@ typedef struct {
   const u8* p;   /**< first byte of the list (not owned) */
   usz       n;   /**< number of bytes at p */
   usz       off; /**< current parse position */
-} quic_sfield_iter;
+} sfield_iter;
 
 /** Start iterating the sf-list in `list` (borrowed, must outlive `it`).
  *
  * @param it   iterator to initialize
  * @param list the raw field value, e.g. `"foo", "bar"`
  */
-void quic_sfield_iter_init(quic_sfield_iter* it, wired_span list);
+void sfield_iter_init(sfield_iter* it, wired_span list);
 
 /** Decode the next sf-string member into out (escapes resolved).
  *
@@ -41,7 +41,7 @@ void quic_sfield_iter_init(quic_sfield_iter* it, wired_span list);
  * @param out receives the decoded content; out->len is advanced
  * @return 1 = member produced, 0 = end of list, -1 = syntax error
  */
-int quic_sfield_next_string(quic_sfield_iter* it, wired_obuf* out);
+int sfield_next_string(sfield_iter* it, wired_obuf* out);
 
 /** Serialize s as one sf-string (RFC 8941 SS4.1.6): wrap in DQUOTEs and
  * backslash-escape DQUOTE and backslash.
@@ -52,6 +52,6 @@ int quic_sfield_next_string(quic_sfield_iter* it, wired_obuf* out);
  * @return bytes written, or 0 if s does not fit or contains a byte an
  *         sf-string cannot represent (0x00-0x1f, 0x7f and above)
  */
-usz quic_sfield_string_encode(u8* buf, usz cap, wired_span s);
+usz sfield_string_encode(u8* buf, usz cap, wired_span s);
 
 #endif

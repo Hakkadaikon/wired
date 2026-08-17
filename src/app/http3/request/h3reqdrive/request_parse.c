@@ -9,9 +9,8 @@
  * server-only and never sends one) or an HTTP/2-only reserved type. Split out
  * of find_headers's loop so the reject latch (r->frame_unexpected) stays a
  * single extra branch there. */
-static int find_headers_frame_ok(
-    const quic_h3_frame* f, wired_h3reqdrive_req* r) {
-  if (quic_h3_frame_recv_ok(f->type)) return 1;
+static int find_headers_frame_ok(const h3_frame* f, wired_h3reqdrive_req* r) {
+  if (h3_frame_recv_ok(f->type)) return 1;
   r->frame_unexpected = 1;
   return 0;
 }
@@ -21,8 +20,8 @@ static int find_headers_frame_ok(
  * 0 to stop -- either HEADERS was reached, the stream ran out, or the frame
  * must be rejected (r->frame_unexpected set by find_headers_frame_ok). */
 static int find_headers_step(
-    wired_span h3, usz* off, quic_h3_frame* f, wired_h3reqdrive_req* r) {
-  usz used = quic_h3_frame_get(wired_span_of(h3.p + *off, h3.n - *off), f);
+    wired_span h3, usz* off, h3_frame* f, wired_h3reqdrive_req* r) {
+  usz used = h3_frame_get(wired_span_of(h3.p + *off, h3.n - *off), f);
   if (!used) return 0;
   if (!find_headers_frame_ok(f, r)) return 0;
   *off += used;
@@ -36,8 +35,8 @@ static int find_headers_step(
  * carries a frame type this endpoint must reject (r->frame_unexpected set). */
 static int find_headers(
     wired_span h3, wired_span* fs, usz* end, wired_h3reqdrive_req* r) {
-  quic_h3_frame f   = {0};
-  usz           off = 0;
+  h3_frame f   = {0};
+  usz      off = 0;
   while (find_headers_step(h3, &off, &f, r)) {
   }
   if (f.type != QUIC_H3_FRAME_HEADERS) return 0;
@@ -51,8 +50,8 @@ static int find_headers(
  * irrelevant then), 0 on a truncated/undecodable frame, -1 to keep walking
  * (a skipped frame). */
 static int body_step(wired_span h3, usz* off, wired_h3reqdrive_req* r) {
-  quic_h3_frame f = {0};
-  usz used = quic_h3_frame_get(wired_span_of(h3.p + *off, h3.n - *off), &f);
+  h3_frame f    = {0};
+  usz      used = h3_frame_get(wired_span_of(h3.p + *off, h3.n - *off), &f);
   if (!used) return 0;
   *off += used;
   if (f.type != QUIC_H3_FRAME_DATA) return -1;
@@ -91,8 +90,8 @@ int wired_h3reqdrive_request_sections(
  * skipped or unknown frame past HEADERS). Same step shape as body_step but
  * without writing into a request (used only to find the trailer's offset). */
 static int body_skip_step(wired_span h3, usz* off) {
-  quic_h3_frame f = {0};
-  usz used = quic_h3_frame_get(wired_span_of(h3.p + *off, h3.n - *off), &f);
+  h3_frame f    = {0};
+  usz      used = h3_frame_get(wired_span_of(h3.p + *off, h3.n - *off), &f);
   if (!used) return 0;
   *off += used;
   return f.type == QUIC_H3_FRAME_DATA ? 1 : -1;
@@ -125,13 +124,13 @@ static usz body_end_off(wired_span h3, usz off) {
 /* Decode the frame at [off, h3.n) into *tf. 0 if nothing is there or it does
  * not decode -- the two "stop, nothing to check" cases trailer_headers_at's
  * caller shares one return value for. */
-static int trailer_frame_at(wired_span h3, usz off, quic_h3_frame* tf) {
+static int trailer_frame_at(wired_span h3, usz off, h3_frame* tf) {
   if (off >= h3.n) return 0;
-  return quic_h3_frame_get(wired_span_of(h3.p + off, h3.n - off), tf) != 0;
+  return h3_frame_get(wired_span_of(h3.p + off, h3.n - off), tf) != 0;
 }
 
 static int trailer_headers_at(wired_span h3, usz off, wired_span* trailer_fs) {
-  quic_h3_frame tf = {0};
+  h3_frame tf = {0};
   if (!trailer_frame_at(h3, off, &tf)) return 0;
   if (tf.type != QUIC_H3_FRAME_HEADERS) return 0;
   *trailer_fs = wired_span_of(tf.payload, (usz)tf.payload_len);

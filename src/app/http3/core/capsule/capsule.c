@@ -34,7 +34,7 @@ static void capsule_write(
   out->len += total;
 }
 
-int quic_capsule_encode(wired_obuf* out, u64 type, wired_span value) {
+int capsule_encode(wired_obuf* out, u64 type, wired_span value) {
   usz total = capsule_wire_size(type, value);
   if (!capsule_fits(out, total)) return 0;
   capsule_write(out, type, value, total);
@@ -54,8 +54,7 @@ static int capsule_header_read(
   return 1;
 }
 
-int quic_capsule_decode(
-    wired_span data, usz* at, u64* type, wired_span* value) {
+int capsule_decode(wired_span data, usz* at, u64* type, wired_span* value) {
   u64 t;
   u64 len;
   usz consumed;
@@ -69,6 +68,6 @@ int quic_capsule_decode(
   return 1;
 }
 
-int quic_capsule_fin_truncated(wired_span data, usz at, int fin) {
+int capsule_fin_truncated(wired_span data, usz at, int fin) {
   return fin && data.n > at;
 }

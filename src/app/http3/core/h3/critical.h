@@ -8,10 +8,10 @@
  * error. The push stream (0x01) is not critical. */
 
 /* 1 if stream_type names a critical unidirectional stream, else 0. */
-int quic_h3_stream_is_critical(u64 stream_type);
+int h3_stream_is_critical(u64 stream_type);
 
 /* The error code to raise when a stream of stream_type is closed:
  * H3_CLOSED_CRITICAL_STREAM if critical, else 0 (no error). */
-u64 quic_h3_critical_close_error(u64 stream_type);
+u64 h3_critical_close_error(u64 stream_type);
 
 #endif

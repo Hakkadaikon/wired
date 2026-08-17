@@ -6,7 +6,7 @@
 int wired_h3srv_open_control(
     wired_h3srv_state* st, int advertise_wt, wired_obuf* out) {
   usz len;
-  if (!quic_h3conn_open_control(advertise_wt, out->p, out->cap, &len)) return 0;
+  if (!h3conn_open_control(advertise_wt, out->p, out->cap, &len)) return 0;
   out->len          = len;
   st->settings_sent = 1;
   return 1;

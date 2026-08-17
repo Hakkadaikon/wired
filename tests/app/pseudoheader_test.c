@@ -4,79 +4,79 @@
 
 /* Classification of pseudo, regular, and unknown names. */
 static void test_ph_classify(void) {
-  CHECK(quic_h3_ph_classify(NAME(":method")) == QUIC_H3_PH_METHOD);
-  CHECK(quic_h3_ph_classify(NAME(":status")) == QUIC_H3_PH_STATUS);
-  CHECK(quic_h3_ph_classify(NAME("content-type")) == QUIC_H3_PH_NONE);
-  CHECK(quic_h3_ph_classify(NAME(":bogus")) == QUIC_H3_PH_UNKNOWN);
+  CHECK(h3_ph_classify(NAME(":method")) == QUIC_H3_PH_METHOD);
+  CHECK(h3_ph_classify(NAME(":status")) == QUIC_H3_PH_STATUS);
+  CHECK(h3_ph_classify(NAME("content-type")) == QUIC_H3_PH_NONE);
+  CHECK(h3_ph_classify(NAME(":bogus")) == QUIC_H3_PH_UNKNOWN);
   /* a prefix of a known name must not match */
-  CHECK(quic_h3_ph_classify(NAME(":pat")) == QUIC_H3_PH_UNKNOWN);
-  CHECK(quic_h3_ph_classify(NAME(":")) == QUIC_H3_PH_UNKNOWN);
+  CHECK(h3_ph_classify(NAME(":pat")) == QUIC_H3_PH_UNKNOWN);
+  CHECK(h3_ph_classify(NAME(":")) == QUIC_H3_PH_UNKNOWN);
 }
 
 /* A complete, well-ordered request is valid. */
 static void test_ph_request_ok(void) {
-  quic_h3_ph_set p;
-  quic_h3_ph_init(&p);
-  quic_h3_ph_field(&p, NAME(":method"));
-  quic_h3_ph_field(&p, NAME(":scheme"));
-  quic_h3_ph_field(&p, NAME(":authority"));
-  quic_h3_ph_field(&p, NAME(":path"));
-  quic_h3_ph_field(&p, NAME("user-agent"));
-  CHECK(quic_h3_ph_request_ok(&p) == 1);
-  CHECK(quic_h3_ph_response_ok(&p) == 0); /* no :status */
+  h3_ph_set p;
+  h3_ph_init(&p);
+  h3_ph_field(&p, NAME(":method"));
+  h3_ph_field(&p, NAME(":scheme"));
+  h3_ph_field(&p, NAME(":authority"));
+  h3_ph_field(&p, NAME(":path"));
+  h3_ph_field(&p, NAME("user-agent"));
+  CHECK(h3_ph_request_ok(&p) == 1);
+  CHECK(h3_ph_response_ok(&p) == 0); /* no :status */
 }
 
 /* Missing a required pseudo-header makes the request malformed. */
 static void test_ph_request_missing(void) {
-  quic_h3_ph_set p;
-  quic_h3_ph_init(&p);
-  quic_h3_ph_field(&p, NAME(":method"));
-  quic_h3_ph_field(&p, NAME(":scheme"));
-  CHECK(quic_h3_ph_request_ok(&p) == 0); /* no :path */
+  h3_ph_set p;
+  h3_ph_init(&p);
+  h3_ph_field(&p, NAME(":method"));
+  h3_ph_field(&p, NAME(":scheme"));
+  CHECK(h3_ph_request_ok(&p) == 0); /* no :path */
 }
 
 /* A pseudo-header after a regular field is malformed. */
 static void test_ph_order(void) {
-  quic_h3_ph_set p;
-  quic_h3_ph_init(&p);
-  quic_h3_ph_field(&p, NAME(":method"));
-  quic_h3_ph_field(&p, NAME("accept"));
-  quic_h3_ph_field(&p, NAME(":scheme")); /* pseudo after regular */
-  quic_h3_ph_field(&p, NAME(":path"));
+  h3_ph_set p;
+  h3_ph_init(&p);
+  h3_ph_field(&p, NAME(":method"));
+  h3_ph_field(&p, NAME("accept"));
+  h3_ph_field(&p, NAME(":scheme")); /* pseudo after regular */
+  h3_ph_field(&p, NAME(":path"));
   CHECK(p.ok == 0);
-  CHECK(quic_h3_ph_request_ok(&p) == 0);
+  CHECK(h3_ph_request_ok(&p) == 0);
 }
 
 /* A duplicate pseudo-header is malformed. */
 static void test_ph_duplicate(void) {
-  quic_h3_ph_set p;
-  quic_h3_ph_init(&p);
-  quic_h3_ph_field(&p, NAME(":method"));
-  quic_h3_ph_field(&p, NAME(":method"));
+  h3_ph_set p;
+  h3_ph_init(&p);
+  h3_ph_field(&p, NAME(":method"));
+  h3_ph_field(&p, NAME(":method"));
   CHECK(p.ok == 0);
 }
 
 /* An unknown pseudo-header is malformed. */
 static void test_ph_unknown(void) {
-  quic_h3_ph_set p;
-  quic_h3_ph_init(&p);
-  quic_h3_ph_field(&p, NAME(":bogus"));
+  h3_ph_set p;
+  h3_ph_init(&p);
+  h3_ph_field(&p, NAME(":bogus"));
   CHECK(p.ok == 0);
 }
 
 /* RFC 9220 3: :protocol is a known pseudo-header (Extended CONNECT). */
 static void test_ph_classify_protocol(void) {
-  CHECK(quic_h3_ph_classify(NAME(":protocol")) == QUIC_H3_PH_PROTOCOL);
+  CHECK(h3_ph_classify(NAME(":protocol")) == QUIC_H3_PH_PROTOCOL);
 }
 
 /* A response needs only :status. */
 static void test_ph_response_ok(void) {
-  quic_h3_ph_set p;
-  quic_h3_ph_init(&p);
-  quic_h3_ph_field(&p, NAME(":status"));
-  quic_h3_ph_field(&p, NAME("content-length"));
-  CHECK(quic_h3_ph_response_ok(&p) == 1);
-  CHECK(quic_h3_ph_request_ok(&p) == 0);
+  h3_ph_set p;
+  h3_ph_init(&p);
+  h3_ph_field(&p, NAME(":status"));
+  h3_ph_field(&p, NAME("content-length"));
+  CHECK(h3_ph_response_ok(&p) == 1);
+  CHECK(h3_ph_request_ok(&p) == 0);
 }
 
 void test_pseudoheader(void) {

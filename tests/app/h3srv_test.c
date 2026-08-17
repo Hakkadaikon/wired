@@ -25,7 +25,7 @@ static void test_h3srv_control_settings_first(void) {
   CHECK(!st.settings_sent);
   CHECK(wired_h3srv_open_control(&st, 0, &ob));
   CHECK(st.settings_sent);
-  CHECK(quic_h3conn_peer_settings_ok(out, ob.len));
+  CHECK(h3conn_peer_settings_ok(out, ob.len));
 }
 
 /* RFC 9114 6.2.1: with no control capacity nothing is emitted and SETTINGS is
@@ -184,7 +184,7 @@ static void test_h3srv_request_answered(void) {
   u8                req[256], scratch[128], resp[256];
   wired_obuf req_ob = {req, sizeof req, 0}, resp_ob = {resp, sizeof resp, 0};
   wired_h3reqdrive_req r;
-  quic_h3conn_resp     resp_out = {0};
+  h3conn_resp          resp_out = {0};
 
   st.settings_sent = 1;
   CHECK(wired_h3reqdrive_send_get(
@@ -202,7 +202,7 @@ static void test_h3srv_request_answered(void) {
     wired_h3srv_send_in send = {0, {200, wired_span_of(body, sizeof body), 0}};
     CHECK(wired_h3srv_build_response(&st, &send, &resp_ob));
   }
-  CHECK(quic_h3conn_recv_response(wired_span_of(resp, resp_ob.len), &resp_out));
+  CHECK(h3conn_recv_response(wired_span_of(resp, resp_ob.len), &resp_out));
   CHECK(resp_out.status == 200);
   CHECK(
       resp_out.body.n == 2 && resp_out.body.p[0] == 'o' &&
@@ -218,7 +218,7 @@ static void test_h3srv_head_no_body(void) {
   const u8          body[] = {'o', 'k'};
   u8                resp[256];
   wired_obuf        resp_ob  = {resp, sizeof resp, 0};
-  quic_h3conn_resp  resp_out = {0, wired_span_of((const u8*)1, 99), 0};
+  h3conn_resp       resp_out = {0, wired_span_of((const u8*)1, 99), 0};
 
   st.settings_sent = 1;
   st.request_seen  = 1;
@@ -228,7 +228,7 @@ static void test_h3srv_head_no_body(void) {
         wired_span_of(head, sizeof head), send};
     CHECK(wired_h3srv_build_response_for_method(&st, &in, &resp_ob));
   }
-  CHECK(quic_h3conn_recv_response(wired_span_of(resp, resp_ob.len), &resp_out));
+  CHECK(h3conn_recv_response(wired_span_of(resp, resp_ob.len), &resp_out));
   CHECK(resp_out.status == 200); /* :status still returned for HEAD */
   CHECK(resp_out.body.n == 0);   /* no DATA frame: body suppressed */
 }
@@ -241,7 +241,7 @@ static void test_h3srv_get_keeps_body(void) {
   const u8          body[] = {'o', 'k'};
   u8                resp[256];
   wired_obuf        resp_ob  = {resp, sizeof resp, 0};
-  quic_h3conn_resp  resp_out = {0};
+  h3conn_resp       resp_out = {0};
 
   st.settings_sent = 1;
   st.request_seen  = 1;
@@ -250,7 +250,7 @@ static void test_h3srv_get_keeps_body(void) {
     wired_h3srv_resp_for_method_in in = {wired_span_of(get, sizeof get), send};
     CHECK(wired_h3srv_build_response_for_method(&st, &in, &resp_ob));
   }
-  CHECK(quic_h3conn_recv_response(wired_span_of(resp, resp_ob.len), &resp_out));
+  CHECK(h3conn_recv_response(wired_span_of(resp, resp_ob.len), &resp_out));
   CHECK(resp_out.status == 200);
   CHECK(
       resp_out.body.n == 2 && resp_out.body.p[0] == 'o' &&
@@ -314,14 +314,14 @@ static void test_h3srv_respond_without_peer_settings(void) {
   wired_h3srv_state st = {0};
   u8                resp[256];
   wired_obuf        resp_ob  = {resp, sizeof resp, 0};
-  quic_h3conn_resp  resp_out = {0};
+  h3conn_resp       resp_out = {0};
 
   wired_h3srv_send_in send = {0, {200, wired_span_of(0, 0), 0}};
   st.settings_sent         = 1;
   st.request_seen          = 1;
   CHECK(!st.peer_settings); /* peer SETTINGS never seen */
   CHECK(wired_h3srv_build_response(&st, &send, &resp_ob));
-  CHECK(quic_h3conn_recv_response(wired_span_of(resp, resp_ob.len), &resp_out));
+  CHECK(h3conn_recv_response(wired_span_of(resp, resp_ob.len), &resp_out));
   CHECK(
       resp_out.status ==
       200); /* :status present without waiting on peer SETTINGS */

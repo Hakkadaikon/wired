@@ -9,7 +9,7 @@ static void test_h3cancel_request_builds_both_frames(void) {
   stop_sending_frame ss;
   usz                rn;
 
-  CHECK(quic_h3cancel_request(8, 100, &ob) == 1);
+  CHECK(h3cancel_request(8, 100, &ob) == 1);
   usz len = ob.len;
   CHECK(len > 0);
 
@@ -35,7 +35,7 @@ static void test_h3cancel_request_large_ids(void) {
   reset_stream_frame rs;
   usz                rn;
 
-  CHECK(quic_h3cancel_request(0x3fffffffffffffffULL, 0, &ob) == 1);
+  CHECK(h3cancel_request(0x3fffffffffffffffULL, 0, &ob) == 1);
   rn = reset_stream_decode(out, ob.len, &rs);
   CHECK(rn > 0);
   CHECK(rs.stream_id == 0x3fffffffffffffffULL);
@@ -47,26 +47,26 @@ static void test_h3cancel_request_overflow(void) {
   u8         out[3];
   wired_obuf ob = {out, sizeof out, 99};
 
-  CHECK(quic_h3cancel_request(8, 100, &ob) == 0);
+  CHECK(h3cancel_request(8, 100, &ob) == 0);
 }
 
 /* CANCEL_PUSH codec (RFC 9114 7.2.3) is reused from h3/frame.c. */
 static void test_h3cancel_push_roundtrip(void) {
   u8  out[8];
   u64 id = 0;
-  usz n  = quic_h3_cancel_push_put(out, sizeof out, 0x4142);
+  usz n  = h3_cancel_push_put(out, sizeof out, 0x4142);
 
   CHECK(n > 0);
   CHECK(out[0] == QUIC_H3_FRAME_CANCEL_PUSH);
-  CHECK(quic_h3_cancel_push_get(out, n, &id) == n);
+  CHECK(h3_cancel_push_get(out, n, &id) == n);
   CHECK(id == 0x4142);
 }
 
 static void test_h3cancel_push_truncated(void) {
   u8  out[8];
-  usz n = quic_h3_cancel_push_put(out, sizeof out, 0x4142);
+  usz n = h3_cancel_push_put(out, sizeof out, 0x4142);
 
-  CHECK(quic_h3_cancel_push_get(out, n - 1, &(u64){0}) == 0);
+  CHECK(h3_cancel_push_get(out, n - 1, &(u64){0}) == 0);
 }
 
 static void test_h3cancel_error_code_value(void) {

@@ -9,10 +9,10 @@
  * future use. A reserved code is not a known code. */
 
 /* Whether code is an error code defined in RFC 9114 8.1 (0x0100..0x0110). */
-int quic_h3_error_is_known(u64 code);
+int h3_error_is_known(u64 code);
 
 /* Whether code is a reserved (grease) error point, per RFC 9114 8.1. */
-int quic_h3_error_is_reserved(u64 code);
+int h3_error_is_reserved(u64 code);
 
 /* RFC 9114 8.1 / 9114-077: when a sender would close with H3_NO_ERROR, it
  * SHOULD select a reserved (grease) error code instead with some
@@ -23,12 +23,12 @@ int quic_h3_error_is_reserved(u64 code);
  * non-zero, returns grease_id; otherwise returns code unchanged (grease_id
  * is ignored for every other code -- greasing only ever substitutes for
  * H3_NO_ERROR). The probabilistic decision of whether/which grease_id to
- * offer belongs to the caller (mirrors quic_h3settings_in.grease_id's split,
+ * offer belongs to the caller (mirrors h3settings_in.grease_id's split,
  * settings_build.h), keeping this function itself trivial to test.
  * @param code the error code the sender was about to use
  * @param grease_id 0 to send code as-is, or a reserved (0x1f*N + 0x21 form)
  *   identifier to substitute when code is QUIC_H3_NO_ERROR
  * @return the error code to actually send */
-u64 quic_h3_error_send_value(u64 code, u64 grease_id);
+u64 h3_error_send_value(u64 code, u64 grease_id);
 
 #endif

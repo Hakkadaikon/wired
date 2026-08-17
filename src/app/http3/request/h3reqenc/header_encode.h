@@ -8,6 +8,6 @@
  * single Literal Field Line With Literal Name (raw name, raw value, not marked
  * never-indexed). No field section prefix is emitted (the caller assembles
  * prefix + lines). Returns 1 with out->len set, 0 if out lacks capacity. */
-int quic_h3req_enc_header(wired_span name, wired_span value, wired_obuf* out);
+int h3req_enc_header(wired_span name, wired_span value, wired_obuf* out);
 
 #endif

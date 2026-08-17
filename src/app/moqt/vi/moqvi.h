@@ -12,23 +12,23 @@
  * Distinct from the QUIC varint (RFC 9000 16). */
 
 /* Minimal encoded length of v: 1..9 bytes (never fails). */
-usz quic_moqvi_len(u64 v);
+usz moqvi_len(u64 v);
 
-/* Encode v minimally into buf (must hold quic_moqvi_len(v) bytes).
+/* Encode v minimally into buf (must hold moqvi_len(v) bytes).
  * Returns bytes written (1..9). */
-usz quic_moqvi_encode(u8* buf, u64 v);
+usz moqvi_encode(u8* buf, u64 v);
 
 /* Decode from buf of n readable bytes into *out.
  * Returns bytes consumed, or 0 if n too small for the encoded length. */
-usz quic_moqvi_decode(const u8* buf, usz n, u64* out);
+usz moqvi_decode(const u8* buf, usz n, u64* out);
 
 /* Cursor helpers, same shape as varint_take/put. Each decodes/encodes
  * one integer at buf+*off and advances *off on success. */
 
 /* Returns 1 ok, 0 if truncated (*off unchanged). */
-int quic_moqvi_take(wired_span buf, usz* off, u64* out);
+int moqvi_take(wired_span buf, usz* off, u64* out);
 
 /* Returns 1 ok, 0 if no room within cap (*off unchanged). */
-int quic_moqvi_put(wired_mspan buf, usz* off, u64 v);
+int moqvi_put(wired_mspan buf, usz* off, u64 v);
 
 #endif

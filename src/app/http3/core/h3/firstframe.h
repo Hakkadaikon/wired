@@ -11,6 +11,6 @@
 
 /* 1 if frame_type is allowed as the first frame on a stream of stream_kind,
  * else 0. */
-int quic_h3_first_frame_ok(int stream_kind, u64 frame_type);
+int h3_first_frame_ok(int stream_kind, u64 frame_type);
 
 #endif

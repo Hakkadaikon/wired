@@ -14,8 +14,8 @@ static void test_srvwire_initial_roundtrip(void) {
   const u8   scid[6] = {'S', 'R', 'V', 'C', 'I', 'D'};
   const u8   sh[]    = {'S', 'e', 'r', 'v', 'e', 'r', 'H', 'e', 'l', 'l', 'o'};
   u8         pkt[1300];
-  wired_obuf ob           = {pkt, sizeof pkt, 0};
-  quic_srvwire_seal_in in = {
+  wired_obuf ob      = {pkt, sizeof pkt, 0};
+  srvwire_seal_in in = {
       wired_span_of(dcid, 8),
       wired_span_of(dcid, 8),
       wired_span_of(scid, 6),
@@ -23,12 +23,12 @@ static void test_srvwire_initial_roundtrip(void) {
       -1,
       wired_span_of(sh, sizeof sh),
       0};
-  CHECK(quic_srvwire_seal_initial(&in, &ob));
+  CHECK(srvwire_seal_initial(&in, &ob));
   CHECK(ob.len > sizeof(sh)); /* header + AEAD tag overhead present */
 
-  wired_span                   tls = {0, 0};
-  quic_srvwire_open_initial_in oin = {wired_span_of(dcid, 8), 1};
-  CHECK(quic_srvwire_open_initial(&oin, wired_mspan_of(pkt, ob.len), &tls));
+  wired_span              tls = {0, 0};
+  srvwire_open_initial_in oin = {wired_span_of(dcid, 8), 1};
+  CHECK(srvwire_open_initial(&oin, wired_mspan_of(pkt, ob.len), &tls));
   CHECK(tls.n == sizeof(sh));
   for (usz i = 0; i < sizeof(sh); i++) CHECK(tls.p[i] == sh[i]);
 }
@@ -39,8 +39,8 @@ static void test_srvwire_initial_tamper(void) {
   const u8   scid[6] = {'S', 'R', 'V', 'C', 'I', 'D'};
   const u8   sh[]    = {'S', 'e', 'r', 'v', 'e', 'r', 'H', 'e', 'l', 'l', 'o'};
   u8         pkt[1300];
-  wired_obuf ob           = {pkt, sizeof pkt, 0};
-  quic_srvwire_seal_in in = {
+  wired_obuf ob      = {pkt, sizeof pkt, 0};
+  srvwire_seal_in in = {
       wired_span_of(dcid, 8),
       wired_span_of(dcid, 8),
       wired_span_of(scid, 6),
@@ -48,11 +48,11 @@ static void test_srvwire_initial_tamper(void) {
       -1,
       wired_span_of(sh, sizeof sh),
       0};
-  CHECK(quic_srvwire_seal_initial(&in, &ob));
+  CHECK(srvwire_seal_initial(&in, &ob));
   pkt[ob.len - 1] ^= 0x01;
-  wired_span                   tls = {0, 0};
-  quic_srvwire_open_initial_in oin = {wired_span_of(dcid, 8), 1};
-  CHECK(!quic_srvwire_open_initial(&oin, wired_mspan_of(pkt, ob.len), &tls));
+  wired_span              tls = {0, 0};
+  srvwire_open_initial_in oin = {wired_span_of(dcid, 8), 1};
+  CHECK(!srvwire_open_initial(&oin, wired_mspan_of(pkt, ob.len), &tls));
 }
 
 /* A different DCID derives different keys: open must fail. */
@@ -62,8 +62,8 @@ static void test_srvwire_initial_wrong_key(void) {
   const u8   scid[6] = {'S', 'R', 'V', 'C', 'I', 'D'};
   const u8   sh[]    = {'S', 'e', 'r', 'v', 'e', 'r', 'H', 'e', 'l', 'l', 'o'};
   u8         pkt[1300];
-  wired_obuf ob           = {pkt, sizeof pkt, 0};
-  quic_srvwire_seal_in in = {
+  wired_obuf ob      = {pkt, sizeof pkt, 0};
+  srvwire_seal_in in = {
       wired_span_of(dcid, 8),
       wired_span_of(dcid, 8),
       wired_span_of(scid, 6),
@@ -71,10 +71,10 @@ static void test_srvwire_initial_wrong_key(void) {
       -1,
       wired_span_of(sh, sizeof sh),
       0};
-  CHECK(quic_srvwire_seal_initial(&in, &ob));
-  wired_span                   tls = {0, 0};
-  quic_srvwire_open_initial_in oin = {wired_span_of(bad, 8), 1};
-  CHECK(!quic_srvwire_open_initial(&oin, wired_mspan_of(pkt, ob.len), &tls));
+  CHECK(srvwire_seal_initial(&in, &ob));
+  wired_span              tls = {0, 0};
+  srvwire_open_initial_in oin = {wired_span_of(bad, 8), 1};
+  CHECK(!srvwire_open_initial(&oin, wired_mspan_of(pkt, ob.len), &tls));
 }
 
 /* Shared Handshake keys for the round-trip tests (RFC 9001 5). */
@@ -96,9 +96,9 @@ static void test_srvwire_handshake_roundtrip(void) {
   initial_keys k;
   aes128       hp;
   hs_keys(&k, &hp);
-  u8                   pkt[256];
-  wired_obuf           ob = {pkt, sizeof pkt, 0};
-  quic_srvwire_seal_in in = {
+  u8              pkt[256];
+  wired_obuf      ob = {pkt, sizeof pkt, 0};
+  srvwire_seal_in in = {
       wired_span_of((const u8*)0, 0),
       wired_span_of(dcid, 6),
       wired_span_of(scid, 6),
@@ -107,9 +107,9 @@ static void test_srvwire_handshake_roundtrip(void) {
       wired_span_of(fl, sizeof fl),
       0};
   protect_keys pk = {&k, &hp};
-  CHECK(quic_srvwire_seal_handshake(&pk, &in, &ob));
+  CHECK(srvwire_seal_handshake(&pk, &in, &ob));
   wired_span tls = {0, 0};
-  CHECK(quic_srvwire_open_handshake(&pk, wired_mspan_of(pkt, ob.len), &tls));
+  CHECK(srvwire_open_handshake(&pk, wired_mspan_of(pkt, ob.len), &tls));
   CHECK(tls.n == sizeof(fl));
   for (usz i = 0; i < sizeof(fl); i++) CHECK(tls.p[i] == fl[i]);
 }
@@ -124,9 +124,9 @@ static void test_srvwire_handshake_wrong_key(void) {
   hs_keys(&k, &hp);
   hs_keys(&bad, &badhp);
   bad.key[0] ^= 0xff;
-  u8                   pkt[256];
-  wired_obuf           ob = {pkt, sizeof pkt, 0};
-  quic_srvwire_seal_in in = {
+  u8              pkt[256];
+  wired_obuf      ob = {pkt, sizeof pkt, 0};
+  srvwire_seal_in in = {
       wired_span_of((const u8*)0, 0),
       wired_span_of(dcid, 6),
       wired_span_of(scid, 6),
@@ -135,11 +135,10 @@ static void test_srvwire_handshake_wrong_key(void) {
       wired_span_of(fl, sizeof fl),
       0};
   protect_keys pk = {&k, &hp};
-  CHECK(quic_srvwire_seal_handshake(&pk, &in, &ob));
+  CHECK(srvwire_seal_handshake(&pk, &in, &ob));
   wired_span   tls   = {0, 0};
   protect_keys badpk = {&bad, &hp};
-  CHECK(
-      !quic_srvwire_open_handshake(&badpk, wired_mspan_of(pkt, ob.len), &tls));
+  CHECK(!srvwire_open_handshake(&badpk, wired_mspan_of(pkt, ob.len), &tls));
 }
 
 /* Walk the decrypted frames and decode the ACK frame among them (RFC
@@ -170,7 +169,7 @@ static void test_srvwire_initial_acks_client(void) {
   const u8*    frames;
   usz          fl;
   ack_frame    ack;
-  quic_srvwire_seal_in in = {
+  srvwire_seal_in in = {
       wired_span_of(dcid, 8),
       wired_span_of(dcid, 8),
       wired_span_of(scid, 6),
@@ -178,7 +177,7 @@ static void test_srvwire_initial_acks_client(void) {
       0,
       wired_span_of(sh, sizeof sh),
       0};
-  CHECK(quic_srvwire_seal_initial(&in, &ob));
+  CHECK(srvwire_seal_initial(&in, &ob));
   initpkt_derive(wired_span_of(dcid, 8), &ck, &sk);
   aes128_init(&hp, sk.hp);
   protect_keys pk = {&sk, &hp};
@@ -207,7 +206,7 @@ static void test_srvwire_handshake_acks_client(void) {
   usz          fl;
   ack_frame    ack;
   hs_keys(&k, &hp);
-  quic_srvwire_seal_in in = {
+  srvwire_seal_in in = {
       wired_span_of((const u8*)0, 0),
       wired_span_of(dcid, 6),
       wired_span_of(scid, 6),
@@ -216,7 +215,7 @@ static void test_srvwire_handshake_acks_client(void) {
       wired_span_of(fl_in, sizeof fl_in),
       0};
   protect_keys pk = {&k, &hp};
-  CHECK(quic_srvwire_seal_handshake(&pk, &in, &ob));
+  CHECK(srvwire_seal_handshake(&pk, &in, &ob));
   protect_keys pk2 = {&k, &hp};
   rx_desc      rd2 = {wired_mspan_of(pkt, ob.len), 0};
   wired_span   fv2;

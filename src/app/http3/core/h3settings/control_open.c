@@ -4,7 +4,7 @@
 #include "common/bytes/varint/varint.h"
 
 /* RFC 9114 6.2.1 */
-int quic_h3settings_control_prefix(u8* out, usz cap, usz* out_len) {
+int h3settings_control_prefix(u8* out, usz cap, usz* out_len) {
   usz off = 0;
   if (!varint_put(wired_mspan_of(out, cap), &off, QUIC_H3_STREAM_CONTROL))
     return 0;

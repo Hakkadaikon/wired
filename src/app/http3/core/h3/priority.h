@@ -15,21 +15,21 @@
 typedef struct {
   u8 urgency;     /**< 0..7, default 3 */
   u8 incremental; /**< 0 or 1, default 0 */
-} quic_h3_priority;
+} h3_priority;
 
-void quic_h3_priority_init(quic_h3_priority* p);
+void h3_priority_init(h3_priority* p);
 
 /* True if urgency a outranks urgency b (smaller value = higher priority). */
-int quic_h3_priority_higher(u8 urg_a, u8 urg_b);
+int h3_priority_higher(u8 urg_a, u8 urg_b);
 
-int quic_h3_urgency_valid(u8 u);
+int h3_urgency_valid(u8 u);
 
 /* RFC 9218 4.1: take an ASCII digit '0'..'7' as the urgency; anything else
  * leaves p untouched. */
-void quic_h3_priority_set_urgency(quic_h3_priority* p, u8 digit);
+void h3_priority_set_urgency(h3_priority* p, u8 digit);
 
 /* RFC 9218 4.2: at an `i` member starting at v[i], a bare `i` (or `i=?1`)
  * sets incremental, `i=?0` clears it; malformed forms leave p untouched. */
-void quic_h3_priority_set_incremental(quic_h3_priority* p, wired_span v, usz i);
+void h3_priority_set_incremental(h3_priority* p, wired_span v, usz i);
 
 #endif

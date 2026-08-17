@@ -37,7 +37,7 @@ static int encode_body(wired_obuf* o, u64 value, u64 pmax) {
   return put_groups(o, value - pmax);
 }
 
-usz quic_qpack_int_encode(wired_mspan buf, quic_qpack_pfx pfx, u64 value) {
+usz qpack_int_encode(wired_mspan buf, qpack_pfx pfx, u64 value) {
   wired_obuf o    = obuf_of(buf.p, buf.n);
   u64        pmax = prefix_max(pfx.bits);
   if (!put_byte(&o, pfx.pattern | prefix_byte(value, pmax))) return 0;
@@ -77,7 +77,7 @@ static usz decode_body(qint_cursor* c, u64 pmax) {
   return c->off;
 }
 
-usz quic_qpack_int_decode(wired_span buf, u8 prefix_bits, u64* value) {
+usz qpack_int_decode(wired_span buf, u8 prefix_bits, u64* value) {
   u64         pmax = prefix_max(prefix_bits);
   qint_cursor c    = {buf, 1, value};
   if (buf.n == 0) return 0;

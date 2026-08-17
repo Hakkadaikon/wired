@@ -11,7 +11,7 @@
 
 /* 1 if method is one of the RFC 9110 9.1 registered methods (case-sensitive,
  * RFC 9110 9.1: method tokens are case-sensitive). */
-int quic_h3_method_is_known(wired_span method);
+int h3_method_is_known(wired_span method);
 
 /* 1 if method is recognized AND this server actually serves it for a request
  * reaching the application handler (RFC 9110 9.1: 405 Method Not Allowed for
@@ -23,6 +23,6 @@ int quic_h3_method_is_known(wired_span method);
  * a pre-existing, separately tested behavior this gate must not change).
  * TRACE (RFC 9110 9.3.8, a diagnostic echo this SDK does not implement) is
  * the only recognized-but-not-allowed method. */
-int quic_h3_method_is_allowed(wired_span method);
+int h3_method_is_allowed(wired_span method);
 
 #endif

@@ -10,29 +10,28 @@ typedef struct {
   int has_authority;
   int has_scheme;
   int has_path;
-} quic_h3_connect_flags;
+} h3_connect_flags;
 
 /* RFC 9114 4.4. A CONNECT request omits the :scheme and :path pseudo-header
  * fields and MUST include the :authority pseudo-header; :method is "CONNECT".
  * Returns 1 if the presence flags satisfy this, 0 otherwise. */
-int quic_h3_connect_ok(const quic_h3_connect_flags* f);
+int h3_connect_ok(const h3_connect_flags* f);
 
 /* RFC 9114 4.4. Validate a decoded request as a well-formed CONNECT: :method is
  * exactly "CONNECT", :authority present, :scheme and :path absent. Derives the
- * presence flags from r and applies quic_h3_connect_ok. Returns 1 if valid
+ * presence flags from r and applies h3_connect_ok. Returns 1 if valid
  * (tunnel may proceed), 0 if it must be treated as malformed. */
-int quic_h3_connect_req_ok(const wired_h3reqdrive_req* r);
+int h3_connect_req_ok(const wired_h3reqdrive_req* r);
 
 /* RFC 9220 3. A server MUST NOT accept a :protocol pseudo-header unless it
  * has sent SETTINGS_ENABLE_CONNECT_PROTOCOL=1 (settings_enabled non-zero).
  * Returns 1 if r carries no :protocol, or :protocol is present and settings_
  * enabled is non-zero; 0 if :protocol is present but not negotiated. */
-int quic_h3_connect_protocol_ok(
-    const wired_h3reqdrive_req* r, int settings_enabled);
+int h3_connect_protocol_ok(const wired_h3reqdrive_req* r, int settings_enabled);
 
 /* RFC 9110 9.3.6. A 2xx response to CONNECT establishes the tunnel; any other
  * status does not. Returns 1 for 200..299, 0 otherwise. */
-int quic_h3_connect_established(u16 status);
+int h3_connect_established(u16 status);
 
 /* RFC 9114 4.4 / RFC 9110 9.3.6. Forward-only CONNECT tunnel lifecycle. A
  * validated request reaches VALIDATED; a 2xx response moves it once to
@@ -47,16 +46,16 @@ typedef enum {
   QUIC_H3_TUNNEL_FAILED,
   QUIC_H3_TUNNEL_RELAY,
   QUIC_H3_TUNNEL_CLOSED
-} quic_h3_tunnel;
+} h3_tunnel;
 
-void quic_h3_tunnel_init(quic_h3_tunnel* st);
-void quic_h3_tunnel_validated(quic_h3_tunnel* st);
+void h3_tunnel_init(h3_tunnel* st);
+void h3_tunnel_validated(h3_tunnel* st);
 /* Apply a response status. Returns 1 if it established the tunnel (2xx, once),
  * 0 otherwise (already established, failed, or wrong state). */
-int quic_h3_tunnel_response(quic_h3_tunnel* st, u16 status);
+int h3_tunnel_response(h3_tunnel* st, u16 status);
 /* Enter relay. Returns 1 if relay began (only from ESTABLISHED), 0 otherwise.
  */
-int  quic_h3_tunnel_relay(quic_h3_tunnel* st);
-void quic_h3_tunnel_close(quic_h3_tunnel* st);
+int  h3_tunnel_relay(h3_tunnel* st);
+void h3_tunnel_close(h3_tunnel* st);
 
 #endif

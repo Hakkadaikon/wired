@@ -24,20 +24,20 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
   const u8 *buf = (const u8 *)data;
   usz       n   = (usz)size;
 
-  quic_qpack_dyn table;
-  quic_qpack_dyn_init(&table, 4096);
+  qpack_dyn table;
+  qpack_dyn_init(&table, 4096);
 
-  quic_qpack_field seed = {
+  qpack_field seed = {
       wired_span_of((const u8 *)"seed-name", 9),
       wired_span_of((const u8 *)"seed-value", 10),
   };
-  quic_qpack_dyn_insert(&table, &seed);
+  qpack_dyn_insert(&table, &seed);
 
-  quic_qdyn_src src = {&table, /* base */ 1, wired_span_of(buf, n)};
+  qdyn_src src = {&table, /* base */ 1, wired_span_of(buf, n)};
 
-  quic_qpack_field out;
+  qpack_field out;
   usz              consumed;
-  quic_qdyn_decode_field(&src, &out, &consumed);
+  qdyn_decode_field(&src, &out, &consumed);
 
   return 0;
 }

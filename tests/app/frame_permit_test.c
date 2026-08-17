@@ -1,8 +1,8 @@
 #include "app/http3/core/h3/frame.h"
 #include "test.h"
 
-#define ON(t, k) CHECK(quic_h3_frame_on_stream((t), (k)) == 1)
-#define OFF(t, k) CHECK(quic_h3_frame_on_stream((t), (k)) == 0)
+#define ON(t, k) CHECK(h3_frame_on_stream((t), (k)) == 1)
+#define OFF(t, k) CHECK(h3_frame_on_stream((t), (k)) == 0)
 
 /* DATA and HEADERS: request and push only, never control. */
 static void test_data_headers(void) {
@@ -39,14 +39,14 @@ static void test_push_promise(void) {
  * (including CANCEL_PUSH/MAX_PUSH_ID, the OTHER push-related frames) is
  * unaffected. */
 static void test_recv_push_promise_always_rejected(void) {
-  CHECK(quic_h3_frame_recv_ok(QUIC_H3_FRAME_PUSH_PROMISE) == 0);
-  CHECK(quic_h3_frame_recv_ok(QUIC_H3_FRAME_DATA) == 1);
-  CHECK(quic_h3_frame_recv_ok(QUIC_H3_FRAME_HEADERS) == 1);
-  CHECK(quic_h3_frame_recv_ok(QUIC_H3_FRAME_SETTINGS) == 1);
-  CHECK(quic_h3_frame_recv_ok(QUIC_H3_FRAME_CANCEL_PUSH) == 1);
-  CHECK(quic_h3_frame_recv_ok(QUIC_H3_FRAME_GOAWAY) == 1);
-  CHECK(quic_h3_frame_recv_ok(QUIC_H3_FRAME_MAX_PUSH_ID) == 1);
-  CHECK(quic_h3_frame_recv_ok(0x21) == 1); /* grease point, unaffected */
+  CHECK(h3_frame_recv_ok(QUIC_H3_FRAME_PUSH_PROMISE) == 0);
+  CHECK(h3_frame_recv_ok(QUIC_H3_FRAME_DATA) == 1);
+  CHECK(h3_frame_recv_ok(QUIC_H3_FRAME_HEADERS) == 1);
+  CHECK(h3_frame_recv_ok(QUIC_H3_FRAME_SETTINGS) == 1);
+  CHECK(h3_frame_recv_ok(QUIC_H3_FRAME_CANCEL_PUSH) == 1);
+  CHECK(h3_frame_recv_ok(QUIC_H3_FRAME_GOAWAY) == 1);
+  CHECK(h3_frame_recv_ok(QUIC_H3_FRAME_MAX_PUSH_ID) == 1);
+  CHECK(h3_frame_recv_ok(0x21) == 1); /* grease point, unaffected */
 }
 
 /* RFC 9114 7.2.8 / 9114-073: HTTP/2-only reserved frame types (0x02, 0x06,
@@ -54,13 +54,13 @@ static void test_recv_push_promise_always_rejected(void) {
  * table (unknown/grease, tolerated on every stream by test_unknown_permitted
  * below), HTTP/3 defines no use for these code points at all. */
 static void test_recv_http2_only_reserved_rejected(void) {
-  CHECK(quic_h3_frame_recv_ok(0x02) == 0);
-  CHECK(quic_h3_frame_recv_ok(0x06) == 0);
-  CHECK(quic_h3_frame_recv_ok(0x08) == 0);
-  CHECK(quic_h3_frame_recv_ok(0x09) == 0);
+  CHECK(h3_frame_recv_ok(0x02) == 0);
+  CHECK(h3_frame_recv_ok(0x06) == 0);
+  CHECK(h3_frame_recv_ok(0x08) == 0);
+  CHECK(h3_frame_recv_ok(0x09) == 0);
   /* neighbors just outside the reserved set stay unaffected */
-  CHECK(quic_h3_frame_recv_ok(0x07) == 1); /* GOAWAY, a real HTTP/3 type */
-  CHECK(quic_h3_frame_recv_ok(0x0a) == 1); /* a true gap: unknown/grease */
+  CHECK(h3_frame_recv_ok(0x07) == 1); /* GOAWAY, a real HTTP/3 type */
+  CHECK(h3_frame_recv_ok(0x0a) == 1); /* a true gap: unknown/grease */
 }
 
 /* Unknown and reserved (grease) frame types are permitted on every stream. */

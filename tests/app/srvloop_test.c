@@ -201,7 +201,7 @@ static usz client_seal_handshake(
   wired_obuf          ob = {pkt, cap, 0};
   CHECK(keysched_get(&f->s.sched, QUIC_KS_CLIENT_HS, &k) == 1);
   aes128_init(&hp, k->hp);
-  quic_srvwire_seal_in in = {
+  srvwire_seal_in in = {
       wired_span_of((const u8*)0, 0),
       wired_span_of(f->s.sdrv.iscid, f->s.sdrv.iscid_len),
       wired_span_of(g_cli_scid, 6),
@@ -210,7 +210,7 @@ static usz client_seal_handshake(
       wired_span_of(msg, mlen),
       0};
   protect_keys pk = {k, &hp};
-  CHECK(quic_srvwire_seal_handshake(&pk, &in, &ob));
+  CHECK(srvwire_seal_handshake(&pk, &in, &ob));
   return ob.len;
 }
 
@@ -224,7 +224,7 @@ static usz client_seal_handshake_pn(
   wired_obuf          ob = {pkt, cap, 0};
   CHECK(keysched_get(&f->s.sched, QUIC_KS_CLIENT_HS, &k) == 1);
   aes128_init(&hp, k->hp);
-  quic_srvwire_seal_in in = {
+  srvwire_seal_in in = {
       wired_span_of((const u8*)0, 0),
       wired_span_of(f->s.sdrv.iscid, f->s.sdrv.iscid_len),
       wired_span_of(g_cli_scid, 6),
@@ -233,7 +233,7 @@ static usz client_seal_handshake_pn(
       wired_span_of(msg, mlen),
       0};
   protect_keys pk = {k, &hp};
-  CHECK(quic_srvwire_seal_handshake(&pk, &in, &ob));
+  CHECK(srvwire_seal_handshake(&pk, &in, &ob));
   return ob.len;
 }
 
@@ -271,9 +271,9 @@ static void test_srvloop_send_initial_roundtrip(void) {
    * it and PTO-retransmits its own Initial for ~4s (the appconnect stall). */
   CHECK(ob.len >= 1200);
   {
-    quic_srvwire_open_initial_in oin = {
+    srvwire_open_initial_in oin = {
         wired_span_of(f.s.sdrv.odcid, f.s.sdrv.odcid_len), 1};
-    CHECK(quic_srvwire_open_initial(&oin, wired_mspan_of(pkt, ob.len), &tls));
+    CHECK(srvwire_open_initial(&oin, wired_mspan_of(pkt, ob.len), &tls));
   }
   CHECK(tls.n == f.sh_len); /* PADDING after CRYPTO is ignored on open */
 }
@@ -312,7 +312,7 @@ static void test_srvloop_seal_chacha_roundtrip(void) {
     {
       protect_keys pk = {shs, &hp};
       CHECK(
-          quic_srvwire_open_handshake_suite(
+          srvwire_open_handshake_suite(
               QUIC_TLS_CHACHA20_POLY1305_SHA256, &pk,
               wired_mspan_of(hpkt, hob.len), &tls) == 1);
       CHECK(tls.n == f.flight_len);
@@ -334,8 +334,8 @@ static void test_srvloop_seal_chacha_roundtrip(void) {
      * ChaCha20, so seal the client Finished with it directly instead. */
     CHECK(keysched_get(&f.s.sched, QUIC_KS_CLIENT_HS, &chs) == 1);
     {
-      protect_keys         cpk = {chs, 0};
-      quic_srvwire_seal_in cin = {
+      protect_keys    cpk = {chs, 0};
+      srvwire_seal_in cin = {
           wired_span_of((const u8*)0, 0),
           wired_span_of(f.s.sdrv.iscid, f.s.sdrv.iscid_len),
           wired_span_of(g_cli_scid, 6),
@@ -345,7 +345,7 @@ static void test_srvloop_seal_chacha_roundtrip(void) {
           0};
       wired_obuf cob = {cpkt, sizeof cpkt, 0};
       CHECK(
-          quic_srvwire_seal_handshake_suite(
+          srvwire_seal_handshake_suite(
               QUIC_TLS_CHACHA20_POLY1305_SHA256, &cpk, &cin, &cob) == 1);
       clen = cob.len;
     }
@@ -400,8 +400,8 @@ static void test_srvloop_open_chacha(void) {
     lp_make_client_finished(&f);
     CHECK(keysched_get(&f.s.sched, QUIC_KS_CLIENT_HS, &chs) == 1);
     {
-      protect_keys         pk = {chs, 0};
-      quic_srvwire_seal_in in = {
+      protect_keys    pk = {chs, 0};
+      srvwire_seal_in in = {
           wired_span_of((const u8*)0, 0),
           wired_span_of(f.s.sdrv.iscid, f.s.sdrv.iscid_len),
           wired_span_of(g_cli_scid, 6),
@@ -411,7 +411,7 @@ static void test_srvloop_open_chacha(void) {
           0};
       wired_obuf cob = {cpkt, sizeof cpkt, 0};
       CHECK(
-          quic_srvwire_seal_handshake_suite(
+          srvwire_seal_handshake_suite(
               QUIC_TLS_CHACHA20_POLY1305_SHA256, &pk, &in, &cob) == 1);
       clen = cob.len;
     }
@@ -477,16 +477,15 @@ static void test_srvloop_wrong_direction_open_fails(void) {
   {
     protect_keys ownpk = {own, &ownhp};
     CHECK(
-        quic_srvwire_open_handshake(
-            &ownpk, wired_mspan_of(pkt, ob.len), &tls) == 1);
+        srvwire_open_handshake(&ownpk, wired_mspan_of(pkt, ob.len), &tls) == 1);
   }
   CHECK(keysched_get(&f.s.sched, QUIC_KS_CLIENT_HS, &peer) == 1);
   aes128_init(&peerhp, peer->hp);
   {
     protect_keys peerpk = {peer, &peerhp};
     CHECK(
-        quic_srvwire_open_handshake(
-            &peerpk, wired_mspan_of(pkt, ob.len), &tls) == 0);
+        srvwire_open_handshake(&peerpk, wired_mspan_of(pkt, ob.len), &tls) ==
+        0);
   }
 }
 
@@ -600,18 +599,18 @@ static void test_srvloop_full_roundtrip(void) {
     glen = gob.len;
   }
   {
-    u8        spkt[1024];
-    usz       slen = client_seal_onertt(&f, get, glen, spkt, sizeof spkt);
-    const u8* pl;
-    usz       pll;
-    quic_h3conn_resp resp_out = {0};
-    ob                        = (wired_obuf){out, sizeof out, 0};
+    u8          spkt[1024];
+    usz         slen = client_seal_onertt(&f, get, glen, spkt, sizeof spkt);
+    const u8*   pl;
+    usz         pll;
+    h3conn_resp resp_out = {0};
+    ob                   = (wired_obuf){out, sizeof out, 0};
     CHECK(
         wired_srvloop_step(
             &(wired_srvloop_conn){&f.l, &f.s}, wired_mspan_of(spkt, slen),
             &ob) == 1);
     CHECK(client_open_onertt(&f, out, ob.len, &pl, &pll) == 1);
-    CHECK(quic_h3conn_recv_response(wired_span_of(pl, pll), &resp_out) == 1);
+    CHECK(h3conn_recv_response(wired_span_of(pl, pll), &resp_out) == 1);
     CHECK(resp_out.status == 200);
   }
 }
@@ -811,17 +810,17 @@ static void check_confirm_and_200_payload(const u8* pl, usz pll) {
   int            settings = 0, done = 0, ok200 = 0;
   framewalk_init(&it, pl, pll);
   while (framewalk_next(&it, &fr)) {
-    u64              type  = fr.type;
-    const u8*        frame = fr.start;
-    usz              rem   = fr.remaining;
-    stream_frame     sf;
-    quic_h3conn_resp resp_out = {0};
+    u64          type  = fr.type;
+    const u8*    frame = fr.start;
+    usz          rem   = fr.remaining;
+    stream_frame sf;
+    h3conn_resp  resp_out = {0};
     if (type == 0x1e) done = 1;
     if (type < 0x08 || type > 0x0f || !frame_get_stream(frame, rem, &sf))
       continue;
     if (sf.stream_id == 3) settings = 1;
     if (sf.stream_id == 0 &&
-        quic_h3conn_recv_response(wired_span_of(frame, rem), &resp_out) &&
+        h3conn_recv_response(wired_span_of(frame, rem), &resp_out) &&
         resp_out.status == 200)
       ok200 = 1;
   }
@@ -861,14 +860,14 @@ static void lp_confirm_via_dispatch(struct lp_fix* f) {
 /* Build one request STREAM frame (stream 0, offset 0) whose payload is a
  * complete HEADERS frame for the given pseudo-headers, with the given FIN. */
 static usz lp_build_headers_stream(
-    const quic_h3req_pseudo_in* pin, int fin, u8* out, usz cap) {
+    const h3req_pseudo_in* pin, int fin, u8* out, usz cap) {
   u8         fields[256], h3buf[300];
   wired_obuf fob = obuf_of(fields, sizeof fields);
   wired_obuf hob = obuf_of(h3buf, sizeof h3buf);
   wired_obuf sob = obuf_of(out, cap);
-  CHECK(quic_h3req_enc_pseudo(pin, &fob) == 1);
+  CHECK(h3req_enc_pseudo(pin, &fob) == 1);
   CHECK(
-      quic_h3_frame_put(
+      h3_frame_put(
           &hob, QUIC_H3_FRAME_HEADERS, wired_span_of(fields, fob.len)) != 0);
   {
     stream_frame sf = {0, 0, hob.len, h3buf, fin};
@@ -889,7 +888,7 @@ static void test_srvloop_connect_drives_without_fin(void) {
   wired_h3reqdrive_req req;
   int                  got = 0;
   usz                  n;
-  quic_h3req_pseudo_in pin = {
+  h3req_pseudo_in      pin = {
       wired_span_of((const u8*)"CONNECT", 7),
       wired_span_of((const u8*)"https", 5), wired_span_of((const u8*)"h", 1),
       wired_span_of((const u8*)"/", 1),
@@ -918,7 +917,7 @@ static void test_srvloop_get_still_waits_for_fin(void) {
   wired_h3reqdrive_req req;
   int                  got = 0;
   usz                  n;
-  quic_h3req_pseudo_in pin = {
+  h3req_pseudo_in      pin = {
       wired_span_of((const u8*)"GET", 3), wired_span_of((const u8*)"https", 5),
       wired_span_of((const u8*)"h", 1), wired_span_of((const u8*)"/", 1),
       wired_span_of((const u8*)0, 0)};
@@ -1122,8 +1121,7 @@ static usz lp_qpack_encoder_set_capacity(
     u8* out, usz cap, u64 stream_id, u64 capacity) {
   u8          body[8];
   wired_mspan mb = wired_mspan_of(body + 1, sizeof body - 1);
-  usz         n =
-      quic_qpack_enc_instr_encode(mb, QUIC_QPACK_ENC_SET_CAPACITY, capacity);
+  usz n = qpack_enc_instr_encode(mb, QUIC_QPACK_ENC_SET_CAPACITY, capacity);
   stream_frame sf;
   body[0] = QUIC_H3_STREAM_QPACK_ENCODER;
   sf      = (stream_frame){stream_id, 0, 1 + n, body, 0};
@@ -1202,7 +1200,7 @@ static usz lp_split_post_frames(
   u8                       reqb[256];
   usz                      rlen = 0, hb;
   stream_frame             sf;
-  quic_h3_frame            hf   = {0};
+  h3_frame                 hf   = {0};
   const u8*                body = (const u8*)"hi";
   wired_h3reqdrive_send_in in   = {
       wired_span_of((const u8*)"POST", 4), wired_span_of((const u8*)"/", 1),
@@ -1211,7 +1209,7 @@ static usz lp_split_post_frames(
   CHECK(wired_h3reqdrive_send_method(0, &in, &rob));
   rlen = rob.len;
   CHECK(frame_get_stream(reqb, rlen, &sf) > 0);
-  hb = quic_h3_frame_get(wired_span_of(sf.data, (usz)sf.length), &hf);
+  hb = h3_frame_get(wired_span_of(sf.data, (usz)sf.length), &hf);
   CHECK(hb > 0 && hf.type == QUIC_H3_FRAME_HEADERS);
   CHECK(appdata_frame_flat(0, 0, sf.data, hb, 0, hp, hcap, hl));
   CHECK(appdata_frame_flat(
@@ -1236,7 +1234,7 @@ static usz lp_split_post_frames_on(
   u8                       reqb[256];
   usz                      rlen = 0, hb;
   stream_frame             sf;
-  quic_h3_frame            hf = {0};
+  h3_frame                 hf = {0};
   wired_h3reqdrive_send_in in = {
       wired_span_of((const u8*)"POST", 4), wired_span_of((const u8*)"/", 1),
       wired_span_of((const u8*)"h", 1), wired_span_of(body, body_len)};
@@ -1244,7 +1242,7 @@ static usz lp_split_post_frames_on(
   CHECK(wired_h3reqdrive_send_method(stream_id, &in, &rob));
   rlen = rob.len;
   CHECK(frame_get_stream(reqb, rlen, &sf) > 0);
-  hb = quic_h3_frame_get(wired_span_of(sf.data, (usz)sf.length), &hf);
+  hb = h3_frame_get(wired_span_of(sf.data, (usz)sf.length), &hf);
   CHECK(hb > 0 && hf.type == QUIC_H3_FRAME_HEADERS);
   CHECK(appdata_frame_flat(stream_id, 0, sf.data, hb, 0, hp, hcap, hl));
   CHECK(appdata_frame_flat(
@@ -2182,12 +2180,12 @@ static void test_srvloop_wt_uni_stream_without_session_no_crash(void) {
  * wired_srvloop_step path, lands its payload bytes in rx_datagrams[0] and
  * rx_datagram_n becomes 1. */
 static void test_srvloop_datagram_queued_on_step(void) {
-  struct lp_fix       f;
-  u8                  payload[64], out[1024], spkt[1024];
-  usz                 plen, slen;
-  wired_obuf          ob = {out, sizeof out, 0};
-  quic_datagram_frame df = {.length = 5, .data = (const u8*)"hello"};
-  plen = quic_datagram_encode(wired_mspan_of(payload, sizeof payload), &df, 1);
+  struct lp_fix  f;
+  u8             payload[64], out[1024], spkt[1024];
+  usz            plen, slen;
+  wired_obuf     ob = {out, sizeof out, 0};
+  datagram_frame df = {.length = 5, .data = (const u8*)"hello"};
+  plen = datagram_encode(wired_mspan_of(payload, sizeof payload), &df, 1);
   lp_confirm(&f, &ob);
   f.l.we_advertised_max_datagram = 100; /* RFC 9221 3: server opted in */
   slen = client_seal_onertt_pn(&f, 3, payload, plen, spkt, sizeof spkt);
@@ -2216,10 +2214,9 @@ static void test_srvloop_datagram_queue_overflow_drops_newest(void) {
   f.l.we_advertised_max_datagram = 100; /* RFC 9221 3: server opted in */
   /* fill the queue: WIRED_SRVLOOP_MAX_RX_DATAGRAMS datagrams, byte value i. */
   for (i = 0; i < WIRED_SRVLOOP_MAX_RX_DATAGRAMS; i++) {
-    u8                  b  = (u8)('A' + i);
-    quic_datagram_frame df = {.length = 1, .data = &b};
-    plen =
-        quic_datagram_encode(wired_mspan_of(payload, sizeof payload), &df, 1);
+    u8             b  = (u8)('A' + i);
+    datagram_frame df = {.length = 1, .data = &b};
+    plen = datagram_encode(wired_mspan_of(payload, sizeof payload), &df, 1);
     slen = client_seal_onertt_pn(&f, 3 + i, payload, plen, spkt, sizeof spkt);
     ob   = (wired_obuf){out, sizeof out, 0};
     wired_srvloop_step(
@@ -2232,10 +2229,9 @@ static void test_srvloop_datagram_queue_overflow_drops_newest(void) {
   /* one more beyond capacity: dropped, queue stays at max, existing entries
    * untouched. */
   {
-    u8                  b  = 'Z';
-    quic_datagram_frame df = {.length = 1, .data = &b};
-    plen =
-        quic_datagram_encode(wired_mspan_of(payload, sizeof payload), &df, 1);
+    u8             b  = 'Z';
+    datagram_frame df = {.length = 1, .data = &b};
+    plen = datagram_encode(wired_mspan_of(payload, sizeof payload), &df, 1);
     slen = client_seal_onertt_pn(
         &f, 3 + WIRED_SRVLOOP_MAX_RX_DATAGRAMS, payload, plen, spkt,
         sizeof spkt);
@@ -2253,14 +2249,14 @@ static void test_srvloop_datagram_queue_overflow_drops_newest(void) {
  * advertised max_datagram_frame_size is accepted and queued normally --
  * equivalence-partition boundary "at the limit" (payload.n == advertised). */
 static void test_srvloop_datagram_within_advertised_limit_accepted(void) {
-  struct lp_fix       f;
-  u8                  payload[64], out[1024], spkt[1024];
-  usz                 plen, slen;
-  wired_obuf          ob = {out, sizeof out, 0};
-  u8                  data[50];
-  quic_datagram_frame df = {.length = sizeof data, .data = data};
+  struct lp_fix  f;
+  u8             payload[64], out[1024], spkt[1024];
+  usz            plen, slen;
+  wired_obuf     ob = {out, sizeof out, 0};
+  u8             data[50];
+  datagram_frame df = {.length = sizeof data, .data = data};
   for (usz i = 0; i < sizeof data; i++) data[i] = (u8)i;
-  plen = quic_datagram_encode(wired_mspan_of(payload, sizeof payload), &df, 1);
+  plen = datagram_encode(wired_mspan_of(payload, sizeof payload), &df, 1);
   lp_confirm(&f, &ob);
   f.l.we_advertised_max_datagram = 100; /* RFC 9221 3: server opted in */
   slen = client_seal_onertt_pn(&f, 3, payload, plen, spkt, sizeof spkt);
@@ -2278,14 +2274,14 @@ static void test_srvloop_datagram_within_advertised_limit_accepted(void) {
  * was actually widened (WIRED_SRVLOOP_RX_DATAGRAM_CAP), not just the
  * advertised-limit check relaxed. */
 static void test_srvloop_datagram_998_bytes_not_truncated(void) {
-  struct lp_fix       f;
-  u8                  payload[1100], out[1500], spkt[1500];
-  usz                 plen, slen;
-  wired_obuf          ob = {out, sizeof out, 0};
-  u8                  data[998];
-  quic_datagram_frame df = {.length = sizeof data, .data = data};
+  struct lp_fix  f;
+  u8             payload[1100], out[1500], spkt[1500];
+  usz            plen, slen;
+  wired_obuf     ob = {out, sizeof out, 0};
+  u8             data[998];
+  datagram_frame df = {.length = sizeof data, .data = data};
   for (usz i = 0; i < sizeof data; i++) data[i] = (u8)(i & 0xff);
-  plen = quic_datagram_encode(wired_mspan_of(payload, sizeof payload), &df, 1);
+  plen = datagram_encode(wired_mspan_of(payload, sizeof payload), &df, 1);
   lp_confirm(&f, &ob);
   f.l.we_advertised_max_datagram = 1200; /* RFC 9221 3: server opted in */
   slen = client_seal_onertt_pn(&f, 3, payload, plen, spkt, sizeof spkt);
@@ -2304,14 +2300,14 @@ static void test_srvloop_datagram_998_bytes_not_truncated(void) {
  * queued, and the violation is latched for srvrun.c to close the connection
  * over. */
 static void test_srvloop_datagram_exceeding_advertised_limit_rejected(void) {
-  struct lp_fix       f;
-  u8                  payload[512], out[1024], spkt[1024];
-  usz                 plen, slen;
-  wired_obuf          ob = {out, sizeof out, 0};
-  u8                  data[200];
-  quic_datagram_frame df = {.length = sizeof data, .data = data};
+  struct lp_fix  f;
+  u8             payload[512], out[1024], spkt[1024];
+  usz            plen, slen;
+  wired_obuf     ob = {out, sizeof out, 0};
+  u8             data[200];
+  datagram_frame df = {.length = sizeof data, .data = data};
   for (usz i = 0; i < sizeof data; i++) data[i] = (u8)i;
-  plen = quic_datagram_encode(wired_mspan_of(payload, sizeof payload), &df, 1);
+  plen = datagram_encode(wired_mspan_of(payload, sizeof payload), &df, 1);
   lp_confirm(&f, &ob);
   f.l.we_advertised_max_datagram = 100; /* RFC 9221 3: advertised limit 100 */
   slen = client_seal_onertt_pn(&f, 3, payload, plen, spkt, sizeof spkt);
@@ -2325,14 +2321,14 @@ static void test_srvloop_datagram_exceeding_advertised_limit_rejected(void) {
 /* RFC 9221 3: a connection that never advertised max_datagram_frame_size
  * (we_advertised_max_datagram == 0, this repo's "unset" sentinel) rejects ANY
  * received DATAGRAM frame as a PROTOCOL_VIOLATION -- the we_advertised=0
- * branch of quic_datagram_recv_ok, exercised via the live dispatch path. */
+ * branch of datagram_recv_ok, exercised via the live dispatch path. */
 static void test_srvloop_datagram_without_advertising_rejected(void) {
-  struct lp_fix       f;
-  u8                  payload[64], out[1024], spkt[1024];
-  usz                 plen, slen;
-  wired_obuf          ob = {out, sizeof out, 0};
-  quic_datagram_frame df = {.length = 5, .data = (const u8*)"hello"};
-  plen = quic_datagram_encode(wired_mspan_of(payload, sizeof payload), &df, 1);
+  struct lp_fix  f;
+  u8             payload[64], out[1024], spkt[1024];
+  usz            plen, slen;
+  wired_obuf     ob = {out, sizeof out, 0};
+  datagram_frame df = {.length = 5, .data = (const u8*)"hello"};
+  plen = datagram_encode(wired_mspan_of(payload, sizeof payload), &df, 1);
   lp_confirm(&f, &ob);
   /* f.l.we_advertised_max_datagram left at its wired_srvloop_init default: 0 */
   slen = client_seal_onertt_pn(&f, 3, payload, plen, spkt, sizeof spkt);
@@ -2548,11 +2544,11 @@ static int lp_echo_handler(
 /* Send a POST with `body` over 1-RTT and return the decoded response body via
  * the client decoder. Asserts a 200 with the echoed body reaches the client. */
 static void lp_post_echo(struct lp_fix* f, const u8* body, usz blen) {
-  u8               out[1024], reqb[512], spkt[1024];
-  usz              rlen, slen;
-  wired_obuf       ob = {out, sizeof out, 0}, rob = {reqb, sizeof reqb, 0};
-  const u8*        pl;
-  quic_h3conn_resp resp_out   = {0};
+  u8          out[1024], reqb[512], spkt[1024];
+  usz         rlen, slen;
+  wired_obuf  ob = {out, sizeof out, 0}, rob = {reqb, sizeof reqb, 0};
+  const u8*   pl;
+  h3conn_resp resp_out        = {0};
   wired_h3reqdrive_send_in in = {
       wired_span_of((const u8*)"POST", 4), wired_span_of((const u8*)"/", 1),
       wired_span_of((const u8*)"h", 1), wired_span_of(body, blen)};
@@ -2564,7 +2560,7 @@ static void lp_post_echo(struct lp_fix* f, const u8* body, usz blen) {
           &(wired_srvloop_conn){&f->l, &f->s}, wired_mspan_of(spkt, slen),
           &ob) == 1);
   CHECK(client_open_onertt(f, out, ob.len, &pl, &rlen) == 1);
-  CHECK(quic_h3conn_recv_response(wired_span_of(pl, rlen), &resp_out) == 1);
+  CHECK(h3conn_recv_response(wired_span_of(pl, rlen), &resp_out) == 1);
   CHECK(resp_out.status == 200);
   CHECK(resp_out.body.n == blen);
   for (slen = 0; slen < blen; slen++)
@@ -3564,11 +3560,11 @@ static void test_srvloop_external_resp_suppresses_200(void) {
   CHECK(f.l.req.path_len == 1 && f.l.req.path[0] == '/');
   /* ...and the loop's reply (if any) carries no HTTP/3 response */
   if (ob.len) {
-    const u8*        pl;
-    usz              pll;
-    quic_h3conn_resp resp_out = {0};
+    const u8*   pl;
+    usz         pll;
+    h3conn_resp resp_out = {0};
     CHECK(client_open_onertt(&f, out, ob.len, &pl, &pll) == 1);
-    CHECK(quic_h3conn_recv_response(wired_span_of(pl, pll), &resp_out) == 0);
+    CHECK(h3conn_recv_response(wired_span_of(pl, pll), &resp_out) == 0);
   }
   /* re-arm clears takeover state */
   CHECK(wired_srvloop_init(&f.l, f.l.cli_scid, f.l.cli_scid_len) == 1);

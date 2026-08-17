@@ -58,10 +58,10 @@ static void test_framewalk_unmeasurable(void) {
  * another frame must be measured correctly, so the walk continues to see the
  * second frame rather than truncating the rest of the packet. */
 static void test_framewalk_datagram_len_then_ping(void) {
-  u8                  buf[64];
-  usz                 n  = 0;
-  quic_datagram_frame df = {.length = 3, .data = (const u8*)"xyz"};
-  n += quic_datagram_encode(wired_mspan_of(buf + n, sizeof(buf) - n), &df, 1);
+  u8             buf[64];
+  usz            n  = 0;
+  datagram_frame df = {.length = 3, .data = (const u8*)"xyz"};
+  n += datagram_encode(wired_mspan_of(buf + n, sizeof(buf) - n), &df, 1);
   n += frame_put_simple(buf + n, sizeof(buf) - n, QUIC_FRAME_PING);
 
   framewalk it;
@@ -80,10 +80,10 @@ static void test_framewalk_datagram_len_then_ping(void) {
 /* RFC 9221 5: a 0x30 (no Length) DATAGRAM frame consumes the rest of the
  * packet, as it must be the last frame. */
 static void test_framewalk_datagram_no_len_consumes_rest(void) {
-  u8                  buf[64];
-  usz                 n  = 0;
-  quic_datagram_frame df = {.length = 5, .data = (const u8*)"hello"};
-  n += quic_datagram_encode(wired_mspan_of(buf + n, sizeof(buf) - n), &df, 0);
+  u8             buf[64];
+  usz            n  = 0;
+  datagram_frame df = {.length = 5, .data = (const u8*)"hello"};
+  n += datagram_encode(wired_mspan_of(buf + n, sizeof(buf) - n), &df, 0);
 
   framewalk it;
   framewalk_init(&it, buf, n);

@@ -1,7 +1,7 @@
 #include "app/qpack/qpack/insertcount.h"
 
 /* RFC 9204 4.5.1.1 */
-u64 quic_qpack_ric_encode(u64 ric, u64 max_entries) {
+u64 qpack_ric_encode(u64 ric, u64 max_entries) {
   if (ric == 0) return 0;
   return (ric % (2 * max_entries)) + 1;
 }
@@ -25,7 +25,7 @@ static int ric_correct(u64* ric, u64 max_value, u64 full_range) {
 
 /* Resolve a non-zero EncodedInsertCount to its Required Insert Count (RFC 9204
  * 4.5.1.1). Returns 0 if the encoding is invalid. */
-static int ric_resolve(u64 encoded, const quic_qpack_ric_ctx* c, u64* ric) {
+static int ric_resolve(u64 encoded, const qpack_ric_ctx* c, u64* ric) {
   u64 full_range = 2 * c->max_entries;
   u64 max_value  = c->total_inserts + c->max_entries;
   if (encoded > full_range) return 0;
@@ -35,7 +35,7 @@ static int ric_resolve(u64 encoded, const quic_qpack_ric_ctx* c, u64* ric) {
 }
 
 /* RFC 9204 4.5.1.1 */
-int quic_qpack_ric_decode(u64 encoded, const quic_qpack_ric_ctx* c, u64* ric) {
+int qpack_ric_decode(u64 encoded, const qpack_ric_ctx* c, u64* ric) {
   if (encoded == 0) {
     *ric = 0;
     return 1;
@@ -46,17 +46,16 @@ int quic_qpack_ric_decode(u64 encoded, const quic_qpack_ric_ctx* c, u64* ric) {
 /* RFC 9204 2.1.2 / 2.2.1: a RIC below the lowest value that could decode the
  * section MUST be rejected; a larger one is merely permitted to be rejected,
  * not required, so equal-or-above is accepted here. */
-int quic_qpack_ric_min_ok(u64 ric, int has_dynamic_ref, u64 max_abs_ref) {
+int qpack_ric_min_ok(u64 ric, int has_dynamic_ref, u64 max_abs_ref) {
   u64 expected = has_dynamic_ref ? max_abs_ref + 1 : 0;
   return ric >= expected;
 }
 
 /* RFC 9204 4.4.3: a zero Increment, or one that would move the Known
  * Received Count past what the encoder has actually sent, is invalid. */
-int quic_qpack_incr_valid(
-    u64 known_received, u64 increment, u64 total_inserts) {
+int qpack_incr_valid(u64 known_received, u64 increment, u64 total_inserts) {
   return increment != 0 && known_received + increment <= total_inserts;
 }
 
 /* RFC 9204 4.4.1 */
-int quic_qpack_section_ack_valid(u64 pending_acks) { return pending_acks > 0; }
+int qpack_section_ack_valid(u64 pending_acks) { return pending_acks > 0; }

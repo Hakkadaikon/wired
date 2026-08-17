@@ -79,7 +79,7 @@ typedef struct {
 
 /** One subscriber recorded against the hub's track: which session, and the
  * Track Alias this hub assigned it (hub-local per subscriber, draft SS10.7
- * quic_moqsub scope). */
+ * moqsub scope). */
 typedef struct {
   usz session_idx;
   u64 track_alias;
@@ -186,7 +186,7 @@ typedef struct {
 
 /** One track a peer PUBLISHes (chat or audio), and the subscribers recorded
  * against it. in_use marks the slot live; own_alias is the Track Alias this
- * hub assigned to this slot's own PUBLISH (draft SS10.7 quic_moqsub
+ * hub assigned to this slot's own PUBLISH (draft SS10.7 moqsub
  * scope).
  *
  * relays[] tracks every publisher stream currently being forwarded on this
@@ -211,7 +211,7 @@ typedef struct {
   int                 in_use;
   wired_wt_session*   wt;
   u64                 control_stream_id;
-  quic_moqsess        sess;
+  moqsess             sess;
   u64                 request_id_next; /* next Request ID this hub sends */
   wired_moqtrun_track tracks[WIRED_MOQTRUN_MAX_TRACKS_PER_PEER];
   /** Track Names this peer has successfully SUBSCRIBEd to (ring, newest

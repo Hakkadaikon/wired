@@ -25,10 +25,10 @@ typedef struct {
    * (capacity 0) by wired_h3srv_state_init; a peer that never opens an
    * encoder stream or never raises the capacity keeps it at 0, matching
    * RFC 9204 3.2's "no dynamic table" default. */
-  quic_qpack_dyn qdyn;
+  qpack_dyn qdyn;
   /** RFC 9204 5 (SETTINGS_QPACK_MAX_TABLE_CAPACITY): the maximum dynamic
    * table capacity (in bytes) this server has advertised to the peer --
-   * quic_qpack_capacity_within_limit's own limit argument when validating a
+   * qpack_capacity_within_limit's own limit argument when validating a
    * received Set Dynamic Table Capacity instruction (9204-032). 0 (this
    * SDK's current default: it never emits a non-zero value in its own
    * SETTINGS) means the peer's encoder may not raise the table past 0
@@ -38,7 +38,7 @@ typedef struct {
 
 /** RFC 9204 3.2: initialise st's dynamic table empty and its own advertised
  * capacity limit -- called once per connection (wired_srvloop_init), mirrors
- * quic_qpack_dyn_init's own single-purpose shape but scoped to the owning
+ * qpack_dyn_init's own single-purpose shape but scoped to the owning
  * wired_h3srv_state.
  * @param st the state to initialise
  * @param max_table_capacity the limit this server advertises via

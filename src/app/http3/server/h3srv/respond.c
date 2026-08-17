@@ -26,7 +26,7 @@ int wired_h3srv_build_response(
     const wired_h3srv_send_in* in,
     wired_obuf*                out) {
   if (!may_respond(st)) return 0;
-  return quic_h3conn_send_response(in->stream_id, &in->resp, out);
+  return h3conn_send_response(in->stream_id, &in->resp, out);
 }
 
 /* RFC 9110 9.3.2: method == "HEAD" (exact, case-sensitive per RFC 9110 9.1).

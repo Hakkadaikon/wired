@@ -8,7 +8,6 @@
  * carrying the QPACK-encoded field section, followed by a DATA frame carrying
  * the body. When body is empty only the HEADERS frame is emitted.
  * Returns 1 with out->len set on success, 0 if out lacks capacity. */
-int quic_h3req_build(
-    wired_span qpack_headers, wired_span body, wired_obuf* out);
+int h3req_build(wired_span qpack_headers, wired_span body, wired_obuf* out);
 
 #endif

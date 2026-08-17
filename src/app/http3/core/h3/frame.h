@@ -65,7 +65,7 @@
  * three, WebTransport flow-control three -- draft-ietf-webtrans-http3-15
  * 5.5's SETTINGS_WT_INITIAL_MAX_STREAMS_UNI/BIDI/MAX_DATA) plus one slot for
  * an optional grease identifier (RFC 9114 7.2.4.1 / 9114-064,
- * quic_h3settings_build's append_grease). */
+ * h3settings_build's append_grease). */
 #define QUIC_H3_SETTINGS_MAX 12
 
 /** RFC 9114 7.2.4: a SETTINGS frame's payload, as decoded (Identifier,
@@ -76,7 +76,7 @@ typedef struct {
     u64 id;
     u64 value;
   } pairs[QUIC_H3_SETTINGS_MAX];
-} quic_h3_settings;
+} h3_settings;
 
 /** RFC 9114 7.2 decoded frame head + payload view (payload borrowed in
  * place, no copy). */
@@ -84,24 +84,24 @@ typedef struct {
   u64       type;
   const u8* payload;
   u64       payload_len;
-} quic_h3_frame;
+} h3_frame;
 
 /* Generic frame (Type Length Payload). Encode returns bytes written or 0;
  * decode returns bytes consumed or 0 and views payload in place (no copy). */
-usz quic_h3_frame_put(wired_obuf* out, u64 type, wired_span payload);
-usz quic_h3_frame_get(wired_span buf, quic_h3_frame* f);
+usz h3_frame_put(wired_obuf* out, u64 type, wired_span payload);
+usz h3_frame_get(wired_span buf, h3_frame* f);
 
 /* Single-varint-payload frames: CANCEL_PUSH / MAX_PUSH_ID carry a Push ID,
  * GOAWAY carries a Stream ID or Push ID. */
-usz quic_h3_cancel_push_put(u8* buf, usz cap, u64 push_id);
-usz quic_h3_cancel_push_get(const u8* buf, usz n, u64* push_id);
-usz quic_h3_goaway_put(u8* buf, usz cap, u64 id);
-usz quic_h3_goaway_get(const u8* buf, usz n, u64* id);
-usz quic_h3_max_push_id_put(u8* buf, usz cap, u64 push_id);
-usz quic_h3_max_push_id_get(const u8* buf, usz n, u64* push_id);
+usz h3_cancel_push_put(u8* buf, usz cap, u64 push_id);
+usz h3_cancel_push_get(const u8* buf, usz n, u64* push_id);
+usz h3_goaway_put(u8* buf, usz cap, u64 id);
+usz h3_goaway_get(const u8* buf, usz n, u64* id);
+usz h3_max_push_id_put(u8* buf, usz cap, u64 push_id);
+usz h3_max_push_id_get(const u8* buf, usz n, u64* push_id);
 
 /* SETTINGS: payload is a sequence of (Identifier Value) varint pairs. */
-usz quic_h3_settings_put(u8* buf, usz cap, const quic_h3_settings* s);
-usz quic_h3_settings_get(const u8* buf, usz n, quic_h3_settings* s);
+usz h3_settings_put(u8* buf, usz cap, const h3_settings* s);
+usz h3_settings_get(const u8* buf, usz n, h3_settings* s);
 
 #endif

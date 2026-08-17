@@ -30,7 +30,7 @@ static int ctrl_leading_type_is_control(const stream_frame* sf) {
   usz off = 0;
   if (!varint_take(wired_span_of(sf->data, (usz)sf->length), &off, &v))
     return 0;
-  return quic_h3_stream_type_is_control(v);
+  return h3_stream_type_is_control(v);
 }
 
 /* 1 if the walked frame decodes into sf as a client uni STREAM frame; the
@@ -80,15 +80,15 @@ static void ctrl_land(wired_srvloop* l, const stream_frame* sf) {
  * apply/pending on success. push is not otherwise supported by this SDK, so
  * a push-variant update is validated (for 9218-014 symmetry) but never
  * applied to anything. */
-static void ctrl_apply_priupdate(wired_srvloop* l, const quic_h3_priupdate* f) {
-  u16              err;
-  quic_h3_priority p;
+static void ctrl_apply_priupdate(wired_srvloop* l, const h3_priupdate* f) {
+  u16         err;
+  h3_priority p;
   if (!wired_h3srv_priupdate_check(1, f->push, f->element_id, &err)) {
     l->priupdate_violation = err;
     return;
   }
   if (f->push) return;
-  quic_h3_priority_sfv(f->value, &p);
+  h3_priority_sfv(f->value, &p);
   wired_srvloop_priority_apply(l, f->element_id, &p);
 }
 
@@ -101,7 +101,7 @@ static void ctrl_apply_priupdate(wired_srvloop* l, const quic_h3_priupdate* f) {
  * below calls this from both branches, not only its generic-frame
  * fallback. */
 static void ctrl_note_frame(wired_srvloop* l, int is_settings) {
-  quic_h3_control_frame(&l->peer_ctrl, is_settings);
+  h3_control_frame(&l->peer_ctrl, is_settings);
 }
 
 /* Decode the H3 frame at l->ctrl.buf[l->ctrl.parsed..len) and act on it if it
@@ -110,15 +110,15 @@ static void ctrl_note_frame(wired_srvloop* l, int is_settings) {
  * (ctrl_note_frame). Returns bytes consumed, or 0 if the next frame is not
  * yet fully buffered (the caller stops walking until more bytes arrive). */
 static usz ctrl_walk_one(wired_srvloop* l, wired_span avail) {
-  quic_h3_priupdate f  = {0};
-  quic_h3_frame     gf = {0};
-  usz               n  = quic_h3_priupdate_get(avail, &f);
+  h3_priupdate f  = {0};
+  h3_frame     gf = {0};
+  usz          n  = h3_priupdate_get(avail, &f);
   if (n) {
     ctrl_apply_priupdate(l, &f);
     ctrl_note_frame(l, 0); /* PRIORITY_UPDATE is never SETTINGS */
     return n;
   }
-  n = quic_h3_frame_get(avail, &gf);
+  n = h3_frame_get(avail, &gf);
   if (n) ctrl_note_frame(l, gf.type == QUIC_H3_FRAME_SETTINGS);
   return n;
 }
@@ -176,9 +176,8 @@ static int req_stream_of(u64 type, wired_span frame, stream_frame* sf) {
  * UPDATE is always frame-aligned with whatever STREAM frame first carries
  * it, exactly like request_parse.c's own find_headers walk. */
 static int req_carries_priupdate(const stream_frame* sf) {
-  quic_h3_priupdate f = {0};
-  return quic_h3_priupdate_get(wired_span_of(sf->data, (usz)sf->length), &f) !=
-         0;
+  h3_priupdate f = {0};
+  return h3_priupdate_get(wired_span_of(sf->data, (usz)sf->length), &f) != 0;
 }
 
 /* RFC 9218 7.1 / 9218-013: latch H3_FRAME_UNEXPECTED for a PRIORITY_UPDATE

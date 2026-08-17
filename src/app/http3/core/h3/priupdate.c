@@ -9,7 +9,7 @@ static u64 priupdate_wire_type(int push) {
 }
 
 /* RFC 9218 7.1: type varint, length varint, then element id + field value. */
-usz quic_h3_priupdate_put(u8* buf, usz cap, const quic_h3_priupdate* f) {
+usz h3_priupdate_put(u8* buf, usz cap, const h3_priupdate* f) {
   u64 type = priupdate_wire_type(f->push);
   u8  body[16];
   usz blen = 0, off = 0;
@@ -24,7 +24,7 @@ usz quic_h3_priupdate_put(u8* buf, usz cap, const quic_h3_priupdate* f) {
 }
 
 /* 1 if type names either PRIORITY_UPDATE variant, recording which. */
-static int priupdate_type(u64 type, quic_h3_priupdate* f) {
+static int priupdate_type(u64 type, h3_priupdate* f) {
   f->push = type == QUIC_H3_FRAME_PRIORITY_UPDATE_PUSH;
   return type == QUIC_H3_FRAME_PRIORITY_UPDATE ||
          type == QUIC_H3_FRAME_PRIORITY_UPDATE_PUSH;
@@ -37,15 +37,14 @@ static int priupdate_take_hdr(wired_span buf, usz* off, u64* type, u64* len) {
 }
 
 /* Read type (either variant) and a length that fits; 0 otherwise. */
-static int priupdate_hdr(
-    wired_span buf, usz* off, quic_h3_priupdate* f, u64* len) {
+static int priupdate_hdr(wired_span buf, usz* off, h3_priupdate* f, u64* len) {
   u64 type;
   if (!priupdate_take_hdr(buf, off, &type, len)) return 0;
   if (!priupdate_type(type, f)) return 0;
   return *off + *len <= buf.n;
 }
 
-usz quic_h3_priupdate_get(wired_span buf, quic_h3_priupdate* f) {
+usz h3_priupdate_get(wired_span buf, h3_priupdate* f) {
   u64 len;
   usz off = 0, body;
   if (!priupdate_hdr(buf, &off, f, &len)) return 0;
@@ -62,9 +61,9 @@ static int sfv_is_u(wired_span v, usz i) {
 }
 
 /* Apply the member starting at v[i]; unknown keys change nothing. */
-static void sfv_apply(wired_span v, usz i, quic_h3_priority* p) {
-  if (sfv_is_u(v, i)) quic_h3_priority_set_urgency(p, v.p[i + 2]);
-  if (v.p[i] == 'i') quic_h3_priority_set_incremental(p, v, i);
+static void sfv_apply(wired_span v, usz i, h3_priority* p) {
+  if (sfv_is_u(v, i)) h3_priority_set_urgency(p, v.p[i + 2]);
+  if (v.p[i] == 'i') h3_priority_set_incremental(p, v, i);
 }
 
 /* Skip to the byte after the next comma. */
@@ -74,14 +73,14 @@ static usz sfv_skip(wired_span v, usz i) {
 }
 
 /* Handle one position: spaces advance by one, a member is applied whole. */
-static usz sfv_step(wired_span v, usz i, quic_h3_priority* p) {
+static usz sfv_step(wired_span v, usz i, h3_priority* p) {
   if (v.p[i] == ' ') return i + 1;
   sfv_apply(v, i, p);
   return sfv_skip(v, i);
 }
 
-void quic_h3_priority_sfv(wired_span v, quic_h3_priority* p) {
+void h3_priority_sfv(wired_span v, h3_priority* p) {
   usz i = 0;
-  quic_h3_priority_init(p);
+  h3_priority_init(p);
   while (i < v.n) i = sfv_step(v, i, p);
 }

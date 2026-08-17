@@ -20,7 +20,7 @@ typedef enum {
   QUIC_MOQSESS_SETUP_HALF  = 1, /* exactly one of (sent, peer recv'd) done */
   QUIC_MOQSESS_ESTABLISHED = 2,
   QUIC_MOQSESS_CLOSED      = 3,
-} quic_moqsess_state;
+} moqsess_state;
 
 /** Events the run layer feeds in as it decodes the wire. */
 typedef enum {
@@ -38,7 +38,7 @@ typedef enum {
                                             * First-type message (codec-detected) */
   QUIC_MOQSESS_EV_BAD_REQUEST_ID = 11,     /* wrong parity or a reused Request
                                             * ID (codec-detected) */
-} quic_moqsess_event;
+} moqsess_event;
 
 /** Close reasons a step can produce (0 = still open). */
 #define QUIC_MOQSESS_CLOSE_NONE 0
@@ -51,36 +51,36 @@ typedef enum {
  * sent/received at most once per direction; violations and shutdown
  * decisions read these). */
 typedef struct {
-  quic_moqsess_state state;
-  int                goaway_sent;
-  int                goaway_recv;
-  int                close_reason; /* QUIC_MOQSESS_CLOSE_* once state==CLOSED */
-} quic_moqsess;
+  moqsess_state state;
+  int           goaway_sent;
+  int           goaway_recv;
+  int           close_reason; /* QUIC_MOQSESS_CLOSE_* once state==CLOSED */
+} moqsess;
 
 /** Zero-initialize (equivalent to `= {0}`; provided for callers that build
  * the struct at runtime rather than with a static initializer). */
-void quic_moqsess_init(quic_moqsess* s);
+void moqsess_init(moqsess* s);
 
 /** Apply one event. Returns the resulting close_reason (QUIC_MOQSESS_CLOSE_
  * NONE if the session is still open). Once state == CLOSED, further events
  * are no-ops (idempotent close). */
-int quic_moqsess_step(quic_moqsess* s, quic_moqsess_event ev);
+int moqsess_step(moqsess* s, moqsess_event ev);
 
 /** True while SETUP has not yet completed both directions: requests and
  * data streams that arrive now must be buffered, not delivered to the
  * application (3.3 / draft 5.1 buffering discipline). */
-int quic_moqsess_should_buffer(const quic_moqsess* s);
+int moqsess_should_buffer(const moqsess* s);
 
 /** True once SETUP is fully established (both directions done). */
-int quic_moqsess_established(const quic_moqsess* s);
+int moqsess_established(const moqsess* s);
 
 /** True if a newly arriving request MAY be rejected with GOING_AWAY
  * (either side sent or received GOAWAY: draft 5.1 GOAWAY discipline). */
-int quic_moqsess_may_reject_request(const quic_moqsess* s);
+int moqsess_may_reject_request(const moqsess* s);
 
 /** True if this endpoint SHOULD NOT initiate new requests of its own
  * (GOAWAY received on the control stream: draft 5.1, SHOULD NOT). */
-int quic_moqsess_suppress_own_requests(const quic_moqsess* s);
+int moqsess_suppress_own_requests(const moqsess* s);
 
 /* ===================== B. Subscribe lifecycle ===================== */
 
@@ -91,13 +91,13 @@ typedef enum {
   QUIC_MOQSUB_PENDING     = 1,
   QUIC_MOQSUB_ESTABLISHED = 2,
   QUIC_MOQSUB_TERMINATED  = 3,
-} quic_moqsub_state;
+} moqsub_state;
 
 /** Which side opened the request stream with its First message. */
 typedef enum {
   QUIC_MOQSUB_ROLE_SUBSCRIBER = 0, /* sent/received SUBSCRIBE first */
   QUIC_MOQSUB_ROLE_PUBLISHER  = 1, /* sent/received PUBLISH first */
-} quic_moqsub_role;
+} moqsub_role;
 
 typedef enum {
   QUIC_MOQSUB_EV_OPEN         = 0, /* SUBSCRIBE or PUBLISH sent/received */
@@ -108,7 +108,7 @@ typedef enum {
   QUIC_MOQSUB_EV_PUBLISH_DONE = 5, /* PUBLISH_DONE sent or received */
   QUIC_MOQSUB_EV_FIN_RESP     = 6, /* the responder's direction FIN */
   QUIC_MOQSUB_EV_FIN_REQ      = 7, /* the requester's direction FIN */
-} quic_moqsub_event;
+} moqsub_event;
 
 /** Terminated reasons (informational; a subscription's own close does not
  * imply the session closes). 0 = not terminated. */
@@ -120,43 +120,43 @@ typedef enum {
 #define QUIC_MOQSUB_TERM_DUP_RESPONSE 5 /* a 2nd response: session fault */
 
 typedef struct {
-  quic_moqsub_state state;
-  quic_moqsub_role  role;
-  int               responded; /* exactly-one-response gate: OK or ERROR seen */
+  moqsub_state state;
+  moqsub_role  role;
+  int          responded; /* exactly-one-response gate: OK or ERROR seen */
   int pending_ok;    /* publisher-initiated: OK deferred past PUBLISH_DONE */
   int fin_req;       /* requester's direction closed (FIN) */
   int fin_resp;      /* responder's direction closed (FIN) */
   int term_reason;   /* QUIC_MOQSUB_TERM_* once state==TERMINATED */
   int session_fault; /* set on a duplicate-response violation */
-} quic_moqsub;
+} moqsub;
 
 /** Initialize a fresh subscription: role is fixed by which message (SUBSCRIBE
  * vs PUBLISH) opened the request stream. */
-void quic_moqsub_init(quic_moqsub* s, quic_moqsub_role role);
+void moqsub_init(moqsub* s, moqsub_role role);
 
 /** Apply one event. Returns 1 if the event was legal for the current state
  * (state/flags updated), 0 if it violates the subscribe discipline (e.g. a
  * duplicate response) -- callers read s->session_fault to distinguish a
  * subscription-local termination from a session-level protocol error. */
-int quic_moqsub_step(quic_moqsub* s, quic_moqsub_event ev);
+int moqsub_step(moqsub* s, moqsub_event ev);
 
 /** True once the subscription is Established (SS10.6/10.9 semantics apply:
- * REQUEST_UPDATE legal, Object forwarding gated by quic_moqsub_may_forward). */
-int quic_moqsub_established(const quic_moqsub* s);
+ * REQUEST_UPDATE legal, Object forwarding gated by moqsub_may_forward). */
+int moqsub_established(const moqsub* s);
 
 /** True once Terminated (state machine done; s->term_reason explains why). */
-int quic_moqsub_terminated(const quic_moqsub* s);
+int moqsub_terminated(const moqsub* s);
 
 /** Forward State gate (5.1 / SS10.2 FORWARD parameter, subscribe notes
  * decision 9): Object sending toward this subscription is permitted only
  * while pending or established AND not yet errored. `forward` is the
  * negotiated FORWARD value (0 = never send Objects, 1 = normal gate). */
-int quic_moqsub_may_forward(const quic_moqsub* s, int forward);
+int moqsub_may_forward(const moqsub* s, int forward);
 
 /** PUBLISH_DONE precondition (draft 8.9): a publisher may only send
  * PUBLISH_DONE once every data stream it opened for this subscription has
  * been closed. Callers pass their own open-stream count; this only encodes
  * the gate, not the count itself. */
-int quic_moqsub_may_send_publish_done(usz open_stream_count);
+int moqsub_may_send_publish_done(usz open_stream_count);
 
 #endif

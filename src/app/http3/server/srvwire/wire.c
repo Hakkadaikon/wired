@@ -50,8 +50,7 @@ static int append_ack(wired_obuf* frames, i64 ack_pn) {
 /* Build the flight frames into out: the CRYPTO frame(s) for the TLS bytes,
  * then an optional trailing ACK (when in->ack_pn >= 0). Returns 1, or 0 on
  * overflow. */
-static int srvwire_emit_frames(
-    const quic_srvwire_seal_in* in, wired_obuf* out) {
+static int srvwire_emit_frames(const srvwire_seal_in* in, wired_obuf* out) {
   crypto_stream_emit_in ein = {in->crypto_off, in->tls.n};
   if (!crypto_stream_emit(in->tls, &ein, out)) return 0;
   return append_ack(out, in->ack_pn);
@@ -91,10 +90,7 @@ static u8 srvwire_initial_byte0(u32 version) {
  * SCID, never the key-derivation DCID -- the peer discards a reply
  * addressed to a CID it does not own). */
 static int srvwire_initial_tx_lean_ver(
-    u32                         version,
-    const quic_srvwire_seal_in* in,
-    wired_obuf*                 fb,
-    wired_obuf*                 out) {
+    u32 version, const srvwire_seal_in* in, wired_obuf* fb, wired_obuf* out) {
   initial_keys ck, sk;
   aes128       hp;
   usz          total;
@@ -119,25 +115,22 @@ static int srvwire_initial_tx_lean_ver(
 }
 
 static int srvwire_initial_tx_lean(
-    const quic_srvwire_seal_in* in, wired_obuf* fb, wired_obuf* out) {
+    const srvwire_seal_in* in, wired_obuf* fb, wired_obuf* out) {
   return srvwire_initial_tx_lean_ver(QUIC_VERSION_1, in, fb, out);
 }
 
 /* Pad to the 1200-byte floor, then seal under `version` (the path every
  * CRYPTO-carrying server Initial takes). */
 static int srvwire_initial_tx_ver(
-    u32                         version,
-    const quic_srvwire_seal_in* in,
-    wired_obuf*                 fb,
-    wired_obuf*                 out) {
+    u32 version, const srvwire_seal_in* in, wired_obuf* fb, wired_obuf* out) {
   pad_initial_frames(
       fb, init_payload_floor((u8)in->hdr_dcid.n, (u8)in->scid.n));
   return srvwire_initial_tx_lean_ver(version, in, fb, out);
 }
 
 /* RFC 9001 5.2 / RFC 9369 3.3.1 */
-int quic_srvwire_seal_initial_ver(
-    u32 version, const quic_srvwire_seal_in* in, wired_obuf* out) {
+int srvwire_seal_initial_ver(
+    u32 version, const srvwire_seal_in* in, wired_obuf* out) {
   u8         frames[1200]; /* RFC 9000 14.1: room to PADDING to 1200 */
   wired_obuf fb = obuf_of(frames, sizeof frames);
   if (!srvwire_emit_frames(in, &fb)) return 0;
@@ -145,15 +138,14 @@ int quic_srvwire_seal_initial_ver(
 }
 
 /* RFC 9001 5.2 */
-int quic_srvwire_seal_initial(const quic_srvwire_seal_in* in, wired_obuf* out) {
-  return quic_srvwire_seal_initial_ver(QUIC_VERSION_1, in, out);
+int srvwire_seal_initial(const srvwire_seal_in* in, wired_obuf* out) {
+  return srvwire_seal_initial_ver(QUIC_VERSION_1, in, out);
 }
 
 /* RFC 9000 17.2.2: seal pre-built frames (in->tls holds raw frame bytes,
  * e.g. a CONNECTION_CLOSE refusing the connection) into a server Initial
  * without CRYPTO wrapping, plus the usual trailing ACK. */
-int quic_srvwire_seal_initial_frames(
-    const quic_srvwire_seal_in* in, wired_obuf* out) {
+int srvwire_seal_initial_frames(const srvwire_seal_in* in, wired_obuf* out) {
   u8         frames[1200];
   wired_obuf fb = obuf_of(frames, sizeof frames);
   if (!bytes_put(wired_mspan_of(fb.p, fb.cap), &fb.len, in->tls)) return 0;
@@ -161,8 +153,8 @@ int quic_srvwire_seal_initial_frames(
   return srvwire_initial_tx_ver(QUIC_VERSION_1, in, &fb, out);
 }
 
-int quic_srvwire_seal_initial_frames_lean(
-    const quic_srvwire_seal_in* in, wired_obuf* out) {
+int srvwire_seal_initial_frames_lean(
+    const srvwire_seal_in* in, wired_obuf* out) {
   u8         frames[64];
   wired_obuf fb = obuf_of(frames, sizeof frames);
   if (!bytes_put(wired_mspan_of(fb.p, fb.cap), &fb.len, in->tls)) return 0;
@@ -171,8 +163,8 @@ int quic_srvwire_seal_initial_frames_lean(
 }
 
 /* RFC 9001 5.2 */
-int quic_srvwire_open_initial(
-    const quic_srvwire_open_initial_in* in, wired_mspan pkt, wired_span* tls) {
+int srvwire_open_initial(
+    const srvwire_open_initial_in* in, wired_mspan pkt, wired_span* tls) {
   initial_keys ck, sk;
   aes128       hp;
   wired_span   frames;
@@ -187,8 +179,8 @@ int quic_srvwire_open_initial(
 
 /* RFC 9001 5. Keys come from the caller, so in->dcid is unused here; the
  * header's DCID is in->hdr_dcid (RFC 9000 7.2). */
-int quic_srvwire_seal_handshake(
-    const protect_keys* k, const quic_srvwire_seal_in* in, wired_obuf* out) {
+int srvwire_seal_handshake(
+    const protect_keys* k, const srvwire_seal_in* in, wired_obuf* out) {
   u8         frames[2048];
   wired_obuf fb = obuf_of(frames, sizeof frames);
   if (!srvwire_emit_frames(in, &fb)) return 0;
@@ -199,20 +191,20 @@ int quic_srvwire_seal_handshake(
 }
 
 /* RFC 9001 5 */
-int quic_srvwire_open_handshake(
+int srvwire_open_handshake(
     const protect_keys* k, wired_mspan pkt, wired_span* tls) {
   wired_span frames;
   if (!hspkt_open(k, pkt, &frames)) return 0;
   return srvwire_take_crypto(frames, tls);
 }
 
-/* Same as quic_srvwire_seal_handshake, but seals under the given negotiated
+/* Same as srvwire_seal_handshake, but seals under the given negotiated
  * TLS 1.3 cipher suite (RFC 8446 B.4). Returns 0 on an unrecognized suite. */
-int quic_srvwire_seal_handshake_suite(
-    u16                         suite,
-    const protect_keys*         k,
-    const quic_srvwire_seal_in* in,
-    wired_obuf*                 out) {
+int srvwire_seal_handshake_suite(
+    u16                    suite,
+    const protect_keys*    k,
+    const srvwire_seal_in* in,
+    wired_obuf*            out) {
   u8         frames[2048];
   wired_obuf fb = obuf_of(frames, sizeof frames);
   if (!srvwire_emit_frames(in, &fb)) return 0;
@@ -221,9 +213,9 @@ int quic_srvwire_seal_handshake_suite(
   return hspkt_build_suite(suite, k, &d, out);
 }
 
-/* Same as quic_srvwire_open_handshake, but opens under the given negotiated
+/* Same as srvwire_open_handshake, but opens under the given negotiated
  * TLS 1.3 cipher suite (RFC 8446 B.4). Returns 0 on an unrecognized suite. */
-int quic_srvwire_open_handshake_suite(
+int srvwire_open_handshake_suite(
     u16 suite, const protect_keys* k, wired_mspan pkt, wired_span* tls) {
   wired_span frames;
   if (!hspkt_open_suite(suite, k, pkt, &frames)) return 0;

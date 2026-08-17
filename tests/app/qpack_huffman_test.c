@@ -16,7 +16,7 @@ static void test_huffman_rfc_vector(void) {
                       0x6b, 0xa0, 0xab, 0x90, 0xf4, 0xff};
   u8         out[32];
   wired_obuf ob = obuf_of(out, sizeof(out));
-  CHECK(quic_qpack_huffman_decode(wired_span_of(enc, sizeof(enc)), &ob));
+  CHECK(qpack_huffman_decode(wired_span_of(enc, sizeof(enc)), &ob));
   CHECK(hf_eq(out, ob.len, "www.example.com", 15));
 }
 
@@ -26,9 +26,9 @@ static void test_huffman_curl_headers(void) {
   const u8   host[] = {0x2f, 0x95, 0xc8, 0x7a, 0x7f};
   u8         out[32];
   wired_obuf ob = obuf_of(out, sizeof(out));
-  CHECK(quic_qpack_huffman_decode(wired_span_of(ua, sizeof(ua)), &ob));
+  CHECK(qpack_huffman_decode(wired_span_of(ua, sizeof(ua)), &ob));
   CHECK(hf_eq(out, ob.len, "curl/8.7.1", 10));
-  CHECK(quic_qpack_huffman_decode(wired_span_of(host, sizeof(host)), &ob));
+  CHECK(qpack_huffman_decode(wired_span_of(host, sizeof(host)), &ob));
   CHECK(hf_eq(out, ob.len, "ex.com", 6));
 }
 
@@ -38,7 +38,7 @@ static void test_huffman_padding(void) {
   const u8   enc[] = {0x60, 0xd5, 0x48, 0x5f, 0x3f};
   u8         out[16];
   wired_obuf ob = obuf_of(out, sizeof(out));
-  CHECK(quic_qpack_huffman_decode(wired_span_of(enc, sizeof(enc)), &ob));
+  CHECK(qpack_huffman_decode(wired_span_of(enc, sizeof(enc)), &ob));
   CHECK(hf_eq(out, ob.len, "/index", 6));
 }
 
@@ -48,7 +48,7 @@ static void test_huffman_bad_padding(void) {
   const u8   enc[] = {0x18};
   u8         out[8];
   wired_obuf ob = obuf_of(out, sizeof(out));
-  CHECK(quic_qpack_huffman_decode(wired_span_of(enc, sizeof(enc)), &ob) == 0);
+  CHECK(qpack_huffman_decode(wired_span_of(enc, sizeof(enc)), &ob) == 0);
 }
 
 /* RFC 7541 5.2: padding of 8 or more bits, or an explicit EOS symbol, is an
@@ -57,7 +57,7 @@ static void test_huffman_eos_rejected(void) {
   const u8   enc[] = {0xff, 0xff, 0xff, 0xff};
   u8         out[8];
   wired_obuf ob = obuf_of(out, sizeof(out));
-  CHECK(quic_qpack_huffman_decode(wired_span_of(enc, sizeof(enc)), &ob) == 0);
+  CHECK(qpack_huffman_decode(wired_span_of(enc, sizeof(enc)), &ob) == 0);
 }
 
 /* A dst smaller than the decoded length fails rather than overflowing. */
@@ -66,7 +66,7 @@ static void test_huffman_overflow(void) {
                       0x6b, 0xa0, 0xab, 0x90, 0xf4, 0xff};
   u8         out[4];
   wired_obuf ob = obuf_of(out, sizeof(out));
-  CHECK(quic_qpack_huffman_decode(wired_span_of(enc, sizeof(enc)), &ob) == 0);
+  CHECK(qpack_huffman_decode(wired_span_of(enc, sizeof(enc)), &ob) == 0);
 }
 
 /* string_decode routes H=1 to the Huffman path; H=0 still copies raw. */
@@ -75,15 +75,15 @@ static void test_huffman_string_h1(void) {
                         0x6b,      0xa0, 0xab, 0x90, 0xf4, 0xff};
   u8         out[32];
   wired_obuf ob = obuf_of(out, sizeof(out));
-  usz        r  = quic_qpack_string_decode(wired_span_of(buf, 13), &ob);
+  usz        r  = qpack_string_decode(wired_span_of(buf, 13), &ob);
   CHECK(r == 13 && hf_eq(out, ob.len, "www.example.com", 15));
 
   const u8 raw[] = {'h', 'i'};
   u8       rbuf[8];
-  usz      w = quic_qpack_string_encode(
+  usz      w = qpack_string_encode(
       wired_mspan_of(rbuf, sizeof(rbuf)), wired_span_of(raw, 2));
   CHECK(w != 0);
-  CHECK(quic_qpack_string_decode(wired_span_of(rbuf, w), &ob) == w);
+  CHECK(qpack_string_decode(wired_span_of(rbuf, w), &ob) == w);
   CHECK(hf_eq(out, ob.len, "hi", 2));
 }
 
@@ -93,12 +93,12 @@ static void test_huffman_string_h1(void) {
  * 0x2c (001 0 1 100: litname, H=1, name length 4), the Huffman code for
  * ":path", then 0x82 (value length 2) and the Huffman code for "/p". */
 static void test_huffman_litname_hname(void) {
-  const u8            line[] = {0x2c, 0xb9, 0x58, 0xd3, 0x3f, 0x82, 0x62, 0xbf};
-  u8                  nm[32], val[32];
-  int                 never = 0;
-  quic_qpack_fieldbuf fb = {obuf_of(nm, sizeof(nm)), obuf_of(val, sizeof(val))};
-  usz                 c  = quic_qpack_literal_name_decode(
-      wired_span_of(line, sizeof(line)), &never, &fb);
+  const u8       line[] = {0x2c, 0xb9, 0x58, 0xd3, 0x3f, 0x82, 0x62, 0xbf};
+  u8             nm[32], val[32];
+  int            never = 0;
+  qpack_fieldbuf fb    = {obuf_of(nm, sizeof(nm)), obuf_of(val, sizeof(val))};
+  usz            c =
+      qpack_literal_name_decode(wired_span_of(line, sizeof(line)), &never, &fb);
   CHECK(c == sizeof(line));
   CHECK(hf_eq(nm, fb.name.len, ":path", 5));
   CHECK(hf_eq(val, fb.value.len, "/p", 2));
